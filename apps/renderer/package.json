@@ -11,27 +11,27 @@
     "fix": "eslint . --fix -c eslint.config.fix.ts && oxfmt ."
   },
   "dependencies": {
-    "@xterm/addon-fit": "^0.11.0",
-    "@xterm/addon-webgl": "^0.19.0",
-    "@xterm/xterm": "^6.0.0",
-    "vue": "^3.5.29"
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-webgl": "0.19.0",
+    "@xterm/xterm": "6.0.0",
+    "vue": "3.5.29"
   },
   "devDependencies": {
-    "@iconify-json/lucide": "^1.2.95",
-    "@iconify/tailwind4": "^1.2.1",
+    "@iconify-json/lucide": "1.2.95",
+    "@iconify/tailwind4": "1.2.1",
     "@orkis/preload": "workspace:*",
     "@tailwindcss/vite": "catalog:",
-    "@vitejs/plugin-vue": "^6.0.4",
-    "@vue/eslint-config-prettier": "^10.2.0",
-    "@vue/eslint-config-typescript": "^14.7.0",
+    "@vitejs/plugin-vue": "6.0.4",
+    "@vue/eslint-config-prettier": "10.2.0",
+    "@vue/eslint-config-typescript": "14.7.0",
     "eslint": "catalog:",
-    "eslint-plugin-better-tailwindcss": "^4.3.1",
+    "eslint-plugin-better-tailwindcss": "4.3.1",
     "eslint-plugin-import-x": "catalog:",
     "eslint-plugin-unused-imports": "catalog:",
-    "eslint-plugin-vue": "^10.8.0",
+    "eslint-plugin-vue": "10.8.0",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vue-tsc": "^3.2.5"
+    "vue-tsc": "3.2.5"
   }
 }

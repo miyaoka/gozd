@@ -12,10 +12,10 @@
   },
   "dependencies": {
     "@orkis/preload": "workspace:*",
-    "node-pty": "^1.1.0"
+    "node-pty": "1.1.0"
   },
   "devDependencies": {
-    "@electron/rebuild": "^4.0.3",
+    "@electron/rebuild": "4.0.3",
     "@types/node": "catalog:",
     "@typescript/native-preview": "catalog:",
     "electron": "catalog:",

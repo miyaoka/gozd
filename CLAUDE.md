@@ -10,15 +10,15 @@ AI エージェントの Plan-Implement-Review ループを管理するデスク
 | レイヤー       | 技術                                        |
 | -------------- | ------------------------------------------- |
 | フレームワーク | Electron                                    |
-| フロントエンド | Vue（+ TypeScript）                         |
-| ビルドツール   | Vite                                        |
+| フロントエンド | Vue（+ TypeScript 5 / tsgo 7）              |
+| ビルドツール   | Vite 8                                      |
 | パッケージ管理 | pnpm（モノレポ + catalog）                  |
 | CSS            | Tailwind CSS v4                             |
 | アイコン       | Iconify（@iconify/tailwind4 + Lucide）      |
 | フォーマッタ   | oxfmt                                       |
 | リンター       | oxlint（TypeScript）/ ESLint（Vue）         |
-| ターミナル     | xterm.js (WebGL renderer)（未実装）         |
-| PTY            | node-pty（未実装）                          |
+| ターミナル     | xterm.js (WebGL renderer)                   |
+| PTY            | node-pty                                    |
 | 差分表示       | Monaco Editor (createDiffEditor)（未実装）  |
 | データ保存     | ローカルディレクトリ（JSON + マークダウン） |
 | CLI            | orkis コマンド（フック用）                  |
@@ -36,7 +36,10 @@ orkis/
 │       ├── src/
 │       │   ├── main.ts
 │       │   ├── App.vue
-│       │   └── assets/main.css
+│       │   ├── assets/main.css
+│       │   └── features/         # feature ごとに component, composable, store をまとめる
+│       │       └── terminal/
+│       │           └── TerminalPane.vue
 │       ├── eslint.config.ts
 │       ├── eslint.config.fix.ts
 │       ├── vite.config.ts
@@ -52,9 +55,15 @@ orkis/
 │   └── watch.ts           # dev サーバー統合（renderer + preload + main）
 ├── docs/
 │   └── design.md          # プロダクト設計文書
+├── .github/
+│   ├── actions/
+│   │   └── setup-environment/  # CI 共通セットアップ
+│   └── workflows/
+│       └── code_validation.yml # PR の typecheck / lint
 ├── lefthook.yml
 ├── mise.toml
 ├── pnpm-workspace.yaml
+├── renovate.json
 ├── tsconfig.json
 └── package.json
 ```

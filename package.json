@@ -9,10 +9,12 @@
     "build": "pnpm -r build",
     "start": "electron apps/electron",
     "format": "oxfmt .",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "prepare": "lefthook install"
   },
   "devDependencies": {
     "electron": "catalog:",
+    "lefthook": "catalog:",
     "tsx": "^4.21.0",
     "typescript": "catalog:",
     "vite": "catalog:"

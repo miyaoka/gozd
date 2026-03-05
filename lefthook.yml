@@ -1,0 +1,28 @@
+glob_matcher: doublestar
+
+output:
+  - execution_out
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: oxfmt
+      glob: "**/*.{js,ts,vue,css,md}"
+      run: pnpm exec oxfmt {staged_files}
+      stage_fixed: true
+
+post-merge:
+  jobs:
+    - name: check-lockfile
+      run: |
+        if git diff --name-only ORIG_HEAD HEAD | grep -q "pnpm-lock.yaml"; then
+          printf '\033[33m⚠️  pnpm-lock.yaml has changed. Run pnpm install to update dependencies.\033[0m\n'
+        fi
+
+post-checkout:
+  jobs:
+    - name: check-lockfile
+      run: |
+        if [ "{3}" = "1" ] && git diff --name-only {1} {2} | grep -q "pnpm-lock.yaml"; then
+          printf '\033[33m⚠️  pnpm-lock.yaml has changed. Run pnpm install to update dependencies.\033[0m\n'
+        fi

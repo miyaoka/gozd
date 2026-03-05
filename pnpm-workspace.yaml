@@ -4,10 +4,12 @@ packages:
 allowBuilds:
   electron: true
   esbuild: true
+  lefthook: true
 
 catalog:
   '@types/node': ^24.11.0
   electron: ^40.6.1
+  lefthook: ^2.1.2
   typescript: ^5.9.3
   vite: ^7.3.1
 

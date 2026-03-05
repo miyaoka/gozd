@@ -3,8 +3,8 @@ packages:
   - packages/*
 
 allowBuilds:
-  electron: true
   '@tailwindcss/oxide': true
+  electron: true
   esbuild: true
   lefthook: true
   node-pty: true
@@ -13,6 +13,7 @@ allowBuilds:
 catalog:
   '@tailwindcss/vite': ^4.2.1
   '@types/node': ^24.11.0
+  '@typescript/native-preview': 7.0.0-dev.20260302.1
   electron: ^40.6.1
   eslint: ^10.0.2
   eslint-plugin-import-x: ^4.16.1
@@ -23,7 +24,7 @@ catalog:
   oxlint-tsgolint: ^0.15.0
   tailwindcss: ^4.2.1
   typescript: ^5.9.3
-  vite: ^7.3.1
+  vite: 8.0.0-beta.16
 
 minimumReleaseAge: 4320
 

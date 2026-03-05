@@ -39,6 +39,7 @@ function setupMainWatcher({ resolvedUrls }: ViteDevServer) {
             const ignore = [
               "Secure coding is not enabled for restorable state",
               "CoreText note: Client requested name",
+              "representedObject is not a WeakPtrToElectronMenuModelAsNSObject",
             ];
             if (ignore.some((msg) => str.includes(msg))) return;
             console.error(str);

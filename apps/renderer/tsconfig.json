@@ -7,9 +7,7 @@
     "jsx": "preserve",
     "jsxImportSource": "vue",
     "skipLibCheck": true,
-    "rootDir": "src",
     "outDir": "dist",
     "types": ["vite/client", "@orkis/preload"]
-  },
-  "include": ["src"]
+  }
 }

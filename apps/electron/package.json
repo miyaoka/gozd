@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "lint": "oxlint --type-aware",
     "fix": "oxlint --type-aware --fix && oxfmt ."
   },
@@ -17,8 +17,8 @@
   "devDependencies": {
     "@electron/rebuild": "^4.0.3",
     "@types/node": "catalog:",
+    "@typescript/native-preview": "catalog:",
     "electron": "catalog:",
-    "typescript": "catalog:",
     "vite": "catalog:"
   }
 }

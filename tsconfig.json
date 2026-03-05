@@ -9,5 +9,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["scripts"]
+  "exclude": ["apps", "packages", "node_modules"]
 }

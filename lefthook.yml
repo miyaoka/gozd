@@ -46,7 +46,7 @@ pre-commit:
             stage_fixed: true
           - name: eslint
             glob: "**/*.vue"
-            run: pnpm exec eslint --cache --fix -c eslint.config.fix.ts {staged_files}
+            run: pnpm exec eslint -c eslint.config.fix.ts --no-warn-ignored --cache --fix {staged_files}
             stage_fixed: true
           - name: oxfmt
             run: pnpm exec oxfmt {staged_files}

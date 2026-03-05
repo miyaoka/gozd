@@ -1,6 +1,7 @@
 import skipFormatting from "@vue/eslint-config-prettier/skip-formatting";
 import { defineConfigWithVueTs, vueTsConfigs } from "@vue/eslint-config-typescript";
 import type { ESLint } from "eslint";
+import pluginBetterTailwindcss from "eslint-plugin-better-tailwindcss";
 import pluginImportX from "eslint-plugin-import-x";
 import pluginUnusedImports from "eslint-plugin-unused-imports";
 import pluginVue from "eslint-plugin-vue";
@@ -59,6 +60,35 @@ export default defineConfigWithVueTs(
       parserOptions: {
         tsconfigRootDir: import.meta.dirname,
       },
+    },
+  },
+
+  // Tailwind 設定
+  {
+    ...pluginBetterTailwindcss.configs.recommended,
+    settings: {
+      "better-tailwindcss": {
+        entryPoint: "src/assets/main.css",
+      },
+    },
+  },
+  {
+    rules: {
+      // 各ルールは独立したワーカーで Tailwind Design System をロードするため、
+      // 有効なルール数に比例して初期化コストが増加する（1ルールあたり約1秒）
+      "better-tailwindcss/no-unknown-classes": [
+        "warn",
+        {
+          ignore: ["_.*"],
+        },
+      ],
+      // 初回呼び出しで全クラスのシグネチャを計算するため重い
+      // eslint.config.fix.ts で有効化
+      "better-tailwindcss/enforce-canonical-classes": "off",
+      // フォーマッタと競合するため off
+      "better-tailwindcss/enforce-consistent-line-wrapping": "off",
+      // フォーマッタと競合するため off
+      "better-tailwindcss/no-unnecessary-whitespace": "off",
     },
   },
 

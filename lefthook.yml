@@ -7,6 +7,9 @@ output:
 pre-commit:
   parallel: true
   jobs:
+    - name: typecheck
+      run: pnpm -r --include-workspace-root --if-present typecheck
+
     # Formatter（ts/vue 以外。ts/vue は各 linter ジョブで oxfmt を実行）
     - name: oxfmt
       glob: "**/*.{css,md}"

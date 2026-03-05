@@ -3,7 +3,10 @@ import type { ViteDevServer } from "vite";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { build, createServer } from "vite";
+// electron パッケージは実行時にバイナリパス（string）を返すが、
+// 型定義は Electron API オブジェクトになっている（electron/electron#33412）
 import electron from "electron";
+const electronPath = electron as unknown as string;
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 
@@ -11,6 +14,7 @@ function setupMainWatcher({ resolvedUrls }: ViteDevServer) {
   process.env.VITE_DEV_SERVER_URL = resolvedUrls?.local[0];
 
   let electronApp: ChildProcess | null = null;
+  const exitProcess = () => process.exit();
 
   return build({
     root: path.resolve(ROOT, "apps/electron"),
@@ -21,12 +25,12 @@ function setupMainWatcher({ resolvedUrls }: ViteDevServer) {
         name: "reload-electron",
         writeBundle() {
           if (electronApp !== null) {
-            electronApp.removeListener("exit", process.exit);
+            electronApp.removeListener("exit", exitProcess);
             electronApp.kill("SIGINT");
             electronApp = null;
           }
 
-          electronApp = spawn(String(electron), ["."], {
+          electronApp = spawn(electronPath, ["."], {
             cwd: path.resolve(ROOT, "apps/electron"),
           });
 
@@ -45,7 +49,7 @@ function setupMainWatcher({ resolvedUrls }: ViteDevServer) {
             console.error(str);
           });
 
-          electronApp.addListener("exit", process.exit);
+          electronApp.addListener("exit", exitProcess);
         },
       },
     ],

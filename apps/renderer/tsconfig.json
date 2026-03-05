@@ -8,7 +8,8 @@
     "jsxImportSource": "vue",
     "skipLibCheck": true,
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    "types": ["vite/client", "@orkis/preload"]
   },
-  "include": ["src", "src/env.d.ts"]
+  "include": ["src"]
 }

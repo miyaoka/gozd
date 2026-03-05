@@ -1,0 +1,204 @@
+# orkis 設計文書
+
+## 背景
+
+- AI エージェント（Claude Code 等）が開発の主役になりつつあるが、既存ツールは「人間がコードを書く」前提で設計されている
+- VS Code はコード編集中心の画面構成で、複数エージェントの並行管理やフィードバックループの概念がない
+- 現状の Claude Code は1セッション=1エージェント=1リポジトリで、セッション間の関連性を人間が頭の中で管理している
+
+## コンセプト
+
+- **エディタではなくオーケストレーター**: コード編集ペインは不要。エージェントが書く。確認は差分ビューで十分
+- **Goal 駆動のフィードバックループ**: Goal を設定し、Plan を作り、エージェントに実装させ、Review して Goal 達成度を検証し、未達なら Plan を修正して再実装する
+- **複数リポジトリの統合管理**: front/backend 等の複数リポジトリにまたがるタスクを1つの Todo として統合的に管理する
+- **ペインによる文脈の可視化**: Todo を選択すれば、そのタスクに紐づく Plan・実装・Review の状態が一覧できる
+
+## ワークフロー
+
+```
+Todo
+ └── Goals（受け入れ基準）
+      └── Master Plan（包括的な設計）
+           ├── Sub Plan: repo-A
+           └── Sub Plan: repo-B
+                └── Implementation（エージェント実行）
+                     └── Review（Goal 達成度の検証）
+                          ├── 全 Goal 達成 → Done
+                          └── 未達成 → Plan 修正 → 再実装
+```
+
+## 画面構成
+
+```
+┌─────────┬──────────────────────────────────────┐
+│ Todos   │ ┌─ Plan ─┬─ Implement ─┬─ Review ─┐ │
+│         │ │        │             │           │ │
+│ ■ 認証  │ │ Goals  │ [frontend]  │ Goal達成  │ │
+│ □ API   │ │        │ [backend]   │ 状況      │ │
+│ □ UI    │ │ Master │ ← タブ切替  │           │ │
+│         │ │ Plan   │             │ diff +    │ │
+│         │ │        │ ターミナル   │ Plan 突き │ │
+│         │ │ Sub    │ (claude)    │ 合わせ    │ │
+│         │ │ Plans  │             │           │ │
+│         │ └────────┴─────────────┴───────────┘ │
+└─────────┴──────────────────────────────────────┘
+
+Todo を切り替えると右側全体がそのTodoの状態に切り替わる
+```
+
+## データモデル
+
+```typescript
+interface Todo {
+  id: string;
+  title: string;
+  status: "planning" | "implementing" | "reviewing" | "done";
+  goals: Goal[];
+  repos: string[];
+  masterPlan: MasterPlan;
+  implementations: Implementation[];
+  reviews: Review[];
+}
+
+interface Goal {
+  id: string;
+  description: string;
+  status: "pending" | "achieved" | "failed" | "revised";
+}
+
+interface MasterPlan {
+  content: string; // マークダウン
+  subPlans: SubPlan[];
+  history: PlanRevision[]; // 修正履歴
+}
+
+interface SubPlan {
+  repo: string; // 対象リポジトリのパス
+  content: string;
+}
+
+interface Implementation {
+  repo: string;
+  mode: "auto" | "interactive";
+  status: "running" | "waiting" | "done" | "failed";
+  sessionId?: string; // Claude Code --resume 用
+}
+
+interface Review {
+  goalResults: GoalResult[];
+  diff: string;
+  feedback: string;
+  planRevision?: PlanRevision; // この Review から生まれた Plan 修正
+}
+
+interface GoalResult {
+  goalId: string;
+  status: "achieved" | "partial" | "not_started";
+  evidence: string; // diff のどの部分が根拠か
+}
+
+interface PlanRevision {
+  id: string;
+  content: string;
+  reason: string; // 修正理由
+  createdAt: string;
+}
+```
+
+## エージェント連携
+
+### Claude Code CLI を利用
+
+アプリは Claude Code を「表示・管理」するだけで、エージェントの実行自体には介入しない。
+
+#### auto モード（-p）
+
+```bash
+claude -p "{Goals + Plan}" \
+  --allowedTools "Read,Edit,Bash,Glob,Grep" \
+  --output-format stream-json
+```
+
+stream-json でリアルタイム進捗を表示し、完了したら自動的に Review 工程へ。
+
+#### interactive モード
+
+ターミナルペインで `claude` を起動し、初期プロンプトに Plan を流し込む。ユーザーが途中で介入可能。
+
+### 状態検知（Claude Code Hooks）
+
+`~/.claude/settings.json` にフック設定を記述し、アプリのソケットサーバーに状態を通知する。
+
+| エージェントの状態   | フックイベント                                |
+| -------------------- | --------------------------------------------- |
+| 作業開始             | `UserPromptSubmit`                            |
+| 作業中               | `PreToolUse` / `PostToolUse`                  |
+| 応答完了（入力待ち） | `Stop`                                        |
+| パーミッション待ち   | `Notification` (matcher: `permission_prompt`) |
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [{ "type": "command", "command": "orkis hook running", "async": true }]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [{ "type": "command", "command": "orkis hook done", "async": true }]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt",
+        "hooks": [{ "type": "command", "command": "orkis hook needs-input", "async": true }]
+      }
+    ]
+  }
+}
+```
+
+`Stop` フックの stdin JSON に含まれる `transcript_path` から完了サマリーを生成可能。
+
+### Review エージェント
+
+Review も Claude に任せることができる。
+
+```
+Goals + Plan + diff → claude -p → GoalResult[] の JSON
+```
+
+## データ保存
+
+```
+~/Library/Application Support/orkis/   (or ~/.config/orkis/)
+├── todos.json
+├── plans/
+│   └── {todo-id}/
+│       ├── master-plan.md
+│       ├── sub-plan-{repo-name}.md
+│       └── history/
+│           └── {revision-id}.md
+├── reviews/
+│   └── {todo-id}/
+│       └── {review-id}.md
+└── settings.json
+```
+
+iCloud Drive 上のディレクトリを指定すれば同期可能。
+
+## Electron を選択した理由
+
+- ターミナル、差分ビュー、ブラウザプレビュー、ファイラ、TODO をすべて Web 技術で統一できる
+- 描画スタックが1つなのでフォーカス管理やレイアウトの問題が起きにくい
+- node-pty, xterm.js, Monaco Editor が npm で即使える
+- 単機能アプリなら Electron の重さは問題にならない
+- Tauri への移行も可能（バックエンド呼び出しを抽象層で分離する）
+
+## 将来の拡張
+
+- Tauri への移行（軽量化が必要になった場合）
+- ブラウザプレビューペイン（開発サーバーの成果物確認）
+- ファイラペイン（エージェントが変更したファイルの俯瞰）
+- 複数 AI プロバイダー対応（Claude Code 以外のエージェント CLI）

@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-/// <reference types="@orkis/preload/src/index.d.ts" />
+/// <reference types="@orkis/preload" />
 
 declare module '*.vue' {
   import type { DefineComponent } from 'vue'

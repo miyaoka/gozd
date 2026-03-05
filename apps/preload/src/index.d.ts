@@ -1,4 +1,4 @@
-interface OrkisAPI {
+export interface OrkisAPI {
   ping: () => void
 }
 

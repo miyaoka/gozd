@@ -18,18 +18,18 @@ function createWindow() {
   });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url);
+    void shell.openExternal(details.url);
     return { action: "deny" };
   });
 
   if (process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+    void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
-    mainWindow.loadFile(path.resolve(import.meta.dirname, "../../renderer/dist/index.html"));
+    void mainWindow.loadFile(path.resolve(import.meta.dirname, "../../renderer/dist/index.html"));
   }
 }
 
-app.whenReady().then(() => {
+void app.whenReady().then(() => {
   ipcMain.on("ping", () => console.log("pong"));
 
   createWindow();

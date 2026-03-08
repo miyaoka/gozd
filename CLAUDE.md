@@ -56,6 +56,8 @@ orkis/
 - `pnpm start` — ビルド済みアプリを起動
 - `bin/orkis` — 開発用エントリポイント。アプリ未起動なら自動で build → start し、ソケット経由で CLI コマンドを送信する。残骸ソケットは `nc -zU` で検出・削除する
 
+全体チェックはルートの `pnpm typecheck:all` / `lint:all` / `test:all` を使う。各 workspace の同名スクリプトを一括実行する。
+
 ## コーディング規約
 
 ### エラーハンドリング

@@ -7,12 +7,6 @@ output:
 pre-commit:
   parallel: true
   jobs:
-    - name: typecheck-root
-      glob: "*.ts"
-      exclude:
-        - "apps/**"
-        - "packages/**"
-      run: pnpm run typecheck
     - name: typecheck-shared
       root: "packages/shared/"
       glob: "**/*.ts"

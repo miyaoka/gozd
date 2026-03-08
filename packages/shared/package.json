@@ -9,9 +9,11 @@
   "scripts": {
     "typecheck": "tsgo --noEmit",
     "lint": "oxlint --type-aware",
-    "fix": "oxlint --type-aware --fix && oxfmt ."
+    "fix": "oxlint --type-aware --fix && oxfmt .",
+    "test": "bun test"
   },
   "devDependencies": {
+    "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "@typescript/native-preview": "catalog:",
     "oxfmt": "catalog:",

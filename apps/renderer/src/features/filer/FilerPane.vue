@@ -1,25 +1,14 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from "vue";
+import { dirName, sortEntries } from "./filer-utils";
 import FileTreeItem from "./FileTreeItem.vue";
 import { useWorkspace } from "./useWorkspace";
 
-interface FileEntry {
-  name: string;
-  isDirectory: boolean;
-  isIgnored: boolean;
-}
-
 const { dir } = useWorkspace();
 
-const rootEntries = ref<FileEntry[]>();
+const rootEntries = ref<ReturnType<typeof sortEntries>>();
 const selectedPath = ref<string>();
 const loading = ref(false);
-
-/** ディレクトリパスの末尾から表示名を抽出 */
-function dirName(dirPath: string): string {
-  const parts = dirPath.split("/");
-  return parts[parts.length - 1] ?? dirPath;
-}
 
 async function loadRoot() {
   loading.value = true;
@@ -32,16 +21,6 @@ async function loadRoot() {
   } finally {
     loading.value = false;
   }
-}
-
-/** ディレクトリ優先 → 名前順 */
-function sortEntries(entries: FileEntry[]): FileEntry[] {
-  return [...entries].sort((a, b) => {
-    if (a.isDirectory !== b.isDirectory) {
-      return a.isDirectory ? -1 : 1;
-    }
-    return a.name.localeCompare(b.name);
-  });
 }
 
 function onSelect(path: string) {

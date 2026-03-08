@@ -13,6 +13,7 @@
     "fix": "oxfmt '!apps/**' '!packages/**'",
     "lint:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only lint",
     "fix:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only fix",
+    "test:all": "pnpm -r --if-present --no-bail --aggregate-output --reporter=append-only test",
     "typecheck": "tsgo --noEmit",
     "typecheck:all": "pnpm -r --include-workspace-root --if-present typecheck",
     "prepare": "lefthook install"

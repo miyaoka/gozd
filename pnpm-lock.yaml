@@ -122,8 +122,8 @@ importers:
         specifier: 1.2.95
         version: 1.2.95
       '@iconify/tailwind4':
-        specifier: 1.2.2
-        version: 1.2.2(tailwindcss@4.2.1)
+        specifier: 1.2.3
+        version: 1.2.3(tailwindcss@4.2.1)
       '@orkis/preload':
         specifier: workspace:*
         version: link:../../packages/preload
@@ -431,8 +431,8 @@ packages:
   '@iconify-json/lucide@1.2.95':
     resolution: {integrity: sha512-SxDM/NEJtcGGAiLAnaZ7rcmVxkJI8esswTZLCm5BfNcoPf/yawIImb4nNfsu4dtFzP/Cl6KRg+vZq521zOUOnQ==}
 
-  '@iconify/tailwind4@1.2.2':
-    resolution: {integrity: sha512-IJ/WSLG/+GMdELygDh0MLbR+0gdZf7Zp2pZIFUSIzpyldfV7qWPrno8cnCDVFcDyOKg/MI4BAl9ziwhHHaG1nw==}
+  '@iconify/tailwind4@1.2.3':
+    resolution: {integrity: sha512-z8SKiMHRASJKF/IY//87MF88lcB7ulxh8vlhQXXLWsBkNtOh6ese9R41MyGpQeqXdRvQVt+/fX2glQtHFjQ+MA==}
     peerDependencies:
       tailwindcss: '>= 4.0.0'
 
@@ -2942,7 +2942,7 @@ snapshots:
     dependencies:
       '@iconify/types': 2.0.0
 
-  '@iconify/tailwind4@1.2.2(tailwindcss@4.2.1)':
+  '@iconify/tailwind4@1.2.3(tailwindcss@4.2.1)':
     dependencies:
       '@iconify/tools': 5.0.5
       '@iconify/types': 2.0.0

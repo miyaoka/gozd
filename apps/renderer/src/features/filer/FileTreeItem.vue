@@ -151,7 +151,27 @@ function notifyChange(relDir: string) {
   }
 }
 
-defineExpose({ notifyChange });
+/**
+ * git status 変更通知を受けて、展開中のディレクトリの children を再構築する。
+ * 削除仮想エントリの追加/除去は children の再構築が必要なため、
+ * computed の再計算だけでは対応できない。
+ */
+function notifyGitStatusChange() {
+  if (!props.isDirectory) return;
+
+  if (expanded.value && children.value !== undefined) {
+    void loadChildren();
+  } else {
+    // 折りたたみ中なら次回展開時に再読み込みするためキャッシュを破棄
+    children.value = undefined;
+  }
+
+  for (const child of childRefs.value) {
+    child.notifyGitStatusChange();
+  }
+}
+
+defineExpose({ notifyChange, notifyGitStatusChange });
 
 function onChildSelect(childPath: string) {
   emit("select", childPath);

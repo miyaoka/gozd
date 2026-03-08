@@ -83,6 +83,10 @@ async function handleGitStatusChange(statuses: Record<string, string>) {
   } catch (e) {
     console.error("Failed to rebuild root entries", e);
   }
+  // 展開中の子ディレクトリにも通知して children を再構築させる
+  for (const item of treeItemRefs.value) {
+    item.notifyGitStatusChange();
+  }
 }
 
 watch(

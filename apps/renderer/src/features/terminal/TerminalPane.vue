@@ -1,11 +1,6 @@
 <script setup lang="ts">
-import { tryCatch } from "@orkis/shared";
-import { FitAddon } from "@xterm/addon-fit";
-import { WebLinksAddon } from "@xterm/addon-web-links";
-import { WebglAddon } from "@xterm/addon-webgl";
-import { Terminal } from "@xterm/xterm";
+import { init, Terminal, FitAddon } from "ghostty-web";
 import { onMounted, onBeforeUnmount, ref } from "vue";
-import "@xterm/xterm/css/xterm.css";
 
 const containerRef = ref<HTMLElement>();
 
@@ -14,11 +9,13 @@ let fitAddon: FitAddon | undefined;
 let ptyId: number | undefined;
 let removeDataListener: (() => void) | undefined;
 let removeExitListener: (() => void) | undefined;
-let resizeObserver: ResizeObserver | undefined;
 
 onMounted(async () => {
   const container = containerRef.value;
   if (!container) return;
+
+  // ghostty WASM パーサーの初期化
+  await init();
 
   terminal = new Terminal({
     fontSize: 13,
@@ -29,35 +26,20 @@ onMounted(async () => {
       cursor: "#e4e4e7",
     },
     cursorBlink: true,
-    // OSC 8 ハイパーリンクのクリック時に外部ブラウザで開く
-    linkHandler: {
-      activate: (_event, text) => {
-        window.api.openExternal(text);
-      },
-    },
   });
 
   fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
   terminal.open(container);
 
-  // テキスト中の URL パターンを検出してクリック可能にする
-  terminal.loadAddon(
-    new WebLinksAddon((_event, uri) => {
-      window.api.openExternal(uri);
-    }),
-  );
-
-  // WebGL レンダラーを適用（非対応環境では canvas fallback）
-  const t = terminal;
-  tryCatch(() => t.loadAddon(new WebglAddon()));
-
   fitAddon.fit();
+  // ResizeObserver による自動リサイズ
+  fitAddon.observeResize();
   terminal.focus();
 
   ptyId = await window.api.pty.spawn(terminal.cols, terminal.rows);
 
-  // PTY → xterm
+  // PTY → terminal
   removeDataListener = window.api.pty.onData((id, data) => {
     if (id === ptyId) {
       terminal?.write(data);
@@ -71,18 +53,12 @@ onMounted(async () => {
     }
   });
 
-  // xterm → PTY
+  // terminal → PTY
   terminal.onData((data) => {
     if (ptyId !== undefined) {
       window.api.pty.write(ptyId, data);
     }
   });
-
-  // コンテナリサイズ時に xterm と PTY を同期
-  resizeObserver = new ResizeObserver(() => {
-    fitAddon?.fit();
-  });
-  resizeObserver.observe(container);
 
   terminal.onResize(({ cols, rows }) => {
     if (ptyId !== undefined) {
@@ -92,7 +68,6 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
-  resizeObserver?.disconnect();
   removeDataListener?.();
   removeExitListener?.();
   if (ptyId !== undefined) {

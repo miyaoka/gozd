@@ -6,6 +6,7 @@ allowBuilds:
   '@parcel/watcher': true
   '@tailwindcss/oxide': true
   electron: true
+  ghostty-web: true
   esbuild: true
   lefthook: true
   node-pty: true

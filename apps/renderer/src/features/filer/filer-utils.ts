@@ -10,14 +10,14 @@ interface FileEntry {
  * git status --porcelain=v1 のステータスコード（2文字）から変更種別を判定する。
  * X（index）と Y（worktree）のうち、より目立つ方を優先する。
  */
-type GitChangeKind = "modified" | "added" | "deleted" | "untracked";
+type GitChangeKind = "modified" | "added" | "deleted" | "untracked" | "renamed";
 
 const GIT_STATUS_KIND_MAP: Record<string, GitChangeKind> = {
   M: "modified",
   A: "added",
   D: "deleted",
-  R: "modified",
-  C: "modified",
+  R: "renamed",
+  C: "renamed",
 };
 
 function resolveGitChangeKind(statusCode: string): GitChangeKind {
@@ -39,7 +39,8 @@ function resolveGitChangeKind(statusCode: string): GitChangeKind {
  * 子ファイルの変更種別のうち、もっとも優先度の高いものを返す。
  */
 const GIT_CHANGE_PRIORITY: Record<GitChangeKind, number> = {
-  deleted: 3,
+  deleted: 4,
+  renamed: 3,
   modified: 2,
   added: 1,
   untracked: 0,

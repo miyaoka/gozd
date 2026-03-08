@@ -277,23 +277,35 @@ function setupRendererReadyHandler() {
 }
 
 /**
- * git status --porcelain=v1 を実行し、ファイルパス → ステータスコード（2文字）のマップを返す。
+ * git status --porcelain=v1 -z を実行し、ファイルパス → ステータスコード（2文字）のマップを返す。
+ * -z で NUL 区切り出力にすることで、パス中の特殊文字やスペースを安全にパースする。
  * 削除ファイルも含まれる。
  */
 async function getGitStatus(cwd: string): Promise<Record<string, string>> {
   try {
-    const { stdout } = await execFileAsync("git", ["status", "--porcelain=v1"], { cwd });
+    const { stdout } = await execFileAsync("git", ["status", "--porcelain=v1", "-z"], { cwd });
     const result: Record<string, string> = {};
-    for (const line of stdout.split("\n")) {
-      if (!line) continue;
-      const status = line.slice(0, 2);
-      let filePath = line.slice(3);
-      // renamed: "old -> new" の場合、新しいパスを使う
-      const arrowIndex = filePath.indexOf(" -> ");
-      if (arrowIndex !== -1) {
-        filePath = filePath.slice(arrowIndex + 4);
+    const entries = stdout.split("\0");
+    let i = 0;
+    while (i < entries.length) {
+      const entry = entries[i];
+      if (!entry) {
+        i++;
+        continue;
       }
-      result[filePath] = status;
+      const status = entry.slice(0, 2);
+      const filePath = entry.slice(3);
+      // rename (R) / copy (C) は次のエントリに新しいパスが入る
+      if (status[0] === "R" || status[0] === "C") {
+        i++;
+        const newPath = entries[i];
+        if (newPath !== undefined) {
+          result[newPath] = status;
+        }
+      } else {
+        result[filePath] = status;
+      }
+      i++;
     }
     return result;
   } catch {

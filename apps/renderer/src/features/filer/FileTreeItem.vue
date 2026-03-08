@@ -13,6 +13,7 @@ const GIT_CHANGE_COLOR_MAP: Record<GitChangeKind, string> = {
   added: "text-green-400",
   deleted: "text-red-400",
   untracked: "text-green-400",
+  renamed: "text-blue-400",
 };
 
 const props = defineProps<{

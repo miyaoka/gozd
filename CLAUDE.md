@@ -19,6 +19,7 @@ AI エージェントの Plan-Implement-Review ループを管理するデスク
 | リンター       | oxlint（TypeScript）/ ESLint（Vue）         |
 | ターミナル     | xterm.js (WebGL renderer)                   |
 | PTY            | node-pty                                    |
+| ファイル監視   | @parcel/watcher                             |
 | 差分表示       | Monaco Editor (createDiffEditor)（未実装）  |
 | データ保存     | ローカルディレクトリ（JSON + マークダウン） |
 | CLI            | orkis コマンド（fsss フレームワーク / bun） |
@@ -48,6 +49,15 @@ orkis/
 │       │   ├── App.vue
 │       │   ├── assets/main.css
 │       │   └── features/         # feature ごとに component, composable, store をまとめる
+│       │       ├── debug/
+│       │       │   └── DebugPane.vue
+│       │       ├── filer/
+│       │       │   ├── FilerPane.vue       # ファイルツリー表示
+│       │       │   ├── FileTreeItem.vue    # 再帰的ツリーアイテム
+│       │       │   └── useWorkspace.ts     # ワークスペース状態管理
+│       │       ├── layout/
+│       │       │   ├── MainLayout.vue
+│       │       │   └── SidebarPane.vue
 │       │       └── terminal/
 │       │           └── TerminalPane.vue
 │       ├── eslint.config.ts

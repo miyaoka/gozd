@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "./src/index.ts",
   "bin": {
     "orkis": "./src/index.ts"
   },
@@ -13,7 +14,7 @@
     "fix": "oxlint --type-aware --fix && oxfmt ."
   },
   "dependencies": {
-    "@miyaoka/fsss": "0.3.0",
+    "@miyaoka/fsss": "0.3.1",
     "@orkis/shared": "workspace:*",
     "zod": "4.3.6"
   },

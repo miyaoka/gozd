@@ -28,4 +28,7 @@ catalog:
 
 minimumReleaseAge: 4320
 
+minimumReleaseAgeExclude:
+  - '@miyaoka/fsss'
+
 shellEmulator: true

@@ -77,9 +77,23 @@ function createWindow() {
   } else {
     void mainWindow.loadFile(path.resolve(import.meta.dirname, "../../renderer/dist/index.html"));
   }
+
+  return mainWindow;
 }
 
 let socketServer: net.Server | undefined;
+
+// ウィンドウが開いているディレクトリを管理
+const windowDirs = new Map<number, string>();
+
+function findWindowByDir(dir: string): BrowserWindow | undefined {
+  for (const [id, windowDir] of windowDirs) {
+    if (windowDir === dir) {
+      return BrowserWindow.fromId(id) ?? undefined;
+    }
+  }
+  return undefined;
+}
 
 function handleSocketMessage(message: OrkisMessage) {
   const window = BrowserWindow.getAllWindows()[0];
@@ -89,10 +103,24 @@ function handleSocketMessage(message: OrkisMessage) {
       console.log(`[orkis] hook: ${message.event}`, message.payload);
       window?.webContents.send("orkis:hook", message.event, message.payload);
       break;
-    case "open":
-      console.log(`[orkis] open: ${message.path}`);
-      createWindow();
+    case "open": {
+      console.log(`[orkis] open: dir=${message.dir}, file=${message.file ?? "(none)"}`);
+      const existing = findWindowByDir(message.dir);
+      if (existing) {
+        existing.focus();
+        existing.webContents.send("orkis:open", message.dir, message.file);
+        break;
+      }
+      const newWindow = createWindow();
+      windowDirs.set(newWindow.id, message.dir);
+      newWindow.on("closed", () => {
+        windowDirs.delete(newWindow.id);
+      });
+      newWindow.webContents.once("did-finish-load", () => {
+        newWindow.webContents.send("orkis:open", message.dir, message.file);
+      });
       break;
+    }
   }
 }
 
@@ -110,7 +138,10 @@ if (!gotTheLock) {
     setupPtyHandlers();
     socketServer = setupSocketServer(handleSocketMessage);
 
-    createWindow();
+    // CLI から起動された場合はソケット経由の open でウィンドウを作るため、ここでは作らない
+    if (!process.env.ORKIS_CLI_LAUNCH) {
+      createWindow();
+    }
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

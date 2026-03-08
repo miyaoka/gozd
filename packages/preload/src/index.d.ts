@@ -9,6 +9,7 @@ export interface PtyAPI {
 
 export interface OrkisAPI {
   pty: PtyAPI;
+  onOpen: (callback: (dir: string, file?: string) => void) => () => void;
 }
 
 declare global {

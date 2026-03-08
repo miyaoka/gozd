@@ -8,7 +8,8 @@
     "build": "vite build",
     "typecheck": "tsgo --noEmit",
     "lint": "oxlint --type-aware",
-    "fix": "oxlint --type-aware --fix && oxfmt ."
+    "fix": "oxlint --type-aware --fix && oxfmt .",
+    "postinstall": "electron-rebuild"
   },
   "dependencies": {
     "@orkis/preload": "workspace:*",

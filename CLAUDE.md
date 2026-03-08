@@ -34,6 +34,14 @@ orkis/
 │   │   │   └── socket-server.ts  # CLI との Unix ドメインソケット通信
 │   │   ├── vite.config.ts
 │   │   └── tsconfig.json
+│   ├── cli/               # orkis CLI（fsss フレームワーク / bun）
+│   │   ├── src/
+│   │   │   ├── index.ts
+│   │   │   ├── socket-client.ts   # Electron へのソケット送信
+│   │   │   └── commands/
+│   │   │       ├── hook.ts        # orkis hook <event>
+│   │   │       └── open.ts        # orkis open <path>
+│   │   └── tsconfig.json
 │   └── renderer/          # Vue フロントエンド
 │       ├── src/
 │       │   ├── main.ts
@@ -47,14 +55,6 @@ orkis/
 │       ├── vite.config.ts
 │       └── tsconfig.json
 ├── packages/
-│   ├── cli/               # orkis CLI（fsss フレームワーク / bun）
-│   │   ├── src/
-│   │   │   ├── index.ts
-│   │   │   ├── socket-client.ts   # Electron へのソケット送信
-│   │   │   └── commands/
-│   │   │       ├── hook.ts        # orkis hook <event>
-│   │   │       └── open.ts        # orkis open <path>
-│   │   └── tsconfig.json
 │   ├── preload/           # Electron preload（contextBridge API）
 │   │   ├── src/
 │   │   │   ├── index.ts

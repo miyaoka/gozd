@@ -21,6 +21,12 @@ const api = {
       return () => ipcRenderer.removeListener("pty:exit", listener);
     },
   },
+  onOpen: (callback: (dir: string, file?: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, dir: string, file?: string) =>
+      callback(dir, file);
+    ipcRenderer.on("orkis:open", listener);
+    return () => ipcRenderer.removeListener("orkis:open", listener);
+  },
 };
 
 contextBridge.exposeInMainWorld("api", api);

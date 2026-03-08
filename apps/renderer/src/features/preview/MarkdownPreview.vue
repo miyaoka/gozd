@@ -35,7 +35,21 @@ const mermaidExtension: MarkedExtension = {
   },
 };
 
-marked.use(mermaidExtension);
+/** YAML frontmatter を ```yaml コードブロックに変換して表示する */
+const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?/;
+
+const frontmatterExtension: MarkedExtension = {
+  hooks: {
+    preprocess(markdown) {
+      return markdown.replace(
+        FRONTMATTER_RE,
+        (_match, yaml: string) => `\`\`\`yaml\n${yaml}\n\`\`\`\n`,
+      );
+    },
+  },
+};
+
+marked.use(frontmatterExtension, mermaidExtension);
 
 const container = ref<HTMLElement>();
 

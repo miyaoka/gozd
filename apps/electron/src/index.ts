@@ -1,5 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain } from "electron";
 import { execFile } from "node:child_process";
+import nodeFs from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -96,6 +97,8 @@ let socketServer: net.Server | undefined;
 const windowDirs = new Map<number, string>();
 // ウィンドウごとのファイル監視サブスクリプション
 const windowWatchers = new Map<number, AsyncSubscription>();
+// ウィンドウごとの .git/index 監視（git 操作の検知用）
+const gitIndexWatchers = new Map<number, string>();
 
 /**
  * 指定ウィンドウのワークスペースディレクトリをファイル監視する。
@@ -129,6 +132,14 @@ async function startWatching(windowId: number, root: string) {
   );
 
   windowWatchers.set(windowId, subscription);
+
+  // .git/index を監視して git 操作（commit, checkout, stash 等）を検知
+  const gitIndexPath = path.join(root, ".git", "index");
+  const GIT_INDEX_POLL_MS = 500;
+  nodeFs.watchFile(gitIndexPath, { interval: GIT_INDEX_POLL_MS }, () => {
+    scheduleGitStatusUpdate(windowId, root);
+  });
+  gitIndexWatchers.set(windowId, gitIndexPath);
 }
 
 async function stopWatching(windowId: number) {
@@ -136,6 +147,11 @@ async function stopWatching(windowId: number) {
   if (subscription) {
     await subscription.unsubscribe();
     windowWatchers.delete(windowId);
+  }
+  const gitIndexPath = gitIndexWatchers.get(windowId);
+  if (gitIndexPath) {
+    nodeFs.unwatchFile(gitIndexPath);
+    gitIndexWatchers.delete(windowId);
   }
 }
 
@@ -342,6 +358,10 @@ app.on("will-quit", () => {
     void subscription.unsubscribe();
   }
   windowWatchers.clear();
+  for (const gitIndexPath of gitIndexWatchers.values()) {
+    nodeFs.unwatchFile(gitIndexPath);
+  }
+  gitIndexWatchers.clear();
   if (socketServer) {
     cleanupSocket(socketServer);
   }

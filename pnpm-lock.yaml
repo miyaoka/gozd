@@ -190,16 +190,16 @@ importers:
         version: 1.3.10
       '@typescript/native-preview':
         specifier: 'catalog:'
-        version: 7.0.0-dev.20260302.1
+        version: 7.0.0-dev.20260305.1
       oxfmt:
         specifier: 'catalog:'
         version: 0.36.0
       oxlint:
         specifier: 'catalog:'
-        version: 1.51.0(oxlint-tsgolint@0.15.0)
+        version: 1.51.0(oxlint-tsgolint@0.16.0)
       oxlint-tsgolint:
         specifier: 'catalog:'
-        version: 0.15.0
+        version: 0.16.0
 
   packages/preload:
     devDependencies:
@@ -220,16 +220,16 @@ importers:
         version: 24.11.0
       '@typescript/native-preview':
         specifier: 'catalog:'
-        version: 7.0.0-dev.20260302.1
+        version: 7.0.0-dev.20260305.1
       oxfmt:
         specifier: 'catalog:'
         version: 0.36.0
       oxlint:
         specifier: 'catalog:'
-        version: 1.51.0(oxlint-tsgolint@0.15.0)
+        version: 1.51.0(oxlint-tsgolint@0.16.0)
       oxlint-tsgolint:
         specifier: 'catalog:'
-        version: 0.15.0
+        version: 0.16.0
 
 packages:
 

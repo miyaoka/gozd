@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@orkis/shared": "workspace:*",
-    "ghostty-web": "0.4.0-next.10.g3525675",
+    "ghostty-web": "0.4.0-next.14.g6a1a50d",
     "vue": "3.5.29"
   },
   "devDependencies": {

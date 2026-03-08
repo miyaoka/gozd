@@ -105,23 +105,27 @@ async function startWatching(windowId: number, root: string) {
   const win = BrowserWindow.fromId(windowId);
   if (!win) return;
 
-  const subscription = await watcher.subscribe(root, (err, events) => {
-    if (err) {
-      console.error("[orkis] watcher error:", err);
-      return;
-    }
-    if (win.isDestroyed()) return;
+  const subscription = await watcher.subscribe(
+    root,
+    (err, events) => {
+      if (err) {
+        console.error("[orkis] watcher error:", err);
+        return;
+      }
+      if (win.isDestroyed()) return;
 
-    // 変更のあったディレクトリパスを重複排除して通知
-    const changedDirs = new Set<string>();
-    for (const event of events) {
-      const rel = path.relative(root, path.dirname(event.path));
-      changedDirs.add(rel);
-    }
-    for (const relDir of changedDirs) {
-      win.webContents.send("fs:change", relDir);
-    }
-  });
+      // 変更のあったディレクトリパスを重複排除して通知
+      const changedDirs = new Set<string>();
+      for (const event of events) {
+        const rel = path.relative(root, path.dirname(event.path));
+        changedDirs.add(rel);
+      }
+      for (const relDir of changedDirs) {
+        win.webContents.send("fs:change", relDir);
+      }
+    },
+    { ignore: [".git", "**/node_modules"] },
+  );
 
   windowWatchers.set(windowId, subscription);
 }

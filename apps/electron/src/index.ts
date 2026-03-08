@@ -138,26 +138,68 @@ async function startWatching(windowId: number, root: string) {
   // .git/HEAD: checkout で更新
   // .git/refs/heads/<branch>: commit/merge/rebase で更新
   const gitDir = path.join(root, ".git");
-  const filesToWatch = [path.join(gitDir, "index"), path.join(gitDir, "HEAD")];
+  const indexPath = path.join(gitDir, "index");
+  const headPath = path.join(gitDir, "HEAD");
+  const GIT_WATCH_POLL_MS = 500;
 
-  // 現在のブランチの ref ファイルを取得
-  try {
-    const headContent = nodeFs.readFileSync(path.join(gitDir, "HEAD"), "utf-8").trim();
-    if (headContent.startsWith("ref: ")) {
-      const refPath = path.join(gitDir, headContent.slice(5));
-      filesToWatch.push(refPath);
+  // HEAD から現在のブランチの ref ファイルパスを解決する
+  function resolveCurrentRefPath(): string | undefined {
+    try {
+      const headContent = nodeFs.readFileSync(headPath, "utf-8").trim();
+      if (headContent.startsWith("ref: ")) {
+        return path.join(gitDir, headContent.slice(5));
+      }
+    } catch {
+      // HEAD が読めない場合（detached HEAD 等）は undefined
     }
-  } catch {
-    // HEAD が読めない場合は index と HEAD のみ監視
+    return undefined;
   }
 
-  const GIT_WATCH_POLL_MS = 500;
-  for (const filePath of filesToWatch) {
-    nodeFs.watchFile(filePath, { interval: GIT_WATCH_POLL_MS }, () => {
+  // 現在監視中のブランチ ref パス
+  let currentRefPath = resolveCurrentRefPath();
+
+  // gitWatchedFiles を現在の監視状態に合わせて更新
+  function syncGitWatchedFiles() {
+    const files = [indexPath, headPath];
+    if (currentRefPath) files.push(currentRefPath);
+    gitWatchedFiles.set(windowId, files);
+  }
+
+  // HEAD 変更時にブランチ ref の監視先を張り替える
+  function updateRefWatch() {
+    const newRefPath = resolveCurrentRefPath();
+    if (newRefPath === currentRefPath) return;
+
+    if (currentRefPath) {
+      nodeFs.unwatchFile(currentRefPath);
+    }
+    currentRefPath = newRefPath;
+    if (currentRefPath) {
+      nodeFs.watchFile(currentRefPath, { interval: GIT_WATCH_POLL_MS }, () => {
+        scheduleGitStatusUpdate(windowId, root);
+      });
+    }
+    syncGitWatchedFiles();
+  }
+
+  // index 監視
+  nodeFs.watchFile(indexPath, { interval: GIT_WATCH_POLL_MS }, () => {
+    scheduleGitStatusUpdate(windowId, root);
+  });
+
+  // HEAD 監視（変更時にブランチ ref の監視先も更新）
+  nodeFs.watchFile(headPath, { interval: GIT_WATCH_POLL_MS }, () => {
+    updateRefWatch();
+    scheduleGitStatusUpdate(windowId, root);
+  });
+
+  // 初期ブランチ ref 監視
+  if (currentRefPath) {
+    nodeFs.watchFile(currentRefPath, { interval: GIT_WATCH_POLL_MS }, () => {
       scheduleGitStatusUpdate(windowId, root);
     });
   }
-  gitWatchedFiles.set(windowId, filesToWatch);
+  syncGitWatchedFiles();
 }
 
 async function stopWatching(windowId: number) {
@@ -173,6 +215,14 @@ async function stopWatching(windowId: number) {
     }
     gitWatchedFiles.delete(windowId);
   }
+  // デバウンスタイマーと実行状態をクリーンアップ
+  const timer = gitStatusTimers.get(windowId);
+  if (timer) {
+    clearTimeout(timer);
+    gitStatusTimers.delete(windowId);
+  }
+  gitStatusInFlight.delete(windowId);
+  gitStatusNeedsRerun.delete(windowId);
 }
 
 /**
@@ -253,6 +303,9 @@ async function getGitStatus(cwd: string): Promise<Record<string, string>> {
 
 // ファイル変更時に git status をデバウンスして通知
 const gitStatusTimers = new Map<number, ReturnType<typeof setTimeout>>();
+// git status の並列実行を防止するための状態管理
+const gitStatusInFlight = new Set<number>();
+const gitStatusNeedsRerun = new Set<number>();
 
 function scheduleGitStatusUpdate(windowId: number, root: string) {
   const existing = gitStatusTimers.get(windowId);
@@ -261,10 +314,27 @@ function scheduleGitStatusUpdate(windowId: number, root: string) {
   const GIT_STATUS_DEBOUNCE_MS = 300;
   const timer = setTimeout(async () => {
     gitStatusTimers.delete(windowId);
-    const win = BrowserWindow.fromId(windowId);
-    if (!win || win.isDestroyed()) return;
-    const statuses = await getGitStatus(root);
-    win.webContents.send("git:statusChange", statuses);
+
+    // 既に git status 実行中なら再実行フラグを立てて待つ
+    if (gitStatusInFlight.has(windowId)) {
+      gitStatusNeedsRerun.add(windowId);
+      return;
+    }
+
+    gitStatusInFlight.add(windowId);
+    try {
+      const win = BrowserWindow.fromId(windowId);
+      if (!win || win.isDestroyed()) return;
+      const statuses = await getGitStatus(root);
+      win.webContents.send("git:statusChange", statuses);
+    } finally {
+      gitStatusInFlight.delete(windowId);
+      // 実行中にリクエストが来ていた場合は1回だけ再実行
+      if (gitStatusNeedsRerun.has(windowId)) {
+        gitStatusNeedsRerun.delete(windowId);
+        scheduleGitStatusUpdate(windowId, root);
+      }
+    }
   }, GIT_STATUS_DEBOUNCE_MS);
 
   gitStatusTimers.set(windowId, timer);

@@ -14,9 +14,15 @@ export interface FsAPI {
   onChange: (callback: (relDir: string) => void) => () => void;
 }
 
+export interface GitAPI {
+  status: () => Promise<Record<string, string>>;
+  onStatusChange: (callback: (statuses: Record<string, string>) => void) => () => void;
+}
+
 export interface OrkisAPI {
   pty: PtyAPI;
   fs: FsAPI;
+  git: GitAPI;
   notifyReady: () => void;
   onOpen: (callback: (dir: string, file?: string) => void) => () => void;
 }

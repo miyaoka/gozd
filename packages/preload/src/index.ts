@@ -30,6 +30,15 @@ const api = {
       return () => ipcRenderer.removeListener("fs:change", listener);
     },
   },
+  git: {
+    status: (): Promise<Record<string, string>> => ipcRenderer.invoke("git:status"),
+    onStatusChange: (callback: (statuses: Record<string, string>) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, statuses: Record<string, string>) =>
+        callback(statuses);
+      ipcRenderer.on("git:statusChange", listener);
+      return () => ipcRenderer.removeListener("git:statusChange", listener);
+    },
+  },
   notifyReady: () => ipcRenderer.send("renderer:ready"),
   onOpen: (callback: (dir: string, file?: string) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, dir: string, file?: string) =>

@@ -123,6 +123,7 @@ async function startWatching(windowId: number, root: string) {
       for (const relDir of changedDirs) {
         win.webContents.send("fs:change", relDir);
       }
+      scheduleGitStatusUpdate(windowId, root);
     },
     { ignore: [".git", "**/node_modules"] },
   );
@@ -186,6 +187,58 @@ function setupRendererReadyHandler() {
     if (dir) {
       event.sender.send("orkis:open", dir);
     }
+  });
+}
+
+/**
+ * git status --porcelain=v1 を実行し、ファイルパス → ステータスコード（2文字）のマップを返す。
+ * 削除ファイルも含まれる。
+ */
+async function getGitStatus(cwd: string): Promise<Record<string, string>> {
+  try {
+    const { stdout } = await execFileAsync("git", ["status", "--porcelain=v1"], { cwd });
+    const result: Record<string, string> = {};
+    for (const line of stdout.split("\n")) {
+      if (!line) continue;
+      const status = line.slice(0, 2);
+      let filePath = line.slice(3);
+      // renamed: "old -> new" の場合、新しいパスを使う
+      const arrowIndex = filePath.indexOf(" -> ");
+      if (arrowIndex !== -1) {
+        filePath = filePath.slice(arrowIndex + 4);
+      }
+      result[filePath] = status;
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+// ファイル変更時に git status をデバウンスして通知
+const gitStatusTimers = new Map<number, ReturnType<typeof setTimeout>>();
+
+function scheduleGitStatusUpdate(windowId: number, root: string) {
+  const existing = gitStatusTimers.get(windowId);
+  if (existing) clearTimeout(existing);
+
+  const GIT_STATUS_DEBOUNCE_MS = 300;
+  const timer = setTimeout(async () => {
+    gitStatusTimers.delete(windowId);
+    const win = BrowserWindow.fromId(windowId);
+    if (!win || win.isDestroyed()) return;
+    const statuses = await getGitStatus(root);
+    win.webContents.send("git:statusChange", statuses);
+  }, GIT_STATUS_DEBOUNCE_MS);
+
+  gitStatusTimers.set(windowId, timer);
+}
+
+function setupGitHandlers() {
+  ipcMain.handle("git:status", async (event) => {
+    const root = resolveWindowRoot(event);
+    if (!root) throw new Error("No workspace root for this window");
+    return getGitStatus(root);
   });
 }
 
@@ -258,6 +311,7 @@ if (!gotTheLock) {
   void app.whenReady().then(() => {
     setupPtyHandlers();
     setupFsHandlers();
+    setupGitHandlers();
     setupRendererReadyHandler();
     socketServer = setupSocketServer(handleSocketMessage);
 

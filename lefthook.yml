@@ -12,27 +12,27 @@ pre-commit:
       exclude:
         - "apps/**"
         - "packages/**"
-      run: tsgo --noEmit
+      run: pnpm run typecheck
     - name: typecheck-shared
       root: "packages/shared/"
       glob: "**/*.ts"
-      run: tsgo --noEmit
+      run: pnpm run typecheck
     - name: typecheck-preload
       root: "packages/preload/"
       glob: "**/*.ts"
-      run: tsgo --noEmit
+      run: pnpm run typecheck
     - name: typecheck-electron
       root: "apps/electron/"
       glob: "**/*.ts"
-      run: tsgo --noEmit
+      run: pnpm run typecheck
     - name: typecheck-cli
       root: "apps/cli/"
       glob: "**/*.ts"
-      run: tsgo --noEmit
+      run: pnpm run typecheck
     - name: typecheck-renderer
       root: "apps/renderer/"
       glob: "**/*.{ts,vue}"
-      run: vue-tsc --noEmit
+      run: pnpm run typecheck
     - name: test-shared
       root: "packages/shared/"
       glob: "**/*.ts"

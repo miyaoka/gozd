@@ -1,11 +1,19 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
+import {
+  getDeletedEntries,
+  resolveDirectoryGitChange,
+  resolveGitChangeKind,
+  sortEntries,
+} from "./filer-utils";
+import type { FileEntry, GitChangeKind } from "./filer-utils";
 
-interface FileEntry {
-  name: string;
-  isDirectory: boolean;
-  isIgnored: boolean;
-}
+const GIT_CHANGE_COLOR_MAP: Record<GitChangeKind, string> = {
+  modified: "text-yellow-400",
+  added: "text-green-400",
+  deleted: "text-red-400",
+  untracked: "text-green-400",
+};
 
 const props = defineProps<{
   name: string;
@@ -13,6 +21,10 @@ const props = defineProps<{
   path: string;
   isDirectory: boolean;
   isIgnored: boolean;
+  /** ファイル自身の git 変更種別 */
+  gitChange?: GitChangeKind;
+  /** git status マップ全体（ディレクトリの変更種別推論に使用） */
+  gitStatuses: Record<string, string>;
   depth: number;
   selectedPath?: string;
 }>();
@@ -26,7 +38,29 @@ const children = ref<FileEntry[]>();
 const childRefs = ref<InstanceType<typeof import("./FileTreeItem.vue").default>[]>([]);
 const loading = ref(false);
 
+/** ディレクトリの場合は子の変更状態から色を推論、ファイルは自身の変更種別を使う */
+const effectiveGitChange = computed<GitChangeKind | undefined>(() => {
+  if (props.gitChange) return props.gitChange;
+  if (props.isDirectory) {
+    return resolveDirectoryGitChange(props.path, props.gitStatuses);
+  }
+  return undefined;
+});
+
+const textColorClass = computed(() => {
+  if (props.selectedPath === props.path) return "text-white";
+  if (effectiveGitChange.value) return GIT_CHANGE_COLOR_MAP[effectiveGitChange.value];
+  if (props.isIgnored) return "text-zinc-500";
+  return "text-zinc-300";
+});
+
+/** 削除ファイルかどうか */
+const isDeleted = computed(() => props.gitChange === "deleted");
+
 async function toggle() {
+  // 削除ファイル/ディレクトリはクリック不可（ディスクに存在しない）
+  if (isDeleted.value) return;
+
   if (!props.isDirectory) {
     emit("select", props.path);
     return;
@@ -44,13 +78,39 @@ async function loadChildren() {
   loading.value = true;
   try {
     const entries = await window.api.fs.readDir(props.path);
-    children.value = sortEntries(entries);
+    children.value = mergeWithGitStatus(entries);
   } catch (e) {
-    console.error(`Failed to read directory: ${props.path}`, e);
-    children.value = [];
+    // 削除ディレクトリの場合、readDir は失敗するので削除エントリのみ表示
+    const deletedEntries = getDeletedEntries(props.path, props.gitStatuses);
+    if (deletedEntries.length > 0) {
+      children.value = sortEntries(deletedEntries);
+    } else {
+      console.error(`Failed to read directory: ${props.path}`, e);
+      children.value = [];
+    }
   } finally {
     loading.value = false;
   }
+}
+
+/** readDir の結果に git 変更情報と削除ファイルをマージする */
+function mergeWithGitStatus(entries: FileEntry[]): FileEntry[] {
+  const existingNames = new Set(entries.map((e) => e.name));
+
+  const withGitChange = entries.map((entry) => {
+    const filePath = `${props.path}/${entry.name}`;
+    const statusCode = props.gitStatuses[filePath];
+    if (statusCode) {
+      return { ...entry, gitChange: resolveGitChangeKind(statusCode) } as FileEntry;
+    }
+    return entry;
+  });
+
+  const deletedEntries = getDeletedEntries(props.path, props.gitStatuses).filter(
+    (e) => !existingNames.has(e.name),
+  );
+
+  return sortEntries([...withGitChange, ...deletedEntries]);
 }
 
 /**
@@ -81,16 +141,6 @@ function notifyChange(relDir: string) {
 
 defineExpose({ notifyChange });
 
-/** ディレクトリ優先 → 名前順 */
-function sortEntries(entries: FileEntry[]): FileEntry[] {
-  return [...entries].sort((a, b) => {
-    if (a.isDirectory !== b.isDirectory) {
-      return a.isDirectory ? -1 : 1;
-    }
-    return a.name.localeCompare(b.name);
-  });
-}
-
 function onChildSelect(childPath: string) {
   emit("select", childPath);
 }
@@ -101,11 +151,9 @@ function onChildSelect(childPath: string) {
     <button
       class="flex w-full items-center gap-1 rounded-sm px-1 py-0.5 text-left text-sm hover:bg-zinc-700"
       :class="[
-        selectedPath === path
-          ? 'bg-zinc-700 text-white'
-          : isIgnored
-            ? 'text-zinc-500'
-            : 'text-zinc-300',
+        selectedPath === path ? 'bg-zinc-700' : '',
+        textColorClass,
+        isDeleted ? 'line-through opacity-60' : '',
       ]"
       :style="{ paddingLeft: `${depth * 16 + 4}px` }"
       @click="toggle"
@@ -126,7 +174,9 @@ function onChildSelect(childPath: string) {
             ? expanded
               ? 'icon-[lucide--folder-open]'
               : 'icon-[lucide--folder]'
-            : 'icon-[lucide--file]'
+            : isDeleted
+              ? 'icon-[lucide--file-x]'
+              : 'icon-[lucide--file]'
         "
         :style="{ color: isIgnored ? undefined : isDirectory ? '#facc15' : '#a1a1aa' }"
       />
@@ -151,6 +201,8 @@ function onChildSelect(childPath: string) {
         :path="`${path}/${child.name}`"
         :is-directory="child.isDirectory"
         :is-ignored="child.isIgnored"
+        :git-change="child.gitChange"
+        :git-statuses="gitStatuses"
         :depth="depth + 1"
         :selected-path="selectedPath"
         @select="onChildSelect"

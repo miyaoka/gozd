@@ -134,10 +134,10 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       diff:
-        specifier: ^8.0.3
+        specifier: 8.0.3
         version: 8.0.3
       dompurify:
-        specifier: ^3.3.2
+        specifier: 3.3.2
         version: 3.3.2
       electrobun:
         specifier: 1.14.4
@@ -146,16 +146,16 @@ importers:
         specifier: 0.4.0-next.14.g6a1a50d
         version: 0.4.0-next.14.g6a1a50d
       marked:
-        specifier: ^17.0.4
+        specifier: 17.0.4
         version: 17.0.4
       material-icon-theme:
-        specifier: ^5.32.0
+        specifier: 5.32.0
         version: 5.32.0
       mermaid:
-        specifier: ^11.12.3
+        specifier: 11.12.3
         version: 11.12.3
       shiki:
-        specifier: ^4.0.1
+        specifier: 4.0.1
         version: 4.0.1
       vue:
         specifier: 3.5.29

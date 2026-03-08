@@ -138,7 +138,10 @@ if (!gotTheLock) {
     setupPtyHandlers();
     socketServer = setupSocketServer(handleSocketMessage);
 
-    createWindow();
+    // CLI から起動された場合はソケット経由の open でウィンドウを作るため、ここでは作らない
+    if (!process.env.ORKIS_CLI_LAUNCH) {
+      createWindow();
+    }
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

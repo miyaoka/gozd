@@ -25,8 +25,14 @@ launch_app() {
     return 1
   fi
 
+  if [[ ! -d "${ROOT_DIR}/apps/electron/dist" ]]; then
+    echo "未ビルドのためビルドを実行します..." >&2
+    (cd "${ROOT_DIR}" && pnpm build) || return 1
+  fi
+
   # ビルド済みの Electron アプリをバックグラウンドで起動
-  "${electron_bin}" "${ROOT_DIR}/apps/electron" &>/dev/null &
+  # CLI から起動された場合、初期ウィンドウは作らない（ソケット経由の open で作る）
+  ORKIS_CLI_LAUNCH=1 "${electron_bin}" "${ROOT_DIR}/apps/electron" &>/dev/null &
   disown
 
   # ソケットが立ち上がるまで待つ

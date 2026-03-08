@@ -7,8 +7,16 @@ export interface PtyAPI {
   onExit: (callback: (id: number, exitCode: number) => void) => () => void;
 }
 
+export interface FsAPI {
+  readDir: (
+    relPath: string,
+  ) => Promise<Array<{ name: string; isDirectory: boolean; isIgnored: boolean }>>;
+}
+
 export interface OrkisAPI {
   pty: PtyAPI;
+  fs: FsAPI;
+  notifyReady: () => void;
   onOpen: (callback: (dir: string, file?: string) => void) => () => void;
 }
 

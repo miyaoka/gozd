@@ -1,7 +1,12 @@
 import { app, shell, BrowserWindow, ipcMain } from "electron";
+import { execFile } from "node:child_process";
+import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import type net from "node:net";
+
+const execFileAsync = promisify(execFile);
 import * as pty from "node-pty";
 import { cleanupSocket, setupSocketServer, type OrkisMessage } from "./socket-server";
 
@@ -12,11 +17,13 @@ function setupPtyHandlers() {
   ipcMain.handle("pty:spawn", (event, cols: number, rows: number) => {
     const id = nextPtyId++;
     const shell = process.env.SHELL ?? "zsh";
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const cwd = (win ? windowDirs.get(win.id) : undefined) ?? process.env.HOME;
     const ptyProcess = pty.spawn(shell, [], {
       name: "xterm-256color",
       cols,
       rows,
-      cwd: process.env.HOME,
+      cwd,
       env: process.env as Record<string, string>,
     });
 
@@ -86,6 +93,76 @@ let socketServer: net.Server | undefined;
 // ウィンドウが開いているディレクトリを管理
 const windowDirs = new Map<number, string>();
 
+/**
+ * IPC の送信元ウィンドウに紐づくルートディレクトリを取得する。
+ * renderer からは相対パスを受け取り、ここで絶対パスに解決する。
+ */
+function resolveWindowRoot(event: Electron.IpcMainInvokeEvent): string | undefined {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return undefined;
+  return windowDirs.get(win.id);
+}
+
+/**
+ * 相対パスをルートディレクトリ配下の絶対パスに解決し、パストラバーサルを検証する。
+ * realpath でシンボリックリンクを解決し、ルート外へのアクセスを防ぐ。
+ */
+async function resolveSecurePath(root: string, relPath: string): Promise<string> {
+  const resolved = path.resolve(root, relPath);
+  const real = await fs.realpath(resolved);
+  const realRoot = await fs.realpath(root);
+  const relative = path.relative(realRoot, real);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`Access denied: path is outside workspace root`);
+  }
+  return real;
+}
+
+/**
+ * git check-ignore でエントリをフィルタリングする。
+ * .gitignore のルールに加え、.git ディレクトリ自体も除外する。
+ */
+async function filterIgnored(entries: string[], cwd: string): Promise<Set<string>> {
+  if (entries.length === 0) return new Set();
+  try {
+    const { stdout } = await execFileAsync("git", ["check-ignore", ...entries], { cwd });
+    return new Set(stdout.split("\n").filter(Boolean));
+  } catch {
+    // git check-ignore は全エントリが非 ignore の場合 exit code 1 を返す
+    return new Set();
+  }
+}
+
+function setupRendererReadyHandler() {
+  ipcMain.on("renderer:ready", (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return;
+    const dir = windowDirs.get(win.id);
+    if (dir) {
+      event.sender.send("orkis:open", dir);
+    }
+  });
+}
+
+function setupFsHandlers() {
+  ipcMain.handle("fs:readDir", async (event, relPath: string) => {
+    const root = resolveWindowRoot(event);
+    if (!root) throw new Error("No workspace root for this window");
+
+    const absolutePath = await resolveSecurePath(root, relPath);
+    const entries = await fs.readdir(absolutePath, { withFileTypes: true });
+    const visibleEntries = entries.filter((e) => e.name !== ".git");
+    const names = visibleEntries.map((e) => e.name);
+    const ignored = await filterIgnored(names, absolutePath);
+
+    return visibleEntries.map((entry) => ({
+      name: entry.name,
+      isDirectory: entry.isDirectory(),
+      isIgnored: ignored.has(entry.name),
+    }));
+  });
+}
+
 function findWindowByDir(dir: string): BrowserWindow | undefined {
   for (const [id, windowDir] of windowDirs) {
     if (windowDir === dir) {
@@ -116,9 +193,6 @@ function handleSocketMessage(message: OrkisMessage) {
       newWindow.on("closed", () => {
         windowDirs.delete(newWindow.id);
       });
-      newWindow.webContents.once("did-finish-load", () => {
-        newWindow.webContents.send("orkis:open", message.dir, message.file);
-      });
       break;
     }
   }
@@ -136,11 +210,14 @@ if (!gotTheLock) {
 
   void app.whenReady().then(() => {
     setupPtyHandlers();
+    setupFsHandlers();
+    setupRendererReadyHandler();
     socketServer = setupSocketServer(handleSocketMessage);
 
     // CLI から起動された場合はソケット経由の open でウィンドウを作るため、ここでは作らない
     if (!process.env.ORKIS_CLI_LAUNCH) {
-      createWindow();
+      const dir = process.env.ORKIS_PROJECT_ROOT ?? process.cwd();
+      handleSocketMessage({ type: "open", dir });
     }
 
     app.on("activate", () => {

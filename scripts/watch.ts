@@ -32,6 +32,7 @@ function setupMainWatcher({ resolvedUrls }: ViteDevServer) {
 
           electronApp = spawn(electronPath, ["."], {
             cwd: path.resolve(ROOT, "apps/electron"),
+            env: { ...process.env, ORKIS_PROJECT_ROOT: ROOT },
           });
 
           electronApp.stdout?.on("data", (data: Buffer) => {

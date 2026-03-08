@@ -21,6 +21,11 @@ const api = {
       return () => ipcRenderer.removeListener("pty:exit", listener);
     },
   },
+  fs: {
+    readDir: (relPath: string): Promise<Array<{ name: string; isDirectory: boolean }>> =>
+      ipcRenderer.invoke("fs:readDir", relPath),
+  },
+  notifyReady: () => ipcRenderer.send("renderer:ready"),
   onOpen: (callback: (dir: string, file?: string) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, dir: string, file?: string) =>
       callback(dir, file);

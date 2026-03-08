@@ -1,22 +1,8 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from "vue";
+import { useWorkspace } from "../filer/useWorkspace";
 
 const mode = import.meta.env.DEV ? "dev" : "build";
-const openedDir = ref<string>();
-const openedFile = ref<string>();
-
-let cleanup: (() => void) | undefined;
-
-onMounted(() => {
-  cleanup = window.api.onOpen((dir, file) => {
-    openedDir.value = dir;
-    openedFile.value = file;
-  });
-});
-
-onUnmounted(() => {
-  cleanup?.();
-});
+const { dir, file } = useWorkspace();
 </script>
 
 <template>
@@ -32,9 +18,9 @@ onUnmounted(() => {
         {{ mode }}
       </span>
     </div>
-    <template v-if="openedDir">
-      <div>dir: {{ openedDir }}</div>
-      <div v-if="openedFile">file: {{ openedFile }}</div>
+    <template v-if="dir">
+      <div>dir: {{ dir }}</div>
+      <div v-if="file">file: {{ file }}</div>
     </template>
     <div v-else class="text-zinc-500">waiting for open command...</div>
   </div>

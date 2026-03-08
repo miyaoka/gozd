@@ -91,7 +91,7 @@ function handleSocketMessage(message: OrkisMessage) {
       break;
     case "open":
       console.log(`[orkis] open: ${message.path}`);
-      window?.webContents.send("orkis:open", message.path);
+      createWindow();
       break;
   }
 }

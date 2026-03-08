@@ -4,28 +4,39 @@ AI エージェントの Plan-Implement-Review ループを管理するデスク
 
 マルチウィンドウ前提のアプリケーション。ディレクトリごとに1ウィンドウを開き、同じディレクトリを複数開くことはできない（VS Code と同じモデル）。
 
-> [!NOTE]
-> プロダクトの設計文書（コンセプト、ワークフロー、データモデル、エージェント連携等）は [docs/design.md](docs/design.md) を参照。
+## ドキュメント（`docs/`）
+
+| ファイル                            | 内容                                                                       |
+| ----------------------------------- | -------------------------------------------------------------------------- |
+| [design.md](docs/design.md)         | プロダクト構想（コンセプト、ワークフロー、データモデル、エージェント連携） |
+| [electrobun.md](docs/electrobun.md) | Electrobun アーキテクチャ、WKWebView の制約、ウィンドウ管理                |
+| [rpc.md](docs/rpc.md)               | RPC スキーマ（request / message の全定義）                                 |
+| [filer.md](docs/filer.md)           | ファイラー（ツリー表示、git status 色分け、アイコン、ファイル監視）        |
+| [preview.md](docs/preview.md)       | プレビュー（コード、diff、画像、SVG、Markdown、リアクティブ更新）          |
+| [terminal.md](docs/terminal.md)     | ターミナル（ghostty-web、PTY ライフサイクル）                              |
 
 ## 技術スタック
 
-| レイヤー       | 技術                                          |
-| -------------- | --------------------------------------------- |
-| フレームワーク | Electrobun（Bun ランタイム + WKWebView）      |
-| フロントエンド | Vue（+ TypeScript 5 / tsgo 7）                |
-| ビルドツール   | Vite 8                                        |
-| パッケージ管理 | pnpm（モノレポ + catalog）                    |
-| CSS            | Tailwind CSS v4                               |
-| アイコン       | Iconify（@iconify/tailwind4 + Lucide）        |
-| フォーマッタ   | oxfmt                                         |
-| リンター       | oxlint（TypeScript）/ ESLint（Vue）           |
-| ターミナル     | ghostty-web                                   |
-| PTY            | Bun.spawn({ terminal })                       |
-| ファイル監視   | node:fs.watch（recursive）                    |
-| RPC            | Electrobun RPC（型安全な bun ↔ webview 通信） |
-| 差分表示       | Monaco Editor (createDiffEditor)（未実装）    |
-| データ保存     | ローカルディレクトリ（JSON + マークダウン）   |
-| CLI            | orkis コマンド（fsss フレームワーク / bun）   |
+| レイヤー         | 技術                                          |
+| ---------------- | --------------------------------------------- |
+| フレームワーク   | Electrobun（Bun ランタイム + WKWebView）      |
+| フロントエンド   | Vue（+ TypeScript 5 / tsgo 7）                |
+| ビルドツール     | Vite 8                                        |
+| パッケージ管理   | pnpm（モノレポ + catalog）                    |
+| CSS              | Tailwind CSS v4                               |
+| アイコン         | Iconify（@iconify/tailwind4 + Lucide）        |
+| フォーマッタ     | oxfmt                                         |
+| リンター         | oxlint（TypeScript）/ ESLint（Vue）           |
+| ターミナル       | ghostty-web                                   |
+| PTY              | Bun.spawn({ terminal })                       |
+| ファイル監視     | node:fs.watch（recursive）                    |
+| RPC              | Electrobun RPC（型安全な bun ↔ webview 通信） |
+| 差分表示         | diff（jsdiff）で行単位差分算出                |
+| シンタックスHi   | Shiki                                         |
+| Markdown         | marked + mermaid + DOMPurify                  |
+| ファイルアイコン | material-icon-theme                           |
+| データ保存       | ローカルディレクトリ（JSON + マークダウン）   |
+| CLI              | orkis コマンド（fsss フレームワーク / bun）   |
 
 ## ディレクトリ構成
 
@@ -37,8 +48,9 @@ orkis/
 │   └── renderer/          # Vue フロントエンド
 │       └── src/features/  # feature ごとに component, composable, store をまとめる
 │           ├── debug/     # デバッグ情報表示
-│           ├── filer/     # ファイルツリー表示
+│           ├── filer/     # ファイルツリー表示（material-icon-theme アイコン、git status 色分け）
 │           ├── layout/    # レイアウト
+│           ├── preview/   # ファイルプレビュー（コード、diff、画像、SVG、Markdown）
 │           ├── rpc/       # Electrobun RPC composable
 │           └── terminal/  # ターミナル
 ├── packages/

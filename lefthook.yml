@@ -9,6 +9,14 @@ pre-commit:
   jobs:
     - name: typecheck
       run: pnpm -r --include-workspace-root --if-present typecheck
+    - name: test-shared
+      root: "packages/shared/"
+      glob: "**/*.ts"
+      run: bun test
+    - name: test-renderer
+      root: "apps/renderer/"
+      glob: "**/*.ts"
+      run: bun test
 
     # Formatter（ts/vue 以外。ts/vue は各 linter ジョブで oxfmt を実行）
     - name: oxfmt

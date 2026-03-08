@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { resolveGitChangeKind } from "../filer/filer-utils";
+import type { GitChangeKind } from "../filer/filer-utils";
 import { useGitStatus } from "../filer/useGitStatus";
 import { useWorkspace } from "../filer/useWorkspace";
 
@@ -7,9 +9,17 @@ const mode = import.meta.env.DEV ? "dev" : "build";
 const { dir, file } = useWorkspace();
 const { gitStatuses } = useGitStatus();
 
+const GIT_CHANGE_COLOR_MAP: Record<GitChangeKind, string> = {
+  modified: "text-yellow-400",
+  added: "text-green-400",
+  deleted: "text-red-400",
+  untracked: "text-green-400",
+};
+
 interface GitStatusEntry {
   filePath: string;
   status: string;
+  changeKind: GitChangeKind;
 }
 
 /** index 側（X）にステータスがあれば staged */
@@ -17,16 +27,20 @@ function isStaged(status: string): boolean {
   return status[0] !== " " && status[0] !== "?";
 }
 
+function toEntry(filePath: string, status: string): GitStatusEntry {
+  return { filePath, status, changeKind: resolveGitChangeKind(status) };
+}
+
 const stagedEntries = computed<GitStatusEntry[]>(() =>
   Object.entries(gitStatuses.value)
     .filter(([, status]) => isStaged(status))
-    .map(([filePath, status]) => ({ filePath, status })),
+    .map(([filePath, status]) => toEntry(filePath, status)),
 );
 
 const unstagedEntries = computed<GitStatusEntry[]>(() =>
   Object.entries(gitStatuses.value)
     .filter(([, status]) => !isStaged(status))
-    .map(([filePath, status]) => ({ filePath, status })),
+    .map(([filePath, status]) => toEntry(filePath, status)),
 );
 </script>
 
@@ -61,7 +75,8 @@ const unstagedEntries = computed<GitStatusEntry[]>(() =>
             <div
               v-for="entry in stagedEntries"
               :key="entry.filePath"
-              class="truncate text-xs text-green-400"
+              class="truncate text-xs"
+              :class="GIT_CHANGE_COLOR_MAP[entry.changeKind]"
             >
               <span class="text-zinc-500">{{ entry.status[0] }}</span>
               {{ entry.filePath }}
@@ -72,7 +87,8 @@ const unstagedEntries = computed<GitStatusEntry[]>(() =>
             <div
               v-for="entry in unstagedEntries"
               :key="entry.filePath"
-              class="truncate text-xs text-yellow-400"
+              class="truncate text-xs"
+              :class="GIT_CHANGE_COLOR_MAP[entry.changeKind]"
             >
               <span class="text-zinc-500">{{ entry.status === "??" ? "?" : entry.status[1] }}</span>
               {{ entry.filePath }}

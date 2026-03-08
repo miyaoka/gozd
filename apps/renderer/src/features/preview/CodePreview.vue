@@ -9,12 +9,16 @@ const props = defineProps<{
 
 const highlightedHtml = ref<string>();
 
+/** 非同期レース防止用のバージョンカウンター */
+let highlightVersion = 0;
+
 watch(
   () => [props.content, props.filePath],
   () => {
     highlightedHtml.value = undefined;
+    const version = ++highlightVersion;
     highlight(props.content, props.filePath).then((html) => {
-      if (html) highlightedHtml.value = html;
+      if (version === highlightVersion && html) highlightedHtml.value = html;
     });
   },
   { immediate: true },

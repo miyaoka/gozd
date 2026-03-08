@@ -86,6 +86,9 @@ const MODE_LABELS: Record<PreviewMode, { icon: string; label: string }> = {
   original: { icon: "icon-[lucide--file-clock]", label: "Original" },
 };
 
+/** 非同期レース防止用のバージョンカウンター */
+let fetchVersion = 0;
+
 watch(
   selectedPath,
   async (path) => {
@@ -104,6 +107,8 @@ watch(
     activeMode.value = defaultMode(selectedGitChange.value);
     loading.value = true;
 
+    const version = ++fetchVersion;
+
     try {
       const gitChange = selectedGitChange.value;
       const isDeleted = gitChange === "deleted";
@@ -115,6 +120,9 @@ watch(
         hasDiff || isDeleted ? request.gitShowFile({ relPath: path }) : undefined,
         hasDiff ? request.gitDiffFile({ relPath: path }) : undefined,
       ]);
+
+      // 別のファイルが選択された場合は結果を破棄
+      if (version !== fetchVersion) return;
 
       if (currentResult) {
         currentContent.value = currentResult.content;
@@ -131,9 +139,12 @@ watch(
         diffContent.value = diffResult;
       }
     } catch (e) {
+      if (version !== fetchVersion) return;
       error.value = e instanceof Error ? e.message : "Failed to read file";
     } finally {
-      loading.value = false;
+      if (version === fetchVersion) {
+        loading.value = false;
+      }
     }
   },
   { immediate: true },
@@ -157,7 +168,9 @@ const imageUrl = computed(() => {
   if (!previewEnabled.value) return undefined;
   if (imageDataUrl.value) return imageDataUrl.value;
   if (fileType.value === "svg" && displayContent.value) {
-    return `data:image/svg+xml;base64,${btoa(displayContent.value)}`;
+    const encoded = new TextEncoder().encode(displayContent.value);
+    const binary = Array.from(encoded, (b) => String.fromCharCode(b)).join("");
+    return `data:image/svg+xml;base64,${btoa(binary)}`;
   }
   return undefined;
 });

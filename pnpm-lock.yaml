@@ -133,6 +133,9 @@ importers:
       '@orkis/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      dompurify:
+        specifier: ^3.3.2
+        version: 3.3.2
       electrobun:
         specifier: 1.14.4
         version: 1.14.4

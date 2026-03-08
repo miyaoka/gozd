@@ -307,8 +307,10 @@ function createWindowWithRPC(dir: string): OrkisWindow {
               let isDirectory = entry.isDirectory();
               // Bun の readdir はシンボリックリンクで isDirectory() が false を返すため stat で確認
               if (!isDirectory && entry.isSymbolicLink()) {
-                const stat = await fsp.stat(path.join(absolutePath, entry.name));
-                isDirectory = stat.isDirectory();
+                const statResult = await tryCatch(fsp.stat(path.join(absolutePath, entry.name)));
+                if (statResult.ok) {
+                  isDirectory = statResult.value.isDirectory();
+                }
               }
               return {
                 name: entry.name,
@@ -340,12 +342,10 @@ function createWindowWithRPC(dir: string): OrkisWindow {
         },
         gitShowFile: async ({ relPath }) => {
           assertInsideRoot(dir, relPath);
-          const result = await tryCatch(
-            new Response(
-              Bun.spawn(["git", "show", `HEAD:${relPath}`], { cwd: dir }).stdout,
-            ).arrayBuffer(),
-          );
-          if (!result.ok) {
+          const proc = Bun.spawn(["git", "show", `HEAD:${relPath}`], { cwd: dir });
+          const result = await tryCatch(new Response(proc.stdout).arrayBuffer());
+          await proc.exited;
+          if (!result.ok || proc.exitCode !== 0) {
             return { content: "", isBinary: true };
           }
           const bytes = new Uint8Array(result.value);

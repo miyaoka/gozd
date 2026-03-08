@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DOMPurify from "dompurify";
 import { marked, type MarkedExtension } from "marked";
 import mermaid from "mermaid";
 import { ref, watch, onMounted } from "vue";
@@ -73,7 +74,8 @@ async function renderMermaidBlocks() {
 watch(
   () => props.content,
   async (content) => {
-    renderedHtml.value = await marked.parse(content);
+    const rawHtml = await marked.parse(content);
+    renderedHtml.value = DOMPurify.sanitize(rawHtml);
     // DOM 更新後に mermaid を描画
     requestAnimationFrame(() => {
       renderMermaidBlocks();

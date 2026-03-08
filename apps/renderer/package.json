@@ -14,6 +14,7 @@
   "dependencies": {
     "@orkis/rpc": "workspace:*",
     "@orkis/shared": "workspace:*",
+    "dompurify": "^3.3.2",
     "electrobun": "1.14.4",
     "ghostty-web": "0.4.0-next.14.g6a1a50d",
     "marked": "^17.0.4",

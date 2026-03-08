@@ -1,2 +1,21 @@
 @import "tailwindcss";
 @plugin "@iconify/tailwind4";
+
+/* 細いオーバーレイスクロールバー */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: theme(--color-zinc-600);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: theme(--color-zinc-500);
+}

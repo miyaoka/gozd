@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { init, Terminal, FitAddon } from "ghostty-web";
 import { onMounted, onBeforeUnmount, ref } from "vue";
+import { useRpc } from "../rpc/useRpc";
 
 const containerRef = ref<HTMLElement>();
+const { request, send, onPtyData, onPtyExit } = useRpc();
 
 let terminal: Terminal | undefined;
 let fitAddon: FitAddon | undefined;
@@ -37,32 +39,32 @@ onMounted(async () => {
   fitAddon.observeResize();
   terminal.focus();
 
-  ptyId = await window.api.pty.spawn(terminal.cols, terminal.rows);
+  ptyId = await request.ptySpawn({ cols: terminal.cols, rows: terminal.rows });
 
   // PTY → terminal
-  removeDataListener = window.api.pty.onData((id, data) => {
+  removeDataListener = onPtyData(({ id, data }) => {
     if (id === ptyId) {
       terminal?.write(data);
     }
   });
 
-  removeExitListener = window.api.pty.onExit((id, _exitCode) => {
+  removeExitListener = onPtyExit(({ id, exitCode: _exitCode }) => {
     if (id === ptyId) {
       terminal?.write("\r\n[Process exited]\r\n");
       ptyId = undefined;
     }
   });
 
-  // terminal → PTY
-  terminal.onData((data) => {
+  terminal.onResize(({ cols, rows }) => {
     if (ptyId !== undefined) {
-      window.api.pty.write(ptyId, data);
+      send.ptyResize({ id: ptyId, cols, rows });
     }
   });
 
-  terminal.onResize(({ cols, rows }) => {
+  // terminal → PTY
+  terminal.onData((data) => {
     if (ptyId !== undefined) {
-      window.api.pty.resize(ptyId, cols, rows);
+      send.ptyWrite({ id: ptyId, data });
     }
   });
 });
@@ -71,7 +73,7 @@ onBeforeUnmount(() => {
   removeDataListener?.();
   removeExitListener?.();
   if (ptyId !== undefined) {
-    window.api.pty.kill(ptyId);
+    send.ptyKill({ id: ptyId });
   }
   terminal?.dispose();
 });

@@ -3,13 +3,10 @@ packages:
   - packages/*
 
 allowBuilds:
-  '@parcel/watcher': true
   '@tailwindcss/oxide': true
-  electron: true
   ghostty-web: true
   esbuild: true
   lefthook: true
-  node-pty: true
   unrs-resolver: true
 
 catalog:
@@ -17,7 +14,6 @@ catalog:
   '@types/bun': 1.3.10
   '@types/node': ^24.11.0
   '@typescript/native-preview': 7.0.0-dev.20260305.1
-  electron: ^40.6.1
   eslint: ^10.0.2
   eslint-plugin-import-x: ^4.16.1
   eslint-plugin-unused-imports: ^4.4.1

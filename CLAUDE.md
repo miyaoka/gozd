@@ -2,80 +2,61 @@
 
 AI エージェントの Plan-Implement-Review ループを管理するデスクトップアプリケーション。
 
+マルチウィンドウ前提のアプリケーション。ディレクトリごとに1ウィンドウを開き、同じディレクトリを複数開くことはできない（VS Code と同じモデル）。
+
 > [!NOTE]
 > プロダクトの設計文書（コンセプト、ワークフロー、データモデル、エージェント連携等）は [docs/design.md](docs/design.md) を参照。
 
 ## 技術スタック
 
-| レイヤー       | 技術                                        |
-| -------------- | ------------------------------------------- |
-| フレームワーク | Electron                                    |
-| フロントエンド | Vue（+ TypeScript 5 / tsgo 7）              |
-| ビルドツール   | Vite 8                                      |
-| パッケージ管理 | pnpm（モノレポ + catalog）                  |
-| CSS            | Tailwind CSS v4                             |
-| アイコン       | Iconify（@iconify/tailwind4 + Lucide）      |
-| フォーマッタ   | oxfmt                                       |
-| リンター       | oxlint（TypeScript）/ ESLint（Vue）         |
-| ターミナル     | xterm.js (WebGL renderer)                   |
-| PTY            | node-pty                                    |
-| ファイル監視   | @parcel/watcher                             |
-| 差分表示       | Monaco Editor (createDiffEditor)（未実装）  |
-| データ保存     | ローカルディレクトリ（JSON + マークダウン） |
-| CLI            | orkis コマンド（fsss フレームワーク / bun） |
+| レイヤー       | 技術                                          |
+| -------------- | --------------------------------------------- |
+| フレームワーク | Electrobun（Bun ランタイム + WKWebView）      |
+| フロントエンド | Vue（+ TypeScript 5 / tsgo 7）                |
+| ビルドツール   | Vite 8                                        |
+| パッケージ管理 | pnpm（モノレポ + catalog）                    |
+| CSS            | Tailwind CSS v4                               |
+| アイコン       | Iconify（@iconify/tailwind4 + Lucide）        |
+| フォーマッタ   | oxfmt                                         |
+| リンター       | oxlint（TypeScript）/ ESLint（Vue）           |
+| ターミナル     | ghostty-web                                   |
+| PTY            | Bun.spawn({ terminal })                       |
+| ファイル監視   | node:fs.watch（recursive）                    |
+| RPC            | Electrobun RPC（型安全な bun ↔ webview 通信） |
+| 差分表示       | Monaco Editor (createDiffEditor)（未実装）    |
+| データ保存     | ローカルディレクトリ（JSON + マークダウン）   |
+| CLI            | orkis コマンド（fsss フレームワーク / bun）   |
 
 ## ディレクトリ構成
 
 ```
 orkis/
 ├── apps/
-│   ├── electron/          # Electron メインプロセス
-│   │   ├── src/
-│   │   │   ├── index.ts
-│   │   │   └── socket-server.ts  # CLI との Unix ドメインソケット通信
-│   │   ├── vite.config.ts
-│   │   └── tsconfig.json
+│   ├── desktop/           # Electrobun メインプロセス（PTY、ファイル監視、RPC、ソケットサーバー）
 │   ├── cli/               # orkis CLI（fsss フレームワーク / bun）
-│   │   ├── src/
-│   │   │   ├── index.ts
-│   │   │   ├── socket-client.ts   # Electron へのソケット送信
-│   │   │   └── commands/
-│   │   │       ├── hook.ts        # orkis hook <event>
-│   │   │       └── open.ts        # orkis open <path>
-│   │   └── tsconfig.json
 │   └── renderer/          # Vue フロントエンド
-│       ├── src/
-│       │   ├── main.ts
-│       │   ├── App.vue
-│       │   ├── assets/main.css
-│       │   └── features/         # feature ごとに component, composable, store をまとめる
-│       │       ├── debug/
-│       │       │   └── DebugPane.vue
-│       │       ├── filer/
-│       │       │   ├── FilerPane.vue       # ファイルツリー表示
-│       │       │   ├── FileTreeItem.vue    # 再帰的ツリーアイテム
-│       │       │   └── useWorkspace.ts     # ワークスペース状態管理
-│       │       ├── layout/
-│       │       │   ├── MainLayout.vue
-│       │       │   └── SidebarPane.vue
-│       │       └── terminal/
-│       │           └── TerminalPane.vue
-│       ├── eslint.config.ts
-│       ├── eslint.config.fix.ts
-│       ├── vite.config.ts
-│       └── tsconfig.json
+│       └── src/features/  # feature ごとに component, composable, store をまとめる
+│           ├── debug/     # デバッグ情報表示
+│           ├── filer/     # ファイルツリー表示
+│           ├── layout/    # レイアウト
+│           ├── rpc/       # Electrobun RPC composable
+│           └── terminal/  # ターミナル
 ├── packages/
-│   ├── preload/           # Electron preload（contextBridge API）
-│   │   ├── src/
-│   │   │   ├── index.ts
-│   │   │   └── index.d.ts
-│   │   ├── vite.config.ts
-│   │   └── tsconfig.json
-│   └── shared/            # 全パッケージ共通ユーティリティ
-│       ├── src/
-│       │   ├── index.ts
-│       │   └── result.ts          # Result 型 + tryCatch
-│       └── tsconfig.json
+│   ├── rpc/               # RPC スキーマ型定義（bun ↔ webview）
+│   └── shared/            # 全パッケージ共通ユーティリティ（Result 型 + tryCatch）
+├── bin/                   # CLI エントリポイント（アプリ自動起動 + CLI 実行）
+├── docs/                  # 設計文書
+└── .github/               # CI ワークフロー
+```
+
+## 開発コマンド
+
+- `pnpm dev` — renderer（Vite HMR）と desktop（Electrobun dev）を `concurrently` で同時起動。片方が終了すると他方も終了する
+- `pnpm build` — 全パッケージをビルド
+- `pnpm start` — ビルド済みアプリを起動
+- `bin/orkis` — 開発用エントリポイント。アプリ未起動なら自動で build → start し、ソケット経由で CLI コマンドを送信する。残骸ソケットは `nc -zU` で検出・削除する
+
+全体チェックはルートの `pnpm typecheck:all` / `lint:all` / `test:all` を使う。各 workspace の同名スクリプトを一括実行する。
 
 ## コーディング規約
 
@@ -84,19 +65,3 @@ orkis/
 - try-catch は使わず、`@orkis/shared` の `tryCatch` を使って Result 型で処理する
 - `tryCatch(() => ...)` で同期処理、`tryCatch(promise)` で非同期処理をラップ
 - 結果は `result.ok` で判定し、`result.value` / `result.error` でアクセスする
-├── scripts/
-│   └── watch.ts           # dev サーバー統合（renderer + preload + main）
-├── docs/
-│   └── design.md          # プロダクト設計文書
-├── .github/
-│   ├── actions/
-│   │   └── setup-environment/  # CI 共通セットアップ
-│   └── workflows/
-│       └── code_validation.yml # PR の typecheck / lint
-├── lefthook.yml
-├── mise.toml
-├── pnpm-workspace.yaml
-├── renovate.json
-├── tsconfig.json
-└── package.json
-```

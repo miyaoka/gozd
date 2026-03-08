@@ -4,9 +4,8 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
-    "esModuleInterop": true,
     "skipLibCheck": true,
-    "outDir": "dist",
-    "types": ["node"]
+    "noEmit": true,
+    "types": ["bun"]
   }
 }

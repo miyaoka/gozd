@@ -8,6 +8,6 @@
     "jsxImportSource": "vue",
     "skipLibCheck": true,
     "outDir": "dist",
-    "types": ["vite/client", "@orkis/preload", "bun"]
+    "types": ["vite/client", "bun"]
   }
 }

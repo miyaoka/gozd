@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { useRpc } from "../rpc/useRpc";
 import {
   getDeletedEntries,
   resolveDirectoryGitChange,
@@ -34,6 +35,8 @@ const emit = defineEmits<{
   select: [path: string];
 }>();
 
+const { request } = useRpc();
+
 const expanded = ref(false);
 const children = ref<FileEntry[]>();
 const childRefs = ref<InstanceType<typeof import("./FileTreeItem.vue").default>[]>([]);
@@ -41,12 +44,13 @@ const loading = ref(false);
 
 /** gitStatuses マップからリアルタイムに変更種別を算出する */
 const effectiveGitChange = computed<GitChangeKind | undefined>(() => {
+  // 削除エントリ（打ち消し線）は親から渡された gitChange をそのまま使う
+  if (props.gitChange === "deleted") return "deleted";
   if (props.isDirectory) {
     return resolveDirectoryGitChange(props.path, props.gitStatuses);
   }
   const statusCode = props.gitStatuses[props.path];
   if (statusCode) return resolveGitChangeKind(statusCode);
-  // 削除ファイルは gitStatuses に含まれないが、親から gitChange で渡される
   return props.gitChange;
 });
 
@@ -61,9 +65,6 @@ const textColorClass = computed(() => {
 const isDeleted = computed(() => props.gitChange === "deleted");
 
 async function toggle() {
-  // 削除ファイル/ディレクトリはクリック不可（ディスクに存在しない）
-  if (isDeleted.value) return;
-
   if (!props.isDirectory) {
     emit("select", props.path);
     return;
@@ -80,7 +81,7 @@ async function toggle() {
 async function loadChildren() {
   loading.value = true;
   try {
-    const entries = await window.api.fs.readDir(props.path);
+    const entries = await request.fsReadDir({ relPath: props.path });
     children.value = mergeWithGitStatus(entries);
   } catch (e) {
     // 削除ディレクトリの場合、readDir は失敗するので削除エントリのみ表示

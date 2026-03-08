@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from "vue";
+import { useRpc } from "../rpc/useRpc";
 import { dirName, getDeletedEntries, resolveGitChangeKind, sortEntries } from "./filer-utils";
 import type { FileEntry } from "./filer-utils";
 import FileTreeItem from "./FileTreeItem.vue";
@@ -8,6 +9,7 @@ import { useWorkspace } from "./useWorkspace";
 
 const { dir } = useWorkspace();
 const { gitStatuses, loadGitStatus, setGitStatuses } = useGitStatus();
+const { request, onFsChange, onGitStatusChange } = useRpc();
 
 const rootEntries = ref<FileEntry[]>();
 const selectedPath = ref<string>();
@@ -38,7 +40,7 @@ function mergeWithGitStatus(entries: FileEntry[], dirPath: string): FileEntry[] 
 async function loadRoot() {
   loading.value = true;
   try {
-    const [entries] = await Promise.all([window.api.fs.readDir("."), loadGitStatus()]);
+    const [entries] = await Promise.all([request.fsReadDir({ relPath: "." }), loadGitStatus()]);
     rootEntries.value = mergeWithGitStatus(entries, "");
   } catch (e) {
     console.error("Failed to read root directory", e);
@@ -75,7 +77,7 @@ async function handleGitStatusChange(statuses: Record<string, string>) {
   // 削除ファイルのエントリ追加/除去のためルートを再構築
   // loadGitStatus は不要（プッシュ通知で受け取った値を使う）
   try {
-    const entries = await window.api.fs.readDir(".");
+    const entries = await request.fsReadDir({ relPath: "." });
     rootEntries.value = mergeWithGitStatus(entries, "");
   } catch (e) {
     console.error("Failed to rebuild root entries", e);
@@ -94,8 +96,8 @@ watch(
   { immediate: true },
 );
 
-const unsubscribeFsChange = window.api.fs.onChange(handleFsChange);
-const unsubscribeGitStatus = window.api.git.onStatusChange(handleGitStatusChange);
+const unsubscribeFsChange = onFsChange(({ relDir }) => handleFsChange(relDir));
+const unsubscribeGitStatus = onGitStatusChange(({ statuses }) => handleGitStatusChange(statuses));
 onUnmounted(() => {
   unsubscribeFsChange();
   unsubscribeGitStatus();

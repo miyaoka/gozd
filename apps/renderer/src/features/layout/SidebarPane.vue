@@ -1,5 +1,5 @@
 <template>
-  <div class="flex w-80 shrink-0 flex-col border-r border-zinc-700 p-4">
+  <div class="flex w-56 shrink-0 flex-col border-r border-zinc-700 p-4">
     <h1 class="mb-4 text-lg font-bold">
       <span class="mr-2 icon-[lucide--bot] align-middle text-blue-400" />
       orkis

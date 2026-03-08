@@ -36,34 +36,25 @@ function resolveGitChangeKind(statusCode: string): GitChangeKind {
 
 /**
  * git status マップからディレクトリの変更種別を推論する。
- * 子ファイルの変更種別のうち、もっとも優先度の高いものを返す。
+ * 配下の変更種別が1種類ならその種別を返し、複数種別が混在する場合は modified を返す。
  */
-const GIT_CHANGE_PRIORITY: Record<GitChangeKind, number> = {
-  deleted: 4,
-  renamed: 3,
-  modified: 2,
-  added: 1,
-  untracked: 0,
-};
-
 function resolveDirectoryGitChange(
   dirPath: string,
   gitStatuses: Record<string, string>,
 ): GitChangeKind | undefined {
   const prefix = dirPath === "" ? "" : dirPath + "/";
-  let highest: GitChangeKind | undefined;
-  let highestPriority = -1;
+  let found: GitChangeKind | undefined;
 
   for (const [filePath, statusCode] of Object.entries(gitStatuses)) {
     if (!filePath.startsWith(prefix)) continue;
     const kind = resolveGitChangeKind(statusCode);
-    const priority = GIT_CHANGE_PRIORITY[kind];
-    if (priority > highestPriority) {
-      highest = kind;
-      highestPriority = priority;
+    if (found === undefined) {
+      found = kind;
+    } else if (found !== kind) {
+      return "modified";
     }
   }
-  return highest;
+  return found;
 }
 
 /**

@@ -46,7 +46,9 @@ const unstagedEntries = computed<GitStatusEntry[]>(() =>
 </script>
 
 <template>
-  <div class="rounded-sm border border-zinc-700 bg-zinc-800 p-3 font-mono text-sm text-zinc-300">
+  <div
+    class="max-h-32 overflow-y-auto rounded-sm border border-zinc-700 bg-zinc-800 p-3 font-mono text-sm text-zinc-300"
+  >
     <div class="mb-1 flex items-center gap-2 font-bold text-zinc-400">
       <span class="icon-[lucide--bug]" />
       Debug

@@ -12,14 +12,15 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@orkis/rpc": "workspace:*",
     "@orkis/shared": "workspace:*",
+    "electrobun": "^1.14.4",
     "ghostty-web": "0.4.0-next.14.g6a1a50d",
     "vue": "3.5.29"
   },
   "devDependencies": {
     "@iconify-json/lucide": "1.2.95",
     "@iconify/tailwind4": "1.2.3",
-    "@orkis/preload": "workspace:*",
     "@tailwindcss/vite": "catalog:",
     "@types/bun": "catalog:",
     "@vitejs/plugin-vue": "6.0.4",

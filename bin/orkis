@@ -5,34 +5,41 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SOCKET_PATH="/tmp/orkis.sock"
 CLI="${ROOT_DIR}/apps/cli/src/index.ts"
 
+# ソケットに接続できるか確認（接続成功=アプリ起動済み）
+is_app_running() {
+  [[ -S "${SOCKET_PATH}" ]] || return 1
+
+  # ソケットファイルがあっても実際に接続できるか確認
+  if ! nc -zU "${SOCKET_PATH}" 2>/dev/null; then
+    # 残骸ソケットを削除
+    rm -f "${SOCKET_PATH}"
+    return 1
+  fi
+  return 0
+}
+
 # アプリ未起動なら起動する（hook コマンドを除く）
 should_launch_app() {
-  # ソケットが存在すればアプリは起動済み
-  [[ -S "${SOCKET_PATH}" ]] && return 1
+  # アプリが起動済みなら起動不要
+  is_app_running && return 1
 
-  # hook コマンドはアプリ起動不要（フックから呼ばれるため）
-  [[ "${1:-}" == "hook" ]] && return 1
+  # open コマンド（デフォルト）以外はアプリ起動不要
+  [[ "${1:-}" == "hook" || "${1:-}" == -* ]] && return 1
 
   return 0
 }
 
 launch_app() {
-  local electron_bin
-  electron_bin="${ROOT_DIR}/node_modules/.bin/electron"
+  local build_dir="${ROOT_DIR}/apps/desktop/build"
 
-  if [[ ! -f "${electron_bin}" ]]; then
-    echo "electron が見つかりません" >&2
-    return 1
-  fi
-
-  if [[ ! -d "${ROOT_DIR}/apps/electron/dist" ]]; then
+  if [[ ! -d "${build_dir}" ]]; then
     echo "未ビルドのためビルドを実行します..." >&2
     (cd "${ROOT_DIR}" && pnpm build) || return 1
   fi
 
-  # ビルド済みの Electron アプリをバックグラウンドで起動
-  # CLI から起動された場合、初期ウィンドウは作らない（ソケット経由の open で作る）
-  ORKIS_CLI_LAUNCH=1 "${electron_bin}" "${ROOT_DIR}/apps/electron" &>/dev/null &
+  # ビルド済みの Electrobun アプリをバックグラウンドで起動
+  export ORKIS_PROJECT_ROOT="${PWD}"
+  (cd "${ROOT_DIR}" && pnpm --filter @orkis/desktop start) &>/dev/null &
   disown
 
   # ソケットが立ち上がるまで待つ

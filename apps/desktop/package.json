@@ -1,0 +1,21 @@
+{
+  "name": "@orkis/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "ORKIS_PROJECT_ROOT=$PWD pnpm exec electrobun dev",
+    "build": "pnpm exec electrobun build",
+    "start": "ORKIS_PROJECT_ROOT=$PWD pnpm exec electrobun run",
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@orkis/renderer": "workspace:*",
+    "@orkis/rpc": "workspace:*",
+    "@orkis/shared": "workspace:*",
+    "electrobun": "^1.14.4"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:"
+  }
+}

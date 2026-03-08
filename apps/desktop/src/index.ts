@@ -153,16 +153,37 @@ const fileServer = Bun.serve({
     const dir = fileServerDirs.get(windowId);
     if (!dir) return new Response("Forbidden", { status: 403 });
 
-    const relPath = decodeURIComponent(segments.slice(1).join("/"));
+    const source = segments[1];
+    const relPath = decodeURIComponent(segments.slice(2).join("/"));
     if (!relPath) return new Response("Not Found", { status: 404 });
 
-    const result = tryCatch(() => resolveSecurePath(dir, relPath));
-    if (!result.ok) return new Response("Forbidden", { status: 403 });
-    const absolutePath = await result.value;
+    const headers = { "X-Content-Type-Options": "nosniff" } as Record<string, string>;
 
-    return new Response(Bun.file(absolutePath), {
-      headers: { "X-Content-Type-Options": "nosniff" },
-    });
+    // /{windowId}/git/{relPath} — git show HEAD:path でファイルを返す
+    if (source === "git") {
+      assertInsideRoot(dir, relPath);
+      const proc = Bun.spawn(["git", "show", `HEAD:${relPath}`], { cwd: dir });
+      const result = await tryCatch(new Response(proc.stdout).arrayBuffer());
+      await proc.exited;
+      if (!result.ok || proc.exitCode !== 0) {
+        return new Response("Not Found", { status: 404 });
+      }
+      // 拡張子から MIME タイプを推定
+      const ext = relPath.split(".").pop()?.toLowerCase() ?? "";
+      const mimeType = Bun.file(`dummy.${ext}`).type;
+      headers["Content-Type"] = mimeType;
+      return new Response(result.value, { headers });
+    }
+
+    // /{windowId}/fs/{relPath} — ファイルシステムから直接返す
+    if (source === "fs") {
+      const secureResult = tryCatch(() => resolveSecurePath(dir, relPath));
+      if (!secureResult.ok) return new Response("Forbidden", { status: 403 });
+      const absolutePath = await secureResult.value;
+      return new Response(Bun.file(absolutePath), { headers });
+    }
+
+    return new Response("Not Found", { status: 404 });
   },
 });
 

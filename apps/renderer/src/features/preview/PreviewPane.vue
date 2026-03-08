@@ -64,18 +64,29 @@ const fileType = computed<FileType>(() => {
   return detectFileType(selectedPath.value);
 });
 
+/** 画像プレビュー表示中か（diff 不可のため モード制限に使用） */
+const isImagePreview = computed(() => {
+  const ft = fileType.value;
+  return (ft === "image" || ft === "svg") && previewEnabled.value;
+});
+
 /** 選択ファイルの変更状態に応じて利用可能なモード一覧を返す */
 const availableModes = computed<PreviewMode[]>(() => {
   const gitChange = selectedGitChange.value;
   if (gitChange === "deleted") return ["original"];
-  if (hasGitDiff(gitChange)) return ["original", "diff", "current"];
+  if (hasGitDiff(gitChange)) {
+    // 画像プレビュー中は diff モードを除外
+    if (isImagePreview.value) return ["original", "current"];
+    return ["original", "diff", "current"];
+  }
   return ["current"];
 });
 
 /** デフォルトモードの決定 */
 function defaultMode(gitChange: GitChangeKind | undefined): PreviewMode {
   if (gitChange === "deleted") return "original";
-  if (hasGitDiff(gitChange)) return "diff";
+  // 画像プレビュー中はデフォルト current
+  if (hasGitDiff(gitChange)) return isImagePreview.value ? "current" : "diff";
   return "current";
 }
 
@@ -85,7 +96,8 @@ const MODE_LABELS: Record<PreviewMode, { icon: string; label: string }> = {
   original: { icon: "icon-[lucide--file-clock]", label: "Original" },
 };
 
-/** 非同期レース防止用のバージョンカウンター */
+/** 非同期レース防止 + 画像キャッシュバスト用のバージョンカウンター */
+const fetchVersionRef = ref(0);
 let fetchVersion = 0;
 
 /** ファイル内容を取得する（watch と fsChange から共用） */
@@ -94,6 +106,7 @@ async function fetchContent(path: string, gitChange: GitChangeKind | undefined) 
   error.value = undefined;
 
   const version = ++fetchVersion;
+  fetchVersionRef.value = version;
 
   try {
     const isDeleted = gitChange === "deleted";
@@ -179,12 +192,19 @@ const displayIsBinary = computed(() => {
 });
 
 /** ファイルサーバー経由の URL を構築 */
-function buildFileServerUrl(relPath: string): string | undefined {
+function buildFileServerUrl(
+  relPath: string,
+  version: number,
+  gitOriginal = false,
+): string | undefined {
   if (!fileServerBaseUrl.value) return undefined;
   const base = fileServerBaseUrl.value.endsWith("/")
     ? fileServerBaseUrl.value
     : `${fileServerBaseUrl.value}/`;
-  return new URL(encodeURI(relPath), base).href;
+  const prefix = gitOriginal ? "git/" : "fs/";
+  const url = new URL(`${prefix}${encodeURI(relPath)}`, base);
+  url.searchParams.set("v", String(version));
+  return url.href;
 }
 
 /** 画像として表示する URL */
@@ -192,7 +212,8 @@ const imageUrl = computed(() => {
   if (!previewEnabled.value) return undefined;
   const ft = fileType.value;
   if ((ft === "image" || ft === "svg") && selectedPath.value) {
-    return buildFileServerUrl(selectedPath.value);
+    const isOriginal = activeMode.value === "original";
+    return buildFileServerUrl(selectedPath.value, fetchVersionRef.value, isOriginal);
   }
   return undefined;
 });

@@ -37,7 +37,9 @@ flowchart TB
 
 ## WKWebView の制約
 
-- `file://` URL をブロック → desktop 側でローカル HTTP ファイルサーバー（`Bun.serve()`）を起動し、`http://localhost:{port}/{windowId}/{relPath}` で配信
+- `file://` URL をブロック → desktop 側でローカル HTTP ファイルサーバー（`Bun.serve()`）を起動して配信
+  - `/{windowId}/fs/{relPath}` — 現在のファイル
+  - `/{windowId}/git/{relPath}` — HEAD 時点のファイル（`git show`）
 - `window.open()` が機能しない → RPC の `openExternal` 経由で `Utils.openExternal()` を呼ぶ
 
 ## ビルド構成

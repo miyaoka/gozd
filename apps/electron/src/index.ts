@@ -17,11 +17,13 @@ function setupPtyHandlers() {
   ipcMain.handle("pty:spawn", (event, cols: number, rows: number) => {
     const id = nextPtyId++;
     const shell = process.env.SHELL ?? "zsh";
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const cwd = (win ? windowDirs.get(win.id) : undefined) ?? process.env.HOME;
     const ptyProcess = pty.spawn(shell, [], {
       name: "xterm-256color",
       cols,
       rows,
-      cwd: process.env.HOME,
+      cwd,
       env: process.env as Record<string, string>,
     });
 

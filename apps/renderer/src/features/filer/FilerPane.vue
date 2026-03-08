@@ -51,8 +51,8 @@ async function loadRoot() {
   }
 }
 
-function onSelect(...args: Parameters<typeof select>) {
-  select(...args);
+function onSelect(path: string) {
+  select(path);
 }
 
 /**

@@ -34,7 +34,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  select: [path: string, gitChange?: GitChangeKind];
+  select: [path: string];
 }>();
 
 const { request } = useRpc();
@@ -74,7 +74,7 @@ const iconUrl = computed(() => {
 
 async function toggle() {
   if (!props.isDirectory) {
-    emit("select", props.path, effectiveGitChange.value);
+    emit("select", props.path);
     return;
   }
 
@@ -153,8 +153,8 @@ function notifyChange(relDir: string) {
 
 defineExpose({ notifyChange });
 
-function onChildSelect(childPath: string, gitChange?: GitChangeKind) {
-  emit("select", childPath, gitChange);
+function onChildSelect(childPath: string) {
+  emit("select", childPath);
 }
 </script>
 

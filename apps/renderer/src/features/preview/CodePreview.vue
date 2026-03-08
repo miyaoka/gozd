@@ -41,7 +41,7 @@ watch(
 
 <style scoped>
 ._line-numbered ._line::before,
-._highlighted-code :deep(._line::before) {
+._highlighted-code :deep(.line::before) {
   content: attr(data-line);
   display: inline-block;
   width: 3ch;

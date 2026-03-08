@@ -42,7 +42,6 @@ const { request } = useRpc();
 
 const currentContent = ref<string>();
 const originalContent = ref<string>();
-const diffContent = ref<string>();
 /** バイナリ画像の data: URL */
 const imageDataUrl = ref<string>();
 const isBinary = ref(false);
@@ -69,7 +68,7 @@ const fileType = computed<FileType>(() => {
 const availableModes = computed<PreviewMode[]>(() => {
   const gitChange = selectedGitChange.value;
   if (gitChange === "deleted") return ["original"];
-  if (hasGitDiff(gitChange)) return ["diff", "original", "current"];
+  if (hasGitDiff(gitChange)) return ["original", "diff", "current"];
   return ["current"];
 });
 
@@ -90,12 +89,11 @@ const MODE_LABELS: Record<PreviewMode, { icon: string; label: string }> = {
 let fetchVersion = 0;
 
 watch(
-  selectedPath,
-  async (path) => {
+  () => [selectedPath.value, selectedGitChange.value] as const,
+  async ([path, gitChange]) => {
     // リセット
     currentContent.value = undefined;
     originalContent.value = undefined;
-    diffContent.value = undefined;
     imageDataUrl.value = undefined;
     previewEnabled.value = true;
     isBinary.value = false;
@@ -104,21 +102,19 @@ watch(
 
     if (!path) return;
 
-    activeMode.value = defaultMode(selectedGitChange.value);
+    activeMode.value = defaultMode(gitChange);
     loading.value = true;
 
     const version = ++fetchVersion;
 
     try {
-      const gitChange = selectedGitChange.value;
       const isDeleted = gitChange === "deleted";
       const hasDiff = hasGitDiff(gitChange);
 
       // 並列でデータ取得
-      const [currentResult, originalResult, diffResult] = await Promise.all([
+      const [currentResult, originalResult] = await Promise.all([
         isDeleted ? undefined : request.fsReadFile({ relPath: path }),
         hasDiff || isDeleted ? request.gitShowFile({ relPath: path }) : undefined,
-        hasDiff ? request.gitDiffFile({ relPath: path }) : undefined,
       ]);
 
       // 別のファイルが選択された場合は結果を破棄
@@ -135,9 +131,6 @@ watch(
         originalContent.value = originalResult.content;
         isOriginalBinary.value = originalResult.isBinary;
       }
-      if (diffResult !== undefined) {
-        diffContent.value = diffResult;
-      }
     } catch (e) {
       if (version !== fetchVersion) return;
       error.value = e instanceof Error ? e.message : "Failed to read file";
@@ -152,9 +145,7 @@ watch(
 
 /** 表示中のテキストコンテンツ */
 const displayContent = computed(() => {
-  const mode = activeMode.value;
-  if (mode === "original") return originalContent.value;
-  if (mode === "diff") return diffContent.value;
+  if (activeMode.value === "original") return originalContent.value;
   return currentContent.value;
 });
 
@@ -248,8 +239,11 @@ const headerIconUrl = computed(() => {
 
         <!-- diff モード -->
         <DiffPreview
-          v-else-if="activeMode === 'diff' && diffContent !== undefined"
-          :content="diffContent"
+          v-else-if="
+            activeMode === 'diff' && originalContent !== undefined && currentContent !== undefined
+          "
+          :original="originalContent"
+          :current="currentContent"
         />
 
         <!-- 画像プレビュー（バイナリ画像 + SVG preview モード） -->

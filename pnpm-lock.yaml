@@ -7,43 +7,46 @@ settings:
 catalogs:
   default:
     '@tailwindcss/vite':
-      specifier: ^4.2.1
+      specifier: 4.2.1
       version: 4.2.1
     '@types/bun':
       specifier: 1.3.10
       version: 1.3.10
     '@types/node':
-      specifier: ^24.11.0
+      specifier: 24.11.0
       version: 24.11.0
     '@typescript/native-preview':
       specifier: 7.0.0-dev.20260305.1
       version: 7.0.0-dev.20260305.1
+    electrobun:
+      specifier: 1.14.4
+      version: 1.14.4
     eslint:
-      specifier: ^10.0.2
+      specifier: 10.0.2
       version: 10.0.2
     eslint-plugin-import-x:
-      specifier: ^4.16.1
+      specifier: 4.16.1
       version: 4.16.1
     eslint-plugin-unused-imports:
-      specifier: ^4.4.1
+      specifier: 4.4.1
       version: 4.4.1
     lefthook:
-      specifier: ^2.1.2
+      specifier: 2.1.2
       version: 2.1.2
     oxfmt:
-      specifier: ^0.36.0
+      specifier: 0.36.0
       version: 0.36.0
     oxlint:
-      specifier: ^1.51.0
+      specifier: 1.51.0
       version: 1.51.0
     oxlint-tsgolint:
-      specifier: ^0.16.0
+      specifier: 0.16.0
       version: 0.16.0
     tailwindcss:
-      specifier: ^4.2.1
+      specifier: 4.2.1
       version: 4.2.1
     typescript:
-      specifier: ^5.9.3
+      specifier: 5.9.3
       version: 5.9.3
     vite:
       specifier: 8.0.0-beta.16
@@ -118,7 +121,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       electrobun:
-        specifier: 1.14.4
+        specifier: 'catalog:'
         version: 1.14.4
     devDependencies:
       '@types/bun':
@@ -140,7 +143,7 @@ importers:
         specifier: 3.3.2
         version: 3.3.2
       electrobun:
-        specifier: 1.14.4
+        specifier: 'catalog:'
         version: 1.14.4
       ghostty-web:
         specifier: 0.4.0-next.14.g6a1a50d
@@ -213,7 +216,7 @@ importers:
   packages/rpc:
     devDependencies:
       electrobun:
-        specifier: 1.14.4
+        specifier: 'catalog:'
         version: 1.14.4
 
   packages/shared:

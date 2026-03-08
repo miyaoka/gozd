@@ -13,7 +13,7 @@
     "@orkis/renderer": "workspace:*",
     "@orkis/rpc": "workspace:*",
     "@orkis/shared": "workspace:*",
-    "electrobun": "1.14.4"
+    "electrobun": "catalog:"
   },
   "devDependencies": {
     "@types/bun": "catalog:"

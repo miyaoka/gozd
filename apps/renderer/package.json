@@ -16,7 +16,7 @@
     "@orkis/shared": "workspace:*",
     "diff": "8.0.3",
     "dompurify": "3.3.2",
-    "electrobun": "1.14.4",
+    "electrobun": "catalog:",
     "ghostty-web": "0.4.0-next.14.g6a1a50d",
     "marked": "17.0.4",
     "material-icon-theme": "5.32.0",

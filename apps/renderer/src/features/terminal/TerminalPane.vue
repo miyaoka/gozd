@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { tryCatch } from "@orkis/shared";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
@@ -34,11 +35,8 @@ onMounted(async () => {
   terminal.open(container);
 
   // WebGL レンダラーを適用（非対応環境では canvas fallback）
-  try {
-    terminal.loadAddon(new WebglAddon());
-  } catch {
-    // WebGL 非対応の場合は標準 canvas レンダラーで描画される
-  }
+  const t = terminal;
+  tryCatch(() => t.loadAddon(new WebglAddon()));
 
   fitAddon.fit();
   terminal.focus();

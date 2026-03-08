@@ -83,6 +83,9 @@ importers:
       '@orkis/preload':
         specifier: workspace:*
         version: link:../../packages/preload
+      '@orkis/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       node-pty:
         specifier: 1.1.0
         version: 1.1.0
@@ -105,6 +108,9 @@ importers:
 
   apps/renderer:
     dependencies:
+      '@orkis/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@xterm/addon-fit':
         specifier: 0.11.0
         version: 0.11.0
@@ -167,6 +173,34 @@ importers:
         specifier: 3.2.5
         version: 3.2.5(typescript@5.9.3)
 
+  packages/cli:
+    dependencies:
+      '@miyaoka/fsss':
+        specifier: ^0.3.0
+        version: 0.3.0
+      '@orkis/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: 4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/bun':
+        specifier: ^1.3.10
+        version: 1.3.10
+      '@typescript/native-preview':
+        specifier: 'catalog:'
+        version: 7.0.0-dev.20260305.1
+      oxfmt:
+        specifier: 'catalog:'
+        version: 0.36.0
+      oxlint:
+        specifier: 'catalog:'
+        version: 1.51.0(oxlint-tsgolint@0.16.0)
+      oxlint-tsgolint:
+        specifier: 'catalog:'
+        version: 0.16.0
+
   packages/preload:
     devDependencies:
       '@types/node':
@@ -178,6 +212,24 @@ importers:
       vite:
         specifier: 'catalog:'
         version: 8.0.0-beta.16(@types/node@24.11.0)(esbuild@0.27.3)(jiti@2.6.1)(tsx@4.21.0)
+
+  packages/shared:
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.11.0
+      '@typescript/native-preview':
+        specifier: 'catalog:'
+        version: 7.0.0-dev.20260305.1
+      oxfmt:
+        specifier: 'catalog:'
+        version: 0.36.0
+      oxlint:
+        specifier: 'catalog:'
+        version: 1.51.0(oxlint-tsgolint@0.16.0)
+      oxlint-tsgolint:
+        specifier: 'catalog:'
+        version: 0.16.0
 
 packages:
 
@@ -472,6 +524,10 @@ packages:
   '@malept/cross-spawn-promise@2.0.0':
     resolution: {integrity: sha512-1DpKU0Z5ThltBwjNySMC14g0CkbyhCaz9FkhxqNsZI6uAPJXFS8cMXlBKo26FJ8ZuW6S9GCMcR9IO5k2X5/9Fg==}
     engines: {node: '>= 12.13.0'}
+
+  '@miyaoka/fsss@0.3.0':
+    resolution: {integrity: sha512-vTWqNsJdLPs6aW3zaY6Ko4Dj+6347VjTiqJAiMx67/EljT2wAjfom7/G4alq0UQYZfFAKNQibiD4HAjHTbGOBQ==}
+    hasBin: true
 
   '@napi-rs/wasm-runtime@0.2.12':
     resolution: {integrity: sha512-ZVWUcfwY4E/yPitQJl481FjFo3K22D6qF0DuFH6Y/nbnE11GY5uguDxZMGXPQ8WQ0128MXQD7TnfHyK4oWoIJQ==}
@@ -980,6 +1036,9 @@ packages:
   '@tybys/wasm-util@0.10.1':
     resolution: {integrity: sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg==}
 
+  '@types/bun@1.3.10':
+    resolution: {integrity: sha512-0+rlrUrOrTSskibryHbvQkDOWRJwJZqZlxrUs1u4oOoTln8+WIXBPmAuCF35SWB2z4Zl3E84Nl/D0P7803nigQ==}
+
   '@types/cacheable-request@6.0.3':
     resolution: {integrity: sha512-IQ3EbTzGxIigb1I3qPZc1rWJnH0BmSKv5QYTalEwweFvyBDLSAe24zP0le/hyi7ecGfZVlIVAg4BZqb8WBwKqw==}
 
@@ -1366,6 +1425,9 @@ packages:
 
   buffer@5.7.1:
     resolution: {integrity: sha512-EHcyIPBQ4BSGlvjB16k5KgAJ27CIsHY/2JBmCRReo48y9rQ3MaUzWX3KVlBa4U7MyX02HdVj0K7C3WaB3ju7FQ==}
+
+  bun-types@1.3.10:
+    resolution: {integrity: sha512-tcpfCCl6XWo6nCVnpcVrxQ+9AYN1iqMIzgrSKYMB/fjLtV2eyAVEg7AxQJuCq/26R6HpKWykQXuSOq/21RYcbg==}
 
   cacache@19.0.1:
     resolution: {integrity: sha512-hdsUxulXCi5STId78vRVYEtDAjq99ICAUktLTeTYsLoTE6Z8dS0c8pWNCxwdrk9YfJeobDZc2Y186hD/5ZQgFQ==}
@@ -2742,6 +2804,9 @@ packages:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
 
+  zod@4.3.6:
+    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
+
 snapshots:
 
   '@antfu/install-pkg@1.1.0':
@@ -3002,6 +3067,10 @@ snapshots:
   '@malept/cross-spawn-promise@2.0.0':
     dependencies:
       cross-spawn: 7.0.6
+
+  '@miyaoka/fsss@0.3.0':
+    dependencies:
+      zod: 4.3.6
 
   '@napi-rs/wasm-runtime@0.2.12':
     dependencies:
@@ -3307,6 +3376,10 @@ snapshots:
     dependencies:
       tslib: 2.8.1
     optional: true
+
+  '@types/bun@1.3.10':
+    dependencies:
+      bun-types: 1.3.10
 
   '@types/cacheable-request@6.0.3':
     dependencies:
@@ -3703,6 +3776,10 @@ snapshots:
     dependencies:
       base64-js: 1.5.1
       ieee754: 1.2.1
+
+  bun-types@1.3.10:
+    dependencies:
+      '@types/node': 25.3.3
 
   cacache@19.0.1:
     dependencies:
@@ -5143,3 +5220,5 @@ snapshots:
       fd-slicer: 1.1.0
 
   yocto-queue@0.1.0: {}
+
+  zod@4.3.6: {}

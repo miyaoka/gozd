@@ -21,7 +21,7 @@ AI エージェントの Plan-Implement-Review ループを管理するデスク
 | PTY            | node-pty                                    |
 | 差分表示       | Monaco Editor (createDiffEditor)（未実装）  |
 | データ保存     | ローカルディレクトリ（JSON + マークダウン） |
-| CLI            | orkis コマンド（フック用）                  |
+| CLI            | orkis コマンド（fsss フレームワーク / bun） |
 
 ## ディレクトリ構成
 
@@ -29,7 +29,9 @@ AI エージェントの Plan-Implement-Review ループを管理するデスク
 orkis/
 ├── apps/
 │   ├── electron/          # Electron メインプロセス
-│   │   ├── src/index.ts
+│   │   ├── src/
+│   │   │   ├── index.ts
+│   │   │   └── socket-server.ts  # CLI との Unix ドメインソケット通信
 │   │   ├── vite.config.ts
 │   │   └── tsconfig.json
 │   └── renderer/          # Vue フロントエンド
@@ -45,11 +47,24 @@ orkis/
 │       ├── vite.config.ts
 │       └── tsconfig.json
 ├── packages/
-│   └── preload/           # Electron preload（contextBridge API）
+│   ├── cli/               # orkis CLI（fsss フレームワーク / bun）
+│   │   ├── src/
+│   │   │   ├── index.ts
+│   │   │   ├── socket-client.ts   # Electron へのソケット送信
+│   │   │   └── commands/
+│   │   │       ├── hook.ts        # orkis hook <event>
+│   │   │       └── open.ts        # orkis open <path>
+│   │   └── tsconfig.json
+│   ├── preload/           # Electron preload（contextBridge API）
+│   │   ├── src/
+│   │   │   ├── index.ts
+│   │   │   └── index.d.ts
+│   │   ├── vite.config.ts
+│   │   └── tsconfig.json
+│   └── shared/            # 全パッケージ共通ユーティリティ
 │       ├── src/
 │       │   ├── index.ts
-│       │   └── index.d.ts
-│       ├── vite.config.ts
+│       │   └── result.ts          # Result 型 + tryCatch
 │       └── tsconfig.json
 ├── scripts/
 │   └── watch.ts           # dev サーバー統合（renderer + preload + main）

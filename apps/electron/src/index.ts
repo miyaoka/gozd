@@ -1,7 +1,9 @@
 import { app, shell, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type net from "node:net";
 import * as pty from "node-pty";
+import { cleanupSocket, setupSocketServer, type OrkisMessage } from "./socket-server";
 
 const ptys = new Map<number, pty.IPty>();
 let nextPtyId = 0;
@@ -77,15 +79,44 @@ function createWindow() {
   }
 }
 
-void app.whenReady().then(() => {
-  setupPtyHandlers();
+let socketServer: net.Server | undefined;
 
-  createWindow();
+function handleSocketMessage(message: OrkisMessage) {
+  const window = BrowserWindow.getAllWindows()[0];
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  switch (message.type) {
+    case "hook":
+      console.log(`[orkis] hook: ${message.event}`, message.payload);
+      window?.webContents.send("orkis:hook", message.event, message.payload);
+      break;
+    case "open":
+      console.log(`[orkis] open: ${message.path}`);
+      createWindow();
+      break;
+  }
+}
+
+// 単一インスタンス制御: 2つ目のプロセスは即終了し、最初のインスタンスが新しいウィンドウを開く
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    createWindow();
   });
-});
+
+  void app.whenReady().then(() => {
+    setupPtyHandlers();
+    socketServer = setupSocketServer(handleSocketMessage);
+
+    createWindow();
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
@@ -98,4 +129,7 @@ app.on("will-quit", () => {
     p.kill();
   }
   ptys.clear();
+  if (socketServer) {
+    cleanupSocket(socketServer);
+  }
 });

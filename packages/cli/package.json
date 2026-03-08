@@ -1,25 +1,27 @@
 {
-  "name": "@orkis/electron",
+  "name": "@orkis/cli",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "main": "dist/index.js",
+  "bin": {
+    "orkis": "./src/index.ts"
+  },
   "scripts": {
-    "build": "vite build",
+    "cli": "bun run src/index.ts",
     "typecheck": "tsgo --noEmit",
     "lint": "oxlint --type-aware",
     "fix": "oxlint --type-aware --fix && oxfmt ."
   },
   "dependencies": {
-    "@orkis/preload": "workspace:*",
+    "@miyaoka/fsss": "^0.3.0",
     "@orkis/shared": "workspace:*",
-    "node-pty": "1.1.0"
+    "zod": "4.3.6"
   },
   "devDependencies": {
-    "@electron/rebuild": "4.0.3",
-    "@types/node": "catalog:",
+    "@types/bun": "^1.3.10",
     "@typescript/native-preview": "catalog:",
-    "electron": "catalog:",
-    "vite": "catalog:"
+    "oxfmt": "catalog:",
+    "oxlint": "catalog:",
+    "oxlint-tsgolint": "catalog:"
   }
 }

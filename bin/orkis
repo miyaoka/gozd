@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SOCKET_PATH="/tmp/orkis.sock"
+CLI="${ROOT_DIR}/packages/cli/src/index.ts"
+
+# open コマンド（またはデフォルトコマンド）の場合、アプリ未起動なら起動する
+should_launch_app() {
+  # ソケットが存在すればアプリは起動済み
+  [[ -S "${SOCKET_PATH}" ]] && return 1
+
+  # open コマンド、または引数なし（defaultCommand=open）の場合のみ起動
+  local first_arg="${1:-}"
+  [[ -z "${first_arg}" || "${first_arg}" == "open" ]] && return 0
+
+  return 1
+}
+
+launch_app() {
+  local electron_bin
+  electron_bin="${ROOT_DIR}/node_modules/.bin/electron"
+
+  if [[ ! -f "${electron_bin}" ]]; then
+    echo "electron が見つかりません" >&2
+    return 1
+  fi
+
+  # ビルド済みの Electron アプリをバックグラウンドで起動
+  "${electron_bin}" "${ROOT_DIR}/apps/electron" &>/dev/null &
+  disown
+
+  # ソケットが立ち上がるまで待つ
+  local max_wait=10
+  local waited=0
+  while [[ ! -S "${SOCKET_PATH}" ]] && (( waited < max_wait )); do
+    sleep 0.2
+    (( waited++ ))
+  done
+
+  if [[ ! -S "${SOCKET_PATH}" ]]; then
+    echo "アプリの起動がタイムアウトしました" >&2
+    return 1
+  fi
+}
+
+if should_launch_app "$@"; then
+  # アプリ起動時は whenReady で既にウィンドウが作られるので、CLI の実行は不要
+  launch_app
+  exit $?
+fi
+
+exec bun "${CLI}" "$@"

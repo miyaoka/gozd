@@ -9,6 +9,11 @@
       "description": "auto-merge tsgo dev preview daily releases",
       "matchPackageNames": ["@typescript/native-preview"],
       "automerge": true
+    },
+    {
+      "description": "track next channel for ghostty-web pre-releases",
+      "matchPackageNames": ["ghostty-web"],
+      "followTag": "next"
     }
   ]
 }

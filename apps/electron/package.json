@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@orkis/preload": "workspace:*",
+    "@orkis/shared": "workspace:*",
     "node-pty": "1.1.0"
   },
   "devDependencies": {

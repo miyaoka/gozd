@@ -1,5 +1,6 @@
-import net from "node:net";
+import { tryCatch } from "@orkis/shared";
 import fs from "node:fs";
+import net from "node:net";
 
 const SOCKET_PATH = "/tmp/orkis.sock";
 
@@ -35,12 +36,12 @@ function setupSocketServer(onMessage: MessageHandler): net.Server {
 
       for (const line of lines) {
         if (line.trim() === "") continue;
-        try {
-          const message = JSON.parse(line) as OrkisMessage;
-          onMessage(message);
-        } catch {
+        const result = tryCatch(() => JSON.parse(line) as OrkisMessage);
+        if (!result.ok) {
           console.error("[socket] invalid JSON:", line);
+          continue;
         }
+        onMessage(result.value);
       }
     });
   });

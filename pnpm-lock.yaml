@@ -60,7 +60,7 @@ importers:
         specifier: 'catalog:'
         version: 7.0.0-dev.20260305.1
       concurrently:
-        specifier: ^9.2.1
+        specifier: 9.2.1
         version: 9.2.1
       lefthook:
         specifier: 'catalog:'
@@ -118,7 +118,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       electrobun:
-        specifier: ^1.14.4
+        specifier: 1.14.4
         version: 1.14.4
     devDependencies:
       '@types/bun':
@@ -134,7 +134,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       electrobun:
-        specifier: ^1.14.4
+        specifier: 1.14.4
         version: 1.14.4
       ghostty-web:
         specifier: 0.4.0-next.14.g6a1a50d
@@ -195,7 +195,7 @@ importers:
   packages/rpc:
     devDependencies:
       electrobun:
-        specifier: ^1.14.4
+        specifier: 1.14.4
         version: 1.14.4
 
   packages/shared:

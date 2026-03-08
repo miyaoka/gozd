@@ -10,6 +10,6 @@
     "typecheck": "tsgo --noEmit"
   },
   "devDependencies": {
-    "electrobun": "^1.14.4"
+    "electrobun": "1.14.4"
   }
 }

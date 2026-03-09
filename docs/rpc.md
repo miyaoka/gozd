@@ -47,6 +47,7 @@ flowchart LR
 | `gitStatusChange` | `{ statuses }`                      | git status 変化           |
 | `orkisOpen`       | `{ dir, file?, fileServerBaseUrl }` | ウィンドウ open           |
 | `orkisHook`       | `{ event, payload }`                | Claude Code Hook イベント |
+| `lspDiagnostics`  | `FileDiagnostics`                   | LSP 型診断結果            |
 
 ### renderer → desktop
 
@@ -70,6 +71,20 @@ interface FileEntry {
 interface FileReadResult {
   content: string;
   isBinary: boolean;
+}
+
+interface LspDiagnostic {
+  startLine: number;
+  startCharacter: number;
+  endLine: number;
+  endCharacter: number;
+  message: string;
+  severity: number; // 1=error, 2=warning, 3=info, 4=hint
+}
+
+interface FileDiagnostics {
+  relPath: string;
+  diagnostics: LspDiagnostic[];
 }
 ```
 

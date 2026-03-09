@@ -12,6 +12,7 @@ AI エージェントの Plan-Implement-Review ループを管理するデスク
 | [electrobun.md](docs/electrobun.md) | Electrobun アーキテクチャ、WKWebView の制約、ウィンドウ管理                |
 | [rpc.md](docs/rpc.md)               | RPC スキーマ（request / message の全定義）                                 |
 | [filer.md](docs/filer.md)           | ファイラー（ツリー表示、git status 色分け、アイコン、ファイル監視）        |
+| [lsp.md](docs/lsp.md)               | LSP 型診断（tsgo、Vue tsserver bridge、diagnostics 取得方式）              |
 | [preview.md](docs/preview.md)       | プレビュー（コード、diff、画像、SVG、Markdown、リアクティブ更新）          |
 | [terminal.md](docs/terminal.md)     | ターミナル（xterm.js / ghostty-web 切り替え、PTY ライフサイクル）          |
 
@@ -43,16 +44,17 @@ AI エージェントの Plan-Implement-Review ループを管理するデスク
 ```
 orkis/
 ├── apps/
-│   ├── desktop/           # Electrobun メインプロセス（PTY、ファイル監視、RPC、ソケットサーバー）
+│   ├── desktop/           # Electrobun メインプロセス（PTY、ファイル監視、RPC、ソケットサーバー、LSP）
 │   ├── cli/               # orkis CLI（fsss フレームワーク / bun）
 │   └── renderer/          # Vue フロントエンド
 │       └── src/features/  # feature ごとに component, composable, store をまとめる
-│           ├── debug/     # デバッグ情報表示
-│           ├── filer/     # ファイルツリー表示（material-icon-theme アイコン、git status 色分け）
-│           ├── layout/    # レイアウト
-│           ├── preview/   # ファイルプレビュー（コード、diff、画像、SVG、Markdown）
-│           ├── rpc/       # Electrobun RPC composable
-│           └── terminal/  # ターミナル
+│           ├── debug/       # デバッグ情報表示
+│           ├── diagnostics/ # LSP 型診断パネル（tsgo + Vue）
+│           ├── filer/       # ファイルツリー表示（material-icon-theme アイコン、git status 色分け）
+│           ├── layout/      # レイアウト
+│           ├── preview/     # ファイルプレビュー（コード、diff、画像、SVG、Markdown）
+│           ├── rpc/         # Electrobun RPC composable
+│           └── terminal/    # ターミナル
 ├── packages/
 │   ├── rpc/               # RPC スキーマ型定義（bun ↔ webview）
 │   └── shared/            # 全パッケージ共通ユーティリティ（Result 型 + tryCatch）

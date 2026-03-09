@@ -635,7 +635,14 @@ function createWindowWithRPC(dir: string): OrkisWindow {
           // webview 準備完了後に LSP を起動
           void (async () => {
             const clients: LspClient[] = [];
-            const diagCallback = (relPath: string, diagnostics: LspDiagnostic[]) => {
+            const diagCallback = (
+              source: string,
+              relPath: string,
+              diagnostics: LspDiagnostic[],
+            ) => {
+              if (diagnostics.length > 0) {
+                console.log(`[diag:${source}] ${relPath}: ${diagnostics.length} items`);
+              }
               win.webview.rpc?.send.lspDiagnostics({ relPath, diagnostics });
             };
 
@@ -646,7 +653,7 @@ function createWindowWithRPC(dir: string): OrkisWindow {
                 createLspClient({
                   rootDir: dir,
                   server: { kind: "tsgo", binaryPath: tsgoPath },
-                  onDiagnostics: diagCallback,
+                  onDiagnostics: (relPath, diags) => diagCallback("tsgo", relPath, diags),
                   onError: (msg) => console.error(`[lsp:tsgo] ${msg}`),
                 }),
               );
@@ -670,7 +677,7 @@ function createWindowWithRPC(dir: string): OrkisWindow {
                     pluginProbeLocation: vuePaths.pluginProbeLocation,
                   },
                   onDiagnostics: (relPath, diagnostics) => {
-                    diagCallback(`${RENDERER_PREFIX}${relPath}`, diagnostics);
+                    diagCallback("vue", `${RENDERER_PREFIX}${relPath}`, diagnostics);
                   },
                   onError: (msg) => console.error(`[lsp:vue] ${msg}`),
                 }),

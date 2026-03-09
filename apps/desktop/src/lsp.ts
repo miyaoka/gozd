@@ -225,8 +225,8 @@ function pipeStderr(stream: ReadableStream<Uint8Array>, label: string) {
 interface TsServerBridge {
   /** tsserver にファイルを開く */
   openFile: (absPath: string, content: string) => void;
-  /** tsserver にファイル変更を通知（全文置換） */
-  changeFile: (absPath: string, content: string) => void;
+  /** tsserver にファイル変更を通知（全文置換）。レスポンスを待って返す */
+  changeFile: (absPath: string, content: string) => Promise<unknown>;
   /** tsserver にファイルを閉じる */
   closeFile: (absPath: string) => void;
   /** Vue LSP からの tsserver/request をフォワード */
@@ -318,6 +318,13 @@ function createTsServerBridge(options: TsServerBridgeOptions): TsServerBridge {
       if (done) break;
       parser.feed(value);
     }
+    // プロセス終了時に未解決の pending をすべて reject する
+    const err = new Error("[tsserver] process exited with pending requests");
+    for (const [, pending] of ownPending) {
+      pending.reject(err);
+    }
+    ownPending.clear();
+    bridgePending.clear();
   })();
 
   function writeToStdin(data: string) {
@@ -362,23 +369,17 @@ function createTsServerBridge(options: TsServerBridgeOptions): TsServerBridge {
       });
     },
 
-    changeFile(absPath, content) {
-      const s = seq++;
-      sendTsCommand(s, "updateOpen", {
-        changedFiles: [
-          {
-            fileName: absPath,
-            textChanges: [
-              {
-                start: { line: 1, offset: 1 },
-                end: { line: Number.MAX_SAFE_INTEGER, offset: 1 },
-                newText: content,
-              },
-            ],
-          },
-        ],
-        closedFiles: [],
+    async changeFile(absPath, content) {
+      // 全文置換: 一度閉じて開き直す（changedFiles の行番号上限で tsserver がエラーになるため）
+      await sendWithResponse("updateOpen", {
+        changedFiles: [],
+        closedFiles: [absPath],
         openFiles: [],
+      });
+      await sendWithResponse("updateOpen", {
+        changedFiles: [],
+        closedFiles: [],
+        openFiles: [{ file: absPath, fileContent: content }],
       });
     },
 
@@ -658,6 +659,8 @@ export function createLspClient(options: LspClientOptions): LspClient {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       onError?.(`[lsp] initialize failed: ${msg}`);
+      // 失敗時も resolve して scanProject がハングしないようにする
+      onInitialized?.();
     }
   })();
 
@@ -700,10 +703,13 @@ export function createLspClient(options: LspClientOptions): LspClient {
       });
 
       if (tsbridge) {
-        tsbridge.changeFile(path.resolve(rootDir, relPath), content);
+        // tsserver の変更反映を待ってから診断を取得する
+        void tsbridge.changeFile(path.resolve(rootDir, relPath), content).then(() => {
+          requestDiagnostics(relPath);
+        });
+      } else {
+        requestDiagnostics(relPath);
       }
-
-      requestDiagnostics(relPath);
     },
 
     didClose(relPath) {

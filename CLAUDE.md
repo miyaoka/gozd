@@ -13,7 +13,7 @@ AI エージェントの Plan-Implement-Review ループを管理するデスク
 | [rpc.md](docs/rpc.md)               | RPC スキーマ（request / message の全定義）                                 |
 | [filer.md](docs/filer.md)           | ファイラー（ツリー表示、git status 色分け、アイコン、ファイル監視）        |
 | [preview.md](docs/preview.md)       | プレビュー（コード、diff、画像、SVG、Markdown、リアクティブ更新）          |
-| [terminal.md](docs/terminal.md)     | ターミナル（ghostty-web、PTY ライフサイクル）                              |
+| [terminal.md](docs/terminal.md)     | ターミナル（xterm.js / ghostty-web 切り替え、PTY ライフサイクル）          |
 
 ## 技術スタック
 
@@ -27,7 +27,7 @@ AI エージェントの Plan-Implement-Review ループを管理するデスク
 | アイコン         | Iconify（@iconify/tailwind4 + Lucide）        |
 | フォーマッタ     | oxfmt                                         |
 | リンター         | oxlint（TypeScript）/ ESLint（Vue）           |
-| ターミナル       | ghostty-web                                   |
+| ターミナル       | xterm.js / ghostty-web（切り替え可）          |
 | PTY              | Bun.spawn({ terminal })                       |
 | ファイル監視     | node:fs.watch（recursive）                    |
 | RPC              | Electrobun RPC（型安全な bun ↔ webview 通信） |

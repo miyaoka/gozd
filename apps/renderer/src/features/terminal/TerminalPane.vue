@@ -1,95 +1,52 @@
 <doc lang="md">
-ghostty-web ベースのターミナルエミュレータ。
+ターミナルバックエンド切り替えラッパー。
 
-## ライフサイクル
-
-- マウント時に WASM パーサーを初期化し、RPC 経由で PTY を生成
-- FitAddon + ResizeObserver でコンテナサイズに自動追従
-- PTY ↔ Terminal 間のデータを双方向にブリッジ
-- アンマウント時に PTY を kill し Terminal を dispose
+ghostty-web と xterm.js を動的に切り替える。
+バックエンドを変更すると PTY を再生成して新しいターミナルを開く。
 </doc>
 
 <script setup lang="ts">
-import { init, Terminal, FitAddon } from "ghostty-web";
-import { onMounted, onBeforeUnmount, ref } from "vue";
-import { useRpc } from "../rpc/useRpc";
+import { shallowRef } from "vue";
+import type { Component } from "vue";
+import GhosttyTerminal from "./GhosttyTerminal.vue";
+import XtermTerminal from "./XtermTerminal.vue";
 
-const containerRef = ref<HTMLElement>();
-const { request, send, onPtyData, onPtyExit } = useRpc();
+type TerminalBackend = "ghostty" | "xterm";
 
-let terminal: Terminal | undefined;
-let fitAddon: FitAddon | undefined;
-let ptyId: number | undefined;
-let removeDataListener: (() => void) | undefined;
-let removeExitListener: (() => void) | undefined;
+interface BackendEntry {
+  component: Component;
+  label: string;
+}
 
-onMounted(async () => {
-  const container = containerRef.value;
-  if (!container) return;
+const BACKENDS: Record<TerminalBackend, BackendEntry> = {
+  ghostty: { component: GhosttyTerminal, label: "Ghostty" },
+  xterm: { component: XtermTerminal, label: "xterm" },
+};
 
-  // ghostty WASM パーサーの初期化
-  await init();
+const BACKEND_KEYS: TerminalBackend[] = ["xterm", "ghostty"];
 
-  terminal = new Terminal({
-    fontSize: 13,
-    fontFamily: "'JetBrains Mono', 'Fira Code', Menlo, monospace",
-    theme: {
-      background: "#18181b",
-      foreground: "#e4e4e7",
-      cursor: "#e4e4e7",
-    },
-    cursorBlink: true,
-  });
-
-  fitAddon = new FitAddon();
-  terminal.loadAddon(fitAddon);
-  terminal.open(container);
-
-  fitAddon.fit();
-  // ResizeObserver による自動リサイズ
-  fitAddon.observeResize();
-  terminal.focus();
-
-  ptyId = await request.ptySpawn({ cols: terminal.cols, rows: terminal.rows });
-
-  // PTY → terminal
-  removeDataListener = onPtyData(({ id, data }) => {
-    if (id === ptyId) {
-      terminal?.write(data);
-    }
-  });
-
-  removeExitListener = onPtyExit(({ id, exitCode: _exitCode }) => {
-    if (id === ptyId) {
-      terminal?.write("\r\n[Process exited]\r\n");
-      ptyId = undefined;
-    }
-  });
-
-  terminal.onResize(({ cols, rows }) => {
-    if (ptyId !== undefined) {
-      send.ptyResize({ id: ptyId, cols, rows });
-    }
-  });
-
-  // terminal → PTY
-  terminal.onData((data) => {
-    if (ptyId !== undefined) {
-      send.ptyWrite({ id: ptyId, data });
-    }
-  });
-});
-
-onBeforeUnmount(() => {
-  removeDataListener?.();
-  removeExitListener?.();
-  if (ptyId !== undefined) {
-    send.ptyKill({ id: ptyId });
-  }
-  terminal?.dispose();
-});
+const currentBackend = shallowRef<TerminalBackend>("xterm");
 </script>
 
 <template>
-  <div ref="containerRef" class="size-full" />
+  <div class="flex size-full flex-col">
+    <div class="flex shrink-0 gap-1 px-2 py-1">
+      <button
+        v-for="key in BACKEND_KEYS"
+        :key="key"
+        class="rounded-sm px-2 py-0.5 text-xs"
+        :class="
+          currentBackend === key
+            ? 'bg-zinc-600 text-zinc-100'
+            : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300'
+        "
+        @click="currentBackend = key"
+      >
+        {{ BACKENDS[key].label }}
+      </button>
+    </div>
+    <div class="min-h-0 flex-1">
+      <component :is="BACKENDS[currentBackend].component" :key="currentBackend" />
+    </div>
+  </div>
 </template>

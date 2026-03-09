@@ -1,4 +1,4 @@
-import type { OrkisRPC } from "@orkis/rpc";
+import type { FileDiagnostics, OrkisRPC } from "@orkis/rpc";
 import Electrobun, { Electroview } from "electrobun/view";
 
 // bun → webview メッセージのコールバックリスト（動的リスナー用）
@@ -11,6 +11,7 @@ const listeners = {
     (payload: { dir: string; file?: string; fileServerBaseUrl: string }) => void
   >,
   orkisHook: [] as Array<(payload: { event: string; payload: Record<string, unknown> }) => void>,
+  lspDiagnostics: [] as Array<(payload: FileDiagnostics) => void>,
 };
 
 const rpc = Electroview.defineRPC<OrkisRPC>({
@@ -34,6 +35,9 @@ const rpc = Electroview.defineRPC<OrkisRPC>({
       },
       orkisHook: (payload) => {
         for (const fn of listeners.orkisHook) fn(payload);
+      },
+      lspDiagnostics: (payload) => {
+        for (const fn of listeners.lspDiagnostics) fn(payload);
       },
     },
   },
@@ -79,5 +83,6 @@ export function useRpc() {
     ) => subscribe("orkisOpen", fn),
     onOrkisHook: (fn: (payload: { event: string; payload: Record<string, unknown> }) => void) =>
       subscribe("orkisHook", fn),
+    onLspDiagnostics: (fn: (payload: FileDiagnostics) => void) => subscribe("lspDiagnostics", fn),
   };
 }

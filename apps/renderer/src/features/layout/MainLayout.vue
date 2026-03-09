@@ -16,6 +16,7 @@
 import { useWindowSize } from "@vueuse/core";
 import { ref, watchEffect } from "vue";
 import DebugPane from "../debug/DebugPane.vue";
+import DiagnosticsPane from "../diagnostics/DiagnosticsPane.vue";
 import FilerPane from "../filer/FilerPane.vue";
 import PreviewPane from "../preview/PreviewPane.vue";
 import TerminalPane from "../terminal/TerminalPane.vue";
@@ -103,8 +104,13 @@ watchEffect(() => {
       :before-min-size="MAIN_MIN_HEIGHT"
       :after-min-size="DEBUG_MIN_HEIGHT"
     />
-    <div class="shrink-0 overflow-hidden" :style="{ height: `${debugHeight}px` }">
-      <DebugPane />
+    <div class="flex shrink-0 gap-2 overflow-hidden p-0" :style="{ height: `${debugHeight}px` }">
+      <div class="w-1/2 overflow-hidden">
+        <DebugPane />
+      </div>
+      <div class="w-1/2 overflow-hidden">
+        <DiagnosticsPane />
+      </div>
     </div>
   </div>
 </template>

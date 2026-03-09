@@ -5,6 +5,8 @@ import path from "node:path";
 import net from "node:net";
 import { tryCatch } from "@orkis/shared";
 import type { OrkisRPC } from "@orkis/rpc";
+import { createLspClient } from "./lsp";
+import type { LspClient } from "./lsp";
 
 type OrkisRPCInstance = ReturnType<typeof BrowserView.defineRPC<OrkisRPC>>;
 type OrkisWindow = BrowserWindow<OrkisRPCInstance>;
@@ -200,6 +202,35 @@ const fileServer = Bun.serve({
 
 console.log(`[file-server] listening on http://localhost:${fileServer.port}`);
 
+// --- LSP 管理 ---
+
+/** ウィンドウごとに単一の LSP クライアント（モノレポルート）を管理 */
+const windowLspClients = new Map<OrkisWindow, LspClient>();
+
+/** プロジェクトの node_modules から tsgo ネイティブバイナリを探す */
+async function resolveTsgoPath(projectDir: string): Promise<string | undefined> {
+  const packageName = `@typescript/native-preview-${process.platform}-${process.arch}`;
+
+  // 直接パス（npm / yarn hoisted）
+  const directPath = path.join(projectDir, "node_modules", packageName, "lib", "tsgo");
+  if (fs.existsSync(directPath)) return directPath;
+
+  // pnpm .pnpm 配下
+  const pnpmBase = path.join(projectDir, "node_modules", ".pnpm");
+  const prefix = `@typescript+native-preview-${process.platform}-${process.arch}@`;
+  const entriesResult = await tryCatch(fsp.readdir(pnpmBase));
+  if (entriesResult.ok) {
+    for (const entry of entriesResult.value) {
+      if (entry.startsWith(prefix)) {
+        const candidate = path.join(pnpmBase, entry, "node_modules", packageName, "lib", "tsgo");
+        if (fs.existsSync(candidate)) return candidate;
+      }
+    }
+  }
+
+  return undefined;
+}
+
 // --- ウィンドウ管理 ---
 
 /** ウィンドウ → UUID */
@@ -255,6 +286,24 @@ function startWatching(win: OrkisWindow, root: string) {
     const relDir = path.dirname(filename);
     win.webview.rpc?.send.fsChange({ relDir });
     scheduleGitStatusUpdate(win, root);
+
+    // TypeScript ファイルの変更を LSP に通知
+    if (/\.[tj]sx?$/.test(filename)) {
+      const lsp = windowLspClients.get(win);
+      if (lsp) {
+        void (async () => {
+          const absPath = path.join(root, filename);
+          const fileResult = await tryCatch(fsp.readFile(absPath, "utf-8"));
+          if (fileResult.ok) {
+            lsp.didChange(filename, fileResult.value);
+          } else {
+            // ファイルが削除された場合、LSP を閉じて診断をクリアする
+            lsp.didClose(filename);
+            win.webview.rpc?.send.lspDiagnostics({ relPath: filename, diagnostics: [] });
+          }
+        })();
+      }
+    }
   });
 
   windowFsWatchers.set(win, watcher);
@@ -352,6 +401,12 @@ function cleanupWindow(win: OrkisWindow) {
       entry.proc.kill();
       ptys.delete(id);
     }
+  }
+  // LSP クライアントをシャットダウン
+  const lsp = windowLspClients.get(win);
+  if (lsp) {
+    windowLspClients.delete(win);
+    void lsp.shutdown();
   }
 }
 
@@ -458,6 +513,28 @@ function createWindowWithRPC(dir: string): OrkisWindow {
             dir,
             fileServerBaseUrl: `http://localhost:${fileServer.port}/${windowId}`,
           });
+
+          // webview 準備完了後に LSP を起動（モノレポルートで単一プロセス）
+          void (async () => {
+            const tsgoPath = await resolveTsgoPath(dir);
+            if (!tsgoPath) {
+              console.log("[lsp] tsgo not found, skipping LSP");
+              return;
+            }
+            console.log(`[lsp] tsgo path: ${tsgoPath}`);
+
+            const lsp = createLspClient({
+              rootDir: dir,
+              tsgoPath,
+              onDiagnostics: (relPath, diagnostics) => {
+                win.webview.rpc?.send.lspDiagnostics({ relPath, diagnostics });
+              },
+              onError: (msg) => console.error(`[lsp] ${msg}`),
+            });
+            windowLspClients.set(win, lsp);
+
+            await lsp.scanProject();
+          })();
         },
       },
     },

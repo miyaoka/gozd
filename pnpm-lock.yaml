@@ -120,6 +120,9 @@ importers:
       '@orkis/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@typescript/native-preview':
+        specifier: 'catalog:'
+        version: 7.0.0-dev.20260305.1
       electrobun:
         specifier: 'catalog:'
         version: 1.14.4
@@ -226,6 +229,10 @@ importers:
         version: 3.2.5(typescript@5.9.3)
 
   packages/rpc:
+    dependencies:
+      '@typescript/native-preview':
+        specifier: 'catalog:'
+        version: 7.0.0-dev.20260305.1
     devDependencies:
       electrobun:
         specifier: 'catalog:'

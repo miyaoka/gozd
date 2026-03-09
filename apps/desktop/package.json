@@ -7,7 +7,9 @@
     "dev": "ORKIS_PROJECT_ROOT=$PWD pnpm exec electrobun dev",
     "build": "pnpm exec electrobun build",
     "start": "ORKIS_PROJECT_ROOT=$PWD pnpm exec electrobun run",
-    "typecheck": "tsgo --noEmit"
+    "typecheck": "tsgo --noEmit",
+    "lint": "oxlint --type-aware",
+    "fix": "oxlint --type-aware --fix && oxfmt ."
   },
   "dependencies": {
     "@orkis/renderer": "workspace:*",
@@ -17,6 +19,9 @@
   },
   "devDependencies": {
     "@types/bun": "catalog:",
-    "@typescript/native-preview": "catalog:"
+    "@typescript/native-preview": "catalog:",
+    "oxfmt": "catalog:",
+    "oxlint": "catalog:",
+    "oxlint-tsgolint": "catalog:"
   }
 }

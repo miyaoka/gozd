@@ -130,6 +130,15 @@ importers:
       '@typescript/native-preview':
         specifier: 'catalog:'
         version: 7.0.0-dev.20260306.1
+      oxfmt:
+        specifier: 'catalog:'
+        version: 0.36.0
+      oxlint:
+        specifier: 'catalog:'
+        version: 1.51.0(oxlint-tsgolint@0.16.0)
+      oxlint-tsgolint:
+        specifier: 'catalog:'
+        version: 0.16.0
 
   apps/renderer:
     dependencies:
@@ -239,6 +248,15 @@ importers:
       electrobun:
         specifier: 'catalog:'
         version: 1.14.4
+      oxfmt:
+        specifier: 'catalog:'
+        version: 0.36.0
+      oxlint:
+        specifier: 'catalog:'
+        version: 1.51.0(oxlint-tsgolint@0.16.0)
+      oxlint-tsgolint:
+        specifier: 'catalog:'
+        version: 0.16.0
 
   packages/shared:
     devDependencies:

@@ -60,6 +60,16 @@ pre-commit:
       glob: "**/*.ts"
       run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
       stage_fixed: true
+    - name: oxlint-cli
+      root: "apps/cli/"
+      glob: "**/*.ts"
+      run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
+      stage_fixed: true
+    - name: oxlint-shared
+      root: "packages/shared/"
+      glob: "**/*.ts"
+      run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
+      stage_fixed: true
 
     # apps/renderer: .ts は oxlint、.vue は eslint。oxfmt は全ファイルに適用
     # 同一ファイルへの競合を避けるため piped で直列実行

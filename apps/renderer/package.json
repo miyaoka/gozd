@@ -25,7 +25,7 @@
     "material-icon-theme": "5.32.0",
     "mermaid": "11.13.0",
     "pinia": "3.0.4",
-    "shiki": "4.0.1",
+    "shiki": "4.0.2",
     "vue": "3.5.30"
   },
   "devDependencies": {

@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { tryCatch } from "@orkis/shared";
-import type { LspDiagnostic, OrkisRPC } from "@orkis/rpc";
+import type { LspDiagnostic, OrkisRPC, WorktreeChangeCounts } from "@orkis/rpc";
 import { createLspClient } from "./lsp";
 import type { LspClient } from "./lsp";
 import { getShellEnv } from "./shellEnv";
@@ -162,6 +162,37 @@ async function getGitStatus(cwd: string): Promise<Record<string, string>> {
   return statuses;
 }
 
+/** git status の2文字コードから変更種別ごとのファイル数を算出 */
+function countChanges(statuses: Record<string, string>): WorktreeChangeCounts {
+  let modified = 0;
+  let added = 0;
+  let deleted = 0;
+  let untracked = 0;
+
+  for (const status of Object.values(statuses)) {
+    if (status === "??") {
+      untracked++;
+      continue;
+    }
+    // worktree 側 (Y) を優先、なければ index 側 (X) を使う
+    const code = status[1] !== " " ? status[1] : status[0];
+    switch (code) {
+      case "A":
+        added++;
+        break;
+      case "D":
+        deleted++;
+        break;
+      default:
+        // M, R, C, T, U 等はすべて modified 扱い
+        modified++;
+        break;
+    }
+  }
+
+  return { modified, added, deleted, untracked };
+}
+
 const WORKTREE_DIR = ".orkis/worktrees";
 
 function generateWorktreeId(): string {
@@ -285,6 +316,19 @@ async function getWorktreeList(cwd: string): Promise<import("@orkis/rpc").Worktr
     isFirst = false;
   }
 
+  return entries;
+}
+
+/** 各 worktree の git status を並列取得して changeCounts を付与する */
+async function attachChangeCounts(
+  entries: import("@orkis/rpc").WorktreeEntry[],
+): Promise<import("@orkis/rpc").WorktreeEntry[]> {
+  await Promise.all(
+    entries.map(async (entry) => {
+      const statuses = await getGitStatus(entry.path);
+      entry.changeCounts = countChanges(statuses);
+    }),
+  );
   return entries;
 }
 
@@ -678,9 +722,120 @@ function stopWatching(win: OrkisWindow) {
   gitStatusNeedsRerun.delete(win);
 }
 
+// --- 非アクティブ worktree 監視 ---
+
+interface WorktreeWatchEntry {
+  /** ワークツリー全体の recursive watcher */
+  fsWatcher: fs.FSWatcher;
+  /** .git/index の watchFile パス（unwatchFile 用） */
+  gitIndexPath: string;
+}
+
+/** ウィンドウごとの非アクティブ worktree 監視 */
+const windowWorktreeWatchers = new Map<OrkisWindow, Map<string, WorktreeWatchEntry>>();
+const wtChangeTimers = new Map<OrkisWindow, ReturnType<typeof setTimeout>>();
+/** syncWorktreeWatchers の世代管理（並行実行で stale な結果を破棄するため） */
+const wtSyncGen = new Map<OrkisWindow, number>();
+
+/** 非アクティブ worktree でファイル変更があったことをデバウンスして通知 */
+function scheduleWorktreeChangeNotify(win: OrkisWindow) {
+  const existing = wtChangeTimers.get(win);
+  if (existing) clearTimeout(existing);
+
+  const timer = setTimeout(() => {
+    wtChangeTimers.delete(win);
+    win.webview.rpc?.send.worktreeChange();
+  }, GIT_STATUS_DEBOUNCE_MS);
+
+  wtChangeTimers.set(win, timer);
+}
+
+/**
+ * 非アクティブ worktree の fs.watch を同期する。
+ * アクティブ worktree は既存の startWatching が担当するため除外する。
+ * 世代管理により、並行呼び出し時は最新の呼び出しのみが反映される。
+ */
+async function syncWorktreeWatchers(win: OrkisWindow, repoRoot: string, activeDir: string) {
+  const gen = (wtSyncGen.get(win) ?? 0) + 1;
+  wtSyncGen.set(win, gen);
+
+  const entries = await getWorktreeList(repoRoot);
+
+  // 世代が変わっていたら後続の呼び出しに任せる
+  if (wtSyncGen.get(win) !== gen) return;
+
+  const activeReal = await tryCatch(fsp.realpath(activeDir));
+  const activePath = activeReal.ok ? activeReal.value : activeDir;
+
+  const existing = windowWorktreeWatchers.get(win) ?? new Map<string, WorktreeWatchEntry>();
+  const desiredPaths = new Set<string>();
+
+  for (const entry of entries) {
+    const entryReal = await tryCatch(fsp.realpath(entry.path));
+    const entryPath = entryReal.ok ? entryReal.value : entry.path;
+
+    // アクティブ worktree は既存の startWatching が担当
+    if (entryPath === activePath) continue;
+    desiredPaths.add(entryPath);
+
+    // 既に監視中ならスキップ
+    if (existing.has(entryPath)) continue;
+
+    // ワークツリー全体の recursive watcher
+    const watchResult = tryCatch(() =>
+      fs.watch(entryPath, { recursive: true }, (_eventType, filename) => {
+        if (!filename) return;
+        if (filename.startsWith(".git/") || filename.startsWith(".git\\")) return;
+        if (filename.startsWith("node_modules/") || filename.startsWith("node_modules\\")) return;
+        scheduleWorktreeChangeNotify(win);
+      }),
+    );
+
+    if (!watchResult.ok) continue;
+
+    // .git/index の監視（git add / commit / reset 等の検知用）
+    const gitDir = await resolveGitDir(entryPath);
+    const gitIndexPath = path.join(gitDir, "index");
+    fs.watchFile(gitIndexPath, { interval: GIT_WATCH_POLL_MS }, () => {
+      scheduleWorktreeChangeNotify(win);
+    });
+
+    existing.set(entryPath, { fsWatcher: watchResult.value, gitIndexPath });
+  }
+
+  // 不要な監視を停止（削除された worktree やアクティブに切り替わった worktree）
+  for (const [wtPath, watchEntry] of existing) {
+    if (!desiredPaths.has(wtPath)) {
+      watchEntry.fsWatcher.close();
+      fs.unwatchFile(watchEntry.gitIndexPath);
+      existing.delete(wtPath);
+    }
+  }
+
+  windowWorktreeWatchers.set(win, existing);
+}
+
+function stopWorktreeWatchers(win: OrkisWindow) {
+  const watchers = windowWorktreeWatchers.get(win);
+  if (watchers) {
+    for (const watchEntry of watchers.values()) {
+      watchEntry.fsWatcher.close();
+      fs.unwatchFile(watchEntry.gitIndexPath);
+    }
+    windowWorktreeWatchers.delete(win);
+  }
+  const timer = wtChangeTimers.get(win);
+  if (timer) {
+    clearTimeout(timer);
+    wtChangeTimers.delete(win);
+  }
+  wtSyncGen.delete(win);
+}
+
 /** ウィンドウ close 時に関連リソースをすべて解放する */
 function cleanupWindow(win: OrkisWindow) {
   stopWatching(win);
+  stopWorktreeWatchers(win);
   const windowId = windowIds.get(win);
   if (windowId) fileServerDirs.delete(windowId);
   windowIds.delete(win);
@@ -787,9 +942,13 @@ function createWindowWithRPC(dir: string): OrkisWindow {
           return result.value;
         },
         gitStatus: () => getGitStatus(currentDir),
-        gitWorktreeList: () => getWorktreeList(repoRootDir),
+        gitWorktreeList: async () => attachChangeCounts(await getWorktreeList(repoRootDir)),
         gitBranchList: () => getBranchList(repoRootDir),
-        gitWorktreeAdd: ({ branch }) => addWorktree(repoRootDir, branch),
+        gitWorktreeAdd: async ({ branch }) => {
+          const entry = await addWorktree(repoRootDir, branch);
+          void syncWorktreeWatchers(win, repoRootDir, currentDir);
+          return entry;
+        },
         gitWorktreeRemove: async ({ path: wtPath, force }) => {
           const wtReal = await fsp.realpath(wtPath);
           await removeWorktree(repoRootDir, wtPath, force);
@@ -800,6 +959,7 @@ function createWindowWithRPC(dir: string): OrkisWindow {
               ptys.delete(id);
             }
           }
+          void syncWorktreeWatchers(win, repoRootDir, currentDir);
         },
         gitBranchDelete: ({ branch }) => deleteBranch(repoRootDir, branch),
         switchDir: async ({ dir: targetDir }) => {
@@ -845,6 +1005,9 @@ function createWindowWithRPC(dir: string): OrkisWindow {
           // 初回 git status をプッシュ
           scheduleGitStatusUpdate(win, currentDir);
 
+          // 非アクティブ worktree の監視を再同期（アクティブが変わったため）
+          void syncWorktreeWatchers(win, repoRootDir, currentDir);
+
           return {
             dir: currentDir,
             fileServerBaseUrl: `http://localhost:${fileServer.port}/${windowId}`,
@@ -880,6 +1043,9 @@ function createWindowWithRPC(dir: string): OrkisWindow {
             fileServerBaseUrl: `http://localhost:${fileServer.port}/${windowId}`,
             channel,
           });
+
+          // 非アクティブ worktree の監視を開始
+          void syncWorktreeWatchers(win, repoRootDir, currentDir);
 
           // webview 準備完了後に LSP を起動
           void (async () => {

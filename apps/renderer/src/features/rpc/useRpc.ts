@@ -7,6 +7,7 @@ const listeners = {
   ptyExit: [] as Array<(payload: { id: number; exitCode: number }) => void>,
   fsChange: [] as Array<(payload: { relDir: string }) => void>,
   gitStatusChange: [] as Array<(payload: { statuses: Record<string, string> }) => void>,
+  worktreeChange: [] as Array<() => void>,
   orkisOpen: [] as Array<
     (payload: { dir: string; file?: string; fileServerBaseUrl: string; channel: string }) => void
   >,
@@ -29,6 +30,9 @@ const rpc = Electroview.defineRPC<OrkisRPC>({
       },
       gitStatusChange: (payload) => {
         for (const fn of listeners.gitStatusChange) fn(payload);
+      },
+      worktreeChange: () => {
+        for (const fn of listeners.worktreeChange) fn();
       },
       orkisOpen: (payload) => {
         for (const fn of listeners.orkisOpen) fn(payload);
@@ -78,6 +82,7 @@ export function useRpc() {
     onFsChange: (fn: (payload: { relDir: string }) => void) => subscribe("fsChange", fn),
     onGitStatusChange: (fn: (payload: { statuses: Record<string, string> }) => void) =>
       subscribe("gitStatusChange", fn),
+    onWorktreeChange: (fn: () => void) => subscribe("worktreeChange", fn),
     onOrkisOpen: (
       fn: (payload: {
         dir: string;

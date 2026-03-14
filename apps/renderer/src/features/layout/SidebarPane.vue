@@ -10,7 +10,7 @@
 </doc>
 
 <script setup lang="ts">
-import type { WorktreeEntry } from "@orkis/rpc";
+import type { WorktreeChangeCounts, WorktreeEntry } from "@orkis/rpc";
 import { tryCatch } from "@orkis/shared";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useDiagnosticsStore } from "../diagnostics/useDiagnosticsStore";
@@ -21,7 +21,7 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 const workspaceStore = useWorkspaceStore();
 const diagnosticsStore = useDiagnosticsStore();
 const terminalStore = useTerminalStore();
-const { request, onGitStatusChange } = useRpc();
+const { request, onGitStatusChange, onWorktreeChange } = useRpc();
 
 const worktrees = ref<WorktreeEntry[]>([]);
 /** worktree 化されていないローカルブランチ */
@@ -43,6 +43,12 @@ const sortedBranches = computed(() => [...freeBranches.value].sort((a, b) => a.l
 /** 現在表示中の worktree かどうか */
 function isActive(wt: WorktreeEntry): boolean {
   return workspaceStore.dir === wt.path;
+}
+
+/** 変更ファイルがあるかどうか */
+function hasChanges(counts: WorktreeChangeCounts | undefined): boolean {
+  if (!counts) return false;
+  return counts.modified + counts.added + counts.deleted + counts.untracked > 0;
 }
 
 /** 確認ダイアログ */
@@ -147,12 +153,13 @@ async function handleWorktreeRemove(wt: WorktreeEntry) {
 
 watch(() => workspaceStore.dir, fetchData, { immediate: true });
 
-let cleanup: (() => void) | undefined;
+const cleanups: Array<() => void> = [];
 onMounted(() => {
-  cleanup = onGitStatusChange(() => fetchData());
+  cleanups.push(onGitStatusChange(() => fetchData()));
+  cleanups.push(onWorktreeChange(() => fetchData()));
 });
 onUnmounted(() => {
-  cleanup?.();
+  for (const cleanup of cleanups) cleanup();
 });
 </script>
 
@@ -206,7 +213,50 @@ onUnmounted(() => {
           <span class="icon-[lucide--unlink] text-sm" />
         </button>
         <span v-else class="row-span-2" />
-        <span class="font-mono text-xs text-zinc-600">{{ wt.head }}</span>
+        <span class="flex items-center gap-2 text-xs">
+          <span class="font-mono text-zinc-600">{{ wt.head }}</span>
+          <span
+            v-if="wt.changeCounts && hasChanges(wt.changeCounts)"
+            class="flex items-center gap-1.5"
+          >
+            <span
+              v-if="wt.changeCounts.modified > 0"
+              class="text-yellow-500"
+              :title="`${wt.changeCounts.modified} modified`"
+            >
+              <span class="mr-0.5 icon-[lucide--pencil] align-middle text-[10px]" />{{
+                wt.changeCounts.modified
+              }}
+            </span>
+            <span
+              v-if="wt.changeCounts.added > 0"
+              class="text-green-500"
+              :title="`${wt.changeCounts.added} added`"
+            >
+              <span class="mr-0.5 icon-[lucide--plus] align-middle text-[10px]" />{{
+                wt.changeCounts.added
+              }}
+            </span>
+            <span
+              v-if="wt.changeCounts.deleted > 0"
+              class="text-red-500"
+              :title="`${wt.changeCounts.deleted} deleted`"
+            >
+              <span class="mr-0.5 icon-[lucide--minus] align-middle text-[10px]" />{{
+                wt.changeCounts.deleted
+              }}
+            </span>
+            <span
+              v-if="wt.changeCounts.untracked > 0"
+              class="text-zinc-400"
+              :title="`${wt.changeCounts.untracked} untracked`"
+            >
+              <span class="mr-0.5 icon-[lucide--help-circle] align-middle text-[10px]" />{{
+                wt.changeCounts.untracked
+              }}
+            </span>
+          </span>
+        </span>
       </div>
 
       <p v-if="worktrees.length === 0" class="py-2 pl-2 text-sm text-zinc-500">読み込み中...</p>

@@ -28,6 +28,14 @@ export interface LspDiagnostic {
   severity: number;
 }
 
+/** git status の変更種別ごとのファイル数 */
+export interface WorktreeChangeCounts {
+  modified: number;
+  added: number;
+  deleted: number;
+  untracked: number;
+}
+
 /** git worktree の情報 */
 export interface WorktreeEntry {
   /** worktree のディレクトリパス */
@@ -38,6 +46,8 @@ export interface WorktreeEntry {
   branch?: string;
   /** メインの worktree（clone 元）かどうか */
   isMain: boolean;
+  /** git status の変更ファイル数サマリー */
+  changeCounts?: WorktreeChangeCounts;
 }
 
 /** ファイルごとの診断結果 */
@@ -122,6 +132,8 @@ export type OrkisRPC = {
       ptyExit: { id: number; exitCode: number };
       fsChange: { relDir: string };
       gitStatusChange: { statuses: Record<string, string> };
+      /** 非アクティブ worktree でファイル変更が検知された通知 */
+      worktreeChange: void;
       orkisOpen: { dir: string; file?: string; fileServerBaseUrl: string; channel: string };
       orkisHook: { event: string; payload: Record<string, unknown> };
       /** LSP 診断結果の更新（ファイル単位） */

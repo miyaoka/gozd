@@ -13,6 +13,7 @@
     "fix": "oxlint --type-aware --fix && oxfmt ."
   },
   "dependencies": {
+    "@orkis/cli": "workspace:*",
     "@orkis/renderer": "workspace:*",
     "@orkis/rpc": "workspace:*",
     "@orkis/shared": "workspace:*",

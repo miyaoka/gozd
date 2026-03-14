@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "concurrently --kill-others \"pnpm --filter @orkis/renderer dev\" \"pnpm --filter @orkis/desktop dev\"",
     "build": "pnpm -r build",
-    "build:stable": "pnpm --filter @orkis/desktop build:stable",
+    "build:stable": "pnpm build && pnpm --filter @orkis/desktop build:stable",
     "start": "pnpm --filter @orkis/desktop start",
     "format": "oxfmt .",
     "lint": "oxlint --type-aware",

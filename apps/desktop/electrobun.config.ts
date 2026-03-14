@@ -18,6 +18,8 @@ export default {
     },
     copy: {
       "node_modules/@orkis/renderer/dist/": "views/main/",
+      "node_modules/@orkis/cli/dist/": "cli/",
+      "node_modules/@orkis/cli/bin/": "bin/",
     },
   },
   runtime: {

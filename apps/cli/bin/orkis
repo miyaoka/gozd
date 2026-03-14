@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+
+# .app 内のパス解決
+# 配置先: orkis.app/Contents/Resources/app/bin/orkis
+# シンボリックリンクを解決して実体のディレクトリを取得
+SOURCE="$0"
+while [[ -L "${SOURCE}" ]]; do
+  DIR="$(cd "$(dirname "${SOURCE}")" && pwd)"
+  SOURCE="$(readlink "${SOURCE}")"
+  [[ "${SOURCE}" != /* ]] && SOURCE="${DIR}/${SOURCE}"
+done
+SCRIPT_DIR="$(cd "$(dirname "${SOURCE}")" && pwd)"
+APP_RESOURCES="${SCRIPT_DIR}/.."
+APP_CONTENTS="${APP_RESOURCES}/../.."
+BUN="${APP_CONTENTS}/MacOS/bun"
+CLI="${APP_RESOURCES}/cli/index.js"
+APP_BUNDLE="${APP_CONTENTS}/.."
+SOCKET_PATH="/tmp/orkis-stable.sock"
+
+is_app_running() {
+  [[ -S "${SOCKET_PATH}" ]] || return 1
+
+  if ! nc -zU "${SOCKET_PATH}" 2>/dev/null; then
+    rm -f "${SOCKET_PATH}"
+    return 1
+  fi
+  return 0
+}
+
+# open コマンド（デフォルト）以外はアプリ起動不要
+should_launch_app() {
+  is_app_running && return 1
+  [[ "${1:-}" == "hook" || "${1:-}" == -* ]] && return 1
+  return 0
+}
+
+launch_app() {
+  open "${APP_BUNDLE}"
+
+  local max_wait=10
+  local waited=0
+  while [[ ! -S "${SOCKET_PATH}" ]] && (( waited < max_wait )); do
+    sleep 0.2
+    (( waited++ ))
+  done
+
+  if [[ ! -S "${SOCKET_PATH}" ]]; then
+    echo "アプリの起動がタイムアウトしました" >&2
+    return 1
+  fi
+}
+
+if should_launch_app "$@"; then
+  launch_app || exit $?
+fi
+
+exec "${BUN}" "${CLI}" "$@"

@@ -99,6 +99,24 @@ function isAllowedProtocol(raw: string): boolean {
   return ALLOWED_PROTOCOLS.has(result.value.protocol);
 }
 
+/** ファイル内容を読み取る（バイナリ判定・サイズ制限付き） */
+async function readFileContent(
+  absolutePath: string,
+): Promise<{ content: string; isBinary: boolean }> {
+  const file = Bun.file(absolutePath);
+  const MAX_FILE_SIZE = 1024 * 1024; // 1MB
+  if (file.size > MAX_FILE_SIZE) {
+    return { content: "", isBinary: true };
+  }
+  // NUL バイトの有無でバイナリ判定（git と同じ方式）
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes.includes(0x00)) {
+    return { content: "", isBinary: true };
+  }
+  const content = new TextDecoder().decode(bytes);
+  return { content, isBinary: false };
+}
+
 async function resolveSecurePath(root: string, relPath: string): Promise<string> {
   const resolved = path.resolve(root, relPath);
   const real = await fsp.realpath(resolved);
@@ -904,18 +922,10 @@ function createWindowWithRPC(dir: string): OrkisWindow {
         },
         fsReadFile: async ({ relPath }) => {
           const absolutePath = await resolveSecurePath(currentDir, relPath);
-          const file = Bun.file(absolutePath);
-          const MAX_FILE_SIZE = 1024 * 1024; // 1MB
-          if (file.size > MAX_FILE_SIZE) {
-            return { content: "", isBinary: true };
-          }
-          // NUL バイトの有無でバイナリ判定（git と同じ方式）
-          const bytes = new Uint8Array(await file.arrayBuffer());
-          if (bytes.includes(0x00)) {
-            return { content: "", isBinary: true };
-          }
-          const content = new TextDecoder().decode(bytes);
-          return { content, isBinary: false };
+          return readFileContent(absolutePath);
+        },
+        fsReadFileAbsolute: async ({ absolutePath }) => {
+          return readFileContent(absolutePath);
         },
         gitShowFile: async ({ relPath }) => {
           assertInsideRoot(currentDir, relPath);

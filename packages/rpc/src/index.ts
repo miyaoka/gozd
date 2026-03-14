@@ -72,6 +72,11 @@ export type OrkisRPC = {
         params: { relPath: string };
         response: FileReadResult;
       };
+      /** 絶対パスでファイルを読み取る（ワークスペース外のファイル用） */
+      fsReadFileAbsolute: {
+        params: { absolutePath: string };
+        response: FileReadResult;
+      };
       /** git show HEAD:<path> で変更前のファイル内容を取得 */
       gitShowFile: {
         params: { relPath: string };

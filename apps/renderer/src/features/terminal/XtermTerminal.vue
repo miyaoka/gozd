@@ -14,6 +14,7 @@ import "@xterm/xterm/css/xterm.css";
 import { onMounted, onBeforeUnmount, ref } from "vue";
 import { useRpc } from "../rpc/useRpc";
 import { TERMINAL_FONT_FAMILY, TERMINAL_FONT_SIZE, TERMINAL_THEME } from "./terminalConfig";
+import { createFilePathLinkProvider } from "./useFilePathLinkProvider";
 
 const containerRef = ref<HTMLElement>();
 const { request, send, onPtyData, onPtyExit } = useRpc();
@@ -55,6 +56,9 @@ onMounted(async () => {
   terminal.options.linkHandler = {
     activate: (event, text) => openLink(event, text),
   };
+
+  // ファイルパスをクリックでファイラー/プレビューに反映する
+  terminal.registerLinkProvider(createFilePathLinkProvider(terminal));
 
   terminal.open(container);
 

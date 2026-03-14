@@ -168,6 +168,10 @@ async function addWorktree(
   const id = generateWorktreeId();
   const wtPath = path.join(cwd, WORKTREE_DIR, id);
 
+  if (branch) {
+    assertBranchName(branch);
+  }
+
   await fsp.mkdir(path.join(cwd, WORKTREE_DIR), { recursive: true });
 
   // branch 指定あり → 既存ブランチをチェックアウト、なし → 新規ブランチ作成

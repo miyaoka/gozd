@@ -62,6 +62,8 @@ function spawnPty(win: OrkisWindow, cwd: string, cols: number, rows: number): nu
       TERM: "xterm-256color",
       COLORTERM: "truecolor",
       TERM_PROGRAM: "orkis",
+      // CLI ツール（Claude Code 等）に OSC 8 ハイパーリンクの出力を許可する
+      FORCE_HYPERLINK: "1",
       LANG: shellEnv.LANG ?? "en_US.UTF-8",
     },
     terminal: {

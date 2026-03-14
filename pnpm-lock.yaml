@@ -84,8 +84,8 @@ importers:
   apps/cli:
     dependencies:
       '@miyaoka/fsss':
-        specifier: 0.3.2
-        version: 0.3.2
+        specifier: 0.4.0
+        version: 0.4.0
       '@orkis/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -452,8 +452,8 @@ packages:
   '@mermaid-js/parser@1.0.1':
     resolution: {integrity: sha512-opmV19kN1JsK0T6HhhokHpcVkqKpF+x2pPDKKM2ThHtZAB5F4PROopk0amuVYK5qMrIA4erzpNm8gmPNJgMDxQ==}
 
-  '@miyaoka/fsss@0.3.2':
-    resolution: {integrity: sha512-hxzXm4z0f1mG48JT2Xy25bGpLUFq1HA1u6G3ia/MWKI7Qmh1yiJQlJ3kYvBSQ3s84iFpSFInGmBupukaGoYl4w==}
+  '@miyaoka/fsss@0.4.0':
+    resolution: {integrity: sha512-C20H0KyHvAbIXYID9i3Z5Qo9QYOGOmwgJVZaqWuLMd96Jm82Ehi0CYbhu68dFWQFHAZ7fHi30IAVfdCR3N+ahQ==}
     hasBin: true
 
   '@miyaoka/vite-plugin-doc-block@0.0.2':
@@ -3702,7 +3702,7 @@ snapshots:
     dependencies:
       langium: 4.2.1
 
-  '@miyaoka/fsss@0.3.2':
+  '@miyaoka/fsss@0.4.0':
     dependencies:
       zod: 4.3.6
 

@@ -55,6 +55,17 @@ onMounted(async () => {
     }
   });
 
+  // Shift+Enter で Esc+CR を送信する（Claude Code が改行として認識するシーケンス）
+  terminal.attachCustomKeyEventHandler((ev) => {
+    if (ev.type === "keydown" && ev.key === "Enter" && ev.shiftKey) {
+      if (ptyId !== undefined) {
+        send.ptyWrite({ id: ptyId, data: "\x1b\r" });
+      }
+      return false;
+    }
+    return true;
+  });
+
   // xterm → PTY
   terminal.onData((data) => {
     if (ptyId !== undefined) {

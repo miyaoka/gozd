@@ -135,7 +135,7 @@ async function fetchContent(path: string, gitChange: GitChangeKind | undefined) 
     const isDeleted = gitChange === "deleted";
     const hasDiff = hasGitDiff(gitChange);
 
-    // 絶対パスの場合は fsReadFileAbsolute を使い、git diff は不要
+    // 絶対パスの場合は fsReadFileAbsolute を使い、git 操作は不要
     const isAbsolute = path.startsWith("/");
 
     // 並列でデータ取得
@@ -145,7 +145,7 @@ async function fetchContent(path: string, gitChange: GitChangeKind | undefined) 
         : isAbsolute
           ? request.fsReadFileAbsolute({ absolutePath: path })
           : request.fsReadFile({ relPath: path }),
-      hasDiff || isDeleted ? request.gitShowFile({ relPath: path }) : undefined,
+      !isAbsolute && (hasDiff || isDeleted) ? request.gitShowFile({ relPath: path }) : undefined,
     ]);
 
     // 別の読み込みが開始された場合は結果を破棄

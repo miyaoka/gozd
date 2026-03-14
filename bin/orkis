@@ -2,7 +2,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-SOCKET_PATH="/tmp/orkis.sock"
+SOCKET_PATH="/tmp/orkis-dev.sock"
 CLI="${ROOT_DIR}/apps/cli/src/index.ts"
 
 # ソケットに接続できるか確認（接続成功=アプリ起動済み）

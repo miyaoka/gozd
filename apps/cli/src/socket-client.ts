@@ -1,6 +1,12 @@
+import fs from "node:fs";
 import net from "node:net";
 
-const SOCKET_PATH = "/tmp/orkis.sock";
+/** stable を優先し、起動中のソケットを探す */
+const SOCKET_CANDIDATES = ["/tmp/orkis-stable.sock", "/tmp/orkis-dev.sock"];
+
+function findSocketPath(): string | undefined {
+  return SOCKET_CANDIDATES.find((p) => fs.existsSync(p));
+}
 
 interface HookMessage {
   type: "hook";
@@ -21,8 +27,13 @@ type OrkisMessage = HookMessage | OpenMessage;
  * アプリが起動していない場合はエラーを stderr に出力する。
  */
 function sendMessage(message: OrkisMessage): Promise<void> {
+  const socketPath = findSocketPath();
+  if (!socketPath) {
+    return Promise.reject(new Error("orkis アプリが起動していません"));
+  }
+
   return new Promise((resolve, reject) => {
-    const client = net.createConnection(SOCKET_PATH, () => {
+    const client = net.createConnection(socketPath, () => {
       client.write(JSON.stringify(message) + "\n");
       client.end();
     });

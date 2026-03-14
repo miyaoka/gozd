@@ -13,13 +13,14 @@ import { getShellEnv } from "./shellEnv";
 type OrkisRPCInstance = ReturnType<typeof BrowserView.defineRPC<OrkisRPC>>;
 type OrkisWindow = BrowserWindow<OrkisRPCInstance>;
 
-const SOCKET_PATH = "/tmp/orkis.sock";
 const ALLOWED_PROTOCOLS = new Set(["https:", "http:"]);
 const VITE_DEV_SERVER_URL = "http://localhost:5173";
 
+const channel = await Updater.localInfo.channel();
+const SOCKET_PATH = `/tmp/orkis-${channel}.sock`;
+
 /** dev チャンネルかつ Vite dev server が起動していれば HMR 用 URL を返す */
 async function getViewUrl(): Promise<string> {
-  const channel = await Updater.localInfo.channel();
   if (channel === "dev") {
     const result = tryCatch(fetch(VITE_DEV_SERVER_URL, { method: "HEAD" }));
     if ((await result).ok) {

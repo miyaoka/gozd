@@ -1,5 +1,8 @@
-import { readdir } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+
+const distDir = join(import.meta.dirname, "dist");
+await rm(distDir, { recursive: true, force: true });
 
 const commandsDir = join(import.meta.dirname, "src/commands");
 const commandFiles = await readdir(commandsDir);
@@ -9,7 +12,7 @@ const commandEntrypoints = commandFiles
 
 const result = await Bun.build({
   entrypoints: [join(import.meta.dirname, "src/index.ts"), ...commandEntrypoints],
-  outdir: join(import.meta.dirname, "dist"),
+  outdir: distDir,
   target: "bun",
   format: "esm",
 });

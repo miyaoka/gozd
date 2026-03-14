@@ -34,27 +34,36 @@ const sortedWorktrees = computed(() =>
 
 const sortedBranches = computed(() => [...freeBranches.value].sort((a, b) => a.localeCompare(b)));
 
-/** ダイアログの状態 */
-const dialogRef = ref<HTMLDialogElement>();
-const dialogMessage = ref("");
-const dialogAction = ref<(() => Promise<void>) | undefined>();
+/** 確認ダイアログ */
+const confirmRef = ref<HTMLDialogElement>();
+const confirmMessage = ref("");
+const confirmAction = ref<(() => Promise<void>) | undefined>();
 
-function showDialog(message: string, action: () => Promise<void>) {
-  dialogMessage.value = message;
-  dialogAction.value = action;
-  dialogRef.value?.showModal();
+function showConfirm(message: string, action: () => Promise<void>) {
+  confirmMessage.value = message;
+  confirmAction.value = action;
+  confirmRef.value?.showModal();
 }
 
-function closeDialog() {
-  dialogRef.value?.close();
-  dialogAction.value = undefined;
+function closeConfirm() {
+  confirmRef.value?.close();
+  confirmAction.value = undefined;
 }
 
-async function executeDialogAction() {
-  const action = dialogAction.value;
+async function executeConfirm() {
+  const action = confirmAction.value;
   if (!action) return;
-  closeDialog();
+  closeConfirm();
   await action();
+}
+
+/** 通知ダイアログ */
+const alertRef = ref<HTMLDialogElement>();
+const alertMessage = ref("");
+
+function showAlert(message: string) {
+  alertMessage.value = message;
+  alertRef.value?.showModal();
 }
 
 async function fetchData() {
@@ -98,14 +107,14 @@ async function handleWorktreeRemove(wt: WorktreeEntry) {
     removeFromList(wt);
     return;
   }
-  showDialog(
+  showConfirm(
     `"${wt.branch}" の解除に失敗しました（未コミットの変更がある可能性があります）。強制的に解除しますか？`,
     async () => {
       const forceResult = await tryCatch(request.gitWorktreeRemove({ path: wt.path, force: true }));
       if (forceResult.ok) {
         removeFromList(wt);
       } else {
-        showDialog(`"${wt.branch}" の強制解除に失敗しました。`, async () => {});
+        showAlert(`"${wt.branch}" の強制解除に失敗しました。`);
       }
     },
   );
@@ -192,23 +201,39 @@ onUnmounted(() => {
     </div>
 
     <dialog
-      ref="dialogRef"
+      ref="confirmRef"
       class="fixed inset-0 m-auto size-fit rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-white backdrop:bg-black/50"
-      @click="$event.target === dialogRef && closeDialog()"
+      @click="$event.target === confirmRef && closeConfirm()"
     >
-      <p class="mb-4 text-sm">{{ dialogMessage }}</p>
+      <p class="mb-4 text-sm">{{ confirmMessage }}</p>
       <div class="flex justify-end gap-2">
         <button
           class="rounded-sm px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800"
-          @click="closeDialog"
+          @click="closeConfirm"
         >
           キャンセル
         </button>
         <button
           class="rounded-sm bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500"
-          @click="executeDialogAction"
+          @click="executeConfirm"
         >
           削除
+        </button>
+      </div>
+    </dialog>
+
+    <dialog
+      ref="alertRef"
+      class="fixed inset-0 m-auto size-fit rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-white backdrop:bg-black/50"
+      @click="$event.target === alertRef && alertRef?.close()"
+    >
+      <p class="mb-4 text-sm">{{ alertMessage }}</p>
+      <div class="flex justify-end">
+        <button
+          class="rounded-sm px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800"
+          @click="alertRef?.close()"
+        >
+          閉じる
         </button>
       </div>
     </dialog>

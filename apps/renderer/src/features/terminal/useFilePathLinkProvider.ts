@@ -2,7 +2,7 @@ import type { IBuffer, IBufferLine, ILink, ILinkProvider, Terminal } from "@xter
 import { useWorkspaceStore } from "../filer/useWorkspaceStore";
 
 /** パスの末尾区切り文字 */
-const PATH_TERMINATORS = /[\s)}\]>'",:;]/;
+const PATH_TERMINATORS = /[\s()}\]>'",:;]/;
 
 /**
  * 相対パスの候補を検出する正規表現。
@@ -186,7 +186,7 @@ function pushLink(
 /**
  * 次行以降のテキストからパスの続きを取得する。
  * Claude Code は長いパスを改行+インデントで折り返すため、
- * 次行の先頭空白を除去した残りがパス文字で始まる場合に結合する。
+ * 次行がインデント付きかつパス文字で始まる場合にのみ結合する。
  */
 function getPathContinuation(buf: IBuffer, currentLineNumber: number): string {
   let continuation = "";
@@ -197,6 +197,10 @@ function getPathContinuation(buf: IBuffer, currentLineNumber: number): string {
     if (!nextLine) break;
 
     const nextText = nextLine.translateToString(true);
+
+    // 次行が先頭インデント付きでない場合は折り返しではない
+    if (nextText.length === 0 || nextText[0] !== " ") break;
+
     const trimmed = nextText.trimStart();
 
     if (trimmed.length === 0 || PATH_TERMINATORS.test(trimmed[0]!)) break;

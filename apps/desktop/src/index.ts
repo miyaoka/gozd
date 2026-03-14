@@ -42,6 +42,8 @@ interface PtyEntry {
   win: OrkisWindow;
   /** PTY が起動された worktree ディレクトリ */
   worktreeDir: string;
+  /** UTF-8 ストリームデコーダ（チャンク分割時のマルチバイト文字化け防止） */
+  decoder: TextDecoder;
 }
 
 const ptys = new Map<number, PtyEntry>();
@@ -49,6 +51,8 @@ let nextPtyId = 0;
 
 function spawnPty(win: OrkisWindow, cwd: string, cols: number, rows: number): number {
   const id = nextPtyId++;
+  // stream: true で途中切れの UTF-8 バイト列を次のチャンクに繰り越す
+  const decoder = new TextDecoder("utf-8", { fatal: false });
 
   const proc = Bun.spawn([shellEnv.SHELL ?? "/bin/zsh"], {
     cwd,
@@ -58,23 +62,32 @@ function spawnPty(win: OrkisWindow, cwd: string, cols: number, rows: number): nu
       TERM: "xterm-256color",
       COLORTERM: "truecolor",
       TERM_PROGRAM: "orkis",
+      // CLI ツール（Claude Code 等）に OSC 8 ハイパーリンクの出力を許可する
+      FORCE_HYPERLINK: "1",
       LANG: shellEnv.LANG ?? "en_US.UTF-8",
     },
     terminal: {
       cols,
       rows,
       data(_terminal, data) {
-        const text = new TextDecoder().decode(data);
-        win.webview.rpc?.send.ptyData({ id, data: text });
+        const text = decoder.decode(data, { stream: true });
+        if (text) {
+          win.webview.rpc?.send.ptyData({ id, data: text });
+        }
       },
       exit() {
+        // 残りのバッファをフラッシュ
+        const remaining = decoder.decode();
+        if (remaining) {
+          win.webview.rpc?.send.ptyData({ id, data: remaining });
+        }
         ptys.delete(id);
         win.webview.rpc?.send.ptyExit({ id, exitCode: proc.exitCode ?? 1 });
       },
     },
   });
 
-  ptys.set(id, { proc, win, worktreeDir: cwd });
+  ptys.set(id, { proc, win, worktreeDir: cwd, decoder });
   return id;
 }
 

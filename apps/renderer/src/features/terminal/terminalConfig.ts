@@ -2,7 +2,10 @@
 
 export const TERMINAL_FONT_SIZE = 13;
 
-export const TERMINAL_FONT_FAMILY = "'JetBrains Mono', 'Fira Code', Menlo, monospace";
+// xterm.js は半角セル幅 × 2 で全角文字を描画するため、
+// 日本語グリフの幅が英字フォント幅の2倍に合う等幅フォントが必要。
+// TODO: ユーザー設定で上書きできるようにする
+export const TERMINAL_FONT_FAMILY = "'UDEV Gothic 35NF', Menlo, monospace";
 
 export const TERMINAL_THEME = {
   background: "#18181b", // zinc-900

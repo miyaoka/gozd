@@ -704,7 +704,11 @@ function createWindowWithRPC(dir: string): OrkisWindow {
   const rpc: OrkisRPCInstance = BrowserView.defineRPC<OrkisRPC>({
     handlers: {
       requests: {
-        ptySpawn: ({ cols, rows }) => spawnPty(win, currentDir, cols, rows),
+        ptySpawn: async ({ cols, rows }) => {
+          // realpath で正規化して worktreeDir の一貫性を保つ
+          const realCwd = await fsp.realpath(currentDir);
+          return spawnPty(win, realCwd, cols, rows);
+        },
         fsReadDir: async ({ relPath }) => {
           const absolutePath = await resolveSecurePath(currentDir, relPath);
           const entries = await fsp.readdir(absolutePath, { withFileTypes: true });
@@ -774,15 +778,15 @@ function createWindowWithRPC(dir: string): OrkisWindow {
         gitBranchList: () => getBranchList(repoRootDir),
         gitWorktreeAdd: ({ branch }) => addWorktree(repoRootDir, branch),
         gitWorktreeRemove: async ({ path: wtPath, force }) => {
-          // 削除対象 worktree の PTY を先に kill する
           const wtReal = await fsp.realpath(wtPath);
+          await removeWorktree(repoRootDir, wtPath, force);
+          // 削除成功後に worktree の PTY を kill する
           for (const [id, entry] of ptys) {
             if (entry.win === win && entry.worktreeDir === wtReal) {
               entry.proc.kill();
               ptys.delete(id);
             }
           }
-          return removeWorktree(repoRootDir, wtPath, force);
         },
         gitBranchDelete: ({ branch }) => deleteBranch(repoRootDir, branch),
         switchDir: async ({ dir: targetDir }) => {

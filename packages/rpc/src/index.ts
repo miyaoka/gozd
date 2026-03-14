@@ -28,6 +28,18 @@ export interface LspDiagnostic {
   severity: number;
 }
 
+/** git worktree の情報 */
+export interface WorktreeEntry {
+  /** worktree のディレクトリパス */
+  path: string;
+  /** HEAD コミットの短縮ハッシュ */
+  head: string;
+  /** ブランチ名（detached HEAD の場合は undefined） */
+  branch?: string;
+  /** メインの worktree（clone 元）かどうか */
+  isMain: boolean;
+}
+
 /** ファイルごとの診断結果 */
 export interface FileDiagnostics {
   /** プロジェクトルートからの相対パス */
@@ -63,6 +75,31 @@ export type OrkisRPC = {
       gitStatus: {
         params: undefined;
         response: Record<string, string>;
+      };
+      /** git worktree list で worktree 一覧を取得 */
+      gitWorktreeList: {
+        params: undefined;
+        response: WorktreeEntry[];
+      };
+      /** ローカルブランチ一覧を取得 */
+      gitBranchList: {
+        params: undefined;
+        response: string[];
+      };
+      /** worktree を作成する（branch 未指定なら新規ブランチを自動生成） */
+      gitWorktreeAdd: {
+        params: { branch?: string };
+        response: WorktreeEntry;
+      };
+      /** worktree を解除する（ブランチは残る） */
+      gitWorktreeRemove: {
+        params: { path: string; force?: boolean };
+        response: void;
+      };
+      /** ローカルブランチを削除する */
+      gitBranchDelete: {
+        params: { branch: string };
+        response: void;
       };
     };
     messages: {

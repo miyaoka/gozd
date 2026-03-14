@@ -2,9 +2,6 @@
   "name": "@orkis/cli",
   "version": "0.0.0",
   "private": true,
-  "bin": {
-    "orkis": "./src/index.ts"
-  },
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {

@@ -1,20 +1,21 @@
 # orkis — AI Agent Orchestrator
 
-AI エージェントの Plan-Implement-Review ループを管理するデスクトップアプリケーション。
+AI エージェントの並列開発を管理するデスクトップアプリケーション。
 
-マルチウィンドウ前提のアプリケーション。ディレクトリごとに1ウィンドウを開き、同じディレクトリを複数開くことはできない（VS Code と同じモデル）。
+シングルウィンドウで複数プロジェクト・複数 worktree をタブ的に切り替えて使う。各 worktree で Claude エージェントが独立して並列作業する。
 
 ## ドキュメント（`docs/`）
 
-| ファイル                            | 内容                                                                       |
-| ----------------------------------- | -------------------------------------------------------------------------- |
-| [design.md](docs/design.md)         | プロダクト構想（コンセプト、ワークフロー、データモデル、エージェント連携） |
-| [electrobun.md](docs/electrobun.md) | Electrobun アーキテクチャ、WKWebView の制約、ウィンドウ管理                |
-| [rpc.md](docs/rpc.md)               | RPC スキーマ（request / message の全定義）                                 |
-| [filer.md](docs/filer.md)           | ファイラー（ツリー表示、git status 色分け、アイコン、ファイル監視）        |
-| [lsp.md](docs/lsp.md)               | LSP 型診断（tsgo、Vue tsserver bridge、diagnostics 取得方式）              |
-| [preview.md](docs/preview.md)       | プレビュー（コード、diff、画像、SVG、Markdown、リアクティブ更新）          |
-| [terminal.md](docs/terminal.md)     | ターミナル（xterm.js / ghostty-web 切り替え、PTY ライフサイクル）          |
+| ファイル                            | 内容                                                                |
+| ----------------------------------- | ------------------------------------------------------------------- |
+| [design.md](docs/design.md)         | 初期構想（Todo/Plan/Review ループ。現在は workspace.md が優先）     |
+| [workspace.md](docs/workspace.md)   | ワークスペース設計（並列プロジェクト、worktree 運用、UI 階層）      |
+| [electrobun.md](docs/electrobun.md) | Electrobun アーキテクチャ、WKWebView の制約、ウィンドウ管理         |
+| [rpc.md](docs/rpc.md)               | RPC スキーマ（request / message の全定義）                          |
+| [filer.md](docs/filer.md)           | ファイラー（ツリー表示、git status 色分け、アイコン、ファイル監視） |
+| [lsp.md](docs/lsp.md)               | LSP 型診断（tsgo、Vue tsserver bridge、diagnostics 取得方式）       |
+| [preview.md](docs/preview.md)       | プレビュー（コード、diff、画像、SVG、Markdown、リアクティブ更新）   |
+| [terminal.md](docs/terminal.md)     | ターミナル（xterm.js / ghostty-web 切り替え、PTY ライフサイクル）   |
 
 ## 技術スタック
 
@@ -71,6 +72,28 @@ orkis/
 - `bin/orkis` — 開発用エントリポイント。アプリ未起動なら自動で build → start し、ソケット経由で CLI コマンドを送信する。残骸ソケットは `nc -zU` で検出・削除する
 
 全体チェックはルートの `pnpm typecheck:all` / `lint:all` / `test:all` を使う。各 workspace の同名スクリプトを一括実行する。
+
+## 現在のフォーカス
+
+並列プロジェクト・並列 worktree による開発環境の実現（[workspace.md](docs/workspace.md)）。
+
+### 方針決定済み
+
+- git worktree 運用ルール（main は参照専用、作業は常に worktree で）
+- worktree 配置（`.orkis/worktrees/`）
+- ビュー状態の保持（切り替え時に破棄しない）
+- シングルウィンドウでプロジェクト・worktree をタブ的に切り替える
+
+### 実装済み
+
+- サイドバーに worktree 一覧・ブランチ一覧を表示
+- worktree の作成・解除、ブランチからの worktree 化
+
+### 未着手
+
+- worktree クリック時のビュー切り替え（ファイル監視・LSP・PTY の付け替え）
+- シングルウィンドウ化（マルチウィンドウからの移行）
+- プロジェクト一覧の永続化
 
 ## コーディング規約
 

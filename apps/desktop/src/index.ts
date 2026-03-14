@@ -147,6 +147,132 @@ async function getGitStatus(cwd: string): Promise<Record<string, string>> {
   return statuses;
 }
 
+const WORKTREE_DIR = ".orkis/worktrees";
+
+function generateWorktreeId(): string {
+  return `wt-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+async function getBranchList(cwd: string): Promise<string[]> {
+  const result = await tryCatch(
+    new Response(Bun.spawn(["git", "branch", "--format=%(refname:short)"], { cwd }).stdout).text(),
+  );
+  if (!result.ok) return [];
+  return result.value.trim().split("\n").filter(Boolean);
+}
+
+async function addWorktree(
+  cwd: string,
+  branch?: string,
+): Promise<import("@orkis/rpc").WorktreeEntry> {
+  const id = generateWorktreeId();
+  const wtPath = path.join(cwd, WORKTREE_DIR, id);
+
+  if (branch) {
+    assertBranchName(branch);
+  }
+
+  await fsp.mkdir(path.join(cwd, WORKTREE_DIR), { recursive: true });
+
+  // branch 指定あり → 既存ブランチをチェックアウト、なし → 新規ブランチ作成
+  const args = branch
+    ? ["git", "worktree", "add", wtPath, branch]
+    : ["git", "worktree", "add", "-b", id, wtPath];
+
+  const proc = Bun.spawn(args, { cwd, stderr: "pipe" });
+  await proc.exited;
+  if (proc.exitCode !== 0) {
+    const stderr = await new Response(proc.stderr).text();
+    throw new Error(`git worktree add failed: ${stderr.trim() || `exit code ${proc.exitCode}`}`);
+  }
+
+  // 作成した worktree の情報を取得
+  const headResult = await tryCatch(
+    new Response(Bun.spawn(["git", "rev-parse", "--short", "HEAD"], { cwd: wtPath }).stdout).text(),
+  );
+  const head = headResult.ok ? headResult.value.trim() : "";
+
+  return { path: wtPath, head, branch: branch ?? id, isMain: false };
+}
+
+/** wtPath が WORKTREE_DIR 配下であることを検証する */
+function assertWorktreePath(cwd: string, wtPath: string): void {
+  const allowed = path.resolve(cwd, WORKTREE_DIR);
+  const resolved = path.resolve(wtPath);
+  if (!resolved.startsWith(allowed + path.sep) && resolved !== allowed) {
+    throw new Error("Access denied: path is outside worktree directory");
+  }
+}
+
+async function removeWorktree(cwd: string, wtPath: string, force?: boolean): Promise<void> {
+  assertWorktreePath(cwd, wtPath);
+
+  const args = ["git", "worktree", "remove"];
+  if (force) args.push("--force");
+  args.push(wtPath);
+
+  const proc = Bun.spawn(args, { cwd, stderr: "pipe" });
+  await proc.exited;
+  if (proc.exitCode !== 0) {
+    const stderr = await new Response(proc.stderr).text();
+    throw new Error(`git worktree remove failed: ${stderr.trim() || `exit code ${proc.exitCode}`}`);
+  }
+}
+
+/** ブランチ名にシェルメタ文字が含まれていないことを検証する */
+function assertBranchName(branch: string): void {
+  if (!/^[\w./-]+$/.test(branch) || branch.startsWith("-")) {
+    throw new Error("Invalid branch name");
+  }
+}
+
+async function deleteBranch(cwd: string, branch: string): Promise<void> {
+  assertBranchName(branch);
+
+  const proc = Bun.spawn(["git", "branch", "-D", "--", branch], { cwd, stderr: "pipe" });
+  await proc.exited;
+  if (proc.exitCode !== 0) {
+    const stderr = await new Response(proc.stderr).text();
+    throw new Error(`git branch delete failed: ${stderr.trim() || `exit code ${proc.exitCode}`}`);
+  }
+}
+
+async function getWorktreeList(cwd: string): Promise<import("@orkis/rpc").WorktreeEntry[]> {
+  const result = await tryCatch(
+    new Response(Bun.spawn(["git", "worktree", "list", "--porcelain"], { cwd }).stdout).text(),
+  );
+  if (!result.ok) return [];
+
+  const entries: import("@orkis/rpc").WorktreeEntry[] = [];
+  const blocks = result.value.trim().split("\n\n");
+  let isFirst = true;
+
+  for (const block of blocks) {
+    const lines = block.split("\n");
+    let wtPath = "";
+    let head = "";
+    let branch: string | undefined;
+
+    for (const line of lines) {
+      if (line.startsWith("worktree ")) {
+        wtPath = line.slice("worktree ".length);
+      } else if (line.startsWith("HEAD ")) {
+        head = line.slice("HEAD ".length, "HEAD ".length + 7);
+      } else if (line.startsWith("branch ")) {
+        // refs/heads/main → main
+        branch = line.slice("branch ".length).replace("refs/heads/", "");
+      }
+    }
+
+    if (wtPath) {
+      entries.push({ path: wtPath, head, branch, isMain: isFirst });
+    }
+    isFirst = false;
+  }
+
+  return entries;
+}
+
 // --- ファイルサーバー ---
 
 /** ウィンドウごとの UUID → ルートディレクトリ */
@@ -611,6 +737,11 @@ function createWindowWithRPC(dir: string): OrkisWindow {
           return result.value;
         },
         gitStatus: () => getGitStatus(dir),
+        gitWorktreeList: () => getWorktreeList(dir),
+        gitBranchList: () => getBranchList(dir),
+        gitWorktreeAdd: ({ branch }) => addWorktree(dir, branch),
+        gitWorktreeRemove: ({ path: wtPath, force }) => removeWorktree(dir, wtPath, force),
+        gitBranchDelete: ({ branch }) => deleteBranch(dir, branch),
       },
       messages: {
         ptyWrite: ({ id, data }) => {

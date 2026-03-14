@@ -316,14 +316,19 @@ async function getWorktreeList(cwd: string): Promise<import("@orkis/rpc").Worktr
     isFirst = false;
   }
 
-  // 各 worktree の git status を並列取得して changeCounts を付与
+  return entries;
+}
+
+/** 各 worktree の git status を並列取得して changeCounts を付与する */
+async function attachChangeCounts(
+  entries: import("@orkis/rpc").WorktreeEntry[],
+): Promise<import("@orkis/rpc").WorktreeEntry[]> {
   await Promise.all(
     entries.map(async (entry) => {
       const statuses = await getGitStatus(entry.path);
       entry.changeCounts = countChanges(statuses);
     }),
   );
-
   return entries;
 }
 
@@ -722,6 +727,8 @@ function stopWatching(win: OrkisWindow) {
 /** ウィンドウごとの非アクティブ worktree の fs.watch */
 const windowWorktreeWatchers = new Map<OrkisWindow, Map<string, fs.FSWatcher>>();
 const wtChangeTimers = new Map<OrkisWindow, ReturnType<typeof setTimeout>>();
+/** syncWorktreeWatchers の世代管理（並行実行で stale な結果を破棄するため） */
+const wtSyncGen = new Map<OrkisWindow, number>();
 
 /** 非アクティブ worktree でファイル変更があったことをデバウンスして通知 */
 function scheduleWorktreeChangeNotify(win: OrkisWindow) {
@@ -739,9 +746,17 @@ function scheduleWorktreeChangeNotify(win: OrkisWindow) {
 /**
  * 非アクティブ worktree の fs.watch を同期する。
  * アクティブ worktree は既存の startWatching が担当するため除外する。
+ * 世代管理により、並行呼び出し時は最新の呼び出しのみが反映される。
  */
 async function syncWorktreeWatchers(win: OrkisWindow, repoRoot: string, activeDir: string) {
+  const gen = (wtSyncGen.get(win) ?? 0) + 1;
+  wtSyncGen.set(win, gen);
+
   const entries = await getWorktreeList(repoRoot);
+
+  // 世代が変わっていたら後続の呼び出しに任せる
+  if (wtSyncGen.get(win) !== gen) return;
+
   const activeReal = await tryCatch(fsp.realpath(activeDir));
   const activePath = activeReal.ok ? activeReal.value : activeDir;
 
@@ -759,14 +774,18 @@ async function syncWorktreeWatchers(win: OrkisWindow, repoRoot: string, activeDi
     // 既に監視中ならスキップ
     if (existing.has(entryPath)) continue;
 
-    const watcher = fs.watch(entryPath, { recursive: true }, (_eventType, filename) => {
-      if (!filename) return;
-      if (filename.startsWith(".git/") || filename.startsWith(".git\\")) return;
-      if (filename.startsWith("node_modules/") || filename.startsWith("node_modules\\")) return;
-      scheduleWorktreeChangeNotify(win);
-    });
+    const watchResult = tryCatch(() =>
+      fs.watch(entryPath, { recursive: true }, (_eventType, filename) => {
+        if (!filename) return;
+        if (filename.startsWith(".git/") || filename.startsWith(".git\\")) return;
+        if (filename.startsWith("node_modules/") || filename.startsWith("node_modules\\")) return;
+        scheduleWorktreeChangeNotify(win);
+      }),
+    );
 
-    existing.set(entryPath, watcher);
+    if (watchResult.ok) {
+      existing.set(entryPath, watchResult.value);
+    }
   }
 
   // 不要な監視を停止（削除された worktree やアクティブに切り替わった worktree）
@@ -793,6 +812,7 @@ function stopWorktreeWatchers(win: OrkisWindow) {
     clearTimeout(timer);
     wtChangeTimers.delete(win);
   }
+  wtSyncGen.delete(win);
 }
 
 /** ウィンドウ close 時に関連リソースをすべて解放する */
@@ -905,7 +925,7 @@ function createWindowWithRPC(dir: string): OrkisWindow {
           return result.value;
         },
         gitStatus: () => getGitStatus(currentDir),
-        gitWorktreeList: () => getWorktreeList(repoRootDir),
+        gitWorktreeList: async () => attachChangeCounts(await getWorktreeList(repoRootDir)),
         gitBranchList: () => getBranchList(repoRootDir),
         gitWorktreeAdd: async ({ branch }) => {
           const entry = await addWorktree(repoRootDir, branch);

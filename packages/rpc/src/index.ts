@@ -61,7 +61,7 @@ export type OrkisRPC = {
   bun: RPCSchema<{
     requests: {
       ptySpawn: {
-        params: { cols: number; rows: number };
+        params: { dir: string; cols: number; rows: number };
         response: number;
       };
       fsReadDir: {

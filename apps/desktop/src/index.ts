@@ -900,9 +900,9 @@ function createWindowWithRPC(dir: string): OrkisWindow {
   const rpc: OrkisRPCInstance = BrowserView.defineRPC<OrkisRPC>({
     handlers: {
       requests: {
-        ptySpawn: async ({ cols, rows }) => {
-          // realpath で正規化して worktreeDir の一貫性を保つ
-          const realCwd = await fsp.realpath(currentDir);
+        ptySpawn: async ({ dir, cols, rows }) => {
+          // renderer から受け取った dir を cwd として使用（currentDir への暗黙依存を排除）
+          const realCwd = await fsp.realpath(dir);
           return spawnPty(win, realCwd, cols, rows);
         },
         fsReadDir: async ({ relPath }) => {

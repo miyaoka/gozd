@@ -1,19 +1,25 @@
 <doc lang="md">
-ターミナルペイン。xterm.js ベースのターミナルエミュレータを表示する。
+ターミナルペイン。worktree ごとの分割ツリーを SplitContainer で再帰レンダリングする。
 </doc>
 
 <script setup lang="ts">
-import XtermTerminal from "./XtermTerminal.vue";
+import { computed } from "vue";
+import SplitContainer from "./SplitContainer.vue";
+import { useTerminalStore } from "./useTerminalStore";
 
-defineProps<{
+const props = defineProps<{
+  dir: string;
   fitSuspended?: boolean;
 }>();
+
+const terminalStore = useTerminalStore();
+const layout = computed(() => terminalStore.ensureLayout(props.dir));
 </script>
 
 <template>
   <div class="flex size-full flex-col">
     <div class="min-h-0 flex-1">
-      <XtermTerminal :fit-suspended="fitSuspended" />
+      <SplitContainer :node="layout.root" :dir="dir" :fit-suspended="fitSuspended" />
     </div>
   </div>
 </template>

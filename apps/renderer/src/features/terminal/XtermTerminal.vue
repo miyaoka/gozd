@@ -15,18 +15,29 @@ import { onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { useRpc } from "../rpc/useRpc";
 import { TERMINAL_FONT_FAMILY, TERMINAL_FONT_SIZE, TERMINAL_THEME } from "./terminalConfig";
 import { createFilePathLinkProvider } from "./useFilePathLinkProvider";
+import { useTerminalStore } from "./useTerminalStore";
 
 const props = defineProps<{
+  /** PTY を起動する worktree ディレクトリ */
+  dir: string;
+  /** このターミナルが属する leaf の ID */
+  leafId: string;
   /** true の間は ResizeObserver による自動 fit() を抑制する */
   fitSuspended?: boolean;
 }>();
 
+const emit = defineEmits<{
+  focus: [];
+}>();
+
 const containerRef = ref<HTMLElement>();
 const { request, send, onPtyData, onPtyExit } = useRpc();
+const terminalStore = useTerminalStore();
 
 let terminal: Terminal | undefined;
 let fitAddon: FitAddon | undefined;
 let ptyId: number | undefined;
+let disposed = false;
 let removeDataListener: (() => void) | undefined;
 let removeExitListener: (() => void) | undefined;
 let resizeObserver: ResizeObserver | undefined;
@@ -61,6 +72,13 @@ watch(
     if (!suspended) scheduleFit();
   },
 );
+
+/** 外部から imperative に focus を呼ぶための公開メソッド */
+function focus() {
+  terminal?.focus();
+}
+
+defineExpose({ focus });
 
 onMounted(async () => {
   const container = containerRef.value;
@@ -112,9 +130,32 @@ onMounted(async () => {
   }
 
   fitAddon.fit();
-  terminal.focus();
 
-  ptyId = await request.ptySpawn({ cols: terminal.cols, rows: terminal.rows });
+  // xterm の focus イベントを親に通知（focus の責務は TerminalLeaf が持つ）
+  terminal.textarea?.addEventListener("focus", () => {
+    emit("focus");
+  });
+
+  const spawnedPtyId = await request.ptySpawn({
+    dir: props.dir,
+    cols: terminal.cols,
+    rows: terminal.rows,
+  });
+
+  // spawn 完了前に unmount されていたら即 kill
+  if (disposed) {
+    send.ptyKill({ id: spawnedPtyId });
+    return;
+  }
+
+  // paneRegistry に leaf がまだ存在するか確認
+  if (terminalStore.paneRegistry[props.leafId] === undefined) {
+    send.ptyKill({ id: spawnedPtyId });
+    return;
+  }
+
+  ptyId = spawnedPtyId;
+  terminalStore.registerPanePty(props.leafId, ptyId);
 
   // PTY → terminal
   removeDataListener = onPtyData(({ id, data }) => {
@@ -126,6 +167,7 @@ onMounted(async () => {
   removeExitListener = onPtyExit(({ id, exitCode: _exitCode }) => {
     if (id === ptyId) {
       terminal?.write("\r\n[Process exited]\r\n");
+      terminalStore.clearPanePty(props.leafId, id);
       ptyId = undefined;
     }
   });
@@ -163,6 +205,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  disposed = true;
   if (fitRafId) cancelAnimationFrame(fitRafId);
   resizeObserver?.disconnect();
   removeDataListener?.();

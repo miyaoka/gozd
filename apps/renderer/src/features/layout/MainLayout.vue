@@ -15,19 +15,24 @@
 
 <script setup lang="ts">
 import { useWindowSize } from "@vueuse/core";
-import { computed, ref, watch, watchEffect } from "vue";
+import { computed, ref, useTemplateRef, watch, watchEffect } from "vue";
 import DebugPane from "../debug/DebugPane.vue";
 import DiagnosticsPane from "../diagnostics/DiagnosticsPane.vue";
 import FilerPane from "../filer/FilerPane.vue";
 import { useWorkspaceStore } from "../filer/useWorkspaceStore";
 import PreviewPane from "../preview/PreviewPane.vue";
 import TerminalPane from "../terminal/TerminalPane.vue";
+import { useTerminalShortcuts } from "../terminal/useTerminalShortcuts";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import ResizeHandle from "./ResizeHandle.vue";
 import SidebarPane from "./SidebarPane.vue";
 
 const workspaceStore = useWorkspaceStore();
 const terminalStore = useTerminalStore();
+const terminalContainerRef = useTemplateRef<HTMLElement>("terminalContainer");
+
+const currentDir = computed(() => workspaceStore.dir);
+useTerminalShortcuts(currentDir, terminalContainerRef);
 
 // worktree を初めて訪問したときに visitedDirs に登録
 watch(
@@ -133,6 +138,7 @@ watchEffect(() => {
       />
 
       <div
+        ref="terminalContainer"
         class="min-w-0 flex-1 overflow-hidden p-2"
         :style="{ minWidth: `${TERMINAL_MIN_WIDTH}px` }"
       >
@@ -140,6 +146,7 @@ watchEffect(() => {
           v-for="d in terminalStore.visitedDirs"
           :key="d"
           v-show="d === workspaceStore.dir"
+          :dir="d"
           :fit-suspended="d === workspaceStore.dir ? fitSuspended : undefined"
         />
       </div>

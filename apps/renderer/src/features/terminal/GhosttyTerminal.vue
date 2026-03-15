@@ -9,6 +9,10 @@ import { onMounted, onBeforeUnmount, ref } from "vue";
 import { useRpc } from "../rpc/useRpc";
 import { TERMINAL_FONT_FAMILY, TERMINAL_FONT_SIZE, TERMINAL_THEME } from "./terminalConfig";
 
+const props = defineProps<{
+  dir: string;
+}>();
+
 const containerRef = ref<HTMLElement>();
 const { request, send, onPtyData, onPtyExit } = useRpc();
 
@@ -41,7 +45,7 @@ onMounted(async () => {
   fitAddon.observeResize();
   terminal.focus();
 
-  ptyId = await request.ptySpawn({ cols: terminal.cols, rows: terminal.rows });
+  ptyId = await request.ptySpawn({ dir: props.dir, cols: terminal.cols, rows: terminal.rows });
 
   // PTY → terminal
   removeDataListener = onPtyData(({ id, data }) => {

@@ -62,6 +62,19 @@ Vue Language Server
 > [!WARNING]
 > `changedFiles` の `textChanges` に `Number.MAX_SAFE_INTEGER` を行番号として使うと tsserver がエラーになる。全文置換は close + reopen で行う
 
+## Worktree 切り替え対応
+
+LSP クライアントは worktree 切り替え時に再起動する。
+
+- `repoRootDir`（clone 元、固定）と `currentDir`（切り替え可能な worktree パス）を分離
+- `windowLspClients`（`Map<win, LspClient[]>`）でウィンドウごとに LSP クライアントを管理
+- worktree 切り替え時に既存 LSP クライアントを shutdown し、新しい worktree で再起動
+- `resolveGitDir()` で `git rev-parse --git-dir` を使い、linked worktree の `.git` ファイルから実際の git ディレクトリを解決
+
+### 世代管理
+
+`windowSwitchGen`（世代番号）で並行リクエスト時の stale イベントを破棄する。worktree 切り替え時に世代番号をインクリメントし、LSP の diagnostic callback で世代が一致しない場合は結果を無視する。
+
 ## コード構成（`apps/desktop/src/lsp.ts`）
 
 - `createFrameParser` — Content-Length フレーミングパーサー。LSP と tsserver で共通
@@ -75,5 +88,5 @@ Vue Language Server
 
 ## フロントエンド
 
-- `useDiagnostics` — RPC の `lspDiagnostics` メッセージを購読し、`diagnosticsMap`（ファイルパス → 診断配列）をリアクティブに保持
+- `useDiagnosticsStore`（Pinia store） — RPC の `lspDiagnostics` メッセージを購読し、`diagnosticsMap`（ファイルパス → 診断配列）をリアクティブに保持。worktree 切り替え時に `clear()` で診断マップをクリアする
 - `DiagnosticsPane` — エラー・警告をファイルごとにグループ化して表示

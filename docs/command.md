@@ -46,7 +46,7 @@ interface CommandRegistry {
 ```
 
 - `register()` は dispose 関数を返す。同一 ID の二重登録は上書き（HMR 安全）
-- `execute()` は handler の戻り値（handled）をそのまま返す。未登録なら `false`
+- `execute()` は handler を `tryCatch` でラップして実行する。handler 内で例外が発生した場合は `console.error` で記録し `false` を返す。未登録なら `false`
 - dispose 時は `handlers.get(id) === handler` で一致チェックし、他の登録を壊さない
 
 ### CommandHandler

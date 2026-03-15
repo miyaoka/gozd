@@ -26,28 +26,36 @@ flowchart LR
 
 ## Request（renderer → desktop、Promise ベース）
 
-| Request       | params           | response                 | 用途                    |
-| ------------- | ---------------- | ------------------------ | ----------------------- |
-| `ptySpawn`    | `{ cols, rows }` | `number`                 | PTY 起動、ID を返す     |
-| `fsReadDir`   | `{ relPath }`    | `FileEntry[]`            | ディレクトリ読み込み    |
-| `fsReadFile`  | `{ relPath }`    | `FileReadResult`         | ファイル読み込み        |
-| `gitShowFile` | `{ relPath }`    | `FileReadResult`         | HEAD 時点のファイル内容 |
-| `gitDiffFile` | `{ relPath }`    | `string`                 | unified diff            |
-| `gitStatus`   | —                | `Record<string, string>` | git status 全体         |
+| Request              | params                | response                     | 用途                                            |
+| -------------------- | --------------------- | ---------------------------- | ----------------------------------------------- |
+| `ptySpawn`           | `{ dir, cols, rows }` | `number`                     | PTY 起動、ID を返す                             |
+| `fsReadDir`          | `{ relPath }`         | `FileEntry[]`                | ディレクトリ読み込み                            |
+| `fsReadFile`         | `{ relPath }`         | `FileReadResult`             | ファイル読み込み                                |
+| `fsReadFileAbsolute` | `{ absolutePath }`    | `FileReadResult`             | 絶対パスでファイル読み取り（ワークスペース外）  |
+| `gitShowFile`        | `{ relPath }`         | `FileReadResult`             | HEAD 時点のファイル内容                         |
+| `gitDiffFile`        | `{ relPath }`         | `string`                     | unified diff                                    |
+| `gitStatus`          | —                     | `Record<string, string>`     | git status 全体                                 |
+| `gitWorktreeList`    | —                     | `WorktreeEntry[]`            | worktree 一覧を取得                             |
+| `gitBranchList`      | —                     | `string[]`                   | ローカルブランチ一覧を取得                      |
+| `gitWorktreeAdd`     | `{ branch? }`         | `WorktreeEntry`              | worktree を作成（branch 未指定なら自動生成）    |
+| `gitWorktreeRemove`  | `{ path, force? }`    | `void`                       | worktree を解除（ブランチは残る）               |
+| `gitBranchDelete`    | `{ branch }`          | `void`                       | ローカルブランチを削除                          |
+| `switchDir`          | `{ dir }`             | `{ dir, fileServerBaseUrl }` | 表示対象ディレクトリを切り替え（worktree 選択） |
 
 ## Message（一方向）
 
 ### desktop → renderer
 
-| Message           | Payload                             | 用途                      |
-| ----------------- | ----------------------------------- | ------------------------- |
-| `ptyData`         | `{ id, data }`                      | PTY 出力                  |
-| `ptyExit`         | `{ id, exitCode }`                  | PTY 終了                  |
-| `fsChange`        | `{ relDir }`                        | ファイル変更通知          |
-| `gitStatusChange` | `{ statuses }`                      | git status 変化           |
-| `orkisOpen`       | `{ dir, file?, fileServerBaseUrl }` | ウィンドウ open           |
-| `orkisHook`       | `{ event, payload }`                | Claude Code Hook イベント |
-| `lspDiagnostics`  | `FileDiagnostics`                   | LSP 型診断結果            |
+| Message           | Payload                                      | 用途                                       |
+| ----------------- | -------------------------------------------- | ------------------------------------------ |
+| `ptyData`         | `{ id, data }`                               | PTY 出力                                   |
+| `ptyExit`         | `{ id, exitCode }`                           | PTY 終了                                   |
+| `fsChange`        | `{ relDir }`                                 | ファイル変更通知                           |
+| `gitStatusChange` | `{ statuses }`                               | git status 変化                            |
+| `worktreeChange`  | `void`                                       | 非アクティブ worktree でのファイル変更通知 |
+| `orkisOpen`       | `{ dir, file?, fileServerBaseUrl, channel }` | ウィンドウ open                            |
+| `orkisHook`       | `{ event, payload }`                         | Claude Code Hook イベント                  |
+| `lspDiagnostics`  | `FileDiagnostics`                            | LSP 型診断結果                             |
 
 ### renderer → desktop
 
@@ -71,6 +79,21 @@ interface FileEntry {
 interface FileReadResult {
   content: string;
   isBinary: boolean;
+}
+
+interface WorktreeChangeCounts {
+  modified: number;
+  added: number;
+  deleted: number;
+  untracked: number;
+}
+
+interface WorktreeEntry {
+  path: string;
+  head: string;
+  branch?: string;
+  isMain: boolean;
+  changeCounts?: WorktreeChangeCounts;
 }
 
 interface LspDiagnostic {

@@ -6,13 +6,12 @@
 
 ```
 features/filer/
-├── FilerPane.vue       # ルートペイン（ツリーの読み込み、fsChange/gitStatusChange の購読）
-├── FileTreeItem.vue    # 再帰ツリーアイテム（展開/折りたたみ、アイコン、git 色分け）
-├── filer-utils.ts      # git status 解決、削除エントリ生成、ソート
-├── useFileIcon.ts      # material-icon-theme によるアイコン解決
-├── useGitStatus.ts     # git status のリアクティブ状態管理
-├── useSelectedPath.ts  # 選択ファイルパスの共有（preview と連携）
-└── useWorkspace.ts     # ワークスペースディレクトリの管理
+├── FilerPane.vue          # ルートペイン（ツリーの読み込み、fsChange/gitStatusChange の購読）
+├── FileTreeItem.vue       # 再帰ツリーアイテム（展開/折りたたみ、アイコン、git 色分け）
+├── filer-utils.ts         # git status 解決、削除エントリ生成、ソート
+├── useFileIcon.ts         # material-icon-theme によるアイコン解決
+├── useGitStatusStore.ts   # git status のリアクティブ状態管理（Pinia store）
+└── useWorkspaceStore.ts   # ワークスペース・選択パスの管理（Pinia store）
 ```
 
 ## データフロー
@@ -30,6 +29,10 @@ flowchart LR
 - `fsChange`: ワークスペース内のファイル変更通知（`.git/` と `node_modules/` は除外）
 - `gitStatusChange`: `git status --porcelain=v1` の結果をプッシュ通知（300ms デバウンス）
 - `.git` 関連ファイルは `fs.watchFile`（ポーリング 500ms）で個別監視
+
+### git status 変更時の children 再構築
+
+git status が更新されると、削除仮想エントリの追加/除去のためにルートを再構築する。展開中の子ディレクトリの `children` キャッシュも破棄し、`notifyGitStatusChange()` で展開中のすべての子ツリーを再構築する。
 
 ## git status の色分け
 
@@ -62,6 +65,10 @@ flowchart LR
 
 SVG は `import.meta.glob` で一括取り込み、Vite がビルド時にハッシュ付きパスに変換する。`assetsInlineLimit: 0` で SVG のインライン化を防止している。
 
-## useSelectedPath
+## useWorkspaceStore
 
-ファイラーとプレビューペイン間で選択パスを共有する composable。`selectedGitChange` は `gitStatuses` から `computed` で都度算出するため、git status 更新時にプレビューのタブ状態も自動反映される。
+ワークスペースの状態を管理する Pinia store。`dir`, `selectedPath`, `fileServerBaseUrl`, `channel` を保持する。
+
+- `setOpen()` で orkisOpen メッセージの初期化データを受け取る
+- `selectedPath` と `selectedGitChange` を管理し、ファイラーとプレビュー間でパス情報を共有する
+- `selectedGitChange` は `gitStatuses` から `computed` で都度算出するため、git status 更新時にプレビューのタブ状態も自動反映される

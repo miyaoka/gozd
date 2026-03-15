@@ -37,16 +37,29 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 | deleted                  | Original                | Original   |
 | untracked                | Current                 | Current    |
 
+## 開閉機能
+
+プレビューペインは右端に配置され、開閉可能。デフォルトは closed。
+
+- ファイル選択時に自動オープン
+- ヘッダーの close ボタンで閉じる
+- `terminal.togglePreview` コマンドで切り替え
+
 ## データ取得
 
 `PreviewPane` が RPC 経由で desktop からファイル内容を取得する。
 
-| RPC           | 用途                                            |
-| ------------- | ----------------------------------------------- |
-| `fsReadFile`  | 現在のファイル内容（バイナリ判定）              |
-| `gitShowFile` | `HEAD` 時点のファイル内容（Original / Diff 用） |
+| RPC                  | 用途                                             |
+| -------------------- | ------------------------------------------------ |
+| `fsReadFile`         | 現在のファイル内容（バイナリ判定）               |
+| `fsReadFileAbsolute` | 絶対パスでのファイル読み取り（ワークスペース外） |
+| `gitShowFile`        | `HEAD` 時点のファイル内容（Original / Diff 用）  |
 
 - 画像 / SVG: WKWebView が `file://` をブロックするため、desktop 側のファイルサーバー経由で配信
+  - `/fs/{relPath}` — 現在のファイル
+  - `/git/{relPath}` — HEAD 時点のファイル
+  - `?v=<version>` パラメータで画像キャッシュバスト
+- 絶対パスの場合は git 操作（`gitShowFile`）を呼ばない
 - バイナリ判定: NUL バイト（`0x00`）の有無で判定（git と同じ方式）
 - 最大サイズ: 1MB を超えるファイルはバイナリ扱い
 
@@ -54,7 +67,7 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 
 ### git status 変化時
 
-`selectedGitChange` は `useSelectedPath` の computed から取得する。`gitStatuses` が更新されると自動再計算され、`PreviewPane` の watch がトリガーされてモード・タブをリセットしつつ再取得する。
+`selectedGitChange` は `useWorkspaceStore` の computed から取得する。`gitStatuses` が更新されると自動再計算され、`PreviewPane` の watch がトリガーされてモード・タブをリセットしつつ再取得する。
 
 ### ファイル内容変更時
 
@@ -72,6 +85,7 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
 - `github-dark` テーマ
 - `ShikiTransformer` で各行に `data-line` 属性を付与し、CSS `::before` で行番号表示
 - 言語検出: 拡張子 → `EXTENSION_LANG_MAP` で Shiki 言語 ID に変換
+- word-wrap トグルボタンでコードの折り返しを切り替え
 
 ### DiffPreview
 

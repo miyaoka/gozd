@@ -29,9 +29,11 @@ const layout = computed(() => terminalStore.ensureLayout(props.dir));
 const containerRef = ref<HTMLElement>();
 const { width: containerWidth, height: containerHeight } = useElementSize(containerRef);
 
-const flatElements = computed(() =>
-  flattenTree(layout.value.root, containerWidth.value, containerHeight.value),
-);
+// コンテナサイズ未確定（初回 0x0）の間は空配列を返し、leaf が 0x0 で mount されるのを防ぐ
+const flatElements = computed(() => {
+  if (containerWidth.value <= 0 || containerHeight.value <= 0) return [];
+  return flattenTree(layout.value.root, containerWidth.value, containerHeight.value);
+});
 
 const flatLeaves = computed(() =>
   flatElements.value.filter((el): el is FlatLeaf => el.type === "leaf"),

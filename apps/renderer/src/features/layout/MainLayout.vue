@@ -3,7 +3,7 @@
 
 ## 構成
 
-- 水平方向: SidebarPane → FilerPane → TerminalPane → PreviewPane（各ペイン間にリサイズハンドル）
+- 水平方向: SidebarPane → TerminalPane → FilerPane → PreviewPane（各ペイン間にリサイズハンドル）
 - 垂直方向: メインエリア → DebugPane（リサイズハンドル）
 - PreviewPane は右端に配置され、開閉可能
 
@@ -59,7 +59,7 @@ const filerWidth = ref(256);
 const terminalWidth = ref(400);
 /** ユーザーが決めた希望幅 */
 const previewWidth = ref(400);
-const previewOpen = ref(true);
+const previewOpen = ref(false);
 const mainHeight = ref(600);
 const debugHeight = ref(128);
 
@@ -120,20 +120,9 @@ watchEffect(() => {
       </div>
       <ResizeHandle
         v-model:before-size="sidebarWidth"
-        v-model:after-size="filerWidth"
-        direction="horizontal"
-        :before-min-size="SIDEBAR_MIN_WIDTH"
-        :after-min-size="FILER_MIN_WIDTH"
-      />
-
-      <div class="shrink-0 overflow-hidden" :style="{ width: `${filerWidth}px` }">
-        <FilerPane />
-      </div>
-      <ResizeHandle
-        v-model:before-size="filerWidth"
         v-model:after-size="terminalWidth"
         direction="horizontal"
-        :before-min-size="FILER_MIN_WIDTH"
+        :before-min-size="SIDEBAR_MIN_WIDTH"
         :after-min-size="TERMINAL_MIN_WIDTH"
       />
 
@@ -152,11 +141,23 @@ watchEffect(() => {
       </div>
 
       <ResizeHandle
-        v-show="previewOpen && canDockPreview"
         v-model:before-size="terminalWidth"
-        v-model:after-size="previewWidth"
+        v-model:after-size="filerWidth"
         direction="horizontal"
         :before-min-size="TERMINAL_MIN_WIDTH"
+        :after-min-size="FILER_MIN_WIDTH"
+      />
+
+      <div class="shrink-0 overflow-hidden" :style="{ width: `${filerWidth}px` }">
+        <FilerPane />
+      </div>
+
+      <ResizeHandle
+        v-show="previewOpen && canDockPreview"
+        v-model:before-size="filerWidth"
+        v-model:after-size="previewWidth"
+        direction="horizontal"
+        :before-min-size="FILER_MIN_WIDTH"
         :after-min-size="PREVIEW_MIN_WIDTH"
       />
 

@@ -151,7 +151,8 @@ export function parseKeyStroke(input: string): KeyStroke {
       if (MODIFIER_MAP[lower] !== undefined) {
         throw new Error(`Key is a modifier name: "${token}" in "${input}"`);
       }
-      stroke.code = keyToCode(lower);
+      // 角括弧記法は e.code を直接指定するため、大文字を保持して渡す
+      stroke.code = keyToCode(token.startsWith("[") ? token : lower);
     }
   }
 

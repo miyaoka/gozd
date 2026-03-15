@@ -2,6 +2,7 @@
  * コマンドレジストリ。module singleton パターン。
  * コマンド ID → handler のマッピングを管理する。
  */
+import { tryCatch } from "@orkis/shared";
 import type { CommandHandler } from "./types";
 
 const handlers = new Map<string, CommandHandler>();
@@ -28,7 +29,12 @@ function register(id: string, handler: CommandHandler): () => void {
 function execute(id: string, args?: unknown): boolean {
   const handler = handlers.get(id);
   if (handler === undefined) return false;
-  return handler(args);
+  const result = tryCatch(() => handler(args));
+  if (!result.ok) {
+    console.error(`Command "${id}" threw:`, result.error);
+    return false;
+  }
+  return result.value;
 }
 
 /** HMR / テスト用。全コマンドを解除する */

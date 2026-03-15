@@ -564,7 +564,7 @@ describe("flattenTree", () => {
 
     const result = flattenTree(branch, 0, 0);
     for (const el of result) {
-      const rect = el.type === "leaf" ? el.rect : el.rect;
+      const { rect } = el;
       expect(rect.width).toBeGreaterThanOrEqual(0);
       expect(rect.height).toBeGreaterThanOrEqual(0);
     }

@@ -164,7 +164,9 @@ export function parseKeyStroke(input: string): KeyStroke {
 }
 
 /** KeyboardEvent を KeyStroke に変換する。e.code（物理キー）を使用 */
-export function eventToKeyStroke(e: KeyboardEvent): KeyStroke {
+export function eventToKeyStroke(
+  e: Pick<KeyboardEvent, "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">,
+): KeyStroke {
   return {
     code: e.code,
     meta: e.metaKey,

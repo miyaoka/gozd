@@ -64,8 +64,7 @@ export function registerTerminalCommands(
     registry.register("terminal.closePane", () => {
       const active = getActiveLayout();
       if (active === undefined) return false;
-      terminalStore.closePane(active.dir, active.layout.focusedLeafId);
-      return true;
+      return terminalStore.closePane(active.dir, active.layout.focusedLeafId);
     }),
 
     registry.register("terminal.focusLeft", createFocusHandler("left")),

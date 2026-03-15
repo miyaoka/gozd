@@ -1,3 +1,8 @@
+## イベントリスナー
+
+- `addEventListener` を直接使わず、VueUse の `useEventListener` を使う
+- コンポーネントの unmount や HMR 時に effect scope が破棄されて自動解除されるため、listener のリークを防げる
+
 ## CSS クラス名
 
 - Tailwind ユーティリティ以外のカスタム CSS クラスには `_` プレフィックスを付ける（例: `_markdown-body`, `_line-numbered`）

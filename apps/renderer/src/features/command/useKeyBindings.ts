@@ -2,7 +2,9 @@
  * Keybinding システム。App.vue で1回だけ呼び出す。
  * document の keydown を capture phase で listen し、
  * keybinding テーブルと照合してコマンドを実行する。
+ * useEventListener により、コンポーネントの unmount 時に自動解除される。
  */
+import { useEventListener } from "@vueuse/core";
 import DEFAULT_KEY_BINDINGS from "./defaultKeyBindings.json";
 import { eventToKeyStroke, matchKeyStroke, parseKeyStroke } from "./parseKeyStroke";
 import { parseWhen } from "./parseWhen";
@@ -81,7 +83,8 @@ export function useKeyBindings() {
   // default + user（将来）を concat して resolve
   const resolved = resolveBindings(DEFAULT_KEY_BINDINGS);
 
-  document.addEventListener(
+  useEventListener(
+    document,
     "keydown",
     (e: KeyboardEvent) => {
       if (!shouldHandle(e)) return;

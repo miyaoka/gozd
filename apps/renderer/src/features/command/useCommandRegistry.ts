@@ -7,13 +7,10 @@ import type { CommandHandler } from "./types";
 const handlers = new Map<string, CommandHandler>();
 
 /**
- * コマンドを登録する。同一 ID の二重登録はエラー。
+ * コマンドを登録する。同一 ID の二重登録は上書き（HMR 安全）。
  * @returns dispose 関数（登録解除）
  */
 function register(id: string, handler: CommandHandler): () => void {
-  if (handlers.has(id)) {
-    throw new Error(`Command already registered: "${id}"`);
-  }
   handlers.set(id, handler);
   return () => {
     handlers.delete(id);

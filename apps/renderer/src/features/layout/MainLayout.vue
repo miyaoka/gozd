@@ -37,10 +37,17 @@ const currentDir = computed(() => workspaceStore.dir);
 const disposeTerminalCommands = registerTerminalCommands(currentDir, terminalContainerRef);
 onUnmounted(disposeTerminalCommands);
 
-// ウィンドウ非アクティブ化時に terminalFocus をリセット
+// ウィンドウの表示状態変更時に terminalFocus を同期
+// hidden 時は false にリセット、復帰時は activeElement から再判定
+// （WKWebView では復帰時に xterm の focus が再発火しない場合がある）
 useEventListener(document, "visibilitychange", () => {
   if (document.hidden) {
     contextKeys.set("terminalFocus", false);
+  } else {
+    const container = terminalContainerRef.value;
+    const active = document.activeElement;
+    const isFocused = container !== null && active !== null && container.contains(active);
+    contextKeys.set("terminalFocus", isFocused);
   }
 });
 

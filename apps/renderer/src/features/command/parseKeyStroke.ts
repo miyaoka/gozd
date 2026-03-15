@@ -57,6 +57,10 @@ export function parseKeyStroke(input: string): KeyStroke {
       stroke[field] = true;
     } else {
       // 最後のトークンは key（小文字化 + エイリアス変換）
+      // modifier 名が末尾に来た場合は設定ミス
+      if (MODIFIER_MAP[lower] !== undefined) {
+        throw new Error(`Key is a modifier name: "${token}" in "${input}"`);
+      }
       stroke.key = normalizeKey(lower);
     }
   }

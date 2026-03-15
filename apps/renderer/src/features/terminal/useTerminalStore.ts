@@ -83,14 +83,17 @@ export const useTerminalStore = defineStore("terminal", () => {
     }
   }
 
-  /** ペインを閉じる。削除可否を先に判定してから副作用を実行する */
-  function closePane(dir: string, leafId: string) {
+  /**
+   * ペインを閉じる。削除可否を先に判定してから副作用を実行する。
+   * @returns 実際に閉じた場合 true。最後の1リーフ等で閉じられなかった場合 false
+   */
+  function closePane(dir: string, leafId: string): boolean {
     const layout = layoutsByDir.value[dir];
-    if (layout === undefined) return;
+    if (layout === undefined) return false;
 
     // 最後の1リーフや存在しない leafId では changed: false で何もしない
     const result = removeNode(layout.root, leafId);
-    if (!result.changed) return;
+    if (!result.changed) return false;
 
     // unmount より先に terminalFocus をリセット（blur が飛ばない場合の補正）
     contextKeys.set("terminalFocus", false);
@@ -106,6 +109,8 @@ export const useTerminalStore = defineStore("terminal", () => {
       root: result.root,
       focusedLeafId: result.nextFocusedLeafId,
     };
+
+    return true;
   }
 
   /** branch の ratio を更新する */

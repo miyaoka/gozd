@@ -160,11 +160,13 @@ watchEffect(() => {
         <PreviewPane v-show="previewOpen && canDockPreview" @close="previewOpen = false" />
       </div>
 
-      <!-- プレビューが閉じている時の開くボタン -->
+      <!-- プレビューが閉じている、またはドック不可の時に開くボタンを表示 -->
       <button
-        v-if="!previewOpen"
+        v-if="!previewOpen || !canDockPreview"
+        type="button"
         class="flex shrink-0 items-center justify-center border-l border-zinc-700 px-1 text-zinc-500 hover:text-zinc-300"
         title="Open preview"
+        aria-label="Open preview"
         @click="previewOpen = true"
       >
         <span class="icon-[lucide--panel-right-open] size-4" />

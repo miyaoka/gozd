@@ -282,8 +282,10 @@ const headerIconUrl = computed(() => {
       </template>
       <span v-else class="text-sm text-zinc-500">Preview</span>
       <button
+        type="button"
         class="ml-auto shrink-0 text-zinc-500 hover:text-zinc-300"
         title="Close preview"
+        aria-label="Close preview"
         @click="emit('close')"
       >
         <span class="icon-[lucide--panel-right-close] size-4" />

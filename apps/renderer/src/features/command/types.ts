@@ -11,8 +11,8 @@ export type CommandHandler = (args?: unknown) => boolean;
 // --- キー入力 ---
 
 export interface KeyStroke {
-  /** 正規化済みのキー名（VS Code 式: "d", "up" 等） */
-  key: string;
+  /** 物理キーの e.code 値（"KeyD", "Digit2", "ArrowUp" 等） */
+  code: string;
   meta: boolean;
   ctrl: boolean;
   alt: boolean;

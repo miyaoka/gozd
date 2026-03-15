@@ -23,8 +23,18 @@ interface ResolvedBinding {
   when: When | undefined;
 }
 
-/** macOS 予約キー（コマンドシステムで横取りしない） */
-const MAC_RESERVED_KEYS = new Set(["c", "v", "x", "a", "z", "q", "h", "m", ","]);
+/** macOS 予約キー（コマンドシステムで横取りしない）。e.code 値で指定 */
+const MAC_RESERVED_CODES = new Set([
+  "KeyC",
+  "KeyV",
+  "KeyX",
+  "KeyA",
+  "KeyZ",
+  "KeyQ",
+  "KeyH",
+  "KeyM",
+  "Comma",
+]);
 
 /** keybinding テーブルを parse して ResolvedBinding 配列にする */
 function resolveBindings(bindings: KeyBinding[]): ResolvedBinding[] {
@@ -70,7 +80,7 @@ function shouldHandle(e: KeyboardEvent): boolean {
 
   // macOS 予約キー（Cmd+C/V/X/A/Z/Q/H/M/,）は OS に委ねる
   if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
-    if (MAC_RESERVED_KEYS.has(e.key.toLowerCase())) return false;
+    if (MAC_RESERVED_CODES.has(e.code)) return false;
   }
 
   return true;

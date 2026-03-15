@@ -95,8 +95,10 @@ export const useTerminalStore = defineStore("terminal", () => {
     const result = removeNode(layout.root, leafId);
     if (!result.changed) return false;
 
-    // unmount より先に terminalFocus をリセット（blur が飛ばない場合の補正）
-    contextKeys.set("terminalFocus", false);
+    // フォーカス中のペインを閉じる場合、unmount より先に terminalFocus をリセット
+    if (leafId === layout.focusedLeafId) {
+      contextKeys.set("terminalFocus", false);
+    }
 
     // 削除確定後に PTY kill + paneRegistry 削除
     const entry = paneRegistry.value[leafId];

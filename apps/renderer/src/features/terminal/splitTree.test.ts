@@ -6,12 +6,13 @@ import {
   collectLeafIds,
   createLeaf,
   findFirstLeaf,
+  flattenTree,
   getMinSize,
   removeNode,
   resizeBranch,
   splitNode,
 } from "./splitTree";
-import type { SplitBranch } from "./splitTree";
+import type { FlatHandle, FlatLeaf, SplitBranch } from "./splitTree";
 
 describe("createLeaf", () => {
   test("id が文字列で返る", () => {
@@ -435,5 +436,137 @@ describe("getMinSize", () => {
     expect(getMinSize(root, "horizontal")).toBe(
       LEAF_MIN_WIDTH + SPLIT_HANDLE_SIZE + LEAF_MIN_WIDTH + SPLIT_HANDLE_SIZE + LEAF_MIN_WIDTH,
     );
+  });
+});
+
+describe("flattenTree", () => {
+  const H = SPLIT_HANDLE_SIZE;
+
+  test("単一リーフはコンテナ全体を占める", () => {
+    const leaf = createLeaf();
+    const result = flattenTree(leaf, 1000, 600);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.type).toBe("leaf");
+    const flat = result[0] as FlatLeaf;
+    expect(flat.id).toBe(leaf.id);
+    expect(flat.rect).toEqual({ top: 0, left: 0, width: 1000, height: 600 });
+  });
+
+  test("水平分割: leaf + handle + leaf", () => {
+    const leaf1 = createLeaf();
+    const leaf2 = createLeaf();
+    const branch: SplitBranch = {
+      type: "branch",
+      id: "b1",
+      direction: "horizontal",
+      ratio: 0.6,
+      first: leaf1,
+      second: leaf2,
+    };
+
+    const result = flattenTree(branch, 1000, 600);
+    expect(result).toHaveLength(3);
+
+    const available = 1000 - H;
+    const firstW = available * 0.6;
+    const secondW = available * 0.4;
+
+    const l1 = result.find((e) => e.type === "leaf" && e.id === leaf1.id) as FlatLeaf;
+    const l2 = result.find((e) => e.type === "leaf" && e.id === leaf2.id) as FlatLeaf;
+    const h = result.find((e) => e.type === "handle") as FlatHandle;
+
+    expect(l1.rect).toEqual({ top: 0, left: 0, width: firstW, height: 600 });
+    expect(h.rect).toEqual({ top: 0, left: firstW, width: H, height: 600 });
+    expect(h.availablePx).toBe(available);
+    expect(l2.rect).toEqual({ top: 0, left: firstW + H, width: secondW, height: 600 });
+  });
+
+  test("垂直分割: leaf + handle + leaf", () => {
+    const leaf1 = createLeaf();
+    const leaf2 = createLeaf();
+    const branch: SplitBranch = {
+      type: "branch",
+      id: "b1",
+      direction: "vertical",
+      ratio: 0.3,
+      first: leaf1,
+      second: leaf2,
+    };
+
+    const result = flattenTree(branch, 800, 600);
+    const available = 600 - H;
+    const firstH = available * 0.3;
+    const secondH = available * 0.7;
+
+    const l1 = result.find((e) => e.type === "leaf" && e.id === leaf1.id) as FlatLeaf;
+    const l2 = result.find((e) => e.type === "leaf" && e.id === leaf2.id) as FlatLeaf;
+    const h = result.find((e) => e.type === "handle") as FlatHandle;
+
+    expect(l1.rect).toEqual({ top: 0, left: 0, width: 800, height: firstH });
+    expect(h.rect).toEqual({ top: firstH, left: 0, width: 800, height: H });
+    expect(l2.rect).toEqual({ top: firstH + H, left: 0, width: 800, height: secondH });
+  });
+
+  test("ネスト: H(V(A, B), C) — 異なる方向の分割でも正しく配置", () => {
+    const A = createLeaf();
+    const B = createLeaf();
+    const C = createLeaf();
+    const inner: SplitBranch = {
+      type: "branch",
+      id: "bV",
+      direction: "vertical",
+      ratio: 0.5,
+      first: A,
+      second: B,
+    };
+    const root: SplitBranch = {
+      type: "branch",
+      id: "bH",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: inner,
+      second: C,
+    };
+
+    const result = flattenTree(root, 1000, 600);
+    // 3 leaves + 2 handles = 5 elements
+    expect(result).toHaveLength(5);
+
+    const hAvail = 1000 - H;
+    const leftW = hAvail * 0.5;
+    const rightW = hAvail * 0.5;
+
+    const vAvail = 600 - H;
+    const topH = vAvail * 0.5;
+    const bottomH = vAvail * 0.5;
+
+    const a = result.find((e) => e.type === "leaf" && e.id === A.id) as FlatLeaf;
+    const b = result.find((e) => e.type === "leaf" && e.id === B.id) as FlatLeaf;
+    const c = result.find((e) => e.type === "leaf" && e.id === C.id) as FlatLeaf;
+
+    expect(a.rect).toEqual({ top: 0, left: 0, width: leftW, height: topH });
+    expect(b.rect).toEqual({ top: topH + H, left: 0, width: leftW, height: bottomH });
+    expect(c.rect).toEqual({ top: 0, left: leftW + H, width: rightW, height: 600 });
+  });
+
+  test("ゼロサイズのコンテナで負の幅/高さにならない", () => {
+    const leaf1 = createLeaf();
+    const leaf2 = createLeaf();
+    const branch: SplitBranch = {
+      type: "branch",
+      id: "b1",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: leaf1,
+      second: leaf2,
+    };
+
+    const result = flattenTree(branch, 0, 0);
+    for (const el of result) {
+      const rect = el.type === "leaf" ? el.rect : el.rect;
+      expect(rect.width).toBeGreaterThanOrEqual(0);
+      expect(rect.height).toBeGreaterThanOrEqual(0);
+    }
   });
 });

@@ -9,9 +9,12 @@
 
 <script setup lang="ts">
 import { onMounted, onUnmounted } from "vue";
+import { useKeyBindings } from "./features/command/useKeyBindings";
 import { useWorkspaceStore } from "./features/filer/useWorkspaceStore";
 import MainLayout from "./features/layout/MainLayout.vue";
 import { useRpc } from "./features/rpc/useRpc";
+
+useKeyBindings();
 
 const workspaceStore = useWorkspaceStore();
 const { send, onOrkisOpen } = useRpc();

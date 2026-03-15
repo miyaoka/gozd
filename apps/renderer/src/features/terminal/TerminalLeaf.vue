@@ -9,6 +9,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
+import { useContextKeys } from "../command/useContextKeys";
 import { useTerminalStore } from "./useTerminalStore";
 import XtermTerminal from "./XtermTerminal.vue";
 
@@ -20,6 +21,7 @@ interface Props {
 
 const props = defineProps<Props>();
 const terminalStore = useTerminalStore();
+const contextKeys = useContextKeys();
 
 const xtermRef = ref<InstanceType<typeof XtermTerminal>>();
 
@@ -49,7 +51,12 @@ watch(
 );
 
 function handleTerminalFocus() {
+  contextKeys.set("terminalFocus", true);
   terminalStore.focusPane(props.leafId);
+}
+
+function handleTerminalBlur() {
+  contextKeys.set("terminalFocus", false);
 }
 </script>
 
@@ -65,6 +72,7 @@ function handleTerminalFocus() {
       :leaf-id="leafId"
       :fit-suspended="effectiveFitSuspended"
       @focus="handleTerminalFocus"
+      @blur="handleTerminalBlur"
     />
   </div>
 </template>

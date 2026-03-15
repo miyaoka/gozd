@@ -1,5 +1,6 @@
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { ref } from "vue";
+import { useContextKeys } from "../command/useContextKeys";
 import { useRpc } from "../rpc/useRpc";
 import type { SplitDirection, SplitNode } from "./splitTree";
 import {
@@ -27,6 +28,7 @@ interface PaneEntry {
  */
 export const useTerminalStore = defineStore("terminal", () => {
   const { send } = useRpc();
+  const contextKeys = useContextKeys();
 
   /** 訪問済みの worktree ディレクトリ一覧（初回訪問順） */
   const visitedDirs = ref<string[]>([]);
@@ -89,6 +91,9 @@ export const useTerminalStore = defineStore("terminal", () => {
     // 最後の1リーフや存在しない leafId では changed: false で何もしない
     const result = removeNode(layout.root, leafId);
     if (!result.changed) return;
+
+    // unmount より先に terminalFocus をリセット（blur が飛ばない場合の補正）
+    contextKeys.set("terminalFocus", false);
 
     // 削除確定後に PTY kill + paneRegistry 削除
     const entry = paneRegistry.value[leafId];

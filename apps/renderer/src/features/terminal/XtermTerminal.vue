@@ -28,6 +28,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   focus: [];
+  blur: [];
 }>();
 
 const containerRef = ref<HTMLElement>();
@@ -131,9 +132,12 @@ onMounted(async () => {
 
   fitAddon.fit();
 
-  // xterm の focus イベントを親に通知（focus の責務は TerminalLeaf が持つ）
+  // xterm の focus/blur イベントを親に通知（focus の責務は TerminalLeaf が持つ）
   terminal.textarea?.addEventListener("focus", () => {
     emit("focus");
+  });
+  terminal.textarea?.addEventListener("blur", () => {
+    emit("blur");
   });
 
   const spawnedPtyId = await request.ptySpawn({

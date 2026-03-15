@@ -1,0 +1,9 @@
+[
+  { "key": "cmd+d", "command": "terminal.splitHorizontal", "when": "terminalFocus" },
+  { "key": "shift+cmd+d", "command": "terminal.splitVertical", "when": "terminalFocus" },
+  { "key": "cmd+w", "command": "terminal.closePane", "when": "terminalFocus" },
+  { "key": "alt+cmd+left", "command": "terminal.focusLeft", "when": "terminalFocus" },
+  { "key": "alt+cmd+right", "command": "terminal.focusRight", "when": "terminalFocus" },
+  { "key": "alt+cmd+up", "command": "terminal.focusUp", "when": "terminalFocus" },
+  { "key": "alt+cmd+down", "command": "terminal.focusDown", "when": "terminalFocus" }
+]

@@ -13,7 +13,11 @@ const handlers = new Map<string, CommandHandler>();
 function register(id: string, handler: CommandHandler): () => void {
   handlers.set(id, handler);
   return () => {
-    handlers.delete(id);
+    // HMR で新しい handler が上書き登録された後に旧 disposer が走っても、
+    // 新しい handler を消さないように一致チェックする
+    if (handlers.get(id) === handler) {
+      handlers.delete(id);
+    }
   };
 }
 

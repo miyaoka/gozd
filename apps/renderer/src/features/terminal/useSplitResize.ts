@@ -13,6 +13,8 @@ interface UseSplitResizeOptions {
   firstNode: Ref<SplitNode>;
   secondNode: Ref<SplitNode>;
   ratio: Ref<number>;
+  /** branch の主軸方向の利用可能サイズ（handle 幅を除いた px） */
+  availablePx: Ref<number>;
   onUpdate: (newRatio: number) => void;
   onDragStart?: () => void;
   onDragEnd?: () => void;
@@ -29,14 +31,8 @@ export function useSplitResize(
     isDragging.value = true;
     options.onDragStart?.();
 
-    const handle = handleRef.value;
-    if (handle === null) return;
-
-    const container = handle.parentElement;
-    if (container === null) return;
-
     const isHorizontal = options.axis === "horizontal";
-    const containerSize = isHorizontal ? container.clientWidth : container.clientHeight;
+    const availablePx = options.availablePx.value;
     const startPos = isHorizontal ? e.clientX : e.clientY;
     const startRatio = options.ratio.value;
 
@@ -46,9 +42,6 @@ export function useSplitResize(
 
     const firstMin = getMinSize(options.firstNode.value, options.axis);
     const secondMin = getMinSize(options.secondNode.value, options.axis);
-    /* ハンドル自体の幅を除いた利用可能領域 */
-    const handleSize = handle.getBoundingClientRect()[isHorizontal ? "width" : "height"];
-    const availablePx = containerSize - handleSize;
 
     const minRatio = availablePx > 0 ? firstMin / availablePx : 0;
     const maxRatio = availablePx > 0 ? 1 - secondMin / availablePx : 1;

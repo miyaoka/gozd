@@ -221,7 +221,104 @@ function getMinSize(node: SplitNode, axis: Axis): number {
   return Math.max(firstMin, secondMin);
 }
 
-export type { SplitDirection, SplitLeaf, SplitBranch, SplitNode, SplitMutationResult, Axis };
+// --- フラットレンダリング用の型と関数 ---
+
+interface PixelRect {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
+interface FlatLeaf {
+  type: "leaf";
+  id: string;
+  rect: PixelRect;
+}
+
+interface FlatHandle {
+  type: "handle";
+  branchId: string;
+  axis: SplitDirection;
+  ratio: number;
+  firstNode: SplitNode;
+  secondNode: SplitNode;
+  /** branch の主軸方向の利用可能サイズ（handle 幅を除いた px） */
+  availablePx: number;
+  rect: PixelRect;
+}
+
+type FlatElement = FlatLeaf | FlatHandle;
+
+/**
+ * ツリーを DFS で走査し、全 leaf / handle の絶対位置（px）をフラットに算出する。
+ * TerminalPane でフラットレンダリングするためのレイアウト関数。
+ */
+function flattenTree(root: SplitNode, rootWidth: number, rootHeight: number): FlatElement[] {
+  const elements: FlatElement[] = [];
+
+  function walk(node: SplitNode, top: number, left: number, width: number, height: number): void {
+    if (node.type === "leaf") {
+      elements.push({
+        type: "leaf",
+        id: node.id,
+        rect: { top, left, width: Math.max(0, width), height: Math.max(0, height) },
+      });
+      return;
+    }
+
+    const { direction, ratio, first, second } = node;
+    const isH = direction === "horizontal";
+    const mainSize = isH ? width : height;
+    const availablePx = Math.max(0, mainSize - SPLIT_HANDLE_SIZE);
+    const firstSize = availablePx * ratio;
+    const secondSize = availablePx * (1 - ratio);
+
+    if (isH) {
+      walk(first, top, left, firstSize, height);
+      elements.push({
+        type: "handle",
+        branchId: node.id,
+        axis: direction,
+        ratio,
+        firstNode: first,
+        secondNode: second,
+        availablePx,
+        rect: { top, left: left + firstSize, width: SPLIT_HANDLE_SIZE, height },
+      });
+      walk(second, top, left + firstSize + SPLIT_HANDLE_SIZE, secondSize, height);
+    } else {
+      walk(first, top, left, width, firstSize);
+      elements.push({
+        type: "handle",
+        branchId: node.id,
+        axis: direction,
+        ratio,
+        firstNode: first,
+        secondNode: second,
+        availablePx,
+        rect: { top: top + firstSize, left, width, height: SPLIT_HANDLE_SIZE },
+      });
+      walk(second, top + firstSize + SPLIT_HANDLE_SIZE, left, width, secondSize);
+    }
+  }
+
+  walk(root, 0, 0, rootWidth, rootHeight);
+  return elements;
+}
+
+export type {
+  SplitDirection,
+  SplitLeaf,
+  SplitBranch,
+  SplitNode,
+  SplitMutationResult,
+  Axis,
+  PixelRect,
+  FlatLeaf,
+  FlatHandle,
+  FlatElement,
+};
 export {
   LEAF_MIN_WIDTH,
   LEAF_MIN_HEIGHT,
@@ -233,4 +330,5 @@ export {
   removeNode,
   resizeBranch,
   getMinSize,
+  flattenTree,
 };

@@ -14,11 +14,13 @@ interface Props {
   direction: "horizontal" | "vertical";
   beforeMinSize: number;
   afterMinSize: number;
+  getBeforeSize?: () => number;
+  getAfterSize?: () => number;
 }
 
 const props = defineProps<Props>();
-const beforeSize = defineModel<number>("beforeSize", { required: true });
-const afterSize = defineModel<number>("afterSize", { required: true });
+const beforeSize = defineModel<number>("beforeSize");
+const afterSize = defineModel<number>("afterSize");
 
 const handleRef = useTemplateRef<HTMLElement>("handle");
 const isHovered = useElementHover(handleRef);
@@ -27,6 +29,8 @@ const { isDragging } = useResize(handleRef, beforeSize, afterSize, {
   direction: props.direction,
   beforeMinSize: props.beforeMinSize,
   afterMinSize: props.afterMinSize,
+  getBeforeSize: props.getBeforeSize,
+  getAfterSize: props.getAfterSize,
 });
 </script>
 

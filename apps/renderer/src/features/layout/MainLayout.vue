@@ -72,35 +72,69 @@ const MAIN_MIN_HEIGHT = 200;
 /** ハンドル幅 w-2 = 8px */
 const HANDLE_WIDTH = 8;
 
+const { width: windowWidth, height: windowHeight } = useWindowSize();
+
 const sidebarWidth = ref(224);
 const filerWidth = ref(256);
-/** ユーザーが決めた幅。開閉では変更しない */
-const terminalWidth = ref(400);
 /** ユーザーが決めた希望幅 */
 const previewWidth = ref(400);
 const previewOpen = ref(false);
 const mainHeight = ref(600);
 const debugHeight = ref(128);
 
-const { width: windowWidth, height: windowHeight } = useWindowSize();
+/** Preview 開閉ボタンの固定幅（px-1 × 2 + size-4 + border-l） */
+const PREVIEW_TOGGLE_WIDTH = 25;
 
-/** Sidebar + Filer + ハンドル2本 + Terminal で消費される固定幅 */
-const leftFixedWidth = computed(
-  () => sidebarWidth.value + filerWidth.value + HANDLE_WIDTH * 2 + terminalWidth.value,
-);
-
-/** Terminal の右側に残る余白 */
-const rightFreeWidth = computed(() => Math.max(0, windowWidth.value - leftFixedWidth.value));
+/** Terminal を最小幅にしたときに Preview に使える最大幅 */
+const availablePreviewWidth = computed(() => {
+  if (!previewOpen.value) return 0;
+  return Math.max(
+    0,
+    windowWidth.value -
+      sidebarWidth.value -
+      filerWidth.value -
+      TERMINAL_MIN_WIDTH -
+      HANDLE_WIDTH * 3,
+  );
+});
 
 /** プレビューに実際に割り当てる幅（余白に収まるようクランプ） */
 const dockedPreviewWidth = computed(() => {
   if (!previewOpen.value) return 0;
-  const max = rightFreeWidth.value - HANDLE_WIDTH;
-  return Math.max(0, Math.min(previewWidth.value, max));
+  return Math.min(previewWidth.value, availablePreviewWidth.value);
 });
 
 /** プレビューを表示できるだけの余白があるか */
 const canDockPreview = computed(() => dockedPreviewWidth.value >= PREVIEW_MIN_WIDTH);
+
+/** Preview セクションが占める幅（ドック時: ハンドル + Preview、非ドック時: 開閉ボタン） */
+const previewSectionWidth = computed(() =>
+  previewOpen.value && canDockPreview.value
+    ? HANDLE_WIDTH + dockedPreviewWidth.value
+    : PREVIEW_TOGGLE_WIDTH,
+);
+
+/** Terminal 幅: ウィンドウ幅から他ペインを引いた残余領域（state ではなく導出値） */
+const terminalWidth = computed(() =>
+  Math.max(
+    TERMINAL_MIN_WIDTH,
+    windowWidth.value -
+      sidebarWidth.value -
+      filerWidth.value -
+      HANDLE_WIDTH * 2 -
+      previewSectionWidth.value,
+  ),
+);
+
+/** ドラッグ開始時に Terminal の DOM 実測幅を取得する */
+const getTerminalWidth = () =>
+  terminalContainerRef.value?.getBoundingClientRect().width ?? terminalWidth.value;
+
+/** デバッグ用 */
+const leftFixedWidth = computed(
+  () => sidebarWidth.value + filerWidth.value + HANDLE_WIDTH * 2 + terminalWidth.value,
+);
+const rightFreeWidth = computed(() => Math.max(0, windowWidth.value - leftFixedWidth.value));
 
 // previewVisible context key を実際の表示状態と同期
 watchEffect(() => {
@@ -144,10 +178,10 @@ watchEffect(() => {
       </div>
       <ResizeHandle
         v-model:before-size="sidebarWidth"
-        v-model:after-size="terminalWidth"
         direction="horizontal"
         :before-min-size="SIDEBAR_MIN_WIDTH"
         :after-min-size="TERMINAL_MIN_WIDTH"
+        :get-after-size="getTerminalWidth"
       />
 
       <div
@@ -165,11 +199,11 @@ watchEffect(() => {
       </div>
 
       <ResizeHandle
-        v-model:before-size="terminalWidth"
         v-model:after-size="filerWidth"
         direction="horizontal"
         :before-min-size="TERMINAL_MIN_WIDTH"
         :after-min-size="FILER_MIN_WIDTH"
+        :get-before-size="getTerminalWidth"
       />
 
       <div class="shrink-0 overflow-hidden" :style="{ width: `${filerWidth}px` }">

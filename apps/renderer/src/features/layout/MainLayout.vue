@@ -3,8 +3,9 @@
 
 ## 構成
 
-- 水平方向: SidebarPane → FilerPane → PreviewPane → TerminalPane（各ペイン間にリサイズハンドル）
+- 水平方向: SidebarPane → FilerPane → TerminalPane → PreviewPane（各ペイン間にリサイズハンドル）
 - 垂直方向: メインエリア → DebugPane（リサイズハンドル）
+- PreviewPane は右端に配置され、開閉可能
 
 ## リサイズ
 
@@ -14,7 +15,7 @@
 
 <script setup lang="ts">
 import { useWindowSize } from "@vueuse/core";
-import { ref, watch, watchEffect } from "vue";
+import { computed, nextTick, ref, useTemplateRef, watch, watchEffect } from "vue";
 import DebugPane from "../debug/DebugPane.vue";
 import DiagnosticsPane from "../diagnostics/DiagnosticsPane.vue";
 import FilerPane from "../filer/FilerPane.vue";
@@ -46,23 +47,56 @@ const MAIN_MIN_HEIGHT = 200;
 
 /** ハンドル幅 w-2 = 8px */
 const HANDLE_WIDTH = 8;
-const HANDLE_COUNT = 3;
 
 const sidebarWidth = ref(224);
 const filerWidth = ref(256);
-const previewWidth = ref(400);
+/** ユーザーが決めた幅。開閉では変更しない */
 const terminalWidth = ref(400);
+/** ユーザーが決めた希望幅 */
+const previewWidth = ref(400);
+const previewOpen = ref(true);
 const mainHeight = ref(600);
 const debugHeight = ref(128);
 
-// ウィンドウサイズからターミナルとメインの初期値を算出
 const { width: windowWidth, height: windowHeight } = useWindowSize();
 
-watchEffect(() => {
-  const usedWidth =
-    sidebarWidth.value + filerWidth.value + previewWidth.value + HANDLE_WIDTH * HANDLE_COUNT;
-  terminalWidth.value = Math.max(TERMINAL_MIN_WIDTH, windowWidth.value - usedWidth);
+/** Sidebar + Filer + ハンドル2本 + Terminal で消費される固定幅 */
+const leftFixedWidth = computed(
+  () => sidebarWidth.value + filerWidth.value + HANDLE_WIDTH * 2 + terminalWidth.value,
+);
+
+/** Terminal の右側に残る余白 */
+const rightFreeWidth = computed(() => Math.max(0, windowWidth.value - leftFixedWidth.value));
+
+/** プレビューに実際に割り当てる幅（余白に収まるようクランプ） */
+const dockedPreviewWidth = computed(() => {
+  if (!previewOpen.value) return 0;
+  const max = rightFreeWidth.value - HANDLE_WIDTH;
+  return Math.max(0, Math.min(previewWidth.value, max));
 });
+
+/** プレビューを表示できるだけの余白があるか */
+const canDockPreview = computed(() => dockedPreviewWidth.value >= PREVIEW_MIN_WIDTH);
+
+/** アクティブな TerminalPane の ref（suspend/resume 呼び出し用） */
+const activeTerminalRef = useTemplateRef<InstanceType<typeof TerminalPane>>("activeTerminalRef");
+
+// プレビュー開閉時に xterm の autoFit を一時停止し、レイアウト確定後に再開する
+watch(previewOpen, async () => {
+  activeTerminalRef.value?.suspendAutoFit();
+  await nextTick();
+  await new Promise(requestAnimationFrame);
+  await new Promise(requestAnimationFrame);
+  activeTerminalRef.value?.resumeAutoFit();
+});
+
+// ファイル選択時にプレビューを自動オープン
+watch(
+  () => workspaceStore.selectedPath,
+  (path) => {
+    if (path) previewOpen.value = true;
+  },
+);
 
 watchEffect(() => {
   const usedHeight = debugHeight.value + HANDLE_WIDTH;
@@ -89,30 +123,49 @@ watchEffect(() => {
       </div>
       <ResizeHandle
         v-model:before-size="filerWidth"
-        v-model:after-size="previewWidth"
-        direction="horizontal"
-        :before-min-size="FILER_MIN_WIDTH"
-        :after-min-size="PREVIEW_MIN_WIDTH"
-      />
-
-      <div class="shrink-0 overflow-hidden" :style="{ width: `${previewWidth}px` }">
-        <PreviewPane />
-      </div>
-      <ResizeHandle
-        v-model:before-size="previewWidth"
         v-model:after-size="terminalWidth"
         direction="horizontal"
-        :before-min-size="PREVIEW_MIN_WIDTH"
+        :before-min-size="FILER_MIN_WIDTH"
         :after-min-size="TERMINAL_MIN_WIDTH"
       />
 
-      <div class="shrink-0 overflow-hidden p-2" :style="{ width: `${terminalWidth}px` }">
+      <div
+        class="min-w-0 flex-1 overflow-hidden p-2"
+        :style="{ minWidth: `${TERMINAL_MIN_WIDTH}px` }"
+      >
         <TerminalPane
           v-for="d in terminalStore.visitedDirs"
           :key="d"
           v-show="d === workspaceStore.dir"
+          :ref="d === workspaceStore.dir ? 'activeTerminalRef' : undefined"
         />
       </div>
+
+      <ResizeHandle
+        v-show="previewOpen && canDockPreview"
+        v-model:before-size="terminalWidth"
+        v-model:after-size="previewWidth"
+        direction="horizontal"
+        :before-min-size="TERMINAL_MIN_WIDTH"
+        :after-min-size="PREVIEW_MIN_WIDTH"
+      />
+
+      <div
+        class="shrink-0 overflow-hidden"
+        :style="{ width: previewOpen && canDockPreview ? `${dockedPreviewWidth}px` : '0px' }"
+      >
+        <PreviewPane v-show="previewOpen && canDockPreview" @close="previewOpen = false" />
+      </div>
+
+      <!-- プレビューが閉じている時の開くボタン -->
+      <button
+        v-if="!previewOpen"
+        class="flex shrink-0 items-center justify-center border-l border-zinc-700 px-1 text-zinc-500 hover:text-zinc-300"
+        title="Open preview"
+        @click="previewOpen = true"
+      >
+        <span class="icon-[lucide--panel-right-open] size-4" />
+      </button>
     </div>
 
     <ResizeHandle
@@ -124,7 +177,18 @@ watchEffect(() => {
     />
     <div class="flex shrink-0 gap-2 overflow-hidden p-0" :style="{ height: `${debugHeight}px` }">
       <div class="w-1/2 overflow-hidden">
-        <DebugPane />
+        <DebugPane
+          :preview-open="previewOpen"
+          :layout-debug="{
+            terminalWidth,
+            previewWidth,
+            leftFixedWidth,
+            rightFreeWidth,
+            dockedPreviewWidth,
+            canDockPreview,
+            windowWidth,
+          }"
+        />
       </div>
       <div class="w-1/2 overflow-hidden">
         <DiagnosticsPane />

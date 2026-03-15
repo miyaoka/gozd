@@ -26,6 +26,41 @@ let removeDataListener: (() => void) | undefined;
 let removeExitListener: (() => void) | undefined;
 let resizeObserver: ResizeObserver | undefined;
 
+/** fit() の RAF デバウンスと suspend/resume 制御 */
+let fitRafId = 0;
+let fitSuspended = false;
+let lastFitWidth = 0;
+let lastFitHeight = 0;
+
+function scheduleFit() {
+  if (fitSuspended || fitRafId) return;
+  fitRafId = requestAnimationFrame(() => {
+    fitRafId = 0;
+    const el = containerRef.value;
+    if (!el || !fitAddon) return;
+
+    const width = el.clientWidth;
+    const height = el.clientHeight;
+    if (width <= 0 || height <= 0) return;
+    if (width === lastFitWidth && height === lastFitHeight) return;
+
+    lastFitWidth = width;
+    lastFitHeight = height;
+    fitAddon.fit();
+  });
+}
+
+function suspendAutoFit() {
+  fitSuspended = true;
+}
+
+function resumeAutoFit() {
+  fitSuspended = false;
+  scheduleFit();
+}
+
+defineExpose({ suspendAutoFit, resumeAutoFit });
+
 onMounted(async () => {
   const container = containerRef.value;
   if (!container) return;
@@ -113,13 +148,9 @@ onMounted(async () => {
   });
 
   // コンテナリサイズ時に xterm と PTY を同期
-  // v-show=false（display:none）でサイズが 0 になった時に fit() すると
-  // cols が極小値になり、再表示後もターミナルが狭いままになるため、サイズ 0 はスキップする
-  resizeObserver = new ResizeObserver((entries) => {
-    const entry = entries[0];
-    if (entry && entry.contentRect.width > 0 && entry.contentRect.height > 0) {
-      fitAddon?.fit();
-    }
+  // scheduleFit() で RAF デバウンス + 幅変化なしスキップ + suspend 対応
+  resizeObserver = new ResizeObserver(() => {
+    scheduleFit();
   });
   resizeObserver.observe(container);
 
@@ -131,6 +162,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  if (fitRafId) cancelAnimationFrame(fitRafId);
   resizeObserver?.disconnect();
   removeDataListener?.();
   removeExitListener?.();

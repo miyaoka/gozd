@@ -60,6 +60,10 @@ function hasRenderedView(ft: FileType): boolean {
   return ft === "svg" || ft === "markdown" || ft === "image";
 }
 
+const emit = defineEmits<{
+  close: [];
+}>();
+
 const workspaceStore = useWorkspaceStore();
 const { selectedPath, selectedGitChange, fileServerBaseUrl } = storeToRefs(workspaceStore);
 const { request, onFsChange } = useRpc();
@@ -267,6 +271,25 @@ const headerIconUrl = computed(() => {
 
 <template>
   <div class="flex h-full flex-col overflow-hidden">
+    <!-- ヘッダー（常に表示） -->
+    <div class="flex items-center gap-2 border-b border-zinc-700 px-3 py-2">
+      <template v-if="selectedPath">
+        <img v-if="headerIconUrl" :src="headerIconUrl" class="size-4 shrink-0" alt="" />
+        <span v-else class="icon-[lucide--file-text] text-zinc-400" />
+        <span class="truncate text-sm text-zinc-300" :title="selectedPath">{{
+          fileName(selectedPath)
+        }}</span>
+      </template>
+      <span v-else class="text-sm text-zinc-500">Preview</span>
+      <button
+        class="ml-auto shrink-0 text-zinc-500 hover:text-zinc-300"
+        title="Close preview"
+        @click="emit('close')"
+      >
+        <span class="icon-[lucide--panel-right-close] size-4" />
+      </button>
+    </div>
+
     <!-- 未選択 -->
     <div v-if="!selectedPath" class="flex flex-1 items-center justify-center text-sm text-zinc-500">
       Select a file to preview
@@ -274,15 +297,6 @@ const headerIconUrl = computed(() => {
 
     <!-- 選択中 -->
     <template v-else>
-      <!-- ヘッダー -->
-      <div class="flex items-center gap-2 border-b border-zinc-700 px-3 py-2">
-        <img v-if="headerIconUrl" :src="headerIconUrl" class="size-4 shrink-0" alt="" />
-        <span v-else class="icon-[lucide--file-text] text-zinc-400" />
-        <span class="truncate text-sm text-zinc-300" :title="selectedPath">{{
-          fileName(selectedPath)
-        }}</span>
-      </div>
-
       <!-- ツールバー -->
       <div class="flex items-center border-b border-zinc-700">
         <!-- モード切替タブ -->

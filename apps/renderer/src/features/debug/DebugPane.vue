@@ -16,6 +16,19 @@ import type { GitChangeKind } from "../filer/filer-utils";
 import { useGitStatusStore } from "../filer/useGitStatusStore";
 import { useWorkspaceStore } from "../filer/useWorkspaceStore";
 
+const props = defineProps<{
+  previewOpen: boolean;
+  layoutDebug?: {
+    terminalWidth: number;
+    previewWidth: number;
+    leftFixedWidth: number;
+    rightFreeWidth: number;
+    dockedPreviewWidth: number;
+    canDockPreview: boolean;
+    windowWidth: number;
+  };
+}>();
+
 const mode = import.meta.env.DEV ? "dev" : "build";
 const workspaceStore = useWorkspaceStore();
 const { dir, selectedPath, channel } = storeToRefs(workspaceStore);
@@ -75,6 +88,19 @@ const unstagedEntries = computed<GitStatusEntry[]>(() =>
     <template v-if="dir">
       <div>dir: {{ dir }}</div>
       <div v-if="selectedPath">file: {{ selectedPath }}</div>
+      <div>preview: {{ props.previewOpen ? "open" : "closed" }}</div>
+      <div
+        v-if="props.layoutDebug"
+        class="mt-1 border-t border-zinc-700 pt-1 text-xs text-zinc-500"
+      >
+        <div>window: {{ props.layoutDebug.windowWidth }}</div>
+        <div>terminal: {{ props.layoutDebug.terminalWidth }} (ref)</div>
+        <div>preview: {{ props.layoutDebug.previewWidth }} (ref)</div>
+        <div>leftFixed: {{ props.layoutDebug.leftFixedWidth }}</div>
+        <div>rightFree: {{ props.layoutDebug.rightFreeWidth }}</div>
+        <div>docked: {{ props.layoutDebug.dockedPreviewWidth }}</div>
+        <div>canDock: {{ props.layoutDebug.canDockPreview }}</div>
+      </div>
 
       <!-- git status -->
       <div class="mt-2 border-t border-zinc-700 pt-2">

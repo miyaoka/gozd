@@ -136,7 +136,7 @@ export const useTerminalStore = defineStore("terminal", () => {
 
     const session: PtySession = {
       ptyId,
-      chunks: new Array<string>(PTY_RING_BUFFER_CAPACITY),
+      chunks: Array.from<string>({ length: PTY_RING_BUFFER_CAPACITY }),
       totalChunks: 0,
       exited: false,
     };

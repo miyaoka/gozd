@@ -39,6 +39,7 @@ let terminal: Terminal | undefined;
 let fitAddon: FitAddon | undefined;
 let resizeObserver: ResizeObserver | undefined;
 let detachDisposer: (() => void) | undefined;
+let unmounted = false;
 
 /** fit() の RAF デバウンス制御 */
 let fitRafId = 0;
@@ -149,8 +150,11 @@ onMounted(async () => {
     return true;
   });
 
-  // PTY を spawn（既存 session があれば HMR 再マウントとしてスキップ）
+  // PTY を spawn（生存中 session があれば HMR 再マウントとしてスキップ）
   await terminalStore.spawnPty(props.leafId, terminal.cols, terminal.rows);
+
+  // spawn の await 中に unmount された場合は以降の処理をスキップ
+  if (unmounted) return;
 
   // store の PTY セッションに接続（ring buffer replay + live attach）
   detachDisposer = terminalStore.attachTerminal(props.leafId, (data) => {
@@ -182,6 +186,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  unmounted = true;
   if (fitRafId) cancelAnimationFrame(fitRafId);
   resizeObserver?.disconnect();
   detachDisposer?.();

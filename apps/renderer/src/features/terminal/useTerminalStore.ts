@@ -1,3 +1,4 @@
+import { tryCatch } from "@orkis/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { ref } from "vue";
 import { useContextKeys } from "../command/useContextKeys";
@@ -138,18 +139,26 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   // --- PTY ライフサイクル関数 ---
 
-  /** PTY を spawn する。既存 session または spawn 中であれば何もしない */
+  /** PTY を spawn する。生存中 session または spawn 中であれば何もしない */
   async function spawnPty(leafId: string, cols: number, rows: number): Promise<void> {
     const entry = paneRegistry.value[leafId];
     if (entry === undefined) return;
-    // 既存 session があればスキップ（HMR 再マウント時）
-    if (entry.session !== undefined) return;
+    // 生存中 session があればスキップ（HMR 再マウント時）
+    // exited session は再 spawn を許可する
+    if (entry.session !== undefined && !entry.session.exited) return;
     // 二重 spawn 防止（await 中に再マウントされた場合）
     if (spawningLeafIds.has(leafId)) return;
 
     spawningLeafIds.add(leafId);
-    const ptyId = await request.ptySpawn({ dir: entry.dir, cols, rows });
+    const result = await tryCatch(request.ptySpawn({ dir: entry.dir, cols, rows }));
     spawningLeafIds.delete(leafId);
+
+    if (!result.ok) {
+      console.warn("[terminal] ptySpawn failed:", result.error);
+      return;
+    }
+
+    const ptyId = result.value;
 
     // spawn 完了前に leaf が削除されていたら即 kill
     const current = paneRegistry.value[leafId];
@@ -158,8 +167,8 @@ export const useTerminalStore = defineStore("terminal", () => {
       return;
     }
 
-    // 別の spawn が先に完了して session を設定していた場合は即 kill
-    if (current.session !== undefined) {
+    // 別の spawn が先に完了して生存中 session を設定していた場合は即 kill
+    if (current.session !== undefined && !current.session.exited) {
       send.ptyKill({ id: ptyId });
       return;
     }

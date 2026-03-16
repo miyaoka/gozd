@@ -22,6 +22,7 @@ const terminalStore = useTerminalStore();
 let terminal: Terminal | undefined;
 let fitAddon: FitAddon | undefined;
 let detachDisposer: (() => void) | undefined;
+let unmounted = false;
 
 onMounted(async () => {
   const container = containerRef.value;
@@ -46,8 +47,11 @@ onMounted(async () => {
   fitAddon.observeResize();
   terminal.focus();
 
-  // PTY を spawn（既存 session があれば HMR 再マウントとしてスキップ）
+  // PTY を spawn（生存中 session があれば HMR 再マウントとしてスキップ）
   await terminalStore.spawnPty(props.leafId, terminal.cols, terminal.rows);
+
+  // spawn の await 中に unmount された場合は以降の処理をスキップ
+  if (unmounted) return;
 
   // store の PTY セッションに接続（ring buffer replay + live attach）
   detachDisposer = terminalStore.attachTerminal(props.leafId, (data) => {
@@ -71,6 +75,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  unmounted = true;
   detachDisposer?.();
   terminal?.dispose();
 });

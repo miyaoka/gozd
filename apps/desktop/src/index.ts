@@ -1172,7 +1172,20 @@ function findWindowByDir(dir: string): OrkisWindow | undefined {
   return undefined;
 }
 
-function handleSocketMessage(message: OrkisMessage) {
+/** dir から git リポジトリルートを解決する。git 管理外ならそのまま返す */
+async function resolveRepoRoot(dir: string): Promise<string> {
+  const proc = Bun.spawn(["git", "rev-parse", "--show-toplevel"], {
+    cwd: dir,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const output = await new Response(proc.stdout).text();
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) return dir;
+  return output.trim();
+}
+
+async function handleSocketMessage(message: OrkisMessage) {
   switch (message.type) {
     case "hook": {
       console.log(`[orkis] hook: ${message.event}`, message.payload);
@@ -1187,26 +1200,27 @@ function handleSocketMessage(message: OrkisMessage) {
       break;
     }
     case "open": {
-      console.log(`[orkis] open: dir=${message.dir}, file=${message.file ?? "(none)"}`);
-      const existing = findWindowByDir(message.dir);
+      const dir = await resolveRepoRoot(message.dir);
+      console.log(`[orkis] open: dir=${dir}, file=${message.file ?? "(none)"}`);
+      const existing = findWindowByDir(dir);
       if (existing) {
         const existingId = windowIds.get(existing) ?? "";
         existing.webview.rpc?.send.orkisOpen({
-          dir: message.dir,
+          dir,
           file: message.file,
           fileServerBaseUrl: `http://localhost:${fileServer.port}/${existingId}`,
           channel,
         });
         break;
       }
-      const newWin = createWindowWithRPC(message.dir);
+      const newWin = createWindowWithRPC(dir);
       const windowId = crypto.randomUUID();
       windowIds.set(newWin, windowId);
-      fileServerDirs.set(windowId, message.dir);
-      windowDirs.set(newWin, message.dir);
-      windowRepoRoots.set(newWin, message.dir);
+      fileServerDirs.set(windowId, dir);
+      windowDirs.set(newWin, dir);
+      windowRepoRoots.set(newWin, dir);
       windowSwitchGen.set(newWin, 0);
-      startWatching(newWin, message.dir);
+      startWatching(newWin, dir);
       break;
     }
   }
@@ -1232,7 +1246,7 @@ function setupSocketServer(): net.Server {
           console.error("[socket] invalid JSON:", line);
           continue;
         }
-        handleSocketMessage(result.value);
+        void handleSocketMessage(result.value);
       }
     });
   });
@@ -1323,8 +1337,21 @@ ApplicationMenu.on("application-menu-clicked", (event) => {
 
 const socketServer = setupSocketServer();
 
-const dir = process.env.ORKIS_PROJECT_ROOT ?? homedir();
-handleSocketMessage({ type: "open", dir });
+// 開発用 bin/orkis: ORKIS_PROJECT_ROOT で即座にウィンドウを開く
+// .app 内 CLI 経由: ソケット経由で open メッセージが届くので待つ
+// Dock/Finder 起動: 一定時間待っても open メッセージが届かなければホームディレクトリで開く
+const CLI_OPEN_WAIT_MS = 1000;
+const initialDir = process.env.ORKIS_PROJECT_ROOT;
+if (initialDir) {
+  await handleSocketMessage({ type: "open", dir: initialDir });
+} else {
+  setTimeout(() => {
+    // CLI からの open メッセージでウィンドウが開かれていなければフォールバック
+    if (windowDirs.size === 0) {
+      void handleSocketMessage({ type: "open", dir: homedir() });
+    }
+  }, CLI_OPEN_WAIT_MS);
+}
 
 // --- クリーンアップ ---
 

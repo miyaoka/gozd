@@ -1200,7 +1200,7 @@ let placeholderWindow: OrkisWindow | undefined;
 function openWindow(dir: string, file?: string): void {
   console.log(`[orkis] open: dir=${dir}, file=${file ?? "(none)"}`);
   const existing = findWindowByDir(dir);
-  if (existing) {
+  if (existing && existing !== placeholderWindow) {
     const existingId = windowIds.get(existing) ?? "";
     existing.webview.rpc?.send.orkisOpen({
       dir,

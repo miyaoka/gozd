@@ -1185,7 +1185,10 @@ function readLaunchRequests(): LaunchRequestResult {
   const errors: string[] = [];
   if (!fs.existsSync(LAUNCH_DIR)) return { requests, errors };
   const entries = tryCatch(() => fs.readdirSync(LAUNCH_DIR));
-  if (!entries.ok) return { requests, errors };
+  if (!entries.ok) {
+    errors.push(`ディレクトリ読み取り失敗: ${LAUNCH_DIR} (${entries.error.message})`);
+    return { requests, errors };
+  }
   const now = Date.now();
   for (const name of entries.value) {
     const filePath = `${LAUNCH_DIR}/${name}`;

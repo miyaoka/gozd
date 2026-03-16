@@ -37,7 +37,7 @@ should_launch_app() {
 
 if should_launch_app "$@"; then
   # cold start: CLI に launch request ファイルを書かせてからアプリを起動
-  ORKIS_COLD_START=1 "${BUN}" "${CLI}" "$@"
+  ORKIS_COLD_START=1 "${BUN}" "${CLI}" "$@" || exit $?
   open "${APP_BUNDLE}"
   exit $?
 fi

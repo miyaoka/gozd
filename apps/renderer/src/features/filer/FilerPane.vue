@@ -11,7 +11,7 @@
 
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
-import { onUnmounted, ref, watch } from "vue";
+import { nextTick, onUnmounted, ref, watch } from "vue";
 import { useRpc } from "../rpc/useRpc";
 import { dirName, getDeletedEntries, resolveGitChangeKind, sortEntries } from "./filer-utils";
 import type { FileEntry } from "./filer-utils";
@@ -68,9 +68,11 @@ async function loadRoot() {
   }
 
   // rootEntries 読み込み完了後に保留中の reveal を実行
+  // v-for の FileTreeItem がマウントされるのを nextTick で待つ
   if (pendingRevealPath) {
     const path = pendingRevealPath;
     pendingRevealPath = undefined;
+    await nextTick();
     void reveal(path);
   }
 }

@@ -15,7 +15,7 @@
 
 <script setup lang="ts">
 import { useEventListener, useWindowSize } from "@vueuse/core";
-import { computed, onUnmounted, ref, useTemplateRef, watch, watchEffect } from "vue";
+import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch, watchEffect } from "vue";
 import { useContextKeys } from "../command/useContextKeys";
 import DebugPane from "../debug/DebugPane.vue";
 import DiagnosticsPane from "../diagnostics/DiagnosticsPane.vue";
@@ -175,15 +175,15 @@ watch(explorerOpen, () => {
 });
 
 // ファイル選択時に Explorer を自動オープンし、ツリーを対象パスまで展開する
-// flush: "post" で v-show 反映後に reveal を呼び、scrollIntoView が正しく動作するようにする
+// explorerOpen 変更後の v-show 反映を nextTick で待ってから reveal を呼ぶ
 watch(
   () => workspaceStore.selectedPath,
-  (path) => {
+  async (path) => {
     if (!path) return;
     explorerOpen.value = true;
+    await nextTick();
     void filerPaneRef.value?.reveal(path);
   },
-  { flush: "post" },
 );
 
 watchEffect(() => {

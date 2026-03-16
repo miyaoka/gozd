@@ -214,8 +214,11 @@ export const useTerminalStore = defineStore("terminal", () => {
 
     terminalWriters.set(leafId, writer);
 
+    // disposer は自分が登録した writer のみを削除する（HMR で新旧が入れ替わるため）
     return () => {
-      terminalWriters.delete(leafId);
+      if (terminalWriters.get(leafId) === writer) {
+        terminalWriters.delete(leafId);
+      }
     };
   }
 

@@ -1,11 +1,12 @@
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { defineCommand } from "@miyaoka/fsss";
 import { tryCatch } from "@orkis/shared";
 import { z } from "zod";
 import { sendMessage } from "../socket-client";
 
-const LAUNCH_DIR = "/tmp/orkis-stable-launch";
+const LAUNCH_DIR = join(tmpdir(), "orkis-stable-launch");
 
 /**
  * パスをワークスペースディレクトリとファイルに分解する。

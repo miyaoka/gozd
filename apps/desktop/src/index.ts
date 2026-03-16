@@ -1,7 +1,7 @@
 import { ApplicationMenu, BrowserView, BrowserWindow, Updater, Utils } from "electrobun/bun";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { tryCatch } from "@orkis/shared";
@@ -32,7 +32,7 @@ async function getViewUrl(): Promise<string> {
 
 const viewUrl = await getViewUrl();
 const SOCKET_PATH = `/tmp/orkis-${channel}.sock`;
-const LAUNCH_DIR = `/tmp/orkis-${channel}-launch`;
+const LAUNCH_DIR = path.join(tmpdir(), `orkis-${channel}-launch`);
 const LAUNCH_TTL_MS = 30_000;
 const GIT_STATUS_DEBOUNCE_MS = 300;
 const GIT_WATCH_POLL_MS = 500;
@@ -1174,13 +1174,19 @@ function findWindowByDir(dir: string): OrkisWindow | undefined {
   return undefined;
 }
 
+interface LaunchRequestResult {
+  requests: { dir: string; file?: string }[];
+  errors: string[];
+}
+
 /** launch request ファイルを同期的に読み取り、処理済みにする */
-function readLaunchRequests(): { dir: string; file?: string }[] {
-  if (!fs.existsSync(LAUNCH_DIR)) return [];
-  const entries = tryCatch(() => fs.readdirSync(LAUNCH_DIR));
-  if (!entries.ok) return [];
-  const now = Date.now();
+function readLaunchRequests(): LaunchRequestResult {
   const requests: { dir: string; file?: string }[] = [];
+  const errors: string[] = [];
+  if (!fs.existsSync(LAUNCH_DIR)) return { requests, errors };
+  const entries = tryCatch(() => fs.readdirSync(LAUNCH_DIR));
+  if (!entries.ok) return { requests, errors };
+  const now = Date.now();
   for (const name of entries.value) {
     const filePath = `${LAUNCH_DIR}/${name}`;
     // stale ファイル（.claimed 含む）を TTL で掃除
@@ -1192,14 +1198,20 @@ function readLaunchRequests(): { dir: string; file?: string }[] {
     }
     if (!name.endsWith(".json")) continue;
     const content = tryCatch(() => fs.readFileSync(filePath, "utf-8"));
-    if (!content.ok) continue;
+    if (!content.ok) {
+      errors.push(`${name}: ${content.error.message}`);
+      continue;
+    }
     const parsed = tryCatch(() => JSON.parse(content.value) as { dir: string; file?: string });
-    if (!parsed.ok) continue;
+    if (!parsed.ok) {
+      errors.push(`${name}: ${parsed.error.message}`);
+      continue;
+    }
     // 処理済みにする
     tryCatch(() => fs.renameSync(filePath, `${filePath}.claimed`));
     requests.push(parsed.value);
   }
-  return requests;
+  return { requests, errors };
 }
 
 /** 新しいウィンドウを作成して登録する（同期処理） */
@@ -1368,13 +1380,22 @@ if (initialDir) {
 } else {
   // CLI cold start: launch request ファイルから dir を読む
   // Dock/Finder: request がなければスタートアップ画面（ホームディレクトリ）
-  const requests = readLaunchRequests();
+  const { requests, errors } = readLaunchRequests();
   if (requests.length > 0) {
     for (const req of requests) {
       openWindow(req.dir, req.file);
     }
   } else {
     openWindow(homedir());
+  }
+  if (errors.length > 0) {
+    void Utils.showMessageBox({
+      type: "error",
+      title: "orkis",
+      message: "launch request の読み取りに失敗しました",
+      detail: errors.join("\n"),
+      buttons: ["OK"],
+    });
   }
 }
 

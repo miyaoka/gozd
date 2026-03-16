@@ -15,16 +15,36 @@ APP_CONTENTS="${APP_RESOURCES}/../.."
 BUN="${APP_CONTENTS}/MacOS/bun"
 CLI="${APP_RESOURCES}/cli/index.js"
 APP_BUNDLE="${APP_CONTENTS}/.."
-SOCKET_PATH="/tmp/orkis-stable.sock"
+## stable → dev の順で探す（socket-client.ts と同じ優先順）
+SOCKET_CANDIDATES=("/tmp/orkis-stable.sock" "/tmp/orkis-dev.sock")
 
+## 接続可能なソケットを探して ACTIVE_SOCKET に設定する（削除なし）
+try_connect() {
+  ACTIVE_SOCKET=""
+  for sock in "${SOCKET_CANDIDATES[@]}"; do
+    [[ -S "${sock}" ]] || continue
+
+    if nc -zU "${sock}" 2>/dev/null; then
+      ACTIVE_SOCKET="${sock}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+## 起動前の残骸ソケットを掃除してから接続を試みる
 is_app_running() {
-  [[ -S "${SOCKET_PATH}" ]] || return 1
+  for sock in "${SOCKET_CANDIDATES[@]}"; do
+    [[ -S "${sock}" ]] || continue
 
-  if ! nc -zU "${SOCKET_PATH}" 2>/dev/null; then
-    rm -f "${SOCKET_PATH}"
-    return 1
-  fi
-  return 0
+    if nc -zU "${sock}" 2>/dev/null; then
+      ACTIVE_SOCKET="${sock}"
+      return 0
+    fi
+    # 起動前なので接続できないソケットは残骸とみなして削除
+    rm -f "${sock}"
+  done
+  return 1
 }
 
 # open コマンド（デフォルト）以外はアプリ起動不要
@@ -37,14 +57,15 @@ should_launch_app() {
 launch_app() {
   open "${APP_BUNDLE}"
 
+  # ソケットが接続可能になるまで待つ（起動中なので削除しない）
   local max_wait=10
   local waited=0
-  while [[ ! -S "${SOCKET_PATH}" ]] && (( waited < max_wait )); do
+  while ! try_connect && (( waited < max_wait )); do
     sleep 0.2
     (( waited++ ))
   done
 
-  if [[ ! -S "${SOCKET_PATH}" ]]; then
+  if [[ -z "${ACTIVE_SOCKET}" ]]; then
     echo "アプリの起動がタイムアウトしました" >&2
     return 1
   fi

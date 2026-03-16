@@ -18,7 +18,16 @@ APP_BUNDLE="${APP_CONTENTS}/.."
 ## stable → dev の順で探す（socket-client.ts と同じ優先順）
 SOCKET_CANDIDATES=("/tmp/orkis-stable.sock" "/tmp/orkis-dev.sock")
 
+## いずれかの候補ソケットファイルが存在するか
+any_socket_exists() {
+  for sock in "${SOCKET_CANDIDATES[@]}"; do
+    [[ -S "${sock}" ]] && return 0
+  done
+  return 1
+}
+
 ## 接続可能なソケットを探して ACTIVE_SOCKET に設定する
+## 接続失敗したソケットは残骸として削除する
 find_active_socket() {
   ACTIVE_SOCKET=""
   for sock in "${SOCKET_CANDIDATES[@]}"; do
@@ -28,7 +37,6 @@ find_active_socket() {
       ACTIVE_SOCKET="${sock}"
       return 0
     fi
-    # 接続失敗 = 残骸ソケット
     rm -f "${sock}"
   done
   return 1
@@ -48,8 +56,15 @@ should_launch_app() {
 launch_app() {
   open "${APP_BUNDLE}"
 
+  # ソケットファイルの出現を待つ（削除はしない）
   local max_wait=10
   local waited=0
+  while ! any_socket_exists && (( waited < max_wait )); do
+    sleep 0.2
+    (( waited++ ))
+  done
+
+  # ファイルが現れたら接続可能になるまで追加で待つ
   while ! find_active_socket && (( waited < max_wait )); do
     sleep 0.2
     (( waited++ ))

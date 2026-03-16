@@ -159,11 +159,14 @@ onMounted(async () => {
   });
 
   // Shift+Enter で Esc+CR を送信する（Claude Code が改行として認識するシーケンス）
+  // keydown で送信、keypress で xterm のデフォルト改行を抑止、keyup は通過させる
   terminal.attachCustomKeyEventHandler((ev) => {
-    if (ev.type === "keydown" && ev.key === "Enter" && ev.shiftKey) {
-      const session = terminalStore.paneRegistry[props.leafId]?.session;
-      if (session !== undefined) {
-        send.ptyWrite({ id: session.ptyId, data: "\x1b\r" });
+    if (ev.key === "Enter" && ev.shiftKey && ev.type !== "keyup") {
+      if (ev.type === "keydown") {
+        const session = terminalStore.paneRegistry[props.leafId]?.session;
+        if (session !== undefined) {
+          send.ptyWrite({ id: session.ptyId, data: "\x1b\r" });
+        }
       }
       return false;
     }

@@ -10,10 +10,11 @@
 ## 更新
 
 - 親から `notifyChange` / `notifyGitStatusChange` を呼ばれてツリーを差分更新
+- `reveal(targetPath)` でパスのセグメントを再帰的に辿って展開し、対象ノードをスクロールインビュー
 </doc>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, ref, useTemplateRef } from "vue";
 import { useRpc } from "../rpc/useRpc";
 import {
   getDeletedEntries,
@@ -53,6 +54,7 @@ const emit = defineEmits<{
 
 const { request } = useRpc();
 
+const buttonRef = useTemplateRef<HTMLButtonElement>("button");
 const expanded = ref(false);
 const children = ref<FileEntry[]>();
 const childRefs = ref<InstanceType<typeof import("./FileTreeItem.vue").default>[]>([]);
@@ -185,7 +187,44 @@ function notifyGitStatusChange() {
   }
 }
 
-defineExpose({ notifyChange, notifyGitStatusChange });
+/**
+ * 指定パスまでツリーを展開し、対象ノードをビューポートにスクロールする。
+ * パスのセグメントを再帰的に辿り、各ディレクトリを非同期で展開する。
+ */
+async function reveal(targetPath: string): Promise<void> {
+  // 自身がターゲットの場合、スクロールインビュー
+  if (targetPath === props.path) {
+    buttonRef.value?.scrollIntoView({ block: "nearest" });
+    return;
+  }
+
+  // ディレクトリでないか、ターゲットが自身の配下でない場合は何もしない
+  if (!props.isDirectory) return;
+  if (!targetPath.startsWith(props.path + "/")) return;
+
+  // 展開する（未展開かつ子が未読み込みの場合は読み込む）
+  if (!expanded.value) {
+    expanded.value = true;
+    if (children.value === undefined) {
+      await loadChildren();
+    }
+  }
+
+  // childRefs は v-for の template ref なので、DOM 更新を待つ
+  await nextTick();
+
+  // 次のパスセグメントに一致する子を探して再帰
+  const nextSegment = targetPath.slice(props.path.length + 1).split("/")[0];
+  const childIndex = children.value?.findIndex((c) => c.name === nextSegment);
+  if (childIndex !== undefined && childIndex >= 0) {
+    const child = childRefs.value[childIndex];
+    if (child) {
+      await child.reveal(targetPath);
+    }
+  }
+}
+
+defineExpose({ notifyChange, notifyGitStatusChange, reveal });
 
 function onChildSelect(childPath: string) {
   emit("select", childPath);
@@ -195,6 +234,7 @@ function onChildSelect(childPath: string) {
 <template>
   <div>
     <button
+      ref="button"
       class="flex w-full items-center gap-1 rounded-sm px-1 py-0.5 text-left text-sm hover:bg-zinc-700"
       :class="[
         selectedPath === path ? 'bg-zinc-700' : '',

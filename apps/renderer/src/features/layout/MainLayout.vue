@@ -33,6 +33,7 @@ const terminalStore = useTerminalStore();
 const contextKeys = useContextKeys();
 const terminalContainerRef = useTemplateRef<HTMLElement>("terminalContainer");
 const explorerContainerRef = useTemplateRef<HTMLElement>("explorerContainer");
+const filerPaneRef = useTemplateRef<InstanceType<typeof FilerPane>>("filerPane");
 
 const currentDir = computed(() => workspaceStore.dir);
 const disposeTerminalCommands = registerTerminalCommands(currentDir, terminalContainerRef);
@@ -173,11 +174,13 @@ watch(explorerOpen, () => {
   });
 });
 
-// ファイル選択時に Explorer を自動オープン
+// ファイル選択時に Explorer を自動オープンし、ツリーを対象パスまで展開する
 watch(
   () => workspaceStore.selectedPath,
   (path) => {
-    if (path) explorerOpen.value = true;
+    if (!path) return;
+    explorerOpen.value = true;
+    void filerPaneRef.value?.reveal(path);
   },
 );
 
@@ -232,7 +235,7 @@ watchEffect(() => {
         class="flex shrink-0 overflow-hidden"
       >
         <div class="shrink-0 overflow-hidden" :style="{ width: `${filerWidth}px` }">
-          <FilerPane />
+          <FilerPane ref="filerPane" />
         </div>
 
         <ResizeHandle

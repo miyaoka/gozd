@@ -34,6 +34,15 @@ flowchart LR
 
 git status が更新されると、削除仮想エントリの追加/除去のためにルートを再構築する。展開中の子ディレクトリの `children` キャッシュも破棄し、`notifyGitStatusChange()` で展開中のすべての子ツリーを再構築する。
 
+## ツリー自動展開（reveal）
+
+ファイル選択時に、対象パスまでツリーを自動展開してスクロールインビューする。
+
+- `FilerPane.reveal(targetPath)` がルートエントリから先頭セグメントを探し、`FileTreeItem.reveal` に委譲
+- `FileTreeItem.reveal(targetPath)` がパスセグメントを再帰的に辿り、各ディレクトリを非同期で展開（未読み込みなら `loadChildren()` を await）
+- 最終ノードに到達したら `scrollIntoView({ block: "nearest" })` でスクロール
+- `MainLayout` が `selectedPath` の変更を watch し、Explorer 自動オープンと合わせて `reveal` を呼び出す
+
 ## git status の色分け
 
 `git status --porcelain=v1` のステータスコード（2文字）から変更種別を判定する。worktree 側（Y）を優先し、なければ index 側（X）を使う。

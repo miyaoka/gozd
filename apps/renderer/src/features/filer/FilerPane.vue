@@ -6,6 +6,7 @@
 - ワークスペースのディレクトリが設定されるとルートエントリを読み込み、FileTreeItem を再帰的にレンダリング
 - fsChange / gitStatusChange の RPC メッセージを購読し、変更があったディレクトリのみ差分更新
 - git 削除ファイルは仮想エントリとしてツリーに挿入
+- `reveal(targetPath)` で指定パスまでツリーを展開しスクロール
 </doc>
 
 <script setup lang="ts">
@@ -68,6 +69,25 @@ async function loadRoot() {
 function onSelect(path: string) {
   workspaceStore.selectPath(path);
 }
+
+/**
+ * 指定パスまでファイルツリーを展開し、対象ノードをスクロールインビューする。
+ * ルートエントリの中から先頭セグメントに一致するアイテムを探して FileTreeItem.reveal に委譲する。
+ */
+async function reveal(targetPath: string): Promise<void> {
+  if (!rootEntries.value) return;
+
+  const firstSegment = targetPath.split("/")[0];
+  const index = rootEntries.value.findIndex((e) => e.name === firstSegment);
+  if (index < 0) return;
+
+  const item = treeItemRefs.value[index];
+  if (item) {
+    await item.reveal(targetPath);
+  }
+}
+
+defineExpose({ reveal });
 
 /**
  * ファイル変更通知を受けてツリーを更新するコールバック。

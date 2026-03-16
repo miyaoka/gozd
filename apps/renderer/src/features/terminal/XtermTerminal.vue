@@ -58,9 +58,29 @@ function scheduleFit() {
     if (width <= 0 || height <= 0) return;
     if (width === lastFitWidth && height === lastFitHeight) return;
 
+    // alternate buffer（TUI アプリ）は scrollback がないため bottom にリセットする
+    // primary buffer（通常シェル）は Marker で reflow に追従してスクロール位置を保持する
+    const isAlternate = terminal?.buffer.active.type === "alternate";
+    const buf = terminal?.buffer.active;
+    const wasAtBottom = buf !== undefined && buf.viewportY >= buf.baseY;
+    const marker =
+      !isAlternate && !wasAtBottom && terminal !== undefined && buf !== undefined
+        ? terminal.registerMarker(buf.viewportY - buf.baseY - buf.cursorY)
+        : undefined;
+
     lastFitWidth = width;
     lastFitHeight = height;
     fitAddon.fit();
+
+    // リサイズ後にスクロール位置を復元
+    if (terminal !== undefined) {
+      if (isAlternate || wasAtBottom) {
+        terminal.scrollToBottom();
+      } else if (marker !== undefined && !marker.isDisposed) {
+        terminal.scrollToLine(Math.min(marker.line, terminal.buffer.active.baseY));
+      }
+      marker?.dispose();
+    }
   });
 }
 

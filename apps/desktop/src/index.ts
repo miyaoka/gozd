@@ -1376,7 +1376,7 @@ const socketServer = setupSocketServer();
 // （role メニューは active app + key window + responder chain に依存するため）
 const initialDir = process.env.ORKIS_PROJECT_ROOT;
 if (initialDir) {
-  // 開発用 bin/orkis: 環境変数で正しい dir が渡されるのでそのまま開く
+  // pnpm dev: 環境変数で正しい dir が渡されるのでそのまま開く
   openWindow(initialDir);
 } else {
   // CLI / Dock / Finder: プレースホルダとしてウィンドウだけ作り、

@@ -97,7 +97,7 @@ interface ContextMap {
 
 内部では typed AST（`When` 型）で表現する。外部入力（JSON 設定等）は文字列で受け取り、`parseWhen()` で AST に変換する。
 
-```
+```text
 terminalFocus
 terminalFocus && !explorerVisible
 terminalFocus && explorerVisible || otherKey

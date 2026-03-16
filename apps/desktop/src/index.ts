@@ -891,7 +891,7 @@ function cleanupWindow(win: OrkisWindow) {
 
 // --- ウィンドウ作成 ---
 
-function createWindowWithRPC(dir: string): OrkisWindow {
+function createWindowWithRPC(dir: string, initialFile?: string): OrkisWindow {
   let win: OrkisWindow;
 
   /** worktree/branch 管理用（固定） */
@@ -1062,6 +1062,7 @@ function createWindowWithRPC(dir: string): OrkisWindow {
           const windowId = windowIds.get(win) ?? "";
           win.webview.rpc?.send.orkisOpen({
             dir: currentDir,
+            file: initialFile,
             fileServerBaseUrl: `http://localhost:${fileServer.port}/${windowId}`,
             channel,
           });
@@ -1231,7 +1232,7 @@ function openWindow(dir: string, file?: string): void {
     });
     return;
   }
-  const newWin = createWindowWithRPC(dir);
+  const newWin = createWindowWithRPC(dir, file);
   const windowId = crypto.randomUUID();
   windowIds.set(newWin, windowId);
   fileServerDirs.set(windowId, dir);

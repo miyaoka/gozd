@@ -1189,6 +1189,13 @@ async function resolveRepoRoot(dir: string): Promise<string> {
   return outputResult.value.trim();
 }
 
+/**
+ * プレースホルダウィンドウ。
+ * CLI 起動時に macOS メニューを動作させるために同期的に作成するが、
+ * 後続の open メッセージで正式な dir に差し替える。
+ */
+let placeholderWindow: OrkisWindow | undefined;
+
 /** 新しいウィンドウを作成して登録する（同期処理） */
 function openWindow(dir: string, file?: string): void {
   console.log(`[orkis] open: dir=${dir}, file=${file ?? "(none)"}`);
@@ -1203,6 +1210,14 @@ function openWindow(dir: string, file?: string): void {
     });
     return;
   }
+
+  // プレースホルダウィンドウがあれば閉じる（cleanup は close イベントで実行される）
+  if (placeholderWindow) {
+    const win = placeholderWindow;
+    placeholderWindow = undefined;
+    win.close();
+  }
+
   const newWin = createWindowWithRPC(dir);
   const windowId = crypto.randomUUID();
   windowIds.set(newWin, windowId);
@@ -1358,8 +1373,20 @@ const socketServer = setupSocketServer();
 
 // macOS の ApplicationMenu が正しく動作するには、初回ウィンドウを同期的に作成する必要がある
 // （role メニューは active app + key window + responder chain に依存するため）
-const initialDir = process.env.ORKIS_PROJECT_ROOT ?? homedir();
-openWindow(initialDir);
+const initialDir = process.env.ORKIS_PROJECT_ROOT;
+if (initialDir) {
+  // 開発用 bin/orkis: 環境変数で正しい dir が渡されるのでそのまま開く
+  openWindow(initialDir);
+} else {
+  // CLI / Dock / Finder: プレースホルダとしてウィンドウだけ作り、
+  // 後続の open メッセージで正式な dir に差し替える
+  const win = createWindowWithRPC(homedir());
+  const windowId = crypto.randomUUID();
+  windowIds.set(win, windowId);
+  windowDirs.set(win, homedir());
+  windowRepoRoots.set(win, homedir());
+  placeholderWindow = win;
+}
 
 // --- クリーンアップ ---
 

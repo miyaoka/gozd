@@ -35,25 +35,12 @@ should_launch_app() {
   return 0
 }
 
-launch_app() {
-  open "${APP_BUNDLE}"
-
-  # ソケットファイルが作られるまで待つ
-  local max_wait=10
-  local waited=0
-  while [[ ! -S "${SOCKET_PATH}" ]] && (( waited < max_wait )); do
-    sleep 0.2
-    (( waited++ ))
-  done
-
-  if [[ ! -S "${SOCKET_PATH}" ]]; then
-    echo "アプリの起動がタイムアウトしました" >&2
-    return 1
-  fi
-}
-
 if should_launch_app "$@"; then
-  launch_app || exit $?
+  # cold start: CLI に launch request ファイルを書かせてからアプリを起動
+  ORKIS_COLD_START=1 "${BUN}" "${CLI}" "$@" || exit $?
+  open "${APP_BUNDLE}"
+  exit $?
 fi
 
+# warm start: ソケット経由で既存アプリに送信
 exec "${BUN}" "${CLI}" "$@"

@@ -67,12 +67,13 @@ async function loadRoot() {
     loading.value = false;
   }
 
-  // rootEntries 読み込み完了後に保留中の reveal を実行
+  // rootEntries 読み込み完了後に保留中の処理を実行
   // v-for の FileTreeItem がマウントされるのを nextTick で待つ
+  await nextTick();
+  workspaceStore.consumeInitialFile();
   if (pendingRevealPath) {
     const path = pendingRevealPath;
     pendingRevealPath = undefined;
-    await nextTick();
     void reveal(path);
   }
 }

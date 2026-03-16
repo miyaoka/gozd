@@ -1,35 +1,32 @@
 # orkis
 
-AI Agent Orchestrator — AI エージェントの Plan-Implement-Review ループを管理するデスクトップアプリケーション。
+AI Agent Orchestrator — AI エージェントの並列開発を管理するデスクトップアプリケーション。
 
-## 起動方法
-
-### CLI から起動（推奨）
-
-`bin/orkis` は VS Code の `code` コマンドに相当するエントリーポイント。
+## 開発時
 
 ```bash
-bin/orkis              # カレントディレクトリで開く
-bin/orkis docs         # docs ディレクトリで開く
-bin/orkis src/main.ts  # src/ で開き、main.ts を開く
+pnpm dev   # renderer（Vite HMR）と desktop を同時起動
 ```
 
-アプリが未起動であれば自動で Electron を起動する（`dist/` がなければビルドも自動実行）。既に起動済みであればソケット経由で既存プロセスにメッセージを送る。
+## ビルド版
 
-### 開発時
+初回のみ CLI にパスを通す。
 
 ```bash
-# dev サーバーで起動（HMR 有効）
-pnpm dev
-
-# 別ターミナルで CLI の動作確認
-bin/orkis docs
+ln -s "$(pwd)/apps/desktop/build/stable-macos-arm64/orkis.app/Contents/Resources/app/bin/orkis" ~/.local/bin/orkis
 ```
 
-`bin/orkis` はソケットの有無でアプリの起動状態を判定する。`pnpm dev` が起動していれば、`bin/orkis` は新たにアプリを起動せず dev プロセスに接続するため、HMR が効いた状態でデバッグできる。
-
-### その他
+ビルドして起動する。初回は `open` で `.app` を一度起動し、CLI バイナリを展開する必要がある。
 
 ```bash
-pnpm build && pnpm start   # ビルド済みアプリを直接起動（CLI 経由の起動フローを通らない）
+pnpm build
+pnpm open
+```
+
+`orkis` CLI で任意のパスを開く。アプリが未起動であれば自動で起動する。
+
+```bash
+orkis              # カレントディレクトリで開く
+orkis docs         # docs ディレクトリで開く
+orkis src/main.ts  # src/ で開き、main.ts を開く
 ```

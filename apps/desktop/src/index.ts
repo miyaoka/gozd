@@ -1,7 +1,7 @@
 import { ApplicationMenu, BrowserView, BrowserWindow, Updater, Utils } from "electrobun/bun";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { tryCatch } from "@orkis/shared";
@@ -32,6 +32,8 @@ async function getViewUrl(): Promise<string> {
 
 const viewUrl = await getViewUrl();
 const SOCKET_PATH = `/tmp/orkis-${channel}.sock`;
+const LAUNCH_DIR = path.join(tmpdir(), `orkis-${channel}-launch`);
+const LAUNCH_TTL_MS = 30_000;
 const GIT_STATUS_DEBOUNCE_MS = 300;
 const GIT_WATCH_POLL_MS = 500;
 
@@ -889,7 +891,7 @@ function cleanupWindow(win: OrkisWindow) {
 
 // --- ウィンドウ作成 ---
 
-function createWindowWithRPC(dir: string): OrkisWindow {
+function createWindowWithRPC(dir: string, initialFile?: string): OrkisWindow {
   let win: OrkisWindow;
 
   /** worktree/branch 管理用（固定） */
@@ -1060,6 +1062,7 @@ function createWindowWithRPC(dir: string): OrkisWindow {
           const windowId = windowIds.get(win) ?? "";
           win.webview.rpc?.send.orkisOpen({
             dir: currentDir,
+            file: initialFile,
             fileServerBaseUrl: `http://localhost:${fileServer.port}/${windowId}`,
             channel,
           });
@@ -1172,27 +1175,86 @@ function findWindowByDir(dir: string): OrkisWindow | undefined {
   return undefined;
 }
 
-/** dir から git リポジトリルートを解決する。git 管理外や失敗時はそのまま返す */
-async function resolveRepoRoot(dir: string): Promise<string> {
-  const spawnResult = tryCatch(() =>
-    Bun.spawn(["git", "rev-parse", "--show-toplevel"], {
-      cwd: dir,
-      stdout: "pipe",
-      stderr: "pipe",
-    }),
-  );
-  if (!spawnResult.ok) return dir;
-  const outputResult = await tryCatch(new Response(spawnResult.value.stdout).text());
-  if (!outputResult.ok) return dir;
-  const exitCode = await tryCatch(spawnResult.value.exited);
-  if (!exitCode.ok || exitCode.value !== 0) return dir;
-  return outputResult.value.trim();
+interface LaunchRequestResult {
+  requests: { dir: string; file?: string }[];
+  errors: string[];
 }
 
-/** CLI からの open メッセージを受信済みか（Dock 起動フォールバック判定用） */
-let receivedOpenMessage = false;
+/** launch request ファイルを同期的に読み取り、処理済みにする */
+function readLaunchRequests(): LaunchRequestResult {
+  const requests: { dir: string; file?: string }[] = [];
+  const errors: string[] = [];
+  if (!fs.existsSync(LAUNCH_DIR)) return { requests, errors };
+  const entries = tryCatch(() => fs.readdirSync(LAUNCH_DIR));
+  if (!entries.ok) {
+    errors.push(`ディレクトリ読み取り失敗: ${LAUNCH_DIR} (${entries.error.message})`);
+    return { requests, errors };
+  }
+  const now = Date.now();
+  for (const name of entries.value) {
+    const filePath = `${LAUNCH_DIR}/${name}`;
+    // stale ファイル（.claimed 含む）を TTL で掃除
+    const stat = tryCatch(() => fs.statSync(filePath));
+    if (!stat.ok) continue;
+    if (now - stat.value.mtimeMs > LAUNCH_TTL_MS) {
+      tryCatch(() => fs.unlinkSync(filePath));
+      continue;
+    }
+    if (!name.endsWith(".json")) continue;
+    const content = tryCatch(() => fs.readFileSync(filePath, "utf-8"));
+    if (!content.ok) {
+      errors.push(`${name}: ${content.error.message}`);
+      continue;
+    }
+    const parsed = tryCatch(() => JSON.parse(content.value) as unknown);
+    if (!parsed.ok) {
+      errors.push(`${name}: ${parsed.error.message}`);
+      continue;
+    }
+    const obj = parsed.value;
+    if (
+      typeof obj !== "object" ||
+      obj === null ||
+      typeof (obj as Record<string, unknown>).dir !== "string"
+    ) {
+      errors.push(`${name}: 不正なペイロード`);
+      continue;
+    }
+    const req = obj as { dir: string; file?: string };
+    // 処理済みにする
+    tryCatch(() => fs.renameSync(filePath, `${filePath}.claimed`));
+    requests.push(req);
+  }
+  return { requests, errors };
+}
 
-async function handleSocketMessage(message: OrkisMessage) {
+/** 新しいウィンドウを作成して登録する（同期処理） */
+function openWindow(dir: string, file?: string): void {
+  // file を dir からの相対パスに変換（レンダラーは相対パスで管理するため）
+  const relativeFile = file ? path.relative(dir, file) : undefined;
+  console.log(`[orkis] open: dir=${dir}, file=${relativeFile ?? "(none)"}`);
+  const existing = findWindowByDir(dir);
+  if (existing) {
+    const existingId = windowIds.get(existing) ?? "";
+    existing.webview.rpc?.send.orkisOpen({
+      dir,
+      file: relativeFile,
+      fileServerBaseUrl: `http://localhost:${fileServer.port}/${existingId}`,
+      channel,
+    });
+    return;
+  }
+  const newWin = createWindowWithRPC(dir, relativeFile);
+  const windowId = crypto.randomUUID();
+  windowIds.set(newWin, windowId);
+  fileServerDirs.set(windowId, dir);
+  windowDirs.set(newWin, dir);
+  windowRepoRoots.set(newWin, dir);
+  windowSwitchGen.set(newWin, 0);
+  startWatching(newWin, dir);
+}
+
+function handleSocketMessage(message: OrkisMessage) {
   switch (message.type) {
     case "hook": {
       console.log(`[orkis] hook: ${message.event}`, message.payload);
@@ -1207,41 +1269,11 @@ async function handleSocketMessage(message: OrkisMessage) {
       break;
     }
     case "open": {
-      receivedOpenMessage = true;
-      const dir = await resolveRepoRoot(message.dir);
-      console.log(`[orkis] open: dir=${dir}, file=${message.file ?? "(none)"}`);
-      const existing = findWindowByDir(dir);
-      if (existing) {
-        const existingId = windowIds.get(existing) ?? "";
-        existing.webview.rpc?.send.orkisOpen({
-          dir,
-          file: message.file,
-          fileServerBaseUrl: `http://localhost:${fileServer.port}/${existingId}`,
-          channel,
-        });
-        break;
-      }
-      const newWin = createWindowWithRPC(dir);
-      const windowId = crypto.randomUUID();
-      windowIds.set(newWin, windowId);
-      fileServerDirs.set(windowId, dir);
-      windowDirs.set(newWin, dir);
-      windowRepoRoots.set(newWin, dir);
-      windowSwitchGen.set(newWin, 0);
-      startWatching(newWin, dir);
+      // dir は CLI 側で resolveRepoRoot 済み
+      openWindow(message.dir, message.file);
       break;
     }
   }
-}
-
-/** メッセージを直列に処理するキュー（async の順序保証） */
-let messageQueue = Promise.resolve();
-function enqueueMessage(message: OrkisMessage) {
-  messageQueue = messageQueue.then(() =>
-    handleSocketMessage(message).catch((err) => {
-      console.error("[socket] message handling error:", err);
-    }),
-  );
 }
 
 function setupSocketServer(): net.Server {
@@ -1264,7 +1296,7 @@ function setupSocketServer(): net.Server {
           console.error("[socket] invalid JSON:", line);
           continue;
         }
-        enqueueMessage(result.value);
+        handleSocketMessage(result.value);
       }
     });
   });
@@ -1355,19 +1387,32 @@ ApplicationMenu.on("application-menu-clicked", (event) => {
 
 const socketServer = setupSocketServer();
 
-// 開発用 bin/orkis: ORKIS_PROJECT_ROOT で即座にウィンドウを開く
-// .app 内 CLI 経由: ソケット経由で open メッセージが届くので待つ
-// Dock/Finder 起動: 一定時間待っても open メッセージが届かなければホームディレクトリで開く
-const CLI_OPEN_WAIT_MS = 1000;
+// macOS の ApplicationMenu が正しく動作するには、初回ウィンドウを同期的に作成する必要がある
+// （role メニューは active app + key window + responder chain に依存するため）
 const initialDir = process.env.ORKIS_PROJECT_ROOT;
 if (initialDir) {
-  await handleSocketMessage({ type: "open", dir: initialDir });
+  // pnpm dev: 環境変数で正しい dir が渡される
+  openWindow(initialDir);
 } else {
-  setTimeout(() => {
-    if (!receivedOpenMessage) {
-      enqueueMessage({ type: "open", dir: homedir() });
+  // CLI cold start: launch request ファイルから dir を読む
+  // Dock/Finder: request がなければスタートアップ画面（ホームディレクトリ）
+  const { requests, errors } = readLaunchRequests();
+  if (requests.length > 0) {
+    for (const req of requests) {
+      openWindow(req.dir, req.file);
     }
-  }, CLI_OPEN_WAIT_MS);
+  } else {
+    openWindow(homedir());
+  }
+  if (errors.length > 0) {
+    void Utils.showMessageBox({
+      type: "error",
+      title: "orkis",
+      message: "launch request の読み取りに失敗しました",
+      detail: errors.join("\n"),
+      buttons: ["OK"],
+    });
+  }
 }
 
 // --- クリーンアップ ---

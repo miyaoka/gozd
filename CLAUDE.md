@@ -73,7 +73,6 @@ orkis/
 ├── packages/
 │   ├── rpc/               # RPC スキーマ型定義（bun ↔ webview）
 │   └── shared/            # 全パッケージ共通ユーティリティ（Result 型 + tryCatch）
-├── bin/                   # CLI エントリポイント（アプリ自動起動 + CLI 実行）
 ├── docs/                  # 設計文書
 └── .github/               # CI ワークフロー
 ```
@@ -81,9 +80,7 @@ orkis/
 ## 開発コマンド
 
 - `pnpm dev` — renderer（Vite HMR）と desktop（Electrobun dev）を `concurrently` で同時起動。片方が終了すると他方も終了する
-- `pnpm build` — 全パッケージをビルド
-- `pnpm start` — ビルド済みアプリを起動
-- `bin/orkis` — 開発用エントリポイント。アプリ未起動なら自動で build → start し、ソケット経由で CLI コマンドを送信する。残骸ソケットは `echo "" | nc -U` で検出・削除する（macOS デフォルトの `nc -zU` では Node.js ソケットへの接続テストが失敗する）
+- `pnpm build` — 全パッケージをビルド（stable 環境の `.app` を生成）
 
 全体チェックはルートの `pnpm typecheck:all` / `lint:all` / `test:all` を使う。各 workspace の同名スクリプトを一括実行する。
 

@@ -146,19 +146,16 @@ CLI（`orkis` コマンド）と Electrobun メインプロセスは Unix ドメ
 
 desktop 側はソケット接続チェックで単一インスタンスに制限し、2回目以降の起動は新しいウィンドウとして開く。同じ `dir` で既にウィンドウが開かれている場合は新規作成せずフォーカスする。
 
-### CLI からのアプリ起動（`bin/orkis`）
+### CLI からのアプリ起動（`orkis`）
 
-`bin/orkis` はアプリの起動と CLI コマンドの実行を統合するエントリーポイント。VS Code の `code` コマンドに相当する。
+`orkis` はアプリの起動と CLI コマンドの実行を統合するエントリーポイント。VS Code の `code` コマンドに相当する。`.app` 内にバンドルされている。
 
 ```
-bin/orkis <path>
+orkis <path>
   ├── ソケット接続可 → CLI でメッセージ送信（既存アプリに接続）
   └── ソケット接続不可
        ├── hook コマンド / フラグ → CLI のみ実行（アプリ起動不要）
-       └── それ以外
-            ├── build なし → pnpm build を実行
-            └── Electrobun 起動（ORKIS_PROJECT_ROOT=$PWD）
-                 → ソケット待機 → CLI でメッセージ送信
+       └── それ以外 → open でアプリ起動 → ソケット待機 → CLI でメッセージ送信
 ```
 
 ### 状態検知（Claude Code Hooks）

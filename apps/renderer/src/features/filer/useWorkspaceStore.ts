@@ -14,6 +14,9 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   /** ツリー初期化後に選択するファイル（setOpen で保持、consumeInitialFile で消費） */
   const initialFile = ref<string>();
 
+  /** 同一パスでも reveal を発火させるためのバージョンカウンタ */
+  const revealVersion = ref(0);
+
   const gitStatusStore = useGitStatusStore();
 
   /** git status から都度算出するため、status 更新時に自動反映される */
@@ -37,25 +40,23 @@ export const useWorkspaceStore = defineStore("workspace", () => {
       channel.value = newChannel;
     }
     if (newFile) {
-      // ツリーが未初期化なら保持、初期化済みなら即反映
-      if (selectedPath.value !== undefined) {
-        selectedPath.value = newFile;
-      } else {
-        initialFile.value = newFile;
-      }
+      // ツリー未初期化時は loadRoot 後に consumeInitialFile で反映
+      initialFile.value = newFile;
+      selectPath(newFile);
     }
   }
 
   /** ファイラーのツリー初期化後に呼ぶ。initialFile があれば selectedPath にセットする */
   function consumeInitialFile() {
     if (initialFile.value) {
-      selectedPath.value = initialFile.value;
+      selectPath(initialFile.value);
       initialFile.value = undefined;
     }
   }
 
   function selectPath(path: string) {
     selectedPath.value = path;
+    revealVersion.value++;
   }
 
   function clearSelectedPath() {
@@ -68,6 +69,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     channel,
     selectedPath,
     selectedGitChange,
+    revealVersion,
     setOpen,
     selectPath,
     clearSelectedPath,

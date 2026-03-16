@@ -186,6 +186,18 @@ watch(
   },
 );
 
+// orkisOpen で同一パスが指定された場合にも explorer を開いてツリーを展開する
+watch(
+  () => workspaceStore.revealVersion,
+  async () => {
+    const path = workspaceStore.selectedPath;
+    if (!path) return;
+    explorerOpen.value = true;
+    await nextTick();
+    void filerPaneRef.value?.reveal(path);
+  },
+);
+
 watchEffect(() => {
   const usedHeight = debugHeight.value + HANDLE_WIDTH;
   mainHeight.value = Math.max(MAIN_MIN_HEIGHT, windowHeight.value - usedHeight);

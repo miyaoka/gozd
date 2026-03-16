@@ -65,15 +65,35 @@ export const useTerminalStore = defineStore("terminal", () => {
   /** ptyId → leafId 逆引き（onPtyData/onPtyExit で高速検索用） */
   const ptyIdToLeafId = new Map<number, string>();
 
+  /** spawn 中の leafId（二重 spawn 防止） */
+  const spawningLeafIds = new Set<string>();
+
   // --- PTY データの一括購読 ---
 
   /** HMR 再実行時に前回のリスナーを解除するための disposer */
   let disposeDataListener: (() => void) | undefined;
   let disposeExitListener: (() => void) | undefined;
 
+  /**
+   * paneRegistry から ptyIdToLeafId を再構築する。
+   * HMR 時に plain Map が空になるため、Pinia state として残っている
+   * paneRegistry の session 情報から逆引きを復元する。
+   */
+  function rebuildPtyIdMap() {
+    ptyIdToLeafId.clear();
+    for (const [leafId, entry] of Object.entries(paneRegistry.value)) {
+      if (entry.session === undefined) continue;
+      if (entry.session.exited) continue;
+      ptyIdToLeafId.set(entry.session.ptyId, leafId);
+    }
+  }
+
   function initPtySubscription() {
     disposeDataListener?.();
     disposeExitListener?.();
+
+    // HMR で Map が再初期化されるため、paneRegistry から逆引きを復元
+    rebuildPtyIdMap();
 
     disposeDataListener = onPtyData(({ id, data }) => {
       const leafId = ptyIdToLeafId.get(id);
@@ -118,18 +138,28 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   // --- PTY ライフサイクル関数 ---
 
-  /** PTY を spawn する。既存 session があれば何もしない */
+  /** PTY を spawn する。既存 session または spawn 中であれば何もしない */
   async function spawnPty(leafId: string, cols: number, rows: number): Promise<void> {
     const entry = paneRegistry.value[leafId];
     if (entry === undefined) return;
     // 既存 session があればスキップ（HMR 再マウント時）
     if (entry.session !== undefined) return;
+    // 二重 spawn 防止（await 中に再マウントされた場合）
+    if (spawningLeafIds.has(leafId)) return;
 
+    spawningLeafIds.add(leafId);
     const ptyId = await request.ptySpawn({ dir: entry.dir, cols, rows });
+    spawningLeafIds.delete(leafId);
 
     // spawn 完了前に leaf が削除されていたら即 kill
     const current = paneRegistry.value[leafId];
     if (current === undefined) {
+      send.ptyKill({ id: ptyId });
+      return;
+    }
+
+    // 別の spawn が先に完了して session を設定していた場合は即 kill
+    if (current.session !== undefined) {
       send.ptyKill({ id: ptyId });
       return;
     }

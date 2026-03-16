@@ -1220,19 +1220,21 @@ function readLaunchRequests(): LaunchRequestResult {
 
 /** 新しいウィンドウを作成して登録する（同期処理） */
 function openWindow(dir: string, file?: string): void {
-  console.log(`[orkis] open: dir=${dir}, file=${file ?? "(none)"}`);
+  // file を dir からの相対パスに変換（レンダラーは相対パスで管理するため）
+  const relativeFile = file ? path.relative(dir, file) : undefined;
+  console.log(`[orkis] open: dir=${dir}, file=${relativeFile ?? "(none)"}`);
   const existing = findWindowByDir(dir);
   if (existing) {
     const existingId = windowIds.get(existing) ?? "";
     existing.webview.rpc?.send.orkisOpen({
       dir,
-      file,
+      file: relativeFile,
       fileServerBaseUrl: `http://localhost:${fileServer.port}/${existingId}`,
       channel,
     });
     return;
   }
-  const newWin = createWindowWithRPC(dir, file);
+  const newWin = createWindowWithRPC(dir, relativeFile);
   const windowId = crypto.randomUUID();
   windowIds.set(newWin, windowId);
   fileServerDirs.set(windowId, dir);

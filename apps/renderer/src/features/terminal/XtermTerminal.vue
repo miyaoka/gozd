@@ -58,21 +58,21 @@ function scheduleFit() {
     if (width <= 0 || height <= 0) return;
     if (width === lastFitWidth && height === lastFitHeight) return;
 
-    // リサイズ前のスクロール位置を保存（ボトムからのオフセット基準）
-    const buf = terminal?.buffer.active;
-    const wasAtBottom = buf !== undefined && buf.viewportY >= buf.baseY;
-    const bottomOffset = buf !== undefined ? buf.baseY - buf.viewportY : 0;
+    // リサイズ前のスクロール位置を保存
+    const savedViewportY = terminal?.buffer.active.viewportY ?? 0;
+    const wasAtBottom =
+      terminal !== undefined && terminal.buffer.active.viewportY >= terminal.buffer.active.baseY;
 
     lastFitWidth = width;
     lastFitHeight = height;
     fitAddon.fit();
 
     // リサイズ後にスクロール位置を復元
-    if (terminal !== undefined && buf !== undefined) {
+    if (terminal !== undefined) {
       if (wasAtBottom) {
         terminal.scrollToBottom();
       } else {
-        terminal.scrollToLine(Math.max(0, terminal.buffer.active.baseY - bottomOffset));
+        terminal.scrollToLine(Math.min(savedViewportY, terminal.buffer.active.baseY));
       }
     }
   });

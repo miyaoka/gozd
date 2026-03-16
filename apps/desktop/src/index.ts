@@ -1211,13 +1211,8 @@ function openWindow(dir: string, file?: string): void {
     return;
   }
 
-  // プレースホルダウィンドウがあれば閉じる（cleanup は close イベントで実行される）
-  if (placeholderWindow) {
-    const win = placeholderWindow;
-    placeholderWindow = undefined;
-    win.close();
-  }
-
+  // 新規ウィンドウを先に作成してからプレースホルダを閉じる
+  // （exitOnLastWindowClosed: true のため、先に閉じるとプロセスが終了する）
   const newWin = createWindowWithRPC(dir);
   const windowId = crypto.randomUUID();
   windowIds.set(newWin, windowId);
@@ -1226,6 +1221,12 @@ function openWindow(dir: string, file?: string): void {
   windowRepoRoots.set(newWin, dir);
   windowSwitchGen.set(newWin, 0);
   startWatching(newWin, dir);
+
+  if (placeholderWindow) {
+    const win = placeholderWindow;
+    placeholderWindow = undefined;
+    win.close();
+  }
 }
 
 async function handleSocketMessage(message: OrkisMessage) {

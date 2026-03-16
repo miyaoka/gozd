@@ -58,10 +58,15 @@ function scheduleFit() {
     if (width <= 0 || height <= 0) return;
     if (width === lastFitWidth && height === lastFitHeight) return;
 
-    // リサイズ前のスクロール位置を保存
-    const savedViewportY = terminal?.buffer.active.viewportY ?? 0;
-    const wasAtBottom =
-      terminal !== undefined && terminal.buffer.active.viewportY >= terminal.buffer.active.baseY;
+    // alternate buffer（TUI アプリ）は scrollback がないため bottom にリセットする
+    // primary buffer（通常シェル）は Marker で reflow に追従してスクロール位置を保持する
+    const isAlternate = terminal?.buffer.active.type === "alternate";
+    const buf = terminal?.buffer.active;
+    const wasAtBottom = buf !== undefined && buf.viewportY >= buf.baseY;
+    const marker =
+      !isAlternate && !wasAtBottom && terminal !== undefined && buf !== undefined
+        ? terminal.registerMarker(buf.viewportY - buf.baseY - buf.cursorY)
+        : undefined;
 
     lastFitWidth = width;
     lastFitHeight = height;
@@ -69,11 +74,12 @@ function scheduleFit() {
 
     // リサイズ後にスクロール位置を復元
     if (terminal !== undefined) {
-      if (wasAtBottom) {
+      if (isAlternate || wasAtBottom) {
         terminal.scrollToBottom();
-      } else {
-        terminal.scrollToLine(Math.min(savedViewportY, terminal.buffer.active.baseY));
+      } else if (marker !== undefined && !marker.isDisposed) {
+        terminal.scrollToLine(Math.min(marker.line, terminal.buffer.active.baseY));
       }
+      marker?.dispose();
     }
   });
 }

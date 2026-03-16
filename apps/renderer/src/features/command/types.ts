@@ -24,7 +24,7 @@ export interface KeyStroke {
 /** context key の名前と値型のマッピング */
 export interface ContextMap {
   terminalFocus: boolean;
-  previewVisible: boolean;
+  explorerVisible: boolean;
 }
 
 export type ContextKey = keyof ContextMap;
@@ -48,6 +48,6 @@ export interface KeyBinding {
   key: string;
   /** "terminal.splitHorizontal" or "-terminal.splitHorizontal"（unbind） */
   command: string;
-  /** VS Code 互換の when 文字列: "terminalFocus", "terminalFocus && !previewVisible" */
+  /** VS Code 互換の when 文字列: "terminalFocus", "terminalFocus && !explorerVisible" */
   when?: string;
 }

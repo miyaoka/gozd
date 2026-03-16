@@ -17,14 +17,14 @@ import { useGitStatusStore } from "../filer/useGitStatusStore";
 import { useWorkspaceStore } from "../filer/useWorkspaceStore";
 
 const props = defineProps<{
-  previewOpen: boolean;
+  explorerOpen: boolean;
   layoutDebug?: {
     terminalWidth: number;
     previewWidth: number;
     leftFixedWidth: number;
     rightFreeWidth: number;
     dockedPreviewWidth: number;
-    canDockPreview: boolean;
+    canDockExplorer: boolean;
     windowWidth: number;
   };
 }>();
@@ -88,7 +88,7 @@ const unstagedEntries = computed<GitStatusEntry[]>(() =>
     <template v-if="dir">
       <div>dir: {{ dir }}</div>
       <div v-if="selectedPath">file: {{ selectedPath }}</div>
-      <div>preview: {{ props.previewOpen ? "open" : "closed" }}</div>
+      <div>explorer: {{ props.explorerOpen ? "open" : "closed" }}</div>
       <div
         v-if="props.layoutDebug"
         class="mt-1 border-t border-zinc-700 pt-1 text-xs text-zinc-500"
@@ -99,7 +99,7 @@ const unstagedEntries = computed<GitStatusEntry[]>(() =>
         <div>leftFixed: {{ props.layoutDebug.leftFixedWidth }}</div>
         <div>rightFree: {{ props.layoutDebug.rightFreeWidth }}</div>
         <div>docked: {{ props.layoutDebug.dockedPreviewWidth }}</div>
-        <div>canDock: {{ props.layoutDebug.canDockPreview }}</div>
+        <div>canDock: {{ props.layoutDebug.canDockExplorer }}</div>
       </div>
 
       <!-- git status -->

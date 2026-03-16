@@ -34,28 +34,28 @@ describe("parseWhen", () => {
   });
 
   test("AND", () => {
-    expect(parseWhen("terminalFocus && previewVisible")).toEqual({
+    expect(parseWhen("terminalFocus && explorerVisible")).toEqual({
       type: "and",
       values: [
         { type: "key", key: "terminalFocus" },
-        { type: "key", key: "previewVisible" },
+        { type: "key", key: "explorerVisible" },
       ],
     });
   });
 
   test("OR", () => {
-    expect(parseWhen("terminalFocus || previewVisible")).toEqual({
+    expect(parseWhen("terminalFocus || explorerVisible")).toEqual({
       type: "or",
       values: [
         { type: "key", key: "terminalFocus" },
-        { type: "key", key: "previewVisible" },
+        { type: "key", key: "explorerVisible" },
       ],
     });
   });
 
   test("AND は OR より結合が強い", () => {
     // "a && b || c" → or(and(a, b), c)
-    const result = parseWhen("terminalFocus && previewVisible || terminalFocus") as When;
+    const result = parseWhen("terminalFocus && explorerVisible || terminalFocus") as When;
     expect(result.type).toBe("or");
     if (result.type !== "or") throw new Error("expected or");
     expect(result.values).toHaveLength(2);
@@ -63,18 +63,18 @@ describe("parseWhen", () => {
       type: "and",
       values: [
         { type: "key", key: "terminalFocus" },
-        { type: "key", key: "previewVisible" },
+        { type: "key", key: "explorerVisible" },
       ],
     });
     expect(result.values[1]).toEqual({ type: "key", key: "terminalFocus" });
   });
 
   test("NOT と AND の組み合わせ", () => {
-    expect(parseWhen("terminalFocus && !previewVisible")).toEqual({
+    expect(parseWhen("terminalFocus && !explorerVisible")).toEqual({
       type: "and",
       values: [
         { type: "key", key: "terminalFocus" },
-        { type: "not", value: { type: "key", key: "previewVisible" } },
+        { type: "not", value: { type: "key", key: "explorerVisible" } },
       ],
     });
   });
@@ -92,6 +92,6 @@ describe("parseWhen", () => {
   });
 
   test("余分なトークンがあるとエラー", () => {
-    expect(() => parseWhen("terminalFocus previewVisible")).toThrow("Unexpected token");
+    expect(() => parseWhen("terminalFocus explorerVisible")).toThrow("Unexpected token");
   });
 });

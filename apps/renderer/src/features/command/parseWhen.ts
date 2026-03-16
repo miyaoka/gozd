@@ -10,14 +10,14 @@
  * VS Code と同様に括弧はサポートしない。
  * "&&" は "||" より結合が強い。
  *
- * 例: "terminalFocus && !previewVisible || otherKey"
- *   → or(and(key("terminalFocus"), not(key("previewVisible"))), key("otherKey"))
+ * 例: "terminalFocus && !explorerVisible || otherKey"
+ *   → or(and(key("terminalFocus"), not(key("explorerVisible"))), key("otherKey"))
  */
 import type { ContextKey, ContextMap, When } from "./types";
 
 /** 既知の context key 名の集合（型安全性の担保） */
 const KNOWN_KEYS = new Set<string>(
-  Object.keys({ terminalFocus: true, previewVisible: true } satisfies ContextMap),
+  Object.keys({ terminalFocus: true, explorerVisible: true } satisfies ContextMap),
 );
 
 function isContextKey(name: string): name is ContextKey {

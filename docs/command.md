@@ -84,23 +84,23 @@ return () => {
 ```typescript
 interface ContextMap {
   terminalFocus: boolean;
-  previewVisible: boolean;
+  explorerVisible: boolean;
 }
 ```
 
-| キー名           | source                                                                    |
-| ---------------- | ------------------------------------------------------------------------- |
-| `terminalFocus`  | xterm の focus/blur + worktree 切替 / closePane / visibilitychange で更新 |
-| `previewVisible` | MainLayout の `watchEffect` で `previewOpen && canDockPreview` を同期     |
+| キー名            | source                                                                    |
+| ----------------- | ------------------------------------------------------------------------- |
+| `terminalFocus`   | xterm の focus/blur + worktree 切替 / closePane / visibilitychange で更新 |
+| `explorerVisible` | MainLayout の `watchEffect` で `explorerOpen && canDockExplorer` を同期   |
 
 ### When 条件
 
 内部では typed AST（`When` 型）で表現する。外部入力（JSON 設定等）は文字列で受け取り、`parseWhen()` で AST に変換する。
 
-```
+```text
 terminalFocus
-terminalFocus && !previewVisible
-terminalFocus && previewVisible || otherKey
+terminalFocus && !explorerVisible
+terminalFocus && explorerVisible || otherKey
 ```
 
 - `&&` は `||` より結合が強い

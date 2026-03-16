@@ -5,7 +5,7 @@
 
 - 水平方向: SidebarPane → TerminalPane → FilerPane → PreviewPane（各ペイン間にリサイズハンドル）
 - 垂直方向: メインエリア → DebugPane（リサイズハンドル）
-- PreviewPane は右端に配置され、開閉可能
+- FilerPane + PreviewPane は Explorer グループとして一体的に開閉する
 
 ## リサイズ
 
@@ -32,6 +32,7 @@ const workspaceStore = useWorkspaceStore();
 const terminalStore = useTerminalStore();
 const contextKeys = useContextKeys();
 const terminalContainerRef = useTemplateRef<HTMLElement>("terminalContainer");
+const explorerContainerRef = useTemplateRef<HTMLElement>("explorerContainer");
 
 const currentDir = computed(() => workspaceStore.dir);
 const disposeTerminalCommands = registerTerminalCommands(currentDir, terminalContainerRef);
@@ -66,6 +67,8 @@ const SIDEBAR_MIN_WIDTH = 120;
 const FILER_MIN_WIDTH = 160;
 const PREVIEW_MIN_WIDTH = 200;
 const TERMINAL_MIN_WIDTH = 200;
+/** Explorer グループ内部の最小幅（Filer + H(filer|preview) + Preview） */
+const EXPLORER_MIN_WIDTH = FILER_MIN_WIDTH + 8 + PREVIEW_MIN_WIDTH;
 const DEBUG_MIN_HEIGHT = 40;
 const MAIN_MIN_HEIGHT = 200;
 
@@ -78,16 +81,16 @@ const sidebarWidth = ref(224);
 const filerWidth = ref(256);
 /** ユーザーが決めた希望幅 */
 const previewWidth = ref(400);
-const previewOpen = ref(false);
+const explorerOpen = ref(false);
 const mainHeight = ref(600);
 const debugHeight = ref(128);
 
-/** Preview 開閉ボタンの固定幅（px-1 × 2 + size-4 + border-l） */
-const PREVIEW_TOGGLE_WIDTH = 25;
+/** Explorer 開閉ボタンの固定幅（px-1 × 2 + size-4 + border-l） */
+const EXPLORER_TOGGLE_WIDTH = 25;
 
 /** Terminal を最小幅にしたときに Preview に使える最大幅 */
 const availablePreviewWidth = computed(() => {
-  if (!previewOpen.value) return 0;
+  if (!explorerOpen.value) return 0;
   return Math.max(
     0,
     windowWidth.value -
@@ -100,29 +103,41 @@ const availablePreviewWidth = computed(() => {
 
 /** プレビューに実際に割り当てる幅（余白に収まるようクランプ） */
 const dockedPreviewWidth = computed(() => {
-  if (!previewOpen.value) return 0;
+  if (!explorerOpen.value) return 0;
   return Math.min(previewWidth.value, availablePreviewWidth.value);
 });
 
-/** プレビューを表示できるだけの余白があるか */
-const canDockPreview = computed(() => dockedPreviewWidth.value >= PREVIEW_MIN_WIDTH);
+/** Explorer グループ（Filer + Preview）を表示できるだけの余白があるか */
+const canDockExplorer = computed(() => dockedPreviewWidth.value >= PREVIEW_MIN_WIDTH);
 
-/** Preview セクションが占める幅（ドック時: ハンドル + Preview、非ドック時: 開閉ボタン） */
-const previewSectionWidth = computed(() =>
-  previewOpen.value && canDockPreview.value
-    ? HANDLE_WIDTH + dockedPreviewWidth.value
-    : PREVIEW_TOGGLE_WIDTH,
+/**
+ * Explorer グループ全体の幅（Filer + H(filer|preview) + Preview）。
+ * Terminal-Explorer 間ハンドルのドラッグで set が呼ばれる。
+ * Filer 幅は固定のまま、Preview が残り幅を吸収する。
+ */
+const explorerWidth = computed({
+  get: () => filerWidth.value + HANDLE_WIDTH + dockedPreviewWidth.value,
+  set: (newWidth: number) => {
+    previewWidth.value = Math.max(PREVIEW_MIN_WIDTH, newWidth - HANDLE_WIDTH - filerWidth.value);
+  },
+});
+
+/**
+ * Explorer セクションが占める幅
+ * ドック時: H(terminal|explorer) + Explorer グループ
+ * 非ドック時: 開閉ボタンのみ
+ */
+const explorerSectionWidth = computed(() =>
+  explorerOpen.value && canDockExplorer.value
+    ? HANDLE_WIDTH + explorerWidth.value
+    : EXPLORER_TOGGLE_WIDTH,
 );
 
-/** Terminal 幅: ウィンドウ幅から他ペインを引いた残余領域（state ではなく導出値） */
+/** Terminal 幅: ウィンドウ幅から Sidebar + H(sidebar|terminal) + Explorer セクションを引いた残余 */
 const terminalWidth = computed(() =>
   Math.max(
     TERMINAL_MIN_WIDTH,
-    windowWidth.value -
-      sidebarWidth.value -
-      filerWidth.value -
-      HANDLE_WIDTH * 2 -
-      previewSectionWidth.value,
+    windowWidth.value - sidebarWidth.value - HANDLE_WIDTH - explorerSectionWidth.value,
   ),
 );
 
@@ -130,22 +145,24 @@ const terminalWidth = computed(() =>
 const getTerminalWidth = () =>
   terminalContainerRef.value?.getBoundingClientRect().width ?? terminalWidth.value;
 
+/** ドラッグ開始時に Explorer グループの DOM 実測幅を取得する */
+const getExplorerWidth = () =>
+  explorerContainerRef.value?.getBoundingClientRect().width ?? explorerWidth.value;
+
 /** デバッグ用 */
-const leftFixedWidth = computed(
-  () => sidebarWidth.value + filerWidth.value + HANDLE_WIDTH * 2 + terminalWidth.value,
-);
+const leftFixedWidth = computed(() => sidebarWidth.value + HANDLE_WIDTH + terminalWidth.value);
 const rightFreeWidth = computed(() => Math.max(0, windowWidth.value - leftFixedWidth.value));
 
-// previewVisible context key を実際の表示状態と同期
+// explorerVisible context key を実際の表示状態と同期
 watchEffect(() => {
-  contextKeys.set("previewVisible", previewOpen.value && canDockPreview.value);
+  contextKeys.set("explorerVisible", explorerOpen.value && canDockExplorer.value);
 });
 
-/** プレビュー開閉の過渡期に xterm の自動 fit を抑制する */
+/** Explorer 開閉の過渡期に xterm の自動 fit を抑制する */
 const fitSuspended = ref(false);
 let fitSuspendTimer = 0;
 
-watch(previewOpen, () => {
+watch(explorerOpen, () => {
   fitSuspended.value = true;
   // 過渡期の複数フレームを待ってから解除
   cancelAnimationFrame(fitSuspendTimer);
@@ -156,11 +173,11 @@ watch(previewOpen, () => {
   });
 });
 
-// ファイル選択時にプレビューを自動オープン
+// ファイル選択時に Explorer を自動オープン
 watch(
   () => workspaceStore.selectedPath,
   (path) => {
-    if (path) previewOpen.value = true;
+    if (path) explorerOpen.value = true;
   },
 );
 
@@ -198,42 +215,47 @@ watchEffect(() => {
         />
       </div>
 
+      <!-- Explorer グループ（Filer + Preview）: グループ全体を1ユニットとしてリサイズ -->
       <ResizeHandle
-        v-model:after-size="filerWidth"
+        v-show="explorerOpen && canDockExplorer"
+        v-model:after-size="explorerWidth"
         direction="horizontal"
         :before-min-size="TERMINAL_MIN_WIDTH"
-        :after-min-size="FILER_MIN_WIDTH"
+        :after-min-size="EXPLORER_MIN_WIDTH"
         :get-before-size="getTerminalWidth"
-      />
-
-      <div class="shrink-0 overflow-hidden" :style="{ width: `${filerWidth}px` }">
-        <FilerPane />
-      </div>
-
-      <ResizeHandle
-        v-show="previewOpen && canDockPreview"
-        v-model:before-size="filerWidth"
-        v-model:after-size="previewWidth"
-        direction="horizontal"
-        :before-min-size="FILER_MIN_WIDTH"
-        :after-min-size="PREVIEW_MIN_WIDTH"
+        :get-after-size="getExplorerWidth"
       />
 
       <div
-        class="shrink-0 overflow-hidden"
-        :style="{ width: previewOpen && canDockPreview ? `${dockedPreviewWidth}px` : '0px' }"
+        ref="explorerContainer"
+        v-show="explorerOpen && canDockExplorer"
+        class="flex shrink-0 overflow-hidden"
       >
-        <PreviewPane v-show="previewOpen && canDockPreview" @close="previewOpen = false" />
+        <div class="shrink-0 overflow-hidden" :style="{ width: `${filerWidth}px` }">
+          <FilerPane />
+        </div>
+
+        <ResizeHandle
+          v-model:before-size="filerWidth"
+          v-model:after-size="previewWidth"
+          direction="horizontal"
+          :before-min-size="FILER_MIN_WIDTH"
+          :after-min-size="PREVIEW_MIN_WIDTH"
+        />
+
+        <div class="shrink-0 overflow-hidden" :style="{ width: `${dockedPreviewWidth}px` }">
+          <PreviewPane @close="explorerOpen = false" />
+        </div>
       </div>
 
-      <!-- プレビューが閉じている、またはドック不可の時に開くボタンを表示 -->
+      <!-- Explorer が閉じている、またはドック不可の時に開くボタンを表示 -->
       <button
-        v-if="!previewOpen || !canDockPreview"
+        v-if="!explorerOpen || !canDockExplorer"
         type="button"
         class="flex shrink-0 items-center justify-center border-l border-zinc-700 px-1 text-zinc-500 hover:text-zinc-300"
-        title="Open preview"
-        aria-label="Open preview"
-        @click="previewOpen = true"
+        title="Open explorer"
+        aria-label="Open explorer"
+        @click="explorerOpen = true"
       >
         <span class="icon-[lucide--panel-right-open] size-4" />
       </button>
@@ -249,14 +271,14 @@ watchEffect(() => {
     <div class="flex shrink-0 gap-2 overflow-hidden p-0" :style="{ height: `${debugHeight}px` }">
       <div class="w-1/2 overflow-hidden">
         <DebugPane
-          :preview-open="previewOpen"
+          :explorer-open="explorerOpen"
           :layout-debug="{
             terminalWidth,
             previewWidth,
             leftFixedWidth,
             rightFreeWidth,
             dockedPreviewWidth,
-            canDockPreview,
+            canDockExplorer,
             windowWidth,
           }"
         />

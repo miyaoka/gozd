@@ -16,7 +16,6 @@ import XtermTerminal from "./XtermTerminal.vue";
 interface Props {
   dir: string;
   leafId: string;
-  fitSuspended?: boolean;
 }
 
 const props = defineProps<Props>();
@@ -31,9 +30,7 @@ const isFocused = computed(() => {
   return layout.focusedLeafId === props.leafId;
 });
 
-const effectiveFitSuspended = computed(
-  () => props.fitSuspended === true || terminalStore.dragSuspendCount > 0,
-);
+const effectiveFitSuspended = computed(() => terminalStore.dragSuspendCount > 0);
 
 /**
  * store の focusedLeafId が自身を指しているなら imperative に DOM focus する。

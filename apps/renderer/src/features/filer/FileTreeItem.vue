@@ -280,7 +280,7 @@ function onChildSelect(childPath: string) {
     <!-- 子エントリ -->
     <template v-if="isDirectory && expanded">
       <div
-        v-if="loading"
+        v-if="loading && !children"
         class="py-1 text-xs text-zinc-500"
         :style="{ paddingLeft: `${(depth + 1) * 16 + 4}px` }"
       >
@@ -288,7 +288,6 @@ function onChildSelect(childPath: string) {
       </div>
       <FileTreeItem
         v-for="child in children"
-        v-else
         ref="childRefs"
         :key="child.name"
         :name="child.name"

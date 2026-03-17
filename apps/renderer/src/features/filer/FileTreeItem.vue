@@ -289,7 +289,7 @@ function onChildSelect(childPath: string) {
       <FileTreeItem
         v-for="child in children"
         ref="childRefs"
-        :key="child.name"
+        :key="`${child.name}-${child.isDirectory}`"
         :name="child.name"
         :path="`${path}/${child.name}`"
         :is-directory="child.isDirectory"

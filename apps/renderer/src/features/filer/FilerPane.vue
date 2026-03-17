@@ -179,7 +179,7 @@ onUnmounted(() => {
         <FileTreeItem
           v-for="entry in rootEntries"
           ref="treeItemRefs"
-          :key="entry.name"
+          :key="`${entry.name}-${entry.isDirectory}`"
           :name="entry.name"
           :path="entry.name"
           :is-directory="entry.isDirectory"

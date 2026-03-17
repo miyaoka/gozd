@@ -31,16 +31,22 @@ const isSwitching = ref(false);
 /** fetchData の世代管理（並行実行で stale なレスポンスを破棄するため） */
 let fetchGen = 0;
 
-/** main 先頭、残りはブランチ名のアルファベット順 */
+/** main 先頭、残りはディレクトリ名のアルファベット順 */
 const sortedWorktrees = computed(() =>
   [...worktrees.value].sort((a, b) => {
     if (a.isMain) return -1;
     if (b.isMain) return 1;
-    return (a.branch ?? "").localeCompare(b.branch ?? "");
+    return dirName(a.path).localeCompare(dirName(b.path));
   }),
 );
 
 const sortedBranches = computed(() => [...freeBranches.value].sort((a, b) => a.localeCompare(b)));
+
+/** パスから末尾のディレクトリ名を取得 */
+function dirName(path: string): string {
+  const lastSlash = path.lastIndexOf("/");
+  return lastSlash === -1 ? path : path.slice(lastSlash + 1);
+}
 
 /** 現在表示中の worktree かどうか */
 function isActive(wt: WorktreeEntry): boolean {
@@ -192,7 +198,7 @@ onUnmounted(() => {
       <div
         v-for="wt in sortedWorktrees"
         :key="wt.path"
-        class="group/wt grid cursor-pointer grid-cols-[auto_1fr_auto] gap-x-2 rounded-sm py-1.5 pl-2"
+        class="group/wt relative grid cursor-pointer grid-cols-[auto_1fr] gap-x-2 rounded-sm py-1.5 pl-2"
         :class="isActive(wt) ? 'bg-zinc-700/50' : 'hover:bg-zinc-800'"
         @click="handleWorktreeSelect(wt)"
       >
@@ -214,23 +220,25 @@ onUnmounted(() => {
                 : 'text-zinc-200'
           "
         >
-          {{ wt.branch ?? "(detached)" }}
+          {{ wt.isMain ? (wt.branch ?? "(detached)") : dirName(wt.path) }}
         </span>
         <span
           v-if="wt.isMain && !isActive(wt)"
-          class="row-span-2 self-center pr-2 text-xs text-zinc-600"
+          class="absolute top-1/2 right-0 -translate-y-1/2 pr-2 text-xs text-zinc-600"
           >ref</span
         >
-        <button
+        <div
           v-else-if="!wt.isMain && !isActive(wt)"
-          class="row-span-2 grid size-10 place-items-center self-center text-zinc-600 opacity-0 transition-opacity group-hover/wt:opacity-100 hover:text-red-400"
-          @click.stop="handleWorktreeRemove(wt)"
+          class="pointer-events-none absolute inset-y-0 right-0 flex items-center bg-linear-to-l from-zinc-800 via-zinc-800/95 to-transparent pr-1 pl-6 opacity-0 transition-opacity group-hover/wt:opacity-100"
         >
-          <span class="icon-[lucide--unlink] text-sm" />
-        </button>
-        <span v-else class="row-span-2" />
-        <span class="flex items-center gap-2 text-xs">
-          <span class="font-mono text-zinc-600">{{ wt.head }}</span>
+          <button
+            class="pointer-events-auto grid size-8 place-items-center rounded-md bg-white text-zinc-900 transition-colors hover:bg-red-500 hover:text-white"
+            @click.stop="handleWorktreeRemove(wt)"
+          >
+            <span class="icon-[lucide--unlink] text-sm" />
+          </button>
+        </div>
+        <span class="flex min-h-5 items-center gap-2 text-xs">
           <span
             v-if="wt.changeCounts && hasChanges(wt.changeCounts)"
             class="flex items-center gap-1.5"

@@ -25,7 +25,6 @@ import { useTerminalStore } from "./useTerminalStore";
 
 const props = defineProps<{
   dir: string;
-  fitSuspended?: boolean;
 }>();
 
 const terminalStore = useTerminalStore();
@@ -80,7 +79,6 @@ function rectStyle(rect: PixelRect | undefined) {
         :key="id"
         :dir="dir"
         :leaf-id="id"
-        :fit-suspended="fitSuspended"
         :style="rectStyle(rectByLeafId.get(id))"
       />
     </template>

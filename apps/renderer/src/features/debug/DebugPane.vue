@@ -20,11 +20,8 @@ const props = defineProps<{
   explorerOpen: boolean;
   layoutDebug?: {
     terminalWidth: number;
+    explorerWidth: number;
     previewWidth: number;
-    leftFixedWidth: number;
-    rightFreeWidth: number;
-    dockedPreviewWidth: number;
-    canDockExplorer: boolean;
     windowWidth: number;
   };
 }>();
@@ -94,12 +91,9 @@ const unstagedEntries = computed<GitStatusEntry[]>(() =>
         class="mt-1 border-t border-zinc-700 pt-1 text-xs text-zinc-500"
       >
         <div>window: {{ props.layoutDebug.windowWidth }}</div>
-        <div>terminal: {{ props.layoutDebug.terminalWidth }} (ref)</div>
-        <div>preview: {{ props.layoutDebug.previewWidth }} (ref)</div>
-        <div>leftFixed: {{ props.layoutDebug.leftFixedWidth }}</div>
-        <div>rightFree: {{ props.layoutDebug.rightFreeWidth }}</div>
-        <div>docked: {{ props.layoutDebug.dockedPreviewWidth }}</div>
-        <div>canDock: {{ props.layoutDebug.canDockExplorer }}</div>
+        <div>terminal: {{ props.layoutDebug.terminalWidth }}</div>
+        <div>explorer: {{ props.layoutDebug.explorerWidth }} (ref)</div>
+        <div>preview: {{ props.layoutDebug.previewWidth }}</div>
       </div>
 
       <!-- git status -->

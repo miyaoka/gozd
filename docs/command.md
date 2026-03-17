@@ -88,10 +88,10 @@ interface ContextMap {
 }
 ```
 
-| キー名            | source                                                                    |
-| ----------------- | ------------------------------------------------------------------------- |
-| `terminalFocus`   | xterm の focus/blur + worktree 切替 / closePane / visibilitychange で更新 |
-| `explorerVisible` | MainLayout の `watchEffect` で `explorerOpen && canDockExplorer` を同期   |
+| キー名            | source                                                                     |
+| ----------------- | -------------------------------------------------------------------------- |
+| `terminalFocus`   | xterm の focus/blur + worktree 切替 / closePane / visibilitychange で更新  |
+| `explorerVisible` | MainLayout の `watchEffect` で `explorerOpen` を同期（popover の開閉状態） |
 
 ### When 条件
 

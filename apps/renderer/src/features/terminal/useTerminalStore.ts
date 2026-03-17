@@ -58,6 +58,9 @@ export const useTerminalStore = defineStore("terminal", () => {
   /** split ドラッグ中の fit 抑制カウンター */
   const dragSuspendCount = ref(0);
 
+  /** 全 worktree のターミナルを一覧表示するモード */
+  const showAll = ref(false);
+
   // --- PTY セッション管理（非公開状態） ---
 
   /** leafId → xterm.write コールバック。attach 中のみ存在 */
@@ -350,6 +353,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     layoutsByDir,
     paneRegistry,
     dragSuspendCount,
+    showAll,
     ensureLayout,
     visit,
     splitPane,

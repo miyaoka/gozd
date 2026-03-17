@@ -307,6 +307,30 @@ function flattenTree(root: SplitNode, rootWidth: number, rootHeight: number): Fl
   return elements;
 }
 
+// --- 全 worktree 一覧表示用 ---
+
+/** worktree 一覧用のタイル gap（px） */
+const TILE_GAP = 8;
+
+/**
+ * コンテナサイズと worktree 数からタイルの cols/rows を動的に決定する。
+ * コンテナのアスペクト比を考慮し、各タイルがなるべく正方形に近くなるようにする。
+ */
+function computeTileLayout(
+  count: number,
+  containerWidth: number,
+  containerHeight: number,
+): { cols: number; rows: number } {
+  if (count <= 1) return { cols: 1, rows: 1 };
+  if (containerWidth <= 0 || containerHeight <= 0) return { cols: 1, rows: count };
+
+  const aspect = containerWidth / containerHeight;
+  // sqrt(count) をベースに、アスペクト比で cols を補正。count を超えないように clamp
+  const cols = Math.min(count, Math.max(1, Math.round(Math.sqrt(count * aspect))));
+  const rows = Math.ceil(count / cols);
+  return { cols, rows };
+}
+
 export type {
   SplitDirection,
   SplitLeaf,
@@ -323,6 +347,7 @@ export {
   LEAF_MIN_WIDTH,
   LEAF_MIN_HEIGHT,
   SPLIT_HANDLE_SIZE,
+  TILE_GAP,
   createLeaf,
   findFirstLeaf,
   collectLeafIds,
@@ -331,4 +356,5 @@ export {
   resizeBranch,
   getMinSize,
   flattenTree,
+  computeTileLayout,
 };

@@ -176,7 +176,18 @@ onUnmounted(() => {
     </h1>
 
     <div class="flex flex-col">
-      <h2 class="mb-1 text-xs font-medium text-zinc-500">WORKTREES</h2>
+      <div class="mb-1 flex items-center justify-between">
+        <h2 class="text-xs font-medium text-zinc-500">WORKTREES</h2>
+        <button
+          type="button"
+          class="grid size-6 place-items-center rounded-sm text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+          :class="terminalStore.showAll && 'bg-zinc-700 text-zinc-200'"
+          title="全 worktree のターミナルを一覧表示"
+          @click="terminalStore.showAll = !terminalStore.showAll"
+        >
+          <span class="icon-[lucide--layout-grid] text-sm" />
+        </button>
+      </div>
 
       <div
         v-for="wt in sortedWorktrees"

@@ -23,6 +23,7 @@ import FilerPane from "../filer/FilerPane.vue";
 import { useWorkspaceStore } from "../filer/useWorkspaceStore";
 import PreviewPane from "../preview/PreviewPane.vue";
 import { registerTerminalCommands } from "../terminal/registerTerminalCommands";
+import { computeTileLayout, TILE_GAP } from "../terminal/splitTree";
 import TerminalPane from "../terminal/TerminalPane.vue";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import ResizeHandle from "./ResizeHandle.vue";
@@ -63,6 +64,53 @@ watch(
   },
   { immediate: true },
 );
+
+// --- ターミナル Grid レイアウト ---
+// terminalContainer は worktree 単位のグリッド。
+// 単一表示: 1x1、全表示: NxM でタイル配置。
+// 各 TerminalPane 内部の leaf/handle 配置は TerminalPane が自己管理する。
+
+/** worktree のエリア名を生成する。visitedDirs のインデックスで一意性を保証 */
+function worktreeAreaName(index: number): string {
+  return `wt${index}`;
+}
+
+/** terminalContainer の grid スタイル */
+const terminalGridStyle = computed<Record<string, string>>(() => {
+  const dirs = terminalStore.visitedDirs;
+  const count = dirs.length;
+
+  if (terminalStore.showAll && count > 0) {
+    const { cols } = computeTileLayout(count, terminalWidth.value, mainHeight.value);
+    const rows = Math.ceil(count / cols);
+
+    // areas マトリクスを構築
+    const areaRows: string[] = [];
+    for (let r = 0; r < rows; r++) {
+      const cells: string[] = [];
+      for (let c = 0; c < cols; c++) {
+        const i = r * cols + c;
+        cells.push(i < count ? worktreeAreaName(i) : ".");
+      }
+      areaRows.push(`"${cells.join(" ")}"`);
+    }
+
+    return {
+      gridTemplateColumns: `repeat(${cols}, 1fr)`,
+      gridTemplateRows: `repeat(${rows}, 1fr)`,
+      gridTemplateAreas: areaRows.join(" "),
+    };
+  }
+
+  // 単一表示: アクティブ worktree だけ表示
+  const activeIndex = dirs.indexOf(workspaceStore.dir ?? "");
+  const areaName = activeIndex >= 0 ? worktreeAreaName(activeIndex) : "empty";
+  return {
+    gridTemplateColumns: "1fr",
+    gridTemplateRows: "1fr",
+    gridTemplateAreas: `"${areaName}"`,
+  };
+});
 
 const SIDEBAR_MIN_WIDTH = 120;
 const FILER_MIN_WIDTH = 160;
@@ -220,13 +268,18 @@ watchEffect(() => {
 
       <div
         ref="terminalContainer"
-        class="min-w-0 flex-1 overflow-hidden p-2"
-        :style="{ minWidth: `${TERMINAL_MIN_WIDTH}px` }"
+        class="grid min-w-0 flex-1 overflow-hidden p-2"
+        :style="{
+          minWidth: `${TERMINAL_MIN_WIDTH}px`,
+          gap: terminalStore.showAll ? `${TILE_GAP}px` : undefined,
+          ...terminalGridStyle,
+        }"
       >
         <TerminalPane
-          v-for="d in terminalStore.visitedDirs"
+          v-for="(d, i) in terminalStore.visitedDirs"
           :key="d"
-          v-show="d === workspaceStore.dir"
+          v-show="terminalStore.showAll || d === workspaceStore.dir"
+          :style="{ gridArea: worktreeAreaName(i) }"
           :dir="d"
           :fit-suspended="d === workspaceStore.dir ? fitSuspended : undefined"
         />

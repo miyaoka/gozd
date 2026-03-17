@@ -16,7 +16,6 @@ import {
   updateWindowState,
   updateWindowFrame,
   updateWindowActiveDir,
-  getWindowStates,
   getDefaultFrame,
 } from "./appState";
 import type { WindowFrame } from "./appState";

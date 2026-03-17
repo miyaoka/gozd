@@ -34,7 +34,7 @@ interface PaneEntry {
   session?: PtySession;
 }
 
-/** ring buffer の容量。scrollback と同等にして再接続時にスクロールバック全体を再生できるようにする */
+/** ring buffer の容量（チャンク数）。scrollback（行数）とは単位が異なるが、十分な再生データを保持する目安として同じ値を使う */
 const PTY_RING_BUFFER_CAPACITY = terminalConfig.scrollback;
 
 /**

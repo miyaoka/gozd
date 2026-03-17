@@ -7,7 +7,7 @@ WASM パーサーで高速描画し、FitAddon の observeResize で自動リサ
 import { init, Terminal, FitAddon } from "ghostty-web";
 import { onMounted, onBeforeUnmount, ref } from "vue";
 import { useRpc } from "../rpc/useRpc";
-import { TERMINAL_FONT_FAMILY, TERMINAL_FONT_SIZE, TERMINAL_THEME } from "./terminalConfig";
+import { terminalConfig } from "./terminalConfig";
 import { useTerminalStore } from "./useTerminalStore";
 
 const props = defineProps<{
@@ -32,9 +32,7 @@ onMounted(async () => {
   await init();
 
   terminal = new Terminal({
-    fontSize: TERMINAL_FONT_SIZE,
-    fontFamily: TERMINAL_FONT_FAMILY,
-    theme: TERMINAL_THEME,
+    ...terminalConfig,
     cursorBlink: true,
   });
 

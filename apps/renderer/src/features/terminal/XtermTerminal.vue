@@ -13,7 +13,7 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { useRpc } from "../rpc/useRpc";
-import { TERMINAL_FONT_FAMILY, TERMINAL_FONT_SIZE, TERMINAL_THEME } from "./terminalConfig";
+import { terminalConfig } from "./terminalConfig";
 import { createFilePathLinkProvider } from "./useFilePathLinkProvider";
 import { useTerminalStore } from "./useTerminalStore";
 
@@ -104,9 +104,7 @@ onMounted(async () => {
   if (!container) return;
 
   terminal = new Terminal({
-    fontSize: TERMINAL_FONT_SIZE,
-    fontFamily: TERMINAL_FONT_FAMILY,
-    theme: TERMINAL_THEME,
+    ...terminalConfig,
     cursorBlink: true,
     allowProposedApi: true,
   });

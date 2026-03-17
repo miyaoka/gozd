@@ -10,6 +10,15 @@ import { createLspClient } from "./lsp";
 import type { LspClient } from "./lsp";
 import { parseOwnerRepo } from "./git";
 import { getShellEnv } from "./shellEnv";
+import {
+  loadAppState,
+  saveAppStateSync,
+  updateWindowState,
+  updateWindowFrame,
+  updateWindowActiveDir,
+  getDefaultFrame,
+} from "./appState";
+import type { WindowFrame } from "./appState";
 
 type OrkisRPCInstance = ReturnType<typeof BrowserView.defineRPC<OrkisRPC>>;
 type OrkisWindow = BrowserWindow<OrkisRPCInstance>;
@@ -902,13 +911,22 @@ function cleanupWindow(win: OrkisWindow) {
 
 // --- ウィンドウ作成 ---
 
-function createWindowWithRPC(dir: string, initialFile?: string): OrkisWindow {
+interface CreateWindowOptions {
+  initialFile?: string;
+  savedFrame?: WindowFrame;
+  /** 起動時に切り替える worktree ディレクトリ（dir と異なる場合） */
+  initialActiveDir?: string;
+}
+
+function createWindowWithRPC(dir: string, options?: CreateWindowOptions): OrkisWindow {
   let win: OrkisWindow;
+  const { initialFile, savedFrame, initialActiveDir } = options ?? {};
 
   /** worktree/branch 管理用（固定） */
   const repoRootDir = dir;
   /** ファイル操作用（switchDir で切り替え可能） */
-  let currentDir = dir;
+  let currentDir = initialActiveDir ?? dir;
+  const initialFrame = savedFrame ?? getDefaultFrame();
 
   async function updateWindowTitle(): Promise<void> {
     const repoName = await getRepoName(repoRootDir);
@@ -1030,6 +1048,7 @@ function createWindowWithRPC(dir: string, initialFile?: string): OrkisWindow {
 
           // ディレクトリを切り替え
           currentDir = targetReal;
+          updateWindowActiveDir(repoRootDir, currentDir);
 
           // ファイル監視を付け替え
           stopWatching(win);
@@ -1157,13 +1176,32 @@ function createWindowWithRPC(dir: string, initialFile?: string): OrkisWindow {
   win = new BrowserWindow({
     title: "orkis",
     url: viewUrl,
-    frame: { width: 1200, height: 800, x: 100, y: 100 },
+    frame: initialFrame,
     rpc,
   });
 
+  // 初回状態を保存
+  updateWindowState(repoRootDir, currentDir, initialFrame);
+
   void updateWindowTitle();
 
+  // フレーム変更を追跡して永続化
+  win.on("resize", (event) => {
+    const { x, y, width, height } = (
+      event as { data: { x: number; y: number; width: number; height: number } }
+    ).data;
+    updateWindowFrame(repoRootDir, { x, y, width, height });
+  });
+  win.on("move", () => {
+    const frame = win.getFrame();
+    updateWindowFrame(repoRootDir, frame);
+  });
+
   win.on("close", () => {
+    // 閉じる直前のフレームを即時保存
+    const frame = win.getFrame();
+    updateWindowState(repoRootDir, currentDir, frame);
+    saveAppStateSync();
     cleanupWindow(win);
   });
 
@@ -1246,8 +1284,16 @@ function readLaunchRequests(): LaunchRequestResult {
   return { requests, errors };
 }
 
+interface OpenWindowOptions {
+  file?: string;
+  savedFrame?: WindowFrame;
+  /** 起動時に切り替える worktree ディレクトリ */
+  initialActiveDir?: string;
+}
+
 /** 新しいウィンドウを作成して登録する（同期処理） */
-function openWindow(dir: string, file?: string): void {
+function openWindow(dir: string, options?: OpenWindowOptions): void {
+  const { file, savedFrame, initialActiveDir } = options ?? {};
   // file を dir からの相対パスに変換（レンダラーは相対パスで管理するため）
   const relativeFile = file ? path.relative(dir, file) : undefined;
   console.log(`[orkis] open: dir=${dir}, file=${relativeFile ?? "(none)"}`);
@@ -1262,14 +1308,19 @@ function openWindow(dir: string, file?: string): void {
     });
     return;
   }
-  const newWin = createWindowWithRPC(dir, relativeFile);
+  const activeDir = initialActiveDir ?? dir;
+  const newWin = createWindowWithRPC(dir, {
+    initialFile: relativeFile,
+    savedFrame,
+    initialActiveDir,
+  });
   const windowId = crypto.randomUUID();
   windowIds.set(newWin, windowId);
-  fileServerDirs.set(windowId, dir);
-  windowDirs.set(newWin, dir);
+  fileServerDirs.set(windowId, activeDir);
+  windowDirs.set(newWin, activeDir);
   windowRepoRoots.set(newWin, dir);
   windowSwitchGen.set(newWin, 0);
-  startWatching(newWin, dir);
+  startWatching(newWin, activeDir);
 }
 
 function handleSocketMessage(message: OrkisMessage) {
@@ -1288,7 +1339,7 @@ function handleSocketMessage(message: OrkisMessage) {
     }
     case "open": {
       // dir は CLI 側で resolveRepoRoot 済み
-      openWindow(message.dir, message.file);
+      openWindow(message.dir, { file: message.file });
       break;
     }
   }
@@ -1404,6 +1455,7 @@ ApplicationMenu.on("application-menu-clicked", (event) => {
 // --- 起動 ---
 
 const socketServer = setupSocketServer();
+const savedState = loadAppState();
 
 // macOS の ApplicationMenu が正しく動作するには、初回ウィンドウを同期的に作成する必要がある
 // （role メニューは active app + key window + responder chain に依存するため）
@@ -1413,11 +1465,24 @@ if (initialDir) {
   openWindow(initialDir);
 } else {
   // CLI cold start: launch request ファイルから dir を読む
-  // Dock/Finder: request がなければスタートアップ画面（ホームディレクトリ）
+  // Dock/Finder: request がなければ前回の状態を復元
   const { requests, errors } = readLaunchRequests();
   if (requests.length > 0) {
     for (const req of requests) {
-      openWindow(req.dir, req.file);
+      openWindow(req.dir, { file: req.file });
+    }
+  } else if (savedState.windows.length > 0) {
+    // 前回の状態を復元（プロジェクト・ウィンドウサイズ・位置）
+    let restored = false;
+    for (const ws of savedState.windows) {
+      if (!fs.existsSync(ws.dir)) continue;
+      // activeDir が存在しなければ dir（repo root）にフォールバック
+      const activeDir = fs.existsSync(ws.activeDir) ? ws.activeDir : ws.dir;
+      openWindow(ws.dir, { savedFrame: ws.frame, initialActiveDir: activeDir });
+      restored = true;
+    }
+    if (!restored) {
+      openWindow(homedir());
     }
   } else {
     openWindow(homedir());
@@ -1436,6 +1501,8 @@ if (initialDir) {
 // --- クリーンアップ ---
 
 process.on("beforeExit", () => {
+  saveAppStateSync();
+
   for (const win of windowDirs.keys()) {
     cleanupWindow(win);
   }

@@ -220,7 +220,7 @@ onUnmounted(() => {
                 : 'text-zinc-200'
           "
         >
-          {{ wt.isMain ? (wt.branch ?? "(detached)") : dirName(wt.path) }}
+          {{ wt.branch ?? "(detached)" }}
         </span>
         <span
           v-if="wt.isMain && !isActive(wt)"

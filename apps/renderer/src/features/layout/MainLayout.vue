@@ -81,7 +81,7 @@ const terminalGridStyle = computed<Record<string, string>>(() => {
   const count = dirs.length;
 
   if (terminalStore.showAll && count > 0) {
-    const { cols } = computeTileLayout(count, 1, 1);
+    const { cols } = computeTileLayout(count, terminalWidth.value, mainHeight.value);
     const rows = Math.ceil(count / cols);
 
     // areas マトリクスを構築

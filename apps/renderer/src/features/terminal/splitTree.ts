@@ -324,8 +324,8 @@ function computeTileLayout(
   if (count <= 1) return { cols: 1, rows: 1 };
 
   const aspect = containerWidth / containerHeight;
-  // sqrt(count) をベースに、アスペクト比で cols を補正
-  const cols = Math.max(1, Math.round(Math.sqrt(count * aspect)));
+  // sqrt(count) をベースに、アスペクト比で cols を補正。count を超えないように clamp
+  const cols = Math.min(count, Math.max(1, Math.round(Math.sqrt(count * aspect))));
   const rows = Math.ceil(count / cols);
   return { cols, rows };
 }

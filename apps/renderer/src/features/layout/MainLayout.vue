@@ -128,8 +128,25 @@ const { width: windowWidth, height: windowHeight } = useWindowSize();
 
 const sidebarWidth = ref(224);
 const filerWidth = ref(256);
-/** Explorer popover 全体の幅（H(left edge) + Filer + H(filer|preview) + Preview） */
-const explorerWidth = ref(672);
+/**
+ * Explorer popover 全体の幅（H(left edge) + Filer + H(filer|preview) + Preview）。
+ * 左端ハンドルのドラッグで set が呼ばれる。
+ * Preview が最小幅に達したら Filer を縮めて Explorer 全体の縮小を継続する。
+ */
+const _explorerWidth = ref(672);
+const explorerWidth = computed({
+  get: () => _explorerWidth.value,
+  set: (newWidth: number) => {
+    _explorerWidth.value = newWidth;
+    const preview = newWidth - HANDLE_WIDTH - filerWidth.value - HANDLE_WIDTH;
+    if (preview < PREVIEW_MIN_WIDTH) {
+      filerWidth.value = Math.max(
+        FILER_MIN_WIDTH,
+        newWidth - HANDLE_WIDTH - PREVIEW_MIN_WIDTH - HANDLE_WIDTH,
+      );
+    }
+  },
+});
 const explorerOpen = ref(false);
 const mainHeight = ref(600);
 const debugHeight = ref(128);

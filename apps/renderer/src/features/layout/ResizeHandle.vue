@@ -27,8 +27,12 @@ const isHovered = useElementHover(handleRef);
 
 const { isDragging } = useResize(handleRef, beforeSize, afterSize, {
   direction: props.direction,
-  beforeMinSize: props.beforeMinSize,
-  afterMinSize: props.afterMinSize,
+  get beforeMinSize() {
+    return props.beforeMinSize;
+  },
+  get afterMinSize() {
+    return props.afterMinSize;
+  },
   getBeforeSize: props.getBeforeSize,
   getAfterSize: props.getAfterSize,
 });

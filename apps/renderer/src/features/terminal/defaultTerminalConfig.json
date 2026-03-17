@@ -1,0 +1,10 @@
+{
+  "fontSize": 13,
+  "fontFamily": "'UDEV Gothic 35NF', Menlo, monospace",
+  "scrollback": 10000,
+  "theme": {
+    "background": "#18181b",
+    "foreground": "#e4e4e7",
+    "cursor": "#e4e4e7"
+  }
+}

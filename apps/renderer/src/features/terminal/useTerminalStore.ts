@@ -11,6 +11,7 @@ import {
   resizeBranch as resizeBranchFn,
   splitNode,
 } from "./splitTree";
+import { terminalConfig } from "./terminalConfig";
 
 interface TerminalLayoutState {
   root: SplitNode;
@@ -33,8 +34,8 @@ interface PaneEntry {
   session?: PtySession;
 }
 
-/** ring buffer の容量。xterm のデフォルト scrollback（1000行）と同等 */
-const PTY_RING_BUFFER_CAPACITY = 1000;
+/** ring buffer の容量（チャンク数）。scrollback（行数）とは単位が異なるが、十分な再生データを保持する目安として同じ値を使う */
+const PTY_RING_BUFFER_CAPACITY = terminalConfig.scrollback;
 
 /**
  * ターミナル分割レイアウトと PTY の状態を管理する。

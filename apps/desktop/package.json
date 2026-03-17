@@ -7,6 +7,7 @@
     "dev": "ORKIS_PROJECT_ROOT=$PWD pnpm exec electrobun dev",
     "build": "pnpm exec electrobun build --env=stable",
     "typecheck": "tsgo --noEmit",
+    "test": "bun test --run",
     "lint": "oxlint --type-aware",
     "fix": "oxlint --type-aware --fix && oxfmt ."
   },

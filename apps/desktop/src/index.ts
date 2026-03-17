@@ -8,6 +8,7 @@ import { tryCatch } from "@orkis/shared";
 import type { LspDiagnostic, OrkisRPC, WorktreeChangeCounts } from "@orkis/rpc";
 import { createLspClient } from "./lsp";
 import type { LspClient } from "./lsp";
+import { parseOwnerRepo } from "./git";
 import { getShellEnv } from "./shellEnv";
 
 type OrkisRPCInstance = ReturnType<typeof BrowserView.defineRPC<OrkisRPC>>;
@@ -17,6 +18,16 @@ const ALLOWED_PROTOCOLS = new Set(["https:", "http:"]);
 const VITE_DEV_SERVER_URL = "http://localhost:5173";
 
 const channel = await Updater.localInfo.channel();
+
+/** git remote origin URL から owner/repo 形式の名前を取得。失敗時はディレクトリ名にフォールバック */
+async function getRepoName(dir: string): Promise<string> {
+  const result = await tryCatch(Promise.resolve(Bun.$`git -C ${dir} remote get-url origin`.text()));
+  if (result.ok) {
+    const ownerRepo = parseOwnerRepo(result.value.trim());
+    if (ownerRepo) return ownerRepo;
+  }
+  return path.basename(dir);
+}
 
 /** dev チャンネルかつ Vite dev server が起動していれば HMR 用 URL を返す */
 async function getViewUrl(): Promise<string> {
@@ -899,6 +910,11 @@ function createWindowWithRPC(dir: string, initialFile?: string): OrkisWindow {
   /** ファイル操作用（switchDir で切り替え可能） */
   let currentDir = dir;
 
+  async function updateWindowTitle(): Promise<void> {
+    const repoName = await getRepoName(repoRootDir);
+    win.setTitle(`orkis - ${repoName}`);
+  }
+
   const rpc: OrkisRPCInstance = BrowserView.defineRPC<OrkisRPC>({
     handlers: {
       requests: {
@@ -1144,6 +1160,8 @@ function createWindowWithRPC(dir: string, initialFile?: string): OrkisWindow {
     frame: { width: 1200, height: 800, x: 100, y: 100 },
     rpc,
   });
+
+  void updateWindowTitle();
 
   win.on("close", () => {
     cleanupWindow(win);

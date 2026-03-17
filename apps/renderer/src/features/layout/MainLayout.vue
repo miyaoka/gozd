@@ -305,7 +305,7 @@ watchEffect(() => {
     <div
       ref="explorerPopover"
       popover="auto"
-      class="m-0 my-0 mr-0 ml-auto h-dvh max-h-none overflow-hidden border-0 border-l border-zinc-700 bg-zinc-900 p-0 [&:popover-open]:flex"
+      class="_explorer-popover m-0 my-0 mr-0 ml-auto h-dvh max-h-none overflow-hidden border-0 border-l border-zinc-700 bg-zinc-900 p-0 [&:popover-open]:flex"
       :style="{ width: `${explorerWidth}px` }"
       @toggle="onExplorerToggle"
     >
@@ -339,7 +339,7 @@ watchEffect(() => {
 </template>
 
 <style>
-[popover]::backdrop {
+._explorer-popover::backdrop {
   background-color: rgb(0 0 0 / 0.3);
 }
 </style>

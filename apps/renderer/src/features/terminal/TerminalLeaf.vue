@@ -34,6 +34,12 @@ const effectiveFitSuspended = computed(() => terminalStore.dragSuspendCount > 0)
 
 const claudeState = computed(() => terminalStore.getClaudeState(props.leafId));
 
+const CLAUDE_STATE_LABEL: Record<string, string> = {
+  working: "Working",
+  asking: "Ask",
+  done: "Done",
+};
+
 /**
  * store の focusedLeafId が自身を指しているなら imperative に DOM focus する。
  * immediate: true で mount 時の初期値も拾う（split 直後の新規 leaf 対応）。
@@ -84,15 +90,7 @@ function handleTerminalBlur() {
           'icon-[lucide--circle-dashed]': claudeState === undefined,
         }"
       />
-      <span>{{
-        claudeState === "working"
-          ? "Working"
-          : claudeState === "asking"
-            ? "Ask"
-            : claudeState === "done"
-              ? "Done"
-              : "Idle"
-      }}</span>
+      <span>{{ claudeState ? CLAUDE_STATE_LABEL[claudeState] : "Idle" }}</span>
     </div>
     <XtermTerminal
       ref="xtermRef"

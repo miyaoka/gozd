@@ -10,7 +10,7 @@ export default defineCommand({
   args: {
     event: {
       type: z.enum(HOOK_EVENTS),
-      description: "フックイベント名 (running | done | needs-input | tool-done)",
+      description: `フックイベント名 (${HOOK_EVENTS.join(" | ")})`,
       positional: true,
     },
   },

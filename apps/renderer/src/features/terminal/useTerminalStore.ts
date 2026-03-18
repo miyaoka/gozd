@@ -30,6 +30,12 @@ type ClaudeState = "working" | "asking" | "done";
  */
 type HookEvent = "running" | "needs-input" | "done" | "tool-done";
 
+const HOOK_EVENTS: readonly HookEvent[] = ["running", "needs-input", "done", "tool-done"];
+
+function isHookEvent(value: string): value is HookEvent {
+  return (HOOK_EVENTS as readonly string[]).includes(value);
+}
+
 /** PermissionRequest の debounce 時間（ms）。この間に tool-done が来たら asking にしない */
 const ASK_DEBOUNCE_MS = 150;
 
@@ -230,10 +236,9 @@ export const useTerminalStore = defineStore("terminal", () => {
       const ptyId = typeof payload.ptyId === "number" ? payload.ptyId : undefined;
       if (ptyId === undefined) return;
 
-      const hookEvent = event as HookEvent;
-      if (!["running", "needs-input", "done", "tool-done"].includes(hookEvent)) return;
+      if (!isHookEvent(event)) return;
 
-      handleHookEvent(ptyId, hookEvent);
+      handleHookEvent(ptyId, event);
     });
   }
 

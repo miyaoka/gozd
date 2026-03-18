@@ -11,6 +11,9 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   /** ファイラーで選択中のファイルパス（相対パス） */
   const selectedPath = ref<string>();
 
+  /** リンクから指定された行番号（1-based）。スクロール・ハイライトに使用 */
+  const selectedLineNumber = ref<number>();
+
   /** ツリー初期化後に選択するファイル（setOpen で保持、consumeInitialFile で消費） */
   const initialFile = ref<string>();
 
@@ -54,13 +57,15 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     }
   }
 
-  function selectPath(path: string) {
+  function selectPath(path: string, lineNumber?: number) {
     selectedPath.value = normalizePath(path);
+    selectedLineNumber.value = lineNumber;
     revealVersion.value++;
   }
 
   function clearSelectedPath() {
     selectedPath.value = undefined;
+    selectedLineNumber.value = undefined;
   }
 
   return {
@@ -68,6 +73,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     fileServerBaseUrl,
     channel,
     selectedPath,
+    selectedLineNumber,
     selectedGitChange,
     revealVersion,
     setOpen,

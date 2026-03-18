@@ -86,6 +86,7 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
 - `ShikiTransformer` で各行に `data-line` 属性を付与し、CSS `::before` で行番号表示
 - 言語検出: 拡張子 → `EXTENSION_LANG_MAP` で Shiki 言語 ID に変換
 - word-wrap トグルボタンでコードの折り返しを切り替え
+- 行番号指定時（`:行番号` サフィックス付きリンクから）は該当行にスクロールし、黄色背景でハイライト
 
 ### DiffPreview
 

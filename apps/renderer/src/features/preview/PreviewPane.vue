@@ -65,7 +65,8 @@ const emit = defineEmits<{
 }>();
 
 const workspaceStore = useWorkspaceStore();
-const { selectedPath, selectedGitChange, fileServerBaseUrl } = storeToRefs(workspaceStore);
+const { selectedPath, selectedLineNumber, selectedGitChange, fileServerBaseUrl, revealVersion } =
+  storeToRefs(workspaceStore);
 const { request, onFsChange } = useRpc();
 
 const currentContent = ref<string>();
@@ -376,6 +377,8 @@ const headerIconUrl = computed(() => {
           v-else-if="displayContent !== undefined"
           :content="displayContent"
           :file-path="selectedPath"
+          :line-number="selectedLineNumber"
+          :reveal-version="revealVersion"
           :word-wrap="wordWrap"
         />
       </div>

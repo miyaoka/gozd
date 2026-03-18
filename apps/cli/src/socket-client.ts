@@ -1,6 +1,6 @@
 import net from "node:net";
 
-const SOCKET_PATH = "/tmp/orkis-stable.sock";
+const SOCKET_PATH = process.env.ORKIS_SOCKET_PATH ?? "/tmp/orkis-stable.sock";
 
 interface HookMessage {
   type: "hook";

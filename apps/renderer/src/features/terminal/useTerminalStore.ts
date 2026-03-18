@@ -13,6 +13,21 @@ import {
 } from "./splitTree";
 import { terminalConfig } from "./terminalConfig";
 
+/**
+ * Claude Code の状態。
+ * - working: エージェントが作業中（UserPromptSubmit）
+ * - asking: 承認待ち（PermissionRequest）— ユーザー操作が必要
+ * - done: 応答完了 / ユーザー入力待ち（Stop）— 次のプロンプト待ち
+ */
+type ClaudeState = "working" | "asking" | "done";
+
+/** CLI event → UI state のマッピング */
+const HOOK_EVENT_TO_STATE: Record<string, ClaudeState> = {
+  running: "working",
+  "needs-input": "asking",
+  done: "done",
+};
+
 interface TerminalLayoutState {
   root: SplitNode;
   focusedLeafId: string;
@@ -44,7 +59,7 @@ const PTY_RING_BUFFER_CAPACITY = terminalConfig.scrollback;
  * コンポーネントは xterm の attach/detach のみ担当する。
  */
 export const useTerminalStore = defineStore("terminal", () => {
-  const { request, send, onPtyData, onPtyExit } = useRpc();
+  const { request, send, onPtyData, onPtyExit, onOrkisHook } = useRpc();
   const contextKeys = useContextKeys();
 
   /** 訪問済みの worktree ディレクトリ一覧（初回訪問順） */
@@ -61,6 +76,9 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   /** 全 worktree のターミナルを一覧表示するモード */
   const showAll = ref(false);
+
+  /** ptyId → Claude Code の動作状態（idle は undefined = エントリなし） */
+  const claudeStateByPtyId = ref<Record<number, ClaudeState>>({});
 
   // --- PTY セッション管理（非公開状態） ---
 
@@ -136,10 +154,37 @@ export const useTerminalStore = defineStore("terminal", () => {
       if (writer !== undefined) writer(exitMsg);
 
       ptyIdToLeafId.delete(id);
+      delete claudeStateByPtyId.value[id];
     });
   }
 
   initPtySubscription();
+
+  // --- Claude Code Hook 購読 ---
+
+  let disposeHookListener: (() => void) | undefined;
+
+  function initHookSubscription() {
+    disposeHookListener?.();
+    disposeHookListener = onOrkisHook(({ event, payload }) => {
+      const ptyId = typeof payload.ptyId === "number" ? payload.ptyId : undefined;
+      if (ptyId === undefined) return;
+
+      const state = HOOK_EVENT_TO_STATE[event];
+      if (state === undefined) return;
+
+      claudeStateByPtyId.value[ptyId] = state;
+    });
+  }
+
+  initHookSubscription();
+
+  /** leafId に対応する Claude Code の状態を返す。idle / 未起動の場合は undefined */
+  function getClaudeState(leafId: string): ClaudeState | undefined {
+    const entry = paneRegistry.value[leafId];
+    if (entry?.session === undefined) return undefined;
+    return claudeStateByPtyId.value[entry.session.ptyId];
+  }
 
   // --- PTY ライフサイクル関数 ---
 
@@ -367,6 +412,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     remove,
     incrementDragSuspend,
     decrementDragSuspend,
+    getClaudeState,
   };
 });
 

@@ -19,6 +19,12 @@ export default defineCommand({
     const input = await Bun.stdin.text();
     const payload = input.trim() ? JSON.parse(input) : {};
 
+    // PTY 環境変数から発火元のペインを特定する
+    const ptyIdStr = process.env.ORKIS_PTY_ID;
+    if (ptyIdStr !== undefined) {
+      payload.ptyId = Number(ptyIdStr);
+    }
+
     const result = await tryCatch(sendMessage({ type: "hook", event: args.event, payload }));
     if (!result.ok) {
       console.error(result.error.message);

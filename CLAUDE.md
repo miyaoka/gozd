@@ -111,6 +111,11 @@ orkis/
 
 ## コーディング規約
 
+### 一時ファイル・ソケット
+
+- `/tmp` をハードコードしない。`os.tmpdir()`（Node.js）を使う
+- macOS ではユーザーごとに異なる TMPDIR（`/var/folders/...`）が割り当てられる。`/tmp` はグローバルなので、マルチユーザー環境やサンドボックスで衝突する
+
 ### エラーハンドリング
 
 - try-catch は使わず、`@orkis/shared` の `tryCatch` を使って Result 型で処理する

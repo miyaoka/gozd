@@ -3,6 +3,9 @@
  *
  * 最後に開いていたプロジェクトとウィンドウフレーム（位置・サイズ）を
  * ~/.config/orkis/app-state.json に保存し、次回起動時に復元する。
+ *
+ * 永続化は before-quit（アプリ終了時）の一括コミットのみ。
+ * ランタイム中の差分更新は index.ts 側の live 状態（Map）で管理する。
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -11,9 +14,6 @@ import { tryCatch } from "@orkis/shared";
 
 const CONFIG_DIR = path.join(homedir(), ".config", "orkis");
 const STATE_FILE = path.join(CONFIG_DIR, "app-state.json");
-
-/** debounce 用タイマー（高頻度な resize/move に対応） */
-const SAVE_DEBOUNCE_MS = 500;
 
 interface WindowFrame {
   x: number;
@@ -36,9 +36,6 @@ interface AppState {
 }
 
 const DEFAULT_FRAME: WindowFrame = { width: 1200, height: 800, x: 100, y: 100 };
-
-let currentState: AppState = { windows: [] };
-let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** 設定ディレクトリを作成（存在しなければ） */
 function ensureConfigDir(): void {
@@ -67,102 +64,31 @@ function isValidWindowState(v: unknown): v is WindowState {
 /** 保存済みの状態を読み込む（不正なエントリは除外する） */
 export function loadAppState(): AppState {
   const content = tryCatch(() => fs.readFileSync(STATE_FILE, "utf-8"));
-  if (!content.ok) {
-    currentState = { windows: [] };
-    return currentState;
-  }
+  if (!content.ok) return { windows: [] };
   const parsed = tryCatch(() => JSON.parse(content.value) as unknown);
-  if (!parsed.ok) {
-    currentState = { windows: [] };
-    return currentState;
-  }
+  if (!parsed.ok) return { windows: [] };
   const raw = parsed.value;
   if (
     typeof raw !== "object" ||
     raw === null ||
     !Array.isArray((raw as Record<string, unknown>).windows)
   ) {
-    currentState = { windows: [] };
-    return currentState;
+    return { windows: [] };
   }
   const windows = ((raw as Record<string, unknown>).windows as unknown[]).filter(
     isValidWindowState,
   );
-  currentState = { windows };
-  return currentState;
+  return { windows };
 }
 
-/** 状態をファイルに保存する（debounce 付き） */
-function scheduleSave(): void {
-  if (saveTimer !== undefined) {
-    clearTimeout(saveTimer);
-  }
-  saveTimer = setTimeout(() => {
-    saveTimer = undefined;
-    ensureConfigDir();
-    const result = tryCatch(() =>
-      fs.writeFileSync(STATE_FILE, JSON.stringify(currentState, null, 2)),
-    );
-    if (!result.ok) {
-      console.error(`[app-state] save failed: ${result.error.message}`);
-    }
-  }, SAVE_DEBOUNCE_MS);
-}
-
-/** 即時保存（アプリ終了時用） */
-export function saveAppStateSync(): void {
-  if (saveTimer !== undefined) {
-    clearTimeout(saveTimer);
-    saveTimer = undefined;
-  }
+/** snapshot を受け取って即時保存する（アプリ終了時の唯一のコミット点） */
+export function saveSnapshot(windows: WindowState[]): void {
   ensureConfigDir();
-  const result = tryCatch(() =>
-    fs.writeFileSync(STATE_FILE, JSON.stringify(currentState, null, 2)),
-  );
+  const state: AppState = { windows };
+  const result = tryCatch(() => fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2)));
   if (!result.ok) {
     console.error(`[app-state] save failed: ${result.error.message}`);
   }
-}
-
-/** ウィンドウの状態を更新（なければ追加） */
-export function updateWindowState(dir: string, activeDir: string, frame: WindowFrame): void {
-  const existing = currentState.windows.find((w) => w.dir === dir);
-  if (existing) {
-    existing.activeDir = activeDir;
-    existing.frame = frame;
-  } else {
-    currentState.windows.push({ dir, activeDir, frame });
-  }
-  scheduleSave();
-}
-
-/** ウィンドウのフレームのみ更新 */
-export function updateWindowFrame(dir: string, frame: WindowFrame): void {
-  const existing = currentState.windows.find((w) => w.dir === dir);
-  if (existing) {
-    existing.frame = frame;
-    scheduleSave();
-  }
-}
-
-/** ウィンドウの activeDir のみ更新 */
-export function updateWindowActiveDir(dir: string, activeDir: string): void {
-  const existing = currentState.windows.find((w) => w.dir === dir);
-  if (existing) {
-    existing.activeDir = activeDir;
-    scheduleSave();
-  }
-}
-
-/** ウィンドウの状態を削除 */
-export function removeWindowState(dir: string): void {
-  currentState.windows = currentState.windows.filter((w) => w.dir !== dir);
-  scheduleSave();
-}
-
-/** 保存済みのウィンドウ状態を取得 */
-export function getWindowStates(): WindowState[] {
-  return currentState.windows;
 }
 
 /** デフォルトのフレーム値 */

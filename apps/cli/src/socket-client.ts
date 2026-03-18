@@ -4,7 +4,7 @@ const SOCKET_PATH = process.env.ORKIS_SOCKET_PATH ?? "/tmp/orkis-stable.sock";
 
 interface HookMessage {
   type: "hook";
-  event: "running" | "done" | "needs-input";
+  event: "running" | "done" | "needs-input" | "tool-done";
   payload: Record<string, unknown>;
 }
 

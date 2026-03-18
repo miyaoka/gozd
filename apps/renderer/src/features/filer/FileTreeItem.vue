@@ -192,8 +192,14 @@ function notifyGitStatusChange() {
  * パスのセグメントを再帰的に辿り、各ディレクトリを非同期で展開する。
  */
 async function reveal(targetPath: string): Promise<void> {
-  // 自身がターゲットの場合、スクロールインビュー
+  // 自身がターゲットの場合、展開してスクロールインビュー
   if (targetPath === props.path) {
+    if (props.isDirectory && !expanded.value) {
+      expanded.value = true;
+      if (children.value === undefined) {
+        await loadChildren();
+      }
+    }
     buttonRef.value?.scrollIntoView({ block: "nearest" });
     return;
   }

@@ -1,6 +1,6 @@
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
-import { resolveFileGitChange } from "./filer-utils";
+import { normalizePath, resolveFileGitChange } from "./filer-utils";
 import { useGitStatusStore } from "./useGitStatusStore";
 
 export const useWorkspaceStore = defineStore("workspace", () => {
@@ -55,7 +55,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   }
 
   function selectPath(path: string) {
-    selectedPath.value = path;
+    selectedPath.value = normalizePath(path);
     revealVersion.value++;
   }
 

@@ -103,6 +103,9 @@ export const useTerminalStore = defineStore("terminal", () => {
    * done 後の遅延 tool-done（イベント順序逆転）は無視する。
    */
   function handleHookEvent(ptyId: number, event: HookEvent) {
+    // kill/exit 済みの PTY への遅延イベントを無視
+    if (!ptyIdToLeafId.has(ptyId)) return;
+
     switch (event) {
       case "running": {
         cancelAskTimer(ptyId);
@@ -297,6 +300,8 @@ export const useTerminalStore = defineStore("terminal", () => {
 
     send.ptyKill({ id: entry.session.ptyId });
     ptyIdToLeafId.delete(entry.session.ptyId);
+    cancelAskTimer(entry.session.ptyId);
+    delete claudeStateByPtyId.value[entry.session.ptyId];
     terminalWriters.delete(leafId);
     paneRegistry.value[leafId] = { ...entry, session: undefined };
   }

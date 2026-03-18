@@ -1,14 +1,9 @@
 import type { IBuffer, IBufferLine, ILink, ILinkProvider, Terminal } from "@xterm/xterm";
 import { useWorkspaceStore } from "../filer/useWorkspaceStore";
+import { findRelativePaths } from "./findRelativePaths";
 
 /** パスの末尾区切り文字 */
 const PATH_TERMINATORS = /[\s()}\]>'",:;]/;
-
-/**
- * 相対パスの候補を検出する正規表現。
- * ワード文字で始まり、`/` 区切りで2セグメント以上あり、最後のセグメントにファイル拡張子を持つパターン。
- */
-const REL_PATH_REGEX = /[\w@.-]+(?:\/[\w@.-]+)*\/[\w@-]+\.[\w]+/g;
 
 /**
  * ターミナル出力中のファイルパスを検出し、クリックでファイラー/プレビューに反映する LinkProvider を作成する。
@@ -77,17 +72,22 @@ function resolveHomeDir(dirPrefix: string): string {
 }
 
 /**
- * インデント付き継続行ブロックを収集する。
- * 現在行から上方向にインデント行を辿り、非インデント行（ブロック先頭）を見つけ、
- * そこから下方向にインデント行が続く限り結合する。
+ * 継続行ブロックを収集する。
+ * ターミナルのハードラップ（isWrapped）とインデント付き継続行の両方を辿り、
+ * 現在行から上方向にブロック先頭を見つけ、下方向に続く限り結合する。
  * 返り値: [結合テキスト, 先頭行の0-basedインデックス]
  */
 function collectIndentedBlock(buf: IBuffer, lineIdx: number): [string, number] {
-  // 上方向: 現在行がインデント行なら上に辿る
+  // 上方向: ハードラップまたはインデント行なら上に辿る
   let topIdx = lineIdx;
   while (topIdx > 0) {
     const line = buf.getLine(topIdx);
     if (!line) break;
+    // ハードラップ（isWrapped）なら前の行の続き
+    if (line.isWrapped) {
+      topIdx--;
+      continue;
+    }
     const lineText = line.translateToString(true);
     if (lineText.length === 0 || lineText[0] !== " ") break;
     topIdx--;
@@ -102,9 +102,16 @@ function collectIndentedBlock(buf: IBuffer, lineIdx: number): [string, number] {
     idx++;
     let nextLine = buf.getLine(idx);
     while (nextLine) {
+      // ハードラップなら折り返しの続き（そのまま結合）
+      if (nextLine.isWrapped) {
+        parts.push(nextLine.translateToString(true));
+        idx++;
+        nextLine = buf.getLine(idx);
+        continue;
+      }
+      // インデント付き継続行
       const nextText = nextLine.translateToString(true);
       if (nextText.length === 0 || nextText[0] !== " ") break;
-      // インデントを除去して結合（パスの途中なのでスペースは不要）
       parts.push(nextText.trimStart());
       idx++;
       nextLine = buf.getLine(idx);
@@ -117,16 +124,22 @@ function collectIndentedBlock(buf: IBuffer, lineIdx: number): [string, number] {
 /**
  * 結合テキスト中での、特定行の開始オフセットを算出する。
  * topLineIdx から targetLineIdx までの各行のテキスト長を合算する。
+ * ハードラップ行はそのままの長さ、インデント継続行は trimStart 後の長さを使う。
  */
 function getLineOffset(buf: IBuffer, topLineIdx: number, targetLineIdx: number): number {
   let offset = 0;
   for (let i = topLineIdx; i < targetLineIdx; i++) {
     const line = buf.getLine(i);
     if (!line) break;
+    const text = line.translateToString(true);
     if (i === topLineIdx) {
-      offset += line.translateToString(true).length;
+      offset += text.length;
+    } else if (line.isWrapped) {
+      // ハードラップ行はそのまま結合されるので全長を加算
+      offset += text.length;
     } else {
-      offset += line.translateToString(true).trimStart().length;
+      // インデント継続行は trimStart して結合されるので、その長さを加算
+      offset += text.trimStart().length;
     }
   }
   return offset;
@@ -190,7 +203,8 @@ function findAbsolutePathLinks(
           linkStart,
           linkEnd,
           selectPath,
-          () => {
+          (event) => {
+            if (!event.shiftKey) return;
             workspaceStore.selectPath(selectPath);
           },
           links,
@@ -209,7 +223,7 @@ function pushLink(
   startIdx: number,
   endIdx: number,
   displayText: string,
-  activate: () => void,
+  activate: (event: MouseEvent) => void,
   links: ILink[],
 ): void {
   const startCellX = mapStringIndexToCellX(bufLine, startIdx);
@@ -235,13 +249,7 @@ function findRelativePathLinks(
   workspaceStore: ReturnType<typeof useWorkspaceStore>,
   links: ILink[],
 ): void {
-  REL_PATH_REGEX.lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = REL_PATH_REGEX.exec(text)) !== null) {
-    const startIdx = match.index;
-    const endIdx = startIdx + match[0]!.length;
-
+  for (const { path: relPath, startIdx, endIdx } of findRelativePaths(text)) {
     // 直前の文字が ~ / なら絶対パスの一部（findAbsolutePathLinks で処理済み）
     const preceding = startIdx > 0 ? text[startIdx - 1] : "";
     if (preceding === "~" || preceding === "/") continue;
@@ -256,14 +264,14 @@ function findRelativePathLinks(
 
     if (startCellX === -1 || endCellX === -1) continue;
 
-    const relPath = match[0]!;
     links.push({
       range: {
         start: { x: startCellX + 1, y: lineNumber },
         end: { x: endCellX + 1, y: lineNumber },
       },
       text: relPath,
-      activate: () => {
+      activate: (event) => {
+        if (!event.shiftKey) return;
         workspaceStore.selectPath(relPath);
       },
     });

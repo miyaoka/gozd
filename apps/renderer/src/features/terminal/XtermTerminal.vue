@@ -117,10 +117,11 @@ onMounted(async () => {
   terminal.loadAddon(unicode11Addon);
   terminal.unicode.activeVersion = "11";
 
-  // URL クリックで外部ブラウザを開く
+  // URL クリックで外部ブラウザを開く（Shift+クリックのみ）
   // WebLinksAddon: テキスト中の URL パターンを自動検出
   // linkHandler: OSC 8 エスケープシーケンスによる明示リンク（例: "PR #88"）
-  const openLink = (_event: MouseEvent, url: string) => {
+  const openLink = (event: MouseEvent, url: string) => {
+    if (!event.shiftKey) return;
     send.openExternal({ url });
   };
   terminal.loadAddon(new WebLinksAddon(openLink));

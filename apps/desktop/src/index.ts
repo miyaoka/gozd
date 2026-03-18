@@ -592,6 +592,9 @@ const windowSwitchGen = new Map<OrkisWindow, number>();
 /** 個別 close で最後に閉じたウィンドウの状態を退避。before-quit 時に live が空ならこれを保存する */
 let lastClosedWindowState: WindowState | null = null;
 
+/** 新しいウィンドウに引き継ぐフレーム値。savedState・ウィンドウ作成・close で更新される */
+let lastKnownFrame: WindowFrame | null = null;
+
 // git status デバウンス
 const gitStatusTimers = new Map<OrkisWindow, ReturnType<typeof setTimeout>>();
 const gitStatusInFlight = new Set<OrkisWindow>();
@@ -1181,6 +1184,7 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): OrkisW
     // 閉じる直前の状態を退避（before-quit で live が空なら復元に使う）
     const frame = win.getFrame();
     lastClosedWindowState = { dir: repoRootDir, activeDir: currentDir, frame };
+    lastKnownFrame = frame;
     cleanupWindow(win);
   });
 
@@ -1288,11 +1292,13 @@ function openWindow(dir: string, options?: OpenWindowOptions): void {
     return;
   }
   const activeDir = initialActiveDir ?? dir;
+  const frame = savedFrame ?? lastKnownFrame ?? getDefaultFrame();
   const newWin = createWindowWithRPC(dir, {
     initialFile: relativeFile,
-    savedFrame,
+    savedFrame: frame,
     initialActiveDir,
   });
+  lastKnownFrame = frame;
   const windowId = crypto.randomUUID();
   windowIds.set(newWin, windowId);
   fileServerDirs.set(windowId, activeDir);
@@ -1435,6 +1441,12 @@ ApplicationMenu.on("application-menu-clicked", (event) => {
 
 const socketServer = setupSocketServer();
 const savedState = loadAppState();
+
+// 前回セッションの最後のフレームを引き継ぎ用に設定
+const lastSavedWindow = savedState.windows.at(-1);
+if (lastSavedWindow) {
+  lastKnownFrame = lastSavedWindow.frame;
+}
 
 // macOS の ApplicationMenu が正しく動作するには、初回ウィンドウを同期的に作成する必要がある
 // （role メニューは active app + key window + responder chain に依存するため）

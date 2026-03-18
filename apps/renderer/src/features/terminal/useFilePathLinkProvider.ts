@@ -5,6 +5,9 @@ import { findRelativePaths } from "./findRelativePaths";
 /** パスの末尾区切り文字 */
 const PATH_TERMINATORS = /[\s()}\]>'",:;]/;
 
+/** パスの直後に `:行番号` が続くかを検出する正規表現 */
+const LINE_NUMBER_SUFFIX = /^:(\d+)/;
+
 /**
  * ターミナル出力中のファイルパスを検出し、クリックでファイラー/プレビューに反映する LinkProvider を作成する。
  * - ワークスペース内のパス → 相対パスで selectPath
@@ -185,17 +188,22 @@ function findAbsolutePathLinks(
       fullPath = joinedText.slice(idx, pathEnd);
     }
 
+    // パスの直後に `:行番号` が続くか検出
+    const lineMatch = LINE_NUMBER_SUFFIX.exec(joinedText.slice(pathEnd));
+    const lineNumber_ = lineMatch ? Number(lineMatch[1]) : undefined;
+    const totalEnd = lineMatch ? pathEnd + lineMatch[0].length : pathEnd;
+
     // パスが現在行と重なるかチェック
-    if (idx < currentLineEnd && pathEnd > currentLineOffset) {
+    if (idx < currentLineEnd && totalEnd > currentLineOffset) {
       const resolvedPath = useTilde ? fullPath : fullPath;
       const selectPath = resolvedPath.startsWith(dirPrefix)
         ? resolvedPath.slice(dirPrefix.length)
         : resolvedPath;
 
       if (selectPath.length > 0) {
-        // 現在行内のリンク範囲を算出
+        // 現在行内のリンク範囲を算出（行番号サフィックスも含む）
         const linkStart = Math.max(idx, currentLineOffset) - currentLineOffset;
-        const linkEnd = Math.min(pathEnd, currentLineEnd) - currentLineOffset;
+        const linkEnd = Math.min(totalEnd, currentLineEnd) - currentLineOffset;
 
         pushLink(
           bufLine,
@@ -205,14 +213,14 @@ function findAbsolutePathLinks(
           selectPath,
           (event) => {
             if (!event.shiftKey) return;
-            workspaceStore.selectPath(selectPath);
+            workspaceStore.selectPath(selectPath, lineNumber_);
           },
           links,
         );
       }
     }
 
-    searchStart = pathEnd;
+    searchStart = totalEnd;
   }
 }
 
@@ -249,7 +257,7 @@ function findRelativePathLinks(
   workspaceStore: ReturnType<typeof useWorkspaceStore>,
   links: ILink[],
 ): void {
-  for (const { path: relPath, startIdx, endIdx } of findRelativePaths(text)) {
+  for (const { path: relPath, startIdx, endIdx, lineNumber: lineNum } of findRelativePaths(text)) {
     // 直前の文字が ~ / なら絶対パスの一部（findAbsolutePathLinks で処理済み）
     const preceding = startIdx > 0 ? text[startIdx - 1] : "";
     if (preceding === "~" || preceding === "/") continue;
@@ -272,7 +280,7 @@ function findRelativePathLinks(
       text: relPath,
       activate: (event) => {
         if (!event.shiftKey) return;
-        workspaceStore.selectPath(relPath);
+        workspaceStore.selectPath(relPath, lineNum);
       },
     });
   }

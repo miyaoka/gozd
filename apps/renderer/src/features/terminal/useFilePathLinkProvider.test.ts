@@ -44,4 +44,22 @@ describe("findRelativePaths", () => {
   test("単一セグメントのファイルは検出しない", () => {
     expect(findRelativePaths("main.ts")).toEqual([]);
   });
+
+  test("行番号付きパスを検出する", () => {
+    const results = findRelativePaths("src/main.ts:30");
+    expect(results).toEqual([{ path: "src/main.ts", startIdx: 0, endIdx: 14, lineNumber: 30 }]);
+  });
+
+  test("行番号なしのパスには lineNumber が含まれない", () => {
+    const [result] = findRelativePaths("src/main.ts");
+    expect(result?.lineNumber).toBeUndefined();
+  });
+
+  test("テキスト中の行番号付きパスを検出する", () => {
+    const results = findRelativePaths("error at src/app.vue:25 and src/main.ts:100");
+    expect(results).toEqual([
+      { path: "src/app.vue", startIdx: 9, endIdx: 23, lineNumber: 25 },
+      { path: "src/main.ts", startIdx: 28, endIdx: 43, lineNumber: 100 },
+    ]);
+  });
 });

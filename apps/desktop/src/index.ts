@@ -1100,6 +1100,9 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): OrkisW
             Utils.openExternal(url);
           }
         },
+        windowClose: () => {
+          win.close();
+        },
         rendererReady: () => {
           console.log("[orkis] rendererReady received, sending orkisOpen:", currentDir);
           const windowId = windowIds.get(win) ?? "";

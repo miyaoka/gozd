@@ -65,6 +65,7 @@ flowchart LR
 | `ptyResize`     | `{ id, cols, rows }` | PTY リサイズ              |
 | `ptyKill`       | `{ id }`             | PTY 終了                  |
 | `openExternal`  | `{ url }`            | 外部 URL を開く           |
+| `windowClose`   | —                    | ウィンドウを閉じる        |
 | `rendererReady` | —                    | renderer 初期化完了       |
 
 ## 型定義

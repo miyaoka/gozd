@@ -16,6 +16,7 @@
 <script setup lang="ts">
 import { useEventListener, useWindowSize } from "@vueuse/core";
 import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch, watchEffect } from "vue";
+import { useCommandRegistry } from "../command/useCommandRegistry";
 import { useContextKeys } from "../command/useContextKeys";
 import DebugPane from "../debug/DebugPane.vue";
 import DiagnosticsPane from "../diagnostics/DiagnosticsPane.vue";
@@ -39,6 +40,18 @@ const filerPaneRef = useTemplateRef<InstanceType<typeof FilerPane>>("filerPane")
 const currentDir = computed(() => workspaceStore.dir);
 const disposeTerminalCommands = registerTerminalCommands(currentDir, terminalContainerRef);
 onUnmounted(disposeTerminalCommands);
+
+// Explorer 開閉コマンド
+const { register } = useCommandRegistry();
+const disposeExplorerToggle = register("explorer.toggle", () => {
+  if (explorerOpen.value) {
+    closeExplorer();
+  } else {
+    openExplorer();
+  }
+  return true;
+});
+onUnmounted(disposeExplorerToggle);
 
 // ウィンドウの表示状態変更時に terminalFocus を同期
 // hidden 時は false にリセット、復帰時は activeElement から再判定

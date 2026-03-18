@@ -127,6 +127,7 @@ export type OrkisRPC = {
       ptyResize: { id: number; cols: number; rows: number };
       ptyKill: { id: number };
       openExternal: { url: string };
+      windowClose: void;
       rendererReady: void;
     };
   }>;

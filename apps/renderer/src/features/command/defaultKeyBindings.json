@@ -1,7 +1,9 @@
 [
+  { "key": "cmd+j", "command": "explorer.toggle" },
   { "key": "cmd+d", "command": "terminal.splitHorizontal", "when": "terminalFocus" },
   { "key": "shift+cmd+d", "command": "terminal.splitVertical", "when": "terminalFocus" },
   { "key": "cmd+w", "command": "terminal.closePane", "when": "terminalFocus" },
+  { "key": "shift+cmd+w", "command": "window.close" },
   { "key": "alt+cmd+left", "command": "terminal.focusLeft", "when": "terminalFocus" },
   { "key": "alt+cmd+right", "command": "terminal.focusRight", "when": "terminalFocus" },
   { "key": "alt+cmd+up", "command": "terminal.focusUp", "when": "terminalFocus" },

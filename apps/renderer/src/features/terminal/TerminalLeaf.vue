@@ -40,6 +40,10 @@ const CLAUDE_STATE_LABEL: Record<string, string> = {
   done: "Done",
 };
 
+const claudeStateLabel = computed(() =>
+  claudeState.value ? CLAUDE_STATE_LABEL[claudeState.value] : "Idle",
+);
+
 /**
  * store の focusedLeafId が自身を指しているなら imperative に DOM focus する。
  * immediate: true で mount 時の初期値も拾う（split 直後の新規 leaf 対応）。
@@ -90,7 +94,7 @@ function handleTerminalBlur() {
           'icon-[lucide--circle-dashed]': claudeState === undefined,
         }"
       />
-      <span>{{ claudeState ? CLAUDE_STATE_LABEL[claudeState] : "Idle" }}</span>
+      <span>{{ claudeStateLabel }}</span>
     </div>
     <XtermTerminal
       ref="xtermRef"

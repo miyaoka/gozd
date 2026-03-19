@@ -19,8 +19,8 @@ catalog:
   eslint-plugin-import-x: 4.16.2
   eslint-plugin-unused-imports: 4.4.1
   lefthook: 2.1.4
-  oxfmt: 0.40.0
-  oxlint: 1.55.0
+  oxfmt: 0.41.0
+  oxlint: 1.56.0
   oxlint-tsgolint: 0.17.0
   tailwindcss: 4.2.1
   typescript: 5.9.3

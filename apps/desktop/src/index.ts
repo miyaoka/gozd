@@ -30,6 +30,7 @@ import {
 import { generateClaudeSettings } from "./claudeHooks";
 import { getShellEnv } from "./shellEnv";
 import { loadAppState, saveSnapshot, getDefaultFrame } from "./appState";
+import { loadConfig, saveConfig } from "./config";
 import type { WindowFrame, WindowState } from "./appState";
 import {
   loadTodos,
@@ -720,6 +721,18 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): OrkisW
           entry.todo = todo;
           void syncWorktreeWatchers(win, projectDir, currentDir);
           return { todo, worktree: entry };
+        },
+        configLoad: () => loadConfig(),
+        configSave: (config) => saveConfig(config),
+        voicevoxLaunch: async () => {
+          const enginePath = "/Applications/VOICEVOX.app/Contents/Resources/vv-engine/run";
+          if (!fs.existsSync(enginePath)) return false;
+          // Engine だけをバックグラウンドで起動（GUI なし）
+          Bun.spawn([enginePath], {
+            stdout: "ignore",
+            stderr: "ignore",
+          });
+          return true;
         },
         switchDir: async ({ dir: targetDir }) => {
           // バリデーション: worktree list に含まれるパスのみ許可

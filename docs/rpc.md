@@ -26,21 +26,24 @@ flowchart LR
 
 ## Request（renderer → desktop、Promise ベース）
 
-| Request              | params                | response                     | 用途                                            |
-| -------------------- | --------------------- | ---------------------------- | ----------------------------------------------- |
-| `ptySpawn`           | `{ dir, cols, rows }` | `number`                     | PTY 起動、ID を返す                             |
-| `fsReadDir`          | `{ relPath }`         | `FileEntry[]`                | ディレクトリ読み込み                            |
-| `fsReadFile`         | `{ relPath }`         | `FileReadResult`             | ファイル読み込み                                |
-| `fsReadFileAbsolute` | `{ absolutePath }`    | `FileReadResult`             | 絶対パスでファイル読み取り（ワークスペース外）  |
-| `gitShowFile`        | `{ relPath }`         | `FileReadResult`             | HEAD 時点のファイル内容                         |
-| `gitDiffFile`        | `{ relPath }`         | `string`                     | unified diff                                    |
-| `gitStatus`          | —                     | `Record<string, string>`     | git status 全体                                 |
-| `gitWorktreeList`    | —                     | `WorktreeEntry[]`            | worktree 一覧を取得                             |
-| `gitBranchList`      | —                     | `string[]`                   | ローカルブランチ一覧を取得                      |
-| `gitWorktreeAdd`     | `{ branch? }`         | `WorktreeEntry`              | worktree を作成（branch 未指定なら自動生成）    |
-| `gitWorktreeRemove`  | `{ path, force? }`    | `void`                       | worktree を解除（ブランチは残る）               |
-| `gitBranchDelete`    | `{ branch }`          | `void`                       | ローカルブランチを削除                          |
-| `switchDir`          | `{ dir }`             | `{ dir, fileServerBaseUrl }` | 表示対象ディレクトリを切り替え（worktree 選択） |
+| Request              | params                | response                     | 用途                                               |
+| -------------------- | --------------------- | ---------------------------- | -------------------------------------------------- |
+| `ptySpawn`           | `{ dir, cols, rows }` | `number`                     | PTY 起動、ID を返す                                |
+| `fsReadDir`          | `{ relPath }`         | `FileEntry[]`                | ディレクトリ読み込み                               |
+| `fsReadFile`         | `{ relPath }`         | `FileReadResult`             | ファイル読み込み                                   |
+| `fsReadFileAbsolute` | `{ absolutePath }`    | `FileReadResult`             | 絶対パスでファイル読み取り（ワークスペース外）     |
+| `gitShowFile`        | `{ relPath }`         | `FileReadResult`             | HEAD 時点のファイル内容                            |
+| `gitDiffFile`        | `{ relPath }`         | `string`                     | unified diff                                       |
+| `gitStatus`          | —                     | `Record<string, string>`     | git status 全体                                    |
+| `gitWorktreeList`    | —                     | `WorktreeEntry[]`            | worktree 一覧を取得                                |
+| `gitBranchList`      | —                     | `string[]`                   | ローカルブランチ一覧を取得                         |
+| `gitWorktreeAdd`     | `{ branch? }`         | `WorktreeEntry`              | worktree を作成（branch 未指定なら自動生成）       |
+| `gitWorktreeRemove`  | `{ path, force? }`    | `void`                       | worktree を解除（ブランチは残る）                  |
+| `gitBranchDelete`    | `{ branch }`          | `void`                       | ローカルブランチを削除                             |
+| `switchDir`          | `{ dir }`             | `{ dir, fileServerBaseUrl }` | 表示対象ディレクトリを切り替え（worktree 選択）    |
+| `configLoad`         | —                     | `AppConfig`                  | グローバル設定を読み込む                           |
+| `configSave`         | `AppConfig`           | `void`                       | グローバル設定を保存する                           |
+| `voicevoxLaunch`     | —                     | `boolean`                    | VOICEVOX Engine を起動（未インストールなら false） |
 
 ## Message（一方向）
 
@@ -109,6 +112,16 @@ interface LspDiagnostic {
 interface FileDiagnostics {
   relPath: string;
   diagnostics: LspDiagnostic[];
+}
+
+interface VoicevoxConfig {
+  enabled: boolean;
+  speedScale: number;
+  volumeScale: number;
+}
+
+interface AppConfig {
+  voicevox?: VoicevoxConfig;
 }
 ```
 

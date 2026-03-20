@@ -136,8 +136,11 @@ onMounted(async () => {
   terminal.parser.registerOscHandler(7, (data) => {
     const urlResult = tryCatch(() => new URL(data));
     if (!urlResult.ok) return true;
-    const cwd = decodeURIComponent(urlResult.value.pathname);
-    terminalStore.setCwd(props.leafId, cwd);
+    const url = urlResult.value;
+    if (url.protocol !== "file:") return true;
+    const decodeResult = tryCatch(() => decodeURIComponent(url.pathname));
+    if (!decodeResult.ok) return true;
+    terminalStore.setCwd(props.leafId, decodeResult.value);
     return true;
   });
 

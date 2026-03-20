@@ -54,7 +54,9 @@ const claudeStateLabel = computed(() =>
 const cwd = computed(() => terminalStore.cwdByLeafId[props.leafId] ?? props.dir);
 
 /** CWD が worktree ディレクトリ内にあるか */
-const isInsideWorktree = computed(() => cwd.value.startsWith(props.dir));
+const isInsideWorktree = computed(
+  () => cwd.value === props.dir || cwd.value.startsWith(props.dir + "/"),
+);
 
 /** CWD を worktree dir の親からの相対パスで表示 */
 const cwdLabel = computed(() => {

@@ -16,13 +16,8 @@
 
 ## Claude 状態バッジ
 
-各 worktree の右上に Claude Code の状態をアイコンで重ねて表示する。
-wt 内に複数ターミナルがある場合は asking > working > done の優先度順で並列表示。
-working 状態にはアイコン左に経過時間（m:ss）を表示する。
-
-- working: 回転ローダー（黄色）
-- asking: 警告アイコン（橙色）、バウンス
-- done: チェックアイコン（緑色）、バウンス。worktree クリックでクリア
+worktree 行ごとの Claude 状態表示は `SidebarWorktreeItem.vue` に委譲。
+バッジ（アイコン）とメッセージ吹き出し（done/asking 時の一行目テキスト）を表示する。
 </doc>
 
 <script setup lang="ts">
@@ -35,43 +30,9 @@ import { useContextKeys } from "../command/useContextKeys";
 import { useDiagnosticsStore } from "../diagnostics/useDiagnosticsStore";
 import { useWorkspaceStore } from "../filer/useWorkspaceStore";
 import { useRpc } from "../rpc/useRpc";
-import type { ClaudeState, ClaudeStatus } from "../terminal/useTerminalStore";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import SidebarWorktreeItem from "./SidebarWorktreeItem.vue";
 import TodoIconPicker from "./TodoIconPicker.vue";
-
-/** 経過ミリ秒を "m:ss" 形式に変換 */
-function formatElapsed(startedAt: number, now: number): string {
-  const elapsed = Math.max(0, Math.floor((now - startedAt) / 1000));
-  const minutes = Math.floor(elapsed / 60);
-  const seconds = elapsed % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
-}
-
-/** Claude 状態の表示優先度（高い方が優先） */
-const CLAUDE_STATE_PRIORITY: Record<ClaudeState, number> = {
-  asking: 2,
-  working: 1,
-  done: 0,
-};
-
-/** Claude 状態バッジの設定 */
-const CLAUDE_STATE_BADGE: Record<ClaudeState, { icon: string; color: string; animate?: string }> = {
-  working: {
-    icon: "icon-[lucide--loader]",
-    color: "text-yellow-400",
-    animate: "animate-spin",
-  },
-  asking: {
-    icon: "icon-[lucide--message-circle-warning]",
-    color: "text-orange-400",
-    animate: "animate-bounce",
-  },
-  done: {
-    icon: "icon-[lucide--circle-check]",
-    color: "text-green-400",
-    animate: "animate-bounce",
-  },
-};
 
 const workspaceStore = useWorkspaceStore();
 const diagnosticsStore = useDiagnosticsStore();
@@ -371,20 +332,6 @@ async function handleWorktreeSelect(wt: WorktreeEntry) {
   isSwitching.value = false;
 }
 
-/** worktree path → Claude 状態バッジ一覧（優先度順）の事前集計 */
-const claudeBadgesByPath = computed(() => {
-  const result: Record<string, ClaudeStatus[]> = {};
-  for (const wt of nonMainWorktrees.value) {
-    const statuses = terminalStore.getClaudeStatusesByDir(wt.path);
-    if (statuses.length > 0) {
-      result[wt.path] = statuses.sort(
-        (a, b) => CLAUDE_STATE_PRIORITY[b.state] - CLAUDE_STATE_PRIORITY[a.state],
-      );
-    }
-  }
-  return result;
-});
-
 async function addWorktree(branch?: string) {
   isCreating.value = true;
   if (branch) {
@@ -563,114 +510,19 @@ onUnmounted(() => {
       </div>
 
       <div v-for="(wt, i) in nonMainWorktrees" :key="wt.path">
-        <!-- 擬似要素パターン: button の ::after で親全体をクリック可能にし、⋮ は z-index で上に出す -->
-        <div
-          class="group/wt relative grid grid-cols-[auto_1fr_auto] gap-x-2 rounded-sm py-1.5 pl-2"
-          :class="isActive(wt) ? 'bg-zinc-700/50' : 'hover:bg-zinc-800'"
-        >
-          <!-- Ctrl 押下時の番号バッジ（左上に表示。9 個まで） -->
-          <span
-            v-if="ctrlPressed && i + 1 <= 9"
-            class="absolute -top-1 -left-1 z-20 grid size-4 place-items-center rounded-md bg-green-400 text-[10px] leading-none font-bold text-zinc-900"
-          >
-            {{ i + 1 }}
-          </span>
-          <!-- Claude 状態バッジ（右上に重ねて表示） -->
-          <div
-            v-if="claudeBadgesByPath[wt.path]"
-            class="pointer-events-none absolute -top-1 -right-1 z-20 flex items-center gap-1"
-          >
-            <template v-for="(status, si) in claudeBadgesByPath[wt.path]" :key="si">
-              <span
-                v-if="status.state === 'working'"
-                class="text-[10px] leading-none tabular-nums"
-                :class="CLAUDE_STATE_BADGE[status.state].color"
-              >
-                {{ formatElapsed(status.startedAt, now) }}
-              </span>
-              <span
-                class="size-5"
-                :class="[
-                  CLAUDE_STATE_BADGE[status.state].icon,
-                  CLAUDE_STATE_BADGE[status.state].color,
-                  CLAUDE_STATE_BADGE[status.state].animate,
-                ]"
-                :title="status.state"
-              />
-            </template>
-          </div>
-          <span v-if="wt.todo?.icon" class="row-span-2 mt-0.5 text-base">{{ wt.todo.icon }}</span>
-          <span
-            v-else
-            class="row-span-2 mt-0.5 icon-[lucide--git-branch] text-base text-zinc-400"
-          />
-          <!-- メインアクション: ::after で親全体に広がるクリック領域 -->
-          <button
-            class="truncate text-left text-sm after:absolute after:inset-0"
-            :class="
-              isActive(wt)
-                ? 'font-medium text-blue-300'
-                : hasTodoTitle(wt)
-                  ? 'text-zinc-200'
-                  : 'text-zinc-500'
-            "
-            @click="handleWorktreeSelect(wt)"
-          >
-            {{ worktreeDisplayName(wt) }}
-          </button>
-          <!-- ⋮ メニューボタン: z-10 で擬似要素の上に出す -->
-          <button
-            aria-label="Menu"
-            class="relative z-10 row-span-2 grid size-6 place-items-center self-center rounded-sm text-zinc-600 opacity-0 transition-opacity group-focus-within/wt:opacity-100 group-hover/wt:opacity-100 hover:text-zinc-300"
-            :style="{ anchorName: `--wt-menu-${i}` }"
-            @click="openMenu(`--wt-menu-${i}`, { type: 'worktree', worktree: wt, todo: wt.todo })"
-          >
-            <span class="icon-[lucide--ellipsis-vertical] text-sm" />
-          </button>
-          <span class="flex min-h-5 items-center gap-2 text-xs">
-            <span
-              v-if="wt.changeCounts && hasChanges(wt.changeCounts)"
-              class="flex items-center gap-1.5"
-            >
-              <span
-                v-if="wt.changeCounts.modified > 0"
-                class="text-yellow-500"
-                :title="`${wt.changeCounts.modified} modified`"
-              >
-                <span class="mr-0.5 icon-[lucide--pencil] align-middle text-[10px]" />{{
-                  wt.changeCounts.modified
-                }}
-              </span>
-              <span
-                v-if="wt.changeCounts.added > 0"
-                class="text-green-500"
-                :title="`${wt.changeCounts.added} added`"
-              >
-                <span class="mr-0.5 icon-[lucide--plus] align-middle text-[10px]" />{{
-                  wt.changeCounts.added
-                }}
-              </span>
-              <span
-                v-if="wt.changeCounts.deleted > 0"
-                class="text-red-500"
-                :title="`${wt.changeCounts.deleted} deleted`"
-              >
-                <span class="mr-0.5 icon-[lucide--minus] align-middle text-[10px]" />{{
-                  wt.changeCounts.deleted
-                }}
-              </span>
-              <span
-                v-if="wt.changeCounts.untracked > 0"
-                class="text-zinc-400"
-                :title="`${wt.changeCounts.untracked} untracked`"
-              >
-                <span class="mr-0.5 icon-[lucide--help-circle] align-middle text-[10px]" />{{
-                  wt.changeCounts.untracked
-                }}
-              </span>
-            </span>
-          </span>
-        </div>
+        <SidebarWorktreeItem
+          :wt="wt"
+          :active="isActive(wt)"
+          :claude-statuses="terminalStore.getClaudeStatusesByDir(wt.path)"
+          :now="now"
+          :anchor-name="`--wt-menu-${i}`"
+          :ctrl-pressed="ctrlPressed"
+          :index="i"
+          @select="handleWorktreeSelect"
+          @open-menu="
+            (anchorName, w) => openMenu(anchorName, { type: 'worktree', worktree: w, todo: w.todo })
+          "
+        />
 
         <!-- インライン Todo 編集 -->
         <div v-if="wt.todo && editingTodoId === wt.todo.id" class="mx-2 mt-1 mb-2">

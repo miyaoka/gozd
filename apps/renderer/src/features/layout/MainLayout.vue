@@ -24,12 +24,12 @@ import FilerPane from "../filer/FilerPane.vue";
 import { useWorkspaceStore } from "../filer/useWorkspaceStore";
 import PreviewPane from "../preview/PreviewPane.vue";
 import { useRpc } from "../rpc/useRpc";
+import SidebarPane from "../sidebar/SidebarPane.vue";
 import { registerTerminalCommands } from "../terminal/registerTerminalCommands";
 import { computeTileLayout, TILE_GAP } from "../terminal/splitTree";
 import TerminalPane from "../terminal/TerminalPane.vue";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import ResizeHandle from "./ResizeHandle.vue";
-import SidebarPane from "./SidebarPane.vue";
 
 const workspaceStore = useWorkspaceStore();
 const terminalStore = useTerminalStore();

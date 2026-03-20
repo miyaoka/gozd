@@ -8,9 +8,10 @@ worktree 行の下に吹き出し風のテキストとして出す。
 </doc>
 
 <script setup lang="ts">
-import type { WorktreeChangeCounts, WorktreeEntry } from "@orkis/rpc";
+import type { WorktreeEntry } from "@orkis/rpc";
 import { computed } from "vue";
-import type { ClaudeState, ClaudeStatus } from "../terminal/useTerminalStore";
+import type { ClaudeState, ClaudeStatus } from "../../terminal/useTerminalStore";
+import { hasChanges, hasTodoTitle, worktreeDisplayName } from "../utils";
 
 /** Claude 状態の表示優先度（高い方が優先） */
 const CLAUDE_STATE_PRIORITY: Record<ClaudeState, number> = {
@@ -54,29 +55,6 @@ const emit = defineEmits<{
   select: [wt: WorktreeEntry];
   openMenu: [anchorName: string, wt: WorktreeEntry];
 }>();
-
-/** Todo の body 一行目をタイトルとして取得 */
-function todoTitle(body: string): string {
-  const [firstLine] = body.split("\n");
-  return firstLine ?? "";
-}
-
-/** worktree に Todo タイトルが設定されているか */
-function hasTodoTitle(wt: WorktreeEntry): boolean {
-  return wt.todo?.body ? todoTitle(wt.todo.body) !== "" : false;
-}
-
-/** worktree の表示名: Todo タイトルがあればそれ、なければブランチ名 */
-function worktreeDisplayName(wt: WorktreeEntry): string {
-  if (hasTodoTitle(wt)) return todoTitle(wt.todo!.body);
-  return wt.branch ?? "(detached)";
-}
-
-/** 変更ファイルがあるかどうか */
-function hasChanges(counts: WorktreeChangeCounts | undefined): boolean {
-  if (!counts) return false;
-  return counts.modified + counts.added + counts.deleted + counts.untracked > 0;
-}
 
 /** 経過ミリ秒を "m:ss" 形式に変換 */
 function formatElapsed(startedAt: number, now: number): string {

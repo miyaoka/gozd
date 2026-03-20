@@ -613,7 +613,7 @@ onUnmounted(() => {
       <template v-if="voicevoxStore.enabled">
         <div class="flex flex-col gap-2">
           <div class="flex items-center gap-2 text-xs text-zinc-500">
-            <span class="icon-[lucide--gauge] shrink-0" title="Speed" />
+            <span class="icon-[lucide--gauge] size-4 shrink-0" title="Speed" />
             <input
               type="range"
               aria-label="VOICEVOX speed"
@@ -629,7 +629,7 @@ onUnmounted(() => {
             }}</span>
           </div>
           <div class="flex items-center gap-2 text-xs text-zinc-500">
-            <span class="icon-[lucide--volume-2] shrink-0" title="Volume" />
+            <span class="icon-[lucide--volume-2] size-4 shrink-0" title="Volume" />
             <input
               type="range"
               aria-label="VOICEVOX volume"
@@ -645,21 +645,21 @@ onUnmounted(() => {
             }}</span>
           </div>
           <button
-            class="mt-1 text-xs text-zinc-600 hover:text-zinc-400"
+            class="mt-1 text-xs text-yellow-500 hover:text-yellow-400"
             @click="voicevoxStore.deactivate()"
           >
-            Disable VOICEVOX
+            VOICEVOX enabled
           </button>
         </div>
       </template>
       <template v-else>
         <button
-          class="flex w-full items-center gap-2 text-xs text-zinc-500 hover:text-zinc-300"
+          class="flex w-full items-center justify-center gap-2 text-xs text-zinc-500 hover:text-zinc-300"
           :disabled="voicevoxStore.activating"
           @click="handleVoicevoxActivate"
         >
           <span
-            class="shrink-0"
+            class="size-4 shrink-0"
             :class="
               voicevoxStore.activating
                 ? 'icon-[lucide--loader] animate-spin'

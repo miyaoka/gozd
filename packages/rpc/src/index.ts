@@ -220,6 +220,16 @@ export type OrkisRPC = {
         params: undefined;
         response: boolean;
       };
+      /** VOICEVOX Engine の起動状態を確認する */
+      voicevoxCheckEngine: {
+        params: undefined;
+        response: boolean;
+      };
+      /** VOICEVOX Engine で音声合成し、WAV を base64 で返す */
+      voicevoxSpeak: {
+        params: { text: string; speedScale: number; volumeScale: number; speakerId: number };
+        response: string | undefined;
+      };
     };
     messages: {
       ptyWrite: { id: number; data: string };

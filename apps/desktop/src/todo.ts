@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
 import { tryCatch } from "@orkis/shared";
-import { TODO_ICON_EMOJIS } from "@orkis/rpc";
+import { todoSchema } from "@orkis/rpc";
 import type { Todo } from "@orkis/rpc";
 
 const PROJECTS_DIR = path.join(homedir(), ".config", "orkis", "projects");
@@ -45,7 +45,10 @@ export function loadTodos(repoRoot: string): Todo[] {
   }
   const parsed = JSON.parse(content.value) as unknown;
   if (!Array.isArray(parsed)) throw new Error("todos.json is not an array");
-  return parsed.filter(isValidTodo);
+  return parsed.flatMap((v) => {
+    const todo = parseTodo(v);
+    return todo ? [todo] : [];
+  });
 }
 
 /** Todo 一覧を保存する（失敗時は例外を投げる） */
@@ -54,22 +57,16 @@ function saveTodos(repoRoot: string, todos: Todo[]): void {
   fs.writeFileSync(getTodosPath(repoRoot), JSON.stringify(todos, null, 2));
 }
 
-function isValidTodo(v: unknown): v is Todo {
-  if (typeof v !== "object" || v === null) return false;
-  const t = v as Record<string, unknown>;
-  return (
-    typeof t.id === "string" &&
-    typeof t.body === "string" &&
-    typeof t.createdAt === "string" &&
-    (t.icon === undefined || (typeof t.icon === "string" && TODO_ICON_EMOJIS.has(t.icon))) &&
-    (t.worktreeDir === undefined || typeof t.worktreeDir === "string")
-  );
+/** zod スキーマで Todo をパースする（不正な値は除外） */
+function parseTodo(v: unknown): Todo | undefined {
+  const result = todoSchema.safeParse(v);
+  return result.success ? result.data : undefined;
 }
 
 /** 許可リストにない icon を undefined に正規化する */
 function sanitizeIcon(icon: string | undefined): string | undefined {
-  if (icon === undefined) return undefined;
-  return TODO_ICON_EMOJIS.has(icon) ? icon : undefined;
+  const result = todoSchema.shape.icon.safeParse(icon);
+  return result.success ? result.data : undefined;
 }
 
 /** Todo を追加する */

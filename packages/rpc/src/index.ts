@@ -53,7 +53,7 @@ export interface WorktreeEntry {
   todo?: Todo;
 }
 
-/** Todo 分類アイコンの許可リスト（UI 表示用） */
+/** Todo 分類アイコンの許可リスト（SSOT） */
 export const TODO_ICONS = [
   { emoji: "✨", title: "feature" },
   { emoji: "🐛", title: "bug" },
@@ -67,11 +67,17 @@ export const TODO_ICONS = [
   { emoji: "🎨", title: "style" },
 ] as const;
 
+/** TODO_ICONS から導出した許可 emoji の集合 */
+const todoIconSet: ReadonlySet<string> = new Set(TODO_ICONS.map((ic) => ic.emoji));
+
 /** Todo の zod スキーマ */
 export const todoSchema = z.object({
   id: z.string(),
   body: z.string(),
-  icon: z.enum(TODO_ICONS.map((ic) => ic.emoji) as [string, ...string[]]).optional(),
+  icon: z
+    .string()
+    .refine((s) => todoIconSet.has(s))
+    .optional(),
   worktreeDir: z.string().optional(),
   createdAt: z.string(),
 });

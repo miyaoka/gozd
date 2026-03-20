@@ -64,7 +64,7 @@ function parseTodo(v: unknown): Todo | undefined {
 }
 
 /** 許可リストにない icon を undefined に正規化する */
-function sanitizeIcon(icon: string | undefined): string | undefined {
+function sanitizeIcon(icon: string | undefined): Todo["icon"] {
   const result = todoSchema.shape.icon.safeParse(icon);
   return result.success ? result.data : undefined;
 }

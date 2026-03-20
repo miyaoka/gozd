@@ -318,17 +318,23 @@ async function handleWorktreeSelect(wt: WorktreeEntry) {
   if (result.ok) {
     diagnosticsStore.clear();
     workspaceStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
-    terminalStore.clearDoneStates(wt.path);
   }
   isSwitching.value = false;
 }
 
-/** worktree の Claude 状態バッジ一覧を優先度順で返す */
-function getWorktreeClaudeBadges(wt: WorktreeEntry): ClaudeStatus[] {
-  return terminalStore
-    .getClaudeStatusesByDir(wt.path)
-    .sort((a, b) => CLAUDE_STATE_PRIORITY[b.state] - CLAUDE_STATE_PRIORITY[a.state]);
-}
+/** worktree path → Claude 状態バッジ一覧（優先度順）の事前集計 */
+const claudeBadgesByPath = computed(() => {
+  const result: Record<string, ClaudeStatus[]> = {};
+  for (const wt of nonMainWorktrees.value) {
+    const statuses = terminalStore.getClaudeStatusesByDir(wt.path);
+    if (statuses.length > 0) {
+      result[wt.path] = statuses.sort(
+        (a, b) => CLAUDE_STATE_PRIORITY[b.state] - CLAUDE_STATE_PRIORITY[a.state],
+      );
+    }
+  }
+  return result;
+});
 
 async function addWorktree(branch?: string) {
   isCreating.value = true;
@@ -418,7 +424,17 @@ function handleBranchLink(branch: string) {
   addWorktree(branch);
 }
 
-watch(() => workspaceStore.dir, fetchData, { immediate: true });
+watch(
+  () => workspaceStore.dir,
+  (dir) => {
+    fetchData();
+    // active dir に切り替わったら done バッジをクリア（既読消化）
+    if (dir) {
+      terminalStore.clearDoneStates(dir);
+    }
+  },
+  { immediate: true },
+);
 
 const cleanups: Array<() => void> = [];
 onMounted(() => {
@@ -505,10 +521,10 @@ onUnmounted(() => {
         >
           <!-- Claude 状態バッジ（右上に重ねて表示） -->
           <div
-            v-if="getWorktreeClaudeBadges(wt).length > 0"
+            v-if="claudeBadgesByPath[wt.path]"
             class="pointer-events-none absolute -top-1 -right-1 z-20 flex items-center gap-1"
           >
-            <template v-for="(status, si) in getWorktreeClaudeBadges(wt)" :key="si">
+            <template v-for="(status, si) in claudeBadgesByPath[wt.path]" :key="si">
               <span
                 v-if="status.state === 'working'"
                 class="text-[10px] leading-none tabular-nums"

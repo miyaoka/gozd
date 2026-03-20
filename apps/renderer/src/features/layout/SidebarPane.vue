@@ -570,7 +570,7 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <p v-if="worktrees.length === 0" class="py-2 pl-2 text-sm text-zinc-500">読み込み中...</p>
+        <p v-if="worktrees.length === 0" class="py-2 pl-2 text-sm text-zinc-500">Loading...</p>
 
         <button
           class="mt-1 grid grid-cols-[auto_1fr] gap-x-2 rounded-sm py-1.5 pl-2 text-left text-sm text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
@@ -595,7 +595,7 @@ onUnmounted(() => {
               class="truncate text-left text-sm text-zinc-400 after:absolute after:inset-0"
               @click="editingTodoId === todo.id ? cancelEdit() : startEditing(todo)"
             >
-              {{ todoTitle(todo.body) || "(未入力)" }}
+              {{ todoTitle(todo.body) || "(untitled)" }}
             </button>
             <!-- ⋮ メニューボタン -->
             <button
@@ -653,13 +653,13 @@ onUnmounted(() => {
               class="rounded-sm px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
               @click="cancelNewTodo"
             >
-              キャンセル
+              Cancel
             </button>
             <button
               class="rounded-sm bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500"
               @click="saveNewTodo"
             >
-              保存
+              Save
             </button>
           </div>
         </div>

@@ -6,7 +6,7 @@ Shiki によるシンタックスハイライト付きコード表示。
 </doc>
 
 <script setup lang="ts">
-import { watch, ref, nextTick } from "vue";
+import { watch, ref, nextTick, computed } from "vue";
 import { highlight } from "./useHighlight";
 
 const props = defineProps<{
@@ -27,6 +27,10 @@ const activeLineNumber = ref<number>();
 let highlightVersion = 0;
 
 const ACTIVE_LINE_CLASS = "_active-line";
+
+/** 行数の桁数（CSS カスタムプロパティ --line-no-width に使用） */
+const lineCount = computed(() => props.content.split("\n").length);
+const lineNoWidth = computed(() => `${String(lineCount.value).length}ch`);
 
 /** 前回のハイライトをクリアする */
 function clearActiveHighlight() {
@@ -93,6 +97,7 @@ watch(
     ref="containerRef"
     class="_highlighted-code text-sm/tight"
     :class="wordWrap ? '_word-wrap' : ''"
+    :style="{ '--line-no-width': lineNoWidth }"
     v-html="highlightedHtml"
   />
 
@@ -102,6 +107,7 @@ watch(
     ref="containerRef"
     class="_line-numbered p-4 text-sm/tight text-zinc-300"
     :class="wordWrap ? '_word-wrap break-all whitespace-pre-wrap' : ''"
+    :style="{ '--line-no-width': lineNoWidth }"
   ><code><span
         v-for="(line, i) in content.split('\n')"
         :key="i"
@@ -116,7 +122,7 @@ watch(
 ._highlighted-code :deep(.line::before) {
   content: attr(data-line);
   display: inline-block;
-  width: 3ch;
+  width: var(--line-no-width, 3ch);
   margin-right: 1.5ch;
   text-align: right;
   color: var(--color-zinc-600);
@@ -128,7 +134,7 @@ watch(
 ._highlighted-code._word-wrap :deep(.line) {
   position: relative;
   display: block;
-  padding-left: 4.5ch;
+  padding-left: calc(var(--line-no-width, 3ch) + 1.5ch);
   min-height: 1lh;
 }
 

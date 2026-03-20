@@ -4,7 +4,6 @@ split tree の branch ノード間に配置する ratio ベースのリサイズ
 </doc>
 
 <script setup lang="ts">
-import { useElementHover } from "@vueuse/core";
 import { computed, useTemplateRef } from "vue";
 import type { Axis, SplitNode } from "./splitTree";
 import { useSplitResize } from "./useSplitResize";
@@ -25,14 +24,13 @@ const props = defineProps<Props>();
 
 const terminalStore = useTerminalStore();
 const handleRef = useTemplateRef<HTMLElement>("handle");
-const isHovered = useElementHover(handleRef);
 
 const firstNodeRef = computed(() => props.firstNode);
 const secondNodeRef = computed(() => props.secondNode);
 const ratioRef = computed(() => props.ratio);
 const availablePxRef = computed(() => props.availablePx);
 
-const { isDragging } = useSplitResize(handleRef, {
+useSplitResize(handleRef, {
   axis: props.axis,
   firstNode: firstNodeRef,
   secondNode: secondNodeRef,

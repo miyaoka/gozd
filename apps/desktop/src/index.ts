@@ -897,6 +897,8 @@ interface OpenMessage {
   type: "open";
   dir: string;
   file?: string;
+  /** 起動元のディレクトリ（worktree パス等）。dir と異なる場合にアクティブディレクトリとして使用 */
+  activeDir?: string;
 }
 
 type OrkisMessage = HookMessage | OpenMessage;
@@ -909,7 +911,7 @@ function findWindowByDir(dir: string): OrkisWindow | undefined {
 }
 
 interface LaunchRequestResult {
-  requests: { dir: string; file?: string }[];
+  requests: { dir: string; file?: string; activeDir?: string }[];
   errors: string[];
 }
 
@@ -953,7 +955,7 @@ function readLaunchRequests(): LaunchRequestResult {
       errors.push(`${name}: 不正なペイロード`);
       continue;
     }
-    const req = obj as { dir: string; file?: string };
+    const req = obj as { dir: string; file?: string; activeDir?: string };
     // 処理済みにする
     tryCatch(() => fs.renameSync(filePath, `${filePath}.claimed`));
     requests.push(req);
@@ -971,19 +973,18 @@ interface OpenWindowOptions {
 /** 新しいウィンドウを作成して登録する（同期処理） */
 function openWindow(dir: string, options?: OpenWindowOptions): void {
   const { file, savedFrame, initialActiveDir } = options ?? {};
-  // file を dir からの相対パスに変換（レンダラーは相対パスで管理するため）
-  const relativeFile = file ? path.relative(dir, file) : undefined;
-  console.log(`[orkis] open: dir=${dir}, file=${relativeFile ?? "(none)"}`);
+  const activeDir = initialActiveDir ?? dir;
+  console.log(`[orkis] open: dir=${dir}, activeDir=${activeDir}, file=${file ?? "(none)"}`);
   const existing = findWindowByDir(dir);
   if (existing) {
-    // 既存ウィンドウの currentDir を維持し、renderer 側の状態を壊さない
-    const existingDir = windowDirs.get(existing) ?? dir;
+    // 既存ウィンドウの選択状態を維持する（worktree 切り替えはサイドバー操作で行う）
+    const currentDir = windowDirs.get(existing) ?? dir;
     const existingId = windowIds.get(existing) ?? "";
-    const existingRelativeFile = file ? path.relative(existingDir, file) : undefined;
+    const relativeFile = file ? path.relative(currentDir, file) : undefined;
     void getRepoName(dir).then((repoName) => {
       existing.webview.rpc?.send.orkisOpen({
-        dir: existingDir,
-        file: existingRelativeFile,
+        dir: currentDir,
+        file: relativeFile,
         fileServerBaseUrl: `http://localhost:${fileServer.port}/${existingId}`,
         channel,
         repoName,
@@ -991,7 +992,7 @@ function openWindow(dir: string, options?: OpenWindowOptions): void {
     });
     return;
   }
-  const activeDir = initialActiveDir ?? dir;
+  const relativeFile = file ? path.relative(activeDir, file) : undefined;
   const frame = savedFrame ?? getInheritedFrame();
   const newWin = createWindowWithRPC(dir, {
     initialFile: relativeFile,
@@ -1031,7 +1032,7 @@ function handleSocketMessage(message: OrkisMessage) {
     }
     case "open": {
       // dir は CLI 側で resolveProjectDir 済み
-      openWindow(message.dir, { file: message.file });
+      openWindow(message.dir, { file: message.file, initialActiveDir: message.activeDir });
       break;
     }
   }
@@ -1167,7 +1168,7 @@ if (initialDir) {
   const { requests, errors } = readLaunchRequests();
   if (requests.length > 0) {
     for (const req of requests) {
-      openWindow(req.dir, { file: req.file });
+      openWindow(req.dir, { file: req.file, initialActiveDir: req.activeDir });
     }
   } else if (savedState.windows.length > 0) {
     // 前回の状態を復元（プロジェクト・ウィンドウサイズ・位置）

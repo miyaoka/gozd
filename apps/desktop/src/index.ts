@@ -725,7 +725,16 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): OrkisW
         configLoad: () => loadConfig(),
         configSave: (config) => saveConfig(config),
         voicevoxLaunch: async () => {
-          const enginePath = "/Applications/VOICEVOX.app/Contents/Resources/vv-engine/run";
+          // mdfind で VOICEVOX.app を検索（/Applications, ~/Applications, カスタム場所に対応）
+          const mdfind = Bun.spawn(
+            ["mdfind", "kMDItemCFBundleIdentifier == 'jp.hiroshiba.voicevox'"],
+            { stdout: "pipe", stderr: "ignore" },
+          );
+          const output = await new Response(mdfind.stdout).text();
+          await mdfind.exited;
+          const [appPath] = output.trim().split("\n");
+          if (!appPath) return false;
+          const enginePath = path.join(appPath, "Contents/Resources/vv-engine/run");
           if (!fs.existsSync(enginePath)) return false;
           // Engine だけをバックグラウンドで起動（GUI なし）
           Bun.spawn([enginePath], {

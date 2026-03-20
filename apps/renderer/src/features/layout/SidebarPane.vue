@@ -801,6 +801,7 @@ onUnmounted(() => {
             <span class="icon-[lucide--gauge] shrink-0" title="Speed" />
             <input
               type="range"
+              aria-label="VOICEVOX speed"
               class="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-zinc-700 accent-blue-500"
               :min="0.5"
               :max="3.0"
@@ -816,6 +817,7 @@ onUnmounted(() => {
             <span class="icon-[lucide--volume-2] shrink-0" title="Volume" />
             <input
               type="range"
+              aria-label="VOICEVOX volume"
               class="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-zinc-700 accent-blue-500"
               :min="0.0"
               :max="2.0"

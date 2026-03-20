@@ -96,6 +96,9 @@ async function waitForEngine(): Promise<boolean> {
   return false;
 }
 
+/** speak の世代カウンター。新しい speak 呼び出しや deactivate で進め、stale なリクエストを破棄する */
+let speakGeneration = 0;
+
 /** VOICEVOX Engine で音声合成して再生する */
 async function speak(
   text: string,
@@ -104,35 +107,38 @@ async function speak(
   speakerId = DEFAULT_SPEAKER_ID,
 ): Promise<void> {
   releaseAudio();
+  const gen = ++speakGeneration;
 
-  const queryResult = await tryCatch(
-    fetch(`${VOICEVOX_API}/audio_query?text=${encodeURIComponent(text)}&speaker=${speakerId}`, {
-      method: "POST",
-    }),
-  );
-  if (!queryResult.ok) return;
-  if (!queryResult.value.ok) return;
+  const synthesize = async () => {
+    const queryRes = await fetch(
+      `${VOICEVOX_API}/audio_query?text=${encodeURIComponent(text)}&speaker=${speakerId}`,
+      { method: "POST" },
+    );
+    if (!queryRes.ok) return;
+    if (gen !== speakGeneration) return;
 
-  const query = await queryResult.value.json();
-  query.speedScale = speedScale;
-  query.volumeScale = volumeScale;
+    const query = await queryRes.json();
+    query.speedScale = speedScale;
+    query.volumeScale = volumeScale;
 
-  const audioResult = await tryCatch(
-    fetch(`${VOICEVOX_API}/synthesis?speaker=${speakerId}`, {
+    const audioRes = await fetch(`${VOICEVOX_API}/synthesis?speaker=${speakerId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(query),
-    }),
-  );
-  if (!audioResult.ok) return;
-  if (!audioResult.value.ok) return;
+    });
+    if (!audioRes.ok) return;
+    if (gen !== speakGeneration) return;
 
-  const blob = await audioResult.value.blob();
-  const url = URL.createObjectURL(blob);
-  currentObjectUrl = url;
-  currentAudio = new Audio(url);
-  currentAudio.addEventListener("ended", releaseAudio);
-  void currentAudio.play();
+    const blob = await audioRes.blob();
+    if (gen !== speakGeneration) return;
+
+    const url = URL.createObjectURL(blob);
+    currentObjectUrl = url;
+    currentAudio = new Audio(url);
+    currentAudio.addEventListener("ended", releaseAudio);
+    void currentAudio.play();
+  };
+  await tryCatch(synthesize());
 }
 
 /** HMR 再実行時に前回のリスナーを解除するための disposer */
@@ -212,8 +218,9 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     return "VOICEVOX Engine startup timed out. Please start VOICEVOX manually.";
   }
 
-  /** VOICEVOX を無効化する */
+  /** VOICEVOX を無効化する。in-flight の音声合成リクエストも無効化する */
   function deactivate() {
+    speakGeneration++;
     releaseAudio();
     enabled.value = false;
   }

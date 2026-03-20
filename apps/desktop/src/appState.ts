@@ -23,7 +23,7 @@ interface WindowFrame {
 }
 
 interface WindowState {
-  /** プロジェクト（リポジトリルート）ディレクトリ */
+  /** プロジェクトディレクトリ（git repo の場合は main worktree のルート） */
   dir: string;
   /** 最後にアクティブだった worktree ディレクトリ */
   activeDir: string;

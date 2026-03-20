@@ -23,12 +23,12 @@ function resolveTarget(inputPath: string): { dir: string; file?: string } {
 }
 
 /**
- * dir から git リポジトリルート（main worktree）を解決する。
- * --git-common-dir で共通 .git ディレクトリを取得し、その親をルートとする。
+ * dir からプロジェクトディレクトリを解決する。
+ * git リポジトリの場合: --git-common-dir で共通 .git ディレクトリを取得し、その親をルートとする。
  * worktree 内で実行しても main worktree のルートが返る。
- * git 管理外や失敗時はそのまま返す。
+ * git 管理外の場合: dir をそのままプロジェクトディレクトリとする。
  */
-async function resolveRepoRoot(dir: string): Promise<string> {
+async function resolveProjectDir(dir: string): Promise<string> {
   const spawnResult = tryCatch(() =>
     Bun.spawn(["git", "rev-parse", "--git-common-dir"], {
       cwd: dir,
@@ -65,7 +65,7 @@ export default defineCommand({
   },
   async run({ args }) {
     const target = resolveTarget(args.path);
-    const dir = await resolveRepoRoot(target.dir);
+    const dir = await resolveProjectDir(target.dir);
 
     // cold start: request ファイルを書いてアプリに渡す（ソケット送信しない）
     if (process.env.ORKIS_COLD_START) {

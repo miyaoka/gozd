@@ -12,12 +12,12 @@ export function parseOwnerRepo(url: string): string | undefined {
 }
 
 /**
- * dir から git リポジトリルート（main worktree）を同期的に解決する。
- * --git-common-dir で共通 .git ディレクトリを取得し、その親をルートとする。
+ * dir からプロジェクトディレクトリを同期的に解決する。
+ * git リポジトリの場合: --git-common-dir で共通 .git ディレクトリを取得し、その親をルートとする。
  * worktree 内で実行しても main worktree のルートが返る。
- * git 管理外や失敗時はそのまま返す。
+ * git 管理外の場合: dir をそのままプロジェクトディレクトリとする。
  */
-export function resolveRepoRoot(dir: string): string {
+export function resolveProjectDir(dir: string): string {
   const result = tryCatch(() =>
     Bun.spawnSync(["git", "rev-parse", "--git-common-dir"], {
       cwd: dir,

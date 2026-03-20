@@ -9,4 +9,4 @@ export {
   attachChangeCounts,
 } from "./worktree";
 export { assertBranchName, getBranchList, deleteBranch } from "./branch";
-export { parseOwnerRepo, resolveRepoRoot } from "./utils";
+export { parseOwnerRepo, resolveProjectDir } from "./utils";

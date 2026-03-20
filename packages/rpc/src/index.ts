@@ -52,13 +52,30 @@ export interface WorktreeEntry {
   todo?: Todo;
 }
 
+/** Todo 分類アイコンの許可リスト */
+export const TODO_ICONS = [
+  { emoji: "✨", title: "feature" },
+  { emoji: "🐛", title: "bug" },
+  { emoji: "🔧", title: "fix" },
+  { emoji: "♻️", title: "refactor" },
+  { emoji: "📝", title: "docs" },
+  { emoji: "⚡", title: "perf" },
+  { emoji: "🧪", title: "test" },
+  { emoji: "🚀", title: "deploy" },
+  { emoji: "💡", title: "idea" },
+  { emoji: "🎨", title: "style" },
+] as const;
+
+/** 許可された emoji の集合（バリデーション用） */
+export const TODO_ICON_EMOJIS: ReadonlySet<string> = new Set(TODO_ICONS.map((ic) => ic.emoji));
+
 /** Todo アイテム */
 export interface Todo {
   /** 一意な ID */
   id: string;
   /** git commit 形式: 一行目=タイトル、残り=本文 */
   body: string;
-  /** 分類アイコン（emoji 1文字） */
+  /** 分類アイコン（TODO_ICONS の emoji のみ許可） */
   icon?: string;
   /** 紐づいた worktree のパス（未着手なら undefined） */
   worktreeDir?: string;

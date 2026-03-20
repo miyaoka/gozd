@@ -23,6 +23,7 @@ import { useDiagnosticsStore } from "../diagnostics/useDiagnosticsStore";
 import { useWorkspaceStore } from "../filer/useWorkspaceStore";
 import { useRpc } from "../rpc/useRpc";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import TodoIconPicker from "./TodoIconPicker.vue";
 
 const workspaceStore = useWorkspaceStore();
 const diagnosticsStore = useDiagnosticsStore();
@@ -155,20 +156,6 @@ function onEnterSubmit(e: KeyboardEvent, handler: () => void) {
 
 // --- Todo アイコン ---
 
-/** issue 分類用の主要 emoji 一覧 */
-const TODO_ICONS: ReadonlyArray<{ emoji: string; title: string }> = [
-  { emoji: "✨", title: "feature" },
-  { emoji: "🐛", title: "bug" },
-  { emoji: "🔧", title: "fix" },
-  { emoji: "♻️", title: "refactor" },
-  { emoji: "📝", title: "docs" },
-  { emoji: "⚡", title: "perf" },
-  { emoji: "🧪", title: "test" },
-  { emoji: "🚀", title: "deploy" },
-  { emoji: "💡", title: "idea" },
-  { emoji: "🎨", title: "style" },
-];
-
 // --- Todo インライン編集 ---
 
 const editingTodoId = ref<string>();
@@ -200,14 +187,6 @@ async function saveEdit() {
 
 function cancelEdit() {
   editingTodoId.value = undefined;
-}
-
-function toggleEditIcon(emoji: string) {
-  editIcon.value = editIcon.value === emoji ? undefined : emoji;
-}
-
-function toggleNewTodoIcon(emoji: string) {
-  newTodoIcon.value = newTodoIcon.value === emoji ? undefined : emoji;
 }
 
 // --- 新規 Todo 作成 ---
@@ -523,23 +502,7 @@ onUnmounted(() => {
 
         <!-- インライン Todo 編集 -->
         <div v-if="wt.todo && editingTodoId === wt.todo.id" class="mx-2 mt-1 mb-2">
-          <div class="mb-1 flex flex-wrap gap-0.5">
-            <button
-              v-for="ic in TODO_ICONS"
-              :key="ic.emoji"
-              type="button"
-              :title="ic.title"
-              class="rounded-sm px-1 py-0.5 text-sm hover:bg-zinc-700"
-              :class="
-                editIcon === ic.emoji
-                  ? 'bg-zinc-600 ring-1 ring-blue-500'
-                  : 'opacity-60 hover:opacity-100'
-              "
-              @click="toggleEditIcon(ic.emoji)"
-            >
-              {{ ic.emoji }}
-            </button>
-          </div>
+          <TodoIconPicker v-model="editIcon" />
           <textarea
             ref="editTextarea"
             v-model="editBody"
@@ -605,23 +568,7 @@ onUnmounted(() => {
 
         <!-- インライン Todo 編集 -->
         <div v-if="editingTodoId === todo.id" class="mx-2 mt-1 mb-2">
-          <div class="mb-1 flex flex-wrap gap-0.5">
-            <button
-              v-for="ic in TODO_ICONS"
-              :key="ic.emoji"
-              type="button"
-              :title="ic.title"
-              class="rounded-sm px-1 py-0.5 text-sm hover:bg-zinc-700"
-              :class="
-                editIcon === ic.emoji
-                  ? 'bg-zinc-600 ring-1 ring-blue-500'
-                  : 'opacity-60 hover:opacity-100'
-              "
-              @click="toggleEditIcon(ic.emoji)"
-            >
-              {{ ic.emoji }}
-            </button>
-          </div>
+          <TodoIconPicker v-model="editIcon" />
           <textarea
             ref="editTextarea"
             v-model="editBody"
@@ -649,23 +596,7 @@ onUnmounted(() => {
 
       <!-- 新規 Todo 追加 -->
       <div v-if="isAddingTodo" class="mx-2 mt-1">
-        <div class="mb-1 flex flex-wrap gap-0.5">
-          <button
-            v-for="ic in TODO_ICONS"
-            :key="ic.emoji"
-            type="button"
-            :title="ic.title"
-            class="rounded-sm px-1 py-0.5 text-sm hover:bg-zinc-700"
-            :class="
-              newTodoIcon === ic.emoji
-                ? 'bg-zinc-600 ring-1 ring-blue-500'
-                : 'opacity-60 hover:opacity-100'
-            "
-            @click="toggleNewTodoIcon(ic.emoji)"
-          >
-            {{ ic.emoji }}
-          </button>
-        </div>
+        <TodoIconPicker v-model="newTodoIcon" />
         <textarea
           ref="newTodoTextareaRef"
           v-model="newTodoBody"

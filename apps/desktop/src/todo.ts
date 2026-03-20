@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
 import { tryCatch } from "@orkis/shared";
+import { TODO_ICON_EMOJIS } from "@orkis/rpc";
 import type { Todo } from "@orkis/rpc";
 
 const PROJECTS_DIR = path.join(homedir(), ".config", "orkis", "projects");
@@ -60,9 +61,15 @@ function isValidTodo(v: unknown): v is Todo {
     typeof t.id === "string" &&
     typeof t.body === "string" &&
     typeof t.createdAt === "string" &&
-    (t.icon === undefined || typeof t.icon === "string") &&
+    (t.icon === undefined || (typeof t.icon === "string" && TODO_ICON_EMOJIS.has(t.icon))) &&
     (t.worktreeDir === undefined || typeof t.worktreeDir === "string")
   );
+}
+
+/** 許可リストにない icon を undefined に正規化する */
+function sanitizeIcon(icon: string | undefined): string | undefined {
+  if (icon === undefined) return undefined;
+  return TODO_ICON_EMOJIS.has(icon) ? icon : undefined;
 }
 
 /** Todo を追加する */
@@ -75,7 +82,7 @@ export function addTodo(repoRoot: string, body: string, icon?: string, worktreeD
   const todo: Todo = {
     id: crypto.randomUUID(),
     body,
-    icon,
+    icon: sanitizeIcon(icon),
     worktreeDir,
     createdAt: new Date().toISOString(),
   };
@@ -90,7 +97,7 @@ export function updateTodo(repoRoot: string, id: string, body: string, icon?: st
   const todo = todos.find((t) => t.id === id);
   if (!todo) throw new Error(`Todo not found: ${id}`);
   todo.body = body;
-  todo.icon = icon;
+  todo.icon = sanitizeIcon(icon);
   saveTodos(repoRoot, todos);
   return todo;
 }

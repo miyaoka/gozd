@@ -24,8 +24,8 @@ export type ClaudeState = "working" | "asking" | "done";
 /** Claude Code の状態エントリ。状態と付随データを一体管理する */
 export type ClaudeStatus =
   | { state: "working"; startedAt: number }
-  | { state: "asking" }
-  | { state: "done" };
+  | { state: "asking"; toolName?: string; toolInput?: Record<string, unknown> }
+  | { state: "done"; message?: string };
 
 /**
  * hooks イベント種別。
@@ -117,7 +117,7 @@ export const useTerminalStore = defineStore("terminal", () => {
    * PermissionRequest は debounce し、一瞬で通過するケース（自動承認）を除外する。
    * done 後の遅延 tool-done（イベント順序逆転）は無視する。
    */
-  function handleHookEvent(ptyId: number, event: HookEvent) {
+  function handleHookEvent(ptyId: number, event: HookEvent, payload: Record<string, unknown>) {
     // kill/exit 済みの PTY への遅延イベントを無視
     if (!ptyIdToLeafId.has(ptyId)) return;
 
@@ -132,13 +132,18 @@ export const useTerminalStore = defineStore("terminal", () => {
         break;
       }
       case "needs-input": {
+        const toolName = typeof payload.tool_name === "string" ? payload.tool_name : undefined;
+        const toolInput =
+          typeof payload.tool_input === "object" && payload.tool_input !== null
+            ? (payload.tool_input as Record<string, unknown>)
+            : undefined;
         // debounce: タイマー満了まで asking にしない
         cancelAskTimer(ptyId);
         askTimers.set(
           ptyId,
           setTimeout(() => {
             askTimers.delete(ptyId);
-            claudeStatusByPtyId.value[ptyId] = { state: "asking" };
+            claudeStatusByPtyId.value[ptyId] = { state: "asking", toolName, toolInput };
           }, ASK_DEBOUNCE_MS),
         );
         break;
@@ -153,7 +158,11 @@ export const useTerminalStore = defineStore("terminal", () => {
       }
       case "done": {
         cancelAskTimer(ptyId);
-        claudeStatusByPtyId.value[ptyId] = { state: "done" };
+        const message =
+          typeof payload.last_assistant_message === "string"
+            ? payload.last_assistant_message
+            : undefined;
+        claudeStatusByPtyId.value[ptyId] = { state: "done", message };
         break;
       }
     }
@@ -252,7 +261,7 @@ export const useTerminalStore = defineStore("terminal", () => {
 
       if (!isHookEvent(event)) return;
 
-      handleHookEvent(ptyId, event);
+      handleHookEvent(ptyId, event, payload);
     });
   }
 

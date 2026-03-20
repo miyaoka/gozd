@@ -21,6 +21,8 @@ interface ResolvedBinding {
   /** unbind の場合、打ち消し対象のコマンド ID（"-" を除いたもの） */
   unbindTarget: string;
   when: When | undefined;
+  /** コマンドハンドラーに渡す引数 */
+  args: unknown;
 }
 
 /** macOS 予約キー（コマンドシステムで横取りしない）。e.code 値で指定 */
@@ -47,6 +49,7 @@ function resolveBindings(bindings: KeyBinding[]): ResolvedBinding[] {
       isUnbind,
       unbindTarget: isUnbind ? command : "",
       when: parseWhen(b.when),
+      args: b.args,
     };
   });
 }
@@ -120,7 +123,7 @@ export function useKeyBindings() {
         // 通常コマンド: unbind されていなければ実行
         if (unboundCommands.has(binding.command)) continue;
 
-        const handled = registry.execute(binding.command);
+        const handled = registry.execute(binding.command, binding.args);
         if (handled) {
           e.preventDefault();
           e.stopPropagation();

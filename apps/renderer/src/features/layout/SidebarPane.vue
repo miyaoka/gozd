@@ -28,8 +28,10 @@ working 状態にはアイコン左に経過時間（m:ss）を表示する。
 <script setup lang="ts">
 import type { Todo, WorktreeChangeCounts, WorktreeEntry } from "@orkis/rpc";
 import { tryCatch } from "@orkis/shared";
-import { useIntervalFn } from "@vueuse/core";
+import { useEventListener, useIntervalFn } from "@vueuse/core";
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from "vue";
+import { useCommandRegistry } from "../command/useCommandRegistry";
+import { useContextKeys } from "../command/useContextKeys";
 import { useDiagnosticsStore } from "../diagnostics/useDiagnosticsStore";
 import { useWorkspaceStore } from "../filer/useWorkspaceStore";
 import { useRpc } from "../rpc/useRpc";
@@ -103,6 +105,53 @@ const nonMainWorktrees = computed(() =>
 );
 
 const sortedBranches = computed(() => [...freeBranches.value].sort((a, b) => a.localeCompare(b)));
+
+/** Ctrl+数字で選択可能な worktree（nonMainWorktrees と同一、1-indexed） */
+const selectableWorktrees = nonMainWorktrees;
+
+/** Ctrl キー押下中か（番号バッジの表示制御用） */
+const ctrlPressed = ref(false);
+
+const contextKeys = useContextKeys();
+
+/**
+ * keybinding が editable 要素を除外する条件と一致させる。
+ * terminalFocus 時は xterm 内部の textarea を除外しない
+ * （keybinding 側も同じ条件でスキップするため）
+ */
+function shouldSuppressBadge(): boolean {
+  if (contextKeys.get("terminalFocus")) return false;
+  const target = document.activeElement;
+  if (!(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName;
+  return tagName === "INPUT" || tagName === "TEXTAREA" || target.isContentEditable;
+}
+
+useEventListener(document, "keydown", (e: KeyboardEvent) => {
+  if (e.key === "Control" && !shouldSuppressBadge()) ctrlPressed.value = true;
+});
+useEventListener(document, "keyup", (e: KeyboardEvent) => {
+  if (e.key === "Control") ctrlPressed.value = false;
+});
+// ウィンドウからフォーカスが外れた場合にリセット
+useEventListener(window, "blur", () => {
+  ctrlPressed.value = false;
+});
+// Ctrl 押下中に editable 要素にフォーカスが移った場合にリセット
+useEventListener(document, "focusin", () => {
+  if (ctrlPressed.value && shouldSuppressBadge()) ctrlPressed.value = false;
+});
+
+// workspace.selectWorktree コマンド: args=1~9 のインデックスで worktree を選択
+const { register } = useCommandRegistry();
+const disposeSelectWorktree = register("workspace.selectWorktree", (args) => {
+  if (typeof args !== "number") return false;
+  const wt = selectableWorktrees.value[args - 1];
+  if (!wt) return false;
+  handleWorktreeSelect(wt);
+  return true;
+});
+onUnmounted(disposeSelectWorktree);
 
 /** 経過時間表示用の現在時刻（1 秒ごとに更新） */
 const now = ref(Date.now());
@@ -519,6 +568,13 @@ onUnmounted(() => {
           class="group/wt relative grid grid-cols-[auto_1fr_auto] gap-x-2 rounded-sm py-1.5 pl-2"
           :class="isActive(wt) ? 'bg-zinc-700/50' : 'hover:bg-zinc-800'"
         >
+          <!-- Ctrl 押下時の番号バッジ（左上に表示。9 個まで） -->
+          <span
+            v-if="ctrlPressed && i + 1 <= 9"
+            class="absolute -top-1 -left-1 z-20 grid size-4 place-items-center rounded-md bg-green-400 text-[10px] leading-none font-bold text-zinc-900"
+          >
+            {{ i + 1 }}
+          </span>
           <!-- Claude 状態バッジ（右上に重ねて表示） -->
           <div
             v-if="claudeBadgesByPath[wt.path]"

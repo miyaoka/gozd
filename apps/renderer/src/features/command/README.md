@@ -23,7 +23,7 @@ defaultKeyBindings.json  ← デフォルト keybinding 定義
 - `KeyStroke` — e.code ベースの物理キー表現（code + modifier flags）
 - `ContextMap` — context key 名と値型のマッピング。新しい context key はここに追加する
 - `When` — 条件式の AST。`key` / `not` / `and` / `or` の tagged union
-- `KeyBinding` — JSON 互換の keybinding 定義（key, command, when すべて文字列）
+- `KeyBinding` — JSON 互換の keybinding 定義（key, command, when は文字列、args は任意の JSON 値）
 
 ## parseKeyStroke — key 文字列の変換
 

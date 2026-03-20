@@ -50,4 +50,6 @@ export interface KeyBinding {
   command: string;
   /** VS Code 互換の when 文字列: "terminalFocus", "terminalFocus && !explorerVisible" */
   when?: string;
+  /** コマンドハンドラーに渡す引数 */
+  args?: unknown;
 }

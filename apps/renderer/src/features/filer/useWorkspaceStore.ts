@@ -10,7 +10,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   const channel = ref<string>();
   const repoName = ref<string>();
 
-  /** ファイラーで選択中のファイルパス（相対パス） */
+  /** ファイラーで選択中のパス（相対パス） */
   const selectedPath = ref<string>();
 
   /** リンクから指定された行番号（1-based）。スクロール・ハイライトに使用 */
@@ -54,7 +54,6 @@ export const useWorkspaceStore = defineStore("workspace", () => {
         // dir が変わる場合は loadRoot 後に consumeInitialSelection で適用
         initialSelection.value = selection;
       }
-      // 即時選択（file はプレビュー更新、directory は revealVersion インクリメントで FilerPane に通知）
       selectPath(selection.relPath);
     }
   }

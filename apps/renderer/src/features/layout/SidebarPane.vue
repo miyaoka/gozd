@@ -145,8 +145,8 @@ useEventListener(document, "focusin", () => {
 // workspace.selectWorktree コマンド: args=1~9 のインデックスで worktree を選択
 const { register } = useCommandRegistry();
 const disposeSelectWorktree = register("workspace.selectWorktree", (args) => {
-  const index = args as number;
-  const wt = selectableWorktrees.value[index - 1];
+  if (typeof args !== "number") return false;
+  const wt = selectableWorktrees.value[args - 1];
   if (!wt) return false;
   handleWorktreeSelect(wt);
   return true;

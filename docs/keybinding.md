@@ -61,8 +61,10 @@ modifier + key を `+` で結合。全て小文字。
 コマンドハンドラーに渡す引数。省略可。同一コマンドを異なる引数で呼び分ける場合に使用する。
 
 ```json
-{ "key": "ctrl+1", "command": "workspace.selectWorktree", "args": 1 },
-{ "key": "ctrl+2", "command": "workspace.selectWorktree", "args": 2 }
+[
+  { "key": "ctrl+1", "command": "workspace.selectWorktree", "args": 1 },
+  { "key": "ctrl+2", "command": "workspace.selectWorktree", "args": 2 }
+]
 ```
 
 ### when フィールド

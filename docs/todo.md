@@ -125,11 +125,11 @@ WORKTREES
 ### 新規追加
 
 ```text
-todoList:   { repoRoot } → Todo[]
-todoAdd:    { repoRoot, body, icon? } → Todo
-todoUpdate: { repoRoot, id, body, icon? } → Todo
-todoRemove: { repoRoot, id } → void
-todoStart:  { repoRoot, id } → { todo: Todo, worktree: WorktreeEntry }
+todoList:   undefined → Todo[]
+todoAdd:    { body, icon?, worktreeDir? } → Todo
+todoUpdate: { id, body, icon? } → Todo
+todoRemove: { id } → void
+todoStart:  { id } → { todo: Todo, worktree: WorktreeEntry }
 ```
 
 ### 既存変更

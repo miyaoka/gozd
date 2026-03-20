@@ -42,11 +42,17 @@ let fetchGen = 0;
 /** root（main）worktree */
 const rootWorktree = computed(() => worktrees.value.find((wt) => wt.isMain));
 
-/** main 以外の worktree を表示名のアルファベット順で */
+/** パスから末尾のディレクトリ名を取得 */
+function dirName(p: string): string {
+  const lastSlash = p.lastIndexOf("/");
+  return lastSlash === -1 ? p : p.slice(lastSlash + 1);
+}
+
+/** main 以外の worktree をディレクトリ名のアルファベット順で */
 const nonMainWorktrees = computed(() =>
   worktrees.value
     .filter((wt) => !wt.isMain)
-    .sort((a, b) => worktreeDisplayName(a).localeCompare(worktreeDisplayName(b))),
+    .sort((a, b) => dirName(a.path).localeCompare(dirName(b.path))),
 );
 
 const sortedBranches = computed(() => [...freeBranches.value].sort((a, b) => a.localeCompare(b)));

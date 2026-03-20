@@ -96,6 +96,7 @@ export function updateTodo(repoRoot: string, id: string, body: string): Todo {
 export function removeTodo(repoRoot: string, id: string): void {
   const todos = loadTodos(repoRoot);
   const filtered = todos.filter((t) => t.id !== id);
+  if (filtered.length === todos.length) return;
   saveTodos(repoRoot, filtered);
 }
 

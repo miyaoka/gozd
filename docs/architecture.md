@@ -101,21 +101,22 @@ desktop が PTY を spawn する時に以下の環境変数を注入する（`in
 
 ### orkis 固有の環境変数
 
-| 変数                         | 用途                                                                      |
-| ---------------------------- | ------------------------------------------------------------------------- |
-| `ORKIS_PTY_ID`               | PTY の識別子。hooks イベントの発火元を特定する                            |
-| `ORKIS_SOCKET_PATH`          | ソケットパス。CLI や hooks コマンドが接続先に使う                         |
-| `ORKIS_CLI_PATH`             | orkis CLI の実行コマンド。hooks コマンドが使用。dev と build で値が異なる |
-| `ORKIS_CLAUDE_SETTINGS_PATH` | Claude hooks 設定ファイルのパス。`claude()` が参照                        |
-| `ORKIS_ZDOTDIR`              | orkis の zsh 初期化ディレクトリ                                           |
-| `ORKIS_ORIG_ZDOTDIR`         | ユーザーの元の ZDOTDIR（orkis が上書きする前の値）                        |
+| 変数                         | 用途                                                                  |
+| ---------------------------- | --------------------------------------------------------------------- |
+| `ORKIS_PTY_ID`               | PTY の識別子。hooks イベントの発火元を特定する                        |
+| `ORKIS_SOCKET_PATH`          | ソケットパス。CLI や hooks コマンドが接続先に使う                     |
+| `ORKIS_CLI_PATH`             | orkis CLI の絶対パス。hooks コマンドが使用。dev と build で値が異なる |
+| `ORKIS_CLI_RUNNER`           | CLI のランナー。dev 時は `bun`、build 時は空文字列                    |
+| `ORKIS_CLAUDE_SETTINGS_PATH` | Claude hooks 設定ファイルのパス。`claude()` が参照                    |
+| `ORKIS_ZDOTDIR`              | orkis の zsh 初期化ディレクトリ                                       |
+| `ORKIS_ORIG_ZDOTDIR`         | ユーザーの元の ZDOTDIR（orkis が上書きする前の値）                    |
 
 #### `ORKIS_CLI_PATH` の解決
 
-| 環境  | 値                                                  | 理由                                 |
-| ----- | --------------------------------------------------- | ------------------------------------ |
-| dev   | `bun {ORKIS_PROJECT_ROOT}/apps/cli/src/index.ts`    | `.app` に CLI がバンドルされないため |
-| build | `.app/Contents/Resources/app/bin/orkis`（絶対パス） | `.app` 内のバンドル済み CLI を使用   |
+| 環境  | `ORKIS_CLI_PATH`                                    | `ORKIS_CLI_RUNNER` | 理由                                 |
+| ----- | --------------------------------------------------- | ------------------ | ------------------------------------ |
+| dev   | `{ORKIS_PROJECT_ROOT}/apps/cli/src/index.ts`        | `bun`              | `.app` に CLI がバンドルされないため |
+| build | `.app/Contents/Resources/app/bin/orkis`（絶対パス） | （空文字列）       | `.app` 内のバンドル済み CLI を使用   |
 
 ### ターミナル環境変数
 
@@ -164,7 +165,7 @@ desktop 起動時に `generateClaudeSettings()` が hooks 設定 JSON を `$TMPD
 ### 送信経路の使い分け
 
 - **nc 直接送信**: `echo '固定JSON' | nc -w 1 -U $ORKIS_SOCKET_PATH`。軽量だが stdin データを取得できない。発火頻度の高い running / tool-done に使用
-- **CLI 経由**: `$ORKIS_CLI_PATH hook {event}`。CLI が stdin の JSON を `JSON.parse` して payload にマージするため、Claude Code が渡す詳細データ（応答テキスト、ツール情報）をフロントまで届けられる。done / needs-input に使用
+- **CLI 経由**: `$ORKIS_CLI_RUNNER "$ORKIS_CLI_PATH" hook {event}`。CLI が stdin の JSON を `JSON.parse` して payload にマージするため、Claude Code が渡す詳細データ（応答テキスト、ツール情報）をフロントまで届けられる。done / needs-input に使用
 
 ### フロントへの到達経路
 

@@ -4,7 +4,6 @@
  */
 import type { Ref, ShallowRef } from "vue";
 import { useCommandRegistry } from "../command/useCommandRegistry";
-import { useRpc } from "../rpc/useRpc";
 import { findNavigationTarget } from "./useSpatialNavigation";
 import { useTerminalStore } from "./useTerminalStore";
 
@@ -20,7 +19,6 @@ export function registerTerminalCommands(
 ): () => void {
   const registry = useCommandRegistry();
   const terminalStore = useTerminalStore();
-  const { send } = useRpc();
 
   /** 現在の dir と layout を取得するヘルパー。無効なら undefined */
   function getActiveLayout() {
@@ -66,9 +64,9 @@ export function registerTerminalCommands(
     registry.register("terminal.closePane", () => {
       const active = getActiveLayout();
       if (active === undefined) return false;
-      // 最後の1ペインでは closePane が false を返すので、ウィンドウを閉じる
+      // 最後の1ペインでは closePane が false を返すので、レイアウトをリセットして新ターミナルを起動
       if (!terminalStore.closePane(active.dir, active.layout.focusedLeafId)) {
-        send.windowClose();
+        terminalStore.resetLayout(active.dir);
       }
       return true;
     }),

@@ -4,30 +4,28 @@ import { tryCatch } from "@orkis/shared";
 /** hooks 設定ファイルを生成する。nc で直接ソケットに通知する */
 export function generateClaudeSettings(settingsPath: string): void {
   const hookCommand = (event: string) =>
-    `echo '{"type":"hook","event":"${event}","payload":{"ptyId":'"$ORKIS_PTY_ID"'}}' | nc -U "$ORKIS_SOCKET_PATH"`;
+    `echo '{"type":"hook","event":"${event}","payload":{"ptyId":'"$ORKIS_PTY_ID"'}}' | nc -w 1 -U "$ORKIS_SOCKET_PATH"`;
 
   const settings = {
     hooks: {
-      UserPromptSubmit: [
-        { hooks: [{ type: "command", command: hookCommand("running"), async: true }] },
-      ],
-      Stop: [{ hooks: [{ type: "command", command: hookCommand("done"), async: true }] }],
+      UserPromptSubmit: [{ hooks: [{ type: "command", command: hookCommand("running") }] }],
+      Stop: [{ hooks: [{ type: "command", command: hookCommand("done") }] }],
       PermissionRequest: [
         {
           matcher: "*",
-          hooks: [{ type: "command", command: hookCommand("needs-input"), async: true }],
+          hooks: [{ type: "command", command: hookCommand("needs-input") }],
         },
       ],
       PostToolUse: [
         {
           matcher: "*",
-          hooks: [{ type: "command", command: hookCommand("tool-done"), async: true }],
+          hooks: [{ type: "command", command: hookCommand("tool-done") }],
         },
       ],
       PostToolUseFailure: [
         {
           matcher: "*",
-          hooks: [{ type: "command", command: hookCommand("tool-done"), async: true }],
+          hooks: [{ type: "command", command: hookCommand("tool-done") }],
         },
       ],
     },

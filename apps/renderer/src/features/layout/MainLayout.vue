@@ -3,7 +3,7 @@
 
 ## 構成
 
-- 水平方向: SidebarPane → TerminalPane（各ペイン間にリサイズハンドル）
+- 水平方向: SidebarPane → ターミナル Grid コンテナ（各ペイン間にリサイズハンドル）
 - 垂直方向: メインエリア → DebugPane（リサイズハンドル）
 - Explorer（FilerPane + PreviewPane）は Popover API でトップレイヤーに配置し、レイアウトフローから分離
 
@@ -14,7 +14,7 @@
 </doc>
 
 <script setup lang="ts">
-import { useEventListener, useWindowSize } from "@vueuse/core";
+import { useElementSize, useEventListener, useWindowSize } from "@vueuse/core";
 import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch, watchEffect } from "vue";
 import { useCommandRegistry } from "../command/useCommandRegistry";
 import { useContextKeys } from "../command/useContextKeys";
@@ -26,8 +26,17 @@ import PreviewPane from "../preview/PreviewPane.vue";
 import { useRpc } from "../rpc/useRpc";
 import SidebarPane from "../sidebar/SidebarPane.vue";
 import { registerTerminalCommands } from "../terminal/registerTerminalCommands";
-import { computeTileLayout, TILE_GAP } from "../terminal/splitTree";
-import TerminalPane from "../terminal/TerminalPane.vue";
+import SplitResizeHandle from "../terminal/SplitResizeHandle.vue";
+import {
+  collectLeafIds,
+  flattenHandles,
+  leafIdToAreaName,
+  TILE_GAP,
+  tileGridTemplate,
+  treeToGridTemplate,
+} from "../terminal/splitTree";
+import type { HandlePosition, PixelRect } from "../terminal/splitTree";
+import TerminalLeaf from "../terminal/TerminalLeaf.vue";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import ResizeHandle from "./ResizeHandle.vue";
 
@@ -35,6 +44,7 @@ const workspaceStore = useWorkspaceStore();
 const terminalStore = useTerminalStore();
 const contextKeys = useContextKeys();
 const terminalContainerRef = useTemplateRef<HTMLElement>("terminalContainer");
+const { width: containerW, height: containerH } = useElementSize(terminalContainerRef);
 const explorerPopoverRef = useTemplateRef<HTMLElement>("explorerPopover");
 const filerPaneRef = useTemplateRef<InstanceType<typeof FilerPane>>("filerPane");
 
@@ -85,52 +95,129 @@ watch(
   { immediate: true },
 );
 
-// --- ターミナル Grid レイアウト ---
-// terminalContainer は worktree 単位のグリッド。
-// 単一表示: 1x1、全表示: NxM でタイル配置。
-// 各 TerminalPane 内部の leaf/handle 配置は TerminalPane が自己管理する。
+// --- ターミナル背景 ---
 
-/** worktree のエリア名を生成する。visitedDirs のインデックスで一意性を保証 */
-function worktreeAreaName(index: number): string {
-  return `wt${index}`;
+/** 文字列から簡易ハッシュ値を生成する（djb2） */
+function hashString(str: string): number {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 33) ^ str.charCodeAt(i);
+  }
+  return hash >>> 0;
 }
+
+/** ハッシュ値からパステル HSL 色を生成。hueOffset で類似色をずらす */
+function hashToColor(hash: number, hueOffset = 0): string {
+  const hue = ((hash % 360) + hueOffset) % 360;
+  const saturation = 20 + ((hash >>> 12) % 15);
+  const lightness = 60 + ((hash >>> 24) % 25);
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+}
+
+const HUE_OFFSET = 30;
+
+const paneBackground = computed(() => {
+  const name = workspaceStore.repoName ?? "orkis";
+  const hash = hashString(name);
+  const color1 = hashToColor(hash);
+  const color2 = hashToColor(hash, HUE_OFFSET);
+  return `linear-gradient(0deg, ${color1} 0%, ${color2} 100%)`;
+});
+
+// --- ターミナル Grid レイアウト ---
+// 全 worktree の全 leaf をフラットに1つの CSS Grid で管理する。
+// 表示モード（単一 wt / Claude のみ）に応じて grid-template を切り替え。
+// 各 TerminalLeaf は grid-area で配置し、非表示 leaf は v-show:false。
+// リサイズハンドルは absolute overlay。
+
+/** アクティブ worktree の全 leafId */
+const activeLeafIds = computed(() => {
+  const dir = workspaceStore.dir;
+  if (!dir) return [];
+  const layout = terminalStore.layoutsByDir[dir];
+  if (layout === undefined) return [];
+  return collectLeafIds(layout.root);
+});
+
+/** 全 worktree の全 leafId */
+const allLeafIds = computed(() => {
+  const ids: string[] = [];
+  for (const dir of terminalStore.visitedDirs) {
+    const layout = terminalStore.layoutsByDir[dir];
+    if (layout === undefined) continue;
+    ids.push(...collectLeafIds(layout.root));
+  }
+  return ids;
+});
+
+/** 表示対象の leafId set（v-show の判定に使用） */
+const visibleLeafIds = computed(() => {
+  const mode = terminalStore.viewMode;
+  if (mode === "all") return new Set(allLeafIds.value);
+  if (mode === "claude") return new Set(terminalStore.claudeActiveLeafIds);
+  return new Set(activeLeafIds.value);
+});
+
+const EMPTY_GRID: Record<string, string> = {
+  gridTemplateColumns: "1fr",
+  gridTemplateRows: "1fr",
+  gridTemplateAreas: '". "',
+};
 
 /** terminalContainer の grid スタイル */
 const terminalGridStyle = computed<Record<string, string>>(() => {
-  const dirs = terminalStore.visitedDirs;
-  const count = dirs.length;
+  const mode = terminalStore.viewMode;
 
-  if (terminalStore.showAll && count > 0) {
-    const { cols } = computeTileLayout(count, terminalWidth.value, mainHeight.value);
-    const rows = Math.ceil(count / cols);
-
-    // areas マトリクスを構築
-    const areaRows: string[] = [];
-    for (let r = 0; r < rows; r++) {
-      const cells: string[] = [];
-      for (let c = 0; c < cols; c++) {
-        const i = r * cols + c;
-        cells.push(i < count ? worktreeAreaName(i) : ".");
-      }
-      areaRows.push(`"${cells.join(" ")}"`);
-    }
-
+  // タイル表示: all / claude
+  if (mode === "all" || mode === "claude") {
+    const ids = mode === "claude" ? terminalStore.claudeActiveLeafIds : allLeafIds.value;
+    const tpl = tileGridTemplate(ids, terminalWidth.value, mainHeight.value);
     return {
-      gridTemplateColumns: `repeat(${cols}, 1fr)`,
-      gridTemplateRows: `repeat(${rows}, 1fr)`,
-      gridTemplateAreas: areaRows.join(" "),
+      gridTemplateAreas: tpl.areas,
+      gridTemplateColumns: tpl.columns,
+      gridTemplateRows: tpl.rows,
     };
   }
 
-  // 単一表示: アクティブ worktree だけ表示
-  const activeIndex = dirs.indexOf(workspaceStore.dir ?? "");
-  const areaName = activeIndex >= 0 ? worktreeAreaName(activeIndex) : "empty";
+  // 単一 worktree: 分割ツリーから grid-template を生成
+  const dir = workspaceStore.dir;
+  if (!dir) return EMPTY_GRID;
+  const layout = terminalStore.layoutsByDir[dir];
+  if (layout === undefined) return EMPTY_GRID;
+  const tpl = treeToGridTemplate(layout.root);
   return {
-    gridTemplateColumns: "1fr",
-    gridTemplateRows: "1fr",
-    gridTemplateAreas: `"${areaName}"`,
+    gridTemplateAreas: tpl.areas,
+    gridTemplateColumns: tpl.columns,
+    gridTemplateRows: tpl.rows,
   };
 });
+
+/** wt モード以外ではハンドル不要 */
+const isTileMode = computed(() => terminalStore.viewMode !== "wt");
+
+/** 分割ツリーのハンドル（タイルモード時は空） */
+const handles = computed<HandlePosition[]>(() => {
+  if (isTileMode.value) return [];
+  const dir = workspaceStore.dir;
+  if (!dir) return [];
+  const layout = terminalStore.layoutsByDir[dir];
+  if (layout === undefined) return [];
+  if (containerW.value <= 0 || containerH.value <= 0) return [];
+  return flattenHandles(layout.root, containerW.value, containerH.value, TILE_GAP);
+});
+
+/** コンテナの padding（p-2 = 8px）。absolute の基準は padding box なので gap 位置にオフセットが必要 */
+const CONTAINER_PADDING = 8;
+
+function handleRectStyle(rect: PixelRect): Record<string, string> {
+  return {
+    position: "absolute",
+    top: `${rect.top + CONTAINER_PADDING}px`,
+    left: `${rect.left + CONTAINER_PADDING}px`,
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
+  };
+}
 
 /** ハンドル幅 w-2 = 8px */
 const HANDLE_WIDTH = 8;
@@ -269,19 +356,34 @@ watchEffect(() => {
 
       <div
         ref="terminalContainer"
-        class="grid min-w-0 flex-1 overflow-hidden p-2"
+        class="relative grid min-w-0 flex-1 overflow-hidden p-2"
         :style="{
           minWidth: `${TERMINAL_MIN_WIDTH}px`,
-          gap: terminalStore.showAll ? `${TILE_GAP}px` : undefined,
+          gap: `${TILE_GAP}px`,
+          background: paneBackground,
           ...terminalGridStyle,
         }"
       >
-        <TerminalPane
-          v-for="(d, i) in terminalStore.visitedDirs"
-          :key="d"
-          v-show="terminalStore.showAll || d === workspaceStore.dir"
-          :style="{ gridArea: worktreeAreaName(i) }"
-          :dir="d"
+        <TerminalLeaf
+          v-for="leafId in allLeafIds"
+          :key="leafId"
+          v-show="visibleLeafIds.has(leafId)"
+          :style="{ gridArea: leafIdToAreaName(leafId) }"
+          :dir="terminalStore.paneRegistry[leafId]?.dir ?? ''"
+          :leaf-id="leafId"
+        />
+        <!-- 分割リサイズハンドル（absolute overlay） -->
+        <SplitResizeHandle
+          v-for="handle in handles"
+          :key="handle.branchId"
+          :dir="workspaceStore.dir ?? ''"
+          :branch-id="handle.branchId"
+          :axis="handle.axis"
+          :ratio="handle.ratio"
+          :first-node="handle.firstNode"
+          :second-node="handle.secondNode"
+          :available-px="handle.availablePx"
+          :style="handleRectStyle(handle.rect)"
         />
       </div>
 

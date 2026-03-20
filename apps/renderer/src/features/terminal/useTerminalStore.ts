@@ -1,6 +1,6 @@
 import { tryCatch } from "@orkis/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { useContextKeys } from "../command/useContextKeys";
 import { useRpc } from "../rpc/useRpc";
 import type { SplitDirection, SplitNode } from "./splitTree";
@@ -91,8 +91,9 @@ export const useTerminalStore = defineStore("terminal", () => {
   /** split ドラッグ中の fit 抑制カウンター */
   const dragSuspendCount = ref(0);
 
-  /** 全 worktree のターミナルを一覧表示するモード */
-  const showAll = ref(false);
+  /** ターミナル表示モード: wt=アクティブworktreeのみ, all=全leaf, claude=Claude起動中のみ */
+  type ViewMode = "wt" | "all" | "claude";
+  const viewMode = ref<ViewMode>("wt");
 
   /** ptyId → Claude Code の状態（idle は undefined = エントリなし） */
   const claudeStatusByPtyId = ref<Record<number, ClaudeStatus>>({});
@@ -273,6 +274,18 @@ export const useTerminalStore = defineStore("terminal", () => {
     if (entry?.session === undefined) return undefined;
     return claudeStatusByPtyId.value[entry.session.ptyId]?.state;
   }
+
+  /** Claude が起動中（working / asking / done）の leafId 一覧 */
+  const claudeActiveLeafIds = computed(() => {
+    const ids: string[] = [];
+    for (const [leafId, entry] of Object.entries(paneRegistry.value)) {
+      if (entry.session === undefined) continue;
+      if (claudeStatusByPtyId.value[entry.session.ptyId] !== undefined) {
+        ids.push(leafId);
+      }
+    }
+    return ids;
+  });
 
   /** OSC 7 で通知された CWD を保存する */
   function setCwd(leafId: string, cwd: string) {
@@ -551,7 +564,8 @@ export const useTerminalStore = defineStore("terminal", () => {
     layoutsByDir,
     paneRegistry,
     dragSuspendCount,
-    showAll,
+    viewMode,
+    claudeActiveLeafIds,
     ensureLayout,
     visit,
     splitPane,

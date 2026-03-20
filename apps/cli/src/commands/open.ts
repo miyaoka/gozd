@@ -22,10 +22,15 @@ function resolveTarget(inputPath: string): { dir: string; file?: string } {
   return { dir: dirname(absolutePath), file: absolutePath };
 }
 
-/** dir から git リポジトリルートを解決する。git 管理外や失敗時はそのまま返す */
+/**
+ * dir から git リポジトリルート（main worktree）を解決する。
+ * --git-common-dir で共通 .git ディレクトリを取得し、その親をルートとする。
+ * worktree 内で実行しても main worktree のルートが返る。
+ * git 管理外や失敗時はそのまま返す。
+ */
 async function resolveRepoRoot(dir: string): Promise<string> {
   const spawnResult = tryCatch(() =>
-    Bun.spawn(["git", "rev-parse", "--show-toplevel"], {
+    Bun.spawn(["git", "rev-parse", "--git-common-dir"], {
       cwd: dir,
       stdout: "pipe",
       stderr: "pipe",
@@ -36,7 +41,9 @@ async function resolveRepoRoot(dir: string): Promise<string> {
   if (!outputResult.ok) return dir;
   const exitCode = await tryCatch(spawnResult.value.exited);
   if (!exitCode.ok || exitCode.value !== 0) return dir;
-  return outputResult.value.trim();
+  // main worktree では相対パス ".git" が返るため resolve で絶対パス化
+  const gitCommonDir = resolve(dir, outputResult.value.trim());
+  return dirname(gitCommonDir);
 }
 
 /** cold start 用の launch request ファイルを書き出す */

@@ -11,6 +11,7 @@ import { createLspClient, resolveTsgoPath, resolveVueLspPaths } from "./lsp";
 import type { LspClient } from "./lsp";
 import {
   parseOwnerRepo,
+  resolveRepoRoot,
   filterIgnored,
   getGitStatus,
   getWorktreeList,
@@ -1155,8 +1156,8 @@ if (lastSavedWindow) {
 // （role メニューは active app + key window + responder chain に依存するため）
 const initialDir = process.env.ORKIS_PROJECT_ROOT;
 if (initialDir) {
-  // pnpm dev: 環境変数で正しい dir が渡される
-  openWindow(initialDir);
+  // pnpm dev: worktree 内で実行しても main worktree のルートに解決する
+  openWindow(resolveRepoRoot(initialDir));
 } else {
   // CLI cold start: launch request ファイルから dir を読む
   // Dock/Finder: request がなければ前回の状態を復元

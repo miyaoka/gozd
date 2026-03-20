@@ -8,6 +8,14 @@ export ZDOTDIR="$_orkis_user_zdotdir"
 # .zshrc は non-login shell の最後の初期化ファイルなので、ZDOTDIR をユーザー側に固定する
 # （orkis 側に戻さない。claude() 関数は環境変数で動作するため ZDOTDIR に依存しない）
 
+# CWD を OSC 7 でターミナルに通知する（xterm.js 側で registerOscHandler(7) で受け取る）
+_orkis_osc7_cwd() {
+  printf '\e]7;file://%s%s\a' "${HOST}" "${PWD}"
+}
+autoload -Uz add-zsh-hook
+add-zsh-hook chpwd _orkis_osc7_cwd
+_orkis_osc7_cwd
+
 # claude コマンドをラップして --settings を自動注入
 claude() {
   local arg

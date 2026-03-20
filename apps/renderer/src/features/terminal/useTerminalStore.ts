@@ -97,6 +97,9 @@ export const useTerminalStore = defineStore("terminal", () => {
   /** ptyId → Claude Code の状態（idle は undefined = エントリなし） */
   const claudeStatusByPtyId = ref<Record<number, ClaudeStatus>>({});
 
+  /** leafId → PTY の現在の CWD（OSC 7 で更新される） */
+  const cwdByLeafId = ref<Record<string, string>>({});
+
   /** ptyId → PermissionRequest の debounce タイマー */
   const askTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
@@ -262,6 +265,11 @@ export const useTerminalStore = defineStore("terminal", () => {
     return claudeStatusByPtyId.value[entry.session.ptyId]?.state;
   }
 
+  /** OSC 7 で通知された CWD を保存する */
+  function setCwd(leafId: string, cwd: string) {
+    cwdByLeafId.value[leafId] = cwd;
+  }
+
   /** worktree dir に属する全ターミナルの Claude 状態を返す（idle は除外） */
   function getClaudeStatusesByDir(dir: string): ClaudeStatus[] {
     const statuses: ClaudeStatus[] = [];
@@ -346,6 +354,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     ptyIdToLeafId.delete(entry.session.ptyId);
     cancelAskTimer(entry.session.ptyId);
     delete claudeStatusByPtyId.value[entry.session.ptyId];
+    delete cwdByLeafId.value[leafId];
     terminalWriters.delete(leafId);
     paneRegistry.value[leafId] = { ...entry, session: undefined };
   }
@@ -437,9 +446,10 @@ export const useTerminalStore = defineStore("terminal", () => {
       contextKeys.set("terminalFocus", false);
     }
 
-    // 削除確定後に PTY kill + paneRegistry 削除
+    // 削除確定後に PTY kill + paneRegistry / CWD 削除
     killPty(leafId);
     delete paneRegistry.value[leafId];
+    delete cwdByLeafId.value[leafId];
 
     layoutsByDir.value[dir] = {
       root: result.root,
@@ -511,6 +521,7 @@ export const useTerminalStore = defineStore("terminal", () => {
       for (const leafId of leafIds) {
         killPty(leafId);
         delete paneRegistry.value[leafId];
+        delete cwdByLeafId.value[leafId];
       }
       delete layoutsByDir.value[dir];
     }
@@ -545,6 +556,8 @@ export const useTerminalStore = defineStore("terminal", () => {
     remove,
     incrementDragSuspend,
     decrementDragSuspend,
+    cwdByLeafId,
+    setCwd,
     getClaudeState,
     getClaudeStatusesByDir,
     clearDoneStates,

@@ -13,12 +13,14 @@ function toggle(emoji: string) {
 </script>
 
 <template>
-  <div class="mb-1 flex flex-wrap gap-0.5">
+  <div class="mb-1 flex flex-wrap gap-0.5" role="group" aria-label="Todo アイコン">
     <button
       v-for="ic in TODO_ICONS"
       :key="ic.emoji"
       type="button"
       :title="ic.title"
+      :aria-label="ic.title"
+      :aria-pressed="icon === ic.emoji"
       class="rounded-sm px-1 py-0.5 text-sm hover:bg-zinc-700"
       :class="
         icon === ic.emoji ? 'bg-zinc-600 ring-1 ring-blue-500' : 'opacity-60 hover:opacity-100'

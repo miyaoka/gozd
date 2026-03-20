@@ -154,9 +154,11 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     if (typeof voicevox.speedScale === "number") speedScale.value = voicevox.speedScale;
     if (typeof voicevox.volumeScale === "number") volumeScale.value = voicevox.volumeScale;
     if (voicevox.enabled) {
-      const errorMessage = await activate();
-      // Engine 起動に失敗した場合は無効に戻す（enabled: false で保存される）
-      if (errorMessage) enabled.value = false;
+      enabled.value = true;
+      // Engine が起動していなければバックグラウンドで起動だけ試みる（ポーリングしない）
+      if (!(await checkEngineRunning())) {
+        void tryCatch(request.voicevoxLaunch());
+      }
     }
   });
 

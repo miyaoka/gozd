@@ -24,15 +24,17 @@ worktree 行ごとの Claude 状態表示は `SidebarWorktreeItem.vue` に委譲
 import type { Todo, WorktreeChangeCounts, WorktreeEntry } from "@orkis/rpc";
 import { tryCatch } from "@orkis/shared";
 import { useEventListener, useIntervalFn } from "@vueuse/core";
-import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useCommandRegistry } from "../command/useCommandRegistry";
 import { useContextKeys } from "../command/useContextKeys";
 import { useDiagnosticsStore } from "../diagnostics/useDiagnosticsStore";
 import { useWorkspaceStore } from "../filer/useWorkspaceStore";
 import { useRpc } from "../rpc/useRpc";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import { todoTitle, worktreeDisplayName } from "../todo/todo-utils";
+import TodoInlineEditor from "../todo/TodoInlineEditor.vue";
+import { useTodoEdit } from "../todo/useTodoEdit";
 import SidebarWorktreeItem from "./SidebarWorktreeItem.vue";
-import TodoIconPicker from "./TodoIconPicker.vue";
 
 const workspaceStore = useWorkspaceStore();
 const diagnosticsStore = useDiagnosticsStore();
@@ -120,23 +122,6 @@ useIntervalFn(() => {
   now.value = Date.now();
 }, 1000);
 
-/** Todo の body 一行目をタイトルとして取得 */
-function todoTitle(body: string): string {
-  const firstLine = body.split("\n")[0];
-  return firstLine ?? "";
-}
-
-/** worktree に Todo タイトルが設定されているか */
-function hasTodoTitle(wt: WorktreeEntry): boolean {
-  return wt.todo?.body ? todoTitle(wt.todo.body) !== "" : false;
-}
-
-/** worktree の表示名: Todo タイトルがあればそれ、なければブランチ名 */
-function worktreeDisplayName(wt: WorktreeEntry): string {
-  if (hasTodoTitle(wt)) return todoTitle(wt.todo!.body);
-  return wt.branch ?? "(detached)";
-}
-
 /** 現在表示中の worktree かどうか */
 function isActive(wt: WorktreeEntry): boolean {
   return workspaceStore.dir === wt.path;
@@ -207,94 +192,23 @@ function showAlert(message: string) {
   alertRef.value?.showModal();
 }
 
-/** IME 変換中でない Enter キーのみ発火するガード */
-function onEnterSubmit(e: KeyboardEvent, handler: () => void) {
-  // WKWebView では isComposing が false のまま keyCode 229 が送られる
-  const IME_KEYCODE = 229;
-  if (e.isComposing || e.keyCode === IME_KEYCODE || e.shiftKey) return;
-  e.preventDefault();
-  handler();
-}
+// --- Todo 編集 ---
 
-// --- Todo アイコン ---
-
-// --- Todo インライン編集 ---
-
-const editingTodoId = ref<string>();
-const editBody = ref("");
-const editIcon = ref<string>();
-/** 保存済みの body（アイコンのみ保存時に使用） */
-const savedBody = ref("");
-const editTextareaRefs = useTemplateRef<HTMLTextAreaElement[]>("editTextarea");
-
-function startEditing(todo: Todo) {
-  closeMenu();
-  editingTodoId.value = todo.id;
-  editBody.value = todo.body;
-  editIcon.value = todo.icon;
-  savedBody.value = todo.body;
-  nextTick(() => {
-    const [el] = editTextareaRefs.value ?? [];
-    el?.focus();
-  });
-}
-
-async function saveEdit(body: string): Promise<boolean> {
-  const id = editingTodoId.value;
-  if (!id) return false;
-  const result = await tryCatch(request.todoUpdate({ id, body, icon: editIcon.value }));
-  if (!result.ok) return false;
-  await fetchData();
-  return true;
-}
-
-/** アイコン変更時: 編集前の body とマージして保存 */
-function saveEditIcon() {
-  saveEdit(savedBody.value);
-}
-
-/** 保存ボタン / Enter: 編集中の body で保存してパネルを閉じる */
-async function submitEdit() {
-  if (!(await saveEdit(editBody.value))) return;
-  editingTodoId.value = undefined;
-}
-
-function cancelEdit() {
-  editingTodoId.value = undefined;
-}
-
-// --- 新規 Todo 作成 ---
-
-const isAddingTodo = ref(false);
-const newTodoBody = ref("");
-const newTodoIcon = ref<string>();
-const newTodoTextareaRef = ref<HTMLTextAreaElement>();
-
-function startAddingTodo() {
-  isAddingTodo.value = true;
-  newTodoBody.value = "";
-  newTodoIcon.value = undefined;
-  nextTick(() => {
-    newTodoTextareaRef.value?.focus();
-  });
-}
-
-async function saveNewTodo() {
-  if (!newTodoBody.value.trim()) {
-    isAddingTodo.value = false;
-    return;
-  }
-  const result = await tryCatch(
-    request.todoAdd({ body: newTodoBody.value, icon: newTodoIcon.value }),
-  );
-  if (!result.ok) return;
-  isAddingTodo.value = false;
-  await fetchData();
-}
-
-function cancelNewTodo() {
-  isAddingTodo.value = false;
-}
+const {
+  editingTodoId,
+  editBody,
+  editIcon,
+  startEditing,
+  submitEdit,
+  cancelEdit,
+  saveEditIcon,
+  isAddingTodo,
+  newTodoBody,
+  newTodoIcon,
+  startAddingTodo,
+  saveNewTodo,
+  cancelNewTodo,
+} = useTodoEdit({ request, fetchData });
 
 // --- データ取得 ---
 
@@ -530,31 +444,14 @@ onUnmounted(() => {
         />
 
         <!-- インライン Todo 編集 -->
-        <div v-if="wt.todo && editingTodoId === wt.todo.id" class="mx-2 mt-1 mb-2">
-          <TodoIconPicker v-model="editIcon" @update:model-value="saveEditIcon" />
-          <textarea
-            ref="editTextarea"
-            v-model="editBody"
-            class="w-full resize-none rounded-sm border border-zinc-600 bg-zinc-800 p-2 text-sm text-zinc-200 focus:border-blue-500 focus:outline-none"
-            rows="4"
-            @keydown.enter="onEnterSubmit($event, submitEdit)"
-            @keydown.escape="cancelEdit"
-          />
-          <div class="mt-1 flex justify-end gap-1">
-            <button
-              class="rounded-sm px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
-              @click="cancelEdit"
-            >
-              キャンセル
-            </button>
-            <button
-              class="rounded-sm bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500"
-              @click="submitEdit"
-            >
-              保存
-            </button>
-          </div>
-        </div>
+        <TodoInlineEditor
+          v-if="wt.todo && editingTodoId === wt.todo.id"
+          v-model:body="editBody"
+          v-model:icon="editIcon"
+          @update:icon="saveEditIcon"
+          @submit="submitEdit"
+          @cancel="cancelEdit"
+        />
       </div>
 
       <p v-if="worktrees.length === 0" class="py-2 pl-2 text-sm text-zinc-500">読み込み中...</p>
@@ -596,60 +493,25 @@ onUnmounted(() => {
         </div>
 
         <!-- インライン Todo 編集 -->
-        <div v-if="editingTodoId === todo.id" class="mx-2 mt-1 mb-2">
-          <TodoIconPicker v-model="editIcon" @update:model-value="saveEditIcon" />
-          <textarea
-            ref="editTextarea"
-            v-model="editBody"
-            class="w-full resize-none rounded-sm border border-zinc-600 bg-zinc-800 p-2 text-sm text-zinc-200 focus:border-blue-500 focus:outline-none"
-            rows="4"
-            @keydown.enter="onEnterSubmit($event, submitEdit)"
-            @keydown.escape="cancelEdit"
-          />
-          <div class="mt-1 flex justify-end gap-1">
-            <button
-              class="rounded-sm px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
-              @click="cancelEdit"
-            >
-              キャンセル
-            </button>
-            <button
-              class="rounded-sm bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500"
-              @click="submitEdit"
-            >
-              保存
-            </button>
-          </div>
-        </div>
+        <TodoInlineEditor
+          v-if="editingTodoId === todo.id"
+          v-model:body="editBody"
+          v-model:icon="editIcon"
+          @update:icon="saveEditIcon"
+          @submit="submitEdit"
+          @cancel="cancelEdit"
+        />
       </div>
 
       <!-- 新規 Todo 追加 -->
-      <div v-if="isAddingTodo" class="mx-2 mt-1">
-        <TodoIconPicker v-model="newTodoIcon" />
-        <textarea
-          ref="newTodoTextareaRef"
-          v-model="newTodoBody"
-          class="w-full resize-none rounded-sm border border-zinc-600 bg-zinc-800 p-2 text-sm text-zinc-200 focus:border-blue-500 focus:outline-none"
-          rows="4"
-          placeholder="First line becomes the title"
-          @keydown.enter="onEnterSubmit($event, saveNewTodo)"
-          @keydown.escape="cancelNewTodo"
-        />
-        <div class="mt-1 flex justify-end gap-1">
-          <button
-            class="rounded-sm px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
-            @click="cancelNewTodo"
-          >
-            キャンセル
-          </button>
-          <button
-            class="rounded-sm bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500"
-            @click="saveNewTodo"
-          >
-            保存
-          </button>
-        </div>
-      </div>
+      <TodoInlineEditor
+        v-if="isAddingTodo"
+        v-model:body="newTodoBody"
+        v-model:icon="newTodoIcon"
+        placeholder="First line becomes the title"
+        @submit="saveNewTodo"
+        @cancel="cancelNewTodo"
+      />
 
       <button
         v-if="!isAddingTodo"

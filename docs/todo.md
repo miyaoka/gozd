@@ -6,7 +6,7 @@ worktree の前段として作業計画を管理する。Todo と worktree を 1
 
 ```typescript
 interface Todo {
-  id: string; // nanoid
+  id: string; // UUID (crypto.randomUUID)
   body: string; // git commit 形式: 一行目=タイトル、残り=本文
   worktreeDir?: string; // 紐づいた worktree のパス（未着手なら undefined）
   createdAt: string; // ISO 8601

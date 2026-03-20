@@ -34,14 +34,17 @@ function ensureProjectDir(repoRoot: string): void {
   }
 }
 
-/** Todo 一覧を読み込む */
+/** Todo 一覧を読み込む（ファイル未作成なら空配列、それ以外のエラーは例外） */
 export function loadTodos(repoRoot: string): Todo[] {
   const content = tryCatch(() => fs.readFileSync(getTodosPath(repoRoot), "utf-8"));
-  if (!content.ok) return [];
-  const parsed = tryCatch(() => JSON.parse(content.value) as unknown);
-  if (!parsed.ok) return [];
-  if (!Array.isArray(parsed.value)) return [];
-  return parsed.value.filter(isValidTodo);
+  if (!content.ok) {
+    // ファイルが存在しない場合のみ空配列を返す
+    if ((content.error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw content.error;
+  }
+  const parsed = JSON.parse(content.value) as unknown;
+  if (!Array.isArray(parsed)) throw new Error("todos.json is not an array");
+  return parsed.filter(isValidTodo);
 }
 
 /** Todo 一覧を保存する（失敗時は例外を投げる） */

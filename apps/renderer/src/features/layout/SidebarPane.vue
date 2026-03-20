@@ -201,7 +201,8 @@ async function saveNewTodo() {
     isAddingTodo.value = false;
     return;
   }
-  await tryCatch(request.todoAdd({ body: newTodoBody.value }));
+  const result = await tryCatch(request.todoAdd({ body: newTodoBody.value }));
+  if (!result.ok) return;
   isAddingTodo.value = false;
   await fetchData();
 }
@@ -302,7 +303,8 @@ async function handleTodoStart(todo: Todo) {
 
 async function handleTodoRemove(todo: Todo) {
   closeMenu();
-  await tryCatch(request.todoRemove({ id: todo.id }));
+  const result = await tryCatch(request.todoRemove({ id: todo.id }));
+  if (!result.ok) return;
   pendingTodos.value = pendingTodos.value.filter((t) => t.id !== todo.id);
 }
 
@@ -351,8 +353,8 @@ onUnmounted(() => {
     <!-- ROOT -->
     <div v-if="rootWorktree" class="flex flex-col">
       <h2 class="mb-1 text-xs font-medium text-zinc-500">ROOT</h2>
-      <div
-        class="grid cursor-pointer grid-cols-[auto_1fr] gap-x-2 rounded-sm py-1.5 pl-2"
+      <button
+        class="grid w-full grid-cols-[auto_1fr] gap-x-2 rounded-sm py-1.5 pl-2 text-left"
         :class="isActive(rootWorktree) ? 'bg-zinc-700/50' : 'hover:bg-zinc-800'"
         @click="handleWorktreeSelect(rootWorktree)"
       >
@@ -390,7 +392,7 @@ onUnmounted(() => {
             </span>
           </span>
         </span>
-      </div>
+      </button>
     </div>
 
     <!-- WORKTREES -->
@@ -410,9 +412,12 @@ onUnmounted(() => {
 
       <div v-for="(wt, i) in nonMainWorktrees" :key="wt.path">
         <div
-          class="group/wt relative grid cursor-pointer grid-cols-[auto_1fr_auto] gap-x-2 rounded-sm py-1.5 pl-2"
+          role="button"
+          tabindex="0"
+          class="group/wt relative grid grid-cols-[auto_1fr_auto] gap-x-2 rounded-sm py-1.5 pl-2"
           :class="isActive(wt) ? 'bg-zinc-700/50' : 'hover:bg-zinc-800'"
           @click="handleWorktreeSelect(wt)"
+          @keydown.enter="handleWorktreeSelect(wt)"
         >
           <span class="row-span-2 mt-0.5 icon-[lucide--git-branch] text-base text-zinc-400" />
           <span
@@ -429,6 +434,7 @@ onUnmounted(() => {
           </span>
           <!-- ⋮ メニューボタン -->
           <button
+            aria-label="メニュー"
             class="row-span-2 grid size-6 place-items-center self-center rounded-sm text-zinc-600 opacity-0 transition-opacity group-focus-within/wt:opacity-100 group-hover/wt:opacity-100 hover:text-zinc-300"
             :style="{ anchorName: `--wt-menu-${i}` }"
             @click.stop="
@@ -527,8 +533,11 @@ onUnmounted(() => {
 
       <div v-for="(todo, i) in pendingTodos" :key="todo.id">
         <div
-          class="group/td grid cursor-pointer grid-cols-[auto_1fr_auto] gap-x-2 rounded-sm py-1.5 pl-2 hover:bg-zinc-800"
+          role="button"
+          tabindex="0"
+          class="group/td grid grid-cols-[auto_1fr_auto] gap-x-2 rounded-sm py-1.5 pl-2 hover:bg-zinc-800"
           @click="editingTodoId === todo.id ? cancelEdit() : startEditing(todo)"
+          @keydown.enter="editingTodoId === todo.id ? cancelEdit() : startEditing(todo)"
         >
           <span class="mt-0.5 icon-[lucide--square] text-base text-zinc-600" />
           <span class="truncate text-sm text-zinc-400">
@@ -536,6 +545,7 @@ onUnmounted(() => {
           </span>
           <!-- ⋮ メニューボタン -->
           <button
+            aria-label="メニュー"
             class="grid size-6 place-items-center self-center rounded-sm text-zinc-600 opacity-0 transition-opacity group-focus-within/td:opacity-100 group-hover/td:opacity-100 hover:text-zinc-300"
             :style="{ anchorName: `--todo-menu-${i}` }"
             @click.stop="openMenu(`--todo-menu-${i}`, { type: 'todo', todo })"
@@ -620,6 +630,7 @@ onUnmounted(() => {
         <span class="icon-[lucide--git-branch] text-base" />
         <span class="truncate">{{ branch }}</span>
         <button
+          aria-label="メニュー"
           class="grid size-6 place-items-center self-center rounded-sm text-zinc-600 opacity-0 transition-opacity group-focus-within/br:opacity-100 group-hover/br:opacity-100 hover:text-zinc-300"
           :style="{ anchorName: `--br-menu-${i}` }"
           @click.stop="openMenu(`--br-menu-${i}`, { type: 'branch', branch })"

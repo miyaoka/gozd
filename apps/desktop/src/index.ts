@@ -979,8 +979,10 @@ function openWindow(dir: string, options?: OpenWindowOptions): void {
   if (existing) {
     const existingId = windowIds.get(existing) ?? "";
     const currentDir = windowDirs.get(existing) ?? dir;
-    // file が指定されている場合はそのファイルの worktree を解決
-    const targetDir = file ? resolveWorktreeRoot(path.dirname(file)) : currentDir;
+    // file → そのファイルの worktree、initialActiveDir → 指定された worktree、なければ現在の worktree を維持
+    const targetDir = file
+      ? resolveWorktreeRoot(path.dirname(file))
+      : (initialActiveDir ?? currentDir);
     const relativeFile = file ? path.relative(targetDir, file) : undefined;
     // 表示中の worktree と異なる場合は switchToDir で切り替えを指示
     const switchToDir = targetDir !== currentDir ? targetDir : undefined;

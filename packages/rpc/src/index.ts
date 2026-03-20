@@ -77,7 +77,8 @@ export const todoSchema = z.object({
   icon: z
     .string()
     .refine((s) => todoIconSet.has(s))
-    .optional(),
+    .optional()
+    .catch(undefined),
   worktreeDir: z.string().optional(),
   createdAt: z.string(),
 });

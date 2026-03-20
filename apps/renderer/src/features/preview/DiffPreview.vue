@@ -41,6 +41,12 @@ const diffResult = computed<DiffLine[]>(() => {
   return lines;
 });
 
+/** diff 結果の最大行番号から桁数を算出 */
+const lineNoWidth = computed(() => {
+  const maxLine = Math.max(props.original.split("\n").length, props.current.split("\n").length);
+  return `${String(maxLine).length}ch`;
+});
+
 const LINE_TYPE_CLASSES: Record<DiffLine["type"], string> = {
   added: "text-green-400 bg-green-400/10",
   removed: "text-red-400 bg-red-400/10",
@@ -49,7 +55,7 @@ const LINE_TYPE_CLASSES: Record<DiffLine["type"], string> = {
 </script>
 
 <template>
-  <div class="p-4 text-sm/tight">
+  <div class="p-4 text-sm/tight" :style="{ '--line-no-width': lineNoWidth }">
     <div
       v-for="(line, i) in diffResult"
       :key="i"
@@ -70,7 +76,7 @@ const LINE_TYPE_CLASSES: Record<DiffLine["type"], string> = {
 
 ._line-no {
   display: inline-block;
-  width: 3ch;
+  width: var(--line-no-width, 3ch);
   flex-shrink: 0;
   text-align: right;
   color: var(--color-zinc-600);

@@ -136,6 +136,8 @@ let fetchVersion = 0;
 async function fetchContent(path: string, gitChange: GitChangeKind | undefined) {
   loading.value = true;
   error.value = undefined;
+  isDirectory.value = false;
+  isNotFound.value = false;
 
   const version = ++fetchVersion;
   fetchVersionRef.value = version;

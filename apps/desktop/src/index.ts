@@ -84,6 +84,20 @@ const GIT_WATCH_POLL_MS = 500;
 /** Claude Code に --settings で渡す hooks 設定ファイルのパス */
 const CLAUDE_SETTINGS_PATH = path.join(tmpdir(), `orkis-${channel}-claude-settings.json`);
 
+/**
+ * orkis CLI の実行コマンド。
+ * - dev: ソースから直接実行（.app に CLI がバンドルされないため）
+ * - build: .app 内のバンドル済み CLI を使用
+ */
+const ORKIS_CLI_PATH = (() => {
+  if (channel === "dev") {
+    const projectRoot = process.env.ORKIS_PROJECT_ROOT;
+    if (projectRoot === undefined) throw new Error("ORKIS_PROJECT_ROOT is required in dev mode");
+    return `bun ${path.join(projectRoot, "apps/cli/src/index.ts")}`;
+  }
+  return path.resolve(import.meta.dir, "../bin/orkis");
+})();
+
 generateClaudeSettings(CLAUDE_SETTINGS_PATH);
 
 // --- PTY 管理 ---
@@ -126,6 +140,8 @@ function spawnPty(win: OrkisWindow, cwd: string, cols: number, rows: number): nu
       ORKIS_CLAUDE_SETTINGS_PATH: CLAUDE_SETTINGS_PATH,
       // CLI が接続するソケットパス（dev/stable でパスが異なる）
       ORKIS_SOCKET_PATH: SOCKET_PATH,
+      // hooks コマンドが使う CLI の絶対パス
+      ORKIS_CLI_PATH,
     },
     terminal: {
       cols,

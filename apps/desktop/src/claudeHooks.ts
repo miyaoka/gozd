@@ -8,7 +8,7 @@ export function generateClaudeSettings(settingsPath: string): void {
     `echo '{"type":"hook","event":"${event}","payload":{"ptyId":'"$ORKIS_PTY_ID"'}}' | nc -w 1 -U "$ORKIS_SOCKET_PATH"`;
 
   /** CLI 経由で stdin の JSON をパースして送信（stdin データが必要なイベント用） */
-  const hookCommandViaCli = (event: string) => `orkis hook ${event}`;
+  const hookCommandViaCli = (event: string) => `$ORKIS_CLI_PATH hook ${event}`;
 
   const settings = {
     hooks: {

@@ -30,6 +30,7 @@ import {
 import { generateClaudeSettings } from "./claudeHooks";
 import { getShellEnv } from "./shellEnv";
 import { loadAppState, saveSnapshot, getDefaultFrame } from "./appState";
+import { loadConfig, saveConfig } from "./config";
 import type { WindowFrame, WindowState } from "./appState";
 import {
   loadTodos,
@@ -720,6 +721,27 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): OrkisW
           entry.todo = todo;
           void syncWorktreeWatchers(win, projectDir, currentDir);
           return { todo, worktree: entry };
+        },
+        configLoad: () => loadConfig(),
+        configSave: (config) => saveConfig(config),
+        voicevoxLaunch: async () => {
+          // mdfind で VOICEVOX.app を検索（/Applications, ~/Applications, カスタム場所に対応）
+          const mdfind = Bun.spawn(
+            ["mdfind", "kMDItemCFBundleIdentifier == 'jp.hiroshiba.voicevox'"],
+            { stdout: "pipe", stderr: "ignore" },
+          );
+          const output = await new Response(mdfind.stdout).text();
+          await mdfind.exited;
+          const [appPath] = output.trim().split("\n");
+          if (!appPath) return false;
+          const enginePath = path.join(appPath, "Contents/Resources/vv-engine/run");
+          if (!fs.existsSync(enginePath)) return false;
+          // Engine だけをバックグラウンドで起動（GUI なし）
+          Bun.spawn([enginePath], {
+            stdout: "ignore",
+            stderr: "ignore",
+          });
+          return true;
         },
         switchDir: async ({ dir: targetDir }) => {
           // バリデーション: worktree list に含まれるパスのみ許可

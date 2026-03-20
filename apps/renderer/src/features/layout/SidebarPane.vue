@@ -31,12 +31,14 @@ import { useDiagnosticsStore } from "../diagnostics/useDiagnosticsStore";
 import { useWorkspaceStore } from "../filer/useWorkspaceStore";
 import { useRpc } from "../rpc/useRpc";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import { useVoicevoxStore } from "../voicevox/useVoicevoxStore";
 import SidebarWorktreeItem from "./SidebarWorktreeItem.vue";
 import TodoIconPicker from "./TodoIconPicker.vue";
 
 const workspaceStore = useWorkspaceStore();
 const diagnosticsStore = useDiagnosticsStore();
 const terminalStore = useTerminalStore();
+const voicevoxStore = useVoicevoxStore();
 const { request, onGitStatusChange, onWorktreeChange } = useRpc();
 
 const worktrees = ref<WorktreeEntry[]>([]);
@@ -366,13 +368,13 @@ async function handleWorktreeRemove(wt: WorktreeEntry) {
     return;
   }
   showConfirm(
-    `"${worktreeDisplayName(wt)}" の解除に失敗しました（未コミットの変更がある可能性があります）。強制的に解除しますか？`,
+    `Failed to remove "${worktreeDisplayName(wt)}" (may have uncommitted changes). Force remove?`,
     async () => {
       const forceResult = await tryCatch(request.gitWorktreeRemove({ path: wt.path, force: true }));
       if (forceResult.ok) {
         removeFromList(wt);
       } else {
-        showAlert(`"${worktreeDisplayName(wt)}" の強制解除に失敗しました。`);
+        showAlert(`Failed to force remove "${worktreeDisplayName(wt)}".`);
       }
     },
   );
@@ -432,6 +434,15 @@ watch(
   { immediate: true },
 );
 
+// --- VOICEVOX ---
+
+async function handleVoicevoxActivate() {
+  const errorMessage = await voicevoxStore.activate();
+  if (errorMessage) {
+    showAlert(errorMessage);
+  }
+}
+
 const cleanups: Array<() => void> = [];
 onMounted(() => {
   cleanups.push(onGitStatusChange(() => fetchData()));
@@ -443,341 +454,407 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex size-full flex-col p-4">
-    <h1 class="mb-4 flex items-center text-lg font-bold" :title="workspaceStore.repoName">
-      <span class="mr-2 icon-[lucide--bot] shrink-0 align-middle text-blue-400" />
-      <input
-        aria-label="Project name"
-        class="min-w-0 flex-1 truncate bg-transparent outline-none"
-        :value="workspaceStore.repoName ?? 'orkis'"
-        @input="workspaceStore.repoName = ($event.target as HTMLInputElement).value"
-      />
-    </h1>
+  <div class="flex size-full flex-col">
+    <div class="flex-1 overflow-y-auto p-4">
+      <h1 class="mb-4 flex items-center text-lg font-bold" :title="workspaceStore.repoName">
+        <span class="mr-2 icon-[lucide--bot] shrink-0 align-middle text-blue-400" />
+        <input
+          aria-label="Project name"
+          class="min-w-0 flex-1 truncate bg-transparent outline-none"
+          :value="workspaceStore.repoName ?? 'orkis'"
+          @input="workspaceStore.repoName = ($event.target as HTMLInputElement).value"
+        />
+      </h1>
 
-    <!-- ROOT -->
-    <div v-if="rootWorktree" class="flex flex-col">
-      <h2 class="mb-1 text-xs font-medium text-zinc-500">ROOT</h2>
-      <button
-        class="grid w-full grid-cols-[auto_1fr] gap-x-2 rounded-sm py-1.5 pl-2 text-left"
-        :class="isActive(rootWorktree) ? 'bg-zinc-700/50' : 'hover:bg-zinc-800'"
-        @click="handleWorktreeSelect(rootWorktree)"
-      >
-        <span class="row-span-2 mt-0.5 icon-[lucide--home] text-base text-zinc-500" />
-        <span
-          class="truncate text-sm"
-          :class="isActive(rootWorktree) ? 'font-medium text-blue-300' : 'text-zinc-400'"
+      <!-- ROOT -->
+      <div v-if="rootWorktree" class="flex flex-col">
+        <h2 class="mb-1 text-xs font-medium text-zinc-500">ROOT</h2>
+        <button
+          class="grid w-full grid-cols-[auto_1fr] gap-x-2 rounded-sm py-1.5 pl-2 text-left"
+          :class="isActive(rootWorktree) ? 'bg-zinc-700/50' : 'hover:bg-zinc-800'"
+          @click="handleWorktreeSelect(rootWorktree)"
         >
-          {{ rootWorktree.branch ?? "(detached)" }}
-        </span>
-        <span class="flex min-h-5 items-center gap-2 text-xs">
+          <span class="row-span-2 mt-0.5 icon-[lucide--home] text-base text-zinc-500" />
           <span
-            v-if="rootWorktree.changeCounts && hasChanges(rootWorktree.changeCounts)"
-            class="flex items-center gap-1.5"
+            class="truncate text-sm"
+            :class="isActive(rootWorktree) ? 'font-medium text-blue-300' : 'text-zinc-400'"
           >
-            <span v-if="rootWorktree.changeCounts.modified > 0" class="text-yellow-500">
-              <span class="mr-0.5 icon-[lucide--pencil] align-middle text-[10px]" />{{
-                rootWorktree.changeCounts.modified
-              }}
-            </span>
-            <span v-if="rootWorktree.changeCounts.added > 0" class="text-green-500">
-              <span class="mr-0.5 icon-[lucide--plus] align-middle text-[10px]" />{{
-                rootWorktree.changeCounts.added
-              }}
-            </span>
-            <span v-if="rootWorktree.changeCounts.deleted > 0" class="text-red-500">
-              <span class="mr-0.5 icon-[lucide--minus] align-middle text-[10px]" />{{
-                rootWorktree.changeCounts.deleted
-              }}
-            </span>
-            <span v-if="rootWorktree.changeCounts.untracked > 0" class="text-zinc-400">
-              <span class="mr-0.5 icon-[lucide--help-circle] align-middle text-[10px]" />{{
-                rootWorktree.changeCounts.untracked
-              }}
+            {{ rootWorktree.branch ?? "(detached)" }}
+          </span>
+          <span class="flex min-h-5 items-center gap-2 text-xs">
+            <span
+              v-if="rootWorktree.changeCounts && hasChanges(rootWorktree.changeCounts)"
+              class="flex items-center gap-1.5"
+            >
+              <span v-if="rootWorktree.changeCounts.modified > 0" class="text-yellow-500">
+                <span class="mr-0.5 icon-[lucide--pencil] align-middle text-[10px]" />{{
+                  rootWorktree.changeCounts.modified
+                }}
+              </span>
+              <span v-if="rootWorktree.changeCounts.added > 0" class="text-green-500">
+                <span class="mr-0.5 icon-[lucide--plus] align-middle text-[10px]" />{{
+                  rootWorktree.changeCounts.added
+                }}
+              </span>
+              <span v-if="rootWorktree.changeCounts.deleted > 0" class="text-red-500">
+                <span class="mr-0.5 icon-[lucide--minus] align-middle text-[10px]" />{{
+                  rootWorktree.changeCounts.deleted
+                }}
+              </span>
+              <span v-if="rootWorktree.changeCounts.untracked > 0" class="text-zinc-400">
+                <span class="mr-0.5 icon-[lucide--help-circle] align-middle text-[10px]" />{{
+                  rootWorktree.changeCounts.untracked
+                }}
+              </span>
             </span>
           </span>
-        </span>
-      </button>
-    </div>
-
-    <!-- WORKTREES -->
-    <div class="mt-4 flex flex-col">
-      <div class="mb-1 flex items-center justify-between">
-        <h2 class="text-xs font-medium text-zinc-500">WORKTREES</h2>
-        <button
-          type="button"
-          class="grid size-6 place-items-center rounded-sm text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-          :class="terminalStore.showAll && 'bg-zinc-700 text-zinc-200'"
-          title="Show all worktree terminals"
-          @click="terminalStore.showAll = !terminalStore.showAll"
-        >
-          <span class="icon-[lucide--layout-grid] text-sm" />
         </button>
       </div>
 
-      <div v-for="(wt, i) in nonMainWorktrees" :key="wt.path">
-        <SidebarWorktreeItem
-          :wt="wt"
-          :active="isActive(wt)"
-          :claude-statuses="terminalStore.getClaudeStatusesByDir(wt.path)"
-          :now="now"
-          :anchor-name="`--wt-menu-${i}`"
-          :ctrl-pressed="ctrlPressed"
-          :index="i"
-          @select="handleWorktreeSelect"
-          @open-menu="
-            (anchorName, w) => openMenu(anchorName, { type: 'worktree', worktree: w, todo: w.todo })
-          "
-        />
+      <!-- WORKTREES -->
+      <div class="mt-4 flex flex-col">
+        <div class="mb-1 flex items-center justify-between">
+          <h2 class="text-xs font-medium text-zinc-500">WORKTREES</h2>
+          <button
+            type="button"
+            class="grid size-6 place-items-center rounded-sm text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+            :class="terminalStore.showAll && 'bg-zinc-700 text-zinc-200'"
+            title="Show all worktree terminals"
+            @click="terminalStore.showAll = !terminalStore.showAll"
+          >
+            <span class="icon-[lucide--layout-grid] text-sm" />
+          </button>
+        </div>
 
-        <!-- インライン Todo 編集 -->
-        <div v-if="wt.todo && editingTodoId === wt.todo.id" class="mx-2 mt-1 mb-2">
-          <TodoIconPicker v-model="editIcon" @update:model-value="saveEditIcon" />
+        <div v-for="(wt, i) in nonMainWorktrees" :key="wt.path">
+          <SidebarWorktreeItem
+            :wt="wt"
+            :active="isActive(wt)"
+            :claude-statuses="terminalStore.getClaudeStatusesByDir(wt.path)"
+            :now="now"
+            :anchor-name="`--wt-menu-${i}`"
+            :ctrl-pressed="ctrlPressed"
+            :index="i"
+            @select="handleWorktreeSelect"
+            @open-menu="
+              (anchorName, w) =>
+                openMenu(anchorName, { type: 'worktree', worktree: w, todo: w.todo })
+            "
+          />
+
+          <!-- インライン Todo 編集 -->
+          <div v-if="wt.todo && editingTodoId === wt.todo.id" class="mx-2 mt-1 mb-2">
+            <TodoIconPicker v-model="editIcon" @update:model-value="saveEditIcon" />
+            <textarea
+              ref="editTextarea"
+              v-model="editBody"
+              class="w-full resize-none rounded-sm border border-zinc-600 bg-zinc-800 p-2 text-sm text-zinc-200 focus:border-blue-500 focus:outline-none"
+              rows="4"
+              @keydown.enter="onEnterSubmit($event, submitEdit)"
+              @keydown.escape="cancelEdit"
+            />
+            <div class="mt-1 flex justify-end gap-1">
+              <button
+                class="rounded-sm px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
+                @click="cancelEdit"
+              >
+                Cancel
+              </button>
+              <button
+                class="rounded-sm bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500"
+                @click="submitEdit"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <p v-if="worktrees.length === 0" class="py-2 pl-2 text-sm text-zinc-500">Loading...</p>
+
+        <button
+          class="mt-1 grid grid-cols-[auto_1fr] gap-x-2 rounded-sm py-1.5 pl-2 text-left text-sm text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+          :disabled="isCreating"
+          @click="addWorktree()"
+        >
+          <span class="icon-[lucide--plus] text-base" />
+          <span>New worktree</span>
+        </button>
+      </div>
+
+      <!-- TODOS -->
+      <div class="mt-4 flex flex-col">
+        <h2 class="mb-1 text-xs font-medium text-zinc-500">TODOS</h2>
+
+        <div v-for="(todo, i) in pendingTodos" :key="todo.id">
+          <div
+            class="group/td relative grid grid-cols-[auto_1fr_auto] gap-x-2 rounded-sm py-1.5 pl-2 hover:bg-zinc-800"
+          >
+            <span class="mt-0.5 text-base text-zinc-600">{{ todo.icon || "☐" }}</span>
+            <button
+              class="truncate text-left text-sm text-zinc-400 after:absolute after:inset-0"
+              @click="editingTodoId === todo.id ? cancelEdit() : startEditing(todo)"
+            >
+              {{ todoTitle(todo.body) || "(untitled)" }}
+            </button>
+            <!-- ⋮ メニューボタン -->
+            <button
+              aria-label="Menu"
+              class="relative z-10 grid size-6 place-items-center self-center rounded-sm text-zinc-600 opacity-0 transition-opacity group-focus-within/td:opacity-100 group-hover/td:opacity-100 hover:text-zinc-300"
+              :style="{ anchorName: `--todo-menu-${i}` }"
+              @click="openMenu(`--todo-menu-${i}`, { type: 'todo', todo })"
+            >
+              <span class="icon-[lucide--ellipsis-vertical] text-sm" />
+            </button>
+          </div>
+
+          <!-- インライン Todo 編集 -->
+          <div v-if="editingTodoId === todo.id" class="mx-2 mt-1 mb-2">
+            <TodoIconPicker v-model="editIcon" @update:model-value="saveEditIcon" />
+            <textarea
+              ref="editTextarea"
+              v-model="editBody"
+              class="w-full resize-none rounded-sm border border-zinc-600 bg-zinc-800 p-2 text-sm text-zinc-200 focus:border-blue-500 focus:outline-none"
+              rows="4"
+              @keydown.enter="onEnterSubmit($event, submitEdit)"
+              @keydown.escape="cancelEdit"
+            />
+            <div class="mt-1 flex justify-end gap-1">
+              <button
+                class="rounded-sm px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
+                @click="cancelEdit"
+              >
+                Cancel
+              </button>
+              <button
+                class="rounded-sm bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500"
+                @click="submitEdit"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 新規 Todo 追加 -->
+        <div v-if="isAddingTodo" class="mx-2 mt-1">
+          <TodoIconPicker v-model="newTodoIcon" />
           <textarea
-            ref="editTextarea"
-            v-model="editBody"
+            ref="newTodoTextareaRef"
+            v-model="newTodoBody"
             class="w-full resize-none rounded-sm border border-zinc-600 bg-zinc-800 p-2 text-sm text-zinc-200 focus:border-blue-500 focus:outline-none"
             rows="4"
-            @keydown.enter="onEnterSubmit($event, submitEdit)"
-            @keydown.escape="cancelEdit"
+            placeholder="First line becomes the title"
+            @keydown.enter="onEnterSubmit($event, saveNewTodo)"
+            @keydown.escape="cancelNewTodo"
           />
           <div class="mt-1 flex justify-end gap-1">
             <button
               class="rounded-sm px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
-              @click="cancelEdit"
+              @click="cancelNewTodo"
             >
-              キャンセル
+              Cancel
             </button>
             <button
               class="rounded-sm bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500"
-              @click="submitEdit"
+              @click="saveNewTodo"
             >
-              保存
+              Save
             </button>
           </div>
         </div>
+
+        <button
+          v-if="!isAddingTodo"
+          class="mt-1 grid grid-cols-[auto_1fr] gap-x-2 rounded-sm py-1.5 pl-2 text-left text-sm text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+          @click="startAddingTodo"
+        >
+          <span class="icon-[lucide--plus] text-base" />
+          <span>New todo</span>
+        </button>
       </div>
 
-      <p v-if="worktrees.length === 0" class="py-2 pl-2 text-sm text-zinc-500">読み込み中...</p>
+      <!-- BRANCHES -->
+      <div v-if="sortedBranches.length > 0" class="mt-4 flex flex-col">
+        <h2 class="mb-1 text-xs font-medium text-zinc-500">BRANCHES</h2>
 
-      <button
-        class="mt-1 grid grid-cols-[auto_1fr] gap-x-2 rounded-sm py-1.5 pl-2 text-left text-sm text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-        :disabled="isCreating"
-        @click="addWorktree()"
-      >
-        <span class="icon-[lucide--plus] text-base" />
-        <span>New worktree</span>
-      </button>
-    </div>
-
-    <!-- TODOS -->
-    <div class="mt-4 flex flex-col">
-      <h2 class="mb-1 text-xs font-medium text-zinc-500">TODOS</h2>
-
-      <div v-for="(todo, i) in pendingTodos" :key="todo.id">
         <div
-          class="group/td relative grid grid-cols-[auto_1fr_auto] gap-x-2 rounded-sm py-1.5 pl-2 hover:bg-zinc-800"
+          v-for="(branch, i) in sortedBranches"
+          :key="branch"
+          class="group/br grid grid-cols-[auto_1fr_auto] gap-x-2 rounded-sm py-1.5 pl-2 text-sm text-zinc-500 hover:bg-zinc-800"
         >
-          <span class="mt-0.5 text-base text-zinc-600">{{ todo.icon || "☐" }}</span>
-          <button
-            class="truncate text-left text-sm text-zinc-400 after:absolute after:inset-0"
-            @click="editingTodoId === todo.id ? cancelEdit() : startEditing(todo)"
-          >
-            {{ todoTitle(todo.body) || "(未入力)" }}
-          </button>
-          <!-- ⋮ メニューボタン -->
+          <span class="icon-[lucide--git-branch] text-base" />
+          <span class="truncate">{{ branch }}</span>
           <button
             aria-label="Menu"
-            class="relative z-10 grid size-6 place-items-center self-center rounded-sm text-zinc-600 opacity-0 transition-opacity group-focus-within/td:opacity-100 group-hover/td:opacity-100 hover:text-zinc-300"
-            :style="{ anchorName: `--todo-menu-${i}` }"
-            @click="openMenu(`--todo-menu-${i}`, { type: 'todo', todo })"
+            class="grid size-6 place-items-center self-center rounded-sm text-zinc-600 opacity-0 transition-opacity group-focus-within/br:opacity-100 group-hover/br:opacity-100 hover:text-zinc-300"
+            :style="{ anchorName: `--br-menu-${i}` }"
+            @click.stop="openMenu(`--br-menu-${i}`, { type: 'branch', branch })"
           >
             <span class="icon-[lucide--ellipsis-vertical] text-sm" />
           </button>
         </div>
-
-        <!-- インライン Todo 編集 -->
-        <div v-if="editingTodoId === todo.id" class="mx-2 mt-1 mb-2">
-          <TodoIconPicker v-model="editIcon" @update:model-value="saveEditIcon" />
-          <textarea
-            ref="editTextarea"
-            v-model="editBody"
-            class="w-full resize-none rounded-sm border border-zinc-600 bg-zinc-800 p-2 text-sm text-zinc-200 focus:border-blue-500 focus:outline-none"
-            rows="4"
-            @keydown.enter="onEnterSubmit($event, submitEdit)"
-            @keydown.escape="cancelEdit"
-          />
-          <div class="mt-1 flex justify-end gap-1">
-            <button
-              class="rounded-sm px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
-              @click="cancelEdit"
-            >
-              キャンセル
-            </button>
-            <button
-              class="rounded-sm bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500"
-              @click="submitEdit"
-            >
-              保存
-            </button>
-          </div>
-        </div>
       </div>
 
-      <!-- 新規 Todo 追加 -->
-      <div v-if="isAddingTodo" class="mx-2 mt-1">
-        <TodoIconPicker v-model="newTodoIcon" />
-        <textarea
-          ref="newTodoTextareaRef"
-          v-model="newTodoBody"
-          class="w-full resize-none rounded-sm border border-zinc-600 bg-zinc-800 p-2 text-sm text-zinc-200 focus:border-blue-500 focus:outline-none"
-          rows="4"
-          placeholder="First line becomes the title"
-          @keydown.enter="onEnterSubmit($event, saveNewTodo)"
-          @keydown.escape="cancelNewTodo"
-        />
-        <div class="mt-1 flex justify-end gap-1">
-          <button
-            class="rounded-sm px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
-            @click="cancelNewTodo"
-          >
-            キャンセル
-          </button>
-          <button
-            class="rounded-sm bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500"
-            @click="saveNewTodo"
-          >
-            保存
-          </button>
-        </div>
-      </div>
-
-      <button
-        v-if="!isAddingTodo"
-        class="mt-1 grid grid-cols-[auto_1fr] gap-x-2 rounded-sm py-1.5 pl-2 text-left text-sm text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-        @click="startAddingTodo"
-      >
-        <span class="icon-[lucide--plus] text-base" />
-        <span>New todo</span>
-      </button>
-    </div>
-
-    <!-- BRANCHES -->
-    <div v-if="sortedBranches.length > 0" class="mt-4 flex flex-col">
-      <h2 class="mb-1 text-xs font-medium text-zinc-500">BRANCHES</h2>
-
+      <!-- 共有 ⋮ ポップオーバーメニュー -->
       <div
-        v-for="(branch, i) in sortedBranches"
-        :key="branch"
-        class="group/br grid grid-cols-[auto_1fr_auto] gap-x-2 rounded-sm py-1.5 pl-2 text-sm text-zinc-500 hover:bg-zinc-800"
+        ref="menuRef"
+        popover="auto"
+        class="m-0 min-w-36 rounded-lg border border-zinc-700 bg-zinc-900 py-1 text-sm text-zinc-200 shadow-lg"
+        :style="{
+          positionAnchor: activeAnchorName,
+          top: 'anchor(bottom)',
+          left: 'anchor(left)',
+        }"
       >
-        <span class="icon-[lucide--git-branch] text-base" />
-        <span class="truncate">{{ branch }}</span>
-        <button
-          aria-label="Menu"
-          class="grid size-6 place-items-center self-center rounded-sm text-zinc-600 opacity-0 transition-opacity group-focus-within/br:opacity-100 group-hover/br:opacity-100 hover:text-zinc-300"
-          :style="{ anchorName: `--br-menu-${i}` }"
-          @click.stop="openMenu(`--br-menu-${i}`, { type: 'branch', branch })"
-        >
-          <span class="icon-[lucide--ellipsis-vertical] text-sm" />
-        </button>
+        <template v-if="menuContext?.type === 'worktree' && menuContext.worktree">
+          <button
+            class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800"
+            @click="handleWorktreeEditTodo(menuContext.worktree)"
+          >
+            <span class="icon-[lucide--pencil] text-xs" />
+            Edit todo
+          </button>
+          <button
+            class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-400 hover:bg-zinc-800"
+            @click="handleWorktreeRemove(menuContext.worktree)"
+          >
+            <span class="icon-[lucide--unlink] text-xs" />
+            Remove worktree
+          </button>
+        </template>
+        <template v-else-if="menuContext?.type === 'todo' && menuContext.todo">
+          <button
+            class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800"
+            :disabled="isCreating"
+            @click="handleTodoStart(menuContext.todo)"
+          >
+            <span class="icon-[lucide--play] text-xs" />
+            Create worktree
+          </button>
+          <button
+            class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-400 hover:bg-zinc-800"
+            @click="handleTodoRemove(menuContext.todo)"
+          >
+            <span class="icon-[lucide--trash-2] text-xs" />
+            Delete todo
+          </button>
+        </template>
+        <template v-else-if="menuContext?.type === 'branch' && menuContext.branch">
+          <button
+            class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800"
+            :disabled="isCreating"
+            @click="handleBranchLink(menuContext.branch)"
+          >
+            <span class="icon-[lucide--link] text-xs" />
+            Create worktree
+          </button>
+        </template>
       </div>
+
+      <!-- 確認ダイアログ -->
+      <dialog
+        ref="confirmRef"
+        class="fixed inset-0 m-auto size-fit rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-white backdrop:bg-black/50"
+        @click="$event.target === confirmRef && closeConfirm()"
+      >
+        <p class="mb-4 text-sm">{{ confirmMessage }}</p>
+        <div class="flex justify-end gap-2">
+          <button
+            class="rounded-sm px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800"
+            @click="closeConfirm"
+          >
+            Cancel
+          </button>
+          <button
+            class="rounded-sm bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500"
+            @click="executeConfirm"
+          >
+            Remove
+          </button>
+        </div>
+      </dialog>
+
+      <!-- 通知ダイアログ -->
+      <dialog
+        ref="alertRef"
+        class="fixed inset-0 m-auto size-fit rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-white backdrop:bg-black/50"
+        @click="$event.target === alertRef && alertRef?.close()"
+      >
+        <p class="mb-4 text-sm">{{ alertMessage }}</p>
+        <div class="flex justify-end">
+          <button
+            class="rounded-sm px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800"
+            @click="alertRef?.close()"
+          >
+            Close
+          </button>
+        </div>
+      </dialog>
     </div>
 
-    <!-- 共有 ⋮ ポップオーバーメニュー -->
-    <div
-      ref="menuRef"
-      popover="auto"
-      class="m-0 min-w-36 rounded-lg border border-zinc-700 bg-zinc-900 py-1 text-sm text-zinc-200 shadow-lg"
-      :style="{
-        positionAnchor: activeAnchorName,
-        top: 'anchor(bottom)',
-        left: 'anchor(left)',
-      }"
-    >
-      <template v-if="menuContext?.type === 'worktree' && menuContext.worktree">
-        <button
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800"
-          @click="handleWorktreeEditTodo(menuContext.worktree)"
-        >
-          <span class="icon-[lucide--pencil] text-xs" />
-          Todo を編集
-        </button>
-        <button
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-400 hover:bg-zinc-800"
-          @click="handleWorktreeRemove(menuContext.worktree)"
-        >
-          <span class="icon-[lucide--unlink] text-xs" />
-          wt を削除
-        </button>
+    <!-- VOICEVOX -->
+    <div class="border-t border-zinc-700/50 px-4 py-3">
+      <template v-if="voicevoxStore.enabled">
+        <div class="flex flex-col gap-2">
+          <div class="flex items-center gap-2 text-xs text-zinc-500">
+            <span class="icon-[lucide--gauge] shrink-0" title="Speed" />
+            <input
+              type="range"
+              aria-label="VOICEVOX speed"
+              class="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-zinc-700 accent-blue-500"
+              :min="0.5"
+              :max="3.0"
+              :step="0.1"
+              :value="voicevoxStore.speedScale"
+              @input="voicevoxStore.speedScale = Number(($event.target as HTMLInputElement).value)"
+            />
+            <span class="w-8 text-right tabular-nums">{{
+              voicevoxStore.speedScale.toFixed(1)
+            }}</span>
+          </div>
+          <div class="flex items-center gap-2 text-xs text-zinc-500">
+            <span class="icon-[lucide--volume-2] shrink-0" title="Volume" />
+            <input
+              type="range"
+              aria-label="VOICEVOX volume"
+              class="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-zinc-700 accent-blue-500"
+              :min="0.0"
+              :max="2.0"
+              :step="0.1"
+              :value="voicevoxStore.volumeScale"
+              @input="voicevoxStore.volumeScale = Number(($event.target as HTMLInputElement).value)"
+            />
+            <span class="w-8 text-right tabular-nums">{{
+              voicevoxStore.volumeScale.toFixed(1)
+            }}</span>
+          </div>
+          <button
+            class="mt-1 text-xs text-zinc-600 hover:text-zinc-400"
+            @click="voicevoxStore.deactivate()"
+          >
+            Disable VOICEVOX
+          </button>
+        </div>
       </template>
-      <template v-else-if="menuContext?.type === 'todo' && menuContext.todo">
+      <template v-else>
         <button
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800"
-          :disabled="isCreating"
-          @click="handleTodoStart(menuContext.todo)"
+          class="flex w-full items-center gap-2 text-xs text-zinc-500 hover:text-zinc-300"
+          :disabled="voicevoxStore.activating"
+          @click="handleVoicevoxActivate"
         >
-          <span class="icon-[lucide--play] text-xs" />
-          Worktree 化
-        </button>
-        <button
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-400 hover:bg-zinc-800"
-          @click="handleTodoRemove(menuContext.todo)"
-        >
-          <span class="icon-[lucide--trash-2] text-xs" />
-          Todo を削除
-        </button>
-      </template>
-      <template v-else-if="menuContext?.type === 'branch' && menuContext.branch">
-        <button
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800"
-          :disabled="isCreating"
-          @click="handleBranchLink(menuContext.branch)"
-        >
-          <span class="icon-[lucide--link] text-xs" />
-          Worktree 化
+          <span
+            class="shrink-0"
+            :class="
+              voicevoxStore.activating
+                ? 'icon-[lucide--loader] animate-spin'
+                : 'icon-[lucide--volume-x]'
+            "
+          />
+          <span>{{ voicevoxStore.activating ? "Starting VOICEVOX..." : "Enable VOICEVOX" }}</span>
         </button>
       </template>
     </div>
-
-    <!-- 確認ダイアログ -->
-    <dialog
-      ref="confirmRef"
-      class="fixed inset-0 m-auto size-fit rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-white backdrop:bg-black/50"
-      @click="$event.target === confirmRef && closeConfirm()"
-    >
-      <p class="mb-4 text-sm">{{ confirmMessage }}</p>
-      <div class="flex justify-end gap-2">
-        <button
-          class="rounded-sm px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800"
-          @click="closeConfirm"
-        >
-          キャンセル
-        </button>
-        <button
-          class="rounded-sm bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500"
-          @click="executeConfirm"
-        >
-          削除
-        </button>
-      </div>
-    </dialog>
-
-    <!-- 通知ダイアログ -->
-    <dialog
-      ref="alertRef"
-      class="fixed inset-0 m-auto size-fit rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-white backdrop:bg-black/50"
-      @click="$event.target === alertRef && alertRef?.close()"
-    >
-      <p class="mb-4 text-sm">{{ alertMessage }}</p>
-      <div class="flex justify-end">
-        <button
-          class="rounded-sm px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800"
-          @click="alertRef?.close()"
-        >
-          閉じる
-        </button>
-      </div>
-    </dialog>
   </div>
 </template>
 

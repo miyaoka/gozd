@@ -98,6 +98,18 @@ export interface OpenTargetSelection {
   relPath: string;
 }
 
+/** VOICEVOX 音声合成の設定 */
+export interface VoicevoxConfig {
+  enabled: boolean;
+  speedScale: number;
+  volumeScale: number;
+}
+
+/** アプリのグローバル設定 */
+export interface AppConfig {
+  voicevox?: VoicevoxConfig;
+}
+
 export interface FileDiagnostics {
   /** プロジェクトルートからの相対パス */
   relPath: string;
@@ -192,6 +204,21 @@ export type OrkisRPC = {
       switchDir: {
         params: { dir: string };
         response: { dir: string; fileServerBaseUrl: string };
+      };
+      /** グローバル設定を読み込む */
+      configLoad: {
+        params: undefined;
+        response: AppConfig;
+      };
+      /** グローバル設定を保存する */
+      configSave: {
+        params: AppConfig;
+        response: void;
+      };
+      /** VOICEVOX アプリを起動する。インストール済みなら true、未インストールなら false */
+      voicevoxLaunch: {
+        params: undefined;
+        response: boolean;
       };
     };
     messages: {

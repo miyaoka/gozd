@@ -10,7 +10,7 @@
 
 ## UI テキスト
 
-- ラベル、placeholder、aria-label、title 等の UI テキストは基本的に英語で書く
+- ユーザーに表示するすべてのテキスト（ラベル、placeholder、aria-label、title、alert メッセージ、エラーメッセージ等）は英語で書く
 
 ## `<doc>` ブロック
 

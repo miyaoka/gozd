@@ -144,6 +144,41 @@ zsh 起動
 - **`claude()`**: `claude` コマンドに `--settings $ORKIS_CLAUDE_SETTINGS_PATH` を自動付与。ユーザーが明示的に `--settings` を指定した場合はそのまま通す
 - **`_orkis_osc7_cwd()`**: ディレクトリ変更時に OSC 7 エスケープシーケンスを送信。xterm.js 側でパース
 
+## データ永続化
+
+アプリの状態と設定は `~/.config/orkis/` に JSON ファイルで保存する。ファイル I/O は常に desktop（Bun）側で行い、renderer からは RPC request 経由でアクセスする。
+
+```text
+~/.config/orkis/
+├── app-state.json                        # グローバル: ウィンドウ状態（位置・サイズ・プロジェクト）
+├── config.json                           # グローバル: ユーザー設定（VOICEVOX 等）
+└── projects/
+    └── <encodeURIComponent(projectDir)>/
+        └── todos.json                    # プロジェクト固有: Todo 一覧
+```
+
+### スコープの使い分け
+
+| スコープ       | 保存先                             | 例                               |
+| -------------- | ---------------------------------- | -------------------------------- |
+| グローバル     | `~/.config/orkis/` 直下            | ウィンドウフレーム、ユーザー設定 |
+| プロジェクト別 | `~/.config/orkis/projects/<path>/` | Todo、worktree スクリプト        |
+
+### 新しい永続化データを追加するパターン
+
+- `packages/rpc/` に request のスキーマ（params / response）を定義する
+- `apps/desktop/src/` にファイル I/O モジュールを作成する（`appState.ts`, `todo.ts` が参考実装）
+- `apps/desktop/src/index.ts` の RPC handlers に request ハンドラーを登録する
+- renderer 側から `request.<name>()` で呼び出す
+
+### 保存タイミング
+
+| データ       | タイミング         | 実装                                       |
+| ------------ | ------------------ | ------------------------------------------ |
+| アプリ状態   | アプリ終了時の一括 | `before-quit` で `saveSnapshot()` 呼び出し |
+| Todo         | 操作の都度即時保存 | `addTodo()` / `updateTodo()` 等で即 write  |
+| ユーザー設定 | 操作の都度即時保存 | `saveConfig()` で read-modify-write        |
+
 ## Claude Code hooks
 
 Claude Code の hooks 機能を使い、エージェントの状態変化をリアルタイムでフロントに通知する。

@@ -51,7 +51,7 @@ useSplitResize(handleRef, {
 <template>
   <div
     ref="handle"
-    class="z-10 flex items-center justify-center bg-red-500/50"
+    class="z-10 flex items-center justify-center"
     :class="axis === 'horizontal' ? 'cursor-col-resize' : 'cursor-row-resize'"
   ></div>
 </template>

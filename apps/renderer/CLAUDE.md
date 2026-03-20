@@ -8,6 +8,10 @@
 - Tailwind ユーティリティ以外のカスタム CSS クラスには `_` プレフィックスを付ける（例: `_markdown-body`, `_line-numbered`）
 - ESLint の `better-tailwindcss/no-unknown-classes` ルールで `_.*` パターンが除外設定されている
 
+## UI テキスト
+
+- ラベル、placeholder、aria-label、title 等の UI テキストは基本的に英語で書く
+
 ## `<doc>` ブロック
 
 Vue SFC にコンポーネントのドキュメントを同居させるカスタムブロック。

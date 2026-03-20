@@ -748,9 +748,10 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): OrkisW
             return false;
           }
           // Engine だけをバックグラウンドで起動（GUI なし）
+          // stderr: "inherit" でパイプ詰まりを防ぎ、Electrobun コンソールに出力
           const engine = Bun.spawn([enginePath], {
             stdout: "ignore",
-            stderr: "pipe",
+            stderr: "inherit",
           });
           // 即座に終了していないか短時間だけ確認する
           const earlyExit = await Promise.race([
@@ -758,10 +759,7 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): OrkisW
             new Promise<null>((resolve) => setTimeout(() => resolve(null), 1000)),
           ]);
           if (earlyExit !== null) {
-            const engineStderr = await new Response(engine.stderr).text();
-            console.error(
-              `[voicevox] engine exited immediately (code ${earlyExit}): ${engineStderr}`,
-            );
+            console.error(`[voicevox] engine exited immediately (code ${earlyExit})`);
             return false;
           }
           return true;

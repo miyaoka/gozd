@@ -728,19 +728,42 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): OrkisW
           // mdfind で VOICEVOX.app を検索（/Applications, ~/Applications, カスタム場所に対応）
           const mdfind = Bun.spawn(
             ["mdfind", "kMDItemCFBundleIdentifier == 'jp.hiroshiba.voicevox'"],
-            { stdout: "pipe", stderr: "ignore" },
+            { stdout: "pipe", stderr: "pipe" },
           );
           const output = await new Response(mdfind.stdout).text();
-          await mdfind.exited;
+          const mdfindStderr = await new Response(mdfind.stderr).text();
+          const mdfindExitCode = await mdfind.exited;
+          if (mdfindExitCode !== 0) {
+            console.error(`[voicevox] mdfind failed (exit ${mdfindExitCode}): ${mdfindStderr}`);
+            return false;
+          }
           const [appPath] = output.trim().split("\n");
-          if (!appPath) return false;
+          if (!appPath) {
+            console.error("[voicevox] mdfind returned no results");
+            return false;
+          }
           const enginePath = path.join(appPath, "Contents/Resources/vv-engine/run");
-          if (!fs.existsSync(enginePath)) return false;
+          if (!fs.existsSync(enginePath)) {
+            console.error(`[voicevox] engine not found: ${enginePath}`);
+            return false;
+          }
           // Engine だけをバックグラウンドで起動（GUI なし）
-          Bun.spawn([enginePath], {
+          const engine = Bun.spawn([enginePath], {
             stdout: "ignore",
-            stderr: "ignore",
+            stderr: "pipe",
           });
+          // 即座に終了していないか短時間だけ確認する
+          const earlyExit = await Promise.race([
+            engine.exited.then((code) => code),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 1000)),
+          ]);
+          if (earlyExit !== null) {
+            const engineStderr = await new Response(engine.stderr).text();
+            console.error(
+              `[voicevox] engine exited immediately (code ${earlyExit}): ${engineStderr}`,
+            );
+            return false;
+          }
           return true;
         },
         switchDir: async ({ dir: targetDir }) => {

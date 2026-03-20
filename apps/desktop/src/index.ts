@@ -886,69 +886,72 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): OrkisW
           // 非アクティブ worktree の監視を開始
           void syncWorktreeWatchers(win, projectDir, currentDir);
 
+          // TODO: LSP 機能を再有効化するときはこのフラグを true にする
+          const lspEnabled = false;
           // webview 準備完了後に LSP を起動
-          void (async () => {
-            const clients: LspClient[] = [];
-            const gen = windowSwitchGen.get(win) ?? 0;
-            const diagCallback = (
-              source: string,
-              relPath: string,
-              diagnostics: LspDiagnostic[],
-            ) => {
-              // 世代が変わっていたら stale な診断を捨てる
-              if ((windowSwitchGen.get(win) ?? 0) !== gen) return;
-              if (diagnostics.length > 0) {
-                console.log(`[diag:${source}] ${relPath}: ${diagnostics.length} items`);
+          if (lspEnabled)
+            void (async () => {
+              const clients: LspClient[] = [];
+              const gen = windowSwitchGen.get(win) ?? 0;
+              const diagCallback = (
+                source: string,
+                relPath: string,
+                diagnostics: LspDiagnostic[],
+              ) => {
+                // 世代が変わっていたら stale な診断を捨てる
+                if ((windowSwitchGen.get(win) ?? 0) !== gen) return;
+                if (diagnostics.length > 0) {
+                  console.log(`[diag:${source}] ${relPath}: ${diagnostics.length} items`);
+                }
+                win.webview.rpc?.send.lspDiagnostics({ relPath, diagnostics });
+              };
+
+              // tsgo（TS/JS 用）
+              const tsgoPath = await resolveTsgoPath(projectDir);
+              if (tsgoPath) {
+                clients.push(
+                  createLspClient({
+                    rootDir: projectDir,
+                    server: { kind: "tsgo", binaryPath: tsgoPath },
+                    onDiagnostics: (relPath, diags) => diagCallback("tsgo", relPath, diags),
+                    onError: (msg) => console.error(`[lsp:tsgo] ${msg}`),
+                  }),
+                );
               }
-              win.webview.rpc?.send.lspDiagnostics({ relPath, diagnostics });
-            };
 
-            // tsgo（TS/JS 用）
-            const tsgoPath = await resolveTsgoPath(projectDir);
-            if (tsgoPath) {
-              clients.push(
-                createLspClient({
-                  rootDir: projectDir,
-                  server: { kind: "tsgo", binaryPath: tsgoPath },
-                  onDiagnostics: (relPath, diags) => diagCallback("tsgo", relPath, diags),
-                  onError: (msg) => console.error(`[lsp:tsgo] ${msg}`),
-                }),
-              );
-            }
+              // Vue Language Server（Vue SFC 用、apps/renderer をルートにする）
+              const rendererDir = path.join(projectDir, "apps", "renderer");
+              console.log(`[lsp:vue] rendererDir: ${rendererDir}`);
+              const vuePaths = resolveVueLspPaths(projectDir, rendererDir);
+              console.log(`[lsp:vue] resolved paths:`, vuePaths ?? "not found");
+              if (vuePaths) {
+                console.log(`[lsp:vue] server: ${vuePaths.serverPath}, tsdk: ${vuePaths.tsdkPath}`);
+                const RENDERER_PREFIX = "apps/renderer/";
+                clients.push(
+                  createLspClient({
+                    rootDir: rendererDir,
+                    server: {
+                      kind: "vue",
+                      serverPath: vuePaths.serverPath,
+                      tsdkPath: vuePaths.tsdkPath,
+                      pluginProbeLocation: vuePaths.pluginProbeLocation,
+                    },
+                    onDiagnostics: (relPath, diagnostics) => {
+                      diagCallback("vue", `${RENDERER_PREFIX}${relPath}`, diagnostics);
+                    },
+                    onError: (msg) => console.error(`[lsp:vue] ${msg}`),
+                  }),
+                );
+              }
 
-            // Vue Language Server（Vue SFC 用、apps/renderer をルートにする）
-            const rendererDir = path.join(projectDir, "apps", "renderer");
-            console.log(`[lsp:vue] rendererDir: ${rendererDir}`);
-            const vuePaths = resolveVueLspPaths(projectDir, rendererDir);
-            console.log(`[lsp:vue] resolved paths:`, vuePaths ?? "not found");
-            if (vuePaths) {
-              console.log(`[lsp:vue] server: ${vuePaths.serverPath}, tsdk: ${vuePaths.tsdkPath}`);
-              const RENDERER_PREFIX = "apps/renderer/";
-              clients.push(
-                createLspClient({
-                  rootDir: rendererDir,
-                  server: {
-                    kind: "vue",
-                    serverPath: vuePaths.serverPath,
-                    tsdkPath: vuePaths.tsdkPath,
-                    pluginProbeLocation: vuePaths.pluginProbeLocation,
-                  },
-                  onDiagnostics: (relPath, diagnostics) => {
-                    diagCallback("vue", `${RENDERER_PREFIX}${relPath}`, diagnostics);
-                  },
-                  onError: (msg) => console.error(`[lsp:vue] ${msg}`),
-                }),
-              );
-            }
+              if (clients.length === 0) {
+                console.log("[lsp] no LSP servers found, skipping");
+                return;
+              }
 
-            if (clients.length === 0) {
-              console.log("[lsp] no LSP servers found, skipping");
-              return;
-            }
-
-            windowLspClients.set(win, clients);
-            await Promise.all(clients.map((lsp) => lsp.scanProject()));
-          })();
+              windowLspClients.set(win, clients);
+              await Promise.all(clients.map((lsp) => lsp.scanProject()));
+            })();
         },
       },
     },

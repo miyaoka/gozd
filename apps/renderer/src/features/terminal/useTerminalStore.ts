@@ -19,7 +19,13 @@ import { terminalConfig } from "./terminalConfig";
  * - asking: 承認待ち（PermissionRequest）— ユーザー操作が必要
  * - done: 応答完了 / ユーザー入力待ち（Stop）— 次のプロンプト待ち
  */
-type ClaudeState = "working" | "asking" | "done";
+export type ClaudeState = "working" | "asking" | "done";
+
+/** Claude Code の状態エントリ。状態と付随データを一体管理する */
+export type ClaudeStatus =
+  | { state: "working"; startedAt: number }
+  | { state: "asking" }
+  | { state: "done" };
 
 /**
  * hooks イベント種別。
@@ -88,8 +94,8 @@ export const useTerminalStore = defineStore("terminal", () => {
   /** 全 worktree のターミナルを一覧表示するモード */
   const showAll = ref(false);
 
-  /** ptyId → Claude Code の表示用状態（idle は undefined = エントリなし） */
-  const claudeStateByPtyId = ref<Record<number, ClaudeState>>({});
+  /** ptyId → Claude Code の状態（idle は undefined = エントリなし） */
+  const claudeStatusByPtyId = ref<Record<number, ClaudeStatus>>({});
 
   /** ptyId → PermissionRequest の debounce タイマー */
   const askTimers = new Map<number, ReturnType<typeof setTimeout>>();
@@ -112,10 +118,14 @@ export const useTerminalStore = defineStore("terminal", () => {
     // kill/exit 済みの PTY への遅延イベントを無視
     if (!ptyIdToLeafId.has(ptyId)) return;
 
+    const current = claudeStatusByPtyId.value[ptyId];
+
     switch (event) {
       case "running": {
         cancelAskTimer(ptyId);
-        claudeStateByPtyId.value[ptyId] = "working";
+        // 初回 working 遷移時のみ開始時刻を記録（tool-done → working の再遷移では維持）
+        const startedAt = current?.state === "working" ? current.startedAt : Date.now();
+        claudeStatusByPtyId.value[ptyId] = { state: "working", startedAt };
         break;
       }
       case "needs-input": {
@@ -125,7 +135,7 @@ export const useTerminalStore = defineStore("terminal", () => {
           ptyId,
           setTimeout(() => {
             askTimers.delete(ptyId);
-            claudeStateByPtyId.value[ptyId] = "asking";
+            claudeStatusByPtyId.value[ptyId] = { state: "asking" };
           }, ASK_DEBOUNCE_MS),
         );
         break;
@@ -133,13 +143,14 @@ export const useTerminalStore = defineStore("terminal", () => {
       case "tool-done": {
         cancelAskTimer(ptyId);
         // done 後の遅延 tool-done を無視（イベント順序逆転対策）
-        if (claudeStateByPtyId.value[ptyId] === "done") break;
-        claudeStateByPtyId.value[ptyId] = "working";
+        if (current?.state === "done") break;
+        const startedAt = current?.state === "working" ? current.startedAt : Date.now();
+        claudeStatusByPtyId.value[ptyId] = { state: "working", startedAt };
         break;
       }
       case "done": {
         cancelAskTimer(ptyId);
-        claudeStateByPtyId.value[ptyId] = "done";
+        claudeStatusByPtyId.value[ptyId] = { state: "done" };
         break;
       }
     }
@@ -220,7 +231,7 @@ export const useTerminalStore = defineStore("terminal", () => {
 
       ptyIdToLeafId.delete(id);
       cancelAskTimer(id);
-      delete claudeStateByPtyId.value[id];
+      delete claudeStatusByPtyId.value[id];
     });
   }
 
@@ -248,7 +259,35 @@ export const useTerminalStore = defineStore("terminal", () => {
   function getClaudeState(leafId: string): ClaudeState | undefined {
     const entry = paneRegistry.value[leafId];
     if (entry?.session === undefined) return undefined;
-    return claudeStateByPtyId.value[entry.session.ptyId];
+    return claudeStatusByPtyId.value[entry.session.ptyId]?.state;
+  }
+
+  /** worktree dir に属する全ターミナルの Claude 状態を返す（idle は除外） */
+  function getClaudeStatusesByDir(dir: string): ClaudeStatus[] {
+    const statuses: ClaudeStatus[] = [];
+    for (const paneEntry of Object.values(paneRegistry.value)) {
+      if (paneEntry.dir !== dir) continue;
+      if (paneEntry.session === undefined) continue;
+      const status = claudeStatusByPtyId.value[paneEntry.session.ptyId];
+      if (status !== undefined) {
+        statuses.push(status);
+      }
+    }
+    return statuses;
+  }
+
+  /**
+   * worktree dir に属する done 状態のエントリをクリアする。
+   * フォーカス時の既読消化に使う。working / asking は維持する。
+   */
+  function clearDoneStates(dir: string) {
+    for (const entry of Object.values(paneRegistry.value)) {
+      if (entry.dir !== dir) continue;
+      if (entry.session === undefined) continue;
+      if (claudeStatusByPtyId.value[entry.session.ptyId]?.state === "done") {
+        delete claudeStatusByPtyId.value[entry.session.ptyId];
+      }
+    }
   }
 
   // --- PTY ライフサイクル関数 ---
@@ -306,7 +345,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     send.ptyKill({ id: entry.session.ptyId });
     ptyIdToLeafId.delete(entry.session.ptyId);
     cancelAskTimer(entry.session.ptyId);
-    delete claudeStateByPtyId.value[entry.session.ptyId];
+    delete claudeStatusByPtyId.value[entry.session.ptyId];
     terminalWriters.delete(leafId);
     paneRegistry.value[leafId] = { ...entry, session: undefined };
   }
@@ -507,6 +546,8 @@ export const useTerminalStore = defineStore("terminal", () => {
     incrementDragSuspend,
     decrementDragSuspend,
     getClaudeState,
+    getClaudeStatusesByDir,
+    clearDoneStates,
   };
 });
 

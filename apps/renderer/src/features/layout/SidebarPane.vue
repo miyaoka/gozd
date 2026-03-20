@@ -4,26 +4,72 @@
 ## セクション構成
 
 - ROOT: リポジトリルート（main）。メニューなし
-- WORKTREES: Todo 紐づき済みの worktree。Todo タイトルまたはブランチ名で表示
+- WORKTREES: Todo 紐づき済みの worktree。Todo タイトルまたはブランチ名で表示。Claude 状態バッジ付き
 - TODOS: 未着手の Todo（worktreeDir なし）
 - BRANCHES: worktree 化されていないローカルブランチ
 
 ## 操作
 
-- worktree クリック: 表示対象ディレクトリを切り替え
+- worktree クリック: 表示対象ディレクトリを切り替え + done バッジをクリア（既読消化）
 - `⋮` メニュー: popover + CSS Anchor Positioning で表示
 - Todo 編集: サイドバー内にインライン展開
+
+## Claude 状態バッジ
+
+各 worktree の右上に Claude Code の状態をアイコンで重ねて表示する。
+wt 内に複数ターミナルがある場合は asking > working > done の優先度順で並列表示。
+working 状態にはアイコン左に経過時間（m:ss）を表示する。
+
+- working: 回転ローダー（黄色）
+- asking: 警告アイコン（橙色）、バウンス
+- done: チェックアイコン（緑色）、バウンス。worktree クリックでクリア
 </doc>
 
 <script setup lang="ts">
 import type { Todo, WorktreeChangeCounts, WorktreeEntry } from "@orkis/rpc";
 import { tryCatch } from "@orkis/shared";
+import { useIntervalFn } from "@vueuse/core";
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useDiagnosticsStore } from "../diagnostics/useDiagnosticsStore";
 import { useWorkspaceStore } from "../filer/useWorkspaceStore";
 import { useRpc } from "../rpc/useRpc";
+import type { ClaudeState, ClaudeStatus } from "../terminal/useTerminalStore";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import TodoIconPicker from "./TodoIconPicker.vue";
+
+/** 経過ミリ秒を "m:ss" 形式に変換 */
+function formatElapsed(startedAt: number, now: number): string {
+  const elapsed = Math.max(0, Math.floor((now - startedAt) / 1000));
+  const minutes = Math.floor(elapsed / 60);
+  const seconds = elapsed % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+/** Claude 状態の表示優先度（高い方が優先） */
+const CLAUDE_STATE_PRIORITY: Record<ClaudeState, number> = {
+  asking: 2,
+  working: 1,
+  done: 0,
+};
+
+/** Claude 状態バッジの設定 */
+const CLAUDE_STATE_BADGE: Record<ClaudeState, { icon: string; color: string; animate?: string }> = {
+  working: {
+    icon: "icon-[lucide--loader]",
+    color: "text-yellow-400",
+    animate: "animate-spin",
+  },
+  asking: {
+    icon: "icon-[lucide--message-circle-warning]",
+    color: "text-orange-400",
+    animate: "animate-bounce",
+  },
+  done: {
+    icon: "icon-[lucide--circle-check]",
+    color: "text-green-400",
+    animate: "animate-bounce",
+  },
+};
 
 const workspaceStore = useWorkspaceStore();
 const diagnosticsStore = useDiagnosticsStore();
@@ -57,6 +103,12 @@ const nonMainWorktrees = computed(() =>
 );
 
 const sortedBranches = computed(() => [...freeBranches.value].sort((a, b) => a.localeCompare(b)));
+
+/** 経過時間表示用の現在時刻（1 秒ごとに更新） */
+const now = ref(Date.now());
+useIntervalFn(() => {
+  now.value = Date.now();
+}, 1000);
 
 /** Todo の body 一行目をタイトルとして取得 */
 function todoTitle(body: string): string {
@@ -256,7 +308,11 @@ async function fetchData() {
 
 /** worktree をクリックして表示対象を切り替える */
 async function handleWorktreeSelect(wt: WorktreeEntry) {
-  if (isActive(wt) || isSwitching.value) return;
+  if (isActive(wt)) {
+    terminalStore.clearDoneStates(wt.path);
+    return;
+  }
+  if (isSwitching.value) return;
   isSwitching.value = true;
   const result = await tryCatch(request.switchDir({ dir: wt.path }));
   if (result.ok) {
@@ -265,6 +321,20 @@ async function handleWorktreeSelect(wt: WorktreeEntry) {
   }
   isSwitching.value = false;
 }
+
+/** worktree path → Claude 状態バッジ一覧（優先度順）の事前集計 */
+const claudeBadgesByPath = computed(() => {
+  const result: Record<string, ClaudeStatus[]> = {};
+  for (const wt of nonMainWorktrees.value) {
+    const statuses = terminalStore.getClaudeStatusesByDir(wt.path);
+    if (statuses.length > 0) {
+      result[wt.path] = statuses.sort(
+        (a, b) => CLAUDE_STATE_PRIORITY[b.state] - CLAUDE_STATE_PRIORITY[a.state],
+      );
+    }
+  }
+  return result;
+});
 
 async function addWorktree(branch?: string) {
   isCreating.value = true;
@@ -354,7 +424,17 @@ function handleBranchLink(branch: string) {
   addWorktree(branch);
 }
 
-watch(() => workspaceStore.dir, fetchData, { immediate: true });
+watch(
+  () => workspaceStore.dir,
+  (dir) => {
+    fetchData();
+    // active dir に切り替わったら done バッジをクリア（既読消化）
+    if (dir) {
+      terminalStore.clearDoneStates(dir);
+    }
+  },
+  { immediate: true },
+);
 
 const cleanups: Array<() => void> = [];
 onMounted(() => {
@@ -439,6 +519,30 @@ onUnmounted(() => {
           class="group/wt relative grid grid-cols-[auto_1fr_auto] gap-x-2 rounded-sm py-1.5 pl-2"
           :class="isActive(wt) ? 'bg-zinc-700/50' : 'hover:bg-zinc-800'"
         >
+          <!-- Claude 状態バッジ（右上に重ねて表示） -->
+          <div
+            v-if="claudeBadgesByPath[wt.path]"
+            class="pointer-events-none absolute -top-1 -right-1 z-20 flex items-center gap-1"
+          >
+            <template v-for="(status, si) in claudeBadgesByPath[wt.path]" :key="si">
+              <span
+                v-if="status.state === 'working'"
+                class="text-[10px] leading-none tabular-nums"
+                :class="CLAUDE_STATE_BADGE[status.state].color"
+              >
+                {{ formatElapsed(status.startedAt, now) }}
+              </span>
+              <span
+                class="size-5"
+                :class="[
+                  CLAUDE_STATE_BADGE[status.state].icon,
+                  CLAUDE_STATE_BADGE[status.state].color,
+                  CLAUDE_STATE_BADGE[status.state].animate,
+                ]"
+                :title="status.state"
+              />
+            </template>
+          </div>
           <span v-if="wt.todo?.icon" class="row-span-2 mt-0.5 text-base">{{ wt.todo.icon }}</span>
           <span
             v-else

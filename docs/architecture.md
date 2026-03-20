@@ -151,6 +151,7 @@ zsh 起動
 ```text
 ~/.config/orkis/
 ├── app-state.json                        # グローバル: ウィンドウ状態（位置・サイズ・プロジェクト）
+├── config.json                           # グローバル: ユーザー設定（VOICEVOX 等）
 └── projects/
     └── <encodeURIComponent(projectDir)>/
         └── todos.json                    # プロジェクト固有: Todo 一覧
@@ -172,10 +173,11 @@ zsh 起動
 
 ### 保存タイミング
 
-| データ     | タイミング         | 実装                                       |
-| ---------- | ------------------ | ------------------------------------------ |
-| アプリ状態 | アプリ終了時の一括 | `before-quit` で `saveSnapshot()` 呼び出し |
-| Todo       | 操作の都度即時保存 | `addTodo()` / `updateTodo()` 等で即 write  |
+| データ       | タイミング         | 実装                                       |
+| ------------ | ------------------ | ------------------------------------------ |
+| アプリ状態   | アプリ終了時の一括 | `before-quit` で `saveSnapshot()` 呼び出し |
+| Todo         | 操作の都度即時保存 | `addTodo()` / `updateTodo()` 等で即 write  |
+| ユーザー設定 | 操作の都度即時保存 | `saveConfig()` で read-modify-write        |
 
 ## Claude Code hooks
 

@@ -18,6 +18,19 @@ const POLL_MAX_ATTEMPTS = 20;
 const SPEAK_EVENTS = new Set(["done", "needs-input"]);
 
 let currentAudio: HTMLAudioElement | undefined;
+let currentObjectUrl: string | undefined;
+
+/** 現在の Audio と ObjectURL を解放する */
+function releaseAudio() {
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = undefined;
+  }
+  if (currentObjectUrl) {
+    URL.revokeObjectURL(currentObjectUrl);
+    currentObjectUrl = undefined;
+  }
+}
 
 /** マークダウン記法を除去してテキストの一行目を取得する */
 function extractFirstLine(message: string): string | undefined {
@@ -90,10 +103,7 @@ async function speak(
   volumeScale: number,
   speakerId = DEFAULT_SPEAKER_ID,
 ): Promise<void> {
-  if (currentAudio) {
-    currentAudio.pause();
-    currentAudio = undefined;
-  }
+  releaseAudio();
 
   const queryResult = await tryCatch(
     fetch(`${VOICEVOX_API}/audio_query?text=${encodeURIComponent(text)}&speaker=${speakerId}`, {
@@ -119,9 +129,14 @@ async function speak(
 
   const blob = await audioResult.value.blob();
   const url = URL.createObjectURL(blob);
+  currentObjectUrl = url;
   currentAudio = new Audio(url);
+  currentAudio.addEventListener("ended", releaseAudio);
   void currentAudio.play();
 }
+
+/** HMR 再実行時に前回のリスナーを解除するための disposer */
+let disposeHookListener: (() => void) | undefined;
 
 export const useVoicevoxStore = defineStore("voicevox", () => {
   const { request, onOrkisHook } = useRpc();
@@ -191,23 +206,13 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     return "VOICEVOX Engine の起動がタイムアウトしました。VOICEVOX を手動で起動してください。";
   }
 
-  /** 再生中の音声を停止する */
-  function stopPlayback() {
-    if (currentAudio) {
-      currentAudio.pause();
-      currentAudio = undefined;
-    }
-  }
-
   /** VOICEVOX を無効化する */
   function deactivate() {
-    stopPlayback();
+    releaseAudio();
     enabled.value = false;
   }
 
-  // --- Hook 購読 ---
-
-  let disposeHookListener: (() => void) | undefined;
+  // --- Hook 購読（HMR 再実行時に前回のリスナーを解除するため disposer は関数外に置く） ---
 
   function initHookSubscription() {
     disposeHookListener?.();

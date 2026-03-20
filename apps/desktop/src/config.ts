@@ -29,10 +29,12 @@ export function loadConfig(): AppConfig {
   return parsed.value as AppConfig;
 }
 
-/** 設定を保存する */
-export function saveConfig(config: AppConfig): void {
+/** 設定を保存する（read-modify-write: 既存キーを保持しつつ渡されたキーをマージする） */
+export function saveConfig(patch: AppConfig): void {
   ensureConfigDir();
-  const result = tryCatch(() => fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2)));
+  const current = loadConfig();
+  const merged = { ...current, ...patch };
+  const result = tryCatch(() => fs.writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2)));
   if (!result.ok) {
     console.error(`[config] save failed: ${result.error.message}`);
   }

@@ -91,7 +91,7 @@ function handleTerminalBlur() {
 </script>
 
 <template>
-  <div class="size-full" :data-leaf-id="leafId">
+  <div class="min-h-0 min-w-0" :data-leaf-id="leafId">
     <div
       class="relative size-full rounded-lg p-1 outline"
       :class="

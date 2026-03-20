@@ -29,10 +29,30 @@ export function registerTerminalCommands(
     return { dir, layout };
   }
 
+  /**
+   * フォーカス中の leaf が属する dir と layout を取得する。
+   * マルチ表示で別 worktree の leaf にフォーカスしている場合に対応。
+   * フォーカス leaf が見つからなければ currentDir にフォールバック。
+   */
+  function getFocusedLayout() {
+    // フォーカス中の xterm を DOM から特定
+    const container = terminalContainerRef.value;
+    if (container === null) return getActiveLayout();
+    const focused = container.querySelector("[data-leaf-id]:focus-within");
+    if (focused === null) return getActiveLayout();
+    const leafId = (focused as HTMLElement).dataset.leafId;
+    if (leafId === undefined) return getActiveLayout();
+    const entry = terminalStore.paneRegistry[leafId];
+    if (entry === undefined) return getActiveLayout();
+    const layout = terminalStore.layoutsByDir[entry.dir];
+    if (layout === undefined) return getActiveLayout();
+    return { dir: entry.dir, layout };
+  }
+
   /** 空間ナビゲーションのコマンド handler を生成する */
   function createFocusHandler(direction: Direction) {
     return (): boolean => {
-      const active = getActiveLayout();
+      const active = getFocusedLayout();
       if (active === undefined) return false;
 
       const container = terminalContainerRef.value;
@@ -48,21 +68,21 @@ export function registerTerminalCommands(
 
   const disposers = [
     registry.register("terminal.splitHorizontal", () => {
-      const active = getActiveLayout();
+      const active = getFocusedLayout();
       if (active === undefined) return false;
       terminalStore.splitPane(active.dir, "horizontal");
       return true;
     }),
 
     registry.register("terminal.splitVertical", () => {
-      const active = getActiveLayout();
+      const active = getFocusedLayout();
       if (active === undefined) return false;
       terminalStore.splitPane(active.dir, "vertical");
       return true;
     }),
 
     registry.register("terminal.closePane", () => {
-      const active = getActiveLayout();
+      const active = getFocusedLayout();
       if (active === undefined) return false;
       // 最後の1ペインでは closePane が false を返すので、レイアウトをリセットして新ターミナルを起動
       if (!terminalStore.closePane(active.dir, active.layout.focusedLeafId)) {

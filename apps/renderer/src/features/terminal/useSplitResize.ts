@@ -13,7 +13,7 @@ interface UseSplitResizeOptions {
   firstNode: Ref<SplitNode>;
   secondNode: Ref<SplitNode>;
   ratio: Ref<number>;
-  /** branch の主軸方向の利用可能サイズ（handle 幅を除いた px） */
+  /** branch の主軸方向のコンテンツサイズ（gap 除く px） */
   availablePx: Ref<number>;
   onUpdate: (newRatio: number) => void;
   onDragStart?: () => void;

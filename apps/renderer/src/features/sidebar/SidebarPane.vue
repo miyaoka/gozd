@@ -42,6 +42,7 @@ import WorktreeList from "./worktree/WorktreeList.vue";
 const workspaceStore = useWorkspaceStore();
 const diagnosticsStore = useDiagnosticsStore();
 const terminalStore = useTerminalStore();
+
 const voicevoxStore = useVoicevoxStore();
 const { request, onGitStatusChange, onWorktreeChange } = useRpc();
 
@@ -291,6 +292,7 @@ async function fetchData() {
 
 /** worktree をクリックして表示対象を切り替える */
 async function handleWorktreeSelect(wt: WorktreeEntry) {
+  terminalStore.viewMode = "wt";
   if (isActive(wt)) {
     terminalStore.clearDoneStates(wt.path);
     return;
@@ -326,7 +328,7 @@ function removeFromList(wt: WorktreeEntry) {
   if (wt.branch) {
     freeBranches.value.push(wt.branch);
   }
-  // ターミナルの visitedDirs から除去（TerminalPane を破棄させる）
+  // ターミナルの visitedDirs から除去（leaf / PTY を破棄させる）
   terminalStore.remove(wt.path);
 }
 
@@ -452,7 +454,7 @@ onUnmounted(() => {
         :is-creating="isCreating"
         :ctrl-pressed="ctrlPressed"
         :now="now"
-        :show-all="terminalStore.showAll"
+        :view-mode="terminalStore.viewMode"
         :get-claude-statuses="terminalStore.getClaudeStatusesByDir"
         @select="handleWorktreeSelect"
         @open-menu="
@@ -460,7 +462,7 @@ onUnmounted(() => {
             openMenu(anchorName, { type: 'worktree', worktree: wt, todo: wt.todo })
         "
         @add="addWorktree()"
-        @toggle-show-all="terminalStore.showAll = !terminalStore.showAll"
+        @set-view-mode="terminalStore.viewMode = $event"
       >
         <template #after-item="{ wt }">
           <TodoEditor

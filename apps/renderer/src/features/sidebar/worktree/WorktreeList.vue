@@ -9,6 +9,22 @@ import type { WorktreeEntry } from "@orkis/rpc";
 import type { ClaudeStatus } from "../../terminal/useTerminalStore";
 import WorktreeItem from "./WorktreeItem.vue";
 
+type ViewMode = "wt" | "all" | "claude";
+
+const VIEW_MODE_CYCLE: ViewMode[] = ["wt", "all", "claude"];
+
+const VIEW_MODE_ICON: Record<ViewMode, string> = {
+  wt: "icon-[lucide--monitor]",
+  all: "icon-[lucide--layout-grid]",
+  claude: "icon-[lucide--bot]",
+};
+
+const VIEW_MODE_TITLE: Record<ViewMode, string> = {
+  wt: "Active worktree",
+  all: "All terminals",
+  claude: "Claude terminals",
+};
+
 defineProps<{
   worktrees: WorktreeEntry[];
   /** worktree データ未取得（初回ロード中） */
@@ -17,7 +33,7 @@ defineProps<{
   isCreating: boolean;
   ctrlPressed: boolean;
   now: number;
-  showAll: boolean;
+  viewMode: ViewMode;
   getClaudeStatuses: (dir: string) => ClaudeStatus[];
 }>();
 
@@ -25,7 +41,7 @@ defineEmits<{
   select: [wt: WorktreeEntry];
   openMenu: [anchorName: string, wt: WorktreeEntry];
   add: [];
-  toggleShowAll: [];
+  setViewMode: [mode: ViewMode];
 }>();
 
 defineSlots<{
@@ -37,15 +53,21 @@ defineSlots<{
   <div class="mt-4 flex flex-col">
     <div class="mb-1 flex items-center justify-between">
       <h2 class="text-xs font-medium text-zinc-500">WORKTREES</h2>
-      <button
-        type="button"
-        class="grid size-6 place-items-center rounded-sm text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-        :class="showAll && 'bg-zinc-700 text-zinc-200'"
-        title="Show all worktree terminals"
-        @click="$emit('toggleShowAll')"
-      >
-        <span class="icon-[lucide--layout-grid] text-sm" />
-      </button>
+      <div class="flex gap-0.5">
+        <button
+          v-for="mode in VIEW_MODE_CYCLE"
+          :key="mode"
+          type="button"
+          class="grid size-6 place-items-center rounded-sm text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+          :class="viewMode === mode && 'bg-zinc-700 text-zinc-200'"
+          :title="VIEW_MODE_TITLE[mode]"
+          :aria-label="VIEW_MODE_TITLE[mode]"
+          :aria-pressed="viewMode === mode"
+          @click="$emit('setViewMode', mode)"
+        >
+          <span class="text-sm" :class="VIEW_MODE_ICON[mode]" />
+        </button>
+      </div>
     </div>
 
     <div v-for="(wt, i) in worktrees" :key="wt.path">

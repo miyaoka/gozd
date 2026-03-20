@@ -6,13 +6,14 @@ import {
   collectLeafIds,
   createLeaf,
   findFirstLeaf,
+  flattenHandles,
   flattenTree,
   getMinSize,
   removeNode,
   resizeBranch,
   splitNode,
 } from "./splitTree";
-import type { FlatHandle, FlatLeaf, SplitBranch } from "./splitTree";
+import type { FlatHandle, FlatLeaf, HandlePosition, SplitBranch } from "./splitTree";
 
 describe("createLeaf", () => {
   test("id が文字列で返る", () => {
@@ -379,7 +380,7 @@ describe("getMinSize", () => {
     expect(getMinSize(leaf, "vertical")).toBe(LEAF_MIN_HEIGHT);
   });
 
-  test("同方向 branch: first + handle + second", () => {
+  test("同方向 branch: first + second（gap はコンテンツ幅に含まない）", () => {
     const leaf1 = createLeaf();
     const leaf2 = createLeaf();
     const branch: SplitBranch = {
@@ -391,9 +392,7 @@ describe("getMinSize", () => {
       second: leaf2,
     };
 
-    expect(getMinSize(branch, "horizontal")).toBe(
-      LEAF_MIN_WIDTH + SPLIT_HANDLE_SIZE + LEAF_MIN_WIDTH,
-    );
+    expect(getMinSize(branch, "horizontal")).toBe(LEAF_MIN_WIDTH + LEAF_MIN_WIDTH);
   });
 
   test("直交方向 branch: max(first, second)", () => {
@@ -432,10 +431,8 @@ describe("getMinSize", () => {
       second: leaf3,
     };
 
-    // inner(120 + 8 + 120) + 8 + leaf3(120) = 376
-    expect(getMinSize(root, "horizontal")).toBe(
-      LEAF_MIN_WIDTH + SPLIT_HANDLE_SIZE + LEAF_MIN_WIDTH + SPLIT_HANDLE_SIZE + LEAF_MIN_WIDTH,
-    );
+    // inner(120 + 120) + leaf3(120) = 360
+    expect(getMinSize(root, "horizontal")).toBe(LEAF_MIN_WIDTH + LEAF_MIN_WIDTH + LEAF_MIN_WIDTH);
   });
 });
 
@@ -568,5 +565,114 @@ describe("flattenTree", () => {
       expect(rect.width).toBeGreaterThanOrEqual(0);
       expect(rect.height).toBeGreaterThanOrEqual(0);
     }
+  });
+});
+
+describe("flattenHandles", () => {
+  const GAP = 8;
+
+  test("単一リーフではハンドルなし", () => {
+    const leaf = createLeaf();
+    const result = flattenHandles(leaf, 1000, 600, GAP);
+    expect(result).toHaveLength(0);
+  });
+
+  test("水平分割のハンドルが gap 位置に配置される", () => {
+    const leaf1 = createLeaf();
+    const leaf2 = createLeaf();
+    const branch: SplitBranch = {
+      type: "branch",
+      id: "b1",
+      direction: "horizontal",
+      ratio: 0.6,
+      first: leaf1,
+      second: leaf2,
+    };
+
+    const result = flattenHandles(branch, 1000, 600, GAP);
+    expect(result).toHaveLength(1);
+
+    const handle = result[0] as HandlePosition;
+    // 2 columns, 1 gap → available = 1000 - 8 = 992
+    const avail = 1000 - GAP;
+    const firstW = avail * 0.6;
+    expect(handle.rect.left).toBeCloseTo(firstW, 1);
+    expect(handle.rect.width).toBe(GAP);
+    expect(handle.rect.top).toBe(0);
+    expect(handle.rect.height).toBeCloseTo(600, 1);
+    expect(handle.availablePx).toBeCloseTo(avail, 1);
+  });
+
+  test("同方向ネストで availablePx が descendant gap を含まない", () => {
+    // horizontal(0.5, A, horizontal(0.5, B, C))
+    // grid: 3 columns, 2 gaps
+    const A = createLeaf();
+    const B = createLeaf();
+    const C = createLeaf();
+    const inner: SplitBranch = {
+      type: "branch",
+      id: "inner",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: B,
+      second: C,
+    };
+    const root: SplitBranch = {
+      type: "branch",
+      id: "root",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: A,
+      second: inner,
+    };
+
+    const W = 1000;
+    const H = 600;
+    const result = flattenHandles(root, W, H, GAP);
+    expect(result).toHaveLength(2);
+
+    // 3 columns → 2 gaps → available content = 1000 - 2*8 = 984
+    const totalContent = W - 2 * GAP;
+
+    // root handle: availablePx = 全3トラックのコンテンツ幅合計
+    const rootHandle = result.find((h) => h.branchId === "root") as HandlePosition;
+    expect(rootHandle.availablePx).toBeCloseTo(totalContent, 1);
+
+    // inner handle: availablePx = inner が占める2トラック（B, C）のコンテンツ幅合計
+    // root ratio=0.5 → A の正規化幅=0.5, inner の正規化幅=0.5
+    // A, B, C の正規化幅: A=0.5, B=0.25, C=0.25
+    // fr 値は全て同一比率ではない: A=0.5, B=0.25, C=0.25 → fr 合計=1.0
+    // B のコンテンツ幅 = 0.25/1.0 * 984 = 246, C も同じ
+    // inner の availablePx = 246 + 246 = 492
+    const innerHandle = result.find((h) => h.branchId === "inner") as HandlePosition;
+    expect(innerHandle.availablePx).toBeCloseTo(totalContent * 0.5, 1);
+
+    // inner の availablePx は root の availablePx より小さいことを確認
+    expect(innerHandle.availablePx).toBeLessThan(rootHandle.availablePx);
+  });
+
+  test("垂直分割のハンドルが gap 位置に配置される", () => {
+    const leaf1 = createLeaf();
+    const leaf2 = createLeaf();
+    const branch: SplitBranch = {
+      type: "branch",
+      id: "b1",
+      direction: "vertical",
+      ratio: 0.4,
+      first: leaf1,
+      second: leaf2,
+    };
+
+    const result = flattenHandles(branch, 1000, 600, GAP);
+    expect(result).toHaveLength(1);
+
+    const handle = result[0] as HandlePosition;
+    const avail = 600 - GAP;
+    const firstH = avail * 0.4;
+    expect(handle.rect.top).toBeCloseTo(firstH, 1);
+    expect(handle.rect.height).toBe(GAP);
+    expect(handle.rect.left).toBe(0);
+    expect(handle.rect.width).toBeCloseTo(1000, 1);
+    expect(handle.availablePx).toBeCloseTo(avail, 1);
   });
 });

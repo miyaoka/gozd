@@ -181,8 +181,12 @@ async function saveEdit() {
     request.todoUpdate({ id, body: editBody.value, icon: editIcon.value }),
   );
   if (!result.ok) return;
-  editingTodoId.value = undefined;
   await fetchData();
+}
+
+function submitEdit() {
+  saveEdit();
+  editingTodoId.value = undefined;
 }
 
 function cancelEdit() {
@@ -502,13 +506,13 @@ onUnmounted(() => {
 
         <!-- インライン Todo 編集 -->
         <div v-if="wt.todo && editingTodoId === wt.todo.id" class="mx-2 mt-1 mb-2">
-          <TodoIconPicker v-model="editIcon" />
+          <TodoIconPicker v-model="editIcon" @update:model-value="saveEdit" />
           <textarea
             ref="editTextarea"
             v-model="editBody"
             class="w-full resize-none rounded-sm border border-zinc-600 bg-zinc-800 p-2 text-sm text-zinc-200 focus:border-blue-500 focus:outline-none"
             rows="4"
-            @keydown.enter="onEnterSubmit($event, saveEdit)"
+            @keydown.enter="onEnterSubmit($event, submitEdit)"
             @keydown.escape="cancelEdit"
           />
           <div class="mt-1 flex justify-end gap-1">
@@ -520,7 +524,7 @@ onUnmounted(() => {
             </button>
             <button
               class="rounded-sm bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500"
-              @click="saveEdit"
+              @click="submitEdit"
             >
               保存
             </button>
@@ -568,13 +572,13 @@ onUnmounted(() => {
 
         <!-- インライン Todo 編集 -->
         <div v-if="editingTodoId === todo.id" class="mx-2 mt-1 mb-2">
-          <TodoIconPicker v-model="editIcon" />
+          <TodoIconPicker v-model="editIcon" @update:model-value="saveEdit" />
           <textarea
             ref="editTextarea"
             v-model="editBody"
             class="w-full resize-none rounded-sm border border-zinc-600 bg-zinc-800 p-2 text-sm text-zinc-200 focus:border-blue-500 focus:outline-none"
             rows="4"
-            @keydown.enter="onEnterSubmit($event, saveEdit)"
+            @keydown.enter="onEnterSubmit($event, submitEdit)"
             @keydown.escape="cancelEdit"
           />
           <div class="mt-1 flex justify-end gap-1">
@@ -586,7 +590,7 @@ onUnmounted(() => {
             </button>
             <button
               class="rounded-sm bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500"
-              @click="saveEdit"
+              @click="submitEdit"
             >
               保存
             </button>

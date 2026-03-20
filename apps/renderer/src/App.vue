@@ -39,6 +39,8 @@ onMounted(() => {
             channel,
             repoName,
           );
+        } else {
+          console.error("Failed to switch worktree:", switchToDir, result.error);
         }
       } else {
         workspaceStore.setOpen(dir, selection, fileServerBaseUrl, channel, repoName);

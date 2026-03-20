@@ -410,6 +410,32 @@ export const useTerminalStore = defineStore("terminal", () => {
     return true;
   }
 
+  /**
+   * レイアウトをリセットする。現在のPTYをすべてkillし、新しい単一リーフで再構築する。
+   * 最後の1ペインを閉じて新ターミナルを開く用途で使う。
+   */
+  function resetLayout(dir: string) {
+    const layout = layoutsByDir.value[dir];
+    if (layout === undefined) return;
+
+    // 既存の全ペインを破棄
+    for (const [leafId, entry] of Object.entries(paneRegistry.value)) {
+      if (entry.dir !== dir) continue;
+      killPty(leafId);
+      delete paneRegistry.value[leafId];
+    }
+
+    contextKeys.set("terminalFocus", false);
+
+    // 新しい単一リーフで再構築
+    const leaf = createLeaf();
+    layoutsByDir.value[dir] = {
+      root: leaf,
+      focusedLeafId: leaf.id,
+    };
+    paneRegistry.value[leaf.id] = { dir };
+  }
+
   /** branch の ratio を更新する */
   function resizeBranch(dir: string, branchId: string, ratio: number) {
     const layout = layoutsByDir.value[dir];
@@ -471,6 +497,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     visit,
     splitPane,
     closePane,
+    resetLayout,
     resizeBranch,
     focusPane,
     spawnPty,

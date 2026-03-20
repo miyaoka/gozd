@@ -64,11 +64,30 @@ export interface ResolvedOpenTarget {
 }
 
 /**
+ * 絶対パスから最初に存在する祖先ディレクトリを探す。
+ * 非存在パスでも dirname を遡ることで git コマンドを実行可能なディレクトリを見つける。
+ */
+function findExistingAncestor(absolutePath: string): string {
+  let current = absolutePath;
+  while (!existsSync(current)) {
+    const parent = path.dirname(current);
+    // ルートに到達（これ以上遡れない）
+    if (parent === current) return current;
+    current = parent;
+  }
+  // ファイルの場合は親ディレクトリを返す
+  if (!statSync(current).isDirectory()) {
+    return path.dirname(current);
+  }
+  return current;
+}
+
+/**
  * CLI から受け取った絶対パスを、プロジェクト・worktree・選択対象に解決する。
  * - 既存ファイル → そのファイルの worktree をアクティブにし、ファイルを選択
  * - 既存ディレクトリ = worktree root → その worktree をアクティブに
  * - 既存ディレクトリ = サブディレクトリ → 属する worktree をアクティブにし、ディレクトリを選択
- * - 非存在 → 親ディレクトリから解決し、ファイルとして扱う
+ * - 非存在 → 存在する祖先ディレクトリから解決し、ファイルとして扱う
  */
 export function resolveOpenTarget(targetPath: string): ResolvedOpenTarget {
   if (existsSync(targetPath) && statSync(targetPath).isDirectory()) {
@@ -87,7 +106,8 @@ export function resolveOpenTarget(targetPath: string): ResolvedOpenTarget {
   }
 
   // ファイル（存在する場合も非存在の場合も同じ扱い）
-  const dir = existsSync(targetPath) ? path.dirname(targetPath) : path.dirname(targetPath);
+  // 非存在パスは祖先を遡って git コマンドを実行可能なディレクトリを見つける
+  const dir = findExistingAncestor(targetPath);
   const activeDir = resolveWorktreeRoot(dir);
   const projectDir = resolveProjectDir(dir);
   return {

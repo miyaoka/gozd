@@ -38,6 +38,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     newChannel?: string,
     newRepoName?: string,
   ) {
+    const dirChanged = dir.value !== newDir;
     dir.value = newDir;
     if (newFileServerBaseUrl) {
       fileServerBaseUrl.value = newFileServerBaseUrl;
@@ -49,10 +50,12 @@ export const useWorkspaceStore = defineStore("workspace", () => {
       repoName.value = newRepoName;
     }
     if (selection) {
-      initialSelection.value = selection;
-      if (selection.kind === "file") {
-        selectPath(selection.relPath);
+      if (dirChanged) {
+        // dir が変わる場合は loadRoot 後に consumeInitialSelection で適用
+        initialSelection.value = selection;
       }
+      // 即時選択（file はプレビュー更新、directory は revealVersion インクリメントで FilerPane に通知）
+      selectPath(selection.relPath);
     }
   }
 

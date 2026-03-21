@@ -193,17 +193,23 @@ onMounted(async () => {
   // store の PTY セッションに接続（ring buffer replay + live attach）
   // ghostty の Pin トラッキングに倣い、write() 後にスクロール位置を保持する。
   // TUI アプリ（Claude Code 等）の再描画でエスケープシーケンスにより viewportY が
-  // リセットされる場合があるため、write() 前の viewportY を記録して復元する
+  // リセットされる場合があるため、write() 前の viewportY を記録して復元する。
+  // xterm.js の WriteBuffer はチャンクを非同期キューに積むため、コールバック実行時に
+  // write() 呼び出し時のスナップショットが古くなっている可能性がある。
+  // そのためコールバック内でも現在の状態を再チェックする
+  let lastSavedViewportY = 0;
   detachDisposer = terminalStore.attachTerminal(props.leafId, (data) => {
     const buf = term.buffer.active;
-    const wasAtBottom = buf.viewportY >= buf.baseY;
-    const savedViewportY = buf.viewportY;
+    // write() 呼び出し時の viewportY を記録（コールバック内で参照）
+    // 複数の write() がキューに積まれた場合、最新の write() 時点の値が使われる
+    lastSavedViewportY = buf.viewportY;
     term.write(data, () => {
-      if (wasAtBottom) {
-        term.scrollToBottom();
-      } else if (term.buffer.active.viewportY !== savedViewportY) {
+      const currentBuf = term.buffer.active;
+      const isAtBottom = currentBuf.viewportY >= currentBuf.baseY;
+      if (isAtBottom) return; // 既に bottom なら何もしない
+      if (currentBuf.viewportY !== lastSavedViewportY) {
         // エスケープシーケンスで viewportY が変更された場合のみ復元
-        term.scrollToLine(Math.min(savedViewportY, term.buffer.active.baseY));
+        term.scrollToLine(Math.min(lastSavedViewportY, currentBuf.baseY));
       }
     });
   });

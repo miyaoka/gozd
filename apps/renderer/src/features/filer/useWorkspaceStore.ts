@@ -1,7 +1,7 @@
 import type { OpenTargetSelection } from "@gozd/rpc";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
-import { normalizePath, resolveFileGitChange } from "./filer-utils";
+import { normalizePath, resolveFileGitChange } from "./filerUtils";
 import { useGitStatusStore } from "./useGitStatusStore";
 
 export const useWorkspaceStore = defineStore("workspace", () => {

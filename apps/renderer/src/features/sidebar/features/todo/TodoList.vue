@@ -6,7 +6,7 @@
 
 <script setup lang="ts">
 import type { Todo } from "@gozd/rpc";
-import { todoTitle } from "../utils";
+import { todoTitle } from "../../utils";
 
 defineProps<{
   todos: Todo[];

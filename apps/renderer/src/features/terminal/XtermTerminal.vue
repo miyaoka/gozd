@@ -11,7 +11,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal, type IMarker } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { onMounted, onBeforeUnmount, ref, watch } from "vue";
-import { useRpc } from "../rpc/useRpc";
+import { useRpc } from "../../shared/rpc";
 import { terminalConfig } from "./terminalConfig";
 import { createFilePathLinkProvider } from "./useFilePathLinkProvider";
 import { useTerminalStore } from "./useTerminalStore";

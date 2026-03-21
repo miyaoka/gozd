@@ -11,10 +11,8 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
-import { resolveGitChangeKind } from "../filer/filer-utils";
-import type { GitChangeKind } from "../filer/filer-utils";
-import { useGitStatusStore } from "../filer/useGitStatusStore";
-import { useWorkspaceStore } from "../filer/useWorkspaceStore";
+import { resolveGitChangeKind, useGitStatusStore, useWorkspaceStore } from "../filer";
+import type { GitChangeKind } from "../filer";
 
 const props = defineProps<{
   explorerOpen: boolean;

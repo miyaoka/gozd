@@ -1,3 +1,4 @@
+import pluginGozd from "@gozd/eslint-plugin";
 import skipFormatting from "@vue/eslint-config-prettier/skip-formatting";
 import { defineConfigWithVueTs, vueTsConfigs } from "@vue/eslint-config-typescript";
 import type { ESLint } from "eslint";
@@ -89,6 +90,25 @@ export default defineConfigWithVueTs(
       "better-tailwindcss/enforce-consistent-line-wrapping": "off",
       // フォーマッタと競合するため off
       "better-tailwindcss/no-unnecessary-whitespace": "off",
+    },
+  },
+
+  // feature / shared のバレルファイル強制
+  //
+  // NG: feature 外 → 内部モジュール直接 import
+  // NG: 親 feature 内 → 子 feature の内部モジュール直接 import（3階層目含む）
+  // NG: 親 feature 内 → 子 feature のバレルでないファイル直接 import
+  // NG: shared → feature
+  // OK: feature 外 → バレル経由
+  // OK: 親 feature 内 → 子 feature のバレル経由
+  // OK: 親 feature 内 → 3 階層目の子 feature のバレル経由
+  // OK: 同一 feature 内の通常ファイル参照
+  {
+    plugins: {
+      gozd: pluginGozd,
+    },
+    rules: {
+      "gozd/barrel-import": "error",
     },
   },
 

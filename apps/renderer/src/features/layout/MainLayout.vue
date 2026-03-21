@@ -16,28 +16,26 @@
 <script setup lang="ts">
 import { useElementSize, useEventListener, useWindowSize } from "@vueuse/core";
 import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch, watchEffect } from "vue";
-import { useCommandRegistry } from "../command/useCommandRegistry";
-import { useContextKeys } from "../command/useContextKeys";
-import DebugPane from "../debug/DebugPane.vue";
-import DiagnosticsPane from "../diagnostics/DiagnosticsPane.vue";
-import FilerPane from "../filer/FilerPane.vue";
-import { useWorkspaceStore } from "../filer/useWorkspaceStore";
-import PreviewPane from "../preview/PreviewPane.vue";
-import { useRpc } from "../rpc/useRpc";
-import SidebarPane from "../sidebar/SidebarPane.vue";
-import { registerTerminalCommands } from "../terminal/registerTerminalCommands";
-import SplitResizeHandle from "../terminal/SplitResizeHandle.vue";
+import { useCommandRegistry, useContextKeys } from "../../shared/command";
+import { useRpc } from "../../shared/rpc";
+import { DebugPane } from "../debug";
+import { DiagnosticsPane } from "../diagnostics";
+import { FilerPane, useWorkspaceStore } from "../filer";
+import { PreviewPane } from "../preview";
+import { SidebarPane } from "../sidebar";
 import {
   collectLeafIds,
   flattenHandles,
   leafIdToAreaName,
+  registerTerminalCommands,
+  SplitResizeHandle,
+  TerminalLeaf,
   TILE_GAP,
   tileGridTemplate,
   treeToGridTemplate,
-} from "../terminal/splitTree";
-import type { HandlePosition, PixelRect } from "../terminal/splitTree";
-import TerminalLeaf from "../terminal/TerminalLeaf.vue";
-import { useTerminalStore } from "../terminal/useTerminalStore";
+  useTerminalStore,
+} from "../terminal";
+import type { HandlePosition, PixelRect } from "../terminal";
 import ResizeHandle from "./ResizeHandle.vue";
 
 const workspaceStore = useWorkspaceStore();

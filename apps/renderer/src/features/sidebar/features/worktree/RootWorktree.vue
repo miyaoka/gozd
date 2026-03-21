@@ -4,7 +4,7 @@
 
 <script setup lang="ts">
 import type { WorktreeEntry } from "@gozd/rpc";
-import { hasChanges } from "../utils";
+import { hasChanges } from "../../utils";
 
 defineProps<{
   worktree: WorktreeEntry | undefined;

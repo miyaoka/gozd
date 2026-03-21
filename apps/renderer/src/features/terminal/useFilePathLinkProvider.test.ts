@@ -8,13 +8,13 @@ describe("findRelativePaths", () => {
   });
 
   test("深いパスを検出する", () => {
-    const [result] = findRelativePaths("apps/renderer/src/features/filer/filer-utils.ts");
-    expect(result?.path).toBe("apps/renderer/src/features/filer/filer-utils.ts");
+    const [result] = findRelativePaths("apps/renderer/src/features/filer/filerUtils.ts");
+    expect(result?.path).toBe("apps/renderer/src/features/filer/filerUtils.ts");
   });
 
   test("複数ドットの拡張子を検出する（.test.ts）", () => {
-    const [result] = findRelativePaths("src/features/filer/filer-utils.test.ts");
-    expect(result?.path).toBe("src/features/filer/filer-utils.test.ts");
+    const [result] = findRelativePaths("src/features/filer/filerUtils.test.ts");
+    expect(result?.path).toBe("src/features/filer/filerUtils.test.ts");
   });
 
   test(".spec.tsx を検出する", () => {

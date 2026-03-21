@@ -1,5 +1,5 @@
 import type { IBuffer, IBufferLine, ILink, ILinkProvider, Terminal } from "@xterm/xterm";
-import { useWorkspaceStore } from "../filer/useWorkspaceStore";
+import { useWorkspaceStore } from "../filer";
 import { findRelativePaths } from "./findRelativePaths";
 
 /** パスの末尾区切り文字 */

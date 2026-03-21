@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { dirName, normalizePath, sortEntries, type FileEntry } from "./filer-utils";
+import { dirName, normalizePath, sortEntries, type FileEntry } from "./filerUtils";
 
 describe("dirName", () => {
   test("パスの末尾をディレクトリ名として返す", () => {

@@ -7,8 +7,8 @@ xterm.js をバックエンドとして使用する。
 
 ```text
 features/terminal/
-├── TerminalPane.vue              # （未使用）旧分割レイアウト管理
-├── TerminalLeaf.vue              # リーフノード（XtermTerminal ラップ、フォーカス管理）。MainLayout が直接配置
+├── TerminalPane.vue              # leaf 群の統括コンテナ（CSS Grid レイアウト、可視性制御、コマンド登録）
+├── TerminalLeaf.vue              # リーフノード（XtermTerminal ラップ、フォーカス管理）
 ├── SplitResizeHandle.vue         # 分割リサイズハンドル（ドラッグ）
 ├── XtermTerminal.vue             # xterm.js ターミナルエミュレータ
 ├── splitTree.ts                  # immutable な分割ツリー操作（split, remove, resize）
@@ -75,7 +75,7 @@ leafNode
 
 ### CSS Grid レイアウト
 
-`MainLayout` が全 worktree の全 leaf を1つの CSS Grid コンテナでフラットに管理する。`treeToGridTemplate()` が分割ツリーから `grid-template-areas` / `columns` / `rows` を生成し、各 leaf は `grid-area` で配置される。表示モードの切り替えはコンテナの grid-template を変えるだけで済む。
+`TerminalPane` が全 worktree の全 leaf を1つの CSS Grid コンテナでフラットに管理する。`treeToGridTemplate()` が分割ツリーから `grid-template-areas` / `columns` / `rows` を生成し、各 leaf は `grid-area` で配置される。表示モードの切り替えはコンテナの grid-template を変えるだけで済む。
 
 - leaf の DOM は v-show で表示/非表示を制御（xterm バッファは維持される）
 - リサイズハンドルは `flattenHandles()` で gap の位置を算出し、absolute overlay で配置
@@ -105,9 +105,9 @@ leafNode
 - worktree 切り替え時は既存レイアウトを復元する（PTY プロセスと xterm バッファは維持される）
 - worktree 削除時は該当 PTY を kill する
 
-### terminalContainer のレイアウト
+### TerminalPane のレイアウト
 
-`MainLayout.vue` の `terminalContainer` が全 worktree の全 leaf を1つの CSS Grid でフラットに管理する。
+`TerminalPane.vue` が全 worktree の全 leaf を1つの CSS Grid でフラットに管理する。MainLayout はこのコンポーネントを配置するだけでよい。
 
 - **コンテナ**: `grid-template-areas` / `columns` / `rows` で全 leaf の配置を定義。`:style` バインディングで動的に設定
 - **子（TerminalLeaf）**: `grid-area` でどのエリアに入るかを宣言するだけ。サイズはコンテナ grid が決める

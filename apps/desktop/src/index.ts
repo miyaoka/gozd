@@ -982,7 +982,7 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
 
 interface HookMessage {
   type: "hook";
-  event: "running" | "done" | "needs-input" | "tool-done";
+  event: string;
   payload: Record<string, unknown>;
 }
 

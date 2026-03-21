@@ -45,6 +45,7 @@ undefined ──SessionStart──→ idle ──UserPromptSubmit──→ worki
 | `PermissionRequest`  | `needs-input`   | `asking`（150ms debounce）                   | CLI 経由（`tool_name`, `tool_input` 取得） |
 | `PostToolUse`        | `tool-done`     | `working` 維持                               | nc 直接送信                                |
 | `PostToolUseFailure` | `tool-failure`  | `working` 維持 / `idle`（`is_interrupt` 時） | CLI 経由（`is_interrupt` 取得）            |
+| `StopFailure`        | `stop-failure`  | `done`（API エラーによる停止）               | CLI 経由（`last_assistant_message` 取得）  |
 
 ### 送信経路の選択基準
 

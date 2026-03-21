@@ -40,6 +40,7 @@ export type ClaudeStatus =
  * - done: Stop（応答完了）
  * - tool-done: PostToolUse（ツール実行完了）
  * - tool-failure: PostToolUseFailure（ツール実行失敗。is_interrupt で中断判定）
+ * - stop-failure: StopFailure（API エラーによる停止）
  */
 type HookEvent =
   | "session-start"
@@ -48,7 +49,8 @@ type HookEvent =
   | "needs-input"
   | "done"
   | "tool-done"
-  | "tool-failure";
+  | "tool-failure"
+  | "stop-failure";
 
 const HOOK_EVENTS: readonly HookEvent[] = [
   "session-start",
@@ -58,6 +60,7 @@ const HOOK_EVENTS: readonly HookEvent[] = [
   "done",
   "tool-done",
   "tool-failure",
+  "stop-failure",
 ];
 
 function isHookEvent(value: string): value is HookEvent {
@@ -203,6 +206,16 @@ export const useTerminalStore = defineStore("terminal", () => {
         break;
       }
       case "done": {
+        cancelAskTimer(ptyId);
+        const message =
+          typeof payload.last_assistant_message === "string"
+            ? payload.last_assistant_message
+            : undefined;
+        claudeStatusByPtyId.value[ptyId] = { state: "done", message };
+        break;
+      }
+      case "stop-failure": {
+        // API エラーによる停止。done と同様に人間への通知が必要
         cancelAskTimer(ptyId);
         const message =
           typeof payload.last_assistant_message === "string"

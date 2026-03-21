@@ -198,6 +198,7 @@ desktop 起動時に `generateClaudeSettings()` が hooks 設定 JSON を `$TMPD
 | `PermissionRequest`  | `needs-input`   | CLI 経由    | `ptyId`, `tool_name`, `tool_input` |
 | `PostToolUse`        | `tool-done`     | nc 直接送信 | `ptyId`                            |
 | `PostToolUseFailure` | `tool-failure`  | CLI 経由    | `ptyId`, `is_interrupt`            |
+| `StopFailure`        | `stop-failure`  | CLI 経由    | `ptyId`, `last_assistant_message`  |
 
 ### 送信経路の使い分け
 

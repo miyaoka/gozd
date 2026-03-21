@@ -151,6 +151,54 @@ leafNode
 - カーソル: 点滅有効
 - ANSI カラーは各バックエンドのデフォルトパレットを使用
 
+## スクロール位置保持（xterm.js）
+
+TUI アプリ（Claude Code 等）が normal buffer で動作する場合、スクロールバック中に再描画が起きるとエスケープシーケンスにより viewportY がリセットされる。ネイティブターミナルではコア内部でスクロール位置を管理するためこの問題は起きないが、xterm.js ではコア内部を変更できないため外部から補正する。
+
+### 業界ターミナルの設計
+
+| ターミナル | アンカー方式                             | 行追加時の処理                                           |
+| ---------- | ---------------------------------------- | -------------------------------------------------------- |
+| ghostty    | `Pin`（ページリストの物理行に紐づく）    | grow() 時に Pin が自動追跡                               |
+| alacritty  | `display_offset`（スクロールバック行数） | `scroll_up()` 内で `display_offset += positions`         |
+| kitty      | `scrolled_by`（スクロールバック行数）    | render loop で `scrolled_by += history_line_added_count` |
+| WezTerm    | `StableRowIndex`（論理行インデックス）   | `stable_row_index_offset` で削除行数を追跡               |
+
+共通点:
+
+- スクロール位置はターミナルコアの内部状態として管理される
+- 外部 callback で補正するパターンはどのターミナルにも存在しない
+
+### xterm.js での実装: ViewportIntent + Marker
+
+xterm.js の `registerMarker()` は ghostty の Pin に最も近い安定アンカー。行の追加・削除に追従する。
+
+```text
+ViewportIntent = "bottom" | "anchored(marker)"
+
+write() 前:
+  captureViewportIntent()
+    → bottom にいる or alternate buffer → intent = bottom
+    → スクロールバック中 → Marker を登録して intent = anchored(marker)
+
+write() 後（onWriteParsed で集約）:
+  restoreViewportIntent()
+    → intent = bottom → scrollToBottom()
+    → intent = anchored → marker.line に scrollToLine()
+```
+
+`onWriteParsed` はフレームごとに最大1回発火するため、高頻度 write() でも復元が1回に集約される。
+
+### 検討・却下した方式
+
+- **viewportY 生値の共有変数**: xterm.js の非同期 WriteBuffer とスナップショットの対応が崩れる
+- **viewportY 生値のローカル変数（クロージャキャプチャ）**: コールバック実行時に古いスナップショットでユーザー操作を踏み潰す
+- **scrollRevision（世代番号）**: 業界4大ターミナルのどれにも存在しないパターン
+
+### リサイズ時の挙動
+
+リサイズ時は Marker ベースの復元を試みるが、TUI アプリの SIGWINCH 再描画で Marker 復元後にずれる場合がある。ghostty でもリサイズ時は bottom にリセットされるため、許容する。
+
 ## Desktop 側の PTY 管理
 
 - `Map<number, PtyEntry>` で PTY ID → プロセスを管理

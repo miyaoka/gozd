@@ -23,10 +23,9 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref, watch } from "vue";
-import type { GitChangeKind } from "../filer/filer-utils";
-import { getFileIconName, getIconUrl } from "../filer/useFileIcon";
-import { useWorkspaceStore } from "../filer/useWorkspaceStore";
-import { useRpc } from "../rpc/useRpc";
+import { getFileIconName, getIconUrl, useWorkspaceStore } from "../filer";
+import type { GitChangeKind } from "../filer";
+import { useRpc } from "../rpc";
 import CodePreview from "./CodePreview.vue";
 import DiffPreview from "./DiffPreview.vue";
 import ImagePreview from "./ImagePreview.vue";

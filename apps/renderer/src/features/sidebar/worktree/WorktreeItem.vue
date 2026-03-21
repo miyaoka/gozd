@@ -10,7 +10,7 @@ worktree 行の下に吹き出し風のテキストとして出す。
 <script setup lang="ts">
 import type { WorktreeEntry } from "@gozd/rpc";
 import { computed } from "vue";
-import type { ClaudeState, ClaudeStatus } from "../../terminal/useTerminalStore";
+import type { ClaudeState, ClaudeStatus } from "../../terminal";
 import { hasChanges, hasTodoTitle, worktreeDisplayName } from "../utils";
 
 /** Claude 状態の表示優先度（高い方が優先） */

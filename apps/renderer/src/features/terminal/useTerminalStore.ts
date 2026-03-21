@@ -1,8 +1,8 @@
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
-import { useContextKeys } from "../command/useContextKeys";
-import { useRpc } from "../rpc/useRpc";
+import { useContextKeys } from "../command";
+import { useRpc } from "../rpc";
 import type { SplitDirection, SplitNode } from "./splitTree";
 import {
   collectLeafIds,

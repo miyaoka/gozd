@@ -15,15 +15,15 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, useTemplateRef } from "vue";
-import { useRpc } from "../rpc/useRpc";
+import { useRpc } from "../rpc";
 import {
   getDeletedEntries,
   resolveDirectoryGitChange,
   resolveFileGitChange,
   resolveGitChangeKind,
   sortEntries,
-} from "./filer-utils";
-import type { FileEntry, GitChangeKind } from "./filer-utils";
+} from "./filerUtils";
+import type { FileEntry, GitChangeKind } from "./filerUtils";
 import { getFileIconName, getFolderIconName, getIconUrl } from "./useFileIcon";
 
 const GIT_CHANGE_COLOR_MAP: Record<GitChangeKind, string> = {

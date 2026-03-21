@@ -1,6 +1,6 @@
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { ref } from "vue";
-import { useRpc } from "../rpc/useRpc";
+import { useRpc } from "../rpc";
 
 export const useGitStatusStore = defineStore("gitStatus", () => {
   const gitStatuses = ref<Record<string, string>>({});

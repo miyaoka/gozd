@@ -17,7 +17,7 @@
 <script setup lang="ts">
 import { useElementSize } from "@vueuse/core";
 import { computed, ref, shallowRef, watchEffect } from "vue";
-import { useWorkspaceStore } from "../filer/useWorkspaceStore";
+import { useWorkspaceStore } from "../filer";
 import SplitResizeHandle from "./SplitResizeHandle.vue";
 import type { FlatElement, FlatHandle, PixelRect } from "./splitTree";
 import { collectLeafIds, flattenTree } from "./splitTree";

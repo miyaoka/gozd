@@ -12,9 +12,9 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
 import { nextTick, onUnmounted, ref, watch } from "vue";
-import { useRpc } from "../rpc/useRpc";
-import { dirName, getDeletedEntries, resolveGitChangeKind, sortEntries } from "./filer-utils";
-import type { FileEntry } from "./filer-utils";
+import { useRpc } from "../rpc";
+import { dirName, getDeletedEntries, resolveGitChangeKind, sortEntries } from "./filerUtils";
+import type { FileEntry } from "./filerUtils";
 import FileTreeItem from "./FileTreeItem.vue";
 import { useGitStatusStore } from "./useGitStatusStore";
 import { useWorkspaceStore } from "./useWorkspaceStore";

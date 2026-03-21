@@ -2,6 +2,7 @@ import skipFormatting from "@vue/eslint-config-prettier/skip-formatting";
 import { defineConfigWithVueTs, vueTsConfigs } from "@vue/eslint-config-typescript";
 import type { ESLint } from "eslint";
 import pluginBetterTailwindcss from "eslint-plugin-better-tailwindcss";
+import pluginBoundaries from "eslint-plugin-boundaries";
 import pluginImportX from "eslint-plugin-import-x";
 import pluginUnusedImports from "eslint-plugin-unused-imports";
 import pluginVue from "eslint-plugin-vue";
@@ -89,6 +90,42 @@ export default defineConfigWithVueTs(
       "better-tailwindcss/enforce-consistent-line-wrapping": "off",
       // フォーマッタと競合するため off
       "better-tailwindcss/no-unnecessary-whitespace": "off",
+    },
+  },
+
+  // boundaries: feature 外からの内部モジュール直接 import を禁止
+  {
+    plugins: {
+      boundaries: pluginBoundaries,
+    },
+    settings: {
+      // eslint-module-utils/resolve が TypeScript の拡張子なし import を解決するために必要
+      "import/resolver": {
+        typescript: {
+          project: "./tsconfig.app.json",
+        },
+      },
+      "boundaries/elements": [{ type: "feature", pattern: "src/features/*", mode: "folder" }],
+    },
+    rules: {
+      // feature 外から feature の内部モジュールを直接 import することを禁止する
+      // 同一 feature 内の依存は checkInternals: false（デフォルト）によりスキップされる
+      // feature 以外への依存は unknown element となりデフォルトでスキップされる
+      "boundaries/dependencies": [
+        "error",
+        {
+          default: "allow",
+          rules: [
+            // feature への依存は index.ts 以外を禁止
+            {
+              to: { type: "feature" },
+              disallow: {
+                to: { internalPath: "!index.ts" },
+              },
+            },
+          ],
+        },
+      ],
     },
   },
 

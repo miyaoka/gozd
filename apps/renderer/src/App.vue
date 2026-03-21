@@ -10,11 +10,11 @@
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
 import { onMounted, onUnmounted } from "vue";
-import { useKeyBindings } from "./features/command/useKeyBindings";
-import { useDiagnosticsStore } from "./features/diagnostics/useDiagnosticsStore";
-import { useWorkspaceStore } from "./features/filer/useWorkspaceStore";
-import MainLayout from "./features/layout/MainLayout.vue";
-import { useRpc } from "./features/rpc/useRpc";
+import { useKeyBindings } from "./features/command";
+import { useDiagnosticsStore } from "./features/diagnostics";
+import { useWorkspaceStore } from "./features/filer";
+import { MainLayout } from "./features/layout";
+import { useRpc } from "./features/rpc";
 
 useKeyBindings();
 

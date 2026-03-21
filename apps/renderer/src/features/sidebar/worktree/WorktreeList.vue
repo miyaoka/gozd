@@ -6,7 +6,7 @@
 
 <script setup lang="ts">
 import type { WorktreeEntry } from "@gozd/rpc";
-import type { ClaudeStatus } from "../../terminal/useTerminalStore";
+import type { ClaudeStatus } from "../../terminal";
 import WorktreeItem from "./WorktreeItem.vue";
 
 type ViewMode = "wt" | "all" | "claude";

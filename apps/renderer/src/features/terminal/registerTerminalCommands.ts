@@ -3,7 +3,7 @@
  * クロージャで store と DOM 参照をキャプチャし、handler 内では毎回最新の Ref.value を読む。
  */
 import type { Ref, ShallowRef } from "vue";
-import { useCommandRegistry } from "../command/useCommandRegistry";
+import { useCommandRegistry } from "../command";
 import { findNavigationTarget } from "./useSpatialNavigation";
 import { useTerminalStore } from "./useTerminalStore";
 

@@ -290,9 +290,7 @@ async function saveNewWorktree() {
   }
   isAddingWorktree.value = false;
   const startResult = await tryCatch(request.todoStart({ id: addResult.value.id }));
-  if (startResult.ok) {
-    await fetchData();
-  }
+  await fetchData();
   isCreating.value = false;
 }
 

@@ -21,8 +21,8 @@ worktree 行ごとの Claude 状態表示は `WorktreeItem.vue` に委譲。
 </doc>
 
 <script setup lang="ts">
-import type { Todo, WorktreeEntry } from "@orkis/rpc";
-import { tryCatch } from "@orkis/shared";
+import type { Todo, WorktreeEntry } from "@gozd/rpc";
+import { tryCatch } from "@gozd/shared";
 import { useEventListener, useIntervalFn } from "@vueuse/core";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useCommandRegistry } from "../command/useCommandRegistry";
@@ -488,7 +488,7 @@ onUnmounted(() => {
         <input
           aria-label="Project name"
           class="min-w-0 flex-1 truncate bg-transparent outline-none"
-          :value="workspaceStore.repoName ?? 'orkis'"
+          :value="workspaceStore.repoName ?? 'gozd'"
           @input="workspaceStore.repoName = ($event.target as HTMLInputElement).value"
         />
       </h1>

@@ -1,4 +1,4 @@
-import { tryCatch } from "@orkis/shared";
+import { tryCatch } from "@gozd/shared";
 
 /** ブランチ名にシェルメタ文字が含まれていないことを検証する */
 export function assertBranchName(branch: string): void {

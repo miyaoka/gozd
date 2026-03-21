@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # .app 内のパス解決
-# 配置先: orkis.app/Contents/Resources/app/bin/orkis
+# 配置先: gozd.app/Contents/Resources/app/bin/gozd
 # シンボリックリンクを解決して実体のディレクトリを取得
 SOURCE="$0"
 while [[ -L "${SOURCE}" ]]; do
@@ -16,7 +16,7 @@ BUN="${APP_CONTENTS}/MacOS/bun"
 CLI="${APP_RESOURCES}/cli/index.js"
 APP_BUNDLE="${APP_CONTENTS}/.."
 TMPDIR_NORMALIZED="${TMPDIR:-/tmp}"
-SOCKET_PATH="${TMPDIR_NORMALIZED%/}/orkis-stable.sock"
+SOCKET_PATH="${TMPDIR_NORMALIZED%/}/gozd-stable.sock"
 
 is_app_running() {
   [[ -S "${SOCKET_PATH}" ]] || return 1
@@ -38,7 +38,7 @@ should_launch_app() {
 
 if should_launch_app "$@"; then
   # cold start: CLI に launch request ファイルを書かせてからアプリを起動
-  ORKIS_COLD_START=1 "${BUN}" "${CLI}" "$@" || exit $?
+  GOZD_COLD_START=1 "${BUN}" "${CLI}" "$@" || exit $?
   open "${APP_BUNDLE}"
   exit $?
 fi

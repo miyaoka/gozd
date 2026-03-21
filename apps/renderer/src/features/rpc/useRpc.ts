@@ -1,8 +1,8 @@
-import type { OrkisRPC } from "@orkis/rpc";
+import type { GozdRPC } from "@gozd/rpc";
 import Electrobun, { Electroview } from "electrobun/view";
 
 /** RPC スキーマから webview 向けメッセージのペイロード型を導出 */
-type Msg = OrkisRPC["webview"]["messages"];
+type Msg = GozdRPC["webview"]["messages"];
 
 // bun → webview メッセージのコールバックリスト（動的リスナー用）
 const listeners = {
@@ -11,12 +11,12 @@ const listeners = {
   fsChange: [] as Array<(payload: Msg["fsChange"]) => void>,
   gitStatusChange: [] as Array<(payload: Msg["gitStatusChange"]) => void>,
   worktreeChange: [] as Array<() => void>,
-  orkisOpen: [] as Array<(payload: Msg["orkisOpen"]) => void>,
-  orkisHook: [] as Array<(payload: Msg["orkisHook"]) => void>,
+  gozdOpen: [] as Array<(payload: Msg["gozdOpen"]) => void>,
+  gozdHook: [] as Array<(payload: Msg["gozdHook"]) => void>,
   lspDiagnostics: [] as Array<(payload: Msg["lspDiagnostics"]) => void>,
 };
 
-const rpc = Electroview.defineRPC<OrkisRPC>({
+const rpc = Electroview.defineRPC<GozdRPC>({
   handlers: {
     requests: {},
     messages: {
@@ -35,11 +35,11 @@ const rpc = Electroview.defineRPC<OrkisRPC>({
       worktreeChange: () => {
         for (const fn of listeners.worktreeChange) fn();
       },
-      orkisOpen: (payload) => {
-        for (const fn of listeners.orkisOpen) fn(payload);
+      gozdOpen: (payload) => {
+        for (const fn of listeners.gozdOpen) fn(payload);
       },
-      orkisHook: (payload) => {
-        for (const fn of listeners.orkisHook) fn(payload);
+      gozdHook: (payload) => {
+        for (const fn of listeners.gozdHook) fn(payload);
       },
       lspDiagnostics: (payload) => {
         for (const fn of listeners.lspDiagnostics) fn(payload);
@@ -83,8 +83,8 @@ export function useRpc() {
     onGitStatusChange: (fn: (payload: Msg["gitStatusChange"]) => void) =>
       subscribe("gitStatusChange", fn),
     onWorktreeChange: (fn: () => void) => subscribe("worktreeChange", fn),
-    onOrkisOpen: (fn: (payload: Msg["orkisOpen"]) => void) => subscribe("orkisOpen", fn),
-    onOrkisHook: (fn: (payload: Msg["orkisHook"]) => void) => subscribe("orkisHook", fn),
+    onGozdOpen: (fn: (payload: Msg["gozdOpen"]) => void) => subscribe("gozdOpen", fn),
+    onGozdHook: (fn: (payload: Msg["gozdHook"]) => void) => subscribe("gozdHook", fn),
     onLspDiagnostics: (fn: (payload: Msg["lspDiagnostics"]) => void) =>
       subscribe("lspDiagnostics", fn),
   };

@@ -2,7 +2,7 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-const SOCKET_PATH = process.env.ORKIS_SOCKET_PATH ?? path.join(tmpdir(), "orkis-stable.sock");
+const SOCKET_PATH = process.env.GOZD_SOCKET_PATH ?? path.join(tmpdir(), "gozd-stable.sock");
 
 interface HookMessage {
   type: "hook";
@@ -15,10 +15,10 @@ interface OpenMessage {
   targetPath: string;
 }
 
-type OrkisMessage = HookMessage | OpenMessage;
+type GozdMessage = HookMessage | OpenMessage;
 
 /** ソケットに接続してメッセージを送信する。接続失敗時は reject する。 */
-function sendMessage(message: OrkisMessage): Promise<void> {
+function sendMessage(message: GozdMessage): Promise<void> {
   return new Promise((resolve, reject) => {
     const client = net.createConnection(SOCKET_PATH, () => {
       client.write(JSON.stringify(message) + "\n");
@@ -31,7 +31,7 @@ function sendMessage(message: OrkisMessage): Promise<void> {
 
     client.on("error", (err) => {
       if ("code" in err && err.code === "ENOENT") {
-        reject(new Error("orkis アプリが起動していません"));
+        reject(new Error("gozd アプリが起動していません"));
         return;
       }
       reject(err);
@@ -40,4 +40,4 @@ function sendMessage(message: OrkisMessage): Promise<void> {
 }
 
 export { sendMessage };
-export type { HookMessage, OpenMessage, OrkisMessage };
+export type { HookMessage, OpenMessage, GozdMessage };

@@ -8,7 +8,7 @@ worktree 行の下に吹き出し風のテキストとして出す。
 </doc>
 
 <script setup lang="ts">
-import type { WorktreeEntry } from "@orkis/rpc";
+import type { WorktreeEntry } from "@gozd/rpc";
 import { computed } from "vue";
 import type { ClaudeState, ClaudeStatus } from "../../terminal/useTerminalStore";
 import { hasChanges, hasTodoTitle, worktreeDisplayName } from "../utils";

@@ -1,4 +1,4 @@
-import type { FileDiagnostics, LspDiagnostic } from "@orkis/rpc";
+import type { FileDiagnostics, LspDiagnostic } from "@gozd/rpc";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { useRpc } from "../rpc/useRpc";

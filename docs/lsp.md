@@ -5,7 +5,7 @@
 ## アーキテクチャ
 
 ```
-orkis (desktop)
+gozd (desktop)
   ├── tsgo LSP
   │     対象: TS/JS ファイル（apps/renderer 以外）
   │     方式: pull diagnostics (textDocument/diagnostic, LSP 3.17)
@@ -29,7 +29,7 @@ orkis (desktop)
 ### Vue
 
 - Vue の型診断は Vue Language Server の `publishDiagnostics` ではなく、tsserver 内の `@vue/typescript-plugin` が生成する（VS Code と同じ仕組み）
-- orkis では tsserver に `semanticDiagnosticsSync` コマンドを直接送って診断を取得
+- gozd では tsserver に `semanticDiagnosticsSync` コマンドを直接送って診断を取得
 - Vue Language Server は tsserver bridge としてのみ使用（`publishDiagnostics` は無視する）
 
 ## tsserver bridge
@@ -39,7 +39,7 @@ Vue Language Server は `tsserver/request` / `tsserver/response` カスタム LS
 ```
 Vue Language Server
   → tsserver/request 通知 (JSON-RPC params: [[id, command, args]])
-    → orkis が受け取り、tsserver の stdin にフォワード
+    → gozd が受け取り、tsserver の stdin にフォワード
       → tsserver のレスポンスを stdout から読み取り
         → tsserver/response 通知 ([[id, body]]) として Vue Language Server に返す
 ```

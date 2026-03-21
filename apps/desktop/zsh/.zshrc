@@ -1,20 +1,20 @@
-# orkis zsh wrapper — ユーザーの .zshrc を source した後に claude() を注入する
+# gozd zsh wrapper — ユーザーの .zshrc を source した後に claude() を注入する
 
 # .zshenv が検出したユーザーの本当の ZDOTDIR を使う
-_orkis_user_zdotdir="${ORKIS_USER_ZDOTDIR:-${ORKIS_ORIG_ZDOTDIR:-$HOME}}"
-export ZDOTDIR="$_orkis_user_zdotdir"
-[[ -f "$_orkis_user_zdotdir/.zshrc" ]] && source "$_orkis_user_zdotdir/.zshrc"
+_gozd_user_zdotdir="${GOZD_USER_ZDOTDIR:-${GOZD_ORIG_ZDOTDIR:-$HOME}}"
+export ZDOTDIR="$_gozd_user_zdotdir"
+[[ -f "$_gozd_user_zdotdir/.zshrc" ]] && source "$_gozd_user_zdotdir/.zshrc"
 
 # .zshrc は non-login shell の最後の初期化ファイルなので、ZDOTDIR をユーザー側に固定する
-# （orkis 側に戻さない。claude() 関数は環境変数で動作するため ZDOTDIR に依存しない）
+# （gozd 側に戻さない。claude() 関数は環境変数で動作するため ZDOTDIR に依存しない）
 
 # CWD を OSC 7 でターミナルに通知する（xterm.js 側で registerOscHandler(7) で受け取る）
-_orkis_osc7_cwd() {
+_gozd_osc7_cwd() {
   printf '\e]7;file://%s%s\a' "${HOST}" "${PWD}"
 }
 autoload -Uz add-zsh-hook
-add-zsh-hook chpwd _orkis_osc7_cwd
-_orkis_osc7_cwd
+add-zsh-hook chpwd _gozd_osc7_cwd
+_gozd_osc7_cwd
 
 # claude コマンドをラップして --settings を自動注入
 claude() {
@@ -25,5 +25,5 @@ claude() {
       return $?
     }
   done
-  command claude --settings "$ORKIS_CLAUDE_SETTINGS_PATH" "$@"
+  command claude --settings "$GOZD_CLAUDE_SETTINGS_PATH" "$@"
 }

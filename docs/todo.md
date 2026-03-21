@@ -20,13 +20,13 @@ interface Todo {
 
 ## 保存
 
-`~/.config/orkis/projects/<エンコード済みパス>/todos.json` に `Todo[]` を保存する。
+`~/.config/gozd/projects/<エンコード済みパス>/todos.json` に `Todo[]` を保存する。
 
 ```text
-~/.config/orkis/
+~/.config/gozd/
   app-state.json
   projects/
-    -Users-miyaoka-ghq-github-com-miyaoka-orkis/
+    -Users-miyaoka-ghq-github-com-miyaoka-gozd/
       todos.json
 ```
 

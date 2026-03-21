@@ -3,12 +3,12 @@
 
 ## 責務
 
-- RPC 経由で `orkisOpen` イベントを受信し、ワークスペース（ディレクトリ・ファイル）を設定する
+- RPC 経由で `gozdOpen` イベントを受信し、ワークスペース（ディレクトリ・ファイル）を設定する
 - マウント時に `rendererReady` を送信してメインプロセスに準備完了を通知する
 </doc>
 
 <script setup lang="ts">
-import { tryCatch } from "@orkis/shared";
+import { tryCatch } from "@gozd/shared";
 import { onMounted, onUnmounted } from "vue";
 import { useKeyBindings } from "./features/command/useKeyBindings";
 import { useDiagnosticsStore } from "./features/diagnostics/useDiagnosticsStore";
@@ -20,12 +20,12 @@ useKeyBindings();
 
 const workspaceStore = useWorkspaceStore();
 const diagnosticsStore = useDiagnosticsStore();
-const { request, send, onOrkisOpen } = useRpc();
+const { request, send, onGozdOpen } = useRpc();
 
 let cleanup: (() => void) | undefined;
 
 onMounted(() => {
-  cleanup = onOrkisOpen(
+  cleanup = onGozdOpen(
     async ({ dir, selection, fileServerBaseUrl, channel, repoName, switchToDir }) => {
       if (switchToDir) {
         // 既存ウィンドウで別 worktree への切り替えが必要な場合

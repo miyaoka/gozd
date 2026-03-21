@@ -116,7 +116,7 @@ export interface FileDiagnostics {
   diagnostics: LspDiagnostic[];
 }
 
-export type OrkisRPC = {
+export type GozdRPC = {
   bun: RPCSchema<{
     requests: {
       ptySpawn: {
@@ -249,7 +249,7 @@ export type OrkisRPC = {
       gitStatusChange: { statuses: Record<string, string> };
       /** 非アクティブ worktree でファイル変更が検知された通知 */
       worktreeChange: void;
-      orkisOpen: {
+      gozdOpen: {
         dir: string;
         selection?: OpenTargetSelection;
         fileServerBaseUrl: string;
@@ -258,7 +258,7 @@ export type OrkisRPC = {
         /** 既存ウィンドウ再利用時に切り替える worktree ディレクトリ。renderer 側で switchDir を呼ぶ */
         switchToDir?: string;
       };
-      orkisHook: { event: string; payload: Record<string, unknown> };
+      gozdHook: { event: string; payload: Record<string, unknown> };
       /** LSP 診断結果の更新（ファイル単位） */
       lspDiagnostics: FileDiagnostics;
     };

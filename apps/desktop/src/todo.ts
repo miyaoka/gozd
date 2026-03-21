@@ -2,16 +2,16 @@
  * Todo 管理モジュール
  *
  * worktree と 1:1 で紐づく Todo を JSON ファイルで永続化する。
- * 保存先: ~/.config/orkis/projects/<encodedPath>/todos.json
+ * 保存先: ~/.config/gozd/projects/<encodedPath>/todos.json
  */
 import fs from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
-import { tryCatch } from "@orkis/shared";
-import { todoSchema } from "@orkis/rpc";
-import type { Todo } from "@orkis/rpc";
+import { tryCatch } from "@gozd/shared";
+import { todoSchema } from "@gozd/rpc";
+import type { Todo } from "@gozd/rpc";
 
-const PROJECTS_DIR = path.join(homedir(), ".config", "orkis", "projects");
+const PROJECTS_DIR = path.join(homedir(), ".config", "gozd", "projects");
 const TODOS_FILE = "todos.json";
 
 /** プロジェクトパスをディレクトリ名にエンコードする */

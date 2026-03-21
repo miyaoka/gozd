@@ -1,4 +1,4 @@
-import type { WorktreeChangeCounts, WorktreeEntry } from "@orkis/rpc";
+import type { WorktreeChangeCounts, WorktreeEntry } from "@gozd/rpc";
 
 /** Todo の body 一行目をタイトルとして取得 */
 export function todoTitle(body: string): string {

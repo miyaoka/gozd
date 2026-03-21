@@ -1,5 +1,5 @@
-import { tryCatch } from "@orkis/shared";
-import type { WorktreeChangeCounts } from "@orkis/rpc";
+import { tryCatch } from "@gozd/shared";
+import type { WorktreeChangeCounts } from "@gozd/rpc";
 
 export async function filterIgnored(entries: string[], cwd: string): Promise<Set<string>> {
   if (entries.length === 0) return new Set();

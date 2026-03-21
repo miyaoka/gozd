@@ -2,11 +2,11 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { defineCommand } from "@miyaoka/fsss";
-import { tryCatch } from "@orkis/shared";
+import { tryCatch } from "@gozd/shared";
 import { z } from "zod";
 import { sendMessage } from "../socket-client";
 
-const LAUNCH_DIR = join(tmpdir(), "orkis-stable-launch");
+const LAUNCH_DIR = join(tmpdir(), "gozd-stable-launch");
 
 /** cold start 用の launch request ファイルを書き出す */
 function writeLaunchRequest(request: { targetPath: string }): void {
@@ -16,7 +16,7 @@ function writeLaunchRequest(request: { targetPath: string }): void {
 }
 
 export default defineCommand({
-  description: "指定パスを orkis で開く",
+  description: "指定パスを gozd で開く",
   args: {
     path: {
       type: z.string(),
@@ -29,7 +29,7 @@ export default defineCommand({
     const targetPath = resolve(args.path);
 
     // cold start: request ファイルを書いてアプリに渡す（ソケット送信しない）
-    if (process.env.ORKIS_COLD_START) {
+    if (process.env.GOZD_COLD_START) {
       writeLaunchRequest({ targetPath });
       return;
     }

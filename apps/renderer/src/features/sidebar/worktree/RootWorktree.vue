@@ -3,7 +3,7 @@
 </doc>
 
 <script setup lang="ts">
-import type { WorktreeEntry } from "@orkis/rpc";
+import type { WorktreeEntry } from "@gozd/rpc";
 import { hasChanges } from "../utils";
 
 defineProps<{

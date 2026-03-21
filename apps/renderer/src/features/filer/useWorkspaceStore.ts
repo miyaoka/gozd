@@ -1,4 +1,4 @@
-import type { OpenTargetSelection } from "@orkis/rpc";
+import type { OpenTargetSelection } from "@gozd/rpc";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { normalizePath, resolveFileGitChange } from "./filer-utils";
@@ -30,7 +30,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     return resolveFileGitChange(selectedPath.value, gitStatusStore.gitStatuses);
   });
 
-  /** RPC orkisOpen イベントで呼ばれる */
+  /** RPC gozdOpen イベントで呼ばれる */
   function setOpen(
     newDir: string,
     selection?: OpenTargetSelection,

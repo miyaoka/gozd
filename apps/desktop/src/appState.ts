@@ -2,7 +2,7 @@
  * アプリ状態の永続化モジュール
  *
  * 最後に開いていたプロジェクトとウィンドウフレーム（位置・サイズ）を
- * ~/.config/orkis/app-state.json に保存し、次回起動時に復元する。
+ * ~/.config/gozd/app-state.json に保存し、次回起動時に復元する。
  *
  * 永続化は before-quit（アプリ終了時）の一括コミットのみ。
  * ランタイム中の差分更新は index.ts 側の live 状態（Map）で管理する。
@@ -10,9 +10,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
-import { tryCatch } from "@orkis/shared";
+import { tryCatch } from "@gozd/shared";
 
-const CONFIG_DIR = path.join(homedir(), ".config", "orkis");
+const CONFIG_DIR = path.join(homedir(), ".config", "gozd");
 const STATE_FILE = path.join(CONFIG_DIR, "app-state.json");
 
 interface WindowFrame {

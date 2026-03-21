@@ -58,13 +58,15 @@ function scheduleFit() {
     if (width <= 0 || height <= 0) return;
     if (width === lastFitWidth && height === lastFitHeight) return;
 
-    // alternate buffer（TUI アプリ）は scrollback がないため bottom にリセットする
-    // primary buffer（通常シェル）は Marker で reflow に追従してスクロール位置を保持する
+    // alternate buffer / Claude Code 実行中 / bottom にいた場合は bottom にリセットする
+    // primary buffer（通常シェル）のスクロールバック中のみ Marker で位置を保持する
     const isAlternate = terminal?.buffer.active.type === "alternate";
+    const claudeState = terminalStore.getClaudeState(props.leafId);
+    const isClaudeActive = claudeState === "working" || claudeState === "asking";
     const buf = terminal?.buffer.active;
     const wasAtBottom = buf !== undefined && buf.viewportY >= buf.baseY;
     const marker =
-      !isAlternate && !wasAtBottom && terminal !== undefined && buf !== undefined
+      !isAlternate && !isClaudeActive && !wasAtBottom && terminal !== undefined && buf !== undefined
         ? terminal.registerMarker(buf.viewportY - buf.baseY - buf.cursorY)
         : undefined;
 
@@ -74,7 +76,7 @@ function scheduleFit() {
 
     // リサイズ後にスクロール位置を復元
     if (terminal !== undefined) {
-      if (isAlternate || wasAtBottom) {
+      if (isAlternate || isClaudeActive || wasAtBottom) {
         terminal.scrollToBottom();
       } else if (marker !== undefined && !marker.isDisposed) {
         terminal.scrollToLine(Math.min(marker.line, terminal.buffer.active.baseY));
@@ -191,8 +193,15 @@ onMounted(async () => {
   if (unmounted) return;
 
   // store の PTY セッションに接続（ring buffer replay + live attach）
+  // Claude Code は normal buffer で動作する TUI アプリ。再描画で baseY が増加し
+  // スクロール位置がトップにずれるため、active 中は常に bottom に追従する
   detachDisposer = terminalStore.attachTerminal(props.leafId, (data) => {
-    terminal?.write(data);
+    const scrollAfterWrite =
+      terminalStore.getClaudeState(props.leafId) === "working" ||
+      terminalStore.getClaudeState(props.leafId) === "asking";
+    terminal?.write(data, () => {
+      if (scrollAfterWrite) terminal?.scrollToBottom();
+    });
   });
 
   // xterm → PTY

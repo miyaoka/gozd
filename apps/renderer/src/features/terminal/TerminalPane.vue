@@ -31,6 +31,12 @@ import type { HandlePosition, PixelRect } from "./splitTree";
 import TerminalLeaf from "./TerminalLeaf.vue";
 import { useTerminalStore } from "./useTerminalStore";
 
+interface Props {
+  minWidth: number;
+}
+
+const { minWidth } = defineProps<Props>();
+
 const workspaceStore = useWorkspaceStore();
 const terminalStore = useTerminalStore();
 const contextKeys = useContextKeys();
@@ -135,8 +141,6 @@ const EMPTY_GRID: Record<string, string> = {
   gridTemplateAreas: '"."',
 };
 
-const MIN_WIDTH = 200;
-
 /** grid スタイル */
 const gridStyle = computed<Record<string, string>>(() => {
   const mode = terminalStore.viewMode;
@@ -198,7 +202,7 @@ function handleRectStyle(rect: PixelRect): Record<string, string> {
     ref="container"
     class="relative grid min-w-0 flex-1 overflow-hidden p-2"
     :style="{
-      minWidth: `${MIN_WIDTH}px`,
+      minWidth: `${minWidth}px`,
       gap: `${TILE_GAP}px`,
       background: paneBackground,
       ...gridStyle,

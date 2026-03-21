@@ -183,7 +183,7 @@ watchEffect(() => {
         :get-after-size="getTerminalWidth"
       />
 
-      <TerminalPane />
+      <TerminalPane :min-width="TERMINAL_MIN_WIDTH" />
 
       <!-- Explorer 開閉ボタン（開く専用。閉じるのは light dismiss または popover 内の close） -->
       <button

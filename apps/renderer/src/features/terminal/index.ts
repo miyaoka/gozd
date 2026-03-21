@@ -1,7 +1,7 @@
 export { default as SplitResizeHandle } from "./SplitResizeHandle.vue";
 export { default as TerminalLeaf } from "./TerminalLeaf.vue";
 export { useTerminalStore } from "./useTerminalStore";
-export type { ClaudeState, ClaudeStatus } from "./useTerminalStore";
+export type { ClaudeState, ClaudeStatus } from "./claudeStatus";
 export { registerTerminalCommands } from "./registerTerminalCommands";
 export {
   collectLeafIds,

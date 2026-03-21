@@ -16,7 +16,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useContextKeys } from "../../shared/command";
-import type { ClaudeState } from "./useTerminalStore";
+import type { ClaudeState } from "./claudeStatus";
 import { useTerminalStore } from "./useTerminalStore";
 import XtermTerminal from "./XtermTerminal.vue";
 

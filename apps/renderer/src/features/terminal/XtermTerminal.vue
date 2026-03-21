@@ -174,9 +174,9 @@ onMounted(async () => {
   terminal.attachCustomKeyEventHandler((ev) => {
     if (ev.key === "Enter" && ev.shiftKey && ev.type !== "keyup") {
       if (ev.type === "keydown") {
-        const session = terminalStore.paneRegistry[props.leafId]?.session;
-        if (session !== undefined) {
-          send.ptyWrite({ id: session.ptyId, data: "\x1b\r" });
+        const ptyId = terminalStore.getPtyId(props.leafId);
+        if (ptyId !== undefined) {
+          send.ptyWrite({ id: ptyId, data: "\x1b\r" });
         }
       }
       return false;
@@ -248,17 +248,17 @@ onMounted(async () => {
 
   // xterm → PTY
   terminal.onData((data) => {
-    const session = terminalStore.paneRegistry[props.leafId]?.session;
-    if (session !== undefined) {
-      send.ptyWrite({ id: session.ptyId, data });
+    const ptyId = terminalStore.getPtyId(props.leafId);
+    if (ptyId !== undefined) {
+      send.ptyWrite({ id: ptyId, data });
     }
   });
 
   // xterm のリサイズを PTY に同期
   terminal.onResize(({ cols, rows }) => {
-    const session = terminalStore.paneRegistry[props.leafId]?.session;
-    if (session !== undefined) {
-      send.ptyResize({ id: session.ptyId, cols, rows });
+    const ptyId = terminalStore.getPtyId(props.leafId);
+    if (ptyId !== undefined) {
+      send.ptyResize({ id: ptyId, cols, rows });
     }
   });
 

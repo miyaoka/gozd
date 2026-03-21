@@ -42,11 +42,11 @@ export function registerTerminalCommands(
     if (focused === null) return getActiveLayout();
     const leafId = (focused as HTMLElement).dataset.leafId;
     if (leafId === undefined) return getActiveLayout();
-    const entry = terminalStore.paneRegistry[leafId];
-    if (entry === undefined) return getActiveLayout();
-    const layout = terminalStore.layoutsByDir[entry.dir];
+    const dir = terminalStore.getPaneDir(leafId);
+    if (dir === undefined) return getActiveLayout();
+    const layout = terminalStore.layoutsByDir[dir];
     if (layout === undefined) return getActiveLayout();
-    return { dir: entry.dir, layout };
+    return { dir, layout };
   }
 
   /** 空間ナビゲーションのコマンド handler を生成する */

@@ -367,7 +367,7 @@ watchEffect(() => {
           :key="leafId"
           v-show="visibleLeafIds.has(leafId)"
           :style="{ gridArea: leafIdToAreaName(leafId) }"
-          :dir="terminalStore.paneRegistry[leafId]?.dir ?? ''"
+          :dir="terminalStore.getPaneDir(leafId) ?? ''"
           :leaf-id="leafId"
         />
         <!-- 分割リサイズハンドル（absolute overlay） -->

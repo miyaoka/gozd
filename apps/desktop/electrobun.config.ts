@@ -1,6 +1,8 @@
 import type { ElectrobunConfig } from "electrobun";
 
-const isDev = process.argv.includes("dev");
+// Electrobun CLI と同じロジックで dev/build を判別
+const electrobunIndex = process.argv.findIndex((arg) => arg.includes("electrobun"));
+const isDev = process.argv[electrobunIndex + 1] === "dev";
 
 export default {
   app: {

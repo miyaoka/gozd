@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "GOZD_DEV_PROJECT_ROOT=$PWD pnpm exec electrobun dev",
-    "build": "unset GOZD_DEV_PROJECT_ROOT && pnpm exec electrobun build --env=stable",
+    "build": "env -u GOZD_DEV_PROJECT_ROOT pnpm exec electrobun build --env=stable",
     "typecheck": "tsgo --noEmit",
     "test": "bun test --run",
     "lint": "oxlint --type-aware",

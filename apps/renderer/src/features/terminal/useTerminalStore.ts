@@ -15,28 +15,53 @@ import { terminalConfig } from "./terminalConfig";
 
 /**
  * Claude Code の状態。
+ * - idle: セッション開始済みだがプロンプト待ち（通知不要）
  * - working: エージェントが作業中（UserPromptSubmit / PostToolUse）
  * - asking: 承認待ち（PermissionRequest）— ユーザー操作が必要
- * - done: 応答完了 / ユーザー入力待ち（Stop）— 次のプロンプト待ち
+ * - done: 応答完了（Stop）— 人間の確認・入力待ち（通知が必要）
+ *
+ * undefined（エントリなし）= Claude 未起動
  */
-export type ClaudeState = "working" | "asking" | "done";
+export type ClaudeState = "idle" | "working" | "asking" | "done";
 
 /** Claude Code の状態エントリ。状態と付随データを一体管理する */
 export type ClaudeStatus =
+  | { state: "idle" }
   | { state: "working"; startedAt: number }
   | { state: "asking"; toolName?: string; toolInput?: Record<string, unknown> }
   | { state: "done"; message?: string };
 
 /**
  * hooks イベント種別。
+ * - session-start: SessionStart（セッション開始）
+ * - session-end: SessionEnd（セッション終了）
  * - running: UserPromptSubmit（プロンプト送信）
  * - needs-input: PermissionRequest（承認ダイアログ表示）
  * - done: Stop（応答完了）
- * - tool-done: PostToolUse / PostToolUseFailure（ツール実行完了）
+ * - tool-done: PostToolUse（ツール実行完了）
+ * - tool-failure: PostToolUseFailure（ツール実行失敗。is_interrupt で中断判定）
+ * - stop-failure: StopFailure（API エラーによる停止）
  */
-type HookEvent = "running" | "needs-input" | "done" | "tool-done";
+type HookEvent =
+  | "session-start"
+  | "session-end"
+  | "running"
+  | "needs-input"
+  | "done"
+  | "tool-done"
+  | "tool-failure"
+  | "stop-failure";
 
-const HOOK_EVENTS: readonly HookEvent[] = ["running", "needs-input", "done", "tool-done"];
+const HOOK_EVENTS: readonly HookEvent[] = [
+  "session-start",
+  "session-end",
+  "running",
+  "needs-input",
+  "done",
+  "tool-done",
+  "tool-failure",
+  "stop-failure",
+];
 
 function isHookEvent(value: string): value is HookEvent {
   return (HOOK_EVENTS as readonly string[]).includes(value);
@@ -104,6 +129,12 @@ export const useTerminalStore = defineStore("terminal", () => {
   /** ptyId → PermissionRequest の debounce タイマー */
   const askTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
+  /** interrupt パターンマッチ用の定数 */
+  const INTERRUPT_MARKER = "⎿ \u00A0Interrupted";
+  /** PTY ごとの直近 tail バッファ。チャンク分割でマーカーが跨いだ場合に備える */
+  const ptyTailBuffers = new Map<number, string>();
+  const PTY_TAIL_BUFFER_SIZE = 50;
+
   /** pending ask タイマーをキャンセルする */
   function cancelAskTimer(ptyId: number) {
     const timer = askTimers.get(ptyId);
@@ -125,6 +156,16 @@ export const useTerminalStore = defineStore("terminal", () => {
     const current = claudeStatusByPtyId.value[ptyId];
 
     switch (event) {
+      case "session-start": {
+        cancelAskTimer(ptyId);
+        claudeStatusByPtyId.value[ptyId] = { state: "idle" };
+        break;
+      }
+      case "session-end": {
+        cancelAskTimer(ptyId);
+        delete claudeStatusByPtyId.value[ptyId];
+        break;
+      }
       case "running": {
         cancelAskTimer(ptyId);
         // 初回 working 遷移時のみ開始時刻を記録（tool-done → working の再遷移では維持）
@@ -149,6 +190,19 @@ export const useTerminalStore = defineStore("terminal", () => {
         );
         break;
       }
+      case "tool-failure": {
+        cancelAskTimer(ptyId);
+        if (payload.is_interrupt === true) {
+          // ユーザーが Ctrl+C でツール実行を中断 → プロンプト待ちに戻る
+          claudeStatusByPtyId.value[ptyId] = { state: "idle" };
+          break;
+        }
+        // interrupt でないツール失敗は tool-done と同じ扱い（working 継続）
+        if (current?.state === "done") break;
+        const sf = current?.state === "working" ? current.startedAt : Date.now();
+        claudeStatusByPtyId.value[ptyId] = { state: "working", startedAt: sf };
+        break;
+      }
       case "tool-done": {
         cancelAskTimer(ptyId);
         // done 後の遅延 tool-done を無視（イベント順序逆転対策）
@@ -158,6 +212,16 @@ export const useTerminalStore = defineStore("terminal", () => {
         break;
       }
       case "done": {
+        cancelAskTimer(ptyId);
+        const message =
+          typeof payload.last_assistant_message === "string"
+            ? payload.last_assistant_message
+            : undefined;
+        claudeStatusByPtyId.value[ptyId] = { state: "done", message };
+        break;
+      }
+      case "stop-failure": {
+        // API エラーによる停止。done と同様に人間への通知が必要
         cancelAskTimer(ptyId);
         const message =
           typeof payload.last_assistant_message === "string"
@@ -213,6 +277,25 @@ export const useTerminalStore = defineStore("terminal", () => {
       const entry = paneRegistry.value[leafId];
       if (entry?.session === undefined) return;
 
+      // --- interrupt 検知（マジックストリングによる PTY 出力パターンマッチ） ---
+      // Claude Code は Ctrl+C/Escape で中断されると以下を PTY に出力する:
+      //   "⎿ \u00A0Interrupted · What should Claude do instead?"
+      // しかし interrupt 時にフックは発火しない（Stop も PostToolUseFailure も来ない）。
+      // Claude Code にはユーザー中断を通知するフック（UserInterrupt 等）が存在しないため
+      // （anthropics/claude-code#9516 で要望中）、PTY 出力のパターンマッチで代替している。
+      // Claude Code の UI 変更でこの文字列が変わると壊れるので注意。
+      // "⎿"(U+23BF) は Claude Code のツール出力プレフィックス、空白は SP(U+0020) + NBSP(U+00A0)。
+      // PTY の data は任意境界で分割されるため、tail バッファと結合してマッチする。
+      if (claudeStatusByPtyId.value[id]?.state === "working") {
+        const tail = ptyTailBuffers.get(id) ?? "";
+        if ((tail + data).includes(INTERRUPT_MARKER)) {
+          cancelAskTimer(id);
+          claudeStatusByPtyId.value[id] = { state: "idle" };
+        }
+        // 直近 PTY_TAIL_BUFFER_SIZE 文字を保持
+        ptyTailBuffers.set(id, data.slice(-PTY_TAIL_BUFFER_SIZE));
+      }
+
       // ring buffer に追記
       const session = entry.session;
       const idx = session.totalChunks % PTY_RING_BUFFER_CAPACITY;
@@ -244,6 +327,7 @@ export const useTerminalStore = defineStore("terminal", () => {
 
       ptyIdToLeafId.delete(id);
       cancelAskTimer(id);
+      ptyTailBuffers.delete(id);
       delete claudeStatusByPtyId.value[id];
     });
   }
@@ -268,14 +352,14 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   initHookSubscription();
 
-  /** leafId に対応する Claude Code の状態を返す。idle / 未起動の場合は undefined */
+  /** leafId に対応する Claude Code の状態を返す。未起動（エントリなし）の場合は undefined */
   function getClaudeState(leafId: string): ClaudeState | undefined {
     const entry = paneRegistry.value[leafId];
     if (entry?.session === undefined) return undefined;
     return claudeStatusByPtyId.value[entry.session.ptyId]?.state;
   }
 
-  /** Claude が起動中（working / asking / done）の leafId 一覧 */
+  /** Claude セッションが存在する（idle / working / asking / done）leafId 一覧 */
   const claudeActiveLeafIds = computed(() => {
     const ids: string[] = [];
     for (const [leafId, entry] of Object.entries(paneRegistry.value)) {
@@ -292,7 +376,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     cwdByLeafId.value[leafId] = cwd;
   }
 
-  /** worktree dir に属する全ターミナルの Claude 状態を返す（idle は除外） */
+  /** worktree dir に属する全ターミナルの Claude 状態を返す（未起動は除外） */
   function getClaudeStatusesByDir(dir: string): ClaudeStatus[] {
     const statuses: ClaudeStatus[] = [];
     for (const paneEntry of Object.values(paneRegistry.value)) {
@@ -307,15 +391,15 @@ export const useTerminalStore = defineStore("terminal", () => {
   }
 
   /**
-   * worktree dir に属する done 状態のエントリをクリアする。
-   * フォーカス時の既読消化に使う。working / asking は維持する。
+   * worktree dir に属する done 状態を idle に遷移する。
+   * フォーカス時の既読消化に使う。Claude セッションは生きているため idle へ。
    */
   function clearDoneStates(dir: string) {
     for (const entry of Object.values(paneRegistry.value)) {
       if (entry.dir !== dir) continue;
       if (entry.session === undefined) continue;
       if (claudeStatusByPtyId.value[entry.session.ptyId]?.state === "done") {
-        delete claudeStatusByPtyId.value[entry.session.ptyId];
+        claudeStatusByPtyId.value[entry.session.ptyId] = { state: "idle" };
       }
     }
   }
@@ -375,6 +459,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     send.ptyKill({ id: entry.session.ptyId });
     ptyIdToLeafId.delete(entry.session.ptyId);
     cancelAskTimer(entry.session.ptyId);
+    ptyTailBuffers.delete(entry.session.ptyId);
     delete claudeStatusByPtyId.value[entry.session.ptyId];
     delete cwdByLeafId.value[leafId];
     terminalWriters.delete(leafId);

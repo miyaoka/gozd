@@ -16,6 +16,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useContextKeys } from "../command/useContextKeys";
+import type { ClaudeState } from "./useTerminalStore";
 import { useTerminalStore } from "./useTerminalStore";
 import XtermTerminal from "./XtermTerminal.vue";
 
@@ -40,15 +41,12 @@ const effectiveFitSuspended = computed(() => terminalStore.dragSuspendCount > 0)
 
 const claudeState = computed(() => terminalStore.getClaudeState(props.leafId));
 
-const CLAUDE_STATE_LABEL: Record<string, string> = {
+const CLAUDE_STATE_LABEL: Record<ClaudeState, string> = {
+  idle: "Idle",
   working: "Working",
   asking: "Ask",
   done: "Done",
 };
-
-const claudeStateLabel = computed(() =>
-  claudeState.value ? CLAUDE_STATE_LABEL[claudeState.value] : "Idle",
-);
 
 /** OSC 7 で通知された CWD。未取得時は worktree dir をフォールバック */
 const cwd = computed(() => terminalStore.cwdByLeafId[props.leafId] ?? props.dir);
@@ -112,6 +110,7 @@ function handleTerminalBlur() {
         v-if="claudeState !== undefined"
         class="pointer-events-none absolute top-0 right-3 z-10 flex -translate-y-1/2 items-center gap-1 bg-zinc-900 px-1 text-xs leading-none font-semibold"
         :class="{
+          'text-zinc-500': claudeState === 'idle',
           'text-yellow-300': claudeState === 'working',
           'text-orange-300': claudeState === 'asking',
           'text-green-300': claudeState === 'done',
@@ -120,12 +119,13 @@ function handleTerminalBlur() {
         <span
           class="size-3.5"
           :class="{
+            'icon-[lucide--circle-dot]': claudeState === 'idle',
             'icon-[lucide--loader] animate-spin': claudeState === 'working',
             'icon-[lucide--message-circle-warning]': claudeState === 'asking',
             'icon-[lucide--circle-check]': claudeState === 'done',
           }"
         />
-        <span>{{ claudeStateLabel }}</span>
+        <span>{{ CLAUDE_STATE_LABEL[claudeState] }}</span>
       </div>
       <div
         class="size-full overflow-hidden p-2 transition-opacity"

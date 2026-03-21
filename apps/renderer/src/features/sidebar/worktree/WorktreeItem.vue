@@ -15,13 +15,18 @@ import { hasChanges, hasTodoTitle, worktreeDisplayName } from "../utils";
 
 /** Claude 状態の表示優先度（高い方が優先） */
 const CLAUDE_STATE_PRIORITY: Record<ClaudeState, number> = {
-  asking: 2,
-  working: 1,
-  done: 0,
+  asking: 3,
+  working: 2,
+  done: 1,
+  idle: 0,
 };
 
 /** Claude 状態バッジの設定 */
 const CLAUDE_STATE_BADGE: Record<ClaudeState, { icon: string; color: string; animate?: string }> = {
+  idle: {
+    icon: "icon-[lucide--circle-dot]",
+    color: "text-zinc-500",
+  },
   working: {
     icon: "icon-[lucide--loader]",
     color: "text-yellow-400",

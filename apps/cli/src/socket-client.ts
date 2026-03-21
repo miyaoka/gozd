@@ -6,7 +6,7 @@ const SOCKET_PATH = process.env.GOZD_SOCKET_PATH ?? path.join(tmpdir(), "gozd-st
 
 interface HookMessage {
   type: "hook";
-  event: "running" | "done" | "needs-input" | "tool-done";
+  event: "running" | "done" | "needs-input" | "tool-done" | "tool-failure" | "stop-failure";
   payload: Record<string, unknown>;
 }
 

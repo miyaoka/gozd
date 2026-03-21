@@ -12,8 +12,11 @@ export function generateClaudeSettings(settingsPath: string): void {
 
   const settings = {
     hooks: {
+      SessionStart: [{ hooks: [{ type: "command", command: hookCommand("session-start") }] }],
+      SessionEnd: [{ hooks: [{ type: "command", command: hookCommand("session-end") }] }],
       UserPromptSubmit: [{ hooks: [{ type: "command", command: hookCommand("running") }] }],
       Stop: [{ hooks: [{ type: "command", command: hookCommandViaCli("done") }] }],
+      StopFailure: [{ hooks: [{ type: "command", command: hookCommandViaCli("stop-failure") }] }],
       PermissionRequest: [
         {
           matcher: "*",
@@ -29,7 +32,7 @@ export function generateClaudeSettings(settingsPath: string): void {
       PostToolUseFailure: [
         {
           matcher: "*",
-          hooks: [{ type: "command", command: hookCommand("tool-done") }],
+          hooks: [{ type: "command", command: hookCommandViaCli("tool-failure") }],
         },
       ],
     },

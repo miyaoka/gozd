@@ -3,7 +3,14 @@ import { tryCatch } from "@gozd/shared";
 import { z } from "zod";
 import { sendMessage } from "../socket-client";
 
-const HOOK_EVENTS = ["running", "done", "needs-input", "tool-done"] as const;
+const HOOK_EVENTS = [
+  "running",
+  "done",
+  "needs-input",
+  "tool-done",
+  "tool-failure",
+  "stop-failure",
+] as const;
 
 export default defineCommand({
   description: "Claude Code Hooks からのイベントを受け取る",

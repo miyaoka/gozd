@@ -189,13 +189,16 @@ desktop 起動時に `generateClaudeSettings()` が hooks 設定 JSON を `$TMPD
 
 ### イベントと送信経路
 
-| Claude hook          | gozd イベント | 送信経路    | 取得データ                         |
-| -------------------- | ------------- | ----------- | ---------------------------------- |
-| `UserPromptSubmit`   | `running`     | nc 直接送信 | `ptyId`                            |
-| `Stop`               | `done`        | CLI 経由    | `ptyId`, `last_assistant_message`  |
-| `PermissionRequest`  | `needs-input` | CLI 経由    | `ptyId`, `tool_name`, `tool_input` |
-| `PostToolUse`        | `tool-done`   | nc 直接送信 | `ptyId`                            |
-| `PostToolUseFailure` | `tool-done`   | nc 直接送信 | `ptyId`                            |
+| Claude hook          | gozd イベント   | 送信経路    | 取得データ                         |
+| -------------------- | --------------- | ----------- | ---------------------------------- |
+| `SessionStart`       | `session-start` | nc 直接送信 | `ptyId`                            |
+| `SessionEnd`         | `session-end`   | nc 直接送信 | `ptyId`                            |
+| `UserPromptSubmit`   | `running`       | nc 直接送信 | `ptyId`                            |
+| `Stop`               | `done`          | CLI 経由    | `ptyId`, `last_assistant_message`  |
+| `PermissionRequest`  | `needs-input`   | CLI 経由    | `ptyId`, `tool_name`, `tool_input` |
+| `PostToolUse`        | `tool-done`     | nc 直接送信 | `ptyId`                            |
+| `PostToolUseFailure` | `tool-failure`  | CLI 経由    | `ptyId`, `is_interrupt`            |
+| `StopFailure`        | `stop-failure`  | CLI 経由    | `ptyId`, `last_assistant_message`  |
 
 ### 送信経路の使い分け
 

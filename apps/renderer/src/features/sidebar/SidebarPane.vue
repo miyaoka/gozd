@@ -11,469 +11,128 @@
 ## 操作
 
 - worktree クリック: 表示対象ディレクトリを切り替え + done バッジをクリア（既読消化）
-- `⋮` メニュー: popover + CSS Anchor Positioning で表示
+- `⋮` メニュー: SidebarMenu コンポーネントに委譲
 - Todo 編集: サイドバー内にインライン展開
 
 ## Claude 状態バッジ
 
 worktree 行ごとの Claude 状態表示は `WorktreeItem.vue` に委譲。
 バッジ（アイコン）とメッセージ吹き出し（done/asking 時の一行目テキスト）を表示する。
+
+## 責務分離
+
+ロジックは composable に切り出し、SidebarPane はレイアウトとサブ機能の組み合わせに専念する。
+
+- `useSidebarData` — データ取得・状態管理（worktrees, freeBranches, pendingTodos）
+- `useWorktreeActions` — worktree CRUD・選択・切り替え（独自 isCreating）
+- `useTodoActions` — Todo CRUD・インライン編集（独立した状態管理）
+- `useDialogs` — 確認・通知ダイアログの状態管理
+- `useCtrlBadge` — Ctrl キー押下検知
+- `SidebarMenu` — ⋮ ポップオーバーメニュー
+- `VoicevoxPanel` — VOICEVOX 操作パネル
 </doc>
 
 <script setup lang="ts">
-import type { Todo, WorktreeEntry } from "@gozd/rpc";
-import { tryCatch } from "@gozd/shared";
-import { useEventListener, useIntervalFn } from "@vueuse/core";
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { useCommandRegistry, useContextKeys } from "../../shared/command";
-import { useRpc } from "../../shared/rpc";
-import { useDiagnosticsStore } from "../diagnostics";
+import { useIntervalFn } from "@vueuse/core";
+import { onUnmounted, ref } from "vue";
+import { useCommandRegistry } from "../../shared/command";
 import { useWorkspaceStore } from "../filer";
 import { useTerminalStore } from "../terminal";
-import { useVoicevoxStore } from "../voicevox";
-import { TodoEditor, TodoList } from "./features/todo";
-import { BranchList, RootWorktree, WorktreeList } from "./features/worktree";
-import { dirName, generateTimestamp, worktreeDisplayName } from "./utils";
+import { TodoEditor, TodoList, useTodoActions } from "./features/todo";
+import { BranchList, RootWorktree, WorktreeList, useWorktreeActions } from "./features/worktree";
+import SidebarMenu from "./SidebarMenu.vue";
+import { useCtrlBadge } from "./useCtrlBadge";
+import { useDialogs } from "./useDialogs";
+import { useSidebarData } from "./useSidebarData";
+import { generateTimestamp } from "./utils";
+import VoicevoxPanel from "./VoicevoxPanel.vue";
 
 const workspaceStore = useWorkspaceStore();
-const diagnosticsStore = useDiagnosticsStore();
 const terminalStore = useTerminalStore();
 
-const voicevoxStore = useVoicevoxStore();
-const { request, onGitStatusChange, onWorktreeChange } = useRpc();
+const {
+  worktrees,
+  freeBranches,
+  pendingTodos,
+  rootWorktree,
+  nonMainWorktrees,
+  sortedBranches,
+  fetchData,
+} = useSidebarData();
 
-const worktrees = ref<WorktreeEntry[]>([]);
-/** worktree 化されていないローカルブランチ */
-const freeBranches = ref<string[]>([]);
-/** 未着手の Todo（worktreeDir なし） */
-const pendingTodos = ref<Todo[]>([]);
-const isCreating = ref(false);
-const isSwitching = ref(false);
-/** fetchData の世代管理（並行実行で stale なレスポンスを破棄するため） */
-let fetchGen = 0;
+const {
+  confirmRef,
+  confirmMessage,
+  showConfirm,
+  closeConfirm,
+  executeConfirm,
+  alertRef,
+  alertMessage,
+  showAlert,
+} = useDialogs();
 
-/** root（main）worktree */
-const rootWorktree = computed(() => worktrees.value.find((wt) => wt.isMain));
+const {
+  isCreating,
+  isActive,
+  handleWorktreeSelect,
+  handleWorktreeRemove,
+  createWorktreeWithTodo,
+  handleBranchLink,
+  isAddingWorktree,
+  newWorktreeBody,
+  newWorktreeIcon,
+  startAddingWorktree,
+  submitNewWorktree,
+  cancelNewWorktree,
+} = useWorktreeActions({ worktrees, freeBranches, fetchData, showConfirm, showAlert });
 
-/** main 以外の worktree をディレクトリ名のアルファベット順で */
-const nonMainWorktrees = computed(() =>
-  worktrees.value
-    .filter((wt) => !wt.isMain)
-    .sort((a, b) => dirName(a.path).localeCompare(dirName(b.path))),
-);
+const {
+  editingTodoId,
+  editBody,
+  editIcon,
+  submitEdit,
+  cancelEdit,
+  saveEditIcon,
+  handleToggleEdit,
+  isAddingTodo,
+  newTodoBody,
+  newTodoIcon,
+  startAddingTodo,
+  saveNewTodo,
+  cancelNewTodo,
+  handleTodoRemove,
+  editWorktreeTodo,
+} = useTodoActions({ pendingTodos, fetchData });
 
-const sortedBranches = computed(() => [...freeBranches.value].sort((a, b) => a.localeCompare(b)));
+const { ctrlPressed } = useCtrlBadge();
 
-/** Ctrl+数字で選択可能な worktree（nonMainWorktrees と同一、1-indexed） */
-const selectableWorktrees = nonMainWorktrees;
+// --- コマンドレジストリ: Ctrl+数字で worktree 選択 ---
 
-/** Ctrl キー押下中か（番号バッジの表示制御用） */
-const ctrlPressed = ref(false);
-
-const contextKeys = useContextKeys();
-
-/**
- * keybinding が editable 要素を除外する条件と一致させる。
- * terminalFocus 時は xterm 内部の textarea を除外しない
- * （keybinding 側も同じ条件でスキップするため）
- */
-function shouldSuppressBadge(): boolean {
-  if (contextKeys.get("terminalFocus")) return false;
-  const target = document.activeElement;
-  if (!(target instanceof HTMLElement)) return false;
-  const tagName = target.tagName;
-  return tagName === "INPUT" || tagName === "TEXTAREA" || target.isContentEditable;
-}
-
-useEventListener(document, "keydown", (e: KeyboardEvent) => {
-  if (e.key === "Control" && !shouldSuppressBadge()) ctrlPressed.value = true;
-});
-useEventListener(document, "keyup", (e: KeyboardEvent) => {
-  if (e.key === "Control") ctrlPressed.value = false;
-});
-// ウィンドウからフォーカスが外れた場合にリセット
-useEventListener(window, "blur", () => {
-  ctrlPressed.value = false;
-});
-// Ctrl 押下中に editable 要素にフォーカスが移った場合にリセット
-useEventListener(document, "focusin", () => {
-  if (ctrlPressed.value && shouldSuppressBadge()) ctrlPressed.value = false;
-});
-
-// workspace.selectWorktree コマンド: args=1~9 のインデックスで worktree を選択
 const { register } = useCommandRegistry();
 const disposeSelectWorktree = register("workspace.selectWorktree", (args) => {
   if (typeof args !== "number") return false;
-  const wt = selectableWorktrees.value[args - 1];
+  const wt = nonMainWorktrees.value[args - 1];
   if (!wt) return false;
   handleWorktreeSelect(wt);
   return true;
 });
 onUnmounted(disposeSelectWorktree);
 
-/** 経過時間表示用の現在時刻（1 秒ごとに更新） */
+// --- 経過時間表示用の現在時刻 ---
+
 const now = ref(Date.now());
 useIntervalFn(() => {
   now.value = Date.now();
 }, 1000);
 
-/** 現在表示中の worktree かどうか */
-function isActive(wt: WorktreeEntry): boolean {
-  return workspaceStore.dir === wt.path;
-}
+// --- メニュー ---
 
-// --- ⋮ メニュー ---
+const sidebarMenuRef = ref<InstanceType<typeof SidebarMenu>>();
 
-interface MenuContext {
-  type: "worktree" | "todo" | "branch";
-  worktree?: WorktreeEntry;
-  todo?: Todo;
-  branch?: string;
-}
-
-const menuRef = ref<HTMLElement>();
-const menuContext = ref<MenuContext>();
-/** 現在 anchor になっている ⋮ ボタンの anchor-name */
-const activeAnchorName = ref("");
-
-function openMenu(anchorName: string, context: MenuContext) {
-  activeAnchorName.value = anchorName;
-  menuContext.value = context;
-  nextTick(() => {
-    menuRef.value?.showPopover();
-  });
-}
-
-function closeMenu() {
-  menuRef.value?.hidePopover();
-}
-
-// --- 確認ダイアログ ---
-
-const confirmRef = ref<HTMLDialogElement>();
-const confirmMessage = ref("");
-const confirmAction = ref<(() => Promise<void>) | undefined>();
-
-function showConfirm(message: string, action: () => Promise<void>) {
-  confirmMessage.value = message;
-  confirmAction.value = action;
-  confirmRef.value?.showModal();
-}
-
-function closeConfirm() {
-  confirmRef.value?.close();
-  confirmAction.value = undefined;
-}
-
-async function executeConfirm() {
-  const action = confirmAction.value;
-  if (!action) return;
-  closeConfirm();
-  await action();
-}
-
-/** 通知ダイアログ */
-const alertRef = ref<HTMLDialogElement>();
-const alertMessage = ref("");
-
-function showAlert(message: string) {
-  alertMessage.value = message;
-  alertRef.value?.showModal();
-}
-
-// --- Todo インライン編集 ---
-
-const editingTodoId = ref<string>();
-const editBody = ref("");
-const editIcon = ref<string>();
-/** 保存済みの body（アイコンのみ保存時に使用） */
-const savedBody = ref("");
-
-function startEditing(todo: Todo) {
-  closeMenu();
-  editingTodoId.value = todo.id;
-  editBody.value = todo.body;
-  editIcon.value = todo.icon;
-  savedBody.value = todo.body;
-}
-
-async function saveEdit(body: string): Promise<boolean> {
-  const id = editingTodoId.value;
-  if (!id) return false;
-  const result = await tryCatch(request.todoUpdate({ id, body, icon: editIcon.value }));
-  if (!result.ok) return false;
-  await fetchData();
-  return true;
-}
-
-/** アイコン変更時: 編集前の body とマージして保存 */
-function saveEditIcon() {
-  saveEdit(savedBody.value);
-}
-
-/** 保存ボタン / Enter: 編集中の body で保存してパネルを閉じる */
-async function submitEdit() {
-  if (!(await saveEdit(editBody.value))) return;
-  editingTodoId.value = undefined;
-}
-
-function cancelEdit() {
-  editingTodoId.value = undefined;
-}
-
-/** Todo クリックで編集をトグル */
-function handleToggleEdit(todo: Todo) {
-  if (editingTodoId.value === todo.id) {
-    cancelEdit();
-  } else {
-    startEditing(todo);
-  }
-}
-
-// --- 新規 Todo 作成 ---
-
-const isAddingTodo = ref(false);
-const newTodoBody = ref("");
-const newTodoIcon = ref<string>();
-
-function startAddingTodo() {
-  isAddingTodo.value = true;
-  newTodoBody.value = "";
-  newTodoIcon.value = undefined;
-}
-
-async function saveNewTodo() {
-  if (!newTodoBody.value.trim()) {
-    isAddingTodo.value = false;
-    return;
-  }
-  const result = await tryCatch(
-    request.todoAdd({ body: newTodoBody.value, icon: newTodoIcon.value }),
-  );
-  if (!result.ok) return;
-  isAddingTodo.value = false;
-  await fetchData();
-}
-
-function cancelNewTodo() {
-  isAddingTodo.value = false;
-}
-
-// --- 新規 Worktree 作成（Todo 入力パネル） ---
-
-const isAddingWorktree = ref(false);
-const newWorktreeBody = ref("");
-const newWorktreeIcon = ref<string>();
-/** worktree のディレクトリ名・ブランチ名（パネル表示時に確定） */
-const newWorktreeDir = ref("");
-
-function startAddingWorktree() {
-  isAddingWorktree.value = true;
-  const id = generateTimestamp();
-  newWorktreeDir.value = id;
-  newWorktreeBody.value = id;
-  newWorktreeIcon.value = undefined;
-}
-
-async function submitNewWorktree() {
-  if (!newWorktreeBody.value.trim()) {
-    isAddingWorktree.value = false;
-    return;
-  }
-  isCreating.value = true;
-  const addResult = await tryCatch(
-    request.todoAdd({ body: newWorktreeBody.value, icon: newWorktreeIcon.value }),
-  );
-  if (!addResult.ok) {
-    isCreating.value = false;
-    return;
-  }
-  isAddingWorktree.value = false;
-  // worktree 作成が失敗しても Todo は作成済み。TODOS 欄に表示される
-  await createWorktreeWithTodo({
-    todo: addResult.value,
-    worktreeDir: newWorktreeDir.value,
-    branch: newWorktreeDir.value,
-  });
-}
-
-function cancelNewWorktree() {
-  isAddingWorktree.value = false;
-}
-
-// --- データ取得 ---
-
-async function fetchData() {
-  if (!workspaceStore.dir) return;
-  const gen = ++fetchGen;
-  const [wtList, branchList, todoList] = await Promise.all([
-    request.gitWorktreeList(),
-    request.gitBranchList(),
-    request.todoList(),
-  ]);
-  // 並行実行された新しい fetchData が先に完了していたら、この結果は stale なので破棄
-  if (gen !== fetchGen) return;
-  worktrees.value = wtList;
-  const wtBranches = new Set(wtList.map((wt) => wt.branch).filter(Boolean));
-  freeBranches.value = branchList.filter((b) => !wtBranches.has(b));
-  pendingTodos.value = todoList.filter((t) => !t.worktreeDir);
-
-  // 外部で削除された worktree のターミナルをクリーンアップ
-  const wtPaths = new Set(wtList.map((wt) => wt.path));
-  const staleDirs = terminalStore.visitedDirs.filter((dir) => !wtPaths.has(dir));
-  for (const dir of staleDirs) {
-    terminalStore.remove(dir);
-  }
-}
-
-// --- worktree 操作 ---
-
-/** worktree をクリックして表示対象を切り替える */
-async function handleWorktreeSelect(wt: WorktreeEntry) {
-  terminalStore.viewMode = "wt";
-  if (isActive(wt)) {
-    terminalStore.clearDoneStates(wt.path);
-    return;
-  }
-  if (isSwitching.value) return;
-  isSwitching.value = true;
-  const result = await tryCatch(request.switchDir({ dir: wt.path }));
-  if (result.ok) {
-    diagnosticsStore.clear();
-    workspaceStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
-  }
-  isSwitching.value = false;
-}
-
-async function createWorktree(branch: string) {
-  isCreating.value = true;
-  freeBranches.value = freeBranches.value.filter((b) => b !== branch);
-
-  const result = await tryCatch(
-    request.createWorktree({ worktreeDir: generateTimestamp(), branch }),
-  );
-  if (result.ok) {
-    await fetchData();
-  } else {
-    freeBranches.value.push(branch);
-  }
-  isCreating.value = false;
-}
-
-function removeFromList(wt: WorktreeEntry) {
-  worktrees.value = worktrees.value.filter((w) => w.path !== wt.path);
-  // ブランチが残る場合は freeBranches に戻す
-  if (wt.branch) {
-    freeBranches.value.push(wt.branch);
-  }
-  // ターミナルの visitedDirs から除去（leaf / PTY を破棄させる）
-  terminalStore.remove(wt.path);
-}
-
-/** worktree 解除: まず通常削除、失敗したら確認後 --force */
-async function handleWorktreeRemove(wt: WorktreeEntry) {
-  closeMenu();
-  const result = await tryCatch(request.gitWorktreeRemove({ path: wt.path }));
-  if (result.ok) {
-    removeFromList(wt);
-    return;
-  }
-  showConfirm(
-    `Failed to remove "${worktreeDisplayName(wt)}" (may have uncommitted changes). Force remove?`,
-    async () => {
-      const forceResult = await tryCatch(request.gitWorktreeRemove({ path: wt.path, force: true }));
-      if (forceResult.ok) {
-        removeFromList(wt);
-      } else {
-        showAlert(`Failed to force remove "${worktreeDisplayName(wt)}".`);
-      }
-    },
-  );
-}
-
-// --- Todo 操作 ---
-
-async function createWorktreeWithTodo({
-  todo,
-  worktreeDir,
-  branch,
-}: {
-  todo: Todo;
-  worktreeDir: string;
-  branch: string;
-}) {
-  isCreating.value = true;
-  // 失敗しても Todo は残る。fetchData で TODOS 欄に反映され、再試行または削除できる
-  await tryCatch(request.createWorktreeWithTodo({ id: todo.id, worktreeDir, branch }));
-  await fetchData();
-  isCreating.value = false;
-}
-
-function handleTodoCreateWorktree(todo: Todo) {
-  closeMenu();
+function handleMenuTodoCreateWorktree(todo: import("@gozd/rpc").Todo) {
   const timestamp = generateTimestamp();
   createWorktreeWithTodo({ todo, worktreeDir: timestamp, branch: timestamp });
 }
-
-async function handleTodoRemove(todo: Todo) {
-  closeMenu();
-  const result = await tryCatch(request.todoRemove({ id: todo.id }));
-  if (!result.ok) return;
-  pendingTodos.value = pendingTodos.value.filter((t) => t.id !== todo.id);
-}
-
-// --- メニューからの Todo 編集（worktree 紐づき） ---
-
-/** worktree の Todo を編集する。Todo がなければ作成してから編集 */
-async function handleWorktreeEditTodo(wt: WorktreeEntry) {
-  closeMenu();
-  if (wt.todo) {
-    startEditing(wt.todo);
-    return;
-  }
-  // Todo がまだない worktree: 空 body で作成して紐づけ
-  const result = await tryCatch(request.todoAdd({ body: "", worktreeDir: wt.path }));
-  if (!result.ok) return;
-  wt.todo = result.value;
-  startEditing(result.value);
-}
-
-// --- ブランチの worktree 化 ---
-
-function handleBranchLink(branch: string) {
-  closeMenu();
-  createWorktree(branch);
-}
-
-watch(
-  () => workspaceStore.dir,
-  (dir) => {
-    fetchData();
-    // active dir に切り替わったら done バッジをクリア（既読消化）
-    if (dir) {
-      terminalStore.clearDoneStates(dir);
-    }
-  },
-  { immediate: true },
-);
-
-// --- VOICEVOX ---
-
-async function handleVoicevoxActivate() {
-  const errorMessage = await voicevoxStore.activate();
-  if (errorMessage) {
-    showAlert(errorMessage);
-  }
-}
-
-const cleanups: Array<() => void> = [];
-onMounted(() => {
-  cleanups.push(onGitStatusChange(() => fetchData()));
-  cleanups.push(onWorktreeChange(() => fetchData()));
-});
-onUnmounted(() => {
-  for (const cleanup of cleanups) cleanup();
-});
 </script>
 
 <template>
@@ -510,7 +169,7 @@ onUnmounted(() => {
         @select="handleWorktreeSelect"
         @open-menu="
           (anchorName, wt) =>
-            openMenu(anchorName, { type: 'worktree', worktree: wt, todo: wt.todo })
+            sidebarMenuRef?.openMenu(anchorName, { type: 'worktree', worktree: wt, todo: wt.todo })
         "
         @add="startAddingWorktree"
         @set-view-mode="terminalStore.viewMode = $event"
@@ -542,7 +201,9 @@ onUnmounted(() => {
         :editing-todo-id="editingTodoId"
         :is-adding-todo="isAddingTodo"
         @toggle-edit="handleToggleEdit"
-        @open-menu="(anchorName, todo) => openMenu(anchorName, { type: 'todo', todo })"
+        @open-menu="
+          (anchorName, todo) => sidebarMenuRef?.openMenu(anchorName, { type: 'todo', todo })
+        "
         @start-add="startAddingTodo"
       >
         <template #after-item="{ todo }">
@@ -570,65 +231,22 @@ onUnmounted(() => {
       <!-- BRANCHES -->
       <BranchList
         :branches="sortedBranches"
-        @open-menu="(anchorName, branch) => openMenu(anchorName, { type: 'branch', branch })"
+        @open-menu="
+          (anchorName, branch) => sidebarMenuRef?.openMenu(anchorName, { type: 'branch', branch })
+        "
       />
     </div>
 
-    <!-- 共有 ⋮ ポップオーバーメニュー -->
-    <div
-      ref="menuRef"
-      popover="auto"
-      class="m-0 min-w-36 rounded-lg border border-zinc-700 bg-zinc-900 py-1 text-sm text-zinc-200 shadow-lg"
-      :style="{
-        positionAnchor: activeAnchorName,
-        top: 'anchor(bottom)',
-        left: 'anchor(left)',
-      }"
-    >
-      <template v-if="menuContext?.type === 'worktree' && menuContext.worktree">
-        <button
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800"
-          @click="handleWorktreeEditTodo(menuContext.worktree)"
-        >
-          <span class="icon-[lucide--pencil] text-xs" />
-          Edit todo
-        </button>
-        <button
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-400 hover:bg-zinc-800"
-          @click="handleWorktreeRemove(menuContext.worktree)"
-        >
-          <span class="icon-[lucide--unlink] text-xs" />
-          Remove worktree
-        </button>
-      </template>
-      <template v-else-if="menuContext?.type === 'todo' && menuContext.todo">
-        <button
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800"
-          :disabled="isCreating"
-          @click="handleTodoCreateWorktree(menuContext.todo)"
-        >
-          <span class="icon-[lucide--play] text-xs" />
-          Create worktree
-        </button>
-        <button
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-400 hover:bg-zinc-800"
-          @click="handleTodoRemove(menuContext.todo)"
-        >
-          <span class="icon-[lucide--trash-2] text-xs" />
-          Delete todo
-        </button>
-      </template>
-      <template v-else-if="menuContext?.type === 'branch' && menuContext.branch">
-        <button
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800"
-          :disabled="isCreating"
-          @click="handleBranchLink(menuContext.branch)"
-        >
-          <span class="icon-[lucide--link] text-xs" />
-          Create worktree
-        </button>
-      </template>
-    </div>
+    <!-- ⋮ メニュー -->
+    <SidebarMenu
+      ref="sidebarMenuRef"
+      :is-creating="isCreating"
+      @worktree-edit-todo="editWorktreeTodo"
+      @worktree-remove="handleWorktreeRemove"
+      @todo-create-worktree="handleMenuTodoCreateWorktree"
+      @todo-remove="handleTodoRemove"
+      @branch-link="handleBranchLink"
+    />
 
     <!-- 確認ダイアログ -->
     <dialog
@@ -671,73 +289,6 @@ onUnmounted(() => {
     </dialog>
 
     <!-- VOICEVOX -->
-    <div class="border-t border-zinc-700/50 px-4 py-3">
-      <template v-if="voicevoxStore.enabled">
-        <div class="flex flex-col gap-2">
-          <div class="flex items-center gap-2 text-xs text-zinc-500">
-            <span class="icon-[lucide--gauge] size-4 shrink-0" title="Speed" />
-            <input
-              type="range"
-              aria-label="VOICEVOX speed"
-              class="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-zinc-700 accent-blue-500"
-              :min="0.5"
-              :max="3.0"
-              :step="0.1"
-              :value="voicevoxStore.speedScale"
-              @input="voicevoxStore.speedScale = Number(($event.target as HTMLInputElement).value)"
-            />
-            <span class="w-8 text-right tabular-nums">{{
-              voicevoxStore.speedScale.toFixed(1)
-            }}</span>
-          </div>
-          <div class="flex items-center gap-2 text-xs text-zinc-500">
-            <span class="icon-[lucide--volume-2] size-4 shrink-0" title="Volume" />
-            <input
-              type="range"
-              aria-label="VOICEVOX volume"
-              class="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-zinc-700 accent-blue-500"
-              :min="0.0"
-              :max="2.0"
-              :step="0.1"
-              :value="voicevoxStore.volumeScale"
-              @input="voicevoxStore.volumeScale = Number(($event.target as HTMLInputElement).value)"
-            />
-            <span class="w-8 text-right tabular-nums">{{
-              voicevoxStore.volumeScale.toFixed(1)
-            }}</span>
-          </div>
-          <button
-            class="mt-1 text-xs text-yellow-500 hover:text-yellow-400"
-            @click="voicevoxStore.deactivate()"
-          >
-            VOICEVOX enabled
-          </button>
-        </div>
-      </template>
-      <template v-else>
-        <button
-          class="flex w-full items-center justify-center gap-2 text-xs text-zinc-500 hover:text-zinc-300"
-          :disabled="voicevoxStore.activating"
-          @click="handleVoicevoxActivate"
-        >
-          <span
-            class="size-4 shrink-0"
-            :class="
-              voicevoxStore.activating
-                ? 'icon-[lucide--loader] animate-spin'
-                : 'icon-[lucide--volume-x]'
-            "
-          />
-          <span>{{ voicevoxStore.activating ? "Starting VOICEVOX..." : "Enable VOICEVOX" }}</span>
-        </button>
-      </template>
-    </div>
+    <VoicevoxPanel @error="showAlert" />
   </div>
 </template>
-
-<style scoped>
-[popover] {
-  position: fixed;
-  position-try-fallbacks: flip-block, flip-inline;
-}
-</style>

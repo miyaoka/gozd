@@ -129,6 +129,12 @@ export const useTerminalStore = defineStore("terminal", () => {
   /** ptyId → PermissionRequest の debounce タイマー */
   const askTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
+  /** interrupt パターンマッチ用の定数 */
+  const INTERRUPT_MARKER = "⎿ \u00A0Interrupted";
+  /** PTY ごとの直近 tail バッファ。チャンク分割でマーカーが跨いだ場合に備える */
+  const ptyTailBuffers = new Map<number, string>();
+  const PTY_TAIL_BUFFER_SIZE = 50;
+
   /** pending ask タイマーをキャンセルする */
   function cancelAskTimer(ptyId: number) {
     const timer = askTimers.get(ptyId);
@@ -279,12 +285,15 @@ export const useTerminalStore = defineStore("terminal", () => {
       // （anthropics/claude-code#9516 で要望中）、PTY 出力のパターンマッチで代替している。
       // Claude Code の UI 変更でこの文字列が変わると壊れるので注意。
       // "⎿"(U+23BF) は Claude Code のツール出力プレフィックス、空白は SP(U+0020) + NBSP(U+00A0)。
-      if (
-        claudeStatusByPtyId.value[id]?.state === "working" &&
-        data.includes("⎿ \u00A0Interrupted")
-      ) {
-        cancelAskTimer(id);
-        claudeStatusByPtyId.value[id] = { state: "idle" };
+      // PTY の data は任意境界で分割されるため、tail バッファと結合してマッチする。
+      if (claudeStatusByPtyId.value[id]?.state === "working") {
+        const tail = ptyTailBuffers.get(id) ?? "";
+        if ((tail + data).includes(INTERRUPT_MARKER)) {
+          cancelAskTimer(id);
+          claudeStatusByPtyId.value[id] = { state: "idle" };
+        }
+        // 直近 PTY_TAIL_BUFFER_SIZE 文字を保持
+        ptyTailBuffers.set(id, data.slice(-PTY_TAIL_BUFFER_SIZE));
       }
 
       // ring buffer に追記
@@ -318,6 +327,7 @@ export const useTerminalStore = defineStore("terminal", () => {
 
       ptyIdToLeafId.delete(id);
       cancelAskTimer(id);
+      ptyTailBuffers.delete(id);
       delete claudeStatusByPtyId.value[id];
     });
   }
@@ -449,6 +459,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     send.ptyKill({ id: entry.session.ptyId });
     ptyIdToLeafId.delete(entry.session.ptyId);
     cancelAskTimer(entry.session.ptyId);
+    ptyTailBuffers.delete(entry.session.ptyId);
     delete claudeStatusByPtyId.value[entry.session.ptyId];
     delete cwdByLeafId.value[leafId];
     terminalWriters.delete(leafId);

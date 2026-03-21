@@ -46,7 +46,7 @@ Todo の [⋮] → "Worktree 化" → worktree 作成 + worktreeDir 紐づけ
 ### 直接 worktree 作成
 
 ```text
-[New worktree] → worktree 作成 + 空 body の Todo 自動生成・紐づけ
+[New worktree] → Todo 入力パネル表示（デフォルトでタイムスタンプ入力済み） → Todo 作成 + worktree 作成・紐づけ
 ```
 
 ### 削除・クリーンアップ

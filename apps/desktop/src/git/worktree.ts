@@ -13,6 +13,7 @@ export async function addWorktree(
   branch: string,
 ): Promise<WorktreeEntry> {
   const wtPath = path.join(cwd, WORKTREE_DIR, worktreeDir);
+  assertWorktreePath(cwd, wtPath);
 
   assertBranchName(branch);
 

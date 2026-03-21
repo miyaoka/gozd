@@ -1,8 +1,6 @@
 import type { ElectrobunConfig } from "electrobun";
 
-// Electrobun CLI と同じロジックで dev/build を判別
-const electrobunIndex = process.argv.findIndex((arg) => arg.includes("electrobun"));
-const isDev = process.argv[electrobunIndex + 1] === "dev";
+const isDev = "GOZD_DEV_PROJECT_ROOT" in process.env;
 
 export default {
   app: {

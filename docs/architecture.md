@@ -59,8 +59,8 @@ gozd.app/Contents/
 ### `pnpm dev`（開発時）
 
 - `concurrently` で renderer（Vite HMR）と desktop（Electrobun dev）を同時起動
-- desktop の dev スクリプト: `GOZD_PROJECT_ROOT=$PWD pnpm exec electrobun dev`
-- `GOZD_PROJECT_ROOT` は dev 時のみ存在し、プロジェクトルートを指す。初期ウィンドウのディレクトリと CLI パスの解決に使用
+- desktop の dev スクリプト: `GOZD_DEV_PROJECT_ROOT=$PWD pnpm exec electrobun dev`
+- `GOZD_DEV_PROJECT_ROOT` は dev 時のみ存在し、プロジェクトルートを指す。初期ウィンドウのディレクトリと CLI パスの解決に使用
 - renderer は `http://localhost:5173`（Vite dev server）に接続。HMR 有効
 
 ### `pnpm build` → `.app` 起動（本番）
@@ -115,7 +115,7 @@ desktop が PTY を spawn する時に以下の環境変数を注入する（`in
 
 | 環境  | `GOZD_CLI_PATH`                                    | `GOZD_CLI_RUNNER` | 理由                                 |
 | ----- | -------------------------------------------------- | ----------------- | ------------------------------------ |
-| dev   | `{GOZD_PROJECT_ROOT}/apps/cli/src/index.ts`        | `bun`             | `.app` に CLI がバンドルされないため |
+| dev   | `{GOZD_DEV_PROJECT_ROOT}/apps/cli/src/index.ts`    | `bun`             | `.app` に CLI がバンドルされないため |
 | build | `.app/Contents/Resources/app/bin/gozd`（絶対パス） | （空文字列）      | `.app` 内のバンドル済み CLI を使用   |
 
 ### ターミナル環境変数

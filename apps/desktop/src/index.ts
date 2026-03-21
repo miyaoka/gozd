@@ -93,8 +93,8 @@ const CLAUDE_SETTINGS_PATH = path.join(tmpdir(), `gozd-${channel}-claude-setting
  */
 const GOZD_CLI_PATH = (() => {
   if (channel === "dev") {
-    const projectRoot = process.env.GOZD_PROJECT_ROOT;
-    if (projectRoot === undefined) throw new Error("GOZD_PROJECT_ROOT is required in dev mode");
+    const projectRoot = process.env.GOZD_DEV_PROJECT_ROOT;
+    if (projectRoot === undefined) throw new Error("GOZD_DEV_PROJECT_ROOT is required in dev mode");
     return path.join(projectRoot, "apps/cli/src/index.ts");
   }
   return path.resolve(import.meta.dir, "../bin/gozd");
@@ -1249,7 +1249,7 @@ if (lastSavedWindow) {
 
 // macOS の ApplicationMenu が正しく動作するには、初回ウィンドウを同期的に作成する必要がある
 // （role メニューは active app + key window + responder chain に依存するため）
-const initialDir = process.env.GOZD_PROJECT_ROOT;
+const initialDir = process.env.GOZD_DEV_PROJECT_ROOT;
 if (initialDir) {
   // pnpm dev: worktree 内で実行しても main worktree のルートに解決する
   openWindow(resolveOpenTarget(initialDir));

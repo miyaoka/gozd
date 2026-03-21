@@ -32,7 +32,7 @@
 
 復元の優先順位:
 
-- `GOZD_PROJECT_ROOT` 環境変数（`pnpm dev` 時）
+- `GOZD_DEV_PROJECT_ROOT` 環境変数（`pnpm dev` 時）
 - CLI の launch request ファイル（`gozd <dir>` 時）
 - 保存済みのアプリ状態（Dock/Finder からの起動時）
 - ホームディレクトリ（初回起動時）

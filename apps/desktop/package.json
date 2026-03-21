@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "GOZD_PROJECT_ROOT=$PWD pnpm exec electrobun dev",
+    "dev": "GOZD_DEV_PROJECT_ROOT=$PWD pnpm exec electrobun dev",
     "build": "pnpm exec electrobun build --env=stable",
     "typecheck": "tsgo --noEmit",
     "test": "bun test --run",

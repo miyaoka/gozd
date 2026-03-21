@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { tryCatch } from "@orkis/shared";
-import type { FileReadResult } from "@orkis/rpc";
+import { tryCatch } from "@gozd/shared";
+import type { FileReadResult } from "@gozd/rpc";
 
 const ALLOWED_PROTOCOLS = new Set(["https:", "http:"]);
 

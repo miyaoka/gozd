@@ -1,14 +1,14 @@
 import fs from "node:fs";
-import { tryCatch } from "@orkis/shared";
+import { tryCatch } from "@gozd/shared";
 
 /** hooks 設定ファイルを生成する。nc で直接ソケットに通知する */
 export function generateClaudeSettings(settingsPath: string): void {
   /** nc で固定 JSON を直接送信（軽量。stdin のデータは不要なイベント用） */
   const hookCommand = (event: string) =>
-    `echo '{"type":"hook","event":"${event}","payload":{"ptyId":'"$ORKIS_PTY_ID"'}}' | nc -w 1 -U "$ORKIS_SOCKET_PATH"`;
+    `echo '{"type":"hook","event":"${event}","payload":{"ptyId":'"$GOZD_PTY_ID"'}}' | nc -w 1 -U "$GOZD_SOCKET_PATH"`;
 
   /** CLI 経由で stdin の JSON をパースして送信（stdin データが必要なイベント用） */
-  const hookCommandViaCli = (event: string) => `$ORKIS_CLI_RUNNER "$ORKIS_CLI_PATH" hook ${event}`;
+  const hookCommandViaCli = (event: string) => `$GOZD_CLI_RUNNER "$GOZD_CLI_PATH" hook ${event}`;
 
   const settings = {
     hooks: {
@@ -39,6 +39,6 @@ export function generateClaudeSettings(settingsPath: string): void {
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n"),
   );
   if (!writeResult.ok) {
-    console.error("[orkis] Claude hooks 設定の書き出しに失敗:", writeResult.error.message);
+    console.error("[gozd] Claude hooks 設定の書き出しに失敗:", writeResult.error.message);
   }
 }

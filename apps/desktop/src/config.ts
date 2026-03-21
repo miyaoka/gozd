@@ -1,16 +1,16 @@
 /**
  * グローバル設定モジュール
  *
- * アプリ全体の設定を ~/.config/orkis/config.json に永続化する。
+ * アプリ全体の設定を ~/.config/gozd/config.json に永続化する。
  * 操作の都度即時保存する。
  */
 import fs from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
-import { tryCatch } from "@orkis/shared";
-import type { AppConfig } from "@orkis/rpc";
+import { tryCatch } from "@gozd/shared";
+import type { AppConfig } from "@gozd/rpc";
 
-const CONFIG_DIR = path.join(homedir(), ".config", "orkis");
+const CONFIG_DIR = path.join(homedir(), ".config", "gozd");
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 
 function ensureConfigDir(): void {

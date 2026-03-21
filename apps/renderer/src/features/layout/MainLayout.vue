@@ -117,7 +117,7 @@ function hashToColor(hash: number, hueOffset = 0): string {
 const HUE_OFFSET = 30;
 
 const paneBackground = computed(() => {
-  const name = workspaceStore.repoName ?? "orkis";
+  const name = workspaceStore.repoName ?? "gozd";
   const hash = hashString(name);
   const color1 = hashToColor(hash);
   const color2 = hashToColor(hash, HUE_OFFSET);
@@ -322,7 +322,7 @@ watch(
   },
 );
 
-// orkisOpen で同一パスが指定された場合にも explorer を開いてツリーを展開する
+// gozdOpen で同一パスが指定された場合にも explorer を開いてツリーを展開する
 watch(
   () => workspaceStore.revealVersion,
   async () => {

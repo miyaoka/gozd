@@ -1,5 +1,5 @@
 import { defineCommand } from "@miyaoka/fsss";
-import { tryCatch } from "@orkis/shared";
+import { tryCatch } from "@gozd/shared";
 import { z } from "zod";
 import { sendMessage } from "../socket-client";
 
@@ -20,7 +20,7 @@ export default defineCommand({
     const payload = input.trim() ? JSON.parse(input) : {};
 
     // PTY 環境変数から発火元のペインを特定する
-    const ptyIdStr = process.env.ORKIS_PTY_ID;
+    const ptyIdStr = process.env.GOZD_PTY_ID;
     if (ptyIdStr !== undefined) {
       payload.ptyId = Number(ptyIdStr);
     }

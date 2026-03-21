@@ -10,7 +10,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { LspDiagnostic } from "@orkis/rpc";
+import type { LspDiagnostic } from "@gozd/rpc";
 import { isPathOutside } from "../security";
 
 // --- JSON-RPC 型 ---
@@ -348,7 +348,7 @@ function createTsServerBridge(options: TsServerBridgeOptions): TsServerBridge {
 
   // tsserver 初期化: configure + tsconfig を開いてプラグインをロードさせる
   const configureSeq = seq++;
-  sendTsCommand(configureSeq, "configure", { hostInfo: "orkis" });
+  sendTsCommand(configureSeq, "configure", { hostInfo: "gozd" });
 
   const tsconfigPath = path.join(rootDir, "tsconfig.json");
   if (fs.existsSync(tsconfigPath)) {

@@ -2,7 +2,7 @@
  * コマンドレジストリ。module singleton パターン。
  * コマンド ID → handler のマッピングを管理する。
  */
-import { tryCatch } from "@orkis/shared";
+import { tryCatch } from "@gozd/shared";
 import type { CommandHandler } from "./types";
 
 const handlers = new Map<string, CommandHandler>();

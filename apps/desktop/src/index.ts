@@ -5,8 +5,8 @@ import fsp from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
-import { tryCatch } from "@orkis/shared";
-import type { LspDiagnostic, OrkisRPC, OpenTargetSelection } from "@orkis/rpc";
+import { tryCatch } from "@gozd/shared";
+import type { LspDiagnostic, GozdRPC, OpenTargetSelection } from "@gozd/rpc";
 import { createLspClient, resolveTsgoPath, resolveVueLspPaths } from "./lsp";
 import type { LspClient } from "./lsp";
 import {
@@ -43,11 +43,11 @@ import {
   cleanupStaleTodos,
 } from "./todo";
 
-type OrkisRPCInstance = ReturnType<typeof BrowserView.defineRPC<OrkisRPC>>;
-type OrkisWindow = BrowserWindow<OrkisRPCInstance>;
+type GozdRPCInstance = ReturnType<typeof BrowserView.defineRPC<GozdRPC>>;
+type GozdWindow = BrowserWindow<GozdRPCInstance>;
 
-/** orkis 管理の zsh 初期化ディレクトリ（ZDOTDIR 差し替え用） */
-const ORKIS_ZDOTDIR = path.resolve(import.meta.dir, "../zsh");
+/** gozd 管理の zsh 初期化ディレクトリ（ZDOTDIR 差し替え用） */
+const GOZD_ZDOTDIR = path.resolve(import.meta.dir, "../zsh");
 const VITE_DEV_SERVER_URL = "http://localhost:5173";
 
 const channel = await Updater.localInfo.channel();
@@ -67,7 +67,7 @@ async function getViewUrl(): Promise<string> {
   if (channel === "dev") {
     const result = tryCatch(fetch(VITE_DEV_SERVER_URL, { method: "HEAD" }));
     if ((await result).ok) {
-      console.log(`[orkis] HMR enabled: ${VITE_DEV_SERVER_URL}`);
+      console.log(`[gozd] HMR enabled: ${VITE_DEV_SERVER_URL}`);
       return VITE_DEV_SERVER_URL;
     }
   }
@@ -75,8 +75,8 @@ async function getViewUrl(): Promise<string> {
 }
 
 const viewUrl = await getViewUrl();
-const SOCKET_PATH = path.join(tmpdir(), `orkis-${channel}.sock`);
-const LAUNCH_DIR = path.join(tmpdir(), `orkis-${channel}-launch`);
+const SOCKET_PATH = path.join(tmpdir(), `gozd-${channel}.sock`);
+const LAUNCH_DIR = path.join(tmpdir(), `gozd-${channel}-launch`);
 const LAUNCH_TTL_MS = 30_000;
 const GIT_STATUS_DEBOUNCE_MS = 300;
 const GIT_WATCH_POLL_MS = 500;
@@ -84,27 +84,27 @@ const GIT_WATCH_POLL_MS = 500;
 // --- Claude Code hooks 設定 ---
 
 /** Claude Code に --settings で渡す hooks 設定ファイルのパス */
-const CLAUDE_SETTINGS_PATH = path.join(tmpdir(), `orkis-${channel}-claude-settings.json`);
+const CLAUDE_SETTINGS_PATH = path.join(tmpdir(), `gozd-${channel}-claude-settings.json`);
 
 /**
- * orkis CLI の実行コマンド。hooks 設定ファイルのコマンド文字列に埋め込まれる。
+ * gozd CLI の実行コマンド。hooks 設定ファイルのコマンド文字列に埋め込まれる。
  * - dev: bun で CLI ソースを直接実行（.app に CLI がバンドルされないため）
  * - build: .app 内のバンドル済み CLI シェルスクリプトを使用
  */
-const ORKIS_CLI_PATH = (() => {
+const GOZD_CLI_PATH = (() => {
   if (channel === "dev") {
-    const projectRoot = process.env.ORKIS_PROJECT_ROOT;
-    if (projectRoot === undefined) throw new Error("ORKIS_PROJECT_ROOT is required in dev mode");
+    const projectRoot = process.env.GOZD_PROJECT_ROOT;
+    if (projectRoot === undefined) throw new Error("GOZD_PROJECT_ROOT is required in dev mode");
     return path.join(projectRoot, "apps/cli/src/index.ts");
   }
-  return path.resolve(import.meta.dir, "../bin/orkis");
+  return path.resolve(import.meta.dir, "../bin/gozd");
 })();
 
 /**
  * CLI のランナー。dev 時は bun で TS を直接実行するため必要。
- * build 時は bin/orkis が自前で Bun を解決するため不要（空文字列）。
+ * build 時は bin/gozd が自前で Bun を解決するため不要（空文字列）。
  */
-const ORKIS_CLI_RUNNER = channel === "dev" ? "bun" : "";
+const GOZD_CLI_RUNNER = channel === "dev" ? "bun" : "";
 
 generateClaudeSettings(CLAUDE_SETTINGS_PATH);
 
@@ -112,7 +112,7 @@ generateClaudeSettings(CLAUDE_SETTINGS_PATH);
 
 interface PtyEntry {
   proc: ReturnType<typeof Bun.spawn>;
-  win: OrkisWindow;
+  win: GozdWindow;
   /** PTY が起動された worktree ディレクトリ */
   worktreeDir: string;
   /** UTF-8 ストリームデコーダ（チャンク分割時のマルチバイト文字化け防止） */
@@ -122,7 +122,7 @@ interface PtyEntry {
 const ptys = new Map<number, PtyEntry>();
 let nextPtyId = 0;
 
-function spawnPty(win: OrkisWindow, cwd: string, cols: number, rows: number): number {
+function spawnPty(win: GozdWindow, cwd: string, cols: number, rows: number): number {
   const id = nextPtyId++;
   // stream: true で途中切れの UTF-8 バイト列を次のチャンクに繰り越す
   const decoder = new TextDecoder("utf-8", { fatal: false });
@@ -134,23 +134,23 @@ function spawnPty(win: OrkisWindow, cwd: string, cols: number, rows: number): nu
       // TERM 系は PTY 側で明示設定する（親の値を持ち込まない）
       TERM: "xterm-256color",
       COLORTERM: "truecolor",
-      TERM_PROGRAM: "orkis",
+      TERM_PROGRAM: "gozd",
       // CLI ツール（Claude Code 等）に OSC 8 ハイパーリンクの出力を許可する
       FORCE_HYPERLINK: "1",
       LANG: shellEnv.LANG ?? "en_US.UTF-8",
       // Claude Code hooks がどの PTY から発火したか特定するための識別子
-      ORKIS_PTY_ID: String(id),
-      // ZDOTDIR 差し替えで orkis の zsh 初期化を注入する
-      ORKIS_ORIG_ZDOTDIR: shellEnv.ZDOTDIR ?? homedir(),
-      ORKIS_ZDOTDIR,
-      ZDOTDIR: ORKIS_ZDOTDIR,
+      GOZD_PTY_ID: String(id),
+      // ZDOTDIR 差し替えで gozd の zsh 初期化を注入する
+      GOZD_ORIG_ZDOTDIR: shellEnv.ZDOTDIR ?? homedir(),
+      GOZD_ZDOTDIR,
+      ZDOTDIR: GOZD_ZDOTDIR,
       // claude() 関数が参照する hooks 設定ファイルパス
-      ORKIS_CLAUDE_SETTINGS_PATH: CLAUDE_SETTINGS_PATH,
+      GOZD_CLAUDE_SETTINGS_PATH: CLAUDE_SETTINGS_PATH,
       // CLI が接続するソケットパス（dev/stable でパスが異なる）
-      ORKIS_SOCKET_PATH: SOCKET_PATH,
+      GOZD_SOCKET_PATH: SOCKET_PATH,
       // hooks コマンドが使う CLI の絶対パスとランナー
-      ORKIS_CLI_PATH,
-      ORKIS_CLI_RUNNER,
+      GOZD_CLI_PATH,
+      GOZD_CLI_RUNNER,
     },
     terminal: {
       cols,
@@ -244,17 +244,17 @@ console.log(`[file-server] listening on http://localhost:${fileServer.port}`);
 // --- LSP 管理 ---
 
 /** ウィンドウごとに複数の LSP クライアント（tsgo + vue）を管理 */
-const windowLspClients = new Map<OrkisWindow, LspClient[]>();
+const windowLspClients = new Map<GozdWindow, LspClient[]>();
 
 // --- ウィンドウ管理 ---
 
 /** ウィンドウ → UUID */
-const windowIds = new Map<OrkisWindow, string>();
-const windowDirs = new Map<OrkisWindow, string>();
+const windowIds = new Map<GozdWindow, string>();
+const windowDirs = new Map<GozdWindow, string>();
 /** プロジェクトディレクトリ → window マッピング（同一プロジェクトのウィンドウ再利用に使用） */
-const windowProjectDirs = new Map<OrkisWindow, string>();
+const windowProjectDirs = new Map<GozdWindow, string>();
 /** switchDir の世代管理。stale な非同期結果を捨てるために使う */
-const windowSwitchGen = new Map<OrkisWindow, number>();
+const windowSwitchGen = new Map<GozdWindow, number>();
 
 /** 個別 close で最後に閉じたウィンドウの状態を退避。before-quit 時に live が空ならこれを保存する */
 let lastClosedWindowState: WindowState | null = null;
@@ -273,11 +273,11 @@ function getInheritedFrame(): WindowFrame {
 }
 
 // git status デバウンス
-const gitStatusTimers = new Map<OrkisWindow, ReturnType<typeof setTimeout>>();
-const gitStatusInFlight = new Set<OrkisWindow>();
-const gitStatusNeedsRerun = new Set<OrkisWindow>();
+const gitStatusTimers = new Map<GozdWindow, ReturnType<typeof setTimeout>>();
+const gitStatusInFlight = new Set<GozdWindow>();
+const gitStatusNeedsRerun = new Set<GozdWindow>();
 
-function scheduleGitStatusUpdate(win: OrkisWindow, root: string) {
+function scheduleGitStatusUpdate(win: GozdWindow, root: string) {
   const existing = gitStatusTimers.get(win);
   if (existing) clearTimeout(existing);
 
@@ -310,8 +310,8 @@ function scheduleGitStatusUpdate(win: OrkisWindow, root: string) {
 }
 
 // ファイル監視
-const windowFsWatchers = new Map<OrkisWindow, fs.FSWatcher>();
-const windowGitWatchedFiles = new Map<OrkisWindow, string[]>();
+const windowFsWatchers = new Map<GozdWindow, fs.FSWatcher>();
+const windowGitWatchedFiles = new Map<GozdWindow, string[]>();
 
 /** linked worktree 対応: `.git` がファイル（gitdir: ...）の場合に実際の git ディレクトリを解決 */
 async function resolveGitDir(root: string): Promise<string> {
@@ -323,7 +323,7 @@ async function resolveGitDir(root: string): Promise<string> {
   return path.isAbsolute(gitDir) ? gitDir : path.resolve(root, gitDir);
 }
 
-function startWatching(win: OrkisWindow, root: string) {
+function startWatching(win: GozdWindow, root: string) {
   // ワークスペースのファイル監視（recursive, macOS）
   const watcher = fs.watch(root, { recursive: true }, (_eventType, filename) => {
     if (!filename) return;
@@ -427,7 +427,7 @@ function startWatching(win: OrkisWindow, root: string) {
   })();
 }
 
-function stopWatching(win: OrkisWindow) {
+function stopWatching(win: GozdWindow) {
   const watcher = windowFsWatchers.get(win);
   if (watcher) {
     watcher.close();
@@ -459,13 +459,13 @@ interface WorktreeWatchEntry {
 }
 
 /** ウィンドウごとの非アクティブ worktree 監視 */
-const windowWorktreeWatchers = new Map<OrkisWindow, Map<string, WorktreeWatchEntry>>();
-const wtChangeTimers = new Map<OrkisWindow, ReturnType<typeof setTimeout>>();
+const windowWorktreeWatchers = new Map<GozdWindow, Map<string, WorktreeWatchEntry>>();
+const wtChangeTimers = new Map<GozdWindow, ReturnType<typeof setTimeout>>();
 /** syncWorktreeWatchers の世代管理（並行実行で stale な結果を破棄するため） */
-const wtSyncGen = new Map<OrkisWindow, number>();
+const wtSyncGen = new Map<GozdWindow, number>();
 
 /** 非アクティブ worktree でファイル変更があったことをデバウンスして通知 */
-function scheduleWorktreeChangeNotify(win: OrkisWindow) {
+function scheduleWorktreeChangeNotify(win: GozdWindow) {
   const existing = wtChangeTimers.get(win);
   if (existing) clearTimeout(existing);
 
@@ -482,7 +482,7 @@ function scheduleWorktreeChangeNotify(win: OrkisWindow) {
  * アクティブ worktree は既存の startWatching が担当するため除外する。
  * 世代管理により、並行呼び出し時は最新の呼び出しのみが反映される。
  */
-async function syncWorktreeWatchers(win: OrkisWindow, projectDir: string, activeDir: string) {
+async function syncWorktreeWatchers(win: GozdWindow, projectDir: string, activeDir: string) {
   const gen = (wtSyncGen.get(win) ?? 0) + 1;
   wtSyncGen.set(win, gen);
 
@@ -542,7 +542,7 @@ async function syncWorktreeWatchers(win: OrkisWindow, projectDir: string, active
   windowWorktreeWatchers.set(win, existing);
 }
 
-function stopWorktreeWatchers(win: OrkisWindow) {
+function stopWorktreeWatchers(win: GozdWindow) {
   const watchers = windowWorktreeWatchers.get(win);
   if (watchers) {
     for (const watchEntry of watchers.values()) {
@@ -560,7 +560,7 @@ function stopWorktreeWatchers(win: OrkisWindow) {
 }
 
 /** ウィンドウ close 時に関連リソースをすべて解放する */
-function cleanupWindow(win: OrkisWindow) {
+function cleanupWindow(win: GozdWindow) {
   stopWatching(win);
   stopWorktreeWatchers(win);
   const windowId = windowIds.get(win);
@@ -595,8 +595,8 @@ interface CreateWindowOptions {
   initialActiveDir?: string;
 }
 
-function createWindowWithRPC(dir: string, options?: CreateWindowOptions): OrkisWindow {
-  let win: OrkisWindow;
+function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWindow {
+  let win: GozdWindow;
   const { initialSelection, savedFrame, initialActiveDir } = options ?? {};
 
   /** worktree/branch 管理用（固定） */
@@ -607,10 +607,10 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): OrkisW
 
   async function updateWindowTitle(): Promise<void> {
     const repoName = await getRepoName(projectDir);
-    win.setTitle(`orkis - ${repoName}`);
+    win.setTitle(`gozd - ${repoName}`);
   }
 
-  const rpc: OrkisRPCInstance = BrowserView.defineRPC<OrkisRPC>({
+  const rpc: GozdRPCInstance = BrowserView.defineRPC<GozdRPC>({
     handlers: {
       requests: {
         ptySpawn: async ({ dir, cols, rows }) => {
@@ -864,10 +864,10 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): OrkisW
           win.close();
         },
         rendererReady: async () => {
-          console.log("[orkis] rendererReady received, sending orkisOpen:", currentDir);
+          console.log("[gozd] rendererReady received, sending gozdOpen:", currentDir);
           const windowId = windowIds.get(win) ?? "";
           const repoName = await getRepoName(projectDir);
-          win.webview.rpc?.send.orkisOpen({
+          win.webview.rpc?.send.gozdOpen({
             dir: currentDir,
             selection: initialSelection,
             fileServerBaseUrl: `http://localhost:${fileServer.port}/${windowId}`,
@@ -959,7 +959,7 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): OrkisW
   });
 
   win = new BrowserWindow({
-    title: "orkis",
+    title: "gozd",
     url: viewUrl,
     frame: initialFrame,
     rpc,
@@ -992,9 +992,9 @@ interface OpenMessage {
   targetPath: string;
 }
 
-type OrkisMessage = HookMessage | OpenMessage;
+type GozdMessage = HookMessage | OpenMessage;
 
-function findWindowByDir(dir: string): OrkisWindow | undefined {
+function findWindowByDir(dir: string): GozdWindow | undefined {
   for (const [win, projDir] of windowProjectDirs) {
     if (projDir === dir) return win;
   }
@@ -1065,7 +1065,7 @@ interface OpenWindowRequest {
 function openWindow(req: OpenWindowRequest): void {
   const { projectDir, activeDir, selection, savedFrame } = req;
   console.log(
-    `[orkis] open: project=${projectDir}, active=${activeDir}, selection=${selection ? `${selection.kind}:${selection.relPath}` : "(none)"}`,
+    `[gozd] open: project=${projectDir}, active=${activeDir}, selection=${selection ? `${selection.kind}:${selection.relPath}` : "(none)"}`,
   );
   const existing = findWindowByDir(projectDir);
   if (existing) {
@@ -1074,7 +1074,7 @@ function openWindow(req: OpenWindowRequest): void {
     // 表示中の worktree と異なる場合は switchToDir で切り替えを指示
     const switchToDir = activeDir !== currentDir ? activeDir : undefined;
     void getRepoName(projectDir).then((repoName) => {
-      existing.webview.rpc?.send.orkisOpen({
+      existing.webview.rpc?.send.gozdOpen({
         dir: currentDir,
         selection,
         fileServerBaseUrl: `http://localhost:${fileServer.port}/${existingId}`,
@@ -1100,10 +1100,10 @@ function openWindow(req: OpenWindowRequest): void {
   startWatching(newWin, activeDir);
 }
 
-function handleSocketMessage(message: OrkisMessage) {
+function handleSocketMessage(message: GozdMessage) {
   switch (message.type) {
     case "hook": {
-      console.log(`[orkis] hook: ${message.event}`, message.payload);
+      console.log(`[gozd] hook: ${message.event}`, message.payload);
       const hookPayload = { event: message.event, payload: message.payload };
 
       // payload.ptyId から該当ウィンドウを特定して送信
@@ -1111,14 +1111,14 @@ function handleSocketMessage(message: OrkisMessage) {
       if (ptyId !== undefined) {
         const entry = ptys.get(ptyId);
         if (entry) {
-          entry.win.webview.rpc?.send.orkisHook(hookPayload);
+          entry.win.webview.rpc?.send.gozdHook(hookPayload);
           break;
         }
       }
 
       // ptyId がない、または該当 PTY が見つからない場合は全ウィンドウにブロードキャスト
       for (const win of windowDirs.keys()) {
-        win.webview.rpc?.send.orkisHook(hookPayload);
+        win.webview.rpc?.send.gozdHook(hookPayload);
       }
       break;
     }
@@ -1144,7 +1144,7 @@ function setupSocketServer(): net.Server {
 
       for (const line of lines) {
         if (line.trim() === "") continue;
-        const result = tryCatch(() => JSON.parse(line) as OrkisMessage);
+        const result = tryCatch(() => JSON.parse(line) as GozdMessage);
         if (!result.ok) {
           console.error("[socket] invalid JSON:", line);
           continue;
@@ -1183,7 +1183,7 @@ async function isAlreadyRunning(): Promise<boolean> {
 }
 
 if (await isAlreadyRunning()) {
-  console.log("[orkis] Another instance is already running.");
+  console.log("[gozd] Another instance is already running.");
   process.exit(0);
 }
 
@@ -1193,7 +1193,7 @@ const shellEnv = await getShellEnv();
 
 ApplicationMenu.setApplicationMenu([
   {
-    label: "orkis",
+    label: "gozd",
     submenu: [
       { role: "about" },
       { type: "separator" },
@@ -1249,7 +1249,7 @@ if (lastSavedWindow) {
 
 // macOS の ApplicationMenu が正しく動作するには、初回ウィンドウを同期的に作成する必要がある
 // （role メニューは active app + key window + responder chain に依存するため）
-const initialDir = process.env.ORKIS_PROJECT_ROOT;
+const initialDir = process.env.GOZD_PROJECT_ROOT;
 if (initialDir) {
   // pnpm dev: worktree 内で実行しても main worktree のルートに解決する
   openWindow(resolveOpenTarget(initialDir));
@@ -1280,7 +1280,7 @@ if (initialDir) {
   if (errors.length > 0) {
     void Utils.showMessageBox({
       type: "error",
-      title: "orkis",
+      title: "gozd",
       message: "launch request の読み取りに失敗しました",
       detail: errors.join("\n"),
       buttons: ["OK"],

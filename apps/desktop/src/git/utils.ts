@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
-import { tryCatch } from "@orkis/shared";
-import type { OpenTargetSelection } from "@orkis/rpc";
+import { tryCatch } from "@gozd/shared";
+import type { OpenTargetSelection } from "@gozd/rpc";
 
 /** remote URL から owner/repo を抽出するパターン（HTTPS / SSH / ssh:// 対応、ローカルパスは除外） */
 const REMOTE_OWNER_REPO_RE =

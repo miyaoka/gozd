@@ -28,8 +28,8 @@ describe("findRelativePaths", () => {
   });
 
   test("@ プレフィックスのパスを検出する", () => {
-    const [result] = findRelativePaths("@orkis/shared/result.ts");
-    expect(result?.path).toBe("@orkis/shared/result.ts");
+    const [result] = findRelativePaths("@gozd/shared/result.ts");
+    expect(result?.path).toBe("@gozd/shared/result.ts");
   });
 
   test("テキスト中の複数パスを検出する", () => {

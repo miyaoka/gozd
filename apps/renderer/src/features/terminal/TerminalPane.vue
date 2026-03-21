@@ -55,7 +55,7 @@ const layout = computed(() => terminalStore.ensureLayout(props.dir));
 const HUE_OFFSET = 30;
 
 const paneBackground = computed(() => {
-  const name = workspaceStore.repoName ?? "orkis";
+  const name = workspaceStore.repoName ?? "gozd";
   const hash = hashString(name);
   const color1 = hashToColor(hash);
   const color2 = hashToColor(hash, HUE_OFFSET);

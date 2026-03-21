@@ -6,7 +6,7 @@ import { createCLI } from "@miyaoka/fsss";
 const { version } = await import("../../../package.json");
 
 const cli = createCLI({
-  name: "orkis",
+  name: "gozd",
   commandsDir: join(import.meta.dirname, "commands"),
   defaultCommand: "open",
   version,

@@ -1,4 +1,4 @@
-import { tryCatch } from "@orkis/shared";
+import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { ref, watch } from "vue";
 import { useRpc } from "../rpc/useRpc";
@@ -87,7 +87,7 @@ let speakGeneration = 0;
 let disposeHookListener: (() => void) | undefined;
 
 export const useVoicevoxStore = defineStore("voicevox", () => {
-  const { request, onOrkisHook } = useRpc();
+  const { request, onGozdHook } = useRpc();
   const enabled = ref(false);
   const speedScale = ref(DEFAULT_SPEED_SCALE);
   const volumeScale = ref(DEFAULT_VOLUME_SCALE);
@@ -220,7 +220,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
 
   function initHookSubscription() {
     disposeHookListener?.();
-    disposeHookListener = onOrkisHook(({ event, payload }) => {
+    disposeHookListener = onGozdHook(({ event, payload }) => {
       if (!enabled.value) return;
       if (!SPEAK_EVENTS.has(event)) return;
       const text = extractSpeechText(event, payload);

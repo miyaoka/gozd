@@ -1,12 +1,12 @@
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { tryCatch } from "@orkis/shared";
-import type { WorktreeEntry } from "@orkis/rpc";
+import { tryCatch } from "@gozd/shared";
+import type { WorktreeEntry } from "@gozd/rpc";
 import { resolveCreatableFsPath, resolveExistingFsPath } from "../security";
 import { getGitStatus, countChanges } from "./status";
 import { assertBranchName } from "./branch";
 
-export const WORKTREE_DIR = ".orkis/worktrees";
+export const WORKTREE_DIR = ".gozd/worktrees";
 
 export async function addWorktree(
   cwd: string,

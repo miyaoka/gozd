@@ -57,8 +57,8 @@ flowchart LR
 | `fsChange`        | `{ relDir }`                                           | ファイル変更通知                           |
 | `gitStatusChange` | `{ statuses }`                                         | git status 変化                            |
 | `worktreeChange`  | `void`                                                 | 非アクティブ worktree でのファイル変更通知 |
-| `orkisOpen`       | `{ dir, file?, fileServerBaseUrl, channel, repoName }` | ウィンドウ open                            |
-| `orkisHook`       | `{ event, payload }`                                   | Claude Code Hook イベント                  |
+| `gozdOpen`        | `{ dir, file?, fileServerBaseUrl, channel, repoName }` | ウィンドウ open                            |
+| `gozdHook`        | `{ event, payload }`                                   | Claude Code Hook イベント                  |
 | `lspDiagnostics`  | `FileDiagnostics`                                      | LSP 型診断結果                             |
 
 ### renderer → desktop

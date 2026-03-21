@@ -88,12 +88,12 @@ importers:
 
   apps/cli:
     dependencies:
+      '@gozd/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@miyaoka/fsss':
         specifier: 0.4.0
         version: 0.4.0
-      '@orkis/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
       zod:
         specifier: 'catalog:'
         version: 4.3.6
@@ -116,16 +116,16 @@ importers:
 
   apps/desktop:
     dependencies:
-      '@orkis/cli':
+      '@gozd/cli':
         specifier: workspace:*
         version: link:../cli
-      '@orkis/renderer':
+      '@gozd/renderer':
         specifier: workspace:*
         version: link:../renderer
-      '@orkis/rpc':
+      '@gozd/rpc':
         specifier: workspace:*
         version: link:../../packages/rpc
-      '@orkis/shared':
+      '@gozd/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       electrobun:
@@ -150,10 +150,10 @@ importers:
 
   apps/renderer:
     dependencies:
-      '@orkis/rpc':
+      '@gozd/rpc':
         specifier: workspace:*
         version: link:../../packages/rpc
-      '@orkis/shared':
+      '@gozd/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@vueuse/core':

@@ -5,7 +5,7 @@
 </doc>
 
 <script setup lang="ts">
-import type { Todo } from "@orkis/rpc";
+import type { Todo } from "@gozd/rpc";
 import { todoTitle } from "../utils";
 
 defineProps<{

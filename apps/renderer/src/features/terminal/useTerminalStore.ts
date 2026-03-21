@@ -1,4 +1,4 @@
-import { tryCatch } from "@orkis/shared";
+import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { useContextKeys } from "../command/useContextKeys";
@@ -76,7 +76,7 @@ const PTY_RING_BUFFER_CAPACITY = terminalConfig.scrollback;
  * コンポーネントは xterm の attach/detach のみ担当する。
  */
 export const useTerminalStore = defineStore("terminal", () => {
-  const { request, send, onPtyData, onPtyExit, onOrkisHook } = useRpc();
+  const { request, send, onPtyData, onPtyExit, onGozdHook } = useRpc();
   const contextKeys = useContextKeys();
 
   /** 訪問済みの worktree ディレクトリ一覧（初回訪問順） */
@@ -256,7 +256,7 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   function initHookSubscription() {
     disposeHookListener?.();
-    disposeHookListener = onOrkisHook(({ event, payload }) => {
+    disposeHookListener = onGozdHook(({ event, payload }) => {
       const ptyId = typeof payload.ptyId === "number" ? payload.ptyId : undefined;
       if (ptyId === undefined) return;
 

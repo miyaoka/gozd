@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { tryCatch } from "@orkis/shared";
+import { tryCatch } from "@gozd/shared";
 
 /** プロジェクトの node_modules から tsgo ネイティブバイナリを探す */
 export async function resolveTsgoPath(projectDir: string): Promise<string | undefined> {

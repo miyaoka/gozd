@@ -2,10 +2,10 @@ import type { ElectrobunConfig } from "electrobun";
 
 export default {
   app: {
-    name: "orkis",
-    identifier: "com.miyaoka.orkis",
+    name: "gozd",
+    identifier: "com.miyaoka.gozd",
     version: "0.0.0",
-    description: "AI Agent Orchestrator",
+    description: "Git Orchestrated Zone for Development",
   },
   build: {
     bun: {
@@ -17,9 +17,9 @@ export default {
       },
     },
     copy: {
-      "node_modules/@orkis/renderer/dist/": "views/main/",
-      "node_modules/@orkis/cli/dist/": "cli/",
-      "node_modules/@orkis/cli/bin/": "bin/",
+      "node_modules/@gozd/renderer/dist/": "views/main/",
+      "node_modules/@gozd/cli/dist/": "cli/",
+      "node_modules/@gozd/cli/bin/": "bin/",
       "zsh/": "zsh/",
     },
   },

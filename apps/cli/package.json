@@ -1,5 +1,5 @@
 {
-  "name": "@orkis/cli",
+  "name": "@gozd/cli",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@miyaoka/fsss": "0.4.0",
-    "@orkis/shared": "workspace:*",
+    "@gozd/shared": "workspace:*",
     "zod": "catalog:"
   },
   "devDependencies": {

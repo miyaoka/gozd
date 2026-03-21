@@ -3,19 +3,19 @@ import { parseOwnerRepo } from "./utils";
 
 describe("parseOwnerRepo", () => {
   test("HTTPS URL から owner/repo を抽出する", () => {
-    expect(parseOwnerRepo("https://github.com/miyaoka/orkis")).toBe("miyaoka/orkis");
+    expect(parseOwnerRepo("https://github.com/miyaoka/gozd")).toBe("miyaoka/gozd");
   });
 
   test("HTTPS URL (.git 付き) から owner/repo を抽出する", () => {
-    expect(parseOwnerRepo("https://github.com/miyaoka/orkis.git")).toBe("miyaoka/orkis");
+    expect(parseOwnerRepo("https://github.com/miyaoka/gozd.git")).toBe("miyaoka/gozd");
   });
 
   test("SSH URL から owner/repo を抽出する", () => {
-    expect(parseOwnerRepo("git@github.com:miyaoka/orkis.git")).toBe("miyaoka/orkis");
+    expect(parseOwnerRepo("git@github.com:miyaoka/gozd.git")).toBe("miyaoka/gozd");
   });
 
   test("SSH URL (.git なし) から owner/repo を抽出する", () => {
-    expect(parseOwnerRepo("git@github.com:miyaoka/orkis")).toBe("miyaoka/orkis");
+    expect(parseOwnerRepo("git@github.com:miyaoka/gozd")).toBe("miyaoka/gozd");
   });
 
   test("ssh:// プロトコルから owner/repo を抽出する", () => {

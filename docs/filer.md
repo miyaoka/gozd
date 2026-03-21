@@ -78,6 +78,6 @@ SVG は `import.meta.glob` で一括取り込み、Vite がビルド時にハッ
 
 ワークスペースの状態を管理する Pinia store。`dir`, `selectedPath`, `fileServerBaseUrl`, `channel` を保持する。
 
-- `setOpen()` で orkisOpen メッセージの初期化データを受け取る
+- `setOpen()` で gozdOpen メッセージの初期化データを受け取る
 - `selectedPath` と `selectedGitChange` を管理し、ファイラーとプレビュー間でパス情報を共有する
 - `selectedGitChange` は `gitStatuses` から `computed` で都度算出するため、git status 更新時にプレビューのタブ状態も自動反映される

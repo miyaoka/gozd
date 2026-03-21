@@ -6,11 +6,11 @@
  * @see https://github.com/sindresorhus/shell-env
  */
 
-import { tryCatch } from "@orkis/shared";
+import { tryCatch } from "@gozd/shared";
 
 type EnvMap = Record<string, string>;
 
-const DELIMITER = "_ORKIS_SHELL_ENV_DELIMITER_";
+const DELIMITER = "_GOZD_SHELL_ENV_DELIMITER_";
 const RESOLVE_TIMEOUT_MS = 5000;
 
 /** Launch Services 経由の起動かどうかを推定する */
@@ -58,7 +58,7 @@ async function resolveShellEnv(shell: string): Promise<EnvMap | undefined> {
   );
 
   if (!spawnResult.ok) {
-    console.error(`[orkis] shell spawn failed (${shell}): ${spawnResult.error}`);
+    console.error(`[gozd] shell spawn failed (${shell}): ${spawnResult.error}`);
     return undefined;
   }
 
@@ -77,7 +77,7 @@ async function resolveShellEnv(shell: string): Promise<EnvMap | undefined> {
   );
 
   if (!result.ok) {
-    console.error(`[orkis] shell env resolve failed (${shell}): ${result.error}`);
+    console.error(`[gozd] shell env resolve failed (${shell}): ${result.error}`);
     return undefined;
   }
 
@@ -104,11 +104,11 @@ export async function getShellEnv(): Promise<EnvMap> {
   for (const shell of shells) {
     const env = await resolveShellEnv(shell);
     if (env) {
-      console.log(`[orkis] shell env resolved via ${shell}`);
+      console.log(`[gozd] shell env resolved via ${shell}`);
       return env;
     }
   }
 
-  console.warn("[orkis] shell env resolve failed, using process.env");
+  console.warn("[gozd] shell env resolve failed, using process.env");
   return process.env as EnvMap;
 }

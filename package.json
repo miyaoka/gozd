@@ -1,13 +1,13 @@
 {
-  "name": "orkis",
+  "name": "gozd",
   "version": "0.0.0",
   "private": true,
   "description": "AI Agent Orchestrator",
   "type": "module",
   "scripts": {
-    "dev": "concurrently --kill-others \"pnpm --filter @orkis/renderer dev\" \"pnpm --filter @orkis/desktop dev\"",
+    "dev": "concurrently --kill-others \"pnpm --filter @gozd/renderer dev\" \"pnpm --filter @gozd/desktop dev\"",
     "build": "pnpm -r build",
-    "open": "open apps/desktop/build/stable-macos-arm64/orkis.app",
+    "open": "open apps/desktop/build/stable-macos-arm64/gozd.app",
     "format": "oxfmt .",
     "lint": "oxlint --type-aware",
     "fix": "oxfmt '!apps/**' '!packages/**'",

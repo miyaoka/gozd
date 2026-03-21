@@ -1,8 +1,8 @@
+import pluginGozd from "@gozd/eslint-plugin";
 import skipFormatting from "@vue/eslint-config-prettier/skip-formatting";
 import { defineConfigWithVueTs, vueTsConfigs } from "@vue/eslint-config-typescript";
 import type { ESLint } from "eslint";
 import pluginBetterTailwindcss from "eslint-plugin-better-tailwindcss";
-import pluginBoundaries from "eslint-plugin-boundaries";
 import pluginImportX from "eslint-plugin-import-x";
 import pluginUnusedImports from "eslint-plugin-unused-imports";
 import pluginVue from "eslint-plugin-vue";
@@ -93,100 +93,22 @@ export default defineConfigWithVueTs(
     },
   },
 
-  // boundaries: feature 外からの内部モジュール直接 import を禁止
+  // feature / shared のバレルファイル強制
+  //
+  // NG: feature 外 → 内部モジュール直接 import
+  // NG: 親 feature 内 → 子 feature の内部モジュール直接 import（3階層目含む）
+  // NG: 親 feature 内 → 子 feature のバレルでないファイル直接 import
+  // NG: shared → feature
+  // OK: feature 外 → バレル経由
+  // OK: 親 feature 内 → 子 feature のバレル経由
+  // OK: 親 feature 内 → 3 階層目の子 feature のバレル経由
+  // OK: 同一 feature 内の通常ファイル参照
   {
     plugins: {
-      boundaries: pluginBoundaries,
-    },
-    settings: {
-      // eslint-module-utils/resolve が TypeScript の拡張子なし import を解決するために必要
-      "import/resolver": {
-        typescript: {
-          project: "./tsconfig.app.json",
-        },
-      },
-      "boundaries/elements": [
-        { type: "feature", pattern: "src/features/*", mode: "folder" },
-        { type: "shared", pattern: "src/shared/*", mode: "folder" },
-      ],
+      gozd: pluginGozd,
     },
     rules: {
-      // feature / shared のバレルファイル強制と依存方向制御
-      // checkInternals: true で内部依存もチェック対象にし、
-      // ネストされた子 feature（features/ サブディレクトリ）の内部直接 import も禁止する
-      // ルール順序は last-write-wins: 最後にマッチしたルールの結果が最終結果
-      //
-      // NG: feature 外 → 内部モジュール直接 import
-      // NG: 親 feature 内 → 子 feature の内部モジュール直接 import（3階層目含む）
-      // NG: 親 feature 内 → 子 feature のバレルでないファイル直接 import
-      // NG: shared → feature
-      // OK: feature 外 → バレル経由
-      // OK: 親 feature 内 → 子 feature のバレル経由
-      // OK: 親 feature 内 → 3 階層目の子 feature のバレル経由
-      // OK: 同一 feature 内の通常ファイル参照
-      "boundaries/dependencies": [
-        "error",
-        {
-          default: "allow",
-          checkInternals: true,
-          rules: [
-            // 1. feature / shared への依存は原則として index.ts のみ許可
-            {
-              to: [{ type: "feature" }, { type: "shared" }],
-              disallow: {
-                to: { internalPath: "!index.ts" },
-              },
-            },
-            // 2. shared 内の内部依存は自由（1 の禁止を上書き）
-            {
-              from: { type: "shared" },
-              allow: {
-                dependency: {
-                  relationship: { to: "internal" },
-                },
-              },
-            },
-            // 3. feature 内の通常ファイル間 import は自由（features/ 配下を除く）
-            {
-              from: { type: "feature" },
-              allow: {
-                dependency: {
-                  relationship: { to: "internal" },
-                },
-                to: { internalPath: "!features/**" },
-              },
-            },
-            // 4. 子 feature 内のファイル同士の import は自由
-            //    from の internalPath が features/X/ で始まるファイルから、
-            //    同じ features/X/ 内のファイルへの import を許可する
-            {
-              from: { type: "feature", internalPath: "features/**" },
-              allow: {
-                dependency: {
-                  relationship: { to: "internal" },
-                },
-              },
-            },
-            // 5. feature 内の子 feature へは index.ts 経由のみ許可
-            {
-              from: { type: "feature" },
-              allow: {
-                dependency: {
-                  relationship: { to: "internal" },
-                },
-                to: { internalPath: "features/**/index.ts" },
-              },
-            },
-            // 5. shared → feature は常に禁止（最後に置いて上書き）
-            {
-              from: { type: "shared" },
-              disallow: {
-                to: { type: "feature" },
-              },
-            },
-          ],
-        },
-      ],
+      "gozd/barrel-import": "error",
     },
   },
 

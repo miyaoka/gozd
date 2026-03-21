@@ -31,6 +31,7 @@
     "vue": "3.5.30"
   },
   "devDependencies": {
+    "@gozd/eslint-plugin": "workspace:*",
     "@iconify-json/lucide": "1.2.98",
     "@iconify/tailwind4": "1.2.3",
     "@miyaoka/vite-plugin-doc-block": "0.0.2",
@@ -41,9 +42,7 @@
     "@vue/eslint-config-typescript": "14.7.0",
     "@vue/language-server": "3.2.6",
     "eslint": "catalog:",
-    "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-better-tailwindcss": "4.3.2",
-    "eslint-plugin-boundaries": "^6.0.0",
     "eslint-plugin-import-x": "catalog:",
     "eslint-plugin-unused-imports": "catalog:",
     "eslint-plugin-vue": "10.8.0",

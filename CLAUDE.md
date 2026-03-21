@@ -119,7 +119,7 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 
 - feature / shared の外部からは `index.ts` のみ参照可能。内部モジュールを直接 import しない
 - 同一 feature / shared 内のファイル間は自由に参照できる
-- feature は再帰的にネスト可能（例: `sidebar/worktree/`、`sidebar/todo/`）
+- feature は再帰的にネスト可能。子 feature は `features/` サブディレクトリに配置する（例: `sidebar/features/worktree/`、`sidebar/features/todo/`）
 - `.ts` ファイル名は camelCase（`filerUtils.ts`）。Vue SFC は PascalCase（`FilerPane.vue`）
 
 ## 開発コマンド

@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { tryCatch } from "@gozd/shared";
 import type { WorktreeEntry } from "@gozd/rpc";
 import { projectKey } from "../projectKey";
-import { resolveCreatableFsPath, resolveGitPath } from "../security";
+import { resolveCreatableFsPath, resolveExistingFsPath } from "../security";
 import { getGitStatus, countChanges } from "./status";
 import { assertBranchName } from "./branch";
 
@@ -127,15 +127,13 @@ async function createWorktreeSymlinks(
 ): Promise<void> {
   await Promise.all(
     targets.map(async (target) => {
-      // パストラバーサル防止: リポジトリ / worktree 配下に留まることを検証
-      const sourceResult = tryCatch(() => resolveGitPath(mainRepoDir, target));
+      // ソース: realpath で実パスを検証し、リポジトリ外へのトラバーサルを防止
+      const sourceResult = await tryCatch(resolveExistingFsPath(mainRepoDir, target));
       if (!sourceResult.ok) return;
-      const destResult = tryCatch(() => resolveGitPath(wtPath, target));
-      if (!destResult.ok) return;
 
-      // メインリポジトリに存在しなければスキップ
-      const sourceExists = await tryCatch(fsp.lstat(sourceResult.value));
-      if (!sourceExists.ok) return;
+      // dest: 親ディレクトリの realpath を検証し、worktree 外への書き込みを防止
+      const destResult = await tryCatch(resolveCreatableFsPath(wtPath, target));
+      if (!destResult.ok) return;
 
       // worktree 側に既に存在する場合はスキップ（git checkout で取得済みの可能性）
       const destExists = await tryCatch(fsp.lstat(destResult.value));

@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+import { realpathSync } from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { homedir } from "node:os";
@@ -8,10 +10,18 @@ import { getGitStatus, countChanges } from "./status";
 import { assertBranchName } from "./branch";
 
 const WORKTREE_BASE = path.join(homedir(), ".local", "share", "gozd", "worktrees");
+const HASH_LENGTH = 12;
 
-/** プロジェクトディレクトリに対応する worktree ルートを返す */
+/**
+ * プロジェクトディレクトリに対応する worktree ルートを返す。
+ * realpath で symlink を解決し、ハッシュ化して固定長のディレクトリ名を生成する。
+ * 形式: `<repoName>-<hash>` （例: `gozd-a1b2c3d4e5f6`）
+ */
 export function getWorktreeRoot(projectDir: string): string {
-  return path.join(WORKTREE_BASE, encodeURIComponent(projectDir));
+  const realPath = realpathSync(projectDir);
+  const hash = crypto.createHash("sha256").update(realPath).digest("hex").slice(0, HASH_LENGTH);
+  const name = path.basename(realPath);
+  return path.join(WORKTREE_BASE, `${name}-${hash}`);
 }
 
 export async function addWorktree(

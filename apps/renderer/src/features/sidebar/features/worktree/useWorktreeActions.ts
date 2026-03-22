@@ -109,10 +109,12 @@ export function useWorktreeActions({
     );
     if (result.ok) {
       await fetchData();
+      isCreating.value = false;
+      await handleWorktreeSelect(result.value);
     } else {
       freeBranches.value.push(branch);
+      isCreating.value = false;
     }
-    isCreating.value = false;
   }
 
   function removeFromList(wt: WorktreeEntry) {
@@ -158,9 +160,14 @@ export function useWorktreeActions({
   }) {
     isCreating.value = true;
     // 失敗しても Todo は残る。fetchData で TODOS 欄に反映され、再試行または削除できる
-    await tryCatch(request.createWorktreeWithTodo({ id: todo.id, worktreeDir, branch }));
+    const result = await tryCatch(
+      request.createWorktreeWithTodo({ id: todo.id, worktreeDir, branch }),
+    );
     await fetchData();
     isCreating.value = false;
+    if (result.ok) {
+      await handleWorktreeSelect(result.value.worktree);
+    }
   }
 
   /** ブランチを worktree 化する */

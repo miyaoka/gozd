@@ -63,31 +63,38 @@ export async function getGitCommitFiles(
   return parseDiffNameStatus(result.value);
 }
 
+/** コミットがルートコミット（親なし）かどうか判定 */
+async function isRootCommit(cwd: string, hash: string): Promise<boolean> {
+  const result = await tryCatch(
+    new Response(Bun.spawn(["git", "rev-parse", "--", `${hash}^`], { cwd }).stdout).text(),
+  );
+  return !result.ok || result.value.trim() === "";
+}
+
 async function buildDiffArgs(cwd: string, hash: string, compareHash?: string): Promise<string[]> {
   const diffOptions = ["--name-status", "-z", "--find-renames", "--diff-filter=AMDR"];
 
   if (compareHash !== undefined) {
     // 範囲選択: 古い方の親を起点に新しい方を終点にする
     const orderResult = await tryCatch(
-      Bun.spawn(["git", "merge-base", "--is-ancestor", hash, compareHash], { cwd }).exited,
+      Bun.spawn(["git", "merge-base", "--is-ancestor", "--", hash, compareHash], { cwd }).exited,
     );
     const hashIsOlder = orderResult.ok && orderResult.value === 0;
-    const from = hashIsOlder ? `${hash}^` : `${compareHash}^`;
-    const to = hashIsOlder ? compareHash : hash;
-    return ["git", "diff", ...diffOptions, from, to];
+    const older = hashIsOlder ? hash : compareHash;
+    const newer = hashIsOlder ? compareHash : hash;
+
+    // 古い方がルートコミットの場合は diff-tree --root で newer との差分を取る
+    if (await isRootCommit(cwd, older)) {
+      return ["git", "diff", ...diffOptions, "--", older, newer];
+    }
+    return ["git", "diff", ...diffOptions, "--", `${older}^`, newer];
   }
 
-  // 単一コミット: 親の有無でコマンドを分ける
-  const parentResult = await tryCatch(
-    new Response(Bun.spawn(["git", "rev-parse", `${hash}^`], { cwd }).stdout).text(),
-  );
-  const hasParent = parentResult.ok && parentResult.value.trim() !== "";
-
-  if (hasParent) {
-    return ["git", "diff", ...diffOptions, `${hash}^`, hash];
+  // 単一コミット: ルートコミットは diff-tree --root を使う
+  if (await isRootCommit(cwd, hash)) {
+    return ["git", "diff-tree", "--root", "--no-commit-id", "-r", ...diffOptions, "--", hash];
   }
-  // ルートコミット
-  return ["git", "diff-tree", "--root", "-r", ...diffOptions, hash];
+  return ["git", "diff", ...diffOptions, "--", `${hash}^`, hash];
 }
 
 function parseDiffNameStatus(stdout: string): GitFileChange[] {

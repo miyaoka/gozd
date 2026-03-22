@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { tryCatch } from "@gozd/shared";
 import type { WorktreeEntry } from "@gozd/rpc";
 import { projectKey } from "../projectKey";
-import { resolveCreatableFsPath, resolveExistingFsPath } from "../security";
+import { resolveCreatableFsPath, resolveExistingFsPath, resolveGitPath } from "../security";
 import { getGitStatus, countChanges } from "./status";
 import { assertBranchName } from "./branch";
 
@@ -130,6 +130,22 @@ async function createWorktreeSymlinks(
       // ソース: realpath で実パスを検証し、リポジトリ外へのトラバーサルを防止
       const sourceResult = await tryCatch(resolveExistingFsPath(mainRepoDir, target));
       if (!sourceResult.ok) return;
+
+      // ネストされたパスに対応するため、親ディレクトリを作成
+      // resolveGitPath で論理パスのトラバーサルを事前チェックし、
+      // mkdir 後に resolveExistingFsPath で実パスが worktree 内に収まることを検証する
+      const targetDir = path.dirname(target);
+      if (targetDir !== ".") {
+        const logicalResult = tryCatch(() => resolveGitPath(wtPath, targetDir));
+        if (!logicalResult.ok) return;
+
+        const mkdirResult = await tryCatch(fsp.mkdir(logicalResult.value, { recursive: true }));
+        if (!mkdirResult.ok) return;
+
+        // mkdir で作成されたパスが symlink 経由で worktree 外に出ていないか実パスで検証
+        const parentCheck = await tryCatch(resolveExistingFsPath(wtPath, targetDir));
+        if (!parentCheck.ok) return;
+      }
 
       // dest: 親ディレクトリの realpath を検証し、worktree 外への書き込みを防止
       const destResult = await tryCatch(resolveCreatableFsPath(wtPath, target));

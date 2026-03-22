@@ -28,9 +28,6 @@ const { gitStatuses } = storeToRefs(gitStatusStore);
 const commits = ref<GitCommit[]>([]);
 const layout = ref<GraphLayout>({ nodes: [], lines: [], maxLanes: 1 });
 
-/** git status に変更があるかどうか */
-const hasUncommittedChanges = computed(() => Object.keys(gitStatuses.value).length > 0);
-
 /** 変更ファイル数 */
 const uncommittedChangeCount = computed(() => Object.keys(gitStatuses.value).length);
 
@@ -44,17 +41,16 @@ function findHeadCommit(rawCommits: GitCommit[]): GitCommit | undefined {
 }
 
 function prependUncommitted(rawCommits: GitCommit[]): GitCommit[] {
-  if (!hasUncommittedChanges.value) return rawCommits;
-
   const headCommit = findHeadCommit(rawCommits);
   const headHash = headCommit?.hash ?? "";
+  const count = uncommittedChangeCount.value;
   const uncommitted: GitCommit = {
     hash: UNCOMMITTED_HASH,
     shortHash: "*",
     parents: headHash ? [headHash] : [],
     author: "*",
     date: Math.floor(Date.now() / 1000),
-    message: `Uncommitted Changes (${uncommittedChangeCount.value})`,
+    message: `Uncommitted Changes (${count})`,
     refs: [],
   };
 
@@ -64,7 +60,7 @@ function prependUncommitted(rawCommits: GitCommit[]): GitCommit[] {
 function recomputeLayout() {
   const withUncommitted = prependUncommitted(commits.value);
   layout.value = computeGraphLayout(withUncommitted, {
-    hasUncommitted: hasUncommittedChanges.value,
+    hasUncommitted: true,
   });
 }
 

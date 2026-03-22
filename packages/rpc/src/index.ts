@@ -94,6 +94,15 @@ export interface AppConfig {
   voicevox?: VoicevoxConfig;
 }
 
+/** プロジェクト固有設定の zod スキーマ */
+export const projectConfigSchema = z.object({
+  /** worktree 作成時にメインリポジトリからシンボリックリンクする対象 */
+  worktreeSymlinks: z.array(z.string()).optional(),
+});
+
+/** プロジェクト固有の設定 */
+export type ProjectConfig = z.infer<typeof projectConfigSchema>;
+
 /** Uncommitted Changes の仮想コミットハッシュ */
 export const UNCOMMITTED_HASH = "0000000000000000000000000000000000000000";
 
@@ -229,6 +238,16 @@ export type GozdRPC = {
       /** グローバル設定を保存する */
       configSave: {
         params: AppConfig;
+        response: void;
+      };
+      /** プロジェクト設定を読み込む */
+      projectConfigLoad: {
+        params: undefined;
+        response: ProjectConfig;
+      };
+      /** プロジェクト設定を保存する */
+      projectConfigSave: {
+        params: ProjectConfig;
         response: void;
       };
       /** VOICEVOX アプリを起動する。インストール済みなら true、未インストールなら false */

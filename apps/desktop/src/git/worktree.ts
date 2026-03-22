@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { tryCatch } from "@gozd/shared";
 import type { WorktreeEntry } from "@gozd/rpc";
 import { projectKey } from "../projectKey";
-import { resolveCreatableFsPath } from "../security";
+import { resolveCreatableFsPath, resolveExistingFsPath } from "../security";
 import { getGitStatus, countChanges } from "./status";
 import { assertBranchName } from "./branch";
 
@@ -15,11 +15,18 @@ export function getWorktreeRoot(projectDir: string): string {
   return path.join(WORKTREE_BASE, projectKey(projectDir));
 }
 
-export async function addWorktree(
-  cwd: string,
-  worktreeDir: string,
-  branch: string,
-): Promise<WorktreeEntry> {
+export async function addWorktree({
+  cwd,
+  worktreeDir,
+  branch,
+  symlinks,
+}: {
+  cwd: string;
+  worktreeDir: string;
+  branch: string;
+  /** メインリポジトリからシンボリックリンクする対象パス */
+  symlinks?: string[];
+}): Promise<WorktreeEntry> {
   const worktreeRoot = getWorktreeRoot(cwd);
   await fsp.mkdir(worktreeRoot, { recursive: true });
   const wtPath = await resolveCreatableFsPath(worktreeRoot, worktreeDir);
@@ -41,6 +48,11 @@ export async function addWorktree(
   if (proc.exitCode !== 0) {
     const stderr = await new Response(proc.stderr).text();
     throw new Error(`git worktree add failed: ${stderr.trim() || `exit code ${proc.exitCode}`}`);
+  }
+
+  // メインリポジトリから指定パスをシンボリックリンク
+  if (symlinks && symlinks.length > 0) {
+    await createWorktreeSymlinks(cwd, wtPath, symlinks);
   }
 
   // 作成した worktree の情報を取得
@@ -102,6 +114,35 @@ export async function getWorktreeList(cwd: string): Promise<WorktreeEntry[]> {
   }
 
   return entries;
+}
+
+/**
+ * メインリポジトリの指定パスを worktree にシンボリックリンクする。
+ * ベストエフォート: パス検証失敗、存在しないソース、既存の dest、symlink 失敗はスキップする。
+ */
+async function createWorktreeSymlinks(
+  mainRepoDir: string,
+  wtPath: string,
+  targets: string[],
+): Promise<void> {
+  await Promise.all(
+    targets.map(async (target) => {
+      // ソース: realpath で実パスを検証し、リポジトリ外へのトラバーサルを防止
+      const sourceResult = await tryCatch(resolveExistingFsPath(mainRepoDir, target));
+      if (!sourceResult.ok) return;
+
+      // dest: 親ディレクトリの realpath を検証し、worktree 外への書き込みを防止
+      const destResult = await tryCatch(resolveCreatableFsPath(wtPath, target));
+      if (!destResult.ok) return;
+
+      // worktree 側に既に存在する場合はスキップ（git checkout で取得済みの可能性）
+      const destExists = await tryCatch(fsp.lstat(destResult.value));
+      if (destExists.ok) return;
+
+      // symlink 作成失敗はスキップ（worktree 自体の作成は成功扱い）
+      await tryCatch(fsp.symlink(sourceResult.value, destResult.value));
+    }),
+  );
 }
 
 /** 各 worktree の git status を並列取得して changeCounts を付与する */

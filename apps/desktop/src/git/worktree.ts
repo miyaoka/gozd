@@ -83,6 +83,7 @@ export async function getWorktreeList(cwd: string): Promise<WorktreeEntry[]> {
     let wtPath = "";
     let head = "";
     let branch: string | undefined;
+    let prunable = false;
 
     for (const line of lines) {
       if (line.startsWith("worktree ")) {
@@ -92,10 +93,12 @@ export async function getWorktreeList(cwd: string): Promise<WorktreeEntry[]> {
       } else if (line.startsWith("branch ")) {
         // refs/heads/main → main
         branch = line.slice("branch ".length).replace("refs/heads/", "");
+      } else if (line.startsWith("prunable ")) {
+        prunable = true;
       }
     }
 
-    if (wtPath) {
+    if (wtPath && !prunable) {
       entries.push({ path: wtPath, head, branch, isMain: isFirst });
     }
     isFirst = false;

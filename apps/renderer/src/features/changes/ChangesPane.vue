@@ -11,6 +11,7 @@ Changed files list. Shows HEAD vs working directory by default, or a selected co
 
 <script setup lang="ts">
 import type { GitFileChange } from "@gozd/rpc";
+import { tryCatch } from "@gozd/shared";
 import { computed, ref, watch } from "vue";
 import { useRpc } from "../../shared/rpc";
 import { getFileIconName, getIconUrl } from "../filer";
@@ -29,6 +30,8 @@ const gitStatusStore = useGitStatusStore();
 /** コミット選択時に取得した変更ファイル一覧 */
 const commitFiles = ref<GitFileChange[]>([]);
 const loading = ref(false);
+/** in-flight リクエストの無効化用シーケンス番号 */
+let requestSeq = 0;
 
 /** Uncommitted Changes 行が選択されているか */
 const isUncommittedMode = computed(() => gitGraphStore.selectedHash === UNCOMMITTED_HASH);
@@ -106,15 +109,22 @@ function dirPath(filePath: string): string {
 watch(
   () => [gitGraphStore.selectedHash, gitGraphStore.compareHash] as const,
   async ([hash, compareHash]) => {
+    const seq = ++requestSeq;
     if (hash === UNCOMMITTED_HASH && compareHash === null) {
       commitFiles.value = [];
+      loading.value = false;
       return;
     }
     loading.value = true;
-    commitFiles.value = await request.gitCommitFiles({
-      hash,
-      compareHash: compareHash ?? undefined,
-    });
+    const result = await tryCatch(
+      request.gitCommitFiles({
+        hash,
+        compareHash: compareHash ?? undefined,
+      }),
+    );
+    // 別のリクエストが発行済みなら結果を破棄
+    if (seq !== requestSeq) return;
+    commitFiles.value = result.ok ? result.value : [];
     loading.value = false;
   },
   { immediate: true },

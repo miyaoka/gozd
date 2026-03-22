@@ -83,7 +83,7 @@ async function loadLog() {
     hash !== null && hash !== UNCOMMITTED_HASH && !result.some((c) => c.hash === hash);
 
   if (isStale(selectedHash) || isStale(compareHash)) {
-    gitGraphStore.clearSelection();
+    gitGraphStore.resetSelection();
   }
 }
 
@@ -93,14 +93,14 @@ onMounted(loadLog);
 watch(
   () => worktreeStore.dir,
   () => {
-    gitGraphStore.clearSelection();
+    gitGraphStore.resetSelection();
     void loadLog();
   },
 );
 
 // firstParentOnly 切替時に再取得
 watch(firstParentOnly, () => {
-  gitGraphStore.clearSelection();
+  gitGraphStore.resetSelection();
   void loadLog();
 });
 

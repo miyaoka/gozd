@@ -18,12 +18,12 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
     compareHash.value = hash;
   }
 
-  function clearSelection() {
+  function resetSelection() {
     selectedHash.value = UNCOMMITTED_HASH;
     compareHash.value = null;
   }
 
-  return { selectedHash, compareHash, select, selectCompare, clearSelection };
+  return { selectedHash, compareHash, select, selectCompare, resetSelection };
 });
 
 if (import.meta.hot) {

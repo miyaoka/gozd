@@ -117,13 +117,10 @@ watch(
       commitFiles.value = [];
       return;
     }
-    const resolvedHash = hash === UNCOMMITTED_HASH ? "HEAD" : hash;
-    const resolvedCompare =
-      compareHash === null ? undefined : compareHash === UNCOMMITTED_HASH ? "HEAD" : compareHash;
     loading.value = true;
     commitFiles.value = await request.gitCommitFiles({
-      hash: resolvedHash,
-      compareHash: resolvedCompare,
+      hash,
+      compareHash: compareHash ?? undefined,
     });
     loading.value = false;
   },

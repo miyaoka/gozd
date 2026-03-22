@@ -1,4 +1,5 @@
 import { tryCatch } from "@gozd/shared";
+import { UNCOMMITTED_HASH } from "@gozd/rpc";
 import type { GitFileChange, WorktreeChangeCounts } from "@gozd/rpc";
 
 export async function filterIgnored(entries: string[], cwd: string): Promise<Set<string>> {
@@ -74,23 +75,34 @@ async function isRootCommit(cwd: string, hash: string): Promise<boolean> {
   return exitCode !== 0;
 }
 
+/**
+ * UNCOMMITTED_HASH が含まれる場合は working tree との diff にする。
+ * git diff <from> (to なし) = from から working tree への差分。
+ */
 async function buildDiffArgs(cwd: string, hash: string, compareHash?: string): Promise<string[]> {
   const diffOptions = ["--name-status", "-z", "--find-renames", "--diff-filter=AMDR"];
+  const hasUncommitted = hash === UNCOMMITTED_HASH || compareHash === UNCOMMITTED_HASH;
 
   if (compareHash !== undefined) {
-    // 範囲選択: 古い方の親を起点に新しい方を終点にする
-    const orderResult = await tryCatch(
-      Bun.spawn(["git", "merge-base", "--is-ancestor", hash, compareHash], { cwd }).exited,
-    );
-    const hashIsOlder = orderResult.ok && orderResult.value === 0;
-    const older = hashIsOlder ? hash : compareHash;
-    const newer = hashIsOlder ? compareHash : hash;
+    // 範囲選択
+    const commitA = hash === UNCOMMITTED_HASH ? "HEAD" : hash;
+    const commitB = compareHash === UNCOMMITTED_HASH ? "HEAD" : compareHash;
 
-    // 古い方がルートコミットの場合はルート自体を from にする
-    if (await isRootCommit(cwd, older)) {
-      return ["git", "diff", ...diffOptions, older, newer];
+    // 古い方の親を起点にする
+    const orderResult = await tryCatch(
+      Bun.spawn(["git", "merge-base", "--is-ancestor", commitA, commitB], { cwd }).exited,
+    );
+    const aIsOlder = orderResult.ok && orderResult.value === 0;
+    const older = aIsOlder ? commitA : commitB;
+    const newer = aIsOlder ? commitB : commitA;
+
+    const from = (await isRootCommit(cwd, older)) ? older : `${older}^`;
+
+    // 片方が UNCOMMITTED の場合は to を省略して working tree diff
+    if (hasUncommitted) {
+      return ["git", "diff", ...diffOptions, from];
     }
-    return ["git", "diff", ...diffOptions, `${older}^`, newer];
+    return ["git", "diff", ...diffOptions, from, newer];
   }
 
   // 単一コミット: ルートコミットは diff-tree --root を使う

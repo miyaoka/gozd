@@ -94,6 +94,9 @@ export interface AppConfig {
   voicevox?: VoicevoxConfig;
 }
 
+/** Uncommitted Changes の仮想コミットハッシュ */
+export const UNCOMMITTED_HASH = "0000000000000000000000000000000000000000";
+
 /** git diff の変更ファイル情報 */
 export interface GitFileChange {
   oldFilePath: string;

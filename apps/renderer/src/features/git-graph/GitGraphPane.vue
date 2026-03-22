@@ -77,13 +77,12 @@ async function loadLog() {
   lastHead = findHeadCommit(result)?.hash ?? "";
   recomputeLayout();
 
-  // 選択中のコミットが一覧から消えた場合はクリア
-  const { selectedHash } = gitGraphStore;
-  if (
-    selectedHash !== null &&
-    selectedHash !== UNCOMMITTED_HASH &&
-    !result.some((c) => c.hash === selectedHash)
-  ) {
+  // 選択中・比較中のコミットが一覧から消えた場合はクリア
+  const { selectedHash, compareHash } = gitGraphStore;
+  const isStale = (hash: string | null): boolean =>
+    hash !== null && hash !== UNCOMMITTED_HASH && !result.some((c) => c.hash === hash);
+
+  if (isStale(selectedHash) || isStale(compareHash)) {
     gitGraphStore.clearSelection();
   }
 }

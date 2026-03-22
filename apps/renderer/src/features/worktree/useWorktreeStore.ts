@@ -71,10 +71,16 @@ export const useWorktreeStore = defineStore("worktree", () => {
         initialSelection.value = selection;
       }
       selectPath(selection.relPath);
-    } else if (dirChanged && selectedPath.value && selectedPath.value === prevSelectedPath) {
-      // 切り替え先に保存済み選択があり文字列が同一の場合、
-      // selectedPath の watch が発火しないため revealVersion で reveal を強制する
-      revealVersion.value++;
+    } else {
+      // selection なしで dir が変わる場合、前の worktree の initialSelection を破棄する
+      if (dirChanged) {
+        initialSelection.value = undefined;
+      }
+      if (dirChanged && selectedPath.value && selectedPath.value === prevSelectedPath) {
+        // 切り替え先に保存済み選択があり文字列が同一の場合、
+        // selectedPath の watch が発火しないため revealVersion で reveal を強制する
+        revealVersion.value++;
+      }
     }
   }
 

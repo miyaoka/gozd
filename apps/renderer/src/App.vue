@@ -11,14 +11,14 @@
 import { tryCatch } from "@gozd/shared";
 import { onMounted, onUnmounted } from "vue";
 import { useDiagnosticsStore } from "./features/diagnostics";
-import { useWorkspaceStore } from "./features/filer";
 import { MainLayout } from "./features/layout";
+import { useWorktreeStore } from "./features/worktree";
 import { useKeyBindings } from "./shared/command";
 import { useRpc } from "./shared/rpc";
 
 useKeyBindings();
 
-const workspaceStore = useWorkspaceStore();
+const worktreeStore = useWorktreeStore();
 const diagnosticsStore = useDiagnosticsStore();
 const { request, send, onGozdOpen } = useRpc();
 
@@ -32,7 +32,7 @@ onMounted(() => {
         const result = await tryCatch(request.switchDir({ dir: switchToDir }));
         if (result.ok) {
           diagnosticsStore.clear();
-          workspaceStore.setOpen(
+          worktreeStore.setOpen(
             result.value.dir,
             selection,
             result.value.fileServerBaseUrl,
@@ -43,7 +43,7 @@ onMounted(() => {
           console.error("Failed to switch worktree:", switchToDir, result.error);
         }
       } else {
-        workspaceStore.setOpen(dir, selection, fileServerBaseUrl, channel, repoName);
+        worktreeStore.setOpen(dir, selection, fileServerBaseUrl, channel, repoName);
       }
     },
   );

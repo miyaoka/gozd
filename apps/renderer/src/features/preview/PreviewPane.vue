@@ -24,8 +24,9 @@
 import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useRpc } from "../../shared/rpc";
-import { getFileIconName, getIconUrl, useWorkspaceStore } from "../filer";
-import type { GitChangeKind } from "../filer";
+import { getFileIconName, getIconUrl } from "../filer";
+import { useWorktreeStore } from "../worktree";
+import type { GitChangeKind } from "../worktree";
 import CodePreview from "./CodePreview.vue";
 import DiffPreview from "./DiffPreview.vue";
 import ImagePreview from "./ImagePreview.vue";
@@ -63,9 +64,9 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-const workspaceStore = useWorkspaceStore();
+const worktreeStore = useWorktreeStore();
 const { selectedPath, selectedLineNumber, selectedGitChange, fileServerBaseUrl, revealVersion } =
-  storeToRefs(workspaceStore);
+  storeToRefs(worktreeStore);
 const { request, onFsChange } = useRpc();
 
 const currentContent = ref<string>();

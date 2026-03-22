@@ -42,7 +42,7 @@ export function useTodoActions({ pendingTodos, fetchData }: UseTodoActionsOption
 
   /** アイコン変更時: 編集前の body とマージして保存 */
   function saveEditIcon() {
-    saveEdit(savedBody.value);
+    void saveEdit(savedBody.value);
   }
 
   /** 保存ボタン / Enter: 編集中の body で保存してパネルを閉じる */

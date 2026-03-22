@@ -1,5 +1,5 @@
 import type { IBuffer, IBufferLine, ILink, ILinkProvider, Terminal } from "@xterm/xterm";
-import { useWorkspaceStore } from "../filer";
+import { useWorktreeStore } from "../worktree";
 import { findRelativePaths } from "./findRelativePaths";
 
 /** パスの末尾区切り文字 */
@@ -15,11 +15,11 @@ const LINE_NUMBER_SUFFIX = /^:(\d+)/;
  * - Claude Code が明示的改行+インデントで折り返した長いパスも結合して検出
  */
 export function createFilePathLinkProvider(terminal: Terminal): ILinkProvider {
-  const workspaceStore = useWorkspaceStore();
+  const worktreeStore = useWorktreeStore();
 
   return {
     provideLinks(bufferLineNumber, callback) {
-      const dir = workspaceStore.dir;
+      const dir = worktreeStore.dir;
       if (!dir) {
         callback(undefined);
         return;
@@ -52,12 +52,12 @@ export function createFilePathLinkProvider(terminal: Terminal): ILinkProvider {
         homeDir,
         bufLine,
         bufferLineNumber,
-        workspaceStore,
+        worktreeStore,
         links,
       );
 
       // 相対パスの検出（現在行のテキストのみ）
-      findRelativePathLinks(text, bufLine, bufferLineNumber, workspaceStore, links);
+      findRelativePathLinks(text, bufLine, bufferLineNumber, worktreeStore, links);
 
       callback(links.length > 0 ? links : undefined);
     },
@@ -161,7 +161,7 @@ function findAbsolutePathLinks(
   homeDir: string,
   bufLine: IBufferLine,
   lineNumber: number,
-  workspaceStore: ReturnType<typeof useWorkspaceStore>,
+  worktreeStore: ReturnType<typeof useWorktreeStore>,
   links: ILink[],
 ): void {
   const currentLineEnd = currentLineOffset + currentLineLength;
@@ -213,7 +213,7 @@ function findAbsolutePathLinks(
           selectPath,
           (event) => {
             if (!event.shiftKey) return;
-            workspaceStore.selectPath(selectPath, lineNumber_);
+            worktreeStore.selectPath(selectPath, lineNumber_);
           },
           links,
         );
@@ -254,7 +254,7 @@ function findRelativePathLinks(
   text: string,
   bufLine: IBufferLine,
   lineNumber: number,
-  workspaceStore: ReturnType<typeof useWorkspaceStore>,
+  worktreeStore: ReturnType<typeof useWorktreeStore>,
   links: ILink[],
 ): void {
   for (const { path: relPath, startIdx, endIdx, lineNumber: lineNum } of findRelativePaths(text)) {
@@ -280,7 +280,7 @@ function findRelativePathLinks(
       text: relPath,
       activate: (event) => {
         if (!event.shiftKey) return;
-        workspaceStore.selectPath(relPath, lineNum);
+        worktreeStore.selectPath(relPath, lineNum);
       },
     });
   }

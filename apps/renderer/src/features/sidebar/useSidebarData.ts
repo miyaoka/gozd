@@ -1,8 +1,8 @@
 import type { Todo, WorktreeEntry } from "@gozd/rpc";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRpc } from "../../shared/rpc";
-import { useWorkspaceStore } from "../filer";
 import { useTerminalStore } from "../terminal";
+import { useWorktreeStore } from "../worktree";
 import { dirName } from "./utils";
 
 /**
@@ -11,7 +11,7 @@ import { dirName } from "./utils";
  * git status / worktree 変更イベントで自動リフレッシュする。
  */
 export function useSidebarData() {
-  const workspaceStore = useWorkspaceStore();
+  const worktreeStore = useWorktreeStore();
   const terminalStore = useTerminalStore();
   const { request, onGitStatusChange, onWorktreeChange } = useRpc();
 
@@ -36,7 +36,7 @@ export function useSidebarData() {
   const sortedBranches = computed(() => [...freeBranches.value].sort((a, b) => a.localeCompare(b)));
 
   async function fetchData() {
-    if (!workspaceStore.dir) return;
+    if (!worktreeStore.dir) return;
     const gen = ++fetchGen;
     const [wtList, branchList, todoList] = await Promise.all([
       request.gitWorktreeList(),
@@ -59,9 +59,9 @@ export function useSidebarData() {
   }
 
   watch(
-    () => workspaceStore.dir,
+    () => worktreeStore.dir,
     (dir) => {
-      fetchData();
+      void fetchData();
       // active dir に切り替わったら done バッジをクリア（既読消化）
       if (dir) {
         terminalStore.clearDoneStates(dir);

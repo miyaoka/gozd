@@ -1,20 +1,23 @@
 import type { OpenTargetSelection } from "@gozd/rpc";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
-import { normalizePath, resolveFileGitChange } from "./filerUtils";
+import { resolveFileGitChange } from "./gitStatusUtils";
+import { normalizePath } from "./pathUtils";
 import { useGitStatusStore } from "./useGitStatusStore";
 
-export const useWorkspaceStore = defineStore("workspace", () => {
+interface Selection {
+  path: string;
+  lineNumber?: number;
+}
+
+export const useWorktreeStore = defineStore("worktree", () => {
   const dir = ref<string>();
   const fileServerBaseUrl = ref<string>();
   const channel = ref<string>();
   const repoName = ref<string>();
 
-  /** ファイラーで選択中のパス（相対パス） */
-  const selectedPath = ref<string>();
-
-  /** リンクから指定された行番号（1-based）。スクロール・ハイライトに使用 */
-  const selectedLineNumber = ref<number>();
+  /** worktree ごとの選択状態（dir → Selection） */
+  const selectionByDir = ref<Record<string, Selection>>({});
 
   /** ツリー初期化後に適用する選択対象（setOpen で保持、consumeInitialSelection で消費） */
   const initialSelection = ref<OpenTargetSelection>();
@@ -23,6 +26,18 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   const revealVersion = ref(0);
 
   const gitStatusStore = useGitStatusStore();
+
+  /** 現在の worktree で選択中のパス（相対パス） */
+  const selectedPath = computed(() => {
+    if (!dir.value) return undefined;
+    return selectionByDir.value[dir.value]?.path;
+  });
+
+  /** リンクから指定された行番号（1-based）。スクロール・ハイライトに使用 */
+  const selectedLineNumber = computed(() => {
+    if (!dir.value) return undefined;
+    return selectionByDir.value[dir.value]?.lineNumber;
+  });
 
   /** git status から都度算出するため、status 更新時に自動反映される */
   const selectedGitChange = computed(() => {
@@ -71,14 +86,17 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   }
 
   function selectPath(path: string, lineNumber?: number) {
-    selectedPath.value = normalizePath(path);
-    selectedLineNumber.value = lineNumber;
+    if (!dir.value) return;
+    selectionByDir.value[dir.value] = {
+      path: normalizePath(path),
+      lineNumber,
+    };
     revealVersion.value++;
   }
 
   function clearSelectedPath() {
-    selectedPath.value = undefined;
-    selectedLineNumber.value = undefined;
+    if (!dir.value) return;
+    delete selectionByDir.value[dir.value];
   }
 
   return {
@@ -98,5 +116,5 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 });
 
 if (import.meta.hot) {
-  import.meta.hot.accept(acceptHMRUpdate(useWorkspaceStore, import.meta.hot));
+  import.meta.hot.accept(acceptHMRUpdate(useWorktreeStore, import.meta.hot));
 }

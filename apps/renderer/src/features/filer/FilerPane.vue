@@ -13,14 +13,13 @@
 import { storeToRefs } from "pinia";
 import { nextTick, onUnmounted, ref, watch } from "vue";
 import { useRpc } from "../../shared/rpc";
-import { dirName, getDeletedEntries, resolveGitChangeKind, sortEntries } from "./filerUtils";
+import { resolveGitChangeKind, useGitStatusStore, useWorktreeStore } from "../worktree";
+import { dirName, getDeletedEntries, sortEntries } from "./filerUtils";
 import type { FileEntry } from "./filerUtils";
 import FileTreeItem from "./FileTreeItem.vue";
-import { useGitStatusStore } from "./useGitStatusStore";
-import { useWorkspaceStore } from "./useWorkspaceStore";
 
-const workspaceStore = useWorkspaceStore();
-const { dir, selectedPath } = storeToRefs(workspaceStore);
+const worktreeStore = useWorktreeStore();
+const { dir, selectedPath } = storeToRefs(worktreeStore);
 const gitStatusStore = useGitStatusStore();
 const { gitStatuses } = storeToRefs(gitStatusStore);
 const { request, onFsChange, onGitStatusChange } = useRpc();
@@ -70,7 +69,7 @@ async function loadRoot() {
   // rootEntries 読み込み完了後に保留中の処理を実行
   // v-for の FileTreeItem がマウントされるのを nextTick で待つ
   await nextTick();
-  const consumed = workspaceStore.consumeInitialSelection();
+  const consumed = worktreeStore.consumeInitialSelection();
   if (consumed?.kind === "directory") {
     void reveal(consumed.relPath);
   }
@@ -82,7 +81,7 @@ async function loadRoot() {
 }
 
 function onSelect(path: string) {
-  workspaceStore.selectPath(path);
+  worktreeStore.selectPath(path);
 }
 
 /**
@@ -147,7 +146,6 @@ watch(
   (newDir) => {
     if (newDir) {
       rootEntries.value = undefined;
-      workspaceStore.clearSelectedPath();
       void loadRoot();
     }
   },

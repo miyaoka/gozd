@@ -16,7 +16,7 @@ MainLayout はこのコンポーネントを配置するだけでよい。
 import { useElementSize, useEventListener } from "@vueuse/core";
 import { computed, onUnmounted, useTemplateRef, watch } from "vue";
 import { useContextKeys } from "../../shared/command";
-import { useWorkspaceStore } from "../filer";
+import { useWorktreeStore } from "../worktree";
 import { registerTerminalCommands } from "./registerTerminalCommands";
 import SplitResizeHandle from "./SplitResizeHandle.vue";
 import {
@@ -37,13 +37,13 @@ interface Props {
 
 const { minWidth } = defineProps<Props>();
 
-const workspaceStore = useWorkspaceStore();
+const worktreeStore = useWorktreeStore();
 const terminalStore = useTerminalStore();
 const contextKeys = useContextKeys();
 const containerRef = useTemplateRef<HTMLElement>("container");
 const { width: containerW, height: containerH } = useElementSize(containerRef);
 
-const currentDir = computed(() => workspaceStore.dir);
+const currentDir = computed(() => worktreeStore.dir);
 const disposeTerminalCommands = registerTerminalCommands(currentDir, containerRef);
 onUnmounted(disposeTerminalCommands);
 
@@ -64,7 +64,7 @@ useEventListener(document, "visibilitychange", () => {
 // worktree を初めて訪問したときに visitedDirs に登録
 // worktree 切り替え時に terminalFocus をリセット
 watch(
-  () => workspaceStore.dir,
+  () => worktreeStore.dir,
   (dir) => {
     contextKeys.set("terminalFocus", false);
     if (dir) terminalStore.visit(dir);
@@ -94,7 +94,7 @@ function hashToColor(hash: number, hueOffset = 0): string {
 const HUE_OFFSET = 30;
 
 const paneBackground = computed(() => {
-  const name = workspaceStore.repoName ?? "gozd";
+  const name = worktreeStore.repoName ?? "gozd";
   const hash = hashString(name);
   const color1 = hashToColor(hash);
   const color2 = hashToColor(hash, HUE_OFFSET);
@@ -109,7 +109,7 @@ const paneBackground = computed(() => {
 
 /** アクティブ worktree の全 leafId */
 const activeLeafIds = computed(() => {
-  const dir = workspaceStore.dir;
+  const dir = worktreeStore.dir;
   if (!dir) return [];
   const layout = terminalStore.layoutsByDir[dir];
   if (layout === undefined) return [];
@@ -157,7 +157,7 @@ const gridStyle = computed<Record<string, string>>(() => {
   }
 
   // 単一 worktree: 分割ツリーから grid-template を生成
-  const dir = workspaceStore.dir;
+  const dir = worktreeStore.dir;
   if (!dir) return EMPTY_GRID;
   const layout = terminalStore.layoutsByDir[dir];
   if (layout === undefined) return EMPTY_GRID;
@@ -175,7 +175,7 @@ const isTileMode = computed(() => terminalStore.viewMode !== "wt");
 /** 分割ツリーのハンドル（タイルモード時は空） */
 const handles = computed<HandlePosition[]>(() => {
   if (isTileMode.value) return [];
-  const dir = workspaceStore.dir;
+  const dir = worktreeStore.dir;
   if (!dir) return [];
   const layout = terminalStore.layoutsByDir[dir];
   if (layout === undefined) return [];
@@ -220,7 +220,7 @@ function handleRectStyle(rect: PixelRect): Record<string, string> {
     <SplitResizeHandle
       v-for="handle in handles"
       :key="handle.branchId"
-      :dir="workspaceStore.dir ?? ''"
+      :dir="worktreeStore.dir ?? ''"
       :branch-id="handle.branchId"
       :axis="handle.axis"
       :ratio="handle.ratio"

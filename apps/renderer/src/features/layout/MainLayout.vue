@@ -20,13 +20,14 @@ import { useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRpc } from "../../shared/rpc";
 import { DebugPane } from "../debug";
 import { DiagnosticsPane } from "../diagnostics";
-import { FilerPane, useWorkspaceStore } from "../filer";
+import { FilerPane } from "../filer";
 import { PreviewPane } from "../preview";
 import { SidebarPane } from "../sidebar";
 import { TerminalPane } from "../terminal";
+import { useWorktreeStore } from "../worktree";
 import ResizeHandle from "./ResizeHandle.vue";
 
-const workspaceStore = useWorkspaceStore();
+const worktreeStore = useWorktreeStore();
 const contextKeys = useContextKeys();
 const explorerPopoverRef = useTemplateRef<HTMLElement>("explorerPopover");
 const filerPaneRef = useTemplateRef<InstanceType<typeof FilerPane>>("filerPane");
@@ -142,7 +143,7 @@ function onExplorerToggle(e: ToggleEvent) {
 
 // ファイル選択時に Explorer を自動オープンし、ツリーを対象パスまで展開する
 watch(
-  () => workspaceStore.selectedPath,
+  () => worktreeStore.selectedPath,
   async (path) => {
     if (!path) return;
     openExplorer();
@@ -153,9 +154,9 @@ watch(
 
 // gozdOpen で同一パスが指定された場合にも explorer を開いてツリーを展開する
 watch(
-  () => workspaceStore.revealVersion,
+  () => worktreeStore.revealVersion,
   async () => {
-    const path = workspaceStore.selectedPath;
+    const path = worktreeStore.selectedPath;
     if (!path) return;
     openExplorer();
     await nextTick();

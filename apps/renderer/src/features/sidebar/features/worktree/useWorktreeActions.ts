@@ -4,8 +4,8 @@ import type { Ref } from "vue";
 import { ref } from "vue";
 import { useRpc } from "../../../../shared/rpc";
 import { useDiagnosticsStore } from "../../../diagnostics";
-import { useWorkspaceStore } from "../../../filer";
 import { useTerminalStore } from "../../../terminal";
+import { useWorktreeStore } from "../../../worktree";
 import { generateTimestamp, worktreeDisplayName } from "../../utils";
 
 interface UseWorktreeActionsOptions {
@@ -27,7 +27,7 @@ export function useWorktreeActions({
   showConfirm,
   showAlert,
 }: UseWorktreeActionsOptions) {
-  const workspaceStore = useWorkspaceStore();
+  const worktreeStore = useWorktreeStore();
   const diagnosticsStore = useDiagnosticsStore();
   const terminalStore = useTerminalStore();
   const { request } = useRpc();
@@ -82,7 +82,7 @@ export function useWorktreeActions({
 
   /** 現在表示中の worktree かどうか */
   function isActive(wt: WorktreeEntry): boolean {
-    return workspaceStore.dir === wt.path;
+    return worktreeStore.dir === wt.path;
   }
 
   /** worktree をクリックして表示対象を切り替える */
@@ -97,7 +97,7 @@ export function useWorktreeActions({
     const result = await tryCatch(request.switchDir({ dir: wt.path }));
     if (result.ok) {
       diagnosticsStore.clear();
-      workspaceStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
+      worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
     }
     isSwitching.value = false;
   }
@@ -168,7 +168,7 @@ export function useWorktreeActions({
 
   /** ブランチを worktree 化する */
   function handleBranchLink(branch: string) {
-    createWorktree(branch);
+    void createWorktree(branch);
   }
 
   return {

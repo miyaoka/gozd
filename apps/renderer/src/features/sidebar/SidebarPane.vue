@@ -36,8 +36,8 @@ worktree 行ごとの Claude 状態表示は `WorktreeItem.vue` に委譲。
 import { useIntervalFn } from "@vueuse/core";
 import { onUnmounted, ref } from "vue";
 import { useCommandRegistry } from "../../shared/command";
-import { useWorkspaceStore } from "../filer";
 import { useTerminalStore } from "../terminal";
+import { useWorktreeStore } from "../worktree";
 import { TodoEditor, TodoList, useTodoActions } from "./features/todo";
 import { BranchList, RootWorktree, WorktreeList, useWorktreeActions } from "./features/worktree";
 import SidebarMenu from "./SidebarMenu.vue";
@@ -47,7 +47,7 @@ import { useSidebarData } from "./useSidebarData";
 import { generateTimestamp } from "./utils";
 import VoicevoxPanel from "./VoicevoxPanel.vue";
 
-const workspaceStore = useWorkspaceStore();
+const worktreeStore = useWorktreeStore();
 const terminalStore = useTerminalStore();
 
 const {
@@ -138,13 +138,13 @@ function handleMenuTodoCreateWorktree(todo: import("@gozd/rpc").Todo) {
 <template>
   <div class="flex size-full flex-col">
     <div class="flex-1 overflow-y-auto p-4">
-      <h1 class="mb-4 flex items-center text-lg font-bold" :title="workspaceStore.repoName">
+      <h1 class="mb-4 flex items-center text-lg font-bold" :title="worktreeStore.repoName">
         <span class="mr-2 icon-[lucide--bot] shrink-0 align-middle text-blue-400" />
         <input
           aria-label="Project name"
           class="min-w-0 flex-1 truncate bg-transparent outline-none"
-          :value="workspaceStore.repoName ?? 'gozd'"
-          @input="workspaceStore.repoName = ($event.target as HTMLInputElement).value"
+          :value="worktreeStore.repoName ?? 'gozd'"
+          @input="worktreeStore.repoName = ($event.target as HTMLInputElement).value"
         />
       </h1>
 
@@ -159,7 +159,7 @@ function handleMenuTodoCreateWorktree(todo: import("@gozd/rpc").Todo) {
       <WorktreeList
         :worktrees="nonMainWorktrees"
         :loading="worktrees.length === 0"
-        :active-dir="workspaceStore.dir"
+        :active-dir="worktreeStore.dir"
         :is-creating="isCreating"
         :is-adding-worktree="isAddingWorktree"
         :ctrl-pressed="ctrlPressed"

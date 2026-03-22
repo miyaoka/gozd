@@ -1,19 +1,26 @@
 import fsp from "node:fs/promises";
 import path from "node:path";
+import { homedir } from "node:os";
 import { tryCatch } from "@gozd/shared";
 import type { WorktreeEntry } from "@gozd/rpc";
-import { resolveCreatableFsPath, resolveExistingFsPath } from "../security";
+import { projectKey } from "../projectKey";
+import { resolveCreatableFsPath } from "../security";
 import { getGitStatus, countChanges } from "./status";
 import { assertBranchName } from "./branch";
 
-export const WORKTREE_DIR = ".gozd/worktrees";
+const WORKTREE_BASE = path.join(homedir(), ".local", "share", "gozd", "worktrees");
+
+/** プロジェクトディレクトリに対応する worktree ルートを返す */
+export function getWorktreeRoot(projectDir: string): string {
+  return path.join(WORKTREE_BASE, projectKey(projectDir));
+}
 
 export async function addWorktree(
   cwd: string,
   worktreeDir: string,
   branch: string,
 ): Promise<WorktreeEntry> {
-  const worktreeRoot = path.join(cwd, WORKTREE_DIR);
+  const worktreeRoot = getWorktreeRoot(cwd);
   await fsp.mkdir(worktreeRoot, { recursive: true });
   const wtPath = await resolveCreatableFsPath(worktreeRoot, worktreeDir);
 
@@ -46,9 +53,6 @@ export async function addWorktree(
 }
 
 export async function removeWorktree(cwd: string, wtPath: string, force?: boolean): Promise<void> {
-  const worktreeRoot = path.join(cwd, WORKTREE_DIR);
-  await resolveExistingFsPath(worktreeRoot, path.relative(worktreeRoot, wtPath));
-
   const args = ["git", "worktree", "remove"];
   if (force) args.push("--force");
   args.push(wtPath);
@@ -76,6 +80,7 @@ export async function getWorktreeList(cwd: string): Promise<WorktreeEntry[]> {
     let wtPath = "";
     let head = "";
     let branch: string | undefined;
+    let prunable = false;
 
     for (const line of lines) {
       if (line.startsWith("worktree ")) {
@@ -85,10 +90,12 @@ export async function getWorktreeList(cwd: string): Promise<WorktreeEntry[]> {
       } else if (line.startsWith("branch ")) {
         // refs/heads/main → main
         branch = line.slice("branch ".length).replace("refs/heads/", "");
+      } else if (line.startsWith("prunable ")) {
+        prunable = true;
       }
     }
 
-    if (wtPath) {
+    if (wtPath && !prunable) {
       entries.push({ path: wtPath, head, branch, isMain: isFirst });
     }
     isFirst = false;

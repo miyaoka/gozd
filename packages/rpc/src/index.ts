@@ -116,6 +116,24 @@ export interface FileDiagnostics {
   diagnostics: LspDiagnostic[];
 }
 
+/** git log のコミット情報 */
+export interface GitCommit {
+  /** 完全なコミットハッシュ */
+  hash: string;
+  /** 短縮ハッシュ（7文字） */
+  shortHash: string;
+  /** 親コミットのハッシュ（マージコミットは複数） */
+  parents: string[];
+  /** 著者名 */
+  author: string;
+  /** コミット日時（Unix timestamp） */
+  date: number;
+  /** コミットメッセージ（1行目） */
+  message: string;
+  /** 参照名（ブランチ名、タグ、HEAD 等） */
+  refs: string[];
+}
+
 export type GozdRPC = {
   bun: RPCSchema<{
     requests: {
@@ -149,6 +167,11 @@ export type GozdRPC = {
       gitStatus: {
         params: undefined;
         response: Record<string, string>;
+      };
+      /** git log でコミット履歴を取得（現在ブランチ + main） */
+      gitLog: {
+        params: { maxCount?: number };
+        response: GitCommit[];
       };
       /** git worktree list で worktree 一覧を取得 */
       gitWorktreeList: {

@@ -68,9 +68,11 @@ gozd/
 │   └── renderer/          # Vue フロントエンド
 │       └── src/
 │           ├── features/  # feature ごとに component, composable, store をまとめる
+│           │   ├── changes/      # 変更ファイル一覧（git status / コミット選択時の変更）
 │           │   ├── debug/       # デバッグ情報表示
 │           │   ├── diagnostics/ # LSP 型診断パネル（tsgo + Vue）
 │           │   ├── filer/       # ファイルツリー表示（material-icon-theme アイコン、git status 色分け）
+│           │   ├── git-graph/   # コミットグラフ（SVG 描画、ブランチ分岐・マージの可視化）
 │           │   ├── layout/      # レイアウト
 │           │   ├── preview/     # ファイルプレビュー（コード、diff、画像、SVG、Markdown）
 │           │   ├── sidebar/     # サイドバー（worktree 一覧、Todo、ブランチ）
@@ -120,6 +122,7 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 - feature / shared の外部からは `index.ts` のみ参照可能。内部モジュールを直接 import しない
 - 同一 feature / shared 内のファイル間は自由に参照できる
 - feature は再帰的にネスト可能。子 feature は `features/` サブディレクトリに配置する（例: `sidebar/features/worktree/`、`sidebar/features/todo/`）
+- feature / shared のディレクトリ名は lowercase、複合語は kebab-case（`git-graph`）
 - `.ts` ファイル名は camelCase（`filerUtils.ts`）。Vue SFC は PascalCase（`FilerPane.vue`）
 
 ## 開発コマンド

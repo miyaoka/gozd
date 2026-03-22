@@ -35,6 +35,7 @@ flowchart LR
 | `gitShowFile`            | `{ relPath }`                 | `FileReadResult`             | HEAD 時点のファイル内容                            |
 | `gitDiffFile`            | `{ relPath }`                 | `string`                     | unified diff                                       |
 | `gitStatus`              | —                             | `Record<string, string>`     | git status 全体                                    |
+| `gitLog`                 | `{ maxCount? }`               | `GitCommit[]`                | コミット履歴（現在ブランチ + main）                |
 | `gitWorktreeList`        | —                             | `WorktreeEntry[]`            | worktree 一覧を取得                                |
 | `gitBranchList`          | —                             | `string[]`                   | ローカルブランチ一覧を取得                         |
 | `createWorktree`         | `{ worktreeDir, branch }`     | `WorktreeEntry`              | worktree を作成                                    |
@@ -99,6 +100,16 @@ interface WorktreeEntry {
   branch?: string;
   isMain: boolean;
   changeCounts?: WorktreeChangeCounts;
+}
+
+interface GitCommit {
+  hash: string;
+  shortHash: string;
+  parents: string[];
+  author: string;
+  date: number; // Unix timestamp
+  message: string;
+  refs: string[]; // ブランチ名、タグ、HEAD 等
 }
 
 interface LspDiagnostic {

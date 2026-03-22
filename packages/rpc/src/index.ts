@@ -110,7 +110,7 @@ export const UNCOMMITTED_HASH = "0000000000000000000000000000000000000000";
 export interface GitFileChange {
   oldFilePath: string;
   newFilePath: string;
-  type: "A" | "M" | "D" | "R";
+  type: "A" | "M" | "D" | "R" | "U";
 }
 
 /** git log のコミット情報 */

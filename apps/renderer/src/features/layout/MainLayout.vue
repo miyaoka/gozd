@@ -3,9 +3,9 @@
 
 ## 構成
 
-- 水平方向: SidebarPane → Terminal → ChangesPane → Explorer 開閉ボタン（各ペイン間にリサイズハンドル）
+- 水平方向: SidebarPane → Terminal → Preview 開閉ボタン → NavigatorPane（各ペイン間にリサイズハンドル）
 - 垂直方向: メインエリア → GitGraphPane（リサイズハンドル）
-- Explorer（FilerPane + PreviewPane）は Popover API でトップレイヤーに配置し、レイアウトフローから分離
+- Preview は Popover API でトップレイヤーに配置し、レイアウトフローから分離。Navigator の左側に表示
 
 ## リサイズ
 
@@ -18,9 +18,8 @@ import { useWindowSize } from "@vueuse/core";
 import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch, watchEffect } from "vue";
 import { useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRpc } from "../../shared/rpc";
-import { ChangesPane } from "../changes";
-import { FilerPane } from "../filer";
 import { GitGraphPane } from "../git-graph";
+import { NavigatorPane } from "../navigator";
 import { PreviewPane } from "../preview";
 import { SidebarPane } from "../sidebar";
 import { TerminalPane } from "../terminal";
@@ -29,17 +28,17 @@ import ResizeHandle from "./ResizeHandle.vue";
 
 const worktreeStore = useWorktreeStore();
 const contextKeys = useContextKeys();
-const explorerPopoverRef = useTemplateRef<HTMLElement>("explorerPopover");
-const filerPaneRef = useTemplateRef<InstanceType<typeof FilerPane>>("filerPane");
+const previewPopoverRef = useTemplateRef<HTMLElement>("previewPopover");
+const navigatorPaneRef = useTemplateRef<InstanceType<typeof NavigatorPane>>("navigatorPane");
 
 // レイアウト・ウィンドウスコープのコマンド登録
 const { register } = useCommandRegistry();
 const { send } = useRpc();
-const disposeExplorerToggle = register("explorer.toggle", () => {
-  if (explorerOpen.value) {
-    closeExplorer();
+const disposePreviewToggle = register("preview.toggle", () => {
+  if (previewOpen.value) {
+    closePreview();
   } else {
-    openExplorer();
+    openPreview();
   }
   return true;
 });
@@ -47,127 +46,117 @@ const disposeWindowClose = register("window.close", () => {
   send.windowClose();
   return true;
 });
-onUnmounted(disposeExplorerToggle);
+onUnmounted(disposePreviewToggle);
 onUnmounted(disposeWindowClose);
 
 /** ハンドル幅 w-2 = 8px */
 const HANDLE_WIDTH = 8;
 
 const SIDEBAR_MIN_WIDTH = 120;
-const FILER_MIN_WIDTH = 160;
 const PREVIEW_MIN_WIDTH = 200;
 const TERMINAL_MIN_WIDTH = 200;
-/** Explorer popover の最小幅（H(left edge) + Filer + H(filer|preview) + Preview） */
-const EXPLORER_MIN_WIDTH = HANDLE_WIDTH + FILER_MIN_WIDTH + HANDLE_WIDTH + PREVIEW_MIN_WIDTH;
-const CHANGES_MIN_WIDTH = 180;
+const NAVIGATOR_MIN_WIDTH = 180;
 const GIT_GRAPH_MIN_HEIGHT = 40;
 const MAIN_MIN_HEIGHT = 200;
 
 const { width: windowWidth, height: windowHeight } = useWindowSize();
 
 const sidebarWidth = ref(224);
-const changesWidth = ref(240);
-const filerWidth = ref(256);
-/**
- * Explorer popover 全体の幅（H(left edge) + Filer + H(filer|preview) + Preview）。
- * 左端ハンドルのドラッグで set が呼ばれる。
- * Preview が最小幅に達したら Filer を縮めて Explorer 全体の縮小を継続する。
- */
-const _explorerWidth = ref(672);
-const explorerWidth = computed({
-  get: () => _explorerWidth.value,
-  set: (newWidth: number) => {
-    _explorerWidth.value = newWidth;
-    const preview = newWidth - HANDLE_WIDTH - filerWidth.value - HANDLE_WIDTH;
-    if (preview < PREVIEW_MIN_WIDTH) {
-      filerWidth.value = Math.max(
-        FILER_MIN_WIDTH,
-        newWidth - HANDLE_WIDTH - PREVIEW_MIN_WIDTH - HANDLE_WIDTH,
-      );
-    }
-  },
-});
-const explorerOpen = ref(false);
+const navigatorWidth = ref(256);
+const previewWidth = ref(480);
+const previewOpen = ref(false);
 const mainHeight = ref(600);
 const gitGraphHeight = ref(128);
 
-/** Explorer 開閉ボタンの固定幅（px-1 × 2 + size-4 + border-l） */
-const EXPLORER_TOGGLE_WIDTH = 25;
+/** Preview 開閉ボタンの固定幅（px-1 × 2 + size-4 + border-l） */
+const PREVIEW_TOGGLE_WIDTH = 25;
 
-/** Preview に実際に割り当たる幅（Explorer 幅から Filer・ハンドルを引いた残り） */
-const previewWidth = computed(
-  () => explorerWidth.value - HANDLE_WIDTH - filerWidth.value - HANDLE_WIDTH,
-);
-
-/** Terminal 幅: ウィンドウ幅から Sidebar + H + SourceControl + H + 開閉ボタンを引いた残余 */
+/** Terminal 幅: ウィンドウ幅から Sidebar + H + Navigator + H + 開閉ボタンを引いた残余 */
 const terminalWidth = computed(() =>
   Math.max(
     TERMINAL_MIN_WIDTH,
     windowWidth.value -
       sidebarWidth.value -
       HANDLE_WIDTH -
-      changesWidth.value -
+      navigatorWidth.value -
       HANDLE_WIDTH -
-      EXPLORER_TOGGLE_WIDTH,
+      PREVIEW_TOGGLE_WIDTH,
   ),
 );
 
 /** ドラッグ開始時の Terminal 幅（レイアウト計算値） */
 const getTerminalWidth = () => terminalWidth.value;
 
-/** ドラッグ開始時に popover 左側の空きスペースを返す（Explorer 最大幅の制約に使用） */
-const getExplorerBeforeSize = () => windowWidth.value - explorerWidth.value;
+/** Preview popover に許容される最大幅（Sidebar + H + Terminal 最小幅 + H を残す） */
+const maxPreviewWidth = computed(
+  () =>
+    windowWidth.value -
+    sidebarWidth.value -
+    HANDLE_WIDTH -
+    TERMINAL_MIN_WIDTH -
+    HANDLE_WIDTH -
+    navigatorWidth.value -
+    PREVIEW_TOGGLE_WIDTH,
+);
 
-/** ドラッグ開始時に Explorer popover の DOM 実測幅を取得する */
-const getExplorerAfterSize = () =>
-  explorerPopoverRef.value?.getBoundingClientRect().width ?? explorerWidth.value;
-
-/** ドラッグ開始時に Preview の実効幅を取得する */
-const getPreviewSize = () => previewWidth.value;
-
-// explorerVisible context key を実際の表示状態と同期
+// ウィンドウ縮小時に Preview 幅をクランプ
 watchEffect(() => {
-  contextKeys.set("explorerVisible", explorerOpen.value);
+  if (previewWidth.value > maxPreviewWidth.value) {
+    previewWidth.value = Math.max(PREVIEW_MIN_WIDTH, maxPreviewWidth.value);
+  }
+});
+
+/** ドラッグ開始時に popover 左側の空きスペースを返す（Navigator + 開閉ボタン分を除く） */
+const getPreviewBeforeSize = () =>
+  windowWidth.value - navigatorWidth.value - PREVIEW_TOGGLE_WIDTH - previewWidth.value;
+
+/** ドラッグ開始時に Preview popover の DOM 実測幅を取得する */
+const getPreviewAfterSize = () =>
+  previewPopoverRef.value?.getBoundingClientRect().width ?? previewWidth.value;
+
+// previewVisible context key を実際の表示状態と同期
+watchEffect(() => {
+  contextKeys.set("previewVisible", previewOpen.value);
 });
 
 /** :popover-open でガードして二重呼び出し例外を防止 */
-function openExplorer() {
-  const el = explorerPopoverRef.value;
+function openPreview() {
+  const el = previewPopoverRef.value;
   if (!el || el.matches(":popover-open")) return;
   el.showPopover();
 }
 
-function closeExplorer() {
-  const el = explorerPopoverRef.value;
+function closePreview() {
+  const el = previewPopoverRef.value;
   if (!el || !el.matches(":popover-open")) return;
   el.hidePopover();
 }
 
-/** popover の toggle イベントで explorerOpen ref と同期 */
-function onExplorerToggle(e: ToggleEvent) {
-  explorerOpen.value = e.newState === "open";
+/** popover の toggle イベントで previewOpen ref と同期 */
+function onPreviewToggle(e: ToggleEvent) {
+  previewOpen.value = e.newState === "open";
 }
 
-// ファイル選択時に Explorer を自動オープンし、ツリーを対象パスまで展開する
+// ファイル選択時に Preview を自動オープンし、ツリーを対象パスまで展開する
 watch(
   () => worktreeStore.selectedPath,
   async (path) => {
     if (!path) return;
-    openExplorer();
+    openPreview();
     await nextTick();
-    void filerPaneRef.value?.reveal(path);
+    void navigatorPaneRef.value?.reveal(path);
   },
 );
 
-// gozdOpen で同一パスが指定された場合にも explorer を開いてツリーを展開する
+// gozdOpen で同一パスが指定された場合にも Preview を開いてツリーを展開する
 watch(
   () => worktreeStore.revealVersion,
   async () => {
     const path = worktreeStore.selectedPath;
     if (!path) return;
-    openExplorer();
+    openPreview();
     await nextTick();
-    void filerPaneRef.value?.reveal(path);
+    void navigatorPaneRef.value?.reveal(path);
   },
 );
 
@@ -194,27 +183,27 @@ watchEffect(() => {
       <TerminalPane :min-width="TERMINAL_MIN_WIDTH" />
 
       <ResizeHandle
-        v-model:after-size="changesWidth"
+        v-model:after-size="navigatorWidth"
         direction="horizontal"
         :before-min-size="TERMINAL_MIN_WIDTH"
-        :after-min-size="CHANGES_MIN_WIDTH"
+        :after-min-size="NAVIGATOR_MIN_WIDTH"
         :get-before-size="getTerminalWidth"
       />
 
-      <div class="shrink-0 overflow-hidden" :style="{ width: `${changesWidth}px` }">
-        <ChangesPane />
-      </div>
-
-      <!-- Explorer 開閉ボタン（開く専用。閉じるのは light dismiss または popover 内の close） -->
+      <!-- Preview 開閉ボタン（Preview popover のアンカー） -->
       <button
         type="button"
-        class="flex shrink-0 items-center justify-center border-l border-zinc-700 px-1 text-zinc-500 hover:text-zinc-300"
-        title="Open explorer"
-        aria-label="Open explorer"
-        @click="openExplorer"
+        class="_preview-anchor flex shrink-0 items-center justify-center border-l border-zinc-700 px-1 text-zinc-500 hover:text-zinc-300"
+        title="Toggle preview"
+        aria-label="Toggle preview"
+        @click="previewOpen ? closePreview() : openPreview()"
       >
         <span class="icon-[lucide--panel-right-open] size-4" />
       </button>
+
+      <div class="shrink-0 overflow-hidden" :style="{ width: `${navigatorWidth}px` }">
+        <NavigatorPane ref="navigatorPane" />
+      </div>
     </div>
 
     <ResizeHandle
@@ -228,45 +217,49 @@ watchEffect(() => {
       <GitGraphPane />
     </div>
 
-    <!-- Explorer popover: トップレイヤーに配置し、レイアウトフローから分離 -->
+    <!-- Preview popover: 開閉ボタンをアンカーにして左側に展開 -->
     <div
-      ref="explorerPopover"
+      ref="previewPopover"
       popover="auto"
-      class="_explorer-popover m-0 my-0 mr-0 ml-auto h-dvh max-h-none overflow-hidden border-0 border-l border-zinc-700 bg-zinc-900 p-0 [&:popover-open]:flex"
-      :style="{ width: `${explorerWidth}px`, maxWidth: '100vw' }"
-      @toggle="onExplorerToggle"
+      class="_preview-popover overflow-hidden border-0 border-l border-zinc-700 bg-zinc-900 p-0 [&:popover-open]:flex"
+      :style="{ width: `${previewWidth}px` }"
+      @toggle="onPreviewToggle"
     >
-      <!-- 左端リサイズハンドル（Explorer 全体の幅をドラッグで変更） -->
+      <!-- 左端リサイズハンドル -->
       <ResizeHandle
-        v-model:after-size="explorerWidth"
+        v-model:after-size="previewWidth"
         direction="horizontal"
-        :before-min-size="SIDEBAR_MIN_WIDTH + HANDLE_WIDTH + TERMINAL_MIN_WIDTH"
-        :after-min-size="EXPLORER_MIN_WIDTH"
-        :get-before-size="getExplorerBeforeSize"
-        :get-after-size="getExplorerAfterSize"
-      />
-
-      <div class="shrink-0 overflow-hidden" :style="{ width: `${filerWidth}px` }">
-        <FilerPane ref="filerPane" />
-      </div>
-
-      <ResizeHandle
-        v-model:before-size="filerWidth"
-        direction="horizontal"
-        :before-min-size="FILER_MIN_WIDTH"
+        :before-min-size="SIDEBAR_MIN_WIDTH + HANDLE_WIDTH + TERMINAL_MIN_WIDTH + HANDLE_WIDTH"
         :after-min-size="PREVIEW_MIN_WIDTH"
-        :get-after-size="getPreviewSize"
+        :get-before-size="getPreviewBeforeSize"
+        :get-after-size="getPreviewAfterSize"
       />
 
       <div class="min-w-0 flex-1 overflow-hidden">
-        <PreviewPane @close="closeExplorer" />
+        <PreviewPane @close="closePreview" />
       </div>
     </div>
   </div>
 </template>
 
 <style>
-._explorer-popover::backdrop {
+._preview-anchor {
+  anchor-name: --preview-anchor;
+}
+
+._preview-popover {
+  /* アンカーの左端に右端を揃え、上下は viewport いっぱい */
+  position-anchor: --preview-anchor;
+  inset: unset;
+  margin: 0;
+  top: 0;
+  bottom: 0;
+  right: anchor(left);
+  height: 100dvh;
+  max-height: none;
+}
+
+._preview-popover::backdrop {
   background-color: rgb(0 0 0 / 0.3);
 }
 </style>

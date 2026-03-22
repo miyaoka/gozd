@@ -31,6 +31,7 @@ import { generateClaudeSettings } from "./claudeHooks";
 import { getShellEnv } from "./shellEnv";
 import { loadAppState, saveSnapshot, getDefaultFrame } from "./appState";
 import { loadConfig, saveConfig } from "./config";
+import { loadProjectConfig, saveProjectConfig } from "./projectConfig";
 import type { WindowFrame, WindowState } from "./appState";
 import {
   loadTodos,
@@ -653,7 +654,13 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
         },
         gitBranchList: () => getBranchList(projectDir),
         createWorktree: async ({ worktreeDir, branch }) => {
-          const entry = await addWorktree(projectDir, worktreeDir, branch);
+          const { worktreeSymlinks } = loadProjectConfig(projectDir);
+          const entry = await addWorktree({
+            cwd: projectDir,
+            worktreeDir,
+            branch,
+            symlinks: worktreeSymlinks,
+          });
           void syncWorktreeWatchers(win, projectDir, currentDir);
           return entry;
         },
@@ -678,7 +685,13 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
         todoUpdate: ({ id, body, icon }) => updateTodo(projectDir, id, body, icon),
         todoRemove: ({ id }) => removeTodo(projectDir, id),
         createWorktreeWithTodo: async ({ id, worktreeDir, branch }) => {
-          const entry = await addWorktree(projectDir, worktreeDir, branch);
+          const { worktreeSymlinks } = loadProjectConfig(projectDir);
+          const entry = await addWorktree({
+            cwd: projectDir,
+            worktreeDir,
+            branch,
+            symlinks: worktreeSymlinks,
+          });
           linkTodoToWorktree(projectDir, id, entry.path);
           const todo = loadTodos(projectDir).find((t) => t.id === id);
           if (!todo) throw new Error(`Todo not found after linking: ${id}`);
@@ -688,6 +701,8 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
         },
         configLoad: () => loadConfig(),
         configSave: (config) => saveConfig(config),
+        projectConfigLoad: () => loadProjectConfig(projectDir),
+        projectConfigSave: (config) => saveProjectConfig(projectDir, config),
         voicevoxLaunch: async () => {
           // mdfind で VOICEVOX.app を検索（/Applications, ~/Applications, カスタム場所に対応）
           const mdfind = Bun.spawn(

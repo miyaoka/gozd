@@ -15,11 +15,18 @@ export function getWorktreeRoot(projectDir: string): string {
   return path.join(WORKTREE_BASE, projectKey(projectDir));
 }
 
-export async function addWorktree(
-  cwd: string,
-  worktreeDir: string,
-  branch: string,
-): Promise<WorktreeEntry> {
+export async function addWorktree({
+  cwd,
+  worktreeDir,
+  branch,
+  symlinks,
+}: {
+  cwd: string;
+  worktreeDir: string;
+  branch: string;
+  /** メインリポジトリからシンボリックリンクする対象パス */
+  symlinks?: string[];
+}): Promise<WorktreeEntry> {
   const worktreeRoot = getWorktreeRoot(cwd);
   await fsp.mkdir(worktreeRoot, { recursive: true });
   const wtPath = await resolveCreatableFsPath(worktreeRoot, worktreeDir);
@@ -41,6 +48,11 @@ export async function addWorktree(
   if (proc.exitCode !== 0) {
     const stderr = await new Response(proc.stderr).text();
     throw new Error(`git worktree add failed: ${stderr.trim() || `exit code ${proc.exitCode}`}`);
+  }
+
+  // メインリポジトリから指定パスをシンボリックリンク
+  if (symlinks && symlinks.length > 0) {
+    await createWorktreeSymlinks(cwd, wtPath, symlinks);
   }
 
   // 作成した worktree の情報を取得
@@ -102,6 +114,33 @@ export async function getWorktreeList(cwd: string): Promise<WorktreeEntry[]> {
   }
 
   return entries;
+}
+
+/**
+ * メインリポジトリの指定パスを worktree にシンボリックリンクする。
+ * メインリポジトリに存在しないパス、または worktree 側に既に存在するパスはスキップする。
+ */
+async function createWorktreeSymlinks(
+  mainRepoDir: string,
+  wtPath: string,
+  targets: string[],
+): Promise<void> {
+  await Promise.all(
+    targets.map(async (target) => {
+      const sourcePath = path.join(mainRepoDir, target);
+      const destPath = path.join(wtPath, target);
+
+      // メインリポジトリに存在しなければスキップ
+      const sourceExists = await tryCatch(fsp.lstat(sourcePath));
+      if (!sourceExists.ok) return;
+
+      // worktree 側に既に存在する場合はスキップ（git checkout で取得済みの可能性）
+      const destExists = await tryCatch(fsp.lstat(destPath));
+      if (destExists.ok) return;
+
+      await fsp.symlink(sourcePath, destPath);
+    }),
+  );
 }
 
 /** 各 worktree の git status を並列取得して changeCounts を付与する */

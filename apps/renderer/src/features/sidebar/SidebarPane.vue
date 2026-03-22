@@ -40,6 +40,7 @@ import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
 import { TodoEditor, TodoList, useTodoActions } from "./features/todo";
 import { BranchList, RootWorktree, WorktreeList, useWorktreeActions } from "./features/worktree";
+import ProjectConfigPanel from "./ProjectConfigPanel.vue";
 import SidebarMenu from "./SidebarMenu.vue";
 import { useCtrlBadge } from "./useCtrlBadge";
 import { useDialogs } from "./useDialogs";
@@ -287,6 +288,9 @@ function handleMenuTodoCreateWorktree(todo: import("@gozd/rpc").Todo) {
         </button>
       </div>
     </dialog>
+
+    <!-- Project Config -->
+    <ProjectConfigPanel />
 
     <!-- VOICEVOX -->
     <VoicevoxPanel @error="showAlert" />

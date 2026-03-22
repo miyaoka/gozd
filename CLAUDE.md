@@ -139,7 +139,7 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 ### 方針決定済み
 
 - git worktree 運用ルール（main は参照専用、作業は常に worktree で）
-- worktree 配置（`.gozd/worktrees/`）
+- worktree 配置（`~/.local/share/gozd/worktrees/`）
 - ビュー状態の保持（切り替え時に破棄しない）
 - プロジェクトごとにウィンドウを分離し、ウィンドウ内で worktree を切り替える
 

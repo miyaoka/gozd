@@ -3,8 +3,7 @@ Changed files list. Shows HEAD vs working directory by default, or a selected co
 
 ## Behavior
 
-- No commit selected: empty
-- Uncommitted commit selected: shows git status converted to GitFileChange[]
+- Default (Uncommitted Changes selected): shows git status converted to GitFileChange[]
 - Normal commit selected: fetches changed files via `gitCommitFiles` RPC
 - Shift+click range: fetches diff between the two commits
 - Clicking a file emits `select` with the relative path
@@ -12,6 +11,7 @@ Changed files list. Shows HEAD vs working directory by default, or a selected co
 
 <script setup lang="ts">
 import type { GitFileChange } from "@gozd/rpc";
+import { tryCatch } from "@gozd/shared";
 import { computed, ref, watch } from "vue";
 import { useRpc } from "../../shared/rpc";
 import { getFileIconName, getIconUrl } from "../filer";
@@ -30,6 +30,8 @@ const gitStatusStore = useGitStatusStore();
 /** コミット選択時に取得した変更ファイル一覧 */
 const commitFiles = ref<GitFileChange[]>([]);
 const loading = ref(false);
+/** in-flight リクエストの無効化用シーケンス番号 */
+let requestSeq = 0;
 
 /** Uncommitted Changes 行が選択されているか */
 const isUncommittedMode = computed(() => gitGraphStore.selectedHash === UNCOMMITTED_HASH);
@@ -58,7 +60,6 @@ function gitStatusToFileChanges(statuses: Record<string, string>): GitFileChange
 
 /** 表示するファイル一覧 */
 const fileChanges = computed<GitFileChange[]>(() => {
-  if (gitGraphStore.selectedHash === null) return [];
   if (isUncommittedMode.value && !isRangeMode.value) {
     return gitStatusToFileChanges(gitStatusStore.gitStatuses);
   }
@@ -75,7 +76,6 @@ const fileCount = computed(() => sortedFiles.value.length);
 /** ヘッダーに表示するラベル */
 const headerLabel = computed(() => {
   const hash = gitGraphStore.selectedHash;
-  if (hash === null) return "";
   if (isUncommittedMode.value && !isRangeMode.value) return "Uncommitted Changes";
   const compareHash = gitGraphStore.compareHash;
   if (compareHash !== null) {
@@ -109,19 +109,22 @@ function dirPath(filePath: string): string {
 watch(
   () => [gitGraphStore.selectedHash, gitGraphStore.compareHash] as const,
   async ([hash, compareHash]) => {
-    if (hash === null) {
-      commitFiles.value = [];
-      return;
-    }
+    const seq = ++requestSeq;
     if (hash === UNCOMMITTED_HASH && compareHash === null) {
       commitFiles.value = [];
+      loading.value = false;
       return;
     }
     loading.value = true;
-    commitFiles.value = await request.gitCommitFiles({
-      hash,
-      compareHash: compareHash ?? undefined,
-    });
+    const result = await tryCatch(
+      request.gitCommitFiles({
+        hash,
+        compareHash: compareHash ?? undefined,
+      }),
+    );
+    // 別のリクエストが発行済みなら結果を破棄
+    if (seq !== requestSeq) return;
+    commitFiles.value = result.ok ? result.value : [];
     loading.value = false;
   },
   { immediate: true },

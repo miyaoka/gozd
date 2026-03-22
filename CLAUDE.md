@@ -72,6 +72,7 @@ gozd/
 │           │   ├── filer/       # ファイルツリー表示（material-icon-theme アイコン、git status 色分け）
 │           │   ├── git-graph/   # コミットグラフ（SVG 描画、ブランチ分岐・マージの可視化）
 │           │   ├── layout/      # レイアウト
+│           │   ├── navigator/   # Navigator（Filer + Changes のタブ切り替えコンテナ）
 │           │   ├── preview/     # ファイルプレビュー（コード、diff、画像、SVG、Markdown）
 │           │   ├── sidebar/     # サイドバー（worktree 一覧、Todo、ブランチ）
 │           │   ├── terminal/    # ターミナル

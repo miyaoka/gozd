@@ -7,7 +7,7 @@ import type { ContextKey, ContextMap, When } from "./types";
 
 const INITIAL_STATE: ContextMap = {
   terminalFocus: false,
-  explorerVisible: false,
+  previewVisible: false,
 };
 
 const state = reactive<ContextMap>({ ...INITIAL_STATE });

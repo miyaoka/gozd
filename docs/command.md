@@ -84,14 +84,14 @@ return () => {
 ```typescript
 interface ContextMap {
   terminalFocus: boolean;
-  explorerVisible: boolean;
+  previewVisible: boolean;
 }
 ```
 
-| キー名            | source                                                                     |
-| ----------------- | -------------------------------------------------------------------------- |
-| `terminalFocus`   | xterm の focus/blur + worktree 切替 / closePane / visibilitychange で更新  |
-| `explorerVisible` | MainLayout の `watchEffect` で `explorerOpen` を同期（popover の開閉状態） |
+| キー名           | source                                                                            |
+| ---------------- | --------------------------------------------------------------------------------- |
+| `terminalFocus`  | xterm の focus/blur + worktree 切替 / closePane / visibilitychange で更新         |
+| `previewVisible` | MainLayout の `watchEffect` で `previewOpen` を同期（Preview popover の開閉状態） |
 
 ### When 条件
 
@@ -99,8 +99,8 @@ interface ContextMap {
 
 ```text
 terminalFocus
-terminalFocus && !explorerVisible
-terminalFocus && explorerVisible || otherKey
+terminalFocus && !previewVisible
+terminalFocus && previewVisible || otherKey
 ```
 
 - `&&` は `||` より結合が強い

@@ -14,7 +14,9 @@ export async function filterIgnored(entries: string[], cwd: string): Promise<Set
 
 export async function getGitStatus(cwd: string): Promise<Record<string, string>> {
   const result = await tryCatch(
-    new Response(Bun.spawn(["git", "status", "--porcelain=v1", "-z"], { cwd }).stdout).text(),
+    new Response(
+      Bun.spawn(["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"], { cwd }).stdout,
+    ).text(),
   );
   if (!result.ok) return {};
   const stdout = result.value;

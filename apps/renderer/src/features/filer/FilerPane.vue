@@ -14,7 +14,7 @@ import { storeToRefs } from "pinia";
 import { nextTick, onUnmounted, ref, watch } from "vue";
 import { useRpc } from "../../shared/rpc";
 import { resolveGitChangeKind, useGitStatusStore, useWorktreeStore } from "../worktree";
-import { dirName, getDeletedEntries, sortEntries } from "./filerUtils";
+import { getDeletedEntries, sortEntries } from "./filerUtils";
 import type { FileEntry } from "./filerUtils";
 import FileTreeItem from "./FileTreeItem.vue";
 
@@ -162,12 +162,6 @@ onUnmounted(() => {
 
 <template>
   <div class="flex size-full flex-col">
-    <!-- ヘッダー -->
-    <div class="flex items-center gap-2 border-b border-zinc-700 px-3 py-2">
-      <span class="icon-[lucide--folder-tree] text-blue-400" />
-      <span class="text-sm font-bold text-zinc-300">{{ dir ? dirName(dir) : "Files" }}</span>
-    </div>
-
     <!-- ツリー本体 -->
     <div class="flex-1 overflow-y-auto p-1">
       <div v-if="!dir" class="px-2 py-4 text-center text-sm text-zinc-500">

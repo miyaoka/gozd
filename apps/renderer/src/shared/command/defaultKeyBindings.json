@@ -1,5 +1,5 @@
 [
-  { "key": "cmd+j", "command": "explorer.toggle" },
+  { "key": "cmd+j", "command": "preview.toggle" },
   { "key": "cmd+d", "command": "terminal.splitHorizontal", "when": "terminalFocus" },
   { "key": "shift+cmd+d", "command": "terminal.splitVertical", "when": "terminalFocus" },
   { "key": "cmd+w", "command": "terminal.closePane", "when": "terminalFocus" },

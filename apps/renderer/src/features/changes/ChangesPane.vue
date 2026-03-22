@@ -47,7 +47,7 @@ function gitStatusToFileChanges(statuses: Record<string, string>): GitFileChange
       modified: "M",
       added: "A",
       deleted: "D",
-      untracked: "A",
+      untracked: "U",
       renamed: "R",
     };
     return {
@@ -91,6 +91,7 @@ const CHANGE_COLOR_MAP: Record<GitFileChange["type"], string> = {
   A: "text-green-400",
   D: "text-red-400",
   R: "text-blue-400",
+  U: "text-green-400",
 };
 
 /** パスからファイル名部分を抽出 */

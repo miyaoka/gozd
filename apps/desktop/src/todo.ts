@@ -2,7 +2,7 @@
  * Todo 管理モジュール
  *
  * worktree と 1:1 で紐づく Todo を JSON ファイルで永続化する。
- * 保存先: ~/.config/gozd/projects/<encodedPath>/todos.json
+ * 保存先: ~/.config/gozd/projects/<projectKey>/todos.json
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -10,18 +10,14 @@ import { homedir } from "node:os";
 import { tryCatch } from "@gozd/shared";
 import { todoSchema } from "@gozd/rpc";
 import type { Todo } from "@gozd/rpc";
+import { projectKey } from "./projectKey";
 
 const PROJECTS_DIR = path.join(homedir(), ".config", "gozd", "projects");
 const TODOS_FILE = "todos.json";
 
-/** プロジェクトパスをディレクトリ名にエンコードする */
-function encodeProjectPath(projectDir: string): string {
-  return encodeURIComponent(projectDir);
-}
-
 /** プロジェクト固有のデータディレクトリパスを返す */
 function getProjectDir(projectDir: string): string {
-  return path.join(PROJECTS_DIR, encodeProjectPath(projectDir));
+  return path.join(PROJECTS_DIR, projectKey(projectDir));
 }
 
 function getTodosPath(projectDir: string): string {

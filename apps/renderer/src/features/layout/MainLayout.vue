@@ -87,6 +87,25 @@ const terminalWidth = computed(() =>
 /** ドラッグ開始時の Terminal 幅（レイアウト計算値） */
 const getTerminalWidth = () => terminalWidth.value;
 
+/** Preview popover に許容される最大幅（Sidebar + H + Terminal 最小幅 + H を残す） */
+const maxPreviewWidth = computed(
+  () =>
+    windowWidth.value -
+    sidebarWidth.value -
+    HANDLE_WIDTH -
+    TERMINAL_MIN_WIDTH -
+    HANDLE_WIDTH -
+    navigatorWidth.value -
+    PREVIEW_TOGGLE_WIDTH,
+);
+
+// ウィンドウ縮小時に Preview 幅をクランプ
+watchEffect(() => {
+  if (previewWidth.value > maxPreviewWidth.value) {
+    previewWidth.value = Math.max(PREVIEW_MIN_WIDTH, maxPreviewWidth.value);
+  }
+});
+
 /** ドラッグ開始時に popover 左側の空きスペースを返す（Navigator + 開閉ボタン分を除く） */
 const getPreviewBeforeSize = () =>
   windowWidth.value - navigatorWidth.value - PREVIEW_TOGGLE_WIDTH - previewWidth.value;
@@ -210,7 +229,7 @@ watchEffect(() => {
       <ResizeHandle
         v-model:after-size="previewWidth"
         direction="horizontal"
-        :before-min-size="SIDEBAR_MIN_WIDTH + HANDLE_WIDTH + TERMINAL_MIN_WIDTH"
+        :before-min-size="SIDEBAR_MIN_WIDTH + HANDLE_WIDTH + TERMINAL_MIN_WIDTH + HANDLE_WIDTH"
         :after-min-size="PREVIEW_MIN_WIDTH"
         :get-before-size="getPreviewBeforeSize"
         :get-after-size="getPreviewAfterSize"

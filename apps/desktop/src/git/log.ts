@@ -13,8 +13,25 @@ const RECORD_SEPARATOR = "YY8Obm-ZBSuUqkDjlkj0oKyFS20E7ejTzl-BWlQc";
 const DEFAULT_MAX_COUNT = 200;
 
 /**
- * 現在のブランチと main ブランチのコミット履歴を取得する。
- * topo-order でグラフ表示に適した順序で返す。
+ * リモートのデフォルトブランチ名を取得する。
+ * origin/HEAD が設定されていればそこから、なければ "main" にフォールバック。
+ */
+async function resolveDefaultBranch(cwd: string): Promise<string> {
+  const result = await tryCatch(
+    new Response(
+      Bun.spawn(["git", "symbolic-ref", "refs/remotes/origin/HEAD"], { cwd }).stdout,
+    ).text(),
+  );
+  if (!result.ok) return "main";
+  // "refs/remotes/origin/main" → "main"
+  const ref = result.value.trim();
+  const branch = ref.replace("refs/remotes/origin/", "");
+  return branch || "main";
+}
+
+/**
+ * 現在のブランチとデフォルトブランチのコミット履歴を取得する。
+ * date-order で時系列ソートして返す。
  */
 export async function getGitLog({
   cwd,
@@ -25,6 +42,7 @@ export async function getGitLog({
 }): Promise<GitCommit[]> {
   const count = maxCount ?? DEFAULT_MAX_COUNT;
   const format = ["%H", "%P", "%aN", "%at", "%s", "%D"].join(FIELD_SEPARATOR);
+  const defaultBranch = await resolveDefaultBranch(cwd);
 
   const result = await tryCatch(
     new Response(
@@ -36,7 +54,7 @@ export async function getGitLog({
           "--date-order",
           `--max-count=${count}`,
           "HEAD",
-          "main",
+          defaultBranch,
           "--",
         ],
         { cwd },

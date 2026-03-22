@@ -11,7 +11,7 @@ Git commit graph showing the current worktree branch and the default branch.
 <script setup lang="ts">
 import type { GitCommit } from "@gozd/rpc";
 import { storeToRefs } from "pinia";
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRpc } from "../../shared/rpc";
 import { useGitStatusStore, useWorktreeStore } from "../worktree";
 import { computeGraphLayout } from "./graphLayout";
@@ -20,7 +20,7 @@ import type { GraphLayout } from "./graphLayout";
 /** Uncommitted Changes の仮想コミットハッシュ */
 const UNCOMMITTED_HASH = "0000000000000000000000000000000000000000";
 
-const { request, onGitStatusChange } = useRpc();
+const { request } = useRpc();
 const worktreeStore = useWorktreeStore();
 const gitStatusStore = useGitStatusStore();
 const { gitStatuses } = storeToRefs(gitStatusStore);
@@ -71,15 +71,9 @@ onMounted(loadLog);
 // worktree 切り替え時に再取得
 watch(() => worktreeStore.dir, loadLog);
 
-// git status 変更時に再計算（uncommitted 行の表示/非表示 + 新コミットの可能性）
-const disposeGitStatus = onGitStatusChange(() => {
-  recomputeLayout();
-  void loadLog();
-});
-onUnmounted(disposeGitStatus);
-
-// gitStatuses が変わったら uncommitted 行を再計算
-watch(hasUncommittedChanges, recomputeLayout);
+// git status 変更時は uncommitted 行の件数を再計算するだけ（git log の再取得は不要）
+// 新コミットの検出は .git/refs の監視等で別途行う
+watch(uncommittedChangeCount, recomputeLayout);
 
 /** グラフ描画の定数 */
 const LANE_WIDTH = 16;

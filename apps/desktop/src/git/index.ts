@@ -1,4 +1,4 @@
-export { filterIgnored, getGitStatus, countChanges } from "./status";
+export { filterIgnored, getGitStatus, getGitCommitFiles, countChanges } from "./status";
 export {
   getWorktreeRoot,
   addWorktree,

@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
 import { tryCatch } from "@gozd/shared";
+import { projectConfigSchema } from "@gozd/rpc";
 import type { ProjectConfig } from "@gozd/rpc";
 import { projectKey } from "./projectKey";
 
@@ -39,8 +40,8 @@ export function loadProjectConfig(projectDir: string): ProjectConfig {
   }
   const parsed = tryCatch(() => JSON.parse(content.value) as unknown);
   if (!parsed.ok) return {};
-  if (typeof parsed.value !== "object" || parsed.value === null) return {};
-  return parsed.value as ProjectConfig;
+  const result = projectConfigSchema.safeParse(parsed.value);
+  return result.success ? result.data : {};
 }
 
 /** プロジェクト設定を保存する（read-modify-write: 既存キーを保持しつつ渡されたキーをマージする） */

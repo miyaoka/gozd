@@ -94,11 +94,14 @@ export interface AppConfig {
   voicevox?: VoicevoxConfig;
 }
 
-/** プロジェクト固有の設定 */
-export interface ProjectConfig {
+/** プロジェクト固有設定の zod スキーマ */
+export const projectConfigSchema = z.object({
   /** worktree 作成時にメインリポジトリからシンボリックリンクする対象 */
-  worktreeSymlinks?: string[];
-}
+  worktreeSymlinks: z.array(z.string()).optional(),
+});
+
+/** プロジェクト固有の設定 */
+export type ProjectConfig = z.infer<typeof projectConfigSchema>;
 
 /** Uncommitted Changes の仮想コミットハッシュ */
 export const UNCOMMITTED_HASH = "0000000000000000000000000000000000000000";

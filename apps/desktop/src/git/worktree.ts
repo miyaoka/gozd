@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { tryCatch } from "@gozd/shared";
 import type { WorktreeEntry } from "@gozd/rpc";
 import { projectKey } from "../projectKey";
-import { resolveCreatableFsPath } from "../security";
+import { resolveCreatableFsPath, resolveGitPath } from "../security";
 import { getGitStatus, countChanges } from "./status";
 import { assertBranchName } from "./branch";
 
@@ -118,7 +118,7 @@ export async function getWorktreeList(cwd: string): Promise<WorktreeEntry[]> {
 
 /**
  * メインリポジトリの指定パスを worktree にシンボリックリンクする。
- * メインリポジトリに存在しないパス、または worktree 側に既に存在するパスはスキップする。
+ * ベストエフォート: パス検証失敗、存在しないソース、既存の dest、symlink 失敗はスキップする。
  */
 async function createWorktreeSymlinks(
   mainRepoDir: string,
@@ -127,18 +127,22 @@ async function createWorktreeSymlinks(
 ): Promise<void> {
   await Promise.all(
     targets.map(async (target) => {
-      const sourcePath = path.join(mainRepoDir, target);
-      const destPath = path.join(wtPath, target);
+      // パストラバーサル防止: リポジトリ / worktree 配下に留まることを検証
+      const sourceResult = tryCatch(() => resolveGitPath(mainRepoDir, target));
+      if (!sourceResult.ok) return;
+      const destResult = tryCatch(() => resolveGitPath(wtPath, target));
+      if (!destResult.ok) return;
 
       // メインリポジトリに存在しなければスキップ
-      const sourceExists = await tryCatch(fsp.lstat(sourcePath));
+      const sourceExists = await tryCatch(fsp.lstat(sourceResult.value));
       if (!sourceExists.ok) return;
 
       // worktree 側に既に存在する場合はスキップ（git checkout で取得済みの可能性）
-      const destExists = await tryCatch(fsp.lstat(destPath));
+      const destExists = await tryCatch(fsp.lstat(destResult.value));
       if (destExists.ok) return;
 
-      await fsp.symlink(sourcePath, destPath);
+      // symlink 作成失敗はスキップ（worktree 自体の作成は成功扱い）
+      await tryCatch(fsp.symlink(sourceResult.value, destResult.value));
     }),
   );
 }

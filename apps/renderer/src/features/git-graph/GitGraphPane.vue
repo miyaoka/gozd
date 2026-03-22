@@ -38,10 +38,16 @@ const uncommittedChangeCount = computed(() => Object.keys(gitStatuses.value).len
  * コミット一覧の先頭に Uncommitted Changes 仮想行を挿入する。
  * HEAD コミットを親として接続する。
  */
+/** refs 配列に "HEAD" を持つコミットを探す */
+function findHeadCommit(rawCommits: GitCommit[]): GitCommit | undefined {
+  return rawCommits.find((c) => c.refs.includes("HEAD"));
+}
+
 function prependUncommitted(rawCommits: GitCommit[]): GitCommit[] {
   if (!hasUncommittedChanges.value) return rawCommits;
 
-  const headHash = rawCommits.length > 0 ? rawCommits[0].hash : "";
+  const headCommit = findHeadCommit(rawCommits);
+  const headHash = headCommit?.hash ?? "";
   const uncommitted: GitCommit = {
     hash: UNCOMMITTED_HASH,
     shortHash: "*",
@@ -57,7 +63,9 @@ function prependUncommitted(rawCommits: GitCommit[]): GitCommit[] {
 
 function recomputeLayout() {
   const withUncommitted = prependUncommitted(commits.value);
-  layout.value = computeGraphLayout(withUncommitted);
+  layout.value = computeGraphLayout(withUncommitted, {
+    hasUncommitted: hasUncommittedChanges.value,
+  });
 }
 
 /** 前回の HEAD ハッシュ。gitStatusChange で変化を検知するために使用 */
@@ -66,7 +74,7 @@ let lastHead = "";
 async function loadLog() {
   const result = await request.gitLog({ maxCount: 200 });
   commits.value = result;
-  lastHead = result[0]?.hash ?? "";
+  lastHead = findHeadCommit(result)?.hash ?? "";
   recomputeLayout();
 }
 
@@ -200,6 +208,7 @@ function formatDate(timestamp: number): string {
             fill="none"
             :stroke="colorFor(seg.color)"
             stroke-width="2"
+            :stroke-dasharray="seg.uncommitted ? '4 2' : undefined"
           />
           <!-- コミットドット -->
           <circle

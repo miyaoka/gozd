@@ -39,7 +39,7 @@ export async function getGitLog({
   cwd: string;
   maxCount?: number;
 }): Promise<GitCommit[]> {
-  const count = maxCount ?? DEFAULT_MAX_COUNT;
+  const count = Math.min(maxCount ?? DEFAULT_MAX_COUNT, DEFAULT_MAX_COUNT);
   const format = ["%H", "%P", "%aN", "%at", "%s", "%D"].join(FIELD_SEPARATOR);
   const defaultBranch = await resolveDefaultBranch(cwd);
   const refs = defaultBranch ? ["HEAD", defaultBranch] : ["HEAD"];

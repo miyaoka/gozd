@@ -20,6 +20,8 @@ export interface LineSegment {
    * false: カーブは下端に固定（x1 > x2: 左へ合流）
    */
   lockedFirst: boolean;
+  /** 未コミットの変更を表すセグメント（ダッシュ線で描画） */
+  uncommitted: boolean;
 }
 
 /** グラフ上の1行分のデータ */
@@ -66,7 +68,10 @@ interface LaneState {
   originLane?: number;
 }
 
-export function computeGraphLayout(commits: GitCommit[]): GraphLayout {
+export function computeGraphLayout(
+  commits: GitCommit[],
+  { hasUncommitted = false } = {},
+): GraphLayout {
   const commitIndexMap = new Map<string, number>();
   for (let i = 0; i < commits.length; i++) {
     commitIndexMap.set(commits[i].hash, i);
@@ -108,6 +113,8 @@ export function computeGraphLayout(commits: GitCommit[]): GraphLayout {
         const state = activeLanes[i];
         if (state === undefined) continue;
 
+        const isUncommittedSeg = hasUncommitted && row - 1 === 0;
+
         if (state.originLane !== undefined) {
           // 分岐: 元のレーンからこのレーンへの斜め線
           lines.push({
@@ -117,6 +124,7 @@ export function computeGraphLayout(commits: GitCommit[]): GraphLayout {
             y2: row,
             color: state.color,
             lockedFirst: true,
+            uncommitted: isUncommittedSeg,
           });
           // originLane をクリア（最初の1セグメントだけ斜め）
           state.originLane = undefined;
@@ -129,6 +137,7 @@ export function computeGraphLayout(commits: GitCommit[]): GraphLayout {
             y2: row,
             color: state.color,
             lockedFirst: false,
+            uncommitted: isUncommittedSeg,
           });
         } else {
           // 通過: 同じレーンで垂直線
@@ -139,6 +148,7 @@ export function computeGraphLayout(commits: GitCommit[]): GraphLayout {
             y2: row,
             color: state.color,
             lockedFirst: true,
+            uncommitted: isUncommittedSeg,
           });
         }
       }

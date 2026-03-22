@@ -32,12 +32,17 @@ minimumReleaseAgeExclude:
   - "@miyaoka/fsss"
   - electrobun
 
-# electrobun が @types/three を dependencies に含めていない問題のワークアラウンド
+# phantom dependency のワークアラウンド（enableGlobalVirtualStore で顕在化）
+# electrobun が @types/three を dependencies に含めていない問題
 # blackboardsh/electrobun#280 が修正されたら削除する
+# tailwind-csstree が @eslint/css-tree を dependencies に含めていない問題
 packageExtensions:
   electrobun@1.16.0:
     dependencies:
       "@types/three": "^0.181.0"
+  tailwind-csstree@0.1.4:
+    dependencies:
+      "@eslint/css-tree": "*"
 
 enableGlobalVirtualStore: true
 

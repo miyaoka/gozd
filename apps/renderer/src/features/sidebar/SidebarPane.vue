@@ -289,8 +289,8 @@ function handleMenuTodoCreateWorktree(todo: import("@gozd/rpc").Todo) {
       </div>
     </dialog>
 
-    <!-- Project Config -->
-    <ProjectConfigPanel />
+    <!-- Project Config（メイン worktree 表示時のみ） -->
+    <ProjectConfigPanel v-if="rootWorktree && isActive(rootWorktree)" />
 
     <!-- VOICEVOX -->
     <VoicevoxPanel @error="showAlert" />

@@ -27,6 +27,7 @@ const { gitStatuses } = storeToRefs(gitStatusStore);
 
 const commits = ref<GitCommit[]>([]);
 const layout = ref<GraphLayout>({ nodes: [], lines: [], maxLanes: 1 });
+const firstParentOnly = ref(false);
 
 /** 変更ファイル数 */
 const uncommittedChangeCount = computed(() => Object.keys(gitStatuses.value).length);
@@ -68,7 +69,10 @@ function recomputeLayout() {
 let lastHead = "";
 
 async function loadLog() {
-  const result = await request.gitLog({ maxCount: 200 });
+  const result = await request.gitLog({
+    maxCount: 200,
+    firstParentOnly: firstParentOnly.value || undefined,
+  });
   commits.value = result;
   lastHead = findHeadCommit(result)?.hash ?? "";
   recomputeLayout();
@@ -94,6 +98,12 @@ watch(
     void loadLog();
   },
 );
+
+// firstParentOnly 切替時に再取得
+watch(firstParentOnly, () => {
+  gitGraphStore.clearSelection();
+  void loadLog();
+});
 
 // git status 変更時は uncommitted 行の件数を再計算
 watch(uncommittedChangeCount, recomputeLayout);
@@ -171,6 +181,10 @@ function segmentPath(x1: number, y1: number, x2: number, y2: number): string {
 
 function isUncommitted(hash: string): boolean {
   return hash === UNCOMMITTED_HASH;
+}
+
+function isMergeCommit(commit: GitCommit): boolean {
+  return commit.parents.length > 1;
 }
 
 /** ref バッジの色分け */
@@ -276,6 +290,13 @@ function isInRange(hash: string): boolean {
       <span class="icon-[lucide--git-commit-horizontal] size-4 text-zinc-400" />
       <span class="text-xs font-semibold text-zinc-400">Git Graph</span>
       <span v-if="commits.length > 0" class="text-xs text-zinc-500">({{ commits.length }})</span>
+      <button
+        class="rounded-sm px-1.5 py-0.5 text-[10px]"
+        :class="firstParentOnly ? 'bg-blue-800 text-blue-200' : 'text-zinc-500 hover:text-zinc-300'"
+        @click="firstParentOnly = !firstParentOnly"
+      >
+        First Parent
+      </button>
     </div>
 
     <div v-if="layout.nodes.length === 0" class="flex-1 overflow-y-auto p-2">
@@ -333,6 +354,10 @@ function isInRange(hash: string): boolean {
 
           <!-- Description -->
           <div class="flex min-w-0 flex-1 items-center gap-1 truncate pr-2">
+            <span
+              v-if="isMergeCommit(node.commit)"
+              class="icon-[lucide--git-merge] size-3.5 shrink-0 text-zinc-500"
+            />
             <span
               v-for="ref in node.commit.refs"
               :key="ref"

@@ -636,7 +636,8 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
         },
         gitStatus: () => getGitStatus(currentDir),
         gitCommitFiles: ({ hash, compareHash }) => getGitCommitFiles(currentDir, hash, compareHash),
-        gitLog: ({ maxCount }) => getGitLog({ cwd: currentDir, maxCount }),
+        gitLog: ({ maxCount, firstParentOnly }) =>
+          getGitLog({ cwd: currentDir, maxCount, firstParentOnly }),
         gitWorktreeList: async () => {
           const entries = await attachChangeCounts(await getWorktreeList(projectDir));
           // 各 worktree に紐づく Todo を付与

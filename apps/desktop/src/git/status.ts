@@ -1,5 +1,5 @@
 import { tryCatch } from "@gozd/shared";
-import type { WorktreeChangeCounts } from "@gozd/rpc";
+import type { GitFileChange, WorktreeChangeCounts } from "@gozd/rpc";
 
 export async function filterIgnored(entries: string[], cwd: string): Promise<Set<string>> {
   if (entries.length === 0) return new Set();
@@ -44,59 +44,79 @@ export async function getGitStatus(cwd: string): Promise<Record<string, string>>
 
 /**
  * コミットの変更ファイル一覧を取得する。
- * git diff --name-status の出力を gitStatus と同じ Record<path, statusCode> 形式で返す。
- * statusCode は porcelain v1 互換（例: "M " = index 側 modified）。
+ * vscode-git-graph と同じアプローチ:
+ * - `--find-renames` で rename 検出
+ * - `--diff-filter=AMDR` で対象を絞る
+ * - ルートコミット（親なし）は `git diff-tree --root` を使用
  *
- * compareHash 未指定: `hash^1..hash` で first parent との差分。
+ * compareHash 未指定: `hash^..hash` で first parent との差分。
  * compareHash 指定: 古い方の親から新しい方までの差分（範囲内の全変更ファイルの和集合）。
  */
 export async function getGitCommitFiles(
   cwd: string,
   hash: string,
   compareHash?: string,
-): Promise<Record<string, string>> {
-  let from: string;
-  let to: string;
-  if (compareHash === undefined) {
-    from = `${hash}^1`;
-    to = hash;
-  } else {
-    // 古い方の親を起点に、新しい方を終点にする
-    // git merge-base --is-ancestor で順序を判定
+): Promise<GitFileChange[]> {
+  const args = await buildDiffArgs(cwd, hash, compareHash);
+  const result = await tryCatch(new Response(Bun.spawn(args, { cwd }).stdout).text());
+  if (!result.ok) return [];
+  return parseDiffNameStatus(result.value);
+}
+
+async function buildDiffArgs(cwd: string, hash: string, compareHash?: string): Promise<string[]> {
+  const diffOptions = ["--name-status", "-z", "--find-renames", "--diff-filter=AMDR"];
+
+  if (compareHash !== undefined) {
+    // 範囲選択: 古い方の親を起点に新しい方を終点にする
     const orderResult = await tryCatch(
       Bun.spawn(["git", "merge-base", "--is-ancestor", hash, compareHash], { cwd }).exited,
     );
-    // exit 0 = hash is ancestor of compareHash (hash が古い)
     const hashIsOlder = orderResult.ok && orderResult.value === 0;
-    if (hashIsOlder) {
-      from = `${hash}^1`;
-      to = compareHash;
-    } else {
-      from = `${compareHash}^1`;
-      to = hash;
-    }
+    const from = hashIsOlder ? `${hash}^` : `${compareHash}^`;
+    const to = hashIsOlder ? compareHash : hash;
+    return ["git", "diff", ...diffOptions, from, to];
   }
-  const result = await tryCatch(
-    new Response(
-      Bun.spawn(["git", "diff", "--name-status", "-z", from, to], { cwd }).stdout,
-    ).text(),
+
+  // 単一コミット: 親の有無でコマンドを分ける
+  const parentResult = await tryCatch(
+    new Response(Bun.spawn(["git", "rev-parse", `${hash}^`], { cwd }).stdout).text(),
   );
-  if (!result.ok) return {};
-  const stdout = result.value;
-  const statuses: Record<string, string> = {};
-  // -z 出力: status\0path\0status\0path\0...
+  const hasParent = parentResult.ok && parentResult.value.trim() !== "";
+
+  if (hasParent) {
+    return ["git", "diff", ...diffOptions, `${hash}^`, hash];
+  }
+  // ルートコミット
+  return ["git", "diff-tree", "--root", "-r", ...diffOptions, hash];
+}
+
+function parseDiffNameStatus(stdout: string): GitFileChange[] {
+  const changes: GitFileChange[] = [];
   const parts = stdout.split("\0");
   let i = 0;
   while (i + 1 < parts.length) {
     const status = parts[i];
-    const filePath = parts[i + 1];
-    if (status && filePath) {
-      // git diff の status は1文字（M, A, D, R 等）。porcelain v1 互換に変換（index 側にセット）
-      statuses[filePath] = `${status} `;
+    if (!status) {
+      i++;
+      continue;
     }
-    i += 2;
+    const type = status[0] as GitFileChange["type"];
+    if (type === "R") {
+      const oldFilePath = parts[i + 1];
+      const newFilePath = parts[i + 2];
+      if (oldFilePath && newFilePath) {
+        changes.push({ oldFilePath, newFilePath, type });
+      }
+      i += 3;
+    } else {
+      const filePath = parts[i + 1];
+      if (filePath) {
+        changes.push({ oldFilePath: filePath, newFilePath: filePath, type });
+      }
+      i += 2;
+    }
   }
-  return statuses;
+  return changes;
 }
 
 /** git status の2文字コードから変更種別ごとのファイル数を算出 */

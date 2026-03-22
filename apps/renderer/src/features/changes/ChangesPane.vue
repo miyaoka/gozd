@@ -3,19 +3,21 @@ Changed files list. Shows HEAD vs working directory by default, or a selected co
 
 ## Behavior
 
-- No commit selected: shows git status (uncommitted changes)
-- Uncommitted commit selected: same as no selection (git status)
+- No commit selected: empty
+- Uncommitted commit selected: shows git status converted to GitFileChange[]
 - Normal commit selected: fetches changed files via `gitCommitFiles` RPC
+- Shift+click range: fetches diff between the two commits
 - Clicking a file emits `select` with the relative path
 </doc>
 
 <script setup lang="ts">
+import type { GitFileChange } from "@gozd/rpc";
 import { computed, ref, watch } from "vue";
 import { useRpc } from "../../shared/rpc";
 import { getFileIconName, getIconUrl } from "../filer";
 import { UNCOMMITTED_HASH, useGitGraphStore } from "../git-graph";
-import type { GitChangeKind } from "../worktree";
 import { useGitStatusStore, resolveGitChangeKind } from "../worktree";
+import type { GitChangeKind } from "../worktree";
 
 const emit = defineEmits<{
   select: [relPath: string];
@@ -26,28 +28,49 @@ const gitGraphStore = useGitGraphStore();
 const gitStatusStore = useGitStatusStore();
 
 /** コミット選択時に取得した変更ファイル一覧 */
-const commitFiles = ref<Record<string, string>>({});
+const commitFiles = ref<GitFileChange[]>([]);
 const loading = ref(false);
 
 /** Uncommitted Changes 行が選択されているか */
 const isUncommittedMode = computed(() => gitGraphStore.selectedHash === UNCOMMITTED_HASH);
 
-/** 表示するファイル一覧のソース */
-const fileStatuses = computed(() => {
-  if (gitGraphStore.selectedHash === null) return {};
-  if (isUncommittedMode.value && !isRangeMode.value) return gitStatusStore.gitStatuses;
+/** 範囲選択モードか */
+const isRangeMode = computed(() => gitGraphStore.compareHash !== null);
+
+/** git status の Record<string, string> を GitFileChange[] に変換 */
+function gitStatusToFileChanges(statuses: Record<string, string>): GitFileChange[] {
+  return Object.entries(statuses).map(([filePath, statusCode]) => {
+    const kind = resolveGitChangeKind(statusCode);
+    const TYPE_MAP: Record<GitChangeKind, GitFileChange["type"]> = {
+      modified: "M",
+      added: "A",
+      deleted: "D",
+      untracked: "A",
+      renamed: "R",
+    };
+    return {
+      oldFilePath: filePath,
+      newFilePath: filePath,
+      type: TYPE_MAP[kind],
+    };
+  });
+}
+
+/** 表示するファイル一覧 */
+const fileChanges = computed<GitFileChange[]>(() => {
+  if (gitGraphStore.selectedHash === null) return [];
+  if (isUncommittedMode.value && !isRangeMode.value) {
+    return gitStatusToFileChanges(gitStatusStore.gitStatuses);
+  }
   return commitFiles.value;
 });
 
-/** パスでソート済みの [path, statusCode] ペア */
+/** newFilePath でソート済み */
 const sortedFiles = computed(() =>
-  Object.entries(fileStatuses.value).sort(([a], [b]) => a.localeCompare(b)),
+  [...fileChanges.value].sort((a, b) => a.newFilePath.localeCompare(b.newFilePath)),
 );
 
 const fileCount = computed(() => sortedFiles.value.length);
-
-/** 範囲選択モードか */
-const isRangeMode = computed(() => gitGraphStore.compareHash !== null);
 
 /** ヘッダーに表示するラベル */
 const headerLabel = computed(() => {
@@ -63,33 +86,12 @@ const headerLabel = computed(() => {
   return hash.slice(0, 7);
 });
 
-const GIT_CHANGE_COLOR_MAP: Record<GitChangeKind, string> = {
-  modified: "text-yellow-400",
-  added: "text-green-400",
-  deleted: "text-red-400",
-  untracked: "text-green-400",
-  renamed: "text-blue-400",
+const CHANGE_COLOR_MAP: Record<GitFileChange["type"], string> = {
+  M: "text-yellow-400",
+  A: "text-green-400",
+  D: "text-red-400",
+  R: "text-blue-400",
 };
-
-const GIT_CHANGE_LABEL_MAP: Record<GitChangeKind, string> = {
-  modified: "M",
-  added: "A",
-  deleted: "D",
-  untracked: "U",
-  renamed: "R",
-};
-
-function changeKindFor(statusCode: string): GitChangeKind {
-  return resolveGitChangeKind(statusCode);
-}
-
-function colorFor(statusCode: string): string {
-  return GIT_CHANGE_COLOR_MAP[changeKindFor(statusCode)];
-}
-
-function labelFor(statusCode: string): string {
-  return GIT_CHANGE_LABEL_MAP[changeKindFor(statusCode)];
-}
 
 /** パスからファイル名部分を抽出 */
 function fileName(filePath: string): string {
@@ -107,38 +109,22 @@ function dirPath(filePath: string): string {
 watch(
   () => [gitGraphStore.selectedHash, gitGraphStore.compareHash] as const,
   async ([hash, compareHash]) => {
-    console.log(
-      "[changes] watch fired, hash =",
-      hash?.slice(0, 7),
-      "compare =",
-      compareHash?.slice(0, 7),
-    );
     if (hash === null) {
-      commitFiles.value = {};
+      commitFiles.value = [];
       return;
     }
-    // uncommitted 単体選択は git status を使う
     if (hash === UNCOMMITTED_HASH && compareHash === null) {
-      commitFiles.value = {};
+      commitFiles.value = [];
       return;
     }
-    // 範囲選択で片方が UNCOMMITTED_HASH の場合、もう片方と HEAD の差分
     const resolvedHash = hash === UNCOMMITTED_HASH ? "HEAD" : hash;
     const resolvedCompare =
       compareHash === null ? undefined : compareHash === UNCOMMITTED_HASH ? "HEAD" : compareHash;
     loading.value = true;
-    console.log(
-      "[changes] RPC gitCommitFiles, hash =",
-      resolvedHash.slice(0, 7),
-      "compare =",
-      resolvedCompare?.slice(0, 7),
-    );
-    const result = await request.gitCommitFiles({
+    commitFiles.value = await request.gitCommitFiles({
       hash: resolvedHash,
       compareHash: resolvedCompare,
     });
-    console.log("[changes] RPC result, files =", Object.keys(result).length, result);
-    commitFiles.value = result;
     loading.value = false;
   },
   { immediate: true },
@@ -166,23 +152,27 @@ watch(
 
     <div v-else class="flex-1 overflow-y-auto">
       <div
-        v-for="[path, statusCode] in sortedFiles"
-        :key="path"
+        v-for="change in sortedFiles"
+        :key="change.newFilePath"
         class="flex cursor-pointer items-center gap-1.5 px-3 py-0.5 text-xs hover:bg-zinc-800/60"
-        @click="emit('select', path)"
+        @click="emit('select', change.newFilePath)"
       >
         <span
           class="w-4 shrink-0 text-center font-mono text-[10px] font-bold"
-          :class="colorFor(statusCode)"
+          :class="CHANGE_COLOR_MAP[change.type]"
         >
-          {{ labelFor(statusCode) }}
+          {{ change.type }}
         </span>
-        <img :src="getIconUrl(getFileIconName(fileName(path)))" class="size-4 shrink-0" alt="" />
-        <span class="shrink-0" :class="colorFor(statusCode)">
-          {{ fileName(path) }}
+        <img
+          :src="getIconUrl(getFileIconName(fileName(change.newFilePath)))"
+          class="size-4 shrink-0"
+          alt=""
+        />
+        <span class="shrink-0" :class="CHANGE_COLOR_MAP[change.type]">
+          {{ fileName(change.newFilePath) }}
         </span>
-        <span v-if="dirPath(path)" class="truncate text-zinc-600">
-          {{ dirPath(path) }}
+        <span v-if="dirPath(change.newFilePath)" class="truncate text-zinc-600">
+          {{ dirPath(change.newFilePath) }}
         </span>
       </div>
     </div>

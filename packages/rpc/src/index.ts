@@ -94,6 +94,13 @@ export interface AppConfig {
   voicevox?: VoicevoxConfig;
 }
 
+/** git diff の変更ファイル情報 */
+export interface GitFileChange {
+  oldFilePath: string;
+  newFilePath: string;
+  type: "A" | "M" | "D" | "R";
+}
+
 /** git log のコミット情報 */
 export interface GitCommit {
   /** 完全なコミットハッシュ */
@@ -149,11 +156,11 @@ export type GozdRPC = {
       /** コミットの変更ファイル一覧を取得。compareHash 指定時は2コミット間の差分 */
       gitCommitFiles: {
         params: { hash: string; compareHash?: string };
-        response: Record<string, string>;
+        response: GitFileChange[];
       };
       /** git log でコミット履歴を取得（現在ブランチ + main） */
       gitLog: {
-        params: { maxCount?: number };
+        params: { maxCount?: number; firstParentOnly?: boolean };
         response: GitCommit[];
       };
       /** git worktree list で worktree 一覧を取得 */

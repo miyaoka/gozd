@@ -35,31 +35,28 @@ async function resolveDefaultBranch(cwd: string): Promise<string | undefined> {
 export async function getGitLog({
   cwd,
   maxCount,
+  firstParentOnly,
 }: {
   cwd: string;
   maxCount?: number;
+  firstParentOnly?: boolean;
 }): Promise<GitCommit[]> {
   const count = Math.min(maxCount ?? DEFAULT_MAX_COUNT, DEFAULT_MAX_COUNT);
   const format = ["%H", "%P", "%aN", "%at", "%s", "%D"].join(FIELD_SEPARATOR);
   const defaultBranch = await resolveDefaultBranch(cwd);
   const refs = defaultBranch ? ["HEAD", defaultBranch] : ["HEAD"];
 
-  const result = await tryCatch(
-    new Response(
-      Bun.spawn(
-        [
-          "git",
-          "log",
-          `--format=${RECORD_SEPARATOR}${format}`,
-          "--date-order",
-          `--max-count=${count}`,
-          ...refs,
-          "--",
-        ],
-        { cwd },
-      ).stdout,
-    ).text(),
-  );
+  const args = [
+    "git",
+    "log",
+    `--format=${RECORD_SEPARATOR}${format}`,
+    "--date-order",
+    `--max-count=${count}`,
+  ];
+  if (firstParentOnly) args.push("--first-parent");
+  args.push(...refs, "--");
+
+  const result = await tryCatch(new Response(Bun.spawn(args, { cwd }).stdout).text());
 
   if (!result.ok) return [];
 

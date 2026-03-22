@@ -293,22 +293,20 @@ function scheduleGitStatusUpdate(win: GozdWindow, root: string) {
     }
 
     gitStatusInFlight.add(win);
-    const result = await tryCatch(
-      Promise.all([
-        getGitStatus(root),
-        new Response(Bun.spawn(["git", "rev-parse", "HEAD"], { cwd: root }).stdout).text(),
-      ]),
-    );
+    const [statusResult, headResult] = await Promise.all([
+      tryCatch(getGitStatus(root)),
+      tryCatch(new Response(Bun.spawn(["git", "rev-parse", "HEAD"], { cwd: root }).stdout).text()),
+    ]);
     gitStatusInFlight.delete(win);
     if (gitStatusNeedsRerun.has(win)) {
       gitStatusNeedsRerun.delete(win);
       scheduleGitStatusUpdate(win, root);
     }
-    if (!result.ok) return;
+    if (!statusResult.ok) return;
     // 世代が変わっていたら stale な結果を捨てる
     if ((windowSwitchGen.get(win) ?? 0) !== gen) return;
-    const [statuses, headRaw] = result.value;
-    win.webview.rpc?.send.gitStatusChange({ statuses, head: headRaw.trim() });
+    const head = headResult.ok ? headResult.value.trim() : "";
+    win.webview.rpc?.send.gitStatusChange({ statuses: statusResult.value, head });
   }, GIT_STATUS_DEBOUNCE_MS);
 
   gitStatusTimers.set(win, timer);

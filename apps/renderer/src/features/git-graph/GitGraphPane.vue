@@ -60,9 +60,13 @@ function recomputeLayout() {
   layout.value = computeGraphLayout(withUncommitted);
 }
 
+/** 前回の HEAD ハッシュ。gitStatusChange で変化を検知するために使用 */
+let lastHead = "";
+
 async function loadLog() {
   const result = await request.gitLog({ maxCount: 200 });
   commits.value = result;
+  lastHead = result[0]?.hash ?? "";
   recomputeLayout();
 }
 
@@ -77,7 +81,6 @@ watch(uncommittedChangeCount, recomputeLayout);
 // HEAD 変更（コミット、リベース等）を検知して git log を再取得する。
 // gitStatusChange の payload に含まれる head ハッシュを前回と比較し、
 // 変化があった場合のみ git log を再取得する（ファイル保存では走らない）。
-let lastHead = "";
 const disposeGitStatus = onGitStatusChange(({ head }) => {
   if (head && head !== lastHead) {
     lastHead = head;

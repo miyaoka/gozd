@@ -87,6 +87,10 @@ export function useTodoActions({ pendingTodos, fetchData }: UseTodoActionsOption
   async function updateTodoIcon(todo: Todo, icon: string | undefined) {
     const result = await tryCatch(request.todoUpdate({ id: todo.id, body: todo.body, icon }));
     if (!result.ok) return;
+    // 編集中の todo のアイコンが変わった場合、saveEdit が古い値で上書きしないよう同期する
+    if (editingTodoId.value === todo.id) {
+      editIcon.value = icon;
+    }
     await fetchData();
   }
 

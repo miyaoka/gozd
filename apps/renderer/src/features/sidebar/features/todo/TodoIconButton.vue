@@ -38,6 +38,8 @@ function toggle(emoji: string) {
 <template>
   <button
     type="button"
+    aria-label="Change todo icon"
+    aria-haspopup="true"
     class="relative z-10 row-span-2 mt-0.5 text-base transition-transform hover:scale-125"
     :style="{ anchorName }"
     :popovertarget="popoverId"

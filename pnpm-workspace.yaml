@@ -36,7 +36,7 @@ minimumReleaseAgeExclude:
 # phantom dependency のワークアラウンド（enableGlobalVirtualStore で顕在化）
 # electrobun が @types/three を dependencies に含めていない問題
 # blackboardsh/electrobun#280 が修正されたら削除する
-# tailwind-csstree が @eslint/css-tree を dependencies に含めていない問題
+# tailwind-csstree が @eslint/css-tree を dependencies に含めていない問題（0.1.5 で dependency 削除、0.2.0 では @eslint/css を peerDep に変更したが @eslint/css-tree は未宣言）
 # @iconify/tailwind4 が @iconify-json/lucide を動的に読み込む問題
 packageExtensions:
   electrobun@1.16.0:

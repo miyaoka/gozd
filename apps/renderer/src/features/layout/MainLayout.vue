@@ -34,17 +34,23 @@ const navigatorPaneRef = useTemplateRef<InstanceType<typeof NavigatorPane>>("nav
 // レイアウト・ウィンドウスコープのコマンド登録
 const { register } = useCommandRegistry();
 const { send } = useRpc();
-const disposePreviewToggle = register("preview.toggle", () => {
-  if (previewOpen.value) {
-    closePreview();
-  } else {
-    openPreview();
-  }
-  return true;
+const disposePreviewToggle = register("preview.toggle", {
+  label: "Preview: Toggle",
+  handler: () => {
+    if (previewOpen.value) {
+      closePreview();
+    } else {
+      openPreview();
+    }
+    return true;
+  },
 });
-const disposeWindowClose = register("window.close", () => {
-  send.windowClose();
-  return true;
+const disposeWindowClose = register("window.close", {
+  label: "Window: Close",
+  handler: () => {
+    send.windowClose();
+    return true;
+  },
 });
 onUnmounted(disposePreviewToggle);
 onUnmounted(disposeWindowClose);

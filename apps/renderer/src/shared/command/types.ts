@@ -8,6 +8,23 @@
 /** コマンドハンドラー。処理した場合 true、何もしなかった場合 false を返す */
 export type CommandHandler = (args?: unknown) => boolean;
 
+/** label 付きコマンド記述子。label があるコマンドのみパレットに表示される */
+export interface CommandDescriptor {
+  /** コマンドパレットに表示する名前（例: "Terminal: Split Horizontal"） */
+  label: string;
+  handler: CommandHandler;
+}
+
+/** register の第2引数: ハンドラ関数そのまま、または label 付き記述子 */
+export type CommandInput = CommandHandler | CommandDescriptor;
+
+/** レジストリ内部で保持するコマンドエントリ */
+export interface CommandEntry {
+  id: string;
+  label: string | undefined;
+  handler: CommandHandler;
+}
+
 // --- キー入力 ---
 
 export interface KeyStroke {

@@ -67,34 +67,55 @@ export function registerTerminalCommands(
   }
 
   const disposers = [
-    registry.register("terminal.splitHorizontal", () => {
-      const active = getFocusedLayout();
-      if (active === undefined) return false;
-      terminalStore.splitPane(active.dir, "horizontal");
-      return true;
+    registry.register("terminal.splitHorizontal", {
+      label: "Terminal: Split Horizontal",
+      handler: () => {
+        const active = getFocusedLayout();
+        if (active === undefined) return false;
+        terminalStore.splitPane(active.dir, "horizontal");
+        return true;
+      },
     }),
 
-    registry.register("terminal.splitVertical", () => {
-      const active = getFocusedLayout();
-      if (active === undefined) return false;
-      terminalStore.splitPane(active.dir, "vertical");
-      return true;
+    registry.register("terminal.splitVertical", {
+      label: "Terminal: Split Vertical",
+      handler: () => {
+        const active = getFocusedLayout();
+        if (active === undefined) return false;
+        terminalStore.splitPane(active.dir, "vertical");
+        return true;
+      },
     }),
 
-    registry.register("terminal.closePane", () => {
-      const active = getFocusedLayout();
-      if (active === undefined) return false;
-      // 最後の1ペインでは closePane が false を返すので、レイアウトをリセットして新ターミナルを起動
-      if (!terminalStore.closePane(active.dir, active.layout.focusedLeafId)) {
-        terminalStore.resetLayout(active.dir);
-      }
-      return true;
+    registry.register("terminal.closePane", {
+      label: "Terminal: Close Pane",
+      handler: () => {
+        const active = getFocusedLayout();
+        if (active === undefined) return false;
+        // 最後の1ペインでは closePane が false を返すので、レイアウトをリセットして新ターミナルを起動
+        if (!terminalStore.closePane(active.dir, active.layout.focusedLeafId)) {
+          terminalStore.resetLayout(active.dir);
+        }
+        return true;
+      },
     }),
 
-    registry.register("terminal.focusLeft", createFocusHandler("left")),
-    registry.register("terminal.focusRight", createFocusHandler("right")),
-    registry.register("terminal.focusUp", createFocusHandler("up")),
-    registry.register("terminal.focusDown", createFocusHandler("down")),
+    registry.register("terminal.focusLeft", {
+      label: "Terminal: Focus Left",
+      handler: createFocusHandler("left"),
+    }),
+    registry.register("terminal.focusRight", {
+      label: "Terminal: Focus Right",
+      handler: createFocusHandler("right"),
+    }),
+    registry.register("terminal.focusUp", {
+      label: "Terminal: Focus Up",
+      handler: createFocusHandler("up"),
+    }),
+    registry.register("terminal.focusDown", {
+      label: "Terminal: Focus Down",
+      handler: createFocusHandler("down"),
+    }),
   ];
 
   return () => {

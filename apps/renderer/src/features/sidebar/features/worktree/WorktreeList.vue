@@ -5,7 +5,7 @@
 </doc>
 
 <script setup lang="ts">
-import type { WorktreeEntry } from "@gozd/rpc";
+import type { Todo, WorktreeEntry } from "@gozd/rpc";
 import type { ClaudeStatus } from "../../../terminal";
 import WorktreeItem from "./WorktreeItem.vue";
 
@@ -43,6 +43,7 @@ defineEmits<{
   openMenu: [anchorName: string, wt: WorktreeEntry];
   add: [];
   setViewMode: [mode: ViewMode];
+  updateIcon: [todo: Todo, icon: string | undefined];
 }>();
 
 defineSlots<{
@@ -83,6 +84,7 @@ defineSlots<{
         :index="i"
         @select="$emit('select', $event)"
         @open-menu="(anchorName, w) => $emit('openMenu', anchorName, w)"
+        @update-icon="(todo, icon) => $emit('updateIcon', todo, icon)"
       />
       <slot name="after-item" :wt="wt" />
     </div>

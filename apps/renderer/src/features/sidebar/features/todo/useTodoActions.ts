@@ -20,15 +20,13 @@ export function useTodoActions({ pendingTodos, fetchData }: UseTodoActionsOption
 
   const editingTodoId = ref<string>();
   const editBody = ref("");
+  /** 編集開始時のアイコン（body 保存時に現在の値を維持するために使用） */
   const editIcon = ref<string>();
-  /** 保存済みの body（アイコンのみ保存時に使用） */
-  const savedBody = ref("");
 
   function startEditing(todo: Todo) {
     editingTodoId.value = todo.id;
     editBody.value = todo.body;
     editIcon.value = todo.icon;
-    savedBody.value = todo.body;
   }
 
   async function saveEdit(body: string): Promise<boolean> {
@@ -38,11 +36,6 @@ export function useTodoActions({ pendingTodos, fetchData }: UseTodoActionsOption
     if (!result.ok) return false;
     await fetchData();
     return true;
-  }
-
-  /** アイコン変更時: 編集前の body とマージして保存 */
-  function saveEditIcon() {
-    void saveEdit(savedBody.value);
   }
 
   /** 保存ボタン / Enter: 編集中の body で保存してパネルを閉じる */
@@ -68,12 +61,10 @@ export function useTodoActions({ pendingTodos, fetchData }: UseTodoActionsOption
 
   const isAddingTodo = ref(false);
   const newTodoBody = ref("");
-  const newTodoIcon = ref<string>();
 
   function startAddingTodo() {
     isAddingTodo.value = true;
     newTodoBody.value = "";
-    newTodoIcon.value = undefined;
   }
 
   async function saveNewTodo() {
@@ -81,9 +72,7 @@ export function useTodoActions({ pendingTodos, fetchData }: UseTodoActionsOption
       isAddingTodo.value = false;
       return;
     }
-    const result = await tryCatch(
-      request.todoAdd({ body: newTodoBody.value, icon: newTodoIcon.value }),
-    );
+    const result = await tryCatch(request.todoAdd({ body: newTodoBody.value }));
     if (!result.ok) return;
     isAddingTodo.value = false;
     await fetchData();
@@ -91,6 +80,18 @@ export function useTodoActions({ pendingTodos, fetchData }: UseTodoActionsOption
 
   function cancelNewTodo() {
     isAddingTodo.value = false;
+  }
+
+  // --- アイコン更新（リスト上の直接操作） ---
+
+  async function updateTodoIcon(todo: Todo, icon: string | undefined) {
+    const result = await tryCatch(request.todoUpdate({ id: todo.id, body: todo.body, icon }));
+    if (!result.ok) return;
+    // 編集中の todo のアイコンが変わった場合、saveEdit が古い値で上書きしないよう同期する
+    if (editingTodoId.value === todo.id) {
+      editIcon.value = icon;
+    }
+    await fetchData();
   }
 
   // --- Todo 操作 ---
@@ -118,19 +119,18 @@ export function useTodoActions({ pendingTodos, fetchData }: UseTodoActionsOption
     // インライン編集
     editingTodoId,
     editBody,
-    editIcon,
     startEditing,
-    saveEditIcon,
     submitEdit,
     cancelEdit,
     handleToggleEdit,
     // 新規作成
     isAddingTodo,
     newTodoBody,
-    newTodoIcon,
     startAddingTodo,
     saveNewTodo,
     cancelNewTodo,
+    // アイコン更新
+    updateTodoIcon,
     // 操作
     handleTodoRemove,
     editWorktreeTodo,

@@ -81,7 +81,6 @@ const {
   handleBranchLink,
   isAddingWorktree,
   newWorktreeBody,
-  newWorktreeIcon,
   startAddingWorktree,
   submitNewWorktree,
   cancelNewWorktree,
@@ -90,17 +89,15 @@ const {
 const {
   editingTodoId,
   editBody,
-  editIcon,
   submitEdit,
   cancelEdit,
-  saveEditIcon,
   handleToggleEdit,
   isAddingTodo,
   newTodoBody,
-  newTodoIcon,
   startAddingTodo,
   saveNewTodo,
   cancelNewTodo,
+  updateTodoIcon,
   handleTodoRemove,
   editWorktreeTodo,
 } = useTodoActions({ pendingTodos, fetchData });
@@ -174,22 +171,20 @@ function handleMenuTodoCreateWorktree(todo: import("@gozd/rpc").Todo) {
         "
         @add="startAddingWorktree"
         @set-view-mode="terminalStore.viewMode = $event"
+        @update-icon="updateTodoIcon"
       >
         <template #after-item="{ wt }">
           <TodoEditor
             v-if="wt.todo && editingTodoId === wt.todo.id"
             v-model:body="editBody"
-            v-model:icon="editIcon"
             @save="submitEdit"
             @cancel="cancelEdit"
-            @icon-change="saveEditIcon"
           />
         </template>
         <template #add-form>
           <TodoEditor
             v-if="isAddingWorktree"
             v-model:body="newWorktreeBody"
-            v-model:icon="newWorktreeIcon"
             @save="submitNewWorktree"
             @cancel="cancelNewWorktree"
           />
@@ -206,22 +201,20 @@ function handleMenuTodoCreateWorktree(todo: import("@gozd/rpc").Todo) {
           (anchorName, todo) => sidebarMenuRef?.openMenu(anchorName, { type: 'todo', todo })
         "
         @start-add="startAddingTodo"
+        @update-icon="updateTodoIcon"
       >
         <template #after-item="{ todo }">
           <TodoEditor
             v-if="editingTodoId === todo.id"
             v-model:body="editBody"
-            v-model:icon="editIcon"
             @save="submitEdit"
             @cancel="cancelEdit"
-            @icon-change="saveEditIcon"
           />
         </template>
         <template #add-form>
           <TodoEditor
             v-if="isAddingTodo"
             v-model:body="newTodoBody"
-            v-model:icon="newTodoIcon"
             placeholder="First line becomes the title"
             @save="saveNewTodo"
             @cancel="cancelNewTodo"

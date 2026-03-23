@@ -37,7 +37,6 @@ export function useWorktreeActions({
 
   const isAddingWorktree = ref(false);
   const newWorktreeBody = ref("");
-  const newWorktreeIcon = ref<string>();
   /** worktree のディレクトリ名・ブランチ名（パネル表示時に確定） */
   const newWorktreeDir = ref("");
 
@@ -46,7 +45,6 @@ export function useWorktreeActions({
     const id = generateTimestamp();
     newWorktreeDir.value = id;
     newWorktreeBody.value = id;
-    newWorktreeIcon.value = undefined;
   }
 
   async function submitNewWorktree() {
@@ -56,9 +54,7 @@ export function useWorktreeActions({
     }
     if (isCreating.value) return;
     isCreating.value = true;
-    const addResult = await tryCatch(
-      request.todoAdd({ body: newWorktreeBody.value, icon: newWorktreeIcon.value }),
-    );
+    const addResult = await tryCatch(request.todoAdd({ body: newWorktreeBody.value }));
     if (!addResult.ok) {
       isCreating.value = false;
       return;
@@ -187,7 +183,6 @@ export function useWorktreeActions({
     // 新規作成パネル
     isAddingWorktree,
     newWorktreeBody,
-    newWorktreeIcon,
     newWorktreeDir,
     startAddingWorktree,
     submitNewWorktree,

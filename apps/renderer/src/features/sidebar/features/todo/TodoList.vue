@@ -2,11 +2,13 @@
 サイドバーの TODOS セクション。未着手の Todo（worktree 未紐づけ）の一覧を表示する。
 
 各 Todo 行の後と末尾にスロットを提供し、インライン編集フォームや新規追加フォームを差し込める。
+アイコンは TodoIconButton で直接クリック → popover ピッカーで変更できる。
 </doc>
 
 <script setup lang="ts">
 import type { Todo } from "@gozd/rpc";
 import { todoTitle } from "../../utils";
+import TodoIconButton from "./TodoIconButton.vue";
 
 defineProps<{
   todos: Todo[];
@@ -18,6 +20,7 @@ defineEmits<{
   toggleEdit: [todo: Todo];
   openMenu: [anchorName: string, todo: Todo];
   startAdd: [];
+  updateIcon: [todo: Todo, icon: string | undefined];
 }>();
 
 defineSlots<{
@@ -34,7 +37,9 @@ defineSlots<{
       <div
         class="group/td relative grid grid-cols-[auto_1fr_auto] gap-x-2 rounded-sm py-1.5 pl-2 hover:bg-zinc-800"
       >
-        <span class="mt-0.5 text-base text-zinc-600">{{ todo.icon || "☐" }}</span>
+        <TodoIconButton :icon="todo.icon" @update="$emit('updateIcon', todo, $event)">
+          <span class="text-zinc-600">☐</span>
+        </TodoIconButton>
         <button
           class="truncate text-left text-sm text-zinc-400 after:absolute after:inset-0"
           @click="$emit('toggleEdit', todo)"

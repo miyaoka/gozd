@@ -1,23 +1,22 @@
 <doc lang="md">
-Todo のインライン編集フォーム。アイコン選択 + テキスト入力 + 保存/キャンセルボタンを提供する。
+Todo のインライン編集フォーム。テキスト入力 + 保存/キャンセルボタンを提供する。
 マウント時に textarea を自動フォーカスする。
+
+アイコン選択は TodoIconButton がリスト上で直接担当するため、このコンポーネントでは扱わない。
 </doc>
 
 <script setup lang="ts">
 import { computed, onMounted, useTemplateRef } from "vue";
-import TodoIconPicker from "./TodoIconPicker.vue";
 
 defineProps<{
   placeholder?: string;
 }>();
 
 const body = defineModel<string>("body", { required: true });
-const icon = defineModel<string | undefined>("icon");
 
 const emit = defineEmits<{
   save: [];
   cancel: [];
-  iconChange: [];
 }>();
 
 const isEmpty = computed(() => body.value.trim() === "");
@@ -41,7 +40,6 @@ function onEnterSubmit(e: KeyboardEvent) {
 
 <template>
   <div class="mx-2 mt-1 mb-2">
-    <TodoIconPicker v-model="icon" @update:model-value="emit('iconChange')" />
     <textarea
       ref="textarea"
       v-model="body"

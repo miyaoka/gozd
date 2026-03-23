@@ -65,6 +65,12 @@ watch(showSignal, () => {
   showDialog();
   nextTick(() => {
     inputRef.value?.focus();
+    // 初期選択位置までスクロール
+    const list = listRef.value;
+    if (list !== null) {
+      const item = list.children[selectedIndex.value] as HTMLElement | undefined;
+      item?.scrollIntoView({ block: "nearest" });
+    }
   });
 });
 
@@ -204,7 +210,7 @@ function handleKeydown(e: KeyboardEvent) {
   </Dialog>
 </template>
 
-<style scoped>
+<style>
 ._quick-pick-dialog {
   padding: 0;
   border: none;
@@ -213,6 +219,6 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 ._quick-pick-dialog::backdrop {
-  background: rgb(0 0 0 / 30%);
+  background: transparent;
 }
 </style>

@@ -10,7 +10,7 @@ import { useCommandRegistry } from "../../shared/command";
 import { useQuickPick } from "../../shared/quick-pick";
 import type { QuickPickItem } from "../../shared/quick-pick";
 import { useRpc } from "../../shared/rpc";
-import { currentTheme } from "./terminalConfig";
+import { currentTheme, currentThemeName } from "./terminalConfig";
 
 /**
  * テーマ適用の世代トークン。
@@ -33,6 +33,7 @@ async function restoreSavedTheme(
   if (gen !== generation) return;
   if (theme !== undefined) {
     currentTheme.value = theme;
+    currentThemeName.value = terminalTheme;
   }
 }
 
@@ -58,9 +59,15 @@ export function registerThemeCommand(): () => void {
         ...lightThemeNames.map((name) => ({ label: name })),
       ];
 
+      const activeIndex =
+        currentThemeName.value !== undefined
+          ? items.findIndex((item) => item.label === currentThemeName.value)
+          : undefined;
+
       show({
         items,
         placeholder: "Select a terminal theme...",
+        activeIndex: activeIndex !== -1 ? activeIndex : undefined,
         onHighlight: (item) => {
           const gen = ++generation;
           void loadTheme(item.label).then((theme) => {
@@ -76,6 +83,7 @@ export function registerThemeCommand(): () => void {
             if (gen !== generation) return;
             if (theme !== undefined) {
               currentTheme.value = theme;
+              currentThemeName.value = item.label;
               void request.configSave({ terminalTheme: item.label });
             }
           });

@@ -3,16 +3,16 @@ packages:
   - packages/*
 
 allowBuilds:
-  "@tailwindcss/oxide": true
+  '@tailwindcss/oxide': true
   esbuild: true
   lefthook: true
   unrs-resolver: true
 
 catalog:
-  "@tailwindcss/vite": 4.2.2
-  "@types/bun": 1.3.11
-  "@types/node": 24.12.0
-  "@typescript/native-preview": 7.0.0-dev.20260320.1
+  '@tailwindcss/vite': 4.2.2
+  '@types/bun': 1.3.11
+  '@types/node': 24.12.0
+  '@typescript/native-preview': 7.0.0-dev.20260320.1
   electrobun: 1.16.0
   eslint: 10.0.3
   eslint-plugin-import-x: 4.16.2
@@ -26,27 +26,22 @@ catalog:
   vite: 8.0.1
   zod: 4.3.6
 
+enableGlobalVirtualStore: true
+
 minimumReleaseAge: 4320
 
-
-# phantom dependency のワークアラウンド（enableGlobalVirtualStore で顕在化）
-# electrobun が @types/three を dependencies に含めていない問題
-# blackboardsh/electrobun#280 が修正されたら削除する
-# tailwind-csstree が @eslint/css-tree を dependencies に含めていない問題（0.1.5 で dependency 削除、0.2.0 では @eslint/css を peerDep に変更したが @eslint/css-tree は未宣言）
-# @iconify/tailwind4 が @iconify-json/lucide を動的に読み込む問題
-packageExtensions:
-  electrobun@1.16.0:
-    dependencies:
-      "@types/three": "^0.181.0"
-  tailwind-csstree@0.2.0:
-    dependencies:
-      "@eslint/css-tree": "*"
-  "@iconify/tailwind4@1.2.3":
-    dependencies:
-      "@iconify-json/lucide": "*"
 overrides:
   tailwind-csstree: 0.2.0
 
-enableGlobalVirtualStore: true
+packageExtensions:
+  '@iconify/tailwind4@1.2.3':
+    dependencies:
+      '@iconify-json/lucide': '*'
+  electrobun@1.16.0:
+    dependencies:
+      '@types/three': ^0.181.0
+  tailwind-csstree@0.2.0:
+    dependencies:
+      '@eslint/css-tree': '*'
 
 shellEmulator: true

@@ -23,3 +23,6 @@ export const terminalConfig: TerminalConfig = DEFAULT_TERMINAL_CONFIG;
  * 未指定のプロパティは xterm.js のデフォルト値が使われる。
  */
 export const currentTheme = ref<Partial<XtermTheme>>(DEFAULT_TERMINAL_CONFIG.theme);
+
+/** 現在適用中のテーマ名。未選択（デフォルト）の場合は undefined */
+export const currentThemeName = ref<string>();

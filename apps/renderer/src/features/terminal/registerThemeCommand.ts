@@ -12,15 +12,25 @@ import type { QuickPickItem } from "../../shared/quick-pick";
 import { useRpc } from "../../shared/rpc";
 import { currentTheme } from "./terminalConfig";
 
+/**
+ * テーマ適用の世代トークン。
+ * 起動時復元と QuickPick の両方で共有し、後から来たリクエストが
+ * 先行リクエストの結果を破棄できるようにする。
+ */
+let generation = 0;
+
 /** 起動時に保存済みテーマを復元する */
 async function restoreSavedTheme(
   configLoad: () => Promise<{ terminalTheme?: string }>,
 ): Promise<void> {
+  const gen = ++generation;
   const result = await tryCatch(configLoad());
+  if (gen !== generation) return;
   if (!result.ok) return;
   const { terminalTheme } = result.value;
   if (terminalTheme === undefined) return;
   const theme = await loadTheme(terminalTheme);
+  if (gen !== generation) return;
   if (theme !== undefined) {
     currentTheme.value = theme;
   }
@@ -38,11 +48,6 @@ export function registerThemeCommand(): () => void {
     label: "Terminal: Select Theme",
     handler: () => {
       const previousTheme = { ...currentTheme.value };
-
-      // 非同期ロードの競合を防止する世代トークン。
-      // 新しいリクエストが発行されるたびにインクリメントし、
-      // 完了時にトークンが最新でなければ結果を破棄する。
-      let generation = 0;
 
       const items: QuickPickItem[] = [
         { label: "Dark", separator: true },

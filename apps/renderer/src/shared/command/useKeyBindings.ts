@@ -71,8 +71,10 @@ function shouldHandle(e: KeyboardEvent): boolean {
   const contextKeys = useContextKeys();
 
   // xterm は内部 textarea にフォーカスを持つが、ターミナルフォーカス時は
-  // input/textarea 除外をスキップしてショートカットを有効にする
-  if (!contextKeys.get("terminalFocus")) {
+  // input/textarea 除外をスキップしてショートカットを有効にする。
+  // modifier キー（meta/ctrl/alt）付きの場合はショートカットとして扱い、除外しない
+  // （コマンドパレット等の input 内で Cmd+Shift+P を通すため）
+  if (!contextKeys.get("terminalFocus") && !e.metaKey && !e.ctrlKey && !e.altKey) {
     const target = e.target;
     if (target instanceof HTMLElement) {
       const tagName = target.tagName;

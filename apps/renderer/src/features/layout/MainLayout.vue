@@ -18,6 +18,7 @@ import { useWindowSize } from "@vueuse/core";
 import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch, watchEffect } from "vue";
 import { useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRpc } from "../../shared/rpc";
+import { CommandPalette } from "../command-palette";
 import { GitGraphPane } from "../git-graph";
 import { NavigatorPane } from "../navigator";
 import { PreviewPane } from "../preview";
@@ -30,6 +31,8 @@ const worktreeStore = useWorktreeStore();
 const contextKeys = useContextKeys();
 const previewPopoverRef = useTemplateRef<HTMLElement>("previewPopover");
 const navigatorPaneRef = useTemplateRef<InstanceType<typeof NavigatorPane>>("navigatorPane");
+const commandPaletteRef = useTemplateRef<InstanceType<typeof CommandPalette>>("commandPalette");
+onUnmounted(() => commandPaletteRef.value?.dispose());
 
 // レイアウト・ウィンドウスコープのコマンド登録
 const { register } = useCommandRegistry();
@@ -245,6 +248,8 @@ watchEffect(() => {
         <PreviewPane @close="closePreview" />
       </div>
     </div>
+
+    <CommandPalette ref="commandPalette" />
   </div>
 </template>
 

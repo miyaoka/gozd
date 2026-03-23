@@ -42,6 +42,7 @@ export interface KeyStroke {
 export interface ContextMap {
   terminalFocus: boolean;
   previewVisible: boolean;
+  commandPaletteVisible: boolean;
 }
 
 export type ContextKey = keyof ContextMap;

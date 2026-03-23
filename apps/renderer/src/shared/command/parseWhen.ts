@@ -17,7 +17,11 @@ import type { ContextKey, ContextMap, When } from "./types";
 
 /** 既知の context key 名の集合（型安全性の担保） */
 const KNOWN_KEYS = new Set<string>(
-  Object.keys({ terminalFocus: true, previewVisible: true } satisfies ContextMap),
+  Object.keys({
+    terminalFocus: true,
+    previewVisible: true,
+    commandPaletteVisible: true,
+  } satisfies ContextMap),
 );
 
 function isContextKey(name: string): name is ContextKey {

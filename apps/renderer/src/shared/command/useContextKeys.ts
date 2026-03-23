@@ -8,6 +8,7 @@ import type { ContextKey, ContextMap, When } from "./types";
 const INITIAL_STATE: ContextMap = {
   terminalFocus: false,
   previewVisible: false,
+  commandPaletteVisible: false,
 };
 
 const state = reactive<ContextMap>({ ...INITIAL_STATE });

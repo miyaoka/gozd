@@ -1,4 +1,5 @@
 [
+  { "key": "shift+cmd+p", "command": "commandPalette.show" },
   { "key": "cmd+j", "command": "preview.toggle" },
   { "key": "cmd+d", "command": "terminal.splitHorizontal", "when": "terminalFocus" },
   { "key": "shift+cmd+d", "command": "terminal.splitVertical", "when": "terminalFocus" },

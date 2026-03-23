@@ -47,8 +47,13 @@ const selectableIndices = computed(() => {
   return indices;
 });
 
-/** selectedIndex を最初の選択可能アイテムにリセット */
+/**
+ * filteredItems 変更時に選択を先頭にリセットする。
+ * ただし showSignal 処理中は activeIndex を優先するため抑制する。
+ */
+let suppressFilterReset = false;
 watch(filteredItems, () => {
+  if (suppressFilterReset) return;
   const [first] = selectableIndices.value;
   selectedIndex.value = first ?? 0;
 });
@@ -56,11 +61,13 @@ watch(filteredItems, () => {
 /** Open dialog when showSignal changes */
 watch(showSignal, () => {
   if (currentOptions.value === undefined) return;
+  suppressFilterReset = true;
   query.value = "";
   const initial = currentOptions.value.activeIndex ?? 0;
   selectedIndex.value = selectableIndices.value.includes(initial)
     ? initial
     : (selectableIndices.value[0] ?? 0);
+  suppressFilterReset = false;
   accepted = false;
   showDialog();
   nextTick(() => {

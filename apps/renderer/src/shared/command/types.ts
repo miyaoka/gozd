@@ -43,6 +43,7 @@ export interface ContextMap {
   terminalFocus: boolean;
   previewVisible: boolean;
   commandPaletteVisible: boolean;
+  inputFocused: boolean;
 }
 
 export type ContextKey = keyof ContextMap;

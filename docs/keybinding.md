@@ -80,7 +80,6 @@ global keydown listener（capture phase）で以下の順に処理する。
 - `e.defaultPrevented` → 除外
 - `e.isComposing` → 除外（日本語入力中）
 - `e.repeat` → 除外（連打防止）
-- `terminalFocus` が false かつ target が input/textarea/contenteditable → 除外
 - macOS 予約キー（Cmd+C/V/X/A/Z/Q/H/M/,）→ 除外
 
 ### ディスパッチ

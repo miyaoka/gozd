@@ -68,19 +68,6 @@ function shouldHandle(e: KeyboardEvent): boolean {
   // 構造変更コマンドの連打防止
   if (e.repeat) return false;
 
-  const contextKeys = useContextKeys();
-
-  // xterm は内部 textarea にフォーカスを持つが、ターミナルフォーカス時は
-  // input/textarea 除外をスキップしてショートカットを有効にする
-  if (!contextKeys.get("terminalFocus")) {
-    const target = e.target;
-    if (target instanceof HTMLElement) {
-      const tagName = target.tagName;
-      if (tagName === "INPUT" || tagName === "TEXTAREA") return false;
-      if (target.isContentEditable) return false;
-    }
-  }
-
   // macOS 予約キー（Cmd+C/V/X/A/Z/Q/H/M/,）は OS に委ねる
   if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
     if (MAC_RESERVED_CODES.has(e.code)) return false;
@@ -89,9 +76,25 @@ function shouldHandle(e: KeyboardEvent): boolean {
   return true;
 }
 
+/** フォーカス対象が editable 要素か判定する */
+function isEditableElement(el: EventTarget | null): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  const tag = el.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA") return true;
+  return el.isContentEditable;
+}
+
 export function useKeyBindings() {
   const registry = useCommandRegistry();
   const contextKeys = useContextKeys();
+
+  // inputFocused context key をフォーカス変化で更新
+  useEventListener(document, "focusin", (e: FocusEvent) => {
+    contextKeys.set("inputFocused", isEditableElement(e.target));
+  });
+  useEventListener(document, "focusout", () => {
+    contextKeys.set("inputFocused", false);
+  });
 
   // default + user（将来）を concat して resolve
   const resolved = resolveBindings(DEFAULT_KEY_BINDINGS);

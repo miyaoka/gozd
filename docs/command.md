@@ -101,6 +101,7 @@ interface ContextMap {
   terminalFocus: boolean;
   previewVisible: boolean;
   commandPaletteVisible: boolean;
+  inputFocused: boolean;
 }
 ```
 
@@ -109,6 +110,7 @@ interface ContextMap {
 | `terminalFocus`         | xterm の focus/blur + worktree 切替 / closePane / visibilitychange で更新         |
 | `previewVisible`        | MainLayout の `watchEffect` で `previewOpen` を同期（Preview popover の開閉状態） |
 | `commandPaletteVisible` | CommandPalette の show/close で更新                                               |
+| `inputFocused`          | useKeyBindings の focusin/focusout で更新。input/textarea/contenteditable を検出  |
 
 ### When 条件
 

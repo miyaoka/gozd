@@ -287,20 +287,19 @@ function scheduleGitStatusUpdate(win: GozdWindow, root: string) {
     }
 
     gitStatusInFlight.add(win);
-    const [statusResult, headResult] = await Promise.all([
-      tryCatch(getGitStatus(root)),
-      tryCatch(new Response(Bun.spawn(["git", "rev-parse", "HEAD"], { cwd: root }).stdout).text()),
-    ]);
+    const result = await tryCatch(getGitStatus(root));
     gitStatusInFlight.delete(win);
-    if (gitStatusNeedsRerun.has(win)) {
+    const needsRerun = gitStatusNeedsRerun.has(win);
+    if (needsRerun) {
       gitStatusNeedsRerun.delete(win);
       scheduleGitStatusUpdate(win, root);
     }
-    if (!statusResult.ok) return;
+    if (!result.ok) return;
     // 世代が変わっていたら stale な結果を捨てる
     if ((windowSwitchGen.get(win) ?? 0) !== gen) return;
-    const head = headResult.ok ? headResult.value.trim() : "";
-    win.webview.rpc?.send.gitStatusChange({ statuses: statusResult.value, head });
+    // 再実行が予約されている場合、この結果は stale な可能性があるため送信しない
+    if (needsRerun) return;
+    win.webview.rpc?.send.gitStatusChange(result.value);
   }, GIT_STATUS_DEBOUNCE_MS);
 
   gitStatusTimers.set(win, timer);
@@ -342,19 +341,27 @@ function startWatching(win: GozdWindow, root: string) {
     const indexPath = path.join(gitDir, "index");
     const headPath = path.join(gitDir, "HEAD");
 
-    function resolveCurrentRefPath(): string | undefined {
+    /** HEAD が指す ref の実ファイルパスを解決する。worktree では refs は commondir にあるため git に解決させる */
+    async function resolveCurrentRefPath(): Promise<string | undefined> {
       try {
         const headContent = fs.readFileSync(headPath, "utf-8").trim();
-        if (headContent.startsWith("ref: ")) {
-          return path.join(gitDir, headContent.slice(5));
-        }
+        if (!headContent.startsWith("ref: ")) return undefined;
+        const refName = headContent.slice(5);
+        const result = await tryCatch(
+          new Response(
+            Bun.spawn(["git", "rev-parse", "--git-path", refName], { cwd: root }).stdout,
+          ).text(),
+        );
+        if (!result.ok) return undefined;
+        const resolved = result.value.trim();
+        return path.isAbsolute(resolved) ? resolved : path.resolve(root, resolved);
       } catch {
         // detached HEAD 等
       }
       return undefined;
     }
 
-    let currentRefPath = resolveCurrentRefPath();
+    let currentRefPath = await resolveCurrentRefPath();
 
     function syncGitWatchedFiles() {
       const files = [indexPath, headPath];
@@ -362,8 +369,8 @@ function startWatching(win: GozdWindow, root: string) {
       windowGitWatchedFiles.set(win, files);
     }
 
-    function updateRefWatch() {
-      const newRefPath = resolveCurrentRefPath();
+    async function updateRefWatch() {
+      const newRefPath = await resolveCurrentRefPath();
       if (newRefPath === currentRefPath) return;
 
       if (currentRefPath) {
@@ -382,8 +389,8 @@ function startWatching(win: GozdWindow, root: string) {
       scheduleGitStatusUpdate(win, root);
     });
 
-    fs.watchFile(headPath, { interval: GIT_WATCH_POLL_MS }, () => {
-      updateRefWatch();
+    fs.watchFile(headPath, { interval: GIT_WATCH_POLL_MS }, async () => {
+      await updateRefWatch();
       scheduleGitStatusUpdate(win, root);
     });
 
@@ -635,7 +642,7 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
           if (!result.ok) return "";
           return result.value;
         },
-        gitStatus: () => getGitStatus(currentDir),
+        gitStatus: async () => (await getGitStatus(currentDir)).statuses,
         gitCommitFiles: ({ hash, compareHash }) => getGitCommitFiles(currentDir, hash, compareHash),
         gitLog: ({ maxCount, firstParentOnly }) =>
           getGitLog({ cwd: currentDir, maxCount, firstParentOnly }),

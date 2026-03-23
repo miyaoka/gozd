@@ -56,7 +56,7 @@ flowchart LR
 | `ptyData`         | `{ id, data }`                                         | PTY 出力                                   |
 | `ptyExit`         | `{ id, exitCode }`                                     | PTY 終了                                   |
 | `fsChange`        | `{ relDir }`                                           | ファイル変更通知                           |
-| `gitStatusChange` | `{ statuses }`                                         | git status 変化                            |
+| `gitStatusChange` | `{ statuses, head }`                                   | git status 変化 + HEAD ハッシュ            |
 | `worktreeChange`  | `void`                                                 | 非アクティブ worktree でのファイル変更通知 |
 | `gozdOpen`        | `{ dir, file?, fileServerBaseUrl, channel, repoName }` | ウィンドウ open                            |
 | `gozdHook`        | `{ event, payload }`                                   | Claude Code Hook イベント                  |

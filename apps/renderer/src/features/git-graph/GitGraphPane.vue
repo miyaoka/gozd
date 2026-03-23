@@ -67,12 +67,16 @@ function recomputeLayout() {
 
 /** 前回の HEAD ハッシュ。gitStatusChange で変化を検知するために使用 */
 let lastHead = "";
+/** loadLog の世代管理。並行実行で古いレスポンスが後着して上書きするのを防ぐ */
+let loadLogGen = 0;
 
 async function loadLog() {
+  const gen = ++loadLogGen;
   const result = await request.gitLog({
     maxCount: 200,
     firstParentOnly: firstParentOnly.value || undefined,
   });
+  if (gen !== loadLogGen) return;
   commits.value = result;
   lastHead = findHeadCommit(result)?.hash ?? "";
   recomputeLayout();

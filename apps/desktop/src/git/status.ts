@@ -12,15 +12,29 @@ export async function filterIgnored(entries: string[], cwd: string): Promise<Set
   return new Set(text.split("\n").filter(Boolean));
 }
 
-export async function getGitStatus(cwd: string): Promise<Record<string, string>> {
+export interface GitStatusResult {
+  statuses: Record<string, string>;
+  /** HEAD のフルコミットハッシュ。取得できない場合は空文字列 */
+  head: string;
+}
+
+/**
+ * git status --porcelain=v2 --branch -z で、ファイル変更と HEAD ハッシュを単一コマンドで取得する。
+ * v2 の branch ヘッダー `# branch.oid <hash>` から HEAD を読み取るため、
+ * 別途 git rev-parse HEAD を呼ぶ必要がない（スナップショットの一貫性を保証）。
+ */
+export async function getGitStatus(cwd: string): Promise<GitStatusResult> {
   const result = await tryCatch(
     new Response(
-      Bun.spawn(["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"], { cwd }).stdout,
+      Bun.spawn(["git", "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"], {
+        cwd,
+      }).stdout,
     ).text(),
   );
-  if (!result.ok) return {};
+  if (!result.ok) return { statuses: {}, head: "" };
   const stdout = result.value;
   const statuses: Record<string, string> = {};
+  let head = "";
   const parts = stdout.split("\0");
   let i = 0;
   while (i < parts.length) {
@@ -29,20 +43,82 @@ export async function getGitStatus(cwd: string): Promise<Record<string, string>>
       i++;
       continue;
     }
-    const status = entry.slice(0, 2);
-    const filePath = entry.slice(3);
-    if (status[0] === "R" || status[0] === "C") {
-      i++;
-      const newPath = parts[i];
-      if (newPath !== undefined) {
-        statuses[newPath] = status;
+
+    // branch ヘッダー行（# branch.oid <hash>）
+    if (entry.startsWith("# branch.oid ")) {
+      const oid = entry.slice("# branch.oid ".length);
+      if (oid !== "(initial)") {
+        head = oid;
       }
-    } else {
-      statuses[filePath] = status;
+      i++;
+      continue;
     }
+    // その他の branch ヘッダー行はスキップ
+    if (entry.startsWith("# ")) {
+      i++;
+      continue;
+    }
+
+    // v2 changed entry: "1 XY <sub> <mH> <mI> <mW> <hH> <hI> <path>" (8 spaces before path)
+    if (entry.startsWith("1 ")) {
+      const xy = entry.slice(2, 4);
+      const pathStart = nthIndex(entry, " ", 8);
+      if (pathStart !== -1) {
+        statuses[entry.slice(pathStart + 1)] = xy;
+      }
+      i++;
+      continue;
+    }
+    // v2 unmerged entry: "u XY <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>" (10 spaces before path)
+    if (entry.startsWith("u ")) {
+      const xy = entry.slice(2, 4);
+      const pathStart = nthIndex(entry, " ", 10);
+      if (pathStart !== -1) {
+        statuses[entry.slice(pathStart + 1)] = xy;
+      }
+      i++;
+      continue;
+    }
+    // v2 rename/copy: "2 XY <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path>"
+    // -z では <path> の後に NUL 区切りで <origPath> が続く
+    if (entry.startsWith("2 ")) {
+      const xy = entry.slice(2, 4);
+      const pathStart = nthIndex(entry, " ", 9);
+      if (pathStart !== -1) {
+        const newPath = entry.slice(pathStart + 1);
+        statuses[newPath] = xy;
+      }
+      // 次の NUL 区切りエントリは origPath なのでスキップ
+      i += 2;
+      continue;
+    }
+    // untracked: "? <path>"
+    if (entry.startsWith("? ")) {
+      statuses[entry.slice(2)] = "??";
+      i++;
+      continue;
+    }
+    // ignored: "! <path>"
+    if (entry.startsWith("! ")) {
+      i++;
+      continue;
+    }
+
     i++;
   }
-  return statuses;
+  return { statuses, head };
+}
+
+/** 文字列中の n 番目の char の位置を返す。見つからなければ -1 */
+function nthIndex(str: string, char: string, n: number): number {
+  let count = 0;
+  for (let i = 0; i < str.length; i++) {
+    if (str[i] === char) {
+      count++;
+      if (count === n) return i;
+    }
+  }
+  return -1;
 }
 
 /**
@@ -143,6 +219,11 @@ function parseDiffNameStatus(stdout: string): GitFileChange[] {
   return changes;
 }
 
+/** XY コードで「未変更」を表す文字か判定する（v1: " ", v2: "."） */
+function isUnchanged(char: string | undefined): boolean {
+  return char === " " || char === "." || char === undefined;
+}
+
 /** git status の2文字コードから変更種別ごとのファイル数を算出 */
 export function countChanges(statuses: Record<string, string>): WorktreeChangeCounts {
   let modified = 0;
@@ -156,7 +237,7 @@ export function countChanges(statuses: Record<string, string>): WorktreeChangeCo
       continue;
     }
     // worktree 側 (Y) を優先、なければ index 側 (X) を使う
-    const code = status[1] !== " " ? status[1] : status[0];
+    const code = isUnchanged(status[1]) ? status[0] : status[1];
     switch (code) {
       case "A":
         added++;

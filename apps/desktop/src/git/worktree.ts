@@ -165,7 +165,7 @@ async function createWorktreeSymlinks(
 export async function attachChangeCounts(entries: WorktreeEntry[]): Promise<WorktreeEntry[]> {
   await Promise.all(
     entries.map(async (entry) => {
-      const statuses = await getGitStatus(entry.path);
+      const { statuses } = await getGitStatus(entry.path);
       entry.changeCounts = countChanges(statuses);
     }),
   );

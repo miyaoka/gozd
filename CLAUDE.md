@@ -79,10 +79,12 @@ gozd/
 │           │   └── voicevox/    # VOICEVOX 音声合成
 │           └── shared/    # feature に依存しない共通モジュール
 │               ├── command/     # コマンドシステム + keybinding
+│               ├── quick-pick/  # 汎用 QuickPick ダイアログ
 │               └── rpc/         # Electrobun RPC composable
 ├── packages/
 │   ├── rpc/               # RPC スキーマ型定義（bun ↔ webview）
-│   └── shared/            # 全パッケージ共通ユーティリティ（Result 型 + tryCatch）
+│   ├── shared/            # 全パッケージ共通ユーティリティ（Result 型 + tryCatch）
+│   └── themes/            # ターミナルテーマ（iTerm2-Color-Schemes vendor + 変換ロジック）
 ├── docs/                  # 設計文書
 └── .github/               # CI ワークフロー
 ```

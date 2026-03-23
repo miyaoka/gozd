@@ -12,8 +12,9 @@ features/terminal/
 ├── SplitResizeHandle.vue         # 分割リサイズハンドル（ドラッグ）
 ├── XtermTerminal.vue             # xterm.js ターミナルエミュレータ
 ├── splitTree.ts                  # immutable な分割ツリー操作（split, remove, resize）
-├── terminalConfig.ts             # 共通設定（フォント、テーマ）
+├── terminalConfig.ts             # 共通設定（フォント、スクロールバック、テーマ ref）
 ├── registerTerminalCommands.ts   # 分割・ナビゲーションコマンドの登録
+├── registerThemeCommand.ts       # テーマ選択コマンド（QuickPick + リアルタイムプレビュー）
 ├── useTerminalStore.ts           # worktree ごとの分割レイアウト状態管理（Pinia）
 ├── useFilePathLinkProvider.ts    # ターミナル出力のファイルパス検出・クリック
 ├── useSplitResize.ts             # ratio ベースのリサイズ管理
@@ -136,10 +137,10 @@ leafNode
 ## 設定（terminalConfig.ts）
 
 - フォント: UDEV Gothic 35NF, Menlo, monospace（13px）
-- テーマ: zinc 系ダークテーマ（xterm 背景 `#18181b`）
+- テーマ: `@gozd/themes` パッケージから iTerm2-Color-Schemes ベースのテーマを選択可能。コマンドパレットの "Terminal: Select Theme" で QuickPick が開き、dark/light セクション分けで表示される。フォーカスでリアルタイムプレビュー、Enter で確定保存、Escape でロールバック。選択テーマ名は `config.json` に永続化される
+- デフォルトテーマ: zinc 系ダークテーマ（xterm 背景 `#18181b`）
 - ペイン背景: プロジェクト名（repoName）のハッシュから類似色（+30°）の2色グラデーションを生成。非アクティブ leaf は `opacity-50` で背景が透ける
 - カーソル: 点滅有効
-- ANSI カラーは xterm.js のデフォルトパレットを使用
 
 ## スクロール位置保持（xterm.js）
 

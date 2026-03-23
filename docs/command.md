@@ -9,6 +9,7 @@ flowchart TB
     subgraph entry [入口]
         KB[keybinding]
         CP[コマンドパレット]
+        QP[QuickPick]
         MENU[メニュー]
     end
 
@@ -24,6 +25,7 @@ flowchart TB
 
     KB -->|execute| CR
     CP -->|execute| CR
+    QP -->|execute| CR
     MENU -.->|execute| CR
     CR -->|when 評価| CK
     RC -->|register| CR
@@ -101,6 +103,7 @@ interface ContextMap {
   terminalFocus: boolean;
   previewVisible: boolean;
   commandPaletteVisible: boolean;
+  quickPickVisible: boolean;
   inputFocused: boolean;
 }
 ```
@@ -110,6 +113,7 @@ interface ContextMap {
 | `terminalFocus`         | xterm の focus/blur + worktree 切替 / closePane / visibilitychange で更新         |
 | `previewVisible`        | MainLayout の `watchEffect` で `previewOpen` を同期（Preview popover の開閉状態） |
 | `commandPaletteVisible` | CommandPalette の show/close で更新                                               |
+| `quickPickVisible`      | QuickPick の useDialog isOpen で更新                                              |
 | `inputFocused`          | useKeyBindings の focusin/focusout で更新。input/textarea/contenteditable を検出  |
 
 ### When 条件

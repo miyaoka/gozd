@@ -369,8 +369,14 @@ function startWatching(win: GozdWindow, root: string) {
       windowGitWatchedFiles.set(win, files);
     }
 
+    /** updateRefWatch の直列化用。並行呼び出しで古い完了が新しい ref を上書きするのを防ぐ */
+    let refWatchGen = 0;
+
     async function updateRefWatch() {
+      const gen = ++refWatchGen;
       const newRefPath = await resolveCurrentRefPath();
+      // 非同期中に別の呼び出しが走っていたらこの結果は stale
+      if (gen !== refWatchGen) return;
       if (newRefPath === currentRefPath) return;
 
       if (currentRefPath) {

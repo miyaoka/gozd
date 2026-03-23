@@ -1,6 +1,7 @@
 /**
- * git status --porcelain=v1 のステータスコード（2文字）から変更種別を判定する。
+ * git status --porcelain=v2 のステータスコード（XY の2文字）から変更種別を判定する。
  * X（index）と Y（worktree）のうち、より目立つ方を優先する。
+ * v2 では未変更は "."（v1 では " "）。
  */
 type GitChangeKind = "modified" | "added" | "deleted" | "untracked" | "renamed";
 
@@ -12,15 +13,19 @@ const GIT_STATUS_KIND_MAP: Record<string, GitChangeKind> = {
   C: "renamed",
 };
 
+/** XY コードで「未変更」を表す文字か判定する（v2: "."） */
+function isUnchanged(char: string | undefined): boolean {
+  return char === " " || char === "." || char === undefined;
+}
+
 function resolveGitChangeKind(statusCode: string): GitChangeKind {
   if (statusCode === "??") return "untracked";
   // worktree 側 (Y) を優先、なければ index 側 (X) を使う
-  const worktree = statusCode[1];
-  const index = statusCode[0];
-  if (worktree !== undefined && worktree !== " ") {
+  const [index, worktree] = statusCode;
+  if (!isUnchanged(worktree)) {
     return GIT_STATUS_KIND_MAP[worktree] ?? "modified";
   }
-  if (index !== undefined && index !== " ") {
+  if (!isUnchanged(index)) {
     return GIT_STATUS_KIND_MAP[index] ?? "modified";
   }
   return "modified";

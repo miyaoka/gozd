@@ -59,10 +59,9 @@ export async function getGitStatus(cwd: string): Promise<GitStatusResult> {
       continue;
     }
 
-    // v2 changed entry: "1 XY ..." or "2 XY ..." (rename/copy)
-    if (entry.startsWith("1 ") || entry.startsWith("u ")) {
+    // v2 changed entry: "1 XY <sub> <mH> <mI> <mW> <hH> <hI> <path>" (8 spaces before path)
+    if (entry.startsWith("1 ")) {
       const xy = entry.slice(2, 4);
-      // v2 の path フィールドは9番目（タブ区切りではなくスペース区切り、最後のフィールド）
       const pathStart = nthIndex(entry, " ", 8);
       if (pathStart !== -1) {
         statuses[entry.slice(pathStart + 1)] = xy;
@@ -70,19 +69,27 @@ export async function getGitStatus(cwd: string): Promise<GitStatusResult> {
       i++;
       continue;
     }
-    if (entry.startsWith("2 ")) {
+    // v2 unmerged entry: "u XY <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>" (10 spaces before path)
+    if (entry.startsWith("u ")) {
       const xy = entry.slice(2, 4);
-      // rename/copy: パスは entry の最後のフィールド + 次の NUL 区切りエントリが新パス
-      const pathStart = nthIndex(entry, " ", 9);
+      const pathStart = nthIndex(entry, " ", 10);
       if (pathStart !== -1) {
-        // "oldPath\tnewPath" 形式（-z でも tab 区切り）
-        const paths = entry.slice(pathStart + 1);
-        const tabIdx = paths.indexOf("\t");
-        if (tabIdx !== -1) {
-          statuses[paths.slice(tabIdx + 1)] = xy;
-        }
+        statuses[entry.slice(pathStart + 1)] = xy;
       }
       i++;
+      continue;
+    }
+    // v2 rename/copy: "2 XY <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path>"
+    // -z では <path> の後に NUL 区切りで <origPath> が続く
+    if (entry.startsWith("2 ")) {
+      const xy = entry.slice(2, 4);
+      const pathStart = nthIndex(entry, " ", 9);
+      if (pathStart !== -1) {
+        const newPath = entry.slice(pathStart + 1);
+        statuses[newPath] = xy;
+      }
+      // 次の NUL 区切りエントリは origPath なのでスキップ
+      i += 2;
       continue;
     }
     // untracked: "? <path>"
@@ -212,6 +219,11 @@ function parseDiffNameStatus(stdout: string): GitFileChange[] {
   return changes;
 }
 
+/** XY コードで「未変更」を表す文字か判定する（v1: " ", v2: "."） */
+function isUnchanged(char: string | undefined): boolean {
+  return char === " " || char === "." || char === undefined;
+}
+
 /** git status の2文字コードから変更種別ごとのファイル数を算出 */
 export function countChanges(statuses: Record<string, string>): WorktreeChangeCounts {
   let modified = 0;
@@ -225,7 +237,7 @@ export function countChanges(statuses: Record<string, string>): WorktreeChangeCo
       continue;
     }
     // worktree 側 (Y) を優先、なければ index 側 (X) を使う
-    const code = status[1] !== " " ? status[1] : status[0];
+    const code = isUnchanged(status[1]) ? status[0] : status[1];
     switch (code) {
       case "A":
         added++;

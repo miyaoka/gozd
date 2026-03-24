@@ -115,6 +115,15 @@ export function useTodoActions({ pendingTodos, fetchData }: UseTodoActionsOption
     startEditing(result.value);
   }
 
+  /** worktree クリックで Todo 編集をトグルする */
+  async function toggleWorktreeTodoEdit(wt: WorktreeEntry) {
+    if (wt.todo && editingTodoId.value === wt.todo.id) {
+      cancelEdit();
+      return;
+    }
+    await editWorktreeTodo(wt);
+  }
+
   return {
     // インライン編集
     editingTodoId,
@@ -134,5 +143,6 @@ export function useTodoActions({ pendingTodos, fetchData }: UseTodoActionsOption
     // 操作
     handleTodoRemove,
     editWorktreeTodo,
+    toggleWorktreeTodoEdit,
   };
 }

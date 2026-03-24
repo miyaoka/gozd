@@ -76,14 +76,10 @@ const {
   isCreating,
   isActive,
   handleWorktreeSelect,
+  addWorktree,
   handleWorktreeRemove,
   createWorktreeWithTodo,
   handleBranchLink,
-  isAddingWorktree,
-  newWorktreeBody,
-  startAddingWorktree,
-  submitNewWorktree,
-  cancelNewWorktree,
 } = useWorktreeActions({ worktrees, freeBranches, fetchData, showConfirm, showAlert });
 
 const {
@@ -100,6 +96,7 @@ const {
   updateTodoIcon,
   handleTodoRemove,
   editWorktreeTodo,
+  toggleWorktreeTodoEdit,
 } = useTodoActions({ pendingTodos, fetchData });
 
 const { ctrlPressed } = useCtrlBadge();
@@ -126,6 +123,16 @@ useIntervalFn(() => {
 // --- メニュー ---
 
 const sidebarMenuRef = ref<InstanceType<typeof SidebarMenu>>();
+
+/** worktree クリック: active なら Todo 編集トグル、そうでなければ切り替え */
+function onWorktreeSelect(wt: import("@gozd/rpc").WorktreeEntry) {
+  if (isActive(wt)) {
+    terminalStore.clearDoneStates(wt.path);
+    void toggleWorktreeTodoEdit(wt);
+    return;
+  }
+  handleWorktreeSelect(wt);
+}
 
 function handleMenuTodoCreateWorktree(todo: import("@gozd/rpc").Todo) {
   const timestamp = generateTimestamp();
@@ -159,17 +166,16 @@ function handleMenuTodoCreateWorktree(todo: import("@gozd/rpc").Todo) {
         :loading="worktrees.length === 0"
         :active-dir="worktreeStore.dir"
         :is-creating="isCreating"
-        :is-adding-worktree="isAddingWorktree"
         :ctrl-pressed="ctrlPressed"
         :now="now"
         :view-mode="terminalStore.viewMode"
         :get-claude-statuses="terminalStore.getClaudeStatusesByDir"
-        @select="handleWorktreeSelect"
+        @select="onWorktreeSelect"
         @open-menu="
           (anchorName, wt) =>
             sidebarMenuRef?.openMenu(anchorName, { type: 'worktree', worktree: wt, todo: wt.todo })
         "
-        @add="startAddingWorktree"
+        @add="addWorktree"
         @set-view-mode="terminalStore.viewMode = $event"
         @update-icon="updateTodoIcon"
       >
@@ -179,14 +185,6 @@ function handleMenuTodoCreateWorktree(todo: import("@gozd/rpc").Todo) {
             v-model:body="editBody"
             @save="submitEdit"
             @cancel="cancelEdit"
-          />
-        </template>
-        <template #add-form>
-          <TodoEditor
-            v-if="isAddingWorktree"
-            v-model:body="newWorktreeBody"
-            @save="submitNewWorktree"
-            @cancel="cancelNewWorktree"
           />
         </template>
       </WorktreeList>

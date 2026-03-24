@@ -33,45 +33,6 @@ export function useWorktreeActions({
   const isCreating = ref(false);
   const isSwitching = ref(false);
 
-  // --- 新規 Worktree 作成パネル ---
-
-  const isAddingWorktree = ref(false);
-  const newWorktreeBody = ref("");
-  /** worktree のディレクトリ名・ブランチ名（パネル表示時に確定） */
-  const newWorktreeDir = ref("");
-
-  function startAddingWorktree() {
-    isAddingWorktree.value = true;
-    const id = generateTimestamp();
-    newWorktreeDir.value = id;
-    newWorktreeBody.value = id;
-  }
-
-  async function submitNewWorktree() {
-    if (!newWorktreeBody.value.trim()) {
-      isAddingWorktree.value = false;
-      return;
-    }
-    if (isCreating.value) return;
-    isCreating.value = true;
-    const addResult = await tryCatch(request.todoAdd({ body: newWorktreeBody.value }));
-    if (!addResult.ok) {
-      isCreating.value = false;
-      return;
-    }
-    isAddingWorktree.value = false;
-    // worktree 作成が失敗しても Todo は作成済み。TODOS 欄に表示される
-    await createWorktreeWithTodo({
-      todo: addResult.value,
-      worktreeDir: newWorktreeDir.value,
-      branch: newWorktreeDir.value,
-    });
-  }
-
-  function cancelNewWorktree() {
-    isAddingWorktree.value = false;
-  }
-
   // --- worktree 操作 ---
 
   /** 現在表示中の worktree かどうか */
@@ -165,6 +126,21 @@ export function useWorktreeActions({
     isCreating.value = false;
   }
 
+  /** タイムスタンプで即座に worktree を作成する（Todo なし） */
+  async function addWorktree() {
+    if (isCreating.value) return;
+    isCreating.value = true;
+    const timestamp = generateTimestamp();
+    const result = await tryCatch(
+      request.createWorktree({ worktreeDir: timestamp, branch: timestamp }),
+    );
+    if (result.ok) {
+      await fetchData();
+      await handleWorktreeSelect(result.value);
+    }
+    isCreating.value = false;
+  }
+
   /** ブランチを worktree 化する */
   function handleBranchLink(branch: string) {
     void createWorktree(branch);
@@ -176,16 +152,10 @@ export function useWorktreeActions({
     isActive,
     // worktree 操作
     handleWorktreeSelect,
+    addWorktree,
     createWorktree,
     handleWorktreeRemove,
     createWorktreeWithTodo,
     handleBranchLink,
-    // 新規作成パネル
-    isAddingWorktree,
-    newWorktreeBody,
-    newWorktreeDir,
-    startAddingWorktree,
-    submitNewWorktree,
-    cancelNewWorktree,
   };
 }

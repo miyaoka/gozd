@@ -165,11 +165,18 @@ tester.run("barrel-import", rule, {
 
     // ─── barrelFiles オプション ─────────────────────
     {
-      // barrelFiles に index.js を追加した場合
+      // barrelFiles に index.js を追加 → index.js 明示が許可される
       name: "OK: barrelFiles オプションで index.js を許可",
       code: 'import { CompB } from "../feat-B/index.js";',
       filename: `${BASE}/features/feat-A/CompA.vue`,
       options: [{ barrelFiles: ["index.ts", "index.tsx", "index.js"] }],
+    },
+    {
+      // barrelFiles を変更しても拡張子なし import は常に許可される
+      name: "OK: barrelFiles に関係なく拡張子なしディレクトリ import は許可",
+      code: 'import { CompB } from "../feat-B";',
+      filename: `${BASE}/features/feat-A/CompA.vue`,
+      options: [{ barrelFiles: ["index.js"] }],
     },
 
     // ─── 外部パッケージ ─────────────────────────────
@@ -300,6 +307,16 @@ tester.run("barrel-import", rule, {
       name: "NG: index.js はデフォルトでバレルファイルではない",
       code: 'import { CompB } from "../feat-B/index.js";',
       filename: `${BASE}/features/feat-A/CompA.vue`,
+      errors: [{ messageId: "noDirectImport" }],
+    },
+
+    // ─── barrelFiles オプション下での子 feature 制限 ─
+    {
+      // barrelFiles で index.js を許可しても、外部 → 子 feature の index.js は禁止
+      name: "NG: barrelFiles で許可しても外部 → 子 feature の index.js は禁止",
+      code: 'import { CompBA } from "../feat-B/features/feat-B-child-A/index.js";',
+      filename: `${BASE}/features/feat-A/CompA.vue`,
+      options: [{ barrelFiles: ["index.ts", "index.tsx", "index.js"] }],
       errors: [{ messageId: "noDirectImport" }],
     },
   ],

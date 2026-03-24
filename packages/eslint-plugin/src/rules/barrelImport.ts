@@ -96,11 +96,11 @@ const rule: Rule.RuleModule = {
     type: "problem",
     docs: {
       description:
-        "features/ や shared/ 配下のモジュールはバレルファイル（index.ts）経由でのみ import 可能",
+        "features/ や shared/ 配下のモジュールはバレルファイル経由でのみ import 可能",
     },
     messages: {
       noDirectImport:
-        "'{{importSource}}' の直接 import は禁止されています。'{{scopeName}}' のバレルファイル（index.ts）経由で import してください。",
+        "'{{importSource}}' の直接 import は禁止されています。'{{scopeName}}' のバレルファイル経由で import してください。",
       noSharedToFeature:
         "shared/ から features/ への依存は禁止されています。",
     },
@@ -112,7 +112,7 @@ const rule: Rule.RuleModule = {
             type: "array",
             items: { type: "string" },
             description:
-              "バレルファイルとして許可するファイル名のリスト（デフォルト: [\"index.ts\", \"index.tsx\"]）",
+              "拡張子付き import でバレルとして許可するファイル名のリスト。拡張子なしのディレクトリ import は常に許可される（デフォルト: [\"index.ts\", \"index.tsx\"]）",
           },
         },
         additionalProperties: false,

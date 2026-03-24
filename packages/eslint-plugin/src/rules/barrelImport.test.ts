@@ -63,6 +63,12 @@ tester.run("barrel-import", rule, {
       filename: `${BASE}/features/feat-A/CompA.vue`,
     },
     {
+      // feat-A/CompA.vue → feat-B/index.ts（バレル明示指定）
+      name: "OK: feature 間のバレル経由（index.ts 明示）",
+      code: 'import { CompB } from "../feat-B/index.ts";',
+      filename: `${BASE}/features/feat-A/CompA.vue`,
+    },
+    {
       // feat-A/CompA.vue → feat-B/（バレル re-export）
       name: "OK: バレル経由の re-export",
       code: 'export { CompB } from "../feat-B";',
@@ -175,9 +181,23 @@ tester.run("barrel-import", rule, {
       errors: [{ messageId: "noDirectImport" }],
     },
     {
+      // feat-A/CompA.vue → feat-B/features/feat-B-child-A/index.ts（index.ts 明示でも禁止）
+      name: "NG: 外部 feature → 子 feature の index.ts を明示指定",
+      code: 'import { CompBA } from "../feat-B/features/feat-B-child-A/index.ts";',
+      filename: `${BASE}/features/feat-A/CompA.vue`,
+      errors: [{ messageId: "noDirectImport" }],
+    },
+    {
       // App.vue → feat-B/features/feat-B-child-A/（バレル経由でも禁止）
       name: "NG: App.vue → 子 feature を直接参照",
       code: 'import { CompBA } from "./features/feat-B/features/feat-B-child-A";',
+      filename: `${BASE}/App.vue`,
+      errors: [{ messageId: "noDirectImport" }],
+    },
+    {
+      // App.vue → feat-B/features/feat-B-child-A/index.ts（index.ts 明示でも禁止）
+      name: "NG: App.vue → 子 feature の index.ts を明示指定",
+      code: 'import { CompBA } from "./features/feat-B/features/feat-B-child-A/index.ts";',
       filename: `${BASE}/App.vue`,
       errors: [{ messageId: "noDirectImport" }],
     },

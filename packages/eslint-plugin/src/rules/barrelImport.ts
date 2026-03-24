@@ -48,27 +48,27 @@ function extractScope(filePath: string): string | undefined {
 }
 
 /**
- * import 先が index ファイルかどうかを判定する。
- * 拡張子なし（"../terminal"）の場合は index.ts が暗黙解決されるので OK。
- */
-/**
- * import 先がバレルファイル（index.ts）を指しているかを判定する。
+ * import 先が許可されたスコープのバレルファイル（index.ts）を指しているかを判定する。
  *
- * 拡張子なし import の場合:
- * - import source の最後のセグメントがスコープ名と一致 → ディレクトリ import（index.ts 暗黙解決）
- * - それ以外 → ファイルへの直接 import
+ * - 拡張子付き: index.ts かつ直前のセグメントがスコープ名と一致
+ * - 拡張子なし: 最後のセグメントがスコープ名と一致（ディレクトリ import → index.ts 暗黙解決）
  */
-function isBarrelImport(importSource: string, toScope: string): boolean {
-  const lastSegment = importSource.split("/").pop();
+function isBarrelImport(importSource: string, allowedScope: string): boolean {
+  const segments = importSource.split("/");
+  const lastSegment = segments[segments.length - 1];
   if (!lastSegment) return false;
 
-  // 拡張子付きなら index.ts かどうか（index.vue 等はバレルではない）
+  const scopeDirName = allowedScope.split("/").pop();
+
+  // 拡張子付き: index.ts かつ直前のセグメントがスコープ名と一致
+  // （index.vue 等はバレルではない）
   if (lastSegment.includes(".")) {
-    return lastSegment === "index.ts";
+    if (lastSegment !== "index.ts") return false;
+    const parentSegment = segments[segments.length - 2];
+    return parentSegment === scopeDirName;
   }
 
   // 拡張子なし: スコープのディレクトリ名と一致すればディレクトリ import（index 暗黙解決）
-  const scopeDirName = toScope.split("/").pop();
   return lastSegment === scopeDirName;
 }
 

@@ -102,17 +102,53 @@ export function useTodoActions({ pendingTodos, fetchData }: UseTodoActionsOption
     pendingTodos.value = pendingTodos.value.filter((t) => t.id !== todo.id);
   }
 
-  /** worktree の Todo を編集する。Todo がなければ作成してから編集 */
-  async function editWorktreeTodo(wt: WorktreeEntry) {
+  // --- worktree の Todo 編集・新規作成（入力欄を開き、保存時に永続化） ---
+
+  /** Todo 新規作成中の worktree ディレクトリパス */
+  const addingTodoForDir = ref<string>();
+  const addingTodoBody = ref("");
+
+  /** worktree の Todo 編集をトグルする。Todo がなければ新規作成入力欄を開く */
+  function toggleWorktreeTodoEdit(wt: WorktreeEntry) {
+    // 既存 Todo がある場合: 編集トグル
     if (wt.todo) {
-      startEditing(wt.todo);
+      if (editingTodoId.value === wt.todo.id) {
+        cancelEdit();
+      } else {
+        startEditing(wt.todo);
+      }
       return;
     }
-    // Todo がまだない worktree: 空 body で作成して紐づけ
-    const result = await tryCatch(request.todoAdd({ body: "", worktreeDir: wt.path }));
+    // Todo がない場合: 新規作成入力欄のトグル
+    if (addingTodoForDir.value === wt.path) {
+      cancelWorktreeTodoAdd();
+    } else {
+      addingTodoForDir.value = wt.path;
+      addingTodoBody.value = "";
+    }
+  }
+
+  const isSavingWorktreeTodo = ref(false);
+
+  /** worktree の Todo 新規作成を保存する */
+  async function saveWorktreeTodo(wt: WorktreeEntry) {
+    if (isSavingWorktreeTodo.value) return;
+    if (!addingTodoBody.value.trim()) {
+      cancelWorktreeTodoAdd();
+      return;
+    }
+    isSavingWorktreeTodo.value = true;
+    const result = await tryCatch(
+      request.todoAdd({ body: addingTodoBody.value, worktreeDir: wt.path }),
+    );
+    isSavingWorktreeTodo.value = false;
     if (!result.ok) return;
-    wt.todo = result.value;
-    startEditing(result.value);
+    addingTodoForDir.value = undefined;
+    await fetchData();
+  }
+
+  function cancelWorktreeTodoAdd() {
+    addingTodoForDir.value = undefined;
   }
 
   return {
@@ -133,6 +169,11 @@ export function useTodoActions({ pendingTodos, fetchData }: UseTodoActionsOption
     updateTodoIcon,
     // 操作
     handleTodoRemove,
-    editWorktreeTodo,
+    // worktree Todo 編集・新規作成
+    addingTodoForDir,
+    addingTodoBody,
+    toggleWorktreeTodoEdit,
+    saveWorktreeTodo,
+    cancelWorktreeTodoAdd,
   };
 }

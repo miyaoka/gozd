@@ -39,11 +39,20 @@ const BASE = "/project/apps/renderer/src";
  * │   │       │       └── feat-B-grandchild/
  * │   │       │           ├── index.ts    ← バレル
  * │   │       │           └── internal.ts
- * │   │       └── feat-B-child-B/
+ * │   │       ├── feat-B-child-B/
+ * │   │       │   ├── index.ts            ← バレル
+ * │   │       │   └── CompBB.vue
+ * │   │       └── common/
  * │   │           ├── index.ts            ← バレル
- * │   │           └── CompBB.vue
- * │   └── feat-C/
- * │       └── storeC.ts
+ * │   │           └── helperB.ts
+ * │   ├── feat-C/
+ * │   │   └── storeC.ts
+ * │   └── feat-D/
+ * │       ├── index.ts                    ← バレル
+ * │       └── features/
+ * │           └── common/                 ← feat-B と同名の子 feature
+ * │               ├── index.ts            ← バレル
+ * │               └── helperD.ts
  * └── shared/
  *     ├── shared-A/
  *     │   ├── index.ts                    ← バレル
@@ -248,6 +257,17 @@ tester.run("barrel-import", rule, {
       name: "NG: 子 feature 間の内部直接 import",
       code: 'import CompBA from "../feat-B-child-A/CompBA.vue";',
       filename: `${BASE}/features/feat-B/features/feat-B-child-B/CompBB.vue`,
+      errors: [{ messageId: "noDirectImport" }],
+    },
+
+    // ─── 同名子 feature の誤判定防止 ────────────────
+    {
+      // feat-B/features/common/helperB.ts → feat-D/features/common/helperD.ts
+      // 同名の子 feature「common」が異なる親（feat-B, feat-D）の下にある場合、
+      // 同一スコープと誤判定してバレルチェックがスキップされてはならない
+      name: "NG: 異なる親の同名子 feature への内部ファイル直接 import",
+      code: 'import { helperD } from "../../../../feat-D/features/common/helperD";',
+      filename: `${BASE}/features/feat-B/features/common/helperB.ts`,
       errors: [{ messageId: "noDirectImport" }],
     },
 

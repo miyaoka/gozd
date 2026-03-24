@@ -63,19 +63,42 @@ function buildScopePattern(scopes: Record<string, ScopeConfig>): RegExp {
   return new RegExp(`(?:^|/)((?:${dirPattern})/[^/]+)(?:/|$)`);
 }
 
+/** スコープの識別情報 */
+interface ScopeInfo {
+  /** スコープのリーフペア（例: "features/common"）。ディレクトリ名やバレル判定に使用 */
+  scope: string;
+  /** パス先頭からスコープ末尾までのフルパス。同一性判定に使用 */
+  fullPath: string;
+}
+
 /**
  * パス内の全スコープを浅い順に抽出する。
  * 例: "src/features/sidebar/features/worktree/WorktreeItem.vue"
- *     → ["features/sidebar", "features/worktree"]
+ *     → [
+ *         { scope: "features/sidebar", fullPath: "src/features/sidebar" },
+ *         { scope: "features/worktree", fullPath: "src/features/sidebar/features/worktree" },
+ *       ]
+ *
+ * fullPath により、異なる親の下にある同名子スコープを区別できる。
  */
-function extractAllScopes(filePath: string, scopePattern: RegExp): string[] {
-  const scopes: string[] = [];
+function extractAllScopes(
+  filePath: string,
+  scopePattern: RegExp,
+): ScopeInfo[] {
+  const scopes: ScopeInfo[] = [];
   let searchFrom = 0;
   while (searchFrom < filePath.length) {
     const remaining = filePath.slice(searchFrom);
     const match = scopePattern.exec(remaining);
     if (!match) break;
-    scopes.push(match[1]);
+    const matchEnd = searchFrom + match.index + match[1].length;
+    // match[0] の先頭が "/" の場合、match.index + 1 からスコープが始まる
+    const scopeStart =
+      match[0].startsWith("/") ? match.index + 1 : match.index;
+    scopes.push({
+      scope: match[1],
+      fullPath: filePath.slice(0, searchFrom + scopeStart + match[1].length),
+    });
     searchFrom += match.index + match[0].length;
   }
   return scopes;
@@ -84,10 +107,10 @@ function extractAllScopes(filePath: string, scopePattern: RegExp): string[] {
 /**
  * パスから最深スコープを抽出する。
  */
-function extractScope(
+function extractDeepestScope(
   filePath: string,
   scopePattern: RegExp,
-): string | undefined {
+): ScopeInfo | undefined {
   const scopes = extractAllScopes(filePath, scopePattern);
   return scopes[scopes.length - 1];
 }
@@ -274,17 +297,17 @@ const rule: Rule.RuleModule = {
       );
 
       // import 先の全スコープを抽出（浅い順）
-      const toScopes = extractAllScopes(resolvedPath, scopePattern);
-      if (toScopes.length === 0) return;
+      const toScopeInfos = extractAllScopes(resolvedPath, scopePattern);
+      if (toScopeInfos.length === 0) return;
 
-      const toScope = toScopes[toScopes.length - 1]; // 最深スコープ
-      const toRootScope = toScopes[0]; // 最浅スコープ（外部から見える境界）
+      const toDeepest = toScopeInfos[toScopeInfos.length - 1]; // 最深スコープ
+      const toRoot = toScopeInfos[0]; // 最浅スコープ（外部から見える境界）
 
       // スコープ間の依存方向チェック
-      const fromRootScopes = extractAllScopes(filename, scopePattern);
-      if (fromRootScopes.length > 0) {
-        const fromRootDir = getScopeDir(fromRootScopes[0]);
-        const toRootDir = getScopeDir(toRootScope);
+      const fromScopeInfos = extractAllScopes(filename, scopePattern);
+      if (fromScopeInfos.length > 0) {
+        const fromRootDir = getScopeDir(fromScopeInfos[0].scope);
+        const toRootDir = getScopeDir(toRoot.scope);
         if (
           !isDependencyAllowed(fromRootDir, toRootDir, scopes, dirToScope)
         ) {
@@ -303,25 +326,32 @@ const rule: Rule.RuleModule = {
       }
 
       // import 元の最深スコープを抽出
-      const fromScope = extractScope(filename, scopePattern);
+      const fromDeepest = extractDeepestScope(filename, scopePattern);
 
-      // 同じスコープ内のファイル同士は自由
-      if (fromScope === toScope) return;
+      // 同じスコープ内のファイル同士は自由（fullPath で比較し、同名子スコープを区別）
+      if (fromDeepest && fromDeepest.fullPath === toDeepest.fullPath) return;
 
       // 子スコープから親スコープの内部ファイルへのアクセスは自由
-      // import 元のパスに to のスコープが含まれている = to は from の祖先スコープ
-      if (fromScope && fromScope !== toScope && filename.includes(`/${toScope}/`))
+      // import 元のパスに to のスコープの fullPath が含まれている = to は from の祖先スコープ
+      if (
+        fromDeepest &&
+        fromDeepest.fullPath !== toDeepest.fullPath &&
+        filename.includes(`${toDeepest.fullPath}/`)
+      )
         return;
 
       // import 元がルートスコープの内部にいるか判定
       // 内部 = import 元自身がルートスコープ、またはルートスコープの子孫
       const isInsideRootScope =
-        fromScope === toRootScope || filename.includes(`/${toRootScope}/`);
+        (fromDeepest && fromDeepest.fullPath === toRoot.fullPath) ||
+        filename.includes(`${toRoot.fullPath}/`);
 
       // バレル経由のチェック
       // 内部にいる → 子スコープのバレル（最深スコープ）経由ならOK
       // 外部にいる → ルートスコープのバレルのみOK（子スコープは親の内部実装）
-      const allowedScope = isInsideRootScope ? toScope : toRootScope;
+      const allowedScope = isInsideRootScope
+        ? toDeepest.scope
+        : toRoot.scope;
       if (isBarrelImport(importSource, allowedScope, barrelFiles)) return;
 
       // それ以外は禁止

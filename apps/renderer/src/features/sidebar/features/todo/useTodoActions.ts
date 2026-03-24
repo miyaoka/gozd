@@ -102,26 +102,13 @@ export function useTodoActions({ pendingTodos, fetchData }: UseTodoActionsOption
     pendingTodos.value = pendingTodos.value.filter((t) => t.id !== todo.id);
   }
 
-  /** worktree の Todo を編集する。Todo がなければ作成してから編集 */
-  async function editWorktreeTodo(wt: WorktreeEntry) {
-    if (wt.todo) {
-      startEditing(wt.todo);
-      return;
-    }
-    // Todo がまだない worktree: 空 body で作成して紐づけ
-    const result = await tryCatch(request.todoAdd({ body: "", worktreeDir: wt.path }));
-    if (!result.ok) return;
-    wt.todo = result.value;
-    startEditing(result.value);
-  }
-
-  // --- worktree の Todo 新規作成（クリックで入力欄を開き、保存時に永続化） ---
+  // --- worktree の Todo 編集・新規作成（入力欄を開き、保存時に永続化） ---
 
   /** Todo 新規作成中の worktree ディレクトリパス */
   const addingTodoForDir = ref<string>();
   const addingTodoBody = ref("");
 
-  /** worktree クリックで Todo 編集をトグルする */
+  /** worktree の Todo 編集をトグルする。Todo がなければ新規作成入力欄を開く */
   function toggleWorktreeTodoEdit(wt: WorktreeEntry) {
     // 既存 Todo がある場合: 編集トグル
     if (wt.todo) {
@@ -177,8 +164,7 @@ export function useTodoActions({ pendingTodos, fetchData }: UseTodoActionsOption
     updateTodoIcon,
     // 操作
     handleTodoRemove,
-    editWorktreeTodo,
-    // worktree Todo 新規作成
+    // worktree Todo 編集・新規作成
     addingTodoForDir,
     addingTodoBody,
     toggleWorktreeTodoEdit,

@@ -95,7 +95,6 @@ const {
   cancelNewTodo,
   updateTodoIcon,
   handleTodoRemove,
-  editWorktreeTodo,
   addingTodoForDir,
   addingTodoBody,
   toggleWorktreeTodoEdit,
@@ -244,7 +243,7 @@ function handleMenuTodoCreateWorktree(todo: import("@gozd/rpc").Todo) {
     <SidebarMenu
       ref="sidebarMenuRef"
       :is-creating="isCreating"
-      @worktree-edit-todo="editWorktreeTodo"
+      @worktree-edit-todo="toggleWorktreeTodoEdit"
       @worktree-remove="handleWorktreeRemove"
       @todo-create-worktree="handleMenuTodoCreateWorktree"
       @todo-remove="handleTodoRemove"

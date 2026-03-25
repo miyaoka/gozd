@@ -18,8 +18,9 @@ export function useDialog() {
 
   const Dialog = defineComponent({
     slots: Object as SlotsType<{ default: Record<string, never> }>,
+    inheritAttrs: false,
     emits: ["close"],
-    setup(_, { slots, emit }) {
+    setup(_, { slots, attrs, emit }) {
       const dialogEl = ref<HTMLDialogElement>();
 
       watch(isOpen, (open) => {
@@ -34,6 +35,7 @@ export function useDialog() {
         h(
           "dialog",
           {
+            ...attrs,
             ref: dialogEl,
             onClose: () => {
               // ブラウザの Escape キーで dialog が閉じた場合にも isOpen を同期する

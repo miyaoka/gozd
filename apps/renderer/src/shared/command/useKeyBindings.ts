@@ -35,7 +35,6 @@ const MAC_RESERVED_CODES = new Set([
   "KeyQ",
   "KeyH",
   "KeyM",
-  "Comma",
 ]);
 
 /** keybinding テーブルを parse して ResolvedBinding 配列にする */
@@ -68,7 +67,7 @@ function shouldHandle(e: KeyboardEvent): boolean {
   // 構造変更コマンドの連打防止
   if (e.repeat) return false;
 
-  // macOS 予約キー（Cmd+C/V/X/A/Z/Q/H/M/,）は OS に委ねる
+  // macOS 予約キー（Cmd+C/V/X/A/Z/Q/H/M）は OS に委ねる
   if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
     if (MAC_RESERVED_CODES.has(e.code)) return false;
   }

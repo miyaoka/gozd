@@ -23,6 +23,7 @@ import { CommandPalette } from "../command-palette";
 import { GitGraphPane } from "../git-graph";
 import { NavigatorPane } from "../navigator";
 import { PreviewPane } from "../preview";
+import { registerSettingsCommand, SettingsModal } from "../settings";
 import { SidebarPane } from "../sidebar";
 import { registerThemeCommand, TerminalPane } from "../terminal";
 import { useWorktreeStore } from "../worktree";
@@ -55,9 +56,11 @@ const disposeWindowClose = register("window.close", {
   },
 });
 const disposeThemeCommand = registerThemeCommand();
+const disposeSettingsCommand = registerSettingsCommand();
 onUnmounted(disposePreviewToggle);
 onUnmounted(disposeWindowClose);
 onUnmounted(disposeThemeCommand);
+onUnmounted(disposeSettingsCommand);
 
 /** ハンドル幅 w-2 = 8px */
 const HANDLE_WIDTH = 8;
@@ -252,6 +255,7 @@ watchEffect(() => {
 
     <CommandPalette />
     <QuickPick />
+    <SettingsModal />
   </div>
 </template>
 

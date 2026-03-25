@@ -19,6 +19,26 @@ import { currentTheme, currentThemeName } from "./terminalConfig";
  */
 let generation = 0;
 
+/**
+ * テーマ名を指定してターミナルテーマを適用する。
+ * 空文字列の場合はデフォルトテーマに戻す。
+ * 設定モーダル等、外部からテーマを変更する場合に使用する。
+ */
+export async function applyTerminalTheme(themeName: string): Promise<void> {
+  const gen = ++generation;
+  if (themeName === "") {
+    currentTheme.value = (await import("./defaultTerminalConfig.json")).default.theme;
+    currentThemeName.value = undefined;
+    return;
+  }
+  const theme = await loadTheme(themeName);
+  if (gen !== generation) return;
+  if (theme !== undefined) {
+    currentTheme.value = theme;
+    currentThemeName.value = themeName;
+  }
+}
+
 /** 起動時に保存済みテーマを復元する */
 async function restoreSavedTheme(
   configLoad: () => Promise<{ terminalTheme?: string }>,

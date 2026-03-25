@@ -10,7 +10,6 @@ import { generateTimestamp, worktreeDisplayName } from "../../utils";
 interface UseWorktreeActionsOptions {
   worktrees: Ref<WorktreeEntry[]>;
   freeBranches: Ref<string[]>;
-  fetchData: () => Promise<void>;
   showConfirm: (message: string, action: () => Promise<void>) => void;
   showAlert: (message: string) => void;
 }
@@ -22,7 +21,6 @@ interface UseWorktreeActionsOptions {
 export function useWorktreeActions({
   worktrees,
   freeBranches,
-  fetchData,
   showConfirm,
   showAlert,
 }: UseWorktreeActionsOptions) {
@@ -115,12 +113,11 @@ export function useWorktreeActions({
     branch: string;
   }) {
     isCreating.value = true;
-    // 失敗しても Todo は残る。fetchData で TODOS 欄に反映され、再試行または削除できる
     const result = await tryCatch(
       request.createWorktreeWithTodo({ id: todo.id, worktreeDir, branch }),
     );
-    await fetchData();
     if (result.ok) {
+      worktrees.value = [...worktrees.value, result.value.worktree];
       await handleWorktreeSelect(result.value.worktree);
     }
     isCreating.value = false;

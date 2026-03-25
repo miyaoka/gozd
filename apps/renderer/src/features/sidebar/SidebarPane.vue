@@ -80,7 +80,7 @@ const {
   handleWorktreeRemove,
   createWorktreeWithTodo,
   handleBranchLink,
-} = useWorktreeActions({ worktrees, freeBranches, fetchData, showConfirm, showAlert });
+} = useWorktreeActions({ worktrees, freeBranches, showConfirm, showAlert });
 
 const {
   editingTodoId,

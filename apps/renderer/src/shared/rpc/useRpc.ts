@@ -16,6 +16,7 @@ const listeners = {
 };
 
 const rpc = Electroview.defineRPC<GozdRPC>({
+  maxRequestTime: 5000,
   handlers: {
     requests: {},
     messages: {

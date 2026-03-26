@@ -141,6 +141,15 @@ onMounted(async () => {
   // ファイルパスをクリックでファイラー/プレビューに反映する
   terminal.registerLinkProvider(createFilePathLinkProvider(terminal));
 
+  // OSC 0/2 (タイトル変更) をパースして store に保存する
+  // OSC 0: タイトル+アイコン名、OSC 2: タイトルのみ。どちらもタイトルとして扱う
+  const handleTitleChange = (data: string) => {
+    terminalStore.setTitle(props.leafId, data);
+    return true;
+  };
+  terminal.parser.registerOscHandler(0, handleTitleChange);
+  terminal.parser.registerOscHandler(2, handleTitleChange);
+
   // OSC 7 (CWD 通知) をパースして store に保存する
   terminal.parser.registerOscHandler(7, (data) => {
     const urlResult = tryCatch(() => new URL(data));

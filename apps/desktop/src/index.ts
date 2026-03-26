@@ -253,10 +253,11 @@ const windowProjectDirs = new Map<GozdWindow, string>();
 const windowSwitchGen = new Map<GozdWindow, number>();
 
 /** renderer にエラーを通知する。console.error と併用し、全ウィンドウにブロードキャストする */
-function notifyError(source: string, message: string): void {
-  console.error(`[${source}]`, message);
+function notifyError(source: string, message: string, cause?: unknown): void {
+  console.error(`[${source}]`, message, ...(cause !== undefined ? [cause] : []));
+  const detail = cause instanceof Error ? cause.stack : undefined;
   for (const win of windowDirs.keys()) {
-    win.webview.rpc?.send.errorNotify({ source, message });
+    win.webview.rpc?.send.errorNotify({ source, message, detail });
   }
 }
 
@@ -1164,7 +1165,7 @@ function setupSocketServer(): net.Server {
   });
 
   server.on("error", (err) => {
-    notifyError("socket", `server error: ${err}`);
+    notifyError("socket", "server error", err);
   });
 
   return server;

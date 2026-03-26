@@ -324,7 +324,7 @@ export type GozdRPC = {
       };
       gozdHook: { event: string; payload: Record<string, unknown> };
       /** desktop / cli 側で発生したエラーの通知 */
-      errorNotify: { source: string; message: string };
+      errorNotify: { source: string; message: string; detail?: string };
     };
   }>;
 };

@@ -22,8 +22,8 @@ const worktreeStore = useWorktreeStore();
 const appStore = useAppStore();
 const { request, send, onGozdOpen, onErrorNotify } = useRpc();
 
-const disposeErrorNotify = onErrorNotify(({ source, message }) => {
-  console.error(`[${source}]`, message);
+const disposeErrorNotify = onErrorNotify(({ source, message, detail }) => {
+  console.error(`[${source}]`, message, ...(detail ? [detail] : []));
 });
 
 let cleanup: (() => void) | undefined;

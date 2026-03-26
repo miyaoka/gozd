@@ -60,6 +60,7 @@ flowchart LR
 | `worktreeChange`  | 非アクティブ worktree でのファイル変更通知 |
 | `gozdOpen`        | ウィンドウ open                            |
 | `gozdHook`        | Claude Code Hook イベント                  |
+| `errorNotify`     | desktop 側のバックグラウンドエラー通知     |
 
 ### renderer → desktop
 

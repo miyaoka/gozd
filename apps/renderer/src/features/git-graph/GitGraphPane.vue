@@ -26,6 +26,7 @@ const gitGraphStore = useGitGraphStore();
 const { gitStatuses } = storeToRefs(gitStatusStore);
 
 const commits = ref<GitCommit[]>([]);
+const defaultBranch = ref<string | undefined>();
 const layout = ref<GraphLayout>({ nodes: [], lines: [], maxLanes: 1 });
 const firstParentOnly = ref(false);
 
@@ -77,14 +78,15 @@ async function loadLog() {
     firstParentOnly: firstParentOnly.value || undefined,
   });
   if (gen !== loadLogGen) return;
-  commits.value = result;
-  lastHead = findHeadCommit(result)?.hash ?? "";
+  commits.value = result.commits;
+  defaultBranch.value = result.defaultBranch;
+  lastHead = findHeadCommit(result.commits)?.hash ?? "";
   recomputeLayout();
 
   // 選択中・比較中のコミットが一覧から消えた場合はクリア
   const { selectedHash, compareHash } = gitGraphStore;
   const isStale = (hash: string | null): boolean =>
-    hash !== null && hash !== UNCOMMITTED_HASH && !result.some((c) => c.hash === hash);
+    hash !== null && hash !== UNCOMMITTED_HASH && !result.commits.some((c) => c.hash === hash);
 
   if (isStale(selectedHash) || isStale(compareHash)) {
     gitGraphStore.resetSelection();
@@ -219,11 +221,10 @@ function findCurrentBranch(refs: string[]): string | undefined {
  * refs 配列を表示用に整理する。
  * - HEAD / origin/HEAD は除外（HEAD は → マーカーで別途表示）
  * - origin/xxx とローカル xxx が一致する場合は統合して synced タイプにする
- * - HEAD が指すブランチは current、origin/HEAD が指すブランチは default タイプにする
+ * - HEAD が指すブランチは current、defaultBranch と一致するブランチは default タイプにする
  */
-function computeDisplayRefs(refs: string[]): DisplayRef[] {
+function computeDisplayRefs(refs: string[], defaultBranchName?: string): DisplayRef[] {
   const currentBranch = findCurrentBranch(refs);
-  const isDefault = refs.includes("origin/HEAD");
   const filtered = refs.filter((r) => r !== "HEAD" && r !== "origin/HEAD");
   const locals = new Set(filtered.filter((r) => !r.startsWith("origin/") && !r.startsWith("tag:")));
   const remotes = new Set(
@@ -240,8 +241,7 @@ function computeDisplayRefs(refs: string[]): DisplayRef[] {
 
     if (local === currentBranch) {
       result.push({ label: local, type: "current" });
-    } else if (isDefault && isSynced) {
-      // origin/HEAD が指すブランチ = デフォルトブランチ
+    } else if (local === defaultBranchName) {
       result.push({ label: local, type: "default" });
     } else if (isSynced) {
       result.push({ label: local, type: "synced" });
@@ -252,8 +252,7 @@ function computeDisplayRefs(refs: string[]): DisplayRef[] {
 
   // origin のみ（ローカルに対応がない）
   for (const remote of remotes) {
-    // origin/HEAD が指すリモートブランチ（ローカル追跡なし）もデフォルト扱い
-    if (isDefault && !locals.has(remote)) {
+    if (remote === defaultBranchName) {
       result.push({ label: `origin/${remote}`, type: "default" });
     } else {
       result.push({ label: `origin/${remote}`, type: "remote" });
@@ -451,8 +450,8 @@ function isInRange(hash: string): boolean {
               class="icon-[lucide--git-merge] size-3.5 shrink-0 text-zinc-500"
             />
             <span
-              v-for="displayRef in computeDisplayRefs(node.commit.refs)"
-              :key="displayRef.label"
+              v-for="displayRef in computeDisplayRefs(node.commit.refs, defaultBranch)"
+              :key="`${displayRef.type}:${displayRef.label}`"
               class="shrink-0 rounded-sm px-1 py-0.5 text-[10px] leading-none font-medium"
               :class="REF_TYPE_CLASS[displayRef.type]"
             >

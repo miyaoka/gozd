@@ -40,7 +40,7 @@ export async function getGitLog({
   cwd: string;
   maxCount?: number;
   firstParentOnly?: boolean;
-}): Promise<GitCommit[]> {
+}): Promise<{ commits: GitCommit[]; defaultBranch?: string }> {
   const count = Math.min(maxCount ?? DEFAULT_MAX_COUNT, DEFAULT_MAX_COUNT);
   const format = ["%H", "%P", "%aN", "%at", "%s", "%D"].join(FIELD_SEPARATOR);
   const defaultBranch = await resolveDefaultBranch(cwd);
@@ -58,9 +58,9 @@ export async function getGitLog({
 
   const result = await tryCatch(new Response(Bun.spawn(args, { cwd }).stdout).text());
 
-  if (!result.ok) return [];
+  if (!result.ok) return { commits: [], defaultBranch };
 
-  return parseGitLog(result.value);
+  return { commits: parseGitLog(result.value), defaultBranch };
 }
 
 function parseGitLog(output: string): GitCommit[] {

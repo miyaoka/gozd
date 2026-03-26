@@ -173,7 +173,7 @@ export type GozdRPC = {
       /** git log でコミット履歴を取得（現在ブランチ + main） */
       gitLog: {
         params: { maxCount?: number; firstParentOnly?: boolean };
-        response: GitCommit[];
+        response: { commits: GitCommit[]; defaultBranch?: string };
       };
       /** git worktree list で worktree 一覧を取得 */
       gitWorktreeList: {

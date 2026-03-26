@@ -190,13 +190,93 @@ function isMergeCommit(commit: GitCommit): boolean {
   return commit.parents.length > 1;
 }
 
-/** ref バッジの色分け */
-function refClass(refName: string): string {
-  if (refName === "HEAD") return "bg-yellow-600 text-yellow-100";
-  if (refName.startsWith("origin/")) return "bg-red-800 text-red-200";
-  if (refName.startsWith("tag:")) return "bg-blue-800 text-blue-200";
-  return "bg-green-800 text-green-200";
+/** HEAD を含むかどうか */
+function hasHead(refs: string[]): boolean {
+  return refs.includes("HEAD");
 }
+
+interface DisplayRef {
+  label: string;
+  type: "current" | "default" | "local" | "remote" | "synced" | "tag";
+}
+
+/**
+ * refs 配列から HEAD が指すカレントブランチ名を取得する。
+ * git log の %D は "HEAD -> branch" をパース後 ["HEAD", "branch", ...] の順になるため、
+ * HEAD の直後の非 origin/非 tag エントリがカレントブランチ。
+ */
+function findCurrentBranch(refs: string[]): string | undefined {
+  const headIdx = refs.indexOf("HEAD");
+  if (headIdx === -1) return undefined;
+  const next = refs[headIdx + 1];
+  if (next && !next.startsWith("origin/") && !next.startsWith("tag:")) {
+    return next;
+  }
+  return undefined;
+}
+
+/**
+ * refs 配列を表示用に整理する。
+ * - HEAD / origin/HEAD は除外（HEAD は → マーカーで別途表示）
+ * - origin/xxx とローカル xxx が一致する場合は統合して synced タイプにする
+ * - HEAD が指すブランチは current、origin/HEAD が指すブランチは default タイプにする
+ */
+function computeDisplayRefs(refs: string[]): DisplayRef[] {
+  const currentBranch = findCurrentBranch(refs);
+  const isDefault = refs.includes("origin/HEAD");
+  const filtered = refs.filter((r) => r !== "HEAD" && r !== "origin/HEAD");
+  const locals = new Set(filtered.filter((r) => !r.startsWith("origin/") && !r.startsWith("tag:")));
+  const remotes = new Set(
+    filtered.filter((r) => r.startsWith("origin/")).map((r) => r.slice("origin/".length)),
+  );
+  const tags = filtered.filter((r) => r.startsWith("tag:"));
+
+  const result: DisplayRef[] = [];
+
+  // ローカルブランチ
+  for (const local of locals) {
+    const isSynced = remotes.has(local);
+    if (isSynced) remotes.delete(local);
+
+    if (local === currentBranch) {
+      result.push({ label: local, type: "current" });
+    } else if (isDefault && isSynced) {
+      // origin/HEAD が指すブランチ = デフォルトブランチ
+      result.push({ label: local, type: "default" });
+    } else if (isSynced) {
+      result.push({ label: local, type: "synced" });
+    } else {
+      result.push({ label: local, type: "local" });
+    }
+  }
+
+  // origin のみ（ローカルに対応がない）
+  for (const remote of remotes) {
+    // origin/HEAD が指すリモートブランチ（ローカル追跡なし）もデフォルト扱い
+    if (isDefault && !locals.has(remote)) {
+      result.push({ label: `origin/${remote}`, type: "default" });
+    } else {
+      result.push({ label: `origin/${remote}`, type: "remote" });
+    }
+  }
+
+  // タグ
+  for (const tag of tags) {
+    result.push({ label: tag.slice("tag:".length), type: "tag" });
+  }
+
+  return result;
+}
+
+/** ref バッジの色分け */
+const REF_TYPE_CLASS: Record<DisplayRef["type"], string> = {
+  current: "bg-green-800 text-green-200 ring-1 ring-inset ring-green-400",
+  default: "bg-teal-800 text-teal-200 ring-1 ring-inset ring-teal-400",
+  synced: "bg-teal-800 text-teal-200",
+  local: "bg-green-800 text-green-200",
+  remote: "bg-red-800 text-red-200",
+  tag: "bg-blue-800 text-blue-200",
+};
 
 /** 日付フォーマット（短い形式） */
 function formatDate(timestamp: number): string {
@@ -346,13 +426,23 @@ function isInRange(hash: string): boolean {
         <div
           v-for="node in layout.nodes"
           :key="node.commit.hash"
-          class="_graph-row flex cursor-pointer items-center text-xs"
+          class="_graph-row relative flex cursor-pointer items-center text-xs"
           :class="rowHighlightClass(node.commit.hash)"
           :style="{ height: `${ROW_HEIGHT}px` }"
           @click="onRowClick(node.commit.hash, $event)"
         >
           <!-- Graph spacer -->
           <div class="shrink-0" :style="{ width: `${graphColumnWidth}px` }" />
+
+          <!-- HEAD marker: グラフ列の右端に absolute 配置。レイアウトに影響しない -->
+          <span
+            v-if="hasHead(node.commit.refs)"
+            class="absolute text-yellow-500"
+            :style="{ left: `${graphColumnWidth}px`, transform: 'translateX(calc(-100% - 4px))' }"
+            title="HEAD"
+          >
+            →
+          </span>
 
           <!-- Description -->
           <div class="flex min-w-0 flex-1 items-center gap-1 truncate pr-2">
@@ -361,12 +451,12 @@ function isInRange(hash: string): boolean {
               class="icon-[lucide--git-merge] size-3.5 shrink-0 text-zinc-500"
             />
             <span
-              v-for="ref in node.commit.refs"
-              :key="ref"
+              v-for="displayRef in computeDisplayRefs(node.commit.refs)"
+              :key="displayRef.label"
               class="shrink-0 rounded-sm px-1 py-0.5 text-[10px] leading-none font-medium"
-              :class="refClass(ref)"
+              :class="REF_TYPE_CLASS[displayRef.type]"
             >
-              {{ ref.startsWith("tag:") ? ref.slice(4) : ref }}
+              {{ displayRef.label }}
             </span>
             <span
               class="truncate"

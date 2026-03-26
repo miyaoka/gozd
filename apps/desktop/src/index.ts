@@ -6,7 +6,7 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { tryCatch } from "@gozd/shared";
-import type { GozdRPC, OpenTargetSelection } from "@gozd/rpc";
+import type { GozdRPC, OpenTargetSelection, FileReadResult } from "@gozd/rpc";
 import {
   parseOwnerRepo,
   resolveOpenTarget,
@@ -21,6 +21,7 @@ import {
   attachChangeCounts,
   getBranchList,
   deleteBranch,
+  resolveCommitDiffRefs,
 } from "./git";
 import {
   isAllowedProtocol,
@@ -766,6 +767,44 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
         },
         gitStatus: async () => (await getGitStatus(currentDir)).statuses,
         gitCommitFiles: ({ hash, compareHash }) => getGitCommitFiles(currentDir, hash, compareHash),
+        gitShowCommitFile: async ({ relPath, hash, compareHash }) => {
+          resolveGitPath(currentDir, relPath);
+          const refs = await resolveCommitDiffRefs(currentDir, hash, compareHash);
+
+          async function showAtRef(ref: string | null): Promise<FileReadResult> {
+            if (ref === null) {
+              // from=null: ルートコミット（親なし）→ ファイルは存在しない
+              return { content: "", isBinary: false, notFound: true };
+            }
+            const proc = Bun.spawn(["git", "show", `${ref}:${relPath}`], { cwd: currentDir });
+            const result = await tryCatch(new Response(proc.stdout).arrayBuffer());
+            await proc.exited;
+            if (!result.ok || proc.exitCode !== 0) {
+              return { content: "", isBinary: false, notFound: true };
+            }
+            const bytes = new Uint8Array(result.value);
+            if (bytes.includes(0x00)) {
+              return { content: "", isBinary: true };
+            }
+            return { content: new TextDecoder().decode(bytes), isBinary: false };
+          }
+
+          async function readWorkingTree(): Promise<FileReadResult> {
+            // resolveExistingFsPath は存在しないパスで例外を投げるため、
+            // 削除済みファイルの場合は notFound を返す
+            const pathResult = await tryCatch(resolveExistingFsPath(currentDir, relPath));
+            if (!pathResult.ok) {
+              return { content: "", isBinary: false, notFound: true };
+            }
+            return readFileContent(pathResult.value);
+          }
+
+          const [from, to] = await Promise.all([
+            showAtRef(refs.from),
+            refs.to === null ? readWorkingTree() : showAtRef(refs.to),
+          ]);
+          return { from, to };
+        },
         gitLog: ({ maxCount, firstParentOnly }) =>
           getGitLog({ cwd: currentDir, maxCount, firstParentOnly }),
         gitPrList: () => getPrList({ cwd: projectDir, env: shellEnv }),

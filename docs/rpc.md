@@ -33,6 +33,7 @@ flowchart LR
 | `fsReadFile`             | ファイル読み込み                                   |
 | `fsReadFileAbsolute`     | 絶対パスでファイル読み取り（ワークスペース外）     |
 | `gitShowFile`            | HEAD 時点のファイル内容                            |
+| `gitShowCommitFile`      | コミット間のファイル内容（from/to を一括取得）     |
 | `gitDiffFile`            | unified diff                                       |
 | `gitStatus`              | git status 全体                                    |
 | `gitLog`                 | コミット履歴（HEAD 系統 + デフォルトブランチ系統） |

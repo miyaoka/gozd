@@ -1,5 +1,11 @@
-export { filterIgnored, getGitStatus, getGitCommitFiles, countChanges } from "./status";
-export type { GitStatusResult } from "./status";
+export {
+  filterIgnored,
+  getGitStatus,
+  getGitCommitFiles,
+  countChanges,
+  resolveCommitDiffRefs,
+} from "./status";
+export type { GitStatusResult, CommitDiffRefs } from "./status";
 export {
   getWorktreeRoot,
   addWorktree,

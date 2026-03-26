@@ -30,12 +30,24 @@ features/preview/
 
 git 変更ファイルには Original / Diff / Current の3タブを表示する。タブ順序は時系列（過去 → 現在）。
 
+### Uncommitted モード（デフォルト）
+
 | 変更種別                 | 利用可能なモード        | デフォルト |
 | ------------------------ | ----------------------- | ---------- |
 | 変更なし                 | Current                 | Current    |
-| modified, added, renamed | Original, Diff, Current | Diff       |
+| modified, added, renamed | Original, Diff, Current | Current    |
 | deleted                  | Original                | Original   |
 | untracked                | Current                 | Current    |
+
+### コミットモード（git-graph でコミット選択時）
+
+変更種別は `gitShowCommitFile` の from/to 結果から導出する。
+
+| 変更種別                      | 利用可能なモード        | デフォルト |
+| ----------------------------- | ----------------------- | ---------- |
+| modified（from/to 両方あり）  | Original, Diff, Current | Diff       |
+| added（from なし、to あり）   | Current                 | Current    |
+| deleted（from あり、to なし） | Original                | Original   |
 
 ## 開閉機能
 
@@ -49,11 +61,12 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 
 `PreviewPane` が RPC 経由で desktop からファイル内容を取得する。
 
-| RPC                  | 用途                                             |
-| -------------------- | ------------------------------------------------ |
-| `fsReadFile`         | 現在のファイル内容（バイナリ判定）               |
-| `fsReadFileAbsolute` | 絶対パスでのファイル読み取り（ワークスペース外） |
-| `gitShowFile`        | `HEAD` 時点のファイル内容（Original / Diff 用）  |
+| RPC                  | 用途                                                                 |
+| -------------------- | -------------------------------------------------------------------- |
+| `fsReadFile`         | 現在のファイル内容（バイナリ判定）                                   |
+| `fsReadFileAbsolute` | 絶対パスでのファイル読み取り（ワークスペース外）                     |
+| `gitShowFile`        | `HEAD` 時点のファイル内容（Uncommitted モードの Original / Diff 用） |
+| `gitShowCommitFile`  | コミット間のファイル内容（from/to を一括取得。コミットモードで使用） |
 
 - 画像 / SVG: WKWebView が `file://` をブロックするため、desktop 側のファイルサーバー経由で配信
   - `/fs/{relPath}` — 現在のファイル
@@ -65,13 +78,17 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 
 ## リアクティブ更新
 
-### git status 変化時
+### git status 変化時（Uncommitted モードのみ）
 
-`selectedGitChange` は `useWorkspaceStore` の computed から取得する。`gitStatuses` が更新されると自動再計算され、`PreviewPane` の watch がトリガーされてモード・タブをリセットしつつ再取得する。
+`selectedGitChange` は `useWorktreeStore` の computed から取得する。`gitStatuses` が更新されると自動再計算され、`PreviewPane` の watch がトリガーされてモード・タブをリセットしつつ再取得する。
 
-### ファイル内容変更時
+### コミット選択変化時
 
-desktop からの `fsChange` メッセージを購読し、選択中ファイルの親ディレクトリが変更対象なら `fetchContent()` を再実行する。モードや Preview チェックボックスの状態は維持する。
+`useGitGraphStore` の `selectedHash` / `compareHash` を watch し、コミット選択が変わると `fetchCommitContent()` で再取得する。
+
+### ファイル内容変更時（Uncommitted モードのみ）
+
+desktop からの `fsChange` メッセージを購読し、選択中ファイルの親ディレクトリが変更対象なら `fetchContent()` を再実行する。モードや Preview チェックボックスの状態は維持する。コミットモードでは git オブジェクトからの取得済み内容を表示するため、ファイル変更通知は無視する。
 
 ### 非同期レース防止
 

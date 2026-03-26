@@ -165,6 +165,43 @@ async function isRootCommit(cwd: string, hash: string): Promise<boolean> {
   return exitCode !== 0;
 }
 
+/** コミット間の from/to リビジョン参照を解決する。
+ * gitShowCommitFile ハンドラーが使用する。
+ * from = null はルートコミット（親なし）を意味する。
+ * to = null は作業ツリーを意味する。 */
+export interface CommitDiffRefs {
+  from: string | null;
+  to: string | null;
+}
+
+export async function resolveCommitDiffRefs(
+  cwd: string,
+  hash: string,
+  compareHash?: string,
+): Promise<CommitDiffRefs> {
+  if (compareHash !== undefined) {
+    const commitA = hash === UNCOMMITTED_HASH ? "HEAD" : hash;
+    const commitB = compareHash === UNCOMMITTED_HASH ? "HEAD" : compareHash;
+    const hasUncommitted = hash === UNCOMMITTED_HASH || compareHash === UNCOMMITTED_HASH;
+
+    const orderResult = await tryCatch(
+      Bun.spawn(["git", "merge-base", "--is-ancestor", commitA, commitB], { cwd }).exited,
+    );
+    const aIsOlder = orderResult.ok && orderResult.value === 0;
+    const older = aIsOlder ? commitA : commitB;
+    const newer = aIsOlder ? commitB : commitA;
+
+    const from = (await isRootCommit(cwd, older)) ? older : `${older}^`;
+    return { from, to: hasUncommitted ? null : newer };
+  }
+
+  // 単一コミット: ルートコミットは親が存在しない
+  if (await isRootCommit(cwd, hash)) {
+    return { from: null, to: hash };
+  }
+  return { from: `${hash}^`, to: hash };
+}
+
 /**
  * UNCOMMITTED_HASH が含まれる場合は working tree との diff にする。
  * git diff <from> (to なし) = from から working tree への差分。

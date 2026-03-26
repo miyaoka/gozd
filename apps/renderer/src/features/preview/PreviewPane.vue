@@ -15,16 +15,19 @@
 
 ## データ取得
 
-- ファイル選択・git status 変化時に current / original を並列取得
-- fsChange メッセージで選択中ファイルをリアクティブに再取得
+- Uncommitted モード: ファイル選択・git status 変化時に current（ファイルシステム）/ original（HEAD）を並列取得
+- コミットモード: git-graph の選択コミットに応じて gitShowCommitFile RPC で from/to を一括取得
+- fsChange メッセージで選択中ファイルをリアクティブに再取得（uncommitted モードのみ）
 - バージョンカウンターで非同期レースを防止
 </doc>
 
 <script setup lang="ts">
+import { UNCOMMITTED_HASH } from "@gozd/rpc";
 import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useRpc } from "../../shared/rpc";
 import { getFileIconName, getIconUrl } from "../filer";
+import { useGitGraphStore } from "../git-graph";
 import { useWorktreeStore } from "../worktree";
 import type { GitChangeKind } from "../worktree";
 import CodePreview from "./CodePreview.vue";
@@ -68,6 +71,7 @@ const emit = defineEmits<{
 const worktreeStore = useWorktreeStore();
 const { selectedPath, selectedLineNumber, selectedGitChange, fileServerBaseUrl, revealVersion } =
   storeToRefs(worktreeStore);
+const gitGraphStore = useGitGraphStore();
 const { request, onFsChange } = useRpc();
 
 const currentContent = ref<string>();
@@ -88,6 +92,17 @@ const previewEnabled = ref(true);
 /** コード折り返しトグル */
 const wordWrap = ref(true);
 
+/** コミットモード時の変更種別（from/to の取得結果から導出） */
+const commitGitChange = ref<GitChangeKind>();
+
+/** 実効的な変更種別（uncommitted モードでは git status、commit モードでは取得結果から導出） */
+const effectiveGitChange = computed(() => {
+  if (gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null) {
+    return commitGitChange.value;
+  }
+  return selectedGitChange.value;
+});
+
 /** diff がある変更種別か */
 function hasGitDiff(gitChange: GitChangeKind | undefined): boolean {
   if (gitChange === undefined) return false;
@@ -107,7 +122,7 @@ const isImagePreview = computed(() => {
 
 /** 選択ファイルの変更状態に応じて利用可能なモード一覧を返す */
 const availableModes = computed<PreviewMode[]>(() => {
-  const gitChange = selectedGitChange.value;
+  const gitChange = effectiveGitChange.value;
   if (gitChange === "deleted") return ["original"];
   if (hasGitDiff(gitChange)) {
     // 画像プレビュー中は diff モードを除外
@@ -120,6 +135,7 @@ const availableModes = computed<PreviewMode[]>(() => {
 /** デフォルトモードの決定 */
 function defaultMode(gitChange: GitChangeKind | undefined): PreviewMode {
   if (gitChange === "deleted") return "original";
+  if (hasGitDiff(gitChange)) return "diff";
   return "current";
 }
 
@@ -190,11 +206,72 @@ async function fetchContent(path: string, gitChange: GitChangeKind | undefined) 
   }
 }
 
-/** ファイル選択またはgit status変化時にリセット＋再取得 */
+/** コミットモード時のファイル内容取得 */
+async function fetchCommitContent(filePath: string) {
+  loading.value = true;
+  error.value = undefined;
+  isDirectory.value = false;
+  isNotFound.value = false;
+
+  const version = ++fetchVersion;
+  fetchVersionRef.value = version;
+
+  try {
+    const result = await request.gitShowCommitFile({
+      relPath: filePath,
+      hash: gitGraphStore.selectedHash,
+      compareHash: gitGraphStore.compareHash ?? undefined,
+    });
+
+    if (version !== fetchVersion) return;
+
+    const { from, to } = result;
+
+    // from/to の状態から変更種別を導出
+    if (from.notFound && !to.notFound) {
+      commitGitChange.value = "added";
+    } else if (!from.notFound && to.notFound) {
+      commitGitChange.value = "deleted";
+    } else {
+      commitGitChange.value = "modified";
+    }
+
+    // デフォルトモードを変更種別に応じて設定
+    if (commitGitChange.value === "deleted") {
+      activeMode.value = "original";
+    } else if (commitGitChange.value === "added") {
+      activeMode.value = "current";
+    } else {
+      activeMode.value = "diff";
+    }
+
+    originalContent.value = from.notFound ? undefined : from.content;
+    isOriginalBinary.value = from.isBinary;
+    currentContent.value = to.notFound ? undefined : to.content;
+    isBinary.value = to.isBinary;
+    isNotFound.value = (from.notFound ?? false) && (to.notFound ?? false);
+  } catch (e) {
+    if (version !== fetchVersion) return;
+    error.value = e instanceof Error ? e.message : "Failed to read file";
+  } finally {
+    if (version === fetchVersion) {
+      loading.value = false;
+    }
+  }
+}
+
+/** ファイル選択・git status 変化・コミット選択変化時にリセット＋再取得 */
 watch(
-  () => [selectedPath.value, selectedGitChange.value] as const,
-  async ([path, gitChange]) => {
+  () =>
+    [
+      selectedPath.value,
+      selectedGitChange.value,
+      gitGraphStore.selectedHash,
+      gitGraphStore.compareHash,
+    ] as const,
+  async ([path, gitChange, selectedHash, compareHash]) => {
     previewEnabled.value = true;
+    commitGitChange.value = undefined;
 
     if (!path) {
       currentContent.value = undefined;
@@ -207,8 +284,13 @@ watch(
       return;
     }
 
-    activeMode.value = defaultMode(gitChange);
-    await fetchContent(path, gitChange);
+    const isCommitMode = selectedHash !== UNCOMMITTED_HASH || compareHash !== null;
+    if (isCommitMode) {
+      await fetchCommitContent(path);
+    } else {
+      activeMode.value = defaultMode(gitChange);
+      await fetchContent(path, gitChange);
+    }
   },
   { immediate: true },
 );
@@ -222,6 +304,8 @@ function parentDir(filePath: string): string {
 
 const unsubscribeFsChange = onFsChange(({ relDir }) => {
   if (!selectedPath.value) return;
+  // コミットモードではファイル変更通知を無視（表示内容は git オブジェクトから取得済み）
+  if (gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null) return;
   if (relDir !== parentDir(selectedPath.value)) return;
   void fetchContent(selectedPath.value, selectedGitChange.value);
 });

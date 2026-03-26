@@ -178,6 +178,14 @@ export type GozdRPC = {
         params: { relPath: string };
         response: FileReadResult;
       };
+      /** コミット間のファイル内容を取得（from = 変更前、to = 変更後）。
+       * 単一コミット: hash の parent と hash の内容を返す。
+       * 範囲: 古い方の parent と新しい方の内容を返す。
+       * UNCOMMITTED_HASH 含む場合: コミット側と作業ツリーの内容を返す。 */
+      gitShowCommitFile: {
+        params: { relPath: string; hash: string; compareHash?: string };
+        response: { from: FileReadResult; to: FileReadResult };
+      };
       /** git diff <path> で unified diff を取得 */
       gitDiffFile: {
         params: { relPath: string };

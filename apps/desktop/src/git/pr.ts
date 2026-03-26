@@ -14,9 +14,15 @@ interface GhPrItem {
   headRepositoryOwner: { login: string };
 }
 
-export async function getPrList(cwd: string): Promise<GitPullRequest[]> {
+export async function getPrList({
+  cwd,
+  env,
+}: {
+  cwd: string;
+  env: Record<string, string>;
+}): Promise<GitPullRequest[]> {
   const ownerResult = await tryCatch(
-    Promise.resolve(Bun.$`gh repo view --json owner --jq '.owner.login'`.cwd(cwd).text()),
+    Promise.resolve(Bun.$`gh repo view --json owner --jq '.owner.login'`.cwd(cwd).env(env).text()),
   );
   if (!ownerResult.ok) return [];
   const repoOwner = ownerResult.value.trim();
@@ -25,6 +31,7 @@ export async function getPrList(cwd: string): Promise<GitPullRequest[]> {
     Promise.resolve(
       Bun.$`gh pr list --state open --json number,url,headRefName,state,isDraft,headRepositoryOwner --limit 100`
         .cwd(cwd)
+        .env(env)
         .text(),
     ),
   );

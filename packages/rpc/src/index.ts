@@ -311,6 +311,8 @@ export type GozdRPC = {
         head: string;
         upstream?: { ahead: number; behind: number };
       };
+      /** ブランチ ref の変更（作成・削除・リネーム）通知 */
+      branchChange: void;
       /** 非アクティブ worktree でファイル変更が検知された通知 */
       worktreeChange: void;
       gozdOpen: {

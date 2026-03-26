@@ -13,7 +13,7 @@ import { dirName } from "./utils";
 export function useSidebarData() {
   const worktreeStore = useWorktreeStore();
   const terminalStore = useTerminalStore();
-  const { request, onGitStatusChange, onWorktreeChange } = useRpc();
+  const { request, onGitStatusChange, onBranchChange, onWorktreeChange } = useRpc();
 
   const worktrees = ref<WorktreeEntry[]>([]);
   /** worktree 化されていないローカルブランチ */
@@ -73,6 +73,7 @@ export function useSidebarData() {
   const cleanups: Array<() => void> = [];
   onMounted(() => {
     cleanups.push(onGitStatusChange(() => fetchData()));
+    cleanups.push(onBranchChange(() => fetchData()));
     cleanups.push(onWorktreeChange(() => fetchData()));
   });
   onUnmounted(() => {

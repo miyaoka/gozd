@@ -10,6 +10,7 @@ const listeners = {
   ptyExit: [] as Array<(payload: Msg["ptyExit"]) => void>,
   fsChange: [] as Array<(payload: Msg["fsChange"]) => void>,
   gitStatusChange: [] as Array<(payload: Msg["gitStatusChange"]) => void>,
+  branchChange: [] as Array<() => void>,
   worktreeChange: [] as Array<() => void>,
   gozdOpen: [] as Array<(payload: Msg["gozdOpen"]) => void>,
   gozdHook: [] as Array<(payload: Msg["gozdHook"]) => void>,
@@ -32,6 +33,9 @@ const rpc = Electroview.defineRPC<GozdRPC>({
       },
       gitStatusChange: (payload) => {
         for (const fn of listeners.gitStatusChange) fn(payload);
+      },
+      branchChange: () => {
+        for (const fn of listeners.branchChange) fn();
       },
       worktreeChange: () => {
         for (const fn of listeners.worktreeChange) fn();
@@ -83,6 +87,7 @@ export function useRpc() {
     onFsChange: (fn: (payload: Msg["fsChange"]) => void) => subscribe("fsChange", fn),
     onGitStatusChange: (fn: (payload: Msg["gitStatusChange"]) => void) =>
       subscribe("gitStatusChange", fn),
+    onBranchChange: (fn: () => void) => subscribe("branchChange", fn),
     onWorktreeChange: (fn: () => void) => subscribe("worktreeChange", fn),
     onGozdOpen: (fn: (payload: Msg["gozdOpen"]) => void) => subscribe("gozdOpen", fn),
     onGozdHook: (fn: (payload: Msg["gozdHook"]) => void) => subscribe("gozdHook", fn),

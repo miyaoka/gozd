@@ -25,7 +25,7 @@ import type { SortMode } from "./mergeCommitStreams";
 import RefBadge from "./RefBadge.vue";
 import { useGitGraphStore } from "./useGitGraphStore";
 
-const { request, onGitStatusChange } = useRpc();
+const { request, onGitStatusChange, onBranchChange } = useRpc();
 const worktreeStore = useWorktreeStore();
 const gitStatusStore = useGitStatusStore();
 const gitGraphStore = useGitGraphStore();
@@ -204,6 +204,12 @@ const disposeGitStatus = onGitStatusChange(({ head, upstream }) => {
   }
 });
 onUnmounted(disposeGitStatus);
+
+// ブランチ ref の変更（作成・削除・リネーム）時に git log を再取得
+const disposeBranchChange = onBranchChange(() => {
+  void loadLog();
+});
+onUnmounted(disposeBranchChange);
 
 // --- PR 情報（非同期で後追い取得） ---
 

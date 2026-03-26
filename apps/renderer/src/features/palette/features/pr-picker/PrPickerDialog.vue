@@ -14,7 +14,7 @@ PR selection dialog. Displays open pull requests in a table layout with fuzzy fi
 import type { GitPullRequest } from "@gozd/rpc";
 import { useEventListener } from "@vueuse/core";
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
-import { useContextKeys } from "../../../../shared/command";
+import { isIMEActive, useContextKeys } from "../../../../shared/command";
 import { fuzzyMatch } from "../../fuzzyMatch";
 import PrPickerRow from "./PrPickerRow.vue";
 import { usePrPicker } from "./usePrPicker";
@@ -54,10 +54,12 @@ watch(filteredPrs, () => {
 });
 
 watch(showSignal, () => {
+  const dialog = dialogRef.value;
+  if (!dialog || dialog.open) return;
   if (prItems.value.length === 0) return;
   query.value = "";
   selectedIndex.value = 0;
-  dialogRef.value?.showModal();
+  dialog.showModal();
   contextKeys.set("prPickerVisible", true);
   nextTick(() => {
     inputRef.value?.focus();
@@ -93,7 +95,7 @@ function getPageSize(): number {
 }
 
 function handleKeydown(e: KeyboardEvent) {
-  if (e.isComposing) return;
+  if (isIMEActive(e)) return;
   const len = filteredPrs.value.length;
   switch (e.key) {
     case "ArrowDown":

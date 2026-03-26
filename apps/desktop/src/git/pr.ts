@@ -12,7 +12,7 @@ interface GhPrItem {
   headRefName: string;
   state: "OPEN" | "CLOSED" | "MERGED";
   isDraft: boolean;
-  author: { login: string };
+  author: { login: string } | null;
   updatedAt: string;
   headRepositoryOwner: { login: string };
 }
@@ -92,6 +92,6 @@ export async function getPrList({
     .filter((pr) => pr.headRepositoryOwner.login === repoOwner)
     .map(({ headRepositoryOwner: _, author, ...pr }) => ({
       ...pr,
-      author: author.login,
+      author: author?.login ?? "",
     }));
 }

@@ -9,7 +9,7 @@ Git commit graph showing the current worktree branch and the default branch.
 </doc>
 
 <script setup lang="ts">
-import type { GitCommit } from "@gozd/rpc";
+import type { GitCommit, GitPullRequest } from "@gozd/rpc";
 import { UNCOMMITTED_HASH } from "@gozd/rpc";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
@@ -17,10 +17,12 @@ import { useRpc } from "../../shared/rpc";
 import { ResizeHandle } from "../layout";
 import { useGitStatusStore, useWorktreeStore } from "../worktree";
 import CommitDetailPane from "./CommitDetailPane.vue";
+import type { DisplayRef } from "./displayRef";
 import { computeGraphLayout } from "./graphLayout";
 import type { GraphLayout } from "./graphLayout";
 import { mergeCommitStreams } from "./mergeCommitStreams";
 import type { SortMode } from "./mergeCommitStreams";
+import RefBadge from "./RefBadge.vue";
 import { useGitGraphStore } from "./useGitGraphStore";
 
 const { request, onGitStatusChange } = useRpc();
@@ -186,8 +188,39 @@ const disposeGitStatus = onGitStatusChange(({ head, upstream }) => {
   if (headChanged || upstreamChanged) {
     void loadLog();
   }
+  // upstream 変化（push/fetch）時に PR 一覧も再取得
+  if (upstreamChanged) {
+    void loadPrList();
+  }
 });
 onUnmounted(disposeGitStatus);
+
+// --- PR 情報（非同期で後追い取得） ---
+
+/** ブランチ名 → PR のマップ */
+const prByBranch = ref(new Map<string, GitPullRequest>());
+/** loadPrList の世代管理。並行実行で古いレスポンスが後着して上書きするのを防ぐ */
+let loadPrGen = 0;
+
+async function loadPrList() {
+  const gen = ++loadPrGen;
+  const prs = await request.gitPrList(undefined);
+  if (gen !== loadPrGen) return;
+  const map = new Map<string, GitPullRequest>();
+  for (const pr of prs) {
+    map.set(pr.headRefName, pr);
+  }
+  prByBranch.value = map;
+}
+
+// マウント時に非同期取得（グラフ描画をブロックしない）
+onMounted(() => void loadPrList());
+
+// worktree 切り替え時に再取得
+watch(
+  () => worktreeStore.dir,
+  () => void loadPrList(),
+);
 
 /** グラフ描画の定数 */
 const LANE_WIDTH = 16;
@@ -260,19 +293,6 @@ function isMergeCommit(commit: GitCommit): boolean {
 /** HEAD を含むかどうか */
 function hasHead(refs: string[]): boolean {
   return refs.includes("HEAD");
-}
-
-interface DisplayRef {
-  label: string;
-  type: "local" | "remote" | "synced" | "tag";
-  /** origin と同じコミットにあるか */
-  isSynced: boolean;
-  /** ローカルとリモートが別コミットに存在するか */
-  isOutOfSync: boolean;
-  /** カレントブランチか */
-  isCurrent: boolean;
-  /** デフォルトブランチか */
-  isDefault: boolean;
 }
 
 /**
@@ -351,29 +371,6 @@ function computeDisplayRefs(
 
   return result;
 }
-
-/**
- * ref バッジの色分け。
- * - local / synced（ローカル系）: 緑
- * - remote（リモートのみ）: 緑 + opacity-50
- * - tag: 青
- * isCurrent / isDefault フラグで特別表示を上乗せする。
- */
-const REF_TYPE_CLASS: Record<DisplayRef["type"], string> = {
-  synced: "bg-green-800 text-green-200",
-  local: "bg-green-800 text-green-200",
-  remote: "bg-green-800 text-green-200 opacity-50",
-  tag: "bg-blue-800 text-blue-200",
-};
-
-/** current（ローカル）: 黄色背景に黒文字 */
-const CURRENT_LOCAL_CLASS = "bg-yellow-500 text-black";
-
-/** current（リモート）: ローカルと同色 + opacity */
-const CURRENT_REMOTE_CLASS = "bg-yellow-500 text-black opacity-50";
-
-/** default: ring を追加 */
-const DEFAULT_CLASS = "ring-1 ring-inset ring-current";
 
 /** 日付フォーマット（短い形式） */
 function formatDate(timestamp: number): string {
@@ -610,7 +607,7 @@ function isInRange(hash: string): boolean {
           <div
             v-for="node in layout.nodes"
             :key="node.commit.hash"
-            class="_graph-row relative flex cursor-pointer items-center text-xs"
+            class="_graph-row relative flex items-center text-xs"
             :class="rowHighlightClass(node.commit.hash)"
             :style="{ height: `${ROW_HEIGHT}px` }"
             @click="onRowClick(node.commit.hash, $event)"
@@ -634,7 +631,7 @@ function isInRange(hash: string): boolean {
                 v-if="isMergeCommit(node.commit)"
                 class="icon-[lucide--git-merge] size-3.5 shrink-0 text-zinc-500"
               />
-              <span
+              <RefBadge
                 v-for="displayRef in computeDisplayRefs(
                   node.commit.refs,
                   currentBranch,
@@ -642,20 +639,9 @@ function isInRange(hash: string): boolean {
                   outOfSyncBranches,
                 )"
                 :key="`${displayRef.type}:${displayRef.label}`"
-                class="flex shrink-0 items-center gap-0.5 rounded-sm px-1 py-0.5 text-[10px] leading-none font-medium"
-                :class="[
-                  displayRef.isCurrent
-                    ? displayRef.type === 'remote'
-                      ? CURRENT_REMOTE_CLASS
-                      : CURRENT_LOCAL_CLASS
-                    : REF_TYPE_CLASS[displayRef.type],
-                  displayRef.isDefault && DEFAULT_CLASS,
-                ]"
-              >
-                <span v-if="displayRef.isSynced" class="icon-[lucide--link] size-3" />
-                <span v-else-if="displayRef.isOutOfSync" class="icon-[lucide--link-2-off] size-3" />
-                {{ displayRef.label }}
-              </span>
+                :display-ref="displayRef"
+                :pr-by-branch="prByBranch"
+              />
               <span
                 class="truncate"
                 :class="isUncommitted(node.commit.hash) ? 'font-semibold text-zinc-400 italic' : ''"

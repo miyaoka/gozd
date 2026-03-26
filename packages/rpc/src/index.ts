@@ -106,6 +106,20 @@ export type ProjectConfig = z.infer<typeof projectConfigSchema>;
 /** Uncommitted Changes の仮想コミットハッシュ */
 export const UNCOMMITTED_HASH = "0000000000000000000000000000000000000000";
 
+/** GitHub PR の情報（ブランチ名で紐付け） */
+export interface GitPullRequest {
+  /** PR 番号 */
+  number: number;
+  /** PR の URL */
+  url: string;
+  /** ソースブランチ名 */
+  headRefName: string;
+  /** PR の状態 */
+  state: "OPEN" | "CLOSED" | "MERGED";
+  /** ドラフトかどうか */
+  isDraft: boolean;
+}
+
 /** git diff の変更ファイル情報 */
 export interface GitFileChange {
   oldFilePath: string;
@@ -180,6 +194,11 @@ export type GozdRPC = {
           defaultBranchCommits: GitCommit[];
           defaultBranch?: string;
         };
+      };
+      /** GitHub PR 一覧を取得（open のみ、ブランチ名で紐付け） */
+      gitPrList: {
+        params: undefined;
+        response: GitPullRequest[];
       };
       /** git worktree list で worktree 一覧を取得 */
       gitWorktreeList: {

@@ -5,7 +5,7 @@ import { ref } from "vue";
 export const useProjectStore = defineStore("project", () => {
   const repoName = ref<string>();
   /** git リポジトリ内かどうか。false の場合 git 関連 UI を非表示にする */
-  const isGitRepo = ref(true);
+  const isGitRepo = ref(false);
 
   function setProject(newRepoName?: string, newIsGitRepo?: boolean) {
     if (newRepoName) {

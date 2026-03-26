@@ -49,6 +49,9 @@ function register(id: string, input: CommandInput): () => void {
 function execute(id: string, args?: unknown): boolean {
   const entry = entries.get(id);
   if (entry === undefined) return false;
+  // precondition が false ならスキップ（キーバインド等からの実行も防止）
+  const contextKeys = useContextKeys();
+  if (!contextKeys.evaluate(entry.precondition)) return false;
   const result = tryCatch(() => entry.handler(args));
   if (!result.ok) {
     console.error(`Command "${id}" threw:`, result.error);

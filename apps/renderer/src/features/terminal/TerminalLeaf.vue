@@ -3,9 +3,7 @@
 
 ## ヘッダバー
 
-- 上部に CWD + タイトル表示、Claude 状態バッジを配置
-- CWD は OSC 7 でリアルタイム更新される（useTerminalStore.cwdByLeafId）
-- タイトルは OSC 0/2 で更新される（useTerminalStore.titleByLeafId）。CWD ラベルの後ろに連結表示
+- 上部に CWD + ターミナルタイトル、Claude 状態バッジを配置
 - worktree ディレクトリ外にいる場合は赤背景で警告表示
 
 ## フォーカス

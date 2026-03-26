@@ -43,6 +43,38 @@ const currentBranch = computed(() => {
 });
 
 /**
+ * ローカルとリモートが異なるコミットに存在するブランチ名の Set。
+ * 同じコミットにローカルとリモートが両方あれば synced（computeDisplayRefs で処理）。
+ * 別コミットに分かれていれば out-of-sync としてここで検出する。
+ */
+const outOfSyncBranches = computed(() => {
+  const localCommits = new Map<string, string>();
+  const remoteCommits = new Map<string, string>();
+
+  for (const commit of commits.value) {
+    for (const r of commit.refs) {
+      if (r === "HEAD" || r === "origin/HEAD") continue;
+      if (r.startsWith("tag:")) continue;
+      if (r.startsWith("origin/")) {
+        const name = r.slice("origin/".length);
+        remoteCommits.set(name, commit.hash);
+      } else {
+        localCommits.set(r, commit.hash);
+      }
+    }
+  }
+
+  const result = new Set<string>();
+  for (const [name, localHash] of localCommits) {
+    const remoteHash = remoteCommits.get(name);
+    if (remoteHash && remoteHash !== localHash) {
+      result.add(name);
+    }
+  }
+  return result;
+});
+
+/**
  * コミット一覧の先頭に Uncommitted Changes 仮想行を挿入する。
  * HEAD コミットを親として接続する。
  */
@@ -218,6 +250,8 @@ interface DisplayRef {
   type: "local" | "remote" | "synced" | "tag";
   /** origin と同じコミットにあるか */
   isSynced: boolean;
+  /** ローカルとリモートが別コミットに存在するか */
+  isOutOfSync: boolean;
   /** カレントブランチか */
   isCurrent: boolean;
   /** デフォルトブランチか */
@@ -249,6 +283,7 @@ function computeDisplayRefs(
   refs: string[],
   currentBranchName?: string,
   defaultBranchName?: string,
+  outOfSyncSet?: Set<string>,
 ): DisplayRef[] {
   const filtered = refs.filter((r) => r !== "HEAD" && r !== "origin/HEAD");
   const locals = new Set(filtered.filter((r) => !r.startsWith("origin/") && !r.startsWith("tag:")));
@@ -266,17 +301,20 @@ function computeDisplayRefs(
     const type = isSynced ? "synced" : "local";
     const isCurrent = local === currentBranchName;
     const isDefault = local === defaultBranchName;
-    result.push({ label: local, type, isSynced, isCurrent, isDefault });
+    const isOutOfSync = !isSynced && (outOfSyncSet?.has(local) ?? false);
+    result.push({ label: local, type, isSynced, isOutOfSync, isCurrent, isDefault });
   }
 
   // origin のみ（ローカルに対応がない）
   for (const remote of remotes) {
     const isCurrent = remote === currentBranchName;
     const isDefault = remote === defaultBranchName;
+    const isOutOfSync = outOfSyncSet?.has(remote) ?? false;
     result.push({
       label: `origin/${remote}`,
       type: "remote",
       isSynced: false,
+      isOutOfSync,
       isCurrent,
       isDefault,
     });
@@ -288,6 +326,7 @@ function computeDisplayRefs(
       label: tag.slice("tag:".length),
       type: "tag",
       isSynced: false,
+      isOutOfSync: false,
       isCurrent: false,
       isDefault: false,
     });
@@ -496,6 +535,7 @@ function isInRange(hash: string): boolean {
                 node.commit.refs,
                 currentBranch,
                 defaultBranch,
+                outOfSyncBranches,
               )"
               :key="`${displayRef.type}:${displayRef.label}`"
               class="flex shrink-0 items-center gap-0.5 rounded-sm px-1 py-0.5 text-[10px] leading-none font-medium"
@@ -508,7 +548,8 @@ function isInRange(hash: string): boolean {
                 displayRef.isDefault && DEFAULT_CLASS,
               ]"
             >
-              <span v-if="displayRef.isSynced" class="icon-[lucide--refresh-cw] size-2.5" />
+              <span v-if="displayRef.isSynced" class="icon-[lucide--link] size-3" />
+              <span v-else-if="displayRef.isOutOfSync" class="icon-[lucide--link-2-off] size-3" />
               {{ displayRef.label }}
             </span>
             <span

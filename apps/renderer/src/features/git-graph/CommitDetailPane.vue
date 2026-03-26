@@ -38,7 +38,9 @@ function formatDetailDate(timestamp: number): string {
 </script>
 
 <template>
-  <div class="flex size-full flex-col overflow-y-auto bg-zinc-900 text-xs text-zinc-300">
+  <div
+    class="flex size-full flex-col overflow-y-auto bg-zinc-900 text-xs text-zinc-300 select-text"
+  >
     <!-- No selection -->
     <div v-if="commits.length === 0" class="p-3 text-zinc-500">Select a commit to view details</div>
 

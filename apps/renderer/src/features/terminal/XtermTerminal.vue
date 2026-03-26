@@ -141,6 +141,12 @@ onMounted(async () => {
   // ファイルパスをクリックでファイラー/プレビューに反映する
   terminal.registerLinkProvider(createFilePathLinkProvider(terminal));
 
+  // xterm.js の onTitleChange でタイトル変更を受け取り store に保存する
+  // xterm.js 内部で OSC 0/2 を処理済みなので registerOscHandler ではなくイベントを購読する
+  terminal.onTitleChange((title) => {
+    terminalStore.setTitle(props.leafId, title);
+  });
+
   // OSC 7 (CWD 通知) をパースして store に保存する
   terminal.parser.registerOscHandler(7, (data) => {
     const urlResult = tryCatch(() => new URL(data));

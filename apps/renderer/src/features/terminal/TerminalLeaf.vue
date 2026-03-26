@@ -3,8 +3,7 @@
 
 ## ヘッダバー
 
-- 上部に CWD 表示 + Claude 状態バッジを配置
-- CWD は OSC 7 でリアルタイム更新される（useTerminalStore.cwdByLeafId）
+- 上部に CWD + ターミナルタイトル、Claude 状態バッジを配置
 - worktree ディレクトリ外にいる場合は赤背景で警告表示
 
 ## フォーカス
@@ -64,6 +63,9 @@ const cwdLabel = computed(() => {
   return cwd.value.slice(parentEnd + 1);
 });
 
+/** OSC 0/2 で設定されたターミナルタイトル */
+const title = computed(() => terminalStore.titleByLeafId[props.leafId]);
+
 /**
  * store の focusedLeafId が自身を指しているなら imperative に DOM focus する。
  * immediate: true で mount 時の初期値も拾う（split 直後の新規 leaf 対応）。
@@ -100,13 +102,14 @@ function handleTerminalBlur() {
           : '-outline-offset-2 outline-zinc-700'
       "
     >
-      <!-- CWD（左上、ボーダー線上） -->
+      <!-- CWD + タイトル（左上、ボーダー線上） -->
       <div
         class="pointer-events-none absolute top-0 left-3 z-10 -translate-y-1/2 px-1 text-xs"
         :style="{ backgroundColor: currentTheme.background }"
         :class="isInsideWorktree ? 'text-zinc-400' : 'text-red-300'"
+        :title="cwd"
       >
-        <span :title="cwd">{{ cwdLabel }}</span>
+        {{ title ? `${cwdLabel} ${title}` : cwdLabel }}
       </div>
       <!-- Claude Code 状態インジケーター（右上、ボーダー線上） -->
       <div

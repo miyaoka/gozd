@@ -125,6 +125,20 @@ leafNode
 - **all**: `tileGridTemplate()` で全 leaf を均等タイル配置
 - **claude**: `tileGridTemplate()` で Claude 起動中の leaf のみ均等タイル配置
 
+## OSC ハンドラ
+
+xterm.js のイベントまたは `parser.registerOscHandler()` でエスケープシーケンスを受信し、store に保存する。
+
+| OSC | 用途                | 受信方法                          | 保存先          | 表示箇所                    |
+| --- | ------------------- | --------------------------------- | --------------- | --------------------------- |
+| 0   | タイトル+アイコン名 | `terminal.onTitleChange` イベント | `titleByLeafId` | TerminalLeaf 左上（CWD 横） |
+| 2   | タイトル            | `terminal.onTitleChange` イベント | `titleByLeafId` | TerminalLeaf 左上（CWD 横） |
+| 7   | CWD 通知            | `registerOscHandler(7, ...)`      | `cwdByLeafId`   | TerminalLeaf 左上           |
+
+- OSC 0/2 は xterm.js に既定ハンドラがあるため `registerOscHandler` ではなく `onTitleChange` イベントを購読する。OSC 7 は既定ハンドラがないため `registerOscHandler` を使う
+- タイトルは Claude Code 等のプログラムが `\x1b]2;タイトル\a` で設定する。Ghostty 等の一般的なターミナルと同じ標準的な仕組み
+- 空文字列が送信された場合はタイトルをクリアする
+
 ## ファイルパスリンク
 
 `useFilePathLinkProvider` が xterm の LinkProvider を実装し、ターミナル出力のファイルパスをクリック可能にする。

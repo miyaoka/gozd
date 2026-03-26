@@ -43,6 +43,9 @@ export const useTerminalStore = defineStore("terminal", () => {
   /** leafId → PTY の現在の CWD（OSC 7 で更新される） */
   const cwdByLeafId = ref<Record<string, string>>({});
 
+  /** leafId → ターミナルタイトル（OSC 0/2 で更新される） */
+  const titleByLeafId = ref<Record<string, string>>({});
+
   // --- モジュール初期化 ---
 
   const ptySession = createPtySessionManager({
@@ -84,6 +87,7 @@ export const useTerminalStore = defineStore("terminal", () => {
       unregisterPane: (leafId) => {
         ptySession.killPty(leafId);
         delete cwdByLeafId.value[leafId];
+        delete titleByLeafId.value[leafId];
         delete paneRegistry.value[leafId];
       },
       getPaneDir: (leafId) => paneRegistry.value[leafId]?.dir,
@@ -152,6 +156,15 @@ export const useTerminalStore = defineStore("terminal", () => {
     cwdByLeafId.value[leafId] = cwd;
   }
 
+  /** OSC 0/2 で通知されたタイトルを保存する */
+  function setTitle(leafId: string, title: string) {
+    if (title === "") {
+      delete titleByLeafId.value[leafId];
+    } else {
+      titleByLeafId.value[leafId] = title;
+    }
+  }
+
   // --- drag suspend ---
 
   function incrementDragSuspend() {
@@ -169,6 +182,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     dragSuspendCount,
     viewMode,
     cwdByLeafId,
+    titleByLeafId,
     // computed
     claudeActiveLeafIds,
     // layout
@@ -192,6 +206,8 @@ export const useTerminalStore = defineStore("terminal", () => {
     getPtyId,
     // cwd
     setCwd,
+    // title
+    setTitle,
     // drag
     incrementDragSuspend,
     decrementDragSuspend,

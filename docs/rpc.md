@@ -26,103 +26,54 @@ flowchart LR
 
 ## Request（renderer → desktop、Promise ベース）
 
-| Request                  | params                        | response                     | 用途                                               |
-| ------------------------ | ----------------------------- | ---------------------------- | -------------------------------------------------- |
-| `ptySpawn`               | `{ dir, cols, rows }`         | `number`                     | PTY 起動、ID を返す                                |
-| `fsReadDir`              | `{ relPath }`                 | `FileEntry[]`                | ディレクトリ読み込み                               |
-| `fsReadFile`             | `{ relPath }`                 | `FileReadResult`             | ファイル読み込み                                   |
-| `fsReadFileAbsolute`     | `{ absolutePath }`            | `FileReadResult`             | 絶対パスでファイル読み取り（ワークスペース外）     |
-| `gitShowFile`            | `{ relPath }`                 | `FileReadResult`             | HEAD 時点のファイル内容                            |
-| `gitDiffFile`            | `{ relPath }`                 | `string`                     | unified diff                                       |
-| `gitStatus`              | —                             | `Record<string, string>`     | git status 全体                                    |
-| `gitLog`                 | `{ maxCount? }`               | `GitCommit[]`                | コミット履歴（現在ブランチ + main）                |
-| `gitWorktreeList`        | —                             | `WorktreeEntry[]`            | worktree 一覧を取得                                |
-| `gitBranchList`          | —                             | `string[]`                   | ローカルブランチ一覧を取得                         |
-| `createWorktree`         | `{ worktreeDir, branch }`     | `WorktreeEntry`              | worktree を作成                                    |
-| `createWorktreeWithTodo` | `{ id, worktreeDir, branch }` | `{ todo, worktree }`         | Todo に worktree を作成して紐づける                |
-| `gitWorktreeRemove`      | `{ path, force? }`            | `void`                       | worktree を解除（ブランチは残る）                  |
-| `gitBranchDelete`        | `{ branch }`                  | `void`                       | ローカルブランチを削除                             |
-| `switchDir`              | `{ dir }`                     | `{ dir, fileServerBaseUrl }` | 表示対象ディレクトリを切り替え（worktree 選択）    |
-| `configLoad`             | —                             | `AppConfig`                  | グローバル設定を読み込む                           |
-| `configSave`             | `AppConfig`                   | `void`                       | グローバル設定を保存する                           |
-| `voicevoxLaunch`         | —                             | `boolean`                    | VOICEVOX Engine を起動（未インストールなら false） |
+| Request                  | 用途                                               |
+| ------------------------ | -------------------------------------------------- |
+| `ptySpawn`               | PTY 起動、ID を返す                                |
+| `fsReadDir`              | ディレクトリ読み込み                               |
+| `fsReadFile`             | ファイル読み込み                                   |
+| `fsReadFileAbsolute`     | 絶対パスでファイル読み取り（ワークスペース外）     |
+| `gitShowFile`            | HEAD 時点のファイル内容                            |
+| `gitDiffFile`            | unified diff                                       |
+| `gitStatus`              | git status 全体                                    |
+| `gitLog`                 | コミット履歴（HEAD 系統 + デフォルトブランチ系統） |
+| `gitWorktreeList`        | worktree 一覧を取得                                |
+| `gitBranchList`          | ローカルブランチ一覧を取得                         |
+| `createWorktree`         | worktree を作成                                    |
+| `createWorktreeWithTodo` | Todo に worktree を作成して紐づける                |
+| `gitWorktreeRemove`      | worktree を解除（ブランチは残る）                  |
+| `gitBranchDelete`        | ローカルブランチを削除                             |
+| `switchDir`              | 表示対象ディレクトリを切り替え（worktree 選択）    |
+| `configLoad`             | グローバル設定を読み込む                           |
+| `configSave`             | グローバル設定を保存する                           |
+| `voicevoxLaunch`         | VOICEVOX Engine を起動（未インストールなら false） |
 
 ## Message（一方向）
 
 ### desktop → renderer
 
-| Message           | Payload                                                | 用途                                       |
-| ----------------- | ------------------------------------------------------ | ------------------------------------------ |
-| `ptyData`         | `{ id, data }`                                         | PTY 出力                                   |
-| `ptyExit`         | `{ id, exitCode }`                                     | PTY 終了                                   |
-| `fsChange`        | `{ relDir }`                                           | ファイル変更通知                           |
-| `gitStatusChange` | `{ statuses, head }`                                   | git status 変化 + HEAD ハッシュ            |
-| `worktreeChange`  | `void`                                                 | 非アクティブ worktree でのファイル変更通知 |
-| `gozdOpen`        | `{ dir, file?, fileServerBaseUrl, channel, repoName }` | ウィンドウ open                            |
-| `gozdHook`        | `{ event, payload }`                                   | Claude Code Hook イベント                  |
+| Message           | 用途                                       |
+| ----------------- | ------------------------------------------ |
+| `ptyData`         | PTY 出力                                   |
+| `ptyExit`         | PTY 終了                                   |
+| `fsChange`        | ファイル変更通知                           |
+| `gitStatusChange` | git status 変化 + HEAD ハッシュ            |
+| `worktreeChange`  | 非アクティブ worktree でのファイル変更通知 |
+| `gozdOpen`        | ウィンドウ open                            |
+| `gozdHook`        | Claude Code Hook イベント                  |
 
 ### renderer → desktop
 
-| Message         | Payload              | 用途                      |
-| --------------- | -------------------- | ------------------------- |
-| `ptyWrite`      | `{ id, data }`       | ユーザー入力を PTY に送信 |
-| `ptyResize`     | `{ id, cols, rows }` | PTY リサイズ              |
-| `ptyKill`       | `{ id }`             | PTY 終了                  |
-| `openExternal`  | `{ url }`            | 外部 URL を開く           |
-| `windowClose`   | —                    | ウィンドウを閉じる        |
-| `rendererReady` | —                    | renderer 初期化完了       |
+| Message         | 用途                      |
+| --------------- | ------------------------- |
+| `ptyWrite`      | ユーザー入力を PTY に送信 |
+| `ptyResize`     | PTY リサイズ              |
+| `ptyKill`       | PTY 終了                  |
+| `openExternal`  | 外部 URL を開く           |
+| `windowClose`   | ウィンドウを閉じる        |
+| `rendererReady` | renderer 初期化完了       |
 
-## 型定義
-
-```typescript
-interface FileEntry {
-  name: string;
-  isDirectory: boolean;
-  isIgnored: boolean;
-}
-
-interface FileReadResult {
-  content: string;
-  isBinary: boolean;
-}
-
-interface WorktreeChangeCounts {
-  modified: number;
-  added: number;
-  deleted: number;
-  untracked: number;
-}
-
-interface WorktreeEntry {
-  path: string;
-  head: string;
-  branch?: string;
-  isMain: boolean;
-  changeCounts?: WorktreeChangeCounts;
-}
-
-interface GitCommit {
-  hash: string;
-  shortHash: string;
-  parents: string[];
-  author: string;
-  date: number; // Unix timestamp
-  message: string;
-  refs: string[]; // ブランチ名、タグ、HEAD 等
-}
-
-/** フラットなドット記法。ユーザー設定は config.json にこの形式で保存される */
-interface AppConfig {
-  "terminal.fontFamily"?: string;
-  "terminal.fontSize"?: number;
-  "terminal.theme"?: string;
-  "preview.fontFamily"?: string;
-  "preview.fontSize"?: number;
-  "voicevox.enabled"?: boolean;
-  "voicevox.speedScale"?: number;
-  "voicevox.volumeScale"?: number;
-}
-```
+> [!NOTE]
+> params / response / payload の型定義は `packages/rpc/src/index.ts` を参照。
 
 ## Renderer 側の購読パターン
 

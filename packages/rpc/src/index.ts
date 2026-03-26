@@ -170,10 +170,14 @@ export type GozdRPC = {
         params: { hash: string; compareHash?: string };
         response: GitFileChange[];
       };
-      /** git log でコミット履歴を取得（現在ブランチ + main） */
+      /** git log でコミット履歴を取得（HEAD 系統 + デフォルトブランチ系統） */
       gitLog: {
         params: { maxCount?: number; firstParentOnly?: boolean };
-        response: { commits: GitCommit[]; defaultBranch?: string };
+        response: {
+          headCommits: GitCommit[];
+          defaultBranchCommits: GitCommit[];
+          defaultBranch?: string;
+        };
       };
       /** git worktree list で worktree 一覧を取得 */
       gitWorktreeList: {

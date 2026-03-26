@@ -78,10 +78,8 @@ async function resolveRemoteRef({
 }
 
 /**
- * 現在のブランチとデフォルトブランチのコミット履歴を取得する。
- * current ブランチとデフォルトブランチのリモートrefも対象に含め、
- * リモートが先行している場合もグラフに表示する。
- * date-order で時系列ソートして返す。
+ * HEAD 系統とデフォルトブランチ系統のコミット履歴を別々に取得する。
+ * renderer 側でマージ・ソートするため、desktop では2つの結果を分けて返す。
  */
 export async function getGitLog({
   cwd,
@@ -91,46 +89,57 @@ export async function getGitLog({
   cwd: string;
   maxCount?: number;
   firstParentOnly?: boolean;
-}): Promise<{ commits: GitCommit[]; defaultBranch?: string }> {
+}): Promise<{
+  headCommits: GitCommit[];
+  defaultBranchCommits: GitCommit[];
+  defaultBranch?: string;
+}> {
   const count = Math.min(maxCount ?? DEFAULT_MAX_COUNT, DEFAULT_MAX_COUNT);
   const format = ["%H", "%P", "%aN", "%at", "%s", "%D"].join(FIELD_SEPARATOR);
   const [defaultBranch, currentBranch] = await Promise.all([
     resolveDefaultBranch(cwd),
     resolveCurrentBranch(cwd),
   ]);
-  // current と default のリモートrefを並列で解決
-  const branchesToCheck = new Set(
-    [currentBranch, defaultBranch].filter((b): b is string => b !== undefined),
-  );
-  const remoteRefs = await Promise.all(
-    [...branchesToCheck].map((branch) => resolveRemoteRef({ cwd, branch })),
-  );
 
-  // defaultBranch のローカル ref 存在確認（worktree ではローカルに存在しない場合がある）
-  const hasLocalDefault =
-    defaultBranch !== undefined && (await localRefExists({ cwd, branch: defaultBranch }));
-
-  const refs = ["HEAD"];
-  if (hasLocalDefault) refs.push(defaultBranch);
-  for (const remoteRef of remoteRefs) {
-    if (remoteRef) refs.push(remoteRef);
+  // HEAD 系統の ref を構築（HEAD + current ブランチのリモート ref）
+  const headRefs = ["HEAD"];
+  if (currentBranch) {
+    const remoteRef = await resolveRemoteRef({ cwd, branch: currentBranch });
+    if (remoteRef) headRefs.push(remoteRef);
   }
 
-  const args = [
+  // デフォルトブランチ系統の ref を構築
+  const defaultRefs: string[] = [];
+  if (defaultBranch) {
+    const hasLocalDefault = await localRefExists({ cwd, branch: defaultBranch });
+    if (hasLocalDefault) defaultRefs.push(defaultBranch);
+    const remoteRef = await resolveRemoteRef({ cwd, branch: defaultBranch });
+    if (remoteRef) defaultRefs.push(remoteRef);
+  }
+
+  const baseArgs = [
     "git",
     "log",
     `--format=${RECORD_SEPARATOR}${format}`,
     "--date-order",
     `--max-count=${count}`,
   ];
-  if (firstParentOnly) args.push("--first-parent");
-  args.push(...refs, "--");
+  if (firstParentOnly) baseArgs.push("--first-parent");
 
-  const result = await tryCatch(new Response(Bun.spawn(args, { cwd }).stdout).text());
+  // HEAD 系統とデフォルトブランチ系統を並列で取得
+  const [headResult, defaultResult] = await Promise.all([
+    tryCatch(new Response(Bun.spawn([...baseArgs, ...headRefs, "--"], { cwd }).stdout).text()),
+    defaultRefs.length > 0
+      ? tryCatch(
+          new Response(Bun.spawn([...baseArgs, ...defaultRefs, "--"], { cwd }).stdout).text(),
+        )
+      : Promise.resolve(undefined),
+  ]);
 
-  if (!result.ok) return { commits: [], defaultBranch };
+  const headCommits = headResult.ok ? parseGitLog(headResult.value) : [];
+  const defaultBranchCommits = defaultResult?.ok ? parseGitLog(defaultResult.value) : [];
 
-  return { commits: parseGitLog(result.value), defaultBranch };
+  return { headCommits, defaultBranchCommits, defaultBranch };
 }
 
 function parseGitLog(output: string): GitCommit[] {

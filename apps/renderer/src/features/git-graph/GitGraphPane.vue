@@ -17,6 +17,8 @@ import { useRpc } from "../../shared/rpc";
 import { useGitStatusStore, useWorktreeStore } from "../worktree";
 import { computeGraphLayout } from "./graphLayout";
 import type { GraphLayout } from "./graphLayout";
+import { mergeCommitStreams } from "./mergeCommitStreams";
+import type { SortMode } from "./mergeCommitStreams";
 import { useGitGraphStore } from "./useGitGraphStore";
 
 const { request, onGitStatusChange } = useRpc();
@@ -29,6 +31,7 @@ const commits = ref<GitCommit[]>([]);
 const defaultBranch = ref<string | undefined>();
 const layout = ref<GraphLayout>({ nodes: [], lines: [], maxLanes: 1 });
 const firstParentOnly = ref(false);
+const sortMode = ref<SortMode>("date");
 
 /** 変更ファイル数 */
 const uncommittedChangeCount = computed(() => Object.keys(gitStatuses.value).length);
@@ -121,15 +124,22 @@ async function loadLog() {
     firstParentOnly: firstParentOnly.value || undefined,
   });
   if (gen !== loadLogGen) return;
-  commits.value = result.commits;
+
+  const merged = mergeCommitStreams({
+    headCommits: result.headCommits,
+    defaultBranchCommits: result.defaultBranchCommits,
+    sortMode: sortMode.value,
+  });
+
+  commits.value = merged;
   defaultBranch.value = result.defaultBranch;
-  lastHead = findHeadCommit(result.commits)?.hash ?? "";
+  lastHead = findHeadCommit(merged)?.hash ?? "";
   recomputeLayout();
 
   // 選択中・比較中のコミットが一覧から消えた場合はクリア
   const { selectedHash, compareHash } = gitGraphStore;
   const isStale = (hash: string | null): boolean =>
-    hash !== null && hash !== UNCOMMITTED_HASH && !result.commits.some((c) => c.hash === hash);
+    hash !== null && hash !== UNCOMMITTED_HASH && !merged.some((c) => c.hash === hash);
 
   if (isStale(selectedHash) || isStale(compareHash)) {
     gitGraphStore.resetSelection();
@@ -147,8 +157,12 @@ watch(
   },
 );
 
-// firstParentOnly 切替時に再取得
+// firstParentOnly / sortMode 切替時に再取得
 watch(firstParentOnly, () => {
+  gitGraphStore.resetSelection();
+  void loadLog();
+});
+watch(sortMode, () => {
   gitGraphStore.resetSelection();
   void loadLog();
 });
@@ -375,6 +389,14 @@ function selectedIndex(): number {
   return layout.value.nodes.findIndex((n) => n.commit.hash === gitGraphStore.selectedHash);
 }
 
+/** HEAD コミットを選択してスクロール */
+function scrollToHead() {
+  const index = layout.value.nodes.findIndex((n) => n.commit.refs.includes("HEAD"));
+  if (index === -1) return;
+  gitGraphStore.select(layout.value.nodes[index].commit.hash);
+  scrollToIndex(index);
+}
+
 /** 選択行をビューポート内にスクロール */
 function scrollToIndex(index: number) {
   const container = scrollContainer.value;
@@ -458,6 +480,21 @@ function isInRange(hash: string): boolean {
         @click="firstParentOnly = !firstParentOnly"
       >
         First Parent
+      </button>
+      <button
+        class="rounded-sm px-1.5 py-0.5 text-[10px]"
+        :class="
+          sortMode === 'topo' ? 'bg-blue-800 text-blue-200' : 'text-zinc-500 hover:text-zinc-300'
+        "
+        @click="sortMode = sortMode === 'date' ? 'topo' : 'date'"
+      >
+        {{ sortMode === "date" ? "Date Order" : "Topo Order" }}
+      </button>
+      <button
+        class="rounded-sm px-1.5 py-0.5 text-[10px] text-zinc-500 hover:text-zinc-300"
+        @click="scrollToHead"
+      >
+        Scroll to HEAD
       </button>
     </div>
 

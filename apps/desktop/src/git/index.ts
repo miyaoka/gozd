@@ -3,4 +3,4 @@ export { addWorktree, removeWorktree, getWorktreeList, attachChangeCounts } from
 export { getBranchList, deleteBranch } from "./branch";
 export { getGitLog } from "./log";
 export { getPrList } from "./pr";
-export { parseOwnerRepo, resolveOpenTarget } from "./utils";
+export { checkIsGitRepo, parseOwnerRepo, resolveOpenTarget } from "./utils";

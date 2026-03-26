@@ -3,7 +3,9 @@
  * コマンド ID → エントリ（handler + label）のマッピングを管理する。
  */
 import { tryCatch } from "@gozd/shared";
+import { parseWhen } from "./parseWhen";
 import type { CommandEntry, CommandInput } from "./types";
+import { useContextKeys } from "./useContextKeys";
 
 /** CommandInput が記述子（label 付き）かハンドラ関数かを判定 */
 function isDescriptor(
@@ -21,8 +23,13 @@ const entries = new Map<string, CommandEntry>();
  */
 function register(id: string, input: CommandInput): () => void {
   const entry: CommandEntry = isDescriptor(input)
-    ? { id, label: input.label, handler: input.handler }
-    : { id, label: undefined, handler: input };
+    ? {
+        id,
+        label: input.label,
+        handler: input.handler,
+        precondition: parseWhen(input.precondition),
+      }
+    : { id, label: undefined, handler: input, precondition: undefined };
 
   entries.set(id, entry);
 
@@ -42,6 +49,9 @@ function register(id: string, input: CommandInput): () => void {
 function execute(id: string, args?: unknown): boolean {
   const entry = entries.get(id);
   if (entry === undefined) return false;
+  // precondition が false ならスキップ（キーバインド等からの実行も防止）
+  const contextKeys = useContextKeys();
+  if (!contextKeys.evaluate(entry.precondition)) return false;
   const result = tryCatch(() => entry.handler(args));
   if (!result.ok) {
     console.error(`Command "${id}" threw:`, result.error);
@@ -52,12 +62,13 @@ function execute(id: string, args?: unknown): boolean {
 
 /**
  * パレット表示用のコマンド一覧を返す。
- * label が設定されているコマンドのみを返す。
+ * label が設定されており、precondition が true のコマンドのみを返す。
  */
 function listForPalette(): readonly CommandEntry[] {
+  const contextKeys = useContextKeys();
   const result: CommandEntry[] = [];
   for (const entry of entries.values()) {
-    if (entry.label !== undefined) {
+    if (entry.label !== undefined && contextKeys.evaluate(entry.precondition)) {
       result.push(entry);
     }
   }

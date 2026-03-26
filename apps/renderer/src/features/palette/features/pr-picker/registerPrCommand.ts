@@ -20,6 +20,7 @@ export function registerPrCommand(): () => void {
 
   const dispose = registry.register("workspace.openPr", {
     label: "Workspace: Open Pull Request",
+    precondition: "isGitRepo",
     handler: () => {
       void (async () => {
         const [prs, worktrees] = await Promise.all([

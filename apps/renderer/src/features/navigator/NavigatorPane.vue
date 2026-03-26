@@ -12,6 +12,7 @@ Filer と Changes をタブで切り替えるコンテナ。
 
 <script setup lang="ts">
 import { ref, useTemplateRef, watch } from "vue";
+import { useProjectStore } from "../../shared/project";
 import { ChangesPane } from "../changes";
 import { FilerPane } from "../filer";
 import { useGitGraphStore } from "../git-graph";
@@ -20,6 +21,7 @@ import { useWorktreeStore } from "../worktree";
 type NavigatorView = "files" | "changes";
 
 const gitGraphStore = useGitGraphStore();
+const projectStore = useProjectStore();
 const worktreeStore = useWorktreeStore();
 const filerPaneRef = useTemplateRef<InstanceType<typeof FilerPane>>("filerPane");
 const activeView = ref<NavigatorView>("files");
@@ -66,6 +68,7 @@ defineExpose({ reveal });
         Files
       </button>
       <button
+        v-if="projectStore.isGitRepo"
         type="button"
         class="flex items-center gap-1 px-3 py-1.5 text-xs"
         :class="
@@ -84,7 +87,11 @@ defineExpose({ reveal });
     <div v-show="activeView === 'files'" class="min-h-0 flex-1 overflow-hidden">
       <FilerPane ref="filerPane" />
     </div>
-    <div v-show="activeView === 'changes'" class="min-h-0 flex-1 overflow-hidden">
+    <div
+      v-if="projectStore.isGitRepo"
+      v-show="activeView === 'changes'"
+      class="min-h-0 flex-1 overflow-hidden"
+    >
       <ChangesPane @select="onChangesSelect" />
     </div>
   </div>

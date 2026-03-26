@@ -13,6 +13,8 @@ export interface CommandDescriptor {
   /** コマンドパレットに表示する名前（例: "Terminal: Split Horizontal"） */
   label: string;
   handler: CommandHandler;
+  /** コマンドの有効化条件。false の場合パレットに表示されず、実行もスキップされる */
+  precondition?: string;
 }
 
 /** register の第2引数: ハンドラ関数そのまま、または label 付き記述子 */
@@ -23,6 +25,8 @@ export interface CommandEntry {
   id: string;
   label: string | undefined;
   handler: CommandHandler;
+  /** パース済みの precondition AST */
+  precondition: When | undefined;
 }
 
 // --- キー入力 ---
@@ -46,6 +50,7 @@ export interface ContextMap {
   quickPickVisible: boolean;
   prPickerVisible: boolean;
   inputFocused: boolean;
+  isGitRepo: boolean;
 }
 
 export type ContextKey = keyof ContextMap;

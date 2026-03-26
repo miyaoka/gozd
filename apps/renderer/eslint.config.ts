@@ -80,7 +80,7 @@ export default defineConfigWithVueTs(
       "better-tailwindcss/no-unknown-classes": [
         "warn",
         {
-          ignore: ["_.*"],
+          ignore: ["_.*", "electrobun-webkit-app-region-.*"],
         },
       ],
       // 初回呼び出しで全クラスのシグネチャを計算するため重い

@@ -13,7 +13,6 @@ interface Selection {
 export const useWorktreeStore = defineStore("worktree", () => {
   const dir = ref<string>();
   const fileServerBaseUrl = ref<string>();
-  const channel = ref<string>();
   const repoName = ref<string>();
 
   /** worktree ごとの選択状態（dir → Selection） */
@@ -50,7 +49,6 @@ export const useWorktreeStore = defineStore("worktree", () => {
     newDir: string,
     selection?: OpenTargetSelection,
     newFileServerBaseUrl?: string,
-    newChannel?: string,
     newRepoName?: string,
   ) {
     const dirChanged = dir.value !== newDir;
@@ -58,9 +56,6 @@ export const useWorktreeStore = defineStore("worktree", () => {
     dir.value = newDir;
     if (newFileServerBaseUrl) {
       fileServerBaseUrl.value = newFileServerBaseUrl;
-    }
-    if (newChannel) {
-      channel.value = newChannel;
     }
     if (newRepoName) {
       repoName.value = newRepoName;
@@ -113,7 +108,6 @@ export const useWorktreeStore = defineStore("worktree", () => {
   return {
     dir,
     fileServerBaseUrl,
-    channel,
     repoName,
     selectedPath,
     selectedLineNumber,

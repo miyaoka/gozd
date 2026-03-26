@@ -11,6 +11,7 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
+import { useAppStore } from "../../shared/app";
 import { resolveGitChangeKind, useGitStatusStore, useWorktreeStore } from "../worktree";
 import type { GitChangeKind } from "../worktree";
 
@@ -26,7 +27,9 @@ const props = defineProps<{
 
 const mode = import.meta.env.DEV ? "dev" : "build";
 const worktreeStore = useWorktreeStore();
-const { dir, selectedPath, channel } = storeToRefs(worktreeStore);
+const appStore = useAppStore();
+const { dir, selectedPath } = storeToRefs(worktreeStore);
+const { channel } = storeToRefs(appStore);
 const gitStatusStore = useGitStatusStore();
 const { gitStatuses } = storeToRefs(gitStatusStore);
 

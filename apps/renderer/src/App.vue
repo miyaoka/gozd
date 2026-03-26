@@ -12,12 +12,14 @@ import { tryCatch } from "@gozd/shared";
 import { onMounted, onUnmounted } from "vue";
 import { MainLayout } from "./features/layout";
 import { useWorktreeStore } from "./features/worktree";
+import { useAppStore } from "./shared/app";
 import { useKeyBindings } from "./shared/command";
 import { useRpc } from "./shared/rpc";
 
 useKeyBindings();
 
 const worktreeStore = useWorktreeStore();
+const appStore = useAppStore();
 const { request, send, onGozdOpen } = useRpc();
 
 let cleanup: (() => void) | undefined;
@@ -25,6 +27,9 @@ let cleanup: (() => void) | undefined;
 onMounted(() => {
   cleanup = onGozdOpen(
     async ({ dir, selection, fileServerBaseUrl, channel, repoName, switchToDir }) => {
+      if (channel) {
+        appStore.setChannel(channel);
+      }
       if (switchToDir) {
         // 既存ウィンドウで別 worktree への切り替えが必要な場合
         const result = await tryCatch(request.switchDir({ dir: switchToDir }));
@@ -33,14 +38,13 @@ onMounted(() => {
             result.value.dir,
             selection,
             result.value.fileServerBaseUrl,
-            channel,
             repoName,
           );
         } else {
           console.error("Failed to switch worktree:", switchToDir, result.error);
         }
       } else {
-        worktreeStore.setOpen(dir, selection, fileServerBaseUrl, channel, repoName);
+        worktreeStore.setOpen(dir, selection, fileServerBaseUrl, repoName);
       }
     },
   );

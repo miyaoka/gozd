@@ -910,6 +910,7 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
     title: "gozd",
     url: viewUrl,
     frame: initialFrame,
+    titleBarStyle: "hiddenInset",
     rpc,
   });
 

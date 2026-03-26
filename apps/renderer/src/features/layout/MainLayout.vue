@@ -16,6 +16,7 @@
 <script setup lang="ts">
 import { useWindowSize } from "@vueuse/core";
 import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch, watchEffect } from "vue";
+import { useAppStore } from "../../shared/app";
 import { useCommandRegistry, useContextKeys } from "../../shared/command";
 import { QuickPick } from "../../shared/quick-pick";
 import { useRpc } from "../../shared/rpc";
@@ -30,6 +31,7 @@ import { useWorktreeStore } from "../worktree";
 import ResizeHandle from "./ResizeHandle.vue";
 
 const worktreeStore = useWorktreeStore();
+const appStore = useAppStore();
 const contextKeys = useContextKeys();
 const previewPopoverRef = useTemplateRef<HTMLElement>("previewPopover");
 const navigatorPaneRef = useTemplateRef<InstanceType<typeof NavigatorPane>>("navigatorPane");
@@ -71,6 +73,10 @@ const TERMINAL_MIN_WIDTH = 200;
 const NAVIGATOR_MIN_WIDTH = 180;
 const GIT_GRAPH_MIN_HEIGHT = 40;
 const MAIN_MIN_HEIGHT = 200;
+/** hiddenInset タイトルバーの高さ（Electrobun 公式アプリ準拠） */
+const TITLEBAR_HEIGHT = 28;
+/** 信号機ボタン（閉じる・最小化・最大化）用の左マージン */
+const TRAFFIC_LIGHTS_WIDTH = 80;
 
 const { width: windowWidth, height: windowHeight } = useWindowSize();
 
@@ -174,13 +180,42 @@ watch(
 );
 
 watchEffect(() => {
-  const usedHeight = gitGraphHeight.value + HANDLE_WIDTH;
+  const usedHeight = TITLEBAR_HEIGHT + gitGraphHeight.value + HANDLE_WIDTH;
   mainHeight.value = Math.max(MAIN_MIN_HEIGHT, windowHeight.value - usedHeight);
 });
 </script>
 
 <template>
-  <div class="flex h-screen flex-col overflow-hidden bg-zinc-900 text-white">
+  <div
+    class="flex h-screen flex-col overflow-hidden bg-zinc-900 text-white"
+    :style="{ '--titlebar-height': `${TITLEBAR_HEIGHT}px` }"
+  >
+    <!-- タイトルバー: hiddenInset で透明化されたネイティブバーの代替 -->
+    <div
+      :class="[
+        'flex shrink-0 items-center select-none',
+        appStore.isDev ? 'bg-indigo-800' : 'bg-zinc-800',
+      ]"
+      :style="{ height: `${TITLEBAR_HEIGHT}px` }"
+    >
+      <!-- 信号機ボタン用の余白 -->
+      <div
+        class="electrobun-webkit-app-region-drag shrink-0"
+        :style="{ width: `${TRAFFIC_LIGHTS_WIDTH}px`, height: '100%' }"
+      />
+      <!-- ドラッグ領域 + タイトル表示 -->
+      <div
+        class="electrobun-webkit-app-region-drag flex min-w-0 flex-1 items-center justify-center"
+        style="height: 100%"
+      >
+        <span class="truncate text-sm text-zinc-400">{{ worktreeStore.repoName ?? "gozd" }}</span>
+      </div>
+      <!-- 右側の余白（信号機ボタンと対称） -->
+      <div
+        class="electrobun-webkit-app-region-drag shrink-0"
+        :style="{ width: `${TRAFFIC_LIGHTS_WIDTH}px`, height: '100%' }"
+      />
+    </div>
     <div class="flex shrink-0 overflow-hidden" :style="{ height: `${mainHeight}px` }">
       <div class="shrink-0 overflow-hidden" :style="{ width: `${sidebarWidth}px` }">
         <SidebarPane />
@@ -265,14 +300,14 @@ watchEffect(() => {
 }
 
 ._preview-popover {
-  /* アンカーの左端に右端を揃え、上下は viewport いっぱい */
+  /* アンカーの左端に右端を揃え、タイトルバー直下から下端まで */
   position-anchor: --preview-anchor;
   inset: unset;
   margin: 0;
-  top: 0;
+  top: var(--titlebar-height);
   bottom: 0;
   right: anchor(left);
-  height: 100dvh;
+  height: calc(100dvh - var(--titlebar-height));
   max-height: none;
 }
 

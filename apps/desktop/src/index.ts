@@ -1018,6 +1018,7 @@ function openWindow(req: OpenWindowRequest): void {
   );
   const existing = findWindowByDir(projectDir);
   if (existing) {
+    existing.focus();
     const existingId = windowIds.get(existing) ?? "";
     const currentDir = windowDirs.get(existing) ?? projectDir;
     // 表示中の worktree と異なる場合は switchToDir で切り替えを指示

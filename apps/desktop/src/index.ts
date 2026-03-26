@@ -1196,8 +1196,8 @@ function openWindow(req: OpenWindowRequest): void {
     existing.focus();
     const existingId = windowIds.get(existing) ?? "";
     const currentDir = windowDirs.get(existing) ?? projectDir;
-    // 表示中の worktree と異なる場合は switchToDir で切り替えを指示
-    const switchToDir = activeDir !== currentDir ? activeDir : undefined;
+    // 表示中の worktree と異なる場合は switchToDir で切り替えを指示（非 git では worktree 切り替え不可）
+    const switchToDir = isGitRepo && activeDir !== currentDir ? activeDir : undefined;
     void getRepoName(projectDir).then((repoName) => {
       existing.webview.rpc?.send.gozdOpen({
         dir: currentDir,

@@ -186,7 +186,10 @@ watchEffect(() => {
 </script>
 
 <template>
-  <div class="flex h-screen flex-col overflow-hidden bg-zinc-900 text-white">
+  <div
+    class="flex h-screen flex-col overflow-hidden bg-zinc-900 text-white"
+    :style="{ '--titlebar-height': `${TITLEBAR_HEIGHT}px` }"
+  >
     <!-- タイトルバー: hiddenInset で透明化されたネイティブバーの代替 -->
     <div
       :class="[
@@ -297,14 +300,14 @@ watchEffect(() => {
 }
 
 ._preview-popover {
-  /* アンカーの左端に右端を揃え、上下は viewport いっぱい */
+  /* アンカーの左端に右端を揃え、タイトルバー直下から下端まで */
   position-anchor: --preview-anchor;
   inset: unset;
   margin: 0;
-  top: 0;
+  top: var(--titlebar-height);
   bottom: 0;
   right: anchor(left);
-  height: 100dvh;
+  height: calc(100dvh - var(--titlebar-height));
   max-height: none;
 }
 

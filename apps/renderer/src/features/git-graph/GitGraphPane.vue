@@ -199,9 +199,13 @@ onUnmounted(disposeGitStatus);
 
 /** ブランチ名 → PR のマップ */
 const prByBranch = ref(new Map<string, GitPullRequest>());
+/** loadPrList の世代管理。並行実行で古いレスポンスが後着して上書きするのを防ぐ */
+let loadPrGen = 0;
 
 async function loadPrList() {
+  const gen = ++loadPrGen;
   const prs = await request.gitPrList(undefined);
+  if (gen !== loadPrGen) return;
   const map = new Map<string, GitPullRequest>();
   for (const pr of prs) {
     map.set(pr.headRefName, pr);

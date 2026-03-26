@@ -12,6 +12,7 @@ const INITIAL_STATE: ContextMap = {
   quickPickVisible: false,
   prPickerVisible: false,
   inputFocused: false,
+  isGitRepo: true,
 };
 
 const state = reactive<ContextMap>({ ...INITIAL_STATE });

@@ -6,7 +6,6 @@
 
 import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
-import { useProjectStore } from "../../../../shared/project";
 import { useRpc } from "../../../../shared/rpc";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
@@ -14,7 +13,6 @@ import { usePrPicker } from "./usePrPicker";
 
 export function registerPrCommand(): () => void {
   const registry = useCommandRegistry();
-  const projectStore = useProjectStore();
   const { request } = useRpc();
   const { show } = usePrPicker();
   const worktreeStore = useWorktreeStore();
@@ -22,8 +20,8 @@ export function registerPrCommand(): () => void {
 
   const dispose = registry.register("workspace.openPr", {
     label: "Workspace: Open Pull Request",
+    precondition: "isGitRepo",
     handler: () => {
-      if (!projectStore.isGitRepo) return false;
       void (async () => {
         const [prs, worktrees] = await Promise.all([
           request.gitPrList(undefined),

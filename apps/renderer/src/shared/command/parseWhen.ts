@@ -24,6 +24,7 @@ const KNOWN_KEYS = new Set<string>(
     quickPickVisible: true,
     prPickerVisible: true,
     inputFocused: true,
+    isGitRepo: true,
   } satisfies ContextMap),
 );
 

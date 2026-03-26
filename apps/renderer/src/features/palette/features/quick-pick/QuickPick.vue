@@ -48,7 +48,7 @@ const selectableIndices = computed(() => {
 });
 
 const itemCount = computed(() => filteredItems.value.length);
-const { selectedIndex, move, movePage, reset } = useListNavigation({
+const { selectedIndex, move, movePage, reset, scrollToSelected } = useListNavigation({
   listRef,
   itemCount,
   selectableIndices,
@@ -80,6 +80,7 @@ watch(showSignal, () => {
   showDialog();
   nextTick(() => {
     inputRef.value?.focus();
+    scrollToSelected();
   });
 });
 

@@ -34,7 +34,7 @@ const filteredCommands = computed(() => {
 });
 
 const itemCount = computed(() => filteredCommands.value.length);
-const { selectedIndex, move, movePage, reset } = useListNavigation({
+const { selectedIndex, move, movePage, reset, scrollToSelected } = useListNavigation({
   listRef,
   itemCount,
 });
@@ -53,6 +53,7 @@ function show() {
   contextKeys.set("commandPaletteVisible", true);
   nextTick(() => {
     inputRef.value?.focus();
+    scrollToSelected();
   });
 }
 

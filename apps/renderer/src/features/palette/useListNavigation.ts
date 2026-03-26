@@ -28,6 +28,8 @@ interface UseListNavigationReturn {
   movePage: (direction: 1 | -1) => void;
   /** 選択位置をリセット。index 省略時は先頭の選択可能アイテムに戻す */
   reset: (index?: number) => void;
+  /** 現在の選択アイテムまでスクロールする。ダイアログ初期表示後の nextTick 内で呼ぶ */
+  scrollToSelected: () => void;
 }
 
 /**
@@ -82,13 +84,18 @@ export function useListNavigation(options: UseListNavigationOptions): UseListNav
     selectedIndex.value = first ?? 0;
   }
 
-  /** 選択アイテムが画面外に出たらスクロール追従する */
-  watch(selectedIndex, (idx) => {
+  /** 現在の選択アイテムまでスクロールする */
+  function scrollToSelected() {
     const list = listRef.value;
     if (list === null) return;
-    const item = list.children[idx] as HTMLElement | undefined;
+    const item = list.children[selectedIndex.value] as HTMLElement | undefined;
     item?.scrollIntoView({ block: "nearest", container: "nearest" });
+  }
+
+  /** 選択アイテムが画面外に出たらスクロール追従する */
+  watch(selectedIndex, () => {
+    scrollToSelected();
   });
 
-  return { selectedIndex, move, movePage, reset };
+  return { selectedIndex, move, movePage, reset, scrollToSelected };
 }

@@ -50,7 +50,7 @@ const filteredPrs = computed((): GitPullRequest[] => {
 });
 
 const itemCount = computed(() => filteredPrs.value.length);
-const { selectedIndex, move, movePage, reset } = useListNavigation({
+const { selectedIndex, move, movePage, reset, scrollToSelected } = useListNavigation({
   listRef,
   itemCount,
 });
@@ -69,6 +69,7 @@ watch(showSignal, () => {
   contextKeys.set("prPickerVisible", true);
   nextTick(() => {
     inputRef.value?.focus();
+    scrollToSelected();
   });
 });
 

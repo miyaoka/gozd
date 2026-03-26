@@ -39,7 +39,10 @@ export function registerPrCommand(): () => void {
             // 既存 worktree に切り替え
             void (async () => {
               const result = await tryCatch(request.switchDir({ dir: existingDir }));
-              if (!result.ok) return;
+              if (!result.ok) {
+                console.error("Failed to switch worktree:", result.error);
+                return;
+              }
               terminalStore.viewMode = "wt";
               worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
             })();
@@ -53,7 +56,10 @@ export function registerPrCommand(): () => void {
                 branch: pr.headRefName,
               }),
             );
-            if (!result.ok) return;
+            if (!result.ok) {
+              console.error("Failed to create worktree:", result.error);
+              return;
+            }
             terminalStore.viewMode = "wt";
             worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
           })();

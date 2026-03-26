@@ -148,7 +148,6 @@ onUnmounted(disposeShow);
               executeSelected();
             }
           "
-          @pointerenter="selectedIndex = i"
         >
           <span>{{ cmd.label }}</span>
           <kbd

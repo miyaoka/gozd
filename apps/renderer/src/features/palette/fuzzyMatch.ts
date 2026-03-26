@@ -5,7 +5,7 @@
  */
 
 /** マッチ結果。null はマッチしなかったことを示す */
-export interface FuzzyMatchResult {
+interface FuzzyMatchResult {
   score: number;
 }
 

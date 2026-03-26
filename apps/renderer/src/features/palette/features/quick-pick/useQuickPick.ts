@@ -13,7 +13,7 @@ export interface QuickPickItem {
   separator?: boolean;
 }
 
-export interface QuickPickOptions {
+interface QuickPickOptions {
   items: QuickPickItem[];
   placeholder?: string;
   /** Index of the initially active item */

@@ -11,7 +11,7 @@ import { assertBranchName } from "./branch";
 const WORKTREE_BASE = path.join(homedir(), ".local", "share", "gozd", "worktrees");
 
 /** プロジェクトディレクトリに対応する worktree ルートを返す */
-export function getWorktreeRoot(projectDir: string): string {
+function getWorktreeRoot(projectDir: string): string {
   return path.join(WORKTREE_BASE, projectKey(projectDir));
 }
 

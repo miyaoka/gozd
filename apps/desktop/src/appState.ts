@@ -96,4 +96,4 @@ export function getDefaultFrame(): WindowFrame {
   return { ...DEFAULT_FRAME };
 }
 
-export type { WindowFrame, WindowState, AppState };
+export type { WindowFrame, WindowState };

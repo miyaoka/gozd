@@ -5,100 +5,109 @@ output:
   - execution_out
 
 pre-commit:
-  parallel: true
+  piped: true
   jobs:
-    - name: typecheck-shared
-      root: "packages/shared/"
-      glob: "**/*.ts"
-      run: pnpm run typecheck
-    - name: typecheck-rpc
-      root: "packages/rpc/"
-      glob: "**/*.ts"
-      run: pnpm run typecheck
-    - name: typecheck-desktop
-      root: "apps/desktop/"
-      glob: "**/*.ts"
-      run: pnpm run typecheck
-    - name: typecheck-cli
-      root: "apps/cli/"
-      glob: "**/*.ts"
-      run: pnpm run typecheck
-    - name: typecheck-renderer
-      root: "apps/renderer/"
-      glob: "**/*.{ts,vue}"
-      run: pnpm run typecheck
-    - name: test-shared
-      root: "packages/shared/"
-      glob: "**/*.ts"
-      run: bun test
-    - name: test-renderer
-      root: "apps/renderer/"
-      glob: "**/*.ts"
-      run: bun test
-
-    # Formatter（ts/vue 以外。ts/vue は各 linter ジョブで oxfmt を実行）
-    - name: oxfmt
-      glob: "**/*.{css,md}"
-      run: pnpm exec oxfmt {staged_files}
-      stage_fixed: true
-
-    # Linter + Formatter
-    - name: oxlint-root
-      glob: "*.ts"
-      exclude:
-        - "apps/**"
-        - "packages/**"
-      run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
-      stage_fixed: true
-    - name: oxlint-desktop
-      root: "apps/desktop/"
-      glob: "**/*.ts"
-      run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
-      stage_fixed: true
-    - name: oxlint-rpc
-      root: "packages/rpc/"
-      glob: "**/*.ts"
-      run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
-      stage_fixed: true
-    - name: oxlint-cli
-      root: "apps/cli/"
-      glob: "**/*.ts"
-      run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
-      stage_fixed: true
-    - name: oxlint-shared
-      root: "packages/shared/"
-      glob: "**/*.ts"
-      run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
-      stage_fixed: true
-    - name: typecheck-themes
-      root: "packages/themes/"
-      glob: "{src,scripts}/**/*.ts"
-      run: pnpm run typecheck
-    - name: oxlint-themes
-      root: "packages/themes/"
-      glob: "{src,scripts}/**/*.ts"
-      run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
-      stage_fixed: true
-
-    # apps/renderer: .ts は oxlint、.vue は eslint。oxfmt は全ファイルに適用
-    # 同一ファイルへの競合を避けるため piped で直列実行
-    - name: renderer
-      root: apps/renderer/
-      glob: "**/*.{ts,vue,css,md}"
+    # typecheck / test / lint+fix を並列実行
+    - name: checks-and-fixes
       group:
-        piped: true
+        parallel: true
         jobs:
-          - name: oxlint
+          - name: typecheck-shared
+            root: "packages/shared/"
             glob: "**/*.ts"
-            run: pnpm exec oxlint --type-aware --fix {staged_files}
-            stage_fixed: true
-          - name: eslint
-            glob: "**/*.vue"
-            run: pnpm exec eslint -c eslint.config.fix.ts --no-warn-ignored --cache --fix {staged_files}
-            stage_fixed: true
+            run: pnpm run typecheck
+          - name: typecheck-rpc
+            root: "packages/rpc/"
+            glob: "**/*.ts"
+            run: pnpm run typecheck
+          - name: typecheck-desktop
+            root: "apps/desktop/"
+            glob: "**/*.ts"
+            run: pnpm run typecheck
+          - name: typecheck-cli
+            root: "apps/cli/"
+            glob: "**/*.ts"
+            run: pnpm run typecheck
+          - name: typecheck-renderer
+            root: "apps/renderer/"
+            glob: "**/*.{ts,vue}"
+            run: pnpm run typecheck
+          - name: test-shared
+            root: "packages/shared/"
+            glob: "**/*.ts"
+            run: bun test
+          - name: test-renderer
+            root: "apps/renderer/"
+            glob: "**/*.ts"
+            run: bun test
+
+          # Formatter（ts/vue 以外。ts/vue は各 linter ジョブで oxfmt を実行）
           - name: oxfmt
+            glob: "**/*.{css,md}"
             run: pnpm exec oxfmt {staged_files}
             stage_fixed: true
+
+          # Linter + Formatter
+          - name: oxlint-root
+            glob: "*.ts"
+            exclude:
+              - "apps/**"
+              - "packages/**"
+            run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
+            stage_fixed: true
+          - name: oxlint-desktop
+            root: "apps/desktop/"
+            glob: "**/*.ts"
+            run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
+            stage_fixed: true
+          - name: oxlint-rpc
+            root: "packages/rpc/"
+            glob: "**/*.ts"
+            run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
+            stage_fixed: true
+          - name: oxlint-cli
+            root: "apps/cli/"
+            glob: "**/*.ts"
+            run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
+            stage_fixed: true
+          - name: oxlint-shared
+            root: "packages/shared/"
+            glob: "**/*.ts"
+            run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
+            stage_fixed: true
+          - name: typecheck-themes
+            root: "packages/themes/"
+            glob: "{src,scripts}/**/*.ts"
+            run: pnpm run typecheck
+          - name: oxlint-themes
+            root: "packages/themes/"
+            glob: "{src,scripts}/**/*.ts"
+            run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
+            stage_fixed: true
+
+          # apps/renderer: .ts は oxlint、.vue は eslint。oxfmt は全ファイルに適用
+          # 同一ファイルへの競合を避けるため piped で直列実行
+          - name: renderer
+            root: apps/renderer/
+            glob: "**/*.{ts,vue,css,md}"
+            group:
+              piped: true
+              jobs:
+                - name: oxlint
+                  glob: "**/*.ts"
+                  run: pnpm exec oxlint --type-aware --fix {staged_files}
+                  stage_fixed: true
+                - name: eslint
+                  glob: "**/*.vue"
+                  run: pnpm exec eslint -c eslint.config.fix.ts --no-warn-ignored --cache --fix {staged_files}
+                  stage_fixed: true
+                - name: oxfmt
+                  run: pnpm exec oxfmt {staged_files}
+                  stage_fixed: true
+
+    # fix 系ジョブ完了後に実行（stage_fixed によるファイル書き換え後の状態で解析）
+    - name: knip
+      run: pnpm knip
 
 # git pull / merge 後に lockfile の変更を検出し、pnpm install を促す
 post-merge:

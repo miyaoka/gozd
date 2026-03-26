@@ -56,12 +56,3 @@ export interface SettingSection {
   title: string;
   settings: Record<string, SettingDefinition>;
 }
-
-/** widget → 値の型のマッピング */
-export interface WidgetValueMap {
-  boolean: boolean;
-  number: number;
-  enum: string;
-  string: string;
-  stringArray: string[];
-}

@@ -673,16 +673,12 @@ function computeTileLayout(
 
 export type {
   SplitDirection,
-  SplitLeaf,
   SplitBranch,
   SplitNode,
-  SplitMutationResult,
   Axis,
   PixelRect,
   FlatLeaf,
   FlatHandle,
-  FlatElement,
-  GridTemplate,
   HandlePosition,
 };
 export {
@@ -698,7 +694,6 @@ export {
   resizeBranch,
   getMinSize,
   flattenTree,
-  computeTileLayout,
   leafIdToAreaName,
   treeToGridTemplate,
   tileGridTemplate,

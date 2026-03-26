@@ -92,4 +92,4 @@ async function highlight(code: string, filePath: string): Promise<string | undef
   });
 }
 
-export { detectLang, highlight };
+export { highlight };

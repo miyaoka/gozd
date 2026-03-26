@@ -40,4 +40,3 @@ function sendMessage(message: GozdMessage): Promise<void> {
 }
 
 export { sendMessage };
-export type { HookMessage, OpenMessage, GozdMessage };

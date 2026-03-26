@@ -68,7 +68,6 @@ gozd/
 │       └── src/
 │           ├── features/  # feature ごとに component, composable, store をまとめる
 │           │   ├── changes/      # 変更ファイル一覧（git status / コミット選択時の変更）
-│           │   ├── debug/       # デバッグ情報表示
 │           │   ├── filer/       # ファイルツリー表示（material-icon-theme アイコン、git status 色分け）
 │           │   ├── git-graph/   # コミットグラフ（SVG 描画、ブランチ分岐・マージの可視化）
 │           │   ├── layout/      # レイアウト

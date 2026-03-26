@@ -1,20 +1,6 @@
-export {
-  filterIgnored,
-  getGitStatus,
-  getGitCommitFiles,
-  countChanges,
-  resolveCommitDiffRefs,
-} from "./status";
-export type { GitStatusResult, CommitDiffRefs } from "./status";
-export {
-  getWorktreeRoot,
-  addWorktree,
-  removeWorktree,
-  getWorktreeList,
-  attachChangeCounts,
-} from "./worktree";
-export { assertBranchName, getBranchList, deleteBranch } from "./branch";
+export { filterIgnored, getGitStatus, getGitCommitFiles, resolveCommitDiffRefs } from "./status";
+export { addWorktree, removeWorktree, getWorktreeList, attachChangeCounts } from "./worktree";
+export { getBranchList, deleteBranch } from "./branch";
 export { getGitLog } from "./log";
 export { getPrList } from "./pr";
-export { parseOwnerRepo, resolveProjectDir, resolveWorktreeRoot, resolveOpenTarget } from "./utils";
-export type { ResolvedOpenTarget } from "./utils";
+export { parseOwnerRepo, resolveOpenTarget } from "./utils";

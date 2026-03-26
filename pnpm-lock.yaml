@@ -6,30 +6,12 @@ settings:
 
 catalogs:
   default:
-    '@tailwindcss/vite':
-      specifier: 4.2.2
-      version: 4.2.2
-    '@types/bun':
-      specifier: 1.3.11
-      version: 1.3.11
     '@types/node':
       specifier: 24.12.0
       version: 24.12.0
     '@typescript/native-preview':
       specifier: 7.0.0-dev.20260323.1
       version: 7.0.0-dev.20260323.1
-    electrobun:
-      specifier: 1.16.0
-      version: 1.16.0
-    eslint:
-      specifier: 10.1.0
-      version: 10.1.0
-    eslint-plugin-import-x:
-      specifier: 4.16.2
-      version: 4.16.2
-    eslint-plugin-unused-imports:
-      specifier: 4.4.1
-      version: 4.4.1
     lefthook:
       specifier: 2.1.4
       version: 2.1.4
@@ -42,18 +24,6 @@ catalogs:
     oxlint-tsgolint:
       specifier: 0.17.1
       version: 0.17.1
-    tailwindcss:
-      specifier: 4.2.2
-      version: 4.2.2
-    typescript:
-      specifier: 5.9.3
-      version: 5.9.3
-    vite:
-      specifier: 8.0.2
-      version: 8.0.2
-    zod:
-      specifier: 4.3.6
-      version: 4.3.6
 
 overrides:
   tailwind-csstree: 0.2.0
@@ -88,9 +58,6 @@ importers:
       oxlint-tsgolint:
         specifier: 'catalog:'
         version: 0.17.1
-      vite:
-        specifier: 'catalog:'
-        version: 8.0.2(@types/node@24.12.0)(jiti@2.6.1)(yaml@2.8.3)
 
   apps/cli:
     dependencies:
@@ -5202,19 +5169,6 @@ snapshots:
     dependencies:
       '@types/unist': 3.0.3
       vfile-message: 4.0.3
-
-  vite@8.0.2(@types/node@24.12.0)(jiti@2.6.1)(yaml@2.8.3):
-    dependencies:
-      lightningcss: 1.32.0
-      picomatch: 4.0.3
-      postcss: 8.5.8
-      rolldown: 1.0.0-rc.11
-      tinyglobby: 0.2.15
-    optionalDependencies:
-      '@types/node': 24.12.0
-      fsevents: 2.3.3
-      jiti: 2.6.1
-      yaml: 2.8.3
 
   vite@8.0.2(@types/node@25.5.0)(jiti@2.6.1)(yaml@2.8.3):
     dependencies:

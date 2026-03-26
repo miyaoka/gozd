@@ -12,7 +12,7 @@ export async function filterIgnored(entries: string[], cwd: string): Promise<Set
   return new Set(text.split("\n").filter(Boolean));
 }
 
-export interface GitStatusResult {
+interface GitStatusResult {
   statuses: Record<string, string>;
   /** HEAD のフルコミットハッシュ。取得できない場合は空文字列 */
   head: string;
@@ -169,7 +169,7 @@ async function isRootCommit(cwd: string, hash: string): Promise<boolean> {
  * gitShowCommitFile ハンドラーが使用する。
  * from = null はルートコミット（親なし）を意味する。
  * to = null は作業ツリーを意味する。 */
-export interface CommitDiffRefs {
+interface CommitDiffRefs {
   from: string | null;
   to: string | null;
 }

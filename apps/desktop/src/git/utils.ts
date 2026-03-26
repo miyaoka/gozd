@@ -19,7 +19,7 @@ export function parseOwnerRepo(url: string): string | undefined {
  * worktree 内で実行しても main worktree のルートが返る。
  * git 管理外の場合: dir をそのままプロジェクトディレクトリとする。
  */
-export function resolveProjectDir(dir: string): string {
+function resolveProjectDir(dir: string): string {
   const result = tryCatch(() =>
     Bun.spawnSync(["git", "rev-parse", "--git-common-dir"], {
       cwd: dir,
@@ -41,7 +41,7 @@ export function resolveProjectDir(dir: string): string {
  * main worktree ではそのルート、linked worktree ではその worktree のルートが返る。
  * git 管理外の場合: dir をそのまま返す。
  */
-export function resolveWorktreeRoot(dir: string): string {
+function resolveWorktreeRoot(dir: string): string {
   const result = tryCatch(() =>
     Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], {
       cwd: dir,
@@ -57,7 +57,7 @@ export function resolveWorktreeRoot(dir: string): string {
 }
 
 /** resolveOpenTarget の戻り値 */
-export interface ResolvedOpenTarget {
+interface ResolvedOpenTarget {
   projectDir: string;
   activeDir: string;
   selection?: OpenTargetSelection;

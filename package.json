@@ -26,7 +26,6 @@
     "lefthook": "catalog:",
     "oxfmt": "catalog:",
     "oxlint": "catalog:",
-    "oxlint-tsgolint": "catalog:",
-    "vite": "catalog:"
+    "oxlint-tsgolint": "catalog:"
   }
 }

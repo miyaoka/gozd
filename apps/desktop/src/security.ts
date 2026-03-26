@@ -38,7 +38,7 @@ export async function readFileContent(absolutePath: string): Promise<FileReadRes
 }
 
 /** path.relative() の結果が root の外を指すかを判定する */
-export function isPathOutside(relative: string): boolean {
+function isPathOutside(relative: string): boolean {
   return relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
 }
 

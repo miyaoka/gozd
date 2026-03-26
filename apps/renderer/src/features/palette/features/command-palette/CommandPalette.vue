@@ -14,16 +14,16 @@ Command palette dialog. Displays a searchable list of registered commands with t
 import { useEventListener } from "@vueuse/core";
 import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useCommandRegistry, useContextKeys } from "../../../../shared/command";
+import { useListNavigation } from "../../useListNavigation";
 import { formatKeyBinding, getKeyBindingMap } from "./keyBindingDisplay";
 
 const registry = useCommandRegistry();
 const contextKeys = useContextKeys();
 const dialogRef = useTemplateRef<HTMLDialogElement>("dialog");
 const inputRef = useTemplateRef<HTMLInputElement>("input");
+const listRef = useTemplateRef<HTMLUListElement>("list");
 
 const query = ref("");
-const selectedIndex = ref(0);
-
 const keyBindingMap = getKeyBindingMap();
 
 const filteredCommands = computed(() => {
@@ -33,16 +33,22 @@ const filteredCommands = computed(() => {
   return commands.filter((cmd) => cmd.label?.toLowerCase().includes(q));
 });
 
+const itemCount = computed(() => filteredCommands.value.length);
+const { selectedIndex, move, movePage, reset } = useListNavigation({
+  listRef,
+  itemCount,
+});
+
 /** Reset selection when filter changes */
 watch(filteredCommands, () => {
-  selectedIndex.value = 0;
+  reset();
 });
 
 function show() {
   const dialog = dialogRef.value;
   if (dialog === null || dialog.open) return;
   query.value = "";
-  selectedIndex.value = 0;
+  reset();
   dialog.showModal();
   contextKeys.set("commandPaletteVisible", true);
   nextTick(() => {
@@ -64,16 +70,23 @@ function executeSelected() {
 
 function handleKeydown(e: KeyboardEvent) {
   if (isIMEActive(e)) return;
-  const len = filteredCommands.value.length;
 
   switch (e.key) {
     case "ArrowDown":
       e.preventDefault();
-      selectedIndex.value = len > 0 ? (selectedIndex.value + 1) % len : 0;
+      move(1);
       break;
     case "ArrowUp":
       e.preventDefault();
-      selectedIndex.value = len > 0 ? (selectedIndex.value - 1 + len) % len : 0;
+      move(-1);
+      break;
+    case "PageDown":
+      e.preventDefault();
+      movePage(1);
+      break;
+    case "PageUp":
+      e.preventDefault();
+      movePage(-1);
       break;
     case "Enter":
       e.preventDefault();
@@ -120,7 +133,7 @@ onUnmounted(disposeShow);
           class="w-full bg-transparent px-2 py-1 text-sm text-zinc-200 outline-none placeholder:text-zinc-500"
         />
       </div>
-      <ul v-if="filteredCommands.length > 0" class="max-h-[300px] overflow-y-auto py-1">
+      <ul v-if="filteredCommands.length > 0" ref="list" class="max-h-[300px] overflow-y-auto py-1">
         <li
           v-for="(cmd, i) in filteredCommands"
           :key="cmd.id"

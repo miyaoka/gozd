@@ -14,6 +14,7 @@ Reusable quick pick dialog for selecting an item from a filterable list.
 <script setup lang="ts">
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useContextKeys } from "../../../../shared/command";
+import { useListNavigation } from "../../useListNavigation";
 import { useDialog } from "./useDialog";
 import { useQuickPick } from "./useQuickPick";
 import type { QuickPickItem } from "./useQuickPick";
@@ -25,7 +26,6 @@ const { currentOptions, showSignal } = useQuickPick();
 const inputRef = useTemplateRef<HTMLInputElement>("input");
 const listRef = useTemplateRef<HTMLUListElement>("list");
 const query = ref("");
-const selectedIndex = ref(0);
 let accepted = false;
 
 const items = computed(() => currentOptions.value?.items ?? []);
@@ -47,6 +47,13 @@ const selectableIndices = computed(() => {
   return indices;
 });
 
+const itemCount = computed(() => filteredItems.value.length);
+const { selectedIndex, move, movePage, reset } = useListNavigation({
+  listRef,
+  itemCount,
+  selectableIndices,
+});
+
 /**
  * filteredItems 変更時に選択を先頭にリセットする。
  * ただし showSignal 処理中は activeIndex を優先するため抑制する。
@@ -56,8 +63,7 @@ watch(
   filteredItems,
   () => {
     if (suppressFilterReset) return;
-    const [first] = selectableIndices.value;
-    selectedIndex.value = first ?? 0;
+    reset();
   },
   { flush: "sync" },
 );
@@ -68,34 +74,18 @@ watch(showSignal, () => {
   suppressFilterReset = true;
   query.value = "";
   const initial = currentOptions.value.activeIndex ?? 0;
-  selectedIndex.value = selectableIndices.value.includes(initial)
-    ? initial
-    : (selectableIndices.value[0] ?? 0);
+  reset(selectableIndices.value.includes(initial) ? initial : undefined);
   suppressFilterReset = false;
   accepted = false;
   showDialog();
   nextTick(() => {
     inputRef.value?.focus();
-    // 初期選択位置までスクロール
-    const list = listRef.value;
-    if (list !== null) {
-      const item = list.children[selectedIndex.value] as HTMLElement | undefined;
-      item?.scrollIntoView({ block: "nearest" });
-    }
   });
 });
 
 /** Sync context key with dialog open state */
 watch(isOpen, (open) => {
   contextKeys.set("quickPickVisible", open);
-});
-
-/** 選択アイテムが画面外に出たらスクロール追従する */
-watch(selectedIndex, (idx) => {
-  const list = listRef.value;
-  if (list === null) return;
-  const item = list.children[idx] as HTMLElement | undefined;
-  item?.scrollIntoView({ block: "nearest" });
 });
 
 const HIGHLIGHT_DEBOUNCE_MS = 200;
@@ -141,26 +131,24 @@ function clearHighlightTimeout() {
   }
 }
 
-/** 選択可能アイテム間を移動する（セパレータをスキップ） */
-function moveSelection(direction: -1 | 1) {
-  const indices = selectableIndices.value;
-  if (indices.length === 0) return;
-  const currentPos = indices.indexOf(selectedIndex.value);
-  const nextPos =
-    currentPos === -1 ? 0 : (currentPos + direction + indices.length) % indices.length;
-  selectedIndex.value = indices[nextPos];
-}
-
 function handleKeydown(e: KeyboardEvent) {
   if (isIMEActive(e)) return;
   switch (e.key) {
     case "ArrowDown":
       e.preventDefault();
-      moveSelection(1);
+      move(1);
       break;
     case "ArrowUp":
       e.preventDefault();
-      moveSelection(-1);
+      move(-1);
+      break;
+    case "PageDown":
+      e.preventDefault();
+      movePage(1);
+      break;
+    case "PageUp":
+      e.preventDefault();
+      movePage(-1);
       break;
     case "Enter":
       e.preventDefault();

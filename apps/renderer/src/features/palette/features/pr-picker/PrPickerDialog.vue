@@ -16,6 +16,7 @@ import { useEventListener } from "@vueuse/core";
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useContextKeys } from "../../../../shared/command";
 import { fuzzyMatch } from "../../fuzzyMatch";
+import { useListNavigation } from "../../useListNavigation";
 import PrPickerRow from "./PrPickerRow.vue";
 import { usePrPicker } from "./usePrPicker";
 
@@ -27,7 +28,6 @@ const listRef = useTemplateRef<HTMLDivElement>("list");
 const { prItems, showSignal, accept } = usePrPicker();
 
 const query = ref("");
-const selectedIndex = ref(0);
 
 /** 検索対象テキストを生成（title, branch, author を結合） */
 function searchText(pr: GitPullRequest): string {
@@ -49,8 +49,14 @@ const filteredPrs = computed((): GitPullRequest[] => {
   return scored.map((s) => s.pr);
 });
 
+const itemCount = computed(() => filteredPrs.value.length);
+const { selectedIndex, move, movePage, reset } = useListNavigation({
+  listRef,
+  itemCount,
+});
+
 watch(filteredPrs, () => {
-  selectedIndex.value = 0;
+  reset();
 });
 
 watch(showSignal, () => {
@@ -58,7 +64,7 @@ watch(showSignal, () => {
   if (!dialog || dialog.open) return;
   if (prItems.value.length === 0) return;
   query.value = "";
-  selectedIndex.value = 0;
+  reset();
   dialog.showModal();
   contextKeys.set("prPickerVisible", true);
   nextTick(() => {
@@ -78,46 +84,25 @@ function acceptSelected() {
   accept(pr);
 }
 
-watch(selectedIndex, (idx) => {
-  const list = listRef.value;
-  if (!list) return;
-  const row = list.children[idx] as HTMLElement | undefined;
-  row?.scrollIntoView({ block: "nearest", container: "nearest" } as ScrollIntoViewOptions);
-});
-
-/** リスト表示領域に収まる行数を算出する */
-function getPageSize(): number {
-  const list = listRef.value;
-  if (!list) return 1;
-  const firstRow = list.children[0] as HTMLElement | undefined;
-  if (!firstRow) return 1;
-  return Math.max(1, Math.floor(list.clientHeight / firstRow.offsetHeight));
-}
-
 function handleKeydown(e: KeyboardEvent) {
   if (isIMEActive(e)) return;
-  const len = filteredPrs.value.length;
   switch (e.key) {
     case "ArrowDown":
       e.preventDefault();
-      selectedIndex.value = len > 0 ? (selectedIndex.value + 1) % len : 0;
+      move(1);
       break;
     case "ArrowUp":
       e.preventDefault();
-      selectedIndex.value = len > 0 ? (selectedIndex.value - 1 + len) % len : 0;
+      move(-1);
       break;
-    case "PageDown": {
+    case "PageDown":
       e.preventDefault();
-      const pageSize = getPageSize();
-      selectedIndex.value = len > 0 ? Math.min(selectedIndex.value + pageSize, len - 1) : 0;
+      movePage(1);
       break;
-    }
-    case "PageUp": {
+    case "PageUp":
       e.preventDefault();
-      const pageSize = getPageSize();
-      selectedIndex.value = len > 0 ? Math.max(selectedIndex.value - pageSize, 0) : 0;
+      movePage(-1);
       break;
-    }
     case "Enter":
       e.preventDefault();
       acceptSelected();

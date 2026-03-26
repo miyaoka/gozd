@@ -21,6 +21,7 @@ function commit({
     author: "test",
     date,
     message: hash,
+    body: "",
     refs,
   };
 }

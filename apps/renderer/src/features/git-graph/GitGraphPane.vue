@@ -14,7 +14,9 @@ import { UNCOMMITTED_HASH } from "@gozd/rpc";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRpc } from "../../shared/rpc";
+import { ResizeHandle } from "../layout";
 import { useGitStatusStore, useWorktreeStore } from "../worktree";
+import CommitDetailPane from "./CommitDetailPane.vue";
 import { computeGraphLayout } from "./graphLayout";
 import type { GraphLayout } from "./graphLayout";
 import { mergeCommitStreams } from "./mergeCommitStreams";
@@ -97,6 +99,7 @@ function prependUncommitted(rawCommits: GitCommit[]): GitCommit[] {
     author: "*",
     date: Math.floor(Date.now() / 1000),
     message: count > 0 ? `Uncommitted Changes (${count})` : "Working Tree (Clean)",
+    body: "",
     refs: [],
   };
 
@@ -382,7 +385,39 @@ function formatDate(timestamp: number): string {
   return `${day} ${month} ${hours}:${minutes}`;
 }
 
+/** 詳細ペインの幅 */
+const DETAIL_MIN_WIDTH = 200;
+const GRAPH_LIST_MIN_WIDTH = 400;
+const detailWidth = ref(320);
+const detailOpen = ref(true);
+
+/** 選択中のコミット配列。範囲選択時は selected〜compare 間の全コミットを返す */
+const selectedCommits = computed<GitCommit[]>(() => {
+  const nodes = layout.value.nodes;
+  const { selectedHash, compareHash } = gitGraphStore;
+
+  if (compareHash === null) {
+    const node = nodes.find((n) => n.commit.hash === selectedHash);
+    return node ? [node.commit] : [];
+  }
+
+  const selectedIdx = nodes.findIndex((n) => n.commit.hash === selectedHash);
+  const compareIdx = nodes.findIndex((n) => n.commit.hash === compareHash);
+  if (selectedIdx === -1 || compareIdx === -1) return [];
+
+  const minIdx = Math.min(selectedIdx, compareIdx);
+  const maxIdx = Math.max(selectedIdx, compareIdx);
+  return nodes.slice(minIdx, maxIdx + 1).map((n) => n.commit);
+});
+
+const graphListRef = ref<HTMLElement | null>(null);
 const scrollContainer = ref<HTMLElement | null>(null);
+
+/** 左ペインは flex-1 で自動幅のため、DOM 実測値を返す */
+function getGraphListSize(): number {
+  const el = scrollContainer.value ?? graphListRef.value;
+  return el?.offsetWidth ?? GRAPH_LIST_MIN_WIDTH;
+}
 
 /** 現在選択中のノードのインデックス */
 function selectedIndex(): number {
@@ -496,123 +531,156 @@ function isInRange(hash: string): boolean {
       >
         Scroll to HEAD
       </button>
+      <button
+        class="rounded-sm px-1.5 py-0.5 text-[10px]"
+        :class="detailOpen ? 'bg-blue-800 text-blue-200' : 'text-zinc-500 hover:text-zinc-300'"
+        title="Toggle commit detail"
+        @click="detailOpen = !detailOpen"
+      >
+        <span class="icon-[lucide--panel-right] size-3.5" />
+      </button>
     </div>
 
-    <div v-if="layout.nodes.length === 0" class="flex-1 overflow-y-auto p-2">
-      <div class="text-xs text-zinc-500">No commits</div>
-    </div>
+    <!-- Graph list + Detail pane (horizontal split) -->
+    <div class="flex min-h-0 flex-1">
+      <!-- Graph list -->
+      <div
+        v-if="layout.nodes.length === 0"
+        ref="graphListRef"
+        class="min-w-0 flex-1 overflow-y-auto p-2"
+      >
+        <div class="text-xs text-zinc-500">No commits</div>
+      </div>
 
-    <div
-      v-else
-      ref="scrollContainer"
-      class="flex-1 overflow-auto outline-none"
-      tabindex="0"
-      @keydown="onKeydown"
-    >
-      <div class="relative" :style="{ minHeight: `${svgHeight}px` }">
-        <!-- Graph SVG overlay -->
-        <svg
-          class="pointer-events-none absolute top-0 left-0"
-          :width="graphColumnWidth"
-          :height="svgHeight"
-        >
-          <!-- ラインセグメント -->
-          <path
-            v-for="(seg, si) in layout.lines"
-            :key="`seg-${si}`"
-            :d="segmentPath(seg.x1, seg.y1, seg.x2, seg.y2)"
-            fill="none"
-            :stroke="colorFor(seg.color)"
-            stroke-width="2"
-            :stroke-dasharray="seg.uncommitted ? '4 2' : undefined"
-          />
-          <!-- コミットドット -->
-          <circle
-            v-for="(node, row) in layout.nodes"
-            :key="`dot-${node.commit.hash}`"
-            :cx="laneX(node.lane)"
-            :cy="rowY(row)"
-            :r="DOT_RADIUS"
-            :fill="isUncommitted(node.commit.hash) ? '#1c1c1c' : colorFor(node.color)"
-            :stroke="colorFor(node.color)"
-            :stroke-width="isUncommitted(node.commit.hash) ? 2 : 1.5"
-          />
-        </svg>
-
-        <!-- Commit table rows -->
-        <div
-          v-for="node in layout.nodes"
-          :key="node.commit.hash"
-          class="_graph-row relative flex cursor-pointer items-center text-xs"
-          :class="rowHighlightClass(node.commit.hash)"
-          :style="{ height: `${ROW_HEIGHT}px` }"
-          @click="onRowClick(node.commit.hash, $event)"
-        >
-          <!-- Graph spacer -->
-          <div class="shrink-0" :style="{ width: `${graphColumnWidth}px` }" />
-
-          <!-- HEAD marker: グラフ列の右端に absolute 配置。レイアウトに影響しない -->
-          <span
-            v-if="hasHead(node.commit.refs)"
-            class="absolute text-yellow-500"
-            :style="{ left: `${graphColumnWidth}px`, transform: 'translateX(calc(-100% - 4px))' }"
-            title="HEAD"
+      <div
+        v-else
+        ref="scrollContainer"
+        class="min-w-0 flex-1 overflow-auto outline-none"
+        tabindex="0"
+        @keydown="onKeydown"
+      >
+        <div class="relative" :style="{ minHeight: `${svgHeight}px` }">
+          <!-- Graph SVG overlay -->
+          <svg
+            class="pointer-events-none absolute top-0 left-0"
+            :width="graphColumnWidth"
+            :height="svgHeight"
           >
-            →
-          </span>
-
-          <!-- Description -->
-          <div class="flex min-w-0 flex-1 items-center gap-1 truncate pr-2">
-            <span
-              v-if="isMergeCommit(node.commit)"
-              class="icon-[lucide--git-merge] size-3.5 shrink-0 text-zinc-500"
+            <!-- ラインセグメント -->
+            <path
+              v-for="(seg, si) in layout.lines"
+              :key="`seg-${si}`"
+              :d="segmentPath(seg.x1, seg.y1, seg.x2, seg.y2)"
+              fill="none"
+              :stroke="colorFor(seg.color)"
+              stroke-width="2"
+              :stroke-dasharray="seg.uncommitted ? '4 2' : undefined"
             />
+            <!-- コミットドット -->
+            <circle
+              v-for="(node, row) in layout.nodes"
+              :key="`dot-${node.commit.hash}`"
+              :cx="laneX(node.lane)"
+              :cy="rowY(row)"
+              :r="DOT_RADIUS"
+              :fill="isUncommitted(node.commit.hash) ? '#1c1c1c' : colorFor(node.color)"
+              :stroke="colorFor(node.color)"
+              :stroke-width="isUncommitted(node.commit.hash) ? 2 : 1.5"
+            />
+          </svg>
+
+          <!-- Commit table rows -->
+          <div
+            v-for="node in layout.nodes"
+            :key="node.commit.hash"
+            class="_graph-row relative flex cursor-pointer items-center text-xs"
+            :class="rowHighlightClass(node.commit.hash)"
+            :style="{ height: `${ROW_HEIGHT}px` }"
+            @click="onRowClick(node.commit.hash, $event)"
+          >
+            <!-- Graph spacer -->
+            <div class="shrink-0" :style="{ width: `${graphColumnWidth}px` }" />
+
+            <!-- HEAD marker: グラフ列の右端に absolute 配置。レイアウトに影響しない -->
             <span
-              v-for="displayRef in computeDisplayRefs(
-                node.commit.refs,
-                currentBranch,
-                defaultBranch,
-                outOfSyncBranches,
-              )"
-              :key="`${displayRef.type}:${displayRef.label}`"
-              class="flex shrink-0 items-center gap-0.5 rounded-sm px-1 py-0.5 text-[10px] leading-none font-medium"
-              :class="[
-                displayRef.isCurrent
-                  ? displayRef.type === 'remote'
-                    ? CURRENT_REMOTE_CLASS
-                    : CURRENT_LOCAL_CLASS
-                  : REF_TYPE_CLASS[displayRef.type],
-                displayRef.isDefault && DEFAULT_CLASS,
-              ]"
+              v-if="hasHead(node.commit.refs)"
+              class="absolute text-yellow-500"
+              :style="{ left: `${graphColumnWidth}px`, transform: 'translateX(calc(-100% - 4px))' }"
+              title="HEAD"
             >
-              <span v-if="displayRef.isSynced" class="icon-[lucide--link] size-3" />
-              <span v-else-if="displayRef.isOutOfSync" class="icon-[lucide--link-2-off] size-3" />
-              {{ displayRef.label }}
+              →
             </span>
-            <span
-              class="truncate"
-              :class="isUncommitted(node.commit.hash) ? 'font-semibold text-zinc-400 italic' : ''"
-            >
-              {{ node.commit.message }}
-            </span>
-          </div>
 
-          <!-- Date -->
-          <div class="w-28 shrink-0 text-zinc-500">
-            {{ formatDate(node.commit.date) }}
-          </div>
+            <!-- Description -->
+            <div class="flex min-w-0 flex-1 items-center gap-1 truncate pr-2">
+              <span
+                v-if="isMergeCommit(node.commit)"
+                class="icon-[lucide--git-merge] size-3.5 shrink-0 text-zinc-500"
+              />
+              <span
+                v-for="displayRef in computeDisplayRefs(
+                  node.commit.refs,
+                  currentBranch,
+                  defaultBranch,
+                  outOfSyncBranches,
+                )"
+                :key="`${displayRef.type}:${displayRef.label}`"
+                class="flex shrink-0 items-center gap-0.5 rounded-sm px-1 py-0.5 text-[10px] leading-none font-medium"
+                :class="[
+                  displayRef.isCurrent
+                    ? displayRef.type === 'remote'
+                      ? CURRENT_REMOTE_CLASS
+                      : CURRENT_LOCAL_CLASS
+                    : REF_TYPE_CLASS[displayRef.type],
+                  displayRef.isDefault && DEFAULT_CLASS,
+                ]"
+              >
+                <span v-if="displayRef.isSynced" class="icon-[lucide--link] size-3" />
+                <span v-else-if="displayRef.isOutOfSync" class="icon-[lucide--link-2-off] size-3" />
+                {{ displayRef.label }}
+              </span>
+              <span
+                class="truncate"
+                :class="isUncommitted(node.commit.hash) ? 'font-semibold text-zinc-400 italic' : ''"
+              >
+                {{ node.commit.message }}
+              </span>
+            </div>
 
-          <!-- Author -->
-          <div class="w-28 shrink-0 truncate text-zinc-500">
-            {{ node.commit.author }}
-          </div>
+            <!-- Date -->
+            <div class="w-28 shrink-0 text-zinc-500">
+              {{ formatDate(node.commit.date) }}
+            </div>
 
-          <!-- Commit hash -->
-          <div class="w-16 shrink-0 font-mono text-zinc-600">
-            {{ node.commit.shortHash }}
+            <!-- Author -->
+            <div class="w-28 shrink-0 truncate text-zinc-500">
+              {{ node.commit.author }}
+            </div>
+
+            <!-- Commit hash -->
+            <div class="w-16 shrink-0 font-mono text-zinc-600">
+              {{ node.commit.shortHash }}
+            </div>
           </div>
         </div>
       </div>
+
+      <!-- Detail pane -->
+      <template v-if="detailOpen">
+        <ResizeHandle
+          v-model:after-size="detailWidth"
+          direction="horizontal"
+          :before-min-size="GRAPH_LIST_MIN_WIDTH"
+          :after-min-size="DETAIL_MIN_WIDTH"
+          :get-before-size="getGraphListSize"
+        />
+        <div
+          class="shrink-0 overflow-hidden border-l border-zinc-700"
+          :style="{ width: `${detailWidth}px` }"
+        >
+          <CommitDetailPane :commits="selectedCommits" />
+        </div>
+      </template>
     </div>
   </div>
 </template>

@@ -127,6 +127,8 @@ export interface GitCommit {
   date: number;
   /** コミットメッセージ（1行目） */
   message: string;
+  /** コミットメッセージ本文（subject 以降。空の場合もある） */
+  body: string;
   /** 参照名（ブランチ名、タグ、HEAD 等） */
   refs: string[];
 }

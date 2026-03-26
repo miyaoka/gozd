@@ -95,7 +95,8 @@ export async function getGitLog({
   defaultBranch?: string;
 }> {
   const count = Math.min(maxCount ?? DEFAULT_MAX_COUNT, DEFAULT_MAX_COUNT);
-  const format = ["%H", "%P", "%aN", "%at", "%s", "%D"].join(FIELD_SEPARATOR);
+  // %b（body）は改行を含むため最後に配置。パース時に残り全部を body として扱う
+  const format = ["%H", "%P", "%aN", "%at", "%s", "%D", "%b"].join(FIELD_SEPARATOR);
   const [defaultBranch, currentBranch] = await Promise.all([
     resolveDefaultBranch(cwd),
     resolveCurrentBranch(cwd),
@@ -150,9 +151,9 @@ function parseGitLog(output: string): GitCommit[] {
 
   for (const record of records) {
     const fields = record.trim().split(FIELD_SEPARATOR);
-    if (fields.length < 6) continue;
+    if (fields.length < 7) continue;
 
-    const [hash, parentStr, author, dateStr, message, refStr] = fields;
+    const [hash, parentStr, author, dateStr, message, refStr, ...bodyParts] = fields;
     if (!hash || !author || !dateStr || message === undefined) continue;
 
     const parents = parentStr ? parentStr.split(" ").filter(Boolean) : [];
@@ -160,6 +161,8 @@ function parseGitLog(output: string): GitCommit[] {
     if (Number.isNaN(date)) continue;
 
     const refs = refStr ? parseRefs(refStr) : [];
+    // %b は改行を含むため FIELD_SEPARATOR で分割されうる。残りを再結合して trimEnd
+    const body = bodyParts.join(FIELD_SEPARATOR).trimEnd();
 
     commits.push({
       hash,
@@ -168,6 +171,7 @@ function parseGitLog(output: string): GitCommit[] {
       author,
       date,
       message,
+      body,
       refs,
     });
   }

@@ -178,8 +178,12 @@ watch(sortMode, () => {
   void loadLog();
 });
 
-// git status 変更時は uncommitted 行の件数を再計算
-watch(uncommittedChangeCount, recomputeLayout);
+// git status 変更時は uncommitted 行の件数を再計算し、選択を Uncommitted Changes に戻す
+watch(uncommittedChangeCount, () => {
+  recomputeLayout();
+  gitGraphStore.resetSelection();
+  scrollToIndex(0);
+});
 
 // HEAD 変更（コミット、リベース等）や upstream 変更（push、fetch）を検知して git log を再取得する。
 // head ハッシュまたは ahead/behind の変化があった場合のみ再取得する（ファイル保存では走らない）。
@@ -466,11 +470,11 @@ function selectedIndex(): number {
   return hashToIndex.value.get(gitGraphStore.selectedHash) ?? -1;
 }
 
-/** HEAD コミットを選択してビューポート中央にスクロール */
+/** 選択を Uncommitted Changes に戻し、HEAD コミット付近にスクロール */
 function scrollToHead() {
   const index = layout.value.nodes.findIndex((n) => n.commit.refs.includes("HEAD"));
   if (index === -1) return;
-  gitGraphStore.select(layout.value.nodes[index].commit.hash);
+  gitGraphStore.resetSelection();
   scrollToCenter(index);
 }
 

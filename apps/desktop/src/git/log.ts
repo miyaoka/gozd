@@ -3,12 +3,21 @@ import type { GitCommit } from "@gozd/rpc";
 
 /**
  * git log のフィールド区切り文字。
- * コミットメッセージに含まれる可能性が極めて低いランダム文字列。
+ * ASCII Unit Separator（0x1F）。通常のテキストに含まれない制御文字。
+ * git format では %x1f で埋め込める。
  */
-const FIELD_SEPARATOR = "XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb";
+const FIELD_SEPARATOR = "\x1f";
+/** git format に埋め込む形式 */
+const FIELD_SEPARATOR_FMT = "%x1f";
 
-/** git log のレコード区切り文字 */
-const RECORD_SEPARATOR = "YY8Obm-ZBSuUqkDjlkj0oKyFS20E7ejTzl-BWlQc";
+/**
+ * git log のレコード区切り文字。
+ * ASCII Record Separator（0x1E）。通常のテキストに含まれない制御文字。
+ * git format では %x1e で埋め込める。
+ */
+const RECORD_SEPARATOR = "\x1e";
+/** git format に埋め込む形式 */
+const RECORD_SEPARATOR_FMT = "%x1e";
 
 const DEFAULT_MAX_COUNT = 200;
 
@@ -96,7 +105,7 @@ export async function getGitLog({
 }> {
   const count = Math.min(maxCount ?? DEFAULT_MAX_COUNT, DEFAULT_MAX_COUNT);
   // %b（body）は改行を含むため最後に配置。パース時に残り全部を body として扱う
-  const format = ["%H", "%P", "%aN", "%at", "%s", "%D", "%b"].join(FIELD_SEPARATOR);
+  const format = ["%H", "%P", "%aN", "%at", "%s", "%D", "%b"].join(FIELD_SEPARATOR_FMT);
   const [defaultBranch, currentBranch] = await Promise.all([
     resolveDefaultBranch(cwd),
     resolveCurrentBranch(cwd),
@@ -121,7 +130,7 @@ export async function getGitLog({
   const baseArgs = [
     "git",
     "log",
-    `--format=${RECORD_SEPARATOR}${format}`,
+    `--format=${RECORD_SEPARATOR_FMT}${format}`,
     "--date-order",
     `--max-count=${count}`,
   ];
@@ -144,13 +153,13 @@ export async function getGitLog({
 }
 
 function parseGitLog(output: string): GitCommit[] {
-  if (!output.trim()) return [];
+  if (!output) return [];
 
   const records = output.split(RECORD_SEPARATOR).filter(Boolean);
   const commits: GitCommit[] = [];
 
   for (const record of records) {
-    const fields = record.trim().split(FIELD_SEPARATOR);
+    const fields = record.split(FIELD_SEPARATOR);
     if (fields.length < 7) continue;
 
     const [hash, parentStr, author, dateStr, message, refStr, ...bodyParts] = fields;
@@ -161,8 +170,8 @@ function parseGitLog(output: string): GitCommit[] {
     if (Number.isNaN(date)) continue;
 
     const refs = refStr ? parseRefs(refStr) : [];
-    // %b は改行を含むため FIELD_SEPARATOR で分割されうる。残りを再結合して trimEnd
-    const body = bodyParts.join(FIELD_SEPARATOR).trimEnd();
+    // %b は git が末尾に改行を付与するため除去
+    const body = bodyParts.join(FIELD_SEPARATOR).replace(/\n+$/, "");
 
     commits.push({
       hash,

@@ -391,19 +391,30 @@ const GRAPH_LIST_MIN_WIDTH = 400;
 const detailWidth = ref(320);
 const detailOpen = ref(true);
 
+/** hash → ノードインデックスのルックアップ。O(1) でインデックス取得 */
+const hashToIndex = computed(() => {
+  const map = new Map<string, number>();
+  const nodes = layout.value.nodes;
+  for (let i = 0; i < nodes.length; i++) {
+    map.set(nodes[i].commit.hash, i);
+  }
+  return map;
+});
+
 /** 選択中のコミット配列。範囲選択時は selected〜compare 間の全コミットを返す */
 const selectedCommits = computed<GitCommit[]>(() => {
   const nodes = layout.value.nodes;
   const { selectedHash, compareHash } = gitGraphStore;
+  const map = hashToIndex.value;
 
   if (compareHash === null) {
-    const node = nodes.find((n) => n.commit.hash === selectedHash);
-    return node ? [node.commit] : [];
+    const idx = map.get(selectedHash);
+    return idx !== undefined ? [nodes[idx].commit] : [];
   }
 
-  const selectedIdx = nodes.findIndex((n) => n.commit.hash === selectedHash);
-  const compareIdx = nodes.findIndex((n) => n.commit.hash === compareHash);
-  if (selectedIdx === -1 || compareIdx === -1) return [];
+  const selectedIdx = map.get(selectedHash);
+  const compareIdx = map.get(compareHash);
+  if (selectedIdx === undefined || compareIdx === undefined) return [];
 
   const minIdx = Math.min(selectedIdx, compareIdx);
   const maxIdx = Math.max(selectedIdx, compareIdx);
@@ -421,7 +432,7 @@ function getGraphListSize(): number {
 
 /** 現在選択中のノードのインデックス */
 function selectedIndex(): number {
-  return layout.value.nodes.findIndex((n) => n.commit.hash === gitGraphStore.selectedHash);
+  return hashToIndex.value.get(gitGraphStore.selectedHash) ?? -1;
 }
 
 /** HEAD コミットを選択してスクロール */
@@ -488,18 +499,24 @@ function rowHighlightClass(hash: string): string {
   return "hover:bg-zinc-800/60";
 }
 
+/** 範囲選択の min/max インデックス。compareHash が null なら undefined */
+const rangeIndices = computed<{ min: number; max: number } | undefined>(() => {
+  const { selectedHash, compareHash } = gitGraphStore;
+  if (compareHash === null) return undefined;
+  const map = hashToIndex.value;
+  const selectedIdx = map.get(selectedHash);
+  const compareIdx = map.get(compareHash);
+  if (selectedIdx === undefined || compareIdx === undefined) return undefined;
+  return { min: Math.min(selectedIdx, compareIdx), max: Math.max(selectedIdx, compareIdx) };
+});
+
 /** 2点間の範囲内にあるかどうか */
 function isInRange(hash: string): boolean {
-  const { selectedHash, compareHash } = gitGraphStore;
-  if (compareHash === null) return false;
-  const nodes = layout.value.nodes;
-  const selectedIdx = nodes.findIndex((n) => n.commit.hash === selectedHash);
-  const compareIdx = nodes.findIndex((n) => n.commit.hash === compareHash);
-  const currentIdx = nodes.findIndex((n) => n.commit.hash === hash);
-  if (selectedIdx === -1 || compareIdx === -1 || currentIdx === -1) return false;
-  const minIdx = Math.min(selectedIdx, compareIdx);
-  const maxIdx = Math.max(selectedIdx, compareIdx);
-  return currentIdx > minIdx && currentIdx < maxIdx;
+  const range = rangeIndices.value;
+  if (!range) return false;
+  const idx = hashToIndex.value.get(hash);
+  if (idx === undefined) return false;
+  return idx > range.min && idx < range.max;
 }
 </script>
 

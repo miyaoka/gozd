@@ -299,7 +299,7 @@ function computeDisplayRefs(
 /**
  * ref バッジの色分け。
  * - local / synced（ローカル系）: 緑
- * - remote（リモートのみ）: 紫
+ * - remote（リモートのみ）: 緑 + opacity-50
  * - tag: 青
  * isCurrent / isDefault フラグで特別表示を上乗せする。
  */

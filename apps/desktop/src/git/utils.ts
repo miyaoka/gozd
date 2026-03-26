@@ -60,7 +60,21 @@ function resolveWorktreeRoot(dir: string): string {
 interface ResolvedOpenTarget {
   projectDir: string;
   activeDir: string;
+  /** git リポジトリ内かどうか */
+  isGitRepo: boolean;
   selection?: OpenTargetSelection;
+}
+
+/** dir が git リポジトリ内かどうかを同期的に判定する */
+function checkIsGitRepo(dir: string): boolean {
+  const result = tryCatch(() =>
+    Bun.spawnSync(["git", "rev-parse", "--is-inside-work-tree"], {
+      cwd: dir,
+      stdout: "pipe",
+      stderr: "pipe",
+    }),
+  );
+  return result.ok && result.value.exitCode === 0;
 }
 
 /**
@@ -91,16 +105,18 @@ function findExistingAncestor(absolutePath: string): string {
  */
 export function resolveOpenTarget(targetPath: string): ResolvedOpenTarget {
   if (existsSync(targetPath) && statSync(targetPath).isDirectory()) {
+    const isGitRepo = checkIsGitRepo(targetPath);
     const activeDir = resolveWorktreeRoot(targetPath);
     const projectDir = resolveProjectDir(targetPath);
     // worktree root 自体ならサブディレクトリ選択なし
     if (activeDir === path.resolve(targetPath)) {
-      return { projectDir, activeDir };
+      return { projectDir, activeDir, isGitRepo };
     }
     // サブディレクトリ → ディレクトリを選択対象にする
     return {
       projectDir,
       activeDir,
+      isGitRepo,
       selection: { kind: "directory", relPath: path.relative(activeDir, targetPath) },
     };
   }
@@ -108,11 +124,13 @@ export function resolveOpenTarget(targetPath: string): ResolvedOpenTarget {
   // ファイル（存在する場合も非存在の場合も同じ扱い）
   // 非存在パスは祖先を遡って git コマンドを実行可能なディレクトリを見つける
   const dir = findExistingAncestor(targetPath);
+  const isGitRepo = checkIsGitRepo(dir);
   const activeDir = resolveWorktreeRoot(dir);
   const projectDir = resolveProjectDir(dir);
   return {
     projectDir,
     activeDir,
+    isGitRepo,
     selection: { kind: "file", relPath: path.relative(activeDir, targetPath) },
   };
 }

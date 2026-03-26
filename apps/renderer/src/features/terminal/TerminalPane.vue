@@ -16,6 +16,7 @@ MainLayout はこのコンポーネントを配置するだけでよい。
 import { useElementSize, useEventListener } from "@vueuse/core";
 import { computed, onUnmounted, useTemplateRef, watch } from "vue";
 import { useContextKeys } from "../../shared/command";
+import { useProjectStore } from "../../shared/project";
 import { useWorktreeStore } from "../worktree";
 import { registerTerminalCommands } from "./registerTerminalCommands";
 import SplitResizeHandle from "./SplitResizeHandle.vue";
@@ -38,6 +39,7 @@ interface Props {
 const { minWidth } = defineProps<Props>();
 
 const worktreeStore = useWorktreeStore();
+const projectStore = useProjectStore();
 const terminalStore = useTerminalStore();
 const contextKeys = useContextKeys();
 const containerRef = useTemplateRef<HTMLElement>("container");
@@ -94,7 +96,7 @@ function hashToColor(hash: number, hueOffset = 0): string {
 const HUE_OFFSET = 30;
 
 const paneBackground = computed(() => {
-  const name = worktreeStore.repoName ?? "gozd";
+  const name = projectStore.repoName ?? "gozd";
   const hash = hashString(name);
   const color1 = hashToColor(hash);
   const color2 = hashToColor(hash, HUE_OFFSET);

@@ -348,7 +348,7 @@ async function resolveGitDir(root: string): Promise<string> {
   return path.isAbsolute(gitDir) ? gitDir : path.resolve(root, gitDir);
 }
 
-function startWatching(win: GozdWindow, root: string) {
+function startWatching(win: GozdWindow, root: string, isGitRepo = true) {
   const watchGen = (windowWatchGen.get(win) ?? 0) + 1;
   windowWatchGen.set(win, watchGen);
 
@@ -362,10 +362,15 @@ function startWatching(win: GozdWindow, root: string) {
 
     const relDir = path.dirname(filename);
     win.webview.rpc?.send.fsChange({ relDir });
-    scheduleGitStatusUpdate(win, root);
+    if (isGitRepo) {
+      scheduleGitStatusUpdate(win, root);
+    }
   });
 
   windowFsWatchers.set(win, watcher);
+
+  // 非 git ディレクトリでは git 関連監視をスキップ
+  if (!isGitRepo) return;
 
   // .git 関連ファイルの監視（linked worktree では .git がファイルなので git rev-parse で解決）
   void (async () => {
@@ -684,11 +689,20 @@ interface CreateWindowOptions {
   savedFrame?: WindowFrame;
   /** 起動時に切り替える worktree ディレクトリ（dir と異なる場合） */
   initialActiveDir?: string;
+  /** git リポジトリ内かどうか */
+  isGitRepo?: boolean;
 }
 
 function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWindow {
   let win: GozdWindow;
-  const { initialSelection, savedFrame, initialActiveDir } = options ?? {};
+  const {
+    initialSelection,
+    savedFrame,
+    initialActiveDir,
+    isGitRepo: isGitRepoOption,
+  } = options ?? {};
+
+  const isGitRepo = isGitRepoOption ?? true;
 
   /** worktree/branch 管理用（固定） */
   const projectDir = dir;
@@ -714,7 +728,7 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
           const entries = await fsp.readdir(absolutePath, { withFileTypes: true });
           const visibleEntries = entries.filter((e) => e.name !== ".git");
           const names = visibleEntries.map((e) => e.name);
-          const ignored = await filterIgnored(names, absolutePath);
+          const ignored = isGitRepo ? await filterIgnored(names, absolutePath) : new Set<string>();
 
           return Promise.all(
             visibleEntries.map(async (entry) => {
@@ -1044,19 +1058,22 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
             fileServerBaseUrl: `http://localhost:${fileServer.port}/${windowId}`,
             channel,
             repoName,
+            isGitRepo,
           });
 
-          // 起動時に消失した worktree の Todo をクリーンアップ
-          void (async () => {
-            const wtList = await getWorktreeList(projectDir);
-            cleanupStaleTodos(
-              projectDir,
-              wtList.map((wt) => wt.path),
-            );
-          })();
+          if (isGitRepo) {
+            // 起動時に消失した worktree の Todo をクリーンアップ
+            void (async () => {
+              const wtList = await getWorktreeList(projectDir);
+              cleanupStaleTodos(
+                projectDir,
+                wtList.map((wt) => wt.path),
+              );
+            })();
 
-          // 非アクティブ worktree の監視を開始
-          void syncWorktreeWatchers(win, projectDir, currentDir);
+            // 非アクティブ worktree の監視を開始
+            void syncWorktreeWatchers(win, projectDir, currentDir);
+          }
         },
       },
     },
@@ -1162,13 +1179,15 @@ function readLaunchRequests(): LaunchRequestResult {
 interface OpenWindowRequest {
   projectDir: string;
   activeDir: string;
+  /** git リポジトリ内かどうか。省略時は true（後方互換） */
+  isGitRepo?: boolean;
   selection?: OpenTargetSelection;
   savedFrame?: WindowFrame;
 }
 
 /** ウィンドウを開くまたは既存ウィンドウを再利用する */
 function openWindow(req: OpenWindowRequest): void {
-  const { projectDir, activeDir, selection, savedFrame } = req;
+  const { projectDir, activeDir, isGitRepo = true, selection, savedFrame } = req;
   console.log(
     `[gozd] open: project=${projectDir}, active=${activeDir}, selection=${selection ? `${selection.kind}:${selection.relPath}` : "(none)"}`,
   );
@@ -1186,6 +1205,7 @@ function openWindow(req: OpenWindowRequest): void {
         fileServerBaseUrl: `http://localhost:${fileServer.port}/${existingId}`,
         channel,
         repoName,
+        isGitRepo,
         switchToDir,
       });
     });
@@ -1196,6 +1216,7 @@ function openWindow(req: OpenWindowRequest): void {
     initialSelection: selection,
     savedFrame: frame,
     initialActiveDir: activeDir,
+    isGitRepo,
   });
   const windowId = crypto.randomUUID();
   windowIds.set(newWin, windowId);
@@ -1203,7 +1224,7 @@ function openWindow(req: OpenWindowRequest): void {
   windowDirs.set(newWin, activeDir);
   windowProjectDirs.set(newWin, projectDir);
   windowSwitchGen.set(newWin, 0);
-  startWatching(newWin, activeDir);
+  startWatching(newWin, activeDir, isGitRepo);
 }
 
 function handleSocketMessage(message: GozdMessage) {

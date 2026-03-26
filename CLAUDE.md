@@ -80,6 +80,7 @@ gozd/
 │           └── shared/    # feature に依存しない非 UI 基盤モジュール
 │               ├── app/         # app store
 │               ├── command/     # コマンドシステム + keybinding
+│               ├── project/     # project store（repoName, isGitRepo）
 │               └── rpc/         # Electrobun RPC composable
 ├── packages/
 │   ├── rpc/               # RPC スキーマ型定義（bun ↔ webview）

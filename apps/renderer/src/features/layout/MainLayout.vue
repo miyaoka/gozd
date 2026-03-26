@@ -18,6 +18,7 @@ import { useWindowSize } from "@vueuse/core";
 import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch, watchEffect } from "vue";
 import { useAppStore } from "../../shared/app";
 import { useCommandRegistry, useContextKeys } from "../../shared/command";
+import { useProjectStore } from "../../shared/project";
 import { useRpc } from "../../shared/rpc";
 import { GitGraphPane } from "../git-graph";
 import { NavigatorPane } from "../navigator";
@@ -31,6 +32,7 @@ import ResizeHandle from "./ResizeHandle.vue";
 
 const worktreeStore = useWorktreeStore();
 const appStore = useAppStore();
+const projectStore = useProjectStore();
 const contextKeys = useContextKeys();
 const previewPopoverRef = useTemplateRef<HTMLElement>("previewPopover");
 const navigatorPaneRef = useTemplateRef<InstanceType<typeof NavigatorPane>>("navigatorPane");
@@ -92,32 +94,29 @@ const gitGraphHeight = ref(128);
 const PREVIEW_TOGGLE_WIDTH = 25;
 
 /** Terminal 幅: ウィンドウ幅から Sidebar + H + Navigator + H + 開閉ボタンを引いた残余 */
-const terminalWidth = computed(() =>
-  Math.max(
+const terminalWidth = computed(() => {
+  const sidebarSpace = projectStore.isGitRepo ? sidebarWidth.value + HANDLE_WIDTH : 0;
+  return Math.max(
     TERMINAL_MIN_WIDTH,
-    windowWidth.value -
-      sidebarWidth.value -
-      HANDLE_WIDTH -
-      navigatorWidth.value -
-      HANDLE_WIDTH -
-      PREVIEW_TOGGLE_WIDTH,
-  ),
-);
+    windowWidth.value - sidebarSpace - navigatorWidth.value - HANDLE_WIDTH - PREVIEW_TOGGLE_WIDTH,
+  );
+});
 
 /** ドラッグ開始時の Terminal 幅（レイアウト計算値） */
 const getTerminalWidth = () => terminalWidth.value;
 
 /** Preview popover に許容される最大幅（Sidebar + H + Terminal 最小幅 + H を残す） */
-const maxPreviewWidth = computed(
-  () =>
+const maxPreviewWidth = computed(() => {
+  const sidebarSpace = projectStore.isGitRepo ? sidebarWidth.value + HANDLE_WIDTH : 0;
+  return (
     windowWidth.value -
-    sidebarWidth.value -
-    HANDLE_WIDTH -
+    sidebarSpace -
     TERMINAL_MIN_WIDTH -
     HANDLE_WIDTH -
     navigatorWidth.value -
-    PREVIEW_TOGGLE_WIDTH,
-);
+    PREVIEW_TOGGLE_WIDTH
+  );
+});
 
 // ウィンドウ縮小時に Preview 幅をクランプ
 watchEffect(() => {
@@ -181,7 +180,8 @@ watch(
 );
 
 watchEffect(() => {
-  const usedHeight = TITLEBAR_HEIGHT + gitGraphHeight.value + HANDLE_WIDTH;
+  const gitGraphSpace = projectStore.isGitRepo ? gitGraphHeight.value + HANDLE_WIDTH : 0;
+  const usedHeight = TITLEBAR_HEIGHT + gitGraphSpace;
   mainHeight.value = Math.max(MAIN_MIN_HEIGHT, windowHeight.value - usedHeight);
 });
 </script>
@@ -209,20 +209,22 @@ watchEffect(() => {
         class="electrobun-webkit-app-region-drag flex min-w-0 flex-1 items-center"
         style="height: 100%"
       >
-        <span class="truncate text-sm text-zinc-400">{{ worktreeStore.repoName ?? "gozd" }}</span>
+        <span class="truncate text-sm text-zinc-400">{{ projectStore.repoName ?? "gozd" }}</span>
       </div>
     </div>
     <div class="flex shrink-0 overflow-hidden" :style="{ height: `${mainHeight}px` }">
-      <div class="shrink-0 overflow-hidden" :style="{ width: `${sidebarWidth}px` }">
-        <SidebarPane />
-      </div>
-      <ResizeHandle
-        v-model:before-size="sidebarWidth"
-        direction="horizontal"
-        :before-min-size="SIDEBAR_MIN_WIDTH"
-        :after-min-size="TERMINAL_MIN_WIDTH"
-        :get-after-size="getTerminalWidth"
-      />
+      <template v-if="projectStore.isGitRepo">
+        <div class="shrink-0 overflow-hidden" :style="{ width: `${sidebarWidth}px` }">
+          <SidebarPane />
+        </div>
+        <ResizeHandle
+          v-model:before-size="sidebarWidth"
+          direction="horizontal"
+          :before-min-size="SIDEBAR_MIN_WIDTH"
+          :after-min-size="TERMINAL_MIN_WIDTH"
+          :get-after-size="getTerminalWidth"
+        />
+      </template>
 
       <TerminalPane :min-width="TERMINAL_MIN_WIDTH" />
 
@@ -250,16 +252,18 @@ watchEffect(() => {
       </div>
     </div>
 
-    <ResizeHandle
-      v-model:before-size="mainHeight"
-      v-model:after-size="gitGraphHeight"
-      direction="vertical"
-      :before-min-size="MAIN_MIN_HEIGHT"
-      :after-min-size="GIT_GRAPH_MIN_HEIGHT"
-    />
-    <div class="shrink-0 overflow-hidden" :style="{ height: `${gitGraphHeight}px` }">
-      <GitGraphPane />
-    </div>
+    <template v-if="projectStore.isGitRepo">
+      <ResizeHandle
+        v-model:before-size="mainHeight"
+        v-model:after-size="gitGraphHeight"
+        direction="vertical"
+        :before-min-size="MAIN_MIN_HEIGHT"
+        :after-min-size="GIT_GRAPH_MIN_HEIGHT"
+      />
+      <div class="shrink-0 overflow-hidden" :style="{ height: `${gitGraphHeight}px` }">
+        <GitGraphPane />
+      </div>
+    </template>
 
     <!-- Preview popover: 開閉ボタンをアンカーにして左側に展開 -->
     <div

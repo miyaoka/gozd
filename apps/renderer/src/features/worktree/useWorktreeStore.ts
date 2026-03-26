@@ -13,7 +13,6 @@ interface Selection {
 export const useWorktreeStore = defineStore("worktree", () => {
   const dir = ref<string>();
   const fileServerBaseUrl = ref<string>();
-  const repoName = ref<string>();
 
   /** worktree ごとの選択状態（dir → Selection） */
   const selectionByDir = ref<Record<string, Selection>>({});
@@ -45,20 +44,12 @@ export const useWorktreeStore = defineStore("worktree", () => {
   });
 
   /** RPC gozdOpen イベントで呼ばれる */
-  function setOpen(
-    newDir: string,
-    selection?: OpenTargetSelection,
-    newFileServerBaseUrl?: string,
-    newRepoName?: string,
-  ) {
+  function setOpen(newDir: string, selection?: OpenTargetSelection, newFileServerBaseUrl?: string) {
     const dirChanged = dir.value !== newDir;
     const prevSelectedPath = selectedPath.value;
     dir.value = newDir;
     if (newFileServerBaseUrl) {
       fileServerBaseUrl.value = newFileServerBaseUrl;
-    }
-    if (newRepoName) {
-      repoName.value = newRepoName;
     }
     if (selection) {
       if (dirChanged) {
@@ -108,7 +99,6 @@ export const useWorktreeStore = defineStore("worktree", () => {
   return {
     dir,
     fileServerBaseUrl,
-    repoName,
     selectedPath,
     selectedLineNumber,
     selectedGitChange,

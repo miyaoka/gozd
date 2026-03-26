@@ -36,6 +36,7 @@ worktree 行ごとの Claude 状態表示は `WorktreeItem.vue` に委譲。
 import { useIntervalFn } from "@vueuse/core";
 import { onUnmounted, ref } from "vue";
 import { useCommandRegistry } from "../../shared/command";
+import { useProjectStore } from "../../shared/project";
 import { useTerminalStore } from "../terminal";
 import { useWorktreeStore, generateTimestamp } from "../worktree";
 import { TodoEditor, TodoList, useTodoActions } from "./features/todo";
@@ -48,6 +49,7 @@ import { useSidebarData } from "./useSidebarData";
 import VoicevoxPanel from "./VoicevoxPanel.vue";
 
 const worktreeStore = useWorktreeStore();
+const projectStore = useProjectStore();
 const terminalStore = useTerminalStore();
 
 const {
@@ -146,13 +148,13 @@ function handleMenuTodoCreateWorktree(todo: import("@gozd/rpc").Todo) {
 <template>
   <div class="flex size-full flex-col">
     <div class="flex-1 overflow-y-auto p-4">
-      <h1 class="mb-4 flex items-center text-lg font-bold" :title="worktreeStore.repoName">
+      <h1 class="mb-4 flex items-center text-lg font-bold" :title="projectStore.repoName">
         <span class="mr-2 icon-[lucide--bot] shrink-0 align-middle text-blue-400" />
         <input
           aria-label="Project name"
           class="min-w-0 flex-1 truncate bg-transparent outline-none"
-          :value="worktreeStore.repoName ?? 'gozd'"
-          @input="worktreeStore.repoName = ($event.target as HTMLInputElement).value"
+          :value="projectStore.repoName ?? 'gozd'"
+          @input="projectStore.repoName = ($event.target as HTMLInputElement).value"
         />
       </h1>
 

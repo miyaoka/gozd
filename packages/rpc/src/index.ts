@@ -335,6 +335,8 @@ export type GozdRPC = {
         fileServerBaseUrl: string;
         channel: string;
         repoName: string;
+        /** git リポジトリ内かどうか。false の場合 git 関連 UI を非表示にする */
+        isGitRepo: boolean;
         /** 既存ウィンドウ再利用時に切り替える worktree ディレクトリ。renderer 側で switchDir を呼ぶ */
         switchToDir?: string;
       };

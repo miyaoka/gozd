@@ -323,6 +323,8 @@ export type GozdRPC = {
         switchToDir?: string;
       };
       gozdHook: { event: string; payload: Record<string, unknown> };
+      /** desktop / cli 側で発生したエラーの通知 */
+      errorNotify: { source: string; message: string };
     };
   }>;
 };

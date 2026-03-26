@@ -252,6 +252,14 @@ const windowProjectDirs = new Map<GozdWindow, string>();
 /** switchDir の世代管理。stale な非同期結果を捨てるために使う */
 const windowSwitchGen = new Map<GozdWindow, number>();
 
+/** renderer にエラーを通知する。console.error と併用し、全ウィンドウにブロードキャストする */
+function notifyError(source: string, message: string): void {
+  console.error(`[${source}]`, message);
+  for (const win of windowDirs.keys()) {
+    win.webview.rpc?.send.errorNotify({ source, message });
+  }
+}
+
 /** 個別 close で最後に閉じたウィンドウの状態を退避。before-quit 時に live が空ならこれを保存する */
 let lastClosedWindowState: WindowState | null = null;
 
@@ -1143,7 +1151,7 @@ function setupSocketServer(): net.Server {
         if (line.trim() === "") continue;
         const result = tryCatch(() => JSON.parse(line) as GozdMessage);
         if (!result.ok) {
-          console.error("[socket] invalid JSON:", line);
+          notifyError("socket", `invalid JSON: ${line}`);
           continue;
         }
         handleSocketMessage(result.value);
@@ -1156,7 +1164,7 @@ function setupSocketServer(): net.Server {
   });
 
   server.on("error", (err) => {
-    console.error("[socket] server error:", err);
+    notifyError("socket", `server error: ${err}`);
   });
 
   return server;

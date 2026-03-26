@@ -20,7 +20,11 @@ useKeyBindings();
 
 const worktreeStore = useWorktreeStore();
 const appStore = useAppStore();
-const { request, send, onGozdOpen } = useRpc();
+const { request, send, onGozdOpen, onErrorNotify } = useRpc();
+
+const disposeErrorNotify = onErrorNotify(({ source, message }) => {
+  console.error(`[${source}]`, message);
+});
 
 let cleanup: (() => void) | undefined;
 
@@ -53,6 +57,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   cleanup?.();
+  disposeErrorNotify();
 });
 </script>
 

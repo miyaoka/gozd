@@ -4,8 +4,8 @@ import type { Ref } from "vue";
 import { ref } from "vue";
 import { useRpc } from "../../../../shared/rpc";
 import { useTerminalStore } from "../../../terminal";
-import { useWorktreeStore } from "../../../worktree";
-import { generateTimestamp, worktreeDisplayName } from "../../utils";
+import { useWorktreeStore, generateTimestamp } from "../../../worktree";
+import { worktreeDisplayName } from "../../utils";
 
 interface UseWorktreeActionsOptions {
   worktrees: Ref<WorktreeEntry[]>;

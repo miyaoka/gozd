@@ -1,3 +1,4 @@
+export { generateTimestamp } from "./generateTimestamp";
 export { useWorktreeStore } from "./useWorktreeStore";
 export { useGitStatusStore } from "./useGitStatusStore";
 export {

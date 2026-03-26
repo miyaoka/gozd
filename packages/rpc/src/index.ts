@@ -110,6 +110,8 @@ export const UNCOMMITTED_HASH = "0000000000000000000000000000000000000000";
 export interface GitPullRequest {
   /** PR 番号 */
   number: number;
+  /** PR タイトル */
+  title: string;
   /** PR の URL */
   url: string;
   /** ソースブランチ名 */
@@ -118,6 +120,10 @@ export interface GitPullRequest {
   state: "OPEN" | "CLOSED" | "MERGED";
   /** ドラフトかどうか */
   isDraft: boolean;
+  /** 作成者のログイン名 */
+  author: string;
+  /** 最終更新日時（ISO 8601） */
+  updatedAt: string;
 }
 
 /** git diff の変更ファイル情報 */

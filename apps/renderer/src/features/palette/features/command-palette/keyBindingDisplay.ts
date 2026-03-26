@@ -3,7 +3,7 @@
  * defaultKeyBindings.json からコマンド ID → キー文字列のマッピングを構築し、
  * macOS 向けの記号表記に変換する。
  */
-import { DEFAULT_KEY_BINDINGS } from "../../shared/command";
+import { DEFAULT_KEY_BINDINGS } from "../../../../shared/command";
 
 /** modifier の macOS 記号マッピング */
 const MODIFIER_SYMBOLS: Record<string, string> = {

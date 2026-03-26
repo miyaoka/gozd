@@ -138,16 +138,18 @@ tester.run("barrel-import", rule, {
 
     // ─── shared ─────────────────────────────────────
     {
-      // shared-B/useB.ts → shared-B/otherB.ts
-      name: "OK: shared 内のファイル同士",
-      code: 'import { otherB } from "./otherB";',
-      filename: `${BASE}/shared/shared-B/useB.ts`,
-    },
-    {
       // feat-A/CompA.vue → shared-A/（バレル）
       name: "OK: feature → shared のバレル経由",
       code: 'import { implA } from "../../shared/shared-A";',
       filename: `${BASE}/features/feat-A/CompA.vue`,
+    },
+
+    // ─── shared → shared: 同一モジュール内は自由 ────
+    {
+      // shared-B/useB.ts → shared-B/otherB.ts（同一モジュール内）
+      name: "OK: shared 内の同一モジュール参照",
+      code: 'import { otherB } from "./otherB";',
+      filename: `${BASE}/shared/shared-B/useB.ts`,
     },
 
     // ─── App.vue（スコープ外） ──────────────────────
@@ -278,6 +280,15 @@ tester.run("barrel-import", rule, {
       code: 'import { CompA } from "../../features/feat-A";',
       filename: `${BASE}/shared/shared-B/otherB.ts`,
       errors: [{ messageId: "noDependency" }],
+    },
+
+    // ─── shared 間依存禁止 ─────────────────────────
+    {
+      // shared-B/useB.ts → shared-A/（バレル経由でも禁止）
+      name: "NG: shared → shared（同スコープでもモジュール間は禁止）",
+      code: 'import { implA } from "../shared-A";',
+      filename: `${BASE}/shared/shared-B/useB.ts`,
+      errors: [{ messageId: "noCrossModuleDependency" }],
     },
 
     // ─── shared: 内部ファイル直接 ──────────────────

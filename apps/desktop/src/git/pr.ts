@@ -7,10 +7,13 @@ import { tryCatch } from "@gozd/shared";
  */
 interface GhPrItem {
   number: number;
+  title: string;
   url: string;
   headRefName: string;
   state: "OPEN" | "CLOSED" | "MERGED";
   isDraft: boolean;
+  author: { login: string } | null;
+  updatedAt: string;
   headRepositoryOwner: { login: string };
 }
 
@@ -72,7 +75,7 @@ export async function getPrList({
       "--state",
       "open",
       "--json",
-      "number,url,headRefName,state,isDraft,headRepositoryOwner",
+      "number,title,url,headRefName,state,isDraft,author,updatedAt,headRepositoryOwner",
       "--limit",
       "100",
     ],
@@ -87,5 +90,8 @@ export async function getPrList({
   // fork 由来の PR を除外（自リポジトリの owner と一致するもののみ）
   return parsed.value
     .filter((pr) => pr.headRepositoryOwner.login === repoOwner)
-    .map(({ headRepositoryOwner: _, ...pr }) => pr);
+    .map(({ headRepositoryOwner: _, author, ...pr }) => ({
+      ...pr,
+      author: author?.login ?? "",
+    }));
 }

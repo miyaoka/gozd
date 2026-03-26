@@ -15,6 +15,38 @@ export function getWorktreeRoot(projectDir: string): string {
   return path.join(WORKTREE_BASE, projectKey(projectDir));
 }
 
+/**
+ * リモートブランチを fetch し、ローカルブランチを作成して worktree 化する。
+ * リモートに存在しない場合は false を返す。
+ */
+async function createWorktreeFromRemote({
+  cwd,
+  branch,
+  wtPath,
+}: {
+  cwd: string;
+  branch: string;
+  wtPath: string;
+}): Promise<boolean> {
+  const fetchProc = Bun.spawn(["git", "fetch", "origin", branch], {
+    cwd,
+    stderr: "pipe",
+  });
+  await fetchProc.exited;
+  if (fetchProc.exitCode !== 0) return false;
+
+  const wtProc = Bun.spawn(["git", "worktree", "add", "-b", branch, wtPath, `origin/${branch}`], {
+    cwd,
+    stderr: "pipe",
+  });
+  await wtProc.exited;
+  if (wtProc.exitCode !== 0) {
+    const stderr = await new Response(wtProc.stderr).text();
+    throw new Error(`git worktree add failed: ${stderr.trim() || `exit code ${wtProc.exitCode}`}`);
+  }
+  return true;
+}
+
 export async function addWorktree({
   cwd,
   worktreeDir,
@@ -60,10 +92,14 @@ export async function addWorktree({
         );
       }
     } else {
-      const stderr = await new Response(newBranchProc.stderr).text();
-      throw new Error(
-        `git worktree add failed: ${stderr.trim() || `exit code ${newBranchProc.exitCode}`}`,
-      );
+      // リモートブランチからローカルブランチを作成して worktree 化する
+      const remoteResult = await createWorktreeFromRemote({ cwd, branch, wtPath });
+      if (!remoteResult) {
+        const stderr = await new Response(newBranchProc.stderr).text();
+        throw new Error(
+          `git worktree add failed: ${stderr.trim() || `exit code ${newBranchProc.exitCode}`}`,
+        );
+      }
     }
   }
 

@@ -27,20 +27,6 @@ export function hasChanges(counts: WorktreeChangeCounts | undefined): boolean {
   return counts.modified + counts.added + counts.deleted + counts.untracked > 0;
 }
 
-/** worktree 用のタイムスタンプを生成する（YYYYMMDD_HHMMSS 形式） */
-export function generateTimestamp(): string {
-  const now = new Date();
-  return [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0"),
-    "_",
-    String(now.getHours()).padStart(2, "0"),
-    String(now.getMinutes()).padStart(2, "0"),
-    String(now.getSeconds()).padStart(2, "0"),
-  ].join("");
-}
-
 /** パスから末尾のディレクトリ名を取得 */
 export function dirName(p: string): string {
   const lastSlash = p.lastIndexOf("/");

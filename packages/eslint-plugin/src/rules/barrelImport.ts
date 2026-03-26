@@ -15,6 +15,8 @@ import type { Rule } from "eslint";
 interface ScopeConfig {
   directories: string[];
   dependsOn: string[];
+  /** true の場合、同スコープ内でもモジュール間の import を禁止する */
+  isolateModules?: boolean;
 }
 
 interface BarrelImportOptions {
@@ -27,7 +29,7 @@ interface BarrelImportOptions {
 const DEFAULT_BARREL_FILES = ["index.ts", "index.tsx"];
 
 const DEFAULT_SCOPES: Record<string, ScopeConfig> = {
-  shared: { directories: ["shared"], dependsOn: [] },
+  shared: { directories: ["shared"], dependsOn: [], isolateModules: true },
   features: { directories: ["features"], dependsOn: ["shared"] },
 };
 
@@ -187,6 +189,8 @@ const rule: Rule.RuleModule = {
         "'{{importSource}}' の直接 import は禁止されています。'{{scopeName}}' のバレルファイル経由で import してください。",
       noDependency:
         "'{{fromScope}}' から '{{toScope}}' への依存は禁止されています。",
+      noCrossModuleDependency:
+        "'{{scopeName}}' スコープはモジュール間の依存が禁止されています（isolateModules）。",
       invalidConfig:
         "barrel-import: {{detail}}",
     },
@@ -215,6 +219,11 @@ const rule: Rule.RuleModule = {
                   items: { type: "string" },
                   description:
                     "このスコープが依存できるスコープ名のリスト。未記載のスコープへの依存は禁止",
+                },
+                isolateModules: {
+                  type: "boolean",
+                  description:
+                    "true の場合、同スコープ内でもモジュール間の import を禁止する",
                 },
               },
               required: ["directories", "dependsOn"],
@@ -330,6 +339,23 @@ const rule: Rule.RuleModule = {
 
       // 同じスコープ内のファイル同士は自由（fullPath で比較し、同名子スコープを区別）
       if (fromDeepest && fromDeepest.fullPath === toDeepest.fullPath) return;
+
+      // isolateModules: 同スコープ内でもモジュール間の import を禁止
+      if (fromDeepest && fromDeepest.fullPath !== toDeepest.fullPath) {
+        const fromScopeDir = getScopeDir(fromDeepest.scope);
+        const toScopeDir = getScopeDir(toDeepest.scope);
+        if (fromScopeDir === toScopeDir) {
+          const scopeName = dirToScope.get(fromScopeDir);
+          if (scopeName && scopes[scopeName].isolateModules) {
+            context.report({
+              node: sourceNode,
+              messageId: "noCrossModuleDependency",
+              data: { scopeName },
+            });
+            return;
+          }
+        }
+      }
 
       // 子スコープから親スコープの内部ファイルへのアクセスは自由
       // import 元のパスに to のスコープの fullPath が含まれている = to は from の祖先スコープ

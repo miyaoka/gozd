@@ -13,7 +13,7 @@ Reusable quick pick dialog for selecting an item from a filterable list.
 
 <script setup lang="ts">
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
-import { useContextKeys } from "../command";
+import { isIMEActive, useContextKeys } from "../../../../shared/command";
 import { useDialog } from "./useDialog";
 import { useQuickPick } from "./useQuickPick";
 import type { QuickPickItem } from "./useQuickPick";
@@ -152,6 +152,7 @@ function moveSelection(direction: -1 | 1) {
 }
 
 function handleKeydown(e: KeyboardEvent) {
+  if (isIMEActive(e)) return;
   switch (e.key) {
     case "ArrowDown":
       e.preventDefault();

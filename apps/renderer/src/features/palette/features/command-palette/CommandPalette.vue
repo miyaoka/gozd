@@ -13,7 +13,7 @@ Command palette dialog. Displays a searchable list of registered commands with t
 <script setup lang="ts">
 import { useEventListener } from "@vueuse/core";
 import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch } from "vue";
-import { useCommandRegistry, useContextKeys } from "../../shared/command";
+import { isIMEActive, useCommandRegistry, useContextKeys } from "../../../../shared/command";
 import { formatKeyBinding, getKeyBindingMap } from "./keyBindingDisplay";
 
 const registry = useCommandRegistry();
@@ -63,6 +63,7 @@ function executeSelected() {
 }
 
 function handleKeydown(e: KeyboardEvent) {
+  if (isIMEActive(e)) return;
   const len = filteredCommands.value.length;
 
   switch (e.key) {

@@ -37,7 +37,7 @@ import { useIntervalFn } from "@vueuse/core";
 import { onUnmounted, ref } from "vue";
 import { useCommandRegistry } from "../../shared/command";
 import { useTerminalStore } from "../terminal";
-import { useWorktreeStore } from "../worktree";
+import { useWorktreeStore, generateTimestamp } from "../worktree";
 import { TodoEditor, TodoList, useTodoActions } from "./features/todo";
 import { BranchList, RootWorktree, WorktreeList, useWorktreeActions } from "./features/worktree";
 import ProjectConfigPanel from "./ProjectConfigPanel.vue";
@@ -45,7 +45,6 @@ import SidebarMenu from "./SidebarMenu.vue";
 import { useCtrlBadge } from "./useCtrlBadge";
 import { useDialogs } from "./useDialogs";
 import { useSidebarData } from "./useSidebarData";
-import { generateTimestamp } from "./utils";
 import VoicevoxPanel from "./VoicevoxPanel.vue";
 
 const worktreeStore = useWorktreeStore();

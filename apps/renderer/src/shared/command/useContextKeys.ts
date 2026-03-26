@@ -10,6 +10,7 @@ const INITIAL_STATE: ContextMap = {
   previewVisible: false,
   commandPaletteVisible: false,
   quickPickVisible: false,
+  prPickerVisible: false,
   inputFocused: false,
 };
 

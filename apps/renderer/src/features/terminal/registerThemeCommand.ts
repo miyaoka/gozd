@@ -8,9 +8,9 @@ import type { AppConfig } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { darkThemeNames, lightThemeNames, loadTheme } from "@gozd/themes";
 import { useCommandRegistry } from "../../shared/command";
-import { useQuickPick } from "../../shared/quick-pick";
-import type { QuickPickItem } from "../../shared/quick-pick";
 import { useRpc } from "../../shared/rpc";
+import { useQuickPick } from "../palette";
+import type { QuickPickItem } from "../palette";
 import { previewFontFamily, previewFontSize } from "../preview";
 import { globalSettingsDefaults } from "../settings";
 import {

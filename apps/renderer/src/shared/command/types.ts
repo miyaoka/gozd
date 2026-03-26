@@ -44,6 +44,7 @@ export interface ContextMap {
   previewVisible: boolean;
   commandPaletteVisible: boolean;
   quickPickVisible: boolean;
+  prPickerVisible: boolean;
   inputFocused: boolean;
 }
 

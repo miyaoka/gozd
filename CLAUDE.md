@@ -73,13 +73,14 @@ gozd/
 │           │   ├── git-graph/   # コミットグラフ（SVG 描画、ブランチ分岐・マージの可視化）
 │           │   ├── layout/      # レイアウト
 │           │   ├── navigator/   # Navigator（Filer + Changes のタブ切り替えコンテナ）
+│           │   ├── palette/     # 選択ダイアログ群（command-palette, quick-pick, pr-picker）
 │           │   ├── preview/     # ファイルプレビュー（コード、diff、画像、SVG、Markdown）
 │           │   ├── sidebar/     # サイドバー（worktree 一覧、Todo、ブランチ）
 │           │   ├── terminal/    # ターミナル
 │           │   └── voicevox/    # VOICEVOX 音声合成
-│           └── shared/    # feature に依存しない共通モジュール
+│           └── shared/    # feature に依存しない非 UI 基盤モジュール
+│               ├── app/         # app store
 │               ├── command/     # コマンドシステム + keybinding
-│               ├── quick-pick/  # 汎用 QuickPick ダイアログ
 │               └── rpc/         # Electrobun RPC composable
 ├── packages/
 │   ├── rpc/               # RPC スキーマ型定義（bun ↔ webview）
@@ -95,12 +96,16 @@ renderer の `src/` は **feature** と **shared** の 2 層で構成する。
 
 ### レイヤー
 
-| レイヤー | パス              | 役割                                                          |
-| -------- | ----------------- | ------------------------------------------------------------- |
-| feature  | `src/features/*/` | UI 機能単位。コンポーネント・composable・store をまとめる     |
-| shared   | `src/shared/*/`   | feature に依存しない共通モジュール（RPC、コマンドシステム等） |
+| レイヤー | パス              | 役割                                                                |
+| -------- | ----------------- | ------------------------------------------------------------------- |
+| feature  | `src/features/*/` | UI 機能単位。コンポーネント・composable・store をまとめる           |
+| shared   | `src/shared/*/`   | feature に依存しない非 UI 基盤モジュール（RPC、コマンドシステム等） |
 
 依存方向: **feature → shared は許可、shared → feature は禁止**。下位層が上位層に依存してはいけない。
+
+shared の制約:
+
+- shared 間の依存は禁止（`isolateModules` lint ルールで強制）。各モジュールは独立して閉じる
 
 ### バレルファイル（index.ts）
 

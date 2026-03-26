@@ -18,11 +18,10 @@ import { useWindowSize } from "@vueuse/core";
 import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch, watchEffect } from "vue";
 import { useAppStore } from "../../shared/app";
 import { useCommandRegistry, useContextKeys } from "../../shared/command";
-import { QuickPick } from "../../shared/quick-pick";
 import { useRpc } from "../../shared/rpc";
-import { CommandPalette } from "../command-palette";
 import { GitGraphPane } from "../git-graph";
 import { NavigatorPane } from "../navigator";
+import { CommandPalette, PrPickerDialog, QuickPick, registerPrCommand } from "../palette";
 import { PreviewPane } from "../preview";
 import { registerSettingsCommand, SettingsModal } from "../settings";
 import { SidebarPane } from "../sidebar";
@@ -59,10 +58,12 @@ const disposeWindowClose = register("window.close", {
 });
 const disposeThemeCommand = registerThemeCommand();
 const disposeSettingsCommand = registerSettingsCommand();
+const disposePrCommand = registerPrCommand();
 onUnmounted(disposePreviewToggle);
 onUnmounted(disposeWindowClose);
 onUnmounted(disposeThemeCommand);
 onUnmounted(disposeSettingsCommand);
+onUnmounted(disposePrCommand);
 
 /** ハンドル幅 w-2 = 8px */
 const HANDLE_WIDTH = 8;
@@ -285,6 +286,7 @@ watchEffect(() => {
 
     <CommandPalette />
     <QuickPick />
+    <PrPickerDialog />
     <SettingsModal />
   </div>
 </template>

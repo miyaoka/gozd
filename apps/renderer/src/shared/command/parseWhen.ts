@@ -22,6 +22,7 @@ const KNOWN_KEYS = new Set<string>(
     previewVisible: true,
     commandPaletteVisible: true,
     quickPickVisible: true,
+    prPickerVisible: true,
     inputFocused: true,
   } satisfies ContextMap),
 );

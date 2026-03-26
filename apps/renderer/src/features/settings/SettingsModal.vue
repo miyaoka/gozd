@@ -11,8 +11,8 @@
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
 import { reactive, watch } from "vue";
-import { useDialog } from "../../shared/quick-pick";
 import { useRpc } from "../../shared/rpc";
+import { useDialog } from "../palette";
 import { previewFontFamily, previewFontSize } from "../preview";
 import { applyTerminalTheme, terminalFontFamily, terminalFontSize } from "../terminal";
 import { useVoicevoxStore } from "../voicevox";

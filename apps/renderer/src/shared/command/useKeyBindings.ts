@@ -6,6 +6,7 @@
  */
 import { useEventListener } from "@vueuse/core";
 import DEFAULT_KEY_BINDINGS from "./defaultKeyBindings.json";
+import { isIMEActive } from "./isIMEActive";
 import { eventToKeyStroke, matchKeyStroke, parseKeyStroke } from "./parseKeyStroke";
 import { parseWhen } from "./parseWhen";
 import type { KeyBinding, KeyStroke, When } from "./types";
@@ -62,7 +63,7 @@ function shouldHandle(e: KeyboardEvent): boolean {
   if (e.defaultPrevented) return false;
 
   // 日本語入力中の誤発火防止
-  if (e.isComposing) return false;
+  if (isIMEActive(e)) return false;
 
   // 構造変更コマンドの連打防止
   if (e.repeat) return false;

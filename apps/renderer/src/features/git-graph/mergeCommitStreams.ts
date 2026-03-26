@@ -1,6 +1,13 @@
 import type { GitCommit } from "@gozd/rpc";
 
 /**
+ * ソートモード。
+ * - date: commit date 降順で tie-break（並行する系統が日付で混在する）
+ * - topo: 直前のコミットの親を優先し、同一系統をまとめる
+ */
+export type SortMode = "date" | "topo";
+
+/**
  * HEAD 系統とデフォルトブランチ系統のコミットストリームをマージする。
  *
  * - headCommits の hash set を作り、defaultBranchCommits が到達可能か判定する
@@ -10,11 +17,13 @@ import type { GitCommit } from "@gozd/rpc";
 export function mergeCommitStreams({
   headCommits,
   defaultBranchCommits,
+  sortMode = "date",
 }: {
   headCommits: GitCommit[];
   defaultBranchCommits: GitCommit[];
+  sortMode?: SortMode;
 }): GitCommit[] {
-  if (defaultBranchCommits.length === 0) return headCommits;
+  if (defaultBranchCommits.length === 0) return topoSort(headCommits, sortMode);
 
   const headHashSet = new Set(headCommits.map((c) => c.hash));
 
@@ -32,20 +41,23 @@ export function mergeCommitStreams({
   }
 
   // 繋がらない場合は headCommits のみ
-  if (!connected) return headCommits;
+  if (!connected) return topoSort(headCommits, sortMode);
 
   // union: headCommits + defaultBranchCommits のうち headCommits にないもの
   const unionCommits = [...headCommits, ...defaultOnly];
 
-  return topoSort(unionCommits);
+  return topoSort(unionCommits, sortMode);
 }
 
 /**
  * 逆トポロジカルソート（Kahn のアルゴリズム）。
  * child が parent より先に出る順序を保証する。
- * tie-break: commit date 降順（新しいコミットが先）。
+ *
+ * tie-break:
+ * - date: commit date 降順（並行する系統が日付で混在する）
+ * - topo: 直前のコミットの第1親を優先し、同一系統をまとめる。該当なしなら date fallback
  */
-function topoSort(commits: GitCommit[]): GitCommit[] {
+function topoSort(commits: GitCommit[], sortMode: SortMode): GitCommit[] {
   const commitMap = new Map<string, GitCommit>();
   for (const c of commits) {
     commitMap.set(c.hash, c);
@@ -63,7 +75,6 @@ function topoSort(commits: GitCommit[]): GitCommit[] {
   }
 
   // in-degree が 0 のノードを ready queue に入れる
-  // priority queue の代わりに配列 + ソートで実装（コミット数が数百件なので十分）
   const ready: GitCommit[] = [];
   for (const c of commits) {
     if (childCount.get(c.hash) === 0) {
@@ -72,12 +83,12 @@ function topoSort(commits: GitCommit[]): GitCommit[] {
   }
 
   const result: GitCommit[] = [];
+  let lastOutput: GitCommit | undefined;
 
   while (ready.length > 0) {
-    // tie-break: commit date 降順（新しいコミットが先）
-    ready.sort((a, b) => b.date - a.date);
-    const commit = ready.shift()!;
+    const commit = pickNext(ready, sortMode, lastOutput);
     result.push(commit);
+    lastOutput = commit;
 
     // この commit の親の child count を減らす
     for (const parentHash of commit.parents) {
@@ -93,4 +104,29 @@ function topoSort(commits: GitCommit[]): GitCommit[] {
   }
 
   return result;
+}
+
+/**
+ * ready queue から次に出力するコミットを選択して取り出す。
+ * - date: date 降順
+ * - topo: 直前のコミットの第1親を優先、なければ date 降順 fallback
+ */
+function pickNext(
+  ready: GitCommit[],
+  sortMode: SortMode,
+  lastOutput: GitCommit | undefined,
+): GitCommit {
+  if (sortMode === "topo" && lastOutput) {
+    const [firstParent] = lastOutput.parents;
+    if (firstParent) {
+      const idx = ready.findIndex((c) => c.hash === firstParent);
+      if (idx !== -1) {
+        return ready.splice(idx, 1)[0];
+      }
+    }
+  }
+
+  // date fallback
+  ready.sort((a, b) => b.date - a.date);
+  return ready.shift()!;
 }

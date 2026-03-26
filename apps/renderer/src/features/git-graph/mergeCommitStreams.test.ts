@@ -125,3 +125,62 @@ describe("mergeCommitStreams", () => {
     expect(h.indexOf("a")).toBeLessThan(h.indexOf("b"));
   });
 });
+
+describe("mergeCommitStreams sortMode=topo", () => {
+  test("topo モードは同一系統をまとめる", () => {
+    // base から2系統に分岐:
+    //   head 側: a3 -> a2 -> a1 -> base
+    //   default 側: b2 -> b1 -> base
+    // date 順だと a3, b2, a2, b1, a1, base のように混在するが
+    // topo だと a3, a2, a1, b2, b1, base のようにまとまる
+    const base = commit({ hash: "base", parents: [], date: 1 });
+    const a1 = commit({ hash: "a1", parents: ["base"], date: 2 });
+    const b1 = commit({ hash: "b1", parents: ["base"], date: 3 });
+    const a2 = commit({ hash: "a2", parents: ["a1"], date: 4 });
+    const b2 = commit({ hash: "b2", parents: ["b1"], date: 5 });
+    const a3 = commit({ hash: "a3", parents: ["a2"], date: 6 });
+
+    const result = mergeCommitStreams({
+      headCommits: [a3, a2, a1, base],
+      defaultBranchCommits: [b2, b1, base],
+      sortMode: "topo",
+    });
+
+    const h = hashes(result);
+    // a 系統がまとまっている（a3, a2, a1 が連続）
+    const a3Idx = h.indexOf("a3");
+    const a2Idx = h.indexOf("a2");
+    const a1Idx = h.indexOf("a1");
+    expect(a2Idx).toBe(a3Idx + 1);
+    expect(a1Idx).toBe(a2Idx + 1);
+
+    // b 系統もまとまっている（b2, b1 が連続）
+    const b2Idx = h.indexOf("b2");
+    const b1Idx = h.indexOf("b1");
+    expect(b1Idx).toBe(b2Idx + 1);
+  });
+
+  test("date モードは日付で混在する", () => {
+    const base = commit({ hash: "base", parents: [], date: 1 });
+    const a1 = commit({ hash: "a1", parents: ["base"], date: 2 });
+    const b1 = commit({ hash: "b1", parents: ["base"], date: 3 });
+    const a2 = commit({ hash: "a2", parents: ["a1"], date: 4 });
+    const b2 = commit({ hash: "b2", parents: ["b1"], date: 5 });
+    const a3 = commit({ hash: "a3", parents: ["a2"], date: 6 });
+
+    const result = mergeCommitStreams({
+      headCommits: [a3, a2, a1, base],
+      defaultBranchCommits: [b2, b1, base],
+      sortMode: "date",
+    });
+
+    const h = hashes(result);
+    // date 順: a3(6), b2(5), a2(4), b1(3), a1(2), base(1)
+    // a 系統と b 系統が混在する
+    const a3Idx = h.indexOf("a3");
+    const b2Idx = h.indexOf("b2");
+    const a2Idx = h.indexOf("a2");
+    expect(b2Idx).toBe(a3Idx + 1);
+    expect(a2Idx).toBe(b2Idx + 1);
+  });
+});

@@ -18,6 +18,7 @@ import { useGitStatusStore, useWorktreeStore } from "../worktree";
 import { computeGraphLayout } from "./graphLayout";
 import type { GraphLayout } from "./graphLayout";
 import { mergeCommitStreams } from "./mergeCommitStreams";
+import type { SortMode } from "./mergeCommitStreams";
 import { useGitGraphStore } from "./useGitGraphStore";
 
 const { request, onGitStatusChange } = useRpc();
@@ -30,6 +31,7 @@ const commits = ref<GitCommit[]>([]);
 const defaultBranch = ref<string | undefined>();
 const layout = ref<GraphLayout>({ nodes: [], lines: [], maxLanes: 1 });
 const firstParentOnly = ref(false);
+const sortMode = ref<SortMode>("date");
 
 /** 変更ファイル数 */
 const uncommittedChangeCount = computed(() => Object.keys(gitStatuses.value).length);
@@ -126,6 +128,7 @@ async function loadLog() {
   const merged = mergeCommitStreams({
     headCommits: result.headCommits,
     defaultBranchCommits: result.defaultBranchCommits,
+    sortMode: sortMode.value,
   });
 
   commits.value = merged;
@@ -154,8 +157,12 @@ watch(
   },
 );
 
-// firstParentOnly 切替時に再取得
+// firstParentOnly / sortMode 切替時に再取得
 watch(firstParentOnly, () => {
+  gitGraphStore.resetSelection();
+  void loadLog();
+});
+watch(sortMode, () => {
   gitGraphStore.resetSelection();
   void loadLog();
 });
@@ -473,6 +480,15 @@ function isInRange(hash: string): boolean {
         @click="firstParentOnly = !firstParentOnly"
       >
         First Parent
+      </button>
+      <button
+        class="rounded-sm px-1.5 py-0.5 text-[10px]"
+        :class="
+          sortMode === 'topo' ? 'bg-blue-800 text-blue-200' : 'text-zinc-500 hover:text-zinc-300'
+        "
+        @click="sortMode = sortMode === 'date' ? 'topo' : 'date'"
+      >
+        {{ sortMode === "date" ? "Date Order" : "Topo Order" }}
       </button>
       <button
         class="rounded-sm px-1.5 py-0.5 text-[10px] text-zinc-500 hover:text-zinc-300"

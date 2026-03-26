@@ -42,6 +42,19 @@ async function resolveCurrentBranch(cwd: string): Promise<string | undefined> {
 }
 
 /**
+ * ローカルrefが存在するか確認する。
+ * worktree 環境ではデフォルトブランチのローカル ref が存在しない場合がある。
+ */
+async function localRefExists({ cwd, branch }: { cwd: string; branch: string }): Promise<boolean> {
+  const result = await tryCatch(
+    new Response(
+      Bun.spawn(["git", "rev-parse", "--verify", `refs/heads/${branch}`], { cwd }).stdout,
+    ).text(),
+  );
+  return result.ok && result.value.trim() !== "";
+}
+
+/**
  * リモートrefが存在するか確認し、存在すれば "origin/{branch}" を返す。
  */
 async function resolveRemoteRef({
@@ -93,8 +106,12 @@ export async function getGitLog({
     [...branchesToCheck].map((branch) => resolveRemoteRef({ cwd, branch })),
   );
 
+  // defaultBranch のローカル ref 存在確認（worktree ではローカルに存在しない場合がある）
+  const hasLocalDefault =
+    defaultBranch !== undefined && (await localRefExists({ cwd, branch: defaultBranch }));
+
   const refs = ["HEAD"];
-  if (defaultBranch) refs.push(defaultBranch);
+  if (hasLocalDefault) refs.push(defaultBranch);
   for (const remoteRef of remoteRefs) {
     if (remoteRef) refs.push(remoteRef);
   }

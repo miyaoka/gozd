@@ -1,4 +1,5 @@
 import type { Todo, WorktreeEntry } from "@gozd/rpc";
+import { tryCatch } from "@gozd/shared";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRpc } from "../../shared/rpc";
 import { useTerminalStore } from "../terminal";
@@ -68,6 +69,36 @@ export function useSidebarData() {
       }
     },
     { immediate: true },
+  );
+
+  // --- ターミナルタイトル → worktree Todo タイトル同期 ---
+
+  watch(
+    () => terminalStore.lastTitleUpdate,
+    async (update) => {
+      if (!update?.title) return;
+      const dir = worktreeStore.dir;
+      if (!dir) return;
+      if (terminalStore.getPaneDir(update.leafId) !== dir) return;
+      const wt = worktrees.value.find((w) => w.path === dir);
+      if (!wt) return;
+      if (!wt.todo) {
+        const addResult = await tryCatch(request.todoAdd({ body: update.title, worktreeDir: dir }));
+        if (addResult.ok) {
+          wt.todo = addResult.value;
+        }
+        return;
+      }
+      const [firstLine, ...rest] = wt.todo.body.split("\n");
+      if (firstLine === update.title) return;
+      const newBody = [update.title, ...rest].join("\n");
+      const result = await tryCatch(
+        request.todoUpdate({ id: wt.todo.id, body: newBody, icon: wt.todo.icon }),
+      );
+      if (result.ok) {
+        wt.todo = result.value;
+      }
+    },
   );
 
   const cleanups: Array<() => void> = [];

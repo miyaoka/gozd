@@ -1,5 +1,5 @@
 import { acceptHMRUpdate, defineStore } from "pinia";
-import { computed, ref } from "vue";
+import { computed, ref, shallowRef } from "vue";
 import { useContextKeys } from "../../shared/command";
 import { useRpc } from "../../shared/rpc";
 import type { ClaudeStatus } from "./claudeStatus";
@@ -45,6 +45,9 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   /** leafId → ターミナルタイトル（OSC 0/2 で更新される） */
   const titleByLeafId = ref<Record<string, string>>({});
+
+  /** 直近のタイトル更新（外部の watch 用シグナル） */
+  const lastTitleUpdate = shallowRef<{ leafId: string; title: string }>();
 
   // --- モジュール初期化 ---
 
@@ -163,6 +166,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     } else {
       titleByLeafId.value[leafId] = title;
     }
+    lastTitleUpdate.value = { leafId, title };
   }
 
   // --- drag suspend ---
@@ -183,6 +187,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     viewMode,
     cwdByLeafId,
     titleByLeafId,
+    lastTitleUpdate,
     // computed
     claudeActiveLeafIds,
     // layout

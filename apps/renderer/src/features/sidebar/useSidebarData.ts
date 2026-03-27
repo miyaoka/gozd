@@ -75,11 +75,9 @@ export function useSidebarData() {
   // RPC 処理中に来た更新は pendingTitle に退避し、完了後に再実行する
 
   let titleSyncing = false;
-  let pendingTitle: string | undefined;
+  let pendingSync: { dir: string; title: string } | undefined;
 
-  async function syncTodoTitle(title: string) {
-    const dir = worktreeStore.dir;
-    if (!dir) return;
+  async function syncTodoTitle(dir: string, title: string) {
     const wt = worktrees.value.find((w) => w.path === dir);
     if (!wt) return;
     if (!wt.todo) {
@@ -102,18 +100,18 @@ export function useSidebarData() {
     }
   }
 
-  async function drainTitleSync(title: string) {
+  async function drainTitleSync(dir: string, title: string) {
     if (titleSyncing) {
-      pendingTitle = title;
+      pendingSync = { dir, title };
       return;
     }
     titleSyncing = true;
     try {
-      await syncTodoTitle(title);
-      while (pendingTitle !== undefined) {
-        const next = pendingTitle;
-        pendingTitle = undefined;
-        await syncTodoTitle(next);
+      await syncTodoTitle(dir, title);
+      while (pendingSync !== undefined) {
+        const next = pendingSync;
+        pendingSync = undefined;
+        await syncTodoTitle(next.dir, next.title);
       }
     } finally {
       titleSyncing = false;
@@ -130,7 +128,7 @@ export function useSidebarData() {
       // Claude Code のステータスプレフィックス（✳ + Braille dots）を除去
       const title = update.title.replace(/^[\u2733\u2800-\u28FF] /, "");
       if (!title) return;
-      void drainTitleSync(title);
+      void drainTitleSync(dir, title);
     },
   );
 

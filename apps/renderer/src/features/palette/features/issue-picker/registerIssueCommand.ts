@@ -23,19 +23,42 @@ export function registerIssueCommand(): () => void {
     precondition: "isGitRepo",
     handler: () => {
       void (async () => {
-        const [issues, viewer] = await Promise.all([
+        const [issues, worktrees, viewer] = await Promise.all([
           request.gitIssueList(undefined),
+          request.gitWorktreeList(),
           request.gitViewer(undefined),
         ]);
         if (!issues || issues.length === 0) return;
 
+        // issueNumber → worktree パスのマップ（既存 worktree の検索用）
+        const wtByIssue = new Map(
+          worktrees
+            .filter((wt) => wt.task?.issueNumber !== undefined)
+            .map((wt) => [wt.task?.issueNumber, wt.path]),
+        );
+
         show(issues, viewer ?? "", (issue) => {
-          // issue には既存ブランチがないため、常に新規 worktree を作成する
+          const existingDir = wtByIssue.get(issue.number);
+          if (existingDir) {
+            // 既存 worktree に切り替え
+            void (async () => {
+              const result = await tryCatch(request.switchDir({ dir: existingDir }));
+              if (!result.ok) {
+                console.error("Failed to switch worktree:", result.error);
+                return;
+              }
+              terminalStore.viewMode = "wt";
+              worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
+            })();
+            return;
+          }
+          // 新規 worktree 作成
           void (async () => {
+            const timestamp = generateTimestamp();
             const result = await tryCatch(
               request.createWorktree({
-                worktreeDir: generateTimestamp(),
-                branch: generateTimestamp(),
+                worktreeDir: timestamp,
+                branch: timestamp,
               }),
             );
             if (!result.ok) {

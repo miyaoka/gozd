@@ -197,7 +197,6 @@ function handleKeydown(e: KeyboardEvent) {
                 accept();
               }
             "
-            @pointerenter="selectedIndex = i"
           >
             <span>{{ item.label }}</span>
             <span v-if="item.description" class="ml-4 shrink-0 text-xs text-zinc-500">

@@ -155,7 +155,6 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
               acceptSelected();
             }
           "
-          @pointerenter="selectedIndex = i"
         >
           <PrPickerRow :pr="pr" />
         </div>

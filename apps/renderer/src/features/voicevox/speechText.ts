@@ -48,7 +48,9 @@ export function extractSpeechText(
   }
   if (event === "needs-input") {
     const toolName = typeof payload.tool_name === "string" ? payload.tool_name : undefined;
-    return extractAskingText(toolName, payload.tool_input);
+    const text = extractAskingText(toolName, payload.tool_input);
+    if (text) return extractFirstSentence(text) ?? text;
+    return undefined;
   }
   return undefined;
 }

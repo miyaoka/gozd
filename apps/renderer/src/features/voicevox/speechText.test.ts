@@ -59,6 +59,17 @@ describe("extractSpeechText", () => {
     ).toBe("続けますか？");
   });
 
+  test("needs-input イベントで AskUserQuestion の複数文質問も句点で区切る", () => {
+    expect(
+      extractSpeechText("needs-input", {
+        tool_name: "AskUserQuestion",
+        tool_input: {
+          questions: [{ question: "方針Aと方針Bがあります。どちらを選びますか。" }],
+        },
+      }),
+    ).toBe("方針Aと方針Bがあります。");
+  });
+
   test("needs-input イベントで AskUserQuestion 以外は tool_name を返す", () => {
     expect(
       extractSpeechText("needs-input", {

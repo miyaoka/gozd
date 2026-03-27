@@ -92,7 +92,7 @@ const TITLEBAR_HEIGHT = 28;
 /** 信号機ボタン（閉じる・最小化・最大化）用の左マージン */
 const TRAFFIC_LIGHTS_WIDTH = 80;
 
-const { width: windowWidth } = useWindowSize();
+const { width: windowWidth, height: windowHeight } = useWindowSize();
 const centerTerminalRef = useTemplateRef<HTMLElement>("centerTerminal");
 
 const sidebarWidth = ref(260);
@@ -194,6 +194,15 @@ watch(
 function getCenterTerminalHeight(): number {
   return centerTerminalRef.value?.offsetHeight ?? TERMINAL_MIN_HEIGHT;
 }
+
+// ウィンドウ縦縮小時に gitGraphHeight をクランプ（Terminal が潰れるのを防ぐ）
+watchEffect(() => {
+  const centerHeight = windowHeight.value - TITLEBAR_HEIGHT;
+  const maxGitGraph = centerHeight - TERMINAL_MIN_HEIGHT - HANDLE_WIDTH;
+  if (gitGraphHeight.value > maxGitGraph) {
+    gitGraphHeight.value = Math.max(GIT_GRAPH_MIN_HEIGHT, maxGitGraph);
+  }
+});
 </script>
 
 <template>

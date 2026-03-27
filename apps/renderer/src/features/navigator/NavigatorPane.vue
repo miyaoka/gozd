@@ -11,21 +11,34 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 </doc>
 
 <script setup lang="ts">
-import { ref, useTemplateRef } from "vue";
+import { useElementSize } from "@vueuse/core";
+import { ref, useTemplateRef, watchEffect } from "vue";
 import { useProjectStore } from "../../shared/project";
 import { ChangesPane } from "../changes";
 import { FilerPane } from "../filer";
 import { ResizeHandle } from "../layout";
 import { useWorktreeStore } from "../worktree";
 
+const HANDLE_HEIGHT = 8;
+const FILER_MIN_HEIGHT = 100;
+const CHANGES_MIN_HEIGHT = 60;
+
 const projectStore = useProjectStore();
 const worktreeStore = useWorktreeStore();
 const filerPaneRef = useTemplateRef<InstanceType<typeof FilerPane>>("filerPane");
 const filerWrapperRef = useTemplateRef<HTMLElement>("filerWrapper");
+const containerRef = useTemplateRef<HTMLElement>("container");
+const { height: containerHeight } = useElementSize(containerRef);
 
-const FILER_MIN_HEIGHT = 100;
-const CHANGES_MIN_HEIGHT = 60;
 const changesHeight = ref(200);
+
+// コンテナ縮小時に changesHeight をクランプ（Filer が潰れるのを防ぐ）
+watchEffect(() => {
+  const maxChanges = containerHeight.value - FILER_MIN_HEIGHT - HANDLE_HEIGHT;
+  if (changesHeight.value > maxChanges) {
+    changesHeight.value = Math.max(CHANGES_MIN_HEIGHT, maxChanges);
+  }
+});
 
 /** Filer ペインの DOM 実測高さ（flex-1 のため v-model 不可） */
 function getFilerHeight(): number {
@@ -46,6 +59,7 @@ defineExpose({ reveal });
 
 <template>
   <div
+    ref="container"
     class="flex size-full flex-col overflow-hidden border-l border-zinc-700 bg-zinc-900 text-zinc-300"
   >
     <!-- Filer -->

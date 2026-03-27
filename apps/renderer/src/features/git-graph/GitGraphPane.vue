@@ -14,9 +14,18 @@ Git commit graph showing the current worktree branch and the default branch.
 <script setup lang="ts">
 import type { GitCommit, GitPullRequest } from "@gozd/rpc";
 import { UNCOMMITTED_HASH } from "@gozd/rpc";
-import { useIntervalFn } from "@vueuse/core";
+import { useElementSize, useIntervalFn } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  ref,
+  useTemplateRef,
+  watch,
+  watchEffect,
+} from "vue";
 import { useRpc } from "../../shared/rpc";
 import { ResizeHandle } from "../layout";
 import { computeStatusIcons, StatusIcons, useGitStatusStore, useWorktreeStore } from "../worktree";
@@ -29,6 +38,8 @@ import type { SortMode } from "./mergeCommitStreams";
 import RefBadge from "./RefBadge.vue";
 import { useGitGraphStore } from "./useGitGraphStore";
 
+const rootRef = useTemplateRef<HTMLElement>("root");
+const { width: rootWidth } = useElementSize(rootRef);
 const { request, onGitStatusChange, onBranchChange } = useRpc();
 const worktreeStore = useWorktreeStore();
 const gitStatusStore = useGitStatusStore();
@@ -432,8 +443,23 @@ function formatDate(timestamp: number): string {
 /** 詳細ペインの幅 */
 const DETAIL_MIN_WIDTH = 200;
 const GRAPH_LIST_MIN_WIDTH = 400;
+/** ResizeHandle の幅 */
+const DETAIL_HANDLE_WIDTH = 8;
 const detailWidth = ref(320);
 const detailOpen = ref(true);
+
+// コンテナ幅縮小時に detailWidth をクランプし、収まらなければ自動で閉じる
+watchEffect(() => {
+  if (!detailOpen.value) return;
+  const available = rootWidth.value - GRAPH_LIST_MIN_WIDTH - DETAIL_HANDLE_WIDTH;
+  if (available < DETAIL_MIN_WIDTH) {
+    detailOpen.value = false;
+    return;
+  }
+  if (detailWidth.value > available) {
+    detailWidth.value = Math.max(DETAIL_MIN_WIDTH, available);
+  }
+});
 
 const graphListRef = ref<HTMLElement | null>(null);
 const scrollContainer = ref<HTMLElement | null>(null);
@@ -587,7 +613,10 @@ function isInRange(hash: string): boolean {
 </script>
 
 <template>
-  <div class="flex size-full flex-col overflow-hidden bg-zinc-900 text-zinc-300 select-none">
+  <div
+    ref="root"
+    class="flex size-full flex-col overflow-hidden bg-zinc-900 text-zinc-300 select-none"
+  >
     <div class="flex shrink-0 items-center gap-1.5 border-b border-zinc-700 px-3 py-1.5">
       <span class="icon-[lucide--git-commit-horizontal] size-4 text-zinc-400" />
       <span class="text-xs font-semibold text-zinc-400">Git Graph</span>

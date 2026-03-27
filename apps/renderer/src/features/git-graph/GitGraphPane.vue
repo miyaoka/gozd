@@ -3,9 +3,10 @@ Git commit graph showing the current worktree branch and the default branch.
 
 ## Structure
 
-- HTML table for commit data (Description, Date, Author, Commit columns)
-- SVG overlay for graph lines and commit dots (Graph column)
-- SVG is positioned absolutely over the first column of each row
+- Working Tree row: sticky header outside scroll area, with status icons and dot on lane 0
+- Connector line: dashed SVG path from lane 0 top to HEAD lane (straight if same lane, Bézier curve otherwise)
+- Scrollable commit list: HTML rows for commit data + SVG overlay for graph lines and dots
+- Graph layout reserves lane 0 for the Working Tree connector; commit lanes start from lane 1
 </doc>
 
 <script setup lang="ts">

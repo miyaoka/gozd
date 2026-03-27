@@ -105,13 +105,13 @@ async function loadChildren() {
   try {
     const entries = await request.fsReadDir({ relPath: props.path });
     children.value = mergeWithGitStatus(entries);
-  } catch {
+  } catch (e) {
     // 削除ディレクトリの場合、readDir は失敗するので削除エントリのみ表示
     const deletedEntries = getDeletedEntries(props.path, props.gitStatuses);
     if (deletedEntries.length > 0) {
       children.value = sortEntries(deletedEntries);
     } else {
-      notify.error(`Failed to read directory: ${props.path}`);
+      notify.error(`Failed to read directory: ${props.path}`, e);
       children.value = [];
     }
   } finally {

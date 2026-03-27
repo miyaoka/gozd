@@ -17,9 +17,9 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
     }
     try {
       gitStatuses.value = await request.gitStatus();
-    } catch {
+    } catch (e) {
       const notify = useNotificationStore();
-      notify.error("Failed to get git status");
+      notify.error("Failed to get git status", e);
       gitStatuses.value = {};
     }
   }

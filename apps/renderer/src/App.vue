@@ -31,7 +31,7 @@ const { request, send, onGozdOpen, onNotify } = useRpc();
 
 const disposeNotify = onNotify(({ type, source, message, detail }) => {
   const notifyFn = type === "error" ? notify.error : notify.info;
-  notifyFn(`[${source}] ${message}${detail ? `: ${detail}` : ""}`);
+  notifyFn(`[${source}] ${message}`, detail);
 });
 
 let cleanup: (() => void) | undefined;

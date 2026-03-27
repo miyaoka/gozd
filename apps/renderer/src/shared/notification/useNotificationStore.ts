@@ -22,8 +22,12 @@ const CONSOLE_BY_TYPE = {
   info: console.info,
 } as const;
 
+/** 同一メッセージの重複を抑制する。既に表示中なら console 出力のみ行い、トーストは追加しない */
 function add(type: Notification["type"], message: string, cause?: unknown) {
   CONSOLE_BY_TYPE[type](message, ...(cause !== undefined ? [cause] : []));
+
+  const duplicate = notifications.value.find((n) => n.type === type && n.message === message);
+  if (duplicate) return;
 
   const id = nextId++;
   notifications.value.push({ id, type, message });

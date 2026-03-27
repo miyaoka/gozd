@@ -2,6 +2,7 @@ import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { ref, watch } from "vue";
 import { useRpc } from "../../shared/rpc";
+import { extractSpeechText } from "./speechText";
 
 /** ずんだもん（ノーマル） */
 const DEFAULT_SPEAKER_ID = 3;
@@ -48,55 +49,6 @@ function releaseAudio() {
     URL.revokeObjectURL(currentObjectUrl);
     currentObjectUrl = undefined;
   }
-}
-
-/** マークダウン記法を除去してテキストの一行目を取得する */
-function extractFirstLine(message: string): string | undefined {
-  for (const line of message.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed === "") continue;
-    return trimmed.replace(/[*_`#]/g, "");
-  }
-  return undefined;
-}
-
-/** asking 時の読み上げテキストを抽出する */
-function extractAskingText(toolName: string | undefined, toolInput: unknown): string | undefined {
-  if (
-    toolName === "AskUserQuestion" &&
-    typeof toolInput === "object" &&
-    toolInput !== null &&
-    "questions" in toolInput &&
-    Array.isArray(toolInput.questions)
-  ) {
-    const [first] = toolInput.questions;
-    if (
-      typeof first === "object" &&
-      first !== null &&
-      "question" in first &&
-      typeof first.question === "string"
-    ) {
-      return first.question;
-    }
-  }
-  return toolName;
-}
-
-/** payload からイベントに応じた読み上げテキストを抽出する */
-function extractSpeechText(event: string, payload: Record<string, unknown>): string | undefined {
-  if (event === "done") {
-    const message =
-      typeof payload.last_assistant_message === "string"
-        ? payload.last_assistant_message
-        : undefined;
-    if (message) return extractFirstLine(message);
-    return undefined;
-  }
-  if (event === "needs-input") {
-    const toolName = typeof payload.tool_name === "string" ? payload.tool_name : undefined;
-    return extractAskingText(toolName, payload.tool_input);
-  }
-  return undefined;
 }
 
 /** speak の世代カウンター。新しい speak 呼び出しや deactivate で進め、stale なリクエストを破棄する */

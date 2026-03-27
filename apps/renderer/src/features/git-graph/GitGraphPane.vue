@@ -443,6 +443,18 @@ const hashToIndex = computed(() => {
   return map;
 });
 
+/** Working Tree 用の仮想コミット。CommitDetailPane で "Uncommitted Changes" 表示に使用 */
+const uncommittedCommit: GitCommit = {
+  hash: UNCOMMITTED_HASH,
+  shortHash: "*",
+  parents: [],
+  author: "",
+  date: 0,
+  message: "Uncommitted Changes",
+  body: "",
+  refs: [],
+};
+
 /** 選択中のコミット配列。範囲選択時は selected〜compare 間の全コミットを返す */
 const selectedCommits = computed<GitCommit[]>(() => {
   const nodes = layout.value.nodes;
@@ -450,17 +462,21 @@ const selectedCommits = computed<GitCommit[]>(() => {
   const map = hashToIndex.value;
 
   if (compareHash === null) {
+    if (selectedHash === UNCOMMITTED_HASH) return [uncommittedCommit];
     const idx = map.get(selectedHash);
     return idx !== undefined ? [nodes[idx].commit] : [];
   }
 
-  const selectedIdx = map.get(selectedHash);
-  const compareIdx = map.get(compareHash);
+  // UNCOMMITTED_HASH を -1 として扱い、範囲の始点に含める
+  const selectedIdx = selectedHash === UNCOMMITTED_HASH ? -1 : map.get(selectedHash);
+  const compareIdx = compareHash === UNCOMMITTED_HASH ? -1 : map.get(compareHash);
   if (selectedIdx === undefined || compareIdx === undefined) return [];
 
   const minIdx = Math.min(selectedIdx, compareIdx);
   const maxIdx = Math.max(selectedIdx, compareIdx);
-  return nodes.slice(minIdx, maxIdx + 1).map((n) => n.commit);
+  const commits = nodes.slice(Math.max(0, minIdx), maxIdx + 1).map((n) => n.commit);
+  if (minIdx === -1) commits.unshift(uncommittedCommit);
+  return commits;
 });
 
 const graphListRef = ref<HTMLElement | null>(null);

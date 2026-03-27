@@ -1,7 +1,7 @@
 <doc lang="md">
 共有 ⋮ ポップオーバーメニュー。
 
-worktree / todo / branch の各セクションから呼ばれ、
+worktree / task / branch の各セクションから呼ばれ、
 コンテキストに応じたアクション（編集・削除・作成）を表示する。
 CSS Anchor Positioning で ⋮ ボタンの直下に配置。
 
@@ -10,7 +10,7 @@ CSS Anchor Positioning で ⋮ ボタンの直下に配置。
 </doc>
 
 <script setup lang="ts">
-import type { Todo, WorktreeEntry } from "@gozd/rpc";
+import type { Task, WorktreeEntry } from "@gozd/rpc";
 import { nextTick, ref } from "vue";
 
 defineProps<{
@@ -18,17 +18,17 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
-  worktreeEditTodo: [wt: WorktreeEntry];
+  worktreeEditTask: [wt: WorktreeEntry];
   worktreeRemove: [wt: WorktreeEntry];
-  todoCreateWorktree: [todo: Todo];
-  todoRemove: [todo: Todo];
+  taskCreateWorktree: [task: Task];
+  taskRemove: [task: Task];
   branchLink: [branch: string];
 }>();
 
 interface MenuContext {
-  type: "worktree" | "todo" | "branch";
+  type: "worktree" | "task" | "branch";
   worktree?: WorktreeEntry;
-  todo?: Todo;
+  task?: Task;
   branch?: string;
 }
 
@@ -49,9 +49,9 @@ function closeMenu() {
   menuRef.value?.hidePopover();
 }
 
-function handleWorktreeEditTodo(wt: WorktreeEntry) {
+function handleWorktreeEditTask(wt: WorktreeEntry) {
   closeMenu();
-  emit("worktreeEditTodo", wt);
+  emit("worktreeEditTask", wt);
 }
 
 function handleWorktreeRemove(wt: WorktreeEntry) {
@@ -59,14 +59,14 @@ function handleWorktreeRemove(wt: WorktreeEntry) {
   emit("worktreeRemove", wt);
 }
 
-function handleTodoCreateWorktree(todo: Todo) {
+function handleTaskCreateWorktree(task: Task) {
   closeMenu();
-  emit("todoCreateWorktree", todo);
+  emit("taskCreateWorktree", task);
 }
 
-function handleTodoRemove(todo: Todo) {
+function handleTaskRemove(task: Task) {
   closeMenu();
-  emit("todoRemove", todo);
+  emit("taskRemove", task);
 }
 
 function handleBranchLink(branch: string) {
@@ -91,10 +91,10 @@ defineExpose({ openMenu });
     <template v-if="menuContext?.type === 'worktree' && menuContext.worktree">
       <button
         class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800"
-        @click="handleWorktreeEditTodo(menuContext.worktree)"
+        @click="handleWorktreeEditTask(menuContext.worktree)"
       >
         <span class="icon-[lucide--pencil] text-xs" />
-        Edit todo
+        Edit task
       </button>
       <button
         class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-400 hover:bg-zinc-800"
@@ -104,21 +104,21 @@ defineExpose({ openMenu });
         Remove worktree
       </button>
     </template>
-    <template v-else-if="menuContext?.type === 'todo' && menuContext.todo">
+    <template v-else-if="menuContext?.type === 'task' && menuContext.task">
       <button
         class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800"
         :disabled="isCreating"
-        @click="handleTodoCreateWorktree(menuContext.todo)"
+        @click="handleTaskCreateWorktree(menuContext.task)"
       >
         <span class="icon-[lucide--play] text-xs" />
         Create worktree
       </button>
       <button
         class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-400 hover:bg-zinc-800"
-        @click="handleTodoRemove(menuContext.todo)"
+        @click="handleTaskRemove(menuContext.task)"
       >
         <span class="icon-[lucide--trash-2] text-xs" />
-        Delete todo
+        Delete task
       </button>
     </template>
     <template v-else-if="menuContext?.type === 'branch' && menuContext.branch">

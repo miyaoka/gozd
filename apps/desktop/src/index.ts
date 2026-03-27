@@ -38,14 +38,14 @@ import { loadConfig, saveConfig } from "./config";
 import { loadProjectConfig, saveProjectConfig } from "./projectConfig";
 import type { WindowFrame, WindowState } from "./appState";
 import {
-  loadTodos,
-  addTodo,
-  updateTodo,
-  removeTodo,
-  findTodoByWorktreeDir,
-  linkTodoToWorktree,
-  cleanupStaleTodos,
-} from "./todo";
+  loadTasks,
+  addTask,
+  updateTask,
+  removeTask,
+  findTaskByWorktreeDir,
+  linkTaskToWorktree,
+  cleanupStaleTasks,
+} from "./task";
 
 type GozdRPCInstance = ReturnType<typeof BrowserView.defineRPC<GozdRPC>>;
 type GozdWindow = BrowserWindow<GozdRPCInstance>;
@@ -827,14 +827,14 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
         gitViewer: () => getViewer({ cwd: projectDir, env: shellEnv }),
         gitWorktreeList: async () => {
           const entries = await attachChangeCounts(await getWorktreeList(projectDir));
-          // 各 worktree に紐づく Todo を付与
-          const todos = loadTodos(projectDir);
-          const todoByDir = new Map(
-            todos.filter((t) => t.worktreeDir).map((t) => [t.worktreeDir, t]),
+          // 各 worktree に紐づく Task を付与
+          const tasks = loadTasks(projectDir);
+          const taskByDir = new Map(
+            tasks.filter((t) => t.worktreeDir).map((t) => [t.worktreeDir, t]),
           );
           for (const entry of entries) {
-            const todo = todoByDir.get(entry.path);
-            if (todo) entry.todo = todo;
+            const task = taskByDir.get(entry.path);
+            if (task) entry.task = task;
           }
           return entries;
         },
@@ -869,9 +869,9 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
         gitWorktreeRemove: async ({ path: wtPath, force }) => {
           const wtReal = await fsp.realpath(wtPath);
           await removeWorktree(projectDir, wtPath, force);
-          // 紐づく Todo も削除
-          const todo = findTodoByWorktreeDir(projectDir, wtPath);
-          if (todo) removeTodo(projectDir, todo.id);
+          // 紐づく Task も削除
+          const task = findTaskByWorktreeDir(projectDir, wtPath);
+          if (task) removeTask(projectDir, task.id);
           // 削除成功後に worktree の PTY を kill する
           for (const [id, entry] of ptys) {
             if (entry.win === win && entry.worktreeDir === wtReal) {
@@ -882,11 +882,11 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
           void syncWorktreeWatchers(win, projectDir, currentDir);
         },
         gitBranchDelete: ({ branch }) => deleteBranch(projectDir, branch),
-        todoList: () => loadTodos(projectDir),
-        todoAdd: ({ body, icon, worktreeDir }) => addTodo(projectDir, body, icon, worktreeDir),
-        todoUpdate: ({ id, body, icon }) => updateTodo(projectDir, id, body, icon),
-        todoRemove: ({ id }) => removeTodo(projectDir, id),
-        createWorktreeWithTodo: async ({ id, worktreeDir, branch }) => {
+        taskList: () => loadTasks(projectDir),
+        taskAdd: ({ body, icon, worktreeDir }) => addTask(projectDir, body, icon, worktreeDir),
+        taskUpdate: ({ id, body, icon }) => updateTask(projectDir, id, body, icon),
+        taskRemove: ({ id }) => removeTask(projectDir, id),
+        createWorktreeWithTask: async ({ id, worktreeDir, branch }) => {
           const { worktreeSymlinks } = loadProjectConfig(projectDir);
           const entry = await addWorktree({
             cwd: projectDir,
@@ -894,10 +894,10 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
             branch,
             symlinks: worktreeSymlinks,
           });
-          linkTodoToWorktree(projectDir, id, entry.path);
-          const todo = loadTodos(projectDir).find((t) => t.id === id);
-          if (!todo) throw new Error(`Todo not found after linking: ${id}`);
-          entry.todo = todo;
+          linkTaskToWorktree(projectDir, id, entry.path);
+          const task = loadTasks(projectDir).find((t) => t.id === id);
+          if (!task) throw new Error(`Task not found after linking: ${id}`);
+          entry.task = task;
 
           // switchDir 相当: 作成したパスは自明に正当なので検証不要
           const gen = (windowSwitchGen.get(win) ?? 0) + 1;
@@ -912,7 +912,7 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
           void syncWorktreeWatchers(win, projectDir, currentDir);
 
           return {
-            todo,
+            task,
             worktree: entry,
             dir: currentDir,
             fileServerBaseUrl: `http://localhost:${fileServer.port}/${windowId}`,
@@ -1065,10 +1065,10 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
           });
 
           if (isGitRepo) {
-            // 起動時に消失した worktree の Todo をクリーンアップ
+            // 起動時に消失した worktree の Task をクリーンアップ
             void (async () => {
               const wtList = await getWorktreeList(projectDir);
-              cleanupStaleTodos(
+              cleanupStaleTasks(
                 projectDir,
                 wtList.map((wt) => wt.path),
               );

@@ -1,4 +1,4 @@
-import type { Todo, WorktreeEntry } from "@gozd/rpc";
+import type { Task, WorktreeEntry } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRpc } from "../../shared/rpc";
@@ -8,7 +8,7 @@ import { dirName } from "./utils";
 
 /**
  * サイドバーのデータ取得・状態管理。
- * worktrees / freeBranches / pendingTodos を一括取得し、
+ * worktrees / freeBranches / pendingTasks を一括取得し、
  * git status / worktree 変更イベントで自動リフレッシュする。
  */
 export function useSidebarData() {
@@ -19,8 +19,8 @@ export function useSidebarData() {
   const worktrees = ref<WorktreeEntry[]>([]);
   /** worktree 化されていないローカルブランチ */
   const freeBranches = ref<string[]>([]);
-  /** 未着手の Todo（worktreeDir なし） */
-  const pendingTodos = ref<Todo[]>([]);
+  /** 未着手の Task（worktreeDir なし） */
+  const pendingTasks = ref<Task[]>([]);
   /** fetchData の世代管理（並行実行で stale なレスポンスを破棄するため） */
   let fetchGen = 0;
 
@@ -39,17 +39,17 @@ export function useSidebarData() {
   async function fetchData() {
     if (!worktreeStore.dir) return;
     const gen = ++fetchGen;
-    const [wtList, branchList, todoList] = await Promise.all([
+    const [wtList, branchList, taskList] = await Promise.all([
       request.gitWorktreeList(),
       request.gitBranchList(),
-      request.todoList(),
+      request.taskList(),
     ]);
     // 並行実行された新しい fetchData が先に完了していたら、この結果は stale なので破棄
     if (gen !== fetchGen) return;
     worktrees.value = wtList;
     const wtBranches = new Set(wtList.map((wt) => wt.branch).filter(Boolean));
     freeBranches.value = branchList.filter((b) => !wtBranches.has(b));
-    pendingTodos.value = todoList.filter((t) => !t.worktreeDir);
+    pendingTasks.value = taskList.filter((t) => !t.worktreeDir);
 
     // 外部で削除された worktree のターミナルをクリーンアップ
     const wtPaths = new Set(wtList.map((wt) => wt.path));
@@ -71,32 +71,32 @@ export function useSidebarData() {
     { immediate: true },
   );
 
-  // --- ターミナルタイトル → worktree Todo タイトル同期 ---
+  // --- ターミナルタイトル → worktree Task タイトル同期 ---
   // RPC 処理中に来た更新は pendingTitle に退避し、完了後に再実行する
 
   let titleSyncing = false;
   let pendingSync: { dir: string; title: string } | undefined;
 
-  async function syncTodoTitle(dir: string, title: string) {
+  async function syncTaskTitle(dir: string, title: string) {
     const wt = worktrees.value.find((w) => w.path === dir);
     if (!wt) return;
-    if (!wt.todo) {
-      const addResult = await tryCatch(request.todoAdd({ body: title, worktreeDir: dir }));
+    if (!wt.task) {
+      const addResult = await tryCatch(request.taskAdd({ body: title, worktreeDir: dir }));
       if (addResult.ok) {
         const freshWt = worktrees.value.find((w) => w.path === dir);
-        if (freshWt) freshWt.todo = addResult.value;
+        if (freshWt) freshWt.task = addResult.value;
       }
       return;
     }
-    const [firstLine, ...rest] = wt.todo.body.split("\n");
+    const [firstLine, ...rest] = wt.task.body.split("\n");
     if (firstLine === title) return;
     const newBody = [title, ...rest].join("\n");
     const result = await tryCatch(
-      request.todoUpdate({ id: wt.todo.id, body: newBody, icon: wt.todo.icon }),
+      request.taskUpdate({ id: wt.task.id, body: newBody, icon: wt.task.icon }),
     );
     if (result.ok) {
       const freshWt = worktrees.value.find((w) => w.path === dir);
-      if (freshWt) freshWt.todo = result.value;
+      if (freshWt) freshWt.task = result.value;
     }
   }
 
@@ -107,11 +107,11 @@ export function useSidebarData() {
     }
     titleSyncing = true;
     try {
-      await syncTodoTitle(dir, title);
+      await syncTaskTitle(dir, title);
       while (pendingSync !== undefined) {
         const next = pendingSync;
         pendingSync = undefined;
-        await syncTodoTitle(next.dir, next.title);
+        await syncTaskTitle(next.dir, next.title);
       }
     } finally {
       titleSyncing = false;
@@ -128,7 +128,7 @@ export function useSidebarData() {
       // Claude Code のステータスプレフィックス（✳ + Braille dots）を除去
       const title = update.title.replace(/^[\u2733\u2800-\u28FF] /, "");
       if (!title) return;
-      // セッション開始・レジューム時の汎用タイトル "Claude Code" で Todo を上書きしない
+      // セッション開始・レジューム時の汎用タイトル "Claude Code" で Task を上書きしない
       if (title === "Claude Code") return;
       void drainTitleSync(dir, title);
     },
@@ -147,7 +147,7 @@ export function useSidebarData() {
   return {
     worktrees,
     freeBranches,
-    pendingTodos,
+    pendingTasks,
     rootWorktree,
     nonMainWorktrees,
     sortedBranches,

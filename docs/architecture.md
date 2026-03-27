@@ -154,7 +154,7 @@ zsh 起動
 ├── config.json                           # グローバル: ユーザー設定（VOICEVOX 等）
 └── projects/
     └── <projectKey>/                     # <repoName>-<hash>（realpath の SHA-256 先頭12文字）
-        └── todos.json                    # プロジェクト固有: Todo 一覧
+        └── tasks.json                    # プロジェクト固有: Task 一覧
 ```
 
 ### スコープの使い分け
@@ -162,12 +162,12 @@ zsh 起動
 | スコープ       | 保存先                                  | 例                               |
 | -------------- | --------------------------------------- | -------------------------------- |
 | グローバル     | `~/.config/gozd/` 直下                  | ウィンドウフレーム、ユーザー設定 |
-| プロジェクト別 | `~/.config/gozd/projects/<projectKey>/` | Todo、worktree スクリプト        |
+| プロジェクト別 | `~/.config/gozd/projects/<projectKey>/` | Task、worktree スクリプト        |
 
 ### 新しい永続化データを追加するパターン
 
 - `packages/rpc/` に request のスキーマ（params / response）を定義する
-- `apps/desktop/src/` にファイル I/O モジュールを作成する（`appState.ts`, `todo.ts` が参考実装）
+- `apps/desktop/src/` にファイル I/O モジュールを作成する（`appState.ts`, `task.ts` が参考実装）
 - `apps/desktop/src/index.ts` の RPC handlers に request ハンドラーを登録する
 - renderer 側から `request.<name>()` で呼び出す
 
@@ -176,7 +176,7 @@ zsh 起動
 | データ       | タイミング         | 実装                                       |
 | ------------ | ------------------ | ------------------------------------------ |
 | アプリ状態   | アプリ終了時の一括 | `before-quit` で `saveSnapshot()` 呼び出し |
-| Todo         | 操作の都度即時保存 | `addTodo()` / `updateTodo()` 等で即 write  |
+| Task         | 操作の都度即時保存 | `addTask()` / `updateTask()` 等で即 write  |
 | ユーザー設定 | 操作の都度即時保存 | `saveConfig()` で read-modify-write        |
 
 ## Claude Code hooks

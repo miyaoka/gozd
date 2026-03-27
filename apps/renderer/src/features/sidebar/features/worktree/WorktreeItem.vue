@@ -1,5 +1,5 @@
 <doc lang="md">
-サイドバーの worktree 1 行分。アイコン、表示名、Claude 状態バッジ、変更ファイル数、メッセージ吹き出しを表示する。
+サイドバーの worktree 1行分。アイコン、表示名、Claude 状態バッジ、変更ファイル数、メッセージ吹き出しを表示する。
 
 ## Claude メッセージ吹き出し
 
@@ -8,11 +8,11 @@ worktree 行の下に吹き出し風のテキストとして出す。
 </doc>
 
 <script setup lang="ts">
-import type { Todo, WorktreeEntry } from "@gozd/rpc";
+import type { Task, WorktreeEntry } from "@gozd/rpc";
 import { computed } from "vue";
 import type { ClaudeState, ClaudeStatus } from "../../../terminal";
-import { hasChanges, hasTodoTitle, worktreeDisplayName } from "../../utils";
-import { TodoIconButton } from "../todo";
+import { hasChanges, hasTaskTitle, worktreeDisplayName } from "../../utils";
+import { TaskIconButton } from "../task";
 
 /** Claude 状態の表示優先度（高い方が優先） */
 const CLAUDE_STATE_PRIORITY: Record<ClaudeState, number> = {
@@ -60,7 +60,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [wt: WorktreeEntry];
   openMenu: [anchorName: string, wt: WorktreeEntry];
-  updateIcon: [todo: Todo, icon: string | undefined];
+  updateIcon: [task: Task, icon: string | undefined];
 }>();
 
 /** 経過ミリ秒を "m:ss" 形式に変換 */
@@ -167,13 +167,13 @@ const bubbleColorClass = computed(() => {
           />
         </template>
       </div>
-      <TodoIconButton
-        v-if="wt.todo"
-        :icon="wt.todo.icon"
-        @update="emit('updateIcon', wt.todo, $event)"
+      <TaskIconButton
+        v-if="wt.task"
+        :icon="wt.task.icon"
+        @update="emit('updateIcon', wt.task, $event)"
       >
         <span class="icon-[lucide--git-branch] text-zinc-400" />
-      </TodoIconButton>
+      </TaskIconButton>
       <span v-else class="row-span-2 mt-0.5 icon-[lucide--git-branch] text-base text-zinc-400" />
       <!-- メインアクション: ::after で親全体に広がるクリック領域 -->
       <button
@@ -181,7 +181,7 @@ const bubbleColorClass = computed(() => {
         :class="
           active
             ? 'font-medium text-blue-300'
-            : hasTodoTitle(wt)
+            : hasTaskTitle(wt)
               ? 'text-zinc-200'
               : 'text-zinc-500'
         "

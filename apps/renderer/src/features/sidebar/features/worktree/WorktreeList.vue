@@ -1,11 +1,11 @@
 <doc lang="md">
-サイドバーの WORKTREES セクション。Todo 紐づき済みの worktree 一覧を表示する。
+サイドバーの WORKTREES セクション。Task 紐づき済みの worktree 一覧を表示する。
 
-各 worktree 行の後にスロットを提供し、親コンポーネントがインライン Todo 編集を差し込める。
+各 worktree 行の後にスロットを提供し、親コンポーネントがインライン Task 編集を差し込める。
 </doc>
 
 <script setup lang="ts">
-import type { Todo, WorktreeEntry } from "@gozd/rpc";
+import type { Task, WorktreeEntry } from "@gozd/rpc";
 import type { ClaudeStatus } from "../../../terminal";
 import WorktreeItem from "./WorktreeItem.vue";
 
@@ -42,7 +42,7 @@ defineEmits<{
   openMenu: [anchorName: string, wt: WorktreeEntry];
   add: [];
   setViewMode: [mode: ViewMode];
-  updateIcon: [todo: Todo, icon: string | undefined];
+  updateIcon: [task: Task, icon: string | undefined];
 }>();
 
 defineSlots<{
@@ -82,7 +82,7 @@ defineSlots<{
         :index="i"
         @select="$emit('select', $event)"
         @open-menu="(anchorName, w) => $emit('openMenu', anchorName, w)"
-        @update-icon="(todo, icon) => $emit('updateIcon', todo, icon)"
+        @update-icon="(task, icon) => $emit('updateIcon', task, icon)"
       />
       <slot name="after-item" :wt="wt" />
     </div>

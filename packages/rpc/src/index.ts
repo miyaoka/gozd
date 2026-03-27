@@ -37,12 +37,12 @@ export interface WorktreeEntry {
   isMain: boolean;
   /** git status の変更ファイル数サマリー */
   changeCounts?: WorktreeChangeCounts;
-  /** 紐づく Todo */
-  todo?: Todo;
+  /** 紐づく Task */
+  task?: Task;
 }
 
-/** Todo 分類アイコンの許可リスト（SSOT） */
-export const TODO_ICONS = [
+/** Task 分類アイコンの許可リスト（SSOT） */
+export const TASK_ICONS = [
   { emoji: "✨", title: "feature" },
   { emoji: "🐛", title: "bug" },
   { emoji: "🔧", title: "fix" },
@@ -55,24 +55,24 @@ export const TODO_ICONS = [
   { emoji: "🎨", title: "style" },
 ] as const;
 
-/** TODO_ICONS から導出した許可 emoji の集合 */
-const todoIconSet: ReadonlySet<string> = new Set(TODO_ICONS.map((ic) => ic.emoji));
+/** TASK_ICONS から導出した許可 emoji の集合 */
+const taskIconSet: ReadonlySet<string> = new Set(TASK_ICONS.map((ic) => ic.emoji));
 
-/** Todo の zod スキーマ */
-export const todoSchema = z.object({
+/** Task の zod スキーマ */
+export const taskSchema = z.object({
   id: z.string(),
   body: z.string(),
   icon: z
     .string()
-    .refine((s) => todoIconSet.has(s))
+    .refine((s) => taskIconSet.has(s))
     .optional()
     .catch(undefined),
   worktreeDir: z.string().optional(),
   createdAt: z.string(),
 });
 
-/** Todo アイテム */
-export type Todo = z.infer<typeof todoSchema>;
+/** Task アイテム */
+export type Task = z.infer<typeof taskSchema>;
 
 /** ファイルごとの診断結果 */
 /** CLI からのパス指定を解決した選択対象 */
@@ -250,30 +250,30 @@ export type GozdRPC = {
         params: { branch: string };
         response: void;
       };
-      /** Todo 一覧を取得 */
-      todoList: {
+      /** Task 一覧を取得 */
+      taskList: {
         params: undefined;
-        response: Todo[];
+        response: Task[];
       };
-      /** Todo を追加（worktreeDir 指定で worktree に紐づけ可能） */
-      todoAdd: {
+      /** Task を追加（worktreeDir 指定で worktree に紐づけ可能） */
+      taskAdd: {
         params: { body: string; icon?: string; worktreeDir?: string };
-        response: Todo;
+        response: Task;
       };
-      /** Todo の body と icon を更新 */
-      todoUpdate: {
+      /** Task の body と icon を更新 */
+      taskUpdate: {
         params: { id: string; body: string; icon?: string };
-        response: Todo;
+        response: Task;
       };
-      /** Todo を削除 */
-      todoRemove: {
+      /** Task を削除 */
+      taskRemove: {
         params: { id: string };
         response: void;
       };
-      /** Todo に worktree を作成して紐づける */
-      createWorktreeWithTodo: {
+      /** Task に worktree を作成して紐づける */
+      createWorktreeWithTask: {
         params: { id: string; worktreeDir: string; branch: string };
-        response: { todo: Todo; worktree: WorktreeEntry; dir: string; fileServerBaseUrl: string };
+        response: { task: Task; worktree: WorktreeEntry; dir: string; fileServerBaseUrl: string };
       };
       /** 表示対象ディレクトリを切り替える（worktree 選択） */
       switchDir: {

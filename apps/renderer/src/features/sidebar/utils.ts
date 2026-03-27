@@ -1,21 +1,21 @@
 import type { WorktreeChangeCounts, WorktreeEntry } from "@gozd/rpc";
 
-/** Todo の body 一行目をタイトルとして取得 */
-export function todoTitle(body: string): string {
+/** Task の body 一行目をタイトルとして取得 */
+export function taskTitle(body: string): string {
   const [firstLine] = body.split("\n");
   return firstLine ?? "";
 }
 
-/** worktree に Todo タイトルが設定されているか */
-export function hasTodoTitle(wt: WorktreeEntry): boolean {
-  if (!wt.todo?.body) return false;
-  return todoTitle(wt.todo.body) !== "";
+/** worktree に Task タイトルが設定されているか */
+export function hasTaskTitle(wt: WorktreeEntry): boolean {
+  if (!wt.task?.body) return false;
+  return taskTitle(wt.task.body) !== "";
 }
 
-/** worktree の表示名: Todo タイトルがあればそれ、なければブランチ名 */
+/** worktree の表示名: Task タイトルがあればそれ、なければブランチ名 */
 export function worktreeDisplayName(wt: WorktreeEntry): string {
-  if (wt.todo?.body) {
-    const title = todoTitle(wt.todo.body);
+  if (wt.task?.body) {
+    const title = taskTitle(wt.task.body);
     if (title !== "") return title;
   }
   return wt.branch ?? "(detached)";

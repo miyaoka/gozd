@@ -1,18 +1,18 @@
 <doc lang="md">
-左端のサイドバー。プロジェクトの worktree 一覧、Todo、ブランチ一覧を表示する。
+左端のサイドバー。プロジェクトの worktree 一覧、Task、ブランチ一覧を表示する。
 
 ## セクション構成
 
 - ROOT: リポジトリルート（main）。メニューなし
-- WORKTREES: Todo 紐づき済みの worktree。Todo タイトルまたはブランチ名で表示。Claude 状態バッジ付き
-- TODOS: 未着手の Todo（worktreeDir なし）
+- WORKTREES: Task 紐づき済みの worktree。Task タイトルまたはブランチ名で表示。Claude 状態バッジ付き
+- TASKS: 未着手の Task（worktreeDir なし）
 - BRANCHES: worktree 化されていないローカルブランチ
 
 ## 操作
 
 - worktree クリック: 表示対象ディレクトリを切り替え + done バッジをクリア（既読消化）
 - `⋮` メニュー: SidebarMenu コンポーネントに委譲
-- Todo 編集: サイドバー内にインライン展開
+- Task 編集: サイドバー内にインライン展開
 
 ## Claude 状態バッジ
 
@@ -23,9 +23,9 @@ worktree 行ごとの Claude 状態表示は `WorktreeItem.vue` に委譲。
 
 ロジックは composable に切り出し、SidebarPane はレイアウトとサブ機能の組み合わせに専念する。
 
-- `useSidebarData` — データ取得・状態管理（worktrees, freeBranches, pendingTodos）
+- `useSidebarData` — データ取得・状態管理（worktrees, freeBranches, pendingTasks）
 - `useWorktreeActions` — worktree CRUD・選択・切り替え（独自 isCreating）
-- `useTodoActions` — Todo CRUD・インライン編集（独立した状態管理）
+- `useTaskActions` — Task CRUD・インライン編集（独立した状態管理）
 - `useDialogs` — 確認・通知ダイアログの状態管理
 - `useCtrlBadge` — Ctrl キー押下検知
 - `SidebarMenu` — ⋮ ポップオーバーメニュー
@@ -39,7 +39,7 @@ import { useCommandRegistry } from "../../shared/command";
 import { useProjectStore } from "../../shared/project";
 import { useTerminalStore } from "../terminal";
 import { useWorktreeStore, generateTimestamp } from "../worktree";
-import { TodoEditor, TodoList, useTodoActions } from "./features/todo";
+import { TaskEditor, TaskList, useTaskActions } from "./features/task";
 import { BranchList, RootWorktree, WorktreeList, useWorktreeActions } from "./features/worktree";
 import ProjectConfigPanel from "./ProjectConfigPanel.vue";
 import SidebarMenu from "./SidebarMenu.vue";
@@ -55,7 +55,7 @@ const terminalStore = useTerminalStore();
 const {
   worktrees,
   freeBranches,
-  pendingTodos,
+  pendingTasks,
   rootWorktree,
   nonMainWorktrees,
   sortedBranches,
@@ -79,29 +79,29 @@ const {
   handleWorktreeSelect,
   addWorktree,
   handleWorktreeRemove,
-  createWorktreeWithTodo,
+  createWorktreeWithTask,
   handleBranchLink,
 } = useWorktreeActions({ worktrees, freeBranches, showConfirm, showAlert });
 
 const {
-  editingTodoId,
+  editingTaskId,
   editBody,
   submitEdit,
   cancelEdit,
   handleToggleEdit,
-  isAddingTodo,
-  newTodoBody,
-  startAddingTodo,
-  saveNewTodo,
-  cancelNewTodo,
-  updateTodoIcon,
-  handleTodoRemove,
-  addingTodoForDir,
-  addingTodoBody,
-  toggleWorktreeTodoEdit,
-  saveWorktreeTodo,
-  cancelWorktreeTodoAdd,
-} = useTodoActions({ pendingTodos, fetchData });
+  isAddingTask,
+  newTaskBody,
+  startAddingTask,
+  saveNewTask,
+  cancelNewTask,
+  updateTaskIcon,
+  handleTaskRemove,
+  addingTaskForDir,
+  addingTaskBody,
+  toggleWorktreeTaskEdit,
+  saveWorktreeTask,
+  cancelWorktreeTaskAdd,
+} = useTaskActions({ pendingTasks, fetchData });
 
 const { ctrlPressed } = useCtrlBadge();
 
@@ -128,20 +128,20 @@ useIntervalFn(() => {
 
 const sidebarMenuRef = ref<InstanceType<typeof SidebarMenu>>();
 
-/** worktree クリック: active なら Todo 編集トグル、そうでなければ切り替え */
+/** worktree クリック: active なら Task 編集トグル、そうでなければ切り替え */
 function onWorktreeSelect(wt: import("@gozd/rpc").WorktreeEntry) {
   terminalStore.viewMode = "wt";
   if (isActive(wt)) {
     terminalStore.clearDoneStates(wt.path);
-    void toggleWorktreeTodoEdit(wt);
+    void toggleWorktreeTaskEdit(wt);
     return;
   }
   handleWorktreeSelect(wt);
 }
 
-function handleMenuTodoCreateWorktree(todo: import("@gozd/rpc").Todo) {
+function handleMenuTaskCreateWorktree(task: import("@gozd/rpc").Task) {
   const timestamp = generateTimestamp();
-  createWorktreeWithTodo({ todo, worktreeDir: timestamp, branch: timestamp });
+  createWorktreeWithTask({ task, worktreeDir: timestamp, branch: timestamp });
 }
 </script>
 
@@ -178,58 +178,58 @@ function handleMenuTodoCreateWorktree(todo: import("@gozd/rpc").Todo) {
         @select="onWorktreeSelect"
         @open-menu="
           (anchorName, wt) =>
-            sidebarMenuRef?.openMenu(anchorName, { type: 'worktree', worktree: wt, todo: wt.todo })
+            sidebarMenuRef?.openMenu(anchorName, { type: 'worktree', worktree: wt, task: wt.task })
         "
         @add="addWorktree"
         @set-view-mode="terminalStore.viewMode = $event"
-        @update-icon="updateTodoIcon"
+        @update-icon="updateTaskIcon"
       >
         <template #after-item="{ wt }">
-          <TodoEditor
-            v-if="wt.todo && editingTodoId === wt.todo.id"
+          <TaskEditor
+            v-if="wt.task && editingTaskId === wt.task.id"
             v-model:body="editBody"
             @save="submitEdit"
             @cancel="cancelEdit"
           />
-          <TodoEditor
-            v-if="!wt.todo && addingTodoForDir === wt.path"
-            v-model:body="addingTodoBody"
-            @save="saveWorktreeTodo(wt)"
-            @cancel="cancelWorktreeTodoAdd"
+          <TaskEditor
+            v-if="!wt.task && addingTaskForDir === wt.path"
+            v-model:body="addingTaskBody"
+            @save="saveWorktreeTask(wt)"
+            @cancel="cancelWorktreeTaskAdd"
           />
         </template>
       </WorktreeList>
 
-      <!-- TODOS -->
-      <TodoList
-        :todos="pendingTodos"
-        :editing-todo-id="editingTodoId"
-        :is-adding-todo="isAddingTodo"
+      <!-- TASKS -->
+      <TaskList
+        :tasks="pendingTasks"
+        :editing-task-id="editingTaskId"
+        :is-adding-task="isAddingTask"
         @toggle-edit="handleToggleEdit"
         @open-menu="
-          (anchorName, todo) => sidebarMenuRef?.openMenu(anchorName, { type: 'todo', todo })
+          (anchorName, task) => sidebarMenuRef?.openMenu(anchorName, { type: 'task', task })
         "
-        @start-add="startAddingTodo"
-        @update-icon="updateTodoIcon"
+        @start-add="startAddingTask"
+        @update-icon="updateTaskIcon"
       >
-        <template #after-item="{ todo }">
-          <TodoEditor
-            v-if="editingTodoId === todo.id"
+        <template #after-item="{ task }">
+          <TaskEditor
+            v-if="editingTaskId === task.id"
             v-model:body="editBody"
             @save="submitEdit"
             @cancel="cancelEdit"
           />
         </template>
         <template #add-form>
-          <TodoEditor
-            v-if="isAddingTodo"
-            v-model:body="newTodoBody"
+          <TaskEditor
+            v-if="isAddingTask"
+            v-model:body="newTaskBody"
             placeholder="First line becomes the title"
-            @save="saveNewTodo"
-            @cancel="cancelNewTodo"
+            @save="saveNewTask"
+            @cancel="cancelNewTask"
           />
         </template>
-      </TodoList>
+      </TaskList>
 
       <!-- BRANCHES -->
       <BranchList
@@ -244,10 +244,10 @@ function handleMenuTodoCreateWorktree(todo: import("@gozd/rpc").Todo) {
     <SidebarMenu
       ref="sidebarMenuRef"
       :is-creating="isCreating"
-      @worktree-edit-todo="toggleWorktreeTodoEdit"
+      @worktree-edit-task="toggleWorktreeTaskEdit"
       @worktree-remove="handleWorktreeRemove"
-      @todo-create-worktree="handleMenuTodoCreateWorktree"
-      @todo-remove="handleTodoRemove"
+      @task-create-worktree="handleMenuTaskCreateWorktree"
+      @task-remove="handleTaskRemove"
       @branch-link="handleBranchLink"
     />
 

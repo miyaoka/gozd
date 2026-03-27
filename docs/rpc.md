@@ -40,7 +40,7 @@ flowchart LR
 | `gitWorktreeList`        | worktree 一覧を取得                                |
 | `gitBranchList`          | ローカルブランチ一覧を取得                         |
 | `createWorktree`         | worktree を作成                                    |
-| `createWorktreeWithTodo` | Todo に worktree を作成して紐づける                |
+| `createWorktreeWithTask` | Task に worktree を作成して紐づける                |
 | `gitWorktreeRemove`      | worktree を解除（ブランチは残る）                  |
 | `gitBranchDelete`        | ローカルブランチを削除                             |
 | `switchDir`              | 表示対象ディレクトリを切り替え（worktree 選択）    |

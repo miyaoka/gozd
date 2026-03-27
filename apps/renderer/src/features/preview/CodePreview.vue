@@ -2,10 +2,11 @@
 Shiki によるシンタックスハイライト付きコード表示。
 
 - 非同期ハイライト完了までは行番号付きプレーンテキストをフォールバック表示
-- バージョンカウンターで非同期レースを防止
+- onCleanup で非同期レースを防止
 </doc>
 
 <script setup lang="ts">
+import { tryCatch } from "@gozd/shared";
 import { watch, ref, nextTick, computed } from "vue";
 import { highlight } from "./useHighlight";
 
@@ -22,9 +23,6 @@ const props = defineProps<{
 const highlightedHtml = ref<string>();
 const containerRef = ref<HTMLElement>();
 const activeLineNumber = ref<number>();
-
-/** 非同期レース防止用のバージョンカウンター */
-let highlightVersion = 0;
 
 const ACTIVE_LINE_CLASS = "_active-line";
 
@@ -58,20 +56,25 @@ async function scrollToLine(line: number) {
 
 watch(
   () => [props.content, props.filePath],
-  () => {
+  async (_, __, onCleanup) => {
     highlightedHtml.value = undefined;
     activeLineNumber.value = undefined;
-    const version = ++highlightVersion;
-    highlight(props.content, props.filePath).then((html) => {
-      if (version !== highlightVersion) return;
-      // html が undefined の場合はフォールバック表示（Shiki 未対応言語）
-      if (html) {
-        highlightedHtml.value = html;
-      }
-      if (props.lineNumber !== undefined) {
-        void scrollToLine(props.lineNumber);
-      }
+
+    let cancelled = false;
+    onCleanup(() => {
+      cancelled = true;
     });
+
+    const result = await tryCatch(highlight(props.content, props.filePath));
+    if (cancelled || !result.ok) return;
+
+    // result.value が undefined の場合はフォールバック表示（Shiki 未対応言語）
+    if (result.value) {
+      highlightedHtml.value = result.value;
+    }
+    if (props.lineNumber !== undefined) {
+      void scrollToLine(props.lineNumber);
+    }
   },
   { immediate: true },
 );

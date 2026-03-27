@@ -108,7 +108,10 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
 ### DiffPreview
 
 - `diff` パッケージ（jsdiff）の `diffLines()` で行単位差分を算出
-- 全行を表示し、追加行は緑、削除行は赤、変更なしはデフォルト色
+- Shiki の `codeToTokens()` で original / current それぞれのトークン配列を取得し、diff の各行に対応するトークンの色を適用
+  - removed 行 → original のトークン、added / unchanged 行 → current のトークン
+  - diff の色分けは背景色のみ。テキスト色はトークンに委ねる
+  - 言語未対応時はフォールバック表示（追加=緑、削除=赤）
 - 2列の行番号（旧ファイル / 新ファイル）を flex レイアウトで表示
 
 ### MarkdownPreview

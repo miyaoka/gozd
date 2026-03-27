@@ -461,6 +461,7 @@ const headerIconUrl = computed(() => {
           "
           :original="originalContent"
           :current="currentContent"
+          :file-path="selectedPath ?? ''"
           :word-wrap="wordWrap"
         />
 

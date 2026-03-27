@@ -1,10 +1,16 @@
-import { type Highlighter, type ShikiTransformer, createHighlighter } from "shiki";
+import {
+  type BundledLanguage,
+  type Highlighter,
+  type ShikiTransformer,
+  type ThemedToken,
+  createHighlighter,
+} from "shiki";
 
 let highlighter: Highlighter | undefined;
 let initPromise: Promise<Highlighter> | undefined;
 
 /** 拡張子 → Shiki 言語 ID のマッピング */
-const EXTENSION_LANG_MAP: Record<string, string> = {
+const EXTENSION_LANG_MAP: Record<string, BundledLanguage> = {
   ts: "typescript",
   tsx: "tsx",
   mts: "typescript",
@@ -40,10 +46,10 @@ const EXTENSION_LANG_MAP: Record<string, string> = {
 };
 
 /** ファイル名から言語 ID を推定 */
-function detectLang(filePath: string): string | undefined {
+function detectLang(filePath: string): BundledLanguage | undefined {
   const fileName = filePath.split("/").pop() ?? "";
   // 拡張子なしのファイル名マッチ（Dockerfile, Makefile 等）
-  const FILENAME_LANG_MAP: Record<string, string> = {
+  const FILENAME_LANG_MAP: Record<string, BundledLanguage> = {
     Dockerfile: "dockerfile",
     Makefile: "makefile",
   };
@@ -92,4 +98,24 @@ async function highlight(code: string, filePath: string): Promise<string | undef
   });
 }
 
-export { highlight };
+/** コードを行ごとのトークン配列に変換する。言語不明なら undefined を返す */
+async function highlightTokens(
+  code: string,
+  filePath: string,
+): Promise<ThemedToken[][] | undefined> {
+  const lang = detectLang(filePath);
+  if (!lang) return undefined;
+
+  const h = await getHighlighter();
+  const loadedLangs = h.getLoadedLanguages();
+  if (!loadedLangs.includes(lang)) return undefined;
+
+  const { tokens } = h.codeToTokens(code, {
+    lang,
+    theme: "github-dark",
+  });
+  return tokens;
+}
+
+export { highlight, highlightTokens };
+export type { ThemedToken };

@@ -94,7 +94,6 @@ const {
   startAddingTask,
   saveNewTask,
   cancelNewTask,
-  updateTaskIcon,
   handleTaskRemove,
   addingTaskForDir,
   addingTaskBody,
@@ -147,7 +146,7 @@ function handleMenuTaskCreateWorktree(task: import("@gozd/rpc").Task) {
 
 <template>
   <div class="flex size-full flex-col">
-    <div class="flex-1 overflow-y-auto p-4">
+    <div class="flex-1 overflow-y-auto px-3 py-4">
       <h1 class="mb-4 flex items-center text-lg font-bold" :title="projectStore.repoName">
         <span class="mr-2 icon-[lucide--bot] shrink-0 align-middle text-blue-400" />
         <input
@@ -182,7 +181,6 @@ function handleMenuTaskCreateWorktree(task: import("@gozd/rpc").Task) {
         "
         @add="addWorktree"
         @set-view-mode="terminalStore.viewMode = $event"
-        @update-icon="updateTaskIcon"
       >
         <template #after-item="{ wt }">
           <TaskEditor
@@ -210,7 +208,6 @@ function handleMenuTaskCreateWorktree(task: import("@gozd/rpc").Task) {
           (anchorName, task) => sidebarMenuRef?.openMenu(anchorName, { type: 'task', task })
         "
         @start-add="startAddingTask"
-        @update-icon="updateTaskIcon"
       >
         <template #after-item="{ task }">
           <TaskEditor

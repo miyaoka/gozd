@@ -8,7 +8,6 @@ worktree の前段として作業計画を管理する。Task と worktree を 1
 interface Task {
   id: string; // UUID (crypto.randomUUID)
   body: string; // git commit 形式: 一行目=タイトル、残り=本文
-  icon?: string; // 分類アイコン（emoji 1文字）
   worktreeDir?: string; // 紐づいた worktree のパス（未着手なら undefined）
   createdAt: string; // ISO 8601
 }
@@ -16,7 +15,6 @@ interface Task {
 
 - `body` は git commit メッセージと同じ構造。一行目をタイトルとして表示に使う
 - `body` が空の場合は「(無題)」と表示する
-- `icon` は Task の分類を示す emoji。WORKTREES セクションでは git-branch アイコンの代わりに表示する
 
 ## 保存
 
@@ -101,10 +99,6 @@ BRANCHES
 
 - Worktree 化
 
-### アイコン選択
-
-リスト上のアイコン（TASKS の ☐、WORKTREES の git-branch アイコンまたは emoji）を直接クリックすると、popover で emoji ピッカーが表示される。選択すると即座に保存される。トグル式で再クリックすると解除される。
-
 ### Task 編集
 
 `[⋮]` → "Task を編集" でサイドバー内にインライン展開する。テキストの編集のみ行う。
@@ -129,8 +123,8 @@ WORKTREES
 
 ```text
 taskList:               undefined → Task[]
-taskAdd:                { body, icon?, worktreeDir? } → Task
-taskUpdate:             { id, body, icon? } → Task
+taskAdd:                { body, worktreeDir? } → Task
+taskUpdate:             { id, body } → Task
 taskRemove:             { id } → void
 createWorktreeWithTask: { id, worktreeDir, branch } → { task, worktree, dir, fileServerBaseUrl }
 ```

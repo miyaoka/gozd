@@ -1,8 +1,6 @@
 <doc lang="md">
 Task のインライン編集フォーム。テキスト入力 + 保存/キャンセルボタンを提供する。
 マウント時に textarea を自動フォーカスする。
-
-アイコン選択は TaskIconButton がリスト上で直接担当するため、このコンポーネントでは扱わない。
 </doc>
 
 <script setup lang="ts">

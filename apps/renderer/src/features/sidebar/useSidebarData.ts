@@ -91,9 +91,7 @@ export function useSidebarData() {
     const [firstLine, ...rest] = wt.task.body.split("\n");
     if (firstLine === title) return;
     const newBody = [title, ...rest].join("\n");
-    const result = await tryCatch(
-      request.taskUpdate({ id: wt.task.id, body: newBody, icon: wt.task.icon }),
-    );
+    const result = await tryCatch(request.taskUpdate({ id: wt.task.id, body: newBody }));
     if (result.ok) {
       const freshWt = worktrees.value.find((w) => w.path === dir);
       if (freshWt) freshWt.task = result.value;

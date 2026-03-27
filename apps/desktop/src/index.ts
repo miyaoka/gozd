@@ -883,8 +883,8 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
         },
         gitBranchDelete: ({ branch }) => deleteBranch(projectDir, branch),
         taskList: () => loadTasks(projectDir),
-        taskAdd: ({ body, icon, worktreeDir }) => addTask(projectDir, body, icon, worktreeDir),
-        taskUpdate: ({ id, body, icon }) => updateTask(projectDir, id, body, icon),
+        taskAdd: ({ body, worktreeDir }) => addTask(projectDir, body, worktreeDir),
+        taskUpdate: ({ id, body }) => updateTask(projectDir, id, body),
         taskRemove: ({ id }) => removeTask(projectDir, id),
         createWorktreeWithTask: async ({ id, worktreeDir, branch }) => {
           const { worktreeSymlinks } = loadProjectConfig(projectDir);

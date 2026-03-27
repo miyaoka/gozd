@@ -83,7 +83,7 @@ const TRAFFIC_LIGHTS_WIDTH = 80;
 
 const { width: windowWidth, height: windowHeight } = useWindowSize();
 
-const sidebarWidth = ref(224);
+const sidebarWidth = ref(260);
 const navigatorWidth = ref(256);
 const previewWidth = ref(480);
 const previewOpen = ref(false);

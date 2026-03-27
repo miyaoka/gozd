@@ -33,32 +33,10 @@ export interface WorktreeEntry {
   task?: Task;
 }
 
-/** Task 分類アイコンの許可リスト（SSOT） */
-export const TASK_ICONS = [
-  { emoji: "✨", title: "feature" },
-  { emoji: "🐛", title: "bug" },
-  { emoji: "🔧", title: "fix" },
-  { emoji: "♻️", title: "refactor" },
-  { emoji: "📝", title: "docs" },
-  { emoji: "⚡", title: "perf" },
-  { emoji: "🧪", title: "test" },
-  { emoji: "🚀", title: "deploy" },
-  { emoji: "💡", title: "idea" },
-  { emoji: "🎨", title: "style" },
-] as const;
-
-/** TASK_ICONS から導出した許可 emoji の集合 */
-const taskIconSet: ReadonlySet<string> = new Set(TASK_ICONS.map((ic) => ic.emoji));
-
 /** Task の zod スキーマ */
 export const taskSchema = z.object({
   id: z.string(),
   body: z.string(),
-  icon: z
-    .string()
-    .refine((s) => taskIconSet.has(s))
-    .optional()
-    .catch(undefined),
   worktreeDir: z.string().optional(),
   createdAt: z.string(),
 });
@@ -249,12 +227,12 @@ export type GozdRPC = {
       };
       /** Task を追加（worktreeDir 指定で worktree に紐づけ可能） */
       taskAdd: {
-        params: { body: string; icon?: string; worktreeDir?: string };
+        params: { body: string; worktreeDir?: string };
         response: Task;
       };
-      /** Task の body と icon を更新 */
+      /** Task の body を更新 */
       taskUpdate: {
-        params: { id: string; body: string; icon?: string };
+        params: { id: string; body: string };
         response: Task;
       };
       /** Task を削除 */

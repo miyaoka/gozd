@@ -8,12 +8,11 @@ worktree 行の下に吹き出し風のテキストとして出す。
 </doc>
 
 <script setup lang="ts">
-import type { Task, WorktreeEntry } from "@gozd/rpc";
+import type { WorktreeEntry } from "@gozd/rpc";
 import { computed } from "vue";
 import type { ClaudeState, ClaudeStatus } from "../../../terminal";
 import { computeStatusIcons, StatusIcons } from "../../../worktree";
-import { hasChanges, hasTaskTitle, worktreeDisplayName } from "../../utils";
-import { TaskIconButton } from "../task";
+import { hasChanges, worktreeDisplayName } from "../../utils";
 
 /** Claude 状態の表示優先度（高い方が優先） */
 const CLAUDE_STATE_PRIORITY: Record<ClaudeState, number> = {
@@ -61,7 +60,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [wt: WorktreeEntry];
   openMenu: [anchorName: string, wt: WorktreeEntry];
-  updateIcon: [task: Task, icon: string | undefined];
 }>();
 
 /** 経過ミリ秒を "m:ss" 形式に変換 */
@@ -140,8 +138,8 @@ const statusIcons = computed(() => {
   <div>
     <!-- 擬似要素パターン: button の ::after で親全体をクリック可能にし、⋮ は z-index で上に出す -->
     <div
-      class="group/wt relative grid grid-cols-[auto_1fr_auto] gap-x-2 rounded-sm py-1.5 pl-2"
-      :class="active ? 'bg-zinc-700/50' : 'hover:bg-zinc-800'"
+      class="group/wt relative grid py-1.5 pl-2"
+      :class="active ? 'rounded-md outline outline-blue-400' : 'hover:bg-zinc-800'"
     >
       <!-- Ctrl 押下時の番号バッジ（左上に表示。9 個まで） -->
       <span
@@ -174,32 +172,17 @@ const statusIcons = computed(() => {
           />
         </template>
       </div>
-      <TaskIconButton
-        v-if="wt.task"
-        :icon="wt.task.icon"
-        @update="emit('updateIcon', wt.task, $event)"
-      >
-        <span class="icon-[lucide--git-branch] text-zinc-400" />
-      </TaskIconButton>
-      <span v-else class="row-span-2 mt-0.5 icon-[lucide--git-branch] text-base text-zinc-400" />
       <!-- メインアクション: ::after で親全体に広がるクリック領域 -->
       <button
-        class="truncate text-left text-sm after:absolute after:inset-0"
-        :class="
-          active
-            ? 'font-medium text-blue-300'
-            : hasTaskTitle(wt)
-              ? 'text-zinc-200'
-              : 'text-zinc-500'
-        "
+        class="text-left text-sm text-zinc-200 after:absolute after:inset-0"
         @click="emit('select', wt)"
       >
-        {{ worktreeDisplayName(wt) }}
+        <span class="line-clamp-2">{{ worktreeDisplayName(wt) }}</span>
       </button>
       <!-- ⋮ メニューボタン: z-10 で擬似要素の上に出す -->
       <button
         aria-label="Menu"
-        class="relative z-10 row-span-2 grid size-6 place-items-center self-center rounded-sm text-zinc-600 opacity-0 transition-opacity group-focus-within/wt:opacity-100 group-hover/wt:opacity-100 hover:text-zinc-300"
+        class="absolute top-1 right-0 z-10 grid size-6 place-items-center rounded-sm bg-zinc-800 text-zinc-400 opacity-0 shadow-sm transition-opacity group-focus-within/wt:opacity-100 group-hover/wt:opacity-100 hover:text-zinc-200"
         :style="{ anchorName }"
         @click="emit('openMenu', anchorName, wt)"
       >

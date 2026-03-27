@@ -5,7 +5,7 @@
 </doc>
 
 <script setup lang="ts">
-import type { Task, WorktreeEntry } from "@gozd/rpc";
+import type { WorktreeEntry } from "@gozd/rpc";
 import type { ClaudeStatus } from "../../../terminal";
 import WorktreeItem from "./WorktreeItem.vue";
 
@@ -42,7 +42,6 @@ defineEmits<{
   openMenu: [anchorName: string, wt: WorktreeEntry];
   add: [];
   setViewMode: [mode: ViewMode];
-  updateIcon: [task: Task, icon: string | undefined];
 }>();
 
 defineSlots<{
@@ -51,7 +50,7 @@ defineSlots<{
 </script>
 
 <template>
-  <div class="mt-4 flex flex-col">
+  <div class="mt-4 flex flex-col gap-1.5">
     <div class="mb-1 flex items-center justify-between">
       <h2 class="text-xs font-medium text-zinc-500">WORKTREES</h2>
       <div class="flex gap-0.5">
@@ -82,7 +81,6 @@ defineSlots<{
         :index="i"
         @select="$emit('select', $event)"
         @open-menu="(anchorName, w) => $emit('openMenu', anchorName, w)"
-        @update-icon="(task, icon) => $emit('updateIcon', task, icon)"
       />
       <slot name="after-item" :wt="wt" />
     </div>

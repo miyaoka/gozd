@@ -2,13 +2,11 @@
 サイドバーの TASKS セクション。未着手の Task（worktree 未紐づけ）の一覧を表示する。
 
 各 Task 行の後と末尾にスロットを提供し、インライン編集フォームや新規追加フォームを差し込める。
-アイコンは TaskIconButton で直接クリック → popover ピッカーで変更できる。
 </doc>
 
 <script setup lang="ts">
 import type { Task } from "@gozd/rpc";
 import { taskTitle } from "../../utils";
-import TaskIconButton from "./TaskIconButton.vue";
 
 defineProps<{
   tasks: Task[];
@@ -20,7 +18,6 @@ defineEmits<{
   toggleEdit: [task: Task];
   openMenu: [anchorName: string, task: Task];
   startAdd: [];
-  updateIcon: [task: Task, icon: string | undefined];
 }>();
 
 defineSlots<{
@@ -35,16 +32,13 @@ defineSlots<{
 
     <div v-for="(task, i) in tasks" :key="task.id">
       <div
-        class="group/td relative grid grid-cols-[auto_1fr_auto] gap-x-2 rounded-sm py-1.5 pl-2 hover:bg-zinc-800"
+        class="group/td relative grid grid-cols-[1fr_auto] gap-x-2 rounded-sm py-1.5 pl-2 hover:bg-zinc-800"
       >
-        <TaskIconButton :icon="task.icon" @update="$emit('updateIcon', task, $event)">
-          <span class="text-zinc-600">☐</span>
-        </TaskIconButton>
         <button
-          class="truncate text-left text-sm text-zinc-400 after:absolute after:inset-0"
+          class="text-left text-sm text-zinc-400 after:absolute after:inset-0"
           @click="$emit('toggleEdit', task)"
         >
-          {{ taskTitle(task.body) || "(untitled)" }}
+          <span class="line-clamp-2">{{ taskTitle(task.body) || "(untitled)" }}</span>
         </button>
         <!-- ⋮ メニューボタン -->
         <button

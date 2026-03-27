@@ -6,12 +6,6 @@ export function taskTitle(body: string): string {
   return firstLine ?? "";
 }
 
-/** worktree に Task タイトルが設定されているか */
-export function hasTaskTitle(wt: WorktreeEntry): boolean {
-  if (!wt.task?.body) return false;
-  return taskTitle(wt.task.body) !== "";
-}
-
 /** worktree の表示名: Task タイトルがあればそれ、なければブランチ名 */
 export function worktreeDisplayName(wt: WorktreeEntry): string {
   if (wt.task?.body) {

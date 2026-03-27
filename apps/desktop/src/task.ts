@@ -59,19 +59,8 @@ function parseTask(v: unknown): Task | undefined {
   return result.success ? result.data : undefined;
 }
 
-/** 許可リストにない icon を undefined に正規化する */
-function sanitizeIcon(icon: string | undefined): Task["icon"] {
-  const result = taskSchema.shape.icon.safeParse(icon);
-  return result.success ? result.data : undefined;
-}
-
 /** Task を追加する */
-export function addTask(
-  projectDir: string,
-  body: string,
-  icon?: string,
-  worktreeDir?: string,
-): Task {
+export function addTask(projectDir: string, body: string, worktreeDir?: string): Task {
   const tasks = loadTasks(projectDir);
   // worktreeDir が指定されている場合、既に紐づいている Task がないか検証
   if (worktreeDir && tasks.some((t) => t.worktreeDir === worktreeDir)) {
@@ -80,7 +69,6 @@ export function addTask(
   const task: Task = {
     id: crypto.randomUUID(),
     body,
-    icon: sanitizeIcon(icon),
     worktreeDir,
     createdAt: new Date().toISOString(),
   };
@@ -89,13 +77,12 @@ export function addTask(
   return task;
 }
 
-/** Task の body と icon を更新する */
-export function updateTask(projectDir: string, id: string, body: string, icon?: string): Task {
+/** Task の body を更新する */
+export function updateTask(projectDir: string, id: string, body: string): Task {
   const tasks = loadTasks(projectDir);
   const task = tasks.find((t) => t.id === id);
   if (!task) throw new Error(`Task not found: ${id}`);
   task.body = body;
-  task.icon = sanitizeIcon(icon);
   saveTasks(projectDir, tasks);
   return task;
 }

@@ -20,19 +20,16 @@ export function useTaskActions({ pendingTasks, fetchData }: UseTaskActionsOption
 
   const editingTaskId = ref<string>();
   const editBody = ref("");
-  /** 編集開始時のアイコン（body 保存時に現在の値を維持するために使用） */
-  const editIcon = ref<string>();
 
   function startEditing(task: Task) {
     editingTaskId.value = task.id;
     editBody.value = task.body;
-    editIcon.value = task.icon;
   }
 
   async function saveEdit(body: string): Promise<boolean> {
     const id = editingTaskId.value;
     if (!id) return false;
-    const result = await tryCatch(request.taskUpdate({ id, body, icon: editIcon.value }));
+    const result = await tryCatch(request.taskUpdate({ id, body }));
     if (!result.ok) return false;
     await fetchData();
     return true;
@@ -80,18 +77,6 @@ export function useTaskActions({ pendingTasks, fetchData }: UseTaskActionsOption
 
   function cancelNewTask() {
     isAddingTask.value = false;
-  }
-
-  // --- アイコン更新（リスト上の直接操作） ---
-
-  async function updateTaskIcon(task: Task, icon: string | undefined) {
-    const result = await tryCatch(request.taskUpdate({ id: task.id, body: task.body, icon }));
-    if (!result.ok) return;
-    // 編集中の task のアイコンが変わった場合、saveEdit が古い値で上書きしないよう同期する
-    if (editingTaskId.value === task.id) {
-      editIcon.value = icon;
-    }
-    await fetchData();
   }
 
   // --- Task 操作 ---
@@ -165,8 +150,6 @@ export function useTaskActions({ pendingTasks, fetchData }: UseTaskActionsOption
     startAddingTask,
     saveNewTask,
     cancelNewTask,
-    // アイコン更新
-    updateTaskIcon,
     // 操作
     handleTaskRemove,
     // worktree Task 編集・新規作成

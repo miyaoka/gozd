@@ -120,8 +120,6 @@ function handleKeydown(e: KeyboardEvent) {
       movePage(-1);
       break;
     case "Enter":
-      // ボタンにフォーカスがある場合はボタン自身のクリックに任せる
-      if (e.target instanceof HTMLButtonElement) break;
       e.preventDefault();
       acceptSelected();
       break;
@@ -153,34 +151,30 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           aria-label="Filter pull requests"
           class="min-w-0 flex-1 bg-transparent px-2 py-1 text-sm text-zinc-200 outline-none placeholder:text-zinc-500"
         />
-        <button
+        <label
           v-if="viewer !== ''"
-          type="button"
-          :aria-pressed="filterAssignee"
-          class="shrink-0 rounded-sm px-2 py-0.5 text-xs"
+          class="shrink-0 cursor-pointer rounded-sm px-2 py-0.5 text-xs select-none"
           :class="
             filterAssignee
               ? 'bg-blue-600 text-white'
               : 'bg-zinc-700 text-zinc-400 hover:text-zinc-200'
           "
-          @click="filterAssignee = !filterAssignee"
         >
+          <input v-model="filterAssignee" type="checkbox" class="hidden" />
           assignee:me
-        </button>
-        <button
+        </label>
+        <label
           v-if="viewer !== ''"
-          type="button"
-          :aria-pressed="filterReviewer"
-          class="shrink-0 rounded-sm px-2 py-0.5 text-xs"
+          class="shrink-0 cursor-pointer rounded-sm px-2 py-0.5 text-xs select-none"
           :class="
             filterReviewer
               ? 'bg-blue-600 text-white'
               : 'bg-zinc-700 text-zinc-400 hover:text-zinc-200'
           "
-          @click="filterReviewer = !filterReviewer"
         >
+          <input v-model="filterReviewer" type="checkbox" class="hidden" />
           reviewer:me
-        </button>
+        </label>
       </div>
       <div v-if="filteredPrs.length > 0" ref="list" class="max-h-[400px] overflow-y-auto py-1">
         <div

@@ -27,10 +27,17 @@ const contextKeys = useContextKeys();
 const notify = useNotificationStore();
 const { setErrorHandler } = useCommandRegistry();
 setErrorHandler(notify.error);
-const { request, send, onGozdOpen, onErrorNotify } = useRpc();
+const { request, send, onGozdOpen, onNotify } = useRpc();
 
-const disposeErrorNotify = onErrorNotify(({ source, message, detail }) => {
-  notify.error(`[${source}] ${message}${detail ? `: ${detail}` : ""}`);
+const CONSOLE_BY_TYPE = {
+  error: console.error,
+  info: console.info,
+} as const;
+
+const disposeNotify = onNotify(({ type, source, message, detail }) => {
+  CONSOLE_BY_TYPE[type](`[${source}]`, message, ...(detail ? [detail] : []));
+  const notifyFn = type === "error" ? notify.error : notify.info;
+  notifyFn(`[${source}] ${message}${detail ? `: ${detail}` : ""}`);
 });
 
 let cleanup: (() => void) | undefined;
@@ -61,7 +68,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   cleanup?.();
-  disposeErrorNotify();
+  disposeNotify();
 });
 </script>
 

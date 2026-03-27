@@ -1,6 +1,7 @@
 import type { WorktreeEntry } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { useRpc } from "../../shared/rpc";
 import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
@@ -14,6 +15,7 @@ import { dirName } from "./utils";
 export function useSidebarData() {
   const worktreeStore = useWorktreeStore();
   const terminalStore = useTerminalStore();
+  const notify = useNotificationStore();
   const { request, onGitStatusChange, onBranchChange, onWorktreeChange } = useRpc();
 
   const worktrees = ref<WorktreeEntry[]>([]);
@@ -37,10 +39,14 @@ export function useSidebarData() {
   async function fetchData() {
     if (!worktreeStore.dir) return;
     const gen = ++fetchGen;
-    const [wtList, branchList] = await Promise.all([
-      request.gitWorktreeList(),
-      request.gitBranchList(),
-    ]);
+    const result = await tryCatch(
+      Promise.all([request.gitWorktreeList(), request.gitBranchList()]),
+    );
+    if (!result.ok) {
+      notify.error("Failed to fetch sidebar data", result.error);
+      return;
+    }
+    const [wtList, branchList] = result.value;
     // 並行実行された新しい fetchData が先に完了していたら、この結果は stale なので破棄
     if (gen !== fetchGen) return;
     worktrees.value = wtList;

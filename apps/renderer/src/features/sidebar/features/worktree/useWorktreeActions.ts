@@ -2,6 +2,7 @@ import type { Task, WorktreeEntry } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import type { Ref } from "vue";
 import { ref } from "vue";
+import { useNotificationStore } from "../../../../shared/notification";
 import { useRpc } from "../../../../shared/rpc";
 import { useTerminalStore } from "../../../terminal";
 import { useWorktreeStore, generateTimestamp } from "../../../worktree";
@@ -11,7 +12,6 @@ interface UseWorktreeActionsOptions {
   worktrees: Ref<WorktreeEntry[]>;
   freeBranches: Ref<string[]>;
   showConfirm: (message: string, action: () => Promise<void>) => void;
-  showAlert: (message: string) => void;
 }
 
 /**
@@ -22,8 +22,8 @@ export function useWorktreeActions({
   worktrees,
   freeBranches,
   showConfirm,
-  showAlert,
 }: UseWorktreeActionsOptions) {
+  const notify = useNotificationStore();
   const worktreeStore = useWorktreeStore();
   const terminalStore = useTerminalStore();
   const { request } = useRpc();
@@ -50,6 +50,8 @@ export function useWorktreeActions({
     const result = await tryCatch(request.switchDir({ dir: wt.path }));
     if (result.ok) {
       worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
+    } else {
+      notify.error("Failed to switch worktree", result.error);
     }
     isSwitching.value = false;
   }
@@ -67,6 +69,7 @@ export function useWorktreeActions({
       terminalStore.viewMode = "wt";
       worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
     } else {
+      notify.error("Failed to create worktree", result.error);
       freeBranches.value.push(branch);
     }
     isCreating.value = false;
@@ -98,7 +101,7 @@ export function useWorktreeActions({
         if (forceResult.ok) {
           removeFromList(wt);
         } else {
-          showAlert(`Failed to force remove "${worktreeDisplayName(wt)}".`);
+          notify.error(`Failed to force remove "${worktreeDisplayName(wt)}"`, forceResult.error);
         }
       },
     );
@@ -121,6 +124,8 @@ export function useWorktreeActions({
       worktrees.value = [...worktrees.value, result.value.worktree];
       terminalStore.viewMode = "wt";
       worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
+    } else {
+      notify.error("Failed to create worktree with task", result.error);
     }
     isCreating.value = false;
   }
@@ -137,6 +142,8 @@ export function useWorktreeActions({
       worktrees.value = [...worktrees.value, result.value.worktree];
       terminalStore.viewMode = "wt";
       worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
+    } else {
+      notify.error("Failed to add worktree", result.error);
     }
     isCreating.value = false;
   }

@@ -15,6 +15,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, useTemplateRef } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { useRpc } from "../../shared/rpc";
 import { resolveDirectoryGitChange, resolveFileGitChange, resolveGitChangeKind } from "../worktree";
 import type { GitChangeKind } from "../worktree";
@@ -48,6 +49,7 @@ const emit = defineEmits<{
   select: [path: string];
 }>();
 
+const notify = useNotificationStore();
 const { request } = useRpc();
 
 const buttonRef = useTemplateRef<HTMLButtonElement>("button");
@@ -109,7 +111,7 @@ async function loadChildren() {
     if (deletedEntries.length > 0) {
       children.value = sortEntries(deletedEntries);
     } else {
-      console.error(`Failed to read directory: ${props.path}`, e);
+      notify.error(`Failed to read directory: ${props.path}`, e);
       children.value = [];
     }
   } finally {

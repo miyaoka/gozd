@@ -54,6 +54,13 @@ export default defineConfigWithVueTs(
     },
   },
 
+  // eslint-disable コメントを禁止
+  {
+    linterOptions: {
+      noInlineConfig: true,
+    },
+  },
+
   // tsconfigRootDir: モノレポで複数の tsconfig.json が存在する場合、
   // このパッケージの tsconfig.json を使用するよう明示的に指定
   {

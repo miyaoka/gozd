@@ -6,6 +6,7 @@
 
 import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
+import { useNotificationStore } from "../../../../shared/notification";
 import { useRpc } from "../../../../shared/rpc";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
@@ -15,6 +16,7 @@ export function registerPrCommand(): () => void {
   const registry = useCommandRegistry();
   const { request } = useRpc();
   const { show } = usePrPicker();
+  const notify = useNotificationStore();
   const worktreeStore = useWorktreeStore();
   const terminalStore = useTerminalStore();
 
@@ -42,7 +44,7 @@ export function registerPrCommand(): () => void {
             void (async () => {
               const result = await tryCatch(request.switchDir({ dir: existingDir }));
               if (!result.ok) {
-                console.error("Failed to switch worktree:", result.error);
+                notify.error("Failed to switch worktree", result.error);
                 return;
               }
               terminalStore.viewMode = "wt";
@@ -59,7 +61,7 @@ export function registerPrCommand(): () => void {
               }),
             );
             if (!result.ok) {
-              console.error("Failed to create worktree:", result.error);
+              notify.error("Failed to create worktree", result.error);
               return;
             }
             // PR タイトルを task として作成し、worktree に紐づける
@@ -71,7 +73,7 @@ export function registerPrCommand(): () => void {
               }),
             );
             if (!taskResult.ok) {
-              console.error("Failed to create task for worktree:", taskResult.error);
+              notify.error("Failed to create task for worktree", taskResult.error);
             }
             terminalStore.viewMode = "wt";
             worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);

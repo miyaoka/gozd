@@ -35,6 +35,7 @@ import { registerSettingsCommand, SettingsModal } from "../settings";
 import { SidebarPane } from "../sidebar";
 import { registerThemeCommand, TerminalPane } from "../terminal";
 import { useWorktreeStore } from "../worktree";
+import NotificationToast from "./NotificationToast.vue";
 import ResizeHandle from "./ResizeHandle.vue";
 
 const worktreeStore = useWorktreeStore();
@@ -302,6 +303,7 @@ watchEffect(() => {
     <PrPickerDialog />
     <IssuePickerDialog />
     <SettingsModal />
+    <NotificationToast />
   </div>
 </template>
 

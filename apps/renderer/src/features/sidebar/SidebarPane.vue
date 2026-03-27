@@ -26,7 +26,7 @@ worktree 行ごとの Claude 状態表示は `WorktreeItem.vue` に委譲。
 - `useSidebarData` — データ取得・状態管理（worktrees, freeBranches, pendingTasks）
 - `useWorktreeActions` — worktree CRUD・選択・切り替え（独自 isCreating）
 - `useTaskActions` — Task CRUD・インライン編集（独立した状態管理）
-- `useDialogs` — 確認・通知ダイアログの状態管理
+- `useDialogs` — 確認ダイアログの状態管理
 - `useCtrlBadge` — Ctrl キー押下検知
 - `SidebarMenu` — ⋮ ポップオーバーメニュー
 - `VoicevoxPanel` — VOICEVOX 操作パネル
@@ -36,6 +36,7 @@ worktree 行ごとの Claude 状態表示は `WorktreeItem.vue` に委譲。
 import { useIntervalFn } from "@vueuse/core";
 import { onUnmounted, ref } from "vue";
 import { useCommandRegistry } from "../../shared/command";
+import { useNotificationStore } from "../../shared/notification";
 import { useProjectStore } from "../../shared/project";
 import { useTerminalStore } from "../terminal";
 import { useWorktreeStore, generateTimestamp } from "../worktree";
@@ -51,6 +52,7 @@ import VoicevoxPanel from "./VoicevoxPanel.vue";
 const worktreeStore = useWorktreeStore();
 const projectStore = useProjectStore();
 const terminalStore = useTerminalStore();
+const notify = useNotificationStore();
 
 const {
   worktrees,
@@ -62,16 +64,7 @@ const {
   fetchData,
 } = useSidebarData();
 
-const {
-  confirmRef,
-  confirmMessage,
-  showConfirm,
-  closeConfirm,
-  executeConfirm,
-  alertRef,
-  alertMessage,
-  showAlert,
-} = useDialogs();
+const { confirmRef, confirmMessage, showConfirm, closeConfirm, executeConfirm } = useDialogs();
 
 const {
   isCreating,
@@ -81,7 +74,7 @@ const {
   handleWorktreeRemove,
   createWorktreeWithTask,
   handleBranchLink,
-} = useWorktreeActions({ worktrees, freeBranches, showConfirm, showAlert });
+} = useWorktreeActions({ worktrees, freeBranches, showConfirm });
 
 const {
   editingTaskId,
@@ -271,27 +264,10 @@ function handleMenuTaskCreateWorktree(task: import("@gozd/rpc").Task) {
       </div>
     </dialog>
 
-    <!-- 通知ダイアログ -->
-    <dialog
-      ref="alertRef"
-      class="fixed inset-0 m-auto size-fit rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-white backdrop:bg-black/50"
-      @click="$event.target === alertRef && alertRef?.close()"
-    >
-      <p class="mb-4 text-sm">{{ alertMessage }}</p>
-      <div class="flex justify-end">
-        <button
-          class="rounded-sm px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800"
-          @click="alertRef?.close()"
-        >
-          Close
-        </button>
-      </div>
-    </dialog>
-
     <!-- Project Config（メイン worktree 表示時のみ） -->
     <ProjectConfigPanel v-if="rootWorktree && isActive(rootWorktree)" />
 
     <!-- VOICEVOX -->
-    <VoicevoxPanel @error="showAlert" />
+    <VoicevoxPanel @error="notify.error" />
   </div>
 </template>

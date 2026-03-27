@@ -1,5 +1,7 @@
+import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { ref } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { useProjectStore } from "../../shared/project";
 import { useRpc } from "../../shared/rpc";
 
@@ -14,10 +16,12 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
       gitStatuses.value = {};
       return;
     }
-    try {
-      gitStatuses.value = await request.gitStatus();
-    } catch (e) {
-      console.error("Failed to get git status", e);
+    const result = await tryCatch(request.gitStatus());
+    if (result.ok) {
+      gitStatuses.value = result.value;
+    } else {
+      const notify = useNotificationStore();
+      notify.error("Failed to get git status", result.error);
       gitStatuses.value = {};
     }
   }

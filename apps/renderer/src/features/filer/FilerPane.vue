@@ -12,6 +12,7 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
 import { nextTick, onUnmounted, ref, watch } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { useRpc } from "../../shared/rpc";
 import { resolveGitChangeKind, useGitStatusStore, useWorktreeStore } from "../worktree";
 import { getDeletedEntries, sortEntries } from "./filerUtils";
@@ -22,6 +23,7 @@ const worktreeStore = useWorktreeStore();
 const { dir, selectedPath } = storeToRefs(worktreeStore);
 const gitStatusStore = useGitStatusStore();
 const { gitStatuses } = storeToRefs(gitStatusStore);
+const notify = useNotificationStore();
 const { request, onFsChange, onGitStatusChange } = useRpc();
 
 const rootEntries = ref<FileEntry[]>();
@@ -60,7 +62,7 @@ async function loadRoot() {
     ]);
     rootEntries.value = mergeWithGitStatus(entries, "");
   } catch (e) {
-    console.error("Failed to read root directory", e);
+    notify.error("Failed to read root directory", e);
     rootEntries.value = [];
   } finally {
     loading.value = false;
@@ -133,7 +135,7 @@ async function handleGitStatusChange(statuses: Record<string, string>) {
     const entries = await request.fsReadDir({ relPath: "." });
     rootEntries.value = mergeWithGitStatus(entries, "");
   } catch (e) {
-    console.error("Failed to rebuild root entries", e);
+    notify.error("Failed to rebuild root entries", e);
   }
   // 展開中の子ディレクトリにも通知して children を再構築させる
   for (const item of treeItemRefs.value) {

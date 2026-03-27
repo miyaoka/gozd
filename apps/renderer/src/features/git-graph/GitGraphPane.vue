@@ -574,7 +574,7 @@ function onKeydown(e: KeyboardEvent) {
   let next: number;
 
   if (isUp) {
-    next = current <= 0 ? 0 : Math.max(0, current - step);
+    next = current - step;
   } else {
     next = Math.min(nodes.length - 1, current + step);
   }

@@ -1,11 +1,11 @@
-# Todo 管理
+# Task 管理
 
-worktree の前段として作業計画を管理する。Todo と worktree を 1:1 で紐づけ、worktree の表示名として Todo タイトルを使う。
+worktree の前段として作業計画を管理する。Task と worktree を 1:1 で紐づけ、worktree の表示名として Task タイトルを使う。
 
 ## データモデル
 
 ```typescript
-interface Todo {
+interface Task {
   id: string; // UUID (crypto.randomUUID)
   body: string; // git commit 形式: 一行目=タイトル、残り=本文
   icon?: string; // 分類アイコン（emoji 1文字）
@@ -16,46 +16,46 @@ interface Todo {
 
 - `body` は git commit メッセージと同じ構造。一行目をタイトルとして表示に使う
 - `body` が空の場合は「(無題)」と表示する
-- `icon` は Todo の分類を示す emoji。WORKTREES セクションでは git-branch アイコンの代わりに表示する
+- `icon` は Task の分類を示す emoji。WORKTREES セクションでは git-branch アイコンの代わりに表示する
 
 ## 保存
 
-`~/.config/gozd/projects/<エンコード済みパス>/todos.json` に `Todo[]` を保存する。
+`~/.config/gozd/projects/<エンコード済みパス>/tasks.json` に `Task[]` を保存する。
 
 ```text
 ~/.config/gozd/
   app-state.json
   projects/
     -Users-miyaoka-ghq-github-com-miyaoka-gozd/
-      todos.json
+      tasks.json
 ```
 
 - パスエンコードは Claude Code と同じ方式（`/` → `-`、先頭 `-`）
-- プロジェクトディレクトリは Todo 以外のプロジェクト固有データ（設定、worktree スクリプト等）の置き場としても使う
+- プロジェクトディレクトリは Task 以外のプロジェクト固有データ（設定、worktree スクリプト等）の置き場としても使う
 
 ## ライフサイクル
 
-### Todo 作成 → worktree 化
+### Task 作成 → worktree 化
 
 ```text
-[+ New todo] → body 入力 → Todo 保存（worktreeDir なし）
+[+ New task] → body 入力 → Task 保存（worktreeDir なし）
      ↓
-Todo の [⋮] → "Worktree 化" → worktree 作成 + worktreeDir 紐づけ
+Task の [⋮] → "Worktree 化" → worktree 作成 + worktreeDir 紐づけ
 ```
 
 ### 直接 worktree 作成
 
 ```text
-[New worktree] → Todo 入力パネル表示（デフォルトでタイムスタンプ入力済み） → Todo 作成 + worktree 作成・紐づけ
+[New worktree] → Task 入力パネル表示（デフォルトでタイムスタンプ入力済み） → Task 作成 + worktree 作成・紐づけ
 ```
 
 ### 削除・クリーンアップ
 
 | トリガー                                         | 挙動                                                                         |
 | ------------------------------------------------ | ---------------------------------------------------------------------------- |
-| WORKTREES `[⋮]` → "wt を削除"                    | worktree 削除 + Todo 削除                                                    |
-| TODOS `[⋮]` → "Todo を削除"                      | Todo 削除（worktree なし）                                                   |
-| 外部で worktree 消失（`git worktree remove` 等） | `gitWorktreeList` 取得時に存在しない `worktreeDir` を検出し、Todo を自動削除 |
+| WORKTREES `[⋮]` → "wt を削除"                    | worktree 削除 + Task 削除                                                    |
+| TASKS `[⋮]` → "Task を削除"                      | Task 削除（worktree なし）                                                   |
+| 外部で worktree 消失（`git worktree remove` 等） | `gitWorktreeList` 取得時に存在しない `worktreeDir` を検出し、Task を自動削除 |
 
 ## サイドバー UI
 
@@ -67,9 +67,9 @@ WORKTREES
   ● feature-aの実装    [M2 A1]   [⋮]
   ● (無題)                        [⋮]
 
-TODOS
+TASKS
   □ バグ修正                      [⋮]
-  [+ New todo]
+  [+ New task]
 
 BRANCHES
   ○ feature-old                   [⋮]
@@ -80,22 +80,22 @@ BRANCHES
 | セクション | 内容                                       |
 | ---------- | ------------------------------------------ |
 | ROOT       | リポジトリルート（main）。メニューなし     |
-| WORKTREES  | Todo 紐づき済みの worktree。タイトルで表示 |
-| TODOS      | 未着手の Todo（worktreeDir なし）          |
+| WORKTREES  | Task 紐づき済みの worktree。タイトルで表示 |
+| TASKS      | 未着手の Task（worktreeDir なし）          |
 | BRANCHES   | worktree 化されていないローカルブランチ    |
 
 ### `[⋮]` メニュー
 
 **WORKTREES 行:**
 
-- Todo を編集
+- Task を編集
 - wt を削除
 
-**TODOS 行:**
+**TASKS 行:**
 
 - Worktree 化
-- Todo を編集
-- Todo を削除
+- Task を編集
+- Task を削除
 
 **BRANCHES 行:**
 
@@ -103,11 +103,11 @@ BRANCHES
 
 ### アイコン選択
 
-リスト上のアイコン（TODOS の ☐、WORKTREES の git-branch アイコンまたは emoji）を直接クリックすると、popover で emoji ピッカーが表示される。選択すると即座に保存される。トグル式で再クリックすると解除される。
+リスト上のアイコン（TASKS の ☐、WORKTREES の git-branch アイコンまたは emoji）を直接クリックすると、popover で emoji ピッカーが表示される。選択すると即座に保存される。トグル式で再クリックすると解除される。
 
-### Todo 編集
+### Task 編集
 
-`[⋮]` → "Todo を編集" でサイドバー内にインライン展開する。テキストの編集のみ行う。
+`[⋮]` → "Task を編集" でサイドバー内にインライン展開する。テキストの編集のみ行う。
 
 ```text
 WORKTREES
@@ -128,14 +128,14 @@ WORKTREES
 ### 新規追加
 
 ```text
-todoList:               undefined → Todo[]
-todoAdd:                { body, icon?, worktreeDir? } → Todo
-todoUpdate:             { id, body, icon? } → Todo
-todoRemove:             { id } → void
-createWorktreeWithTodo: { id, worktreeDir, branch } → { todo, worktree, dir, fileServerBaseUrl }
+taskList:               undefined → Task[]
+taskAdd:                { body, icon?, worktreeDir? } → Task
+taskUpdate:             { id, body, icon? } → Task
+taskRemove:             { id } → void
+createWorktreeWithTask: { id, worktreeDir, branch } → { task, worktree, dir, fileServerBaseUrl }
 ```
 
 ### 既存変更
 
 - `createWorktree`: worktreeDir と branch を renderer 側から指定し、switchDir 相当の処理も統合（worktree + dir + fileServerBaseUrl を返す）
-- `gitWorktreeList`: 各 worktree に紐づく Todo を含める
+- `gitWorktreeList`: 各 worktree に紐づく Task を含める

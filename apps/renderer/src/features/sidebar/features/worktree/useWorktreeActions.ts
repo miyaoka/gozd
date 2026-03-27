@@ -1,4 +1,4 @@
-import type { Todo, WorktreeEntry } from "@gozd/rpc";
+import type { Task, WorktreeEntry } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import type { Ref } from "vue";
 import { ref } from "vue";
@@ -104,18 +104,18 @@ export function useWorktreeActions({
     );
   }
 
-  async function createWorktreeWithTodo({
-    todo,
+  async function createWorktreeWithTask({
+    task,
     worktreeDir,
     branch,
   }: {
-    todo: Todo;
+    task: Task;
     worktreeDir: string;
     branch: string;
   }) {
     isCreating.value = true;
     const result = await tryCatch(
-      request.createWorktreeWithTodo({ id: todo.id, worktreeDir, branch }),
+      request.createWorktreeWithTask({ id: task.id, worktreeDir, branch }),
     );
     if (result.ok) {
       worktrees.value = [...worktrees.value, result.value.worktree];
@@ -125,7 +125,7 @@ export function useWorktreeActions({
     isCreating.value = false;
   }
 
-  /** タイムスタンプで即座に worktree を作成する（Todo なし） */
+  /** タイムスタンプで即座に worktree を作成する（Task なし） */
   async function addWorktree() {
     if (isCreating.value) return;
     isCreating.value = true;
@@ -155,7 +155,7 @@ export function useWorktreeActions({
     addWorktree,
     createWorktree,
     handleWorktreeRemove,
-    createWorktreeWithTodo,
+    createWorktreeWithTask,
     handleBranchLink,
   };
 }

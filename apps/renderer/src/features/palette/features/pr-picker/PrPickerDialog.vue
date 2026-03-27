@@ -153,26 +153,26 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
         />
         <label
           v-if="viewer !== ''"
-          class="shrink-0 cursor-pointer rounded-sm px-2 py-0.5 text-xs select-none"
+          class="shrink-0 cursor-pointer rounded-sm px-2 py-0.5 text-xs select-none has-focus-visible:ring-2 has-focus-visible:ring-blue-400"
           :class="
             filterAssignee
               ? 'bg-blue-600 text-white'
               : 'bg-zinc-700 text-zinc-400 hover:text-zinc-200'
           "
         >
-          <input v-model="filterAssignee" type="checkbox" class="hidden" />
+          <input v-model="filterAssignee" type="checkbox" class="sr-only" />
           assignee:me
         </label>
         <label
           v-if="viewer !== ''"
-          class="shrink-0 cursor-pointer rounded-sm px-2 py-0.5 text-xs select-none"
+          class="shrink-0 cursor-pointer rounded-sm px-2 py-0.5 text-xs select-none has-focus-visible:ring-2 has-focus-visible:ring-blue-400"
           :class="
             filterReviewer
               ? 'bg-blue-600 text-white'
               : 'bg-zinc-700 text-zinc-400 hover:text-zinc-200'
           "
         >
-          <input v-model="filterReviewer" type="checkbox" class="hidden" />
+          <input v-model="filterReviewer" type="checkbox" class="sr-only" />
           reviewer:me
         </label>
       </div>

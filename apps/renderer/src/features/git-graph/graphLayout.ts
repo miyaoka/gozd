@@ -20,8 +20,6 @@ export interface LineSegment {
    * false: カーブは下端に固定（x1 > x2: 左へ合流）
    */
   lockedFirst: boolean;
-  /** 未コミットの変更を表すセグメント（ダッシュ線で描画） */
-  uncommitted: boolean;
 }
 
 /** グラフ上の1行分のデータ */
@@ -68,10 +66,10 @@ interface LaneState {
   originLane?: number;
 }
 
-export function computeGraphLayout(
-  commits: GitCommit[],
-  { hasUncommitted = false } = {},
-): GraphLayout {
+/**
+ * @param reservedLanes 左端に確保する空きレーン数。全ノード・ラインの lane が右にシフトされる
+ */
+export function computeGraphLayout(commits: GitCommit[], { reservedLanes = 0 } = {}): GraphLayout {
   const commitIndexMap = new Map<string, number>();
   for (let i = 0; i < commits.length; i++) {
     commitIndexMap.set(commits[i].hash, i);
@@ -113,8 +111,6 @@ export function computeGraphLayout(
         const state = activeLanes[i];
         if (state === undefined) continue;
 
-        const isUncommittedSeg = hasUncommitted && row - 1 === 0;
-
         if (state.originLane !== undefined) {
           // 分岐: 元のレーンからこのレーンへの斜め線
           lines.push({
@@ -124,7 +120,6 @@ export function computeGraphLayout(
             y2: row,
             color: state.color,
             lockedFirst: true,
-            uncommitted: isUncommittedSeg,
           });
           // originLane をクリア（最初の1セグメントだけ斜め）
           state.originLane = undefined;
@@ -137,7 +132,6 @@ export function computeGraphLayout(
             y2: row,
             color: state.color,
             lockedFirst: false,
-            uncommitted: isUncommittedSeg,
           });
         } else {
           // 通過: 同じレーンで垂直線
@@ -148,7 +142,6 @@ export function computeGraphLayout(
             y2: row,
             color: state.color,
             lockedFirst: true,
-            uncommitted: isUncommittedSeg,
           });
         }
       }
@@ -184,10 +177,17 @@ export function computeGraphLayout(
     }
 
     maxLanes = Math.max(maxLanes, countActive(activeLanes));
-    nodes.push({ commit, lane, color });
+    nodes.push({ commit, lane: lane + reservedLanes, color });
   }
 
-  return { nodes, lines, maxLanes: Math.max(maxLanes, 1) };
+  if (reservedLanes > 0) {
+    for (const seg of lines) {
+      seg.x1 += reservedLanes;
+      seg.x2 += reservedLanes;
+    }
+  }
+
+  return { nodes, lines, maxLanes: Math.max(maxLanes, 1) + reservedLanes };
 }
 
 function findEmptyLane(lanes: (LaneState | undefined)[]): number {

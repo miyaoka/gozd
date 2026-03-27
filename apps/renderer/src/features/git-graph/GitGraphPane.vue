@@ -3,9 +3,10 @@ Git commit graph showing the current worktree branch and the default branch.
 
 ## Structure
 
-- HTML table for commit data (Description, Date, Author, Commit columns)
-- SVG overlay for graph lines and commit dots (Graph column)
-- SVG is positioned absolutely over the first column of each row
+- Working Tree row: sticky header outside scroll area, with status icons and dot on lane 0
+- Connector line: dashed SVG path from lane 0 top to HEAD lane (straight if same lane, Bézier curve otherwise)
+- Scrollable commit list: HTML rows for commit data + SVG overlay for graph lines and dots
+- Graph layout reserves lane 0 for the Working Tree connector; commit lanes start from lane 1
 </doc>
 
 <script setup lang="ts">
@@ -85,39 +86,25 @@ const outOfSyncBranches = computed(() => {
   return result;
 });
 
-/**
- * コミット一覧の先頭に Uncommitted Changes 仮想行を挿入する。
- * HEAD コミットを親として接続する。
- */
 /** refs 配列に "HEAD" を持つコミットを探す */
 function findHeadCommit(rawCommits: GitCommit[]): GitCommit | undefined {
   return rawCommits.find((c) => c.refs.includes("HEAD"));
 }
 
-function prependUncommitted(rawCommits: GitCommit[]): GitCommit[] {
-  const headCommit = findHeadCommit(rawCommits);
-  const headHash = headCommit?.hash ?? "";
-  const count = uncommittedChangeCount.value;
-  const uncommitted: GitCommit = {
-    hash: UNCOMMITTED_HASH,
-    shortHash: "*",
-    parents: headHash ? [headHash] : [],
-    author: "*",
-    date: Math.floor(Date.now() / 1000),
-    message: count > 0 ? `Working Tree (${count})` : "Working Tree (Clean)",
-    body: "",
-    refs: [],
-  };
-
-  return [uncommitted, ...rawCommits];
-}
+/** Working Tree 接続用に左端 1 レーンを確保 */
+const RESERVED_LANES = 1;
 
 function recomputeLayout() {
-  const withUncommitted = prependUncommitted(commits.value);
-  layout.value = computeGraphLayout(withUncommitted, {
-    hasUncommitted: true,
+  layout.value = computeGraphLayout(commits.value, {
+    reservedLanes: RESERVED_LANES,
   });
 }
+
+/** HEAD ノードのレーン番号。接続線の描画に使用 */
+const headLane = computed(() => {
+  const node = layout.value.nodes.find((n) => n.commit.refs.includes("HEAD"));
+  return node?.lane ?? RESERVED_LANES;
+});
 
 /** 前回の HEAD ハッシュ。gitStatusChange で変化を検知するために使用 */
 let lastHead = "";
@@ -181,12 +168,7 @@ watch(sortMode, () => {
   void loadLog();
 });
 
-// git status 変更時は uncommitted 行の件数を再計算し、選択を Uncommitted Changes に戻す
-watch(gitStatuses, () => {
-  recomputeLayout();
-  gitGraphStore.resetSelection();
-  scrollToIndex(0);
-});
+// git status 変更時: Working Tree 固定行の件数・アイコンは computed で自動更新されるため watcher 不要
 
 // HEAD 変更（コミット、リベース等）や upstream 変更（push、fetch）を検知して git log を再取得する。
 // head ハッシュまたは ahead/behind の変化があった場合のみ再取得する（ファイル保存では走らない）。
@@ -287,6 +269,32 @@ function rowY(row: number): number {
   return row * ROW_HEIGHT + ROW_HEIGHT / 2;
 }
 
+/**
+ * Working Tree 固定行 → HEAD コミットへの接続ダッシュ線パス。
+ * lane 0 を垂直に降りて、HEAD の1行上からベジェ曲線で HEAD レーンへ合流する。
+ * HEAD が row 0 の場合は直接接続する。
+ */
+const connectorPath = computed(() => {
+  const x0 = laneX(0);
+  const xHead = laneX(headLane.value);
+  const headIndex = layout.value.nodes.findIndex((n) => n.commit.refs.includes("HEAD"));
+  if (headIndex === -1) return "";
+
+  const headY = rowY(headIndex);
+
+  // HEAD が lane 0 にいる場合: 垂直直線のみ
+  if (x0 === xHead) {
+    return `M${x0},0L${x0},${headY}`;
+  }
+
+  // lane 0 を垂直に降りて、HEAD の1行上からベジェ曲線で合流。
+  // HEAD が row 0 の場合は turnY = 0 となり、垂直部分なしで直接カーブする。
+  const turnY = headIndex > 0 ? rowY(headIndex - 1) : 0;
+  const span = headY - turnY;
+  const d = span * 0.8;
+  return `M${x0},0L${x0},${turnY}C${x0},${turnY + d} ${xHead},${headY - d} ${xHead},${headY}`;
+});
+
 /** ブランチの色パレット */
 const COLORS = [
   "#4ec9b0", // teal
@@ -321,10 +329,6 @@ function segmentPath(x1: number, y1: number, x2: number, y2: number): string {
   // ベジェ曲線で滑らかにレーン移動
   const d = ROW_HEIGHT * 0.8;
   return `M${px1},${py1}C${px1},${py1 + d} ${px2},${py2 - d} ${px2},${py2}`;
-}
-
-function isUncommitted(hash: string): boolean {
-  return hash === UNCOMMITTED_HASH;
 }
 
 function isMergeCommit(commit: GitCommit): boolean {
@@ -439,6 +443,18 @@ const hashToIndex = computed(() => {
   return map;
 });
 
+/** Working Tree 用の仮想コミット。CommitDetailPane で "Uncommitted Changes" 表示に使用 */
+const uncommittedCommit: GitCommit = {
+  hash: UNCOMMITTED_HASH,
+  shortHash: "*",
+  parents: [],
+  author: "",
+  date: 0,
+  message: "Uncommitted Changes",
+  body: "",
+  refs: [],
+};
+
 /** 選択中のコミット配列。範囲選択時は selected〜compare 間の全コミットを返す */
 const selectedCommits = computed<GitCommit[]>(() => {
   const nodes = layout.value.nodes;
@@ -446,17 +462,21 @@ const selectedCommits = computed<GitCommit[]>(() => {
   const map = hashToIndex.value;
 
   if (compareHash === null) {
+    if (selectedHash === UNCOMMITTED_HASH) return [uncommittedCommit];
     const idx = map.get(selectedHash);
     return idx !== undefined ? [nodes[idx].commit] : [];
   }
 
-  const selectedIdx = map.get(selectedHash);
-  const compareIdx = map.get(compareHash);
+  // UNCOMMITTED_HASH を -1 として扱い、範囲の始点に含める
+  const selectedIdx = selectedHash === UNCOMMITTED_HASH ? -1 : map.get(selectedHash);
+  const compareIdx = compareHash === UNCOMMITTED_HASH ? -1 : map.get(compareHash);
   if (selectedIdx === undefined || compareIdx === undefined) return [];
 
   const minIdx = Math.min(selectedIdx, compareIdx);
   const maxIdx = Math.max(selectedIdx, compareIdx);
-  return nodes.slice(minIdx, maxIdx + 1).map((n) => n.commit);
+  const commits = nodes.slice(Math.max(0, minIdx), maxIdx + 1).map((n) => n.commit);
+  if (minIdx === -1) commits.unshift(uncommittedCommit);
+  return commits;
 });
 
 const graphListRef = ref<HTMLElement | null>(null);
@@ -468,9 +488,11 @@ function getGraphListSize(): number {
   return el?.offsetWidth ?? GRAPH_LIST_MIN_WIDTH;
 }
 
-/** 現在選択中のノードのインデックス */
+/** 現在選択中のノードのインデックス。範囲選択中は compareHash（移動端）を返す */
 function selectedIndex(): number {
-  return hashToIndex.value.get(gitGraphStore.selectedHash) ?? -1;
+  const { compareHash } = gitGraphStore;
+  const hash = compareHash ?? gitGraphStore.selectedHash;
+  return hashToIndex.value.get(hash) ?? -1;
 }
 
 /** 選択を Uncommitted Changes に戻し、HEAD コミット付近にスクロール */
@@ -502,20 +524,59 @@ function scrollToIndex(index: number) {
   }
 }
 
+/** ビューポートに収まる行数 */
+function pageSize(): number {
+  const container = scrollContainer.value;
+  if (!container) return 1;
+  return Math.max(1, Math.floor(container.clientHeight / ROW_HEIGHT));
+}
+
 function onKeydown(e: KeyboardEvent) {
   const nodes = layout.value.nodes;
   if (nodes.length === 0) return;
 
-  if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+  const isUp = e.key === "ArrowUp" || e.key === "PageUp";
+  const isDown = e.key === "ArrowDown" || e.key === "PageDown";
+  if (!isUp && !isDown) return;
   e.preventDefault();
 
+  const isPage = e.key === "PageUp" || e.key === "PageDown";
+  const step = isPage ? pageSize() : 1;
   const current = selectedIndex();
+
+  // 移動端が Working Tree にある場合（単一選択 or 範囲選択の compareHash が UNCOMMITTED_HASH）
+  if (current === -1) {
+    if (isUp) {
+      scrollToIndex(0);
+      return;
+    }
+    const next = Math.min(step - 1, nodes.length - 1);
+    const hash = nodes[next].commit.hash;
+    if (e.shiftKey) {
+      gitGraphStore.selectCompare(hash);
+    } else {
+      gitGraphStore.select(hash);
+    }
+    scrollToIndex(next);
+    return;
+  }
+
+  // コミット行先頭付近で上移動 → Working Tree へ
+  if (isUp && current !== -1 && current - step < 0) {
+    if (e.shiftKey) {
+      gitGraphStore.selectCompare(UNCOMMITTED_HASH);
+    } else {
+      gitGraphStore.select(UNCOMMITTED_HASH);
+    }
+    return;
+  }
+
   let next: number;
 
-  if (e.key === "ArrowUp") {
-    next = current <= 0 ? 0 : current - 1;
+  if (isUp) {
+    next = current - step;
   } else {
-    next = current >= nodes.length - 1 ? nodes.length - 1 : current + 1;
+    next = Math.min(nodes.length - 1, current + step);
   }
 
   if (e.shiftKey) {
@@ -545,13 +606,16 @@ function rowHighlightClass(hash: string): string {
   return "hover:bg-zinc-800/60";
 }
 
-/** 範囲選択の min/max インデックス。compareHash が null なら undefined */
+/**
+ * 範囲選択の min/max インデックス。compareHash が null なら undefined。
+ * UNCOMMITTED_HASH は layout.nodes に含まれないため -1 として扱う。
+ */
 const rangeIndices = computed<{ min: number; max: number } | undefined>(() => {
   const { selectedHash, compareHash } = gitGraphStore;
   if (compareHash === null) return undefined;
   const map = hashToIndex.value;
-  const selectedIdx = map.get(selectedHash);
-  const compareIdx = map.get(compareHash);
+  const selectedIdx = selectedHash === UNCOMMITTED_HASH ? -1 : map.get(selectedHash);
+  const compareIdx = compareHash === UNCOMMITTED_HASH ? -1 : map.get(compareHash);
   if (selectedIdx === undefined || compareIdx === undefined) return undefined;
   return { min: Math.min(selectedIdx, compareIdx), max: Math.max(selectedIdx, compareIdx) };
 });
@@ -608,119 +672,160 @@ function isInRange(hash: string): boolean {
     <div class="flex min-h-0 flex-1">
       <!-- Graph list -->
       <div
-        v-if="layout.nodes.length === 0"
         ref="graphListRef"
-        class="min-w-0 flex-1 overflow-y-auto p-2"
-      >
-        <div class="text-xs text-zinc-500">No commits</div>
-      </div>
-
-      <div
-        v-else
-        ref="scrollContainer"
-        class="min-w-0 flex-1 overflow-auto outline-none"
+        class="flex min-w-0 flex-1 flex-col outline-none"
         tabindex="0"
         @keydown="onKeydown"
       >
-        <div class="relative" :style="{ minHeight: `${svgHeight}px` }">
-          <!-- Graph SVG overlay -->
+        <!-- Working Tree 固定行: スクロール領域の外に配置 -->
+        <div
+          class="_graph-row relative flex shrink-0 items-center border-b border-zinc-700/50 text-xs"
+          :class="rowHighlightClass(UNCOMMITTED_HASH)"
+          :style="{ height: `${ROW_HEIGHT}px` }"
+          @click="onRowClick(UNCOMMITTED_HASH, $event)"
+        >
+          <!-- Working Tree 行の SVG: lane 0 にドット、下端へダッシュ線 -->
           <svg
             class="pointer-events-none absolute top-0 left-0"
             :width="graphColumnWidth"
-            :height="svgHeight"
+            :height="ROW_HEIGHT"
           >
-            <!-- ラインセグメント -->
-            <path
-              v-for="(seg, si) in layout.lines"
-              :key="`seg-${si}`"
-              :d="segmentPath(seg.x1, seg.y1, seg.x2, seg.y2)"
-              fill="none"
-              :stroke="colorFor(seg.color)"
-              stroke-width="2"
-              :stroke-dasharray="seg.uncommitted ? '4 2' : undefined"
-            />
-            <!-- コミットドット -->
             <circle
-              v-for="(node, row) in layout.nodes"
-              :key="`dot-${node.commit.hash}`"
-              :cx="laneX(node.lane)"
-              :cy="rowY(row)"
+              :cx="laneX(0)"
+              :cy="ROW_HEIGHT / 2"
               :r="DOT_RADIUS"
-              :fill="isUncommitted(node.commit.hash) ? '#1c1c1c' : colorFor(node.color)"
-              :stroke="colorFor(node.color)"
-              :stroke-width="isUncommitted(node.commit.hash) ? 2 : 1.5"
+              fill="#1c1c1c"
+              stroke="#4ec9b0"
+              stroke-width="2"
+            />
+            <line
+              :x1="laneX(0)"
+              :y1="ROW_HEIGHT / 2 + DOT_RADIUS"
+              :x2="laneX(0)"
+              :y2="ROW_HEIGHT"
+              stroke="#4ec9b0"
+              stroke-width="2"
+              stroke-dasharray="4 2"
             />
           </svg>
 
-          <!-- Commit table rows -->
-          <div
-            v-for="node in layout.nodes"
-            :key="node.commit.hash"
-            class="_graph-row relative flex items-center text-xs"
-            :class="rowHighlightClass(node.commit.hash)"
-            :style="{ height: `${ROW_HEIGHT}px` }"
-            @click="onRowClick(node.commit.hash, $event)"
-          >
-            <!-- Graph spacer -->
-            <div class="shrink-0" :style="{ width: `${graphColumnWidth}px` }" />
+          <!-- Graph spacer -->
+          <div class="shrink-0" :style="{ width: `${graphColumnWidth}px` }" />
 
-            <!-- HEAD marker: グラフ列の右端に absolute 配置。レイアウトに影響しない -->
+          <!-- Description -->
+          <div class="flex min-w-0 flex-1 items-center gap-1 truncate pr-2">
             <span
-              v-if="hasHead(node.commit.refs)"
-              class="absolute text-yellow-500"
-              :style="{ left: `${graphColumnWidth}px`, transform: 'translateX(calc(-100% - 4px))' }"
-              title="HEAD"
+              v-if="uncommittedChangeCount === 0"
+              class="truncate font-semibold text-zinc-400 italic"
             >
-              →
+              Working Tree (Clean)
             </span>
+            <StatusIcons v-else :entries="statusIcons" icon-size="size-4" />
+          </div>
+        </div>
 
-            <!-- Description -->
-            <div class="flex min-w-0 flex-1 items-center gap-1 truncate pr-2">
+        <!-- スクロール可能なコミットリスト -->
+        <div ref="scrollContainer" class="min-h-0 flex-1 overflow-auto">
+          <div class="relative" :style="{ minHeight: `${svgHeight}px` }">
+            <!-- Graph SVG overlay -->
+            <svg
+              class="pointer-events-none absolute top-0 left-0"
+              :width="graphColumnWidth"
+              :height="svgHeight"
+            >
+              <!-- Working Tree → HEAD 接続ダッシュ線（lane 0 上端から HEAD レーンへ） -->
+              <path
+                v-if="connectorPath"
+                :d="connectorPath"
+                fill="none"
+                stroke="#4ec9b0"
+                stroke-width="2"
+                stroke-dasharray="4 2"
+              />
+              <!-- ラインセグメント -->
+              <path
+                v-for="(seg, si) in layout.lines"
+                :key="`seg-${si}`"
+                :d="segmentPath(seg.x1, seg.y1, seg.x2, seg.y2)"
+                fill="none"
+                :stroke="colorFor(seg.color)"
+                stroke-width="2"
+              />
+              <!-- コミットドット -->
+              <circle
+                v-for="(node, row) in layout.nodes"
+                :key="`dot-${node.commit.hash}`"
+                :cx="laneX(node.lane)"
+                :cy="rowY(row)"
+                :r="DOT_RADIUS"
+                fill="currentColor"
+                :stroke="colorFor(node.color)"
+                stroke-width="1.5"
+                class="text-zinc-900"
+              />
+            </svg>
+
+            <!-- Commit table rows -->
+            <div
+              v-for="node in layout.nodes"
+              :key="node.commit.hash"
+              class="_graph-row relative flex items-center text-xs"
+              :class="rowHighlightClass(node.commit.hash)"
+              :style="{ height: `${ROW_HEIGHT}px` }"
+              @click="onRowClick(node.commit.hash, $event)"
+            >
+              <!-- Graph spacer -->
+              <div class="shrink-0" :style="{ width: `${graphColumnWidth}px` }" />
+
+              <!-- HEAD marker: グラフ列の右端に absolute 配置。レイアウトに影響しない -->
               <span
-                v-if="isMergeCommit(node.commit)"
-                class="icon-[lucide--git-merge] size-3.5 shrink-0 text-zinc-500"
-              />
-              <RefBadge
-                v-for="displayRef in computeDisplayRefs(
-                  node.commit.refs,
-                  currentBranch,
-                  defaultBranch,
-                  outOfSyncBranches,
-                )"
-                :key="`${displayRef.type}:${displayRef.label}`"
-                :display-ref="displayRef"
-                :pr-by-branch="prByBranch"
-              />
-              <!-- Uncommitted Changes 行: ステータスアイコン付き -->
-              <template v-if="isUncommitted(node.commit.hash)">
-                <!-- clean 時はメッセージのみ表示 -->
+                v-if="hasHead(node.commit.refs)"
+                class="absolute text-yellow-500"
+                :style="{
+                  left: `${graphColumnWidth}px`,
+                  transform: 'translateX(calc(-100% - 4px))',
+                }"
+                title="HEAD"
+              >
+                →
+              </span>
+
+              <!-- Description -->
+              <div class="flex min-w-0 flex-1 items-center gap-1 truncate pr-2">
                 <span
-                  v-if="uncommittedChangeCount === 0"
-                  class="truncate font-semibold text-zinc-400 italic"
-                >
+                  v-if="isMergeCommit(node.commit)"
+                  class="icon-[lucide--git-merge] size-3.5 shrink-0 text-zinc-500"
+                />
+                <RefBadge
+                  v-for="displayRef in computeDisplayRefs(
+                    node.commit.refs,
+                    currentBranch,
+                    defaultBranch,
+                    outOfSyncBranches,
+                  )"
+                  :key="`${displayRef.type}:${displayRef.label}`"
+                  :display-ref="displayRef"
+                  :pr-by-branch="prByBranch"
+                />
+                <span class="truncate">
                   {{ node.commit.message }}
                 </span>
-                <StatusIcons v-else :entries="statusIcons" icon-size="size-4" />
-              </template>
-              <!-- 通常コミット行 -->
-              <span v-else class="truncate">
-                {{ node.commit.message }}
-              </span>
-            </div>
+              </div>
 
-            <!-- Date -->
-            <div class="w-28 shrink-0 text-zinc-500">
-              {{ formatDate(node.commit.date) }}
-            </div>
+              <!-- Date -->
+              <div class="w-28 shrink-0 text-zinc-500">
+                {{ formatDate(node.commit.date) }}
+              </div>
 
-            <!-- Author -->
-            <div class="w-28 shrink-0 truncate text-zinc-500">
-              {{ node.commit.author }}
-            </div>
+              <!-- Author -->
+              <div class="w-28 shrink-0 truncate text-zinc-500">
+                {{ node.commit.author }}
+              </div>
 
-            <!-- Commit hash -->
-            <div class="w-16 shrink-0 font-mono text-zinc-600">
-              {{ node.commit.shortHash }}
+              <!-- Commit hash -->
+              <div class="w-16 shrink-0 font-mono text-zinc-600">
+                {{ node.commit.shortHash }}
+              </div>
             </div>
           </div>
         </div>

@@ -90,7 +90,7 @@ export function useSidebarData() {
     }
     const [firstLine] = wt.task.body.split("\n");
     // 手動設定されたタイトルをターミナルタイトルで上書きしない
-    if (firstLine) return;
+    if (firstLine.trim() !== "") return;
     // タイトルが空の Task にターミナルタイトルを設定
     const newBody = [title, ...wt.task.body.split("\n").slice(1)].join("\n");
     const result = await tryCatch(request.taskUpdate({ id: wt.task.id, body: newBody }));

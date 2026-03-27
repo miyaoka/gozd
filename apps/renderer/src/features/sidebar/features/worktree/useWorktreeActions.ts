@@ -98,7 +98,7 @@ export function useWorktreeActions({
         if (forceResult.ok) {
           removeFromList(wt);
         } else {
-          notify.error(`Failed to force remove "${worktreeDisplayName(wt)}".`);
+          notify.error(`Failed to force remove "${worktreeDisplayName(wt)}"`, forceResult.error);
         }
       },
     );

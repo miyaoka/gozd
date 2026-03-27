@@ -29,13 +29,7 @@ const { setErrorHandler } = useCommandRegistry();
 setErrorHandler(notify.error);
 const { request, send, onGozdOpen, onNotify } = useRpc();
 
-const CONSOLE_BY_TYPE = {
-  error: console.error,
-  info: console.info,
-} as const;
-
 const disposeNotify = onNotify(({ type, source, message, detail }) => {
-  CONSOLE_BY_TYPE[type](`[${source}]`, message, ...(detail ? [detail] : []));
   const notifyFn = type === "error" ? notify.error : notify.info;
   notifyFn(`[${source}] ${message}${detail ? `: ${detail}` : ""}`);
 });
@@ -56,7 +50,7 @@ onMounted(() => {
         if (result.ok) {
           worktreeStore.setOpen(result.value.dir, selection, result.value.fileServerBaseUrl);
         } else {
-          notify.error(`Failed to switch worktree: ${switchToDir}`);
+          notify.error(`Failed to switch worktree: ${switchToDir}`, result.error);
         }
       } else {
         worktreeStore.setOpen(dir, selection, fileServerBaseUrl);

@@ -44,7 +44,7 @@ export function registerPrCommand(): () => void {
             void (async () => {
               const result = await tryCatch(request.switchDir({ dir: existingDir }));
               if (!result.ok) {
-                notify.error(`Failed to switch worktree: ${result.error}`);
+                notify.error("Failed to switch worktree", result.error);
                 return;
               }
               terminalStore.viewMode = "wt";
@@ -61,7 +61,7 @@ export function registerPrCommand(): () => void {
               }),
             );
             if (!result.ok) {
-              notify.error(`Failed to create worktree: ${result.error}`);
+              notify.error("Failed to create worktree", result.error);
               return;
             }
             // PR タイトルを task として作成し、worktree に紐づける
@@ -73,7 +73,7 @@ export function registerPrCommand(): () => void {
               }),
             );
             if (!taskResult.ok) {
-              notify.error(`Failed to create task for worktree: ${taskResult.error}`);
+              notify.error("Failed to create task for worktree", taskResult.error);
             }
             terminalStore.viewMode = "wt";
             worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);

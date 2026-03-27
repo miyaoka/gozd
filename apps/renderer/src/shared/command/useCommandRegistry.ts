@@ -17,9 +17,9 @@ function isDescriptor(
 const entries = new Map<string, CommandEntry>();
 
 /** エラー通知コールバック。feature 層から注入して shared 間の依存を回避する */
-let onError: ((message: string) => void) | undefined;
+let onError: ((message: string, cause?: unknown) => void) | undefined;
 
-function setErrorHandler(handler: (message: string) => void) {
+function setErrorHandler(handler: (message: string, cause?: unknown) => void) {
   onError = handler;
 }
 
@@ -61,7 +61,7 @@ function execute(id: string, args?: unknown): boolean {
   if (!contextKeys.evaluate(entry.precondition)) return false;
   const result = tryCatch(() => entry.handler(args));
   if (!result.ok) {
-    onError?.(`Command "${id}" threw: ${result.error}`);
+    onError?.(`Command "${id}" threw`, result.error);
     return false;
   }
   return result.value;

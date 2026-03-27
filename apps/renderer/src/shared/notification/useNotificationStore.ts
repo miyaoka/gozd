@@ -17,7 +17,14 @@ let nextId = 0;
 const notifications = ref<Notification[]>([]);
 const timers = new Map<number, ReturnType<typeof setTimeout>>();
 
-function add(type: Notification["type"], message: string) {
+const CONSOLE_BY_TYPE = {
+  error: console.error,
+  info: console.info,
+} as const;
+
+function add(type: Notification["type"], message: string, cause?: unknown) {
+  CONSOLE_BY_TYPE[type](message, ...(cause !== undefined ? [cause] : []));
+
   const id = nextId++;
   notifications.value.push({ id, type, message });
 
@@ -39,8 +46,8 @@ function dismiss(id: number) {
 export function useNotificationStore() {
   return {
     notifications,
-    error: (message: string) => add("error", message),
-    info: (message: string) => add("info", message),
+    error: (message: string, cause?: unknown) => add("error", message, cause),
+    info: (message: string, cause?: unknown) => add("info", message, cause),
     dismiss,
   };
 }

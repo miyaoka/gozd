@@ -44,8 +44,9 @@ watch(
 watch(
   () =>
     Object.entries(gitStatusStore.gitStatuses)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .join("\0"),
+      .map(([filePath, status]) => `${filePath}\0${status}`)
+      .sort()
+      .join("\n"),
   () => {
     activeView.value = "changes";
   },

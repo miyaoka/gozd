@@ -195,14 +195,21 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
    */
   function detectInterrupt(ptyId: number, data: string) {
     const currentState = claudeStatusByPtyId.value[ptyId]?.state;
+    if (currentState !== "working") return;
+
     const tail = ptyTailBuffers.get(ptyId) ?? "";
     const combined = tail + data;
 
-    console.debug(
-      `[claude-status] detectInterrupt: ptyId=${ptyId} state=${currentState} combined=${JSON.stringify(combined)}`,
-    );
-
-    if (currentState !== "working") return;
+    // "Interrupted" を含むチャンクのみログ出力（全チャンクに出すとノイズになるため）
+    if (data.includes("Interrupted")) {
+      const markerMatched = combined.includes(INTERRUPT_MARKER);
+      const idx = combined.indexOf("Interrupted");
+      const preview = combined.slice(Math.max(0, idx - 20), idx + 30);
+      console.debug(
+        `[claude-status] detectInterrupt: ptyId=${ptyId} markerMatched=${markerMatched} tailLen=${tail.length} dataLen=${data.length}`,
+        JSON.stringify(preview),
+      );
+    }
 
     if (combined.includes(INTERRUPT_MARKER)) {
       cancelAskTimer(ptyId);

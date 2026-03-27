@@ -106,28 +106,30 @@ watch(
   { immediate: true },
 );
 
-/** diff 行に対応するトークン配列を返す。行番号は 1-based */
-function getLineTokens(line: DiffLine): ThemedToken[] | undefined {
-  if (line.type === "removed" && line.oldLineNo !== undefined) {
-    return originalTokens.value?.[line.oldLineNo - 1];
-  }
-  if (line.newLineNo !== undefined) {
-    return currentTokens.value?.[line.newLineNo - 1];
-  }
-  return undefined;
-}
+/** diff 行にトークン配列を付与した view model */
+const diffLinesView = computed(() => {
+  const orig = originalTokens.value;
+  const curr = currentTokens.value;
+  if (!orig || !curr) return undefined;
 
-const hasTokens = computed(
-  () => originalTokens.value !== undefined && currentTokens.value !== undefined,
-);
+  return diffResult.value.map((line) => {
+    let tokens: ThemedToken[] | undefined;
+    if (line.type === "removed" && line.oldLineNo !== undefined) {
+      tokens = orig[line.oldLineNo - 1];
+    } else if (line.newLineNo !== undefined) {
+      tokens = curr[line.newLineNo - 1];
+    }
+    return { ...line, tokens };
+  });
+});
 </script>
 
 <template>
   <div class="p-4 text-sm/tight" :style="{ '--line-no-width': lineNoWidth }">
     <!-- ハイライト付き表示 -->
-    <template v-if="hasTokens">
+    <template v-if="diffLinesView">
       <div
-        v-for="(line, i) in diffResult"
+        v-for="(line, i) in diffLinesView"
         :key="i"
         class="_diff-line"
         :class="LINE_BG_CLASSES[line.type]"
@@ -136,13 +138,12 @@ const hasTokens = computed(
         <span class="_line-no">{{ line.newLineNo ?? "" }}</span>
         <span class="_line-text" :class="wordWrap ? '_word-wrap' : ''">
           <span
-            v-for="(token, j) in getLineTokens(line)"
+            v-for="(token, j) in line.tokens"
             :key="j"
             :style="token.color ? { color: token.color } : undefined"
             >{{ token.content }}</span
           >
-          <!-- トークンがない場合（空行等）はプレーンテキスト -->
-          <template v-if="!getLineTokens(line)">{{ line.text }}</template>
+          <template v-if="!line.tokens">{{ line.text }}</template>
         </span>
       </div>
     </template>

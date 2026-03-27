@@ -17,7 +17,6 @@ export interface FileReadResult {
   isDirectory?: boolean;
 }
 
-/** git status の変更種別ごとのファイル数 */
 /** git worktree の情報 */
 export interface WorktreeEntry {
   /** worktree のディレクトリパス */

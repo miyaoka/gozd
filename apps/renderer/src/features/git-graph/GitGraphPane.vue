@@ -700,7 +700,7 @@ function isInRange(hash: string): boolean {
                 >
                   {{ node.commit.message }}
                 </span>
-                <StatusIcons :entries="statusIcons" icon-size="size-4" />
+                <StatusIcons v-else :entries="statusIcons" icon-size="size-4" />
               </template>
               <!-- 通常コミット行 -->
               <span v-else class="truncate">

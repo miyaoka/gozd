@@ -1,19 +1,14 @@
 import type { Task, WorktreeEntry } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
-import type { Ref } from "vue";
 import { ref } from "vue";
 import { useRpc } from "../../../../shared/rpc";
 
 interface UseTaskActionsOptions {
-  pendingTasks: Ref<Task[]>;
   fetchData: () => Promise<void>;
 }
 
-/**
- * Task の CRUD とインライン編集。
- * 新規作成・編集・削除の状態を独立管理する。
- */
-export function useTaskActions({ pendingTasks, fetchData }: UseTaskActionsOptions) {
+/** worktree に紐づく Task の編集・新規作成を管理する */
+export function useTaskActions({ fetchData }: UseTaskActionsOptions) {
   const { request } = useRpc();
 
   // --- インライン編集 ---
@@ -43,48 +38,6 @@ export function useTaskActions({ pendingTasks, fetchData }: UseTaskActionsOption
 
   function cancelEdit() {
     editingTaskId.value = undefined;
-  }
-
-  /** Task クリックで編集をトグル */
-  function handleToggleEdit(task: Task) {
-    if (editingTaskId.value === task.id) {
-      cancelEdit();
-    } else {
-      startEditing(task);
-    }
-  }
-
-  // --- 新規 Task 作成 ---
-
-  const isAddingTask = ref(false);
-  const newTaskBody = ref("");
-
-  function startAddingTask() {
-    isAddingTask.value = true;
-    newTaskBody.value = "";
-  }
-
-  async function saveNewTask() {
-    if (!newTaskBody.value.trim()) {
-      isAddingTask.value = false;
-      return;
-    }
-    const result = await tryCatch(request.taskAdd({ body: newTaskBody.value }));
-    if (!result.ok) return;
-    isAddingTask.value = false;
-    await fetchData();
-  }
-
-  function cancelNewTask() {
-    isAddingTask.value = false;
-  }
-
-  // --- Task 操作 ---
-
-  async function handleTaskRemove(task: Task) {
-    const result = await tryCatch(request.taskRemove({ id: task.id }));
-    if (!result.ok) return;
-    pendingTasks.value = pendingTasks.value.filter((t) => t.id !== task.id);
   }
 
   // --- worktree の Task 編集・新規作成（入力欄を開き、保存時に永続化） ---
@@ -140,18 +93,8 @@ export function useTaskActions({ pendingTasks, fetchData }: UseTaskActionsOption
     // インライン編集
     editingTaskId,
     editBody,
-    startEditing,
     submitEdit,
     cancelEdit,
-    handleToggleEdit,
-    // 新規作成
-    isAddingTask,
-    newTaskBody,
-    startAddingTask,
-    saveNewTask,
-    cancelNewTask,
-    // 操作
-    handleTaskRemove,
     // worktree Task 編集・新規作成
     addingTaskForDir,
     addingTaskBody,

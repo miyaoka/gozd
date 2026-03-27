@@ -1,7 +1,7 @@
 import type { WorktreeEntry } from "@gozd/rpc";
 
 /** Task の body 一行目をタイトルとして取得 */
-export function taskTitle(body: string): string {
+function taskTitle(body: string): string {
   const [firstLine] = body.split("\n");
   return firstLine ?? "";
 }

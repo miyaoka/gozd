@@ -1,7 +1,7 @@
 <doc lang="md">
 共有 ⋮ ポップオーバーメニュー。
 
-worktree / task / branch の各セクションから呼ばれ、
+worktree / branch の各セクションから呼ばれ、
 コンテキストに応じたアクション（編集・削除・作成）を表示する。
 CSS Anchor Positioning で ⋮ ボタンの直下に配置。
 
@@ -10,7 +10,7 @@ CSS Anchor Positioning で ⋮ ボタンの直下に配置。
 </doc>
 
 <script setup lang="ts">
-import type { Task, WorktreeEntry } from "@gozd/rpc";
+import type { WorktreeEntry } from "@gozd/rpc";
 import { nextTick, ref } from "vue";
 
 defineProps<{
@@ -20,15 +20,12 @@ defineProps<{
 const emit = defineEmits<{
   worktreeEditTask: [wt: WorktreeEntry];
   worktreeRemove: [wt: WorktreeEntry];
-  taskCreateWorktree: [task: Task];
-  taskRemove: [task: Task];
   branchLink: [branch: string];
 }>();
 
 interface MenuContext {
-  type: "worktree" | "task" | "branch";
+  type: "worktree" | "branch";
   worktree?: WorktreeEntry;
-  task?: Task;
   branch?: string;
 }
 
@@ -57,16 +54,6 @@ function handleWorktreeEditTask(wt: WorktreeEntry) {
 function handleWorktreeRemove(wt: WorktreeEntry) {
   closeMenu();
   emit("worktreeRemove", wt);
-}
-
-function handleTaskCreateWorktree(task: Task) {
-  closeMenu();
-  emit("taskCreateWorktree", task);
-}
-
-function handleTaskRemove(task: Task) {
-  closeMenu();
-  emit("taskRemove", task);
 }
 
 function handleBranchLink(branch: string) {
@@ -102,23 +89,6 @@ defineExpose({ openMenu });
       >
         <span class="icon-[lucide--unlink] text-xs" />
         Remove worktree
-      </button>
-    </template>
-    <template v-else-if="menuContext?.type === 'task' && menuContext.task">
-      <button
-        class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800"
-        :disabled="isCreating"
-        @click="handleTaskCreateWorktree(menuContext.task)"
-      >
-        <span class="icon-[lucide--play] text-xs" />
-        Create worktree
-      </button>
-      <button
-        class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-400 hover:bg-zinc-800"
-        @click="handleTaskRemove(menuContext.task)"
-      >
-        <span class="icon-[lucide--trash-2] text-xs" />
-        Delete task
       </button>
     </template>
     <template v-else-if="menuContext?.type === 'branch' && menuContext.branch">

@@ -1,11 +1,10 @@
 <doc lang="md">
-左端のサイドバー。プロジェクトの worktree 一覧、Task、ブランチ一覧を表示する。
+左端のサイドバー。プロジェクトの worktree 一覧、ブランチ一覧を表示する。
 
 ## セクション構成
 
 - ROOT: リポジトリルート（main）。メニューなし
-- WORKTREES: Task 紐づき済みの worktree。Task タイトルまたはブランチ名で表示。Claude 状態バッジ付き
-- TASKS: 未着手の Task（worktreeDir なし）
+- WORKTREES: worktree 一覧。Task タイトルまたはブランチ名で表示。Claude 状態バッジ付き
 - BRANCHES: worktree 化されていないローカルブランチ
 
 ## 操作
@@ -23,9 +22,9 @@ worktree 行ごとの Claude 状態表示は `WorktreeItem.vue` に委譲。
 
 ロジックは composable に切り出し、SidebarPane はレイアウトとサブ機能の組み合わせに専念する。
 
-- `useSidebarData` — データ取得・状態管理（worktrees, freeBranches, pendingTasks）
+- `useSidebarData` — データ取得・状態管理（worktrees, freeBranches）
 - `useWorktreeActions` — worktree CRUD・選択・切り替え（独自 isCreating）
-- `useTaskActions` — Task CRUD・インライン編集（独立した状態管理）
+- `useTaskActions` — worktree に紐づく Task の編集・新規作成
 - `useDialogs` — 確認ダイアログの状態管理
 - `useCtrlBadge` — Ctrl キー押下検知
 - `SidebarMenu` — ⋮ ポップオーバーメニュー
@@ -39,8 +38,8 @@ import { useCommandRegistry } from "../../shared/command";
 import { useNotificationStore } from "../../shared/notification";
 import { useProjectStore } from "../../shared/project";
 import { useTerminalStore } from "../terminal";
-import { useWorktreeStore, generateTimestamp } from "../worktree";
-import { TaskEditor, TaskList, useTaskActions } from "./features/task";
+import { useWorktreeStore } from "../worktree";
+import { TaskEditor, useTaskActions } from "./features/task";
 import { BranchList, RootWorktree, WorktreeList, useWorktreeActions } from "./features/worktree";
 import ProjectConfigPanel from "./ProjectConfigPanel.vue";
 import SidebarMenu from "./SidebarMenu.vue";
@@ -54,15 +53,8 @@ const projectStore = useProjectStore();
 const terminalStore = useTerminalStore();
 const notify = useNotificationStore();
 
-const {
-  worktrees,
-  freeBranches,
-  pendingTasks,
-  rootWorktree,
-  nonMainWorktrees,
-  sortedBranches,
-  fetchData,
-} = useSidebarData();
+const { worktrees, freeBranches, rootWorktree, nonMainWorktrees, sortedBranches, fetchData } =
+  useSidebarData();
 
 const { confirmRef, confirmMessage, showConfirm, closeConfirm, executeConfirm } = useDialogs();
 
@@ -72,7 +64,6 @@ const {
   handleWorktreeSelect,
   addWorktree,
   handleWorktreeRemove,
-  createWorktreeWithTask,
   handleBranchLink,
 } = useWorktreeActions({ worktrees, freeBranches, showConfirm });
 
@@ -81,19 +72,12 @@ const {
   editBody,
   submitEdit,
   cancelEdit,
-  handleToggleEdit,
-  isAddingTask,
-  newTaskBody,
-  startAddingTask,
-  saveNewTask,
-  cancelNewTask,
-  handleTaskRemove,
   addingTaskForDir,
   addingTaskBody,
   toggleWorktreeTaskEdit,
   saveWorktreeTask,
   cancelWorktreeTaskAdd,
-} = useTaskActions({ pendingTasks, fetchData });
+} = useTaskActions({ fetchData });
 
 const { ctrlPressed } = useCtrlBadge();
 
@@ -130,11 +114,6 @@ function onWorktreeSelect(wt: import("@gozd/rpc").WorktreeEntry) {
   }
   handleWorktreeSelect(wt);
 }
-
-function handleMenuTaskCreateWorktree(task: import("@gozd/rpc").Task) {
-  const timestamp = generateTimestamp();
-  createWorktreeWithTask({ task, worktreeDir: timestamp, branch: timestamp });
-}
 </script>
 
 <template>
@@ -170,7 +149,7 @@ function handleMenuTaskCreateWorktree(task: import("@gozd/rpc").Task) {
         @select="onWorktreeSelect"
         @open-menu="
           (anchorName, wt) =>
-            sidebarMenuRef?.openMenu(anchorName, { type: 'worktree', worktree: wt, task: wt.task })
+            sidebarMenuRef?.openMenu(anchorName, { type: 'worktree', worktree: wt })
         "
         @add="addWorktree"
         @set-view-mode="terminalStore.viewMode = $event"
@@ -191,36 +170,6 @@ function handleMenuTaskCreateWorktree(task: import("@gozd/rpc").Task) {
         </template>
       </WorktreeList>
 
-      <!-- TASKS -->
-      <TaskList
-        :tasks="pendingTasks"
-        :editing-task-id="editingTaskId"
-        :is-adding-task="isAddingTask"
-        @toggle-edit="handleToggleEdit"
-        @open-menu="
-          (anchorName, task) => sidebarMenuRef?.openMenu(anchorName, { type: 'task', task })
-        "
-        @start-add="startAddingTask"
-      >
-        <template #after-item="{ task }">
-          <TaskEditor
-            v-if="editingTaskId === task.id"
-            v-model:body="editBody"
-            @save="submitEdit"
-            @cancel="cancelEdit"
-          />
-        </template>
-        <template #add-form>
-          <TaskEditor
-            v-if="isAddingTask"
-            v-model:body="newTaskBody"
-            placeholder="First line becomes the title"
-            @save="saveNewTask"
-            @cancel="cancelNewTask"
-          />
-        </template>
-      </TaskList>
-
       <!-- BRANCHES -->
       <BranchList
         :branches="sortedBranches"
@@ -236,8 +185,6 @@ function handleMenuTaskCreateWorktree(task: import("@gozd/rpc").Task) {
       :is-creating="isCreating"
       @worktree-edit-task="toggleWorktreeTaskEdit"
       @worktree-remove="handleWorktreeRemove"
-      @task-create-worktree="handleMenuTaskCreateWorktree"
-      @task-remove="handleTaskRemove"
       @branch-link="handleBranchLink"
     />
 

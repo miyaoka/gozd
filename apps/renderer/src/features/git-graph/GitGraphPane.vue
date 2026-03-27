@@ -7,14 +7,25 @@ Git commit graph showing the current worktree branch and the default branch.
 - Connector line: dashed SVG path from lane 0 top to HEAD lane (straight if same lane, Bézier curve otherwise)
 - Scrollable commit list: HTML rows for commit data + SVG overlay for graph lines and dots
 - Graph layout reserves lane 0 for the Working Tree connector; commit lanes start from lane 1
+- CommitDetailPane is shown as a toggleable right pane inside the graph
+- Commits are stored in `useGitGraphStore` and shared with ChangesPane
 </doc>
 
 <script setup lang="ts">
 import type { GitCommit, GitPullRequest } from "@gozd/rpc";
 import { UNCOMMITTED_HASH } from "@gozd/rpc";
-import { useIntervalFn } from "@vueuse/core";
+import { useElementSize, useIntervalFn } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  ref,
+  useTemplateRef,
+  watch,
+  watchEffect,
+} from "vue";
 import { useRpc } from "../../shared/rpc";
 import { ResizeHandle } from "../layout";
 import { computeStatusIcons, StatusIcons, useGitStatusStore, useWorktreeStore } from "../worktree";
@@ -27,13 +38,15 @@ import type { SortMode } from "./mergeCommitStreams";
 import RefBadge from "./RefBadge.vue";
 import { useGitGraphStore } from "./useGitGraphStore";
 
+const rootRef = useTemplateRef<HTMLElement>("root");
+const { width: rootWidth } = useElementSize(rootRef);
 const { request, onGitStatusChange, onBranchChange } = useRpc();
 const worktreeStore = useWorktreeStore();
 const gitStatusStore = useGitStatusStore();
 const gitGraphStore = useGitGraphStore();
 const { gitStatuses } = storeToRefs(gitStatusStore);
 
-const commits = ref<GitCommit[]>([]);
+const { commits } = storeToRefs(gitGraphStore);
 const defaultBranch = ref<string | undefined>();
 const layout = ref<GraphLayout>({ nodes: [], lines: [], maxLanes: 1 });
 const firstParentOnly = ref(false);
@@ -430,53 +443,23 @@ function formatDate(timestamp: number): string {
 /** 詳細ペインの幅 */
 const DETAIL_MIN_WIDTH = 200;
 const GRAPH_LIST_MIN_WIDTH = 400;
+/** ResizeHandle の幅 */
+const DETAIL_HANDLE_WIDTH = 8;
 const detailWidth = ref(320);
 const detailOpen = ref(true);
 
-/** hash → ノードインデックスのルックアップ。O(1) でインデックス取得 */
-const hashToIndex = computed(() => {
-  const map = new Map<string, number>();
-  const nodes = layout.value.nodes;
-  for (let i = 0; i < nodes.length; i++) {
-    map.set(nodes[i].commit.hash, i);
+// コンテナ幅縮小時に detailWidth をクランプし、収まらなければ自動で閉じる
+// rootWidth が 0（マウント前）のときはスキップ
+watchEffect(() => {
+  if (!detailOpen.value || rootWidth.value === 0) return;
+  const available = rootWidth.value - GRAPH_LIST_MIN_WIDTH - DETAIL_HANDLE_WIDTH;
+  if (available < DETAIL_MIN_WIDTH) {
+    detailOpen.value = false;
+    return;
   }
-  return map;
-});
-
-/** Working Tree 用の仮想コミット。CommitDetailPane で "Uncommitted Changes" 表示に使用 */
-const uncommittedCommit: GitCommit = {
-  hash: UNCOMMITTED_HASH,
-  shortHash: "*",
-  parents: [],
-  author: "",
-  date: 0,
-  message: "Uncommitted Changes",
-  body: "",
-  refs: [],
-};
-
-/** 選択中のコミット配列。範囲選択時は selected〜compare 間の全コミットを返す */
-const selectedCommits = computed<GitCommit[]>(() => {
-  const nodes = layout.value.nodes;
-  const { selectedHash, compareHash } = gitGraphStore;
-  const map = hashToIndex.value;
-
-  if (compareHash === null) {
-    if (selectedHash === UNCOMMITTED_HASH) return [uncommittedCommit];
-    const idx = map.get(selectedHash);
-    return idx !== undefined ? [nodes[idx].commit] : [];
+  if (detailWidth.value > available) {
+    detailWidth.value = Math.max(DETAIL_MIN_WIDTH, available);
   }
-
-  // UNCOMMITTED_HASH を -1 として扱い、範囲の始点に含める
-  const selectedIdx = selectedHash === UNCOMMITTED_HASH ? -1 : map.get(selectedHash);
-  const compareIdx = compareHash === UNCOMMITTED_HASH ? -1 : map.get(compareHash);
-  if (selectedIdx === undefined || compareIdx === undefined) return [];
-
-  const minIdx = Math.min(selectedIdx, compareIdx);
-  const maxIdx = Math.max(selectedIdx, compareIdx);
-  const commits = nodes.slice(Math.max(0, minIdx), maxIdx + 1).map((n) => n.commit);
-  if (minIdx === -1) commits.unshift(uncommittedCommit);
-  return commits;
 });
 
 const graphListRef = ref<HTMLElement | null>(null);
@@ -492,7 +475,7 @@ function getGraphListSize(): number {
 function selectedIndex(): number {
   const { compareHash } = gitGraphStore;
   const hash = compareHash ?? gitGraphStore.selectedHash;
-  return hashToIndex.value.get(hash) ?? -1;
+  return gitGraphStore.hashToIndex.get(hash) ?? -1;
 }
 
 /** 選択を Uncommitted Changes に戻し、HEAD コミット付近にスクロール */
@@ -613,7 +596,7 @@ function rowHighlightClass(hash: string): string {
 const rangeIndices = computed<{ min: number; max: number } | undefined>(() => {
   const { selectedHash, compareHash } = gitGraphStore;
   if (compareHash === null) return undefined;
-  const map = hashToIndex.value;
+  const map = gitGraphStore.hashToIndex;
   const selectedIdx = selectedHash === UNCOMMITTED_HASH ? -1 : map.get(selectedHash);
   const compareIdx = compareHash === UNCOMMITTED_HASH ? -1 : map.get(compareHash);
   if (selectedIdx === undefined || compareIdx === undefined) return undefined;
@@ -624,14 +607,17 @@ const rangeIndices = computed<{ min: number; max: number } | undefined>(() => {
 function isInRange(hash: string): boolean {
   const range = rangeIndices.value;
   if (!range) return false;
-  const idx = hashToIndex.value.get(hash);
+  const idx = gitGraphStore.hashToIndex.get(hash);
   if (idx === undefined) return false;
   return idx > range.min && idx < range.max;
 }
 </script>
 
 <template>
-  <div class="flex size-full flex-col overflow-hidden bg-zinc-900 text-zinc-300 select-none">
+  <div
+    ref="root"
+    class="flex size-full flex-col overflow-hidden bg-zinc-900 text-zinc-300 select-none"
+  >
     <div class="flex shrink-0 items-center gap-1.5 border-b border-zinc-700 px-3 py-1.5">
       <span class="icon-[lucide--git-commit-horizontal] size-4 text-zinc-400" />
       <span class="text-xs font-semibold text-zinc-400">Git Graph</span>
@@ -659,9 +645,10 @@ function isInRange(hash: string): boolean {
         Scroll to HEAD
       </button>
       <button
-        class="rounded-sm px-1.5 py-0.5 text-[10px]"
+        class="ml-auto rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="detailOpen ? 'bg-blue-800 text-blue-200' : 'text-zinc-500 hover:text-zinc-300'"
         title="Toggle commit detail"
+        aria-label="Toggle commit detail"
         @click="detailOpen = !detailOpen"
       >
         <span class="icon-[lucide--panel-right] size-3.5" />
@@ -844,7 +831,7 @@ function isInRange(hash: string): boolean {
           class="shrink-0 overflow-hidden border-l border-zinc-700"
           :style="{ width: `${detailWidth}px` }"
         >
-          <CommitDetailPane :commits="selectedCommits" />
+          <CommitDetailPane :commits="gitGraphStore.selectedCommits" />
         </div>
       </template>
     </div>

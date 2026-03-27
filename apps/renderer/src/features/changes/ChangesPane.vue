@@ -74,19 +74,6 @@ const sortedFiles = computed(() =>
 
 const fileCount = computed(() => sortedFiles.value.length);
 
-/** ヘッダーに表示するラベル */
-const headerLabel = computed(() => {
-  const hash = gitGraphStore.selectedHash;
-  if (isUncommittedMode.value && !isRangeMode.value) return "Uncommitted Changes";
-  const compareHash = gitGraphStore.compareHash;
-  if (compareHash !== null) {
-    const a = hash === UNCOMMITTED_HASH ? "working" : hash.slice(0, 7);
-    const b = compareHash === UNCOMMITTED_HASH ? "working" : compareHash.slice(0, 7);
-    return `${a}..${b}`;
-  }
-  return hash.slice(0, 7);
-});
-
 const CHANGE_COLOR_MAP: Record<GitFileChange["type"], string> = {
   M: "text-yellow-400",
   A: "text-green-400",
@@ -141,7 +128,6 @@ watch(
       <span class="icon-[lucide--git-branch] size-4 text-zinc-400" />
       <span class="text-xs font-semibold text-zinc-400">Changes</span>
       <span v-if="fileCount > 0" class="text-xs text-zinc-500">({{ fileCount }})</span>
-      <span class="ml-auto text-xs text-zinc-500">{{ headerLabel }}</span>
     </div>
 
     <div v-if="loading" class="flex-1 overflow-y-auto p-2">

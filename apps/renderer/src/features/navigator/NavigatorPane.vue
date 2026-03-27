@@ -8,7 +8,7 @@ Filer と Changes をタブで切り替えるコンテナ。
 - FilerPane の `reveal()` を親に再公開
 - ChangesPane の `select` emit を `worktreeStore.selectPath()` に接続
 - git-graph でコミットを選択すると自動的に Changes タブをアクティブにする
-- git status が更新されると自動的に Changes タブをアクティブにする
+- git status が clean → dirty に変化すると自動的に Changes タブをアクティブにする
 </doc>
 
 <script setup lang="ts">
@@ -39,9 +39,15 @@ watch(
   },
 );
 
-/** git status が更新されたら Changes タブをアクティブにする */
-const unsubscribeGitStatus = onGitStatusChange(() => {
-  activeView.value = "changes";
+/** git status が clean → dirty に変化したら Changes タブをアクティブにする。
+ * 既に dirty な状態での更新や、HEAD/upstream のみの変化では切り替えない */
+let wasClean = true;
+const unsubscribeGitStatus = onGitStatusChange(({ statuses }) => {
+  const isDirty = Object.keys(statuses).length > 0;
+  if (wasClean && isDirty) {
+    activeView.value = "changes";
+  }
+  wasClean = !isDirty;
 });
 onUnmounted(() => {
   unsubscribeGitStatus();

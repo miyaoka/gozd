@@ -25,9 +25,11 @@ const dialogRef = useTemplateRef<HTMLDialogElement>("dialog");
 const inputRef = useTemplateRef<HTMLInputElement>("input");
 const listRef = useTemplateRef<HTMLDivElement>("list");
 
-const { prItems, showSignal, accept } = usePrPicker();
+const { prItems, viewer, showSignal, accept } = usePrPicker();
 
 const query = ref("");
+const filterAssignee = ref(false);
+const filterReviewer = ref(false);
 
 /** 検索対象テキストを生成（title, branch, author を結合） */
 function searchText(pr: GitPullRequest): string {
@@ -35,11 +37,22 @@ function searchText(pr: GitPullRequest): string {
 }
 
 const filteredPrs = computed((): GitPullRequest[] => {
+  const v = viewer.value;
+  let items = prItems.value;
+
+  // assignee:me / reviewer:me フィルタ
+  if (filterAssignee.value && v !== "") {
+    items = items.filter((pr) => pr.assignees.includes(v));
+  }
+  if (filterReviewer.value && v !== "") {
+    items = items.filter((pr) => pr.reviewers.includes(v));
+  }
+
   const q = query.value;
-  if (q === "") return prItems.value;
+  if (q === "") return items;
 
   const scored: Array<{ pr: GitPullRequest; score: number }> = [];
-  for (const pr of prItems.value) {
+  for (const pr of items) {
     const result = fuzzyMatch(searchText(pr), q);
     if (result) {
       scored.push({ pr, score: result.score });
@@ -64,6 +77,8 @@ watch(showSignal, () => {
   if (!dialog || dialog.open) return;
   if (prItems.value.length === 0) return;
   query.value = "";
+  filterAssignee.value = false;
+  filterReviewer.value = false;
   reset();
   dialog.showModal();
   contextKeys.set("prPickerVisible", true);
@@ -105,6 +120,8 @@ function handleKeydown(e: KeyboardEvent) {
       movePage(-1);
       break;
     case "Enter":
+      // ボタンにフォーカスがある場合はボタン自身のクリックに任せる
+      if (e.target instanceof HTMLButtonElement) break;
       e.preventDefault();
       acceptSelected();
       break;
@@ -127,15 +144,43 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
     @close="contextKeys.set('prPickerVisible', false)"
   >
     <div class="w-[960px] overflow-hidden rounded-lg border border-zinc-600 bg-zinc-800 shadow-2xl">
-      <div class="border-b border-zinc-700 p-2">
+      <div class="flex items-center gap-2 border-b border-zinc-700 p-2">
         <input
           ref="input"
           v-model="query"
           type="text"
           placeholder="Select a pull request..."
           aria-label="Filter pull requests"
-          class="w-full bg-transparent px-2 py-1 text-sm text-zinc-200 outline-none placeholder:text-zinc-500"
+          class="min-w-0 flex-1 bg-transparent px-2 py-1 text-sm text-zinc-200 outline-none placeholder:text-zinc-500"
         />
+        <button
+          v-if="viewer !== ''"
+          type="button"
+          :aria-pressed="filterAssignee"
+          class="shrink-0 rounded-sm px-2 py-0.5 text-xs"
+          :class="
+            filterAssignee
+              ? 'bg-blue-600 text-white'
+              : 'bg-zinc-700 text-zinc-400 hover:text-zinc-200'
+          "
+          @click="filterAssignee = !filterAssignee"
+        >
+          assignee:me
+        </button>
+        <button
+          v-if="viewer !== ''"
+          type="button"
+          :aria-pressed="filterReviewer"
+          class="shrink-0 rounded-sm px-2 py-0.5 text-xs"
+          :class="
+            filterReviewer
+              ? 'bg-blue-600 text-white'
+              : 'bg-zinc-700 text-zinc-400 hover:text-zinc-200'
+          "
+          @click="filterReviewer = !filterReviewer"
+        >
+          reviewer:me
+        </button>
       </div>
       <div v-if="filteredPrs.length > 0" ref="list" class="max-h-[400px] overflow-y-auto py-1">
         <div

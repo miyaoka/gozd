@@ -53,6 +53,15 @@ const dateDisplay = computed(() => formatRelativeDate(props.pr.updatedAt));
   <span class="truncate text-green-400">#{{ pr.number }}</span>
   <span class="truncate">{{ pr.title }}</span>
   <span class="truncate text-cyan-400">{{ pr.headRefName }}</span>
-  <span class="truncate text-zinc-400">{{ pr.author }}</span>
+  <span class="flex items-center gap-1 truncate text-zinc-400">
+    <img
+      v-if="pr.authorAvatarUrl !== ''"
+      :src="pr.authorAvatarUrl"
+      :alt="pr.author"
+      class="size-5 shrink-0 rounded-full"
+    />
+    <span v-else class="icon-[lucide--user] size-5 shrink-0" />
+    <span class="truncate">{{ pr.author }}</span>
+  </span>
   <span class="truncate text-right" :class="dateDisplay.color">{{ dateDisplay.text }}</span>
 </template>

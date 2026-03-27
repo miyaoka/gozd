@@ -2,5 +2,5 @@ export { filterIgnored, getGitStatus, getGitCommitFiles, resolveCommitDiffRefs }
 export { addWorktree, removeWorktree, getWorktreeList, attachChangeCounts } from "./worktree";
 export { getBranchList, deleteBranch } from "./branch";
 export { getGitLog } from "./log";
-export { getPrList } from "./pr";
+export { getPrList, getViewer } from "./pr";
 export { checkIsGitRepo, parseOwnerRepo, resolveOpenTarget } from "./utils";

@@ -16,6 +16,7 @@ import {
   getGitLog,
   getGitStatus,
   getPrList,
+  getViewer,
   getWorktreeList,
   addWorktree,
   removeWorktree,
@@ -823,6 +824,7 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
         gitLog: ({ maxCount, firstParentOnly }) =>
           getGitLog({ cwd: currentDir, maxCount, firstParentOnly }),
         gitPrList: () => getPrList({ cwd: projectDir, env: shellEnv }),
+        gitViewer: () => getViewer({ cwd: projectDir, env: shellEnv }),
         gitWorktreeList: async () => {
           const entries = await attachChangeCounts(await getWorktreeList(projectDir));
           // 各 worktree に紐づく Todo を付与

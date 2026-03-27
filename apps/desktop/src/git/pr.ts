@@ -2,20 +2,57 @@ import type { GitPullRequest } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 
 /**
- * gh CLI で open な PR 一覧を取得する。
- * gh がインストールされていない / 認証されていない場合は空配列を返す。
+ * gh api graphql で open な PR 一覧を取得する。
+ * gh がインストールされていない / 認証されていない場合は null を返す。
  */
-interface GhPrItem {
+
+const AVATAR_SIZE = 64;
+
+/** GraphQL レスポンスの PR ノード */
+interface GqlPrNode {
   number: number;
   title: string;
   url: string;
   headRefName: string;
   state: "OPEN" | "CLOSED" | "MERGED";
   isDraft: boolean;
-  author: { login: string } | null;
+  author: { login: string; avatarUrl: string } | null;
   updatedAt: string;
-  headRepositoryOwner: { login: string };
+  headRepository: { owner: { login: string } } | null;
+  assignees: { nodes: Array<{ login: string }> };
+  reviewRequests: { nodes: Array<{ requestedReviewer: { login: string } | null }> };
 }
+
+interface GqlPrResponse {
+  data?: {
+    repository?: {
+      owner: { login: string };
+      pullRequests: { nodes: GqlPrNode[] };
+    };
+  };
+}
+
+const PR_QUERY = `
+query($owner: String!, $repo: String!, $limit: Int!) {
+  repository(owner: $owner, name: $repo) {
+    owner { login }
+    pullRequests(first: $limit, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      nodes {
+        number
+        title
+        url
+        headRefName
+        state
+        isDraft
+        author { login avatarUrl(size: ${AVATAR_SIZE}) }
+        updatedAt
+        headRepository { owner { login } }
+        assignees(first: 20) { nodes { login } }
+        reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } } } }
+      }
+    }
+  }
+}`;
 
 /**
  * Bun.spawn で gh コマンドを実行し、stdout を文字列で返す。
@@ -53,6 +90,24 @@ async function execGh({
   return { ok: true, stdout };
 }
 
+/** 自アカウントのログイン名キャッシュ（成功時のみ保持） */
+let cachedViewer: string | undefined;
+
+export async function getViewer({
+  cwd,
+  env,
+}: {
+  cwd: string;
+  env: Record<string, string>;
+}): Promise<string | null> {
+  if (cachedViewer !== undefined) return cachedViewer;
+  const result = await execGh({ args: ["api", "user", "--jq", ".login"], cwd, env });
+  if (!result.ok) return null;
+  const login = result.stdout.trim();
+  cachedViewer = login;
+  return login;
+}
+
 export async function getPrList({
   cwd,
   env,
@@ -60,38 +115,53 @@ export async function getPrList({
   cwd: string;
   env: Record<string, string>;
 }): Promise<GitPullRequest[] | null> {
-  const ownerResult = await execGh({
-    args: ["repo", "view", "--json", "owner", "--jq", ".owner.login"],
+  // owner/repo を取得
+  const nameResult = await execGh({
+    args: ["repo", "view", "--json", "owner,name", "--jq", '.owner.login + "/" + .name'],
     cwd,
     env,
   });
-  if (!ownerResult.ok) return null;
-  const repoOwner = ownerResult.stdout.trim();
+  if (!nameResult.ok) return null;
+  const [owner, repo] = nameResult.stdout.trim().split("/");
+  if (!owner || !repo) return null;
 
-  const listResult = await execGh({
+  const PR_LIMIT = 100;
+  const result = await execGh({
     args: [
-      "pr",
-      "list",
-      "--state",
-      "open",
-      "--json",
-      "number,title,url,headRefName,state,isDraft,author,updatedAt,headRepositoryOwner",
-      "--limit",
-      "100",
+      "api",
+      "graphql",
+      "-F",
+      `owner=${owner}`,
+      "-F",
+      `repo=${repo}`,
+      "-F",
+      `limit=${PR_LIMIT}`,
+      "-f",
+      `query=${PR_QUERY}`,
     ],
     cwd,
     env,
   });
-  if (!listResult.ok) return null;
+  if (!result.ok) return null;
 
-  const parsed = tryCatch(() => JSON.parse(listResult.stdout) as GhPrItem[]);
+  const parsed = tryCatch(() => JSON.parse(result.stdout) as GqlPrResponse);
   if (!parsed.ok) return null;
 
+  // GraphQL の partial error や null レスポンスをガード
+  const repository = parsed.value.data?.repository;
+  if (!repository) return null;
+  const { owner: repoOwner, pullRequests } = repository;
+
   // fork 由来の PR を除外（自リポジトリの owner と一致するもののみ）
-  return parsed.value
-    .filter((pr) => pr.headRepositoryOwner.login === repoOwner)
-    .map(({ headRepositoryOwner: _, author, ...pr }) => ({
+  return pullRequests.nodes
+    .filter((pr) => pr.headRepository?.owner.login === repoOwner.login)
+    .map(({ headRepository: _, author, assignees, reviewRequests, ...pr }) => ({
       ...pr,
       author: author?.login ?? "",
+      authorAvatarUrl: author?.avatarUrl ?? "",
+      assignees: assignees.nodes.map((a) => a.login),
+      reviewers: reviewRequests.nodes
+        .map((r) => r.requestedReviewer?.login)
+        .filter((login): login is string => login !== undefined),
     }));
 }

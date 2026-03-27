@@ -122,8 +122,14 @@ export interface GitPullRequest {
   isDraft: boolean;
   /** 作成者のログイン名 */
   author: string;
+  /** 作成者のアバター URL */
+  authorAvatarUrl: string;
   /** 最終更新日時（ISO 8601） */
   updatedAt: string;
+  /** assignee のログイン名一覧 */
+  assignees: string[];
+  /** レビューリクエストされたユーザーのログイン名一覧 */
+  reviewers: string[];
 }
 
 /** git diff の変更ファイル情報 */
@@ -213,6 +219,11 @@ export type GozdRPC = {
       gitPrList: {
         params: undefined;
         response: GitPullRequest[] | null;
+      };
+      /** gh 認証済みユーザーのログイン名を取得。失敗時は null */
+      gitViewer: {
+        params: undefined;
+        response: string | null;
       };
       /** git worktree list で worktree 一覧を取得 */
       gitWorktreeList: {

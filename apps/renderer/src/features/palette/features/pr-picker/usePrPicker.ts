@@ -8,12 +8,18 @@ import type { GitPullRequest } from "@gozd/rpc";
 import { ref } from "vue";
 
 const prItems = ref<GitPullRequest[]>([]);
+const viewer = ref("");
 const showSignal = ref(0);
 let acceptCallback: ((pr: GitPullRequest) => void) | undefined;
 
 export function usePrPicker() {
-  function show(items: GitPullRequest[], onAccept: (pr: GitPullRequest) => void) {
+  function show(
+    items: GitPullRequest[],
+    viewerLogin: string,
+    onAccept: (pr: GitPullRequest) => void,
+  ) {
     prItems.value = items;
+    viewer.value = viewerLogin;
     acceptCallback = onAccept;
     showSignal.value++;
   }
@@ -22,5 +28,5 @@ export function usePrPicker() {
     acceptCallback?.(pr);
   }
 
-  return { prItems, showSignal, show, accept };
+  return { prItems, viewer, showSignal, show, accept };
 }

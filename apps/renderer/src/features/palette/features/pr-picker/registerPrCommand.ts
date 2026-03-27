@@ -23,9 +23,10 @@ export function registerPrCommand(): () => void {
     precondition: "isGitRepo",
     handler: () => {
       void (async () => {
-        const [prs, worktrees] = await Promise.all([
+        const [prs, worktrees, viewer] = await Promise.all([
           request.gitPrList(undefined),
           request.gitWorktreeList(),
+          request.gitViewer(undefined),
         ]);
         if (!prs || prs.length === 0) return;
 
@@ -34,7 +35,7 @@ export function registerPrCommand(): () => void {
           worktrees.filter((wt) => wt.branch).map((wt) => [wt.branch, wt.path]),
         );
 
-        show(prs, (pr) => {
+        show(prs, viewer ?? "", (pr) => {
           const existingDir = wtByBranch.get(pr.headRefName);
           if (existingDir) {
             // 既存 worktree に切り替え

@@ -471,9 +471,11 @@ function getGraphListSize(): number {
   return el?.offsetWidth ?? GRAPH_LIST_MIN_WIDTH;
 }
 
-/** 現在選択中のノードのインデックス */
+/** 現在選択中のノードのインデックス。範囲選択中は compareHash（移動端）を返す */
 function selectedIndex(): number {
-  return hashToIndex.value.get(gitGraphStore.selectedHash) ?? -1;
+  const { compareHash } = gitGraphStore;
+  const hash = compareHash ?? gitGraphStore.selectedHash;
+  return hashToIndex.value.get(hash) ?? -1;
 }
 
 /** 選択を Uncommitted Changes に戻し、HEAD コミット付近にスクロール */
@@ -505,20 +507,59 @@ function scrollToIndex(index: number) {
   }
 }
 
+/** ビューポートに収まる行数 */
+function pageSize(): number {
+  const container = scrollContainer.value;
+  if (!container) return 1;
+  return Math.max(1, Math.floor(container.clientHeight / ROW_HEIGHT));
+}
+
 function onKeydown(e: KeyboardEvent) {
   const nodes = layout.value.nodes;
   if (nodes.length === 0) return;
 
-  if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+  const isUp = e.key === "ArrowUp" || e.key === "PageUp";
+  const isDown = e.key === "ArrowDown" || e.key === "PageDown";
+  if (!isUp && !isDown) return;
   e.preventDefault();
 
+  const isPage = e.key === "PageUp" || e.key === "PageDown";
+  const step = isPage ? pageSize() : 1;
   const current = selectedIndex();
+
+  // 移動端が Working Tree にある場合（単一選択 or 範囲選択の compareHash が UNCOMMITTED_HASH）
+  if (current === -1) {
+    if (isUp) {
+      scrollToIndex(0);
+      return;
+    }
+    const next = Math.min(step - 1, nodes.length - 1);
+    const hash = nodes[next].commit.hash;
+    if (e.shiftKey) {
+      gitGraphStore.selectCompare(hash);
+    } else {
+      gitGraphStore.select(hash);
+    }
+    scrollToIndex(next);
+    return;
+  }
+
+  // コミット行先頭付近で上移動 → Working Tree へ
+  if (isUp && current !== -1 && current - step < 0) {
+    if (e.shiftKey) {
+      gitGraphStore.selectCompare(UNCOMMITTED_HASH);
+    } else {
+      gitGraphStore.select(UNCOMMITTED_HASH);
+    }
+    return;
+  }
+
   let next: number;
 
-  if (e.key === "ArrowUp") {
-    next = current <= 0 ? 0 : current - 1;
+  if (isUp) {
+    next = current <= 0 ? 0 : Math.max(0, current - step);
   } else {
-    next = current >= nodes.length - 1 ? nodes.length - 1 : current + 1;
+    next = Math.min(nodes.length - 1, current + step);
   }
 
   if (e.shiftKey) {
@@ -548,13 +589,16 @@ function rowHighlightClass(hash: string): string {
   return "hover:bg-zinc-800/60";
 }
 
-/** 範囲選択の min/max インデックス。compareHash が null なら undefined */
+/**
+ * 範囲選択の min/max インデックス。compareHash が null なら undefined。
+ * UNCOMMITTED_HASH は layout.nodes に含まれないため -1 として扱う。
+ */
 const rangeIndices = computed<{ min: number; max: number } | undefined>(() => {
   const { selectedHash, compareHash } = gitGraphStore;
   if (compareHash === null) return undefined;
   const map = hashToIndex.value;
-  const selectedIdx = map.get(selectedHash);
-  const compareIdx = map.get(compareHash);
+  const selectedIdx = selectedHash === UNCOMMITTED_HASH ? -1 : map.get(selectedHash);
+  const compareIdx = compareHash === UNCOMMITTED_HASH ? -1 : map.get(compareHash);
   if (selectedIdx === undefined || compareIdx === undefined) return undefined;
   return { min: Math.min(selectedIdx, compareIdx), max: Math.max(selectedIdx, compareIdx) };
 });
@@ -618,7 +662,12 @@ function isInRange(hash: string): boolean {
         <div class="text-xs text-zinc-500">No commits</div>
       </div>
 
-      <div v-else class="flex min-w-0 flex-1 flex-col">
+      <div
+        v-else
+        class="flex min-w-0 flex-1 flex-col outline-none"
+        tabindex="0"
+        @keydown="onKeydown"
+      >
         <!-- Working Tree 固定行: スクロール領域の外に配置 -->
         <div
           class="_graph-row relative flex shrink-0 items-center border-b border-zinc-700/50 text-xs"
@@ -667,12 +716,7 @@ function isInRange(hash: string): boolean {
         </div>
 
         <!-- スクロール可能なコミットリスト -->
-        <div
-          ref="scrollContainer"
-          class="min-h-0 flex-1 overflow-auto outline-none"
-          tabindex="0"
-          @keydown="onKeydown"
-        >
+        <div ref="scrollContainer" class="min-h-0 flex-1 overflow-auto">
           <div class="relative" :style="{ minHeight: `${svgHeight}px` }">
             <!-- Graph SVG overlay -->
             <svg

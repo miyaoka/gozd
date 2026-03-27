@@ -18,11 +18,12 @@ import { useRpc } from "../../shared/rpc";
 import { ChangesPane } from "../changes";
 import { FilerPane } from "../filer";
 import { useGitGraphStore } from "../git-graph";
-import { useWorktreeStore } from "../worktree";
+import { useGitStatusStore, useWorktreeStore } from "../worktree";
 
 type NavigatorView = "files" | "changes";
 
 const gitGraphStore = useGitGraphStore();
+const gitStatusStore = useGitStatusStore();
 const projectStore = useProjectStore();
 const worktreeStore = useWorktreeStore();
 const { onGitStatusChange } = useRpc();
@@ -41,7 +42,7 @@ watch(
 
 /** git status が clean → dirty に変化したら Changes タブをアクティブにする。
  * 既に dirty な状態での更新や、HEAD/upstream のみの変化では切り替えない */
-let wasClean = true;
+let wasClean = Object.keys(gitStatusStore.gitStatuses).length === 0;
 const unsubscribeGitStatus = onGitStatusChange(({ statuses }) => {
   const isDirty = Object.keys(statuses).length > 0;
   if (wasClean && isDirty) {

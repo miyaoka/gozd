@@ -19,6 +19,25 @@ const SPEAK_EVENTS = new Set(["done", "needs-input"]);
 let currentAudio: HTMLAudioElement | undefined;
 let currentObjectUrl: string | undefined;
 
+/**
+ * 再生中かどうか。モジュールスコープの ref で管理し、store から公開する。
+ * Audio イベント（play / ended / pause）で同期する。
+ */
+const playing = ref(false);
+
+/** currentAudio に再生状態の同期リスナーを登録する */
+function attachPlayingListeners(audio: HTMLAudioElement) {
+  audio.addEventListener("play", () => {
+    playing.value = true;
+  });
+  audio.addEventListener("ended", () => {
+    playing.value = false;
+  });
+  audio.addEventListener("pause", () => {
+    playing.value = false;
+  });
+}
+
 /** 現在の Audio と ObjectURL を解放する */
 function releaseAudio() {
   if (currentAudio) {
@@ -137,6 +156,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
       const url = URL.createObjectURL(blob);
       currentObjectUrl = url;
       currentAudio = new Audio(url);
+      attachPlayingListeners(currentAudio);
       currentAudio.addEventListener("ended", releaseAudio);
       void currentAudio.play();
     };
@@ -208,6 +228,12 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     return "VOICEVOX Engine startup timed out. Please start VOICEVOX manually.";
   }
 
+  /** 再生中の音声を停止する */
+  function stopAudio() {
+    speakGeneration++;
+    releaseAudio();
+  }
+
   /** VOICEVOX を無効化する。in-flight の音声合成リクエストも無効化する */
   function deactivate() {
     speakGeneration++;
@@ -231,7 +257,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
 
   initHookSubscription();
 
-  return { enabled, speedScale, volumeScale, activating, activate, deactivate };
+  return { enabled, playing, speedScale, volumeScale, activating, activate, deactivate, stopAudio };
 });
 
 if (import.meta.hot) {

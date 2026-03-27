@@ -25,6 +25,15 @@ async function handleActivate() {
   <div class="border-t border-zinc-700/50 px-4 py-3">
     <template v-if="voicevoxStore.enabled">
       <div class="flex flex-col gap-2">
+        <button
+          v-if="voicevoxStore.playing"
+          class="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"
+          title="Stop playback"
+          @click="voicevoxStore.stopAudio()"
+        >
+          <span class="icon-[lucide--volume-2] size-4 shrink-0 animate-pulse" />
+          <span>Playing...</span>
+        </button>
         <div class="flex items-center gap-2 text-xs text-zinc-500">
           <span class="icon-[lucide--gauge] size-4 shrink-0" title="Speed" />
           <input

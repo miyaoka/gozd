@@ -128,6 +128,8 @@ export function useSidebarData() {
       // Claude Code のステータスプレフィックス（✳ + Braille dots）を除去
       const title = update.title.replace(/^[\u2733\u2800-\u28FF] /, "");
       if (!title) return;
+      // セッション開始・レジューム時の汎用タイトル "Claude Code" で Todo を上書きしない
+      if (title === "Claude Code") return;
       void drainTitleSync(dir, title);
     },
   );

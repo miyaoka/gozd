@@ -7,6 +7,12 @@ jsdiff の `diffLines` による行単位の unified diff ビュー。
 Shiki の `codeToTokens` で original / current それぞれのトークン配列を取得し、
 diff の各行に対応するトークンをマッピングして色付き表示する。
 removed 行は original のトークン、added / unchanged 行は current のトークンを使用する。
+
+> [!NOTE]
+> 複数行コメントやテンプレートリテラルの開始/終了が変更に含まれる場合、
+> unchanged 行でも original と current でトークン結果が異なりうる。
+> 現在は unchanged を常に current のトークンで描画するため、
+> 旧側の文脈との不整合が生じる場合がある。
 </doc>
 
 <script setup lang="ts">
@@ -79,6 +85,9 @@ let tokenVersion = 0;
 watch(
   () => [props.original, props.current, props.filePath],
   () => {
+    // props 変更時に旧トークンをクリアしてフォールバック表示に戻す
+    originalTokens.value = undefined;
+    currentTokens.value = undefined;
     const version = ++tokenVersion;
     Promise.all([
       highlightTokens(props.original, props.filePath),

@@ -94,12 +94,11 @@ BRANCHES
 
 ### セクション構成
 
-| セクション | 内容                                       |
-| ---------- | ------------------------------------------ |
-| ROOT       | リポジトリルート（main）。メニューなし     |
-| WORKTREES  | Task 紐づき済みの worktree。タイトルで表示 |
-| TASKS      | 未着手の Task（worktreeDir なし）          |
-| BRANCHES   | worktree 化されていないローカルブランチ    |
+| セクション | 内容                                               |
+| ---------- | -------------------------------------------------- |
+| ROOT       | リポジトリルート（main）。メニューなし             |
+| WORKTREES  | worktree 一覧。Task タイトルまたはブランチ名で表示 |
+| BRANCHES   | worktree 化されていないローカルブランチ            |
 
 ### `[⋮]` メニュー
 
@@ -107,12 +106,6 @@ BRANCHES
 
 - Task を編集
 - wt を削除
-
-**TASKS 行:**
-
-- Worktree 化
-- Task を編集
-- Task を削除
 
 **BRANCHES 行:**
 

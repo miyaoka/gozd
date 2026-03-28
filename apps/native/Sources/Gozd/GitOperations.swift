@@ -8,7 +8,19 @@ enum ProcessResult: Sendable {
     case failure(stderr: String, exitCode: Int32)
 }
 
+/// Sendable な Data 格納 box（パイプ読み取り結果の受け渡し用）
+private final class DataBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func set(_ newValue: Data) { lock.withLock { data = newValue } }
+    func get() -> Data { lock.withLock { data } }
+}
+
 /// 外部コマンドを実行し、stdout を返す
+///
+/// stdout と stderr を別キューで並行に readDataToEndOfFile() する。
+/// パイプバッファ（64KB）を超える出力でもデッドロックしない。
 func runProcess(
     executable: String,
     args: [String],
@@ -35,14 +47,30 @@ func runProcess(
         return .failure(stderr: error.localizedDescription, exitCode: -1)
     }
 
-    process.waitUntilExit()
+    // stdout / stderr を別キューで並行 drain（パイプバッファ溢れによるデッドロック防止）
+    let stdoutBox = DataBox()
+    let stderrBox = DataBox()
+    let group = DispatchGroup()
 
-    let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-    let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+    group.enter()
+    DispatchQueue.global(qos: .userInitiated).async {
+        stdoutBox.set(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+        group.leave()
+    }
+
+    group.enter()
+    DispatchQueue.global(qos: .userInitiated).async {
+        stderrBox.set(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+        group.leave()
+    }
+
+    process.waitUntilExit()
+    group.wait()
+
+    let stdout = String(data: stdoutBox.get(), encoding: .utf8) ?? ""
 
     if process.terminationStatus != 0 {
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+        let stderr = String(data: stderrBox.get(), encoding: .utf8) ?? ""
         return .failure(stderr: stderr.trimmingCharacters(in: .whitespacesAndNewlines), exitCode: process.terminationStatus)
     }
 

@@ -5,9 +5,17 @@ import SwiftUI
 struct GozdApp: App {
     @NSApplicationDelegateAdaptor private var appDelegate: AppDelegate
 
+    /// 起動引数またはカレントディレクトリからプロジェクトパスを取得
+    private let initialPath: String = {
+        let args = CommandLine.arguments
+        let path = args.count > 1 ? args[1] : FileManager.default.currentDirectoryPath
+        let url = URL(fileURLWithPath: path, relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath))
+        return url.standardized.path
+    }()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(initialPath: initialPath)
         }
     }
 }

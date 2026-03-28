@@ -2,17 +2,40 @@ import SwiftUI
 import WebKit
 
 /// スレッドセーフなワークスペースルート管理
+///
+/// Electrobun 版と同様に projectDir（固定）と currentDir（switchDir で変化）を分離する。
+/// - projectDir: task, config, worktreeList, createWorktree, pr, issue で使用
+/// - currentDir: git status, log, diff, fsReadDir, fsReadFile 等で使用
 final class WorkspaceRoot: @unchecked Sendable {
-    private var _value: String?
+    /// プロジェクトの main worktree ルート（固定）
+    let projectDir: String
+    private var _currentDir: String
     private let lock = NSLock()
 
-    var value: String? {
-        get { lock.withLock { _value } }
-        set { lock.withLock { _value = newValue } }
+    /// 現在アクティブな worktree ディレクトリ（switchDir で変化）
+    var currentDir: String {
+        get { lock.withLock { _currentDir } }
     }
 
-    /// 値を返す。nil の場合はホームディレクトリにフォールバック
-    var dir: String { value ?? NSHomeDirectory() }
+    init(projectDir: String, currentDir: String? = nil) {
+        self.projectDir = projectDir
+        self._currentDir = currentDir ?? projectDir
+    }
+
+    func switchDir(_ dir: String) {
+        lock.withLock { _currentDir = dir }
+    }
+}
+
+/// initialPath から projectDir（main worktree root）を解決する
+private func resolveProjectDir(from path: String) -> String {
+    // git worktree list --porcelain の先頭エントリが main worktree
+    let entries = GitWorktree.list(cwd: path)
+    if let main = entries.first(where: { $0.isMain }) {
+        return main.path
+    }
+    // git リポジトリでない場合はパスをそのまま使う
+    return path
 }
 
 struct ContentView: View {
@@ -22,11 +45,16 @@ struct ContentView: View {
     @State private var fileWatcher: FileWatcher?
     @State private var server: SocketServer?
 
-    /// 現在のワークスペースルート（スレッドセーフ）
-    private let workspaceRoot = WorkspaceRoot()
+    /// ワークスペースルート（projectDir 固定 + currentDir 可変）
+    let workspaceRoot: WorkspaceRoot
 
     /// チャンネル（dev / stable のパス分離用）
     private let channel = "dev"
+
+    init(initialPath: String) {
+        let projectDir = resolveProjectDir(from: initialPath)
+        workspaceRoot = WorkspaceRoot(projectDir: projectDir, currentDir: initialPath)
+    }
 
     var body: some View {
         Group {
@@ -57,7 +85,7 @@ struct ContentView: View {
         let rpcSchemeHandler = RPCSchemeHandler(bridge: bridge)
         let root = workspaceRoot
         let fileSchemeHandler = FileSchemeHandler(rootProvider: {
-            root.value
+            root.currentDir
         })
 
         var configuration = WebPage.Configuration()
@@ -100,7 +128,7 @@ struct ContentView: View {
                 }
             },
             onGitStatusChange: { [root = workspaceRoot] in
-                let dir = root.dir
+                let dir = root.currentDir
                 let status = GitStatus.getStatus(cwd: dir)
                 guard let jsonData = try? JSONEncoder().encode(status),
                     let jsonStr = String(data: jsonData, encoding: .utf8)
@@ -121,7 +149,7 @@ struct ContentView: View {
 
         // RPC ハンドラー登録
         registerPTYHandlers(manager: manager, socketPath: socketServerPath, settingsPath: settingsPath)
-        registerFsHandlers()
+        registerFsHandlers(watcher: watcher)
         registerGitHandlers()
         registerPersistenceHandlers()
         registerRendererHandlers(webPage: webPage, watcher: watcher)
@@ -166,9 +194,9 @@ struct ContentView: View {
 
     // MARK: - ファイルシステム RPC ハンドラー
 
-    private func registerFsHandlers() {
+    private func registerFsHandlers(watcher: FileWatcher) {
         let root = workspaceRoot
-        let getDir: @Sendable () -> String = { root.dir }
+        let getDir: @Sendable () -> String = { root.currentDir }
 
         bridge.registerRequest("fsReadDir") { data in
             let params = try JSONDecoder().decode(FsRelPathParams.self, from: data)
@@ -289,7 +317,10 @@ struct ContentView: View {
 
         bridge.registerRequest("switchDir") { data in
             let params = try JSONDecoder().decode(SwitchDirParams.self, from: data)
-            root.value = params.dir
+            root.switchDir(params.dir)
+            // ファイル監視を新しい worktree に張り替え
+            let isGitRepo = GitUtils.isGitRepo(dir: params.dir)
+            watcher.startWatching(root: params.dir, isGitRepo: isGitRepo)
             let result: [String: String] = [
                 "dir": params.dir,
                 "fileServerBaseUrl": "gozd-file:/",
@@ -301,9 +332,11 @@ struct ContentView: View {
     // MARK: - Git RPC ハンドラー（renderer スキーマ準拠: cwd は currentRoot から補完）
 
     private func registerGitHandlers() {
-        // renderer は params: undefined で呼ぶため、workspaceRoot を使う
         let root = workspaceRoot
-        let getCwd: @Sendable () -> String = { root.dir }
+        // currentDir: git status, log, diff 等の作業ディレクトリ
+        let getCwd: @Sendable () -> String = { root.currentDir }
+        // projectDir: worktreeList, createWorktree, pr, issue 等のプロジェクトルート
+        let getProjDir: @Sendable () -> String = { root.projectDir }
 
         // renderer スキーマ: gitStatus の response は Record<string, string>（statuses のみ）
         bridge.registerRequest("gitStatus") { _ in
@@ -312,11 +345,11 @@ struct ContentView: View {
         }
 
         bridge.registerRequest("gitLog") { data in
-            let params = try JSONDecoder().decode(GitLogParams.self, from: data)
+            let params = decodeOrNil(GitLogParams.self, from: data)
             let (headCommits, defaultBranchCommits, defaultBranch) = GitLog.getLog(
                 cwd: getCwd(),
-                maxCount: params.maxCount,
-                firstParentOnly: params.firstParentOnly ?? false
+                maxCount: params?.maxCount,
+                firstParentOnly: params?.firstParentOnly ?? false
             )
             let result = GitLogResult(
                 headCommits: headCommits,
@@ -338,15 +371,26 @@ struct ContentView: View {
         }
 
         bridge.registerRequest("gitWorktreeList") { _ in
-            var entries = GitWorktree.list(cwd: getCwd())
+            let projDir = getProjDir()
+            var entries = GitWorktree.list(cwd: projDir)
             GitWorktree.attachGitStatuses(entries: &entries)
+            // 各 worktree に紐づく Task を付与
+            let tasks = TaskPersistence.loadTasks(projectDir: projDir)
+            let taskByDir = Dictionary(
+                uniqueKeysWithValues: tasks.compactMap { task in
+                    task.worktreeDir.map { ($0, task) }
+                }
+            )
+            for i in entries.indices {
+                entries[i].task = taskByDir[entries[i].path]
+            }
             return try JSONEncoder().encode(entries)
         }
 
         bridge.registerRequest("createWorktree") { data in
             let params = try JSONDecoder().decode(CreateWorktreeParams.self, from: data)
             let entry = try GitWorktree.add(
-                cwd: getCwd(),
+                cwd: getProjDir(),
                 worktreeDir: params.worktreeDir,
                 branch: params.branch
             )
@@ -355,7 +399,7 @@ struct ContentView: View {
 
         bridge.registerRequest("gitWorktreeRemove") { data in
             let params = try JSONDecoder().decode(GitWorktreeRemoveParams.self, from: data)
-            try GitWorktree.remove(cwd: getCwd(), wtPath: params.path, force: params.force ?? false)
+            try GitWorktree.remove(cwd: getProjDir(), wtPath: params.path, force: params.force ?? false)
             return Data("null".utf8)
         }
 
@@ -375,19 +419,19 @@ struct ContentView: View {
 
         bridge.registerRequest("gitPrList") { _ in
             let env = ProcessInfo.processInfo.environment
-            let prs = GitHubCli.getPrList(cwd: getCwd(), env: env)
+            let prs = GitHubCli.getPrList(cwd: getProjDir(), env: env)
             return try JSONEncoder().encode(prs)
         }
 
         bridge.registerRequest("gitIssueList") { _ in
             let env = ProcessInfo.processInfo.environment
-            let issues = GitHubCli.getIssueList(cwd: getCwd(), env: env)
+            let issues = GitHubCli.getIssueList(cwd: getProjDir(), env: env)
             return try JSONEncoder().encode(issues)
         }
 
         bridge.registerRequest("gitViewer") { _ in
             let env = ProcessInfo.processInfo.environment
-            let viewer = GitHubCli.getViewer(cwd: getCwd(), env: env)
+            let viewer = GitHubCli.getViewer(cwd: getProjDir(), env: env)
             return try JSONEncoder().encode(viewer)
         }
     }
@@ -395,8 +439,8 @@ struct ContentView: View {
     // MARK: - 永続化 RPC ハンドラー（renderer スキーマ準拠: projectDir は currentRoot から補完）
 
     private func registerPersistenceHandlers() {
-        let root2 = workspaceRoot
-        let getProjectDir: @Sendable () -> String = { root2.dir }
+        let root = workspaceRoot
+        let getProjectDir: @Sendable () -> String = { root.projectDir }
 
         bridge.registerRequest("configLoad") { _ in
             let config = ConfigPersistence.load()
@@ -449,9 +493,9 @@ struct ContentView: View {
         // rendererReady: renderer が起動完了した時に gozdOpen を送信
         bridge.registerMessage("rendererReady") { _ in
             Task { @MainActor in
-                let dir = root.dir
+                let dir = root.currentDir
                 let isGitRepo = GitUtils.isGitRepo(dir: dir)
-                let repoName = (dir as NSString).lastPathComponent
+                let repoName = (root.projectDir as NSString).lastPathComponent
                 let payload = """
                     {dir: '\(dir.replacingOccurrences(of: "'", with: "\\'"))', \
                     fileServerBaseUrl: 'gozd-file:/', \
@@ -463,9 +507,7 @@ struct ContentView: View {
                 _ = try? await webPage.callJavaScript(js)
 
                 // ファイル監視を開始
-                if root.value != nil {
-                    watcher.startWatching(root: dir, isGitRepo: isGitRepo)
-                }
+                watcher.startWatching(root: dir, isGitRepo: isGitRepo)
             }
         }
 
@@ -498,6 +540,17 @@ struct ContentView: View {
             return try JSONSerialization.data(withJSONObject: response)
         }
     }
+}
+
+// MARK: - ヘルパー
+
+/// renderer が params: undefined で呼ぶ RPC のボディ（"null"）をデコード可能にする
+private func decodeOrNil<T: Decodable>(_ type: T.Type, from data: Data) -> T? {
+    // "null" や空データの場合は nil を返す
+    if data.count <= 4, String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespaces) == "null" {
+        return nil
+    }
+    return try? JSONDecoder().decode(type, from: data)
 }
 
 // MARK: - FS RPC パラメータ型

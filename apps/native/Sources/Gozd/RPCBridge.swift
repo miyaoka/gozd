@@ -15,7 +15,9 @@ import WebKit
 @Observable
 final class RPCBridge: @unchecked Sendable {
     private var requestHandlers: [String: @Sendable (Data) async throws -> Data] = [:]
+    private var messageHandlers: [String: @Sendable (Data) throws -> Void] = [:]
 
+    /// レスポンスを返す request ハンドラーを登録
     func registerRequest(
         _ name: String,
         handler: @escaping @Sendable (Data) async throws -> Data
@@ -23,7 +25,20 @@ final class RPCBridge: @unchecked Sendable {
         requestHandlers[name] = handler
     }
 
+    /// fire-and-forget メッセージハンドラーを登録
+    func registerMessage(
+        _ name: String,
+        handler: @escaping @Sendable (Data) throws -> Void
+    ) {
+        messageHandlers[name] = handler
+    }
+
     func handleRequest(name: String, body: Data) async throws -> Data {
+        // まず message ハンドラーを確認（fire-and-forget）
+        if let msgHandler = messageHandlers[name] {
+            try msgHandler(body)
+            return Data("null".utf8)
+        }
         guard let handler = requestHandlers[name] else {
             throw RPCError.unknownRequest(name)
         }
@@ -49,8 +64,9 @@ struct RPCSchemeHandler: URLSchemeHandler {
 
     func reply(
         for request: URLRequest
-    ) -> some AsyncSequence<URLSchemeTaskResult, any Error> {
-        AsyncThrowingStream { continuation in
+    ) -> AsyncThrowingStream<URLSchemeTaskResult, any Error> {
+        let bridge = self.bridge
+        return AsyncThrowingStream { continuation in
             guard let url = request.url,
                   let name = url.host
             else {
@@ -59,22 +75,28 @@ struct RPCSchemeHandler: URLSchemeHandler {
             }
 
             let body = request.httpBody ?? Data()
+            print("[RPC] \(name) bodySize=\(body.count)")
 
             Task {
                 do {
                     let responseData = try await bridge.handleRequest(
                         name: name, body: body)
+                    print("[RPC] \(name) responseSize=\(responseData.count)")
 
-                    let response = URLResponse(
+                    let response = HTTPURLResponse(
                         url: url,
-                        mimeType: "application/json",
-                        expectedContentLength: responseData.count,
-                        textEncodingName: "utf-8"
-                    )
+                        statusCode: 200,
+                        httpVersion: "HTTP/1.1",
+                        headerFields: [
+                            "Content-Type": "application/json",
+                            "Access-Control-Allow-Origin": "*",
+                        ]
+                    )!
                     continuation.yield(.response(response))
                     continuation.yield(.data(responseData))
                     continuation.finish()
                 } catch {
+                    print("[RPC] \(name) error: \(error)")
                     continuation.finish(throwing: error)
                 }
             }

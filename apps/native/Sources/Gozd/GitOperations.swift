@@ -629,7 +629,9 @@ enum GitWorktree {
     }
 
     /// worktree を追加する
-    static func add(cwd: String, worktreeDir: String, branch: String) throws -> WorktreeEntry {
+    static func add(
+        cwd: String, worktreeDir: String, branch: String, symlinks: [String]? = nil
+    ) throws -> WorktreeEntry {
         try GitBranch.assertBranchName(branch)
 
         let worktreeRoot = worktreeBasePath(projectDir: cwd)
@@ -644,7 +646,9 @@ enum GitWorktree {
         if case .failure = newBranchResult {
             // ローカルブランチが存在するか確認
             let branchExists = {
-                if case .success = runGit(args: ["show-ref", "--verify", "--quiet", "refs/heads/\(branch)"], cwd: cwd) {
+                if case .success = runGit(
+                    args: ["show-ref", "--verify", "--quiet", "refs/heads/\(branch)"], cwd: cwd)
+                {
                     return true
                 }
                 return false
@@ -657,7 +661,8 @@ enum GitWorktree {
                 }
             } else {
                 // リモートから fetch して worktree 化
-                let fetched = try createWorktreeFromRemote(cwd: cwd, branch: branch, wtPath: wtPath)
+                let fetched = try createWorktreeFromRemote(
+                    cwd: cwd, branch: branch, wtPath: wtPath)
                 if !fetched {
                     if case .failure(let stderr, _) = newBranchResult {
                         throw GitError.commandFailed("git worktree add failed: \(stderr)")
@@ -666,7 +671,56 @@ enum GitWorktree {
             }
         }
 
+        // メインリポジトリから指定パスをシンボリックリンク
+        if let symlinks, !symlinks.isEmpty {
+            createWorktreeSymlinks(mainRepoDir: cwd, wtPath: wtPath, targets: symlinks)
+        }
+
         return WorktreeEntry(path: wtPath, head: "", branch: branch, isMain: false)
+    }
+
+    /// メインリポジトリの指定パスを worktree にシンボリックリンクする
+    ///
+    /// ベストエフォート: パス検証失敗、存在しないソース、既存の dest、symlink 失敗はスキップする。
+    private static func createWorktreeSymlinks(
+        mainRepoDir: String, wtPath: String, targets: [String]
+    ) {
+        let fm = FileManager.default
+        for target in targets {
+            // ソース: realpath で実パスを検証し、リポジトリ外へのトラバーサルを防止
+            guard let sourcePath = PathValidator.resolveExistingFsPath(root: mainRepoDir, relPath: target) else {
+                continue
+            }
+
+            // ネストされたパスに対応するため、親ディレクトリを作成
+            let targetDir = (target as NSString).deletingLastPathComponent
+            if !targetDir.isEmpty, targetDir != "." {
+                guard PathValidator.isInsideRoot(root: wtPath, relPath: targetDir) else { continue }
+                let parentPath = (wtPath as NSString).appendingPathComponent(targetDir)
+                do {
+                    try fm.createDirectory(atPath: parentPath, withIntermediateDirectories: true)
+                } catch {
+                    continue
+                }
+                // mkdir で作成されたパスが symlink 経由で worktree 外に出ていないか実パスで検証
+                guard PathValidator.resolveExistingFsPath(root: wtPath, relPath: targetDir) != nil else {
+                    continue
+                }
+            }
+
+            // dest: 親ディレクトリの realpath を検証し、worktree 外への書き込みを防止
+            guard let destPath = PathValidator.resolveCreatableFsPath(root: wtPath, relPath: target) else {
+                continue
+            }
+
+            // worktree 側に既に存在する場合はスキップ（git checkout で取得済みの可能性）
+            if fm.fileExists(atPath: destPath) {
+                continue
+            }
+
+            // symlink 作成失敗はスキップ（worktree 自体の作成は成功扱い）
+            try? fm.createSymbolicLink(atPath: destPath, withDestinationPath: sourcePath)
+        }
     }
 
     /// worktree を削除する

@@ -322,6 +322,55 @@ enum TaskError: Error, LocalizedError {
     }
 }
 
+// MARK: - ProjectConfig（プロジェクト固有設定）
+
+/// プロジェクト固有の設定
+struct ProjectConfig: Codable {
+    /// worktree 作成時にメインリポジトリからシンボリックリンクする対象パス
+    var worktreeSymlinks: [String]?
+}
+
+enum ProjectConfigPersistence {
+    private static let projectsDir = (configDir as NSString).appendingPathComponent("projects")
+    private static let configFileName = "config.json"
+
+    private static func getProjectDir(_ projectDir: String) -> String {
+        (projectsDir as NSString).appendingPathComponent(ProjectKey.generate(from: projectDir))
+    }
+
+    private static func getConfigPath(_ projectDir: String) -> String {
+        (getProjectDir(projectDir) as NSString).appendingPathComponent(configFileName)
+    }
+
+    private static func ensureProjectDir(_ projectDir: String) {
+        let dir = getProjectDir(projectDir)
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: dir) {
+            try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        }
+    }
+
+    /// プロジェクト設定を読み込む（ファイル未作成や不正な場合は空設定）
+    static func load(projectDir: String) -> ProjectConfig {
+        let path = getConfigPath(projectDir)
+        guard let data = FileManager.default.contents(atPath: path),
+            let config = try? JSONDecoder().decode(ProjectConfig.self, from: data)
+        else {
+            return ProjectConfig()
+        }
+        return config
+    }
+
+    /// プロジェクト設定を保存する（read-modify-write）
+    static func save(projectDir: String, patch: ProjectConfig) {
+        ensureProjectDir(projectDir)
+        var current = load(projectDir: projectDir)
+        if let v = patch.worktreeSymlinks { current.worktreeSymlinks = v }
+        guard let data = try? JSONEncoder.prettyPrinted.encode(current) else { return }
+        try? data.write(to: URL(fileURLWithPath: getConfigPath(projectDir)))
+    }
+}
+
 // MARK: - JSONEncoder 拡張
 
 extension JSONEncoder {

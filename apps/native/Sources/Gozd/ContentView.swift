@@ -1,3 +1,21 @@
+/// WebView を表示し、全 RPC ハンドラーを登録するメインビュー
+///
+/// ## RPC ハンドラーの実装規約
+///
+/// RPC スキーマは `packages/rpc/src/index.ts` で定義されている。
+/// Swift 側のハンドラーはスキーマの `response` 型と **構造が一致する JSON** を返す必要がある。
+///
+/// - レスポンスは必ず `Encodable` 型 + `JSONEncoder().encode()` で構築する
+///   （`JSONSerialization` + `[String: Any]` は禁止。型安全性がなく `Optional as Any` 問題を招く）
+/// - スキーマがラッパーオブジェクト（`{ worktree, dir, fileServerBaseUrl }` 等）を要求する場合、
+///   対応する `Encodable` レスポンス型を定義する
+/// - `void` レスポンスは `Data("null".utf8)` を返す
+///
+/// ## cwd の使い分け
+///
+/// `WorkspaceRoot` が `projectDir`（固定）と `currentDir`（可変）を管理する。
+/// - `projectDir`: worktree 一覧、worktree 作成、task、config、PR、issue
+/// - `currentDir`: git status、log、diff、ファイル読み取り、switchDir で変化
 import SwiftUI
 import WebKit
 
@@ -98,6 +116,7 @@ struct ContentView: View {
         configuration.urlSchemeHandlers[URLScheme("gozd-file")!] = fileSchemeHandler
 
         let webPage = WebPage(configuration: configuration)
+        webPage.isInspectable = true
         page = webPage
 
         // PTY Manager を作成（data/exit を WebView に送信）
@@ -157,6 +176,7 @@ struct ContentView: View {
         registerFsHandlers(watcher: watcher)
         registerGitHandlers()
         registerPersistenceHandlers()
+        registerVoicevoxHandlers()
         registerRendererHandlers(webPage: webPage, watcher: watcher)
         registerTestHandlers()
 
@@ -178,6 +198,7 @@ struct ContentView: View {
         webPage.load(URLRequest(url: devServerUrl))
     }
 
+    /// PTY 操作の RPC ハンドラー: ptySpawn, ptyWrite, ptyResize, ptyKill
     private func registerPTYHandlers(manager: PTYManager, socketPath: String, settingsPath: String) {
         let coord = coordinator
         let winId = windowId
@@ -218,6 +239,10 @@ struct ContentView: View {
 
     // MARK: - ファイルシステム RPC ハンドラー
 
+    /// ファイル操作の RPC ハンドラー（cwd: currentDir）
+    ///
+    /// fsReadDir, fsReadFile, fsReadFileAbsolute, gitShowFile, gitDiffFile,
+    /// gitShowCommitFile, switchDir
     private func registerFsHandlers(watcher: FileWatcher) {
         let root = workspaceRoot
         let getDir: @Sendable () -> String = { root.currentDir }
@@ -332,11 +357,8 @@ struct ContentView: View {
             let from = showAtRef(refs.from)
             let to = refs.to == nil ? readWorkingTree() : showAtRef(refs.to)
 
-            let result: [String: Any] = [
-                "from": ["content": from.content, "isBinary": from.isBinary, "notFound": from.notFound],
-                "to": ["content": to.content, "isBinary": to.isBinary, "notFound": to.notFound],
-            ]
-            return try JSONSerialization.data(withJSONObject: result)
+            let response = GitShowCommitFileResponse(from: from, to: to)
+            return try JSONEncoder().encode(response)
         }
 
         bridge.registerRequest("switchDir") { data in
@@ -345,16 +367,19 @@ struct ContentView: View {
             // ファイル監視を新しい worktree に張り替え
             let isGitRepo = GitUtils.isGitRepo(dir: params.dir)
             watcher.startWatching(root: params.dir, isGitRepo: isGitRepo)
-            let result: [String: String] = [
-                "dir": params.dir,
-                "fileServerBaseUrl": "gozd-file:/",
-            ]
-            return try JSONSerialization.data(withJSONObject: result)
+            let response = SwitchDirResponse(dir: params.dir, fileServerBaseUrl: "gozd-file:/")
+            return try JSONEncoder().encode(response)
         }
     }
 
-    // MARK: - Git RPC ハンドラー（renderer スキーマ準拠: cwd は currentRoot から補完）
+    // MARK: - Git RPC ハンドラー
 
+    /// Git 操作と worktree 管理の RPC ハンドラー
+    ///
+    /// cwd が 2 種類ある:
+    /// - `getCwd()`（currentDir）: gitStatus, gitLog, gitBranchList, gitCommitFiles, gitDiffRefs
+    /// - `getProjDir()`（projectDir）: gitWorktreeList, createWorktree, createWorktreeWithTask,
+    ///   gitWorktreeRemove, gitBranchDelete, gitPrList, gitIssueList, gitViewer
     private func registerGitHandlers() {
         let root = workspaceRoot
         // currentDir: git status, log, diff 等の作業ディレクトリ
@@ -418,13 +443,53 @@ struct ContentView: View {
                 worktreeDir: params.worktreeDir,
                 branch: params.branch
             )
-            return try JSONEncoder().encode(entry)
+            let response = CreateWorktreeResponse(
+                worktree: entry,
+                dir: entry.path,
+                fileServerBaseUrl: "gozd-file:/"
+            )
+            return try JSONEncoder().encode(response)
         }
 
         bridge.registerRequest("gitWorktreeRemove") { data in
             let params = try JSONDecoder().decode(GitWorktreeRemoveParams.self, from: data)
             try GitWorktree.remove(cwd: getProjDir(), wtPath: params.path, force: params.force ?? false)
             return Data("null".utf8)
+        }
+
+        bridge.registerRequest("createWorktreeWithTask") { [watcher = self.fileWatcher] data in
+            let params = try JSONDecoder().decode(CreateWorktreeWithTaskParams.self, from: data)
+            let projDir = getProjDir()
+
+            // プロジェクト設定から symlinks を読み込む
+            let config = ProjectConfigPersistence.load(projectDir: projDir)
+            let entry = try GitWorktree.add(
+                cwd: projDir,
+                worktreeDir: params.worktreeDir,
+                branch: params.branch,
+                symlinks: config.worktreeSymlinks
+            )
+
+            // Task を worktree に紐づける
+            let task = try TaskPersistence.linkToWorktree(
+                projectDir: projDir, id: params.id, worktreeDir: entry.path)
+
+            // worktree エントリに task を付与
+            var worktree = entry
+            worktree.task = task
+
+            // switchDir 相当: currentDir を更新し FileWatcher を張り替え
+            root.switchDir(entry.path)
+            let isGitRepo = GitUtils.isGitRepo(dir: entry.path)
+            watcher?.startWatching(root: entry.path, isGitRepo: isGitRepo)
+
+            let response = CreateWorktreeWithTaskResponse(
+                task: task,
+                worktree: worktree,
+                dir: worktree.path,
+                fileServerBaseUrl: "gozd-file:/"
+            )
+            return try JSONEncoder().encode(response)
         }
 
         bridge.registerRequest("gitCommitFiles") { data in
@@ -460,8 +525,12 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - 永続化 RPC ハンドラー（renderer スキーマ準拠: projectDir は currentRoot から補完）
+    // MARK: - 永続化 RPC ハンドラー
 
+    /// 設定・Task の永続化 RPC ハンドラー（cwd: projectDir）
+    ///
+    /// configLoad, configSave, projectConfigLoad, projectConfigSave,
+    /// taskList, taskAdd, taskUpdate, taskRemove
     private func registerPersistenceHandlers() {
         let root = workspaceRoot
         let getProjectDir: @Sendable () -> String = { root.projectDir }
@@ -474,6 +543,17 @@ struct ContentView: View {
         bridge.registerRequest("configSave") { data in
             let patch = try JSONDecoder().decode(AppConfig.self, from: data)
             ConfigPersistence.save(patch: patch)
+            return Data("null".utf8)
+        }
+
+        bridge.registerRequest("projectConfigLoad") { _ in
+            let config = ProjectConfigPersistence.load(projectDir: getProjectDir())
+            return try JSONEncoder().encode(config)
+        }
+
+        bridge.registerRequest("projectConfigSave") { data in
+            let patch = try JSONDecoder().decode(ProjectConfig.self, from: data)
+            ProjectConfigPersistence.save(projectDir: getProjectDir(), patch: patch)
             return Data("null".utf8)
         }
 
@@ -553,6 +633,130 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - VOICEVOX RPC ハンドラー
+
+    /// VOICEVOX 音声合成の RPC ハンドラー: voicevoxCheckEngine, voicevoxLaunch, voicevoxSpeak
+    private func registerVoicevoxHandlers() {
+        let voicevoxApi = "http://127.0.0.1:50021"
+
+        bridge.registerRequest("voicevoxCheckEngine") { _ in
+            let url = URL(string: "\(voicevoxApi)/version")!
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 3
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                let httpResponse = response as? HTTPURLResponse
+                let ok = httpResponse?.statusCode == 200
+                return try JSONEncoder().encode(ok)
+            } catch {
+                return try JSONEncoder().encode(false)
+            }
+        }
+
+        bridge.registerRequest("voicevoxLaunch") { _ in
+            // mdfind で VOICEVOX.app を検索
+            let mdfindProcess = Process()
+            mdfindProcess.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
+            mdfindProcess.arguments = ["kMDItemCFBundleIdentifier == 'jp.hiroshiba.voicevox'"]
+            let pipe = Pipe()
+            mdfindProcess.standardOutput = pipe
+            mdfindProcess.standardError = FileHandle.nullDevice
+            do {
+                try mdfindProcess.run()
+                mdfindProcess.waitUntilExit()
+            } catch {
+                print("[voicevox] mdfind launch failed: \(error)")
+                return try JSONEncoder().encode(false)
+            }
+
+            guard mdfindProcess.terminationStatus == 0 else {
+                print("[voicevox] mdfind failed (exit \(mdfindProcess.terminationStatus))")
+                return try JSONEncoder().encode(false)
+            }
+
+            let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            let lines = output.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\n")
+            guard let appPath = lines.first, !appPath.isEmpty else {
+                print("[voicevox] mdfind returned no results")
+                return try JSONEncoder().encode(false)
+            }
+
+            let enginePath = (appPath as NSString).appendingPathComponent("Contents/Resources/vv-engine/run")
+            guard FileManager.default.fileExists(atPath: enginePath) else {
+                print("[voicevox] engine not found: \(enginePath)")
+                return try JSONEncoder().encode(false)
+            }
+
+            // Engine をバックグラウンドで起動（GUI なし）
+            let engineProcess = Process()
+            engineProcess.executableURL = URL(fileURLWithPath: enginePath)
+            engineProcess.standardOutput = FileHandle.nullDevice
+            engineProcess.standardError = FileHandle.nullDevice
+            do {
+                try engineProcess.run()
+            } catch {
+                print("[voicevox] engine launch failed: \(error)")
+                return try JSONEncoder().encode(false)
+            }
+
+            // 即座に終了していないか確認（1秒待機）
+            try await Task.sleep(for: .seconds(1))
+            if !engineProcess.isRunning {
+                print("[voicevox] engine exited immediately (code \(engineProcess.terminationStatus))")
+                return try JSONEncoder().encode(false)
+            }
+            return try JSONEncoder().encode(true)
+        }
+
+        bridge.registerRequest("voicevoxSpeak") { data in
+            let params = try JSONDecoder().decode(VoicevoxSpeakParams.self, from: data)
+
+            // audio_query で音声クエリを生成
+            let queryUrlStr =
+                "\(voicevoxApi)/audio_query?text=\(params.text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")&speaker=\(params.speakerId)"
+            guard let queryUrl = URL(string: queryUrlStr) else {
+                return try JSONEncoder().encode(Optional<String>.none)
+            }
+            var queryRequest = URLRequest(url: queryUrl)
+            queryRequest.httpMethod = "POST"
+            let (queryData, queryResponse) = try await URLSession.shared.data(for: queryRequest)
+            guard let queryHttpResponse = queryResponse as? HTTPURLResponse,
+                queryHttpResponse.statusCode == 200
+            else {
+                return try JSONEncoder().encode(Optional<String>.none)
+            }
+
+            // speedScale と volumeScale を設定
+            guard var query = try? JSONSerialization.jsonObject(with: queryData) as? [String: Any]
+            else {
+                return try JSONEncoder().encode(Optional<String>.none)
+            }
+            query["speedScale"] = params.speedScale
+            query["volumeScale"] = params.volumeScale
+            let modifiedQueryData = try JSONSerialization.data(withJSONObject: query)
+
+            // synthesis で WAV 音声を合成
+            guard let synthesisUrl = URL(string: "\(voicevoxApi)/synthesis?speaker=\(params.speakerId)")
+            else {
+                return try JSONEncoder().encode(Optional<String>.none)
+            }
+            var synthesisRequest = URLRequest(url: synthesisUrl)
+            synthesisRequest.httpMethod = "POST"
+            synthesisRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            synthesisRequest.httpBody = modifiedQueryData
+            let (audioData, audioResponse) = try await URLSession.shared.data(for: synthesisRequest)
+            guard let audioHttpResponse = audioResponse as? HTTPURLResponse,
+                audioHttpResponse.statusCode == 200
+            else {
+                return try JSONEncoder().encode(Optional<String>.none)
+            }
+
+            // base64 エンコードして返す
+            let base64 = audioData.base64EncodedString()
+            return try JSONEncoder().encode(base64)
+        }
+    }
+
     private func registerTestHandlers() {
         bridge.registerRequest("echo") { data in data }
 
@@ -577,7 +781,13 @@ private func decodeOrNil<T: Decodable>(_ type: T.Type, from data: Data) -> T? {
     return try? JSONDecoder().decode(type, from: data)
 }
 
-// MARK: - FS RPC パラメータ型
+// MARK: - RPC パラメータ・レスポンス型
+//
+// スキーマ定義: packages/rpc/src/index.ts
+// 各型はスキーマの params / response に対応する。
+// レスポンス型は Encodable 準拠で、JSONEncoder().encode() で返す。
+
+// MARK: FS
 
 private struct FsRelPathParams: Decodable {
     let relPath: String
@@ -599,11 +809,21 @@ private struct GitShowCommitFileParams: Decodable {
     let compareHash: String?
 }
 
+private struct GitShowCommitFileResponse: Encodable {
+    let from: FileReadResult
+    let to: FileReadResult
+}
+
 private struct SwitchDirParams: Decodable {
     let dir: String
 }
 
-// MARK: - PTY RPC パラメータ型
+private struct SwitchDirResponse: Encodable {
+    let dir: String
+    let fileServerBaseUrl: String
+}
+
+// MARK: PTY
 
 private struct PTYSpawnParams: Decodable {
     let dir: String
@@ -626,7 +846,7 @@ private struct PTYKillParams: Decodable {
     let id: Int
 }
 
-// MARK: - Git RPC パラメータ型（renderer スキーマ準拠: cwd なし）
+// MARK: Git
 
 private struct GitLogParams: Decodable {
     let maxCount: Int?
@@ -648,6 +868,25 @@ private struct CreateWorktreeParams: Decodable {
     let branch: String
 }
 
+private struct CreateWorktreeResponse: Encodable {
+    let worktree: WorktreeEntry
+    let dir: String
+    let fileServerBaseUrl: String
+}
+
+private struct CreateWorktreeWithTaskParams: Decodable {
+    let id: String
+    let worktreeDir: String
+    let branch: String
+}
+
+private struct CreateWorktreeWithTaskResponse: Encodable {
+    let task: TaskItem
+    let worktree: WorktreeEntry
+    let dir: String
+    let fileServerBaseUrl: String
+}
+
 private struct GitWorktreeRemoveParams: Decodable {
     let path: String
     let force: Bool?
@@ -658,7 +897,7 @@ private struct GitCommitFilesParams: Decodable {
     let compareHash: String?
 }
 
-// MARK: - 永続化 RPC パラメータ型（renderer スキーマ準拠: projectDir なし）
+// MARK: 永続化
 
 private struct TaskAddParams: Decodable {
     let body: String
@@ -679,6 +918,15 @@ private struct TaskRemoveParams: Decodable {
 
 private struct OpenExternalParams: Decodable {
     let url: String
+}
+
+// MARK: VOICEVOX
+
+private struct VoicevoxSpeakParams: Decodable {
+    let text: String
+    let speedScale: Double
+    let volumeScale: Double
+    let speakerId: Int
 }
 
 // MARK: - Shell 環境変数

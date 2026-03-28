@@ -100,6 +100,8 @@ struct ContentView: View {
 
         // RPC ハンドラー登録
         registerPTYHandlers(manager: manager, socketPath: socketServerPath, settingsPath: settingsPath)
+        registerGitHandlers()
+        registerPersistenceHandlers()
         registerTestHandlers()
 
         // テスト用 HTML をロード
@@ -138,6 +140,144 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Git RPC ハンドラー
+
+    private func registerGitHandlers() {
+        bridge.registerRequest("gitStatus") { data in
+            let params = try JSONDecoder().decode(CwdParams.self, from: data)
+            let result = GitStatus.getStatus(cwd: params.cwd)
+            return try JSONEncoder().encode(result)
+        }
+
+        bridge.registerRequest("gitLog") { data in
+            let params = try JSONDecoder().decode(GitLogParams.self, from: data)
+            let (headCommits, defaultBranchCommits, defaultBranch) = GitLog.getLog(
+                cwd: params.cwd,
+                maxCount: params.maxCount,
+                firstParentOnly: params.firstParentOnly ?? false
+            )
+            let result = GitLogResult(
+                headCommits: headCommits,
+                defaultBranchCommits: defaultBranchCommits,
+                defaultBranch: defaultBranch
+            )
+            return try JSONEncoder().encode(result)
+        }
+
+        bridge.registerRequest("gitBranchList") { data in
+            let params = try JSONDecoder().decode(CwdParams.self, from: data)
+            let branches = GitBranch.list(cwd: params.cwd)
+            return try JSONEncoder().encode(branches)
+        }
+
+        bridge.registerRequest("gitBranchDelete") { data in
+            let params = try JSONDecoder().decode(GitBranchDeleteParams.self, from: data)
+            try GitBranch.delete(cwd: params.cwd, branch: params.branch)
+            return Data("null".utf8)
+        }
+
+        bridge.registerRequest("gitWorktreeList") { data in
+            let params = try JSONDecoder().decode(CwdParams.self, from: data)
+            var entries = GitWorktree.list(cwd: params.cwd)
+            GitWorktree.attachGitStatuses(entries: &entries)
+            return try JSONEncoder().encode(entries)
+        }
+
+        bridge.registerRequest("createWorktree") { data in
+            let params = try JSONDecoder().decode(CreateWorktreeParams.self, from: data)
+            let entry = try GitWorktree.add(
+                cwd: params.cwd,
+                worktreeDir: params.worktreeDir,
+                branch: params.branch
+            )
+            return try JSONEncoder().encode(entry)
+        }
+
+        bridge.registerRequest("gitWorktreeRemove") { data in
+            let params = try JSONDecoder().decode(GitWorktreeRemoveParams.self, from: data)
+            try GitWorktree.remove(cwd: params.cwd, wtPath: params.path, force: params.force ?? false)
+            return Data("null".utf8)
+        }
+
+        bridge.registerRequest("gitCommitFiles") { data in
+            let params = try JSONDecoder().decode(GitCommitFilesParams.self, from: data)
+            let files = GitDiff.getCommitFiles(
+                cwd: params.cwd, hash: params.hash, compareHash: params.compareHash)
+            return try JSONEncoder().encode(files)
+        }
+
+        bridge.registerRequest("gitDiffRefs") { data in
+            let params = try JSONDecoder().decode(GitCommitFilesParams.self, from: data)
+            let refs = GitDiff.resolveCommitDiffRefs(
+                cwd: params.cwd, hash: params.hash, compareHash: params.compareHash)
+            return try JSONEncoder().encode(refs)
+        }
+
+        bridge.registerRequest("gitPrList") { data in
+            let params = try JSONDecoder().decode(GhParams.self, from: data)
+            let prs = GitHubCli.getPrList(cwd: params.cwd, env: params.env ?? [:])
+            return try JSONEncoder().encode(prs)
+        }
+
+        bridge.registerRequest("gitIssueList") { data in
+            let params = try JSONDecoder().decode(GhParams.self, from: data)
+            let issues = GitHubCli.getIssueList(cwd: params.cwd, env: params.env ?? [:])
+            return try JSONEncoder().encode(issues)
+        }
+
+        bridge.registerRequest("gitViewer") { data in
+            let params = try JSONDecoder().decode(GhParams.self, from: data)
+            let viewer = GitHubCli.getViewer(cwd: params.cwd, env: params.env ?? [:])
+            return try JSONEncoder().encode(viewer)
+        }
+    }
+
+    // MARK: - 永続化 RPC ハンドラー
+
+    private func registerPersistenceHandlers() {
+        bridge.registerRequest("configLoad") { _ in
+            let config = ConfigPersistence.load()
+            return try JSONEncoder().encode(config)
+        }
+
+        bridge.registerRequest("configSave") { data in
+            let patch = try JSONDecoder().decode(AppConfig.self, from: data)
+            ConfigPersistence.save(patch: patch)
+            return Data("null".utf8)
+        }
+
+        bridge.registerRequest("taskList") { data in
+            let params = try JSONDecoder().decode(ProjectDirParams.self, from: data)
+            let tasks = TaskPersistence.loadTasks(projectDir: params.projectDir)
+            return try JSONEncoder().encode(tasks)
+        }
+
+        bridge.registerRequest("taskAdd") { data in
+            let params = try JSONDecoder().decode(TaskAddParams.self, from: data)
+            let task = try TaskPersistence.addTask(
+                projectDir: params.projectDir,
+                body: params.body,
+                worktreeDir: params.worktreeDir,
+                prNumber: params.prNumber,
+                issueNumber: params.issueNumber
+            )
+            return try JSONEncoder().encode(task)
+        }
+
+        bridge.registerRequest("taskUpdate") { data in
+            let params = try JSONDecoder().decode(TaskUpdateParams.self, from: data)
+            let task = try TaskPersistence.updateTask(
+                projectDir: params.projectDir, id: params.id, body: params.body)
+            return try JSONEncoder().encode(task)
+        }
+
+        bridge.registerRequest("taskRemove") { data in
+            let params = try JSONDecoder().decode(TaskRemoveParams.self, from: data)
+            TaskPersistence.removeTask(projectDir: params.projectDir, id: params.id)
+            return Data("null".utf8)
+        }
+    }
+
     private func registerTestHandlers() {
         bridge.registerRequest("echo") { data in data }
 
@@ -172,6 +312,77 @@ private struct PTYResizeParams: Decodable {
 
 private struct PTYKillParams: Decodable {
     let id: Int
+}
+
+// MARK: - Git RPC パラメータ型
+
+private struct CwdParams: Decodable {
+    let cwd: String
+}
+
+private struct GitLogParams: Decodable {
+    let cwd: String
+    let maxCount: Int?
+    let firstParentOnly: Bool?
+}
+
+private struct GitLogResult: Encodable {
+    let headCommits: [GitCommit]
+    let defaultBranchCommits: [GitCommit]
+    let defaultBranch: String?
+}
+
+private struct GitBranchDeleteParams: Decodable {
+    let cwd: String
+    let branch: String
+}
+
+private struct CreateWorktreeParams: Decodable {
+    let cwd: String
+    let worktreeDir: String
+    let branch: String
+}
+
+private struct GitWorktreeRemoveParams: Decodable {
+    let cwd: String
+    let path: String
+    let force: Bool?
+}
+
+private struct GitCommitFilesParams: Decodable {
+    let cwd: String
+    let hash: String
+    let compareHash: String?
+}
+
+private struct GhParams: Decodable {
+    let cwd: String
+    let env: [String: String]?
+}
+
+// MARK: - 永続化 RPC パラメータ型
+
+private struct ProjectDirParams: Decodable {
+    let projectDir: String
+}
+
+private struct TaskAddParams: Decodable {
+    let projectDir: String
+    let body: String
+    let worktreeDir: String?
+    let prNumber: Int?
+    let issueNumber: Int?
+}
+
+private struct TaskUpdateParams: Decodable {
+    let projectDir: String
+    let id: String
+    let body: String
+}
+
+private struct TaskRemoveParams: Decodable {
+    let projectDir: String
+    let id: String
 }
 
 // MARK: - Shell 環境変数

@@ -161,7 +161,7 @@ private func readFsFile(root: String, relPath: String) async throws(FileServerEr
 /// ファイルパスの安全性を検証するユーティリティ
 enum PathValidator {
     /// C の realpath(3) を呼び出し、シンボリックリンクを解決した絶対パスを返す
-    private static func resolveRealPath(_ path: String) -> String? {
+    static func resolveRealPath(_ path: String) -> String? {
         path.withCString { ptr -> String? in
             guard let resolved = Darwin.realpath(ptr, nil) else { return nil }
             defer { free(resolved) }

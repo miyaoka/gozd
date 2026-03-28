@@ -6,3 +6,4 @@ apps/desktop/artifacts
 .DS_Store
 *.log*
 .eslintcache
+.build

@@ -121,9 +121,9 @@ struct ContentView: View {
 
         // PTY Manager を作成（data/exit を WebView に送信）
         let manager = PTYManager(callbacks: PTYManager.Callbacks(
-            onData: { id, bytes in
-                // UTF-8 文字列に変換し、JSON エンコードで特殊文字をエスケープ
-                let text = String(decoding: Data(bytes), as: UTF8.self)
+            onData: { id, text in
+                // PTYManager が UTF-8 ストリームデコード済みのテキストを渡す
+                // JSON エンコードで特殊文字をエスケープ
                 guard let jsonData = try? JSONEncoder().encode(text),
                     let jsonStr = String(data: jsonData, encoding: .utf8)
                 else { return }

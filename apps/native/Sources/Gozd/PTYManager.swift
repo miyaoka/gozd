@@ -8,7 +8,8 @@ import Foundation
 /// forkpty + DispatchIO + DispatchSourceProcess で構成する。
 final class PTYManager: @unchecked Sendable {
     struct Callbacks: Sendable {
-        let onData: @Sendable (Int, ArraySlice<UInt8>) -> Void
+        /// デコード済み UTF-8 テキストを受け取る（マルチバイト文字の途中切れは内部で繰り越し済み）
+        let onData: @Sendable (Int, String) -> Void
         let onExit: @Sendable (Int, Int32) -> Void
     }
 
@@ -18,6 +19,8 @@ final class PTYManager: @unchecked Sendable {
         let io: DispatchIO
         let processMonitor: DispatchSourceProcess
         var running: Bool
+        /// UTF-8 ストリームデコーダ（チャンク分割時のマルチバイト文字化け防止）
+        let streamDecoder: UTF8StreamDecoder
     }
 
     private var ptys: [Int: PTYEntry] = [:]
@@ -103,7 +106,8 @@ final class PTYManager: @unchecked Sendable {
             pid: pid,
             io: io,
             processMonitor: processMonitor,
-            running: true
+            running: true,
+            streamDecoder: UTF8StreamDecoder()
         )
 
         stateQueue.sync {
@@ -187,10 +191,15 @@ final class PTYManager: @unchecked Sendable {
 
             guard let data, data.count > 0 else {
                 if data?.count == 0 {
-                    // PTY EOF
+                    // PTY EOF: 残りのバッファをフラッシュ
+                    var decoder: UTF8StreamDecoder?
                     self?.stateQueue.sync {
+                        decoder = self?.ptys[id]?.streamDecoder
                         // processMonitor は生かす（exit イベントで processTerminated が呼ばれる）
                         self?.ptys[id]?.running = false
+                    }
+                    if let decoder, let remaining = decoder.flush(), !remaining.isEmpty {
+                        capturedCallbacks.onData(id, remaining)
                     }
                 }
                 return
@@ -202,13 +211,18 @@ final class PTYManager: @unchecked Sendable {
                 _ = data.copyBytes(to: ptr)
             }
 
-            // running チェック後にコールバック
+            // running チェック後にストリームデコードしてコールバック
             var isRunning = false
+            var decoder: UTF8StreamDecoder?
             self?.stateQueue.sync {
                 isRunning = self?.ptys[id]?.running ?? false
+                decoder = self?.ptys[id]?.streamDecoder
             }
-            if isRunning {
-                capturedCallbacks.onData(id, bytes[...])
+            if isRunning, let decoder {
+                let text = decoder.decode(bytes)
+                if !text.isEmpty {
+                    capturedCallbacks.onData(id, text)
+                }
             }
 
             // 次の読み取りをスケジュール
@@ -256,6 +270,102 @@ final class PTYManager: @unchecked Sendable {
 
         // コールバックはロック外
         callbacks.onExit(id, exitCode)
+    }
+}
+
+// MARK: - UTF-8 ストリームデコーダ
+
+/// TextDecoder("utf-8", { stream: true }) と同等の機能を提供する
+///
+/// PTY からのバイト列は任意のバイト境界で区切られるため、
+/// UTF-8 マルチバイトシーケンスの途中で切れることがある。
+/// 不完全なバイト列を内部バッファに保持し、次のチャンクで結合してからデコードする。
+///
+/// > [!NOTE]
+/// > `Unicode.UTF8` コーデックはイテレータが空になると不完全シーケンスを `.error` で吐き出すため、
+/// > ストリームデコーダとしては使えない。末尾の不完全バイト列を手動で検出・繰り越す必要がある。
+///
+/// 参考: SwiftTerm の putbackBuffer パターン（Terminal.swift）
+final class UTF8StreamDecoder: @unchecked Sendable {
+    private var pendingBytes: [UInt8] = []
+
+    /// バイト列をデコードする。不完全な末尾のマルチバイトシーケンスは次回に繰り越す。
+    func decode(_ bytes: [UInt8]) -> String {
+        var input: [UInt8]
+        if pendingBytes.isEmpty {
+            input = bytes
+        } else {
+            input = pendingBytes + bytes
+            pendingBytes = []
+        }
+
+        // 末尾の不完全な UTF-8 シーケンスを検出して繰り越す
+        let trailingIncomplete = Self.findTrailingIncompleteSequence(input)
+        if trailingIncomplete > 0 {
+            pendingBytes = Array(input.suffix(trailingIncomplete))
+            input = Array(input.dropLast(trailingIncomplete))
+        }
+
+        if input.isEmpty { return "" }
+        return String(decoding: input, as: UTF8.self)
+    }
+
+    /// 残りのバッファをフラッシュする（PTY 終了時に呼ぶ）
+    func flush() -> String? {
+        guard !pendingBytes.isEmpty else { return nil }
+        let bytes = pendingBytes
+        pendingBytes = []
+        // 不完全なバイト列は String(decoding:as:) が U+FFFD に置換する
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    /// 末尾にある不完全な UTF-8 マルチバイトシーケンスのバイト数を返す
+    ///
+    /// UTF-8 の先頭バイトから期待されるシーケンス長を判定し、
+    /// 実際のバイト数が足りなければ不完全として繰り越す。
+    /// 不正な先頭バイト（0xC0, 0xC1, 0xF5-0xFF）は incomplete 扱いしない。
+    private static func findTrailingIncompleteSequence(_ bytes: [UInt8]) -> Int {
+        guard !bytes.isEmpty else { return 0 }
+
+        // 末尾から最大3バイトを遡り、先頭バイトを探す
+        let searchRange = min(bytes.count, 4)
+        for i in 1...searchRange {
+            let idx = bytes.count - i
+            let byte = bytes[idx]
+
+            // 継続バイト（10xxxxxx）はスキップ
+            if byte & 0xC0 == 0x80 { continue }
+
+            // 先頭バイトを見つけた — 期待長を判定
+            let expectedLength: Int
+            if byte & 0x80 == 0x00 {
+                // 0xxxxxxx: 1バイト（ASCII）— 常に完全
+                return 0
+            } else if byte & 0xE0 == 0xC0 {
+                // 110xxxxx: 2バイト文字
+                // 0xC0, 0xC1 は overlong で不正だが、String(decoding:) が U+FFFD に置換するので繰り越さない
+                if byte <= 0xC1 { return 0 }
+                expectedLength = 2
+            } else if byte & 0xF0 == 0xE0 {
+                // 1110xxxx: 3バイト文字
+                expectedLength = 3
+            } else if byte & 0xF8 == 0xF0 {
+                // 11110xxx: 4バイト文字
+                // 0xF5-0xF7 は U+140000 以上で Unicode 範囲外だが、同様に繰り越さない
+                if byte >= 0xF5 { return 0 }
+                expectedLength = 4
+            } else {
+                // 0xF8-0xFF: 不正な先頭バイト — 繰り越さない
+                return 0
+            }
+
+            let actualLength = i
+            if actualLength < expectedLength {
+                return actualLength  // 不完全 — 次のチャンクに繰り越す
+            }
+            return 0  // 完全
+        }
+        return 0
     }
 }
 

@@ -35,6 +35,9 @@ final class PTYManager: @unchecked Sendable {
     }
 
     /// PTY を生成し、シェルプロセスを起動する
+    ///
+    /// 環境変数に `GOZD_PTY_ID` を自動注入する。
+    /// hooks がどの PTY から発火したか特定するために使用する。
     func spawn(cwd: String, cols: Int, rows: Int, env: [String: String]) -> Int {
         var id = 0
         stateQueue.sync {
@@ -42,8 +45,10 @@ final class PTYManager: @unchecked Sendable {
             nextId += 1
         }
 
-        // "KEY=VALUE" 形式の環境変数配列を構築
-        let envStrings = env.map { "\($0.key)=\($0.value)" }
+        // GOZD_PTY_ID を注入してから "KEY=VALUE" 形式に変換
+        var envWithPtyId = env
+        envWithPtyId["GOZD_PTY_ID"] = String(id)
+        let envStrings = envWithPtyId.map { "\($0.key)=\($0.value)" }
         let shell = env["SHELL"] ?? "/bin/zsh"
         let args = [shell, "-l"]
 

@@ -28,7 +28,7 @@ final class WorkspaceRoot: @unchecked Sendable {
 }
 
 /// initialPath から projectDir（main worktree root）を解決する
-private func resolveProjectDir(from path: String) -> String {
+func resolveProjectDir(from path: String) -> String {
     // git worktree list --porcelain の先頭エントリが main worktree
     let entries = GitWorktree.list(cwd: path)
     if let main = entries.first(where: { $0.isMain }) {
@@ -43,17 +43,20 @@ struct ContentView: View {
     @State private var page: WebPage?
     @State private var ptyManager: PTYManager?
     @State private var fileWatcher: FileWatcher?
-    @State private var server: SocketServer?
 
     /// ワークスペースルート（projectDir 固定 + currentDir 可変）
     let workspaceRoot: WorkspaceRoot
 
-    /// チャンネル（dev / stable のパス分離用）
-    private let channel = "dev"
+    /// アプリ全体のコーディネーター
+    let coordinator: AppCoordinator
 
-    init(initialPath: String) {
+    /// このウィンドウの識別子（SwiftUI の再構築で変わらないよう @State で保持）
+    @State private var windowId = UUID().uuidString
+
+    init(initialPath: String, coordinator: AppCoordinator) {
         let projectDir = resolveProjectDir(from: initialPath)
         workspaceRoot = WorkspaceRoot(projectDir: projectDir, currentDir: initialPath)
+        self.coordinator = coordinator
     }
 
     var body: some View {
@@ -61,25 +64,27 @@ struct ContentView: View {
             if let page {
                 WebView(page)
                     .ignoresSafeArea()
+            } else {
+                // page 生成前のプレースホルダ（onAppear / task の確実な発火に必要）
+                Color.clear
             }
         }
-        .onAppear {
+        .navigationTitle((workspaceRoot.projectDir as NSString).lastPathComponent)
+        .task {
             setupApp()
+        }
+        .onDisappear {
+            coordinator.unregisterWindow(id: windowId, projectDir: workspaceRoot.projectDir)
         }
     }
 
     private func setupApp() {
-        // Claude hooks 設定を生成
-        let settingsPath = claudeSettingsPath(channel: channel)
-        ClaudeHooksGenerator.generate(settingsPath: settingsPath)
+        // .task の再実行による多重初期化を防止
+        print("[ContentView] setupApp called, page=\(page == nil ? "nil" : "exists")")
+        guard page == nil else { return }
 
-        // ソケットサーバーを起動
-        let socketServerPath = socketPath(channel: channel)
-        let socketServer = SocketServer(socketPath: socketServerPath) { message in
-            handleSocketMessage(message)
-        }
-        socketServer.start()
-        server = socketServer
+        let settingsPath = coordinator.claudeSettingsPath
+        let socketServerPath = coordinator.socketPath
 
         // WebPage をカスタムスキーム付きで作成
         let rpcSchemeHandler = RPCSchemeHandler(bridge: bridge)
@@ -155,12 +160,28 @@ struct ContentView: View {
         registerRendererHandlers(webPage: webPage, watcher: watcher)
         registerTestHandlers()
 
+        // coordinator にウィンドウを登録（hook ルーティング用）
+        coordinator.registerWindow(
+            id: windowId,
+            projectDir: workspaceRoot.projectDir,
+            hookHandler: { hookMessage in
+                Task { @MainActor in
+                    let payload = encodeHookPayload(hookMessage)
+                    let js = "window.__gozdReceive?.('gozdHook', \(payload))"
+                    _ = try? await webPage.callJavaScript(js)
+                }
+            }
+        )
+
         // Vite dev server の URL をロード
         let devServerUrl = URL(string: "http://localhost:5173")!
         webPage.load(URLRequest(url: devServerUrl))
     }
 
     private func registerPTYHandlers(manager: PTYManager, socketPath: String, settingsPath: String) {
+        let coord = coordinator
+        let winId = windowId
+
         bridge.registerRequest("ptySpawn") { data in
             let params = try JSONDecoder().decode(PTYSpawnParams.self, from: data)
             let shellEnv = buildShellEnv(
@@ -173,6 +194,8 @@ struct ContentView: View {
                 rows: params.rows,
                 env: shellEnv
             )
+            // PTY ID をこのウィンドウに関連付ける（hook ルーティング用）
+            coord.registerPTY(ptyId: id, windowId: winId)
             return try JSONEncoder().encode(id)
         }
 
@@ -189,6 +212,7 @@ struct ContentView: View {
         bridge.registerMessage("ptyKill") { data in
             let params = try JSONDecoder().decode(PTYKillParams.self, from: data)
             manager.kill(id: params.id)
+            coord.unregisterPTY(ptyId: params.id)
         }
     }
 
@@ -488,7 +512,7 @@ struct ContentView: View {
 
     private func registerRendererHandlers(webPage: WebPage, watcher: FileWatcher) {
         let root = workspaceRoot
-        let channel = self.channel
+        let channel = coordinator.channel
 
         // rendererReady: renderer が起動完了した時に gozdOpen を送信
         bridge.registerMessage("rendererReady") { _ in
@@ -662,7 +686,7 @@ private struct OpenExternalParams: Decodable {
 /// PTY に注入する環境変数を構築する
 ///
 /// gozd 固有の環境変数（ソケットパス、Claude hooks 設定パス等）を追加する。
-/// PTY ID は spawn 後に PTYManager が割り当てるため、ここでは静的な ID を仮設定する。
+/// GOZD_PTY_ID は PTYManager.spawn() が自動注入するため、ここでは設定しない。
 private func buildShellEnv(socketPath: String, settingsPath: String) -> [String: String] {
     var env = ProcessInfo.processInfo.environment
     // ターミナル環境変数
@@ -679,17 +703,33 @@ private func buildShellEnv(socketPath: String, settingsPath: String) -> [String:
     return env
 }
 
-// MARK: - ソケットメッセージ処理
+// MARK: - Hook ペイロードのエンコード
 
-/// ソケット経由で受信したメッセージを処理する
-private func handleSocketMessage(_ message: GozdMessage) {
-    switch message {
-    case .hook(let hookMessage):
-        print("[gozd] hook: \(hookMessage.event)")
-        // TODO: Phase 3 で ptyId → ウィンドウ特定 → WebView に送信
-    case .open(let openMessage):
-        print("[gozd] open: \(openMessage.targetPath)")
-        // TODO: Phase 3 でウィンドウ管理と連携
+/// HookMessage を JavaScript に送信可能な JSON 文字列にエンコードする
+private func encodeHookPayload(_ hookMessage: HookMessage) -> String {
+    var dict: [String: Any] = ["event": hookMessage.event]
+    var payload: [String: Any] = [:]
+    if let ptyId = hookMessage.payload.ptyId {
+        payload["ptyId"] = ptyId
     }
+    if let msg = hookMessage.payload.lastAssistantMessage {
+        payload["last_assistant_message"] = msg
+    }
+    if let name = hookMessage.payload.toolName {
+        payload["tool_name"] = name
+    }
+    if let input = hookMessage.payload.toolInput {
+        payload["tool_input"] = input
+    }
+    if let interrupt = hookMessage.payload.isInterrupt {
+        payload["is_interrupt"] = interrupt
+    }
+    dict["payload"] = payload
+    guard let data = try? JSONSerialization.data(withJSONObject: dict),
+          let str = String(data: data, encoding: .utf8)
+    else {
+        return "{}"
+    }
+    return str
 }
 

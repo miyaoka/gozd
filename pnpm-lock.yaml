@@ -13,8 +13,8 @@ catalogs:
       specifier: 1.3.11
       version: 1.3.11
     '@types/node':
-      specifier: 24.12.0
-      version: 24.12.0
+      specifier: 24.12.2
+      version: 24.12.2
     '@typescript/native-preview':
       specifier: 7.0.0-dev.20260403.1
       version: 7.0.0-dev.20260403.1
@@ -66,7 +66,7 @@ importers:
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
-        version: 24.12.0
+        version: 24.12.2
       '@typescript/native-preview':
         specifier: 'catalog:'
         version: 7.0.0-dev.20260403.1
@@ -267,7 +267,7 @@ importers:
         version: 1.3.11
       '@types/node':
         specifier: 'catalog:'
-        version: 24.12.0
+        version: 24.12.2
       '@typescript/native-preview':
         specifier: 'catalog:'
         version: 7.0.0-dev.20260403.1
@@ -310,7 +310,7 @@ importers:
         version: 1.3.11
       '@types/node':
         specifier: 'catalog:'
-        version: 24.12.0
+        version: 24.12.2
       '@typescript/native-preview':
         specifier: 'catalog:'
         version: 7.0.0-dev.20260403.1
@@ -331,7 +331,7 @@ importers:
         version: 1.3.11
       '@types/node':
         specifier: 'catalog:'
-        version: 24.12.0
+        version: 24.12.2
       '@typescript/native-preview':
         specifier: 'catalog:'
         version: 7.0.0-dev.20260403.1
@@ -1278,8 +1278,8 @@ packages:
   '@types/node@17.0.45':
     resolution: {integrity: sha512-w+tIMs3rq2afQdsPJlODhoUEKzFP1ayaoyl1CcnwtIlsVe7K7bA1NGm4s3PraqTLlXnbIN84zuBlxBWo1u9BLw==}
 
-  '@types/node@24.12.0':
-    resolution: {integrity: sha512-GYDxsZi3ChgmckRT9HPU0WEhKLP08ev/Yfcq2AstjrDASOYCSXeyjDsHg4v5t4jOj7cyDX3vmprafKlWIG9MXQ==}
+  '@types/node@24.12.2':
+    resolution: {integrity: sha512-A1sre26ke7HDIuY/M23nd9gfB+nrmhtYyMINbjI1zHJxYteKR6qSMX56FsmjMcDb3SMcjJg5BiRRgOCC/yBD0g==}
 
   '@types/node@25.5.0':
     resolution: {integrity: sha512-jp2P3tQMSxWugkCUKLRPVUpGaL5MVFwF8RDuSRztfwgN1wmqJeMSbKlnEtQqU8UrhTmzEmZdu2I6v2dpp7XIxw==}
@@ -3567,7 +3567,7 @@ snapshots:
 
   '@types/node@17.0.45': {}
 
-  '@types/node@24.12.0':
+  '@types/node@24.12.2':
     dependencies:
       undici-types: 7.16.0
 

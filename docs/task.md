@@ -89,8 +89,8 @@ BRANCHES
 
 **WORKTREES 行:**
 
-- Task を編集
-- wt を削除
+- Edit task
+- Remove worktree
 
 **BRANCHES 行:**
 
@@ -98,7 +98,7 @@ BRANCHES
 
 ### Task 編集
 
-`[⋮]` → "Task を編集" でサイドバー内にインライン展開する。テキストの編集のみ行う。
+`[⋮]` → "Edit task" でサイドバー内にインライン展開する。テキストの編集のみ行う。
 
 ```text
 WORKTREES

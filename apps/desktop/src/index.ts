@@ -48,6 +48,9 @@ import {
   cleanupStaleTasks,
 } from "./task";
 
+// gozd のファイル監視が git status を実行する際の index.lock 競合を防止する（ #318 ）
+process.env.GIT_OPTIONAL_LOCKS = "0";
+
 type GozdRPCInstance = ReturnType<typeof BrowserView.defineRPC<GozdRPC>>;
 type GozdWindow = BrowserWindow<GozdRPCInstance>;
 

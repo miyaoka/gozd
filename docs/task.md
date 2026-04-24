@@ -37,7 +37,7 @@ interface Task {
 
 ### worktree に Task を追加
 
-worktree クリック（アクティブ時）→ Task がなければインライン編集で新規作成。ターミナルタイトル変更時にも Task が自動作成される（`useSidebarData.ts` のタイトル同期）。
+`⋮` メニュー → "Edit task" でインライン編集。Task がなければ新規作成入力欄を表示する。ターミナルタイトル変更時にも Task が自動作成される（`useSidebarData.ts` のタイトル同期）。
 
 ### PR から worktree 作成
 

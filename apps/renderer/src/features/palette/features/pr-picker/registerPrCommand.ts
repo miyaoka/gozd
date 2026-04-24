@@ -58,6 +58,7 @@ export function registerPrCommand(): () => void {
               request.createWorktree({
                 worktreeDir: generateTimestamp(),
                 branch: pr.headRefName,
+                fromRemote: true,
               }),
             );
             if (!result.ok) {

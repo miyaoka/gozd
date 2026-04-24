@@ -234,7 +234,7 @@ export type GozdRPC = {
       };
       /** worktree を作成し、表示対象を切り替える */
       createWorktree: {
-        params: { worktreeDir: string; branch: string };
+        params: { worktreeDir: string; branch: string; fromRemote?: boolean };
         response: { worktree: WorktreeEntry; dir: string; fileServerBaseUrl: string };
       };
       /** worktree を解除する（ブランチは残る） */

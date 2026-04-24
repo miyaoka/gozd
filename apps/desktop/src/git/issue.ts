@@ -43,14 +43,8 @@ query($owner: String!, $repo: String!, $limit: Int!) {
   }
 }`;
 
-export async function getIssueList({
-  cwd,
-  env,
-}: {
-  cwd: string;
-  env: Record<string, string>;
-}): Promise<GitIssue[] | null> {
-  const ownerRepo = await getOwnerRepo({ cwd, env });
+export async function getIssueList({ cwd }: { cwd: string }): Promise<GitIssue[] | null> {
+  const ownerRepo = await getOwnerRepo({ cwd });
   if (!ownerRepo) return null;
   const { owner, repo } = ownerRepo;
 
@@ -69,7 +63,6 @@ export async function getIssueList({
       `query=${ISSUE_QUERY}`,
     ],
     cwd,
-    env,
   });
   if (!result.ok) return null;
 

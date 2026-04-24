@@ -135,10 +135,10 @@ function spawnPty(win: GozdWindow, cwd: string, cols: number, rows: number): num
   // stream: true で途中切れの UTF-8 バイト列を次のチャンクに繰り越す
   const decoder = new TextDecoder("utf-8", { fatal: false });
 
-  const proc = Bun.spawn([shellEnv.SHELL ?? "/bin/zsh"], {
+  const proc = Bun.spawn([process.env.SHELL ?? "/bin/zsh"], {
     cwd,
     env: {
-      ...shellEnv,
+      ...process.env,
       // desktop プロセスの GIT_OPTIONAL_LOCKS=0 を PTY に持ち込まない
       GIT_OPTIONAL_LOCKS: undefined,
       // TERM 系は PTY 側で明示設定する（親の値を持ち込まない）
@@ -147,11 +147,11 @@ function spawnPty(win: GozdWindow, cwd: string, cols: number, rows: number): num
       TERM_PROGRAM: "gozd",
       // CLI ツール（Claude Code 等）に OSC 8 ハイパーリンクの出力を許可する
       FORCE_HYPERLINK: "1",
-      LANG: shellEnv.LANG ?? "en_US.UTF-8",
+      LANG: process.env.LANG ?? "en_US.UTF-8",
       // Claude Code hooks がどの PTY から発火したか特定するための識別子
       GOZD_PTY_ID: String(id),
       // ZDOTDIR 差し替えで gozd の zsh 初期化を注入する
-      GOZD_ORIG_ZDOTDIR: shellEnv.ZDOTDIR ?? homedir(),
+      GOZD_ORIG_ZDOTDIR: process.env.ZDOTDIR ?? homedir(),
       GOZD_ZDOTDIR,
       ZDOTDIR: GOZD_ZDOTDIR,
       // claude() 関数が参照する hooks 設定ファイルパス
@@ -834,9 +834,9 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
         },
         gitLog: ({ maxCount, firstParentOnly }) =>
           getGitLog({ cwd: currentDir, maxCount, firstParentOnly }),
-        gitPrList: () => getPrList({ cwd: projectDir, env: shellEnv }),
-        gitIssueList: () => getIssueList({ cwd: projectDir, env: shellEnv }),
-        gitViewer: () => getViewer({ cwd: projectDir, env: shellEnv }),
+        gitPrList: () => getPrList({ cwd: projectDir }),
+        gitIssueList: () => getIssueList({ cwd: projectDir }),
+        gitViewer: () => getViewer({ cwd: projectDir }),
         gitWorktreeList: async () => {
           const entries = await attachGitStatuses(await getWorktreeList(projectDir));
           // 各 worktree に紐づく Task を付与
@@ -1331,7 +1331,10 @@ if (await isAlreadyRunning()) {
   process.exit(0);
 }
 
-const shellEnv = await getShellEnv();
+// shellEnv を process.env にマージし、全ての Bun.spawn が正しい PATH・環境で動作するようにする。
+// Launch Services 経由の起動時は PATH が /usr/bin:/bin:/usr/sbin:/sbin のみで、
+// Homebrew の git/gh が解決できず Apple 版 git が使われてしまう問題を防ぐ。
+Object.assign(process.env, await getShellEnv());
 
 // --- アプリメニュー ---
 

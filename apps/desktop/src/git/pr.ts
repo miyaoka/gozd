@@ -54,22 +54,16 @@ query($owner: String!, $repo: String!, $limit: Int!) {
   }
 }`;
 
-/**
- * Bun.spawn で gh コマンドを実行し、stdout を文字列で返す。
- * Bun.$ は .env() で渡した PATH をコマンド解決に使わない（process.env.PATH を参照する）ため、
- * build 版で gh が見つからない問題がある。Bun.spawn なら env.PATH でコマンド解決される。
- */
+/** Bun.spawn で gh コマンドを実行し、stdout を文字列で返す */
 export async function execGh({
   args,
   cwd,
-  env,
 }: {
   args: string[];
   cwd: string;
-  env: Record<string, string>;
 }): Promise<{ ok: true; stdout: string } | { ok: false; stderr: string }> {
   const spawnResult = tryCatch(() =>
-    Bun.spawn(["gh", ...args], { cwd, env, stdout: "pipe", stderr: "pipe" }),
+    Bun.spawn(["gh", ...args], { cwd, stdout: "pipe", stderr: "pipe" }),
   );
   if (!spawnResult.ok) {
     return { ok: false, stderr: String(spawnResult.error) };
@@ -93,15 +87,9 @@ export async function execGh({
 /** 自アカウントのログイン名キャッシュ（成功時のみ保持） */
 let cachedViewer: string | undefined;
 
-export async function getViewer({
-  cwd,
-  env,
-}: {
-  cwd: string;
-  env: Record<string, string>;
-}): Promise<string | null> {
+export async function getViewer({ cwd }: { cwd: string }): Promise<string | null> {
   if (cachedViewer !== undefined) return cachedViewer;
-  const result = await execGh({ args: ["api", "user", "--jq", ".login"], cwd, env });
+  const result = await execGh({ args: ["api", "user", "--jq", ".login"], cwd });
   if (!result.ok) return null;
   const login = result.stdout.trim();
   cachedViewer = login;
@@ -111,15 +99,12 @@ export async function getViewer({
 /** リポジトリの owner/repo を取得する。gh 失敗時は null */
 export async function getOwnerRepo({
   cwd,
-  env,
 }: {
   cwd: string;
-  env: Record<string, string>;
 }): Promise<{ owner: string; repo: string } | null> {
   const nameResult = await execGh({
     args: ["repo", "view", "--json", "owner,name", "--jq", '.owner.login + "/" + .name'],
     cwd,
-    env,
   });
   if (!nameResult.ok) return null;
   const [owner, repo] = nameResult.stdout.trim().split("/");
@@ -127,14 +112,8 @@ export async function getOwnerRepo({
   return { owner, repo };
 }
 
-export async function getPrList({
-  cwd,
-  env,
-}: {
-  cwd: string;
-  env: Record<string, string>;
-}): Promise<GitPullRequest[] | null> {
-  const ownerRepo = await getOwnerRepo({ cwd, env });
+export async function getPrList({ cwd }: { cwd: string }): Promise<GitPullRequest[] | null> {
+  const ownerRepo = await getOwnerRepo({ cwd });
   if (!ownerRepo) return null;
   const { owner, repo } = ownerRepo;
 
@@ -153,7 +132,6 @@ export async function getPrList({
       `query=${PR_QUERY}`,
     ],
     cwd,
-    env,
   });
   if (!result.ok) return null;
 

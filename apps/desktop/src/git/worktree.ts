@@ -84,7 +84,7 @@ export async function addWorktree({
         throw new Error(`git fetch failed: ${stderr.trim() || `exit code ${fetchProc.exitCode}`}`);
       }
     }
-    // ローカルブランチが存在する場合、fast-forward 可能か検証してからリセットする
+    // ローカルブランチが別 worktree で使用中でないことを検証する
     const branchExists =
       (await spawn(["git", "show-ref", "--verify", "--quiet", `refs/heads/${branch}`], { cwd })
         .exited) === 0;

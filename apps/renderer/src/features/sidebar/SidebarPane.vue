@@ -104,12 +104,11 @@ useIntervalFn(() => {
 
 const sidebarMenuRef = ref<InstanceType<typeof SidebarMenu>>();
 
-/** worktree クリック: active なら Task 編集トグル、そうでなければ切り替え */
+/** worktree クリック: active なら done クリア、そうでなければ切り替え */
 function onWorktreeSelect(wt: import("@gozd/rpc").WorktreeEntry) {
   terminalStore.viewMode = "wt";
   if (isActive(wt)) {
     terminalStore.clearDoneStates(wt.path);
-    void toggleWorktreeTaskEdit(wt);
     return;
   }
   handleWorktreeSelect(wt);

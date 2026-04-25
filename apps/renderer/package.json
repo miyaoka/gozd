@@ -28,7 +28,7 @@
     "material-icon-theme": "5.33.1",
     "pinia": "3.0.4",
     "shiki": "4.0.2",
-    "vue": "3.5.32"
+    "vue": "3.5.33"
   },
   "devDependencies": {
     "@gozd/eslint-plugin": "workspace:*",

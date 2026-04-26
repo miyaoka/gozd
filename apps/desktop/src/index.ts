@@ -135,11 +135,16 @@ let nextPtyId = 0;
 
 /**
  * PTY とその子プロセス（サーバー等）を終了する。
- * セッションリーダー（シェル）に SIGHUP を送ると、シェルがセッション内の
- * 全フォアグラウンドプロセスグループに SIGHUP を伝搬する（POSIX 規定）。
- * 子プロセスが別のプロセスグループを作っていても到達する。
+ * terminal.close() で PTY master fd をクローズし、カーネルがセッション全体に
+ * SIGHUP を送る（shell の実装に依存しない確実な経路）。
+ * terminal が既に closed な場合は SIGHUP を直接送信するフォールバック。
  */
 function killPtyProcess(entry: PtyEntry) {
+  const terminal = entry.proc.terminal;
+  if (terminal && !terminal.closed) {
+    terminal.close();
+    return;
+  }
   const pid = entry.proc.pid;
   const result = tryCatch(() => process.kill(pid, "SIGHUP"));
   if (!result.ok) {

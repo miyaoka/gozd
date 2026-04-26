@@ -134,18 +134,18 @@ const ptys = new Map<number, PtyEntry>();
 let nextPtyId = 0;
 
 /**
- * PTY とその子プロセス（サーバー等）をプロセスグループごと終了する。
- * Bun.spawn({ terminal }) は forkpty(3) 相当で子プロセスを新セッションリーダーにするため
- * PID = PGID が成立し、負の PID でプロセスグループ全体に SIGTERM が届く。
+ * PTY とその子プロセス（サーバー等）を終了する。
+ * セッションリーダー（シェル）に SIGHUP を送ると、シェルがセッション内の
+ * 全フォアグラウンドプロセスグループに SIGHUP を伝搬する（POSIX 規定）。
+ * 子プロセスが別のプロセスグループを作っていても到達する。
  */
 function killPtyProcess(entry: PtyEntry) {
   const pid = entry.proc.pid;
-  const result = tryCatch(() => process.kill(-pid, "SIGTERM"));
+  const result = tryCatch(() => process.kill(pid, "SIGHUP"));
   if (!result.ok) {
     const code = (result.error as NodeJS.ErrnoException).code;
-    // ESRCH: プロセスグループが既に終了済み
     if (code !== "ESRCH") {
-      console.error(`[killPtyProcess] failed to kill process group ${pid}:`, result.error);
+      console.error(`[killPtyProcess] failed to send SIGHUP to ${pid}:`, result.error);
     }
   }
 }

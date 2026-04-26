@@ -133,6 +133,17 @@ interface PtyEntry {
 const ptys = new Map<number, PtyEntry>();
 let nextPtyId = 0;
 
+/** PTY とその子プロセス（サーバー等）をプロセスグループごと終了する */
+function killPtyProcess(entry: PtyEntry) {
+  const pid = entry.proc.pid;
+  // 負の PID でプロセスグループ全体に SIGTERM を送る
+  const result = tryCatch(() => process.kill(-pid, "SIGTERM"));
+  if (!result.ok) {
+    // ESRCH: プロセスが既に終了済み
+    if ((result.error as NodeJS.ErrnoException).code !== "ESRCH") throw result.error;
+  }
+}
+
 function spawnPty(win: GozdWindow, cwd: string, cols: number, rows: number): number {
   const id = nextPtyId++;
   // stream: true で途中切れの UTF-8 バイト列を次のチャンクに繰り越す
@@ -692,7 +703,7 @@ function cleanupWindow(win: GozdWindow) {
   // このウィンドウが所有する PTY をすべて kill
   for (const [id, entry] of ptys) {
     if (entry.win === win) {
-      entry.proc.kill();
+      killPtyProcess(entry);
       ptys.delete(id);
     }
   }
@@ -891,7 +902,7 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
           // 削除成功後に worktree の PTY を kill する
           for (const [id, entry] of ptys) {
             if (entry.win === win && entry.worktreeDir === wtReal) {
-              entry.proc.kill();
+              killPtyProcess(entry);
               ptys.delete(id);
             }
           }
@@ -1056,7 +1067,7 @@ function createWindowWithRPC(dir: string, options?: CreateWindowOptions): GozdWi
         ptyKill: ({ id }) => {
           const entry = ptys.get(id);
           if (entry?.win === win) {
-            entry.proc.kill();
+            killPtyProcess(entry);
             ptys.delete(id);
           }
         },

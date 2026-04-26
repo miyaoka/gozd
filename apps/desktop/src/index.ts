@@ -91,6 +91,7 @@ const LAUNCH_DIR = path.join(tmpdir(), `gozd-${channel}-launch`);
 const LAUNCH_TTL_MS = 30_000;
 const GIT_STATUS_DEBOUNCE_MS = 300;
 const GIT_WATCH_POLL_MS = 500;
+const PTY_EXIT_TIMEOUT_MS = 5_000;
 
 // --- Claude Code hooks 設定 ---
 
@@ -134,18 +135,23 @@ const ptys = new Map<number, PtyEntry>();
 let nextPtyId = 0;
 
 /**
- * PTY とその子プロセス（サーバー等）をプロセスグループごと終了する。
- * Bun.spawn({ terminal }) は forkpty(3) 相当で子プロセスを新セッションリーダーにするため
- * PID = PGID が成立し、負の PID でプロセスグループ全体に SIGTERM が届く。
+ * PTY とその子プロセス（サーバー等）を終了する。
+ * terminal.close() で PTY master fd をクローズし、カーネルがセッション全体に
+ * SIGHUP を送る（shell の実装に依存しない確実な経路）。
+ * terminal が既に closed な場合は SIGHUP を直接送信するフォールバック。
  */
 function killPtyProcess(entry: PtyEntry) {
+  const terminal = entry.proc.terminal;
+  if (terminal && !terminal.closed) {
+    terminal.close();
+    return;
+  }
   const pid = entry.proc.pid;
-  const result = tryCatch(() => process.kill(-pid, "SIGTERM"));
+  const result = tryCatch(() => process.kill(pid, "SIGHUP"));
   if (!result.ok) {
     const code = (result.error as NodeJS.ErrnoException).code;
-    // ESRCH: プロセスグループが既に終了済み
     if (code !== "ESRCH") {
-      console.error(`[killPtyProcess] failed to kill process group ${pid}:`, result.error);
+      console.error(`[killPtyProcess] failed to send SIGHUP to ${pid}:`, result.error);
     }
   }
 }
@@ -198,7 +204,42 @@ function spawnPty(win: GozdWindow, cwd: string, cols: number, rows: number): num
           win.webview.rpc?.send.ptyData({ id, data: remaining });
         }
         ptys.delete(id);
-        win.webview.rpc?.send.ptyExit({ id, exitCode: proc.exitCode ?? 1 });
+
+        let sent = false;
+        let timeoutId: ReturnType<typeof setTimeout> | undefined = setTimeout(() => {
+          timeoutId = undefined;
+          if (proc.exitCode !== null) {
+            notifyExit(proc.exitCode);
+          }
+        }, PTY_EXIT_TIMEOUT_MS);
+
+        const notifyExit = (exitCode: number) => {
+          if (sent) return;
+          sent = true;
+          if (timeoutId !== undefined) {
+            clearTimeout(timeoutId);
+            timeoutId = undefined;
+          }
+          if (!windowIds.has(win)) return;
+          const sendResult = tryCatch(() => win.webview.rpc?.send.ptyExit({ id, exitCode }));
+          if (!sendResult.ok) {
+            console.error(`[pty exit] failed to notify renderer for PTY ${id}:`, sendResult.error);
+          }
+        };
+
+        void proc.exited
+          .then((exitCode) => {
+            notifyExit(exitCode);
+          })
+          .catch((error) => {
+            if (timeoutId !== undefined) {
+              clearTimeout(timeoutId);
+              timeoutId = undefined;
+            }
+            if (windowIds.has(win)) {
+              console.error(`[pty exit] failed to observe process exit for PTY ${id}:`, error);
+            }
+          });
       },
     },
   });

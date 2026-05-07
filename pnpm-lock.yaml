@@ -95,8 +95,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       '@miyaoka/fsss':
-        specifier: 0.4.0
-        version: 0.4.0
+        specifier: 0.5.0
+        version: 0.5.0
       zod:
         specifier: 'catalog:'
         version: 4.3.6
@@ -472,8 +472,8 @@ packages:
     resolution: {integrity: sha512-RTBGWL5FWQcg9orDOCcp4LvItNzUPcyEU9bwaeJX0rJ1IQxzucC48Y0/sQLp/g6t99IQgAlGIaesJS+gTn7tVQ==}
     engines: {node: '>= 10'}
 
-  '@miyaoka/fsss@0.4.0':
-    resolution: {integrity: sha512-C20H0KyHvAbIXYID9i3Z5Qo9QYOGOmwgJVZaqWuLMd96Jm82Ehi0CYbhu68dFWQFHAZ7fHi30IAVfdCR3N+ahQ==}
+  '@miyaoka/fsss@0.5.0':
+    resolution: {integrity: sha512-zyZr/pL5IXmDcU1HRN1XrpmDD7teXGh0E3yvaywtkFKgOTkKjg5xJeWQ5HZMGNbEHKi7M3tZPpfGwVW/bWCWyQ==}
     hasBin: true
 
   '@miyaoka/vite-plugin-doc-block@0.0.2':
@@ -3098,7 +3098,7 @@ snapshots:
     dependencies:
       cross-spawn: 7.0.6
 
-  '@miyaoka/fsss@0.4.0':
+  '@miyaoka/fsss@0.5.0':
     dependencies:
       zod: 4.3.6
 

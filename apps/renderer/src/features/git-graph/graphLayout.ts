@@ -4,7 +4,7 @@ import type { GitCommit } from "@gozd/rpc";
  * 隣接する2行間のラインセグメント。
  * vscode-git-graph の Branch.Line に対応。
  */
-export interface LineSegment {
+interface LineSegment {
   /** 開始点の x（レーン番号） */
   x1: number;
   /** 開始点の y（行番号） */
@@ -23,7 +23,7 @@ export interface LineSegment {
 }
 
 /** グラフ上の1行分のデータ */
-export interface GraphNode {
+interface GraphNode {
   commit: GitCommit;
   /** この行のレーン（x 座標） */
   lane: number;

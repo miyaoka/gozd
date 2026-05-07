@@ -2,7 +2,7 @@ import { tryCatch } from "@gozd/shared";
 import { terminalScrollback } from "./terminalConfig";
 
 /** PTY セッション。store が所有し、コンポーネントの mount/unmount を跨いで維持される */
-export interface PtySession {
+interface PtySession {
   ptyId: number;
   /** 出力 ring buffer。replay 時に xterm.write() で流す */
   chunks: string[];

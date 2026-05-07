@@ -6,10 +6,10 @@
 // --- コマンド ---
 
 /** コマンドハンドラー。処理した場合 true、何もしなかった場合 false を返す */
-export type CommandHandler = (args?: unknown) => boolean;
+type CommandHandler = (args?: unknown) => boolean;
 
 /** label 付きコマンド記述子。label があるコマンドのみパレットに表示される */
-export interface CommandDescriptor {
+interface CommandDescriptor {
   /** コマンドパレットに表示する名前（例: "Terminal: Split Horizontal"） */
   label: string;
   handler: CommandHandler;

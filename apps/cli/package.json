@@ -12,7 +12,7 @@
     "fix": "oxlint --type-aware --fix && oxfmt ."
   },
   "dependencies": {
-    "@miyaoka/fsss": "0.4.0",
+    "@miyaoka/fsss": "0.5.0",
     "@gozd/shared": "workspace:*",
     "zod": "catalog:"
   },

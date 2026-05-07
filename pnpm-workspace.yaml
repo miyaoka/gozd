@@ -20,7 +20,7 @@ catalog:
   lefthook: 2.1.6
   oxfmt: 0.46.0
   oxlint: 1.61.0
-  oxlint-tsgolint: 0.21.1
+  oxlint-tsgolint: 0.22.1
   tailwindcss: 4.2.4
   typescript: 6.0.3
   vite: 8.0.10

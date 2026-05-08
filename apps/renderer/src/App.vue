@@ -8,7 +8,9 @@
 </doc>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted } from "vue";
+import { tryCatch } from "@gozd/shared";
+import { onMounted, onUnmounted, watch } from "vue";
+import { rpcFsUnwatch, rpcFsWatch } from "./features/filer";
 import { MainLayout } from "./features/layout";
 import { useWorktreeStore } from "./features/worktree";
 import { useAppStore } from "./shared/app";
@@ -68,9 +70,32 @@ onMounted(() => {
   );
 });
 
+// worktreeStore.dir の変更に追従して FSWatchRegistry の対象 dir を切り替える。
+// 旧 dir は unwatch、新 dir は watch することで、サーバー側の FSWatcher を
+// 現在表示中の worktree に同期させる（fsChange / gitStatusChange 等の push が届く）。
+const stopWatchDir = watch(
+  () => worktreeStore.dir,
+  async (newDir, oldDir) => {
+    if (oldDir !== undefined && oldDir !== newDir) {
+      await tryCatch(rpcFsUnwatch({ dir: oldDir }));
+    }
+    if (newDir !== undefined && newDir !== oldDir) {
+      const result = await tryCatch(rpcFsWatch({ dir: newDir }));
+      if (!result.ok) {
+        notify.error("Failed to start FS watch", result.error);
+      }
+    }
+  },
+  { immediate: true },
+);
+
 onUnmounted(() => {
   cleanup?.();
   disposeNotify();
+  stopWatchDir();
+  if (worktreeStore.dir !== undefined) {
+    void tryCatch(rpcFsUnwatch({ dir: worktreeStore.dir }));
+  }
 });
 </script>
 

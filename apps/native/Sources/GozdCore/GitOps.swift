@@ -107,6 +107,26 @@ public enum GitOps {
       headCommits: head, defaultBranchCommits: defaultCommits, defaultBranch: defaultBranch)
   }
 
+  public struct StatusFull: Equatable, Sendable {
+    public let statuses: [String: String]
+    public let head: String
+    public let hasUpstream: Bool
+    public let ahead: UInt32
+    public let behind: UInt32
+  }
+
+  /// status + HEAD + upstream + ahead/behind を 1 セットで取得する。
+  /// `gitStatusChange` push event の payload を構築するために使う。
+  ///
+  /// `git status --porcelain=v2 --branch -z` の `# branch.oid` / `# branch.upstream`
+  /// / `# branch.ab` 行を読む。porcelain v2 の整形が一発で済むので外部呼び出しを
+  /// 1 回で済ませられる。
+  public static func gitStatusFull(dir: String) async throws -> StatusFull {
+    let stdout = try await runGit(
+      args: ["status", "--porcelain=v2", "--branch", "-z"], cwd: dir)
+    return parsePorcelainV2WithBranch(stdout)
+  }
+
   /// `git rev-parse --show-toplevel` 相当。git repo の最上位ディレクトリを返す。
   /// dir が git 管理下でない場合は throw（commandFailed）する。
   public static func repoTopLevel(dir: String) async throws -> String {
@@ -315,6 +335,97 @@ private func parseDiffTreeNameStatus(_ data: Data) -> [FileChangeInfo] {
 /// 形式:
 /// - 通常エントリ: `XY SP path NUL`
 /// - rename / copy: `XY SP newpath NUL oldpath NUL`（`X` または `Y` が `R` / `C`）
+/// `git status --porcelain=v2 --branch -z` の出力を parse して StatusFull を返す。
+///
+/// 出力形式（NUL 区切り）:
+/// - `# branch.oid <sha>` — HEAD ハッシュ。`(initial)` ならまだコミットがない
+/// - `# branch.head <name>` — branch 名
+/// - `# branch.upstream <name>` — upstream（あれば）
+/// - `# branch.ab +<ahead> -<behind>` — ahead/behind（upstream あれば）
+/// - 続いて各ファイルエントリ（`1 XY ...` / `2 XY ...` / `u ...` / `? path`）
+///
+/// 各エントリは XY を抽出して path にマップする。porcelain v1 と XY の形式は同じ。
+/// `2`（rename）は古い path を後続の NUL 区切りで読み飛ばす。
+private func parsePorcelainV2WithBranch(_ data: Data) -> GitOps.StatusFull {
+  var statuses: [String: String] = [:]
+  var head = ""
+  var hasUpstream = false
+  var ahead: UInt32 = 0
+  var behind: UInt32 = 0
+
+  var index = data.startIndex
+  while index < data.endIndex {
+    guard let nul = data[index...].firstIndex(of: 0x00) else { break }
+    let entry = data[index..<nul]
+    index = data.index(after: nul)
+    if entry.isEmpty { continue }
+
+    let line = String(decoding: entry, as: UTF8.self)
+    if line.hasPrefix("# branch.oid ") {
+      let oid = String(line.dropFirst("# branch.oid ".count))
+      head = oid == "(initial)" ? "" : oid
+    } else if line.hasPrefix("# branch.upstream ") {
+      hasUpstream = true
+    } else if line.hasPrefix("# branch.ab ") {
+      // 形式: "+<ahead> -<behind>"
+      let rest = line.dropFirst("# branch.ab ".count)
+      let parts = rest.split(separator: " ")
+      for part in parts {
+        if part.hasPrefix("+") {
+          ahead = UInt32(part.dropFirst()) ?? 0
+        } else if part.hasPrefix("-") {
+          behind = UInt32(part.dropFirst()) ?? 0
+        }
+      }
+    } else if line.hasPrefix("# ") {
+      // branch.head 等は無視
+      continue
+    } else if line.hasPrefix("1 ") {
+      // "1 XY <sub> <mH> <mI> <mW> <hH> <hI> <path>"
+      let fields = line.split(
+        separator: " ", maxSplits: 8, omittingEmptySubsequences: false)
+      if fields.count >= 9 {
+        let xy = String(fields[1])
+        let path = String(fields[8])
+        statuses[path] = xy
+      }
+    } else if line.hasPrefix("2 ") {
+      // rename/copy: "2 XY <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path>"
+      // 続いて NUL 区切りで <orig_path>。
+      let fields = line.split(
+        separator: " ", maxSplits: 9, omittingEmptySubsequences: false)
+      if fields.count >= 10 {
+        let xy = String(fields[1])
+        let path = String(fields[9])
+        statuses[path] = xy
+      }
+      // orig_path を読み飛ばす
+      if let origNul = data[index...].firstIndex(of: 0x00) {
+        index = data.index(after: origNul)
+      }
+    } else if line.hasPrefix("u ") {
+      // unmerged: "u XY <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>"
+      let fields = line.split(
+        separator: " ", maxSplits: 10, omittingEmptySubsequences: false)
+      if fields.count >= 11 {
+        let xy = String(fields[1])
+        let path = String(fields[10])
+        statuses[path] = xy
+      }
+    } else if line.hasPrefix("? ") {
+      // untracked
+      let path = String(line.dropFirst(2))
+      statuses[path] = "??"
+    } else if line.hasPrefix("! ") {
+      // ignored — 通常 --porcelain では出ないが、無視
+      continue
+    }
+  }
+
+  return GitOps.StatusFull(
+    statuses: statuses, head: head, hasUpstream: hasUpstream, ahead: ahead, behind: behind)
+}
+
 private func parsePorcelainV1(_ data: Data) -> [String: String] {
   var result: [String: String] = [:]
   var index = data.startIndex

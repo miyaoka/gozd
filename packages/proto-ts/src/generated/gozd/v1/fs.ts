@@ -53,6 +53,25 @@ export interface FsReadDirResponse {
   entries: FsReadDirEntry[];
 }
 
+/**
+ * ディレクトリ配下の変更監視を開始する。
+ * 重複 watch（同 dir）は no-op。FSWatchRegistry が dir をキーに 1 watcher を保持する。
+ */
+export interface FsWatchRequest {
+  dir: string;
+}
+
+export interface FsWatchResponse {
+}
+
+/** 監視を停止する。watch されていない dir でも no-op で成功する。 */
+export interface FsUnwatchRequest {
+  dir: string;
+}
+
+export interface FsUnwatchResponse {
+}
+
 function createBaseFsReadFileRequest(): FsReadFileRequest {
   return { dir: "", path: "" };
 }
@@ -459,6 +478,208 @@ export const FsReadDirResponse: MessageFns<FsReadDirResponse> = {
   fromPartial(object: DeepPartial<FsReadDirResponse>): FsReadDirResponse {
     const message = createBaseFsReadDirResponse();
     message.entries = object.entries?.map((e) => FsReadDirEntry.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseFsWatchRequest(): FsWatchRequest {
+  return { dir: "" };
+}
+
+export const FsWatchRequest: MessageFns<FsWatchRequest> = {
+  encode(message: FsWatchRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): FsWatchRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFsWatchRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): FsWatchRequest {
+    return { dir: isSet(object.dir) ? globalThis.String(object.dir) : "" };
+  },
+
+  toJSON(message: FsWatchRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<FsWatchRequest>): FsWatchRequest {
+    return FsWatchRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<FsWatchRequest>): FsWatchRequest {
+    const message = createBaseFsWatchRequest();
+    message.dir = object.dir ?? "";
+    return message;
+  },
+};
+
+function createBaseFsWatchResponse(): FsWatchResponse {
+  return {};
+}
+
+export const FsWatchResponse: MessageFns<FsWatchResponse> = {
+  encode(_: FsWatchResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): FsWatchResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFsWatchResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): FsWatchResponse {
+    return {};
+  },
+
+  toJSON(_: FsWatchResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<FsWatchResponse>): FsWatchResponse {
+    return FsWatchResponse.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<FsWatchResponse>): FsWatchResponse {
+    const message = createBaseFsWatchResponse();
+    return message;
+  },
+};
+
+function createBaseFsUnwatchRequest(): FsUnwatchRequest {
+  return { dir: "" };
+}
+
+export const FsUnwatchRequest: MessageFns<FsUnwatchRequest> = {
+  encode(message: FsUnwatchRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): FsUnwatchRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFsUnwatchRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): FsUnwatchRequest {
+    return { dir: isSet(object.dir) ? globalThis.String(object.dir) : "" };
+  },
+
+  toJSON(message: FsUnwatchRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<FsUnwatchRequest>): FsUnwatchRequest {
+    return FsUnwatchRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<FsUnwatchRequest>): FsUnwatchRequest {
+    const message = createBaseFsUnwatchRequest();
+    message.dir = object.dir ?? "";
+    return message;
+  },
+};
+
+function createBaseFsUnwatchResponse(): FsUnwatchResponse {
+  return {};
+}
+
+export const FsUnwatchResponse: MessageFns<FsUnwatchResponse> = {
+  encode(_: FsUnwatchResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): FsUnwatchResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFsUnwatchResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): FsUnwatchResponse {
+    return {};
+  },
+
+  toJSON(_: FsUnwatchResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<FsUnwatchResponse>): FsUnwatchResponse {
+    return FsUnwatchResponse.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<FsUnwatchResponse>): FsUnwatchResponse {
+    const message = createBaseFsUnwatchResponse();
     return message;
   },
 };

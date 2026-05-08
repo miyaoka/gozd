@@ -123,12 +123,60 @@ final class AppRuntime {
       }
     }
 
+    let onFsChange: FSWatchRegistry.FsChangeHandler = { dir, relDir in
+      Task { @MainActor in
+        _ = try? await holder.page?.callJavaScript(
+          "window.__gozdReceive(type, payload)",
+          arguments: [
+            "type": "fsChange",
+            "payload": ["dir": dir, "relDir": relDir],
+          ]
+        )
+      }
+    }
+    let onGitStatusChange: FSWatchRegistry.GitStatusChangeHandler = { dir, status in
+      let payload: [String: Any] = [
+        "dir": dir,
+        "statuses": status.statuses,
+        "head": status.head,
+        "hasUpstream": status.hasUpstream,
+        "ahead": Int(status.ahead),
+        "behind": Int(status.behind),
+      ]
+      Task { @MainActor in
+        _ = try? await holder.page?.callJavaScript(
+          "window.__gozdReceive(type, payload)",
+          arguments: ["type": "gitStatusChange", "payload": payload]
+        )
+      }
+    }
+    let onBranchChange: FSWatchRegistry.BranchChangeHandler = { dir in
+      Task { @MainActor in
+        _ = try? await holder.page?.callJavaScript(
+          "window.__gozdReceive(type, payload)",
+          arguments: ["type": "branchChange", "payload": ["dir": dir]]
+        )
+      }
+    }
+    let onWorktreeChange: FSWatchRegistry.WorktreeChangeHandler = { dir in
+      Task { @MainActor in
+        _ = try? await holder.page?.callJavaScript(
+          "window.__gozdReceive(type, payload)",
+          arguments: ["type": "worktreeChange", "payload": ["dir": dir]]
+        )
+      }
+    }
+
     let dispatcher = RpcDispatcher(
       configDir: AppRuntime.defaultConfigDir(),
       onPtyText: onPtyText,
       onPtyExit: onPtyExit,
       onHook: onHook,
-      onOpen: onOpen
+      onOpen: onOpen,
+      onFsChange: onFsChange,
+      onGitStatusChange: onGitStatusChange,
+      onBranchChange: onBranchChange,
+      onWorktreeChange: onWorktreeChange
     )
 
     var config = WebPage.Configuration()

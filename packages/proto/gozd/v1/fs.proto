@@ -39,3 +39,18 @@ message FsReadDirEntry {
 message FsReadDirResponse {
   repeated FsReadDirEntry entries = 1;
 }
+
+// ディレクトリ配下の変更監視を開始する。
+// 重複 watch（同 dir）は no-op。FSWatchRegistry が dir をキーに 1 watcher を保持する。
+message FsWatchRequest {
+  string dir = 1;
+}
+
+message FsWatchResponse {}
+
+// 監視を停止する。watch されていない dir でも no-op で成功する。
+message FsUnwatchRequest {
+  string dir = 1;
+}
+
+message FsUnwatchResponse {}

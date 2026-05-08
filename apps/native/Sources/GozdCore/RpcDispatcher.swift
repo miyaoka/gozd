@@ -23,6 +23,7 @@ public actor RpcDispatcher {
   public typealias OpenHandler = @Sendable (String) -> Void
 
   private let pty: PTYRegistry
+  private let fsWatch: FSWatchRegistry
   private let appState: AppStateStore
   private let appConfig: AppConfigStore
   private let projectConfig: ProjectConfigStore
@@ -35,9 +36,19 @@ public actor RpcDispatcher {
     onPtyText: @escaping @Sendable (UInt32, String) -> Void,
     onPtyExit: @escaping @Sendable (UInt32, PTYExitReason) -> Void,
     onHook: @escaping HookHandler = { _ in },
-    onOpen: @escaping OpenHandler = { _ in }
+    onOpen: @escaping OpenHandler = { _ in },
+    onFsChange: @escaping FSWatchRegistry.FsChangeHandler = { _, _ in },
+    onGitStatusChange: @escaping FSWatchRegistry.GitStatusChangeHandler = { _, _ in },
+    onBranchChange: @escaping FSWatchRegistry.BranchChangeHandler = { _ in },
+    onWorktreeChange: @escaping FSWatchRegistry.WorktreeChangeHandler = { _ in }
   ) {
     self.pty = PTYRegistry(onText: onPtyText, onExit: onPtyExit)
+    self.fsWatch = FSWatchRegistry(
+      onFsChange: onFsChange,
+      onGitStatusChange: onGitStatusChange,
+      onBranchChange: onBranchChange,
+      onWorktreeChange: onWorktreeChange
+    )
     self.appState = AppStateStore(configDir: configDir)
     self.appConfig = AppConfigStore(configDir: configDir)
     self.projectConfig = ProjectConfigStore(configDir: configDir)
@@ -76,6 +87,10 @@ public actor RpcDispatcher {
       return try handleFsReadFile(body)
     case "/fs/readDir":
       return try handleFsReadDir(body)
+    case "/fs/watch":
+      return try await handleFsWatch(body)
+    case "/fs/unwatch":
+      return try await handleFsUnwatch(body)
     case "/pty/spawn":
       return try await handlePtySpawn(body)
     case "/pty/write":
@@ -192,6 +207,18 @@ public actor RpcDispatcher {
       return e
     }
     return try resp.jsonUTF8Data()
+  }
+
+  private func handleFsWatch(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_FsWatchRequest(jsonUTF8Data: body)
+    try await fsWatch.watch(dir: req.dir)
+    return try Gozd_V1_FsWatchResponse().jsonUTF8Data()
+  }
+
+  private func handleFsUnwatch(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_FsUnwatchRequest(jsonUTF8Data: body)
+    await fsWatch.unwatch(dir: req.dir)
+    return try Gozd_V1_FsUnwatchResponse().jsonUTF8Data()
   }
 
   private func handlePtySpawn(_ body: Data) async throws -> Data {

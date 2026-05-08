@@ -56,6 +56,10 @@ export {
   FsReadDirResponse,
   FsReadFileRequest,
   FsReadFileResponse,
+  FsUnwatchRequest,
+  FsUnwatchResponse,
+  FsWatchRequest,
+  FsWatchResponse,
 } from "./generated/gozd/v1/fs";
 export {
   FsReadFileAbsoluteRequest,

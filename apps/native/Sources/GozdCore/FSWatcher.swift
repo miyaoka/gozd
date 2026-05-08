@@ -24,13 +24,13 @@ import Foundation
 //    - `WatchRoot`: gozd の現用途（worktree 配下監視）では root 移動シナリオが希。必要時に追加検討。
 //    - `IgnoreSelf`: gozd 経由（PTY spawn 等）の書き込みも UI 更新したいので不採用。
 public final class FSWatcher {
-  public struct Event {
+  public struct Event: Sendable {
     public let path: String
     public let flags: FSEventStreamEventFlags
     public let id: FSEventStreamEventId
   }
 
-  public typealias Handler = ([Event]) -> Void
+  public typealias Handler = @Sendable ([Event]) -> Void
 
   private let paths: [String]
   private let latency: CFTimeInterval

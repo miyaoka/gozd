@@ -107,6 +107,14 @@ public enum GitOps {
       headCommits: head, defaultBranchCommits: defaultCommits, defaultBranch: defaultBranch)
   }
 
+  /// `git rev-parse --show-toplevel` 相当。git repo の最上位ディレクトリを返す。
+  /// dir が git 管理下でない場合は throw（commandFailed）する。
+  public static func repoTopLevel(dir: String) async throws -> String {
+    let stdout = try await runGit(args: ["rev-parse", "--show-toplevel"], cwd: dir)
+    return String(decoding: stdout, as: UTF8.self).trimmingCharacters(
+      in: .whitespacesAndNewlines)
+  }
+
   /// `git symbolic-ref --short refs/remotes/origin/HEAD` 相当。`origin/main` 等を返す。
   /// origin/ の prefix は剥がして `main` のみ返す。
   public static func defaultBranchName(dir: String) async throws -> String {

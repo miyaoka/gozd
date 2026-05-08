@@ -111,11 +111,14 @@ final class AppRuntime {
         )
       }
     }
+    let channel = AppRuntime.channelFromSocketPath(socketPath)
     let onOpen: @Sendable (String) -> Void = { targetPath in
       Task { @MainActor in
+        let payload = await AppRuntime.buildGozdOpenPayload(
+          targetPath: targetPath, channel: channel)
         _ = try? await holder.page?.callJavaScript(
           "window.__gozdReceive(type, payload)",
-          arguments: ["type": "open", "payload": ["targetPath": targetPath]]
+          arguments: ["type": "gozdOpen", "payload": payload]
         )
       }
     }
@@ -171,6 +174,76 @@ final class AppRuntime {
     // architecture.md の規約: $TMPDIR/gozd-{channel}.sock。`swift run` 時は dev 扱い。
     let tmp = NSTemporaryDirectory()
     return (tmp as NSString).appendingPathComponent("gozd-dev.sock")
+  }
+
+  /// `/tmp/gozd-dev.sock` → `dev` のように socket basename からチャネル名を抽出。
+  /// 規約: `gozd-{channel}.sock`。マッチしない場合は空文字列を返し、renderer 側で
+  /// channel が空のままになる（appStore.setChannel が no-op）。
+  fileprivate static func channelFromSocketPath(_ path: String) -> String {
+    let base = (path as NSString).lastPathComponent
+    guard base.hasPrefix("gozd-"), base.hasSuffix(".sock") else { return "" }
+    let start = base.index(base.startIndex, offsetBy: "gozd-".count)
+    let end = base.index(base.endIndex, offsetBy: -".sock".count)
+    return String(base[start..<end])
+  }
+
+  /// OpenMessage.targetPath を gozdOpen event payload に変換する。
+  /// - git repo 内のパスなら `git rev-parse --show-toplevel` で repo root を解決し、
+  ///   そのディレクトリ名を repoName として使う。
+  /// - git 管理外のパスなら targetPath をそのまま dir として使い、isGitRepo=false。
+  /// - file 指定（targetPath が file）の場合、selection を埋めて dir は parent にする。
+  fileprivate static func buildGozdOpenPayload(
+    targetPath: String, channel: String
+  ) async -> [String: Any] {
+    let fm = FileManager.default
+    var isDir: ObjCBool = false
+    let exists = fm.fileExists(atPath: targetPath, isDirectory: &isDir)
+
+    let probeDir: String
+    var selection: [String: Any] = [:]
+    if exists, !isDir.boolValue {
+      // ファイル指定 → parent を dir にして selection を埋める
+      let parent = (targetPath as NSString).deletingLastPathComponent
+      probeDir = parent
+      selection = [
+        "kind": "file",
+        "relPath": (targetPath as NSString).lastPathComponent,
+        "lineNumber": 0,
+      ]
+    } else {
+      probeDir = targetPath
+    }
+
+    var dir = probeDir
+    var repoName = (probeDir as NSString).lastPathComponent
+    var isGitRepo = false
+    if let toplevel = try? await GitOps.repoTopLevel(dir: probeDir), !toplevel.isEmpty {
+      dir = toplevel
+      repoName = (toplevel as NSString).lastPathComponent
+      isGitRepo = true
+      // file 指定で probeDir が toplevel と異なる場合、selection.relPath を toplevel
+      // からの相対パスに更新する
+      if !selection.isEmpty, probeDir != toplevel {
+        let absFile = (probeDir as NSString).appendingPathComponent(
+          selection["relPath"] as? String ?? "")
+        if absFile.hasPrefix(toplevel) {
+          let rel = String(absFile.dropFirst(toplevel.count))
+          selection["relPath"] = rel.hasPrefix("/") ? String(rel.dropFirst()) : rel
+        }
+      }
+    }
+
+    var payload: [String: Any] = [
+      "dir": dir,
+      "channel": channel,
+      "repoName": repoName,
+      "isGitRepo": isGitRepo,
+      "switchToDir": "",
+    ]
+    if !selection.isEmpty {
+      payload["selection"] = selection
+    }
+    return payload
   }
 }
 
@@ -414,8 +487,8 @@ private func ptyHarnessHTML(socketPath: String) -> String {
             }
           } else if (type === 'hook') {
             logSocket('hook ' + JSON.stringify(payload));
-          } else if (type === 'open') {
-            logSocket('open ' + JSON.stringify(payload));
+          } else if (type === 'gozdOpen') {
+            logSocket('gozdOpen ' + JSON.stringify(payload));
           }
         };
 

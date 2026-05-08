@@ -6,6 +6,14 @@
 // ts-proto は各ファイルに `DeepPartial` / `MessageFns` / `protobufPackage` という
 // 共通の utility を export するため、`export *` だと衝突する。message 型のみを
 // 明示 re-export する。
+export {
+  AppState,
+  LoadAppStateRequest,
+  LoadAppStateResponse,
+  SaveAppStateRequest,
+  SaveAppStateResponse,
+  WindowFrame,
+} from "./generated/gozd/v1/app_state";
 export { EchoRequest, EchoResponse } from "./generated/gozd/v1/echo";
 export {
   FsReadDirEntry,

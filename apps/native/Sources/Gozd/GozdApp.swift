@@ -2,6 +2,7 @@ import Foundation
 import GozdCore
 import GozdProto
 import SwiftUI
+import UniformTypeIdentifiers
 import WebKit
 
 @main
@@ -45,7 +46,10 @@ struct ContentView: View {
       .task {
         // ロード経路は 3 つ:
         //   1. dev: $GOZD_DEV_VITE_URL があれば Vite dev server をロード（HMR）
-        //   2. build: .app 内 Resources/app/views/main/index.html をロード
+        //   2. build: gozd-app:// 経由で .app 内 Resources/app/views/main/index.html をロード。
+        //      file:// + URLRequest だと WebPage（macOS 26 新 API）に
+        //      `loadFileURL(_:allowingReadAccessTo:)` 相当が無く、subresource が
+        //      sandbox に阻まれる。WWDC25 公式パターンの URLSchemeHandler 経由にする。
         //   3. fallback: PTY 検証用の埋め込み HTML harness（swift run 直叩き等）
         if let viteURL = ProcessInfo.processInfo.environment["GOZD_DEV_VITE_URL"],
           let url = URL(string: viteURL)
@@ -55,12 +59,10 @@ struct ContentView: View {
           } catch {
             print("page.load (vite) failed: \(error)")
           }
-        } else if let bundledIndex = Bundle.main.url(
-          forResource: "index", withExtension: "html",
-          subdirectory: "app/views/main")
-        {
+        } else if BundleAssetSchemeHandler.bundledRoot != nil {
+          let appURL = URL(string: "gozd-app://localhost/index.html")!
           do {
-            for try await _ in runtime.page.load(URLRequest(url: bundledIndex)) {}
+            for try await _ in runtime.page.load(URLRequest(url: appURL)) {}
           } catch {
             print("page.load (bundled) failed: \(error)")
           }
@@ -294,6 +296,7 @@ final class AppRuntime {
 
     var config = WebPage.Configuration()
     config.urlSchemeHandlers[URLScheme("gozd-rpc")!] = RpcSchemeHandler(dispatcher: dispatcher)
+    config.urlSchemeHandlers[URLScheme("gozd-app")!] = BundleAssetSchemeHandler()
     let page = WebPage(configuration: config)
     page.isInspectable = true
     holder.page = page
@@ -597,6 +600,50 @@ struct RpcSchemeHandler: URLSchemeHandler {
 
 enum SchemeError: Error {
   case missingURL
+}
+
+// `gozd-app://localhost/<path>` を Bundle.main/Contents/Resources/app/views/main/<path> にマップする。
+// 新 SwiftUI WebPage API には `loadFileURL(_:allowingReadAccessTo:)` 相当が無く、
+// file:// 直ロードでは subresource（/assets/*.js 等）が WKWebView sandbox に弾かれる。
+// WWDC25「Meet WebKit for SwiftUI」が示す公式パターンに従い、custom scheme で serve する。
+struct BundleAssetSchemeHandler: URLSchemeHandler {
+  /// `.app` 内 renderer 配置ルート。Bundle が無い（swift run 直叩き等）と nil。
+  static var bundledRoot: URL? {
+    Bundle.main.resourceURL?.appendingPathComponent("app/views/main", isDirectory: true)
+  }
+
+  func reply(for request: URLRequest) -> AsyncThrowingStream<URLSchemeTaskResult, any Error> {
+    AsyncThrowingStream { continuation in
+      Task {
+        guard let url = request.url else {
+          continuation.finish(throwing: SchemeError.missingURL)
+          return
+        }
+        guard let root = Self.bundledRoot else {
+          continuation.finish(throwing: URLError(.fileDoesNotExist))
+          return
+        }
+        let relPath = url.path.hasPrefix("/") ? String(url.path.dropFirst()) : url.path
+        let normalized = relPath.isEmpty ? "index.html" : relPath
+        let fileURL = root.appendingPathComponent(normalized)
+        do {
+          let data = try Data(contentsOf: fileURL)
+          let mime =
+            UTType(filenameExtension: fileURL.pathExtension)?.preferredMIMEType
+            ?? "application/octet-stream"
+          let resp = HTTPURLResponse(
+            url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": mime, "Content-Length": "\(data.count)"]
+          )!
+          continuation.yield(.response(resp))
+          continuation.yield(.data(data))
+          continuation.finish()
+        } catch {
+          continuation.finish(throwing: error)
+        }
+      }
+    }
+  }
 }
 
 // Phase 3 検証用ハーネス。xterm.js + 単一 PTY + UTF-8 境界ストレステスト + Socket inbound。

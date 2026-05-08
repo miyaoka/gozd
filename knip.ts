@@ -5,7 +5,10 @@ const config: KnipConfig = {
   // eslint: lefthook.yml で pnpm exec eslint として使用（renderer の devDep）
   // open: macOS の /usr/bin/open コマンド
   // typecheck: pnpm -r で呼ぶワークスペースの scripts 名
-  ignoreBinaries: ["eslint", "open", "typecheck"],
+  // buf: mise 経由で実行（packages/proto-ts の generate スクリプト）
+  ignoreBinaries: ["eslint", "open", "typecheck", "buf"],
+  // SPM の .build/ 配下はサードパーティのビルド成果物。knip の対象外にする
+  ignore: ["**/.build/**"],
   workspaces: {
     ".": {},
     "apps/cli": {
@@ -29,6 +32,7 @@ const config: KnipConfig = {
       ],
     },
     "packages/eslint-plugin": {},
+    "packages/proto-ts": {},
     "packages/rpc": {},
     "packages/shared": {},
     "packages/themes": {},

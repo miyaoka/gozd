@@ -284,6 +284,31 @@ importers:
         specifier: 'catalog:'
         version: 0.22.1
 
+  packages/proto-ts:
+    dependencies:
+      '@bufbuild/protobuf':
+        specifier: ^2.12.0
+        version: 2.12.0
+    devDependencies:
+      '@types/bun':
+        specifier: 'catalog:'
+        version: 1.3.13
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.12.2
+      '@typescript/native-preview':
+        specifier: 'catalog:'
+        version: 7.0.0-dev.20260504.1
+      oxfmt:
+        specifier: 'catalog:'
+        version: 0.47.0
+      oxlint:
+        specifier: 'catalog:'
+        version: 1.62.0(oxlint-tsgolint@0.22.1)
+      oxlint-tsgolint:
+        specifier: 'catalog:'
+        version: 0.22.1
+
   packages/rpc:
     dependencies:
       zod:
@@ -369,6 +394,9 @@ packages:
 
   '@babylonjs/core@7.54.3':
     resolution: {integrity: sha512-P5ncXVd8GEUJLhwloP9V0oVwQYIrvZztguVeLlvd5Rx+9aQnenKjpV8auJ6SRsUlAmNZU4pFTKzwF6o2EUfhAw==}
+
+  '@bufbuild/protobuf@2.12.0':
+    resolution: {integrity: sha512-B/XlCaFIP8LOwzo+bz5uFzATYokcwCKQcghqnlfwSmM5eX/qTkvDBnDPs+gXtX/RyjxJ4DRikECcPJbyALA8FA==}
 
   '@cyberalien/svg-utils@1.2.9':
     resolution: {integrity: sha512-bd5I3TQ2k/xqcNB6P6GpFKeid3OgqgGSRz704+XHoGNBAsI7wwYKS6nuxAn26ciUtRjGKovfEy66ryEY9UGUwQ==}
@@ -2967,6 +2995,8 @@ snapshots:
       '@babel/helper-validator-identifier': 7.28.5
 
   '@babylonjs/core@7.54.3': {}
+
+  '@bufbuild/protobuf@2.12.0': {}
 
   '@cyberalien/svg-utils@1.2.9':
     dependencies:

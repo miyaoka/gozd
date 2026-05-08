@@ -64,6 +64,12 @@ struct ContentView: View {
             print("page.load (harness) failed: \(error)")
           }
         }
+
+        // page load 完了後の起動時 auto-open。
+        // dev では GOZD_DEV_PROJECT_ROOT を初期 dir として開き、毎回 nc で
+        // OpenMessage を投げ込む手間を省く。本番（CLI 経由 cold start）では
+        // launch request ファイルを読んで開く。
+        runtime.performInitialOpen()
       }
   }
 }
@@ -83,10 +89,44 @@ final class AppRuntime {
   let server: SocketServer
   let socketPath: String
   let pidTracker: PidTracker
+  let channel: String
 
   /// AppDelegate.applicationWillTerminate から呼ばれる。同期実行で SIGHUP を送る。
   func terminateAllPtys() {
     pidTracker.killAll()
+  }
+
+  /// 起動時に渡された initial open target を解決して push する。
+  ///   1. dev: `GOZD_DEV_PROJECT_ROOT` があればそれを開く
+  ///   2. CLI cold start: $TMPDIR/gozd-{channel}-launch/ 配下の launch request
+  ///      ファイル（最古のもの）を読んで開き、対象ファイルを削除する
+  ///   3. それ以外: no-op（renderer は OpenMessage が来るまで待機）
+  func performInitialOpen() {
+    if let root = ProcessInfo.processInfo.environment["GOZD_DEV_PROJECT_ROOT"],
+      !root.isEmpty
+    {
+      openTarget(root)
+      return
+    }
+    if let target = AppRuntime.consumeLaunchRequest(channel: channel) {
+      openTarget(target)
+    }
+  }
+
+  /// 任意の path を gozdOpen event として renderer に push する。
+  /// CLI / socket 経由の OpenMessage と、起動時の自動 open（dev mode 等）の
+  /// 両方から共通エントリポイントになる。
+  func openTarget(_ targetPath: String) {
+    let channel = self.channel
+    let page = self.page
+    Task { @MainActor in
+      let payload = await AppRuntime.buildGozdOpenPayload(
+        targetPath: targetPath, channel: channel)
+      _ = try? await page.callJavaScript(
+        "window.__gozdReceive(type, payload)",
+        arguments: ["type": "gozdOpen", "payload": payload]
+      )
+    }
   }
 
   init() {
@@ -95,6 +135,7 @@ final class AppRuntime {
     let pidTracker = PidTracker()
     self.pidTracker = pidTracker
     let channel = AppRuntime.channelFromSocketPath(socketPath)
+    self.channel = channel
     let holder = WebPageHolder()
 
     // Claude hooks settings JSON を $TMPDIR に書き出す。
@@ -300,6 +341,36 @@ final class AppRuntime {
     // architecture.md の規約: $TMPDIR/gozd-{channel}.sock。`swift run` 時は dev 扱い。
     let tmp = NSTemporaryDirectory()
     return (tmp as NSString).appendingPathComponent("gozd-dev.sock")
+  }
+
+  /// CLI が cold start 時に書き出した launch request ファイルを 1 件読んで
+  /// targetPath を返し、当該ファイルを削除する。複数あれば最古のもの。
+  fileprivate static func consumeLaunchRequest(channel: String) -> String? {
+    let tmp = NSTemporaryDirectory()
+    let ch = channel.isEmpty ? "dev" : channel
+    let dir = (tmp as NSString).appendingPathComponent("gozd-\(ch)-launch")
+    let fm = FileManager.default
+    guard let entries = try? fm.contentsOfDirectory(atPath: dir), !entries.isEmpty else {
+      return nil
+    }
+    // 作成時刻順に並べて最古を採る
+    let sorted = entries.sorted { lhs, rhs in
+      let lp = (dir as NSString).appendingPathComponent(lhs)
+      let rp = (dir as NSString).appendingPathComponent(rhs)
+      let la = (try? fm.attributesOfItem(atPath: lp))?[.creationDate] as? Date
+      let ra = (try? fm.attributesOfItem(atPath: rp))?[.creationDate] as? Date
+      return (la ?? .distantPast) < (ra ?? .distantPast)
+    }
+    guard let first = sorted.first else { return nil }
+    let path = (dir as NSString).appendingPathComponent(first)
+    defer { try? fm.removeItem(atPath: path) }
+    guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let target = json["targetPath"] as? String
+    else {
+      return nil
+    }
+    return target
   }
 
   /// $TMPDIR/gozd-{channel}-claude-settings.json。Claude Code の `--settings` に渡す。

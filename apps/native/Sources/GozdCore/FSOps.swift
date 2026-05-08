@@ -81,7 +81,7 @@ public enum FSOps {
       modifiedAt: ISO8601DateFormatter().string(from: modDate))
   }
 
-  public static func readDir(dir: String, path: String) throws -> [FSEntry] {
+  public static func readDir(dir: String, path: String) async throws -> [FSEntry] {
     let target = try resolveSafe(dir: dir, path: path)
     let url = URL(fileURLWithPath: target)
     let entries = try FileManager.default.contentsOfDirectory(
@@ -89,18 +89,28 @@ public enum FSOps {
       includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
       options: []
     )
-    return entries
-      .map { entry -> FSEntry in
-        let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-        let type: String
-        if values?.isSymbolicLink == true {
-          type = "symlink"
-        } else if values?.isDirectory == true {
-          type = "directory"
-        } else {
-          type = "file"
-        }
-        return FSEntry(name: entry.lastPathComponent, type: type)
+    let listed: [(URL, String)] = entries.map { entry in
+      let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+      let type: String
+      if values?.isSymbolicLink == true {
+        type = "symlink"
+      } else if values?.isDirectory == true {
+        type = "directory"
+      } else {
+        type = "file"
+      }
+      return (entry, type)
+    }
+    // gitignore 判定は dir（worktree root）からの相対パスで行う。
+    // path が空なら entry name そのまま、サブディレクトリなら "<path>/<name>"。
+    let prefix = path.isEmpty ? "" : (path.hasSuffix("/") ? path : path + "/")
+    let relPaths = listed.map { prefix + $0.0.lastPathComponent }
+    let ignored = await GitOps.checkIgnore(dir: dir, relPaths: relPaths)
+    return listed
+      .map { (entry, type) -> FSEntry in
+        let rel = prefix + entry.lastPathComponent
+        return FSEntry(
+          name: entry.lastPathComponent, type: type, isIgnored: ignored.contains(rel))
       }
       .sorted { $0.name < $1.name }
   }
@@ -128,6 +138,12 @@ private func readFileAt(absolutePath: String) -> FileReadInfo {
 public struct FSEntry: Sendable, Equatable {
   public let name: String
   public let type: String
+  public let isIgnored: Bool
+  public init(name: String, type: String, isIgnored: Bool = false) {
+    self.name = name
+    self.type = type
+    self.isIgnored = isIgnored
+  }
 }
 
 public struct FSStatResult: Sendable, Equatable {

@@ -34,6 +34,8 @@ message FsReadDirRequest {
 message FsReadDirEntry {
   string name = 1;
   string type = 2;
+  // gitignore で無視されているか。dir が git repo でない場合は常に false。
+  bool is_ignored = 3;
 }
 
 message FsReadDirResponse {

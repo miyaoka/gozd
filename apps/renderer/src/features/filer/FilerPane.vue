@@ -34,12 +34,11 @@ const loading = ref(false);
 let pendingRevealPath: string | undefined;
 
 /** proto の FsReadDirEntry を FileEntry に変換する */
-function toFileEntries(entries: { name: string; type: string }[]): FileEntry[] {
+function toFileEntries(entries: { name: string; type: string; isIgnored: boolean }[]): FileEntry[] {
   return entries.map((e) => ({
     name: e.name,
     isDirectory: e.type === "directory",
-    // gitignore 反映は新 proto に未組み込み。Phase 4 で追加を検討
-    isIgnored: false,
+    isIgnored: e.isIgnored,
   }));
 }
 

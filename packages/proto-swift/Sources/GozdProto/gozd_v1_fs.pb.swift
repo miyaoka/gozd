@@ -87,6 +87,9 @@ public struct Gozd_V1_FsReadDirEntry: Sendable {
 
   public var type: String = String()
 
+  /// gitignore で無視されているか。dir が git repo でない場合は常に false。
+  public var isIgnored: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -272,7 +275,7 @@ extension Gozd_V1_FsReadDirRequest: SwiftProtobuf.Message, SwiftProtobuf._Messag
 
 extension Gozd_V1_FsReadDirEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FsReadDirEntry"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{1}type\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{1}type\0\u{3}is_ignored\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -282,6 +285,7 @@ extension Gozd_V1_FsReadDirEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageI
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.name) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.type) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.isIgnored) }()
       default: break
       }
     }
@@ -294,12 +298,16 @@ extension Gozd_V1_FsReadDirEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     if !self.type.isEmpty {
       try visitor.visitSingularStringField(value: self.type, fieldNumber: 2)
     }
+    if self.isIgnored != false {
+      try visitor.visitSingularBoolField(value: self.isIgnored, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Gozd_V1_FsReadDirEntry, rhs: Gozd_V1_FsReadDirEntry) -> Bool {
     if lhs.name != rhs.name {return false}
     if lhs.type != rhs.type {return false}
+    if lhs.isIgnored != rhs.isIgnored {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -47,6 +47,8 @@ export interface FsReadDirRequest {
 export interface FsReadDirEntry {
   name: string;
   type: string;
+  /** gitignore で無視されているか。dir が git repo でない場合は常に false。 */
+  isIgnored: boolean;
 }
 
 export interface FsReadDirResponse {
@@ -345,7 +347,7 @@ export const FsReadDirRequest: MessageFns<FsReadDirRequest> = {
 };
 
 function createBaseFsReadDirEntry(): FsReadDirEntry {
-  return { name: "", type: "" };
+  return { name: "", type: "", isIgnored: false };
 }
 
 export const FsReadDirEntry: MessageFns<FsReadDirEntry> = {
@@ -355,6 +357,9 @@ export const FsReadDirEntry: MessageFns<FsReadDirEntry> = {
     }
     if (message.type !== "") {
       writer.uint32(18).string(message.type);
+    }
+    if (message.isIgnored !== false) {
+      writer.uint32(24).bool(message.isIgnored);
     }
     return writer;
   },
@@ -382,6 +387,14 @@ export const FsReadDirEntry: MessageFns<FsReadDirEntry> = {
           message.type = reader.string();
           continue;
         }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.isIgnored = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -395,6 +408,11 @@ export const FsReadDirEntry: MessageFns<FsReadDirEntry> = {
     return {
       name: isSet(object.name) ? globalThis.String(object.name) : "",
       type: isSet(object.type) ? globalThis.String(object.type) : "",
+      isIgnored: isSet(object.isIgnored)
+        ? globalThis.Boolean(object.isIgnored)
+        : isSet(object.is_ignored)
+        ? globalThis.Boolean(object.is_ignored)
+        : false,
     };
   },
 
@@ -406,6 +424,9 @@ export const FsReadDirEntry: MessageFns<FsReadDirEntry> = {
     if (message.type !== "") {
       obj.type = message.type;
     }
+    if (message.isIgnored !== false) {
+      obj.isIgnored = message.isIgnored;
+    }
     return obj;
   },
 
@@ -416,6 +437,7 @@ export const FsReadDirEntry: MessageFns<FsReadDirEntry> = {
     const message = createBaseFsReadDirEntry();
     message.name = object.name ?? "";
     message.type = object.type ?? "";
+    message.isIgnored = object.isIgnored ?? false;
     return message;
   },
 };

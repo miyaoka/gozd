@@ -127,6 +127,27 @@ public enum GitOps {
     return parsePorcelainV2WithBranch(stdout)
   }
 
+  /// 与えられた相対パス群のうち gitignore で無視されているものを Set で返す。
+  /// - dir 配下が git 管理されていない / git が無い場合は空 Set を返す（throw しない）。
+  /// - 入力空なら git を起動せず即時空 Set を返す。
+  ///
+  /// `git check-ignore --stdin -z` を使い、stdin に NUL 区切りでパスを流す。
+  /// 出力も NUL 区切りで「無視されたパス」だけが返る。1 fork で全件まとめて判定できる。
+  public static func checkIgnore(dir: String, relPaths: [String]) async -> Set<String> {
+    if relPaths.isEmpty { return [] }
+    let stdinBytes = relPaths
+      .map { $0.data(using: .utf8) ?? Data() }
+      .reduce(Data()) { acc, next in acc + next + Data([0x00]) }
+    do {
+      let stdout = try await runGitWithStdin(
+        args: ["check-ignore", "--stdin", "-z"], cwd: dir, stdin: stdinBytes)
+      return parseNulSeparatedPaths(stdout)
+    } catch {
+      // not a git repo / no .gitignore 等は exit code != 0。無視されたパス無しとして扱う。
+      return []
+    }
+  }
+
   /// `git rev-parse --show-toplevel` 相当。git repo の最上位ディレクトリを返す。
   /// dir が git 管理下でない場合は throw（commandFailed）する。
   public static func repoTopLevel(dir: String) async throws -> String {
@@ -224,6 +245,63 @@ public enum GitError: Error, Equatable {
 }
 
 // MARK: - private helpers
+
+/// `git check-ignore --stdin -z` の NUL 区切り出力をパスの Set に変換する。
+private func parseNulSeparatedPaths(_ data: Data) -> Set<String> {
+  var result: Set<String> = []
+  var start = data.startIndex
+  while start < data.endIndex {
+    guard let nul = data[start...].firstIndex(of: 0x00) else { break }
+    let segment = data[start..<nul]
+    if !segment.isEmpty {
+      result.insert(String(decoding: segment, as: UTF8.self))
+    }
+    start = data.index(after: nul)
+  }
+  return result
+}
+
+/// stdin にデータを渡して git を起動する。`runGit` と同じ戻り値契約。
+func runGitWithStdin(args: [String], cwd: String, stdin: Data) async throws -> Data {
+  try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["git"] + args
+    process.currentDirectoryURL = URL(fileURLWithPath: cwd)
+
+    let stdinPipe = Pipe()
+    let stdoutPipe = Pipe()
+    let stderrPipe = Pipe()
+    process.standardInput = stdinPipe
+    process.standardOutput = stdoutPipe
+    process.standardError = stderrPipe
+
+    process.terminationHandler = { proc in
+      let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+      let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+      // git check-ignore は無視パスがあれば exit 0、無ければ exit 1。1 を「結果なし」
+      // として扱うため、stderr が空なら成功扱いで stdout を返す。
+      // exit code != 0 かつ stderr に出力があれば従来どおりエラー化する。
+      if proc.terminationStatus == 0 || stderrData.isEmpty {
+        cont.resume(returning: stdoutData)
+        return
+      }
+      let stderrText = String(decoding: stderrData, as: UTF8.self)
+      cont.resume(
+        throwing: GitError.commandFailed(
+          exitCode: proc.terminationStatus, stderr: stderrText))
+    }
+
+    do {
+      try process.run()
+      // stdin を書き込んで EOF。書き込み中の例外は git 終了で拾うので try? で握る。
+      try? stdinPipe.fileHandleForWriting.write(contentsOf: stdin)
+      try? stdinPipe.fileHandleForWriting.close()
+    } catch {
+      cont.resume(throwing: GitError.launchFailed(error.localizedDescription))
+    }
+  }
+}
 
 func runGit(args: [String], cwd: String) async throws -> Data {
   try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in

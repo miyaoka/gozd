@@ -88,7 +88,7 @@ public actor RpcDispatcher {
     case "/fs/readFile":
       return try handleFsReadFile(body)
     case "/fs/readDir":
-      return try handleFsReadDir(body)
+      return try await handleFsReadDir(body)
     case "/fs/watch":
       return try await handleFsWatch(body)
     case "/fs/unwatch":
@@ -198,14 +198,15 @@ public actor RpcDispatcher {
     return try resp.jsonUTF8Data()
   }
 
-  private func handleFsReadDir(_ body: Data) throws -> Data {
+  private func handleFsReadDir(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_FsReadDirRequest(jsonUTF8Data: body)
-    let entries = try FSOps.readDir(dir: req.dir, path: req.path)
+    let entries = try await FSOps.readDir(dir: req.dir, path: req.path)
     var resp = Gozd_V1_FsReadDirResponse()
     resp.entries = entries.map { entry in
       var e = Gozd_V1_FsReadDirEntry()
       e.name = entry.name
       e.type = entry.type
+      e.isIgnored = entry.isIgnored
       return e
     }
     return try resp.jsonUTF8Data()

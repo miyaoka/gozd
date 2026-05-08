@@ -127,7 +127,9 @@ public actor TaskStore {
     }
     let data = try Data(contentsOf: URL(fileURLWithPath: path))
     let json = String(decoding: data, as: UTF8.self)
-    return try Gozd_V1_TaskList(jsonString: json)
+    // 壊れたファイル / 旧形式は空 list として扱い、次回 save で上書きする。
+    // 後方互換コードは負債になるので、復旧は「捨てて作り直す」方針。
+    return (try? Gozd_V1_TaskList(jsonString: json)) ?? Gozd_V1_TaskList()
   }
 
   private func saveFile(_ list: Gozd_V1_TaskList, for dir: String) throws {

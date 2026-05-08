@@ -409,7 +409,7 @@ final class AppRuntime {
     let env = ProcessInfo.processInfo.environment
     let userHome = FileManager.default.homeDirectoryForCurrentUser.path
     if let projectRoot = env["GOZD_DEV_PROJECT_ROOT"], !projectRoot.isEmpty {
-      let zdotdir = (projectRoot as NSString).appendingPathComponent("apps/desktop/zsh")
+      let zdotdir = (projectRoot as NSString).appendingPathComponent("apps/native/Resources/zsh")
       // Swift 版 CLI バイナリを優先する。`pnpm --filter @gozd/native dev` 内で
       // `swift build --product gozd-cli` が事前に走り `.build/debug/gozd-cli` を生成する。
       let cliPath =

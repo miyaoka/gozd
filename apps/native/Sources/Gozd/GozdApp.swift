@@ -22,6 +22,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     NSApp.setActivationPolicy(.regular)
     NSApp.activate(ignoringOtherApps: true)
   }
+
+  /// シングルウィンドウ運用なのでウィンドウを閉じたらアプリも quit する。
+  /// macOS の regular app デフォルトは「最後のウィンドウを閉じても dock に残る」
+  /// だが、gozd は Window scene 1 つのみなのでウィンドウ消失 = 終了でよい。
+  func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+    true
+  }
+
+  /// quit 直前に PTY 子プロセスを SIGHUP で殺す。これを入れないと spawn 中の
+  /// zsh / claude などが orphan 化して launchd 配下に残る。
+  func applicationWillTerminate(_ notification: Notification) {
+    AppRuntime.shared?.terminateAllPtys()
+  }
 }
 
 struct ContentView: View {
@@ -62,13 +75,25 @@ struct ContentView: View {
 // queue で listen し続けるため、AppRuntime の生存期間がそれを保証する。
 @MainActor
 final class AppRuntime {
+  /// AppDelegate.applicationWillTerminate から PTY 子プロセスを SIGHUP するために
+  /// 同期的にアクセスできる shared 参照を持つ。init で代入される。
+  static var shared: AppRuntime?
+
   let page: WebPage
   let server: SocketServer
   let socketPath: String
+  let pidTracker: PidTracker
+
+  /// AppDelegate.applicationWillTerminate から呼ばれる。同期実行で SIGHUP を送る。
+  func terminateAllPtys() {
+    pidTracker.killAll()
+  }
 
   init() {
     let socketPath = AppRuntime.defaultSocketPath()
     self.socketPath = socketPath
+    let pidTracker = PidTracker()
+    self.pidTracker = pidTracker
     let channel = AppRuntime.channelFromSocketPath(socketPath)
     let holder = WebPageHolder()
 
@@ -211,7 +236,8 @@ final class AppRuntime {
       onGitStatusChange: onGitStatusChange,
       onBranchChange: onBranchChange,
       onWorktreeChange: onWorktreeChange,
-      envOverlay: envOverlay
+      envOverlay: envOverlay,
+      pidTracker: pidTracker
     )
 
     var config = WebPage.Configuration()
@@ -256,6 +282,9 @@ final class AppRuntime {
         "error", "claude-hooks", "Failed to write Claude hooks settings",
         String(describing: err))
     }
+
+    // applicationWillTerminate から PTY を SIGHUP できるよう shared に登録する
+    AppRuntime.shared = self
   }
 
   deinit {

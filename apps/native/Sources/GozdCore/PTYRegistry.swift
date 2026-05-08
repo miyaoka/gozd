@@ -1,4 +1,41 @@
+import Darwin
 import Foundation
+
+/// PTY 子プロセスの pid を thread-safe に追跡するヘルパー。
+///
+/// applicationWillTerminate 等の同期コンテキストから「現在生きている全 PTY に
+/// SIGHUP を送る」ためには actor 経由の async 呼び出しが取れないので、
+/// non-actor の lock 付きラッパーを別管理する。
+public final class PidTracker: @unchecked Sendable {
+  private let lock = NSLock()
+  private var pids: Set<pid_t> = []
+
+  public init() {}
+
+  public func add(_ pid: pid_t) {
+    lock.lock()
+    defer { lock.unlock() }
+    pids.insert(pid)
+  }
+
+  public func remove(_ pid: pid_t) {
+    lock.lock()
+    defer { lock.unlock() }
+    pids.remove(pid)
+  }
+
+  /// 現在追跡中の全 pid に SIGHUP を送る。送信自体は microseconds で済むため
+  /// applicationWillTerminate 等の短時間ハンドラから安全に呼べる。
+  public func killAll() {
+    lock.lock()
+    let snapshot = pids
+    pids.removeAll()
+    lock.unlock()
+    for pid in snapshot {
+      kill(pid, SIGHUP)
+    }
+  }
+}
 
 // PTYManager のインスタンスを ID で管理する actor。
 //
@@ -31,6 +68,7 @@ public actor PTYRegistry {
   private let onText: TextHandler
   private let onExit: ExitHandler
   private let envOverlay: GozdEnvOverlay?
+  private let pidTracker: PidTracker?
   private var ptys: [UInt32: PTYManager] = [:]
   private var consumers: [UInt32: Task<Void, Never>] = [:]
   private var nextId: UInt32 = 1
@@ -38,11 +76,13 @@ public actor PTYRegistry {
   public init(
     onText: @escaping TextHandler,
     onExit: @escaping ExitHandler,
-    envOverlay: GozdEnvOverlay? = nil
+    envOverlay: GozdEnvOverlay? = nil,
+    pidTracker: PidTracker? = nil
   ) {
     self.onText = onText
     self.onExit = onExit
     self.envOverlay = envOverlay
+    self.pidTracker = pidTracker
   }
 
   public func spawn(
@@ -80,6 +120,10 @@ public actor PTYRegistry {
       }
     )
     ptys[id] = pty
+    pidTracker?.add(pty.pid)
+
+    let pidTracker = self.pidTracker
+    let pidForCleanup = pty.pid
 
     // consumer Task: AsyncStream の FIFO 順序保証で「全データ → flush → exit」が確定。
     // detached なので actor の isolation を待たずに即座に for-await を回せる。
@@ -97,6 +141,7 @@ public actor PTYRegistry {
           onExit(id, reason)
         }
       }
+      pidTracker?.remove(pidForCleanup)
       await self?.remove(id: id)
     }
     consumers[id] = task

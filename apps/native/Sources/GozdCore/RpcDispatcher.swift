@@ -40,9 +40,11 @@ public actor RpcDispatcher {
     onFsChange: @escaping FSWatchRegistry.FsChangeHandler = { _, _ in },
     onGitStatusChange: @escaping FSWatchRegistry.GitStatusChangeHandler = { _, _ in },
     onBranchChange: @escaping FSWatchRegistry.BranchChangeHandler = { _ in },
-    onWorktreeChange: @escaping FSWatchRegistry.WorktreeChangeHandler = { _ in }
+    onWorktreeChange: @escaping FSWatchRegistry.WorktreeChangeHandler = { _ in },
+    envOverlay: GozdEnvOverlay? = nil
   ) {
-    self.pty = PTYRegistry(onText: onPtyText, onExit: onPtyExit)
+    self.pty = PTYRegistry(
+      onText: onPtyText, onExit: onPtyExit, envOverlay: envOverlay)
     self.fsWatch = FSWatchRegistry(
       onFsChange: onFsChange,
       onGitStatusChange: onGitStatusChange,

@@ -69,7 +69,21 @@ final class AppRuntime {
   init() {
     let socketPath = AppRuntime.defaultSocketPath()
     self.socketPath = socketPath
+    let channel = AppRuntime.channelFromSocketPath(socketPath)
     let holder = WebPageHolder()
+
+    // Claude hooks settings JSON を $TMPDIR に書き出す。
+    // PTY の zsh init で `claude` 関数がこのパスを `--settings` に注入する。
+    let claudeSettingsPath = AppRuntime.claudeSettingsPath(channel: channel)
+    do {
+      try ClaudeHooksSettings.write(to: claudeSettingsPath)
+    } catch {
+      print("[ClaudeHooks] settings write failed: \(error)")
+    }
+
+    // dev / build 共通の env overlay。dev では GOZD_DEV_PROJECT_ROOT 配下のソースを参照する。
+    let envOverlay = AppRuntime.makeEnvOverlay(
+      socketPath: socketPath, claudeSettingsPath: claudeSettingsPath)
 
     // WebPage push 用 callback。background queue から呼ばれるため Task @MainActor で hop。
     let onPtyText: @Sendable (UInt32, String) -> Void = { id, text in
@@ -111,7 +125,6 @@ final class AppRuntime {
         )
       }
     }
-    let channel = AppRuntime.channelFromSocketPath(socketPath)
     let onOpen: @Sendable (String) -> Void = { targetPath in
       Task { @MainActor in
         let payload = await AppRuntime.buildGozdOpenPayload(
@@ -176,7 +189,8 @@ final class AppRuntime {
       onFsChange: onFsChange,
       onGitStatusChange: onGitStatusChange,
       onBranchChange: onBranchChange,
-      onWorktreeChange: onWorktreeChange
+      onWorktreeChange: onWorktreeChange,
+      envOverlay: envOverlay
     )
 
     var config = WebPage.Configuration()
@@ -222,6 +236,45 @@ final class AppRuntime {
     // architecture.md の規約: $TMPDIR/gozd-{channel}.sock。`swift run` 時は dev 扱い。
     let tmp = NSTemporaryDirectory()
     return (tmp as NSString).appendingPathComponent("gozd-dev.sock")
+  }
+
+  /// $TMPDIR/gozd-{channel}-claude-settings.json。Claude Code の `--settings` に渡す。
+  fileprivate static func claudeSettingsPath(channel: String) -> String {
+    let tmp = NSTemporaryDirectory()
+    let ch = channel.isEmpty ? "dev" : channel
+    return (tmp as NSString).appendingPathComponent("gozd-\(ch)-claude-settings.json")
+  }
+
+  /// dev / build 環境を判別して GozdEnvOverlay を組み立てる。
+  /// - dev: `GOZD_DEV_PROJECT_ROOT` 配下の zsh init / CLI ソースを参照、runner=`bun`
+  /// - build: TODO（Phase 4）。現状は dev でない場合 zdotdir/cliPath を空にして
+  ///   overlay を返す（PTY は動くが claude hooks が機能しない）
+  fileprivate static func makeEnvOverlay(
+    socketPath: String, claudeSettingsPath: String
+  ) -> GozdEnvOverlay {
+    let env = ProcessInfo.processInfo.environment
+    let userHome = FileManager.default.homeDirectoryForCurrentUser.path
+    if let projectRoot = env["GOZD_DEV_PROJECT_ROOT"], !projectRoot.isEmpty {
+      let zdotdir = (projectRoot as NSString).appendingPathComponent("apps/desktop/zsh")
+      let cliPath = (projectRoot as NSString).appendingPathComponent("apps/cli/src/index.ts")
+      return GozdEnvOverlay(
+        socketPath: socketPath,
+        cliPath: cliPath,
+        cliRunner: "bun",
+        claudeSettingsPath: claudeSettingsPath,
+        zdotdir: zdotdir,
+        userHome: userHome
+      )
+    }
+    // build 配置は Phase 4 で実装する。dev でないと claude hooks は機能しないが PTY 自体は動く。
+    return GozdEnvOverlay(
+      socketPath: socketPath,
+      cliPath: "",
+      cliRunner: "",
+      claudeSettingsPath: claudeSettingsPath,
+      zdotdir: userHome,
+      userHome: userHome
+    )
   }
 
   /// `/tmp/gozd-dev.sock` → `dev` のように socket basename からチャネル名を抽出。

@@ -30,13 +30,19 @@ public actor PTYRegistry {
 
   private let onText: TextHandler
   private let onExit: ExitHandler
+  private let envOverlay: GozdEnvOverlay?
   private var ptys: [UInt32: PTYManager] = [:]
   private var consumers: [UInt32: Task<Void, Never>] = [:]
   private var nextId: UInt32 = 1
 
-  public init(onText: @escaping TextHandler, onExit: @escaping ExitHandler) {
+  public init(
+    onText: @escaping TextHandler,
+    onExit: @escaping ExitHandler,
+    envOverlay: GozdEnvOverlay? = nil
+  ) {
     self.onText = onText
     self.onExit = onExit
+    self.envOverlay = envOverlay
   }
 
   public func spawn(
@@ -55,11 +61,15 @@ public actor PTYRegistry {
     let onText = self.onText
     let onExit = self.onExit
 
+    // gozd env overlay があれば GOZD_* / ZDOTDIR / HOME を merge する。
+    // ptyId 確定後に注入することで GOZD_PTY_ID が個別 PTY に紐付く。
+    let mergedEnv = envOverlay?.merged(into: env, ptyId: id) ?? env
+
     let pty = PTYManager()
     try pty.spawn(
       executable: executable,
       args: args,
-      env: env,
+      env: mergedEnv,
       cwd: cwd,
       rows: rows,
       cols: cols,

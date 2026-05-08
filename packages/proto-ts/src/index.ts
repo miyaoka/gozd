@@ -15,3 +15,15 @@ export {
   FsReadFileResponse,
 } from "./generated/gozd/v1/fs";
 export { GitStatusRequest, GitStatusResponse } from "./generated/gozd/v1/git_status";
+export {
+  PtyDataEvent,
+  PtyExitEvent,
+  PtyKillRequest,
+  PtyKillResponse,
+  PtyResizeRequest,
+  PtyResizeResponse,
+  PtySpawnRequest,
+  PtySpawnResponse,
+  PtyWriteRequest,
+  PtyWriteResponse,
+} from "./generated/gozd/v1/pty";

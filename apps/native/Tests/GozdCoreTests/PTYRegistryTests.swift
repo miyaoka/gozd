@@ -5,11 +5,11 @@ import Testing
 
 @Suite("PTYRegistry")
 struct PTYRegistryTests {
-  @Test("spawn は連番の ptyId を返し、onData / onExit が ID 付きで配送される")
+  @Test("spawn は連番の ptyId を返し、onText / onExit が ID 付きで配送される")
   func spawnAndExitDispatch() async throws {
     let events = EventCollector()
     let registry = PTYRegistry(
-      onData: { id, data in events.appendData(id: id, data: data) },
+      onText: { id, text in events.appendText(id: id, text: text) },
       onExit: { id, reason in events.appendExit(id: id, reason: reason) }
     )
 
@@ -35,17 +35,15 @@ struct PTYRegistryTests {
       events.exitedIds().contains(id1) && events.exitedIds().contains(id2)
     }
 
-    let id1Text = String(decoding: events.dataFor(id: id1), as: UTF8.self)
-    let id2Text = String(decoding: events.dataFor(id: id2), as: UTF8.self)
-    #expect(id1Text.contains("hello"))
-    #expect(id2Text.contains("world"))
+    #expect(events.textFor(id: id1).contains("hello"))
+    #expect(events.textFor(id: id2).contains("world"))
   }
 
   @Test("kill 後に PTY が registry から自動削除される")
   func cleanupOnKill() async throws {
     let events = EventCollector()
     let registry = PTYRegistry(
-      onData: { id, data in events.appendData(id: id, data: data) },
+      onText: { id, text in events.appendText(id: id, text: text) },
       onExit: { id, reason in events.appendExit(id: id, reason: reason) }
     )
 
@@ -79,7 +77,7 @@ struct PTYRegistryTests {
   func unknownIdIsNoop() async throws {
     let events = EventCollector()
     let registry = PTYRegistry(
-      onData: { id, data in events.appendData(id: id, data: data) },
+      onText: { id, text in events.appendText(id: id, text: text) },
       onExit: { id, reason in events.appendExit(id: id, reason: reason) }
     )
 
@@ -106,13 +104,13 @@ private func waitUntil(
 
 private final class EventCollector: @unchecked Sendable {
   private let lock = NSLock()
-  private var dataMap: [UInt32: Data] = [:]
+  private var textMap: [UInt32: String] = [:]
   private var exits: [UInt32: PTYExitReason] = [:]
 
-  func appendData(id: UInt32, data: Data) {
+  func appendText(id: UInt32, text: String) {
     lock.lock()
     defer { lock.unlock() }
-    dataMap[id, default: Data()].append(data)
+    textMap[id, default: ""].append(text)
   }
 
   func appendExit(id: UInt32, reason: PTYExitReason) {
@@ -121,10 +119,10 @@ private final class EventCollector: @unchecked Sendable {
     exits[id] = reason
   }
 
-  func dataFor(id: UInt32) -> Data {
+  func textFor(id: UInt32) -> String {
     lock.lock()
     defer { lock.unlock() }
-    return dataMap[id] ?? Data()
+    return textMap[id] ?? ""
   }
 
   func exitedIds() -> Set<UInt32> {

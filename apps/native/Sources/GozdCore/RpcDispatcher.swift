@@ -23,10 +23,10 @@ public actor RpcDispatcher {
 
   public init(
     configDir: String,
-    onPtyData: @escaping @Sendable (UInt32, Data) -> Void,
+    onPtyText: @escaping @Sendable (UInt32, String) -> Void,
     onPtyExit: @escaping @Sendable (UInt32, PTYExitReason) -> Void
   ) {
-    self.pty = PTYRegistry(onData: onPtyData, onExit: onPtyExit)
+    self.pty = PTYRegistry(onText: onPtyText, onExit: onPtyExit)
     self.appState = AppStateStore(configDir: configDir)
   }
 

@@ -13,7 +13,7 @@ struct RpcDispatcherTests {
 
     let dispatcher = RpcDispatcher(
       configDir: dir,
-      onPtyData: { _, _ in },
+      onPtyText: { _, _ in },
       onPtyExit: { _, _ in }
     )
 
@@ -33,7 +33,7 @@ struct RpcDispatcherTests {
 
     let dispatcher = RpcDispatcher(
       configDir: dir,
-      onPtyData: { _, _ in },
+      onPtyText: { _, _ in },
       onPtyExit: { _, _ in }
     )
 
@@ -60,7 +60,7 @@ struct RpcDispatcherTests {
 
     let dispatcher = RpcDispatcher(
       configDir: dir,
-      onPtyData: { _, _ in },
+      onPtyText: { _, _ in },
       onPtyExit: { _, _ in }
     )
 
@@ -80,7 +80,7 @@ struct RpcDispatcherTests {
     let exitFlag = ExitFlag()
     let dispatcher = RpcDispatcher(
       configDir: dir,
-      onPtyData: { _, _ in },
+      onPtyText: { _, _ in },
       onPtyExit: { _, _ in exitFlag.signal() }
     )
 
@@ -115,7 +115,7 @@ struct RpcDispatcherTests {
 
     let dispatcher = RpcDispatcher(
       configDir: dir,
-      onPtyData: { _, _ in },
+      onPtyText: { _, _ in },
       onPtyExit: { _, _ in }
     )
 

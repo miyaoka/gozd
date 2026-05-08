@@ -67,10 +67,10 @@ private func makePage() -> WebPage {
   let dispatcher = RpcDispatcher(
     configDir: defaultConfigDir(),
     // PTY イベントを WebPage に push する経路は Phase 3 で実装する。
-    // ここでは stdout に流すだけのプレースホルダ。
-    onPtyData: { id, data in
-      let text = String(decoding: data, as: UTF8.self)
-      print("[pty:\(id)] data: \(text.prefix(80))")
+    // ここでは stdout に流すだけのプレースホルダ（テキストは UTF8StreamDecoder で
+    // 境界保留済みの確定 String）。
+    onPtyText: { id, text in
+      print("[pty:\(id)] text: \(text.prefix(80))")
     },
     onPtyExit: { id, reason in
       print("[pty:\(id)] exit: \(reason)")

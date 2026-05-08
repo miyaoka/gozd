@@ -12,20 +12,30 @@ import Foundation
 //    同じイベント経路（URLSchemeHandler から WebView へ callJavaScript）に流すため、
 //    インスタンス毎に handler を渡す必要がない。
 //
-// 3. **PTY 終了時に自動で registry から削除**。onExit の中で `Task { await
-//    self?.remove(id:) }` を発火し、actor の serial execution に削除を委ねる。
-//    onExit 自体は PTYManager のバックグラウンド queue から呼ばれる。
+// 3. **PTY 終了時に自動で registry から削除**。consumer Task が stream の終端で
+//    flush → onExit → remove を順に処理する。
+//
+// 4. **イベントは AsyncStream<PTYEvent> で 1 本化**。順序保証のため:
+//    - PTYManager の onData / onExit closure は別々の background queue から呼ばれる
+//    - registry は data も exit も同じ AsyncStream に yield する
+//    - 1 本の consumer Task が `for await` で順に処理する
+//    - これにより `data → data → ... → flush → exit` の順序が機械的に保証される
+//
+// 5. **per-PTY UTF8StreamDecoder**。PTY の `read(fd, buf, 4096)` は UTF-8 マルチバイト
+//    境界で割れる。decoder が末尾の不完全シーケンスを次回まで保留し、確定テキストのみ
+//    外部 onText に渡す（spike `UTF8StreamDecoderTest` で検証済）。
 public actor PTYRegistry {
-  public typealias DataHandler = @Sendable (UInt32, Data) -> Void
+  public typealias TextHandler = @Sendable (UInt32, String) -> Void
   public typealias ExitHandler = @Sendable (UInt32, PTYExitReason) -> Void
 
-  private let onData: DataHandler
+  private let onText: TextHandler
   private let onExit: ExitHandler
   private var ptys: [UInt32: PTYManager] = [:]
+  private var consumers: [UInt32: Task<Void, Never>] = [:]
   private var nextId: UInt32 = 1
 
-  public init(onData: @escaping DataHandler, onExit: @escaping ExitHandler) {
-    self.onData = onData
+  public init(onText: @escaping TextHandler, onExit: @escaping ExitHandler) {
+    self.onText = onText
     self.onExit = onExit
   }
 
@@ -40,10 +50,11 @@ public actor PTYRegistry {
     let id = nextId
     nextId += 1
 
-    // closure は @Sendable 必須なので self / pty を捕まえず、ID と外部 handler だけ
-    // を捕捉する。後始末は Task で actor の serial execution に戻して処理する。
-    let onData = self.onData
+    let (stream, continuation) = AsyncStream<PTYEvent>.makeStream()
+
+    let onText = self.onText
     let onExit = self.onExit
+
     let pty = PTYManager()
     try pty.spawn(
       executable: executable,
@@ -52,15 +63,33 @@ public actor PTYRegistry {
       cwd: cwd,
       rows: rows,
       cols: cols,
-      onData: { data in onData(id, data) },
-      onExit: { [weak self] reason in
-        onExit(id, reason)
-        Task { [weak self] in
-          await self?.remove(id: id)
-        }
+      onData: { data in continuation.yield(.data(data)) },
+      onExit: { reason in
+        continuation.yield(.exit(reason))
+        continuation.finish()
       }
     )
     ptys[id] = pty
+
+    // consumer Task: AsyncStream の FIFO 順序保証で「全データ → flush → exit」が確定。
+    // detached なので actor の isolation を待たずに即座に for-await を回せる。
+    // 終端で `await self?.remove(id:)` で actor に hop してエントリを削除する。
+    let task = Task.detached { [weak self] in
+      var decoder = UTF8StreamDecoder()
+      for await event in stream {
+        switch event {
+        case .data(let data):
+          let text = decoder.feed(data)
+          if !text.isEmpty { onText(id, text) }
+        case .exit(let reason):
+          let final = decoder.flush()
+          if !final.isEmpty { onText(id, final) }
+          onExit(id, reason)
+        }
+      }
+      await self?.remove(id: id)
+    }
+    consumers[id] = task
     return id
   }
 
@@ -82,5 +111,11 @@ public actor PTYRegistry {
 
   private func remove(id: UInt32) {
     ptys.removeValue(forKey: id)
+    consumers.removeValue(forKey: id)
   }
+}
+
+private enum PTYEvent: Sendable {
+  case data(Data)
+  case exit(PTYExitReason)
 }

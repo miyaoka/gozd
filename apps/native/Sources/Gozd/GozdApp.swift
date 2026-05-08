@@ -75,9 +75,12 @@ final class AppRuntime {
     // Claude hooks settings JSON を $TMPDIR に書き出す。
     // PTY の zsh init で `claude` 関数がこのパスを `--settings` に注入する。
     let claudeSettingsPath = AppRuntime.claudeSettingsPath(channel: channel)
+    let claudeSettingsWriteError: Error?
     do {
       try ClaudeHooksSettings.write(to: claudeSettingsPath)
+      claudeSettingsWriteError = nil
     } catch {
+      claudeSettingsWriteError = error
       print("[ClaudeHooks] settings write failed: \(error)")
     }
 
@@ -179,6 +182,24 @@ final class AppRuntime {
         )
       }
     }
+    // 内部の非同期エラーを renderer に notify push する。
+    // - "error" / "info" の type
+    // - source は通知元モジュール名（"socket" / "claude-hooks" 等）
+    // - detail はスタックトレース相当の生文字列
+    let sendNotify:
+      @Sendable (String, String, String, String) -> Void = { type, source, message, detail in
+        Task { @MainActor in
+          _ = try? await holder.page?.callJavaScript(
+            "window.__gozdReceive(type, payload)",
+            arguments: [
+              "type": "notify",
+              "payload": [
+                "type": type, "source": source, "message": message, "detail": detail,
+              ],
+            ]
+          )
+        }
+      }
 
     let dispatcher = RpcDispatcher(
       configDir: AppRuntime.defaultConfigDir(),
@@ -214,12 +235,26 @@ final class AppRuntime {
             FileHandle.standardError.write(
               Data("[SocketServer] decode failed: \(error)\n".utf8)
             )
+            sendNotify(
+              "error", "socket", "Invalid client message", String(describing: error))
           }
         }
       }
       print("[SocketServer] listening on \(socketPath)")
     } catch {
       print("[SocketServer] start failed: \(error)")
+      sendNotify(
+        "error", "socket", "Failed to start Unix socket server",
+        String(describing: error))
+    }
+
+    // 起動時に握り潰した Claude hooks settings 書き込みエラーをここで通知する。
+    // page.load 前なので即時 push しても renderer は受け取れないが、
+    // callJavaScript は WebPage が ready になるまで queue されるため最終的に届く。
+    if let err = claudeSettingsWriteError {
+      sendNotify(
+        "error", "claude-hooks", "Failed to write Claude hooks settings",
+        String(describing: err))
     }
   }
 

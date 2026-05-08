@@ -62,6 +62,20 @@ public struct GozdEnvOverlay: Sendable {
     if result["TERM_PROGRAM"] == nil { result["TERM_PROGRAM"] = "gozd" }
     if result["FORCE_HYPERLINK"] == nil { result["FORCE_HYPERLINK"] = "1" }
 
+    // POSIX 標準の identity 系を親プロセスから継承して補完する。
+    // 欠落していると Starship / oh-my-zsh 等が「user が異なる」「SSH 的」と
+    // 誤判定して username を prompt に出す。`USER` / `LOGNAME` / `SHELL` /
+    // `LC_*` 系 / `TERM_SESSION_ID` 等を引き継ぐ。
+    let parentEnv = ProcessInfo.processInfo.environment
+    let inherit = [
+      "USER", "LOGNAME", "SHELL", "TZ",
+      "LC_ALL", "LC_CTYPE", "LC_COLLATE", "LC_MESSAGES", "LC_NUMERIC",
+      "LC_TIME", "LC_MONETARY",
+    ]
+    for key in inherit where result[key] == nil {
+      if let v = parentEnv[key], !v.isEmpty { result[key] = v }
+    }
+
     return result
   }
 }

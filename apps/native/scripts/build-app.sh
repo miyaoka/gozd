@@ -9,23 +9,28 @@
 #   Gozd.app/Contents/
 #     Info.plist
 #     MacOS/Gozd                              ← Swift メインバイナリ
-#     Resources/app/
-#       views/main/                           ← renderer の Vite ビルド成果物
-#       bin/gozd                              ← シェルラッパー
-#       bin/gozd-cli                          ← Swift CLI バイナリ
-#       zsh/                                  ← gozd zsh init ファイル一式
+#     Resources/
+#       AppIcon.icns                          ← Dock / Finder アイコン
+#       app/
+#         views/main/                         ← renderer の Vite ビルド成果物
+#         bin/gozd                            ← シェルラッパー
+#         bin/gozd-cli                        ← Swift CLI バイナリ
+#         zsh/                                ← gozd zsh init ファイル一式
 #
 set -euo pipefail
 
 NATIVE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ROOT_DIR="$(cd "$NATIVE_DIR/../.." && pwd)"
 RENDERER_DIR="$ROOT_DIR/apps/renderer"
-DESKTOP_ZSH_DIR="$ROOT_DIR/apps/desktop/zsh"
+ZSH_DIR="$NATIVE_DIR/Resources/zsh"
+ICONSET_DIR="$NATIVE_DIR/Resources/icon.iconset"
 
 # Phase 4 移行期は旧 Electrobun 版（Gozd.app）と並走させるため `Gozd-Swift.app` 名にする。
 # Phase 5 で旧を消したら `Gozd.app` に戻す。
 APP_NAME="Gozd-Swift.app"
-OUT_DIR="$NATIVE_DIR/build"
+# Swift Bundler が `.build/bundler/` を使うのと同じ慣習で SwiftPM の `.build/` 配下に置く。
+# `.build/` は SwiftPM 自体が ignore 対象としてくれるので別途 gitignore 不要。
+OUT_DIR="$NATIVE_DIR/.build/app"
 APP_DIR="$OUT_DIR/$APP_NAME"
 APP_RESOURCES="$APP_DIR/Contents/Resources/app"
 
@@ -59,7 +64,11 @@ chmod +x "$APP_RESOURCES/bin/gozd" "$APP_RESOURCES/bin/gozd-cli"
 cp -R "$RENDERER_DIR/dist/." "$APP_RESOURCES/views/main/"
 
 # zsh init チェーン（ドットファイルも含む）
-cp -R "$DESKTOP_ZSH_DIR/." "$APP_RESOURCES/zsh/"
+cp -R "$ZSH_DIR/." "$APP_RESOURCES/zsh/"
+
+# アイコン: .iconset を iconutil で .icns に変換して Contents/Resources/ 直下に置く
+echo "==> Generating AppIcon.icns from $ICONSET_DIR"
+iconutil -c icns "$ICONSET_DIR" -o "$APP_DIR/Contents/Resources/AppIcon.icns"
 
 # Info.plist。最小限のキーのみ。GitHub Releases 配布で必要十分。
 cat > "$APP_DIR/Contents/Info.plist" <<EOF
@@ -81,6 +90,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
   <string>0.0.0</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>LSMinimumSystemVersion</key>
   <string>26.0</string>
   <key>NSHighResolutionCapable</key>

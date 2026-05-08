@@ -1,7 +1,7 @@
-import type { GitCommit } from "@gozd/rpc";
-import { UNCOMMITTED_HASH } from "@gozd/rpc";
+import type { GitCommit } from "@gozd/proto";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
+import { UNCOMMITTED_HASH } from "../worktree";
 
 /** Working Tree 用の仮想コミット。CommitDetailPane で "Uncommitted Changes" 表示に使用 */
 const uncommittedCommit: GitCommit = {

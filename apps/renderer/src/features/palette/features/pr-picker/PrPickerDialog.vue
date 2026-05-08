@@ -11,7 +11,7 @@ PR selection dialog. Displays open pull requests in a table layout with fuzzy fi
 </doc>
 
 <script setup lang="ts">
-import type { GitPullRequest } from "@gozd/rpc";
+import type { GitPullRequest } from "@gozd/proto";
 import { useEventListener } from "@vueuse/core";
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useContextKeys } from "../../../../shared/command";
@@ -33,7 +33,7 @@ const filterReviewer = ref(false);
 
 /** 検索対象テキストを生成（title, branch, author を結合） */
 function searchText(pr: GitPullRequest): string {
-  return `#${pr.number} ${pr.title} ${pr.headRefName} ${pr.author}`;
+  return `#${pr.number} ${pr.title} ${pr.headRef} ${pr.author}`;
 }
 
 const filteredPrs = computed((): GitPullRequest[] => {

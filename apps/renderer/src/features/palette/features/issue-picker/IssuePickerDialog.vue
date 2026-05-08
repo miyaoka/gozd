@@ -10,7 +10,7 @@ Issue selection dialog. Displays open issues in a table layout with fuzzy filter
 </doc>
 
 <script setup lang="ts">
-import type { GitIssue } from "@gozd/rpc";
+import type { GitIssue } from "@gozd/proto";
 import { useEventListener } from "@vueuse/core";
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useContextKeys } from "../../../../shared/command";

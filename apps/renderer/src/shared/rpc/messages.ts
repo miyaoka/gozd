@@ -1,62 +1,21 @@
-// Swift → renderer の push 経路。
+// Swift → renderer の push 経路のシングルトン dispatcher。
 //
-// apps/native の WebPage.callJavaScript("window.__gozdReceive(type, payload)", ...) を
-// 受ける単一エントリポイント。type ごとに購読関数を提供し、disposer で解除する。
+// `apps/native` の `WebPage.callJavaScript("window.__gozdReceive(type, payload)", ...)` を
+// 受ける。type ごとの listener 配列を持ち、`onMessage(type, fn)` で購読、戻り値の
+// disposer で解除する。
 //
 // 設計判断:
 //
-// 1. **proto を介さない素オブジェクト**。push の payload は apps/native 側で
-//    `[String: Any]` を組み立てているため、renderer も素オブジェクトとして扱う。
-//    将来 proto3 binary 化する余地は残すが、今は YAGNI
+// 1. **payload 型は feature が定義する**。shared は payload 形を知らない。
+//    呼び出し側が `onMessage<MyPayload>("my-type", fn)` の generic で型を当てる。
+//    GozdMessageMap を持つと shared が feature 知識を持ってしまうため。
 //
 // 2. **window.__gozdReceive はシングルトン**。複数モジュールが上書きしないよう、
-//    最初に import されたタイミングで dispatcher に固定する
+//    最初に import されたタイミングで dispatcher に固定する。
 
-interface PtyTextPayload {
-  id: number;
-  text: string;
-}
+type AnyListener = (payload: unknown) => void;
 
-interface PtyExitReason {
-  kind: "exited" | "signaled" | "stopped";
-  exitCode?: number;
-  signal?: number;
-  coreDumped?: boolean;
-}
-
-interface PtyExitPayload {
-  id: number;
-  reason: PtyExitReason;
-}
-
-interface HookPayload {
-  event: string;
-  ptyId: number;
-  lastAssistantMessage: string;
-  toolName: string;
-  toolInput: string;
-  isInterrupt: boolean;
-}
-
-interface OpenPayload {
-  targetPath: string;
-}
-
-export interface GozdMessageMap {
-  ptyText: PtyTextPayload;
-  ptyExit: PtyExitPayload;
-  hook: HookPayload;
-  open: OpenPayload;
-}
-
-type Listener<K extends keyof GozdMessageMap> = (payload: GozdMessageMap[K]) => void;
-
-const listeners: { [K in keyof GozdMessageMap]: Listener<K>[] } = {
-  ptyText: [],
-  ptyExit: [],
-  hook: [],
-  open: [],
-};
+const listeners = new Map<string, AnyListener[]>();
 
 declare global {
   interface Window {
@@ -65,19 +24,19 @@ declare global {
 }
 
 window.__gozdReceive = (type, payload) => {
-  const fns = listeners[type as keyof GozdMessageMap];
-  if (fns === undefined) {
-    console.warn(`[gozd] unknown message type: ${type}`);
-    return;
-  }
-  for (const fn of fns) (fn as Listener<keyof GozdMessageMap>)(payload as never);
+  const fns = listeners.get(type);
+  if (fns === undefined) return;
+  for (const fn of fns) fn(payload);
 };
 
-export function onMessage<K extends keyof GozdMessageMap>(type: K, fn: Listener<K>): () => void {
-  const arr = listeners[type];
-  arr.push(fn);
+export function onMessage<T>(type: string, fn: (payload: T) => void): () => void {
+  const arr = listeners.get(type) ?? [];
+  arr.push(fn as AnyListener);
+  listeners.set(type, arr);
   return () => {
-    const idx = arr.indexOf(fn);
-    if (idx >= 0) arr.splice(idx, 1);
+    const cur = listeners.get(type);
+    if (cur === undefined) return;
+    const idx = cur.indexOf(fn as AnyListener);
+    if (idx >= 0) cur.splice(idx, 1);
   };
 }

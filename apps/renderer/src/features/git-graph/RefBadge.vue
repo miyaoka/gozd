@@ -3,7 +3,7 @@ Branch ref badge with optional PR link. Displays a PR number badge (left) and br
 </doc>
 
 <script setup lang="ts">
-import type { GitPullRequest } from "@gozd/rpc";
+import type { GitPullRequest } from "@gozd/proto";
 import { computed } from "vue";
 import type { DisplayRef } from "./displayRef";
 

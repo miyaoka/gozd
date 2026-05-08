@@ -13,11 +13,13 @@ struct FSOpsReadFileTests {
     let target = (dir as NSString).appendingPathComponent("a.txt")
     try "hello".write(toFile: target, atomically: true, encoding: .utf8)
 
-    let data = try FSOps.readFile(dir: dir, path: "a.txt")
-    #expect(String(decoding: data, as: UTF8.self) == "hello")
+    let info = try FSOps.readFile(dir: dir, path: "a.txt")
+    #expect(info.content == "hello")
+    #expect(info.isBinary == false)
+    #expect(info.notFound == false)
   }
 
-  @Test("バイナリファイルもバイト等価で読める")
+  @Test("バイナリファイルは is_binary=true で返される")
   func readsBinary() throws {
     let dir = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
@@ -26,8 +28,9 @@ struct FSOpsReadFileTests {
     let target = (dir as NSString).appendingPathComponent("bin")
     try bytes.write(to: URL(fileURLWithPath: target))
 
-    let data = try FSOps.readFile(dir: dir, path: "bin")
-    #expect(data == bytes)
+    let info = try FSOps.readFile(dir: dir, path: "bin")
+    #expect(info.isBinary == true)
+    #expect(info.content == "")
   }
 
   @Test("dir 範囲外への path traversal は FSError.outsideDir で拒否される")

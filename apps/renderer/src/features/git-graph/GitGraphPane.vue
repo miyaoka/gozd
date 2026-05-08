@@ -12,8 +12,7 @@ Git commit graph showing the current worktree branch and the default branch.
 </doc>
 
 <script setup lang="ts">
-import type { GitCommit, GitPullRequest } from "@gozd/rpc";
-import { UNCOMMITTED_HASH } from "@gozd/rpc";
+import type { GitCommit, GitPullRequest } from "@gozd/proto";
 import { useElementSize, useIntervalFn } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import {
@@ -26,9 +25,18 @@ import {
   watch,
   watchEffect,
 } from "vue";
-import { useRpc } from "../../shared/rpc";
+import { onMessage } from "../../shared/rpc";
 import { ResizeHandle } from "../layout";
-import { computeStatusIcons, StatusIcons, useGitStatusStore, useWorktreeStore } from "../worktree";
+import { rpcGitPrList } from "../palette";
+import type { BranchChangePayload } from "../sidebar";
+import type { GitStatusChangePayload } from "../worktree";
+import {
+  UNCOMMITTED_HASH,
+  computeStatusIcons,
+  StatusIcons,
+  useGitStatusStore,
+  useWorktreeStore,
+} from "../worktree";
 import CommitDetailPane from "./CommitDetailPane.vue";
 import type { DisplayRef } from "./displayRef";
 import { computeGraphLayout } from "./graphLayout";
@@ -36,11 +44,11 @@ import type { GraphLayout } from "./graphLayout";
 import { mergeCommitStreams } from "./mergeCommitStreams";
 import type { SortMode } from "./mergeCommitStreams";
 import RefBadge from "./RefBadge.vue";
+import { rpcGitLog } from "./rpc";
 import { useGitGraphStore } from "./useGitGraphStore";
 
 const rootRef = useTemplateRef<HTMLElement>("root");
 const { width: rootWidth } = useElementSize(rootRef);
-const { request, onGitStatusChange, onBranchChange } = useRpc();
 const worktreeStore = useWorktreeStore();
 const gitStatusStore = useGitStatusStore();
 const gitGraphStore = useGitGraphStore();
@@ -129,9 +137,12 @@ let loadLogGen = 0;
 /** @returns 世代チェックを通過して state を更新した場合 true */
 async function loadLog(): Promise<boolean> {
   const gen = ++loadLogGen;
-  const result = await request.gitLog({
+  const dir = worktreeStore.dir;
+  if (dir === undefined) return false;
+  const result = await rpcGitLog({
+    dir,
     maxCount: 200,
-    firstParentOnly: firstParentOnly.value || undefined,
+    firstParentOnly: firstParentOnly.value,
   });
   if (gen !== loadLogGen) return false;
 
@@ -142,7 +153,7 @@ async function loadLog(): Promise<boolean> {
   });
 
   commits.value = merged;
-  defaultBranch.value = result.defaultBranch;
+  defaultBranch.value = result.defaultBranch === "" ? undefined : result.defaultBranch;
   lastHead = findHeadCommit(merged)?.hash ?? "";
   recomputeLayout();
 
@@ -185,31 +196,34 @@ watch(sortMode, () => {
 
 // HEAD 変更（コミット、リベース等）や upstream 変更（push、fetch）を検知して git log を再取得する。
 // head ハッシュまたは ahead/behind の変化があった場合のみ再取得する（ファイル保存では走らない）。
-const disposeGitStatus = onGitStatusChange(({ head, upstream }) => {
-  const upstreamKey = upstream ? `${upstream.ahead}/${upstream.behind}` : "";
-  const headChanged = head && head !== lastHead;
-  const upstreamChanged = upstreamKey !== lastUpstream;
+const disposeGitStatus = onMessage<GitStatusChangePayload>(
+  "gitStatusChange",
+  ({ head, hasUpstream, ahead, behind }) => {
+    const upstreamKey = hasUpstream ? `${ahead}/${behind}` : "";
+    const headChanged = head !== "" && head !== lastHead;
+    const upstreamChanged = upstreamKey !== lastUpstream;
 
-  if (headChanged) lastHead = head;
-  if (upstreamChanged) lastUpstream = upstreamKey;
+    if (headChanged) lastHead = head;
+    if (upstreamChanged) lastUpstream = upstreamKey;
 
-  if (headChanged || upstreamChanged) {
-    void (async () => {
-      const updated = await loadLog();
-      if (!updated || !headChanged) return;
-      await nextTick();
-      scrollHeadIntoView();
-    })();
-  }
-  // upstream 変化（push/fetch）時に PR 一覧も再取得
-  if (upstreamChanged) {
-    void loadPrList();
-  }
-});
+    if (headChanged || upstreamChanged) {
+      void (async () => {
+        const updated = await loadLog();
+        if (!updated || !headChanged) return;
+        await nextTick();
+        scrollHeadIntoView();
+      })();
+    }
+    // upstream 変化（push/fetch）時に PR 一覧も再取得
+    if (upstreamChanged) {
+      void loadPrList();
+    }
+  },
+);
 onUnmounted(disposeGitStatus);
 
 // ブランチ ref の変更（作成・削除・リネーム）時に git log を再取得
-const disposeBranchChange = onBranchChange(() => {
+const disposeBranchChange = onMessage<BranchChangePayload>("branchChange", () => {
   void loadLog();
 });
 onUnmounted(disposeBranchChange);
@@ -224,13 +238,15 @@ let loadPrGen = 0;
 /** PR 一覧を取得して prByBranch を更新する。gh 失敗時（null）は前回値を保持する */
 async function loadPrList() {
   const gen = ++loadPrGen;
-  const prs = await request.gitPrList(undefined);
+  const dir = worktreeStore.dir;
+  if (dir === undefined) return;
+  const res = await rpcGitPrList({ dir });
   if (gen !== loadPrGen) return;
-  // gh 失敗時は null — 前回値を保持してバッジが消えるのを防ぐ
-  if (!prs) return;
+  // gh 失敗時は ok=false — 前回値を保持してバッジが消えるのを防ぐ
+  if (!res.ok) return;
   const map = new Map<string, GitPullRequest>();
-  for (const pr of prs) {
-    map.set(pr.headRefName, pr);
+  for (const pr of res.prs) {
+    map.set(pr.headRef, pr);
   }
   prByBranch.value = map;
 }

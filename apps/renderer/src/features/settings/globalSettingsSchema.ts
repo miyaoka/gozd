@@ -8,17 +8,6 @@ function getThemeOptions(): readonly string[] {
   return ["", ...darkThemeNames, ...lightThemeNames];
 }
 
-/** セクション配列からキー → デフォルト値のマップを構築する */
-function buildDefaults(sections: readonly SettingSection[]): Record<string, unknown> {
-  const defaults: Record<string, unknown> = {};
-  for (const section of sections) {
-    for (const [key, setting] of Object.entries(section.settings)) {
-      defaults[key] = setting.defaultValue;
-    }
-  }
-  return defaults;
-}
-
 export const globalSettingsSections: readonly SettingSection[] = [
   {
     title: "Terminal",
@@ -93,6 +82,3 @@ export const globalSettingsSections: readonly SettingSection[] = [
     },
   },
 ];
-
-/** スキーマのデフォルト値マップ。config.json に値がないキーのフォールバックに使う */
-export const globalSettingsDefaults = buildDefaults(globalSettingsSections);

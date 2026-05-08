@@ -12,7 +12,12 @@ message FsReadFileRequest {
 }
 
 message FsReadFileResponse {
-  bytes data = 1;
+  // FileReadResult と同じ shape。content は UTF-8 として decode できなかった場合は空、
+  // is_binary=true。ディレクトリなら is_directory=true、ファイル不在なら not_found=true。
+  string content = 1;
+  bool is_binary = 2;
+  bool is_directory = 3;
+  bool not_found = 4;
 }
 
 // ディレクトリエントリ列挙。

@@ -8,11 +8,6 @@
 // For information on using the generated types, please see the documentation:
 //   https://github.com/apple/swift-protobuf/
 
-#if canImport(FoundationEssentials)
-import FoundationEssentials
-#else
-import Foundation
-#endif
 import SwiftProtobuf
 
 // If the compiler emits an error on this type, it is because this file
@@ -48,7 +43,15 @@ public struct Gozd_V1_FsReadFileResponse: Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var data: Data = Data()
+  /// FileReadResult と同じ shape。content は UTF-8 として decode できなかった場合は空、
+  /// is_binary=true。ディレクトリなら is_directory=true、ファイル不在なら not_found=true。
+  public var content: String = String()
+
+  public var isBinary: Bool = false
+
+  public var isDirectory: Bool = false
+
+  public var notFound: Bool = false
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -142,7 +145,7 @@ extension Gozd_V1_FsReadFileRequest: SwiftProtobuf.Message, SwiftProtobuf._Messa
 
 extension Gozd_V1_FsReadFileResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FsReadFileResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}content\0\u{3}is_binary\0\u{3}is_directory\0\u{3}not_found\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -150,21 +153,36 @@ extension Gozd_V1_FsReadFileResponse: SwiftProtobuf.Message, SwiftProtobuf._Mess
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularBytesField(value: &self.data) }()
+      case 1: try { try decoder.decodeSingularStringField(value: &self.content) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.isBinary) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.isDirectory) }()
+      case 4: try { try decoder.decodeSingularBoolField(value: &self.notFound) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.data.isEmpty {
-      try visitor.visitSingularBytesField(value: self.data, fieldNumber: 1)
+    if !self.content.isEmpty {
+      try visitor.visitSingularStringField(value: self.content, fieldNumber: 1)
+    }
+    if self.isBinary != false {
+      try visitor.visitSingularBoolField(value: self.isBinary, fieldNumber: 2)
+    }
+    if self.isDirectory != false {
+      try visitor.visitSingularBoolField(value: self.isDirectory, fieldNumber: 3)
+    }
+    if self.notFound != false {
+      try visitor.visitSingularBoolField(value: self.notFound, fieldNumber: 4)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Gozd_V1_FsReadFileResponse, rhs: Gozd_V1_FsReadFileResponse) -> Bool {
-    if lhs.data != rhs.data {return false}
+    if lhs.content != rhs.content {return false}
+    if lhs.isBinary != rhs.isBinary {return false}
+    if lhs.isDirectory != rhs.isDirectory {return false}
+    if lhs.notFound != rhs.notFound {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

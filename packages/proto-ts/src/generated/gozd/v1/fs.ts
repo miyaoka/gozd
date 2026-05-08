@@ -21,7 +21,14 @@ export interface FsReadFileRequest {
 }
 
 export interface FsReadFileResponse {
-  data: Uint8Array;
+  /**
+   * FileReadResult と同じ shape。content は UTF-8 として decode できなかった場合は空、
+   * is_binary=true。ディレクトリなら is_directory=true、ファイル不在なら not_found=true。
+   */
+  content: string;
+  isBinary: boolean;
+  isDirectory: boolean;
+  notFound: boolean;
 }
 
 /**
@@ -123,13 +130,22 @@ export const FsReadFileRequest: MessageFns<FsReadFileRequest> = {
 };
 
 function createBaseFsReadFileResponse(): FsReadFileResponse {
-  return { data: new Uint8Array(0) };
+  return { content: "", isBinary: false, isDirectory: false, notFound: false };
 }
 
 export const FsReadFileResponse: MessageFns<FsReadFileResponse> = {
   encode(message: FsReadFileResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.data.length !== 0) {
-      writer.uint32(10).bytes(message.data);
+    if (message.content !== "") {
+      writer.uint32(10).string(message.content);
+    }
+    if (message.isBinary !== false) {
+      writer.uint32(16).bool(message.isBinary);
+    }
+    if (message.isDirectory !== false) {
+      writer.uint32(24).bool(message.isDirectory);
+    }
+    if (message.notFound !== false) {
+      writer.uint32(32).bool(message.notFound);
     }
     return writer;
   },
@@ -146,7 +162,31 @@ export const FsReadFileResponse: MessageFns<FsReadFileResponse> = {
             break;
           }
 
-          message.data = reader.bytes();
+          message.content = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.isBinary = reader.bool();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.isDirectory = reader.bool();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.notFound = reader.bool();
           continue;
         }
       }
@@ -159,13 +199,39 @@ export const FsReadFileResponse: MessageFns<FsReadFileResponse> = {
   },
 
   fromJSON(object: any): FsReadFileResponse {
-    return { data: isSet(object.data) ? bytesFromBase64(object.data) : new Uint8Array(0) };
+    return {
+      content: isSet(object.content) ? globalThis.String(object.content) : "",
+      isBinary: isSet(object.isBinary)
+        ? globalThis.Boolean(object.isBinary)
+        : isSet(object.is_binary)
+        ? globalThis.Boolean(object.is_binary)
+        : false,
+      isDirectory: isSet(object.isDirectory)
+        ? globalThis.Boolean(object.isDirectory)
+        : isSet(object.is_directory)
+        ? globalThis.Boolean(object.is_directory)
+        : false,
+      notFound: isSet(object.notFound)
+        ? globalThis.Boolean(object.notFound)
+        : isSet(object.not_found)
+        ? globalThis.Boolean(object.not_found)
+        : false,
+    };
   },
 
   toJSON(message: FsReadFileResponse): unknown {
     const obj: any = {};
-    if (message.data.length !== 0) {
-      obj.data = base64FromBytes(message.data);
+    if (message.content !== "") {
+      obj.content = message.content;
+    }
+    if (message.isBinary !== false) {
+      obj.isBinary = message.isBinary;
+    }
+    if (message.isDirectory !== false) {
+      obj.isDirectory = message.isDirectory;
+    }
+    if (message.notFound !== false) {
+      obj.notFound = message.notFound;
     }
     return obj;
   },
@@ -175,7 +241,10 @@ export const FsReadFileResponse: MessageFns<FsReadFileResponse> = {
   },
   fromPartial(object: DeepPartial<FsReadFileResponse>): FsReadFileResponse {
     const message = createBaseFsReadFileResponse();
-    message.data = object.data ?? new Uint8Array(0);
+    message.content = object.content ?? "";
+    message.isBinary = object.isBinary ?? false;
+    message.isDirectory = object.isDirectory ?? false;
+    message.notFound = object.notFound ?? false;
     return message;
   },
 };
@@ -393,31 +462,6 @@ export const FsReadDirResponse: MessageFns<FsReadDirResponse> = {
     return message;
   },
 };
-
-function bytesFromBase64(b64: string): Uint8Array {
-  if ((globalThis as any).Buffer) {
-    return Uint8Array.from((globalThis as any).Buffer.from(b64, "base64"));
-  } else {
-    const bin = globalThis.atob(b64);
-    const arr = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; ++i) {
-      arr[i] = bin.charCodeAt(i);
-    }
-    return arr;
-  }
-}
-
-function base64FromBytes(arr: Uint8Array): string {
-  if ((globalThis as any).Buffer) {
-    return (globalThis as any).Buffer.from(arr).toString("base64");
-  } else {
-    const bin: string[] = [];
-    arr.forEach((byte) => {
-      bin.push(globalThis.String.fromCharCode(byte));
-    });
-    return globalThis.btoa(bin.join(""));
-  }
-}
 
 type Builtin = Date | Function | Uint8Array | string | number | boolean | undefined;
 

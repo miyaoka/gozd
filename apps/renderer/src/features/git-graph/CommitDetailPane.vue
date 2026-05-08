@@ -8,8 +8,8 @@ Commit detail pane showing metadata for selected commits in the git graph.
 </doc>
 
 <script setup lang="ts">
-import type { GitCommit } from "@gozd/rpc";
-import { UNCOMMITTED_HASH } from "@gozd/rpc";
+import type { GitCommit } from "@gozd/proto";
+import { UNCOMMITTED_HASH } from "../worktree";
 
 interface Props {
   /** 表示対象のコミット配列 */

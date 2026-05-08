@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package gozd.v1;
+
+// ユーザー設定。`~/.config/gozd/config.json` に永続化される。
+//
+// 設計判断:
+//
+// 1. **proto SSOT で型付き定義**。旧実装は `Record<string, unknown>` + dot-key
+//    だったが、新実装ではセクションをネスト messages にして型を持たせる。
+//    新しい設定を追加するときは proto に field を追加する（buf generate 必須）。
+//
+// 2. **永続化形式は proto JSON mapping**。`AppStateStore` と同じ流儀で、
+//    SwiftProtobuf の `jsonString()` でファイルへ書き出す。
+message AppConfig {
+  TerminalConfig terminal = 1;
+  PreviewConfig preview = 2;
+  VoicevoxConfig voicevox = 3;
+}
+
+message TerminalConfig {
+  // 空文字列はデフォルトテーマ（renderer 側 fallback）
+  string theme = 1;
+  // 空文字列なら xterm デフォルト
+  string font_family = 2;
+  // 0 なら xterm デフォルト
+  uint32 font_size = 3;
+}
+
+message PreviewConfig {
+  string font_family = 1;
+  uint32 font_size = 2;
+}
+
+message VoicevoxConfig {
+  bool enabled = 1;
+  double speed_scale = 2;
+  double volume_scale = 3;
+}
+
+message LoadAppConfigRequest {}
+
+message LoadAppConfigResponse {
+  AppConfig config = 1;
+}
+
+message SaveAppConfigRequest {
+  AppConfig config = 1;
+}
+
+message SaveAppConfigResponse {}

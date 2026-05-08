@@ -69,7 +69,8 @@ struct RpcDispatcherTests {
     req.path = "a.txt"
     let respData = try await dispatcher.dispatch(path: "/fs/readFile", body: req.jsonUTF8Data())
     let resp = try Gozd_V1_FsReadFileResponse(jsonUTF8Data: respData)
-    #expect(String(decoding: resp.data, as: UTF8.self) == "hello")
+    #expect(resp.content == "hello")
+    #expect(resp.isBinary == false)
   }
 
   @Test("/pty/spawn → /pty/kill が ptyId 経由で完結する")
@@ -106,6 +107,78 @@ struct RpcDispatcherTests {
       try await Task.sleep(for: .milliseconds(30))
     }
     #expect(exitFlag.isSet)
+  }
+
+  @Test("/appConfig/save → /appConfig/load で round-trip")
+  func appConfigRoundTrip() async throws {
+    let dir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
+
+    let dispatcher = RpcDispatcher(
+      configDir: dir,
+      onPtyText: { _, _ in },
+      onPtyExit: { _, _ in }
+    )
+
+    var saveReq = Gozd_V1_SaveAppConfigRequest()
+    var config = Gozd_V1_AppConfig()
+    var terminal = Gozd_V1_TerminalConfig()
+    terminal.theme = "Solarized Dark"
+    terminal.fontFamily = "Menlo"
+    terminal.fontSize = 14
+    config.terminal = terminal
+    saveReq.config = config
+    _ = try await dispatcher.dispatch(path: "/appConfig/save", body: saveReq.jsonUTF8Data())
+
+    let loadReq = Gozd_V1_LoadAppConfigRequest()
+    let loadResp = try await dispatcher.dispatch(
+      path: "/appConfig/load", body: loadReq.jsonUTF8Data())
+    let parsed = try Gozd_V1_LoadAppConfigResponse(jsonUTF8Data: loadResp)
+    #expect(parsed.config.terminal.theme == "Solarized Dark")
+    #expect(parsed.config.terminal.fontFamily == "Menlo")
+    #expect(parsed.config.terminal.fontSize == 14)
+  }
+
+  @Test("/appConfig/load はファイル不在で空 config を返す")
+  func appConfigLoadDefault() async throws {
+    let dir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
+
+    let dispatcher = RpcDispatcher(
+      configDir: dir,
+      onPtyText: { _, _ in },
+      onPtyExit: { _, _ in }
+    )
+
+    let loadReq = Gozd_V1_LoadAppConfigRequest()
+    let loadResp = try await dispatcher.dispatch(
+      path: "/appConfig/load", body: loadReq.jsonUTF8Data())
+    let parsed = try Gozd_V1_LoadAppConfigResponse(jsonUTF8Data: loadResp)
+    #expect(parsed.config.terminal.theme == "")
+    #expect(parsed.config.terminal.fontSize == 0)
+  }
+
+  @Test("/open/external は不正な URL で RpcError.invalidArgument を throw")
+  func openExternalRejectsInvalidUrl() async throws {
+    let dir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
+
+    let dispatcher = RpcDispatcher(
+      configDir: dir,
+      onPtyText: { _, _ in },
+      onPtyExit: { _, _ in }
+    )
+
+    var req = Gozd_V1_OpenExternalRequest()
+    req.url = ""
+    do {
+      _ = try await dispatcher.dispatch(path: "/open/external", body: req.jsonUTF8Data())
+      Issue.record("expected throw")
+    } catch RpcError.invalidArgument {
+      // OK
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
   }
 
   @Test("未知の path は RpcError.unknownPath をスローする")

@@ -105,7 +105,7 @@ useIntervalFn(() => {
 const sidebarMenuRef = ref<InstanceType<typeof SidebarMenu>>();
 
 /** worktree クリック: active なら done クリア、そうでなければ切り替え */
-function onWorktreeSelect(wt: import("@gozd/rpc").WorktreeEntry) {
+function onWorktreeSelect(wt: import("@gozd/proto").WorktreeEntry) {
   terminalStore.viewMode = "wt";
   if (isActive(wt)) {
     terminalStore.clearDoneStates(wt.path);

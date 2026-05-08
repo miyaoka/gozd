@@ -11,7 +11,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal, type IMarker } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { onMounted, onBeforeUnmount, ref, watch } from "vue";
-import { useRpc } from "../../shared/rpc";
+import { rpcOpenExternal, rpcPtyResize, rpcPtyWrite } from "./rpc";
 import {
   currentTheme,
   terminalFontFamily,
@@ -36,8 +36,14 @@ const emit = defineEmits<{
 }>();
 
 const containerRef = ref<HTMLElement>();
-const { send } = useRpc();
 const terminalStore = useTerminalStore();
+const ptyTextEncoder = new TextEncoder();
+function sendPtyWrite(ptyId: number, data: string) {
+  void rpcPtyWrite({ ptyId, data: ptyTextEncoder.encode(data) });
+}
+function sendPtyResize(ptyId: number, cols: number, rows: number) {
+  void rpcPtyResize({ ptyId, cols, rows });
+}
 
 let terminal: Terminal | undefined;
 let fitAddon: FitAddon | undefined;
@@ -131,7 +137,7 @@ onMounted(async () => {
   // linkHandler: OSC 8 エスケープシーケンスによる明示リンク（例: "PR #88"）
   const openLink = (event: MouseEvent, url: string) => {
     if (!event.shiftKey) return;
-    send.openExternal({ url });
+    void rpcOpenExternal({ url });
   };
   terminal.loadAddon(new WebLinksAddon(openLink));
   terminal.options.linkHandler = {
@@ -208,7 +214,7 @@ onMounted(async () => {
       if (ev.type === "keydown") {
         const ptyId = terminalStore.getPtyId(props.leafId);
         if (ptyId !== undefined) {
-          send.ptyWrite({ id: ptyId, data: "\x1b\r" });
+          sendPtyWrite(ptyId, "\x1b\r");
         }
       }
       return false;
@@ -282,7 +288,7 @@ onMounted(async () => {
   terminal.onData((data) => {
     const ptyId = terminalStore.getPtyId(props.leafId);
     if (ptyId !== undefined) {
-      send.ptyWrite({ id: ptyId, data });
+      sendPtyWrite(ptyId, data);
     }
   });
 
@@ -290,7 +296,7 @@ onMounted(async () => {
   terminal.onResize(({ cols, rows }) => {
     const ptyId = terminalStore.getPtyId(props.leafId);
     if (ptyId !== undefined) {
-      send.ptyResize({ id: ptyId, cols, rows });
+      sendPtyResize(ptyId, cols, rows);
     }
   });
 

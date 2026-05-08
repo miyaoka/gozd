@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import GozdProto
 
@@ -23,6 +24,9 @@ public actor RpcDispatcher {
 
   private let pty: PTYRegistry
   private let appState: AppStateStore
+  private let appConfig: AppConfigStore
+  private let projectConfig: ProjectConfigStore
+  private let tasks: TaskStore
   private let onHook: HookHandler
   private let onOpen: OpenHandler
 
@@ -35,6 +39,9 @@ public actor RpcDispatcher {
   ) {
     self.pty = PTYRegistry(onText: onPtyText, onExit: onPtyExit)
     self.appState = AppStateStore(configDir: configDir)
+    self.appConfig = AppConfigStore(configDir: configDir)
+    self.projectConfig = ProjectConfigStore(configDir: configDir)
+    self.tasks = TaskStore(configDir: configDir)
     self.onHook = onHook
     self.onOpen = onOpen
   }
@@ -81,6 +88,66 @@ public actor RpcDispatcher {
       return try handleLoadAppState(body)
     case "/appState/save":
       return try handleSaveAppState(body)
+    case "/appConfig/load":
+      return try handleLoadAppConfig(body)
+    case "/appConfig/save":
+      return try handleSaveAppConfig(body)
+    case "/open/external":
+      return try handleOpenExternal(body)
+    case "/git/worktreeList":
+      return try await handleGitWorktreeList(body)
+    case "/git/branchList":
+      return try await handleGitBranchList(body)
+    case "/git/log":
+      return try await handleGitLog(body)
+    case "/git/diffFile":
+      return try await handleGitDiffFile(body)
+    case "/git/showFile":
+      return try await handleGitShowFile(body)
+    case "/git/showCommitFile":
+      return try await handleGitShowCommitFile(body)
+    case "/git/commitFiles":
+      return try await handleGitCommitFiles(body)
+    case "/git/prList":
+      return try await handleGitPrList(body)
+    case "/git/issueList":
+      return try await handleGitIssueList(body)
+    case "/git/viewer":
+      return try await handleGitViewer(body)
+    case "/git/createWorktree":
+      return try await handleCreateWorktree(body)
+    case "/git/worktreeRemove":
+      return try await handleWorktreeRemove(body)
+    case "/git/branchDelete":
+      return try await handleBranchDelete(body)
+    case "/task/list":
+      return try await handleTaskList(body)
+    case "/task/add":
+      return try await handleTaskAdd(body)
+    case "/task/update":
+      return try await handleTaskUpdate(body)
+    case "/task/remove":
+      return try await handleTaskRemove(body)
+    case "/task/createWorktreeWithTask":
+      return try await handleCreateWorktreeWithTask(body)
+    case "/fs/readFileAbsolute":
+      return try handleFsReadFileAbsolute(body)
+    case "/fs/writeFile":
+      return try handleFsWriteFile(body)
+    case "/fs/stat":
+      return try handleFsStat(body)
+    case "/projectConfig/load":
+      return try handleProjectConfigLoad(body)
+    case "/projectConfig/save":
+      return try handleProjectConfigSave(body)
+    case "/voicevox/launch":
+      return try await handleVoicevoxLaunch(body)
+    case "/voicevox/checkEngine":
+      return try await handleVoicevoxCheckEngine(body)
+    case "/voicevox/speak":
+      return try await handleVoicevoxSpeak(body)
+    case "/window/close":
+      return try handleWindowClose(body)
     default:
       throw RpcError.unknownPath(path)
     }
@@ -105,9 +172,12 @@ public actor RpcDispatcher {
 
   private func handleFsReadFile(_ body: Data) throws -> Data {
     let req = try Gozd_V1_FsReadFileRequest(jsonUTF8Data: body)
-    let data = try FSOps.readFile(dir: req.dir, path: req.path)
+    let info = try FSOps.readFile(dir: req.dir, path: req.path)
     var resp = Gozd_V1_FsReadFileResponse()
-    resp.data = data
+    resp.content = info.content
+    resp.isBinary = info.isBinary
+    resp.isDirectory = info.isDirectory
+    resp.notFound = info.notFound
     return try resp.jsonUTF8Data()
   }
 
@@ -170,10 +240,390 @@ public actor RpcDispatcher {
     try appState.save(req.state)
     return try Gozd_V1_SaveAppStateResponse().jsonUTF8Data()
   }
+
+  private func handleLoadAppConfig(_ body: Data) throws -> Data {
+    _ = try Gozd_V1_LoadAppConfigRequest(jsonUTF8Data: body)
+    let config = try appConfig.load()
+    var resp = Gozd_V1_LoadAppConfigResponse()
+    resp.config = config
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleSaveAppConfig(_ body: Data) throws -> Data {
+    let req = try Gozd_V1_SaveAppConfigRequest(jsonUTF8Data: body)
+    try appConfig.save(req.config)
+    return try Gozd_V1_SaveAppConfigResponse().jsonUTF8Data()
+  }
+
+  private func handleOpenExternal(_ body: Data) throws -> Data {
+    let req = try Gozd_V1_OpenExternalRequest(jsonUTF8Data: body)
+    guard let url = URL(string: req.url) else {
+      throw RpcError.invalidArgument("invalid url: \(req.url)")
+    }
+    // NSWorkspace.open は @MainActor。actor 内から MainActor.run でホップする。
+    Task { @MainActor in
+      NSWorkspace.shared.open(url)
+    }
+    return try Gozd_V1_OpenExternalResponse().jsonUTF8Data()
+  }
+
+  // MARK: - git ops
+
+  private func handleGitWorktreeList(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitWorktreeListRequest(jsonUTF8Data: body)
+    let worktrees = try await GitOps.worktreeList(dir: req.dir)
+    let statuses = try await GitOps.gitStatus(dir: req.dir)
+    let allTasks = try await tasks.list(dir: req.dir)
+    var resp = Gozd_V1_GitWorktreeListResponse()
+    resp.worktrees = worktrees.map { wt in
+      var entry = Gozd_V1_WorktreeEntry()
+      entry.path = wt.path
+      entry.head = wt.head
+      entry.branch = wt.branch ?? ""
+      entry.isMain = wt.isMain
+      // active worktree の status のみ返す（旧実装互換）
+      if wt.path == req.dir {
+        entry.gitStatuses = statuses
+      }
+      // この worktree に紐づく Task を埋める
+      if let task = allTasks.first(where: { $0.worktreeDir == wt.path }) {
+        entry.task = task
+      }
+      return entry
+    }
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleGitBranchList(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitBranchListRequest(jsonUTF8Data: body)
+    let branches = try await GitOps.branchList(dir: req.dir)
+    var resp = Gozd_V1_GitBranchListResponse()
+    resp.branches = branches
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleGitLog(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitLogRequest(jsonUTF8Data: body)
+    let result = try await GitOps.logBoth(
+      dir: req.dir, maxCount: req.maxCount, firstParentOnly: req.firstParentOnly)
+    func toProto(_ c: CommitInfo) -> Gozd_V1_GitCommit {
+      var pb = Gozd_V1_GitCommit()
+      pb.hash = c.hash
+      pb.shortHash = c.shortHash
+      pb.parents = c.parents
+      pb.author = c.author
+      pb.date = c.date
+      pb.message = c.message
+      pb.body = c.body
+      pb.refs = c.refs
+      return pb
+    }
+    var resp = Gozd_V1_GitLogResponse()
+    resp.headCommits = result.headCommits.map(toProto)
+    resp.defaultBranchCommits = result.defaultBranchCommits.map(toProto)
+    resp.defaultBranch = result.defaultBranch
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleGitDiffFile(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitDiffFileRequest(jsonUTF8Data: body)
+    let diff = try await GitOps.diffFile(dir: req.dir, relPath: req.relPath)
+    var resp = Gozd_V1_GitDiffFileResponse()
+    resp.diff = diff
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleGitShowFile(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitShowFileRequest(jsonUTF8Data: body)
+    var resp = Gozd_V1_GitShowFileResponse()
+    resp.result = await fileReadResultFromGit(dir: req.dir, hash: "HEAD", relPath: req.relPath)
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleGitShowCommitFile(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitShowCommitFileRequest(jsonUTF8Data: body)
+    var resp = Gozd_V1_GitShowCommitFileResponse()
+    if !req.compareHash.isEmpty {
+      resp.from = await fileReadResultFromGit(
+        dir: req.dir, hash: req.compareHash, relPath: req.relPath)
+    } else {
+      var notFound = Gozd_V1_FileReadResult()
+      notFound.notFound = true
+      resp.from = notFound
+    }
+    resp.to = await fileReadResultFromGit(dir: req.dir, hash: req.hash, relPath: req.relPath)
+    return try resp.jsonUTF8Data()
+  }
+
+  /// `git show <hash>:<path>` の結果を FileReadResult shape にまとめる。
+  /// 失敗（exit != 0）= ファイル不在として not_found=true を返す。
+  private func fileReadResultFromGit(dir: String, hash: String, relPath: String) async
+    -> Gozd_V1_FileReadResult
+  {
+    var fr = Gozd_V1_FileReadResult()
+    do {
+      let data = try await GitOps.showCommitFile(dir: dir, hash: hash, relPath: relPath)
+      if data.contains(0x00) {
+        fr.isBinary = true
+      } else if let text = String(data: data, encoding: .utf8) {
+        fr.content = text
+      } else {
+        fr.isBinary = true
+      }
+    } catch {
+      fr.notFound = true
+    }
+    return fr
+  }
+
+  private func handleGitCommitFiles(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitCommitFilesRequest(jsonUTF8Data: body)
+    let compare = req.compareHash.isEmpty ? nil : req.compareHash
+    let changes = try await GitOps.commitFiles(
+      dir: req.dir, hash: req.hash, compareHash: compare)
+    var resp = Gozd_V1_GitCommitFilesResponse()
+    resp.changes = changes.map { c in
+      var pb = Gozd_V1_GitFileChange()
+      pb.oldFilePath = c.oldPath
+      pb.newFilePath = c.newPath
+      pb.type = c.type
+      return pb
+    }
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleGitPrList(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitPrListRequest(jsonUTF8Data: body)
+    var resp = Gozd_V1_GitPrListResponse()
+    if let prs = await GitHubOps.prList(dir: req.dir) {
+      resp.ok = true
+      resp.prs = prs.map { p in
+        var pb = Gozd_V1_GitPullRequest()
+        pb.number = p.number
+        pb.title = p.title
+        pb.url = p.url
+        pb.state = p.state
+        pb.author = p.author
+        pb.headRef = p.headRef
+        pb.baseRef = p.baseRef
+        pb.isDraft = p.isDraft
+        pb.assignees = p.assignees
+        pb.reviewers = p.reviewers
+        pb.updatedAt = p.updatedAt
+        pb.authorAvatarURL = p.authorAvatarUrl
+        return pb
+      }
+    } else {
+      resp.ok = false
+    }
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleGitIssueList(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitIssueListRequest(jsonUTF8Data: body)
+    var resp = Gozd_V1_GitIssueListResponse()
+    if let issues = await GitHubOps.issueList(dir: req.dir) {
+      resp.ok = true
+      resp.issues = issues.map { i in
+        var pb = Gozd_V1_GitIssue()
+        pb.number = i.number
+        pb.title = i.title
+        pb.url = i.url
+        pb.state = i.state
+        pb.author = i.author
+        pb.labels = i.labels
+        pb.assignees = i.assignees
+        pb.updatedAt = i.updatedAt
+        pb.authorAvatarURL = i.authorAvatarUrl
+        return pb
+      }
+    } else {
+      resp.ok = false
+    }
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleGitViewer(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitViewerRequest(jsonUTF8Data: body)
+    var resp = Gozd_V1_GitViewerResponse()
+    if let login = await GitHubOps.viewer(dir: req.dir) {
+      resp.ok = true
+      resp.login = login
+    } else {
+      resp.ok = false
+    }
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleCreateWorktree(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_CreateWorktreeRequest(jsonUTF8Data: body)
+    let startPoint = req.startPoint.isEmpty ? nil : req.startPoint
+    let info = try await WorktreeOps.createWorktree(
+      dir: req.dir, worktreeDir: req.worktreeDir, branch: req.branch, startPoint: startPoint)
+    var resp = Gozd_V1_CreateWorktreeResponse()
+    var entry = Gozd_V1_WorktreeEntry()
+    entry.path = info.path
+    entry.head = info.head
+    entry.branch = info.branch ?? ""
+    entry.isMain = info.isMain
+    resp.worktree = entry
+    resp.dir = info.path
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleWorktreeRemove(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitWorktreeRemoveRequest(jsonUTF8Data: body)
+    try await WorktreeOps.removeWorktree(dir: req.dir, path: req.path, force: req.force)
+    return try Gozd_V1_GitWorktreeRemoveResponse().jsonUTF8Data()
+  }
+
+  private func handleBranchDelete(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitBranchDeleteRequest(jsonUTF8Data: body)
+    try await WorktreeOps.deleteBranch(dir: req.dir, branch: req.branch)
+    return try Gozd_V1_GitBranchDeleteResponse().jsonUTF8Data()
+  }
+
+  // MARK: - tasks
+
+  private func handleTaskList(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_TaskListRequest(jsonUTF8Data: body)
+    let list = try await tasks.list(dir: req.dir)
+    var resp = Gozd_V1_TaskListResponse()
+    resp.tasks = list
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleTaskAdd(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_TaskAddRequest(jsonUTF8Data: body)
+    let task = try await tasks.add(
+      dir: req.dir, body: req.body, worktreeDir: req.worktreeDir,
+      prNumber: req.prNumber, issueNumber: req.issueNumber)
+    var resp = Gozd_V1_TaskAddResponse()
+    resp.task = task
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleTaskUpdate(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_TaskUpdateRequest(jsonUTF8Data: body)
+    let task = try await tasks.update(dir: req.dir, id: req.id, body: req.body)
+    var resp = Gozd_V1_TaskUpdateResponse()
+    resp.task = task
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleCreateWorktreeWithTask(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_CreateWorktreeWithTaskRequest(jsonUTF8Data: body)
+    let info = try await WorktreeOps.createWorktree(
+      dir: req.dir, worktreeDir: req.worktreeDir, branch: req.branch, startPoint: nil)
+    let updated = try await tasks.setWorktreeDir(
+      dir: req.dir, id: req.id, worktreeDir: info.path)
+    var resp = Gozd_V1_CreateWorktreeWithTaskResponse()
+    resp.task = updated
+    var entry = Gozd_V1_WorktreeEntry()
+    entry.path = info.path
+    entry.head = info.head
+    entry.branch = info.branch ?? ""
+    entry.isMain = info.isMain
+    entry.task = updated
+    resp.worktree = entry
+    resp.dir = info.path
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleTaskRemove(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_TaskRemoveRequest(jsonUTF8Data: body)
+    try await tasks.remove(dir: req.dir, id: req.id)
+    return try Gozd_V1_TaskRemoveResponse().jsonUTF8Data()
+  }
+
+  // MARK: - fs extra
+
+  private func handleFsReadFileAbsolute(_ body: Data) throws -> Data {
+    let req = try Gozd_V1_FsReadFileAbsoluteRequest(jsonUTF8Data: body)
+    let info = FSOps.readFileAbsolute(absolutePath: req.absolutePath)
+    var resp = Gozd_V1_FsReadFileAbsoluteResponse()
+    var fr = Gozd_V1_FileReadResult()
+    fr.content = info.content
+    fr.isBinary = info.isBinary
+    fr.isDirectory = info.isDirectory
+    fr.notFound = info.notFound
+    resp.result = fr
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleFsWriteFile(_ body: Data) throws -> Data {
+    let req = try Gozd_V1_FsWriteFileRequest(jsonUTF8Data: body)
+    try FSOps.writeFile(dir: req.dir, path: req.path, data: req.data)
+    return try Gozd_V1_FsWriteFileResponse().jsonUTF8Data()
+  }
+
+  private func handleFsStat(_ body: Data) throws -> Data {
+    let req = try Gozd_V1_FsStatRequest(jsonUTF8Data: body)
+    let stat = try FSOps.stat(dir: req.dir, path: req.path)
+    var resp = Gozd_V1_FsStatResponse()
+    resp.exists = stat.exists
+    resp.type = stat.type
+    resp.size = stat.size
+    resp.modifiedAt = stat.modifiedAt
+    return try resp.jsonUTF8Data()
+  }
+
+  // MARK: - project config
+
+  private func handleProjectConfigLoad(_ body: Data) throws -> Data {
+    let req = try Gozd_V1_ProjectConfigLoadRequest(jsonUTF8Data: body)
+    let cfg = try projectConfig.load(dir: req.dir)
+    var resp = Gozd_V1_ProjectConfigLoadResponse()
+    resp.config = cfg
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleProjectConfigSave(_ body: Data) throws -> Data {
+    let req = try Gozd_V1_ProjectConfigSaveRequest(jsonUTF8Data: body)
+    try projectConfig.save(dir: req.dir, config: req.config)
+    return try Gozd_V1_ProjectConfigSaveResponse().jsonUTF8Data()
+  }
+
+  // MARK: - voicevox
+
+  private func handleVoicevoxLaunch(_ body: Data) async throws -> Data {
+    _ = try Gozd_V1_VoicevoxLaunchRequest(jsonUTF8Data: body)
+    var resp = Gozd_V1_VoicevoxLaunchResponse()
+    resp.ok = await VoicevoxOps.launch()
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleVoicevoxCheckEngine(_ body: Data) async throws -> Data {
+    _ = try Gozd_V1_VoicevoxCheckEngineRequest(jsonUTF8Data: body)
+    var resp = Gozd_V1_VoicevoxCheckEngineResponse()
+    resp.ok = await VoicevoxOps.checkEngine()
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleWindowClose(_ body: Data) throws -> Data {
+    _ = try Gozd_V1_WindowCloseRequest(jsonUTF8Data: body)
+    Task { @MainActor in
+      NSApplication.shared.terminate(nil)
+    }
+    return try Gozd_V1_WindowCloseResponse().jsonUTF8Data()
+  }
+
+  private func handleVoicevoxSpeak(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_VoicevoxSpeakRequest(jsonUTF8Data: body)
+    var resp = Gozd_V1_VoicevoxSpeakResponse()
+    if let wav = await VoicevoxOps.speak(
+      text: req.text, speedScale: req.speedScale, volumeScale: req.volumeScale,
+      speakerId: req.speakerID)
+    {
+      resp.wav = wav
+    }
+    return try resp.jsonUTF8Data()
+  }
 }
 
 public enum RpcError: Error, Equatable {
   case unknownPath(String)
+  case invalidArgument(String)
 }
 
 public enum SocketDecodeError: Error, Equatable {

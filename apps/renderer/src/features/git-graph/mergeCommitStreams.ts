@@ -1,4 +1,4 @@
-import type { GitCommit } from "@gozd/rpc";
+import type { GitCommit } from "@gozd/proto";
 
 /**
  * ソートモード。

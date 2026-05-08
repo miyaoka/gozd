@@ -13,23 +13,35 @@
 import { storeToRefs } from "pinia";
 import { nextTick, onUnmounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { useRpc } from "../../shared/rpc";
+import { onMessage } from "../../shared/rpc";
 import { resolveGitChangeKind, useGitStatusStore, useWorktreeStore } from "../worktree";
+import type { GitStatusChangePayload } from "../worktree";
 import { getDeletedEntries, sortEntries } from "./filerUtils";
 import type { FileEntry } from "./filerUtils";
 import FileTreeItem from "./FileTreeItem.vue";
+import { rpcFsReadDir } from "./rpc";
+import type { FsChangePayload } from "./rpc";
 
 const worktreeStore = useWorktreeStore();
 const { dir, selectedPath } = storeToRefs(worktreeStore);
 const gitStatusStore = useGitStatusStore();
 const { gitStatuses } = storeToRefs(gitStatusStore);
 const notify = useNotificationStore();
-const { request, onFsChange, onGitStatusChange } = useRpc();
 
 const rootEntries = ref<FileEntry[]>();
 const loading = ref(false);
 /** rootEntries 未読み込み時に保留する reveal 対象パス */
 let pendingRevealPath: string | undefined;
+
+/** proto の FsReadDirEntry を FileEntry に変換する */
+function toFileEntries(entries: { name: string; type: string }[]): FileEntry[] {
+  return entries.map((e) => ({
+    name: e.name,
+    isDirectory: e.type === "directory",
+    // gitignore 反映は新 proto に未組み込み。Phase 4 で追加を検討
+    isIgnored: false,
+  }));
+}
 
 /** readDir の結果に git 変更情報と削除ファイルをマージする */
 function mergeWithGitStatus(entries: FileEntry[], dirPath: string): FileEntry[] {
@@ -55,12 +67,18 @@ function mergeWithGitStatus(entries: FileEntry[], dirPath: string): FileEntry[] 
 
 async function loadRoot() {
   loading.value = true;
+  const dirPath = dir.value;
+  if (dirPath === undefined) {
+    loading.value = false;
+    rootEntries.value = [];
+    return;
+  }
   try {
-    const [entries] = await Promise.all([
-      request.fsReadDir({ relPath: "." }),
+    const [res] = await Promise.all([
+      rpcFsReadDir({ dir: dirPath, path: "." }),
       gitStatusStore.loadGitStatus(),
     ]);
-    rootEntries.value = mergeWithGitStatus(entries, "");
+    rootEntries.value = mergeWithGitStatus(toFileEntries(res.entries), "");
   } catch (e) {
     notify.error("Failed to read root directory", e);
     rootEntries.value = [];
@@ -129,15 +147,14 @@ function handleFsChange(relDir: string) {
 
 async function handleGitStatusChange(statuses: Record<string, string>) {
   gitStatusStore.setGitStatuses(statuses);
-  // 削除ファイルのエントリ追加/除去のためルートを再構築
-  // loadGitStatus は不要（プッシュ通知で受け取った値を使う）
+  const dirPath = dir.value;
+  if (dirPath === undefined) return;
   try {
-    const entries = await request.fsReadDir({ relPath: "." });
-    rootEntries.value = mergeWithGitStatus(entries, "");
+    const res = await rpcFsReadDir({ dir: dirPath, path: "." });
+    rootEntries.value = mergeWithGitStatus(toFileEntries(res.entries), "");
   } catch (e) {
     notify.error("Failed to rebuild root entries", e);
   }
-  // 展開中の子ディレクトリにも通知して children を再構築させる
   for (const item of treeItemRefs.value) {
     item.notifyGitStatusChange();
   }
@@ -154,8 +171,12 @@ watch(
   { immediate: true },
 );
 
-const unsubscribeFsChange = onFsChange(({ relDir }) => handleFsChange(relDir));
-const unsubscribeGitStatus = onGitStatusChange(({ statuses }) => handleGitStatusChange(statuses));
+const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ relDir }) =>
+  handleFsChange(relDir),
+);
+const unsubscribeGitStatus = onMessage<GitStatusChangePayload>("gitStatusChange", ({ statuses }) =>
+  handleGitStatusChange(statuses),
+);
 onUnmounted(() => {
   unsubscribeFsChange();
   unsubscribeGitStatus();

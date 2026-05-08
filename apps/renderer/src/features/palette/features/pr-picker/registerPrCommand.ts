@@ -7,14 +7,14 @@
 import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
-import { useRpc } from "../../../../shared/rpc";
+import { rpcCreateWorktree, rpcGitWorktreeList, rpcTaskAdd } from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
+import { rpcGitPrList, rpcGitViewer } from "./rpc";
 import { usePrPicker } from "./usePrPicker";
 
 export function registerPrCommand(): () => void {
   const registry = useCommandRegistry();
-  const { request } = useRpc();
   const { show } = usePrPicker();
   const notify = useNotificationStore();
   const worktreeStore = useWorktreeStore();
@@ -25,59 +25,55 @@ export function registerPrCommand(): () => void {
     precondition: "isGitRepo",
     handler: () => {
       void (async () => {
-        const [prs, worktrees, viewer] = await Promise.all([
-          request.gitPrList(undefined),
-          request.gitWorktreeList(),
-          request.gitViewer(undefined),
+        const dir = worktreeStore.dir;
+        if (dir === undefined) return;
+        const [prsRes, worktreesRes, viewerRes] = await Promise.all([
+          rpcGitPrList({ dir }),
+          rpcGitWorktreeList({ dir }),
+          rpcGitViewer({ dir }),
         ]);
-        if (!prs || prs.length === 0) return;
+        if (!prsRes.ok || prsRes.prs.length === 0) return;
 
-        // ブランチ名 → worktree パスのマップ（既存 worktree の検索用）
         const wtByBranch = new Map(
-          worktrees.filter((wt) => wt.branch).map((wt) => [wt.branch, wt.path]),
+          worktreesRes.worktrees.filter((wt) => wt.branch !== "").map((wt) => [wt.branch, wt.path]),
         );
 
-        show(prs, viewer ?? "", (pr) => {
-          const existingDir = wtByBranch.get(pr.headRefName);
-          if (existingDir) {
-            // 既存 worktree に切り替え
-            void (async () => {
-              const result = await tryCatch(request.switchDir({ dir: existingDir }));
-              if (!result.ok) {
-                notify.error("Failed to switch worktree", result.error);
-                return;
-              }
-              terminalStore.viewMode = "wt";
-              worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
-            })();
+        show(prsRes.prs, viewerRes.ok ? viewerRes.login : "", (pr) => {
+          const existingDir = wtByBranch.get(pr.headRef);
+          if (existingDir !== undefined) {
+            // 既存 worktree に切り替え（ステートレス化により switchDir RPC は廃止）
+            terminalStore.viewMode = "wt";
+            worktreeStore.setOpen(existingDir, undefined, undefined);
             return;
           }
           // 新規 worktree 作成
           void (async () => {
             const result = await tryCatch(
-              request.createWorktree({
+              rpcCreateWorktree({
+                dir,
                 worktreeDir: generateTimestamp(),
-                branch: pr.headRefName,
-                startPoint: `origin/${pr.headRefName}`,
+                branch: pr.headRef,
+                startPoint: `origin/${pr.headRef}`,
               }),
             );
             if (!result.ok) {
               notify.error("Failed to create worktree", result.error);
               return;
             }
-            // PR タイトルを task として作成し、worktree に紐づける
             const taskResult = await tryCatch(
-              request.taskAdd({
+              rpcTaskAdd({
+                dir,
                 body: pr.title,
                 worktreeDir: result.value.dir,
                 prNumber: pr.number,
+                issueNumber: 0,
               }),
             );
             if (!taskResult.ok) {
               notify.error("Failed to create task for worktree", taskResult.error);
             }
             terminalStore.viewMode = "wt";
-            worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
+            worktreeStore.setOpen(result.value.dir, undefined, undefined);
           })();
         });
       })();

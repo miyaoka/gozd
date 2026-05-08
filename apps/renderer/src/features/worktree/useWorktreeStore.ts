@@ -1,4 +1,4 @@
-import type { OpenTargetSelection } from "@gozd/rpc";
+import type { OpenTargetSelection } from "@gozd/proto";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { resolveFileGitChange } from "./gitStatusUtils";

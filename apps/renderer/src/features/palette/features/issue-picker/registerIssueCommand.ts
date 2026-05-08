@@ -7,14 +7,15 @@
 import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
-import { useRpc } from "../../../../shared/rpc";
+import { rpcCreateWorktree, rpcGitWorktreeList, rpcTaskAdd } from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
+import { rpcGitViewer } from "../pr-picker";
+import { rpcGitIssueList } from "./rpc";
 import { useIssuePicker } from "./useIssuePicker";
 
 export function registerIssueCommand(): () => void {
   const registry = useCommandRegistry();
-  const { request } = useRpc();
   const { show } = useIssuePicker();
   const notify = useNotificationStore();
   const worktreeStore = useWorktreeStore();
@@ -25,53 +26,48 @@ export function registerIssueCommand(): () => void {
     precondition: "isGitRepo",
     handler: () => {
       void (async () => {
-        const [issues, worktrees, viewer] = await Promise.all([
-          request.gitIssueList(undefined),
-          request.gitWorktreeList(),
-          request.gitViewer(undefined),
+        const dir = worktreeStore.dir;
+        if (dir === undefined) return;
+        const [issuesRes, worktreesRes, viewerRes] = await Promise.all([
+          rpcGitIssueList({ dir }),
+          rpcGitWorktreeList({ dir }),
+          rpcGitViewer({ dir }),
         ]);
-        if (!issues || issues.length === 0) return;
+        if (!issuesRes.ok || issuesRes.issues.length === 0) return;
 
-        // issueNumber → worktree パスのマップ（既存 worktree の検索用）
         const wtByIssue = new Map(
-          worktrees
-            .filter((wt) => wt.task?.issueNumber !== undefined)
+          worktreesRes.worktrees
+            .filter((wt) => wt.task !== undefined && wt.task.issueNumber > 0)
             .map((wt) => [wt.task?.issueNumber, wt.path]),
         );
 
-        show(issues, viewer ?? "", (issue) => {
+        show(issuesRes.issues, viewerRes.ok ? viewerRes.login : "", (issue) => {
           const existingDir = wtByIssue.get(issue.number);
-          if (existingDir) {
-            // 既存 worktree に切り替え
-            void (async () => {
-              const result = await tryCatch(request.switchDir({ dir: existingDir }));
-              if (!result.ok) {
-                notify.error("Failed to switch worktree", result.error);
-                return;
-              }
-              terminalStore.viewMode = "wt";
-              worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
-            })();
+          if (existingDir !== undefined) {
+            terminalStore.viewMode = "wt";
+            worktreeStore.setOpen(existingDir, undefined, undefined);
             return;
           }
-          // 新規 worktree 作成
           void (async () => {
             const timestamp = generateTimestamp();
             const result = await tryCatch(
-              request.createWorktree({
+              rpcCreateWorktree({
+                dir,
                 worktreeDir: timestamp,
                 branch: timestamp,
+                startPoint: "HEAD",
               }),
             );
             if (!result.ok) {
               notify.error("Failed to create worktree", result.error);
               return;
             }
-            // issue タイトルを task として作成し、worktree に紐づける
             const taskResult = await tryCatch(
-              request.taskAdd({
+              rpcTaskAdd({
+                dir,
                 body: issue.title,
                 worktreeDir: result.value.dir,
+                prNumber: 0,
                 issueNumber: issue.number,
               }),
             );
@@ -79,7 +75,7 @@ export function registerIssueCommand(): () => void {
               notify.error("Failed to create task for worktree", taskResult.error);
             }
             terminalStore.viewMode = "wt";
-            worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
+            worktreeStore.setOpen(result.value.dir, undefined, undefined);
           })();
         });
       })();

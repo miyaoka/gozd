@@ -8,7 +8,7 @@ worktree 行の下に吹き出し風のテキストとして出す。
 </doc>
 
 <script setup lang="ts">
-import type { WorktreeEntry } from "@gozd/rpc";
+import type { WorktreeEntry } from "@gozd/proto";
 import { computed } from "vue";
 import type { ClaudeState, ClaudeStatus } from "../../../terminal";
 import { extractAskingText, extractFirstSentence } from "../../../voicevox";

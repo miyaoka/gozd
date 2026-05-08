@@ -1,0 +1,100 @@
+syntax = "proto3";
+
+package gozd.v1;
+
+// 複数 RPC で共有される値型をここにまとめる。
+// 1 つの RPC でしか使わない型は当該 RPC の proto に置く。
+
+message WorktreeEntry {
+  string path = 1;
+  string head = 2;
+  string branch = 3;
+  bool is_main = 4;
+  // ファイル相対パス → porcelain v1 XY コード
+  map<string, string> git_statuses = 5;
+  Task task = 6;
+}
+
+message Task {
+  string id = 1;
+  string body = 2;
+  string worktree_dir = 3;
+  uint32 pr_number = 4;
+  uint32 issue_number = 5;
+  // ISO 8601
+  string created_at = 6;
+}
+
+// ディレクトリエントリ。fs/readDir / filer 用。
+message FileEntry {
+  string name = 1;
+  // "file" / "directory" / "symlink"
+  string type = 2;
+}
+
+message FileReadResult {
+  string content = 1;
+  bool is_binary = 2;
+  bool is_directory = 3;
+  bool not_found = 4;
+}
+
+message GitFileChange {
+  string old_file_path = 1;
+  string new_file_path = 2;
+  // "A" / "M" / "D" / "R" / "U"
+  string type = 3;
+}
+
+message GitCommit {
+  string hash = 1;
+  string short_hash = 2;
+  repeated string parents = 3;
+  string author = 4;
+  // Unix timestamp（秒）
+  int64 date = 5;
+  string message = 6;
+  string body = 7;
+  repeated string refs = 8;
+}
+
+message GitPullRequest {
+  uint32 number = 1;
+  string title = 2;
+  string url = 3;
+  string state = 4;
+  string author = 5;
+  string head_ref = 6;
+  string base_ref = 7;
+  bool is_draft = 8;
+  repeated string assignees = 9;
+  repeated string reviewers = 10;
+  // ISO 8601
+  string updated_at = 11;
+  string author_avatar_url = 12;
+}
+
+message GitIssue {
+  uint32 number = 1;
+  string title = 2;
+  string url = 3;
+  string state = 4;
+  string author = 5;
+  repeated string labels = 6;
+  repeated string assignees = 7;
+  string updated_at = 8;
+  string author_avatar_url = 9;
+}
+
+message OpenTargetSelection {
+  // "file" / "dir"
+  string kind = 1;
+  string rel_path = 2;
+  // 1-based
+  uint32 line_number = 3;
+}
+
+message ProjectConfig {
+  // worktree 作成時にメインリポジトリからシンボリックリンクする相対パス一覧
+  repeated string worktree_symlinks = 1;
+}

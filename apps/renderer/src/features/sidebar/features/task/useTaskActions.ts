@@ -1,7 +1,8 @@
-import type { Task, WorktreeEntry } from "@gozd/rpc";
+import type { Task, WorktreeEntry } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { ref } from "vue";
-import { useRpc } from "../../../../shared/rpc";
+import { useWorktreeStore } from "../../../worktree";
+import { rpcTaskAdd, rpcTaskUpdate } from "../../rpc";
 
 interface UseTaskActionsOptions {
   fetchData: () => Promise<void>;
@@ -9,7 +10,7 @@ interface UseTaskActionsOptions {
 
 /** worktree に紐づく Task の編集・新規作成を管理する */
 export function useTaskActions({ fetchData }: UseTaskActionsOptions) {
-  const { request } = useRpc();
+  const worktreeStore = useWorktreeStore();
 
   // --- インライン編集 ---
 
@@ -24,7 +25,9 @@ export function useTaskActions({ fetchData }: UseTaskActionsOptions) {
   async function saveEdit(body: string): Promise<boolean> {
     const id = editingTaskId.value;
     if (!id) return false;
-    const result = await tryCatch(request.taskUpdate({ id, body }));
+    const dir = worktreeStore.dir;
+    if (dir === undefined) return false;
+    const result = await tryCatch(rpcTaskUpdate({ dir, id, body }));
     if (!result.ok) return false;
     await fetchData();
     return true;
@@ -76,8 +79,19 @@ export function useTaskActions({ fetchData }: UseTaskActionsOptions) {
       return;
     }
     isSavingWorktreeTask.value = true;
+    const dir = worktreeStore.dir;
+    if (dir === undefined) {
+      isSavingWorktreeTask.value = false;
+      return;
+    }
     const result = await tryCatch(
-      request.taskAdd({ body: addingTaskBody.value, worktreeDir: wt.path }),
+      rpcTaskAdd({
+        dir,
+        body: addingTaskBody.value,
+        worktreeDir: wt.path,
+        prNumber: 0,
+        issueNumber: 0,
+      }),
     );
     isSavingWorktreeTask.value = false;
     if (!result.ok) return;

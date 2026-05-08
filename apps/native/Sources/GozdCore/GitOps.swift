@@ -14,15 +14,179 @@ import Foundation
 // 3. **`Process.terminationHandler` 内で `readDataToEndOfFile()`**: pipe buffer
 //    (~64KB) を超えると deadlock するが、`git status` の出力はサイズ有界なので
 //    問題ない。大きい出力（git log）が必要になったら DispatchIO に切り替える。
+public struct WorktreeInfo: Equatable, Sendable {
+  public let path: String
+  public let head: String
+  public let branch: String?
+  public let isMain: Bool
+  public init(path: String, head: String, branch: String?, isMain: Bool) {
+    self.path = path
+    self.head = head
+    self.branch = branch
+    self.isMain = isMain
+  }
+}
+
+public struct CommitInfo: Equatable, Sendable {
+  public let hash: String
+  public let shortHash: String
+  public let parents: [String]
+  public let author: String
+  public let date: Int64
+  public let message: String
+  public let body: String
+  public let refs: [String]
+  public init(
+    hash: String, shortHash: String, parents: [String], author: String, date: Int64,
+    message: String, body: String, refs: [String]
+  ) {
+    self.hash = hash
+    self.shortHash = shortHash
+    self.parents = parents
+    self.author = author
+    self.date = date
+    self.message = message
+    self.body = body
+    self.refs = refs
+  }
+}
+
+public struct FileChangeInfo: Equatable, Sendable {
+  public let oldPath: String
+  public let newPath: String
+  public let type: String  // "A" / "M" / "D" / "R" / "U"
+  public init(oldPath: String, newPath: String, type: String) {
+    self.oldPath = oldPath
+    self.newPath = newPath
+    self.type = type
+  }
+}
+
 public enum GitOps {
   /// `git status --porcelain=v1 -z` 相当。
-  ///
-  /// - Parameter dir: worktree の絶対パス。
-  /// - Returns: ファイル相対パス → 2 文字の XY ステータスコード（例: " M", "??", "R "）。
-  ///   rename エントリは new path → XY のみを返す（old path は破棄）。
   public static func gitStatus(dir: String) async throws -> [String: String] {
     let stdout = try await runGit(args: ["status", "--porcelain=v1", "-z"], cwd: dir)
     return parsePorcelainV1(stdout)
+  }
+
+  /// `git worktree list --porcelain` 相当。
+  public static func worktreeList(dir: String) async throws -> [WorktreeInfo] {
+    let stdout = try await runGit(args: ["worktree", "list", "--porcelain"], cwd: dir)
+    return parseWorktreePorcelain(stdout)
+  }
+
+  /// `git for-each-ref --format='%(refname:short)' refs/heads/` 相当。
+  public static func branchList(dir: String) async throws -> [String] {
+    let stdout = try await runGit(
+      args: ["for-each-ref", "--format=%(refname:short)", "refs/heads/"], cwd: dir)
+    let text = String(decoding: stdout, as: UTF8.self)
+    return text.split(whereSeparator: { $0 == "\n" }).map(String.init).filter { !$0.isEmpty }
+  }
+
+  public struct LogResult: Sendable {
+    public let headCommits: [CommitInfo]
+    public let defaultBranchCommits: [CommitInfo]
+    public let defaultBranch: String
+  }
+
+  /// HEAD と default branch（origin/HEAD）の log を返す。
+  public static func logBoth(dir: String, maxCount: UInt32, firstParentOnly: Bool) async throws
+    -> LogResult
+  {
+    async let headTask = log(dir: dir, ref: "HEAD", maxCount: maxCount, firstParentOnly: firstParentOnly)
+    let defaultBranch = (try? await defaultBranchName(dir: dir)) ?? ""
+    let head = try await headTask
+    var defaultCommits: [CommitInfo] = []
+    if !defaultBranch.isEmpty {
+      defaultCommits =
+        (try? await log(
+          dir: dir, ref: "origin/\(defaultBranch)", maxCount: maxCount,
+          firstParentOnly: firstParentOnly)) ?? []
+    }
+    return LogResult(
+      headCommits: head, defaultBranchCommits: defaultCommits, defaultBranch: defaultBranch)
+  }
+
+  /// `git symbolic-ref --short refs/remotes/origin/HEAD` 相当。`origin/main` 等を返す。
+  /// origin/ の prefix は剥がして `main` のみ返す。
+  public static func defaultBranchName(dir: String) async throws -> String {
+    let stdout = try await runGit(
+      args: ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd: dir)
+    let text = String(decoding: stdout, as: UTF8.self).trimmingCharacters(
+      in: .whitespacesAndNewlines)
+    if text.hasPrefix("origin/") { return String(text.dropFirst("origin/".count)) }
+    return text
+  }
+
+  /// `git log <ref>` を unit-separator 区切りでパースしてコミット一覧を返す。
+  public static func log(
+    dir: String, ref: String = "HEAD", maxCount: UInt32, firstParentOnly: Bool
+  ) async throws -> [CommitInfo] {
+    // %x1f = unit separator (US), %x1e = record separator (RS)
+    let format = "%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e"
+    var args = ["log", "--format=\(format)"]
+    if maxCount > 0 { args.append("--max-count=\(maxCount)") }
+    if firstParentOnly { args.append("--first-parent") }
+    args.append(ref)
+    let stdout = try await runGit(args: args, cwd: dir)
+    let text = String(decoding: stdout, as: UTF8.self)
+    var commits: [CommitInfo] = []
+    for record in text.split(separator: "\u{1e}", omittingEmptySubsequences: true) {
+      let trimmed = record.trimmingCharacters(in: .whitespacesAndNewlines)
+      if trimmed.isEmpty { continue }
+      let parts = trimmed.split(separator: "\u{1f}", omittingEmptySubsequences: false).map(
+        String.init)
+      // 8 fields: hash, shortHash, parents, author, date, subject, body, refs
+      guard parts.count == 8 else { continue }
+      let parents =
+        parts[2].isEmpty
+        ? [] : parts[2].split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+      let date = Int64(parts[4]) ?? 0
+      let refs =
+        parts[7].isEmpty
+        ? []
+        : parts[7].split(separator: ",").map {
+          $0.trimmingCharacters(in: .whitespaces)
+        }
+      commits.append(
+        CommitInfo(
+          hash: parts[0], shortHash: parts[1], parents: parents, author: parts[3], date: date,
+          message: parts[5], body: parts[6], refs: refs))
+    }
+    return commits
+  }
+
+  /// `git diff -- <path>` 相当（作業ツリー差分）。
+  public static func diffFile(dir: String, relPath: String) async throws -> String {
+    let stdout = try await runGit(args: ["diff", "--", relPath], cwd: dir)
+    return String(decoding: stdout, as: UTF8.self)
+  }
+
+  /// `git show HEAD:<path>` 相当。
+  public static func showFile(dir: String, relPath: String) async throws -> Data {
+    return try await runGit(args: ["show", "HEAD:\(relPath)"], cwd: dir)
+  }
+
+  /// `git show <hash>:<path>` 相当。
+  public static func showCommitFile(dir: String, hash: String, relPath: String) async throws
+    -> Data
+  {
+    return try await runGit(args: ["show", "\(hash):\(relPath)"], cwd: dir)
+  }
+
+  /// `git diff-tree -r --name-status -z <hash>` または 2 コミット間。
+  public static func commitFiles(dir: String, hash: String, compareHash: String?) async throws
+    -> [FileChangeInfo]
+  {
+    var args = ["diff-tree", "-r", "--name-status", "-z"]
+    if let compareHash, !compareHash.isEmpty {
+      args.append(compareHash)
+      args.append(hash)
+    } else {
+      args.append(hash)
+    }
+    let stdout = try await runGit(args: args, cwd: dir)
+    return parseDiffTreeNameStatus(stdout)
   }
 }
 
@@ -33,7 +197,7 @@ public enum GitError: Error, Equatable {
 
 // MARK: - private helpers
 
-private func runGit(args: [String], cwd: String) async throws -> Data {
+func runGit(args: [String], cwd: String) async throws -> Data {
   try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -64,6 +228,78 @@ private func runGit(args: [String], cwd: String) async throws -> Data {
       cont.resume(throwing: GitError.launchFailed(error.localizedDescription))
     }
   }
+}
+
+/// `git worktree list --porcelain` の出力をパースする。
+private func parseWorktreePorcelain(_ data: Data) -> [WorktreeInfo] {
+  let text = String(decoding: data, as: UTF8.self)
+  var result: [WorktreeInfo] = []
+  var path: String?
+  var head: String = ""
+  var branch: String?
+  var isDetached = false
+
+  func flush() {
+    guard let p = path, !p.isEmpty else { return }
+    let isMain = result.isEmpty  // 最初のエントリが main worktree
+    let resolvedBranch = isDetached ? nil : branch
+    result.append(WorktreeInfo(path: p, head: head, branch: resolvedBranch, isMain: isMain))
+  }
+
+  for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+    let s = String(line)
+    if s.isEmpty {
+      flush()
+      path = nil
+      head = ""
+      branch = nil
+      isDetached = false
+      continue
+    }
+    if s.hasPrefix("worktree ") {
+      path = String(s.dropFirst("worktree ".count))
+    } else if s.hasPrefix("HEAD ") {
+      head = String(s.dropFirst("HEAD ".count))
+    } else if s.hasPrefix("branch ") {
+      let ref = String(s.dropFirst("branch ".count))
+      branch =
+        ref.hasPrefix("refs/heads/") ? String(ref.dropFirst("refs/heads/".count)) : ref
+    } else if s == "detached" {
+      isDetached = true
+    }
+  }
+  flush()
+  return result
+}
+
+/// `git diff-tree --name-status -z` の出力をパースする。
+/// 通常エントリ: `<status>\0<path>\0`、rename: `R<score>\0<old>\0<new>\0`
+private func parseDiffTreeNameStatus(_ data: Data) -> [FileChangeInfo] {
+  let text = String(decoding: data, as: UTF8.self)
+  let parts = text.split(separator: "\0", omittingEmptySubsequences: false).map(String.init)
+  var result: [FileChangeInfo] = []
+  var i = 0
+  while i < parts.count {
+    let status = parts[i]
+    if status.isEmpty {
+      i += 1
+      continue
+    }
+    let firstChar = String(status.prefix(1))
+    if firstChar == "R" || firstChar == "C" {
+      guard i + 2 < parts.count else { break }
+      let oldPath = parts[i + 1]
+      let newPath = parts[i + 2]
+      result.append(FileChangeInfo(oldPath: oldPath, newPath: newPath, type: firstChar))
+      i += 3
+    } else {
+      guard i + 1 < parts.count else { break }
+      let path = parts[i + 1]
+      result.append(FileChangeInfo(oldPath: path, newPath: path, type: firstChar))
+      i += 2
+    }
+  }
+  return result
 }
 
 /// `git status --porcelain=v1 -z` の出力をパースする。

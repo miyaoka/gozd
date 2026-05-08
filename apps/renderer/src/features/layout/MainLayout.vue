@@ -20,7 +20,6 @@ import { computed, onUnmounted, ref, useTemplateRef, watch, watchEffect } from "
 import { useAppStore } from "../../shared/app";
 import { useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useProjectStore } from "../../shared/project";
-import { useRpc } from "../../shared/rpc";
 import { GitGraphPane } from "../git-graph";
 import { NavigatorPane } from "../navigator";
 import {
@@ -38,6 +37,7 @@ import { registerThemeCommand, TerminalPane } from "../terminal";
 import { useWorktreeStore } from "../worktree";
 import NotificationToast from "./NotificationToast.vue";
 import ResizeHandle from "./ResizeHandle.vue";
+import { rpcWindowClose } from "./rpc";
 
 const worktreeStore = useWorktreeStore();
 const appStore = useAppStore();
@@ -47,7 +47,6 @@ const previewPopoverRef = useTemplateRef<HTMLElement>("previewPopover");
 
 // レイアウト・ウィンドウスコープのコマンド登録
 const { register } = useCommandRegistry();
-const { send } = useRpc();
 const disposePreviewToggle = register("preview.toggle", {
   label: "Preview: Toggle",
   handler: () => {
@@ -62,7 +61,7 @@ const disposePreviewToggle = register("preview.toggle", {
 const disposeWindowClose = register("window.close", {
   label: "Window: Close",
   handler: () => {
-    send.windowClose();
+    void rpcWindowClose();
     return true;
   },
 });

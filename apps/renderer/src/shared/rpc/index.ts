@@ -1,15 +1,3 @@
-export {
-  rpcEcho,
-  rpcFsReadDir,
-  rpcFsReadFile,
-  rpcGitStatus,
-  rpcLoadAppState,
-  rpcPtyKill,
-  rpcPtyResize,
-  rpcPtySpawn,
-  rpcPtyWrite,
-  rpcSaveAppState,
-} from "./api";
+// transport のみ公開する。feature 固有の RPC wrapper は各 feature の rpc.ts に置く。
 export { rpc } from "./client";
-export type { GozdMessageMap } from "./messages";
 export { onMessage } from "./messages";

@@ -4,15 +4,14 @@
  * テーマ名のフォーカスでリアルタイムプレビュー、Enter で確定保存、Escape でロールバックする。
  */
 
-import type { AppConfig } from "@gozd/rpc";
+import type { AppConfig } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { darkThemeNames, lightThemeNames, loadTheme } from "@gozd/themes";
 import { useCommandRegistry } from "../../shared/command";
-import { useRpc } from "../../shared/rpc";
 import { useQuickPick } from "../palette";
 import type { QuickPickItem } from "../palette";
 import { previewFontFamily, previewFontSize } from "../preview";
-import { globalSettingsDefaults } from "../settings";
+import { rpcLoadAppConfig, rpcSaveAppConfig } from "../settings";
 import {
   DEFAULT_THEME,
   currentTheme,
@@ -48,22 +47,18 @@ export async function applyTerminalTheme(themeName: string): Promise<void> {
   }
 }
 
-/** ユーザー設定をスキーマのデフォルト値とマージして返す */
-function resolveConfig(userConfig: AppConfig): Record<string, unknown> {
-  return { ...globalSettingsDefaults, ...userConfig };
-}
-
 /** 起動時に保存済み設定を復元する */
-async function restoreSavedConfig(configLoad: () => Promise<AppConfig>): Promise<void> {
+async function restoreSavedConfig(): Promise<void> {
   const gen = ++generation;
-  const result = await tryCatch(configLoad());
+  const result = await tryCatch(rpcLoadAppConfig());
   if (gen !== generation) return;
   if (!result.ok) return;
-  const config = resolveConfig(result.value);
+  const config = result.value.config;
+  if (config === undefined) return;
 
-  // テーマ復元
-  const themeName = config["terminal.theme"];
-  if (typeof themeName === "string" && themeName !== "") {
+  // テーマ復元（空文字列は未設定 = デフォルト維持）
+  const themeName = config.terminal?.theme ?? "";
+  if (themeName !== "") {
     const theme = await loadTheme(themeName);
     if (gen !== generation) return;
     if (theme !== undefined) {
@@ -72,30 +67,50 @@ async function restoreSavedConfig(configLoad: () => Promise<AppConfig>): Promise
     }
   }
 
-  // ターミナルフォント復元
-  if (typeof config["terminal.fontFamily"] === "string") {
-    terminalFontFamily.value = config["terminal.fontFamily"];
-  }
-  if (typeof config["terminal.fontSize"] === "number") {
-    terminalFontSize.value = config["terminal.fontSize"];
+  // ターミナルフォント復元（空文字列 / 0 は未設定 = ストア初期値維持）
+  if (config.terminal !== undefined) {
+    if (config.terminal.fontFamily !== "") {
+      terminalFontFamily.value = config.terminal.fontFamily;
+    }
+    if (config.terminal.fontSize > 0) {
+      terminalFontSize.value = config.terminal.fontSize;
+    }
   }
 
   // プレビューフォント復元
-  if (typeof config["preview.fontFamily"] === "string") {
-    previewFontFamily.value = config["preview.fontFamily"];
+  if (config.preview !== undefined) {
+    if (config.preview.fontFamily !== "") {
+      previewFontFamily.value = config.preview.fontFamily;
+    }
+    if (config.preview.fontSize > 0) {
+      previewFontSize.value = config.preview.fontSize;
+    }
   }
-  if (typeof config["preview.fontSize"] === "number") {
-    previewFontSize.value = config["preview.fontSize"];
-  }
+}
+
+/** terminal.theme を更新する。proto3 message のため load → mutate → save の RMW で行う */
+async function saveTerminalTheme(themeName: string): Promise<void> {
+  const loadResult = await tryCatch(rpcLoadAppConfig());
+  if (!loadResult.ok) return;
+  const config: AppConfig = loadResult.value.config ?? {
+    terminal: undefined,
+    preview: undefined,
+    voicevox: undefined,
+  };
+  config.terminal = {
+    theme: themeName,
+    fontFamily: config.terminal?.fontFamily ?? "",
+    fontSize: config.terminal?.fontSize ?? 0,
+  };
+  await rpcSaveAppConfig(config);
 }
 
 export function registerThemeCommand(): () => void {
   const registry = useCommandRegistry();
   const { show } = useQuickPick();
-  const { request } = useRpc();
 
   // 起動時に保存済み設定を復元
-  void restoreSavedConfig(() => request.configLoad());
+  void restoreSavedConfig();
 
   const dispose = registry.register("terminal.selectTheme", {
     label: "Terminal: Select Theme",
@@ -136,7 +151,7 @@ export function registerThemeCommand(): () => void {
             if (theme !== undefined) {
               currentTheme.value = theme;
               currentThemeName.value = item.label;
-              void request.configSave({ "terminal.theme": item.label });
+              void saveTerminalTheme(item.label);
             }
           });
         },

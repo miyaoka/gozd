@@ -1,11 +1,11 @@
-import type { Task, WorktreeEntry } from "@gozd/rpc";
+import type { Task, WorktreeEntry } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import type { Ref } from "vue";
 import { ref } from "vue";
 import { useNotificationStore } from "../../../../shared/notification";
-import { useRpc } from "../../../../shared/rpc";
 import { useTerminalStore } from "../../../terminal";
 import { useWorktreeStore, generateTimestamp } from "../../../worktree";
+import { rpcCreateWorktree, rpcCreateWorktreeWithTask, rpcGitWorktreeRemove } from "../../rpc";
 import { worktreeDisplayName } from "../../utils";
 
 interface UseWorktreeActionsOptions {
@@ -26,7 +26,6 @@ export function useWorktreeActions({
   const notify = useNotificationStore();
   const worktreeStore = useWorktreeStore();
   const terminalStore = useTerminalStore();
-  const { request } = useRpc();
 
   const isCreating = ref(false);
   const isSwitching = ref(false);
@@ -47,29 +46,27 @@ export function useWorktreeActions({
     }
     if (isSwitching.value) return;
     isSwitching.value = true;
-    const result = await tryCatch(request.switchDir({ dir: wt.path }));
-    if (result.ok) {
-      worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
-    } else {
-      notify.error("Failed to switch worktree", result.error);
-    }
+    // 新 RPC ではサーバー側 switchDir はステートレス化により廃止。worktreeStore.dir を直接更新する。
+    worktreeStore.setOpen(wt.path, undefined, undefined);
     isSwitching.value = false;
   }
 
   async function createWorktree(branch: string) {
     if (isCreating.value) return;
+    const dir = worktreeStore.dir;
+    if (dir === undefined) return;
     isCreating.value = true;
     freeBranches.value = freeBranches.value.filter((b) => b !== branch);
 
     const result = await tryCatch(
-      request.createWorktree({ worktreeDir: generateTimestamp(), branch }),
+      rpcCreateWorktree({ dir, worktreeDir: generateTimestamp(), branch, startPoint: "" }),
     );
-    if (result.ok) {
+    if (result.ok && result.value.worktree !== undefined) {
       worktrees.value = [...worktrees.value, result.value.worktree];
       terminalStore.viewMode = "wt";
-      worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
+      worktreeStore.setOpen(result.value.dir, undefined, undefined);
     } else {
-      notify.error("Failed to create worktree", result.error);
+      notify.error("Failed to create worktree", result.ok ? undefined : result.error);
       freeBranches.value.push(branch);
     }
     isCreating.value = false;
@@ -87,7 +84,9 @@ export function useWorktreeActions({
 
   /** worktree 解除: まず通常削除、失敗したら確認後 --force */
   async function handleWorktreeRemove(wt: WorktreeEntry) {
-    const result = await tryCatch(request.gitWorktreeRemove({ path: wt.path }));
+    const dir = worktreeStore.dir;
+    if (dir === undefined) return;
+    const result = await tryCatch(rpcGitWorktreeRemove({ dir, path: wt.path, force: false }));
     if (result.ok) {
       removeFromList(wt);
       return;
@@ -96,7 +95,7 @@ export function useWorktreeActions({
       `Failed to remove "${worktreeDisplayName(wt)}" (may have uncommitted changes). Force remove?`,
       async () => {
         const forceResult = await tryCatch(
-          request.gitWorktreeRemove({ path: wt.path, force: true }),
+          rpcGitWorktreeRemove({ dir, path: wt.path, force: true }),
         );
         if (forceResult.ok) {
           removeFromList(wt);
@@ -116,16 +115,18 @@ export function useWorktreeActions({
     worktreeDir: string;
     branch: string;
   }) {
+    const dir = worktreeStore.dir;
+    if (dir === undefined) return;
     isCreating.value = true;
     const result = await tryCatch(
-      request.createWorktreeWithTask({ id: task.id, worktreeDir, branch }),
+      rpcCreateWorktreeWithTask({ dir, id: task.id, worktreeDir, branch }),
     );
-    if (result.ok) {
+    if (result.ok && result.value.worktree !== undefined) {
       worktrees.value = [...worktrees.value, result.value.worktree];
       terminalStore.viewMode = "wt";
-      worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
+      worktreeStore.setOpen(result.value.dir, undefined, undefined);
     } else {
-      notify.error("Failed to create worktree with task", result.error);
+      notify.error("Failed to create worktree with task", result.ok ? undefined : result.error);
     }
     isCreating.value = false;
   }
@@ -133,17 +134,19 @@ export function useWorktreeActions({
   /** タイムスタンプで即座に worktree を作成する（Task なし） */
   async function addWorktree() {
     if (isCreating.value) return;
+    const dir = worktreeStore.dir;
+    if (dir === undefined) return;
     isCreating.value = true;
     const timestamp = generateTimestamp();
     const result = await tryCatch(
-      request.createWorktree({ worktreeDir: timestamp, branch: timestamp }),
+      rpcCreateWorktree({ dir, worktreeDir: timestamp, branch: timestamp, startPoint: "HEAD" }),
     );
-    if (result.ok) {
+    if (result.ok && result.value.worktree !== undefined) {
       worktrees.value = [...worktrees.value, result.value.worktree];
       terminalStore.viewMode = "wt";
-      worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
+      worktreeStore.setOpen(result.value.dir, undefined, undefined);
     } else {
-      notify.error("Failed to add worktree", result.error);
+      notify.error("Failed to add worktree", result.ok ? undefined : result.error);
     }
     isCreating.value = false;
   }

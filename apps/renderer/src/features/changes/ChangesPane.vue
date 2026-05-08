@@ -10,21 +10,24 @@ Changed files list. Shows HEAD vs working directory by default, or a selected co
 </doc>
 
 <script setup lang="ts">
-import type { GitFileChange } from "@gozd/rpc";
-import { UNCOMMITTED_HASH } from "@gozd/rpc";
+import type { GitFileChange } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { computed, ref, watch } from "vue";
-import { useRpc } from "../../shared/rpc";
 import { getFileIconName, getIconUrl } from "../filer";
-import { useGitGraphStore } from "../git-graph";
-import { useGitStatusStore, resolveGitChangeKind } from "../worktree";
+import { rpcGitCommitFiles, useGitGraphStore } from "../git-graph";
+import {
+  UNCOMMITTED_HASH,
+  useGitStatusStore,
+  resolveGitChangeKind,
+  useWorktreeStore,
+} from "../worktree";
 import type { GitChangeKind } from "../worktree";
 
 const emit = defineEmits<{
   select: [relPath: string];
 }>();
 
-const { request } = useRpc();
+const worktreeStore = useWorktreeStore();
 const gitGraphStore = useGitGraphStore();
 const gitStatusStore = useGitStatusStore();
 
@@ -105,15 +108,21 @@ watch(
       return;
     }
     loading.value = true;
+    const dir = worktreeStore.dir;
+    if (dir === undefined) {
+      commitFiles.value = [];
+      loading.value = false;
+      return;
+    }
     const result = await tryCatch(
-      request.gitCommitFiles({
+      rpcGitCommitFiles({
+        dir,
         hash,
-        compareHash: compareHash ?? undefined,
+        compareHash: compareHash ?? "",
       }),
     );
-    // 別のリクエストが発行済みなら結果を破棄
     if (seq !== requestSeq) return;
-    commitFiles.value = result.ok ? result.value : [];
+    commitFiles.value = result.ok ? result.value.changes : [];
     loading.value = false;
   },
   { immediate: true },

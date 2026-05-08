@@ -3,7 +3,7 @@ PR picker の1行分。PR 番号・タイトル・ブランチ・author・更新
 </doc>
 
 <script setup lang="ts">
-import type { GitPullRequest } from "@gozd/rpc";
+import type { GitPullRequest } from "@gozd/proto";
 import { computed } from "vue";
 import { formatRelativeDate } from "../../formatRelativeDate";
 
@@ -17,7 +17,7 @@ const dateDisplay = computed(() => formatRelativeDate(props.pr.updatedAt));
 <template>
   <span class="truncate text-green-400">#{{ pr.number }}</span>
   <span class="truncate">{{ pr.title }}</span>
-  <span class="truncate text-cyan-400">{{ pr.headRefName }}</span>
+  <span class="truncate text-cyan-400">{{ pr.headRef }}</span>
   <span class="flex items-center gap-1 truncate text-zinc-400">
     <img
       v-if="pr.authorAvatarUrl !== ''"

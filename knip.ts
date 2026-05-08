@@ -6,7 +6,8 @@ const config: KnipConfig = {
   // open: macOS の /usr/bin/open コマンド
   // typecheck: pnpm -r で呼ぶワークスペースの scripts 名
   // buf: mise 経由で実行（packages/proto-ts の generate スクリプト）
-  ignoreBinaries: ["eslint", "open", "typecheck", "buf"],
+  // swift: apps/native の scripts で Xcode 同梱の Swift toolchain を呼ぶ
+  ignoreBinaries: ["eslint", "open", "typecheck", "buf", "swift"],
   // SPM の .build/ 配下はサードパーティのビルド成果物。knip の対象外にする。
   // proto-ts の src/generated/ は buf 完全管理（clean: true で wipe される領域）。
   // ts-proto 由来の utility (DeepPartial / MessageFns / protobufPackage) は手書き

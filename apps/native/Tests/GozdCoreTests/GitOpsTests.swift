@@ -33,8 +33,8 @@ struct GitOpsGitStatusTests {
 
     let file = dir.appendingPathComponent("a.txt")
     try "v1".write(to: file, atomically: true, encoding: .utf8)
-    try await runGit(args: ["add", "a.txt"], cwd: dir.path)
-    try await runGit(args: ["commit", "-m", "init"], cwd: dir.path)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
 
     try "v2".write(to: file, atomically: true, encoding: .utf8)
 
@@ -50,12 +50,12 @@ struct GitOpsGitStatusTests {
     // 先に initial commit を作って HEAD を確立する（HEAD なしだと A の挙動が異なる）。
     try "seed".write(
       to: dir.appendingPathComponent("seed.txt"), atomically: true, encoding: .utf8)
-    try await runGit(args: ["add", "seed.txt"], cwd: dir.path)
-    try await runGit(args: ["commit", "-m", "init"], cwd: dir.path)
+    try await runTestGit(args: ["add", "seed.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
 
     try "new".write(
       to: dir.appendingPathComponent("staged.txt"), atomically: true, encoding: .utf8)
-    try await runGit(args: ["add", "staged.txt"], cwd: dir.path)
+    try await runTestGit(args: ["add", "staged.txt"], cwd: dir.path)
 
     let entries = try await GitOps.gitStatus(dir: dir.path)
     #expect(entries["staged.txt"] == "A ")
@@ -68,9 +68,9 @@ struct GitOpsGitStatusTests {
 
     let oldFile = dir.appendingPathComponent("old.txt")
     try "content".write(to: oldFile, atomically: true, encoding: .utf8)
-    try await runGit(args: ["add", "old.txt"], cwd: dir.path)
-    try await runGit(args: ["commit", "-m", "init"], cwd: dir.path)
-    try await runGit(args: ["mv", "old.txt", "new.txt"], cwd: dir.path)
+    try await runTestGit(args: ["add", "old.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
+    try await runTestGit(args: ["mv", "old.txt", "new.txt"], cwd: dir.path)
 
     let entries = try await GitOps.gitStatus(dir: dir.path)
     #expect(entries["new.txt"]?.first == "R")
@@ -106,14 +106,14 @@ private func makeTempDir() throws -> URL {
 private func makeGitRepo() async throws -> URL {
   let dir = try makeTempDir()
   // テスト独立性のため、ここでだけ user.name / user.email を local config に入れる。
-  try await runGit(args: ["init", "-q", "-b", "main"], cwd: dir.path)
-  try await runGit(args: ["config", "user.name", "Test"], cwd: dir.path)
-  try await runGit(args: ["config", "user.email", "test@example.com"], cwd: dir.path)
+  try await runTestGit(args: ["init", "-q", "-b", "main"], cwd: dir.path)
+  try await runTestGit(args: ["config", "user.name", "Test"], cwd: dir.path)
+  try await runTestGit(args: ["config", "user.email", "test@example.com"], cwd: dir.path)
   return dir
 }
 
 /// テスト helper: GitOps と同じ `/usr/bin/env git` 経由で任意の git コマンドを実行する。
-private func runGit(args: [String], cwd: String) async throws {
+private func runTestGit(args: [String], cwd: String) async throws {
   try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")

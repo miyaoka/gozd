@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package gozd.v1;
+
+// gozd ウィンドウ操作 RPC。
+
+// ウィンドウを閉じる（シングルウィンドウ運用ではアプリ終了相当）。
+message WindowCloseRequest {}
+message WindowCloseResponse {}

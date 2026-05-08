@@ -7,6 +7,16 @@
 // 共通の utility を export するため、`export *` だと衝突する。message 型のみを
 // 明示 re-export する。
 export {
+  AppConfig,
+  LoadAppConfigRequest,
+  LoadAppConfigResponse,
+  PreviewConfig,
+  SaveAppConfigRequest,
+  SaveAppConfigResponse,
+  TerminalConfig,
+  VoicevoxConfig,
+} from "./generated/gozd/v1/app_config";
+export {
   AppState,
   LoadAppStateRequest,
   LoadAppStateResponse,
@@ -19,7 +29,27 @@ export {
   HookMessage,
   OpenMessage,
 } from "./generated/gozd/v1/client_message";
+export {
+  FileEntry,
+  FileReadResult,
+  GitCommit,
+  GitFileChange,
+  GitIssue,
+  GitPullRequest,
+  OpenTargetSelection,
+  ProjectConfig,
+  Task,
+  WorktreeEntry,
+} from "./generated/gozd/v1/common";
 export { EchoRequest, EchoResponse } from "./generated/gozd/v1/echo";
+export {
+  BranchChangeEvent,
+  FsChangeEvent,
+  GitStatusChangeEvent,
+  GozdOpenEvent,
+  NotifyEvent,
+  WorktreeChangeEvent,
+} from "./generated/gozd/v1/events";
 export {
   FsReadDirEntry,
   FsReadDirRequest,
@@ -27,7 +57,53 @@ export {
   FsReadFileRequest,
   FsReadFileResponse,
 } from "./generated/gozd/v1/fs";
+export {
+  FsReadFileAbsoluteRequest,
+  FsReadFileAbsoluteResponse,
+  FsStatRequest,
+  FsStatResponse,
+  FsWriteFileRequest,
+  FsWriteFileResponse,
+} from "./generated/gozd/v1/fs_extra";
+export {
+  CreateWorktreeRequest,
+  CreateWorktreeResponse,
+  GitBranchDeleteRequest,
+  GitBranchDeleteResponse,
+  GitBranchListRequest,
+  GitBranchListResponse,
+  GitCommitFilesRequest,
+  GitCommitFilesResponse,
+  GitDiffFileRequest,
+  GitDiffFileResponse,
+  GitIssueListRequest,
+  GitIssueListResponse,
+  GitLogRequest,
+  GitLogResponse,
+  GitPrListRequest,
+  GitPrListResponse,
+  GitShowCommitFileRequest,
+  GitShowCommitFileResponse,
+  GitShowFileRequest,
+  GitShowFileResponse,
+  GitViewerRequest,
+  GitViewerResponse,
+  GitWorktreeListRequest,
+  GitWorktreeListResponse,
+  GitWorktreeRemoveRequest,
+  GitWorktreeRemoveResponse,
+} from "./generated/gozd/v1/git_ops";
 export { GitStatusRequest, GitStatusResponse } from "./generated/gozd/v1/git_status";
+export {
+  OpenExternalRequest,
+  OpenExternalResponse,
+} from "./generated/gozd/v1/open_external";
+export {
+  ProjectConfigLoadRequest,
+  ProjectConfigLoadResponse,
+  ProjectConfigSaveRequest,
+  ProjectConfigSaveResponse,
+} from "./generated/gozd/v1/project_config";
 export {
   PtyDataEvent,
   PtyExitEvent,
@@ -40,3 +116,28 @@ export {
   PtyWriteRequest,
   PtyWriteResponse,
 } from "./generated/gozd/v1/pty";
+export {
+  CreateWorktreeWithTaskRequest,
+  CreateWorktreeWithTaskResponse,
+  TaskAddRequest,
+  TaskAddResponse,
+  TaskList,
+  TaskListRequest,
+  TaskListResponse,
+  TaskRemoveRequest,
+  TaskRemoveResponse,
+  TaskUpdateRequest,
+  TaskUpdateResponse,
+} from "./generated/gozd/v1/task";
+export {
+  VoicevoxCheckEngineRequest,
+  VoicevoxCheckEngineResponse,
+  VoicevoxLaunchRequest,
+  VoicevoxLaunchResponse,
+  VoicevoxSpeakRequest,
+  VoicevoxSpeakResponse,
+} from "./generated/gozd/v1/voicevox";
+export {
+  WindowCloseRequest,
+  WindowCloseResponse,
+} from "./generated/gozd/v1/window";

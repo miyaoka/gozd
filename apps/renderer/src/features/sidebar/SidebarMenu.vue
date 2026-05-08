@@ -10,7 +10,7 @@ CSS Anchor Positioning で ⋮ ボタンの直下に配置。
 </doc>
 
 <script setup lang="ts">
-import type { WorktreeEntry } from "@gozd/rpc";
+import type { WorktreeEntry } from "@gozd/proto";
 import { nextTick, ref } from "vue";
 
 defineProps<{

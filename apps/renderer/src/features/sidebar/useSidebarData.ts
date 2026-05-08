@@ -1,10 +1,12 @@
-import type { WorktreeEntry } from "@gozd/rpc";
+import type { WorktreeEntry } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { useRpc } from "../../shared/rpc";
+import { onMessage } from "../../shared/rpc";
 import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
+import { rpcGitBranchList, rpcGitWorktreeList, rpcTaskAdd, rpcTaskUpdate } from "./rpc";
+import type { BranchChangePayload, WorktreeChangePayload } from "./rpc";
 import { dirName } from "./utils";
 
 /**
@@ -16,7 +18,6 @@ export function useSidebarData() {
   const worktreeStore = useWorktreeStore();
   const terminalStore = useTerminalStore();
   const notify = useNotificationStore();
-  const { request, onGitStatusChange, onBranchChange, onWorktreeChange } = useRpc();
 
   const worktrees = ref<WorktreeEntry[]>([]);
   /** worktree 化されていないローカルブランチ */
@@ -37,21 +38,23 @@ export function useSidebarData() {
   const sortedBranches = computed(() => [...freeBranches.value].sort((a, b) => a.localeCompare(b)));
 
   async function fetchData() {
-    if (!worktreeStore.dir) return;
+    const dir = worktreeStore.dir;
+    if (!dir) return;
     const gen = ++fetchGen;
     const result = await tryCatch(
-      Promise.all([request.gitWorktreeList(), request.gitBranchList()]),
+      Promise.all([rpcGitWorktreeList({ dir }), rpcGitBranchList({ dir })]),
     );
     if (!result.ok) {
       notify.error("Failed to fetch sidebar data", result.error);
       return;
     }
-    const [wtList, branchList] = result.value;
+    const [wtRes, branchRes] = result.value;
     // 並行実行された新しい fetchData が先に完了していたら、この結果は stale なので破棄
     if (gen !== fetchGen) return;
+    const wtList = wtRes.worktrees;
     worktrees.value = wtList;
     const wtBranches = new Set(wtList.map((wt) => wt.branch).filter(Boolean));
-    freeBranches.value = branchList.filter((b) => !wtBranches.has(b));
+    freeBranches.value = branchRes.branches.filter((b) => !wtBranches.has(b));
 
     // 外部で削除された worktree のターミナルをクリーンアップ
     const wtPaths = new Set(wtList.map((wt) => wt.path));
@@ -79,14 +82,24 @@ export function useSidebarData() {
   let titleSyncing = false;
   let pendingSync: { dir: string; title: string } | undefined;
 
-  async function syncTaskTitle(dir: string, title: string) {
-    const wt = worktrees.value.find((w) => w.path === dir);
+  async function syncTaskTitle(targetDir: string, title: string) {
+    const projectDir = worktreeStore.dir;
+    if (projectDir === undefined) return;
+    const wt = worktrees.value.find((w) => w.path === targetDir);
     if (!wt) return;
-    if (!wt.task) {
-      const addResult = await tryCatch(request.taskAdd({ body: title, worktreeDir: dir }));
-      if (addResult.ok) {
-        const freshWt = worktrees.value.find((w) => w.path === dir);
-        if (freshWt) freshWt.task = addResult.value;
+    if (wt.task === undefined) {
+      const addResult = await tryCatch(
+        rpcTaskAdd({
+          dir: projectDir,
+          body: title,
+          worktreeDir: targetDir,
+          prNumber: 0,
+          issueNumber: 0,
+        }),
+      );
+      if (addResult.ok && addResult.value.task !== undefined) {
+        const freshWt = worktrees.value.find((w) => w.path === targetDir);
+        if (freshWt) freshWt.task = addResult.value.task;
       }
       return;
     }
@@ -95,10 +108,12 @@ export function useSidebarData() {
     if (firstLine.trim() !== "") return;
     // タイトルが空の Task にターミナルタイトルを設定
     const newBody = [title, ...wt.task.body.split("\n").slice(1)].join("\n");
-    const result = await tryCatch(request.taskUpdate({ id: wt.task.id, body: newBody }));
-    if (result.ok) {
-      const freshWt = worktrees.value.find((w) => w.path === dir);
-      if (freshWt) freshWt.task = result.value;
+    const result = await tryCatch(
+      rpcTaskUpdate({ dir: projectDir, id: wt.task.id, body: newBody }),
+    );
+    if (result.ok && result.value.task !== undefined) {
+      const freshWt = worktrees.value.find((w) => w.path === targetDir);
+      if (freshWt) freshWt.task = result.value.task;
     }
   }
 
@@ -138,9 +153,11 @@ export function useSidebarData() {
 
   const cleanups: Array<() => void> = [];
   onMounted(() => {
-    cleanups.push(onGitStatusChange(() => fetchData()));
-    cleanups.push(onBranchChange(() => fetchData()));
-    cleanups.push(onWorktreeChange(() => fetchData()));
+    // gitStatusChange は worktree/rpc の GitStatusChangePayload で型付けるが、
+    // ここでは fetchData を再発火するだけなので payload は使わない。
+    cleanups.push(onMessage("gitStatusChange", () => fetchData()));
+    cleanups.push(onMessage<BranchChangePayload>("branchChange", () => fetchData()));
+    cleanups.push(onMessage<WorktreeChangePayload>("worktreeChange", () => fetchData()));
   });
   onUnmounted(() => {
     for (const cleanup of cleanups) cleanup();

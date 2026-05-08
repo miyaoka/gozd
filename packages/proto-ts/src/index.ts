@@ -103,8 +103,6 @@ export {
   OpenExternalResponse,
 } from "./generated/gozd/v1/open_external";
 export {
-  OpenTargetRequest,
-  OpenTargetResponse,
   PickAndOpenRequest,
   PickAndOpenResponse,
 } from "./generated/gozd/v1/open_target";

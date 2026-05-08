@@ -8,13 +8,6 @@ package gozd.v1;
 //
 // 用途: サイドバーの「Add directory」ボタン。
 
-// 直接パスを指定して開く（キーボード/ペースト由来想定）。
-message OpenTargetRequest {
-  string path = 1;
-}
-
-message OpenTargetResponse {}
-
 // NSOpenPanel をネイティブで開いてユーザーに dir を選ばせる。
 // 選択後、内部で openTarget callback を呼んで gozdOpen を push する。
 // ユーザーがキャンセルした場合は何もしない。

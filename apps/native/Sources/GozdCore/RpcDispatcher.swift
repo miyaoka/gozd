@@ -112,8 +112,6 @@ public actor RpcDispatcher {
       return try handleSaveAppConfig(body)
     case "/open/external":
       return try handleOpenExternal(body)
-    case "/open/target":
-      return try handleOpenTarget(body)
     case "/open/pickAndOpen":
       return try await handlePickAndOpen(body)
     case "/git/worktreeList":
@@ -288,17 +286,6 @@ public actor RpcDispatcher {
     let req = try Gozd_V1_SaveAppConfigRequest(jsonUTF8Data: body)
     try appConfig.save(req.config)
     return try Gozd_V1_SaveAppConfigResponse().jsonUTF8Data()
-  }
-
-  private func handleOpenTarget(_ body: Data) throws -> Data {
-    let req = try Gozd_V1_OpenTargetRequest(jsonUTF8Data: body)
-    if req.path.isEmpty {
-      throw RpcError.invalidArgument("path is empty")
-    }
-    // SocketServer 経由 OpenMessage と同じ callback に流すことで、
-    // CLI（gozd <path>）と renderer 起点の Add directory を同一経路で扱う
-    onOpen(req.path)
-    return try Gozd_V1_OpenTargetResponse().jsonUTF8Data()
   }
 
   private func handlePickAndOpen(_ body: Data) async throws -> Data {

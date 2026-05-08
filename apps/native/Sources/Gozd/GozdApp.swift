@@ -1,6 +1,8 @@
+import Foundation
+import GozdCore
+import GozdProto
 import SwiftUI
 import WebKit
-import GozdProto
 
 @main
 struct GozdApp: App {
@@ -29,28 +31,29 @@ struct ContentView: View {
     WebView(page)
       .task {
         let html = """
-        <!DOCTYPE html>
-        <html>
-          <body style="font-family: -apple-system; padding: 20px;">
-            <h1>gozd Phase 0 echo</h1>
-            <button onclick="runEcho()">echo</button>
-            <pre id="out"></pre>
-            <script>
-              async function runEcho() {
-                const res = await fetch("gozd-rpc://localhost/echo", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ text: "hello from web" })
-                });
-                const json = await res.json();
-                document.getElementById("out").textContent = JSON.stringify(json, null, 2);
-              }
-            </script>
-          </body>
-        </html>
-        """
+          <!DOCTYPE html>
+          <html>
+            <body style="font-family: -apple-system; padding: 20px;">
+              <h1>gozd Phase 2 dispatcher</h1>
+              <button onclick="runEcho()">echo</button>
+              <pre id="out"></pre>
+              <script>
+                async function runEcho() {
+                  const res = await fetch("gozd-rpc://localhost/echo", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ text: "hello from web" })
+                  });
+                  const json = await res.json();
+                  document.getElementById("out").textContent = JSON.stringify(json, null, 2);
+                }
+              </script>
+            </body>
+          </html>
+          """
         do {
-          for try await _ in page.load(html: html, baseURL: URL(string: "gozd-app://localhost/")!) {}
+          for try await _ in page.load(html: html, baseURL: URL(string: "gozd-app://localhost/")!) {
+          }
         } catch {
           print("page.load failed: \(error)")
         }
@@ -61,59 +64,85 @@ struct ContentView: View {
 @MainActor
 private func makePage() -> WebPage {
   var config = WebPage.Configuration()
-  config.urlSchemeHandlers[URLScheme("gozd-rpc")!] = RpcSchemeHandler()
+  let dispatcher = RpcDispatcher(
+    configDir: defaultConfigDir(),
+    // PTY イベントを WebPage に push する経路は Phase 3 で実装する。
+    // ここでは stdout に流すだけのプレースホルダ。
+    onPtyData: { id, data in
+      let text = String(decoding: data, as: UTF8.self)
+      print("[pty:\(id)] data: \(text.prefix(80))")
+    },
+    onPtyExit: { id, reason in
+      print("[pty:\(id)] exit: \(reason)")
+    }
+  )
+  config.urlSchemeHandlers[URLScheme("gozd-rpc")!] = RpcSchemeHandler(dispatcher: dispatcher)
   let page = WebPage(configuration: config)
   page.isInspectable = true
   return page
 }
 
+private func defaultConfigDir() -> String {
+  let home = FileManager.default.homeDirectoryForCurrentUser
+  return home.appendingPathComponent(".config/gozd").path
+}
+
+// HTTP-style 包装を担当する URLSchemeHandler。実際の RPC ロジックは RpcDispatcher。
 struct RpcSchemeHandler: URLSchemeHandler {
+  let dispatcher: RpcDispatcher
+
   func reply(for request: URLRequest) -> AsyncThrowingStream<URLSchemeTaskResult, any Error> {
     AsyncThrowingStream { continuation in
       Task {
-        do {
-          guard let url = request.url else {
-            continuation.finish(throwing: RpcError.missingURL)
-            return
-          }
-          let path = url.path
-          let body = request.httpBody ?? Data()
-
-          switch path {
-          case "/echo":
-            let req = try Gozd_V1_EchoRequest(jsonUTF8Data: body)
-            var resp = Gozd_V1_EchoResponse()
-            resp.text = "echo: \(req.text)"
-            let respData = try resp.jsonUTF8Data()
-            let httpResp = HTTPURLResponse(
-              url: url,
-              statusCode: 200,
-              httpVersion: "HTTP/1.1",
-              headerFields: [
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-              ]
-            )!
-            continuation.yield(.response(httpResp))
-            continuation.yield(.data(respData))
-          default:
-            let httpResp = HTTPURLResponse(
-              url: url,
-              statusCode: 404,
-              httpVersion: "HTTP/1.1",
-              headerFields: ["Access-Control-Allow-Origin": "*"]
-            )!
-            continuation.yield(.response(httpResp))
-          }
-          continuation.finish()
-        } catch {
-          continuation.finish(throwing: error)
+        guard let url = request.url else {
+          continuation.finish(throwing: SchemeError.missingURL)
+          return
         }
+        let body = request.httpBody ?? Data()
+
+        do {
+          let respData = try await dispatcher.dispatch(path: url.path, body: body)
+          let httpResp = HTTPURLResponse(
+            url: url,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: [
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": "*",
+            ]
+          )!
+          continuation.yield(.response(httpResp))
+          continuation.yield(.data(respData))
+        } catch RpcError.unknownPath(let p) {
+          yield(continuation: continuation, status: 404, url: url, message: "unknown RPC: \(p)")
+        } catch {
+          yield(continuation: continuation, status: 500, url: url, message: "\(error)")
+        }
+        continuation.finish()
       }
     }
   }
+
+  private func yield(
+    continuation: AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation,
+    status: Int,
+    url: URL,
+    message: String
+  ) {
+    let httpResp = HTTPURLResponse(
+      url: url,
+      statusCode: status,
+      httpVersion: "HTTP/1.1",
+      headerFields: [
+        "Content-Type": "text/plain; charset=utf-8",
+        "Access-Control-Allow-Origin": "*",
+      ]
+    )!
+    continuation.yield(.response(httpResp))
+    continuation.yield(.data(Data(message.utf8)))
+  }
 }
 
-enum RpcError: Error {
+enum SchemeError: Error {
   case missingURL
 }

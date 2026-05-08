@@ -47,8 +47,8 @@ struct GozdEnvOverlayTests {
     #expect(allowed.contains(env["GOZD_ORIG_ZDOTDIR"]!))
   }
 
-  @Test("renderer 側で渡された TERM 等は上書きしない")
-  func preservesCallerTerm() {
+  @Test("renderer 側で渡された値は親 env / overlay デフォルトより優先される")
+  func rendererTakesPrecedence() {
     let env = makeOverlay().merged(
       into: [
         "TERM": "xterm-256color",
@@ -60,11 +60,37 @@ struct GozdEnvOverlayTests {
     #expect(env["HOME"] == "/custom/home")
   }
 
-  @Test("未設定時に HOME / TERM_PROGRAM / FORCE_HYPERLINK を補完する")
-  func fillsDefaultsWhenMissing() {
+  @Test("TERM_PROGRAM / FORCE_HYPERLINK は未設定時に gozd デフォルトで埋まる")
+  func fillsGozdDefaults() {
     let env = makeOverlay().merged(into: [:], ptyId: 1)
-    #expect(env["HOME"] == "/Users/test")
     #expect(env["TERM_PROGRAM"] == "gozd")
     #expect(env["FORCE_HYPERLINK"] == "1")
+    // HOME は親プロセスから継承されるため必ず存在する
+    #expect(env["HOME"] != nil)
+  }
+
+  @Test("親プロセスの env が base として継承される")
+  func inheritsParentEnv() {
+    // setenv で親プロセスに任意の値を入れて継承を確認
+    let key = "GOZD_TEST_INHERIT_\(UUID().uuidString.prefix(8))"
+    setenv(key, "from-parent", 1)
+    defer { unsetenv(key) }
+
+    let env = makeOverlay().merged(into: [:], ptyId: 1)
+    #expect(env[key] == "from-parent")
+  }
+
+  @Test("stripped keys（GOZD_DEV_PROJECT_ROOT 等）は子に継承されない")
+  func stripsInternalDevFlags() {
+    setenv("GOZD_DEV_PROJECT_ROOT", "/should/not/leak", 1)
+    setenv("GOZD_DEV_VITE_URL", "http://leaked", 1)
+    defer {
+      unsetenv("GOZD_DEV_PROJECT_ROOT")
+      unsetenv("GOZD_DEV_VITE_URL")
+    }
+
+    let env = makeOverlay().merged(into: [:], ptyId: 1)
+    #expect(env["GOZD_DEV_PROJECT_ROOT"] == nil)
+    #expect(env["GOZD_DEV_VITE_URL"] == nil)
   }
 }

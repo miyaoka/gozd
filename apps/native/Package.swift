@@ -6,6 +6,7 @@ let package = Package(
   platforms: [.macOS(.v26)],
   products: [
     .executable(name: "Gozd", targets: ["Gozd"]),
+    .library(name: "GozdCore", targets: ["GozdCore"]),
   ],
   dependencies: [
     .package(name: "GozdProto", path: "../../packages/proto-swift"),
@@ -14,8 +15,19 @@ let package = Package(
     .executableTarget(
       name: "Gozd",
       dependencies: [
+        "GozdCore",
         .product(name: "GozdProto", package: "GozdProto"),
       ]
+    ),
+    .target(
+      name: "GozdCore",
+      dependencies: [
+        .product(name: "GozdProto", package: "GozdProto"),
+      ]
+    ),
+    .testTarget(
+      name: "GozdCoreTests",
+      dependencies: ["GozdCore"]
     ),
   ]
 )

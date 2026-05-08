@@ -506,9 +506,40 @@ func applicationDidFinishLaunching(_ n: Notification) {
 
 実装直前に手を動かして決める:
 
-- **`FSEventStreamCreate` の `flags` 推奨値** — `kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer` が一般的だが、gozd の用途で適切か検証
 - **xterm.js への PTY バイトストリーム送信時の文字化け対策** — UTF-8 のマルチバイト境界での切れ。スパイクでは ASCII / 日本語短文のみ動作確認、長時間ストリームでの境界 race は未検証
 - **マルチリポ対応 RPC の `.proto` 具体形** — issue #310 のステートレス化（全 RPC に `dir` パラメータ必須）を Protobuf message としてどう設計するか
+
+## スパイクで実証された事実（追加）
+
+### FSEvents の Swift 6 ラップパターン（[gozd-spike#FSEventsTest, FSWatcherClassTest](https://github.com/miyaoka/gozd-spike) で検証済）
+
+必須フラグ:
+
+```swift
+let flags: FSEventStreamCreateFlags =
+    UInt32(kFSEventStreamCreateFlagFileEvents)
+    | UInt32(kFSEventStreamCreateFlagNoDefer)
+    | UInt32(kFSEventStreamCreateFlagUseCFTypes)
+```
+
+> [!IMPORTANT]
+> **`UseCFTypes` 必須**。これがないと callback の `eventPaths` は `char**` で、`unsafeBitCast(_, to: NSArray.self)` が UB → SIGSEGV。
+
+class wrapper の Swift 6 strict concurrency 対応:
+
+> [!CAUTION]
+> **`@unchecked Sendable` を付けてはいけない**。
+>
+> Swift 6 analyzer は non-Sendable class を見ると cross-actor 送信不可で打ち切り、内部の `OpaquePointer` (`FSEventStreamRef`) を解析しない。逆に `@unchecked Sendable` を付けると「Sendable と称するなら検証する」モードに入り、`OpaquePointer` を持つフィールドで SendNonSendable パスが SIGABRT する（Swift 6.3 / Xcode 26 で実測、本実装ブランチで一度踏んだ）。
+>
+> Apple `swift-tools-support-core/Sources/TSCUtility/FSWatch.swift` の `FSEventStream` も同流儀（Sendable 適合なし）。利用側は単一 context（@MainActor または専用 actor）から使う前提。
+
+`OpaquePointer` の Sendable 化は SE-0331（Swift 5.6, 2022）で `@available(*, unavailable) extension OpaquePointer: Sendable {}` として明示的に禁止されており、再 Sendable 化の計画もない（一次ソース: [`stdlib/public/core/CTypes.swift`](https://github.com/swiftlang/swift/blob/main/stdlib/public/core/CTypes.swift)）。
+
+採用しなかった flag:
+
+- `WatchRoot`: gozd の現用途（worktree 配下監視）では root 移動シナリオが希。必要時に追加検討
+- `IgnoreSelf`: gozd 経由（PTY spawn 等）の書き込みも UI 更新したいので不採用
 
 ## アーキテクチャ案
 

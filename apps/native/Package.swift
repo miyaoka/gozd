@@ -22,8 +22,12 @@ let package = Package(
     .target(
       name: "GozdCore",
       dependencies: [
+        "CPty",
         .product(name: "GozdProto", package: "GozdProto"),
       ]
+    ),
+    .target(
+      name: "CPty"
     ),
     .testTarget(
       name: "GozdCoreTests",

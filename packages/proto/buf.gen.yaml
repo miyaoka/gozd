@@ -2,14 +2,13 @@ version: v2
 clean: true
 plugins:
   - remote: buf.build/community/stephenh-ts-proto
-    out: ../proto-ts/src
+    out: ../proto-ts/src/generated
     opt:
       - esModuleInterop=true
       - outputServices=false
       - outputJsonMethods=true
       - useDate=string
       - useExactTypes=false
-      - importSuffix=.js
   - remote: buf.build/apple/swift
     out: ../proto-swift/Sources/GozdProto
     opt:

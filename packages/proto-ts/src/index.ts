@@ -7,4 +7,11 @@
 // 共通の utility を export するため、`export *` だと衝突する。message 型のみを
 // 明示 re-export する。
 export { EchoRequest, EchoResponse } from "./generated/gozd/v1/echo";
+export {
+  FsReadDirEntry,
+  FsReadDirRequest,
+  FsReadDirResponse,
+  FsReadFileRequest,
+  FsReadFileResponse,
+} from "./generated/gozd/v1/fs";
 export { GitStatusRequest, GitStatusResponse } from "./generated/gozd/v1/git_status";

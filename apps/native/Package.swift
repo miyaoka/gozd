@@ -6,6 +6,7 @@ let package = Package(
   platforms: [.macOS(.v26)],
   products: [
     .executable(name: "Gozd", targets: ["Gozd"]),
+    .executable(name: "gozd-cli", targets: ["GozdCLI"]),
     .library(name: "GozdCore", targets: ["GozdCore"]),
   ],
   dependencies: [
@@ -16,6 +17,12 @@ let package = Package(
       name: "Gozd",
       dependencies: [
         "GozdCore",
+        .product(name: "GozdProto", package: "GozdProto"),
+      ]
+    ),
+    .executableTarget(
+      name: "GozdCLI",
+      dependencies: [
         .product(name: "GozdProto", package: "GozdProto"),
       ]
     ),

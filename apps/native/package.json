@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "GOZD_DEV_VITE_URL=http://localhost:5173 GOZD_DEV_PROJECT_ROOT=\"$(cd ../.. && pwd)\" swift run Gozd",
+    "dev": "swift build --product gozd-cli && GOZD_DEV_VITE_URL=http://localhost:5173 GOZD_DEV_PROJECT_ROOT=\"$(cd ../.. && pwd)\" swift run Gozd",
     "build": "swift build -c release",
     "test": "swift test"
   }

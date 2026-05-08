@@ -43,8 +43,10 @@ struct ContentView: View {
   var body: some View {
     WebView(runtime.page)
       .task {
-        // dev: $GOZD_DEV_VITE_URL があれば Vite dev server からロード（HMR が効く）。
-        // 本番: 埋め込み HTML harness をロード。
+        // ロード経路は 3 つ:
+        //   1. dev: $GOZD_DEV_VITE_URL があれば Vite dev server をロード（HMR）
+        //   2. build: .app 内 Resources/app/views/main/index.html をロード
+        //   3. fallback: PTY 検証用の埋め込み HTML harness（swift run 直叩き等）
         if let viteURL = ProcessInfo.processInfo.environment["GOZD_DEV_VITE_URL"],
           let url = URL(string: viteURL)
         {
@@ -52,6 +54,15 @@ struct ContentView: View {
             for try await _ in runtime.page.load(url) {}
           } catch {
             print("page.load (vite) failed: \(error)")
+          }
+        } else if let bundledIndex = Bundle.main.url(
+          forResource: "index", withExtension: "html",
+          subdirectory: "app/views/main")
+        {
+          do {
+            for try await _ in runtime.page.load(URLRequest(url: bundledIndex)) {}
+          } catch {
+            print("page.load (bundled) failed: \(error)")
           }
         } else {
           let html = ptyHarnessHTML(socketPath: runtime.socketPath)
@@ -337,10 +348,15 @@ final class AppRuntime {
     return home.appendingPathComponent(".config/gozd").path
   }
 
+  /// Phase 4 移行期の暫定 prefix。旧 Electrobun 版（io.github.miyaoka.gozd）と
+  /// 並走させるために socket / settings / launch dir / Bundle ID をすべて
+  /// `gozd-swift` に切り替えてある。Phase 5 で旧版を削除したら `gozd` に戻す。
+  static let bundlePrefix = "gozd-swift"
+
   private static func defaultSocketPath() -> String {
-    // architecture.md の規約: $TMPDIR/gozd-{channel}.sock。`swift run` 時は dev 扱い。
+    // architecture.md の規約: $TMPDIR/{bundlePrefix}-{channel}.sock。`swift run` 時は dev 扱い。
     let tmp = NSTemporaryDirectory()
-    return (tmp as NSString).appendingPathComponent("gozd-dev.sock")
+    return (tmp as NSString).appendingPathComponent("\(bundlePrefix)-dev.sock")
   }
 
   /// CLI が cold start 時に書き出した launch request ファイルを 1 件読んで
@@ -348,7 +364,7 @@ final class AppRuntime {
   fileprivate static func consumeLaunchRequest(channel: String) -> String? {
     let tmp = NSTemporaryDirectory()
     let ch = channel.isEmpty ? "dev" : channel
-    let dir = (tmp as NSString).appendingPathComponent("gozd-\(ch)-launch")
+    let dir = (tmp as NSString).appendingPathComponent("\(bundlePrefix)-\(ch)-launch")
     let fm = FileManager.default
     guard let entries = try? fm.contentsOfDirectory(atPath: dir), !entries.isEmpty else {
       return nil
@@ -377,7 +393,7 @@ final class AppRuntime {
   fileprivate static func claudeSettingsPath(channel: String) -> String {
     let tmp = NSTemporaryDirectory()
     let ch = channel.isEmpty ? "dev" : channel
-    return (tmp as NSString).appendingPathComponent("gozd-\(ch)-claude-settings.json")
+    return (tmp as NSString).appendingPathComponent("\(bundlePrefix)-\(ch)-claude-settings.json")
   }
 
   /// dev / build 環境を判別して GozdEnvOverlay を組み立てる。
@@ -405,7 +421,24 @@ final class AppRuntime {
         userHome: userHome
       )
     }
-    // build 配置は Phase 4 で実装する。dev でないと claude hooks は機能しないが PTY 自体は動く。
+    // build モード: .app バンドル内 Resources/app/{bin,zsh} を参照する。
+    // build-app.sh が以下のレイアウトで配置している:
+    //   <.app>/Contents/Resources/app/bin/gozd-cli
+    //   <.app>/Contents/Resources/app/zsh/.zshrc 等
+    if let resourceURL = Bundle.main.resourceURL {
+      let appResource = resourceURL.appendingPathComponent("app")
+      let cliPath = appResource.appendingPathComponent("bin/gozd-cli").path
+      let zdotdir = appResource.appendingPathComponent("zsh").path
+      return GozdEnvOverlay(
+        socketPath: socketPath,
+        cliPath: cliPath,
+        cliRunner: "",
+        claudeSettingsPath: claudeSettingsPath,
+        zdotdir: zdotdir,
+        userHome: userHome
+      )
+    }
+    // 最終 fallback: zdotdir を userHome に倒す。Claude hooks は機能しないが PTY は動く。
     return GozdEnvOverlay(
       socketPath: socketPath,
       cliPath: "",
@@ -416,13 +449,14 @@ final class AppRuntime {
     )
   }
 
-  /// `/tmp/gozd-dev.sock` → `dev` のように socket basename からチャネル名を抽出。
-  /// 規約: `gozd-{channel}.sock`。マッチしない場合は空文字列を返し、renderer 側で
+  /// `/tmp/{bundlePrefix}-dev.sock` → `dev` のように socket basename からチャネル名を抽出。
+  /// 規約: `{bundlePrefix}-{channel}.sock`。マッチしない場合は空文字列を返し、renderer 側で
   /// channel が空のままになる（appStore.setChannel が no-op）。
   fileprivate static func channelFromSocketPath(_ path: String) -> String {
     let base = (path as NSString).lastPathComponent
-    guard base.hasPrefix("gozd-"), base.hasSuffix(".sock") else { return "" }
-    let start = base.index(base.startIndex, offsetBy: "gozd-".count)
+    let prefix = "\(bundlePrefix)-"
+    guard base.hasPrefix(prefix), base.hasSuffix(".sock") else { return "" }
+    let start = base.index(base.startIndex, offsetBy: prefix.count)
     let end = base.index(base.endIndex, offsetBy: -".sock".count)
     return String(base[start..<end])
   }

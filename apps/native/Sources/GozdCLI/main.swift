@@ -50,7 +50,7 @@ func printUsage() {
       gozd --help        Print this help
 
     Environment:
-      GOZD_SOCKET_PATH  Override Unix socket path (default: $TMPDIR/gozd-{channel}.sock)
+      GOZD_SOCKET_PATH  Override Unix socket path (default: $TMPDIR/gozd-swift-{channel}.sock)
       GOZD_PTY_ID       Used by `hook` to attribute the event to a PTY
       GOZD_COLD_START   If set, `open` writes a launch request file instead of socket send
     """
@@ -140,27 +140,32 @@ func absolutePath(_ path: String) -> String {
   return ((cwd as NSString).appendingPathComponent(path) as NSString).standardizingPath
 }
 
+// Phase 4 移行期: 旧 Electrobun 版（gozd-）と並走するため `gozd-swift` を使う。
+// Phase 5 で旧版削除後に `gozd` に戻す。
+let bundlePrefix = "gozd-swift"
+
 func socketPath() -> String {
   if let env = ProcessInfo.processInfo.environment["GOZD_SOCKET_PATH"], !env.isEmpty {
     return env
   }
   // fallback: stable channel
   let tmp = NSTemporaryDirectory()
-  return (tmp as NSString).appendingPathComponent("gozd-stable.sock")
+  return (tmp as NSString).appendingPathComponent("\(bundlePrefix)-stable.sock")
 }
 
 func launchRequestDir() -> String {
   let tmp = NSTemporaryDirectory()
-  // GOZD_SOCKET_PATH からチャネル名を抽出して $TMPDIR/gozd-{channel}-launch/ を返す
+  // GOZD_SOCKET_PATH からチャネル名を抽出して $TMPDIR/{bundlePrefix}-{channel}-launch/ を返す
   let sock = socketPath()
   let base = (sock as NSString).lastPathComponent
-  if base.hasPrefix("gozd-"), base.hasSuffix(".sock") {
-    let start = base.index(base.startIndex, offsetBy: "gozd-".count)
+  let prefix = "\(bundlePrefix)-"
+  if base.hasPrefix(prefix), base.hasSuffix(".sock") {
+    let start = base.index(base.startIndex, offsetBy: prefix.count)
     let end = base.index(base.endIndex, offsetBy: -".sock".count)
     let channel = String(base[start..<end])
-    return (tmp as NSString).appendingPathComponent("gozd-\(channel)-launch")
+    return (tmp as NSString).appendingPathComponent("\(bundlePrefix)-\(channel)-launch")
   }
-  return (tmp as NSString).appendingPathComponent("gozd-stable-launch")
+  return (tmp as NSString).appendingPathComponent("\(bundlePrefix)-stable-launch")
 }
 
 func writeLaunchRequest(targetPath: String) throws {

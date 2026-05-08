@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "swift build --product gozd-cli && GOZD_DEV_VITE_URL=http://localhost:5173 GOZD_DEV_PROJECT_ROOT=\"$(cd ../.. && pwd)\" swift run Gozd",
-    "build": "swift build -c release",
+    "build": "bash scripts/build-app.sh",
     "test": "swift test"
   }
 }

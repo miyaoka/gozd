@@ -29,7 +29,7 @@ APP_CONTENTS="${APP_RESOURCES}/../.."
 APP_BUNDLE="${APP_CONTENTS}/.."
 
 TMPDIR_NORMALIZED="${TMPDIR:-/tmp}"
-SOCKET_PATH="${GOZD_SOCKET_PATH:-${TMPDIR_NORMALIZED%/}/gozd-stable.sock}"
+SOCKET_PATH="${GOZD_SOCKET_PATH:-${TMPDIR_NORMALIZED%/}/gozd-swift-stable.sock}"
 
 is_app_running() {
   [[ -S "${SOCKET_PATH}" ]] || return 1

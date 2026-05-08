@@ -7,3 +7,4 @@
 // 共通の utility を export するため、`export *` だと衝突する。message 型のみを
 // 明示 re-export する。
 export { EchoRequest, EchoResponse } from "./generated/gozd/v1/echo";
+export { GitStatusRequest, GitStatusResponse } from "./generated/gozd/v1/git_status";

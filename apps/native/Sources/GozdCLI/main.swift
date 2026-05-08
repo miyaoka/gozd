@@ -16,10 +16,19 @@ import GozdProto
 // - 接続後の write→shutdown(SHUT_WR)→drain→close は spike で確認した必須パターン
 // - 短命プロセスのため `Foundation.Process` 等の重い API は避ける
 
-let args = CommandLine.arguments
-let subcommand = args.count >= 2 ? args[1] : "open"
+// Phase 4 移行期: 旧 Electrobun 版（gozd-）と並走するため `gozd-swift` を使う。
+// Phase 5 で旧版削除後に `gozd` に戻す。
+// main.swift では top-level let が逐次実行されるため、switch から呼ばれる
+// 関数（launchRequestDir / socketPath）が参照する `bundlePrefix` は switch より
+// 前で必ず初期化されている必要がある。
+let bundlePrefix = "gozd-swift"
 
-switch subcommand {
+let args = CommandLine.arguments
+let firstArg = args.count >= 2 ? args[1] : nil
+
+switch firstArg {
+case nil:
+  await openCommand(target: ".")
 case "open":
   let target = args.count >= 3 ? args[2] : "."
   await openCommand(target: target)
@@ -33,10 +42,10 @@ case "--version", "-v":
   print("gozd 0.0.0")
 case "--help", "-h":
   printUsage()
-default:
-  FileHandle.standardError.write(Data("unknown subcommand: \(subcommand)\n".utf8))
-  printUsage()
-  exit(2)
+case let .some(arg):
+  // `gozd hook` / `gozd open` / `--*` 以外で先頭引数が来たら open のパスとみなす。
+  // 旧版（Bun CLI）が `gozd <path>` を直接受けていた挙動に合わせる。
+  await openCommand(target: arg)
 }
 
 func printUsage() {
@@ -44,7 +53,8 @@ func printUsage() {
     gozd - Git Orchestrated Zone for Development
 
     Usage:
-      gozd open [path]   Open the given path in gozd (default: current directory)
+      gozd [path]        Open the given path in gozd (default: current directory)
+      gozd open [path]   Same as above (explicit subcommand form)
       gozd hook <event>  Forward a Claude Code hook event (called by hooks)
       gozd --version     Print version
       gozd --help        Print this help
@@ -139,10 +149,6 @@ func absolutePath(_ path: String) -> String {
   let cwd = FileManager.default.currentDirectoryPath
   return ((cwd as NSString).appendingPathComponent(path) as NSString).standardizingPath
 }
-
-// Phase 4 移行期: 旧 Electrobun 版（gozd-）と並走するため `gozd-swift` を使う。
-// Phase 5 で旧版削除後に `gozd` に戻す。
-let bundlePrefix = "gozd-swift"
 
 func socketPath() -> String {
   if let env = ProcessInfo.processInfo.environment["GOZD_SOCKET_PATH"], !env.isEmpty {

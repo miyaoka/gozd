@@ -124,7 +124,9 @@ private func fsWatcherCallback(
   guard let info = clientCallBackInfo else { return }
   let watcher = Unmanaged<FSWatcher>.fromOpaque(info).takeUnretainedValue()
   // UseCFTypes flag が立っているので eventPaths は CFArray<CFString>。
-  let pathsArray = unsafeBitCast(eventPaths, to: NSArray.self) as? [String] ?? []
+  // toll-free bridge で NSArray として扱える。
+  let pathsArray =
+    (Unmanaged<NSArray>.fromOpaque(eventPaths).takeUnretainedValue() as? [String]) ?? []
 
   var events: [FSWatcher.Event] = []
   events.reserveCapacity(numEvents)

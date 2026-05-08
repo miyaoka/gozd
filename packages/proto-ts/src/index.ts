@@ -14,6 +14,11 @@ export {
   SaveAppStateResponse,
   WindowFrame,
 } from "./generated/gozd/v1/app_state";
+export {
+  ClientMessage,
+  HookMessage,
+  OpenMessage,
+} from "./generated/gozd/v1/client_message";
 export { EchoRequest, EchoResponse } from "./generated/gozd/v1/echo";
 export {
   FsReadDirEntry,

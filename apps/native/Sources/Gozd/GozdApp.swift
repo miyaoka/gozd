@@ -357,9 +357,13 @@ final class AppRuntime {
   static let bundlePrefix = "gozd-swift"
 
   private static func defaultSocketPath() -> String {
-    // architecture.md の規約: $TMPDIR/{bundlePrefix}-{channel}.sock。`swift run` 時は dev 扱い。
+    // architecture.md の規約: $TMPDIR/{bundlePrefix}-{channel}.sock。
+    // dev / stable は GOZD_DEV_PROJECT_ROOT の有無で判別（dev script が必ず設定する）。
     let tmp = NSTemporaryDirectory()
-    return (tmp as NSString).appendingPathComponent("\(bundlePrefix)-dev.sock")
+    let env = ProcessInfo.processInfo.environment
+    let isDev = (env["GOZD_DEV_PROJECT_ROOT"] ?? "").isEmpty == false
+    let channel = isDev ? "dev" : "stable"
+    return (tmp as NSString).appendingPathComponent("\(bundlePrefix)-\(channel).sock")
   }
 
   /// CLI が cold start 時に書き出した launch request ファイルを 1 件読んで

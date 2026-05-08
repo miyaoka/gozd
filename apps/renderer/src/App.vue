@@ -1,71 +1,59 @@
 <doc lang="md">
-アプリケーションのルートコンポーネント。
+Phase 3 骨格デモ。新 `shared/rpc/` 経由で `/echo` RPC を呼び、Swift → renderer の
+push（hook / open）を `onMessage` で購読する最小ハーネス。
 
-## 責務
-
-- RPC 経由で `gozdOpen` イベントを受信し、ワークスペース（ディレクトリ・ファイル）を設定する
-- マウント時に `rendererReady` を送信してメインプロセスに準備完了を通知する
+`features/*` の旧 Vue SFC は新 RPC へ未移行のため、現時点で main から参照しない。
+順次移植する。
 </doc>
 
 <script setup lang="ts">
-import { tryCatch } from "@gozd/shared";
-import { onMounted, onUnmounted } from "vue";
-import { MainLayout } from "./features/layout";
-import { useWorktreeStore } from "./features/worktree";
-import { useAppStore } from "./shared/app";
-import { useCommandRegistry, useContextKeys, useKeyBindings } from "./shared/command";
-import { useNotificationStore } from "./shared/notification";
-import { useProjectStore } from "./shared/project";
-import { useRpc } from "./shared/rpc";
+import { EchoRequest } from "@gozd/proto";
+import { ref } from "vue";
+import { onMessage, rpcEcho } from "./shared/rpc";
 
-useKeyBindings();
+const echoOut = ref("click echo to call /echo via gozd-rpc://");
+const messageLog = ref<string[]>([]);
 
-const worktreeStore = useWorktreeStore();
-const appStore = useAppStore();
-const projectStore = useProjectStore();
-const contextKeys = useContextKeys();
-const notify = useNotificationStore();
-const { setErrorHandler } = useCommandRegistry();
-setErrorHandler(notify.error);
-const { request, send, onGozdOpen, onNotify } = useRpc();
+async function runEcho() {
+  try {
+    const resp = await rpcEcho(EchoRequest.create({ text: "hello from Vite dev" }));
+    echoOut.value = `✓ ${resp.text}`;
+  } catch (e) {
+    echoOut.value = `✗ ${(e as Error).message}`;
+  }
+}
 
-const disposeNotify = onNotify(({ type, source, message, detail }) => {
-  const notifyFn = type === "error" ? notify.error : notify.info;
-  notifyFn(`[${source}] ${message}`, detail);
-});
+function logMessage(line: string) {
+  const ts = new Date().toISOString().slice(11, 23);
+  messageLog.value.unshift(`[${ts}] ${line}`);
+  messageLog.value = messageLog.value.slice(0, 50);
+}
 
-let cleanup: (() => void) | undefined;
-
-onMounted(() => {
-  cleanup = onGozdOpen(
-    async ({ dir, selection, fileServerBaseUrl, channel, repoName, isGitRepo, switchToDir }) => {
-      if (channel) {
-        appStore.setChannel(channel);
-      }
-      projectStore.setProject(repoName, isGitRepo);
-      contextKeys.set("isGitRepo", isGitRepo);
-      if (switchToDir) {
-        // 既存ウィンドウで別 worktree への切り替えが必要な場合
-        const result = await tryCatch(request.switchDir({ dir: switchToDir }));
-        if (result.ok) {
-          worktreeStore.setOpen(result.value.dir, selection, result.value.fileServerBaseUrl);
-        } else {
-          notify.error(`Failed to switch worktree: ${switchToDir}`, result.error);
-        }
-      } else {
-        worktreeStore.setOpen(dir, selection, fileServerBaseUrl);
-      }
-    },
-  );
-  send.rendererReady();
-});
-
-onUnmounted(() => {
-  cleanup?.();
-  disposeNotify();
-});
+onMessage("hook", (p) => logMessage(`hook ${JSON.stringify(p)}`));
+onMessage("open", (p) => logMessage(`open ${JSON.stringify(p)}`));
+onMessage("ptyText", (p) => logMessage(`ptyText id=${p.id} len=${p.text.length}`));
+onMessage("ptyExit", (p) => logMessage(`ptyExit id=${p.id} reason=${JSON.stringify(p.reason)}`));
 </script>
 
 <template>
-  <MainLayout />
+  <main class="min-h-screen bg-zinc-900 p-4 text-zinc-100">
+    <h1 class="mb-3 text-base font-semibold">gozd renderer (Phase 3 skeleton)</h1>
+
+    <section class="mb-4">
+      <h2 class="mb-1 text-xs tracking-wider text-zinc-400 uppercase">/echo via gozd-rpc://</h2>
+      <button class="rounded-sm bg-zinc-700 px-3 py-1 text-sm hover:bg-zinc-600" @click="runEcho">
+        run echo
+      </button>
+      <pre class="mt-2 rounded-sm bg-zinc-950 p-2 text-xs">{{ echoOut }}</pre>
+    </section>
+
+    <section>
+      <h2 class="mb-1 text-xs tracking-wider text-zinc-400 uppercase">
+        Swift → renderer push (window.__gozdReceive)
+      </h2>
+      <pre class="max-h-80 overflow-auto rounded-sm bg-zinc-950 p-2 text-xs">{{
+        messageLog.length > 0 ? messageLog.join("\n") : "waiting for push…"
+      }}</pre>
+    </section>
+  </main>
 </template>

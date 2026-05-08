@@ -134,7 +134,7 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 
 ## 開発コマンド
 
-- `pnpm dev` — renderer（Vite HMR）と desktop（Electrobun dev）を `concurrently` で同時起動。片方が終了すると他方も終了する
+- `pnpm dev` — renderer（Vite HMR）と native（Swift app）を `pnpm --parallel --filter @gozd/renderer --filter @gozd/native dev` で同時起動
 - `pnpm build` — 全パッケージをビルド（stable 環境の `.app` を生成）
 
 全体チェックはルートの `pnpm typecheck:all` / `lint:all` / `test:all` を使う。各 workspace の同名スクリプトを一括実行する。

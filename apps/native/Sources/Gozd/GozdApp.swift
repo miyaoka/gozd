@@ -30,14 +30,26 @@ struct ContentView: View {
   var body: some View {
     WebView(runtime.page)
       .task {
-        let html = ptyHarnessHTML(socketPath: runtime.socketPath)
-        do {
-          for try await _ in runtime.page.load(
-            html: html,
-            baseURL: URL(string: "gozd-app://localhost/")!
-          ) {}
-        } catch {
-          print("page.load failed: \(error)")
+        // dev: $GOZD_DEV_VITE_URL があれば Vite dev server からロード（HMR が効く）。
+        // 本番: 埋め込み HTML harness をロード。
+        if let viteURL = ProcessInfo.processInfo.environment["GOZD_DEV_VITE_URL"],
+          let url = URL(string: viteURL)
+        {
+          do {
+            for try await _ in runtime.page.load(url) {}
+          } catch {
+            print("page.load (vite) failed: \(error)")
+          }
+        } else {
+          let html = ptyHarnessHTML(socketPath: runtime.socketPath)
+          do {
+            for try await _ in runtime.page.load(
+              html: html,
+              baseURL: URL(string: "gozd-app://localhost/")!
+            ) {}
+          } catch {
+            print("page.load (harness) failed: \(error)")
+          }
         }
       }
   }

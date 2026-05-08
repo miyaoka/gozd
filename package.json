@@ -5,7 +5,7 @@
   "description": "AI Agent Orchestrator",
   "type": "module",
   "scripts": {
-    "dev": "concurrently --kill-others \"pnpm --filter @gozd/renderer dev\" \"pnpm --filter @gozd/desktop dev\"",
+    "dev": "pnpm --parallel --filter @gozd/renderer --filter @gozd/native dev",
     "build": "pnpm -r build",
     "open": "open apps/desktop/build/stable-macos-arm64/gozd.app",
     "format": "oxfmt .",
@@ -21,7 +21,6 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "@typescript/native-preview": "catalog:",
-    "concurrently": "9.2.1",
     "knip": "6.11.0",
     "lefthook": "catalog:",
     "oxfmt": "catalog:",

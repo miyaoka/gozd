@@ -12,6 +12,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@gozd/proto": "workspace:*",
     "@gozd/rpc": "workspace:*",
     "@gozd/shared": "workspace:*",
     "@gozd/themes": "workspace:*",

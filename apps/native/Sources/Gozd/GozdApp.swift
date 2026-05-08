@@ -25,19 +25,140 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 struct ContentView: View {
-  @State private var page: WebPage = makePage()
+  @State private var runtime = AppRuntime()
 
   var body: some View {
-    WebView(page)
+    WebView(runtime.page)
       .task {
-        let html = ptyHarnessHTML()
+        let html = ptyHarnessHTML(socketPath: runtime.socketPath)
         do {
-          for try await _ in page.load(html: html, baseURL: URL(string: "gozd-app://localhost/")!) {
-          }
+          for try await _ in runtime.page.load(
+            html: html,
+            baseURL: URL(string: "gozd-app://localhost/")!
+          ) {}
         } catch {
           print("page.load failed: \(error)")
         }
       }
+  }
+}
+
+// アプリの runtime 状態。WebPage と SocketServer を 1 つのオブジェクトで束ねる。
+//
+// 設計判断: @State<class> は SwiftUI 側の更新には乗らないが、ここでは
+// 「init で作って後はそのまま」なので問題ない。SocketServer はバックグラウンド
+// queue で listen し続けるため、AppRuntime の生存期間がそれを保証する。
+@MainActor
+final class AppRuntime {
+  let page: WebPage
+  let server: SocketServer
+  let socketPath: String
+
+  init() {
+    let socketPath = AppRuntime.defaultSocketPath()
+    self.socketPath = socketPath
+    let holder = WebPageHolder()
+
+    // WebPage push 用 callback。background queue から呼ばれるため Task @MainActor で hop。
+    let onPtyText: @Sendable (UInt32, String) -> Void = { id, text in
+      Task { @MainActor in
+        _ = try? await holder.page?.callJavaScript(
+          "window.__gozdReceive(type, payload)",
+          arguments: [
+            "type": "ptyText",
+            "payload": ["id": Int(id), "text": text],
+          ]
+        )
+      }
+    }
+    let onPtyExit: @Sendable (UInt32, PTYExitReason) -> Void = { id, reason in
+      let reasonPayload = encodeExitReason(reason)
+      Task { @MainActor in
+        _ = try? await holder.page?.callJavaScript(
+          "window.__gozdReceive(type, payload)",
+          arguments: [
+            "type": "ptyExit",
+            "payload": ["id": Int(id), "reason": reasonPayload],
+          ]
+        )
+      }
+    }
+    let onHook: @Sendable (Gozd_V1_HookMessage) -> Void = { hook in
+      let payload: [String: Any] = [
+        "event": hook.event,
+        "ptyId": Int(hook.ptyID),
+        "lastAssistantMessage": hook.lastAssistantMessage,
+        "toolName": hook.toolName,
+        "toolInput": hook.toolInput,
+        "isInterrupt": hook.isInterrupt,
+      ]
+      Task { @MainActor in
+        _ = try? await holder.page?.callJavaScript(
+          "window.__gozdReceive(type, payload)",
+          arguments: ["type": "hook", "payload": payload]
+        )
+      }
+    }
+    let onOpen: @Sendable (String) -> Void = { targetPath in
+      Task { @MainActor in
+        _ = try? await holder.page?.callJavaScript(
+          "window.__gozdReceive(type, payload)",
+          arguments: ["type": "open", "payload": ["targetPath": targetPath]]
+        )
+      }
+    }
+
+    let dispatcher = RpcDispatcher(
+      configDir: AppRuntime.defaultConfigDir(),
+      onPtyText: onPtyText,
+      onPtyExit: onPtyExit,
+      onHook: onHook,
+      onOpen: onOpen
+    )
+
+    var config = WebPage.Configuration()
+    config.urlSchemeHandlers[URLScheme("gozd-rpc")!] = RpcSchemeHandler(dispatcher: dispatcher)
+    let page = WebPage(configuration: config)
+    page.isInspectable = true
+    holder.page = page
+    self.page = page
+
+    // SocketServer 起動。受信した NDJSON 行を dispatcher に流す。
+    // decode 失敗（不正 JSON / oneof 未指定）は stderr にログするだけで
+    // 接続は維持する（CLI 側のバグで server が落ちないように）。
+    let server = SocketServer(socketPath: socketPath)
+    self.server = server
+    do {
+      try server.start { line in
+        Task {
+          do {
+            try await dispatcher.handleSocketMessage(line)
+          } catch {
+            FileHandle.standardError.write(
+              Data("[SocketServer] decode failed: \(error)\n".utf8)
+            )
+          }
+        }
+      }
+      print("[SocketServer] listening on \(socketPath)")
+    } catch {
+      print("[SocketServer] start failed: \(error)")
+    }
+  }
+
+  deinit {
+    // SocketServer は deinit で listener.cancel() + unlink するので明示は不要。
+  }
+
+  private static func defaultConfigDir() -> String {
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    return home.appendingPathComponent(".config/gozd").path
+  }
+
+  private static func defaultSocketPath() -> String {
+    // architecture.md の規約: $TMPDIR/gozd-{channel}.sock。`swift run` 時は dev 扱い。
+    let tmp = NSTemporaryDirectory()
+    return (tmp as NSString).appendingPathComponent("gozd-dev.sock")
   }
 }
 
@@ -46,49 +167,6 @@ struct ContentView: View {
 @MainActor
 final class WebPageHolder {
   weak var page: WebPage?
-}
-
-@MainActor
-private func makePage() -> WebPage {
-  var config = WebPage.Configuration()
-  let holder = WebPageHolder()
-
-  // PTY 出力 (UTF8StreamDecoder で境界保留済みの確定 String) を WebPage に push。
-  // callJavaScript は @MainActor なので Task で hop する。
-  let onPtyText: @Sendable (UInt32, String) -> Void = { id, text in
-    Task { @MainActor in
-      _ = try? await holder.page?.callJavaScript(
-        "window.__gozdReceive(type, payload)",
-        arguments: [
-          "type": "ptyText",
-          "payload": ["id": Int(id), "text": text],
-        ]
-      )
-    }
-  }
-  let onPtyExit: @Sendable (UInt32, PTYExitReason) -> Void = { id, reason in
-    let reasonPayload = encodeExitReason(reason)
-    Task { @MainActor in
-      _ = try? await holder.page?.callJavaScript(
-        "window.__gozdReceive(type, payload)",
-        arguments: [
-          "type": "ptyExit",
-          "payload": ["id": Int(id), "reason": reasonPayload],
-        ]
-      )
-    }
-  }
-
-  let dispatcher = RpcDispatcher(
-    configDir: defaultConfigDir(),
-    onPtyText: onPtyText,
-    onPtyExit: onPtyExit
-  )
-  config.urlSchemeHandlers[URLScheme("gozd-rpc")!] = RpcSchemeHandler(dispatcher: dispatcher)
-  let page = WebPage(configuration: config)
-  page.isInspectable = true
-  holder.page = page
-  return page
 }
 
 private func encodeExitReason(_ reason: PTYExitReason) -> [String: Any] {
@@ -100,11 +178,6 @@ private func encodeExitReason(_ reason: PTYExitReason) -> [String: Any] {
   case .stopped:
     return ["kind": "stopped"]
   }
-}
-
-private func defaultConfigDir() -> String {
-  let home = FileManager.default.homeDirectoryForCurrentUser
-  return home.appendingPathComponent(".config/gozd").path
 }
 
 // HTTP-style 包装を担当する URLSchemeHandler。実際の RPC ロジックは RpcDispatcher。
@@ -167,9 +240,8 @@ enum SchemeError: Error {
   case missingURL
 }
 
-// Phase 3 検証用ハーネス。xterm.js + 単一 PTY + UTF-8 境界ストレステスト。
-// proto3 JSON のフィールド名（camelCase）に合わせる: ptyId / executable / args / env / rows / cols / data。
-private func ptyHarnessHTML() -> String {
+// Phase 3 検証用ハーネス。xterm.js + 単一 PTY + UTF-8 境界ストレステスト + Socket inbound。
+private func ptyHarnessHTML(socketPath: String) -> String {
   let userHome = FileManager.default.homeDirectoryForCurrentUser.path
   return """
     <!DOCTYPE html>
@@ -181,11 +253,15 @@ private func ptyHarnessHTML() -> String {
         body { font-family: -apple-system, sans-serif; margin: 0; padding: 12px; background: #1e1e1e; color: #eee; }
         .row { margin-bottom: 8px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
         button { padding: 6px 10px; font-size: 13px; }
-        #term { background: #000; padding: 4px; height: 480px; }
+        #term { background: #000; padding: 4px; height: 380px; }
         .status { font-size: 12px; color: #888; }
+        h2 { font-size: 13px; margin: 16px 0 4px; color: #aaa; text-transform: uppercase; letter-spacing: 0.05em; }
+        #socketLog { background: #111; border: 1px solid #333; padding: 6px; font-family: Menlo, monospace; font-size: 11px; height: 140px; overflow: auto; white-space: pre-wrap; }
+        code { background: #111; padding: 2px 4px; border-radius: 3px; font-size: 11px; }
       </style>
     </head>
     <body>
+      <h2>PTY</h2>
       <div class="row">
         <button onclick="ptySpawn()">spawn /bin/zsh</button>
         <button onclick="ptyKill()" id="killBtn" disabled>kill (SIGHUP)</button>
@@ -198,6 +274,18 @@ private func ptyHarnessHTML() -> String {
         <button onclick="echoMb()">echo 日本語🍣</button>
       </div>
       <div id="term"></div>
+
+      <h2>Socket inbound (Unix Domain Socket NDJSON)</h2>
+      <div class="row">
+        <span class="status">socket: <code id="sockPath">\(socketPath)</code></span>
+      </div>
+      <div class="row">
+        <span class="status">test: <code>echo '{"hook":{"event":"session-start","ptyId":1}}' | nc -w 1 -U \(socketPath)</code></span>
+      </div>
+      <div class="row">
+        <span class="status">test: <code>echo '{"open":{"targetPath":"/path/to/repo"}}' | nc -w 1 -U \(socketPath)</code></span>
+      </div>
+      <div id="socketLog"></div>
 
       <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
@@ -264,7 +352,6 @@ private func ptyHarnessHTML() -> String {
 
         async function ptyWriteText(s) {
           if (currentPtyId === null) return;
-          // proto3 JSON の bytes は base64 文字列。btoa は ASCII 専用なので UTF-8 を経由する。
           const bytes = new TextEncoder().encode(s);
           let bin = '';
           for (const b of bytes) bin += String.fromCharCode(b);
@@ -289,7 +376,12 @@ private func ptyHarnessHTML() -> String {
           await ptyWriteText(cmd);
         }
 
-        // Swift → JS の唯一のエントリポイント。
+        const socketLog = document.getElementById('socketLog');
+        function logSocket(line) {
+          const ts = new Date().toISOString().slice(11, 23);
+          socketLog.textContent = `[${ts}] ${line}\\n` + socketLog.textContent;
+        }
+
         window.__gozdReceive = function(type, payload) {
           if (type === 'ptyText') {
             if (payload.id !== currentPtyId) return;
@@ -308,6 +400,10 @@ private func ptyHarnessHTML() -> String {
               document.getElementById('status').textContent = 'no pty';
               document.getElementById('killBtn').disabled = true;
             }
+          } else if (type === 'hook') {
+            logSocket('hook ' + JSON.stringify(payload));
+          } else if (type === 'open') {
+            logSocket('open ' + JSON.stringify(payload));
           }
         };
 

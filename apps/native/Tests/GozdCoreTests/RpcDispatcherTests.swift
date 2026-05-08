@@ -128,6 +128,70 @@ struct RpcDispatcherTests {
       Issue.record("unexpected error: \(error)")
     }
   }
+
+  @Test("handleSocketMessage は HookMessage を decode して onHook に渡す")
+  func socketHookMessage() async throws {
+    let dir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
+
+    let captured = HookCapture()
+    let dispatcher = RpcDispatcher(
+      configDir: dir,
+      onPtyText: { _, _ in },
+      onPtyExit: { _, _ in },
+      onHook: { hook in captured.set(hook) },
+      onOpen: { _ in }
+    )
+
+    let line = Data(#"{"hook":{"event":"session-start","ptyId":42}}"#.utf8)
+    try await dispatcher.handleSocketMessage(line)
+
+    let h = captured.value
+    #expect(h?.event == "session-start")
+    #expect(h?.ptyID == 42)
+  }
+
+  @Test("handleSocketMessage は OpenMessage を decode して onOpen に渡す")
+  func socketOpenMessage() async throws {
+    let dir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
+
+    let captured = OpenCapture()
+    let dispatcher = RpcDispatcher(
+      configDir: dir,
+      onPtyText: { _, _ in },
+      onPtyExit: { _, _ in },
+      onHook: { _ in },
+      onOpen: { path in captured.set(path) }
+    )
+
+    let line = Data(#"{"open":{"targetPath":"/Users/me/repo"}}"#.utf8)
+    try await dispatcher.handleSocketMessage(line)
+
+    #expect(captured.value == "/Users/me/repo")
+  }
+
+  @Test("handleSocketMessage は oneof 未指定で SocketDecodeError.emptyOneof を throw")
+  func socketEmptyOneof() async throws {
+    let dir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
+
+    let dispatcher = RpcDispatcher(
+      configDir: dir,
+      onPtyText: { _, _ in },
+      onPtyExit: { _, _ in }
+    )
+
+    let line = Data("{}".utf8)
+    do {
+      try await dispatcher.handleSocketMessage(line)
+      Issue.record("expected throw")
+    } catch SocketDecodeError.emptyOneof {
+      // ok
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
 }
 
 // MARK: - Helpers
@@ -151,5 +215,35 @@ private final class ExitFlag: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return flag
+  }
+}
+
+private final class HookCapture: @unchecked Sendable {
+  private let lock = NSLock()
+  private var stored: Gozd_V1_HookMessage?
+  func set(_ h: Gozd_V1_HookMessage) {
+    lock.lock()
+    defer { lock.unlock() }
+    stored = h
+  }
+  var value: Gozd_V1_HookMessage? {
+    lock.lock()
+    defer { lock.unlock() }
+    return stored
+  }
+}
+
+private final class OpenCapture: @unchecked Sendable {
+  private let lock = NSLock()
+  private var stored: String?
+  func set(_ s: String) {
+    lock.lock()
+    defer { lock.unlock() }
+    stored = s
+  }
+  var value: String? {
+    lock.lock()
+    defer { lock.unlock() }
+    return stored
   }
 }

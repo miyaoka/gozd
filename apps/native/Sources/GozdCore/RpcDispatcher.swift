@@ -18,16 +18,45 @@ import GozdProto
 // 4. **戻り値は proto JSON Data**。失敗は throw。URLSchemeHandler 側が HTTP 200 / 4xx / 5xx と
 //    `Access-Control-Allow-Origin: *` ヘッダを付ける。
 public actor RpcDispatcher {
+  public typealias HookHandler = @Sendable (Gozd_V1_HookMessage) -> Void
+  public typealias OpenHandler = @Sendable (String) -> Void
+
   private let pty: PTYRegistry
   private let appState: AppStateStore
+  private let onHook: HookHandler
+  private let onOpen: OpenHandler
 
   public init(
     configDir: String,
     onPtyText: @escaping @Sendable (UInt32, String) -> Void,
-    onPtyExit: @escaping @Sendable (UInt32, PTYExitReason) -> Void
+    onPtyExit: @escaping @Sendable (UInt32, PTYExitReason) -> Void,
+    onHook: @escaping HookHandler = { _ in },
+    onOpen: @escaping OpenHandler = { _ in }
   ) {
     self.pty = PTYRegistry(onText: onPtyText, onExit: onPtyExit)
     self.appState = AppStateStore(configDir: configDir)
+    self.onHook = onHook
+    self.onOpen = onOpen
+  }
+
+  // MARK: - Inbound (SocketServer NDJSON line)
+
+  /// SocketServer から渡された NDJSON 1 行を ClientMessage としてデコードして適切な
+  /// callback に振り分ける。decode 失敗時は SocketDecodeError を throw する。
+  ///
+  /// 設計判断: gozd-rpc:// 経由の RPC（dispatch）と違いリプライがない fire-and-forget
+  /// なので、戻り値も Data ではなく Void。失敗は呼び出し側でログするだけで握りつぶさない。
+  public func handleSocketMessage(_ data: Data) throws {
+    let msg = try Gozd_V1_ClientMessage(jsonUTF8Data: data)
+    guard let body = msg.body else {
+      throw SocketDecodeError.emptyOneof
+    }
+    switch body {
+    case .hook(let hook):
+      onHook(hook)
+    case .open(let open):
+      onOpen(open.targetPath)
+    }
   }
 
   public func dispatch(path: String, body: Data) async throws -> Data {
@@ -145,4 +174,8 @@ public actor RpcDispatcher {
 
 public enum RpcError: Error, Equatable {
   case unknownPath(String)
+}
+
+public enum SocketDecodeError: Error, Equatable {
+  case emptyOneof
 }

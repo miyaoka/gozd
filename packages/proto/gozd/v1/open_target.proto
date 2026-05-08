@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package gozd.v1;
+
+// renderer から native に「任意のパスを project として開く」ことを要求する RPC。
+// 既存の SocketServer 経由 OpenMessage（CLI 用）と同じ openTarget callback を呼び、
+// gozdOpen push event で renderer に payload を返す。
+//
+// 用途: サイドバーの「Add directory」ボタン。
+
+// 直接パスを指定して開く（キーボード/ペースト由来想定）。
+message OpenTargetRequest {
+  string path = 1;
+}
+
+message OpenTargetResponse {}
+
+// NSOpenPanel をネイティブで開いてユーザーに dir を選ばせる。
+// 選択後、内部で openTarget callback を呼んで gozdOpen を push する。
+// ユーザーがキャンセルした場合は何もしない。
+message PickAndOpenRequest {}
+message PickAndOpenResponse {}

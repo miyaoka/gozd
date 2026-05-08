@@ -79,8 +79,12 @@ pre-commit:
                   stage_fixed: true
 
     # fix 系ジョブ完了後に実行（stage_fixed によるファイル書き換え後の状態で解析）
+    # --fix で未使用 export を自動削除して stage に乗せる。
+    # --allow-remove-files は付けない（ファイル削除は意図しない消失リスクがあるため、
+    # export 単位の自動修正のみ許可）。--format で削除後のフォーマットも揃える。
     - name: knip
-      run: pnpm knip
+      run: pnpm knip --fix --format
+      stage_fixed: true
 
 # git pull / merge 後に lockfile の変更を検出し、pnpm install を促す
 post-merge:

@@ -156,6 +156,20 @@ public enum GitOps {
       in: .whitespacesAndNewlines)
   }
 
+  /// 全 worktree が共有する main repo の作業ディレクトリを返す。
+  /// 非 bare repo では `git rev-parse --git-common-dir` の親ディレクトリ。
+  /// gozd の `~/.local/share/gozd/worktrees/<repo>-<hash>/<timestamp>` のような worktree から
+  /// 元の repo（例: `~/g/g/miyaoka/gozd`）を逆引きするのに使う。
+  /// 失敗時は throw（commandFailed）する。
+  public static func mainRepoRoot(dir: String) async throws -> String {
+    let stdout = try await runGit(
+      args: ["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd: dir)
+    let commonDir = String(decoding: stdout, as: UTF8.self).trimmingCharacters(
+      in: .whitespacesAndNewlines)
+    if commonDir.isEmpty { return "" }
+    return (commonDir as NSString).deletingLastPathComponent
+  }
+
   /// `git symbolic-ref --short refs/remotes/origin/HEAD` 相当。`origin/main` 等を返す。
   /// origin/ の prefix は剥がして `main` のみ返す。
   public static func defaultBranchName(dir: String) async throws -> String {

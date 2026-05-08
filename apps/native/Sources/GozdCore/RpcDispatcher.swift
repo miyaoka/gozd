@@ -112,6 +112,10 @@ public actor RpcDispatcher {
       return try handleSaveAppConfig(body)
     case "/open/external":
       return try handleOpenExternal(body)
+    case "/open/target":
+      return try handleOpenTarget(body)
+    case "/open/pickAndOpen":
+      return try await handlePickAndOpen(body)
     case "/git/worktreeList":
       return try await handleGitWorktreeList(body)
     case "/git/branchList":
@@ -284,6 +288,39 @@ public actor RpcDispatcher {
     let req = try Gozd_V1_SaveAppConfigRequest(jsonUTF8Data: body)
     try appConfig.save(req.config)
     return try Gozd_V1_SaveAppConfigResponse().jsonUTF8Data()
+  }
+
+  private func handleOpenTarget(_ body: Data) throws -> Data {
+    let req = try Gozd_V1_OpenTargetRequest(jsonUTF8Data: body)
+    if req.path.isEmpty {
+      throw RpcError.invalidArgument("path is empty")
+    }
+    // SocketServer 経由 OpenMessage と同じ callback に流すことで、
+    // CLI（gozd <path>）と renderer 起点の Add directory を同一経路で扱う
+    onOpen(req.path)
+    return try Gozd_V1_OpenTargetResponse().jsonUTF8Data()
+  }
+
+  private func handlePickAndOpen(_ body: Data) async throws -> Data {
+    _ = try Gozd_V1_PickAndOpenRequest(jsonUTF8Data: body)
+    // NSOpenPanel は @MainActor。actor 内から MainActor.run でホップしてユーザー選択を待つ
+    let pickedPath = await MainActor.run {
+      let panel = NSOpenPanel()
+      panel.canChooseDirectories = true
+      panel.canChooseFiles = false
+      panel.allowsMultipleSelection = false
+      panel.prompt = "Open"
+      panel.message = "Select a directory to open"
+      let response = panel.runModal()
+      if response == .OK, let url = panel.url {
+        return url.path
+      }
+      return ""
+    }
+    if !pickedPath.isEmpty {
+      onOpen(pickedPath)
+    }
+    return try Gozd_V1_PickAndOpenResponse().jsonUTF8Data()
   }
 
   private func handleOpenExternal(_ body: Data) throws -> Data {

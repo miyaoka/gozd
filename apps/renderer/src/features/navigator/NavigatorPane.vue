@@ -13,7 +13,7 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 <script setup lang="ts">
 import { useElementSize } from "@vueuse/core";
 import { nextTick, ref, useTemplateRef, watch, watchEffect } from "vue";
-import { useProjectStore } from "../../shared/project";
+import { useRepoStore } from "../../shared/repo";
 import { ChangesPane } from "../changes";
 import { FilerPane } from "../filer";
 import { ResizeHandle } from "../layout";
@@ -30,7 +30,7 @@ const HANDLE_HEIGHT = 8;
 const FILER_MIN_HEIGHT = 100;
 const CHANGES_MIN_HEIGHT = 60;
 
-const projectStore = useProjectStore();
+const repoStore = useRepoStore();
 const worktreeStore = useWorktreeStore();
 const filerPaneRef = useTemplateRef<InstanceType<typeof FilerPane>>("filerPane");
 const filerWrapperRef = useTemplateRef<HTMLElement>("filerWrapper");
@@ -83,7 +83,7 @@ watch([() => props.revealPath, () => props.revealVersion], async ([path]) => {
     </div>
 
     <!-- Changes（git リポジトリのみ） -->
-    <template v-if="projectStore.isGitRepo">
+    <template v-if="repoStore.selectedIsGitRepo">
       <ResizeHandle
         v-model:after-size="changesHeight"
         direction="vertical"

@@ -1,7 +1,7 @@
-import type { WorktreeEntry } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
 import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
@@ -11,19 +11,21 @@ import { dirName } from "./utils";
 
 /**
  * サイドバーのデータ取得・状態管理。
- * worktrees / freeBranches / pendingTasks を一括取得し、
- * git status / worktree 変更イベントで自動リフレッシュする。
+ * 選択中 repo の worktrees / freeBranches を repoStore から読み出し、
+ * push event 受信時に repoStore を再 fetch する。
  */
 export function useSidebarData() {
   const worktreeStore = useWorktreeStore();
   const terminalStore = useTerminalStore();
+  const repoStore = useRepoStore();
   const notify = useNotificationStore();
 
-  const worktrees = ref<WorktreeEntry[]>([]);
-  /** worktree 化されていないローカルブランチ */
-  const freeBranches = ref<string[]>([]);
   /** fetchData の世代管理（並行実行で stale なレスポンスを破棄するため） */
   let fetchGen = 0;
+
+  /** 選択中 repo の worktrees / freeBranches を派生 computed として公開 */
+  const worktrees = computed(() => repoStore.selectedRepo?.worktrees ?? []);
+  const freeBranches = computed(() => repoStore.selectedRepo?.freeBranches ?? []);
 
   /** root（main）worktree */
   const rootWorktree = computed(() => worktrees.value.find((wt) => wt.isMain));
@@ -37,24 +39,25 @@ export function useSidebarData() {
 
   const sortedBranches = computed(() => [...freeBranches.value].sort((a, b) => a.localeCompare(b)));
 
+  /** 選択中 repo の worktrees / branches を再 fetch して repoStore を更新 */
   async function fetchData() {
-    const dir = worktreeStore.dir;
-    if (!dir) return;
+    const repo = repoStore.selectedRepo;
+    if (repo === undefined || !repo.isGitRepo) return;
+    const rootDir = repo.rootDir;
     const gen = ++fetchGen;
     const result = await tryCatch(
-      Promise.all([rpcGitWorktreeList({ dir }), rpcGitBranchList({ dir })]),
+      Promise.all([rpcGitWorktreeList({ dir: rootDir }), rpcGitBranchList({ dir: rootDir })]),
     );
     if (!result.ok) {
       notify.error("Failed to fetch sidebar data", result.error);
       return;
     }
     const [wtRes, branchRes] = result.value;
-    // 並行実行された新しい fetchData が先に完了していたら、この結果は stale なので破棄
     if (gen !== fetchGen) return;
     const wtList = wtRes.worktrees;
-    worktrees.value = wtList;
     const wtBranches = new Set(wtList.map((wt) => wt.branch).filter(Boolean));
-    freeBranches.value = branchRes.branches.filter((b) => !wtBranches.has(b));
+    const newFreeBranches = branchRes.branches.filter((b) => !wtBranches.has(b));
+    repoStore.updateRepoData(rootDir, wtList, newFreeBranches);
 
     // 外部で削除された worktree のターミナルをクリーンアップ
     const wtPaths = new Set(wtList.map((wt) => wt.path));

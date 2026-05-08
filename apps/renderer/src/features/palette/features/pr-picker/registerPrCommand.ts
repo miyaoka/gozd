@@ -43,7 +43,7 @@ export function registerPrCommand(): () => void {
           if (existingDir !== undefined) {
             // 既存 worktree に切り替え（ステートレス化により switchDir RPC は廃止）
             terminalStore.viewMode = "wt";
-            worktreeStore.setOpen(existingDir, undefined, undefined);
+            worktreeStore.setOpen(existingDir);
             return;
           }
           // 新規 worktree 作成
@@ -73,7 +73,7 @@ export function registerPrCommand(): () => void {
               notify.error("Failed to create task for worktree", taskResult.error);
             }
             terminalStore.viewMode = "wt";
-            worktreeStore.setOpen(result.value.dir, undefined, undefined);
+            worktreeStore.setOpen(result.value.dir);
           })();
         });
       })();

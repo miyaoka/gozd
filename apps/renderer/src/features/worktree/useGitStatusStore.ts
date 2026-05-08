@@ -2,18 +2,18 @@ import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { ref } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { useProjectStore } from "../../shared/project";
+import { useRepoStore } from "../../shared/repo";
 import { rpcGitStatus } from "./rpc";
 import { useWorktreeStore } from "./useWorktreeStore";
 
 export const useGitStatusStore = defineStore("gitStatus", () => {
   const gitStatuses = ref<Record<string, string>>({});
 
-  const projectStore = useProjectStore();
+  const repoStore = useRepoStore();
   const worktreeStore = useWorktreeStore();
 
   async function loadGitStatus() {
-    if (!projectStore.isGitRepo) {
+    if (!repoStore.selectedIsGitRepo) {
       gitStatuses.value = {};
       return;
     }

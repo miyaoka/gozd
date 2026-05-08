@@ -500,8 +500,15 @@ final class AppRuntime {
     var isGitRepo = false
     if let toplevel = try? await GitOps.repoTopLevel(dir: probeDir), !toplevel.isEmpty {
       dir = toplevel
-      repoName = (toplevel as NSString).lastPathComponent
       isGitRepo = true
+      // worktree から開いた場合 toplevel はその worktree 自身（gozd の場合 timestamp 名）。
+      // 表示用 repoName は main repo の basename を使う（git-common-dir の親）。
+      // 失敗時のみ toplevel basename にフォールバック。
+      if let mainRoot = try? await GitOps.mainRepoRoot(dir: probeDir), !mainRoot.isEmpty {
+        repoName = (mainRoot as NSString).lastPathComponent
+      } else {
+        repoName = (toplevel as NSString).lastPathComponent
+      }
       // file 指定で probeDir が toplevel と異なる場合、selection.relPath を toplevel
       // からの相対パスに更新する
       if !selection.isEmpty, probeDir != toplevel {

@@ -45,7 +45,7 @@ export function registerIssueCommand(): () => void {
           const existingDir = wtByIssue.get(issue.number);
           if (existingDir !== undefined) {
             terminalStore.viewMode = "wt";
-            worktreeStore.setOpen(existingDir, undefined, undefined);
+            worktreeStore.setOpen(existingDir);
             return;
           }
           void (async () => {
@@ -75,7 +75,7 @@ export function registerIssueCommand(): () => void {
               notify.error("Failed to create task for worktree", taskResult.error);
             }
             terminalStore.viewMode = "wt";
-            worktreeStore.setOpen(result.value.dir, undefined, undefined);
+            worktreeStore.setOpen(result.value.dir);
           })();
         });
       })();

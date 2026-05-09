@@ -21,6 +21,7 @@ public enum GitHubOps {
   private static let prQuery = """
     query($owner: String!, $repo: String!, $limit: Int!) {
       repository(owner: $owner, name: $repo) {
+        owner { login }
         pullRequests(first: $limit, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
           nodes {
             number
@@ -32,8 +33,9 @@ public enum GitHubOps {
             baseRefName
             author { login avatarUrl(size: \(avatarSize)) }
             updatedAt
-            assignees(first: 20) { nodes { login } }
-            reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } } } }
+            headRepository { owner { login } }
+            assignees(first: 100) { nodes { login } }
+            reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login } } } }
           }
         }
       }
@@ -51,8 +53,8 @@ public enum GitHubOps {
             state
             author { login avatarUrl(size: \(avatarSize)) }
             updatedAt
-            labels(first: 20) { nodes { name } }
-            assignees(first: 20) { nodes { login } }
+            labels(first: 100) { nodes { name } }
+            assignees(first: 100) { nodes { login } }
           }
         }
       }
@@ -67,11 +69,22 @@ public enum GitHubOps {
     else { return nil }
     guard
       let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-      let nodes = (((root["data"] as? [String: Any])?["repository"] as? [String: Any])?[
-        "pullRequests"] as? [String: Any])?["nodes"] as? [[String: Any]]
+      let repository = (root["data"] as? [String: Any])?["repository"] as? [String: Any],
+      let nodes = (repository["pullRequests"] as? [String: Any])?["nodes"] as? [[String: Any]]
     else { return nil }
 
-    return nodes.map { item in
+    // fork PR を除外（自リポジトリの owner と一致するもののみ）。
+    // worktree 作成側 (registerPrCommand.ts) が `origin/<headRef>` を startPoint に
+    // 使うため、fork からの PR は ref 解決に失敗する。
+    let repoOwner = (repository["owner"] as? [String: Any])?["login"] as? String
+
+    return nodes.compactMap { item -> PullRequestInfo? in
+      if let repoOwner = repoOwner {
+        let headOwner =
+          ((item["headRepository"] as? [String: Any])?["owner"] as? [String: Any])?["login"]
+          as? String
+        if headOwner != repoOwner { return nil }
+      }
       let authorDict = item["author"] as? [String: Any]
       let author = authorDict?["login"] as? String ?? ""
       let avatar = authorDict?["avatarUrl"] as? String ?? ""
@@ -135,11 +148,13 @@ public enum GitHubOps {
     }
   }
 
+  // `-F` は型推論で number/bool を渡しうるため、string にしたい owner/repo/query は
+  // `-f` を使う。limit のみ Int として渡したいので `-F` で渡す。
   private static func graphqlArgs(owner: String, repo: String, query: String) -> [String] {
     return [
       "api", "graphql",
-      "-F", "owner=\(owner)",
-      "-F", "repo=\(repo)",
+      "-f", "owner=\(owner)",
+      "-f", "repo=\(repo)",
       "-F", "limit=100",
       "-f", "query=\(query)",
     ]

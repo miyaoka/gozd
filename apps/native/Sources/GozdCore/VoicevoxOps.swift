@@ -30,6 +30,7 @@ public enum VoicevoxOps {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
     process.arguments = ["-a", "VOICEVOX"]
+    process.environment = ProcessInfo.processInfo.environment
     do {
       try process.run()
       process.waitUntilExit()

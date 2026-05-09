@@ -113,12 +113,15 @@ private func makeGitRepo() async throws -> URL {
 }
 
 /// テスト helper: GitOps と同じ `/usr/bin/env git` 経由で任意の git コマンドを実行する。
+/// production 側と同じく `process.environment` を明示 snapshot で渡すことで、
+/// 並列 test 実行時の Foundation `Process` 内部の lazy env read による EFAULT を避ける。
 private func runTestGit(args: [String], cwd: String) async throws {
   try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
     process.arguments = ["git"] + args
     process.currentDirectoryURL = URL(fileURLWithPath: cwd)
+    process.environment = ProcessInfo.processInfo.environment
     let nullPipe = Pipe()
     process.standardOutput = nullPipe
     process.standardError = nullPipe

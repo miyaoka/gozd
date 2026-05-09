@@ -282,6 +282,11 @@ func runGitWithStdin(args: [String], cwd: String, stdin: Data) async throws -> D
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
     process.arguments = ["git"] + args
     process.currentDirectoryURL = URL(fileURLWithPath: cwd)
+    // 明示的に env snapshot を渡す。Foundation Process は environment が nil のとき
+    // 内部で `ProcessInfo.processInfo.environment` を遅延読みするが、その経路は
+    // `getenv`/`environ` の thread-unsafety が並列 spawn 時に EFAULT (Code=14) を
+    // 引く要因になり得る。spawn 前に snapshot を取って渡せば内部 lazy read を回避できる。
+    process.environment = ProcessInfo.processInfo.environment
 
     let stdinPipe = Pipe()
     let stdoutPipe = Pipe()
@@ -323,6 +328,7 @@ func runGit(args: [String], cwd: String) async throws -> Data {
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
     process.arguments = ["git"] + args
     process.currentDirectoryURL = URL(fileURLWithPath: cwd)
+    process.environment = ProcessInfo.processInfo.environment
 
     let stdoutPipe = Pipe()
     let stderrPipe = Pipe()

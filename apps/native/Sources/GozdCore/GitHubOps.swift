@@ -115,6 +115,7 @@ private func runGh(args: [String], cwd: String) async throws -> Data {
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
     process.arguments = ["gh"] + args
     process.currentDirectoryURL = URL(fileURLWithPath: cwd)
+    process.environment = ProcessInfo.processInfo.environment
     let stdoutPipe = Pipe()
     let stderrPipe = Pipe()
     process.standardOutput = stdoutPipe

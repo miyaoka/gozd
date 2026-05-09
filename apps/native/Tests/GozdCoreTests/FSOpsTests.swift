@@ -124,6 +124,7 @@ private func runGitForTest(args: [String], cwd: String) async throws {
   process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
   process.arguments = ["git"] + args
   process.currentDirectoryURL = URL(fileURLWithPath: cwd)
+  process.environment = ProcessInfo.processInfo.environment
   process.standardOutput = Pipe()
   process.standardError = Pipe()
   try process.run()

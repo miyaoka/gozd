@@ -90,6 +90,7 @@ public actor TaskStore {
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
     process.arguments = ["git", "rev-parse", "--git-common-dir"]
     process.currentDirectoryURL = URL(fileURLWithPath: dir)
+    process.environment = ProcessInfo.processInfo.environment
     let stdoutPipe = Pipe()
     let stderrPipe = Pipe()
     process.standardOutput = stdoutPipe

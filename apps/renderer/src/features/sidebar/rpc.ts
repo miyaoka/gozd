@@ -2,8 +2,6 @@
 import {
   CreateWorktreeRequest,
   CreateWorktreeResponse,
-  CreateWorktreeWithTaskRequest,
-  CreateWorktreeWithTaskResponse,
   GitBranchListRequest,
   GitBranchListResponse,
   GitWorktreeListRequest,
@@ -39,14 +37,6 @@ export const rpcTaskAdd = (req: TaskAddRequest) =>
 
 export const rpcTaskUpdate = (req: TaskUpdateRequest) =>
   rpc("/task/update", req, TaskUpdateRequest, TaskUpdateResponse);
-
-export const rpcCreateWorktreeWithTask = (req: CreateWorktreeWithTaskRequest) =>
-  rpc(
-    "/task/createWorktreeWithTask",
-    req,
-    CreateWorktreeWithTaskRequest,
-    CreateWorktreeWithTaskResponse,
-  );
 
 // --- push event payloads ---
 

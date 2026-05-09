@@ -130,8 +130,8 @@ importers:
         specifier: 18.0.3
         version: 18.0.3
       material-icon-theme:
-        specifier: 5.33.1
-        version: 5.33.1
+        specifier: 5.34.0
+        version: 5.34.0
       pinia:
         specifier: 3.0.4
         version: 3.0.4(typescript@6.0.3)(vue@3.5.33(typescript@6.0.3))
@@ -2200,8 +2200,8 @@ packages:
     engines: {node: '>= 20'}
     hasBin: true
 
-  material-icon-theme@5.33.1:
-    resolution: {integrity: sha512-imiILyUW/Y6YvxbobfReC4PpzjPfpMTUiiH9gN5sloQ3dJAhfJRE40l2q8pMT8+V4xRHiIZ5vaZtJw4D03qduQ==}
+  material-icon-theme@5.34.0:
+    resolution: {integrity: sha512-m+ZgtdtJMkfOwxpfUH8FqyJbfnAJuxMBNv4XRvz3m808Is42RbeYc/5W0bk5qGJJLxzF5Cupj6Or52aQISwz3A==}
     engines: {vscode: ^1.55.0}
 
   mdast-util-to-hast@13.2.1:
@@ -4362,7 +4362,7 @@ snapshots:
 
   marked@18.0.3: {}
 
-  material-icon-theme@5.33.1:
+  material-icon-theme@5.34.0:
     dependencies:
       chroma-js: 3.2.0
       events: 3.3.0

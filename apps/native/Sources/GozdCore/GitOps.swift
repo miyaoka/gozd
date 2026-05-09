@@ -211,18 +211,36 @@ public enum GitOps {
         parts[2].isEmpty
         ? [] : parts[2].split(separator: " ", omittingEmptySubsequences: true).map(String.init)
       let date = Int64(parts[4]) ?? 0
-      let refs =
-        parts[7].isEmpty
-        ? []
-        : parts[7].split(separator: ",").map {
-          $0.trimmingCharacters(in: .whitespaces)
-        }
+      let refs = parseRefs(parts[7])
       commits.append(
         CommitInfo(
           hash: parts[0], shortHash: parts[1], parents: parents, author: parts[3], date: date,
           message: parts[5], body: parts[6], refs: refs))
     }
     return commits
+  }
+
+  /// `git log --format=%D` の出力をパースする。
+  /// "HEAD -> main, origin/main, tag: v1.0" → ["HEAD", "main", "origin/main", "tag:v1.0"]
+  /// "HEAD -> branch" は ["HEAD", "branch"] に分解する。renderer 側が
+  /// refs.includes("HEAD") で HEAD 行を識別するため、HEAD は独立要素である必要がある。
+  static func parseRefs(_ refStr: String) -> [String] {
+    let trimmed = refStr.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty { return [] }
+    var result: [String] = []
+    for raw in trimmed.split(separator: ",", omittingEmptySubsequences: false) {
+      let part = raw.trimmingCharacters(in: .whitespaces)
+      if part.isEmpty { continue }
+      if part.hasPrefix("HEAD -> ") {
+        result.append("HEAD")
+        result.append(String(part.dropFirst("HEAD -> ".count)))
+      } else if part.hasPrefix("tag: ") {
+        result.append("tag:" + String(part.dropFirst("tag: ".count)))
+      } else {
+        result.append(part)
+      }
+    }
+    return result
   }
 
   /// `git diff -- <path>` 相当（作業ツリー差分）。

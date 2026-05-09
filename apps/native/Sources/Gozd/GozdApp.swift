@@ -86,9 +86,8 @@ struct ContentView: View {
         }
 
         // page load 完了後の起動時 auto-open。
-        // dev では GOZD_DEV_PROJECT_ROOT を初期 dir として開き、毎回 nc で
-        // OpenMessage を投げ込む手間を省く。本番（CLI 経由 cold start）では
-        // launch request ファイルを読んで開く。
+        // CLI 経由 cold start の launch request ファイルがあれば読んで開く。
+        // 何もなければ no-op（renderer は前回の sidebar を hydrate して待機）。
         runtime.performInitialOpen()
       }
   }
@@ -117,17 +116,14 @@ final class AppRuntime {
   }
 
   /// 起動時に渡された initial open target を解決して push する。
-  ///   1. dev: `GOZD_DEV_PROJECT_ROOT` があればそれを開く
-  ///   2. CLI cold start: $TMPDIR/gozd-{channel}-launch/ 配下の launch request
+  ///   1. CLI cold start: $TMPDIR/gozd-{channel}-launch/ 配下の launch request
   ///      ファイル（最古のもの）を読んで開き、対象ファイルを削除する
-  ///   3. それ以外: no-op（renderer は OpenMessage が来るまで待機）
+  ///   2. それ以外: no-op（renderer は OpenMessage が来るまで待機）
+  ///
+  /// dev 起動時の `GOZD_DEV_PROJECT_ROOT` は zsh init / CLI ソース解決と
+  /// channel 判別のためだけに使う。初期 open に流用すると worktree から
+  /// `pnpm dev` するたびに toplevel が変わり、sidebar に同名 repo が増殖する。
   func performInitialOpen() {
-    if let root = ProcessInfo.processInfo.environment["GOZD_DEV_PROJECT_ROOT"],
-      !root.isEmpty
-    {
-      openTarget(root)
-      return
-    }
     if let target = AppRuntime.consumeLaunchRequest(channel: channel) {
       openTarget(target)
     }

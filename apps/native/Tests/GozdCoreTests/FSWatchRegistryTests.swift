@@ -74,11 +74,12 @@ struct FSWatchRegistryTests {
     try await registry.watch(dir: tmpDir.path)
     try await Task.sleep(for: .milliseconds(300))
 
-    // watch 開始直後の FSEvents 初期 batch（tmpDir 作成時の latent event 等）を
-    // unwatch 前に観測対象から外す。本テストの主旨は「unwatch 以降に発生した変更で
-    // dispatch が走らないこと」の検証。
-    collector.clear()
+    // unwatch を actor 上で処理させた後に collector を clear する。
+    // unwatch 前に clear すると、watch 開始直後の latent event が clear と unwatch の
+    // 間に配送される余地が残るため、テストの主旨（「unwatch 以降の変更で dispatch が
+    // 走らない」）から外れた失敗が起きうる。
     await registry.unwatch(dir: tmpDir.path)
+    collector.clear()
 
     let file = tmpDir.appendingPathComponent("after-unwatch.txt")
     try "x".write(to: file, atomically: true, encoding: .utf8)

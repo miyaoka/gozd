@@ -265,8 +265,17 @@ private final class PTYFinishState: @unchecked Sendable {
   private var readClosed = false
   private var exitReason: PTYExitReason?
   private var finished = false
+  private var fdClosed = false
 
   init(fd: Int32) { self.fd = fd }
+
+  /// fd を 1 度だけ close する。lock 保持の前提で呼ぶ。
+  private func closeFdLocked() {
+    if !fdClosed {
+      fdClosed = true
+      close(fd)
+    }
+  }
 
   func markReadClosed(onComplete: (PTYExitReason) -> Void) {
     lock.lock()
@@ -274,10 +283,10 @@ private final class PTYFinishState: @unchecked Sendable {
     let canFinish = !finished && exitReason != nil
     if canFinish { finished = true }
     let reason = exitReason
+    if canFinish { closeFdLocked() }
     lock.unlock()
     if canFinish, let reason {
       onComplete(reason)
-      close(fd)
     }
   }
 
@@ -286,9 +295,17 @@ private final class PTYFinishState: @unchecked Sendable {
     exitReason = reason
     let canFinish = !finished && readClosed
     if canFinish { finished = true }
+    if canFinish { closeFdLocked() }
     lock.unlock()
     if canFinish {
       onComplete(reason)
+    }
+  }
+
+  /// PTYManager が finish 前に解放された場合の保険。fd の double close は
+  /// `fdClosed` フラグで防ぐ。
+  deinit {
+    if !fdClosed {
       close(fd)
     }
   }

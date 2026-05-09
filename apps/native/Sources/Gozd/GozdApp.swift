@@ -10,9 +10,16 @@ struct GozdApp: App {
   @NSApplicationDelegateAdaptor private var appDelegate: AppDelegate
 
   var body: some Scene {
-    Window("gozd", id: "main") {
+    Window(Self.windowTitle, id: "main") {
       ContentView()
     }
+  }
+
+  /// dev / stable をウィンドウタイトルで区別する。判定軸は socketPath / channel と
+  /// 同じ `GOZD_DEV_PROJECT_ROOT` の有無に揃える（軸が複数あると drift する）。
+  private static var windowTitle: String {
+    let isDev = (ProcessInfo.processInfo.environment["GOZD_DEV_PROJECT_ROOT"] ?? "").isEmpty == false
+    return isDev ? "gozd (dev)" : "gozd"
   }
 }
 

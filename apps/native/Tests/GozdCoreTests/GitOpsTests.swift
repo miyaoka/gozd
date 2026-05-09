@@ -94,6 +94,65 @@ struct GitOpsGitStatusTests {
   }
 }
 
+@Suite("GitOps.runGit large output")
+struct GitOpsRunGitLargeOutputTests {
+  /// pipe buffer (macOS は最大 ~64KB) を超える stdout で `runGit` が deadlock しないことを保証する。
+  ///
+  /// 旧実装は `Process.terminationHandler` 内で `readDataToEndOfFile()` していたため、
+  /// 出力 > buffer の瞬間に子が write block → exit 不能 → terminationHandler が呼ばれない
+  /// deadlock になっていた（gozd リポジトリ実体で再現していた症状）。
+  @Test("64KB を超える stdout を deadlock せず読み切れる")
+  func largeStdoutDoesNotDeadlock() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    // 100KB の本文を持つ commit を作る。`git log --format=%B` で本文を吐かせて
+    // 100KB 超の stdout を確実に発生させる。
+    let bigBody = String(repeating: "a", count: 100_000)
+    let msgFile = dir.appendingPathComponent("msg.txt")
+    try bigBody.write(to: msgFile, atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["commit", "--allow-empty", "-F", "msg.txt"], cwd: dir.path)
+    try? FileManager.default.removeItem(at: msgFile)
+
+    // production 側の drain が正しく動けば自然に返る。修正前は無限 hang していた。
+    let result = try await runGit(args: ["log", "--format=%B"], cwd: dir.path)
+
+    #expect(result.count >= 100_000)
+    // 大きい出力を別物にすり替えていないことを確認するため、本文の中身まで検証する
+    let text = String(decoding: result, as: UTF8.self)
+    #expect(text.contains(bigBody))
+  }
+
+  /// 同様の deadlock テストを `runGitWithStdin` 側にも適用する。
+  /// `git check-ignore --stdin -z` は 64KB 超の path 一覧を flush できる必要がある。
+  @Test("runGitWithStdin も 64KB 超の stdin / stdout で deadlock しない")
+  func runGitWithStdinLargeIO() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    // .gitignore に 1 行のグロブを書き、check-ignore に多数のパスを流して
+    // 大量の ignored path を吐かせる。
+    try "*.tmp\n".write(
+      to: dir.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
+
+    // 10000 個の `tmp/N.tmp` を NUL 区切りで作る（≈ 100KB 超）。
+    let stdinBytes: Data = {
+      var buf = Data()
+      for i in 0..<10_000 {
+        buf.append(Data("tmp/\(i).tmp\u{0}".utf8))
+      }
+      return buf
+    }()
+
+    let result = try await runGitWithStdin(
+      args: ["check-ignore", "--stdin", "-z"], cwd: dir.path, stdin: stdinBytes)
+
+    // ignored entry が NUL 区切りで返る。10000 件すべて返ることまで検証する。
+    let nulCount = result.reduce(0) { $0 + ($1 == 0x00 ? 1 : 0) }
+    #expect(nulCount == 10_000)
+  }
+}
+
 // MARK: - Helpers
 
 private func makeTempDir() throws -> URL {
@@ -115,6 +174,11 @@ private func makeGitRepo() async throws -> URL {
 /// テスト helper: GitOps と同じ `/usr/bin/env git` 経由で任意の git コマンドを実行する。
 /// production 側と同じく `process.environment` を明示 snapshot で渡すことで、
 /// 並列 test 実行時の Foundation `Process` 内部の lazy env read による EFAULT を避ける。
+///
+/// 出力は `/dev/null` に直接捨てる。`Pipe` + `terminationHandler` 内の
+/// `readDataToEndOfFile()` パターンは pipe buffer (~64KB) を超える出力で deadlock
+/// するため、大きい出力を出すコマンドでも helper 自体が詰まらないように、
+/// stdout/stderr を捕捉する必要がない場合は最初から nullDevice に流す。
 private func runTestGit(args: [String], cwd: String) async throws {
   try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
     let process = Process()
@@ -122,11 +186,10 @@ private func runTestGit(args: [String], cwd: String) async throws {
     process.arguments = ["git"] + args
     process.currentDirectoryURL = URL(fileURLWithPath: cwd)
     process.environment = ProcessInfo.processInfo.environment
-    let nullPipe = Pipe()
-    process.standardOutput = nullPipe
-    process.standardError = nullPipe
+    let null = FileHandle.nullDevice
+    process.standardOutput = null
+    process.standardError = null
     process.terminationHandler = { proc in
-      _ = nullPipe.fileHandleForReading.readDataToEndOfFile()
       if proc.terminationStatus == 0 {
         cont.resume()
       } else {

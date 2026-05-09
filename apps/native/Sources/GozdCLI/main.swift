@@ -16,12 +16,11 @@ import GozdProto
 // - 接続後の write→shutdown(SHUT_WR)→drain→close は spike で確認した必須パターン
 // - 短命プロセスのため `Foundation.Process` 等の重い API は避ける
 
-// Phase 4 移行期: 旧 Electrobun 版（gozd-）と並走するため `gozd-swift` を使う。
-// Phase 5 で旧版削除後に `gozd` に戻す。
+// socket / launch dir で共有する prefix。`Gozd.bundlePrefix` と同じ値に揃える。
 // main.swift では top-level let が逐次実行されるため、switch から呼ばれる
 // 関数（launchRequestDir / socketPath）が参照する `bundlePrefix` は switch より
 // 前で必ず初期化されている必要がある。
-let bundlePrefix = "gozd-swift"
+let bundlePrefix = "gozd"
 
 let args = CommandLine.arguments
 let firstArg = args.count >= 2 ? args[1] : nil
@@ -60,7 +59,7 @@ func printUsage() {
       gozd --help        Print this help
 
     Environment:
-      GOZD_SOCKET_PATH  Override Unix socket path (default: $TMPDIR/gozd-swift-{channel}.sock)
+      GOZD_SOCKET_PATH  Override Unix socket path (default: $TMPDIR/gozd-{channel}.sock)
       GOZD_PTY_ID       Used by `hook` to attribute the event to a PTY
       GOZD_COLD_START   If set, `open` writes a launch request file instead of socket send
     """

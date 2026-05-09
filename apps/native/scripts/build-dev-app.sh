@@ -10,11 +10,11 @@
 # 本番の build-app.sh と違い、renderer は Vite dev server から配信するので
 # バンドルに同梱しない。CLI / zsh も dev では不要。
 #
-# 出力: apps/native/.build/app/Gozd-Swift-Dev.app
+# 出力: apps/native/.build/app/Gozd-Dev.app
 set -euo pipefail
 
 NATIVE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="Gozd-Swift-Dev.app"
+APP_NAME="Gozd-Dev.app"
 APP_DIR="$NATIVE_DIR/.build/app/$APP_NAME"
 APP_RESOURCES="$APP_DIR/Contents/Resources"
 
@@ -38,11 +38,11 @@ cat > "$APP_DIR/Contents/Info.plist" <<'EOF'
   <key>CFBundleExecutable</key>
   <string>Gozd</string>
   <key>CFBundleIdentifier</key>
-  <string>io.github.miyaoka.gozd-swift.dev</string>
+  <string>io.github.miyaoka.gozd.dev</string>
   <key>CFBundleName</key>
-  <string>gozd-swift-dev</string>
+  <string>gozd-dev</string>
   <key>CFBundleDisplayName</key>
-  <string>gozd-swift-dev</string>
+  <string>gozd-dev</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleIconFile</key>

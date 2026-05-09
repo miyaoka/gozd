@@ -358,10 +358,9 @@ final class AppRuntime {
     return home.appendingPathComponent(".config/gozd").path
   }
 
-  /// Phase 4 移行期の暫定 prefix。旧 Electrobun 版（io.github.miyaoka.gozd）と
-  /// 並走させるために socket / settings / launch dir / Bundle ID をすべて
-  /// `gozd-swift` に切り替えてある。Phase 5 で旧版を削除したら `gozd` に戻す。
-  static let bundlePrefix = "gozd-swift"
+  /// socket / settings / launch dir / Bundle ID で共有する prefix。
+  /// architecture.md の規約に従い `$TMPDIR/{bundlePrefix}-{channel}.sock` 等で使う。
+  static let bundlePrefix = "gozd"
 
   private static func defaultSocketPath() -> String {
     // architecture.md の規約: $TMPDIR/{bundlePrefix}-{channel}.sock。

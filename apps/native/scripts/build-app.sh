@@ -25,9 +25,7 @@ RENDERER_DIR="$ROOT_DIR/apps/renderer"
 ZSH_DIR="$NATIVE_DIR/Resources/zsh"
 ICONSET_DIR="$NATIVE_DIR/Resources/icon.iconset"
 
-# Phase 4 移行期は旧 Electrobun 版（Gozd.app）と並走させるため `Gozd-Swift.app` 名にする。
-# Phase 5 で旧を消したら `Gozd.app` に戻す。
-APP_NAME="Gozd-Swift.app"
+APP_NAME="Gozd.app"
 # Swift Bundler が `.build/bundler/` を使うのと同じ慣習で SwiftPM の `.build/` 配下に置く。
 # `.build/` は SwiftPM 自体が ignore 対象としてくれるので別途 gitignore 不要。
 OUT_DIR="$NATIVE_DIR/.build/app"
@@ -79,11 +77,11 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
   <key>CFBundleExecutable</key>
   <string>Gozd</string>
   <key>CFBundleIdentifier</key>
-  <string>io.github.miyaoka.gozd-swift</string>
+  <string>io.github.miyaoka.gozd</string>
   <key>CFBundleName</key>
-  <string>gozd-swift</string>
+  <string>gozd</string>
   <key>CFBundleDisplayName</key>
-  <string>gozd-swift</string>
+  <string>gozd</string>
   <key>CFBundleVersion</key>
   <string>0.0.0</string>
   <key>CFBundleShortVersionString</key>

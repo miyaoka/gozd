@@ -7,10 +7,10 @@ import Testing
 struct GozdEnvOverlayTests {
   private func makeOverlay() -> GozdEnvOverlay {
     GozdEnvOverlay(
-      socketPath: "/tmp/gozd-swift-dev.sock",
+      socketPath: "/tmp/gozd-dev.sock",
       cliPath: "/proj/apps/cli/src/index.ts",
       cliRunner: "bun",
-      claudeSettingsPath: "/tmp/gozd-swift-dev-claude-settings.json",
+      claudeSettingsPath: "/tmp/gozd-dev-claude-settings.json",
       zdotdir: "/proj/apps/desktop/zsh",
       userHome: "/Users/test"
     )
@@ -20,10 +20,10 @@ struct GozdEnvOverlayTests {
   func injectsGozdVars() {
     let env = makeOverlay().merged(into: [:], ptyId: 42)
     #expect(env["GOZD_PTY_ID"] == "42")
-    #expect(env["GOZD_SOCKET_PATH"] == "/tmp/gozd-swift-dev.sock")
+    #expect(env["GOZD_SOCKET_PATH"] == "/tmp/gozd-dev.sock")
     #expect(env["GOZD_CLI_PATH"] == "/proj/apps/cli/src/index.ts")
     #expect(env["GOZD_CLI_RUNNER"] == "bun")
-    #expect(env["GOZD_CLAUDE_SETTINGS_PATH"] == "/tmp/gozd-swift-dev-claude-settings.json")
+    #expect(env["GOZD_CLAUDE_SETTINGS_PATH"] == "/tmp/gozd-dev-claude-settings.json")
   }
 
   @Test("ZDOTDIR は gozd 側に切替、ユーザーの ZDOTDIR は GOZD_ORIG_ZDOTDIR に退避される")

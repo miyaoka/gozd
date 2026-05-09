@@ -36,7 +36,10 @@ public final class ProjectConfigStore {
   }
 
   private func filePath(for dir: String) -> String {
-    let projectKey = ProjectKey.compute(forMainRepoRoot: dir)
+    // 呼び出し元（renderer）は active worktree の path を渡してくる場合があるため、
+    // main repo root に解決してから projectKey を算出する。これで main / worktree / subdir のどこから
+    // 開いても同じ config.json を参照する。
+    let projectKey = ProjectKey.resolveAndCompute(for: dir)
     return (configDir as NSString)
       .appendingPathComponent("projects")
       .appending("/\(projectKey)/config.json")

@@ -4,8 +4,9 @@ import Foundation
 // 読み取り系（list / log）は GitOps、副作用持ち（create / remove / delete）はここ。
 public enum WorktreeOps {
   /// `git worktree add [<startPoint>] <absPath> [-b <branch>]` 相当。
-  /// `worktreeDir` はリーフ名（典型的にはタイムスタンプ）。リポジトリ汚染を避けるため
-  /// `~/.local/share/gozd/worktrees/<projectKey>/<worktreeDir>` に絶対パスとして配置する。
+  /// `worktreeDir` はリーフ名（typically タイムスタンプ）。1 path component のみ許可（`/`, `..`, `.` は拒否）。
+  /// リポジトリ汚染を避けるため `~/.local/share/gozd/worktrees/<projectKey>/<worktreeDir>` に絶対パスとして配置する。
+  /// `dir` は main repo / worktree subdir のどれでも可。内部で main repo root に解決して projectKey を統一する。
   /// startPoint があれば -b で新規ブランチを作る。なければ既存ブランチを使う。
   public static func createWorktree(
     dir: String, worktreeDir: String, branch: String, startPoint: String?
@@ -36,8 +37,21 @@ public enum WorktreeOps {
   }
 
   /// `~/.local/share/gozd/worktrees/<projectKey>/<leaf>` の絶対パスを返し、親ディレクトリを作成する。
+  /// `projectDir` は main / worktree / その配下 subdir のいずれでも可（内部で main repo root に解決）。
+  /// `leaf` は 1 path component のみ許可。`/`, `.`, `..`, NUL バイト、制御文字を含むものは拒否する
+  /// （base 配下からの逸脱や、ファイル API への橋渡しでの予期しない扱いを防ぐ）。
   private static func ensureWorktreePath(projectDir: String, leaf: String) throws -> String {
-    let projectKey = ProjectKey.compute(forMainRepoRoot: projectDir)
+    let invalid =
+      leaf.isEmpty
+      || leaf.contains("/")
+      || leaf == "."
+      || leaf == ".."
+      || leaf.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F })
+    if invalid {
+      throw GitError.commandFailed(
+        exitCode: -1, stderr: "invalid worktree leaf name: \(leaf)")
+    }
+    let projectKey = ProjectKey.resolveAndCompute(for: projectDir)
     let home = NSHomeDirectory()
     let base = (home as NSString)
       .appendingPathComponent(".local/share/gozd/worktrees")

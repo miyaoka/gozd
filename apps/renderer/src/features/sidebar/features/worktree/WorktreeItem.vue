@@ -51,7 +51,6 @@ const props = defineProps<{
   active: boolean;
   claudeStatuses: ClaudeStatus[];
   now: number;
-  anchorName: string;
   /** Ctrl キー押下中か（番号バッジの表示制御用） */
   ctrlPressed: boolean;
   /** worktree リスト内のインデックス（Ctrl 番号バッジの表示用） */
@@ -60,8 +59,15 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   select: [wt: WorktreeEntry];
-  openMenu: [anchorName: string, wt: WorktreeEntry];
+  openMenu: [anchorEl: HTMLElement, wt: WorktreeEntry];
 }>();
+
+function onMenuClick(event: MouseEvent) {
+  const target = event.currentTarget;
+  if (target instanceof HTMLElement) {
+    emit("openMenu", target, props.wt);
+  }
+}
 
 /** 経過ミリ秒を "m:ss" 形式に変換 */
 function formatElapsed(startedAt: number, now: number): string {
@@ -162,8 +168,7 @@ const statusIcons = computed(() => {
       <button
         aria-label="Menu"
         class="absolute top-1 right-0 z-10 grid size-6 place-items-center rounded-sm bg-zinc-800 text-zinc-400 opacity-0 shadow-sm transition-opacity group-focus-within/wt:opacity-100 group-hover/wt:opacity-100 hover:text-zinc-200"
-        :style="{ anchorName }"
-        @click="emit('openMenu', anchorName, wt)"
+        @click="onMenuClick"
       >
         <span class="icon-[lucide--ellipsis-vertical] text-sm" />
       </button>

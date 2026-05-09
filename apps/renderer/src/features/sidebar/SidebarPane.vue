@@ -218,12 +218,12 @@ const activeRootWorktree = computed(() => {
           @add-worktree="addWorktree"
           @set-view-mode="terminalStore.viewMode = $event"
           @open-worktree-menu="
-            (anchorName, wt, rd) =>
-              sidebarMenuRef?.openMenu(anchorName, { type: 'worktree', worktree: wt, rootDir: rd })
+            (anchorEl, wt, rd) =>
+              sidebarMenuRef?.openMenu(anchorEl, { type: 'worktree', worktree: wt, rootDir: rd })
           "
           @open-branch-menu="
-            (anchorName, branch, rd) =>
-              sidebarMenuRef?.openMenu(anchorName, { type: 'branch', branch, rootDir: rd })
+            (anchorEl, branch, rd) =>
+              sidebarMenuRef?.openMenu(anchorEl, { type: 'branch', branch, rootDir: rd })
           "
         >
           <template #after-worktree-item="{ wt }">

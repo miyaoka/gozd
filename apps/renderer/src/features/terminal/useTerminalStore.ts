@@ -1,13 +1,27 @@
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, shallowRef } from "vue";
 import { useContextKeys } from "../../shared/command";
-import { useRpc } from "../../shared/rpc";
+import { onMessage } from "../../shared/rpc";
 import type { ClaudeStatus } from "./claudeStatus";
 import { isHookEvent, createClaudeStatusManager } from "./claudeStatus";
 import { createPtySessionManager } from "./ptySession";
 import type { PaneEntry } from "./ptySession";
+import type { HookPayload, PtyExitPayload, PtyTextPayload } from "./rpc";
+import { rpcPtyKill, rpcPtySpawn } from "./rpc";
 import { createTerminalLayout } from "./terminalLayout";
 import type { TerminalLayoutState } from "./terminalLayout";
+
+// PTY spawn のデフォルト設定。ZDOTDIR 等の Claude hooks 連携は Phase 3 後半で追加する。
+function getDefaultSpawnEnv(): Record<string, string> {
+  return {
+    TERM: "xterm-256color",
+    COLORTERM: "truecolor",
+    LANG: "en_US.UTF-8",
+    PATH: "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+  };
+}
+const DEFAULT_SHELL = "/bin/zsh";
+const DEFAULT_SHELL_ARGS = ["/bin/zsh", "-i"];
 
 /**
  * ターミナル分割レイアウトと PTY の状態を管理する。
@@ -16,7 +30,6 @@ import type { TerminalLayoutState } from "./terminalLayout";
  * コンポーネントは xterm の attach/detach のみ担当する。
  */
 export const useTerminalStore = defineStore("terminal", () => {
-  const { request, send, onPtyData, onPtyExit, onGozdHook } = useRpc();
   const contextKeys = useContextKeys();
 
   // --- 共有 state ---
@@ -61,8 +74,20 @@ export const useTerminalStore = defineStore("terminal", () => {
       },
       iterateEntries: () => Object.entries(paneRegistry.value),
     },
-    requestPtySpawn: request.ptySpawn,
-    sendPtyKill: send.ptyKill,
+    requestPtySpawn: async ({ dir, cols, rows }) => {
+      const res = await rpcPtySpawn({
+        dir,
+        executable: DEFAULT_SHELL,
+        args: DEFAULT_SHELL_ARGS,
+        env: getDefaultSpawnEnv(),
+        rows,
+        cols,
+      });
+      return res.ptyId;
+    },
+    sendPtyKill: ({ id }) => {
+      void rpcPtyKill({ ptyId: id });
+    },
     onDataReceived: (ptyId, data) => claude.detectInterrupt(ptyId, data),
     onPtyCleanup: (ptyId) => claude.cleanupPty(ptyId),
   });
@@ -122,19 +147,24 @@ export const useTerminalStore = defineStore("terminal", () => {
     // HMR で Map が再初期化されるため、paneRegistry から逆引きを復元
     ptySession.rebuildPtyIdMap();
 
-    disposeDataListener = onPtyData(({ id, data }) => {
-      ptySession.handlePtyData(id, data);
+    disposeDataListener = onMessage<PtyTextPayload>("ptyText", ({ id, text }) => {
+      ptySession.handlePtyData(id, text);
     });
 
-    disposeExitListener = onPtyExit(({ id }) => {
+    disposeExitListener = onMessage<PtyExitPayload>("ptyExit", ({ id }) => {
       ptySession.handlePtyExit(id);
     });
 
-    disposeHookListener = onGozdHook(({ event, payload }) => {
-      const ptyId = typeof payload.ptyId === "number" ? payload.ptyId : undefined;
-      if (ptyId === undefined) return;
+    disposeHookListener = onMessage<HookPayload>("hook", (payload) => {
+      const { event, ptyId } = payload;
       if (!isHookEvent(event)) return;
-      claude.handleHookEvent(ptyId, event, payload);
+      // claudeStatus.ts は snake_case の payload を期待するので boundary で変換する
+      claude.handleHookEvent(ptyId, event, {
+        last_assistant_message: payload.lastAssistantMessage,
+        tool_name: payload.toolName,
+        tool_input: payload.toolInput,
+        is_interrupt: payload.isInterrupt,
+      });
     });
   }
 

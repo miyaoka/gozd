@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package gozd.v1;
+
+// ファイル読み込み（バイナリ含む）。
+//
+// path は dir からの相対パス。dir 範囲外への path traversal は Swift 実装側で
+// 拒否する（issue #310 のステートレス + sandboxing 方針）。
+message FsReadFileRequest {
+  string dir = 1;
+  string path = 2;
+}
+
+message FsReadFileResponse {
+  // FileReadResult と同じ shape。content は UTF-8 として decode できなかった場合は空、
+  // is_binary=true。ディレクトリなら is_directory=true、ファイル不在なら not_found=true。
+  string content = 1;
+  bool is_binary = 2;
+  bool is_directory = 3;
+  bool not_found = 4;
+}
+
+// ディレクトリエントリ列挙。
+//
+// type: "file" / "directory" / "symlink" / "other"。
+// proto3 enum を使うと renderer / Swift 両方で symbol 比較になり読みやすいが、
+// JSON mapping で文字列のまま扱える方が renderer 側のリテラル判定が楽。
+// 第一フェーズは string で進め、必要があれば後で enum に昇格する。
+message FsReadDirRequest {
+  string dir = 1;
+  string path = 2;
+}
+
+message FsReadDirEntry {
+  string name = 1;
+  string type = 2;
+  // gitignore で無視されているか。dir が git repo でない場合は常に false。
+  bool is_ignored = 3;
+}
+
+message FsReadDirResponse {
+  repeated FsReadDirEntry entries = 1;
+}
+
+// ディレクトリ配下の変更監視を開始する。
+// 重複 watch（同 dir）は no-op。FSWatchRegistry が dir をキーに 1 watcher を保持する。
+message FsWatchRequest {
+  string dir = 1;
+}
+
+message FsWatchResponse {}
+
+// 監視を停止する。watch されていない dir でも no-op で成功する。
+message FsUnwatchRequest {
+  string dir = 1;
+}
+
+message FsUnwatchResponse {}

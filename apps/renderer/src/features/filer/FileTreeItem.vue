@@ -16,11 +16,16 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, useTemplateRef } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { useRpc } from "../../shared/rpc";
-import { resolveDirectoryGitChange, resolveFileGitChange, resolveGitChangeKind } from "../worktree";
+import {
+  useWorktreeStore,
+  resolveDirectoryGitChange,
+  resolveFileGitChange,
+  resolveGitChangeKind,
+} from "../worktree";
 import type { GitChangeKind } from "../worktree";
 import { getDeletedEntries, sortEntries } from "./filerUtils";
 import type { FileEntry } from "./filerUtils";
+import { rpcFsReadDir } from "./rpc";
 import { getFileIconName, getFolderIconName, getIconUrl } from "./useFileIcon";
 
 const GIT_CHANGE_COLOR_MAP: Record<GitChangeKind, string> = {
@@ -50,7 +55,7 @@ const emit = defineEmits<{
 }>();
 
 const notify = useNotificationStore();
-const { request } = useRpc();
+const worktreeStore = useWorktreeStore();
 
 const buttonRef = useTemplateRef<HTMLButtonElement>("button");
 const expanded = ref(false);
@@ -102,8 +107,19 @@ async function toggle() {
 
 async function loadChildren() {
   loading.value = true;
+  const dir = worktreeStore.dir;
+  if (dir === undefined) {
+    children.value = [];
+    loading.value = false;
+    return;
+  }
   try {
-    const entries = await request.fsReadDir({ relPath: props.path });
+    const res = await rpcFsReadDir({ dir, path: props.path });
+    const entries = res.entries.map((e) => ({
+      name: e.name,
+      isDirectory: e.type === "directory",
+      isIgnored: false,
+    }));
     children.value = mergeWithGitStatus(entries);
   } catch (e) {
     // 削除ディレクトリの場合、readDir は失敗するので削除エントリのみ表示

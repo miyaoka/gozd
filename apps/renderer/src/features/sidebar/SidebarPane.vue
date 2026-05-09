@@ -1,46 +1,48 @@
 <doc lang="md">
-左端のサイドバー。プロジェクトの worktree 一覧、ブランチ一覧を表示する。
+左端のサイドバー。window 内に同居する全 repo をセクションごとに並べる。
 
-## セクション構成
+## レイアウト構成
 
-- ROOT: リポジトリルート（main）。メニューなし
-- WORKTREES: worktree 一覧。Task タイトルまたはブランチ名で表示。Claude 状態バッジ付き
-- BRANCHES: worktree 化されていないローカルブランチ
+- **dirOrder の各 repo** に対して `RepoSection` を縦に並べる
+- 各セクションは header（chevron + folder アイコン + repo 名）+ ROOT + WORKTREES + BRANCHES
+- top-right の編集ボタン（鉛筆アイコン）でリスト編集モードをトグル
+- 編集モード中: 全 section が collapsed + drag で並び替え + ✕ で削除 + 末尾に `+ Add directory`
 
 ## 操作
 
-- worktree クリック: 表示対象ディレクトリを切り替え + done バッジをクリア（既読消化）
-- `⋮` メニュー: SidebarMenu コンポーネントに委譲
-- Task 編集: サイドバー内にインライン展開
-
-## Claude 状態バッジ
-
-worktree 行ごとの Claude 状態表示は `WorktreeItem.vue` に委譲。
-バッジ（アイコン）とメッセージ吹き出し（done/asking 時の一行目テキスト）を表示する。
+- worktree クリック: 表示対象 dir 切替 + done バッジ既読化
+- ⋮ メニュー: SidebarMenu に委譲（worktree 編集 / 解除、branch から worktree 化）
+- chevron: 折りたたみトグル（永続）
+- 編集モード中の drag handle (folder + 名前): @dnd-kit/vue で並び替え
+- 編集モード中の ✕: 確認ダイアログを経て removeRepo
+- 編集モード中の `+ Add directory`: NSOpenPanel で dir 追加
+- Task 編集は worktree 行の下にインライン展開
 
 ## 責務分離
 
-ロジックは composable に切り出し、SidebarPane はレイアウトとサブ機能の組み合わせに専念する。
-
-- `useSidebarData` — データ取得・状態管理（worktrees, freeBranches）
-- `useWorktreeActions` — worktree CRUD・選択・切り替え（独自 isCreating）
-- `useTaskActions` — worktree に紐づく Task の編集・新規作成
-- `useDialogs` — 確認ダイアログの状態管理
-- `useCtrlBadge` — Ctrl キー押下検知
-- `SidebarMenu` — ⋮ ポップオーバーメニュー
-- `VoicevoxPanel` — VOICEVOX 操作パネル
+- `useSidebarData` — fetch（per-repo）と terminal title 同期
+- `useWorktreeActions` — worktree CRUD（rootDir 引数で対象 repo を特定）
+- `useTaskActions` — Task 編集 / 新規作成（rootDir 引数で対象 repo を特定）
+- `useDialogs` — 確認ダイアログ
+- `RepoSection` — 1 repo の UI
 </doc>
 
 <script setup lang="ts">
+import type { DragEndEvent } from "@dnd-kit/abstract";
+import { move } from "@dnd-kit/helpers";
+import { DragDropProvider } from "@dnd-kit/vue";
+import { tryCatch } from "@gozd/shared";
 import { useIntervalFn } from "@vueuse/core";
-import { onUnmounted, ref } from "vue";
+import { computed, onUnmounted, ref } from "vue";
 import { useCommandRegistry } from "../../shared/command";
 import { useNotificationStore } from "../../shared/notification";
-import { useProjectStore } from "../../shared/project";
+import { useRepoStore } from "../../shared/repo";
+import { rpcPickAndOpen } from "../layout";
 import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
+import { RepoSection } from "./features/repo";
 import { TaskEditor, useTaskActions } from "./features/task";
-import { BranchList, RootWorktree, WorktreeList, useWorktreeActions } from "./features/worktree";
+import { useWorktreeActions } from "./features/worktree";
 import ProjectConfigPanel from "./ProjectConfigPanel.vue";
 import SidebarMenu from "./SidebarMenu.vue";
 import { useCtrlBadge } from "./useCtrlBadge";
@@ -48,13 +50,12 @@ import { useDialogs } from "./useDialogs";
 import { useSidebarData } from "./useSidebarData";
 import VoicevoxPanel from "./VoicevoxPanel.vue";
 
+const repoStore = useRepoStore();
 const worktreeStore = useWorktreeStore();
-const projectStore = useProjectStore();
 const terminalStore = useTerminalStore();
 const notify = useNotificationStore();
 
-const { worktrees, freeBranches, rootWorktree, nonMainWorktrees, sortedBranches, fetchData } =
-  useSidebarData();
+const { fetchRepo } = useSidebarData();
 
 const { confirmRef, confirmMessage, showConfirm, closeConfirm, executeConfirm } = useDialogs();
 
@@ -65,7 +66,7 @@ const {
   addWorktree,
   handleWorktreeRemove,
   handleBranchLink,
-} = useWorktreeActions({ worktrees, freeBranches, showConfirm });
+} = useWorktreeActions({ showConfirm });
 
 const {
   editingTaskId,
@@ -77,16 +78,21 @@ const {
   toggleWorktreeTaskEdit,
   saveWorktreeTask,
   cancelWorktreeTaskAdd,
-} = useTaskActions({ fetchData });
+} = useTaskActions({ fetchRepo });
 
 const { ctrlPressed } = useCtrlBadge();
 
-// --- コマンドレジストリ: Ctrl+数字で worktree 選択 ---
+// --- コマンドレジストリ: Ctrl+数字で active repo の worktree 選択 ---
 
 const { register } = useCommandRegistry();
 const disposeSelectWorktree = register("workspace.selectWorktree", (args) => {
   if (typeof args !== "number") return false;
-  const wt = nonMainWorktrees.value[args - 1];
+  const dir = worktreeStore.dir;
+  if (dir === undefined) return false;
+  const owning = repoStore.findRepoOwning(dir);
+  if (owning === undefined) return false;
+  const nonMain = owning.worktrees.filter((wt) => !wt.isMain);
+  const wt = nonMain[args - 1];
   if (!wt) return false;
   handleWorktreeSelect(wt);
   return true;
@@ -104,8 +110,7 @@ useIntervalFn(() => {
 
 const sidebarMenuRef = ref<InstanceType<typeof SidebarMenu>>();
 
-/** worktree クリック: active なら done クリア、そうでなければ切り替え */
-function onWorktreeSelect(wt: import("@gozd/rpc").WorktreeEntry) {
+function onWorktreeSelect(wt: import("@gozd/proto").WorktreeEntry) {
   terminalStore.viewMode = "wt";
   if (isActive(wt)) {
     terminalStore.clearDoneStates(wt.path);
@@ -113,78 +118,150 @@ function onWorktreeSelect(wt: import("@gozd/rpc").WorktreeEntry) {
   }
   handleWorktreeSelect(wt);
 }
+
+function onRemoveRepo(rootDir: string) {
+  const name = repoStore.repos[rootDir]?.repoName ?? rootDir;
+  showConfirm(`Remove "${name}" from this window?`, async () => {
+    // repo 削除前に配下 worktree の terminal state / PTY を cleanup する。
+    // これを忘れると `all` / `claude` view で消したはずの repo の PTY が
+    // 生き残る（visitedDirs に残るため）。
+    const repo = repoStore.repos[rootDir];
+    if (repo !== undefined) {
+      const targets = new Set<string>([rootDir, ...repo.worktrees.map((wt) => wt.path)]);
+      for (const dir of targets) terminalStore.remove(dir);
+    }
+    repoStore.removeRepo(rootDir);
+  });
+}
+
+async function onAddDir() {
+  // native の NSOpenPanel を開いてユーザーに dir を選ばせる。
+  // 選択後は内部で onOpen → gozdOpen push → repoStore.addRepo に流れる
+  const result = await tryCatch(rpcPickAndOpen({}));
+  if (!result.ok) {
+    notify.error("Failed to open directory picker", result.error);
+  }
+}
+
+// --- 編集モード（top-right ボタンでトグル） ---
+//
+// 編集モード中:
+// - 全 section が強制 collapse され、drag で並び替え可能
+// - 各 section に ✕ ボタンが表示され、クリックで repo を window から解除（確認ダイアログ）
+// - リスト末尾に `+ Add directory` ボタンが出現
+// 通常モード:
+// - 各 section の永続 collapse 状態が反映される
+// - drag は無効、✕ は非表示、+ は非表示
+
+const editMode = ref(false);
+
+function toggleEditMode() {
+  editMode.value = !editMode.value;
+}
+
+// move() は dragend イベントの operation を見て新しい配列を返す
+function onDragEnd(event: DragEndEvent) {
+  repoStore.dirOrder = move(repoStore.dirOrder, event);
+}
+
+// --- ProjectConfigPanel: active な root worktree がある時だけ表示 ---
+
+const activeRootWorktree = computed(() => {
+  const repo = repoStore.selectedRepo;
+  if (repo === undefined) return undefined;
+  const root = repo.worktrees.find((wt) => wt.isMain);
+  if (root === undefined) return undefined;
+  return root.path === worktreeStore.dir ? root : undefined;
+});
 </script>
 
 <template>
   <div class="flex size-full flex-col">
-    <div class="flex-1 overflow-y-auto px-3 py-4">
-      <h1 class="mb-4 flex items-center text-lg font-bold" :title="projectStore.repoName">
-        <span class="mr-2 icon-[lucide--bot] shrink-0 align-middle text-blue-400" />
-        <input
-          aria-label="Project name"
-          class="min-w-0 flex-1 truncate bg-transparent outline-none"
-          :value="projectStore.repoName ?? 'gozd'"
-          @input="projectStore.repoName = ($event.target as HTMLInputElement).value"
-        />
-      </h1>
-
-      <!-- ROOT -->
-      <RootWorktree
-        :worktree="rootWorktree"
-        :active="rootWorktree ? isActive(rootWorktree) : false"
-        @select="handleWorktreeSelect"
-      />
-
-      <!-- WORKTREES -->
-      <WorktreeList
-        :worktrees="nonMainWorktrees"
-        :loading="worktrees.length === 0"
-        :active-dir="worktreeStore.dir"
-        :is-creating="isCreating"
-        :ctrl-pressed="ctrlPressed"
-        :now="now"
-        :view-mode="terminalStore.viewMode"
-        :get-claude-statuses="terminalStore.getClaudeStatusesByDir"
-        @select="onWorktreeSelect"
-        @open-menu="
-          (anchorName, wt) =>
-            sidebarMenuRef?.openMenu(anchorName, { type: 'worktree', worktree: wt })
+    <!-- 編集モードトグル（独立したツールバー） -->
+    <div class="flex justify-end border-b border-zinc-800 px-2 py-1">
+      <button
+        type="button"
+        :aria-label="editMode ? 'Exit edit mode' : 'Edit repositories'"
+        :title="editMode ? 'Done' : 'Edit repositories'"
+        class="grid size-7 place-items-center rounded-sm transition-colors"
+        :class="
+          editMode
+            ? 'bg-blue-600 text-white hover:bg-blue-500'
+            : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100'
         "
-        @add="addWorktree"
-        @set-view-mode="terminalStore.viewMode = $event"
+        @click="toggleEditMode"
       >
-        <template #after-item="{ wt }">
-          <TaskEditor
-            v-if="wt.task && editingTaskId === wt.task.id"
-            v-model:body="editBody"
-            @save="submitEdit"
-            @cancel="cancelEdit"
-          />
-          <TaskEditor
-            v-if="!wt.task && addingTaskForDir === wt.path"
-            v-model:body="addingTaskBody"
-            @save="saveWorktreeTask(wt)"
-            @cancel="cancelWorktreeTaskAdd"
-          />
-        </template>
-      </WorktreeList>
-
-      <!-- BRANCHES -->
-      <BranchList
-        :branches="sortedBranches"
-        @open-menu="
-          (anchorName, branch) => sidebarMenuRef?.openMenu(anchorName, { type: 'branch', branch })
-        "
-      />
+        <span
+          class="text-base"
+          :class="editMode ? 'icon-[lucide--check]' : 'icon-[lucide--pencil]'"
+        />
+      </button>
     </div>
 
-    <!-- ⋮ メニュー -->
+    <div class="flex-1 overflow-y-auto px-3 py-4">
+      <DragDropProvider @drag-end="onDragEnd">
+        <RepoSection
+          v-for="(rootDir, i) in repoStore.dirOrder"
+          :key="rootDir"
+          :root-dir="rootDir"
+          :index="i"
+          :edit-mode="editMode"
+          :active-dir="worktreeStore.dir"
+          :is-creating="isCreating"
+          :ctrl-pressed="ctrlPressed"
+          :now="now"
+          :view-mode="terminalStore.viewMode"
+          :get-claude-statuses="terminalStore.getClaudeStatusesByDir"
+          @remove-repo="onRemoveRepo"
+          @select-root="handleWorktreeSelect"
+          @select-worktree="onWorktreeSelect"
+          @add-worktree="addWorktree"
+          @set-view-mode="terminalStore.viewMode = $event"
+          @open-worktree-menu="
+            (anchorName, wt, rd) =>
+              sidebarMenuRef?.openMenu(anchorName, { type: 'worktree', worktree: wt, rootDir: rd })
+          "
+          @open-branch-menu="
+            (anchorName, branch, rd) =>
+              sidebarMenuRef?.openMenu(anchorName, { type: 'branch', branch, rootDir: rd })
+          "
+        >
+          <template #after-worktree-item="{ wt }">
+            <TaskEditor
+              v-if="wt.task && editingTaskId === wt.task.id"
+              v-model:body="editBody"
+              @save="submitEdit"
+              @cancel="cancelEdit"
+            />
+            <TaskEditor
+              v-if="!wt.task && addingTaskForDir === wt.path"
+              v-model:body="addingTaskBody"
+              @save="saveWorktreeTask(wt)"
+              @cancel="cancelWorktreeTaskAdd"
+            />
+          </template>
+        </RepoSection>
+      </DragDropProvider>
+
+      <button
+        v-if="editMode"
+        type="button"
+        class="mt-2 flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+        title="Add directory"
+        @click="onAddDir"
+      >
+        <span class="icon-[lucide--plus] size-4 shrink-0" />
+        <span>Add directory</span>
+      </button>
+    </div>
+
+    <!-- ⋮ メニュー（worktree / branch 共通） -->
     <SidebarMenu
       ref="sidebarMenuRef"
       :is-creating="isCreating"
       @worktree-edit-task="toggleWorktreeTaskEdit"
-      @worktree-remove="handleWorktreeRemove"
-      @branch-link="handleBranchLink"
+      @worktree-remove="(wt, rd) => handleWorktreeRemove(rd, wt)"
+      @branch-link="(branch, rd) => handleBranchLink(rd, branch)"
     />
 
     <!-- 確認ダイアログ -->
@@ -205,13 +282,13 @@ function onWorktreeSelect(wt: import("@gozd/rpc").WorktreeEntry) {
           class="rounded-sm bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500"
           @click="executeConfirm"
         >
-          Remove
+          OK
         </button>
       </div>
     </dialog>
 
-    <!-- Project Config（メイン worktree 表示時のみ） -->
-    <ProjectConfigPanel v-if="rootWorktree && isActive(rootWorktree)" />
+    <!-- Project Config（active な root worktree のみ） -->
+    <ProjectConfigPanel v-if="activeRootWorktree" />
 
     <!-- VOICEVOX -->
     <VoicevoxPanel @error="notify.error" />

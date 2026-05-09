@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package gozd.v1;
+
+// 外部ブラウザ / 外部アプリで URL を開く。Swift 側で `NSWorkspace.shared.open(URL)`。
+//
+// 用途: xterm.js のリンク Shift+クリックで OS ブラウザに飛ばす等。
+message OpenExternalRequest {
+  string url = 1;
+}
+
+message OpenExternalResponse {}

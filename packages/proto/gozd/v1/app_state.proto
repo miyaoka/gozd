@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package gozd.v1;
+
+// アプリ全体の状態。`~/.config/gozd/app-state.json` に永続化される。
+//
+// 永続化形式は proto3 JSON mapping。SwiftProtobuf の jsonString() で
+// 直接ファイルに書き、jsonString() で復元する。RPC ワイヤーフォーマットと
+// 永続化形式を同一 proto 型で揃え、Codable との二重管理を避ける。
+message AppState {
+  WindowFrame window_frame = 1;
+  // 最後に開いていた worktree の絶対パス（再起動時の復元用）
+  string last_opened_dir = 2;
+  // window 内に同居するサイドバー repo リスト。順序は dirOrder と一致する
+  repeated SidebarRepo sidebar_repos = 3;
+}
+
+// サイドバー上の 1 repo の永続化エントリ。worktrees / freeBranches は
+// 起動時に再 fetch するため永続化しない（一次情報は git に問い合わせる）。
+message SidebarRepo {
+  string root_dir = 1;
+  string repo_name = 2;
+  bool is_git_repo = 3;
+  bool collapsed = 4;
+}
+
+message WindowFrame {
+  double x = 1;
+  double y = 2;
+  double width = 3;
+  double height = 4;
+}
+
+message LoadAppStateRequest {}
+
+message LoadAppStateResponse {
+  AppState state = 1;
+}
+
+message SaveAppStateRequest {
+  AppState state = 1;
+}
+
+message SaveAppStateResponse {}

@@ -1,0 +1,130 @@
+syntax = "proto3";
+
+package gozd.v1;
+
+import "gozd/v1/common.proto";
+
+// gitWorktreeList: worktree 一覧
+message GitWorktreeListRequest {
+  string dir = 1;
+}
+message GitWorktreeListResponse {
+  repeated WorktreeEntry worktrees = 1;
+}
+
+// gitBranchList: ローカルブランチ名一覧
+message GitBranchListRequest {
+  string dir = 1;
+}
+message GitBranchListResponse {
+  repeated string branches = 1;
+}
+
+// gitLog: HEAD と default branch（origin/HEAD の指す先）の log を返し、
+// renderer 側で merge する設計。default_branch は git log で決まらないので
+// `git symbolic-ref refs/remotes/origin/HEAD` から server 側で求める。
+message GitLogRequest {
+  string dir = 1;
+  uint32 max_count = 2;
+  bool first_parent_only = 3;
+}
+message GitLogResponse {
+  repeated GitCommit head_commits = 1;
+  repeated GitCommit default_branch_commits = 2;
+  string default_branch = 3;
+}
+
+// gitDiffFile: 単一ファイルの作業ツリー diff
+message GitDiffFileRequest {
+  string dir = 1;
+  string rel_path = 2;
+}
+message GitDiffFileResponse {
+  string diff = 1;
+}
+
+// gitShowFile: HEAD のファイル内容
+message GitShowFileRequest {
+  string dir = 1;
+  string rel_path = 2;
+}
+message GitShowFileResponse {
+  FileReadResult result = 1;
+}
+
+// gitShowCommitFile: 指定コミット（または 2 コミット間）のファイル内容
+message GitShowCommitFileRequest {
+  string dir = 1;
+  string rel_path = 2;
+  string hash = 3;
+  string compare_hash = 4;
+}
+message GitShowCommitFileResponse {
+  FileReadResult from = 1;
+  FileReadResult to = 2;
+}
+
+// gitCommitFiles: コミット（または 2 コミット間）の変更ファイル一覧
+message GitCommitFilesRequest {
+  string dir = 1;
+  string hash = 2;
+  string compare_hash = 3;
+}
+message GitCommitFilesResponse {
+  repeated GitFileChange changes = 1;
+}
+
+// gitPrList: gh pr list
+message GitPrListRequest {
+  string dir = 1;
+}
+message GitPrListResponse {
+  // null は gh CLI 未認証等で取得不能を示す（前は null だった）。proto では空配列 + ok=false で表現
+  bool ok = 1;
+  repeated GitPullRequest prs = 2;
+}
+
+// gitIssueList: gh issue list
+message GitIssueListRequest {
+  string dir = 1;
+}
+message GitIssueListResponse {
+  bool ok = 1;
+  repeated GitIssue issues = 2;
+}
+
+// gitViewer: 認証中の GitHub viewer login
+message GitViewerRequest {
+  string dir = 1;
+}
+message GitViewerResponse {
+  bool ok = 1;
+  string login = 2;
+}
+
+// createWorktree: 新規 worktree を作成
+message CreateWorktreeRequest {
+  string dir = 1;
+  string worktree_dir = 2;
+  string branch = 3;
+  string start_point = 4;
+}
+message CreateWorktreeResponse {
+  WorktreeEntry worktree = 1;
+  string dir = 2;
+}
+
+// gitWorktreeRemove: worktree を削除
+message GitWorktreeRemoveRequest {
+  string dir = 1;
+  string path = 2;
+  bool force = 3;
+}
+message GitWorktreeRemoveResponse {}
+
+// gitBranchDelete: ブランチを削除
+message GitBranchDeleteRequest {
+  string dir = 1;
+  string branch = 2;
+}
+message GitBranchDeleteResponse {}

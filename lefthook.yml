@@ -16,18 +16,6 @@ pre-commit:
             root: "packages/shared/"
             glob: "**/*.ts"
             run: pnpm run typecheck
-          - name: typecheck-rpc
-            root: "packages/rpc/"
-            glob: "**/*.ts"
-            run: pnpm run typecheck
-          - name: typecheck-desktop
-            root: "apps/desktop/"
-            glob: "**/*.ts"
-            run: pnpm run typecheck
-          - name: typecheck-cli
-            root: "apps/cli/"
-            glob: "**/*.ts"
-            run: pnpm run typecheck
           - name: typecheck-renderer
             root: "apps/renderer/"
             glob: "**/*.{ts,vue}"
@@ -53,21 +41,6 @@ pre-commit:
             exclude:
               - "apps/**"
               - "packages/**"
-            run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
-            stage_fixed: true
-          - name: oxlint-desktop
-            root: "apps/desktop/"
-            glob: "**/*.ts"
-            run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
-            stage_fixed: true
-          - name: oxlint-rpc
-            root: "packages/rpc/"
-            glob: "**/*.ts"
-            run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
-            stage_fixed: true
-          - name: oxlint-cli
-            root: "apps/cli/"
-            glob: "**/*.ts"
             run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
             stage_fixed: true
           - name: oxlint-shared
@@ -106,8 +79,12 @@ pre-commit:
                   stage_fixed: true
 
     # fix 系ジョブ完了後に実行（stage_fixed によるファイル書き換え後の状態で解析）
+    # --fix で未使用 export を自動削除して stage に乗せる。
+    # --allow-remove-files は付けない（ファイル削除は意図しない消失リスクがあるため、
+    # export 単位の自動修正のみ許可）。--format で削除後のフォーマットも揃える。
     - name: knip
-      run: pnpm knip
+      run: pnpm knip --fix --format
+      stage_fixed: true
 
 # git pull / merge 後に lockfile の変更を検出し、pnpm install を促す
 post-merge:

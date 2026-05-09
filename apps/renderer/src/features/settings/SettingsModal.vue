@@ -11,13 +11,21 @@
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
 import { reactive, watch } from "vue";
-import { useRpc } from "../../shared/rpc";
 import { useDialog } from "../palette";
 import { previewFontFamily, previewFontSize } from "../preview";
 import { applyTerminalTheme, terminalFontFamily, terminalFontSize } from "../terminal";
 import { useVoicevoxStore } from "../voicevox";
+import { useWorktreeStore } from "../worktree";
 import { globalSettingsSections } from "./globalSettingsSchema";
 import { projectSettingsSections } from "./projectSettingsSchema";
+import {
+  flattenAppConfig,
+  flattenProjectConfig,
+  patchAppConfig,
+  patchProjectConfig,
+  rpcLoadAppConfig,
+  rpcProjectConfigLoad,
+} from "./rpc";
 import SettingSection from "./SettingSection.vue";
 import { useSettingsModal } from "./useSettingsModal";
 
@@ -30,8 +38,8 @@ const TABS: readonly { id: TabId; label: string }[] = [
 
 const { Dialog, isOpen, show, close } = useDialog();
 const { isOpen: modalIsOpen } = useSettingsModal();
-const { request } = useRpc();
 const voicevoxStore = useVoicevoxStore();
+const worktreeStore = useWorktreeStore();
 
 const state = reactive({
   activeTab: "global" as TabId,
@@ -43,15 +51,16 @@ const state = reactive({
 /** モーダルを開くときに設定を読み込む。load 完了後に dialog を表示する */
 async function openWithSettings() {
   state.loading = true;
+  const dir = worktreeStore.dir;
   const [globalResult, projectResult] = await Promise.all([
-    tryCatch(request.configLoad()),
-    tryCatch(request.projectConfigLoad()),
+    tryCatch(rpcLoadAppConfig()),
+    dir !== undefined ? tryCatch(rpcProjectConfigLoad({ dir })) : Promise.resolve(undefined),
   ]);
   if (globalResult.ok) {
-    state.globalValues = { ...globalResult.value };
+    state.globalValues = flattenAppConfig(globalResult.value.config);
   }
-  if (projectResult.ok) {
-    state.projectValues = { ...projectResult.value };
+  if (projectResult !== undefined && projectResult.ok) {
+    state.projectValues = flattenProjectConfig(projectResult.value.config);
   }
   state.loading = false;
   show();
@@ -107,13 +116,15 @@ function handleGlobalChange(key: string, value: unknown) {
   REACTIVE_SYNC[key]?.(value);
 
   // 変更されたキーのみ patch 保存（他 UI で更新された値を巻き戻さない）
-  void tryCatch(request.configSave({ [key]: value }));
+  void tryCatch(patchAppConfig({ [key]: value }));
 }
 
 /** プロジェクト設定の値変更ハンドラー */
 function handleProjectChange(key: string, value: unknown) {
   state.projectValues[key] = value;
-  void tryCatch(request.projectConfigSave({ [key]: value }));
+  const dir = worktreeStore.dir;
+  if (dir === undefined) return;
+  void tryCatch(patchProjectConfig(dir, { [key]: value }));
 }
 
 // modalIsOpen と dialog の isOpen を同期

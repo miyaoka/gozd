@@ -3,7 +3,7 @@ Issue picker の1行分。Issue 番号・タイトル・author・更新日時を
 </doc>
 
 <script setup lang="ts">
-import type { GitIssue } from "@gozd/rpc";
+import type { GitIssue } from "@gozd/proto";
 import { computed } from "vue";
 import { formatRelativeDate } from "../../formatRelativeDate";
 

@@ -134,7 +134,7 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 
 ## 開発コマンド
 
-- `pnpm dev` — renderer（Vite HMR）と desktop（Electrobun dev）を `concurrently` で同時起動。片方が終了すると他方も終了する
+- `pnpm dev` — renderer（Vite HMR）と native（Swift app）を `pnpm --parallel --filter @gozd/renderer --filter @gozd/native dev` で同時起動
 - `pnpm build` — 全パッケージをビルド（stable 環境の `.app` を生成）
 
 全体チェックはルートの `pnpm typecheck:all` / `lint:all` / `test:all` を使う。各 workspace の同名スクリプトを一括実行する。
@@ -184,6 +184,26 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 - try-catch は使わず、`@gozd/shared` の `tryCatch` を使って Result 型で処理する
 - `tryCatch(() => ...)` で同期処理、`tryCatch(promise)` で非同期処理をラップ
 - 結果は `result.ok` で判定し、`result.value` / `result.error` でアクセスする
+
+## Swift
+
+### 型システム / safety 機構の無効化・回避は厳禁
+
+**原則禁止:**
+`@unchecked Sendable` / `nonisolated(unsafe)` / `as!`（force cast） / `!`（force unwrap） / `var x: T!`（implicitly unwrapped optional） / `try!` / `unsafeBitCast` / `Unmanaged.*` を C bridge 以外で使うこと
+
+これらは TypeScript の `@ts-ignore` / `any` / `as` / `!` と同じ性質の escape hatch。コンパイラの責任を開発者の手動保証に肩代わりさせる仕組みであり、機械的に使うものではない。
+
+**型 / 安全性のエラーが出たとき:**
+
+- 型を緩めて黙らせる前に、なぜそのエラーが出ているか確認する
+- Optional には `if let` / `guard let` / `??` で対処。`!` は使わない
+- 型変換は `as?`（safe cast） + 失敗時のエラーで対処。`as!` は使わない
+- Sendable エラーが出たら、そもそも Sendable にする必要があるか問う
+  - actor を跨いで送る要件がなければ Sendable にしない（non-Sendable class として単一 context 所有）
+  - 跨ぐ要件があるなら actor / 値型 / Copy-on-Write を検討
+- C bridge（forkpty、FSEvents 等）で `Unmanaged.*` / `unsafeBitCast` を使う場合は、その箇所のみで使い、ラップした class は普通の Swift コードとして扱う
+- それでも残る場合のみ最後の手段として escape hatch を使う。使うときは「なぜ自前で保証できるか」をコメントで明記する
 
 ## pnpm ワークアラウンド
 

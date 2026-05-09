@@ -22,19 +22,20 @@
 </doc>
 
 <script setup lang="ts">
-import { UNCOMMITTED_HASH } from "@gozd/rpc";
 import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref, watch } from "vue";
-import { useRpc } from "../../shared/rpc";
-import { getFileIconName, getIconUrl } from "../filer";
+import { onMessage } from "../../shared/rpc";
+import { getFileIconName, getIconUrl, rpcFsReadFile, rpcFsReadFileAbsolute } from "../filer";
+import type { FsChangePayload } from "../filer";
 import { useGitGraphStore } from "../git-graph";
-import { useWorktreeStore } from "../worktree";
+import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import type { GitChangeKind } from "../worktree";
 import CodePreview from "./CodePreview.vue";
 import DiffPreview from "./DiffPreview.vue";
 import ImagePreview from "./ImagePreview.vue";
 import MarkdownPreview from "./MarkdownPreview.vue";
 import { previewFontFamily, previewFontSize } from "./previewConfig";
+import { rpcGitShowCommitFile, rpcGitShowFile } from "./rpc";
 
 type PreviewMode = "current" | "diff" | "original";
 
@@ -72,7 +73,6 @@ const worktreeStore = useWorktreeStore();
 const { selectedPath, selectedLineNumber, selectedGitChange, fileServerBaseUrl, revealVersion } =
   storeToRefs(worktreeStore);
 const gitGraphStore = useGitGraphStore();
-const { request, onFsChange } = useRpc();
 
 const currentContent = ref<string>();
 const originalContent = ref<string>();
@@ -166,15 +166,25 @@ async function fetchContent(path: string, gitChange: GitChangeKind | undefined) 
     // 絶対パスの場合は fsReadFileAbsolute を使い、git 操作は不要
     const isAbsolute = path.startsWith("/");
 
+    const dir = worktreeStore.dir;
+    if (dir === undefined) return;
+
     // 並列でデータ取得
-    const [currentResult, originalResult] = await Promise.all([
-      isDeleted
-        ? undefined
-        : isAbsolute
-          ? request.fsReadFileAbsolute({ absolutePath: path })
-          : request.fsReadFile({ relPath: path }),
-      !isAbsolute && (hasDiff || isDeleted) ? request.gitShowFile({ relPath: path }) : undefined,
-    ]);
+    const currentPromise = isDeleted
+      ? Promise.resolve(undefined)
+      : isAbsolute
+        ? rpcFsReadFileAbsolute({ absolutePath: path }).then((r) => r.result)
+        : rpcFsReadFile({ dir, path }).then((r) => ({
+            content: r.content,
+            isBinary: r.isBinary,
+            isDirectory: r.isDirectory,
+            notFound: r.notFound,
+          }));
+    const originalPromise =
+      !isAbsolute && (hasDiff || isDeleted)
+        ? rpcGitShowFile({ dir, relPath: path }).then((r) => r.result)
+        : Promise.resolve(undefined);
+    const [currentResult, originalResult] = await Promise.all([currentPromise, originalPromise]);
 
     // 別の読み込みが開始された場合は結果を破棄
     if (version !== fetchVersion) return;
@@ -182,14 +192,14 @@ async function fetchContent(path: string, gitChange: GitChangeKind | undefined) 
     isDirectory.value = currentResult?.isDirectory ?? false;
     isNotFound.value = currentResult?.notFound ?? false;
 
-    if (currentResult) {
+    if (currentResult !== undefined) {
       currentContent.value = currentResult.content;
       isBinary.value = currentResult.isBinary;
     } else {
       currentContent.value = undefined;
       isBinary.value = false;
     }
-    if (originalResult) {
+    if (originalResult !== undefined) {
       originalContent.value = originalResult.content;
       isOriginalBinary.value = originalResult.isBinary;
     } else {
@@ -217,26 +227,30 @@ async function fetchCommitContent(filePath: string) {
   fetchVersionRef.value = version;
 
   try {
-    const result = await request.gitShowCommitFile({
+    const dir = worktreeStore.dir;
+    if (dir === undefined) return;
+    const result = await rpcGitShowCommitFile({
+      dir,
       relPath: filePath,
       hash: gitGraphStore.selectedHash,
-      compareHash: gitGraphStore.compareHash ?? undefined,
+      compareHash: gitGraphStore.compareHash ?? "",
     });
 
     if (version !== fetchVersion) return;
 
-    const { from, to } = result;
+    const from = result.from;
+    const to = result.to;
+    const fromNotFound = from?.notFound ?? true;
+    const toNotFound = to?.notFound ?? true;
 
-    // from/to の状態から変更種別を導出
-    if (from.notFound && !to.notFound) {
+    if (fromNotFound && !toNotFound) {
       commitGitChange.value = "added";
-    } else if (!from.notFound && to.notFound) {
+    } else if (!fromNotFound && toNotFound) {
       commitGitChange.value = "deleted";
     } else {
       commitGitChange.value = "modified";
     }
 
-    // デフォルトモードを変更種別に応じて設定
     if (commitGitChange.value === "deleted") {
       activeMode.value = "original";
     } else if (commitGitChange.value === "added") {
@@ -245,11 +259,11 @@ async function fetchCommitContent(filePath: string) {
       activeMode.value = "diff";
     }
 
-    originalContent.value = from.notFound ? undefined : from.content;
-    isOriginalBinary.value = from.isBinary;
-    currentContent.value = to.notFound ? undefined : to.content;
-    isBinary.value = to.isBinary;
-    isNotFound.value = (from.notFound ?? false) && (to.notFound ?? false);
+    originalContent.value = fromNotFound ? undefined : from?.content;
+    isOriginalBinary.value = from?.isBinary ?? false;
+    currentContent.value = toNotFound ? undefined : to?.content;
+    isBinary.value = to?.isBinary ?? false;
+    isNotFound.value = fromNotFound && toNotFound;
   } catch (e) {
     if (version !== fetchVersion) return;
     error.value = e instanceof Error ? e.message : "Failed to read file";
@@ -302,7 +316,7 @@ function parentDir(filePath: string): string {
   return filePath.substring(0, idx);
 }
 
-const unsubscribeFsChange = onFsChange(({ relDir }) => {
+const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ relDir }) => {
   if (!selectedPath.value) return;
   // コミットモードではファイル変更通知を無視（表示内容は git オブジェクトから取得済み）
   if (gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null) return;

@@ -1,4 +1,4 @@
-import type { WorktreeEntry } from "@gozd/rpc";
+import type { WorktreeEntry } from "@gozd/proto";
 
 /** Task の body 一行目をタイトルとして取得 */
 function taskTitle(body: string): string {

@@ -1,101 +1,105 @@
-import type { Task, WorktreeEntry } from "@gozd/rpc";
+import type { Task, WorktreeEntry } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { ref } from "vue";
-import { useRpc } from "../../../../shared/rpc";
+import { rpcTaskAdd, rpcTaskUpdate } from "../../rpc";
 
 interface UseTaskActionsOptions {
-  fetchData: () => Promise<void>;
+  fetchRepo: (rootDir: string) => Promise<void>;
 }
 
-/** worktree に紐づく Task の編集・新規作成を管理する */
-export function useTaskActions({ fetchData }: UseTaskActionsOptions) {
-  const { request } = useRpc();
-
-  // --- インライン編集 ---
+/**
+ * worktree に紐づく Task の編集・新規作成。
+ *
+ * 編集 / 追加開始時に rootDir を捕捉し、保存時にその rootDir を Project dir として使う。
+ * これにより、active 以外の repo の worktree でも独立に Task を編集できる。
+ */
+export function useTaskActions({ fetchRepo }: UseTaskActionsOptions) {
+  // --- 既存 Task のインライン編集 ---
 
   const editingTaskId = ref<string>();
+  const editingRootDir = ref<string>();
   const editBody = ref("");
 
-  function startEditing(task: Task) {
+  function startEditing(task: Task, rootDir: string) {
     editingTaskId.value = task.id;
+    editingRootDir.value = rootDir;
     editBody.value = task.body;
-  }
-
-  async function saveEdit(body: string): Promise<boolean> {
-    const id = editingTaskId.value;
-    if (!id) return false;
-    const result = await tryCatch(request.taskUpdate({ id, body }));
-    if (!result.ok) return false;
-    await fetchData();
-    return true;
-  }
-
-  /** 保存ボタン / Enter: 編集中の body で保存してパネルを閉じる */
-  async function submitEdit() {
-    if (!(await saveEdit(editBody.value))) return;
-    editingTaskId.value = undefined;
   }
 
   function cancelEdit() {
     editingTaskId.value = undefined;
+    editingRootDir.value = undefined;
   }
 
-  // --- worktree の Task 編集・新規作成（入力欄を開き、保存時に永続化） ---
+  async function submitEdit() {
+    const id = editingTaskId.value;
+    const rootDir = editingRootDir.value;
+    if (id === undefined || rootDir === undefined) return;
+    const result = await tryCatch(rpcTaskUpdate({ dir: rootDir, id, body: editBody.value }));
+    if (!result.ok) return;
+    await fetchRepo(rootDir);
+    cancelEdit();
+  }
 
-  /** Task 新規作成中の worktree ディレクトリパス */
+  // --- worktree への Task 新規作成 ---
+
+  /** Task 新規作成中の worktree path（一度に 1 件のみ） */
   const addingTaskForDir = ref<string>();
+  const addingTaskRootDir = ref<string>();
   const addingTaskBody = ref("");
-
-  /** worktree の Task 編集をトグルする。Task がなければ新規作成入力欄を開く */
-  function toggleWorktreeTaskEdit(wt: WorktreeEntry) {
-    // 既存 Task がある場合: 編集トグル
-    if (wt.task) {
-      if (editingTaskId.value === wt.task.id) {
-        cancelEdit();
-      } else {
-        startEditing(wt.task);
-      }
-      return;
-    }
-    // Task がない場合: 新規作成入力欄のトグル
-    if (addingTaskForDir.value === wt.path) {
-      cancelWorktreeTaskAdd();
-    } else {
-      addingTaskForDir.value = wt.path;
-      addingTaskBody.value = "";
-    }
-  }
-
   const isSavingWorktreeTask = ref(false);
 
-  /** worktree の Task 新規作成を保存する */
+  function cancelWorktreeTaskAdd() {
+    addingTaskForDir.value = undefined;
+    addingTaskRootDir.value = undefined;
+  }
+
+  /** Task の編集 / 新規作成入力欄をトグル */
+  function toggleWorktreeTaskEdit(wt: WorktreeEntry, rootDir: string) {
+    if (wt.task) {
+      if (editingTaskId.value === wt.task.id) cancelEdit();
+      else startEditing(wt.task, rootDir);
+      return;
+    }
+    if (addingTaskForDir.value === wt.path) {
+      cancelWorktreeTaskAdd();
+      return;
+    }
+    addingTaskForDir.value = wt.path;
+    addingTaskRootDir.value = rootDir;
+    addingTaskBody.value = "";
+  }
+
   async function saveWorktreeTask(wt: WorktreeEntry) {
     if (isSavingWorktreeTask.value) return;
     if (!addingTaskBody.value.trim()) {
       cancelWorktreeTaskAdd();
       return;
     }
+    const rootDir = addingTaskRootDir.value;
+    if (rootDir === undefined) return;
+
     isSavingWorktreeTask.value = true;
     const result = await tryCatch(
-      request.taskAdd({ body: addingTaskBody.value, worktreeDir: wt.path }),
+      rpcTaskAdd({
+        dir: rootDir,
+        body: addingTaskBody.value,
+        worktreeDir: wt.path,
+        prNumber: 0,
+        issueNumber: 0,
+      }),
     );
     isSavingWorktreeTask.value = false;
     if (!result.ok) return;
-    addingTaskForDir.value = undefined;
-    await fetchData();
-  }
-
-  function cancelWorktreeTaskAdd() {
-    addingTaskForDir.value = undefined;
+    cancelWorktreeTaskAdd();
+    await fetchRepo(rootDir);
   }
 
   return {
-    // インライン編集
     editingTaskId,
     editBody,
     submitEdit,
     cancelEdit,
-    // worktree Task 編集・新規作成
     addingTaskForDir,
     addingTaskBody,
     toggleWorktreeTaskEdit,

@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package gozd.v1;
+
+import "gozd/v1/common.proto";
+
+// プロジェクト固有の Task 永続化 (`~/.config/gozd/projects/<projectKey>/tasks.json`)。
+//
+// projectKey は dir の realpath から server 側で算出する。renderer は dir のみ渡す。
+
+// TaskStore の永続化形式（tasks.json）。RPC レスポンスとファイル形式を共有する。
+message TaskList {
+  repeated Task tasks = 1;
+}
+
+message TaskListRequest {
+  string dir = 1;
+}
+message TaskListResponse {
+  repeated Task tasks = 1;
+}
+
+message TaskAddRequest {
+  string dir = 1;
+  string body = 2;
+  string worktree_dir = 3;
+  uint32 pr_number = 4;
+  uint32 issue_number = 5;
+}
+message TaskAddResponse {
+  Task task = 1;
+}
+
+message TaskUpdateRequest {
+  string dir = 1;
+  string id = 2;
+  string body = 3;
+}
+message TaskUpdateResponse {
+  Task task = 1;
+}
+
+message TaskRemoveRequest {
+  string dir = 1;
+  string id = 2;
+}
+message TaskRemoveResponse {}
+
+// 1 RPC で task 作成 + worktree 作成を atomic に行う
+message CreateWorktreeWithTaskRequest {
+  string dir = 1;
+  string id = 2;
+  string worktree_dir = 3;
+  string branch = 4;
+}
+message CreateWorktreeWithTaskResponse {
+  Task task = 1;
+  WorktreeEntry worktree = 2;
+  string dir = 3;
+}

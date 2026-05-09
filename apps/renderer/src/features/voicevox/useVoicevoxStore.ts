@@ -1,7 +1,10 @@
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { ref, watch } from "vue";
-import { useRpc } from "../../shared/rpc";
+import { onMessage } from "../../shared/rpc";
+import { rpcLoadAppConfig, rpcSaveAppConfig } from "../settings";
+import type { HookPayload } from "../terminal";
+import { rpcVoicevoxCheckEngine, rpcVoicevoxLaunch, rpcVoicevoxSpeak } from "./rpc";
 import { extractSpeechText } from "./speechText";
 
 /** ずんだもん（ノーマル） */
@@ -58,7 +61,6 @@ let speakGeneration = 0;
 let disposeHookListener: (() => void) | undefined;
 
 export const useVoicevoxStore = defineStore("voicevox", () => {
-  const { request, onGozdHook } = useRpc();
   const enabled = ref(false);
   const speedScale = ref(DEFAULT_SPEED_SCALE);
   const volumeScale = ref(DEFAULT_VOLUME_SCALE);
@@ -67,8 +69,8 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
 
   /** RPC 経由で Engine の起動状態を確認する */
   async function checkEngineRunning(): Promise<boolean> {
-    const result = await tryCatch(request.voicevoxCheckEngine());
-    return result.ok && result.value;
+    const result = await tryCatch(rpcVoicevoxCheckEngine());
+    return result.ok && result.value.ok;
   }
 
   /** 指定回数ポーリングして Engine の起動を待つ */
@@ -87,24 +89,17 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
 
     const synthesize = async () => {
       const result = await tryCatch(
-        request.voicevoxSpeak({
+        rpcVoicevoxSpeak({
           text,
           speedScale: speed,
           volumeScale: volume,
           speakerId: DEFAULT_SPEAKER_ID,
         }),
       );
-      if (!result.ok || result.value === undefined) return;
+      if (!result.ok || result.value.wav.length === 0) return;
       if (gen !== speakGeneration) return;
 
-      const binary = atob(result.value);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      if (gen !== speakGeneration) return;
-
-      const blob = new Blob([bytes], { type: "audio/wav" });
+      const blob = new Blob([new Uint8Array(result.value.wav)], { type: "audio/wav" });
       const url = URL.createObjectURL(blob);
       currentObjectUrl = url;
       currentAudio = new Audio(url);
@@ -116,34 +111,42 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
   }
 
   // 起動時に設定を読み込み、enabled なら Engine の起動も試みる
-  void tryCatch(request.configLoad()).then(async (result) => {
+  void tryCatch(rpcLoadAppConfig()).then(async (result) => {
     if (!result.ok) return;
-    const config = result.value;
-    if (typeof config["voicevox.speedScale"] === "number")
-      speedScale.value = config["voicevox.speedScale"];
-    if (typeof config["voicevox.volumeScale"] === "number")
-      volumeScale.value = config["voicevox.volumeScale"];
-    if (config["voicevox.enabled"]) {
-      enabled.value = true;
-      // Engine が起動していなければバックグラウンドで起動だけ試みる（ポーリングしない）
-      if (!(await checkEngineRunning())) {
-        void tryCatch(request.voicevoxLaunch());
+    const cfg = result.value.config?.voicevox;
+    if (cfg !== undefined) {
+      if (cfg.speedScale > 0) speedScale.value = cfg.speedScale;
+      if (cfg.volumeScale > 0) volumeScale.value = cfg.volumeScale;
+      if (cfg.enabled) {
+        enabled.value = true;
+        // Engine が起動していなければバックグラウンドで起動だけ試みる（ポーリングしない）
+        if (!(await checkEngineRunning())) {
+          void tryCatch(rpcVoicevoxLaunch());
+        }
       }
     }
   });
 
-  function saveSettings() {
-    void tryCatch(
-      request.configSave({
-        "voicevox.enabled": enabled.value,
-        "voicevox.speedScale": speedScale.value,
-        "voicevox.volumeScale": volumeScale.value,
-      }),
-    );
+  async function saveSettings() {
+    const loadResult = await tryCatch(rpcLoadAppConfig());
+    if (!loadResult.ok) return;
+    const config = loadResult.value.config ?? {
+      terminal: undefined,
+      preview: undefined,
+      voicevox: undefined,
+    };
+    config.voicevox = {
+      enabled: enabled.value,
+      speedScale: speedScale.value,
+      volumeScale: volumeScale.value,
+    };
+    void tryCatch(rpcSaveAppConfig(config));
   }
 
   // 設定変更時に保存
-  watch([enabled, speedScale, volumeScale], saveSettings);
+  watch([enabled, speedScale, volumeScale], () => {
+    void saveSettings();
+  });
 
   /**
    * VOICEVOX を有効化する。
@@ -163,8 +166,8 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     }
 
     // アプリの起動を試みる
-    const launchResult = await tryCatch(request.voicevoxLaunch());
-    if (!launchResult.ok || !launchResult.value) {
+    const launchResult = await tryCatch(rpcVoicevoxLaunch());
+    if (!launchResult.ok || !launchResult.value.ok) {
       activating.value = false;
       return "VOICEVOX is not installed.\nDownload from https://voicevox.hiroshiba.jp/";
     }
@@ -197,10 +200,18 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
 
   function initHookSubscription() {
     disposeHookListener?.();
-    disposeHookListener = onGozdHook(({ event, payload }) => {
+    disposeHookListener = onMessage<HookPayload>("hook", (payload) => {
       if (!enabled.value) return;
-      if (!SPEAK_EVENTS.has(event)) return;
-      const text = extractSpeechText(event, payload);
+      if (!SPEAK_EVENTS.has(payload.event)) return;
+      // extractSpeechText は旧 snake_case payload を期待するため境界で変換する
+      const legacyPayload: Record<string, unknown> = {
+        ptyId: payload.ptyId,
+        last_assistant_message: payload.lastAssistantMessage,
+        tool_name: payload.toolName,
+        tool_input: payload.toolInput,
+        is_interrupt: payload.isInterrupt,
+      };
+      const text = extractSpeechText(payload.event, legacyPayload);
       if (text) {
         void speak(text, speedScale.value, volumeScale.value);
       }

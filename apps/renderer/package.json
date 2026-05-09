@@ -12,7 +12,10 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@gozd/rpc": "workspace:*",
+    "@dnd-kit/abstract": "0.4.0",
+    "@dnd-kit/helpers": "0.4.0",
+    "@dnd-kit/vue": "0.4.0",
+    "@gozd/proto": "workspace:*",
     "@gozd/shared": "workspace:*",
     "@gozd/themes": "workspace:*",
     "@vueuse/core": "14.2.1",
@@ -23,7 +26,6 @@
     "@xterm/xterm": "6.0.0",
     "diff": "9.0.0",
     "dompurify": "3.4.2",
-    "electrobun": "catalog:",
     "marked": "18.0.3",
     "material-icon-theme": "5.33.1",
     "pinia": "3.0.4",

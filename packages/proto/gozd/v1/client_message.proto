@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package gozd.v1;
+
+// CLI / nc から SocketServer へ送られるメッセージ。
+// NDJSON 1 行 = 1 ClientMessage（proto3 JSON mapping）。
+//
+// proto3 oneof は JSON で `{"hook":{...}}` / `{"open":{...}}` の形式になり、
+// nc 直送コマンドにそのまま埋め込める：
+//
+//   echo '{"hook":{"event":"session-start","ptyId":'"$GOZD_PTY_ID"'}}' | nc -w 1 -U "$GOZD_SOCKET_PATH"
+message ClientMessage {
+  oneof body {
+    HookMessage hook = 1;
+    OpenMessage open = 2;
+  }
+}
+
+// Claude Code の hook イベント通知。
+// 軽量な nc 直送経路では event / pty_id のみ。CLI 経由の rich 経路では
+// 残りの payload フィールドが埋まる。
+message HookMessage {
+  // "session-start" / "session-end" / "running" / "done" / "needs-input" /
+  // "tool-done" / "tool-failure" / "stop-failure"
+  string event = 1;
+  uint32 pty_id = 2;
+
+  // CLI 経由のみ
+  string last_assistant_message = 3;
+  string tool_name = 4;
+  // Claude Code の tool_input をそのまま JSON 文字列として保持
+  string tool_input = 5;
+  bool is_interrupt = 6;
+}
+
+// `gozd open <path>` から送られるプロジェクトを開けの指示。
+message OpenMessage {
+  string target_path = 1;
+}

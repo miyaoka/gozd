@@ -58,7 +58,7 @@ gozd.app/Contents/
 
 ### `pnpm dev`（開発時）
 
-- `concurrently` で renderer（Vite HMR）と desktop（Electrobun dev）を同時起動
+- `pnpm --parallel --filter @gozd/renderer --filter @gozd/native dev` で renderer（Vite HMR）と native（Swift app）を同時起動
 - desktop の dev スクリプト: `GOZD_DEV_PROJECT_ROOT=$PWD pnpm exec electrobun dev`
 - `GOZD_DEV_PROJECT_ROOT` は dev 時のみ存在し、プロジェクトルートを指す。初期ウィンドウのディレクトリと CLI パスの解決に使用
 - renderer は `http://localhost:5173`（Vite dev server）に接続。HMR 有効

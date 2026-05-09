@@ -5,9 +5,9 @@
   "description": "AI Agent Orchestrator",
   "type": "module",
   "scripts": {
-    "dev": "concurrently --kill-others \"pnpm --filter @gozd/renderer dev\" \"pnpm --filter @gozd/desktop dev\"",
+    "dev": "concurrently --kill-others --names renderer,native --prefix-colors cyan,magenta 'pnpm --filter @gozd/renderer dev' 'pnpm --filter @gozd/native dev'",
+    "dev:prod": "rm -rf \"$TMPDIR/gozd-stable-launch\" \"$TMPDIR/gozd-stable.sock\" && env -u GOZD_SOCKET_PATH apps/native/.build/app/Gozd.app/Contents/Resources/app/bin/gozd",
     "build": "pnpm -r build",
-    "open": "open apps/desktop/build/stable-macos-arm64/gozd.app",
     "format": "oxfmt .",
     "lint": "oxlint --type-aware",
     "fix": "oxfmt '!apps/**' '!packages/**'",
@@ -20,8 +20,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "@typescript/native-preview": "catalog:",
-    "concurrently": "9.2.1",
+    "concurrently": "^9.2.1",
     "knip": "6.11.0",
     "lefthook": "catalog:",
     "oxfmt": "catalog:",

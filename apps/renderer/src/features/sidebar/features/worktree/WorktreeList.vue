@@ -5,7 +5,7 @@
 </doc>
 
 <script setup lang="ts">
-import type { WorktreeEntry } from "@gozd/rpc";
+import type { WorktreeEntry } from "@gozd/proto";
 import type { ClaudeStatus } from "../../../terminal";
 import WorktreeItem from "./WorktreeItem.vue";
 

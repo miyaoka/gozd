@@ -10,7 +10,7 @@ CSS Anchor Positioning で ⋮ ボタンの直下に配置。
 </doc>
 
 <script setup lang="ts">
-import type { WorktreeEntry } from "@gozd/rpc";
+import type { WorktreeEntry } from "@gozd/proto";
 import { nextTick, ref } from "vue";
 
 defineProps<{
@@ -18,16 +18,14 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
-  worktreeEditTask: [wt: WorktreeEntry];
-  worktreeRemove: [wt: WorktreeEntry];
-  branchLink: [branch: string];
+  worktreeEditTask: [wt: WorktreeEntry, rootDir: string];
+  worktreeRemove: [wt: WorktreeEntry, rootDir: string];
+  branchLink: [branch: string, rootDir: string];
 }>();
 
-interface MenuContext {
-  type: "worktree" | "branch";
-  worktree?: WorktreeEntry;
-  branch?: string;
-}
+type MenuContext =
+  | { type: "worktree"; worktree: WorktreeEntry; rootDir: string }
+  | { type: "branch"; branch: string; rootDir: string };
 
 const menuRef = ref<HTMLElement>();
 const menuContext = ref<MenuContext>();
@@ -46,19 +44,19 @@ function closeMenu() {
   menuRef.value?.hidePopover();
 }
 
-function handleWorktreeEditTask(wt: WorktreeEntry) {
+function handleWorktreeEditTask(wt: WorktreeEntry, rootDir: string) {
   closeMenu();
-  emit("worktreeEditTask", wt);
+  emit("worktreeEditTask", wt, rootDir);
 }
 
-function handleWorktreeRemove(wt: WorktreeEntry) {
+function handleWorktreeRemove(wt: WorktreeEntry, rootDir: string) {
   closeMenu();
-  emit("worktreeRemove", wt);
+  emit("worktreeRemove", wt, rootDir);
 }
 
-function handleBranchLink(branch: string) {
+function handleBranchLink(branch: string, rootDir: string) {
   closeMenu();
-  emit("branchLink", branch);
+  emit("branchLink", branch, rootDir);
 }
 
 defineExpose({ openMenu });
@@ -78,14 +76,14 @@ defineExpose({ openMenu });
     <template v-if="menuContext?.type === 'worktree' && menuContext.worktree">
       <button
         class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800"
-        @click="handleWorktreeEditTask(menuContext.worktree)"
+        @click="handleWorktreeEditTask(menuContext.worktree, menuContext.rootDir)"
       >
         <span class="icon-[lucide--pencil] text-xs" />
         Edit task
       </button>
       <button
         class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-400 hover:bg-zinc-800"
-        @click="handleWorktreeRemove(menuContext.worktree)"
+        @click="handleWorktreeRemove(menuContext.worktree, menuContext.rootDir)"
       >
         <span class="icon-[lucide--unlink] text-xs" />
         Remove worktree
@@ -95,7 +93,7 @@ defineExpose({ openMenu });
       <button
         class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800"
         :disabled="isCreating"
-        @click="handleBranchLink(menuContext.branch)"
+        @click="handleBranchLink(menuContext.branch, menuContext.rootDir)"
       >
         <span class="icon-[lucide--link] text-xs" />
         Create worktree

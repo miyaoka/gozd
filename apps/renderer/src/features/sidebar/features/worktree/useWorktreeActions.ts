@@ -1,105 +1,143 @@
-import type { Task, WorktreeEntry } from "@gozd/rpc";
+import type { WorktreeEntry } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
-import type { Ref } from "vue";
 import { ref } from "vue";
 import { useNotificationStore } from "../../../../shared/notification";
-import { useRpc } from "../../../../shared/rpc";
+import { useRepoStore } from "../../../../shared/repo";
 import { useTerminalStore } from "../../../terminal";
-import { useWorktreeStore, generateTimestamp } from "../../../worktree";
+import { generateTimestamp, useWorktreeStore } from "../../../worktree";
+import { rpcCreateWorktree, rpcGitWorktreeRemove } from "../../rpc";
 import { worktreeDisplayName } from "../../utils";
 
 interface UseWorktreeActionsOptions {
-  worktrees: Ref<WorktreeEntry[]>;
-  freeBranches: Ref<string[]>;
   showConfirm: (message: string, action: () => Promise<void>) => void;
 }
 
 /**
- * Worktree の作成・削除・選択・切り替え。
- * isCreating / isSwitching を独立管理し、re-entry guard を提供する。
+ * Worktree の作成・削除・選択。
+ *
+ * すべての書き込み系操作は `rootDir` を明示的に受け取り、対象 repo を一意に特定する。
+ * `worktreeStore.dir`（active）には依存しない。
  */
-export function useWorktreeActions({
-  worktrees,
-  freeBranches,
-  showConfirm,
-}: UseWorktreeActionsOptions) {
+export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
   const notify = useNotificationStore();
   const worktreeStore = useWorktreeStore();
   const terminalStore = useTerminalStore();
-  const { request } = useRpc();
+  const repoStore = useRepoStore();
 
   const isCreating = ref(false);
-  const isSwitching = ref(false);
 
-  // --- worktree 操作 ---
-
-  /** 現在表示中の worktree かどうか */
   function isActive(wt: WorktreeEntry): boolean {
     return worktreeStore.dir === wt.path;
   }
 
-  /** worktree をクリックして表示対象を切り替える */
-  async function handleWorktreeSelect(wt: WorktreeEntry) {
+  function handleWorktreeSelect(wt: WorktreeEntry) {
     terminalStore.viewMode = "wt";
     if (isActive(wt)) {
       terminalStore.clearDoneStates(wt.path);
       return;
     }
-    if (isSwitching.value) return;
-    isSwitching.value = true;
-    const result = await tryCatch(request.switchDir({ dir: wt.path }));
-    if (result.ok) {
-      worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
-    } else {
-      notify.error("Failed to switch worktree", result.error);
-    }
-    isSwitching.value = false;
+    worktreeStore.setOpen(wt.path);
   }
 
-  async function createWorktree(branch: string) {
+  // --- store 更新 helpers ---
+
+  function appendWorktree(rootDir: string, wt: WorktreeEntry) {
+    const repo = repoStore.repos[rootDir];
+    if (!repo) return;
+    repoStore.updateRepoData(rootDir, [...repo.worktrees, wt], repo.freeBranches);
+  }
+
+  function detachWorktree(rootDir: string, wt: WorktreeEntry) {
+    const repo = repoStore.repos[rootDir];
+    if (!repo) return;
+    const newWorktrees = repo.worktrees.filter((w) => w.path !== wt.path);
+    const newFreeBranches = wt.branch ? [...repo.freeBranches, wt.branch] : repo.freeBranches;
+    repoStore.updateRepoData(rootDir, newWorktrees, newFreeBranches);
+    terminalStore.remove(wt.path);
+  }
+
+  function takeFreeBranch(rootDir: string, branch: string) {
+    const repo = repoStore.repos[rootDir];
+    if (!repo) return;
+    repoStore.updateRepoData(
+      rootDir,
+      repo.worktrees,
+      repo.freeBranches.filter((b) => b !== branch),
+    );
+  }
+
+  function returnFreeBranch(rootDir: string, branch: string) {
+    const repo = repoStore.repos[rootDir];
+    if (!repo) return;
+    repoStore.updateRepoData(rootDir, repo.worktrees, [...repo.freeBranches, branch]);
+  }
+
+  // --- 作成・削除 ---
+
+  /** タイムスタンプで即座に新規 worktree を作成する（Task なし） */
+  async function addWorktree(rootDir: string) {
     if (isCreating.value) return;
     isCreating.value = true;
-    freeBranches.value = freeBranches.value.filter((b) => b !== branch);
-
+    const timestamp = generateTimestamp();
     const result = await tryCatch(
-      request.createWorktree({ worktreeDir: generateTimestamp(), branch }),
+      rpcCreateWorktree({
+        dir: rootDir,
+        worktreeDir: timestamp,
+        branch: timestamp,
+        startPoint: "HEAD",
+      }),
     );
-    if (result.ok) {
-      worktrees.value = [...worktrees.value, result.value.worktree];
+    if (result.ok && result.value.worktree !== undefined) {
+      appendWorktree(rootDir, result.value.worktree);
       terminalStore.viewMode = "wt";
-      worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
+      worktreeStore.setOpen(result.value.dir);
     } else {
-      notify.error("Failed to create worktree", result.error);
-      freeBranches.value.push(branch);
+      notify.error("Failed to add worktree", result.ok ? undefined : result.error);
     }
     isCreating.value = false;
   }
 
-  function removeFromList(wt: WorktreeEntry) {
-    worktrees.value = worktrees.value.filter((w) => w.path !== wt.path);
-    // ブランチが残る場合は freeBranches に戻す
-    if (wt.branch) {
-      freeBranches.value.push(wt.branch);
+  /** 既存ブランチを worktree 化する */
+  async function handleBranchLink(rootDir: string, branch: string) {
+    if (isCreating.value) return;
+    isCreating.value = true;
+    takeFreeBranch(rootDir, branch);
+    const result = await tryCatch(
+      rpcCreateWorktree({
+        dir: rootDir,
+        worktreeDir: generateTimestamp(),
+        branch,
+        startPoint: "",
+      }),
+    );
+    if (result.ok && result.value.worktree !== undefined) {
+      appendWorktree(rootDir, result.value.worktree);
+      terminalStore.viewMode = "wt";
+      worktreeStore.setOpen(result.value.dir);
+    } else {
+      notify.error("Failed to create worktree", result.ok ? undefined : result.error);
+      returnFreeBranch(rootDir, branch);
     }
-    // ターミナルの visitedDirs から除去（leaf / PTY を破棄させる）
-    terminalStore.remove(wt.path);
+    isCreating.value = false;
   }
 
-  /** worktree 解除: まず通常削除、失敗したら確認後 --force */
-  async function handleWorktreeRemove(wt: WorktreeEntry) {
-    const result = await tryCatch(request.gitWorktreeRemove({ path: wt.path }));
+  /** worktree 解除: 通常削除 → 失敗時に確認の上 --force */
+  async function handleWorktreeRemove(rootDir: string, wt: WorktreeEntry) {
+    const result = await tryCatch(
+      rpcGitWorktreeRemove({ dir: rootDir, path: wt.path, force: false }),
+    );
     if (result.ok) {
-      removeFromList(wt);
+      detachWorktree(rootDir, wt);
       return;
     }
     showConfirm(
       `Failed to remove "${worktreeDisplayName(wt)}" (may have uncommitted changes). Force remove?`,
       async () => {
         const forceResult = await tryCatch(
-          request.gitWorktreeRemove({ path: wt.path, force: true }),
+          rpcGitWorktreeRemove({ dir: rootDir, path: wt.path, force: true }),
         );
         if (forceResult.ok) {
-          removeFromList(wt);
+          detachWorktree(rootDir, wt);
         } else {
           notify.error(`Failed to force remove "${worktreeDisplayName(wt)}"`, forceResult.error);
         }
@@ -107,62 +145,12 @@ export function useWorktreeActions({
     );
   }
 
-  async function createWorktreeWithTask({
-    task,
-    worktreeDir,
-    branch,
-  }: {
-    task: Task;
-    worktreeDir: string;
-    branch: string;
-  }) {
-    isCreating.value = true;
-    const result = await tryCatch(
-      request.createWorktreeWithTask({ id: task.id, worktreeDir, branch }),
-    );
-    if (result.ok) {
-      worktrees.value = [...worktrees.value, result.value.worktree];
-      terminalStore.viewMode = "wt";
-      worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
-    } else {
-      notify.error("Failed to create worktree with task", result.error);
-    }
-    isCreating.value = false;
-  }
-
-  /** タイムスタンプで即座に worktree を作成する（Task なし） */
-  async function addWorktree() {
-    if (isCreating.value) return;
-    isCreating.value = true;
-    const timestamp = generateTimestamp();
-    const result = await tryCatch(
-      request.createWorktree({ worktreeDir: timestamp, branch: timestamp }),
-    );
-    if (result.ok) {
-      worktrees.value = [...worktrees.value, result.value.worktree];
-      terminalStore.viewMode = "wt";
-      worktreeStore.setOpen(result.value.dir, undefined, result.value.fileServerBaseUrl);
-    } else {
-      notify.error("Failed to add worktree", result.error);
-    }
-    isCreating.value = false;
-  }
-
-  /** ブランチを worktree 化する */
-  function handleBranchLink(branch: string) {
-    void createWorktree(branch);
-  }
-
   return {
     isCreating,
-    isSwitching,
     isActive,
-    // worktree 操作
     handleWorktreeSelect,
     addWorktree,
-    createWorktree,
     handleWorktreeRemove,
-    createWorktreeWithTask,
     handleBranchLink,
   };
 }

@@ -1,6 +1,7 @@
-import type { OpenTargetSelection } from "@gozd/rpc";
+import type { OpenTargetSelection } from "@gozd/proto";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
+import { useRepoStore } from "../../shared/repo";
 import { resolveFileGitChange } from "./gitStatusUtils";
 import { normalizePath } from "./pathUtils";
 import { useGitStatusStore } from "./useGitStatusStore";
@@ -11,7 +12,7 @@ interface Selection {
 }
 
 export const useWorktreeStore = defineStore("worktree", () => {
-  const dir = ref<string>();
+  const repoStore = useRepoStore();
   const fileServerBaseUrl = ref<string>();
 
   /** worktree ごとの選択状態（dir → Selection） */
@@ -24,6 +25,9 @@ export const useWorktreeStore = defineStore("worktree", () => {
   const revealVersion = ref(0);
 
   const gitStatusStore = useGitStatusStore();
+
+  /** 現在 UI で選択中の dir。repoStore.selectedDir の薄いエイリアス */
+  const dir = computed(() => repoStore.selectedDir);
 
   /** 現在の worktree で選択中のパス（相対パス） */
   const selectedPath = computed(() => {
@@ -43,14 +47,23 @@ export const useWorktreeStore = defineStore("worktree", () => {
     return resolveFileGitChange(selectedPath.value, gitStatusStore.gitStatuses);
   });
 
-  /** RPC gozdOpen イベントで呼ばれる */
-  function setOpen(newDir: string, selection?: OpenTargetSelection, newFileServerBaseUrl?: string) {
-    const dirChanged = dir.value !== newDir;
+  interface SetOpenOptions {
+    selection?: OpenTargetSelection;
+    fileServerBaseUrl?: string;
+  }
+
+  /**
+   * worktree 切替（同 repo 内）専用。新 dir は既に repoStore に登録済みであることが前提。
+   * 新規 repo の追加は App.vue の gozdOpen ハンドラが行う。
+   */
+  function setOpen(newDir: string, options: SetOpenOptions = {}) {
+    const dirChanged = repoStore.selectedDir !== newDir;
     const prevSelectedPath = selectedPath.value;
-    dir.value = newDir;
-    if (newFileServerBaseUrl) {
-      fileServerBaseUrl.value = newFileServerBaseUrl;
+    repoStore.selectDir(newDir);
+    if (options.fileServerBaseUrl) {
+      fileServerBaseUrl.value = options.fileServerBaseUrl;
     }
+    const selection = options.selection;
     if (selection) {
       if (dirChanged) {
         // dir が変わる場合は loadRoot 後に consumeInitialSelection で適用

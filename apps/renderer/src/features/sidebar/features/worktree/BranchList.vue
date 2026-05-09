@@ -5,6 +5,8 @@
 <script setup lang="ts">
 defineProps<{
   branches: string[];
+  /** repo ごとの anchor-name 衝突回避用スコープ */
+  repoIndex: number;
 }>();
 
 defineEmits<{
@@ -26,8 +28,8 @@ defineEmits<{
       <button
         aria-label="Menu"
         class="grid size-6 place-items-center self-center rounded-sm text-zinc-600 opacity-0 transition-opacity group-focus-within/br:opacity-100 group-hover/br:opacity-100 hover:text-zinc-300"
-        :style="{ anchorName: `--br-menu-${i}` }"
-        @click.stop="$emit('openMenu', `--br-menu-${i}`, branch)"
+        :style="{ anchorName: `--br-menu-${repoIndex}-${i}` }"
+        @click.stop="$emit('openMenu', `--br-menu-${repoIndex}-${i}`, branch)"
       >
         <span class="icon-[lucide--ellipsis-vertical] text-sm" />
       </button>

@@ -171,6 +171,7 @@ function onHeaderClick() {
         :now="now"
         :view-mode="viewMode"
         :get-claude-statuses="getClaudeStatuses"
+        :repo-index="index"
         @select="emit('selectWorktree', $event)"
         @open-menu="(anchorName, wt) => emit('openWorktreeMenu', anchorName, wt, rootDir)"
         @add="emit('addWorktree', rootDir)"
@@ -183,6 +184,7 @@ function onHeaderClick() {
 
       <BranchList
         :branches="sortedBranches"
+        :repo-index="index"
         @open-menu="(anchorName, branch) => emit('openBranchMenu', anchorName, branch, rootDir)"
       />
     </div>

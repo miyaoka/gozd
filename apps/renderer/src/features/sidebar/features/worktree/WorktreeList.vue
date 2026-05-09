@@ -35,6 +35,8 @@ defineProps<{
   now: number;
   viewMode: ViewMode;
   getClaudeStatuses: (dir: string) => ClaudeStatus[];
+  /** repo ごとの anchor-name 衝突回避用スコープ */
+  repoIndex: number;
 }>();
 
 defineEmits<{
@@ -90,7 +92,7 @@ defineSlots<{
         :active="activeDir === wt.path"
         :claude-statuses="getClaudeStatuses(wt.path)"
         :now="now"
-        :anchor-name="`--wt-menu-${i}`"
+        :anchor-name="`--wt-menu-${repoIndex}-${i}`"
         :ctrl-pressed="ctrlPressed"
         :index="i"
         @select="$emit('select', $event)"

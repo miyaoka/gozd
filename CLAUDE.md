@@ -209,6 +209,12 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 
 `pnpm-workspace.yaml` の `overrides` / `packageExtensions` で upstream の依存宣言バグを回避している。upstream が修正されたら解除する。
 
+### settings（pnpm 本体のバグ回避）
+
+| 設定                      | 値      | 理由                                                                                                                                                                                                                                                               | 解除条件                           |
+| ------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------- |
+| `minimumReleaseAgeStrict` | `false` | pnpm v11.0.4 以降、ユーザーが `minimumReleaseAge` を設定すると暗黙で strict=true になる ( pnpm/pnpm#11436 )。strict 経路では abbreviated metadata の `time` 欠落で `ERR_PNPM_MISSING_TIME` を rethrow し、`minimumReleaseAgeIgnoreMissingTime` の catch に届かない | pnpm/pnpm#11238 が修正されたら削除 |
+
 ### overrides
 
 | パッケージ         | 強制バージョン | 理由                                                                                                                                                                        | 解除条件                                                                         |

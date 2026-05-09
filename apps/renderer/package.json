@@ -46,7 +46,7 @@
     "eslint-plugin-better-tailwindcss": "4.5.0",
     "eslint-plugin-import-x": "catalog:",
     "eslint-plugin-unused-imports": "catalog:",
-    "eslint-plugin-vue": "10.9.0",
+    "eslint-plugin-vue": "10.9.1",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",

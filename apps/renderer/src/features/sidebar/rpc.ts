@@ -8,6 +8,10 @@ import {
   GitWorktreeListResponse,
   GitWorktreeRemoveRequest,
   GitWorktreeRemoveResponse,
+  LoadAppStateRequest,
+  LoadAppStateResponse,
+  SaveAppStateRequest,
+  SaveAppStateResponse,
   TaskAddRequest,
   TaskAddResponse,
   TaskUpdateRequest,
@@ -37,6 +41,14 @@ export const rpcTaskAdd = (req: TaskAddRequest) =>
 
 export const rpcTaskUpdate = (req: TaskUpdateRequest) =>
   rpc("/task/update", req, TaskUpdateRequest, TaskUpdateResponse);
+
+// --- app-state 永続化（sidebar repos / order / collapse の保存） ---
+
+export const rpcAppStateLoad = (req: LoadAppStateRequest) =>
+  rpc("/appState/load", req, LoadAppStateRequest, LoadAppStateResponse);
+
+export const rpcAppStateSave = (req: SaveAppStateRequest) =>
+  rpc("/appState/save", req, SaveAppStateRequest, SaveAppStateResponse);
 
 // --- push event payloads ---
 

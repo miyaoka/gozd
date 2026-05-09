@@ -42,11 +42,34 @@ public struct Gozd_V1_AppState: Sendable {
   /// 最後に開いていた worktree の絶対パス（再起動時の復元用）
   public var lastOpenedDir: String = String()
 
+  /// window 内に同居するサイドバー repo リスト。順序は dirOrder と一致する
+  public var sidebarRepos: [Gozd_V1_SidebarRepo] = []
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _windowFrame: Gozd_V1_WindowFrame? = nil
+}
+
+/// サイドバー上の 1 repo の永続化エントリ。worktrees / freeBranches は
+/// 起動時に再 fetch するため永続化しない（一次情報は git に問い合わせる）。
+public struct Gozd_V1_SidebarRepo: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var rootDir: String = String()
+
+  public var repoName: String = String()
+
+  public var isGitRepo: Bool = false
+
+  public var collapsed: Bool = false
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
 }
 
 public struct Gozd_V1_WindowFrame: Sendable {
@@ -135,7 +158,7 @@ fileprivate let _protobuf_package = "gozd.v1"
 
 extension Gozd_V1_AppState: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AppState"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}window_frame\0\u{3}last_opened_dir\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}window_frame\0\u{3}last_opened_dir\0\u{3}sidebar_repos\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -145,6 +168,7 @@ extension Gozd_V1_AppState: SwiftProtobuf.Message, SwiftProtobuf._MessageImpleme
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularMessageField(value: &self._windowFrame) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.lastOpenedDir) }()
+      case 3: try { try decoder.decodeRepeatedMessageField(value: &self.sidebarRepos) }()
       default: break
       }
     }
@@ -161,12 +185,61 @@ extension Gozd_V1_AppState: SwiftProtobuf.Message, SwiftProtobuf._MessageImpleme
     if !self.lastOpenedDir.isEmpty {
       try visitor.visitSingularStringField(value: self.lastOpenedDir, fieldNumber: 2)
     }
+    if !self.sidebarRepos.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.sidebarRepos, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Gozd_V1_AppState, rhs: Gozd_V1_AppState) -> Bool {
     if lhs._windowFrame != rhs._windowFrame {return false}
     if lhs.lastOpenedDir != rhs.lastOpenedDir {return false}
+    if lhs.sidebarRepos != rhs.sidebarRepos {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_SidebarRepo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".SidebarRepo"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}root_dir\0\u{3}repo_name\0\u{3}is_git_repo\0\u{1}collapsed\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.rootDir) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.repoName) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.isGitRepo) }()
+      case 4: try { try decoder.decodeSingularBoolField(value: &self.collapsed) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.rootDir.isEmpty {
+      try visitor.visitSingularStringField(value: self.rootDir, fieldNumber: 1)
+    }
+    if !self.repoName.isEmpty {
+      try visitor.visitSingularStringField(value: self.repoName, fieldNumber: 2)
+    }
+    if self.isGitRepo != false {
+      try visitor.visitSingularBoolField(value: self.isGitRepo, fieldNumber: 3)
+    }
+    if self.collapsed != false {
+      try visitor.visitSingularBoolField(value: self.collapsed, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_SidebarRepo, rhs: Gozd_V1_SidebarRepo) -> Bool {
+    if lhs.rootDir != rhs.rootDir {return false}
+    if lhs.repoName != rhs.repoName {return false}
+    if lhs.isGitRepo != rhs.isGitRepo {return false}
+    if lhs.collapsed != rhs.collapsed {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

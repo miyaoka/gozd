@@ -5,7 +5,14 @@ import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
 import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
-import { rpcGitBranchList, rpcGitWorktreeList, rpcTaskAdd, rpcTaskUpdate } from "./rpc";
+import {
+  rpcAppStateLoad,
+  rpcAppStateSave,
+  rpcGitBranchList,
+  rpcGitWorktreeList,
+  rpcTaskAdd,
+  rpcTaskUpdate,
+} from "./rpc";
 import type { BranchChangePayload, WorktreeChangePayload } from "./rpc";
 
 /**
@@ -174,10 +181,52 @@ export function useSidebarData() {
     cleanups.push(onMessage("gitStatusChange", () => fetchOwnerOfActive()));
     cleanups.push(onMessage<BranchChangePayload>("branchChange", () => fetchOwnerOfActive()));
     cleanups.push(onMessage<WorktreeChangePayload>("worktreeChange", () => fetchOwnerOfActive()));
+    void hydrateAppState();
   });
   onUnmounted(() => {
     for (const cleanup of cleanups) cleanup();
+    if (saveTimer !== undefined) {
+      clearTimeout(saveTimer);
+      // 保留中の変更を即時 flush して取りこぼしを防ぐ
+      void rpcAppStateSave({ state: repoStore.buildAppStateSnapshot() });
+    }
   });
+
+  // --- 永続化（app-state.json）---
+  //
+  // hydrate: app-state.json を読み、repoStore に反映
+  // save: dirOrder / collapsedRoots / selectedDir の変化を debounce で書き戻す
+
+  let hydrated = false;
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  const SAVE_DEBOUNCE_MS = 300;
+
+  async function hydrateAppState() {
+    const result = await tryCatch(rpcAppStateLoad({}));
+    if (result.ok && result.value.state !== undefined) {
+      repoStore.hydrateFromAppState(result.value.state);
+    }
+    hydrated = true;
+  }
+
+  watch(
+    [
+      () => [...repoStore.dirOrder],
+      () => Array.from(repoStore.collapsedRoots),
+      () => repoStore.selectedDir,
+      // repoName / isGitRepo の変化を拾うため repos を deep watch
+      () => repoStore.repos,
+    ],
+    () => {
+      if (!hydrated) return;
+      if (saveTimer !== undefined) clearTimeout(saveTimer);
+      saveTimer = setTimeout(async () => {
+        saveTimer = undefined;
+        await tryCatch(rpcAppStateSave({ state: repoStore.buildAppStateSnapshot() }));
+      }, SAVE_DEBOUNCE_MS);
+    },
+    { deep: true },
+  );
 
   return {
     fetchRepo,

@@ -11,6 +11,17 @@ message AppState {
   WindowFrame window_frame = 1;
   // 最後に開いていた worktree の絶対パス（再起動時の復元用）
   string last_opened_dir = 2;
+  // window 内に同居するサイドバー repo リスト。順序は dirOrder と一致する
+  repeated SidebarRepo sidebar_repos = 3;
+}
+
+// サイドバー上の 1 repo の永続化エントリ。worktrees / freeBranches は
+// 起動時に再 fetch するため永続化しない（一次情報は git に問い合わせる）。
+message SidebarRepo {
+  string root_dir = 1;
+  string repo_name = 2;
+  bool is_git_repo = 3;
+  bool collapsed = 4;
 }
 
 message WindowFrame {

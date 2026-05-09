@@ -22,6 +22,19 @@ export interface AppState {
     | undefined;
   /** 最後に開いていた worktree の絶対パス（再起動時の復元用） */
   lastOpenedDir: string;
+  /** window 内に同居するサイドバー repo リスト。順序は dirOrder と一致する */
+  sidebarRepos: SidebarRepo[];
+}
+
+/**
+ * サイドバー上の 1 repo の永続化エントリ。worktrees / freeBranches は
+ * 起動時に再 fetch するため永続化しない（一次情報は git に問い合わせる）。
+ */
+export interface SidebarRepo {
+  rootDir: string;
+  repoName: string;
+  isGitRepo: boolean;
+  collapsed: boolean;
 }
 
 export interface WindowFrame {
@@ -46,7 +59,7 @@ export interface SaveAppStateResponse {
 }
 
 function createBaseAppState(): AppState {
-  return { windowFrame: undefined, lastOpenedDir: "" };
+  return { windowFrame: undefined, lastOpenedDir: "", sidebarRepos: [] };
 }
 
 export const AppState: MessageFns<AppState> = {
@@ -56,6 +69,9 @@ export const AppState: MessageFns<AppState> = {
     }
     if (message.lastOpenedDir !== "") {
       writer.uint32(18).string(message.lastOpenedDir);
+    }
+    for (const v of message.sidebarRepos) {
+      SidebarRepo.encode(v!, writer.uint32(26).fork()).join();
     }
     return writer;
   },
@@ -83,6 +99,14 @@ export const AppState: MessageFns<AppState> = {
           message.lastOpenedDir = reader.string();
           continue;
         }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.sidebarRepos.push(SidebarRepo.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -104,6 +128,11 @@ export const AppState: MessageFns<AppState> = {
         : isSet(object.last_opened_dir)
         ? globalThis.String(object.last_opened_dir)
         : "",
+      sidebarRepos: globalThis.Array.isArray(object?.sidebarRepos)
+        ? object.sidebarRepos.map((e: any) => SidebarRepo.fromJSON(e))
+        : globalThis.Array.isArray(object?.sidebar_repos)
+        ? object.sidebar_repos.map((e: any) => SidebarRepo.fromJSON(e))
+        : [],
     };
   },
 
@@ -114,6 +143,9 @@ export const AppState: MessageFns<AppState> = {
     }
     if (message.lastOpenedDir !== "") {
       obj.lastOpenedDir = message.lastOpenedDir;
+    }
+    if (message.sidebarRepos?.length) {
+      obj.sidebarRepos = message.sidebarRepos.map((e) => SidebarRepo.toJSON(e));
     }
     return obj;
   },
@@ -127,6 +159,127 @@ export const AppState: MessageFns<AppState> = {
       ? WindowFrame.fromPartial(object.windowFrame)
       : undefined;
     message.lastOpenedDir = object.lastOpenedDir ?? "";
+    message.sidebarRepos = object.sidebarRepos?.map((e) => SidebarRepo.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseSidebarRepo(): SidebarRepo {
+  return { rootDir: "", repoName: "", isGitRepo: false, collapsed: false };
+}
+
+export const SidebarRepo: MessageFns<SidebarRepo> = {
+  encode(message: SidebarRepo, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.rootDir !== "") {
+      writer.uint32(10).string(message.rootDir);
+    }
+    if (message.repoName !== "") {
+      writer.uint32(18).string(message.repoName);
+    }
+    if (message.isGitRepo !== false) {
+      writer.uint32(24).bool(message.isGitRepo);
+    }
+    if (message.collapsed !== false) {
+      writer.uint32(32).bool(message.collapsed);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SidebarRepo {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSidebarRepo();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.rootDir = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.repoName = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.isGitRepo = reader.bool();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.collapsed = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SidebarRepo {
+    return {
+      rootDir: isSet(object.rootDir)
+        ? globalThis.String(object.rootDir)
+        : isSet(object.root_dir)
+        ? globalThis.String(object.root_dir)
+        : "",
+      repoName: isSet(object.repoName)
+        ? globalThis.String(object.repoName)
+        : isSet(object.repo_name)
+        ? globalThis.String(object.repo_name)
+        : "",
+      isGitRepo: isSet(object.isGitRepo)
+        ? globalThis.Boolean(object.isGitRepo)
+        : isSet(object.is_git_repo)
+        ? globalThis.Boolean(object.is_git_repo)
+        : false,
+      collapsed: isSet(object.collapsed) ? globalThis.Boolean(object.collapsed) : false,
+    };
+  },
+
+  toJSON(message: SidebarRepo): unknown {
+    const obj: any = {};
+    if (message.rootDir !== "") {
+      obj.rootDir = message.rootDir;
+    }
+    if (message.repoName !== "") {
+      obj.repoName = message.repoName;
+    }
+    if (message.isGitRepo !== false) {
+      obj.isGitRepo = message.isGitRepo;
+    }
+    if (message.collapsed !== false) {
+      obj.collapsed = message.collapsed;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<SidebarRepo>): SidebarRepo {
+    return SidebarRepo.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<SidebarRepo>): SidebarRepo {
+    const message = createBaseSidebarRepo();
+    message.rootDir = object.rootDir ?? "";
+    message.repoName = object.repoName ?? "";
+    message.isGitRepo = object.isGitRepo ?? false;
+    message.collapsed = object.collapsed ?? false;
     return message;
   },
 };

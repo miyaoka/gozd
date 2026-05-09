@@ -1,10 +1,9 @@
-import CryptoKit
 import Foundation
 import GozdProto
 import SwiftProtobuf
 
 // プロジェクト固有の設定永続化（`~/.config/gozd/projects/<projectKey>/config.json`）。
-// projectKey は dir realpath の SHA-256 先頭 12 文字 + repoName。
+// projectKey の算出は `ProjectKey` を参照。
 //
 // 将来バージョンが増やしたフィールドが入った JSON を旧 binary で読んでも
 // parse error にならないよう `ignoreUnknownFields = true` を渡す。
@@ -37,11 +36,10 @@ public final class ProjectConfigStore {
   }
 
   private func filePath(for dir: String) -> String {
-    let realpath = (dir as NSString).resolvingSymlinksInPath
-    let repoName = (realpath as NSString).lastPathComponent
-    let digest = SHA256.hash(data: Data(realpath.utf8))
-    let hash = digest.compactMap { String(format: "%02x", $0) }.joined()
-    let projectKey = "\(repoName)-\(String(hash.prefix(12)))"
+    // 呼び出し元（renderer）は active worktree の path を渡してくる場合があるため、
+    // main repo root に解決してから projectKey を算出する。これで main / worktree / subdir のどこから
+    // 開いても同じ config.json を参照する。
+    let projectKey = ProjectKey.resolveAndCompute(for: dir)
     return (configDir as NSString)
       .appendingPathComponent("projects")
       .appending("/\(projectKey)/config.json")

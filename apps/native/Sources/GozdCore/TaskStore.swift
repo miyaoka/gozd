@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import GozdProto
 
@@ -6,8 +5,8 @@ import GozdProto
 //
 // 設計判断:
 //
-// 1. **projectKey は dir realpath の SHA-256 先頭 12 文字 + repoName**。
-//    旧 desktop 実装と互換。`~/.config/gozd/projects/<repoName>-<hash>/`。
+// 1. **projectKey の算出は `ProjectKey` を参照**。worktree 配下のどの dir から呼ばれても
+//    main repo root に解決した上で同一 projectKey に揃える（`resolveAndCompute`）。
 //
 // 2. **永続化形式は proto JSON**。AppStateStore / AppConfigStore と同流儀。
 //    `TaskList` ラッパーを介して `tasks` を array として保存する。
@@ -70,51 +69,10 @@ public actor TaskStore {
   // MARK: - paths
 
   private func projectDir(for dir: String) -> String {
-    // worktree 配下のどの dir から呼ばれても同一 projectKey になるよう、
-    // git common-dir の親（= main worktree path）を realpath 解決して使う。
-    let projectRoot = resolveProjectRoot(for: dir)
-    let repoName = (projectRoot as NSString).lastPathComponent
-    let digest = SHA256.hash(data: Data(projectRoot.utf8))
-    let hash = digest.compactMap { String(format: "%02x", $0) }.joined()
-    let shortHash = String(hash.prefix(12))
-    let projectKey = "\(repoName)-\(shortHash)"
+    let projectKey = ProjectKey.resolveAndCompute(for: dir)
     return (configDir as NSString)
       .appendingPathComponent("projects")
       .appending("/\(projectKey)")
-  }
-
-  /// `git rev-parse --git-common-dir` の出力（典型的には `<main-worktree>/.git`）の親を realpath。
-  /// 失敗時は dir 自体を realpath して返す（git 外でも壊れないため）。
-  private func resolveProjectRoot(for dir: String) -> String {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    process.arguments = ["git", "rev-parse", "--git-common-dir"]
-    process.currentDirectoryURL = URL(fileURLWithPath: dir)
-    process.environment = ProcessInfo.processInfo.environment
-    let stdoutPipe = Pipe()
-    let stderrPipe = Pipe()
-    process.standardOutput = stdoutPipe
-    process.standardError = stderrPipe
-    do {
-      try process.run()
-      process.waitUntilExit()
-      let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-      _ = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-      if process.terminationStatus != 0 {
-        return (dir as NSString).resolvingSymlinksInPath
-      }
-      let text = String(decoding: data, as: UTF8.self)
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-      // common-dir が相対パスなら dir 起点で resolve する
-      let commonDir =
-        text.hasPrefix("/")
-        ? text
-        : (URL(fileURLWithPath: dir).appendingPathComponent(text)).path
-      let parent = (commonDir as NSString).deletingLastPathComponent
-      return (parent as NSString).resolvingSymlinksInPath
-    } catch {
-      return (dir as NSString).resolvingSymlinksInPath
-    }
   }
 
   private func tasksFilePath(for dir: String) -> String {

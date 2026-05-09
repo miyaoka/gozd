@@ -1,6 +1,5 @@
 import Darwin
 import Foundation
-import Network
 import Testing
 
 @testable import GozdCore
@@ -19,7 +18,7 @@ struct SocketServerTests {
 
     try await waitUntil(timeout: .seconds(2)) { fileExists(path) }
 
-    sendOverUnixSocket(path: path, data: Data(#"{"type":"ping"}\#n"#.utf8))
+    try sendOverUnixSocket(path: path, data: Data(#"{"type":"ping"}\#n"#.utf8))
 
     try await waitUntil(timeout: .seconds(2)) { messages.snapshot().count == 1 }
     let received = messages.snapshot()
@@ -46,7 +45,7 @@ struct SocketServerTests {
       {"i":3}
 
       """.utf8)
-    sendOverUnixSocket(path: path, data: payload)
+    try sendOverUnixSocket(path: path, data: payload)
 
     try await waitUntil(timeout: .seconds(2)) { messages.snapshot().count == 3 }
     let received = messages.snapshot().map { String(decoding: $0, as: UTF8.self) }
@@ -65,12 +64,13 @@ struct SocketServerTests {
 
     try await waitUntil(timeout: .seconds(2)) { fileExists(path) }
 
-    await withTaskGroup(of: Void.self) { group in
+    try await withThrowingTaskGroup(of: Void.self) { group in
       for i in 0..<5 {
         group.addTask {
-          sendOverUnixSocket(path: path, data: Data(#"{"i":\#(i)}\#n"#.utf8))
+          try sendOverUnixSocket(path: path, data: Data(#"{"i":\#(i)}\#n"#.utf8))
         }
       }
+      try await group.waitForAll()
     }
 
     try await waitUntil(timeout: .seconds(3)) { messages.snapshot().count == 5 }
@@ -106,35 +106,76 @@ private func waitUntil(
   }
 }
 
-/// NWConnection ベースの Unix Socket クライアント。同期版（テスト用）。
-/// 本番 CLI 側は POSIX socket + shutdown(SHUT_WR) drain パターンで実装する予定だが、
-/// Server のテストとしてはどちらのクライアントでも同じ。
-private func sendOverUnixSocket(path: String, data: Data) {
-  let queue = DispatchQueue(label: "gozd.test.client")
-  let params = NWParameters()
-  params.defaultProtocolStack.transportProtocol = NWProtocolTCP.Options()
-  let conn = NWConnection(to: .unix(path: path), using: params)
+enum SocketClientError: Error, CustomStringConvertible {
+  case createSocket(errno: Int32)
+  case pathTooLong
+  case connect(errno: Int32)
+  case write(errno: Int32)
 
-  let ready = DispatchSemaphore(value: 0)
-  conn.stateUpdateHandler = { state in
-    switch state {
-    case .ready, .failed, .cancelled:
-      ready.signal()
-    default:
-      break
+  var description: String {
+    switch self {
+    case .createSocket(let e): return "socket() failed: \(String(cString: strerror(e)))"
+    case .pathTooLong: return "socket path too long"
+    case .connect(let e): return "connect() failed: \(String(cString: strerror(e)))"
+    case .write(let e): return "write() failed: \(String(cString: strerror(e)))"
     }
   }
-  conn.start(queue: queue)
-  _ = ready.wait(timeout: .now() + 2.0)
+}
 
-  let sent = DispatchSemaphore(value: 0)
-  conn.send(
-    content: data,
-    completion: .contentProcessed { _ in sent.signal() }
-  )
-  _ = sent.wait(timeout: .now() + 2.0)
+/// 本番 CLI（GozdCLI.sendOrExit）と同じ POSIX socket + write-all + shutdown(SHUT_WR) +
+/// drain パターンの test helper。NWConnection の `contentProcessed` 後に即 cancel すると
+/// NWListener が accept する前に FIN が届いて受信されない race（spike `gozd-spike` で
+/// 検証済み）が起き、CI で flaky に取りこぼす原因になる。production と同じ手順に揃える。
+private func sendOverUnixSocket(path: String, data: Data) throws {
+  let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+  guard fd >= 0 else { throw SocketClientError.createSocket(errno: errno) }
+  defer { close(fd) }
 
-  conn.cancel()
+  var addr = sockaddr_un()
+  addr.sun_family = sa_family_t(AF_UNIX)
+  let pathBytes = Array(path.utf8)
+  let maxLen = MemoryLayout.size(ofValue: addr.sun_path) - 1
+  guard pathBytes.count <= maxLen else { throw SocketClientError.pathTooLong }
+  withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
+    let buf = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
+    for (i, byte) in pathBytes.enumerated() {
+      buf[i] = CChar(bitPattern: byte)
+    }
+    buf[pathBytes.count] = 0
+  }
+  let connectResult = withUnsafePointer(to: &addr) { ptr in
+    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+      Darwin.connect(fd, sa, socklen_t(MemoryLayout<sockaddr_un>.size))
+    }
+  }
+  if connectResult < 0 { throw SocketClientError.connect(errno: errno) }
+
+  // write-all（部分書き込みに loop 対応）
+  try data.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
+    var remaining = buf.count
+    var ptr = buf.baseAddress!
+    while remaining > 0 {
+      let written = Darwin.write(fd, ptr, remaining)
+      if written < 0 {
+        if errno == EINTR { continue }
+        throw SocketClientError.write(errno: errno)
+      }
+      remaining -= written
+      ptr = ptr.advanced(by: written)
+    }
+  }
+
+  // shutdown(SHUT_WR) → drain。server 側が EOF まで読み取るのを待つ。
+  shutdown(fd, Int32(SHUT_WR))
+  var drainBuf = [UInt8](repeating: 0, count: 256)
+  while true {
+    let n = drainBuf.withUnsafeMutableBufferPointer {
+      Darwin.read(fd, $0.baseAddress, $0.count)
+    }
+    if n > 0 { continue }
+    if n < 0, errno == EINTR { continue }
+    break
+  }
 }
 
 private final class MessageCollector: @unchecked Sendable {

@@ -7,25 +7,94 @@ import Foundation
 // 1. **gh CLI 必須**。未インストール / 未認証時は launch 失敗または exit code != 0 を
 //    nil 相当として扱い、呼び出し側が UI 非表示にできるようにする。
 //
-// 2. **JSON 出力 (`--json`)**。gh が安定 schema で吐くフィールドのみ取り出す。
+// 2. **GraphQL 経由**。`gh pr list --json author` / `gh issue list --json author` は
+//    `{login, id, is_bot, name}` のみで `avatarUrl` を返さない。アバター画像 URL を
+//    取得するには `gh api graphql` で `author { avatarUrl }` を直接問い合わせる
+//    必要がある。bot アカウント（renovate 等）も正しく解決するため
+//    `https://github.com/{login}.png` 構築は採らない。
 //
 // 3. **戻り値は素の Swift struct**。proto への詰め替えは RPC 境界で行う。
 public enum GitHubOps {
-  public static func prList(dir: String) async -> [PullRequestInfo]? {
-    let fields = "number,title,url,state,author,headRefName,baseRefName,isDraft,assignees,reviewRequests,updatedAt"
-    guard let data = try? await runGh(args: ["pr", "list", "--json", fields, "--limit", "100"], cwd: dir)
-    else { return nil }
-    guard let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-      return nil
+  // GitHub の avatar 画像サイズ（px）。PR/Issue picker 行の表示サイズに合わせる。
+  private static let avatarSize = 64
+
+  private static let prQuery = """
+    query($owner: String!, $repo: String!, $limit: Int!) {
+      repository(owner: $owner, name: $repo) {
+        owner { login }
+        pullRequests(first: $limit, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
+          nodes {
+            number
+            title
+            url
+            state
+            isDraft
+            headRefName
+            baseRefName
+            author { login avatarUrl(size: \(avatarSize)) }
+            updatedAt
+            headRepository { owner { login } }
+            assignees(first: 100) { nodes { login } }
+            reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login } } } }
+          }
+        }
+      }
     }
-    return arr.map { item in
+    """
+
+  private static let issueQuery = """
+    query($owner: String!, $repo: String!, $limit: Int!) {
+      repository(owner: $owner, name: $repo) {
+        issues(first: $limit, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
+          nodes {
+            number
+            title
+            url
+            state
+            author { login avatarUrl(size: \(avatarSize)) }
+            updatedAt
+            labels(first: 100) { nodes { name } }
+            assignees(first: 100) { nodes { login } }
+          }
+        }
+      }
+    }
+    """
+
+  public static func prList(dir: String) async -> [PullRequestInfo]? {
+    guard let (owner, repo) = await repoOwnerName(dir: dir) else { return nil }
+    guard
+      let data = try? await runGh(
+        args: graphqlArgs(owner: owner, repo: repo, query: prQuery), cwd: dir)
+    else { return nil }
+    guard
+      let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let repository = (root["data"] as? [String: Any])?["repository"] as? [String: Any],
+      let nodes = (repository["pullRequests"] as? [String: Any])?["nodes"] as? [[String: Any]]
+    else { return nil }
+
+    // fork PR を除外（自リポジトリの owner と一致するもののみ）。
+    // worktree 作成側 (registerPrCommand.ts) が `origin/<headRef>` を startPoint に
+    // 使うため、fork からの PR は ref 解決に失敗する。
+    let repoOwner = (repository["owner"] as? [String: Any])?["login"] as? String
+
+    return nodes.compactMap { item -> PullRequestInfo? in
+      if let repoOwner = repoOwner {
+        let headOwner =
+          ((item["headRepository"] as? [String: Any])?["owner"] as? [String: Any])?["login"]
+          as? String
+        if headOwner != repoOwner { return nil }
+      }
       let authorDict = item["author"] as? [String: Any]
       let author = authorDict?["login"] as? String ?? ""
       let avatar = authorDict?["avatarUrl"] as? String ?? ""
       let assignees =
-        (item["assignees"] as? [[String: Any]])?.compactMap { $0["login"] as? String } ?? []
+        ((item["assignees"] as? [String: Any])?["nodes"] as? [[String: Any]])?
+        .compactMap { $0["login"] as? String } ?? []
       let reviewers =
-        (item["reviewRequests"] as? [[String: Any]])?.compactMap { $0["login"] as? String } ?? []
+        ((item["reviewRequests"] as? [String: Any])?["nodes"] as? [[String: Any]])?
+        .compactMap { ($0["requestedReviewer"] as? [String: Any])?["login"] as? String } ?? []
+      // ISO8601 (Z) → "yyyy-MM-ddTHH:mm:ssZ" のまま渡す。proto は string 型。
       return PullRequestInfo(
         number: UInt32(item["number"] as? Int ?? 0),
         title: item["title"] as? String ?? "",
@@ -44,19 +113,27 @@ public enum GitHubOps {
   }
 
   public static func issueList(dir: String) async -> [IssueInfo]? {
-    let fields = "number,title,url,state,author,labels,assignees,updatedAt"
-    guard let data = try? await runGh(args: ["issue", "list", "--json", fields, "--limit", "100"], cwd: dir)
+    guard let (owner, repo) = await repoOwnerName(dir: dir) else { return nil }
+    guard
+      let data = try? await runGh(
+        args: graphqlArgs(owner: owner, repo: repo, query: issueQuery), cwd: dir)
     else { return nil }
-    guard let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-      return nil
-    }
-    return arr.map { item in
+    guard
+      let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let nodes = (((root["data"] as? [String: Any])?["repository"] as? [String: Any])?[
+        "issues"] as? [String: Any])?["nodes"] as? [[String: Any]]
+    else { return nil }
+
+    return nodes.map { item in
       let authorDict = item["author"] as? [String: Any]
       let author = authorDict?["login"] as? String ?? ""
       let avatar = authorDict?["avatarUrl"] as? String ?? ""
-      let labels = (item["labels"] as? [[String: Any]])?.compactMap { $0["name"] as? String } ?? []
+      let labels =
+        ((item["labels"] as? [String: Any])?["nodes"] as? [[String: Any]])?
+        .compactMap { $0["name"] as? String } ?? []
       let assignees =
-        (item["assignees"] as? [[String: Any]])?.compactMap { $0["login"] as? String } ?? []
+        ((item["assignees"] as? [String: Any])?["nodes"] as? [[String: Any]])?
+        .compactMap { $0["login"] as? String } ?? []
       return IssueInfo(
         number: UInt32(item["number"] as? Int ?? 0),
         title: item["title"] as? String ?? "",
@@ -69,6 +146,34 @@ public enum GitHubOps {
         authorAvatarUrl: avatar
       )
     }
+  }
+
+  // `-F` は型推論で number/bool を渡しうるため、string にしたい owner/repo/query は
+  // `-f` を使う。limit のみ Int として渡したいので `-F` で渡す。
+  private static func graphqlArgs(owner: String, repo: String, query: String) -> [String] {
+    return [
+      "api", "graphql",
+      "-f", "owner=\(owner)",
+      "-f", "repo=\(repo)",
+      "-F", "limit=100",
+      "-f", "query=\(query)",
+    ]
+  }
+
+  private static func repoOwnerName(dir: String) async -> (owner: String, repo: String)? {
+    guard
+      let data = try? await runGh(
+        args: ["repo", "view", "--json", "owner,name", "--jq", ".owner.login + \"/\" + .name"],
+        cwd: dir)
+    else { return nil }
+    let text = String(decoding: data, as: UTF8.self)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    let parts = text.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
+    guard parts.count == 2 else { return nil }
+    let owner = String(parts[0])
+    let repo = String(parts[1])
+    if owner.isEmpty || repo.isEmpty { return nil }
+    return (owner, repo)
   }
 
   /// `gh api user --jq .login` で認証中ユーザーの login を返す。未認証なら nil。

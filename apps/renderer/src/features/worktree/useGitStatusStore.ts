@@ -12,7 +12,11 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
   const repoStore = useRepoStore();
   const worktreeStore = useWorktreeStore();
 
+  /** 並行 loadGitStatus で古いレスポンスが新しい結果を上書きするのを防ぐ世代カウンタ */
+  let loadGen = 0;
+
   async function loadGitStatus() {
+    const gen = ++loadGen;
     if (!repoStore.selectedIsGitRepo) {
       gitStatuses.value = {};
       return;
@@ -23,6 +27,7 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
       return;
     }
     const result = await tryCatch(rpcGitStatus({ dir }));
+    if (gen !== loadGen) return;
     if (result.ok) {
       gitStatuses.value = result.value.entries;
     } else {

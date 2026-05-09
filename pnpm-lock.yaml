@@ -62,7 +62,7 @@ importers:
         specifier: 'catalog:'
         version: 24.12.2
       concurrently:
-        specifier: ^9.2.1
+        specifier: 9.2.1
         version: 9.2.1
       knip:
         specifier: 6.11.0
@@ -224,7 +224,7 @@ importers:
   packages/proto-ts:
     dependencies:
       '@bufbuild/protobuf':
-        specifier: ^2.12.0
+        specifier: 2.12.0
         version: 2.12.0
     devDependencies:
       '@types/bun':

@@ -4,15 +4,18 @@
 ## レイアウト構成
 
 - **dirOrder の各 repo** に対して `RepoSection` を縦に並べる
-- 各セクションは header（folder アイコン + repo 名 + ✕）+ ROOT + WORKTREES + BRANCHES を持つ
-- 一番下に `+ Add directory` ボタン
+- 各セクションは header（chevron + folder アイコン + repo 名）+ ROOT + WORKTREES + BRANCHES
+- top-right の編集ボタン（鉛筆アイコン）でリスト編集モードをトグル
+- 編集モード中: 全 section が collapsed + drag で並び替え + ✕ で削除 + 末尾に `+ Add directory`
 
 ## 操作
 
 - worktree クリック: 表示対象 dir 切替 + done バッジ既読化
 - ⋮ メニュー: SidebarMenu に委譲（worktree 編集 / 解除、branch から worktree 化）
-- repo header の ✕: 確認ダイアログを経て removeRepo
-- repo 名 input: その場で rename
+- chevron: 折りたたみトグル（永続）
+- 編集モード中の drag handle (folder + 名前): @dnd-kit/vue で並び替え
+- 編集モード中の ✕: 確認ダイアログを経て removeRepo
+- 編集モード中の `+ Add directory`: NSOpenPanel で dir 追加
 - Task 編集は worktree 行の下にインライン展開
 
 ## 責務分離
@@ -25,6 +28,9 @@
 </doc>
 
 <script setup lang="ts">
+import type { DragEndEvent } from "@dnd-kit/abstract";
+import { move } from "@dnd-kit/helpers";
+import { DragDropProvider } from "@dnd-kit/vue";
 import { tryCatch } from "@gozd/shared";
 import { useIntervalFn } from "@vueuse/core";
 import { computed, onUnmounted, ref } from "vue";
@@ -129,6 +135,27 @@ async function onAddDir() {
   }
 }
 
+// --- 編集モード（top-right ボタンでトグル） ---
+//
+// 編集モード中:
+// - 全 section が強制 collapse され、drag で並び替え可能
+// - 各 section に ✕ ボタンが表示され、クリックで repo を window から解除（確認ダイアログ）
+// - リスト末尾に `+ Add directory` ボタンが出現
+// 通常モード:
+// - 各 section の永続 collapse 状態が反映される
+// - drag は無効、✕ は非表示、+ は非表示
+
+const editMode = ref(false);
+
+function toggleEditMode() {
+  editMode.value = !editMode.value;
+}
+
+// move() は dragend イベントの operation を見て新しい配列を返す
+function onDragEnd(event: DragEndEvent) {
+  repoStore.dirOrder = move(repoStore.dirOrder, event);
+}
+
 // --- ProjectConfigPanel: active な root worktree がある時だけ表示 ---
 
 const activeRootWorktree = computed(() => {
@@ -142,51 +169,76 @@ const activeRootWorktree = computed(() => {
 
 <template>
   <div class="flex size-full flex-col">
-    <div class="flex-1 overflow-y-auto px-3 py-4">
-      <RepoSection
-        v-for="rootDir in repoStore.dirOrder"
-        :key="rootDir"
-        :root-dir="rootDir"
-        :active-dir="worktreeStore.dir"
-        :is-creating="isCreating"
-        :ctrl-pressed="ctrlPressed"
-        :now="now"
-        :view-mode="terminalStore.viewMode"
-        :get-claude-statuses="terminalStore.getClaudeStatusesByDir"
-        @rename="(rd, name) => repoStore.renameRepo(rd, name)"
-        @remove-repo="onRemoveRepo"
-        @select-root="handleWorktreeSelect"
-        @select-worktree="onWorktreeSelect"
-        @add-worktree="addWorktree"
-        @set-view-mode="terminalStore.viewMode = $event"
-        @open-worktree-menu="
-          (anchorName, wt, rd) =>
-            sidebarMenuRef?.openMenu(anchorName, { type: 'worktree', worktree: wt, rootDir: rd })
-        "
-        @open-branch-menu="
-          (anchorName, branch, rd) =>
-            sidebarMenuRef?.openMenu(anchorName, { type: 'branch', branch, rootDir: rd })
-        "
-      >
-        <template #after-worktree-item="{ wt }">
-          <TaskEditor
-            v-if="wt.task && editingTaskId === wt.task.id"
-            v-model:body="editBody"
-            @save="submitEdit"
-            @cancel="cancelEdit"
-          />
-          <TaskEditor
-            v-if="!wt.task && addingTaskForDir === wt.path"
-            v-model:body="addingTaskBody"
-            @save="saveWorktreeTask(wt)"
-            @cancel="cancelWorktreeTaskAdd"
-          />
-        </template>
-      </RepoSection>
-
+    <!-- 編集モードトグル（独立したツールバー） -->
+    <div class="flex justify-end border-b border-zinc-800 px-2 py-1">
       <button
         type="button"
-        class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+        :aria-label="editMode ? 'Exit edit mode' : 'Edit repositories'"
+        :title="editMode ? 'Done' : 'Edit repositories'"
+        class="grid size-7 place-items-center rounded-sm transition-colors"
+        :class="
+          editMode
+            ? 'bg-blue-600 text-white hover:bg-blue-500'
+            : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100'
+        "
+        @click="toggleEditMode"
+      >
+        <span
+          class="text-base"
+          :class="editMode ? 'icon-[lucide--check]' : 'icon-[lucide--pencil]'"
+        />
+      </button>
+    </div>
+
+    <div class="flex-1 overflow-y-auto px-3 py-4">
+      <DragDropProvider @drag-end="onDragEnd">
+        <RepoSection
+          v-for="(rootDir, i) in repoStore.dirOrder"
+          :key="rootDir"
+          :root-dir="rootDir"
+          :index="i"
+          :edit-mode="editMode"
+          :active-dir="worktreeStore.dir"
+          :is-creating="isCreating"
+          :ctrl-pressed="ctrlPressed"
+          :now="now"
+          :view-mode="terminalStore.viewMode"
+          :get-claude-statuses="terminalStore.getClaudeStatusesByDir"
+          @remove-repo="onRemoveRepo"
+          @select-root="handleWorktreeSelect"
+          @select-worktree="onWorktreeSelect"
+          @add-worktree="addWorktree"
+          @set-view-mode="terminalStore.viewMode = $event"
+          @open-worktree-menu="
+            (anchorName, wt, rd) =>
+              sidebarMenuRef?.openMenu(anchorName, { type: 'worktree', worktree: wt, rootDir: rd })
+          "
+          @open-branch-menu="
+            (anchorName, branch, rd) =>
+              sidebarMenuRef?.openMenu(anchorName, { type: 'branch', branch, rootDir: rd })
+          "
+        >
+          <template #after-worktree-item="{ wt }">
+            <TaskEditor
+              v-if="wt.task && editingTaskId === wt.task.id"
+              v-model:body="editBody"
+              @save="submitEdit"
+              @cancel="cancelEdit"
+            />
+            <TaskEditor
+              v-if="!wt.task && addingTaskForDir === wt.path"
+              v-model:body="addingTaskBody"
+              @save="saveWorktreeTask(wt)"
+              @cancel="cancelWorktreeTaskAdd"
+            />
+          </template>
+        </RepoSection>
+      </DragDropProvider>
+
+      <button
+        v-if="editMode"
+        type="button"
+        class="mt-2 flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
         title="Add directory"
         @click="onAddDir"
       >

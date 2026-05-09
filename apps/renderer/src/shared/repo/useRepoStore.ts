@@ -24,6 +24,8 @@ export const useRepoStore = defineStore("repo", () => {
   const repos = ref<Record<string, RepoState>>({});
   const dirOrder = ref<string[]>([]);
   const selectedDir = ref<string>();
+  /** 折りたたまれている repo の rootDir 集合 */
+  const collapsedRoots = ref<Set<string>>(new Set());
 
   /** selectedDir を含む repo を逆引き。最初に dir を含む repo */
   const selectedRepo = computed(() => {
@@ -73,15 +75,14 @@ export const useRepoStore = defineStore("repo", () => {
     selectedDir.value = dir;
   }
 
-  function renameRepo(rootDir: string, newName: string) {
-    const repo = repos.value[rootDir];
-    if (repo === undefined) return;
-    repos.value[rootDir] = { ...repo, repoName: newName };
-  }
-
   function removeRepo(rootDir: string) {
     delete repos.value[rootDir];
     dirOrder.value = dirOrder.value.filter((d) => d !== rootDir);
+    if (collapsedRoots.value.has(rootDir)) {
+      const next = new Set(collapsedRoots.value);
+      next.delete(rootDir);
+      collapsedRoots.value = next;
+    }
     if (selectedDir.value !== undefined) {
       const stillOwned = findRepoOwning(selectedDir.value);
       if (stillOwned === undefined) {
@@ -89,6 +90,17 @@ export const useRepoStore = defineStore("repo", () => {
         selectedDir.value = firstRoot;
       }
     }
+  }
+
+  function isCollapsed(rootDir: string): boolean {
+    return collapsedRoots.value.has(rootDir);
+  }
+
+  function toggleCollapsed(rootDir: string) {
+    const next = new Set(collapsedRoots.value);
+    if (next.has(rootDir)) next.delete(rootDir);
+    else next.add(rootDir);
+    collapsedRoots.value = next;
   }
 
   return {
@@ -103,8 +115,9 @@ export const useRepoStore = defineStore("repo", () => {
     addRepo,
     updateRepoData,
     selectDir,
-    renameRepo,
     removeRepo,
+    isCollapsed,
+    toggleCollapsed,
   };
 });
 

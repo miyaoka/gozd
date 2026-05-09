@@ -12,6 +12,9 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@dnd-kit/abstract": "0.4.0",
+    "@dnd-kit/helpers": "0.4.0",
+    "@dnd-kit/vue": "0.4.0",
     "@gozd/proto": "workspace:*",
     "@gozd/shared": "workspace:*",
     "@gozd/themes": "workspace:*",

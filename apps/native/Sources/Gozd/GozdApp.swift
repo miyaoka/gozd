@@ -353,9 +353,15 @@ final class AppRuntime {
     // SocketServer は deinit で listener.cancel() + unlink するので明示は不要。
   }
 
+  /// `~/.config/gozd`（stable）/ `~/.config/gozd-dev`（dev）。
+  /// 判定軸は socket / window タイトルと同じ `GOZD_DEV_PROJECT_ROOT` 有無に揃える。
+  /// dev で sidebar 並び順 / app config を変更しても stable の永続ファイルを汚染しない。
   private static func defaultConfigDir() -> String {
     let home = FileManager.default.homeDirectoryForCurrentUser
-    return home.appendingPathComponent(".config/gozd").path
+    let env = ProcessInfo.processInfo.environment
+    let isDev = (env["GOZD_DEV_PROJECT_ROOT"] ?? "").isEmpty == false
+    let suffix = isDev ? "-dev" : ""
+    return home.appendingPathComponent(".config/\(bundlePrefix)\(suffix)").path
   }
 
   /// socket / settings / launch dir / Bundle ID で共有する prefix。
@@ -642,7 +648,19 @@ struct BundleAssetSchemeHandler: URLSchemeHandler {
         }
         let relPath = url.path.hasPrefix("/") ? String(url.path.dropFirst()) : url.path
         let normalized = relPath.isEmpty ? "index.html" : relPath
-        let fileURL = root.appendingPathComponent(normalized)
+        // path traversal 防止: `..` を含むパスを standardized で正規化し、symlink を
+        // 解決した実体パスが bundledRoot 配下にあることを確認する。`gozd-app://` は
+        // renderer から fetch 可能なため、XSS 経由で bundle 外を読まれないようにする。
+        let candidate = root.appendingPathComponent(normalized).standardized
+        let resolvedFile = candidate.resolvingSymlinksInPath()
+        let resolvedRoot = root.resolvingSymlinksInPath()
+        let rootPath = resolvedRoot.path
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        guard resolvedFile.path == rootPath || resolvedFile.path.hasPrefix(prefix) else {
+          continuation.finish(throwing: URLError(.fileDoesNotExist))
+          return
+        }
+        let fileURL = candidate
         do {
           let data = try Data(contentsOf: fileURL)
           let mime =

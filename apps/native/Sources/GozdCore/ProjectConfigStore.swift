@@ -1,9 +1,13 @@
 import CryptoKit
 import Foundation
 import GozdProto
+import SwiftProtobuf
 
 // プロジェクト固有の設定永続化（`~/.config/gozd/projects/<projectKey>/config.json`）。
 // projectKey は dir realpath の SHA-256 先頭 12 文字 + repoName。
+//
+// 将来バージョンが増やしたフィールドが入った JSON を旧 binary で読んでも
+// parse error にならないよう `ignoreUnknownFields = true` を渡す。
 public final class ProjectConfigStore {
   private let configDir: String
 
@@ -18,7 +22,9 @@ public final class ProjectConfigStore {
     }
     let data = try Data(contentsOf: URL(fileURLWithPath: path))
     let json = String(decoding: data, as: UTF8.self)
-    return try Gozd_V1_ProjectConfig(jsonString: json)
+    var options = JSONDecodingOptions()
+    options.ignoreUnknownFields = true
+    return try Gozd_V1_ProjectConfig(jsonString: json, options: options)
   }
 
   public func save(dir: String, config: Gozd_V1_ProjectConfig) throws {

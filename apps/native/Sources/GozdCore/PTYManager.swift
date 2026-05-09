@@ -171,9 +171,33 @@ public final class PTYManager {
   }
 
   /// PTY master fd に書き込む（renderer → 子プロセスのキー入力等）。
+  ///
+  /// `write(2)` は短いバッファでも部分書き込みが起き得る（特に大きな paste や
+  /// 連続入力）。全バイト書き切るまで loop し、`EINTR` は retry、`EAGAIN` /
+  /// `EWOULDBLOCK` は短い sleep で待つ。`EPIPE` 等の致命的 errno は諦める。
   public func write(_ data: Data) {
     guard primaryFd >= 0 else { return }
-    _ = data.withUnsafeBytes { Darwin.write(primaryFd, $0.baseAddress, $0.count) }
+    data.withUnsafeBytes { buffer in
+      guard let base = buffer.baseAddress else { return }
+      let total = buffer.count
+      var written = 0
+      while written < total {
+        let n = Darwin.write(primaryFd, base.advanced(by: written), total - written)
+        if n > 0 {
+          written += n
+          continue
+        }
+        let err = errno
+        if err == EINTR { continue }
+        if err == EAGAIN || err == EWOULDBLOCK {
+          // PTY master は通常 blocking だが、念のため 1ms 待って retry。
+          // busy-loop 暴走を避ける。
+          usleep(1_000)
+          continue
+        }
+        return
+      }
+    }
   }
 
   /// terminal サイズを子プロセスに通知する（xterm.js のリサイズ連動）。

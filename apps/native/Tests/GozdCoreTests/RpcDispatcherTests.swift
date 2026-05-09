@@ -181,6 +181,45 @@ struct RpcDispatcherTests {
     }
   }
 
+  @Test("/open/external は file:// scheme を allowlist で reject する")
+  func openExternalRejectsFileScheme() async throws {
+    let dir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
+
+    let dispatcher = RpcDispatcher(
+      configDir: dir,
+      onPtyText: { _, _ in },
+      onPtyExit: { _, _ in }
+    )
+
+    var req = Gozd_V1_OpenExternalRequest()
+    req.url = "file:///tmp/x"
+    do {
+      _ = try await dispatcher.dispatch(path: "/open/external", body: req.jsonUTF8Data())
+      Issue.record("expected throw")
+    } catch RpcError.invalidArgument {
+      // OK
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("openExternal allowlist: http / https / mailto は accept、それ以外は reject")
+  func openExternalAllowlist() {
+    // dispatch を経由せず純粋関数で判定をテストする（CI で NSWorkspace.open が走るのを避ける）
+    let allowed = ["http://example.com", "https://example.com", "mailto:foo@example.com"]
+    let rejected = ["file:///tmp/x", "javascript:alert(1)", "ssh://host", ""]
+
+    for s in allowed {
+      let url = URL(string: s)!
+      #expect(RpcDispatcher.isOpenExternalSchemeAllowed(url), "expected allowed: \(s)")
+    }
+    for s in rejected {
+      guard let url = URL(string: s) else { continue }
+      #expect(!RpcDispatcher.isOpenExternalSchemeAllowed(url), "expected rejected: \(s)")
+    }
+  }
+
   @Test("未知の path は RpcError.unknownPath をスローする")
   func unknownPath() async throws {
     let dir = try makeTempDir()

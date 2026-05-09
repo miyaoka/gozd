@@ -122,6 +122,14 @@ function onWorktreeSelect(wt: import("@gozd/proto").WorktreeEntry) {
 function onRemoveRepo(rootDir: string) {
   const name = repoStore.repos[rootDir]?.repoName ?? rootDir;
   showConfirm(`Remove "${name}" from this window?`, async () => {
+    // repo 削除前に配下 worktree の terminal state / PTY を cleanup する。
+    // これを忘れると `all` / `claude` view で消したはずの repo の PTY が
+    // 生き残る（visitedDirs に残るため）。
+    const repo = repoStore.repos[rootDir];
+    if (repo !== undefined) {
+      const targets = new Set<string>([rootDir, ...repo.worktrees.map((wt) => wt.path)]);
+      for (const dir of targets) terminalStore.remove(dir);
+    }
     repoStore.removeRepo(rootDir);
   });
 }

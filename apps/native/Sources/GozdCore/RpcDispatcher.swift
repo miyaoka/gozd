@@ -310,10 +310,23 @@ public actor RpcDispatcher {
     return try Gozd_V1_PickAndOpenResponse().jsonUTF8Data()
   }
 
+  /// `openExternal` で許可する URL scheme の allowlist。
+  /// OSC 8 リンクや WebLinksAddon 経由で任意 scheme が流れ込み得るので、
+  /// ブラウザで開く想定の scheme のみを許可する。テスト容易性のため純粋関数。
+  static let openExternalAllowedSchemes: Set<String> = ["http", "https", "mailto"]
+
+  static func isOpenExternalSchemeAllowed(_ url: URL) -> Bool {
+    guard let scheme = url.scheme?.lowercased() else { return false }
+    return openExternalAllowedSchemes.contains(scheme)
+  }
+
   private func handleOpenExternal(_ body: Data) throws -> Data {
     let req = try Gozd_V1_OpenExternalRequest(jsonUTF8Data: body)
     guard let url = URL(string: req.url) else {
       throw RpcError.invalidArgument("invalid url: \(req.url)")
+    }
+    guard Self.isOpenExternalSchemeAllowed(url) else {
+      throw RpcError.invalidArgument("scheme not allowed: \(url.scheme ?? "")")
     }
     // NSWorkspace.open は @MainActor。actor 内から MainActor.run でホップする。
     Task { @MainActor in

@@ -9,8 +9,10 @@ import os
 //    （`Gozd_V1_GitStatusResponse`）への変換は RPC 境界（URLSchemeHandler）で行う。
 //    ロジック層を proto に縛らないことでテスト容易性と将来の proto 変更耐性を確保する。
 //
-// 2. **`/usr/bin/env git`**: ハードコードした `/usr/bin/git` ではなく PATH 解決に
-//    任せることで Homebrew 版 git を含む各環境で自然に動かす。
+// 2. **`CommandResolver` 経由で `git` の絶対パスを解決**: `.app` を Finder/Dock 起動
+//    すると launchd 由来の最小 PATH しか継承されないため `/usr/bin/env` の PATH 解決
+//    では Homebrew 版 git を選べない。`CommandResolver` がユーザーログインシェル経由で
+//    解決した絶対パスを使い、見つからない場合のみ Apple stub `/usr/bin/git` に倒す。
 //
 // 3. **stdout / stderr は子プロセス生存中に readabilityHandler で drain する**:
 //    `terminationHandler` 内で `readDataToEndOfFile()` する設計だと、出力が
@@ -279,84 +281,36 @@ private func parseNulSeparatedPaths(_ data: Data) -> Set<String> {
   return result
 }
 
-/// 共通 helper: 既に standardOutput/standardError が Pipe で構成されている `Process`
-/// を起動し、子プロセス生存中から stdout/stderr を別 thread で drain する。
-///
-/// terminationHandler 内で `readDataToEndOfFile()` する設計だと、出力が pipe buffer
-/// (macOS は最大 ~64KB) を超えた瞬間に子が write block → exit 不能 →
-/// terminationHandler 永遠に呼ばれない deadlock になる。回避のため、`process.run()`
-/// 直後に `DispatchQueue.global` 上で `readDataToEndOfFile()` を回し続ける。
-///
-/// `DispatchGroup` で「stdout EOF / stderr EOF / process termination」3 イベント
-/// 全てが揃った時点で `(stdoutData, stderrData)` を返す。launch 失敗時は throw する。
-///
-/// 注: `afterRun` の stdin write/close は同期実行のため、stdin を読まないコマンドに
-/// この helper を流用すると stdin write 自体が詰まる可能性がある。stdin 利用は
-/// `git check-ignore --stdin` のような stdin を実際に読むコマンド限定で使うこと。
-private func runProcessCollectingOutput(
-  process: Process,
-  stdoutPipe: Pipe,
-  stderrPipe: Pipe,
-  afterRun: () -> Void = {}
-) async throws -> (stdout: Data, stderr: Data) {
-  // launch 自体は continuation 突入前に試して、失敗時はクリーンに throw する。
-  // (continuation 内で run 失敗ハンドリングすると group 残しの retain leak が複雑になる)
-  try await withCheckedThrowingContinuation {
-    (cont: CheckedContinuation<(stdout: Data, stderr: Data), Error>) in
-    // 読み取り結果は background queue から書き込むため、@Sendable 制約を満たす形で
-    // OSAllocatedUnfairLock 越しに保持する。
-    let stdoutLock = OSAllocatedUnfairLock<Data>(initialState: Data())
-    let stderrLock = OSAllocatedUnfairLock<Data>(initialState: Data())
-    let group = DispatchGroup()
+// `runProcessCollectingOutput` は `ProcessExec.swift` に共通化した。
 
-    // termination は run() より先に handler を仕掛けないと、超短命プロセスで
-    // 終了通知を取りこぼす。enter は handler 設定と対で行う。
-    group.enter()
-    process.terminationHandler = { _ in
-      group.leave()
-    }
-
-    do {
-      // stdout / stderr 用の enter も run() より前に行う必要がある。
-      // 超短命プロセスでは terminationHandler が即座に走って group count が 0 になり、
-      // reader 側 enter が後追いで来る前に notify が空データで早発火する race を防ぐ。
-      group.enter()
-      group.enter()
-      try process.run()
-      // process.run() 直後から別 thread で readDataToEndOfFile() を回す。
-      // readabilityHandler 1 回 1 chunk 方式だと未読 chunk を残して pipe が再満杯
-      // になり deadlock 再発するため、最初から EOF まで連続読みする方式にする。
-      DispatchQueue.global(qos: .userInitiated).async {
-        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        stdoutLock.withLock { $0 = data }
-        group.leave()
-      }
-      DispatchQueue.global(qos: .userInitiated).async {
-        let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        stderrLock.withLock { $0 = data }
-        group.leave()
-      }
-      afterRun()
-      // notify は reader 起動 + afterRun の後に登録。これより前に登録すると
-      // reader enter のタイミング次第で空データ resume になる。
-      group.notify(queue: DispatchQueue.global()) {
-        let stdout = stdoutLock.withLock { $0 }
-        let stderr = stderrLock.withLock { $0 }
-        cont.resume(returning: (stdout, stderr))
-      }
-    } catch {
-      // run 失敗時: termination + reader 用に 3 回 enter したが、いずれも leave
-      // されない。group.notify は登録していないので発火しない。cont は直接 throw。
-      cont.resume(throwing: GitError.launchFailed(error.localizedDescription))
-    }
+/// `git` の絶対パスを resolve する。1 次解決失敗時のみ Apple stub `/usr/bin/git` に倒す。
+private func resolveGitPath() async -> String {
+  if let path = await CommandResolver.shared.resolve("git") {
+    return path
   }
+  return "/usr/bin/git"
 }
 
 /// stdin にデータを渡して git を起動する。`runGit` と同じ戻り値契約。
+/// `launchFailed` を検知した場合、CommandResolver のキャッシュが stale な可能性が
+/// あるため 1 回だけ invalidate + 再 resolve して retry する。
 func runGitWithStdin(args: [String], cwd: String, stdin: Data) async throws -> Data {
+  do {
+    return try await runGitWithStdinOnce(
+      gitPath: await resolveGitPath(), args: args, cwd: cwd, stdin: stdin)
+  } catch GitError.launchFailed {
+    await CommandResolver.shared.invalidate("git")
+    return try await runGitWithStdinOnce(
+      gitPath: await resolveGitPath(), args: args, cwd: cwd, stdin: stdin)
+  }
+}
+
+private func runGitWithStdinOnce(gitPath: String, args: [String], cwd: String, stdin: Data)
+  async throws -> Data
+{
   let process = Process()
-  process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-  process.arguments = ["git"] + args
+  process.executableURL = URL(fileURLWithPath: gitPath)
+  process.arguments = args
   process.currentDirectoryURL = URL(fileURLWithPath: cwd)
   // 明示的に env snapshot を渡す。Foundation Process は environment が nil のとき
   // 内部で `ProcessInfo.processInfo.environment` を遅延読みするが、その経路は
@@ -394,9 +348,18 @@ func runGitWithStdin(args: [String], cwd: String, stdin: Data) async throws -> D
 }
 
 func runGit(args: [String], cwd: String) async throws -> Data {
+  do {
+    return try await runGitOnce(gitPath: await resolveGitPath(), args: args, cwd: cwd)
+  } catch GitError.launchFailed {
+    await CommandResolver.shared.invalidate("git")
+    return try await runGitOnce(gitPath: await resolveGitPath(), args: args, cwd: cwd)
+  }
+}
+
+private func runGitOnce(gitPath: String, args: [String], cwd: String) async throws -> Data {
   let process = Process()
-  process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-  process.arguments = ["git"] + args
+  process.executableURL = URL(fileURLWithPath: gitPath)
+  process.arguments = args
   process.currentDirectoryURL = URL(fileURLWithPath: cwd)
   process.environment = ProcessInfo.processInfo.environment
 

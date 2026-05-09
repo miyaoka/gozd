@@ -109,31 +109,51 @@ public struct IssueInfo: Sendable, Equatable {
   public let authorAvatarUrl: String
 }
 
+// `gh` の絶対パスは `CommandResolver` で解決する。`.app` を Finder/Dock から起動すると
+// launchd 由来の最小 PATH しか継承されないため `/usr/bin/env gh` では `gh` を解決
+// できない。`CommandResolver` がユーザーログインシェル経由で `command -v gh` を実行
+// して絶対パスを取得し、結果はキャッシュされる。見つからない場合は launchFailed を
+// throw して上位（`prList` / `issueList` / `viewer`）が `try?` で nil 化する。
+//
+// `launchFailed` を検知した場合、キャッシュが stale な可能性があるため 1 回だけ
+// invalidate + 再 resolve して retry する。
+//
+// 出力収集は `runProcessCollectingOutput` (ProcessExec.swift) に寄せる。
+// `terminationHandler` 内で一括 drain する旧実装は `gh pr list --json --limit 100` の
+// 出力が pipe buffer (~64KB) を超えると deadlock する。
 private func runGh(args: [String], cwd: String) async throws -> Data {
-  try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    process.arguments = ["gh"] + args
-    process.currentDirectoryURL = URL(fileURLWithPath: cwd)
-    process.environment = ProcessInfo.processInfo.environment
-    let stdoutPipe = Pipe()
-    let stderrPipe = Pipe()
-    process.standardOutput = stdoutPipe
-    process.standardError = stderrPipe
-    process.terminationHandler = { proc in
-      let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-      _ = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-      if proc.terminationStatus == 0 {
-        cont.resume(returning: stdoutData)
-      } else {
-        cont.resume(
-          throwing: GitError.commandFailed(exitCode: proc.terminationStatus, stderr: ""))
-      }
-    }
-    do {
-      try process.run()
-    } catch {
-      cont.resume(throwing: GitError.launchFailed(error.localizedDescription))
-    }
+  do {
+    return try await runGhOnce(args: args, cwd: cwd)
+  } catch GitError.launchFailed {
+    await CommandResolver.shared.invalidate("gh")
+    return try await runGhOnce(args: args, cwd: cwd)
   }
+}
+
+private func runGhOnce(args: [String], cwd: String) async throws -> Data {
+  guard let ghPath = await CommandResolver.shared.resolve("gh") else {
+    throw GitError.launchFailed("gh CLI not found in PATH or user login shell")
+  }
+  let process = Process()
+  process.executableURL = URL(fileURLWithPath: ghPath)
+  process.arguments = args
+  process.currentDirectoryURL = URL(fileURLWithPath: cwd)
+  process.environment = ProcessInfo.processInfo.environment
+  let stdoutPipe = Pipe()
+  let stderrPipe = Pipe()
+  process.standardOutput = stdoutPipe
+  process.standardError = stderrPipe
+
+  let (stdoutData, stderrData) = try await runProcessCollectingOutput(
+    process: process,
+    stdoutPipe: stdoutPipe,
+    stderrPipe: stderrPipe
+  )
+
+  if process.terminationStatus == 0 {
+    return stdoutData
+  }
+  throw GitError.commandFailed(
+    exitCode: process.terminationStatus,
+    stderr: String(decoding: stderrData, as: UTF8.self))
 }

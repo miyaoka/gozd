@@ -60,10 +60,6 @@ export function useSidebarData() {
     for (const dir of stalePaths) terminalStore.remove(dir);
   }
 
-  async function fetchAllRepos() {
-    await Promise.allSettled(repoStore.dirOrder.map((d) => fetchRepo(d)));
-  }
-
   /** 現在 active な dir を所有する repo を fetch。push event 駆動 */
   function fetchOwnerOfActive() {
     const dir = worktreeStore.dir;
@@ -230,6 +226,5 @@ export function useSidebarData() {
 
   return {
     fetchRepo,
-    fetchAllRepos,
   };
 }

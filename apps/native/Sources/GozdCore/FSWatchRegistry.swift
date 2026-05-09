@@ -28,9 +28,18 @@ public actor FSWatchRegistry {
   public typealias WorktreeChangeHandler = @Sendable (_ dir: String) -> Void
 
   private struct Entry {
+    let generation: UInt64
     let watcher: FSWatcher
     let task: Task<Void, Never>
     let continuation: AsyncStream<[FSWatcher.Event]>.Continuation
+  }
+
+  private struct Classification {
+    let fsRelDirs: Set<String>
+    let hasFsChange: Bool
+    let hasGitStatusChange: Bool
+    let hasBranchChange: Bool
+    let hasWorktreeChange: Bool
   }
 
   private let onFsChange: FsChangeHandler
@@ -38,6 +47,9 @@ public actor FSWatchRegistry {
   private let onBranchChange: BranchChangeHandler
   private let onWorktreeChange: WorktreeChangeHandler
   private var entries: [String: Entry] = [:]
+  /// watch ごとに増える世代番号。unwatch 後に積まれていた stale event の dispatch を
+  /// 抑止するため、event 配送前後に entries[dir]?.generation と一致するか check する。
+  private var nextGeneration: UInt64 = 0
 
   public init(
     onFsChange: @escaping FsChangeHandler,
@@ -58,6 +70,9 @@ public actor FSWatchRegistry {
     let dir = FSWatchRegistry.realpath(userDir)
     if entries[dir] != nil { return }
 
+    nextGeneration += 1
+    let generation = nextGeneration
+
     let (stream, continuation) = AsyncStream<[FSWatcher.Event]>.makeStream()
     let watcher = FSWatcher(paths: [dir])
     watcher.setHandler { events in
@@ -65,25 +80,17 @@ public actor FSWatchRegistry {
     }
     try watcher.start()
 
-    let onFsChange = self.onFsChange
-    let onGitStatusChange = self.onGitStatusChange
-    let onBranchChange = self.onBranchChange
-    let onWorktreeChange = self.onWorktreeChange
-
-    let task = Task.detached {
+    // event 配送は actor-isolated `handleEvents` 経由にする。stale event を
+    // unwatch 後に dispatch しないよう、entries[dir]?.generation の一致を
+    // dispatch 前後で check する設計（FSEvents 配信は async / 遅延配信があるため）。
+    let task = Task { [weak self] in
       for await events in stream {
-        FSWatchRegistry.classifyAndDispatch(
-          dir: dir,
-          events: events,
-          onFsChange: onFsChange,
-          onGitStatusChange: onGitStatusChange,
-          onBranchChange: onBranchChange,
-          onWorktreeChange: onWorktreeChange
-        )
+        await self?.handleEvents(dir: dir, generation: generation, events: events)
       }
     }
 
-    entries[dir] = Entry(watcher: watcher, task: task, continuation: continuation)
+    entries[dir] = Entry(
+      generation: generation, watcher: watcher, task: task, continuation: continuation)
   }
 
   /// dir の監視を停止する。watch されていなければ no-op。
@@ -93,6 +100,42 @@ public actor FSWatchRegistry {
     entry.watcher.stop()
     entry.continuation.finish()
     entry.task.cancel()
+  }
+
+  /// dispatch 時点で entry がまだ生きており、世代が一致するかを判定する。
+  /// FSEvents の遅延配信や gitStatusFull の await 後に entry が消えていれば false。
+  private func isActive(dir: String, generation: UInt64) -> Bool {
+    entries[dir]?.generation == generation
+  }
+
+  /// 1 バッチの events を分類して push event として配送する。
+  /// 各 await 後にも `isActive` を再 check し、unwatch 済みの世代からの dispatch を抑止する。
+  private func handleEvents(dir: String, generation: UInt64, events: [FSWatcher.Event]) async {
+    guard isActive(dir: dir, generation: generation) else { return }
+
+    let result = FSWatchRegistry.classify(dir: dir, events: events)
+
+    // 分類は同期処理なので await を挟まないが、明示的に再 check しておく。
+    guard isActive(dir: dir, generation: generation) else { return }
+
+    if result.hasFsChange {
+      for relDir in result.fsRelDirs {
+        onFsChange(dir, relDir)
+      }
+    }
+    if result.hasBranchChange {
+      onBranchChange(dir)
+    }
+    if result.hasWorktreeChange {
+      onWorktreeChange(dir)
+    }
+
+    if result.hasGitStatusChange {
+      let status = try? await GitOps.gitStatusFull(dir: dir)
+      // gitStatusFull の await 中に unwatch されている可能性があるため再 check
+      guard isActive(dir: dir, generation: generation), let status else { return }
+      onGitStatusChange(dir, status)
+    }
   }
 
   public func isWatching(dir userDir: String) -> Bool {
@@ -111,21 +154,14 @@ public actor FSWatchRegistry {
     }
   }
 
-  /// 1 バッチの events を分類して push event として配送する。
-  /// detached Task からの呼び出しで actor isolation を保つため static にする。
-  private static func classifyAndDispatch(
-    dir: String,
-    events: [FSWatcher.Event],
-    onFsChange: @escaping FsChangeHandler,
-    onGitStatusChange: @escaping GitStatusChangeHandler,
-    onBranchChange: @escaping BranchChangeHandler,
-    onWorktreeChange: @escaping WorktreeChangeHandler
-  ) {
+  /// 1 バッチの events を分類した結果を返す pure helper。dispatch は呼び出し側が行う。
+  /// 分離理由: dispatch 前後に actor 上で世代 check を挟むため、副作用を持たない形にする。
+  private static func classify(dir: String, events: [FSWatcher.Event]) -> Classification {
     let dirWithSlash = dir.hasSuffix("/") ? dir : dir + "/"
     let gitPrefix = dirWithSlash + ".git/"
 
     var fsRelDirs = Set<String>()
-    var hasWorkTreeChange = false
+    var hasFsChange = false
     var hasGitStatusChange = false
     var hasBranchChange = false
     var hasWorktreeChange = false
@@ -147,31 +183,20 @@ public actor FSWatchRegistry {
         // それ以外の .git 配下（objects/, logs/ 等）は無視
       } else {
         // 作業ツリー側の変更 → fsChange + gitStatusChange
-        hasWorkTreeChange = true
+        hasFsChange = true
         hasGitStatusChange = true
         let relDir = relativeDir(path: path, dir: dir, dirWithSlash: dirWithSlash)
         fsRelDirs.insert(relDir)
       }
     }
 
-    if hasWorkTreeChange {
-      for relDir in fsRelDirs {
-        onFsChange(dir, relDir)
-      }
-    }
-    if hasGitStatusChange {
-      Task {
-        if let status = try? await GitOps.gitStatusFull(dir: dir) {
-          onGitStatusChange(dir, status)
-        }
-      }
-    }
-    if hasBranchChange {
-      onBranchChange(dir)
-    }
-    if hasWorktreeChange {
-      onWorktreeChange(dir)
-    }
+    return Classification(
+      fsRelDirs: fsRelDirs,
+      hasFsChange: hasFsChange,
+      hasGitStatusChange: hasGitStatusChange,
+      hasBranchChange: hasBranchChange,
+      hasWorktreeChange: hasWorktreeChange
+    )
   }
 
   /// イベントの絶対 path から、dir に対する **親ディレクトリ** の相対パスを返す。

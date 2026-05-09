@@ -73,6 +73,11 @@ struct FSWatchRegistryTests {
 
     try await registry.watch(dir: tmpDir.path)
     try await Task.sleep(for: .milliseconds(300))
+
+    // watch 開始直後の FSEvents 初期 batch（tmpDir 作成時の latent event 等）を
+    // unwatch 前に観測対象から外す。本テストの主旨は「unwatch 以降に発生した変更で
+    // dispatch が走らないこと」の検証。
+    collector.clear()
     await registry.unwatch(dir: tmpDir.path)
 
     let file = tmpDir.appendingPathComponent("after-unwatch.txt")
@@ -118,5 +123,11 @@ private final class EventNameCollector: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return events
+  }
+
+  func clear() {
+    lock.lock()
+    defer { lock.unlock() }
+    events.removeAll()
   }
 }

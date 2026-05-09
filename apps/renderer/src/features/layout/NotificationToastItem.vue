@@ -10,6 +10,7 @@
 </doc>
 
 <script setup lang="ts">
+import { tryCatch } from "@gozd/shared";
 import { computed, ref } from "vue";
 
 const props = defineProps<{
@@ -20,8 +21,24 @@ const props = defineProps<{
 
 defineEmits<{ dismiss: [] }>();
 
+type CopyState = "idle" | "copied" | "failed";
+
 const expanded = ref(false);
-const copied = ref(false);
+const copyState = ref<CopyState>("idle");
+
+const COPY_FEEDBACK_MS = 1500;
+
+const copyLabelMap: Record<CopyState, string> = {
+  idle: "Copy",
+  copied: "Copied",
+  failed: "Failed",
+};
+
+const copyIconMap: Record<CopyState, string> = {
+  idle: "icon-[lucide--copy]",
+  copied: "icon-[lucide--check]",
+  failed: "icon-[lucide--triangle-alert]",
+};
 
 const iconMap = {
   error: "icon-[lucide--circle-x]",
@@ -40,6 +57,35 @@ const iconColorMap = {
 
 const hasCause = computed(() => props.cause !== undefined);
 
+// 循環参照や toString が壊れたオブジェクトでもトースト描画を壊さないように整形する
+function safeStringify(value: unknown): string {
+  // String() は Symbol.toPrimitive / toString / valueOf が壊れている時に throw する
+  const stringResult = tryCatch(() => String(value));
+  if (stringResult.ok && stringResult.value !== "[object Object]") {
+    return stringResult.value;
+  }
+  // Object 系で String() が "[object Object]" になるケースは JSON 整形を試す
+  const seen = new WeakSet<object>();
+  const jsonResult = tryCatch(() =>
+    JSON.stringify(
+      value,
+      (_key, v) => {
+        if (typeof v === "object" && v !== null) {
+          if (seen.has(v)) return "[Circular]";
+          seen.add(v);
+        }
+        return v;
+      },
+      2,
+    ),
+  );
+  if (jsonResult.ok && jsonResult.value !== undefined) return jsonResult.value;
+  // どちらも失敗 / undefined を返す場合は prototype-free な型表記にフォールバック。
+  // Symbol.toStringTag の getter が throw するケースに備えてこれも tryCatch で包む
+  const tagResult = tryCatch(() => Object.prototype.toString.call(value));
+  return tagResult.ok ? tagResult.value : "[unrepresentable cause]";
+}
+
 const detail = computed(() => {
   const { cause } = props;
   if (cause instanceof Error) {
@@ -47,13 +93,7 @@ const detail = computed(() => {
     return cause.stack !== undefined && cause.stack !== "" ? cause.stack : head;
   }
   if (typeof cause === "string") return cause;
-  const stringified = String(cause);
-  if (stringified !== "[object Object]") return stringified;
-  try {
-    return JSON.stringify(cause, null, 2);
-  } catch {
-    return stringified;
-  }
+  return safeStringify(cause);
 });
 
 function toggle() {
@@ -63,11 +103,15 @@ function toggle() {
 
 async function copyDetail() {
   const text = `${props.message}\n\n${detail.value}`;
-  await navigator.clipboard.writeText(text);
-  copied.value = true;
+  // navigator.clipboard 自体が undefined の環境（古い WebView / 非 secure context）で
+  // .writeText 参照時点の同期 throw も拾うため、async IIFE で Promise 化してから tryCatch に渡す。
+  // tryCatch の関数版は Result<Promise<T>> を返すだけで Promise の reject を拾わないため、
+  // ここでは Promise 版に流し込む必要がある。
+  const result = await tryCatch((async () => navigator.clipboard.writeText(text))());
+  copyState.value = result.ok ? "copied" : "failed";
   setTimeout(() => {
-    copied.value = false;
-  }, 1500);
+    copyState.value = "idle";
+  }, COPY_FEEDBACK_MS);
 }
 </script>
 
@@ -118,8 +162,8 @@ async function copyDetail() {
           class="flex cursor-pointer items-center gap-1 rounded-sm border border-white/15 px-2 py-0.5 text-xs text-zinc-200 hover:bg-white/10"
           @click="copyDetail"
         >
-          <span :class="[copied ? 'icon-[lucide--check]' : 'icon-[lucide--copy]', 'size-3']" />
-          {{ copied ? "Copied" : "Copy" }}
+          <span :class="[copyIconMap[copyState], 'size-3']" />
+          {{ copyLabelMap[copyState] }}
         </button>
       </div>
       <pre

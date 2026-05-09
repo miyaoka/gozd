@@ -151,9 +151,9 @@ const statusIcons = computed(() => {
         @click="emit('select', wt)"
       >
         <span class="line-clamp-2"
-          ><span v-if="wt.task?.prNumber !== undefined" class="mr-1 text-xs text-zinc-400"
+          ><span v-if="wt.task && wt.task.prNumber > 0" class="mr-1 text-xs text-zinc-400"
             >#{{ wt.task.prNumber }}</span
-          ><span v-else-if="wt.task?.issueNumber !== undefined" class="mr-1 text-xs text-zinc-400"
+          ><span v-else-if="wt.task && wt.task.issueNumber > 0" class="mr-1 text-xs text-zinc-400"
             >#{{ wt.task.issueNumber }}</span
           >{{ worktreeDisplayName(wt) }}</span
         >

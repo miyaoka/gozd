@@ -8,9 +8,9 @@ worktree の前段として作業計画を管理する。Task と worktree を 1
 interface Task {
   id: string; // UUID (crypto.randomUUID)
   body: string; // git commit 形式: 一行目=タイトル、残り=本文
-  worktreeDir?: string; // 紐づいた worktree のパス（未着手なら undefined）
-  prNumber?: number; // 紐づく PR 番号（PR から worktree を作成した場合に設定）
-  issueNumber?: number; // 紐づく issue 番号（issue から worktree を作成した場合に設定）
+  worktreeDir: string; // 紐づいた worktree のパス。空文字は未紐付けを表す（proto3 string のため optional ではない）
+  prNumber: number; // 紐づく PR 番号。0 は未設定を表す（proto3 uint32 のため optional ではない）
+  issueNumber: number; // 紐づく issue 番号。0 は未設定を表す（proto3 uint32 のため optional ではない）
   createdAt: string; // ISO 8601
 }
 ```
@@ -45,7 +45,7 @@ interface Task {
 "Workspace: Open Pull Request" → PR 選択 → worktree 作成 + Task 作成（body=PR タイトル、prNumber=PR 番号）
 ```
 
-- `prNumber` が設定された Task は、サイドバーで `#番号` をタイトルの前にプレフィックス表示する
+- `prNumber > 0` の Task は、サイドバーで `#番号` をタイトルの前にプレフィックス表示する
 
 ### Issue から worktree 作成
 
@@ -54,7 +54,7 @@ interface Task {
 ```
 
 - PR と異なり既存ブランチがないため、タイムスタンプ名で新規ブランチを作成する
-- `issueNumber` が設定された Task は、`prNumber` と同様にサイドバーで `#番号` をプレフィックス表示する
+- `issueNumber > 0` の Task は、`prNumber` と同様にサイドバーで `#番号` をプレフィックス表示する
 
 ### 削除・クリーンアップ
 
@@ -120,7 +120,7 @@ WORKTREES
 
 ```text
 taskList:               undefined → Task[]
-taskAdd:                { body, worktreeDir?, prNumber?, issueNumber? } → Task
+taskAdd:                { body, worktreeDir, prNumber, issueNumber } → Task
 taskUpdate:             { id, body } → Task
 taskRemove:             { id } → void
 createWorktreeWithTask: { id, worktreeDir, branch } → { task, worktree, dir, fileServerBaseUrl }

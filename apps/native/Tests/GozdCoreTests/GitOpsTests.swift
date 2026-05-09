@@ -101,7 +101,7 @@ struct GitOpsRunGitLargeOutputTests {
   /// 旧実装は `Process.terminationHandler` 内で `readDataToEndOfFile()` していたため、
   /// 出力 > buffer の瞬間に子が write block → exit 不能 → terminationHandler が呼ばれない
   /// deadlock になっていた（gozd リポジトリ実体で再現していた症状）。
-  @Test("64KB を超える stdout を deadlock せず読み切れる")
+  @Test("64KB を超える stdout を deadlock せず読み切れる", .timeLimit(.minutes(1)))
   func largeStdoutDoesNotDeadlock() async throws {
     let dir = try await makeGitRepo()
     defer { try? FileManager.default.removeItem(at: dir) }
@@ -125,7 +125,7 @@ struct GitOpsRunGitLargeOutputTests {
 
   /// 同様の deadlock テストを `runGitWithStdin` 側にも適用する。
   /// `git check-ignore --stdin -z` は 64KB 超の path 一覧を flush できる必要がある。
-  @Test("runGitWithStdin も 64KB 超の stdin / stdout で deadlock しない")
+  @Test("runGitWithStdin も 64KB 超の stdin / stdout で deadlock しない", .timeLimit(.minutes(1)))
   func runGitWithStdinLargeIO() async throws {
     let dir = try await makeGitRepo()
     defer { try? FileManager.default.removeItem(at: dir) }

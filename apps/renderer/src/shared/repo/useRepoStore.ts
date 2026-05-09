@@ -73,10 +73,10 @@ export const useRepoStore = defineStore("repo", () => {
     selectedDir.value = dir;
   }
 
-  function renameSelectedRepo(newName: string) {
-    const repo = selectedRepo.value;
+  function renameRepo(rootDir: string, newName: string) {
+    const repo = repos.value[rootDir];
     if (repo === undefined) return;
-    repos.value[repo.rootDir] = { ...repo, repoName: newName };
+    repos.value[rootDir] = { ...repo, repoName: newName };
   }
 
   function removeRepo(rootDir: string) {
@@ -103,7 +103,7 @@ export const useRepoStore = defineStore("repo", () => {
     addRepo,
     updateRepoData,
     selectDir,
-    renameSelectedRepo,
+    renameRepo,
     removeRepo,
   };
 });

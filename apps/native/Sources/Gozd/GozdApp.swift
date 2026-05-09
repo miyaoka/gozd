@@ -130,8 +130,8 @@ final class AppRuntime {
   }
 
   /// 任意の path を gozdOpen event として renderer に push する。
-  /// CLI / socket 経由の OpenMessage と、起動時の自動 open（dev mode 等）の
-  /// 両方から共通エントリポイントになる。
+  /// CLI / socket 経由の OpenMessage と、起動時の launch request 経由の cold
+  /// start open の共通エントリポイント。
   func openTarget(_ targetPath: String) {
     let channel = self.channel
     let page = self.page

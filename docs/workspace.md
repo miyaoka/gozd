@@ -30,22 +30,19 @@
 
 ## アプリ状態の復元
 
-`~/.config/gozd/app-state.json` に最後のウィンドウ状態を保存し、Dock/Finder からの起動時に復元する。
+`~/.config/gozd/app-state.json` に最後のウィンドウ状態を保存し、次回起動時に sidebar として hydrate する。
 
 保存する情報:
 
-- プロジェクト（リポジトリルート）ディレクトリ
-- 最後にアクティブだった worktree ディレクトリ
+- sidebar に表示中の repo 一覧（`sidebarRepos`: rootDir / repoName / collapsed）
+- 最後にアクティブだった worktree ディレクトリ（`lastOpenedDir`）
 - ウィンドウフレーム（位置・サイズ）
 
-復元の優先順位:
+起動時の挙動:
 
-- CLI の launch request ファイル（`gozd <dir>` 時）
-- 保存済みのアプリ状態（Dock/Finder / `pnpm dev` 起動時）
-- ホームディレクトリ（初回起動時）
-
-> [!NOTE]
-> 現状は **単一 repo** の最終状態のみ保存している。同居中の複数 repo の永続化は[プロジェクト管理 / 永続化（未実装）](#永続化未実装) 参照。
+- CLI の launch request ファイル（`gozd <dir>` 時）があればその dir を開く
+- それ以外（Dock/Finder / `pnpm dev` 起動時）は launch request なし → renderer が `app-state.json` を hydrate して sidebar を復元する。active dir の自動選択は未実装で、ユーザーが sidebar から手動選択する
+- 初回起動時（state なし）は空の sidebar で待機する
 
 ## プロジェクト管理
 
@@ -61,18 +58,16 @@
    - 含まれる: `selectDir(targetDir)` のみ（既存 repo にフォーカス + 該当 worktree 切替）
    - 含まれない: 新規 repo として `addRepo` + worktrees / branches を fetch
 
-### 永続化（未実装）
+### 永続化
 
-> [!NOTE]
-> 現状は in-memory のみ。アプリ再起動で repo 一覧は失われる。
+`app-state.json` の `sidebarRepos` で同居中の repo 一覧（rootDir / repoName / collapsed 状態）を永続化済み。
 
-将来的に永続化する候補:
+未実装:
 
-- 同居中の repo 一覧（paths、最終アクセス日時）
-- 各 repo の最後の active worktree
+- 起動時の active worktree 自動復元（`lastOpenedDir` は保存されているが hydrate 時に `selectedDir` へ反映していない）
 - worktree ごとの setup / teardown スクリプト（`pnpm install` 等の初期化自動化）
 
-ストレージ方式は JSON ファイルか SQLite。永続化対象が増えたら DB への移行を検討する。
+将来的に永続化対象が大きく増えた場合は SQLite への移行を検討する。
 
 ## Worktree 運用ルール
 

@@ -12,6 +12,7 @@ Popover API (`popover="manual"`) によるトースト通知。
 import { useEventListener } from "@vueuse/core";
 import { useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import NotificationToastItem from "./NotificationToastItem.vue";
 
 const { notifications, dismiss } = useNotificationStore();
 
@@ -39,21 +40,6 @@ useEventListener(popoverRef, "toggle", (e: ToggleEvent) => {
     }
   }
 });
-
-const iconMap = {
-  error: "icon-[lucide--circle-x]",
-  info: "icon-[lucide--info]",
-} as const;
-
-const colorMap = {
-  error: "border-red-800 bg-red-950",
-  info: "border-zinc-700 bg-zinc-900",
-} as const;
-
-const iconColorMap = {
-  error: "text-red-400",
-  info: "text-blue-400",
-} as const;
 </script>
 
 <template>
@@ -62,25 +48,14 @@ const iconColorMap = {
     popover="manual"
     class="_notification-toast pointer-events-none m-0 flex flex-col items-end gap-2 border-0 bg-transparent p-4 [&:popover-open]:flex"
   >
-    <div
+    <NotificationToastItem
       v-for="n in notifications"
       :key="n.id"
-      :class="[
-        'pointer-events-auto flex max-w-md items-start gap-2 rounded-lg border p-3 text-sm text-white shadow-lg',
-        colorMap[n.type],
-      ]"
-    >
-      <span :class="['mt-0.5 size-4 shrink-0', iconMap[n.type], iconColorMap[n.type]]" />
-      <p class="min-w-0 flex-1 break-all">{{ n.message }}</p>
-      <button
-        type="button"
-        class="shrink-0 text-zinc-400 hover:text-zinc-200"
-        aria-label="Dismiss"
-        @click="dismiss(n.id)"
-      >
-        <span class="icon-[lucide--x] size-4" />
-      </button>
-    </div>
+      :type="n.type"
+      :message="n.message"
+      :cause="n.cause"
+      @dismiss="dismiss(n.id)"
+    />
   </div>
 </template>
 

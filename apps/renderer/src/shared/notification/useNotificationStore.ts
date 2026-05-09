@@ -8,6 +8,7 @@ interface Notification {
   id: number;
   type: "error" | "info";
   message: string;
+  cause?: unknown;
 }
 
 /** info 通知の自動消去時間（ms） */
@@ -30,7 +31,7 @@ function add(type: Notification["type"], message: string, cause?: unknown) {
   if (duplicate) return;
 
   const id = nextId++;
-  notifications.value.push({ id, type, message });
+  notifications.value.push({ id, type, message, cause });
 
   if (type === "info") {
     const timer = setTimeout(() => dismiss(id), INFO_AUTO_DISMISS_MS);

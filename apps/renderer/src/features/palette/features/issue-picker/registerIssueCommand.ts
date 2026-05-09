@@ -28,12 +28,23 @@ export function registerIssueCommand(): () => void {
       void (async () => {
         const dir = worktreeStore.dir;
         if (dir === undefined) return;
-        const [issuesRes, worktreesRes, viewerRes] = await Promise.all([
-          rpcGitIssueList({ dir }),
-          rpcGitWorktreeList({ dir }),
-          rpcGitViewer({ dir }),
-        ]);
-        if (!issuesRes.ok || issuesRes.issues.length === 0) return;
+        const fetchResult = await tryCatch(
+          Promise.all([
+            rpcGitIssueList({ dir }),
+            rpcGitWorktreeList({ dir }),
+            rpcGitViewer({ dir }),
+          ]),
+        );
+        if (!fetchResult.ok) {
+          notify.error("Failed to load issues", fetchResult.error);
+          return;
+        }
+        const [issuesRes, worktreesRes, viewerRes] = fetchResult.value;
+        if (!issuesRes.ok) {
+          notify.error("Failed to load issues from GitHub");
+          return;
+        }
+        if (issuesRes.issues.length === 0) return;
 
         const wtByIssue = new Map(
           worktreesRes.worktrees

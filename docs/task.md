@@ -8,7 +8,7 @@ worktree の前段として作業計画を管理する。Task と worktree を 1
 interface Task {
   id: string; // UUID (crypto.randomUUID)
   body: string; // git commit 形式: 一行目=タイトル、残り=本文
-  worktreeDir?: string; // 紐づいた worktree のパス（未着手なら undefined）
+  worktreeDir: string; // 紐づいた worktree のパス。空文字は未紐付けを表す（proto3 string のため optional ではない）
   prNumber: number; // 紐づく PR 番号。0 は未設定を表す（proto3 uint32 のため optional ではない）
   issueNumber: number; // 紐づく issue 番号。0 は未設定を表す（proto3 uint32 のため optional ではない）
   createdAt: string; // ISO 8601

@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 // worktree / branch を変更する書き込み系操作。
@@ -37,13 +36,8 @@ public enum WorktreeOps {
   }
 
   /// `~/.local/share/gozd/worktrees/<projectKey>/<leaf>` の絶対パスを返し、親ディレクトリを作成する。
-  /// projectKey は `<repoName>-<sha256(realpath(projectDir))[0..12]>`。
   private static func ensureWorktreePath(projectDir: String, leaf: String) throws -> String {
-    let resolved = (projectDir as NSString).resolvingSymlinksInPath
-    let repoName = (resolved as NSString).lastPathComponent
-    let digest = SHA256.hash(data: Data(resolved.utf8))
-    let hash = digest.compactMap { String(format: "%02x", $0) }.joined()
-    let projectKey = "\(repoName)-\(String(hash.prefix(12)))"
+    let projectKey = ProjectKey.compute(forMainRepoRoot: projectDir)
     let home = NSHomeDirectory()
     let base = (home as NSString)
       .appendingPathComponent(".local/share/gozd/worktrees")

@@ -40,6 +40,10 @@ export function registerIssueCommand(): () => void {
           return;
         }
         const [issuesRes, worktreesRes, viewerRes] = fetchResult.value;
+        if (!issuesRes.ok) {
+          notify.error("Failed to load issues from GitHub");
+          return;
+        }
         if (issuesRes.issues.length === 0) return;
 
         const wtByIssue = new Map(
@@ -48,7 +52,7 @@ export function registerIssueCommand(): () => void {
             .map((wt) => [wt.task?.issueNumber, wt.path]),
         );
 
-        show(issuesRes.issues, viewerRes.login, (issue) => {
+        show(issuesRes.issues, viewerRes.ok ? viewerRes.login : "", (issue) => {
           const existingDir = wtByIssue.get(issue.number);
           if (existingDir !== undefined) {
             terminalStore.viewMode = "wt";

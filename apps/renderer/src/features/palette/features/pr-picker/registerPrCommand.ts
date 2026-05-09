@@ -27,18 +27,21 @@ export function registerPrCommand(): () => void {
       void (async () => {
         const dir = worktreeStore.dir;
         if (dir === undefined) return;
-        const [prsRes, worktreesRes, viewerRes] = await Promise.all([
-          rpcGitPrList({ dir }),
-          rpcGitWorktreeList({ dir }),
-          rpcGitViewer({ dir }),
-        ]);
-        if (!prsRes.ok || prsRes.prs.length === 0) return;
+        const fetchResult = await tryCatch(
+          Promise.all([rpcGitPrList({ dir }), rpcGitWorktreeList({ dir }), rpcGitViewer({ dir })]),
+        );
+        if (!fetchResult.ok) {
+          notify.error("Failed to load pull requests", fetchResult.error);
+          return;
+        }
+        const [prsRes, worktreesRes, viewerRes] = fetchResult.value;
+        if (prsRes.prs.length === 0) return;
 
         const wtByBranch = new Map(
           worktreesRes.worktrees.filter((wt) => wt.branch !== "").map((wt) => [wt.branch, wt.path]),
         );
 
-        show(prsRes.prs, viewerRes.ok ? viewerRes.login : "", (pr) => {
+        show(prsRes.prs, viewerRes.login, (pr) => {
           const existingDir = wtByBranch.get(pr.headRef);
           if (existingDir !== undefined) {
             // 既存 worktree に切り替え（ステートレス化により switchDir RPC は廃止）

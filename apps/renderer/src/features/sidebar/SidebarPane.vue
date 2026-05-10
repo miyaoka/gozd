@@ -10,7 +10,7 @@
 
 ## 操作
 
-- view mode トグル: 全 repo 共通の `terminalStore.viewMode` を `"wt"` / `"claude"` で切り替え。terminal feature 側に登録された `workspace.toggleViewMode` コマンド（cmd+/）と同じ state を更新する
+- view mode トグル: active worktree / claude terminals を切り替え。`cmd+/` でも同じ操作が可能
 - worktree クリック: 表示対象 dir 切替 + done バッジ既読化
 - ⋮ メニュー: SidebarMenu に委譲（worktree 編集 / 解除、branch から worktree 化）
 - chevron: 折りたたみトグル（永続）

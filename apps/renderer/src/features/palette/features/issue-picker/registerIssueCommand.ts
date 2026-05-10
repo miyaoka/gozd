@@ -64,10 +64,19 @@ export function registerIssueCommand(): () => void {
             return;
           }
           void (async () => {
+            // 新規 worktree は常にデフォルトブランチを起点に作る。
+            // `dir` は active worktree のパスなので、そのまま `cwd` にして `HEAD` を渡すと
+            // active worktree のブランチ先端から派生してしまう。`rootDir`（main repo root）を
+            // 渡せば `cwd` のリポジトリ HEAD = デフォルトブランチに解決される（main は参照専用）。
+            const rootDir = repoStore.findRepoOwning(dir)?.rootDir;
+            if (rootDir === undefined) {
+              notify.error("Failed to resolve repo root for worktree creation");
+              return;
+            }
             const timestamp = generateTimestamp();
             const result = await tryCatch(
               rpcCreateWorktree({
-                dir,
+                dir: rootDir,
                 worktreeDir: timestamp,
                 branch: timestamp,
                 startPoint: "HEAD",
@@ -89,8 +98,7 @@ export function registerIssueCommand(): () => void {
             if (!taskResult.ok) {
               notify.error("Failed to create task for worktree", taskResult.error);
             }
-            const rootDir = repoStore.findRepoOwning(dir)?.rootDir;
-            if (rootDir === undefined || result.value.worktree === undefined) {
+            if (result.value.worktree === undefined) {
               notify.error("Worktree created but sidebar could not be updated");
             } else {
               repoStore.appendWorktree(rootDir, result.value.worktree);

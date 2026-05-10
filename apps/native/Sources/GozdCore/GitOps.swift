@@ -274,44 +274,43 @@ public enum GitOps {
     return try await runGit(args: ["show", "\(hash):\(relPath)"], cwd: dir)
   }
 
-  /// 指定コミット（または 2 コミット間）の name-status 差分を返す。
+  /// 指定コミット（または範囲指定）の name-status 差分を返す。
   ///
   /// - 単一コミット非ルート: `git diff <hash>^ <hash>` で first parent との比較。
   ///   merge commit でも `hash^` が first parent に解決されるため GitHub の表示と一致する
   ///   差分になる。`diff-tree -m --first-parent` は先祖の変更が混入するので使わない。
   /// - 単一ルートコミット: `git diff-tree --root --no-commit-id -r` を使う（親が無いので
   ///   `^` で解決できない）。
-  /// - 範囲指定: 旧 / 新を `merge-base --is-ancestor` で決定し、旧^（旧が root の場合は
-  ///   well-known empty tree hash）から新へ `git diff` する。empty tree を起点にすることで
-  ///   root 自身の変更が range に含まれる（`from = older` だと root の追加分が落ちる）。
-  /// - UNCOMMITTED_HASH（all-zero）が範囲の片方に含まれる場合は working tree と比較する
-  ///   ため `git diff <from>` で第 2 引数省略（working tree と比較される）。
+  /// - 範囲指定（rangeHashes 非空）: renderer が git-graph の表示順で組み立てた commit hash 列を
+  ///   受け取り、各 commit の first-parent diff を union する。git の祖先関係に依存せず
+  ///   「画面上で見える範囲 = 対象」を保証する。同一ファイルが複数 commit で変更される場合、
+  ///   newer 側（配列の先頭）の type を採用する（最終的に何になっているかを優先）。
+  ///   root commit が含まれる場合は empty tree を起点にする。
   ///
   /// 共通 diff オプション: `--name-status -z --find-renames --diff-filter=AMDR`。
-  public static func commitFiles(dir: String, hash: String, compareHash: String?) async throws
-    -> [FileChangeInfo]
-  {
+  public static func commitFiles(
+    dir: String, hash: String, compareHash: String?, rangeHashes: [String] = []
+  ) async throws -> [FileChangeInfo] {
     let diffOptions = ["--name-status", "-z", "--find-renames", "--diff-filter=AMDR"]
-    let uncommitted = "0000000000000000000000000000000000000000"
-    let hasUncommitted =
-      hash == uncommitted || (compareHash.map { $0 == uncommitted } ?? false)
 
-    if let compareHash, !compareHash.isEmpty {
-      let commitA = hash == uncommitted ? "HEAD" : hash
-      let commitB = compareHash == uncommitted ? "HEAD" : compareHash
-      let aIsOlder = try await isAncestor(dir: dir, ancestor: commitA, descendant: commitB)
-      let older = aIsOlder ? commitA : commitB
-      let newer = aIsOlder ? commitB : commitA
-      let from =
-        (try await isRootCommit(dir: dir, hash: older)) ? emptyTreeHash : "\(older)^"
-      if hasUncommitted {
+    if !rangeHashes.isEmpty {
+      // 配列の先頭が newer。先頭から順に処理して、newPath をキーに最初に出会った change を採用する
+      // （= newer 側の type を優先）。
+      var changeMap: [String: FileChangeInfo] = [:]
+      var order: [String] = []
+      for hash in rangeHashes {
+        let isRoot = try await isRootCommit(dir: dir, hash: hash)
+        let from = isRoot ? emptyTreeHash : "\(hash)^"
         let stdout = try await runGit(
-          args: ["diff"] + diffOptions + [from], cwd: dir)
-        return parseDiffNameStatus(stdout)
+          args: ["diff"] + diffOptions + [from, hash], cwd: dir)
+        for change in parseDiffNameStatus(stdout) {
+          if changeMap[change.newPath] == nil {
+            changeMap[change.newPath] = change
+            order.append(change.newPath)
+          }
+        }
       }
-      let stdout = try await runGit(
-        args: ["diff"] + diffOptions + [from, newer], cwd: dir)
-      return parseDiffNameStatus(stdout)
+      return order.compactMap { changeMap[$0] }
     }
 
     if try await isRootCommit(dir: dir, hash: hash) {
@@ -507,19 +506,6 @@ private func isRootCommit(dir: String, hash: String) async throws -> Bool {
   let line = String(decoding: stdout, as: UTF8.self)
     .trimmingCharacters(in: .whitespacesAndNewlines)
   return line.split(separator: " ").count == 1
-}
-
-/// `git merge-base --is-ancestor <ancestor> <descendant>` で先祖関係を判定する。
-/// exit 0 で ancestor、exit 1 で非 ancestor。それ以外（128 / launch failure 等）は本物の
-/// エラーなので throw して上位へ返す（誤って Bool に潰すと範囲指定の older/newer が壊れる）。
-private func isAncestor(dir: String, ancestor: String, descendant: String) async throws -> Bool {
-  do {
-    _ = try await runGit(
-      args: ["merge-base", "--is-ancestor", ancestor, descendant], cwd: dir)
-    return true
-  } catch GitError.commandFailed(let exitCode, _) where exitCode == 1 {
-    return false
-  }
 }
 
 /// `git diff` / `git diff-tree` の `--name-status -z` 出力をパースする。

@@ -594,15 +594,35 @@ function onRowClick(hash: string, e: MouseEvent) {
   }
 }
 
-/** 行のハイライトクラスを返す */
+/**
+ * 行のハイライトクラスを返す。
+ *
+ * 単一選択 / 範囲選択どちらも同一の単色背景でハイライトする。
+ * 「実 diff 対象 commit」の強調は SVG の dot 側で行うため、ここでは選択範囲そのものの提示に専念する。
+ */
 function rowHighlightClass(hash: string): string {
-  if (hash === gitGraphStore.selectedHash || hash === gitGraphStore.compareHash) {
-    return "bg-blue-900/40 hover:bg-blue-900/50";
-  }
-  if (isInRange(hash)) {
-    return "bg-blue-900/20 hover:bg-blue-900/30";
+  if (isSelectedRow(hash)) {
+    return "bg-blue-900/30 hover:bg-blue-900/40";
   }
   return "hover:bg-zinc-800/60";
+}
+
+/**
+ * 単一選択 / 範囲選択を統一して「選択された行」を判定する。
+ *
+ * 範囲選択時は `<older>..<newer>` semantics に従い older 端を含まない。
+ * dot ハイライトと完全一致させることで「青い行 = diff 対象」を保証する。
+ * activeCommitHashes が未取得（fetch 中）の間のみ、両端 + 範囲内をフォールバック表示する。
+ */
+function isSelectedRow(hash: string): boolean {
+  const { selectedHash, compareHash, activeCommitHashes } = gitGraphStore;
+  if (compareHash === null) {
+    return hash === selectedHash;
+  }
+  if (activeCommitHashes !== null) {
+    return activeCommitHashes.has(hash);
+  }
+  return hash === selectedHash || hash === compareHash || isInRange(hash);
 }
 
 /**
@@ -626,6 +646,20 @@ function isInRange(hash: string): boolean {
   const idx = gitGraphStore.hashToIndex.get(hash);
   if (idx === undefined) return false;
   return idx > range.min && idx < range.max;
+}
+
+/**
+ * SVG の dot を branch color で塗りつぶして強調する対象かどうか。
+ *
+ * - 単一選択時: 選択中の commit
+ * - 範囲選択時: first-parent walk で得た実 diff 対象 commit（activeCommitHashes）
+ */
+function isActiveDot(hash: string): boolean {
+  const { selectedHash, compareHash, activeCommitHashes } = gitGraphStore;
+  if (compareHash === null) {
+    return hash === selectedHash;
+  }
+  return activeCommitHashes?.has(hash) ?? false;
 }
 </script>
 
@@ -760,10 +794,10 @@ function isInRange(hash: string): boolean {
                 :key="`dot-${node.commit.hash}`"
                 :cx="laneX(node.lane)"
                 :cy="rowY(row)"
-                :r="DOT_RADIUS"
-                fill="currentColor"
+                :r="isActiveDot(node.commit.hash) ? DOT_RADIUS + 1 : DOT_RADIUS"
+                :fill="isActiveDot(node.commit.hash) ? colorFor(node.color) : 'currentColor'"
                 :stroke="colorFor(node.color)"
-                stroke-width="1.5"
+                :stroke-width="isActiveDot(node.commit.hash) ? 2 : 1.5"
                 class="text-zinc-900"
               />
             </svg>

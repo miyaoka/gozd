@@ -146,7 +146,7 @@ zsh 起動
 
 ## データ永続化
 
-アプリの状態と設定は `~/.config/gozd/` に JSON ファイルで保存する。ファイル I/O は常に desktop（Bun）側で行い、renderer からは RPC request 経由でアクセスする。
+アプリの状態と設定は `~/.config/gozd/`（stable）/ `~/.config/gozd-dev/`（dev）に JSON ファイルで保存する。dev / stable は `GOZD_DEV_PROJECT_ROOT` env の有無で切り替わるため、dev は stable と独立した永続ストアを持つ。ファイル I/O は常に desktop（Bun）側で行い、renderer からは RPC request 経由でアクセスする。
 
 ```text
 ~/.config/gozd/

@@ -30,7 +30,7 @@
 
 ## アプリ状態の復元
 
-`~/.config/gozd/app-state.json` に最後のウィンドウ状態を保存し、次回起動時に sidebar として hydrate する。
+`~/.config/gozd/app-state.json`（stable）/ `~/.config/gozd-dev/app-state.json`（dev）に最後のウィンドウ状態を保存し、次回起動時に sidebar として hydrate する。dev / stable は `GOZD_DEV_PROJECT_ROOT` env の有無で切り替わるため、dev での操作は stable 側の永続ファイルを汚染しない。
 
 保存する情報:
 

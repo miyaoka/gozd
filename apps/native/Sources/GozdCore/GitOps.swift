@@ -282,7 +282,8 @@ public enum GitOps {
   /// - 単一ルートコミット: `git diff-tree --root --no-commit-id -r` を使う（親が無いので
   ///   `^` で解決できない）。
   /// - 範囲指定: 旧 / 新を `merge-base --is-ancestor` で決定し、旧^（旧が root の場合は
-  ///   旧自身）から新へ `git diff` する。
+  ///   well-known empty tree hash）から新へ `git diff` する。empty tree を起点にすることで
+  ///   root 自身の変更が range に含まれる（`from = older` だと root の追加分が落ちる）。
   /// - UNCOMMITTED_HASH（all-zero）が範囲の片方に含まれる場合は working tree と比較する
   ///   ため `git diff <from>` で第 2 引数省略（working tree と比較される）。
   ///
@@ -298,10 +299,11 @@ public enum GitOps {
     if let compareHash, !compareHash.isEmpty {
       let commitA = hash == uncommitted ? "HEAD" : hash
       let commitB = compareHash == uncommitted ? "HEAD" : compareHash
-      let aIsOlder = await isAncestor(dir: dir, ancestor: commitA, descendant: commitB)
+      let aIsOlder = try await isAncestor(dir: dir, ancestor: commitA, descendant: commitB)
       let older = aIsOlder ? commitA : commitB
       let newer = aIsOlder ? commitB : commitA
-      let from = (await isRootCommit(dir: dir, hash: older)) ? older : "\(older)^"
+      let from =
+        (try await isRootCommit(dir: dir, hash: older)) ? emptyTreeHash : "\(older)^"
       if hasUncommitted {
         let stdout = try await runGit(
           args: ["diff"] + diffOptions + [from], cwd: dir)
@@ -312,7 +314,7 @@ public enum GitOps {
       return parseDiffNameStatus(stdout)
     }
 
-    if await isRootCommit(dir: dir, hash: hash) {
+    if try await isRootCommit(dir: dir, hash: hash) {
       let stdout = try await runGit(
         args: ["diff-tree", "--root", "--no-commit-id", "-r"] + diffOptions + [hash], cwd: dir)
       return parseDiffNameStatus(stdout)
@@ -322,6 +324,11 @@ public enum GitOps {
     return parseDiffNameStatus(stdout)
   }
 }
+
+/// git の well-known empty tree object hash。`git hash-object -t tree </dev/null` で
+/// 得られる固定値。root commit を range の起点にする際、`<root>` 自身ではなく empty tree
+/// を `from` に置くことで root commit が追加したファイルも diff に含まれる。
+private let emptyTreeHash = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 public enum GitError: Error, Equatable {
   case commandFailed(exitCode: Int32, stderr: String)
@@ -489,18 +496,30 @@ private func parseWorktreePorcelain(_ data: Data) -> [WorktreeInfo] {
 }
 
 /// 与えられた hash がルートコミット（親なし）かどうかを判定する。
-/// `git rev-parse <hash>^` がルートコミットでは exit 128 で失敗するのを利用する。
-private func isRootCommit(dir: String, hash: String) async -> Bool {
-  let result = try? await runGit(args: ["rev-parse", "\(hash)^"], cwd: dir)
-  return result == nil
+/// `git rev-list --parents -n 1 <hash>` の出力は valid な hash であれば必ず exit 0 で
+/// `<hash> <parent1> <parent2>...` の 1 行を返す。トークン数 1（hash のみ） = root、
+/// 2 以上 = 非 root と判定できる。
+/// invalid hash の場合は `commandFailed` が上がるためそのまま throw して上位に返す
+/// （`git rev-parse <hash>^` を使うと root と invalid hash がどちらも exit 128 で
+/// 区別できないため避ける）。
+private func isRootCommit(dir: String, hash: String) async throws -> Bool {
+  let stdout = try await runGit(args: ["rev-list", "--parents", "-n", "1", hash], cwd: dir)
+  let line = String(decoding: stdout, as: UTF8.self)
+    .trimmingCharacters(in: .whitespacesAndNewlines)
+  return line.split(separator: " ").count == 1
 }
 
 /// `git merge-base --is-ancestor <ancestor> <descendant>` で先祖関係を判定する。
-/// exit 0 で ancestor、exit 1 で非 ancestor。
-private func isAncestor(dir: String, ancestor: String, descendant: String) async -> Bool {
-  let result = try? await runGit(
-    args: ["merge-base", "--is-ancestor", ancestor, descendant], cwd: dir)
-  return result != nil
+/// exit 0 で ancestor、exit 1 で非 ancestor。それ以外（128 / launch failure 等）は本物の
+/// エラーなので throw して上位へ返す（誤って Bool に潰すと範囲指定の older/newer が壊れる）。
+private func isAncestor(dir: String, ancestor: String, descendant: String) async throws -> Bool {
+  do {
+    _ = try await runGit(
+      args: ["merge-base", "--is-ancestor", ancestor, descendant], cwd: dir)
+    return true
+  } catch GitError.commandFailed(let exitCode, _) where exitCode == 1 {
+    return false
+  }
 }
 
 /// `git diff` / `git diff-tree` の `--name-status -z` 出力をパースする。

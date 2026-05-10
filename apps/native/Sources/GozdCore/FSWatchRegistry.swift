@@ -32,6 +32,11 @@ public actor FSWatchRegistry {
     let watcher: FSWatcher
     let task: Task<Void, Never>
     let continuation: AsyncStream<[FSWatcher.Event]>.Continuation
+    /// `/fs/watch` で renderer から渡された原文の dir。
+    /// push event の payload はこの値を返し、renderer 側の `worktreeStore.dir` /
+    /// `wt.path` 等の生文字列キーと直接比較できるようにする。
+    /// （entries のキーは `realpath` 解決済み path で、FSEvents の path 比較に使う）
+    let originalDir: String
   }
 
   private struct Classification {
@@ -90,7 +95,8 @@ public actor FSWatchRegistry {
     }
 
     entries[dir] = Entry(
-      generation: generation, watcher: watcher, task: task, continuation: continuation)
+      generation: generation, watcher: watcher, task: task, continuation: continuation,
+      originalDir: userDir)
   }
 
   /// dir の監視を停止する。watch されていなければ no-op。
@@ -110,8 +116,14 @@ public actor FSWatchRegistry {
 
   /// 1 バッチの events を分類して push event として配送する。
   /// 各 await 後にも `isActive` を再 check し、unwatch 済みの世代からの dispatch を抑止する。
+  ///
+  /// push payload には `originalDir`（renderer が `/fs/watch` で渡した原文 dir）を使う。
+  /// FSEvents の path 比較に使う `dir`（realpath 解決済み）とは別に保持しているのは、
+  /// renderer 側の `worktreeStore.dir` / `wt.path` が生文字列で扱われるため、
+  /// realpath を返すと symlink 経路（`/var` vs `/private/var` 等）で比較が外れるから。
   private func handleEvents(dir: String, generation: UInt64, events: [FSWatcher.Event]) async {
     guard isActive(dir: dir, generation: generation) else { return }
+    guard let originalDir = entries[dir]?.originalDir else { return }
 
     let result = FSWatchRegistry.classify(dir: dir, events: events)
 
@@ -120,21 +132,21 @@ public actor FSWatchRegistry {
 
     if result.hasFsChange {
       for relDir in result.fsRelDirs {
-        onFsChange(dir, relDir)
+        onFsChange(originalDir, relDir)
       }
     }
     if result.hasBranchChange {
-      onBranchChange(dir)
+      onBranchChange(originalDir)
     }
     if result.hasWorktreeChange {
-      onWorktreeChange(dir)
+      onWorktreeChange(originalDir)
     }
 
     if result.hasGitStatusChange {
       let status = try? await GitOps.gitStatusFull(dir: dir)
       // gitStatusFull の await 中に unwatch されている可能性があるため再 check
       guard isActive(dir: dir, generation: generation), let status else { return }
-      onGitStatusChange(dir, status)
+      onGitStatusChange(originalDir, status)
     }
   }
 

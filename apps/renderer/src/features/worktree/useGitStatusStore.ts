@@ -37,7 +37,13 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
     }
   }
 
+  /**
+   * push event 経由で受け取った最新 statuses を即時反映する。
+   * loadGen を進めることで、先行する loadGitStatus の RPC が後から返ってきても
+   * その結果で上書きされないようにする（push が truth source）。
+   */
   function setGitStatuses(statuses: Record<string, string>) {
+    loadGen++;
     gitStatuses.value = statuses;
   }
 

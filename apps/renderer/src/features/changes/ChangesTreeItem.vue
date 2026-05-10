@@ -35,10 +35,18 @@ const isExpanded = computed(
 const iconUrl = computed(() => {
   const node = props.node;
   if (node.kind === "folder") {
-    return getIconUrl(getFolderIconName(node.leafName, isExpanded.value));
+    const leafName = node.displaySegments.at(-1);
+    if (leafName === undefined) {
+      throw new Error("Folder node has no display segments");
+    }
+    return getIconUrl(getFolderIconName(leafName, isExpanded.value));
   }
   return getIconUrl(getFileIconName(node.name));
 });
+
+const folderDisplayName = computed(() =>
+  props.node.kind === "folder" ? props.node.displaySegments.join("/") : "",
+);
 
 function onClick() {
   if (props.node.kind === "folder") {
@@ -70,7 +78,7 @@ function onChildToggle(fullPath: string) {
           :class="isExpanded ? 'icon-[lucide--chevron-down]' : 'icon-[lucide--chevron-right]'"
         />
         <img :src="iconUrl" class="size-4 shrink-0" alt="" />
-        <span class="truncate text-zinc-300">{{ node.displayName }}</span>
+        <span class="truncate text-zinc-300">{{ folderDisplayName }}</span>
       </template>
       <template v-else>
         <span class="size-3.5 shrink-0" />

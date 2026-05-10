@@ -140,8 +140,14 @@ const fileChanges = computed<GitFileChange[]>(() => {
 
 const fileCount = computed(() => fileChanges.value.length);
 
-/** GitHub PR 風のディレクトリツリー（chain 圧縮済み） */
-const tree = computed(() => buildChangesTree(fileChanges.value));
+/**
+ * GitHub PR 風のディレクトリツリー（chain 圧縮済み）。
+ *
+ * `buildChangesTree` は不正 path（空 segment / 重複 / file⇔folder 衝突）で throw する。
+ * computed 内の throw はペイン全体を白画面化するため、Result でラップしてテンプレート側で
+ * エラー表示分岐に倒す。
+ */
+const treeResult = computed(() => tryCatch(() => buildChangesTree(fileChanges.value)));
 
 /** 折りたたみ中フォルダの fullPath 集合（デフォルトは全展開） */
 const collapsedFolders = ref<Set<string>>(new Set());
@@ -313,13 +319,17 @@ watch(
       <div class="text-xs text-zinc-500">Loading...</div>
     </div>
 
-    <div v-else-if="tree.length === 0" class="flex-1 overflow-y-auto p-2">
+    <div v-else-if="!treeResult.ok" class="flex-1 overflow-y-auto p-2">
+      <div class="text-xs text-red-400">Failed to build tree: {{ String(treeResult.error) }}</div>
+    </div>
+
+    <div v-else-if="treeResult.value.length === 0" class="flex-1 overflow-y-auto p-2">
       <div class="text-xs text-zinc-500">No changes</div>
     </div>
 
     <div v-else class="flex-1 overflow-y-auto py-1">
       <ChangesTreeItem
-        v-for="node in tree"
+        v-for="node in treeResult.value"
         :key="node.kind === 'folder' ? `d:${node.anchorPath}` : `f:${node.change.newFilePath}`"
         :node="node"
         :depth="0"

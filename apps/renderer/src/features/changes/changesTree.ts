@@ -3,10 +3,11 @@ import type { GitFileChange } from "@gozd/proto";
 export type ChangesTreeNode =
   | {
       kind: "folder";
-      /** ディレクトリ表示名。chain 圧縮時は "a/b/c" 形式 */
-      displayName: string;
-      /** chain 圧縮の最深 segment 名（folder アイコン解決用） */
-      leafName: string;
+      /**
+       * chain 圧縮されたセグメント列。表示は join("/")、folder アイコン解決は最深要素を使う。
+       * displayName / leafName を別フィールドにすると更新漏れが起きるため SSOT としてここに集約する。
+       */
+      displaySegments: string[];
       /**
        * 折りたたみ・key 用の anchor。chain 圧縮の **最浅** segment の fullPath を使う。
        * fileChanges の増減で chain 境界が伸縮しても anchor が動かないため、
@@ -51,11 +52,11 @@ function insertChange(root: RawFolder, change: GitFileChange) {
   if (segments.some((s) => s === "")) {
     throw new Error(`Invalid file path: ${JSON.stringify(change.newFilePath)}`);
   }
-  const [fileName, ...reversedDirs] = segments.slice().reverse();
+  const fileName = segments.at(-1);
   if (fileName === undefined) {
     throw new Error(`Empty file path in change`);
   }
-  const dirs = reversedDirs.reverse();
+  const dirs = segments.slice(0, -1);
 
   let current = root;
   for (const segment of dirs) {
@@ -102,27 +103,24 @@ function finalizeChildren(folder: RawFolder): ChangesTreeNode[] {
 
 function collapseFolder(raw: RawFolder): ChangesTreeNode {
   let current = raw;
-  let displayName = raw.name;
-  let leafName = raw.name;
+  const displaySegments = [raw.name];
   // 子が単一フォルダのみの場合、その子と連結する（GitHub 風 chain 圧縮）
   while (current.childMap.size === 1) {
     const [onlyChild] = current.childMap.values();
     if (onlyChild === undefined || onlyChild.kind !== "folder") break;
-    displayName = `${displayName}/${onlyChild.name}`;
-    leafName = onlyChild.name;
+    displaySegments.push(onlyChild.name);
     current = onlyChild;
   }
   return {
     kind: "folder",
-    displayName,
-    leafName,
+    displaySegments,
     anchorPath: raw.fullPath,
     children: finalizeChildren(current),
   };
 }
 
 function compareName(a: ChangesTreeNode, b: ChangesTreeNode): number {
-  const aName = a.kind === "folder" ? a.displayName : a.name;
-  const bName = b.kind === "folder" ? b.displayName : b.name;
+  const aName = a.kind === "folder" ? a.displaySegments.join("/") : a.name;
+  const bName = b.kind === "folder" ? b.displaySegments.join("/") : b.name;
   return aName.localeCompare(bName);
 }

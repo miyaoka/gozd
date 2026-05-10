@@ -1,53 +1,61 @@
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
-import { ref } from "vue";
+import { computed } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { rpcGitStatus } from "./rpc";
-import { useWorktreeStore } from "./useWorktreeStore";
 
+/**
+ * active worktree の git status を提供する読み取り専用 store。
+ *
+ * 真の source は `repoStore.repos[rootDir].worktrees[i].gitStatuses`。
+ * この store は active dir に対応する worktree.gitStatuses を派生 computed として
+ * 公開し、書き込みは `repoStore.setWorktreeGitStatuses(dir, statuses)` に集約する。
+ *
+ * 設計理由:
+ *
+ * - サイドバーは `wt.gitStatuses` を直接読むため、別 store に最新値を持つと
+ *   gitStatusChange push 受信時に「サイドバーは更新されないが Filer は更新される」
+ *   という SSOT 違反が起きる
+ * - ファイル変更 push に対し、Swift 側に worktree list を全件再 RPC させる経路を
+ *   挟まずに、push payload を直接 repoStore に書いて全リーダーへ伝搬させる
+ */
 export const useGitStatusStore = defineStore("gitStatus", () => {
-  const gitStatuses = ref<Record<string, string>>({});
-
   const repoStore = useRepoStore();
-  const worktreeStore = useWorktreeStore();
 
-  /** 並行 loadGitStatus で古いレスポンスが新しい結果を上書きするのを防ぐ世代カウンタ */
-  let loadGen = 0;
+  /** active dir の gitStatuses を repoStore から派生させる */
+  const gitStatuses = computed<Record<string, string>>(() => {
+    const dir = repoStore.selectedDir;
+    if (dir === undefined) return {};
+    const repo = repoStore.findRepoOwning(dir);
+    const wt = repo?.worktrees.find((w) => w.path === dir);
+    return wt?.gitStatuses ?? {};
+  });
 
+  /**
+   * active dir の git status を rpcGitStatus で取得し直して repoStore を更新する。
+   * dir 切替時 / Claude state 遷移時 / Filer の初期読み込みで呼ばれる。
+   *
+   * 世代管理は repoStore.gitStatusGenByDir に集約。`setWorktreeGitStatuses` を
+   * 経由する push 経路と、ここでの RPC レスポンス到着が競合した場合、
+   * 開始時の世代と現在の世代を比較して RPC レスポンスが古ければ捨てる。
+   */
   async function loadGitStatus() {
-    const gen = ++loadGen;
-    if (!repoStore.selectedIsGitRepo) {
-      gitStatuses.value = {};
-      return;
-    }
-    const dir = worktreeStore.dir;
-    if (dir === undefined) {
-      gitStatuses.value = {};
-      return;
-    }
+    if (!repoStore.selectedIsGitRepo) return;
+    const dir = repoStore.selectedDir;
+    if (dir === undefined) return;
+    const startGen = repoStore.getGitStatusGen(dir);
     const result = await tryCatch(rpcGitStatus({ dir }));
-    if (gen !== loadGen) return;
+    if (repoStore.getGitStatusGen(dir) !== startGen) return;
     if (result.ok) {
-      gitStatuses.value = result.value.entries;
+      repoStore.setWorktreeGitStatuses(dir, result.value.entries);
     } else {
       const notify = useNotificationStore();
       notify.error("Failed to get git status", result.error);
-      gitStatuses.value = {};
     }
   }
 
-  /**
-   * push event 経由で受け取った最新 statuses を即時反映する。
-   * loadGen を進めることで、先行する loadGitStatus の RPC が後から返ってきても
-   * その結果で上書きされないようにする（push が truth source）。
-   */
-  function setGitStatuses(statuses: Record<string, string>) {
-    loadGen++;
-    gitStatuses.value = statuses;
-  }
-
-  return { gitStatuses, loadGitStatus, setGitStatuses };
+  return { gitStatuses, loadGitStatus };
 });
 
 if (import.meta.hot) {

@@ -38,6 +38,15 @@ export function useSidebarData() {
     const gen = (fetchGenByRoot.get(rootDir) ?? 0) + 1;
     fetchGenByRoot.set(rootDir, gen);
 
+    // fetch 開始時点の per-wt gitStatuses 世代スナップショット。
+    // RPC 往復中に gitStatusChange push / loadGitStatus が走って個別 wt の status を
+    // 更新した場合、ここで取った世代より進んでいるので、レスポンスの古い gitStatuses を
+    // 捨てて現値を保持する判断に使う。
+    const gitStatusGenSnapshot = new Map<string, number>();
+    for (const wt of repo.worktrees) {
+      gitStatusGenSnapshot.set(wt.path, repoStore.getGitStatusGen(wt.path));
+    }
+
     const result = await tryCatch(
       Promise.all([rpcGitWorktreeList({ dir: rootDir }), rpcGitBranchList({ dir: rootDir })]),
     );
@@ -55,7 +64,7 @@ export function useSidebarData() {
     const newPaths = new Set(wtList.map((wt) => wt.path));
     const stalePaths = repo.worktrees.map((w) => w.path).filter((p) => !newPaths.has(p));
 
-    repoStore.updateRepoData(rootDir, wtList, newFreeBranches);
+    repoStore.updateRepoData(rootDir, wtList, newFreeBranches, gitStatusGenSnapshot);
 
     for (const dir of stalePaths) terminalStore.remove(dir);
   }
@@ -172,9 +181,10 @@ export function useSidebarData() {
 
   const cleanups: Array<() => void> = [];
   onMounted(() => {
-    // gitStatusChange / branchChange / worktreeChange は active dir watch から発火するので
-    // active を所有する repo だけを refetch する。他 repo は別経路で更新する
-    cleanups.push(onMessage("gitStatusChange", () => fetchOwnerOfActive()));
+    // branchChange / worktreeChange は worktree 構成自体が変わるので worktree list の
+    // 全件再取得が必要。gitStatusChange は payload に dir + statuses を持ち、
+    // useGitStatusSync が repoStore.setWorktreeGitStatuses で該当 wt のみ更新するため
+    // ここで全件 refetch を走らせない（N 倍の git status 実行を避ける）。
     cleanups.push(onMessage<BranchChangePayload>("branchChange", () => fetchOwnerOfActive()));
     cleanups.push(onMessage<WorktreeChangePayload>("worktreeChange", () => fetchOwnerOfActive()));
     void hydrateAppState();

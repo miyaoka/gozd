@@ -144,8 +144,9 @@ function handleFsChange(relDir: string) {
   }
 }
 
-async function handleGitStatusChange(statuses: Record<string, string>) {
-  gitStatusStore.setGitStatuses(statuses);
+async function handleGitStatusChange() {
+  // gitStatuses 自体は useGitStatusSync が repoStore に書き込み済み。
+  // ここではファイルツリーの再構築（新規 / 削除ファイル反映）だけを行う。
   const dirPath = dir.value;
   if (dirPath === undefined) return;
   try {
@@ -173,8 +174,8 @@ watch(
 const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ relDir }) =>
   handleFsChange(relDir),
 );
-const unsubscribeGitStatus = onMessage<GitStatusChangePayload>("gitStatusChange", ({ statuses }) =>
-  handleGitStatusChange(statuses),
+const unsubscribeGitStatus = onMessage<GitStatusChangePayload>("gitStatusChange", () =>
+  handleGitStatusChange(),
 );
 onUnmounted(() => {
   unsubscribeFsChange();

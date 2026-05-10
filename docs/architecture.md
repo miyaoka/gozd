@@ -60,7 +60,7 @@ gozd.app/Contents/
 
 - `pnpm --parallel --filter @gozd/renderer --filter @gozd/native dev` で renderer（Vite HMR）と native（Swift app）を同時起動
 - desktop の dev スクリプト: `GOZD_DEV_PROJECT_ROOT=$PWD pnpm exec electrobun dev`
-- `GOZD_DEV_PROJECT_ROOT` は dev 時のみ存在し、プロジェクトルートを指す。初期ウィンドウのディレクトリと CLI パスの解決に使用
+- `GOZD_DEV_PROJECT_ROOT` は dev 時のみ存在し、プロジェクトルートを指す。dev / stable の判別、CLI パスや zsh init の解決に使用（初期 open の指示には使わない。worktree から `pnpm dev` するたびに toplevel が変わり sidebar が増殖するため）
 - renderer は `http://localhost:5173`（Vite dev server）に接続。HMR 有効
 
 ### `pnpm build` → `.app` 起動（本番）
@@ -146,7 +146,9 @@ zsh 起動
 
 ## データ永続化
 
-アプリの状態と設定は `~/.config/gozd/` に JSON ファイルで保存する。ファイル I/O は常に desktop（Bun）側で行い、renderer からは RPC request 経由でアクセスする。
+アプリの状態と設定は `~/.config/gozd/`（stable）/ `~/.config/gozd-dev/`（dev）に JSON ファイルで保存する。dev / stable は `GOZD_DEV_PROJECT_ROOT` env の有無で切り替わるため、dev は stable と独立した永続ストアを持つ。ファイル I/O は常に desktop（Bun）側で行い、renderer からは RPC request 経由でアクセスする。
+
+以下は stable の例。dev では同じレイアウトが `~/.config/gozd-dev/` 配下に作られる。
 
 ```text
 ~/.config/gozd/

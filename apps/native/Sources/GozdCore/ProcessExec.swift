@@ -251,8 +251,16 @@ func runProcessCollectingOutput(
         }
         group.enter()
         group.enter()
-        try process.run()
+        // run() の前に processLock に格納する。run() と格納の間に onCancel が
+        // 走っても、onCancel 側は `proc.isRunning` を見るので未起動なら何もしない。
+        // run() が throw した場合は catch で nil に戻す。
         processLock.withLock { $0 = process }
+        do {
+          try process.run()
+        } catch {
+          processLock.withLock { $0 = nil }
+          throw error
+        }
         DispatchQueue.global(qos: .userInitiated).async {
           let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
           stdoutLock.withLock { $0 = data }

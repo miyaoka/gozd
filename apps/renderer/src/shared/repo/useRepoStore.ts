@@ -134,12 +134,18 @@ export const useRepoStore = defineStore("repo", () => {
   }
 
   function removeRepo(rootDir: string) {
+    const removed = repos.value[rootDir];
     delete repos.value[rootDir];
     dirOrder.value = dirOrder.value.filter((d) => d !== rootDir);
     if (collapsedRoots.value.has(rootDir)) {
       const next = new Set(collapsedRoots.value);
       next.delete(rootDir);
       collapsedRoots.value = next;
+    }
+    // 配下 wt と rootDir 自身の世代エントリを掃除（追加削除の繰り返しでメモリが膨らまないように）
+    if (removed !== undefined) {
+      gitStatusGenByDir.delete(removed.rootDir);
+      for (const wt of removed.worktrees) gitStatusGenByDir.delete(wt.path);
     }
     if (selectedDir.value !== undefined) {
       const stillOwned = findRepoOwning(selectedDir.value);

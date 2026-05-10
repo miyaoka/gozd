@@ -340,8 +340,23 @@ public actor RpcDispatcher {
   private func handleGitWorktreeList(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitWorktreeListRequest(jsonUTF8Data: body)
     let worktrees = try await GitOps.worktreeList(dir: req.dir)
-    let statuses = try await GitOps.gitStatus(dir: req.dir)
     let allTasks = try await tasks.list(dir: req.dir)
+    // サイドバーで各 worktree に変更ファイル数を出すため、worktree ごとに git status を並列取得する。
+    // 取得失敗（worktree ディレクトリ消失等）は空 dict で握り潰す（旧 Bun 実装と同じ tolerance）。
+    let statusesByPath: [String: [String: String]] = await withTaskGroup(
+      of: (String, [String: String]).self
+    ) { group in
+      for wt in worktrees {
+        let path = wt.path
+        group.addTask {
+          let statuses = (try? await GitOps.gitStatus(dir: path)) ?? [:]
+          return (path, statuses)
+        }
+      }
+      var result: [String: [String: String]] = [:]
+      for await (path, statuses) in group { result[path] = statuses }
+      return result
+    }
     var resp = Gozd_V1_GitWorktreeListResponse()
     resp.worktrees = worktrees.map { wt in
       var entry = Gozd_V1_WorktreeEntry()
@@ -349,10 +364,7 @@ public actor RpcDispatcher {
       entry.head = wt.head
       entry.branch = wt.branch ?? ""
       entry.isMain = wt.isMain
-      // active worktree の status のみ返す（旧実装互換）
-      if wt.path == req.dir {
-        entry.gitStatuses = statuses
-      }
+      entry.gitStatuses = statusesByPath[wt.path] ?? [:]
       // この worktree に紐づく Task を埋める
       if let task = allTasks.first(where: { $0.worktreeDir == wt.path }) {
         entry.task = task

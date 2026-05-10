@@ -32,7 +32,8 @@ undefined ──SessionStart──→ idle ──UserPromptSubmit──→ worki
 ```
 
 - `done` → 次の `UserPromptSubmit` で直接 `working` に遷移する（`idle` を経由しない）
-- `clearDoneStates` は worktree フォーカス時の既読消化。`done` → `idle` に遷移する（セッションは生きている）
+- `clearDoneStates` は worktree 選択時の既読消化。`done` → `idle` に遷移する（セッションは生きている）
+- 発火点は `worktreeStore.setOpen` 一箇所。サイドバーのクリック・ターミナル focus などすべての wt 選択経路が `setOpen` を経由し、`useWorktreeStore` の `selectionVersion` カウンタを上げる。`useTerminalStore` がそのカウンタを watch して `clearDoneStates(worktreeStore.dir)` を呼ぶ
 
 ## フックイベントの対応
 

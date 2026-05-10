@@ -10,7 +10,8 @@
 
 - xterm の onFocus → store.focusPane() でフォーカス状態を更新
 - store の focusedLeafId を watch し、自身が focused になったら imperative に terminal.focus()
-- focus 時に自身の dir が選択 worktree と異なれば worktreeStore.setOpen() で追従（viewMode="all"/"claude" 用、viewMode は変更しない）
+- focus 時に worktreeStore.setOpen() を呼んで選択を追従させる（viewMode は変更しない）
+- 既読消化（done → idle）は useSidebarData が selectionVersion を watch して処理するため、ここでは setOpen を呼ぶだけでよい
 
 ## active 表示
 
@@ -97,11 +98,9 @@ watch(
 function handleTerminalFocus() {
   contextKeys.set("terminalFocus", true);
   terminalStore.focusPane(props.leafId);
-  // viewMode="all"/"claude" で別 worktree の leaf に focus した場合、選択を追従させる。
-  // viewMode="wt" では TerminalPane が selectedDir 配下の leaf しか描画しないため自然に no-op。
-  if (worktreeStore.dir !== props.dir) {
-    worktreeStore.setOpen(props.dir);
-  }
+  // 同 dir でも setOpen を呼ぶことで selectionVersion が発火し、useTerminalStore の
+  // watch が done を消化する。viewMode="all"/"claude" でも選択 wt が追従する。
+  worktreeStore.setOpen(props.dir);
 }
 
 function handleTerminalBlur() {

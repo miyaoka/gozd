@@ -24,6 +24,9 @@ export const useWorktreeStore = defineStore("worktree", () => {
   /** 同一パスでも reveal を発火させるためのバージョンカウンタ */
   const revealVersion = ref(0);
 
+  /** setOpen 呼び出しごとにインクリメント。観測側（terminal 等）が「wt 選択イベント」として購読する */
+  const selectionVersion = ref(0);
+
   const gitStatusStore = useGitStatusStore();
 
   /** 現在 UI で選択中の dir。repoStore.selectedDir の薄いエイリアス */
@@ -65,6 +68,7 @@ export const useWorktreeStore = defineStore("worktree", () => {
    */
   function setOpen(newDir: string, options: SetOpenOptions = {}) {
     repoStore.selectDir(newDir);
+    selectionVersion.value++;
     if (options.fileServerBaseUrl) {
       fileServerBaseUrl.value = options.fileServerBaseUrl;
     }
@@ -110,6 +114,7 @@ export const useWorktreeStore = defineStore("worktree", () => {
     selectedLineNumber,
     selectedGitChange,
     revealVersion,
+    selectionVersion,
     setOpen,
     selectPath,
     clearSelectedPath,

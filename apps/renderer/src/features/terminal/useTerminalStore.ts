@@ -1,6 +1,6 @@
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
-import { computed, ref, shallowRef, watch } from "vue";
+import { computed, ref, shallowRef } from "vue";
 import { useContextKeys } from "../../shared/command";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
@@ -56,12 +56,12 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   /** ターミナル表示モード: wt=アクティブworktreeのみ, claude=Claude起動中のみ */
   type ViewMode = "wt" | "claude";
-  const viewMode = ref<ViewMode>("wt");
-
-  /** wt ↔ claude をトグルする */
-  function toggleViewMode() {
-    viewMode.value = viewMode.value === "wt" ? "claude" : "wt";
-  }
+  /**
+   * ユーザーが選択した表示モード（永続意図）。SSOT。
+   * 表示側は `viewMode`（実効値）を読む。`viewMode = "wt"` などの直接代入は
+   * computed の setter 経由でこの ref に転送される。
+   */
+  const userViewMode = ref<ViewMode>("wt");
 
   /** ptyId → Claude Code の状態（idle は undefined = エントリなし） */
   const claudeStatusByPtyId = ref<Record<number, ClaudeStatus>>({});
@@ -186,15 +186,32 @@ export const useTerminalStore = defineStore("terminal", () => {
   /** Claude セッションが存在する（idle / working / asking / done）leafId 一覧 */
   const claudeActiveLeafIds = computed(() => claude.getClaudeActiveLeafIds());
 
-  // claude ビュー中に表示対象が空になったら wt ビューへ自動復帰する。
-  // claude leaf が 0 だと tileGridTemplate の中身が空になり画面が真っ黒に見えるため、
-  // 表示する leaf がある wt ビューに戻して fallback とする。
-  watch(
-    () => viewMode.value === "claude" && claudeActiveLeafIds.value.length === 0,
-    (shouldRevert) => {
-      if (shouldRevert) viewMode.value = "wt";
+  /**
+   * 表示用の実効モード。`userViewMode === "claude"` でも Claude leaf が 0 件なら
+   * `wt` として解釈する。これにより:
+   *  - claude ビュー中に split で素 PTY を増やしても、新 pane が見える wt として描画
+   *  - Claude セッション全終了で空タイル（真っ黒）にならない
+   *  - 各コマンド handler / store watch で「if claude then wt」を書く必要がない
+   * setter は `userViewMode` への代入を転送し、既存の `terminalStore.viewMode = "wt"`
+   * のような呼び出し（SidebarPane / useWorktreeActions / register*Command 等）を
+   * 改変なしで動かす。
+   */
+  const viewMode = computed<ViewMode>({
+    get: () => {
+      if (userViewMode.value === "claude" && claudeActiveLeafIds.value.length === 0) {
+        return "wt";
+      }
+      return userViewMode.value;
     },
-  );
+    set: (mode) => {
+      userViewMode.value = mode;
+    },
+  });
+
+  /** wt ↔ claude をトグルする（ユーザー意図側を切替）。 */
+  function toggleViewMode() {
+    userViewMode.value = userViewMode.value === "wt" ? "claude" : "wt";
+  }
 
   // --- RPC 購読 ---
 

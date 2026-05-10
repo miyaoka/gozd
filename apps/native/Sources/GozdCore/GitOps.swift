@@ -69,9 +69,12 @@ public struct FileChangeInfo: Equatable, Sendable {
 }
 
 public enum GitOps {
-  /// `git status --porcelain=v1 -z` 相当。
+  /// `git status --porcelain=v1 -z --untracked-files=all` 相当。
+  /// `--untracked-files=all` は untracked ディレクトリ配下のファイルも個別に列挙させる
+  /// ため必須（外すと git が `dir/` のように親ディレクトリ 1 エントリに畳む）。
   public static func gitStatus(dir: String) async throws -> [String: String] {
-    let stdout = try await runGit(args: ["status", "--porcelain=v1", "-z"], cwd: dir)
+    let stdout = try await runGit(
+      args: ["status", "--porcelain=v1", "-z", "--untracked-files=all"], cwd: dir)
     return parsePorcelainV1(stdout)
   }
 
@@ -124,12 +127,14 @@ public enum GitOps {
   /// status + HEAD + upstream + ahead/behind を 1 セットで取得する。
   /// `gitStatusChange` push event の payload を構築するために使う。
   ///
-  /// `git status --porcelain=v2 --branch -z` の `# branch.oid` / `# branch.upstream`
-  /// / `# branch.ab` 行を読む。porcelain v2 の整形が一発で済むので外部呼び出しを
-  /// 1 回で済ませられる。
+  /// `git status --porcelain=v2 --branch -z --untracked-files=all` の `# branch.oid` /
+  /// `# branch.upstream` / `# branch.ab` 行を読む。porcelain v2 の整形が一発で済むので
+  /// 外部呼び出しを 1 回で済ませられる。
+  /// `--untracked-files=all` は untracked ディレクトリ配下のファイルも個別に列挙させる
+  /// ため必須（外すと git が `dir/` のように親ディレクトリ 1 エントリに畳む）。
   public static func gitStatusFull(dir: String) async throws -> StatusFull {
     let stdout = try await runGit(
-      args: ["status", "--porcelain=v2", "--branch", "-z"], cwd: dir)
+      args: ["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"], cwd: dir)
     return parsePorcelainV2WithBranch(stdout)
   }
 
@@ -269,19 +274,52 @@ public enum GitOps {
     return try await runGit(args: ["show", "\(hash):\(relPath)"], cwd: dir)
   }
 
-  /// `git diff-tree -r --name-status -z <hash>` または 2 コミット間。
+  /// 指定コミット（または 2 コミット間）の name-status 差分を返す。
+  ///
+  /// - 単一コミット非ルート: `git diff <hash>^ <hash>` で first parent との比較。
+  ///   merge commit でも `hash^` が first parent に解決されるため GitHub の表示と一致する
+  ///   差分になる。`diff-tree -m --first-parent` は先祖の変更が混入するので使わない。
+  /// - 単一ルートコミット: `git diff-tree --root --no-commit-id -r` を使う（親が無いので
+  ///   `^` で解決できない）。
+  /// - 範囲指定: 旧 / 新を `merge-base --is-ancestor` で決定し、旧^（旧が root の場合は
+  ///   旧自身）から新へ `git diff` する。
+  /// - UNCOMMITTED_HASH（all-zero）が範囲の片方に含まれる場合は working tree と比較する
+  ///   ため `git diff <from>` で第 2 引数省略（working tree と比較される）。
+  ///
+  /// 共通 diff オプション: `--name-status -z --find-renames --diff-filter=AMDR`。
   public static func commitFiles(dir: String, hash: String, compareHash: String?) async throws
     -> [FileChangeInfo]
   {
-    var args = ["diff-tree", "-r", "--name-status", "-z"]
+    let diffOptions = ["--name-status", "-z", "--find-renames", "--diff-filter=AMDR"]
+    let uncommitted = "0000000000000000000000000000000000000000"
+    let hasUncommitted =
+      hash == uncommitted || (compareHash.map { $0 == uncommitted } ?? false)
+
     if let compareHash, !compareHash.isEmpty {
-      args.append(compareHash)
-      args.append(hash)
-    } else {
-      args.append(hash)
+      let commitA = hash == uncommitted ? "HEAD" : hash
+      let commitB = compareHash == uncommitted ? "HEAD" : compareHash
+      let aIsOlder = await isAncestor(dir: dir, ancestor: commitA, descendant: commitB)
+      let older = aIsOlder ? commitA : commitB
+      let newer = aIsOlder ? commitB : commitA
+      let from = (await isRootCommit(dir: dir, hash: older)) ? older : "\(older)^"
+      if hasUncommitted {
+        let stdout = try await runGit(
+          args: ["diff"] + diffOptions + [from], cwd: dir)
+        return parseDiffNameStatus(stdout)
+      }
+      let stdout = try await runGit(
+        args: ["diff"] + diffOptions + [from, newer], cwd: dir)
+      return parseDiffNameStatus(stdout)
     }
-    let stdout = try await runGit(args: args, cwd: dir)
-    return parseDiffTreeNameStatus(stdout)
+
+    if await isRootCommit(dir: dir, hash: hash) {
+      let stdout = try await runGit(
+        args: ["diff-tree", "--root", "--no-commit-id", "-r"] + diffOptions + [hash], cwd: dir)
+      return parseDiffNameStatus(stdout)
+    }
+    let stdout = try await runGit(
+      args: ["diff"] + diffOptions + ["\(hash)^", hash], cwd: dir)
+    return parseDiffNameStatus(stdout)
   }
 }
 
@@ -450,9 +488,25 @@ private func parseWorktreePorcelain(_ data: Data) -> [WorktreeInfo] {
   return result
 }
 
-/// `git diff-tree --name-status -z` の出力をパースする。
-/// 通常エントリ: `<status>\0<path>\0`、rename: `R<score>\0<old>\0<new>\0`
-private func parseDiffTreeNameStatus(_ data: Data) -> [FileChangeInfo] {
+/// 与えられた hash がルートコミット（親なし）かどうかを判定する。
+/// `git rev-parse <hash>^` がルートコミットでは exit 128 で失敗するのを利用する。
+private func isRootCommit(dir: String, hash: String) async -> Bool {
+  let result = try? await runGit(args: ["rev-parse", "\(hash)^"], cwd: dir)
+  return result == nil
+}
+
+/// `git merge-base --is-ancestor <ancestor> <descendant>` で先祖関係を判定する。
+/// exit 0 で ancestor、exit 1 で非 ancestor。
+private func isAncestor(dir: String, ancestor: String, descendant: String) async -> Bool {
+  let result = try? await runGit(
+    args: ["merge-base", "--is-ancestor", ancestor, descendant], cwd: dir)
+  return result != nil
+}
+
+/// `git diff` / `git diff-tree` の `--name-status -z` 出力をパースする。
+/// フォーマットは両者同一: 通常エントリ `<status>\0<path>\0`、rename/copy
+/// `R<score>\0<old>\0<new>\0`（C も同様）。
+private func parseDiffNameStatus(_ data: Data) -> [FileChangeInfo] {
   let text = String(decoding: data, as: UTF8.self)
   let parts = text.split(separator: "\0", omittingEmptySubsequences: false).map(String.init)
   var result: [FileChangeInfo] = []

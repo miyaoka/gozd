@@ -5,7 +5,7 @@ const config: KnipConfig = {
   // typecheck: pnpm -r で呼ぶワークスペースの scripts 名
   // buf: mise 経由で実行（packages/proto-ts の generate スクリプト）
   // swift: apps/native の scripts で Xcode 同梱の Swift toolchain を呼ぶ
-  // open: macOS 標準コマンド（pnpm setup で .app を起動）
+  // open: macOS 標準コマンド（pnpm run bootstrap で .app を起動）
   ignoreBinaries: ["eslint", "typecheck", "buf", "swift", "open"],
   // SPM の .build/ 配下はサードパーティのビルド成果物。knip の対象外にする。
   // proto-ts の src/generated/ は buf 完全管理（clean: true で wipe される領域）。

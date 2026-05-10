@@ -342,19 +342,19 @@ public actor RpcDispatcher {
     let worktrees = try await GitOps.worktreeList(dir: req.dir)
     let allTasks = try await tasks.list(dir: req.dir)
     // サイドバーで各 worktree に変更ファイル数を出すため、worktree ごとに git status を並列取得する。
-    // 取得失敗（worktree ディレクトリ消失等）は空 dict で握り潰す（旧 Bun 実装と同じ tolerance）。
-    let statusesByPath: [String: [String: String]] = await withTaskGroup(
+    // 1 worktree でも失敗したら集約段階で throw して上位（renderer 側 tryCatch → notify.error）に伝える。
+    let statusesByPath: [String: [String: String]] = try await withThrowingTaskGroup(
       of: (String, [String: String]).self
     ) { group in
       for wt in worktrees {
         let path = wt.path
         group.addTask {
-          let statuses = (try? await GitOps.gitStatus(dir: path)) ?? [:]
+          let statuses = try await GitOps.gitStatus(dir: path)
           return (path, statuses)
         }
       }
       var result: [String: [String: String]] = [:]
-      for await (path, statuses) in group { result[path] = statuses }
+      for try await (path, statuses) in group { result[path] = statuses }
       return result
     }
     var resp = Gozd_V1_GitWorktreeListResponse()

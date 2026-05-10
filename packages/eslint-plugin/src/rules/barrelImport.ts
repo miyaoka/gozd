@@ -83,20 +83,15 @@ interface ScopeInfo {
  *
  * fullPath により、異なる親の下にある同名子スコープを区別できる。
  */
-function extractAllScopes(
-  filePath: string,
-  scopePattern: RegExp,
-): ScopeInfo[] {
+function extractAllScopes(filePath: string, scopePattern: RegExp): ScopeInfo[] {
   const scopes: ScopeInfo[] = [];
   let searchFrom = 0;
   while (searchFrom < filePath.length) {
     const remaining = filePath.slice(searchFrom);
     const match = scopePattern.exec(remaining);
     if (!match) break;
-    const matchEnd = searchFrom + match.index + match[1].length;
     // match[0] の先頭が "/" の場合、match.index + 1 からスコープが始まる
-    const scopeStart =
-      match[0].startsWith("/") ? match.index + 1 : match.index;
+    const scopeStart = match[0].startsWith("/") ? match.index + 1 : match.index;
     scopes.push({
       scope: match[1],
       fullPath: filePath.slice(0, searchFrom + scopeStart + match[1].length),
@@ -109,10 +104,7 @@ function extractAllScopes(
 /**
  * パスから最深スコープを抽出する。
  */
-function extractDeepestScope(
-  filePath: string,
-  scopePattern: RegExp,
-): ScopeInfo | undefined {
+function extractDeepestScope(filePath: string, scopePattern: RegExp): ScopeInfo | undefined {
   const scopes = extractAllScopes(filePath, scopePattern);
   return scopes[scopes.length - 1];
 }
@@ -181,18 +173,15 @@ const rule: Rule.RuleModule = {
   meta: {
     type: "problem",
     docs: {
-      description:
-        "スコープディレクトリ配下のモジュールはバレルファイル経由でのみ import 可能",
+      description: "スコープディレクトリ配下のモジュールはバレルファイル経由でのみ import 可能",
     },
     messages: {
       noDirectImport:
         "'{{importSource}}' の直接 import は禁止されています。'{{scopeName}}' のバレルファイル経由で import してください。",
-      noDependency:
-        "'{{fromScope}}' から '{{toScope}}' への依存は禁止されています。",
+      noDependency: "'{{fromScope}}' から '{{toScope}}' への依存は禁止されています。",
       noCrossModuleDependency:
         "'{{scopeName}}' スコープはモジュール間の依存が禁止されています（isolateModules）。",
-      invalidConfig:
-        "barrel-import: {{detail}}",
+      invalidConfig: "barrel-import: {{detail}}",
     },
     schema: [
       {
@@ -202,7 +191,7 @@ const rule: Rule.RuleModule = {
             type: "array",
             items: { type: "string" },
             description:
-              "拡張子付き import でバレルとして許可するファイル名のリスト。拡張子なしのディレクトリ import は常に許可される（デフォルト: [\"index.ts\", \"index.tsx\"]）",
+              '拡張子付き import でバレルとして許可するファイル名のリスト。拡張子なしのディレクトリ import は常に許可される（デフォルト: ["index.ts", "index.tsx"]）',
           },
           scopes: {
             type: "object",
@@ -222,8 +211,7 @@ const rule: Rule.RuleModule = {
                 },
                 isolateModules: {
                   type: "boolean",
-                  description:
-                    "true の場合、同スコープ内でもモジュール間の import を禁止する",
+                  description: "true の場合、同スコープ内でもモジュール間の import を禁止する",
                 },
               },
               required: ["directories", "dependsOn"],
@@ -301,9 +289,7 @@ const rule: Rule.RuleModule = {
       if (!importSource.startsWith(".")) return;
 
       // import 先の絶対パスを解決
-      const resolvedPath = normalizePath(
-        path.resolve(path.dirname(filename), importSource),
-      );
+      const resolvedPath = normalizePath(path.resolve(path.dirname(filename), importSource));
 
       // import 先の全スコープを抽出（浅い順）
       const toScopeInfos = extractAllScopes(resolvedPath, scopePattern);
@@ -317,9 +303,7 @@ const rule: Rule.RuleModule = {
       if (fromScopeInfos.length > 0) {
         const fromRootDir = getScopeDir(fromScopeInfos[0].scope);
         const toRootDir = getScopeDir(toRoot.scope);
-        if (
-          !isDependencyAllowed(fromRootDir, toRootDir, scopes, dirToScope)
-        ) {
+        if (!isDependencyAllowed(fromRootDir, toRootDir, scopes, dirToScope)) {
           const fromScopeName = dirToScope.get(fromRootDir) ?? fromRootDir;
           const toScopeName = dirToScope.get(toRootDir) ?? toRootDir;
           context.report({
@@ -375,9 +359,7 @@ const rule: Rule.RuleModule = {
       // バレル経由のチェック
       // 内部にいる → 子スコープのバレル（最深スコープ）経由ならOK
       // 外部にいる → ルートスコープのバレルのみOK（子スコープは親の内部実装）
-      const allowedScope = isInsideRootScope
-        ? toDeepest.scope
-        : toRoot.scope;
+      const allowedScope = isInsideRootScope ? toDeepest.scope : toRoot.scope;
       if (isBarrelImport(importSource, allowedScope, barrelFiles)) return;
 
       // それ以外は禁止

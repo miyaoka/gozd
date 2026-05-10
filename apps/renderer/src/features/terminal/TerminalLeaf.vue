@@ -15,7 +15,8 @@
 ## active 表示
 
 - 選択中 worktree（worktreeStore.dir）配下かつ layout.focusedLeafId と一致する leaf のみ opacity-100
-- それ以外は opacity-50 でフェード。tile モード（all / claude）では複数 worktree の leaf が同時表示されるが、active は常に 1 つだけになる
+- それ以外は opacity-50 でフェード。tile モード（all / claude）では複数 worktree の leaf が同時表示されるが、active になるのは選択中 worktree の focused leaf 1 つだけ
+- 初期化前で worktreeStore.dir が未確定の場合や、claude モードで選択中 worktree に Claude-active leaf が存在しない場合は active が 0 になりうる
 </doc>
 
 <script setup lang="ts">

@@ -29,25 +29,20 @@ const CHANGE_COLOR_MAP: Record<GitFileChange["type"], string> = {
 };
 
 const isExpanded = computed(
-  () => props.node.kind === "folder" && !props.collapsed.has(props.node.fullPath),
+  () => props.node.kind === "folder" && !props.collapsed.has(props.node.anchorPath),
 );
 
-const folderIconUrl = computed(() => {
-  if (props.node.kind !== "folder") return "";
-  // chain 圧縮された displayName の最深 segment をアイコン解決に使う
-  const segments = props.node.displayName.split("/");
-  const leaf = segments[segments.length - 1] ?? props.node.displayName;
-  return getIconUrl(getFolderIconName(leaf, isExpanded.value));
-});
-
-const fileIconUrl = computed(() => {
-  if (props.node.kind !== "file") return "";
-  return getIconUrl(getFileIconName(props.node.name));
+const iconUrl = computed(() => {
+  const node = props.node;
+  if (node.kind === "folder") {
+    return getIconUrl(getFolderIconName(node.leafName, isExpanded.value));
+  }
+  return getIconUrl(getFileIconName(node.name));
 });
 
 function onClick() {
   if (props.node.kind === "folder") {
-    emit("toggleFolder", props.node.fullPath);
+    emit("toggleFolder", props.node.anchorPath);
   } else {
     emit("select", props.node.change.newFilePath);
   }
@@ -74,12 +69,12 @@ function onChildToggle(fullPath: string) {
           class="size-3.5 shrink-0 text-zinc-500"
           :class="isExpanded ? 'icon-[lucide--chevron-down]' : 'icon-[lucide--chevron-right]'"
         />
-        <img :src="folderIconUrl" class="size-4 shrink-0" alt="" />
+        <img :src="iconUrl" class="size-4 shrink-0" alt="" />
         <span class="truncate text-zinc-300">{{ node.displayName }}</span>
       </template>
       <template v-else>
         <span class="size-3.5 shrink-0" />
-        <img :src="fileIconUrl" class="size-4 shrink-0" alt="" />
+        <img :src="iconUrl" class="size-4 shrink-0" alt="" />
         <span class="truncate" :class="CHANGE_COLOR_MAP[node.change.type]">
           {{ node.name }}
         </span>
@@ -95,7 +90,7 @@ function onChildToggle(fullPath: string) {
     <template v-if="node.kind === 'folder' && isExpanded">
       <ChangesTreeItem
         v-for="child in node.children"
-        :key="child.kind === 'folder' ? `d:${child.fullPath}` : `f:${child.change.newFilePath}`"
+        :key="child.kind === 'folder' ? `d:${child.anchorPath}` : `f:${child.change.newFilePath}`"
         :node="child"
         :depth="depth + 1"
         :collapsed="collapsed"

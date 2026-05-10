@@ -5,8 +5,14 @@ export type ChangesTreeNode =
       kind: "folder";
       /** ディレクトリ表示名。chain 圧縮時は "a/b/c" 形式 */
       displayName: string;
-      /** ルートからのフルパス（chain 圧縮の最深 segment まで） */
-      fullPath: string;
+      /** chain 圧縮の最深 segment 名（folder アイコン解決用） */
+      leafName: string;
+      /**
+       * 折りたたみ・key 用の anchor。chain 圧縮の **最浅** segment の fullPath を使う。
+       * fileChanges の増減で chain 境界が伸縮しても anchor が動かないため、
+       * ユーザーが畳んだ状態を保てる。
+       */
+      anchorPath: string;
       children: ChangesTreeNode[];
     }
   | {
@@ -40,13 +46,26 @@ export function buildChangesTree(changes: readonly GitFileChange[]): ChangesTree
 
 function insertChange(root: RawFolder, change: GitFileChange) {
   const segments = change.newFilePath.split("/");
-  const fileName = segments.pop();
-  if (fileName === undefined || fileName === "") return;
+  // 末尾 `/` や 空 segment（`a//b`）は git 出力としてあり得ない不変条件。
+  // silently 落とすと「changes に出るはずのファイルが UI に出ない」観察不能事象になるため throw する
+  if (segments.some((s) => s === "")) {
+    throw new Error(`Invalid file path: ${JSON.stringify(change.newFilePath)}`);
+  }
+  const [fileName, ...reversedDirs] = segments.slice().reverse();
+  if (fileName === undefined) {
+    throw new Error(`Empty file path in change`);
+  }
+  const dirs = reversedDirs.reverse();
 
   let current = root;
-  for (const segment of segments) {
+  for (const segment of dirs) {
     const existing = current.childMap.get(segment);
-    if (existing && existing.kind === "folder") {
+    if (existing !== undefined) {
+      if (existing.kind !== "folder") {
+        throw new Error(
+          `Path collision: file and folder share the name ${JSON.stringify(segment)}`,
+        );
+      }
       current = existing;
       continue;
     }
@@ -59,6 +78,9 @@ function insertChange(root: RawFolder, change: GitFileChange) {
     };
     current.childMap.set(segment, folder);
     current = folder;
+  }
+  if (current.childMap.has(fileName)) {
+    throw new Error(`Duplicate change for path: ${JSON.stringify(change.newFilePath)}`);
   }
   current.childMap.set(fileName, { kind: "file", name: fileName, change });
 }
@@ -81,17 +103,20 @@ function finalizeChildren(folder: RawFolder): ChangesTreeNode[] {
 function collapseFolder(raw: RawFolder): ChangesTreeNode {
   let current = raw;
   let displayName = raw.name;
+  let leafName = raw.name;
   // 子が単一フォルダのみの場合、その子と連結する（GitHub 風 chain 圧縮）
   while (current.childMap.size === 1) {
     const [onlyChild] = current.childMap.values();
     if (onlyChild === undefined || onlyChild.kind !== "folder") break;
     displayName = `${displayName}/${onlyChild.name}`;
+    leafName = onlyChild.name;
     current = onlyChild;
   }
   return {
     kind: "folder",
     displayName,
-    fullPath: current.fullPath,
+    leafName,
+    anchorPath: raw.fullPath,
     children: finalizeChildren(current),
   };
 }

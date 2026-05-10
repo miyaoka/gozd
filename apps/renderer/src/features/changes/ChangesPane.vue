@@ -320,7 +320,7 @@ watch(
     <div v-else class="flex-1 overflow-y-auto py-1">
       <ChangesTreeItem
         v-for="node in tree"
-        :key="node.kind === 'folder' ? `d:${node.fullPath}` : `f:${node.change.newFilePath}`"
+        :key="node.kind === 'folder' ? `d:${node.anchorPath}` : `f:${node.change.newFilePath}`"
         :node="node"
         :depth="0"
         :collapsed="collapsedFolders"

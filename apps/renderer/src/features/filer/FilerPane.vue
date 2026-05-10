@@ -32,6 +32,12 @@ const rootEntries = ref<FileEntry[]>();
 const loading = ref(false);
 /** rootEntries 未読み込み時に保留する reveal 対象パス */
 let pendingRevealPath: string | undefined;
+/**
+ * loadRoot の呼び出し世代カウンタ。await 境界で旧呼び出しが新呼び出しの結果を上書きしないよう、
+ * 各呼び出しが自身の世代を保持して mismatch なら早期 return する。
+ * dir 比較だけだと A → B → A のとき同じ dir 値で旧呼び出しと新呼び出しを区別できないため使う。
+ */
+let loadRootSeq = 0;
 
 /** proto の FsReadDirEntry を FileEntry に変換する */
 function toFileEntries(entries: { name: string; type: string; isIgnored: boolean }[]): FileEntry[] {
@@ -65,11 +71,14 @@ function mergeWithGitStatus(entries: FileEntry[], dirPath: string): FileEntry[] 
 }
 
 async function loadRoot() {
+  const mySeq = ++loadRootSeq;
   loading.value = true;
   const dirPath = dir.value;
   if (dirPath === undefined) {
-    loading.value = false;
-    rootEntries.value = [];
+    if (mySeq === loadRootSeq) {
+      loading.value = false;
+      rootEntries.value = [];
+    }
     return;
   }
   try {
@@ -77,17 +86,25 @@ async function loadRoot() {
       rpcFsReadDir({ dir: dirPath, path: "." }),
       gitStatusStore.loadGitStatus(),
     ]);
+    // await 中に loadRoot が再度呼ばれた場合、この呼び出しの結果は破棄する。
+    // 旧呼び出しが新 dir 用の rootEntries や initialSelection を上書きするのを防ぐ。
+    if (mySeq !== loadRootSeq) return;
     rootEntries.value = mergeWithGitStatus(toFileEntries(res.entries), "");
   } catch (e) {
+    if (mySeq !== loadRootSeq) return;
     notify.error("Failed to read root directory", e);
     rootEntries.value = [];
   } finally {
-    loading.value = false;
+    if (mySeq === loadRootSeq) {
+      loading.value = false;
+    }
   }
+  if (mySeq !== loadRootSeq) return;
 
   // rootEntries 読み込み完了後に保留中の処理を実行
   // v-for の FileTreeItem がマウントされるのを nextTick で待つ
   await nextTick();
+  if (mySeq !== loadRootSeq) return;
   const consumed = worktreeStore.consumeInitialSelection();
   if (consumed?.kind === "directory") {
     void reveal(consumed.relPath);
@@ -165,6 +182,8 @@ watch(
   (newDir) => {
     if (newDir) {
       rootEntries.value = undefined;
+      // 旧 dir 向けの保留 reveal が次の loadRoot 末尾で誤適用されないようクリアする
+      pendingRevealPath = undefined;
       void loadRoot();
     }
   },

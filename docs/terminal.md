@@ -1,6 +1,6 @@
 # Terminal
 
-ターミナルエミュレータ。Electrobun RPC 経由で desktop 側の PTY プロセスと通信する。
+ターミナルエミュレータ。`gozd-rpc://` 経由で native（Swift）側の PTY プロセスと通信する。
 xterm.js をバックエンドとして使用する。
 
 ## 構成
@@ -26,35 +26,35 @@ features/terminal/
 ```mermaid
 sequenceDiagram
     participant R as TerminalPane (renderer)
-    participant D as desktop (bun)
+    participant N as native (Swift)
     participant P as PTY (shell)
 
-    R->>D: ptySpawn({ dir, cols, rows })
-    D->>P: Bun.spawn([shell], { terminal })
-    D-->>R: PTY ID
+    R->>N: ptySpawn({ dir, cols, rows })
+    N->>P: forkpty + execve(shell)
+    N-->>R: PTY ID
 
     loop ユーザー操作
-        R->>D: ptyWrite({ id, data })
-        D->>P: proc.terminal.write(data)
+        R->>N: ptyWrite({ id, data })
+        N->>P: write(masterFd, data)
     end
 
     loop PTY 出力
-        P-->>D: terminal.data(data)
-        D-->>R: ptyData({ id, data })
+        P-->>N: read(masterFd) → DispatchSourceRead
+        N-->>R: ptyText({ id, text })
     end
 
     opt リサイズ
-        R->>D: ptyResize({ id, cols, rows })
-        D->>P: proc.terminal.resize(cols, rows)
+        R->>N: ptyResize({ id, cols, rows })
+        N->>P: ioctl(masterFd, TIOCSWINSZ, ...)
     end
 
-    R->>D: ptyKill({ id })
-    D->>P: proc.kill()
-    P-->>D: terminal.exit()
-    D-->>R: ptyExit({ id, exitCode })
+    R->>N: ptyKill({ id })
+    N->>P: kill(pid, SIGHUP)
+    P-->>N: waitpid(pid) → exit reason
+    N-->>R: ptyExit({ id, reason })
 ```
 
-- shell: `process.env.SHELL` または `zsh`
+- shell: `/bin/zsh`（renderer 側で固定。`apps/renderer/src/features/terminal/useTerminalStore.ts` の `DEFAULT_SHELL`）
 - cwd: `ptySpawn` の `dir` パラメータ（worktree ごとに異なる）
 - 環境変数: `FORCE_HYPERLINK=1` で CLI ツール（Claude Code 等）の OSC 8 ハイパーリンク出力を許可
 - UTF-8 デコード: `TextDecoder({ stream: true })` でチャンク分割時のマルチバイト文字化けを防止
@@ -206,10 +206,9 @@ write() 後（onWriteParsed で集約）:
 
 リサイズ時は Marker ベースの復元を試みるが、TUI アプリの SIGWINCH 再描画で Marker 復元後にずれる場合がある。他のターミナル（alacritty, kitty 等）でもリサイズ時は bottom にリセットされるため、許容する。
 
-## Desktop 側の PTY 管理
+## Native 側の PTY 管理
 
-- `Map<number, PtyEntry>` で PTY ID → プロセスを管理
-- `PtyEntry` は `win`, `worktreeDir`, `decoder` を保持
-- ウィンドウ close 時に、そのウィンドウが所有する全 PTY を kill
+- `PTYRegistry`（`apps/native/Sources/GozdCore/PTYRegistry.swift`）が PTY ID → エントリ（pid, masterFd, worktreeDir, decoder）を管理
+- アプリ終了時 (`applicationWillTerminate`) は `PidTracker` 経由で全 PTY に SIGHUP を送る
 - worktree 削除時は `worktreeDir` で該当 PTY を特定して kill
-- `Bun.spawn({ terminal })` で PTY をネイティブサポート（node-pty 不要）
+- forkpty は `apps/native/Sources/CPty/` の C bridge 経由で呼ぶ。master fd は `O_NONBLOCK`、`DispatchSourceRead` / `DispatchSourceProcess` を per-PTY serial queue に統合し、`onExit` 前に出力をすべて drain してから配送する契約に揃えている

@@ -5,7 +5,7 @@ import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
-import { rpcCreateWorktree, rpcGitWorktreeRemove } from "../../rpc";
+import { rpcCreateWorktree, rpcGitDefaultBranch, rpcGitWorktreeRemove } from "../../rpc";
 import { worktreeDisplayName } from "../../utils";
 
 interface UseWorktreeActionsOptions {
@@ -72,13 +72,25 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
   async function addWorktree(rootDir: string) {
     if (isCreating.value) return;
     isCreating.value = true;
+    // default branch を起点にする。Swift 側で `origin/HEAD` を優先し、未設定
+    // （remote 無し / push 前 repo）の場合は main repo root 自身の current branch に
+    // fallback した ref を受け取り、`startPoint` に渡す。
+    const branchResult = await tryCatch(rpcGitDefaultBranch({ dir: rootDir }));
+    if (!branchResult.ok || branchResult.value.branch === "") {
+      notify.error(
+        "Failed to resolve default branch",
+        branchResult.ok ? undefined : branchResult.error,
+      );
+      isCreating.value = false;
+      return;
+    }
     const timestamp = generateTimestamp();
     const result = await tryCatch(
       rpcCreateWorktree({
         dir: rootDir,
         worktreeDir: timestamp,
         branch: timestamp,
-        startPoint: "HEAD",
+        startPoint: branchResult.value.branch,
       }),
     );
     if (result.ok && result.value.worktree !== undefined) {

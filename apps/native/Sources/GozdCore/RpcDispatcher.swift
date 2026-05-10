@@ -134,6 +134,8 @@ public actor RpcDispatcher {
       return try await handleGitIssueList(body)
     case "/git/viewer":
       return try await handleGitViewer(body)
+    case "/git/defaultBranch":
+      return try await handleGitDefaultBranch(body)
     case "/git/createWorktree":
       return try await handleCreateWorktree(body)
     case "/git/worktreeRemove":
@@ -534,6 +536,35 @@ public actor RpcDispatcher {
       resp.ok = false
     }
     return try resp.jsonUTF8Data()
+  }
+
+  private func handleGitDefaultBranch(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitDefaultBranchRequest(jsonUTF8Data: body)
+    // worktree 作成の起点として使う ref を返す。`git worktree add -b <new> <abs> <ref>` の
+    // `<ref>` にそのまま渡せる文字列（`origin/main` / `main` 等）が caller の期待値。
+    //
+    // 1) origin/HEAD 経由で remote default branch を取得（`origin/main` 等を full ref で返す。
+    //    既存の `GitOps.defaultBranchName` は git-graph 用途で `origin/` prefix を剥がすため
+    //    ここでは流用せず、剥がさない形で扱う）
+    // 2) 失敗時は main repo root 自身の current branch に fallback（remote 未設定 / push 前 repo）
+    // 3) どちらも引けない（detached HEAD / unborn branch）場合は空文字列を返し、caller が通知 + 中止する
+    let branch = (try? await resolveStartPoint(dir: req.dir)) ?? ""
+    var resp = Gozd_V1_GitDefaultBranchResponse()
+    resp.branch = branch
+    return try resp.jsonUTF8Data()
+  }
+
+  private func resolveStartPoint(dir: String) async throws -> String {
+    if let stdout = try? await runGit(
+      args: ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd: dir)
+    {
+      let text = String(decoding: stdout, as: UTF8.self).trimmingCharacters(
+        in: .whitespacesAndNewlines)
+      if !text.isEmpty { return text }
+    }
+    let stdout = try await runGit(args: ["symbolic-ref", "--short", "HEAD"], cwd: dir)
+    return String(decoding: stdout, as: UTF8.self).trimmingCharacters(
+      in: .whitespacesAndNewlines)
   }
 
   private func handleCreateWorktree(_ body: Data) async throws -> Data {

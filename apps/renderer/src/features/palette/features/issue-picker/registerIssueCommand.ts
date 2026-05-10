@@ -8,7 +8,12 @@ import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
-import { rpcCreateWorktree, rpcGitWorktreeList, rpcTaskAdd } from "../../../sidebar";
+import {
+  rpcCreateWorktree,
+  rpcGitDefaultBranch,
+  rpcGitWorktreeList,
+  rpcTaskAdd,
+} from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
 import { rpcGitViewer } from "../pr-picker";
@@ -64,13 +69,29 @@ export function registerIssueCommand(): () => void {
             return;
           }
           void (async () => {
+            // 新規 worktree は default branch を起点に作る。Swift 側で `origin/HEAD` を
+            // 優先し、未設定（remote 無し / push 前 repo）の場合は main repo root 自身の
+            // current branch に fallback して解決した ref を受け取り、`startPoint` に渡す。
+            const rootDir = repoStore.findRepoOwning(dir)?.rootDir;
+            if (rootDir === undefined) {
+              notify.error("Failed to resolve repo root for worktree creation");
+              return;
+            }
+            const branchResult = await tryCatch(rpcGitDefaultBranch({ dir: rootDir }));
+            if (!branchResult.ok || branchResult.value.branch === "") {
+              notify.error(
+                "Failed to resolve default branch",
+                branchResult.ok ? undefined : branchResult.error,
+              );
+              return;
+            }
             const timestamp = generateTimestamp();
             const result = await tryCatch(
               rpcCreateWorktree({
-                dir,
+                dir: rootDir,
                 worktreeDir: timestamp,
                 branch: timestamp,
-                startPoint: "HEAD",
+                startPoint: branchResult.value.branch,
               }),
             );
             if (!result.ok) {
@@ -89,8 +110,7 @@ export function registerIssueCommand(): () => void {
             if (!taskResult.ok) {
               notify.error("Failed to create task for worktree", taskResult.error);
             }
-            const rootDir = repoStore.findRepoOwning(dir)?.rootDir;
-            if (rootDir === undefined || result.value.worktree === undefined) {
+            if (result.value.worktree === undefined) {
               notify.error("Worktree created but sidebar could not be updated");
             } else {
               repoStore.appendWorktree(rootDir, result.value.worktree);

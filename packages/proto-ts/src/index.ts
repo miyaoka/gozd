@@ -78,6 +78,8 @@ export {
   GitBranchListResponse,
   GitCommitFilesRequest,
   GitCommitFilesResponse,
+  GitDefaultBranchRequest,
+  GitDefaultBranchResponse,
   GitDiffFileRequest,
   GitDiffFileResponse,
   GitIssueListRequest,

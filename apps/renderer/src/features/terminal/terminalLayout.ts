@@ -61,13 +61,13 @@ export function createTerminalLayout(deps: TerminalLayoutDeps) {
     ensureLayout(dir);
   }
 
-  /** フォーカス中のリーフを分割する */
-  function splitPane(dir: string, direction: SplitDirection) {
+  /** フォーカス中のリーフを分割する。新しい leafId を返す（変更なしなら undefined） */
+  function splitPane(dir: string, direction: SplitDirection): string | undefined {
     const layout = layoutsByDir.value[dir];
-    if (layout === undefined) return;
+    if (layout === undefined) return undefined;
 
     const result = splitNode(layout.root, layout.focusedLeafId, direction);
-    if (!result.changed) return;
+    if (!result.changed) return undefined;
 
     layoutsByDir.value[dir] = {
       root: result.root,
@@ -77,6 +77,7 @@ export function createTerminalLayout(deps: TerminalLayoutDeps) {
     if (result.createdLeafId !== undefined) {
       panes.registerPane(result.createdLeafId, dir);
     }
+    return result.createdLeafId;
   }
 
   /**

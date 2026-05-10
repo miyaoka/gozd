@@ -71,6 +71,9 @@ public actor PTYRegistry {
   private let pidTracker: PidTracker?
   private var ptys: [UInt32: PTYManager] = [:]
   private var consumers: [UInt32: Task<Void, Never>] = [:]
+  // ptyId → 紐付く worktree の絶対パス。Claude セッションを worktree 単位で永続化する
+  // ために hook 受信時に逆引きする。空文字 / 未登録なら無紐付け。
+  private var worktreePathById: [UInt32: String] = [:]
   private var nextId: UInt32 = 1
 
   public init(
@@ -91,7 +94,8 @@ public actor PTYRegistry {
     env: [String: String],
     cwd: String,
     rows: UInt16,
-    cols: UInt16
+    cols: UInt16,
+    worktreePath: String = ""
   ) throws -> UInt32 {
     let id = nextId
     nextId += 1
@@ -120,6 +124,9 @@ public actor PTYRegistry {
       }
     )
     ptys[id] = pty
+    if !worktreePath.isEmpty {
+      worktreePathById[id] = worktreePath
+    }
     pidTracker?.add(pty.pid)
 
     let pidTracker = self.pidTracker
@@ -164,9 +171,15 @@ public actor PTYRegistry {
     ptys.count
   }
 
+  /// hook 受信側が ptyId から worktreePath を逆引きするための accessor。
+  public func worktreePath(for id: UInt32) -> String? {
+    return worktreePathById[id]
+  }
+
   private func remove(id: UInt32) {
     ptys.removeValue(forKey: id)
     consumers.removeValue(forKey: id)
+    worktreePathById.removeValue(forKey: id)
   }
 }
 

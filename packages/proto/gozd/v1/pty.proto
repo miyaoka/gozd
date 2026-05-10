@@ -11,6 +11,9 @@ message PtySpawnRequest {
   map<string, string> env = 4;
   uint32 rows = 5;
   uint32 cols = 6;
+  // この PTY が属する worktree の絶対パス。Claude セッション復元の紐付けに使う。
+  // 空文字なら無紐付け。
+  string worktree_path = 7;
 }
 
 message PtySpawnResponse {

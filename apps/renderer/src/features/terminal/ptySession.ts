@@ -32,8 +32,17 @@ interface PaneSessionAccessor {
 
 interface PtySessionManagerDeps {
   panes: PaneSessionAccessor;
-  /** RPC: PTY を spawn する */
-  requestPtySpawn: (params: { dir: string; cols: number; rows: number }) => Promise<number>;
+  /**
+   * RPC: PTY を spawn する。
+   * leafId を渡すのは spawn 直前に「この leaf 限定の env オーバーレイ」（例: Claude resume）
+   * を呼び出し側が組み立てるため。worktreePath は native 側で session-start hook の紐付けに使う。
+   */
+  requestPtySpawn: (params: {
+    leafId: string;
+    dir: string;
+    cols: number;
+    rows: number;
+  }) => Promise<number>;
   /** RPC: PTY を kill する（fire-and-forget） */
   sendPtyKill: (params: { id: number }) => void;
   /** PTY データ受信時のコールバック（interrupt 検知等に使う） */
@@ -128,7 +137,7 @@ export function createPtySessionManager(deps: PtySessionManagerDeps) {
     if (spawningLeafIds.has(leafId)) return;
 
     spawningLeafIds.add(leafId);
-    const result = await tryCatch(requestPtySpawn({ dir: entry.dir, cols, rows }));
+    const result = await tryCatch(requestPtySpawn({ leafId, dir: entry.dir, cols, rows }));
     spawningLeafIds.delete(leafId);
 
     if (!result.ok) {

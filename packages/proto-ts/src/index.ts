@@ -25,6 +25,12 @@ export {
   WindowFrame,
 } from "./generated/gozd/v1/app_state";
 export {
+  ClaudeSession,
+  ClaudeSessionList,
+  ClaudeSessionListByDirRequest,
+  ClaudeSessionListByDirResponse,
+} from "./generated/gozd/v1/claude_session";
+export {
   ClientMessage,
   HookMessage,
   OpenMessage,

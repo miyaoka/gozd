@@ -27,3 +27,14 @@ claude() {
   done
   command claude --settings "$GOZD_CLAUDE_SETTINGS_PATH" "$@"
 }
+
+# アプリ再起動を跨いで Claude セッションを復元する。
+# native 側が PTY spawn 時に GOZD_RESUME_CLAUDE_SESSION=<sessionId> を env に注入する。
+# ユーザーが Claude を抜けると素のシェルプロンプトに戻るよう exec はしない。
+# 1 回だけ実行するため、起動直後に変数を unset する。
+if [[ -n "$GOZD_RESUME_CLAUDE_SESSION" ]]; then
+  _gozd_resume_session="$GOZD_RESUME_CLAUDE_SESSION"
+  unset GOZD_RESUME_CLAUDE_SESSION
+  claude --resume "$_gozd_resume_session"
+  unset _gozd_resume_session
+fi

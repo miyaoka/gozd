@@ -1,3 +1,4 @@
+import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, shallowRef } from "vue";
 import { useContextKeys } from "../../shared/command";
@@ -7,7 +8,7 @@ import { isHookEvent, createClaudeStatusManager } from "./claudeStatus";
 import { createPtySessionManager } from "./ptySession";
 import type { PaneEntry } from "./ptySession";
 import type { HookPayload, PtyExitPayload, PtyTextPayload } from "./rpc";
-import { rpcPtyKill, rpcPtySpawn } from "./rpc";
+import { rpcClaudeSessionListByDir, rpcPtyKill, rpcPtySpawn } from "./rpc";
 import { createTerminalLayout } from "./terminalLayout";
 import type { TerminalLayoutState } from "./terminalLayout";
 
@@ -62,6 +63,13 @@ export const useTerminalStore = defineStore("terminal", () => {
   /** 直近のタイトル更新（外部の watch 用シグナル） */
   const lastTitleUpdate = shallowRef<{ leafId: string; title: string }>();
 
+  /**
+   * leafId → 次回 spawn 時に env として注入する Claude session ID。
+   * worktree の初回 visit 時に保存済みセッションを復元するために、leafId と sessionId を
+   * 紐付けておく。spawnPty が env を組み立てるタイミングで一度だけ消費する。
+   */
+  const pendingResumeByLeafId = ref<Record<string, string>>({});
+
   // --- モジュール初期化 ---
 
   const ptySession = createPtySessionManager({
@@ -74,14 +82,23 @@ export const useTerminalStore = defineStore("terminal", () => {
       },
       iterateEntries: () => Object.entries(paneRegistry.value),
     },
-    requestPtySpawn: async ({ dir, cols, rows }) => {
+    requestPtySpawn: async ({ leafId, dir, cols, rows }) => {
+      const env = getDefaultSpawnEnv();
+      // 復元対象セッションがあれば一度だけ注入して消費する。
+      // zsh init が GOZD_RESUME_CLAUDE_SESSION を見て `claude --resume <id>` を起動する。
+      const resumeId = pendingResumeByLeafId.value[leafId];
+      if (resumeId !== undefined) {
+        env.GOZD_RESUME_CLAUDE_SESSION = resumeId;
+        delete pendingResumeByLeafId.value[leafId];
+      }
       const res = await rpcPtySpawn({
         dir,
         executable: DEFAULT_SHELL,
         args: DEFAULT_SHELL_ARGS,
-        env: getDefaultSpawnEnv(),
+        env,
         rows,
         cols,
+        worktreePath: dir,
       });
       return res.ptyId;
     },
@@ -116,6 +133,7 @@ export const useTerminalStore = defineStore("terminal", () => {
         ptySession.killPty(leafId);
         delete cwdByLeafId.value[leafId];
         delete titleByLeafId.value[leafId];
+        delete pendingResumeByLeafId.value[leafId];
         delete paneRegistry.value[leafId];
       },
       getPaneDir: (leafId) => paneRegistry.value[leafId]?.dir,
@@ -170,6 +188,43 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   initSubscriptions();
 
+  // --- worktree visit + Claude セッション復元 ---
+
+  /**
+   * worktree を訪問する。初回 visit 時に保存済み Claude セッションを引き、
+   * セッション数だけ leaf を split で生成して各 leaf に resume sessionId を仕込む。
+   * 2 回目以降の visit は何もしない（既存レイアウトを維持）。
+   *
+   * 非同期だが呼び出し側の watch ハンドラは await しない。
+   * 副作用（pendingResume 設定、leaf 作成）はすべて await のあとに発生し、
+   * 順序的に整合する設計。
+   */
+  async function visit(dir: string): Promise<void> {
+    if (visitedDirs.value.includes(dir)) {
+      // 既に訪問済みなら何もしない（既存レイアウトを維持）
+      return;
+    }
+    visitedDirs.value.push(dir);
+
+    const fetched = await tryCatch(rpcClaudeSessionListByDir({ dir }));
+    const sessions = fetched.ok ? fetched.value.sessions : [];
+
+    // ensureLayout で初期 leaf を作る（既存の単一 leaf 起動と同じ）
+    const initialLayout = layout.ensureLayout(dir);
+    const initialLeafId = initialLayout.focusedLeafId;
+    const [firstSession, ...remainingSessions] = sessions;
+    if (firstSession !== undefined) {
+      pendingResumeByLeafId.value[initialLeafId] = firstSession.sessionId;
+    }
+    // 2 つ目以降のセッションは split で leaf を増やす
+    for (const session of remainingSessions) {
+      const newLeafId = layout.splitPane(dir, "horizontal");
+      if (newLeafId !== undefined) {
+        pendingResumeByLeafId.value[newLeafId] = session.sessionId;
+      }
+    }
+  }
+
   // --- pane getter ---
 
   /** leafId に対応するペーンの dir を返す */
@@ -221,7 +276,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     // computed
     claudeActiveLeafIds,
     // layout
-    visit: layout.visit,
+    visit,
     splitPane: layout.splitPane,
     closePane: layout.closePane,
     resetLayout: layout.resetLayout,

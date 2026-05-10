@@ -28,6 +28,7 @@ public actor RpcDispatcher {
   private let appConfig: AppConfigStore
   private let projectConfig: ProjectConfigStore
   private let tasks: TaskStore
+  private let claudeSessions: ClaudeSessionStore
   private let onHook: HookHandler
   private let onOpen: OpenHandler
 
@@ -56,6 +57,7 @@ public actor RpcDispatcher {
     self.appConfig = AppConfigStore(configDir: configDir)
     self.projectConfig = ProjectConfigStore(configDir: configDir)
     self.tasks = TaskStore(configDir: configDir)
+    self.claudeSessions = ClaudeSessionStore(configDir: configDir)
     self.onHook = onHook
     self.onOpen = onOpen
   }
@@ -74,9 +76,40 @@ public actor RpcDispatcher {
     }
     switch body {
     case .hook(let hook):
+      // Claude セッション永続化は dispatcher の責務として内部処理する。
+      // session-start / session-end は ptyId → worktreePath を逆引きして store に反映。
+      // 失敗しても renderer への push は止めないため Task で fire-and-forget。
+      if hook.event == "session-start" || hook.event == "session-end" {
+        Task { await self.applyClaudeSessionHook(hook) }
+      }
       onHook(hook)
     case .open(let open):
       onOpen(open.targetPath)
+    }
+  }
+
+  private func applyClaudeSessionHook(_ hook: Gozd_V1_HookMessage) async {
+    guard !hook.sessionID.isEmpty else { return }
+    guard let worktreePath = await pty.worktreePath(for: hook.ptyID),
+      !worktreePath.isEmpty
+    else { return }
+    do {
+      switch hook.event {
+      case "session-start":
+        try await claudeSessions.upsert(
+          worktreePath: worktreePath,
+          sessionId: hook.sessionID,
+          transcriptPath: hook.transcriptPath
+        )
+      case "session-end":
+        try await claudeSessions.removeBySessionId(
+          worktreePath: worktreePath, sessionId: hook.sessionID)
+      default:
+        break
+      }
+    } catch {
+      FileHandle.standardError.write(
+        Data("[ClaudeSessionStore] \(hook.event) failed: \(error)\n".utf8))
     }
   }
 
@@ -170,6 +203,8 @@ public actor RpcDispatcher {
       return try await handleVoicevoxSpeak(body)
     case "/window/close":
       return try handleWindowClose(body)
+    case "/claudeSession/listByDir":
+      return try await handleClaudeSessionListByDir(body)
     default:
       throw RpcError.unknownPath(path)
     }
@@ -237,7 +272,8 @@ public actor RpcDispatcher {
       env: req.env,
       cwd: req.dir,
       rows: UInt16(req.rows),
-      cols: UInt16(req.cols)
+      cols: UInt16(req.cols),
+      worktreePath: req.worktreePath
     )
     var resp = Gozd_V1_PtySpawnResponse()
     resp.ptyID = id
@@ -586,7 +622,17 @@ public actor RpcDispatcher {
   private func handleWorktreeRemove(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitWorktreeRemoveRequest(jsonUTF8Data: body)
     try await WorktreeOps.removeWorktree(dir: req.dir, path: req.path, force: req.force)
+    // worktree が消えたら紐づく Claude セッション残骸も掃除する（resume 対象から除外）。
+    try? await claudeSessions.removeByWorktreePath(req.path)
     return try Gozd_V1_GitWorktreeRemoveResponse().jsonUTF8Data()
+  }
+
+  private func handleClaudeSessionListByDir(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_ClaudeSessionListByDirRequest(jsonUTF8Data: body)
+    let sessions = (try? await claudeSessions.liveSessions(for: req.dir)) ?? []
+    var resp = Gozd_V1_ClaudeSessionListByDirResponse()
+    resp.sessions = sessions
+    return try resp.jsonUTF8Data()
   }
 
   private func handleBranchDelete(_ body: Data) async throws -> Data {

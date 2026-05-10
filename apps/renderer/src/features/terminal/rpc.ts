@@ -1,5 +1,7 @@
 // terminal feature が使う RPC wrapper と push event payload 型。
 import {
+  ClaudeSessionListByDirRequest,
+  ClaudeSessionListByDirResponse,
   OpenExternalRequest,
   OpenExternalResponse,
   PtyKillRequest,
@@ -18,6 +20,14 @@ import { rpc } from "../../shared/rpc";
 
 export const rpcPtySpawn = (req: PtySpawnRequest) =>
   rpc("/pty/spawn", req, PtySpawnRequest, PtySpawnResponse);
+
+export const rpcClaudeSessionListByDir = (req: ClaudeSessionListByDirRequest) =>
+  rpc(
+    "/claudeSession/listByDir",
+    req,
+    ClaudeSessionListByDirRequest,
+    ClaudeSessionListByDirResponse,
+  );
 
 export const rpcPtyWrite = (req: PtyWriteRequest) =>
   rpc("/pty/write", req, PtyWriteRequest, PtyWriteResponse);

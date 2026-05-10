@@ -20,6 +20,11 @@ export interface PtySpawnRequest {
   env: { [key: string]: string };
   rows: number;
   cols: number;
+  /**
+   * この PTY が属する worktree の絶対パス。Claude セッション復元の紐付けに使う。
+   * 空文字なら無紐付け。
+   */
+  worktreePath: string;
 }
 
 export interface PtySpawnRequest_EnvEntry {
@@ -75,7 +80,7 @@ export interface PtyExitEvent {
 }
 
 function createBasePtySpawnRequest(): PtySpawnRequest {
-  return { dir: "", executable: "", args: [], env: {}, rows: 0, cols: 0 };
+  return { dir: "", executable: "", args: [], env: {}, rows: 0, cols: 0, worktreePath: "" };
 }
 
 export const PtySpawnRequest: MessageFns<PtySpawnRequest> = {
@@ -97,6 +102,9 @@ export const PtySpawnRequest: MessageFns<PtySpawnRequest> = {
     }
     if (message.cols !== 0) {
       writer.uint32(48).uint32(message.cols);
+    }
+    if (message.worktreePath !== "") {
+      writer.uint32(58).string(message.worktreePath);
     }
     return writer;
   },
@@ -159,6 +167,14 @@ export const PtySpawnRequest: MessageFns<PtySpawnRequest> = {
           message.cols = reader.uint32();
           continue;
         }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.worktreePath = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -184,6 +200,11 @@ export const PtySpawnRequest: MessageFns<PtySpawnRequest> = {
         : {},
       rows: isSet(object.rows) ? globalThis.Number(object.rows) : 0,
       cols: isSet(object.cols) ? globalThis.Number(object.cols) : 0,
+      worktreePath: isSet(object.worktreePath)
+        ? globalThis.String(object.worktreePath)
+        : isSet(object.worktree_path)
+        ? globalThis.String(object.worktree_path)
+        : "",
     };
   },
 
@@ -213,6 +234,9 @@ export const PtySpawnRequest: MessageFns<PtySpawnRequest> = {
     if (message.cols !== 0) {
       obj.cols = Math.round(message.cols);
     }
+    if (message.worktreePath !== "") {
+      obj.worktreePath = message.worktreePath;
+    }
     return obj;
   },
 
@@ -235,6 +259,7 @@ export const PtySpawnRequest: MessageFns<PtySpawnRequest> = {
     );
     message.rows = object.rows ?? 0;
     message.cols = object.cols ?? 0;
+    message.worktreePath = object.worktreePath ?? "";
     return message;
   },
 };

@@ -32,10 +32,10 @@ public enum ClaudeHooksSettings {
     return [
       "hooks": [
         "SessionStart": [
-          ["hooks": [["type": "command", "command": ncCommand("session-start")]]]
+          ["hooks": [["type": "command", "command": cliCommand("session-start")]]]
         ],
         "SessionEnd": [
-          ["hooks": [["type": "command", "command": ncCommand("session-end")]]]
+          ["hooks": [["type": "command", "command": cliCommand("session-end")]]]
         ],
         "UserPromptSubmit": [
           ["hooks": [["type": "command", "command": ncCommand("running")]]]

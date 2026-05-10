@@ -135,6 +135,15 @@ func hookCommand(event: String) async {
   if let isInterrupt = stdinJson["is_interrupt"] as? Bool {
     hook.isInterrupt = isInterrupt
   }
+  if let sessionId = stdinJson["session_id"] as? String {
+    hook.sessionID = sessionId
+  }
+  if let transcriptPath = stdinJson["transcript_path"] as? String {
+    hook.transcriptPath = transcriptPath
+  }
+  if let source = stdinJson["source"] as? String {
+    hook.source = source
+  }
 
   var msg = Gozd_V1_ClientMessage()
   msg.body = .hook(hook)

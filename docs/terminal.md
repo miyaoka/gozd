@@ -125,7 +125,7 @@ leafNode
 - **all**: `tileGridTemplate()` で全 leaf を均等タイル配置
 - **claude**: `tileGridTemplate()` で Claude 起動中の leaf のみ均等タイル配置
 
-`all` / `claude` モードでは複数 worktree の leaf が同時に表示されるため、focus を受けた leaf の `dir` が現在の選択 worktree と異なる場合、`worktreeStore.setOpen(dir)` で選択を追従させる。viewMode は変更しない（横断ビューを維持したまま、サイドバー・ファイラー・プレビューのみ追従）。`wt` モードでは選択 worktree 配下の leaf しか描画されないため、この処理は自然に no-op となる。
+`all` / `claude` モードでは複数 worktree の leaf が同時に表示されるため、focus を受けた leaf は常に `worktreeStore.setOpen(dir)` を呼んで選択を追従させる。viewMode は変更しない（横断ビューを維持したまま、サイドバー・ファイラー・プレビューのみ追従）。`wt` モードでは同 dir に対する setOpen となり実質的に no-op だが、`selectionVersion` を発火させて `clearDoneStates` を起動するために常に呼ぶ（[claude-status.md](claude-status.md) の既読消化フロー参照）。
 
 active leaf の判定は「選択中 worktree（`worktreeStore.dir`）配下」かつ「`layout.focusedLeafId` と一致」の AND で行う。`layoutsByDir` は dir ごとに独立した `focusedLeafId` を持つため、単純比較だと tile モードで worktree ごとに 1 つずつ active 表示になってしまう。worktree 単位の選択を条件に加えることで、横断ビューでも `opacity-100` で表示される leaf は最大 1 つに収まり、それ以外は `opacity-50` にフェードする。`worktreeStore.dir` 未確定時や、`claude` モードで選択中 worktree に Claude-active leaf が存在しない場合は active が 0 になりうる。
 

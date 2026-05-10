@@ -97,14 +97,31 @@ export function useSidebarData() {
     { immediate: true },
   );
 
-  // active dir 切り替え時: done バッジ消化 + 所属 repo を最新化
+  // active dir 切り替え時: 所属 repo を最新化
   watch(
     () => worktreeStore.dir,
     (dir) => {
       if (dir === undefined) return;
-      terminalStore.clearDoneStates(dir);
       const owning = repoStore.findRepoOwning(dir);
       if (owning) void fetchRepo(owning.rootDir);
+    },
+    { immediate: true },
+  );
+
+  // wt 選択イベント（setOpen）の度に done バッジを消化する。
+  // 同 dir 再選択でも selectionVersion はインクリメントされるため、サイドバー再クリック
+  // やターミナル focus による同一 wt 再選択もここで一括消化される。
+  // claude status の所有者は terminalStore だが、両 store 参照を持つこの場所に集約する
+  // ことで、useTerminalStore → ../worktree barrel の import を増やさず cycle を避ける。
+  // immediate: true は、watch 登録より先に gozdOpen 等で setOpen が呼ばれたケース
+  // （hydrateFromAppState は setOpen を経由しないが、gozdOpen 経路はそうとは限らない）
+  // で初回選択イベントを取りこぼさないための保険。dir が undefined なら no-op。
+  watch(
+    () => worktreeStore.selectionVersion,
+    () => {
+      const dir = worktreeStore.dir;
+      if (dir === undefined) return;
+      terminalStore.clearDoneStates(dir);
     },
     { immediate: true },
   );

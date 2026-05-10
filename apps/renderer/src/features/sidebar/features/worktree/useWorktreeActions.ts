@@ -26,16 +26,10 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
 
   const isCreating = ref(false);
 
-  function isActive(wt: WorktreeEntry): boolean {
-    return worktreeStore.dir === wt.path;
-  }
-
   function handleWorktreeSelect(wt: WorktreeEntry) {
     terminalStore.viewMode = "wt";
-    if (isActive(wt)) {
-      terminalStore.clearDoneStates(wt.path);
-      return;
-    }
+    // setOpen は冪等。同一 wt の再選択でも selectionVersion が発火し、
+    // useTerminalStore 側の watch が done を消化する。
     worktreeStore.setOpen(wt.path);
   }
 
@@ -153,7 +147,6 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
 
   return {
     isCreating,
-    isActive,
     handleWorktreeSelect,
     addWorktree,
     handleWorktreeRemove,

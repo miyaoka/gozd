@@ -172,8 +172,10 @@ struct ClassifyTests {
     #expect(!result.hasWorktreeChange)
   }
 
-  @Test("worktree 配置: common git dir 配下の packed-refs は branchChange")
+  @Test("worktree 配置: common git dir 配下の packed-refs は branchChange + gitStatusChange")
   func worktreeCommonPackedRefs() {
+    // packed-refs は local ref と remote-tracking ref のどちらの pack かファイル名から
+    // 判別不能なので両 subscriber に通知する。
     let dir = "/wt/foo"
     let perWt = "/parent/.git/worktrees/foo"
     let common = "/parent/.git"
@@ -181,6 +183,70 @@ struct ClassifyTests {
       dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
       events: [ev("\(common)/packed-refs")])
     #expect(result.hasBranchChange)
+    #expect(result.hasGitStatusChange)
+    #expect(!result.hasFsChange)
+    #expect(!result.hasWorktreeChange)
+  }
+
+  @Test("worktree 配置: common git dir 配下の refs/remotes/origin/main は gitStatusChange")
+  func worktreeCommonRemoteRef() {
+    // git push / fetch 成功でローカルの remote-tracking ref が書き換わる。
+    // git-graph の ahead/behind を更新するための gitStatusChange 経路。
+    // worktree 一覧構造は変わらないため branchChange は発火させない。
+    let dir = "/wt/foo"
+    let perWt = "/parent/.git/worktrees/foo"
+    let common = "/parent/.git"
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
+      events: [ev("\(common)/refs/remotes/origin/main")])
+    #expect(result.hasGitStatusChange)
+    #expect(!result.hasBranchChange)
+    #expect(!result.hasFsChange)
+    #expect(!result.hasWorktreeChange)
+  }
+
+  @Test("worktree 配置: refs/remotes/origin/HEAD（symbolic ref）も gitStatusChange")
+  func worktreeCommonRemoteHeadSymRef() {
+    // `origin/HEAD` は固定名の symbolic ref。`hasPrefix("refs/remotes/")` で同分岐に
+    // 落ちる事を保証し、将来「branch 一覧変化」として再分類したくなった時の足場にする。
+    let dir = "/wt/foo"
+    let perWt = "/parent/.git/worktrees/foo"
+    let common = "/parent/.git"
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
+      events: [ev("\(common)/refs/remotes/origin/HEAD")])
+    #expect(result.hasGitStatusChange)
+    #expect(!result.hasBranchChange)
+  }
+
+  @Test("worktree 配置: branch 名にスラッシュを含む refs/remotes/origin/feature/sub も gitStatusChange")
+  func worktreeCommonRemoteRefNestedName() {
+    // `feature/sub` のようなスラッシュ区切り branch 名。`hasPrefix` 判定なので通るはずだが、
+    // 将来 `==` 等価判定にリグレッションした時に検知できるよう明示的に踏む。
+    let dir = "/wt/foo"
+    let perWt = "/parent/.git/worktrees/foo"
+    let common = "/parent/.git"
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
+      events: [ev("\(common)/refs/remotes/origin/feature/sub")])
+    #expect(result.hasGitStatusChange)
+    #expect(!result.hasBranchChange)
+  }
+
+  @Test("worktree 配置: refs/tags/ は意図的に silent drop（未対応 ref 種別）")
+  func worktreeCommonTagsSilentDrop() {
+    // 現状の git-graph はタグを `git for-each-ref` で取得しており、`# branch.ab` SSOT の
+    // 射程外。タグ表示の即時反映が UI 要件になった時点でここに分岐を足す。
+    let dir = "/wt/foo"
+    let perWt = "/parent/.git/worktrees/foo"
+    let common = "/parent/.git"
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
+      events: [ev("\(common)/refs/tags/v1.0.0")])
+    #expect(!result.hasGitStatusChange)
+    #expect(!result.hasBranchChange)
+    #expect(!result.hasFsChange)
+    #expect(!result.hasWorktreeChange)
   }
 
   @Test("worktree 配置: 兄弟 worktree の worktrees/<other> 追加は worktreeChange")

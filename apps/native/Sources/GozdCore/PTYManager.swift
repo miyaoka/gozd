@@ -120,6 +120,7 @@ public final class PTYManager {
 
     primaryFd = fd
     pid = childPid
+    ptyTrace("spawn", pid: childPid, "forkpty returned fd=\(fd) executable=\(executable)")
 
     // 親側のコピーを開放（子は COW で別アドレス空間）。
     freeCStrings(argEntries, envEntries, cExecutable, cCwd, argv, envp)
@@ -131,6 +132,7 @@ public final class PTYManager {
     if flags >= 0 {
       _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
     }
+    ptyTrace("spawn", pid: childPid, "fd set O_NONBLOCK")
 
     // readSource / exitSource を **同じ per-PTY serial queue** に載せる。
     // 別 queue だと exit 通知が PTY master fd の残り出力 read より先に走るケースがあり、
@@ -148,17 +150,20 @@ public final class PTYManager {
     // 単発 read だと「event 1 回で data + EOF が同時に観測される」ケースで data を取りこぼす
     // 可能性があり、event coalescing による flaky の温床になる。drain loop で吸い切る。
     source.setEventHandler { [source] in
-      switch drainPTY(fd: fd, onData: onData) {
+      ptyTrace("read", pid: childPid, "eventHandler fired")
+      switch drainPTY(fd: fd, pid: childPid, caller: "read-source", onData: onData) {
       case .drained:
         return
       case .closed:
+        ptyTrace("read", pid: childPid, "drain → .closed → cancel + markReadClosed")
         source.cancel()
-        state.markReadClosed(onComplete: onExit)
+        state.markReadClosed(pid: childPid, onComplete: onExit)
       }
     }
     // 注意: ここで close(fd) を呼ばない。exit handler 側の final drain が fd を読むため、
     // close は `PTYFinishState.tryFinish` の completion 時に 1 度だけ実行する。
     source.resume()
+    ptyTrace("spawn", pid: childPid, "read source resumed")
     readSource = source
 
     // 子プロセスの exit 検知は kqueue ベースの DispatchSourceProcess を使う。
@@ -168,11 +173,13 @@ public final class PTYManager {
       queue: queue
     )
     exit.setEventHandler { [exit, source] in
+      ptyTrace("exit", pid: childPid, "eventHandler fired (pre-waitpid drain)")
       // exit event と read readiness の到着順に依存しないよう、waitpid 前にも drain する。
       // 子はもう書かないので、ここで読める bytes は最終出力として確定。
-      if case .closed = drainPTY(fd: fd, onData: onData) {
+      if case .closed = drainPTY(fd: fd, pid: childPid, caller: "exit-pre", onData: onData) {
+        ptyTrace("exit", pid: childPid, "pre-drain → .closed → cancel + markReadClosed")
         source.cancel()
-        state.markReadClosed(onComplete: onExit)
+        state.markReadClosed(pid: childPid, onComplete: onExit)
       }
 
       // process source の exit handler 内では子は zombie 確定。`WNOHANG` を使うと
@@ -182,17 +189,20 @@ public final class PTYManager {
       while waitpid(childPid, &status, 0) == -1 {
         if errno != EINTR { break }
       }
+      ptyTrace("exit", pid: childPid, "waitpid returned status=\(status)")
 
       // waitpid 後にもう一度 drain。exit と read の event 順序によらず最終 data を吸う。
-      if case .closed = drainPTY(fd: fd, onData: onData) {
+      if case .closed = drainPTY(fd: fd, pid: childPid, caller: "exit-post", onData: onData) {
+        ptyTrace("exit", pid: childPid, "post-drain → .closed → cancel + markReadClosed")
         source.cancel()
-        state.markReadClosed(onComplete: onExit)
+        state.markReadClosed(pid: childPid, onComplete: onExit)
       }
 
-      state.setExitReason(decodeExitStatus(status), onComplete: onExit)
+      state.setExitReason(decodeExitStatus(status), pid: childPid, onComplete: onExit)
       exit.cancel()
     }
     exit.resume()
+    ptyTrace("spawn", pid: childPid, "exit source resumed")
     exitSource = exit
   }
 
@@ -277,27 +287,40 @@ private final class PTYFinishState: @unchecked Sendable {
     }
   }
 
-  func markReadClosed(onComplete: (PTYExitReason) -> Void) {
+  func markReadClosed(pid: Int32 = 0, onComplete: (PTYExitReason) -> Void) {
     lock.lock()
+    let alreadyReadClosed = readClosed
     readClosed = true
     let canFinish = !finished && exitReason != nil
     if canFinish { finished = true }
     let reason = exitReason
     if canFinish { closeFdLocked() }
     lock.unlock()
+    ptyTrace(
+      "fin", pid: pid,
+      "markReadClosed alreadyReadClosed=\(alreadyReadClosed) exitReason=\(reason.map { "\($0)" } ?? "nil") canFinish=\(canFinish)"
+    )
     if canFinish, let reason {
+      ptyTrace("fin", pid: pid, "onComplete fired (via markReadClosed) reason=\(reason)")
       onComplete(reason)
     }
   }
 
-  func setExitReason(_ reason: PTYExitReason, onComplete: (PTYExitReason) -> Void) {
+  func setExitReason(
+    _ reason: PTYExitReason, pid: Int32 = 0, onComplete: (PTYExitReason) -> Void
+  ) {
     lock.lock()
     exitReason = reason
     let canFinish = !finished && readClosed
     if canFinish { finished = true }
     if canFinish { closeFdLocked() }
+    let observedReadClosed = readClosed
     lock.unlock()
+    ptyTrace(
+      "fin", pid: pid,
+      "setExitReason reason=\(reason) readClosed=\(observedReadClosed) canFinish=\(canFinish)")
     if canFinish {
+      ptyTrace("fin", pid: pid, "onComplete fired (via setExitReason) reason=\(reason)")
       onComplete(reason)
     }
   }
@@ -318,25 +341,45 @@ private enum PTYDrainResult {
   case closed
 }
 
-private func drainPTY(fd: Int32, onData: (Data) -> Void) -> PTYDrainResult {
+private func drainPTY(fd: Int32, pid: Int32 = 0, caller: String = "?", onData: (Data) -> Void)
+  -> PTYDrainResult
+{
+  ptyTrace("drain", pid: pid, "enter caller=\(caller) fd=\(fd)")
+  var totalBytes = 0
+  var iterations = 0
   while true {
     var buffer = [UInt8](repeating: 0, count: 4096)
     let n = buffer.withUnsafeMutableBufferPointer {
       Darwin.read(fd, $0.baseAddress, $0.count)
     }
+    iterations += 1
     if n > 0 {
+      totalBytes += n
+      ptyTrace("drain", pid: pid, "read n=\(n) totalBytes=\(totalBytes) iter=\(iterations)")
       onData(Data(bytes: buffer, count: n))
       continue
     }
     if n == 0 {
+      ptyTrace(
+        "drain", pid: pid,
+        "read n=0 EOF totalBytes=\(totalBytes) iter=\(iterations) → .closed")
       return .closed
     }
     let err = errno
-    if err == EINTR { continue }
+    if err == EINTR {
+      ptyTrace("drain", pid: pid, "read n=-1 errno=EINTR iter=\(iterations) (retry)")
+      continue
+    }
     if err == EAGAIN || err == EWOULDBLOCK {
+      ptyTrace(
+        "drain", pid: pid,
+        "read n=-1 errno=EAGAIN totalBytes=\(totalBytes) iter=\(iterations) → .drained")
       return .drained
     }
     // EIO 等は PTY hangup 扱い（slave 全 close）。再 read しても無意味なので closed として返す。
+    ptyTrace(
+      "drain", pid: pid,
+      "read n=-1 errno=\(err) totalBytes=\(totalBytes) iter=\(iterations) → .closed (hangup)")
     return .closed
   }
 }

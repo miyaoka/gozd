@@ -1,87 +1,89 @@
 # RPC
 
-Electrobun RPC による型安全な bun（desktop）↔ webview（renderer）間通信。スキーマは `packages/rpc` で定義する。
+renderer（Vue / WebKit）と native（Swift）間の通信。`.proto` を SSOT に置き、型を両言語で共有する。
+
+## SSOT は `.proto`
+
+| パッケージ             | 役割                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------ |
+| `packages/proto`       | `.proto` 定義（`gozd/v1/*.proto`）+ `buf.yaml` / `buf.gen.yaml`                |
+| `packages/proto-ts`    | ts-proto による生成物。`@gozd/proto` として renderer が import                 |
+| `packages/proto-swift` | swift-protobuf による生成物。`GozdProto` SPM パッケージとして native が import |
+
+生成物は git に commit する。プラグインのバージョンは `buf.gen.yaml` で pin する。
+
+`.proto` ファイルはドメインごとに分割: `pty.proto` / `fs.proto` / `git_ops.proto` / `git_status.proto` / `task.proto` / `app_state.proto` / `client_message.proto` 等。新しい RPC を足すときは該当の `.proto` に request / response / event を追加し、`buf generate` で TS / Swift の生成物を更新する。
 
 ## 通信モデル
 
 ```mermaid
 flowchart LR
-    subgraph renderer [renderer / webview]
-        REQ[request]
-        SEND[send]
-        LISTEN[listeners]
+    subgraph renderer [renderer / WebKit]
+        REQ[fetch gozd-rpc://]
+        RECV[window.__gozdReceive]
     end
 
-    subgraph desktop [desktop / bun]
-        HANDLER_REQ[handlers.requests]
-        HANDLER_MSG[handlers.messages]
-        SEND_D[rpc.send]
+    subgraph native [native / Swift]
+        DISP[RpcDispatcher]
+        PAGE[WebPage.callJavaScript]
     end
 
-    REQ -->|Promise| HANDLER_REQ
-    HANDLER_REQ -->|response| REQ
-    SEND -->|一方向| HANDLER_MSG
-    SEND_D -->|一方向| LISTEN
+    subgraph cli [CLI / Claude hooks]
+        SOCK[NDJSON via Unix Socket]
+    end
+
+    REQ -->|request/response| DISP
+    DISP -->|push| PAGE -->|JS call| RECV
+    SOCK -->|ClientMessage| DISP
 ```
 
-## Request（renderer → desktop、Promise ベース）
+### renderer → native（request / response）
 
-| Request                  | 用途                                               |
-| ------------------------ | -------------------------------------------------- |
-| `ptySpawn`               | PTY 起動、ID を返す                                |
-| `fsReadDir`              | ディレクトリ読み込み                               |
-| `fsReadFile`             | ファイル読み込み                                   |
-| `fsReadFileAbsolute`     | 絶対パスでファイル読み取り（ワークスペース外）     |
-| `gitShowFile`            | HEAD 時点のファイル内容                            |
-| `gitShowCommitFile`      | コミット間のファイル内容（from/to を一括取得）     |
-| `gitDiffFile`            | unified diff                                       |
-| `gitStatus`              | git status 全体                                    |
-| `gitLog`                 | コミット履歴（HEAD 系統 + デフォルトブランチ系統） |
-| `gitWorktreeList`        | worktree 一覧を取得                                |
-| `gitBranchList`          | ローカルブランチ一覧を取得                         |
-| `createWorktree`         | worktree を作成                                    |
-| `createWorktreeWithTask` | Task に worktree を作成して紐づける                |
-| `gitWorktreeRemove`      | worktree を解除（ブランチは残る）                  |
-| `gitBranchDelete`        | ローカルブランチを削除                             |
-| `switchDir`              | 表示対象ディレクトリを切り替え（worktree 選択）    |
-| `configLoad`             | グローバル設定を読み込む                           |
-| `configSave`             | グローバル設定を保存する                           |
-| `voicevoxLaunch`         | VOICEVOX Engine を起動（未インストールなら false） |
+`apps/renderer/src/shared/rpc/client.ts` の `rpc()` ヘルパーが `fetch("gozd-rpc://localhost/{path}", ...)` を投げる。body は proto3 JSON エンコードした request、response も proto3 JSON。生成された `toJSON` / `fromJSON` を Codec として渡す。
 
-## Message（一方向）
-
-### desktop → renderer
-
-| Message           | 用途                                       |
-| ----------------- | ------------------------------------------ |
-| `ptyData`         | PTY 出力                                   |
-| `ptyExit`         | PTY 終了                                   |
-| `fsChange`        | ファイル変更通知                           |
-| `gitStatusChange` | git status 変化 + HEAD ハッシュ            |
-| `worktreeChange`  | 非アクティブ worktree でのファイル変更通知 |
-| `gozdOpen`        | ウィンドウ open                            |
-| `gozdHook`        | Claude Code Hook イベント                  |
-| `errorNotify`     | desktop 側のバックグラウンドエラー通知     |
-
-### renderer → desktop
-
-| Message         | 用途                      |
-| --------------- | ------------------------- |
-| `ptyWrite`      | ユーザー入力を PTY に送信 |
-| `ptyResize`     | PTY リサイズ              |
-| `ptyKill`       | PTY 終了                  |
-| `openExternal`  | 外部 URL を開く           |
-| `windowClose`   | ウィンドウを閉じる        |
-| `rendererReady` | renderer 初期化完了       |
+native 側は `RpcSchemeHandler`（`apps/native/Sources/Gozd/GozdApp.swift`）が URL リクエストを受けて HTTP 風レスポンスにラップして返す。実際のロジックは `RpcDispatcher`（`apps/native/Sources/GozdCore/RpcDispatcher.swift`）。
 
 > [!NOTE]
-> params / response / payload の型定義は `packages/rpc/src/index.ts` を参照。
+> binary encoding ではなく JSON を使っている。ブラウザ側で `Uint8Array` / base64 を扱うのが煩雑になるため、性能ボトルネックが顕在化するまで JSON を採用する。
+
+### native → renderer（push）
+
+native は `WebPage.callJavaScript("window.__gozdReceive(type, payload)", ...)` で renderer に push する。renderer 側の `window.__gozdReceive` は `apps/renderer/src/shared/rpc/messages.ts` で定義され、type ごとのリスナーに分配する。
+
+主な push type:
+
+| type              | 用途                                           |
+| ----------------- | ---------------------------------------------- |
+| `ptyText`         | PTY 出力                                       |
+| `ptyExit`         | PTY 終了                                       |
+| `fsChange`        | ファイル変更通知                               |
+| `gitStatusChange` | git status 変化 + HEAD ハッシュ + ahead/behind |
+| `branchChange`    | ブランチ参照の変化                             |
+| `worktreeChange`  | 非アクティブ worktree でのファイル変更通知     |
+| `gozdOpen`        | CLI / launch request からの open リクエスト    |
+| `hook`            | Claude Code Hook イベント                      |
+| `notify`          | native 側のバックグラウンドエラー / 情報通知   |
+
+正確なペイロード型は `packages/proto/gozd/v1/events.proto` を参照。
+
+### CLI / Claude hooks → native（NDJSON socket）
+
+CLI は `gozd-cli` バイナリ。`Unix Domain Socket`（`$TMPDIR/gozd-{channel}.sock`）に proto3 JSON を 1 行送る。メッセージは `ClientMessage`（`packages/proto/gozd/v1/client_message.proto`）の `oneof`:
+
+- `OpenMessage`: `gozd open <path>` / cold start launch request
+- `HookMessage`: Claude Code hooks イベント
+
+`SocketServer`（`apps/native/Sources/GozdCore/SocketServer.swift`）が NWListener で受け、`RpcDispatcher.handleSocketMessage(line)` に流す。decode 失敗（不正 JSON / oneof 未指定）は stderr にログするだけで接続は維持する。
 
 ## Renderer 側の購読パターン
 
-`useRpc()` composable が disposer パターンでリスナー登録を提供する。
+`apps/renderer/src/shared/rpc/messages.ts` がイベントバス相当の API を提供する。disposer パターンでリスナー登録する。
 
 ```typescript
-const unsubscribe = onFsChange(({ relDir }) => { ... });
+const unsubscribe = onFsChange(({ dir, relDir }) => {
+  // ...
+});
 onUnmounted(unsubscribe);
 ```
+
+push の到達タイミングはイベント駆動で順序保証はないため、リスナー側で必要な整合性を担保する（例: `gitStatusChange` は `dir` をキーに最新値で上書きする）。

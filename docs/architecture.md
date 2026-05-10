@@ -35,7 +35,7 @@ TS（renderer）と Swift（native）で RPC 型を共有するため、`package
 - ts-proto → `packages/proto-ts/src/generated/`（`@gozd/proto` として renderer が import）
 - swift-protobuf → `packages/proto-swift/Sources/GozdProto/`（`GozdProto` を native が import）
 
-生成物は git に commit する。`buf.gen.yaml` では BSR のリモートプラグイン (`buf.build/community/stephenh-ts-proto` / `buf.build/apple/swift`) をバージョン pin して指定する。
+生成物は git に commit する。`buf.gen.yaml` では BSR のリモートプラグイン (`buf.build/community/stephenh-ts-proto` / `buf.build/apple/swift`) をバージョン pin して指定する（具体バージョンは `buf.gen.yaml` を参照）。
 
 トランスポートは Connect / gRPC を使わず、`gozd-rpc://` URLSchemeHandler + Unix Socket（NDJSON）で自前実装する。Protobuf の `oneof` を discriminated union として使うのが目的。
 

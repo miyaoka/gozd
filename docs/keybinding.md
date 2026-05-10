@@ -60,6 +60,13 @@ modifier + key を `+` で結合。全て小文字。
 
 コマンドハンドラーに渡す引数。省略可。同一コマンドを異なる引数で呼び分ける場合に使用する（registry の `execute(id, args)` の第 2 引数として handler に届く）。
 
+```json
+[
+  { "key": "ctrl+1", "command": "foo.bar", "args": 1 },
+  { "key": "ctrl+2", "command": "foo.bar", "args": 2 }
+]
+```
+
 ### when フィールド
 
 context key の条件式。詳細は [command.md](command.md) の「When 条件」を参照。

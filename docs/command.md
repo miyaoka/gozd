@@ -86,7 +86,7 @@ registry.register("terminal.splitHorizontal", {
   },
 });
 
-// label なし: コマンドパレットに表示されない（キーバインド経由のみで起動）
+// label なし: コマンドパレットに列挙されない（registry.execute や keybinding 経由では起動可能）
 registry.register("workspace.someInternalAction", (args) => {
   if (typeof args !== "number") return false;
   // ...

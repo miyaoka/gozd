@@ -261,6 +261,13 @@ func runProcessCollectingOutput(
           processLock.withLock { $0 = nil }
           throw error
         }
+        // run() 直後にキャンセル済みなら自分で terminate する。
+        // 「Task.isCancelled の事前チェック → run() 起動完了 → isRunning=true 遷移」の
+        // 一連の中で onCancel が走った場合、isRunning がまだ false の window を見て
+        // terminate がスキップされる可能性がある。run() 後の自前チェックで救う。
+        if Task.isCancelled {
+          process.terminate()
+        }
         DispatchQueue.global(qos: .userInitiated).async {
           let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
           stdoutLock.withLock { $0 = data }

@@ -107,6 +107,13 @@ export const useRepoStore = defineStore("repo", () => {
         }
         return wt;
       });
+      // bulk 反映で touch した全 wt の世代を進める。
+      // これがないと、fetchRepo 開始前から走っていた loadGitStatus が後着したとき
+      // startGen と現 gen が一致してしまい、古いレスポンスが ここで採用した
+      // 新スナップショットを上書きできてしまう。
+      for (const wt of merged) {
+        gitStatusGenByDir.set(wt.path, (gitStatusGenByDir.get(wt.path) ?? 0) + 1);
+      }
     }
     repos.value[rootDir] = { ...current, worktrees: merged, freeBranches };
   }

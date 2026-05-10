@@ -1,7 +1,7 @@
 version: v2
 clean: true
 plugins:
-  - remote: buf.build/community/stephenh-ts-proto
+  - remote: buf.build/community/stephenh-ts-proto:v2.11.7
     out: ../proto-ts/src/generated
     opt:
       - esModuleInterop=true
@@ -9,7 +9,7 @@ plugins:
       - outputJsonMethods=true
       - useDate=string
       - useExactTypes=false
-  - remote: buf.build/apple/swift
+  - remote: buf.build/apple/swift:v1.37.0
     out: ../proto-swift/Sources/GozdProto
     opt:
       - Visibility=Public

@@ -146,7 +146,7 @@ zsh 起動
 
 ## データ永続化
 
-アプリの状態と設定は `~/.config/gozd/` に JSON ファイルで保存する。dev / stable で永続ディレクトリは共有する（worktree 本体 `~/.local/share/gozd/worktrees/` と同じ扱い）。channel で分離するのは衝突回避が必要な実行時リソース（socket / TMPDIR / Vite URL / CLI ソース参照先）のみ。ファイル I/O は常に desktop（Bun）側で行い、renderer からは RPC request 経由でアクセスする。
+アプリの状態と設定は `~/.config/gozd/` に JSON ファイルで保存する。dev / stable で永続ディレクトリは共有する（worktree 本体 `~/.local/share/gozd/worktrees/` と同じ扱い）。channel で分離するのは衝突回避が必要な実行時リソース（socket / TMPDIR / Vite URL / CLI ソース参照先）のみ。ファイル I/O は常に native（Swift）側で行い、renderer からは RPC request 経由でアクセスする。
 
 > [!WARNING]
 > 永続ファイルへの cross-process ロックは未実装。dev / stable を同時起動した場合、各ストア（`AppStateStore` / `AppConfigStore` / `TaskStore` / `ProjectConfigStore`）の `load → mutate → save` が並走すると、最後に save したプロセスが他方の変更を上書きする可能性がある。`AppStateStore` 経由の `app-state.json` save は snapshot 内容が変化した時のみ発火するため頻度は低いが、論理的なレース自体は残る。

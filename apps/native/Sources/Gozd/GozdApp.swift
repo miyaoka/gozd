@@ -50,6 +50,9 @@ struct ContentView: View {
 
   var body: some View {
     WebView(runtime.page)
+      // デフォルトの右クリックメニューに出る Reload を抑制する。
+      // 意図しない reload で renderer 状態が消えるのを防ぐ。
+      .webViewContextMenu { _ in EmptyView() }
       .task {
         // ロード経路は 3 つ:
         //   1. dev: $GOZD_DEV_VITE_URL があれば Vite dev server をロード（HMR）

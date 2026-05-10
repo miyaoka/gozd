@@ -15,8 +15,8 @@ export const useWorktreeStore = defineStore("worktree", () => {
   const repoStore = useRepoStore();
   const fileServerBaseUrl = ref<string>();
 
-  /** worktree ごとの選択状態（dir → Selection） */
-  const selectionByDir = ref<Record<string, Selection>>({});
+  /** プレビュー対象の選択状態。worktree 横断で 1 つだけ保持し、dir 切替時にクリアする */
+  const selection = ref<Selection>();
 
   /** ツリー初期化後に適用する選択対象（setOpen で保持、consumeInitialSelection で消費） */
   const initialSelection = ref<OpenTargetSelection>();
@@ -29,17 +29,11 @@ export const useWorktreeStore = defineStore("worktree", () => {
   /** 現在 UI で選択中の dir。repoStore.selectedDir の薄いエイリアス */
   const dir = computed(() => repoStore.selectedDir);
 
-  /** 現在の worktree で選択中のパス（相対パス） */
-  const selectedPath = computed(() => {
-    if (!dir.value) return undefined;
-    return selectionByDir.value[dir.value]?.path;
-  });
+  /** 選択中のパス（相対パス）。worktree 切替で undefined にリセットされる */
+  const selectedPath = computed(() => selection.value?.path);
 
   /** リンクから指定された行番号（1-based）。スクロール・ハイライトに使用 */
-  const selectedLineNumber = computed(() => {
-    if (!dir.value) return undefined;
-    return selectionByDir.value[dir.value]?.lineNumber;
-  });
+  const selectedLineNumber = computed(() => selection.value?.lineNumber);
 
   /** git status から都度算出するため、status 更新時に自動反映される */
   const selectedGitChange = computed(() => {
@@ -58,28 +52,22 @@ export const useWorktreeStore = defineStore("worktree", () => {
    */
   function setOpen(newDir: string, options: SetOpenOptions = {}) {
     const dirChanged = repoStore.selectedDir !== newDir;
-    const prevSelectedPath = selectedPath.value;
     repoStore.selectDir(newDir);
     if (options.fileServerBaseUrl) {
       fileServerBaseUrl.value = options.fileServerBaseUrl;
     }
-    const selection = options.selection;
-    if (selection) {
+    if (dirChanged) {
+      // worktree 切替時はプレビュー選択も保留中の initialSelection もクリアする
+      selection.value = undefined;
+      initialSelection.value = undefined;
+    }
+    const openSelection = options.selection;
+    if (openSelection) {
       if (dirChanged) {
         // dir が変わる場合は loadRoot 後に consumeInitialSelection で適用
-        initialSelection.value = selection;
+        initialSelection.value = openSelection;
       }
-      selectPath(selection.relPath);
-    } else {
-      // selection なしで dir が変わる場合、前の worktree の initialSelection を破棄する
-      if (dirChanged) {
-        initialSelection.value = undefined;
-      }
-      if (dirChanged && selectedPath.value && selectedPath.value === prevSelectedPath) {
-        // 切り替え先に保存済み選択があり文字列が同一の場合、
-        // selectedPath の watch が発火しないため revealVersion で reveal を強制する
-        revealVersion.value++;
-      }
+      selectPath(openSelection.relPath);
     }
   }
 
@@ -97,7 +85,7 @@ export const useWorktreeStore = defineStore("worktree", () => {
 
   function selectPath(path: string, lineNumber?: number) {
     if (!dir.value) return;
-    selectionByDir.value[dir.value] = {
+    selection.value = {
       path: normalizePath(path),
       lineNumber,
     };
@@ -105,8 +93,7 @@ export const useWorktreeStore = defineStore("worktree", () => {
   }
 
   function clearSelectedPath() {
-    if (!dir.value) return;
-    delete selectionByDir.value[dir.value];
+    selection.value = undefined;
   }
 
   return {

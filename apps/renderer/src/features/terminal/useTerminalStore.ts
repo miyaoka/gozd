@@ -54,9 +54,14 @@ export const useTerminalStore = defineStore("terminal", () => {
   /** split ドラッグ中の fit 抑制カウンター */
   const dragSuspendCount = ref(0);
 
-  /** ターミナル表示モード: wt=アクティブworktreeのみ, all=全leaf, claude=Claude起動中のみ */
-  type ViewMode = "wt" | "all" | "claude";
+  /** ターミナル表示モード: wt=アクティブworktreeのみ, claude=Claude起動中のみ */
+  type ViewMode = "wt" | "claude";
   const viewMode = ref<ViewMode>("wt");
+
+  /** wt ↔ claude をトグルする */
+  function toggleViewMode() {
+    viewMode.value = viewMode.value === "wt" ? "claude" : "wt";
+  }
 
   /** ptyId → Claude Code の状態（idle は undefined = エントリなし） */
   const claudeStatusByPtyId = ref<Record<number, ClaudeStatus>>({});
@@ -372,6 +377,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     layoutsByDir,
     dragSuspendCount,
     viewMode,
+    toggleViewMode,
     cwdByLeafId,
     titleByLeafId,
     lastTitleUpdate,

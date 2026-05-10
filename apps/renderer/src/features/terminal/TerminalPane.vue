@@ -7,7 +7,7 @@ MainLayout はこのコンポーネントを配置するだけでよい。
 ## レイアウト
 
 - 単一 worktree モード（"wt"）: `treeToGridTemplate` で分割ツリーを CSS Grid に変換
-- マルチ表示モード（"all" / "claude"）: `tileGridTemplate` で均等タイル配置
+- Claude タイルモード（"claude"）: `tileGridTemplate` で Claude 起動中 leaf を均等タイル配置
 - 各 TerminalLeaf は `grid-area` で配置、非表示 leaf は `v-show:false`
 - 分割リサイズハンドルは absolute overlay
 </doc>
@@ -128,7 +128,12 @@ const activeLeafIds = computed(() => {
   return collectLeafIds(layout.root);
 });
 
-/** 全 worktree の全 leafId */
+/**
+ * 全 worktree の全 leafId。テンプレートの `v-for` で全 leaf の DOM を事前生成し、
+ * 表示制御は `visibleLeafIds` + `v-show` に委ねるための列挙。
+ * claude モードで複数 worktree の leaf を同時表示する際、unmount/remount を避けて
+ * xterm の state（スクロール位置、buffer）を保つために必要。
+ */
 const allLeafIds = computed(() => {
   const ids: string[] = [];
   for (const dir of terminalStore.visitedDirs) {
@@ -141,9 +146,7 @@ const allLeafIds = computed(() => {
 
 /** 表示対象の leafId set（v-show の判定に使用） */
 const visibleLeafIds = computed(() => {
-  const mode = terminalStore.viewMode;
-  if (mode === "all") return new Set(allLeafIds.value);
-  if (mode === "claude") return new Set(terminalStore.claudeActiveLeafIds);
+  if (terminalStore.viewMode === "claude") return new Set(terminalStore.claudeActiveLeafIds);
   return new Set(activeLeafIds.value);
 });
 
@@ -155,12 +158,13 @@ const EMPTY_GRID: Record<string, string> = {
 
 /** grid スタイル */
 const gridStyle = computed<Record<string, string>>(() => {
-  const mode = terminalStore.viewMode;
-
-  // タイル表示: all / claude
-  if (mode === "all" || mode === "claude") {
-    const ids = mode === "claude" ? terminalStore.claudeActiveLeafIds : allLeafIds.value;
-    const tpl = tileGridTemplate(ids, containerW.value, containerH.value);
+  // Claude タイル表示
+  if (terminalStore.viewMode === "claude") {
+    const tpl = tileGridTemplate(
+      terminalStore.claudeActiveLeafIds,
+      containerW.value,
+      containerH.value,
+    );
     return {
       gridTemplateAreas: tpl.areas,
       gridTemplateColumns: tpl.columns,
@@ -181,12 +185,9 @@ const gridStyle = computed<Record<string, string>>(() => {
   };
 });
 
-/** wt モード以外ではハンドル不要 */
-const isTileMode = computed(() => terminalStore.viewMode !== "wt");
-
-/** 分割ツリーのハンドル（タイルモード時は空） */
+/** 分割ツリーのハンドル（claude タイルモード時は空） */
 const handles = computed<HandlePosition[]>(() => {
-  if (isTileMode.value) return [];
+  if (terminalStore.viewMode === "claude") return [];
   const dir = worktreeStore.dir;
   if (!dir) return [];
   const layout = terminalStore.layoutsByDir[dir];

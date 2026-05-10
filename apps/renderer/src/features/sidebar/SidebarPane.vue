@@ -3,13 +3,14 @@
 
 ## レイアウト構成
 
+- **トップツールバー**: 左に view mode トグル（active worktree / claude terminals）、右にリスト編集ボタン
 - **dirOrder の各 repo** に対して `RepoSection` を縦に並べる
 - 各セクションは header（chevron + folder アイコン + repo 名）+ ROOT + WORKTREES + BRANCHES
-- top-right の編集ボタン（鉛筆アイコン）でリスト編集モードをトグル
 - 編集モード中: 全 section が collapsed + drag で並び替え + ✕ で削除 + 末尾に `+ Add directory`
 
 ## 操作
 
+- view mode トグル: active worktree / claude terminals を切り替え。`cmd+/` でも同じ操作が可能
 - worktree クリック: 表示対象 dir 切替 + done バッジ既読化
 - ⋮ メニュー: SidebarMenu に委譲（worktree 編集 / 解除、branch から worktree 化）
 - chevron: 折りたたみトグル（永続）
@@ -114,7 +115,7 @@ function onRemoveRepo(rootDir: string) {
   const name = repoStore.repos[rootDir]?.repoName ?? rootDir;
   showConfirm(`Remove "${name}" from this window?`, async () => {
     // repo 削除前に配下 worktree の terminal state / PTY を cleanup する。
-    // これを忘れると `all` / `claude` view で消したはずの repo の PTY が
+    // これを忘れると `claude` view で消したはずの repo の PTY が
     // 生き残る（visitedDirs に残るため）。
     const repo = repoStore.repos[rootDir];
     if (repo !== undefined) {
@@ -177,8 +178,32 @@ const activeRootWorktree = computed(() => {
 
 <template>
   <div class="flex size-full flex-col">
-    <!-- 編集モードトグル（独立したツールバー） -->
-    <div class="flex justify-end border-b border-zinc-800 px-2 py-1">
+    <!-- トップツールバー: view mode トグル + 編集モード -->
+    <div class="flex items-center justify-between border-b border-zinc-800 px-2 py-1">
+      <div class="flex gap-0.5">
+        <button
+          type="button"
+          aria-label="Active worktree"
+          title="Active worktree"
+          :aria-pressed="terminalStore.viewMode === 'wt'"
+          class="grid size-7 place-items-center rounded-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+          :class="terminalStore.viewMode === 'wt' && 'bg-zinc-700 text-zinc-100'"
+          @click="terminalStore.viewMode = 'wt'"
+        >
+          <span class="icon-[lucide--monitor] text-base" />
+        </button>
+        <button
+          type="button"
+          aria-label="Claude terminals"
+          title="Claude terminals"
+          :aria-pressed="terminalStore.viewMode === 'claude'"
+          class="grid size-7 place-items-center rounded-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+          :class="terminalStore.viewMode === 'claude' && 'bg-zinc-700 text-zinc-100'"
+          @click="terminalStore.viewMode = 'claude'"
+        >
+          <span class="icon-[lucide--bot] text-base" />
+        </button>
+      </div>
       <button
         type="button"
         :aria-label="editMode ? 'Exit edit mode' : 'Edit repositories'"
@@ -210,14 +235,12 @@ const activeRootWorktree = computed(() => {
           :is-creating="isCreating"
           :ctrl-pressed="ctrlPressed"
           :now="now"
-          :view-mode="terminalStore.viewMode"
           :get-claude-statuses="terminalStore.getClaudeStatusesByDir"
           :get-resumeable-session-count="terminalStore.getResumeableSessionCount"
           @remove-repo="onRemoveRepo"
           @select-root="handleWorktreeSelect"
           @select-worktree="onWorktreeSelect"
           @add-worktree="addWorktree"
-          @set-view-mode="terminalStore.viewMode = $event"
           @open-worktree-menu="
             (anchorEl, wt, rd) =>
               sidebarMenuRef?.openMenu(anchorEl, { type: 'worktree', worktree: wt, rootDir: rd })

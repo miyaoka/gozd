@@ -25,8 +25,6 @@ import type { ClaudeStatus } from "../../../terminal";
 import { dirName } from "../../utils";
 import { BranchList, RootWorktree, WorktreeList } from "../worktree";
 
-type ViewMode = "wt" | "all" | "claude";
-
 const props = defineProps<{
   rootDir: string;
   index: number;
@@ -41,7 +39,6 @@ const props = defineProps<{
   isCreating: boolean;
   ctrlPressed: boolean;
   now: number;
-  viewMode: ViewMode;
   getClaudeStatuses: (dir: string) => ClaudeStatus[];
   /** 永続化されているが live PTY に未接続のセッション数（resume 可能件数） */
   getResumeableSessionCount: (dir: string) => number;
@@ -54,7 +51,6 @@ const emit = defineEmits<{
   addWorktree: [rootDir: string];
   openWorktreeMenu: [anchorEl: HTMLElement, wt: WorktreeEntry, rootDir: string];
   openBranchMenu: [anchorEl: HTMLElement, branch: string, rootDir: string];
-  setViewMode: [mode: ViewMode];
 }>();
 
 defineSlots<{
@@ -171,13 +167,11 @@ function onHeaderClick() {
         :is-creating="isCreating"
         :ctrl-pressed="ctrlPressed"
         :now="now"
-        :view-mode="viewMode"
         :get-claude-statuses="getClaudeStatuses"
         :get-resumeable-session-count="getResumeableSessionCount"
         @select="emit('selectWorktree', $event)"
         @open-menu="(anchorEl, wt) => emit('openWorktreeMenu', anchorEl, wt, rootDir)"
         @add="emit('addWorktree', rootDir)"
-        @set-view-mode="emit('setViewMode', $event)"
       >
         <template #after-item="{ wt }">
           <slot name="after-worktree-item" :wt="wt" :root-dir="rootDir" />

@@ -1,7 +1,16 @@
 <doc lang="md">
-Changed files list. Shows HEAD vs working directory by default, or a selected commit's changes from the git graph.
+Changed files tree. Shows HEAD vs working directory by default, or a selected commit's changes from the git graph.
 
-## Behavior
+## Display
+
+- Files are rendered as a directory tree, GitHub PR diff style
+- A folder whose only child is another folder is concatenated with the child (e.g. `.github/workflows`).
+  Concatenation stops as soon as a folder contains a file or more than one entry
+- Folders default to expanded; clicking a folder row toggles collapse. State is kept in `Set<string>` keyed by full path
+- Each file row shows a material-icon-theme icon, the file name colored by change type, and the change type
+  badge (M/A/D/R/U) at the trailing edge
+
+## Data source
 
 - Default (Uncommitted Changes selected): shows git status converted to GitFileChange[]
 - Normal commit selected: fetches changed files via `gitCommitFiles` RPC
@@ -28,7 +37,6 @@ Changed files list. Shows HEAD vs working directory by default, or a selected co
 import type { GitCommit, GitFileChange } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { computed, ref, watch } from "vue";
-import { getFileIconName, getIconUrl } from "../filer";
 import { rpcGitCommitFiles, useGitGraphStore } from "../git-graph";
 import {
   UNCOMMITTED_HASH,
@@ -37,6 +45,8 @@ import {
   useWorktreeStore,
 } from "../worktree";
 import type { GitChangeKind } from "../worktree";
+import { buildChangesTree } from "./changesTree";
+import ChangesTreeItem from "./ChangesTreeItem.vue";
 
 const emit = defineEmits<{
   select: [relPath: string];
@@ -128,31 +138,22 @@ const fileChanges = computed<GitFileChange[]>(() => {
   return commitFiles.value;
 });
 
-/** newFilePath でソート済み */
-const sortedFiles = computed(() =>
-  [...fileChanges.value].sort((a, b) => a.newFilePath.localeCompare(b.newFilePath)),
-);
+const fileCount = computed(() => fileChanges.value.length);
 
-const fileCount = computed(() => sortedFiles.value.length);
+/** GitHub PR 風のディレクトリツリー（chain 圧縮済み） */
+const tree = computed(() => buildChangesTree(fileChanges.value));
 
-const CHANGE_COLOR_MAP: Record<GitFileChange["type"], string> = {
-  M: "text-yellow-400",
-  A: "text-green-400",
-  D: "text-red-400",
-  R: "text-blue-400",
-  U: "text-green-400",
-};
+/** 折りたたみ中フォルダの fullPath 集合（デフォルトは全展開） */
+const collapsedFolders = ref<Set<string>>(new Set());
 
-/** パスからファイル名部分を抽出 */
-function fileName(filePath: string): string {
-  const lastSlash = filePath.lastIndexOf("/");
-  return lastSlash === -1 ? filePath : filePath.slice(lastSlash + 1);
-}
-
-/** パスからディレクトリ部分を抽出 */
-function dirPath(filePath: string): string {
-  const lastSlash = filePath.lastIndexOf("/");
-  return lastSlash === -1 ? "" : filePath.slice(0, lastSlash);
+function toggleFolder(fullPath: string) {
+  const next = new Set(collapsedFolders.value);
+  if (next.has(fullPath)) {
+    next.delete(fullPath);
+  } else {
+    next.add(fullPath);
+  }
+  collapsedFolders.value = next;
 }
 
 /**
@@ -312,35 +313,20 @@ watch(
       <div class="text-xs text-zinc-500">Loading...</div>
     </div>
 
-    <div v-else-if="sortedFiles.length === 0" class="flex-1 overflow-y-auto p-2">
+    <div v-else-if="tree.length === 0" class="flex-1 overflow-y-auto p-2">
       <div class="text-xs text-zinc-500">No changes</div>
     </div>
 
-    <div v-else class="flex-1 overflow-y-auto">
-      <div
-        v-for="change in sortedFiles"
-        :key="change.newFilePath"
-        class="flex cursor-pointer items-center gap-1.5 px-3 py-0.5 text-xs hover:bg-zinc-800/60"
-        @click="emit('select', change.newFilePath)"
-      >
-        <span
-          class="w-4 shrink-0 text-center font-mono text-[10px] font-bold"
-          :class="CHANGE_COLOR_MAP[change.type]"
-        >
-          {{ change.type }}
-        </span>
-        <img
-          :src="getIconUrl(getFileIconName(fileName(change.newFilePath)))"
-          class="size-4 shrink-0"
-          alt=""
-        />
-        <span class="shrink-0" :class="CHANGE_COLOR_MAP[change.type]">
-          {{ fileName(change.newFilePath) }}
-        </span>
-        <span v-if="dirPath(change.newFilePath)" class="truncate text-zinc-600">
-          {{ dirPath(change.newFilePath) }}
-        </span>
-      </div>
+    <div v-else class="flex-1 overflow-y-auto py-1">
+      <ChangesTreeItem
+        v-for="node in tree"
+        :key="node.kind === 'folder' ? `d:${node.fullPath}` : `f:${node.change.newFilePath}`"
+        :node="node"
+        :depth="0"
+        :collapsed="collapsedFolders"
+        @select="emit('select', $event)"
+        @toggle-folder="toggleFolder"
+      />
     </div>
   </div>
 </template>

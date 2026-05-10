@@ -7,6 +7,7 @@
 import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
+import { useRepoStore } from "../../../../shared/repo";
 import { rpcCreateWorktree, rpcGitWorktreeList, rpcTaskAdd } from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
@@ -20,6 +21,7 @@ export function registerIssueCommand(): () => void {
   const notify = useNotificationStore();
   const worktreeStore = useWorktreeStore();
   const terminalStore = useTerminalStore();
+  const repoStore = useRepoStore();
 
   const dispose = registry.register("workspace.openIssue", {
     label: "Workspace: Open Issue",
@@ -52,6 +54,8 @@ export function registerIssueCommand(): () => void {
             .map((wt) => [wt.task?.issueNumber, wt.path]),
         );
 
+        // この callback は IssuePickerDialog 側で close() 後に呼ばれるため、
+        // 連打による再エントリは dialog の DOM 除去で塞がれている。`isCreating` 相当のガードは不要。
         show(issuesRes.issues, viewerRes.ok ? viewerRes.login : "", (issue) => {
           const existingDir = wtByIssue.get(issue.number);
           if (existingDir !== undefined) {
@@ -84,6 +88,12 @@ export function registerIssueCommand(): () => void {
             );
             if (!taskResult.ok) {
               notify.error("Failed to create task for worktree", taskResult.error);
+            }
+            const rootDir = repoStore.findRepoOwning(dir)?.rootDir;
+            if (rootDir === undefined || result.value.worktree === undefined) {
+              notify.error("Worktree created but sidebar could not be updated");
+            } else {
+              repoStore.appendWorktree(rootDir, result.value.worktree);
             }
             terminalStore.viewMode = "wt";
             worktreeStore.setOpen(result.value.dir);

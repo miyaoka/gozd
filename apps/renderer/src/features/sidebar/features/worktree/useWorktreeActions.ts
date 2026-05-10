@@ -41,12 +41,6 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
 
   // --- store 更新 helpers ---
 
-  function appendWorktree(rootDir: string, wt: WorktreeEntry) {
-    const repo = repoStore.repos[rootDir];
-    if (!repo) return;
-    repoStore.updateRepoData(rootDir, [...repo.worktrees, wt], repo.freeBranches);
-  }
-
   function detachWorktree(rootDir: string, wt: WorktreeEntry) {
     const repo = repoStore.repos[rootDir];
     if (!repo) return;
@@ -88,7 +82,7 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
       }),
     );
     if (result.ok && result.value.worktree !== undefined) {
-      appendWorktree(rootDir, result.value.worktree);
+      repoStore.appendWorktree(rootDir, result.value.worktree);
       terminalStore.viewMode = "wt";
       worktreeStore.setOpen(result.value.dir);
     } else {
@@ -111,7 +105,7 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
       }),
     );
     if (result.ok && result.value.worktree !== undefined) {
-      appendWorktree(rootDir, result.value.worktree);
+      repoStore.appendWorktree(rootDir, result.value.worktree);
       terminalStore.viewMode = "wt";
       worktreeStore.setOpen(result.value.dir);
     } else {

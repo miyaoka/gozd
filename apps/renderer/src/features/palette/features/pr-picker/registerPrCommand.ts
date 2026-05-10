@@ -7,6 +7,7 @@
 import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
+import { useRepoStore } from "../../../../shared/repo";
 import { rpcCreateWorktree, rpcGitWorktreeList, rpcTaskAdd } from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
@@ -19,6 +20,7 @@ export function registerPrCommand(): () => void {
   const notify = useNotificationStore();
   const worktreeStore = useWorktreeStore();
   const terminalStore = useTerminalStore();
+  const repoStore = useRepoStore();
 
   const dispose = registry.register("workspace.openPr", {
     label: "Workspace: Open Pull Request",
@@ -45,6 +47,9 @@ export function registerPrCommand(): () => void {
           worktreesRes.worktrees.filter((wt) => wt.branch !== "").map((wt) => [wt.branch, wt.path]),
         );
 
+        // この callback は PrPickerDialog 側で close() 後に呼ばれるため、
+        // 連打による再エントリは dialog の DOM 除去で塞がれている。さらに branch: pr.headRef が
+        // 決定論的なので git 側でも重複作成は弾かれる。`isCreating` 相当のガードは不要。
         show(prsRes.prs, viewerRes.ok ? viewerRes.login : "", (pr) => {
           const existingDir = wtByBranch.get(pr.headRef);
           if (existingDir !== undefined) {
@@ -78,6 +83,12 @@ export function registerPrCommand(): () => void {
             );
             if (!taskResult.ok) {
               notify.error("Failed to create task for worktree", taskResult.error);
+            }
+            const rootDir = repoStore.findRepoOwning(dir)?.rootDir;
+            if (rootDir === undefined || result.value.worktree === undefined) {
+              notify.error("Worktree created but sidebar could not be updated");
+            } else {
+              repoStore.appendWorktree(rootDir, result.value.worktree);
             }
             terminalStore.viewMode = "wt";
             worktreeStore.setOpen(result.value.dir);

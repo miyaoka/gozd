@@ -68,9 +68,4 @@ public enum WorktreeOps {
     args.append(path)
     _ = try await runGit(args: args, cwd: dir)
   }
-
-  /// `git branch -D <branch>` 相当（force delete）。
-  public static func deleteBranch(dir: String, branch: String) async throws {
-    _ = try await runGit(args: ["branch", "-D", branch], cwd: dir)
-  }
 }

@@ -138,9 +138,3 @@ message GitWorktreeRemoveRequest {
 }
 message GitWorktreeRemoveResponse {}
 
-// gitBranchDelete: ブランチを削除
-message GitBranchDeleteRequest {
-  string dir = 1;
-  string branch = 2;
-}
-message GitBranchDeleteResponse {}

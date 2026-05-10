@@ -193,8 +193,6 @@ public actor RpcDispatcher {
       return try await handleCreateWorktree(body)
     case "/git/worktreeRemove":
       return try await handleWorktreeRemove(body)
-    case "/git/branchDelete":
-      return try await handleBranchDelete(body)
     case "/task/list":
       return try await handleTaskList(body)
     case "/task/add":
@@ -664,12 +662,6 @@ public actor RpcDispatcher {
     var resp = Gozd_V1_ClaudeSessionListByProjectResponse()
     resp.sessions = sessions
     return try resp.jsonUTF8Data()
-  }
-
-  private func handleBranchDelete(_ body: Data) async throws -> Data {
-    let req = try Gozd_V1_GitBranchDeleteRequest(jsonUTF8Data: body)
-    try await WorktreeOps.deleteBranch(dir: req.dir, branch: req.branch)
-    return try Gozd_V1_GitBranchDeleteResponse().jsonUTF8Data()
   }
 
   // MARK: - tasks

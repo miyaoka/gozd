@@ -76,8 +76,6 @@ export {
 export {
   CreateWorktreeRequest,
   CreateWorktreeResponse,
-  GitBranchDeleteRequest,
-  GitBranchDeleteResponse,
   GitCommitFilesRequest,
   GitCommitFilesResponse,
   GitDefaultBranchRequest,

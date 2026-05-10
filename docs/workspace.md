@@ -30,7 +30,12 @@
 
 ## アプリ状態の復元
 
-`~/.config/gozd/app-state.json` に最後のウィンドウ状態を保存し、次回起動時に sidebar として hydrate する。dev / stable で同じファイルを共有する。同時起動時は最後に save したプロセスが他方の sidebar 状態を上書きする可能性があるが、`buildAppStateSnapshot()` が serialize するフィールド（`dirOrder` / `collapsedRoots` / `selectedDir` / `repoName` / `isGitRepo`）の変化でしか save が走らないため、ユーザーが両ウィンドウで sidebar を能動的に操作しなければ衝突しない。
+`~/.config/gozd/app-state.json` に最後のウィンドウ状態を保存し、次回起動時に sidebar として hydrate する。dev / stable で同じファイルを共有する。
+
+save の発火条件は `buildAppStateSnapshot()` のシリアライズ結果が前回と変化した時のみ。`worktrees` / `freeBranches` / `gitStatuses` / `task` などサイドバー描画用のデータは snapshot に含まれないため、git status push / `fetchRepo` / Task title 同期では save が走らない。発火するのは `dirOrder` / `collapsedRoots` / `selectedDir` / 各 repo の `repoName` / `isGitRepo` が実際に変化した時のみ。
+
+> [!WARNING]
+> dev / stable を同時起動して両方の sidebar を編集した場合、最後に save したプロセスが他方の sidebar 状態を上書きする。プロセス間ロックは未実装。詳細は [architecture.md](./architecture.md#データ永続化) を参照。
 
 保存する情報:
 

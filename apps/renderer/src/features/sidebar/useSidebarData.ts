@@ -205,13 +205,15 @@ export function useSidebarData() {
     hydrated = true;
   }
 
-  // snapshot 自体を watch source にすることで、buildAppStateSnapshot が読む
-  // フィールド（dirOrder / collapsedRoots / selectedDir / 各 repo の repoName・
-  // isGitRepo）だけが依存追跡される。worktrees / gitStatuses / task などサイドバー
-  // 表示用の reactive データは snapshot に含まれないので、git status push や
-  // Task title sync では save が走らない。
+  // snapshot を JSON シリアライズした文字列を watch source にする。
+  // updateRepoData は `repos.value[rootDir] = { ...current, worktrees, ... }` で
+  // スロット自体を差し替えるため、`repos.value[rootDir]` を読む getter は必ず
+  // invalidate される。source は再実行されるが、シリアライズ結果が前と同じなら
+  // Vue の値比較で callback は呼ばれず save も走らない。これにより worktrees /
+  // freeBranches / gitStatuses / task の変化（git status push, fetchRepo, Task
+  // title sync）では `app-state.json` が save されなくなる。
   watch(
-    () => repoStore.buildAppStateSnapshot(),
+    () => JSON.stringify(repoStore.buildAppStateSnapshot()),
     () => {
       if (!hydrated) return;
       if (saveTimer !== undefined) clearTimeout(saveTimer);
@@ -220,7 +222,6 @@ export function useSidebarData() {
         await tryCatch(rpcAppStateSave({ state: repoStore.buildAppStateSnapshot() }));
       }, SAVE_DEBOUNCE_MS);
     },
-    { deep: true },
   );
 
   return {

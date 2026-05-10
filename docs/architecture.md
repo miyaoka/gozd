@@ -148,13 +148,17 @@ zsh 起動
 
 アプリの状態と設定は `~/.config/gozd/` に JSON ファイルで保存する。dev / stable で永続ディレクトリは共有する（worktree 本体 `~/.local/share/gozd/worktrees/` と同じ扱い）。channel で分離するのは衝突回避が必要な実行時リソース（socket / TMPDIR / Vite URL / CLI ソース参照先）のみ。ファイル I/O は常に desktop（Bun）側で行い、renderer からは RPC request 経由でアクセスする。
 
+> [!WARNING]
+> 永続ファイルへの cross-process ロックは未実装。dev / stable を同時起動した場合、各ストア（`AppStateStore` / `AppConfigStore` / `TaskStore` / `ProjectConfigStore`）の `load → mutate → save` が並走すると、最後に save したプロセスが他方の変更を上書きする可能性がある。`AppStateStore` 経由の `app-state.json` save は snapshot 内容が変化した時のみ発火するため頻度は低いが、論理的なレース自体は残る。
+
 ```text
 ~/.config/gozd/
 ├── app-state.json                        # グローバル: ウィンドウ状態（位置・サイズ・プロジェクト）
 ├── config.json                           # グローバル: ユーザー設定（VOICEVOX 等）
 └── projects/
     └── <projectKey>/                     # <repoName>-<hash>（realpath の SHA-256 先頭12文字）
-        └── tasks.json                    # プロジェクト固有: Task 一覧
+        ├── tasks.json                    # プロジェクト固有: Task 一覧
+        └── config.json                   # プロジェクト固有: worktreeSymlinks 等
 ```
 
 ### スコープの使い分け

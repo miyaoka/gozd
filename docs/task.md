@@ -72,9 +72,6 @@ ROOT
 WORKTREES
   ● feature-aの実装    [M2 A1]   [⋮]
   ● (無題)                        [⋮]
-
-BRANCHES
-  ○ feature-old                   [⋮]
 ```
 
 ### セクション構成
@@ -83,7 +80,6 @@ BRANCHES
 | ---------- | -------------------------------------------------- |
 | ROOT       | リポジトリルート（main）。メニューなし             |
 | WORKTREES  | worktree 一覧。Task タイトルまたはブランチ名で表示 |
-| BRANCHES   | worktree 化されていないローカルブランチ            |
 
 ### `[⋮]` メニュー
 
@@ -91,10 +87,6 @@ BRANCHES
 
 - Edit task
 - Remove worktree
-
-**BRANCHES 行:**
-
-- Worktree 化
 
 ### Task 編集
 

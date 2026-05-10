@@ -9,13 +9,11 @@ interface RepoState {
   isGitRepo: boolean;
   /** rpcGitWorktreeList の結果。Phase 6 で repoStore が直接保持するようにした */
   worktrees: WorktreeEntry[];
-  /** worktree 化されていないローカルブランチ */
-  freeBranches: string[];
 }
 
 /**
  * window 内で同居する全 repo を保持する。
- * - `repos` は rootDir をキーに repo メタ情報 + worktrees / freeBranches を持つ
+ * - `repos` は rootDir をキーに repo メタ情報 + worktrees を持つ
  * - `selectedDir` は UI 上で選択中の worktree path（=どこかの repo の worktrees の一員）
  *   または非 git project の rootDir
  * - 非選択 repo の PTY / Claude status は terminalStore が並列保持し続ける
@@ -77,7 +75,7 @@ export const useRepoStore = defineStore("repo", () => {
   }
 
   /**
-   * 既存 repo の worktrees / freeBranches を更新（rpcGitWorktreeList 結果の反映）。
+   * 既存 repo の worktrees を更新（rpcGitWorktreeList 結果の反映）。
    *
    * `gitStatusesGenSnapshot` には fetch 開始時に各 wt について `getGitStatusGen` で
    * 取った世代スナップショットを渡す。fetch 中に `setWorktreeGitStatuses` が走って
@@ -88,7 +86,6 @@ export const useRepoStore = defineStore("repo", () => {
   function updateRepoData(
     rootDir: string,
     worktrees: WorktreeEntry[],
-    freeBranches: string[],
     gitStatusesGenSnapshot?: Map<string, number>,
   ) {
     const current = repos.value[rootDir];
@@ -115,7 +112,7 @@ export const useRepoStore = defineStore("repo", () => {
         gitStatusGenByDir.set(wt.path, (gitStatusGenByDir.get(wt.path) ?? 0) + 1);
       }
     }
-    repos.value[rootDir] = { ...current, worktrees: merged, freeBranches };
+    repos.value[rootDir] = { ...current, worktrees: merged };
   }
 
   /**
@@ -144,7 +141,7 @@ export const useRepoStore = defineStore("repo", () => {
     const current = repos.value[rootDir];
     if (current === undefined) return;
     if (current.worktrees.some((w) => w.path === wt.path)) return;
-    updateRepoData(rootDir, [...current.worktrees, wt], current.freeBranches);
+    updateRepoData(rootDir, [...current.worktrees, wt]);
   }
 
   function selectDir(dir: string) {
@@ -231,7 +228,6 @@ export const useRepoStore = defineStore("repo", () => {
         repoName: r.repoName,
         isGitRepo: r.isGitRepo,
         worktrees: [],
-        freeBranches: [],
       };
       nextOrder.push(r.rootDir);
       if (r.collapsed) nextCollapsed.add(r.rootDir);

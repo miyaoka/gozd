@@ -45,31 +45,6 @@ public struct Gozd_V1_GitWorktreeListResponse: Sendable {
   public init() {}
 }
 
-/// gitBranchList: ローカルブランチ名一覧
-public struct Gozd_V1_GitBranchListRequest: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var dir: String = String()
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-}
-
-public struct Gozd_V1_GitBranchListResponse: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var branches: [String] = []
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-}
-
 /// gitLog: HEAD と default branch（origin/HEAD の指す先）の log を返し、
 /// renderer 側で merge する設計。default_branch は git log で決まらないので
 /// `git symbolic-ref refs/remotes/origin/HEAD` から server 側で求める。
@@ -525,66 +500,6 @@ extension Gozd_V1_GitWorktreeListResponse: SwiftProtobuf.Message, SwiftProtobuf.
 
   public static func ==(lhs: Gozd_V1_GitWorktreeListResponse, rhs: Gozd_V1_GitWorktreeListResponse) -> Bool {
     if lhs.worktrees != rhs.worktrees {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-extension Gozd_V1_GitBranchListRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".GitBranchListRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.dir) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.dir.isEmpty {
-      try visitor.visitSingularStringField(value: self.dir, fieldNumber: 1)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Gozd_V1_GitBranchListRequest, rhs: Gozd_V1_GitBranchListRequest) -> Bool {
-    if lhs.dir != rhs.dir {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-extension Gozd_V1_GitBranchListResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".GitBranchListResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}branches\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeRepeatedStringField(value: &self.branches) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.branches.isEmpty {
-      try visitor.visitRepeatedStringField(value: self.branches, fieldNumber: 1)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Gozd_V1_GitBranchListResponse, rhs: Gozd_V1_GitBranchListResponse) -> Bool {
-    if lhs.branches != rhs.branches {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

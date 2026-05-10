@@ -171,8 +171,6 @@ public actor RpcDispatcher {
       return try await handlePickAndOpen(body)
     case "/git/worktreeList":
       return try await handleGitWorktreeList(body)
-    case "/git/branchList":
-      return try await handleGitBranchList(body)
     case "/git/log":
       return try await handleGitLog(body)
     case "/git/diffFile":
@@ -437,14 +435,6 @@ public actor RpcDispatcher {
       }
       return entry
     }
-    return try resp.jsonUTF8Data()
-  }
-
-  private func handleGitBranchList(_ body: Data) async throws -> Data {
-    let req = try Gozd_V1_GitBranchListRequest(jsonUTF8Data: body)
-    let branches = try await GitOps.branchList(dir: req.dir)
-    var resp = Gozd_V1_GitBranchListResponse()
-    resp.branches = branches
     return try resp.jsonUTF8Data()
   }
 

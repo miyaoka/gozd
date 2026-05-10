@@ -5,14 +5,14 @@
 
 - **トップツールバー**: 左に view mode トグル（active worktree / claude terminals）、右にリスト編集ボタン
 - **dirOrder の各 repo** に対して `RepoSection` を縦に並べる
-- 各セクションは header（chevron + folder アイコン + repo 名）+ ROOT + WORKTREES + BRANCHES
+- 各セクションは header（chevron + folder アイコン + repo 名）+ ROOT + WORKTREES
 - 編集モード中: 全 section が collapsed + drag で並び替え + ✕ で削除 + 末尾に `+ Add directory`
 
 ## 操作
 
 - view mode トグル: active worktree / claude terminals を切り替え。`cmd+/` でも同じ操作が可能
 - worktree クリック: 表示対象 dir 切替 + done バッジ既読化
-- ⋮ メニュー: SidebarMenu に委譲（worktree 編集 / 解除、branch から worktree 化）
+- ⋮ メニュー: SidebarMenu に委譲（worktree 編集 / 解除）
 - chevron: 折りたたみトグル（永続）
 - 編集モード中の drag handle (folder + 名前): @dnd-kit/vue で並び替え
 - 編集モード中の ✕: 確認ダイアログを経て removeRepo
@@ -58,8 +58,9 @@ const { fetchRepo } = useSidebarData();
 
 const { confirmRef, confirmMessage, showConfirm, closeConfirm, executeConfirm } = useDialogs();
 
-const { isCreating, handleWorktreeSelect, addWorktree, handleWorktreeRemove, handleBranchLink } =
-  useWorktreeActions({ showConfirm });
+const { isCreating, handleWorktreeSelect, addWorktree, handleWorktreeRemove } = useWorktreeActions({
+  showConfirm,
+});
 
 const {
   editingTaskId,
@@ -223,10 +224,6 @@ const activeRootWorktree = computed(() => {
             (anchorEl, wt, rd) =>
               sidebarMenuRef?.openMenu(anchorEl, { type: 'worktree', worktree: wt, rootDir: rd })
           "
-          @open-branch-menu="
-            (anchorEl, branch, rd) =>
-              sidebarMenuRef?.openMenu(anchorEl, { type: 'branch', branch, rootDir: rd })
-          "
         >
           <template #after-worktree-item="{ wt }">
             <TaskEditor
@@ -257,13 +254,11 @@ const activeRootWorktree = computed(() => {
       </button>
     </div>
 
-    <!-- ⋮ メニュー（worktree / branch 共通） -->
+    <!-- ⋮ メニュー（worktree） -->
     <SidebarMenu
       ref="sidebarMenuRef"
-      :is-creating="isCreating"
       @worktree-edit-task="toggleWorktreeTaskEdit"
       @worktree-remove="(wt, rd) => handleWorktreeRemove(rd, wt)"
-      @branch-link="(branch, rd) => handleBranchLink(rd, branch)"
     />
 
     <!-- 確認ダイアログ -->

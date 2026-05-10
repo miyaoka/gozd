@@ -78,8 +78,6 @@ export {
   CreateWorktreeResponse,
   GitBranchDeleteRequest,
   GitBranchDeleteResponse,
-  GitBranchListRequest,
-  GitBranchListResponse,
   GitCommitFilesRequest,
   GitCommitFilesResponse,
   GitDefaultBranchRequest,

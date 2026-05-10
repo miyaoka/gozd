@@ -1,8 +1,7 @@
 <doc lang="md">
 共有 ⋮ ポップオーバーメニュー。
 
-worktree / branch の各セクションから呼ばれ、
-コンテキストに応じたアクション（編集・削除・作成）を表示する。
+worktree セクションから呼ばれ、コンテキストに応じたアクション（編集・削除）を表示する。
 `showPopover({ source })` の implicit anchor で ⋮ ボタンの直下に配置する。
 
 親から `openMenu()` を expose 経由で呼び出してメニューを開く。
@@ -13,19 +12,12 @@ worktree / branch の各セクションから呼ばれ、
 import type { WorktreeEntry } from "@gozd/proto";
 import { nextTick, ref } from "vue";
 
-defineProps<{
-  isCreating: boolean;
-}>();
-
 const emit = defineEmits<{
   worktreeEditTask: [wt: WorktreeEntry, rootDir: string];
   worktreeRemove: [wt: WorktreeEntry, rootDir: string];
-  branchLink: [branch: string, rootDir: string];
 }>();
 
-type MenuContext =
-  | { type: "worktree"; worktree: WorktreeEntry; rootDir: string }
-  | { type: "branch"; branch: string; rootDir: string };
+type MenuContext = { type: "worktree"; worktree: WorktreeEntry; rootDir: string };
 
 /**
  * showPopover に渡す `source` 引数の型。
@@ -59,11 +51,6 @@ function handleWorktreeRemove(wt: WorktreeEntry, rootDir: string) {
   emit("worktreeRemove", wt, rootDir);
 }
 
-function handleBranchLink(branch: string, rootDir: string) {
-  closeMenu();
-  emit("branchLink", branch, rootDir);
-}
-
 defineExpose({ openMenu });
 </script>
 
@@ -91,16 +78,6 @@ defineExpose({ openMenu });
       >
         <span class="icon-[lucide--unlink] text-xs" />
         Remove worktree
-      </button>
-    </template>
-    <template v-else-if="menuContext?.type === 'branch' && menuContext.branch">
-      <button
-        class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800"
-        :disabled="isCreating"
-        @click="handleBranchLink(menuContext.branch, menuContext.rootDir)"
-      >
-        <span class="icon-[lucide--link] text-xs" />
-        Create worktree
       </button>
     </template>
   </div>

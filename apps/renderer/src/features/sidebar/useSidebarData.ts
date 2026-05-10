@@ -8,7 +8,6 @@ import { useWorktreeStore } from "../worktree";
 import {
   rpcAppStateLoad,
   rpcAppStateSave,
-  rpcGitBranchList,
   rpcGitWorktreeList,
   rpcTaskAdd,
   rpcTaskUpdate,
@@ -31,7 +30,7 @@ export function useSidebarData() {
   /** repo ごとの fetch 世代カウンタ。並行 fetch で stale なレスポンスを破棄するため */
   const fetchGenByRoot = new Map<string, number>();
 
-  /** 1 つの repo の worktrees / branches を取り直して repoStore を更新 */
+  /** 1 つの repo の worktrees を取り直して repoStore を更新 */
   async function fetchRepo(rootDir: string) {
     const repo = repoStore.repos[rootDir];
     if (repo === undefined || !repo.isGitRepo) return;
@@ -47,24 +46,19 @@ export function useSidebarData() {
       gitStatusGenSnapshot.set(wt.path, repoStore.getGitStatusGen(wt.path));
     }
 
-    const result = await tryCatch(
-      Promise.all([rpcGitWorktreeList({ dir: rootDir }), rpcGitBranchList({ dir: rootDir })]),
-    );
+    const result = await tryCatch(rpcGitWorktreeList({ dir: rootDir }));
     if (!result.ok) {
       notify.error(`Failed to fetch repo data: ${repo.repoName}`, result.error);
       return;
     }
     if (fetchGenByRoot.get(rootDir) !== gen) return;
-    const [wtRes, branchRes] = result.value;
-    const wtList = wtRes.worktrees;
-    const wtBranches = new Set(wtList.map((wt) => wt.branch).filter(Boolean));
-    const newFreeBranches = branchRes.branches.filter((b) => !wtBranches.has(b));
+    const wtList = result.value.worktrees;
 
     // 外部で削除された worktree のターミナルを cleanup（この repo の旧 worktrees に限定）
     const newPaths = new Set(wtList.map((wt) => wt.path));
     const stalePaths = repo.worktrees.map((w) => w.path).filter((p) => !newPaths.has(p));
 
-    repoStore.updateRepoData(rootDir, wtList, newFreeBranches, gitStatusGenSnapshot);
+    repoStore.updateRepoData(rootDir, wtList, gitStatusGenSnapshot);
 
     for (const dir of stalePaths) terminalStore.remove(dir);
 
@@ -245,8 +239,8 @@ export function useSidebarData() {
   // スロット自体を差し替えるため、`repos.value[rootDir]` を読む getter は必ず
   // invalidate される。source は再実行されるが、シリアライズ結果が前と同じなら
   // Vue の値比較で callback は呼ばれず save も走らない。これにより worktrees /
-  // freeBranches / gitStatuses / task の変化（git status push, fetchRepo, Task
-  // title sync）では `app-state.json` が save されなくなる。
+  // gitStatuses / task の変化（git status push, fetchRepo, Task title sync）では
+  // `app-state.json` が save されなくなる。
   watch(
     () => JSON.stringify(repoStore.buildAppStateSnapshot()),
     () => {

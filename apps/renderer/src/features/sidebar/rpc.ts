@@ -1,9 +1,7 @@
-// sidebar が使う RPC wrapper。worktree / branch / task を集約する。
+// sidebar が使う RPC wrapper。worktree / task を集約する。
 import {
   CreateWorktreeRequest,
   CreateWorktreeResponse,
-  GitBranchListRequest,
-  GitBranchListResponse,
   GitDefaultBranchRequest,
   GitDefaultBranchResponse,
   GitWorktreeListRequest,
@@ -22,13 +20,10 @@ import {
 
 import { rpc } from "../../shared/rpc";
 
-// --- worktree / branch ---
+// --- worktree ---
 
 export const rpcGitWorktreeList = (req: GitWorktreeListRequest) =>
   rpc("/git/worktreeList", req, GitWorktreeListRequest, GitWorktreeListResponse);
-
-export const rpcGitBranchList = (req: GitBranchListRequest) =>
-  rpc("/git/branchList", req, GitBranchListRequest, GitBranchListResponse);
 
 export const rpcCreateWorktree = (req: CreateWorktreeRequest) =>
   rpc("/git/createWorktree", req, CreateWorktreeRequest, CreateWorktreeResponse);

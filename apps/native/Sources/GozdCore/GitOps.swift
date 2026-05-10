@@ -193,7 +193,10 @@ public enum GitOps {
   ) async throws -> [CommitInfo] {
     // %x1f = unit separator (US), %x1e = record separator (RS)
     let format = "%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e"
-    var args = ["log", "--format=\(format)"]
+    // `--decorate=short` でユーザーの `log.decorate=full` 設定を上書きする。
+    // full にすると %D が `refs/heads/main` / `refs/remotes/origin/main` 形式になり、
+    // renderer の `r.startsWith("origin/")` / current branch 抽出が崩れる。
+    var args = ["log", "--format=\(format)", "--decorate=short"]
     if maxCount > 0 { args.append("--max-count=\(maxCount)") }
     if firstParentOnly { args.append("--first-parent") }
     args.append(ref)
@@ -211,18 +214,41 @@ public enum GitOps {
         parts[2].isEmpty
         ? [] : parts[2].split(separator: " ", omittingEmptySubsequences: true).map(String.init)
       let date = Int64(parts[4]) ?? 0
-      let refs =
-        parts[7].isEmpty
-        ? []
-        : parts[7].split(separator: ",").map {
-          $0.trimmingCharacters(in: .whitespaces)
-        }
+      let refs = parseRefs(parts[7])
       commits.append(
         CommitInfo(
           hash: parts[0], shortHash: parts[1], parents: parents, author: parts[3], date: date,
           message: parts[5], body: parts[6], refs: refs))
     }
     return commits
+  }
+
+  /// `git log --format=%D` の出力をパースする。
+  /// "HEAD -> main, origin/main, tag: v1.0" → ["HEAD", "main", "origin/main", "tag:v1.0"]
+  /// "HEAD -> branch" は ["HEAD", "branch"] に分解する。renderer 側が
+  /// refs.includes("HEAD") で HEAD 行を識別するため、HEAD は独立要素である必要がある。
+  ///
+  /// 区切り子は `, `（カンマ+スペース）固定（git の log-tree.c::format_decoration_default）。
+  /// ref 名にはカンマを含めることが許されている（`git check-ref-format --branch 'foo,bar'` が
+  /// 通る）ため、単純な `,` 分割は ref 名を破壊する。スペースは ref 名に含められないので
+  /// `", "` 区切りなら一意にトークン化できる。
+  static func parseRefs(_ refStr: String) -> [String] {
+    let trimmed = refStr.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty { return [] }
+    var result: [String] = []
+    for raw in trimmed.components(separatedBy: ", ") {
+      let part = raw.trimmingCharacters(in: .whitespaces)
+      if part.isEmpty { continue }
+      if part.hasPrefix("HEAD -> ") {
+        result.append("HEAD")
+        result.append(String(part.dropFirst("HEAD -> ".count)))
+      } else if part.hasPrefix("tag: ") {
+        result.append("tag:" + String(part.dropFirst("tag: ".count)))
+      } else {
+        result.append(part)
+      }
+    }
+    return result
   }
 
   /// `git diff -- <path>` 相当（作業ツリー差分）。

@@ -94,6 +94,55 @@ struct GitOpsGitStatusTests {
   }
 }
 
+@Suite("GitOps.parseRefs")
+struct GitOpsParseRefsTests {
+  @Test("空文字は空配列")
+  func empty() {
+    #expect(GitOps.parseRefs("") == [])
+    #expect(GitOps.parseRefs("   ") == [])
+  }
+
+  @Test("HEAD -> branch を 2 要素に分解する")
+  func splitsHeadArrow() {
+    #expect(GitOps.parseRefs("HEAD -> main") == ["HEAD", "main"])
+  }
+
+  @Test("tag: prefix は tag: ラベルに正規化する")
+  func normalizesTag() {
+    #expect(GitOps.parseRefs("tag: v1.0") == ["tag:v1.0"])
+  }
+
+  @Test("HEAD / origin / tag が混在するケース")
+  func mixed() {
+    let input = "HEAD -> 20260510, origin/20260510, tag: v1.0, origin/HEAD"
+    #expect(
+      GitOps.parseRefs(input) == [
+        "HEAD", "20260510", "origin/20260510", "tag:v1.0", "origin/HEAD",
+      ])
+  }
+
+  @Test("detached HEAD は HEAD 単独要素になる")
+  func detachedHead() {
+    #expect(GitOps.parseRefs("HEAD") == ["HEAD"])
+  }
+
+  @Test("detached HEAD on tag")
+  func detachedHeadOnTag() {
+    #expect(GitOps.parseRefs("HEAD, tag: v1.0") == ["HEAD", "tag:v1.0"])
+  }
+
+  /// ref 名にカンマを含めることは git で合法（`git check-ref-format --branch 'foo,bar'` が exit 0）。
+  /// `%D` の区切り子は `", "` 固定なので、単純な `","` split で誤分解させてはならない。
+  @Test("ref 名に含まれるカンマで誤分解しない")
+  func preservesCommaInRefName() {
+    #expect(GitOps.parseRefs("HEAD -> foo,bar") == ["HEAD", "foo,bar"])
+    #expect(
+      GitOps.parseRefs("HEAD -> foo,bar, origin/foo,bar") == [
+        "HEAD", "foo,bar", "origin/foo,bar",
+      ])
+  }
+}
+
 @Suite("GitOps.runGit large output")
 struct GitOpsRunGitLargeOutputTests {
   /// pipe buffer (macOS は最大 ~64KB) を超える stdout で `runGit` が deadlock しないことを保証する。

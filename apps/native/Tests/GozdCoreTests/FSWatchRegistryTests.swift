@@ -76,6 +76,15 @@ struct FSWatchRegistryTests {
       ["worktree", "add", "-b", "feature", worktreeRoot.path], cwd: mainRepo)
     let worktreeRootResolved = URL(fileURLWithPath: worktreeRoot.path).resolvingSymlinksInPath()
 
+    // watch 開始前にファイル作成と add まで済ませる。watch 中の handleEvents は
+    // `gitStatusFull` を spawn し、`git status` は read-only だが index stat refresh で
+    // 同じ per-worktree git dir の `index.lock` を取りにいく場合がある。そこに `git add`
+    // / `git commit` をぶつけると lock 競合で test が flake する。watch 中に撃つ git ops
+    // は単一の `git commit` だけに絞り、gitStatusChange の発火経路を確実に踏ませる。
+    let file = worktreeRootResolved.appendingPathComponent("a.txt")
+    try "hello".write(to: file, atomically: true, encoding: .utf8)
+    try await runGitCmd(["add", "a.txt"], cwd: worktreeRootResolved)
+
     let collector = EventNameCollector()
     let registry = FSWatchRegistry(
       onFsChange: { _, _ in collector.append("fsChange") },
@@ -88,9 +97,6 @@ struct FSWatchRegistryTests {
     try await Task.sleep(for: .milliseconds(300))
     collector.clear()
 
-    let file = worktreeRootResolved.appendingPathComponent("a.txt")
-    try "hello".write(to: file, atomically: true, encoding: .utf8)
-    try await runGitCmd(["add", "a.txt"], cwd: worktreeRootResolved)
     try await runGitCmd(["commit", "-m", "add a"], cwd: worktreeRootResolved)
 
     try await waitForEvent(collector, matching: { $0 == "gitStatusChange" })
@@ -278,6 +284,15 @@ private func makeTempDir() throws -> URL {
   return URL(fileURLWithPath: raw.path).resolvingSymlinksInPath()
 }
 
+private struct GitCmdError: Error, CustomStringConvertible {
+  let args: [String]
+  let exitCode: Int32
+  let stderr: String
+  var description: String {
+    "git \(args.joined(separator: " ")) failed (exit \(exitCode)): \(stderr)"
+  }
+}
+
 private func runGitCmd(_ args: [String], cwd: URL) async throws {
   let p = Process()
   p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -290,14 +305,28 @@ private func runGitCmd(_ args: [String], cwd: URL) async throws {
   env["GIT_COMMITTER_NAME"] = "test"
   env["GIT_COMMITTER_EMAIL"] = "test@example.com"
   p.environment = env
+  let stderrPipe = Pipe()
   p.standardOutput = Pipe()
-  p.standardError = Pipe()
+  p.standardError = stderrPipe
   try p.run()
   p.waitUntilExit()
+  if p.terminationStatus != 0 {
+    let stderr = String(
+      decoding: stderrPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    throw GitCmdError(args: args, exitCode: p.terminationStatus, stderr: stderr)
+  }
 }
 
 private func initGitRepo(at dir: URL) async throws {
   try await runGitCmd(["init", "-q", "-b", "main"], cwd: dir)
+}
+
+private struct EventTimeout: Error, CustomStringConvertible {
+  let timeout: Duration
+  let observed: [String]
+  var description: String {
+    "waitForEvent timed out after \(timeout). Observed events: \(observed)"
+  }
 }
 
 private func waitForEvent(
@@ -310,6 +339,9 @@ private func waitForEvent(
     if collector.snapshot().contains(where: predicate) { return }
     try await Task.sleep(for: .milliseconds(50))
   }
+  // タイムアウトを silent return せず throw する。「期待イベントが届かなかった」のか
+  // 「タイムアウトで打ち切った」のかを呼び出し側が区別できるようにする。
+  throw EventTimeout(timeout: timeout, observed: collector.snapshot())
 }
 
 private final class EventNameCollector: @unchecked Sendable {

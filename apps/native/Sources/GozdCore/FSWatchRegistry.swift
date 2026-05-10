@@ -185,9 +185,17 @@ public actor FSWatchRegistry {
     }
 
     if result.hasGitStatusChange {
-      let status = try? await GitOps.gitStatusFull(dir: dir)
+      let status: GitOps.StatusFull
+      do {
+        status = try await GitOps.gitStatusFull(dir: dir)
+      } catch {
+        // 観察可能性のためログを残す。renderer は次の FSEvents バッチで再 fetch するため
+        // 致命的ではないが、繰り返し発生していれば一時障害として診断したい。
+        print("[FSWatchRegistry] gitStatusFull failed for \(dir): \(error)")
+        return
+      }
       // gitStatusFull の await 中に unwatch されている可能性があるため再 check
-      guard isActive(dir: dir, generation: generation), let status else { return }
+      guard isActive(dir: dir, generation: generation) else { return }
       onGitStatusChange(originalDir, status)
     }
   }

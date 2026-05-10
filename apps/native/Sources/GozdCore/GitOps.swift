@@ -185,24 +185,33 @@ public enum GitOps {
   ///   呼び出し側で `try?` で握り潰すと「worktree なのに git dir が解決できない」障害が
   ///   サイレントに通常 watch にフォールバックされ、commit 反映バグが復活する。
   public static func gitDirs(dir: String) async throws -> GitDirs? {
-    let stdout: Data
+    // `git rev-parse` は `-z` / `--null` 等の NUL 区切り出力モードを持たず、複数フラグを
+    // 同時指定すると newline 区切りで返す。改行を含むパス（`<repo\nname>/.git` 等の
+    // 病的ケース）で fragile になるため、フラグを 1 つずつ別 spawn して各呼び出しが
+    // 単一行のみ返す形にする。spawn コストは worktree オープン時のみで実用上問題ない。
+    let perWorktree: String
+    let common: String
     do {
-      stdout = try await runGit(
-        args: ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], cwd: dir)
+      perWorktree = try await singleRevParse(flag: "--git-dir", cwd: dir)
+      common = try await singleRevParse(flag: "--git-common-dir", cwd: dir)
     } catch let GitError.commandFailed(exitCode, _) where exitCode == 128 {
       // exit 128 = "not a git repository"。git の規約。
       return nil
     }
-    let lines = String(decoding: stdout, as: UTF8.self)
-      .split(whereSeparator: { $0 == "\n" })
-      .map { $0.trimmingCharacters(in: .whitespaces) }
-      .filter { !$0.isEmpty }
-    // `--git-dir --git-common-dir` の出力は厳密に 2 行。違ったら git の出力契約破綻。
-    guard lines.count == 2, let perWorktree = lines.first, let common = lines.last else {
-      throw GitError.unexpectedOutput(
-        "git rev-parse --git-dir --git-common-dir: expected 2 lines, got \(lines.count): \(lines)")
-    }
     return GitDirs(perWorktreeGitDir: perWorktree, commonGitDir: common)
+  }
+
+  /// `git rev-parse --path-format=absolute <flag>` を 1 回 spawn し、単一行の trim 済み path を返す。
+  /// 出力が空ならば不正として throw。
+  private static func singleRevParse(flag: String, cwd: String) async throws -> String {
+    let stdout = try await runGit(
+      args: ["rev-parse", "--path-format=absolute", flag], cwd: cwd)
+    let text = String(decoding: stdout, as: UTF8.self)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !text.isEmpty else {
+      throw GitError.unexpectedOutput("git rev-parse \(flag): empty output")
+    }
+    return text
   }
 
   /// 全 worktree が共有する main repo の作業ディレクトリを返す。

@@ -72,6 +72,11 @@ export function registerTerminalCommands(
       handler: () => {
         const active = getFocusedLayout();
         if (active === undefined) return false;
+        // claude ビューでは Claude 起動中の leaf しかタイル表示されない。
+        // split で生まれる新 pane は素の PTY なので、先に wt ビューへ戻して可視化する。
+        if (terminalStore.viewMode === "claude") {
+          terminalStore.viewMode = "wt";
+        }
         terminalStore.splitPane(active.dir, "horizontal");
         return true;
       },
@@ -82,6 +87,9 @@ export function registerTerminalCommands(
       handler: () => {
         const active = getFocusedLayout();
         if (active === undefined) return false;
+        if (terminalStore.viewMode === "claude") {
+          terminalStore.viewMode = "wt";
+        }
         terminalStore.splitPane(active.dir, "vertical");
         return true;
       },

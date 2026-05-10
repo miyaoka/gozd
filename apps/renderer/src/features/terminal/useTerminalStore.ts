@@ -1,6 +1,6 @@
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
-import { computed, ref, shallowRef } from "vue";
+import { computed, ref, shallowRef, watch } from "vue";
 import { useContextKeys } from "../../shared/command";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
@@ -185,6 +185,16 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   /** Claude セッションが存在する（idle / working / asking / done）leafId 一覧 */
   const claudeActiveLeafIds = computed(() => claude.getClaudeActiveLeafIds());
+
+  // claude ビュー中に表示対象が空になったら wt ビューへ自動復帰する。
+  // claude leaf が 0 だと tileGridTemplate の中身が空になり画面が真っ黒に見えるため、
+  // 表示する leaf がある wt ビューに戻して fallback とする。
+  watch(
+    () => viewMode.value === "claude" && claudeActiveLeafIds.value.length === 0,
+    (shouldRevert) => {
+      if (shouldRevert) viewMode.value = "wt";
+    },
+  );
 
   // --- RPC 購読 ---
 

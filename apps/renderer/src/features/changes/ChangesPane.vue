@@ -36,7 +36,8 @@ Changed files tree. Shows HEAD vs working directory by default, or a selected co
 <script setup lang="ts">
 import type { GitCommit, GitFileChange } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
-import { computed, ref, watch } from "vue";
+import { computed, ref, watch, watchEffect } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { rpcGitCommitFiles, useGitGraphStore } from "../git-graph";
 import {
   UNCOMMITTED_HASH,
@@ -46,6 +47,7 @@ import {
 } from "../worktree";
 import type { GitChangeKind } from "../worktree";
 import { buildChangesTree } from "./changesTree";
+import type { ChangesTreeNode } from "./changesTree";
 import ChangesTreeItem from "./ChangesTreeItem.vue";
 
 const emit = defineEmits<{
@@ -55,6 +57,7 @@ const emit = defineEmits<{
 const worktreeStore = useWorktreeStore();
 const gitGraphStore = useGitGraphStore();
 const gitStatusStore = useGitStatusStore();
+const notify = useNotificationStore();
 
 /** コミット選択時に取得した変更ファイル一覧 */
 const commitFiles = ref<GitFileChange[]>([]);
@@ -144,10 +147,20 @@ const fileCount = computed(() => fileChanges.value.length);
  * GitHub PR 風のディレクトリツリー（chain 圧縮済み）。
  *
  * `buildChangesTree` は不正 path（空 segment / 重複 / file⇔folder 衝突）で throw する。
- * computed 内の throw はペイン全体を白画面化するため、Result でラップしてテンプレート側で
- * エラー表示分岐に倒す。
+ * computed は pure / 同期である必要があるため、ツリー構築と失敗時のトースト通知は
+ * 副作用を持てる `watchEffect` 側に閉じ込め、テンプレートには素の `ref<T[]>` を渡す。
  */
-const treeResult = computed(() => tryCatch(() => buildChangesTree(fileChanges.value)));
+const tree = ref<ChangesTreeNode[]>([]);
+
+watchEffect(() => {
+  const result = tryCatch(() => buildChangesTree(fileChanges.value));
+  if (result.ok) {
+    tree.value = result.value;
+    return;
+  }
+  tree.value = [];
+  notify.error("Failed to build changes tree", result.error);
+});
 
 /** 折りたたみ中フォルダの fullPath 集合（デフォルトは全展開） */
 const collapsedFolders = ref<Set<string>>(new Set());
@@ -319,17 +332,13 @@ watch(
       <div class="text-xs text-zinc-500">Loading...</div>
     </div>
 
-    <div v-else-if="!treeResult.ok" class="flex-1 overflow-y-auto p-2">
-      <div class="text-xs text-red-400">Failed to build tree: {{ String(treeResult.error) }}</div>
-    </div>
-
-    <div v-else-if="treeResult.value.length === 0" class="flex-1 overflow-y-auto p-2">
+    <div v-else-if="tree.length === 0" class="flex-1 overflow-y-auto p-2">
       <div class="text-xs text-zinc-500">No changes</div>
     </div>
 
     <div v-else class="flex-1 overflow-y-auto py-1">
       <ChangesTreeItem
-        v-for="node in treeResult.value"
+        v-for="node in tree"
         :key="node.kind === 'folder' ? `d:${node.anchorPath}` : `f:${node.change.newFilePath}`"
         :node="node"
         :depth="0"

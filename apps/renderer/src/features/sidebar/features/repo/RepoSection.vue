@@ -2,7 +2,7 @@
 1 つの repo を表すサイドバーセクション。
 
 ヘッダー（chevron + folder アイコン + repo 名 + 解除ボタン）と、
-git repo であれば配下の ROOT / WORKTREES / BRANCHES を内側に展開する。
+git repo であれば配下の ROOT / WORKTREES を内側に展開する。
 
 ## 操作
 
@@ -23,7 +23,7 @@ import { computed, useTemplateRef } from "vue";
 import { useRepoStore } from "../../../../shared/repo";
 import type { ClaudeStatus } from "../../../terminal";
 import { dirName } from "../../utils";
-import { BranchList, RootWorktree, WorktreeList } from "../worktree";
+import { RootWorktree, WorktreeList } from "../worktree";
 
 const props = defineProps<{
   rootDir: string;
@@ -49,7 +49,6 @@ const emit = defineEmits<{
   selectWorktree: [wt: WorktreeEntry];
   addWorktree: [rootDir: string];
   openWorktreeMenu: [anchorEl: HTMLElement, wt: WorktreeEntry, rootDir: string];
-  openBranchMenu: [anchorEl: HTMLElement, branch: string, rootDir: string];
 }>();
 
 defineSlots<{
@@ -69,9 +68,6 @@ const nonMainWorktrees = computed(() =>
   worktrees.value
     .filter((wt) => !wt.isMain)
     .sort((a, b) => dirName(b.path).localeCompare(dirName(a.path))),
-);
-const sortedBranches = computed(() =>
-  [...(repo.value?.freeBranches ?? [])].sort((a, b) => a.localeCompare(b)),
 );
 
 const isOwningActive = computed(() => {
@@ -175,11 +171,6 @@ function onHeaderClick() {
           <slot name="after-worktree-item" :wt="wt" :root-dir="rootDir" />
         </template>
       </WorktreeList>
-
-      <BranchList
-        :branches="sortedBranches"
-        @open-menu="(anchorEl, branch) => emit('openBranchMenu', anchorEl, branch, rootDir)"
-      />
     </div>
   </section>
 </template>

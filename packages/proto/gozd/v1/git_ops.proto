@@ -12,14 +12,6 @@ message GitWorktreeListResponse {
   repeated WorktreeEntry worktrees = 1;
 }
 
-// gitBranchList: ローカルブランチ名一覧
-message GitBranchListRequest {
-  string dir = 1;
-}
-message GitBranchListResponse {
-  repeated string branches = 1;
-}
-
 // gitLog: HEAD と default branch（origin/HEAD の指す先）の log を返し、
 // renderer 側で merge する設計。default_branch は git log で決まらないので
 // `git symbolic-ref refs/remotes/origin/HEAD` から server 側で求める。
@@ -146,9 +138,3 @@ message GitWorktreeRemoveRequest {
 }
 message GitWorktreeRemoveResponse {}
 
-// gitBranchDelete: ブランチを削除
-message GitBranchDeleteRequest {
-  string dir = 1;
-  string branch = 2;
-}
-message GitBranchDeleteResponse {}

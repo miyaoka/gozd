@@ -3,7 +3,7 @@
  *
  * 解決フロー（docs/workspace.md「プロジェクト管理」参照）:
  * - targetDir が既存 repo の worktrees に含まれる → 切替のみ
- * - 含まれない → 新規 repo として worktrees / freeBranches を fetch して `addRepo` → 切替
+ * - 含まれない → 新規 repo として worktrees を fetch して `addRepo` → 切替
  */
 import type { WorktreeEntry } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
@@ -13,7 +13,7 @@ import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
 import { useWorktreeStore } from "../worktree";
-import { rpcGitBranchList, rpcGitWorktreeList } from "./rpc";
+import { rpcGitWorktreeList } from "./rpc";
 
 interface GozdOpenPayload {
   dir: string;
@@ -41,21 +41,15 @@ export function useGozdOpenHandler() {
 
     if (repoStore.findRepoOwning(targetDir) === undefined) {
       let worktrees: WorktreeEntry[] = [];
-      let freeBranches: string[] = [];
       if (isGitRepo) {
-        const result = await tryCatch(
-          Promise.all([rpcGitWorktreeList({ dir }), rpcGitBranchList({ dir })]),
-        );
+        const result = await tryCatch(rpcGitWorktreeList({ dir }));
         if (result.ok) {
-          const [wtRes, branchRes] = result.value;
-          worktrees = wtRes.worktrees;
-          const wtBranches = new Set(worktrees.map((wt) => wt.branch).filter(Boolean));
-          freeBranches = branchRes.branches.filter((b) => !wtBranches.has(b));
+          worktrees = result.value.worktrees;
         } else {
           notify.error("Failed to fetch repo data", result.error);
         }
       }
-      repoStore.addRepo({ rootDir: dir, repoName, isGitRepo, worktrees, freeBranches });
+      repoStore.addRepo({ rootDir: dir, repoName, isGitRepo, worktrees });
     }
 
     worktreeStore.setOpen(targetDir, { selection: sel });

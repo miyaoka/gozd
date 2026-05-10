@@ -171,8 +171,6 @@ public actor RpcDispatcher {
       return try await handlePickAndOpen(body)
     case "/git/worktreeList":
       return try await handleGitWorktreeList(body)
-    case "/git/branchList":
-      return try await handleGitBranchList(body)
     case "/git/log":
       return try await handleGitLog(body)
     case "/git/diffFile":
@@ -195,8 +193,6 @@ public actor RpcDispatcher {
       return try await handleCreateWorktree(body)
     case "/git/worktreeRemove":
       return try await handleWorktreeRemove(body)
-    case "/git/branchDelete":
-      return try await handleBranchDelete(body)
     case "/task/list":
       return try await handleTaskList(body)
     case "/task/add":
@@ -440,14 +436,6 @@ public actor RpcDispatcher {
     return try resp.jsonUTF8Data()
   }
 
-  private func handleGitBranchList(_ body: Data) async throws -> Data {
-    let req = try Gozd_V1_GitBranchListRequest(jsonUTF8Data: body)
-    let branches = try await GitOps.branchList(dir: req.dir)
-    var resp = Gozd_V1_GitBranchListResponse()
-    resp.branches = branches
-    return try resp.jsonUTF8Data()
-  }
-
   private func handleGitLog(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitLogRequest(jsonUTF8Data: body)
     let result = try await GitOps.logBoth(
@@ -674,12 +662,6 @@ public actor RpcDispatcher {
     var resp = Gozd_V1_ClaudeSessionListByProjectResponse()
     resp.sessions = sessions
     return try resp.jsonUTF8Data()
-  }
-
-  private func handleBranchDelete(_ body: Data) async throws -> Data {
-    let req = try Gozd_V1_GitBranchDeleteRequest(jsonUTF8Data: body)
-    try await WorktreeOps.deleteBranch(dir: req.dir, branch: req.branch)
-    return try Gozd_V1_GitBranchDeleteResponse().jsonUTF8Data()
   }
 
   // MARK: - tasks

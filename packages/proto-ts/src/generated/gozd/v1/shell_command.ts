@@ -9,7 +9,8 @@ import { BinaryReader, BinaryWriter } from "@bufbuild/protobuf/wire";
 
 export const protobufPackage = "gozd.v1";
 
-export interface ShellCommandInstallRequest {}
+export interface ShellCommandInstallRequest {
+}
 
 export interface ShellCommandInstallResponse {
   /** symlink 配置先（`~/.local/bin/gozd`） */
@@ -22,7 +23,8 @@ export interface ShellCommandInstallResponse {
   replaced: boolean;
 }
 
-export interface ShellCommandUninstallRequest {}
+export interface ShellCommandUninstallRequest {
+}
 
 export interface ShellCommandUninstallResponse {
   source: string;
@@ -80,10 +82,7 @@ function createBaseShellCommandInstallResponse(): ShellCommandInstallResponse {
 }
 
 export const ShellCommandInstallResponse: MessageFns<ShellCommandInstallResponse> = {
-  encode(
-    message: ShellCommandInstallResponse,
-    writer: BinaryWriter = new BinaryWriter(),
-  ): BinaryWriter {
+  encode(message: ShellCommandInstallResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.source !== "") {
       writer.uint32(10).string(message.source);
     }
@@ -154,8 +153,8 @@ export const ShellCommandInstallResponse: MessageFns<ShellCommandInstallResponse
       alreadyInstalled: isSet(object.alreadyInstalled)
         ? globalThis.Boolean(object.alreadyInstalled)
         : isSet(object.already_installed)
-          ? globalThis.Boolean(object.already_installed)
-          : false,
+        ? globalThis.Boolean(object.already_installed)
+        : false,
       replaced: isSet(object.replaced) ? globalThis.Boolean(object.replaced) : false,
     };
   },
@@ -238,10 +237,7 @@ function createBaseShellCommandUninstallResponse(): ShellCommandUninstallRespons
 }
 
 export const ShellCommandUninstallResponse: MessageFns<ShellCommandUninstallResponse> = {
-  encode(
-    message: ShellCommandUninstallResponse,
-    writer: BinaryWriter = new BinaryWriter(),
-  ): BinaryWriter {
+  encode(message: ShellCommandUninstallResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.source !== "") {
       writer.uint32(10).string(message.source);
     }
@@ -301,8 +297,8 @@ export const ShellCommandUninstallResponse: MessageFns<ShellCommandUninstallResp
       notInstalled: isSet(object.notInstalled)
         ? globalThis.Boolean(object.notInstalled)
         : isSet(object.not_installed)
-          ? globalThis.Boolean(object.not_installed)
-          : false,
+        ? globalThis.Boolean(object.not_installed)
+        : false,
     };
   },
 
@@ -334,15 +330,11 @@ export const ShellCommandUninstallResponse: MessageFns<ShellCommandUninstallResp
 
 type Builtin = Date | Function | Uint8Array | string | number | boolean | undefined;
 
-export type DeepPartial<T> = T extends Builtin
-  ? T
-  : T extends globalThis.Array<infer U>
-    ? globalThis.Array<DeepPartial<U>>
-    : T extends ReadonlyArray<infer U>
-      ? ReadonlyArray<DeepPartial<U>>
-      : T extends {}
-        ? { [K in keyof T]?: DeepPartial<T[K]> }
-        : Partial<T>;
+export type DeepPartial<T> = T extends Builtin ? T
+  : T extends globalThis.Array<infer U> ? globalThis.Array<DeepPartial<U>>
+  : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
+  : T extends {} ? { [K in keyof T]?: DeepPartial<T[K]> }
+  : Partial<T>;
 
 function isSet(value: any): boolean {
   return value !== null && value !== undefined;

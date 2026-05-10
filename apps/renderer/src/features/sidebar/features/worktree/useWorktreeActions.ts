@@ -39,25 +39,8 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
     const repo = repoStore.repos[rootDir];
     if (!repo) return;
     const newWorktrees = repo.worktrees.filter((w) => w.path !== wt.path);
-    const newFreeBranches = wt.branch ? [...repo.freeBranches, wt.branch] : repo.freeBranches;
-    repoStore.updateRepoData(rootDir, newWorktrees, newFreeBranches);
+    repoStore.updateRepoData(rootDir, newWorktrees);
     terminalStore.remove(wt.path);
-  }
-
-  function takeFreeBranch(rootDir: string, branch: string) {
-    const repo = repoStore.repos[rootDir];
-    if (!repo) return;
-    repoStore.updateRepoData(
-      rootDir,
-      repo.worktrees,
-      repo.freeBranches.filter((b) => b !== branch),
-    );
-  }
-
-  function returnFreeBranch(rootDir: string, branch: string) {
-    const repo = repoStore.repos[rootDir];
-    if (!repo) return;
-    repoStore.updateRepoData(rootDir, repo.worktrees, [...repo.freeBranches, branch]);
   }
 
   // --- 作成・削除 ---
@@ -97,30 +80,6 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
     isCreating.value = false;
   }
 
-  /** 既存ブランチを worktree 化する */
-  async function handleBranchLink(rootDir: string, branch: string) {
-    if (isCreating.value) return;
-    isCreating.value = true;
-    takeFreeBranch(rootDir, branch);
-    const result = await tryCatch(
-      rpcCreateWorktree({
-        dir: rootDir,
-        worktreeDir: generateTimestamp(),
-        branch,
-        startPoint: "",
-      }),
-    );
-    if (result.ok && result.value.worktree !== undefined) {
-      repoStore.appendWorktree(rootDir, result.value.worktree);
-      terminalStore.viewMode = "wt";
-      worktreeStore.setOpen(result.value.dir);
-    } else {
-      notify.error("Failed to create worktree", result.ok ? undefined : result.error);
-      returnFreeBranch(rootDir, branch);
-    }
-    isCreating.value = false;
-  }
-
   /** worktree 解除: 通常削除 → 失敗時に確認の上 --force */
   async function handleWorktreeRemove(rootDir: string, wt: WorktreeEntry) {
     const result = await tryCatch(
@@ -150,6 +109,5 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
     handleWorktreeSelect,
     addWorktree,
     handleWorktreeRemove,
-    handleBranchLink,
   };
 }

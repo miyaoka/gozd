@@ -52,7 +52,7 @@ public struct Gozd_V1_AppState: Sendable {
   fileprivate var _windowFrame: Gozd_V1_WindowFrame? = nil
 }
 
-/// サイドバー上の 1 repo の永続化エントリ。worktrees / freeBranches は
+/// サイドバー上の 1 repo の永続化エントリ。worktrees は
 /// 起動時に再 fetch するため永続化しない（一次情報は git に問い合わせる）。
 public struct Gozd_V1_SidebarRepo: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the

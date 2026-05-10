@@ -27,7 +27,7 @@ export interface AppState {
 }
 
 /**
- * サイドバー上の 1 repo の永続化エントリ。worktrees / freeBranches は
+ * サイドバー上の 1 repo の永続化エントリ。worktrees は
  * 起動時に再 fetch するため永続化しない（一次情報は git に問い合わせる）。
  */
 export interface SidebarRepo {

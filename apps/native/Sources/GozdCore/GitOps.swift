@@ -84,14 +84,6 @@ public enum GitOps {
     return parseWorktreePorcelain(stdout)
   }
 
-  /// `git for-each-ref --format='%(refname:short)' refs/heads/` 相当。
-  public static func branchList(dir: String) async throws -> [String] {
-    let stdout = try await runGit(
-      args: ["for-each-ref", "--format=%(refname:short)", "refs/heads/"], cwd: dir)
-    let text = String(decoding: stdout, as: UTF8.self)
-    return text.split(whereSeparator: { $0 == "\n" }).map(String.init).filter { !$0.isEmpty }
-  }
-
   public struct LogResult: Sendable {
     public let headCommits: [CommitInfo]
     public let defaultBranchCommits: [CommitInfo]

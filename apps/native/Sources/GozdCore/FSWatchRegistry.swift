@@ -234,6 +234,13 @@ public actor FSWatchRegistry {
   ///      - `worktrees/...` を `worktreeChange`
   ///   3. 作業ツリー配下（git dir 配下に該当しない場合）→ `fsChange` + `gitStatusChange`
   ///
+  /// 意図的に未対応の ref 種別:
+  ///   - `refs/tags/...`: タグ更新で git-graph 表示の即時反映が必要になった時点で
+  ///     `gitStatusChange` 系か別 event（`tagChange` 等）を新設する。現状の git-graph は
+  ///     タグを `git for-each-ref` で取得しており、`# branch.ab` の SSOT 哲学の射程外
+  ///   - `refs/stash` / `refs/notes/...`: 現状の UI が表示していないため発火不要
+  ///   これらは silent drop だが、将来 UI が表示する時に必ずここに分岐を足す
+  ///
   /// 通常 clone では perWorktreeGitDir == commonGitDir なので 1 と 2 を両方適用する。
   /// その git dir は worktree root 配下に位置するため、3 のスキップも兼ねる。
   /// worktree clone では git dir が worktree root の外にあるため、3 では git dir を

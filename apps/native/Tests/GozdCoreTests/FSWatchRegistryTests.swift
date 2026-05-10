@@ -205,6 +205,50 @@ struct ClassifyTests {
     #expect(!result.hasWorktreeChange)
   }
 
+  @Test("worktree 配置: refs/remotes/origin/HEAD（symbolic ref）も gitStatusChange")
+  func worktreeCommonRemoteHeadSymRef() {
+    // `origin/HEAD` は固定名の symbolic ref。`hasPrefix("refs/remotes/")` で同分岐に
+    // 落ちる事を保証し、将来「branch 一覧変化」として再分類したくなった時の足場にする。
+    let dir = "/wt/foo"
+    let perWt = "/parent/.git/worktrees/foo"
+    let common = "/parent/.git"
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
+      events: [ev("\(common)/refs/remotes/origin/HEAD")])
+    #expect(result.hasGitStatusChange)
+    #expect(!result.hasBranchChange)
+  }
+
+  @Test("worktree 配置: branch 名にスラッシュを含む refs/remotes/origin/feature/sub も gitStatusChange")
+  func worktreeCommonRemoteRefNestedName() {
+    // `feature/sub` のようなスラッシュ区切り branch 名。`hasPrefix` 判定なので通るはずだが、
+    // 将来 `==` 等価判定にリグレッションした時に検知できるよう明示的に踏む。
+    let dir = "/wt/foo"
+    let perWt = "/parent/.git/worktrees/foo"
+    let common = "/parent/.git"
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
+      events: [ev("\(common)/refs/remotes/origin/feature/sub")])
+    #expect(result.hasGitStatusChange)
+    #expect(!result.hasBranchChange)
+  }
+
+  @Test("worktree 配置: refs/tags/ は意図的に silent drop（未対応 ref 種別）")
+  func worktreeCommonTagsSilentDrop() {
+    // 現状の git-graph はタグを `git for-each-ref` で取得しており、`# branch.ab` SSOT の
+    // 射程外。タグ表示の即時反映が UI 要件になった時点でここに分岐を足す。
+    let dir = "/wt/foo"
+    let perWt = "/parent/.git/worktrees/foo"
+    let common = "/parent/.git"
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
+      events: [ev("\(common)/refs/tags/v1.0.0")])
+    #expect(!result.hasGitStatusChange)
+    #expect(!result.hasBranchChange)
+    #expect(!result.hasFsChange)
+    #expect(!result.hasWorktreeChange)
+  }
+
   @Test("worktree 配置: 兄弟 worktree の worktrees/<other> 追加は worktreeChange")
   func worktreeCommonSiblingAdded() {
     // 自分の per-wt git dir は foo。兄弟 bar が追加されると `<common>/worktrees/bar/...` に

@@ -3,13 +3,14 @@
 
 ## レイアウト構成
 
+- **トップツールバー**: 左に view mode トグル（active worktree / claude terminals）、右にリスト編集ボタン
 - **dirOrder の各 repo** に対して `RepoSection` を縦に並べる
 - 各セクションは header（chevron + folder アイコン + repo 名）+ ROOT + WORKTREES + BRANCHES
-- top-right の編集ボタン（鉛筆アイコン）でリスト編集モードをトグル
 - 編集モード中: 全 section が collapsed + drag で並び替え + ✕ で削除 + 末尾に `+ Add directory`
 
 ## 操作
 
+- view mode トグル: 全 repo 共通の `terminalStore.viewMode` を `"wt"` / `"claude"` で切り替え。terminal feature 側に登録された `workspace.toggleViewMode` コマンド（cmd+/）と同じ state を更新する
 - worktree クリック: 表示対象 dir 切替 + done バッジ既読化
 - ⋮ メニュー: SidebarMenu に委譲（worktree 編集 / 解除、branch から worktree 化）
 - chevron: 折りたたみトグル（永続）
@@ -92,15 +93,6 @@ const disposeSelectWorktree = register("workspace.selectWorktree", (args) => {
   return true;
 });
 onUnmounted(disposeSelectWorktree);
-
-const disposeToggleViewMode = register("workspace.toggleViewMode", {
-  label: "Workspace: Toggle Active Worktree / Claude Terminals",
-  handler: () => {
-    terminalStore.toggleViewMode();
-    return true;
-  },
-});
-onUnmounted(disposeToggleViewMode);
 
 // --- 経過時間表示用の現在時刻 ---
 

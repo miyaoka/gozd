@@ -128,7 +128,12 @@ const activeLeafIds = computed(() => {
   return collectLeafIds(layout.root);
 });
 
-/** 全 worktree の全 leafId */
+/**
+ * 全 worktree の全 leafId。テンプレートの `v-for` で全 leaf の DOM を事前生成し、
+ * 表示制御は `visibleLeafIds` + `v-show` に委ねるための列挙。
+ * claude モードで複数 worktree の leaf を同時表示する際、unmount/remount を避けて
+ * xterm の state（スクロール位置、buffer）を保つために必要。
+ */
 const allLeafIds = computed(() => {
   const ids: string[] = [];
   for (const dir of terminalStore.visitedDirs) {
@@ -180,12 +185,9 @@ const gridStyle = computed<Record<string, string>>(() => {
   };
 });
 
-/** wt モード以外ではハンドル不要 */
-const isTileMode = computed(() => terminalStore.viewMode !== "wt");
-
-/** 分割ツリーのハンドル（タイルモード時は空） */
+/** 分割ツリーのハンドル（claude タイルモード時は空） */
 const handles = computed<HandlePosition[]>(() => {
-  if (isTileMode.value) return [];
+  if (terminalStore.viewMode === "claude") return [];
   const dir = worktreeStore.dir;
   if (!dir) return [];
   const layout = terminalStore.layoutsByDir[dir];

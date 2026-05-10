@@ -116,6 +116,14 @@ export function registerTerminalCommands(
       label: "Terminal: Focus Down",
       handler: createFocusHandler("down"),
     }),
+
+    registry.register("workspace.toggleViewMode", {
+      label: "Workspace: Toggle Active Worktree / Claude Terminals",
+      handler: () => {
+        terminalStore.toggleViewMode();
+        return true;
+      },
+    }),
   ];
 
   return () => {

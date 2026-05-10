@@ -19,8 +19,11 @@ public enum ShellCommandError: Error, Equatable {
 
 public enum ShellCommandOps {
   public static func sourcePath() -> String {
-    let home = FileManager.default.homeDirectoryForCurrentUser.path
-    return (home as NSString).appendingPathComponent(".local/bin/gozd")
+    FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent(".local", isDirectory: true)
+      .appendingPathComponent("bin", isDirectory: true)
+      .appendingPathComponent("gozd")
+      .path
   }
 
   /// `.app` 内 wrapper の絶対パス。dev `.app` には wrapper が含まれないため
@@ -29,7 +32,12 @@ public enum ShellCommandOps {
     guard let resourceURL = Bundle.main.resourceURL else {
       throw ShellCommandError.targetNotFound("Bundle.main.resourceURL is nil")
     }
-    let path = resourceURL.appendingPathComponent("app/bin/gozd").path
+    let path =
+      resourceURL
+      .appendingPathComponent("app", isDirectory: true)
+      .appendingPathComponent("bin", isDirectory: true)
+      .appendingPathComponent("gozd")
+      .path
     guard FileManager.default.isExecutableFile(atPath: path) else {
       throw ShellCommandError.targetNotFound(path)
     }

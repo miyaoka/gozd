@@ -72,8 +72,9 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
   async function addWorktree(rootDir: string) {
     if (isCreating.value) return;
     isCreating.value = true;
-    // default branch（`origin/HEAD` の指す先）を起点にする。`HEAD` だと main repo root の
-    // 現在 checkout に依存してしまい、規約から外れた状態の影響を受けるため明示解決する。
+    // default branch を起点にする。Swift 側で `origin/HEAD` を優先し、未設定
+    // （remote 無し / push 前 repo）の場合は main repo root 自身の current branch に
+    // fallback した ref を受け取り、`startPoint` に渡す。
     const branchResult = await tryCatch(rpcGitDefaultBranch({ dir: rootDir }));
     if (!branchResult.ok || branchResult.value.branch === "") {
       notify.error(

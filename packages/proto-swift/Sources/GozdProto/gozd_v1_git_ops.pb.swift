@@ -342,9 +342,12 @@ public struct Gozd_V1_GitViewerResponse: Sendable {
   public init() {}
 }
 
-/// gitDefaultBranch: `git symbolic-ref --short refs/remotes/origin/HEAD` 相当。
-/// 新規 worktree を default branch から派生させるとき、起点 ref を一意に決めるために使う。
-/// `origin/main` のように remote 名込みのフルネームを返す。origin/HEAD が未設定の場合は空文字列。
+/// gitDefaultBranch: `git worktree add -b <new> <abs> <ref>` の `<ref>` にそのまま渡せる
+/// 「default branch ref」を返す。新規 worktree 作成時の起点を一意に決めるために使う。
+/// 解決順序は二段 fallback:
+///   1) `git symbolic-ref --short refs/remotes/origin/HEAD` で `origin/main` 等を返す（push 済み repo）
+///   2) 失敗したら `git symbolic-ref --short HEAD` で `main` 等を返す（remote 未設定 / push 前 repo）
+///   3) どちらも失敗（detached HEAD / unborn branch）なら空文字列を返し、呼び出し側が通知 + 中止する
 public struct Gozd_V1_GitDefaultBranchRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for

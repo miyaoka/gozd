@@ -69,9 +69,9 @@ export function registerIssueCommand(): () => void {
             return;
           }
           void (async () => {
-            // 新規 worktree は default branch を起点に作る。`HEAD` に頼ると `cwd` の
-            // 現在 checkout されているブランチに依存してしまうため、`origin/HEAD` から
-            // default branch 名（例: `origin/main`）を解決して明示的に渡す。
+            // 新規 worktree は default branch を起点に作る。Swift 側で `origin/HEAD` を
+            // 優先し、未設定（remote 無し / push 前 repo）の場合は main repo root 自身の
+            // current branch に fallback して解決した ref を受け取り、`startPoint` に渡す。
             const rootDir = repoStore.findRepoOwning(dir)?.rootDir;
             if (rootDir === undefined) {
               notify.error("Failed to resolve repo root for worktree creation");

@@ -54,7 +54,7 @@ sequenceDiagram
     N-->>R: ptyExit({ id, reason })
 ```
 
-- shell: `process.env.SHELL` または `zsh`
+- shell: `/bin/zsh`（renderer 側で固定。`apps/renderer/src/features/terminal/useTerminalStore.ts` の `DEFAULT_SHELL`）
 - cwd: `ptySpawn` の `dir` パラメータ（worktree ごとに異なる）
 - 環境変数: `FORCE_HYPERLINK=1` で CLI ツール（Claude Code 等）の OSC 8 ハイパーリンク出力を許可
 - UTF-8 デコード: `TextDecoder({ stream: true })` でチャンク分割時のマルチバイト文字化けを防止

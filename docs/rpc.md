@@ -10,7 +10,7 @@ renderer（Vue / WebKit）と native（Swift）間の通信。`.proto` を SSOT 
 | `packages/proto-ts`    | ts-proto による生成物。`@gozd/proto` として renderer が import                 |
 | `packages/proto-swift` | swift-protobuf による生成物。`GozdProto` SPM パッケージとして native が import |
 
-生成物は git に commit する。プラグインのバージョンは `buf.gen.yaml` で pin する。
+生成物は git に commit する。`buf.gen.yaml` では `remote: buf.build/community/stephenh-ts-proto`（ts-proto）と `remote: buf.build/apple/swift`（swift-protobuf）を指定し、buf BSR のリモートプラグインを利用している（バージョン pin はしていない）。
 
 `.proto` ファイルはドメインごとに分割: `pty.proto` / `fs.proto` / `git_ops.proto` / `git_status.proto` / `task.proto` / `app_state.proto` / `client_message.proto` 等。新しい RPC を足すときは該当の `.proto` に request / response / event を追加し、`buf generate` で TS / Swift の生成物を更新する。
 
@@ -64,7 +64,7 @@ native は `WebPage.callJavaScript("window.__gozdReceive(type, payload)", ...)` 
 | `hook`            | Claude Code Hook イベント                      |
 | `notify`          | native 側のバックグラウンドエラー / 情報通知   |
 
-正確なペイロード型は `packages/proto/gozd/v1/events.proto` を参照。
+push の payload は proto 型と 1:1 対応していない（push type 名と proto メッセージ名が異なる、または proto に存在しないフィールドを native が直接 JSON で渡すケースがある）。実際のフィールドは送信側 (`apps/native/Sources/Gozd/GozdApp.swift` の `callJavaScript` 呼び出し箇所) と受信側 (`apps/renderer/src/features/*/rpc.ts` 等の `*Payload` 型) を直接見て確認する。`packages/proto/gozd/v1/events.proto` は構造の参考に留める。
 
 ### CLI / Claude hooks → native（NDJSON socket）
 

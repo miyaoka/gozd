@@ -15,9 +15,12 @@ Changed files list. Shows HEAD vs working directory by default, or a selected co
     git-graph store as `activeCommitHashes` for dot highlighting.
   - When the range includes Working Tree, `include_working_tree=true` is sent so the backend
     diffs against the working tree (`git diff <older>^`).
-  - When the non-Working-Tree endpoint is the HEAD commit itself, the range collapses to
+  - When the non-Working-Tree endpoint is the HEAD commit AND HEAD is not at the top of the
+    commits array (origin/main commits are interleaved above HEAD), the range collapses to
     "Working Tree only" — RPC is skipped and gitStatuses is shown as if a single Uncommitted
-    Changes row were selected. Visual range highlighting is preserved.
+    Changes row were selected. Visual range highlighting is preserved. When HEAD is the top
+    commit (no other branch above it), the range is treated normally so HEAD's commit diff
+    plus uncommitted changes are both shown.
 - Clicking a file emits `select` with the relative path
 </doc>
 
@@ -74,18 +77,23 @@ const otherEndpointHash = computed(() =>
 
 /**
  * Working Tree のみとして処理すべきか。
- * 範囲選択の片端が Working Tree かつ、もう片端が HEAD ref を持つ commit のとき、
- * 「Working Tree から HEAD まで」 = uncommitted changes のみ、という UI 直感に倒す。
- * 表示位置ではなく endpoint 自体が HEAD かどうかで判定するため、origin/main が中間に
- * 挟まっても影響を受けない。
+ *
+ * 「Working Tree と HEAD を選んだが、HEAD が表示順で最上位ではない」ケースに限定する。
+ * これは origin/main 等が HEAD より進行していて、Working Tree と HEAD の間に他枝の
+ * commit が挟まっている状態。範囲を素直に解釈すると挟まる commit まで含めてしまうので、
+ * uncommitted changes のみに倒す。
+ *
+ * HEAD が表示順で最上位 (commits[0]) の通常ケース (Working Tree → HEAD で間に他 commit
+ * なし) では false を返し、`include_working_tree=true` の通常 range として処理する
+ * (`git diff <HEAD>^` で HEAD コミット差分 + uncommitted changes が出る)。
  */
-const workingTreeOnly = computed(
-  () =>
-    isRangeMode.value &&
-    includesWorkingTree.value &&
-    otherEndpointHash.value !== null &&
-    otherEndpointHash.value === headHash.value,
-);
+const workingTreeOnly = computed(() => {
+  if (!isRangeMode.value || !includesWorkingTree.value) return false;
+  const otherHash = otherEndpointHash.value;
+  if (otherHash === null || otherHash !== headHash.value) return false;
+  const headIdx = gitGraphStore.hashToIndex.get(otherHash);
+  return headIdx !== undefined && headIdx > 0;
+});
 
 /** git status の Record<string, string> を GitFileChange[] に変換 */
 function gitStatusToFileChanges(statuses: Record<string, string>): GitFileChange[] {

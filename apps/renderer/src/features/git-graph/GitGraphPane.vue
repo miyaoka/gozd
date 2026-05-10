@@ -659,6 +659,16 @@ function isActiveDot(hash: string): boolean {
   }
   return activeCommitHashes?.has(hash) ?? false;
 }
+
+/**
+ * Working Tree 行の dot をハイライトするかどうか。
+ * 単一 Working Tree 選択 / 範囲選択の片端が Working Tree のとき teal で塗りつぶす。
+ */
+const isWorkingTreeActive = computed(
+  () =>
+    gitGraphStore.selectedHash === UNCOMMITTED_HASH ||
+    gitGraphStore.compareHash === UNCOMMITTED_HASH,
+);
 </script>
 
 <template>
@@ -728,8 +738,8 @@ function isActiveDot(hash: string): boolean {
             <circle
               :cx="laneX(0)"
               :cy="ROW_HEIGHT / 2"
-              :r="DOT_RADIUS"
-              fill="#1c1c1c"
+              :r="isWorkingTreeActive ? DOT_RADIUS + 1 : DOT_RADIUS"
+              :fill="isWorkingTreeActive ? '#4ec9b0' : '#1c1c1c'"
               stroke="#4ec9b0"
               stroke-width="2"
             />

@@ -171,7 +171,7 @@ macOS 26 Tahoe 以降専用（`WebPage` API は macOS 26 で追加された Swif
 
 ## pnpm ワークアラウンド
 
-`pnpm-workspace.yaml` の `overrides` / `packageExtensions` で upstream の依存宣言バグを回避している。upstream が修正されたら解除する。
+`pnpm-workspace.yaml` の `packageExtensions` で upstream の依存宣言バグを回避している。upstream が修正されたら解除する。
 
 ### settings（pnpm 本体のバグ回避）
 
@@ -179,17 +179,10 @@ macOS 26 Tahoe 以降専用（`WebPage` API は macOS 26 で追加された Swif
 | ------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------- |
 | `minimumReleaseAgeStrict` | `false` | pnpm v11.0.4 以降、ユーザーが `minimumReleaseAge` を設定すると暗黙で strict=true になる ( pnpm/pnpm#11436 )。strict 経路では abbreviated metadata の `time` 欠落で `ERR_PNPM_MISSING_TIME` を rethrow し、`minimumReleaseAgeIgnoreMissingTime` の catch に届かない | pnpm/pnpm#11238 が修正されたら削除 |
 
-### overrides
-
-| パッケージ         | 強制バージョン | 理由                                                                                                                                                                        | 解除条件                                                                         |
-| ------------------ | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `tailwind-csstree` | `0.3.1`        | `eslint-plugin-better-tailwindcss` が `^0.1.4` を要求するが、0.1.5 は `@eslint/css-tree` を dependency から削除したバグ版。semver `0.x` 系で `^0.1.4` は `0.2.0` を含まない | `eslint-plugin-better-tailwindcss` が `tailwind-csstree@^0.3.x` に対応したら削除 |
-
 ### packageExtensions（phantom dependency 補完）
 
 `enableGlobalVirtualStore` により phantom dependency が顕在化するため、upstream が宣言していない依存を補完している。
 
-| パッケージ                 | 補完する依存           | 理由                                                                                                           | 解除条件                                                              |
-| -------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `tailwind-csstree@0.2.0`   | `@eslint/css-tree`     | 0.2.0 では peerDep が `@eslint/css` に変更されたが、コード内で `@eslint/css-tree` を直接 import しており未宣言 | `tailwind-csstree` が `@eslint/css-tree` を dependency に含めたら削除 |
-| `@iconify/tailwind4@1.2.3` | `@iconify-json/lucide` | 動的に `require` するが dependencies に含めていない                                                            | `@iconify/tailwind4` が dependency に含めたら削除                     |
+| パッケージ                 | 補完する依存           | 理由                                                | 解除条件                                          |
+| -------------------------- | ---------------------- | --------------------------------------------------- | ------------------------------------------------- |
+| `@iconify/tailwind4@1.2.3` | `@iconify-json/lucide` | 動的に `require` するが dependencies に含めていない | `@iconify/tailwind4` が dependency に含めたら削除 |

@@ -167,6 +167,53 @@ public enum GitOps {
       in: .whitespacesAndNewlines)
   }
 
+  public struct GitDirs: Equatable, Sendable {
+    /// `git rev-parse --git-dir` の絶対パス。
+    /// 通常 clone では `<repo>/.git`、worktree では `<parent>/.git/worktrees/<name>` を指す。
+    public let perWorktreeGitDir: String
+    /// `git rev-parse --git-common-dir` の絶対パス。
+    /// 通常 clone では `perWorktreeGitDir` と一致。worktree では親 `<parent>/.git` を指す。
+    public let commonGitDir: String
+  }
+
+  /// per-worktree git dir と common git dir の絶対パスを 1 回の `git rev-parse` で取る。
+  /// FSEvents の path 比較に使うため呼び出し側で realpath 解決すること。
+  ///
+  /// - dir が git 管理下でない場合は **nil** を返す（git rev-parse は exit 128）。
+  ///   これは「git repo ではない」という事実を nil で表す正常パスで、エラーではない。
+  /// - git バイナリ不在 / 出力形式破綻 / その他 I/O 失敗は throw する。
+  ///   呼び出し側で `try?` で握り潰すと「worktree なのに git dir が解決できない」障害が
+  ///   サイレントに通常 watch にフォールバックされ、commit 反映バグが復活する。
+  public static func gitDirs(dir: String) async throws -> GitDirs? {
+    // `git rev-parse` は `-z` / `--null` 等の NUL 区切り出力モードを持たず、複数フラグを
+    // 同時指定すると newline 区切りで返す。改行を含むパス（`<repo\nname>/.git` 等の
+    // 病的ケース）で fragile になるため、フラグを 1 つずつ別 spawn して各呼び出しが
+    // 単一行のみ返す形にする。spawn コストは worktree オープン時のみで実用上問題ない。
+    let perWorktree: String
+    let common: String
+    do {
+      perWorktree = try await singleRevParse(flag: "--git-dir", cwd: dir)
+      common = try await singleRevParse(flag: "--git-common-dir", cwd: dir)
+    } catch let GitError.commandFailed(exitCode, _) where exitCode == 128 {
+      // exit 128 = "not a git repository"。git の規約。
+      return nil
+    }
+    return GitDirs(perWorktreeGitDir: perWorktree, commonGitDir: common)
+  }
+
+  /// `git rev-parse --path-format=absolute <flag>` を 1 回 spawn し、単一行の trim 済み path を返す。
+  /// 出力が空ならば不正として throw。
+  private static func singleRevParse(flag: String, cwd: String) async throws -> String {
+    let stdout = try await runGit(
+      args: ["rev-parse", "--path-format=absolute", flag], cwd: cwd)
+    let text = String(decoding: stdout, as: UTF8.self)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !text.isEmpty else {
+      throw GitError.unexpectedOutput("git rev-parse \(flag): empty output")
+    }
+    return text
+  }
+
   /// 全 worktree が共有する main repo の作業ディレクトリを返す。
   /// 非 bare repo では `git rev-parse --git-common-dir` の親ディレクトリ。
   /// gozd の `~/.local/share/gozd/worktrees/<repo>-<hash>/<timestamp>` のような worktree から
@@ -328,6 +375,9 @@ private let emptyTreeHash = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 public enum GitError: Error, Equatable {
   case commandFailed(exitCode: Int32, stderr: String)
   case launchFailed(String)
+  /// git は exit 0 で正常終了したが stdout のフォーマットが想定外。
+  /// `commandFailed` は `exitCode != 0` を含意するため流用せず別 case にする。
+  case unexpectedOutput(String)
 }
 
 // MARK: - private helpers
@@ -382,7 +432,7 @@ private func runGitWithStdinOnce(gitPath: String, args: [String], cwd: String, s
   // 内部で `ProcessInfo.processInfo.environment` を遅延読みするが、その経路は
   // `getenv`/`environ` の thread-unsafety が並列 spawn 時に EFAULT (Code=14) を
   // 引く要因になり得る。spawn 前に snapshot を取って渡せば内部 lazy read を回避できる。
-  process.environment = ProcessInfo.processInfo.environment
+  process.environment = gozdGitEnv()
 
   let stdinPipe = Pipe()
   let stdoutPipe = Pipe()
@@ -413,6 +463,22 @@ private func runGitWithStdinOnce(gitPath: String, args: [String], cwd: String, s
     stderr: String(decoding: stderrData, as: UTF8.self))
 }
 
+/// gozd 用 git 環境変数を組み立てる。`ProcessInfo.processInfo.environment` を snapshot し、
+/// `GIT_OPTIONAL_LOCKS=0` を上書き設定する。
+///
+/// `GIT_OPTIONAL_LOCKS=0` は read-only な git コマンド (`status` 等) が index stat refresh
+/// 用に行う **opportunistic な `index.lock` 取得を抑止**する。gozd は FSEvents 駆動で
+/// バックグラウンドに `git status` 等を頻繁に叩くため、この設定が無いとユーザーが foreground
+/// で叩いた `git commit` / `git add` と lock 競合し、ユーザー側が exit 128
+/// (`Unable to create '.../index.lock': File exists`) で即死する。
+/// git 自身がこのシナリオ（バックグラウンドツール並走）のために提供している env で、
+/// VS Code / GitHub Desktop 等の主要 GUI クライアントも同じ設定を入れている。
+private func gozdGitEnv() -> [String: String] {
+  var env = ProcessInfo.processInfo.environment
+  env["GIT_OPTIONAL_LOCKS"] = "0"
+  return env
+}
+
 func runGit(args: [String], cwd: String) async throws -> Data {
   do {
     return try await runGitOnce(gitPath: await resolveGitPath(), args: args, cwd: cwd)
@@ -427,7 +493,7 @@ private func runGitOnce(gitPath: String, args: [String], cwd: String) async thro
   process.executableURL = URL(fileURLWithPath: gitPath)
   process.arguments = args
   process.currentDirectoryURL = URL(fileURLWithPath: cwd)
-  process.environment = ProcessInfo.processInfo.environment
+  process.environment = gozdGitEnv()
 
   let stdoutPipe = Pipe()
   let stderrPipe = Pipe()

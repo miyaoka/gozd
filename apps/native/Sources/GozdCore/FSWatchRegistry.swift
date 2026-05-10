@@ -9,11 +9,17 @@ import Foundation
 //    `/fs/watch` で登録され、worktree を閉じる時に `/fs/unwatch` で解除する。
 //
 // 2. **イベント分類**:
-//    - `<dir>/.git/worktrees/...` 配下 → `worktreeChange`
-//    - `<dir>/.git/refs/heads/...` または `<dir>/.git/packed-refs` → `branchChange`
-//    - `<dir>/.git/index` または `<dir>/.git/HEAD` → `gitStatusChange`
-//    - その他作業ツリー（`<dir>/.git/` 配下以外） → `fsChange` + `gitStatusChange`
+//    - per-worktree git dir 配下の `HEAD` / `index` → `gitStatusChange`
+//    - common git dir 配下の `refs/heads/...` / `packed-refs` → `branchChange`
+//    - common git dir 配下の `worktrees/...` → `worktreeChange`
+//    - 作業ツリー側（git dir 配下以外） → `fsChange` + `gitStatusChange`
 //      （未追跡ファイルや作業ツリー差分も status に影響するため）
+//
+//    worktree では `.git` がファイル参照で、commit / branch 更新の実体は親 repo の
+//    `.git/worktrees/<name>/` と `.git/` に書かれる。FSEvents は登録 path 配下しか
+//    監視しないため、worktree root だけ watch しても git 更新を取りこぼす。
+//    そこで `git rev-parse --git-dir --git-common-dir` で 2 つの git dir を解決し、
+//    FSWatcher の paths に追加する。通常 clone では両者が一致するので dedupe する。
 //
 // 3. **debounce**。FSEvents は数十 ms 以内に同一バッチを連続 dispatch する。
 //    1 バッチを 1 つの push にまとめるため、Task の実行内でフラグ管理する。
@@ -37,9 +43,16 @@ public actor FSWatchRegistry {
     /// `wt.path` 等の生文字列キーと直接比較できるようにする。
     /// （entries のキーは `realpath` 解決済み path で、FSEvents の path 比較に使う）
     let originalDir: String
+    /// `git rev-parse --git-dir` の realpath。dir が git repo でない時のみ nil。
+    let perWorktreeGitDir: String?
+    /// `git rev-parse --git-common-dir` の realpath。dir が git repo でない時のみ nil。
+    /// 通常 clone では `perWorktreeGitDir` と一致する。
+    let commonGitDir: String?
   }
 
-  private struct Classification {
+  // 分岐網羅テスト容易性のため internal で公開する。dispatch は actor 内で完結するため
+  // この struct を外部から直接組み立てる用途は無い。
+  struct Classification: Equatable {
     let fsRelDirs: Set<String>
     let hasFsChange: Bool
     let hasGitStatusChange: Bool
@@ -71,15 +84,37 @@ public actor FSWatchRegistry {
   /// dir の監視を開始する。既に watch されていれば no-op。
   /// 入力 dir は realpath 解決してキーに使う（FSEvents は realpath を返すため、
   /// `/var/...` と `/private/var/...` のような symlink の差を吸収する）。
-  public func watch(dir userDir: String) throws {
+  public func watch(dir userDir: String) async throws {
     let dir = FSWatchRegistry.realpath(userDir)
     if entries[dir] != nil { return }
 
     nextGeneration += 1
     let generation = nextGeneration
 
+    // git dir を解決して FSWatcher の監視 path に追加する。
+    // worktree では `.git` がファイル参照で、commit / branch 更新の実体は親 repo 側に
+    // ある。worktree root だけ watch しても FSEvents が来ないため、両 git dir を
+    // 監視対象に入れる必要がある。
+    //
+    // gitDirs は dir が git 管理下でない時のみ nil を返す（exit 128 を識別）。
+    // それ以外の失敗（git バイナリ不在 / 出力破綻 / I/O 失敗）は throw して watch を中断
+    // させる。ここで try? に握り潰すと「worktree なのに解決失敗」がサイレントに通常 watch
+    // にフォールバックし、修正前と同じ症状（commit が反映されない）を再現してしまう。
+    // realpath 解決後の dir を渡す。FSEvents の path 比較に使う path と一貫させる。
+    let gitDirs = try await GitOps.gitDirs(dir: dir)
+    let perWorktreeGitDir = gitDirs.map { FSWatchRegistry.realpath($0.perWorktreeGitDir) }
+    let commonGitDir = gitDirs.map { FSWatchRegistry.realpath($0.commonGitDir) }
+
+    var watchPaths = [dir]
+    if let perWorktreeGitDir, !watchPaths.contains(perWorktreeGitDir) {
+      watchPaths.append(perWorktreeGitDir)
+    }
+    if let commonGitDir, !watchPaths.contains(commonGitDir) {
+      watchPaths.append(commonGitDir)
+    }
+
     let (stream, continuation) = AsyncStream<[FSWatcher.Event]>.makeStream()
-    let watcher = FSWatcher(paths: [dir])
+    let watcher = FSWatcher(paths: watchPaths)
     watcher.setHandler { events in
       continuation.yield(events)
     }
@@ -96,7 +131,9 @@ public actor FSWatchRegistry {
 
     entries[dir] = Entry(
       generation: generation, watcher: watcher, task: task, continuation: continuation,
-      originalDir: userDir)
+      originalDir: userDir,
+      perWorktreeGitDir: perWorktreeGitDir,
+      commonGitDir: commonGitDir)
   }
 
   /// dir の監視を停止する。watch されていなければ no-op。
@@ -123,9 +160,14 @@ public actor FSWatchRegistry {
   /// realpath を返すと symlink 経路（`/var` vs `/private/var` 等）で比較が外れるから。
   private func handleEvents(dir: String, generation: UInt64, events: [FSWatcher.Event]) async {
     guard isActive(dir: dir, generation: generation) else { return }
-    guard let originalDir = entries[dir]?.originalDir else { return }
+    guard let entry = entries[dir] else { return }
+    let originalDir = entry.originalDir
 
-    let result = FSWatchRegistry.classify(dir: dir, events: events)
+    let result = FSWatchRegistry.classify(
+      dir: dir,
+      perWorktreeGitDir: entry.perWorktreeGitDir,
+      commonGitDir: entry.commonGitDir,
+      events: events)
 
     // 分類は同期処理なので await を挟まないが、明示的に再 check しておく。
     guard isActive(dir: dir, generation: generation) else { return }
@@ -143,9 +185,17 @@ public actor FSWatchRegistry {
     }
 
     if result.hasGitStatusChange {
-      let status = try? await GitOps.gitStatusFull(dir: dir)
+      let status: GitOps.StatusFull
+      do {
+        status = try await GitOps.gitStatusFull(dir: dir)
+      } catch {
+        // 観察可能性のためログを残す。renderer は次の FSEvents バッチで再 fetch するため
+        // 致命的ではないが、繰り返し発生していれば一時障害として診断したい。
+        print("[FSWatchRegistry] gitStatusFull failed for \(dir): \(error)")
+        return
+      }
       // gitStatusFull の await 中に unwatch されている可能性があるため再 check
-      guard isActive(dir: dir, generation: generation), let status else { return }
+      guard isActive(dir: dir, generation: generation) else { return }
       onGitStatusChange(originalDir, status)
     }
   }
@@ -168,9 +218,24 @@ public actor FSWatchRegistry {
 
   /// 1 バッチの events を分類した結果を返す pure helper。dispatch は呼び出し側が行う。
   /// 分離理由: dispatch 前後に actor 上で世代 check を挟むため、副作用を持たない形にする。
-  private static func classify(dir: String, events: [FSWatcher.Event]) -> Classification {
+  ///
+  /// 判定優先順位:
+  ///   1. per-worktree git dir 配下 → `HEAD` / `index` のみ `gitStatusChange`
+  ///   2. common git dir 配下 → `refs/heads/...` / `packed-refs` を `branchChange`、
+  ///      `worktrees/...` を `worktreeChange`
+  ///   3. 作業ツリー配下（git dir 配下に該当しない場合）→ `fsChange` + `gitStatusChange`
+  ///
+  /// 通常 clone では perWorktreeGitDir == commonGitDir なので 1 と 2 を両方適用する。
+  /// その git dir は worktree root 配下に位置するため、3 のスキップも兼ねる。
+  /// worktree clone では git dir が worktree root の外にあるため、3 では git dir を
+  /// 自動的に通過しない。
+  static func classify(
+    dir: String,
+    perWorktreeGitDir: String?,
+    commonGitDir: String?,
+    events: [FSWatcher.Event]
+  ) -> Classification {
     let dirWithSlash = dir.hasSuffix("/") ? dir : dir + "/"
-    let gitPrefix = dirWithSlash + ".git/"
 
     var fsRelDirs = Set<String>()
     var hasFsChange = false
@@ -178,28 +243,46 @@ public actor FSWatchRegistry {
     var hasBranchChange = false
     var hasWorktreeChange = false
 
+    // 通常 clone では perWorktreeGitDir == commonGitDir なので、両ルールを同じ path に
+    // 適用して `HEAD` と `refs/heads/` を両方拾う必要がある。
+    // worktree clone では perWorktreeGitDir は commonGitDir の `worktrees/<name>/` 配下に
+    // 物理的にネストする。`<common>/worktrees/<name>/HEAD` は per-wt 規則だけ適用すべきで、
+    // common 規則の `worktrees/...` → worktreeChange を二重発火させると worktree list の
+    // 変更と worktree-local な状態変化を混同する。
+    let perWtSameAsCommon = perWorktreeGitDir == commonGitDir
+
     for event in events {
       let path = event.path
-      // FSEvents の path は physical realpath。dir 配下でなければ無視。
-      guard path == dir || path.hasPrefix(dirWithSlash) else { continue }
+      var matchedGitDir = false
 
-      if path.hasPrefix(gitPrefix) {
-        let rel = String(path.dropFirst(gitPrefix.count))
+      let underPerWt = relativeUnder(path: path, root: perWorktreeGitDir)
+      if let rel = underPerWt {
+        matchedGitDir = true
+        if rel == "HEAD" || rel == "index" {
+          hasGitStatusChange = true
+        }
+        // それ以外（logs/, objects/, ORIG_HEAD 等）は無視
+      }
+      // per-wt と common が別 dir のとき、per-wt にマッチした path には common 規則を
+      // 適用しない（per-wt の方が長い prefix で具体性が高いため、そちらが排他的に勝つ）。
+      let applyCommonRule = perWtSameAsCommon || underPerWt == nil
+      if applyCommonRule, let rel = relativeUnder(path: path, root: commonGitDir) {
+        matchedGitDir = true
         if rel.hasPrefix("worktrees/") {
           hasWorktreeChange = true
         } else if rel.hasPrefix("refs/heads/") || rel == "packed-refs" {
           hasBranchChange = true
-        } else if rel == "index" || rel == "HEAD" {
-          hasGitStatusChange = true
         }
-        // それ以外の .git 配下（objects/, logs/ 等）は無視
-      } else {
-        // 作業ツリー側の変更 → fsChange + gitStatusChange
-        hasFsChange = true
-        hasGitStatusChange = true
-        let relDir = relativeDir(path: path, dir: dir, dirWithSlash: dirWithSlash)
-        fsRelDirs.insert(relDir)
       }
+
+      if matchedGitDir { continue }
+
+      // 作業ツリー側の変更 → fsChange + gitStatusChange
+      guard path == dir || path.hasPrefix(dirWithSlash) else { continue }
+      hasFsChange = true
+      hasGitStatusChange = true
+      let relDir = relativeDir(path: path, dir: dir, dirWithSlash: dirWithSlash)
+      fsRelDirs.insert(relDir)
     }
 
     return Classification(
@@ -209,6 +292,16 @@ public actor FSWatchRegistry {
       hasBranchChange: hasBranchChange,
       hasWorktreeChange: hasWorktreeChange
     )
+  }
+
+  /// path が root 配下なら root からの相対パスを返す。配下でなければ nil。
+  /// `path == root` のときは `""` を返す。
+  private static func relativeUnder(path: String, root: String?) -> String? {
+    guard let root else { return nil }
+    if path == root { return "" }
+    let rootWithSlash = root.hasSuffix("/") ? root : root + "/"
+    guard path.hasPrefix(rootWithSlash) else { return nil }
+    return String(path.dropFirst(rootWithSlash.count))
   }
 
   /// イベントの絶対 path から、dir に対する **親ディレクトリ** の相対パスを返す。

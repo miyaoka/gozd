@@ -72,6 +72,11 @@ export function registerTerminalCommands(
       handler: () => {
         const active = getFocusedLayout();
         if (active === undefined) return false;
+        // split で増える新 pane は素の PTY（Claude 未起動）なので claude タイル対象外。
+        // 既存 Claude leaf が残っていると claude ビュー実効値が解除されないため、
+        // ここでユーザー意図を wt へ明示的に切り替える。同 PR 設計上の既存パターン
+        // （useWorktreeActions / register*Command など）と同じ方針。
+        terminalStore.viewMode = "wt";
         terminalStore.splitPane(active.dir, "horizontal");
         return true;
       },
@@ -82,6 +87,7 @@ export function registerTerminalCommands(
       handler: () => {
         const active = getFocusedLayout();
         if (active === undefined) return false;
+        terminalStore.viewMode = "wt";
         terminalStore.splitPane(active.dir, "vertical");
         return true;
       },

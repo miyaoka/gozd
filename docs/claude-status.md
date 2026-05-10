@@ -36,16 +36,16 @@ undefined ──SessionStart──→ idle ──UserPromptSubmit──→ worki
 
 ## フックイベントの対応
 
-| Claude Code hook     | gozd イベント   | 遷移先                                       | 送信経路                                   |
-| -------------------- | --------------- | -------------------------------------------- | ------------------------------------------ |
-| `SessionStart`       | `session-start` | `idle`                                       | nc 直接送信                                |
-| `SessionEnd`         | `session-end`   | `undefined`（エントリ削除）                  | nc 直接送信                                |
-| `UserPromptSubmit`   | `running`       | `working`                                    | nc 直接送信                                |
-| `Stop`               | `done`          | `done`                                       | CLI 経由（`last_assistant_message` 取得）  |
-| `PermissionRequest`  | `needs-input`   | `asking`（150ms debounce）                   | CLI 経由（`tool_name`, `tool_input` 取得） |
-| `PostToolUse`        | `tool-done`     | `working` 維持                               | nc 直接送信                                |
-| `PostToolUseFailure` | `tool-failure`  | `working` 維持 / `idle`（`is_interrupt` 時） | CLI 経由（`is_interrupt` 取得）            |
-| `StopFailure`        | `stop-failure`  | `done`（API エラーによる停止）               | CLI 経由（`last_assistant_message` 取得）  |
+| Claude Code hook     | gozd イベント   | 遷移先                                       | 送信経路                                                                         |
+| -------------------- | --------------- | -------------------------------------------- | -------------------------------------------------------------------------------- |
+| `SessionStart`       | `session-start` | `idle`                                       | CLI 経由（`session_id`, `transcript_path`, `source` 取得 / resume 永続化のため） |
+| `SessionEnd`         | `session-end`   | `undefined`（エントリ削除）                  | CLI 経由（`session_id` で永続化エントリを削除するため）                          |
+| `UserPromptSubmit`   | `running`       | `working`                                    | nc 直接送信                                                                      |
+| `Stop`               | `done`          | `done`                                       | CLI 経由（`last_assistant_message` 取得）                                        |
+| `PermissionRequest`  | `needs-input`   | `asking`（150ms debounce）                   | CLI 経由（`tool_name`, `tool_input` 取得）                                       |
+| `PostToolUse`        | `tool-done`     | `working` 維持                               | nc 直接送信                                                                      |
+| `PostToolUseFailure` | `tool-failure`  | `working` 維持 / `idle`（`is_interrupt` 時） | CLI 経由（`is_interrupt` 取得）                                                  |
+| `StopFailure`        | `stop-failure`  | `done`（API エラーによる停止）               | CLI 経由（`last_assistant_message` 取得）                                        |
 
 ### 送信経路の選択基準
 

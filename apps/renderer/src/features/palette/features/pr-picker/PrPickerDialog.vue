@@ -8,6 +8,15 @@ PR selection dialog. Displays open pull requests in a table layout with fuzzy fi
 - Arrow keys navigate rows, Enter accepts, Escape closes
 - Draft PRs are dimmed (opacity-50)
 - Color scheme follows `gh pr list` (green #number, cyan branch, gray author/date)
+
+## Concurrency
+
+`acceptSelected` calls `close()` before `accept()` so the dialog is removed
+from the DOM before the async accept callback (worktree creation) starts.
+This is the primary guard against re-entry: callbacks do not need their own
+`isCreating` flag because keydown / click events stop reaching the closed
+dialog. Additionally, `branch: pr.headRef` is deterministic, so duplicate
+creations would be rejected by `git worktree add` itself.
 </doc>
 
 <script setup lang="ts">

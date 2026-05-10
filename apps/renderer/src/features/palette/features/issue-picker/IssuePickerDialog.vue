@@ -7,6 +7,14 @@ Issue selection dialog. Displays open issues in a table layout with fuzzy filter
 - Filters issues by fuzzy match on number, title, and author
 - Arrow keys navigate rows, Enter accepts, Escape closes
 - Color scheme follows `gh issue list` (green #number, gray author/date)
+
+## Concurrency
+
+`acceptSelected` calls `close()` before `accept()` so the dialog is removed
+from the DOM before the async accept callback (worktree creation) starts.
+This is the primary guard against re-entry: callbacks do not need their own
+`isCreating` flag because keydown / click events stop reaching the closed
+dialog.
 </doc>
 
 <script setup lang="ts">

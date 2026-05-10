@@ -54,6 +54,8 @@ export function registerIssueCommand(): () => void {
             .map((wt) => [wt.task?.issueNumber, wt.path]),
         );
 
+        // この callback は IssuePickerDialog 側で close() 後に呼ばれるため、
+        // 連打による再エントリは dialog の DOM 除去で塞がれている。`isCreating` 相当のガードは不要。
         show(issuesRes.issues, viewerRes.ok ? viewerRes.login : "", (issue) => {
           const existingDir = wtByIssue.get(issue.number);
           if (existingDir !== undefined) {

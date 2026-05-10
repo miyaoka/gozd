@@ -136,10 +136,14 @@ export const useRepoStore = defineStore("repo", () => {
     repos.value[repo.rootDir] = { ...repo, worktrees: next };
   }
 
-  /** 新規作成した worktree を repo の worktrees に追加 */
+  /**
+   * 新規作成した worktree を repo の worktrees に追加。
+   * 同一 path が既に存在する場合は no-op（store の最終防衛線として idempotent にする）。
+   */
   function appendWorktree(rootDir: string, wt: WorktreeEntry) {
     const current = repos.value[rootDir];
     if (current === undefined) return;
+    if (current.worktrees.some((w) => w.path === wt.path)) return;
     updateRepoData(rootDir, [...current.worktrees, wt], current.freeBranches);
   }
 

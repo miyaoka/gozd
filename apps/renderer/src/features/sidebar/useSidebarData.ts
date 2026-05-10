@@ -172,9 +172,10 @@ export function useSidebarData() {
 
   const cleanups: Array<() => void> = [];
   onMounted(() => {
-    // gitStatusChange / branchChange / worktreeChange は active dir watch から発火するので
-    // active を所有する repo だけを refetch する。他 repo は別経路で更新する
-    cleanups.push(onMessage("gitStatusChange", () => fetchOwnerOfActive()));
+    // branchChange / worktreeChange は worktree 構成自体が変わるので worktree list の
+    // 全件再取得が必要。gitStatusChange は payload に dir + statuses を持ち、
+    // useGitStatusSync が repoStore.setWorktreeGitStatuses で該当 wt のみ更新するため
+    // ここで全件 refetch を走らせない（N 倍の git status 実行を避ける）。
     cleanups.push(onMessage<BranchChangePayload>("branchChange", () => fetchOwnerOfActive()));
     cleanups.push(onMessage<WorktreeChangePayload>("worktreeChange", () => fetchOwnerOfActive()));
     void hydrateAppState();

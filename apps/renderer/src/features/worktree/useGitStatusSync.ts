@@ -46,9 +46,11 @@ export function useGitStatusSync() {
 
   let cleanup: (() => void) | undefined;
   onMounted(() => {
+    // gitStatusChange は payload に dir を持つので、active 制限なしで該当 worktree の
+    // gitStatuses を直接 repoStore に反映する。サイドバー / Filer / GitGraph は
+    // すべて repoStore（または派生 computed）を読むので 1 回の書き込みで全箇所が更新される。
     cleanup = onMessage<GitStatusChangePayload>("gitStatusChange", (payload) => {
-      if (payload.dir !== worktreeStore.dir) return;
-      gitStatusStore.setGitStatuses(payload.statuses);
+      repoStore.setWorktreeGitStatuses(payload.dir, payload.statuses);
     });
   });
   onUnmounted(() => {

@@ -71,6 +71,21 @@ export const useRepoStore = defineStore("repo", () => {
     repos.value[rootDir] = { ...current, worktrees, freeBranches };
   }
 
+  /**
+   * 任意 dir に対応する worktree の gitStatuses だけをピンポイント更新する。
+   * gitStatusChange push / 単発の rpcGitStatus 結果を反映する経路で使用。
+   * dir に該当する worktree が見つからなければ no-op。
+   */
+  function setWorktreeGitStatuses(dir: string, statuses: Record<string, string>) {
+    const repo = findRepoOwning(dir);
+    if (repo === undefined) return;
+    const idx = repo.worktrees.findIndex((wt) => wt.path === dir);
+    if (idx < 0) return;
+    const next = [...repo.worktrees];
+    next[idx] = { ...next[idx], gitStatuses: statuses };
+    repos.value[repo.rootDir] = { ...repo, worktrees: next };
+  }
+
   function selectDir(dir: string) {
     selectedDir.value = dir;
   }
@@ -178,6 +193,7 @@ export const useRepoStore = defineStore("repo", () => {
     findRepoOwning,
     addRepo,
     updateRepoData,
+    setWorktreeGitStatuses,
     selectDir,
     removeRepo,
     isCollapsed,

@@ -59,14 +59,8 @@ const { fetchRepo } = useSidebarData();
 
 const { confirmRef, confirmMessage, showConfirm, closeConfirm, executeConfirm } = useDialogs();
 
-const {
-  isCreating,
-  isActive,
-  handleWorktreeSelect,
-  addWorktree,
-  handleWorktreeRemove,
-  handleBranchLink,
-} = useWorktreeActions({ showConfirm });
+const { isCreating, handleWorktreeSelect, addWorktree, handleWorktreeRemove, handleBranchLink } =
+  useWorktreeActions({ showConfirm });
 
 const {
   editingTaskId,
@@ -111,11 +105,8 @@ useIntervalFn(() => {
 const sidebarMenuRef = ref<InstanceType<typeof SidebarMenu>>();
 
 function onWorktreeSelect(wt: import("@gozd/proto").WorktreeEntry) {
-  terminalStore.viewMode = "wt";
-  if (isActive(wt)) {
-    terminalStore.clearDoneStates(wt.path);
-    return;
-  }
+  // 同 wt 再クリック時の done 消化は worktreeStore.setOpen の selectionVersion 経由で
+  // useSidebarData の watch が処理する。ここでは isActive 分岐せず常に setOpen を呼ぶ。
   handleWorktreeSelect(wt);
 }
 
@@ -130,7 +121,16 @@ function onRemoveRepo(rootDir: string) {
       const targets = new Set<string>([rootDir, ...repo.worktrees.map((wt) => wt.path)]);
       for (const dir of targets) terminalStore.remove(dir);
     }
+    const prevSelected = worktreeStore.dir;
     repoStore.removeRepo(rootDir);
+    // 削除した repo に active wt が属していた場合、removeRepo は dirOrder の先頭に
+    // selectedDir を直接フォールバックする（setOpen を経由しない）。selectionVersion
+    // を進めて新 active wt の done を useSidebarData に消化させるため、ここで明示的に
+    // setOpen を再呼びする。selectedDir が変わっていない（別 repo を削除した）場合は no-op。
+    const nextSelected = worktreeStore.dir;
+    if (nextSelected !== undefined && nextSelected !== prevSelected) {
+      worktreeStore.setOpen(nextSelected);
+    }
   });
 }
 

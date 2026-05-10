@@ -1,8 +1,7 @@
 import { acceptHMRUpdate, defineStore } from "pinia";
-import { computed, ref, shallowRef, watch } from "vue";
+import { computed, ref, shallowRef } from "vue";
 import { useContextKeys } from "../../shared/command";
 import { onMessage } from "../../shared/rpc";
-import { useWorktreeStore } from "../worktree";
 import type { ClaudeStatus } from "./claudeStatus";
 import { isHookEvent, createClaudeStatusManager } from "./claudeStatus";
 import { createPtySessionManager } from "./ptySession";
@@ -170,21 +169,6 @@ export const useTerminalStore = defineStore("terminal", () => {
   }
 
   initSubscriptions();
-
-  // --- worktree 選択イベントの購読 ---
-
-  // worktreeStore.setOpen が呼ばれるたびに selectionVersion がインクリメントされる。
-  // wt の (再)選択は「既読」シグナルとして扱い、選択中 wt の done を idle に消化する。
-  // sidebar / TerminalLeaf / その他の wt 選択経路すべてに自動で適用される。
-  const worktreeStore = useWorktreeStore();
-  watch(
-    () => worktreeStore.selectionVersion,
-    () => {
-      const dir = worktreeStore.dir;
-      if (dir === undefined) return;
-      claude.clearDoneStates(dir);
-    },
-  );
 
   // --- pane getter ---
 

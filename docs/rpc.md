@@ -10,7 +10,7 @@ renderer（Vue / WebKit）と native（Swift）間の通信。`.proto` を SSOT 
 | `packages/proto-ts`    | ts-proto による生成物。`@gozd/proto` として renderer が import                 |
 | `packages/proto-swift` | swift-protobuf による生成物。`GozdProto` SPM パッケージとして native が import |
 
-生成物は git に commit する。`buf.gen.yaml` では `remote: buf.build/community/stephenh-ts-proto`（ts-proto）と `remote: buf.build/apple/swift`（swift-protobuf）を指定し、buf BSR のリモートプラグインを利用している（バージョン pin はしていない）。
+生成物は git に commit する。`buf.gen.yaml` では `remote: buf.build/community/stephenh-ts-proto`（ts-proto）と `remote: buf.build/apple/swift`（swift-protobuf）を指定し、buf BSR のリモートプラグインをバージョン pin して利用している。
 
 `.proto` ファイルはドメインごとに分割: `pty.proto` / `fs.proto` / `git_ops.proto` / `git_status.proto` / `task.proto` / `app_state.proto` / `client_message.proto` 等。新しい RPC を足すときは該当の `.proto` に request / response / event を追加し、`buf generate` で TS / Swift の生成物を更新する。
 

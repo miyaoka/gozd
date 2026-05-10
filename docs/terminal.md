@@ -127,6 +127,8 @@ leafNode
 
 `all` / `claude` モードでは複数 worktree の leaf が同時に表示されるため、focus を受けた leaf の `dir` が現在の選択 worktree と異なる場合、`worktreeStore.setOpen(dir)` で選択を追従させる。viewMode は変更しない（横断ビューを維持したまま、サイドバー・ファイラー・プレビューのみ追従）。`wt` モードでは選択 worktree 配下の leaf しか描画されないため、この処理は自然に no-op となる。
 
+active leaf の判定は「選択中 worktree（`worktreeStore.dir`）配下」かつ「`layout.focusedLeafId` と一致」の AND で行う。`layoutsByDir` は dir ごとに独立した `focusedLeafId` を持つため、単純比較だと tile モードで worktree ごとに 1 つずつ active 表示になってしまう。worktree 単位の選択を条件に加えることで、横断ビューでも常に 1 つの leaf だけが `opacity-100` で他は `opacity-50` にフェードする。
+
 ## OSC ハンドラ
 
 xterm.js のイベントまたは `parser.registerOscHandler()` でエスケープシーケンスを受信し、store に保存する。

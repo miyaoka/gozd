@@ -43,6 +43,8 @@ const props = defineProps<{
   now: number;
   viewMode: ViewMode;
   getClaudeStatuses: (dir: string) => ClaudeStatus[];
+  /** 永続化されているが live PTY に未接続のセッション数（resume 可能件数） */
+  getResumeableSessionCount: (dir: string) => number;
 }>();
 
 const emit = defineEmits<{
@@ -171,6 +173,7 @@ function onHeaderClick() {
         :now="now"
         :view-mode="viewMode"
         :get-claude-statuses="getClaudeStatuses"
+        :get-resumeable-session-count="getResumeableSessionCount"
         @select="emit('selectWorktree', $event)"
         @open-menu="(anchorEl, wt) => emit('openWorktreeMenu', anchorEl, wt, rootDir)"
         @add="emit('addWorktree', rootDir)"

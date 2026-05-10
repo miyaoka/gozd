@@ -67,6 +67,20 @@ public actor ClaudeSessionStore {
     return live
   }
 
+  /// プロジェクト全体の生存セッションを返す（worktree 横断）。サイドバーが
+  /// 「各 worktree が何個 resume 可能か」をバッジ表示するために 1 ファイル read で済ませる。
+  public func allLiveSessions(forProject dir: String) throws -> [Gozd_V1_ClaudeSession] {
+    var list = try loadFile(for: dir)
+    let live = list.sessions.filter {
+      FileManager.default.fileExists(atPath: $0.transcriptPath)
+    }
+    if live.count != list.sessions.count {
+      list.sessions = live
+      try saveFile(list, for: dir)
+    }
+    return live
+  }
+
   /// worktree 削除時に該当 worktreePath のエントリを全削除。
   public func removeByWorktreePath(_ worktreePath: String) throws {
     var list = try loadFile(for: worktreePath)

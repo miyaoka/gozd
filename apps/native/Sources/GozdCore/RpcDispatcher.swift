@@ -205,6 +205,8 @@ public actor RpcDispatcher {
       return try handleWindowClose(body)
     case "/claudeSession/listByDir":
       return try await handleClaudeSessionListByDir(body)
+    case "/claudeSession/listByProject":
+      return try await handleClaudeSessionListByProject(body)
     default:
       throw RpcError.unknownPath(path)
     }
@@ -631,6 +633,14 @@ public actor RpcDispatcher {
     let req = try Gozd_V1_ClaudeSessionListByDirRequest(jsonUTF8Data: body)
     let sessions = (try? await claudeSessions.liveSessions(for: req.dir)) ?? []
     var resp = Gozd_V1_ClaudeSessionListByDirResponse()
+    resp.sessions = sessions
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleClaudeSessionListByProject(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_ClaudeSessionListByProjectRequest(jsonUTF8Data: body)
+    let sessions = (try? await claudeSessions.allLiveSessions(forProject: req.dir)) ?? []
+    var resp = Gozd_V1_ClaudeSessionListByProjectResponse()
     resp.sessions = sessions
     return try resp.jsonUTF8Data()
   }

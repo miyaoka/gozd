@@ -8,7 +8,12 @@ import { isHookEvent, createClaudeStatusManager } from "./claudeStatus";
 import { createPtySessionManager } from "./ptySession";
 import type { PaneEntry } from "./ptySession";
 import type { HookPayload, PtyExitPayload, PtyTextPayload } from "./rpc";
-import { rpcClaudeSessionListByDir, rpcPtyKill, rpcPtySpawn } from "./rpc";
+import {
+  rpcClaudeSessionListByDir,
+  rpcClaudeSessionListByProject,
+  rpcPtyKill,
+  rpcPtySpawn,
+} from "./rpc";
 import { createTerminalLayout } from "./terminalLayout";
 import type { TerminalLayoutState } from "./terminalLayout";
 
@@ -69,6 +74,13 @@ export const useTerminalStore = defineStore("terminal", () => {
    * 紐付けておく。spawnPty が env を組み立てるタイミングで一度だけ消費する。
    */
   const pendingResumeByLeafId = ref<Record<string, string>>({});
+
+  /**
+   * worktreePath → 永続化済み Claude セッション数。サイドバーの resume バッジ表示用。
+   * 「resume 可能 = 永続化されているがまだ live PTY に接続されていない」分は
+   * `getResumeableSessionCount(dir)` で saved - live を取って算出する。
+   */
+  const savedSessionCountByDir = ref<Record<string, number>>({});
 
   // --- モジュール初期化 ---
 
@@ -188,6 +200,43 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   initSubscriptions();
 
+  // --- saved Claude セッション件数 ---
+
+  /**
+   * 指定プロジェクト全体の保存セッション数を再取得して savedSessionCountByDir を更新する。
+   * - `worktreePaths`: そのプロジェクトに属する worktree の絶対パス一覧。
+   *   このリストに含まれる既存エントリを一旦消してから fetch 結果で埋め直すことで、
+   *   ある worktree が 0 件になったケースもバッジから消える。
+   * - `anyDirInProject`: projectKey 解決に使う任意の dir（root でも worktree でも可）。
+   */
+  async function refreshSavedSessionCounts(
+    worktreePaths: string[],
+    anyDirInProject: string,
+  ): Promise<void> {
+    for (const path of worktreePaths) {
+      delete savedSessionCountByDir.value[path];
+    }
+    const fetched = await tryCatch(rpcClaudeSessionListByProject({ dir: anyDirInProject }));
+    if (!fetched.ok) return;
+    for (const session of fetched.value.sessions) {
+      const path = session.worktreePath;
+      savedSessionCountByDir.value[path] = (savedSessionCountByDir.value[path] ?? 0) + 1;
+    }
+  }
+
+  /**
+   * 指定 worktree の「resume 可能なセッション数」。永続化セッション数から、
+   * 既に live PTY 上で動作している Claude の数を引いた残り。
+   * - 未訪問 worktree: live=0 なので保存数がそのまま出る
+   * - 訪問済み + 全 resume 完了: live=saved で 0
+   */
+  function getResumeableSessionCount(dir: string): number {
+    const saved = savedSessionCountByDir.value[dir] ?? 0;
+    if (saved === 0) return 0;
+    const live = claude.getClaudeStatusesByDir(dir).length;
+    return Math.max(0, saved - live);
+  }
+
   // --- worktree visit + Claude セッション復元 ---
 
   /**
@@ -291,6 +340,9 @@ export const useTerminalStore = defineStore("terminal", () => {
     getClaudeState: claude.getClaudeState,
     getClaudeStatusesByDir: claude.getClaudeStatusesByDir,
     clearDoneStates: claude.clearDoneStates,
+    // saved sessions (resume バッジ用)
+    refreshSavedSessionCounts,
+    getResumeableSessionCount,
     // pane getter
     getPaneDir,
     getPtyId,

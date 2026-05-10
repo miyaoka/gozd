@@ -50,6 +50,12 @@ const props = defineProps<{
   wt: WorktreeEntry;
   active: boolean;
   claudeStatuses: ClaudeStatus[];
+  /**
+   * 永続化されているが live PTY に未接続の Claude セッション数。
+   * worktree を選択（visit）すると spawn → resume が走り、live と相殺されて 0 になる。
+   * 0 のときバッジは表示しない。
+   */
+  resumeableSessionCount: number;
   now: number;
   /** Ctrl キー押下中か（番号バッジの表示制御用） */
   ctrlPressed: boolean;
@@ -127,6 +133,16 @@ const statusIcons = computed(() => {
       >
         {{ index + 1 }}
       </span>
+      <!-- Resume 可能セッションバッジ（右上）。live status がまだ無く、
+           永続化セッションだけが残っている状態で表示する。 -->
+      <div
+        v-if="resumeableSessionCount > 0 && sortedStatuses.length === 0"
+        class="pointer-events-none absolute -top-1 -right-1 z-20 flex items-center gap-1 rounded-md bg-zinc-700/80 px-1.5 py-0.5 text-[10px] leading-none font-medium text-zinc-200"
+        :title="`${resumeableSessionCount} Claude session${resumeableSessionCount === 1 ? '' : 's'} ready to resume`"
+      >
+        <span class="icon-[lucide--rotate-cw] size-3" />
+        <span class="tabular-nums">{{ resumeableSessionCount }}</span>
+      </div>
       <!-- Claude 状態バッジ（右上に重ねて表示） -->
       <div
         v-if="sortedStatuses.length > 0"

@@ -29,6 +29,8 @@ export {
   ClaudeSessionList,
   ClaudeSessionListByDirRequest,
   ClaudeSessionListByDirResponse,
+  ClaudeSessionListByProjectRequest,
+  ClaudeSessionListByProjectResponse,
 } from "./generated/gozd/v1/claude_session";
 export {
   ClientMessage,

@@ -193,7 +193,10 @@ public enum GitOps {
   ) async throws -> [CommitInfo] {
     // %x1f = unit separator (US), %x1e = record separator (RS)
     let format = "%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e"
-    var args = ["log", "--format=\(format)"]
+    // `--decorate=short` でユーザーの `log.decorate=full` 設定を上書きする。
+    // full にすると %D が `refs/heads/main` / `refs/remotes/origin/main` 形式になり、
+    // renderer の `r.startsWith("origin/")` / current branch 抽出が崩れる。
+    var args = ["log", "--format=\(format)", "--decorate=short"]
     if maxCount > 0 { args.append("--max-count=\(maxCount)") }
     if firstParentOnly { args.append("--first-parent") }
     args.append(ref)
@@ -224,11 +227,16 @@ public enum GitOps {
   /// "HEAD -> main, origin/main, tag: v1.0" → ["HEAD", "main", "origin/main", "tag:v1.0"]
   /// "HEAD -> branch" は ["HEAD", "branch"] に分解する。renderer 側が
   /// refs.includes("HEAD") で HEAD 行を識別するため、HEAD は独立要素である必要がある。
+  ///
+  /// 区切り子は `, `（カンマ+スペース）固定（git の log-tree.c::format_decoration_default）。
+  /// ref 名にはカンマを含めることが許されている（`git check-ref-format --branch 'foo,bar'` が
+  /// 通る）ため、単純な `,` 分割は ref 名を破壊する。スペースは ref 名に含められないので
+  /// `", "` 区切りなら一意にトークン化できる。
   static func parseRefs(_ refStr: String) -> [String] {
     let trimmed = refStr.trimmingCharacters(in: .whitespacesAndNewlines)
     if trimmed.isEmpty { return [] }
     var result: [String] = []
-    for raw in trimmed.split(separator: ",", omittingEmptySubsequences: false) {
+    for raw in trimmed.components(separatedBy: ", ") {
       let part = raw.trimmingCharacters(in: .whitespaces)
       if part.isEmpty { continue }
       if part.hasPrefix("HEAD -> ") {

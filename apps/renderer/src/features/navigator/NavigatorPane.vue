@@ -37,10 +37,12 @@ const filerWrapperRef = useTemplateRef<HTMLElement>("filerWrapper");
 const containerRef = useTemplateRef<HTMLElement>("container");
 const { height: containerHeight } = useElementSize(containerRef);
 
-const changesHeight = ref(200);
+const changesHeight = ref(360);
 
 // コンテナ縮小時に changesHeight をクランプ（Filer が潰れるのを防ぐ）
+// useElementSize は mount 直後 0 を返すため、計測前は clamp をスキップする
 watchEffect(() => {
+  if (containerHeight.value <= 0) return;
   const maxChanges = containerHeight.value - FILER_MIN_HEIGHT - HANDLE_HEIGHT;
   if (changesHeight.value > maxChanges) {
     changesHeight.value = Math.max(CHANGES_MIN_HEIGHT, maxChanges);

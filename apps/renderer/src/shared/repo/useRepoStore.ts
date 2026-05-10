@@ -136,6 +136,13 @@ export const useRepoStore = defineStore("repo", () => {
     repos.value[repo.rootDir] = { ...repo, worktrees: next };
   }
 
+  /** 新規作成した worktree を repo の worktrees に追加 */
+  function appendWorktree(rootDir: string, wt: WorktreeEntry) {
+    const current = repos.value[rootDir];
+    if (current === undefined) return;
+    updateRepoData(rootDir, [...current.worktrees, wt], current.freeBranches);
+  }
+
   function selectDir(dir: string) {
     selectedDir.value = dir;
   }
@@ -251,6 +258,7 @@ export const useRepoStore = defineStore("repo", () => {
     updateRepoData,
     setWorktreeGitStatuses,
     getGitStatusGen,
+    appendWorktree,
     selectDir,
     removeRepo,
     isCollapsed,

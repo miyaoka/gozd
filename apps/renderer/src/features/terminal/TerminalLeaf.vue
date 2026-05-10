@@ -11,6 +11,12 @@
 - xterm の onFocus → store.focusPane() でフォーカス状態を更新
 - store の focusedLeafId を watch し、自身が focused になったら imperative に terminal.focus()
 - focus 時に自身の dir が選択 worktree と異なれば worktreeStore.setOpen() で追従（viewMode="all"/"claude" 用、viewMode は変更しない）
+
+## active 表示
+
+- 選択中 worktree（worktreeStore.dir）配下かつ layout.focusedLeafId と一致する leaf のみ opacity-100
+- それ以外は opacity-50 でフェード。tile モード（all / claude）では複数 worktree の leaf が同時表示されるが、active になるのは選択中 worktree の focused leaf 1 つだけ
+- 初期化前で worktreeStore.dir が未確定の場合や、claude モードで選択中 worktree に Claude-active leaf が存在しない場合は active が 0 になりうる
 </doc>
 
 <script setup lang="ts">
@@ -34,7 +40,11 @@ const contextKeys = useContextKeys();
 
 const xtermRef = ref<InstanceType<typeof XtermTerminal>>();
 
+// tile モード（all / claude）では各 worktree が独立に focusedLeafId を持つため、
+// 単純比較だと worktree ごとに 1 つずつ active 表示になってしまう。
+// 選択中の worktree （worktreeStore.dir）配下の focusedLeafId だけを active と見なす。
 const isFocused = computed(() => {
+  if (worktreeStore.dir !== props.dir) return false;
   const layout = terminalStore.layoutsByDir[props.dir];
   if (layout === undefined) return false;
   return layout.focusedLeafId === props.leafId;

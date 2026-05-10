@@ -32,20 +32,21 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
     return wt?.gitStatuses ?? {};
   });
 
-  /** 並行 loadGitStatus で古いレスポンスが新しい結果を上書きするのを防ぐ世代カウンタ */
-  let loadGen = 0;
-
   /**
    * active dir の git status を rpcGitStatus で取得し直して repoStore を更新する。
    * dir 切替時 / Claude state 遷移時 / Filer の初期読み込みで呼ばれる。
+   *
+   * 世代管理は repoStore.gitStatusGenByDir に集約。`setWorktreeGitStatuses` を
+   * 経由する push 経路と、ここでの RPC レスポンス到着が競合した場合、
+   * 開始時の世代と現在の世代を比較して RPC レスポンスが古ければ捨てる。
    */
   async function loadGitStatus() {
-    const gen = ++loadGen;
     if (!repoStore.selectedIsGitRepo) return;
     const dir = repoStore.selectedDir;
     if (dir === undefined) return;
+    const startGen = repoStore.getGitStatusGen(dir);
     const result = await tryCatch(rpcGitStatus({ dir }));
-    if (gen !== loadGen) return;
+    if (repoStore.getGitStatusGen(dir) !== startGen) return;
     if (result.ok) {
       repoStore.setWorktreeGitStatuses(dir, result.value.entries);
     } else {

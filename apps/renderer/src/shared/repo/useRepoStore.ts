@@ -27,6 +27,18 @@ export const useRepoStore = defineStore("repo", () => {
   /** 折りたたまれている repo の rootDir 集合 */
   const collapsedRoots = ref<Set<string>>(new Set());
 
+  /**
+   * worktree.gitStatuses の per-dir 書き込み世代。
+   * `setWorktreeGitStatuses` のたびに該当 dir のカウンタを進めるため、
+   * 並行する loadGitStatus / fetchRepo の RPC レスポンスは開始時の世代を覚えておき、
+   * 帰ってきた時点で世代が進んでいれば「より新しい push / 個別更新が後勝ちで入った」
+   * と判断して捨てる。reactivity 不要なため ref ではなく素の Map で持つ。
+   */
+  const gitStatusGenByDir = new Map<string, number>();
+  function getGitStatusGen(dir: string): number {
+    return gitStatusGenByDir.get(dir) ?? 0;
+  }
+
   /** selectedDir を含む repo を逆引き。最初に dir を含む repo */
   const selectedRepo = computed(() => {
     const dir = selectedDir.value;
@@ -64,23 +76,54 @@ export const useRepoStore = defineStore("repo", () => {
     repos.value[state.rootDir] = state;
   }
 
-  /** 既存 repo の worktrees / freeBranches を更新（push event 受信時の refetch 用） */
-  function updateRepoData(rootDir: string, worktrees: WorktreeEntry[], freeBranches: string[]) {
+  /**
+   * 既存 repo の worktrees / freeBranches を更新（rpcGitWorktreeList 結果の反映）。
+   *
+   * `gitStatusesGenSnapshot` には fetch 開始時に各 wt について `getGitStatusGen` で
+   * 取った世代スナップショットを渡す。fetch 中に `setWorktreeGitStatuses` が走って
+   * 世代が進んでいる wt については、fetch レスポンスの古い `gitStatuses` を捨てて
+   * 現時点で repoStore に入っている fresher な値を保持する。
+   * 渡されなかった場合は merge せず単純差し替え（hydrate / 初回登録など世代が無意味な経路）。
+   */
+  function updateRepoData(
+    rootDir: string,
+    worktrees: WorktreeEntry[],
+    freeBranches: string[],
+    gitStatusesGenSnapshot?: Map<string, number>,
+  ) {
     const current = repos.value[rootDir];
     if (current === undefined) return;
-    repos.value[rootDir] = { ...current, worktrees, freeBranches };
+    let merged = worktrees;
+    if (gitStatusesGenSnapshot !== undefined) {
+      merged = worktrees.map((wt) => {
+        const beforeGen = gitStatusesGenSnapshot.get(wt.path);
+        const currentGen = gitStatusGenByDir.get(wt.path);
+        if (beforeGen !== undefined && currentGen !== undefined && currentGen !== beforeGen) {
+          // fetch 中に push / 単発更新が走っていた → 現値を保持
+          const fresher = current.worktrees.find((w) => w.path === wt.path);
+          if (fresher !== undefined) {
+            return { ...wt, gitStatuses: fresher.gitStatuses };
+          }
+        }
+        return wt;
+      });
+    }
+    repos.value[rootDir] = { ...current, worktrees: merged, freeBranches };
   }
 
   /**
    * 任意 dir に対応する worktree の gitStatuses だけをピンポイント更新する。
    * gitStatusChange push / 単発の rpcGitStatus 結果を反映する経路で使用。
    * dir に該当する worktree が見つからなければ no-op。
+   * 書き込み毎に per-dir 世代を進め、in-flight な loadGitStatus / fetchRepo の
+   * 古いレスポンスがこの値を上書きできないようにする。
    */
   function setWorktreeGitStatuses(dir: string, statuses: Record<string, string>) {
     const repo = findRepoOwning(dir);
     if (repo === undefined) return;
     const idx = repo.worktrees.findIndex((wt) => wt.path === dir);
     if (idx < 0) return;
+    gitStatusGenByDir.set(dir, (gitStatusGenByDir.get(dir) ?? 0) + 1);
     const next = [...repo.worktrees];
     next[idx] = { ...next[idx], gitStatuses: statuses };
     repos.value[repo.rootDir] = { ...repo, worktrees: next };
@@ -194,6 +237,7 @@ export const useRepoStore = defineStore("repo", () => {
     addRepo,
     updateRepoData,
     setWorktreeGitStatuses,
+    getGitStatusGen,
     selectDir,
     removeRepo,
     isCollapsed,

@@ -224,39 +224,63 @@ func runProcessCollectingOutput(
   stderrPipe: Pipe,
   afterRun: () -> Void = {}
 ) async throws -> (stdout: Data, stderr: Data) {
-  try await withCheckedThrowingContinuation {
-    (cont: CheckedContinuation<(stdout: Data, stderr: Data), Error>) in
-    let stdoutLock = OSAllocatedUnfairLock<Data>(initialState: Data())
-    let stderrLock = OSAllocatedUnfairLock<Data>(initialState: Data())
-    let group = DispatchGroup()
+  // Task cancellation 対応:
+  // 親 Task（例: withThrowingTaskGroup の sibling 失敗）が cancel されたとき、
+  // 子 Process を SIGTERM して fail-fast にする。`withTaskCancellationHandler` で
+  // continuation を包むことで cancel ハンドラから process.terminate() を呼べる。
+  // process は actor 越しの参照を避けるため `nonisolated(unsafe)` ラッパーは使わず、
+  // OSAllocatedUnfairLock で Process? を保護する。
+  let processLock = OSAllocatedUnfairLock<Process?>(initialState: nil)
+  return try await withTaskCancellationHandler {
+    try await withCheckedThrowingContinuation {
+      (cont: CheckedContinuation<(stdout: Data, stderr: Data), Error>) in
+      let stdoutLock = OSAllocatedUnfairLock<Data>(initialState: Data())
+      let stderrLock = OSAllocatedUnfairLock<Data>(initialState: Data())
+      let group = DispatchGroup()
 
-    group.enter()
-    process.terminationHandler = { _ in
-      group.leave()
+      group.enter()
+      process.terminationHandler = { _ in
+        group.leave()
+      }
+
+      do {
+        // run() 前に既に cancel 済みなら起動せずに即返す
+        if Task.isCancelled {
+          cont.resume(throwing: CancellationError())
+          return
+        }
+        group.enter()
+        group.enter()
+        try process.run()
+        processLock.withLock { $0 = process }
+        DispatchQueue.global(qos: .userInitiated).async {
+          let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+          stdoutLock.withLock { $0 = data }
+          group.leave()
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+          let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+          stderrLock.withLock { $0 = data }
+          group.leave()
+        }
+        afterRun()
+        group.notify(queue: DispatchQueue.global()) {
+          processLock.withLock { $0 = nil }
+          let stdout = stdoutLock.withLock { $0 }
+          let stderr = stderrLock.withLock { $0 }
+          cont.resume(returning: (stdout, stderr))
+        }
+      } catch {
+        cont.resume(throwing: GitError.launchFailed(error.localizedDescription))
+      }
     }
-
-    do {
-      group.enter()
-      group.enter()
-      try process.run()
-      DispatchQueue.global(qos: .userInitiated).async {
-        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        stdoutLock.withLock { $0 = data }
-        group.leave()
+  } onCancel: {
+    // 起動済みの Process を SIGTERM で止める。terminationHandler が group.leave() を
+    // 呼び、stdout/stderr drain が EOF で抜けて group.notify が cont を resume する。
+    processLock.withLock { proc in
+      if let proc, proc.isRunning {
+        proc.terminate()
       }
-      DispatchQueue.global(qos: .userInitiated).async {
-        let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        stderrLock.withLock { $0 = data }
-        group.leave()
-      }
-      afterRun()
-      group.notify(queue: DispatchQueue.global()) {
-        let stdout = stdoutLock.withLock { $0 }
-        let stderr = stderrLock.withLock { $0 }
-        cont.resume(returning: (stdout, stderr))
-      }
-    } catch {
-      cont.resume(throwing: GitError.launchFailed(error.localizedDescription))
     }
   }
 }

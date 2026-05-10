@@ -38,6 +38,15 @@ export function useSidebarData() {
     const gen = (fetchGenByRoot.get(rootDir) ?? 0) + 1;
     fetchGenByRoot.set(rootDir, gen);
 
+    // fetch 開始時点の per-wt gitStatuses 世代スナップショット。
+    // RPC 往復中に gitStatusChange push / loadGitStatus が走って個別 wt の status を
+    // 更新した場合、ここで取った世代より進んでいるので、レスポンスの古い gitStatuses を
+    // 捨てて現値を保持する判断に使う。
+    const gitStatusGenSnapshot = new Map<string, number>();
+    for (const wt of repo.worktrees) {
+      gitStatusGenSnapshot.set(wt.path, repoStore.getGitStatusGen(wt.path));
+    }
+
     const result = await tryCatch(
       Promise.all([rpcGitWorktreeList({ dir: rootDir }), rpcGitBranchList({ dir: rootDir })]),
     );
@@ -55,7 +64,7 @@ export function useSidebarData() {
     const newPaths = new Set(wtList.map((wt) => wt.path));
     const stalePaths = repo.worktrees.map((w) => w.path).filter((p) => !newPaths.has(p));
 
-    repoStore.updateRepoData(rootDir, wtList, newFreeBranches);
+    repoStore.updateRepoData(rootDir, wtList, newFreeBranches, gitStatusGenSnapshot);
 
     for (const dir of stalePaths) terminalStore.remove(dir);
   }

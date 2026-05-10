@@ -64,11 +64,22 @@ message GitShowCommitFileResponse {
   FileReadResult to = 2;
 }
 
-// gitCommitFiles: コミット（または 2 コミット間）の変更ファイル一覧
+// gitCommitFiles: コミット（または範囲指定）の変更ファイル一覧
+//
+// 単一 commit 選択時は hash のみを使う。range_hashes が非空なら range mode で、
+// renderer が git-graph の first-parent walk で組み立てた commit hash 列を渡す。Swift 側は
+// 配列の先頭（newer）と末尾（older）の 2 endpoint で `git diff <older>^ <newer>` を実行する。
 message GitCommitFilesRequest {
   string dir = 1;
   string hash = 2;
   string compare_hash = 3;
+  // 範囲選択時の対象 commit 列。renderer が newer から first-parent walk で組み立てる。
+  // 配列は newer (上端) から older (下端) の順で、両端を含む閉区間。
+  // 非空なら hash / compare_hash は無視され、先頭と末尾の 2 endpoint diff が返る。
+  repeated string range_hashes = 4;
+  // 範囲選択の片端が Working Tree（UNCOMMITTED_HASH）の場合 true。
+  // Swift 側で `git diff <older>^` (第二引数省略 = working tree 比較) に切り替える。
+  bool include_working_tree = 5;
 }
 message GitCommitFilesResponse {
   repeated GitFileChange changes = 1;

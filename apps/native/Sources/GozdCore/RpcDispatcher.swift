@@ -32,6 +32,12 @@ public actor RpcDispatcher {
   private let onHook: HookHandler
   private let onOpen: OpenHandler
 
+  // ptyId → 直近に観測した sessionId。同 PTY 内で `/clear` や `--resume` により
+  // sessionId が切り替わったとき、旧 sessionId のレコードを永続化から外すために使う。
+  // ptyId は `PTYRegistry.nextId` で単調増加で再利用されないため、PTY 終了で
+  // 残ったエントリも別 PTY とは衝突せず leaked metadata として無害。
+  private var lastSessionByPtyId: [UInt32: String] = [:]
+
   public init(
     configDir: String,
     onPtyText: @escaping @Sendable (UInt32, String) -> Void,
@@ -69,7 +75,7 @@ public actor RpcDispatcher {
   ///
   /// 設計判断: gozd-rpc:// 経由の RPC（dispatch）と違いリプライがない fire-and-forget
   /// なので、戻り値も Data ではなく Void。失敗は呼び出し側でログするだけで握りつぶさない。
-  public func handleSocketMessage(_ data: Data) throws {
+  public func handleSocketMessage(_ data: Data) async throws {
     let msg = try Gozd_V1_ClientMessage(jsonUTF8Data: data)
     guard let body = msg.body else {
       throw SocketDecodeError.emptyOneof
@@ -77,10 +83,13 @@ public actor RpcDispatcher {
     switch body {
     case .hook(let hook):
       // Claude セッション永続化は dispatcher の責務として内部処理する。
-      // session-start / session-end は ptyId → worktreePath を逆引きして store に反映。
-      // 失敗しても renderer への push は止めないため Task で fire-and-forget。
+      // 永続化は同 actor 内で直接 await して逐次化する：Task に逃がすと、
+      // 同 ptyId に対する session-start / session-end / 次の session-start の
+      // 実行順序が submit 順と一致しなくなり、`lastSessionByPtyId` の整合が崩れる。
+      // session 系 hook は頻度が低いので onHook の push を待たせる影響は小さい。
       if hook.event == "session-start" || hook.event == "session-end" {
-        Task { await self.applyClaudeSessionHook(hook) }
+        let worktreePath = await pty.worktreePath(for: hook.ptyID) ?? ""
+        await applyClaudeSessionHook(hook, worktreePath: worktreePath)
       }
       onHook(hook)
     case .open(let open):
@@ -88,20 +97,33 @@ public actor RpcDispatcher {
     }
   }
 
-  private func applyClaudeSessionHook(_ hook: Gozd_V1_HookMessage) async {
+  private func applyClaudeSessionHook(
+    _ hook: Gozd_V1_HookMessage, worktreePath: String
+  ) async {
     guard !hook.sessionID.isEmpty else { return }
-    guard let worktreePath = await pty.worktreePath(for: hook.ptyID),
-      !worktreePath.isEmpty
-    else { return }
+    guard !worktreePath.isEmpty else { return }
     do {
       switch hook.event {
       case "session-start":
+        // 同 ptyId で前回観測した sessionId と異なるなら、PTY 内で `/clear` や
+        // `--resume` でセッションが切り替わったケース。Claude は旧セッションの
+        // session-end を発火しないため、ここで明示的に掃除する。worktree 全削除
+        // ではなく ptyId スコープに限るので、別 PTY（別 leaf）の生きたセッションは
+        // 触らない。複数 leaf で並列に Claude を走らせるユースケースを壊さない。
+        if let previous = lastSessionByPtyId[hook.ptyID],
+          previous != hook.sessionID
+        {
+          try await claudeSessions.removeBySessionId(
+            worktreePath: worktreePath, sessionId: previous)
+        }
+        lastSessionByPtyId[hook.ptyID] = hook.sessionID
         try await claudeSessions.upsert(
           worktreePath: worktreePath,
           sessionId: hook.sessionID,
           transcriptPath: hook.transcriptPath
         )
       case "session-end":
+        lastSessionByPtyId.removeValue(forKey: hook.ptyID)
         try await claudeSessions.removeBySessionId(
           worktreePath: worktreePath, sessionId: hook.sessionID)
       default:
@@ -624,14 +646,19 @@ public actor RpcDispatcher {
   private func handleWorktreeRemove(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitWorktreeRemoveRequest(jsonUTF8Data: body)
     try await WorktreeOps.removeWorktree(dir: req.dir, path: req.path, force: req.force)
-    // worktree が消えたら紐づく Claude セッション残骸も掃除する（resume 対象から除外）。
-    try? await claudeSessions.removeByWorktreePath(req.path)
+    // worktree が消えたら紐づく Claude セッション残骸も掃除する。
+    // projectKey 解決は req.dir（main repo dir、削除されない側）から行う。
+    // req.path は物理削除された後なので、これを anchor にすると
+    // projectKey が変わって別ファイルを参照してしまう。
+    try await claudeSessions.removeByWorktreePath(
+      projectAnchorDir: req.dir, worktreePath: req.path
+    )
     return try Gozd_V1_GitWorktreeRemoveResponse().jsonUTF8Data()
   }
 
   private func handleClaudeSessionListByDir(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_ClaudeSessionListByDirRequest(jsonUTF8Data: body)
-    let sessions = (try? await claudeSessions.liveSessions(for: req.dir)) ?? []
+    let sessions = try await claudeSessions.liveSessions(for: req.dir)
     var resp = Gozd_V1_ClaudeSessionListByDirResponse()
     resp.sessions = sessions
     return try resp.jsonUTF8Data()
@@ -639,7 +666,7 @@ public actor RpcDispatcher {
 
   private func handleClaudeSessionListByProject(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_ClaudeSessionListByProjectRequest(jsonUTF8Data: body)
-    let sessions = (try? await claudeSessions.allLiveSessions(forProject: req.dir)) ?? []
+    let sessions = try await claudeSessions.allLiveSessions(forProject: req.dir)
     var resp = Gozd_V1_ClaudeSessionListByProjectResponse()
     resp.sessions = sessions
     return try resp.jsonUTF8Data()

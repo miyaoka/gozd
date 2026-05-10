@@ -133,11 +133,14 @@ const statusIcons = computed(() => {
       >
         {{ index + 1 }}
       </span>
-      <!-- Resume 可能セッションバッジ（右上）。live status がまだ無く、
-           永続化セッションだけが残っている状態で表示する。 -->
+      <!-- Resume 可能セッションバッジ（右上）。
+           live status badge と並列で出すため、live status がある時は左側に積む。
+           部分復元状態（saved > live）でもバッジが残るので、未復元のセッションが
+           残っていることが視認できる。 -->
       <div
-        v-if="resumeableSessionCount > 0 && sortedStatuses.length === 0"
-        class="pointer-events-none absolute -top-1 -right-1 z-20 flex items-center gap-1 rounded-md bg-zinc-700/80 px-1.5 py-0.5 text-[10px] leading-none font-medium text-zinc-200"
+        v-if="resumeableSessionCount > 0"
+        class="pointer-events-none absolute -top-1 z-20 flex items-center gap-1 rounded-md bg-zinc-700/80 px-1.5 py-0.5 text-[10px] leading-none font-medium text-zinc-200"
+        :class="sortedStatuses.length > 0 ? '-right-12' : '-right-1'"
         :title="`${resumeableSessionCount} Claude session${resumeableSessionCount === 1 ? '' : 's'} ready to resume`"
       >
         <span class="icon-[lucide--rotate-cw] size-3" />

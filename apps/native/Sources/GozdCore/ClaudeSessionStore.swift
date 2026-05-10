@@ -82,12 +82,18 @@ public actor ClaudeSessionStore {
   }
 
   /// worktree 削除時に該当 worktreePath のエントリを全削除。
-  public func removeByWorktreePath(_ worktreePath: String) throws {
-    var list = try loadFile(for: worktreePath)
+  /// projectKey 解決は `projectAnchorDir`（main repo dir 等、削除されない dir）から行う。
+  /// `worktreePath` をそのまま使うと、すでに物理削除された path に対する
+  /// `git rev-parse --git-common-dir` が失敗して projectKey が前回と変わり、
+  /// 別ファイルを read/write してエントリが残留する。
+  public func removeByWorktreePath(
+    projectAnchorDir: String, worktreePath: String
+  ) throws {
+    var list = try loadFile(for: projectAnchorDir)
     let before = list.sessions.count
     list.sessions.removeAll { $0.worktreePath == worktreePath }
     if list.sessions.count != before {
-      try saveFile(list, for: worktreePath)
+      try saveFile(list, for: projectAnchorDir)
     }
   }
 
@@ -107,8 +113,8 @@ public actor ClaudeSessionStore {
     }
     let data = try Data(contentsOf: URL(fileURLWithPath: path))
     let json = String(decoding: data, as: UTF8.self)
-    return (try? Gozd_V1_ClaudeSessionList(jsonString: json))
-      ?? Gozd_V1_ClaudeSessionList()
+    // parse 失敗は壊れたファイルの兆候。fallback で空 list を返すと原因が見えなくなるため throw する。
+    return try Gozd_V1_ClaudeSessionList(jsonString: json)
   }
 
   private func saveFile(_ list: Gozd_V1_ClaudeSessionList, for dir: String) throws {

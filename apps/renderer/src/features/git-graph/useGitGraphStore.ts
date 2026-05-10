@@ -43,11 +43,12 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
   });
 
   /**
-   * 選択中のコミット配列。
+   * 選択中のコミット配列（CommitDetailPane が参照する diff 対象 commit 列）。
    *
    * - 単一選択: そのコミット 1 つ
    * - 範囲選択 + activeCommitHashes 取得済み: first-parent walk で得た実 diff 対象のみ。
    *   walk 対象外の別枝コミットは除外する。range 内に UNCOMMITTED_HASH の端点があれば先頭に含める
+   *   （Working Tree 端を含む range で uncommitted changes も diff 対象になるため）
    * - 範囲選択 + activeCommitHashes 未取得（fetch 中）: range 内の全コミットをフォールバック表示
    */
   const selectedCommits = computed<GitCommit[]>(() => {

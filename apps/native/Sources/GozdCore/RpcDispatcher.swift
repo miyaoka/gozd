@@ -448,7 +448,8 @@ public actor RpcDispatcher {
     let req = try Gozd_V1_GitCommitFilesRequest(jsonUTF8Data: body)
     let compare = req.compareHash.isEmpty ? nil : req.compareHash
     let changes = try await GitOps.commitFiles(
-      dir: req.dir, hash: req.hash, compareHash: compare, rangeHashes: req.rangeHashes)
+      dir: req.dir, hash: req.hash, compareHash: compare, rangeHashes: req.rangeHashes,
+      includeWorkingTree: req.includeWorkingTree)
     var resp = Gozd_V1_GitCommitFilesResponse()
     resp.changes = changes.map { c in
       var pb = Gozd_V1_GitFileChange()

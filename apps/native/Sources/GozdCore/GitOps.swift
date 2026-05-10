@@ -281,36 +281,32 @@ public enum GitOps {
   ///   差分になる。`diff-tree -m --first-parent` は先祖の変更が混入するので使わない。
   /// - 単一ルートコミット: `git diff-tree --root --no-commit-id -r` を使う（親が無いので
   ///   `^` で解決できない）。
-  /// - 範囲指定（rangeHashes 非空）: renderer が git-graph の表示順で組み立てた commit hash 列を
-  ///   受け取り、各 commit の first-parent diff を union する。git の祖先関係に依存せず
-  ///   「画面上で見える範囲 = 対象」を保証する。同一ファイルが複数 commit で変更される場合、
-  ///   newer 側（配列の先頭）の type を採用する（最終的に何になっているかを優先）。
-  ///   root commit が含まれる場合は empty tree を起点にする。
+  /// - 範囲指定（rangeHashes 非空）: renderer が git-graph の表示順で組み立てた commit hash 列の
+  ///   先頭（newer）と末尾（older）を 2 endpoint として `git diff <older>^ <newer>` を 1 回実行する。
+  ///   commit ごとの first-parent diff を union するアプローチは rename chain（foo→bar→baz）や
+  ///   rename 後 delete を解決できず、logical file identity が壊れるため避ける。
+  ///   2 点 diff にすれば git の rename detection が一発で chain を畳む。中間 commit で revert
+  ///   された変更が消える点はトレードオフだが、UI 直感（最終状態の差分）と一致する。
+  ///   older が root commit なら empty tree を起点にする。
+  ///   includeWorkingTree が true の場合（範囲の片端が Working Tree）は第 2 引数を省略して
+  ///   working tree との比較に切り替える。
   ///
   /// 共通 diff オプション: `--name-status -z --find-renames --diff-filter=AMDR`。
   public static func commitFiles(
-    dir: String, hash: String, compareHash: String?, rangeHashes: [String] = []
+    dir: String, hash: String, compareHash: String?, rangeHashes: [String] = [],
+    includeWorkingTree: Bool = false
   ) async throws -> [FileChangeInfo] {
     let diffOptions = ["--name-status", "-z", "--find-renames", "--diff-filter=AMDR"]
 
-    if !rangeHashes.isEmpty {
-      // 配列の先頭が newer。先頭から順に処理して、newPath をキーに最初に出会った change を採用する
-      // （= newer 側の type を優先）。
-      var changeMap: [String: FileChangeInfo] = [:]
-      var order: [String] = []
-      for hash in rangeHashes {
-        let isRoot = try await isRootCommit(dir: dir, hash: hash)
-        let from = isRoot ? emptyTreeHash : "\(hash)^"
-        let stdout = try await runGit(
-          args: ["diff"] + diffOptions + [from, hash], cwd: dir)
-        for change in parseDiffNameStatus(stdout) {
-          if changeMap[change.newPath] == nil {
-            changeMap[change.newPath] = change
-            order.append(change.newPath)
-          }
-        }
-      }
-      return order.compactMap { changeMap[$0] }
+    if let newer = rangeHashes.first, let older = rangeHashes.last {
+      let isOlderRoot = try await isRootCommit(dir: dir, hash: older)
+      let from = isOlderRoot ? emptyTreeHash : "\(older)^"
+      let diffArgs: [String] =
+        includeWorkingTree
+        ? ["diff"] + diffOptions + [from]
+        : ["diff"] + diffOptions + [from, newer]
+      let stdout = try await runGit(args: diffArgs, cwd: dir)
+      return parseDiffNameStatus(stdout)
     }
 
     if try await isRootCommit(dir: dir, hash: hash) {

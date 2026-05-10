@@ -218,11 +218,11 @@ public struct Gozd_V1_GitShowCommitFileResponse: Sendable {
   fileprivate var _to: Gozd_V1_FileReadResult? = nil
 }
 
-/// gitCommitFiles: コミット（または 2 コミット間）の変更ファイル一覧
+/// gitCommitFiles: コミット（または範囲指定）の変更ファイル一覧
 ///
 /// 単一 commit 選択時は hash のみを使う。range_hashes が非空なら range mode で、
-/// renderer が git-graph の表示順で slice した commit hash 列を渡す。Swift 側は
-/// 各 commit の first-parent diff を union して返す（git 祖先関係に依存しない）。
+/// renderer が git-graph の first-parent walk で組み立てた commit hash 列を渡す。Swift 側は
+/// 配列の先頭（newer）と末尾（older）の 2 endpoint で `git diff <older>^ <newer>` を実行する。
 public struct Gozd_V1_GitCommitFilesRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -234,9 +234,14 @@ public struct Gozd_V1_GitCommitFilesRequest: Sendable {
 
   public var compareHash: String = String()
 
-  /// 範囲選択時の対象 commit 列。renderer が表示順で組み立てる（newer 端を含み older 端を含まない）。
-  /// 非空なら hash / compare_hash は無視され、各 commit の first-parent diff の union が返る。
+  /// 範囲選択時の対象 commit 列。renderer が newer から first-parent walk で組み立てる。
+  /// 配列は newer (上端) から older (下端) の順で、両端を含む閉区間。
+  /// 非空なら hash / compare_hash は無視され、先頭と末尾の 2 endpoint diff が返る。
   public var rangeHashes: [String] = []
+
+  /// 範囲選択の片端が Working Tree（UNCOMMITTED_HASH）の場合 true。
+  /// Swift 側で `git diff <older>^` (第二引数省略 = working tree 比較) に切り替える。
+  public var includeWorkingTree: Bool = false
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -855,7 +860,7 @@ extension Gozd_V1_GitShowCommitFileResponse: SwiftProtobuf.Message, SwiftProtobu
 
 extension Gozd_V1_GitCommitFilesRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GitCommitFilesRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}hash\0\u{3}compare_hash\0\u{3}range_hashes\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}hash\0\u{3}compare_hash\0\u{3}range_hashes\0\u{3}include_working_tree\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -867,6 +872,7 @@ extension Gozd_V1_GitCommitFilesRequest: SwiftProtobuf.Message, SwiftProtobuf._M
       case 2: try { try decoder.decodeSingularStringField(value: &self.hash) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.compareHash) }()
       case 4: try { try decoder.decodeRepeatedStringField(value: &self.rangeHashes) }()
+      case 5: try { try decoder.decodeSingularBoolField(value: &self.includeWorkingTree) }()
       default: break
       }
     }
@@ -885,6 +891,9 @@ extension Gozd_V1_GitCommitFilesRequest: SwiftProtobuf.Message, SwiftProtobuf._M
     if !self.rangeHashes.isEmpty {
       try visitor.visitRepeatedStringField(value: self.rangeHashes, fieldNumber: 4)
     }
+    if self.includeWorkingTree != false {
+      try visitor.visitSingularBoolField(value: self.includeWorkingTree, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -893,6 +902,7 @@ extension Gozd_V1_GitCommitFilesRequest: SwiftProtobuf.Message, SwiftProtobuf._M
     if lhs.hash != rhs.hash {return false}
     if lhs.compareHash != rhs.compareHash {return false}
     if lhs.rangeHashes != rhs.rangeHashes {return false}
+    if lhs.includeWorkingTree != rhs.includeWorkingTree {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

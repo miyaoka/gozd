@@ -79,21 +79,27 @@ export interface GitShowCommitFileResponse {
 }
 
 /**
- * gitCommitFiles: コミット（または 2 コミット間）の変更ファイル一覧
+ * gitCommitFiles: コミット（または範囲指定）の変更ファイル一覧
  *
  * 単一 commit 選択時は hash のみを使う。range_hashes が非空なら range mode で、
- * renderer が git-graph の表示順で slice した commit hash 列を渡す。Swift 側は
- * 各 commit の first-parent diff を union して返す（git 祖先関係に依存しない）。
+ * renderer が git-graph の first-parent walk で組み立てた commit hash 列を渡す。Swift 側は
+ * 配列の先頭（newer）と末尾（older）の 2 endpoint で `git diff <older>^ <newer>` を実行する。
  */
 export interface GitCommitFilesRequest {
   dir: string;
   hash: string;
   compareHash: string;
   /**
-   * 範囲選択時の対象 commit 列。renderer が表示順で組み立てる（newer 端を含み older 端を含まない）。
-   * 非空なら hash / compare_hash は無視され、各 commit の first-parent diff の union が返る。
+   * 範囲選択時の対象 commit 列。renderer が newer から first-parent walk で組み立てる。
+   * 配列は newer (上端) から older (下端) の順で、両端を含む閉区間。
+   * 非空なら hash / compare_hash は無視され、先頭と末尾の 2 endpoint diff が返る。
    */
   rangeHashes: string[];
+  /**
+   * 範囲選択の片端が Working Tree（UNCOMMITTED_HASH）の場合 true。
+   * Swift 側で `git diff <older>^` (第二引数省略 = working tree 比較) に切り替える。
+   */
+  includeWorkingTree: boolean;
 }
 
 export interface GitCommitFilesResponse {
@@ -1078,7 +1084,7 @@ export const GitShowCommitFileResponse: MessageFns<GitShowCommitFileResponse> = 
 };
 
 function createBaseGitCommitFilesRequest(): GitCommitFilesRequest {
-  return { dir: "", hash: "", compareHash: "", rangeHashes: [] };
+  return { dir: "", hash: "", compareHash: "", rangeHashes: [], includeWorkingTree: false };
 }
 
 export const GitCommitFilesRequest: MessageFns<GitCommitFilesRequest> = {
@@ -1094,6 +1100,9 @@ export const GitCommitFilesRequest: MessageFns<GitCommitFilesRequest> = {
     }
     for (const v of message.rangeHashes) {
       writer.uint32(34).string(v!);
+    }
+    if (message.includeWorkingTree !== false) {
+      writer.uint32(40).bool(message.includeWorkingTree);
     }
     return writer;
   },
@@ -1137,6 +1146,14 @@ export const GitCommitFilesRequest: MessageFns<GitCommitFilesRequest> = {
           message.rangeHashes.push(reader.string());
           continue;
         }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.includeWorkingTree = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1160,6 +1177,11 @@ export const GitCommitFilesRequest: MessageFns<GitCommitFilesRequest> = {
         : globalThis.Array.isArray(object?.range_hashes)
         ? object.range_hashes.map((e: any) => globalThis.String(e))
         : [],
+      includeWorkingTree: isSet(object.includeWorkingTree)
+        ? globalThis.Boolean(object.includeWorkingTree)
+        : isSet(object.include_working_tree)
+        ? globalThis.Boolean(object.include_working_tree)
+        : false,
     };
   },
 
@@ -1177,6 +1199,9 @@ export const GitCommitFilesRequest: MessageFns<GitCommitFilesRequest> = {
     if (message.rangeHashes?.length) {
       obj.rangeHashes = message.rangeHashes;
     }
+    if (message.includeWorkingTree !== false) {
+      obj.includeWorkingTree = message.includeWorkingTree;
+    }
     return obj;
   },
 
@@ -1189,6 +1214,7 @@ export const GitCommitFilesRequest: MessageFns<GitCommitFilesRequest> = {
     message.hash = object.hash ?? "";
     message.compareHash = object.compareHash ?? "";
     message.rangeHashes = object.rangeHashes?.map((e) => e) || [];
+    message.includeWorkingTree = object.includeWorkingTree ?? false;
     return message;
   },
 };

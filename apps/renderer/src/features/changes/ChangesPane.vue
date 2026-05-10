@@ -5,12 +5,19 @@ Changed files list. Shows HEAD vs working directory by default, or a selected co
 
 - Default (Uncommitted Changes selected): shows git status converted to GitFileChange[]
 - Normal commit selected: fetches changed files via `gitCommitFiles` RPC
-- Shift+click range: walks first-parents from the upper endpoint (newer) until reaching the
-  lower endpoint's display position. Both endpoints are inclusive when they sit on the
-  walked line. Independent commits from another branch that the date-sorted display
-  interleaves are skipped because they are not on `parents[0]`. The resulting hash list is
-  sent to the backend as `range_hashes`, and stored in the git-graph store so the graph can
-  highlight the same set of commits.
+- Shift+click range:
+  - Walks first-parents from the upper endpoint (newer, falling back to HEAD when newer is
+    Working Tree) until reaching the lower endpoint's display position. Both endpoints are
+    inclusive when they sit on the walked line.
+  - Independent commits from another branch that the date-sorted display interleaves are
+    skipped because they are not on `parents[0]`.
+  - The resulting hash list is sent to the backend as `range_hashes` and stored in the
+    git-graph store as `activeCommitHashes` for dot highlighting.
+  - When the range includes Working Tree, `include_working_tree=true` is sent so the backend
+    diffs against the working tree (`git diff <older>^`).
+  - When the non-Working-Tree endpoint is the HEAD commit itself, the range collapses to
+    "Working Tree only" — RPC is skipped and gitStatuses is shown as if a single Uncommitted
+    Changes row were selected. Visual range highlighting is preserved.
 - Clicking a file emits `select` with the relative path
 </doc>
 
@@ -48,6 +55,38 @@ const isUncommittedMode = computed(() => gitGraphStore.selectedHash === UNCOMMIT
 /** 範囲選択モードか */
 const isRangeMode = computed(() => gitGraphStore.compareHash !== null);
 
+/** HEAD ref を持つ commit の hash */
+const headHash = computed(() => gitGraphStore.commits.find((c) => c.refs.includes("HEAD"))?.hash);
+
+/** 範囲選択の片端が Working Tree か */
+const includesWorkingTree = computed(
+  () =>
+    gitGraphStore.selectedHash === UNCOMMITTED_HASH ||
+    gitGraphStore.compareHash === UNCOMMITTED_HASH,
+);
+
+/** 非 Working Tree 側 endpoint の hash */
+const otherEndpointHash = computed(() =>
+  gitGraphStore.selectedHash === UNCOMMITTED_HASH
+    ? gitGraphStore.compareHash
+    : gitGraphStore.selectedHash,
+);
+
+/**
+ * Working Tree のみとして処理すべきか。
+ * 範囲選択の片端が Working Tree かつ、もう片端が HEAD ref を持つ commit のとき、
+ * 「Working Tree から HEAD まで」 = uncommitted changes のみ、という UI 直感に倒す。
+ * 表示位置ではなく endpoint 自体が HEAD かどうかで判定するため、origin/main が中間に
+ * 挟まっても影響を受けない。
+ */
+const workingTreeOnly = computed(
+  () =>
+    isRangeMode.value &&
+    includesWorkingTree.value &&
+    otherEndpointHash.value !== null &&
+    otherEndpointHash.value === headHash.value,
+);
+
 /** git status の Record<string, string> を GitFileChange[] に変換 */
 function gitStatusToFileChanges(statuses: Record<string, string>): GitFileChange[] {
   return Object.entries(statuses).map(([filePath, statusCode]) => {
@@ -67,9 +106,15 @@ function gitStatusToFileChanges(statuses: Record<string, string>): GitFileChange
   });
 }
 
-/** 表示するファイル一覧 */
+/**
+ * 表示するファイル一覧。
+ *
+ * - 単一 Working Tree 選択: gitStatuses ベース (uncommitted changes)
+ * - workingTreeOnly (Working Tree + HEAD の範囲): gitStatuses ベース (single Working Tree と一致)
+ * - それ以外: commitFiles ref (RPC で取得した diff)
+ */
 const fileChanges = computed<GitFileChange[]>(() => {
-  if (isUncommittedMode.value && !isRangeMode.value) {
+  if ((isUncommittedMode.value && !isRangeMode.value) || workingTreeOnly.value) {
     return gitStatusToFileChanges(gitStatusStore.gitStatuses);
   }
   return commitFiles.value;
@@ -156,17 +201,20 @@ function buildRangeHashes(
   return result;
 }
 
-// コミット選択が変わったら変更ファイルを取得
+// コミット選択 / commits 配列が変わったら変更ファイルを取得
+// commits 依存を持つことで、fetch / branch update / HEAD 変化で commits が再構築された後も
+// rangeHashes / activeCommitHashes / Changes diff / workingTreeOnly が再評価される
 watch(
-  () => [gitGraphStore.selectedHash, gitGraphStore.compareHash] as const,
+  () => [gitGraphStore.selectedHash, gitGraphStore.compareHash, gitGraphStore.commits] as const,
   async ([hash, compareHash]) => {
     const seq = ++requestSeq;
+
+    // 単一 Working Tree 選択: 既存通り gitStatuses 経由
     if (hash === UNCOMMITTED_HASH && compareHash === null) {
       commitFiles.value = [];
       loading.value = false;
       return;
     }
-    loading.value = true;
     const dir = worktreeStore.dir;
     if (dir === undefined) {
       commitFiles.value = [];
@@ -174,20 +222,64 @@ watch(
       return;
     }
 
-    const rangeHashes =
-      compareHash !== null
-        ? buildRangeHashes(hash, compareHash, gitGraphStore.hashToIndex, gitGraphStore.commits)
-        : [];
+    // 範囲選択 mode
     if (compareHash !== null) {
+      // workingTreeOnly: activeCommitHashes を空集合にして dot 強調と Detail pane も
+      // 「Uncommitted Changes のみ」に倒す。visual range (isSelectedRow) は維持される
+      if (workingTreeOnly.value) {
+        gitGraphStore.setActiveCommitHashes([]);
+        commitFiles.value = [];
+        loading.value = false;
+        return;
+      }
+
+      const rangeHashes = buildRangeHashes(
+        hash,
+        compareHash,
+        gitGraphStore.hashToIndex,
+        gitGraphStore.commits,
+      );
       gitGraphStore.setActiveCommitHashes(rangeHashes);
+
+      // Working Tree 端を含むのに HEAD が見つからない: walk 起点が決まらないので空に倒す
+      if (includesWorkingTree.value && headHash.value === undefined) {
+        commitFiles.value = [];
+        loading.value = false;
+        return;
+      }
+
+      // rangeHashes 空: range 解決失敗。単一 commit 経路に落とさず空で確定
+      if (rangeHashes.length === 0) {
+        commitFiles.value = [];
+        loading.value = false;
+        return;
+      }
+
+      loading.value = true;
+      const result = await tryCatch(
+        rpcGitCommitFiles({
+          dir,
+          hash,
+          compareHash,
+          rangeHashes,
+          includeWorkingTree: includesWorkingTree.value,
+        }),
+      );
+      if (seq !== requestSeq) return;
+      commitFiles.value = result.ok ? result.value.changes : [];
+      loading.value = false;
+      return;
     }
 
+    // 単一 commit mode
+    loading.value = true;
     const result = await tryCatch(
       rpcGitCommitFiles({
         dir,
         hash,
-        compareHash: compareHash ?? "",
-        rangeHashes,
+        compareHash: "",
+        rangeHashes: [],
+        includeWorkingTree: false,
       }),
     );
     if (seq !== requestSeq) return;

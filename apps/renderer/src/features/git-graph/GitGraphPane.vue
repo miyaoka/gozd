@@ -608,19 +608,17 @@ function rowHighlightClass(hash: string): string {
 }
 
 /**
- * 単一選択 / 範囲選択を統一して「選択された行」を判定する。
+ * 単一選択 / 範囲選択の visual range（青背景の対象行）を判定する。
  *
- * 範囲選択時は `<older>..<newer>` semantics に従い older 端を含まない。
- * dot ハイライトと完全一致させることで「青い行 = diff 対象」を保証する。
- * activeCommitHashes が未取得（fetch 中）の間のみ、両端 + 範囲内をフォールバック表示する。
+ * activeCommitHashes（実 diff 対象 = first-parent walk 結果）には依存させない。
+ * activeCommitHashes は dot 強調用 (isActiveDot) に限定し、行 background は
+ * 「ユーザーが shift+click で選んだ範囲そのもの」を素直に表現する。
+ * Working Tree 端は activeCommitHashes に含まれないため、ここで明示的にハイライト対象に含める。
  */
 function isSelectedRow(hash: string): boolean {
-  const { selectedHash, compareHash, activeCommitHashes } = gitGraphStore;
+  const { selectedHash, compareHash } = gitGraphStore;
   if (compareHash === null) {
     return hash === selectedHash;
-  }
-  if (activeCommitHashes !== null) {
-    return activeCommitHashes.has(hash);
   }
   return hash === selectedHash || hash === compareHash || isInRange(hash);
 }

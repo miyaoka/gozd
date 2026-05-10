@@ -44,6 +44,10 @@ public struct Gozd_V1_PtySpawnRequest: Sendable {
 
   public var cols: UInt32 = 0
 
+  /// この PTY が属する worktree の絶対パス。Claude セッション復元の紐付けに使う。
+  /// 空文字なら無紐付け。
+  public var worktreePath: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -178,7 +182,7 @@ fileprivate let _protobuf_package = "gozd.v1"
 
 extension Gozd_V1_PtySpawnRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PtySpawnRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}executable\0\u{1}args\0\u{1}env\0\u{1}rows\0\u{1}cols\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}executable\0\u{1}args\0\u{1}env\0\u{1}rows\0\u{1}cols\0\u{3}worktree_path\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -192,6 +196,7 @@ extension Gozd_V1_PtySpawnRequest: SwiftProtobuf.Message, SwiftProtobuf._Message
       case 4: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString,SwiftProtobuf.ProtobufString>.self, value: &self.env) }()
       case 5: try { try decoder.decodeSingularUInt32Field(value: &self.rows) }()
       case 6: try { try decoder.decodeSingularUInt32Field(value: &self.cols) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.worktreePath) }()
       default: break
       }
     }
@@ -216,6 +221,9 @@ extension Gozd_V1_PtySpawnRequest: SwiftProtobuf.Message, SwiftProtobuf._Message
     if self.cols != 0 {
       try visitor.visitSingularUInt32Field(value: self.cols, fieldNumber: 6)
     }
+    if !self.worktreePath.isEmpty {
+      try visitor.visitSingularStringField(value: self.worktreePath, fieldNumber: 7)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -226,6 +234,7 @@ extension Gozd_V1_PtySpawnRequest: SwiftProtobuf.Message, SwiftProtobuf._Message
     if lhs.env != rhs.env {return false}
     if lhs.rows != rhs.rows {return false}
     if lhs.cols != rhs.cols {return false}
+    if lhs.worktreePath != rhs.worktreePath {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

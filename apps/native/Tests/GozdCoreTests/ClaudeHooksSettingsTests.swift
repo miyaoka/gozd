@@ -26,12 +26,13 @@ struct ClaudeHooksSettingsTests {
   func ncCommandFormat() {
     let s = ClaudeHooksSettings.settings()
     let hooks = s["hooks"] as! [String: Any]
-    let sessionStart = (hooks["SessionStart"] as! [[String: Any]])[0]
-    let inner = (sessionStart["hooks"] as! [[String: String]])[0]
+    // UserPromptSubmit は nc 直送経路（軽量、stdin payload 不要）
+    let userPromptSubmit = (hooks["UserPromptSubmit"] as! [[String: Any]])[0]
+    let inner = (userPromptSubmit["hooks"] as! [[String: String]])[0]
     let cmd = inner["command"]!
 
     #expect(cmd.contains(#""hook":"#))
-    #expect(cmd.contains(#""event":"session-start""#))
+    #expect(cmd.contains(#""event":"running""#))
     #expect(cmd.contains("$GOZD_PTY_ID"))
     #expect(cmd.contains("nc -w 1 -U"))
   }
@@ -49,27 +50,40 @@ struct ClaudeHooksSettingsTests {
     #expect(cmd.contains("hook done"))
   }
 
+  @Test("SessionStart / SessionEnd は CLI 経由（stdin の session_id を取得するため）")
+  func sessionEventsUseCli() {
+    let s = ClaudeHooksSettings.settings()
+    let hooks = s["hooks"] as! [String: Any]
+    for event in ["SessionStart", "SessionEnd"] {
+      let entry = (hooks[event] as! [[String: Any]])[0]
+      let inner = (entry["hooks"] as! [[String: String]])[0]
+      let cmd = inner["command"]!
+      #expect(cmd.contains("$GOZD_CLI_RUNNER"), "\(event) should use CLI runner")
+      #expect(cmd.contains("\"$GOZD_CLI_PATH\""), "\(event) should reference CLI path")
+    }
+  }
+
   @Test("生成された nc コマンドの JSON は ClientMessage proto としてデコードできる")
   func ncCommandIsValidProtoJson() throws {
     // 実機の zsh 環境変数置換をエミュレート
     let s = ClaudeHooksSettings.settings()
     let hooks = s["hooks"] as! [String: Any]
-    let sessionStart = (hooks["SessionStart"] as! [[String: Any]])[0]
-    let cmd = ((sessionStart["hooks"] as! [[String: String]])[0])["command"]!
+    let userPromptSubmit = (hooks["UserPromptSubmit"] as! [[String: Any]])[0]
+    let cmd = ((userPromptSubmit["hooks"] as! [[String: String]])[0])["command"]!
 
     // shell が echo の引数を組み立てた結果を再現:
     //   echo の引数は `'{"hook":{"event":"...","ptyId":'"$GOZD_PTY_ID"'}}'`。
-    //   $GOZD_PTY_ID=42 として連結すると `{"hook":{"event":"session-start","ptyId":42}}`。
-    let json = #"{"hook":{"event":"session-start","ptyId":42}}"#
+    //   $GOZD_PTY_ID=42 として連結すると `{"hook":{"event":"running","ptyId":42}}`。
+    let json = #"{"hook":{"event":"running","ptyId":42}}"#
     let decoded = try Gozd_V1_ClientMessage(jsonString: json)
     if case .hook(let hook) = decoded.body {
-      #expect(hook.event == "session-start")
+      #expect(hook.event == "running")
       #expect(hook.ptyID == 42)
     } else {
       Issue.record("expected .hook body")
     }
     // 静的に cmd 自体に hook event 名が含まれているのも確認
-    #expect(cmd.contains("session-start"))
+    #expect(cmd.contains("running"))
   }
 }
 

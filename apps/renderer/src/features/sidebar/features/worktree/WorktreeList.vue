@@ -35,6 +35,7 @@ defineProps<{
   now: number;
   viewMode: ViewMode;
   getClaudeStatuses: (dir: string) => ClaudeStatus[];
+  getResumeableSessionCount: (dir: string) => number;
 }>();
 
 defineEmits<{
@@ -89,6 +90,7 @@ defineSlots<{
         :wt="wt"
         :active="activeDir === wt.path"
         :claude-statuses="getClaudeStatuses(wt.path)"
+        :resumeable-session-count="getResumeableSessionCount(wt.path)"
         :now="now"
         :ctrl-pressed="ctrlPressed"
         :index="i"

@@ -41,6 +41,11 @@ export interface HookMessage {
   /** Claude Code の tool_input をそのまま JSON 文字列として保持 */
   toolInput: string;
   isInterrupt: boolean;
+  /** session-start / session-end のみ。Claude Code の resume 起動に必要。 */
+  sessionId: string;
+  transcriptPath: string;
+  /** session-start のみ。"startup" / "resume" / "clear" / "compact" 等 */
+  source: string;
 }
 
 /** `gozd open <path>` から送られるプロジェクトを開けの指示。 */
@@ -129,7 +134,17 @@ export const ClientMessage: MessageFns<ClientMessage> = {
 };
 
 function createBaseHookMessage(): HookMessage {
-  return { event: "", ptyId: 0, lastAssistantMessage: "", toolName: "", toolInput: "", isInterrupt: false };
+  return {
+    event: "",
+    ptyId: 0,
+    lastAssistantMessage: "",
+    toolName: "",
+    toolInput: "",
+    isInterrupt: false,
+    sessionId: "",
+    transcriptPath: "",
+    source: "",
+  };
 }
 
 export const HookMessage: MessageFns<HookMessage> = {
@@ -151,6 +166,15 @@ export const HookMessage: MessageFns<HookMessage> = {
     }
     if (message.isInterrupt !== false) {
       writer.uint32(48).bool(message.isInterrupt);
+    }
+    if (message.sessionId !== "") {
+      writer.uint32(58).string(message.sessionId);
+    }
+    if (message.transcriptPath !== "") {
+      writer.uint32(66).string(message.transcriptPath);
+    }
+    if (message.source !== "") {
+      writer.uint32(74).string(message.source);
     }
     return writer;
   },
@@ -210,6 +234,30 @@ export const HookMessage: MessageFns<HookMessage> = {
           message.isInterrupt = reader.bool();
           continue;
         }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.sessionId = reader.string();
+          continue;
+        }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.transcriptPath = reader.string();
+          continue;
+        }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.source = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -247,6 +295,17 @@ export const HookMessage: MessageFns<HookMessage> = {
         : isSet(object.is_interrupt)
         ? globalThis.Boolean(object.is_interrupt)
         : false,
+      sessionId: isSet(object.sessionId)
+        ? globalThis.String(object.sessionId)
+        : isSet(object.session_id)
+        ? globalThis.String(object.session_id)
+        : "",
+      transcriptPath: isSet(object.transcriptPath)
+        ? globalThis.String(object.transcriptPath)
+        : isSet(object.transcript_path)
+        ? globalThis.String(object.transcript_path)
+        : "",
+      source: isSet(object.source) ? globalThis.String(object.source) : "",
     };
   },
 
@@ -270,6 +329,15 @@ export const HookMessage: MessageFns<HookMessage> = {
     if (message.isInterrupt !== false) {
       obj.isInterrupt = message.isInterrupt;
     }
+    if (message.sessionId !== "") {
+      obj.sessionId = message.sessionId;
+    }
+    if (message.transcriptPath !== "") {
+      obj.transcriptPath = message.transcriptPath;
+    }
+    if (message.source !== "") {
+      obj.source = message.source;
+    }
     return obj;
   },
 
@@ -284,6 +352,9 @@ export const HookMessage: MessageFns<HookMessage> = {
     message.toolName = object.toolName ?? "";
     message.toolInput = object.toolInput ?? "";
     message.isInterrupt = object.isInterrupt ?? false;
+    message.sessionId = object.sessionId ?? "";
+    message.transcriptPath = object.transcriptPath ?? "";
+    message.source = object.source ?? "";
     return message;
   },
 };

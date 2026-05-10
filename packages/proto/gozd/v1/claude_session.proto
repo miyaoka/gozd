@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package gozd.v1;
+
+// Claude Code セッションの永続化（worktree 単位の resume 復元用）。
+//
+// ファイル: ~/.config/gozd/projects/<projectKey>/claude-sessions.json
+// 1 worktree が複数 PTY で複数 Claude を走らせ得るので、配列で持つ。
+// session-end hook 受信時に session_id をキーに削除する。
+// アプリクラッシュで session-end が来なかった場合は、起動時に
+// transcript_path のファイル存在チェックで死活判定して落とす。
+
+message ClaudeSession {
+  string worktree_path = 1;
+  string session_id = 2;
+  // ~/.claude/projects/<encoded-cwd>/<session-id>.jsonl への絶対パス
+  string transcript_path = 3;
+  // ISO8601。デバッグ用途
+  string updated_at = 4;
+}
+
+message ClaudeSessionList {
+  repeated ClaudeSession sessions = 1;
+}
+
+// 指定 dir に紐づく Claude セッション一覧を返す。renderer が worktree オープン時に呼ぶ。
+message ClaudeSessionListByDirRequest {
+  string dir = 1;
+}
+
+message ClaudeSessionListByDirResponse {
+  repeated ClaudeSession sessions = 1;
+}
+
+// プロジェクト全体（任意の worktree dir から projectKey 解決）の生存セッション一覧を返す。
+// サイドバーで「各 worktree に何個 resume 可能か」を一括取得するため。
+message ClaudeSessionListByProjectRequest {
+  // プロジェクト内のいずれかの dir。projectKey 解決に使う。
+  string dir = 1;
+}
+
+message ClaudeSessionListByProjectResponse {
+  repeated ClaudeSession sessions = 1;
+}

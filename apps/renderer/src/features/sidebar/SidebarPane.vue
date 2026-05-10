@@ -212,6 +212,7 @@ const activeRootWorktree = computed(() => {
           :now="now"
           :view-mode="terminalStore.viewMode"
           :get-claude-statuses="terminalStore.getClaudeStatusesByDir"
+          :get-resumeable-session-count="terminalStore.getResumeableSessionCount"
           @remove-repo="onRemoveRepo"
           @select-root="handleWorktreeSelect"
           @select-worktree="onWorktreeSelect"

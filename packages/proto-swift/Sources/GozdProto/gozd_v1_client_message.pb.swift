@@ -85,6 +85,14 @@ public struct Gozd_V1_HookMessage: Sendable {
 
   public var isInterrupt: Bool = false
 
+  /// session-start / session-end のみ。Claude Code の resume 起動に必要。
+  public var sessionID: String = String()
+
+  public var transcriptPath: String = String()
+
+  /// session-start のみ。"startup" / "resume" / "clear" / "compact" 等
+  public var source: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -176,7 +184,7 @@ extension Gozd_V1_ClientMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
 
 extension Gozd_V1_HookMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".HookMessage"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}event\0\u{3}pty_id\0\u{3}last_assistant_message\0\u{3}tool_name\0\u{3}tool_input\0\u{3}is_interrupt\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}event\0\u{3}pty_id\0\u{3}last_assistant_message\0\u{3}tool_name\0\u{3}tool_input\0\u{3}is_interrupt\0\u{3}session_id\0\u{3}transcript_path\0\u{1}source\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -190,6 +198,9 @@ extension Gozd_V1_HookMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
       case 4: try { try decoder.decodeSingularStringField(value: &self.toolName) }()
       case 5: try { try decoder.decodeSingularStringField(value: &self.toolInput) }()
       case 6: try { try decoder.decodeSingularBoolField(value: &self.isInterrupt) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
+      case 8: try { try decoder.decodeSingularStringField(value: &self.transcriptPath) }()
+      case 9: try { try decoder.decodeSingularStringField(value: &self.source) }()
       default: break
       }
     }
@@ -214,6 +225,15 @@ extension Gozd_V1_HookMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
     if self.isInterrupt != false {
       try visitor.visitSingularBoolField(value: self.isInterrupt, fieldNumber: 6)
     }
+    if !self.sessionID.isEmpty {
+      try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 7)
+    }
+    if !self.transcriptPath.isEmpty {
+      try visitor.visitSingularStringField(value: self.transcriptPath, fieldNumber: 8)
+    }
+    if !self.source.isEmpty {
+      try visitor.visitSingularStringField(value: self.source, fieldNumber: 9)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -224,6 +244,9 @@ extension Gozd_V1_HookMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
     if lhs.toolName != rhs.toolName {return false}
     if lhs.toolInput != rhs.toolInput {return false}
     if lhs.isInterrupt != rhs.isInterrupt {return false}
+    if lhs.sessionID != rhs.sessionID {return false}
+    if lhs.transcriptPath != rhs.transcriptPath {return false}
+    if lhs.source != rhs.source {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

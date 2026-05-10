@@ -12,7 +12,7 @@ renderer（Vue / WebKit）と native（Swift）間の通信。`.proto` を SSOT 
 
 生成物は git に commit する。`buf.gen.yaml` では BSR のリモートプラグイン `buf.build/community/stephenh-ts-proto`（ts-proto）と `buf.build/apple/swift`（swift-protobuf）をバージョン pin して利用する（具体バージョンは `buf.gen.yaml` を参照）。
 
-`.proto` ファイルはドメインごとに分割: `pty.proto` / `fs.proto` / `git_ops.proto` / `git_status.proto` / `task.proto` / `app_state.proto` / `client_message.proto` 等。新しい RPC を足すときは該当の `.proto` に request / response / event を追加し、`buf generate` で TS / Swift の生成物を更新する。
+`.proto` ファイルはドメインごとに分割: `pty.proto` / `fs.proto` / `git_ops.proto` / `git_status.proto` / `task.proto` / `app_state.proto` / `client_message.proto` / `claude_session.proto` 等。新しい RPC を足すときは該当の `.proto` に request / response / event を追加し、`buf generate` で TS / Swift の生成物を更新する。
 
 ## 通信モデル
 

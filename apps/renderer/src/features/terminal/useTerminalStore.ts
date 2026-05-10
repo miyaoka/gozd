@@ -1,13 +1,20 @@
+import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, shallowRef } from "vue";
 import { useContextKeys } from "../../shared/command";
+import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import type { ClaudeStatus } from "./claudeStatus";
 import { isHookEvent, createClaudeStatusManager } from "./claudeStatus";
 import { createPtySessionManager } from "./ptySession";
 import type { PaneEntry } from "./ptySession";
 import type { HookPayload, PtyExitPayload, PtyTextPayload } from "./rpc";
-import { rpcPtyKill, rpcPtySpawn } from "./rpc";
+import {
+  rpcClaudeSessionListByDir,
+  rpcClaudeSessionListByProject,
+  rpcPtyKill,
+  rpcPtySpawn,
+} from "./rpc";
 import { createTerminalLayout } from "./terminalLayout";
 import type { TerminalLayoutState } from "./terminalLayout";
 
@@ -31,6 +38,7 @@ const DEFAULT_SHELL_ARGS = ["/bin/zsh", "-i"];
  */
 export const useTerminalStore = defineStore("terminal", () => {
   const contextKeys = useContextKeys();
+  const notify = useNotificationStore();
 
   // --- 共有 state ---
 
@@ -62,6 +70,34 @@ export const useTerminalStore = defineStore("terminal", () => {
   /** 直近のタイトル更新（外部の watch 用シグナル） */
   const lastTitleUpdate = shallowRef<{ leafId: string; title: string }>();
 
+  /**
+   * leafId → 次回 spawn 時に env として注入する Claude session ID。
+   * worktree の初回 visit 時に保存済みセッションを復元するために、leafId と sessionId を
+   * 紐付けておく。spawnPty が env を組み立てるタイミングで一度だけ消費する。
+   */
+  const pendingResumeByLeafId = ref<Record<string, string>>({});
+
+  /**
+   * worktreePath → 永続化済み Claude セッション数。サイドバーの resume バッジ表示用。
+   * 「resume 可能 = 永続化されているがまだ live PTY に接続されていない」分は
+   * `getResumeableSessionCount(dir)` で saved - live を取って算出する。
+   */
+  const savedSessionCountByDir = ref<Record<string, number>>({});
+
+  /**
+   * `refreshSavedSessionCounts` の世代カウンタ（per project anchor）。
+   * await を跨いで stale な fetch 結果が新しい state を上書きしないよう、
+   * 完了時に最新世代と一致するかチェックして書き込む。
+   */
+  const refreshGenByAnchor = new Map<string, number>();
+
+  /**
+   * `visit()` の世代カウンタ（per dir）。await 中に同じ dir が再 visit されたり、
+   * 別の visit が並走したりしたとき、stale な復元処理が後勝ちでレイアウトを
+   * 壊さないよう、await 後に最新世代と一致するかチェックする。
+   */
+  const visitGenByDir = new Map<string, number>();
+
   // --- モジュール初期化 ---
 
   const ptySession = createPtySessionManager({
@@ -74,15 +110,27 @@ export const useTerminalStore = defineStore("terminal", () => {
       },
       iterateEntries: () => Object.entries(paneRegistry.value),
     },
-    requestPtySpawn: async ({ dir, cols, rows }) => {
+    requestPtySpawn: async ({ leafId, dir, cols, rows }) => {
+      const env = getDefaultSpawnEnv();
+      // 復元対象セッションがあれば env に乗せる。spawn 失敗で resume ID が
+      // 永久消失しないよう、map からの削除は spawn 成功後にのみ行う。
+      // zsh init が GOZD_RESUME_CLAUDE_SESSION を見て `claude --resume <id>` を起動する。
+      const resumeId = pendingResumeByLeafId.value[leafId];
+      if (resumeId !== undefined) {
+        env.GOZD_RESUME_CLAUDE_SESSION = resumeId;
+      }
       const res = await rpcPtySpawn({
         dir,
         executable: DEFAULT_SHELL,
         args: DEFAULT_SHELL_ARGS,
-        env: getDefaultSpawnEnv(),
+        env,
         rows,
         cols,
+        worktreePath: dir,
       });
+      if (resumeId !== undefined) {
+        delete pendingResumeByLeafId.value[leafId];
+      }
       return res.ptyId;
     },
     sendPtyKill: ({ id }) => {
@@ -116,6 +164,7 @@ export const useTerminalStore = defineStore("terminal", () => {
         ptySession.killPty(leafId);
         delete cwdByLeafId.value[leafId];
         delete titleByLeafId.value[leafId];
+        delete pendingResumeByLeafId.value[leafId];
         delete paneRegistry.value[leafId];
       },
       getPaneDir: (leafId) => paneRegistry.value[leafId]?.dir,
@@ -170,6 +219,114 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   initSubscriptions();
 
+  // --- saved Claude セッション件数 ---
+
+  /**
+   * 指定プロジェクト全体の保存セッション数を再取得して savedSessionCountByDir を更新する。
+   * - `worktreePaths`: そのプロジェクトに属する worktree の絶対パス一覧。
+   *   このリストに含まれる既存エントリを一旦消してから fetch 結果で埋め直すことで、
+   *   ある worktree が 0 件になったケースもバッジから消える。
+   * - `anyDirInProject`: projectKey 解決に使う任意の dir（root でも worktree でも可）。
+   */
+  async function refreshSavedSessionCounts(
+    worktreePaths: string[],
+    anyDirInProject: string,
+  ): Promise<void> {
+    const gen = (refreshGenByAnchor.get(anyDirInProject) ?? 0) + 1;
+    refreshGenByAnchor.set(anyDirInProject, gen);
+
+    const fetched = await tryCatch(rpcClaudeSessionListByProject({ dir: anyDirInProject }));
+    // stale: 古い世代の結果は破棄する。新しい呼び出し側の値を尊重する。
+    if (refreshGenByAnchor.get(anyDirInProject) !== gen) return;
+    if (!fetched.ok) {
+      notify.error("Failed to load saved Claude sessions", fetched.error);
+      return;
+    }
+    // 最新世代の結果が確定したタイミングで、対象 worktree の count を一旦消して
+    // fetch 結果で埋め直す。await 前に消すと、fetch 中はバッジが一瞬消える挙動になる。
+    for (const path of worktreePaths) {
+      delete savedSessionCountByDir.value[path];
+    }
+    for (const session of fetched.value.sessions) {
+      const path = session.worktreePath;
+      savedSessionCountByDir.value[path] = (savedSessionCountByDir.value[path] ?? 0) + 1;
+    }
+  }
+
+  /**
+   * 指定 worktree の「resume 可能なセッション数」。永続化セッション数から、
+   * 既に live PTY 上で動作している Claude の数を引いた残り。
+   * - 未訪問 worktree: live=0 なので保存数がそのまま出る
+   * - 訪問済み + 全 resume 完了: live=saved で 0
+   */
+  function getResumeableSessionCount(dir: string): number {
+    const saved = savedSessionCountByDir.value[dir] ?? 0;
+    if (saved === 0) return 0;
+    const live = claude.getClaudeStatusesByDir(dir).length;
+    return Math.max(0, saved - live);
+  }
+
+  // --- worktree visit + Claude セッション復元 ---
+
+  /**
+   * worktree を訪問する。初回 visit 時に保存済み Claude セッションを引き、
+   * セッション数だけ leaf を split で生成して各 leaf に resume sessionId を仕込む。
+   * 2 回目以降の visit は何もしない（既存レイアウトを維持）。
+   *
+   * 非同期だが呼び出し側の watch ハンドラは await しない。
+   * 順序の正しさは visitGenByDir の世代チェックで担保する：
+   * - fetch 失敗時に visitedDirs を汚さないため、visitedDirs.push は await 後に行う
+   * - await 中に同じ dir で別の visit が走った場合、古い世代の処理は中断する
+   */
+  async function visit(dir: string): Promise<void> {
+    if (visitedDirs.value.includes(dir)) {
+      // 既に訪問済みなら何もしない（既存レイアウトを維持）
+      return;
+    }
+    const gen = (visitGenByDir.get(dir) ?? 0) + 1;
+    visitGenByDir.set(dir, gen);
+
+    const fetched = await tryCatch(rpcClaudeSessionListByDir({ dir }));
+    if (visitGenByDir.get(dir) !== gen) return;
+    if (!fetched.ok) {
+      // fetch 失敗時は visitedDirs を汚さず、ユーザーに通知して終了。
+      // 復元情報なしで起動すると意図しない素 PTY が走り Claude セッションを失うため、
+      // ここで止めて再試行（次回の visit）に委ねる。
+      notify.error(`Failed to load Claude sessions for ${dir}`, fetched.error);
+      return;
+    }
+
+    visitedDirs.value.push(dir);
+    const sessions = fetched.value.sessions;
+
+    // ensureLayout で初期 leaf を作る（既存の単一 leaf 起動と同じ）
+    const initialLayout = layout.ensureLayout(dir);
+    const initialLeafId = initialLayout.focusedLeafId;
+    const [firstSession, ...remainingSessions] = sessions;
+    if (firstSession !== undefined) {
+      pendingResumeByLeafId.value[initialLeafId] = firstSession.sessionId;
+    }
+    // 2 つ目以降のセッションは split で leaf を増やす
+    for (const session of remainingSessions) {
+      const newLeafId = layout.splitPane(dir, "horizontal");
+      if (newLeafId !== undefined) {
+        pendingResumeByLeafId.value[newLeafId] = session.sessionId;
+      }
+    }
+  }
+
+  /**
+   * worktree が外部削除された / アクティブから外れたときの cleanup。
+   * `layout.remove` を呼ぶ前に visitGenByDir の世代を進めることで、
+   * 進行中の `visit` の await 後 world は stale 判定で破棄される。
+   * これにより、削除済み worktree の遅延 fetch 結果が `ensureLayout` を
+   * 復活させる race を防ぐ。
+   */
+  function removeWorktreeFromLayout(dir: string) {
+    visitGenByDir.set(dir, (visitGenByDir.get(dir) ?? 0) + 1);
+    layout.remove(dir);
+  }
+
   // --- pane getter ---
 
   /** leafId に対応するペーンの dir を返す */
@@ -221,13 +378,13 @@ export const useTerminalStore = defineStore("terminal", () => {
     // computed
     claudeActiveLeafIds,
     // layout
-    visit: layout.visit,
+    visit,
     splitPane: layout.splitPane,
     closePane: layout.closePane,
     resetLayout: layout.resetLayout,
     resizeBranch: layout.resizeBranch,
     focusPane: layout.focusPane,
-    remove: layout.remove,
+    remove: removeWorktreeFromLayout,
     // pty
     spawnPty: ptySession.spawnPty,
     killPty: ptySession.killPty,
@@ -236,6 +393,9 @@ export const useTerminalStore = defineStore("terminal", () => {
     getClaudeState: claude.getClaudeState,
     getClaudeStatusesByDir: claude.getClaudeStatusesByDir,
     clearDoneStates: claude.clearDoneStates,
+    // saved sessions (resume バッジ用)
+    refreshSavedSessionCounts,
+    getResumeableSessionCount,
     // pane getter
     getPaneDir,
     getPtyId,

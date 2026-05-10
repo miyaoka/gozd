@@ -50,8 +50,8 @@ const emit = defineEmits<{
   selectRoot: [wt: WorktreeEntry];
   selectWorktree: [wt: WorktreeEntry];
   addWorktree: [rootDir: string];
-  openWorktreeMenu: [anchorName: string, wt: WorktreeEntry, rootDir: string];
-  openBranchMenu: [anchorName: string, branch: string, rootDir: string];
+  openWorktreeMenu: [anchorEl: HTMLElement, wt: WorktreeEntry, rootDir: string];
+  openBranchMenu: [anchorEl: HTMLElement, branch: string, rootDir: string];
   setViewMode: [mode: ViewMode];
 }>();
 
@@ -172,7 +172,7 @@ function onHeaderClick() {
         :view-mode="viewMode"
         :get-claude-statuses="getClaudeStatuses"
         @select="emit('selectWorktree', $event)"
-        @open-menu="(anchorName, wt) => emit('openWorktreeMenu', anchorName, wt, rootDir)"
+        @open-menu="(anchorEl, wt) => emit('openWorktreeMenu', anchorEl, wt, rootDir)"
         @add="emit('addWorktree', rootDir)"
         @set-view-mode="emit('setViewMode', $event)"
       >
@@ -183,7 +183,7 @@ function onHeaderClick() {
 
       <BranchList
         :branches="sortedBranches"
-        @open-menu="(anchorName, branch) => emit('openBranchMenu', anchorName, branch, rootDir)"
+        @open-menu="(anchorEl, branch) => emit('openBranchMenu', anchorEl, branch, rootDir)"
       />
     </div>
   </section>

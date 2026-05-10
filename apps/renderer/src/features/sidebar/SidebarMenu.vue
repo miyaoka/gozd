@@ -3,7 +3,7 @@
 
 worktree / branch の各セクションから呼ばれ、
 コンテキストに応じたアクション（編集・削除・作成）を表示する。
-CSS Anchor Positioning で ⋮ ボタンの直下に配置。
+`showPopover({ source })` の implicit anchor で ⋮ ボタンの直下に配置する。
 
 親から `openMenu()` を expose 経由で呼び出してメニューを開く。
 アクション選択時は emit で親に通知し、メニューを閉じる。
@@ -27,16 +27,21 @@ type MenuContext =
   | { type: "worktree"; worktree: WorktreeEntry; rootDir: string }
   | { type: "branch"; branch: string; rootDir: string };
 
-const menuRef = ref<HTMLElement>();
-const menuContext = ref<MenuContext>();
-/** 現在 anchor になっている ⋮ ボタンの anchor-name */
-const activeAnchorName = ref("");
+/**
+ * showPopover に渡す `source` 引数の型。
+ * Popover API の最新仕様（HTMLElement.showPopover(options)）。
+ * lib.dom.d.ts への取り込みが追いついていないため最小宣言を持つ。
+ */
+type ShowPopoverOptions = { source?: HTMLElement };
+type PopoverElement = HTMLElement & { showPopover(options?: ShowPopoverOptions): void };
 
-function openMenu(anchorName: string, context: MenuContext) {
-  activeAnchorName.value = anchorName;
+const menuRef = ref<PopoverElement>();
+const menuContext = ref<MenuContext>();
+
+function openMenu(anchorEl: HTMLElement, context: MenuContext) {
   menuContext.value = context;
   nextTick(() => {
-    menuRef.value?.showPopover();
+    menuRef.value?.showPopover({ source: anchorEl });
   });
 }
 
@@ -68,7 +73,6 @@ defineExpose({ openMenu });
     popover="auto"
     class="m-0 min-w-36 rounded-lg border border-zinc-700 bg-zinc-900 py-1 text-sm text-zinc-200 shadow-lg"
     :style="{
-      positionAnchor: activeAnchorName,
       top: 'anchor(bottom)',
       left: 'anchor(left)',
     }"

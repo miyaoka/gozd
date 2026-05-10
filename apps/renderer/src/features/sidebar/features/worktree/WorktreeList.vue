@@ -39,7 +39,7 @@ defineProps<{
 
 defineEmits<{
   select: [wt: WorktreeEntry];
-  openMenu: [anchorName: string, wt: WorktreeEntry];
+  openMenu: [anchorEl: HTMLElement, wt: WorktreeEntry];
   add: [];
   setViewMode: [mode: ViewMode];
 }>();
@@ -90,11 +90,10 @@ defineSlots<{
         :active="activeDir === wt.path"
         :claude-statuses="getClaudeStatuses(wt.path)"
         :now="now"
-        :anchor-name="`--wt-menu-${i}`"
         :ctrl-pressed="ctrlPressed"
         :index="i"
         @select="$emit('select', $event)"
-        @open-menu="(anchorName, w) => $emit('openMenu', anchorName, w)"
+        @open-menu="(anchorEl, w) => $emit('openMenu', anchorEl, w)"
       />
       <slot name="after-item" :wt="wt" />
     </div>

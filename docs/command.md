@@ -86,8 +86,8 @@ registry.register("terminal.splitHorizontal", {
   },
 });
 
-// label なし: コマンドパレットに表示されない（引数付きコマンド）
-registry.register("workspace.selectWorktree", (args) => {
+// label なし: コマンドパレットに表示されない（キーバインド経由のみで起動）
+registry.register("workspace.someInternalAction", (args) => {
   if (typeof args !== "number") return false;
   // ...
   return true;

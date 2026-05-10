@@ -34,8 +34,7 @@ import { move } from "@dnd-kit/helpers";
 import { DragDropProvider } from "@dnd-kit/vue";
 import { tryCatch } from "@gozd/shared";
 import { useIntervalFn } from "@vueuse/core";
-import { computed, onUnmounted, ref } from "vue";
-import { useCommandRegistry } from "../../shared/command";
+import { computed, ref } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { rpcPickAndOpen } from "../layout";
@@ -46,7 +45,6 @@ import { TaskEditor, useTaskActions } from "./features/task";
 import { useWorktreeActions } from "./features/worktree";
 import ProjectConfigPanel from "./ProjectConfigPanel.vue";
 import SidebarMenu from "./SidebarMenu.vue";
-import { useCtrlBadge } from "./useCtrlBadge";
 import { useDialogs } from "./useDialogs";
 import { useSidebarData } from "./useSidebarData";
 import VoicevoxPanel from "./VoicevoxPanel.vue";
@@ -74,25 +72,6 @@ const {
   saveWorktreeTask,
   cancelWorktreeTaskAdd,
 } = useTaskActions({ fetchRepo });
-
-const { ctrlPressed } = useCtrlBadge();
-
-// --- コマンドレジストリ: Ctrl+数字で active repo の worktree 選択 ---
-
-const { register } = useCommandRegistry();
-const disposeSelectWorktree = register("workspace.selectWorktree", (args) => {
-  if (typeof args !== "number") return false;
-  const dir = worktreeStore.dir;
-  if (dir === undefined) return false;
-  const owning = repoStore.findRepoOwning(dir);
-  if (owning === undefined) return false;
-  const nonMain = owning.worktrees.filter((wt) => !wt.isMain);
-  const wt = nonMain[args - 1];
-  if (!wt) return false;
-  handleWorktreeSelect(wt);
-  return true;
-});
-onUnmounted(disposeSelectWorktree);
 
 // --- 経過時間表示用の現在時刻 ---
 
@@ -233,7 +212,6 @@ const activeRootWorktree = computed(() => {
           :edit-mode="editMode"
           :active-dir="worktreeStore.dir"
           :is-creating="isCreating"
-          :ctrl-pressed="ctrlPressed"
           :now="now"
           :get-claude-statuses="terminalStore.getClaudeStatusesByDir"
           :get-resumeable-session-count="terminalStore.getResumeableSessionCount"

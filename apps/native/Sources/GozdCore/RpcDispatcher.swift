@@ -134,6 +134,8 @@ public actor RpcDispatcher {
       return try await handleGitIssueList(body)
     case "/git/viewer":
       return try await handleGitViewer(body)
+    case "/git/defaultBranch":
+      return try await handleGitDefaultBranch(body)
     case "/git/createWorktree":
       return try await handleCreateWorktree(body)
     case "/git/worktreeRemove":
@@ -533,6 +535,18 @@ public actor RpcDispatcher {
     } else {
       resp.ok = false
     }
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleGitDefaultBranch(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitDefaultBranchRequest(jsonUTF8Data: body)
+    // origin/HEAD が未設定（remote 未追加 / fetch 未実行など）の場合は git が non-zero を返す。
+    // ここでは throw せず空文字列で返し、解決失敗のハンドリング（通知 / 中止 / fallback の選択）を
+    // 呼び出し側に委ねる。現状の caller（issue-picker / sidebar addWorktree）は空文字列を見て
+    // 通知 + early return する。
+    let branch = (try? await GitOps.defaultBranchName(dir: req.dir)) ?? ""
+    var resp = Gozd_V1_GitDefaultBranchResponse()
+    resp.branch = branch
     return try resp.jsonUTF8Data()
   }
 

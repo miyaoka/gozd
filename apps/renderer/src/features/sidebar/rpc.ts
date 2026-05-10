@@ -4,6 +4,8 @@ import {
   CreateWorktreeResponse,
   GitBranchListRequest,
   GitBranchListResponse,
+  GitDefaultBranchRequest,
+  GitDefaultBranchResponse,
   GitWorktreeListRequest,
   GitWorktreeListResponse,
   GitWorktreeRemoveRequest,
@@ -30,6 +32,9 @@ export const rpcGitBranchList = (req: GitBranchListRequest) =>
 
 export const rpcCreateWorktree = (req: CreateWorktreeRequest) =>
   rpc("/git/createWorktree", req, CreateWorktreeRequest, CreateWorktreeResponse);
+
+export const rpcGitDefaultBranch = (req: GitDefaultBranchRequest) =>
+  rpc("/git/defaultBranch", req, GitDefaultBranchRequest, GitDefaultBranchResponse);
 
 export const rpcGitWorktreeRemove = (req: GitWorktreeRemoveRequest) =>
   rpc("/git/worktreeRemove", req, GitWorktreeRemoveRequest, GitWorktreeRemoveResponse);

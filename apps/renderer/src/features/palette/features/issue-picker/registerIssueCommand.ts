@@ -8,7 +8,12 @@ import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
-import { rpcCreateWorktree, rpcGitWorktreeList, rpcTaskAdd } from "../../../sidebar";
+import {
+  rpcCreateWorktree,
+  rpcGitDefaultBranch,
+  rpcGitWorktreeList,
+  rpcTaskAdd,
+} from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
 import { rpcGitViewer } from "../pr-picker";
@@ -64,13 +69,20 @@ export function registerIssueCommand(): () => void {
             return;
           }
           void (async () => {
-            // 新規 worktree は常にデフォルトブランチを起点に作る。
-            // `dir` は active worktree のパスなので、そのまま `cwd` にして `HEAD` を渡すと
-            // active worktree のブランチ先端から派生してしまう。`rootDir`（main repo root）を
-            // 渡せば `cwd` のリポジトリ HEAD = デフォルトブランチに解決される（main は参照専用）。
+            // 新規 worktree は default branch を起点に作る。`HEAD` に頼ると `cwd` の
+            // 現在 checkout されているブランチに依存してしまうため、`origin/HEAD` から
+            // default branch 名（例: `origin/main`）を解決して明示的に渡す。
             const rootDir = repoStore.findRepoOwning(dir)?.rootDir;
             if (rootDir === undefined) {
               notify.error("Failed to resolve repo root for worktree creation");
+              return;
+            }
+            const branchResult = await tryCatch(rpcGitDefaultBranch({ dir: rootDir }));
+            if (!branchResult.ok || branchResult.value.branch === "") {
+              notify.error(
+                "Failed to resolve default branch",
+                branchResult.ok ? undefined : branchResult.error,
+              );
               return;
             }
             const timestamp = generateTimestamp();
@@ -79,7 +91,7 @@ export function registerIssueCommand(): () => void {
                 dir: rootDir,
                 worktreeDir: timestamp,
                 branch: timestamp,
-                startPoint: "HEAD",
+                startPoint: branchResult.value.branch,
               }),
             );
             if (!result.ok) {

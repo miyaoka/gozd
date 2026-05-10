@@ -113,6 +113,16 @@ message GitViewerResponse {
   string login = 2;
 }
 
+// gitDefaultBranch: `git symbolic-ref --short refs/remotes/origin/HEAD` 相当。
+// 新規 worktree を default branch から派生させるとき、起点 ref を一意に決めるために使う。
+// `origin/main` のように remote 名込みのフルネームを返す。origin/HEAD が未設定の場合は空文字列。
+message GitDefaultBranchRequest {
+  string dir = 1;
+}
+message GitDefaultBranchResponse {
+  string branch = 1;
+}
+
 // createWorktree: 新規 worktree を作成
 message CreateWorktreeRequest {
   string dir = 1;

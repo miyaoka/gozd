@@ -5,7 +5,7 @@ import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
-import { rpcCreateWorktree, rpcGitWorktreeRemove } from "../../rpc";
+import { rpcCreateWorktree, rpcGitDefaultBranch, rpcGitWorktreeRemove } from "../../rpc";
 import { worktreeDisplayName } from "../../utils";
 
 interface UseWorktreeActionsOptions {
@@ -72,13 +72,24 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
   async function addWorktree(rootDir: string) {
     if (isCreating.value) return;
     isCreating.value = true;
+    // default branch（`origin/HEAD` の指す先）を起点にする。`HEAD` だと main repo root の
+    // 現在 checkout に依存してしまい、規約から外れた状態の影響を受けるため明示解決する。
+    const branchResult = await tryCatch(rpcGitDefaultBranch({ dir: rootDir }));
+    if (!branchResult.ok || branchResult.value.branch === "") {
+      notify.error(
+        "Failed to resolve default branch",
+        branchResult.ok ? undefined : branchResult.error,
+      );
+      isCreating.value = false;
+      return;
+    }
     const timestamp = generateTimestamp();
     const result = await tryCatch(
       rpcCreateWorktree({
         dir: rootDir,
         worktreeDir: timestamp,
         branch: timestamp,
-        startPoint: "HEAD",
+        startPoint: branchResult.value.branch,
       }),
     );
     if (result.ok && result.value.worktree !== undefined) {

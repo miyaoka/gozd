@@ -137,6 +137,19 @@ export interface GitViewerResponse {
   login: string;
 }
 
+/**
+ * gitDefaultBranch: `git symbolic-ref --short refs/remotes/origin/HEAD` 相当。
+ * 新規 worktree を default branch から派生させるとき、起点 ref を一意に決めるために使う。
+ * `origin/main` のように remote 名込みのフルネームを返す。origin/HEAD が未設定の場合は空文字列。
+ */
+export interface GitDefaultBranchRequest {
+  dir: string;
+}
+
+export interface GitDefaultBranchResponse {
+  branch: string;
+}
+
 /** createWorktree: 新規 worktree を作成 */
 export interface CreateWorktreeRequest {
   dir: string;
@@ -1679,6 +1692,122 @@ export const GitViewerResponse: MessageFns<GitViewerResponse> = {
     const message = createBaseGitViewerResponse();
     message.ok = object.ok ?? false;
     message.login = object.login ?? "";
+    return message;
+  },
+};
+
+function createBaseGitDefaultBranchRequest(): GitDefaultBranchRequest {
+  return { dir: "" };
+}
+
+export const GitDefaultBranchRequest: MessageFns<GitDefaultBranchRequest> = {
+  encode(message: GitDefaultBranchRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitDefaultBranchRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitDefaultBranchRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitDefaultBranchRequest {
+    return { dir: isSet(object.dir) ? globalThis.String(object.dir) : "" };
+  },
+
+  toJSON(message: GitDefaultBranchRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitDefaultBranchRequest>): GitDefaultBranchRequest {
+    return GitDefaultBranchRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitDefaultBranchRequest>): GitDefaultBranchRequest {
+    const message = createBaseGitDefaultBranchRequest();
+    message.dir = object.dir ?? "";
+    return message;
+  },
+};
+
+function createBaseGitDefaultBranchResponse(): GitDefaultBranchResponse {
+  return { branch: "" };
+}
+
+export const GitDefaultBranchResponse: MessageFns<GitDefaultBranchResponse> = {
+  encode(message: GitDefaultBranchResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.branch !== "") {
+      writer.uint32(10).string(message.branch);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitDefaultBranchResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitDefaultBranchResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.branch = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitDefaultBranchResponse {
+    return { branch: isSet(object.branch) ? globalThis.String(object.branch) : "" };
+  },
+
+  toJSON(message: GitDefaultBranchResponse): unknown {
+    const obj: any = {};
+    if (message.branch !== "") {
+      obj.branch = message.branch;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitDefaultBranchResponse>): GitDefaultBranchResponse {
+    return GitDefaultBranchResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitDefaultBranchResponse>): GitDefaultBranchResponse {
+    const message = createBaseGitDefaultBranchResponse();
+    message.branch = object.branch ?? "";
     return message;
   },
 };

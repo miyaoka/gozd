@@ -8,6 +8,7 @@
     "dev": "concurrently --kill-others --names renderer,native --prefix-colors cyan,magenta 'pnpm --filter @gozd/renderer dev' 'pnpm --filter @gozd/native dev'",
     "dev:prod": "rm -rf \"$TMPDIR/gozd-stable-launch\" \"$TMPDIR/gozd-stable.sock\" && env -u GOZD_SOCKET_PATH apps/native/.build/app/Gozd.app/Contents/Resources/app/bin/gozd",
     "build": "pnpm -r build",
+    "bootstrap": "pnpm build && open apps/native/.build/app/Gozd.app",
     "format": "oxfmt .",
     "lint": "oxlint --type-aware",
     "fix": "oxfmt '!apps/**' '!packages/**'",

@@ -135,6 +135,12 @@ export {
   PtyWriteResponse,
 } from "./generated/gozd/v1/pty";
 export {
+  ShellCommandInstallRequest,
+  ShellCommandInstallResponse,
+  ShellCommandUninstallRequest,
+  ShellCommandUninstallResponse,
+} from "./generated/gozd/v1/shell_command";
+export {
   CreateWorktreeWithTaskRequest,
   CreateWorktreeWithTaskResponse,
   TaskAddRequest,

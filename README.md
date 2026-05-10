@@ -10,18 +10,15 @@ pnpm dev   # renderer（Vite HMR）と native（Swift app）を同時起動
 
 ## ビルド版
 
-初回のみ CLI にパスを通す。
+初回はビルドしてアプリを起動する。
 
 ```bash
-ln -s "$(pwd)/apps/native/.build/app/Gozd.app/Contents/Resources/app/bin/gozd" ~/.local/bin/gozd
+pnpm setup
 ```
 
-ビルドして起動する。
+起動したアプリのコマンドパレットから `Shell Command: Install 'gozd' command in PATH` を実行すると `~/.local/bin/gozd` に CLI への symlink が作られる（`~/.local/bin` が PATH に通っている前提）。アンインストールは `Shell Command: Uninstall 'gozd' command from PATH`。
 
-```bash
-pnpm build
-pnpm dev:prod
-```
+以降の再ビルドは `pnpm build`。symlink は `.app` 内 wrapper を指すため、ビルドし直しても張り替え不要（`.app` を別の場所に移したときのみ install をやり直す）。
 
 `gozd` CLI で任意のパスを開く。アプリが未起動であれば自動で起動する。
 

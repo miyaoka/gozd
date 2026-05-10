@@ -1,13 +1,16 @@
 /**
  * 選択中 dir の git status を最新に保つ app-scope な watcher。
  *
- * docs/workspace.md の「git status は選択中 dir のみ」方針に従い、以下のトリガで loadGitStatus する:
- * - dir 切替時（fsChange / gitStatusChange は watch 開始時には push されないため、切替自体をトリガに含める）
+ * docs/workspace.md の「git status は選択中 dir のみ」方針に従い、以下のトリガで store を更新する:
+ * - dir 切替時（gitStatusChange は watch 開始時には push されないため、切替自体をトリガに含める）
  * - 同 dir に紐づく PTY の Claude state 遷移時（fs 変更がない静的な repo でも反映させるため）
+ * - native 側 FSWatchRegistry からの gitStatusChange push（外部エディタ等での編集を反映）
  */
-import { watch } from "vue";
+import { onMounted, onUnmounted, watch } from "vue";
 import { useRepoStore } from "../../shared/repo";
+import { onMessage } from "../../shared/rpc";
 import { useTerminalStore } from "../terminal";
+import type { GitStatusChangePayload } from "./rpc";
 import { useGitStatusStore } from "./useGitStatusStore";
 import { useWorktreeStore } from "./useWorktreeStore";
 
@@ -40,4 +43,15 @@ export function useGitStatusSync() {
       void gitStatusStore.loadGitStatus();
     },
   );
+
+  let cleanup: (() => void) | undefined;
+  onMounted(() => {
+    cleanup = onMessage<GitStatusChangePayload>("gitStatusChange", (payload) => {
+      if (payload.dir !== worktreeStore.dir) return;
+      gitStatusStore.setGitStatuses(payload.statuses);
+    });
+  });
+  onUnmounted(() => {
+    cleanup?.();
+  });
 }

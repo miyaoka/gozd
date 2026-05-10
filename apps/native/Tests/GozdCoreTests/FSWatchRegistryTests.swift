@@ -30,14 +30,11 @@ struct FSWatchRegistryTests {
     #expect(events.contains { $0.hasPrefix("fsChange:") })
   }
 
-  @Test("`.git/refs/heads/...` 変更で branchChange が分類される")
+  @Test("git repo の `.git/refs/heads/...` 変更で branchChange が分類される")
   func classifiesBranchChange() async throws {
     let tmpDir = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: tmpDir) }
-
-    let refsHeads = tmpDir.appendingPathComponent(".git/refs/heads")
-    try FileManager.default.createDirectory(
-      at: refsHeads, withIntermediateDirectories: true)
+    try await initGitRepo(at: tmpDir)
 
     let collector = EventNameCollector()
     let registry = FSWatchRegistry(
@@ -50,12 +47,55 @@ struct FSWatchRegistryTests {
     try await registry.watch(dir: tmpDir.path)
     try await Task.sleep(for: .milliseconds(300))
 
-    let branchFile = refsHeads.appendingPathComponent("feature-x")
-    try "0123456789abcdef".write(to: branchFile, atomically: true, encoding: .utf8)
+    let branchFile = tmpDir.appendingPathComponent(".git/refs/heads/feature-x")
+    try "0123456789abcdef0123456789abcdef01234567\n"
+      .write(to: branchFile, atomically: true, encoding: .utf8)
 
     try await waitForEvent(collector, matching: { $0 == "branchChange" })
     let events = collector.snapshot()
     #expect(events.contains("branchChange"))
+  }
+
+  @Test("worktree 内 commit で gitStatusChange が分類される（実体は親 repo の .git/worktrees/）")
+  func classifiesGitStatusChangeForWorktreeCommit() async throws {
+    let mainRepo = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: mainRepo) }
+    try await initGitRepo(at: mainRepo)
+
+    // 初回 commit を作って HEAD を確立する。
+    let seed = mainRepo.appendingPathComponent("seed.txt")
+    try "seed".write(to: seed, atomically: true, encoding: .utf8)
+    try await runGitCmd(["add", "seed.txt"], cwd: mainRepo)
+    try await runGitCmd(["commit", "-m", "seed"], cwd: mainRepo)
+
+    // worktree を分岐させる。
+    let worktreeRoot = mainRepo.deletingLastPathComponent()
+      .appendingPathComponent("wt-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: worktreeRoot) }
+    try await runGitCmd(
+      ["worktree", "add", "-b", "feature", worktreeRoot.path], cwd: mainRepo)
+    let worktreeRootResolved = URL(fileURLWithPath: worktreeRoot.path).resolvingSymlinksInPath()
+
+    let collector = EventNameCollector()
+    let registry = FSWatchRegistry(
+      onFsChange: { _, _ in collector.append("fsChange") },
+      onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
+      onBranchChange: { _ in collector.append("branchChange") },
+      onWorktreeChange: { _ in collector.append("worktreeChange") }
+    )
+
+    try await registry.watch(dir: worktreeRootResolved.path)
+    try await Task.sleep(for: .milliseconds(300))
+    collector.clear()
+
+    let file = worktreeRootResolved.appendingPathComponent("a.txt")
+    try "hello".write(to: file, atomically: true, encoding: .utf8)
+    try await runGitCmd(["add", "a.txt"], cwd: worktreeRootResolved)
+    try await runGitCmd(["commit", "-m", "add a"], cwd: worktreeRootResolved)
+
+    try await waitForEvent(collector, matching: { $0 == "gitStatusChange" })
+    let events = collector.snapshot()
+    #expect(events.contains("gitStatusChange"))
   }
 
   @Test("unwatch 後はイベントが届かない")
@@ -89,6 +129,146 @@ struct FSWatchRegistryTests {
   }
 }
 
+// MARK: - classify pure unit tests
+
+@Suite("FSWatchRegistry.classify")
+struct ClassifyTests {
+  // 共通の Event 生成 helper。flags / id は分類に影響しないので 0 固定。
+  private func ev(_ path: String) -> FSWatcher.Event {
+    FSWatcher.Event(path: path, flags: 0, id: 0)
+  }
+
+  @Test("worktree 配置: per-worktree git dir 配下の HEAD は gitStatusChange のみ")
+  func worktreePerWorktreeHead() {
+    let dir = "/wt/foo"
+    let perWt = "/parent/.git/worktrees/foo"
+    let common = "/parent/.git"
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
+      events: [ev("\(perWt)/HEAD")])
+    #expect(result.hasGitStatusChange)
+    #expect(!result.hasFsChange)
+    #expect(!result.hasBranchChange)
+    #expect(!result.hasWorktreeChange)
+  }
+
+  @Test("worktree 配置: common git dir 配下の refs/heads/main は branchChange")
+  func worktreeCommonBranchRef() {
+    let dir = "/wt/foo"
+    let perWt = "/parent/.git/worktrees/foo"
+    let common = "/parent/.git"
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
+      events: [ev("\(common)/refs/heads/main")])
+    #expect(result.hasBranchChange)
+    #expect(!result.hasFsChange)
+    #expect(!result.hasGitStatusChange)
+    #expect(!result.hasWorktreeChange)
+  }
+
+  @Test("worktree 配置: common git dir 配下の packed-refs は branchChange")
+  func worktreeCommonPackedRefs() {
+    let dir = "/wt/foo"
+    let perWt = "/parent/.git/worktrees/foo"
+    let common = "/parent/.git"
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
+      events: [ev("\(common)/packed-refs")])
+    #expect(result.hasBranchChange)
+  }
+
+  @Test("worktree 配置: 兄弟 worktree の worktrees/<other> 追加は worktreeChange")
+  func worktreeCommonSiblingAdded() {
+    // 自分の per-wt git dir は foo。兄弟 bar が追加されると `<common>/worktrees/bar/...` に
+    // ファイルが生まれる。これは worktree list の変更なので worktreeChange を発火させる。
+    let dir = "/wt/foo"
+    let perWt = "/parent/.git/worktrees/foo"
+    let common = "/parent/.git"
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
+      events: [ev("\(common)/worktrees/bar/HEAD")])
+    #expect(result.hasWorktreeChange)
+    #expect(!result.hasGitStatusChange)
+  }
+
+  @Test("worktree 配置: 自身の per-wt 内部 (例: locked) は worktreeChange を発火させない")
+  func worktreeCommonSelfInternalNotWorktreeChange() {
+    // `<common>/worktrees/foo/locked` は per-wt git dir 配下なので per-wt 規則のみ適用。
+    // worktree list の変更ではないため worktreeChange は出ない。
+    let dir = "/wt/foo"
+    let perWt = "/parent/.git/worktrees/foo"
+    let common = "/parent/.git"
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
+      events: [ev("\(perWt)/locked")])
+    #expect(!result.hasWorktreeChange)
+    #expect(!result.hasGitStatusChange)  // locked は HEAD/index ではないので status も無し
+  }
+
+  @Test("worktree 配置: 作業ツリー配下のファイルは fsChange + gitStatusChange")
+  func worktreeWorkTreeFile() {
+    let dir = "/wt/foo"
+    let perWt = "/parent/.git/worktrees/foo"
+    let common = "/parent/.git"
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
+      events: [ev("\(dir)/src/a.ts")])
+    #expect(result.hasFsChange)
+    #expect(result.hasGitStatusChange)
+    #expect(result.fsRelDirs == ["src"])
+  }
+
+  @Test("通常 clone: per-worktree == common == <dir>/.git でも HEAD と refs/heads が両方分類される")
+  func normalCloneDualClassification() {
+    let dir = "/repo"
+    let gitDir = "\(dir)/.git"
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: gitDir, commonGitDir: gitDir,
+      events: [
+        ev("\(gitDir)/HEAD"),
+        ev("\(gitDir)/refs/heads/main"),
+      ])
+    #expect(result.hasGitStatusChange)
+    #expect(result.hasBranchChange)
+    // 通常 clone でも .git 配下は作業ツリー判定に乗せない
+    #expect(!result.hasFsChange)
+  }
+
+  @Test("通常 clone: .git 配下の関心外ファイル（objects/）は何も発火させない")
+  func normalCloneIgnoresObjects() {
+    let dir = "/repo"
+    let gitDir = "\(dir)/.git"
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: gitDir, commonGitDir: gitDir,
+      events: [ev("\(gitDir)/objects/ab/cdef")])
+    #expect(!result.hasFsChange)
+    #expect(!result.hasGitStatusChange)
+    #expect(!result.hasBranchChange)
+    #expect(!result.hasWorktreeChange)
+  }
+
+  @Test("git dir nil（非 repo）: 作業ツリー配下のファイルは fsChange + gitStatusChange")
+  func nonRepoFallsToWorkTreeBranch() {
+    let dir = "/somewhere"
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: nil, commonGitDir: nil,
+      events: [ev("\(dir)/note.txt")])
+    #expect(result.hasFsChange)
+    #expect(result.hasGitStatusChange)
+  }
+
+  @Test("dir 配下でも git dir 配下でもない event は無視")
+  func unrelatedPathIgnored() {
+    let dir = "/repo"
+    let gitDir = "\(dir)/.git"
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: gitDir, commonGitDir: gitDir,
+      events: [ev("/elsewhere/x.txt")])
+    #expect(!result.hasFsChange)
+    #expect(!result.hasGitStatusChange)
+  }
+}
+
 // MARK: - Helpers
 
 private func makeTempDir() throws -> URL {
@@ -96,6 +276,28 @@ private func makeTempDir() throws -> URL {
     .appendingPathComponent("gozd-fswatchregistry-\(UUID().uuidString)")
   try FileManager.default.createDirectory(at: raw, withIntermediateDirectories: true)
   return URL(fileURLWithPath: raw.path).resolvingSymlinksInPath()
+}
+
+private func runGitCmd(_ args: [String], cwd: URL) async throws {
+  let p = Process()
+  p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+  p.arguments = ["git"] + args
+  p.currentDirectoryURL = cwd
+  // テスト用 commit のために identity を上書きする。
+  var env = ProcessInfo.processInfo.environment
+  env["GIT_AUTHOR_NAME"] = "test"
+  env["GIT_AUTHOR_EMAIL"] = "test@example.com"
+  env["GIT_COMMITTER_NAME"] = "test"
+  env["GIT_COMMITTER_EMAIL"] = "test@example.com"
+  p.environment = env
+  p.standardOutput = Pipe()
+  p.standardError = Pipe()
+  try p.run()
+  p.waitUntilExit()
+}
+
+private func initGitRepo(at dir: URL) async throws {
+  try await runGitCmd(["init", "-q", "-b", "main"], cwd: dir)
 }
 
 private func waitForEvent(

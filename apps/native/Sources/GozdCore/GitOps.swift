@@ -167,6 +167,44 @@ public enum GitOps {
       in: .whitespacesAndNewlines)
   }
 
+  public struct GitDirs: Equatable, Sendable {
+    /// `git rev-parse --git-dir` の絶対パス。
+    /// 通常 clone では `<repo>/.git`、worktree では `<parent>/.git/worktrees/<name>` を指す。
+    public let perWorktreeGitDir: String
+    /// `git rev-parse --git-common-dir` の絶対パス。
+    /// 通常 clone では `perWorktreeGitDir` と一致。worktree では親 `<parent>/.git` を指す。
+    public let commonGitDir: String
+  }
+
+  /// per-worktree git dir と common git dir の絶対パスを 1 回の `git rev-parse` で取る。
+  /// FSEvents の path 比較に使うため呼び出し側で realpath 解決すること。
+  ///
+  /// - dir が git 管理下でない場合は **nil** を返す（git rev-parse は exit 128）。
+  ///   これは「git repo ではない」という事実を nil で表す正常パスで、エラーではない。
+  /// - git バイナリ不在 / 出力形式破綻 / その他 I/O 失敗は throw する。
+  ///   呼び出し側で `try?` で握り潰すと「worktree なのに git dir が解決できない」障害が
+  ///   サイレントに通常 watch にフォールバックされ、commit 反映バグが復活する。
+  public static func gitDirs(dir: String) async throws -> GitDirs? {
+    let stdout: Data
+    do {
+      stdout = try await runGit(
+        args: ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], cwd: dir)
+    } catch let GitError.commandFailed(exitCode, _) where exitCode == 128 {
+      // exit 128 = "not a git repository"。git の規約。
+      return nil
+    }
+    let lines = String(decoding: stdout, as: UTF8.self)
+      .split(whereSeparator: { $0 == "\n" })
+      .map { $0.trimmingCharacters(in: .whitespaces) }
+      .filter { !$0.isEmpty }
+    // `--git-dir --git-common-dir` の出力は厳密に 2 行。違ったら git の出力契約破綻。
+    guard lines.count == 2, let perWorktree = lines.first, let common = lines.last else {
+      throw GitError.unexpectedOutput(
+        "git rev-parse --git-dir --git-common-dir: expected 2 lines, got \(lines.count): \(lines)")
+    }
+    return GitDirs(perWorktreeGitDir: perWorktree, commonGitDir: common)
+  }
+
   /// 全 worktree が共有する main repo の作業ディレクトリを返す。
   /// 非 bare repo では `git rev-parse --git-common-dir` の親ディレクトリ。
   /// gozd の `~/.local/share/gozd/worktrees/<repo>-<hash>/<timestamp>` のような worktree から
@@ -328,6 +366,9 @@ private let emptyTreeHash = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 public enum GitError: Error, Equatable {
   case commandFailed(exitCode: Int32, stderr: String)
   case launchFailed(String)
+  /// git は exit 0 で正常終了したが stdout のフォーマットが想定外。
+  /// `commandFailed` は `exitCode != 0` を含意するため流用せず別 case にする。
+  case unexpectedOutput(String)
 }
 
 // MARK: - private helpers

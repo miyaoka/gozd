@@ -82,7 +82,9 @@ export function registerPrCommand(): () => void {
               notify.error("Failed to create task for worktree", taskResult.error);
             }
             const rootDir = repoStore.findRepoOwning(dir)?.rootDir;
-            if (rootDir !== undefined && result.value.worktree !== undefined) {
+            if (rootDir === undefined || result.value.worktree === undefined) {
+              notify.error("Worktree created but sidebar could not be updated");
+            } else {
               repoStore.appendWorktree(rootDir, result.value.worktree);
             }
             terminalStore.viewMode = "wt";

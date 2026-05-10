@@ -10,11 +10,13 @@
 
 - xterm の onFocus → store.focusPane() でフォーカス状態を更新
 - store の focusedLeafId を watch し、自身が focused になったら imperative に terminal.focus()
+- focus 時に自身の dir が選択 worktree と異なれば worktreeStore.setOpen() で追従（viewMode="all"/"claude" 用、viewMode は変更しない）
 </doc>
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useContextKeys } from "../../shared/command";
+import { useWorktreeStore } from "../worktree";
 import type { ClaudeState } from "./claudeStatus";
 import { currentTheme } from "./terminalConfig";
 import { useTerminalStore } from "./useTerminalStore";
@@ -27,6 +29,7 @@ interface Props {
 
 const props = defineProps<Props>();
 const terminalStore = useTerminalStore();
+const worktreeStore = useWorktreeStore();
 const contextKeys = useContextKeys();
 
 const xtermRef = ref<InstanceType<typeof XtermTerminal>>();
@@ -84,6 +87,11 @@ watch(
 function handleTerminalFocus() {
   contextKeys.set("terminalFocus", true);
   terminalStore.focusPane(props.leafId);
+  // viewMode="all"/"claude" で別 worktree の leaf に focus した場合、選択を追従させる。
+  // viewMode="wt" では TerminalPane が selectedDir 配下の leaf しか描画しないため自然に no-op。
+  if (worktreeStore.dir !== props.dir) {
+    worktreeStore.setOpen(props.dir);
+  }
 }
 
 function handleTerminalBlur() {

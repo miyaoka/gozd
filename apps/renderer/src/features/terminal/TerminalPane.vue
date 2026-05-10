@@ -49,6 +49,19 @@ const currentDir = computed(() => worktreeStore.dir);
 const disposeTerminalCommands = registerTerminalCommands(currentDir, containerRef);
 onUnmounted(disposeTerminalCommands);
 
+/**
+ * activeElement が terminal コンテナ内にあるかで terminalFocus を再判定する。
+ * unconditional false にすると、terminal の focus が dir 変更を引き起こす経路
+ * （cross-cutting view で別 worktree の leaf に focus 移動）で context key が
+ * 落ちて keybinding が外れるため、DOM の真の focus 状態から逆引きする。
+ */
+function syncTerminalFocusFromActiveElement() {
+  const container = containerRef.value;
+  const active = document.activeElement;
+  const isFocused = container !== null && active !== null && container.contains(active);
+  contextKeys.set("terminalFocus", isFocused);
+}
+
 // ウィンドウの表示状態変更時に terminalFocus を同期
 // hidden 時は false にリセット、復帰時は activeElement から再判定
 // （WKWebView では復帰時に xterm の focus が再発火しない場合がある）
@@ -56,19 +69,16 @@ useEventListener(document, "visibilitychange", () => {
   if (document.hidden) {
     contextKeys.set("terminalFocus", false);
   } else {
-    const container = containerRef.value;
-    const active = document.activeElement;
-    const isFocused = container !== null && active !== null && container.contains(active);
-    contextKeys.set("terminalFocus", isFocused);
+    syncTerminalFocusFromActiveElement();
   }
 });
 
 // worktree を初めて訪問したときに visitedDirs に登録
-// worktree 切り替え時に terminalFocus をリセット
+// dir 変更時は activeElement から再判定する（terminal 起点の dir 変更なら focus は維持）
 watch(
   () => worktreeStore.dir,
   (dir) => {
-    contextKeys.set("terminalFocus", false);
+    syncTerminalFocusFromActiveElement();
     if (dir) terminalStore.visit(dir);
   },
   { immediate: true },

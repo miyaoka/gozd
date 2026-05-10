@@ -125,6 +125,8 @@ leafNode
 - **all**: `tileGridTemplate()` で全 leaf を均等タイル配置
 - **claude**: `tileGridTemplate()` で Claude 起動中の leaf のみ均等タイル配置
 
+`all` / `claude` モードでは複数 worktree の leaf が同時に表示されるため、focus を受けた leaf の `dir` が現在の選択 worktree と異なる場合、`worktreeStore.setOpen(dir)` で選択を追従させる。viewMode は変更しない（横断ビューを維持したまま、サイドバー・ファイラー・プレビューのみ追従）。`wt` モードでは選択 worktree 配下の leaf しか描画されないため、この処理は自然に no-op となる。
+
 ## OSC ハンドラ
 
 xterm.js のイベントまたは `parser.registerOscHandler()` でエスケープシーケンスを受信し、store に保存する。

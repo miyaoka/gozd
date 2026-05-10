@@ -10,7 +10,13 @@ import Foundation
 //
 // 2. **イベント分類**:
 //    - per-worktree git dir 配下の `HEAD` / `index` → `gitStatusChange`
-//    - common git dir 配下の `refs/heads/...` / `packed-refs` → `branchChange`
+//    - common git dir 配下の `refs/heads/...` → `branchChange`
+//    - common git dir 配下の `refs/remotes/...` → `gitStatusChange`
+//      （`git push` 成功時にローカルの remote-tracking ref が書き換わる。
+//      ahead/behind の更新を git-graph に伝えるための SSOT）
+//    - common git dir 配下の `packed-refs` → `branchChange` + `gitStatusChange`
+//      （pack 後はローカル ref と remote-tracking ref のどちらが書き換わったか
+//      ファイル名だけでは判別できないため、両方を発火させる）
 //    - common git dir 配下の `worktrees/...` → `worktreeChange`
 //    - 作業ツリー側（git dir 配下以外） → `fsChange` + `gitStatusChange`
 //      （未追跡ファイルや作業ツリー差分も status に影響するため）
@@ -221,8 +227,11 @@ public actor FSWatchRegistry {
   ///
   /// 判定優先順位:
   ///   1. per-worktree git dir 配下 → `HEAD` / `index` のみ `gitStatusChange`
-  ///   2. common git dir 配下 → `refs/heads/...` / `packed-refs` を `branchChange`、
-  ///      `worktrees/...` を `worktreeChange`
+  ///   2. common git dir 配下 →
+  ///      - `refs/heads/...` を `branchChange`
+  ///      - `refs/remotes/...` を `gitStatusChange`（push / fetch 後の ahead/behind 更新）
+  ///      - `packed-refs` を `branchChange` + `gitStatusChange`（local / remote 両方を含み得るため）
+  ///      - `worktrees/...` を `worktreeChange`
   ///   3. 作業ツリー配下（git dir 配下に該当しない場合）→ `fsChange` + `gitStatusChange`
   ///
   /// 通常 clone では perWorktreeGitDir == commonGitDir なので 1 と 2 を両方適用する。
@@ -270,8 +279,18 @@ public actor FSWatchRegistry {
         matchedGitDir = true
         if rel.hasPrefix("worktrees/") {
           hasWorktreeChange = true
-        } else if rel.hasPrefix("refs/heads/") || rel == "packed-refs" {
+        } else if rel.hasPrefix("refs/heads/") {
           hasBranchChange = true
+        } else if rel.hasPrefix("refs/remotes/") {
+          // push / fetch 成功でローカルの remote-tracking ref が書き換わる。
+          // git-graph は gitStatusChange の `# branch.ab` で ahead/behind 更新を検知する。
+          hasGitStatusChange = true
+        } else if rel == "packed-refs" {
+          // pack 後は loose ref がまとめられるが、ファイル名からは local ref と
+          // remote-tracking ref のどちらが書き換わったか判別できない。
+          // 両方の subscriber に通知する（worktree 一覧再取得 + ahead/behind 再取得）。
+          hasBranchChange = true
+          hasGitStatusChange = true
         }
       }
 

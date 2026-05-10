@@ -172,8 +172,10 @@ struct ClassifyTests {
     #expect(!result.hasWorktreeChange)
   }
 
-  @Test("worktree 配置: common git dir 配下の packed-refs は branchChange")
+  @Test("worktree 配置: common git dir 配下の packed-refs は branchChange + gitStatusChange")
   func worktreeCommonPackedRefs() {
+    // packed-refs は local ref と remote-tracking ref のどちらの pack かファイル名から
+    // 判別不能なので両 subscriber に通知する。
     let dir = "/wt/foo"
     let perWt = "/parent/.git/worktrees/foo"
     let common = "/parent/.git"
@@ -181,6 +183,26 @@ struct ClassifyTests {
       dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
       events: [ev("\(common)/packed-refs")])
     #expect(result.hasBranchChange)
+    #expect(result.hasGitStatusChange)
+    #expect(!result.hasFsChange)
+    #expect(!result.hasWorktreeChange)
+  }
+
+  @Test("worktree 配置: common git dir 配下の refs/remotes/origin/main は gitStatusChange")
+  func worktreeCommonRemoteRef() {
+    // git push / fetch 成功でローカルの remote-tracking ref が書き換わる。
+    // git-graph の ahead/behind を更新するための gitStatusChange 経路。
+    // worktree 一覧構造は変わらないため branchChange は発火させない。
+    let dir = "/wt/foo"
+    let perWt = "/parent/.git/worktrees/foo"
+    let common = "/parent/.git"
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
+      events: [ev("\(common)/refs/remotes/origin/main")])
+    #expect(result.hasGitStatusChange)
+    #expect(!result.hasBranchChange)
+    #expect(!result.hasFsChange)
+    #expect(!result.hasWorktreeChange)
   }
 
   @Test("worktree 配置: 兄弟 worktree の worktrees/<other> 追加は worktreeChange")

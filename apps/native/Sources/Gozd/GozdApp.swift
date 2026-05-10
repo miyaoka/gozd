@@ -555,6 +555,8 @@ private func encodeExitReason(_ reason: PTYExitReason) -> [String: Any] {
     return ["kind": "signaled", "signal": Int(signal), "coreDumped": coreDumped]
   case .stopped:
     return ["kind": "stopped"]
+  case .waitpidFailed(let errno):
+    return ["kind": "waitpidFailed", "errno": Int(errno)]
   }
 }
 

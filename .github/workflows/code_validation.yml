@@ -126,9 +126,10 @@ jobs:
         working-directory: apps/native
         # GOZD_PTY_TRACE: PTYRegistryTests.spawnAndExitDispatch が CI で稀に flaky に
         # なる issue #450 の原因特定用。DEBUG build かつこの env=1 のときのみ
-        # PTYManager 内のライフサイクルイベント（drainPTY の各 read 結果、
-        # source eventHandler の発火順、PTYFinishState の状態遷移）を stderr に
-        # 時系列出力する。再発時に CI ログから経路を逐語で復元するために残す。
+        # PTYManager 内のライフサイクルイベント（drainPTY の集約結果、source
+        # eventHandler の発火順、waitpid の戻り値・errno、PTYFinishState の状態
+        # 遷移）を stderr に時系列出力する。再発時に CI ログから経路を逐語で復元
+        # するために残す。
         env:
           GOZD_PTY_TRACE: "1"
         run: swift test

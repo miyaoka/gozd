@@ -129,10 +129,17 @@ public final class PTYManager {
     // また exit handler 側からの drain が「データがなければ即抜ける」形で安全に呼べる。
     // write 側は既に EAGAIN を usleep + retry で扱っているので互換。
     let flags = fcntl(fd, F_GETFL)
+    let getFlagsErrno: Int32 = flags == -1 ? errno : 0
+    var setFlagsRet: Int32 = -1
+    var setFlagsErrno: Int32 = 0
     if flags >= 0 {
-      _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
+      setFlagsRet = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
+      if setFlagsRet == -1 { setFlagsErrno = errno }
     }
-    ptyTrace("spawn", pid: childPid, "fd set O_NONBLOCK")
+    ptyTrace(
+      "spawn", pid: childPid,
+      "fcntl getFlags=\(flags) getFlagsErrno=\(getFlagsErrno) setFlagsRet=\(setFlagsRet) setFlagsErrno=\(setFlagsErrno)"
+    )
 
     // readSource / exitSource を **同じ per-PTY serial queue** に載せる。
     // 別 queue だと exit 通知が PTY master fd の残り出力 read より先に走るケースがあり、
@@ -185,11 +192,26 @@ public final class PTYManager {
       // process source の exit handler 内では子は zombie 確定。`WNOHANG` を使うと
       // 戻り値 0（reap 未完）と exit code 0 の区別が曖昧になるため、blocking
       // waitpid + EINTR retry にして status を確実に回収する。
+      // ECHILD（子が既に reap されている / 想定外）を見落とさないため、戻り値・errno・retry 回数を観測する。
       var status: Int32 = 0
-      while waitpid(childPid, &status, 0) == -1 {
-        if errno != EINTR { break }
+      var waitRet: pid_t = 0
+      var waitErrno: Int32 = 0
+      var eintrRetries = 0
+      while true {
+        waitRet = waitpid(childPid, &status, 0)
+        if waitRet != -1 {
+          waitErrno = 0
+          break
+        }
+        waitErrno = errno
+        if waitErrno != EINTR { break }
+        eintrRetries += 1
       }
-      ptyTrace("exit", pid: childPid, "waitpid returned status=\(status)")
+      ptyTrace(
+        "exit", pid: childPid,
+        "waitpid ret=\(waitRet) status=\(status) errno=\(waitErrno) eintrRetries=\(eintrRetries)")
+      let exitReason: PTYExitReason =
+        waitRet == -1 ? .waitpidFailed(errno: waitErrno) : decodeExitStatus(status)
 
       // waitpid 後にもう一度 drain。exit と read の event 順序によらず最終 data を吸う。
       if case .closed = drainPTY(fd: fd, pid: childPid, caller: "exit-post", onData: onData) {
@@ -198,7 +220,7 @@ public final class PTYManager {
         state.markReadClosed(pid: childPid, onComplete: onExit)
       }
 
-      state.setExitReason(decodeExitStatus(status), pid: childPid, onComplete: onExit)
+      state.setExitReason(exitReason, pid: childPid, onComplete: onExit)
       exit.cancel()
     }
     exit.resume()
@@ -258,6 +280,10 @@ public enum PTYExitReason: Sendable, Equatable {
   case exited(code: Int32)
   case signaled(signal: Int32, coreDumped: Bool)
   case stopped
+  /// `waitpid(2)` が `-1` で失敗したケース（例: `ECHILD`）。
+  /// `decodeExitStatus` に進ませると初期値 `status=0` が `.exited(code: 0)` と誤報されるため、
+  /// 異常を呼び出し側まで伝搬する独立ケースとして用意する。
+  case waitpidFailed(errno: Int32)
 }
 
 /// `PTYManager.spawn` の readSource / exitSource ハンドラ間で共有する終了確定状態。
@@ -344,44 +370,51 @@ private enum PTYDrainResult {
 private func drainPTY(fd: Int32, pid: Int32 = 0, caller: String = "?", onData: (Data) -> Void)
   -> PTYDrainResult
 {
-  ptyTrace("drain", pid: pid, "enter caller=\(caller) fd=\(fd)")
+  // observer effect を最小化するため、ループ内では trace を呼ばず drain 終了時に
+  // 集約結果を 1 行だけ出す。観測したい race（EVFILT_READ / NOTE_EXIT の到着順、
+  // drain と exit の時間差）はループ内 I/O が増えるとそれ自体で潰れる。
+  // 集約値: read 回数、合計バイト、EINTR 回数、終端区分（EOF / EAGAIN / hangup errno）。
   var totalBytes = 0
-  var iterations = 0
-  while true {
+  var dataReads = 0
+  var eintrCount = 0
+  let result: PTYDrainResult
+  let endReason: String
+  drainLoop: while true {
     var buffer = [UInt8](repeating: 0, count: 4096)
     let n = buffer.withUnsafeMutableBufferPointer {
       Darwin.read(fd, $0.baseAddress, $0.count)
     }
-    iterations += 1
     if n > 0 {
       totalBytes += n
-      ptyTrace("drain", pid: pid, "read n=\(n) totalBytes=\(totalBytes) iter=\(iterations)")
+      dataReads += 1
       onData(Data(bytes: buffer, count: n))
       continue
     }
     if n == 0 {
-      ptyTrace(
-        "drain", pid: pid,
-        "read n=0 EOF totalBytes=\(totalBytes) iter=\(iterations) → .closed")
-      return .closed
+      result = .closed
+      endReason = "EOF"
+      break drainLoop
     }
     let err = errno
     if err == EINTR {
-      ptyTrace("drain", pid: pid, "read n=-1 errno=EINTR iter=\(iterations) (retry)")
+      eintrCount += 1
       continue
     }
     if err == EAGAIN || err == EWOULDBLOCK {
-      ptyTrace(
-        "drain", pid: pid,
-        "read n=-1 errno=EAGAIN totalBytes=\(totalBytes) iter=\(iterations) → .drained")
-      return .drained
+      result = .drained
+      endReason = "EAGAIN"
+      break drainLoop
     }
     // EIO 等は PTY hangup 扱い（slave 全 close）。再 read しても無意味なので closed として返す。
-    ptyTrace(
-      "drain", pid: pid,
-      "read n=-1 errno=\(err) totalBytes=\(totalBytes) iter=\(iterations) → .closed (hangup)")
-    return .closed
+    result = .closed
+    endReason = "hangup-errno=\(err)"
+    break drainLoop
   }
+  ptyTrace(
+    "drain", pid: pid,
+    "caller=\(caller) fd=\(fd) dataReads=\(dataReads) totalBytes=\(totalBytes) eintr=\(eintrCount) end=\(endReason) → \(result)"
+  )
+  return result
 }
 
 private func decodeExitStatus(_ status: Int32) -> PTYExitReason {

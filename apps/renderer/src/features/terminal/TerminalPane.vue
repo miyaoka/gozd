@@ -7,7 +7,7 @@ MainLayout はこのコンポーネントを配置するだけでよい。
 ## レイアウト
 
 - 単一 worktree モード（"wt"）: `treeToGridTemplate` で分割ツリーを CSS Grid に変換
-- マルチ表示モード（"all" / "claude"）: `tileGridTemplate` で均等タイル配置
+- Claude タイルモード（"claude"）: `tileGridTemplate` で Claude 起動中 leaf を均等タイル配置
 - 各 TerminalLeaf は `grid-area` で配置、非表示 leaf は `v-show:false`
 - 分割リサイズハンドルは absolute overlay
 </doc>
@@ -141,9 +141,7 @@ const allLeafIds = computed(() => {
 
 /** 表示対象の leafId set（v-show の判定に使用） */
 const visibleLeafIds = computed(() => {
-  const mode = terminalStore.viewMode;
-  if (mode === "all") return new Set(allLeafIds.value);
-  if (mode === "claude") return new Set(terminalStore.claudeActiveLeafIds);
+  if (terminalStore.viewMode === "claude") return new Set(terminalStore.claudeActiveLeafIds);
   return new Set(activeLeafIds.value);
 });
 
@@ -155,12 +153,13 @@ const EMPTY_GRID: Record<string, string> = {
 
 /** grid スタイル */
 const gridStyle = computed<Record<string, string>>(() => {
-  const mode = terminalStore.viewMode;
-
-  // タイル表示: all / claude
-  if (mode === "all" || mode === "claude") {
-    const ids = mode === "claude" ? terminalStore.claudeActiveLeafIds : allLeafIds.value;
-    const tpl = tileGridTemplate(ids, containerW.value, containerH.value);
+  // Claude タイル表示
+  if (terminalStore.viewMode === "claude") {
+    const tpl = tileGridTemplate(
+      terminalStore.claudeActiveLeafIds,
+      containerW.value,
+      containerH.value,
+    );
     return {
       gridTemplateAreas: tpl.areas,
       gridTemplateColumns: tpl.columns,

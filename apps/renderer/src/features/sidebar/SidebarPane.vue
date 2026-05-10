@@ -93,6 +93,15 @@ const disposeSelectWorktree = register("workspace.selectWorktree", (args) => {
 });
 onUnmounted(disposeSelectWorktree);
 
+const disposeToggleViewMode = register("workspace.toggleViewMode", {
+  label: "Workspace: Toggle Active Worktree / Claude Terminals",
+  handler: () => {
+    terminalStore.toggleViewMode();
+    return true;
+  },
+});
+onUnmounted(disposeToggleViewMode);
+
 // --- 経過時間表示用の現在時刻 ---
 
 const now = ref(Date.now());
@@ -114,7 +123,7 @@ function onRemoveRepo(rootDir: string) {
   const name = repoStore.repos[rootDir]?.repoName ?? rootDir;
   showConfirm(`Remove "${name}" from this window?`, async () => {
     // repo 削除前に配下 worktree の terminal state / PTY を cleanup する。
-    // これを忘れると `all` / `claude` view で消したはずの repo の PTY が
+    // これを忘れると `claude` view で消したはずの repo の PTY が
     // 生き残る（visitedDirs に残るため）。
     const repo = repoStore.repos[rootDir];
     if (repo !== undefined) {
@@ -177,8 +186,32 @@ const activeRootWorktree = computed(() => {
 
 <template>
   <div class="flex size-full flex-col">
-    <!-- 編集モードトグル（独立したツールバー） -->
-    <div class="flex justify-end border-b border-zinc-800 px-2 py-1">
+    <!-- トップツールバー: view mode トグル + 編集モード -->
+    <div class="flex items-center justify-between border-b border-zinc-800 px-2 py-1">
+      <div class="flex gap-0.5">
+        <button
+          type="button"
+          aria-label="Active worktree"
+          title="Active worktree"
+          :aria-pressed="terminalStore.viewMode === 'wt'"
+          class="grid size-7 place-items-center rounded-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+          :class="terminalStore.viewMode === 'wt' && 'bg-zinc-700 text-zinc-100'"
+          @click="terminalStore.viewMode = 'wt'"
+        >
+          <span class="icon-[lucide--monitor] text-base" />
+        </button>
+        <button
+          type="button"
+          aria-label="Claude terminals"
+          title="Claude terminals"
+          :aria-pressed="terminalStore.viewMode === 'claude'"
+          class="grid size-7 place-items-center rounded-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+          :class="terminalStore.viewMode === 'claude' && 'bg-zinc-700 text-zinc-100'"
+          @click="terminalStore.viewMode = 'claude'"
+        >
+          <span class="icon-[lucide--bot] text-base" />
+        </button>
+      </div>
       <button
         type="button"
         :aria-label="editMode ? 'Exit edit mode' : 'Edit repositories'"
@@ -210,14 +243,12 @@ const activeRootWorktree = computed(() => {
           :is-creating="isCreating"
           :ctrl-pressed="ctrlPressed"
           :now="now"
-          :view-mode="terminalStore.viewMode"
           :get-claude-statuses="terminalStore.getClaudeStatusesByDir"
           :get-resumeable-session-count="terminalStore.getResumeableSessionCount"
           @remove-repo="onRemoveRepo"
           @select-root="handleWorktreeSelect"
           @select-worktree="onWorktreeSelect"
           @add-worktree="addWorktree"
-          @set-view-mode="terminalStore.viewMode = $event"
           @open-worktree-menu="
             (anchorEl, wt, rd) =>
               sidebarMenuRef?.openMenu(anchorEl, { type: 'worktree', worktree: wt, rootDir: rd })

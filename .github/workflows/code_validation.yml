@@ -107,7 +107,8 @@ jobs:
   #
   # @gozd/native は SwiftUI / WebKit / FSEvents 等 macOS 専用 API に依存するため
   # Linux runner では build できない。macos-26 runner で `swift test` を実行する。
-  # apps/native/ に差分があるときのみ実行する。
+  # detect-swift-changes が監視する path（apps/native, packages/proto-swift,
+  # workflow 自身）に差分があるときのみ実行する。
   # ==============================================================
   swift-test:
     name: swift-test

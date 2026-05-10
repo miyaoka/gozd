@@ -31,6 +31,7 @@ import {
 } from "../palette";
 import { PreviewPane } from "../preview";
 import { registerSettingsCommand, SettingsModal } from "../settings";
+import { registerShellCommandActions } from "../shell-command";
 import { SidebarPane } from "../sidebar";
 import { registerThemeCommand, TerminalPane } from "../terminal";
 import { useWorktreeStore } from "../worktree";
@@ -67,12 +68,14 @@ const disposeThemeCommand = registerThemeCommand();
 const disposeSettingsCommand = registerSettingsCommand();
 const disposePrCommand = registerPrCommand();
 const disposeIssueCommand = registerIssueCommand();
+const disposeShellCommandActions = registerShellCommandActions();
 onUnmounted(disposePreviewToggle);
 onUnmounted(disposeWindowClose);
 onUnmounted(disposeThemeCommand);
 onUnmounted(disposeSettingsCommand);
 onUnmounted(disposePrCommand);
 onUnmounted(disposeIssueCommand);
+onUnmounted(disposeShellCommandActions);
 
 /** ハンドル幅 w-2 = 8px */
 const HANDLE_WIDTH = 8;

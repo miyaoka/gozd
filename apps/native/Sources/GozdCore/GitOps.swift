@@ -423,7 +423,7 @@ private func runGitWithStdinOnce(gitPath: String, args: [String], cwd: String, s
   // 内部で `ProcessInfo.processInfo.environment` を遅延読みするが、その経路は
   // `getenv`/`environ` の thread-unsafety が並列 spawn 時に EFAULT (Code=14) を
   // 引く要因になり得る。spawn 前に snapshot を取って渡せば内部 lazy read を回避できる。
-  process.environment = ProcessInfo.processInfo.environment
+  process.environment = gozdGitEnv()
 
   let stdinPipe = Pipe()
   let stdoutPipe = Pipe()
@@ -454,6 +454,22 @@ private func runGitWithStdinOnce(gitPath: String, args: [String], cwd: String, s
     stderr: String(decoding: stderrData, as: UTF8.self))
 }
 
+/// gozd 用 git 環境変数を組み立てる。`ProcessInfo.processInfo.environment` を snapshot し、
+/// `GIT_OPTIONAL_LOCKS=0` を上書き設定する。
+///
+/// `GIT_OPTIONAL_LOCKS=0` は read-only な git コマンド (`status` 等) が index stat refresh
+/// 用に行う **opportunistic な `index.lock` 取得を抑止**する。gozd は FSEvents 駆動で
+/// バックグラウンドに `git status` 等を頻繁に叩くため、この設定が無いとユーザーが foreground
+/// で叩いた `git commit` / `git add` と lock 競合し、ユーザー側が exit 128
+/// (`Unable to create '.../index.lock': File exists`) で即死する。
+/// git 自身がこのシナリオ（バックグラウンドツール並走）のために提供している env で、
+/// VS Code / GitHub Desktop 等の主要 GUI クライアントも同じ設定を入れている。
+private func gozdGitEnv() -> [String: String] {
+  var env = ProcessInfo.processInfo.environment
+  env["GIT_OPTIONAL_LOCKS"] = "0"
+  return env
+}
+
 func runGit(args: [String], cwd: String) async throws -> Data {
   do {
     return try await runGitOnce(gitPath: await resolveGitPath(), args: args, cwd: cwd)
@@ -468,7 +484,7 @@ private func runGitOnce(gitPath: String, args: [String], cwd: String) async thro
   process.executableURL = URL(fileURLWithPath: gitPath)
   process.arguments = args
   process.currentDirectoryURL = URL(fileURLWithPath: cwd)
-  process.environment = ProcessInfo.processInfo.environment
+  process.environment = gozdGitEnv()
 
   let stdoutPipe = Pipe()
   let stderrPipe = Pipe()

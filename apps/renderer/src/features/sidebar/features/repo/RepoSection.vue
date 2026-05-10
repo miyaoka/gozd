@@ -37,7 +37,6 @@ const props = defineProps<{
   editMode: boolean;
   activeDir: string | undefined;
   isCreating: boolean;
-  ctrlPressed: boolean;
   now: number;
   getClaudeStatuses: (dir: string) => ClaudeStatus[];
   /** 永続化されているが live PTY に未接続のセッション数（resume 可能件数） */
@@ -165,7 +164,6 @@ function onHeaderClick() {
         :loading="worktrees.length === 0"
         :active-dir="activeDir"
         :is-creating="isCreating"
-        :ctrl-pressed="ctrlPressed"
         :now="now"
         :get-claude-statuses="getClaudeStatuses"
         :get-resumeable-session-count="getResumeableSessionCount"

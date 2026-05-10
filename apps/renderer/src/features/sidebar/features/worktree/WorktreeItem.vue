@@ -57,10 +57,6 @@ const props = defineProps<{
    */
   resumeableSessionCount: number;
   now: number;
-  /** Ctrl キー押下中か（番号バッジの表示制御用） */
-  ctrlPressed: boolean;
-  /** worktree リスト内のインデックス（Ctrl 番号バッジの表示用） */
-  index: number;
 }>();
 
 const emit = defineEmits<{
@@ -126,13 +122,6 @@ const statusIcons = computed(() => {
       class="group/wt relative grid py-1.5 pl-2"
       :class="active ? 'rounded-md outline outline-blue-400' : 'hover:bg-zinc-800'"
     >
-      <!-- Ctrl 押下時の番号バッジ（左上に表示。9 個まで） -->
-      <span
-        v-if="ctrlPressed && index + 1 <= 9"
-        class="absolute -top-1 -left-1 z-20 grid size-4 place-items-center rounded-md bg-green-400 text-[10px] leading-none font-bold text-zinc-900"
-      >
-        {{ index + 1 }}
-      </span>
       <!-- Resume 可能セッションバッジ（右上）。
            live status badge と並列で出すため、live status がある時は左側に積む。
            部分復元状態（saved > live）でもバッジが残るので、未復元のセッションが

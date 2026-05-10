@@ -15,7 +15,6 @@ defineProps<{
   loading: boolean;
   activeDir: string | undefined;
   isCreating: boolean;
-  ctrlPressed: boolean;
   now: number;
   getClaudeStatuses: (dir: string) => ClaudeStatus[];
   getResumeableSessionCount: (dir: string) => number;
@@ -50,15 +49,13 @@ defineSlots<{
 
     <p v-if="loading" class="py-2 pl-2 text-sm text-zinc-500">Loading...</p>
 
-    <div v-for="(wt, i) in worktrees" :key="wt.path">
+    <div v-for="wt in worktrees" :key="wt.path">
       <WorktreeItem
         :wt="wt"
         :active="activeDir === wt.path"
         :claude-statuses="getClaudeStatuses(wt.path)"
         :resumeable-session-count="getResumeableSessionCount(wt.path)"
         :now="now"
-        :ctrl-pressed="ctrlPressed"
-        :index="i"
         @select="$emit('select', $event)"
         @open-menu="(anchorEl, w) => $emit('openMenu', anchorEl, w)"
       />

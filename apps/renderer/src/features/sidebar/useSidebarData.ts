@@ -205,14 +205,13 @@ export function useSidebarData() {
     hydrated = true;
   }
 
+  // snapshot 自体を watch source にすることで、buildAppStateSnapshot が読む
+  // フィールド（dirOrder / collapsedRoots / selectedDir / 各 repo の repoName・
+  // isGitRepo）だけが依存追跡される。worktrees / gitStatuses / task などサイドバー
+  // 表示用の reactive データは snapshot に含まれないので、git status push や
+  // Task title sync では save が走らない。
   watch(
-    [
-      () => [...repoStore.dirOrder],
-      () => Array.from(repoStore.collapsedRoots),
-      () => repoStore.selectedDir,
-      // repoName / isGitRepo の変化を拾うため repos を deep watch
-      () => repoStore.repos,
-    ],
+    () => repoStore.buildAppStateSnapshot(),
     () => {
       if (!hydrated) return;
       if (saveTimer !== undefined) clearTimeout(saveTimer);

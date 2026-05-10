@@ -30,7 +30,7 @@
 
 ## アプリ状態の復元
 
-`~/.config/gozd/app-state.json`（stable）/ `~/.config/gozd-dev/app-state.json`（dev）に最後のウィンドウ状態を保存し、次回起動時に sidebar として hydrate する。dev / stable は `GOZD_DEV_PROJECT_ROOT` env の有無で切り替わるため、dev での操作は stable 側の永続ファイルを汚染しない。
+`~/.config/gozd/app-state.json` に最後のウィンドウ状態を保存し、次回起動時に sidebar として hydrate する。dev / stable で同じファイルを共有する。同時起動時は最後に save したプロセスが他方の sidebar 状態を上書きする可能性があるが、`buildAppStateSnapshot()` が serialize するフィールド（`dirOrder` / `collapsedRoots` / `selectedDir` / `repoName` / `isGitRepo`）の変化でしか save が走らないため、ユーザーが両ウィンドウで sidebar を能動的に操作しなければ衝突しない。
 
 保存する情報:
 

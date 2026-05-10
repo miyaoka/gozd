@@ -349,15 +349,12 @@ final class AppRuntime {
     // SocketServer は deinit で listener.cancel() + unlink するので明示は不要。
   }
 
-  /// `~/.config/gozd`（stable）/ `~/.config/gozd-dev`（dev）。
-  /// 判定軸は socket / window タイトルと同じ `GOZD_DEV_PROJECT_ROOT` 有無に揃える。
-  /// dev で sidebar 並び順 / app config を変更しても stable の永続ファイルを汚染しない。
+  /// `~/.config/gozd`。dev/stable で同じパスを使う。worktree 本体
+  /// （`~/.local/share/gozd/worktrees/`）が channel 共有なのと同じく、
+  /// app state / config / Task / ProjectConfig も同じものを共有する。
   private static func defaultConfigDir() -> String {
     let home = FileManager.default.homeDirectoryForCurrentUser
-    let env = ProcessInfo.processInfo.environment
-    let isDev = (env["GOZD_DEV_PROJECT_ROOT"] ?? "").isEmpty == false
-    let suffix = isDev ? "-dev" : ""
-    return home.appendingPathComponent(".config/\(bundlePrefix)\(suffix)").path
+    return home.appendingPathComponent(".config/\(bundlePrefix)").path
   }
 
   /// socket / settings / launch dir / Bundle ID で共有する prefix。

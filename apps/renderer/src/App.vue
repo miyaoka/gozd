@@ -6,7 +6,12 @@
 
 <script setup lang="ts">
 import { useFsWatchSync } from "./features/filer";
-import { MainLayout, useCommandErrorBridge, useNotifySubscription } from "./features/layout";
+import {
+  MainLayout,
+  useCommandErrorBridge,
+  useNotifySubscription,
+  useTitleContextSync,
+} from "./features/layout";
 import { useGozdOpenHandler, useRepoContextKey } from "./features/sidebar";
 import { useGitStatusSync } from "./features/worktree";
 import { useKeyBindings } from "./shared/command";
@@ -18,6 +23,7 @@ useGozdOpenHandler();
 useRepoContextKey();
 useFsWatchSync();
 useGitStatusSync();
+useTitleContextSync();
 </script>
 
 <template>

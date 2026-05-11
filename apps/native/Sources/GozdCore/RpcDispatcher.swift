@@ -225,6 +225,8 @@ public actor RpcDispatcher {
       return try await handleVoicevoxSpeak(body)
     case "/window/close":
       return try handleWindowClose(body)
+    case "/window/setTitleContext":
+      return try await handleWindowSetTitleContext(body)
     case "/claudeSession/listByDir":
       return try await handleClaudeSessionListByDir(body)
     case "/claudeSession/listByProject":
@@ -823,6 +825,25 @@ public actor RpcDispatcher {
       NSApplication.shared.terminate(nil)
     }
     return try Gozd_V1_WindowCloseResponse().jsonUTF8Data()
+  }
+
+  private func handleWindowSetTitleContext(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_WindowSetTitleContextRequest(jsonUTF8Data: body)
+    let repo = req.repoName
+    let wt = req.worktreeName
+    // "repo · worktree" 形式に整形。worktree 名が空なら repo 名のみ。
+    let text: String
+    if wt.isEmpty {
+      text = repo
+    } else if repo.isEmpty {
+      text = wt
+    } else {
+      text = "\(repo) · \(wt)"
+    }
+    await MainActor.run {
+      TitleContext.shared.text = text
+    }
+    return try Gozd_V1_WindowSetTitleContextResponse().jsonUTF8Data()
   }
 
   private func handleVoicevoxSpeak(_ body: Data) async throws -> Data {

@@ -147,4 +147,9 @@ export {
   VoicevoxSpeakRequest,
   VoicevoxSpeakResponse,
 } from "./generated/gozd/v1/voicevox";
-export { WindowCloseRequest, WindowCloseResponse } from "./generated/gozd/v1/window";
+export {
+  WindowCloseRequest,
+  WindowCloseResponse,
+  WindowSetTitleContextRequest,
+  WindowSetTitleContextResponse,
+} from "./generated/gozd/v1/window";

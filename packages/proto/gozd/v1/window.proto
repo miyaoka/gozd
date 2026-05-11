@@ -7,3 +7,11 @@ package gozd.v1;
 // ウィンドウを閉じる（シングルウィンドウ運用ではアプリ終了相当）。
 message WindowCloseRequest {}
 message WindowCloseResponse {}
+
+// titlebar の ToolbarItem に出すコンテキスト（active repo / worktree）。
+// renderer 側で active worktree が変わるたびに push し、native の toolbar が反映する。
+message WindowSetTitleContextRequest {
+  string repo_name = 1;
+  string worktree_name = 2;
+}
+message WindowSetTitleContextResponse {}

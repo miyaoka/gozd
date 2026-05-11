@@ -2,7 +2,7 @@
 
 - 例外処理では必ず `useNotificationStore` の `error(message, cause?)` / `info(message, cause?)` でトースト通知する。`console.error` で握りつぶさない
 - store 内部で `console.error` / `console.info` を出力するため、呼び出し側で console を呼ぶ必要はない
-- cause にエラーオブジェクトを渡すとコンソールにスタックトレースが出る。トースト本文をクリックすると `cause` の詳細（`Error` なら stack、それ以外は文字列化）を展開表示し、Copy ボタンで内容をクリップボードにコピーできる
+- cause にエラーオブジェクトを渡すとコンソールにスタックトレースが出る。トースト本文をクリックすると `cause` の詳細（`Error` なら `name: message` 行 + stack、それ以外は文字列化）を展開表示し、Copy ボタンで内容をクリップボードにコピーできる。WebKit/JavaScriptCore の `Error.stack` は先頭の `name: message` 行を含まないため、含まれていなければ補完する
 
 ## イベントリスナー
 

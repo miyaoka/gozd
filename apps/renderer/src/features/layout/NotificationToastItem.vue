@@ -90,7 +90,11 @@ const detail = computed(() => {
   const { cause } = props;
   if (cause instanceof Error) {
     const head = `${cause.name}: ${cause.message}`;
-    return cause.stack !== undefined && cause.stack !== "" ? cause.stack : head;
+    const stack = cause.stack;
+    if (stack === undefined || stack === "") return head;
+    // WebKit/JavaScriptCore の stack は "Error: message" の先頭行を含まず frame だけを返す。
+    // V8 形式（先頭に head を含む）と区別して、含まれていなければ補完する。
+    return stack.startsWith(head) ? stack : `${head}\n${stack}`;
   }
   if (typeof cause === "string") return cause;
   return safeStringify(cause);

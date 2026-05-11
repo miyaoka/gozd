@@ -61,10 +61,10 @@ public enum GitHubOps {
     }
     """
 
-  public static func prList(dir: String) async -> [PullRequestInfo]? {
-    guard let (owner, repo) = await repoOwnerName(dir: dir) else { return nil }
+  public static func prList(dir: String) async throws -> [PullRequestInfo]? {
+    guard let (owner, repo) = try await repoOwnerName(dir: dir) else { return nil }
     guard
-      let data = try? await runGh(
+      let data = try await runGhOrNilOnCommandFailure(
         args: graphqlArgs(owner: owner, repo: repo, query: prQuery), cwd: dir)
     else { return nil }
     guard
@@ -112,10 +112,10 @@ public enum GitHubOps {
     }
   }
 
-  public static func issueList(dir: String) async -> [IssueInfo]? {
-    guard let (owner, repo) = await repoOwnerName(dir: dir) else { return nil }
+  public static func issueList(dir: String) async throws -> [IssueInfo]? {
+    guard let (owner, repo) = try await repoOwnerName(dir: dir) else { return nil }
     guard
-      let data = try? await runGh(
+      let data = try await runGhOrNilOnCommandFailure(
         args: graphqlArgs(owner: owner, repo: repo, query: issueQuery), cwd: dir)
     else { return nil }
     guard
@@ -160,9 +160,9 @@ public enum GitHubOps {
     ]
   }
 
-  private static func repoOwnerName(dir: String) async -> (owner: String, repo: String)? {
+  private static func repoOwnerName(dir: String) async throws -> (owner: String, repo: String)? {
     guard
-      let data = try? await runGh(
+      let data = try await runGhOrNilOnCommandFailure(
         args: ["repo", "view", "--json", "owner,name", "--jq", ".owner.login + \"/\" + .name"],
         cwd: dir)
     else { return nil }
@@ -177,13 +177,28 @@ public enum GitHubOps {
   }
 
   /// `gh api user --jq .login` で認証中ユーザーの login を返す。未認証なら nil。
-  public static func viewer(dir: String) async -> String? {
-    guard let data = try? await runGh(args: ["api", "user", "--jq", ".login"], cwd: dir) else {
-      return nil
-    }
+  public static func viewer(dir: String) async throws -> String? {
+    guard
+      let data = try await runGhOrNilOnCommandFailure(
+        args: ["api", "user", "--jq", ".login"], cwd: dir)
+    else { return nil }
     let text = String(decoding: data, as: UTF8.self)
       .trimmingCharacters(in: .whitespacesAndNewlines)
     return text.isEmpty ? nil : text
+  }
+
+  /// `runGh` の `commandFailed`（gh は走ったが non-zero exit: 未認証、repo not found 等）
+  /// を nil に変換するヘルパー。`launchFailed`（gh CLI 解決失敗 / 起動失敗）は rethrow し、
+  /// 上位 (RPC dispatcher) で HTTP error として renderer に流す。
+  /// `try?` を直接使うと両者を区別できず、`gh` 未解決でも UI 上「PR 0 件」に化けるため、
+  /// `commandFailed` のみを silent 化する。
+  private static func runGhOrNilOnCommandFailure(args: [String], cwd: String) async throws -> Data?
+  {
+    do {
+      return try await runGh(args: args, cwd: cwd)
+    } catch GitError.commandFailed {
+      return nil
+    }
   }
 }
 
@@ -217,8 +232,11 @@ public struct IssueInfo: Sendable, Equatable {
 // `gh` の絶対パスは `CommandResolver` で解決する。`.app` を Finder/Dock から起動すると
 // launchd 由来の最小 PATH しか継承されないため `/usr/bin/env gh` では `gh` を解決
 // できない。`CommandResolver` がユーザーログインシェル経由で `command -v gh` を実行
-// して絶対パスを取得し、結果はキャッシュされる。見つからない場合は launchFailed を
-// throw して上位（`prList` / `issueList` / `viewer`）が `try?` で nil 化する。
+// して絶対パスを取得し、結果はキャッシュされる。見つからない場合は `launchFailed` を
+// throw する。上位の `prList` / `issueList` / `viewer` は `runGhOrNilOnCommandFailure`
+// で包んでおり、`commandFailed`（未認証 / repo not found 等）のみ nil 化し
+// `launchFailed` はそのまま rethrow → `RpcDispatcher` の handler から HTTP error として
+// renderer に流れ、`notify.error` で表示される。
 //
 // `launchFailed` を検知した場合、キャッシュが stale な可能性があるため 1 回だけ
 // invalidate + 再 resolve して retry する。
@@ -228,17 +246,24 @@ public struct IssueInfo: Sendable, Equatable {
 // 出力が pipe buffer (~64KB) を超えると deadlock する。
 private func runGh(args: [String], cwd: String) async throws -> Data {
   do {
-    return try await runGhOnce(args: args, cwd: cwd)
+    return try await runGhOnce(ghPath: try await resolveGhPath(), args: args, cwd: cwd)
   } catch GitError.launchFailed {
     await CommandResolver.shared.invalidate("gh")
-    return try await runGhOnce(args: args, cwd: cwd)
+    return try await runGhOnce(ghPath: try await resolveGhPath(), args: args, cwd: cwd)
   }
 }
 
-private func runGhOnce(args: [String], cwd: String) async throws -> Data {
-  guard let ghPath = await CommandResolver.shared.resolve("gh") else {
-    throw GitError.launchFailed("gh CLI not found in PATH or user login shell")
+/// `gh` の絶対パスを resolve する。解決失敗時は `launchFailed` を throw する。
+/// `resolveGitPath` と同じシグネチャに揃え、解決経路と spawn 経路を呼び出し側で分離する
+/// （リトライ時の invalidate + 再 resolve が同じ層で完結する）。
+private func resolveGhPath() async throws -> String {
+  guard let path = await CommandResolver.shared.resolve("gh") else {
+    throw GitError.launchFailed("gh CLI not found in user login shell or PATH")
   }
+  return path
+}
+
+private func runGhOnce(ghPath: String, args: [String], cwd: String) async throws -> Data {
   let process = Process()
   process.executableURL = URL(fileURLWithPath: ghPath)
   process.arguments = args

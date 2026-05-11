@@ -21,26 +21,43 @@ import os
 
 /// 外部 CLI の絶対パスを解決してキャッシュする actor。
 ///
-/// 解決手順:
+/// 解決手順: **ユーザーログインシェル経由でのみ解決する**。
+/// `getpwuid_r(getuid())->pw_shell` でユーザーのログインシェルを取得し、
+/// `<shell> -i -l -c '<script>'` で起動して `command -v <name>` の絶対パスを得る。
+/// これが「ユーザーがターミナルで叩く時に使われる CLI」と一致する唯一の経路。
 ///
-/// 1. **現在の PATH で 1 次解決**: `ProcessInfo.processInfo.environment["PATH"]` を
-///    分割して各 dir に candidate が存在するか走査。dev 経路（ターミナル PATH 継承）や
-///    `git` のように Apple stub 経路で見つかる場合はここで終わる。
+/// `-i -l` 両方付ける理由: `mise activate` / `asdf` 等は `.zshrc` 経由で activate
+/// されるケースが多く、`-l` (login) 単独では `.zshrc` を読まない。VSCode の
+/// shell environment resolver も同じ理由で `-i -l -c` を採用している。
 ///
-/// 2. **ユーザーログインシェル経由で 2 次解決**: 1 次で見つからない場合、
-///    `getpwuid_r(getuid())->pw_shell` でユーザーのログインシェルを取得し、
-///    `<shell> -i -l -c '<script>'` で起動して `command -v <name>` の絶対パスを得る。
+/// 結果は alias / function ではなく絶対パスかつ executable であることを検証する。
 ///
-///    `-i -l` 両方付ける理由: `mise activate` / `asdf` 等は `.zshrc` 経由で activate
-///    されるケースが多く、`-l` (login) 単独では `.zshrc` を読まない。VSCode の
-///    shell environment resolver も同じ理由で `-i -l -c` を採用している。
+/// **現プロセス PATH を使わない理由**: macOS の `/usr/bin/<dev tool>` は libxcselect
+/// 経由の shim で、Homebrew / mise / Apple stub のいずれも別バイナリ。Finder/Dock 起動の
+/// `.app` は launchd PATH (`/usr/bin:/bin:/usr/sbin:/sbin`) しか継承しないため、現
+/// プロセス PATH を解決手段に混ぜると Apple stub が必ず先頭マッチして「ターミナルでは
+/// Homebrew git、`.app` では Apple stub」という非対称が生じる。Keychain ACL が binary
+/// path に紐付くため、認証情報も別世界扱いになる（ターミナルで作った credential が
+/// `.app` から見えない）。ログインシェル経由なら CLT only / Homebrew / mise どの層
+/// でも「ユーザーが普段使う CLI」を返すので、この非対称が原理的に発生しない。
 ///
-///    結果は alias / function ではなく絶対パスかつ executable であることを検証する。
+/// **fallback を持たない理由**: macOS の `getpwuid_r` は `pw_shell` が欠落していても
+/// `/usr/bin/false` 等の default を供給するため、login user で shell が取れない状態は
+/// 実用上発生しない。残る失敗ケース（exotic shell で `-i -l -c '<cmd>'` を解釈しない
+/// 等）は「ユーザーが意図的に exotic 環境を選んだ」状態で、ここで silent に
+/// `/usr/bin/<tool>` に倒す方がユーザー意図と乖離する。解決失敗時は `launchFailed` を
+/// 投げて呼び出し側 (notify.error) に通知する方が筋が良い。
 ///
 /// 解決結果は actor 内のキャッシュに保存する。`invalidate(_:)` で無効化することで
 /// stale cache（mise/asdf upgrade で versioned path が消えた等）に再解決の余地を残す。
 public actor CommandResolver {
   public static let shared = CommandResolver()
+
+  /// SIGKILL / 解決失敗の事実を Console.app から追えるよう `os.Logger` で記録する。
+  /// `lookupInCurrentPath` 撤去で `lookupViaLoginShell` が単一経路に格上げされ、
+  /// silent timeout が起きるとユーザーには `launchFailed` としか見えないため、
+  /// (a) `pw_shell` が exotic / (b) `command -v` 不解釈 / (c) rc hang を切り分け可能にする。
+  private static let logger = Logger(subsystem: "dev.miyaoka.gozd", category: "command-resolver")
 
   private var cache: [String: String] = [:]
   private var inflight: [String: Task<String?, Never>] = [:]
@@ -67,24 +84,7 @@ public actor CommandResolver {
   }
 
   private static func lookup(_ name: String) async -> String? {
-    if let direct = lookupInCurrentPath(name) {
-      return direct
-    }
     return await lookupViaLoginShell(name)
-  }
-
-  /// 現在プロセスの PATH を分割して走査。`/usr/bin/env` と同じ挙動。
-  /// 空 PATH 要素は cwd 解釈になるが、セキュリティ理由から走査しない。
-  private static func lookupInCurrentPath(_ name: String) -> String? {
-    let pathEnv = ProcessInfo.processInfo.environment["PATH"] ?? ""
-    if pathEnv.isEmpty { return nil }
-    for dir in pathEnv.split(separator: ":", omittingEmptySubsequences: true) {
-      let candidate = (String(dir) as NSString).appendingPathComponent(name)
-      if let validated = validateExecutablePath(candidate) {
-        return validated
-      }
-    }
-    return nil
   }
 
   /// `getpwuid_r(getuid())->pw_shell` でユーザーのログインシェルを取得。
@@ -120,8 +120,8 @@ public actor CommandResolver {
   /// 対応シェル: `-i -l -c` フラグおよび POSIX `command -v` を解釈する shell（bash / zsh /
   /// dash / fish 等）を想定。これらに該当しないログインシェル（tcsh / nushell / xonsh の
   /// 一部呼び出し方法等）の場合は本関数が nil を返す。呼び出し側はそれを受けて
-  /// `runGh` / `runGit` で `launchFailed` を throw し、`prList` / `issueList` 等は `try?`
-  /// で nil 化する。
+  /// `runGh` / `runGit` で `launchFailed` を throw し、上位 (RPC dispatcher) で
+  /// HTTP error として renderer に通知される。renderer 側で `notify.error` を表示する。
   private static func lookupViaLoginShell(_ name: String) async -> String? {
     let shell = userLoginShell()
     let token = UUID().uuidString
@@ -144,29 +144,60 @@ public actor CommandResolver {
     process.standardOutput = stdoutPipe
     process.standardError = stderrPipe
 
-    let timeoutTask = Task { [process] in
+    let timeoutTask = Task { [process, shell, name] in
       try? await Task.sleep(nanoseconds: 10 * 1_000_000_000)
       if process.isRunning {
         let pid = process.processIdentifier
-        if pid > 0 { _ = kill(pid, SIGKILL) }
+        if pid > 0 {
+          _ = kill(pid, SIGKILL)
+          logger.error(
+            """
+            lookupViaLoginShell timed out after 10s for '\(name, privacy: .public)' \
+            via shell '\(shell, privacy: .public)'; sent SIGKILL. \
+            shell rc may be hanging or shell may not parse `-i -l -c '<cmd>'`.
+            """)
+        }
       }
     }
     defer { timeoutTask.cancel() }
 
-    let (stdoutData, _): (Data, Data)
+    let (stdoutData, stderrData): (Data, Data)
     do {
-      (stdoutData, _) = try await runProcessCollectingOutput(
+      (stdoutData, stderrData) = try await runProcessCollectingOutput(
         process: process,
         stdoutPipe: stdoutPipe,
         stderrPipe: stderrPipe
       )
     } catch {
+      logger.error(
+        """
+        lookupViaLoginShell failed to launch shell '\(shell, privacy: .public)' \
+        for '\(name, privacy: .public)': \(error.localizedDescription, privacy: .public)
+        """)
       return nil
     }
 
-    guard process.terminationStatus == 0 else { return nil }
+    guard process.terminationStatus == 0 else {
+      let stderrText = String(decoding: stderrData, as: UTF8.self)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      logger.error(
+        """
+        lookupViaLoginShell exit \(process.terminationStatus) for '\(name, privacy: .public)' \
+        via shell '\(shell, privacy: .public)': \(stderrText, privacy: .public)
+        """)
+      return nil
+    }
     let text = String(decoding: stdoutData, as: UTF8.self)
-    return extractAndValidatePath(text, begin: beginMarker, end: endMarker)
+    if let path = extractAndValidatePath(text, begin: beginMarker, end: endMarker) {
+      return path
+    }
+    logger.error(
+      """
+      lookupViaLoginShell could not parse `command -v \(name, privacy: .public)` output \
+      via shell '\(shell, privacy: .public)'. Shell may not support `-i -l -c` or \
+      `command -v`, or may have returned an alias / function instead of an absolute path.
+      """)
+    return nil
   }
 
   /// marker 間から「絶対パスかつ実行可能なファイル」となる行を抽出する。

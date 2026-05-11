@@ -530,7 +530,7 @@ public actor RpcDispatcher {
   private func handleGitPrList(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitPrListRequest(jsonUTF8Data: body)
     var resp = Gozd_V1_GitPrListResponse()
-    if let prs = await GitHubOps.prList(dir: req.dir) {
+    if let prs = try await GitHubOps.prList(dir: req.dir) {
       resp.ok = true
       resp.prs = prs.map { p in
         var pb = Gozd_V1_GitPullRequest()
@@ -557,7 +557,7 @@ public actor RpcDispatcher {
   private func handleGitIssueList(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitIssueListRequest(jsonUTF8Data: body)
     var resp = Gozd_V1_GitIssueListResponse()
-    if let issues = await GitHubOps.issueList(dir: req.dir) {
+    if let issues = try await GitHubOps.issueList(dir: req.dir) {
       resp.ok = true
       resp.issues = issues.map { i in
         var pb = Gozd_V1_GitIssue()
@@ -581,7 +581,7 @@ public actor RpcDispatcher {
   private func handleGitViewer(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitViewerRequest(jsonUTF8Data: body)
     var resp = Gozd_V1_GitViewerResponse()
-    if let login = await GitHubOps.viewer(dir: req.dir) {
+    if let login = try await GitHubOps.viewer(dir: req.dir) {
       resp.ok = true
       resp.login = login
     } else {
@@ -600,19 +600,32 @@ public actor RpcDispatcher {
     //    ここでは流用せず、剥がさない形で扱う）
     // 2) 失敗時は main repo root 自身の current branch に fallback（remote 未設定 / push 前 repo）
     // 3) どちらも引けない（detached HEAD / unborn branch）場合は空文字列を返し、caller が通知 + 中止する
-    let branch = (try? await resolveStartPoint(dir: req.dir)) ?? ""
+    //
+    // `commandFailed`（origin/HEAD 未設定 / detached HEAD 等のドメイン失敗）のみ空文字列に
+    // 倒し、`launchFailed`（git CLI 解決失敗）は throw して renderer に通知する。
+    let branch: String
+    do {
+      branch = try await resolveStartPoint(dir: req.dir)
+    } catch GitError.commandFailed {
+      branch = ""
+    }
     var resp = Gozd_V1_GitDefaultBranchResponse()
     resp.branch = branch
     return try resp.jsonUTF8Data()
   }
 
   private func resolveStartPoint(dir: String) async throws -> String {
-    if let stdout = try? await runGit(
-      args: ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd: dir)
-    {
+    // origin/HEAD 未設定（remote 無し / `git remote set-head` 未実行）は `commandFailed`
+    // で来るので、それだけ受け流して current branch にフォールバックする。`launchFailed`
+    // は rethrow して呼び出し側に伝える。
+    do {
+      let stdout = try await runGit(
+        args: ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd: dir)
       let text = String(decoding: stdout, as: UTF8.self).trimmingCharacters(
         in: .whitespacesAndNewlines)
       if !text.isEmpty { return text }
+    } catch GitError.commandFailed {
+      // 次の HEAD fallback に進む
     }
     let stdout = try await runGit(args: ["symbolic-ref", "--short", "HEAD"], cwd: dir)
     return String(decoding: stdout, as: UTF8.self).trimmingCharacters(

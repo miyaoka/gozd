@@ -92,9 +92,14 @@ const detail = computed(() => {
     const head = `${cause.name}: ${cause.message}`;
     const stack = cause.stack;
     if (stack === undefined || stack === "") return head;
-    // WebKit/JavaScriptCore の stack は "Error: message" の先頭行を含まず frame だけを返す。
-    // V8 形式（先頭に head を含む）と区別して、含まれていなければ補完する。
-    return stack.startsWith(head) ? stack : `${head}\n${stack}`;
+    // V8 系の stack は先頭行に "name: message" を含み（message が改行を含めばその 1 行目のみ）、
+    // WebKit/JavaScriptCore の stack はフレームのみで "name: message" 行を持たない。
+    // stack.startsWith(head) で判定すると message が改行を含むときに V8 でも false になり二重表示になるため、
+    // 先頭行が `<name>:` で始まるかで V8 形式と判定し、その場合は先頭行を捨てて head + 残り frame に正規化する。
+    const [firstLine = "", ...rest] = stack.split("\n");
+    const frames = firstLine.startsWith(`${cause.name}:`) ? rest : [firstLine, ...rest];
+    const body = frames.join("\n");
+    return body === "" ? head : `${head}\n${body}`;
   }
   if (typeof cause === "string") return cause;
   return safeStringify(cause);

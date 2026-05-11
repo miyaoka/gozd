@@ -11,8 +11,14 @@ import os
 //
 // 2. **`CommandResolver` 経由で `git` の絶対パスを解決**: `.app` を Finder/Dock 起動
 //    すると launchd 由来の最小 PATH しか継承されないため `/usr/bin/env` の PATH 解決
-//    では Homebrew 版 git を選べない。`CommandResolver` がユーザーログインシェル経由で
-//    解決した絶対パスを使い、見つからない場合のみ Apple stub `/usr/bin/git` に倒す。
+//    では Homebrew / mise 版 git を選べない。`CommandResolver` がユーザーログインシェル
+//    経由で `command -v git` を実行し、ターミナルで叩く git と同一バイナリを返す。
+//    解決に失敗した場合は `launchFailed` を throw して呼び出し側 (notify.error) に
+//    通知する。Apple stub `/usr/bin/git` への暗黙 fallback は行わない: ターミナルで
+//    Homebrew git を使っているユーザーに対して `.app` だけ CLT git に倒すと、Keychain
+//    ACL が binary path 単位のため credential が引き継がれず、認証プロンプトが
+//    再発する。CLT only ユーザーはログインシェル経由でも `/usr/bin/git` が返るため
+//    fallback 無しでも救われる。
 //
 // 3. **stdout / stderr は子プロセス生存中に readabilityHandler で drain する**:
 //    `terminationHandler` 内で `readDataToEndOfFile()` する設計だと、出力が
@@ -91,18 +97,32 @@ public enum GitOps {
   }
 
   /// HEAD と default branch（origin/HEAD）の log を返す。
+  ///
+  /// default branch 周りの `commandFailed`（origin 未設定 / unborn branch 等のドメイン失敗）は
+  /// 空文字列 / 空配列に倒すが、`launchFailed`（git CLI 解決失敗）は rethrow して上位の
+  /// `notify.error` まで通す。`try?` で両者を区別せず潰すと、git-graph が「空」と「gozd が
+  /// git を解決できていない」を見分けられなくなる。
   public static func logBoth(dir: String, maxCount: UInt32, firstParentOnly: Bool) async throws
     -> LogResult
   {
-    async let headTask = log(dir: dir, ref: "HEAD", maxCount: maxCount, firstParentOnly: firstParentOnly)
-    let defaultBranch = (try? await defaultBranchName(dir: dir)) ?? ""
+    async let headTask = log(
+      dir: dir, ref: "HEAD", maxCount: maxCount, firstParentOnly: firstParentOnly)
+    let defaultBranch: String
+    do {
+      defaultBranch = try await defaultBranchName(dir: dir)
+    } catch GitError.commandFailed {
+      defaultBranch = ""
+    }
     let head = try await headTask
     var defaultCommits: [CommitInfo] = []
     if !defaultBranch.isEmpty {
-      defaultCommits =
-        (try? await log(
+      do {
+        defaultCommits = try await log(
           dir: dir, ref: "origin/\(defaultBranch)", maxCount: maxCount,
-          firstParentOnly: firstParentOnly)) ?? []
+          firstParentOnly: firstParentOnly)
+      } catch GitError.commandFailed {
+        defaultCommits = []
+      }
     }
     return LogResult(
       headCommits: head, defaultBranchCommits: defaultCommits, defaultBranch: defaultBranch)
@@ -391,12 +411,13 @@ private func parseNulSeparatedPaths(_ data: Data) -> Set<String> {
 
 // `runProcessCollectingOutput` は `ProcessExec.swift` に共通化した。
 
-/// `git` の絶対パスを resolve する。1 次解決失敗時のみ Apple stub `/usr/bin/git` に倒す。
-private func resolveGitPath() async -> String {
-  if let path = await CommandResolver.shared.resolve("git") {
-    return path
+/// `git` の絶対パスを resolve する。解決失敗時は `launchFailed` を throw する。
+/// Apple stub `/usr/bin/git` への暗黙 fallback は行わない（モジュール先頭コメント参照）。
+private func resolveGitPath() async throws -> String {
+  guard let path = await CommandResolver.shared.resolve("git") else {
+    throw GitError.launchFailed("git CLI not found in user login shell or PATH")
   }
-  return "/usr/bin/git"
+  return path
 }
 
 /// stdin にデータを渡して git を起動する。`runGit` と同じ戻り値契約。
@@ -405,11 +426,11 @@ private func resolveGitPath() async -> String {
 func runGitWithStdin(args: [String], cwd: String, stdin: Data) async throws -> Data {
   do {
     return try await runGitWithStdinOnce(
-      gitPath: await resolveGitPath(), args: args, cwd: cwd, stdin: stdin)
+      gitPath: try await resolveGitPath(), args: args, cwd: cwd, stdin: stdin)
   } catch GitError.launchFailed {
     await CommandResolver.shared.invalidate("git")
     return try await runGitWithStdinOnce(
-      gitPath: await resolveGitPath(), args: args, cwd: cwd, stdin: stdin)
+      gitPath: try await resolveGitPath(), args: args, cwd: cwd, stdin: stdin)
   }
 }
 
@@ -473,10 +494,10 @@ private func gozdGitEnv() -> [String: String] {
 
 func runGit(args: [String], cwd: String) async throws -> Data {
   do {
-    return try await runGitOnce(gitPath: await resolveGitPath(), args: args, cwd: cwd)
+    return try await runGitOnce(gitPath: try await resolveGitPath(), args: args, cwd: cwd)
   } catch GitError.launchFailed {
     await CommandResolver.shared.invalidate("git")
-    return try await runGitOnce(gitPath: await resolveGitPath(), args: args, cwd: cwd)
+    return try await runGitOnce(gitPath: try await resolveGitPath(), args: args, cwd: cwd)
   }
 }
 

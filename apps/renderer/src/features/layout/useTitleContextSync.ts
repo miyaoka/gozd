@@ -13,31 +13,30 @@ export function useTitleContextSync(): void {
   const repoStore = useRepoStore();
   const notify = useNotificationStore();
 
+  // watch を primitive 文字列の getter 配列で組む。getter が object を返すと
+  // identity が毎 tick 変わって watch が常時 fire する。primitive string なら
+  // `===` 比較で「値が変わったときだけ」発火する。
   watch(
-    () => {
-      const repo = repoStore.selectedRepo;
-      const dir = repoStore.selectedDir;
-      if (repo === undefined || dir === undefined) {
-        return { repoName: "", worktreeName: "" };
-      }
-      const wt = repo.worktrees.find((entry) => entry.path === dir);
-      const worktreeName = wt?.branch ?? "";
-      return { repoName: repo.repoName, worktreeName };
-    },
-    async (ctx) => {
+    [
+      () => repoStore.selectedRepo?.repoName ?? "",
+      () => {
+        const repo = repoStore.selectedRepo;
+        const dir = repoStore.selectedDir;
+        if (repo === undefined || dir === undefined) return "";
+        return repo.worktrees.find((entry) => entry.path === dir)?.branch ?? "";
+      },
+    ],
+    async ([repoName, worktreeName]) => {
       // active な repo がまだ無い起動直後は push しない。native 側は空文字を受け取ると
       // ContentView 側で windowTitle ("gozd" / "gozd (dev)") にフォールバックするが、
       // 空 push のラウンドトリップ自体を省くことで toolbar の一瞬の空表示を避ける。
-      if (ctx.repoName === "" && ctx.worktreeName === "") return;
-      const req = WindowSetTitleContextRequest.create({
-        repoName: ctx.repoName,
-        worktreeName: ctx.worktreeName,
-      });
+      if (repoName === "" && worktreeName === "") return;
+      const req = WindowSetTitleContextRequest.create({ repoName, worktreeName });
       const result = await tryCatch(rpcWindowSetTitleContext(req));
       if (!result.ok) {
         notify.error("Failed to sync window title context", result.error);
       }
     },
-    { immediate: true, deep: false },
+    { immediate: true },
   );
 }

@@ -48,8 +48,7 @@ export function registerPrCommand(): () => void {
         );
 
         // この callback は PrPickerDialog 側で close() 後に呼ばれるため、
-        // 連打による再エントリは dialog の DOM 除去で塞がれている。さらに branch: pr.headRef が
-        // 決定論的なので git 側でも重複作成は弾かれる。`isCreating` 相当のガードは不要。
+        // 連打による再エントリは dialog の DOM 除去で塞がれている。`isCreating` 相当のガードは不要。
         show(prsRes.prs, viewerRes.ok ? viewerRes.login : "", (pr) => {
           const existingDir = wtByBranch.get(pr.headRef);
           if (existingDir !== undefined) {

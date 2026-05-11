@@ -246,17 +246,24 @@ public struct IssueInfo: Sendable, Equatable {
 // 出力が pipe buffer (~64KB) を超えると deadlock する。
 private func runGh(args: [String], cwd: String) async throws -> Data {
   do {
-    return try await runGhOnce(args: args, cwd: cwd)
+    return try await runGhOnce(ghPath: try await resolveGhPath(), args: args, cwd: cwd)
   } catch GitError.launchFailed {
     await CommandResolver.shared.invalidate("gh")
-    return try await runGhOnce(args: args, cwd: cwd)
+    return try await runGhOnce(ghPath: try await resolveGhPath(), args: args, cwd: cwd)
   }
 }
 
-private func runGhOnce(args: [String], cwd: String) async throws -> Data {
-  guard let ghPath = await CommandResolver.shared.resolve("gh") else {
-    throw GitError.launchFailed("gh CLI not found in PATH or user login shell")
+/// `gh` の絶対パスを resolve する。解決失敗時は `launchFailed` を throw する。
+/// `resolveGitPath` と同じシグネチャに揃え、解決経路と spawn 経路を呼び出し側で分離する
+/// （リトライ時の invalidate + 再 resolve が同じ層で完結する）。
+private func resolveGhPath() async throws -> String {
+  guard let path = await CommandResolver.shared.resolve("gh") else {
+    throw GitError.launchFailed("gh CLI not found in user login shell or PATH")
   }
+  return path
+}
+
+private func runGhOnce(ghPath: String, args: [String], cwd: String) async throws -> Data {
   let process = Process()
   process.executableURL = URL(fileURLWithPath: ghPath)
   process.arguments = args

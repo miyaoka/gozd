@@ -503,27 +503,48 @@ final class AppRuntime {
     var dir = probeDir
     var repoName = (probeDir as NSString).lastPathComponent
     var isGitRepo = false
-    if let toplevel = try? await GitOps.repoTopLevel(dir: probeDir), !toplevel.isEmpty {
-      dir = toplevel
-      isGitRepo = true
-      // worktree から開いた場合 toplevel はその worktree 自身（gozd の場合 timestamp 名）。
-      // 表示用 repoName は main repo の basename を使う（git-common-dir の親）。
-      // 失敗時のみ toplevel basename にフォールバック。
-      if let mainRoot = try? await GitOps.mainRepoRoot(dir: probeDir), !mainRoot.isEmpty {
-        repoName = (mainRoot as NSString).lastPathComponent
-      } else {
-        repoName = (toplevel as NSString).lastPathComponent
-      }
-      // file 指定で probeDir が toplevel と異なる場合、selection.relPath を toplevel
-      // からの相対パスに更新する
-      if !selection.isEmpty, probeDir != toplevel {
-        let absFile = (probeDir as NSString).appendingPathComponent(
-          selection["relPath"] as? String ?? "")
-        if absFile.hasPrefix(toplevel) {
-          let rel = String(absFile.dropFirst(toplevel.count))
-          selection["relPath"] = rel.hasPrefix("/") ? String(rel.dropFirst()) : rel
+    var resolverError: String?
+    // `commandFailed`（probeDir が git 管理外 / detached HEAD 等のドメイン失敗）は
+    // `isGitRepo = false` で扱う既存挙動を維持する。`launchFailed`（git CLI 解決失敗、
+    // すなわち `CommandResolver` がユーザーシェル経由で git を見つけられない病的環境）は
+    // payload に `error` キーを積んで renderer に通知し、`useGozdOpenHandler` 側で
+    // `notify.error` を出させる。`try?` で両者を一律 nil 化すると、Finder 起動の `.app` で
+    // 静かに「git repo ではない」扱いに化けるため新契約と片肺になる。
+    do {
+      let toplevel = try await GitOps.repoTopLevel(dir: probeDir)
+      if !toplevel.isEmpty {
+        dir = toplevel
+        isGitRepo = true
+        // worktree から開いた場合 toplevel はその worktree 自身（gozd の場合 timestamp 名）。
+        // 表示用 repoName は main repo の basename を使う（git-common-dir の親）。
+        // 失敗時のみ toplevel basename にフォールバック。
+        do {
+          let mainRoot = try await GitOps.mainRepoRoot(dir: probeDir)
+          repoName =
+            mainRoot.isEmpty
+            ? (toplevel as NSString).lastPathComponent
+            : (mainRoot as NSString).lastPathComponent
+        } catch GitError.commandFailed {
+          repoName = (toplevel as NSString).lastPathComponent
+        }
+        // file 指定で probeDir が toplevel と異なる場合、selection.relPath を toplevel
+        // からの相対パスに更新する
+        if !selection.isEmpty, probeDir != toplevel {
+          let absFile = (probeDir as NSString).appendingPathComponent(
+            selection["relPath"] as? String ?? "")
+          if absFile.hasPrefix(toplevel) {
+            let rel = String(absFile.dropFirst(toplevel.count))
+            selection["relPath"] = rel.hasPrefix("/") ? String(rel.dropFirst()) : rel
+          }
         }
       }
+    } catch GitError.launchFailed(let message) {
+      resolverError = message
+    } catch GitError.commandFailed {
+      // 非 git ディレクトリ / detached HEAD など。isGitRepo = false のまま続行。
+    } catch {
+      // CancellationError 等の想定外。renderer に通知し isGitRepo = false で続行。
+      resolverError = String(describing: error)
     }
 
     var payload: [String: Any] = [
@@ -535,6 +556,9 @@ final class AppRuntime {
     ]
     if !selection.isEmpty {
       payload["selection"] = selection
+    }
+    if let resolverError {
+      payload["error"] = resolverError
     }
     return payload
   }

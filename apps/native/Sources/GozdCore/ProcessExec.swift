@@ -53,6 +53,12 @@ import os
 public actor CommandResolver {
   public static let shared = CommandResolver()
 
+  /// SIGKILL / 解決失敗の事実を Console.app から追えるよう `os.Logger` で記録する。
+  /// `lookupInCurrentPath` 撤去で `lookupViaLoginShell` が単一経路に格上げされ、
+  /// silent timeout が起きるとユーザーには `launchFailed` としか見えないため、
+  /// (a) `pw_shell` が exotic / (b) `command -v` 不解釈 / (c) rc hang を切り分け可能にする。
+  private static let logger = Logger(subsystem: "dev.miyaoka.gozd", category: "command-resolver")
+
   private var cache: [String: String] = [:]
   private var inflight: [String: Task<String?, Never>] = [:]
 
@@ -138,29 +144,60 @@ public actor CommandResolver {
     process.standardOutput = stdoutPipe
     process.standardError = stderrPipe
 
-    let timeoutTask = Task { [process] in
+    let timeoutTask = Task { [process, shell, name] in
       try? await Task.sleep(nanoseconds: 10 * 1_000_000_000)
       if process.isRunning {
         let pid = process.processIdentifier
-        if pid > 0 { _ = kill(pid, SIGKILL) }
+        if pid > 0 {
+          _ = kill(pid, SIGKILL)
+          logger.error(
+            """
+            lookupViaLoginShell timed out after 10s for '\(name, privacy: .public)' \
+            via shell '\(shell, privacy: .public)'; sent SIGKILL. \
+            shell rc may be hanging or shell may not parse `-i -l -c '<cmd>'`.
+            """)
+        }
       }
     }
     defer { timeoutTask.cancel() }
 
-    let (stdoutData, _): (Data, Data)
+    let (stdoutData, stderrData): (Data, Data)
     do {
-      (stdoutData, _) = try await runProcessCollectingOutput(
+      (stdoutData, stderrData) = try await runProcessCollectingOutput(
         process: process,
         stdoutPipe: stdoutPipe,
         stderrPipe: stderrPipe
       )
     } catch {
+      logger.error(
+        """
+        lookupViaLoginShell failed to launch shell '\(shell, privacy: .public)' \
+        for '\(name, privacy: .public)': \(error.localizedDescription, privacy: .public)
+        """)
       return nil
     }
 
-    guard process.terminationStatus == 0 else { return nil }
+    guard process.terminationStatus == 0 else {
+      let stderrText = String(decoding: stderrData, as: UTF8.self)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      logger.error(
+        """
+        lookupViaLoginShell exit \(process.terminationStatus) for '\(name, privacy: .public)' \
+        via shell '\(shell, privacy: .public)': \(stderrText, privacy: .public)
+        """)
+      return nil
+    }
     let text = String(decoding: stdoutData, as: UTF8.self)
-    return extractAndValidatePath(text, begin: beginMarker, end: endMarker)
+    if let path = extractAndValidatePath(text, begin: beginMarker, end: endMarker) {
+      return path
+    }
+    logger.error(
+      """
+      lookupViaLoginShell could not parse `command -v \(name, privacy: .public)` output \
+      via shell '\(shell, privacy: .public)'. Shell may not support `-i -l -c` or \
+      `command -v`, or may have returned an alias / function instead of an absolute path.
+      """)
+    return nil
   }
 
   /// marker 間から「絶対パスかつ実行可能なファイル」となる行を抽出する。

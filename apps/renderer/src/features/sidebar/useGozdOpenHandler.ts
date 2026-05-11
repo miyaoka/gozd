@@ -22,6 +22,13 @@ interface GozdOpenPayload {
   repoName: string;
   isGitRepo: boolean;
   switchToDir: string;
+  /**
+   * native 側で git バイナリの解決自体に失敗した場合（`GitError.launchFailed`）に積まれる。
+   * `commandFailed`（probeDir が git 管理外 / detached HEAD 等）は積まず、`isGitRepo = false`
+   * として既存挙動を維持する。両者を区別することで、ユーザーシェル経由でも git を解決できない
+   * 病的環境を「git repo ではない」と silent に化けさせず notify.error で可視化する。
+   */
+  error?: string;
 }
 
 export function useGozdOpenHandler() {
@@ -31,9 +38,12 @@ export function useGozdOpenHandler() {
   const notify = useNotificationStore();
 
   async function handle(payload: GozdOpenPayload) {
-    const { dir, selection, channel, repoName, isGitRepo, switchToDir } = payload;
+    const { dir, selection, channel, repoName, isGitRepo, switchToDir, error } = payload;
     if (channel) {
       appStore.setChannel(channel);
+    }
+    if (error !== undefined && error !== "") {
+      notify.error("Failed to resolve git binary", error);
     }
     const targetDir = switchToDir !== "" ? switchToDir : dir;
     // proto3 scalar では undefined が表現できないため、空 selection は未指定として扱う

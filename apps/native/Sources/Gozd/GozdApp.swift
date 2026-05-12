@@ -12,12 +12,13 @@ struct GozdApp: App {
   var body: some Scene {
     Window(Self.windowTitle, id: "main") {
       ContentView()
+        .preferredColorScheme(.dark)
     }
   }
 
   /// dev / stable をウィンドウタイトルで区別する。判定軸は socketPath / channel と
   /// 同じ `GOZD_DEV_PROJECT_ROOT` の有無に揃える（軸が複数あると drift する）。
-  private static var windowTitle: String {
+  static var windowTitle: String {
     let isDev = (ProcessInfo.processInfo.environment["GOZD_DEV_PROJECT_ROOT"] ?? "").isEmpty == false
     return isDev ? "gozd (dev)" : "gozd"
   }
@@ -47,9 +48,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct ContentView: View {
   @State private var runtime = AppRuntime()
+  @State private var titleContext = TitleContext.shared
 
   var body: some View {
     WebView(runtime.page)
+      .webViewContentBackground(.hidden)
+      .ignoresSafeArea(.container, edges: .top)
+      .background(Color.black)
+      .toolbar {
+        ToolbarItem(placement: .principal) {
+          Text(titleContext.text.isEmpty ? GozdApp.windowTitle : titleContext.text)
+        }
+        .sharedBackgroundVisibility(.hidden)
+      }
       .task {
         // ロード経路は 3 つ:
         //   1. dev: $GOZD_DEV_VITE_URL があれば Vite dev server をロード（HMR）

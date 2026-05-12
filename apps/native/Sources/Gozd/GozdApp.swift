@@ -62,6 +62,14 @@ struct ContentView: View {
         .sharedBackgroundVisibility(.hidden)
       }
       .task {
+        // 起動時 reconcile を page.load より前に await する。
+        // unregisterPane 経路 (/claudeSession/removeByPty) で取りこぼした残骸
+        // （クラッシュ等）の最後のセーフティネット。reconcile 完了前に renderer の
+        // 初回 listByDir / listByProject が走ると掃除前の claude-sessions.json を
+        // 読むため、ここで明示的に順序を保証する。read 時の silent save をやめた
+        // 代わりに、起動時 1 回だけ明示的に掃除する設計。
+        await runtime.dispatcher.reconcileClaudeSessions()
+
         // ロード経路は 3 つ:
         //   1. dev: $GOZD_DEV_VITE_URL があれば Vite dev server をロード（HMR）
         //   2. build: gozd-app:// 経由で .app 内 Resources/app/views/main/index.html をロード。
@@ -120,6 +128,7 @@ final class AppRuntime {
   let socketPath: String
   let pidTracker: PidTracker
   let channel: String
+  let dispatcher: RpcDispatcher
 
   /// AppDelegate.applicationWillTerminate から呼ばれる。同期実行で SIGHUP を送る。
   func terminateAllPtys() {
@@ -294,7 +303,7 @@ final class AppRuntime {
         }
       }
 
-    let dispatcher = RpcDispatcher(
+    let createdDispatcher = RpcDispatcher(
       configDir: AppRuntime.defaultConfigDir(),
       onPtyText: onPtyText,
       onPtyExit: onPtyExit,
@@ -307,9 +316,10 @@ final class AppRuntime {
       envOverlay: envOverlay,
       pidTracker: pidTracker
     )
+    self.dispatcher = createdDispatcher
 
     var config = WebPage.Configuration()
-    config.urlSchemeHandlers[URLScheme("gozd-rpc")!] = RpcSchemeHandler(dispatcher: dispatcher)
+    config.urlSchemeHandlers[URLScheme("gozd-rpc")!] = RpcSchemeHandler(dispatcher: createdDispatcher)
     config.urlSchemeHandlers[URLScheme("gozd-app")!] = BundleAssetSchemeHandler()
     let page = WebPage(configuration: config)
     page.isInspectable = true
@@ -325,7 +335,7 @@ final class AppRuntime {
       try server.start { line in
         Task {
           do {
-            try await dispatcher.handleSocketMessage(line)
+            try await createdDispatcher.handleSocketMessage(line)
           } catch {
             FileHandle.standardError.write(
               Data("[SocketServer] decode failed: \(error)\n".utf8)

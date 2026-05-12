@@ -61,8 +61,8 @@ struct ClaudeSessionStoreTests {
     #expect(live.map { $0.sessionID } == ["keep"])
   }
 
-  @Test("liveSessions は transcript ファイルが消えたエントリを除外し永続化からも掃除する")
-  func liveSessionsDropsDeadEntries() async throws {
+  @Test("liveSessions は transcript ファイル不在エントリを結果から除外するが永続化は変更しない")
+  func liveSessionsPureRead() async throws {
     let env = try makeEnv()
     defer { cleanup(env) }
 
@@ -74,12 +74,37 @@ struct ClaudeSessionStoreTests {
 
     try FileManager.default.removeItem(atPath: t2)
 
-    let live1 = try await store.liveSessions(for: env.worktreeA)
-    #expect(live1.map { $0.sessionID } == ["alive"])
+    // 結果からは dead が除外される
+    let live = try await store.liveSessions(for: env.worktreeA)
+    #expect(live.map { $0.sessionID } == ["alive"])
 
-    // 2 度目の呼び出しで残骸が完全に save されていることを確認（removeBySessionId 等が走っても整合）
-    let live2 = try await store.liveSessions(for: env.worktreeA)
-    #expect(live2.map { $0.sessionID } == ["alive"])
+    // pure read なのでファイルは触らない。removeBySessionId で alive を消すと、
+    // 永続化に残っている dead エントリも見えるはず（dead もまだ json に残っている）
+    try await store.removeBySessionId(worktreePath: env.worktreeA, sessionId: "alive")
+    // 再度 transcript を作って dead を生き返らせる
+    FileManager.default.createFile(atPath: t2, contents: Data("{}\n".utf8))
+    let revived = try await store.liveSessions(for: env.worktreeA)
+    #expect(revived.map { $0.sessionID } == ["dead"])
+  }
+
+  @Test("reconcileAll は transcript 不在エントリを永続化から削除する")
+  func reconcileAllDropsDeadEntries() async throws {
+    let env = try makeEnv()
+    defer { cleanup(env) }
+
+    let store = ClaudeSessionStore(configDir: env.configDir)
+    let t1 = makeTranscript(in: env.transcriptDir, sessionId: "alive")
+    let t2 = makeTranscript(in: env.transcriptDir, sessionId: "dead")
+    try await store.upsert(worktreePath: env.worktreeA, sessionId: "alive", transcriptPath: t1)
+    try await store.upsert(worktreePath: env.worktreeA, sessionId: "dead", transcriptPath: t2)
+
+    try FileManager.default.removeItem(atPath: t2)
+    try await store.reconcileAll()
+
+    // reconcileAll で永続化から落とされたので、dead の transcript を復活させても resume されない
+    FileManager.default.createFile(atPath: t2, contents: Data("{}\n".utf8))
+    let live = try await store.liveSessions(for: env.worktreeA)
+    #expect(live.map { $0.sessionID } == ["alive"])
   }
 
   @Test("allLiveSessions は worktree 横断で生存セッションを返す")

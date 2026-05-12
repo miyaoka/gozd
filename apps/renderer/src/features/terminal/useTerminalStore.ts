@@ -12,6 +12,7 @@ import type { HookPayload, PtyExitPayload, PtyTextPayload } from "./rpc";
 import {
   rpcClaudeSessionListByDir,
   rpcClaudeSessionListByProject,
+  rpcClaudeSessionRemoveByPty,
   rpcPtyKill,
   rpcPtySpawn,
 } from "./rpc";
@@ -166,11 +167,58 @@ export const useTerminalStore = defineStore("terminal", () => {
         paneRegistry.value[leafId] = { dir };
       },
       unregisterPane: (leafId) => {
-        ptySession.killPty(leafId);
-        delete cwdByLeafId.value[leafId];
-        delete titleByLeafId.value[leafId];
-        delete pendingResumeByLeafId.value[leafId];
-        delete paneRegistry.value[leafId];
+        // resume 永続化はユーザーの明示的な pane 削除（terminal.closePane /
+        // resetLayout / worktree 削除を経由する全ケース。後者には sidebar 経由の
+        // 削除 / fetchRepo が stale 検知で発火する終端も含む）でのみ消す。
+        // アプリ終了時は renderer ごと死ぬためこの経路を通らず、claude-sessions.json
+        // はそのまま残り次回 resume できる。
+        // ptyId は paneRegistry が保持しているので hook 到達順に依存せず確実に渡せる。
+        const entry = paneRegistry.value[leafId];
+        const ptyId = entry?.session?.ptyId;
+        const dir = entry?.dir;
+        if (ptyId !== undefined && dir !== undefined) {
+          // 削除 RPC を先行させ、await してから killPty を呼ぶ。
+          // killPty を先に投げると native の consumers task が `remove(id:)` で
+          // sessionIdById を消した後に削除 RPC が到達して sessionId nil ですり抜け、
+          // claude-sessions.json にエントリが残る race の窓が空く。
+          // killPty / state 削除も IIFE 内に置く: ptySession.killPty(leafId) は
+          // 内部で paneRegistry[leafId].session を引くため、await 前に paneRegistry
+          // を消してしまうと no-op になり PTY に SIGHUP が飛ばなくなる。
+          //
+          // 暗黙契約（この Claude あり経路に限定）: unregisterPane return 後も
+          // paneRegistry[leafId] は IIFE 完了まで残る。この間 getLeafIdsByDir
+          // などの paneRegistry を走査する API は旧 leaf を返しうる。layoutsByDir
+          // は呼び出し元（closePane / resetLayout / remove）でいずれも leaf 単位
+          // 削除 / 全置換 / dir 削除のどれかで即時に更新済みなので、layout 経由の
+          // フォーカス遷移や render には影響しない。paneRegistry を直接走査する
+          // 新規呼び出し元を増やすときは、この一時併存に注意する。
+          // 素 PTY pane（else 経路）はこの併存は起きない。
+          void (async () => {
+            const res = await tryCatch(rpcClaudeSessionRemoveByPty({ ptyId, worktreePath: dir }));
+            if (!res.ok) {
+              notify.error("Failed to remove saved Claude session", res.error);
+            } else {
+              // 削除成功後に badge を即時更新する。fetchRepo 起点の再カウントを
+              // 待つと、次のサイドバー操作まで古い値が出続けるため。dir はプロジェクト
+              // 内の任意 dir として projectKey 解決に使える。
+              await refreshSavedSessionCounts([dir], dir);
+            }
+            // 削除 RPC の完了後に kill。失敗時も pane の UI は閉じる契約なので
+            // kill は実行する。paneRegistry にまだ entry があるので killPty は有効。
+            ptySession.killPty(leafId);
+            delete cwdByLeafId.value[leafId];
+            delete titleByLeafId.value[leafId];
+            delete pendingResumeByLeafId.value[leafId];
+            delete paneRegistry.value[leafId];
+          })();
+        } else {
+          // Claude セッションを持たない pane（spawn 前 / 素 PTY のみ）は同期で完結。
+          ptySession.killPty(leafId);
+          delete cwdByLeafId.value[leafId];
+          delete titleByLeafId.value[leafId];
+          delete pendingResumeByLeafId.value[leafId];
+          delete paneRegistry.value[leafId];
+        }
       },
       getPaneDir: (leafId) => paneRegistry.value[leafId]?.dir,
       getLeafIdsByDir: (dir) =>

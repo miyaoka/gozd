@@ -12,8 +12,10 @@ import GozdProto
 // 2. **session-end は session_id をキーに削除**。ptyId は揮発で再起動を跨がないため、
 //    永続化キーには使えない。session_id は Claude が生成する UUID で安定。
 //
-// 3. **resume 時に存在チェック**。アプリクラッシュで session-end が来なかった
-//    残骸エントリは、起動時に transcript ファイルの存在を確認して落とす（呼び出し側責任）。
+// 3. **read API は read だけ**。`liveSessions` / `allLiveSessions` は pure read で
+//    silent な save をしない。クラッシュ等で session-end が走らなかった残骸は、
+//    起動時の `reconcileAll()` が transcript ファイル不在を理由にまとめて掃除する。
+//    read のたびに silent save する旧設計は「いつ何が消えたか」が観察できないため撤去。
 //
 // 4. **actor**。複数 hook が並行で書きにくる可能性があるためファイル破損を防ぐ。
 public actor ClaudeSessionStore {
@@ -49,36 +51,61 @@ public actor ClaudeSessionStore {
   }
 
   /// renderer が worktree オープン時に呼ぶ。指定 dir に紐づくセッションのうち
-  /// transcript ファイルが存在するものだけを返す（残骸を自動掃除して save し直す）。
+  /// transcript ファイルが存在するものだけを返す（pure read。silent な save はしない）。
+  /// 残骸は起動時の `reconcileAll()` が責任を持って掃除する。
   public func liveSessions(for dir: String) throws -> [Gozd_V1_ClaudeSession] {
-    var list = try loadFile(for: dir)
-    let live = list.sessions.filter { entry in
+    let list = try loadFile(for: dir)
+    return list.sessions.filter { entry in
       entry.worktreePath == dir
         && FileManager.default.fileExists(atPath: entry.transcriptPath)
     }
-    let dead = list.sessions.filter { entry in
-      entry.worktreePath == dir
-        && !FileManager.default.fileExists(atPath: entry.transcriptPath)
-    }
-    if !dead.isEmpty {
-      list.sessions.removeAll { e in dead.contains { $0.sessionID == e.sessionID } }
-      try saveFile(list, for: dir)
-    }
-    return live
   }
 
-  /// プロジェクト全体の生存セッションを返す（worktree 横断）。サイドバーが
-  /// 「各 worktree が何個 resume 可能か」をバッジ表示するために 1 ファイル read で済ませる。
+  /// プロジェクト全体の生存セッションを返す（worktree 横断、pure read）。
+  /// サイドバーが「各 worktree が何個 resume 可能か」をバッジ表示するための一括取得。
   public func allLiveSessions(forProject dir: String) throws -> [Gozd_V1_ClaudeSession] {
-    var list = try loadFile(for: dir)
-    let live = list.sessions.filter {
+    let list = try loadFile(for: dir)
+    return list.sessions.filter {
       FileManager.default.fileExists(atPath: $0.transcriptPath)
     }
-    if live.count != list.sessions.count {
-      list.sessions = live
-      try saveFile(list, for: dir)
+  }
+
+  /// 起動時に 1 回呼ぶ reconcile。`~/.config/gozd/projects/*/claude-sessions.json` を
+  /// 走査して、transcript ファイルが消滅したエントリを落とす。落とした件数を stderr に
+  /// ログ出力する(観察可能性確保)。read 時 silent save の代替経路。
+  public func reconcileAll() throws {
+    let projectsURL = URL(fileURLWithPath: configDir).appendingPathComponent("projects")
+    let fm = FileManager.default
+    guard fm.fileExists(atPath: projectsURL.path) else { return }
+    let projectKeys = try fm.contentsOfDirectory(atPath: projectsURL.path)
+    var totalDropped = 0
+    for projectKey in projectKeys {
+      let fileURL = projectsURL
+        .appendingPathComponent(projectKey)
+        .appendingPathComponent("claude-sessions.json")
+      guard fm.fileExists(atPath: fileURL.path) else { continue }
+      let data = try Data(contentsOf: fileURL)
+      let json = String(decoding: data, as: UTF8.self)
+      var list = try Gozd_V1_ClaudeSessionList(jsonString: json)
+      let before = list.sessions.count
+      list.sessions.removeAll { entry in
+        !FileManager.default.fileExists(atPath: entry.transcriptPath)
+      }
+      let dropped = before - list.sessions.count
+      if dropped > 0 {
+        let outJson = try list.jsonString()
+        try outJson.write(to: fileURL, atomically: true, encoding: .utf8)
+        totalDropped += dropped
+        FileHandle.standardError.write(
+          Data(
+            "[ClaudeSessionStore] reconcile: dropped \(dropped) dead entries from \(projectKey)\n"
+              .utf8))
+      }
     }
-    return live
+    if totalDropped > 0 {
+      FileHandle.standardError.write(
+        Data("[ClaudeSessionStore] reconcile: total \(totalDropped) dead entries cleaned\n".utf8))
+    }
   }
 
   /// worktree 削除時に該当 worktreePath のエントリを全削除。
@@ -99,30 +126,30 @@ public actor ClaudeSessionStore {
 
   // MARK: - paths
 
-  private func filePath(for dir: String) -> String {
+  private func fileURL(for dir: String) -> URL {
     let projectKey = ProjectKey.resolveAndCompute(for: dir)
-    return (configDir as NSString)
+    return URL(fileURLWithPath: configDir)
       .appendingPathComponent("projects")
-      .appending("/\(projectKey)/claude-sessions.json")
+      .appendingPathComponent(projectKey)
+      .appendingPathComponent("claude-sessions.json")
   }
 
   private func loadFile(for dir: String) throws -> Gozd_V1_ClaudeSessionList {
-    let path = filePath(for: dir)
-    if !FileManager.default.fileExists(atPath: path) {
+    let url = fileURL(for: dir)
+    if !FileManager.default.fileExists(atPath: url.path) {
       return Gozd_V1_ClaudeSessionList()
     }
-    let data = try Data(contentsOf: URL(fileURLWithPath: path))
+    let data = try Data(contentsOf: url)
     let json = String(decoding: data, as: UTF8.self)
     // parse 失敗は壊れたファイルの兆候。fallback で空 list を返すと原因が見えなくなるため throw する。
     return try Gozd_V1_ClaudeSessionList(jsonString: json)
   }
 
   private func saveFile(_ list: Gozd_V1_ClaudeSessionList, for dir: String) throws {
-    let path = filePath(for: dir)
-    let parentDir = (path as NSString).deletingLastPathComponent
+    let url = fileURL(for: dir)
     try FileManager.default.createDirectory(
-      atPath: parentDir, withIntermediateDirectories: true)
+      at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     let json = try list.jsonString()
-    try json.write(toFile: path, atomically: true, encoding: .utf8)
+    try json.write(to: url, atomically: true, encoding: .utf8)
   }
 }

@@ -3,7 +3,7 @@ import Foundation
 // worktree / branch を変更する書き込み系操作。
 // 読み取り系（list / log）は GitOps、副作用持ち（create / remove / delete）はここ。
 public enum WorktreeOps {
-  /// `git worktree add [<startPoint>] <absPath> [-B <branch>]` 相当。
+  /// `git worktree add [-B <branch>] [--no-track] <path> [<commit-ish>]` 相当。
   /// `worktreeDir` はリーフ名（typically タイムスタンプ）。1 path component のみ許可（`/`, `..`, `.` は拒否）。
   /// リポジトリ汚染を避けるため `~/.local/share/gozd/worktrees/<projectKey>/<worktreeDir>` に絶対パスとして配置する。
   /// `dir` は main repo / worktree subdir のどれでも可。内部で main repo root に解決して projectKey を統一する。

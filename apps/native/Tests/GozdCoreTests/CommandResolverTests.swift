@@ -110,13 +110,18 @@ struct CommandResolverTests {
   func cachesNegativeResult() async throws {
     let resolver = CommandResolver()
     let bogus = "gozd_negcache_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+    // 1 回目: spawn が走るので shell 起動コスト分の時間がかかる
+    let start1 = Date()
     let r1 = try await resolver.resolve(bogus)
-    let start = Date()
+    let elapsed1 = Date().timeIntervalSince(start1)
+    // 2 回目: negative cache hit
+    let start2 = Date()
     let r2 = try await resolver.resolve(bogus)
-    let elapsed = Date().timeIntervalSince(start)
+    let elapsed2 = Date().timeIntervalSince(start2)
     #expect(r1 == nil)
     #expect(r2 == nil)
-    // 2 回目は cache hit のため一瞬で返るはず（spawn しないので 100ms 未満）
-    #expect(elapsed < 0.1)
+    // 絶対値ではなく相対比較で評価する。CI 環境では絶対閾値が flake しやすいため、
+    // 「2 回目が 1 回目より十分速い (10 倍以上)」で cache 動作を担保する。
+    #expect(elapsed2 * 10 < elapsed1)
   }
 }

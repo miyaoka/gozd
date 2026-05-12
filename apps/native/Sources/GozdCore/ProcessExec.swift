@@ -177,13 +177,18 @@ public actor CommandResolver {
   /// 戻り値: `command -v` の結果が空（コマンド未インストール）の場合のみ nil。
   /// shell の spawn 失敗 / hang / 起動エラーなどは `GitError.launchFailed` を throw する。
   private static func lookupViaLoginShell(_ name: String, shell: String) async throws -> String? {
-    // shell 注入境界: `name` を bash/zsh の script 文字列内に補間するため、英数とハイフン /
-    // アンダースコアに限定する。`runGit` / `runGh` などコード内リテラル経路では問題ないが、
-    // API 表面（public actor）のセキュリティ境界をここで固める。
-    guard !name.isEmpty, name.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" })
+    // shell 注入境界: `name` を bash/zsh の script 文字列内に補間するため、ASCII の英数と
+    // ハイフン / アンダースコアに限定する。`runGit` / `runGh` などコード内リテラル経路では
+    // 問題ないが、API 表面（public actor）のセキュリティ境界をここで固める。
+    // `Character.isLetter` / `.isNumber` は Unicode 全文字を許可するため `isASCII` で絞る
+    // （絵文字 / 全角数字 / ギリシャ文字経由の境界突破を防ぐ）。
+    guard !name.isEmpty,
+      name.allSatisfy({
+        $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_")
+      })
     else {
       throw GitError.launchFailed(
-        "resolve: invalid command name '\(name)' (must match [A-Za-z0-9_-]+)")
+        "resolve: invalid command name '\(name)' (must match ASCII [A-Za-z0-9_-]+)")
     }
 
     let token = UUID().uuidString
@@ -439,13 +444,19 @@ public actor CommandResolver {
   }
 
   /// fd から EOF まで読み切る（同期 read を Task で非同期化）。
+  /// `waitpid` と同じ流儀で EINTR は retry する（SIGCHLD 等の到来で read が中断された
+  /// だけのケースを EOF と取り違えないため）。
   private static func readAllFromFd(_ fd: Int32) async -> Data {
     await Task.detached(priority: .userInitiated) {
       var data = Data()
       var buf = [UInt8](repeating: 0, count: 4096)
       while true {
         let n = buf.withUnsafeMutableBufferPointer { read(fd, $0.baseAddress, $0.count) }
-        if n <= 0 { break }
+        if n < 0 {
+          if errno == EINTR { continue }
+          break
+        }
+        if n == 0 { break }
         data.append(buf, count: n)
       }
       return data

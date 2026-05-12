@@ -27,6 +27,7 @@ public enum WorktreeOps {
       // 返すのでそのまま throw して呼び出し側の notify.error に stderr を流す。
       args.append("-B")
       args.append(branch)
+      args.append("--no-track")
       args.append(absPath)
       args.append(startPoint)
     } else {

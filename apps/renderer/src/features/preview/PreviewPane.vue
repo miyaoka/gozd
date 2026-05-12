@@ -374,10 +374,9 @@ function fileName(filePath: string): string {
   return filePath.split("/").pop() ?? filePath;
 }
 
-const headerIconUrl = computed(() => {
-  if (!selectedPath.value) return undefined;
-  return getFileIconUrl(fileName(selectedPath.value));
-});
+// selectedPath が undefined のときは `<template v-if="selectedPath">` 側で描画されないため、
+// デフォルトアイコン URL を返しておけば足りる（type を常に string に絞る目的）
+const headerIconUrl = computed(() => getFileIconUrl(fileName(selectedPath.value ?? "")));
 </script>
 
 <template>
@@ -385,8 +384,7 @@ const headerIconUrl = computed(() => {
     <!-- ヘッダー（常に表示） -->
     <div class="flex items-center gap-2 border-b border-zinc-700 px-3 py-2">
       <template v-if="selectedPath">
-        <img v-if="headerIconUrl" :src="headerIconUrl" class="size-4 shrink-0" alt="" />
-        <span v-else class="icon-[lucide--file-text] text-zinc-400" />
+        <img :src="headerIconUrl" class="size-4 shrink-0" alt="" />
         <span class="truncate text-sm text-zinc-300" :title="selectedPath">{{
           fileName(selectedPath)
         }}</span>

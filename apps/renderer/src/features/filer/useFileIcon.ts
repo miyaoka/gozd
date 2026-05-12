@@ -1,4 +1,5 @@
-import { generateManifest } from "material-icon-theme";
+import { generateManifest, type Manifest } from "material-icon-theme";
+import { buildIconUrlByName } from "./iconUrlMap";
 
 /**
  * material-icon-theme のマニフェストからアイコン URL を解決する。
@@ -11,6 +12,14 @@ import { generateManifest } from "material-icon-theme";
  *   ファイル: fileNames → fileExtensions → languageIds → デフォルト
  *   フォルダ: folderNames(Expanded) → デフォルト
  */
+
+function requireManifestKey(manifest: Manifest, key: "file" | "folder" | "folderExpanded"): string {
+  const value = manifest[key];
+  if (value === undefined) {
+    throw new Error(`material-icon-theme: manifest.${key} is undefined`);
+  }
+  return value;
+}
 
 const manifest = generateManifest();
 
@@ -30,23 +39,12 @@ for (const [path, url] of Object.entries(svgModules)) {
   }
 }
 
-/** manifest が宣言するアイコン名 → URL */
-const iconUrlByName = new Map<string, string>();
-for (const [name, def] of Object.entries(manifest.iconDefinitions ?? {})) {
-  // iconPath: "./../icons/folder-development.clone.svg" → basename "folder-development.clone"
-  const match = def.iconPath.match(/\/([^/]+)\.svg$/);
-  const basename = match?.[1];
-  if (basename === undefined) continue;
-  const url = svgUrlByBasename.get(basename);
-  if (url === undefined) continue;
-  iconUrlByName.set(name, url);
-}
+const iconUrlByName = buildIconUrlByName(manifest.iconDefinitions ?? {}, svgUrlByBasename);
 
-const DEFAULT_FILE_ICON_NAME = manifest.file ?? "file";
-const DEFAULT_FOLDER_ICON_NAME = manifest.folder ?? "folder";
-const DEFAULT_FOLDER_OPEN_ICON_NAME = manifest.folderExpanded ?? "folder-open";
+const DEFAULT_FILE_ICON_NAME = requireManifestKey(manifest, "file");
+const DEFAULT_FOLDER_ICON_NAME = requireManifestKey(manifest, "folder");
+const DEFAULT_FOLDER_OPEN_ICON_NAME = requireManifestKey(manifest, "folderExpanded");
 
-// material-icon-theme が自身のデフォルトアイコンを解決できない場合は manifest 自体の問題なので即座に失敗させる
 function requireIconUrl(name: string): string {
   const url = iconUrlByName.get(name);
   if (url === undefined) {
@@ -54,10 +52,6 @@ function requireIconUrl(name: string): string {
   }
   return url;
 }
-
-const DEFAULT_FILE_ICON_URL = requireIconUrl(DEFAULT_FILE_ICON_NAME);
-const DEFAULT_FOLDER_ICON_URL = requireIconUrl(DEFAULT_FOLDER_ICON_NAME);
-const DEFAULT_FOLDER_OPEN_ICON_URL = requireIconUrl(DEFAULT_FOLDER_OPEN_ICON_NAME);
 
 const fileNameMap = new Map<string, string>();
 for (const [name, icon] of Object.entries(manifest.fileNames ?? {})) {
@@ -187,15 +181,12 @@ function resolveFolderIconName(folderName: string, isOpen: boolean): string {
 
 /** ファイル名から material-icon-theme の SVG URL を返す */
 function getFileIconUrl(fileName: string): string {
-  return iconUrlByName.get(resolveFileIconName(fileName)) ?? DEFAULT_FILE_ICON_URL;
+  return requireIconUrl(resolveFileIconName(fileName));
 }
 
 /** フォルダ名から material-icon-theme の SVG URL を返す */
 function getFolderIconUrl(folderName: string, isOpen: boolean): string {
-  const name = resolveFolderIconName(folderName, isOpen);
-  const url = iconUrlByName.get(name);
-  if (url !== undefined) return url;
-  return isOpen ? DEFAULT_FOLDER_OPEN_ICON_URL : DEFAULT_FOLDER_ICON_URL;
+  return requireIconUrl(resolveFolderIconName(folderName, isOpen));
 }
 
 export { getFileIconUrl, getFolderIconUrl };

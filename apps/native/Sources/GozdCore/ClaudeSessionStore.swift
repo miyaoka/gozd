@@ -72,19 +72,19 @@ public actor ClaudeSessionStore {
 
   /// 起動時に 1 回呼ぶ reconcile。`~/.config/gozd/projects/*/claude-sessions.json` を
   /// 走査して、transcript ファイルが消滅したエントリを落とす。落とした件数を stderr に
-  /// ログ出力する（観察可能性確保）。read 時 silent save の代替経路。
+  /// ログ出力する(観察可能性確保)。read 時 silent save の代替経路。
   public func reconcileAll() throws {
-    let projectsDir = (configDir as NSString).appendingPathComponent("projects")
+    let projectsURL = URL(fileURLWithPath: configDir).appendingPathComponent("projects")
     let fm = FileManager.default
-    guard fm.fileExists(atPath: projectsDir) else { return }
-    let projectKeys = try fm.contentsOfDirectory(atPath: projectsDir)
+    guard fm.fileExists(atPath: projectsURL.path) else { return }
+    let projectKeys = try fm.contentsOfDirectory(atPath: projectsURL.path)
     var totalDropped = 0
     for projectKey in projectKeys {
-      let filePath = (projectsDir as NSString)
+      let fileURL = projectsURL
         .appendingPathComponent(projectKey)
-        .appending("/claude-sessions.json")
-      guard fm.fileExists(atPath: filePath) else { continue }
-      let data = try Data(contentsOf: URL(fileURLWithPath: filePath))
+        .appendingPathComponent("claude-sessions.json")
+      guard fm.fileExists(atPath: fileURL.path) else { continue }
+      let data = try Data(contentsOf: fileURL)
       let json = String(decoding: data, as: UTF8.self)
       var list = try Gozd_V1_ClaudeSessionList(jsonString: json)
       let before = list.sessions.count
@@ -94,7 +94,7 @@ public actor ClaudeSessionStore {
       let dropped = before - list.sessions.count
       if dropped > 0 {
         let outJson = try list.jsonString()
-        try outJson.write(toFile: filePath, atomically: true, encoding: .utf8)
+        try outJson.write(to: fileURL, atomically: true, encoding: .utf8)
         totalDropped += dropped
         FileHandle.standardError.write(
           Data(
@@ -126,30 +126,30 @@ public actor ClaudeSessionStore {
 
   // MARK: - paths
 
-  private func filePath(for dir: String) -> String {
+  private func fileURL(for dir: String) -> URL {
     let projectKey = ProjectKey.resolveAndCompute(for: dir)
-    return (configDir as NSString)
+    return URL(fileURLWithPath: configDir)
       .appendingPathComponent("projects")
-      .appending("/\(projectKey)/claude-sessions.json")
+      .appendingPathComponent(projectKey)
+      .appendingPathComponent("claude-sessions.json")
   }
 
   private func loadFile(for dir: String) throws -> Gozd_V1_ClaudeSessionList {
-    let path = filePath(for: dir)
-    if !FileManager.default.fileExists(atPath: path) {
+    let url = fileURL(for: dir)
+    if !FileManager.default.fileExists(atPath: url.path) {
       return Gozd_V1_ClaudeSessionList()
     }
-    let data = try Data(contentsOf: URL(fileURLWithPath: path))
+    let data = try Data(contentsOf: url)
     let json = String(decoding: data, as: UTF8.self)
     // parse 失敗は壊れたファイルの兆候。fallback で空 list を返すと原因が見えなくなるため throw する。
     return try Gozd_V1_ClaudeSessionList(jsonString: json)
   }
 
   private func saveFile(_ list: Gozd_V1_ClaudeSessionList, for dir: String) throws {
-    let path = filePath(for: dir)
-    let parentDir = (path as NSString).deletingLastPathComponent
+    let url = fileURL(for: dir)
     try FileManager.default.createDirectory(
-      atPath: parentDir, withIntermediateDirectories: true)
+      at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     let json = try list.jsonString()
-    try json.write(toFile: path, atomically: true, encoding: .utf8)
+    try json.write(to: url, atomically: true, encoding: .utf8)
   }
 }

@@ -142,16 +142,22 @@ public actor RpcDispatcher {
           try await claudeSessions.removeBySessionId(
             worktreePath: worktreePath, sessionId: previous)
         }
-        await pty.setSessionId(for: hook.ptyID, sessionId: hook.sessionID)
+        // 永続化を先に成功させてから PTYRegistry のマッピングを更新する。
+        // 逆順だと upsert が throw した場合 PTYRegistry だけ新 sessionId に進み、
+        // 次回 cleanup の根拠（永続化と同期した sessionId）を失う。
         try await claudeSessions.upsert(
           worktreePath: worktreePath,
           sessionId: hook.sessionID,
           transcriptPath: hook.transcriptPath
         )
+        await pty.setSessionId(for: hook.ptyID, sessionId: hook.sessionID)
       case "session-end":
-        await pty.clearSessionId(for: hook.ptyID)
+        // 永続化削除を先に成功させてから PTYRegistry のマッピングを消す。
+        // 逆順だと removeBySessionId が throw した場合 PTYRegistry からは消えるが
+        // 永続化には残り続け、次回 cleanup（removeByPty）で sessionId 解決ができない。
         try await claudeSessions.removeBySessionId(
           worktreePath: worktreePath, sessionId: hook.sessionID)
+        await pty.clearSessionId(for: hook.ptyID)
       default:
         break
       }
@@ -709,19 +715,23 @@ public actor RpcDispatcher {
 
   private func handleClaudeSessionRemoveByPty(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_ClaudeSessionRemoveByPtyRequest(jsonUTF8Data: body)
-    // ptyId に紐づく sessionId は session-start hook で記録される。hook 受信と
-    // unregisterPane の到達順は保証されないが、ptyId は paneRegistry が常に保持して
-    // いるので renderer は確実に渡せる。sessionId が未登録なら掃除対象なし（hook が
-    // 来る前に閉じられた / そもそも Claude を起動していない pane）として何もしない。
+    // sessionId / worktreePath 紐付けを **必ず** クリアする。removeBySessionId が
+    // throw して早期 return しても late session-start hook を弾く必要があるため、
+    // do-catch + 後置クリアで順序を保証する。
+    // これにより「Claude 起動直後の closePane」で発生しうる upsert race を構造的に防ぐ。
+    var removeError: Error?
     if let sessionId = await pty.sessionId(for: req.ptyID), !sessionId.isEmpty {
-      try await claudeSessions.removeBySessionId(
-        worktreePath: req.worktreePath, sessionId: sessionId)
+      do {
+        try await claudeSessions.removeBySessionId(
+          worktreePath: req.worktreePath, sessionId: sessionId)
+      } catch {
+        removeError = error
+      }
     }
-    // sessionId / worktreePath 紐付けを両方クリアする。これ以降に到達した
-    // late session-start hook は worktreePath が空になり applyClaudeSessionHook
-    // のガードで弾かれる。「Claude 起動直後の closePane」で発生しうる upsert race
-    // を構造的に防ぐ。
     await pty.clearAssociations(for: req.ptyID)
+    if let error = removeError {
+      throw error
+    }
     return try Gozd_V1_ClaudeSessionRemoveByPtyResponse().jsonUTF8Data()
   }
 

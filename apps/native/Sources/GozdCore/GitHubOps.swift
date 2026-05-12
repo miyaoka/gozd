@@ -253,12 +253,16 @@ private func runGh(args: [String], cwd: String) async throws -> Data {
   }
 }
 
-/// `gh` の絶対パスを resolve する。解決失敗時は `launchFailed` を throw する。
+/// `gh` の絶対パスを resolve する。
+///
+/// - shell spawn 失敗 / hang / 起動エラー → `GitError.launchFailed` を throw（retry 対象）
+/// - `command -v` が空 = gh CLI 未インストール → `GitError.commandNotFound` を throw（retry 不要、即上位へ）
+///
 /// `resolveGitPath` と同じシグネチャに揃え、解決経路と spawn 経路を呼び出し側で分離する
 /// （リトライ時の invalidate + 再 resolve が同じ層で完結する）。
 private func resolveGhPath() async throws -> String {
-  guard let path = await CommandResolver.shared.resolve("gh") else {
-    throw GitError.launchFailed("gh CLI not found in user login shell or PATH")
+  guard let path = try await CommandResolver.shared.resolve("gh") else {
+    throw GitError.commandNotFound(name: "gh")
   }
   return path
 }

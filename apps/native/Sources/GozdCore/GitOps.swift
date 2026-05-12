@@ -98,10 +98,14 @@ public enum GitOps {
 
   /// HEAD と default branch（origin/HEAD）の log を返す。
   ///
-  /// default branch 周りの `commandFailed`（origin 未設定 / unborn branch 等のドメイン失敗）は
-  /// 空文字列 / 空配列に倒すが、`launchFailed`（git CLI 解決失敗）は rethrow して上位の
-  /// `notify.error` まで通す。`try?` で両者を区別せず潰すと、git-graph が「空」と「gozd が
-  /// git を解決できていない」を見分けられなくなる。
+  /// エラー方針:
+  /// - `commandFailed`（origin 未設定 / unborn branch 等のドメイン失敗）は空文字列 / 空配列に倒す
+  /// - `launchFailed`（shell spawn 失敗 / hang）は rethrow して上位の `notify.error` まで通す
+  /// - `commandNotFound`（git CLI 未インストール）も rethrow（`catch` していないので自動的に
+  ///   propagate する。renderer 側で「インストールしてください」UI を出す前提）
+  ///
+  /// `try?` で 3 種を区別せず潰すと、git-graph が「空」「gozd が git を解決できていない」
+  /// 「ユーザーが git をインストールしていない」を見分けられなくなる。
   public static func logBoth(dir: String, maxCount: UInt32, firstParentOnly: Bool) async throws
     -> LogResult
   {
@@ -387,6 +391,10 @@ private let emptyTreeHash = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 public enum GitError: Error, Equatable {
   case commandFailed(exitCode: Int32, stderr: String)
   case launchFailed(String)
+  /// `command -v <name>` が空を返した = コマンドが未インストール。
+  /// `launchFailed` (spawn/hang/起動エラー) と区別するため別 case。
+  /// retry layer は `commandNotFound` を retry しない（invalidate しても再 spawn しても結果は同じ）。
+  case commandNotFound(name: String)
   /// git は exit 0 で正常終了したが stdout のフォーマットが想定外。
   /// `commandFailed` は `exitCode != 0` を含意するため流用せず別 case にする。
   case unexpectedOutput(String)
@@ -411,11 +419,15 @@ private func parseNulSeparatedPaths(_ data: Data) -> Set<String> {
 
 // `runProcessCollectingOutput` は `ProcessExec.swift` に共通化した。
 
-/// `git` の絶対パスを resolve する。解決失敗時は `launchFailed` を throw する。
+/// `git` の絶対パスを resolve する。
+///
+/// - shell spawn 失敗 / hang / 起動エラー → `GitError.launchFailed` を throw（retry 対象）
+/// - `command -v` が空 = git CLI 未インストール → `GitError.commandNotFound` を throw（retry 不要、即上位へ）
+///
 /// Apple stub `/usr/bin/git` への暗黙 fallback は行わない（モジュール先頭コメント参照）。
 private func resolveGitPath() async throws -> String {
-  guard let path = await CommandResolver.shared.resolve("git") else {
-    throw GitError.launchFailed("git CLI not found in user login shell or PATH")
+  guard let path = try await CommandResolver.shared.resolve("git") else {
+    throw GitError.commandNotFound(name: "git")
   }
   return path
 }

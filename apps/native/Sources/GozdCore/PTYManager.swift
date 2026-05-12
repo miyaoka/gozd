@@ -76,6 +76,18 @@ public final class PTYManager {
     let cExecutable = strdup(executable)
     let cCwd = strdup(cwd)
 
+    // strdup 失敗 (OOM) を検出する。最終要素は意図的な nil terminator なので dropLast で
+    // 除外。nil が混入したまま execve に渡すと argv / envp が想定外の位置で terminate されて
+    // 子が異常起動する。OOM 状態は他も壊れる極端ケースだが、silent に異常 spawn する
+    // 経路は塞ぐ。
+    if argEntries.dropLast().contains(where: { $0 == nil })
+      || envEntries.dropLast().contains(where: { $0 == nil })
+      || cExecutable == nil || cCwd == nil
+    {
+      freeCStrings(argEntries, envEntries, cExecutable, cCwd, argv, envp)
+      throw PTYError.preforkAllocFailed(errno: ENOMEM)
+    }
+
     var ws = winsize(ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0)
     var fd: Int32 = -1
     let childPid = forkpty(&fd, nil, nil, &ws)
@@ -211,7 +223,7 @@ public final class PTYManager {
         "exit", pid: childPid,
         "waitpid ret=\(waitRet) status=\(status) errno=\(waitErrno) eintrRetries=\(eintrRetries)")
       let exitReason: PTYExitReason =
-        waitRet == -1 ? .waitpidFailed(errno: waitErrno) : decodeExitStatus(status)
+        waitRet == -1 ? .waitpidFailed(errno: waitErrno) : PTYExitReason.decode(status: status)
 
       // waitpid 後にもう一度 drain。exit と read の event 順序によらず最終 data を吸う。
       if case .closed = drainPTY(fd: fd, pid: childPid, caller: "exit-post", onData: onData) {
@@ -274,6 +286,9 @@ public final class PTYManager {
 
 public enum PTYError: Error, Equatable {
   case forkptyFailed(errno: Int32)
+  /// `forkpty` 前段の strdup などで OOM 検出した場合。forkpty syscall 自体は呼ばれていない
+  /// ので `forkptyFailed` を流用すると上位 log で失敗 syscall を取り違える。
+  case preforkAllocFailed(errno: Int32)
 }
 
 public enum PTYExitReason: Sendable, Equatable {
@@ -281,9 +296,23 @@ public enum PTYExitReason: Sendable, Equatable {
   case signaled(signal: Int32, coreDumped: Bool)
   case stopped
   /// `waitpid(2)` が `-1` で失敗したケース（例: `ECHILD`）。
-  /// `decodeExitStatus` に進ませると初期値 `status=0` が `.exited(code: 0)` と誤報されるため、
+  /// `decode(status:)` に進ませると初期値 `status=0` が `.exited(code: 0)` と誤報されるため、
   /// 異常を呼び出し側まで伝搬する独立ケースとして用意する。
   case waitpidFailed(errno: Int32)
+
+  /// `waitpid(2)` の status を `WIFEXITED` / `WIFSIGNALED` / `WIFSTOPPED` 相当で
+  /// decode する。C マクロは Swift から不可視のため手動展開している。
+  /// `CommandResolver` / `PTYManager` 双方の SSOT。
+  public static func decode(status: Int32) -> PTYExitReason {
+    let lower = status & 0x7F
+    if lower == 0 {
+      return .exited(code: (status >> 8) & 0xFF)
+    }
+    if lower == 0x7F {
+      return .stopped
+    }
+    return .signaled(signal: lower, coreDumped: (status & 0x80) != 0)
+  }
 }
 
 /// `PTYManager.spawn` の readSource / exitSource ハンドラ間で共有する終了確定状態。
@@ -417,16 +446,6 @@ private func drainPTY(fd: Int32, pid: Int32 = 0, caller: String = "?", onData: (
   return result
 }
 
-private func decodeExitStatus(_ status: Int32) -> PTYExitReason {
-  let lower = status & 0x7F
-  if lower == 0 {
-    return .exited(code: (status >> 8) & 0xFF)
-  }
-  if lower == 0x7F {
-    return .stopped
-  }
-  return .signaled(signal: lower, coreDumped: (status & 0x80) != 0)
-}
 
 private func freeCStrings(
   _ argEntries: [UnsafeMutablePointer<CChar>?],

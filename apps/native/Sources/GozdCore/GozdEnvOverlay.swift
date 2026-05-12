@@ -37,6 +37,16 @@ public struct GozdEnvOverlay: Sendable {
     "ZDOTDIR",  // overlay 側で gozd dir に上書きするため、誤った状態が混ざらないよう除去
   ]
 
+  /// 親プロセス env から「子に漏らしてはいけない gozd 起源キー」を除去する。
+  /// PTY spawn と CLI 解決 (`CommandResolver`) の両者で同じ deny-list を使う SSOT。
+  /// PTY 子では merged() の上書きで覆われるキーもあるが、CLI 解決では sanitize 後に
+  /// overlay を被せないため、`strippedKeys` がそのまま除去対象になる。
+  public static func sanitizeParentEnv(_ env: [String: String]) -> [String: String] {
+    var result = env
+    for key in strippedKeys { result.removeValue(forKey: key) }
+    return result
+  }
+
   public init(
     socketPath: String,
     cliPath: String,
@@ -59,8 +69,7 @@ public struct GozdEnvOverlay: Sendable {
     let parentEnv = ProcessInfo.processInfo.environment
 
     // 1. 親 env を base に。strippedKeys は除去
-    var result = parentEnv
-    for key in GozdEnvOverlay.strippedKeys { result.removeValue(forKey: key) }
+    var result = GozdEnvOverlay.sanitizeParentEnv(parentEnv)
 
     // 2. renderer 指定の env を上書き
     for (k, v) in rendererEnv { result[k] = v }

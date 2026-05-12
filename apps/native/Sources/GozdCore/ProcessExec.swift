@@ -4,18 +4,27 @@ import os
 
 // `Process` を `git` / `gh` 等の外部 CLI 起動に使うときの共通基盤。
 //
-// 解決すべき 2 つの問題:
+// 解決すべき 3 つの問題:
 //
 // 1. **PATH 不足**: `.app` を Finder/Dock から起動すると launchd 経由で渡される PATH は
 //    `/usr/bin:/bin:/usr/sbin:/sbin` のみ。Homebrew (`/opt/homebrew/bin`) や mise / asdf
 //    配下の CLI は解決できない。`git` は `/usr/bin/git` の Apple stub に救われるが
 //    `gh` は救われない。dev (`pnpm dev`) ではターミナル PATH を継承するので顕在化しない。
 //
-// 2. **pipe drain の deadlock**: `terminationHandler` 内で `readDataToEndOfFile()` する
+// 2. **`.app` 子プロセスでの zsh `-i` hang**: `Foundation.Process` で `zsh -i -l -c` を
+//    spawn すると、子は親 `.app` の process group を継承する。`.app` プロセスは
+//    controlling tty を持たないため、子 zsh の interactive モード初期化（job control:
+//    `tcsetpgrp` / `tcgetpgrp` 系）が blocking syscall で永久 hang する。stdout/stderr
+//    に 1 文字も出ないまま固まる。`POSIX_SPAWN_SETSID` で子を新 session leader に
+//    切り離せば、self-consistent な状態で job control が初期化されて hang しない。
+//    VSCode の `child_process.spawn({detached: true})` も libuv 経由 `setsid()` で
+//    同等の対策をしている。
+//
+// 3. **pipe drain の deadlock**: `terminationHandler` 内で `readDataToEndOfFile()` する
 //    naive 実装は出力が macOS の pipe buffer (~64KB) を超えると子プロセスが
 //    write block → exit 不能 → terminationHandler 永遠に呼ばれない deadlock を起こす。
 //
-// `CommandResolver` で 1 を、`runProcessCollectingOutput` で 2 を解決する。
+// `CommandResolver` で 1 + 2 を、`runProcessCollectingOutput` で 3 を解決する。
 
 // MARK: - CommandResolver
 
@@ -29,6 +38,12 @@ import os
 /// `-i -l` 両方付ける理由: `mise activate` / `asdf` 等は `.zshrc` 経由で activate
 /// されるケースが多く、`-l` (login) 単独では `.zshrc` を読まない。VSCode の
 /// shell environment resolver も同じ理由で `-i -l -c` を採用している。
+///
+/// **`POSIX_SPAWN_SETSID` で spawn する理由**: `.app` プロセス自身が controlling tty を
+/// 持たないため、子 zsh が `-i` の job control 初期化（`tcsetpgrp` 系）で永久 hang する。
+/// 子を新 session に切り離すことで session leader として self-consistent な状態になり
+/// hang しない。詳細はファイル冒頭コメント参照。`Foundation.Process` は `POSIX_SPAWN_SETSID`
+/// を公開 API で立てる手段が無いため、`posix_spawn` を直接呼ぶ。
 ///
 /// 結果は alias / function ではなく絶対パスかつ executable であることを検証する。
 ///
@@ -53,38 +68,66 @@ import os
 public actor CommandResolver {
   public static let shared = CommandResolver()
 
-  /// SIGKILL / 解決失敗の事実を Console.app から追えるよう `os.Logger` で記録する。
-  /// `lookupInCurrentPath` 撤去で `lookupViaLoginShell` が単一経路に格上げされ、
-  /// silent timeout が起きるとユーザーには `launchFailed` としか見えないため、
-  /// (a) `pw_shell` が exotic / (b) `command -v` 不解釈 / (c) rc hang を切り分け可能にする。
+  /// テスト用の shell オーバーライド。`nil` のとき本番経路 (`userLoginShell()`) を使う。
+  /// `sh` / `dash` / `tcsh` 等の別シェルで SETSID 経路でも hang しない / 解決できることを
+  /// 自動検証するために `init` から注入できる。本番 (shared) では使わない。
+  private let shellOverride: String?
+
+  /// 本番用 (shared) は引数なし init。テストでは `CommandResolver(shellOverride:)` で
+  /// shell バイナリを差し替えられる。
+  public init(shellOverride: String? = nil) {
+    self.shellOverride = shellOverride
+  }
+
+  /// 解決失敗 (`pw_shell` 取得不能 / `command -v` 不解釈 / job control hang / SIGKILL
+  /// タイムアウト / marker 抽出失敗 等) の事実を Console.app から追えるよう
+  /// `os.Logger` で記録する。失敗時にユーザーには `launchFailed` としか見えないため、
+  /// ここでサブ原因を残しておかないと事後分析できない。
   private static let logger = Logger(subsystem: "dev.miyaoka.gozd", category: "command-resolver")
 
   private var cache: [String: String] = [:]
-  private var inflight: [String: Task<String?, Never>] = [:]
+  /// 未インストール結果の negative cache。`command -v` が exit=0 で空を返したケース。
+  /// 毎回 zsh `-i -l -c` を spawn する性能負債を防ぐため、後から `invalidate` で外す API
+  /// を経由して再 resolve できる。spawn 失敗 / hang はキャッシュしない（throws で抜ける）。
+  private var negativeCache: Set<String> = []
+  private var inflight: [String: Task<String?, Error>] = [:]
 
-  /// 指定 name の絶対パスを返す。見つからなければ nil。結果はキャッシュされる。
-  public func resolve(_ name: String) async -> String? {
+  /// 指定 name の絶対パスを返す。`command -v` の結果が空（コマンド未インストール）なら nil。
+  /// shell spawn 失敗 / hang / 起動エラーなどは `GitError.launchFailed` を throw する。
+  /// 結果はキャッシュされる（positive / negative どちらも）。
+  public func resolve(_ name: String) async throws -> String? {
     if let cached = cache[name] { return cached }
-    if let inflight = inflight[name] { return await inflight.value }
+    if negativeCache.contains(name) { return nil }
+    if let inflight = inflight[name] { return try await inflight.value }
 
-    let task = Task { await Self.lookup(name) }
+    let shellPath = shellOverride ?? Self.userLoginShell()
+    let task = Task<String?, Error> { try await Self.lookup(name, shell: shellPath) }
     inflight[name] = task
-    let result = await task.value
-    inflight[name] = nil
-    if let result {
-      cache[name] = result
+    do {
+      let result = try await task.value
+      inflight[name] = nil
+      if let result {
+        cache[name] = result
+      } else {
+        negativeCache.insert(name)
+      }
+      return result
+    } catch {
+      inflight[name] = nil
+      throw error
     }
-    return result
   }
 
-  /// キャッシュを無効化する。`runGit` / `runGh` が `launchFailed` を受けたときに
-  /// 呼んで再解決のチャンスを与える。
+  /// キャッシュ（positive / negative 両方）を無効化する。
+  /// `runGit` / `runGh` が `launchFailed` を受けたとき、または「未インストールだった
+  /// コマンドを後からインストールした」ときに呼ぶ。
   public func invalidate(_ name: String) {
     cache[name] = nil
+    negativeCache.remove(name)
   }
 
-  private static func lookup(_ name: String) async -> String? {
-    return await lookupViaLoginShell(name)
+  private static func lookup(_ name: String, shell: String) async throws -> String? {
+    return try await lookupViaLoginShell(name, shell: shell)
   }
 
   /// `getpwuid_r(getuid())->pw_shell` でユーザーのログインシェルを取得。
@@ -112,92 +155,301 @@ public actor CommandResolver {
     return "/bin/zsh"
   }
 
-  /// `<shell> -i -l -c '<script>'` で絶対パスを取得。
-  /// rc ファイルが余計な文字列を stdout に流すケースに備えて UUID marker で囲んで抽出する。
-  /// `-i` で interactive shell を起動するため、親の stdin 継承を防ぐべく `/dev/null` を渡し、
-  /// rc の hang に備えて 10 秒で SIGKILL する。
+  /// `posix_spawn + POSIX_SPAWN_SETSID` で `<shell> -i -l -c '<script>'` を起動して
+  /// `command -v <name>` の絶対パスを取得する。
+  ///
+  /// `Foundation.Process` を使わない理由は本ファイル冒頭コメント (2) 参照: `.app` 子から
+  /// 素の `Process` で `zsh -i` を起動すると親の process group / 不在 controlling tty を
+  /// 継承して job control 初期化で hang する。`POSIX_SPAWN_SETSID` で子を新 session leader に
+  /// 切り離すことで hang しない。VSCode `child_process.spawn({detached: true})` と同等。
+  ///
+  /// 観察可能な強制中断: 子 shell が想定外で hang した場合に永久ローディングを防ぐため、
+  /// 10 秒で SIGKILL する。これは「症状を覆い隠す silent fallback」ではなく
+  /// 「症状を error として表面化させる強制中断」であり、観察可能性に寄与する。
+  /// 発火時は logger に詳細を残してから nil 返却 → 呼び出し側で `launchFailed` 化される。
+  ///
+  /// rc ファイルが stdout に流す余計な文字列に備えて UUID marker で囲んで抽出する。
+  /// 親 stdin の継承を防ぐべく `/dev/null` を子の stdin に dup2 する。
   ///
   /// 対応シェル: `-i -l -c` フラグおよび POSIX `command -v` を解釈する shell（bash / zsh /
-  /// dash / fish 等）を想定。これらに該当しないログインシェル（tcsh / nushell / xonsh の
-  /// 一部呼び出し方法等）の場合は本関数が nil を返す。呼び出し側はそれを受けて
-  /// `runGh` / `runGit` で `launchFailed` を throw し、上位 (RPC dispatcher) で
-  /// HTTP error として renderer に通知される。renderer 側で `notify.error` を表示する。
-  private static func lookupViaLoginShell(_ name: String) async -> String? {
-    let shell = userLoginShell()
+  /// dash / fish 等）を想定。tcsh / nushell / xonsh の一部呼び出し方法は不対応。
+  ///
+  /// 戻り値: `command -v` の結果が空（コマンド未インストール）の場合のみ nil。
+  /// shell の spawn 失敗 / hang / 起動エラーなどは `GitError.launchFailed` を throw する。
+  private static func lookupViaLoginShell(_ name: String, shell: String) async throws -> String? {
+    // shell 注入境界: `name` を bash/zsh の script 文字列内に補間するため、英数とハイフン /
+    // アンダースコアに限定する。`runGit` / `runGh` などコード内リテラル経路では問題ないが、
+    // API 表面（public actor）のセキュリティ境界をここで固める。
+    guard !name.isEmpty, name.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" })
+    else {
+      throw GitError.launchFailed(
+        "resolve: invalid command name '\(name)' (must match [A-Za-z0-9_-]+)")
+    }
+
     let token = UUID().uuidString
     let beginMarker = "GOZD_BEGIN_\(token)"
     let endMarker = "GOZD_END_\(token)"
     let script =
       "printf '%s\\n' \(beginMarker); command -v \(name); printf '%s\\n' \(endMarker)"
+    let args = ["-i", "-l", "-c", script]
 
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: shell)
-    process.arguments = ["-i", "-l", "-c", script]
-    // 余計な ZDOTDIR 等が継承されないよう、PATH 解決には素の env を渡す。
-    // gozd の PTY overlay (GozdEnvOverlay) はここに混ざらない（PTYRegistry でのみ merge）。
-    process.environment = ProcessInfo.processInfo.environment
-    if let devNull = FileHandle(forReadingAtPath: "/dev/null") {
-      process.standardInput = devNull
+    // stdin /dev/null
+    let devNullFd = open("/dev/null", O_RDONLY)
+    guard devNullFd >= 0 else {
+      let e = errno
+      logger.error("lookupViaLoginShell: /dev/null open failed errno=\(e, privacy: .public)")
+      throw GitError.launchFailed("CLI resolver: open(/dev/null) failed errno=\(e)")
     }
-    let stdoutPipe = Pipe()
-    let stderrPipe = Pipe()
-    process.standardOutput = stdoutPipe
-    process.standardError = stderrPipe
+    defer { close(devNullFd) }
 
-    let timeoutTask = Task { [process, shell, name] in
+    // stdout pipe を先に作る。stderr pipe 失敗時に stdout fd をリークしないよう、
+    // 個別に guard + cleanup する。
+    var stdoutPipeFds: [Int32] = [-1, -1]
+    guard pipe(&stdoutPipeFds) == 0 else {
+      let e = errno
+      logger.error("lookupViaLoginShell: stdout pipe() failed errno=\(e, privacy: .public)")
+      throw GitError.launchFailed("CLI resolver: stdout pipe() failed errno=\(e)")
+    }
+    var stderrPipeFds: [Int32] = [-1, -1]
+    guard pipe(&stderrPipeFds) == 0 else {
+      let e = errno
+      close(stdoutPipeFds[0])
+      close(stdoutPipeFds[1])
+      logger.error("lookupViaLoginShell: stderr pipe() failed errno=\(e, privacy: .public)")
+      throw GitError.launchFailed("CLI resolver: stderr pipe() failed errno=\(e)")
+    }
+    let stdoutR = stdoutPipeFds[0], stdoutW = stdoutPipeFds[1]
+    let stderrR = stderrPipeFds[0], stderrW = stderrPipeFds[1]
+    defer {
+      close(stdoutR)
+      close(stderrR)
+    }
+
+    // 子の fd 設定 (stdin=devNullFd, stdout=stdoutW, stderr=stderrW)。
+    // posix_spawn_file_actions_* の戻り値も全て確認する。`adddup2` が失敗すると
+    // 子の fd 配線が指定通りにならず、stdout/stderr drain が EOF を受け取れず hang する。
+    var fileActions = posix_spawn_file_actions_t(bitPattern: 0)
+    var rc = posix_spawn_file_actions_init(&fileActions)
+    guard rc == 0 else {
+      close(stdoutW)
+      close(stderrW)
+      logger.error(
+        "lookupViaLoginShell: file_actions_init failed rc=\(rc, privacy: .public)")
+      throw GitError.launchFailed("CLI resolver: posix_spawn_file_actions_init failed rc=\(rc)")
+    }
+    defer { posix_spawn_file_actions_destroy(&fileActions) }
+    for (srcFd, dstFd) in [
+      (devNullFd, STDIN_FILENO), (stdoutW, STDOUT_FILENO), (stderrW, STDERR_FILENO),
+    ] {
+      rc = posix_spawn_file_actions_adddup2(&fileActions, srcFd, dstFd)
+      guard rc == 0 else {
+        close(stdoutW)
+        close(stderrW)
+        logger.error(
+          "lookupViaLoginShell: file_actions_adddup2 failed rc=\(rc, privacy: .public)")
+        throw GitError.launchFailed(
+          "CLI resolver: posix_spawn_file_actions_adddup2 failed rc=\(rc)")
+      }
+    }
+
+    // POSIX_SPAWN_SETSID: 子を新 session leader に切り離す。本実装の核心。
+    // setflags が silent に失敗すると SETSID が立たないまま spawn 成功 → 親 process group の
+    // ままで zsh `-i` 起動 → 元の hang 経路に再突入する。戻り値を必ず確認する。
+    var attr = posix_spawnattr_t(bitPattern: 0)
+    rc = posix_spawnattr_init(&attr)
+    guard rc == 0 else {
+      close(stdoutW)
+      close(stderrW)
+      logger.error("lookupViaLoginShell: spawnattr_init failed rc=\(rc, privacy: .public)")
+      throw GitError.launchFailed("CLI resolver: posix_spawnattr_init failed rc=\(rc)")
+    }
+    defer { posix_spawnattr_destroy(&attr) }
+    // Int16 overflow を fatalError trap させない。POSIX_SPAWN_SETSID が将来複合フラグに
+    // 変わって 32767 を超えたら exactly: が nil を返して explicit な error 経路に乗る。
+    guard let flagsInt16 = Int16(exactly: POSIX_SPAWN_SETSID) else {
+      close(stdoutW)
+      close(stderrW)
+      logger.error("lookupViaLoginShell: POSIX_SPAWN_SETSID does not fit in Int16")
+      throw GitError.launchFailed("CLI resolver: POSIX_SPAWN_SETSID flag overflow")
+    }
+    rc = posix_spawnattr_setflags(&attr, flagsInt16)
+    guard rc == 0 else {
+      close(stdoutW)
+      close(stderrW)
+      logger.error(
+        "lookupViaLoginShell: spawnattr_setflags failed rc=\(rc, privacy: .public)")
+      throw GitError.launchFailed(
+        "CLI resolver: posix_spawnattr_setflags failed rc=\(rc) (POSIX_SPAWN_SETSID not applied)")
+    }
+
+    // argv[0] は絶対パスを渡す。zsh / bash とも `-l` フラグ単独で login shell として
+    // 動作することが man で保証されているため、`-zsh` 慣例 (argv[0] を `-` プレフィクスに
+    // する macOS Terminal.app の流儀) には合わせない。login shell 判定は argv[0] と
+    // フラグの OR で、`-l` がある以上どちらかは確実に立つ。
+    let argv = [shell] + args
+    let cArgv: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) } + [nil]
+    defer { for ptr in cArgv { if let p = ptr { free(p) } } }
+    // strdup 失敗 (OOM) を検出する。nil が混入したまま posix_spawn に渡すと argv が短く
+    // terminate されて子が想定外の状態で起動する。OOM 状態は他も壊れる極端ケースだが、
+    // silent に異常 spawn する経路は塞ぐ。
+    guard !cArgv.dropLast().contains(where: { $0 == nil }) else {
+      close(stdoutW)
+      close(stderrW)
+      logger.error("lookupViaLoginShell: strdup(argv) returned nil (OOM)")
+      throw GitError.launchFailed("CLI resolver: strdup(argv) failed (OOM)")
+    }
+
+    // env: 親プロセス env から gozd 起源キー (`ZDOTDIR` / `GOZD_DEV_*`) を除去する。
+    // PTY spawn と同じ deny-list (`GozdEnvOverlay.sanitizeParentEnv`) を SSOT として使い、
+    // 子 zsh が gozd の zsh init チェーンに巻き込まれないようにする。
+    let env = GozdEnvOverlay.sanitizeParentEnv(ProcessInfo.processInfo.environment)
+    let cEnvp: [UnsafeMutablePointer<CChar>?] =
+      env.map { strdup("\($0.key)=\($0.value)") } + [nil]
+    defer { for ptr in cEnvp { if let p = ptr { free(p) } } }
+    guard !cEnvp.dropLast().contains(where: { $0 == nil }) else {
+      close(stdoutW)
+      close(stderrW)
+      logger.error("lookupViaLoginShell: strdup(envp) returned nil (OOM)")
+      throw GitError.launchFailed("CLI resolver: strdup(envp) failed (OOM)")
+    }
+
+    var pid: pid_t = 0
+    let spawnResult = posix_spawn(&pid, shell, &fileActions, &attr, cArgv, cEnvp)
+    let spawnErrno = errno
+    // 親側の write end は子に dup2 された後は不要。close することで子の exit 後に
+    // pipe の read 側が EOF を受け取れる。
+    close(stdoutW)
+    close(stderrW)
+    guard spawnResult == 0 else {
+      logger.error(
+        """
+        lookupViaLoginShell: posix_spawn failed shell='\(shell, privacy: .public)' \
+        rc=\(spawnResult, privacy: .public) errno=\(spawnErrno, privacy: .public)
+        """)
+      throw GitError.launchFailed(
+        "CLI resolver: posix_spawn '\(shell)' failed rc=\(spawnResult) errno=\(spawnErrno)")
+    }
+
+    // stdout/stderr を非同期 drain。子が pipe buffer を超えて書くと write block するため、
+    // EOF まで読み続ける別 Task に分離。
+    async let stdoutData: Data = readAllFromFd(stdoutR)
+    async let stderrData: Data = readAllFromFd(stderrR)
+
+    // 観察可能な強制中断: 10 秒で SIGKILL。session leader なので自分自身は確実に殺せる。
+    // タイムアウトは「症状を覆い隠す silent fallback」ではなく「症状を error として
+    // 表面化させる強制中断」。発火時は launchFailed のテキストで renderer まで届ける。
+    //
+    // 10 秒の根拠: 重い `.zshrc` (mise activate + starship init + brew shellenv + 補完初期化)
+    // でも通常 1〜2 秒。CI 環境の cold cache や Spotlight indexing 中の I/O 待ちを加味して
+    // 5 倍のマージン。これを超える rc 構成は実用上 hang と同義（ユーザーが毎回 5 秒以上
+    // 待たされる体験）であり、SIGKILL してエラー表示した方が原因特定に向く。VSCode の
+    // `application.shellEnvironmentResolutionTimeout` も default 10 秒で同じ判断。
+    let timedOutFlag = OSAllocatedUnfairLock<Bool>(initialState: false)
+    let timeoutTask = Task { [pid] in
       try? await Task.sleep(nanoseconds: 10 * 1_000_000_000)
-      if process.isRunning {
-        let pid = process.processIdentifier
-        if pid > 0 {
-          _ = kill(pid, SIGKILL)
-          logger.error(
-            """
-            lookupViaLoginShell timed out after 10s for '\(name, privacy: .public)' \
-            via shell '\(shell, privacy: .public)'; sent SIGKILL. \
-            shell rc may be hanging or shell may not parse `-i -l -c '<cmd>'`.
-            """)
-        }
+      if kill(pid, 0) == 0 {
+        timedOutFlag.withLock { $0 = true }
+        _ = kill(pid, SIGKILL)
       }
     }
     defer { timeoutTask.cancel() }
 
-    let (stdoutData, stderrData): (Data, Data)
-    do {
-      (stdoutData, stderrData) = try await runProcessCollectingOutput(
-        process: process,
-        stdoutPipe: stdoutPipe,
-        stderrPipe: stderrPipe
-      )
-    } catch {
+    // waitpid は EINTR でループする。`PTYManager` と同じ流儀。
+    let (waitRet, status, waitErrno): (Int32, Int32, Int32) =
+      await Task.detached(priority: .userInitiated) { [pid] in
+        var s: Int32 = 0
+        while true {
+          let r = waitpid(pid, &s, 0)
+          if r == -1 && errno == EINTR { continue }
+          return (r, s, errno)
+        }
+      }.value
+
+    let stdoutBytes = await stdoutData
+    let stderrBytes = await stderrData
+    let timedOut = timedOutFlag.withLock { $0 }
+
+    guard waitRet >= 0 else {
       logger.error(
         """
-        lookupViaLoginShell failed to launch shell '\(shell, privacy: .public)' \
-        for '\(name, privacy: .public)': \(error.localizedDescription, privacy: .public)
+        lookupViaLoginShell: waitpid failed pid=\(pid, privacy: .public) \
+        errno=\(waitErrno, privacy: .public)
         """)
-      return nil
+      throw GitError.launchFailed("CLI resolver: waitpid failed errno=\(waitErrno)")
     }
 
-    guard process.terminationStatus == 0 else {
-      let stderrText = String(decoding: stderrData, as: UTF8.self)
-        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let exitReason = PTYExitReason.decode(status: status)
+    switch exitReason {
+    case .exited(let code) where code == 0:
+      break  // 成功経路。下で marker 抽出へ
+    default:
+      // 失敗時は stderr 末尾 4KB を Console に残す。trace モード（zsh `-x`）でなくても、
+      // shell rc が出した警告 / hang 直前の出力を事後分析できる。
+      let stderrTail = String(String(decoding: stderrBytes, as: UTF8.self).suffix(4096))
+      let reasonDesc: String
+      if timedOut {
+        reasonDesc =
+          "timed out (10s) and was SIGKILL'd — shell rc may be hanging in an unexpected way"
+      } else {
+        switch exitReason {
+        case .exited(let code): reasonDesc = "shell exited with code \(code)"
+        case .signaled(let sig, _): reasonDesc = "shell killed by signal \(sig)"
+        case .stopped: reasonDesc = "shell stopped (unexpected)"
+        case .waitpidFailed(let e): reasonDesc = "waitpid failed errno=\(e)"
+        }
+      }
       logger.error(
         """
-        lookupViaLoginShell exit \(process.terminationStatus) for '\(name, privacy: .public)' \
-        via shell '\(shell, privacy: .public)': \(stderrText, privacy: .public)
+        lookupViaLoginShell: \(reasonDesc, privacy: .public) name='\(name, privacy: .public)' \
+        shell='\(shell, privacy: .public)'. stderr tail (last 4KB):
+        \(stderrTail, privacy: .public)
         """)
+      throw GitError.launchFailed(
+        "CLI resolver: '\(name)' via '\(shell)' \(reasonDesc). See Console.app for stderr.")
+    }
+
+    let text = String(decoding: stdoutBytes, as: UTF8.self)
+    // marker 間が空 = `command -v` が空 (コマンド未インストール) → nil 返却
+    if isMarkerBodyEmpty(text, begin: beginMarker, end: endMarker) {
       return nil
     }
-    let text = String(decoding: stdoutData, as: UTF8.self)
     if let path = extractAndValidatePath(text, begin: beginMarker, end: endMarker) {
       return path
     }
+    // exit=0 + marker は埋まっているが絶対 executable パスではない (shell が non-POSIX、
+    // alias / function を返した 等)
     logger.error(
       """
-      lookupViaLoginShell could not parse `command -v \(name, privacy: .public)` output \
-      via shell '\(shell, privacy: .public)'. Shell may not support `-i -l -c` or \
-      `command -v`, or may have returned an alias / function instead of an absolute path.
+      lookupViaLoginShell: extract failed name='\(name, privacy: .public)' \
+      shell='\(shell, privacy: .public)'. Shell may not parse `-i -l -c <cmd>` or `command -v`,
+      or returned a non-executable path.
       """)
-    return nil
+    throw GitError.launchFailed(
+      "CLI resolver: '\(name)' via '\(shell)' returned non-executable or non-POSIX output. "
+        + "Shell may not parse `-i -l -c <cmd>` or `command -v`.")
+  }
+
+  /// `command -v` の出力が空（コマンド未インストール）かを判定する。
+  private static func isMarkerBodyEmpty(_ text: String, begin: String, end: String) -> Bool {
+    guard let beginRange = text.range(of: begin),
+      let endRange = text.range(of: end, range: beginRange.upperBound..<text.endIndex)
+    else { return false }
+    let body = text[beginRange.upperBound..<endRange.lowerBound]
+    return body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  /// fd から EOF まで読み切る（同期 read を Task で非同期化）。
+  private static func readAllFromFd(_ fd: Int32) async -> Data {
+    await Task.detached(priority: .userInitiated) {
+      var data = Data()
+      var buf = [UInt8](repeating: 0, count: 4096)
+      while true {
+        let n = buf.withUnsafeMutableBufferPointer { read(fd, $0.baseAddress, $0.count) }
+        if n <= 0 { break }
+        data.append(buf, count: n)
+      }
+      return data
+    }.value
   }
 
   /// marker 間から「絶対パスかつ実行可能なファイル」となる行を抽出する。

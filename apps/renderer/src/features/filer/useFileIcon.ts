@@ -33,10 +33,13 @@ const svgModules = import.meta.glob<string>("/node_modules/material-icon-theme/i
 });
 for (const [path, url] of Object.entries(svgModules)) {
   // "/node_modules/material-icon-theme/icons/folder-development.clone.svg" → "folder-development.clone"
-  const match = path.match(/\/([^/]+)\.svg$/);
-  if (match?.[1]) {
-    svgUrlByBasename.set(match[1], url);
+  const [, basename] = path.match(/\/([^/]+)\.svg$/) ?? [];
+  if (basename === undefined) {
+    throw new Error(
+      `material-icon-theme: cannot extract basename from SVG path ${JSON.stringify(path)}`,
+    );
   }
+  svgUrlByBasename.set(basename, url);
 }
 
 const iconUrlByName = buildIconUrlByName(manifest.iconDefinitions ?? {}, svgUrlByBasename);
@@ -149,22 +152,22 @@ function resolveFileIconName(fileName: string): string {
   const lower = fileName.toLowerCase();
 
   const byName = fileNameMap.get(lower);
-  if (byName) return byName;
+  if (byName !== undefined) return byName;
 
   // 複合拡張子も対応: .test.ts → test.ts → ts
   const parts = lower.split(".");
   for (let i = 1; i < parts.length; i++) {
     const ext = parts.slice(i).join(".");
     const byExt = fileExtensionMap.get(ext);
-    if (byExt) return byExt;
+    if (byExt !== undefined) return byExt;
   }
 
-  const ext = parts[parts.length - 1];
-  if (ext) {
+  const [ext = ""] = parts.slice(-1);
+  if (ext !== "") {
     const langId = EXTENSION_LANGUAGE_ID_MAP[ext];
-    if (langId) {
+    if (langId !== undefined) {
       const byLang = languageIdMap.get(langId);
-      if (byLang) return byLang;
+      if (byLang !== undefined) return byLang;
     }
   }
 

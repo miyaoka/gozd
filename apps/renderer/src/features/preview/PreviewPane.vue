@@ -374,9 +374,11 @@ function fileName(filePath: string): string {
   return filePath.split("/").pop() ?? filePath;
 }
 
-// selectedPath が undefined のときは `<template v-if="selectedPath">` 側で描画されないため、
-// デフォルトアイコン URL を返しておけば足りる（type を常に string に絞る目的）
-const headerIconUrl = computed(() => getFileIconUrl(fileName(selectedPath.value ?? "")));
+const headerIconUrl = computed(() => {
+  const path = selectedPath.value;
+  if (path === undefined) return undefined;
+  return getFileIconUrl(fileName(path));
+});
 </script>
 
 <template>

@@ -9,8 +9,7 @@ export function buildIconUrlByName(
   const result = new Map<string, string>();
   for (const [name, def] of Object.entries(iconDefinitions)) {
     // iconPath: "./../icons/folder-development.clone.svg" → basename "folder-development.clone"
-    const match = def.iconPath.match(/\/([^/]+)\.svg$/);
-    const basename = match?.[1];
+    const [, basename] = def.iconPath.match(/\/([^/]+)\.svg$/) ?? [];
     if (basename === undefined) {
       throw new Error(
         `material-icon-theme: cannot extract basename from iconPath ${JSON.stringify(

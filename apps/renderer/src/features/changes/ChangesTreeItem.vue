@@ -5,7 +5,7 @@ Recursive tree node for the changes pane. Renders folders (with collapse/expand)
 <script setup lang="ts">
 import type { GitFileChange } from "@gozd/proto";
 import { computed } from "vue";
-import { getFileIconName, getFolderIconName, getIconUrl } from "../filer";
+import { getFileIconUrl, getFolderIconUrl } from "../filer";
 import type { ChangesTreeNode } from "./changesTree";
 
 const props = defineProps<{
@@ -39,9 +39,9 @@ const iconUrl = computed(() => {
     if (leafName === undefined) {
       throw new Error("Folder node has no display segments");
     }
-    return getIconUrl(getFolderIconName(leafName, isExpanded.value));
+    return getFolderIconUrl(leafName, isExpanded.value);
   }
-  return getIconUrl(getFileIconName(node.name));
+  return getFileIconUrl(node.name);
 });
 
 const folderDisplayName = computed(() =>

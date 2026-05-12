@@ -25,7 +25,7 @@
 import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { onMessage } from "../../shared/rpc";
-import { getFileIconName, getIconUrl, rpcFsReadFile, rpcFsReadFileAbsolute } from "../filer";
+import { getFileIconUrl, rpcFsReadFile, rpcFsReadFileAbsolute } from "../filer";
 import type { FsChangePayload } from "../filer";
 import { useGitGraphStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
@@ -375,8 +375,9 @@ function fileName(filePath: string): string {
 }
 
 const headerIconUrl = computed(() => {
-  if (!selectedPath.value) return undefined;
-  return getIconUrl(getFileIconName(fileName(selectedPath.value)));
+  const path = selectedPath.value;
+  if (path === undefined) return undefined;
+  return getFileIconUrl(fileName(path));
 });
 </script>
 
@@ -385,8 +386,7 @@ const headerIconUrl = computed(() => {
     <!-- ヘッダー（常に表示） -->
     <div class="flex items-center gap-2 border-b border-zinc-700 px-3 py-2">
       <template v-if="selectedPath">
-        <img v-if="headerIconUrl" :src="headerIconUrl" class="size-4 shrink-0" alt="" />
-        <span v-else class="icon-[lucide--file-text] text-zinc-400" />
+        <img :src="headerIconUrl" class="size-4 shrink-0" alt="" />
         <span class="truncate text-sm text-zinc-300" :title="selectedPath">{{
           fileName(selectedPath)
         }}</span>

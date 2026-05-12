@@ -74,6 +74,16 @@ public actor PTYRegistry {
   // ptyId → 紐付く worktree の絶対パス。Claude セッションを worktree 単位で永続化する
   // ために hook 受信時に逆引きする。空文字 / 未登録なら無紐付け。
   private var worktreePathById: [UInt32: String] = [:]
+  // ptyId → 直近に観測した Claude sessionId。session-start hook 受信で更新する。
+  // unregisterPane 経由の削除 RPC（/claudeSession/removeByPty）が ptyId から sessionId を
+  // 解決するために使う。/clear や --resume で sessionId が切り替わったときの旧 ID 削除も
+  // 同じマッピングを参照する（applyClaudeSessionHook 側で比較）。
+  private var sessionIdById: [UInt32: String] = [:]
+  // 削除 RPC で clearAssociations された ptyId 集合。late session-start hook が
+  // 到達したとき、「明示削除後の late hook」と「そもそも未登録 PTY」を区別して
+  // 観察ログを出すために使う（applyClaudeSessionHook 側で参照）。ptyId は
+  // 単調増加で再利用されないので、PTY exit 後も残しておいて問題ない。
+  private var explicitlyRemovedPtyIds: Set<UInt32> = []
   private var nextId: UInt32 = 1
 
   public init(
@@ -176,10 +186,46 @@ public actor PTYRegistry {
     return worktreePathById[id]
   }
 
+  /// 削除 RPC / hook ハンドラが ptyId から直近 sessionId を逆引きするための accessor。
+  /// 未観測なら nil。
+  public func sessionId(for id: UInt32) -> String? {
+    return sessionIdById[id]
+  }
+
+  /// hook の session-start 受信時に呼ぶ。同 ptyId への複数 session-start（/clear や --resume）も
+  /// 上書きで反映する。
+  public func setSessionId(for id: UInt32, sessionId: String) {
+    sessionIdById[id] = sessionId
+  }
+
+  /// 削除 RPC が sessionId を ClaudeSessionStore から消した後、マッピングをクリアする。
+  public func clearSessionId(for id: UInt32) {
+    sessionIdById.removeValue(forKey: id)
+  }
+
+  /// unregisterPane 経由の削除 RPC から呼ぶ。worktreePath と sessionId の紐付けを
+  /// 両方クリアする。意図: 削除 RPC 受信後に到達する late session-start hook を
+  /// `applyClaudeSessionHook` の `!worktreePath.isEmpty` ガードで弾く。これにより
+  /// 「Claude 起動直後の closePane」で発生しうる upsert → orphan エントリ race を防ぐ。
+  /// 同時に explicitlyRemovedPtyIds に記録し、late hook の観察ログで「明示削除後」と
+  /// 「未登録 PTY」を区別できるようにする。PTY 本体（ptys / consumers）は kill 経由で
+  /// 別途解放されるのでここでは触らない。
+  public func clearAssociations(for id: UInt32) {
+    worktreePathById.removeValue(forKey: id)
+    sessionIdById.removeValue(forKey: id)
+    explicitlyRemovedPtyIds.insert(id)
+  }
+
+  /// 削除 RPC で明示的に紐付けが消された ptyId かどうか。late hook ログの分岐に使う。
+  public func wasExplicitlyRemoved(_ id: UInt32) -> Bool {
+    return explicitlyRemovedPtyIds.contains(id)
+  }
+
   private func remove(id: UInt32) {
     ptys.removeValue(forKey: id)
     consumers.removeValue(forKey: id)
     worktreePathById.removeValue(forKey: id)
+    sessionIdById.removeValue(forKey: id)
   }
 }
 

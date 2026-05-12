@@ -308,6 +308,13 @@ final class AppRuntime {
       pidTracker: pidTracker
     )
 
+    // 起動時 reconcile: transcript が消滅した Claude セッション残骸を掃除する。
+    // unregisterPane 経路 (/claudeSession/removeByPty) で取りこぼした分（クラッシュ等）の
+    // 最後のセーフティネット。read 時の silent save をやめた代わりにここで明示的に掃除する。
+    Task {
+      await dispatcher.reconcileClaudeSessions()
+    }
+
     var config = WebPage.Configuration()
     config.urlSchemeHandlers[URLScheme("gozd-rpc")!] = RpcSchemeHandler(dispatcher: dispatcher)
     config.urlSchemeHandlers[URLScheme("gozd-app")!] = BundleAssetSchemeHandler()

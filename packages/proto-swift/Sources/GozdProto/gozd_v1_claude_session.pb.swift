@@ -104,6 +104,35 @@ public struct Gozd_V1_ClaudeSessionListByProjectResponse: Sendable {
   public init() {}
 }
 
+/// 指定 PTY に紐づく Claude セッションを永続化から削除する。renderer の
+/// unregisterPane（terminal.closePane / resetLayout / worktree 削除）から呼ぶ。
+/// session-end hook 経路ではなく PTY 単位の明示的削除なので、worktree_path も
+/// 併せて受け取って projectKey 解決を確定させる。pty_id に紐づく sessionId は
+/// native 側の PTYRegistry が保持する。
+public struct Gozd_V1_ClaudeSessionRemoveByPtyRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var ptyID: UInt32 = 0
+
+  public var worktreePath: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Gozd_V1_ClaudeSessionRemoveByPtyResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate let _protobuf_package = "gozd.v1"
@@ -298,6 +327,60 @@ extension Gozd_V1_ClaudeSessionListByProjectResponse: SwiftProtobuf.Message, Swi
 
   public static func ==(lhs: Gozd_V1_ClaudeSessionListByProjectResponse, rhs: Gozd_V1_ClaudeSessionListByProjectResponse) -> Bool {
     if lhs.sessions != rhs.sessions {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_ClaudeSessionRemoveByPtyRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ClaudeSessionRemoveByPtyRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}pty_id\0\u{3}worktree_path\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.ptyID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.worktreePath) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.ptyID != 0 {
+      try visitor.visitSingularUInt32Field(value: self.ptyID, fieldNumber: 1)
+    }
+    if !self.worktreePath.isEmpty {
+      try visitor.visitSingularStringField(value: self.worktreePath, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_ClaudeSessionRemoveByPtyRequest, rhs: Gozd_V1_ClaudeSessionRemoveByPtyRequest) -> Bool {
+    if lhs.ptyID != rhs.ptyID {return false}
+    if lhs.worktreePath != rhs.worktreePath {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_ClaudeSessionRemoveByPtyResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ClaudeSessionRemoveByPtyResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_ClaudeSessionRemoveByPtyResponse, rhs: Gozd_V1_ClaudeSessionRemoveByPtyResponse) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

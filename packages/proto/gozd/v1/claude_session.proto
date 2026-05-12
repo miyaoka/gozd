@@ -42,3 +42,15 @@ message ClaudeSessionListByProjectRequest {
 message ClaudeSessionListByProjectResponse {
   repeated ClaudeSession sessions = 1;
 }
+
+// 指定 PTY に紐づく Claude セッションを永続化から削除する。renderer の
+// unregisterPane（terminal.closePane / resetLayout / worktree 削除）から呼ぶ。
+// session-end hook 経路ではなく PTY 単位の明示的削除なので、worktree_path も
+// 併せて受け取って projectKey 解決を確定させる。pty_id に紐づく sessionId は
+// native 側の PTYRegistry が保持する。
+message ClaudeSessionRemoveByPtyRequest {
+  uint32 pty_id = 1;
+  string worktree_path = 2;
+}
+
+message ClaudeSessionRemoveByPtyResponse {}

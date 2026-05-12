@@ -44,6 +44,21 @@ export interface ClaudeSessionListByProjectResponse {
   sessions: ClaudeSession[];
 }
 
+/**
+ * 指定 PTY に紐づく Claude セッションを永続化から削除する。renderer の
+ * unregisterPane（terminal.closePane / resetLayout / worktree 削除）から呼ぶ。
+ * session-end hook 経路ではなく PTY 単位の明示的削除なので、worktree_path も
+ * 併せて受け取って projectKey 解決を確定させる。pty_id に紐づく sessionId は
+ * native 側の PTYRegistry が保持する。
+ */
+export interface ClaudeSessionRemoveByPtyRequest {
+  ptyId: number;
+  worktreePath: string;
+}
+
+export interface ClaudeSessionRemoveByPtyResponse {
+}
+
 function createBaseClaudeSession(): ClaudeSession {
   return { worktreePath: "", sessionId: "", transcriptPath: "", updatedAt: "" };
 }
@@ -466,6 +481,133 @@ export const ClaudeSessionListByProjectResponse: MessageFns<ClaudeSessionListByP
   fromPartial(object: DeepPartial<ClaudeSessionListByProjectResponse>): ClaudeSessionListByProjectResponse {
     const message = createBaseClaudeSessionListByProjectResponse();
     message.sessions = object.sessions?.map((e) => ClaudeSession.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseClaudeSessionRemoveByPtyRequest(): ClaudeSessionRemoveByPtyRequest {
+  return { ptyId: 0, worktreePath: "" };
+}
+
+export const ClaudeSessionRemoveByPtyRequest: MessageFns<ClaudeSessionRemoveByPtyRequest> = {
+  encode(message: ClaudeSessionRemoveByPtyRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.ptyId !== 0) {
+      writer.uint32(8).uint32(message.ptyId);
+    }
+    if (message.worktreePath !== "") {
+      writer.uint32(18).string(message.worktreePath);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ClaudeSessionRemoveByPtyRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseClaudeSessionRemoveByPtyRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.ptyId = reader.uint32();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.worktreePath = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ClaudeSessionRemoveByPtyRequest {
+    return {
+      ptyId: isSet(object.ptyId)
+        ? globalThis.Number(object.ptyId)
+        : isSet(object.pty_id)
+        ? globalThis.Number(object.pty_id)
+        : 0,
+      worktreePath: isSet(object.worktreePath)
+        ? globalThis.String(object.worktreePath)
+        : isSet(object.worktree_path)
+        ? globalThis.String(object.worktree_path)
+        : "",
+    };
+  },
+
+  toJSON(message: ClaudeSessionRemoveByPtyRequest): unknown {
+    const obj: any = {};
+    if (message.ptyId !== 0) {
+      obj.ptyId = Math.round(message.ptyId);
+    }
+    if (message.worktreePath !== "") {
+      obj.worktreePath = message.worktreePath;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ClaudeSessionRemoveByPtyRequest>): ClaudeSessionRemoveByPtyRequest {
+    return ClaudeSessionRemoveByPtyRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ClaudeSessionRemoveByPtyRequest>): ClaudeSessionRemoveByPtyRequest {
+    const message = createBaseClaudeSessionRemoveByPtyRequest();
+    message.ptyId = object.ptyId ?? 0;
+    message.worktreePath = object.worktreePath ?? "";
+    return message;
+  },
+};
+
+function createBaseClaudeSessionRemoveByPtyResponse(): ClaudeSessionRemoveByPtyResponse {
+  return {};
+}
+
+export const ClaudeSessionRemoveByPtyResponse: MessageFns<ClaudeSessionRemoveByPtyResponse> = {
+  encode(_: ClaudeSessionRemoveByPtyResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ClaudeSessionRemoveByPtyResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseClaudeSessionRemoveByPtyResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): ClaudeSessionRemoveByPtyResponse {
+    return {};
+  },
+
+  toJSON(_: ClaudeSessionRemoveByPtyResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<ClaudeSessionRemoveByPtyResponse>): ClaudeSessionRemoveByPtyResponse {
+    return ClaudeSessionRemoveByPtyResponse.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<ClaudeSessionRemoveByPtyResponse>): ClaudeSessionRemoveByPtyResponse {
+    const message = createBaseClaudeSessionRemoveByPtyResponse();
     return message;
   },
 };

@@ -143,8 +143,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/eslint-plugin
       '@iconify-json/lucide':
-        specifier: 1.2.105
-        version: 1.2.105
+        specifier: 1.2.106
+        version: 1.2.106
       '@iconify/tailwind4':
         specifier: 1.2.3
         version: 1.2.3(tailwindcss@4.3.0)
@@ -401,6 +401,9 @@ packages:
 
   '@iconify-json/lucide@1.2.105':
     resolution: {integrity: sha512-tbE+cGEixWcRFtW8xkzX1HaGRqp7CDhZb01uPBh7PnRoxXzVET9E73rHOXDdsLKUGoTuYGZKhhX6oirvoy5NDg==}
+
+  '@iconify-json/lucide@1.2.106':
+    resolution: {integrity: sha512-5nuejHR29A0iQjvLZRRPtuMyj1DA9pzcDMuHD4vmhG7GgLen8haMKiZcZ1IpKVZDwR8wxfcbCv9MsoWHBBAa+g==}
 
   '@iconify/tailwind4@1.2.3':
     resolution: {integrity: sha512-z8SKiMHRASJKF/IY//87MF88lcB7ulxh8vlhQXXLWsBkNtOh6ese9R41MyGpQeqXdRvQVt+/fX2glQtHFjQ+MA==}
@@ -2889,6 +2892,10 @@ snapshots:
   '@humanwhocodes/retry@0.4.3': {}
 
   '@iconify-json/lucide@1.2.105':
+    dependencies:
+      '@iconify/types': 2.0.0
+
+  '@iconify-json/lucide@1.2.106':
     dependencies:
       '@iconify/types': 2.0.0
 

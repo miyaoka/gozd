@@ -25,7 +25,7 @@
 import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { onMessage } from "../../shared/rpc";
-import { getFileIconName, getIconUrl, rpcFsReadFile, rpcFsReadFileAbsolute } from "../filer";
+import { getFileIconUrl, rpcFsReadFile, rpcFsReadFileAbsolute } from "../filer";
 import type { FsChangePayload } from "../filer";
 import { useGitGraphStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
@@ -376,7 +376,7 @@ function fileName(filePath: string): string {
 
 const headerIconUrl = computed(() => {
   if (!selectedPath.value) return undefined;
-  return getIconUrl(getFileIconName(fileName(selectedPath.value)));
+  return getFileIconUrl(fileName(selectedPath.value));
 });
 </script>
 

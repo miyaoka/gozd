@@ -26,7 +26,7 @@ import type { GitChangeKind } from "../worktree";
 import { getDeletedEntries, sortEntries } from "./filerUtils";
 import type { FileEntry } from "./filerUtils";
 import { rpcFsReadDir } from "./rpc";
-import { getFileIconName, getFolderIconName, getIconUrl } from "./useFileIcon";
+import { getFileIconUrl, getFolderIconUrl } from "./useFileIcon";
 
 const GIT_CHANGE_COLOR_MAP: Record<GitChangeKind, string> = {
   modified: "text-yellow-400",
@@ -86,9 +86,9 @@ const isDeleted = computed(() => props.gitChange === "deleted");
 /** material-icon-theme のアイコン URL */
 const iconUrl = computed(() => {
   if (props.isDirectory) {
-    return getIconUrl(getFolderIconName(props.name, expanded.value));
+    return getFolderIconUrl(props.name, expanded.value);
   }
-  return getIconUrl(getFileIconName(props.name));
+  return getFileIconUrl(props.name);
 });
 
 async function toggle() {
@@ -273,27 +273,7 @@ function onChildSelect(childPath: string) {
       <!-- ファイル用のスペーサー -->
       <span v-else class="size-4 shrink-0" />
 
-      <img
-        v-if="iconUrl"
-        :src="iconUrl"
-        class="size-4 shrink-0"
-        :class="isIgnored ? 'opacity-50' : ''"
-        alt=""
-      />
-      <span
-        v-else
-        class="size-4 shrink-0"
-        :class="
-          isDirectory
-            ? expanded
-              ? 'icon-[lucide--folder-open]'
-              : 'icon-[lucide--folder]'
-            : isDeleted
-              ? 'icon-[lucide--file-x]'
-              : 'icon-[lucide--file]'
-        "
-        :style="{ color: isIgnored ? undefined : isDirectory ? '#facc15' : '#a1a1aa' }"
-      />
+      <img :src="iconUrl" class="size-4 shrink-0" :class="isIgnored ? 'opacity-50' : ''" alt="" />
       <span class="truncate">{{ name }}</span>
     </button>
 

@@ -86,41 +86,50 @@ describe("runSerializedSync", () => {
   });
 
   test("coalesced pass が走っている間にさらに発射すると、もう 1 回 pass が走る", async () => {
-    // pass 2 完了寸前にも変化が来た場合、do-while ループで pass 3 も消化されることを担保。
+    // pass 2 完了寸前にも変化が来た場合、do-while ループで pass 3 も消化されることを
+    // 厳密に担保する。`toBeGreaterThanOrEqual(2)` だと pass 3 が走らなくても通るため、
+    // `toBe(3)` で pass 3 の実行を assertion する。timing 依存を消すため、pass 2 が
+    // await に入った瞬間（resolves[1] が代入されたタイミング）で third を発射する。
     const state: SerializeState = { running: false, pending: false };
-    let resolveFirst!: () => void;
-    let resolveSecond!: () => void;
+    const resolves: Array<() => void> = [];
     let count = 0;
     const pass = async () => {
       count++;
-      if (count === 1) {
+      const myStage = count;
+      // pass 1 と pass 2 は await して外部 resolve を待つ。pass 3 は即完了。
+      if (myStage <= 2) {
         await new Promise<void>((r) => {
-          resolveFirst = r;
-        });
-      } else if (count === 2) {
-        await new Promise<void>((r) => {
-          resolveSecond = r;
+          resolves[myStage - 1] = r;
         });
       }
     };
 
     const first = runSerializedSync(state, pass);
-    await Promise.resolve();
+    // pass 1 が「await new Promise」に入るまで microtask を進める
+    while (resolves[0] === undefined) {
+      await Promise.resolve();
+    }
+    expect(count).toBe(1);
+
     // pass 1 中に発射 → pass 2 を予約
     const second = runSerializedSync(state, pass);
-    resolveFirst();
-    // pass 2 が始まるまで microtask を進める
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    expect(state.pending).toBe(true);
 
-    // pass 2 中にさらに発射 → pass 3 を予約
+    resolves[0]();
+    // pass 2 が「await new Promise」に入るまで待つ
+    while (resolves[1] === undefined) {
+      await Promise.resolve();
+    }
+    expect(count).toBe(2);
+    // pass 2 中の発射で pass 3 を予約
     const third = runSerializedSync(state, pass);
-    resolveSecond();
+    expect(state.pending).toBe(true);
 
+    resolves[1]();
     await Promise.all([first, second, third]);
 
-    expect(count).toBeGreaterThanOrEqual(2);
+    // pass 1 + pass 2 + pass 3 が全て走ったことを厳密に確認
+    expect(count).toBe(3);
     expect(state.running).toBe(false);
     expect(state.pending).toBe(false);
   });

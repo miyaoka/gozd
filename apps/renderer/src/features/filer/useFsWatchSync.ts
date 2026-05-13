@@ -54,7 +54,7 @@ export function useFsWatchSync() {
       if (!watchedDirs.has(dir)) toWatch.push(dir);
     }
 
-    const failures: Array<{ kind: "watch" | "unwatch"; dir: string; error: unknown }> = [];
+    const failures: Array<{ kind: "watch" | "unwatch"; dir: string; error: Error }> = [];
 
     for (const dir of toUnwatch) {
       const r = await tryCatch(rpcFsUnwatch({ dir }));
@@ -78,13 +78,15 @@ export function useFsWatchSync() {
     if (failures.length > 0) {
       // batch 単位で 1 件に集約する。1 ターンで N 個失敗したときにトースト N 個出すのは
       // UX 上 noisy で、全体像も見失う。
-      // summary を主メッセージ、最初の error を cause に置く Error を作って notify する
-      // ことで、トースト本文クリック時の cause 詳細展開で「どの kind:dir が何件 / 最初の
-      // 失敗の stack」を辿れる。`tryCatch` の error は常に Error なので cause は必ず
-      // 定義済み。
+      // トースト UI は cause chain の最上位だけ展開する（cause.cause は表示しない）ため、
+      // aggregate.message に summary と first.error.message の両方を載せて、トーストの
+      // 詳細展開だけで「件数 + どの kind:dir + 最初の失敗の原因文言」が見えるようにする。
+      // first.error.stack は console には残るので、devtools で完全な根本原因を辿れる。
       const summary = failures.map((f) => `${f.kind}:${f.dir}`).join(", ");
       const [first] = failures;
-      const aggregate = new Error(summary, { cause: first.error });
+      const aggregate = new Error(`${summary} -- first error: ${first.error.message}`, {
+        cause: first.error,
+      });
       notify.error(`Failed to sync FS watches (${failures.length})`, aggregate);
     }
 

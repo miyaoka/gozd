@@ -173,6 +173,40 @@ struct FSWatchRegistryTests {
     #expect(events.contains("gitStatusChange"))
   }
 
+  @Test("同一 dir を再 watch すると古い entry を破棄して再構築する（idempotent re-entry 契約）")
+  func watchRebuildsExistingEntry() async throws {
+    // P 指摘の根本対応テスト: 旧 entry no-op 返しでは perWorktreeGitDir / commonGitDir の
+    // 解決値が永続的に古いまま残るバグがあった。再構築で新しい gitDirs 解決が反映され、
+    // かつイベント受信が継続することを確認する。
+    let tmpDir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+    try await initGitRepo(at: tmpDir)
+
+    let collector = EventNameCollector()
+    let registry = FSWatchRegistry(
+      onFsChange: { _, _ in collector.append("fsChange") },
+      onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
+      onBranchChange: { _, _ in collector.append("branchChange") },
+      onWorktreeChange: { _ in collector.append("worktreeChange") }
+    )
+
+    try await registry.watch(dir: tmpDir.path)
+    try await Task.sleep(for: .milliseconds(300))
+
+    // 2 回目の watch（同 dir）— 旧設計の no-op ではなく再構築されることを担保する。
+    try await registry.watch(dir: tmpDir.path)
+    try await Task.sleep(for: .milliseconds(300))
+    collector.clear()
+
+    // 再構築後も branch ref の変更が dispatch される（= 新 entry が live で動いている）
+    let branchFile = tmpDir.appendingPathComponent(".git/refs/heads/feature-rebuilt")
+    try "0123456789abcdef0123456789abcdef01234567\n"
+      .write(to: branchFile, atomically: true, encoding: .utf8)
+
+    try await waitForEvent(collector, matching: { $0 == "branchChange" })
+    #expect(collector.snapshot().contains("branchChange"))
+  }
+
   @Test("unwatch 後はイベントが届かない")
   func unwatchStopsDispatch() async throws {
     let tmpDir = try makeTempDir()

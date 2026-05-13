@@ -107,16 +107,30 @@ public actor FSWatchRegistry {
     self.onWorktreeChange = onWorktreeChange
   }
 
-  /// dir の監視を開始する。既に watch されていれば no-op。
+  /// dir の監視を開始する。既に watch されていれば古い entry を破棄して再構築する。
   /// 入力 dir は realpath 解決してキーに使う（FSEvents は realpath を返すため、
   /// `/var/...` と `/private/var/...` のような symlink の差を吸収する）。
+  ///
+  /// 既存 entry を no-op で返さない理由: worktree の `.git` ファイル target の変更や
+  /// `git worktree repair` 等で `perWorktreeGitDir` / `commonGitDir` の解決値が
+  /// 変わっている可能性がある。古い解決値を保持し続けると `classify` の分類が永続的
+  /// に間違う（HEAD / refs/heads / packed-refs のパスが旧 git dir を指したまま）。
+  /// 再構築のコストは `gitDirs` 1 回と FSEventStream 1 個の再生成で、unwatch を
+  /// 経由する RPC 呼び出しが必要だった旧設計より整合性のリスクが低い。
   public func watch(dir userDir: String) async throws {
     let dir = FSWatchRegistry.realpath(userDir)
-    if entries[dir] != nil {
-      // 同一 resolved dir に複数 userDir で watch 要求が来ても、各 userDir → resolved の
-      // 逆引きを残しておく（後続 unwatch が realpath 失敗で fallback した時に備える）。
-      resolvedKeyByOriginalDir[userDir] = dir
-      return
+    if let existing = entries[dir] {
+      // 既存 entry を破棄して再構築する: `gitDirs` の解決値が `git worktree repair` 等で
+      // 変わっている可能性に備える（旧 no-op 設計だと古い perWorktreeGitDir / commonGitDir
+      // が永続的に残って `classify` の分類が間違い続ける）。
+      // `_unwatch` は呼ばない。`_unwatch` は同一 resolved dir を指す全 reverse lookup を
+      // 一括 invalidate するが、再構築では同じ resolved dir を引き続き使うので別 userDir
+      // 経由の逆引きは温存したい。FSWatcher の破棄だけ inline で行い、reverse lookup は
+      // 末尾の `resolvedKeyByOriginalDir[userDir] = dir` で当該 userDir のみ最新化する。
+      existing.watcher.stop()
+      existing.continuation.finish()
+      existing.task.cancel()
+      entries.removeValue(forKey: dir)
     }
 
     nextGeneration += 1
@@ -181,14 +195,20 @@ public actor FSWatchRegistry {
   public func unwatch(dir userDir: String) {
     let resolvedKey = resolvedKeyByOriginalDir.removeValue(forKey: userDir)
       ?? FSWatchRegistry.realpath(userDir)
-    guard let entry = entries.removeValue(forKey: resolvedKey) else { return }
+    _unwatch(realpathDir: resolvedKey)
+  }
+
+  /// realpath 解決済みの dir に対して unwatch する内部 helper。`watch` での再構築経路と
+  /// public `unwatch` の両方から呼ばれる。reverse lookup の掃除もここで完結させる。
+  private func _unwatch(realpathDir dir: String) {
+    guard let entry = entries.removeValue(forKey: dir) else { return }
     entry.watcher.stop()
     entry.continuation.finish()
     entry.task.cancel()
     // 同一 resolved dir を指していた他の userDir 逆引きも掃除する。
     // 同一 resolved に複数 userDir（symlink パスと非 symlink パスなど）で watch が
     // 重ねられた状態で、片方しか unwatch されないと逆引きエントリが leak するため。
-    resolvedKeyByOriginalDir = resolvedKeyByOriginalDir.filter { $0.value != resolvedKey }
+    resolvedKeyByOriginalDir = resolvedKeyByOriginalDir.filter { $0.value != dir }
   }
 
   /// dispatch 時点で entry がまだ生きており、世代が一致するかを判定する。

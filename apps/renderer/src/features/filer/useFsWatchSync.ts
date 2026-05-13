@@ -64,6 +64,11 @@ export function useFsWatchSync() {
       // 失敗してもローカル set からは外す。native 側 watch は「既存 entry があれば破棄して
       // 再構築」する設計なので、ローカル set と native 側で乖離しても次回の `rpcFsWatch`
       // で永続的不整合は解消される。
+      // ただしこの保証は「次回再度同 dir が watch される」場合に限る。worktree が削除されて
+      // 二度と同 path が現れない場合、native entry はプロセス終了まで残り FSEventStream slot
+      // を消費し続ける。発生頻度は低く、対応 path 不在なら新規 event も出ない（push noise
+      // は生じない）が、長時間稼働でリソース leak が累積する余地は残る。
+      // onUnmounted 時の native 一括掃除 RPC は別 PR で検討する。
       watchedDirs.delete(dir);
     }
     for (const dir of toWatch) {
@@ -90,10 +95,15 @@ export function useFsWatchSync() {
       notify.error(`Failed to sync FS watches (${failures.length})`, aggregate);
     }
 
-    if (toWatch.length > 0) {
+    const watchFailures = failures.filter((f) => f.kind === "watch").length;
+    const successfulWatches = toWatch.length - watchFailures;
+    if (successfulWatches > 0) {
       // watch 起動往復中に発生した FS / refs 変化の救済として、購読側に 1 度だけ
       // 再同期を促す。payload を持たない契約（dir は購読側が `worktreeStore.dir` を
       // 都度読む）。
+      // 「Ready」というイベント名と実態を一致させるため、新規 watch が 1 つでも成功した
+      // 場合に限って発射する（全 watch が失敗した場合は新たに監視対象になった dir が無く、
+      // 救済する取りこぼし対象も存在しない）。
       dispatchMessage("fsWatchReady", {});
     }
   }

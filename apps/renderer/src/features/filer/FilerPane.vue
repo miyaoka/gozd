@@ -162,7 +162,18 @@ async function handleGitStatusChange() {
   // ここではファイルツリーの再構築（新規 / 削除ファイル反映）だけを行う。
   const dirPath = dir.value;
   if (dirPath === undefined) return;
+  // await 中に dir 変更 / loadRoot 再起動が走るとこの呼び出しは stale 扱いにする。
+  // loadRootSeq を共有することで、loadRoot の世代チェックと整合する race ガードに揃える。
+  const mySeq = loadRootSeq;
   const result = await tryCatch(rpcFsReadDir({ dir: dirPath, path: "." }));
+  if (mySeq !== loadRootSeq || dir.value !== dirPath) {
+    // 旧 dir 用の結果で新 dir の rootEntries を踏み潰すのを防ぐ。
+    // 子側の notify は新 dir で再マウントされた FileTreeItem に対するものなので呼ぶ。
+    for (const item of treeItemRefs.value) {
+      item.notifyGitStatusChange();
+    }
+    return;
+  }
   if (!result.ok) {
     notify.error("Failed to rebuild root entries", result.error);
   } else {

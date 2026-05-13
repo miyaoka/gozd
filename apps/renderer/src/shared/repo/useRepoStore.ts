@@ -154,7 +154,8 @@ export const useRepoStore = defineStore("repo", () => {
     if (orphanedActiveDir) {
       // 外部 git worktree remove 経由だとユーザー操作なしに active dir が切り替わる。
       // feature 層が DI した notifier 経由でユーザーに通知する。未注入なら console.info。
-      notifyAutoFallback(`Active worktree was removed; switched to repo root.`);
+      // 複数 repo 同時開き時にどの repo の root に切り替わったか分かるよう repoName を含める。
+      notifyAutoFallback(`Active worktree was removed; switched to "${current.repoName}" root.`);
       selectedDir.value = rootDir;
     }
   }

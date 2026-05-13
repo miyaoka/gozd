@@ -200,16 +200,18 @@ export function useSidebarData() {
 
   const cleanups: Array<() => void> = [];
   onMounted(() => {
+    // shared/repo は notification を直接呼べないため、auto-fallback 発火時の通知経路を
+    // ここから DI する。これで外部 git worktree remove で active dir が rootDir に
+    // 切り替わったケースがトーストで観察可能になる。subscription より前に置くことで、
+    // 初期 fetchRepo（hydrate 経由）が万一 fallback を発火しても取りこぼさない。
+    repoStore.setAutoFallbackNotifier((message) => notify.info(message));
+
     // branchChange / worktreeChange は worktree 構成自体が変わるので worktree list の
     // 全件再取得が必要。gitStatusChange は payload に dir + statuses を持ち、
     // useGitStatusSync が repoStore.setWorktreeGitStatuses で該当 wt のみ更新するため
     // ここで全件 refetch を走らせない（N 倍の git status 実行を避ける）。
     cleanups.push(onMessage<BranchChangePayload>("branchChange", () => fetchOwnerOfActive()));
     cleanups.push(onMessage<WorktreeChangePayload>("worktreeChange", () => fetchOwnerOfActive()));
-    // shared/repo は notification を直接呼べないため、auto-fallback 発火時の通知経路を
-    // ここから DI する。これで外部 git worktree remove で active dir が rootDir に
-    // 切り替わったケースがトーストで観察可能になる。
-    repoStore.setAutoFallbackNotifier((message) => notify.info(message));
     void hydrateAppState();
   });
   onUnmounted(() => {

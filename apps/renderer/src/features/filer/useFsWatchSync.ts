@@ -22,8 +22,9 @@ import { onUnmounted, watchEffect } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { dispatchMessage } from "../../shared/rpc";
-import { collectTargetDirs, type RepoStoreForTargetDirs } from "./collectTargetDirs";
-import { rpcFsUnwatch, rpcFsWatch } from "./rpc";
+import { type RepoStoreForTargetDirs } from "./collectTargetDirs";
+import { rpcFsUnwatchAll, rpcFsWatch, rpcFsUnwatch } from "./rpc";
+import { runOneSyncPass } from "./runOneSyncPass";
 import { runSerializedSync, type SerializeState } from "./runSerializedSync";
 
 export function useFsWatchSync() {
@@ -40,72 +41,16 @@ export function useFsWatchSync() {
   const serializeState: SerializeState = { running: false, pending: false };
 
   async function syncWatches(): Promise<void> {
-    await runSerializedSync(serializeState, runOneSyncPass);
-  }
-
-  async function runOneSyncPass(): Promise<void> {
-    const next = collectTargetDirs(repoStore);
-    const toUnwatch: string[] = [];
-    const toWatch: string[] = [];
-    for (const dir of watchedDirs) {
-      if (!next.has(dir)) toUnwatch.push(dir);
-    }
-    for (const dir of next) {
-      if (!watchedDirs.has(dir)) toWatch.push(dir);
-    }
-
-    const failures: Array<{ kind: "watch" | "unwatch"; dir: string; error: Error }> = [];
-
-    for (const dir of toUnwatch) {
-      const r = await tryCatch(rpcFsUnwatch({ dir }));
-      if (!r.ok) {
-        failures.push({ kind: "unwatch", dir, error: r.error });
-      }
-      // 失敗してもローカル set からは外す。native 側 watch は「既存 entry があれば破棄して
-      // 再構築」する設計なので、ローカル set と native 側で乖離しても次回の `rpcFsWatch`
-      // で永続的不整合は解消される。
-      // ただしこの保証は「次回再度同 dir が watch される」場合に限る。worktree が削除されて
-      // 二度と同 path が現れない場合、native entry はプロセス終了まで残り FSEventStream slot
-      // を消費し続ける。発生頻度は低く、対応 path 不在なら新規 event も出ない（push noise
-      // は生じない）が、長時間稼働でリソース leak が累積する余地は残る。
-      // onUnmounted 時の native 一括掃除 RPC は別 PR で検討する。
-      watchedDirs.delete(dir);
-    }
-    for (const dir of toWatch) {
-      const r = await tryCatch(rpcFsWatch({ dir }));
-      if (!r.ok) {
-        failures.push({ kind: "watch", dir, error: r.error });
-        continue;
-      }
-      watchedDirs.add(dir);
-    }
-
-    if (failures.length > 0) {
-      // batch 単位で 1 件に集約する。1 ターンで N 個失敗したときにトースト N 個出すのは
-      // UX 上 noisy で、全体像も見失う。
-      // トースト UI は cause chain の最上位だけ展開する（cause.cause は表示しない）ため、
-      // aggregate.message に summary と first.error.message の両方を載せて、トーストの
-      // 詳細展開だけで「件数 + どの kind:dir + 最初の失敗の原因文言」が見えるようにする。
-      // first.error.stack は console には残るので、devtools で完全な根本原因を辿れる。
-      const summary = failures.map((f) => `${f.kind}:${f.dir}`).join(", ");
-      const [first] = failures;
-      const aggregate = new Error(`${summary} -- first error: ${first.error.message}`, {
-        cause: first.error,
-      });
-      notify.error(`Failed to sync FS watches (${failures.length})`, aggregate);
-    }
-
-    const watchFailures = failures.filter((f) => f.kind === "watch").length;
-    const successfulWatches = toWatch.length - watchFailures;
-    if (successfulWatches > 0) {
-      // watch 起動往復中に発生した FS / refs 変化の救済として、購読側に 1 度だけ
-      // 再同期を促す。payload を持たない契約（dir は購読側が `worktreeStore.dir` を
-      // 都度読む）。
-      // 「Ready」というイベント名と実態を一致させるため、新規 watch が 1 つでも成功した
-      // 場合に限って発射する（全 watch が失敗した場合は新たに監視対象になった dir が無く、
-      // 救済する取りこぼし対象も存在しない）。
-      dispatchMessage("fsWatchReady", {});
-    }
+    await runSerializedSync(serializeState, () =>
+      runOneSyncPass({
+        repoStore,
+        watchedDirs,
+        fsWatch: rpcFsWatch,
+        fsUnwatch: rpcFsUnwatch,
+        notify,
+        dispatchReady: () => dispatchMessage("fsWatchReady", {}),
+      }),
+    );
   }
 
   watchEffect(() => {
@@ -116,9 +61,15 @@ export function useFsWatchSync() {
   });
 
   onUnmounted(() => {
-    for (const dir of watchedDirs) {
-      void tryCatch(rpcFsUnwatch({ dir }));
-    }
+    // 1 回の RPC で全 entry を一括破棄する。N 個の `rpcFsUnwatch` を並列発射する
+    // 旧設計は失敗を観察可能性なく捨てる構造だったので、`/fs/unwatchAll` に集約。
+    // 失敗時は `notify.error` で観察可能性を残す（アプリ終了 race で見えない場合も
+    // store 内の console.error が devtools に残る）。
+    void tryCatch(rpcFsUnwatchAll({})).then((r) => {
+      if (!r.ok) {
+        notify.error("Failed to cleanup FS watches", r.error);
+      }
+    });
     watchedDirs.clear();
   });
 }

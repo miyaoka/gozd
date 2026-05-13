@@ -198,6 +198,17 @@ public actor FSWatchRegistry {
     _unwatch(realpathDir: resolvedKey)
   }
 
+  /// 保持している全 entry の監視を一括停止する。renderer の `onUnmounted` から
+  /// 1 度の RPC で呼び出され、FSEventStream slot を残骸として残さないための
+  /// 構造的 cleanup 経路。返り値は実際に破棄した entry 数（観察可能性用）。
+  public func unwatchAll() -> Int {
+    let dirs = Array(entries.keys)
+    for dir in dirs {
+      _unwatch(realpathDir: dir)
+    }
+    return dirs.count
+  }
+
   /// realpath 解決済みの dir に対して unwatch する内部 helper。`watch` での再構築経路と
   /// public `unwatch` の両方から呼ばれる。reverse lookup の掃除もここで完結させる。
   private func _unwatch(realpathDir dir: String) {
@@ -257,7 +268,8 @@ public actor FSWatchRegistry {
       } catch {
         // 観察可能性のためログを残す。renderer は次の FSEvents バッチで再 fetch するため
         // 致命的ではないが、繰り返し発生していれば一時障害として診断したい。
-        print("[FSWatchRegistry] gitStatusFull failed for \(dir): \(error)")
+        FileHandle.standardError.write(
+          Data("[FSWatchRegistry] gitStatusFull failed for \(dir): \(error)\n".utf8))
         return
       }
       // gitStatusFull の await 中に unwatch されている可能性があるため再 check

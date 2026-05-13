@@ -62,6 +62,8 @@ export {
   FsReadDirResponse,
   FsReadFileRequest,
   FsReadFileResponse,
+  FsUnwatchAllRequest,
+  FsUnwatchAllResponse,
   FsUnwatchRequest,
   FsUnwatchResponse,
   FsWatchRequest,

@@ -180,7 +180,8 @@ final class AppRuntime {
       claudeSettingsWriteError = nil
     } catch {
       claudeSettingsWriteError = error
-      print("[ClaudeHooks] settings write failed: \(error)")
+      FileHandle.standardError.write(
+        Data("[ClaudeHooks] settings write failed: \(error)\n".utf8))
     }
 
     // dev / build 共通の env overlay。dev では GOZD_DEV_PROJECT_ROOT 配下のソースを参照する。
@@ -583,7 +584,8 @@ final class WebPageHolder {
 @MainActor
 func pushToRenderer(page: WebPage?, type: String, payload: [String: Any]) async {
   guard let page else {
-    print("[GozdApp] push dropped (page not ready): type=\(type)")
+    FileHandle.standardError.write(
+      Data("[GozdApp] push dropped (page not ready): type=\(type)\n".utf8))
     return
   }
   do {
@@ -592,7 +594,8 @@ func pushToRenderer(page: WebPage?, type: String, payload: [String: Any]) async 
       arguments: ["type": type, "payload": payload]
     )
   } catch {
-    print("[GozdApp] push failed: type=\(type) error=\(error)")
+    FileHandle.standardError.write(
+      Data("[GozdApp] push failed: type=\(type) error=\(error)\n".utf8))
   }
 }
 

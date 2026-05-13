@@ -89,27 +89,22 @@ async function loadRoot() {
     gitStatusStore.loadGitStatus(),
   ]);
   // await 中に loadRoot が再度呼ばれた場合、この呼び出しの結果は破棄する。
-  // 旧呼び出しが新 dir 用の rootEntries や initialSelection を上書きするのを防ぐ。
-  if (mySeq !== loadRootSeq) {
-    return;
-  }
+  // 旧呼び出しが新 dir 用の rootEntries や pendingRevealPath を上書きするのを防ぐ。
+  if (mySeq !== loadRootSeq) return;
   if (!readResult.ok) {
     notify.error("Failed to read root directory", readResult.error);
     rootEntries.value = [];
-    loading.value = false;
+    // 世代チェック後に到達しているが、await を挟まない以上同期だが防御として揃える。
+    if (mySeq === loadRootSeq) loading.value = false;
     return;
   }
   rootEntries.value = mergeWithGitStatus(toFileEntries(readResult.value.entries), "");
-  loading.value = false;
+  if (mySeq === loadRootSeq) loading.value = false;
 
-  // rootEntries 読み込み完了後に保留中の処理を実行
-  // v-for の FileTreeItem がマウントされるのを nextTick で待つ
+  // rootEntries 読み込み完了後に保留中の reveal を実行。
+  // v-for の FileTreeItem がマウントされるのを nextTick で待つ。
   await nextTick();
   if (mySeq !== loadRootSeq) return;
-  const consumed = worktreeStore.consumeInitialSelection();
-  if (consumed?.kind === "directory") {
-    void reveal(consumed.relPath);
-  }
   if (pendingRevealPath) {
     const path = pendingRevealPath;
     pendingRevealPath = undefined;
@@ -191,12 +186,16 @@ watch(
 
 // revealVersion の変化（selectPath 経由 / gozdOpen 経由など）で選択中パスを reveal する。
 // 親から ref を expose せず worktreeStore 直接購読にすることで defineExpose を不要にする。
+// immediate: true で初回 mount 時に既存 selectedPath があれば pendingRevealPath に積み、
+// loadRoot 末尾で消化させる。これにより gozdOpen で渡された initial selection も
+// この 1 経路に集約できる（旧 consumeInitialSelection 経路は廃止）。
 watch(
   () => worktreeStore.revealVersion,
   () => {
     const path = worktreeStore.selectedPath;
     if (path) void reveal(path);
   },
+  { immediate: true },
 );
 
 const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ relDir }) =>

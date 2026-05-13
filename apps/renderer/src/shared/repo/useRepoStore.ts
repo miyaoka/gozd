@@ -149,10 +149,13 @@ export const useRepoStore = defineStore("repo", () => {
     // 別 repo に属する dir が active な場合は `some` が false になるため巻き込まれない。
     //
     // path 比較は文字列完全一致で正しい。invariant: `wt.path` も `selectedDir` も
-    // どちらも native 側で `git worktree list --porcelain` の正規化された絶対パス
-    // （symlink 解決済み、trailing slash なし）由来。`gozdOpen` push の dir も
-    // 同じ git 出力経由なので形式は揃う。新しい dir 取得経路を追加する際は
-    // 必ず同じ正規化を経由させること。
+    // どちらも `git worktree list --porcelain` および `git rev-parse --show-toplevel`
+    // の出力をそのまま使う。git は記録された原文の絶対パスを返すだけで symlink 解決は
+    // しないが、両者とも同じ git 出力経路を踏むため文字列フォーマットは揃う（trailing
+    // slash なし、git が記録した形式そのまま）。ユーザーが symlink パスで起動した場合
+    // も両者が symlink を含む同一形式で一致する。
+    // 新しい dir 取得経路を追加する際は必ず同じ git 出力経路を踏ませること。
+    // 別形式（realpath 解決後など）を混ぜると比較が空振りして fallback が発火しなくなる。
     const orphanedActiveDir =
       selectedDir.value !== undefined &&
       current.worktrees.some((w) => w.path === selectedDir.value) &&

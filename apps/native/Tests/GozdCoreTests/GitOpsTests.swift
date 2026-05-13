@@ -327,9 +327,13 @@ private func runTestGit(args: [String], cwd: String) async throws {
       if proc.terminationStatus == 0 {
         cont.resume()
       } else {
-        let stderr = String(
-          decoding: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
-          as: UTF8.self)
+        // `String(decoding:as:)` は不正 UTF-8 を U+FFFD で lossy 置換してしまうので
+        // CI flake の真の原因バイトが潰れる。`String(bytes:encoding:)` で UTF-8 失敗を
+        // 明示的に nil 判定し、診断用に元データの byte 数を残す。
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderr =
+          String(bytes: stderrData, encoding: .utf8)
+          ?? "<non-UTF8 stderr (\(stderrData.count) bytes)>"
         cont.resume(
           throwing: GitError.commandFailed(exitCode: proc.terminationStatus, stderr: stderr))
       }

@@ -12,7 +12,7 @@ import {
   rpcTaskAdd,
   rpcTaskUpdate,
 } from "./rpc";
-import type { BranchChangePayload, WorktreeChangePayload } from "./rpc";
+import type { BranchChangePayload, FsWatchReadyPayload, WorktreeChangePayload } from "./rpc";
 
 /**
  * サイドバーのデータ取得・状態管理。
@@ -214,6 +214,9 @@ export function useSidebarData() {
     // ここで全件 refetch を走らせない（N 倍の git status 実行を避ける）。
     cleanups.push(onMessage<BranchChangePayload>("branchChange", () => fetchOwnerOfActive()));
     cleanups.push(onMessage<WorktreeChangePayload>("worktreeChange", () => fetchOwnerOfActive()));
+    // `useFsWatchSync` の watch 起動完了通知。往復中の取りこぼし救済として 1 回だけ
+    // worktree list を取り直す。
+    cleanups.push(onMessage<FsWatchReadyPayload>("fsWatchReady", () => fetchOwnerOfActive()));
     void hydrateAppState();
   });
   onUnmounted(() => {

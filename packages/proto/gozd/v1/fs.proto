@@ -56,3 +56,14 @@ message FsUnwatchRequest {
 }
 
 message FsUnwatchResponse {}
+
+// 全 watch を一括停止する。renderer の onUnmounted で N 個の `/fs/unwatch` を
+// 並列発射する代わりに 1 回の RPC で済ませる。native 側 entry は idempotent に
+// 破棄され、残骸を残さない（FSEventStream slot leak の構造防止）。
+message FsUnwatchAllRequest {}
+
+// 観察可能性のため、解除した dir 数を返す。renderer の watchedDirs と差異が
+// 出れば前段で race が発生していた示唆になる。
+message FsUnwatchAllResponse {
+  uint32 unwatched_count = 1;
+}

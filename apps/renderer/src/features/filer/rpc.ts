@@ -5,6 +5,8 @@ import {
   FsReadFileAbsoluteResponse,
   FsReadFileRequest,
   FsReadFileResponse,
+  FsUnwatchAllRequest,
+  FsUnwatchAllResponse,
   FsUnwatchRequest,
   FsUnwatchResponse,
   FsWatchRequest,
@@ -27,6 +29,9 @@ export const rpcFsWatch = (req: FsWatchRequest) =>
 
 export const rpcFsUnwatch = (req: FsUnwatchRequest) =>
   rpc("/fs/unwatch", req, FsUnwatchRequest, FsUnwatchResponse);
+
+export const rpcFsUnwatchAll = (req: FsUnwatchAllRequest) =>
+  rpc("/fs/unwatchAll", req, FsUnwatchAllRequest, FsUnwatchAllResponse);
 
 // fsChange push event payload
 export interface FsChangePayload {

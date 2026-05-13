@@ -40,7 +40,7 @@ public actor RpcDispatcher {
     onOpen: @escaping OpenHandler = { _ in },
     onFsChange: @escaping FSWatchRegistry.FsChangeHandler = { _, _ in },
     onGitStatusChange: @escaping FSWatchRegistry.GitStatusChangeHandler = { _, _ in },
-    onBranchChange: @escaping FSWatchRegistry.BranchChangeHandler = { _ in },
+    onBranchChange: @escaping FSWatchRegistry.BranchChangeHandler = { _, _ in },
     onWorktreeChange: @escaping FSWatchRegistry.WorktreeChangeHandler = { _ in },
     envOverlay: GozdEnvOverlay? = nil,
     pidTracker: PidTracker? = nil
@@ -181,6 +181,8 @@ public actor RpcDispatcher {
       return try await handleFsWatch(body)
     case "/fs/unwatch":
       return try await handleFsUnwatch(body)
+    case "/fs/unwatchAll":
+      return try await handleFsUnwatchAll(body)
     case "/pty/spawn":
       return try await handlePtySpawn(body)
     case "/pty/write":
@@ -221,6 +223,8 @@ public actor RpcDispatcher {
       return try await handleGitViewer(body)
     case "/git/defaultBranch":
       return try await handleGitDefaultBranch(body)
+    case "/git/refsDigest":
+      return try await handleGitRefsDigest(body)
     case "/git/createWorktree":
       return try await handleCreateWorktree(body)
     case "/git/worktreeRemove":
@@ -322,6 +326,14 @@ public actor RpcDispatcher {
     let req = try Gozd_V1_FsUnwatchRequest(jsonUTF8Data: body)
     await fsWatch.unwatch(dir: req.dir)
     return try Gozd_V1_FsUnwatchResponse().jsonUTF8Data()
+  }
+
+  private func handleFsUnwatchAll(_ body: Data) async throws -> Data {
+    _ = try Gozd_V1_FsUnwatchAllRequest(jsonUTF8Data: body)
+    let count = await fsWatch.unwatchAll()
+    var resp = Gozd_V1_FsUnwatchAllResponse()
+    resp.unwatchedCount = UInt32(count)
+    return try resp.jsonUTF8Data()
   }
 
   private func handlePtySpawn(_ body: Data) async throws -> Data {
@@ -647,6 +659,14 @@ public actor RpcDispatcher {
     }
     var resp = Gozd_V1_GitDefaultBranchResponse()
     resp.branch = branch
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleGitRefsDigest(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitRefsDigestRequest(jsonUTF8Data: body)
+    let digest = try await GitOps.refsDigest(dir: req.dir)
+    var resp = Gozd_V1_GitRefsDigestResponse()
+    resp.digest = digest
     return try resp.jsonUTF8Data()
   }
 

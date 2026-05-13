@@ -4,7 +4,8 @@
 ## 動作
 
 - `cause` がある場合のみメッセージ全体をクリック可能にし、詳細パネルを展開する
-- `Error` インスタンスは `name + message + stack`、それ以外は `String(cause)` または `JSON.stringify` フォールバックで表示
+- `Error` の `cause` chain を再帰的に辿り、各段を `Caused by: ` で連結して表示する
+- `Error` 以外（string / object など）は 1 段だけ整形して終了
 - 詳細パネルには「Copy」ボタンを併設し、issue 報告にコピペしやすくする
 - dismiss ボタンは独立しており、本文クリックで dismiss されない
 </doc>
@@ -12,6 +13,7 @@
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
 import { computed, ref } from "vue";
+import { formatCauseChain } from "./formatCause";
 
 const props = defineProps<{
   type: "error" | "info";
@@ -57,53 +59,7 @@ const iconColorMap = {
 
 const hasCause = computed(() => props.cause !== undefined);
 
-// 循環参照や toString が壊れたオブジェクトでもトースト描画を壊さないように整形する
-function safeStringify(value: unknown): string {
-  // String() は Symbol.toPrimitive / toString / valueOf が壊れている時に throw する
-  const stringResult = tryCatch(() => String(value));
-  if (stringResult.ok && stringResult.value !== "[object Object]") {
-    return stringResult.value;
-  }
-  // Object 系で String() が "[object Object]" になるケースは JSON 整形を試す
-  const seen = new WeakSet<object>();
-  const jsonResult = tryCatch(() =>
-    JSON.stringify(
-      value,
-      (_key, v) => {
-        if (typeof v === "object" && v !== null) {
-          if (seen.has(v)) return "[Circular]";
-          seen.add(v);
-        }
-        return v;
-      },
-      2,
-    ),
-  );
-  if (jsonResult.ok && jsonResult.value !== undefined) return jsonResult.value;
-  // どちらも失敗 / undefined を返す場合は prototype-free な型表記にフォールバック。
-  // Symbol.toStringTag の getter が throw するケースに備えてこれも tryCatch で包む
-  const tagResult = tryCatch(() => Object.prototype.toString.call(value));
-  return tagResult.ok ? tagResult.value : "[unrepresentable cause]";
-}
-
-const detail = computed(() => {
-  const { cause } = props;
-  if (cause instanceof Error) {
-    const head = `${cause.name}: ${cause.message}`;
-    const stack = cause.stack;
-    if (stack === undefined || stack === "") return head;
-    // V8 系の stack は先頭行に "name: message" を含み（message が改行を含めばその 1 行目のみ）、
-    // WebKit/JavaScriptCore の stack はフレームのみで "name: message" 行を持たない。
-    // stack.startsWith(head) で判定すると message が改行を含むときに V8 でも false になり二重表示になるため、
-    // 先頭行が `<name>:` で始まるかで V8 形式と判定し、その場合は先頭行を捨てて head + 残り frame に正規化する。
-    const [firstLine = "", ...rest] = stack.split("\n");
-    const frames = firstLine.startsWith(`${cause.name}:`) ? rest : [firstLine, ...rest];
-    const body = frames.join("\n");
-    return body === "" ? head : `${head}\n${body}`;
-  }
-  if (typeof cause === "string") return cause;
-  return safeStringify(cause);
-});
+const detail = computed(() => formatCauseChain(props.cause));
 
 function toggle() {
   if (!hasCause.value) return;

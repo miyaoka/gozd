@@ -202,6 +202,89 @@ struct GitOpsRunGitLargeOutputTests {
   }
 }
 
+@Suite("GitOps.gitStatusFull")
+struct GitOpsStatusFullTests {
+  @Test("HEAD が指す branch 名が `branchHead` に入る")
+  func branchHeadIsPopulated() async throws {
+    // ユーザー報告の主因シナリオを下支えするテスト: `git branch -m` は OID を変えず
+    // branch 名だけ変える。`branchHead` を payload に乗せるためには parse が値を
+    // 正しく拾える必要がある。
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "seed".write(
+      to: dir.appendingPathComponent("seed.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "seed.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "seed"], cwd: dir.path)
+
+    let status = try await GitOps.gitStatusFull(dir: dir.path)
+    #expect(status.branchHead == "main")
+  }
+
+  @Test("`git branch -m` 後の branchHead は新しい branch 名を返す")
+  func branchHeadFollowsRename() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "seed".write(
+      to: dir.appendingPathComponent("seed.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "seed.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "seed"], cwd: dir.path)
+    try await runTestGit(args: ["branch", "-m", "renamed-feature"], cwd: dir.path)
+
+    let status = try await GitOps.gitStatusFull(dir: dir.path)
+    #expect(status.branchHead == "renamed-feature")
+  }
+
+  @Test("detached HEAD では branchHead は空文字")
+  func branchHeadEmptyOnDetached() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "seed".write(
+      to: dir.appendingPathComponent("seed.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "seed.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "seed"], cwd: dir.path)
+    // HEAD を直接 commit にして detached state にする
+    try await runTestGit(args: ["checkout", "--detach", "HEAD"], cwd: dir.path)
+
+    let status = try await GitOps.gitStatusFull(dir: dir.path)
+    #expect(status.branchHead == "")
+  }
+}
+
+@Suite("GitOps.refsDigest")
+struct GitOpsRefsDigestTests {
+  @Test("同じ refs 状態では digest は変わらない")
+  func digestIsStableForSameState() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "seed".write(
+      to: dir.appendingPathComponent("seed.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "seed.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "seed"], cwd: dir.path)
+
+    let d1 = try await GitOps.refsDigest(dir: dir.path)
+    let d2 = try await GitOps.refsDigest(dir: dir.path)
+    #expect(d1 == d2)
+    #expect(!d1.isEmpty)
+  }
+
+  @Test("`git branch -m` で digest が変化する")
+  func digestChangesOnRename() async throws {
+    // ユーザー報告の主因シナリオ: rename 直後に renderer がこの digest を取って
+    // 前回値と比較すれば、push 取りこぼし時の最終救済として整合性チェックが効く。
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "seed".write(
+      to: dir.appendingPathComponent("seed.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "seed.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "seed"], cwd: dir.path)
+
+    let before = try await GitOps.refsDigest(dir: dir.path)
+    try await runTestGit(args: ["branch", "-m", "renamed"], cwd: dir.path)
+    let after = try await GitOps.refsDigest(dir: dir.path)
+    #expect(before != after)
+  }
+}
+
 // MARK: - Helpers
 
 private func makeTempDir() throws -> URL {
@@ -224,10 +307,12 @@ private func makeGitRepo() async throws -> URL {
 /// production 側と同じく `process.environment` を明示 snapshot で渡すことで、
 /// 並列 test 実行時の Foundation `Process` 内部の lazy env read による EFAULT を避ける。
 ///
-/// 出力は `/dev/null` に直接捨てる。`Pipe` + `terminationHandler` 内の
-/// `readDataToEndOfFile()` パターンは pipe buffer (~64KB) を超える出力で deadlock
-/// するため、大きい出力を出すコマンドでも helper 自体が詰まらないように、
-/// stdout/stderr を捕捉する必要がない場合は最初から nullDevice に流す。
+/// stdout は `/dev/null` に直接捨てる（git 出力は本テストでは未使用かつ大量出力対応）。
+/// stderr は `Pipe` で捕捉し、失敗時に `GitError.commandFailed(stderr:)` に載せる。
+/// 「テストヘルパーも本体と同じ厳密さ」原則に従い、失敗時の調査コストを本体並みに
+/// 保つために stderr を握り潰さない。pipe deadlock を避けるため `waitUntilExit()` 後に
+/// `readDataToEndOfFile()` を呼ぶ（git の stderr は数百バイト程度なので buffer 溢れの
+/// 心配は実用上ない）。
 private func runTestGit(args: [String], cwd: String) async throws {
   try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
     let process = Process()
@@ -235,15 +320,22 @@ private func runTestGit(args: [String], cwd: String) async throws {
     process.arguments = ["git"] + args
     process.currentDirectoryURL = URL(fileURLWithPath: cwd)
     process.environment = ProcessInfo.processInfo.environment
-    let null = FileHandle.nullDevice
-    process.standardOutput = null
-    process.standardError = null
+    process.standardOutput = FileHandle.nullDevice
+    let stderrPipe = Pipe()
+    process.standardError = stderrPipe
     process.terminationHandler = { proc in
       if proc.terminationStatus == 0 {
         cont.resume()
       } else {
+        // `String(decoding:as:)` は不正 UTF-8 を U+FFFD で lossy 置換してしまうので
+        // CI flake の真の原因バイトが潰れる。`String(bytes:encoding:)` で UTF-8 失敗を
+        // 明示的に nil 判定し、診断用に元データの byte 数を残す。
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderr =
+          String(bytes: stderrData, encoding: .utf8)
+          ?? "<non-UTF8 stderr (\(stderrData.count) bytes)>"
         cont.resume(
-          throwing: GitError.commandFailed(exitCode: proc.terminationStatus, stderr: ""))
+          throwing: GitError.commandFailed(exitCode: proc.terminationStatus, stderr: stderr))
       }
     }
     do {

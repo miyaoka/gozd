@@ -167,6 +167,20 @@ export interface GitWorktreeRemoveRequest {
 export interface GitWorktreeRemoveResponse {
 }
 
+/**
+ * gitRefsDigest: refs/heads/ と refs/remotes/ の現在状態を 1 つの digest 文字列で返す。
+ * renderer 側は前回値と比較して、push event の取りこぼしを検知する低頻度の整合性チェッカに
+ * 使う。SSOT 経路（branchChange / gitStatusChange）の到達率を計測する観察可能性の補強で、
+ * 「予防的 retry」ではない。不一致時のみ loadLog + console.warn を出す。
+ */
+export interface GitRefsDigestRequest {
+  dir: string;
+}
+
+export interface GitRefsDigestResponse {
+  digest: string;
+}
+
 function createBaseGitWorktreeListRequest(): GitWorktreeListRequest {
   return { dir: "" };
 }
@@ -2004,6 +2018,122 @@ export const GitWorktreeRemoveResponse: MessageFns<GitWorktreeRemoveResponse> = 
   },
   fromPartial(_: DeepPartial<GitWorktreeRemoveResponse>): GitWorktreeRemoveResponse {
     const message = createBaseGitWorktreeRemoveResponse();
+    return message;
+  },
+};
+
+function createBaseGitRefsDigestRequest(): GitRefsDigestRequest {
+  return { dir: "" };
+}
+
+export const GitRefsDigestRequest: MessageFns<GitRefsDigestRequest> = {
+  encode(message: GitRefsDigestRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitRefsDigestRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitRefsDigestRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitRefsDigestRequest {
+    return { dir: isSet(object.dir) ? globalThis.String(object.dir) : "" };
+  },
+
+  toJSON(message: GitRefsDigestRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitRefsDigestRequest>): GitRefsDigestRequest {
+    return GitRefsDigestRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitRefsDigestRequest>): GitRefsDigestRequest {
+    const message = createBaseGitRefsDigestRequest();
+    message.dir = object.dir ?? "";
+    return message;
+  },
+};
+
+function createBaseGitRefsDigestResponse(): GitRefsDigestResponse {
+  return { digest: "" };
+}
+
+export const GitRefsDigestResponse: MessageFns<GitRefsDigestResponse> = {
+  encode(message: GitRefsDigestResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.digest !== "") {
+      writer.uint32(10).string(message.digest);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitRefsDigestResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitRefsDigestResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.digest = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitRefsDigestResponse {
+    return { digest: isSet(object.digest) ? globalThis.String(object.digest) : "" };
+  },
+
+  toJSON(message: GitRefsDigestResponse): unknown {
+    const obj: any = {};
+    if (message.digest !== "") {
+      obj.digest = message.digest;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitRefsDigestResponse>): GitRefsDigestResponse {
+    return GitRefsDigestResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitRefsDigestResponse>): GitRefsDigestResponse {
+    const message = createBaseGitRefsDigestResponse();
+    message.digest = object.digest ?? "";
     return message;
   },
 };

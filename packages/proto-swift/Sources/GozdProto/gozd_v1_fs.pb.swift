@@ -154,6 +154,33 @@ public struct Gozd_V1_FsUnwatchResponse: Sendable {
   public init() {}
 }
 
+/// 全 watch を一括停止する。renderer の onUnmounted で N 個の `/fs/unwatch` を
+/// 並列発射する代わりに 1 回の RPC で済ませる。native 側 entry は idempotent に
+/// 破棄され、残骸を残さない（FSEventStream slot leak の構造防止）。
+public struct Gozd_V1_FsUnwatchAllRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// 観察可能性のため、解除した dir 数を返す。renderer の watchedDirs と差異が
+/// 出れば前段で race が発生していた示唆になる。
+public struct Gozd_V1_FsUnwatchAllResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unwatchedCount: UInt32 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate let _protobuf_package = "gozd.v1"
@@ -436,6 +463,55 @@ extension Gozd_V1_FsUnwatchResponse: SwiftProtobuf.Message, SwiftProtobuf._Messa
   }
 
   public static func ==(lhs: Gozd_V1_FsUnwatchResponse, rhs: Gozd_V1_FsUnwatchResponse) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_FsUnwatchAllRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".FsUnwatchAllRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_FsUnwatchAllRequest, rhs: Gozd_V1_FsUnwatchAllRequest) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_FsUnwatchAllResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".FsUnwatchAllResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}unwatched_count\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.unwatchedCount) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.unwatchedCount != 0 {
+      try visitor.visitSingularUInt32Field(value: self.unwatchedCount, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_FsUnwatchAllResponse, rhs: Gozd_V1_FsUnwatchAllResponse) -> Bool {
+    if lhs.unwatchedCount != rhs.unwatchedCount {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

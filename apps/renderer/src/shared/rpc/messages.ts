@@ -40,3 +40,18 @@ export function onMessage<T>(type: string, fn: (payload: T) => void): () => void
     if (idx >= 0) cur.splice(idx, 1);
   };
 }
+
+/**
+ * renderer 内部発の push を同じ dispatcher 経由で発火する。
+ *
+ * 通常 push は native → renderer の一方向（`window.__gozdReceive` 経由）だが、
+ * renderer 内で「watch 開始後の取りこぼし救済」「明示的な再同期トリガー」など
+ * native 経由ではない再同期 event が必要なケースで使う。listener 側は
+ * `onMessage` と同じ subscriber を再利用できる（native 由来と renderer 由来を
+ * 区別せず処理する）。
+ *
+ * 命名は `dispatchMessage` で、native の push と意味的に並ぶ位置に置く。
+ */
+export function dispatchMessage(type: string, payload: unknown): void {
+  window.__gozdReceive?.(type, payload);
+}

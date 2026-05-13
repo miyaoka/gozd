@@ -102,12 +102,31 @@ socket / launch dir / claude settings は `GOZD_DEV_PROJECT_ROOT` の有無で `
 
 renderer は `fetch("gozd-rpc://localhost/{path}", { method, body })` で RPC を呼ぶ。`RpcSchemeHandler`（`apps/native/Sources/Gozd/GozdApp.swift`）が HTTP 風のレスポンスにラップして返す。実際のロジックは `RpcDispatcher`。
 
-native → renderer の push は `WebPage.callJavaScript("window.__gozdReceive(type, payload)", ...)` で行う。
+native → renderer の push は `WebPage.callJavaScript("window.__gozdReceive(type, payload)", ...)` で行う。失敗（page 未初期化 / JS 例外）は `pushToRenderer` ヘルパー（`apps/native/Sources/Gozd/GozdApp.swift`）が stderr に `[GozdApp] push failed: type=...` の形で必ずログを残す。silent drop は禁止 — 1 度の取りこぼしで UI 状態が永続的にずれるため、観察可能性を全 push に必須として課している。
 
 - **request**（応答あり）: `renderer → native`。ptySpawn, fsReadFile, gitStatus 等
 - **push**（一方向）: `native → renderer`。ptyText, hook, fsChange, gitStatusChange 等
 
 詳細なメッセージ一覧は [rpc.md](rpc.md)。
+
+### SSOT push + 低頻度 pull の整合性チェック
+
+FSEvents 経由の push は ms オーダーで届くが、watch 開始往復中の取りこぼしや、`callJavaScript` の失敗で 1 度の event を落とすと、UI 状態と git refs の実体が永続的にずれる。これを防ぐため次の二重防御を入れている。
+
+- **再同期トリガー**: `useFsWatchSync` が `rpcFsWatch` 応答直後に renderer 内部で `fsWatchReady` を `dispatchMessage` 経由で発射する。GitGraphPane / useSidebarData は同 type を `onMessage` で購読しており、watch 起動瞬間に 1 度だけ state を refetch する
+- **ref-digest 整合性チェッカ**: GitGraphPane が 60 秒間隔で `rpcGitRefsDigest`（`git for-each-ref refs/heads/ refs/remotes/ --sort=refname` の SHA-256）を取り、前回値と比較する。不一致なら `console.warn` で観察可能性を残しつつ `loadLog` を発射。「予防 retry」ではなく、SSOT 経路（branchChange / gitStatusChange）の到達率を計測する保険として使う。チェッカ自体の RPC 失敗も `useNotificationStore.error` でトースト通知する（silent fail で自己否定にならないように）
+- **status payload に branch.head を含める**: `git branch -m` は HEAD の commit OID を変えないため、`gitStatusChange.head` だけで判定すると rename を取りこぼす。`git status --porcelain=v2 --branch` が出す `# branch.head <name>` を payload に乗せ、renderer 側は `branchHead` の変化でも `loadLog` を発火する
+
+### FSWatch の対象スコープ
+
+`useFsWatchSync` は **開いている全 repo / 全 worktree の dir** を `rpcFsWatch` に登録する。`repoStore.repos[*].worktrees` の集合変化（追加 / 削除）を `watchEffect` で追い、差分を `rpcFsWatch` / `rpcFsUnwatch` で同期する。
+
+- gozd は「window 内マルチ repo + マルチ worktree」が機能要件なので、active 1 dir だけ watch する設計だと別 repo / 別 worktree の commit / rename / push を取りこぼす
+- 別 repo は commonGitDir が完全に独立。1 dir だけ watch ではこれを救済できないため、全 worktree を均等に対象とする
+- per-worktree git dir 配下の `HEAD` / `index` 変化（commit / checkout 完了の即時反映）も worktree ごとに独立して watch される
+- 非 git project（`isGitRepo === false`）は rootDir そのものを watch（fsChange のみが意味を持つ）
+- `rpcFsWatch` / `rpcFsUnwatch` はどちらも native 側 `FSWatchRegistry` で idempotent。並列発射でも整合性は崩れない
+- watch 数の上限は OS の FSEventStream slot に依存するが、実用域（数十〜百 worktree）で問題になる事例は確認されていない
 
 ### Unix ドメインソケット（CLI / Claude hooks → native）
 

@@ -74,6 +74,22 @@ export interface FsUnwatchRequest {
 export interface FsUnwatchResponse {
 }
 
+/**
+ * 全 watch を一括停止する。renderer の onUnmounted で N 個の `/fs/unwatch` を
+ * 並列発射する代わりに 1 回の RPC で済ませる。native 側 entry は idempotent に
+ * 破棄され、残骸を残さない（FSEventStream slot leak の構造防止）。
+ */
+export interface FsUnwatchAllRequest {
+}
+
+/**
+ * 観察可能性のため、解除した dir 数を返す。renderer の watchedDirs と差異が
+ * 出れば前段で race が発生していた示唆になる。
+ */
+export interface FsUnwatchAllResponse {
+  unwatchedCount: number;
+}
+
 function createBaseFsReadFileRequest(): FsReadFileRequest {
   return { dir: "", path: "" };
 }
@@ -702,6 +718,113 @@ export const FsUnwatchResponse: MessageFns<FsUnwatchResponse> = {
   },
   fromPartial(_: DeepPartial<FsUnwatchResponse>): FsUnwatchResponse {
     const message = createBaseFsUnwatchResponse();
+    return message;
+  },
+};
+
+function createBaseFsUnwatchAllRequest(): FsUnwatchAllRequest {
+  return {};
+}
+
+export const FsUnwatchAllRequest: MessageFns<FsUnwatchAllRequest> = {
+  encode(_: FsUnwatchAllRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): FsUnwatchAllRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFsUnwatchAllRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): FsUnwatchAllRequest {
+    return {};
+  },
+
+  toJSON(_: FsUnwatchAllRequest): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<FsUnwatchAllRequest>): FsUnwatchAllRequest {
+    return FsUnwatchAllRequest.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<FsUnwatchAllRequest>): FsUnwatchAllRequest {
+    const message = createBaseFsUnwatchAllRequest();
+    return message;
+  },
+};
+
+function createBaseFsUnwatchAllResponse(): FsUnwatchAllResponse {
+  return { unwatchedCount: 0 };
+}
+
+export const FsUnwatchAllResponse: MessageFns<FsUnwatchAllResponse> = {
+  encode(message: FsUnwatchAllResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.unwatchedCount !== 0) {
+      writer.uint32(8).uint32(message.unwatchedCount);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): FsUnwatchAllResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFsUnwatchAllResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.unwatchedCount = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): FsUnwatchAllResponse {
+    return {
+      unwatchedCount: isSet(object.unwatchedCount)
+        ? globalThis.Number(object.unwatchedCount)
+        : isSet(object.unwatched_count)
+        ? globalThis.Number(object.unwatched_count)
+        : 0,
+    };
+  },
+
+  toJSON(message: FsUnwatchAllResponse): unknown {
+    const obj: any = {};
+    if (message.unwatchedCount !== 0) {
+      obj.unwatchedCount = Math.round(message.unwatchedCount);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<FsUnwatchAllResponse>): FsUnwatchAllResponse {
+    return FsUnwatchAllResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<FsUnwatchAllResponse>): FsUnwatchAllResponse {
+    const message = createBaseFsUnwatchAllResponse();
+    message.unwatchedCount = object.unwatchedCount ?? 0;
     return message;
   },
 };

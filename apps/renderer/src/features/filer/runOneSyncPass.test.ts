@@ -130,7 +130,7 @@ describe("runOneSyncPass", () => {
     const [err] = calls.errors;
     expect(err.message).toBe("Failed to sync FS watches (1)");
     const { aggregate, first } = expectAggregate(err.cause);
-    expect(aggregate.message).toBe("watch:/r1 -- first error: watch failed: /r1");
+    expect(aggregate.message).toBe("watch:/r1");
     expect(first.message).toBe("watch failed: /r1");
   });
 
@@ -157,9 +157,9 @@ describe("runOneSyncPass", () => {
     const [err] = calls.errors;
     expect(err.message).toBe("Failed to sync FS watches (1)");
     const { aggregate, first } = expectAggregate(err.cause);
-    // aggregate.message に summary と first error message が両方乗る
-    expect(aggregate.message).toBe("watch:/r1/wt-a -- first error: watch failed: /r1/wt-a");
-    // cause chain の最上位は first.error の Error object
+    // aggregate.message は summary のみ。first error の name/message/stack は cause 経由で
+    // `formatCauseChain` がトースト詳細に再帰展開する（toast UI 側の責務）
+    expect(aggregate.message).toBe("watch:/r1/wt-a");
     expect(first.message).toBe("watch failed: /r1/wt-a");
   });
 
@@ -209,9 +209,7 @@ describe("runOneSyncPass", () => {
     expect(err.message).toBe("Failed to sync FS watches (2)");
     const { aggregate, first } = expectAggregate(err.cause);
     // unwatch が watch より先に実行されるため、first.error は unwatch failure
-    expect(aggregate.message).toBe(
-      "unwatch:/r1/wt-removed, watch:/r1/wt-new -- first error: unwatch failed: /r1/wt-removed",
-    );
+    expect(aggregate.message).toBe("unwatch:/r1/wt-removed, watch:/r1/wt-new");
     expect(first.message).toBe("unwatch failed: /r1/wt-removed");
   });
 

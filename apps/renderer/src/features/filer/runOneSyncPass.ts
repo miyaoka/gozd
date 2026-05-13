@@ -62,15 +62,13 @@ export async function runOneSyncPass(deps: SyncPassDeps): Promise<void> {
   }
 
   if (failures.length > 0) {
-    // batch 単位で 1 件に集約する。トースト UI は cause chain の最上位だけ展開する
-    // （cause.cause は表示しない）ため、aggregate.message に summary と
-    // first.error.message の両方を載せて、トーストの詳細展開だけで「件数 + どの
-    // kind:dir + 最初の失敗の原因文言」が見えるようにする。
+    // batch 単位で 1 件に集約する。aggregate.message には summary のみを載せ、first failure
+    // の Error は cause として埋める。`NotificationToastItem.vue` 側の `formatCauseChain`
+    // が cause 再帰展開を行うため、トースト詳細だけで「summary + 最初の失敗の name +
+    // message + stack」が読める（旧実装の文言併記 workaround は不要）。
     const summary = failures.map((f) => `${f.kind}:${f.dir}`).join(", ");
     const [first] = failures;
-    const aggregate = new Error(`${summary} -- first error: ${first.error.message}`, {
-      cause: first.error,
-    });
+    const aggregate = new Error(summary, { cause: first.error });
     notify.error(`Failed to sync FS watches (${failures.length})`, aggregate);
   }
 

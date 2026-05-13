@@ -15,6 +15,13 @@
 export interface SerializeState {
   running: boolean;
   pending: boolean;
+  /**
+   * in-flight の pass チェーン全体（最初の caller が起動し、coalesce された pending を
+   * 含めて全 pass が完走するまで resolve しない）。後乗りした呼び出しは `pending` だけ
+   * 立てて即 return するが、外部から `whenIdle(state)` 越しに完走を await できる。
+   * 完走後の finally で null に戻る。
+   */
+  currentRun: Promise<void> | null;
 }
 
 export async function runSerializedSync(
@@ -26,12 +33,31 @@ export async function runSerializedSync(
     return;
   }
   state.running = true;
-  try {
-    do {
-      state.pending = false;
-      await pass();
-    } while (state.pending);
-  } finally {
-    state.running = false;
+  const run = (async () => {
+    try {
+      do {
+        state.pending = false;
+        await pass();
+      } while (state.pending);
+    } finally {
+      state.running = false;
+      state.currentRun = null;
+    }
+  })();
+  state.currentRun = run;
+  await run;
+}
+
+/**
+ * 現在 in-flight の pass チェーンが完走するまで await する。in-flight が無ければ即 resolve。
+ *
+ * `useFsWatchSync` の `onUnmounted` で「in-flight `runOneSyncPass` の `fsWatch` が
+ * native で entry を登録する前に `rpcFsUnwatchAll` を発射する」race を構造的に潰すための
+ * drain primitive。caller 側で `disposing` ガードを立てて新規 pass の start を抑制した上で
+ * `whenIdle` で in-flight を待ち、 そこから unwatchAll を発射する流れ。
+ */
+export async function whenIdle(state: SerializeState): Promise<void> {
+  if (state.currentRun !== null) {
+    await state.currentRun;
   }
 }

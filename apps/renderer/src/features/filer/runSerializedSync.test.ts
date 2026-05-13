@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { runSerializedSync, type SerializeState } from "./runSerializedSync";
+import { runSerializedSync, type SerializeState, whenIdle } from "./runSerializedSync";
 
 /**
  * production 側の `useFsWatchSync` は `runOneSyncPass` 固定の単一 pass を毎呼び出しで
@@ -9,7 +9,7 @@ import { runSerializedSync, type SerializeState } from "./runSerializedSync";
 
 describe("runSerializedSync", () => {
   test("単発呼び出しは pass を 1 回だけ実行する", async () => {
-    const state: SerializeState = { running: false, pending: false };
+    const state: SerializeState = { running: false, pending: false, currentRun: null };
     let count = 0;
     const pass = async () => {
       count++;
@@ -21,7 +21,7 @@ describe("runSerializedSync", () => {
   });
 
   test("in-flight 中の追加呼び出しは即 return して pending だけ立て、完了後に追加 1 pass が走る", async () => {
-    const state: SerializeState = { running: false, pending: false };
+    const state: SerializeState = { running: false, pending: false, currentRun: null };
     let resolveFirst!: () => void;
     let count = 0;
     const pass = async () => {
@@ -56,7 +56,7 @@ describe("runSerializedSync", () => {
 
   test("in-flight 中の複数呼び出しは 1 回の追加 pass に coalesce される", async () => {
     // ccfe6c7 で見落としたレースの核心テスト: 並列に N 個発射しても追加 pass は 1 回。
-    const state: SerializeState = { running: false, pending: false };
+    const state: SerializeState = { running: false, pending: false, currentRun: null };
     let resolveFirst!: () => void;
     let count = 0;
     const pass = async () => {
@@ -90,7 +90,7 @@ describe("runSerializedSync", () => {
     // 厳密に担保する。`toBeGreaterThanOrEqual(2)` だと pass 3 が走らなくても通るため、
     // `toBe(3)` で pass 3 の実行を assertion する。timing 依存を消すため、pass 2 が
     // await に入った瞬間（resolves[1] が代入されたタイミング）で third を発射する。
-    const state: SerializeState = { running: false, pending: false };
+    const state: SerializeState = { running: false, pending: false, currentRun: null };
     const resolves: Array<() => void> = [];
     let count = 0;
     const pass = async () => {
@@ -135,7 +135,7 @@ describe("runSerializedSync", () => {
   });
 
   test("完了後の新規発射は fresh で pass 1 を実行する", async () => {
-    const state: SerializeState = { running: false, pending: false };
+    const state: SerializeState = { running: false, pending: false, currentRun: null };
     let count = 0;
     const pass = async () => {
       count++;
@@ -147,7 +147,7 @@ describe("runSerializedSync", () => {
   });
 
   test("pass が throw した後も running フラグが false に戻る", async () => {
-    const state: SerializeState = { running: false, pending: false };
+    const state: SerializeState = { running: false, pending: false, currentRun: null };
     let caught: Error | undefined;
     try {
       await runSerializedSync(state, async () => {
@@ -159,5 +159,54 @@ describe("runSerializedSync", () => {
     expect(caught?.message).toBe("boom");
     expect(state.running).toBe(false);
     expect(state.pending).toBe(false);
+    expect(state.currentRun).toBe(null);
+  });
+});
+
+describe("whenIdle", () => {
+  test("currentRun が null のときは即 resolve する", async () => {
+    const state: SerializeState = { running: false, pending: false, currentRun: null };
+    let resolved = false;
+    await whenIdle(state).then(() => {
+      resolved = true;
+    });
+    expect(resolved).toBe(true);
+  });
+
+  test("in-flight の pass チェーン完走を await できる (drain primitive)", async () => {
+    // `useFsWatchSync.onUnmounted` で「in-flight `runOneSyncPass` の `fsWatch` が完走する
+    // 前に `rpcFsUnwatchAll` を発射する」race を防ぐ用途。drain として正しく機能することを
+    // pass 1 + coalesced pass 2 の両方が `whenIdle` 経由で待てるかで verify する。
+    const state: SerializeState = { running: false, pending: false, currentRun: null };
+    let resolveFirst!: () => void;
+    let count = 0;
+    const pass = async () => {
+      count++;
+      if (count === 1) {
+        await new Promise<void>((r) => {
+          resolveFirst = r;
+        });
+      }
+    };
+
+    const first = runSerializedSync(state, pass);
+    // pass 1 が await まで進んだ状態にする
+    while (resolveFirst === undefined) {
+      await Promise.resolve();
+    }
+    // pass 1 中に追加発射して pass 2 を予約
+    void runSerializedSync(state, pass);
+    expect(state.currentRun).not.toBe(null);
+
+    // whenIdle で drain
+    const idle = whenIdle(state);
+    resolveFirst();
+    await idle;
+
+    // drain 完了時点で pass 1 + 2 がどちらも完走している
+    expect(count).toBe(2);
+    expect(state.running).toBe(false);
+    expect(state.currentRun).toBe(null);
+    await first;
   });
 });

@@ -207,6 +207,60 @@ struct FSWatchRegistryTests {
     #expect(collector.snapshot().contains("branchChange"))
   }
 
+  @Test("unwatchAll は全 entry を破棄して破棄件数を返し、以降イベントが届かない")
+  func unwatchAllRemovesEveryEntry() async throws {
+    // renderer の `onUnmounted` から 1 度の RPC で呼ばれる経路。N 個並列の `unwatch`
+    // 発射に対する観察可能性つき集約 cleanup として `FSWatchRegistry.unwatchAll()` を
+    // 守る regression test。返り値 (件数) と「以降 event が dispatch されない」の
+    // 両方を verify する。
+    let dirA = try makeTempDir()
+    let dirB = try makeTempDir()
+    defer {
+      try? FileManager.default.removeItem(at: dirA)
+      try? FileManager.default.removeItem(at: dirB)
+    }
+
+    let collector = EventNameCollector()
+    let registry = FSWatchRegistry(
+      onFsChange: { _, _ in collector.append("fsChange") },
+      onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
+      onBranchChange: { _, _ in collector.append("branchChange") },
+      onWorktreeChange: { _ in collector.append("worktreeChange") }
+    )
+
+    try await registry.watch(dir: dirA.path)
+    try await registry.watch(dir: dirB.path)
+    try await Task.sleep(for: .milliseconds(300))
+
+    // 2 entry watched → unwatchAll で 2 を返す
+    let count = await registry.unwatchAll()
+    #expect(count == 2)
+    #expect(await registry.isWatching(dir: dirA.path) == false)
+    #expect(await registry.isWatching(dir: dirB.path) == false)
+    collector.clear()
+
+    // unwatchAll 後の file 作成は dispatch されない
+    let fileA = dirA.appendingPathComponent("after-unwatch-a.txt")
+    let fileB = dirB.appendingPathComponent("after-unwatch-b.txt")
+    try "x".write(to: fileA, atomically: true, encoding: .utf8)
+    try "x".write(to: fileB, atomically: true, encoding: .utf8)
+
+    try await Task.sleep(for: .milliseconds(500))
+    #expect(collector.snapshot().isEmpty)
+  }
+
+  @Test("entries 空での unwatchAll は 0 件返して no-op")
+  func unwatchAllWithNoEntriesReturnsZero() async throws {
+    let registry = FSWatchRegistry(
+      onFsChange: { _, _ in },
+      onGitStatusChange: { _, _ in },
+      onBranchChange: { _, _ in },
+      onWorktreeChange: { _ in }
+    )
+    let count = await registry.unwatchAll()
+    #expect(count == 0)
+  }
+
   @Test("unwatch 後はイベントが届かない")
   func unwatchStopsDispatch() async throws {
     let tmpDir = try makeTempDir()

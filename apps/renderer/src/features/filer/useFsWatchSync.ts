@@ -23,9 +23,9 @@ import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { dispatchMessage } from "../../shared/rpc";
 import { type RepoStoreForTargetDirs } from "./collectTargetDirs";
-import { rpcFsUnwatchAll, rpcFsWatch, rpcFsUnwatch } from "./rpc";
+import { rpcFsUnwatch, rpcFsUnwatchAll, rpcFsWatch } from "./rpc";
 import { runOneSyncPass } from "./runOneSyncPass";
-import { runSerializedSync, type SerializeState } from "./runSerializedSync";
+import { runSerializedSync, type SerializeState, whenIdle } from "./runSerializedSync";
 
 export function useFsWatchSync() {
   const repoStore: RepoStoreForTargetDirs = useRepoStore();
@@ -38,7 +38,13 @@ export function useFsWatchSync() {
   /** `syncWatches` の serialize 用 state。`runSerializedSync` に渡す mutex 兼 coalesce フラグ。
    * 実体ロジックは `runSerializedSync.ts` 側の pure helper に切り出し、test で race coalesce
    * 挙動を直接検証している。 */
-  const serializeState: SerializeState = { running: false, pending: false };
+  const serializeState: SerializeState = { running: false, pending: false, currentRun: null };
+
+  /** unmount 開始フラグ。`true` 以降は新規 sync を抑制して、in-flight の完走後に
+   * `rpcFsUnwatchAll` を発射する drain 経路を成立させる。`watchEffect` は Vue が
+   * 自動 dispose するが、その時点で残っている async chain が `fsWatch(X)` を native に
+   * 発火する race を closing する。 */
+  let disposing = false;
 
   async function syncWatches(): Promise<void> {
     await runSerializedSync(serializeState, () =>
@@ -57,19 +63,26 @@ export function useFsWatchSync() {
     // `repoStore.dirOrder` / `repoStore.repos[rootDir]` / 各 repo の worktrees 配列を
     // reactive 読みすることで、worktree 集合の変化で再 run される。実 RPC は async で
     // 走るが serialize されており、複数 trigger は 1 回の追加 pass に畳まれる。
+    // unmount 中は新規 sync を抑制する。Vue の effect dispose が走る前に reactive
+    // trigger が来ても、ここで guard することで `fsWatch` が native に追加発火しない。
+    if (disposing) return;
     void syncWatches();
   });
 
   onUnmounted(() => {
-    // 1 回の RPC で全 entry を一括破棄する。N 個の `rpcFsUnwatch` を並列発射する
-    // 旧設計は失敗を観察可能性なく捨てる構造だったので、`/fs/unwatchAll` に集約。
-    // 失敗時は `notify.error` で観察可能性を残す（アプリ終了 race で見えない場合も
-    // store 内の console.error が devtools に残る）。
-    void tryCatch(rpcFsUnwatchAll({})).then((r) => {
+    disposing = true;
+    // 在 in-flight の `runOneSyncPass` がある場合、その fsWatch / fsUnwatch RPC の完走を
+    // 待ってから `rpcFsUnwatchAll` を発射する。これで「unwatchAll の後に fsWatch(X) が
+    // native に届いて X が leak する」race window を構造的に閉じる。
+    // unwatchAll 失敗は `notify.error` で観察可能性を残す（アプリ終了 race で UI 上に
+    // 見えない場合も store 内の console.error が devtools に残る）。
+    void (async () => {
+      await whenIdle(serializeState);
+      const r = await tryCatch(rpcFsUnwatchAll({}));
       if (!r.ok) {
         notify.error("Failed to cleanup FS watches", r.error);
       }
-    });
-    watchedDirs.clear();
+      watchedDirs.clear();
+    })();
   });
 }

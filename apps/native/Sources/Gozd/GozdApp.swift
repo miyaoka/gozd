@@ -332,7 +332,8 @@ final class AppRuntime {
       }
       print("[SocketServer] listening on \(socketPath)")
     } catch {
-      print("[SocketServer] start failed: \(error)")
+      FileHandle.standardError.write(
+        Data("[SocketServer] start failed: \(error)\n".utf8))
       sendNotify(
         "error", "socket", "Failed to start Unix socket server",
         String(describing: error))

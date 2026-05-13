@@ -71,6 +71,11 @@ public actor FSWatchRegistry {
   private let onBranchChange: BranchChangeHandler
   private let onWorktreeChange: WorktreeChangeHandler
   private var entries: [String: Entry] = [:]
+  /// watch 時に renderer から渡された原文 dir → realpath 解決後のキー の逆引き。
+  /// unwatch 時にディレクトリが既に削除されていると `realpath(3)` が失敗してフォールバックで
+  /// 入力 path をそのまま返すため、watch 時のキーと一致せず entries が leak する。
+  /// この逆引きを使えば「watch 時に解決した resolved key」で確実に削除できる。
+  private var resolvedKeyByOriginalDir: [String: String] = [:]
   /// watch ごとに増える世代番号。unwatch 後に積まれていた stale event の dispatch を
   /// 抑止するため、event 配送前後に entries[dir]?.generation と一致するか check する。
   private var nextGeneration: UInt64 = 0
@@ -92,7 +97,12 @@ public actor FSWatchRegistry {
   /// `/var/...` と `/private/var/...` のような symlink の差を吸収する）。
   public func watch(dir userDir: String) async throws {
     let dir = FSWatchRegistry.realpath(userDir)
-    if entries[dir] != nil { return }
+    if entries[dir] != nil {
+      // 同一 resolved dir に複数 userDir で watch 要求が来ても、各 userDir → resolved の
+      // 逆引きを残しておく（後続 unwatch が realpath 失敗で fallback した時に備える）。
+      resolvedKeyByOriginalDir[userDir] = dir
+      return
+    }
 
     nextGeneration += 1
     let generation = nextGeneration
@@ -140,12 +150,16 @@ public actor FSWatchRegistry {
       originalDir: userDir,
       perWorktreeGitDir: perWorktreeGitDir,
       commonGitDir: commonGitDir)
+    resolvedKeyByOriginalDir[userDir] = dir
   }
 
   /// dir の監視を停止する。watch されていなければ no-op。
+  /// 削除済みパスでは `realpath(3)` がフォールバックで入力 path を返すため、
+  /// watch 時に保存した逆引きを優先してキーを引く（leak 防止）。
   public func unwatch(dir userDir: String) {
-    let dir = FSWatchRegistry.realpath(userDir)
-    guard let entry = entries.removeValue(forKey: dir) else { return }
+    let resolvedKey = resolvedKeyByOriginalDir.removeValue(forKey: userDir)
+      ?? FSWatchRegistry.realpath(userDir)
+    guard let entry = entries.removeValue(forKey: resolvedKey) else { return }
     entry.watcher.stop()
     entry.continuation.finish()
     entry.task.cancel()
@@ -207,7 +221,10 @@ public actor FSWatchRegistry {
   }
 
   public func isWatching(dir userDir: String) -> Bool {
-    entries[FSWatchRegistry.realpath(userDir)] != nil
+    if let resolved = resolvedKeyByOriginalDir[userDir] {
+      return entries[resolved] != nil
+    }
+    return entries[FSWatchRegistry.realpath(userDir)] != nil
   }
 
   /// POSIX `realpath(3)` で symlink を解決した絶対パスを返す。

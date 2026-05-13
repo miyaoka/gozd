@@ -204,7 +204,9 @@ export function useSidebarData() {
     // ここから DI する。これで外部 git worktree remove で active dir が rootDir に
     // 切り替わったケースがトーストで観察可能になる。subscription より前に置くことで、
     // 初期 fetchRepo（hydrate 経由）が万一 fallback を発火しても取りこぼさない。
+    // onUnmounted で undefined に戻して旧参照を残さない（HMR / テストでの leak 防止）。
     repoStore.setAutoFallbackNotifier((message) => notify.info(message));
+    cleanups.push(() => repoStore.setAutoFallbackNotifier(undefined));
 
     // branchChange / worktreeChange は worktree 構成自体が変わるので worktree list の
     // 全件再取得が必要。gitStatusChange は payload に dir + statuses を持ち、

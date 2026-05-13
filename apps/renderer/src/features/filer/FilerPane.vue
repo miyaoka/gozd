@@ -10,6 +10,7 @@
 </doc>
 
 <script setup lang="ts">
+import { tryCatch } from "@gozd/shared";
 import { storeToRefs } from "pinia";
 import { nextTick, onUnmounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
@@ -81,25 +82,25 @@ async function loadRoot() {
     }
     return;
   }
-  try {
-    const [res] = await Promise.all([
-      rpcFsReadDir({ dir: dirPath, path: "." }),
-      gitStatusStore.loadGitStatus(),
-    ]);
-    // await 中に loadRoot が再度呼ばれた場合、この呼び出しの結果は破棄する。
-    // 旧呼び出しが新 dir 用の rootEntries や initialSelection を上書きするのを防ぐ。
-    if (mySeq !== loadRootSeq) return;
-    rootEntries.value = mergeWithGitStatus(toFileEntries(res.entries), "");
-  } catch (e) {
-    if (mySeq !== loadRootSeq) return;
-    notify.error("Failed to read root directory", e);
-    rootEntries.value = [];
-  } finally {
-    if (mySeq === loadRootSeq) {
-      loading.value = false;
-    }
+  // rpcFsReadDir と loadGitStatus を並列で投げ、readDir 失敗時のみエラー通知する。
+  // loadGitStatus 側のエラーは store 内で個別に通知済み（cause を握り潰さない）。
+  const [readResult] = await Promise.all([
+    tryCatch(rpcFsReadDir({ dir: dirPath, path: "." })),
+    gitStatusStore.loadGitStatus(),
+  ]);
+  // await 中に loadRoot が再度呼ばれた場合、この呼び出しの結果は破棄する。
+  // 旧呼び出しが新 dir 用の rootEntries や initialSelection を上書きするのを防ぐ。
+  if (mySeq !== loadRootSeq) {
+    return;
   }
-  if (mySeq !== loadRootSeq) return;
+  if (!readResult.ok) {
+    notify.error("Failed to read root directory", readResult.error);
+    rootEntries.value = [];
+    loading.value = false;
+    return;
+  }
+  rootEntries.value = mergeWithGitStatus(toFileEntries(readResult.value.entries), "");
+  loading.value = false;
 
   // rootEntries 読み込み完了後に保留中の処理を実行
   // v-for の FileTreeItem がマウントされるのを nextTick で待つ
@@ -141,8 +142,6 @@ async function reveal(targetPath: string): Promise<void> {
   }
 }
 
-defineExpose({ reveal });
-
 /**
  * ファイル変更通知を受けてツリーを更新するコールバック。
  * FileTreeItem の reloadDir を呼ぶため、ref 経由で子コンポーネントにアクセスする。
@@ -166,11 +165,11 @@ async function handleGitStatusChange() {
   // ここではファイルツリーの再構築（新規 / 削除ファイル反映）だけを行う。
   const dirPath = dir.value;
   if (dirPath === undefined) return;
-  try {
-    const res = await rpcFsReadDir({ dir: dirPath, path: "." });
-    rootEntries.value = mergeWithGitStatus(toFileEntries(res.entries), "");
-  } catch (e) {
-    notify.error("Failed to rebuild root entries", e);
+  const result = await tryCatch(rpcFsReadDir({ dir: dirPath, path: "." }));
+  if (!result.ok) {
+    notify.error("Failed to rebuild root entries", result.error);
+  } else {
+    rootEntries.value = mergeWithGitStatus(toFileEntries(result.value.entries), "");
   }
   for (const item of treeItemRefs.value) {
     item.notifyGitStatusChange();
@@ -188,6 +187,16 @@ watch(
     }
   },
   { immediate: true },
+);
+
+// revealVersion の変化（selectPath 経由 / gozdOpen 経由など）で選択中パスを reveal する。
+// 親から ref を expose せず worktreeStore 直接購読にすることで defineExpose を不要にする。
+watch(
+  () => worktreeStore.revealVersion,
+  () => {
+    const path = worktreeStore.selectedPath;
+    if (path) void reveal(path);
+  },
 );
 
 const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ relDir }) =>

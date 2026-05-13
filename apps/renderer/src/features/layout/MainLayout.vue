@@ -254,10 +254,7 @@ watchEffect(() => {
       </button>
 
       <div class="shrink-0 overflow-hidden" :style="{ width: `${navigatorWidth}px` }">
-        <NavigatorPane
-          :reveal-path="worktreeStore.selectedPath"
-          :reveal-version="worktreeStore.revealVersion"
-        />
+        <NavigatorPane />
       </div>
     </div>
 

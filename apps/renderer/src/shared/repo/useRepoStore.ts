@@ -38,9 +38,10 @@ export const useRepoStore = defineStore("repo", () => {
    * shared 間の依存禁止 + shared → feature 依存禁止のため、`useNotificationStore` を
    * 直接呼べない。`useCommandRegistry` の `setErrorHandler` と同じ DI 流儀。
    * 未設定時は console.info にフォールバックして観察可能性を最低限担保する。
+   * `undefined` を渡せばリセット（HMR / unmount で旧参照を残さないため）。
    */
   let autoFallbackNotifier: ((message: string) => void) | undefined;
-  function setAutoFallbackNotifier(notifier: (message: string) => void): void {
+  function setAutoFallbackNotifier(notifier: ((message: string) => void) | undefined): void {
     autoFallbackNotifier = notifier;
   }
   function notifyAutoFallback(message: string): void {
@@ -146,6 +147,12 @@ export const useRepoStore = defineStore("repo", () => {
     // ため、selectedDir === rootDir のケースも自然に「属していた」と扱われる（rootDir が
     // worktree list に残り続ける限り fallback は no-op）。
     // 別 repo に属する dir が active な場合は `some` が false になるため巻き込まれない。
+    //
+    // path 比較は文字列完全一致で正しい。invariant: `wt.path` も `selectedDir` も
+    // どちらも native 側で `git worktree list --porcelain` の正規化された絶対パス
+    // （symlink 解決済み、trailing slash なし）由来。`gozdOpen` push の dir も
+    // 同じ git 出力経由なので形式は揃う。新しい dir 取得経路を追加する際は
+    // 必ず同じ正規化を経由させること。
     const orphanedActiveDir =
       selectedDir.value !== undefined &&
       current.worktrees.some((w) => w.path === selectedDir.value) &&
@@ -155,7 +162,10 @@ export const useRepoStore = defineStore("repo", () => {
       // 外部 git worktree remove 経由だとユーザー操作なしに active dir が切り替わる。
       // feature 層が DI した notifier 経由でユーザーに通知する。未注入なら console.info。
       // 複数 repo 同時開き時にどの repo の root に切り替わったか分かるよう repoName を含める。
-      notifyAutoFallback(`Active worktree was removed; switched to "${current.repoName}" root.`);
+      // クォートを使うと repoName 内のクォート文字でメッセージが崩れるため使わない。
+      // 空文字列は hydrate 経路で混入し得るので汎用ラベルにフォールバックする。
+      const repoLabel = current.repoName !== "" ? current.repoName : "the repo";
+      notifyAutoFallback(`Active worktree was removed; switched to ${repoLabel} root.`);
       selectedDir.value = rootDir;
     }
   }

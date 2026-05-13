@@ -21,6 +21,14 @@ interface RepoState {
 export const useRepoStore = defineStore("repo", () => {
   const repos = ref<Record<string, RepoState>>({});
   const dirOrder = ref<string[]>([]);
+  /**
+   * shared 層内で `selectedDir.value =` を直書きする正当な経路は以下に限定する。
+   * 新たな書き換え経路を増やす前に、`worktreeStore.setOpen` の副作用
+   * （selectionVersion bump / initialSelection クリア）と整合するか確認すること。
+   * - `selectDir()`: 通常の選択（feature 層の setOpen 経由含む）
+   * - `removeRepo()`: repo まるごと削除時の fallback
+   * - `updateRepoData()`: 配下 wt 削除時の rootDir fallback
+   */
   const selectedDir = ref<string>();
   /** 折りたたまれている repo の rootDir 集合 */
   const collapsedRoots = ref<Set<string>>(new Set());
@@ -112,17 +120,24 @@ export const useRepoStore = defineStore("repo", () => {
         gitStatusGenByDir.set(wt.path, (gitStatusGenByDir.get(wt.path) ?? 0) + 1);
       }
     }
-    // selectedDir がこの repo の worktree を指していて、かつ更新後の worktrees から
-    // 消えている場合は同 repo の rootDir に倒す。これがないと FilerPane /
-    // useFsWatchSync / useGitStatusSync が削除済みパスに対して fs/readDir, fs/watch,
-    // git/status を投げ続けて outsideDir / launchFailed エラーが出る。
-    // mutation 前に判定するのは「最初から別 repo の dir だった」case を除外するため。
+    // selectedDir がこの repo に属していた（current.worktrees に含まれていた）かつ
+    // 更新後の worktrees から消えている場合のみ、同 repo の rootDir に倒す。これがないと
+    // FilerPane / useFsWatchSync / useGitStatusSync が削除済みパスに対して
+    // fs/readDir, fs/watch, git/status を投げ続け outsideDir / launchFailed エラーが出る。
+    // `current.worktrees` には rpcGitWorktreeList の仕様により main rootDir 自身も含まれる
+    // ため、selectedDir === rootDir のケースも自然に「属していた」と扱われる（rootDir が
+    // worktree list に残り続ける限り fallback は no-op）。
+    // 別 repo に属する dir が active な場合は `some` が false になるため巻き込まれない。
     const orphanedActiveDir =
       selectedDir.value !== undefined &&
       current.worktrees.some((w) => w.path === selectedDir.value) &&
       !merged.some((w) => w.path === selectedDir.value);
     repos.value[rootDir] = { ...current, worktrees: merged };
     if (orphanedActiveDir) {
+      // 外部 git worktree remove 経由だとユーザー操作なしに active dir が切り替わる。
+      // shared 層から useNotificationStore は呼べないため、最低限の観察可能性として
+      // console.info を残す（後追い調査・サポート時の手掛かり）。
+      console.info(`[repo] active worktree removed; switched selectedDir to repo root: ${rootDir}`);
       selectedDir.value = rootDir;
     }
   }

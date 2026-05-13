@@ -252,12 +252,15 @@ public enum GitOps {
   /// `git for-each-ref refs/heads/ refs/remotes/` の出力の SHA-256 hex digest。
   /// renderer 側で前回値と比較し、不一致なら push event の取りこぼしを検知する観察可能性
   /// の補強として使う（低頻度 pull 整合性チェック）。「予防 retry」ではなく、SSOT 経路
-  /// の到達率を計測する用途。digest は安定ソートされた出力を読むため、git の内部ソート
-  /// に依存する。
+  /// の到達率を計測する用途。
+  /// `--sort=refname` を明示するのは git 公式契約。指定なしのデフォルト順は契約として保証
+  /// されないため、ref セット同じで sort 順だけ変動した場合に digest が変わって
+  /// false-positive `console.warn` を生む。明示的に refname sort を依頼する。
   public static func refsDigest(dir: String) async throws -> String {
     let stdout = try await runGit(
       args: [
         "for-each-ref", "refs/heads/", "refs/remotes/",
+        "--sort=refname",
         "--format=%(refname) %(objectname)",
       ], cwd: dir)
     let hash = SHA256.hash(data: stdout)

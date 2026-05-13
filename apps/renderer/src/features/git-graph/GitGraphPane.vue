@@ -13,6 +13,7 @@ Git commit graph showing the current worktree branch and the default branch.
 
 <script setup lang="ts">
 import type { GitCommit, GitPullRequest } from "@gozd/proto";
+import { tryCatch } from "@gozd/shared";
 import { useElementSize, useIntervalFn } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import {
@@ -25,6 +26,7 @@ import {
   watch,
   watchEffect,
 } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { ResizeHandle } from "../layout";
 import { rpcGitPrList } from "../palette";
@@ -52,6 +54,7 @@ const { width: rootWidth } = useElementSize(rootRef);
 const worktreeStore = useWorktreeStore();
 const gitStatusStore = useGitStatusStore();
 const gitGraphStore = useGitGraphStore();
+const notify = useNotificationStore();
 const { gitStatuses } = storeToRefs(gitStatusStore);
 
 const { commits } = storeToRefs(gitGraphStore);
@@ -157,7 +160,12 @@ async function loadLog(): Promise<boolean> {
 
   commits.value = merged;
   defaultBranch.value = result.defaultBranch === "" ? undefined : result.defaultBranch;
-  lastHead = findHeadCommit(merged)?.hash ?? "";
+  const headCommit = findHeadCommit(merged);
+  lastHead = headCommit?.hash ?? "";
+  // `lastBranchHead` も loadLog の結果に合わせて更新する。これをやらないと worktree
+  // 切替後の最初の gitStatusChange push で branchHeadChanged が偽陽性で立ち、
+  // 冗長な 2 度目の loadLog が走る（lastHead との非対称を防ぐ）。
+  lastBranchHead = headCommit !== undefined ? (findCurrentBranch(headCommit.refs) ?? "") : "";
   recomputeLayout();
 
   // 選択中・比較中のコミットが一覧から消えた場合はクリア
@@ -281,19 +289,26 @@ let lastRefsDigest: string | undefined;
 async function checkRefsDigest(): Promise<void> {
   const dir = worktreeStore.dir;
   if (dir === undefined) return;
-  const result = await rpcGitRefsDigest({ dir });
-  // 初回は前回値が無いので比較せずに記録だけする
-  if (lastRefsDigest === undefined) {
-    lastRefsDigest = result.digest;
+  const result = await tryCatch(rpcGitRefsDigest({ dir }));
+  if (!result.ok) {
+    // 整合性チェッカ自身が silent fail するのは設計意図に反する。トースト + cause で
+    // ユーザーと開発者の両方に届くようにする。RPC 失敗の典型は worktree 切替直後の dir
+    // 不在 / git locking 競合 / git バイナリ未解決。
+    notify.error("Failed to compute refs digest", result.error);
     return;
   }
-  if (result.digest === lastRefsDigest) return;
+  // 初回は前回値が無いので比較せずに記録だけする
+  if (lastRefsDigest === undefined) {
+    lastRefsDigest = result.value.digest;
+    return;
+  }
+  if (result.value.digest === lastRefsDigest) return;
   console.warn("[git-graph] refs digest mismatch — SSOT push may have been dropped", {
     dir,
     previous: lastRefsDigest,
-    current: result.digest,
+    current: result.value.digest,
   });
-  lastRefsDigest = result.digest;
+  lastRefsDigest = result.value.digest;
   void loadLog();
 }
 const { pause: pauseRefsDigestPoll, resume: resumeRefsDigestPoll } = useIntervalFn(

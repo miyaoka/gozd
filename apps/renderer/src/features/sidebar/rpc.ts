@@ -67,7 +67,7 @@ export interface WorktreeChangePayload {
 
 /** `useFsWatchSync` が `rpcFsWatch` 完了直後に renderer 内部で発射する再同期通知。
  * watch 開始往復中に起きた FS / refs 変化を救済するため、subscriber は受信時に
- * 1 回だけ自分の state を refetch する。type 名は `fsWatchReady` で固定。 */
-export interface FsWatchReadyPayload {
-  dir: string;
-}
+ * 1 回だけ自分の state を refetch する。type 名は `fsWatchReady` で固定。
+ * payload に dir を載せないのは、watch start await 中に worktree 切替が起きると
+ * dir が stale 値になりうるため。購読側は `worktreeStore.dir` を都度読む契約。 */
+export type FsWatchReadyPayload = Record<string, never>;

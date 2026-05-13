@@ -163,6 +163,10 @@ public actor FSWatchRegistry {
     entry.watcher.stop()
     entry.continuation.finish()
     entry.task.cancel()
+    // 同一 resolved dir を指していた他の userDir 逆引きも掃除する。
+    // 同一 resolved に複数 userDir（symlink パスと非 symlink パスなど）で watch が
+    // 重ねられた状態で、片方しか unwatch されないと逆引きエントリが leak するため。
+    resolvedKeyByOriginalDir = resolvedKeyByOriginalDir.filter { $0.value != resolvedKey }
   }
 
   /// dispatch 時点で entry がまだ生きており、世代が一致するかを判定する。

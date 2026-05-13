@@ -18,7 +18,13 @@ export const useWorktreeStore = defineStore("worktree", () => {
   /** プレビュー対象の選択状態。worktree 横断で 1 つだけ保持し、dir が変わるたびにクリアする */
   const selection = ref<Selection>();
 
-  /** 同一パスでも reveal を発火させるためのバージョンカウンタ */
+  /**
+   * 同一パスでも reveal を発火させるためのバージョンカウンタ。
+   * **invariant**: `revealVersion` の bump は必ず `selection.value` の同期更新と
+   * セットで行う（= 必ず `selectPath()` 経由で更新する）。
+   * 購読側（FilerPane の watch）は `revealVersion` を trigger にして `selectedPath`
+   * を直接読むため、両者が同 tick で一致していないと古いパスで reveal が走る。
+   */
   const revealVersion = ref(0);
 
   /** setOpen 呼び出しごとにインクリメント。観測側（terminal 等）が「wt 選択イベント」として購読する */

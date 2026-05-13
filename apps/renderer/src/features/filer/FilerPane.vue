@@ -94,7 +94,9 @@ async function loadRoot() {
   if (!readResult.ok) {
     notify.error("Failed to read root directory", readResult.error);
     rootEntries.value = [];
-    // 世代チェック後に到達しているが、await を挟まない以上同期だが防御として揃える。
+    // 世代チェック (line 上の `if (mySeq !== loadRootSeq) return;`) を通過した時点で
+    // `mySeq === loadRootSeq` は確定だが、将来この早期 return の位置が変わった場合に
+    //備えて重複ガードを置く。N+1 の `loading = true` を誤って消さない防御。
     if (mySeq === loadRootSeq) loading.value = false;
     return;
   }
@@ -171,6 +173,12 @@ async function handleGitStatusChange() {
   }
 }
 
+// **watch 登録順依存**: `dir` watch を `revealVersion` watch より前に登録する必要がある。
+// Vue は watch を登録順に発火させるため、setOpen({ selection }) で dir 変化と
+// revealVersion ++ が同 tick で起きたとき、先に dir watch が `pendingRevealPath = undefined`
+// で旧パスをクリアし、その後 revealVersion watch が新パスを積み直す順序になる。
+// 入れ替えると revealVersion watch が先に走り、`pendingRevealPath` に積んだ直後の
+// dir watch がそれを消してしまう（reveal が空振り）。登場順を変更する際は注意。
 watch(
   dir,
   (newDir) => {
@@ -189,6 +197,9 @@ watch(
 // immediate: true で初回 mount 時に既存 selectedPath があれば pendingRevealPath に積み、
 // loadRoot 末尾で消化させる。これにより gozdOpen で渡された initial selection も
 // この 1 経路に集約できる（旧 consumeInitialSelection 経路は廃止）。
+// **invariant 依存**: revealVersion の bump は selection.value の更新と同期している
+// （useWorktreeStore の selectPath() でのみ実行される）。両者が同 tick で揃わない経路を
+// 増やすと古いパスで reveal が走る。
 watch(
   () => worktreeStore.revealVersion,
   () => {

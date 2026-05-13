@@ -112,7 +112,19 @@ export const useRepoStore = defineStore("repo", () => {
         gitStatusGenByDir.set(wt.path, (gitStatusGenByDir.get(wt.path) ?? 0) + 1);
       }
     }
+    // selectedDir がこの repo の worktree を指していて、かつ更新後の worktrees から
+    // 消えている場合は同 repo の rootDir に倒す。これがないと FilerPane /
+    // useFsWatchSync / useGitStatusSync が削除済みパスに対して fs/readDir, fs/watch,
+    // git/status を投げ続けて outsideDir / launchFailed エラーが出る。
+    // mutation 前に判定するのは「最初から別 repo の dir だった」case を除外するため。
+    const orphanedActiveDir =
+      selectedDir.value !== undefined &&
+      current.worktrees.some((w) => w.path === selectedDir.value) &&
+      !merged.some((w) => w.path === selectedDir.value);
     repos.value[rootDir] = { ...current, worktrees: merged };
+    if (orphanedActiveDir) {
+      selectedDir.value = rootDir;
+    }
   }
 
   /**

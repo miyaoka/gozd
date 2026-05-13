@@ -2,13 +2,38 @@ import { AppState, type WorktreeEntry } from "@gozd/proto";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
 
-interface RepoState {
+export interface RepoState {
   /** gozdOpen で受信した dir（git toplevel）。repos の Map キーと一致する */
   rootDir: string;
   repoName: string;
   isGitRepo: boolean;
   /** rpcGitWorktreeList の結果。Phase 6 で repoStore が直接保持するようにした */
   worktrees: WorktreeEntry[];
+}
+
+/**
+ * `useFsWatchSync` が watch すべき dir 集合を計算する pure 関数。
+ * - 各 repo の `isGitRepo` で分岐: git repo は配下の全 worktree path、非 git は rootDir 自身
+ * - `useRepoStore` の computed `fsWatchTargetDirs` から呼ばれ、戻り値の `Set<string>` の
+ *   `===` 比較で `watch` の再 run がトリガされる
+ */
+export function collectFsWatchTargetDirs(
+  dirOrder: readonly string[],
+  repos: Readonly<Record<string, RepoState>>,
+): Set<string> {
+  const dirs = new Set<string>();
+  for (const rootDir of dirOrder) {
+    const repo = repos[rootDir];
+    if (repo === undefined) continue;
+    if (!repo.isGitRepo) {
+      dirs.add(repo.rootDir);
+      continue;
+    }
+    for (const wt of repo.worktrees) {
+      dirs.add(wt.path);
+    }
+  }
+  return dirs;
 }
 
 /**
@@ -82,6 +107,9 @@ export const useRepoStore = defineStore("repo", () => {
   const selectedRepoName = computed(() => selectedRepo.value?.repoName);
   const selectedIsGitRepo = computed(() => selectedRepo.value?.isGitRepo ?? false);
   const selectedRootDir = computed(() => selectedRepo.value?.rootDir);
+
+  /** `useFsWatchSync` が watch すべき dir 集合。`repos[*].worktrees` または非 git の rootDir */
+  const fsWatchTargetDirs = computed(() => collectFsWatchTargetDirs(dirOrder.value, repos.value));
 
   /** dir がどこかの repo の worktrees に含まれていればその repo を返す */
   function findRepoOwning(dir: string): RepoState | undefined {
@@ -311,6 +339,7 @@ export const useRepoStore = defineStore("repo", () => {
     selectedRepoName,
     selectedIsGitRepo,
     selectedRootDir,
+    fsWatchTargetDirs,
     collapsedRoots,
     findRepoOwning,
     addRepo,

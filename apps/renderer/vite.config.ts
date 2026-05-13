@@ -17,9 +17,4 @@ export default defineConfig({
       },
     },
   },
-  // electrobun/view はソース TS を直接 export しており、内部で .js 拡張子の import を使っている
-  // node_modules 内の TS ファイルを Vite が正しく処理するために optimizeDeps に含める
-  optimizeDeps: {
-    include: ["electrobun/view"],
-  },
 });

@@ -13,10 +13,10 @@
  * 渡す薄い wrapper を持つ。
  */
 import { tryCatch } from "@gozd/shared";
-import { collectTargetDirs, type RepoStoreForTargetDirs } from "./collectTargetDirs";
 
 export interface SyncPassDeps {
-  repoStore: RepoStoreForTargetDirs;
+  /** 今回の pass で watch しているべき dir 集合（呼び出し元が store の computed から渡す） */
+  targetDirs: Set<string>;
   /** 現在 native 側で watch 中だと local に把握している dir の集合。pass 内で mutate される。 */
   watchedDirs: Set<string>;
   fsWatch: (req: { dir: string }) => Promise<unknown>;
@@ -27,9 +27,7 @@ export interface SyncPassDeps {
 }
 
 export async function runOneSyncPass(deps: SyncPassDeps): Promise<void> {
-  const { repoStore, watchedDirs, fsWatch, fsUnwatch, notify, dispatchReady } = deps;
-
-  const next = collectTargetDirs(repoStore);
+  const { targetDirs: next, watchedDirs, fsWatch, fsUnwatch, notify, dispatchReady } = deps;
   const toUnwatch: string[] = [];
   const toWatch: string[] = [];
   for (const dir of watchedDirs) {

@@ -1,1 +1,1 @@
-export { useRepoStore } from "./useRepoStore";
+export { collectFsWatchTargetDirs, type RepoState, useRepoStore } from "./useRepoStore";

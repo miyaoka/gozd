@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import os
 
@@ -135,6 +136,10 @@ public enum GitOps {
   public struct StatusFull: Equatable, Sendable {
     public let statuses: [String: String]
     public let head: String
+    /// `git status --porcelain=v2 --branch` の `# branch.head` の値。HEAD が指す
+    /// ブランチ名（例: `main`）。detached HEAD の場合は空文字。
+    /// `git branch -m` は OID を変えないため、rename の検知はこの値の変化で行う。
+    public let branchHead: String
     public let hasUpstream: Bool
     public let ahead: UInt32
     public let behind: UInt32
@@ -242,6 +247,21 @@ public enum GitOps {
       in: .whitespacesAndNewlines)
     if commonDir.isEmpty { return "" }
     return (commonDir as NSString).deletingLastPathComponent
+  }
+
+  /// `git for-each-ref refs/heads/ refs/remotes/` の出力の SHA-256 hex digest。
+  /// renderer 側で前回値と比較し、不一致なら push event の取りこぼしを検知する観察可能性
+  /// の補強として使う（低頻度 pull 整合性チェック）。「予防 retry」ではなく、SSOT 経路
+  /// の到達率を計測する用途。digest は安定ソートされた出力を読むため、git の内部ソート
+  /// に依存する。
+  public static func refsDigest(dir: String) async throws -> String {
+    let stdout = try await runGit(
+      args: [
+        "for-each-ref", "refs/heads/", "refs/remotes/",
+        "--format=%(refname) %(objectname)",
+      ], cwd: dir)
+    let hash = SHA256.hash(data: stdout)
+    return hash.map { String(format: "%02x", $0) }.joined()
   }
 
   /// `git symbolic-ref --short refs/remotes/origin/HEAD` 相当。`origin/main` 等を返す。
@@ -645,6 +665,7 @@ private func parseDiffNameStatus(_ data: Data) -> [FileChangeInfo] {
 private func parsePorcelainV2WithBranch(_ data: Data) -> GitOps.StatusFull {
   var statuses: [String: String] = [:]
   var head = ""
+  var branchHead = ""
   var hasUpstream = false
   var ahead: UInt32 = 0
   var behind: UInt32 = 0
@@ -673,8 +694,15 @@ private func parsePorcelainV2WithBranch(_ data: Data) -> GitOps.StatusFull {
           behind = UInt32(part.dropFirst()) ?? 0
         }
       }
+    } else if line.hasPrefix("# branch.head ") {
+      // HEAD が指す branch 名。`git branch -m` は OID を変えないため、
+      // rename を status 経路で検知する SSOT としてこの値を保持する。
+      // detached HEAD の場合は `(detached)` が返るので空文字に正規化。
+      let name = String(line.dropFirst("# branch.head ".count))
+      branchHead = name == "(detached)" ? "" : name
     } else if line.hasPrefix("# ") {
-      // branch.head 等は無視
+      // 上記以外の `# ` 行（将来追加される porcelain v2 ヘッダ）は意図的に silent drop。
+      // UI 要件が立った時点でここに分岐を足す。
       continue
     } else if line.hasPrefix("1 ") {
       // "1 XY <sub> <mH> <mI> <mW> <hH> <hI> <path>"
@@ -719,7 +747,8 @@ private func parsePorcelainV2WithBranch(_ data: Data) -> GitOps.StatusFull {
   }
 
   return GitOps.StatusFull(
-    statuses: statuses, head: head, hasUpstream: hasUpstream, ahead: ahead, behind: behind)
+    statuses: statuses, head: head, branchHead: branchHead,
+    hasUpstream: hasUpstream, ahead: ahead, behind: behind)
 }
 
 private func parsePorcelainV1(_ data: Data) -> [String: String] {

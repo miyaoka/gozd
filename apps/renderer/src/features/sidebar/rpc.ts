@@ -54,8 +54,20 @@ export const rpcAppStateSave = (req: SaveAppStateRequest) =>
 
 export interface BranchChangePayload {
   dir: string;
+  /** 今回のバッチで動いた `refs/heads/` 配下の ref 名（prefix を剥がした basename）。
+   * 例: `["main", "feat/foo"]`。`packed-refs` の更新で個別 ref を特定できない場合は空配列。
+   * 観察可能性のため payload に含める（バグ報告 / ログ参照用）。
+   * renderer 側の振る舞い（loadLog 全件 refetch）には現状影響しない。 */
+  changedRefs: string[];
 }
 
 export interface WorktreeChangePayload {
+  dir: string;
+}
+
+/** `useFsWatchSync` が `rpcFsWatch` 完了直後に renderer 内部で発射する再同期通知。
+ * watch 開始往復中に起きた FS / refs 変化を救済するため、subscriber は受信時に
+ * 1 回だけ自分の state を refetch する。type 名は `fsWatchReady` で固定。 */
+export interface FsWatchReadyPayload {
   dir: string;
 }

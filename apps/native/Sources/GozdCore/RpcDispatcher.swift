@@ -40,7 +40,7 @@ public actor RpcDispatcher {
     onOpen: @escaping OpenHandler = { _ in },
     onFsChange: @escaping FSWatchRegistry.FsChangeHandler = { _, _ in },
     onGitStatusChange: @escaping FSWatchRegistry.GitStatusChangeHandler = { _, _ in },
-    onBranchChange: @escaping FSWatchRegistry.BranchChangeHandler = { _ in },
+    onBranchChange: @escaping FSWatchRegistry.BranchChangeHandler = { _, _ in },
     onWorktreeChange: @escaping FSWatchRegistry.WorktreeChangeHandler = { _ in },
     envOverlay: GozdEnvOverlay? = nil,
     pidTracker: PidTracker? = nil
@@ -221,6 +221,8 @@ public actor RpcDispatcher {
       return try await handleGitViewer(body)
     case "/git/defaultBranch":
       return try await handleGitDefaultBranch(body)
+    case "/git/refsDigest":
+      return try await handleGitRefsDigest(body)
     case "/git/createWorktree":
       return try await handleCreateWorktree(body)
     case "/git/worktreeRemove":
@@ -647,6 +649,14 @@ public actor RpcDispatcher {
     }
     var resp = Gozd_V1_GitDefaultBranchResponse()
     resp.branch = branch
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleGitRefsDigest(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitRefsDigestRequest(jsonUTF8Data: body)
+    let digest = try await GitOps.refsDigest(dir: req.dir)
+    var resp = Gozd_V1_GitRefsDigestResponse()
+    resp.digest = digest
     return try resp.jsonUTF8Data()
   }
 

@@ -158,10 +158,7 @@ final class AppRuntime {
     Task { @MainActor in
       let payload = await AppRuntime.buildGozdOpenPayload(
         targetPath: targetPath, channel: channel)
-      _ = try? await page.callJavaScript(
-        "window.__gozdReceive(type, payload)",
-        arguments: ["type": "gozdOpen", "payload": payload]
-      )
+      await pushToRenderer(page: page, type: "gozdOpen", payload: payload)
     }
   }
 
@@ -193,24 +190,20 @@ final class AppRuntime {
     // WebPage push 用 callback。background queue から呼ばれるため Task @MainActor で hop。
     let onPtyText: @Sendable (UInt32, String) -> Void = { id, text in
       Task { @MainActor in
-        _ = try? await holder.page?.callJavaScript(
-          "window.__gozdReceive(type, payload)",
-          arguments: [
-            "type": "ptyText",
-            "payload": ["id": Int(id), "text": text],
-          ]
+        await pushToRenderer(
+          page: holder.page,
+          type: "ptyText",
+          payload: ["id": Int(id), "text": text]
         )
       }
     }
     let onPtyExit: @Sendable (UInt32, PTYExitReason) -> Void = { id, reason in
       let reasonPayload = encodeExitReason(reason)
       Task { @MainActor in
-        _ = try? await holder.page?.callJavaScript(
-          "window.__gozdReceive(type, payload)",
-          arguments: [
-            "type": "ptyExit",
-            "payload": ["id": Int(id), "reason": reasonPayload],
-          ]
+        await pushToRenderer(
+          page: holder.page,
+          type: "ptyExit",
+          payload: ["id": Int(id), "reason": reasonPayload]
         )
       }
     }
@@ -224,31 +217,23 @@ final class AppRuntime {
         "isInterrupt": hook.isInterrupt,
       ]
       Task { @MainActor in
-        _ = try? await holder.page?.callJavaScript(
-          "window.__gozdReceive(type, payload)",
-          arguments: ["type": "hook", "payload": payload]
-        )
+        await pushToRenderer(page: holder.page, type: "hook", payload: payload)
       }
     }
     let onOpen: @Sendable (String) -> Void = { targetPath in
       Task { @MainActor in
         let payload = await AppRuntime.buildGozdOpenPayload(
           targetPath: targetPath, channel: channel)
-        _ = try? await holder.page?.callJavaScript(
-          "window.__gozdReceive(type, payload)",
-          arguments: ["type": "gozdOpen", "payload": payload]
-        )
+        await pushToRenderer(page: holder.page, type: "gozdOpen", payload: payload)
       }
     }
 
     let onFsChange: FSWatchRegistry.FsChangeHandler = { dir, relDir in
       Task { @MainActor in
-        _ = try? await holder.page?.callJavaScript(
-          "window.__gozdReceive(type, payload)",
-          arguments: [
-            "type": "fsChange",
-            "payload": ["dir": dir, "relDir": relDir],
-          ]
+        await pushToRenderer(
+          page: holder.page,
+          type: "fsChange",
+          payload: ["dir": dir, "relDir": relDir]
         )
       }
     }
@@ -257,30 +242,31 @@ final class AppRuntime {
         "dir": dir,
         "statuses": status.statuses,
         "head": status.head,
+        "branchHead": status.branchHead,
         "hasUpstream": status.hasUpstream,
         "ahead": Int(status.ahead),
         "behind": Int(status.behind),
       ]
       Task { @MainActor in
-        _ = try? await holder.page?.callJavaScript(
-          "window.__gozdReceive(type, payload)",
-          arguments: ["type": "gitStatusChange", "payload": payload]
-        )
+        await pushToRenderer(
+          page: holder.page, type: "gitStatusChange", payload: payload)
       }
     }
-    let onBranchChange: FSWatchRegistry.BranchChangeHandler = { dir in
+    let onBranchChange: FSWatchRegistry.BranchChangeHandler = { dir, changedRefs in
       Task { @MainActor in
-        _ = try? await holder.page?.callJavaScript(
-          "window.__gozdReceive(type, payload)",
-          arguments: ["type": "branchChange", "payload": ["dir": dir]]
+        await pushToRenderer(
+          page: holder.page,
+          type: "branchChange",
+          payload: ["dir": dir, "changedRefs": changedRefs]
         )
       }
     }
     let onWorktreeChange: FSWatchRegistry.WorktreeChangeHandler = { dir in
       Task { @MainActor in
-        _ = try? await holder.page?.callJavaScript(
-          "window.__gozdReceive(type, payload)",
-          arguments: ["type": "worktreeChange", "payload": ["dir": dir]]
+        await pushToRenderer(
+          page: holder.page,
+          type: "worktreeChange",
+          payload: ["dir": dir]
         )
       }
     }
@@ -291,13 +277,11 @@ final class AppRuntime {
     let sendNotify:
       @Sendable (String, String, String, String) -> Void = { type, source, message, detail in
         Task { @MainActor in
-          _ = try? await holder.page?.callJavaScript(
-            "window.__gozdReceive(type, payload)",
-            arguments: [
-              "type": "notify",
-              "payload": [
-                "type": type, "source": source, "message": message, "detail": detail,
-              ],
+          await pushToRenderer(
+            page: holder.page,
+            type: "notify",
+            payload: [
+              "type": type, "source": source, "message": message, "detail": detail,
             ]
           )
         }
@@ -590,6 +574,26 @@ final class AppRuntime {
 @MainActor
 final class WebPageHolder {
   weak var page: WebPage?
+}
+
+/// renderer へ push する唯一の経路。`window.__gozdReceive(type, payload)` を叩く。
+/// page == nil（WebPage 未初期化）と callJavaScript 失敗の両方を stderr にログする。
+/// silent drop は禁止: 1 度の取りこぼしで UI 状態が永続的にずれるため、
+/// 観察可能性を全 push に必須として課す。
+@MainActor
+func pushToRenderer(page: WebPage?, type: String, payload: [String: Any]) async {
+  guard let page else {
+    print("[GozdApp] push dropped (page not ready): type=\(type)")
+    return
+  }
+  do {
+    _ = try await page.callJavaScript(
+      "window.__gozdReceive(type, payload)",
+      arguments: ["type": type, "payload": payload]
+    )
+  } catch {
+    print("[GozdApp] push failed: type=\(type) error=\(error)")
+  }
 }
 
 private func encodeExitReason(_ reason: PTYExitReason) -> [String: Any] {

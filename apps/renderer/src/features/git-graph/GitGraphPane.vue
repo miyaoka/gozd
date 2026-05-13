@@ -28,7 +28,7 @@ import {
 import { onMessage } from "../../shared/rpc";
 import { ResizeHandle } from "../layout";
 import { rpcGitPrList } from "../palette";
-import type { BranchChangePayload } from "../sidebar";
+import type { BranchChangePayload, FsWatchReadyPayload } from "../sidebar";
 import type { GitStatusChangePayload } from "../worktree";
 import {
   UNCOMMITTED_HASH,
@@ -44,7 +44,7 @@ import type { GraphLayout } from "./graphLayout";
 import { mergeCommitStreams } from "./mergeCommitStreams";
 import type { SortMode } from "./mergeCommitStreams";
 import RefBadge from "./RefBadge.vue";
-import { rpcGitLog } from "./rpc";
+import { rpcGitLog, rpcGitRefsDigest } from "./rpc";
 import { useGitGraphStore } from "./useGitGraphStore";
 
 const rootRef = useTemplateRef<HTMLElement>("root");
@@ -129,6 +129,9 @@ const headLane = computed(() => {
 
 /** 前回の HEAD ハッシュ。gitStatusChange で変化を検知するために使用 */
 let lastHead = "";
+/** 前回の HEAD が指す branch 名。`git branch -m` は OID を変えないため、
+ * rename を gitStatusChange 経路で検知するためにこの値の変化を追う。 */
+let lastBranchHead = "";
 /** 前回の upstream ahead/behind。push/fetch による ref 変化を検知するために使用 */
 let lastUpstream = "";
 /** loadLog の世代管理。並行実行で古いレスポンスが後着して上書きするのを防ぐ */
@@ -194,19 +197,23 @@ watch(sortMode, () => {
 
 // git status 変更時: Working Tree 固定行の件数・アイコンは computed で自動更新されるため watcher 不要
 
-// HEAD 変更（コミット、リベース等）や upstream 変更（push、fetch）を検知して git log を再取得する。
-// head ハッシュまたは ahead/behind の変化があった場合のみ再取得する（ファイル保存では走らない）。
+// HEAD 変更（コミット、リベース等）/ branch 名変更（git branch -m）/ upstream 変更（push、fetch）
+// を検知して git log を再取得する。`git branch -m` は OID を変えないため、
+// head ハッシュだけで判定すると rename が漏れる。branchHead（HEAD が指す branch 名）の
+// 変化も発火条件に含めて、SSOT 経路の取りこぼしを構造的に防ぐ。
 const disposeGitStatus = onMessage<GitStatusChangePayload>(
   "gitStatusChange",
-  ({ head, hasUpstream, ahead, behind }) => {
+  ({ head, branchHead, hasUpstream, ahead, behind }) => {
     const upstreamKey = hasUpstream ? `${ahead}/${behind}` : "";
     const headChanged = head !== "" && head !== lastHead;
+    const branchHeadChanged = branchHead !== lastBranchHead;
     const upstreamChanged = upstreamKey !== lastUpstream;
 
     if (headChanged) lastHead = head;
+    if (branchHeadChanged) lastBranchHead = branchHead;
     if (upstreamChanged) lastUpstream = upstreamKey;
 
-    if (headChanged || upstreamChanged) {
+    if (headChanged || branchHeadChanged || upstreamChanged) {
       void (async () => {
         const updated = await loadLog();
         if (!updated || !headChanged) return;
@@ -227,6 +234,13 @@ const disposeBranchChange = onMessage<BranchChangePayload>("branchChange", () =>
   void loadLog();
 });
 onUnmounted(disposeBranchChange);
+
+// `useFsWatchSync` の `rpcFsWatch` 完了直後に発射される再同期通知。watch 起動往復中の
+// FS 変化を救済するため、1 度だけ git log を取り直す。
+const disposeFsWatchReady = onMessage<FsWatchReadyPayload>("fsWatchReady", () => {
+  void loadLog();
+});
+onUnmounted(disposeFsWatchReady);
 
 // --- PR 情報（非同期で後追い取得） ---
 
@@ -259,9 +273,39 @@ const { pause: pausePrPoll, resume: resumePrPoll } = useIntervalFn(
   { immediate: false },
 );
 
+// SSOT 経路（branchChange / gitStatusChange）の到達率を計測するための低頻度 pull。
+// `git for-each-ref` の digest を取り、前回値と異なれば push が取りこぼされた可能性を
+// console.warn で観察可能性として残し、loadLog で UI を実状態に追従させる。
+// 「予防 retry」ではなく、SSOT の不達を 60s で必ず救済できる保険。
+let lastRefsDigest: string | undefined;
+async function checkRefsDigest(): Promise<void> {
+  const dir = worktreeStore.dir;
+  if (dir === undefined) return;
+  const result = await rpcGitRefsDigest({ dir });
+  // 初回は前回値が無いので比較せずに記録だけする
+  if (lastRefsDigest === undefined) {
+    lastRefsDigest = result.digest;
+    return;
+  }
+  if (result.digest === lastRefsDigest) return;
+  console.warn("[git-graph] refs digest mismatch — SSOT push may have been dropped", {
+    dir,
+    previous: lastRefsDigest,
+    current: result.digest,
+  });
+  lastRefsDigest = result.digest;
+  void loadLog();
+}
+const { pause: pauseRefsDigestPoll, resume: resumeRefsDigestPoll } = useIntervalFn(
+  () => void checkRefsDigest(),
+  PR_POLL_INTERVAL_MS,
+  { immediate: false },
+);
+
 onMounted(() => {
   void loadPrList();
   resumePrPoll();
+  resumeRefsDigestPoll();
 });
 
 // worktree 切り替え時にポーリングをリセット
@@ -271,6 +315,10 @@ watch(
     pausePrPoll();
     void loadPrList();
     resumePrPoll();
+    // refs digest baseline は worktree ごとに別物なのでリセット。次回 poll で再記録される。
+    pauseRefsDigestPoll();
+    lastRefsDigest = undefined;
+    resumeRefsDigestPoll();
   },
 );
 

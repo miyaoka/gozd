@@ -32,11 +32,23 @@ import Foundation
 //
 // 4. **push の重複は許容**。renderer 側は冪等な再 fetch（onMessage の handler）
 //    で受け止めるので、`fsChange` と `gitStatusChange` を両方出しても問題ない。
+//
+// 5. **SSOT push + 低頻度 pull の二重防御**。FSEvents は push 経路だが、watch 開始
+//    往復中の取りこぼしや、`callJavaScript` の失敗で 1 度落とすと UI 状態が永続
+//    的にずれる。renderer 側で 2 つの保険を組んでいる:
+//    - `rpcFsWatch` 応答直後の `fsWatchReady` 再同期トリガー（watch 起動瞬間 1 回）
+//    - 60 秒間隔の `rpcGitRefsDigest` 整合性チェック（push 不達を検知して `loadLog`）
+//    どちらも「予防 retry」ではなく観察可能性の補強。不一致を検知したら必ず
+//    `console.warn` でログを残し、symptom を silent fix しない。
 public actor FSWatchRegistry {
   public typealias FsChangeHandler = @Sendable (_ dir: String, _ relDir: String) -> Void
   public typealias GitStatusChangeHandler = @Sendable (_ dir: String, _ status: GitOps.StatusFull)
     -> Void
-  public typealias BranchChangeHandler = @Sendable (_ dir: String) -> Void
+  /// branchChange ハンドラ。`changedRefs` には今回のバッチで動いた refs/heads/ 配下の
+  /// ref 名（`refs/heads/` を剥がした basename。例: `main`, `feat/foo`）を含める。
+  /// `packed-refs` の更新で個別 ref を特定できない場合は空配列。
+  /// 観察可能性のため、renderer 側がログ / バグ報告で利用できるよう payload に乗せる。
+  public typealias BranchChangeHandler = @Sendable (_ dir: String, _ changedRefs: [String]) -> Void
   public typealias WorktreeChangeHandler = @Sendable (_ dir: String) -> Void
 
   private struct Entry {
@@ -64,6 +76,9 @@ public actor FSWatchRegistry {
     let hasGitStatusChange: Bool
     let hasBranchChange: Bool
     let hasWorktreeChange: Bool
+    /// 今回のバッチで動いた refs/heads/ 配下の ref 名（`refs/heads/` を剥がした basename）。
+    /// `packed-refs` の更新が含まれる場合は空のままで、個別 ref 特定は呼び出し側で諦める。
+    let changedRefs: Set<String>
   }
 
   private let onFsChange: FsChangeHandler
@@ -209,7 +224,7 @@ public actor FSWatchRegistry {
       }
     }
     if result.hasBranchChange {
-      onBranchChange(originalDir)
+      onBranchChange(originalDir, Array(result.changedRefs).sorted())
     }
     if result.hasWorktreeChange {
       onWorktreeChange(originalDir)
@@ -286,6 +301,7 @@ public actor FSWatchRegistry {
     var hasGitStatusChange = false
     var hasBranchChange = false
     var hasWorktreeChange = false
+    var changedRefs = Set<String>()
 
     // 通常 clone では perWorktreeGitDir == commonGitDir なので、両ルールを同じ path に
     // 適用して `HEAD` と `refs/heads/` を両方拾う必要がある。
@@ -316,6 +332,10 @@ public actor FSWatchRegistry {
           hasWorktreeChange = true
         } else if rel.hasPrefix("refs/heads/") {
           hasBranchChange = true
+          let refName = String(rel.dropFirst("refs/heads/".count))
+          if !refName.isEmpty {
+            changedRefs.insert(refName)
+          }
         } else if rel.hasPrefix("refs/remotes/") {
           // push / fetch 成功でローカルの remote-tracking ref が書き換わる。
           // git-graph は gitStatusChange の `# branch.ab` で ahead/behind 更新を検知する。
@@ -344,7 +364,8 @@ public actor FSWatchRegistry {
       hasFsChange: hasFsChange,
       hasGitStatusChange: hasGitStatusChange,
       hasBranchChange: hasBranchChange,
-      hasWorktreeChange: hasWorktreeChange
+      hasWorktreeChange: hasWorktreeChange,
+      changedRefs: changedRefs
     )
   }
 

@@ -138,3 +138,14 @@ message GitWorktreeRemoveRequest {
 }
 message GitWorktreeRemoveResponse {}
 
+// gitRefsDigest: refs/heads/ と refs/remotes/ の現在状態を 1 つの digest 文字列で返す。
+// renderer 側は前回値と比較して、push event の取りこぼしを検知する低頻度の整合性チェッカに
+// 使う。SSOT 経路（branchChange / gitStatusChange）の到達率を計測する観察可能性の補強で、
+// 「予防的 retry」ではない。不一致時のみ loadLog + console.warn を出す。
+message GitRefsDigestRequest {
+  string dir = 1;
+}
+message GitRefsDigestResponse {
+  string digest = 1;
+}
+

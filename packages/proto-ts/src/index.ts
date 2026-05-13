@@ -90,6 +90,8 @@ export {
   GitLogResponse,
   GitPrListRequest,
   GitPrListResponse,
+  GitRefsDigestRequest,
+  GitRefsDigestResponse,
   GitShowCommitFileRequest,
   GitShowCommitFileResponse,
   GitShowFileRequest,

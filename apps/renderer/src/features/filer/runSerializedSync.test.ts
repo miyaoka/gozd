@@ -148,11 +148,15 @@ describe("runSerializedSync", () => {
 
   test("pass が throw した後も running フラグが false に戻る", async () => {
     const state: SerializeState = { running: false, pending: false };
-    await expect(
-      runSerializedSync(state, async () => {
+    let caught: Error | undefined;
+    try {
+      await runSerializedSync(state, async () => {
         throw new Error("boom");
-      }),
-    ).rejects.toThrow("boom");
+      });
+    } catch (e) {
+      if (e instanceof Error) caught = e;
+    }
+    expect(caught?.message).toBe("boom");
     expect(state.running).toBe(false);
     expect(state.pending).toBe(false);
   });

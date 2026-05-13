@@ -156,6 +156,13 @@ public actor FSWatchRegistry {
   /// dir の監視を停止する。watch されていなければ no-op。
   /// 削除済みパスでは `realpath(3)` がフォールバックで入力 path を返すため、
   /// watch 時に保存した逆引きを優先してキーを引く（leak 防止）。
+  ///
+  /// **セマンティクス**: 同一 resolved dir に複数 userDir で watch が重ねられて
+  /// いた場合、いずれか 1 つの userDir で unwatch を呼ぶと entry 自体が解放され、
+  /// 残りの全 userDir 逆引きも一括で invalidate される。つまり「`watch` は冪等で
+  /// 逆引きを増やすだけ、`unwatch` は全 userDir 参照を巻き取って 1 度で解放」。
+  /// renderer 側で 1 worktree に対して複数 userDir で watch を投げる前提は無いため、
+  /// この簡略セマンティクスで十分（参照カウントは持たない）。
   public func unwatch(dir userDir: String) {
     let resolvedKey = resolvedKeyByOriginalDir.removeValue(forKey: userDir)
       ?? FSWatchRegistry.realpath(userDir)

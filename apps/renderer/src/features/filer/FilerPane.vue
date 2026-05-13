@@ -96,7 +96,7 @@ async function loadRoot() {
     rootEntries.value = [];
     // 世代チェック (line 上の `if (mySeq !== loadRootSeq) return;`) を通過した時点で
     // `mySeq === loadRootSeq` は確定だが、将来この早期 return の位置が変わった場合に
-    //備えて重複ガードを置く。N+1 の `loading = true` を誤って消さない防御。
+    // 備えて重複ガードを置く。N+1 の `loading = true` を誤って消さない防御。
     if (mySeq === loadRootSeq) loading.value = false;
     return;
   }
@@ -173,12 +173,11 @@ async function handleGitStatusChange() {
   }
 }
 
-// **watch 登録順依存**: `dir` watch を `revealVersion` watch より前に登録する必要がある。
-// Vue は watch を登録順に発火させるため、setOpen({ selection }) で dir 変化と
-// revealVersion ++ が同 tick で起きたとき、先に dir watch が `pendingRevealPath = undefined`
-// で旧パスをクリアし、その後 revealVersion watch が新パスを積み直す順序になる。
-// 入れ替えると revealVersion watch が先に走り、`pendingRevealPath` に積んだ直後の
-// dir watch がそれを消してしまう（reveal が空振り）。登場順を変更する際は注意。
+// dir watch は `flush: 'sync'` を指定して、setOpen({ selection }) で dir 変化と
+// revealVersion ++ が同 tick で起きたとき必ず先に発火させる。
+// （revealVersion watch はデフォルトの async flush なので、sync watch の後に走る）
+// これにより「dir watch が pendingRevealPath をクリア → revealVersion watch が積み直す」
+// 順序が watch の登録順ではなく flush タイミングで構造的に保証される。
 watch(
   dir,
   (newDir) => {
@@ -189,7 +188,7 @@ watch(
       void loadRoot();
     }
   },
-  { immediate: true },
+  { immediate: true, flush: "sync" },
 );
 
 // revealVersion の変化（selectPath 経由 / gozdOpen 経由など）で選択中パスを reveal する。
@@ -197,6 +196,8 @@ watch(
 // immediate: true で初回 mount 時に既存 selectedPath があれば pendingRevealPath に積み、
 // loadRoot 末尾で消化させる。これにより gozdOpen で渡された initial selection も
 // この 1 経路に集約できる（旧 consumeInitialSelection 経路は廃止）。
+// flush はデフォルト（pre）。上の dir watch が flush: 'sync' で先行発火するため、dir 変化を
+// 伴う setOpen でも `pendingRevealPath` クリア後に新パスを積み直す順序が保証される。
 // **invariant 依存**: revealVersion の bump は selection.value の更新と同期している
 // （useWorktreeStore の selectPath() でのみ実行される）。両者が同 tick で揃わない経路を
 // 増やすと古いパスで reveal が走る。

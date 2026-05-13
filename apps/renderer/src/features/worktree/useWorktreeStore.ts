@@ -18,10 +18,13 @@ export const useWorktreeStore = defineStore("worktree", () => {
   /** プレビュー対象の選択状態。worktree 横断で 1 つだけ保持し、dir が変わるたびにクリアする */
   const selection = ref<Selection>();
 
-  /** ツリー初期化後に適用する選択対象（setOpen で保持、consumeInitialSelection で消費） */
-  const initialSelection = ref<OpenTargetSelection>();
-
-  /** 同一パスでも reveal を発火させるためのバージョンカウンタ */
+  /**
+   * 同一パスでも reveal を発火させるためのバージョンカウンタ。
+   * **invariant**: `revealVersion` の bump は必ず `selection.value` の同期更新と
+   * セットで行う（= 必ず `selectPath()` 経由で更新する）。
+   * 購読側（FilerPane の watch）は `revealVersion` を trigger にして `selectedPath`
+   * を直接読むため、両者が同 tick で一致していないと古いパスで reveal が走る。
+   */
   const revealVersion = ref(0);
 
   /** setOpen 呼び出しごとにインクリメント。観測側（terminal 等）が「wt 選択イベント」として購読する */
@@ -44,15 +47,14 @@ export const useWorktreeStore = defineStore("worktree", () => {
     return resolveFileGitChange(selectedPath.value, gitStatusStore.gitStatuses);
   });
 
-  // dir が変わるたびに selection / initialSelection を即座に落とす。setOpen を経由しない
-  // 経路（repoStore.removeRepo 内の selectedDir 直書きなど）でも一貫してクリアされる。
-  // flush: 'sync' により、setOpen が同期で続けて selectPath / initialSelection を書き込む際に
+  // dir が変わるたびに selection を即座に落とす。setOpen を経由しない経路
+  // （repoStore.removeRepo 内の selectedDir 直書きなど）でも一貫してクリアされる。
+  // flush: 'sync' により、setOpen が同期で続けて selectPath を書き込む際に
   // 「クリア → 新値書き込み」の順序が崩れない。
   watch(
     dir,
     () => {
       selection.value = undefined;
-      initialSelection.value = undefined;
     },
     { flush: "sync" },
   );
@@ -65,6 +67,10 @@ export const useWorktreeStore = defineStore("worktree", () => {
   /**
    * worktree 切替（同 repo 内）専用。新 dir は既に repoStore に登録済みであることが前提。
    * 新規 repo の追加は App.vue の gozdOpen ハンドラが行う。
+   *
+   * `options.selection` 経由の reveal は、`selectPath` で `revealVersion` を進めることで
+   * FilerPane 側の `revealVersion` watch から発火させる（reveal 経路の SSOT）。
+   * ツリー未ロード時の保留は FilerPane 内の `pendingRevealPath` でカバーされる。
    */
   function setOpen(newDir: string, options: SetOpenOptions = {}) {
     repoStore.selectDir(newDir);
@@ -72,26 +78,11 @@ export const useWorktreeStore = defineStore("worktree", () => {
     if (options.fileServerBaseUrl) {
       fileServerBaseUrl.value = options.fileServerBaseUrl;
     }
-    // initialSelection は setOpen のたびに最新の options.selection で置き換える。
-    // 同一 dir で setOpen が連続した場合に、前回呼び出し時の保留分が
-    // consumeInitialSelection に取り残されて誤適用されるのを防ぐ。
-    initialSelection.value = options.selection;
     if (options.selection) {
       // ツリーロード前でもヘッダー等が即時反映されるよう selection も同期で書き込む。
+      // revealVersion ++ により FilerPane の watch が reveal を実行する。
       selectPath(options.selection.relPath);
     }
-  }
-
-  /** ファイラーのツリー初期化後に呼ぶ。initialSelection があれば消費して返す */
-  function consumeInitialSelection(): OpenTargetSelection | undefined {
-    const sel = initialSelection.value;
-    if (sel) {
-      initialSelection.value = undefined;
-      if (sel.kind === "file") {
-        selectPath(sel.relPath);
-      }
-    }
-    return sel;
   }
 
   function selectPath(path: string, lineNumber?: number) {
@@ -118,7 +109,6 @@ export const useWorktreeStore = defineStore("worktree", () => {
     setOpen,
     selectPath,
     clearSelectedPath,
-    consumeInitialSelection,
   };
 });
 

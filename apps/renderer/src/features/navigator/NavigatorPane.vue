@@ -6,25 +6,18 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 - Filer が flex-1 で残りスペースを取り、Changes が固定高さ
 - ResizeHandle で上下の比率をリサイズ可能
 - git リポジトリでない場合は Filer のみ表示
-- `revealPath` / `revealVersion` props の変化で FilerPane のツリーを自動展開
+- FilerPane の reveal は worktreeStore.revealVersion を内部で購読しているため props 経由不要
 - ChangesPane の `select` emit を `worktreeStore.selectPath()` に接続
 </doc>
 
 <script setup lang="ts">
 import { useElementSize } from "@vueuse/core";
-import { nextTick, ref, useTemplateRef, watch, watchEffect } from "vue";
+import { ref, useTemplateRef, watchEffect } from "vue";
 import { useRepoStore } from "../../shared/repo";
 import { ChangesPane } from "../changes";
 import { FilerPane } from "../filer";
 import { ResizeHandle } from "../layout";
 import { useWorktreeStore } from "../worktree";
-
-interface Props {
-  revealPath?: string;
-  revealVersion?: number;
-}
-
-const props = defineProps<Props>();
 
 const HANDLE_HEIGHT = 8;
 const FILER_MIN_HEIGHT = 100;
@@ -32,7 +25,6 @@ const CHANGES_MIN_HEIGHT = 60;
 
 const repoStore = useRepoStore();
 const worktreeStore = useWorktreeStore();
-const filerPaneRef = useTemplateRef<InstanceType<typeof FilerPane>>("filerPane");
 const filerWrapperRef = useTemplateRef<HTMLElement>("filerWrapper");
 const containerRef = useTemplateRef<HTMLElement>("container");
 const { height: containerHeight } = useElementSize(containerRef);
@@ -57,13 +49,6 @@ function getFilerHeight(): number {
 function onChangesSelect(relPath: string) {
   worktreeStore.selectPath(relPath);
 }
-
-// revealPath / revealVersion の変化で FilerPane のツリーを展開する
-watch([() => props.revealPath, () => props.revealVersion], async ([path]) => {
-  if (!path) return;
-  await nextTick();
-  await filerPaneRef.value?.reveal(path);
-});
 </script>
 
 <template>
@@ -80,7 +65,7 @@ watch([() => props.revealPath, () => props.revealVersion], async ([path]) => {
         </span>
       </div>
       <div class="min-h-0 flex-1 overflow-hidden">
-        <FilerPane ref="filerPane" />
+        <FilerPane />
       </div>
     </div>
 

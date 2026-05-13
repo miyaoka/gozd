@@ -7,26 +7,30 @@
 - material-icon-theme のアイコンを表示
 - git status に応じた色分け（modified=黄、added=緑、deleted=赤、renamed=青）と削除ファイルの打ち消し線
 
-## 更新
+## 更新（イベント駆動）
 
-- 親から `notifyChange` / `notifyGitStatusChange` を呼ばれてツリーを差分更新
-- `reveal(targetPath)` でパスのセグメントを再帰的に辿って展開し、対象ノードをスクロールインビュー
+- filer event store の fsChange を watch して自分の path 該当時に再読み込み
+- filer event store の gitStatusChange を watch して展開中なら children を再構築
+- worktreeStore.revealVersion を watch して selectedPath が自分または配下なら展開＋スクロール
+- 親→子の命令呼び出し（defineExpose）は使わず、各ノードが自律的にイベントを処理する設計
 </doc>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, useTemplateRef } from "vue";
+import { tryCatch } from "@gozd/shared";
+import { computed, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import {
-  useWorktreeStore,
   resolveDirectoryGitChange,
   resolveFileGitChange,
   resolveGitChangeKind,
+  useWorktreeStore,
 } from "../worktree";
 import type { GitChangeKind } from "../worktree";
 import { getDeletedEntries, sortEntries } from "./filerUtils";
 import type { FileEntry } from "./filerUtils";
 import { rpcFsReadDir } from "./rpc";
 import { getFileIconUrl, getFolderIconUrl } from "./useFileIcon";
+import { useFilerEventStore } from "./useFilerEventStore";
 
 const GIT_CHANGE_COLOR_MAP: Record<GitChangeKind, string> = {
   modified: "text-yellow-400",
@@ -56,11 +60,11 @@ const emit = defineEmits<{
 
 const notify = useNotificationStore();
 const worktreeStore = useWorktreeStore();
+const filerEventStore = useFilerEventStore();
 
 const buttonRef = useTemplateRef<HTMLButtonElement>("button");
 const expanded = ref(false);
 const children = ref<FileEntry[]>();
-const childRefs = ref<InstanceType<typeof import("./FileTreeItem.vue").default>[]>([]);
 const loading = ref(false);
 
 /** gitStatuses マップからリアルタイムに変更種別を算出する */
@@ -113,26 +117,26 @@ async function loadChildren() {
     loading.value = false;
     return;
   }
-  try {
-    const res = await rpcFsReadDir({ dir, path: props.path });
-    const entries = res.entries.map((e) => ({
-      name: e.name,
-      isDirectory: e.type === "directory",
-      isIgnored: false,
-    }));
-    children.value = mergeWithGitStatus(entries);
-  } catch (e) {
+  const result = await tryCatch(rpcFsReadDir({ dir, path: props.path }));
+  if (!result.ok) {
     // 削除ディレクトリの場合、readDir は失敗するので削除エントリのみ表示
     const deletedEntries = getDeletedEntries(props.path, props.gitStatuses);
     if (deletedEntries.length > 0) {
       children.value = sortEntries(deletedEntries);
     } else {
-      notify.error(`Failed to read directory: ${props.path}`, e);
+      notify.error(`Failed to read directory: ${props.path}`, result.error);
       children.value = [];
     }
-  } finally {
     loading.value = false;
+    return;
   }
+  const entries = result.value.entries.map((e) => ({
+    name: e.name,
+    isDirectory: e.type === "directory",
+    isIgnored: false,
+  }));
+  children.value = mergeWithGitStatus(entries);
+  loading.value = false;
 }
 
 /** readDir の結果に git 変更情報と削除ファイルをマージする */
@@ -155,57 +159,46 @@ function mergeWithGitStatus(entries: FileEntry[]): FileEntry[] {
   return sortEntries([...withGitChange, ...deletedEntries]);
 }
 
-/**
- * ファイル変更通知を受けて、該当するディレクトリの内容を再読み込みする。
- * 自身のパスに一致すれば再読み込み、さもなくば子に伝播する。
- */
-function notifyChange(relDir: string) {
-  if (!props.isDirectory) return;
-
-  // 自身のディレクトリが変更対象
-  if (relDir === props.path) {
+// fsChange を購読し、自分の path が変更対象なら再読み込み（折りたたみ中はキャッシュ破棄）。
+// 自分の path 配下のノードは独立に同じ store を watch しているため、再帰伝播は不要。
+watch(
+  () => filerEventStore.fsChangeEvent,
+  (event) => {
+    if (event === undefined) return;
+    if (!props.isDirectory) return;
+    if (event.relDir !== props.path) return;
     if (expanded.value) {
       void loadChildren();
     } else {
       // 折りたたみ中なら次回展開時に再読み込みするためキャッシュを破棄
       children.value = undefined;
     }
-    return;
-  }
+  },
+);
 
-  // 自身の配下のパスなら子に伝播
-  if (relDir.startsWith(props.path + "/")) {
-    for (const child of childRefs.value) {
-      child.notifyChange(relDir);
+// gitStatusChange を購読し、展開中の children を再構築する（削除仮想エントリの追加/除去）。
+// computed の再計算だけでは entries の追加削除を反映できないため、明示的に再読み込みする。
+watch(
+  () => filerEventStore.gitStatusChangeVersion,
+  () => {
+    if (!props.isDirectory) return;
+    if (expanded.value && children.value !== undefined) {
+      void loadChildren();
+    } else {
+      // 折りたたみ中なら次回展開時に再読み込みするためキャッシュを破棄
+      children.value = undefined;
     }
-  }
-}
+  },
+);
 
 /**
- * git status 変更通知を受けて、展開中のディレクトリの children を再構築する。
- * 削除仮想エントリの追加/除去は children の再構築が必要なため、
- * computed の再計算だけでは対応できない。
+ * revealVersion 変化で worktreeStore.selectedPath を見て、自分が target または target の祖先なら処理。
+ * 祖先の場合は展開するだけ。子は v-for でマウント後に自分の revealVersion watch (immediate)
+ * で target を処理する再帰チェーン。
  */
-function notifyGitStatusChange() {
-  if (!props.isDirectory) return;
-
-  if (expanded.value && children.value !== undefined) {
-    void loadChildren();
-  } else {
-    // 折りたたみ中なら次回展開時に再読み込みするためキャッシュを破棄
-    children.value = undefined;
-  }
-
-  for (const child of childRefs.value) {
-    child.notifyGitStatusChange();
-  }
-}
-
-/**
- * 指定パスまでツリーを展開し、対象ノードをビューポートにスクロールする。
- * パスのセグメントを再帰的に辿り、各ディレクトリを非同期で展開する。
- */
-async function reveal(targetPath: string): Promise<void> {
+async function handleReveal() {
+  const targetPath = worktreeStore.selectedPath;
+  if (targetPath === undefined) return;
   // 自身がターゲットの場合、展開してスクロールインビュー
   if (targetPath === props.path) {
     if (props.isDirectory && !expanded.value) {
@@ -217,34 +210,27 @@ async function reveal(targetPath: string): Promise<void> {
     buttonRef.value?.scrollIntoView({ block: "nearest" });
     return;
   }
-
   // ディレクトリでないか、ターゲットが自身の配下でない場合は何もしない
   if (!props.isDirectory) return;
   if (!targetPath.startsWith(props.path + "/")) return;
-
-  // 展開する（未展開かつ子が未読み込みの場合は読み込む）
+  // 自身の配下に target がある場合、自分は展開するだけ（target そのものへの scroll は
+  // 子の watch が処理する）。子は v-for で children を読み込むとマウントされ、
+  // immediate watch が現在の revealVersion で発火する
   if (!expanded.value) {
     expanded.value = true;
     if (children.value === undefined) {
       await loadChildren();
     }
   }
-
-  // childRefs は v-for の template ref なので、DOM 更新を待つ
-  await nextTick();
-
-  // 次のパスセグメントに一致する子を探して再帰
-  const nextSegment = targetPath.slice(props.path.length + 1).split("/")[0];
-  const childIndex = children.value?.findIndex((c) => c.name === nextSegment);
-  if (childIndex !== undefined && childIndex >= 0) {
-    const child = childRefs.value[childIndex];
-    if (child) {
-      await child.reveal(targetPath);
-    }
-  }
 }
 
-defineExpose({ notifyChange, notifyGitStatusChange, reveal });
+watch(
+  () => worktreeStore.revealVersion,
+  () => {
+    void handleReveal();
+  },
+  { immediate: true },
+);
 
 function onChildSelect(childPath: string) {
   emit("select", childPath);
@@ -288,7 +274,6 @@ function onChildSelect(childPath: string) {
       </div>
       <FileTreeItem
         v-for="child in children"
-        ref="childRefs"
         :key="`${child.name}-${child.isDirectory}`"
         :name="child.name"
         :path="`${path}/${child.name}`"

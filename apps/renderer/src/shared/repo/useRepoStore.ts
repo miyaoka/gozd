@@ -21,9 +21,37 @@ interface RepoState {
 export const useRepoStore = defineStore("repo", () => {
   const repos = ref<Record<string, RepoState>>({});
   const dirOrder = ref<string[]>([]);
+  /**
+   * shared 層内で `selectedDir.value =` を直書きする正当な経路は以下に限定する。
+   * 新たな書き換え経路を増やす前に、`worktreeStore.setOpen` 側の副作用一覧
+   * （selectionVersion bump / 必要なら selection / revealVersion の同期更新）と整合
+   * するか確認すること（feature 層側の責務に踏み込む変更が必要な可能性）。
+   * - `selectDir()`: 通常の選択（feature 層の setOpen 経由含む）
+   * - `removeRepo()`: repo まるごと削除時の fallback
+   * - `updateRepoData()`: 配下 wt 削除時の rootDir fallback
+   */
   const selectedDir = ref<string>();
   /** 折りたたまれている repo の rootDir 集合 */
   const collapsedRoots = ref<Set<string>>(new Set());
+
+  /**
+   * auto-fallback 発火時の通知ハンドラ。feature 層から `setAutoFallbackNotifier()` で注入する。
+   * shared 間の依存禁止 + shared → feature 依存禁止のため、`useNotificationStore` を
+   * 直接呼べない。`useCommandRegistry` の `setErrorHandler` と同じ DI 流儀。
+   * 未設定時は console.info にフォールバックして観察可能性を最低限担保する。
+   * `undefined` を渡せばリセット（HMR / unmount で旧参照を残さないため）。
+   */
+  let autoFallbackNotifier: ((message: string) => void) | undefined;
+  function setAutoFallbackNotifier(notifier: ((message: string) => void) | undefined): void {
+    autoFallbackNotifier = notifier;
+  }
+  function notifyAutoFallback(message: string): void {
+    if (autoFallbackNotifier !== undefined) {
+      autoFallbackNotifier(message);
+      return;
+    }
+    console.info(message);
+  }
 
   /**
    * worktree.gitStatuses の per-dir 書き込み世代。
@@ -112,7 +140,38 @@ export const useRepoStore = defineStore("repo", () => {
         gitStatusGenByDir.set(wt.path, (gitStatusGenByDir.get(wt.path) ?? 0) + 1);
       }
     }
+    // selectedDir がこの repo に属していた（current.worktrees に含まれていた）かつ
+    // 更新後の worktrees から消えている場合のみ、同 repo の rootDir に倒す。これがないと
+    // FilerPane / useFsWatchSync / useGitStatusSync が削除済みパスに対して
+    // fs/readDir, fs/watch, git/status を投げ続け outsideDir / launchFailed エラーが出る。
+    // `current.worktrees` には rpcGitWorktreeList の仕様により main rootDir 自身も含まれる
+    // ため、selectedDir === rootDir のケースも自然に「属していた」と扱われる（rootDir が
+    // worktree list に残り続ける限り fallback は no-op）。
+    // 別 repo に属する dir が active な場合は `some` が false になるため巻き込まれない。
+    //
+    // path 比較は文字列完全一致で正しい。invariant: `wt.path` も `selectedDir` も
+    // どちらも `git worktree list --porcelain` および `git rev-parse --show-toplevel`
+    // の出力をそのまま使う。git は記録された原文の絶対パスを返すだけで symlink 解決は
+    // しないが、両者とも同じ git 出力経路を踏むため文字列フォーマットは揃う（trailing
+    // slash なし、git が記録した形式そのまま）。ユーザーが symlink パスで起動した場合
+    // も両者が symlink を含む同一形式で一致する。
+    // 新しい dir 取得経路を追加する際は必ず同じ git 出力経路を踏ませること。
+    // 別形式（realpath 解決後など）を混ぜると比較が空振りして fallback が発火しなくなる。
+    const orphanedActiveDir =
+      selectedDir.value !== undefined &&
+      current.worktrees.some((w) => w.path === selectedDir.value) &&
+      !merged.some((w) => w.path === selectedDir.value);
     repos.value[rootDir] = { ...current, worktrees: merged };
+    if (orphanedActiveDir) {
+      // 外部 git worktree remove 経由だとユーザー操作なしに active dir が切り替わる。
+      // feature 層が DI した notifier 経由でユーザーに通知する。未注入なら console.info。
+      // 複数 repo 同時開き時にどの repo の root に切り替わったか分かるよう repoName を含める。
+      // クォートを使うと repoName 内のクォート文字でメッセージが崩れるため使わない。
+      // 空文字列は hydrate 経路で混入し得るので汎用ラベルにフォールバックする。
+      const repoLabel = current.repoName !== "" ? current.repoName : "the repo";
+      notifyAutoFallback(`Active worktree was removed; switched to ${repoLabel} root.`);
+      selectedDir.value = rootDir;
+    }
   }
 
   /**
@@ -265,6 +324,7 @@ export const useRepoStore = defineStore("repo", () => {
     toggleCollapsed,
     buildAppStateSnapshot,
     hydrateFromAppState,
+    setAutoFallbackNotifier,
   };
 });
 

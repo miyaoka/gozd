@@ -4,15 +4,15 @@
 ## 動作
 
 - ワークスペースのディレクトリが設定されるとルートエントリを読み込み、FileTreeItem を再帰的にレンダリング
-- fsChange / gitStatusChange の RPC メッセージを購読し、変更があったディレクトリのみ差分更新
+- fsChange / gitStatusChange の RPC メッセージを購読し、ルート再構築 + filer event store 経由で子に通知
 - git 削除ファイルは仮想エントリとしてツリーに挿入
-- `reveal(targetPath)` で指定パスまでツリーを展開しスクロール
+- 各 FileTreeItem は filer event store + worktreeStore.revealVersion を自律的に watch する設計
 </doc>
 
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
 import { storeToRefs } from "pinia";
-import { nextTick, onUnmounted, ref, watch } from "vue";
+import { onUnmounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { resolveGitChangeKind, useGitStatusStore, useWorktreeStore } from "../worktree";
@@ -22,23 +22,30 @@ import type { FileEntry } from "./filerUtils";
 import FileTreeItem from "./FileTreeItem.vue";
 import { rpcFsReadDir } from "./rpc";
 import type { FsChangePayload } from "./rpc";
+import { useFilerEventStore } from "./useFilerEventStore";
 
 const worktreeStore = useWorktreeStore();
 const { dir, selectedPath } = storeToRefs(worktreeStore);
 const gitStatusStore = useGitStatusStore();
 const { gitStatuses } = storeToRefs(gitStatusStore);
 const notify = useNotificationStore();
+const filerEventStore = useFilerEventStore();
 
 const rootEntries = ref<FileEntry[]>();
 const loading = ref(false);
-/** rootEntries 未読み込み時に保留する reveal 対象パス */
-let pendingRevealPath: string | undefined;
 /**
  * loadRoot の呼び出し世代カウンタ。await 境界で旧呼び出しが新呼び出しの結果を上書きしないよう、
  * 各呼び出しが自身の世代を保持して mismatch なら早期 return する。
  * dir 比較だけだと A → B → A のとき同じ dir 値で旧呼び出しと新呼び出しを区別できないため使う。
  */
 let loadRootSeq = 0;
+/**
+ * handleGitStatusChange 専用の世代カウンタ。同一 dir 内で gitStatusChange push が
+ * 連続発火した場合、`rpcFsReadDir` レスポンス順序が逆転して古い entries が新しい
+ * entries を踏み潰す race を防ぐ。`loadRootSeq` と独立に持つことで、loadRoot の
+ * 世代軸と互いに干渉しない SSOT として機能する。
+ */
+let gitStatusChangeSeq = 0;
 
 /** proto の FsReadDirEntry を FileEntry に変換する */
 function toFileEntries(entries: { name: string; type: string; isIgnored: boolean }[]): FileEntry[] {
@@ -89,12 +96,12 @@ async function loadRoot() {
     gitStatusStore.loadGitStatus(),
   ]);
   // await 中に loadRoot が再度呼ばれた場合、この呼び出しの結果は破棄する。
-  // 旧呼び出しが新 dir 用の rootEntries や pendingRevealPath を上書きするのを防ぐ。
+  // 旧呼び出しが新 dir 用の rootEntries を上書きするのを防ぐ。
   if (mySeq !== loadRootSeq) return;
   if (!readResult.ok) {
     notify.error("Failed to read root directory", readResult.error);
     rootEntries.value = [];
-    // 世代チェック (line 上の `if (mySeq !== loadRootSeq) return;`) を通過した時点で
+    // 世代チェック (上の `if (mySeq !== loadRootSeq) return;`) を通過した時点で
     // `mySeq === loadRootSeq` は確定だが、将来この早期 return の位置が変わった場合に
     // 備えて重複ガードを置く。N+1 の `loading = true` を誤って消さない防御。
     if (mySeq === loadRootSeq) loading.value = false;
@@ -102,123 +109,58 @@ async function loadRoot() {
   }
   rootEntries.value = mergeWithGitStatus(toFileEntries(readResult.value.entries), "");
   if (mySeq === loadRootSeq) loading.value = false;
-
-  // rootEntries 読み込み完了後に保留中の reveal を実行。
-  // v-for の FileTreeItem がマウントされるのを nextTick で待つ。
-  await nextTick();
-  if (mySeq !== loadRootSeq) return;
-  if (pendingRevealPath) {
-    const path = pendingRevealPath;
-    pendingRevealPath = undefined;
-    void reveal(path);
-  }
 }
 
 function onSelect(path: string) {
   worktreeStore.selectPath(path);
 }
 
-/**
- * 指定パスまでファイルツリーを展開し、対象ノードをスクロールインビューする。
- * ルートエントリの中から先頭セグメントに一致するアイテムを探して FileTreeItem.reveal に委譲する。
- */
-async function reveal(targetPath: string): Promise<void> {
-  if (!rootEntries.value) {
-    // ルート読み込み中なら完了後に再試行する
-    pendingRevealPath = targetPath;
-    return;
-  }
-
-  const firstSegment = targetPath.split("/")[0];
-  const index = rootEntries.value.findIndex((e) => e.name === firstSegment);
-  if (index < 0) return;
-
-  const item = treeItemRefs.value[index];
-  if (item) {
-    await item.reveal(targetPath);
-  }
-}
-
-/**
- * ファイル変更通知を受けてツリーを更新するコールバック。
- * FileTreeItem の reloadDir を呼ぶため、ref 経由で子コンポーネントにアクセスする。
- */
-const treeItemRefs = ref<InstanceType<typeof FileTreeItem>[]>([]);
-
 function handleFsChange(relDir: string) {
-  // ルートディレクトリの変更（"" or "."）
+  // ルートディレクトリの変更（"" or "."）は loadRoot で全件再構築
   if (relDir === "" || relDir === ".") {
     void loadRoot();
     return;
   }
-  // 子ディレクトリの変更 → 該当する FileTreeItem に通知
-  for (const item of treeItemRefs.value) {
-    item.notifyChange(relDir);
-  }
+  // 子ディレクトリの変更は filer event store 経由で各 FileTreeItem に通知
+  filerEventStore.emitFsChange(relDir);
 }
 
 async function handleGitStatusChange() {
-  // gitStatuses 自体は useGitStatusSync が repoStore に書き込み済み。
-  // ここではファイルツリーの再構築（新規 / 削除ファイル反映）だけを行う。
+  // 子 FileTreeItem は store を watch して自分の path 配下のキャッシュを破棄/再読み込みする
+  filerEventStore.emitGitStatusChange();
+  // ルート rootEntries の再構築は FilerPane の責務として残す（gitStatuses 反映 + 削除エントリ）
   const dirPath = dir.value;
   if (dirPath === undefined) return;
-  // await 中に dir 変更 / loadRoot 再起動が走るとこの呼び出しは stale 扱いにする。
-  // loadRootSeq を共有することで、loadRoot の世代チェックと整合する race ガードに揃える。
-  const mySeq = loadRootSeq;
+  // dir 切替 race と同一 dir 内連続発火 race の両方を世代でガード。
+  // 専用カウンタ gitStatusChangeSeq + loadRootSeq + dir.value の 3 軸チェックで
+  // 「自分が投げた呼び出しの後により新しいものが来ていない」ことを構造的に保証する。
+  const myGitStatusSeq = ++gitStatusChangeSeq;
+  const myLoadSeq = loadRootSeq;
   const result = await tryCatch(rpcFsReadDir({ dir: dirPath, path: "." }));
-  if (mySeq !== loadRootSeq || dir.value !== dirPath) {
-    // 旧 dir 用の結果で新 dir の rootEntries を踏み潰すのを防ぐ。
-    // 子側の notify は新 dir で再マウントされた FileTreeItem に対するものなので呼ぶ。
-    for (const item of treeItemRefs.value) {
-      item.notifyGitStatusChange();
-    }
+  if (myGitStatusSeq !== gitStatusChangeSeq || myLoadSeq !== loadRootSeq || dir.value !== dirPath) {
     return;
   }
   if (!result.ok) {
     notify.error("Failed to rebuild root entries", result.error);
-  } else {
-    rootEntries.value = mergeWithGitStatus(toFileEntries(result.value.entries), "");
+    return;
   }
-  for (const item of treeItemRefs.value) {
-    item.notifyGitStatusChange();
-  }
+  rootEntries.value = mergeWithGitStatus(toFileEntries(result.value.entries), "");
 }
 
 // dir watch は `flush: 'sync'` を指定して、setOpen({ selection }) で dir 変化と
 // revealVersion ++ が同 tick で起きたとき必ず先に発火させる。
-// （revealVersion watch はデフォルトの async flush なので、sync watch の後に走る）
-// これにより「dir watch が pendingRevealPath をクリア → revealVersion watch が積み直す」
-// 順序が watch の登録順ではなく flush タイミングで構造的に保証される。
+// （各 FileTreeItem の revealVersion watch はデフォルトの async flush なので、sync watch の後に走る）
+// これにより「dir watch が rootEntries を初期化して loadRoot を起動 → 子マウント後の
+// revealVersion watch (immediate) が target を処理」の順序が flush ステージで構造的に保証される。
 watch(
   dir,
   (newDir) => {
     if (newDir) {
       rootEntries.value = undefined;
-      // 旧 dir 向けの保留 reveal が次の loadRoot 末尾で誤適用されないようクリアする
-      pendingRevealPath = undefined;
       void loadRoot();
     }
   },
   { immediate: true, flush: "sync" },
-);
-
-// revealVersion の変化（selectPath 経由 / gozdOpen 経由など）で選択中パスを reveal する。
-// 親から ref を expose せず worktreeStore 直接購読にすることで defineExpose を不要にする。
-// immediate: true で初回 mount 時に既存 selectedPath があれば pendingRevealPath に積み、
-// loadRoot 末尾で消化させる。これにより gozdOpen で渡された initial selection も
-// この 1 経路に集約できる（旧 consumeInitialSelection 経路は廃止）。
-// flush はデフォルト（pre）。上の dir watch が flush: 'sync' で先行発火するため、dir 変化を
-// 伴う setOpen でも `pendingRevealPath` クリア後に新パスを積み直す順序が保証される。
-// **invariant 依存**: revealVersion の bump は selection.value の更新と同期している
-// （useWorktreeStore の selectPath() でのみ実行される）。両者が同 tick で揃わない経路を
-// 増やすと古いパスで reveal が走る。
-watch(
-  () => worktreeStore.revealVersion,
-  () => {
-    const path = worktreeStore.selectedPath;
-    if (path) void reveal(path);
-  },
-  { immediate: true },
 );
 
 const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ relDir }) =>
@@ -246,7 +188,6 @@ onUnmounted(() => {
       <template v-else>
         <FileTreeItem
           v-for="entry in rootEntries"
-          ref="treeItemRefs"
           :key="`${entry.name}-${entry.isDirectory}`"
           :name="entry.name"
           :path="entry.name"

@@ -24,6 +24,7 @@ import { useRepoStore } from "../../shared/repo";
 import { dispatchMessage } from "../../shared/rpc";
 import { collectTargetDirs, type RepoStoreForTargetDirs } from "./collectTargetDirs";
 import { rpcFsUnwatch, rpcFsWatch } from "./rpc";
+import { runSerializedSync, type SerializeState } from "./runSerializedSync";
 
 export function useFsWatchSync() {
   const repoStore: RepoStoreForTargetDirs = useRepoStore();
@@ -33,27 +34,13 @@ export function useFsWatchSync() {
    * 差分計算の baseline で、 `rpcFsWatch` / `rpcFsUnwatch` の発射対象を絞るために使う。 */
   const watchedDirs = new Set<string>();
 
-  /** `syncWatches` の serialize 用 mutex 兼 coalesce フラグ。
-   * - `running`: 現在 in-flight な `syncWatches` があるか
-   * - `pending`: in-flight 中に新しい dependency 変化が来たか
-   *   in-flight 終了後に pending を消化して 1 回だけ追加実行する（多重 trigger を畳む） */
-  let running = false;
-  let pending = false;
+  /** `syncWatches` の serialize 用 state。`runSerializedSync` に渡す mutex 兼 coalesce フラグ。
+   * 実体ロジックは `runSerializedSync.ts` 側の pure helper に切り出し、test で race coalesce
+   * 挙動を直接検証している。 */
+  const serializeState: SerializeState = { running: false, pending: false };
 
   async function syncWatches(): Promise<void> {
-    if (running) {
-      pending = true;
-      return;
-    }
-    running = true;
-    try {
-      do {
-        pending = false;
-        await runOneSyncPass();
-      } while (pending);
-    } finally {
-      running = false;
-    }
+    await runSerializedSync(serializeState, runOneSyncPass);
   }
 
   async function runOneSyncPass(): Promise<void> {
@@ -90,14 +77,15 @@ export function useFsWatchSync() {
 
     if (failures.length > 0) {
       // batch 単位で 1 件に集約する。1 ターンで N 個失敗したときにトースト N 個出すのは
-      // UX 上 noisy で、全体像も見失う。集約することで「何件、どの種類、どの dir」を
-      // 1 件の cause に折り畳む。
+      // UX 上 noisy で、全体像も見失う。
+      // summary を主メッセージ、最初の error を cause に置く Error を作って notify する
+      // ことで、トースト本文クリック時の cause 詳細展開で「どの kind:dir が何件 / 最初の
+      // 失敗の stack」を辿れる。`tryCatch` の error は常に Error なので cause は必ず
+      // 定義済み。
       const summary = failures.map((f) => `${f.kind}:${f.dir}`).join(", ");
-      const aggregate = new Error(`FS watch sync had ${failures.length} failure(s): ${summary}`);
-      // 最初の error を cause として stack を保持する
       const [first] = failures;
-      const cause = first?.error;
-      notify.error(`Failed to sync FS watches (${failures.length})`, cause ?? aggregate);
+      const aggregate = new Error(summary, { cause: first.error });
+      notify.error(`Failed to sync FS watches (${failures.length})`, aggregate);
     }
 
     if (toWatch.length > 0) {

@@ -10,7 +10,7 @@
 
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
-import { reactive, watch } from "vue";
+import { ref, watch } from "vue";
 import { useDialog } from "../palette";
 import { previewFontFamily, previewFontSize } from "../preview";
 import { applyTerminalTheme, terminalFontFamily, terminalFontSize } from "../terminal";
@@ -41,28 +41,26 @@ const { isOpen: modalIsOpen } = useSettingsModal();
 const voicevoxStore = useVoicevoxStore();
 const worktreeStore = useWorktreeStore();
 
-const state = reactive({
-  activeTab: "global" as TabId,
-  loading: true,
-  globalValues: {} as Record<string, unknown>,
-  projectValues: {} as Record<string, unknown>,
-});
+const activeTab = ref<TabId>("global");
+const loading = ref(true);
+const globalValues = ref<Record<string, unknown>>({});
+const projectValues = ref<Record<string, unknown>>({});
 
 /** モーダルを開くときに設定を読み込む。load 完了後に dialog を表示する */
 async function openWithSettings() {
-  state.loading = true;
+  loading.value = true;
   const dir = worktreeStore.dir;
   const [globalResult, projectResult] = await Promise.all([
     tryCatch(rpcLoadAppConfig()),
     dir !== undefined ? tryCatch(rpcProjectConfigLoad({ dir })) : Promise.resolve(undefined),
   ]);
   if (globalResult.ok) {
-    state.globalValues = flattenAppConfig(globalResult.value.config);
+    globalValues.value = flattenAppConfig(globalResult.value.config);
   }
   if (projectResult !== undefined && projectResult.ok) {
-    state.projectValues = flattenProjectConfig(projectResult.value.config);
+    projectValues.value = flattenProjectConfig(projectResult.value.config);
   }
-  state.loading = false;
+  loading.value = false;
   show();
 }
 
@@ -87,7 +85,7 @@ const REACTIVE_SYNC: Record<string, (value: unknown) => void> = {
 
 /** グローバル設定の値変更ハンドラー */
 function handleGlobalChange(key: string, value: unknown) {
-  state.globalValues[key] = value;
+  globalValues.value[key] = value;
 
   // VOICEVOX store との同期（store の watch が configSave を発火）
   if (key === "voicevox.enabled") {
@@ -95,7 +93,7 @@ function handleGlobalChange(key: string, value: unknown) {
       void voicevoxStore.activate().then((errorMessage) => {
         if (errorMessage !== undefined) {
           // activate 失敗時はトグルを戻す
-          state.globalValues[key] = false;
+          globalValues.value[key] = false;
         }
       });
     } else {
@@ -121,7 +119,7 @@ function handleGlobalChange(key: string, value: unknown) {
 
 /** プロジェクト設定の値変更ハンドラー */
 function handleProjectChange(key: string, value: unknown) {
-  state.projectValues[key] = value;
+  projectValues.value[key] = value;
   const dir = worktreeStore.dir;
   if (dir === undefined) return;
   void tryCatch(patchProjectConfig(dir, { [key]: value }));
@@ -172,11 +170,11 @@ watch(isOpen, (open) => {
             type="button"
             class="px-4 py-1.5 text-left text-sm"
             :class="
-              state.activeTab === tab.id
+              activeTab === tab.id
                 ? 'bg-zinc-700/50 text-zinc-200'
                 : 'text-zinc-500 hover:text-zinc-300'
             "
-            @click="state.activeTab = tab.id"
+            @click="activeTab = tab.id"
           >
             {{ tab.label }}
           </button>
@@ -184,12 +182,12 @@ watch(isOpen, (open) => {
 
         <!-- 右コンテンツ -->
         <div class="flex-1 overflow-y-auto p-4">
-          <template v-if="state.activeTab === 'global'">
+          <template v-if="activeTab === 'global'">
             <SettingSection
               v-for="section in globalSettingsSections"
               :key="section.title"
               :section="section"
-              :values="state.globalValues"
+              :values="globalValues"
               @change="handleGlobalChange"
             />
           </template>
@@ -198,7 +196,7 @@ watch(isOpen, (open) => {
               v-for="section in projectSettingsSections"
               :key="section.title"
               :section="section"
-              :values="state.projectValues"
+              :values="projectValues"
               @change="handleProjectChange"
             />
           </template>

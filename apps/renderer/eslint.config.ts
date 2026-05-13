@@ -39,6 +39,20 @@ export default defineConfigWithVueTs(
         },
       ],
 
+      // vue: reactive() を禁止。ref() のみ使用する（issue #501）
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "vue",
+              importNames: ["reactive"],
+              message: "Use ref() instead. See issue #501.",
+            },
+          ],
+        },
+      ],
+
       // import-x
       "import-x/no-duplicates": "error",
       // 保存時の自動 lint で並び替えが発生すると編集中に邪魔なので off

@@ -2,7 +2,7 @@
  * Context Key の管理。module singleton パターン。
  * keybinding の when 条件評価に使用する。
  */
-import { reactive } from "vue";
+import { ref } from "vue";
 import type { ContextKey, ContextMap, When } from "./types";
 
 const INITIAL_STATE: ContextMap = {
@@ -16,14 +16,14 @@ const INITIAL_STATE: ContextMap = {
   isGitRepo: false,
 };
 
-const state = reactive<ContextMap>({ ...INITIAL_STATE });
+const state = ref<ContextMap>({ ...INITIAL_STATE });
 
 function get<K extends ContextKey>(key: K): ContextMap[K] {
-  return state[key];
+  return state.value[key];
 }
 
 function set<K extends ContextKey>(key: K, value: ContextMap[K]): void {
-  state[key] = value;
+  state.value[key] = value;
 }
 
 /** When 条件を現在の context key 状態で評価する。undefined は常に true */
@@ -32,7 +32,7 @@ function evaluate(when: When | undefined): boolean {
 
   switch (when.type) {
     case "key":
-      return state[when.key] === true;
+      return state.value[when.key] === true;
     case "not":
       return !evaluate(when.value);
     case "and":
@@ -44,7 +44,7 @@ function evaluate(when: When | undefined): boolean {
 
 /** HMR / テスト用。全 context key を初期値にリセットする */
 function reset(): void {
-  Object.assign(state, INITIAL_STATE);
+  state.value = { ...INITIAL_STATE };
 }
 
 export function useContextKeys() {

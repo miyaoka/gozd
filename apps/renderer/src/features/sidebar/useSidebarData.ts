@@ -206,6 +206,10 @@ export function useSidebarData() {
     // ここで全件 refetch を走らせない（N 倍の git status 実行を避ける）。
     cleanups.push(onMessage<BranchChangePayload>("branchChange", () => fetchOwnerOfActive()));
     cleanups.push(onMessage<WorktreeChangePayload>("worktreeChange", () => fetchOwnerOfActive()));
+    // shared/repo は notification を直接呼べないため、auto-fallback 発火時の通知経路を
+    // ここから DI する。これで外部 git worktree remove で active dir が rootDir に
+    // 切り替わったケースがトーストで観察可能になる。
+    repoStore.setAutoFallbackNotifier((message) => notify.info(message));
     void hydrateAppState();
   });
   onUnmounted(() => {

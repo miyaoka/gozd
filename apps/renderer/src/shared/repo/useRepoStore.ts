@@ -34,6 +34,24 @@ export const useRepoStore = defineStore("repo", () => {
   const collapsedRoots = ref<Set<string>>(new Set());
 
   /**
+   * auto-fallback 発火時の通知ハンドラ。feature 層から `setAutoFallbackNotifier()` で注入する。
+   * shared 間の依存禁止 + shared → feature 依存禁止のため、`useNotificationStore` を
+   * 直接呼べない。`useCommandRegistry` の `setErrorHandler` と同じ DI 流儀。
+   * 未設定時は console.info にフォールバックして観察可能性を最低限担保する。
+   */
+  let autoFallbackNotifier: ((message: string) => void) | undefined;
+  function setAutoFallbackNotifier(notifier: (message: string) => void): void {
+    autoFallbackNotifier = notifier;
+  }
+  function notifyAutoFallback(message: string): void {
+    if (autoFallbackNotifier !== undefined) {
+      autoFallbackNotifier(message);
+      return;
+    }
+    console.info(message);
+  }
+
+  /**
    * worktree.gitStatuses の per-dir 書き込み世代。
    * `setWorktreeGitStatuses` のたびに該当 dir のカウンタを進めるため、
    * 並行する loadGitStatus / fetchRepo の RPC レスポンスは開始時の世代を覚えておき、
@@ -135,9 +153,8 @@ export const useRepoStore = defineStore("repo", () => {
     repos.value[rootDir] = { ...current, worktrees: merged };
     if (orphanedActiveDir) {
       // 外部 git worktree remove 経由だとユーザー操作なしに active dir が切り替わる。
-      // shared 層から useNotificationStore は呼べないため、最低限の観察可能性として
-      // console.info を残す（後追い調査・サポート時の手掛かり）。
-      console.info(`[repo] active worktree removed; switched selectedDir to repo root: ${rootDir}`);
+      // feature 層が DI した notifier 経由でユーザーに通知する。未注入なら console.info。
+      notifyAutoFallback(`Active worktree was removed; switched to repo root.`);
       selectedDir.value = rootDir;
     }
   }
@@ -292,6 +309,7 @@ export const useRepoStore = defineStore("repo", () => {
     toggleCollapsed,
     buildAppStateSnapshot,
     hydrateFromAppState,
+    setAutoFallbackNotifier,
   };
 });
 

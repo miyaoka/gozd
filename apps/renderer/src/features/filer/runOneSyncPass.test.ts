@@ -1,6 +1,6 @@
 import type { WorktreeEntry } from "@gozd/proto";
 import { describe, expect, test } from "bun:test";
-import type { RepoStoreForTargetDirs } from "./collectTargetDirs";
+import { collectFsWatchTargetDirs, type RepoState } from "../../shared/repo";
 import { runOneSyncPass, type SyncPassDeps } from "./runOneSyncPass";
 
 function wt(path: string, branch: string, isMain = false): WorktreeEntry {
@@ -29,7 +29,7 @@ interface CallRecord {
 }
 
 interface FixtureOptions {
-  store: RepoStoreForTargetDirs;
+  store: { dirOrder: string[]; repos: Record<string, RepoState> };
   watchedDirs?: Set<string>;
   failWatch?: Set<string>;
   failUnwatch?: Set<string>;
@@ -40,7 +40,7 @@ function makeFixture(opts: FixtureOptions): { deps: SyncPassDeps; calls: CallRec
   const failWatch = opts.failWatch ?? new Set<string>();
   const failUnwatch = opts.failUnwatch ?? new Set<string>();
   const deps: SyncPassDeps = {
-    repoStore: opts.store,
+    targetDirs: collectFsWatchTargetDirs(opts.store.dirOrder, opts.store.repos),
     watchedDirs: opts.watchedDirs ?? new Set(),
     fsWatch: async ({ dir }) => {
       calls.watch.push(dir);

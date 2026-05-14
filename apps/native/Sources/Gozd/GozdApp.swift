@@ -209,9 +209,11 @@ final class AppRuntime {
       }
     }
     let onHook: @Sendable (Gozd_V1_HookMessage) -> Void = { hook in
+      // sessionId は renderer 側で task (= session) ↔ ptyId マッピングを成立させるために必要
       let payload: [String: Any] = [
         "event": hook.event,
         "ptyId": Int(hook.ptyID),
+        "sessionId": hook.sessionID,
         "lastAssistantMessage": hook.lastAssistantMessage,
         "toolName": hook.toolName,
         "toolInput": hook.toolInput,

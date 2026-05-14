@@ -289,6 +289,7 @@ export const useTerminalStore = defineStore("terminal", () => {
       if (!isHookEvent(event)) return;
       // claudeStatus.ts は snake_case の payload を期待するので boundary で変換する
       claude.handleHookEvent(ptyId, event, {
+        session_id: payload.sessionId,
         last_assistant_message: payload.lastAssistantMessage,
         tool_name: payload.toolName,
         tool_input: payload.toolInput,
@@ -419,6 +420,14 @@ export const useTerminalStore = defineStore("terminal", () => {
     return paneRegistry.value[leafId]?.session?.ptyId;
   }
 
+  /** ptyId に対応する leafId を返す。線形探索 (1 wt 内の leaf 数は実用域で少数) */
+  function getLeafIdByPtyId(ptyId: number): string | undefined {
+    for (const [leafId, pane] of Object.entries(paneRegistry.value)) {
+      if (pane?.session?.ptyId === ptyId) return leafId;
+    }
+    return undefined;
+  }
+
   // --- CWD ---
 
   /** OSC 7 で通知された CWD を保存する */
@@ -473,6 +482,8 @@ export const useTerminalStore = defineStore("terminal", () => {
     // claude
     getClaudeState: claude.getClaudeState,
     getClaudeStatusesByDir: claude.getClaudeStatusesByDir,
+    getClaudeStatusBySessionId: claude.getStatusBySessionId,
+    getPtyIdBySessionId: claude.getPtyIdBySessionId,
     clearDoneStates: claude.clearDoneStates,
     // saved sessions (resume バッジ用)
     refreshSavedSessionCounts,
@@ -480,6 +491,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     // pane getter
     getPaneDir,
     getPtyId,
+    getLeafIdByPtyId,
     // cwd
     setCwd,
     // title

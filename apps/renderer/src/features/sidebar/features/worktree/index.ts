@@ -1,3 +1,2 @@
-export { default as RootWorktree } from "./RootWorktree.vue";
-export { default as WorktreeList } from "./WorktreeList.vue";
+export { default as WtCard } from "./WtCard.vue";
 export { useWorktreeActions } from "./useWorktreeActions";

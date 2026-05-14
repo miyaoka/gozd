@@ -3,27 +3,25 @@
 
 ## レイアウト構成
 
-- **トップツールバー**: 左に view mode トグル（active worktree / claude terminals）、右にリスト編集ボタン
+- **トップツールバー**: 左に view mode トグル (active worktree / claude terminals)、右にリスト編集ボタン
 - **dirOrder の各 repo** に対して `RepoSection` を縦に並べる
-- 各セクションは header（chevron + folder アイコン + repo 名）+ ROOT + WORKTREES
+- 各 RepoSection は header (folder + repo 名) + WtCard 列 (main wt 先頭固定) + `+ New worktree`
 - 編集モード中: 全 section が collapsed + drag で並び替え + ✕ で削除 + 末尾に `+ Add directory`
 
-## 操作
+## クリック挙動 (issue #504)
 
-- view mode トグル: active worktree / claude terminals を切り替え。`cmd+/` でも同じ操作が可能
-- worktree クリック: 表示対象 dir 切替 + done バッジ既読化
-- ⋮ メニュー: SidebarMenu に委譲（worktree 編集 / 解除）
-- chevron: 折りたたみトグル（永続）
-- 編集モード中の drag handle (folder + 名前): @dnd-kit/vue で並び替え
-- 編集モード中の ✕: 確認ダイアログを経て removeRepo
-- 編集モード中の `+ Add directory`: NSOpenPanel で dir 追加
+- WtCard ヘッダクリック: `worktreeStore.dir` をその wt に切り替え。focus は wt の `focusedLeafId` 維持
+- TaskRow クリック: wt を active にしたうえで、task に対応する PTY の leaf を `focusPane`
+- focus 解決: `layoutsByDir[dir].focusedLeafId` (生きていれば) → 無効なら `findFirstLeaf(root)` (ensureLayout が担保)
+- ⋮ メニュー: SidebarMenu に委譲 (Remove worktree のみ。手動 task UI は廃止)
 
 ## 責務分離
 
-- `useSidebarData` — fetch（per-repo）と terminal title 同期
-- `useWorktreeActions` — worktree CRUD（rootDir 引数で対象 repo を特定）
+- `useSidebarData` — fetch (per-repo) と terminal title → task body 同期
+- `useWorktreeActions` — worktree CRUD (rootDir 引数で対象 repo を特定)
 - `useDialogs` — 確認ダイアログ
 - `RepoSection` — 1 repo の UI
+- `WtCard` / `TaskRow` — 1 wt と内側の task 行
 </doc>
 
 <script setup lang="ts">
@@ -36,7 +34,7 @@ import { computed, ref } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { rpcPickAndOpen } from "../layout";
-import { useTerminalStore } from "../terminal";
+import { collectLeafIds, useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
 import { RepoSection } from "./features/repo";
 import { useWorktreeActions } from "./features/worktree";
@@ -72,10 +70,36 @@ useIntervalFn(() => {
 
 const sidebarMenuRef = ref<InstanceType<typeof SidebarMenu>>();
 
-function onWorktreeSelect(wt: import("@gozd/proto").WorktreeEntry) {
+function onSelectWt(wt: import("@gozd/proto").WorktreeEntry) {
   // 同 wt 再クリック時の done 消化は worktreeStore.setOpen の selectionVersion 経由で
   // useSidebarData の watch が処理する。ここでは isActive 分岐せず常に setOpen を呼ぶ。
   handleWorktreeSelect(wt);
+}
+
+function onSelectTask(wt: import("@gozd/proto").WorktreeEntry, task: import("@gozd/proto").Task) {
+  // wt を active にしたうえで、task に対応する PTY の leaf にフォーカスする。
+  // ptyId 未確立 (live PTY 無し / resumable) の場合は wt を visit するだけ。
+  // visit 後は ensureLayout の初期 leaf にフォーカスが当たるため、resume 経路に乗る。
+  handleWorktreeSelect(wt);
+  const ptyId = terminalStore.getPtyIdBySessionId(task.id);
+  if (ptyId === undefined) return;
+  const leafId = terminalStore.getLeafIdByPtyId(ptyId);
+  if (leafId === undefined) return;
+  terminalStore.focusPane(leafId);
+}
+
+/** 指定 wt 内で focus が当たっている PTY の ptyId。task ↔ ヘッダの capsule 二者択一に使う */
+function getFocusedPtyId(dir: string): number | undefined {
+  const focusedLeafId = terminalStore.layoutsByDir[dir]?.focusedLeafId;
+  if (focusedLeafId === undefined) return undefined;
+  return terminalStore.getPtyId(focusedLeafId);
+}
+
+/** 指定 wt 内の terminal 数 (= leaf 数)。terminal count バッジ表示判定に使う */
+function getTerminalCount(dir: string): number {
+  const root = terminalStore.layoutsByDir[dir]?.root;
+  if (root === undefined) return 0;
+  return collectLeafIds(root).length;
 }
 
 function onRemoveRepo(rootDir: string) {
@@ -204,9 +228,11 @@ const activeRootWorktree = computed(() => {
           :now="now"
           :get-claude-statuses="terminalStore.getClaudeStatusesByDir"
           :get-resumeable-session-count="terminalStore.getResumeableSessionCount"
+          :get-terminal-count="getTerminalCount"
+          :get-focused-pty-id="getFocusedPtyId"
           @remove-repo="onRemoveRepo"
-          @select-root="handleWorktreeSelect"
-          @select-worktree="onWorktreeSelect"
+          @select-wt="onSelectWt"
+          @select-task="onSelectTask"
           @add-worktree="addWorktree"
           @open-worktree-menu="
             (anchorEl, wt, rd) =>

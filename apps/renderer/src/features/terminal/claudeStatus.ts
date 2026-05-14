@@ -88,6 +88,10 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
   const askTimers = new Map<number, ReturnType<typeof setTimeout>>();
   /** PTY ごとの直近 tail バッファ。チャンク分割でマーカーが跨いだ場合に備える */
   const ptyTailBuffers = new Map<number, string>();
+  /** sessionId ↔ ptyId のマッピング。session-start hook で確立、session-end / cleanup で破棄。
+   *  task.id == sessionId の同一視ルール (issue #504) により、task 行から status を引くために使う。 */
+  const ptyIdBySessionId = new Map<string, number>();
+  const sessionIdByPtyId = new Map<number, string>();
 
   /** pending ask タイマーをキャンセルする */
   function cancelAskTimer(ptyId: number) {
@@ -112,11 +116,28 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
     switch (event) {
       case "session-start": {
         cancelAskTimer(ptyId);
+        const sessionId = typeof payload.session_id === "string" ? payload.session_id : "";
+        if (sessionId !== "") {
+          // 同 ptyId に旧 sessionId が紐付いていた場合は先に解除する。
+          // /clear や /resume で session が切り替わった時、旧 mapping が残ると
+          // 別 task のステータスを引いてしまう。
+          const previousSessionId = sessionIdByPtyId.get(ptyId);
+          if (previousSessionId !== undefined && previousSessionId !== sessionId) {
+            ptyIdBySessionId.delete(previousSessionId);
+          }
+          sessionIdByPtyId.set(ptyId, sessionId);
+          ptyIdBySessionId.set(sessionId, ptyId);
+        }
         claudeStatusByPtyId.value[ptyId] = { state: "idle", enteredAt: Date.now() };
         break;
       }
       case "session-end": {
         cancelAskTimer(ptyId);
+        const previousSessionId = sessionIdByPtyId.get(ptyId);
+        if (previousSessionId !== undefined) {
+          ptyIdBySessionId.delete(previousSessionId);
+          sessionIdByPtyId.delete(ptyId);
+        }
         delete claudeStatusByPtyId.value[ptyId];
         break;
       }
@@ -303,7 +324,24 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
   function cleanupPty(ptyId: number) {
     cancelAskTimer(ptyId);
     ptyTailBuffers.delete(ptyId);
+    const previousSessionId = sessionIdByPtyId.get(ptyId);
+    if (previousSessionId !== undefined) {
+      ptyIdBySessionId.delete(previousSessionId);
+      sessionIdByPtyId.delete(ptyId);
+    }
     delete claudeStatusByPtyId.value[ptyId];
+  }
+
+  /** task.id (= sessionId) から ClaudeStatus を引く。session 確立前 / pty 終了後は undefined */
+  function getStatusBySessionId(sessionId: string): ClaudeStatus | undefined {
+    const ptyId = ptyIdBySessionId.get(sessionId);
+    if (ptyId === undefined) return undefined;
+    return claudeStatusByPtyId.value[ptyId];
+  }
+
+  /** task.id (= sessionId) から live PTY の ptyId を引く。未起動 / 終了済みは undefined */
+  function getPtyIdBySessionId(sessionId: string): number | undefined {
+    return ptyIdBySessionId.get(sessionId);
   }
 
   return {
@@ -312,6 +350,8 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
     getClaudeState,
     getClaudeActiveLeafIds,
     getClaudeStatusesByDir,
+    getStatusBySessionId,
+    getPtyIdBySessionId,
     clearDoneStates,
     cleanupPty,
   };

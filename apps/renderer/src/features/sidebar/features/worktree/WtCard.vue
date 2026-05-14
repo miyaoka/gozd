@@ -90,6 +90,9 @@ const focusedTaskId = computed(() => {
 /** focus が wt 内にあるなら header に capsule (task focus 時も同時にハイライト) */
 const headerActive = computed(() => props.active);
 
+/** main worktree (= リポジトリ root) は git worktree remove 不可。現状メニュー項目は Remove のみ。 */
+const canRemove = computed(() => !props.wt.isMain);
+
 function onMenuClick(event: MouseEvent) {
   event.stopPropagation();
   const target = event.currentTarget;
@@ -136,6 +139,7 @@ function onHeaderClick() {
         </span>
       </div>
       <button
+        v-if="canRemove"
         type="button"
         aria-label="Open menu"
         class="absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded-sm bg-zinc-800 text-zinc-300 opacity-0 shadow-md ring-1 ring-zinc-700 transition-opacity duration-100 group-focus-within/wt:opacity-100 group-hover/wt:opacity-100 hover:bg-zinc-700 hover:text-zinc-100"

@@ -173,6 +173,54 @@ struct FSWatchRegistryTests {
     #expect(events.contains("gitStatusChange"))
   }
 
+  @Test("main repo + worktree clone を並列 watch 中、`.git/worktrees/<name>/` 単独削除で worktreeChange が 1 回 fire する")
+  func dispatchesWorktreeChangeFromMainOnWorktreeDirRemoval() async throws {
+    // primary 選出が「lex 最小」だと wt watcher (gozd 配置の `.local/...`) が main
+    // (`ghq/...` 相当) より lex 小で primary を奪う。worktree clone の wt watcher は
+    // classify で `applyCommonRule=false` のため `worktrees/<name>/` 削除を
+    // `hasWorktreeChange` に分類できず、main 側が立てるが non-primary で suppress
+    // されて誰も発火しない死角があった。primary を main worktree に固定した修正の
+    // regression guard。
+    let mainRepo = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: mainRepo) }
+    try await initGitRepo(at: mainRepo)
+
+    let seed = mainRepo.appendingPathComponent("seed.txt")
+    try "seed".write(to: seed, atomically: true, encoding: .utf8)
+    try await runGitCmd(["add", "seed.txt"], cwd: mainRepo)
+    try await runGitCmd(["commit", "-m", "seed"], cwd: mainRepo)
+
+    let worktreeRoot = mainRepo.deletingLastPathComponent()
+      .appendingPathComponent("wt-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: worktreeRoot) }
+    try await runGitCmd(
+      ["worktree", "add", "-b", "feature", worktreeRoot.path], cwd: mainRepo)
+    let worktreeRootResolved = URL(fileURLWithPath: worktreeRoot.path).resolvingSymlinksInPath()
+
+    let worktreeChangeCount = WorktreeChangeCounter()
+    let registry = FSWatchRegistry(
+      onFsChange: { _, _ in },
+      onGitStatusChange: { _, _ in },
+      onBranchChange: { _ in },
+      onWorktreeChange: { _ in worktreeChangeCount.increment() }
+    )
+
+    // main + wt の両方を watch。primary は main worktree に固定されることを期待する。
+    try await registry.watch(dir: mainRepo.path)
+    try await registry.watch(dir: worktreeRootResolved.path)
+    try await Task.sleep(for: .milliseconds(300))
+
+    // ブランチには触らず `.git/worktrees/<name>/` だけを単独削除して
+    // `worktreeChange` 単独経路を踏ませる（`bdc` 経由の `branchChange` 伴走 fetch で
+    // 隠蔽されていた死角の再現条件）。
+    let perWtGitDir = mainRepo.appendingPathComponent(".git/worktrees")
+      .appendingPathComponent(worktreeRoot.lastPathComponent)
+    try FileManager.default.removeItem(at: perWtGitDir)
+
+    try await waitForCount(worktreeChangeCount, atLeast: 1)
+    #expect(worktreeChangeCount.value >= 1)
+  }
+
   @Test("同一 dir を再 watch すると古い entry を破棄して再構築する（idempotent re-entry 契約）")
   func watchRebuildsExistingEntry() async throws {
     // P 指摘の根本対応テスト: 旧 entry no-op 返しでは perWorktreeGitDir / commonGitDir の
@@ -587,6 +635,36 @@ private func waitForEvent(
   // タイムアウトを silent return せず throw する。「期待イベントが届かなかった」のか
   // 「タイムアウトで打ち切った」のかを呼び出し側が区別できるようにする。
   throw EventTimeout(timeout: timeout, observed: collector.snapshot())
+}
+
+private func waitForCount(
+  _ counter: WorktreeChangeCounter,
+  atLeast target: Int,
+  timeout: Duration = .seconds(2)
+) async throws {
+  let deadline = ContinuousClock.now.advanced(by: timeout)
+  while ContinuousClock.now < deadline {
+    if counter.value >= target { return }
+    try await Task.sleep(for: .milliseconds(50))
+  }
+  throw EventTimeout(timeout: timeout, observed: ["worktreeChange<\(counter.value)>"])
+}
+
+private final class WorktreeChangeCounter: @unchecked Sendable {
+  private let lock = NSLock()
+  private var count: Int = 0
+
+  func increment() {
+    lock.lock()
+    defer { lock.unlock() }
+    count += 1
+  }
+
+  var value: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return count
+  }
 }
 
 private final class EventNameCollector: @unchecked Sendable {

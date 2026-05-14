@@ -86,9 +86,10 @@ public actor FSWatchRegistry {
   /// この逆引きを使えば「watch 時に解決した resolved key」で確実に削除できる。
   private var resolvedKeyByOriginalDir: [String: String] = [:]
   /// commonGitDir → primary watcher の resolved dir。`branchChange` / `worktreeChange`
-  /// dispatch 時の dedup に使う。primary 判定は resolved dir の lexical 最小で決定論的に
-  /// 選ぶ。entries の add / remove 時に該当 commonGitDir のグループだけ再計算する
-  /// (handleEvents での O(N) 走査を O(1) lookup に置き換える)。
+  /// dispatch 時の dedup に使う。primary 判定は main worktree (`perWorktreeGitDir ==
+  /// commonGitDir`) を選ぶ。entries の add / remove 時に該当 commonGitDir のグループだけ
+  /// 再計算する (handleEvents での O(N) 走査を O(1) lookup に置き換える)。
+  /// 選出理由は `recomputePrimary` の docstring を参照。
   private var primaryByCommonGitDir: [String: String] = [:]
   /// watch ごとに増える世代番号。unwatch 後に積まれていた stale event の dispatch を
   /// 抑止するため、event 配送前後に entries[dir]?.generation と一致するか check する。
@@ -308,8 +309,24 @@ public actor FSWatchRegistry {
     // `branchChange` / `worktreeChange` は common git dir 配下の event から派生し、
     // repo を共有する全 worktree の watcher が同じ event で同時発火する。
     // ここで commonGitDir 単位の primary watcher 1 つに collapse し、N 個の watcher 由来の
-    // N 連射を 1 push にまとめる。primary 判定は resolved dir の lexical 最小（決定的）。
+    // N 連射を 1 push にまとめる。primary は main worktree
+    // (`perWorktreeGitDir == commonGitDir`) を選ぶ (`recomputePrimary` 参照)。
     let isPrimaryForCommonDir = isPrimaryWatcher(forCommonGitDir: entry.commonGitDir, dir: dir)
+    // primary watcher が未確立で `worktreeChange` / `branchChange` を立てた場合は silent drop に
+    // 陥る。renderer (useFsWatchSync) は repo を開いた時点で main worktree も登録するため
+    // 通常運用では発生しないが、`watch()` の `await GitOps.gitDirs` 中に non-main wt の event
+    // が先に届く startup race / bare repo / 単体テストでの部分登録で起こり得る。観察可能化
+    // のため stderr にログする。dispatch 自体は contract どおり主走らない。
+    if (result.hasBranchChange || result.hasWorktreeChange)
+      && !isPrimaryForCommonDir
+      && entry.commonGitDir != nil
+      && primaryByCommonGitDir[entry.commonGitDir ?? ""] == nil
+    {
+      FileHandle.standardError.write(
+        Data(
+          "[FSWatchRegistry] primary missing for commonGitDir=\(entry.commonGitDir ?? "<nil>"); dropping branchChange=\(result.hasBranchChange) worktreeChange=\(result.hasWorktreeChange) from dir=\(dir)\n"
+            .utf8))
+    }
     if result.hasBranchChange && isPrimaryForCommonDir {
       onBranchChange(originalDir)
     }

@@ -34,7 +34,7 @@ import { computed, ref } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { rpcPickAndOpen } from "../layout";
-import { collectLeafIds, useTerminalStore } from "../terminal";
+import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
 import { RepoSection } from "./features/repo";
 import { useWorktreeActions } from "./features/worktree";
@@ -94,13 +94,6 @@ function getFocusedPtyId(dir: string): number | undefined {
   const focusedLeafId = terminalStore.layoutsByDir[dir]?.focusedLeafId;
   if (focusedLeafId === undefined) return undefined;
   return terminalStore.getPtyId(focusedLeafId);
-}
-
-/** 指定 wt 内の terminal 数 (= leaf 数)。terminal count バッジ表示判定に使う */
-function getTerminalCount(dir: string): number {
-  const root = terminalStore.layoutsByDir[dir]?.root;
-  if (root === undefined) return 0;
-  return collectLeafIds(root).length;
 }
 
 function onRemoveRepo(rootDir: string) {
@@ -216,7 +209,7 @@ const activeRootWorktree = computed(() => {
       </button>
     </div>
 
-    <div class="flex-1 overflow-y-auto px-3 py-4">
+    <div class="flex flex-1 flex-col overflow-y-auto py-4">
       <DragDropProvider @drag-end="onDragEnd">
         <RepoSection
           v-for="(rootDir, i) in repoStore.dirOrder"
@@ -227,7 +220,6 @@ const activeRootWorktree = computed(() => {
           :active-dir="worktreeStore.dir"
           :is-creating="isCreatingFor(rootDir)"
           :get-resumeable-session-count="terminalStore.getResumeableSessionCount"
-          :get-terminal-count="getTerminalCount"
           :get-focused-pty-id="getFocusedPtyId"
           @remove-repo="onRemoveRepo"
           @select-wt="onSelectWt"
@@ -243,7 +235,7 @@ const activeRootWorktree = computed(() => {
       <button
         v-if="editMode"
         type="button"
-        class="mt-2 flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+        class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
         title="Add directory"
         @click="onAddDir"
       >
@@ -258,10 +250,10 @@ const activeRootWorktree = computed(() => {
     <!-- 確認ダイアログ -->
     <dialog
       ref="confirmRef"
-      class="fixed inset-0 m-auto size-fit rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-white backdrop:bg-black/50"
+      class="fixed inset-0 m-auto flex size-fit flex-col gap-4 rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-white backdrop:bg-black/50"
       @click="$event.target === confirmRef && closeConfirm()"
     >
-      <p class="mb-4 text-sm">{{ confirmMessage }}</p>
+      <p class="text-sm">{{ confirmMessage }}</p>
       <div class="flex justify-end gap-2">
         <button
           class="rounded-sm px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800"

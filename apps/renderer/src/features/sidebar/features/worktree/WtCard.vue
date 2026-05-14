@@ -1,19 +1,20 @@
 <doc lang="md">
-1 worktree のカード。ヘッダ (branch icon / branch / git status / terminal count / ⋮) と、
+1 worktree のカード。ヘッダ (branch icon / branch / git status / resumable count / ⋮) と、
 session 由来の Task 行 (TaskRow) を縦に並べる。task が無い wt はヘッダのみ。
 
-## ハイライトの二者択一
+## ハイライト
 
-ヘッダと task 行のうち capsule fill が当たるのはどちらか一方:
-
-- focused PTY が task (= session) なら → 該当 task 行に capsule
-- focused PTY が shell なら → wt ヘッダに capsule
-
-両方同時には付かない。
+active wt の場合、wt ヘッダには常に capsule fill。さらに focused PTY が task
+(= session) なら該当 task 行にも capsule。wt と task の両方が同時にハイライト
+されることで「どの wt のどの task に focus があるか」が一目で識別できる。
 
 ## 並び順
 
-task 内: state 優先順 (asking > working > done > idle > resumable)、同 state 内は時刻新しい順。
+task は `task.createdAt` 昇順 (append 順) で固定。新しい task は末尾に追加され、
+既存 task の位置は動かない。state や lastActivityAt は動的なためソートキーに
+混ぜない。位置の安定性を優先し、状態は行頭アイコンと相対時刻表示で示す責務
+分担。wt の並び (`RepoSection.orderedWorktrees` の `git worktree list` append 順)
+と同じ方針。
 </doc>
 
 <script setup lang="ts">
@@ -22,25 +23,14 @@ import { computed } from "vue";
 import type { ClaudeStatus } from "../../../terminal";
 import { useTerminalStore } from "../../../terminal";
 import { computeStatusIcons, StatusIcons } from "../../../worktree";
-import { resolveTaskBaseTime } from "../../taskBaseTime";
 import { branchLabel as resolveBranchLabel, hasChanges } from "../../utils";
 import TaskRow from "./TaskRow.vue";
-
-type StateKey = "asking" | "working" | "done" | "idle" | "resumable";
-const STATE_PRIORITY: Record<StateKey, number> = {
-  asking: 4,
-  working: 3,
-  done: 2,
-  idle: 1,
-  resumable: 0,
-};
 
 const props = defineProps<{
   wt: WorktreeEntry;
   rootDir: string;
   active: boolean;
   focusedPtyId: number | undefined;
-  terminalCount: number;
   resumeableSessionCount: number;
 }>();
 
@@ -66,41 +56,21 @@ interface TaskWithStatus {
   task: Task;
   status: ClaudeStatus | undefined;
   ptyId: number | undefined;
-  stateKey: StateKey;
-  baseTime: number;
 }
 
 /**
- * status が undefined になるケースは 2 つあり、ptyId の有無で区別する。
- * - ptyId が紐付いている: live PTY はあるが session-start hook の status 反映が
- *   間に合っていない一瞬の窓 → idle 相当として扱う (resumable に倒すと UI 上で
- *   起動中 session が灰色アイコンに化けて UX が崩れる)
- * - ptyId が無い: 永続化された session のみで live PTY 不在 → 真の resumable
+ * ソートは `task.createdAt` (静的) のみ。state や lastActivityAt のような
+ * 動的値をキーに混ぜると Claude の活動ごとに行位置が入れ替わり、ユーザーが
+ * 「どこに何の task があるか」を空間記憶で辿れなくなる。位置は固定、状態は
+ * 行頭アイコンと相対時刻で表現する責務分担。
  */
-function resolveStateKey(status: ClaudeStatus | undefined, ptyId: number | undefined): StateKey {
-  if (status !== undefined) return status.state;
-  if (ptyId === undefined) return "resumable";
-  return "idle";
-}
-
 const tasksWithStatus = computed<TaskWithStatus[]>(() => {
-  const list = props.wt.tasks.map<TaskWithStatus>((task) => {
-    const status = terminalStore.getClaudeStatusBySessionId(task.id);
-    const ptyId = terminalStore.getPtyIdBySessionId(task.id);
-    return {
-      task,
-      status,
-      ptyId,
-      stateKey: resolveStateKey(status, ptyId),
-      // sort 用なので createdAt パース失敗時 (proto 契約違反) は 0 に倒す
-      baseTime: resolveTaskBaseTime(status, task) ?? 0,
-    };
-  });
-  return list.sort((a, b) => {
-    const diff = STATE_PRIORITY[b.stateKey] - STATE_PRIORITY[a.stateKey];
-    if (diff !== 0) return diff;
-    return b.baseTime - a.baseTime;
-  });
+  const list = props.wt.tasks.map<TaskWithStatus>((task) => ({
+    task,
+    status: terminalStore.getClaudeStatusBySessionId(task.id),
+    ptyId: terminalStore.getPtyIdBySessionId(task.id),
+  }));
+  return list.sort((a, b) => Date.parse(a.task.createdAt) - Date.parse(b.task.createdAt));
 });
 
 /**
@@ -117,8 +87,8 @@ const focusedTaskId = computed(() => {
   return found?.task.id;
 });
 
-/** focus が wt 内にあり、かつ task でない (= shell) なら header に capsule */
-const headerActive = computed(() => props.active && focusedTaskId.value === undefined);
+/** focus が wt 内にあるなら header に capsule (task focus 時も同時にハイライト) */
+const headerActive = computed(() => props.active);
 
 function onMenuClick(event: MouseEvent) {
   event.stopPropagation();
@@ -133,49 +103,46 @@ function onHeaderClick() {
 
 <template>
   <article class="rounded-lg">
-    <div
-      role="button"
-      tabindex="0"
-      :data-active="headerActive"
-      class="group/wt grid w-full cursor-pointer grid-cols-[auto_1fr_auto_auto_auto] items-center gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none focus-visible:ring-inset data-[active=true]:bg-blue-500 data-[active=true]:text-white"
-      @click="onHeaderClick"
-      @keydown.enter.prevent="onHeaderClick"
-      @keydown.space.prevent="onHeaderClick"
-    >
-      <span class="size-5 shrink-0" :class="branchIcon" aria-hidden="true" />
-      <span class="truncate text-left text-sm font-medium">{{ branchLabel }}</span>
-      <span
-        v-if="wt.gitStatuses && hasChanges(wt.gitStatuses)"
-        class="flex items-center gap-1 text-xs"
+    <div class="group/wt relative">
+      <div
+        role="button"
+        tabindex="0"
+        :data-active="headerActive"
+        class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 text-zinc-400 transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none focus-visible:ring-inset data-[active=true]:bg-blue-500 data-[active=true]:text-white"
+        @click="onHeaderClick"
+        @keydown.enter.prevent="onHeaderClick"
+        @keydown.space.prevent="onHeaderClick"
       >
-        <StatusIcons :entries="statusIcons" />
-      </span>
-      <span
-        v-if="terminalCount >= 2"
-        class="grid size-4 min-w-4 place-items-center rounded-full bg-zinc-700 px-1 text-[10px] font-medium text-zinc-200 tabular-nums"
-        :title="`${terminalCount} terminals`"
-      >
-        {{ terminalCount }}
-      </span>
-      <span
-        v-else-if="resumeableSessionCount > 0"
-        class="flex items-center gap-1 text-[10px] text-zinc-400"
-        :title="`${resumeableSessionCount} resumable session${resumeableSessionCount === 1 ? '' : 's'}`"
-      >
-        <span class="icon-[lucide--rotate-cw] size-3" />
-        <span class="tabular-nums">{{ resumeableSessionCount }}</span>
-      </span>
+        <span class="grid size-5 shrink-0 place-items-center" aria-hidden="true">
+          <span class="size-3.5" :class="branchIcon" />
+        </span>
+        <span class="flex-1 truncate text-left text-xs font-medium">{{ branchLabel }}</span>
+        <span
+          v-if="wt.gitStatuses && hasChanges(wt.gitStatuses)"
+          class="flex items-center justify-end gap-1 text-xs"
+        >
+          <StatusIcons :entries="statusIcons" />
+        </span>
+        <span
+          v-if="resumeableSessionCount > 0"
+          class="flex items-center gap-1 text-[10px] text-zinc-400"
+          :title="`${resumeableSessionCount} resumable session${resumeableSessionCount === 1 ? '' : 's'}`"
+        >
+          <span class="icon-[lucide--rotate-cw] size-3" />
+          <span class="tabular-nums">{{ resumeableSessionCount }}</span>
+        </span>
+      </div>
       <button
         type="button"
         aria-label="Open menu"
-        class="grid size-6 place-items-center rounded-sm text-zinc-400 opacity-0 transition-opacity duration-100 group-focus-within/wt:opacity-100 group-hover/wt:opacity-100 hover:bg-white/10 hover:text-zinc-100"
+        class="absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded-sm bg-zinc-800 text-zinc-300 opacity-0 shadow-md ring-1 ring-zinc-700 transition-opacity duration-100 group-focus-within/wt:opacity-100 group-hover/wt:opacity-100 hover:bg-zinc-700 hover:text-zinc-100"
         @click="onMenuClick"
       >
-        <span class="icon-[lucide--ellipsis-vertical] text-sm" />
+        <span class="icon-[lucide--ellipsis-vertical] text-xs" />
       </button>
     </div>
 
-    <div v-if="tasksWithStatus.length > 0" class="p-1">
+    <div v-if="tasksWithStatus.length > 0">
       <TaskRow
         v-for="entry in tasksWithStatus"
         :key="entry.task.id"

@@ -65,12 +65,23 @@ public actor RpcDispatcher {
   /// 起動時に 1 回呼ぶ。永続化済み Claude セッションのうち、transcript ファイルが
   /// 消滅している残骸を掃除する。失敗しても fatal 扱いせず stderr ログだけ出す
   /// （reconcile は best effort で、本筋の起動を止める価値はない）。
+  ///
+  /// 順序: ClaudeSessionStore.reconcileAll → TaskStore.reconcileAll の固定順。
+  /// TaskStore は claude-sessions.json の生存 sessionId 集合を真とみなして
+  /// 孤児 Task を掃除するため、claudeSessions の reconcile を先に通して
+  /// 「session が消えていれば task も消える」を成立させる。
   public func reconcileClaudeSessions() async {
     do {
       try await claudeSessions.reconcileAll()
     } catch {
       FileHandle.standardError.write(
         Data("[ClaudeSessionStore] reconcileAll failed: \(error)\n".utf8))
+    }
+    do {
+      try await tasks.reconcileAll()
+    } catch {
+      FileHandle.standardError.write(
+        Data("[TaskStore] reconcileAll failed: \(error)\n".utf8))
     }
   }
 
@@ -471,7 +482,16 @@ public actor RpcDispatcher {
   private func handleGitWorktreeList(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitWorktreeListRequest(jsonUTF8Data: body)
     let worktrees = try await GitOps.worktreeList(dir: req.dir)
-    let allTasks = try await tasks.list(dir: req.dir)
+    // 同一 projectKey の生存 sessionId 集合を取り、TaskStore の孤児を fetch
+    // 段階で弾く。起動時 reconcile に加えてアプリ稼働中の死亡判定もここで賄う:
+    // session-end も removeByPty も来なかった残骸 (アプリクラッシュ等) を、次回
+    // サイドバー fetch で透明に掃除する。永続化の write は起動時 reconcile に
+    // 任せ、ここは read-only filter に留める。
+    let liveSessions = try await claudeSessions.allLiveSessions(forProject: req.dir)
+    let liveSessionIds = Set(liveSessions.map { $0.sessionID })
+    let allTasks = try await tasks.list(dir: req.dir).filter {
+      liveSessionIds.contains($0.id)
+    }
     // サイドバーで各 worktree に変更ファイル数を出すため、worktree ごとに git status を並列取得する。
     // 1 worktree でも失敗したら集約段階で throw して上位（renderer 側 tryCatch → notify.error）に伝える。
     let statusesByPath: [String: [String: String]] = try await withThrowingTaskGroup(

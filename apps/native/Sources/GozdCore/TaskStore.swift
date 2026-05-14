@@ -69,6 +69,66 @@ public actor TaskStore {
     try saveFile(list, for: dir)
   }
 
+  /// 起動時の reconcile。各 projectKey で `claude-sessions.json` の生存
+  /// sessionId 集合に含まれない Task を孤児として掃除する。
+  ///
+  /// task.id == sessionId 同一視 (issue #504) と、ClaudeSessionStore.reconcileAll
+  /// が transcript ファイル不在を根拠に dead session を落とすことを前提に、
+  /// 「session が無いのに Task だけ残っている」状態を死亡判定する。
+  /// この経路が無いと、アプリクラッシュ / kill -9 / transcript 削除で
+  /// session-end hook も removeByPty も来なかった残骸が永続化に居座り続け、
+  /// サイドバーに `New session` のゾンビ行として現れる。
+  public func reconcileAll() throws {
+    let projectsURL = URL(fileURLWithPath: configDir).appendingPathComponent("projects")
+    let fm = FileManager.default
+    guard fm.fileExists(atPath: projectsURL.path) else { return }
+    let projectKeys = try fm.contentsOfDirectory(atPath: projectsURL.path)
+    var totalDropped = 0
+    for projectKey in projectKeys {
+      let projectDir = projectsURL.appendingPathComponent(projectKey)
+      let tasksURL = projectDir.appendingPathComponent("tasks.json")
+      guard fm.fileExists(atPath: tasksURL.path) else { continue }
+      let tasksData = try Data(contentsOf: tasksURL)
+      let tasksJson = String(decoding: tasksData, as: UTF8.self)
+      var taskList =
+        (try? Gozd_V1_TaskList(jsonString: tasksJson)) ?? Gozd_V1_TaskList()
+      if taskList.tasks.isEmpty { continue }
+
+      // 同 projectKey の生存 sessionId を計算する。
+      // claude-sessions.json が存在しない / 空なら、その projectKey の Task は
+      // 全件孤児扱い。reconcileAll の順序として ClaudeSessionStore → TaskStore
+      // で動かす前提なので、claude-sessions.json は既に reconcile 済み。
+      var liveSessionIds: Set<String> = []
+      let sessionsURL = projectDir.appendingPathComponent("claude-sessions.json")
+      if fm.fileExists(atPath: sessionsURL.path) {
+        let sessionsData = try Data(contentsOf: sessionsURL)
+        let sessionsJson = String(decoding: sessionsData, as: UTF8.self)
+        if let sessionList = try? Gozd_V1_ClaudeSessionList(jsonString: sessionsJson) {
+          for session in sessionList.sessions {
+            liveSessionIds.insert(session.sessionID)
+          }
+        }
+      }
+
+      let before = taskList.tasks.count
+      taskList.tasks.removeAll { !liveSessionIds.contains($0.id) }
+      let dropped = before - taskList.tasks.count
+      if dropped > 0 {
+        let outJson = try taskList.jsonString()
+        try outJson.write(to: tasksURL, atomically: true, encoding: .utf8)
+        totalDropped += dropped
+        FileHandle.standardError.write(
+          Data(
+            "[TaskStore] reconcile: dropped \(dropped) orphan tasks from \(projectKey)\n"
+              .utf8))
+      }
+    }
+    if totalDropped > 0 {
+      FileHandle.standardError.write(
+        Data("[TaskStore] reconcile: total \(totalDropped) orphan tasks cleaned\n".utf8))
+    }
+  }
+
   // MARK: - paths
 
   private func projectDir(for dir: String) -> String {

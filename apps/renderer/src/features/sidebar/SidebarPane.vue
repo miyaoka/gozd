@@ -17,13 +17,11 @@
 - 編集モード中の drag handle (folder + 名前): @dnd-kit/vue で並び替え
 - 編集モード中の ✕: 確認ダイアログを経て removeRepo
 - 編集モード中の `+ Add directory`: NSOpenPanel で dir 追加
-- Task 編集は worktree 行の下にインライン展開
 
 ## 責務分離
 
 - `useSidebarData` — fetch（per-repo）と terminal title 同期
 - `useWorktreeActions` — worktree CRUD（rootDir 引数で対象 repo を特定）
-- `useTaskActions` — Task 編集 / 新規作成（rootDir 引数で対象 repo を特定）
 - `useDialogs` — 確認ダイアログ
 - `RepoSection` — 1 repo の UI
 </doc>
@@ -41,7 +39,6 @@ import { rpcPickAndOpen } from "../layout";
 import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
 import { RepoSection } from "./features/repo";
-import { TaskEditor, useTaskActions } from "./features/task";
 import { useWorktreeActions } from "./features/worktree";
 import ProjectConfigPanel from "./ProjectConfigPanel.vue";
 import SidebarMenu from "./SidebarMenu.vue";
@@ -54,25 +51,15 @@ const worktreeStore = useWorktreeStore();
 const terminalStore = useTerminalStore();
 const notify = useNotificationStore();
 
-const { fetchRepo } = useSidebarData();
+// useSidebarData の onMounted で全 repo の fetch / FsWatch / title sync が起動する。
+// 戻り値は現状外側で使わないので呼び捨てる。
+useSidebarData();
 
 const { confirmRef, confirmMessage, showConfirm, closeConfirm, executeConfirm } = useDialogs();
 
 const { isCreating, handleWorktreeSelect, addWorktree, handleWorktreeRemove } = useWorktreeActions({
   showConfirm,
 });
-
-const {
-  editingTaskId,
-  editBody,
-  submitEdit,
-  cancelEdit,
-  addingTaskForDir,
-  addingTaskBody,
-  toggleWorktreeTaskEdit,
-  saveWorktreeTask,
-  cancelWorktreeTaskAdd,
-} = useTaskActions({ fetchRepo });
 
 // --- 経過時間表示用の現在時刻 ---
 
@@ -225,22 +212,7 @@ const activeRootWorktree = computed(() => {
             (anchorEl, wt, rd) =>
               sidebarMenuRef?.openMenu(anchorEl, { type: 'worktree', worktree: wt, rootDir: rd })
           "
-        >
-          <template #after-worktree-item="{ wt }">
-            <TaskEditor
-              v-if="wt.tasks[0] && editingTaskId === wt.tasks[0].id"
-              v-model:body="editBody"
-              @save="submitEdit"
-              @cancel="cancelEdit"
-            />
-            <TaskEditor
-              v-if="!wt.tasks[0] && addingTaskForDir === wt.path"
-              v-model:body="addingTaskBody"
-              @save="saveWorktreeTask(wt)"
-              @cancel="cancelWorktreeTaskAdd"
-            />
-          </template>
-        </RepoSection>
+        />
       </DragDropProvider>
 
       <button
@@ -256,11 +228,7 @@ const activeRootWorktree = computed(() => {
     </div>
 
     <!-- ⋮ メニュー（worktree） -->
-    <SidebarMenu
-      ref="sidebarMenuRef"
-      @worktree-edit-task="toggleWorktreeTaskEdit"
-      @worktree-remove="(wt, rd) => handleWorktreeRemove(rd, wt)"
-    />
+    <SidebarMenu ref="sidebarMenuRef" @worktree-remove="(wt, rd) => handleWorktreeRemove(rd, wt)" />
 
     <!-- 確認ダイアログ -->
     <dialog

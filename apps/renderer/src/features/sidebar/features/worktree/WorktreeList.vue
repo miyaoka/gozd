@@ -25,10 +25,6 @@ defineEmits<{
   openMenu: [anchorEl: HTMLElement, wt: WorktreeEntry];
   add: [];
 }>();
-
-defineSlots<{
-  "after-item"(props: { wt: WorktreeEntry }): unknown;
-}>();
 </script>
 
 <template>
@@ -49,17 +45,16 @@ defineSlots<{
 
     <p v-if="loading" class="py-2 pl-2 text-sm text-zinc-500">Loading...</p>
 
-    <div v-for="wt in worktrees" :key="wt.path">
-      <WorktreeItem
-        :wt="wt"
-        :active="activeDir === wt.path"
-        :claude-statuses="getClaudeStatuses(wt.path)"
-        :resumeable-session-count="getResumeableSessionCount(wt.path)"
-        :now="now"
-        @select="$emit('select', $event)"
-        @open-menu="(anchorEl, w) => $emit('openMenu', anchorEl, w)"
-      />
-      <slot name="after-item" :wt="wt" />
-    </div>
+    <WorktreeItem
+      v-for="wt in worktrees"
+      :key="wt.path"
+      :wt="wt"
+      :active="activeDir === wt.path"
+      :claude-statuses="getClaudeStatuses(wt.path)"
+      :resumeable-session-count="getResumeableSessionCount(wt.path)"
+      :now="now"
+      @select="$emit('select', $event)"
+      @open-menu="(anchorEl, w) => $emit('openMenu', anchorEl, w)"
+    />
   </div>
 </template>

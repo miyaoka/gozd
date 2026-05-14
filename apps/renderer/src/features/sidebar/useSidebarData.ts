@@ -5,13 +5,7 @@ import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
 import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
-import {
-  rpcAppStateLoad,
-  rpcAppStateSave,
-  rpcGitWorktreeList,
-  rpcTaskAdd,
-  rpcTaskUpdate,
-} from "./rpc";
+import { rpcAppStateLoad, rpcAppStateSave, rpcGitWorktreeList, rpcTaskUpdate } from "./rpc";
 import type { BranchChangePayload, FsWatchReadyPayload, WorktreeChangePayload } from "./rpc";
 
 /**
@@ -133,35 +127,23 @@ export function useSidebarData() {
     const wt = owning.worktrees.find((w) => w.path === targetDir);
     if (!wt) return;
 
+    // Task は session-start hook で auto upsert される（issue #504 Phase 2）。
+    // タイトルが届いた時点で対応 Task が無い場合は session 確立前の race なので無視する。
+    // 手動 task UI が消えた今、body は OSC タイトル由来で常に上書き可能。
     const [existingTask] = wt.tasks;
-    if (existingTask === undefined) {
-      const addResult = await tryCatch(
-        rpcTaskAdd({
-          dir: projectDir,
-          body: title,
-          worktreeDir: targetDir,
-          prNumber: 0,
-          issueNumber: 0,
-        }),
-      );
-      if (addResult.ok && addResult.value.task !== undefined) {
-        const freshRepo = repoStore.repos[projectDir];
-        const freshWt = freshRepo?.worktrees.find((w) => w.path === targetDir);
-        if (freshWt) freshWt.tasks = [addResult.value.task];
-      }
-      return;
-    }
-    const [firstLine] = existingTask.body.split("\n");
-    // 手動設定されたタイトルをターミナルタイトルで上書きしない
-    if (firstLine.trim() !== "") return;
-    const newBody = [title, ...existingTask.body.split("\n").slice(1)].join("\n");
+    if (existingTask === undefined) return;
     const result = await tryCatch(
-      rpcTaskUpdate({ dir: projectDir, id: existingTask.id, body: newBody }),
+      rpcTaskUpdate({ dir: projectDir, id: existingTask.id, body: title }),
     );
     if (result.ok && result.value.task !== undefined) {
+      const updatedTask = result.value.task;
       const freshRepo = repoStore.repos[projectDir];
       const freshWt = freshRepo?.worktrees.find((w) => w.path === targetDir);
-      if (freshWt) freshWt.tasks = [result.value.task];
+      if (freshWt) {
+        // 1 wt = 複数 session の前提なので、該当 id のみ差し替える。
+        // tasks 全体を上書きすると別 session の task を消してしまう。
+        freshWt.tasks = freshWt.tasks.map((t) => (t.id === updatedTask.id ? updatedTask : t));
+      }
     }
   }
 

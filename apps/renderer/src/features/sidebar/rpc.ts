@@ -12,8 +12,6 @@ import {
   LoadAppStateResponse,
   SaveAppStateRequest,
   SaveAppStateResponse,
-  TaskAddRequest,
-  TaskAddResponse,
   TaskUpdateRequest,
   TaskUpdateResponse,
 } from "@gozd/proto";
@@ -36,9 +34,9 @@ export const rpcGitWorktreeRemove = (req: GitWorktreeRemoveRequest) =>
 
 // --- task ---
 
-export const rpcTaskAdd = (req: TaskAddRequest) =>
-  rpc("/task/add", req, TaskAddRequest, TaskAddResponse);
-
+// session = Task の同一視ルール (issue #504) で Task の生成 / 削除は session
+// hook が自動化する。renderer から書くのは OSC ターミナルタイトル → body
+// の同期 (rpcTaskUpdate) のみ。
 export const rpcTaskUpdate = (req: TaskUpdateRequest) =>
   rpc("/task/update", req, TaskUpdateRequest, TaskUpdateResponse);
 

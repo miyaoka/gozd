@@ -258,16 +258,8 @@ public actor RpcDispatcher {
       return try await handleCreateWorktree(body)
     case "/git/worktreeRemove":
       return try await handleWorktreeRemove(body)
-    case "/task/list":
-      return try await handleTaskList(body)
-    case "/task/add":
-      return try await handleTaskAdd(body)
     case "/task/update":
       return try await handleTaskUpdate(body)
-    case "/task/remove":
-      return try await handleTaskRemove(body)
-    case "/task/createWorktreeWithTask":
-      return try await handleCreateWorktreeWithTask(body)
     case "/fs/readFileAbsolute":
       return try handleFsReadFileAbsolute(body)
     case "/fs/writeFile":
@@ -785,55 +777,14 @@ public actor RpcDispatcher {
 
   // MARK: - tasks
 
-  private func handleTaskList(_ body: Data) async throws -> Data {
-    let req = try Gozd_V1_TaskListRequest(jsonUTF8Data: body)
-    let list = try await tasks.list(dir: req.dir)
-    var resp = Gozd_V1_TaskListResponse()
-    resp.tasks = list
-    return try resp.jsonUTF8Data()
-  }
-
-  private func handleTaskAdd(_ body: Data) async throws -> Data {
-    let req = try Gozd_V1_TaskAddRequest(jsonUTF8Data: body)
-    let task = try await tasks.add(
-      dir: req.dir, body: req.body, worktreeDir: req.worktreeDir,
-      prNumber: req.prNumber, issueNumber: req.issueNumber)
-    var resp = Gozd_V1_TaskAddResponse()
-    resp.task = task
-    return try resp.jsonUTF8Data()
-  }
-
+  // session = Task の同一視 (issue #504)。Task の生成 / 削除は session hook 経由で
+  // 自動化され、外向けには body 同期 (update) のみ公開する。
   private func handleTaskUpdate(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_TaskUpdateRequest(jsonUTF8Data: body)
     let task = try await tasks.update(dir: req.dir, id: req.id, body: req.body)
     var resp = Gozd_V1_TaskUpdateResponse()
     resp.task = task
     return try resp.jsonUTF8Data()
-  }
-
-  private func handleCreateWorktreeWithTask(_ body: Data) async throws -> Data {
-    let req = try Gozd_V1_CreateWorktreeWithTaskRequest(jsonUTF8Data: body)
-    let info = try await WorktreeOps.createWorktree(
-      dir: req.dir, worktreeDir: req.worktreeDir, branch: req.branch, startPoint: nil)
-    let updated = try await tasks.setWorktreeDir(
-      dir: req.dir, id: req.id, worktreeDir: info.path)
-    var resp = Gozd_V1_CreateWorktreeWithTaskResponse()
-    resp.task = updated
-    var entry = Gozd_V1_WorktreeEntry()
-    entry.path = info.path
-    entry.head = info.head
-    entry.branch = info.branch ?? ""
-    entry.isMain = info.isMain
-    entry.tasks = [updated]
-    resp.worktree = entry
-    resp.dir = info.path
-    return try resp.jsonUTF8Data()
-  }
-
-  private func handleTaskRemove(_ body: Data) async throws -> Data {
-    let req = try Gozd_V1_TaskRemoveRequest(jsonUTF8Data: body)
-    try await tasks.remove(dir: req.dir, id: req.id)
-    return try Gozd_V1_TaskRemoveResponse().jsonUTF8Data()
   }
 
   // MARK: - fs extra

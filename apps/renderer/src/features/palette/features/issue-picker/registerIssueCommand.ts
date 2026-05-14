@@ -8,12 +8,7 @@ import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
-import {
-  rpcCreateWorktree,
-  rpcGitDefaultBranch,
-  rpcGitWorktreeList,
-  rpcTaskAdd,
-} from "../../../sidebar";
+import { rpcCreateWorktree, rpcGitDefaultBranch } from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
 import { rpcGitViewer } from "../pr-picker";
@@ -36,40 +31,25 @@ export function registerIssueCommand(): () => void {
         const dir = worktreeStore.dir;
         if (dir === undefined) return;
         const fetchResult = await tryCatch(
-          Promise.all([
-            rpcGitIssueList({ dir }),
-            rpcGitWorktreeList({ dir }),
-            rpcGitViewer({ dir }),
-          ]),
+          Promise.all([rpcGitIssueList({ dir }), rpcGitViewer({ dir })]),
         );
         if (!fetchResult.ok) {
           notify.error("Failed to load issues", fetchResult.error);
           return;
         }
-        const [issuesRes, worktreesRes, viewerRes] = fetchResult.value;
+        const [issuesRes, viewerRes] = fetchResult.value;
         if (!issuesRes.ok) {
           notify.error("Failed to load issues from GitHub");
           return;
         }
         if (issuesRes.issues.length === 0) return;
 
-        const wtByIssue = new Map(
-          worktreesRes.worktrees.flatMap((wt) => {
-            const [task] = wt.tasks;
-            if (task === undefined || task.issueNumber <= 0) return [];
-            return [[task.issueNumber, wt.path] as const];
-          }),
-        );
+        // 既存 worktree との紐付けは issue #504 で Task = session 化により喪失。
+        // 別 issue で再設計するまでは常に新規 worktree を作る挙動。
 
         // この callback は IssuePickerDialog 側で close() 後に呼ばれるため、
         // 連打による再エントリは dialog の DOM 除去で塞がれている。`isCreating` 相当のガードは不要。
-        show(issuesRes.issues, viewerRes.ok ? viewerRes.login : "", (issue) => {
-          const existingDir = wtByIssue.get(issue.number);
-          if (existingDir !== undefined) {
-            terminalStore.viewMode = "wt";
-            worktreeStore.setOpen(existingDir);
-            return;
-          }
+        show(issuesRes.issues, viewerRes.ok ? viewerRes.login : "", (_issue) => {
           void (async () => {
             // 新規 worktree は default branch を起点に作る。Swift 側で `origin/HEAD` を
             // 優先し、未設定（remote 無し / push 前 repo）の場合は main repo root 自身の
@@ -100,18 +80,8 @@ export function registerIssueCommand(): () => void {
               notify.error("Failed to create worktree", result.error);
               return;
             }
-            const taskResult = await tryCatch(
-              rpcTaskAdd({
-                dir,
-                body: issue.title,
-                worktreeDir: result.value.dir,
-                prNumber: 0,
-                issueNumber: issue.number,
-              }),
-            );
-            if (!taskResult.ok) {
-              notify.error("Failed to create task for worktree", taskResult.error);
-            }
+            // issue / wt の紐付けは Task で持っていたが、issue #504 で Task = session 化
+            // したため経路を喪失。issue↔worktree の永続マッピングは別 issue で再設計する。
             if (result.value.worktree === undefined) {
               notify.error("Worktree created but sidebar could not be updated");
             } else {

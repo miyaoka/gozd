@@ -8,7 +8,7 @@ import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
-import { rpcCreateWorktree, rpcGitWorktreeList, rpcTaskAdd } from "../../../sidebar";
+import { rpcCreateWorktree, rpcGitWorktreeList } from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
 import { rpcGitPrList, rpcGitViewer } from "./rpc";
@@ -71,18 +71,8 @@ export function registerPrCommand(): () => void {
               notify.error("Failed to create worktree", result.error);
               return;
             }
-            const taskResult = await tryCatch(
-              rpcTaskAdd({
-                dir,
-                body: pr.title,
-                worktreeDir: result.value.dir,
-                prNumber: pr.number,
-                issueNumber: 0,
-              }),
-            );
-            if (!taskResult.ok) {
-              notify.error("Failed to create task for worktree", taskResult.error);
-            }
+            // PR / wt の紐付けは Task で持っていたが、issue #504 で Task = session 化
+            // したため経路を喪失。PR↔worktree の永続マッピングは別 issue で再設計する。
             const rootDir = repoStore.findRepoOwning(dir)?.rootDir;
             if (rootDir === undefined || result.value.worktree === undefined) {
               notify.error("Worktree created but sidebar could not be updated");

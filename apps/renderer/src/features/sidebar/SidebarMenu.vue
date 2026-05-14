@@ -13,7 +13,6 @@ import type { WorktreeEntry } from "@gozd/proto";
 import { nextTick, ref } from "vue";
 
 const emit = defineEmits<{
-  worktreeEditTask: [wt: WorktreeEntry, rootDir: string];
   worktreeRemove: [wt: WorktreeEntry, rootDir: string];
 }>();
 
@@ -41,11 +40,6 @@ function closeMenu() {
   menuRef.value?.hidePopover();
 }
 
-function handleWorktreeEditTask(wt: WorktreeEntry, rootDir: string) {
-  closeMenu();
-  emit("worktreeEditTask", wt, rootDir);
-}
-
 function handleWorktreeRemove(wt: WorktreeEntry, rootDir: string) {
   closeMenu();
   emit("worktreeRemove", wt, rootDir);
@@ -65,13 +59,6 @@ defineExpose({ openMenu });
     }"
   >
     <template v-if="menuContext?.type === 'worktree' && menuContext.worktree">
-      <button
-        class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800"
-        @click="handleWorktreeEditTask(menuContext.worktree, menuContext.rootDir)"
-      >
-        <span class="icon-[lucide--pencil] text-xs" />
-        Edit task
-      </button>
       <button
         class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-400 hover:bg-zinc-800"
         @click="handleWorktreeRemove(menuContext.worktree, menuContext.rootDir)"

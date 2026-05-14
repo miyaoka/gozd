@@ -51,10 +51,6 @@ const emit = defineEmits<{
   openWorktreeMenu: [anchorEl: HTMLElement, wt: WorktreeEntry, rootDir: string];
 }>();
 
-defineSlots<{
-  "after-worktree-item"(props: { wt: WorktreeEntry; rootDir: string }): unknown;
-}>();
-
 const repoStore = useRepoStore();
 
 const repo = computed(() => repoStore.repos[props.rootDir]);
@@ -166,11 +162,7 @@ function onHeaderClick() {
         @select="emit('selectWorktree', $event)"
         @open-menu="(anchorEl, wt) => emit('openWorktreeMenu', anchorEl, wt, rootDir)"
         @add="emit('addWorktree', rootDir)"
-      >
-        <template #after-item="{ wt }">
-          <slot name="after-worktree-item" :wt="wt" :root-dir="rootDir" />
-        </template>
-      </WorktreeList>
+      />
     </div>
   </section>
 </template>

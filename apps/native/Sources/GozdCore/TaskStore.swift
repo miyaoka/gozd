@@ -3,15 +3,20 @@ import GozdProto
 
 // プロジェクト固有 Task の永続化（`~/.config/gozd/projects/<projectKey>/tasks.json`）。
 //
+// task = Claude session の同一視ルール (issue #504)。
+//
 // 設計判断:
 //
-// 1. **projectKey の算出は `ProjectKey` を参照**。worktree 配下のどの dir から呼ばれても
+// 1. **task.id = session_id**。SessionStart hook で upsert、SessionEnd で remove する。
+//    手動 CRUD API は廃止し、外部 mutation は body 同期 (update) のみ公開する。
+//
+// 2. **projectKey の算出は `ProjectKey` を参照**。worktree 配下のどの dir から呼ばれても
 //    main repo root に解決した上で同一 projectKey に揃える（`resolveAndCompute`）。
 //
-// 2. **永続化形式は proto JSON**。AppStateStore / AppConfigStore と同流儀。
+// 3. **永続化形式は proto JSON**。AppStateStore / AppConfigStore と同流儀。
 //    `TaskList` ラッパーを介して `tasks` を array として保存する。
 //
-// 3. **actor**。読み書きが直列化されるよう actor 化。複数 RPC が並行で書きにくる
+// 4. **actor**。読み書きが直列化されるよう actor 化。複数 RPC が並行で書きにくる
 //    シナリオでファイルが破損するのを防ぐ。
 public actor TaskStore {
   private let configDir: String
@@ -20,26 +25,14 @@ public actor TaskStore {
     self.configDir = configDir
   }
 
+  /// projectKey 内の全 Task を返す。RpcDispatcher.handleGitWorktreeList で
+  /// WorktreeEntry.tasks を埋めるために使う。
   public func list(dir: String) throws -> [Gozd_V1_Task] {
     return try loadFile(for: dir).tasks
   }
 
-  public func add(dir: String, body: String, worktreeDir: String, prNumber: UInt32, issueNumber: UInt32)
-    throws -> Gozd_V1_Task
-  {
-    var list = try loadFile(for: dir)
-    var task = Gozd_V1_Task()
-    task.id = newTaskId()
-    task.body = body
-    task.worktreeDir = worktreeDir
-    task.prNumber = prNumber
-    task.issueNumber = issueNumber
-    task.createdAt = ISO8601DateFormatter().string(from: Date())
-    list.tasks.append(task)
-    try saveFile(list, for: dir)
-    return task
-  }
-
+  /// Task body を OSC ターミナルタイトル経由で書き換える。renderer 側 useSidebarData
+  /// から呼ばれる唯一の public mutation API。生成 / 削除は session hook が担う。
   public func update(dir: String, id: String, body: String) throws -> Gozd_V1_Task {
     var list = try loadFile(for: dir)
     guard let idx = list.tasks.firstIndex(where: { $0.id == id }) else {
@@ -48,22 +41,6 @@ public actor TaskStore {
     list.tasks[idx].body = body
     try saveFile(list, for: dir)
     return list.tasks[idx]
-  }
-
-  public func setWorktreeDir(dir: String, id: String, worktreeDir: String) throws -> Gozd_V1_Task {
-    var list = try loadFile(for: dir)
-    guard let idx = list.tasks.firstIndex(where: { $0.id == id }) else {
-      throw TaskStoreError.notFound(id)
-    }
-    list.tasks[idx].worktreeDir = worktreeDir
-    try saveFile(list, for: dir)
-    return list.tasks[idx]
-  }
-
-  public func remove(dir: String, id: String) throws {
-    var list = try loadFile(for: dir)
-    list.tasks.removeAll { $0.id == id }
-    try saveFile(list, for: dir)
   }
 
   /// Claude session-start hook 由来の Task を upsert する。
@@ -85,9 +62,11 @@ public actor TaskStore {
     try saveFile(list, for: dir)
   }
 
-  /// session-end hook 由来の自動削除。手動 remove と挙動は同じ。
+  /// session-end hook 由来の自動削除。task.id == sessionId の前提。
   public func removeBySession(dir: String, sessionId: String) throws {
-    try remove(dir: dir, id: sessionId)
+    var list = try loadFile(for: dir)
+    list.tasks.removeAll { $0.id == sessionId }
+    try saveFile(list, for: dir)
   }
 
   // MARK: - paths
@@ -124,9 +103,6 @@ public actor TaskStore {
     try json.write(toFile: path, atomically: true, encoding: .utf8)
   }
 
-  private func newTaskId() -> String {
-    return UUID().uuidString.lowercased()
-  }
 }
 
 public enum TaskStoreError: Error, Equatable {

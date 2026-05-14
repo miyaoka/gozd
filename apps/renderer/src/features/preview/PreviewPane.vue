@@ -157,7 +157,7 @@ const SHORT_HASH_LEN = 7;
  * compareHash が null の単一選択時は older は undefined。
  *
  * 不整合（commits 未ロード / stale 選択 / 両端 UNCOMMITTED）のときは null を返す。
- * 呼び出し側で UI fallback（fetchCommitContent はエラー化、ラベルは "HEAD" に倒す）。
+ * 呼び出し側で UI fallback（fetchCommitContent はエラー化、ラベルは "Original" の hash 表記なしに倒す）。
  * 黙って older 側に倒すと選択順依存のバグが再発するため fallback では絶対に補わない。
  */
 type OrderedRange = { newer: string; older: string | undefined };

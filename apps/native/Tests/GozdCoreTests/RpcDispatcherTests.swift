@@ -306,6 +306,160 @@ struct RpcDispatcherTests {
   }
 }
 
+@Suite("RpcDispatcher./git/showCommitFile")
+struct RpcDispatcherGitShowCommitFileTests {
+  @Test("単一コミット: from=<hash>^, to=<hash>, modified ファイルは unchanged=false")
+  func singleCommitModified() async throws {
+    let repo = try await makeGitRepoForRpc()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: repo)) }
+    try "v1".write(
+      toFile: (repo as NSString).appendingPathComponent("a.txt"),
+      atomically: true, encoding: .utf8)
+    try await runGitForRpc(args: ["add", "a.txt"], cwd: repo)
+    try await runGitForRpc(args: ["commit", "-m", "init"], cwd: repo)
+    try "v2".write(
+      toFile: (repo as NSString).appendingPathComponent("a.txt"),
+      atomically: true, encoding: .utf8)
+    try await runGitForRpc(args: ["add", "a.txt"], cwd: repo)
+    try await runGitForRpc(args: ["commit", "-m", "mod"], cwd: repo)
+    let head = try await readGitForRpc(args: ["rev-parse", "HEAD"], cwd: repo)
+
+    let resp = try await dispatchShowCommitFile(
+      configDir: repo, dir: repo, relPath: "a.txt", hash: head, compareHash: "")
+    #expect(resp.from.notFound == false)
+    #expect(resp.from.content == "v1")
+    #expect(resp.to.notFound == false)
+    #expect(resp.to.content == "v2")
+    #expect(resp.unchanged == false)
+  }
+
+  @Test("root commit: from は notFound (<hash>^ 解決失敗), to は内容を返す")
+  func rootCommit() async throws {
+    let repo = try await makeGitRepoForRpc()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: repo)) }
+    try "only".write(
+      toFile: (repo as NSString).appendingPathComponent("a.txt"),
+      atomically: true, encoding: .utf8)
+    try await runGitForRpc(args: ["add", "a.txt"], cwd: repo)
+    try await runGitForRpc(args: ["commit", "-m", "init"], cwd: repo)
+    let head = try await readGitForRpc(args: ["rev-parse", "HEAD"], cwd: repo)
+
+    let resp = try await dispatchShowCommitFile(
+      configDir: repo, dir: repo, relPath: "a.txt", hash: head, compareHash: "")
+    #expect(resp.from.notFound == true)
+    #expect(resp.to.notFound == false)
+    #expect(resp.to.content == "only")
+    #expect(resp.unchanged == false)
+  }
+
+  @Test("範囲選択: 範囲内で変更されていないファイルは unchanged=true、変更されていれば unchanged=false")
+  func rangeUnchangedFile() async throws {
+    let repo = try await makeGitRepoForRpc()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: repo)) }
+    // <older>^ vs <newer> で older が root だと `^` 解決失敗するため、
+    // older の前に seed commit を置いて 3 commit 構成にする。
+    try "v0".write(
+      toFile: (repo as NSString).appendingPathComponent("a.txt"),
+      atomically: true, encoding: .utf8)
+    try "kept".write(
+      toFile: (repo as NSString).appendingPathComponent("b.txt"),
+      atomically: true, encoding: .utf8)
+    try await runGitForRpc(args: ["add", "a.txt", "b.txt"], cwd: repo)
+    try await runGitForRpc(args: ["commit", "-m", "seed"], cwd: repo)
+    try "v1".write(
+      toFile: (repo as NSString).appendingPathComponent("a.txt"),
+      atomically: true, encoding: .utf8)
+    try await runGitForRpc(args: ["add", "a.txt"], cwd: repo)
+    try await runGitForRpc(args: ["commit", "-m", "mod a v1"], cwd: repo)
+    let older = try await readGitForRpc(args: ["rev-parse", "HEAD"], cwd: repo)
+    try "v2".write(
+      toFile: (repo as NSString).appendingPathComponent("a.txt"),
+      atomically: true, encoding: .utf8)
+    try await runGitForRpc(args: ["add", "a.txt"], cwd: repo)
+    try await runGitForRpc(args: ["commit", "-m", "mod a v2"], cwd: repo)
+    let newer = try await readGitForRpc(args: ["rev-parse", "HEAD"], cwd: repo)
+
+    // b.txt は <older>^ = seed と <newer> どちらでも OID 同一 → unchanged=true
+    let respB = try await dispatchShowCommitFile(
+      configDir: repo, dir: repo, relPath: "b.txt", hash: newer, compareHash: older)
+    #expect(respB.unchanged == true)
+
+    // a.txt は範囲内で変更されている → unchanged=false。
+    // from = <older>^ = seed の a.txt = "v0", to = newer の a.txt = "v2"
+    let respA = try await dispatchShowCommitFile(
+      configDir: repo, dir: repo, relPath: "a.txt", hash: newer, compareHash: older)
+    #expect(respA.unchanged == false)
+    #expect(respA.from.content == "v0")
+    #expect(respA.to.content == "v2")
+  }
+}
+
+// MARK: - showCommitFile test helpers
+
+private func dispatchShowCommitFile(
+  configDir: String, dir: String, relPath: String, hash: String, compareHash: String
+) async throws -> Gozd_V1_GitShowCommitFileResponse {
+  let dispatcher = RpcDispatcher(
+    configDir: configDir,
+    onPtyText: { _, _ in },
+    onPtyExit: { _, _ in }
+  )
+  var req = Gozd_V1_GitShowCommitFileRequest()
+  req.dir = dir
+  req.relPath = relPath
+  req.hash = hash
+  req.compareHash = compareHash
+  let respData = try await dispatcher.dispatch(
+    path: "/git/showCommitFile", body: try req.jsonUTF8Data())
+  return try Gozd_V1_GitShowCommitFileResponse(jsonUTF8Data: respData)
+}
+
+private func makeGitRepoForRpc() async throws -> String {
+  let dir = try makeTempDir()
+  try await runGitForRpc(args: ["init", "-q", "-b", "main"], cwd: dir)
+  try await runGitForRpc(args: ["config", "user.name", "Test"], cwd: dir)
+  try await runGitForRpc(args: ["config", "user.email", "test@example.com"], cwd: dir)
+  return dir
+}
+
+private func runGitForRpc(args: [String], cwd: String) async throws {
+  _ = try await readGitForRpc(args: args, cwd: cwd)
+}
+
+private func readGitForRpc(args: [String], cwd: String) async throws -> String {
+  try await withCheckedThrowingContinuation {
+    (cont: CheckedContinuation<String, Error>) in
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["git"] + args
+    process.currentDirectoryURL = URL(fileURLWithPath: cwd)
+    process.environment = ProcessInfo.processInfo.environment
+    let stdoutPipe = Pipe()
+    let stderrPipe = Pipe()
+    process.standardOutput = stdoutPipe
+    process.standardError = stderrPipe
+    process.terminationHandler = { proc in
+      let outData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+      let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+      if proc.terminationStatus == 0 {
+        let text = String(decoding: outData, as: UTF8.self)
+          .trimmingCharacters(in: .whitespacesAndNewlines)
+        cont.resume(returning: text)
+      } else {
+        cont.resume(
+          throwing: NSError(
+            domain: "GitForRpc", code: Int(proc.terminationStatus),
+            userInfo: [NSLocalizedDescriptionKey: String(decoding: errData, as: UTF8.self)]))
+      }
+    }
+    do {
+      try process.run()
+    } catch {
+      cont.resume(throwing: error)
+    }
+  }
+}
+
 // MARK: - Helpers
 
 private func makeTempDir() throws -> String {

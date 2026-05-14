@@ -132,6 +132,13 @@ public actor FSWatchRegistry {
       existing.continuation.finish()
       existing.task.cancel()
       entries.removeValue(forKey: dir)
+      // entries 更新と同期して primary cache を再選出する。下流の `try await GitOps.gitDirs`
+      // で actor reentrancy が起き、sibling watcher の `handleEvents` が走った場合に、
+      // 削除済みの自分が cache 上で primary のままだと sibling は非 primary 判定で push を
+      // 落とす。await 突入前に sibling の中から最新の primary を確定させて取りこぼしを防ぐ。
+      if let oldCommonGitDir {
+        recomputePrimary(forCommonGitDir: oldCommonGitDir)
+      }
     }
 
     nextGeneration += 1
@@ -256,17 +263,14 @@ public actor FSWatchRegistry {
   private func recomputePrimary(forCommonGitDir commonGitDir: String) {
     var minDir: String?
     for (key, entry) in entries where entry.commonGitDir == commonGitDir {
-      if let current = minDir {
-        if key < current { minDir = key }
-      } else {
-        minDir = key
-      }
+      // 現在値と新候補の min を取る。Optional 対応で if-else を避ける。
+      minDir = minDir.map { Swift.min($0, key) } ?? key
     }
     if let minDir {
       primaryByCommonGitDir[commonGitDir] = minDir
-    } else {
-      primaryByCommonGitDir.removeValue(forKey: commonGitDir)
+      return
     }
+    primaryByCommonGitDir.removeValue(forKey: commonGitDir)
   }
 
   /// 1 バッチの events を分類して push event として配送する。

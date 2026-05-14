@@ -250,23 +250,25 @@ const activeRootWorktree = computed(() => {
     <!-- 確認ダイアログ -->
     <dialog
       ref="confirmRef"
-      class="fixed inset-0 m-auto flex size-fit flex-col gap-4 rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-white backdrop:bg-black/50"
+      class="backdrop:bg-black/50"
       @click="$event.target === confirmRef && closeConfirm()"
     >
-      <p class="text-sm">{{ confirmMessage }}</p>
-      <div class="flex justify-end gap-2">
-        <button
-          class="rounded-sm px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800"
-          @click="closeConfirm"
-        >
-          Cancel
-        </button>
-        <button
-          class="rounded-sm bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500"
-          @click="executeConfirm"
-        >
-          OK
-        </button>
+      <div class="space-y-4 rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-white">
+        <p class="text-sm">{{ confirmMessage }}</p>
+        <div class="flex justify-end gap-2">
+          <button
+            class="rounded-sm px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800"
+            @click="closeConfirm"
+          >
+            Cancel
+          </button>
+          <button
+            class="rounded-sm bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500"
+            @click="executeConfirm"
+          >
+            OK
+          </button>
+        </div>
       </div>
     </dialog>
 

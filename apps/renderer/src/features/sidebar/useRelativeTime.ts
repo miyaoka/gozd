@@ -1,4 +1,4 @@
-import { tryOnScopeDispose } from "@vueuse/core";
+import { useTimeoutFn } from "@vueuse/core";
 import { ref, watch, type Ref } from "vue";
 import { formatRelativeTime } from "./utils";
 
@@ -25,35 +25,40 @@ function nextBoundaryDelay(elapsed: number): number {
  * adaptive 方式（github/relative-time-element と同じ）。計算は常に `Date.now() - baseTime`
  * を直接読むため、baseTime と現在時刻が別クロックでずれて elapsed が負になることはない。
  *
- * baseTime が undefined のあいだは空文字を返し、タイマーも持たない。
+ * 経路の分離:
+ * - `watch(baseTime, apply, ...)` — 上流の baseTime 変化を引数で受けて `apply(latest)`
+ * - `useTimeoutFn` の cb — 自己反復。`baseTime.value` を読み直して `apply` に渡す
+ * - `apply(latest)` — 唯一の更新点。display を書き換え、次の境界で再 schedule
+ *
+ * baseTime が undefined のあいだは空文字を返し、タイマーは VueUse が scope dispose で
+ * 自動 stop する（`tryOnScopeDispose(stop)` が `useTimeoutFn` 内部に含まれている）。
  */
 export function useRelativeTime(baseTime: Ref<number | undefined>): Ref<string> {
   const display = ref("");
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  const nextDelay = ref(MINUTE_MS);
 
-  function clear() {
-    if (timer !== undefined) {
-      clearTimeout(timer);
-      timer = undefined;
-    }
-  }
+  const { start, stop } = useTimeoutFn(
+    () => {
+      apply(baseTime.value);
+    },
+    nextDelay,
+    { immediate: false },
+  );
 
-  function tick() {
-    const bt = baseTime.value;
-    if (bt === undefined) {
+  function apply(latest: number | undefined) {
+    if (latest === undefined) {
       display.value = "";
-      clear();
+      stop();
       return;
     }
     const now = Date.now();
-    const elapsed = now - bt;
-    display.value = formatRelativeTime(bt, now);
-    clear();
-    timer = setTimeout(tick, nextBoundaryDelay(elapsed));
+    display.value = formatRelativeTime(latest, now);
+    nextDelay.value = nextBoundaryDelay(now - latest);
+    stop();
+    start();
   }
 
-  watch(baseTime, tick, { immediate: true });
-  tryOnScopeDispose(clear);
+  watch(baseTime, apply, { immediate: true });
 
   return display;
 }

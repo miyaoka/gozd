@@ -131,11 +131,14 @@ function onHeaderClick() {
 
 <template>
   <article class="rounded-lg">
-    <button
-      type="button"
+    <div
+      role="button"
+      tabindex="0"
       :data-active="headerActive"
-      class="group/wt grid w-full grid-cols-[auto_1fr_auto_auto_auto] items-center gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none focus-visible:ring-inset data-[active=true]:bg-blue-500 data-[active=true]:text-white"
+      class="group/wt grid w-full cursor-pointer grid-cols-[auto_1fr_auto_auto_auto] items-center gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none focus-visible:ring-inset data-[active=true]:bg-blue-500 data-[active=true]:text-white"
       @click="onHeaderClick"
+      @keydown.enter.prevent="onHeaderClick"
+      @keydown.space.prevent="onHeaderClick"
     >
       <span class="size-5 shrink-0" :class="branchIcon" aria-hidden="true" />
       <span class="truncate text-left text-sm font-medium">{{ branchLabel }}</span>
@@ -168,7 +171,7 @@ function onHeaderClick() {
       >
         <span class="icon-[lucide--ellipsis-vertical] text-sm" />
       </button>
-    </button>
+    </div>
 
     <div v-if="tasksWithStatus.length > 0" class="p-1">
       <TaskRow

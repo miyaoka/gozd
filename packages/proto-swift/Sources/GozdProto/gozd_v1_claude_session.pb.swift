@@ -128,6 +128,11 @@ public struct Gozd_V1_ClaudeSessionRemoveByPtyResponse: Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  /// 削除した session_id。renderer が repoStore の WorktreeEntry.tasks から
+  /// 該当 Task を即時削除するために使う。pty に session が紐付いていなかった
+  /// 場合は空文字。
+  public var removedSessionID: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -369,18 +374,29 @@ extension Gozd_V1_ClaudeSessionRemoveByPtyRequest: SwiftProtobuf.Message, SwiftP
 
 extension Gozd_V1_ClaudeSessionRemoveByPtyResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ClaudeSessionRemoveByPtyResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}removed_session_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    // Load everything into unknown fields
-    while try decoder.nextFieldNumber() != nil {}
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.removedSessionID) }()
+      default: break
+      }
+    }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.removedSessionID.isEmpty {
+      try visitor.visitSingularStringField(value: self.removedSessionID, fieldNumber: 1)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Gozd_V1_ClaudeSessionRemoveByPtyResponse, rhs: Gozd_V1_ClaudeSessionRemoveByPtyResponse) -> Bool {
+    if lhs.removedSessionID != rhs.removedSessionID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

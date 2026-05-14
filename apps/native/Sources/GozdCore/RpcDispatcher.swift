@@ -760,19 +760,33 @@ public actor RpcDispatcher {
     // do-catch + 後置クリアで順序を保証する。
     // これにより「Claude 起動直後の closePane」で発生しうる upsert race を構造的に防ぐ。
     var removeError: Error?
+    var removedSessionId = ""
     if let sessionId = await pty.sessionId(for: req.ptyID), !sessionId.isEmpty {
+      removedSessionId = sessionId
       do {
         try await claudeSessions.removeBySessionId(
           worktreePath: req.worktreePath, sessionId: sessionId)
       } catch {
         removeError = error
       }
+      // Task = session の同一視 (issue #504): TaskStore からも掃除する。
+      // ターミナル close は session-end hook を発火させないため、ここで明示削除
+      // しないと Task が tasks.json に残り続けてサイドバーに居座る。
+      // claudeSessions 側のエラーを優先するため、tasks 側のエラーはログのみ。
+      do {
+        try await tasks.removeBySession(dir: req.worktreePath, sessionId: sessionId)
+      } catch {
+        FileHandle.standardError.write(
+          Data("[TaskStore] removeBySession (removeByPty) failed: \(error)\n".utf8))
+      }
     }
     await pty.clearAssociations(for: req.ptyID)
     if let error = removeError {
       throw error
     }
-    return try Gozd_V1_ClaudeSessionRemoveByPtyResponse().jsonUTF8Data()
+    var resp = Gozd_V1_ClaudeSessionRemoveByPtyResponse()
+    resp.removedSessionID = removedSessionId
+    return try resp.jsonUTF8Data()
   }
 
   // MARK: - tasks

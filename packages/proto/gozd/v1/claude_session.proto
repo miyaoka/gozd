@@ -53,4 +53,9 @@ message ClaudeSessionRemoveByPtyRequest {
   string worktree_path = 2;
 }
 
-message ClaudeSessionRemoveByPtyResponse {}
+message ClaudeSessionRemoveByPtyResponse {
+  // 削除した session_id。renderer が repoStore の WorktreeEntry.tasks から
+  // 該当 Task を即時削除するために使う。pty に session が紐付いていなかった
+  // 場合は空文字。
+  string removed_session_id = 1;
+}

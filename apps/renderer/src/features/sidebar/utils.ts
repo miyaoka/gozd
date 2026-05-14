@@ -22,12 +22,6 @@ export function hasChanges(gitStatuses: Record<string, string> | undefined): boo
   return Object.keys(gitStatuses).length > 0;
 }
 
-/** パスから末尾のディレクトリ名を取得 */
-function dirName(p: string): string {
-  const lastSlash = p.lastIndexOf("/");
-  return lastSlash === -1 ? p : p.slice(lastSlash + 1);
-}
-
 const SECOND_MS = 1000;
 const MINUTE_MS = 60 * SECOND_MS;
 const HOUR_MS = 60 * MINUTE_MS;

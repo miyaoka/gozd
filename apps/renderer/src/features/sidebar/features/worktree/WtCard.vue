@@ -41,7 +41,6 @@ const props = defineProps<{
   focusedPtyId: number | undefined;
   terminalCount: number;
   resumeableSessionCount: number;
-  now: number;
 }>();
 
 const emit = defineEmits<{
@@ -84,9 +83,9 @@ function resolveStateKey(status: ClaudeStatus | undefined, ptyId: number | undef
 }
 
 function resolveBaseTime(status: ClaudeStatus | undefined, fallback: number): number {
-  if (status === undefined) return fallback;
-  if (status.state === "working") return status.lastActivityAt;
-  return status.enteredAt;
+  // status があれば lastActivityAt（Claude が最後に動いた時刻）を返す。
+  // status 不在（resumable）のみ fallback（task.createdAt）を使う。
+  return status?.lastActivityAt ?? fallback;
 }
 
 const tasksWithStatus = computed<TaskWithStatus[]>(() => {
@@ -188,7 +187,6 @@ function onHeaderClick() {
         :task="entry.task"
         :status="entry.status"
         :active="focusedTaskId === entry.task.id"
-        :now="now"
         @select="(t) => emit('selectTask', wt, t)"
       />
     </div>

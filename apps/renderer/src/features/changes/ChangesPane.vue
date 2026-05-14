@@ -36,7 +36,7 @@ Changed files tree. Shows HEAD vs working directory by default, or a selected co
 <script setup lang="ts">
 import type { GitCommit, GitFileChange } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
-import { computed, ref, watch, watchEffect } from "vue";
+import { computed, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { rpcGitCommitFiles, useGitGraphStore } from "../git-graph";
 import {
@@ -152,15 +152,19 @@ const fileCount = computed(() => fileChanges.value.length);
  */
 const tree = ref<ChangesTreeNode[]>([]);
 
-watchEffect(() => {
-  const result = tryCatch(() => buildChangesTree(fileChanges.value));
-  if (result.ok) {
-    tree.value = result.value;
-    return;
-  }
-  tree.value = [];
-  notify.error("Failed to build changes tree", result.error);
-});
+watch(
+  fileChanges,
+  (changes) => {
+    const result = tryCatch(() => buildChangesTree(changes));
+    if (result.ok) {
+      tree.value = result.value;
+      return;
+    }
+    tree.value = [];
+    notify.error("Failed to build changes tree", result.error);
+  },
+  { immediate: true },
+);
 
 /** 折りたたみ中フォルダの fullPath 集合（デフォルトは全展開） */
 const collapsedFolders = ref<Set<string>>(new Set());

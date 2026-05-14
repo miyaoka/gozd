@@ -210,7 +210,7 @@ export const useTerminalStore = defineStore("terminal", () => {
               // 待つと、次のサイドバー操作まで古い値が出続けるため。dir はプロジェクト
               // 内の任意 dir として projectKey 解決に使える。
               await refreshSavedSessionCounts([dir], dir);
-              // session = Task の同一視 (issue #504): Swift 側で TaskStore から
+              // session = Task の同一視: Swift 側で TaskStore から
               // 削除済み。useSidebarData がこの ref を watch して所属 repo を
               // refetch することで WorktreeEntry.tasks から消えた Task を反映する。
               // terminalStore は repoStore に依存させない (Pinia setup での循環を避ける)。
@@ -301,7 +301,6 @@ export const useTerminalStore = defineStore("terminal", () => {
     });
 
     disposeHookListener = onMessage<HookPayload>("hook", (payload) => {
-      console.log("[DEBUG] hook payload received", payload);
       const { event, ptyId } = payload;
       if (!isHookEvent(event)) return;
       // claudeStatus.ts は snake_case の payload を期待するので boundary で変換する
@@ -437,12 +436,24 @@ export const useTerminalStore = defineStore("terminal", () => {
     return paneRegistry.value[leafId]?.session?.ptyId;
   }
 
-  /** ptyId に対応する leafId を返す。線形探索 (1 wt 内の leaf 数は実用域で少数) */
-  function getLeafIdByPtyId(ptyId: number): string | undefined {
+  /**
+   * `paneRegistry` (ウィンドウ全体の leaf 数) からの逆引き Map。session-start /
+   * tool-done など hook イベントの度に参照されるため、毎回 Object.entries で
+   * 線形探索すると wt 数 × leaf 数のコストが乗る。computed で派生させて
+   * `paneRegistry` 変化時にのみ再構築する。
+   */
+  const leafIdByPtyId = computed(() => {
+    const map = new Map<number, string>();
     for (const [leafId, pane] of Object.entries(paneRegistry.value)) {
-      if (pane?.session?.ptyId === ptyId) return leafId;
+      const ptyId = pane?.session?.ptyId;
+      if (ptyId !== undefined) map.set(ptyId, leafId);
     }
-    return undefined;
+    return map;
+  });
+
+  /** ptyId に対応する leafId を返す。`leafIdByPtyId` 経由で O(1) */
+  function getLeafIdByPtyId(ptyId: number): string | undefined {
+    return leafIdByPtyId.value.get(ptyId);
   }
 
   // --- CWD ---
@@ -454,7 +465,6 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   /** OSC 0/2 で通知されたタイトルを保存する */
   function setTitle(leafId: string, title: string) {
-    console.log("[DEBUG] terminalStore.setTitle", { leafId, title });
     if (title === "") {
       delete titleByLeafId.value[leafId];
     } else {

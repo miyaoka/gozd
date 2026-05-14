@@ -89,7 +89,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
   /** PTY ごとの直近 tail バッファ。チャンク分割でマーカーが跨いだ場合に備える */
   const ptyTailBuffers = new Map<number, string>();
   /** sessionId ↔ ptyId のマッピング。session-start hook で確立、session-end / cleanup で破棄。
-   *  task.id == sessionId の同一視ルール (issue #504) により、task 行から status を引くために使う。 */
+   *  task.id == sessionId の同一視ルール により、task 行から status を引くために使う。 */
   const ptyIdBySessionId = new Map<string, number>();
   const sessionIdByPtyId = new Map<number, string>();
 
@@ -117,7 +117,6 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
       case "session-start": {
         cancelAskTimer(ptyId);
         const sessionId = typeof payload.session_id === "string" ? payload.session_id : "";
-        console.log("[DEBUG] claudeStatus session-start", { ptyId, sessionId, payload });
         if (sessionId !== "") {
           // 同 ptyId に旧 sessionId が紐付いていた場合は先に解除する。
           // /clear や /resume で session が切り替わった時、旧 mapping が残ると

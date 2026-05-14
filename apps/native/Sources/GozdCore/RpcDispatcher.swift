@@ -667,9 +667,22 @@ public actor RpcDispatcher {
     // Working Tree 端の扱いは renderer 側で分岐し、wire には常に実 git hash のみ流れる契約。
     let olderEnd = req.compareHash.isEmpty ? req.hash : req.compareHash
     let fromHash = "\(olderEnd)^"
-    resp.from = await fileReadResultFromGit(
+    // content と OID を並行取得。両端の blob OID が一致すれば
+    // 「コミット範囲で変更なし」として renderer に伝える（Filer 経由の非変更ファイル選択を救済）。
+    async let fromContent = fileReadResultFromGit(
       dir: req.dir, hash: fromHash, relPath: req.relPath)
-    resp.to = await fileReadResultFromGit(dir: req.dir, hash: req.hash, relPath: req.relPath)
+    async let toContent = fileReadResultFromGit(
+      dir: req.dir, hash: req.hash, relPath: req.relPath)
+    async let fromOID = GitOps.treeFileOID(
+      dir: req.dir, hash: fromHash, relPath: req.relPath)
+    async let toOID = GitOps.treeFileOID(
+      dir: req.dir, hash: req.hash, relPath: req.relPath)
+    let (from, to, fOID, tOID) = await (fromContent, toContent, fromOID, toOID)
+    resp.from = from
+    resp.to = to
+    if let fOID, let tOID {
+      resp.unchanged = fOID == tOID
+    }
     return try resp.jsonUTF8Data()
   }
 

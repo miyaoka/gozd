@@ -219,61 +219,66 @@ async function fetchContent(path: string, gitChange: GitChangeKind | undefined) 
   const version = ++fetchVersion;
   fetchVersionRef.value = version;
 
-  try {
-    const isDeleted = gitChange === "deleted";
-    const hasDiff = hasGitDiff(gitChange);
+  const isDeleted = gitChange === "deleted";
+  const hasDiff = hasGitDiff(gitChange);
 
-    // 絶対パスの場合は fsReadFileAbsolute を使い、git 操作は不要
-    const isAbsolute = path.startsWith("/");
+  // 絶対パスの場合は fsReadFileAbsolute を使い、git 操作は不要
+  const isAbsolute = path.startsWith("/");
 
-    const dir = worktreeStore.dir;
-    if (dir === undefined) return;
-
-    // 並列でデータ取得
-    const currentPromise = isDeleted
-      ? Promise.resolve(undefined)
-      : isAbsolute
-        ? rpcFsReadFileAbsolute({ absolutePath: path }).then((r) => r.result)
-        : rpcFsReadFile({ dir, path }).then((r) => ({
-            content: r.content,
-            isBinary: r.isBinary,
-            isDirectory: r.isDirectory,
-            notFound: r.notFound,
-          }));
-    const originalPromise =
-      !isAbsolute && (hasDiff || isDeleted)
-        ? rpcGitShowFile({ dir, relPath: path }).then((r) => r.result)
-        : Promise.resolve(undefined);
-    const [currentResult, originalResult] = await Promise.all([currentPromise, originalPromise]);
-
-    // 別の読み込みが開始された場合は結果を破棄
-    if (version !== fetchVersion) return;
-
-    isDirectory.value = currentResult?.isDirectory ?? false;
-    isNotFound.value = currentResult?.notFound ?? false;
-
-    if (currentResult !== undefined) {
-      currentContent.value = currentResult.content;
-      isBinary.value = currentResult.isBinary;
-    } else {
-      currentContent.value = undefined;
-      isBinary.value = false;
-    }
-    if (originalResult !== undefined) {
-      originalContent.value = originalResult.content;
-      isOriginalBinary.value = originalResult.isBinary;
-    } else {
-      originalContent.value = undefined;
-      isOriginalBinary.value = false;
-    }
-  } catch (e) {
-    if (version !== fetchVersion) return;
-    error.value = e instanceof Error ? e.message : "Failed to read file";
-  } finally {
-    if (version === fetchVersion) {
-      loading.value = false;
-    }
+  const dir = worktreeStore.dir;
+  if (dir === undefined) {
+    if (version === fetchVersion) loading.value = false;
+    return;
   }
+
+  // 並列でデータ取得
+  const currentPromise = isDeleted
+    ? Promise.resolve(undefined)
+    : isAbsolute
+      ? rpcFsReadFileAbsolute({ absolutePath: path }).then((r) => r.result)
+      : rpcFsReadFile({ dir, path }).then((r) => ({
+          content: r.content,
+          isBinary: r.isBinary,
+          isDirectory: r.isDirectory,
+          notFound: r.notFound,
+        }));
+  const originalPromise =
+    !isAbsolute && (hasDiff || isDeleted)
+      ? rpcGitShowFile({ dir, relPath: path }).then((r) => r.result)
+      : Promise.resolve(undefined);
+  const fetchResult = await tryCatch(Promise.all([currentPromise, originalPromise]));
+
+  // 別の読み込みが開始された場合は結果を破棄
+  if (version !== fetchVersion) return;
+
+  if (!fetchResult.ok) {
+    error.value = fetchResult.error.message;
+    notification.error("Failed to read file", fetchResult.error);
+    loading.value = false;
+    return;
+  }
+
+  const [currentResult, originalResult] = fetchResult.value;
+
+  isDirectory.value = currentResult?.isDirectory ?? false;
+  isNotFound.value = currentResult?.notFound ?? false;
+
+  if (currentResult !== undefined) {
+    currentContent.value = currentResult.content;
+    isBinary.value = currentResult.isBinary;
+  } else {
+    currentContent.value = undefined;
+    isBinary.value = false;
+  }
+  if (originalResult !== undefined) {
+    originalContent.value = originalResult.content;
+    isOriginalBinary.value = originalResult.isBinary;
+  } else {
+    originalContent.value = undefined;
+    isOriginalBinary.value = false;
+  }
+
+  loading.value = false;
 }
 
 /** コミットモード時のファイル内容取得 */
@@ -325,6 +330,8 @@ async function fetchCommitContent(filePath: string) {
             isBinary: fsResult.isBinary,
             notFound: fsResult.notFound,
           },
+          // Working Tree との比較は git blob OID が無いので unchanged 判定なし。
+          unchanged: false,
         };
       }
       const showResult = await rpcGitShowCommitFile({
@@ -333,7 +340,7 @@ async function fetchCommitContent(filePath: string) {
         hash: newer,
         compareHash: older ?? "",
       });
-      return { from: showResult.from, to: showResult.to };
+      return { from: showResult.from, to: showResult.to, unchanged: showResult.unchanged };
     })(),
   );
 
@@ -346,17 +353,11 @@ async function fetchCommitContent(filePath: string) {
     return;
   }
 
-  const { from, to } = fetchResult.value;
+  // unchanged は Swift 側で from と to の blob OID 比較から導出される SSOT 判定。
+  // Filer 経由でコミット範囲外（差分のない）ファイルを選んだ場合の救済はここに寄せる。
+  const { from, to, unchanged } = fetchResult.value;
   const fromNotFound = from?.notFound ?? true;
   const toNotFound = to?.notFound ?? true;
-
-  // from / to が両方存在しかつ内容も同一なら「この範囲では変更なし」。
-  // Filer から非変更ファイルを選んだ場合に Diff タブを出さないために必要な判定。
-  const unchanged =
-    !fromNotFound &&
-    !toNotFound &&
-    from?.content === to?.content &&
-    from?.isBinary === to?.isBinary;
 
   if (fromNotFound && toNotFound) {
     commitGitChange.value = undefined;

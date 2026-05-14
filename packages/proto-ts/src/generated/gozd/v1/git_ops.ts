@@ -133,7 +133,15 @@ export interface GitShowCommitFileRequest {
 
 export interface GitShowCommitFileResponse {
   from: FileReadResult | undefined;
-  to: FileReadResult | undefined;
+  to:
+    | FileReadResult
+    | undefined;
+  /**
+   * from と to の指す blob OID が一致しているか。
+   * Filer 経由でコミット範囲外（差分のない）ファイルを選んだ場合の
+   * 「Diff タブを出さない」判定の SSOT。renderer 側 content 比較は使わない。
+   */
+  unchanged: boolean;
 }
 
 /**
@@ -973,7 +981,7 @@ export const GitShowCommitFileRequest: MessageFns<GitShowCommitFileRequest> = {
 };
 
 function createBaseGitShowCommitFileResponse(): GitShowCommitFileResponse {
-  return { from: undefined, to: undefined };
+  return { from: undefined, to: undefined, unchanged: false };
 }
 
 export const GitShowCommitFileResponse: MessageFns<GitShowCommitFileResponse> = {
@@ -983,6 +991,9 @@ export const GitShowCommitFileResponse: MessageFns<GitShowCommitFileResponse> = 
     }
     if (message.to !== undefined) {
       FileReadResult.encode(message.to, writer.uint32(18).fork()).join();
+    }
+    if (message.unchanged !== false) {
+      writer.uint32(24).bool(message.unchanged);
     }
     return writer;
   },
@@ -1010,6 +1021,14 @@ export const GitShowCommitFileResponse: MessageFns<GitShowCommitFileResponse> = 
           message.to = FileReadResult.decode(reader, reader.uint32());
           continue;
         }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.unchanged = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1023,6 +1042,7 @@ export const GitShowCommitFileResponse: MessageFns<GitShowCommitFileResponse> = 
     return {
       from: isSet(object.from) ? FileReadResult.fromJSON(object.from) : undefined,
       to: isSet(object.to) ? FileReadResult.fromJSON(object.to) : undefined,
+      unchanged: isSet(object.unchanged) ? globalThis.Boolean(object.unchanged) : false,
     };
   },
 
@@ -1033,6 +1053,9 @@ export const GitShowCommitFileResponse: MessageFns<GitShowCommitFileResponse> = 
     }
     if (message.to !== undefined) {
       obj.to = FileReadResult.toJSON(message.to);
+    }
+    if (message.unchanged !== false) {
+      obj.unchanged = message.unchanged;
     }
     return obj;
   },
@@ -1046,6 +1069,7 @@ export const GitShowCommitFileResponse: MessageFns<GitShowCommitFileResponse> = 
       ? FileReadResult.fromPartial(object.from)
       : undefined;
     message.to = (object.to !== undefined && object.to !== null) ? FileReadResult.fromPartial(object.to) : undefined;
+    message.unchanged = object.unchanged ?? false;
     return message;
   },
 };

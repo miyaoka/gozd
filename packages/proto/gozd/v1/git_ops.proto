@@ -54,6 +54,10 @@ message GitShowCommitFileRequest {
 message GitShowCommitFileResponse {
   FileReadResult from = 1;
   FileReadResult to = 2;
+  // from と to の指す blob OID が一致しているか。
+  // Filer 経由でコミット範囲外（差分のない）ファイルを選んだ場合の
+  // 「Diff タブを出さない」判定の SSOT。renderer 側 content 比較は使わない。
+  bool unchanged = 3;
 }
 
 // gitCommitFiles: コミット（または範囲指定）の変更ファイル一覧

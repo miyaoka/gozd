@@ -49,15 +49,15 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 
 `GitOps.commitFiles` のファイル一覧 (`<older>^ vs <newer>`) と endpoint を揃えてあるため、Changes パネルのファイル一覧と Preview の diff が常に一致する。
 
-| 変更種別                                    | 利用可能なモード               | デフォルト |
-| ------------------------------------------- | ------------------------------ | ---------- |
-| modified（from/to 両方あり + 内容差分あり） | Original, Diff, Current        | Diff       |
-| 変更なし（from/to 両方あり + 内容同一）     | Current                        | Current    |
-| added（from なし、to あり）                 | Current                        | Current    |
-| deleted（from あり、to なし）               | Original                       | Original   |
-| 両方 not found                              | Current（File not found 表示） | Current    |
+| 変更種別                                     | 利用可能なモード               | デフォルト |
+| -------------------------------------------- | ------------------------------ | ---------- |
+| modified（from/to 両方あり + OID 差分あり）  | Original, Diff, Current        | Diff       |
+| 変更なし（from/to 両方あり + blob OID 同一） | Current                        | Current    |
+| added（from なし、to あり）                  | Current                        | Current    |
+| deleted（from あり、to なし）                | Original                       | Original   |
+| 両方 not found                               | Current（File not found 表示） | Current    |
 
-「変更なし」判定は Filer 経由でコミット範囲外のファイルを選択したケースを救済する。Changes 経由では差分のあるファイルしかリストされないため発生しない。
+「変更なし」判定は Filer 経由でコミット範囲外のファイルを選択したケースを救済する。Changes 経由では差分のあるファイルしかリストされないため発生しない。判定の SSOT は `gitShowCommitFile` 応答の `unchanged` フィールド（Swift 側で `git rev-parse <hash>:<path>` の blob OID 比較から導出）に置き、renderer 内のテキスト比較は行わない。Working Tree 端を含む範囲選択は OID が無いため `unchanged=false` で扱う。
 
 ### Original タブの hash 表示
 

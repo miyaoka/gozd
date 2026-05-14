@@ -352,6 +352,20 @@ public enum GitOps {
     return try await runGit(args: ["show", "\(hash):\(relPath)"], cwd: dir)
   }
 
+  /// `git rev-parse <hash>:<path>` でファイルの blob OID を返す。
+  /// hash 自体が解決不能（root の `^` 等）／path 未追跡なら nil。
+  /// from と to の OID が一致すれば「コミット範囲で変更なし」の SSOT 判定として使える。
+  public static func treeFileOID(dir: String, hash: String, relPath: String) async -> String? {
+    do {
+      let stdout = try await runGit(args: ["rev-parse", "\(hash):\(relPath)"], cwd: dir)
+      let line = String(decoding: stdout, as: UTF8.self)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      return line.isEmpty ? nil : line
+    } catch {
+      return nil
+    }
+  }
+
   /// 指定コミット（または範囲指定）の name-status 差分を返す。
   ///
   /// - 単一コミット非ルート: `git diff <hash>^ <hash>` で first parent との比較。

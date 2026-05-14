@@ -248,6 +248,11 @@ public struct Gozd_V1_GitShowCommitFileResponse: Sendable {
   /// Clears the value of `to`. Subsequent reads from it will return its default value.
   public mutating func clearTo() {self._to = nil}
 
+  /// from と to の指す blob OID が一致しているか。
+  /// Filer 経由でコミット範囲外（差分のない）ファイルを選んだ場合の
+  /// 「Diff タブを出さない」判定の SSOT。renderer 側 content 比較は使わない。
+  public var unchanged: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -848,7 +853,7 @@ extension Gozd_V1_GitShowCommitFileRequest: SwiftProtobuf.Message, SwiftProtobuf
 
 extension Gozd_V1_GitShowCommitFileResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GitShowCommitFileResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}from\0\u{1}to\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}from\0\u{1}to\0\u{1}unchanged\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -858,6 +863,7 @@ extension Gozd_V1_GitShowCommitFileResponse: SwiftProtobuf.Message, SwiftProtobu
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularMessageField(value: &self._from) }()
       case 2: try { try decoder.decodeSingularMessageField(value: &self._to) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.unchanged) }()
       default: break
       }
     }
@@ -874,12 +880,16 @@ extension Gozd_V1_GitShowCommitFileResponse: SwiftProtobuf.Message, SwiftProtobu
     try { if let v = self._to {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
     } }()
+    if self.unchanged != false {
+      try visitor.visitSingularBoolField(value: self.unchanged, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Gozd_V1_GitShowCommitFileResponse, rhs: Gozd_V1_GitShowCommitFileResponse) -> Bool {
     if lhs._from != rhs._from {return false}
     if lhs._to != rhs._to {return false}
+    if lhs.unchanged != rhs.unchanged {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

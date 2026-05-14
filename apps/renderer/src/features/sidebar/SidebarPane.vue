@@ -8,7 +8,7 @@
 - 各 RepoSection は header (folder + repo 名) + WtCard 列 (main wt 先頭固定) + `+ New worktree`
 - 編集モード中: 全 section が collapsed + drag で並び替え + ✕ で削除 + 末尾に `+ Add directory`
 
-## クリック挙動 (issue #504)
+## クリック挙動
 
 - WtCard ヘッダクリック: `worktreeStore.dir` をその wt に切り替え。focus は wt の `focusedLeafId` 維持
 - TaskRow クリック: wt を active にしたうえで、task に対応する PTY の leaf を `focusPane`

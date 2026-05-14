@@ -34,7 +34,7 @@ export const rpcGitWorktreeRemove = (req: GitWorktreeRemoveRequest) =>
 
 // --- task ---
 
-// session = Task の同一視ルール (issue #504) で Task の生成 / 削除は session
+// task = session の同一視ルールで Task の生成 / 削除は session
 // hook が自動化する。renderer から書くのは OSC ターミナルタイトル → body
 // の同期 (rpcTaskUpdate) のみ。
 export const rpcTaskUpdate = (req: TaskUpdateRequest) =>

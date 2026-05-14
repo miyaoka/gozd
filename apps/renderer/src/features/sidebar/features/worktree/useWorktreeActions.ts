@@ -24,7 +24,7 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
   const terminalStore = useTerminalStore();
   const repoStore = useRepoStore();
 
-  const isCreating = ref(false);
+  const creatingRootDirs = ref(new Set<string>());
 
   function handleWorktreeSelect(wt: WorktreeEntry) {
     terminalStore.viewMode = "wt";
@@ -47,37 +47,43 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
 
   /** タイムスタンプで即座に新規 worktree を作成する（Task なし） */
   async function addWorktree(rootDir: string) {
-    if (isCreating.value) return;
-    isCreating.value = true;
-    // default branch を起点にする。Swift 側で `origin/HEAD` を優先し、未設定
-    // （remote 無し / push 前 repo）の場合は main repo root 自身の current branch に
-    // fallback した ref を受け取り、`startPoint` に渡す。
-    const branchResult = await tryCatch(rpcGitDefaultBranch({ dir: rootDir }));
-    if (!branchResult.ok || branchResult.value.branch === "") {
-      notify.error(
-        "Failed to resolve default branch",
-        branchResult.ok ? undefined : branchResult.error,
+    if (creatingRootDirs.value.has(rootDir)) return;
+    creatingRootDirs.value.add(rootDir);
+    try {
+      // default branch を起点にする。Swift 側で `origin/HEAD` を優先し、未設定
+      // （remote 無し / push 前 repo）の場合は main repo root 自身の current branch に
+      // fallback した ref を受け取り、`startPoint` に渡す。
+      const branchResult = await tryCatch(rpcGitDefaultBranch({ dir: rootDir }));
+      if (!branchResult.ok || branchResult.value.branch === "") {
+        notify.error(
+          "Failed to resolve default branch",
+          branchResult.ok ? undefined : branchResult.error,
+        );
+        return;
+      }
+      const timestamp = generateTimestamp();
+      const result = await tryCatch(
+        rpcCreateWorktree({
+          dir: rootDir,
+          worktreeDir: timestamp,
+          branch: timestamp,
+          startPoint: branchResult.value.branch,
+        }),
       );
-      isCreating.value = false;
-      return;
+      if (result.ok && result.value.worktree !== undefined) {
+        repoStore.appendWorktree(rootDir, result.value.worktree);
+        terminalStore.viewMode = "wt";
+        worktreeStore.setOpen(result.value.dir);
+      } else {
+        notify.error("Failed to add worktree", result.ok ? undefined : result.error);
+      }
+    } finally {
+      creatingRootDirs.value.delete(rootDir);
     }
-    const timestamp = generateTimestamp();
-    const result = await tryCatch(
-      rpcCreateWorktree({
-        dir: rootDir,
-        worktreeDir: timestamp,
-        branch: timestamp,
-        startPoint: branchResult.value.branch,
-      }),
-    );
-    if (result.ok && result.value.worktree !== undefined) {
-      repoStore.appendWorktree(rootDir, result.value.worktree);
-      terminalStore.viewMode = "wt";
-      worktreeStore.setOpen(result.value.dir);
-    } else {
-      notify.error("Failed to add worktree", result.ok ? undefined : result.error);
-    }
-    isCreating.value = false;
+  }
+
+  function isCreatingFor(rootDir: string): boolean {
+    return creatingRootDirs.value.has(rootDir);
   }
 
   /** worktree 解除: 通常削除 → 失敗時に確認の上 --force */
@@ -105,7 +111,7 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
   }
 
   return {
-    isCreating,
+    isCreatingFor,
     handleWorktreeSelect,
     addWorktree,
     handleWorktreeRemove,

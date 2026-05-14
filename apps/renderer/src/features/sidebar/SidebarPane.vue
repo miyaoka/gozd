@@ -56,9 +56,10 @@ useSidebarData();
 
 const { confirmRef, confirmMessage, showConfirm, closeConfirm, executeConfirm } = useDialogs();
 
-const { isCreating, handleWorktreeSelect, addWorktree, handleWorktreeRemove } = useWorktreeActions({
-  showConfirm,
-});
+const { isCreatingFor, handleWorktreeSelect, addWorktree, handleWorktreeRemove } =
+  useWorktreeActions({
+    showConfirm,
+  });
 
 // --- 経過時間表示用の現在時刻 ---
 
@@ -232,7 +233,7 @@ const activeRootWorktree = computed(() => {
           :index="i"
           :edit-mode="editMode"
           :active-dir="worktreeStore.dir"
-          :is-creating="isCreating"
+          :is-creating="isCreatingFor(rootDir)"
           :now="now"
           :get-resumeable-session-count="terminalStore.getResumeableSessionCount"
           :get-terminal-count="getTerminalCount"

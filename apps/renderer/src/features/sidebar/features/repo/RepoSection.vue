@@ -2,13 +2,17 @@
 1 つの repo を表すサイドバーセクション。
 
 ヘッダ (chevron + folder アイコン + repo 名 + 編集モード時の ✕) と、
-配下の WtCard 列 (main wt 先頭固定、その後 state 優先順) + `+ New worktree`。
+配下の WtCard 列 (main wt 先頭固定、その後 worktrees 配列順) + `+ New worktree`。
 
 ## 並び順
 
 1. main wt
-2. その他 wt: 内側で最も優先度が高い task の state 順 (asking > working > done > idle > resumable)
+2. その他 wt: repoStore.worktrees の append 順を維持 (= git worktree list の順)
 3. `+ New worktree` ボタン
+
+state による並び替えは行わない。Claude 起動 / 状態遷移でカード位置が動くと
+「どこに何があるか」を覚えていられないため、位置は静的に保ち、状態は state
+アイコンで識別する。
 
 ## 操作
 
@@ -21,22 +25,7 @@ import { useSortable } from "@dnd-kit/vue/sortable";
 import type { Task, WorktreeEntry } from "@gozd/proto";
 import { computed, useTemplateRef } from "vue";
 import { useRepoStore } from "../../../../shared/repo";
-import type { ClaudeStatus } from "../../../terminal";
 import { WtCard } from "../worktree";
-
-type StateKey = "asking" | "working" | "done" | "idle" | "resumable";
-const STATE_PRIORITY: Record<StateKey, number> = {
-  asking: 4,
-  working: 3,
-  done: 2,
-  idle: 1,
-  resumable: 0,
-};
-
-function statusToKey(status: ClaudeStatus | undefined): StateKey {
-  if (status === undefined) return "resumable";
-  return status.state;
-}
 
 const props = defineProps<{
   rootDir: string;
@@ -45,7 +34,6 @@ const props = defineProps<{
   activeDir: string | undefined;
   isCreating: boolean;
   now: number;
-  getClaudeStatuses: (dir: string) => ClaudeStatus[];
   getResumeableSessionCount: (dir: string) => number;
   getTerminalCount: (dir: string) => number;
   getFocusedPtyId: (dir: string) => number | undefined;
@@ -68,32 +56,14 @@ const collapsed = computed(() => repoStore.isCollapsed(props.rootDir));
 
 const worktrees = computed(() => repo.value?.worktrees ?? []);
 
-/** main wt 先頭固定、その他は内部最優先 status の優先度順 (時刻新しい順で同点解消) */
+/**
+ * main wt 先頭固定、その他は repoStore の worktrees 配列順を維持。
+ * Claude state による並び替えは行わない (位置の安定性を優先)。
+ */
 const orderedWorktrees = computed(() => {
-  const all = [...worktrees.value];
+  const all = worktrees.value;
   const main = all.find((wt) => wt.isMain);
   const others = all.filter((wt) => !wt.isMain);
-
-  function topStateKey(wt: WorktreeEntry): StateKey {
-    const statuses = props.getClaudeStatuses(wt.path);
-    let best: StateKey = "resumable";
-    let bestScore = -1;
-    for (const status of statuses) {
-      const key = statusToKey(status);
-      const score = STATE_PRIORITY[key];
-      if (score > bestScore) {
-        bestScore = score;
-        best = key;
-      }
-    }
-    return best;
-  }
-
-  others.sort((a, b) => {
-    const diff = STATE_PRIORITY[topStateKey(b)] - STATE_PRIORITY[topStateKey(a)];
-    if (diff !== 0) return diff;
-    return a.path.localeCompare(b.path);
-  });
   return main !== undefined ? [main, ...others] : others;
 });
 

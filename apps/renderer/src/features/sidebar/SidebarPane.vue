@@ -226,7 +226,6 @@ const activeRootWorktree = computed(() => {
           :active-dir="worktreeStore.dir"
           :is-creating="isCreating"
           :now="now"
-          :get-claude-statuses="terminalStore.getClaudeStatusesByDir"
           :get-resumeable-session-count="terminalStore.getResumeableSessionCount"
           :get-terminal-count="getTerminalCount"
           :get-focused-pty-id="getFocusedPtyId"

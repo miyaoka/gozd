@@ -22,7 +22,8 @@ import { computed } from "vue";
 import type { ClaudeStatus } from "../../../terminal";
 import { useTerminalStore } from "../../../terminal";
 import { computeStatusIcons, StatusIcons } from "../../../worktree";
-import { branchLabel as resolveBranchLabel, hasChanges, resolveTaskBaseTime } from "../../utils";
+import { resolveTaskBaseTime } from "../../taskBaseTime";
+import { branchLabel as resolveBranchLabel, hasChanges } from "../../utils";
 import TaskRow from "./TaskRow.vue";
 
 type StateKey = "asking" | "working" | "done" | "idle" | "resumable";

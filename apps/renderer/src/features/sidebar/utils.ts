@@ -1,5 +1,4 @@
-import type { Task, WorktreeEntry } from "@gozd/proto";
-import type { ClaudeStatus } from "../terminal";
+import type { WorktreeEntry } from "@gozd/proto";
 
 /**
  * Task の body から表示可能なタイトル (一行目を trim) を取り出す。
@@ -83,42 +82,4 @@ export function formatRelativeTime(from: number, now: number): string {
  */
 export function taskDisplayTitle(body: string): string {
   return extractTaskTitle(body) ?? "New session";
-}
-
-/**
- * 既に warn を出した taskId を保持する。`resolveTaskBaseTime` は computed から
- * 呼ばれて再評価ごとに発火するため、proto 契約違反時に同一 taskId で警告が
- * spam されないよう taskId キーで dedup する。
- *
- * 本来 `task.createdAt` の妥当性検証は proto 受信レイヤーで行うのが正しい所在
- * だが、それは別 PR のスコープ。本 PR の範囲では SSOT 経路で 1 度だけ warn する。
- */
-const warnedInvalidCreatedAtTaskIds = new Set<string>();
-
-/**
- * Task 行の相対時刻基準を決める SSOT。
- * - status があれば `lastActivityAt`
- * - 無ければ `task.createdAt` を ISO8601 としてパース
- *
- * `task.createdAt` のパース失敗は proto 契約違反（Swift 側が常に有効な ISO8601 を書く）
- * なので silent fallback せず `console.warn` で観察可能化し、undefined を返す。
- * 同一 taskId に対しては再警告しない。
- */
-export function resolveTaskBaseTime(
-  status: ClaudeStatus | undefined,
-  task: Task,
-): number | undefined {
-  if (status !== undefined) return status.lastActivityAt;
-  const created = Date.parse(task.createdAt);
-  if (Number.isNaN(created)) {
-    if (!warnedInvalidCreatedAtTaskIds.has(task.id)) {
-      warnedInvalidCreatedAtTaskIds.add(task.id);
-      console.warn(
-        `[task-base-time] task.createdAt parse failed ` +
-          `(taskId=${task.id}, value=${JSON.stringify(task.createdAt)})`,
-      );
-    }
-    return undefined;
-  }
-  return created;
 }

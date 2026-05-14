@@ -130,30 +130,63 @@ export function useSidebarData() {
   let pendingSync: { leafId: string; title: string } | undefined;
 
   async function syncTaskTitle(leafId: string, title: string) {
+    console.log("[DEBUG] syncTaskTitle entry", { leafId, title });
     const targetDir = terminalStore.getPaneDir(leafId);
-    if (targetDir === undefined) return;
+    if (targetDir === undefined) {
+      console.log("[DEBUG] syncTaskTitle exit: targetDir undefined", { leafId });
+      return;
+    }
     const ptyId = terminalStore.getPtyId(leafId);
-    if (ptyId === undefined) return;
+    if (ptyId === undefined) {
+      console.log("[DEBUG] syncTaskTitle exit: ptyId undefined", { leafId, targetDir });
+      return;
+    }
     const sessionId = terminalStore.getSessionIdByPtyId(ptyId);
-    if (sessionId === undefined) return;
+    if (sessionId === undefined) {
+      console.log("[DEBUG] syncTaskTitle exit: sessionId undefined", {
+        leafId,
+        targetDir,
+        ptyId,
+      });
+      return;
+    }
 
     const owning = repoStore.findRepoOwning(targetDir);
-    if (owning === undefined) return;
+    if (owning === undefined) {
+      console.log("[DEBUG] syncTaskTitle exit: owning repo undefined", { targetDir });
+      return;
+    }
     const projectDir = owning.rootDir;
     let wt = owning.worktrees.find((w) => w.path === targetDir);
-    if (wt === undefined) return;
+    if (wt === undefined) {
+      console.log("[DEBUG] syncTaskTitle exit: wt not in repo", { targetDir });
+      return;
+    }
 
-    // session-start hook 受信直後の race: TaskStore は upsert 済みでも renderer の
-    // wt.tasks がまだ古い可能性がある。1 度だけ fetchRepo を await して取り直す。
     if (!wt.tasks.some((t) => t.id === sessionId)) {
+      console.log("[DEBUG] syncTaskTitle: task not in wt.tasks, refetching", {
+        sessionId,
+        availableTaskIds: wt.tasks.map((t) => t.id),
+      });
       await fetchRepo(projectDir);
       const refreshed = repoStore.repos[projectDir];
       wt = refreshed?.worktrees.find((w) => w.path === targetDir);
-      if (wt === undefined) return;
-      if (!wt.tasks.some((t) => t.id === sessionId)) return;
+      if (wt === undefined) {
+        console.log("[DEBUG] syncTaskTitle exit: wt gone after refetch");
+        return;
+      }
+      if (!wt.tasks.some((t) => t.id === sessionId)) {
+        console.log("[DEBUG] syncTaskTitle exit: task still missing after refetch", {
+          sessionId,
+          availableTaskIds: wt.tasks.map((t) => t.id),
+        });
+        return;
+      }
     }
 
+    console.log("[DEBUG] syncTaskTitle calling rpcTaskUpdate", { projectDir, sessionId, title });
     const result = await tryCatch(rpcTaskUpdate({ dir: projectDir, id: sessionId, body: title }));
+    console.log("[DEBUG] syncTaskTitle rpcTaskUpdate result", { ok: result.ok });
     if (result.ok && result.value.task !== undefined) {
       const updatedTask = result.value.task;
       const freshRepo = repoStore.repos[projectDir];
@@ -186,12 +219,21 @@ export function useSidebarData() {
   watch(
     () => terminalStore.lastTitleUpdate,
     (update) => {
-      if (!update?.title) return;
+      console.log("[DEBUG] lastTitleUpdate watch fired", { update });
+      if (!update?.title) {
+        console.log("[DEBUG] lastTitleUpdate exit: empty");
+        return;
+      }
       // Claude Code のステータスプレフィックス（✳ + Braille dots）を除去
       const title = update.title.replace(/^[✳⠀-⣿] /, "");
-      if (!title) return;
-      // セッション開始・レジューム時の汎用タイトルで Task を上書きしない
-      if (title === "Claude Code") return;
+      if (!title) {
+        console.log("[DEBUG] lastTitleUpdate exit: empty after strip");
+        return;
+      }
+      if (title === "Claude Code") {
+        console.log("[DEBUG] lastTitleUpdate exit: Claude Code placeholder");
+        return;
+      }
       void drainTitleSync(update.leafId, title);
     },
   );

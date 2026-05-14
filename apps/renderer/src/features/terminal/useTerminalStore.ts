@@ -301,6 +301,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     });
 
     disposeHookListener = onMessage<HookPayload>("hook", (payload) => {
+      console.log("[DEBUG] hook payload received", payload);
       const { event, ptyId } = payload;
       if (!isHookEvent(event)) return;
       // claudeStatus.ts は snake_case の payload を期待するので boundary で変換する
@@ -453,6 +454,7 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   /** OSC 0/2 で通知されたタイトルを保存する */
   function setTitle(leafId: string, title: string) {
+    console.log("[DEBUG] terminalStore.setTitle", { leafId, title });
     if (title === "") {
       delete titleByLeafId.value[leafId];
     } else {

@@ -149,7 +149,14 @@ onMounted(async () => {
 
   // xterm.js の onTitleChange でタイトル変更を受け取り store に保存する
   // xterm.js 内部で OSC 0/2 を処理済みなので registerOscHandler ではなくイベントを購読する
+  console.log("[DEBUG] XtermTerminal onTitleChange listener registered", {
+    leafId: props.leafId,
+  });
   terminal.onTitleChange((title) => {
+    console.log("[DEBUG] XtermTerminal.onTitleChange fired", {
+      leafId: props.leafId,
+      title,
+    });
     terminalStore.setTitle(props.leafId, title);
   });
 

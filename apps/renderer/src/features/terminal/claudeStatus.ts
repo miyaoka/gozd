@@ -117,6 +117,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
       case "session-start": {
         cancelAskTimer(ptyId);
         const sessionId = typeof payload.session_id === "string" ? payload.session_id : "";
+        console.log("[DEBUG] claudeStatus session-start", { ptyId, sessionId, payload });
         if (sessionId !== "") {
           // 同 ptyId に旧 sessionId が紐付いていた場合は先に解除する。
           // /clear や /resume で session が切り替わった時、旧 mapping が残ると

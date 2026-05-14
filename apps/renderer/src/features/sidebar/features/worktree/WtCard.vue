@@ -111,7 +111,7 @@ function onHeaderClick() {
         role="button"
         tabindex="0"
         :data-active="headerActive"
-        class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-zinc-400 transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none focus-visible:ring-inset"
+        class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-zinc-400 transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-hidden focus-visible:ring-inset"
         @click="onHeaderClick"
         @keydown.enter.prevent="onHeaderClick"
         @keydown.space.prevent="onHeaderClick"

@@ -274,6 +274,11 @@ export function useSidebarData() {
     // 削除を次の任意操作まで知らず、サイドバーに反映されない。後続の OSC title
     // 同期も wt.tasks が空のままだと早期 return するため、ここでの refetch が
     // タイトル更新の前提条件になる。
+    // Claude session の生成 / 終了で wt.tasks の永続化が変化する。renderer 側は
+    // 楽観的更新で UI に即時反映し、後追いの fetchRepo で真値と整合させる二段構え。
+    // 楽観更新が無いと、(a) fetchRepo の RPC 往復中に OSC title が来て syncTaskTitle が
+    // 「対応 Task 不在」で早期 return する race、(b) fetch の stale gen 判定で結果が
+    // 捨てられた場合の取りこぼし、で「永続化に Task はあるのにサイドに出ない」状態が固着する。
     cleanups.push(
       onMessage<HookPayload>("hook", (payload) => {
         if (payload.event !== "session-start" && payload.event !== "session-end") return;
@@ -282,7 +287,30 @@ export function useSidebarData() {
         const dir = terminalStore.getPaneDir(leafId);
         if (dir === undefined) return;
         const owning = repoStore.findRepoOwning(dir);
-        if (owning) void fetchRepo(owning.rootDir);
+        if (owning === undefined) return;
+        const wt = owning.worktrees.find((w) => w.path === dir);
+        if (wt !== undefined && payload.sessionId !== "") {
+          if (payload.event === "session-start") {
+            // 既存 (重複 hook / 復元レース) は無視。なければ append。
+            if (!wt.tasks.some((t) => t.id === payload.sessionId)) {
+              wt.tasks = [
+                ...wt.tasks,
+                {
+                  id: payload.sessionId,
+                  body: "",
+                  worktreeDir: dir,
+                  prNumber: 0,
+                  issueNumber: 0,
+                  createdAt: new Date().toISOString(),
+                },
+              ];
+            }
+          } else {
+            wt.tasks = wt.tasks.filter((t) => t.id !== payload.sessionId);
+          }
+        }
+        // 真値との整合 (二重チェック)。fetch が成功すれば楽観更新は上書きされる。
+        void fetchRepo(owning.rootDir);
       }),
     );
     void hydrateAppState();

@@ -27,6 +27,7 @@ import {
   watchEffect,
 } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
 import { ResizeHandle } from "../layout";
 import { ghErrorMessage, rpcGitPrList } from "../palette";
@@ -55,6 +56,7 @@ const worktreeStore = useWorktreeStore();
 const gitStatusStore = useGitStatusStore();
 const gitGraphStore = useGitGraphStore();
 const notify = useNotificationStore();
+const repoStore = useRepoStore();
 const { gitStatuses } = storeToRefs(gitStatusStore);
 
 const { commits } = storeToRefs(gitGraphStore);
@@ -192,9 +194,12 @@ watch(
   () => worktreeStore.dir,
   async () => {
     gitGraphStore.resetSelection();
-    // 別 worktree の値が closure に残るのを防ぐ。loadLog 内で head/branchHead は
-    // 再記録されるが、upstream baseline は gitStatusChange 経路でしか得られないので
-    // ここで明示的に clear する。
+    // 3 つの closure 変数すべてを reset する。loadLog の await 中に新 worktree の
+    // gitStatusChange が到達すると、旧 worktree の lastHead / lastBranchHead と比較して
+    // 偽陽性 (headChanged / branchHeadChanged) を立て、追加 loadLog が走る。upstream だけ
+    // 空にして他を loadLog 完了後の再記録に頼ると、reset と再記録の非対称が事故源になる。
+    lastHead = "";
+    lastBranchHead = "";
     lastUpstream = "";
     const updated = await loadLog();
     if (!updated) return;
@@ -251,10 +256,15 @@ const disposeGitStatus = onMessage<GitStatusChangePayload>(
 );
 onUnmounted(disposeGitStatus);
 
-// ブランチ ref の変更（作成・削除・リネーム）時に git log を再取得。
-// active worktree dir のものに限定する。
+// ブランチ ref の変更 (作成・削除・リネーム) は repo 共有の commonGitDir で起き、
+// 同 repo の worktree 群のうち primary 1 つだけが push される。primary が active と
+// 一致するとは限らないため、「active と同じ repo の push か」で filter する。
 const disposeBranchChange = onMessage<BranchChangePayload>("branchChange", ({ dir }) => {
-  if (dir !== worktreeStore.dir) return;
+  const activeDir = worktreeStore.dir;
+  if (activeDir === undefined) return;
+  const sourceRoot = repoStore.findRepoOwning(dir)?.rootDir;
+  const activeRoot = repoStore.findRepoOwning(activeDir)?.rootDir;
+  if (sourceRoot === undefined || sourceRoot !== activeRoot) return;
   void loadLog();
 });
 onUnmounted(disposeBranchChange);

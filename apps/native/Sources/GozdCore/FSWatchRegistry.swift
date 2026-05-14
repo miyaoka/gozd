@@ -43,11 +43,9 @@ public actor FSWatchRegistry {
   public typealias FsChangeHandler = @Sendable (_ dir: String, _ relDir: String) -> Void
   public typealias GitStatusChangeHandler = @Sendable (_ dir: String, _ status: GitOps.StatusFull)
     -> Void
-  /// branchChange ハンドラ。`changedRefs` には今回のバッチで動いた refs/heads/ 配下の
-  /// ref 名（`refs/heads/` を剥がした basename。例: `main`, `feat/foo`）を含める。
-  /// `packed-refs` の更新で個別 ref を特定できない場合は空配列。
-  /// 観察可能性のため、renderer 側がログ / バグ報告で利用できるよう payload に乗せる。
-  public typealias BranchChangeHandler = @Sendable (_ dir: String, _ changedRefs: [String]) -> Void
+  /// branchChange ハンドラ。同 repo を共有する worktree 群の中から primary 1 つだけが
+  /// 発火するため、push は repo につき 1 回 / バッチ。
+  public typealias BranchChangeHandler = @Sendable (_ dir: String) -> Void
   public typealias WorktreeChangeHandler = @Sendable (_ dir: String) -> Void
 
   private struct Entry {
@@ -75,9 +73,6 @@ public actor FSWatchRegistry {
     let hasGitStatusChange: Bool
     let hasBranchChange: Bool
     let hasWorktreeChange: Bool
-    /// 今回のバッチで動いた refs/heads/ 配下の ref 名（`refs/heads/` を剥がした basename）。
-    /// `packed-refs` の更新が含まれる場合は空のままで、個別 ref 特定は呼び出し側で諦める。
-    let changedRefs: Set<String>
   }
 
   private let onFsChange: FsChangeHandler
@@ -227,6 +222,23 @@ public actor FSWatchRegistry {
     entries[dir]?.generation == generation
   }
 
+  /// 同じ commonGitDir を共有する watcher 群の中で、指定 dir が primary かを判定する。
+  /// primary は resolved dir の lexical 最小で決定論的に選ぶ（並び順への依存を排除）。
+  /// commonGitDir が nil（非 git project）の場合、ref 系 event はそもそも発生しないが、
+  /// 安全側に倒して常に primary 扱い（dispatch を抑止しない）にする。
+  private func isPrimaryWatcher(forCommonGitDir commonGitDir: String?, dir: String) -> Bool {
+    guard let commonGitDir else { return true }
+    var minDir: String?
+    for (key, entry) in entries {
+      if entry.commonGitDir == commonGitDir {
+        if minDir == nil || key < minDir! {
+          minDir = key
+        }
+      }
+    }
+    return minDir == dir
+  }
+
   /// 1 バッチの events を分類して push event として配送する。
   /// 各 await 後にも `isActive` を再 check し、unwatch 済みの世代からの dispatch を抑止する。
   ///
@@ -253,10 +265,15 @@ public actor FSWatchRegistry {
         onFsChange(originalDir, relDir)
       }
     }
-    if result.hasBranchChange {
-      onBranchChange(originalDir, Array(result.changedRefs).sorted())
+    // `branchChange` / `worktreeChange` は common git dir 配下の event から派生し、
+    // repo を共有する全 worktree の watcher が同じ event で同時発火する。
+    // ここで commonGitDir 単位の primary watcher 1 つに collapse し、N 個の watcher 由来の
+    // N 連射を 1 push にまとめる。primary 判定は resolved dir の lexical 最小（決定的）。
+    let isPrimaryForCommonDir = isPrimaryWatcher(forCommonGitDir: entry.commonGitDir, dir: dir)
+    if result.hasBranchChange && isPrimaryForCommonDir {
+      onBranchChange(originalDir)
     }
-    if result.hasWorktreeChange {
+    if result.hasWorktreeChange && isPrimaryForCommonDir {
       onWorktreeChange(originalDir)
     }
 
@@ -332,7 +349,6 @@ public actor FSWatchRegistry {
     var hasGitStatusChange = false
     var hasBranchChange = false
     var hasWorktreeChange = false
-    var changedRefs = Set<String>()
 
     // 通常 clone では perWorktreeGitDir == commonGitDir なので、両ルールを同じ path に
     // 適用して `HEAD` と `refs/heads/` を両方拾う必要がある。
@@ -363,10 +379,6 @@ public actor FSWatchRegistry {
           hasWorktreeChange = true
         } else if rel.hasPrefix("refs/heads/") {
           hasBranchChange = true
-          let refName = String(rel.dropFirst("refs/heads/".count))
-          if !refName.isEmpty {
-            changedRefs.insert(refName)
-          }
         } else if rel.hasPrefix("refs/remotes/") {
           // push / fetch 成功でローカルの remote-tracking ref が書き換わる。
           // git-graph は gitStatusChange の `# branch.ab` で ahead/behind 更新を検知する。
@@ -395,8 +407,7 @@ public actor FSWatchRegistry {
       hasFsChange: hasFsChange,
       hasGitStatusChange: hasGitStatusChange,
       hasBranchChange: hasBranchChange,
-      hasWorktreeChange: hasWorktreeChange,
-      changedRefs: changedRefs
+      hasWorktreeChange: hasWorktreeChange
     )
   }
 

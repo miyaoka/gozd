@@ -317,7 +317,7 @@ public func classifyGhStderr(_ stderr: String) -> GhError.Kind {
   return .other
 }
 
-private func truncateDetail(_ s: String, maxBytes: Int = 512) -> String {
+func truncateDetail(_ s: String, maxBytes: Int = 512) -> String {
   let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
   if trimmed.utf8.count <= maxBytes { return trimmed }
   // utf8 byte 境界で安全に切る

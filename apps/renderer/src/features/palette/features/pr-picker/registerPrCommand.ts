@@ -54,7 +54,10 @@ export function registerPrCommand(): () => void {
 
         // この callback は PrPickerDialog 側で close() 後に呼ばれるため、
         // 連打による再エントリは dialog の DOM 除去で塞がれている。`isCreating` 相当のガードは不要。
-        show(prsRes.prs, viewerLogin, (pr) => {
+        // viewer 取得失敗時は undefined。空文字に倒して picker dialog の "@me" filter UI
+        // を degraded mode (filter 非表示) にする。表示ロジックは PrPickerDialog 側の
+        // `viewer !== ""` 判定で完結する。
+        show(prsRes.prs, viewerLogin ?? "", (pr) => {
           const existingDir = wtByBranch.get(pr.headRef);
           if (existingDir !== undefined) {
             // 既存 worktree に切り替え（ステートレス化により switchDir RPC は廃止）

@@ -56,12 +56,10 @@ export const rpcAppStateSave = (req: SaveAppStateRequest) =>
 // --- push event payloads ---
 
 export interface BranchChangePayload {
+  /** 同 repo を共有する worktree 群の中から primary 1 つだけが発火する。
+   * `dir` は primary watcher の path で、active worktree とは限らない。subscriber が
+   * 「同 repo の event か」を判定する場合は `findRepoOwning(dir).rootDir` を使う。 */
   dir: string;
-  /** 今回のバッチで動いた `refs/heads/` 配下の ref 名（prefix を剥がした basename）。
-   * 例: `["main", "feat/foo"]`。`packed-refs` の更新で個別 ref を特定できない場合は空配列。
-   * 観察可能性のため payload に含める（バグ報告 / ログ参照用）。
-   * renderer 側の振る舞い（loadLog 全件 refetch）には現状影響しない。 */
-  changedRefs: string[];
 }
 
 export interface WorktreeChangePayload {

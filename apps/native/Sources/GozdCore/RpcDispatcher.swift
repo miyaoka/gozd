@@ -47,7 +47,7 @@ public actor RpcDispatcher {
     onOpen: @escaping OpenHandler = { _ in },
     onFsChange: @escaping FSWatchRegistry.FsChangeHandler = { _, _ in },
     onGitStatusChange: @escaping FSWatchRegistry.GitStatusChangeHandler = { _, _ in },
-    onBranchChange: @escaping FSWatchRegistry.BranchChangeHandler = { _, _ in },
+    onBranchChange: @escaping FSWatchRegistry.BranchChangeHandler = { _ in },
     onWorktreeChange: @escaping FSWatchRegistry.WorktreeChangeHandler = { _ in },
     onNotify: @escaping NotifyHandler = { _, _, _, _, _ in },
     envOverlay: GozdEnvOverlay? = nil,

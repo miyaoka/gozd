@@ -78,7 +78,9 @@ export function registerIssueCommand(): () => void {
 
         // この callback は IssuePickerDialog 側で close() 後に呼ばれるため、
         // 連打による再エントリは dialog の DOM 除去で塞がれている。`isCreating` 相当のガードは不要。
-        show(issuesRes.issues, viewerLogin, (issue) => {
+        // viewer 取得失敗時は undefined。空文字に倒して picker dialog の "@me" filter UI
+        // を degraded mode (filter 非表示) にする。
+        show(issuesRes.issues, viewerLogin ?? "", (issue) => {
           const branchName = issueBranchName(issue.number);
           const existingDir = wtByBranch.get(branchName);
           if (existingDir !== undefined) {

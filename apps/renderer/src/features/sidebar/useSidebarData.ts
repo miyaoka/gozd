@@ -229,15 +229,20 @@ export function useSidebarData() {
     // `useFsWatchSync` の watch 起動完了通知。往復中の取りこぼし救済として 1 回だけ
     // worktree list を取り直す。
     cleanups.push(onMessage<FsWatchReadyPayload>("fsWatchReady", () => fetchOwnerOfActive()));
-    // 永続化ストア (TaskStore / ClaudeSessionStore) の失敗 notify を購読して
-    // 楽観値を真値で巻き戻す。session-start / session-end の renderer 側楽観
-    // 更新 (下の hook 購読) は両ストアへの同期書き込みと整合する前提なので、
-    // どちらかが失敗したら楽観値が真値とずれる。session hook 経路の I/O 失敗は
-    // ディスクフル / 権限欠落 / 競合書き込みで連発しうるため、N repo × hook
-    // 頻度で fetchRepo が爆発しないよう、notify payload の dir から発生源 repo
-    // を特定して該当 1 repo だけ refetch する。経路に紐付かない通知 (起動時
-    // reconcile / socket 等) は dir 空文字で届くため、その場合だけ全 repo
-    // refetch にフォールバックする。
+    // 永続化ストア (TaskStore / ClaudeSessionStore) の失敗 notify を該当 repo の
+    // 真値再取得トリガとして使う。この経路が兼用する責務は 2 つ:
+    // - session hook (session-start / session-end) の楽観更新の rollback。
+    //   renderer 側で wt.tasks を楽観 push / filter remove したあと、Swift 側の
+    //   upsertForSession / upsert / removeBySession / removeBySessionId のいずれか
+    //   が失敗した場合、refetch で真値に戻す
+    // - 楽観更新を伴わない経路 (reconcileAll / removeByWorktree / removeByPty 等)
+    //   の失敗時も該当 repo の真値を取り直す。永続化と renderer state が乖離
+    //   する可能性がある以上、refetch で能動的に整合を取る
+    // session hook 経路の I/O 失敗はディスクフル / 権限欠落 / 競合書き込みで連発
+    // しうるため、N repo × hook 頻度で fetchRepo が爆発しないよう、notify payload
+    // の dir から発生源 repo を特定して該当 1 repo だけ refetch する。経路に紐付か
+    // ない通知 (起動時 reconcile / socket 等) は dir 空文字で届くため、その場合だけ
+    // 全 repo refetch にフォールバックする。
     const ROLLBACK_SOURCES = new Set(["task-store", "claude-sessions"]);
     cleanups.push(
       onMessage<NotifyPayload>("notify", (payload) => {

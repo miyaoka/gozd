@@ -243,8 +243,8 @@ public actor RpcDispatcher {
       // などの外側 throw を拾う catch。session-start / session-end の永続化失敗は
       // 後段 fetch でも復旧経路が無いため、TaskStore 失敗と対称に renderer へ
       // notify する。dir は worktreePath が解決済みなのでそのまま渡す。
-      // message は TaskStore 側 (3 種類の静的文言) と対称になるよう event ごとに
-      // 分けて、トースト UI で運用者が経路を識別できるようにする。
+      // message は TaskStore 側と同じく経路ごとに静的列挙して、トースト UI で
+      // 運用者が経路を識別できるようにする。
       FileHandle.standardError.write(
         Data("[ClaudeSessionStore] \(hook.event) failed: \(error)\n".utf8))
       let message: String
@@ -254,7 +254,11 @@ public actor RpcDispatcher {
       case "session-end":
         message = "Failed to remove ended Claude session"
       default:
-        message = "Claude session hook failed"
+        // applyClaudeSessionHook は呼び出し元 (handleSocketMessage) で hook.event を
+        // session-start / session-end に絞り込んでから呼ばれるため、ここには到達しない。
+        // Swift の String switch は default が必須なので明示的に観察可能化する。
+        preconditionFailure(
+          "applyClaudeSessionHook reached with unexpected event: \(hook.event)")
       }
       onNotify(
         "error", "claude-sessions", message, String(describing: error), worktreePath)

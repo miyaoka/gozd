@@ -6,14 +6,8 @@
  */
 import { onMounted, onUnmounted } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import type { NotifyPayload } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
-
-interface NotifyPayload {
-  type: "error" | "info";
-  source: string;
-  message: string;
-  detail: string;
-}
 
 export function useNotifySubscription() {
   const notify = useNotificationStore();

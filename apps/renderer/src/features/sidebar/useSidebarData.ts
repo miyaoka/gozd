@@ -1,6 +1,7 @@
 import { tryCatch } from "@gozd/shared";
 import { onMounted, onUnmounted, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import type { NotifyPayload } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
 import { useTerminalStore } from "../terminal";
@@ -228,19 +229,19 @@ export function useSidebarData() {
     // `useFsWatchSync` の watch 起動完了通知。往復中の取りこぼし救済として 1 回だけ
     // worktree list を取り直す。
     cleanups.push(onMessage<FsWatchReadyPayload>("fsWatchReady", () => fetchOwnerOfActive()));
-    // TaskStore の失敗 notify を購読して active dir 所属 repo を refetch する。
-    // session-start / session-end の楽観 push 後に Swift 側 upsertForSession /
-    // removeBySession が失敗した場合、楽観値が真値とずれた状態で残る。
-    // RpcDispatcher は失敗時に source="task-store" の notify を出すため、
-    // それを契機に真値を取り直して楽観値を巻き戻す。
+    // TaskStore の失敗 notify を購読して開いている全 repo を refetch する。
+    // session-start / session-end の楽観 push は hook の ptyId が指す dir 起源で
+    // 全 repo の任意 wt に対して走るため、active 1 repo だけ巻き戻すと別 repo /
+    // 別 wt で発生した楽観値ずれが残る。notify payload に dir は含まれないため、
+    // 「失敗時は全 repo を refetch」のシンプルなルールにする (失敗頻度は低いので
+    // コストは許容)。
     cleanups.push(
-      onMessage<{ type: string; source: string; message: string; detail: string }>(
-        "notify",
-        (payload) => {
-          if (payload.source !== "task-store" || payload.type !== "error") return;
-          fetchOwnerOfActive();
-        },
-      ),
+      onMessage<NotifyPayload>("notify", (payload) => {
+        if (payload.source !== "task-store" || payload.type !== "error") return;
+        for (const rootDir of repoStore.dirOrder) {
+          void fetchRepo(rootDir);
+        }
+      }),
     );
 
     // Claude session の生成 / 終了で wt.tasks を楽観更新し UI に即時反映する。

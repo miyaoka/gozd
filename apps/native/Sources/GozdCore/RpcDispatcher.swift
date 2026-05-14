@@ -176,13 +176,16 @@ public actor RpcDispatcher {
           try await claudeSessions.removeBySessionId(
             worktreePath: worktreePath, sessionId: previous)
           // TaskStore からも旧 session 由来の Task を掃除する。先に消さないと
-          // worktree 内に「死んだ session の Task」が残り、Phase 4 のサイドバー
-          // 表示で stale エントリが見える。
+          // worktree 内に「死んだ session の Task」が残り、サイドバー表示で
+          // stale エントリが見える。
           do {
             try await tasks.removeBySession(dir: worktreePath, sessionId: previous)
           } catch {
             FileHandle.standardError.write(
               Data("[TaskStore] removeBySession (previous) failed: \(error)\n".utf8))
+            onNotify(
+              "error", "task-store", "Failed to remove previous session task",
+              String(describing: error))
           }
         }
         // 永続化を先に成功させてから PTYRegistry のマッピングを更新する。
@@ -193,10 +196,10 @@ public actor RpcDispatcher {
           sessionId: hook.sessionID,
           transcriptPath: hook.transcriptPath
         )
-        // session = Task の同一視ルール (issue #504): TaskStore に session 由来の
-        // Task を auto upsert する。task.id = session_id。失敗は best effort で
-        // ログのみ。ClaudeSessionStore 側の整合は既に確立しているため、Task の欠落
-        // はサイドバー UI の表示欠けに留まり、resume 等の中核機能には影響しない。
+        // task.id = session_id の同一視ルール: TaskStore に session 由来の Task を
+        // auto upsert する。ClaudeSessionStore 側の整合は既に確立しているため、Task
+        // の欠落はサイドバー UI の表示欠けに留まり、resume 等の中核機能には影響しない。
+        // 失敗は renderer にトースト通知し、ユーザーが状態を診断できるようにする。
         do {
           try await tasks.upsertForSession(
             dir: worktreePath,
@@ -206,6 +209,9 @@ public actor RpcDispatcher {
         } catch {
           FileHandle.standardError.write(
             Data("[TaskStore] upsertForSession failed: \(error)\n".utf8))
+          onNotify(
+            "error", "task-store", "Failed to add task for new session",
+            String(describing: error))
         }
         await pty.setSessionId(for: hook.ptyID, sessionId: hook.sessionID)
       case "session-end":
@@ -219,6 +225,9 @@ public actor RpcDispatcher {
         } catch {
           FileHandle.standardError.write(
             Data("[TaskStore] removeBySession failed: \(error)\n".utf8))
+          onNotify(
+            "error", "task-store", "Failed to remove task for ended session",
+            String(describing: error))
         }
         await pty.clearSessionId(for: hook.ptyID)
       default:
@@ -544,7 +553,7 @@ public actor RpcDispatcher {
       entry.isMain = wt.isMain
       entry.gitStatuses = statusesByPath[wt.path] ?? [:]
       // この worktree に紐づく全 Task を埋める。1 wt = 複数 Claude session の前提で
-      // session 単位の Task が複数並ぶ (issue #504)。
+      // session 単位の Task が複数並ぶ。
       entry.tasks = allTasks.filter { $0.worktreeDir == wt.path }
       return entry
     }
@@ -816,15 +825,19 @@ public actor RpcDispatcher {
       } catch {
         removeError = error
       }
-      // Task = session の同一視 (issue #504): TaskStore からも掃除する。
+      // task.id = session_id の同一視: TaskStore からも掃除する。
       // ターミナル close は session-end hook を発火させないため、ここで明示削除
       // しないと Task が tasks.json に残り続けてサイドバーに居座る。
-      // claudeSessions 側のエラーを優先するため、tasks 側のエラーはログのみ。
+      // claudeSessions 側のエラーを優先するため tasks 側は throw しないが、
+      // 失敗を放置するとサイドバーにゾンビが残るので renderer に通知する。
       do {
         try await tasks.removeBySession(dir: req.worktreePath, sessionId: sessionId)
       } catch {
         FileHandle.standardError.write(
           Data("[TaskStore] removeBySession (removeByPty) failed: \(error)\n".utf8))
+        onNotify(
+          "error", "task-store", "Failed to remove task on terminal close",
+          String(describing: error))
       }
     }
     await pty.clearAssociations(for: req.ptyID)
@@ -838,7 +851,7 @@ public actor RpcDispatcher {
 
   // MARK: - tasks
 
-  // session = Task の同一視 (issue #504)。Task の生成 / 削除は session hook 経由で
+  // session = Task の同一視。Task の生成 / 削除は session hook 経由で
   // 自動化され、外向けには body 同期 (update) のみ公開する。
   private func handleTaskUpdate(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_TaskUpdateRequest(jsonUTF8Data: body)

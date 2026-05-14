@@ -3,7 +3,7 @@ import GozdProto
 
 // プロジェクト固有 Task の永続化（`~/.config/gozd/projects/<projectKey>/tasks.json`）。
 //
-// task = Claude session の同一視ルール (issue #504)。
+// task = Claude session の同一視ルール。
 //
 // 設計判断:
 //
@@ -72,7 +72,7 @@ public actor TaskStore {
   /// 起動時の reconcile。各 projectKey で `claude-sessions.json` の生存
   /// sessionId 集合に含まれない Task を孤児として掃除する。
   ///
-  /// task.id == sessionId 同一視 (issue #504) と、ClaudeSessionStore.reconcileAll
+  /// task.id == sessionId 同一視 と、ClaudeSessionStore.reconcileAll
   /// が transcript ファイル不在を根拠に dead session を落とすことを前提に、
   /// 「session が無いのに Task だけ残っている」状態を死亡判定する。
   /// この経路が無いと、アプリクラッシュ / kill -9 / transcript 削除で

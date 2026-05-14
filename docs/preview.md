@@ -41,13 +41,33 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 
 ### コミットモード（git-graph でコミット選択時）
 
-変更種別は `gitShowCommitFile` の from/to 結果から導出する。
+変更種別は `gitShowCommitFile` の from/to 結果から導出する。from/to の解決方法は以下:
 
-| 変更種別                      | 利用可能なモード        | デフォルト |
-| ----------------------------- | ----------------------- | ---------- |
-| modified（from/to 両方あり）  | Original, Diff, Current | Diff       |
-| added（from なし、to あり）   | Current                 | Current    |
-| deleted（from あり、to なし） | Original                | Original   |
+- 単一コミット選択: from = `<hash>^`, to = `<hash>`
+- 範囲選択: from = `<older>^`, to = `<newer>`（older / newer はクリック順ではなく `commits` 配列の index で時系列順に整列）
+- 端点に Working Tree（`UNCOMMITTED_HASH`）を含む範囲選択: その端点だけ filesystem から読み、もう一方は git show
+
+`GitOps.commitFiles` のファイル一覧 (`<older>^ vs <newer>`) と endpoint を揃えてあるため、Changes パネルのファイル一覧と Preview の diff が常に一致する。
+
+| 変更種別                                    | 利用可能なモード               | デフォルト |
+| ------------------------------------------- | ------------------------------ | ---------- |
+| modified（from/to 両方あり + 内容差分あり） | Original, Diff, Current        | Diff       |
+| 変更なし（from/to 両方あり + 内容同一）     | Current                        | Current    |
+| added（from なし、to あり）                 | Current                        | Current    |
+| deleted（from あり、to なし）               | Original                       | Original   |
+| 両方 not found                              | Current（File not found 表示） | Current    |
+
+「変更なし」判定は Filer 経由でコミット範囲外のファイルを選択したケースを救済する。Changes 経由では差分のあるファイルしかリストされないため発生しない。
+
+### Original タブの hash 表示
+
+タブラベルは `Original (<hash>)` 形式で、実際に from として読んでいる ref を可視化する。Swift 側の `fromHash` 算出式と一致する。
+
+| 選択状態           | 表示        |
+| ------------------ | ----------- |
+| Uncommitted モード | `HEAD`      |
+| 単一コミット       | `<hash7>^`  |
+| 範囲選択           | `<older7>^` |
 
 ## 開閉機能
 

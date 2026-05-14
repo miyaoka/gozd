@@ -16,7 +16,8 @@
 ## データ取得
 
 - Uncommitted モード: ファイル選択・git status 変化時に current（ファイルシステム）/ original（HEAD）を並列取得
-- コミットモード: git-graph の選択コミットに応じて gitShowCommitFile RPC で from/to を一括取得
+- コミットモード: git-graph の選択コミットに応じて gitShowCommitFile RPC で from/to を一括取得。
+  範囲選択時は `commits` 配列の index で時系列順に整列し（クリック順非依存）、older 側を Original、newer 側を Current に固定する
 - fsChange メッセージで選択中ファイルをリアクティブに再取得（uncommitted モードのみ）
 - バージョンカウンターで非同期レースを防止
 </doc>

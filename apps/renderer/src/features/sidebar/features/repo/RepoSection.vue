@@ -65,12 +65,6 @@ const orderedWorktrees = computed(() => {
   return main !== undefined ? [main, ...others] : others;
 });
 
-const isOwningActive = computed(() => {
-  if (props.activeDir === undefined) return false;
-  if (props.activeDir === props.rootDir) return true;
-  return worktrees.value.some((wt) => wt.path === props.activeDir);
-});
-
 const sectionEl = useTemplateRef<HTMLElement>("section");
 const dragHandleEl = useTemplateRef<HTMLElement>("dragHandle");
 
@@ -93,11 +87,8 @@ function onHeaderClick() {
 <template>
   <section ref="section" class="flex flex-col gap-2 rounded-lg p-2">
     <header
-      class="group/repo flex items-center gap-2 rounded-lg"
-      :class="[
-        isOwningActive ? 'text-blue-300' : 'text-zinc-200',
-        editMode ? '' : 'cursor-pointer hover:bg-white/5',
-      ]"
+      class="group/repo flex items-center gap-2 rounded-lg text-zinc-200"
+      :class="editMode ? '' : 'cursor-pointer hover:bg-white/5'"
       :role="editMode ? undefined : 'button'"
       :aria-label="editMode ? undefined : visiblyCollapsed ? 'Expand' : 'Collapse'"
       :aria-expanded="editMode ? undefined : !visiblyCollapsed"
@@ -129,7 +120,7 @@ function onHeaderClick() {
       </button>
     </header>
 
-    <div v-if="isGitRepo && !visiblyCollapsed" class="flex flex-col gap-1">
+    <div v-if="isGitRepo && !visiblyCollapsed" class="flex flex-col">
       <WtCard
         v-for="wt in orderedWorktrees"
         :key="wt.path"

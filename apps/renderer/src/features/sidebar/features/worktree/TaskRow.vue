@@ -96,7 +96,7 @@ const bubbleColorClass = computed(() => {
   <button
     type="button"
     :data-active="active"
-    class="flex w-full items-center gap-2 rounded-lg p-2 text-left transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none focus-visible:ring-inset data-[active=true]:bg-blue-500 data-[active=true]:text-white"
+    class="flex w-full items-center gap-2 rounded-lg p-2 text-left transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none focus-visible:ring-inset data-[active=true]:bg-blue-500/30"
     @click="emit('select', task)"
   >
     <span

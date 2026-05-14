@@ -102,13 +102,16 @@ function onHeaderClick() {
 </script>
 
 <template>
-  <article class="rounded-lg">
+  <article
+    :data-active="active"
+    class="rounded-lg transition-colors data-[active=true]:bg-blue-500/10"
+  >
     <div class="group/wt relative">
       <div
         role="button"
         tabindex="0"
         :data-active="headerActive"
-        class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 text-zinc-400 transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none focus-visible:ring-inset data-[active=true]:bg-blue-500 data-[active=true]:text-white"
+        class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-zinc-400 transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none focus-visible:ring-inset"
         @click="onHeaderClick"
         @keydown.enter.prevent="onHeaderClick"
         @keydown.space.prevent="onHeaderClick"

@@ -209,7 +209,7 @@ const activeRootWorktree = computed(() => {
       </button>
     </div>
 
-    <div class="flex flex-1 flex-col overflow-y-auto py-4">
+    <div class="_sidebar-scroll flex flex-1 scrollbar-none flex-col overflow-y-auto py-4">
       <DragDropProvider @drag-end="onDragEnd">
         <RepoSection
           v-for="(rootDir, i) in repoStore.dirOrder"
@@ -277,3 +277,10 @@ const activeRootWorktree = computed(() => {
     <VoicevoxPanel @error="notify.error" />
   </div>
 </template>
+
+<style scoped>
+/* scrollbar 自体を非表示 (macOS の overlay も hover で content に被るため使わない)。スクロール操作はトラックパッド / ホイールのみ */
+._sidebar-scroll::-webkit-scrollbar {
+  display: none;
+}
+</style>

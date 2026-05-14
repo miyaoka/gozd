@@ -22,7 +22,7 @@ import { computed } from "vue";
 import type { ClaudeStatus } from "../../../terminal";
 import { useTerminalStore } from "../../../terminal";
 import { computeStatusIcons, StatusIcons } from "../../../worktree";
-import { branchLabel as resolveBranchLabel, hasChanges } from "../../utils";
+import { branchLabel as resolveBranchLabel, hasChanges, resolveTaskBaseTime } from "../../utils";
 import TaskRow from "./TaskRow.vue";
 
 type StateKey = "asking" | "working" | "done" | "idle" | "resumable";
@@ -82,23 +82,17 @@ function resolveStateKey(status: ClaudeStatus | undefined, ptyId: number | undef
   return "idle";
 }
 
-function resolveBaseTime(status: ClaudeStatus | undefined, fallback: number): number {
-  // status があれば lastActivityAt（Claude が最後に動いた時刻）を返す。
-  // status 不在（resumable）のみ fallback（task.createdAt）を使う。
-  return status?.lastActivityAt ?? fallback;
-}
-
 const tasksWithStatus = computed<TaskWithStatus[]>(() => {
   const list = props.wt.tasks.map<TaskWithStatus>((task) => {
     const status = terminalStore.getClaudeStatusBySessionId(task.id);
     const ptyId = terminalStore.getPtyIdBySessionId(task.id);
-    const fallback = Date.parse(task.createdAt);
     return {
       task,
       status,
       ptyId,
       stateKey: resolveStateKey(status, ptyId),
-      baseTime: resolveBaseTime(status, Number.isNaN(fallback) ? 0 : fallback),
+      // sort 用なので createdAt パース失敗時 (proto 契約違反) は 0 に倒す
+      baseTime: resolveTaskBaseTime(status, task) ?? 0,
     };
   });
   return list.sort((a, b) => {

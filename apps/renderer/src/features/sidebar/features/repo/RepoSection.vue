@@ -33,7 +33,6 @@ const props = defineProps<{
   editMode: boolean;
   activeDir: string | undefined;
   isCreating: boolean;
-  now: number;
   getResumeableSessionCount: (dir: string) => number;
   getTerminalCount: (dir: string) => number;
   getFocusedPtyId: (dir: string) => number | undefined;
@@ -145,7 +144,6 @@ function onHeaderClick() {
         :focused-pty-id="getFocusedPtyId(wt.path)"
         :terminal-count="getTerminalCount(wt.path)"
         :resumeable-session-count="getResumeableSessionCount(wt.path)"
-        :now="now"
         @select-wt="emit('selectWt', $event)"
         @select-task="(w, t) => emit('selectTask', w, t)"
         @open-menu="(anchorEl, wt2) => emit('openWorktreeMenu', anchorEl, wt2, rootDir)"

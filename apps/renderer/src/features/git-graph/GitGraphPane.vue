@@ -16,16 +16,7 @@ import type { GitCommit, GitPullRequest } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { useElementSize, useIntervalFn } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import {
-  computed,
-  nextTick,
-  onMounted,
-  onUnmounted,
-  ref,
-  useTemplateRef,
-  watch,
-  watchEffect,
-} from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
@@ -538,18 +529,23 @@ const detailWidth = ref(320);
 const detailOpen = ref(true);
 
 // コンテナ幅縮小時に detailWidth をクランプし、収まらなければ自動で閉じる
-// rootWidth が 0（マウント前）のときはスキップ
-watchEffect(() => {
-  if (!detailOpen.value || rootWidth.value === 0) return;
-  const available = rootWidth.value - GRAPH_LIST_MIN_WIDTH - DETAIL_HANDLE_WIDTH;
-  if (available < DETAIL_MIN_WIDTH) {
-    detailOpen.value = false;
-    return;
-  }
-  if (detailWidth.value > available) {
-    detailWidth.value = Math.max(DETAIL_MIN_WIDTH, available);
-  }
-});
+// rootWidth が 0（マウント前）のときはスキップ。
+// 書き換え対象の detailOpen / detailWidth は source に含めない
+watch(
+  rootWidth,
+  (width) => {
+    if (!detailOpen.value || width === 0) return;
+    const available = width - GRAPH_LIST_MIN_WIDTH - DETAIL_HANDLE_WIDTH;
+    if (available < DETAIL_MIN_WIDTH) {
+      detailOpen.value = false;
+      return;
+    }
+    if (detailWidth.value > available) {
+      detailWidth.value = Math.max(DETAIL_MIN_WIDTH, available);
+    }
+  },
+  { immediate: true },
+);
 
 const graphListRef = ref<HTMLElement | null>(null);
 const scrollContainer = ref<HTMLElement | null>(null);

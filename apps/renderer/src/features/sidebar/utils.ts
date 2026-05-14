@@ -70,9 +70,6 @@ const DAY_MS = 24 * HOUR_MS;
  */
 export function formatRelativeTime(from: number, now: number): string {
   const elapsed = now - from;
-  // 未来時刻 (from > now) は時刻ソース異常の兆候。silent に `now` 表示で
-  // 隠蔽すると診断不能になるため `?` で可視化する (規約: silent fallback 禁止)。
-  if (elapsed < 0) return "?";
   if (elapsed < MINUTE_MS) return "now";
   if (elapsed < HOUR_MS) return `${Math.floor(elapsed / MINUTE_MS)}m`;
   if (elapsed < DAY_MS) return `${Math.floor(elapsed / HOUR_MS)}h`;

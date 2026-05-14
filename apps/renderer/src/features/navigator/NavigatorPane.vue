@@ -12,7 +12,7 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 
 <script setup lang="ts">
 import { useElementSize } from "@vueuse/core";
-import { ref, useTemplateRef, watchEffect } from "vue";
+import { ref, useTemplateRef, watch } from "vue";
 import { useRepoStore } from "../../shared/repo";
 import { ChangesPane } from "../changes";
 import { FilerPane } from "../filer";
@@ -32,14 +32,20 @@ const { height: containerHeight } = useElementSize(containerRef);
 const changesHeight = ref(360);
 
 // コンテナ縮小時に changesHeight をクランプ（Filer が潰れるのを防ぐ）
-// useElementSize は mount 直後 0 を返すため、計測前は clamp をスキップする
-watchEffect(() => {
-  if (containerHeight.value <= 0) return;
-  const maxChanges = containerHeight.value - FILER_MIN_HEIGHT - HANDLE_HEIGHT;
-  if (changesHeight.value > maxChanges) {
-    changesHeight.value = Math.max(CHANGES_MIN_HEIGHT, maxChanges);
-  }
-});
+// useElementSize は mount 直後 0 を返すため、計測前は clamp をスキップする。
+// watch source は外因（containerHeight）だけにする。changesHeight は書き換え対象なので
+// source に含めると再帰発火経路が混入する（user resize は別ロジックでクランプ済み）。
+watch(
+  containerHeight,
+  (h) => {
+    if (h <= 0) return;
+    const maxChanges = h - FILER_MIN_HEIGHT - HANDLE_HEIGHT;
+    if (changesHeight.value > maxChanges) {
+      changesHeight.value = Math.max(CHANGES_MIN_HEIGHT, maxChanges);
+    }
+  },
+  { immediate: true },
+);
 
 /** Filer ペインの DOM 実測高さ（flex-1 のため v-model 不可） */
 function getFilerHeight(): number {

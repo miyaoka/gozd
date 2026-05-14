@@ -22,6 +22,7 @@ import { computed } from "vue";
 import type { ClaudeStatus } from "../../../terminal";
 import { useTerminalStore } from "../../../terminal";
 import { computeStatusIcons, StatusIcons } from "../../../worktree";
+import { resolveTaskBaseTime } from "../../taskBaseTime";
 import { branchLabel as resolveBranchLabel, hasChanges } from "../../utils";
 import TaskRow from "./TaskRow.vue";
 
@@ -41,7 +42,6 @@ const props = defineProps<{
   focusedPtyId: number | undefined;
   terminalCount: number;
   resumeableSessionCount: number;
-  now: number;
 }>();
 
 const emit = defineEmits<{
@@ -83,23 +83,17 @@ function resolveStateKey(status: ClaudeStatus | undefined, ptyId: number | undef
   return "idle";
 }
 
-function resolveBaseTime(status: ClaudeStatus | undefined, fallback: number): number {
-  if (status === undefined) return fallback;
-  if (status.state === "working") return status.lastActivityAt;
-  return status.enteredAt;
-}
-
 const tasksWithStatus = computed<TaskWithStatus[]>(() => {
   const list = props.wt.tasks.map<TaskWithStatus>((task) => {
     const status = terminalStore.getClaudeStatusBySessionId(task.id);
     const ptyId = terminalStore.getPtyIdBySessionId(task.id);
-    const fallback = Date.parse(task.createdAt);
     return {
       task,
       status,
       ptyId,
       stateKey: resolveStateKey(status, ptyId),
-      baseTime: resolveBaseTime(status, Number.isNaN(fallback) ? 0 : fallback),
+      // sort 用なので createdAt パース失敗時 (proto 契約違反) は 0 に倒す
+      baseTime: resolveTaskBaseTime(status, task) ?? 0,
     };
   });
   return list.sort((a, b) => {
@@ -188,7 +182,6 @@ function onHeaderClick() {
         :task="entry.task"
         :status="entry.status"
         :active="focusedTaskId === entry.task.id"
-        :now="now"
         @select="(t) => emit('selectTask', wt, t)"
       />
     </div>

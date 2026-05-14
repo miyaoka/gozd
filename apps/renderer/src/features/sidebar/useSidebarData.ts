@@ -9,6 +9,7 @@ import type { HookPayload } from "../terminal";
 import { useWorktreeStore } from "../worktree";
 import { rpcAppStateLoad, rpcAppStateSave, rpcGitWorktreeList, rpcTaskUpdate } from "./rpc";
 import type { BranchChangePayload, FsWatchReadyPayload, WorktreeChangePayload } from "./rpc";
+import { validateTasksCreatedAt } from "./taskBaseTime";
 import { CLAUDE_PLACEHOLDER_TITLE, stripClaudeStatusPrefix } from "./utils";
 
 /**
@@ -50,6 +51,12 @@ export function useSidebarData() {
     }
     if (fetchGenByRoot.get(rootDir) !== gen) return;
     const wtList = result.value.worktrees;
+
+    // proto 契約違反 (Swift 側の TaskStore で生成された createdAt が ISO8601 でない)
+    // を ingress で観察可能化する。downstream は NaN を扱える形を維持する
+    for (const wt of wtList) {
+      validateTasksCreatedAt(wt.tasks);
+    }
 
     // 外部で削除された worktree のターミナルを cleanup（この repo の旧 worktrees に限定）
     const newPaths = new Set(wtList.map((wt) => wt.path));

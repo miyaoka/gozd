@@ -30,7 +30,6 @@ import { move } from "@dnd-kit/helpers";
 import { DragDropProvider } from "@dnd-kit/vue";
 import type { Task, WorktreeEntry } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
-import { useIntervalFn } from "@vueuse/core";
 import { computed, ref } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
@@ -60,13 +59,6 @@ const { isCreatingFor, handleWorktreeSelect, addWorktree, handleWorktreeRemove }
   useWorktreeActions({
     showConfirm,
   });
-
-// --- 経過時間表示用の現在時刻 ---
-
-const now = ref(Date.now());
-useIntervalFn(() => {
-  now.value = Date.now();
-}, 1000);
 
 // --- メニュー ---
 
@@ -234,7 +226,6 @@ const activeRootWorktree = computed(() => {
           :edit-mode="editMode"
           :active-dir="worktreeStore.dir"
           :is-creating="isCreatingFor(rootDir)"
-          :now="now"
           :get-resumeable-session-count="terminalStore.getResumeableSessionCount"
           :get-terminal-count="getTerminalCount"
           :get-focused-pty-id="getFocusedPtyId"

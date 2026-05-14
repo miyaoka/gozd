@@ -39,7 +39,9 @@ export default defineConfigWithVueTs(
         },
       ],
 
-      // vue: reactive() を禁止。ref() のみ使用する（issue #501）
+      // vue: reactive() / watchEffect() を禁止
+      // - reactive: ref() のみ使用する（issue #501）
+      // - watchEffect: 依存が暗黙的で誤発火 / 漏れの原因になるため watch() を使う
       "no-restricted-imports": [
         "error",
         {
@@ -48,6 +50,11 @@ export default defineConfigWithVueTs(
               name: "vue",
               importNames: ["reactive"],
               message: "Use ref() instead. See issue #501.",
+            },
+            {
+              name: "vue",
+              importNames: ["watchEffect"],
+              message: "Use watch() with explicit sources instead.",
             },
           ],
         },

@@ -16,7 +16,7 @@
 
 <script setup lang="ts">
 import { useWindowSize } from "@vueuse/core";
-import { computed, onUnmounted, ref, useTemplateRef, watch, watchEffect } from "vue";
+import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
 import { GitGraphPane } from "../git-graph";
@@ -124,12 +124,16 @@ const maxPreviewWidth = computed(() => {
   );
 });
 
-// ウィンドウ縮小時に Preview 幅をクランプ
-watchEffect(() => {
-  if (previewWidth.value > maxPreviewWidth.value) {
-    previewWidth.value = Math.max(PREVIEW_MIN_WIDTH, maxPreviewWidth.value);
-  }
-});
+// ウィンドウ縮小時に Preview 幅をクランプ。書き換え対象 previewWidth は source に含めない
+watch(
+  maxPreviewWidth,
+  (maxW) => {
+    if (previewWidth.value > maxW) {
+      previewWidth.value = Math.max(PREVIEW_MIN_WIDTH, maxW);
+    }
+  },
+  { immediate: true },
+);
 
 /** ドラッグ開始時に popover 左側の空きスペースを返す（Navigator + 開閉ボタン分を除く） */
 const getPreviewBeforeSize = () =>
@@ -140,9 +144,13 @@ const getPreviewAfterSize = () =>
   previewPopoverRef.value?.getBoundingClientRect().width ?? previewWidth.value;
 
 // previewVisible context key を実際の表示状態と同期
-watchEffect(() => {
-  contextKeys.set("previewVisible", previewOpen.value);
-});
+watch(
+  previewOpen,
+  (open) => {
+    contextKeys.set("previewVisible", open);
+  },
+  { immediate: true },
+);
 
 /** :popover-open でガードして二重呼び出し例外を防止 */
 function openPreview() {
@@ -185,13 +193,18 @@ function getCenterTerminalHeight(): number {
   return centerTerminalRef.value?.offsetHeight ?? TERMINAL_MIN_HEIGHT;
 }
 
-// ウィンドウ縦縮小時に gitGraphHeight をクランプ（Terminal が潰れるのを防ぐ）
-watchEffect(() => {
-  const maxGitGraph = windowHeight.value - TERMINAL_MIN_HEIGHT - HANDLE_WIDTH;
-  if (gitGraphHeight.value > maxGitGraph) {
-    gitGraphHeight.value = Math.max(GIT_GRAPH_MIN_HEIGHT, maxGitGraph);
-  }
-});
+// ウィンドウ縦縮小時に gitGraphHeight をクランプ（Terminal が潰れるのを防ぐ）。
+// 書き換え対象 gitGraphHeight は source に含めない
+watch(
+  windowHeight,
+  (h) => {
+    const maxGitGraph = h - TERMINAL_MIN_HEIGHT - HANDLE_WIDTH;
+    if (gitGraphHeight.value > maxGitGraph) {
+      gitGraphHeight.value = Math.max(GIT_GRAPH_MIN_HEIGHT, maxGitGraph);
+    }
+  },
+  { immediate: true },
+);
 </script>
 
 <template>

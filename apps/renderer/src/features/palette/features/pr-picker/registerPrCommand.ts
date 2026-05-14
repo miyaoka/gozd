@@ -11,8 +11,10 @@ import { useRepoStore } from "../../../../shared/repo";
 import { rpcCreateWorktree, rpcGitWorktreeList } from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
-import { rpcGitPrList, rpcGitViewer } from "./rpc";
+import { ghErrorMessage } from "./ghError";
+import { rpcGitPrList } from "./rpc";
 import { usePrPicker } from "./usePrPicker";
+import { fetchViewer } from "./useViewer";
 
 export function registerPrCommand(): () => void {
   const registry = useCommandRegistry();
@@ -30,15 +32,18 @@ export function registerPrCommand(): () => void {
         const dir = worktreeStore.dir;
         if (dir === undefined) return;
         const fetchResult = await tryCatch(
-          Promise.all([rpcGitPrList({ dir }), rpcGitWorktreeList({ dir }), rpcGitViewer({ dir })]),
+          Promise.all([rpcGitPrList({ dir }), rpcGitWorktreeList({ dir }), fetchViewer(dir)]),
         );
         if (!fetchResult.ok) {
           notify.error("Failed to load pull requests", fetchResult.error);
           return;
         }
-        const [prsRes, worktreesRes, viewerRes] = fetchResult.value;
+        const [prsRes, worktreesRes, viewerLogin] = fetchResult.value;
         if (!prsRes.ok) {
-          notify.error("Failed to load pull requests from GitHub");
+          notify.error(
+            ghErrorMessage(prsRes.errorKind, "Failed to load pull requests"),
+            prsRes.errorDetail || undefined,
+          );
           return;
         }
         if (prsRes.prs.length === 0) return;
@@ -49,7 +54,7 @@ export function registerPrCommand(): () => void {
 
         // この callback は PrPickerDialog 側で close() 後に呼ばれるため、
         // 連打による再エントリは dialog の DOM 除去で塞がれている。`isCreating` 相当のガードは不要。
-        show(prsRes.prs, viewerRes.ok ? viewerRes.login : "", (pr) => {
+        show(prsRes.prs, viewerLogin, (pr) => {
           const existingDir = wtByBranch.get(pr.headRef);
           if (existingDir !== undefined) {
             // 既存 worktree に切り替え（ステートレス化により switchDir RPC は廃止）

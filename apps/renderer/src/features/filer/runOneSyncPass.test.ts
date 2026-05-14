@@ -24,7 +24,8 @@ function expectAggregate(cause: unknown): { aggregate: Error; first: Error } {
 interface CallRecord {
   watch: string[];
   unwatch: string[];
-  readyCount: number;
+  /** `fsWatchReady` が発射された dir の列 (発射順)。dir 1 件につき 1 push の契約。 */
+  ready: string[];
   errors: Array<{ message: string; cause: unknown }>;
 }
 
@@ -36,7 +37,7 @@ interface FixtureOptions {
 }
 
 function makeFixture(opts: FixtureOptions): { deps: SyncPassDeps; calls: CallRecord } {
-  const calls: CallRecord = { watch: [], unwatch: [], readyCount: 0, errors: [] };
+  const calls: CallRecord = { watch: [], unwatch: [], ready: [], errors: [] };
   const failWatch = opts.failWatch ?? new Set<string>();
   const failUnwatch = opts.failUnwatch ?? new Set<string>();
   const deps: SyncPassDeps = {
@@ -55,15 +56,15 @@ function makeFixture(opts: FixtureOptions): { deps: SyncPassDeps; calls: CallRec
     notify: {
       error: (message, cause) => calls.errors.push({ message, cause }),
     },
-    dispatchReady: () => {
-      calls.readyCount++;
+    dispatchReady: (dir) => {
+      calls.ready.push(dir);
     },
   };
   return { deps, calls };
 }
 
 describe("runOneSyncPass", () => {
-  test("初回 sync で全 target を watch し、fsWatchReady を 1 回発射する", async () => {
+  test("初回 sync で全 target を watch し、fsWatchReady を dir ごとに 1 回ずつ発射する", async () => {
     const { deps, calls } = makeFixture({
       store: {
         dirOrder: ["/r1"],
@@ -80,7 +81,7 @@ describe("runOneSyncPass", () => {
     await runOneSyncPass(deps);
     expect(calls.watch).toEqual(["/r1", "/r1/wt-a"]);
     expect(calls.unwatch).toEqual([]);
-    expect(calls.readyCount).toBe(1);
+    expect(calls.ready).toEqual(["/r1", "/r1/wt-a"]);
     expect(calls.errors).toEqual([]);
     expect(deps.watchedDirs).toEqual(new Set(["/r1", "/r1/wt-a"]));
   });
@@ -104,7 +105,7 @@ describe("runOneSyncPass", () => {
     expect(calls.unwatch).toEqual(["/r1/wt-removed"]);
     expect(calls.watch).toEqual([]);
     // 新規 watch ゼロのため Ready を発射しない
-    expect(calls.readyCount).toBe(0);
+    expect(calls.ready).toEqual([]);
     expect(deps.watchedDirs).toEqual(new Set(["/r1"]));
   });
 
@@ -124,7 +125,7 @@ describe("runOneSyncPass", () => {
       failWatch: new Set(["/r1"]),
     });
     await runOneSyncPass(deps);
-    expect(calls.readyCount).toBe(0);
+    expect(calls.ready).toEqual([]);
     expect(calls.errors.length).toBe(1);
     expect(deps.watchedDirs.has("/r1")).toBe(false);
     const [err] = calls.errors;
@@ -151,8 +152,8 @@ describe("runOneSyncPass", () => {
     });
     await runOneSyncPass(deps);
     expect(deps.watchedDirs).toEqual(new Set(["/r1"]));
-    // 1 つでも watch 成功している = fsWatchReady を 1 回発射
-    expect(calls.readyCount).toBe(1);
+    // 成功した /r1 についてのみ Ready を発射 (失敗した /r1/wt-a については発射しない)
+    expect(calls.ready).toEqual(["/r1"]);
     expect(calls.errors.length).toBe(1);
     const [err] = calls.errors;
     expect(err.message).toBe("Failed to sync FS watches (1)");
@@ -231,7 +232,7 @@ describe("runOneSyncPass", () => {
     await runOneSyncPass(deps);
     expect(calls.watch).toEqual([]);
     expect(calls.unwatch).toEqual([]);
-    expect(calls.readyCount).toBe(0);
+    expect(calls.ready).toEqual([]);
     expect(calls.errors).toEqual([]);
     expect(deps.watchedDirs).toEqual(new Set(["/r1"]));
   });

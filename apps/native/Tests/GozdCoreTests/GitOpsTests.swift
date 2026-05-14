@@ -250,41 +250,6 @@ struct GitOpsStatusFullTests {
   }
 }
 
-@Suite("GitOps.refsDigest")
-struct GitOpsRefsDigestTests {
-  @Test("同じ refs 状態では digest は変わらない")
-  func digestIsStableForSameState() async throws {
-    let dir = try await makeGitRepo()
-    defer { try? FileManager.default.removeItem(at: dir) }
-    try "seed".write(
-      to: dir.appendingPathComponent("seed.txt"), atomically: true, encoding: .utf8)
-    try await runTestGit(args: ["add", "seed.txt"], cwd: dir.path)
-    try await runTestGit(args: ["commit", "-m", "seed"], cwd: dir.path)
-
-    let d1 = try await GitOps.refsDigest(dir: dir.path)
-    let d2 = try await GitOps.refsDigest(dir: dir.path)
-    #expect(d1 == d2)
-    #expect(!d1.isEmpty)
-  }
-
-  @Test("`git branch -m` で digest が変化する")
-  func digestChangesOnRename() async throws {
-    // ユーザー報告の主因シナリオ: rename 直後に renderer がこの digest を取って
-    // 前回値と比較すれば、push 取りこぼし時の最終救済として整合性チェックが効く。
-    let dir = try await makeGitRepo()
-    defer { try? FileManager.default.removeItem(at: dir) }
-    try "seed".write(
-      to: dir.appendingPathComponent("seed.txt"), atomically: true, encoding: .utf8)
-    try await runTestGit(args: ["add", "seed.txt"], cwd: dir.path)
-    try await runTestGit(args: ["commit", "-m", "seed"], cwd: dir.path)
-
-    let before = try await GitOps.refsDigest(dir: dir.path)
-    try await runTestGit(args: ["branch", "-m", "renamed"], cwd: dir.path)
-    let after = try await GitOps.refsDigest(dir: dir.path)
-    #expect(before != after)
-  }
-}
-
 // MARK: - Helpers
 
 private func makeTempDir() throws -> URL {

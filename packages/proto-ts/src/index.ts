@@ -80,6 +80,7 @@ export {
 export {
   CreateWorktreeRequest,
   CreateWorktreeResponse,
+  GhErrorKind,
   GitBranchListRequest,
   GitBranchListResponse,
   GitCommitFilesRequest,
@@ -94,8 +95,6 @@ export {
   GitLogResponse,
   GitPrListRequest,
   GitPrListResponse,
-  GitRefsDigestRequest,
-  GitRefsDigestResponse,
   GitShowCommitFileRequest,
   GitShowCommitFileResponse,
   GitShowFileRequest,

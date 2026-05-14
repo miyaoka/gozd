@@ -54,7 +54,7 @@ export function useFsWatchSync() {
         fsWatch: rpcFsWatch,
         fsUnwatch: rpcFsUnwatch,
         notify,
-        dispatchReady: () => dispatchMessage("fsWatchReady", {}),
+        dispatchReady: (dir) => dispatchMessage("fsWatchReady", { dir }),
       }),
     );
   }

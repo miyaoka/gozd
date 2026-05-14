@@ -109,13 +109,19 @@ native → renderer の push は `WebPage.callJavaScript("window.__gozdReceive(t
 
 詳細なメッセージ一覧は [rpc.md](rpc.md)。
 
-### SSOT push + 低頻度 pull の整合性チェック
+### SSOT push の dir filter 規律
 
-FSEvents 経由の push は ms オーダーで届くが、watch 開始往復中の取りこぼしや、`callJavaScript` の失敗で 1 度の event を落とすと、UI 状態と git refs の実体が永続的にずれる。これを防ぐため次の二重防御を入れている。
+FSEvents 経由の push は ms オーダーで届くが、watch 開始往復中の取りこぼしや、`callJavaScript` の失敗で 1 度の event を落とすと、UI 状態と git refs の実体が永続的にずれる。これを防ぐため、全 push に source `dir` を載せ、購読側が自分の責務に応じて filter する契約を統一する。
 
-- **再同期トリガー**: `useFsWatchSync` が `rpcFsWatch` 応答直後に renderer 内部で `fsWatchReady` を `dispatchMessage` 経由で発射する。GitGraphPane / useSidebarData は同 type を `onMessage` で購読しており、watch 起動瞬間に 1 度だけ state を refetch する
-- **ref-digest 整合性チェッカ**: GitGraphPane が 60 秒間隔で `rpcGitRefsDigest`（`git for-each-ref refs/heads/ refs/remotes/ --sort=refname` の SHA-256）を取り、前回値と比較する。不一致なら `console.warn` で観察可能性を残しつつ `loadLog` を発射。「予防 retry」ではなく、SSOT 経路（branchChange / gitStatusChange）の到達率を計測する保険として使う。チェッカ自体の RPC 失敗も `useNotificationStore.error` でトースト通知する（silent fail で自己否定にならないように）
+- **payload に dir を載せる**: `gitStatusChange` / `branchChange` / `worktreeChange` / `fsWatchReady` すべての push payload は `dir` を必須フィールドとして持つ。購読側はこの `dir` を見て active dir / 所有 repo を判定する。dir を載せないと N watch × M subscriber の cross product 発火が避けられず、累積発火が外部リソース（GitHub rate limit 等）を食い潰す
+- **再同期トリガー**: `useFsWatchSync` が `rpcFsWatch` 成功ごとに renderer 内部で `fsWatchReady` を **dir 1 件につき 1 push** 発射する。GitGraphPane は active dir 一致のときだけ `loadLog`、useSidebarData は source dir の所有 repo を再 fetch する
+- **active filter / source-dir filter の使い分け**: pane の責務によって filter 方向を変える
+  - GitGraphPane（active worktree の git log を表示）: `dir !== worktreeStore.dir` なら早期 return
+  - useSidebarData（全 repo の worktree list を per-rootDir で並列管理）: `findRepoOwning(dir).rootDir` を fetch
 - **status payload に branch.head を含める**: `git branch -m` は HEAD の commit OID を変えないため、`gitStatusChange.head` だけで判定すると rename を取りこぼす。`git status --porcelain=v2 --branch` が出す `# branch.head <name>` を payload に乗せ、renderer 側は `branchHead` の変化でも `loadLog` を発火する
+
+> [!NOTE]
+> 60 秒間隔の `rpcGitRefsDigest` 整合性チェッカおよび PR 一覧の 60 秒ポーリングは廃止した。全 worktree watch + per-dir filter で SSOT 経路の到達率は実用的に十分であり、低頻度 pull は「予防的逃げ道」として GitHub rate limit の累積発火源になっていた。push 不達が観測されたら原因を直接修正する。
 
 ### FSWatch の対象スコープ
 

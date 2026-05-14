@@ -14,7 +14,7 @@ Git commit graph showing the current worktree branch and the default branch.
 <script setup lang="ts">
 import type { GitCommit, GitPullRequest } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
-import { useElementSize, useIntervalFn } from "@vueuse/core";
+import { useElementSize } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import {
   computed,
@@ -29,7 +29,7 @@ import {
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { ResizeHandle } from "../layout";
-import { rpcGitPrList } from "../palette";
+import { ghErrorMessage, rpcGitPrList } from "../palette";
 import type { BranchChangePayload, FsWatchReadyPayload } from "../sidebar";
 import type { GitStatusChangePayload } from "../worktree";
 import {
@@ -46,7 +46,7 @@ import type { GraphLayout } from "./graphLayout";
 import { mergeCommitStreams } from "./mergeCommitStreams";
 import type { SortMode } from "./mergeCommitStreams";
 import RefBadge from "./RefBadge.vue";
-import { rpcGitLog, rpcGitRefsDigest } from "./rpc";
+import { rpcGitLog } from "./rpc";
 import { useGitGraphStore } from "./useGitGraphStore";
 
 const rootRef = useTemplateRef<HTMLElement>("root");
@@ -130,12 +130,18 @@ const headLane = computed(() => {
   return node?.lane ?? RESERVED_LANES;
 });
 
-/** 前回の HEAD ハッシュ。gitStatusChange で変化を検知するために使用 */
+// 以下 3 つの「前回値」は **active worktree dir に対する不変条件** として保持する。
+// 全 worktree watch / 全 worktree push 設計では、別 worktree の
+// gitStatusChange が active dir の前回値を踏み潰さないよう、push handler 側で
+// 必ず `payload.dir === worktreeStore.dir` を確認してからこれらを更新する。
+// worktree 切替時 (loadLog) には新 dir の取得結果でリセットする。
+
+/** active worktree の前回 HEAD ハッシュ。gitStatusChange で変化を検知するために使用 */
 let lastHead = "";
-/** 前回の HEAD が指す branch 名。`git branch -m` は OID を変えないため、
+/** active worktree の前回 HEAD が指す branch 名。`git branch -m` は OID を変えないため、
  * rename を gitStatusChange 経路で検知するためにこの値の変化を追う。 */
 let lastBranchHead = "";
-/** 前回の upstream ahead/behind。push/fetch による ref 変化を検知するために使用 */
+/** active worktree の前回 upstream ahead/behind。push/fetch による ref 変化を検知するために使用 */
 let lastUpstream = "";
 /** loadLog の世代管理。並行実行で古いレスポンスが後着して上書きするのを防ぐ */
 let loadLogGen = 0;
@@ -186,6 +192,10 @@ watch(
   () => worktreeStore.dir,
   async () => {
     gitGraphStore.resetSelection();
+    // 別 worktree の値が closure に残るのを防ぐ。loadLog 内で head/branchHead は
+    // 再記録されるが、upstream baseline は gitStatusChange 経路でしか得られないので
+    // ここで明示的に clear する。
+    lastUpstream = "";
     const updated = await loadLog();
     if (!updated) return;
     await nextTick();
@@ -211,7 +221,11 @@ watch(sortMode, () => {
 // 変化も発火条件に含めて、SSOT 経路の取りこぼしを構造的に防ぐ。
 const disposeGitStatus = onMessage<GitStatusChangePayload>(
   "gitStatusChange",
-  ({ head, branchHead, hasUpstream, ahead, behind }) => {
+  ({ dir, head, branchHead, hasUpstream, ahead, behind }) => {
+    // active worktree dir 以外の push は無視。closure 変数 (lastHead / lastBranchHead /
+    // lastUpstream) は active dir の不変条件として保持しているため、別 worktree の値で
+    // 上書きすると active dir に戻ったときに偽陽性で再 fetch が走る。
+    if (dir !== worktreeStore.dir) return;
     const upstreamKey = hasUpstream ? `${ahead}/${behind}` : "";
     const headChanged = head !== "" && head !== lastHead;
     const branchHeadChanged = branchHead !== lastBranchHead;
@@ -237,15 +251,18 @@ const disposeGitStatus = onMessage<GitStatusChangePayload>(
 );
 onUnmounted(disposeGitStatus);
 
-// ブランチ ref の変更（作成・削除・リネーム）時に git log を再取得
-const disposeBranchChange = onMessage<BranchChangePayload>("branchChange", () => {
+// ブランチ ref の変更（作成・削除・リネーム）時に git log を再取得。
+// active worktree dir のものに限定する。
+const disposeBranchChange = onMessage<BranchChangePayload>("branchChange", ({ dir }) => {
+  if (dir !== worktreeStore.dir) return;
   void loadLog();
 });
 onUnmounted(disposeBranchChange);
 
 // `useFsWatchSync` の `rpcFsWatch` 完了直後に発射される再同期通知。watch 起動往復中の
-// FS 変化を救済するため、1 度だけ git log を取り直す。
-const disposeFsWatchReady = onMessage<FsWatchReadyPayload>("fsWatchReady", () => {
+// FS 変化を救済するため、1 度だけ git log を取り直す。dir は新たに watch 起動した worktree。
+const disposeFsWatchReady = onMessage<FsWatchReadyPayload>("fsWatchReady", ({ dir }) => {
+  if (dir !== worktreeStore.dir) return;
   void loadLog();
 });
 onUnmounted(disposeFsWatchReady);
@@ -257,15 +274,27 @@ const prByBranch = ref(new Map<string, GitPullRequest>());
 /** loadPrList の世代管理。並行実行で古いレスポンスが後着して上書きするのを防ぐ */
 let loadPrGen = 0;
 
-/** PR 一覧を取得して prByBranch を更新する。gh 失敗時（null）は前回値を保持する */
+/** PR 一覧を取得して prByBranch を更新する。
+ * 失敗時は前回値を保持しつつ notify.error でユーザーに告知する。silent 化すると
+ * バッジが古い値のまま表示され続け、rate limit / 未認証 等の発生に気づけない。 */
 async function loadPrList() {
   const gen = ++loadPrGen;
   const dir = worktreeStore.dir;
   if (dir === undefined) return;
-  const res = await rpcGitPrList({ dir });
+  const result = await tryCatch(rpcGitPrList({ dir }));
   if (gen !== loadPrGen) return;
-  // gh 失敗時は ok=false — 前回値を保持してバッジが消えるのを防ぐ
-  if (!res.ok) return;
+  if (!result.ok) {
+    notify.error("Failed to load pull requests", result.error);
+    return;
+  }
+  const res = result.value;
+  if (!res.ok) {
+    notify.error(
+      ghErrorMessage(res.errorKind, "Failed to load pull requests"),
+      res.errorDetail || undefined,
+    );
+    return;
+  }
   const map = new Map<string, GitPullRequest>();
   for (const pr of res.prs) {
     map.set(pr.headRef, pr);
@@ -273,67 +302,22 @@ async function loadPrList() {
   prByBranch.value = map;
 }
 
-// PR 一覧の定期ポーリング（gh pr create 等でリモートのみ変化するケースに対応）
-const PR_POLL_INTERVAL_MS = 60_000;
-const { pause: pausePrPoll, resume: resumePrPoll } = useIntervalFn(
-  () => void loadPrList(),
-  PR_POLL_INTERVAL_MS,
-  { immediate: false },
-);
-
-// SSOT 経路（branchChange / gitStatusChange）の到達率を計測するための低頻度 pull。
-// `git for-each-ref` の digest を取り、前回値と異なれば push が取りこぼされた可能性を
-// console.warn で観察可能性として残し、loadLog で UI を実状態に追従させる。
-// 「予防 retry」ではなく、SSOT の不達を 60s で必ず救済できる保険。
-let lastRefsDigest: string | undefined;
-async function checkRefsDigest(): Promise<void> {
-  const dir = worktreeStore.dir;
-  if (dir === undefined) return;
-  const result = await tryCatch(rpcGitRefsDigest({ dir }));
-  if (!result.ok) {
-    // 整合性チェッカ自身が silent fail するのは設計意図に反する。トースト + cause で
-    // ユーザーと開発者の両方に届くようにする。RPC 失敗の典型は worktree 切替直後の dir
-    // 不在 / git locking 競合 / git バイナリ未解決。
-    notify.error("Failed to compute refs digest", result.error);
-    return;
-  }
-  // 初回は前回値が無いので比較せずに記録だけする
-  if (lastRefsDigest === undefined) {
-    lastRefsDigest = result.value.digest;
-    return;
-  }
-  if (result.value.digest === lastRefsDigest) return;
-  console.warn("[git-graph] refs digest mismatch — SSOT push may have been dropped", {
-    dir,
-    previous: lastRefsDigest,
-    current: result.value.digest,
-  });
-  lastRefsDigest = result.value.digest;
-  void loadLog();
-}
-const { pause: pauseRefsDigestPoll, resume: resumeRefsDigestPoll } = useIntervalFn(
-  () => void checkRefsDigest(),
-  PR_POLL_INTERVAL_MS,
-  { immediate: false },
-);
+// 60s ポーリングは撤去。
+// 全 worktree watch + per-dir filter 化で、active worktree の upstream / refs / FS 変化は
+// SSOT push (gitStatusChange.upstreamChanged / branchChange / fsWatchReady) で全部届く。
+// 「リモートのみ変化」(他人が gh pr create) はそもそも次の fetch まで反映する必要が無く、
+// fetch 後の upstreamChanged で発火する。SSOT 経路の到達率を疑う低頻度 refs-digest
+// チェッカも併せて撤去 (push が届かないなら原因を直す方が筋)。
 
 onMounted(() => {
   void loadPrList();
-  resumePrPoll();
-  resumeRefsDigestPoll();
 });
 
-// worktree 切り替え時にポーリングをリセット
+// worktree 切り替え時に PR 再取得
 watch(
   () => worktreeStore.dir,
   () => {
-    pausePrPoll();
     void loadPrList();
-    resumePrPoll();
-    // refs digest baseline は worktree ごとに別物なのでリセット。次回 poll で再記録される。
-    pauseRefsDigestPoll();
-    lastRefsDigest = undefined;
-    resumeRefsDigestPoll();
   },
 );
 

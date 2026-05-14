@@ -10,6 +10,73 @@ import { FileReadResult, GitCommit, GitFileChange, GitIssue, GitPullRequest, Wor
 
 export const protobufPackage = "gozd.v1";
 
+/**
+ * gh 経路の失敗種別。`ok=false` のとき renderer 側で文言を区別するために使う。
+ * `OK` は ok=true 時のデフォルト値で、`ok=false` 時にこのフィールドが OK のまま来ることは
+ * ない（必ず以下のいずれかに分類される）。
+ */
+export enum GhErrorKind {
+  GH_ERROR_KIND_OK = 0,
+  /** GH_ERROR_KIND_RATE_LIMIT - rate limit 枯渇。stderr に "rate limit" / "API rate limit exceeded" 等を含む */
+  GH_ERROR_KIND_RATE_LIMIT = 1,
+  /** GH_ERROR_KIND_UNAUTHENTICATED - 未認証 / トークン無効。stderr に "authentication required" / "not authenticated" 等 */
+  GH_ERROR_KIND_UNAUTHENTICATED = 2,
+  /** GH_ERROR_KIND_REPO_NOT_FOUND - repo 不在 / アクセス権なし。stderr に "Not Found" / "Could not resolve to a Repository" 等 */
+  GH_ERROR_KIND_REPO_NOT_FOUND = 3,
+  /** GH_ERROR_KIND_NETWORK - network / DNS / 接続失敗 */
+  GH_ERROR_KIND_NETWORK = 4,
+  /** GH_ERROR_KIND_OTHER - 上記いずれにも該当しない gh の non-zero exit */
+  GH_ERROR_KIND_OTHER = 5,
+  UNRECOGNIZED = -1,
+}
+
+export function ghErrorKindFromJSON(object: any): GhErrorKind {
+  switch (object) {
+    case 0:
+    case "GH_ERROR_KIND_OK":
+      return GhErrorKind.GH_ERROR_KIND_OK;
+    case 1:
+    case "GH_ERROR_KIND_RATE_LIMIT":
+      return GhErrorKind.GH_ERROR_KIND_RATE_LIMIT;
+    case 2:
+    case "GH_ERROR_KIND_UNAUTHENTICATED":
+      return GhErrorKind.GH_ERROR_KIND_UNAUTHENTICATED;
+    case 3:
+    case "GH_ERROR_KIND_REPO_NOT_FOUND":
+      return GhErrorKind.GH_ERROR_KIND_REPO_NOT_FOUND;
+    case 4:
+    case "GH_ERROR_KIND_NETWORK":
+      return GhErrorKind.GH_ERROR_KIND_NETWORK;
+    case 5:
+    case "GH_ERROR_KIND_OTHER":
+      return GhErrorKind.GH_ERROR_KIND_OTHER;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return GhErrorKind.UNRECOGNIZED;
+  }
+}
+
+export function ghErrorKindToJSON(object: GhErrorKind): string {
+  switch (object) {
+    case GhErrorKind.GH_ERROR_KIND_OK:
+      return "GH_ERROR_KIND_OK";
+    case GhErrorKind.GH_ERROR_KIND_RATE_LIMIT:
+      return "GH_ERROR_KIND_RATE_LIMIT";
+    case GhErrorKind.GH_ERROR_KIND_UNAUTHENTICATED:
+      return "GH_ERROR_KIND_UNAUTHENTICATED";
+    case GhErrorKind.GH_ERROR_KIND_REPO_NOT_FOUND:
+      return "GH_ERROR_KIND_REPO_NOT_FOUND";
+    case GhErrorKind.GH_ERROR_KIND_NETWORK:
+      return "GH_ERROR_KIND_NETWORK";
+    case GhErrorKind.GH_ERROR_KIND_OTHER:
+      return "GH_ERROR_KIND_OTHER";
+    case GhErrorKind.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
 /** gitWorktreeList: worktree 一覧 */
 export interface GitWorktreeListRequest {
   dir: string;
@@ -103,9 +170,12 @@ export interface GitPrListRequest {
 }
 
 export interface GitPrListResponse {
-  /** null は gh CLI 未認証等で取得不能を示す（前は null だった）。proto では空配列 + ok=false で表現 */
+  /** ok=false は gh CLI 未認証 / rate limit / repo 不在 等で取得不能を示す */
   ok: boolean;
   prs: GitPullRequest[];
+  errorKind: GhErrorKind;
+  /** 表示しないが debug 用に stderr の冒頭を載せる（最大 512B 程度に切り詰める想定） */
+  errorDetail: string;
 }
 
 /** gitIssueList: gh issue list */
@@ -116,6 +186,8 @@ export interface GitIssueListRequest {
 export interface GitIssueListResponse {
   ok: boolean;
   issues: GitIssue[];
+  errorKind: GhErrorKind;
+  errorDetail: string;
 }
 
 /** gitViewer: 認証中の GitHub viewer login */
@@ -126,6 +198,8 @@ export interface GitViewerRequest {
 export interface GitViewerResponse {
   ok: boolean;
   login: string;
+  errorKind: GhErrorKind;
+  errorDetail: string;
 }
 
 /**
@@ -178,20 +252,6 @@ export interface GitWorktreeRemoveRequest {
 }
 
 export interface GitWorktreeRemoveResponse {
-}
-
-/**
- * gitRefsDigest: refs/heads/ と refs/remotes/ の現在状態を 1 つの digest 文字列で返す。
- * renderer 側は前回値と比較して、push event の取りこぼしを検知する低頻度の整合性チェッカに
- * 使う。SSOT 経路（branchChange / gitStatusChange）の到達率を計測する観察可能性の補強で、
- * 「予防的 retry」ではない。不一致時のみ loadLog + console.warn を出す。
- */
-export interface GitRefsDigestRequest {
-  dir: string;
-}
-
-export interface GitRefsDigestResponse {
-  digest: string;
 }
 
 function createBaseGitWorktreeListRequest(): GitWorktreeListRequest {
@@ -1247,7 +1307,7 @@ export const GitPrListRequest: MessageFns<GitPrListRequest> = {
 };
 
 function createBaseGitPrListResponse(): GitPrListResponse {
-  return { ok: false, prs: [] };
+  return { ok: false, prs: [], errorKind: 0, errorDetail: "" };
 }
 
 export const GitPrListResponse: MessageFns<GitPrListResponse> = {
@@ -1257,6 +1317,12 @@ export const GitPrListResponse: MessageFns<GitPrListResponse> = {
     }
     for (const v of message.prs) {
       GitPullRequest.encode(v!, writer.uint32(18).fork()).join();
+    }
+    if (message.errorKind !== 0) {
+      writer.uint32(24).int32(message.errorKind);
+    }
+    if (message.errorDetail !== "") {
+      writer.uint32(34).string(message.errorDetail);
     }
     return writer;
   },
@@ -1284,6 +1350,22 @@ export const GitPrListResponse: MessageFns<GitPrListResponse> = {
           message.prs.push(GitPullRequest.decode(reader, reader.uint32()));
           continue;
         }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.errorKind = reader.int32() as any;
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.errorDetail = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1297,6 +1379,16 @@ export const GitPrListResponse: MessageFns<GitPrListResponse> = {
     return {
       ok: isSet(object.ok) ? globalThis.Boolean(object.ok) : false,
       prs: globalThis.Array.isArray(object?.prs) ? object.prs.map((e: any) => GitPullRequest.fromJSON(e)) : [],
+      errorKind: isSet(object.errorKind)
+        ? ghErrorKindFromJSON(object.errorKind)
+        : isSet(object.error_kind)
+        ? ghErrorKindFromJSON(object.error_kind)
+        : 0,
+      errorDetail: isSet(object.errorDetail)
+        ? globalThis.String(object.errorDetail)
+        : isSet(object.error_detail)
+        ? globalThis.String(object.error_detail)
+        : "",
     };
   },
 
@@ -1308,6 +1400,12 @@ export const GitPrListResponse: MessageFns<GitPrListResponse> = {
     if (message.prs?.length) {
       obj.prs = message.prs.map((e) => GitPullRequest.toJSON(e));
     }
+    if (message.errorKind !== 0) {
+      obj.errorKind = ghErrorKindToJSON(message.errorKind);
+    }
+    if (message.errorDetail !== "") {
+      obj.errorDetail = message.errorDetail;
+    }
     return obj;
   },
 
@@ -1318,6 +1416,8 @@ export const GitPrListResponse: MessageFns<GitPrListResponse> = {
     const message = createBaseGitPrListResponse();
     message.ok = object.ok ?? false;
     message.prs = object.prs?.map((e) => GitPullRequest.fromPartial(e)) || [];
+    message.errorKind = object.errorKind ?? 0;
+    message.errorDetail = object.errorDetail ?? "";
     return message;
   },
 };
@@ -1381,7 +1481,7 @@ export const GitIssueListRequest: MessageFns<GitIssueListRequest> = {
 };
 
 function createBaseGitIssueListResponse(): GitIssueListResponse {
-  return { ok: false, issues: [] };
+  return { ok: false, issues: [], errorKind: 0, errorDetail: "" };
 }
 
 export const GitIssueListResponse: MessageFns<GitIssueListResponse> = {
@@ -1391,6 +1491,12 @@ export const GitIssueListResponse: MessageFns<GitIssueListResponse> = {
     }
     for (const v of message.issues) {
       GitIssue.encode(v!, writer.uint32(18).fork()).join();
+    }
+    if (message.errorKind !== 0) {
+      writer.uint32(24).int32(message.errorKind);
+    }
+    if (message.errorDetail !== "") {
+      writer.uint32(34).string(message.errorDetail);
     }
     return writer;
   },
@@ -1418,6 +1524,22 @@ export const GitIssueListResponse: MessageFns<GitIssueListResponse> = {
           message.issues.push(GitIssue.decode(reader, reader.uint32()));
           continue;
         }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.errorKind = reader.int32() as any;
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.errorDetail = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1431,6 +1553,16 @@ export const GitIssueListResponse: MessageFns<GitIssueListResponse> = {
     return {
       ok: isSet(object.ok) ? globalThis.Boolean(object.ok) : false,
       issues: globalThis.Array.isArray(object?.issues) ? object.issues.map((e: any) => GitIssue.fromJSON(e)) : [],
+      errorKind: isSet(object.errorKind)
+        ? ghErrorKindFromJSON(object.errorKind)
+        : isSet(object.error_kind)
+        ? ghErrorKindFromJSON(object.error_kind)
+        : 0,
+      errorDetail: isSet(object.errorDetail)
+        ? globalThis.String(object.errorDetail)
+        : isSet(object.error_detail)
+        ? globalThis.String(object.error_detail)
+        : "",
     };
   },
 
@@ -1442,6 +1574,12 @@ export const GitIssueListResponse: MessageFns<GitIssueListResponse> = {
     if (message.issues?.length) {
       obj.issues = message.issues.map((e) => GitIssue.toJSON(e));
     }
+    if (message.errorKind !== 0) {
+      obj.errorKind = ghErrorKindToJSON(message.errorKind);
+    }
+    if (message.errorDetail !== "") {
+      obj.errorDetail = message.errorDetail;
+    }
     return obj;
   },
 
@@ -1452,6 +1590,8 @@ export const GitIssueListResponse: MessageFns<GitIssueListResponse> = {
     const message = createBaseGitIssueListResponse();
     message.ok = object.ok ?? false;
     message.issues = object.issues?.map((e) => GitIssue.fromPartial(e)) || [];
+    message.errorKind = object.errorKind ?? 0;
+    message.errorDetail = object.errorDetail ?? "";
     return message;
   },
 };
@@ -1515,7 +1655,7 @@ export const GitViewerRequest: MessageFns<GitViewerRequest> = {
 };
 
 function createBaseGitViewerResponse(): GitViewerResponse {
-  return { ok: false, login: "" };
+  return { ok: false, login: "", errorKind: 0, errorDetail: "" };
 }
 
 export const GitViewerResponse: MessageFns<GitViewerResponse> = {
@@ -1525,6 +1665,12 @@ export const GitViewerResponse: MessageFns<GitViewerResponse> = {
     }
     if (message.login !== "") {
       writer.uint32(18).string(message.login);
+    }
+    if (message.errorKind !== 0) {
+      writer.uint32(24).int32(message.errorKind);
+    }
+    if (message.errorDetail !== "") {
+      writer.uint32(34).string(message.errorDetail);
     }
     return writer;
   },
@@ -1552,6 +1698,22 @@ export const GitViewerResponse: MessageFns<GitViewerResponse> = {
           message.login = reader.string();
           continue;
         }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.errorKind = reader.int32() as any;
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.errorDetail = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1565,6 +1727,16 @@ export const GitViewerResponse: MessageFns<GitViewerResponse> = {
     return {
       ok: isSet(object.ok) ? globalThis.Boolean(object.ok) : false,
       login: isSet(object.login) ? globalThis.String(object.login) : "",
+      errorKind: isSet(object.errorKind)
+        ? ghErrorKindFromJSON(object.errorKind)
+        : isSet(object.error_kind)
+        ? ghErrorKindFromJSON(object.error_kind)
+        : 0,
+      errorDetail: isSet(object.errorDetail)
+        ? globalThis.String(object.errorDetail)
+        : isSet(object.error_detail)
+        ? globalThis.String(object.error_detail)
+        : "",
     };
   },
 
@@ -1576,6 +1748,12 @@ export const GitViewerResponse: MessageFns<GitViewerResponse> = {
     if (message.login !== "") {
       obj.login = message.login;
     }
+    if (message.errorKind !== 0) {
+      obj.errorKind = ghErrorKindToJSON(message.errorKind);
+    }
+    if (message.errorDetail !== "") {
+      obj.errorDetail = message.errorDetail;
+    }
     return obj;
   },
 
@@ -1586,6 +1764,8 @@ export const GitViewerResponse: MessageFns<GitViewerResponse> = {
     const message = createBaseGitViewerResponse();
     message.ok = object.ok ?? false;
     message.login = object.login ?? "";
+    message.errorKind = object.errorKind ?? 0;
+    message.errorDetail = object.errorDetail ?? "";
     return message;
   },
 };
@@ -2149,122 +2329,6 @@ export const GitWorktreeRemoveResponse: MessageFns<GitWorktreeRemoveResponse> = 
   },
   fromPartial(_: DeepPartial<GitWorktreeRemoveResponse>): GitWorktreeRemoveResponse {
     const message = createBaseGitWorktreeRemoveResponse();
-    return message;
-  },
-};
-
-function createBaseGitRefsDigestRequest(): GitRefsDigestRequest {
-  return { dir: "" };
-}
-
-export const GitRefsDigestRequest: MessageFns<GitRefsDigestRequest> = {
-  encode(message: GitRefsDigestRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.dir !== "") {
-      writer.uint32(10).string(message.dir);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): GitRefsDigestRequest {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseGitRefsDigestRequest();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.dir = reader.string();
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): GitRefsDigestRequest {
-    return { dir: isSet(object.dir) ? globalThis.String(object.dir) : "" };
-  },
-
-  toJSON(message: GitRefsDigestRequest): unknown {
-    const obj: any = {};
-    if (message.dir !== "") {
-      obj.dir = message.dir;
-    }
-    return obj;
-  },
-
-  create(base?: DeepPartial<GitRefsDigestRequest>): GitRefsDigestRequest {
-    return GitRefsDigestRequest.fromPartial(base ?? {});
-  },
-  fromPartial(object: DeepPartial<GitRefsDigestRequest>): GitRefsDigestRequest {
-    const message = createBaseGitRefsDigestRequest();
-    message.dir = object.dir ?? "";
-    return message;
-  },
-};
-
-function createBaseGitRefsDigestResponse(): GitRefsDigestResponse {
-  return { digest: "" };
-}
-
-export const GitRefsDigestResponse: MessageFns<GitRefsDigestResponse> = {
-  encode(message: GitRefsDigestResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.digest !== "") {
-      writer.uint32(10).string(message.digest);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): GitRefsDigestResponse {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseGitRefsDigestResponse();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.digest = reader.string();
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): GitRefsDigestResponse {
-    return { digest: isSet(object.digest) ? globalThis.String(object.digest) : "" };
-  },
-
-  toJSON(message: GitRefsDigestResponse): unknown {
-    const obj: any = {};
-    if (message.digest !== "") {
-      obj.digest = message.digest;
-    }
-    return obj;
-  },
-
-  create(base?: DeepPartial<GitRefsDigestResponse>): GitRefsDigestResponse {
-    return GitRefsDigestResponse.fromPartial(base ?? {});
-  },
-  fromPartial(object: DeepPartial<GitRefsDigestResponse>): GitRefsDigestResponse {
-    const message = createBaseGitRefsDigestResponse();
-    message.digest = object.digest ?? "";
     return message;
   },
 };

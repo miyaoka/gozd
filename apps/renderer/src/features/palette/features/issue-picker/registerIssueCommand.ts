@@ -16,7 +16,7 @@ import {
 } from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
-import { rpcGitViewer } from "../pr-picker";
+import { fetchViewer, ghErrorMessage } from "../pr-picker";
 import { rpcGitIssueList } from "./rpc";
 import { useIssuePicker } from "./useIssuePicker";
 
@@ -50,16 +50,19 @@ export function registerIssueCommand(): () => void {
             rpcGitIssueList({ dir }),
             rpcGitWorktreeList({ dir }),
             rpcGitBranchList({ dir }),
-            rpcGitViewer({ dir }),
+            fetchViewer(dir),
           ]),
         );
         if (!fetchResult.ok) {
           notify.error("Failed to load issues", fetchResult.error);
           return;
         }
-        const [issuesRes, worktreesRes, branchesRes, viewerRes] = fetchResult.value;
+        const [issuesRes, worktreesRes, branchesRes, viewerLogin] = fetchResult.value;
         if (!issuesRes.ok) {
-          notify.error("Failed to load issues from GitHub");
+          notify.error(
+            ghErrorMessage(issuesRes.errorKind, "Failed to load issues"),
+            issuesRes.errorDetail || undefined,
+          );
           return;
         }
         if (issuesRes.issues.length === 0) return;
@@ -75,7 +78,7 @@ export function registerIssueCommand(): () => void {
 
         // この callback は IssuePickerDialog 側で close() 後に呼ばれるため、
         // 連打による再エントリは dialog の DOM 除去で塞がれている。`isCreating` 相当のガードは不要。
-        show(issuesRes.issues, viewerRes.ok ? viewerRes.login : "", (issue) => {
+        show(issuesRes.issues, viewerLogin, (issue) => {
           const branchName = issueBranchName(issue.number);
           const existingDir = wtByBranch.get(branchName);
           if (existingDir !== undefined) {

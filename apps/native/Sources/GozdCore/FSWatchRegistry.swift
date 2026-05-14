@@ -33,13 +33,12 @@ import Foundation
 // 4. **push の重複は許容**。renderer 側は冪等な再 fetch（onMessage の handler）
 //    で受け止めるので、`fsChange` と `gitStatusChange` を両方出しても問題ない。
 //
-// 5. **SSOT push + 低頻度 pull の二重防御**。FSEvents は push 経路だが、watch 開始
-//    往復中の取りこぼしや、`callJavaScript` の失敗で 1 度落とすと UI 状態が永続
-//    的にずれる。renderer 側で 2 つの保険を組んでいる:
-//    - `rpcFsWatch` 応答直後の `fsWatchReady` 再同期トリガー（watch 起動瞬間 1 回）
-//    - 60 秒間隔の `rpcGitRefsDigest` 整合性チェック（push 不達を検知して `loadLog`）
-//    どちらも「予防 retry」ではなく観察可能性の補強。不一致を検知したら必ず
-//    `console.warn` でログを残し、symptom を silent fix しない。
+// 5. **watch 起動往復中の取りこぼし救済**。`rpcFsWatch` 応答直後の `fsWatchReady` push を
+//    renderer 内部で 1 度だけ発射し、購読側に該当 worktree の state を再 fetch させる。
+//    `callJavaScript` の失敗による永続ズレは pushToRenderer のログで観測可能。低頻度 pull
+//    による整合性チェッカは廃止: 全 worktree watch + per-dir push filter で
+//    SSOT 経路の到達率は実用的に十分で、ポーリングは GitHub rate limit / `gh` 経路と組み
+//    合わさると累積発火の温床になる。
 public actor FSWatchRegistry {
   public typealias FsChangeHandler = @Sendable (_ dir: String, _ relDir: String) -> Void
   public typealias GitStatusChangeHandler = @Sendable (_ dir: String, _ status: GitOps.StatusFull)

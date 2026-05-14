@@ -22,8 +22,11 @@ export interface SyncPassDeps {
   fsWatch: (req: { dir: string }) => Promise<unknown>;
   fsUnwatch: (req: { dir: string }) => Promise<unknown>;
   notify: { error: (message: string, cause?: unknown) => void };
-  /** 新規 watch が 1 つでも成功した時に呼ばれる。`fsWatchReady` 発射用。 */
-  dispatchReady: () => void;
+  /** 新規 watch が成功するたびに、その dir を引数として呼ばれる。`fsWatchReady` 発射用。
+   * subscriber は payload.dir でフィルタするため、dir 1 件につき 1 回呼ぶ。
+   * dir 単位の dispatch にしないと N watch × M subscriber の fan-out で
+   * 累積発火が起き、GitHub rate limit 等の上流リソースを食い潰す。 */
+  dispatchReady: (dir: string) => void;
 }
 
 export async function runOneSyncPass(deps: SyncPassDeps): Promise<void> {
@@ -50,6 +53,7 @@ export async function runOneSyncPass(deps: SyncPassDeps): Promise<void> {
     // `rpcFsUnwatchAll` で native 側残骸は一括破棄される。
     watchedDirs.delete(dir);
   }
+  const succeededWatches: string[] = [];
   for (const dir of toWatch) {
     const r = await tryCatch(fsWatch({ dir }));
     if (!r.ok) {
@@ -57,6 +61,7 @@ export async function runOneSyncPass(deps: SyncPassDeps): Promise<void> {
       continue;
     }
     watchedDirs.add(dir);
+    succeededWatches.push(dir);
   }
 
   if (failures.length > 0) {
@@ -70,12 +75,10 @@ export async function runOneSyncPass(deps: SyncPassDeps): Promise<void> {
     notify.error(`Failed to sync FS watches (${failures.length})`, aggregate);
   }
 
-  const watchFailures = failures.filter((f) => f.kind === "watch").length;
-  const successfulWatches = toWatch.length - watchFailures;
-  if (successfulWatches > 0) {
-    // 「Ready」というイベント名と実態を一致させるため、新規 watch が 1 つでも成功した
-    // 場合に限って発射する（全 watch が失敗した場合は新たに監視対象になった dir が無く、
-    // 救済する取りこぼし対象も存在しない）。
-    dispatchReady();
+  // 新規 watch を開始した dir 1 件につき 1 回 dispatch。subscriber が payload.dir で
+  // active 判定できるようにする。dispatch ループ全体で同期発射でも、購読側は世代/世代外で
+  // 自然に冪等。
+  for (const dir of succeededWatches) {
+    dispatchReady(dir);
   }
 }

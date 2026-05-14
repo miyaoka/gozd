@@ -63,11 +63,24 @@ public actor ClaudeSessionStore {
 
   /// プロジェクト全体の生存セッションを返す（worktree 横断、pure read）。
   /// サイドバーが「各 worktree が何個 resume 可能か」をバッジ表示するための一括取得。
+  /// transcript ファイルの存在チェックを通して死んだ session を弾く。
   public func allLiveSessions(forProject dir: String) throws -> [Gozd_V1_ClaudeSession] {
     let list = try loadFile(for: dir)
     return list.sessions.filter {
       FileManager.default.fileExists(atPath: $0.transcriptPath)
     }
+  }
+
+  /// プロジェクト全体の登録 session を返す（transcript 存在チェックを通さない）。
+  /// session-start hook 直後は Claude が transcript ファイル本体をまだ作成していない
+  /// (初回 message 時に書かれる) ため、`allLiveSessions` で filter すると稼働中の
+  /// session が一瞬「不在」と判定されてしまう。アプリ稼働中の Task ↔ session 整合性は
+  /// session-start hook の upsert と session-end / removeByPty の delete で完全管理
+  /// されているので、稼働中判定はこの method で transcript チェックなしに行う。
+  /// 死んだ session の掃除は起動時 reconcileAll が責任を持つ。
+  public func allRegisteredSessions(forProject dir: String) throws -> [Gozd_V1_ClaudeSession] {
+    let list = try loadFile(for: dir)
+    return list.sessions
   }
 
   /// 起動時に 1 回呼ぶ reconcile。`~/.config/gozd/projects/*/claude-sessions.json` を

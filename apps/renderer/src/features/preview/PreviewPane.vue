@@ -283,20 +283,32 @@ async function fetchCommitContent(filePath: string) {
     const fromNotFound = from?.notFound ?? true;
     const toNotFound = to?.notFound ?? true;
 
-    if (fromNotFound && !toNotFound) {
+    // from / to が両方存在しかつ内容も同一なら「この範囲では変更なし」。
+    // Filer から非変更ファイルを選んだ場合に Diff タブを出さないために必要な判定。
+    const unchanged =
+      !fromNotFound &&
+      !toNotFound &&
+      from?.content === to?.content &&
+      from?.isBinary === to?.isBinary;
+
+    if (fromNotFound && toNotFound) {
+      commitGitChange.value = undefined;
+    } else if (fromNotFound) {
       commitGitChange.value = "added";
-    } else if (!fromNotFound && toNotFound) {
+    } else if (toNotFound) {
       commitGitChange.value = "deleted";
+    } else if (unchanged) {
+      commitGitChange.value = undefined;
     } else {
       commitGitChange.value = "modified";
     }
 
     if (commitGitChange.value === "deleted") {
       activeMode.value = "original";
-    } else if (commitGitChange.value === "added") {
-      activeMode.value = "current";
-    } else {
+    } else if (commitGitChange.value === "modified") {
       activeMode.value = "diff";
+    } else {
+      activeMode.value = "current";
     }
 
     originalContent.value = fromNotFound ? undefined : from?.content;

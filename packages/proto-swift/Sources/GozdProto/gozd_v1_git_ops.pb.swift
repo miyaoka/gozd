@@ -251,6 +251,9 @@ public struct Gozd_V1_GitShowCommitFileResponse: Sendable {
   /// from と to の指す blob OID が一致しているか。
   /// Filer 経由でコミット範囲外（差分のない）ファイルを選んだ場合の
   /// 「Diff タブを出さない」判定の SSOT。renderer 側 content 比較は使わない。
+  /// true になるのは「from と to の OID が両方解決でき、かつ一致」したときのみ。
+  /// どちらかが解決失敗（root の `^` / 未追跡 path / repo 破損）した場合は false。
+  /// 既存の `from.not_found` / `to.not_found` を優先評価する規約は変えない。
   public var unchanged: Bool = false
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()

@@ -355,6 +355,9 @@ public enum GitOps {
   /// `git rev-parse <hash>:<path>` でファイルの blob OID を返す。
   /// hash 自体が解決不能（root の `^` 等）／path 未追跡なら nil。
   /// from と to の OID が一致すれば「コミット範囲で変更なし」の SSOT 判定として使える。
+  /// 失敗は nil 化するが silent drop を避けるため stderr に詳細を残す
+  /// （root commit の `^` 等の想定エラーも、予期しない repo 破損も同列にログするのは
+  /// `fileReadResultFromGit` と同じ規律）。
   public static func treeFileOID(dir: String, hash: String, relPath: String) async -> String? {
     do {
       let stdout = try await runGit(args: ["rev-parse", "\(hash):\(relPath)"], cwd: dir)
@@ -362,6 +365,9 @@ public enum GitOps {
         .trimmingCharacters(in: .whitespacesAndNewlines)
       return line.isEmpty ? nil : line
     } catch {
+      FileHandle.standardError.write(
+        Data("[GitOps] rev-parse \(hash):\(relPath) failed in \(dir): \(error)\n".utf8)
+      )
       return nil
     }
   }

@@ -570,13 +570,19 @@ public actor RpcDispatcher {
           "[RpcDispatcher] handleGitWorktreeList: allRegisteredSessions failed (\(error)) — falling back to no-filter\n"
             .utf8))
       registeredSessionIds = nil
-      // ここでは onNotify を呼ばない:
-      // useSidebarData は source=claude-sessions の error notify を「該当 dir の
-      // rollback refetch トリガ」として扱う。handleGitWorktreeList 自身の path で
-      // 発火させると refetch→同 path→notify の無限ループになる。読みに行けない事実は
-      // 起動時 reconcileAll の通知経路 (ClaudeSessionStore.reconcileAll 失敗) で
-      // 既にユーザーに伝わる契約。read 失敗の単発通知が必要になったら、専用 source
-      // (rollback 対象外) で別経路にする。
+      // source=`claude-sessions-read` は専用カテゴリで、useSidebarData の
+      // `ROLLBACK_SOURCES` には含めない。rollback (= 該当 repo の refetch) の
+      // トリガとして同じ source を共有すると、handleGitWorktreeList → notify →
+      // refetch → 同 path → notify の無限ループになる。read 失敗時の単発通知だけが
+      // 必要なので別 source とする。toast 表示は `useNotifySubscription` が全 source を
+      // 受けるため別途登録不要。
+      onNotify(
+        "error",
+        "claude-sessions-read",
+        "Failed to read claude-sessions index; sidebar may show orphan tasks",
+        String(describing: error),
+        req.dir
+      )
     }
     let listedTasks = try await tasks.list(dir: req.dir)
     let allTasks = registeredSessionIds.map { ids in

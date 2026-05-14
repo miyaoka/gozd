@@ -88,7 +88,8 @@ public actor TaskStore {
   /// この経路が無いと、アプリクラッシュ / kill -9 / transcript 削除で
   /// session-end hook も removeByPty も来なかった残骸が永続化に居座り続け、
   /// サイドバーに `New session` のゾンビ行として現れる。
-  /// 戻り値: claude-sessions.json の parse 失敗で skip した projectKey 一覧。
+  /// 戻り値: tasks.json / claude-sessions.json のいずれかが「読めない or parse できない」
+  /// 理由で skip した projectKey 一覧 (UTF-8 デコード失敗・proto JSON parse 失敗を含む)。
   /// 呼び出し元はこれを renderer に notify push して、ユーザーに復旧操作を促す。
   public func reconcileAll() throws -> [String] {
     let projectsURL = URL(fileURLWithPath: configDir).appendingPathComponent("projects")
@@ -103,23 +104,37 @@ public actor TaskStore {
       options: [.skipsHiddenFiles]
     )
     var totalDropped = 0
-    var parseFailureProjects: [String] = []
+    // tasks.json / claude-sessions.json の read or parse 失敗を統合して集計する。
+    // 上位 (RpcDispatcher.reconcileClaudeSessions) は notify メッセージで
+    // 「Failed to parse claude-sessions.json」と書いていたが、tasks.json 側 / UTF-8 側
+    // の失敗も同じ復旧操作 (該当 projectKey の手動修復) を要するので 1 つにまとめる。
+    var decodeFailureProjects: [String] = []
     for projectDir in projectDirs {
       let projectKey = projectDir.lastPathComponent
       let tasksURL = projectDir.appendingPathComponent("tasks.json")
       guard fm.fileExists(atPath: tasksURL.path) else { continue }
       let tasksData = try Data(contentsOf: tasksURL)
       // 不正な UTF-8 を U+FFFD で黙置換する `String(decoding:as:)` は使わない
-      // (silent corruption の温床)。デコード失敗時は projectKey ごと skip。
+      // (silent corruption の温床)。デコード失敗時は projectKey ごと skip + notify 対象。
       guard let tasksJson = String(bytes: tasksData, encoding: .utf8) else {
         FileHandle.standardError.write(
           Data(
             "[TaskStore] reconcile: tasks.json is not valid UTF-8 for \(projectKey), skipping\n"
               .utf8))
+        decodeFailureProjects.append(projectKey)
         continue
       }
-      var taskList =
-        (try? Gozd_V1_TaskList(jsonString: tasksJson)) ?? Gozd_V1_TaskList()
+      // proto JSON parse 失敗も skip + notify 対象 (silent に空 list として進めると
+      // 後段の orphan 削除で生きている Task まで巻き添えになる)。
+      guard let parsedTaskList = try? Gozd_V1_TaskList(jsonString: tasksJson) else {
+        FileHandle.standardError.write(
+          Data(
+            "[TaskStore] reconcile: failed to parse tasks.json for \(projectKey), skipping\n"
+              .utf8))
+        decodeFailureProjects.append(projectKey)
+        continue
+      }
+      var taskList = parsedTaskList
       if taskList.tasks.isEmpty { continue }
 
       // 同 projectKey の生存 sessionId を計算する。
@@ -136,7 +151,7 @@ public actor TaskStore {
             Data(
               "[TaskStore] reconcile: claude-sessions.json is not valid UTF-8 for \(projectKey), skipping\n"
                 .utf8))
-          parseFailureProjects.append(projectKey)
+          decodeFailureProjects.append(projectKey)
           continue
         }
         guard let sessionList = try? Gozd_V1_ClaudeSessionList(jsonString: sessionsJson)
@@ -147,7 +162,7 @@ public actor TaskStore {
             Data(
               "[TaskStore] reconcile: failed to parse claude-sessions.json for \(projectKey), skipping\n"
                 .utf8))
-          parseFailureProjects.append(projectKey)
+          decodeFailureProjects.append(projectKey)
           continue
         }
         for session in sessionList.sessions {
@@ -172,7 +187,7 @@ public actor TaskStore {
       FileHandle.standardError.write(
         Data("[TaskStore] reconcile: total \(totalDropped) orphan tasks cleaned\n".utf8))
     }
-    return parseFailureProjects
+    return decodeFailureProjects
   }
 
   // MARK: - paths
@@ -194,13 +209,14 @@ public actor TaskStore {
       return Gozd_V1_TaskList()
     }
     let data = try Data(contentsOf: URL(fileURLWithPath: path))
-    // 不正な UTF-8 を U+FFFD で黙置換しないよう `String(bytes:encoding:)` を使う。
-    // デコード失敗 / 壊れたファイル / 旧形式は空 list として扱い、次回 save で上書きする。
-    // 後方互換コードは負債になるので、復旧は「捨てて作り直す」方針。
+    // 不正な UTF-8 / proto JSON parse 失敗を silent に「空 list」として扱うと、
+    // 直後の save で空 list を書き戻し、ユーザーの全 task が消える破壊的副作用がある
+    // (一時的なディスク破損 / 中断書き込みでも発動)。throw に倒して上位 (RpcDispatcher)
+    // で notify + UI に伝え、ユーザーが復旧操作 (手動修復 / 削除) を選べるようにする。
     guard let json = String(bytes: data, encoding: .utf8) else {
-      return Gozd_V1_TaskList()
+      throw TaskStoreError.fileDecodeFailed(path)
     }
-    return (try? Gozd_V1_TaskList(jsonString: json)) ?? Gozd_V1_TaskList()
+    return try Gozd_V1_TaskList(jsonString: json)
   }
 
   private func saveFile(_ list: Gozd_V1_TaskList, for dir: String) throws {
@@ -216,4 +232,5 @@ public actor TaskStore {
 
 public enum TaskStoreError: Error, Equatable {
   case notFound(String)
+  case fileDecodeFailed(String)
 }

@@ -415,6 +415,11 @@ export const useTerminalStore = defineStore("terminal", () => {
         const [pick] = reordered.splice(idx, 1);
         if (pick !== undefined) reordered.unshift(pick);
         sessions = reordered;
+      } else if (idx < 0) {
+        // click と visit の間に session listing から該当 sessionId が消えた。
+        // 期待した session の resume はできないので、ユーザーに知らせる
+        // (silent に先頭 session を起動すると click の意図がすり替わる)。
+        notify.error(`Resumable session ${preferred} is no longer available for ${dir}`);
       }
     }
 
@@ -442,13 +447,27 @@ export const useTerminalStore = defineStore("terminal", () => {
    * 当該 sessionId が既に live PTY を持っているなら何もしない (上位で focus 済み)。
    */
   function requestResumeSession(dir: string, sessionId: string) {
-    if (claude.getPtyIdBySessionId(sessionId) !== undefined) return;
+    // click → onSelectTask 内で `getPtyIdBySessionId === undefined` を確認済み。
+    // ここに来てなお live になっているのは「click と本関数呼び出しの間に session-start
+    // hook が走った」ごく狭い race のみ。観察用に debug ログを残し、focus は上位の
+    // 経路 (focusPane) に任せて return する。
+    if (claude.getPtyIdBySessionId(sessionId) !== undefined) {
+      console.debug(
+        `[useTerminalStore] requestResumeSession: ${sessionId} became live between click and request; deferring focus to caller`,
+      );
+      return;
+    }
     if (!visitedDirs.value.includes(dir)) {
       preferredResumeByDir.value[dir] = sessionId;
       return;
     }
     const newLeafId = layout.splitPane(dir, "horizontal");
-    if (newLeafId === undefined) return;
+    if (newLeafId === undefined) {
+      // split に失敗するとユーザーの click が無反応に終わる。silent return は
+      // 観察可能性を欠くので notify する (発生条件: layout 制約 / dir 未初期化)。
+      notify.error(`Failed to split pane for resume session in ${dir}`);
+      return;
+    }
     pendingResumeByLeafId.value[newLeafId] = sessionId;
     layout.focusPane(newLeafId);
   }

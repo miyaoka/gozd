@@ -239,8 +239,16 @@ public actor RpcDispatcher {
         break
       }
     } catch {
+      // claudeSessions.upsert / removeBySessionId / pty.setSessionId / pty.sessionId
+      // などの外側 throw を拾う catch。session-start / session-end の永続化失敗は
+      // 後段 fetch でも復旧経路が無いため、TaskStore 失敗と対称に renderer へ
+      // notify する。dir は worktreePath が解決済みなのでそのまま渡す。
       FileHandle.standardError.write(
         Data("[ClaudeSessionStore] \(hook.event) failed: \(error)\n".utf8))
+      onNotify(
+        "error", "claude-sessions",
+        "Claude session hook (\(hook.event)) failed",
+        String(describing: error), worktreePath)
     }
   }
 

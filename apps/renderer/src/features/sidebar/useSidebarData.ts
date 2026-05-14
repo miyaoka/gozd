@@ -123,10 +123,10 @@ export function useSidebarData() {
   // task.id の経路で対象 Task を厳密に特定する。RPC 処理中に来た更新は
   // pendingSync に退避し、完了後に再実行する。
   //
-  // session 確立直後の race: session-start hook の onMessage 受信で fetchRepo を
-  // 走らせ、wt.tasks を埋めてから後続の OSC title sync が走るのが基本フロー。
-  // それでも race で Task 不在の瞬間があれば、その title は捨てる (次の OSC で
-  // リカバリされる)。
+  // session 確立直後の race: session-start hook を受けた `onMessage("hook", ...)`
+  // 経路で wt.tasks に楽観 push し、Swift 側 TaskStore.upsertForSession の同期
+  // 完了と整合する。それでも renderer state 反映前に OSC title が到達した場合は
+  // syncTaskTitle 内の 1 回 fetchRepo で再評価する。
 
   let titleSyncing = false;
   let pendingSync: { leafId: string; title: string } | undefined;
@@ -253,8 +253,9 @@ export function useSidebarData() {
     // と同期に upsertForSession / removeBySession を完了させるため、renderer 側の
     // 楽観更新と永続化は同期完結する。後追い fetchRepo は OSC title sync の
     // freshWt.tasks.map 更新を上書きする race を生むため呼ばない。真値の差し戻しは
-    // task-store 失敗 notify 経路 (上で購読) と次の任意 fetch (worktreeChange /
-    // fsWatchReady / explicit refresh) に任せる。
+    // task-store 失敗 notify 経路 (`source === "task-store"` の onMessage("notify")
+    // 購読) と次の任意 fetch (worktreeChange / fsWatchReady / explicit refresh)
+    // に任せる。
     cleanups.push(
       onMessage<HookPayload>("hook", (payload) => {
         if (payload.event !== "session-start" && payload.event !== "session-end") return;

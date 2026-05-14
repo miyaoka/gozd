@@ -236,7 +236,12 @@ public actor RpcDispatcher {
         }
         await pty.clearSessionId(for: hook.ptyID)
       default:
-        break
+        // 呼び出し元 handleSocketMessage が hook.event を session-start /
+        // session-end に絞り込んでから呼ぶため到達しない。外側 catch の switch と
+        // 対称に観察可能化する (silent break で将来フィルタが緩んだとき no-op に
+        // ならないように)。
+        preconditionFailure(
+          "applyClaudeSessionHook reached with unexpected event: \(hook.event)")
       }
     } catch {
       // claudeSessions.upsert / removeBySessionId / pty.setSessionId / pty.sessionId

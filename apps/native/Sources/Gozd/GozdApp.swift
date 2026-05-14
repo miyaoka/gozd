@@ -255,12 +255,12 @@ final class AppRuntime {
           page: holder.page, type: "gitStatusChange", payload: payload)
       }
     }
-    let onBranchChange: FSWatchRegistry.BranchChangeHandler = { dir, changedRefs in
+    let onBranchChange: FSWatchRegistry.BranchChangeHandler = { dir in
       Task { @MainActor in
         await pushToRenderer(
           page: holder.page,
           type: "branchChange",
-          payload: ["dir": dir, "changedRefs": changedRefs]
+          payload: ["dir": dir]
         )
       }
     }

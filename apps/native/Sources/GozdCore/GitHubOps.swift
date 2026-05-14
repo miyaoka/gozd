@@ -18,10 +18,12 @@ public enum GitHubOps {
   // GitHub の avatar 画像サイズ（px）。PR/Issue picker 行の表示サイズに合わせる。
   private static let avatarSize = 64
 
+  // `owner { login }` は廃止 (fork 判定にはローカルで parse した owner を使う)。
+  // `assignees` / `reviewRequests` は PR picker の filter 機能 (PrPickerDialog) で参照する
+  // ため一覧 query にそのまま含める。inner page は元のまま 100 を維持。
   private static let prQuery = """
     query($owner: String!, $repo: String!, $limit: Int!) {
       repository(owner: $owner, name: $repo) {
-        owner { login }
         pullRequests(first: $limit, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
           nodes {
             number
@@ -61,30 +63,36 @@ public enum GitHubOps {
     }
     """
 
-  public static func prList(dir: String) async throws -> [PullRequestInfo]? {
-    guard let (owner, repo) = try await repoOwnerName(dir: dir) else { return nil }
-    guard
-      let data = try await runGhOrNilOnCommandFailure(
+  public static func prList(dir: String) async throws -> PrListResult {
+    guard let (owner, repo) = try await repoOwnerName(dir: dir) else {
+      return .failure(GhError(kind: .repoNotFound, detail: "no remote.origin.url"))
+    }
+    let data: Data
+    do {
+      data = try await runGhCategorized(
         args: graphqlArgs(owner: owner, repo: repo, query: prQuery), cwd: dir)
-    else { return nil }
+    } catch let err as GhError {
+      return .failure(err)
+    }
     guard
       let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
       let repository = (root["data"] as? [String: Any])?["repository"] as? [String: Any],
       let nodes = (repository["pullRequests"] as? [String: Any])?["nodes"] as? [[String: Any]]
-    else { return nil }
+    else {
+      return .failure(GhError(kind: .other, detail: "unexpected response shape"))
+    }
 
     // fork PR を除外（自リポジトリの owner と一致するもののみ）。
     // worktree 作成側 (registerPrCommand.ts) が `origin/<headRef>` を startPoint に
     // 使うため、fork からの PR は ref 解決に失敗する。
-    let repoOwner = (repository["owner"] as? [String: Any])?["login"] as? String
+    // owner は repoOwnerName で local に得たものを SSOT として使う。
+    let repoOwner = owner
 
-    return nodes.compactMap { item -> PullRequestInfo? in
-      if let repoOwner = repoOwner {
-        let headOwner =
-          ((item["headRepository"] as? [String: Any])?["owner"] as? [String: Any])?["login"]
-          as? String
-        if headOwner != repoOwner { return nil }
-      }
+    let infos: [PullRequestInfo] = nodes.compactMap { item -> PullRequestInfo? in
+      let headOwner =
+        ((item["headRepository"] as? [String: Any])?["owner"] as? [String: Any])?["login"]
+        as? String
+      if headOwner != repoOwner { return nil }
       let authorDict = item["author"] as? [String: Any]
       let author = authorDict?["login"] as? String ?? ""
       let avatar = authorDict?["avatarUrl"] as? String ?? ""
@@ -110,21 +118,29 @@ public enum GitHubOps {
         authorAvatarUrl: avatar
       )
     }
+    return .success(infos)
   }
 
-  public static func issueList(dir: String) async throws -> [IssueInfo]? {
-    guard let (owner, repo) = try await repoOwnerName(dir: dir) else { return nil }
-    guard
-      let data = try await runGhOrNilOnCommandFailure(
+  public static func issueList(dir: String) async throws -> IssueListResult {
+    guard let (owner, repo) = try await repoOwnerName(dir: dir) else {
+      return .failure(GhError(kind: .repoNotFound, detail: "no remote.origin.url"))
+    }
+    let data: Data
+    do {
+      data = try await runGhCategorized(
         args: graphqlArgs(owner: owner, repo: repo, query: issueQuery), cwd: dir)
-    else { return nil }
+    } catch let err as GhError {
+      return .failure(err)
+    }
     guard
       let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
       let nodes = (((root["data"] as? [String: Any])?["repository"] as? [String: Any])?[
         "issues"] as? [String: Any])?["nodes"] as? [[String: Any]]
-    else { return nil }
+    else {
+      return .failure(GhError(kind: .other, detail: "unexpected response shape"))
+    }
 
-    return nodes.map { item in
+    let infos: [IssueInfo] = nodes.map { item in
       let authorDict = item["author"] as? [String: Any]
       let author = authorDict?["login"] as? String ?? ""
       let avatar = authorDict?["avatarUrl"] as? String ?? ""
@@ -146,6 +162,7 @@ public enum GitHubOps {
         authorAvatarUrl: avatar
       )
     }
+    return .success(infos)
   }
 
   // `-F` は型推論で number/bool を渡しうるため、string にしたい owner/repo/query は
@@ -160,15 +177,82 @@ public enum GitHubOps {
     ]
   }
 
+  /// `git config --get remote.origin.url` をパースして GitHub の owner/repo を取得する。
+  ///
+  /// 以前は `gh repo view --json owner,name` を使っていたが、これは picker / PR 一覧の
+  /// 取得ごとに GitHub REST API を 1 回消費していた。owner/repo は remote URL から
+  /// 同等に得られ、外部通信なしで完結する。
+  ///
+  /// 対応する URL 形式 (host は `github.com` のみ):
+  /// - `https://github.com/<owner>/<repo>(.git)?`
+  /// - `git@github.com:<owner>/<repo>(.git)?`
+  /// - `ssh://git@github.com/<owner>/<repo>(.git)?`
+  ///
+  /// GitLab / Bitbucket / GitHub Enterprise 等の non-github.com remote は nil を返す
+  /// (`gh` のデフォルト host は github.com なので、別ホスト remote で `gh api graphql` を
+  /// 実行すると認証失敗が混入し、観察可能性を汚す)。
   private static func repoOwnerName(dir: String) async throws -> (owner: String, repo: String)? {
-    guard
-      let data = try await runGhOrNilOnCommandFailure(
-        args: ["repo", "view", "--json", "owner,name", "--jq", ".owner.login + \"/\" + .name"],
-        cwd: dir)
-    else { return nil }
+    let data: Data
+    do {
+      data = try await runGit(args: ["config", "--get", "remote.origin.url"], cwd: dir)
+    } catch GitError.commandFailed {
+      // remote.origin 未設定（新規 repo / fork なし）。PR 一覧自体が成立しない。
+      return nil
+    }
+    let url = String(decoding: data, as: UTF8.self)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    return parseGitHubOwnerRepo(url: url)
+  }
+
+  /// `gh api user --jq .login` で認証中ユーザーの login を返す。
+  public static func viewer(dir: String) async throws -> ViewerResult {
+    let data: Data
+    do {
+      data = try await runGhCategorized(args: ["api", "user", "--jq", ".login"], cwd: dir)
+    } catch let err as GhError {
+      return .failure(err)
+    }
     let text = String(decoding: data, as: UTF8.self)
       .trimmingCharacters(in: .whitespacesAndNewlines)
-    let parts = text.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
+    if text.isEmpty {
+      return .failure(GhError(kind: .unauthenticated, detail: "empty login"))
+    }
+    return .success(text)
+  }
+
+  /// remote URL から `(owner, repo)` を抽出する。host は `github.com` のみ受理し、
+  /// それ以外は nil を返す。`.git` 拡張子は剥がす。
+  static func parseGitHubOwnerRepo(url: String) -> (owner: String, repo: String)? {
+    let host: Substring
+    var path: String
+    if let range = url.range(of: "://") {
+      // https://host/owner/repo, ssh://user@host/owner/repo
+      let afterScheme = url[range.upperBound...]
+      guard let slash = afterScheme.firstIndex(of: "/") else { return nil }
+      var authority = afterScheme[..<slash]
+      if let at = authority.lastIndex(of: "@") {
+        authority = authority[authority.index(after: at)...]
+      }
+      // port 番号があれば剥がす (host:port)
+      if let colon = authority.firstIndex(of: ":") {
+        authority = authority[..<colon]
+      }
+      host = authority
+      path = String(afterScheme[afterScheme.index(after: slash)...])
+    } else if let colon = url.firstIndex(of: ":") {
+      // scp 形式: git@host:owner/repo
+      var authority = url[..<colon]
+      if let at = authority.lastIndex(of: "@") {
+        authority = authority[authority.index(after: at)...]
+      }
+      host = authority
+      path = String(url[url.index(after: colon)...])
+    } else {
+      return nil
+    }
+    if host != "github.com" { return nil }
+    if path.hasSuffix(".git") { path = String(path.dropLast(4)) }
+    let parts = path.split(separator: "/", omittingEmptySubsequences: false)
     guard parts.count == 2 else { return nil }
     let owner = String(parts[0])
     let repo = String(parts[1])
@@ -176,30 +260,77 @@ public enum GitHubOps {
     return (owner, repo)
   }
 
-  /// `gh api user --jq .login` で認証中ユーザーの login を返す。未認証なら nil。
-  public static func viewer(dir: String) async throws -> String? {
-    guard
-      let data = try await runGhOrNilOnCommandFailure(
-        args: ["api", "user", "--jq", ".login"], cwd: dir)
-    else { return nil }
-    let text = String(decoding: data, as: UTF8.self)
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-    return text.isEmpty ? nil : text
-  }
-
-  /// `runGh` の `commandFailed`（gh は走ったが non-zero exit: 未認証、repo not found 等）
-  /// を nil に変換するヘルパー。`launchFailed`（gh CLI 解決失敗 / 起動失敗）は rethrow し、
-  /// 上位 (RPC dispatcher) で HTTP error として renderer に流す。
-  /// `try?` を直接使うと両者を区別できず、`gh` 未解決でも UI 上「PR 0 件」に化けるため、
-  /// `commandFailed` のみを silent 化する。
-  private static func runGhOrNilOnCommandFailure(args: [String], cwd: String) async throws -> Data?
-  {
+  /// `runGh` の `commandFailed`（gh は走ったが non-zero exit）を stderr 内容で 4 種類に
+  /// 分類して `GhError` として throw する。`launchFailed`（gh CLI 解決失敗 / 起動失敗）は
+  /// そのまま rethrow し、上位 (RPC dispatcher) で HTTP error として renderer に流す。
+  /// 全失敗を nil 一律化していた旧実装では、UI 側で rate limit 枯渇に気づけなかった。
+  private static func runGhCategorized(args: [String], cwd: String) async throws -> Data {
     do {
       return try await runGh(args: args, cwd: cwd)
-    } catch GitError.commandFailed {
-      return nil
+    } catch let GitError.commandFailed(_, stderr) {
+      throw GhError(kind: classifyGhStderr(stderr), detail: truncateDetail(stderr))
     }
   }
+}
+
+/// 結果型エイリアス。Swift Result の Error 制約を満たすため GhError は Error に準拠。
+public typealias PrListResult = Result<[PullRequestInfo], GhError>
+public typealias IssueListResult = Result<[IssueInfo], GhError>
+public typealias ViewerResult = Result<String, GhError>
+
+public struct GhError: Error, Sendable, Equatable {
+  public enum Kind: Sendable, Equatable {
+    case rateLimit, unauthenticated, repoNotFound, network, other
+  }
+  public let kind: Kind
+  public let detail: String
+  public init(kind: Kind, detail: String) {
+    self.kind = kind
+    self.detail = detail
+  }
+}
+
+/// gh の stderr を 4 種類に分類する。マッチパターンは GitHub CLI の実出力に基づく。
+/// 順序が重要: rate limit メッセージにも "API" 等の汎用語が含まれるため、
+/// 特異度の高いパターンから順に評価する。
+public func classifyGhStderr(_ stderr: String) -> GhError.Kind {
+  let s = stderr.lowercased()
+  if s.contains("rate limit") || s.contains("api rate limit") || s.contains("secondary rate") {
+    return .rateLimit
+  }
+  if s.contains("authentication") || s.contains("not authenticated")
+    || s.contains("could not authenticate") || s.contains("bad credentials")
+    || s.contains("unauthorized")
+  {
+    return .unauthenticated
+  }
+  if s.contains("not found") || s.contains("could not resolve to a repository")
+    || s.contains("repository not found")
+  {
+    return .repoNotFound
+  }
+  if s.contains("could not resolve host") || s.contains("network is unreachable")
+    || s.contains("connection refused") || s.contains("timeout") || s.contains("dial tcp")
+  {
+    return .network
+  }
+  return .other
+}
+
+func truncateDetail(_ s: String, maxBytes: Int = 512) -> String {
+  let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+  if trimmed.utf8.count <= maxBytes { return trimmed }
+  // utf8 byte 境界で安全に切る
+  var end = trimmed.startIndex
+  var bytes = 0
+  while end < trimmed.endIndex {
+    let next = trimmed.index(after: end)
+    let chunk = trimmed[end..<next].utf8.count
+    if bytes + chunk > maxBytes { break }
+    bytes += chunk
+    end = next
+  }
+  return String(trimmed[..<end])
 }
 
 public struct PullRequestInfo: Sendable, Equatable {
@@ -233,10 +364,10 @@ public struct IssueInfo: Sendable, Equatable {
 // launchd 由来の最小 PATH しか継承されないため `/usr/bin/env gh` では `gh` を解決
 // できない。`CommandResolver` がユーザーログインシェル経由で `command -v gh` を実行
 // して絶対パスを取得し、結果はキャッシュされる。見つからない場合は `launchFailed` を
-// throw する。上位の `prList` / `issueList` / `viewer` は `runGhOrNilOnCommandFailure`
-// で包んでおり、`commandFailed`（未認証 / repo not found 等）のみ nil 化し
-// `launchFailed` はそのまま rethrow → `RpcDispatcher` の handler から HTTP error として
-// renderer に流れ、`notify.error` で表示される。
+// throw する。上位の `prList` / `issueList` / `viewer` は `runGhCategorized` で包んで
+// おり、`commandFailed`（未認証 / rate limit / repo not found 等）を 4 種類の `GhError`
+// に分類して上位に返す。`launchFailed` はそのまま rethrow → `RpcDispatcher` の handler
+// から HTTP error として renderer に流れ、`notify.error` で表示される。
 //
 // `launchFailed` を検知した場合、キャッシュが stale な可能性があるため 1 回だけ
 // invalidate + 再 resolve して retry する。

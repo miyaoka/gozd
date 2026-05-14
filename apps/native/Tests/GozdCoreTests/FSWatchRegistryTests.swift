@@ -14,7 +14,7 @@ struct FSWatchRegistryTests {
     let registry = FSWatchRegistry(
       onFsChange: { dir, _ in collector.append("fsChange:\(dir)") },
       onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
-      onBranchChange: { _, _ in collector.append("branchChange") },
+      onBranchChange: { _ in collector.append("branchChange") },
       onWorktreeChange: { _ in collector.append("worktreeChange") }
     )
 
@@ -40,7 +40,7 @@ struct FSWatchRegistryTests {
     let registry = FSWatchRegistry(
       onFsChange: { _, _ in collector.append("fsChange") },
       onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
-      onBranchChange: { _, _ in collector.append("branchChange") },
+      onBranchChange: { _ in collector.append("branchChange") },
       onWorktreeChange: { _ in collector.append("worktreeChange") }
     )
 
@@ -89,7 +89,7 @@ struct FSWatchRegistryTests {
     let registry = FSWatchRegistry(
       onFsChange: { _, _ in collector.append("fsChange") },
       onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
-      onBranchChange: { _, _ in collector.append("branchChange") },
+      onBranchChange: { _ in collector.append("branchChange") },
       onWorktreeChange: { _ in collector.append("worktreeChange") }
     )
 
@@ -122,7 +122,7 @@ struct FSWatchRegistryTests {
     let registry = FSWatchRegistry(
       onFsChange: { _, _ in collector.append("fsChange") },
       onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
-      onBranchChange: { _, _ in collector.append("branchChange") },
+      onBranchChange: { _ in collector.append("branchChange") },
       onWorktreeChange: { _ in collector.append("worktreeChange") }
     )
 
@@ -156,7 +156,7 @@ struct FSWatchRegistryTests {
     let registry = FSWatchRegistry(
       onFsChange: { _, _ in collector.append("fsChange") },
       onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
-      onBranchChange: { _, _ in collector.append("branchChange") },
+      onBranchChange: { _ in collector.append("branchChange") },
       onWorktreeChange: { _ in collector.append("worktreeChange") }
     )
 
@@ -186,7 +186,7 @@ struct FSWatchRegistryTests {
     let registry = FSWatchRegistry(
       onFsChange: { _, _ in collector.append("fsChange") },
       onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
-      onBranchChange: { _, _ in collector.append("branchChange") },
+      onBranchChange: { _ in collector.append("branchChange") },
       onWorktreeChange: { _ in collector.append("worktreeChange") }
     )
 
@@ -224,7 +224,7 @@ struct FSWatchRegistryTests {
     let registry = FSWatchRegistry(
       onFsChange: { _, _ in collector.append("fsChange") },
       onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
-      onBranchChange: { _, _ in collector.append("branchChange") },
+      onBranchChange: { _ in collector.append("branchChange") },
       onWorktreeChange: { _ in collector.append("worktreeChange") }
     )
 
@@ -254,7 +254,7 @@ struct FSWatchRegistryTests {
     let registry = FSWatchRegistry(
       onFsChange: { _, _ in },
       onGitStatusChange: { _, _ in },
-      onBranchChange: { _, _ in },
+      onBranchChange: { _ in },
       onWorktreeChange: { _ in }
     )
     let count = await registry.unwatchAll()
@@ -270,7 +270,7 @@ struct FSWatchRegistryTests {
     let registry = FSWatchRegistry(
       onFsChange: { _, _ in collector.append("fsChange") },
       onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
-      onBranchChange: { _, _ in collector.append("branchChange") },
+      onBranchChange: { _ in collector.append("branchChange") },
       onWorktreeChange: { _ in collector.append("worktreeChange") }
     )
 
@@ -497,48 +497,8 @@ struct ClassifyTests {
     #expect(result.hasGitStatusChange)
   }
 
-  @Test("refs/heads/<name> 変更で changedRefs に basename が含まれる")
-  func changedRefsContainsBasename() {
-    let dir = pathOf("repo")
-    let gitDir = pathOf("repo", ".git")
-    let result = FSWatchRegistry.classify(
-      dir: dir, perWorktreeGitDir: gitDir, commonGitDir: gitDir,
-      events: [ev(pathOf("repo", ".git", "refs", "heads", "main"))])
-    #expect(result.hasBranchChange)
-    #expect(result.changedRefs == ["main"])
-  }
-
-  @Test("refs/heads/<slash/contained> のスラッシュ含む branch 名も丸ごと changedRefs に入る")
-  func changedRefsKeepsSlashes() {
-    // `feat/foo` のような nested branch 名は `refs/heads/feat/foo` で表現される。
-    // basename を取るときに最初の `/` で切ってしまわないか保証する。
-    let dir = pathOf("repo")
-    let gitDir = pathOf("repo", ".git")
-    let result = FSWatchRegistry.classify(
-      dir: dir, perWorktreeGitDir: gitDir, commonGitDir: gitDir,
-      events: [ev(pathOf("repo", ".git", "refs", "heads", "feat", "foo"))])
-    #expect(result.hasBranchChange)
-    #expect(result.changedRefs == ["feat/foo"])
-  }
-
-  @Test("複数の refs/heads/ event は changedRefs に全部入る")
-  func changedRefsMergesMultiple() {
-    let dir = pathOf("repo")
-    let gitDir = pathOf("repo", ".git")
-    let result = FSWatchRegistry.classify(
-      dir: dir, perWorktreeGitDir: gitDir, commonGitDir: gitDir,
-      events: [
-        ev(pathOf("repo", ".git", "refs", "heads", "main")),
-        ev(pathOf("repo", ".git", "refs", "heads", "feat", "sub")),
-      ])
-    #expect(result.hasBranchChange)
-    #expect(result.changedRefs == ["main", "feat/sub"])
-  }
-
-  @Test("packed-refs だけの変更では個別 ref を特定できないため changedRefs は空")
-  func packedRefsHasNoChangedRefs() {
-    // packed-refs の中身はファイル名から判別不能。個別 ref 特定は呼び出し側で諦め、
-    // changedRefs は空のままにする（branchChange は発火するが具体名は載せない）。
+  @Test("packed-refs 変更で branchChange + gitStatusChange の両方が立つ")
+  func packedRefsFiresBoth() {
     let dir = pathOf("repo")
     let gitDir = pathOf("repo", ".git")
     let result = FSWatchRegistry.classify(
@@ -546,7 +506,6 @@ struct ClassifyTests {
       events: [ev(pathOf("repo", ".git", "packed-refs"))])
     #expect(result.hasBranchChange)
     #expect(result.hasGitStatusChange)
-    #expect(result.changedRefs.isEmpty)
   }
 
   @Test("dir 配下でも git dir 配下でもない event は無視")

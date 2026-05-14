@@ -47,7 +47,7 @@ public actor RpcDispatcher {
     onOpen: @escaping OpenHandler = { _ in },
     onFsChange: @escaping FSWatchRegistry.FsChangeHandler = { _, _ in },
     onGitStatusChange: @escaping FSWatchRegistry.GitStatusChangeHandler = { _, _ in },
-    onBranchChange: @escaping FSWatchRegistry.BranchChangeHandler = { _, _ in },
+    onBranchChange: @escaping FSWatchRegistry.BranchChangeHandler = { _ in },
     onWorktreeChange: @escaping FSWatchRegistry.WorktreeChangeHandler = { _ in },
     onNotify: @escaping NotifyHandler = { _, _, _, _, _ in },
     envOverlay: GozdEnvOverlay? = nil,
@@ -328,8 +328,6 @@ public actor RpcDispatcher {
       return try await handleGitDefaultBranch(body)
     case "/git/branchList":
       return try await handleGitBranchList(body)
-    case "/git/refsDigest":
-      return try await handleGitRefsDigest(body)
     case "/git/createWorktree":
       return try await handleCreateWorktree(body)
     case "/git/worktreeRemove":
@@ -714,7 +712,8 @@ public actor RpcDispatcher {
   private func handleGitPrList(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitPrListRequest(jsonUTF8Data: body)
     var resp = Gozd_V1_GitPrListResponse()
-    if let prs = try await GitHubOps.prList(dir: req.dir) {
+    switch try await GitHubOps.prList(dir: req.dir) {
+    case .success(let prs):
       resp.ok = true
       resp.prs = prs.map { p in
         var pb = Gozd_V1_GitPullRequest()
@@ -732,8 +731,10 @@ public actor RpcDispatcher {
         pb.authorAvatarURL = p.authorAvatarUrl
         return pb
       }
-    } else {
+    case .failure(let err):
       resp.ok = false
+      resp.errorKind = mapGhErrorKind(err.kind)
+      resp.errorDetail = err.detail
     }
     return try resp.jsonUTF8Data()
   }
@@ -741,7 +742,8 @@ public actor RpcDispatcher {
   private func handleGitIssueList(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitIssueListRequest(jsonUTF8Data: body)
     var resp = Gozd_V1_GitIssueListResponse()
-    if let issues = try await GitHubOps.issueList(dir: req.dir) {
+    switch try await GitHubOps.issueList(dir: req.dir) {
+    case .success(let issues):
       resp.ok = true
       resp.issues = issues.map { i in
         var pb = Gozd_V1_GitIssue()
@@ -756,8 +758,10 @@ public actor RpcDispatcher {
         pb.authorAvatarURL = i.authorAvatarUrl
         return pb
       }
-    } else {
+    case .failure(let err):
       resp.ok = false
+      resp.errorKind = mapGhErrorKind(err.kind)
+      resp.errorDetail = err.detail
     }
     return try resp.jsonUTF8Data()
   }
@@ -765,13 +769,27 @@ public actor RpcDispatcher {
   private func handleGitViewer(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitViewerRequest(jsonUTF8Data: body)
     var resp = Gozd_V1_GitViewerResponse()
-    if let login = try await GitHubOps.viewer(dir: req.dir) {
+    switch try await GitHubOps.viewer(dir: req.dir) {
+    case .success(let login):
       resp.ok = true
       resp.login = login
-    } else {
+    case .failure(let err):
       resp.ok = false
+      resp.errorKind = mapGhErrorKind(err.kind)
+      resp.errorDetail = err.detail
     }
     return try resp.jsonUTF8Data()
+  }
+
+  /// `GhError.Kind` を proto enum にマップする。proto 側は 0=OK / 1-5=各種失敗。
+  private func mapGhErrorKind(_ kind: GhError.Kind) -> Gozd_V1_GhErrorKind {
+    switch kind {
+    case .rateLimit: return .rateLimit
+    case .unauthenticated: return .unauthenticated
+    case .repoNotFound: return .repoNotFound
+    case .network: return .network
+    case .other: return .other
+    }
   }
 
   private func handleGitDefaultBranch(_ body: Data) async throws -> Data {
@@ -803,14 +821,6 @@ public actor RpcDispatcher {
     let branches = try await GitOps.branchList(dir: req.dir)
     var resp = Gozd_V1_GitBranchListResponse()
     resp.branches = branches
-    return try resp.jsonUTF8Data()
-  }
-
-  private func handleGitRefsDigest(_ body: Data) async throws -> Data {
-    let req = try Gozd_V1_GitRefsDigestRequest(jsonUTF8Data: body)
-    let digest = try await GitOps.refsDigest(dir: req.dir)
-    var resp = Gozd_V1_GitRefsDigestResponse()
-    resp.digest = digest
     return try resp.jsonUTF8Data()
   }
 

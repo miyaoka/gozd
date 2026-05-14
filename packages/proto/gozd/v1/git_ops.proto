@@ -77,14 +77,34 @@ message GitCommitFilesResponse {
   repeated GitFileChange changes = 1;
 }
 
+// gh 経路の失敗種別。`ok=false` のとき renderer 側で文言を区別するために使う。
+// `OK` は ok=true 時のデフォルト値で、`ok=false` 時にこのフィールドが OK のまま来ることは
+// ない（必ず以下のいずれかに分類される）。
+enum GhErrorKind {
+  GH_ERROR_KIND_OK = 0;
+  // rate limit 枯渇。stderr に "rate limit" / "API rate limit exceeded" 等を含む
+  GH_ERROR_KIND_RATE_LIMIT = 1;
+  // 未認証 / トークン無効。stderr に "authentication required" / "not authenticated" 等
+  GH_ERROR_KIND_UNAUTHENTICATED = 2;
+  // repo 不在 / アクセス権なし。stderr に "Not Found" / "Could not resolve to a Repository" 等
+  GH_ERROR_KIND_REPO_NOT_FOUND = 3;
+  // network / DNS / 接続失敗
+  GH_ERROR_KIND_NETWORK = 4;
+  // 上記いずれにも該当しない gh の non-zero exit
+  GH_ERROR_KIND_OTHER = 5;
+}
+
 // gitPrList: gh pr list
 message GitPrListRequest {
   string dir = 1;
 }
 message GitPrListResponse {
-  // null は gh CLI 未認証等で取得不能を示す（前は null だった）。proto では空配列 + ok=false で表現
+  // ok=false は gh CLI 未認証 / rate limit / repo 不在 等で取得不能を示す
   bool ok = 1;
   repeated GitPullRequest prs = 2;
+  GhErrorKind error_kind = 3;
+  // 表示しないが debug 用に stderr の冒頭を載せる（最大 512B 程度に切り詰める想定）
+  string error_detail = 4;
 }
 
 // gitIssueList: gh issue list
@@ -94,6 +114,8 @@ message GitIssueListRequest {
 message GitIssueListResponse {
   bool ok = 1;
   repeated GitIssue issues = 2;
+  GhErrorKind error_kind = 3;
+  string error_detail = 4;
 }
 
 // gitViewer: 認証中の GitHub viewer login
@@ -103,6 +125,8 @@ message GitViewerRequest {
 message GitViewerResponse {
   bool ok = 1;
   string login = 2;
+  GhErrorKind error_kind = 3;
+  string error_detail = 4;
 }
 
 // gitDefaultBranch: `git worktree add -b <new> <abs> <ref>` の `<ref>` にそのまま渡せる
@@ -147,15 +171,4 @@ message GitWorktreeRemoveRequest {
   bool force = 3;
 }
 message GitWorktreeRemoveResponse {}
-
-// gitRefsDigest: refs/heads/ と refs/remotes/ の現在状態を 1 つの digest 文字列で返す。
-// renderer 側は前回値と比較して、push event の取りこぼしを検知する低頻度の整合性チェッカに
-// 使う。SSOT 経路（branchChange / gitStatusChange）の到達率を計測する観察可能性の補強で、
-// 「予防的 retry」ではない。不一致時のみ loadLog + console.warn を出す。
-message GitRefsDigestRequest {
-  string dir = 1;
-}
-message GitRefsDigestResponse {
-  string digest = 1;
-}
 

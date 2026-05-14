@@ -54,7 +54,8 @@ export function useFsWatchSync() {
         fsWatch: rpcFsWatch,
         fsUnwatch: rpcFsUnwatch,
         notify,
-        dispatchReady: () => dispatchMessage("fsWatchReady", {}),
+        resolveRootDir: (dir) => repoStore.findRepoOwning(dir)?.rootDir,
+        dispatchReady: (dir) => dispatchMessage("fsWatchReady", { dir }),
       }),
     );
   }

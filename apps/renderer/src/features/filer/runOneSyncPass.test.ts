@@ -24,7 +24,8 @@ function expectAggregate(cause: unknown): { aggregate: Error; first: Error } {
 interface CallRecord {
   watch: string[];
   unwatch: string[];
-  readyCount: number;
+  /** `fsWatchReady` が発射された dir の列 (発射順)。dir 1 件につき 1 push の契約。 */
+  ready: string[];
   errors: Array<{ message: string; cause: unknown }>;
 }
 
@@ -35,8 +36,27 @@ interface FixtureOptions {
   failUnwatch?: Set<string>;
 }
 
+/** store の repos から、任意の worktree path → rootDir 逆引き map を組み立てる。
+ * `fsWatchReady` の rootDir 単位 dedup を検証するため、テスト fixture でも production と
+ * 同じ「rootDir 由来」のキーで dedup されることを保証する。 */
+function buildResolveRootDir(
+  repos: Record<string, RepoState>,
+): (dir: string) => string | undefined {
+  const map = new Map<string, string>();
+  for (const [rootDir, repo] of Object.entries(repos)) {
+    for (const wt of repo.worktrees) {
+      map.set(wt.path, rootDir);
+    }
+    if (!repo.isGitRepo) {
+      // 非 git project は rootDir 自身が watch 対象。
+      map.set(rootDir, rootDir);
+    }
+  }
+  return (dir) => map.get(dir);
+}
+
 function makeFixture(opts: FixtureOptions): { deps: SyncPassDeps; calls: CallRecord } {
-  const calls: CallRecord = { watch: [], unwatch: [], readyCount: 0, errors: [] };
+  const calls: CallRecord = { watch: [], unwatch: [], ready: [], errors: [] };
   const failWatch = opts.failWatch ?? new Set<string>();
   const failUnwatch = opts.failUnwatch ?? new Set<string>();
   const deps: SyncPassDeps = {
@@ -55,15 +75,16 @@ function makeFixture(opts: FixtureOptions): { deps: SyncPassDeps; calls: CallRec
     notify: {
       error: (message, cause) => calls.errors.push({ message, cause }),
     },
-    dispatchReady: () => {
-      calls.readyCount++;
+    resolveRootDir: buildResolveRootDir(opts.store.repos),
+    dispatchReady: (dir) => {
+      calls.ready.push(dir);
     },
   };
   return { deps, calls };
 }
 
 describe("runOneSyncPass", () => {
-  test("初回 sync で全 target を watch し、fsWatchReady を 1 回発射する", async () => {
+  test("初回 sync で全 target を watch し、fsWatchReady は rootDir 単位に dedup される", async () => {
     const { deps, calls } = makeFixture({
       store: {
         dirOrder: ["/r1"],
@@ -80,9 +101,35 @@ describe("runOneSyncPass", () => {
     await runOneSyncPass(deps);
     expect(calls.watch).toEqual(["/r1", "/r1/wt-a"]);
     expect(calls.unwatch).toEqual([]);
-    expect(calls.readyCount).toBe(1);
+    // 同一 rootDir の複数 worktree は 1 push に dedup。順序として最初の成功 dir で発射
+    expect(calls.ready).toEqual(["/r1"]);
     expect(calls.errors).toEqual([]);
     expect(deps.watchedDirs).toEqual(new Set(["/r1", "/r1/wt-a"]));
+  });
+
+  test("複数 repo で初回 sync すると、ready は rootDir ごとに 1 回ずつ", async () => {
+    const { deps, calls } = makeFixture({
+      store: {
+        dirOrder: ["/r1", "/r2"],
+        repos: {
+          "/r1": {
+            rootDir: "/r1",
+            repoName: "r1",
+            isGitRepo: true,
+            worktrees: [wt("/r1", "main", true), wt("/r1/wt-a", "feat-a")],
+          },
+          "/r2": {
+            rootDir: "/r2",
+            repoName: "r2",
+            isGitRepo: true,
+            worktrees: [wt("/r2", "main", true)],
+          },
+        },
+      },
+    });
+    await runOneSyncPass(deps);
+    // /r1 配下 2 dir + /r2 配下 1 dir = 3 watch、ready は repo 単位 2 回
+    expect(calls.ready).toEqual(["/r1", "/r2"]);
   });
 
   test("target から消えた dir を unwatch して watchedDirs から除く", async () => {
@@ -104,7 +151,7 @@ describe("runOneSyncPass", () => {
     expect(calls.unwatch).toEqual(["/r1/wt-removed"]);
     expect(calls.watch).toEqual([]);
     // 新規 watch ゼロのため Ready を発射しない
-    expect(calls.readyCount).toBe(0);
+    expect(calls.ready).toEqual([]);
     expect(deps.watchedDirs).toEqual(new Set(["/r1"]));
   });
 
@@ -124,7 +171,7 @@ describe("runOneSyncPass", () => {
       failWatch: new Set(["/r1"]),
     });
     await runOneSyncPass(deps);
-    expect(calls.readyCount).toBe(0);
+    expect(calls.ready).toEqual([]);
     expect(calls.errors.length).toBe(1);
     expect(deps.watchedDirs.has("/r1")).toBe(false);
     const [err] = calls.errors;
@@ -151,8 +198,8 @@ describe("runOneSyncPass", () => {
     });
     await runOneSyncPass(deps);
     expect(deps.watchedDirs).toEqual(new Set(["/r1"]));
-    // 1 つでも watch 成功している = fsWatchReady を 1 回発射
-    expect(calls.readyCount).toBe(1);
+    // /r1 と /r1/wt-a は同 rootDir。/r1 だけ成功し、ready は /r1 1 件
+    expect(calls.ready).toEqual(["/r1"]);
     expect(calls.errors.length).toBe(1);
     const [err] = calls.errors;
     expect(err.message).toBe("Failed to sync FS watches (1)");
@@ -231,7 +278,7 @@ describe("runOneSyncPass", () => {
     await runOneSyncPass(deps);
     expect(calls.watch).toEqual([]);
     expect(calls.unwatch).toEqual([]);
-    expect(calls.readyCount).toBe(0);
+    expect(calls.ready).toEqual([]);
     expect(calls.errors).toEqual([]);
     expect(deps.watchedDirs).toEqual(new Set(["/r1"]));
   });

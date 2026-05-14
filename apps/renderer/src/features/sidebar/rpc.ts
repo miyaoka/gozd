@@ -56,21 +56,21 @@ export const rpcAppStateSave = (req: SaveAppStateRequest) =>
 // --- push event payloads ---
 
 export interface BranchChangePayload {
+  /** 同 repo を共有する worktree 群の中から primary 1 つだけが発火する。
+   * `dir` は primary watcher の path で、active worktree とは限らない。subscriber が
+   * 「同 repo の event か」を判定する場合は `findRepoOwning(dir).rootDir` を使う。 */
   dir: string;
-  /** 今回のバッチで動いた `refs/heads/` 配下の ref 名（prefix を剥がした basename）。
-   * 例: `["main", "feat/foo"]`。`packed-refs` の更新で個別 ref を特定できない場合は空配列。
-   * 観察可能性のため payload に含める（バグ報告 / ログ参照用）。
-   * renderer 側の振る舞い（loadLog 全件 refetch）には現状影響しない。 */
-  changedRefs: string[];
 }
 
 export interface WorktreeChangePayload {
   dir: string;
 }
 
-/** `useFsWatchSync` が `rpcFsWatch` 完了直後に renderer 内部で発射する再同期通知。
- * watch 開始往復中に起きた FS / refs 変化を救済するため、subscriber は受信時に
- * 1 回だけ自分の state を refetch する。type 名は `fsWatchReady` で固定。
- * payload に dir を載せないのは、watch start await 中に worktree 切替が起きると
- * dir が stale 値になりうるため。購読側は `worktreeStore.dir` を都度読む契約。 */
-export type FsWatchReadyPayload = Record<string, never>;
+/** `useFsWatchSync` が `rpcFsWatch` 成功ごとに renderer 内部で発射する再同期通知。
+ * 新規 watch を開始した dir 1 件につき 1 push。subscriber は `payload.dir` を見て
+ * 自分が関心ある dir のものだけにフィルタする。dir を載せない設計だと N watch 起動 ×
+ * M 購読者の cross product で fan-out し、全 worktree watch 拡張後は GitHub rate
+ * limit を食い潰す原因になる。 */
+export interface FsWatchReadyPayload {
+  dir: string;
+}

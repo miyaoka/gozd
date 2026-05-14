@@ -68,14 +68,6 @@ export function useSidebarData() {
     );
   }
 
-  /** 現在 active な dir を所有する repo を fetch。push event 駆動 */
-  function fetchOwnerOfActive() {
-    const dir = worktreeStore.dir;
-    if (dir === undefined) return;
-    const owning = repoStore.findRepoOwning(dir);
-    if (owning) void fetchRepo(owning.rootDir);
-  }
-
   // 新規 repo が追加されたら即 fetch
   watch(
     () => [...repoStore.dirOrder],
@@ -258,11 +250,21 @@ export function useSidebarData() {
     // 全件再取得が必要。gitStatusChange は payload に dir + statuses を持ち、
     // useGitStatusSync が repoStore.setWorktreeGitStatuses で該当 wt のみ更新するため
     // ここで全件 refetch を走らせない（N 倍の git status 実行を避ける）。
-    cleanups.push(onMessage<BranchChangePayload>("branchChange", () => fetchOwnerOfActive()));
-    cleanups.push(onMessage<WorktreeChangePayload>("worktreeChange", () => fetchOwnerOfActive()));
+    // branchChange / worktreeChange / fsWatchReady いずれも payload.dir を見て、対応する
+    // repo を再 fetch する。全 worktree watch 化以降は別 worktree の push が混ざるため、
+    // active 限定経路ではなく、source dir の所有 repo を引き当てる方が正確かつ無駄な
+    // refetch を生まない。
+    function fetchOwnerOf(dir: string) {
+      const owning = repoStore.findRepoOwning(dir);
+      if (owning) void fetchRepo(owning.rootDir);
+    }
+    cleanups.push(onMessage<BranchChangePayload>("branchChange", ({ dir }) => fetchOwnerOf(dir)));
+    cleanups.push(
+      onMessage<WorktreeChangePayload>("worktreeChange", ({ dir }) => fetchOwnerOf(dir)),
+    );
     // `useFsWatchSync` の watch 起動完了通知。往復中の取りこぼし救済として 1 回だけ
     // worktree list を取り直す。
-    cleanups.push(onMessage<FsWatchReadyPayload>("fsWatchReady", () => fetchOwnerOfActive()));
+    cleanups.push(onMessage<FsWatchReadyPayload>("fsWatchReady", ({ dir }) => fetchOwnerOf(dir)));
     // 永続化ストア (TaskStore / ClaudeSessionStore) の失敗 notify を該当 repo の
     // 真値再取得トリガとして使う。この経路が兼用する責務は 2 つ:
     // - session hook (session-start / session-end) の楽観更新の rollback。

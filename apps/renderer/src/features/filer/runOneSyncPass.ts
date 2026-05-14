@@ -22,12 +22,27 @@ export interface SyncPassDeps {
   fsWatch: (req: { dir: string }) => Promise<unknown>;
   fsUnwatch: (req: { dir: string }) => Promise<unknown>;
   notify: { error: (message: string, cause?: unknown) => void };
-  /** 新規 watch が 1 つでも成功した時に呼ばれる。`fsWatchReady` 発射用。 */
-  dispatchReady: () => void;
+  /** 渡された dir を所有する repo の rootDir を返す。非 git project や所有 repo 不明時は
+   * undefined。`fsWatchReady` の repo 単位 dedup に使う。 */
+  resolveRootDir: (dir: string) => string | undefined;
+  /** 新規 watch が成功した repo 1 つにつき 1 回、その repo の代表 dir を引数として呼ばれる。
+   * 同一 rootDir 配下の複数 worktree が新規 watch 起動した場合は最初の 1 件のみ発射する。
+   * これにより subscriber 側の `findRepoOwning(dir).rootDir` ベースの refetch が
+   * repo 単位 1 回に収束し、N worktree × M subscriber の fan-out を排除できる。
+   * 非 git project は rootDir 解決不能のため dir 自身を dedup キーにする。 */
+  dispatchReady: (dir: string) => void;
 }
 
 export async function runOneSyncPass(deps: SyncPassDeps): Promise<void> {
-  const { targetDirs: next, watchedDirs, fsWatch, fsUnwatch, notify, dispatchReady } = deps;
+  const {
+    targetDirs: next,
+    watchedDirs,
+    fsWatch,
+    fsUnwatch,
+    notify,
+    resolveRootDir,
+    dispatchReady,
+  } = deps;
   const toUnwatch: string[] = [];
   const toWatch: string[] = [];
   for (const dir of watchedDirs) {
@@ -50,6 +65,7 @@ export async function runOneSyncPass(deps: SyncPassDeps): Promise<void> {
     // `rpcFsUnwatchAll` で native 側残骸は一括破棄される。
     watchedDirs.delete(dir);
   }
+  const succeededWatches: string[] = [];
   for (const dir of toWatch) {
     const r = await tryCatch(fsWatch({ dir }));
     if (!r.ok) {
@@ -57,6 +73,7 @@ export async function runOneSyncPass(deps: SyncPassDeps): Promise<void> {
       continue;
     }
     watchedDirs.add(dir);
+    succeededWatches.push(dir);
   }
 
   if (failures.length > 0) {
@@ -70,12 +87,15 @@ export async function runOneSyncPass(deps: SyncPassDeps): Promise<void> {
     notify.error(`Failed to sync FS watches (${failures.length})`, aggregate);
   }
 
-  const watchFailures = failures.filter((f) => f.kind === "watch").length;
-  const successfulWatches = toWatch.length - watchFailures;
-  if (successfulWatches > 0) {
-    // 「Ready」というイベント名と実態を一致させるため、新規 watch が 1 つでも成功した
-    // 場合に限って発射する（全 watch が失敗した場合は新たに監視対象になった dir が無く、
-    // 救済する取りこぼし対象も存在しない）。
-    dispatchReady();
+  // 同一 rootDir 配下の複数 worktree が新規 watch 起動した場合、subscriber 側の
+  // `findRepoOwning(dir).rootDir` を経由した refetch が同じ rootDir に N 回降り注いで
+  // しまうため、dispatch 側で rootDir 単位に dedup する。非 git project は resolveRootDir
+  // が undefined を返すため dir 自身を dedup キーにする (per-dir 発火を維持)。
+  const seenRoots = new Set<string>();
+  for (const dir of succeededWatches) {
+    const key = resolveRootDir(dir) ?? dir;
+    if (seenRoots.has(key)) continue;
+    seenRoots.add(key);
+    dispatchReady(dir);
   }
 }

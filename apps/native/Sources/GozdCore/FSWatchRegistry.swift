@@ -33,22 +33,19 @@ import Foundation
 // 4. **push の重複は許容**。renderer 側は冪等な再 fetch（onMessage の handler）
 //    で受け止めるので、`fsChange` と `gitStatusChange` を両方出しても問題ない。
 //
-// 5. **SSOT push + 低頻度 pull の二重防御**。FSEvents は push 経路だが、watch 開始
-//    往復中の取りこぼしや、`callJavaScript` の失敗で 1 度落とすと UI 状態が永続
-//    的にずれる。renderer 側で 2 つの保険を組んでいる:
-//    - `rpcFsWatch` 応答直後の `fsWatchReady` 再同期トリガー（watch 起動瞬間 1 回）
-//    - 60 秒間隔の `rpcGitRefsDigest` 整合性チェック（push 不達を検知して `loadLog`）
-//    どちらも「予防 retry」ではなく観察可能性の補強。不一致を検知したら必ず
-//    `console.warn` でログを残し、symptom を silent fix しない。
+// 5. **watch 起動往復中の取りこぼし救済**。`rpcFsWatch` 応答直後の `fsWatchReady` push を
+//    renderer 内部で 1 度だけ発射し、購読側に該当 worktree の state を再 fetch させる。
+//    `callJavaScript` の失敗による永続ズレは pushToRenderer のログで観測可能。低頻度 pull
+//    による整合性チェッカは廃止: 全 worktree watch + per-dir push filter で
+//    SSOT 経路の到達率は実用的に十分で、ポーリングは GitHub rate limit / `gh` 経路と組み
+//    合わさると累積発火の温床になる。
 public actor FSWatchRegistry {
   public typealias FsChangeHandler = @Sendable (_ dir: String, _ relDir: String) -> Void
   public typealias GitStatusChangeHandler = @Sendable (_ dir: String, _ status: GitOps.StatusFull)
     -> Void
-  /// branchChange ハンドラ。`changedRefs` には今回のバッチで動いた refs/heads/ 配下の
-  /// ref 名（`refs/heads/` を剥がした basename。例: `main`, `feat/foo`）を含める。
-  /// `packed-refs` の更新で個別 ref を特定できない場合は空配列。
-  /// 観察可能性のため、renderer 側がログ / バグ報告で利用できるよう payload に乗せる。
-  public typealias BranchChangeHandler = @Sendable (_ dir: String, _ changedRefs: [String]) -> Void
+  /// branchChange ハンドラ。同 repo を共有する worktree 群の中から primary 1 つだけが
+  /// 発火するため、push は repo につき 1 回 / バッチ。
+  public typealias BranchChangeHandler = @Sendable (_ dir: String) -> Void
   public typealias WorktreeChangeHandler = @Sendable (_ dir: String) -> Void
 
   private struct Entry {
@@ -76,9 +73,6 @@ public actor FSWatchRegistry {
     let hasGitStatusChange: Bool
     let hasBranchChange: Bool
     let hasWorktreeChange: Bool
-    /// 今回のバッチで動いた refs/heads/ 配下の ref 名（`refs/heads/` を剥がした basename）。
-    /// `packed-refs` の更新が含まれる場合は空のままで、個別 ref 特定は呼び出し側で諦める。
-    let changedRefs: Set<String>
   }
 
   private let onFsChange: FsChangeHandler
@@ -91,6 +85,11 @@ public actor FSWatchRegistry {
   /// 入力 path をそのまま返すため、watch 時のキーと一致せず entries が leak する。
   /// この逆引きを使えば「watch 時に解決した resolved key」で確実に削除できる。
   private var resolvedKeyByOriginalDir: [String: String] = [:]
+  /// commonGitDir → primary watcher の resolved dir。`branchChange` / `worktreeChange`
+  /// dispatch 時の dedup に使う。primary 判定は resolved dir の lexical 最小で決定論的に
+  /// 選ぶ。entries の add / remove 時に該当 commonGitDir のグループだけ再計算する
+  /// (handleEvents での O(N) 走査を O(1) lookup に置き換える)。
+  private var primaryByCommonGitDir: [String: String] = [:]
   /// watch ごとに増える世代番号。unwatch 後に積まれていた stale event の dispatch を
   /// 抑止するため、event 配送前後に entries[dir]?.generation と一致するか check する。
   private var nextGeneration: UInt64 = 0
@@ -119,6 +118,7 @@ public actor FSWatchRegistry {
   /// 経由する RPC 呼び出しが必要だった旧設計より整合性のリスクが低い。
   public func watch(dir userDir: String) async throws {
     let dir = FSWatchRegistry.realpath(userDir)
+    var oldCommonGitDir: String?
     if let existing = entries[dir] {
       // 既存 entry を破棄して再構築する: `gitDirs` の解決値が `git worktree repair` 等で
       // 変わっている可能性に備える（旧 no-op 設計だと古い perWorktreeGitDir / commonGitDir
@@ -127,10 +127,18 @@ public actor FSWatchRegistry {
       // 一括 invalidate するが、再構築では同じ resolved dir を引き続き使うので別 userDir
       // 経由の逆引きは温存したい。FSWatcher の破棄だけ inline で行い、reverse lookup は
       // 末尾の `resolvedKeyByOriginalDir[userDir] = dir` で当該 userDir のみ最新化する。
+      oldCommonGitDir = existing.commonGitDir
       existing.watcher.stop()
       existing.continuation.finish()
       existing.task.cancel()
       entries.removeValue(forKey: dir)
+      // entries 更新と同期して primary cache を再選出する。下流の `try await GitOps.gitDirs`
+      // で actor reentrancy が起き、sibling watcher の `handleEvents` が走った場合に、
+      // 削除済みの自分が cache 上で primary のままだと sibling は非 primary 判定で push を
+      // 落とす。await 突入前に sibling の中から最新の primary を確定させて取りこぼしを防ぐ。
+      if let oldCommonGitDir {
+        recomputePrimary(forCommonGitDir: oldCommonGitDir)
+      }
     }
 
     nextGeneration += 1
@@ -180,6 +188,14 @@ public actor FSWatchRegistry {
       perWorktreeGitDir: perWorktreeGitDir,
       commonGitDir: commonGitDir)
     resolvedKeyByOriginalDir[userDir] = dir
+    // 旧 entry の commonGitDir が新しい値と異なる場合、旧グループ側も primary を再計算する。
+    // 等しい場合は新値の recompute が両方を兼ねる。
+    if let oldCommonGitDir, oldCommonGitDir != commonGitDir {
+      recomputePrimary(forCommonGitDir: oldCommonGitDir)
+    }
+    if let commonGitDir {
+      recomputePrimary(forCommonGitDir: commonGitDir)
+    }
   }
 
   /// dir の監視を停止する。watch されていなければ no-op。
@@ -220,12 +236,41 @@ public actor FSWatchRegistry {
     // 同一 resolved に複数 userDir（symlink パスと非 symlink パスなど）で watch が
     // 重ねられた状態で、片方しか unwatch されないと逆引きエントリが leak するため。
     resolvedKeyByOriginalDir = resolvedKeyByOriginalDir.filter { $0.value != dir }
+    if let commonGitDir = entry.commonGitDir {
+      recomputePrimary(forCommonGitDir: commonGitDir)
+    }
   }
 
   /// dispatch 時点で entry がまだ生きており、世代が一致するかを判定する。
   /// FSEvents の遅延配信や gitStatusFull の await 後に entry が消えていれば false。
   private func isActive(dir: String, generation: UInt64) -> Bool {
     entries[dir]?.generation == generation
+  }
+
+  /// 同じ commonGitDir を共有する watcher 群の中で、指定 dir が primary かを判定する。
+  /// O(1) lookup: primary は `primaryByCommonGitDir` cache から読み、entries 全件走査は
+  /// しない (entry 追加 / 削除時にしか更新されないため frequent path で線形走査しない)。
+  /// commonGitDir が nil (非 git project) の entry は classify 時に branchChange /
+  /// worktreeChange を立てないため、ここに到達する経路自体存在しないが、保守上の保険として
+  /// false を返す (primary でない = dispatch を抑止する側に倒す)。
+  private func isPrimaryWatcher(forCommonGitDir commonGitDir: String?, dir: String) -> Bool {
+    guard let commonGitDir else { return false }
+    return primaryByCommonGitDir[commonGitDir] == dir
+  }
+
+  /// `primaryByCommonGitDir` を該当 commonGitDir のグループに対して再計算する。
+  /// entry の追加 / 削除時に呼ぶ。グループに entry が残っていなければ map から消す。
+  private func recomputePrimary(forCommonGitDir commonGitDir: String) {
+    var minDir: String?
+    for (key, entry) in entries where entry.commonGitDir == commonGitDir {
+      // 現在値と新候補の min を取る。Optional 対応で if-else を避ける。
+      minDir = minDir.map { Swift.min($0, key) } ?? key
+    }
+    if let minDir {
+      primaryByCommonGitDir[commonGitDir] = minDir
+      return
+    }
+    primaryByCommonGitDir.removeValue(forKey: commonGitDir)
   }
 
   /// 1 バッチの events を分類して push event として配送する。
@@ -254,10 +299,15 @@ public actor FSWatchRegistry {
         onFsChange(originalDir, relDir)
       }
     }
-    if result.hasBranchChange {
-      onBranchChange(originalDir, Array(result.changedRefs).sorted())
+    // `branchChange` / `worktreeChange` は common git dir 配下の event から派生し、
+    // repo を共有する全 worktree の watcher が同じ event で同時発火する。
+    // ここで commonGitDir 単位の primary watcher 1 つに collapse し、N 個の watcher 由来の
+    // N 連射を 1 push にまとめる。primary 判定は resolved dir の lexical 最小（決定的）。
+    let isPrimaryForCommonDir = isPrimaryWatcher(forCommonGitDir: entry.commonGitDir, dir: dir)
+    if result.hasBranchChange && isPrimaryForCommonDir {
+      onBranchChange(originalDir)
     }
-    if result.hasWorktreeChange {
+    if result.hasWorktreeChange && isPrimaryForCommonDir {
       onWorktreeChange(originalDir)
     }
 
@@ -333,7 +383,6 @@ public actor FSWatchRegistry {
     var hasGitStatusChange = false
     var hasBranchChange = false
     var hasWorktreeChange = false
-    var changedRefs = Set<String>()
 
     // 通常 clone では perWorktreeGitDir == commonGitDir なので、両ルールを同じ path に
     // 適用して `HEAD` と `refs/heads/` を両方拾う必要がある。
@@ -364,10 +413,6 @@ public actor FSWatchRegistry {
           hasWorktreeChange = true
         } else if rel.hasPrefix("refs/heads/") {
           hasBranchChange = true
-          let refName = String(rel.dropFirst("refs/heads/".count))
-          if !refName.isEmpty {
-            changedRefs.insert(refName)
-          }
         } else if rel.hasPrefix("refs/remotes/") {
           // push / fetch 成功でローカルの remote-tracking ref が書き換わる。
           // git-graph は gitStatusChange の `# branch.ab` で ahead/behind 更新を検知する。
@@ -396,8 +441,7 @@ public actor FSWatchRegistry {
       hasFsChange: hasFsChange,
       hasGitStatusChange: hasGitStatusChange,
       hasBranchChange: hasBranchChange,
-      hasWorktreeChange: hasWorktreeChange,
-      changedRefs: changedRefs
+      hasWorktreeChange: hasWorktreeChange
     )
   }
 

@@ -139,8 +139,9 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
         // あとに旧 session の session-end が遅延到達した場合、現在 mapping を
         // 誤って消すのを防ぐ。
         if (endingSessionId === "") {
-          // Swift 側の hook payload には sessionId が必ず入る (GozdApp.swift で
-          // 追加済み)。空文字到達は仕様外なので silent 通過させず観察可能化する。
+          // Swift 側 hook payload (GozdApp.swift の onHook) は session-start /
+          // session-end で必ず sessionId を含む。空文字到達は仕様外なので silent
+          // 通過させず観察可能化する。
           console.warn(
             `[claude-status] session-end with empty session_id (ptyId=${ptyId}); ` +
               "falling back to current mapping",

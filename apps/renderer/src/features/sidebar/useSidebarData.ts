@@ -229,34 +229,44 @@ export function useSidebarData() {
     // `useFsWatchSync` の watch 起動完了通知。往復中の取りこぼし救済として 1 回だけ
     // worktree list を取り直す。
     cleanups.push(onMessage<FsWatchReadyPayload>("fsWatchReady", () => fetchOwnerOfActive()));
-    // TaskStore の失敗 notify を購読して開いている全 repo を refetch する。
-    // session-start / session-end の楽観 push は hook の ptyId が指す dir 起源で
-    // 全 repo の任意 wt に対して走るため、active 1 repo だけ巻き戻すと別 repo /
-    // 別 wt で発生した楽観値ずれが残る。notify payload に dir は含まれないため、
-    // 「失敗時は全 repo を refetch」のシンプルなルールにする (失敗頻度は低いので
-    // コストは許容)。
+    // TaskStore の失敗 notify を購読して楽観値を真値で巻き戻す。
+    // session hook 経路の I/O 失敗はディスクフル / 権限欠落 / 競合書き込みで連発
+    // しうるため、N repo × hook 頻度で fetchRepo が爆発しないよう、notify payload
+    // の dir から発生源 repo を特定して該当 1 repo だけ refetch する。
+    // 経路に紐付かない通知 (起動時 reconcile / socket 等) は dir 空文字で届くため、
+    // その場合だけ全 repo refetch にフォールバックする。
     cleanups.push(
       onMessage<NotifyPayload>("notify", (payload) => {
         if (payload.source !== "task-store" || payload.type !== "error") return;
-        for (const rootDir of repoStore.dirOrder) {
-          void fetchRepo(rootDir);
+        if (payload.dir === "") {
+          for (const rootDir of repoStore.dirOrder) void fetchRepo(rootDir);
+          return;
         }
+        const owning = repoStore.findRepoOwning(payload.dir);
+        if (owning === undefined) return;
+        void fetchRepo(owning.rootDir);
       }),
     );
 
     // Claude session の生成 / 終了で wt.tasks を楽観更新し UI に即時反映する。
-    // Swift 側 TaskStore は applyClaudeSessionHook で session-start / session-end と
-    // 同期に upsertForSession / removeBySession を完了させているため、renderer の
-    // 楽観更新と永続化は整合している。後追いの fetchRepo は撤去:
-    // - 撤去前は楽観 push → fetchRepo 往復中に OSC title sync が `freshWt.tasks.map`
-    //   で body を埋めても、その後完了した fetchRepo の応答で wt.tasks が丸ごと
-    //   置き換わると body が空に戻る race があった
-    // - Swift 側永続化が同期で確定しているので、真値の差し戻しは次の任意 fetch
-    //   (worktreeChange / fsWatchReady / explicit refresh) に任せれば十分
+    // Swift 側 TaskStore は applyClaudeSessionHook で session-start / session-end
+    // と同期に upsertForSession / removeBySession を完了させるため、renderer 側の
+    // 楽観更新と永続化は同期完結する。後追い fetchRepo は OSC title sync の
+    // freshWt.tasks.map 更新を上書きする race を生むため呼ばない。真値の差し戻しは
+    // task-store 失敗 notify 経路 (上で購読) と次の任意 fetch (worktreeChange /
+    // fsWatchReady / explicit refresh) に任せる。
     cleanups.push(
       onMessage<HookPayload>("hook", (payload) => {
         if (payload.event !== "session-start" && payload.event !== "session-end") return;
-        if (payload.sessionId === "") return;
+        if (payload.sessionId === "") {
+          // Swift hook payload には sessionId が必ず入る前提 (GozdApp.swift の onHook
+          // が session-start / session-end でセットする)。空文字到達は仕様外なので
+          // silent 通過させず観察可能化する。
+          console.warn(
+            `[useSidebarData] ${payload.event} with empty sessionId (ptyId=${payload.ptyId})`,
+          );
+          return;
+        }
         const leafId = terminalStore.getLeafIdByPtyId(payload.ptyId);
         if (leafId === undefined) return;
         const dir = terminalStore.getPaneDir(leafId);

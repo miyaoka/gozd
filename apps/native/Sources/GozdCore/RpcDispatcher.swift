@@ -21,9 +21,12 @@ import GozdProto
 public actor RpcDispatcher {
   public typealias HookHandler = @Sendable (Gozd_V1_HookMessage) -> Void
   public typealias OpenHandler = @Sendable (String) -> Void
-  /// (type, source, message, detail) を renderer に push する通知 callback。
-  /// type は "error" / "info"。GozdApp 側の sendNotify と同じシグネチャ。
-  public typealias NotifyHandler = @Sendable (String, String, String, String) -> Void
+  /// (type, source, message, detail, dir) を renderer に push する通知 callback。
+  /// type は "error" / "info"、dir は失敗の発生源 worktree path / project anchor dir
+  /// (renderer 側が `findRepoOwning(dir)` で repo を特定する手がかり)。
+  /// 特定不能 / 経路に紐付かない通知では空文字を渡す。
+  /// GozdApp 側の sendNotify と同じシグネチャ。
+  public typealias NotifyHandler = @Sendable (String, String, String, String, String) -> Void
 
   private let pty: PTYRegistry
   private let fsWatch: FSWatchRegistry
@@ -46,7 +49,7 @@ public actor RpcDispatcher {
     onGitStatusChange: @escaping FSWatchRegistry.GitStatusChangeHandler = { _, _ in },
     onBranchChange: @escaping FSWatchRegistry.BranchChangeHandler = { _, _ in },
     onWorktreeChange: @escaping FSWatchRegistry.WorktreeChangeHandler = { _ in },
-    onNotify: @escaping NotifyHandler = { _, _, _, _ in },
+    onNotify: @escaping NotifyHandler = { _, _, _, _, _ in },
     envOverlay: GozdEnvOverlay? = nil,
     pidTracker: PidTracker? = nil
   ) {
@@ -84,7 +87,7 @@ public actor RpcDispatcher {
         Data("[ClaudeSessionStore] reconcileAll failed: \(error)\n".utf8))
       onNotify(
         "error", "claude-sessions", "Claude session store reconcile failed",
-        String(describing: error))
+        String(describing: error), "")
     }
     do {
       let parseFailureProjects = try await tasks.reconcileAll()
@@ -92,19 +95,21 @@ public actor RpcDispatcher {
         // claude-sessions.json の parse 失敗で skip した projectKey がある場合、
         // renderer にトースト通知して復旧操作（手動修復 / 削除）を促す。
         // skip 自体は安全側の挙動だが、放置すると孤児 Task が永続化に残るため
-        // ユーザーに気付かせる必要がある。
+        // ユーザーに気付かせる必要がある。reconcile は起動時 1 回かつ全 projectKey
+        // 横断なので dir 紐付けは無く、空文字を渡す (renderer 側は全 repo refetch)。
         onNotify(
           "error",
           "task-store",
           "Failed to parse claude-sessions.json; orphan task cleanup skipped",
-          "projectKeys: \(parseFailureProjects.joined(separator: ", "))"
+          "projectKeys: \(parseFailureProjects.joined(separator: ", "))",
+          ""
         )
       }
     } catch {
       FileHandle.standardError.write(
         Data("[TaskStore] reconcileAll failed: \(error)\n".utf8))
       onNotify(
-        "error", "task-store", "Task store reconcile failed", String(describing: error))
+        "error", "task-store", "Task store reconcile failed", String(describing: error), "")
     }
   }
 
@@ -185,7 +190,7 @@ public actor RpcDispatcher {
               Data("[TaskStore] removeBySession (previous) failed: \(error)\n".utf8))
             onNotify(
               "error", "task-store", "Failed to remove previous session task",
-              String(describing: error))
+              String(describing: error), worktreePath)
           }
         }
         // 永続化を先に成功させてから PTYRegistry のマッピングを更新する。
@@ -211,7 +216,7 @@ public actor RpcDispatcher {
             Data("[TaskStore] upsertForSession failed: \(error)\n".utf8))
           onNotify(
             "error", "task-store", "Failed to add task for new session",
-            String(describing: error))
+            String(describing: error), worktreePath)
         }
         await pty.setSessionId(for: hook.ptyID, sessionId: hook.sessionID)
       case "session-end":
@@ -227,7 +232,7 @@ public actor RpcDispatcher {
             Data("[TaskStore] removeBySession failed: \(error)\n".utf8))
           onNotify(
             "error", "task-store", "Failed to remove task for ended session",
-            String(describing: error))
+            String(describing: error), worktreePath)
         }
         await pty.clearSessionId(for: hook.ptyID)
       default:
@@ -811,7 +816,7 @@ public actor RpcDispatcher {
         Data("[TaskStore] removeByWorktree failed: \(error)\n".utf8))
       onNotify(
         "error", "task-store", "Failed to clean up tasks after worktree removal",
-        String(describing: error))
+        String(describing: error), req.dir)
     }
     return try Gozd_V1_GitWorktreeRemoveResponse().jsonUTF8Data()
   }
@@ -860,7 +865,7 @@ public actor RpcDispatcher {
           Data("[TaskStore] removeBySession (removeByPty) failed: \(error)\n".utf8))
         onNotify(
           "error", "task-store", "Failed to remove task on terminal close",
-          String(describing: error))
+          String(describing: error), req.worktreePath)
       }
     }
     await pty.clearAssociations(for: req.ptyID)

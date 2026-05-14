@@ -23,8 +23,10 @@
 </doc>
 
 <script setup lang="ts">
+import { tryCatch } from "@gozd/shared";
 import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref, watch } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { getFileIconUrl, rpcFsReadFile, rpcFsReadFileAbsolute } from "../filer";
 import type { FsChangePayload } from "../filer";
@@ -74,6 +76,7 @@ const worktreeStore = useWorktreeStore();
 const { selectedPath, selectedLineNumber, selectedGitChange, fileServerBaseUrl, revealVersion } =
   storeToRefs(worktreeStore);
 const gitGraphStore = useGitGraphStore();
+const notification = useNotificationStore();
 
 const currentContent = ref<string>();
 const originalContent = ref<string>();
@@ -152,23 +155,28 @@ const SHORT_HASH_LEN = 7;
  * 範囲選択を時系列順に整列した {newer, older}。
  * commits[0] が newest（小さい idx ほど新しい）。UNCOMMITTED_HASH は idx=-1 扱いで常に newer 側。
  * compareHash が null の単一選択時は older は undefined。
- * commits 配列にロードされていない hash が来た場合は throw して不整合を観察可能にする
- * （loadLog 完了前の選択 / stale な選択を黙って older 側に倒さない）。
+ *
+ * 不整合（commits 未ロード / stale 選択 / 両端 UNCOMMITTED）のときは null を返す。
+ * 呼び出し側で UI fallback（fetchCommitContent はエラー化、ラベルは "HEAD" に倒す）。
+ * 黙って older 側に倒すと選択順依存のバグが再発するため fallback では絶対に補わない。
  */
-const orderedRange = computed<{ newer: string; older: string | undefined }>(() => {
+type OrderedRange = { newer: string; older: string | undefined };
+const orderedRange = computed<OrderedRange | null>(() => {
   const selected = gitGraphStore.selectedHash;
   const compare = gitGraphStore.compareHash;
   if (compare === null) return { newer: selected, older: undefined };
 
+  // 両端 UNCOMMITTED_HASH は store API レイヤーでガードしていない不整合。null を返す。
+  if (selected === UNCOMMITTED_HASH && compare === UNCOMMITTED_HASH) return null;
+
   const map = gitGraphStore.hashToIndex;
   const idx = (h: string) => {
     if (h === UNCOMMITTED_HASH) return -1;
-    const i = map.get(h);
-    if (i === undefined) throw new Error(`hash ${h} not in loaded commits`);
-    return i;
+    return map.get(h);
   };
   const selectedIdx = idx(selected);
   const compareIdx = idx(compare);
+  if (selectedIdx === undefined || compareIdx === undefined) return null;
   // idx が大きい方が older
   if (selectedIdx >= compareIdx) return { newer: compare, older: selected };
   return { newer: selected, older: compare };
@@ -176,13 +184,16 @@ const orderedRange = computed<{ newer: string; older: string | undefined }>(() =
 
 /**
  * Original タブが指している hash の表記。
- * Swift 側 fileReadResultAt の fromHash と一致させる:
+ * Swift 側 handleGitShowCommitFile の fromHash (= `<olderEnd>^`) と一致させる:
  * - uncommitted モード (newer=Working Tree, older=undefined): HEAD
  * - 単一コミット: <hash>^
  * - 範囲選択: <older>^
+ * - orderedRange が null（不整合）: HEAD にフォールバックして render を落とさない
  */
 const originalHashLabel = computed(() => {
-  const { newer, older } = orderedRange.value;
+  const range = orderedRange.value;
+  if (range === null) return "HEAD";
+  const { newer, older } = range;
   if (newer === UNCOMMITTED_HASH && older === undefined) return "HEAD";
   const olderEnd = older ?? newer;
   return `${olderEnd.slice(0, SHORT_HASH_LEN)}^`;
@@ -275,92 +286,105 @@ async function fetchCommitContent(filePath: string) {
   const version = ++fetchVersion;
   fetchVersionRef.value = version;
 
-  try {
-    const dir = worktreeStore.dir;
-    if (dir === undefined) return;
-    // クリック順に依存せず時系列で並べ替え: newer = current(to), older = original(from)
-    const { newer, older } = orderedRange.value;
+  const dir = worktreeStore.dir;
+  if (dir === undefined) {
+    if (version === fetchVersion) loading.value = false;
+    return;
+  }
 
-    // RPC 境界では UNCOMMITTED_HASH sentinel を流さず、wire 上は常に実 hash のみ扱う。
-    // newer が Working Tree のときは:
-    //   - to: rpcFsReadFile で filesystem から直接読む
-    //   - from: rpcGitShowCommitFile(hash=older, compareHash="") の from 結果 (= <older>^)
-    //     older が undefined のケースは orderedRange の不変条件上ありえない
-    //     (compareHash=null なら newer は uncommitted 単独 = fetchContent 経路、commit モードに来ない)
-    // それ以外は rpcGitShowCommitFile を 1 回で from/to を取得する。
-    let from: { content: string; isBinary: boolean; notFound: boolean } | undefined;
-    let to: { content: string; isBinary: boolean; notFound: boolean } | undefined;
-    if (newer === UNCOMMITTED_HASH) {
-      if (older === undefined) {
-        throw new Error("commit mode with working tree newer requires an older endpoint");
+  // クリック順に依存せず時系列で並べ替え: newer = current(to), older = original(from)
+  const range = orderedRange.value;
+  if (range === null) {
+    if (version !== fetchVersion) return;
+    error.value = "Commit selection is inconsistent with loaded git log";
+    notification.error(error.value);
+    loading.value = false;
+    return;
+  }
+  const { newer, older } = range;
+
+  // RPC 境界では UNCOMMITTED_HASH sentinel を流さず、wire 上は常に実 hash のみ扱う。
+  // newer が Working Tree のときは to を filesystem から、from は <older>^ の内容を
+  // gitShowCommitFile(hash=older, compareHash="") の from 結果として取得する。
+  // older が undefined のケースは orderedRange の不変条件上ありえない
+  // (compareHash=null なら newer は uncommitted 単独 = fetchContent 経路、commit モードに来ない)。
+  const fetchResult = await tryCatch(
+    (async () => {
+      if (newer === UNCOMMITTED_HASH) {
+        if (older === undefined) {
+          throw new Error("commit mode with working tree newer requires an older endpoint");
+        }
+        const [showResult, fsResult] = await Promise.all([
+          rpcGitShowCommitFile({ dir, relPath: filePath, hash: older, compareHash: "" }),
+          rpcFsReadFile({ dir, path: filePath }),
+        ]);
+        return {
+          from: showResult.from,
+          to: {
+            content: fsResult.content,
+            isBinary: fsResult.isBinary,
+            notFound: fsResult.notFound,
+          },
+        };
       }
-      const [showResult, fsResult] = await Promise.all([
-        rpcGitShowCommitFile({ dir, relPath: filePath, hash: older, compareHash: "" }),
-        rpcFsReadFile({ dir, path: filePath }),
-      ]);
-      from = showResult.from;
-      to = {
-        content: fsResult.content,
-        isBinary: fsResult.isBinary,
-        notFound: fsResult.notFound,
-      };
-    } else {
       const showResult = await rpcGitShowCommitFile({
         dir,
         relPath: filePath,
         hash: newer,
         compareHash: older ?? "",
       });
-      from = showResult.from;
-      to = showResult.to;
-    }
+      return { from: showResult.from, to: showResult.to };
+    })(),
+  );
 
-    if (version !== fetchVersion) return;
+  if (version !== fetchVersion) return;
 
-    const fromNotFound = from?.notFound ?? true;
-    const toNotFound = to?.notFound ?? true;
-
-    // from / to が両方存在しかつ内容も同一なら「この範囲では変更なし」。
-    // Filer から非変更ファイルを選んだ場合に Diff タブを出さないために必要な判定。
-    const unchanged =
-      !fromNotFound &&
-      !toNotFound &&
-      from?.content === to?.content &&
-      from?.isBinary === to?.isBinary;
-
-    if (fromNotFound && toNotFound) {
-      commitGitChange.value = undefined;
-    } else if (fromNotFound) {
-      commitGitChange.value = "added";
-    } else if (toNotFound) {
-      commitGitChange.value = "deleted";
-    } else if (unchanged) {
-      commitGitChange.value = undefined;
-    } else {
-      commitGitChange.value = "modified";
-    }
-
-    if (commitGitChange.value === "deleted") {
-      activeMode.value = "original";
-    } else if (commitGitChange.value === "modified") {
-      activeMode.value = "diff";
-    } else {
-      activeMode.value = "current";
-    }
-
-    originalContent.value = fromNotFound ? undefined : from?.content;
-    isOriginalBinary.value = from?.isBinary ?? false;
-    currentContent.value = toNotFound ? undefined : to?.content;
-    isBinary.value = to?.isBinary ?? false;
-    isNotFound.value = fromNotFound && toNotFound;
-  } catch (e) {
-    if (version !== fetchVersion) return;
-    error.value = e instanceof Error ? e.message : "Failed to read file";
-  } finally {
-    if (version === fetchVersion) {
-      loading.value = false;
-    }
+  if (!fetchResult.ok) {
+    error.value = fetchResult.error.message;
+    notification.error("Failed to read commit file", fetchResult.error);
+    loading.value = false;
+    return;
   }
+
+  const { from, to } = fetchResult.value;
+  const fromNotFound = from?.notFound ?? true;
+  const toNotFound = to?.notFound ?? true;
+
+  // from / to が両方存在しかつ内容も同一なら「この範囲では変更なし」。
+  // Filer から非変更ファイルを選んだ場合に Diff タブを出さないために必要な判定。
+  const unchanged =
+    !fromNotFound &&
+    !toNotFound &&
+    from?.content === to?.content &&
+    from?.isBinary === to?.isBinary;
+
+  if (fromNotFound && toNotFound) {
+    commitGitChange.value = undefined;
+  } else if (fromNotFound) {
+    commitGitChange.value = "added";
+  } else if (toNotFound) {
+    commitGitChange.value = "deleted";
+  } else if (unchanged) {
+    commitGitChange.value = undefined;
+  } else {
+    commitGitChange.value = "modified";
+  }
+
+  if (commitGitChange.value === "deleted") {
+    activeMode.value = "original";
+  } else if (commitGitChange.value === "modified") {
+    activeMode.value = "diff";
+  } else {
+    activeMode.value = "current";
+  }
+
+  originalContent.value = fromNotFound ? undefined : from?.content;
+  isOriginalBinary.value = from?.isBinary ?? false;
+  currentContent.value = toNotFound ? undefined : to?.content;
+  isBinary.value = to?.isBinary ?? false;
+  isNotFound.value = fromNotFound && toNotFound;
+
+  loading.value = false;
 }
 
 /** ファイル選択・git status 変化・コミット選択変化時にリセット＋再取得 */

@@ -344,6 +344,11 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
     return ptyIdBySessionId.get(sessionId);
   }
 
+  /** ptyId から sessionId (= task.id) を引く。OSC title sync で leaf → task 解決に使う */
+  function getSessionIdByPtyId(ptyId: number): string | undefined {
+    return sessionIdByPtyId.get(ptyId);
+  }
+
   return {
     handleHookEvent,
     detectInterrupt,
@@ -352,6 +357,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
     getClaudeStatusesByDir,
     getStatusBySessionId,
     getPtyIdBySessionId,
+    getSessionIdByPtyId,
     clearDoneStates,
     cleanupPty,
   };

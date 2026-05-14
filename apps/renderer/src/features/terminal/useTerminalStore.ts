@@ -495,6 +495,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     getClaudeStatusesByDir: claude.getClaudeStatusesByDir,
     getClaudeStatusBySessionId: claude.getStatusBySessionId,
     getPtyIdBySessionId: claude.getPtyIdBySessionId,
+    getSessionIdByPtyId: claude.getSessionIdByPtyId,
     clearDoneStates: claude.clearDoneStates,
     // saved sessions (resume バッジ用)
     refreshSavedSessionCounts,

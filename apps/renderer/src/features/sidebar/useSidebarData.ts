@@ -4,6 +4,7 @@ import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
 import { useTerminalStore } from "../terminal";
+import type { HookPayload } from "../terminal";
 import { useWorktreeStore } from "../worktree";
 import { rpcAppStateLoad, rpcAppStateSave, rpcGitWorktreeList, rpcTaskUpdate } from "./rpc";
 import type { BranchChangePayload, FsWatchReadyPayload, WorktreeChangePayload } from "./rpc";
@@ -114,51 +115,60 @@ export function useSidebarData() {
     { immediate: true },
   );
 
-  // --- ターミナルタイトル → 同 dir の Task タイトル同期 ---
-  // RPC 処理中に来た更新は pendingSync に退避し、完了後に再実行する
+  // --- ターミナルタイトル → 同 leaf に紐付く Task タイトル同期 ---
+  //
+  // 1 wt = 複数 session (issue #504) の前提で、leafId → ptyId → sessionId →
+  // task.id の経路で対象 Task を厳密に特定する。RPC 処理中に来た更新は
+  // pendingSync に退避し、完了後に再実行する。
+  //
+  // session 確立直後の race: session-start hook の onMessage 受信で fetchRepo を
+  // 走らせ、wt.tasks を埋めてから後続の OSC title sync が走るのが基本フロー。
+  // それでも race で Task 不在の瞬間があれば、その title は捨てる (次の OSC で
+  // リカバリされる)。
 
   let titleSyncing = false;
-  let pendingSync: { dir: string; title: string } | undefined;
+  let pendingSync: { leafId: string; title: string } | undefined;
 
-  async function syncTaskTitle(targetDir: string, title: string) {
+  async function syncTaskTitle(leafId: string, title: string) {
+    const targetDir = terminalStore.getPaneDir(leafId);
+    if (targetDir === undefined) return;
+    const ptyId = terminalStore.getPtyId(leafId);
+    if (ptyId === undefined) return;
+    const sessionId = terminalStore.getSessionIdByPtyId(ptyId);
+    if (sessionId === undefined) return;
+
     const owning = repoStore.findRepoOwning(targetDir);
     if (owning === undefined) return;
     const projectDir = owning.rootDir;
     const wt = owning.worktrees.find((w) => w.path === targetDir);
-    if (!wt) return;
+    if (wt === undefined) return;
+    const targetTask = wt.tasks.find((t) => t.id === sessionId);
+    if (targetTask === undefined) return;
 
-    // Task は session-start hook で auto upsert される（issue #504 Phase 2）。
-    // タイトルが届いた時点で対応 Task が無い場合は session 確立前の race なので無視する。
-    // 手動 task UI が消えた今、body は OSC タイトル由来で常に上書き可能。
-    const [existingTask] = wt.tasks;
-    if (existingTask === undefined) return;
-    const result = await tryCatch(
-      rpcTaskUpdate({ dir: projectDir, id: existingTask.id, body: title }),
-    );
+    const result = await tryCatch(rpcTaskUpdate({ dir: projectDir, id: sessionId, body: title }));
     if (result.ok && result.value.task !== undefined) {
       const updatedTask = result.value.task;
       const freshRepo = repoStore.repos[projectDir];
       const freshWt = freshRepo?.worktrees.find((w) => w.path === targetDir);
       if (freshWt) {
-        // 1 wt = 複数 session の前提なので、該当 id のみ差し替える。
-        // tasks 全体を上書きすると別 session の task を消してしまう。
+        // 該当 id のみ差し替える。tasks 全体を上書きすると別 session の task を消す。
         freshWt.tasks = freshWt.tasks.map((t) => (t.id === updatedTask.id ? updatedTask : t));
       }
     }
   }
 
-  async function drainTitleSync(dir: string, title: string) {
+  async function drainTitleSync(leafId: string, title: string) {
     if (titleSyncing) {
-      pendingSync = { dir, title };
+      pendingSync = { leafId, title };
       return;
     }
     titleSyncing = true;
     try {
-      await syncTaskTitle(dir, title);
+      await syncTaskTitle(leafId, title);
       while (pendingSync !== undefined) {
         const next = pendingSync;
         pendingSync = undefined;
-        await syncTaskTitle(next.dir, next.title);
+        await syncTaskTitle(next.leafId, next.title);
       }
     } finally {
       titleSyncing = false;
@@ -169,15 +179,12 @@ export function useSidebarData() {
     () => terminalStore.lastTitleUpdate,
     (update) => {
       if (!update?.title) return;
-      const dir = worktreeStore.dir;
-      if (!dir) return;
-      if (terminalStore.getPaneDir(update.leafId) !== dir) return;
       // Claude Code のステータスプレフィックス（✳ + Braille dots）を除去
       const title = update.title.replace(/^[✳⠀-⣿] /, "");
       if (!title) return;
       // セッション開始・レジューム時の汎用タイトルで Task を上書きしない
       if (title === "Claude Code") return;
-      void drainTitleSync(dir, title);
+      void drainTitleSync(update.leafId, title);
     },
   );
 
@@ -200,6 +207,22 @@ export function useSidebarData() {
     // `useFsWatchSync` の watch 起動完了通知。往復中の取りこぼし救済として 1 回だけ
     // worktree list を取り直す。
     cleanups.push(onMessage<FsWatchReadyPayload>("fsWatchReady", () => fetchOwnerOfActive()));
+    // Claude session の生成 / 終了で wt.tasks の永続化が変化するため、対応する
+    // wt の所属 repo を refetch する。これが無いと renderer は Task の追加 /
+    // 削除を次の任意操作まで知らず、サイドバーに反映されない。後続の OSC title
+    // 同期も wt.tasks が空のままだと早期 return するため、ここでの refetch が
+    // タイトル更新の前提条件になる。
+    cleanups.push(
+      onMessage<HookPayload>("hook", (payload) => {
+        if (payload.event !== "session-start" && payload.event !== "session-end") return;
+        const leafId = terminalStore.getLeafIdByPtyId(payload.ptyId);
+        if (leafId === undefined) return;
+        const dir = terminalStore.getPaneDir(leafId);
+        if (dir === undefined) return;
+        const owning = repoStore.findRepoOwning(dir);
+        if (owning) void fetchRepo(owning.rootDir);
+      }),
+    );
     void hydrateAppState();
   });
   onUnmounted(() => {

@@ -101,8 +101,14 @@ const tasksWithStatus = computed<TaskWithStatus[]>(() => {
   });
 });
 
-/** wt 内のいずれかの task が focused PTY を持っているか */
+/**
+ * wt 内のいずれかの task が focused PTY を持っているか。
+ * active wt 以外では capsule を出してはいけない (issue #504 仕様)。
+ * 各 wt の layoutsByDir[dir].focusedLeafId は履歴として残るため、active 条件を
+ * 噛ませないと過去訪問した全 wt で task に capsule が点いてしまう。
+ */
 const focusedTaskId = computed(() => {
+  if (!props.active) return undefined;
   const focusedPty = props.focusedPtyId;
   if (focusedPty === undefined) return undefined;
   const found = tasksWithStatus.value.find((entry) => entry.ptyId === focusedPty);
@@ -124,7 +130,7 @@ function onHeaderClick() {
 </script>
 
 <template>
-  <article :data-active="active" class="rounded-lg data-[active=true]:bg-blue-500/8">
+  <article class="rounded-lg">
     <button
       type="button"
       :data-active="headerActive"

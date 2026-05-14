@@ -133,9 +133,18 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
       }
       case "session-end": {
         cancelAskTimer(ptyId);
-        const previousSessionId = sessionIdByPtyId.get(ptyId);
-        if (previousSessionId !== undefined) {
-          ptyIdBySessionId.delete(previousSessionId);
+        const endingSessionId = typeof payload.session_id === "string" ? payload.session_id : "";
+        const currentSessionId = sessionIdByPtyId.get(ptyId);
+        // session-start 側と対称な防御: /clear や /resume で session が切り替わった
+        // あとに旧 session の session-end が遅延到達した場合、現在 mapping を
+        // 誤って消すのを防ぐ。payload.session_id が空 (旧クライアント / 取り扱い不能)
+        // のときだけ、現 mapping を信用してフォールバックする。
+        if (endingSessionId !== "" && endingSessionId !== currentSessionId) {
+          ptyIdBySessionId.delete(endingSessionId);
+          break;
+        }
+        if (currentSessionId !== undefined) {
+          ptyIdBySessionId.delete(currentSessionId);
           sessionIdByPtyId.delete(ptyId);
         }
         delete claudeStatusByPtyId.value[ptyId];
@@ -251,17 +260,6 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
     const currentState = claudeStatusByPtyId.value[ptyId]?.state;
     const tail = ptyTailBuffers.get(ptyId) ?? "";
     const combined = tail + data;
-
-    // "Interrupted" を含む場合のみログ出力（combined で判定し、チャンク分割にも対応）
-    if (combined.includes("Interrupted")) {
-      const markerMatched = combined.includes(INTERRUPT_MARKER);
-      const idx = combined.indexOf("Interrupted");
-      const preview = combined.slice(Math.max(0, idx - 20), idx + 30);
-      console.debug(
-        `[claude-status] detectInterrupt: ptyId=${ptyId} state=${currentState ?? "undefined"} markerMatched=${markerMatched} tailLen=${tail.length} dataLen=${data.length}`,
-        JSON.stringify(preview),
-      );
-    }
 
     if (currentState !== "working") return;
 

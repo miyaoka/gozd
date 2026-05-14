@@ -96,7 +96,7 @@ const bubbleColorClass = computed(() => {
   <button
     type="button"
     :data-active="active"
-    class="grid w-full grid-cols-[auto_1fr_auto] items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none focus-visible:ring-inset data-[active=true]:bg-blue-500 data-[active=true]:text-white"
+    class="flex w-full items-center gap-2 rounded-lg p-2 text-left transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-hidden focus-visible:ring-inset data-[active=true]:bg-blue-500/30"
     @click="emit('select', task)"
   >
     <span
@@ -105,12 +105,12 @@ const bubbleColorClass = computed(() => {
       role="img"
       :aria-label="visual.ariaLabel"
     />
-    <span class="truncate text-sm">{{ title }}</span>
-    <span class="text-xs tabular-nums opacity-70">{{ relativeTime }}</span>
+    <span class="line-clamp-2 flex-1 text-sm break-all" :title="title">{{ title }}</span>
+    <span class="text-[10px] tabular-nums opacity-70">{{ relativeTime }}</span>
   </button>
   <p
     v-if="bubbleText"
-    class="line-clamp-1 pr-3 pl-9 text-xs italic"
+    class="line-clamp-1 text-xs italic"
     :class="bubbleColorClass"
     :title="bubbleText"
   >

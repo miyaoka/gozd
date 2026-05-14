@@ -34,7 +34,6 @@ const props = defineProps<{
   activeDir: string | undefined;
   isCreating: boolean;
   getResumeableSessionCount: (dir: string) => number;
-  getTerminalCount: (dir: string) => number;
   getFocusedPtyId: (dir: string) => number | undefined;
 }>();
 
@@ -66,12 +65,6 @@ const orderedWorktrees = computed(() => {
   return main !== undefined ? [main, ...others] : others;
 });
 
-const isOwningActive = computed(() => {
-  if (props.activeDir === undefined) return false;
-  if (props.activeDir === props.rootDir) return true;
-  return worktrees.value.some((wt) => wt.path === props.activeDir);
-});
-
 const sectionEl = useTemplateRef<HTMLElement>("section");
 const dragHandleEl = useTemplateRef<HTMLElement>("dragHandle");
 
@@ -92,17 +85,10 @@ function onHeaderClick() {
 </script>
 
 <template>
-  <section
-    ref="section"
-    :data-has-active="isOwningActive"
-    class="rounded-lg p-1 data-[has-active=true]:bg-blue-500/8"
-  >
+  <section ref="section" class="flex flex-col gap-2 rounded-lg p-2">
     <header
-      class="group/repo flex items-center gap-1 rounded-lg px-2 py-1.5"
-      :class="[
-        isOwningActive ? 'text-blue-300' : 'text-zinc-200',
-        editMode ? '' : 'cursor-pointer hover:bg-white/5',
-      ]"
+      class="group/repo flex items-center gap-2 rounded-lg text-zinc-200"
+      :class="editMode ? '' : 'cursor-pointer hover:bg-white/5'"
       :role="editMode ? undefined : 'button'"
       :aria-label="editMode ? undefined : visiblyCollapsed ? 'Expand' : 'Collapse'"
       :aria-expanded="editMode ? undefined : !visiblyCollapsed"
@@ -115,10 +101,10 @@ function onHeaderClick() {
         :title="rootDir"
       >
         <span
-          class="size-4 shrink-0"
-          :class="isGitRepo ? 'icon-[lucide--folder-git-2]' : 'icon-[lucide--folder]'"
+          class="size-5 shrink-0"
+          :class="visiblyCollapsed ? 'icon-[lucide--folder]' : 'icon-[lucide--folder-open]'"
         />
-        <span class="min-w-0 flex-1 truncate text-xs font-semibold tracking-wide uppercase">
+        <span class="min-w-0 flex-1 truncate text-sm font-semibold">
           {{ repoName }}
         </span>
       </div>
@@ -134,7 +120,7 @@ function onHeaderClick() {
       </button>
     </header>
 
-    <div v-if="isGitRepo && !visiblyCollapsed" class="mt-1 flex flex-col gap-1">
+    <div v-if="isGitRepo && !visiblyCollapsed" class="flex flex-col">
       <WtCard
         v-for="wt in orderedWorktrees"
         :key="wt.path"
@@ -142,7 +128,6 @@ function onHeaderClick() {
         :root-dir="rootDir"
         :active="activeDir === wt.path"
         :focused-pty-id="getFocusedPtyId(wt.path)"
-        :terminal-count="getTerminalCount(wt.path)"
         :resumeable-session-count="getResumeableSessionCount(wt.path)"
         @select-wt="emit('selectWt', $event)"
         @select-task="(w, t) => emit('selectTask', w, t)"
@@ -150,12 +135,12 @@ function onHeaderClick() {
       />
       <button
         type="button"
-        class="grid w-full grid-cols-[auto_1fr] items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-zinc-500 hover:bg-white/5 disabled:opacity-50"
+        class="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-zinc-700 px-2 py-1.5 text-xs text-zinc-500 transition-colors hover:border-zinc-600 hover:bg-white/5 hover:text-zinc-300 disabled:opacity-50"
         :disabled="isCreating"
         @click="emit('addWorktree', rootDir)"
       >
         <span
-          class="size-5"
+          class="size-3.5"
           :class="isCreating ? 'icon-[lucide--loader-circle] animate-spin' : 'icon-[lucide--plus]'"
         />
         <span>New worktree</span>

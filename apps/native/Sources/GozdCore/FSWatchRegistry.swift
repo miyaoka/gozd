@@ -260,15 +260,21 @@ public actor FSWatchRegistry {
 
   /// `primaryByCommonGitDir` を該当 commonGitDir のグループに対して再計算する。
   /// entry の追加 / 削除時に呼ぶ。グループに entry が残っていなければ map から消す。
+  /// 選出基準: main worktree (`perWorktreeGitDir == commonGitDir`) を primary にする。
+  /// 旧実装の「resolved dir の lex 最小」は、gozd 配置 wt path (`.local/share/...`) が
+  /// main repo path (`ghq/...`) より lex 小になるため wt が primary を奪う。worktree clone
+  /// の wt watcher は classify で `applyCommonRule` が false となり `hasWorktreeChange` を
+  /// 立てない一方、main watcher は `perWtSameAsCommon=true` なので立てる。primary が wt の
+  /// 状態で `.git/worktrees/<name>/` 単独削除が起きると、worktreeChange を立てる側 (root)
+  /// は primary 抑止で suppress、立てない側 (wt) が primary で何も発火しない経路に陥る。
+  /// main worktree は `git worktree remove` で消せない invariant も併せ持つため、発火元と
+  /// して常に生存する。
   private func recomputePrimary(forCommonGitDir commonGitDir: String) {
-    var minDir: String?
     for (key, entry) in entries where entry.commonGitDir == commonGitDir {
-      // 現在値と新候補の min を取る。Optional 対応で if-else を避ける。
-      minDir = minDir.map { Swift.min($0, key) } ?? key
-    }
-    if let minDir {
-      primaryByCommonGitDir[commonGitDir] = minDir
-      return
+      if entry.perWorktreeGitDir == commonGitDir {
+        primaryByCommonGitDir[commonGitDir] = key
+        return
+      }
     }
     primaryByCommonGitDir.removeValue(forKey: commonGitDir)
   }

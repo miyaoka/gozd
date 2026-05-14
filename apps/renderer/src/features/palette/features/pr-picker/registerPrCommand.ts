@@ -71,8 +71,9 @@ export function registerPrCommand(): () => void {
               notify.error("Failed to create worktree", result.error);
               return;
             }
-            // PR / wt の紐付けは Task で持っていたが、issue #504 で Task = session 化
-            // したため経路を喪失。PR↔worktree の永続マッピングは別 issue で再設計する。
+            // PR ↔ worktree 紐付けは旧 Task で持っていたが、task = session 同一視
+            // への移行で経路を喪失している。永続マッピングは WorktreeEntry 側に
+            // 再設計予定 (現状は branch 名一致を `wtByBranch` で代替)。
             const rootDir = repoStore.findRepoOwning(dir)?.rootDir;
             if (rootDir === undefined || result.value.worktree === undefined) {
               notify.error("Worktree created but sidebar could not be updated");

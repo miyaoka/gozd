@@ -8,12 +8,22 @@ import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
-import { rpcCreateWorktree, rpcGitDefaultBranch } from "../../../sidebar";
+import { rpcCreateWorktree, rpcGitDefaultBranch, rpcGitWorktreeList } from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
 import { rpcGitViewer } from "../pr-picker";
 import { rpcGitIssueList } from "./rpc";
 import { useIssuePicker } from "./useIssuePicker";
+
+/**
+ * 同じ issue から派生した worktree を一意に識別する branch 名。
+ * Task = session 同一視ルール以降、issue ↔ worktree の永続マッピングを
+ * branch 名に埋め込んで検出することで「同じ issue を 2 回選んで worktree が
+ * 増殖する」退行を防ぐ。PR picker が `pr.headRef` を真にしているのと対称。
+ */
+function issueBranchName(issueNumber: number): string {
+  return `issue-${issueNumber}`;
+}
 
 export function registerIssueCommand(): () => void {
   const registry = useCommandRegistry();
@@ -31,25 +41,39 @@ export function registerIssueCommand(): () => void {
         const dir = worktreeStore.dir;
         if (dir === undefined) return;
         const fetchResult = await tryCatch(
-          Promise.all([rpcGitIssueList({ dir }), rpcGitViewer({ dir })]),
+          Promise.all([
+            rpcGitIssueList({ dir }),
+            rpcGitWorktreeList({ dir }),
+            rpcGitViewer({ dir }),
+          ]),
         );
         if (!fetchResult.ok) {
           notify.error("Failed to load issues", fetchResult.error);
           return;
         }
-        const [issuesRes, viewerRes] = fetchResult.value;
+        const [issuesRes, worktreesRes, viewerRes] = fetchResult.value;
         if (!issuesRes.ok) {
           notify.error("Failed to load issues from GitHub");
           return;
         }
         if (issuesRes.issues.length === 0) return;
 
-        // 既存 worktree との紐付けは issue #504 で Task = session 化により喪失。
-        // 別 issue で再設計するまでは常に新規 worktree を作る挙動。
+        // branch 名から既存 worktree を逆引きする。issue picker の決定的 branch
+        // (`issue-<number>`) と PR picker の `pr.headRef` の両方をこのマップで吸う。
+        const wtByBranch = new Map(
+          worktreesRes.worktrees.filter((wt) => wt.branch !== "").map((wt) => [wt.branch, wt.path]),
+        );
 
         // この callback は IssuePickerDialog 側で close() 後に呼ばれるため、
         // 連打による再エントリは dialog の DOM 除去で塞がれている。`isCreating` 相当のガードは不要。
-        show(issuesRes.issues, viewerRes.ok ? viewerRes.login : "", (_issue) => {
+        show(issuesRes.issues, viewerRes.ok ? viewerRes.login : "", (issue) => {
+          const branchName = issueBranchName(issue.number);
+          const existingDir = wtByBranch.get(branchName);
+          if (existingDir !== undefined) {
+            terminalStore.viewMode = "wt";
+            worktreeStore.setOpen(existingDir);
+            return;
+          }
           void (async () => {
             // 新規 worktree は default branch を起点に作る。Swift 側で `origin/HEAD` を
             // 優先し、未設定（remote 無し / push 前 repo）の場合は main repo root 自身の
@@ -67,12 +91,11 @@ export function registerIssueCommand(): () => void {
               );
               return;
             }
-            const timestamp = generateTimestamp();
             const result = await tryCatch(
               rpcCreateWorktree({
                 dir: rootDir,
-                worktreeDir: timestamp,
-                branch: timestamp,
+                worktreeDir: generateTimestamp(),
+                branch: branchName,
                 startPoint: branchResult.value.branch,
               }),
             );
@@ -80,8 +103,6 @@ export function registerIssueCommand(): () => void {
               notify.error("Failed to create worktree", result.error);
               return;
             }
-            // issue / wt の紐付けは Task で持っていたが、issue #504 で Task = session 化
-            // したため経路を喪失。issue↔worktree の永続マッピングは別 issue で再設計する。
             if (result.value.worktree === undefined) {
               notify.error("Worktree created but sidebar could not be updated");
             } else {

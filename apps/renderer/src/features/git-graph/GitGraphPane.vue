@@ -14,7 +14,7 @@ Git commit graph showing the current worktree branch and the default branch.
 <script setup lang="ts">
 import type { GitCommit, GitPullRequest } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
-import { useElementSize } from "@vueuse/core";
+import { useElementSize, useIntervalFn } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import {
   computed,
@@ -292,7 +292,8 @@ let loadPrGen = 0;
 
 /** PR 一覧を取得して prByBranch を更新する。
  * 失敗時は前回値を保持しつつ notify.error でユーザーに告知する。silent 化すると
- * バッジが古い値のまま表示され続け、rate limit / 未認証 等の発生に気づけない。 */
+ * バッジが古い値のまま表示され続け、rate limit / 未認証 等の発生に気づけない。
+ * 同一エラーの連続発生は notification store 側で重ね合わせ (回数 badge) として処理する。 */
 async function loadPrList() {
   const gen = ++loadPrGen;
   const dir = worktreeStore.dir;
@@ -318,22 +319,31 @@ async function loadPrList() {
   prByBranch.value = map;
 }
 
-// 60s ポーリングは撤去。
-// 全 worktree watch + per-dir filter 化で、active worktree の upstream / refs / FS 変化は
-// SSOT push (gitStatusChange.upstreamChanged / branchChange / fsWatchReady) で全部届く。
-// 「リモートのみ変化」(他人が gh pr create) はそもそも次の fetch まで反映する必要が無く、
-// fetch 後の upstreamChanged で発火する。SSOT 経路の到達率を疑う低頻度 refs-digest
-// チェッカも併せて撤去 (push が届かないなら原因を直す方が筋)。
+// active worktree の PR 一覧を 60 秒間隔で取得する。
+// gozd の primary use case は「Claude / ユーザーが worktree で `gh pr create` する」ことであり、
+// 既 push branch での `gh pr create` / `gh pr edit` / `gh pr comment` / `gh pr review` 等は
+// local refs を動かさないため SSOT push 経路では到達不能。これらを UI に反映する唯一の経路は
+// `gh pr list` の定期取得。scope は active worktree 1 個に限定するため負荷は 60 query/h で、
+// 全 worktree fan-out の問題は発生しない (GH GraphQL 5000/h の 1.2%)。
+const PR_LIST_POLL_INTERVAL_MS = 60_000;
+const { pause: pausePrPolling, resume: resumePrPolling } = useIntervalFn(
+  loadPrList,
+  PR_LIST_POLL_INTERVAL_MS,
+  { immediateCallback: false },
+);
 
 onMounted(() => {
   void loadPrList();
 });
 
-// worktree 切り替え時に PR 再取得
+// worktree 切り替え時に PR 再取得 + interval を新 dir 基準に再スタート。
+// 切替直後に間隔分待たされず、かつ古い dir のタイマーで二重発火しない。
 watch(
   () => worktreeStore.dir,
   () => {
+    pausePrPolling();
     void loadPrList();
+    resumePrPolling();
   },
 );
 

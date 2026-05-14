@@ -229,15 +229,19 @@ export function useSidebarData() {
     // `useFsWatchSync` の watch 起動完了通知。往復中の取りこぼし救済として 1 回だけ
     // worktree list を取り直す。
     cleanups.push(onMessage<FsWatchReadyPayload>("fsWatchReady", () => fetchOwnerOfActive()));
-    // TaskStore の失敗 notify を購読して楽観値を真値で巻き戻す。
-    // session hook 経路の I/O 失敗はディスクフル / 権限欠落 / 競合書き込みで連発
-    // しうるため、N repo × hook 頻度で fetchRepo が爆発しないよう、notify payload
-    // の dir から発生源 repo を特定して該当 1 repo だけ refetch する。
-    // 経路に紐付かない通知 (起動時 reconcile / socket 等) は dir 空文字で届くため、
-    // その場合だけ全 repo refetch にフォールバックする。
+    // 永続化ストア (TaskStore / ClaudeSessionStore) の失敗 notify を購読して
+    // 楽観値を真値で巻き戻す。session-start / session-end の renderer 側楽観
+    // 更新 (下の hook 購読) は両ストアへの同期書き込みと整合する前提なので、
+    // どちらかが失敗したら楽観値が真値とずれる。session hook 経路の I/O 失敗は
+    // ディスクフル / 権限欠落 / 競合書き込みで連発しうるため、N repo × hook
+    // 頻度で fetchRepo が爆発しないよう、notify payload の dir から発生源 repo
+    // を特定して該当 1 repo だけ refetch する。経路に紐付かない通知 (起動時
+    // reconcile / socket 等) は dir 空文字で届くため、その場合だけ全 repo
+    // refetch にフォールバックする。
+    const ROLLBACK_SOURCES = new Set(["task-store", "claude-sessions"]);
     cleanups.push(
       onMessage<NotifyPayload>("notify", (payload) => {
-        if (payload.source !== "task-store" || payload.type !== "error") return;
+        if (payload.type !== "error" || !ROLLBACK_SOURCES.has(payload.source)) return;
         if (payload.dir === "") {
           for (const rootDir of repoStore.dirOrder) void fetchRepo(rootDir);
           return;
@@ -253,9 +257,8 @@ export function useSidebarData() {
     // と同期に upsertForSession / removeBySession を完了させるため、renderer 側の
     // 楽観更新と永続化は同期完結する。後追い fetchRepo は OSC title sync の
     // freshWt.tasks.map 更新を上書きする race を生むため呼ばない。真値の差し戻しは
-    // task-store 失敗 notify 経路 (`source === "task-store"` の onMessage("notify")
-    // 購読) と次の任意 fetch (worktreeChange / fsWatchReady / explicit refresh)
-    // に任せる。
+    // 永続化失敗 notify 経路 (`ROLLBACK_SOURCES` を見る onMessage("notify") 購読)
+    // と次の任意 fetch (worktreeChange / fsWatchReady / explicit refresh) に任せる。
     cleanups.push(
       onMessage<HookPayload>("hook", (payload) => {
         if (payload.event !== "session-start" && payload.event !== "session-end") return;

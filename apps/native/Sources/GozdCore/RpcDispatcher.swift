@@ -243,12 +243,21 @@ public actor RpcDispatcher {
       // などの外側 throw を拾う catch。session-start / session-end の永続化失敗は
       // 後段 fetch でも復旧経路が無いため、TaskStore 失敗と対称に renderer へ
       // notify する。dir は worktreePath が解決済みなのでそのまま渡す。
+      // message は TaskStore 側 (3 種類の静的文言) と対称になるよう event ごとに
+      // 分けて、トースト UI で運用者が経路を識別できるようにする。
       FileHandle.standardError.write(
         Data("[ClaudeSessionStore] \(hook.event) failed: \(error)\n".utf8))
+      let message: String
+      switch hook.event {
+      case "session-start":
+        message = "Failed to persist new Claude session"
+      case "session-end":
+        message = "Failed to remove ended Claude session"
+      default:
+        message = "Claude session hook failed"
+      }
       onNotify(
-        "error", "claude-sessions",
-        "Claude session hook (\(hook.event)) failed",
-        String(describing: error), worktreePath)
+        "error", "claude-sessions", message, String(describing: error), worktreePath)
     }
   }
 

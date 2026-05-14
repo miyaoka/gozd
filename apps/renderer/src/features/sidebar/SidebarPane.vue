@@ -228,13 +228,13 @@ const activeRootWorktree = computed(() => {
         >
           <template #after-worktree-item="{ wt }">
             <TaskEditor
-              v-if="wt.task && editingTaskId === wt.task.id"
+              v-if="wt.tasks[0] && editingTaskId === wt.tasks[0].id"
               v-model:body="editBody"
               @save="submitEdit"
               @cancel="cancelEdit"
             />
             <TaskEditor
-              v-if="!wt.task && addingTaskForDir === wt.path"
+              v-if="!wt.tasks[0] && addingTaskForDir === wt.path"
               v-model:body="addingTaskBody"
               @save="saveWorktreeTask(wt)"
               @cancel="cancelWorktreeTaskAdd"

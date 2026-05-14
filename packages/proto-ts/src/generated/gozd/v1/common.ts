@@ -16,7 +16,7 @@ export interface WorktreeEntry {
   isMain: boolean;
   /** ファイル相対パス → porcelain v1 XY コード */
   gitStatuses: { [key: string]: string };
-  task: Task | undefined;
+  tasks: Task[];
 }
 
 export interface WorktreeEntry_GitStatusesEntry {
@@ -109,7 +109,7 @@ export interface ProjectConfig {
 }
 
 function createBaseWorktreeEntry(): WorktreeEntry {
-  return { path: "", head: "", branch: "", isMain: false, gitStatuses: {}, task: undefined };
+  return { path: "", head: "", branch: "", isMain: false, gitStatuses: {}, tasks: [] };
 }
 
 export const WorktreeEntry: MessageFns<WorktreeEntry> = {
@@ -129,8 +129,8 @@ export const WorktreeEntry: MessageFns<WorktreeEntry> = {
     globalThis.Object.entries(message.gitStatuses).forEach(([key, value]: [string, string]) => {
       WorktreeEntry_GitStatusesEntry.encode({ key: key as any, value }, writer.uint32(42).fork()).join();
     });
-    if (message.task !== undefined) {
-      Task.encode(message.task, writer.uint32(50).fork()).join();
+    for (const v of message.tasks) {
+      Task.encode(v!, writer.uint32(50).fork()).join();
     }
     return writer;
   },
@@ -190,7 +190,7 @@ export const WorktreeEntry: MessageFns<WorktreeEntry> = {
             break;
           }
 
-          message.task = Task.decode(reader, reader.uint32());
+          message.tasks.push(Task.decode(reader, reader.uint32()));
           continue;
         }
       }
@@ -229,7 +229,7 @@ export const WorktreeEntry: MessageFns<WorktreeEntry> = {
           {},
         )
         : {},
-      task: isSet(object.task) ? Task.fromJSON(object.task) : undefined,
+      tasks: globalThis.Array.isArray(object?.tasks) ? object.tasks.map((e: any) => Task.fromJSON(e)) : [],
     };
   },
 
@@ -256,8 +256,8 @@ export const WorktreeEntry: MessageFns<WorktreeEntry> = {
         });
       }
     }
-    if (message.task !== undefined) {
-      obj.task = Task.toJSON(message.task);
+    if (message.tasks?.length) {
+      obj.tasks = message.tasks.map((e) => Task.toJSON(e));
     }
     return obj;
   },
@@ -280,7 +280,7 @@ export const WorktreeEntry: MessageFns<WorktreeEntry> = {
       },
       {},
     );
-    message.task = (object.task !== undefined && object.task !== null) ? Task.fromPartial(object.task) : undefined;
+    message.tasks = object.tasks?.map((e) => Task.fromPartial(e)) || [];
     return message;
   },
 };

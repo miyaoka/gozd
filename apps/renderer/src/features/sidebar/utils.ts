@@ -8,8 +8,9 @@ function taskTitle(body: string): string {
 
 /** worktree の表示名: Task タイトルがあればそれ、なければブランチ名 */
 export function worktreeDisplayName(wt: WorktreeEntry): string {
-  if (wt.task?.body) {
-    const title = taskTitle(wt.task.body);
+  const [task] = wt.tasks;
+  if (task?.body) {
+    const title = taskTitle(task.body);
     if (title !== "") return title;
   }
   return wt.branch ?? "(detached)";

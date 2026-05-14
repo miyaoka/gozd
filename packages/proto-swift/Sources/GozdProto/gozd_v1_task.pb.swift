@@ -178,39 +178,37 @@ public struct Gozd_V1_CreateWorktreeWithTaskRequest: Sendable {
   public init() {}
 }
 
-public struct Gozd_V1_CreateWorktreeWithTaskResponse: @unchecked Sendable {
+public struct Gozd_V1_CreateWorktreeWithTaskResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var task: Gozd_V1_Task {
-    get {_storage._task ?? Gozd_V1_Task()}
-    set {_uniqueStorage()._task = newValue}
+    get {_task ?? Gozd_V1_Task()}
+    set {_task = newValue}
   }
   /// Returns true if `task` has been explicitly set.
-  public var hasTask: Bool {_storage._task != nil}
+  public var hasTask: Bool {self._task != nil}
   /// Clears the value of `task`. Subsequent reads from it will return its default value.
-  public mutating func clearTask() {_uniqueStorage()._task = nil}
+  public mutating func clearTask() {self._task = nil}
 
   public var worktree: Gozd_V1_WorktreeEntry {
-    get {_storage._worktree ?? Gozd_V1_WorktreeEntry()}
-    set {_uniqueStorage()._worktree = newValue}
+    get {_worktree ?? Gozd_V1_WorktreeEntry()}
+    set {_worktree = newValue}
   }
   /// Returns true if `worktree` has been explicitly set.
-  public var hasWorktree: Bool {_storage._worktree != nil}
+  public var hasWorktree: Bool {self._worktree != nil}
   /// Clears the value of `worktree`. Subsequent reads from it will return its default value.
-  public mutating func clearWorktree() {_uniqueStorage()._worktree = nil}
+  public mutating func clearWorktree() {self._worktree = nil}
 
-  public var dir: String {
-    get {_storage._dir}
-    set {_uniqueStorage()._dir = newValue}
-  }
+  public var dir: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
-  fileprivate var _storage = _StorageClass.defaultInstance
+  fileprivate var _task: Gozd_V1_Task? = nil
+  fileprivate var _worktree: Gozd_V1_WorktreeEntry? = nil
 }
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
@@ -568,81 +566,41 @@ extension Gozd_V1_CreateWorktreeWithTaskResponse: SwiftProtobuf.Message, SwiftPr
   public static let protoMessageName: String = _protobuf_package + ".CreateWorktreeWithTaskResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}task\0\u{1}worktree\0\u{1}dir\0")
 
-  fileprivate class _StorageClass {
-    var _task: Gozd_V1_Task? = nil
-    var _worktree: Gozd_V1_WorktreeEntry? = nil
-    var _dir: String = String()
-
-      // This property is used as the initial default value for new instances of the type.
-      // The type itself is protecting the reference to its storage via CoW semantics.
-      // This will force a copy to be made of this reference when the first mutation occurs;
-      // hence, it is safe to mark this as `nonisolated(unsafe)`.
-      static nonisolated(unsafe) let defaultInstance = _StorageClass()
-
-    private init() {}
-
-    init(copying source: _StorageClass) {
-      _task = source._task
-      _worktree = source._worktree
-      _dir = source._dir
-    }
-  }
-
-  fileprivate mutating func _uniqueStorage() -> _StorageClass {
-    if !isKnownUniquelyReferenced(&_storage) {
-      _storage = _StorageClass(copying: _storage)
-    }
-    return _storage
-  }
-
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    _ = _uniqueStorage()
-    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
-      while let fieldNumber = try decoder.nextFieldNumber() {
-        // The use of inline closures is to circumvent an issue where the compiler
-        // allocates stack space for every case branch when no optimizations are
-        // enabled. https://github.com/apple/swift-protobuf/issues/1034
-        switch fieldNumber {
-        case 1: try { try decoder.decodeSingularMessageField(value: &_storage._task) }()
-        case 2: try { try decoder.decodeSingularMessageField(value: &_storage._worktree) }()
-        case 3: try { try decoder.decodeSingularStringField(value: &_storage._dir) }()
-        default: break
-        }
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._task) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._worktree) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.dir) }()
+      default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every if/case branch local when no optimizations
-      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-      // https://github.com/apple/swift-protobuf/issues/1182
-      try { if let v = _storage._task {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-      } }()
-      try { if let v = _storage._worktree {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-      } }()
-      if !_storage._dir.isEmpty {
-        try visitor.visitSingularStringField(value: _storage._dir, fieldNumber: 3)
-      }
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._task {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._worktree {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    if !self.dir.isEmpty {
+      try visitor.visitSingularStringField(value: self.dir, fieldNumber: 3)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Gozd_V1_CreateWorktreeWithTaskResponse, rhs: Gozd_V1_CreateWorktreeWithTaskResponse) -> Bool {
-    if lhs._storage !== rhs._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
-        let _storage = _args.0
-        let rhs_storage = _args.1
-        if _storage._task != rhs_storage._task {return false}
-        if _storage._worktree != rhs_storage._worktree {return false}
-        if _storage._dir != rhs_storage._dir {return false}
-        return true
-      }
-      if !storagesAreEqual {return false}
-    }
+    if lhs._task != rhs._task {return false}
+    if lhs._worktree != rhs._worktree {return false}
+    if lhs.dir != rhs.dir {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

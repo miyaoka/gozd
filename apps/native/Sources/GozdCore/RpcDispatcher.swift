@@ -475,9 +475,10 @@ public actor RpcDispatcher {
       entry.branch = wt.branch ?? ""
       entry.isMain = wt.isMain
       entry.gitStatuses = statusesByPath[wt.path] ?? [:]
-      // この worktree に紐づく Task を埋める
+      // この worktree に紐づく Task 群を埋める
+      // Phase 2 で session_id ベースの複数 task 化予定。現状は first match の互換挙動を維持
       if let task = allTasks.first(where: { $0.worktreeDir == wt.path }) {
-        entry.task = task
+        entry.tasks = [task]
       }
       return entry
     }
@@ -796,7 +797,7 @@ public actor RpcDispatcher {
     entry.head = info.head
     entry.branch = info.branch ?? ""
     entry.isMain = info.isMain
-    entry.task = updated
+    entry.tasks = [updated]
     resp.worktree = entry
     resp.dir = info.path
     return try resp.jsonUTF8Data()

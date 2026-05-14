@@ -54,9 +54,11 @@ export function registerIssueCommand(): () => void {
         if (issuesRes.issues.length === 0) return;
 
         const wtByIssue = new Map(
-          worktreesRes.worktrees
-            .filter((wt) => wt.task !== undefined && wt.task.issueNumber > 0)
-            .map((wt) => [wt.task?.issueNumber, wt.path]),
+          worktreesRes.worktrees.flatMap((wt) => {
+            const [task] = wt.tasks;
+            if (task === undefined || task.issueNumber <= 0) return [];
+            return [[task.issueNumber, wt.path] as const];
+          }),
         );
 
         // この callback は IssuePickerDialog 側で close() 後に呼ばれるため、

@@ -86,6 +86,12 @@ const sortedStatuses = computed(() =>
   ),
 );
 
+/** 表示用の主 Task（Phase 2 で複数 task 対応に拡張予定。現状は先頭のみ） */
+const primaryTask = computed(() => {
+  const [task] = props.wt.tasks;
+  return task;
+});
+
 /** done/asking の最優先ステータスから吹き出しテキストを取得 */
 const bubbleText = computed(() => {
   const [first] = sortedStatuses.value;
@@ -146,7 +152,7 @@ const statusIcons = computed(() => {
             class="text-[10px] leading-none tabular-nums"
             :class="CLAUDE_STATE_BADGE[status.state].color"
           >
-            {{ formatElapsed(status.startedAt, now) }}
+            {{ formatElapsed(status.enteredAt, now) }}
           </span>
           <span
             class="size-5"
@@ -165,10 +171,12 @@ const statusIcons = computed(() => {
         @click="emit('select', wt)"
       >
         <span class="line-clamp-2"
-          ><span v-if="wt.task && wt.task.prNumber > 0" class="mr-1 text-xs text-zinc-400"
-            >#{{ wt.task.prNumber }}</span
-          ><span v-else-if="wt.task && wt.task.issueNumber > 0" class="mr-1 text-xs text-zinc-400"
-            >#{{ wt.task.issueNumber }}</span
+          ><span v-if="primaryTask && primaryTask.prNumber > 0" class="mr-1 text-xs text-zinc-400"
+            >#{{ primaryTask.prNumber }}</span
+          ><span
+            v-else-if="primaryTask && primaryTask.issueNumber > 0"
+            class="mr-1 text-xs text-zinc-400"
+            >#{{ primaryTask.issueNumber }}</span
           >{{ worktreeDisplayName(wt) }}</span
         >
       </button>

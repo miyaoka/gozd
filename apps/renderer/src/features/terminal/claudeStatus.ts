@@ -11,12 +11,17 @@ import type { Ref } from "vue";
  */
 export type ClaudeState = "idle" | "working" | "asking" | "done";
 
-/** Claude Code の状態エントリ。状態と付随データを一体管理する */
+/**
+ * Claude Code の状態エントリ。状態と付随データを一体管理する。
+ * - enteredAt: その state に遷移した時刻（state 変化のたびに更新）
+ * - lastActivityAt（working のみ）: 直近のアクティビティ時刻（tool-done / running で更新）。
+ *   working は同 state 内で連続イベントが来るため、相対時刻基準を遷移時刻と分ける必要がある。
+ */
 export type ClaudeStatus =
-  | { state: "idle" }
-  | { state: "working"; startedAt: number }
-  | { state: "asking"; toolName?: string; toolInput?: Record<string, unknown> }
-  | { state: "done"; message?: string };
+  | { state: "idle"; enteredAt: number }
+  | { state: "working"; enteredAt: number; lastActivityAt: number }
+  | { state: "asking"; enteredAt: number; toolName?: string; toolInput?: Record<string, unknown> }
+  | { state: "done"; enteredAt: number; message?: string };
 
 /**
  * hooks イベント種別。
@@ -107,7 +112,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
     switch (event) {
       case "session-start": {
         cancelAskTimer(ptyId);
-        claudeStatusByPtyId.value[ptyId] = { state: "idle" };
+        claudeStatusByPtyId.value[ptyId] = { state: "idle", enteredAt: Date.now() };
         break;
       }
       case "session-end": {
@@ -117,9 +122,14 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
       }
       case "running": {
         cancelAskTimer(ptyId);
-        // 初回 working 遷移時のみ開始時刻を記録（tool-done → working の再遷移では維持）
-        const startedAt = current?.state === "working" ? current.startedAt : Date.now();
-        claudeStatusByPtyId.value[ptyId] = { state: "working", startedAt };
+        // working 継続中は enteredAt（state 遷移時刻）を維持し、lastActivityAt のみ更新する
+        const now = Date.now();
+        const enteredAt = current?.state === "working" ? current.enteredAt : now;
+        claudeStatusByPtyId.value[ptyId] = {
+          state: "working",
+          enteredAt,
+          lastActivityAt: now,
+        };
         break;
       }
       case "needs-input": {
@@ -134,7 +144,12 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
           ptyId,
           setTimeout(() => {
             askTimers.delete(ptyId);
-            claudeStatusByPtyId.value[ptyId] = { state: "asking", toolName, toolInput };
+            claudeStatusByPtyId.value[ptyId] = {
+              state: "asking",
+              enteredAt: Date.now(),
+              toolName,
+              toolInput,
+            };
           }, ASK_DEBOUNCE_MS),
         );
         break;
@@ -143,21 +158,31 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
         cancelAskTimer(ptyId);
         if (payload.is_interrupt === true) {
           // ユーザーが Ctrl+C でツール実行を中断 → プロンプト待ちに戻る
-          claudeStatusByPtyId.value[ptyId] = { state: "idle" };
+          claudeStatusByPtyId.value[ptyId] = { state: "idle", enteredAt: Date.now() };
           break;
         }
         // interrupt でないツール失敗は tool-done と同じ扱い（working 継続）
         if (current?.state === "done") break;
-        const sf = current?.state === "working" ? current.startedAt : Date.now();
-        claudeStatusByPtyId.value[ptyId] = { state: "working", startedAt: sf };
+        const now = Date.now();
+        const enteredAt = current?.state === "working" ? current.enteredAt : now;
+        claudeStatusByPtyId.value[ptyId] = {
+          state: "working",
+          enteredAt,
+          lastActivityAt: now,
+        };
         break;
       }
       case "tool-done": {
         cancelAskTimer(ptyId);
         // done 後の遅延 tool-done を無視（イベント順序逆転対策）
         if (current?.state === "done") break;
-        const startedAt = current?.state === "working" ? current.startedAt : Date.now();
-        claudeStatusByPtyId.value[ptyId] = { state: "working", startedAt };
+        const now = Date.now();
+        const enteredAt = current?.state === "working" ? current.enteredAt : now;
+        claudeStatusByPtyId.value[ptyId] = {
+          state: "working",
+          enteredAt,
+          lastActivityAt: now,
+        };
         break;
       }
       case "done": {
@@ -166,7 +191,11 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
           typeof payload.last_assistant_message === "string"
             ? payload.last_assistant_message
             : undefined;
-        claudeStatusByPtyId.value[ptyId] = { state: "done", message };
+        claudeStatusByPtyId.value[ptyId] = {
+          state: "done",
+          enteredAt: Date.now(),
+          message,
+        };
         break;
       }
       case "stop-failure": {
@@ -176,7 +205,11 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
           typeof payload.last_assistant_message === "string"
             ? payload.last_assistant_message
             : undefined;
-        claudeStatusByPtyId.value[ptyId] = { state: "done", message };
+        claudeStatusByPtyId.value[ptyId] = {
+          state: "done",
+          enteredAt: Date.now(),
+          message,
+        };
         break;
       }
     }
@@ -213,7 +246,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
 
     if (combined.includes(INTERRUPT_MARKER)) {
       cancelAskTimer(ptyId);
-      claudeStatusByPtyId.value[ptyId] = { state: "idle" };
+      claudeStatusByPtyId.value[ptyId] = { state: "idle", enteredAt: Date.now() };
     }
     // 直近 PTY_TAIL_BUFFER_SIZE 文字を保持
     ptyTailBuffers.set(ptyId, data.slice(-PTY_TAIL_BUFFER_SIZE));
@@ -261,7 +294,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
       if (pane.dir !== dir) continue;
       if (pane.ptyId === undefined) continue;
       if (claudeStatusByPtyId.value[pane.ptyId]?.state === "done") {
-        claudeStatusByPtyId.value[pane.ptyId] = { state: "idle" };
+        claudeStatusByPtyId.value[pane.ptyId] = { state: "idle", enteredAt: Date.now() };
       }
     }
   }

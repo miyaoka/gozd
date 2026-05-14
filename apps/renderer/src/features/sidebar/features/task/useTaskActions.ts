@@ -56,9 +56,10 @@ export function useTaskActions({ fetchRepo }: UseTaskActionsOptions) {
 
   /** Task の編集 / 新規作成入力欄をトグル */
   function toggleWorktreeTaskEdit(wt: WorktreeEntry, rootDir: string) {
-    if (wt.task) {
-      if (editingTaskId.value === wt.task.id) cancelEdit();
-      else startEditing(wt.task, rootDir);
+    const [task] = wt.tasks;
+    if (task) {
+      if (editingTaskId.value === task.id) cancelEdit();
+      else startEditing(task, rootDir);
       return;
     }
     if (addingTaskForDir.value === wt.path) {

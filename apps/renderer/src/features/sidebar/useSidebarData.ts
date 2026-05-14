@@ -133,7 +133,8 @@ export function useSidebarData() {
     const wt = owning.worktrees.find((w) => w.path === targetDir);
     if (!wt) return;
 
-    if (wt.task === undefined) {
+    const [existingTask] = wt.tasks;
+    if (existingTask === undefined) {
       const addResult = await tryCatch(
         rpcTaskAdd({
           dir: projectDir,
@@ -146,21 +147,21 @@ export function useSidebarData() {
       if (addResult.ok && addResult.value.task !== undefined) {
         const freshRepo = repoStore.repos[projectDir];
         const freshWt = freshRepo?.worktrees.find((w) => w.path === targetDir);
-        if (freshWt) freshWt.task = addResult.value.task;
+        if (freshWt) freshWt.tasks = [addResult.value.task];
       }
       return;
     }
-    const [firstLine] = wt.task.body.split("\n");
+    const [firstLine] = existingTask.body.split("\n");
     // 手動設定されたタイトルをターミナルタイトルで上書きしない
     if (firstLine.trim() !== "") return;
-    const newBody = [title, ...wt.task.body.split("\n").slice(1)].join("\n");
+    const newBody = [title, ...existingTask.body.split("\n").slice(1)].join("\n");
     const result = await tryCatch(
-      rpcTaskUpdate({ dir: projectDir, id: wt.task.id, body: newBody }),
+      rpcTaskUpdate({ dir: projectDir, id: existingTask.id, body: newBody }),
     );
     if (result.ok && result.value.task !== undefined) {
       const freshRepo = repoStore.repos[projectDir];
       const freshWt = freshRepo?.worktrees.find((w) => w.path === targetDir);
-      if (freshWt) freshWt.task = result.value.task;
+      if (freshWt) freshWt.tasks = [result.value.task];
     }
   }
 

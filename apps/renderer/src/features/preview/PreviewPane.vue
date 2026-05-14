@@ -152,6 +152,8 @@ const SHORT_HASH_LEN = 7;
  * 範囲選択を時系列順に整列した {newer, older}。
  * commits[0] が newest（小さい idx ほど新しい）。UNCOMMITTED_HASH は idx=-1 扱いで常に newer 側。
  * compareHash が null の単一選択時は older は undefined。
+ * commits 配列にロードされていない hash が来た場合は throw して不整合を観察可能にする
+ * （loadLog 完了前の選択 / stale な選択を黙って older 側に倒さない）。
  */
 const orderedRange = computed<{ newer: string; older: string | undefined }>(() => {
   const selected = gitGraphStore.selectedHash;
@@ -159,8 +161,12 @@ const orderedRange = computed<{ newer: string; older: string | undefined }>(() =
   if (compare === null) return { newer: selected, older: undefined };
 
   const map = gitGraphStore.hashToIndex;
-  const idx = (h: string) =>
-    h === UNCOMMITTED_HASH ? -1 : (map.get(h) ?? Number.POSITIVE_INFINITY);
+  const idx = (h: string) => {
+    if (h === UNCOMMITTED_HASH) return -1;
+    const i = map.get(h);
+    if (i === undefined) throw new Error(`hash ${h} not in loaded commits`);
+    return i;
+  };
   const selectedIdx = idx(selected);
   const compareIdx = idx(compare);
   // idx が大きい方が older
@@ -274,17 +280,43 @@ async function fetchCommitContent(filePath: string) {
     if (dir === undefined) return;
     // クリック順に依存せず時系列で並べ替え: newer = current(to), older = original(from)
     const { newer, older } = orderedRange.value;
-    const result = await rpcGitShowCommitFile({
-      dir,
-      relPath: filePath,
-      hash: newer,
-      compareHash: older ?? "",
-    });
+
+    // RPC 境界では UNCOMMITTED_HASH sentinel を流さず、wire 上は常に実 hash のみ扱う。
+    // newer が Working Tree のときは:
+    //   - to: rpcFsReadFile で filesystem から直接読む
+    //   - from: rpcGitShowCommitFile(hash=older, compareHash="") の from 結果 (= <older>^)
+    //     older が undefined のケースは orderedRange の不変条件上ありえない
+    //     (compareHash=null なら newer は uncommitted 単独 = fetchContent 経路、commit モードに来ない)
+    // それ以外は rpcGitShowCommitFile を 1 回で from/to を取得する。
+    let from: { content: string; isBinary: boolean; notFound: boolean } | undefined;
+    let to: { content: string; isBinary: boolean; notFound: boolean } | undefined;
+    if (newer === UNCOMMITTED_HASH) {
+      if (older === undefined) {
+        throw new Error("commit mode with working tree newer requires an older endpoint");
+      }
+      const [showResult, fsResult] = await Promise.all([
+        rpcGitShowCommitFile({ dir, relPath: filePath, hash: older, compareHash: "" }),
+        rpcFsReadFile({ dir, path: filePath }),
+      ]);
+      from = showResult.from;
+      to = {
+        content: fsResult.content,
+        isBinary: fsResult.isBinary,
+        notFound: fsResult.notFound,
+      };
+    } else {
+      const showResult = await rpcGitShowCommitFile({
+        dir,
+        relPath: filePath,
+        hash: newer,
+        compareHash: older ?? "",
+      });
+      from = showResult.from;
+      to = showResult.to;
+    }
 
     if (version !== fetchVersion) return;
 
-    const from = result.from;
-    const to = result.to;
     const fromNotFound = from?.notFound ?? true;
     const toNotFound = to?.notFound ?? true;
 

@@ -18,10 +18,6 @@ import GozdProto
 //
 // 4. **戻り値は proto JSON Data**。失敗は throw。URLSchemeHandler 側が HTTP 200 / 4xx / 5xx と
 //    `Access-Control-Allow-Origin: *` ヘッダを付ける。
-/// renderer 側 UNCOMMITTED_HASH と一致する all-zero sentinel。
-/// commit hash として使われた場合「working tree（filesystem）から読む」を意味する。
-private let uncommittedHashSentinel = "0000000000000000000000000000000000000000"
-
 public actor RpcDispatcher {
   public typealias HookHandler = @Sendable (Gozd_V1_HookMessage) -> Void
   public typealias OpenHandler = @Sendable (String) -> Void
@@ -666,40 +662,22 @@ public actor RpcDispatcher {
     // 単一コミット選択 (compareHash 空) では GitHub と同等の <hash>^ vs <hash> 比較に揃える。
     // GitOps.commitFiles のファイル一覧と diff endpoint を一致させるため。
     // root commit は <hash>^ が解決失敗 → notFound=true となり追加扱いに自然解決する。
-    // hash が UNCOMMITTED_HASH の場合は working tree（filesystem）を読む。
-    // Working Tree 端を含む範囲選択でも to/from を正しく取得するため。
     // 範囲選択 (compareHash 非空) では GitOps.commitFiles の <older>^ vs <newer> に揃え、
     // older 端自身の変更も diff に含める。root commit は `^` 解決失敗 → notFound に倒れる。
+    // Working Tree 端の扱いは renderer 側で分岐し、wire には常に実 git hash のみ流れる契約。
     let olderEnd = req.compareHash.isEmpty ? req.hash : req.compareHash
     let fromHash = "\(olderEnd)^"
-    resp.from = await fileReadResultAt(
+    resp.from = await fileReadResultFromGit(
       dir: req.dir, hash: fromHash, relPath: req.relPath)
-    resp.to = await fileReadResultAt(dir: req.dir, hash: req.hash, relPath: req.relPath)
+    resp.to = await fileReadResultFromGit(dir: req.dir, hash: req.hash, relPath: req.relPath)
     return try resp.jsonUTF8Data()
-  }
-
-  /// hash が UNCOMMITTED_HASH（all-zero）なら working tree から読み、それ以外は git show を使う。
-  private func fileReadResultAt(dir: String, hash: String, relPath: String) async
-    -> Gozd_V1_FileReadResult
-  {
-    if hash == uncommittedHashSentinel {
-      var fr = Gozd_V1_FileReadResult()
-      do {
-        let info = try FSOps.readFile(dir: dir, path: relPath)
-        fr.content = info.content
-        fr.isBinary = info.isBinary
-        fr.isDirectory = info.isDirectory
-        fr.notFound = info.notFound
-      } catch {
-        fr.notFound = true
-      }
-      return fr
-    }
-    return await fileReadResultFromGit(dir: dir, hash: hash, relPath: relPath)
   }
 
   /// `git show <hash>:<path>` の結果を FileReadResult shape にまとめる。
   /// 失敗（exit != 0）= ファイル不在として not_found=true を返す。
+  /// 想定する失敗: root commit の `^` 解決失敗、未追跡 path、invalid hash。
+  /// それ以外（commandFailed の予期しない exit code 等）は silent drop しないよう
+  /// stderr にログを残して dev 環境で観察可能にする。
   private func fileReadResultFromGit(dir: String, hash: String, relPath: String) async
     -> Gozd_V1_FileReadResult
   {
@@ -715,6 +693,11 @@ public actor RpcDispatcher {
       }
     } catch {
       fr.notFound = true
+      FileHandle.standardError.write(
+        Data(
+          "[RpcDispatcher] git show \(hash):\(relPath) failed in \(dir): \(error)\n".utf8
+        )
+      )
     }
     return fr
   }

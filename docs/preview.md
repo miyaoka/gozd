@@ -45,7 +45,7 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 
 - 単一コミット選択: from = `<hash>^`, to = `<hash>`
 - 範囲選択: from = `<older>^`, to = `<newer>`（older / newer はクリック順ではなく `commits` 配列の index で時系列順に整列）
-- 端点に Working Tree（`UNCOMMITTED_HASH`）を含む範囲選択: その端点だけ filesystem から読み、もう一方は git show
+- 端点に Working Tree を含む範囲選択: renderer 側で分岐し、to は `fsReadFile`、from は `gitShowCommitFile(hash=<older>, compareHash="")` の `from` 結果（= `<older>^`）を流用する。`UNCOMMITTED_HASH` sentinel は RPC 境界を越えず wire 上は常に実 git hash のみ流れる
 
 `GitOps.commitFiles` のファイル一覧 (`<older>^ vs <newer>`) と endpoint を揃えてあるため、Changes パネルのファイル一覧と Preview の diff が常に一致する。
 

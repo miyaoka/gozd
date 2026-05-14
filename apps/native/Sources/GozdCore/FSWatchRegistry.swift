@@ -86,9 +86,10 @@ public actor FSWatchRegistry {
   /// この逆引きを使えば「watch 時に解決した resolved key」で確実に削除できる。
   private var resolvedKeyByOriginalDir: [String: String] = [:]
   /// commonGitDir → primary watcher の resolved dir。`branchChange` / `worktreeChange`
-  /// dispatch 時の dedup に使う。primary 判定は resolved dir の lexical 最小で決定論的に
-  /// 選ぶ。entries の add / remove 時に該当 commonGitDir のグループだけ再計算する
-  /// (handleEvents での O(N) 走査を O(1) lookup に置き換える)。
+  /// dispatch 時の dedup に使う。primary 判定は main worktree (`perWorktreeGitDir ==
+  /// commonGitDir`) を選ぶ。entries の add / remove 時に該当 commonGitDir のグループだけ
+  /// 再計算する (handleEvents での O(N) 走査を O(1) lookup に置き換える)。
+  /// 選出理由は `recomputePrimary` の docstring を参照。
   private var primaryByCommonGitDir: [String: String] = [:]
   /// watch ごとに増える世代番号。unwatch 後に積まれていた stale event の dispatch を
   /// 抑止するため、event 配送前後に entries[dir]?.generation と一致するか check する。
@@ -260,15 +261,21 @@ public actor FSWatchRegistry {
 
   /// `primaryByCommonGitDir` を該当 commonGitDir のグループに対して再計算する。
   /// entry の追加 / 削除時に呼ぶ。グループに entry が残っていなければ map から消す。
+  /// 選出基準: main worktree (`perWorktreeGitDir == commonGitDir`) を primary にする。
+  /// 旧実装の「resolved dir の lex 最小」は、gozd 配置 wt path (`.local/share/...`) が
+  /// main repo path (`ghq/...`) より lex 小になるため wt が primary を奪う。worktree clone
+  /// の wt watcher は classify で `applyCommonRule` が false となり `hasWorktreeChange` を
+  /// 立てない一方、main watcher は `perWtSameAsCommon=true` なので立てる。primary が wt の
+  /// 状態で `.git/worktrees/<name>/` 単独削除が起きると、worktreeChange を立てる側 (root)
+  /// は primary 抑止で suppress、立てない側 (wt) が primary で何も発火しない経路に陥る。
+  /// main worktree は `git worktree remove` で消せない invariant も併せ持つため、発火元と
+  /// して常に生存する。
   private func recomputePrimary(forCommonGitDir commonGitDir: String) {
-    var minDir: String?
     for (key, entry) in entries where entry.commonGitDir == commonGitDir {
-      // 現在値と新候補の min を取る。Optional 対応で if-else を避ける。
-      minDir = minDir.map { Swift.min($0, key) } ?? key
-    }
-    if let minDir {
-      primaryByCommonGitDir[commonGitDir] = minDir
-      return
+      if entry.perWorktreeGitDir == commonGitDir {
+        primaryByCommonGitDir[commonGitDir] = key
+        return
+      }
     }
     primaryByCommonGitDir.removeValue(forKey: commonGitDir)
   }
@@ -302,8 +309,29 @@ public actor FSWatchRegistry {
     // `branchChange` / `worktreeChange` は common git dir 配下の event から派生し、
     // repo を共有する全 worktree の watcher が同じ event で同時発火する。
     // ここで commonGitDir 単位の primary watcher 1 つに collapse し、N 個の watcher 由来の
-    // N 連射を 1 push にまとめる。primary 判定は resolved dir の lexical 最小（決定的）。
+    // N 連射を 1 push にまとめる。primary は main worktree
+    // (`perWorktreeGitDir == commonGitDir`) を選ぶ (`recomputePrimary` 参照)。
     let isPrimaryForCommonDir = isPrimaryWatcher(forCommonGitDir: entry.commonGitDir, dir: dir)
+    // primary watcher が未確立で `worktreeChange` / `branchChange` を立てた場合は silent drop に
+    // 陥る。renderer (useFsWatchSync) は repo を開いた時点で main worktree も登録するため
+    // 通常運用では発生しないが、`watch()` の `await GitOps.gitDirs` 中に non-main wt の event
+    // が先に届く startup race / bare repo / 単体テストでの部分登録で起こり得る。観察可能化
+    // のため stderr にログする。dispatch 自体は contract どおり走らない。
+    // entries の dir 一覧と各 entry が main worktree (`perWorktreeGitDir == commonGitDir`)
+    // かどうかを併記して、startup race か bare repo か永続未確立かを log から切り分け可能にする。
+    if (result.hasBranchChange || result.hasWorktreeChange) && !isPrimaryForCommonDir,
+      let commonGitDir = entry.commonGitDir,
+      primaryByCommonGitDir[commonGitDir] == nil
+    {
+      let siblings = entries
+        .filter { _, e in e.commonGitDir == commonGitDir }
+        .map { key, e in "\(key)(main=\(e.perWorktreeGitDir == commonGitDir))" }
+        .sorted()
+      FileHandle.standardError.write(
+        Data(
+          "[FSWatchRegistry] primary missing for commonGitDir=\(commonGitDir); dropping branchChange=\(result.hasBranchChange) worktreeChange=\(result.hasWorktreeChange) from dir=\(dir); entries=\(siblings)\n"
+            .utf8))
+    }
     if result.hasBranchChange && isPrimaryForCommonDir {
       onBranchChange(originalDir)
     }

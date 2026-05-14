@@ -85,6 +85,11 @@ public actor FSWatchRegistry {
   /// 入力 path をそのまま返すため、watch 時のキーと一致せず entries が leak する。
   /// この逆引きを使えば「watch 時に解決した resolved key」で確実に削除できる。
   private var resolvedKeyByOriginalDir: [String: String] = [:]
+  /// commonGitDir → primary watcher の resolved dir。`branchChange` / `worktreeChange`
+  /// dispatch 時の dedup に使う。primary 判定は resolved dir の lexical 最小で決定論的に
+  /// 選ぶ。entries の add / remove 時に該当 commonGitDir のグループだけ再計算する
+  /// (handleEvents での O(N) 走査を O(1) lookup に置き換える)。
+  private var primaryByCommonGitDir: [String: String] = [:]
   /// watch ごとに増える世代番号。unwatch 後に積まれていた stale event の dispatch を
   /// 抑止するため、event 配送前後に entries[dir]?.generation と一致するか check する。
   private var nextGeneration: UInt64 = 0
@@ -113,6 +118,7 @@ public actor FSWatchRegistry {
   /// 経由する RPC 呼び出しが必要だった旧設計より整合性のリスクが低い。
   public func watch(dir userDir: String) async throws {
     let dir = FSWatchRegistry.realpath(userDir)
+    var oldCommonGitDir: String?
     if let existing = entries[dir] {
       // 既存 entry を破棄して再構築する: `gitDirs` の解決値が `git worktree repair` 等で
       // 変わっている可能性に備える（旧 no-op 設計だと古い perWorktreeGitDir / commonGitDir
@@ -121,6 +127,7 @@ public actor FSWatchRegistry {
       // 一括 invalidate するが、再構築では同じ resolved dir を引き続き使うので別 userDir
       // 経由の逆引きは温存したい。FSWatcher の破棄だけ inline で行い、reverse lookup は
       // 末尾の `resolvedKeyByOriginalDir[userDir] = dir` で当該 userDir のみ最新化する。
+      oldCommonGitDir = existing.commonGitDir
       existing.watcher.stop()
       existing.continuation.finish()
       existing.task.cancel()
@@ -174,6 +181,14 @@ public actor FSWatchRegistry {
       perWorktreeGitDir: perWorktreeGitDir,
       commonGitDir: commonGitDir)
     resolvedKeyByOriginalDir[userDir] = dir
+    // 旧 entry の commonGitDir が新しい値と異なる場合、旧グループ側も primary を再計算する。
+    // 等しい場合は新値の recompute が両方を兼ねる。
+    if let oldCommonGitDir, oldCommonGitDir != commonGitDir {
+      recomputePrimary(forCommonGitDir: oldCommonGitDir)
+    }
+    if let commonGitDir {
+      recomputePrimary(forCommonGitDir: commonGitDir)
+    }
   }
 
   /// dir の監視を停止する。watch されていなければ no-op。
@@ -214,6 +229,9 @@ public actor FSWatchRegistry {
     // 同一 resolved に複数 userDir（symlink パスと非 symlink パスなど）で watch が
     // 重ねられた状態で、片方しか unwatch されないと逆引きエントリが leak するため。
     resolvedKeyByOriginalDir = resolvedKeyByOriginalDir.filter { $0.value != dir }
+    if let commonGitDir = entry.commonGitDir {
+      recomputePrimary(forCommonGitDir: commonGitDir)
+    }
   }
 
   /// dispatch 時点で entry がまだ生きており、世代が一致するかを判定する。
@@ -223,20 +241,32 @@ public actor FSWatchRegistry {
   }
 
   /// 同じ commonGitDir を共有する watcher 群の中で、指定 dir が primary かを判定する。
-  /// primary は resolved dir の lexical 最小で決定論的に選ぶ（並び順への依存を排除）。
-  /// commonGitDir が nil（非 git project）の場合、ref 系 event はそもそも発生しないが、
-  /// 安全側に倒して常に primary 扱い（dispatch を抑止しない）にする。
+  /// O(1) lookup: primary は `primaryByCommonGitDir` cache から読み、entries 全件走査は
+  /// しない (entry 追加 / 削除時にしか更新されないため frequent path で線形走査しない)。
+  /// commonGitDir が nil (非 git project) の entry は classify 時に branchChange /
+  /// worktreeChange を立てないため、ここに到達する経路自体存在しないが、保守上の保険として
+  /// false を返す (primary でない = dispatch を抑止する側に倒す)。
   private func isPrimaryWatcher(forCommonGitDir commonGitDir: String?, dir: String) -> Bool {
-    guard let commonGitDir else { return true }
+    guard let commonGitDir else { return false }
+    return primaryByCommonGitDir[commonGitDir] == dir
+  }
+
+  /// `primaryByCommonGitDir` を該当 commonGitDir のグループに対して再計算する。
+  /// entry の追加 / 削除時に呼ぶ。グループに entry が残っていなければ map から消す。
+  private func recomputePrimary(forCommonGitDir commonGitDir: String) {
     var minDir: String?
-    for (key, entry) in entries {
-      if entry.commonGitDir == commonGitDir {
-        if minDir == nil || key < minDir! {
-          minDir = key
-        }
+    for (key, entry) in entries where entry.commonGitDir == commonGitDir {
+      if let current = minDir {
+        if key < current { minDir = key }
+      } else {
+        minDir = key
       }
     }
-    return minDir == dir
+    if let minDir {
+      primaryByCommonGitDir[commonGitDir] = minDir
+    } else {
+      primaryByCommonGitDir.removeValue(forKey: commonGitDir)
+    }
   }
 
   /// 1 バッチの events を分類して push event として配送する。

@@ -270,9 +270,15 @@ const disposeBranchChange = onMessage<BranchChangePayload>("branchChange", ({ di
 onUnmounted(disposeBranchChange);
 
 // `useFsWatchSync` の `rpcFsWatch` 完了直後に発射される再同期通知。watch 起動往復中の
-// FS 変化を救済するため、1 度だけ git log を取り直す。dir は新たに watch 起動した worktree。
+// FS 変化を救済するため、1 度だけ git log を取り直す。dispatch 側で rootDir 単位に
+// dedup されており、payload.dir は repo の代表 worktree (active とは限らない) なので、
+// active と同じ repo か否かで filter する。
 const disposeFsWatchReady = onMessage<FsWatchReadyPayload>("fsWatchReady", ({ dir }) => {
-  if (dir !== worktreeStore.dir) return;
+  const activeDir = worktreeStore.dir;
+  if (activeDir === undefined) return;
+  const sourceRoot = repoStore.findRepoOwning(dir)?.rootDir;
+  const activeRoot = repoStore.findRepoOwning(activeDir)?.rootDir;
+  if (sourceRoot === undefined || sourceRoot !== activeRoot) return;
   void loadLog();
 });
 onUnmounted(disposeFsWatchReady);

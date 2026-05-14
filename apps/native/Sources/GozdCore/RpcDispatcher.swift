@@ -680,9 +680,8 @@ public actor RpcDispatcher {
     let (from, to, fOID, tOID) = await (fromContent, toContent, fromOID, toOID)
     resp.from = from
     resp.to = to
-    if let fOID, let tOID {
-      resp.unchanged = fOID == tOID
-    }
+    // 両 OID が解決でき、かつ一致した場合のみ true。proto3 default false 依存にせず明示代入。
+    resp.unchanged = fOID != nil && tOID != nil && fOID == tOID
     return try resp.jsonUTF8Data()
   }
 

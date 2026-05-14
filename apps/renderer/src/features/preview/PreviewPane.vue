@@ -188,11 +188,12 @@ const orderedRange = computed<OrderedRange | null>(() => {
  * - uncommitted モード (newer=Working Tree, older=undefined): HEAD
  * - 単一コミット: <hash>^
  * - 範囲選択: <older>^
- * - orderedRange が null（不整合）: HEAD にフォールバックして render を落とさない
+ * - orderedRange が null（不整合）: undefined を返す。`modeLabel` 側で hash 表記なしに倒し、
+ *   実際には参照していない HEAD などの虚偽情報をラベルに出さない。
  */
-const originalHashLabel = computed(() => {
+const originalHashLabel = computed<string | undefined>(() => {
   const range = orderedRange.value;
-  if (range === null) return "HEAD";
+  if (range === null) return undefined;
   const { newer, older } = range;
   if (newer === UNCOMMITTED_HASH && older === undefined) return "HEAD";
   const olderEnd = older ?? newer;
@@ -202,7 +203,8 @@ const originalHashLabel = computed(() => {
 function modeLabel(mode: PreviewMode): string {
   if (mode === "current") return "Current";
   if (mode === "diff") return "Diff";
-  return `Original (${originalHashLabel.value})`;
+  const label = originalHashLabel.value;
+  return label === undefined ? "Original" : `Original (${label})`;
 }
 
 /** 非同期レース防止 + 画像キャッシュバスト用のバージョンカウンター */
@@ -226,8 +228,9 @@ async function fetchContent(path: string, gitChange: GitChangeKind | undefined) 
   const isAbsolute = path.startsWith("/");
 
   const dir = worktreeStore.dir;
+  // await 前の同期パス: version === fetchVersion 保証のため version ガード不要。
   if (dir === undefined) {
-    if (version === fetchVersion) loading.value = false;
+    loading.value = false;
     return;
   }
 
@@ -291,16 +294,16 @@ async function fetchCommitContent(filePath: string) {
   const version = ++fetchVersion;
   fetchVersionRef.value = version;
 
+  // 以下 await 前の同期パス: version === fetchVersion が保証されているため version ガード不要。
   const dir = worktreeStore.dir;
   if (dir === undefined) {
-    if (version === fetchVersion) loading.value = false;
+    loading.value = false;
     return;
   }
 
   // クリック順に依存せず時系列で並べ替え: newer = current(to), older = original(from)
   const range = orderedRange.value;
   if (range === null) {
-    if (version !== fetchVersion) return;
     error.value = "Commit selection is inconsistent with loaded git log";
     notification.error(error.value);
     loading.value = false;
@@ -311,8 +314,8 @@ async function fetchCommitContent(filePath: string) {
   // RPC 境界では UNCOMMITTED_HASH sentinel を流さず、wire 上は常に実 hash のみ扱う。
   // newer が Working Tree のときは to を filesystem から、from は <older>^ の内容を
   // gitShowCommitFile(hash=older, compareHash="") の from 結果として取得する。
-  // older が undefined のケースは orderedRange の不変条件上ありえない
-  // (compareHash=null なら newer は uncommitted 単独 = fetchContent 経路、commit モードに来ない)。
+  // 以下 throw は orderedRange の不変条件上ありえないケースの防御的観察可能化:
+  // 到達したら tryCatch 経路で notification.error に上がる。
   const fetchResult = await tryCatch(
     (async () => {
       if (newer === UNCOMMITTED_HASH) {

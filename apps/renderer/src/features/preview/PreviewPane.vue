@@ -16,14 +16,17 @@
 ## データ取得
 
 - Uncommitted モード: ファイル選択・git status 変化時に current（ファイルシステム）/ original（HEAD）を並列取得
-- コミットモード: git-graph の選択コミットに応じて gitShowCommitFile RPC で from/to を一括取得
+- コミットモード: git-graph の選択コミットに応じて gitShowCommitFile RPC で from/to を一括取得。
+  範囲選択時は `commits` 配列の index で時系列順に整列し（クリック順非依存）、older 側を Original、newer 側を Current に固定する
 - fsChange メッセージで選択中ファイルをリアクティブに再取得（uncommitted モードのみ）
 - バージョンカウンターで非同期レースを防止
 </doc>
 
 <script setup lang="ts">
+import { tryCatch } from "@gozd/shared";
 import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref, watch } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { getFileIconUrl, rpcFsReadFile, rpcFsReadFileAbsolute } from "../filer";
 import type { FsChangePayload } from "../filer";
@@ -73,6 +76,7 @@ const worktreeStore = useWorktreeStore();
 const { selectedPath, selectedLineNumber, selectedGitChange, fileServerBaseUrl, revealVersion } =
   storeToRefs(worktreeStore);
 const gitGraphStore = useGitGraphStore();
+const notification = useNotificationStore();
 
 const currentContent = ref<string>();
 const originalContent = ref<string>();
@@ -139,11 +143,69 @@ function defaultMode(gitChange: GitChangeKind | undefined): PreviewMode {
   return "current";
 }
 
-const MODE_LABELS: Record<PreviewMode, { icon: string; label: string }> = {
-  current: { icon: "icon-[lucide--file-text]", label: "Current" },
-  diff: { icon: "icon-[lucide--file-diff]", label: "Diff" },
-  original: { icon: "icon-[lucide--file-clock]", label: "Original" },
+const MODE_ICONS: Record<PreviewMode, string> = {
+  current: "icon-[lucide--file-text]",
+  diff: "icon-[lucide--file-diff]",
+  original: "icon-[lucide--file-clock]",
 };
+
+const SHORT_HASH_LEN = 7;
+
+/**
+ * 範囲選択を時系列順に整列した {newer, older}。
+ * commits[0] が newest（小さい idx ほど新しい）。UNCOMMITTED_HASH は idx=-1 扱いで常に newer 側。
+ * compareHash が null の単一選択時は older は undefined。
+ *
+ * 不整合（commits 未ロード / stale 選択 / 両端 UNCOMMITTED）のときは null を返す。
+ * 呼び出し側で UI fallback（fetchCommitContent はエラー化、ラベルは "Original" の hash 表記なしに倒す）。
+ * 黙って older 側に倒すと選択順依存のバグが再発するため fallback では絶対に補わない。
+ */
+type OrderedRange = { newer: string; older: string | undefined };
+const orderedRange = computed<OrderedRange | null>(() => {
+  const selected = gitGraphStore.selectedHash;
+  const compare = gitGraphStore.compareHash;
+  if (compare === null) return { newer: selected, older: undefined };
+
+  // 両端 UNCOMMITTED_HASH は store API レイヤーでガードしていない不整合。null を返す。
+  if (selected === UNCOMMITTED_HASH && compare === UNCOMMITTED_HASH) return null;
+
+  const map = gitGraphStore.hashToIndex;
+  const idx = (h: string) => {
+    if (h === UNCOMMITTED_HASH) return -1;
+    return map.get(h);
+  };
+  const selectedIdx = idx(selected);
+  const compareIdx = idx(compare);
+  if (selectedIdx === undefined || compareIdx === undefined) return null;
+  // idx が大きい方が older
+  if (selectedIdx >= compareIdx) return { newer: compare, older: selected };
+  return { newer: selected, older: compare };
+});
+
+/**
+ * Original タブが指している hash の表記。
+ * Swift 側 handleGitShowCommitFile の fromHash (= `<olderEnd>^`) と一致させる:
+ * - uncommitted モード (newer=Working Tree, older=undefined): HEAD
+ * - 単一コミット: <hash>^
+ * - 範囲選択: <older>^
+ * - orderedRange が null（不整合）: undefined を返す。`modeLabel` 側で hash 表記なしに倒し、
+ *   実際には参照していない HEAD などの虚偽情報をラベルに出さない。
+ */
+const originalHashLabel = computed<string | undefined>(() => {
+  const range = orderedRange.value;
+  if (range === null) return undefined;
+  const { newer, older } = range;
+  if (newer === UNCOMMITTED_HASH && older === undefined) return "HEAD";
+  const olderEnd = older ?? newer;
+  return `${olderEnd.slice(0, SHORT_HASH_LEN)}^`;
+});
+
+function modeLabel(mode: PreviewMode): string {
+  if (mode === "current") return "Current";
+  if (mode === "diff") return "Diff";
+  const label = originalHashLabel.value;
+  return label === undefined ? "Original" : `Original (${label})`;
+}
 
 /** 非同期レース防止 + 画像キャッシュバスト用のバージョンカウンター */
 const fetchVersionRef = ref(0);
@@ -159,61 +221,67 @@ async function fetchContent(path: string, gitChange: GitChangeKind | undefined) 
   const version = ++fetchVersion;
   fetchVersionRef.value = version;
 
-  try {
-    const isDeleted = gitChange === "deleted";
-    const hasDiff = hasGitDiff(gitChange);
+  const isDeleted = gitChange === "deleted";
+  const hasDiff = hasGitDiff(gitChange);
 
-    // 絶対パスの場合は fsReadFileAbsolute を使い、git 操作は不要
-    const isAbsolute = path.startsWith("/");
+  // 絶対パスの場合は fsReadFileAbsolute を使い、git 操作は不要
+  const isAbsolute = path.startsWith("/");
 
-    const dir = worktreeStore.dir;
-    if (dir === undefined) return;
-
-    // 並列でデータ取得
-    const currentPromise = isDeleted
-      ? Promise.resolve(undefined)
-      : isAbsolute
-        ? rpcFsReadFileAbsolute({ absolutePath: path }).then((r) => r.result)
-        : rpcFsReadFile({ dir, path }).then((r) => ({
-            content: r.content,
-            isBinary: r.isBinary,
-            isDirectory: r.isDirectory,
-            notFound: r.notFound,
-          }));
-    const originalPromise =
-      !isAbsolute && (hasDiff || isDeleted)
-        ? rpcGitShowFile({ dir, relPath: path }).then((r) => r.result)
-        : Promise.resolve(undefined);
-    const [currentResult, originalResult] = await Promise.all([currentPromise, originalPromise]);
-
-    // 別の読み込みが開始された場合は結果を破棄
-    if (version !== fetchVersion) return;
-
-    isDirectory.value = currentResult?.isDirectory ?? false;
-    isNotFound.value = currentResult?.notFound ?? false;
-
-    if (currentResult !== undefined) {
-      currentContent.value = currentResult.content;
-      isBinary.value = currentResult.isBinary;
-    } else {
-      currentContent.value = undefined;
-      isBinary.value = false;
-    }
-    if (originalResult !== undefined) {
-      originalContent.value = originalResult.content;
-      isOriginalBinary.value = originalResult.isBinary;
-    } else {
-      originalContent.value = undefined;
-      isOriginalBinary.value = false;
-    }
-  } catch (e) {
-    if (version !== fetchVersion) return;
-    error.value = e instanceof Error ? e.message : "Failed to read file";
-  } finally {
-    if (version === fetchVersion) {
-      loading.value = false;
-    }
+  const dir = worktreeStore.dir;
+  // await 前の同期パス: version === fetchVersion 保証のため version ガード不要。
+  if (dir === undefined) {
+    loading.value = false;
+    return;
   }
+
+  // 並列でデータ取得
+  const currentPromise = isDeleted
+    ? Promise.resolve(undefined)
+    : isAbsolute
+      ? rpcFsReadFileAbsolute({ absolutePath: path }).then((r) => r.result)
+      : rpcFsReadFile({ dir, path }).then((r) => ({
+          content: r.content,
+          isBinary: r.isBinary,
+          isDirectory: r.isDirectory,
+          notFound: r.notFound,
+        }));
+  const originalPromise =
+    !isAbsolute && (hasDiff || isDeleted)
+      ? rpcGitShowFile({ dir, relPath: path }).then((r) => r.result)
+      : Promise.resolve(undefined);
+  const fetchResult = await tryCatch(Promise.all([currentPromise, originalPromise]));
+
+  // 別の読み込みが開始された場合は結果を破棄
+  if (version !== fetchVersion) return;
+
+  if (!fetchResult.ok) {
+    error.value = fetchResult.error.message;
+    notification.error("Failed to read file", fetchResult.error);
+    loading.value = false;
+    return;
+  }
+
+  const [currentResult, originalResult] = fetchResult.value;
+
+  isDirectory.value = currentResult?.isDirectory ?? false;
+  isNotFound.value = currentResult?.notFound ?? false;
+
+  if (currentResult !== undefined) {
+    currentContent.value = currentResult.content;
+    isBinary.value = currentResult.isBinary;
+  } else {
+    currentContent.value = undefined;
+    isBinary.value = false;
+  }
+  if (originalResult !== undefined) {
+    originalContent.value = originalResult.content;
+    isOriginalBinary.value = originalResult.isBinary;
+  } else {
+    originalContent.value = undefined;
+    isOriginalBinary.value = false;
+  }
+
+  loading.value = false;
 }
 
 /** コミットモード時のファイル内容取得 */
@@ -226,52 +294,101 @@ async function fetchCommitContent(filePath: string) {
   const version = ++fetchVersion;
   fetchVersionRef.value = version;
 
-  try {
-    const dir = worktreeStore.dir;
-    if (dir === undefined) return;
-    const result = await rpcGitShowCommitFile({
-      dir,
-      relPath: filePath,
-      hash: gitGraphStore.selectedHash,
-      compareHash: gitGraphStore.compareHash ?? "",
-    });
-
-    if (version !== fetchVersion) return;
-
-    const from = result.from;
-    const to = result.to;
-    const fromNotFound = from?.notFound ?? true;
-    const toNotFound = to?.notFound ?? true;
-
-    if (fromNotFound && !toNotFound) {
-      commitGitChange.value = "added";
-    } else if (!fromNotFound && toNotFound) {
-      commitGitChange.value = "deleted";
-    } else {
-      commitGitChange.value = "modified";
-    }
-
-    if (commitGitChange.value === "deleted") {
-      activeMode.value = "original";
-    } else if (commitGitChange.value === "added") {
-      activeMode.value = "current";
-    } else {
-      activeMode.value = "diff";
-    }
-
-    originalContent.value = fromNotFound ? undefined : from?.content;
-    isOriginalBinary.value = from?.isBinary ?? false;
-    currentContent.value = toNotFound ? undefined : to?.content;
-    isBinary.value = to?.isBinary ?? false;
-    isNotFound.value = fromNotFound && toNotFound;
-  } catch (e) {
-    if (version !== fetchVersion) return;
-    error.value = e instanceof Error ? e.message : "Failed to read file";
-  } finally {
-    if (version === fetchVersion) {
-      loading.value = false;
-    }
+  // 以下 await 前の同期パス: version === fetchVersion が保証されているため version ガード不要。
+  const dir = worktreeStore.dir;
+  if (dir === undefined) {
+    loading.value = false;
+    return;
   }
+
+  // クリック順に依存せず時系列で並べ替え: newer = current(to), older = original(from)
+  const range = orderedRange.value;
+  if (range === null) {
+    error.value = "Commit selection is inconsistent with loaded git log";
+    notification.error(error.value);
+    loading.value = false;
+    return;
+  }
+  const { newer, older } = range;
+
+  // RPC 境界では UNCOMMITTED_HASH sentinel を流さず、wire 上は常に実 hash のみ扱う。
+  // newer が Working Tree のときは to を filesystem から、from は <older>^ の内容を
+  // gitShowCommitFile(hash=older, compareHash="") の from 結果として取得する。
+  // 以下 throw は orderedRange の不変条件上ありえないケースの防御的観察可能化:
+  // 到達したら tryCatch 経路で notification.error に上がる。
+  const fetchResult = await tryCatch(
+    (async () => {
+      if (newer === UNCOMMITTED_HASH) {
+        if (older === undefined) {
+          throw new Error("commit mode with working tree newer requires an older endpoint");
+        }
+        const [showResult, fsResult] = await Promise.all([
+          rpcGitShowCommitFile({ dir, relPath: filePath, hash: older, compareHash: "" }),
+          rpcFsReadFile({ dir, path: filePath }),
+        ]);
+        return {
+          from: showResult.from,
+          to: {
+            content: fsResult.content,
+            isBinary: fsResult.isBinary,
+            notFound: fsResult.notFound,
+          },
+          // Working Tree との比較は git blob OID が無いので unchanged 判定なし。
+          unchanged: false,
+        };
+      }
+      const showResult = await rpcGitShowCommitFile({
+        dir,
+        relPath: filePath,
+        hash: newer,
+        compareHash: older ?? "",
+      });
+      return { from: showResult.from, to: showResult.to, unchanged: showResult.unchanged };
+    })(),
+  );
+
+  if (version !== fetchVersion) return;
+
+  if (!fetchResult.ok) {
+    error.value = fetchResult.error.message;
+    notification.error("Failed to read commit file", fetchResult.error);
+    loading.value = false;
+    return;
+  }
+
+  // unchanged は Swift 側で from と to の blob OID 比較から導出される SSOT 判定。
+  // Filer 経由でコミット範囲外（差分のない）ファイルを選んだ場合の救済はここに寄せる。
+  const { from, to, unchanged } = fetchResult.value;
+  const fromNotFound = from?.notFound ?? true;
+  const toNotFound = to?.notFound ?? true;
+
+  if (fromNotFound && toNotFound) {
+    commitGitChange.value = undefined;
+  } else if (fromNotFound) {
+    commitGitChange.value = "added";
+  } else if (toNotFound) {
+    commitGitChange.value = "deleted";
+  } else if (unchanged) {
+    commitGitChange.value = undefined;
+  } else {
+    commitGitChange.value = "modified";
+  }
+
+  if (commitGitChange.value === "deleted") {
+    activeMode.value = "original";
+  } else if (commitGitChange.value === "modified") {
+    activeMode.value = "diff";
+  } else {
+    activeMode.value = "current";
+  }
+
+  originalContent.value = fromNotFound ? undefined : from?.content;
+  isOriginalBinary.value = from?.isBinary ?? false;
+  currentContent.value = toNotFound ? undefined : to?.content;
+  isBinary.value = to?.isBinary ?? false;
+  isNotFound.value = fromNotFound && toNotFound;
+
+  loading.value = false;
 }
 
 /** ファイル選択・git status 変化・コミット選択変化時にリセット＋再取得 */
@@ -424,8 +541,8 @@ const headerIconUrl = computed(() => {
           "
           @click="activeMode = mode"
         >
-          <span class="size-3.5" :class="MODE_LABELS[mode].icon" />
-          {{ MODE_LABELS[mode].label }}
+          <span class="size-3.5" :class="MODE_ICONS[mode]" />
+          {{ modeLabel(mode) }}
         </button>
 
         <div class="ml-auto flex items-center">

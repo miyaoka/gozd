@@ -659,20 +659,37 @@ public actor RpcDispatcher {
   private func handleGitShowCommitFile(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitShowCommitFileRequest(jsonUTF8Data: body)
     var resp = Gozd_V1_GitShowCommitFileResponse()
-    if !req.compareHash.isEmpty {
-      resp.from = await fileReadResultFromGit(
-        dir: req.dir, hash: req.compareHash, relPath: req.relPath)
-    } else {
-      var notFound = Gozd_V1_FileReadResult()
-      notFound.notFound = true
-      resp.from = notFound
-    }
-    resp.to = await fileReadResultFromGit(dir: req.dir, hash: req.hash, relPath: req.relPath)
+    // 単一コミット選択 (compareHash 空) では GitHub と同等の <hash>^ vs <hash> 比較に揃える。
+    // GitOps.commitFiles のファイル一覧と diff endpoint を一致させるため。
+    // root commit は <hash>^ が解決失敗 → notFound=true となり追加扱いに自然解決する。
+    // 範囲選択 (compareHash 非空) では GitOps.commitFiles の <older>^ vs <newer> に揃え、
+    // older 端自身の変更も diff に含める。root commit は `^` 解決失敗 → notFound に倒れる。
+    // Working Tree 端の扱いは renderer 側で分岐し、wire には常に実 git hash のみ流れる契約。
+    let olderEnd = req.compareHash.isEmpty ? req.hash : req.compareHash
+    let fromHash = "\(olderEnd)^"
+    // content と OID を並行取得。両端の blob OID が一致すれば
+    // 「コミット範囲で変更なし」として renderer に伝える（Filer 経由の非変更ファイル選択を救済）。
+    async let fromContent = fileReadResultFromGit(
+      dir: req.dir, hash: fromHash, relPath: req.relPath)
+    async let toContent = fileReadResultFromGit(
+      dir: req.dir, hash: req.hash, relPath: req.relPath)
+    async let fromOID = GitOps.treeFileOID(
+      dir: req.dir, hash: fromHash, relPath: req.relPath)
+    async let toOID = GitOps.treeFileOID(
+      dir: req.dir, hash: req.hash, relPath: req.relPath)
+    let (from, to, fOID, tOID) = await (fromContent, toContent, fromOID, toOID)
+    resp.from = from
+    resp.to = to
+    // 両 OID が解決でき、かつ一致した場合のみ true。proto3 default false 依存にせず明示代入。
+    resp.unchanged = fOID != nil && tOID != nil && fOID == tOID
     return try resp.jsonUTF8Data()
   }
 
   /// `git show <hash>:<path>` の結果を FileReadResult shape にまとめる。
   /// 失敗（exit != 0）= ファイル不在として not_found=true を返す。
+  /// 想定する失敗: root commit の `^` 解決失敗、未追跡 path、invalid hash。
+  /// それ以外（commandFailed の予期しない exit code 等）は silent drop しないよう
+  /// stderr にログを残して dev 環境で観察可能にする。
   private func fileReadResultFromGit(dir: String, hash: String, relPath: String) async
     -> Gozd_V1_FileReadResult
   {
@@ -688,6 +705,11 @@ public actor RpcDispatcher {
       }
     } catch {
       fr.notFound = true
+      FileHandle.standardError.write(
+        Data(
+          "[RpcDispatcher] git show \(hash):\(relPath) failed in \(dir): \(error)\n".utf8
+        )
+      )
     }
     return fr
   }

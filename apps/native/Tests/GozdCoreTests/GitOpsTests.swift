@@ -250,6 +250,76 @@ struct GitOpsStatusFullTests {
   }
 }
 
+@Suite("GitOps.treeFileOID")
+struct GitOpsTreeFileOIDTests {
+  @Test("コミット済みファイルの blob OID を返す")
+  func returnsBlobOIDForCommittedFile() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "v1".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
+
+    let oid = await GitOps.treeFileOID(dir: dir.path, hash: "HEAD", relPath: "a.txt")
+    #expect(oid != nil)
+    #expect(oid?.count == 40)
+  }
+
+  @Test("root commit の `^` 解決失敗時は nil")
+  func rootCommitParentReturnsNil() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "v1".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
+
+    let oid = await GitOps.treeFileOID(dir: dir.path, hash: "HEAD^", relPath: "a.txt")
+    #expect(oid == nil)
+  }
+
+  @Test("未追跡 path は nil")
+  func untrackedPathReturnsNil() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "v1".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
+
+    let oid = await GitOps.treeFileOID(dir: dir.path, hash: "HEAD", relPath: "nope.txt")
+    #expect(oid == nil)
+  }
+
+  @Test("2 コミット間で変更されていないファイルは両端で OID が一致する")
+  func sameOIDAcrossUnchangedCommits() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "kept".write(
+      to: dir.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+    try "v1".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt", "b.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
+    try "v2".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "modify a"], cwd: dir.path)
+
+    let bAtParent = await GitOps.treeFileOID(dir: dir.path, hash: "HEAD^", relPath: "b.txt")
+    let bAtHead = await GitOps.treeFileOID(dir: dir.path, hash: "HEAD", relPath: "b.txt")
+    #expect(bAtParent != nil)
+    #expect(bAtParent == bAtHead)
+
+    let aAtParent = await GitOps.treeFileOID(dir: dir.path, hash: "HEAD^", relPath: "a.txt")
+    let aAtHead = await GitOps.treeFileOID(dir: dir.path, hash: "HEAD", relPath: "a.txt")
+    #expect(aAtParent != nil)
+    #expect(aAtHead != nil)
+    #expect(aAtParent != aAtHead)
+  }
+}
+
 // MARK: - Helpers
 
 private func makeTempDir() throws -> URL {

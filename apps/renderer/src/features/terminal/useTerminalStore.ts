@@ -92,6 +92,14 @@ export const useTerminalStore = defineStore("terminal", () => {
   const pendingResumeByLeafId = ref<Record<string, string>>({});
 
   /**
+   * 未訪問 worktree に対する「visit で最初の leaf に乗せたい sessionId」のヒント。
+   * サイドバーで resumable な Task 行をクリックしたとき、setOpen 起点の自動 visit が
+   * fetched.sessions の先頭順で leaf を割り当てて意図がずれるのを防ぐ。visit 内で
+   * 1 回だけ消費し、対象 dir の前置きとして使う。
+   */
+  const preferredResumeByDir = ref<Record<string, string>>({});
+
+  /**
    * worktreePath → 永続化済み Claude セッション数。サイドバーの resume バッジ表示用。
    * 「resume 可能 = 永続化されているがまだ live PTY に接続されていない」分は
    * `getResumeableSessionCount(dir)` で saved - live を取って算出する。
@@ -394,7 +402,21 @@ export const useTerminalStore = defineStore("terminal", () => {
     }
 
     visitedDirs.value.push(dir);
-    const sessions = fetched.value.sessions;
+    let sessions = fetched.value.sessions;
+
+    // サイドバーで resumable Task をクリックして visit を誘発したケース。
+    // 該当 sessionId を必ず先頭 (= initial focused leaf) に乗せる。
+    const preferred = preferredResumeByDir.value[dir];
+    if (preferred !== undefined) {
+      delete preferredResumeByDir.value[dir];
+      const idx = sessions.findIndex((s) => s.sessionId === preferred);
+      if (idx > 0) {
+        const reordered = [...sessions];
+        const [pick] = reordered.splice(idx, 1);
+        if (pick !== undefined) reordered.unshift(pick);
+        sessions = reordered;
+      }
+    }
 
     // ensureLayout で初期 leaf を作る（既存の単一 leaf 起動と同じ）
     const initialLayout = layout.ensureLayout(dir);
@@ -413,6 +435,25 @@ export const useTerminalStore = defineStore("terminal", () => {
   }
 
   /**
+   * サイドバーから resumable Task をクリックしたときに呼ぶ。
+   * - 未訪問: 次回の visit で当該 sessionId を先頭 leaf に乗せるヒントを残す。
+   *   呼び出し元が直後に setOpen → TerminalPane の watch が visit を駆動する。
+   * - 訪問済み: その場で split して新 leaf に sessionId を紐付け、フォーカスを移す。
+   * 当該 sessionId が既に live PTY を持っているなら何もしない (上位で focus 済み)。
+   */
+  function requestResumeSession(dir: string, sessionId: string) {
+    if (claude.getPtyIdBySessionId(sessionId) !== undefined) return;
+    if (!visitedDirs.value.includes(dir)) {
+      preferredResumeByDir.value[dir] = sessionId;
+      return;
+    }
+    const newLeafId = layout.splitPane(dir, "horizontal");
+    if (newLeafId === undefined) return;
+    pendingResumeByLeafId.value[newLeafId] = sessionId;
+    layout.focusPane(newLeafId);
+  }
+
+  /**
    * worktree が外部削除された / アクティブから外れたときの cleanup。
    * `layout.remove` を呼ぶ前に visitGenByDir の世代を進めることで、
    * 進行中の `visit` の await 後 world は stale 判定で破棄される。
@@ -421,6 +462,9 @@ export const useTerminalStore = defineStore("terminal", () => {
    */
   function removeWorktreeFromLayout(dir: string) {
     visitGenByDir.set(dir, (visitGenByDir.get(dir) ?? 0) + 1);
+    // 未消費の resume ヒントを掃除する。worktree が削除→再作成された後の visit に
+    // 古いヒントが流れ込まないよう、layout 撤去と同じタイミングで落とす。
+    delete preferredResumeByDir.value[dir];
     layout.remove(dir);
   }
 
@@ -498,6 +542,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     claudeActiveLeafIds,
     // layout
     visit,
+    requestResumeSession,
     splitPane: layout.splitPane,
     closePane: layout.closePane,
     resetLayout: layout.resetLayout,

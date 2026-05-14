@@ -94,15 +94,30 @@ public actor TaskStore {
     let projectsURL = URL(fileURLWithPath: configDir).appendingPathComponent("projects")
     let fm = FileManager.default
     guard fm.fileExists(atPath: projectsURL.path) else { return [] }
-    let projectKeys = try fm.contentsOfDirectory(atPath: projectsURL.path)
+    // macOS では .DS_Store などの hidden entry が projects/ 直下に紛れ込みうるため、
+    // URL ベース API + .skipsHiddenFiles で除外する。tasks.json 不在の continue でも
+    // 動作上は問題ないが、無駄な iteration / 誤った projectKey 出現を未然に防ぐ。
+    let projectDirs = try fm.contentsOfDirectory(
+      at: projectsURL,
+      includingPropertiesForKeys: nil,
+      options: [.skipsHiddenFiles]
+    )
     var totalDropped = 0
     var parseFailureProjects: [String] = []
-    for projectKey in projectKeys {
-      let projectDir = projectsURL.appendingPathComponent(projectKey)
+    for projectDir in projectDirs {
+      let projectKey = projectDir.lastPathComponent
       let tasksURL = projectDir.appendingPathComponent("tasks.json")
       guard fm.fileExists(atPath: tasksURL.path) else { continue }
       let tasksData = try Data(contentsOf: tasksURL)
-      let tasksJson = String(decoding: tasksData, as: UTF8.self)
+      // 不正な UTF-8 を U+FFFD で黙置換する `String(decoding:as:)` は使わない
+      // (silent corruption の温床)。デコード失敗時は projectKey ごと skip。
+      guard let tasksJson = String(bytes: tasksData, encoding: .utf8) else {
+        FileHandle.standardError.write(
+          Data(
+            "[TaskStore] reconcile: tasks.json is not valid UTF-8 for \(projectKey), skipping\n"
+              .utf8))
+        continue
+      }
       var taskList =
         (try? Gozd_V1_TaskList(jsonString: tasksJson)) ?? Gozd_V1_TaskList()
       if taskList.tasks.isEmpty { continue }
@@ -115,7 +130,15 @@ public actor TaskStore {
       let sessionsURL = projectDir.appendingPathComponent("claude-sessions.json")
       if fm.fileExists(atPath: sessionsURL.path) {
         let sessionsData = try Data(contentsOf: sessionsURL)
-        let sessionsJson = String(decoding: sessionsData, as: UTF8.self)
+        // UTF-8 デコード失敗は parse 失敗と同じ扱い (生存判定根拠が欠落) で skip。
+        guard let sessionsJson = String(bytes: sessionsData, encoding: .utf8) else {
+          FileHandle.standardError.write(
+            Data(
+              "[TaskStore] reconcile: claude-sessions.json is not valid UTF-8 for \(projectKey), skipping\n"
+                .utf8))
+          parseFailureProjects.append(projectKey)
+          continue
+        }
         guard let sessionList = try? Gozd_V1_ClaudeSessionList(jsonString: sessionsJson)
         else {
           // parse 失敗時は「session 全滅」と判定する根拠が無いため projectKey ごと skip。
@@ -171,9 +194,12 @@ public actor TaskStore {
       return Gozd_V1_TaskList()
     }
     let data = try Data(contentsOf: URL(fileURLWithPath: path))
-    let json = String(decoding: data, as: UTF8.self)
-    // 壊れたファイル / 旧形式は空 list として扱い、次回 save で上書きする。
+    // 不正な UTF-8 を U+FFFD で黙置換しないよう `String(bytes:encoding:)` を使う。
+    // デコード失敗 / 壊れたファイル / 旧形式は空 list として扱い、次回 save で上書きする。
     // 後方互換コードは負債になるので、復旧は「捨てて作り直す」方針。
+    guard let json = String(bytes: data, encoding: .utf8) else {
+      return Gozd_V1_TaskList()
+    }
     return (try? Gozd_V1_TaskList(jsonString: json)) ?? Gozd_V1_TaskList()
   }
 

@@ -28,6 +28,7 @@
 import type { DragEndEvent } from "@dnd-kit/abstract";
 import { move } from "@dnd-kit/helpers";
 import { DragDropProvider } from "@dnd-kit/vue";
+import type { Task, WorktreeEntry } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { useIntervalFn } from "@vueuse/core";
 import { computed, ref } from "vue";
@@ -70,19 +71,26 @@ useIntervalFn(() => {
 
 const sidebarMenuRef = ref<InstanceType<typeof SidebarMenu>>();
 
-function onSelectWt(wt: import("@gozd/proto").WorktreeEntry) {
+function onSelectWt(wt: WorktreeEntry) {
   // 同 wt 再クリック時の done 消化は worktreeStore.setOpen の selectionVersion 経由で
   // useSidebarData の watch が処理する。ここでは isActive 分岐せず常に setOpen を呼ぶ。
   handleWorktreeSelect(wt);
 }
 
-function onSelectTask(wt: import("@gozd/proto").WorktreeEntry, task: import("@gozd/proto").Task) {
-  // wt を active にしたうえで、task に対応する PTY の leaf にフォーカスする。
-  // ptyId 未確立 (live PTY 無し / resumable) の場合は wt を visit するだけ。
-  // visit 後は ensureLayout の初期 leaf にフォーカスが当たるため、resume 経路に乗る。
-  handleWorktreeSelect(wt);
+function onSelectTask(wt: WorktreeEntry, task: Task) {
+  // wt を active にしたうえで、task に対応する leaf へフォーカスする。
+  // - live PTY あり: 該当 leaf を focus
+  // - resumable (live PTY 無し): クリックした sessionId を「次回 visit のヒント」
+  //   or「既訪問なら新 leaf を split して紐付け」する。setOpen より先にヒントを
+  //   置かないと、TerminalPane の watch が visit() を fetched 順で実行して
+  //   クリックしたのと違う session が起動する。
   const ptyId = terminalStore.getPtyIdBySessionId(task.id);
-  if (ptyId === undefined) return;
+  if (ptyId === undefined) {
+    terminalStore.requestResumeSession(wt.path, task.id);
+    handleWorktreeSelect(wt);
+    return;
+  }
+  handleWorktreeSelect(wt);
   const leafId = terminalStore.getLeafIdByPtyId(ptyId);
   if (leafId === undefined) return;
   terminalStore.focusPane(leafId);

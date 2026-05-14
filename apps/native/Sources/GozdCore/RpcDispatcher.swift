@@ -556,11 +556,32 @@ public actor RpcDispatcher {
     // session-start hook の upsert と削除経路の対称性で担保されるため、ここでは
     // claude-sessions.json への登録有無だけを基準にする。永続化のクラッシュ復旧は
     // 起動時 reconcileAll が transcript 存在チェックで担当する。
-    let registeredSessions = try await claudeSessions.allRegisteredSessions(forProject: req.dir)
-    let registeredSessionIds = Set(registeredSessions.map { $0.sessionID })
-    let allTasks = try await tasks.list(dir: req.dir).filter {
-      registeredSessionIds.contains($0.id)
+    //
+    // 1 ファイル破損で sidebar 全体が描けなくなるのを避けるため、registered の取得が
+    // throw した場合は filter をスキップして tasks をそのまま返す。破損ファイルの
+    // 復旧は起動時 reconcileAll / upsert 経路の上書きに任せる。
+    let registeredSessionIds: Set<String>?
+    do {
+      let registered = try await claudeSessions.allRegisteredSessions(forProject: req.dir)
+      registeredSessionIds = Set(registered.map { $0.sessionID })
+    } catch {
+      FileHandle.standardError.write(
+        Data(
+          "[RpcDispatcher] handleGitWorktreeList: allRegisteredSessions failed (\(error)) — falling back to no-filter\n"
+            .utf8))
+      registeredSessionIds = nil
+      // ここでは onNotify を呼ばない:
+      // useSidebarData は source=claude-sessions の error notify を「該当 dir の
+      // rollback refetch トリガ」として扱う。handleGitWorktreeList 自身の path で
+      // 発火させると refetch→同 path→notify の無限ループになる。読みに行けない事実は
+      // 起動時 reconcileAll の通知経路 (ClaudeSessionStore.reconcileAll 失敗) で
+      // 既にユーザーに伝わる契約。read 失敗の単発通知が必要になったら、専用 source
+      // (rollback 対象外) で別経路にする。
     }
+    let listedTasks = try await tasks.list(dir: req.dir)
+    let allTasks = registeredSessionIds.map { ids in
+      listedTasks.filter { ids.contains($0.id) }
+    } ?? listedTasks
     // サイドバーで各 worktree に変更ファイル数を出すため、worktree ごとに git status を並列取得する。
     // 1 worktree でも失敗したら集約段階で throw して上位（renderer 側 tryCatch → notify.error）に伝える。
     let statusesByPath: [String: [String: String]] = try await withThrowingTaskGroup(

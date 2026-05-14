@@ -1,9 +1,15 @@
 import type { WorktreeEntry } from "@gozd/proto";
 
-/** Task の body 一行目をタイトルとして取得 */
-function taskTitle(body: string): string {
-  const [firstLine] = body.split("\n");
-  return firstLine ?? "";
+/**
+ * Task の body から表示可能なタイトル (一行目を trim) を取り出す。
+ * 空文字 / `CLAUDE_PLACEHOLDER_TITLE` は「実質空」として undefined を返し、
+ * 呼び出し側でフォールバック (branch 名 / "New session") に倒せるようにする。
+ */
+function extractTaskTitle(body: string): string | undefined {
+  const [firstLine = ""] = body.split("\n");
+  const trimmed = firstLine.trim();
+  if (trimmed === "" || trimmed === CLAUDE_PLACEHOLDER_TITLE) return undefined;
+  return trimmed;
 }
 
 /**
@@ -25,12 +31,15 @@ export function branchLabel(branch: string | undefined): string {
   return branch;
 }
 
-/** worktree の表示名: Task タイトルがあればそれ、なければブランチ名 */
+/**
+ * worktree の表示名: 任意 Task に有効なタイトルがあればそれ、なければブランチ名。
+ * Claude プレースホルダ (`CLAUDE_PLACEHOLDER_TITLE`) は無効扱いし、
+ * confirm / error メッセージで "Claude Code" が露出するのを防ぐ。
+ */
 export function worktreeDisplayName(wt: WorktreeEntry): string {
-  const [task] = wt.tasks;
-  if (task?.body) {
-    const title = taskTitle(task.body);
-    if (title !== "") return title;
+  for (const task of wt.tasks) {
+    const title = extractTaskTitle(task.body);
+    if (title !== undefined) return title;
   }
   return branchLabel(wt.branch);
 }
@@ -66,8 +75,5 @@ export function formatRelativeTime(from: number, now: number): string {
  * `New session` にフォールバックする。
  */
 export function taskDisplayTitle(body: string): string {
-  const [firstLine = ""] = body.split("\n");
-  const trimmed = firstLine.trim();
-  if (trimmed === "" || trimmed === CLAUDE_PLACEHOLDER_TITLE) return "New session";
-  return trimmed;
+  return extractTaskTitle(body) ?? "New session";
 }

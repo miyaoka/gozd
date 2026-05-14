@@ -156,6 +156,12 @@ export function useSidebarData() {
       if (!wt.tasks.some((t) => t.id === sessionId)) return;
     }
 
+    // dedupe: 既に同じ title が反映済みなら rpcTaskUpdate を打たない。
+    // session-start 再投入と通常の title watch が同一 (leaf,title) で重なっても
+    // RPC が二重発射しないように、書き込み直前の値で比較する。
+    const existing = wt.tasks.find((t) => t.id === sessionId);
+    if (existing !== undefined && existing.body === title) return;
+
     const result = await tryCatch(rpcTaskUpdate({ dir: projectDir, id: sessionId, body: title }));
     if (result.ok && result.value.task !== undefined) {
       const updatedTask = result.value.task;
@@ -299,8 +305,39 @@ export function useSidebarData() {
               },
             ];
           }
+          // race recovery: title イベントが session-start より先に到達した leaf は
+          // syncTaskTitle が「task 未登録」で 1 回 fetchRepo して諦めて終わっている。
+          // ここで wt.tasks に当該 sessionId が登録されたのを機に、保持している
+          // 最新タイトルがあれば再同期を回す。これで `New session` 残留を解消する。
+          const pendingTitle = terminalStore.titleByLeafId[leafId];
+          if (pendingTitle !== undefined && pendingTitle !== "") {
+            const cleaned = pendingTitle.replace(/^[✳⠀-⣿] /, "");
+            if (cleaned && cleaned !== CLAUDE_PLACEHOLDER_TITLE) {
+              void drainTitleSync(leafId, cleaned);
+            }
+          }
         } else {
           wt.tasks = wt.tasks.filter((t) => t.id !== payload.sessionId);
+          // 同 leaf で次の Claude session が立ち上がったとき、前 session が残した
+          // OSC title が session-start の replay 経路で誤って流れ込むのを防ぐ。
+          // setTitle(leafId, "") は titleByLeafId のエントリ削除と等価。
+          //
+          // late 防御: /clear や /resume で session が切り替わった後に旧 session-end が
+          // 遅延到達した場合、現在の ptyId mapping は新 session (B) を指している。
+          // この状況で title を消すと B の title (= titleByLeafId に残っている可能性)
+          // も道連れになるため、currentSessionId が「別 session に置き換わっている」
+          // ケースだけスキップする。
+          //
+          // 通常 session-end の経路では、subscription 登録順により claudeStatus 側の
+          // hook handler が先に走って sessionIdByPtyId からエントリを削除している。
+          // そのため currentSessionId は undefined になり、`undefined` でも安全に消す。
+          // - undefined: 正常終了 (置き換わっていない) → clear ✓
+          // - payload.sessionId と一致: claudeStatus 側 handler 未実行 / 順序逆転 → clear ✓
+          // - それ以外 (= 別 session が active): late session-end → 何もしない
+          const currentSessionId = terminalStore.getSessionIdByPtyId(payload.ptyId);
+          if (currentSessionId === undefined || currentSessionId === payload.sessionId) {
+            terminalStore.setTitle(leafId, "");
+          }
         }
       }),
     );

@@ -115,7 +115,10 @@ function onSelect(path: string) {
   worktreeStore.selectPath(path);
 }
 
-function handleFsChange(relDir: string) {
+function handleFsChange(eventDir: string, relDir: string) {
+  // useFsWatchSync は全 worktree を watch するため、別 repo / 別 worktree の
+  // fsChange も到達する。active worktree dir 以外は無視する。
+  if (eventDir !== dir.value) return;
   // ルートディレクトリの変更（"" or "."）は loadRoot で全件再構築
   if (relDir === "" || relDir === ".") {
     void loadRoot();
@@ -125,7 +128,10 @@ function handleFsChange(relDir: string) {
   filerEventStore.emitFsChange(relDir);
 }
 
-async function handleGitStatusChange() {
+async function handleGitStatusChange(eventDir: string) {
+  // useFsWatchSync は全 worktree を watch するため、別 worktree の gitStatusChange も
+  // 到達する。active worktree dir 以外は無視して空打ちの rpcFsReadDir を防ぐ。
+  if (eventDir !== dir.value) return;
   // 子 FileTreeItem は store を watch して自分の path 配下のキャッシュを破棄/再読み込みする
   filerEventStore.emitGitStatusChange();
   // ルート rootEntries の再構築は FilerPane の責務として残す（gitStatuses 反映 + 削除エントリ）
@@ -163,11 +169,12 @@ watch(
   { immediate: true, flush: "sync" },
 );
 
-const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ relDir }) =>
-  handleFsChange(relDir),
+const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ dir: eventDir, relDir }) =>
+  handleFsChange(eventDir, relDir),
 );
-const unsubscribeGitStatus = onMessage<GitStatusChangePayload>("gitStatusChange", () =>
-  handleGitStatusChange(),
+const unsubscribeGitStatus = onMessage<GitStatusChangePayload>(
+  "gitStatusChange",
+  ({ dir: eventDir }) => handleGitStatusChange(eventDir),
 );
 onUnmounted(() => {
   unsubscribeFsChange();

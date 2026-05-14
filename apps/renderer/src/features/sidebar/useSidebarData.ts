@@ -140,10 +140,18 @@ export function useSidebarData() {
     const owning = repoStore.findRepoOwning(targetDir);
     if (owning === undefined) return;
     const projectDir = owning.rootDir;
-    const wt = owning.worktrees.find((w) => w.path === targetDir);
+    let wt = owning.worktrees.find((w) => w.path === targetDir);
     if (wt === undefined) return;
-    const targetTask = wt.tasks.find((t) => t.id === sessionId);
-    if (targetTask === undefined) return;
+
+    // session-start hook 受信直後の race: TaskStore は upsert 済みでも renderer の
+    // wt.tasks がまだ古い可能性がある。1 度だけ fetchRepo を await して取り直す。
+    if (!wt.tasks.some((t) => t.id === sessionId)) {
+      await fetchRepo(projectDir);
+      const refreshed = repoStore.repos[projectDir];
+      wt = refreshed?.worktrees.find((w) => w.path === targetDir);
+      if (wt === undefined) return;
+      if (!wt.tasks.some((t) => t.id === sessionId)) return;
+    }
 
     const result = await tryCatch(rpcTaskUpdate({ dir: projectDir, id: sessionId, body: title }));
     if (result.ok && result.value.task !== undefined) {
@@ -185,6 +193,18 @@ export function useSidebarData() {
       // セッション開始・レジューム時の汎用タイトルで Task を上書きしない
       if (title === "Claude Code") return;
       void drainTitleSync(update.leafId, title);
+    },
+  );
+
+  // ターミナル close で Claude session が消えた時、所属 repo を refetch して
+  // WorktreeEntry.tasks から消えた Task を反映する。terminalStore からは
+  // 通知 ref のみ受け取り、repo 依存はこちら側に閉じる (循環依存防止)。
+  watch(
+    () => terminalStore.lastRemovedSessionInfo,
+    (info) => {
+      if (info === undefined) return;
+      const owning = repoStore.findRepoOwning(info.dir);
+      if (owning) void fetchRepo(owning.rootDir);
     },
   );
 

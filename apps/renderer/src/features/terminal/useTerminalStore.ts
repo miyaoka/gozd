@@ -3,7 +3,6 @@ import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, shallowRef } from "vue";
 import { useContextKeys } from "../../shared/command";
 import { useNotificationStore } from "../../shared/notification";
-import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
 import type { ClaudeStatus } from "./claudeStatus";
 import { isHookEvent, createClaudeStatusManager } from "./claudeStatus";
@@ -41,7 +40,6 @@ const DEFAULT_SHELL_ARGS = ["/bin/zsh", "-i"];
 export const useTerminalStore = defineStore("terminal", () => {
   const contextKeys = useContextKeys();
   const notify = useNotificationStore();
-  const repoStore = useRepoStore();
 
   // --- 共有 state ---
 
@@ -50,6 +48,14 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   /** worktree dir → 分割レイアウト状態 */
   const layoutsByDir = ref<Record<string, TerminalLayoutState>>({});
+
+  /**
+   * 直近のターミナル close で削除された Claude session の通知。
+   * sessionId が空文字なら session を持たない pane の close。
+   * useSidebarData がこれを watch して所属 repo を refetch し、
+   * WorktreeEntry.tasks から消えた Task を反映する。
+   */
+  const lastRemovedSessionInfo = shallowRef<{ dir: string; sessionId: string }>();
 
   /** leafId → PTY 対応 + 所属 dir */
   const paneRegistry = ref<Record<string, PaneEntry>>({});
@@ -204,15 +210,14 @@ export const useTerminalStore = defineStore("terminal", () => {
               // 待つと、次のサイドバー操作まで古い値が出続けるため。dir はプロジェクト
               // 内の任意 dir として projectKey 解決に使える。
               await refreshSavedSessionCounts([dir], dir);
-              // session = Task の同一視 (issue #504): Swift 側で TaskStore からも
-              // 削除済みなので、楽観的に repoStore の WorktreeEntry.tasks からも
-              // 該当 Task を消す。次回 fetch を待つと UI に死んだ Task が居座る。
-              const removedSessionId = res.value.removedSessionId;
-              if (removedSessionId !== "") {
-                const owning = repoStore.findRepoOwning(dir);
-                const wt = owning?.worktrees.find((w) => w.path === dir);
-                if (wt) wt.tasks = wt.tasks.filter((t) => t.id !== removedSessionId);
-              }
+              // session = Task の同一視 (issue #504): Swift 側で TaskStore から
+              // 削除済み。useSidebarData がこの ref を watch して所属 repo を
+              // refetch することで WorktreeEntry.tasks から消えた Task を反映する。
+              // terminalStore は repoStore に依存させない (Pinia setup での循環を避ける)。
+              lastRemovedSessionInfo.value = {
+                dir,
+                sessionId: res.value.removedSessionId,
+              };
             }
             // 削除 RPC の完了後に kill。失敗時も pane の UI は閉じる契約なので
             // kill は実行する。paneRegistry にまだ entry があるので killPty は有効。
@@ -476,6 +481,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     cwdByLeafId,
     titleByLeafId,
     lastTitleUpdate,
+    lastRemovedSessionInfo,
     // computed
     claudeActiveLeafIds,
     // layout

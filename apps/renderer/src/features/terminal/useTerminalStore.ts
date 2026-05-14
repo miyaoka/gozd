@@ -85,6 +85,15 @@ export const useTerminalStore = defineStore("terminal", () => {
   const lastTitleUpdate = shallowRef<{ leafId: string; title: string }>();
 
   /**
+   * 直近に破棄された leafId の通知シグナル。leaf を所有しているのは terminalStore
+   * (paneRegistry / layoutsByDir) なので、外部 (useSidebarData の latestSessionByLeaf
+   * 等) で leafId をキーに状態を持つ場所が cleanup できるよう、unregisterPane が
+   * 呼ばれた leafId をここに乗せる。watch する側は同 leafId に紐付くローカル state を
+   * 削除する。
+   */
+  const lastRemovedLeafId = shallowRef<string>();
+
+  /**
    * leafId → 次回 spawn 時に env として注入する Claude session ID。
    * worktree の初回 visit 時に保存済みセッションを復元するために、leafId と sessionId を
    * 紐付けておく。spawnPty が env を組み立てるタイミングで一度だけ消費する。
@@ -234,6 +243,7 @@ export const useTerminalStore = defineStore("terminal", () => {
             delete titleByLeafId.value[leafId];
             delete pendingResumeByLeafId.value[leafId];
             delete paneRegistry.value[leafId];
+            lastRemovedLeafId.value = leafId;
           })();
         } else {
           // Claude セッションを持たない pane（spawn 前 / 素 PTY のみ）は同期で完結。
@@ -242,6 +252,7 @@ export const useTerminalStore = defineStore("terminal", () => {
           delete titleByLeafId.value[leafId];
           delete pendingResumeByLeafId.value[leafId];
           delete paneRegistry.value[leafId];
+          lastRemovedLeafId.value = leafId;
         }
       },
       getPaneDir: (leafId) => paneRegistry.value[leafId]?.dir,
@@ -419,7 +430,11 @@ export const useTerminalStore = defineStore("terminal", () => {
         // click と visit の間に session listing から該当 sessionId が消えた。
         // 期待した session の resume はできないので、ユーザーに知らせる
         // (silent に先頭 session を起動すると click の意図がすり替わる)。
-        notify.error(`Resumable session ${preferred} is no longer available for ${dir}`);
+        // 本文は短く、診断情報 (sessionId / dir) は cause に逃がして展開表示で見せる。
+        notify.error(
+          "Selected resumable session is no longer available",
+          new Error(`sessionId=${preferred} dir=${dir}`),
+        );
       }
     }
 
@@ -465,7 +480,11 @@ export const useTerminalStore = defineStore("terminal", () => {
     if (newLeafId === undefined) {
       // split に失敗するとユーザーの click が無反応に終わる。silent return は
       // 観察可能性を欠くので notify する (発生条件: layout 制約 / dir 未初期化)。
-      notify.error(`Failed to split pane for resume session in ${dir}`);
+      // 本文は短く、診断情報 (dir / sessionId) は cause で展開表示。
+      notify.error(
+        "Failed to open resume session",
+        new Error(`splitPane returned undefined; dir=${dir} sessionId=${sessionId}`),
+      );
       return;
     }
     pendingResumeByLeafId.value[newLeafId] = sessionId;
@@ -557,6 +576,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     titleByLeafId,
     lastTitleUpdate,
     lastRemovedSessionInfo,
+    lastRemovedLeafId,
     // computed
     claudeActiveLeafIds,
     // layout

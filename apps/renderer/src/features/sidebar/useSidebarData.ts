@@ -220,6 +220,18 @@ export function useSidebarData() {
     },
   );
 
+  // leaf 自体が破棄されたら latestSessionByLeaf を掃除する。session-end の発火を
+  // 伴わない leaf 破棄 (PTY 強制 kill 等) で entry が永続滞留して Map が肥大化する
+  // のを防ぐ。terminalStore が leafId 所有者なので、削除通知シグナルを介して
+  // この store ローカル mapping も追従させる。
+  watch(
+    () => terminalStore.lastRemovedLeafId,
+    (leafId) => {
+      if (leafId === undefined) return;
+      latestSessionByLeaf.delete(leafId);
+    },
+  );
+
   // ターミナル close で Claude session が消えた時、所属 repo を refetch して
   // WorktreeEntry.tasks から消えた Task を反映する。terminalStore からは
   // 通知 ref のみ受け取り、repo 依存はこちら側に閉じる (循環依存防止)。

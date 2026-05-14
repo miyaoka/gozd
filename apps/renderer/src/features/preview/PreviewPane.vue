@@ -167,14 +167,18 @@ const orderedRange = computed<{ newer: string; older: string | undefined }>(() =
   return { newer: selected, older: compare };
 });
 
-/** Original タブが指している hash の表記（uncommitted では HEAD、単一コミットでは <hash>^、範囲では older 端） */
+/**
+ * Original タブが指している hash の表記。
+ * Swift 側 fileReadResultAt の fromHash と一致させる:
+ * - uncommitted モード (newer=Working Tree, older=undefined): HEAD
+ * - 単一コミット: <hash>^
+ * - 範囲選択: <older>^
+ */
 const originalHashLabel = computed(() => {
   const { newer, older } = orderedRange.value;
   if (newer === UNCOMMITTED_HASH && older === undefined) return "HEAD";
-  if (older !== undefined && older !== UNCOMMITTED_HASH) {
-    return older.slice(0, SHORT_HASH_LEN);
-  }
-  return `${newer.slice(0, SHORT_HASH_LEN)}^`;
+  const olderEnd = older ?? newer;
+  return `${olderEnd.slice(0, SHORT_HASH_LEN)}^`;
 });
 
 function modeLabel(mode: PreviewMode): string {

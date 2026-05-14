@@ -141,6 +141,15 @@ public actor RpcDispatcher {
         {
           try await claudeSessions.removeBySessionId(
             worktreePath: worktreePath, sessionId: previous)
+          // TaskStore からも旧 session 由来の Task を掃除する。先に消さないと
+          // worktree 内に「死んだ session の Task」が残り、Phase 4 のサイドバー
+          // 表示で stale エントリが見える。
+          do {
+            try await tasks.removeBySession(dir: worktreePath, sessionId: previous)
+          } catch {
+            FileHandle.standardError.write(
+              Data("[TaskStore] removeBySession (previous) failed: \(error)\n".utf8))
+          }
         }
         // 永続化を先に成功させてから PTYRegistry のマッピングを更新する。
         // 逆順だと upsert が throw した場合 PTYRegistry だけ新 sessionId に進み、
@@ -150,6 +159,20 @@ public actor RpcDispatcher {
           sessionId: hook.sessionID,
           transcriptPath: hook.transcriptPath
         )
+        // session = Task の同一視ルール (issue #504): TaskStore に session 由来の
+        // Task を auto upsert する。task.id = session_id。失敗は best effort で
+        // ログのみ。ClaudeSessionStore 側の整合は既に確立しているため、Task の欠落
+        // はサイドバー UI の表示欠けに留まり、resume 等の中核機能には影響しない。
+        do {
+          try await tasks.upsertForSession(
+            dir: worktreePath,
+            sessionId: hook.sessionID,
+            worktreeDir: worktreePath
+          )
+        } catch {
+          FileHandle.standardError.write(
+            Data("[TaskStore] upsertForSession failed: \(error)\n".utf8))
+        }
         await pty.setSessionId(for: hook.ptyID, sessionId: hook.sessionID)
       case "session-end":
         // 永続化削除を先に成功させてから PTYRegistry のマッピングを消す。
@@ -157,6 +180,12 @@ public actor RpcDispatcher {
         // 永続化には残り続け、次回 cleanup（removeByPty）で sessionId 解決ができない。
         try await claudeSessions.removeBySessionId(
           worktreePath: worktreePath, sessionId: hook.sessionID)
+        do {
+          try await tasks.removeBySession(dir: worktreePath, sessionId: hook.sessionID)
+        } catch {
+          FileHandle.standardError.write(
+            Data("[TaskStore] removeBySession failed: \(error)\n".utf8))
+        }
         await pty.clearSessionId(for: hook.ptyID)
       default:
         break
@@ -475,11 +504,9 @@ public actor RpcDispatcher {
       entry.branch = wt.branch ?? ""
       entry.isMain = wt.isMain
       entry.gitStatuses = statusesByPath[wt.path] ?? [:]
-      // この worktree に紐づく Task 群を埋める
-      // Phase 2 で session_id ベースの複数 task 化予定。現状は first match の互換挙動を維持
-      if let task = allTasks.first(where: { $0.worktreeDir == wt.path }) {
-        entry.tasks = [task]
-      }
+      // この worktree に紐づく全 Task を埋める。1 wt = 複数 Claude session の前提で
+      // session 単位の Task が複数並ぶ (issue #504)。
+      entry.tasks = allTasks.filter { $0.worktreeDir == wt.path }
       return entry
     }
     return try resp.jsonUTF8Data()

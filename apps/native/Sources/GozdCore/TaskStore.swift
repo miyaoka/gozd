@@ -66,6 +66,30 @@ public actor TaskStore {
     try saveFile(list, for: dir)
   }
 
+  /// Claude session-start hook 由来の Task を upsert する。
+  /// task.id = session_id の同一視ルール。既に同一 id があれば worktreeDir のみ更新する。
+  /// body は OSC ターミナルタイトル経由で renderer が後から rpcTaskUpdate するため
+  /// 初回は空のまま登録する。
+  public func upsertForSession(dir: String, sessionId: String, worktreeDir: String) throws {
+    var list = try loadFile(for: dir)
+    if let idx = list.tasks.firstIndex(where: { $0.id == sessionId }) {
+      list.tasks[idx].worktreeDir = worktreeDir
+    } else {
+      var task = Gozd_V1_Task()
+      task.id = sessionId
+      task.body = ""
+      task.worktreeDir = worktreeDir
+      task.createdAt = ISO8601DateFormatter().string(from: Date())
+      list.tasks.append(task)
+    }
+    try saveFile(list, for: dir)
+  }
+
+  /// session-end hook 由来の自動削除。手動 remove と挙動は同じ。
+  public func removeBySession(dir: String, sessionId: String) throws {
+    try remove(dir: dir, id: sessionId)
+  }
+
   // MARK: - paths
 
   private func projectDir(for dir: String) -> String {

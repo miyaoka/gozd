@@ -316,15 +316,20 @@ public actor FSWatchRegistry {
     // 陥る。renderer (useFsWatchSync) は repo を開いた時点で main worktree も登録するため
     // 通常運用では発生しないが、`watch()` の `await GitOps.gitDirs` 中に non-main wt の event
     // が先に届く startup race / bare repo / 単体テストでの部分登録で起こり得る。観察可能化
-    // のため stderr にログする。dispatch 自体は contract どおり主走らない。
-    if (result.hasBranchChange || result.hasWorktreeChange)
-      && !isPrimaryForCommonDir
-      && entry.commonGitDir != nil
-      && primaryByCommonGitDir[entry.commonGitDir ?? ""] == nil
+    // のため stderr にログする。dispatch 自体は contract どおり走らない。
+    // entries の dir 一覧と各 entry が main worktree (`perWorktreeGitDir == commonGitDir`)
+    // かどうかを併記して、startup race か bare repo か永続未確立かを log から切り分け可能にする。
+    if (result.hasBranchChange || result.hasWorktreeChange) && !isPrimaryForCommonDir,
+      let commonGitDir = entry.commonGitDir,
+      primaryByCommonGitDir[commonGitDir] == nil
     {
+      let siblings = entries
+        .filter { _, e in e.commonGitDir == commonGitDir }
+        .map { key, e in "\(key)(main=\(e.perWorktreeGitDir == commonGitDir))" }
+        .sorted()
       FileHandle.standardError.write(
         Data(
-          "[FSWatchRegistry] primary missing for commonGitDir=\(entry.commonGitDir ?? "<nil>"); dropping branchChange=\(result.hasBranchChange) worktreeChange=\(result.hasWorktreeChange) from dir=\(dir)\n"
+          "[FSWatchRegistry] primary missing for commonGitDir=\(commonGitDir); dropping branchChange=\(result.hasBranchChange) worktreeChange=\(result.hasWorktreeChange) from dir=\(dir); entries=\(siblings)\n"
             .utf8))
     }
     if result.hasBranchChange && isPrimaryForCommonDir {

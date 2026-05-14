@@ -173,7 +173,7 @@ struct FSWatchRegistryTests {
     #expect(events.contains("gitStatusChange"))
   }
 
-  @Test("main repo + worktree clone を並列 watch 中、`.git/worktrees/<name>/` 単独削除で worktreeChange が 1 回 fire する")
+  @Test("main repo + worktree clone を並列 watch 中、`.git/worktrees/<name>/` 単独削除で worktreeChange が fire し branchChange は伴走しない")
   func dispatchesWorktreeChangeFromMainOnWorktreeDirRemoval() async throws {
     // primary 選出が「lex 最小」だと wt watcher (gozd 配置の `.local/...`) が main
     // (`ghq/...` 相当) より lex 小で primary を奪う。worktree clone の wt watcher は
@@ -181,6 +181,12 @@ struct FSWatchRegistryTests {
     // `hasWorktreeChange` に分類できず、main 側が立てるが non-primary で suppress
     // されて誰も発火しない死角があった。primary を main worktree に固定した修正の
     // regression guard。
+    //
+    // bug を実際に踏ませるには wt path が main path より lex 小である必要がある。
+    // makeTempDir() の prefix は `gozd-fswatchregistry-` (lex 上 `g...` で始まる) のため、
+    // wt root は `a-wt-<uuid>` という prefix で main と同じ親 dir 直下に置き、必ず
+    // `a-...` < `gozd-...` (lex) を成立させる。これで「wt が lex 小なのに primary は main」
+    // という新規則の本質が test で固定される。
     let mainRepo = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: mainRepo) }
     try await initGitRepo(at: mainRepo)
@@ -191,17 +197,22 @@ struct FSWatchRegistryTests {
     try await runGitCmd(["commit", "-m", "seed"], cwd: mainRepo)
 
     let worktreeRoot = mainRepo.deletingLastPathComponent()
-      .appendingPathComponent("wt-\(UUID().uuidString)")
+      .appendingPathComponent("a-wt-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: worktreeRoot) }
     try await runGitCmd(
       ["worktree", "add", "-b", "feature", worktreeRoot.path], cwd: mainRepo)
     let worktreeRootResolved = URL(fileURLWithPath: worktreeRoot.path).resolvingSymlinksInPath()
+    let mainRepoResolved = URL(fileURLWithPath: mainRepo.path).resolvingSymlinksInPath()
+    // assertion 前提条件: wt path が main path より lex 小であること。
+    // 旧 lex-min ルールでこの test が pass しないこと（= bug 再現）の根拠になる。
+    #expect(worktreeRootResolved.path < mainRepoResolved.path)
 
-    let worktreeChangeCount = WorktreeChangeCounter()
+    let worktreeChangeCount = EventCounter()
+    let branchChangeCount = EventCounter()
     let registry = FSWatchRegistry(
       onFsChange: { _, _ in },
       onGitStatusChange: { _, _ in },
-      onBranchChange: { _ in },
+      onBranchChange: { _ in branchChangeCount.increment() },
       onWorktreeChange: { _ in worktreeChangeCount.increment() }
     )
 
@@ -219,6 +230,10 @@ struct FSWatchRegistryTests {
 
     try await waitForCount(worktreeChangeCount, atLeast: 1)
     #expect(worktreeChangeCount.value >= 1)
+    // branchChange は伴走しない (本シナリオは worktreeChange 単独経路) こと。
+    // 仮に伴走したら、本 test は「branchChange の伴走 fetch で隠蔽されていた死角」を
+    // 再現できておらず、worktreeChange 単独経路の regression を捕まえられない。
+    #expect(branchChangeCount.value == 0)
   }
 
   @Test("同一 dir を再 watch すると古い entry を破棄して再構築する（idempotent re-entry 契約）")
@@ -638,7 +653,7 @@ private func waitForEvent(
 }
 
 private func waitForCount(
-  _ counter: WorktreeChangeCounter,
+  _ counter: EventCounter,
   atLeast target: Int,
   timeout: Duration = .seconds(2)
 ) async throws {
@@ -647,10 +662,10 @@ private func waitForCount(
     if counter.value >= target { return }
     try await Task.sleep(for: .milliseconds(50))
   }
-  throw EventTimeout(timeout: timeout, observed: ["worktreeChange<\(counter.value)>"])
+  throw EventTimeout(timeout: timeout, observed: ["count<\(counter.value)>"])
 }
 
-private final class WorktreeChangeCounter: @unchecked Sendable {
+private final class EventCounter: @unchecked Sendable {
   private let lock = NSLock()
   private var count: Int = 0
 

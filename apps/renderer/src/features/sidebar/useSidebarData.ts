@@ -228,6 +228,21 @@ export function useSidebarData() {
     // `useFsWatchSync` の watch 起動完了通知。往復中の取りこぼし救済として 1 回だけ
     // worktree list を取り直す。
     cleanups.push(onMessage<FsWatchReadyPayload>("fsWatchReady", () => fetchOwnerOfActive()));
+    // TaskStore の失敗 notify を購読して active dir 所属 repo を refetch する。
+    // session-start / session-end の楽観 push 後に Swift 側 upsertForSession /
+    // removeBySession が失敗した場合、楽観値が真値とずれた状態で残る。
+    // RpcDispatcher は失敗時に source="task-store" の notify を出すため、
+    // それを契機に真値を取り直して楽観値を巻き戻す。
+    cleanups.push(
+      onMessage<{ type: string; source: string; message: string; detail: string }>(
+        "notify",
+        (payload) => {
+          if (payload.source !== "task-store" || payload.type !== "error") return;
+          fetchOwnerOfActive();
+        },
+      ),
+    );
+
     // Claude session の生成 / 終了で wt.tasks を楽観更新し UI に即時反映する。
     // Swift 側 TaskStore は applyClaudeSessionHook で session-start / session-end と
     // 同期に upsertForSession / removeBySession を完了させているため、renderer の

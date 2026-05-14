@@ -69,6 +69,16 @@ public actor TaskStore {
     try saveFile(list, for: dir)
   }
 
+  /// worktree 物理削除 (handleWorktreeRemove) からの連動掃除。
+  /// 該当 worktreeDir に紐づく全 Task を削除する。`ClaudeSessionStore.
+  /// removeByWorktreePath` と対称の経路で、worktree 削除後に Task が
+  /// 孤児として永続化に残るのを防ぐ。
+  public func removeByWorktree(dir: String, worktreePath: String) throws {
+    var list = try loadFile(for: dir)
+    list.tasks.removeAll { $0.worktreeDir == worktreePath }
+    try saveFile(list, for: dir)
+  }
+
   /// 起動時の reconcile。各 projectKey で `claude-sessions.json` の生存
   /// sessionId 集合に含まれない Task を孤児として掃除する。
   ///

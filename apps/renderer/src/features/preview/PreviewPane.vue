@@ -139,11 +139,49 @@ function defaultMode(gitChange: GitChangeKind | undefined): PreviewMode {
   return "current";
 }
 
-const MODE_LABELS: Record<PreviewMode, { icon: string; label: string }> = {
-  current: { icon: "icon-[lucide--file-text]", label: "Current" },
-  diff: { icon: "icon-[lucide--file-diff]", label: "Diff" },
-  original: { icon: "icon-[lucide--file-clock]", label: "Original" },
+const MODE_ICONS: Record<PreviewMode, string> = {
+  current: "icon-[lucide--file-text]",
+  diff: "icon-[lucide--file-diff]",
+  original: "icon-[lucide--file-clock]",
 };
+
+const SHORT_HASH_LEN = 7;
+
+/**
+ * 範囲選択を時系列順に整列した {newer, older}。
+ * commits[0] が newest（小さい idx ほど新しい）。UNCOMMITTED_HASH は idx=-1 扱いで常に newer 側。
+ * compareHash が null の単一選択時は older は undefined。
+ */
+const orderedRange = computed<{ newer: string; older: string | undefined }>(() => {
+  const selected = gitGraphStore.selectedHash;
+  const compare = gitGraphStore.compareHash;
+  if (compare === null) return { newer: selected, older: undefined };
+
+  const map = gitGraphStore.hashToIndex;
+  const idx = (h: string) =>
+    h === UNCOMMITTED_HASH ? -1 : (map.get(h) ?? Number.POSITIVE_INFINITY);
+  const selectedIdx = idx(selected);
+  const compareIdx = idx(compare);
+  // idx が大きい方が older
+  if (selectedIdx >= compareIdx) return { newer: compare, older: selected };
+  return { newer: selected, older: compare };
+});
+
+/** Original タブが指している hash の表記（uncommitted では HEAD、単一コミットでは <hash>^、範囲では older 端） */
+const originalHashLabel = computed(() => {
+  const { newer, older } = orderedRange.value;
+  if (newer === UNCOMMITTED_HASH && older === undefined) return "HEAD";
+  if (older !== undefined && older !== UNCOMMITTED_HASH) {
+    return older.slice(0, SHORT_HASH_LEN);
+  }
+  return `${newer.slice(0, SHORT_HASH_LEN)}^`;
+});
+
+function modeLabel(mode: PreviewMode): string {
+  if (mode === "current") return "Current";
+  if (mode === "diff") return "Diff";
+  return `Original (${originalHashLabel.value})`;
+}
 
 /** 非同期レース防止 + 画像キャッシュバスト用のバージョンカウンター */
 const fetchVersionRef = ref(0);
@@ -229,11 +267,13 @@ async function fetchCommitContent(filePath: string) {
   try {
     const dir = worktreeStore.dir;
     if (dir === undefined) return;
+    // クリック順に依存せず時系列で並べ替え: newer = current(to), older = original(from)
+    const { newer, older } = orderedRange.value;
     const result = await rpcGitShowCommitFile({
       dir,
       relPath: filePath,
-      hash: gitGraphStore.selectedHash,
-      compareHash: gitGraphStore.compareHash ?? "",
+      hash: newer,
+      compareHash: older ?? "",
     });
 
     if (version !== fetchVersion) return;
@@ -424,8 +464,8 @@ const headerIconUrl = computed(() => {
           "
           @click="activeMode = mode"
         >
-          <span class="size-3.5" :class="MODE_LABELS[mode].icon" />
-          {{ MODE_LABELS[mode].label }}
+          <span class="size-3.5" :class="MODE_ICONS[mode]" />
+          {{ modeLabel(mode) }}
         </button>
 
         <div class="ml-auto flex items-center">

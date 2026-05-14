@@ -659,14 +659,12 @@ public actor RpcDispatcher {
   private func handleGitShowCommitFile(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitShowCommitFileRequest(jsonUTF8Data: body)
     var resp = Gozd_V1_GitShowCommitFileResponse()
-    if !req.compareHash.isEmpty {
-      resp.from = await fileReadResultFromGit(
-        dir: req.dir, hash: req.compareHash, relPath: req.relPath)
-    } else {
-      var notFound = Gozd_V1_FileReadResult()
-      notFound.notFound = true
-      resp.from = notFound
-    }
+    // 単一コミット選択 (compareHash 空) では GitHub と同等の <hash>^ vs <hash> 比較に揃える。
+    // GitOps.commitFiles のファイル一覧と diff endpoint を一致させるため。
+    // root commit は <hash>^ が解決失敗 → notFound=true となり追加扱いに自然解決する。
+    let fromHash = req.compareHash.isEmpty ? "\(req.hash)^" : req.compareHash
+    resp.from = await fileReadResultFromGit(
+      dir: req.dir, hash: fromHash, relPath: req.relPath)
     resp.to = await fileReadResultFromGit(dir: req.dir, hash: req.hash, relPath: req.relPath)
     return try resp.jsonUTF8Data()
   }

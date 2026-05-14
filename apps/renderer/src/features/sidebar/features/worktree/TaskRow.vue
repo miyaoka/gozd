@@ -108,6 +108,7 @@ const bubbleColorClass = computed(() => {
     <span
       class="size-5 shrink-0"
       :class="[visual.icon, visual.color, visual.animate]"
+      role="img"
       :aria-label="visual.ariaLabel"
     />
     <span class="truncate text-sm">{{ title }}</span>

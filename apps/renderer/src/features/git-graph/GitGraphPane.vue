@@ -529,11 +529,12 @@ const detailWidth = ref(320);
 const detailOpen = ref(true);
 
 // コンテナ幅縮小時に detailWidth をクランプし、収まらなければ自動で閉じる
-// rootWidth が 0（マウント前）のときはスキップ
+// rootWidth が 0（マウント前）のときはスキップ。
+// 書き換え対象の detailOpen / detailWidth は source に含めない
 watch(
-  [detailOpen, rootWidth, detailWidth],
-  ([open, width]) => {
-    if (!open || width === 0) return;
+  rootWidth,
+  (width) => {
+    if (!detailOpen.value || width === 0) return;
     const available = width - GRAPH_LIST_MIN_WIDTH - DETAIL_HANDLE_WIDTH;
     if (available < DETAIL_MIN_WIDTH) {
       detailOpen.value = false;

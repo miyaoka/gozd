@@ -124,12 +124,16 @@ const maxPreviewWidth = computed(() => {
   );
 });
 
-// ウィンドウ縮小時に Preview 幅をクランプ
-watch([previewWidth, maxPreviewWidth], ([w, maxW]) => {
-  if (w > maxW) {
-    previewWidth.value = Math.max(PREVIEW_MIN_WIDTH, maxW);
-  }
-});
+// ウィンドウ縮小時に Preview 幅をクランプ。書き換え対象 previewWidth は source に含めない
+watch(
+  maxPreviewWidth,
+  (maxW) => {
+    if (previewWidth.value > maxW) {
+      previewWidth.value = Math.max(PREVIEW_MIN_WIDTH, maxW);
+    }
+  },
+  { immediate: true },
+);
 
 /** ドラッグ開始時に popover 左側の空きスペースを返す（Navigator + 開閉ボタン分を除く） */
 const getPreviewBeforeSize = () =>
@@ -189,13 +193,18 @@ function getCenterTerminalHeight(): number {
   return centerTerminalRef.value?.offsetHeight ?? TERMINAL_MIN_HEIGHT;
 }
 
-// ウィンドウ縦縮小時に gitGraphHeight をクランプ（Terminal が潰れるのを防ぐ）
-watch([windowHeight, gitGraphHeight], ([h]) => {
-  const maxGitGraph = h - TERMINAL_MIN_HEIGHT - HANDLE_WIDTH;
-  if (gitGraphHeight.value > maxGitGraph) {
-    gitGraphHeight.value = Math.max(GIT_GRAPH_MIN_HEIGHT, maxGitGraph);
-  }
-});
+// ウィンドウ縦縮小時に gitGraphHeight をクランプ（Terminal が潰れるのを防ぐ）。
+// 書き換え対象 gitGraphHeight は source に含めない
+watch(
+  windowHeight,
+  (h) => {
+    const maxGitGraph = h - TERMINAL_MIN_HEIGHT - HANDLE_WIDTH;
+    if (gitGraphHeight.value > maxGitGraph) {
+      gitGraphHeight.value = Math.max(GIT_GRAPH_MIN_HEIGHT, maxGitGraph);
+    }
+  },
+  { immediate: true },
+);
 </script>
 
 <template>

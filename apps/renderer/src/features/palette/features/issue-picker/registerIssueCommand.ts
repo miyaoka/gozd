@@ -8,7 +8,12 @@ import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
-import { rpcCreateWorktree, rpcGitDefaultBranch, rpcGitWorktreeList } from "../../../sidebar";
+import {
+  rpcCreateWorktree,
+  rpcGitBranchList,
+  rpcGitDefaultBranch,
+  rpcGitWorktreeList,
+} from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
 import { rpcGitViewer } from "../pr-picker";
@@ -44,6 +49,7 @@ export function registerIssueCommand(): () => void {
           Promise.all([
             rpcGitIssueList({ dir }),
             rpcGitWorktreeList({ dir }),
+            rpcGitBranchList({ dir }),
             rpcGitViewer({ dir }),
           ]),
         );
@@ -51,7 +57,7 @@ export function registerIssueCommand(): () => void {
           notify.error("Failed to load issues", fetchResult.error);
           return;
         }
-        const [issuesRes, worktreesRes, viewerRes] = fetchResult.value;
+        const [issuesRes, worktreesRes, branchesRes, viewerRes] = fetchResult.value;
         if (!issuesRes.ok) {
           notify.error("Failed to load issues from GitHub");
           return;
@@ -63,6 +69,9 @@ export function registerIssueCommand(): () => void {
         const wtByBranch = new Map(
           worktreesRes.worktrees.filter((wt) => wt.branch !== "").map((wt) => [wt.branch, wt.path]),
         );
+        // worktree 不在の孤立 branch も含めた local branch 一覧。`issue-<N>` の
+        // 決定的命名衝突を事前検出するために使う。
+        const allBranches = new Set(branchesRes.branches);
 
         // この callback は IssuePickerDialog 側で close() 後に呼ばれるため、
         // 連打による再エントリは dialog の DOM 除去で塞がれている。`isCreating` 相当のガードは不要。
@@ -72,6 +81,16 @@ export function registerIssueCommand(): () => void {
           if (existingDir !== undefined) {
             terminalStore.viewMode = "wt";
             worktreeStore.setOpen(existingDir);
+            return;
+          }
+          // `issue-<N>` が worktree を持たない孤立 branch として既に存在する場合、
+          // `git worktree add -b issue-<N>` は "branch already exists" で失敗する。
+          // 事前検出してユーザーに復旧操作 (`git branch -D <name>` 等) を促す。
+          if (allBranches.has(branchName)) {
+            notify.error(
+              `Branch '${branchName}' already exists without a worktree. ` +
+                `Remove or rename it before opening this issue.`,
+            );
             return;
           }
           void (async () => {

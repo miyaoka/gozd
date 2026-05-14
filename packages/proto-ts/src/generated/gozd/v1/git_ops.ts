@@ -144,6 +144,19 @@ export interface GitDefaultBranchResponse {
   branch: string;
 }
 
+/**
+ * branchList: local ブランチ一覧。issue-picker が決定的 branch 名 (`issue-<N>`)
+ * の衝突検出に使う (worktree を持たない孤立 branch を含めて検証する必要があるため、
+ * GitWorktreeList では足りない)。
+ */
+export interface GitBranchListRequest {
+  dir: string;
+}
+
+export interface GitBranchListResponse {
+  branches: string[];
+}
+
 /** createWorktree: 新規 worktree を作成 */
 export interface CreateWorktreeRequest {
   dir: string;
@@ -1689,6 +1702,124 @@ export const GitDefaultBranchResponse: MessageFns<GitDefaultBranchResponse> = {
   fromPartial(object: DeepPartial<GitDefaultBranchResponse>): GitDefaultBranchResponse {
     const message = createBaseGitDefaultBranchResponse();
     message.branch = object.branch ?? "";
+    return message;
+  },
+};
+
+function createBaseGitBranchListRequest(): GitBranchListRequest {
+  return { dir: "" };
+}
+
+export const GitBranchListRequest: MessageFns<GitBranchListRequest> = {
+  encode(message: GitBranchListRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitBranchListRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitBranchListRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitBranchListRequest {
+    return { dir: isSet(object.dir) ? globalThis.String(object.dir) : "" };
+  },
+
+  toJSON(message: GitBranchListRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitBranchListRequest>): GitBranchListRequest {
+    return GitBranchListRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitBranchListRequest>): GitBranchListRequest {
+    const message = createBaseGitBranchListRequest();
+    message.dir = object.dir ?? "";
+    return message;
+  },
+};
+
+function createBaseGitBranchListResponse(): GitBranchListResponse {
+  return { branches: [] };
+}
+
+export const GitBranchListResponse: MessageFns<GitBranchListResponse> = {
+  encode(message: GitBranchListResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.branches) {
+      writer.uint32(10).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitBranchListResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitBranchListResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.branches.push(reader.string());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitBranchListResponse {
+    return {
+      branches: globalThis.Array.isArray(object?.branches) ? object.branches.map((e: any) => globalThis.String(e)) : [],
+    };
+  },
+
+  toJSON(message: GitBranchListResponse): unknown {
+    const obj: any = {};
+    if (message.branches?.length) {
+      obj.branches = message.branches;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitBranchListResponse>): GitBranchListResponse {
+    return GitBranchListResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitBranchListResponse>): GitBranchListResponse {
+    const message = createBaseGitBranchListResponse();
+    message.branches = object.branches?.map((e) => e) || [];
     return message;
   },
 };

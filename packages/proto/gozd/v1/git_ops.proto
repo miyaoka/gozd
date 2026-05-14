@@ -118,6 +118,16 @@ message GitDefaultBranchResponse {
   string branch = 1;
 }
 
+// branchList: local ブランチ一覧。issue-picker が決定的 branch 名 (`issue-<N>`)
+// の衝突検出に使う (worktree を持たない孤立 branch を含めて検証する必要があるため、
+// GitWorktreeList では足りない)。
+message GitBranchListRequest {
+  string dir = 1;
+}
+message GitBranchListResponse {
+  repeated string branches = 1;
+}
+
 // createWorktree: 新規 worktree を作成
 message CreateWorktreeRequest {
   string dir = 1;

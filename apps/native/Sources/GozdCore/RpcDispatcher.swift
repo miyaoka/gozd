@@ -295,6 +295,8 @@ public actor RpcDispatcher {
       return try await handleGitViewer(body)
     case "/git/defaultBranch":
       return try await handleGitDefaultBranch(body)
+    case "/git/branchList":
+      return try await handleGitBranchList(body)
     case "/git/refsDigest":
       return try await handleGitRefsDigest(body)
     case "/git/createWorktree":
@@ -738,6 +740,14 @@ public actor RpcDispatcher {
     return try resp.jsonUTF8Data()
   }
 
+  private func handleGitBranchList(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitBranchListRequest(jsonUTF8Data: body)
+    let branches = try await GitOps.branchList(dir: req.dir)
+    var resp = Gozd_V1_GitBranchListResponse()
+    resp.branches = branches
+    return try resp.jsonUTF8Data()
+  }
+
   private func handleGitRefsDigest(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitRefsDigestRequest(jsonUTF8Data: body)
     let digest = try await GitOps.refsDigest(dir: req.dir)
@@ -790,6 +800,19 @@ public actor RpcDispatcher {
     try await claudeSessions.removeByWorktreePath(
       projectAnchorDir: req.dir, worktreePath: req.path
     )
+    // task.id = session_id の同一視で、worktree 物理削除に Task の片付けも
+    // 連動させる。claudeSessions だけ消して tasks を放置すると `tasks.json` に
+    // 孤児 Task が残り、サイドバーにゾンビ行が出る (handleClaudeSessionRemoveByPty
+    // と対称)。失敗は notify でユーザーに伝え、claudeSessions 側の成功を巻き戻さない。
+    do {
+      try await tasks.removeByWorktree(dir: req.dir, worktreePath: req.path)
+    } catch {
+      FileHandle.standardError.write(
+        Data("[TaskStore] removeByWorktree failed: \(error)\n".utf8))
+      onNotify(
+        "error", "task-store", "Failed to clean up tasks after worktree removal",
+        String(describing: error))
+    }
     return try Gozd_V1_GitWorktreeRemoveResponse().jsonUTF8Data()
   }
 

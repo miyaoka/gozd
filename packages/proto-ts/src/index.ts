@@ -80,6 +80,8 @@ export {
 export {
   CreateWorktreeRequest,
   CreateWorktreeResponse,
+  GitBranchListRequest,
+  GitBranchListResponse,
   GitCommitFilesRequest,
   GitCommitFilesResponse,
   GitDefaultBranchRequest,

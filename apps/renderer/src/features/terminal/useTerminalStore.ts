@@ -49,6 +49,14 @@ export const useTerminalStore = defineStore("terminal", () => {
   /** worktree dir → 分割レイアウト状態 */
   const layoutsByDir = ref<Record<string, TerminalLayoutState>>({});
 
+  /**
+   * 直近のターミナル close で削除された Claude session の通知。
+   * sessionId が空文字なら session を持たない pane の close。
+   * useSidebarData がこれを watch して所属 repo を refetch し、
+   * WorktreeEntry.tasks から消えた Task を反映する。
+   */
+  const lastRemovedSessionInfo = shallowRef<{ dir: string; sessionId: string }>();
+
   /** leafId → PTY 対応 + 所属 dir */
   const paneRegistry = ref<Record<string, PaneEntry>>({});
 
@@ -77,11 +85,28 @@ export const useTerminalStore = defineStore("terminal", () => {
   const lastTitleUpdate = shallowRef<{ leafId: string; title: string }>();
 
   /**
+   * 直近に破棄された leafId の通知シグナル。leaf を所有しているのは terminalStore
+   * (paneRegistry / layoutsByDir) なので、外部 (useSidebarData の latestSessionByLeaf
+   * 等) で leafId をキーに状態を持つ場所が cleanup できるよう、unregisterPane が
+   * 呼ばれた leafId をここに乗せる。watch する側は同 leafId に紐付くローカル state を
+   * 削除する。
+   */
+  const lastRemovedLeafId = shallowRef<string>();
+
+  /**
    * leafId → 次回 spawn 時に env として注入する Claude session ID。
    * worktree の初回 visit 時に保存済みセッションを復元するために、leafId と sessionId を
    * 紐付けておく。spawnPty が env を組み立てるタイミングで一度だけ消費する。
    */
   const pendingResumeByLeafId = ref<Record<string, string>>({});
+
+  /**
+   * 未訪問 worktree に対する「visit で最初の leaf に乗せたい sessionId」のヒント。
+   * サイドバーで resumable な Task 行をクリックしたとき、setOpen 起点の自動 visit が
+   * fetched.sessions の先頭順で leaf を割り当てて意図がずれるのを防ぐ。visit 内で
+   * 1 回だけ消費し、対象 dir の前置きとして使う。
+   */
+  const preferredResumeByDir = ref<Record<string, string>>({});
 
   /**
    * worktreePath → 永続化済み Claude セッション数。サイドバーの resume バッジ表示用。
@@ -202,6 +227,14 @@ export const useTerminalStore = defineStore("terminal", () => {
               // 待つと、次のサイドバー操作まで古い値が出続けるため。dir はプロジェクト
               // 内の任意 dir として projectKey 解決に使える。
               await refreshSavedSessionCounts([dir], dir);
+              // session = Task の同一視: Swift 側で TaskStore から
+              // 削除済み。useSidebarData がこの ref を watch して所属 repo を
+              // refetch することで WorktreeEntry.tasks から消えた Task を反映する。
+              // terminalStore は repoStore に依存させない (Pinia setup での循環を避ける)。
+              lastRemovedSessionInfo.value = {
+                dir,
+                sessionId: res.value.removedSessionId,
+              };
             }
             // 削除 RPC の完了後に kill。失敗時も pane の UI は閉じる契約なので
             // kill は実行する。paneRegistry にまだ entry があるので killPty は有効。
@@ -210,6 +243,7 @@ export const useTerminalStore = defineStore("terminal", () => {
             delete titleByLeafId.value[leafId];
             delete pendingResumeByLeafId.value[leafId];
             delete paneRegistry.value[leafId];
+            lastRemovedLeafId.value = leafId;
           })();
         } else {
           // Claude セッションを持たない pane（spawn 前 / 素 PTY のみ）は同期で完結。
@@ -218,6 +252,7 @@ export const useTerminalStore = defineStore("terminal", () => {
           delete titleByLeafId.value[leafId];
           delete pendingResumeByLeafId.value[leafId];
           delete paneRegistry.value[leafId];
+          lastRemovedLeafId.value = leafId;
         }
       },
       getPaneDir: (leafId) => paneRegistry.value[leafId]?.dir,
@@ -289,6 +324,7 @@ export const useTerminalStore = defineStore("terminal", () => {
       if (!isHookEvent(event)) return;
       // claudeStatus.ts は snake_case の payload を期待するので boundary で変換する
       claude.handleHookEvent(ptyId, event, {
+        session_id: payload.sessionId,
         last_assistant_message: payload.lastAssistantMessage,
         tool_name: payload.toolName,
         tool_input: payload.toolInput,
@@ -377,7 +413,30 @@ export const useTerminalStore = defineStore("terminal", () => {
     }
 
     visitedDirs.value.push(dir);
-    const sessions = fetched.value.sessions;
+    let sessions = fetched.value.sessions;
+
+    // サイドバーで resumable Task をクリックして visit を誘発したケース。
+    // 該当 sessionId を必ず先頭 (= initial focused leaf) に乗せる。
+    const preferred = preferredResumeByDir.value[dir];
+    if (preferred !== undefined) {
+      delete preferredResumeByDir.value[dir];
+      const idx = sessions.findIndex((s) => s.sessionId === preferred);
+      if (idx > 0) {
+        const reordered = [...sessions];
+        const [pick] = reordered.splice(idx, 1);
+        if (pick !== undefined) reordered.unshift(pick);
+        sessions = reordered;
+      } else if (idx < 0) {
+        // click と visit の間に session listing から該当 sessionId が消えた。
+        // 期待した session の resume はできないので、ユーザーに知らせる
+        // (silent に先頭 session を起動すると click の意図がすり替わる)。
+        // 本文は短く、診断情報 (sessionId / dir) は cause に逃がして展開表示で見せる。
+        notify.error(
+          "Selected resumable session is no longer available",
+          new Error(`sessionId=${preferred} dir=${dir}`),
+        );
+      }
+    }
 
     // ensureLayout で初期 leaf を作る（既存の単一 leaf 起動と同じ）
     const initialLayout = layout.ensureLayout(dir);
@@ -396,6 +455,43 @@ export const useTerminalStore = defineStore("terminal", () => {
   }
 
   /**
+   * サイドバーから resumable Task をクリックしたときに呼ぶ。
+   * - 未訪問: 次回の visit で当該 sessionId を先頭 leaf に乗せるヒントを残す。
+   *   呼び出し元が直後に setOpen → TerminalPane の watch が visit を駆動する。
+   * - 訪問済み: その場で split して新 leaf に sessionId を紐付け、フォーカスを移す。
+   * 当該 sessionId が既に live PTY を持っているなら何もしない (上位で focus 済み)。
+   */
+  function requestResumeSession(dir: string, sessionId: string) {
+    // click → onSelectTask 内で `getPtyIdBySessionId === undefined` を確認済み。
+    // ここに来てなお live になっているのは「click と本関数呼び出しの間に session-start
+    // hook が走った」ごく狭い race のみ。観察用に debug ログを残し、focus は上位の
+    // 経路 (focusPane) に任せて return する。
+    if (claude.getPtyIdBySessionId(sessionId) !== undefined) {
+      console.debug(
+        `[useTerminalStore] requestResumeSession: ${sessionId} became live between click and request; deferring focus to caller`,
+      );
+      return;
+    }
+    if (!visitedDirs.value.includes(dir)) {
+      preferredResumeByDir.value[dir] = sessionId;
+      return;
+    }
+    const newLeafId = layout.splitPane(dir, "horizontal");
+    if (newLeafId === undefined) {
+      // split に失敗するとユーザーの click が無反応に終わる。silent return は
+      // 観察可能性を欠くので notify する (発生条件: layout 制約 / dir 未初期化)。
+      // 本文は短く、診断情報 (dir / sessionId) は cause で展開表示。
+      notify.error(
+        "Failed to open resume session",
+        new Error(`splitPane returned undefined; dir=${dir} sessionId=${sessionId}`),
+      );
+      return;
+    }
+    pendingResumeByLeafId.value[newLeafId] = sessionId;
+    layout.focusPane(newLeafId);
+  }
+
+  /**
    * worktree が外部削除された / アクティブから外れたときの cleanup。
    * `layout.remove` を呼ぶ前に visitGenByDir の世代を進めることで、
    * 進行中の `visit` の await 後 world は stale 判定で破棄される。
@@ -404,6 +500,9 @@ export const useTerminalStore = defineStore("terminal", () => {
    */
   function removeWorktreeFromLayout(dir: string) {
     visitGenByDir.set(dir, (visitGenByDir.get(dir) ?? 0) + 1);
+    // 未消費の resume ヒントを掃除する。worktree が削除→再作成された後の visit に
+    // 古いヒントが流れ込まないよう、layout 撤去と同じタイミングで落とす。
+    delete preferredResumeByDir.value[dir];
     layout.remove(dir);
   }
 
@@ -417,6 +516,26 @@ export const useTerminalStore = defineStore("terminal", () => {
   /** leafId に対応する PTY の ptyId を返す */
   function getPtyId(leafId: string): number | undefined {
     return paneRegistry.value[leafId]?.session?.ptyId;
+  }
+
+  /**
+   * `paneRegistry` (ウィンドウ全体の leaf 数) からの逆引き Map。session-start /
+   * tool-done など hook イベントの度に参照されるため、毎回 Object.entries で
+   * 線形探索すると wt 数 × leaf 数のコストが乗る。computed で派生させて
+   * `paneRegistry` 変化時にのみ再構築する。
+   */
+  const leafIdByPtyId = computed(() => {
+    const map = new Map<number, string>();
+    for (const [leafId, pane] of Object.entries(paneRegistry.value)) {
+      const ptyId = pane?.session?.ptyId;
+      if (ptyId !== undefined) map.set(ptyId, leafId);
+    }
+    return map;
+  });
+
+  /** ptyId に対応する leafId を返す。`leafIdByPtyId` 経由で O(1) */
+  function getLeafIdByPtyId(ptyId: number): string | undefined {
+    return leafIdByPtyId.value.get(ptyId);
   }
 
   // --- CWD ---
@@ -456,10 +575,13 @@ export const useTerminalStore = defineStore("terminal", () => {
     cwdByLeafId,
     titleByLeafId,
     lastTitleUpdate,
+    lastRemovedSessionInfo,
+    lastRemovedLeafId,
     // computed
     claudeActiveLeafIds,
     // layout
     visit,
+    requestResumeSession,
     splitPane: layout.splitPane,
     closePane: layout.closePane,
     resetLayout: layout.resetLayout,
@@ -473,6 +595,9 @@ export const useTerminalStore = defineStore("terminal", () => {
     // claude
     getClaudeState: claude.getClaudeState,
     getClaudeStatusesByDir: claude.getClaudeStatusesByDir,
+    getClaudeStatusBySessionId: claude.getStatusBySessionId,
+    getPtyIdBySessionId: claude.getPtyIdBySessionId,
+    getSessionIdByPtyId: claude.getSessionIdByPtyId,
     clearDoneStates: claude.clearDoneStates,
     // saved sessions (resume バッジ用)
     refreshSavedSessionCounts,
@@ -480,6 +605,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     // pane getter
     getPaneDir,
     getPtyId,
+    getLeafIdByPtyId,
     // cwd
     setCwd,
     // title

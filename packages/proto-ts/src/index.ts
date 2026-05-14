@@ -80,6 +80,8 @@ export {
 export {
   CreateWorktreeRequest,
   CreateWorktreeResponse,
+  GitBranchListRequest,
+  GitBranchListResponse,
   GitCommitFilesRequest,
   GitCommitFilesResponse,
   GitDefaultBranchRequest,
@@ -132,19 +134,7 @@ export {
   ShellCommandUninstallRequest,
   ShellCommandUninstallResponse,
 } from "./generated/gozd/v1/shell_command";
-export {
-  CreateWorktreeWithTaskRequest,
-  CreateWorktreeWithTaskResponse,
-  TaskAddRequest,
-  TaskAddResponse,
-  TaskList,
-  TaskListRequest,
-  TaskListResponse,
-  TaskRemoveRequest,
-  TaskRemoveResponse,
-  TaskUpdateRequest,
-  TaskUpdateResponse,
-} from "./generated/gozd/v1/task";
+export { TaskList, TaskUpdateRequest, TaskUpdateResponse } from "./generated/gozd/v1/task";
 export {
   VoicevoxCheckEngineRequest,
   VoicevoxCheckEngineResponse,

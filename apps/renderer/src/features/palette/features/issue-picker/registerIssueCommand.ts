@@ -10,15 +10,25 @@ import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
 import {
   rpcCreateWorktree,
+  rpcGitBranchList,
   rpcGitDefaultBranch,
   rpcGitWorktreeList,
-  rpcTaskAdd,
 } from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
 import { rpcGitViewer } from "../pr-picker";
 import { rpcGitIssueList } from "./rpc";
 import { useIssuePicker } from "./useIssuePicker";
+
+/**
+ * 同じ issue から派生した worktree を一意に識別する branch 名。
+ * Task = session 同一視ルール以降、issue ↔ worktree の永続マッピングを
+ * branch 名に埋め込んで検出することで「同じ issue を 2 回選んで worktree が
+ * 増殖する」退行を防ぐ。PR picker が `pr.headRef` を真にしているのと対称。
+ */
+function issueBranchName(issueNumber: number): string {
+  return `issue-${issueNumber}`;
+}
 
 export function registerIssueCommand(): () => void {
   const registry = useCommandRegistry();
@@ -39,6 +49,7 @@ export function registerIssueCommand(): () => void {
           Promise.all([
             rpcGitIssueList({ dir }),
             rpcGitWorktreeList({ dir }),
+            rpcGitBranchList({ dir }),
             rpcGitViewer({ dir }),
           ]),
         );
@@ -46,26 +57,40 @@ export function registerIssueCommand(): () => void {
           notify.error("Failed to load issues", fetchResult.error);
           return;
         }
-        const [issuesRes, worktreesRes, viewerRes] = fetchResult.value;
+        const [issuesRes, worktreesRes, branchesRes, viewerRes] = fetchResult.value;
         if (!issuesRes.ok) {
           notify.error("Failed to load issues from GitHub");
           return;
         }
         if (issuesRes.issues.length === 0) return;
 
-        const wtByIssue = new Map(
-          worktreesRes.worktrees
-            .filter((wt) => wt.task !== undefined && wt.task.issueNumber > 0)
-            .map((wt) => [wt.task?.issueNumber, wt.path]),
+        // branch 名から既存 worktree を逆引きする。issue picker の決定的 branch
+        // (`issue-<number>`) と PR picker の `pr.headRef` の両方をこのマップで吸う。
+        const wtByBranch = new Map(
+          worktreesRes.worktrees.filter((wt) => wt.branch !== "").map((wt) => [wt.branch, wt.path]),
         );
+        // worktree 不在の孤立 branch も含めた local branch 一覧。`issue-<N>` の
+        // 決定的命名衝突を事前検出するために使う。
+        const allBranches = new Set(branchesRes.branches);
 
         // この callback は IssuePickerDialog 側で close() 後に呼ばれるため、
         // 連打による再エントリは dialog の DOM 除去で塞がれている。`isCreating` 相当のガードは不要。
         show(issuesRes.issues, viewerRes.ok ? viewerRes.login : "", (issue) => {
-          const existingDir = wtByIssue.get(issue.number);
+          const branchName = issueBranchName(issue.number);
+          const existingDir = wtByBranch.get(branchName);
           if (existingDir !== undefined) {
             terminalStore.viewMode = "wt";
             worktreeStore.setOpen(existingDir);
+            return;
+          }
+          // `issue-<N>` が worktree を持たない孤立 branch として既に存在する場合、
+          // `git worktree add -b issue-<N>` は "branch already exists" で失敗する。
+          // 事前検出してユーザーに復旧操作 (`git branch -D <name>` 等) を促す。
+          if (allBranches.has(branchName)) {
+            notify.error(
+              `Branch '${branchName}' already exists without a worktree. ` +
+                `Remove or rename it before opening this issue.`,
+            );
             return;
           }
           void (async () => {
@@ -85,30 +110,17 @@ export function registerIssueCommand(): () => void {
               );
               return;
             }
-            const timestamp = generateTimestamp();
             const result = await tryCatch(
               rpcCreateWorktree({
                 dir: rootDir,
-                worktreeDir: timestamp,
-                branch: timestamp,
+                worktreeDir: generateTimestamp(),
+                branch: branchName,
                 startPoint: branchResult.value.branch,
               }),
             );
             if (!result.ok) {
               notify.error("Failed to create worktree", result.error);
               return;
-            }
-            const taskResult = await tryCatch(
-              rpcTaskAdd({
-                dir,
-                body: issue.title,
-                worktreeDir: result.value.dir,
-                prNumber: 0,
-                issueNumber: issue.number,
-              }),
-            );
-            if (!taskResult.ok) {
-              notify.error("Failed to create task for worktree", taskResult.error);
             }
             if (result.value.worktree === undefined) {
               notify.error("Worktree created but sidebar could not be updated");

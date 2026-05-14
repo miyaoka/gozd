@@ -209,9 +209,11 @@ final class AppRuntime {
       }
     }
     let onHook: @Sendable (Gozd_V1_HookMessage) -> Void = { hook in
+      // sessionId は renderer 側で task (= session) ↔ ptyId マッピングを成立させるために必要
       let payload: [String: Any] = [
         "event": hook.event,
         "ptyId": Int(hook.ptyID),
+        "sessionId": hook.sessionID,
         "lastAssistantMessage": hook.lastAssistantMessage,
         "toolName": hook.toolName,
         "toolInput": hook.toolInput,
@@ -273,16 +275,20 @@ final class AppRuntime {
     }
     // 内部の非同期エラーを renderer に notify push する。
     // - "error" / "info" の type
-    // - source は通知元モジュール名（"socket" / "claude-hooks" 等）
+    // - source は通知元モジュール名（"socket" / "claude-hooks" / "task-store" 等）
     // - detail はスタックトレース相当の生文字列
+    // - dir は失敗の発生源 worktree path / project anchor dir。renderer 側が
+    //   `findRepoOwning(dir)` で repo を特定して該当 repo だけ refetch する手がかり。
+    //   特定不能 / 経路に紐付かない通知では空文字を渡す (renderer 側は全 repo refetch)。
     let sendNotify:
-      @Sendable (String, String, String, String) -> Void = { type, source, message, detail in
+      @Sendable (String, String, String, String, String) -> Void = {
+        type, source, message, detail, dir in
         Task { @MainActor in
           await pushToRenderer(
             page: holder.page,
             type: "notify",
             payload: [
-              "type": type, "source": source, "message": message, "detail": detail,
+              "type": type, "source": source, "message": message, "detail": detail, "dir": dir,
             ]
           )
         }
@@ -298,6 +304,7 @@ final class AppRuntime {
       onGitStatusChange: onGitStatusChange,
       onBranchChange: onBranchChange,
       onWorktreeChange: onWorktreeChange,
+      onNotify: sendNotify,
       envOverlay: envOverlay,
       pidTracker: pidTracker
     )
@@ -326,7 +333,7 @@ final class AppRuntime {
               Data("[SocketServer] decode failed: \(error)\n".utf8)
             )
             sendNotify(
-              "error", "socket", "Invalid client message", String(describing: error))
+              "error", "socket", "Invalid client message", String(describing: error), "")
           }
         }
       }
@@ -336,7 +343,7 @@ final class AppRuntime {
         Data("[SocketServer] start failed: \(error)\n".utf8))
       sendNotify(
         "error", "socket", "Failed to start Unix socket server",
-        String(describing: error))
+        String(describing: error), "")
     }
 
     // 起動時に握り潰した Claude hooks settings 書き込みエラーをここで通知する。
@@ -345,7 +352,7 @@ final class AppRuntime {
     if let err = claudeSettingsWriteError {
       sendNotify(
         "error", "claude-hooks", "Failed to write Claude hooks settings",
-        String(describing: err))
+        String(describing: err), "")
     }
 
     // applicationWillTerminate から PTY を SIGHUP できるよう shared に登録する

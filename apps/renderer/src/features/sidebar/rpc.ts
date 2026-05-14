@@ -2,6 +2,8 @@
 import {
   CreateWorktreeRequest,
   CreateWorktreeResponse,
+  GitBranchListRequest,
+  GitBranchListResponse,
   GitDefaultBranchRequest,
   GitDefaultBranchResponse,
   GitWorktreeListRequest,
@@ -12,8 +14,6 @@ import {
   LoadAppStateResponse,
   SaveAppStateRequest,
   SaveAppStateResponse,
-  TaskAddRequest,
-  TaskAddResponse,
   TaskUpdateRequest,
   TaskUpdateResponse,
 } from "@gozd/proto";
@@ -31,14 +31,17 @@ export const rpcCreateWorktree = (req: CreateWorktreeRequest) =>
 export const rpcGitDefaultBranch = (req: GitDefaultBranchRequest) =>
   rpc("/git/defaultBranch", req, GitDefaultBranchRequest, GitDefaultBranchResponse);
 
+export const rpcGitBranchList = (req: GitBranchListRequest) =>
+  rpc("/git/branchList", req, GitBranchListRequest, GitBranchListResponse);
+
 export const rpcGitWorktreeRemove = (req: GitWorktreeRemoveRequest) =>
   rpc("/git/worktreeRemove", req, GitWorktreeRemoveRequest, GitWorktreeRemoveResponse);
 
 // --- task ---
 
-export const rpcTaskAdd = (req: TaskAddRequest) =>
-  rpc("/task/add", req, TaskAddRequest, TaskAddResponse);
-
+// task = session の同一視ルールで Task の生成 / 削除は session
+// hook が自動化する。renderer から書くのは OSC ターミナルタイトル → body
+// の同期 (rpcTaskUpdate) のみ。
 export const rpcTaskUpdate = (req: TaskUpdateRequest) =>
   rpc("/task/update", req, TaskUpdateRequest, TaskUpdateResponse);
 

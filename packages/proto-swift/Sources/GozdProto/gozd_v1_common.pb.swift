@@ -36,20 +36,11 @@ public struct Gozd_V1_WorktreeEntry: Sendable {
   /// ファイル相対パス → porcelain v1 XY コード
   public var gitStatuses: Dictionary<String,String> = [:]
 
-  public var task: Gozd_V1_Task {
-    get {_task ?? Gozd_V1_Task()}
-    set {_task = newValue}
-  }
-  /// Returns true if `task` has been explicitly set.
-  public var hasTask: Bool {self._task != nil}
-  /// Clears the value of `task`. Subsequent reads from it will return its default value.
-  public mutating func clearTask() {self._task = nil}
+  public var tasks: [Gozd_V1_Task] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
-
-  fileprivate var _task: Gozd_V1_Task? = nil
 }
 
 public struct Gozd_V1_Task: Sendable {
@@ -253,7 +244,7 @@ fileprivate let _protobuf_package = "gozd.v1"
 
 extension Gozd_V1_WorktreeEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WorktreeEntry"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}head\0\u{1}branch\0\u{3}is_main\0\u{3}git_statuses\0\u{1}task\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}head\0\u{1}branch\0\u{3}is_main\0\u{3}git_statuses\0\u{1}tasks\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -266,17 +257,13 @@ extension Gozd_V1_WorktreeEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
       case 3: try { try decoder.decodeSingularStringField(value: &self.branch) }()
       case 4: try { try decoder.decodeSingularBoolField(value: &self.isMain) }()
       case 5: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString,SwiftProtobuf.ProtobufString>.self, value: &self.gitStatuses) }()
-      case 6: try { try decoder.decodeSingularMessageField(value: &self._task) }()
+      case 6: try { try decoder.decodeRepeatedMessageField(value: &self.tasks) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.path.isEmpty {
       try visitor.visitSingularStringField(value: self.path, fieldNumber: 1)
     }
@@ -292,9 +279,9 @@ extension Gozd_V1_WorktreeEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
     if !self.gitStatuses.isEmpty {
       try visitor.visitMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString,SwiftProtobuf.ProtobufString>.self, value: self.gitStatuses, fieldNumber: 5)
     }
-    try { if let v = self._task {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
-    } }()
+    if !self.tasks.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.tasks, fieldNumber: 6)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -304,7 +291,7 @@ extension Gozd_V1_WorktreeEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
     if lhs.branch != rhs.branch {return false}
     if lhs.isMain != rhs.isMain {return false}
     if lhs.gitStatuses != rhs.gitStatuses {return false}
-    if lhs._task != rhs._task {return false}
+    if lhs.tasks != rhs.tasks {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

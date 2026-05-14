@@ -57,6 +57,12 @@ export interface ClaudeSessionRemoveByPtyRequest {
 }
 
 export interface ClaudeSessionRemoveByPtyResponse {
+  /**
+   * 削除した session_id。renderer が repoStore の WorktreeEntry.tasks から
+   * 該当 Task を即時削除するために使う。pty に session が紐付いていなかった
+   * 場合は空文字。
+   */
+  removedSessionId: string;
 }
 
 function createBaseClaudeSession(): ClaudeSession {
@@ -570,11 +576,14 @@ export const ClaudeSessionRemoveByPtyRequest: MessageFns<ClaudeSessionRemoveByPt
 };
 
 function createBaseClaudeSessionRemoveByPtyResponse(): ClaudeSessionRemoveByPtyResponse {
-  return {};
+  return { removedSessionId: "" };
 }
 
 export const ClaudeSessionRemoveByPtyResponse: MessageFns<ClaudeSessionRemoveByPtyResponse> = {
-  encode(_: ClaudeSessionRemoveByPtyResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+  encode(message: ClaudeSessionRemoveByPtyResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.removedSessionId !== "") {
+      writer.uint32(10).string(message.removedSessionId);
+    }
     return writer;
   },
 
@@ -585,6 +594,14 @@ export const ClaudeSessionRemoveByPtyResponse: MessageFns<ClaudeSessionRemoveByP
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.removedSessionId = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -594,20 +611,30 @@ export const ClaudeSessionRemoveByPtyResponse: MessageFns<ClaudeSessionRemoveByP
     return message;
   },
 
-  fromJSON(_: any): ClaudeSessionRemoveByPtyResponse {
-    return {};
+  fromJSON(object: any): ClaudeSessionRemoveByPtyResponse {
+    return {
+      removedSessionId: isSet(object.removedSessionId)
+        ? globalThis.String(object.removedSessionId)
+        : isSet(object.removed_session_id)
+        ? globalThis.String(object.removed_session_id)
+        : "",
+    };
   },
 
-  toJSON(_: ClaudeSessionRemoveByPtyResponse): unknown {
+  toJSON(message: ClaudeSessionRemoveByPtyResponse): unknown {
     const obj: any = {};
+    if (message.removedSessionId !== "") {
+      obj.removedSessionId = message.removedSessionId;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ClaudeSessionRemoveByPtyResponse>): ClaudeSessionRemoveByPtyResponse {
     return ClaudeSessionRemoveByPtyResponse.fromPartial(base ?? {});
   },
-  fromPartial(_: DeepPartial<ClaudeSessionRemoveByPtyResponse>): ClaudeSessionRemoveByPtyResponse {
+  fromPartial(object: DeepPartial<ClaudeSessionRemoveByPtyResponse>): ClaudeSessionRemoveByPtyResponse {
     const message = createBaseClaudeSessionRemoveByPtyResponse();
+    message.removedSessionId = object.removedSessionId ?? "";
     return message;
   },
 };

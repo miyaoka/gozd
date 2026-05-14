@@ -11,12 +11,17 @@ import type { Ref } from "vue";
  */
 export type ClaudeState = "idle" | "working" | "asking" | "done";
 
-/** Claude Code の状態エントリ。状態と付随データを一体管理する */
+/**
+ * Claude Code の状態エントリ。状態と付随データを一体管理する。
+ * - enteredAt: その state に遷移した時刻（state 変化のたびに更新）
+ * - lastActivityAt（working のみ）: 直近のアクティビティ時刻（tool-done / running で更新）。
+ *   working は同 state 内で連続イベントが来るため、相対時刻基準を遷移時刻と分ける必要がある。
+ */
 export type ClaudeStatus =
-  | { state: "idle" }
-  | { state: "working"; startedAt: number }
-  | { state: "asking"; toolName?: string; toolInput?: Record<string, unknown> }
-  | { state: "done"; message?: string };
+  | { state: "idle"; enteredAt: number }
+  | { state: "working"; enteredAt: number; lastActivityAt: number }
+  | { state: "asking"; enteredAt: number; toolName?: string; toolInput?: Record<string, unknown> }
+  | { state: "done"; enteredAt: number; message?: string };
 
 /**
  * hooks イベント種別。
@@ -83,6 +88,10 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
   const askTimers = new Map<number, ReturnType<typeof setTimeout>>();
   /** PTY ごとの直近 tail バッファ。チャンク分割でマーカーが跨いだ場合に備える */
   const ptyTailBuffers = new Map<number, string>();
+  /** sessionId ↔ ptyId のマッピング。session-start hook で確立、session-end / cleanup で破棄。
+   *  task.id == sessionId の同一視ルール により、task 行から status を引くために使う。 */
+  const ptyIdBySessionId = new Map<string, number>();
+  const sessionIdByPtyId = new Map<number, string>();
 
   /** pending ask タイマーをキャンセルする */
   function cancelAskTimer(ptyId: number) {
@@ -107,19 +116,57 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
     switch (event) {
       case "session-start": {
         cancelAskTimer(ptyId);
-        claudeStatusByPtyId.value[ptyId] = { state: "idle" };
+        const sessionId = typeof payload.session_id === "string" ? payload.session_id : "";
+        if (sessionId !== "") {
+          // 同 ptyId に旧 sessionId が紐付いていた場合は先に解除する。
+          // /clear や /resume で session が切り替わった時、旧 mapping が残ると
+          // 別 task のステータスを引いてしまう。
+          const previousSessionId = sessionIdByPtyId.get(ptyId);
+          if (previousSessionId !== undefined && previousSessionId !== sessionId) {
+            ptyIdBySessionId.delete(previousSessionId);
+          }
+          sessionIdByPtyId.set(ptyId, sessionId);
+          ptyIdBySessionId.set(sessionId, ptyId);
+        }
+        claudeStatusByPtyId.value[ptyId] = { state: "idle", enteredAt: Date.now() };
         break;
       }
       case "session-end": {
         cancelAskTimer(ptyId);
+        const endingSessionId = typeof payload.session_id === "string" ? payload.session_id : "";
+        const currentSessionId = sessionIdByPtyId.get(ptyId);
+        // session-start 側と対称な防御: /clear や /resume で session が切り替わった
+        // あとに旧 session の session-end が遅延到達した場合、現在 mapping を
+        // 誤って消すのを防ぐ。
+        if (endingSessionId === "") {
+          // Swift 側 hook payload (GozdApp.swift の onHook) は session-start /
+          // session-end で必ず sessionId を含む。空文字到達は仕様外なので silent
+          // 通過させず観察可能化する。
+          console.warn(
+            `[claude-status] session-end with empty session_id (ptyId=${ptyId}); ` +
+              "falling back to current mapping",
+          );
+        } else if (endingSessionId !== currentSessionId) {
+          ptyIdBySessionId.delete(endingSessionId);
+          break;
+        }
+        if (currentSessionId !== undefined) {
+          ptyIdBySessionId.delete(currentSessionId);
+          sessionIdByPtyId.delete(ptyId);
+        }
         delete claudeStatusByPtyId.value[ptyId];
         break;
       }
       case "running": {
         cancelAskTimer(ptyId);
-        // 初回 working 遷移時のみ開始時刻を記録（tool-done → working の再遷移では維持）
-        const startedAt = current?.state === "working" ? current.startedAt : Date.now();
-        claudeStatusByPtyId.value[ptyId] = { state: "working", startedAt };
+        // working 継続中は enteredAt（state 遷移時刻）を維持し、lastActivityAt のみ更新する
+        const now = Date.now();
+        const enteredAt = current?.state === "working" ? current.enteredAt : now;
+        claudeStatusByPtyId.value[ptyId] = {
+          state: "working",
+          enteredAt,
+          lastActivityAt: now,
+        };
         break;
       }
       case "needs-input": {
@@ -134,7 +181,12 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
           ptyId,
           setTimeout(() => {
             askTimers.delete(ptyId);
-            claudeStatusByPtyId.value[ptyId] = { state: "asking", toolName, toolInput };
+            claudeStatusByPtyId.value[ptyId] = {
+              state: "asking",
+              enteredAt: Date.now(),
+              toolName,
+              toolInput,
+            };
           }, ASK_DEBOUNCE_MS),
         );
         break;
@@ -143,21 +195,31 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
         cancelAskTimer(ptyId);
         if (payload.is_interrupt === true) {
           // ユーザーが Ctrl+C でツール実行を中断 → プロンプト待ちに戻る
-          claudeStatusByPtyId.value[ptyId] = { state: "idle" };
+          claudeStatusByPtyId.value[ptyId] = { state: "idle", enteredAt: Date.now() };
           break;
         }
         // interrupt でないツール失敗は tool-done と同じ扱い（working 継続）
         if (current?.state === "done") break;
-        const sf = current?.state === "working" ? current.startedAt : Date.now();
-        claudeStatusByPtyId.value[ptyId] = { state: "working", startedAt: sf };
+        const now = Date.now();
+        const enteredAt = current?.state === "working" ? current.enteredAt : now;
+        claudeStatusByPtyId.value[ptyId] = {
+          state: "working",
+          enteredAt,
+          lastActivityAt: now,
+        };
         break;
       }
       case "tool-done": {
         cancelAskTimer(ptyId);
         // done 後の遅延 tool-done を無視（イベント順序逆転対策）
         if (current?.state === "done") break;
-        const startedAt = current?.state === "working" ? current.startedAt : Date.now();
-        claudeStatusByPtyId.value[ptyId] = { state: "working", startedAt };
+        const now = Date.now();
+        const enteredAt = current?.state === "working" ? current.enteredAt : now;
+        claudeStatusByPtyId.value[ptyId] = {
+          state: "working",
+          enteredAt,
+          lastActivityAt: now,
+        };
         break;
       }
       case "done": {
@@ -166,7 +228,11 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
           typeof payload.last_assistant_message === "string"
             ? payload.last_assistant_message
             : undefined;
-        claudeStatusByPtyId.value[ptyId] = { state: "done", message };
+        claudeStatusByPtyId.value[ptyId] = {
+          state: "done",
+          enteredAt: Date.now(),
+          message,
+        };
         break;
       }
       case "stop-failure": {
@@ -176,7 +242,11 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
           typeof payload.last_assistant_message === "string"
             ? payload.last_assistant_message
             : undefined;
-        claudeStatusByPtyId.value[ptyId] = { state: "done", message };
+        claudeStatusByPtyId.value[ptyId] = {
+          state: "done",
+          enteredAt: Date.now(),
+          message,
+        };
         break;
       }
     }
@@ -198,22 +268,11 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
     const tail = ptyTailBuffers.get(ptyId) ?? "";
     const combined = tail + data;
 
-    // "Interrupted" を含む場合のみログ出力（combined で判定し、チャンク分割にも対応）
-    if (combined.includes("Interrupted")) {
-      const markerMatched = combined.includes(INTERRUPT_MARKER);
-      const idx = combined.indexOf("Interrupted");
-      const preview = combined.slice(Math.max(0, idx - 20), idx + 30);
-      console.debug(
-        `[claude-status] detectInterrupt: ptyId=${ptyId} state=${currentState ?? "undefined"} markerMatched=${markerMatched} tailLen=${tail.length} dataLen=${data.length}`,
-        JSON.stringify(preview),
-      );
-    }
-
     if (currentState !== "working") return;
 
     if (combined.includes(INTERRUPT_MARKER)) {
       cancelAskTimer(ptyId);
-      claudeStatusByPtyId.value[ptyId] = { state: "idle" };
+      claudeStatusByPtyId.value[ptyId] = { state: "idle", enteredAt: Date.now() };
     }
     // 直近 PTY_TAIL_BUFFER_SIZE 文字を保持
     ptyTailBuffers.set(ptyId, data.slice(-PTY_TAIL_BUFFER_SIZE));
@@ -261,7 +320,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
       if (pane.dir !== dir) continue;
       if (pane.ptyId === undefined) continue;
       if (claudeStatusByPtyId.value[pane.ptyId]?.state === "done") {
-        claudeStatusByPtyId.value[pane.ptyId] = { state: "idle" };
+        claudeStatusByPtyId.value[pane.ptyId] = { state: "idle", enteredAt: Date.now() };
       }
     }
   }
@@ -270,7 +329,29 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
   function cleanupPty(ptyId: number) {
     cancelAskTimer(ptyId);
     ptyTailBuffers.delete(ptyId);
+    const previousSessionId = sessionIdByPtyId.get(ptyId);
+    if (previousSessionId !== undefined) {
+      ptyIdBySessionId.delete(previousSessionId);
+      sessionIdByPtyId.delete(ptyId);
+    }
     delete claudeStatusByPtyId.value[ptyId];
+  }
+
+  /** task.id (= sessionId) から ClaudeStatus を引く。session 確立前 / pty 終了後は undefined */
+  function getStatusBySessionId(sessionId: string): ClaudeStatus | undefined {
+    const ptyId = ptyIdBySessionId.get(sessionId);
+    if (ptyId === undefined) return undefined;
+    return claudeStatusByPtyId.value[ptyId];
+  }
+
+  /** task.id (= sessionId) から live PTY の ptyId を引く。未起動 / 終了済みは undefined */
+  function getPtyIdBySessionId(sessionId: string): number | undefined {
+    return ptyIdBySessionId.get(sessionId);
+  }
+
+  /** ptyId から sessionId (= task.id) を引く。OSC title sync で leaf → task 解決に使う */
+  function getSessionIdByPtyId(ptyId: number): string | undefined {
+    return sessionIdByPtyId.get(ptyId);
   }
 
   return {
@@ -279,6 +360,9 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
     getClaudeState,
     getClaudeActiveLeafIds,
     getClaudeStatusesByDir,
+    getStatusBySessionId,
+    getPtyIdBySessionId,
+    getSessionIdByPtyId,
     clearDoneStates,
     cleanupPty,
   };

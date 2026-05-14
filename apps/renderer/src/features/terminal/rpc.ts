@@ -83,6 +83,8 @@ export interface PtyExitPayload {
 export interface HookPayload {
   event: string;
   ptyId: number;
+  /** Claude session ID。session-start / session-end で必ず入る。それ以外は空文字 */
+  sessionId: string;
   lastAssistantMessage: string;
   toolName: string;
   toolInput: string;

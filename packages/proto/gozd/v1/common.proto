@@ -12,7 +12,7 @@ message WorktreeEntry {
   bool is_main = 4;
   // ファイル相対パス → porcelain v1 XY コード
   map<string, string> git_statuses = 5;
-  Task task = 6;
+  repeated Task tasks = 6;
 }
 
 message Task {

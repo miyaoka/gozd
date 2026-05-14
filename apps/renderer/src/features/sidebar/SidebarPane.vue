@@ -3,45 +3,41 @@
 
 ## レイアウト構成
 
-- **トップツールバー**: 左に view mode トグル（active worktree / claude terminals）、右にリスト編集ボタン
+- **トップツールバー**: 左に view mode トグル (active worktree / claude terminals)、右にリスト編集ボタン
 - **dirOrder の各 repo** に対して `RepoSection` を縦に並べる
-- 各セクションは header（chevron + folder アイコン + repo 名）+ ROOT + WORKTREES
+- 各 RepoSection は header (folder + repo 名) + WtCard 列 (main wt 先頭固定) + `+ New worktree`
 - 編集モード中: 全 section が collapsed + drag で並び替え + ✕ で削除 + 末尾に `+ Add directory`
 
-## 操作
+## クリック挙動
 
-- view mode トグル: active worktree / claude terminals を切り替え。`cmd+/` でも同じ操作が可能
-- worktree クリック: 表示対象 dir 切替 + done バッジ既読化
-- ⋮ メニュー: SidebarMenu に委譲（worktree 編集 / 解除）
-- chevron: 折りたたみトグル（永続）
-- 編集モード中の drag handle (folder + 名前): @dnd-kit/vue で並び替え
-- 編集モード中の ✕: 確認ダイアログを経て removeRepo
-- 編集モード中の `+ Add directory`: NSOpenPanel で dir 追加
-- Task 編集は worktree 行の下にインライン展開
+- WtCard ヘッダクリック: `worktreeStore.dir` をその wt に切り替え。focus は wt の `focusedLeafId` 維持
+- TaskRow クリック: wt を active にしたうえで、task に対応する PTY の leaf を `focusPane`
+- focus 解決: `layoutsByDir[dir].focusedLeafId` (生きていれば) → 無効なら `findFirstLeaf(root)` (ensureLayout が担保)
+- ⋮ メニュー: SidebarMenu に委譲 (Remove worktree のみ。手動 task UI は廃止)
 
 ## 責務分離
 
-- `useSidebarData` — fetch（per-repo）と terminal title 同期
-- `useWorktreeActions` — worktree CRUD（rootDir 引数で対象 repo を特定）
-- `useTaskActions` — Task 編集 / 新規作成（rootDir 引数で対象 repo を特定）
+- `useSidebarData` — fetch (per-repo) と terminal title → task body 同期
+- `useWorktreeActions` — worktree CRUD (rootDir 引数で対象 repo を特定)
 - `useDialogs` — 確認ダイアログ
 - `RepoSection` — 1 repo の UI
+- `WtCard` / `TaskRow` — 1 wt と内側の task 行
 </doc>
 
 <script setup lang="ts">
 import type { DragEndEvent } from "@dnd-kit/abstract";
 import { move } from "@dnd-kit/helpers";
 import { DragDropProvider } from "@dnd-kit/vue";
+import type { Task, WorktreeEntry } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { useIntervalFn } from "@vueuse/core";
 import { computed, ref } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { rpcPickAndOpen } from "../layout";
-import { useTerminalStore } from "../terminal";
+import { collectLeafIds, useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
 import { RepoSection } from "./features/repo";
-import { TaskEditor, useTaskActions } from "./features/task";
 import { useWorktreeActions } from "./features/worktree";
 import ProjectConfigPanel from "./ProjectConfigPanel.vue";
 import SidebarMenu from "./SidebarMenu.vue";
@@ -54,25 +50,15 @@ const worktreeStore = useWorktreeStore();
 const terminalStore = useTerminalStore();
 const notify = useNotificationStore();
 
-const { fetchRepo } = useSidebarData();
+// useSidebarData の onMounted で全 repo の fetch / FsWatch / title sync が起動する。
+// 戻り値は現状外側で使わないので呼び捨てる。
+useSidebarData();
 
 const { confirmRef, confirmMessage, showConfirm, closeConfirm, executeConfirm } = useDialogs();
 
 const { isCreating, handleWorktreeSelect, addWorktree, handleWorktreeRemove } = useWorktreeActions({
   showConfirm,
 });
-
-const {
-  editingTaskId,
-  editBody,
-  submitEdit,
-  cancelEdit,
-  addingTaskForDir,
-  addingTaskBody,
-  toggleWorktreeTaskEdit,
-  saveWorktreeTask,
-  cancelWorktreeTaskAdd,
-} = useTaskActions({ fetchRepo });
 
 // --- 経過時間表示用の現在時刻 ---
 
@@ -85,10 +71,43 @@ useIntervalFn(() => {
 
 const sidebarMenuRef = ref<InstanceType<typeof SidebarMenu>>();
 
-function onWorktreeSelect(wt: import("@gozd/proto").WorktreeEntry) {
+function onSelectWt(wt: WorktreeEntry) {
   // 同 wt 再クリック時の done 消化は worktreeStore.setOpen の selectionVersion 経由で
   // useSidebarData の watch が処理する。ここでは isActive 分岐せず常に setOpen を呼ぶ。
   handleWorktreeSelect(wt);
+}
+
+function onSelectTask(wt: WorktreeEntry, task: Task) {
+  // wt を active にしたうえで、task に対応する leaf へフォーカスする。
+  // - live PTY あり: 該当 leaf を focus
+  // - resumable (live PTY 無し): クリックした sessionId を「次回 visit のヒント」
+  //   or「既訪問なら新 leaf を split して紐付け」する。setOpen より先にヒントを
+  //   置かないと、TerminalPane の watch が visit() を fetched 順で実行して
+  //   クリックしたのと違う session が起動する。
+  const ptyId = terminalStore.getPtyIdBySessionId(task.id);
+  if (ptyId === undefined) {
+    terminalStore.requestResumeSession(wt.path, task.id);
+    handleWorktreeSelect(wt);
+    return;
+  }
+  handleWorktreeSelect(wt);
+  const leafId = terminalStore.getLeafIdByPtyId(ptyId);
+  if (leafId === undefined) return;
+  terminalStore.focusPane(leafId);
+}
+
+/** 指定 wt 内で focus が当たっている PTY の ptyId。task ↔ ヘッダの capsule 二者択一に使う */
+function getFocusedPtyId(dir: string): number | undefined {
+  const focusedLeafId = terminalStore.layoutsByDir[dir]?.focusedLeafId;
+  if (focusedLeafId === undefined) return undefined;
+  return terminalStore.getPtyId(focusedLeafId);
+}
+
+/** 指定 wt 内の terminal 数 (= leaf 数)。terminal count バッジ表示判定に使う */
+function getTerminalCount(dir: string): number {
+  const root = terminalStore.layoutsByDir[dir]?.root;
+  if (root === undefined) return 0;
+  return collectLeafIds(root).length;
 }
 
 function onRemoveRepo(rootDir: string) {
@@ -215,32 +234,18 @@ const activeRootWorktree = computed(() => {
           :active-dir="worktreeStore.dir"
           :is-creating="isCreating"
           :now="now"
-          :get-claude-statuses="terminalStore.getClaudeStatusesByDir"
           :get-resumeable-session-count="terminalStore.getResumeableSessionCount"
+          :get-terminal-count="getTerminalCount"
+          :get-focused-pty-id="getFocusedPtyId"
           @remove-repo="onRemoveRepo"
-          @select-root="handleWorktreeSelect"
-          @select-worktree="onWorktreeSelect"
+          @select-wt="onSelectWt"
+          @select-task="onSelectTask"
           @add-worktree="addWorktree"
           @open-worktree-menu="
             (anchorEl, wt, rd) =>
               sidebarMenuRef?.openMenu(anchorEl, { type: 'worktree', worktree: wt, rootDir: rd })
           "
-        >
-          <template #after-worktree-item="{ wt }">
-            <TaskEditor
-              v-if="wt.task && editingTaskId === wt.task.id"
-              v-model:body="editBody"
-              @save="submitEdit"
-              @cancel="cancelEdit"
-            />
-            <TaskEditor
-              v-if="!wt.task && addingTaskForDir === wt.path"
-              v-model:body="addingTaskBody"
-              @save="saveWorktreeTask(wt)"
-              @cancel="cancelWorktreeTaskAdd"
-            />
-          </template>
-        </RepoSection>
+        />
       </DragDropProvider>
 
       <button
@@ -256,11 +261,7 @@ const activeRootWorktree = computed(() => {
     </div>
 
     <!-- ⋮ メニュー（worktree） -->
-    <SidebarMenu
-      ref="sidebarMenuRef"
-      @worktree-edit-task="toggleWorktreeTaskEdit"
-      @worktree-remove="(wt, rd) => handleWorktreeRemove(rd, wt)"
-    />
+    <SidebarMenu ref="sidebarMenuRef" @worktree-remove="(wt, rd) => handleWorktreeRemove(rd, wt)" />
 
     <!-- 確認ダイアログ -->
     <dialog

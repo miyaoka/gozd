@@ -21,6 +21,9 @@ import GozdProto
 public actor RpcDispatcher {
   public typealias HookHandler = @Sendable (Gozd_V1_HookMessage) -> Void
   public typealias OpenHandler = @Sendable (String) -> Void
+  /// (type, source, message, detail) を renderer に push する通知 callback。
+  /// type は "error" / "info"。GozdApp 側の sendNotify と同じシグネチャ。
+  public typealias NotifyHandler = @Sendable (String, String, String, String) -> Void
 
   private let pty: PTYRegistry
   private let fsWatch: FSWatchRegistry
@@ -31,6 +34,7 @@ public actor RpcDispatcher {
   private let claudeSessions: ClaudeSessionStore
   private let onHook: HookHandler
   private let onOpen: OpenHandler
+  private let onNotify: NotifyHandler
 
   public init(
     configDir: String,
@@ -42,6 +46,7 @@ public actor RpcDispatcher {
     onGitStatusChange: @escaping FSWatchRegistry.GitStatusChangeHandler = { _, _ in },
     onBranchChange: @escaping FSWatchRegistry.BranchChangeHandler = { _, _ in },
     onWorktreeChange: @escaping FSWatchRegistry.WorktreeChangeHandler = { _ in },
+    onNotify: @escaping NotifyHandler = { _, _, _, _ in },
     envOverlay: GozdEnvOverlay? = nil,
     pidTracker: PidTracker? = nil
   ) {
@@ -60,6 +65,7 @@ public actor RpcDispatcher {
     self.claudeSessions = ClaudeSessionStore(configDir: configDir)
     self.onHook = onHook
     self.onOpen = onOpen
+    self.onNotify = onNotify
   }
 
   /// 起動時に 1 回呼ぶ。永続化済み Claude セッションのうち、transcript ファイルが
@@ -76,12 +82,29 @@ public actor RpcDispatcher {
     } catch {
       FileHandle.standardError.write(
         Data("[ClaudeSessionStore] reconcileAll failed: \(error)\n".utf8))
+      onNotify(
+        "error", "claude-sessions", "Claude session store reconcile failed",
+        String(describing: error))
     }
     do {
-      try await tasks.reconcileAll()
+      let parseFailureProjects = try await tasks.reconcileAll()
+      if !parseFailureProjects.isEmpty {
+        // claude-sessions.json の parse 失敗で skip した projectKey がある場合、
+        // renderer にトースト通知して復旧操作（手動修復 / 削除）を促す。
+        // skip 自体は安全側の挙動だが、放置すると孤児 Task が永続化に残るため
+        // ユーザーに気付かせる必要がある。
+        onNotify(
+          "error",
+          "task-store",
+          "Failed to parse claude-sessions.json; orphan task cleanup skipped",
+          "projectKeys: \(parseFailureProjects.joined(separator: ", "))"
+        )
+      }
     } catch {
       FileHandle.standardError.write(
         Data("[TaskStore] reconcileAll failed: \(error)\n".utf8))
+      onNotify(
+        "error", "task-store", "Task store reconcile failed", String(describing: error))
     }
   }
 

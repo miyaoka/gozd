@@ -300,6 +300,7 @@ final class AppRuntime {
       onGitStatusChange: onGitStatusChange,
       onBranchChange: onBranchChange,
       onWorktreeChange: onWorktreeChange,
+      onNotify: sendNotify,
       envOverlay: envOverlay,
       pidTracker: pidTracker
     )

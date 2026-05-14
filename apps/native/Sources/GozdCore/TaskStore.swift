@@ -78,12 +78,15 @@ public actor TaskStore {
   /// この経路が無いと、アプリクラッシュ / kill -9 / transcript 削除で
   /// session-end hook も removeByPty も来なかった残骸が永続化に居座り続け、
   /// サイドバーに `New session` のゾンビ行として現れる。
-  public func reconcileAll() throws {
+  /// 戻り値: claude-sessions.json の parse 失敗で skip した projectKey 一覧。
+  /// 呼び出し元はこれを renderer に notify push して、ユーザーに復旧操作を促す。
+  public func reconcileAll() throws -> [String] {
     let projectsURL = URL(fileURLWithPath: configDir).appendingPathComponent("projects")
     let fm = FileManager.default
-    guard fm.fileExists(atPath: projectsURL.path) else { return }
+    guard fm.fileExists(atPath: projectsURL.path) else { return [] }
     let projectKeys = try fm.contentsOfDirectory(atPath: projectsURL.path)
     var totalDropped = 0
+    var parseFailureProjects: [String] = []
     for projectKey in projectKeys {
       let projectDir = projectsURL.appendingPathComponent(projectKey)
       let tasksURL = projectDir.appendingPathComponent("tasks.json")
@@ -103,10 +106,19 @@ public actor TaskStore {
       if fm.fileExists(atPath: sessionsURL.path) {
         let sessionsData = try Data(contentsOf: sessionsURL)
         let sessionsJson = String(decoding: sessionsData, as: UTF8.self)
-        if let sessionList = try? Gozd_V1_ClaudeSessionList(jsonString: sessionsJson) {
-          for session in sessionList.sessions {
-            liveSessionIds.insert(session.sessionID)
-          }
+        guard let sessionList = try? Gozd_V1_ClaudeSessionList(jsonString: sessionsJson)
+        else {
+          // parse 失敗時は「session 全滅」と判定する根拠が無いため projectKey ごと skip。
+          // 一時的なディスク破損 / 中断書き込みで生きている Task まで巻き添えに削除されないようにする。
+          FileHandle.standardError.write(
+            Data(
+              "[TaskStore] reconcile: failed to parse claude-sessions.json for \(projectKey), skipping\n"
+                .utf8))
+          parseFailureProjects.append(projectKey)
+          continue
+        }
+        for session in sessionList.sessions {
+          liveSessionIds.insert(session.sessionID)
         }
       }
 
@@ -127,6 +139,7 @@ public actor TaskStore {
       FileHandle.standardError.write(
         Data("[TaskStore] reconcile: total \(totalDropped) orphan tasks cleaned\n".utf8))
     }
+    return parseFailureProjects
   }
 
   // MARK: - paths

@@ -98,8 +98,21 @@ public actor ClaudeSessionStore {
         .appendingPathComponent("claude-sessions.json")
       guard fm.fileExists(atPath: fileURL.path) else { continue }
       let data = try Data(contentsOf: fileURL)
-      let json = String(decoding: data, as: UTF8.self)
-      var list = try Gozd_V1_ClaudeSessionList(jsonString: json)
+      var list: Gozd_V1_ClaudeSessionList
+      if let json = String(bytes: data, encoding: .utf8),
+        let parsed = try? Gozd_V1_ClaudeSessionList(jsonString: json)
+      {
+        list = parsed
+      } else {
+        let empty = Gozd_V1_ClaudeSessionList()
+        let emptyJson = try empty.jsonString()
+        try emptyJson.write(to: fileURL, atomically: true, encoding: .utf8)
+        FileHandle.standardError.write(
+          Data(
+            "[ClaudeSessionStore] reconcile: corrupted claude-sessions.json reinitialized for \(projectKey)\n"
+              .utf8))
+        continue
+      }
       let before = list.sessions.count
       list.sessions.removeAll { entry in
         !FileManager.default.fileExists(atPath: entry.transcriptPath)
@@ -153,9 +166,18 @@ public actor ClaudeSessionStore {
       return Gozd_V1_ClaudeSessionList()
     }
     let data = try Data(contentsOf: url)
-    let json = String(decoding: data, as: UTF8.self)
-    // parse 失敗は壊れたファイルの兆候。fallback で空 list を返すと原因が見えなくなるため throw する。
-    return try Gozd_V1_ClaudeSessionList(jsonString: json)
+    if let json = String(bytes: data, encoding: .utf8),
+      let list = try? Gozd_V1_ClaudeSessionList(jsonString: json)
+    {
+      return list
+    }
+    let empty = Gozd_V1_ClaudeSessionList()
+    try saveFile(empty, for: dir)
+    FileHandle.standardError.write(
+      Data(
+        "[ClaudeSessionStore] loadFile: corrupted claude-sessions.json reinitialized at \(url.path)\n"
+          .utf8))
+    return empty
   }
 
   private func saveFile(_ list: Gozd_V1_ClaudeSessionList, for dir: String) throws {

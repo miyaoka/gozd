@@ -200,8 +200,7 @@ struct TaskStoreTests {
       dir: env.worktreeA, sessionId: "dead", worktreeDir: env.worktreeA)
     // 当該 projectKey の claude-sessions.json は作らない (= dead 扱い)
 
-    let failed = try await store.reconcileAll()
-    #expect(failed.isEmpty)
+    try await store.reconcileAll()
 
     let list = try await store.list(dir: env.worktreeA)
     let kept = try #require(list.first)
@@ -219,8 +218,7 @@ struct TaskStoreTests {
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "ghost", worktreeDir: env.worktreeA)
 
-    let failed = try await store.reconcileAll()
-    #expect(failed.isEmpty)
+    try await store.reconcileAll()
 
     let list = try await store.list(dir: env.worktreeA)
     #expect(list.isEmpty) // dead session クリア → identity 完全消失 → 削除
@@ -248,8 +246,7 @@ struct TaskStoreTests {
       entries: [("live", env.worktreeA, dummyTranscript)]
     )
 
-    let failed = try await store.reconcileAll()
-    #expect(failed.isEmpty)
+    try await store.reconcileAll()
 
     let list = try await store.list(dir: env.worktreeA)
     #expect(list.count == 1)

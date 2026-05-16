@@ -15,7 +15,7 @@ import GozdProto
 //    無ければ新規 task を作る (Claude 直接起動 = PR/issue 経由でないケース)。
 //
 // 3. **SessionEnd hook**: task.sessionID を切り離さず保持する。次回 `claude --resume`
-//    の起点に使う。body / pr_number / issue_number がいずれも空の task のみ削除する。
+//    の起点に使う。body / gh_ref がいずれも空の task のみ削除する。
 //
 // 4. **projectKey の算出は `ProjectKey` を参照**。worktree 配下のどの dir から呼ばれても
 //    main repo root に解決した上で同一 projectKey に揃える（`resolveAndCompute`）。
@@ -43,7 +43,7 @@ public actor TaskStore {
   /// `createdAt` を省略すると現在時刻 (ISO 8601) を埋める。テスト時に明示的な順序を
   /// 仕込みたい場合のみ caller が文字列で与える (本体経路では渡さない)。
   public func add(
-    dir: String, body: String, worktreeDir: String, prNumber: UInt32, issueNumber: UInt32,
+    dir: String, body: String, worktreeDir: String, ghRef: Gozd_V1_GhRef?,
     createdAt: String? = nil
   ) throws -> Gozd_V1_Task {
     var list = try loadFile(for: dir)
@@ -51,8 +51,7 @@ public actor TaskStore {
     task.id = UUID().uuidString
     task.body = body
     task.worktreeDir = worktreeDir
-    task.prNumber = prNumber
-    task.issueNumber = issueNumber
+    if let ghRef { task.ghRef = ghRef }
     task.createdAt = createdAt ?? ISO8601DateFormatter().string(from: Date())
     list.tasks.append(task)
     try saveFile(list, for: dir)
@@ -100,31 +99,19 @@ public actor TaskStore {
   }
 
   /// SessionEnd hook 由来。task.sessionID は保持して `claude --resume` の起点に使う。
-  /// 削除判定は `hasNonSessionIdentity` (body / pr / issue の 3 項) で行う。sessionID を
+  /// 削除判定は `hasNonSessionIdentity` (body / gh_ref) で行う。sessionID を
   /// この判定に含めると「再 resume 用に sessionID を残す」設計と矛盾するため除外する。
   public func detachSession(dir: String, sessionId: String) throws {
     var list = try loadFile(for: dir)
     guard let idx = list.tasks.firstIndex(where: { $0.sessionID == sessionId }) else {
       return
     }
-    if !Self.hasNonSessionIdentity(list.tasks[idx]) {
+    if !list.tasks[idx].hasNonSessionIdentity {
       list.tasks.remove(at: idx)
     }
-    // identity (body / pr / issue) があれば sessionID は保持。worktreeList の filter は
+    // identity (body / gh_ref) があれば sessionID は保持。worktreeList の filter は
     // identity の有無で判定するため、sessionID を残してもサイドバー表示には影響しない。
     try saveFile(list, for: dir)
-  }
-
-  /// task が session 以外の identity 源 (body / pr / issue) を持つか。1 項でもあれば true。
-  /// detachSession の保持判定 と reconcileAll の孤児判定 (sessionID 込み 4 項) で共通利用する。
-  private static func hasNonSessionIdentity(_ task: Gozd_V1_Task) -> Bool {
-    return !task.body.isEmpty || task.prNumber != 0 || task.issueNumber != 0
-  }
-
-  /// 「task の identity が完全に消えた」判定 (reconcileAll 専用)。body / pr / issue / sessionID
-  /// すべて空が条件 (= `hasNonSessionIdentity` false かつ sessionID 空)。
-  private static func isOrphan(_ task: Gozd_V1_Task) -> Bool {
-    return !hasNonSessionIdentity(task) && task.sessionID.isEmpty
   }
 
   /// worktree 物理削除 (handleWorktreeRemove) からの連動掃除。
@@ -138,12 +125,12 @@ public actor TaskStore {
   }
 
   /// 起動時の reconcile。dead session を attach したまま放置された task の sessionID を
-  /// クリアし、加えて「body / pr / issue いずれも空」かつ「sessionID も dead」の
+  /// クリアし、加えて「body / gh_ref いずれも空」かつ「sessionID も dead」の
   /// task は孤児として削除する (AND 条件)。
   ///
   /// task.sessionID は SessionEnd でも保持する設計なので、resume が永久に効かなくなった
   /// dead session id をクリアして次回クリック時に「素の claude」を起動できる状態に戻す。
-  /// pr / issue / body が残っていれば task 本体は維持する。
+  /// body / gh_ref が残っていれば task 本体は維持する。
   /// この経路が無いと、アプリクラッシュ / kill -9 / transcript 削除で session-end hook も
   /// removeByPty も来なかった残骸が永続化に居座り続け、サイドバーに `New session` の
   /// ゾンビ行として現れる。
@@ -231,7 +218,7 @@ public actor TaskStore {
 
       let before = taskList.tasks.count
       var mutated = false
-      // dead sessionID をクリア (task 本体は保持。pr/issue/body の有無に依らない)。
+      // dead sessionID をクリア (task 本体は保持。body / gh_ref の有無に依らない)。
       for idx in taskList.tasks.indices {
         let sid = taskList.tasks[idx].sessionID
         if !sid.isEmpty && !liveSessionIds.contains(sid) {
@@ -240,7 +227,7 @@ public actor TaskStore {
         }
       }
       // identity 源が完全に消えた task を削除 (detachSession と SSOT)。
-      taskList.tasks.removeAll { Self.isOrphan($0) }
+      taskList.tasks.removeAll { $0.isOrphan }
       let dropped = before - taskList.tasks.count
       if dropped > 0 { mutated = true }
       if mutated {
@@ -304,4 +291,36 @@ public actor TaskStore {
 public enum TaskStoreError: Error, Equatable {
   case notFound(String)
   case fileDecodeFailed(String)
+}
+
+extension Gozd_V1_Task {
+  /// task が session 以外の identity 源 (body / gh_ref) を持つか。1 項でもあれば true。
+  /// detachSession の保持判定 / handleGitWorktreeList の filter / reconcileAll の孤児判定で共通利用する。
+  public var hasNonSessionIdentity: Bool {
+    !body.isEmpty || hasGhRef
+  }
+
+  /// 「task の identity が完全に消えた」判定 (reconcileAll 専用)。body / gh_ref / sessionID
+  /// すべて空が条件 (= `hasNonSessionIdentity` false かつ sessionID 空)。
+  public var isOrphan: Bool {
+    !hasNonSessionIdentity && sessionID.isEmpty
+  }
+}
+
+extension Gozd_V1_GhRef {
+  /// kind を取り違える可能性を構造的に排除するためのドメインファクトリ。
+  /// TS 側 `ghRefForPr` / `ghRefForIssue` (proto-ts/src/helpers.ts) と対称。
+  public static func forPr(_ number: UInt32) -> Gozd_V1_GhRef {
+    var ref = Gozd_V1_GhRef()
+    ref.kind = .pr
+    ref.number = number
+    return ref
+  }
+
+  public static func forIssue(_ number: UInt32) -> Gozd_V1_GhRef {
+    var ref = Gozd_V1_GhRef()
+    ref.kind = .issue
+    ref.number = number
+    return ref
+  }
 }

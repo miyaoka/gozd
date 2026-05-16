@@ -44,13 +44,21 @@ public struct Gozd_V1_TaskAddRequest: Sendable {
 
   public var worktreeDir: String = String()
 
-  public var prNumber: UInt32 = 0
-
-  public var issueNumber: UInt32 = 0
+  /// GitHub PR / issue 参照。手動作成時は未指定で OK。
+  public var ghRef: Gozd_V1_GhRef {
+    get {_ghRef ?? Gozd_V1_GhRef()}
+    set {_ghRef = newValue}
+  }
+  /// Returns true if `ghRef` has been explicitly set.
+  public var hasGhRef: Bool {self._ghRef != nil}
+  /// Clears the value of `ghRef`. Subsequent reads from it will return its default value.
+  public mutating func clearGhRef() {self._ghRef = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _ghRef: Gozd_V1_GhRef? = nil
 }
 
 public struct Gozd_V1_TaskAddResponse: Sendable {
@@ -147,7 +155,7 @@ extension Gozd_V1_TaskList: SwiftProtobuf.Message, SwiftProtobuf._MessageImpleme
 
 extension Gozd_V1_TaskAddRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".TaskAddRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}body\0\u{3}worktree_dir\0\u{3}pr_number\0\u{3}issue_number\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}body\0\u{3}worktree_dir\0\u{3}gh_ref\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -158,14 +166,17 @@ extension Gozd_V1_TaskAddRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
       case 1: try { try decoder.decodeSingularStringField(value: &self.dir) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.body) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.worktreeDir) }()
-      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.prNumber) }()
-      case 5: try { try decoder.decodeSingularUInt32Field(value: &self.issueNumber) }()
+      case 4: try { try decoder.decodeSingularMessageField(value: &self._ghRef) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.dir.isEmpty {
       try visitor.visitSingularStringField(value: self.dir, fieldNumber: 1)
     }
@@ -175,12 +186,9 @@ extension Gozd_V1_TaskAddRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     if !self.worktreeDir.isEmpty {
       try visitor.visitSingularStringField(value: self.worktreeDir, fieldNumber: 3)
     }
-    if self.prNumber != 0 {
-      try visitor.visitSingularUInt32Field(value: self.prNumber, fieldNumber: 4)
-    }
-    if self.issueNumber != 0 {
-      try visitor.visitSingularUInt32Field(value: self.issueNumber, fieldNumber: 5)
-    }
+    try { if let v = self._ghRef {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -188,8 +196,7 @@ extension Gozd_V1_TaskAddRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     if lhs.dir != rhs.dir {return false}
     if lhs.body != rhs.body {return false}
     if lhs.worktreeDir != rhs.worktreeDir {return false}
-    if lhs.prNumber != rhs.prNumber {return false}
-    if lhs.issueNumber != rhs.issueNumber {return false}
+    if lhs._ghRef != rhs._ghRef {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

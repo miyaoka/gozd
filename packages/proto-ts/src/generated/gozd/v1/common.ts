@@ -9,6 +9,45 @@ import { BinaryReader, BinaryWriter } from "@bufbuild/protobuf/wire";
 
 export const protobufPackage = "gozd.v1";
 
+export enum GhRefKind {
+  GH_REF_KIND_UNSPECIFIED = 0,
+  GH_REF_KIND_PR = 1,
+  GH_REF_KIND_ISSUE = 2,
+  UNRECOGNIZED = -1,
+}
+
+export function ghRefKindFromJSON(object: any): GhRefKind {
+  switch (object) {
+    case 0:
+    case "GH_REF_KIND_UNSPECIFIED":
+      return GhRefKind.GH_REF_KIND_UNSPECIFIED;
+    case 1:
+    case "GH_REF_KIND_PR":
+      return GhRefKind.GH_REF_KIND_PR;
+    case 2:
+    case "GH_REF_KIND_ISSUE":
+      return GhRefKind.GH_REF_KIND_ISSUE;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return GhRefKind.UNRECOGNIZED;
+  }
+}
+
+export function ghRefKindToJSON(object: GhRefKind): string {
+  switch (object) {
+    case GhRefKind.GH_REF_KIND_UNSPECIFIED:
+      return "GH_REF_KIND_UNSPECIFIED";
+    case GhRefKind.GH_REF_KIND_PR:
+      return "GH_REF_KIND_PR";
+    case GhRefKind.GH_REF_KIND_ISSUE:
+      return "GH_REF_KIND_ISSUE";
+    case GhRefKind.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
 export interface WorktreeEntry {
   path: string;
   head: string;
@@ -29,8 +68,13 @@ export interface Task {
   id: string;
   body: string;
   worktreeDir: string;
-  prNumber: number;
-  issueNumber: number;
+  /**
+   * GitHub PR / issue 参照。GitHub の PR / issue は同一の番号空間を共有するため、
+   * 種別 + 番号の組で 1 件を表す。task 1 件あたり最大 1 つ。
+   */
+  ghRef?:
+    | GhRef
+    | undefined;
   /** ISO 8601 */
   createdAt: string;
   /**
@@ -38,6 +82,12 @@ export interface Task {
    * SessionEnd では消さず保持し、サイドバークリック時の `claude --resume` 起点に使う。
    */
   sessionId: string;
+}
+
+/** GitHub PR / issue 参照。 */
+export interface GhRef {
+  kind: GhRefKind;
+  number: number;
 }
 
 /** ディレクトリエントリ。fs/readDir / filer 用。 */
@@ -368,7 +418,7 @@ export const WorktreeEntry_GitStatusesEntry: MessageFns<WorktreeEntry_GitStatuse
 };
 
 function createBaseTask(): Task {
-  return { id: "", body: "", worktreeDir: "", prNumber: 0, issueNumber: 0, createdAt: "", sessionId: "" };
+  return { id: "", body: "", worktreeDir: "", ghRef: undefined, createdAt: "", sessionId: "" };
 }
 
 export const Task: MessageFns<Task> = {
@@ -382,17 +432,14 @@ export const Task: MessageFns<Task> = {
     if (message.worktreeDir !== "") {
       writer.uint32(26).string(message.worktreeDir);
     }
-    if (message.prNumber !== 0) {
-      writer.uint32(32).uint32(message.prNumber);
-    }
-    if (message.issueNumber !== 0) {
-      writer.uint32(40).uint32(message.issueNumber);
+    if (message.ghRef !== undefined) {
+      GhRef.encode(message.ghRef, writer.uint32(34).fork()).join();
     }
     if (message.createdAt !== "") {
-      writer.uint32(50).string(message.createdAt);
+      writer.uint32(42).string(message.createdAt);
     }
     if (message.sessionId !== "") {
-      writer.uint32(58).string(message.sessionId);
+      writer.uint32(50).string(message.sessionId);
     }
     return writer;
   },
@@ -429,31 +476,23 @@ export const Task: MessageFns<Task> = {
           continue;
         }
         case 4: {
-          if (tag !== 32) {
+          if (tag !== 34) {
             break;
           }
 
-          message.prNumber = reader.uint32();
+          message.ghRef = GhRef.decode(reader, reader.uint32());
           continue;
         }
         case 5: {
-          if (tag !== 40) {
-            break;
-          }
-
-          message.issueNumber = reader.uint32();
-          continue;
-        }
-        case 6: {
-          if (tag !== 50) {
+          if (tag !== 42) {
             break;
           }
 
           message.createdAt = reader.string();
           continue;
         }
-        case 7: {
-          if (tag !== 58) {
+        case 6: {
+          if (tag !== 50) {
             break;
           }
 
@@ -478,16 +517,11 @@ export const Task: MessageFns<Task> = {
         : isSet(object.worktree_dir)
         ? globalThis.String(object.worktree_dir)
         : "",
-      prNumber: isSet(object.prNumber)
-        ? globalThis.Number(object.prNumber)
-        : isSet(object.pr_number)
-        ? globalThis.Number(object.pr_number)
-        : 0,
-      issueNumber: isSet(object.issueNumber)
-        ? globalThis.Number(object.issueNumber)
-        : isSet(object.issue_number)
-        ? globalThis.Number(object.issue_number)
-        : 0,
+      ghRef: isSet(object.ghRef)
+        ? GhRef.fromJSON(object.ghRef)
+        : isSet(object.gh_ref)
+        ? GhRef.fromJSON(object.gh_ref)
+        : undefined,
       createdAt: isSet(object.createdAt)
         ? globalThis.String(object.createdAt)
         : isSet(object.created_at)
@@ -512,11 +546,8 @@ export const Task: MessageFns<Task> = {
     if (message.worktreeDir !== "") {
       obj.worktreeDir = message.worktreeDir;
     }
-    if (message.prNumber !== 0) {
-      obj.prNumber = Math.round(message.prNumber);
-    }
-    if (message.issueNumber !== 0) {
-      obj.issueNumber = Math.round(message.issueNumber);
+    if (message.ghRef !== undefined) {
+      obj.ghRef = GhRef.toJSON(message.ghRef);
     }
     if (message.createdAt !== "") {
       obj.createdAt = message.createdAt;
@@ -535,10 +566,85 @@ export const Task: MessageFns<Task> = {
     message.id = object.id ?? "";
     message.body = object.body ?? "";
     message.worktreeDir = object.worktreeDir ?? "";
-    message.prNumber = object.prNumber ?? 0;
-    message.issueNumber = object.issueNumber ?? 0;
+    message.ghRef = (object.ghRef !== undefined && object.ghRef !== null) ? GhRef.fromPartial(object.ghRef) : undefined;
     message.createdAt = object.createdAt ?? "";
     message.sessionId = object.sessionId ?? "";
+    return message;
+  },
+};
+
+function createBaseGhRef(): GhRef {
+  return { kind: 0, number: 0 };
+}
+
+export const GhRef: MessageFns<GhRef> = {
+  encode(message: GhRef, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.kind !== 0) {
+      writer.uint32(8).int32(message.kind);
+    }
+    if (message.number !== 0) {
+      writer.uint32(16).uint32(message.number);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GhRef {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGhRef();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.kind = reader.int32() as any;
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.number = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GhRef {
+    return {
+      kind: isSet(object.kind) ? ghRefKindFromJSON(object.kind) : 0,
+      number: isSet(object.number) ? globalThis.Number(object.number) : 0,
+    };
+  },
+
+  toJSON(message: GhRef): unknown {
+    const obj: any = {};
+    if (message.kind !== 0) {
+      obj.kind = ghRefKindToJSON(message.kind);
+    }
+    if (message.number !== 0) {
+      obj.number = Math.round(message.number);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GhRef>): GhRef {
+    return GhRef.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GhRef>): GhRef {
+    const message = createBaseGhRef();
+    message.kind = object.kind ?? 0;
+    message.number = object.number ?? 0;
     return message;
   },
 };

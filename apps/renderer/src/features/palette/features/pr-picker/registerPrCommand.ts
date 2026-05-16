@@ -4,6 +4,7 @@
  * PR を選択して worktree を作成する。既にブランチの worktree が存在する場合はそちらに切り替える。
  */
 
+import { ghRefForPr } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
@@ -96,8 +97,7 @@ export function registerPrCommand(): () => void {
                 dir: rootDir,
                 body: pr.title,
                 worktreeDir: result.value.dir,
-                prNumber: pr.number,
-                issueNumber: 0,
+                ghRef: ghRefForPr(pr.number),
               }),
             );
             // taskAdd 失敗時は autostart を抑止する。続けると attachSession が

@@ -181,7 +181,7 @@ public actor RpcDispatcher {
           try await claudeSessions.removeBySessionId(
             worktreePath: worktreePath, sessionId: previous)
           // 旧 session を持っていた Task から sessionID を切り離す。task 本体は
-          // 残し (body/pr/issue があれば永続)、新 session 開始経路 (attachSession)
+          // 残し (body / gh_ref があれば永続)、新 session 開始経路 (attachSession)
           // と矛盾しないよう「sessionID 空 + 同 worktree」候補を増やす。
           do {
             try await tasks.detachSession(dir: worktreePath, sessionId: previous)
@@ -225,7 +225,7 @@ public actor RpcDispatcher {
         try await claudeSessions.removeBySessionId(
           worktreePath: worktreePath, sessionId: hook.sessionID)
         // SessionEnd: task.sessionID は保持して `claude --resume` の起点に使う。
-        // body/pr/issue がすべて空の task のみ削除する (Claude 直接起動 + 即終了の残骸)。
+        // body / gh_ref がすべて空の task のみ削除する (Claude 直接起動 + 即終了の残骸)。
         do {
           try await tasks.detachSession(dir: worktreePath, sessionId: hook.sessionID)
         } catch {
@@ -586,14 +586,12 @@ public actor RpcDispatcher {
       )
     }
     let listedTasks = try await tasks.list(dir: req.dir)
-    // task ≠ session 設計: 身元 (body / pr / issue) があれば session が dead でも表示する。
+    // task ≠ session 設計: 身元 (body / gh_ref) があれば session が dead でも表示する。
     // session 単独で生きていた task (Claude 直接起動 + 即終了の残骸) のみ filter で落とす。
     let allTasks: [Gozd_V1_Task]
     if let ids = registeredSessionIds {
       allTasks = listedTasks.filter { task in
-        if !task.body.isEmpty || task.prNumber > 0 || task.issueNumber > 0 {
-          return true
-        }
+        if task.hasNonSessionIdentity { return true }
         return !task.sessionID.isEmpty && ids.contains(task.sessionID)
       }
     } else {
@@ -953,7 +951,7 @@ public actor RpcDispatcher {
         removeError = error
       }
       // ターミナル close は session-end hook を発火させないため、ここで明示的に
-      // task.sessionID を切り離す。body/pr/issue が空なら同時に task も削除される
+      // task.sessionID を切り離す。body / gh_ref が空なら同時に task も削除される
       // (detachSession 内部で判定)。claudeSessions 側のエラーを優先するため tasks 側は
       // throw しないが、失敗を放置すると stale な sessionID が残るので notify する。
       do {
@@ -986,8 +984,7 @@ public actor RpcDispatcher {
       dir: req.dir,
       body: req.body,
       worktreeDir: req.worktreeDir,
-      prNumber: req.prNumber,
-      issueNumber: req.issueNumber
+      ghRef: req.hasGhRef ? req.ghRef : nil
     )
     var resp = Gozd_V1_TaskAddResponse()
     resp.task = task

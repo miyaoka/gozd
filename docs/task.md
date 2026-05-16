@@ -25,7 +25,7 @@ interface Task {
 
 | 概念               | 寿命の始まり                                                    | 寿命の終わり                            |
 | ------------------ | --------------------------------------------------------------- | --------------------------------------- |
-| **Task**           | PR/issue picker から生成、Claude 直接起動時の SessionStart hook | worktree 削除、明示的な remove          |
+| **Task**           | PR/issue picker から生成、Claude 直接起動時の SessionStart hook | worktree 削除、自動 cleanup             |
 | **Claude session** | SessionStart hook                                               | SessionEnd hook (task.sessionId は保持) |
 
 1 worktree に対して `WorktreeEntry.tasks` は `repeated Task`。複数の Task が同居しうる。
@@ -92,20 +92,19 @@ worktree visit → ターミナル起動 → ユーザーが `claude` を実行
 
 ### 削除・クリーンアップ
 
-| トリガー                    | 挙動                                                                      |
-| --------------------------- | ------------------------------------------------------------------------- |
-| `[⋮]` → "Remove worktree"   | worktree 削除 + 該当 `worktreeDir` の全 Task 削除                         |
-| ターミナル close (PTY 終了) | `detachSession`: sessionId 切り離し。body/pr/issue が空なら task 削除     |
-| SessionEnd hook             | `detachSession`: 同上                                                     |
-| 外部で worktree 消失        | `gitWorktreeList` 取得時に存在しない `worktreeDir` を検出し Task 自動削除 |
-| 起動時 reconcile            | dead sessionId クリア + identity が完全に消えた task のみ削除             |
+| トリガー                              | 挙動                                                                      |
+| ------------------------------------- | ------------------------------------------------------------------------- |
+| worktree 行 `[⋮]` → "Remove worktree" | worktree 削除 + 該当 `worktreeDir` の全 Task 削除                         |
+| ターミナル close (PTY 終了)           | `detachSession`: sessionId 切り離し。body/pr/issue が空なら task 削除     |
+| SessionEnd hook                       | `detachSession`: 同上                                                     |
+| 外部で worktree 消失                  | `gitWorktreeList` 取得時に存在しない `worktreeDir` を検出し Task 自動削除 |
+| 起動時 reconcile                      | dead sessionId クリア + identity が完全に消えた task のみ削除             |
 
 ## RPC
 
 ```text
 taskAdd:    { dir, body, worktreeDir, prNumber, issueNumber } → Task
 taskUpdate: { dir, id, body } → Task            (OSC title 同期で使用)
-taskRemove: { dir, id } → void                   (明示削除)
 ```
 
 `taskAdd` の id は server 側で生成して返す。

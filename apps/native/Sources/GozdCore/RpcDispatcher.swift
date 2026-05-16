@@ -337,8 +337,6 @@ public actor RpcDispatcher {
       return try await handleTaskAdd(body)
     case "/task/update":
       return try await handleTaskUpdate(body)
-    case "/task/remove":
-      return try await handleTaskRemove(body)
     case "/fs/readFileAbsolute":
       return try handleFsReadFileAbsolute(body)
     case "/fs/writeFile":
@@ -1001,12 +999,6 @@ public actor RpcDispatcher {
     var resp = Gozd_V1_TaskUpdateResponse()
     resp.task = task
     return try resp.jsonUTF8Data()
-  }
-
-  private func handleTaskRemove(_ body: Data) async throws -> Data {
-    let req = try Gozd_V1_TaskRemoveRequest(jsonUTF8Data: body)
-    try await tasks.remove(dir: req.dir, id: req.id)
-    return try Gozd_V1_TaskRemoveResponse().jsonUTF8Data()
   }
 
   // MARK: - fs extra

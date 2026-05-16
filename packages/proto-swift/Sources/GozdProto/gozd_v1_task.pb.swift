@@ -111,30 +111,6 @@ public struct Gozd_V1_TaskUpdateResponse: Sendable {
   fileprivate var _task: Gozd_V1_Task? = nil
 }
 
-public struct Gozd_V1_TaskRemoveRequest: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var dir: String = String()
-
-  public var id: String = String()
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-}
-
-public struct Gozd_V1_TaskRemoveResponse: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-}
-
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate let _protobuf_package = "gozd.v1"
@@ -322,60 +298,6 @@ extension Gozd_V1_TaskUpdateResponse: SwiftProtobuf.Message, SwiftProtobuf._Mess
 
   public static func ==(lhs: Gozd_V1_TaskUpdateResponse, rhs: Gozd_V1_TaskUpdateResponse) -> Bool {
     if lhs._task != rhs._task {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-extension Gozd_V1_TaskRemoveRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".TaskRemoveRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}id\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.dir) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.id) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.dir.isEmpty {
-      try visitor.visitSingularStringField(value: self.dir, fieldNumber: 1)
-    }
-    if !self.id.isEmpty {
-      try visitor.visitSingularStringField(value: self.id, fieldNumber: 2)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Gozd_V1_TaskRemoveRequest, rhs: Gozd_V1_TaskRemoveRequest) -> Bool {
-    if lhs.dir != rhs.dir {return false}
-    if lhs.id != rhs.id {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-extension Gozd_V1_TaskRemoveResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".TaskRemoveResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    // Load everything into unknown fields
-    while try decoder.nextFieldNumber() != nil {}
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Gozd_V1_TaskRemoveResponse, rhs: Gozd_V1_TaskRemoveResponse) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

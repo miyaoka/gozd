@@ -56,17 +56,6 @@ public actor TaskStore {
     return task
   }
 
-  /// 明示的な削除。サイドバー ⋮ メニュー「Remove task」等から呼ばれる。
-  public func remove(dir: String, id: String) throws {
-    var list = try loadFile(for: dir)
-    let before = list.tasks.count
-    list.tasks.removeAll { $0.id == id }
-    guard list.tasks.count != before else {
-      throw TaskStoreError.notFound(id)
-    }
-    try saveFile(list, for: dir)
-  }
-
   /// Task body を OSC ターミナルタイトル経由で書き換える。renderer 側 useSidebarData
   /// から呼ばれる。
   public func update(dir: String, id: String, body: String) throws -> Gozd_V1_Task {

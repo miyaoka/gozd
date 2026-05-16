@@ -37,9 +37,3 @@ message TaskUpdateRequest {
 message TaskUpdateResponse {
   Task task = 1;
 }
-
-message TaskRemoveRequest {
-  string dir = 1;
-  string id = 2;
-}
-message TaskRemoveResponse {}

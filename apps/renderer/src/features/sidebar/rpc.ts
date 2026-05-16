@@ -16,8 +16,6 @@ import {
   SaveAppStateResponse,
   TaskAddRequest,
   TaskAddResponse,
-  TaskRemoveRequest,
-  TaskRemoveResponse,
   TaskUpdateRequest,
   TaskUpdateResponse,
 } from "@gozd/proto";
@@ -50,9 +48,6 @@ export const rpcTaskAdd = (req: TaskAddRequest) =>
 
 export const rpcTaskUpdate = (req: TaskUpdateRequest) =>
   rpc("/task/update", req, TaskUpdateRequest, TaskUpdateResponse);
-
-const rpcTaskRemove = (req: TaskRemoveRequest) =>
-  rpc("/task/remove", req, TaskRemoveRequest, TaskRemoveResponse);
 
 // --- app-state 永続化（sidebar repos / order / collapse の保存） ---
 

@@ -591,9 +591,7 @@ public actor RpcDispatcher {
     let allTasks: [Gozd_V1_Task]
     if let ids = registeredSessionIds {
       allTasks = listedTasks.filter { task in
-        if !task.body.isEmpty || task.prNumber > 0 || task.issueNumber > 0 {
-          return true
-        }
+        if task.hasNonSessionIdentity { return true }
         return !task.sessionID.isEmpty && ids.contains(task.sessionID)
       }
     } else {
@@ -986,8 +984,7 @@ public actor RpcDispatcher {
       dir: req.dir,
       body: req.body,
       worktreeDir: req.worktreeDir,
-      prNumber: req.prNumber,
-      issueNumber: req.issueNumber
+      ghRef: req.hasGhRef ? req.ghRef : nil
     )
     var resp = Gozd_V1_TaskAddResponse()
     resp.task = task

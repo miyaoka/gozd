@@ -42,12 +42,11 @@ export function branchLabel(branch: string | undefined): string {
 
 /**
  * Task の PR / issue 番号をプレフィックス文字列 (`#123 `) として返す。
- * 両方 0 なら空文字。両方 > 0 は仕様上発生しないが、PR を優先する。
+ * GitHub では PR と issue が同一の番号空間を共有するため kind を見ずに番号だけ表示する。
  */
 function taskNumberPrefix(task: Task): string {
-  if (task.prNumber > 0) return `#${task.prNumber} `;
-  if (task.issueNumber > 0) return `#${task.issueNumber} `;
-  return "";
+  if (task.ghRef === undefined) return "";
+  return `#${task.ghRef.number} `;
 }
 
 /**

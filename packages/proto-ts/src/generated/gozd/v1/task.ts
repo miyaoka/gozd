@@ -6,7 +6,7 @@
 
 /* eslint-disable */
 import { BinaryReader, BinaryWriter } from "@bufbuild/protobuf/wire";
-import { Task } from "./common";
+import { GhRef, Task } from "./common";
 
 export const protobufPackage = "gozd.v1";
 
@@ -19,8 +19,8 @@ export interface TaskAddRequest {
   dir: string;
   body: string;
   worktreeDir: string;
-  prNumber: number;
-  issueNumber: number;
+  /** GitHub PR / issue 参照。手動作成時は未指定で OK。 */
+  ghRef?: GhRef | undefined;
 }
 
 export interface TaskAddResponse {
@@ -96,7 +96,7 @@ export const TaskList: MessageFns<TaskList> = {
 };
 
 function createBaseTaskAddRequest(): TaskAddRequest {
-  return { dir: "", body: "", worktreeDir: "", prNumber: 0, issueNumber: 0 };
+  return { dir: "", body: "", worktreeDir: "", ghRef: undefined };
 }
 
 export const TaskAddRequest: MessageFns<TaskAddRequest> = {
@@ -110,11 +110,8 @@ export const TaskAddRequest: MessageFns<TaskAddRequest> = {
     if (message.worktreeDir !== "") {
       writer.uint32(26).string(message.worktreeDir);
     }
-    if (message.prNumber !== 0) {
-      writer.uint32(32).uint32(message.prNumber);
-    }
-    if (message.issueNumber !== 0) {
-      writer.uint32(40).uint32(message.issueNumber);
+    if (message.ghRef !== undefined) {
+      GhRef.encode(message.ghRef, writer.uint32(34).fork()).join();
     }
     return writer;
   },
@@ -151,19 +148,11 @@ export const TaskAddRequest: MessageFns<TaskAddRequest> = {
           continue;
         }
         case 4: {
-          if (tag !== 32) {
+          if (tag !== 34) {
             break;
           }
 
-          message.prNumber = reader.uint32();
-          continue;
-        }
-        case 5: {
-          if (tag !== 40) {
-            break;
-          }
-
-          message.issueNumber = reader.uint32();
+          message.ghRef = GhRef.decode(reader, reader.uint32());
           continue;
         }
       }
@@ -184,16 +173,11 @@ export const TaskAddRequest: MessageFns<TaskAddRequest> = {
         : isSet(object.worktree_dir)
         ? globalThis.String(object.worktree_dir)
         : "",
-      prNumber: isSet(object.prNumber)
-        ? globalThis.Number(object.prNumber)
-        : isSet(object.pr_number)
-        ? globalThis.Number(object.pr_number)
-        : 0,
-      issueNumber: isSet(object.issueNumber)
-        ? globalThis.Number(object.issueNumber)
-        : isSet(object.issue_number)
-        ? globalThis.Number(object.issue_number)
-        : 0,
+      ghRef: isSet(object.ghRef)
+        ? GhRef.fromJSON(object.ghRef)
+        : isSet(object.gh_ref)
+        ? GhRef.fromJSON(object.gh_ref)
+        : undefined,
     };
   },
 
@@ -208,11 +192,8 @@ export const TaskAddRequest: MessageFns<TaskAddRequest> = {
     if (message.worktreeDir !== "") {
       obj.worktreeDir = message.worktreeDir;
     }
-    if (message.prNumber !== 0) {
-      obj.prNumber = Math.round(message.prNumber);
-    }
-    if (message.issueNumber !== 0) {
-      obj.issueNumber = Math.round(message.issueNumber);
+    if (message.ghRef !== undefined) {
+      obj.ghRef = GhRef.toJSON(message.ghRef);
     }
     return obj;
   },
@@ -225,8 +206,7 @@ export const TaskAddRequest: MessageFns<TaskAddRequest> = {
     message.dir = object.dir ?? "";
     message.body = object.body ?? "";
     message.worktreeDir = object.worktreeDir ?? "";
-    message.prNumber = object.prNumber ?? 0;
-    message.issueNumber = object.issueNumber ?? 0;
+    message.ghRef = (object.ghRef !== undefined && object.ghRef !== null) ? GhRef.fromPartial(object.ghRef) : undefined;
     return message;
   },
 };

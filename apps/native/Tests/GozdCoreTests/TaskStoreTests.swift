@@ -16,7 +16,7 @@ struct TaskStoreTests {
 
     let task = try await store.add(
       dir: env.worktreeA, body: "existing", worktreeDir: env.worktreeA,
-      prNumber: 0, issueNumber: 0
+      ghRef: nil
     )
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "s1", worktreeDir: env.worktreeA)
@@ -40,12 +40,11 @@ struct TaskStoreTests {
     // createdAt をテストフックで明示注入し、時間ベース待機を避ける。
     let older = try await store.add(
       dir: env.worktreeA, body: "older", worktreeDir: env.worktreeA,
-      prNumber: 0, issueNumber: 0,
-      createdAt: "2026-05-15T00:00:00Z"
+      ghRef: nil, createdAt: "2026-05-15T00:00:00Z"
     )
     let newer = try await store.add(
       dir: env.worktreeA, body: "newer", worktreeDir: env.worktreeA,
-      prNumber: 0, issueNumber: 0,
+      ghRef: nil,
       createdAt: "2026-05-16T00:00:00Z"
     )
 
@@ -87,7 +86,7 @@ struct TaskStoreTests {
 
     let foreign = try await store.add(
       dir: env.worktreeA, body: "for-b", worktreeDir: env.worktreeB,
-      prNumber: 0, issueNumber: 0
+      ghRef: nil
     )
 
     try await store.attachSession(
@@ -127,7 +126,7 @@ struct TaskStoreTests {
 
     let task = try await store.add(
       dir: env.worktreeA, body: "Refactor X", worktreeDir: env.worktreeA,
-      prNumber: 0, issueNumber: 0
+      ghRef: nil
     )
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "live", worktreeDir: env.worktreeA)
@@ -142,15 +141,18 @@ struct TaskStoreTests {
     #expect(kept.sessionID == "live") // 再 resume 用に保持
   }
 
-  @Test("detachSession: prNumber > 0 でも task を残す (PR/issue 由来 task の永続性)")
+  @Test("detachSession: ghRef があれば task を残す (PR/issue 由来 task の永続性)")
   func detachSessionKeepsPrTask() async throws {
     let env = try await makeEnv()
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
+    var prRef = Gozd_V1_GhRef()
+    prRef.kind = .pr
+    prRef.number = 42
     _ = try await store.add(
       dir: env.worktreeA, body: "", worktreeDir: env.worktreeA,
-      prNumber: 42, issueNumber: 0
+      ghRef: prRef
     )
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "pr-sid", worktreeDir: env.worktreeA)
@@ -159,7 +161,9 @@ struct TaskStoreTests {
 
     let list = try await store.list(dir: env.worktreeA)
     let kept = try #require(list.first)
-    #expect(kept.prNumber == 42)
+    #expect(kept.hasGhRef)
+    #expect(kept.ghRef.kind == .pr)
+    #expect(kept.ghRef.number == 42)
     #expect(kept.sessionID == "pr-sid")
   }
 
@@ -171,7 +175,7 @@ struct TaskStoreTests {
 
     _ = try await store.add(
       dir: env.worktreeA, body: "alive", worktreeDir: env.worktreeA,
-      prNumber: 0, issueNumber: 0
+      ghRef: nil
     )
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "live", worktreeDir: env.worktreeA)
@@ -193,7 +197,7 @@ struct TaskStoreTests {
 
     _ = try await store.add(
       dir: env.worktreeA, body: "identified", worktreeDir: env.worktreeA,
-      prNumber: 0, issueNumber: 0
+      ghRef: nil
     )
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "dead", worktreeDir: env.worktreeA)
@@ -233,7 +237,7 @@ struct TaskStoreTests {
 
     _ = try await store.add(
       dir: env.worktreeA, body: "active", worktreeDir: env.worktreeA,
-      prNumber: 0, issueNumber: 0
+      ghRef: nil
     )
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "live", worktreeDir: env.worktreeA)

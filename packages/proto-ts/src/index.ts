@@ -38,6 +38,8 @@ export { ClientMessage, HookMessage, OpenMessage } from "./generated/gozd/v1/cli
 export {
   FileEntry,
   FileReadResult,
+  GhRef,
+  GhRefKind,
   GitCommit,
   GitFileChange,
   GitIssue,

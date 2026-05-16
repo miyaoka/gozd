@@ -20,6 +20,44 @@ fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAP
   typealias Version = _2
 }
 
+public enum Gozd_V1_GhRefKind: SwiftProtobuf.Enum, Swift.CaseIterable {
+  public typealias RawValue = Int
+  case unspecified // = 0
+  case pr // = 1
+  case issue // = 2
+  case UNRECOGNIZED(Int)
+
+  public init() {
+    self = .unspecified
+  }
+
+  public init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unspecified
+    case 1: self = .pr
+    case 2: self = .issue
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  public var rawValue: Int {
+    switch self {
+    case .unspecified: return 0
+    case .pr: return 1
+    case .issue: return 2
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  public static let allCases: [Gozd_V1_GhRefKind] = [
+    .unspecified,
+    .pr,
+    .issue,
+  ]
+
+}
+
 public struct Gozd_V1_WorktreeEntry: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -55,9 +93,16 @@ public struct Gozd_V1_Task: Sendable {
 
   public var worktreeDir: String = String()
 
-  public var prNumber: UInt32 = 0
-
-  public var issueNumber: UInt32 = 0
+  /// GitHub PR / issue 参照。両方同時設定は型で排他 (GhRef 内で number は単一)。
+  /// GitHub では PR と issue が同一の番号空間を共有するため、種別 + 番号の組で表現する。
+  public var ghRef: Gozd_V1_GhRef {
+    get {_ghRef ?? Gozd_V1_GhRef()}
+    set {_ghRef = newValue}
+  }
+  /// Returns true if `ghRef` has been explicitly set.
+  public var hasGhRef: Bool {self._ghRef != nil}
+  /// Clears the value of `ghRef`. Subsequent reads from it will return its default value.
+  public mutating func clearGhRef() {self._ghRef = nil}
 
   /// ISO 8601
   public var createdAt: String = String()
@@ -65,6 +110,23 @@ public struct Gozd_V1_Task: Sendable {
   /// 最後に attach された Claude session の ID。空文字は session 未起動 / 終了済み。
   /// SessionEnd では消さず保持し、サイドバークリック時の `claude --resume` 起点に使う。
   public var sessionID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _ghRef: Gozd_V1_GhRef? = nil
+}
+
+/// GitHub PR / issue 参照。issue #531 で pr_number / issue_number から統合。
+public struct Gozd_V1_GhRef: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var kind: Gozd_V1_GhRefKind = .unspecified
+
+  public var number: UInt32 = 0
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -247,6 +309,10 @@ public struct Gozd_V1_ProjectConfig: Sendable {
 
 fileprivate let _protobuf_package = "gozd.v1"
 
+extension Gozd_V1_GhRefKind: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0GH_REF_KIND_UNSPECIFIED\0\u{1}GH_REF_KIND_PR\0\u{1}GH_REF_KIND_ISSUE\0")
+}
+
 extension Gozd_V1_WorktreeEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WorktreeEntry"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}head\0\u{1}branch\0\u{3}is_main\0\u{3}git_statuses\0\u{1}tasks\0")
@@ -304,7 +370,7 @@ extension Gozd_V1_WorktreeEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
 
 extension Gozd_V1_Task: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Task"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}body\0\u{3}worktree_dir\0\u{3}pr_number\0\u{3}issue_number\0\u{3}created_at\0\u{3}session_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}body\0\u{3}worktree_dir\0\u{3}gh_ref\0\u{3}created_at\0\u{3}session_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -315,16 +381,19 @@ extension Gozd_V1_Task: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementat
       case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.body) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.worktreeDir) }()
-      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.prNumber) }()
-      case 5: try { try decoder.decodeSingularUInt32Field(value: &self.issueNumber) }()
-      case 6: try { try decoder.decodeSingularStringField(value: &self.createdAt) }()
-      case 7: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
+      case 4: try { try decoder.decodeSingularMessageField(value: &self._ghRef) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.createdAt) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.id.isEmpty {
       try visitor.visitSingularStringField(value: self.id, fieldNumber: 1)
     }
@@ -334,17 +403,14 @@ extension Gozd_V1_Task: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementat
     if !self.worktreeDir.isEmpty {
       try visitor.visitSingularStringField(value: self.worktreeDir, fieldNumber: 3)
     }
-    if self.prNumber != 0 {
-      try visitor.visitSingularUInt32Field(value: self.prNumber, fieldNumber: 4)
-    }
-    if self.issueNumber != 0 {
-      try visitor.visitSingularUInt32Field(value: self.issueNumber, fieldNumber: 5)
-    }
+    try { if let v = self._ghRef {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+    } }()
     if !self.createdAt.isEmpty {
-      try visitor.visitSingularStringField(value: self.createdAt, fieldNumber: 6)
+      try visitor.visitSingularStringField(value: self.createdAt, fieldNumber: 5)
     }
     if !self.sessionID.isEmpty {
-      try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 7)
+      try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 6)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -353,10 +419,44 @@ extension Gozd_V1_Task: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementat
     if lhs.id != rhs.id {return false}
     if lhs.body != rhs.body {return false}
     if lhs.worktreeDir != rhs.worktreeDir {return false}
-    if lhs.prNumber != rhs.prNumber {return false}
-    if lhs.issueNumber != rhs.issueNumber {return false}
+    if lhs._ghRef != rhs._ghRef {return false}
     if lhs.createdAt != rhs.createdAt {return false}
     if lhs.sessionID != rhs.sessionID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GhRef: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GhRef"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}kind\0\u{1}number\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularEnumField(value: &self.kind) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.number) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.kind != .unspecified {
+      try visitor.visitSingularEnumField(value: self.kind, fieldNumber: 1)
+    }
+    if self.number != 0 {
+      try visitor.visitSingularUInt32Field(value: self.number, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GhRef, rhs: Gozd_V1_GhRef) -> Bool {
+    if lhs.kind != rhs.kind {return false}
+    if lhs.number != rhs.number {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

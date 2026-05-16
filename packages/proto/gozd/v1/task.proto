@@ -22,8 +22,8 @@ message TaskAddRequest {
   string dir = 1;
   string body = 2;
   string worktree_dir = 3;
-  uint32 pr_number = 4;
-  uint32 issue_number = 5;
+  // GitHub PR / issue 参照。手動作成時は未指定で OK。
+  optional GhRef gh_ref = 4;
 }
 message TaskAddResponse {
   Task task = 1;

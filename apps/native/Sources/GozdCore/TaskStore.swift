@@ -39,15 +39,34 @@ public actor TaskStore {
     return try loadFile(for: dir).tasks
   }
 
-  /// 新規 Task を作成する。PR/issue picker や手動操作から呼ばれる。
-  /// id は UUID で生成。session は未 attach (sessionID 空) の状態で開始する。
-  /// `createdAt` を省略すると現在時刻 (ISO 8601) を埋める。テスト時に明示的な順序を
-  /// 仕込みたい場合のみ caller が文字列で与える (本体経路では渡さない)。
+  /// Task を作成または再活性化する。PR/issue picker や手動操作から呼ばれる。
+  ///
+  /// 動作:
+  ///   - `ghRef` 指定があり、同 `worktreeDir` + 同 `ghRef` の既存 task が見つかれば
+  ///     **upsert**: `hidden` を false に戻し、`body` を最新の PR/issue タイトルで
+  ///     上書きして返す。createdAt / id / sessionID は保持する。
+  ///   - それ以外は新規 task を UUID で作成。`createdAt` を省略すると現在時刻
+  ///     (ISO 8601)。テスト時の順序仕込み用に caller が文字列で与えられる。
+  ///
+  /// upsert を入れた理由: terminal close で `detachSession` が `ghRef` 持ち task に
+  /// hidden=true を立てるため、再度 PR/issue picker で同じ PR を選んだときに再表示
+  /// する経路が必要。wtByBranch hit ルート (既存 worktree 切替) でも picker から
+  /// `add` が呼ばれる前提で、ここで identity 単位の冪等再活性化を完結させる。
   public func add(
     dir: String, body: String, worktreeDir: String, ghRef: Gozd_V1_GhRef?,
     createdAt: String? = nil
   ) throws -> Gozd_V1_Task {
     var list = try loadFile(for: dir)
+    if let ghRef,
+      let idx = list.tasks.firstIndex(where: {
+        $0.worktreeDir == worktreeDir && $0.hasGhRef && $0.ghRef == ghRef
+      })
+    {
+      list.tasks[idx].body = body
+      list.tasks[idx].hidden = false
+      try saveFile(list, for: dir)
+      return list.tasks[idx]
+    }
     var task = Gozd_V1_Task()
     task.id = UUID().uuidString
     task.body = body
@@ -74,8 +93,12 @@ public actor TaskStore {
   /// Claude session-start hook を Task に attach する。
   ///
   /// 優先順位:
-  ///   1. 既に sessionID が一致する task → no-op (idempotent)
-  ///   2. 同一 worktreeDir で sessionID 空の task のうち最新のもの (createdAt 降順) に attach
+  ///   1. 既に sessionID が一致する task → no-op (idempotent)。当該 task が hidden
+  ///      でも触らない (`hidden=true` 状態の task は picker 経由でのみ蘇生する規律)
+  ///   2. 同一 worktreeDir で `sessionID == ""` かつ `hidden == false` の task のうち
+  ///      最新のもの (createdAt 降順) に attach。**hidden を候補から外す**のは
+  ///      「terminal close 済みの ghRef task に、別経路で起動した素 claude が取り憑く」
+  ///      事故を構造的に防ぐため。ghRef task の蘇生は `add` の upsert (picker) に限定する
   ///   3. 該当無し → 新規 task を作成し sessionID を入れる (Claude 直接起動経路)
   public func attachSession(dir: String, sessionId: String, worktreeDir: String) throws {
     var list = try loadFile(for: dir)
@@ -83,7 +106,9 @@ public actor TaskStore {
       return
     }
     let candidates = list.tasks.enumerated().filter {
-      $0.element.worktreeDir == worktreeDir && $0.element.sessionID.isEmpty
+      $0.element.worktreeDir == worktreeDir
+        && $0.element.sessionID.isEmpty
+        && !$0.element.hidden
     }
     if let pick = candidates.max(by: { $0.element.createdAt < $1.element.createdAt }) {
       list.tasks[pick.offset].sessionID = sessionId
@@ -99,38 +124,68 @@ public actor TaskStore {
     try saveFile(list, for: dir)
   }
 
-  /// SessionEnd hook 由来。task.sessionID は保持して `claude --resume` の起点に使う。
-  /// 削除判定は `hasNonSessionIdentity` (gh_ref) で行う。sessionID を
-  /// この判定に含めると「再 resume 用に sessionID を残す」設計と矛盾するため除外する。
+  /// SessionEnd hook / terminal close 由来。
+  ///
+  /// 動作:
+  ///   - `gh_ref` 持ち task: 削除せず `hidden=true` を立て、`sessionID` は保持する。
+  ///     サイドバー表示は消えるが、PR/issue 永続情報と `claude --resume` の起点は
+  ///     残る。同じ PR/issue を picker で再選択すると `add` の upsert 経路で
+  ///     `hidden=false` に戻り表示が復活する。
+  ///   - `gh_ref` 無し task: 従来通り削除する (Claude 直接起動 + 即終了の残骸掃除)。
+  ///
+  /// sessionID 単独では身元にしない: 「再 resume 用に sessionID を残す」設計と
+  /// 矛盾するため、`hasNonSessionIdentity` で判定する。
   public func detachSession(dir: String, sessionId: String) throws {
     var list = try loadFile(for: dir)
     guard let idx = list.tasks.firstIndex(where: { $0.sessionID == sessionId }) else {
       return
     }
-    if !list.tasks[idx].hasNonSessionIdentity {
-      list.tasks.remove(at: idx)
-    }
-    // identity (gh_ref) があれば sessionID は保持。worktreeList の filter は
-    // identity の有無で判定するため、sessionID を残してもサイドバー表示には影響しない。
+    hideOrRemove(&list, at: idx)
     try saveFile(list, for: dir)
   }
 
   /// resume 失敗検出経路 (claude --resume が transcript 不在等で error 終了) で呼ぶ。
-  /// 該当 sid を持つ task に対し、ghRef があれば sessionID を空に書き換え、無ければ
-  /// task ごと削除する。`detachSession` との違いは「identity ありでも sessionID を
-  /// クリアする」こと。次のクリックで `--resume` ではなく素の `claude` 起動経路に流す
-  /// ためで、SessionEnd 由来の detach (resume 期待で sid を保持する) とは意図が異なる。
-  public func clearDeadSession(dir: String, sessionId: String) throws {
+  ///
+  /// 動作:
+  ///   - `gh_ref` なし: task ごと削除する (`markHiddenIfGhRef` 値は無関係)
+  ///   - `gh_ref` あり + `markHiddenIfGhRef == true` (terminal close 由来 /
+  ///     `removeByPty`): sessionID を空にしつつ `hidden=true` を立てる。サイドバー
+  ///     表示も消し、再表示は picker での再選択 (`add` の upsert) を待つ。pane が
+  ///     閉じているので直後の attachSession は走らない
+  ///   - `gh_ref` あり + `markHiddenIfGhRef == false` (session-start fallback 由来 /
+  ///     `applyClaudeSessionHook`): sessionID だけ空にして `hidden` は据え置く。
+  ///     直後の `attachSession(新 sid)` が hidden=false な ghRef task を拾って自動
+  ///     転移するため、ユーザー視点で連続性を保てる
+  ///
+  /// `detachSession` との違い: identity ありでも sessionID を確定 dead として書き換え
+  /// (空に倒し) 次のクリックを `--resume` ではなく素の `claude` 起動経路へ流す。
+  /// SessionEnd 由来の detach (resume 期待で sid を保持する) とは意図が異なる。
+  public func clearDeadSession(
+    dir: String, sessionId: String, markHiddenIfGhRef: Bool
+  ) throws {
     var list = try loadFile(for: dir)
     guard let idx = list.tasks.firstIndex(where: { $0.sessionID == sessionId }) else {
       return
     }
     if list.tasks[idx].hasNonSessionIdentity {
       list.tasks[idx].sessionID = ""
+      if markHiddenIfGhRef {
+        list.tasks[idx].hidden = true
+      }
     } else {
       list.tasks.remove(at: idx)
     }
     try saveFile(list, for: dir)
+  }
+
+  /// ghRef 持ちなら `hidden=true` を立て、無ければ task ごと削除する SSOT ヘルパー。
+  /// detachSession / clearDeadSession(markHiddenIfGhRef=true) で同じ判定を書かない。
+  private func hideOrRemove(_ list: inout Gozd_V1_TaskList, at idx: Int) {
+    if list.tasks[idx].hasNonSessionIdentity {
+      list.tasks[idx].hidden = true
+    } else {
+      list.tasks.remove(at: idx)
+    }
   }
 
   /// worktree 物理削除 (handleWorktreeRemove) からの連動掃除。

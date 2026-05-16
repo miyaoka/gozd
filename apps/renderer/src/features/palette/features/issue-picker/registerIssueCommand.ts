@@ -10,6 +10,7 @@ import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
 import {
+  reviveTaskForGhRef,
   rpcCreateWorktree,
   rpcGitBranchList,
   rpcGitDefaultBranch,
@@ -87,8 +88,20 @@ export function registerIssueCommand(): () => void {
           const branchName = issueBranchName(issue.number);
           const existingDir = wtByBranch.get(branchName);
           if (existingDir !== undefined) {
-            terminalStore.viewMode = "wt";
-            worktreeStore.setOpen(existingDir);
+            // 直前に terminal close で hidden 化されている可能性があるため、同 ghRef
+            // で taskAdd (server 側 upsert) を呼んで hidden を解除する。完了後の
+            // 真値反映は `useRepoStore.requestRefresh` 経由で `useSidebarData` の
+            // fetchRepo に委譲する (楽観更新で renderer 側を直書きしない)。
+            void (async () => {
+              await reviveTaskForGhRef({
+                existingDir,
+                body: issue.title,
+                ghRef: ghRefForIssue(issue.number),
+                errorLabel: "Failed to revive task for issue",
+              });
+              terminalStore.viewMode = "wt";
+              worktreeStore.setOpen(existingDir);
+            })();
             return;
           }
           // `issue-<N>` が worktree を持たない孤立 branch として既に存在する場合、
@@ -141,6 +154,9 @@ export function registerIssueCommand(): () => void {
             // issue タイトルを body に持つ task を作成し worktree に紐付ける。
             // Claude session 未起動状態 (sessionId 空) で永続化され、サイドバー行を
             // クリックすると素の claude が起動して SessionStart hook で attach される。
+            // taskAdd 後の真値反映は requestRefresh に委ねる (楽観更新で renderer 側を
+            // 直書きしない)。失敗時は autostart を抑止し、worktree だけ残った状態で
+            // ユーザー復旧 (再選択で wtByBranch hit) に倒す。
             const taskResult = await tryCatch(
               rpcTaskAdd({
                 dir: rootDir,
@@ -149,23 +165,11 @@ export function registerIssueCommand(): () => void {
                 ghRef: ghRefForIssue(issue.number),
               }),
             );
-            // taskAdd 失敗時は autostart を抑止する。続けると attachSession が
-            // 「sessionId 空の最新 task = 無し」経路に入って body 空の新規 task を
-            // 作り、issue タイトルを失った状態で永続化される。worktree は残るので
-            // ユーザーは手動で復旧でき、再選択で wtByBranch が hit してこの経路を
-            // 通らず既存 worktree への切り替えに倒れる。
             if (!taskResult.ok) {
               notify.error("Failed to create task for issue", taskResult.error);
               return;
             }
-            if (taskResult.value.task !== undefined) {
-              const created = taskResult.value.task;
-              const repo = repoStore.repos[rootDir];
-              const wt = repo?.worktrees.find((w) => w.path === result.value.dir);
-              if (wt !== undefined && !wt.tasks.some((t) => t.id === created.id)) {
-                wt.tasks = [...wt.tasks, created];
-              }
-            }
+            repoStore.requestRefresh(rootDir);
             // 直後の setOpen で visit が走り初期 leaf が作られる前に autostart ヒントを残す。
             // これで visit が初期 leaf に素の `claude` 起動を仕込み、SessionStart hook で
             // 上で作成した task に attach される。後追いクリック起動の二重 leaf を防ぐ。

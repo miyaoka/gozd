@@ -82,6 +82,12 @@ export interface Task {
    * SessionEnd では消さず保持し、サイドバークリック時の `claude --resume` 起点に使う。
    */
   sessionId: string;
+  /**
+   * サイドバーから非表示にするフラグ。ターミナル close / SessionEnd で gh_ref 持ち
+   * task を削除する代わりに立てる。同 worktree_dir + 同 gh_ref で TaskAdd が来た時
+   * (PR/issue picker からの再選択) や SessionStart の attach 経路で false に戻す。
+   */
+  hidden: boolean;
 }
 
 /** GitHub PR / issue 参照。 */
@@ -418,7 +424,7 @@ export const WorktreeEntry_GitStatusesEntry: MessageFns<WorktreeEntry_GitStatuse
 };
 
 function createBaseTask(): Task {
-  return { id: "", body: "", worktreeDir: "", ghRef: undefined, createdAt: "", sessionId: "" };
+  return { id: "", body: "", worktreeDir: "", ghRef: undefined, createdAt: "", sessionId: "", hidden: false };
 }
 
 export const Task: MessageFns<Task> = {
@@ -440,6 +446,9 @@ export const Task: MessageFns<Task> = {
     }
     if (message.sessionId !== "") {
       writer.uint32(50).string(message.sessionId);
+    }
+    if (message.hidden !== false) {
+      writer.uint32(56).bool(message.hidden);
     }
     return writer;
   },
@@ -499,6 +508,14 @@ export const Task: MessageFns<Task> = {
           message.sessionId = reader.string();
           continue;
         }
+        case 7: {
+          if (tag !== 56) {
+            break;
+          }
+
+          message.hidden = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -532,6 +549,7 @@ export const Task: MessageFns<Task> = {
         : isSet(object.session_id)
         ? globalThis.String(object.session_id)
         : "",
+      hidden: isSet(object.hidden) ? globalThis.Boolean(object.hidden) : false,
     };
   },
 
@@ -555,6 +573,9 @@ export const Task: MessageFns<Task> = {
     if (message.sessionId !== "") {
       obj.sessionId = message.sessionId;
     }
+    if (message.hidden !== false) {
+      obj.hidden = message.hidden;
+    }
     return obj;
   },
 
@@ -569,6 +590,7 @@ export const Task: MessageFns<Task> = {
     message.ghRef = (object.ghRef !== undefined && object.ghRef !== null) ? GhRef.fromPartial(object.ghRef) : undefined;
     message.createdAt = object.createdAt ?? "";
     message.sessionId = object.sessionId ?? "";
+    message.hidden = object.hidden ?? false;
     return message;
   },
 };

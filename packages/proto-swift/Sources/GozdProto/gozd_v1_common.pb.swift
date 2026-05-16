@@ -93,8 +93,8 @@ public struct Gozd_V1_Task: Sendable {
 
   public var worktreeDir: String = String()
 
-  /// GitHub PR / issue 参照。両方同時設定は型で排他 (GhRef 内で number は単一)。
-  /// GitHub では PR と issue が同一の番号空間を共有するため、種別 + 番号の組で表現する。
+  /// GitHub PR / issue 参照。GitHub の PR / issue は同一の番号空間を共有するため、
+  /// 種別 + 番号の組で 1 件を表す。task 1 件あたり最大 1 つ。
   public var ghRef: Gozd_V1_GhRef {
     get {_ghRef ?? Gozd_V1_GhRef()}
     set {_ghRef = newValue}
@@ -118,7 +118,7 @@ public struct Gozd_V1_Task: Sendable {
   fileprivate var _ghRef: Gozd_V1_GhRef? = nil
 }
 
-/// GitHub PR / issue 参照。issue #531 で pr_number / issue_number から統合。
+/// GitHub PR / issue 参照。
 public struct Gozd_V1_GhRef: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for

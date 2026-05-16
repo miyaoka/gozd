@@ -69,8 +69,8 @@ export interface Task {
   body: string;
   worktreeDir: string;
   /**
-   * GitHub PR / issue 参照。両方同時設定は型で排他 (GhRef 内で number は単一)。
-   * GitHub では PR と issue が同一の番号空間を共有するため、種別 + 番号の組で表現する。
+   * GitHub PR / issue 参照。GitHub の PR / issue は同一の番号空間を共有するため、
+   * 種別 + 番号の組で 1 件を表す。task 1 件あたり最大 1 つ。
    */
   ghRef?:
     | GhRef
@@ -84,7 +84,7 @@ export interface Task {
   sessionId: string;
 }
 
-/** GitHub PR / issue 参照。issue #531 で pr_number / issue_number から統合。 */
+/** GitHub PR / issue 参照。 */
 export interface GhRef {
   kind: GhRefKind;
   number: number;

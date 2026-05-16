@@ -125,12 +125,12 @@ public actor TaskStore {
   }
 
   /// 起動時の reconcile。dead session を attach したまま放置された task の sessionID を
-  /// クリアし、加えて「body / pr / issue いずれも空」かつ「sessionID も dead」の
+  /// クリアし、加えて「body / gh_ref いずれも空」かつ「sessionID も dead」の
   /// task は孤児として削除する (AND 条件)。
   ///
   /// task.sessionID は SessionEnd でも保持する設計なので、resume が永久に効かなくなった
   /// dead session id をクリアして次回クリック時に「素の claude」を起動できる状態に戻す。
-  /// pr / issue / body が残っていれば task 本体は維持する。
+  /// body / gh_ref が残っていれば task 本体は維持する。
   /// この経路が無いと、アプリクラッシュ / kill -9 / transcript 削除で session-end hook も
   /// removeByPty も来なかった残骸が永続化に居座り続け、サイドバーに `New session` の
   /// ゾンビ行として現れる。
@@ -218,7 +218,7 @@ public actor TaskStore {
 
       let before = taskList.tasks.count
       var mutated = false
-      // dead sessionID をクリア (task 本体は保持。pr/issue/body の有無に依らない)。
+      // dead sessionID をクリア (task 本体は保持。body / gh_ref の有無に依らない)。
       for idx in taskList.tasks.indices {
         let sid = taskList.tasks[idx].sessionID
         if !sid.isEmpty && !liveSessionIds.contains(sid) {

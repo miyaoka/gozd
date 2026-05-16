@@ -102,7 +102,7 @@ struct TaskStoreTests {
 
   // MARK: - detachSession
 
-  @Test("detachSession: body / pr / issue がすべて空なら task 削除 (Claude 直接起動 + 即終了の残骸)")
+  @Test("detachSession: body / gh_ref がすべて空なら task 削除 (Claude 直接起動 + 即終了の残骸)")
   func detachSessionRemovesEmpty() async throws {
     let env = try await makeEnv()
     defer { cleanup(env) }
@@ -212,7 +212,7 @@ struct TaskStoreTests {
     #expect(kept.sessionID == "") // dead セッション ID はクリア
   }
 
-  @Test("reconcileAll: identity 完全消失 (body / pr / issue / sessionId すべて空) の task は孤児削除")
+  @Test("reconcileAll: identity 完全消失 (body / gh_ref / sessionId すべて空) の task は孤児削除")
   func reconcileDropsOrphans() async throws {
     let env = try await makeEnv()
     defer { cleanup(env) }

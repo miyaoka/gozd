@@ -586,7 +586,7 @@ public actor RpcDispatcher {
       )
     }
     let listedTasks = try await tasks.list(dir: req.dir)
-    // task ≠ session 設計: 身元 (body / pr / issue) があれば session が dead でも表示する。
+    // task ≠ session 設計: 身元 (body / gh_ref) があれば session が dead でも表示する。
     // session 単独で生きていた task (Claude 直接起動 + 即終了の残骸) のみ filter で落とす。
     let allTasks: [Gozd_V1_Task]
     if let ids = registeredSessionIds {

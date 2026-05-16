@@ -35,6 +35,7 @@ export {
   ClaudeSessionRemoveByPtyResponse,
 } from "./generated/gozd/v1/claude_session";
 export { ClientMessage, HookMessage, OpenMessage } from "./generated/gozd/v1/client_message";
+export { ghRefForIssue, ghRefForPr } from "./helpers";
 export {
   FileEntry,
   FileReadResult,

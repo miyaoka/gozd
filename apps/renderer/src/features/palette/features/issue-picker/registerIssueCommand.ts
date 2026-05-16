@@ -4,7 +4,7 @@
  * issue を選択して worktree を作成する。
  */
 
-import { GhRefKind } from "@gozd/proto";
+import { ghRefForIssue } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
@@ -146,7 +146,7 @@ export function registerIssueCommand(): () => void {
                 dir: rootDir,
                 body: issue.title,
                 worktreeDir: result.value.dir,
-                ghRef: { kind: GhRefKind.GH_REF_KIND_ISSUE, number: issue.number },
+                ghRef: ghRefForIssue(issue.number),
               }),
             );
             // taskAdd 失敗時は autostart を抑止する。続けると attachSession が

@@ -20,8 +20,8 @@ message Task {
   string id = 1;
   string body = 2;
   string worktree_dir = 3;
-  // GitHub PR / issue 参照。両方同時設定は型で排他 (GhRef 内で number は単一)。
-  // GitHub では PR と issue が同一の番号空間を共有するため、種別 + 番号の組で表現する。
+  // GitHub PR / issue 参照。GitHub の PR / issue は同一の番号空間を共有するため、
+  // 種別 + 番号の組で 1 件を表す。task 1 件あたり最大 1 つ。
   optional GhRef gh_ref = 4;
   // ISO 8601
   string created_at = 5;
@@ -30,7 +30,7 @@ message Task {
   string session_id = 6;
 }
 
-// GitHub PR / issue 参照。issue #531 で pr_number / issue_number から統合。
+// GitHub PR / issue 参照。
 message GhRef {
   GhRefKind kind = 1;
   uint32 number = 2;

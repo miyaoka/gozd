@@ -9,7 +9,7 @@ interface Task {
   id: string; // UUID (Swift 側 TaskStore.add で生成)
   body: string; // git commit 形式: 一行目=タイトル、残り=本文
   worktreeDir: string; // 紐づいた worktree のパス
-  ghRef?: GhRef; // GitHub PR/issue 参照。両方同時設定は型で排他 (number 単一)
+  ghRef?: GhRef; // GitHub PR/issue 参照。task 1 件あたり最大 1 つ
   createdAt: string; // ISO 8601
   sessionId: string; // 最後に attach した Claude session の ID。空文字は未起動 / SessionEnd 済み
 }

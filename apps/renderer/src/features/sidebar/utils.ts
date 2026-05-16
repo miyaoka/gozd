@@ -41,7 +41,7 @@ export function branchLabel(branch: string | undefined): string {
 }
 
 /**
- * Task の PR / issue 番号をプレフィックス文字列 (`#123 `) として返す。
+ * Task の GitHub 参照番号をプレフィックス文字列 (`#123 `) として返す。
  * GitHub では PR と issue が同一の番号空間を共有するため kind を見ずに番号だけ表示する。
  */
 function taskNumberPrefix(task: Task): string {
@@ -51,7 +51,7 @@ function taskNumberPrefix(task: Task): string {
 
 /**
  * worktree の表示名: 任意 Task に有効なタイトルがあればそれ、なければブランチ名。
- * PR / issue 番号付き task は `#N タイトル` の形で先頭に番号を付ける。
+ * gh_ref 付き task は `#N タイトル` の形で先頭に番号を付ける。
  * Claude プレースホルダ (`CLAUDE_PLACEHOLDER_TITLE`) は無効扱いし、
  * confirm / error メッセージで "Claude Code" が露出するのを防ぐ。
  */
@@ -87,9 +87,9 @@ export function formatRelativeTime(from: number, now: number): string {
 }
 
 /**
- * Task title を表示用に正規化。PR / issue 番号付き task は `#N タイトル` を返す。
- * body が空 (Claude プレースホルダ含む) の場合、番号ありなら `#N` 単体、番号無しなら
- * `New session` にフォールバックする。番号付きで body 空の状態は PR/issue picker 直後
+ * Task title を表示用に正規化。gh_ref 付き task は `#N タイトル` を返す。
+ * body が空 (Claude プレースホルダ含む) の場合、gh_ref ありなら `#N` 単体、無しなら
+ * `New session` にフォールバックする。gh_ref ありで body 空の状態は PR/issue picker 直後
  * (Claude 未起動 + OSC title 未到達) の過渡状態で、Not started アイコンと併せて識別される。
  */
 export function taskDisplayTitle(task: Task): string {

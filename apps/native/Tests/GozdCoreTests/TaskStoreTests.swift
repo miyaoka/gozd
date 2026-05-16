@@ -238,10 +238,13 @@ struct TaskStoreTests {
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "live", worktreeDir: env.worktreeA)
 
-    // 生存 sessionId として claude-sessions.json を用意する
+    // 生存 sessionId として claude-sessions.json を用意する。transcript パスは
+    // reconcileAll の判定で読まれないが、CLAUDE.md の規約に従い /tmp ハードコードを避ける。
+    let dummyTranscript = FileManager.default.temporaryDirectory
+      .appendingPathComponent("dummy-transcript.jsonl").path
     try writeClaudeSessions(
       configDir: env.configDir, dir: env.worktreeA,
-      entries: [("live", env.worktreeA, "/tmp/dummy-transcript.jsonl")]
+      entries: [("live", env.worktreeA, dummyTranscript)]
     )
 
     let failed = try await store.reconcileAll()
@@ -332,9 +335,10 @@ private func writeClaudeSessions(
   configDir: String, dir: String, entries: [(sessionId: String, worktreePath: String, transcript: String)]
 ) throws {
   let projectKey = ProjectKey.resolveAndCompute(for: dir)
-  let projectDir = (configDir as NSString)
-    .appendingPathComponent("projects").appending("/\(projectKey)")
-  try FileManager.default.createDirectory(atPath: projectDir, withIntermediateDirectories: true)
+  let projectDir = URL(fileURLWithPath: configDir)
+    .appendingPathComponent("projects")
+    .appendingPathComponent(projectKey)
+  try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
 
   var list = Gozd_V1_ClaudeSessionList()
   for entry in entries {
@@ -345,6 +349,6 @@ private func writeClaudeSessions(
     list.sessions.append(session)
   }
   let json = try list.jsonString()
-  let path = (projectDir as NSString).appendingPathComponent("claude-sessions.json")
-  try json.write(toFile: path, atomically: true, encoding: .utf8)
+  let path = projectDir.appendingPathComponent("claude-sessions.json")
+  try json.write(to: path, atomically: true, encoding: .utf8)
 }

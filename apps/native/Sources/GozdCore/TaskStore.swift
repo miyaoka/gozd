@@ -264,40 +264,39 @@ public actor TaskStore {
 
   // MARK: - paths
 
-  private func projectDir(for dir: String) -> String {
+  private func projectDir(for dir: String) -> URL {
     let projectKey = ProjectKey.resolveAndCompute(for: dir)
-    return (configDir as NSString)
+    return URL(fileURLWithPath: configDir)
       .appendingPathComponent("projects")
-      .appending("/\(projectKey)")
+      .appendingPathComponent(projectKey)
   }
 
-  private func tasksFilePath(for dir: String) -> String {
-    return (projectDir(for: dir) as NSString).appendingPathComponent("tasks.json")
+  private func tasksFilePath(for dir: String) -> URL {
+    return projectDir(for: dir).appendingPathComponent("tasks.json")
   }
 
   private func loadFile(for dir: String) throws -> Gozd_V1_TaskList {
-    let path = tasksFilePath(for: dir)
-    if !FileManager.default.fileExists(atPath: path) {
+    let url = tasksFilePath(for: dir)
+    if !FileManager.default.fileExists(atPath: url.path) {
       return Gozd_V1_TaskList()
     }
-    let data = try Data(contentsOf: URL(fileURLWithPath: path))
+    let data = try Data(contentsOf: url)
     // 不正な UTF-8 / proto JSON parse 失敗を silent に「空 list」として扱うと、
     // 直後の save で空 list を書き戻し、ユーザーの全 task が消える破壊的副作用がある
     // (一時的なディスク破損 / 中断書き込みでも発動)。throw に倒して上位 (RpcDispatcher)
     // で notify + UI に伝え、ユーザーが復旧操作 (手動修復 / 削除) を選べるようにする。
     guard let json = String(bytes: data, encoding: .utf8) else {
-      throw TaskStoreError.fileDecodeFailed(path)
+      throw TaskStoreError.fileDecodeFailed(url.path)
     }
     return try Gozd_V1_TaskList(jsonString: json)
   }
 
   private func saveFile(_ list: Gozd_V1_TaskList, for dir: String) throws {
-    let path = tasksFilePath(for: dir)
-    let dirPath = (path as NSString).deletingLastPathComponent
+    let url = tasksFilePath(for: dir)
     try FileManager.default.createDirectory(
-      atPath: dirPath, withIntermediateDirectories: true)
+      at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     let json = try list.jsonString()
-    try json.write(toFile: path, atomically: true, encoding: .utf8)
+    try json.write(to: url, atomically: true, encoding: .utf8)
   }
 
 }

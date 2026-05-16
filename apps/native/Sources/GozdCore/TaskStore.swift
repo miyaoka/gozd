@@ -306,3 +306,21 @@ extension Gozd_V1_Task {
     !hasNonSessionIdentity && sessionID.isEmpty
   }
 }
+
+extension Gozd_V1_GhRef {
+  /// kind を取り違える可能性を構造的に排除するためのドメインファクトリ。
+  /// TS 側 `ghRefForPr` / `ghRefForIssue` (proto-ts/src/helpers.ts) と対称。
+  public static func forPr(_ number: UInt32) -> Gozd_V1_GhRef {
+    var ref = Gozd_V1_GhRef()
+    ref.kind = .pr
+    ref.number = number
+    return ref
+  }
+
+  public static func forIssue(_ number: UInt32) -> Gozd_V1_GhRef {
+    var ref = Gozd_V1_GhRef()
+    ref.kind = .issue
+    ref.number = number
+    return ref
+  }
+}

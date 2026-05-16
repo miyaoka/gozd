@@ -147,12 +147,9 @@ struct TaskStoreTests {
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
-    var prRef = Gozd_V1_GhRef()
-    prRef.kind = .pr
-    prRef.number = 42
     _ = try await store.add(
       dir: env.worktreeA, body: "", worktreeDir: env.worktreeA,
-      ghRef: prRef
+      ghRef: .forPr(42)
     )
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "pr-sid", worktreeDir: env.worktreeA)

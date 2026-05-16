@@ -93,27 +93,25 @@ public actor TaskStore {
   /// Claude session-start hook を Task に attach する。
   ///
   /// 優先順位:
-  ///   1. 既に sessionID が一致する task → no-op (idempotent)
-  ///   2. 同一 worktreeDir で sessionID 空の task のうち最新のもの (createdAt 降順) に attach
+  ///   1. 既に sessionID が一致する task → no-op (idempotent)。当該 task が hidden
+  ///      でも触らない (`hidden=true` 状態の task は picker 経由でのみ蘇生する規律)
+  ///   2. 同一 worktreeDir で `sessionID == ""` かつ `hidden == false` の task のうち
+  ///      最新のもの (createdAt 降順) に attach。**hidden を候補から外す**のは
+  ///      「terminal close 済みの ghRef task に、別経路で起動した素 claude が取り憑く」
+  ///      事故を構造的に防ぐため。ghRef task の蘇生は `add` の upsert (picker) に限定する
   ///   3. 該当無し → 新規 task を作成し sessionID を入れる (Claude 直接起動経路)
   public func attachSession(dir: String, sessionId: String, worktreeDir: String) throws {
     var list = try loadFile(for: dir)
-    if let idx = list.tasks.firstIndex(where: { $0.sessionID == sessionId }) {
-      // 既存 attach は冪等で抜ける前に hidden だけは解除する。サイドバーから
-      // 隠した task に対して resume クリック等で再 SessionStart が来た場合に
-      // 表示を復活させるため。
-      if list.tasks[idx].hidden {
-        list.tasks[idx].hidden = false
-        try saveFile(list, for: dir)
-      }
+    if list.tasks.contains(where: { $0.sessionID == sessionId }) {
       return
     }
     let candidates = list.tasks.enumerated().filter {
-      $0.element.worktreeDir == worktreeDir && $0.element.sessionID.isEmpty
+      $0.element.worktreeDir == worktreeDir
+        && $0.element.sessionID.isEmpty
+        && !$0.element.hidden
     }
     if let pick = candidates.max(by: { $0.element.createdAt < $1.element.createdAt }) {
       list.tasks[pick.offset].sessionID = sessionId
-      list.tasks[pick.offset].hidden = false
     } else {
       var task = Gozd_V1_Task()
       task.id = UUID().uuidString
@@ -142,11 +140,7 @@ public actor TaskStore {
     guard let idx = list.tasks.firstIndex(where: { $0.sessionID == sessionId }) else {
       return
     }
-    if list.tasks[idx].hasNonSessionIdentity {
-      list.tasks[idx].hidden = true
-    } else {
-      list.tasks.remove(at: idx)
-    }
+    hideOrRemove(&list, at: idx)
     try saveFile(list, for: dir)
   }
 
@@ -155,22 +149,40 @@ public actor TaskStore {
   /// task ごと削除する。`detachSession` との違いは「identity ありでも sessionID を
   /// クリアする」こと。次のクリックで `--resume` ではなく素の `claude` 起動経路に流す
   /// ためで、SessionEnd 由来の detach (resume 期待で sid を保持する) とは意図が異なる。
-  public func clearDeadSession(dir: String, sessionId: String) throws {
+  ///
+  /// `markHiddenIfGhRef` で caller の意図を分ける:
+  ///   - `true` (terminal close 由来 / `removeByPty`): サイドバー表示も消す。再表示は
+  ///     picker での再選択 (`add` の upsert) を待つ。pane が閉じているので直後の
+  ///     attachSession は走らない
+  ///   - `false` (session-start fallback 由来 / `applyClaudeSessionHook`): hidden を
+  ///     据え置く。直後の `attachSession(新 sid)` が hidden=false な ghRef task を
+  ///     拾って自動転移するため、ユーザー視点で連続性を保てる
+  public func clearDeadSession(
+    dir: String, sessionId: String, markHiddenIfGhRef: Bool
+  ) throws {
     var list = try loadFile(for: dir)
     guard let idx = list.tasks.firstIndex(where: { $0.sessionID == sessionId }) else {
       return
     }
     if list.tasks[idx].hasNonSessionIdentity {
       list.tasks[idx].sessionID = ""
-      // terminal close + resume 失敗の経路 (removeByPty) は SessionEnd と同様に
-      // サイドバー表示も消す。直後の attachSession(新 sid) で同 worktree の最新
-      // sessionID 空 task がピックされたら hidden=false に戻り表示が復活する
-      // (resume 失敗 + zsh fallback で新 sid 着弾するケース)。
-      list.tasks[idx].hidden = true
+      if markHiddenIfGhRef {
+        list.tasks[idx].hidden = true
+      }
     } else {
       list.tasks.remove(at: idx)
     }
     try saveFile(list, for: dir)
+  }
+
+  /// ghRef 持ちなら `hidden=true` を立て、無ければ task ごと削除する SSOT ヘルパー。
+  /// detachSession / clearDeadSession(markHiddenIfGhRef=true) で同じ判定を書かない。
+  private func hideOrRemove(_ list: inout Gozd_V1_TaskList, at idx: Int) {
+    if list.tasks[idx].hasNonSessionIdentity {
+      list.tasks[idx].hidden = true
+    } else {
+      list.tasks.remove(at: idx)
+    }
   }
 
   /// worktree 物理削除 (handleWorktreeRemove) からの連動掃除。

@@ -178,7 +178,12 @@ public actor RpcDispatcher {
               String(describing: error), worktreePath)
           }
           do {
-            try await tasks.clearDeadSession(dir: worktreePath, sessionId: expectedSid)
+            // session-start fallback 経路: hidden は据え置き (markHiddenIfGhRef=false)。
+            // 直後の `attachSession(hook.sessionID)` が hidden=false な ghRef task を
+            // 拾って自動転移する設計のため、ここで hidden=true を立てるとピック対象から
+            // 外れて転移が壊れる。
+            try await tasks.clearDeadSession(
+              dir: worktreePath, sessionId: expectedSid, markHiddenIfGhRef: false)
           } catch {
             FileHandle.standardError.write(
               Data(
@@ -971,7 +976,11 @@ public actor RpcDispatcher {
           String(describing: error), req.worktreePath)
       }
       do {
-        try await tasks.clearDeadSession(dir: req.worktreePath, sessionId: expectedSid)
+        // removeByPty 経路 (terminal close + resume 失敗): サイドバー表示も消す
+        // (markHiddenIfGhRef=true)。pane が閉じているので直後の attachSession は
+        // 走らない。再表示は picker での再選択 (`add` の upsert) を待つ。
+        try await tasks.clearDeadSession(
+          dir: req.worktreePath, sessionId: expectedSid, markHiddenIfGhRef: true)
       } catch {
         FileHandle.standardError.write(
           Data("[TaskStore] clearDeadSession failed: \(error)\n".utf8))

@@ -98,6 +98,17 @@ export function useSidebarData() {
     { immediate: true },
   );
 
+  // 明示 refetch 要求: feature 層 (sidebar / picker 等) からの SSOT 取り直し signal。
+  // worktree dir 切り替えに乗らない経路 (例: 同 dir 再選択 + hidden task 蘇生) で
+  // 楽観更新ではなく真値 fetch に倒すための窓口。
+  watch(
+    () => repoStore.refreshRequest,
+    (req) => {
+      if (req === undefined) return;
+      void fetchRepo(req.rootDir);
+    },
+  );
+
   // wt 選択イベント（setOpen）の度に done バッジを消化する。
   // 同 dir 再選択でも selectionVersion はインクリメントされるため、サイドバー再クリック
   // やターミナル focus による同一 wt 再選択もここで一括消化される。

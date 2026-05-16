@@ -9,7 +9,12 @@ import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
-import { rpcCreateWorktree, rpcGitWorktreeList, rpcTaskAdd } from "../../../sidebar";
+import {
+  reviveTaskForGhRef,
+  rpcCreateWorktree,
+  rpcGitWorktreeList,
+  rpcTaskAdd,
+} from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
 import { ghErrorMessage } from "./ghError";
@@ -63,35 +68,16 @@ export function registerPrCommand(): () => void {
           if (existingDir !== undefined) {
             // 既存 worktree に切り替え（ステートレス化により switchDir RPC は廃止）。
             // 直前に terminal close で hidden 化されている可能性があるため、同 ghRef
-            // で taskAdd の upsert を呼んで hidden を解除する。新規作成の副作用にも
-            // なるが、サーバ側で worktreeDir + ghRef 一致を見るので冪等。
+            // で taskAdd (server 側 upsert) を呼んで hidden を解除する。完了後の
+            // 真値反映は `useRepoStore.requestRefresh` 経由で `useSidebarData` の
+            // fetchRepo に委譲する (楽観更新で renderer 側を直書きしない)。
             void (async () => {
-              const rootDir = repoStore.findRepoOwning(existingDir)?.rootDir;
-              if (rootDir !== undefined) {
-                const taskResult = await tryCatch(
-                  rpcTaskAdd({
-                    dir: rootDir,
-                    body: pr.title,
-                    worktreeDir: existingDir,
-                    ghRef: ghRefForPr(pr.number),
-                  }),
-                );
-                if (!taskResult.ok) {
-                  notify.error("Failed to revive task for pull request", taskResult.error);
-                } else if (taskResult.value.task !== undefined) {
-                  const upserted = taskResult.value.task;
-                  const repo = repoStore.repos[rootDir];
-                  const wt = repo?.worktrees.find((w) => w.path === existingDir);
-                  if (wt !== undefined) {
-                    const idx = wt.tasks.findIndex((t) => t.id === upserted.id);
-                    if (idx >= 0) {
-                      wt.tasks = [...wt.tasks.slice(0, idx), upserted, ...wt.tasks.slice(idx + 1)];
-                    } else {
-                      wt.tasks = [...wt.tasks, upserted];
-                    }
-                  }
-                }
-              }
+              await reviveTaskForGhRef({
+                existingDir,
+                body: pr.title,
+                ghRef: ghRefForPr(pr.number),
+                errorLabel: "Failed to revive task for pull request",
+              });
               terminalStore.viewMode = "wt";
               worktreeStore.setOpen(existingDir);
             })();
@@ -123,6 +109,10 @@ export function registerPrCommand(): () => void {
             // PR タイトルを body に持つ task を作成し worktree に紐付ける。
             // Claude session 未起動状態 (sessionId 空) で永続化され、初期 leaf で
             // 素の claude を autostart して SessionStart hook で attach される。
+            // wtByBranch hit ルートと同じく taskAdd 後の真値反映は requestRefresh
+            // に委ねる (楽観更新で renderer 側を直書きしない)。失敗時の挙動も
+            // 同じく autostart を抑止して、worktree だけ残った状態でユーザーに復旧を
+            // 委ねる (再選択で wtByBranch hit に倒れる)。
             const taskResult = await tryCatch(
               rpcTaskAdd({
                 dir: rootDir,
@@ -131,23 +121,11 @@ export function registerPrCommand(): () => void {
                 ghRef: ghRefForPr(pr.number),
               }),
             );
-            // taskAdd 失敗時は autostart を抑止する。続けると attachSession が
-            // 「sessionId 空の最新 task = 無し」経路に入って body 空の新規 task を
-            // 作り、PR タイトルを失った状態で永続化される。worktree は残るので
-            // ユーザーは手動で復旧でき、再選択で wtByBranch が hit してこの経路を
-            // 通らず既存 worktree への切り替えに倒れる。
             if (!taskResult.ok) {
               notify.error("Failed to create task for pull request", taskResult.error);
               return;
             }
-            if (taskResult.value.task !== undefined) {
-              const created = taskResult.value.task;
-              const repo = repoStore.repos[rootDir];
-              const wt = repo?.worktrees.find((w) => w.path === result.value.dir);
-              if (wt !== undefined && !wt.tasks.some((t) => t.id === created.id)) {
-                wt.tasks = [...wt.tasks, created];
-              }
-            }
+            repoStore.requestRefresh(rootDir);
             // 直後の setOpen で visit が走り初期 leaf が作られる前に autostart ヒントを残す。
             // visit が初期 leaf に素の `claude` 起動を仕込み、SessionStart hook で
             // 上で作成した task に attach される。後追いクリック起動の二重 leaf を防ぐ。

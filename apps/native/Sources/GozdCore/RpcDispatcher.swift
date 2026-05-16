@@ -80,17 +80,23 @@ public actor RpcDispatcher {
   /// 孤児 Task を掃除するため、claudeSessions の reconcile を先に通して
   /// 「session が消えていれば task も消える」を成立させる。
   public func reconcileClaudeSessions() async {
+    let liveSessionsByProject: [String: Set<String>]
     do {
-      try await claudeSessions.reconcileAll()
+      liveSessionsByProject = try await claudeSessions.reconcileAll()
     } catch {
       FileHandle.standardError.write(
         Data("[ClaudeSessionStore] reconcileAll failed: \(error)\n".utf8))
       onNotify(
         "error", "claude-sessions", "Claude session store reconcile failed",
         String(describing: error), "")
+      // claudeSessions.reconcileAll の throw は projects/ ディレクトリ列挙失敗等の
+      // 致命環境。live session 集合が全 projectKey 規模で不明な状態で TaskStore の
+      // dead 判定 (sid クリア + orphan 削除) を回すと、全生存 task を巻き添え削除する
+      // 危険があるため tasks.reconcileAll は skip する。
+      return
     }
     do {
-      try await tasks.reconcileAll()
+      try await tasks.reconcileAll(liveSessionsByProject: liveSessionsByProject)
     } catch {
       FileHandle.standardError.write(
         Data("[TaskStore] reconcileAll failed: \(error)\n".utf8))

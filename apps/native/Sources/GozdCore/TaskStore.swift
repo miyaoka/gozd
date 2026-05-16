@@ -128,10 +128,14 @@ public actor TaskStore {
   /// クリアし、加えて「body / gh_ref いずれも空」かつ「sessionID も dead」の task は
   /// 孤児として削除する (AND 条件)。
   ///
-  /// parse 失敗 (UTF-8 不正 / JSON syntax 不正 / proto schema 進化) の永続化ファイルは
-  /// 空オブジェクトで上書き save する。本アプリはベータ版で永続データに後方互換を作らない
-  /// (CLAUDE.md 規約)。schema 進化で旧 JSON が parse 失敗した時は新規初期化が期待挙動。
-  public func reconcileAll() throws {
+  /// 引数 `liveSessionsByProject` は `ClaudeSessionStore.reconcileAll` の戻り値を直接
+  /// 受け取る。claude-sessions.json の read / reinit は ClaudeSessionStore に集約され、
+  /// 同ファイルを TaskStore 側でも parse する SSOT 違反を避ける。
+  ///
+  /// parse 失敗 (UTF-8 不正 / JSON syntax 不正 / proto schema 進化) の tasks.json は
+  /// 空オブジェクトで上書き save する。永続データに後方互換を作らない (CLAUDE.md 規約)
+  /// ため、schema 進化で旧 JSON が parse 失敗した時は新規初期化が期待挙動。
+  public func reconcileAll(liveSessionsByProject: [String: Set<String>]) throws {
     let projectsURL = URL(fileURLWithPath: configDir).appendingPathComponent("projects")
     let fm = FileManager.default
     guard fm.fileExists(atPath: projectsURL.path) else { return }
@@ -163,30 +167,7 @@ public actor TaskStore {
       }
       if taskList.tasks.isEmpty { continue }
 
-      // dead session 判定の根拠は claude-sessions.json。破損していれば「空」と
-      // 取り違えて全 task を orphan 化する事故になるため、parse 失敗時は当該 projectKey
-      // の dead session 判定をスキップして次に進む (`continue`)。
-      var liveSessionIds: Set<String> = []
-      let sessionsURL = projectDir.appendingPathComponent("claude-sessions.json")
-      if fm.fileExists(atPath: sessionsURL.path) {
-        let sessionsData = try Data(contentsOf: sessionsURL)
-        if let sessionsJson = String(bytes: sessionsData, encoding: .utf8),
-          let sessionList = try? Gozd_V1_ClaudeSessionList(jsonString: sessionsJson)
-        {
-          for session in sessionList.sessions {
-            liveSessionIds.insert(session.sessionID)
-          }
-        } else {
-          let empty = Gozd_V1_ClaudeSessionList()
-          let emptyJson = try empty.jsonString()
-          try emptyJson.write(to: sessionsURL, atomically: true, encoding: .utf8)
-          FileHandle.standardError.write(
-            Data(
-              "[TaskStore] reconcile: corrupted claude-sessions.json reinitialized for \(projectKey)\n"
-                .utf8))
-          continue
-        }
-      }
+      let liveSessionIds = liveSessionsByProject[projectKey] ?? []
 
       let before = taskList.tasks.count
       var mutated = false

@@ -86,12 +86,17 @@ public actor ClaudeSessionStore {
   /// 起動時に 1 回呼ぶ reconcile。`~/.config/gozd/projects/*/claude-sessions.json` を
   /// 走査して、transcript ファイルが消滅したエントリを落とす。落とした件数を stderr に
   /// ログ出力する(観察可能性確保)。read 時 silent save の代替経路。
-  public func reconcileAll() throws {
+  ///
+  /// 戻り値: projectKey → 生存 session id 集合の map。TaskStore.reconcileAll が
+  /// dead session 判定の根拠として受け取り、同一 claude-sessions.json を二重 read する
+  /// SSOT 違反を避ける。reconcile 時点で reinit された projectKey は空集合をマップする。
+  public func reconcileAll() throws -> [String: Set<String>] {
     let projectsURL = URL(fileURLWithPath: configDir).appendingPathComponent("projects")
     let fm = FileManager.default
-    guard fm.fileExists(atPath: projectsURL.path) else { return }
+    guard fm.fileExists(atPath: projectsURL.path) else { return [:] }
     let projectKeys = try fm.contentsOfDirectory(atPath: projectsURL.path)
     var totalDropped = 0
+    var liveSessionsByProject: [String: Set<String>] = [:]
     for projectKey in projectKeys {
       let fileURL = projectsURL
         .appendingPathComponent(projectKey)
@@ -111,6 +116,7 @@ public actor ClaudeSessionStore {
           Data(
             "[ClaudeSessionStore] reconcile: corrupted claude-sessions.json reinitialized for \(projectKey)\n"
               .utf8))
+        liveSessionsByProject[projectKey] = []
         continue
       }
       let before = list.sessions.count
@@ -127,11 +133,13 @@ public actor ClaudeSessionStore {
             "[ClaudeSessionStore] reconcile: dropped \(dropped) dead entries from \(projectKey)\n"
               .utf8))
       }
+      liveSessionsByProject[projectKey] = Set(list.sessions.map { $0.sessionID })
     }
     if totalDropped > 0 {
       FileHandle.standardError.write(
         Data("[ClaudeSessionStore] reconcile: total \(totalDropped) dead entries cleaned\n".utf8))
     }
+    return liveSessionsByProject
   }
 
   /// worktree 削除時に該当 worktreePath のエントリを全削除。

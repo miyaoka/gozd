@@ -198,9 +198,10 @@ struct TaskStoreTests {
     )
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "dead", worktreeDir: env.worktreeA)
-    // 当該 projectKey の claude-sessions.json は作らない (= dead 扱い)
 
-    try await store.reconcileAll()
+    // 当該 projectKey の生存 sid は空 (= dead 扱い) を渡す。
+    let projectKey = ProjectKey.resolveAndCompute(for: env.worktreeA)
+    try await store.reconcileAll(liveSessionsByProject: [projectKey: []])
 
     let list = try await store.list(dir: env.worktreeA)
     let kept = try #require(list.first)
@@ -218,7 +219,8 @@ struct TaskStoreTests {
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "ghost", worktreeDir: env.worktreeA)
 
-    try await store.reconcileAll()
+    let projectKey = ProjectKey.resolveAndCompute(for: env.worktreeA)
+    try await store.reconcileAll(liveSessionsByProject: [projectKey: []])
 
     let list = try await store.list(dir: env.worktreeA)
     #expect(list.isEmpty) // dead session クリア → identity 完全消失 → 削除
@@ -237,16 +239,8 @@ struct TaskStoreTests {
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "live", worktreeDir: env.worktreeA)
 
-    // 生存 sessionId として claude-sessions.json を用意する。transcript パスは
-    // reconcileAll の判定で読まれないが、CLAUDE.md の規約に従い /tmp ハードコードを避ける。
-    let dummyTranscript = FileManager.default.temporaryDirectory
-      .appendingPathComponent("dummy-transcript.jsonl").path
-    try writeClaudeSessions(
-      configDir: env.configDir, dir: env.worktreeA,
-      entries: [("live", env.worktreeA, dummyTranscript)]
-    )
-
-    try await store.reconcileAll()
+    let projectKey = ProjectKey.resolveAndCompute(for: env.worktreeA)
+    try await store.reconcileAll(liveSessionsByProject: [projectKey: ["live"]])
 
     let list = try await store.list(dir: env.worktreeA)
     #expect(list.count == 1)
@@ -327,26 +321,3 @@ private func runTestGit(args: [String], cwd: String) async throws {
   }
 }
 
-// projectKey の解決方式に合わせて claude-sessions.json を tasks.json と同じ projectDir に
-// 書き込む。reconcileAll は projects/<projectKey>/claude-sessions.json を参照する。
-private func writeClaudeSessions(
-  configDir: String, dir: String, entries: [(sessionId: String, worktreePath: String, transcript: String)]
-) throws {
-  let projectKey = ProjectKey.resolveAndCompute(for: dir)
-  let projectDir = URL(fileURLWithPath: configDir)
-    .appendingPathComponent("projects")
-    .appendingPathComponent(projectKey)
-  try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
-
-  var list = Gozd_V1_ClaudeSessionList()
-  for entry in entries {
-    var session = Gozd_V1_ClaudeSession()
-    session.sessionID = entry.sessionId
-    session.worktreePath = entry.worktreePath
-    session.transcriptPath = entry.transcript
-    list.sessions.append(session)
-  }
-  let json = try list.jsonString()
-  let path = projectDir.appendingPathComponent("claude-sessions.json")
-  try json.write(to: path, atomically: true, encoding: .utf8)
-}

@@ -15,7 +15,8 @@ import GozdProto
 //    無ければ新規 task を作る (Claude 直接起動 = PR/issue 経由でないケース)。
 //
 // 3. **SessionEnd hook**: task.sessionID を切り離さず保持する。次回 `claude --resume`
-//    の起点に使う。body / gh_ref がいずれも空の task のみ削除する。
+//    の起点に使う。gh_ref が空の task のみ削除する。body は identity に含めない
+//    (Claude が OSC タイトル経由で書く揮発メタデータであり、ユーザー意思ではないため)。
 //
 // 4. **projectKey の算出は `ProjectKey` を参照**。worktree 配下のどの dir から呼ばれても
 //    main repo root に解決した上で同一 projectKey に揃える（`resolveAndCompute`）。
@@ -99,7 +100,7 @@ public actor TaskStore {
   }
 
   /// SessionEnd hook 由来。task.sessionID は保持して `claude --resume` の起点に使う。
-  /// 削除判定は `hasNonSessionIdentity` (body / gh_ref) で行う。sessionID を
+  /// 削除判定は `hasNonSessionIdentity` (gh_ref) で行う。sessionID を
   /// この判定に含めると「再 resume 用に sessionID を残す」設計と矛盾するため除外する。
   public func detachSession(dir: String, sessionId: String) throws {
     var list = try loadFile(for: dir)
@@ -109,8 +110,26 @@ public actor TaskStore {
     if !list.tasks[idx].hasNonSessionIdentity {
       list.tasks.remove(at: idx)
     }
-    // identity (body / gh_ref) があれば sessionID は保持。worktreeList の filter は
+    // identity (gh_ref) があれば sessionID は保持。worktreeList の filter は
     // identity の有無で判定するため、sessionID を残してもサイドバー表示には影響しない。
+    try saveFile(list, for: dir)
+  }
+
+  /// resume 失敗検出経路 (claude --resume が transcript 不在等で error 終了) で呼ぶ。
+  /// 該当 sid を持つ task に対し、ghRef があれば sessionID を空に書き換え、無ければ
+  /// task ごと削除する。`detachSession` との違いは「identity ありでも sessionID を
+  /// クリアする」こと。次のクリックで `--resume` ではなく素の `claude` 起動経路に流す
+  /// ためで、SessionEnd 由来の detach (resume 期待で sid を保持する) とは意図が異なる。
+  public func clearDeadSession(dir: String, sessionId: String) throws {
+    var list = try loadFile(for: dir)
+    guard let idx = list.tasks.firstIndex(where: { $0.sessionID == sessionId }) else {
+      return
+    }
+    if list.tasks[idx].hasNonSessionIdentity {
+      list.tasks[idx].sessionID = ""
+    } else {
+      list.tasks.remove(at: idx)
+    }
     try saveFile(list, for: dir)
   }
 
@@ -122,105 +141,6 @@ public actor TaskStore {
     var list = try loadFile(for: dir)
     list.tasks.removeAll { $0.worktreeDir == worktreePath }
     try saveFile(list, for: dir)
-  }
-
-  /// 起動時の reconcile。dead session を attach したまま放置された task の sessionID を
-  /// クリアし、加えて「body / gh_ref いずれも空」かつ「sessionID も dead」の task は
-  /// 孤児として削除する (AND 条件)。
-  ///
-  /// 引数 `liveSessionsByProject` は `ClaudeSessionStore.reconcileAll` の戻り値を直接
-  /// 受け取る。claude-sessions.json の read / reinit は ClaudeSessionStore に集約され、
-  /// 同ファイルを TaskStore 側でも parse する SSOT 違反を避ける。
-  ///
-  /// 引数の map に projectKey のキーが無い場合は空集合扱いとし、当該 projectKey の全 task
-  /// が dead 判定対象 (sessionID クリア + identity 空なら orphan 削除) になる。これは
-  /// 「claude-sessions.json が存在しない projectKey」「reinit で空になった projectKey」
-  /// のいずれも「生存 sid が存在しない」というセマンティクスで揃えるため。明示的に空集合を
-  /// マップしたケースと map 不在ケースは同義に扱う。
-  ///
-  /// parse 失敗 (UTF-8 不正 / JSON syntax 不正 / proto schema 進化) の tasks.json は
-  /// 空オブジェクトで上書き save する。永続データに後方互換を作らない (CLAUDE.md 規約)
-  /// ため、schema 進化で旧 JSON が parse 失敗した時は新規初期化が期待挙動。
-  public func reconcileAll(liveSessionsByProject: [String: Set<String>]) throws {
-    let projectsURL = URL(fileURLWithPath: configDir).appendingPathComponent("projects")
-    let fm = FileManager.default
-    guard fm.fileExists(atPath: projectsURL.path) else { return }
-    let projectDirs = try fm.contentsOfDirectory(
-      at: projectsURL,
-      includingPropertiesForKeys: nil,
-      options: [.skipsHiddenFiles]
-    )
-    var totalDropped = 0
-    for projectDir in projectDirs {
-      let projectKey = projectDir.lastPathComponent
-      let tasksURL = projectDir.appendingPathComponent("tasks.json")
-      guard fm.fileExists(atPath: tasksURL.path) else { continue }
-      let tasksData = try Data(contentsOf: tasksURL)
-      var taskList: Gozd_V1_TaskList
-      let parsedTasks: Gozd_V1_TaskList?
-      if let tasksJson = String(bytes: tasksData, encoding: .utf8) {
-        do {
-          parsedTasks = try Gozd_V1_TaskList(jsonString: tasksJson)
-        } catch {
-          FileHandle.standardError.write(
-            Data(
-              "[TaskStore] reconcile: parse failed for tasks.json in \(projectKey): \(error)\n"
-                .utf8))
-          parsedTasks = nil
-        }
-      } else {
-        FileHandle.standardError.write(
-          Data(
-            "[TaskStore] reconcile: invalid UTF-8 in tasks.json for \(projectKey)\n"
-              .utf8))
-        parsedTasks = nil
-      }
-      if let parsed = parsedTasks {
-        taskList = parsed
-      } else {
-        let empty = Gozd_V1_TaskList()
-        let emptyJson = try empty.jsonString()
-        try emptyJson.write(to: tasksURL, atomically: true, encoding: .utf8)
-        FileHandle.standardError.write(
-          Data(
-            "[TaskStore] reconcile: corrupted tasks.json reinitialized for \(projectKey)\n"
-              .utf8))
-        continue
-      }
-      if taskList.tasks.isEmpty { continue }
-
-      let liveSessionIds = liveSessionsByProject[projectKey] ?? []
-
-      let before = taskList.tasks.count
-      var mutated = false
-      // dead sessionID をクリア (task 本体は保持。body / gh_ref の有無に依らない)。
-      for idx in taskList.tasks.indices {
-        let sid = taskList.tasks[idx].sessionID
-        if !sid.isEmpty && !liveSessionIds.contains(sid) {
-          taskList.tasks[idx].sessionID = ""
-          mutated = true
-        }
-      }
-      // identity 源が完全に消えた task を削除 (detachSession と SSOT)。
-      taskList.tasks.removeAll { $0.isOrphan }
-      let dropped = before - taskList.tasks.count
-      if dropped > 0 { mutated = true }
-      if mutated {
-        let outJson = try taskList.jsonString()
-        try outJson.write(to: tasksURL, atomically: true, encoding: .utf8)
-        totalDropped += dropped
-        if dropped > 0 {
-          FileHandle.standardError.write(
-            Data(
-              "[TaskStore] reconcile: dropped \(dropped) orphan tasks from \(projectKey)\n"
-                .utf8))
-        }
-      }
-    }
-    if totalDropped > 0 {
-      FileHandle.standardError.write(
-        Data("[TaskStore] reconcile: total \(totalDropped) orphan tasks cleaned\n".utf8))
-    }
   }
 
   // MARK: - paths
@@ -277,16 +197,16 @@ public enum TaskStoreError: Error, Equatable {
 }
 
 extension Gozd_V1_Task {
-  /// task が session 以外の identity 源 (body / gh_ref) を持つか。1 項でもあれば true。
-  /// detachSession の保持判定 / handleGitWorktreeList の filter / reconcileAll の孤児判定で共通利用する。
+  /// task が session 以外の identity 源 (gh_ref) を持つか。
+  /// detachSession の保持判定 / handleGitWorktreeList の filter で共通利用する。
+  ///
+  /// body は識別子に含めない。Claude が OSC ターミナルタイトル経由で自動付与する
+  /// メタデータであり、ユーザー意思の identity ではないため。terminal を閉じた時点で
+  /// body しか持たない task (root wt 上で直接 claude を起動したケース等) は揮発させる。
+  /// 一方 gh_ref は PR/issue picker でユーザーが明示的に紐づけた永続情報なので、
+  /// terminal close を越えて保持し、worktree 削除で cascade 回収する。
   public var hasNonSessionIdentity: Bool {
-    !body.isEmpty || hasGhRef
-  }
-
-  /// 「task の identity が完全に消えた」判定 (reconcileAll 専用)。body / gh_ref / sessionID
-  /// すべて空が条件 (= `hasNonSessionIdentity` false かつ sessionID 空)。
-  public var isOrphan: Bool {
-    !hasNonSessionIdentity && sessionID.isEmpty
+    hasGhRef
   }
 }
 

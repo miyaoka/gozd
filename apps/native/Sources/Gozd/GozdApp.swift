@@ -62,14 +62,6 @@ struct ContentView: View {
         .sharedBackgroundVisibility(.hidden)
       }
       .task {
-        // 起動時 reconcile を page.load より前に await する。
-        // unregisterPane 経路 (/claudeSession/removeByPty) で取りこぼした残骸
-        // （クラッシュ等）の最後のセーフティネット。reconcile 完了前に renderer の
-        // 初回 listByDir / listByProject が走ると掃除前の claude-sessions.json を
-        // 読むため、ここで明示的に順序を保証する。read 時の silent save をやめた
-        // 代わりに、起動時 1 回だけ明示的に掃除する設計。
-        await runtime.dispatcher.reconcileClaudeSessions()
-
         // ロード経路は 3 つ:
         //   1. dev: $GOZD_DEV_VITE_URL があれば Vite dev server をロード（HMR）
         //   2. build: gozd-app:// 経由で .app 内 Resources/app/views/main/index.html をロード。

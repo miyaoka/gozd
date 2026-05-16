@@ -102,7 +102,7 @@ struct TaskStoreTests {
 
   // MARK: - detachSession
 
-  @Test("detachSession: body / gh_ref がすべて空なら task 削除 (Claude 直接起動 + 即終了の残骸)")
+  @Test("detachSession: gh_ref が空なら task 削除 (Claude 直接起動 + 即終了の残骸)")
   func detachSessionRemovesEmpty() async throws {
     let env = try await makeEnv()
     defer { cleanup(env) }
@@ -118,13 +118,13 @@ struct TaskStoreTests {
     #expect(list.isEmpty)
   }
 
-  @Test("detachSession: body があれば task は残し sessionID は保持 (再 resume の起点)")
-  func detachSessionKeepsIdentified() async throws {
+  @Test("detachSession: body だけでは task 残らない (body は揮発メタデータ。gh_ref のみ identity 源)")
+  func detachSessionDropsBodyOnly() async throws {
     let env = try await makeEnv()
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
-    let task = try await store.add(
+    _ = try await store.add(
       dir: env.worktreeA, body: "Refactor X", worktreeDir: env.worktreeA,
       ghRef: nil
     )
@@ -133,12 +133,11 @@ struct TaskStoreTests {
 
     try await store.detachSession(dir: env.worktreeA, sessionId: "live")
 
+    // body しか持たない task は ghRef 無しなので detach で削除される。
+    // これにより root wt 上で直接 claude を起動した task が terminal close 時に
+    // 揮発する経路を担保する (root wt は git worktree remove されないため)。
     let list = try await store.list(dir: env.worktreeA)
-    #expect(list.count == 1)
-    let kept = try #require(list.first)
-    #expect(kept.id == task.id)
-    #expect(kept.body == "Refactor X")
-    #expect(kept.sessionID == "live") // 再 resume 用に保持
+    #expect(list.isEmpty)
   }
 
   @Test("detachSession: ghRef があれば task を残す (PR/issue 由来 task の永続性)")
@@ -184,63 +183,64 @@ struct TaskStoreTests {
     #expect(list.first?.sessionID == "live")
   }
 
-  // MARK: - reconcileAll
+  // MARK: - clearDeadSession (resume 失敗検出)
 
-  @Test("reconcileAll: dead sessionID は task からクリアして本体は維持する")
-  func reconcileClearsDeadSession() async throws {
+  @Test("clearDeadSession: ghRef ありなら sessionID を空に書き換え task は残す")
+  func clearDeadSessionKeepsGhRefTask() async throws {
     let env = try await makeEnv()
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
     _ = try await store.add(
-      dir: env.worktreeA, body: "identified", worktreeDir: env.worktreeA,
-      ghRef: nil
+      dir: env.worktreeA, body: "PR #42", worktreeDir: env.worktreeA,
+      ghRef: .forPr(42)
     )
     try await store.attachSession(
-      dir: env.worktreeA, sessionId: "dead", worktreeDir: env.worktreeA)
+      dir: env.worktreeA, sessionId: "dead-sid", worktreeDir: env.worktreeA)
 
-    // 当該 projectKey の生存 sid は空 (= dead 扱い) を渡す。
-    let projectKey = ProjectKey.resolveAndCompute(for: env.worktreeA)
-    try await store.reconcileAll(liveSessionsByProject: [projectKey: []])
+    try await store.clearDeadSession(dir: env.worktreeA, sessionId: "dead-sid")
 
     let list = try await store.list(dir: env.worktreeA)
     let kept = try #require(list.first)
-    #expect(kept.body == "identified")
-    #expect(kept.sessionID == "") // dead セッション ID はクリア
+    #expect(kept.hasGhRef)
+    #expect(kept.ghRef.number == 42)
+    #expect(kept.body == "PR #42") // body は保持される
+    #expect(kept.sessionID == "") // dead sid はクリアされる (次クリックで素の claude 起動経路)
   }
 
-  @Test("reconcileAll: identity 完全消失 (body / gh_ref / sessionId すべて空) の task は孤児削除")
-  func reconcileDropsOrphans() async throws {
-    let env = try await makeEnv()
-    defer { cleanup(env) }
-    let store = TaskStore(configDir: env.configDir)
-
-    // body 空 + identity 無し + dead session 付きの task のみ存在させる
-    try await store.attachSession(
-      dir: env.worktreeA, sessionId: "ghost", worktreeDir: env.worktreeA)
-
-    let projectKey = ProjectKey.resolveAndCompute(for: env.worktreeA)
-    try await store.reconcileAll(liveSessionsByProject: [projectKey: []])
-
-    let list = try await store.list(dir: env.worktreeA)
-    #expect(list.isEmpty) // dead session クリア → identity 完全消失 → 削除
-  }
-
-  @Test("reconcileAll: 生存 sessionId 一致なら task はそのまま (sessionID 維持)")
-  func reconcileKeepsLiveSession() async throws {
+  @Test("clearDeadSession: ghRef なしなら task ごと削除")
+  func clearDeadSessionDropsBodyOnly() async throws {
     let env = try await makeEnv()
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
     _ = try await store.add(
-      dir: env.worktreeA, body: "active", worktreeDir: env.worktreeA,
+      dir: env.worktreeA, body: "scratch", worktreeDir: env.worktreeA,
       ghRef: nil
+    )
+    try await store.attachSession(
+      dir: env.worktreeA, sessionId: "dead-sid", worktreeDir: env.worktreeA)
+
+    try await store.clearDeadSession(dir: env.worktreeA, sessionId: "dead-sid")
+
+    let list = try await store.list(dir: env.worktreeA)
+    #expect(list.isEmpty)
+  }
+
+  @Test("clearDeadSession: sessionId 不一致なら no-op")
+  func clearDeadSessionUnknownId() async throws {
+    let env = try await makeEnv()
+    defer { cleanup(env) }
+    let store = TaskStore(configDir: env.configDir)
+
+    _ = try await store.add(
+      dir: env.worktreeA, body: "alive", worktreeDir: env.worktreeA,
+      ghRef: .forPr(1)
     )
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "live", worktreeDir: env.worktreeA)
 
-    let projectKey = ProjectKey.resolveAndCompute(for: env.worktreeA)
-    try await store.reconcileAll(liveSessionsByProject: [projectKey: ["live"]])
+    try await store.clearDeadSession(dir: env.worktreeA, sessionId: "nonexistent")
 
     let list = try await store.list(dir: env.worktreeA)
     #expect(list.count == 1)

@@ -71,45 +71,6 @@ public actor RpcDispatcher {
     self.onNotify = onNotify
   }
 
-  /// 起動時に 1 回呼ぶ。永続化済み Claude セッションのうち、transcript ファイルが
-  /// 消滅している残骸を掃除する。失敗しても fatal 扱いせず stderr ログだけ出す
-  /// （reconcile は best effort で、本筋の起動を止める価値はない）。
-  ///
-  /// 順序: ClaudeSessionStore.reconcileAll → TaskStore.reconcileAll の固定順。
-  /// TaskStore は claude-sessions.json の生存 sessionId 集合を真とみなして
-  /// 孤児 Task を掃除するため、claudeSessions の reconcile を先に通して
-  /// 「session が消えていれば task も消える」を成立させる。
-  public func reconcileClaudeSessions() async {
-    let liveSessionsByProject: [String: Set<String>]
-    do {
-      liveSessionsByProject = try await claudeSessions.reconcileAll()
-    } catch {
-      FileHandle.standardError.write(
-        Data("[ClaudeSessionStore] reconcileAll failed: \(error)\n".utf8))
-      onNotify(
-        "error", "claude-sessions", "Claude session store reconcile failed",
-        String(describing: error), "")
-      // claudeSessions.reconcileAll の throw 源は次のいずれか:
-      //   - projects/ ディレクトリ列挙失敗 (致命環境)
-      //   - 個別 projectKey の claude-sessions.json read 失敗 (FS I/O エラー)
-      //   - reinit / save 時の proto JSON encode / write 失敗
-      // 後 2 つは特定 projectKey の I/O 失敗で、他 projectKey の live session 集合は
-      // 取得できている可能性がある。partial 集合で続行する設計は本経路では採らず、
-      // 安全側で tasks.reconcileAll を全 skip する。live session 集合が一部欠落した
-      // 状態で dead 判定 (sid クリア + orphan 削除) を回すと、欠落側の生存 task を
-      // 巻き添え削除する破壊が起きうるため、partial 続行よりも全 skip を選ぶ。
-      return
-    }
-    do {
-      try await tasks.reconcileAll(liveSessionsByProject: liveSessionsByProject)
-    } catch {
-      FileHandle.standardError.write(
-        Data("[TaskStore] reconcileAll failed: \(error)\n".utf8))
-      onNotify(
-        "error", "task-store", "Task store reconcile failed", String(describing: error), "")
-    }
-  }
-
   // MARK: - Inbound (SocketServer NDJSON line)
 
   /// SocketServer から渡された NDJSON 1 行を ClientMessage としてデコードして適切な
@@ -178,7 +139,7 @@ public actor RpcDispatcher {
           try await claudeSessions.removeBySessionId(
             worktreePath: worktreePath, sessionId: previous)
           // 旧 session を持っていた Task から sessionID を切り離す。task 本体は
-          // 残し (body / gh_ref があれば永続)、新 session 開始経路 (attachSession)
+          // 残し (gh_ref があれば永続)、新 session 開始経路 (attachSession)
           // と矛盾しないよう「sessionID 空 + 同 worktree」候補を増やす。
           do {
             try await tasks.detachSession(dir: worktreePath, sessionId: previous)
@@ -195,9 +156,15 @@ public actor RpcDispatcher {
         // 次回 cleanup の根拠（永続化と同期した sessionId）を失う。
         try await claudeSessions.upsert(
           worktreePath: worktreePath,
-          sessionId: hook.sessionID,
-          transcriptPath: hook.transcriptPath
+          sessionId: hook.sessionID
         )
+        // resume 成功: spawn 時の expected sid と一致する SessionStart が着弾したので
+        // expected を消費する。これで removeByPty 経路の resume 失敗判定が「expected が
+        // 残っている = SessionStart 不達」として正しく動く。source 不問で一致だけ見るのは
+        // resume 経路で必ず一致する一方、新規 session では expected が未設定 (= 一致しない)
+        // で no-op になるため。
+        await pty.clearExpectedResumeSidIfMatches(
+          for: hook.ptyID, sessionId: hook.sessionID)
         // SessionStart hook: 該当 worktree で sessionID 空の最新 task に attach。
         // 無ければ新規 task を作る (PR/issue picker を経ない Claude 直接起動経路)。
         // 失敗は renderer にトースト通知し、ユーザーが状態を診断できるようにする。
@@ -222,7 +189,7 @@ public actor RpcDispatcher {
         try await claudeSessions.removeBySessionId(
           worktreePath: worktreePath, sessionId: hook.sessionID)
         // SessionEnd: task.sessionID は保持して `claude --resume` の起点に使う。
-        // body / gh_ref がすべて空の task のみ削除する (Claude 直接起動 + 即終了の残骸)。
+        // gh_ref が空の task のみ削除する (Claude 直接起動 + 即終了の残骸)。
         do {
           try await tasks.detachSession(dir: worktreePath, sessionId: hook.sessionID)
         } catch {
@@ -545,11 +512,12 @@ public actor RpcDispatcher {
   private func handleGitWorktreeList(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitWorktreeListRequest(jsonUTF8Data: body)
     let worktrees = try await GitOps.worktreeList(dir: req.dir)
-    let registered = try await claudeSessions.allRegisteredSessions(forProject: req.dir)
+    let registered = try await claudeSessions.allSavedSessions(forProject: req.dir)
     let registeredSessionIds = Set(registered.map { $0.sessionID })
     let listedTasks = try await tasks.list(dir: req.dir)
-    // task ≠ session 設計: 身元 (body / gh_ref) があれば session が dead でも表示する。
-    // session 単独で生きていた task (Claude 直接起動 + 即終了の残骸) のみ filter で落とす。
+    // task ≠ session 設計: 身元 (gh_ref) があれば session が dead でも表示する。
+    // session 単独で生きていた task (root wt 上で直接 claude を起動したケース等) は
+    // session が live な間だけ表示し、PTY が消えれば自動で消える。
     let allTasks = listedTasks.filter { task in
       if task.hasNonSessionIdentity { return true }
       return !task.sessionID.isEmpty && registeredSessionIds.contains(task.sessionID)
@@ -887,7 +855,7 @@ public actor RpcDispatcher {
 
   private func handleClaudeSessionListByDir(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_ClaudeSessionListByDirRequest(jsonUTF8Data: body)
-    let sessions = try await claudeSessions.liveSessions(for: req.dir)
+    let sessions = try await claudeSessions.savedSessions(for: req.dir)
     var resp = Gozd_V1_ClaudeSessionListByDirResponse()
     resp.sessions = sessions
     return try resp.jsonUTF8Data()
@@ -895,7 +863,7 @@ public actor RpcDispatcher {
 
   private func handleClaudeSessionListByProject(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_ClaudeSessionListByProjectRequest(jsonUTF8Data: body)
-    let sessions = try await claudeSessions.allLiveSessions(forProject: req.dir)
+    let sessions = try await claudeSessions.allSavedSessions(forProject: req.dir)
     var resp = Gozd_V1_ClaudeSessionListByProjectResponse()
     resp.sessions = sessions
     return try resp.jsonUTF8Data()
@@ -918,9 +886,11 @@ public actor RpcDispatcher {
         removeError = error
       }
       // ターミナル close は session-end hook を発火させないため、ここで明示的に
-      // task.sessionID を切り離す。body / gh_ref が空なら同時に task も削除される
-      // (detachSession 内部で判定)。claudeSessions 側のエラーを優先するため tasks 側は
-      // throw しないが、失敗を放置すると stale な sessionID が残るので notify する。
+      // task.sessionID を切り離す。gh_ref が空なら同時に task も削除される
+      // (detachSession 内部で判定)。これにより root wt 上で直接 claude を起動した
+      // task (body のみ、ghRef なし) はターミナル close で揮発する。
+      // claudeSessions 側のエラーを優先するため tasks 側は throw しないが、失敗を
+      // 放置すると stale な sessionID が残るので notify する。
       do {
         try await tasks.detachSession(dir: req.worktreePath, sessionId: sessionId)
       } catch {
@@ -928,6 +898,38 @@ public actor RpcDispatcher {
           Data("[TaskStore] detachSession (removeByPty) failed: \(error)\n".utf8))
         onNotify(
           "error", "task-store", "Failed to detach session on terminal close",
+          String(describing: error), req.worktreePath)
+      }
+    } else if let expectedSid = await pty.consumeExpectedResumeSid(for: req.ptyID),
+      !expectedSid.isEmpty
+    {
+      // resume 失敗検出: spawn 時に GOZD_RESUME_CLAUDE_SESSION で渡した sid に対する
+      // SessionStart hook が一度も着弾しないまま pane が閉じられた。`claude --resume <sid>`
+      // が transcript 不在等で error 終了したと判定し、stale な sid を片付ける。
+      // - claude-sessions.json: 該当 sid のエントリ削除
+      // - tasks.json: clearDeadSession で sid を空に書き換え (ghRef ありなら task 残存、
+      //   無ければ削除)。次のクリックで `--resume` ではなく素の claude 起動に流す
+      removedSessionId = expectedSid
+      do {
+        try await claudeSessions.removeBySessionId(
+          worktreePath: req.worktreePath, sessionId: expectedSid)
+      } catch {
+        FileHandle.standardError.write(
+          Data(
+            "[ClaudeSessionStore] resume-failure cleanup failed: \(error)\n".utf8))
+        onNotify(
+          "error", "claude-sessions",
+          "Failed to clean up after resume failure",
+          String(describing: error), req.worktreePath)
+      }
+      do {
+        try await tasks.clearDeadSession(dir: req.worktreePath, sessionId: expectedSid)
+      } catch {
+        FileHandle.standardError.write(
+          Data("[TaskStore] clearDeadSession failed: \(error)\n".utf8))
+        onNotify(
+          "error", "task-store",
+          "Failed to clear dead session from task after resume failure",
           String(describing: error), req.worktreePath)
       }
     }

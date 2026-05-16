@@ -7,14 +7,13 @@ package gozd.v1;
 // ファイル: ~/.config/gozd/projects/<projectKey>/claude-sessions.json
 // 1 worktree が複数 PTY で複数 Claude を走らせ得るので、配列で持つ。
 // session-end hook 受信時に session_id をキーに削除する。
-// アプリクラッシュで session-end が来なかった場合は、起動時に
-// transcript_path のファイル存在チェックで死活判定して落とす。
+// クラッシュ等で session-end が来ず残った dead entry は、resume 試行時に
+// `claude --resume` がエラー終了するのを検知して削除する。proactive な存在
+// チェックはしない (Claude 側の transcript 仕様への依存を避けるため)。
 
 message ClaudeSession {
   string worktree_path = 1;
   string session_id = 2;
-  // ~/.claude/projects/<encoded-cwd>/<session-id>.jsonl への絶対パス
-  string transcript_path = 3;
   // ISO8601。デバッグ用途
   string updated_at = 4;
 }

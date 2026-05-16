@@ -64,11 +64,14 @@ resume 失敗検出経路 (`claude --resume <sid>` が transcript 不在等で e
 
 proactive な transcript ファイル存在チェックはしない (Claude 側の transcript 仕様への依存を避けるため)。dead session は以下の reactive 経路で検出する。
 
-| 経路                               | 検出契機                                                                                         |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------ |
-| **resume 失敗** (`removeByPty`)    | spawn 時 `GOZD_RESUME_CLAUDE_SESSION` 期待 sid が SessionStart hook 不達のまま pane が閉じられた |
-| **worktree 削除**                  | `removeByWorktree` で該当 worktreeDir の全 task を cascade 削除                                  |
-| **ターミナル close (identity 無)** | `detachSession` で `ghRef` なし task を削除 (root wt の身元なし残骸)                             |
+| 経路                                                      | 検出契機                                                                                                                                                                   |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **resume 失敗 + zsh fallback** (`applyClaudeSessionHook`) | spawn 時 `GOZD_RESUME_CLAUDE_SESSION` 期待 sid と異なる sid で SessionStart hook が着弾 (`claude --resume X` 失敗後に zsh が素 `claude` を起動して新 sid を発行したケース) |
+| **resume 失敗 + 不達** (`removeByPty`)                    | 期待 sid が SessionStart hook 不達のまま pane が閉じられた (zsh fallback も SessionStart に到達しなかった / ユーザーが素シェルのまま閉じた)                                |
+| **worktree 削除**                                         | `removeByWorktree` で該当 worktreeDir の全 task を cascade 削除                                                                                                            |
+| **ターミナル close (identity 無)**                        | `detachSession` で `ghRef` なし task を削除 (root wt の身元なし残骸)                                                                                                       |
+
+zsh wrapper (`apps/native/Resources/zsh/.zshrc`) は `claude --resume "$_id" || claude` で resume 失敗時に素 `claude` を即座にリトライする。同 PTY で発火する新 SessionStart hook の sid が `GOZD_RESUME_CLAUDE_SESSION` と一致しないことを native 側が検知し、dead 期待 sid を `claude-sessions.json` / `tasks.json` から掃除した上で新 sid を「sessionID 空 candidate」となった元 task に attach する。pane を閉じて再クリックする操作を挟まずに resume が新セッションへ自動転移する。
 
 ## 保存
 
@@ -118,13 +121,14 @@ PR/issue picker や session 未紐付け task クリックで `claude` を autos
 
 ### 削除・クリーンアップ
 
-| トリガー                              | 挙動                                                                                                                                                                                                                       |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| worktree 行 `[⋮]` → "Remove worktree" | worktree 削除 + 該当 `worktreeDir` の全 Task 削除                                                                                                                                                                          |
-| ターミナル close (PTY 終了)           | `detachSession`: sessionId 切り離し。`ghRef` 無しなら task 削除                                                                                                                                                            |
-| SessionEnd hook                       | `detachSession`: 同上                                                                                                                                                                                                      |
-| ターミナル close で resume 失敗検出   | `clearDeadSession`: spawn 時 `GOZD_RESUME_CLAUDE_SESSION` 期待 sid が SessionStart hook 不達のまま閉じた場合、dead sid を `claude-sessions.json` から削除し、task の sessionId を空に書き換える (ghRef 無しなら task 削除) |
-| 外部で worktree 消失                  | `gitWorktreeList` 取得時に存在しない `worktreeDir` を検出し Task 自動削除                                                                                                                                                  |
+| トリガー                                 | 挙動                                                                                                                                                                                                                                                       |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| worktree 行 `[⋮]` → "Remove worktree"    | worktree 削除 + 該当 `worktreeDir` の全 Task 削除                                                                                                                                                                                                          |
+| ターミナル close (PTY 終了)              | `detachSession`: sessionId 切り離し。`ghRef` 無しなら task 削除                                                                                                                                                                                            |
+| SessionEnd hook                          | `detachSession`: 同上                                                                                                                                                                                                                                      |
+| resume 失敗 + zsh fallback で新 sid 着弾 | `clearDeadSession`: spawn 時 `GOZD_RESUME_CLAUDE_SESSION` 期待 sid と異なる sid で SessionStart hook が届いた場合、dead 期待 sid を `claude-sessions.json` から削除し、task の sessionId を空に書き換え (ghRef 無しなら task 削除)、続けて新 sid を attach |
+| ターミナル close で resume 失敗検出      | `clearDeadSession`: 期待 sid が SessionStart hook 不達のまま閉じた場合 (zsh fallback も SessionStart に到達しなかった)、dead sid を `claude-sessions.json` から削除し、task の sessionId を空に書き換える (ghRef 無しなら task 削除)                       |
+| 外部で worktree 消失                     | `gitWorktreeList` 取得時に存在しない `worktreeDir` を検出し Task 自動削除                                                                                                                                                                                  |
 
 ## RPC
 

@@ -113,8 +113,8 @@ struct PTYRegistryTests {
     #expect(second == nil)
   }
 
-  @Test("clearExpectedResumeSidIfMatches は sid 一致時のみクリアする")
-  func clearExpectedSidConditional() async throws {
+  @Test("consumeExpectedResumeSid は sid 関係なく必ず消費する (SessionStart 着弾の単一エントリポイント)")
+  func consumeExpectedSidAlwaysConsumes() async throws {
     let events = EventCollector()
     let registry = PTYRegistry(
       onText: { id, text in events.appendText(id: id, text: text) },
@@ -128,21 +128,15 @@ struct PTYRegistryTests {
     )
     defer { Task { await registry.kill(id: id) } }
 
-    // 別 sid (resume 失敗後に新 claude が起動して別 sid を発行したケース) では no-op
-    await registry.clearExpectedResumeSidIfMatches(for: id, sessionId: "other-sid-Y")
-    let stillThere = await registry.consumeExpectedResumeSid(for: id)
-    #expect(stillThere == "expected-sid-X")
+    // SessionStart 着弾相当: 別 sid (zsh fallback で素 claude が新 sid を発行したケース) でも
+    // expected は必ず消費される。caller は返り値を hook.sessionID と比較して
+    // 一致/不一致を判定する。
+    let consumed = await registry.consumeExpectedResumeSid(for: id)
+    #expect(consumed == "expected-sid-X")
 
-    // 同 sid (resume 成功) なら消費される
-    var env2 = ProcessInfo.processInfo.environment
-    env2["GOZD_RESUME_CLAUDE_SESSION"] = "expected-sid-Z"
-    let id2 = try await registry.spawn(
-      executable: "/bin/cat", args: ["cat"], env: env2, cwd: "/tmp", rows: 24, cols: 80
-    )
-    defer { Task { await registry.kill(id: id2) } }
-    await registry.clearExpectedResumeSidIfMatches(for: id2, sessionId: "expected-sid-Z")
-    let cleared = await registry.consumeExpectedResumeSid(for: id2)
-    #expect(cleared == nil)
+    // 2 回目の consume は nil (1 回消費したら消える)。removeByPty 経路で再観測しないことを保証。
+    let second = await registry.consumeExpectedResumeSid(for: id)
+    #expect(second == nil)
   }
 
   @Test("clearAssociations は expectedResumeSid を触らない (silent drop しない契約)")

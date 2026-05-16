@@ -39,7 +39,13 @@ claude() {
 _gozd_resume_claude() {
   local _id="$GOZD_RESUME_CLAUDE_SESSION"
   unset GOZD_RESUME_CLAUDE_SESSION
-  claude --resume "$_id"
+  # `claude --resume <sid>` は transcript 不在 (= 一度も会話が確定していない session
+  # に対する resume) で「No conversation found ...」を出して非 0 で抜ける。pane を
+  # 閉じてもらわなくても済むよう素の `claude` を続けて起動し、新 SessionStart 経由で
+  # task を再 attach する (native 側 RpcDispatcher.applyClaudeSessionHook が
+  # 「expected と異なる sid の SessionStart」を resume 失敗 + fallback と判定し
+  # dead sid を `claude-sessions.json` / `tasks.json` から掃除する)。
+  claude --resume "$_id" || claude
 }
 [[ -n "$GOZD_RESUME_CLAUDE_SESSION" ]] && _gozd_resume_claude
 

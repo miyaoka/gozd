@@ -125,20 +125,12 @@ public actor TaskStore {
   }
 
   /// 起動時の reconcile。dead session を attach したまま放置された task の sessionID を
-  /// クリアし、加えて「body / gh_ref いずれも空」かつ「sessionID も dead」の
-  /// task は孤児として削除する (AND 条件)。
+  /// クリアし、加えて「body / gh_ref いずれも空」かつ「sessionID も dead」の task は
+  /// 孤児として削除する (AND 条件)。
   ///
-  /// task.sessionID は SessionEnd でも保持する設計なので、resume が永久に効かなくなった
-  /// dead session id をクリアして次回クリック時に「素の claude」を起動できる状態に戻す。
-  /// body / gh_ref が残っていれば task 本体は維持する。
-  /// この経路が無いと、アプリクラッシュ / kill -9 / transcript 削除で session-end hook も
-  /// removeByPty も来なかった残骸が永続化に居座り続け、サイドバーに `New session` の
-  /// ゾンビ行として現れる。
-  ///
-  /// parse 失敗 (UTF-8 不正 / JSON 不整合 / 未知フィールド) の tasks.json / claude-sessions.json
-  /// は空オブジェクトで上書き save する。「壊れているデータに価値はない、削除か初期化」方針。
-  /// throw + 起動時 notify では window.__gozdReceive 未初期化中に silent drop されて
-  /// ユーザーが破損を観測できないため、stderr ログだけで観察可能性を確保する。
+  /// parse 失敗 (UTF-8 不正 / JSON syntax 不正 / proto schema 進化) の永続化ファイルは
+  /// 空オブジェクトで上書き save する。本アプリはベータ版で永続データに後方互換を作らない
+  /// (CLAUDE.md 規約)。schema 進化で旧 JSON が parse 失敗した時は新規初期化が期待挙動。
   public func reconcileAll() throws {
     let projectsURL = URL(fileURLWithPath: configDir).appendingPathComponent("projects")
     let fm = FileManager.default
@@ -171,6 +163,9 @@ public actor TaskStore {
       }
       if taskList.tasks.isEmpty { continue }
 
+      // dead session 判定の根拠は claude-sessions.json。破損していれば「空」と
+      // 取り違えて全 task を orphan 化する事故になるため、parse 失敗時は当該 projectKey
+      // の dead session 判定をスキップして次に進む (`continue`)。
       var liveSessionIds: Set<String> = []
       let sessionsURL = projectDir.appendingPathComponent("claude-sessions.json")
       if fm.fileExists(atPath: sessionsURL.path) {
@@ -189,6 +184,7 @@ public actor TaskStore {
             Data(
               "[TaskStore] reconcile: corrupted claude-sessions.json reinitialized for \(projectKey)\n"
                 .utf8))
+          continue
         }
       }
 
@@ -243,10 +239,6 @@ public actor TaskStore {
       return Gozd_V1_TaskList()
     }
     let data = try Data(contentsOf: url)
-    // parse 失敗 (UTF-8 不正 / JSON 不整合 / 未知フィールド) は壊れた tasks.json として
-    // 扱い、空 list で上書き save する。throw + 起動時 notify では window.__gozdReceive
-    // 未初期化中に silent drop されて観測経路が消えるため、stderr ログだけ残して観察可能性を
-    // 確保する。「壊れているデータに価値はない、削除か初期化」方針。
     if let json = String(bytes: data, encoding: .utf8),
       let list = try? Gozd_V1_TaskList(jsonString: json)
     {

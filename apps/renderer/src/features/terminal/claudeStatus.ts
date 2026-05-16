@@ -94,7 +94,8 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
   /** PTY ごとの直近 tail バッファ。チャンク分割でマーカーが跨いだ場合に備える */
   const ptyTailBuffers = new Map<number, string>();
   /** sessionId ↔ ptyId のマッピング。session-start hook で確立、session-end / cleanup で破棄。
-   *  task.id == sessionId の同一視ルール により、task 行から status を引くために使う。 */
+   *  WtCard / SidebarPane が `task.sessionId` 経由でこの map を引いて、task 行から live PTY や
+   *  ClaudeStatus を解決するために使う。 */
   const ptyIdBySessionId = new Map<string, number>();
   const sessionIdByPtyId = new Map<number, string>();
 

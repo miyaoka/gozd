@@ -40,8 +40,11 @@ public actor TaskStore {
 
   /// 新規 Task を作成する。PR/issue picker や手動操作から呼ばれる。
   /// id は UUID で生成。session は未 attach (sessionID 空) の状態で開始する。
+  /// `createdAt` を省略すると現在時刻 (ISO 8601) を埋める。テスト時に明示的な順序を
+  /// 仕込みたい場合のみ caller が文字列で与える (本体経路では渡さない)。
   public func add(
-    dir: String, body: String, worktreeDir: String, prNumber: UInt32, issueNumber: UInt32
+    dir: String, body: String, worktreeDir: String, prNumber: UInt32, issueNumber: UInt32,
+    createdAt: String? = nil
   ) throws -> Gozd_V1_Task {
     var list = try loadFile(for: dir)
     var task = Gozd_V1_Task()
@@ -50,7 +53,7 @@ public actor TaskStore {
     task.worktreeDir = worktreeDir
     task.prNumber = prNumber
     task.issueNumber = issueNumber
-    task.createdAt = ISO8601DateFormatter().string(from: Date())
+    task.createdAt = createdAt ?? ISO8601DateFormatter().string(from: Date())
     list.tasks.append(task)
     try saveFile(list, for: dir)
     return task
@@ -97,36 +100,31 @@ public actor TaskStore {
   }
 
   /// SessionEnd hook 由来。task.sessionID は保持して `claude --resume` の起点に使う。
-  /// 削除判定は孤児共通条件 `Self.isOrphan` を使う (reconcileAll と SSOT)。
-  /// 注意: detachSession 文脈での `isOrphan` 評価は「現在 attach 中の sessionID は
-  /// 切り離す予定」という前提で行う。task.sessionID をフィールド更新する前に
-  /// `isOrphan` を呼ぶと sessionID 残存で false を返すため、判定では sessionID を
-  /// 「これから 0 に揃える」値として扱う (= body / pr / issue の 3 項だけ見れば十分)。
+  /// 削除判定は `hasNonSessionIdentity` (body / pr / issue の 3 項) で行う。sessionID を
+  /// この判定に含めると「再 resume 用に sessionID を残す」設計と矛盾するため除外する。
   public func detachSession(dir: String, sessionId: String) throws {
     var list = try loadFile(for: dir)
     guard let idx = list.tasks.firstIndex(where: { $0.sessionID == sessionId }) else {
       return
     }
-    var task = list.tasks[idx]
-    task.sessionID = ""
-    if Self.isOrphan(task) {
+    if !Self.hasNonSessionIdentity(list.tasks[idx]) {
       list.tasks.remove(at: idx)
-    } else {
-      // sessionID は detach の意味として renderer 側でも空文字に揃えるが、本 store
-      // の永続化では「再 resume の起点」として保持する設計。worktreeList の filter は
-      // identity (body / pr / issue) の有無で判定するため、sessionID を残しても
-      // サイドバー表示には影響しない。
-      // (実装としては元の list.tasks[idx] の sessionID を保持する形で何もしない)
     }
+    // identity (body / pr / issue) があれば sessionID は保持。worktreeList の filter は
+    // identity の有無で判定するため、sessionID を残してもサイドバー表示には影響しない。
     try saveFile(list, for: dir)
   }
 
-  /// 「task の identity が完全に消えた」判定の SSOT。detachSession と reconcileAll の
-  /// 両方から呼ぶ。body / pr_number / issue_number / sessionID すべて空が条件。
-  /// 1 項でも残っていれば identity 源があるので維持する。
+  /// task が session 以外の identity 源 (body / pr / issue) を持つか。1 項でもあれば true。
+  /// detachSession の保持判定 と reconcileAll の孤児判定 (sessionID 込み 4 項) で共通利用する。
+  private static func hasNonSessionIdentity(_ task: Gozd_V1_Task) -> Bool {
+    return !task.body.isEmpty || task.prNumber != 0 || task.issueNumber != 0
+  }
+
+  /// 「task の identity が完全に消えた」判定 (reconcileAll 専用)。body / pr / issue / sessionID
+  /// すべて空が条件 (= `hasNonSessionIdentity` false かつ sessionID 空)。
   private static func isOrphan(_ task: Gozd_V1_Task) -> Bool {
-    return task.body.isEmpty && task.prNumber == 0 && task.issueNumber == 0
-      && task.sessionID.isEmpty
+    return !hasNonSessionIdentity(task) && task.sessionID.isEmpty
   }
 
   /// worktree 物理削除 (handleWorktreeRemove) からの連動掃除。

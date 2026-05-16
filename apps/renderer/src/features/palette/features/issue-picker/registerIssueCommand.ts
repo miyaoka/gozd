@@ -129,11 +129,14 @@ export function registerIssueCommand(): () => void {
               notify.error("Failed to create worktree", result.error);
               return;
             }
+            // worktree レスポンスが空のときは早期 return。続行して autostart すると
+            // サイドバーに表れない worktree でターミナルだけ動く不整合状態に落ちる
+            // (PR-picker と挙動を揃える)。
             if (result.value.worktree === undefined) {
               notify.error("Worktree created but sidebar could not be updated");
-            } else {
-              repoStore.appendWorktree(rootDir, result.value.worktree);
+              return;
             }
+            repoStore.appendWorktree(rootDir, result.value.worktree);
             // issue タイトルを body に持つ task を作成し worktree に紐付ける。
             // Claude session 未起動状態 (sessionId 空) で永続化され、サイドバー行を
             // クリックすると素の claude が起動して SessionStart hook で attach される。

@@ -10,7 +10,7 @@ struct TaskStoreTests {
 
   @Test("attachSession: 既に同 sessionID の task があれば no-op (重複 hook / 復元レース)")
   func attachSessionIdempotent() async throws {
-    let env = try makeEnv()
+    let env = try await makeEnv()
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
@@ -33,19 +33,20 @@ struct TaskStoreTests {
 
   @Test("attachSession: sessionId 空の最新 task に attach (createdAt 降順)")
   func attachSessionPicksLatestEmpty() async throws {
-    let env = try makeEnv()
+    let env = try await makeEnv()
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
+    // createdAt をテストフックで明示注入し、時間ベース待機を避ける。
     let older = try await store.add(
       dir: env.worktreeA, body: "older", worktreeDir: env.worktreeA,
-      prNumber: 0, issueNumber: 0
+      prNumber: 0, issueNumber: 0,
+      createdAt: "2026-05-15T00:00:00Z"
     )
-    // createdAt の差を確保するため明示的に間を置く
-    try await Task.sleep(nanoseconds: 1_100_000_000)
     let newer = try await store.add(
       dir: env.worktreeA, body: "newer", worktreeDir: env.worktreeA,
-      prNumber: 0, issueNumber: 0
+      prNumber: 0, issueNumber: 0,
+      createdAt: "2026-05-16T00:00:00Z"
     )
 
     try await store.attachSession(
@@ -60,7 +61,7 @@ struct TaskStoreTests {
 
   @Test("attachSession: 該当 task 無しなら新規 task を作成 (Claude 直接起動経路)")
   func attachSessionCreatesNew() async throws {
-    let env = try makeEnv()
+    let env = try await makeEnv()
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
@@ -80,7 +81,7 @@ struct TaskStoreTests {
 
   @Test("attachSession: 他 worktree の sessionId 空 task は attach 対象外")
   func attachSessionScopedByWorktreeDir() async throws {
-    let env = try makeEnv()
+    let env = try await makeEnv()
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
@@ -104,7 +105,7 @@ struct TaskStoreTests {
 
   @Test("detachSession: body / pr / issue がすべて空なら task 削除 (Claude 直接起動 + 即終了の残骸)")
   func detachSessionRemovesEmpty() async throws {
-    let env = try makeEnv()
+    let env = try await makeEnv()
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
@@ -120,7 +121,7 @@ struct TaskStoreTests {
 
   @Test("detachSession: body があれば task は残し sessionID は保持 (再 resume の起点)")
   func detachSessionKeepsIdentified() async throws {
-    let env = try makeEnv()
+    let env = try await makeEnv()
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
@@ -143,7 +144,7 @@ struct TaskStoreTests {
 
   @Test("detachSession: prNumber > 0 でも task を残す (PR/issue 由来 task の永続性)")
   func detachSessionKeepsPrTask() async throws {
-    let env = try makeEnv()
+    let env = try await makeEnv()
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
@@ -164,7 +165,7 @@ struct TaskStoreTests {
 
   @Test("detachSession: sessionId 不一致なら no-op (silent return)")
   func detachSessionUnknownId() async throws {
-    let env = try makeEnv()
+    let env = try await makeEnv()
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
@@ -186,7 +187,7 @@ struct TaskStoreTests {
 
   @Test("reconcileAll: dead sessionID は task からクリアして本体は維持する")
   func reconcileClearsDeadSession() async throws {
-    let env = try makeEnv()
+    let env = try await makeEnv()
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
@@ -209,7 +210,7 @@ struct TaskStoreTests {
 
   @Test("reconcileAll: identity 完全消失 (body / pr / issue / sessionId すべて空) の task は孤児削除")
   func reconcileDropsOrphans() async throws {
-    let env = try makeEnv()
+    let env = try await makeEnv()
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
@@ -226,7 +227,7 @@ struct TaskStoreTests {
 
   @Test("reconcileAll: 生存 sessionId 一致なら task はそのまま (sessionID 維持)")
   func reconcileKeepsLiveSession() async throws {
-    let env = try makeEnv()
+    let env = try await makeEnv()
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
@@ -261,7 +262,7 @@ private struct TaskStoreTestEnv {
   let worktreeB: String
 }
 
-private func makeEnv() throws -> TaskStoreTestEnv {
+private func makeEnv() async throws -> TaskStoreTestEnv {
   let base = FileManager.default.temporaryDirectory
     .appendingPathComponent("gozd-task-store-\(UUID().uuidString.prefix(8))")
   let mainRepo = base.appendingPathComponent("main").path
@@ -274,12 +275,12 @@ private func makeEnv() throws -> TaskStoreTestEnv {
     try fm.createDirectory(atPath: path, withIntermediateDirectories: true)
   }
 
-  try runGitSync(args: ["init", "-q", "-b", "main"], cwd: mainRepo)
-  try runGitSync(args: ["config", "user.email", "test@example.com"], cwd: mainRepo)
-  try runGitSync(args: ["config", "user.name", "Test"], cwd: mainRepo)
-  try runGitSync(args: ["commit", "-q", "--allow-empty", "-m", "init"], cwd: mainRepo)
-  try runGitSync(args: ["worktree", "add", "-q", "-B", "wt-a", worktreeA], cwd: mainRepo)
-  try runGitSync(args: ["worktree", "add", "-q", "-B", "wt-b", worktreeB], cwd: mainRepo)
+  try await runTestGit(args: ["init", "-q", "-b", "main"], cwd: mainRepo)
+  try await runTestGit(args: ["config", "user.email", "test@example.com"], cwd: mainRepo)
+  try await runTestGit(args: ["config", "user.name", "Test"], cwd: mainRepo)
+  try await runTestGit(args: ["commit", "-q", "--allow-empty", "-m", "init"], cwd: mainRepo)
+  try await runTestGit(args: ["worktree", "add", "-q", "-B", "wt-a", worktreeA], cwd: mainRepo)
+  try await runTestGit(args: ["worktree", "add", "-q", "-B", "wt-b", worktreeB], cwd: mainRepo)
 
   return TaskStoreTestEnv(
     configDir: configDir, mainRepo: mainRepo, worktreeA: worktreeA, worktreeB: worktreeB)
@@ -290,16 +291,39 @@ private func cleanup(_ env: TaskStoreTestEnv) {
   try? FileManager.default.removeItem(atPath: base)
 }
 
-private func runGitSync(args: [String], cwd: String) throws {
-  let process = Process()
-  process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-  process.arguments = ["git"] + args
-  process.currentDirectoryURL = URL(fileURLWithPath: cwd)
-  process.environment = ProcessInfo.processInfo.environment
-  process.standardOutput = Pipe()
-  process.standardError = Pipe()
-  try process.run()
-  process.waitUntilExit()
+/// テスト helper: stdout は捨て、stderr を捕捉して non-zero exit を例外化する。
+/// GitOpsTests.runTestGit と同じ流儀 (「テストヘルパーも本体と同じ厳密さ」原則)。
+/// 未読 Pipe で `waitUntilExit` が deadlock するのを避けるため、stderr は
+/// terminationHandler 内で `readDataToEndOfFile()` する。stdout は `nullDevice` に
+/// 直接捨てる (git 出力は本テストで未使用)。
+private func runTestGit(args: [String], cwd: String) async throws {
+  try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["git"] + args
+    process.currentDirectoryURL = URL(fileURLWithPath: cwd)
+    process.environment = ProcessInfo.processInfo.environment
+    process.standardOutput = FileHandle.nullDevice
+    let stderrPipe = Pipe()
+    process.standardError = stderrPipe
+    process.terminationHandler = { proc in
+      if proc.terminationStatus == 0 {
+        cont.resume()
+      } else {
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderr =
+          String(bytes: stderrData, encoding: .utf8)
+          ?? "<non-UTF8 stderr (\(stderrData.count) bytes)>"
+        cont.resume(
+          throwing: GitError.commandFailed(exitCode: proc.terminationStatus, stderr: stderr))
+      }
+    }
+    do {
+      try process.run()
+    } catch {
+      cont.resume(throwing: error)
+    }
+  }
 }
 
 // projectKey の解決方式に合わせて claude-sessions.json を tasks.json と同じ projectDir に

@@ -248,9 +248,10 @@ export const useTerminalStore = defineStore("terminal", () => {
               // 待つと、次のサイドバー操作まで古い値が出続けるため。dir はプロジェクト
               // 内の任意 dir として projectKey 解決に使える。
               await refreshSavedSessionCounts([dir], dir);
-              // session = Task の同一視: Swift 側で TaskStore から
-              // 削除済み。useSidebarData がこの ref を watch して所属 repo を
-              // refetch することで WorktreeEntry.tasks から消えた Task を反映する。
+              // Swift 側で TaskStore.detachSession が走り、sessionId を切り離した task は
+              // 残し (body / pr / issue 残存時)、identity 完全消失なら削除する。
+              // useSidebarData がこの ref を watch して所属 repo を refetch することで、
+              // WorktreeEntry.tasks 側の sessionId 切り離し / 削除を反映する。
               // terminalStore は repoStore に依存させない (Pinia setup での循環を避ける)。
               lastRemovedSessionInfo.value = {
                 dir,

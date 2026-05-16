@@ -6,6 +6,72 @@ import Testing
 
 @Suite("TaskStore")
 struct TaskStoreTests {
+  // MARK: - add (upsert)
+
+  @Test("add: 同 worktreeDir + 同 ghRef の既存 hidden task は再活性化される (PR/issue 再選択)")
+  func addUpsertsHiddenGhRefTask() async throws {
+    let env = try await makeEnv()
+    defer { cleanup(env) }
+    let store = TaskStore(configDir: env.configDir)
+
+    let original = try await store.add(
+      dir: env.worktreeA, body: "old title", worktreeDir: env.worktreeA,
+      ghRef: .forPr(7), createdAt: "2026-05-15T00:00:00Z"
+    )
+    try await store.attachSession(
+      dir: env.worktreeA, sessionId: "live-sid", worktreeDir: env.worktreeA)
+    // terminal close 相当: hidden=true
+    try await store.detachSession(dir: env.worktreeA, sessionId: "live-sid")
+
+    // PR picker から再選択 (タイトル変更を想定): upsert で hidden 解除 + body 上書き
+    let revived = try await store.add(
+      dir: env.worktreeA, body: "new title", worktreeDir: env.worktreeA,
+      ghRef: .forPr(7), createdAt: "2026-05-20T00:00:00Z"
+    )
+
+    #expect(revived.id == original.id) // 同一 task identity を維持
+    #expect(revived.body == "new title")
+    #expect(!revived.hidden)
+    #expect(revived.sessionID == "live-sid") // sessionID も保持される
+
+    let list = try await store.list(dir: env.worktreeA)
+    #expect(list.count == 1) // 重複追加されない
+  }
+
+  @Test("add: ghRef 無しは upsert せず常に新規作成")
+  func addAlwaysCreatesWhenNoGhRef() async throws {
+    let env = try await makeEnv()
+    defer { cleanup(env) }
+    let store = TaskStore(configDir: env.configDir)
+
+    let first = try await store.add(
+      dir: env.worktreeA, body: "scratch", worktreeDir: env.worktreeA, ghRef: nil
+    )
+    let second = try await store.add(
+      dir: env.worktreeA, body: "scratch", worktreeDir: env.worktreeA, ghRef: nil
+    )
+
+    #expect(first.id != second.id)
+    let list = try await store.list(dir: env.worktreeA)
+    #expect(list.count == 2)
+  }
+
+  @Test("add: 別 worktree の同 ghRef は別 task として扱う")
+  func addScopesUpsertByWorktree() async throws {
+    let env = try await makeEnv()
+    defer { cleanup(env) }
+    let store = TaskStore(configDir: env.configDir)
+
+    let a = try await store.add(
+      dir: env.worktreeA, body: "wt-a", worktreeDir: env.worktreeA, ghRef: .forPr(9)
+    )
+    let b = try await store.add(
+      dir: env.worktreeA, body: "wt-b", worktreeDir: env.worktreeB, ghRef: .forPr(9)
+    )
+
+    #expect(a.id != b.id) // worktreeDir が違えば upsert されない
+  }
+
   // MARK: - attachSession
 
   @Test("attachSession: 既に同 sessionID の task があれば no-op (重複 hook / 復元レース)")
@@ -78,6 +144,30 @@ struct TaskStoreTests {
     #expect(!task.id.isEmpty)
   }
 
+  @Test("attachSession: hidden な task に attach すると hidden=false に戻る")
+  func attachSessionClearsHidden() async throws {
+    let env = try await makeEnv()
+    defer { cleanup(env) }
+    let store = TaskStore(configDir: env.configDir)
+
+    _ = try await store.add(
+      dir: env.worktreeA, body: "PR #11", worktreeDir: env.worktreeA, ghRef: .forPr(11)
+    )
+    try await store.attachSession(
+      dir: env.worktreeA, sessionId: "first", worktreeDir: env.worktreeA)
+    // terminal close: hidden=true + sessionID 保持
+    try await store.detachSession(dir: env.worktreeA, sessionId: "first")
+    #expect(try await store.list(dir: env.worktreeA).first?.hidden == true)
+
+    // 同 sessionID で再 attach (resume クリック → SessionStart hook 着弾の経路)
+    try await store.attachSession(
+      dir: env.worktreeA, sessionId: "first", worktreeDir: env.worktreeA)
+
+    let kept = try #require(try await store.list(dir: env.worktreeA).first)
+    #expect(!kept.hidden)
+    #expect(kept.sessionID == "first")
+  }
+
   @Test("attachSession: 他 worktree の sessionId 空 task は attach 対象外")
   func attachSessionScopedByWorktreeDir() async throws {
     let env = try await makeEnv()
@@ -140,7 +230,7 @@ struct TaskStoreTests {
     #expect(list.isEmpty)
   }
 
-  @Test("detachSession: ghRef があれば task を残す (PR/issue 由来 task の永続性)")
+  @Test("detachSession: ghRef があれば task を残しつつ hidden=true で表示だけ消す")
   func detachSessionKeepsPrTask() async throws {
     let env = try await makeEnv()
     defer { cleanup(env) }
@@ -160,7 +250,8 @@ struct TaskStoreTests {
     #expect(kept.hasGhRef)
     #expect(kept.ghRef.kind == .pr)
     #expect(kept.ghRef.number == 42)
-    #expect(kept.sessionID == "pr-sid")
+    #expect(kept.sessionID == "pr-sid") // resume 起点として sessionID は維持
+    #expect(kept.hidden) // サイドバー表示は terminal close で消える
   }
 
   @Test("detachSession: sessionId 不一致なら no-op (silent return)")
@@ -185,7 +276,7 @@ struct TaskStoreTests {
 
   // MARK: - clearDeadSession (resume 失敗検出)
 
-  @Test("clearDeadSession: ghRef ありなら sessionID を空に書き換え task は残す")
+  @Test("clearDeadSession: ghRef ありなら sessionID を空に書き換え hidden=true で残す")
   func clearDeadSessionKeepsGhRefTask() async throws {
     let env = try await makeEnv()
     defer { cleanup(env) }
@@ -206,6 +297,7 @@ struct TaskStoreTests {
     #expect(kept.ghRef.number == 42)
     #expect(kept.body == "PR #42") // body は保持される
     #expect(kept.sessionID == "") // dead sid はクリアされる (次クリックで素の claude 起動経路)
+    #expect(kept.hidden) // terminal close 経路と同様にサイドバー表示は消える
   }
 
   @Test("clearDeadSession: ghRef なしなら task ごと削除")

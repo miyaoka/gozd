@@ -61,9 +61,40 @@ export function registerPrCommand(): () => void {
         show(prsRes.prs, viewerLogin ?? "", (pr) => {
           const existingDir = wtByBranch.get(pr.headRef);
           if (existingDir !== undefined) {
-            // 既存 worktree に切り替え（ステートレス化により switchDir RPC は廃止）
-            terminalStore.viewMode = "wt";
-            worktreeStore.setOpen(existingDir);
+            // 既存 worktree に切り替え（ステートレス化により switchDir RPC は廃止）。
+            // 直前に terminal close で hidden 化されている可能性があるため、同 ghRef
+            // で taskAdd の upsert を呼んで hidden を解除する。新規作成の副作用にも
+            // なるが、サーバ側で worktreeDir + ghRef 一致を見るので冪等。
+            void (async () => {
+              const rootDir = repoStore.findRepoOwning(existingDir)?.rootDir;
+              if (rootDir !== undefined) {
+                const taskResult = await tryCatch(
+                  rpcTaskAdd({
+                    dir: rootDir,
+                    body: pr.title,
+                    worktreeDir: existingDir,
+                    ghRef: ghRefForPr(pr.number),
+                  }),
+                );
+                if (!taskResult.ok) {
+                  notify.error("Failed to revive task for pull request", taskResult.error);
+                } else if (taskResult.value.task !== undefined) {
+                  const upserted = taskResult.value.task;
+                  const repo = repoStore.repos[rootDir];
+                  const wt = repo?.worktrees.find((w) => w.path === existingDir);
+                  if (wt !== undefined) {
+                    const idx = wt.tasks.findIndex((t) => t.id === upserted.id);
+                    if (idx >= 0) {
+                      wt.tasks = [...wt.tasks.slice(0, idx), upserted, ...wt.tasks.slice(idx + 1)];
+                    } else {
+                      wt.tasks = [...wt.tasks, upserted];
+                    }
+                  }
+                }
+              }
+              terminalStore.viewMode = "wt";
+              worktreeStore.setOpen(existingDir);
+            })();
             return;
           }
           // 新規 worktree 作成

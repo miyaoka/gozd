@@ -564,10 +564,15 @@ public actor RpcDispatcher {
     let registered = try await claudeSessions.allSavedSessions(forProject: req.dir)
     let registeredSessionIds = Set(registered.map { $0.sessionID })
     let listedTasks = try await tasks.list(dir: req.dir)
-    // task ≠ session 設計: 身元 (gh_ref) があれば session が dead でも表示する。
+    // task ≠ session 設計: 身元 (gh_ref) があれば session が dead でも task 自体は
+    // 残るが、サイドバー表示は terminal close で hidden=true に倒されるため除外する。
     // session 単独で生きていた task (root wt 上で直接 claude を起動したケース等) は
     // session が live な間だけ表示し、PTY が消えれば自動で消える。
+    // hidden を入り口で弾くことで gh 系 / 直接起動系の挙動を揃える (terminal close で
+    // どちらもサイドバーから消える)。gh 系の永続情報は task 本体に残り、PR/issue picker
+    // で同じ識別子を再選択すると `TaskStore.add` の upsert で再表示される。
     let allTasks = listedTasks.filter { task in
+      if task.hidden { return false }
       if task.hasNonSessionIdentity { return true }
       return !task.sessionID.isEmpty && registeredSessionIds.contains(task.sessionID)
     }

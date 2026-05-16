@@ -39,15 +39,34 @@ public actor TaskStore {
     return try loadFile(for: dir).tasks
   }
 
-  /// 新規 Task を作成する。PR/issue picker や手動操作から呼ばれる。
-  /// id は UUID で生成。session は未 attach (sessionID 空) の状態で開始する。
-  /// `createdAt` を省略すると現在時刻 (ISO 8601) を埋める。テスト時に明示的な順序を
-  /// 仕込みたい場合のみ caller が文字列で与える (本体経路では渡さない)。
+  /// Task を作成または再活性化する。PR/issue picker や手動操作から呼ばれる。
+  ///
+  /// 動作:
+  ///   - `ghRef` 指定があり、同 `worktreeDir` + 同 `ghRef` の既存 task が見つかれば
+  ///     **upsert**: `hidden` を false に戻し、`body` を最新の PR/issue タイトルで
+  ///     上書きして返す。createdAt / id / sessionID は保持する。
+  ///   - それ以外は新規 task を UUID で作成。`createdAt` を省略すると現在時刻
+  ///     (ISO 8601)。テスト時の順序仕込み用に caller が文字列で与えられる。
+  ///
+  /// upsert を入れた理由: terminal close で `detachSession` が `ghRef` 持ち task に
+  /// hidden=true を立てるため、再度 PR/issue picker で同じ PR を選んだときに再表示
+  /// する経路が必要。wtByBranch hit ルート (既存 worktree 切替) でも picker から
+  /// `add` が呼ばれる前提で、ここで identity 単位の冪等再活性化を完結させる。
   public func add(
     dir: String, body: String, worktreeDir: String, ghRef: Gozd_V1_GhRef?,
     createdAt: String? = nil
   ) throws -> Gozd_V1_Task {
     var list = try loadFile(for: dir)
+    if let ghRef,
+      let idx = list.tasks.firstIndex(where: {
+        $0.worktreeDir == worktreeDir && $0.hasGhRef && $0.ghRef == ghRef
+      })
+    {
+      list.tasks[idx].body = body
+      list.tasks[idx].hidden = false
+      try saveFile(list, for: dir)
+      return list.tasks[idx]
+    }
     var task = Gozd_V1_Task()
     task.id = UUID().uuidString
     task.body = body
@@ -79,7 +98,14 @@ public actor TaskStore {
   ///   3. 該当無し → 新規 task を作成し sessionID を入れる (Claude 直接起動経路)
   public func attachSession(dir: String, sessionId: String, worktreeDir: String) throws {
     var list = try loadFile(for: dir)
-    if list.tasks.contains(where: { $0.sessionID == sessionId }) {
+    if let idx = list.tasks.firstIndex(where: { $0.sessionID == sessionId }) {
+      // 既存 attach は冪等で抜ける前に hidden だけは解除する。サイドバーから
+      // 隠した task に対して resume クリック等で再 SessionStart が来た場合に
+      // 表示を復活させるため。
+      if list.tasks[idx].hidden {
+        list.tasks[idx].hidden = false
+        try saveFile(list, for: dir)
+      }
       return
     }
     let candidates = list.tasks.enumerated().filter {
@@ -87,6 +113,7 @@ public actor TaskStore {
     }
     if let pick = candidates.max(by: { $0.element.createdAt < $1.element.createdAt }) {
       list.tasks[pick.offset].sessionID = sessionId
+      list.tasks[pick.offset].hidden = false
     } else {
       var task = Gozd_V1_Task()
       task.id = UUID().uuidString
@@ -99,19 +126,27 @@ public actor TaskStore {
     try saveFile(list, for: dir)
   }
 
-  /// SessionEnd hook 由来。task.sessionID は保持して `claude --resume` の起点に使う。
-  /// 削除判定は `hasNonSessionIdentity` (gh_ref) で行う。sessionID を
-  /// この判定に含めると「再 resume 用に sessionID を残す」設計と矛盾するため除外する。
+  /// SessionEnd hook / terminal close 由来。
+  ///
+  /// 動作:
+  ///   - `gh_ref` 持ち task: 削除せず `hidden=true` を立て、`sessionID` は保持する。
+  ///     サイドバー表示は消えるが、PR/issue 永続情報と `claude --resume` の起点は
+  ///     残る。同じ PR/issue を picker で再選択すると `add` の upsert 経路で
+  ///     `hidden=false` に戻り表示が復活する。
+  ///   - `gh_ref` 無し task: 従来通り削除する (Claude 直接起動 + 即終了の残骸掃除)。
+  ///
+  /// sessionID 単独では身元にしない: 「再 resume 用に sessionID を残す」設計と
+  /// 矛盾するため、`hasNonSessionIdentity` で判定する。
   public func detachSession(dir: String, sessionId: String) throws {
     var list = try loadFile(for: dir)
     guard let idx = list.tasks.firstIndex(where: { $0.sessionID == sessionId }) else {
       return
     }
-    if !list.tasks[idx].hasNonSessionIdentity {
+    if list.tasks[idx].hasNonSessionIdentity {
+      list.tasks[idx].hidden = true
+    } else {
       list.tasks.remove(at: idx)
     }
-    // identity (gh_ref) があれば sessionID は保持。worktreeList の filter は
-    // identity の有無で判定するため、sessionID を残してもサイドバー表示には影響しない。
     try saveFile(list, for: dir)
   }
 
@@ -127,6 +162,11 @@ public actor TaskStore {
     }
     if list.tasks[idx].hasNonSessionIdentity {
       list.tasks[idx].sessionID = ""
+      // terminal close + resume 失敗の経路 (removeByPty) は SessionEnd と同様に
+      // サイドバー表示も消す。直後の attachSession(新 sid) で同 worktree の最新
+      // sessionID 空 task がピックされたら hidden=false に戻り表示が復活する
+      // (resume 失敗 + zsh fallback で新 sid 着弾するケース)。
+      list.tasks[idx].hidden = true
     } else {
       list.tasks.remove(at: idx)
     }

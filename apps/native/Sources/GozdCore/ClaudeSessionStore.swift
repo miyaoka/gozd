@@ -86,20 +86,55 @@ public actor ClaudeSessionStore {
   /// 起動時に 1 回呼ぶ reconcile。`~/.config/gozd/projects/*/claude-sessions.json` を
   /// 走査して、transcript ファイルが消滅したエントリを落とす。落とした件数を stderr に
   /// ログ出力する(観察可能性確保)。read 時 silent save の代替経路。
-  public func reconcileAll() throws {
+  ///
+  /// 戻り値: projectKey → 生存 session id 集合の map。TaskStore.reconcileAll が
+  /// dead session 判定の根拠として受け取り、同一 claude-sessions.json を二重 read する
+  /// SSOT 違反を避ける。reconcile 時点で reinit された projectKey は空集合をマップする。
+  public func reconcileAll() throws -> [String: Set<String>] {
     let projectsURL = URL(fileURLWithPath: configDir).appendingPathComponent("projects")
     let fm = FileManager.default
-    guard fm.fileExists(atPath: projectsURL.path) else { return }
+    guard fm.fileExists(atPath: projectsURL.path) else { return [:] }
     let projectKeys = try fm.contentsOfDirectory(atPath: projectsURL.path)
     var totalDropped = 0
+    var liveSessionsByProject: [String: Set<String>] = [:]
     for projectKey in projectKeys {
       let fileURL = projectsURL
         .appendingPathComponent(projectKey)
         .appendingPathComponent("claude-sessions.json")
       guard fm.fileExists(atPath: fileURL.path) else { continue }
       let data = try Data(contentsOf: fileURL)
-      let json = String(decoding: data, as: UTF8.self)
-      var list = try Gozd_V1_ClaudeSessionList(jsonString: json)
+      var list: Gozd_V1_ClaudeSessionList
+      let parsedSessions: Gozd_V1_ClaudeSessionList?
+      if let json = String(bytes: data, encoding: .utf8) {
+        do {
+          parsedSessions = try Gozd_V1_ClaudeSessionList(jsonString: json)
+        } catch {
+          FileHandle.standardError.write(
+            Data(
+              "[ClaudeSessionStore] reconcile: parse failed for claude-sessions.json in \(projectKey): \(error)\n"
+                .utf8))
+          parsedSessions = nil
+        }
+      } else {
+        FileHandle.standardError.write(
+          Data(
+            "[ClaudeSessionStore] reconcile: invalid UTF-8 in claude-sessions.json for \(projectKey)\n"
+              .utf8))
+        parsedSessions = nil
+      }
+      if let parsed = parsedSessions {
+        list = parsed
+      } else {
+        let empty = Gozd_V1_ClaudeSessionList()
+        let emptyJson = try empty.jsonString()
+        try emptyJson.write(to: fileURL, atomically: true, encoding: .utf8)
+        FileHandle.standardError.write(
+          Data(
+            "[ClaudeSessionStore] reconcile: corrupted claude-sessions.json reinitialized for \(projectKey)\n"
+              .utf8))
+        liveSessionsByProject[projectKey] = []
+        continue
+      }
       let before = list.sessions.count
       list.sessions.removeAll { entry in
         !FileManager.default.fileExists(atPath: entry.transcriptPath)
@@ -114,11 +149,13 @@ public actor ClaudeSessionStore {
             "[ClaudeSessionStore] reconcile: dropped \(dropped) dead entries from \(projectKey)\n"
               .utf8))
       }
+      liveSessionsByProject[projectKey] = Set(list.sessions.map { $0.sessionID })
     }
     if totalDropped > 0 {
       FileHandle.standardError.write(
         Data("[ClaudeSessionStore] reconcile: total \(totalDropped) dead entries cleaned\n".utf8))
     }
+    return liveSessionsByProject
   }
 
   /// worktree 削除時に該当 worktreePath のエントリを全削除。
@@ -153,9 +190,26 @@ public actor ClaudeSessionStore {
       return Gozd_V1_ClaudeSessionList()
     }
     let data = try Data(contentsOf: url)
-    let json = String(decoding: data, as: UTF8.self)
-    // parse 失敗は壊れたファイルの兆候。fallback で空 list を返すと原因が見えなくなるため throw する。
-    return try Gozd_V1_ClaudeSessionList(jsonString: json)
+    if let json = String(bytes: data, encoding: .utf8) {
+      do {
+        return try Gozd_V1_ClaudeSessionList(jsonString: json)
+      } catch {
+        FileHandle.standardError.write(
+          Data(
+            "[ClaudeSessionStore] loadFile: parse failed at \(url.path): \(error)\n"
+              .utf8))
+      }
+    } else {
+      FileHandle.standardError.write(
+        Data("[ClaudeSessionStore] loadFile: invalid UTF-8 at \(url.path)\n".utf8))
+    }
+    let empty = Gozd_V1_ClaudeSessionList()
+    try saveFile(empty, for: dir)
+    FileHandle.standardError.write(
+      Data(
+        "[ClaudeSessionStore] loadFile: corrupted claude-sessions.json reinitialized at \(url.path)\n"
+          .utf8))
+    return empty
   }
 
   private func saveFile(_ list: Gozd_V1_ClaudeSessionList, for dir: String) throws {

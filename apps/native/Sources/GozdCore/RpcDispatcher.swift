@@ -80,31 +80,28 @@ public actor RpcDispatcher {
   /// 孤児 Task を掃除するため、claudeSessions の reconcile を先に通して
   /// 「session が消えていれば task も消える」を成立させる。
   public func reconcileClaudeSessions() async {
+    let liveSessionsByProject: [String: Set<String>]
     do {
-      try await claudeSessions.reconcileAll()
+      liveSessionsByProject = try await claudeSessions.reconcileAll()
     } catch {
       FileHandle.standardError.write(
         Data("[ClaudeSessionStore] reconcileAll failed: \(error)\n".utf8))
       onNotify(
         "error", "claude-sessions", "Claude session store reconcile failed",
         String(describing: error), "")
+      // claudeSessions.reconcileAll の throw 源は次のいずれか:
+      //   - projects/ ディレクトリ列挙失敗 (致命環境)
+      //   - 個別 projectKey の claude-sessions.json read 失敗 (FS I/O エラー)
+      //   - reinit / save 時の proto JSON encode / write 失敗
+      // 後 2 つは特定 projectKey の I/O 失敗で、他 projectKey の live session 集合は
+      // 取得できている可能性がある。partial 集合で続行する設計は本経路では採らず、
+      // 安全側で tasks.reconcileAll を全 skip する。live session 集合が一部欠落した
+      // 状態で dead 判定 (sid クリア + orphan 削除) を回すと、欠落側の生存 task を
+      // 巻き添え削除する破壊が起きうるため、partial 続行よりも全 skip を選ぶ。
+      return
     }
     do {
-      let parseFailureProjects = try await tasks.reconcileAll()
-      if !parseFailureProjects.isEmpty {
-        // claude-sessions.json の parse 失敗で skip した projectKey がある場合、
-        // renderer にトースト通知して復旧操作（手動修復 / 削除）を促す。
-        // skip 自体は安全側の挙動だが、放置すると孤児 Task が永続化に残るため
-        // ユーザーに気付かせる必要がある。reconcile は起動時 1 回かつ全 projectKey
-        // 横断なので dir 紐付けは無く、空文字を渡す (renderer 側は全 repo refetch)。
-        onNotify(
-          "error",
-          "task-store",
-          "Failed to parse claude-sessions.json; orphan task cleanup skipped",
-          "projectKeys: \(parseFailureProjects.joined(separator: ", "))",
-          ""
-        )
-      }
+      try await tasks.reconcileAll(liveSessionsByProject: liveSessionsByProject)
     } catch {
       FileHandle.standardError.write(
         Data("[TaskStore] reconcileAll failed: \(error)\n".utf8))
@@ -548,69 +545,39 @@ public actor RpcDispatcher {
   private func handleGitWorktreeList(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitWorktreeListRequest(jsonUTF8Data: body)
     let worktrees = try await GitOps.worktreeList(dir: req.dir)
-    // 同一 projectKey の登録 session 集合 (transcript 存在チェックなし) を真とし、
-    // TaskStore の孤児を read-only で弾く。session-start hook 直後は Claude が
-    // transcript ファイルをまだ作っていないため、transcript 存在で filter すると
-    // 「session-start で楽観追加 → fetchRepo で消える」race が起きる
-    // (`allRegisteredSessions` の docstring 参照)。
-    // アプリ稼働中の死亡判定 (session-end / removeByPty が来なかった残骸) は
-    // session-start hook の upsert と削除経路の対称性で担保されるため、ここでは
-    // claude-sessions.json への登録有無だけを基準にする。永続化のクラッシュ復旧は
-    // 起動時 reconcileAll が transcript 存在チェックで担当する。
-    //
-    // 1 ファイル破損で sidebar 全体が描けなくなるのを避けるため、registered の取得が
-    // throw した場合は filter をスキップして tasks をそのまま返す。破損ファイルの
-    // 復旧は起動時 reconcileAll / upsert 経路の上書きに任せる。
-    let registeredSessionIds: Set<String>?
-    do {
-      let registered = try await claudeSessions.allRegisteredSessions(forProject: req.dir)
-      registeredSessionIds = Set(registered.map { $0.sessionID })
-    } catch {
-      FileHandle.standardError.write(
-        Data(
-          "[RpcDispatcher] handleGitWorktreeList: allRegisteredSessions failed (\(error)) — falling back to no-filter\n"
-            .utf8))
-      registeredSessionIds = nil
-      // source=`claude-sessions-read` は専用カテゴリで、useSidebarData の
-      // `ROLLBACK_SOURCES` には含めない。rollback (= 該当 repo の refetch) の
-      // トリガとして同じ source を共有すると、handleGitWorktreeList → notify →
-      // refetch → 同 path → notify の無限ループになる。read 失敗時の単発通知だけが
-      // 必要なので別 source とする。toast 表示は `useNotifySubscription` が全 source を
-      // 受けるため別途登録不要。
-      onNotify(
-        "error",
-        "claude-sessions-read",
-        "Failed to read claude-sessions index; sidebar may show orphan tasks",
-        String(describing: error),
-        req.dir
-      )
-    }
+    let registered = try await claudeSessions.allRegisteredSessions(forProject: req.dir)
+    let registeredSessionIds = Set(registered.map { $0.sessionID })
     let listedTasks = try await tasks.list(dir: req.dir)
     // task ≠ session 設計: 身元 (body / gh_ref) があれば session が dead でも表示する。
     // session 単独で生きていた task (Claude 直接起動 + 即終了の残骸) のみ filter で落とす。
-    let allTasks: [Gozd_V1_Task]
-    if let ids = registeredSessionIds {
-      allTasks = listedTasks.filter { task in
-        if task.hasNonSessionIdentity { return true }
-        return !task.sessionID.isEmpty && ids.contains(task.sessionID)
-      }
-    } else {
-      allTasks = listedTasks
+    let allTasks = listedTasks.filter { task in
+      if task.hasNonSessionIdentity { return true }
+      return !task.sessionID.isEmpty && registeredSessionIds.contains(task.sessionID)
     }
-    // サイドバーで各 worktree に変更ファイル数を出すため、worktree ごとに git status を並列取得する。
-    // 1 worktree でも失敗したら集約段階で throw して上位（renderer 側 tryCatch → notify.error）に伝える。
-    let statusesByPath: [String: [String: String]] = try await withThrowingTaskGroup(
+    // 各 wt の git status は補助データ。1 wt の失敗で worktree list 全体を捨てない
+    // ため、per-wt で握って空 statuses で続行する。prunable wt は listing から除外
+    // 済みなので、ここで失敗するのは worktree 実 path 不整合などの稀ケース。失敗は
+    // stderr に残して silent 握り潰しを避ける (主経路に throw は伝播させない)。
+    let statusesByPath: [String: [String: String]] = await withTaskGroup(
       of: (String, [String: String]).self
     ) { group in
       for wt in worktrees {
         let path = wt.path
         group.addTask {
-          let statuses = try await GitOps.gitStatus(dir: path)
-          return (path, statuses)
+          do {
+            let statuses = try await GitOps.gitStatus(dir: path)
+            return (path, statuses)
+          } catch {
+            FileHandle.standardError.write(
+              Data(
+                "[handleGitWorktreeList] gitStatus failed for \(path): \(error)\n"
+                  .utf8))
+            return (path, [:])
+          }
         }
       }
       var result: [String: [String: String]] = [:]
-      for try await (path, statuses) in group { result[path] = statuses }
+      for await (path, statuses) in group { result[path] = statuses }
       return result
     }
     var resp = Gozd_V1_GitWorktreeListResponse()

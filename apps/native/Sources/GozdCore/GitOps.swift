@@ -575,6 +575,10 @@ private func runGitOnce(gitPath: String, args: [String], cwd: String) async thro
 }
 
 /// `git worktree list --porcelain` の出力をパースする。
+///
+/// `prunable` 注釈付きのエントリは git にとっても解決不能な孤児（gitdir file が
+/// 指す先が消滅している等）なので listing から除外する。`git status` 等の後段操作は
+/// 必ず失敗するため、SSOT 段階で落とす。
 private func parseWorktreePorcelain(_ data: Data) -> [WorktreeInfo] {
   let text = String(decoding: data, as: UTF8.self)
   var result: [WorktreeInfo] = []
@@ -582,9 +586,11 @@ private func parseWorktreePorcelain(_ data: Data) -> [WorktreeInfo] {
   var head: String = ""
   var branch: String?
   var isDetached = false
+  var isPrunable = false
 
   func flush() {
     guard let p = path, !p.isEmpty else { return }
+    if isPrunable { return }
     let isMain = result.isEmpty  // 最初のエントリが main worktree
     let resolvedBranch = isDetached ? nil : branch
     result.append(WorktreeInfo(path: p, head: head, branch: resolvedBranch, isMain: isMain))
@@ -598,6 +604,7 @@ private func parseWorktreePorcelain(_ data: Data) -> [WorktreeInfo] {
       head = ""
       branch = nil
       isDetached = false
+      isPrunable = false
       continue
     }
     if s.hasPrefix("worktree ") {
@@ -610,6 +617,8 @@ private func parseWorktreePorcelain(_ data: Data) -> [WorktreeInfo] {
         ref.hasPrefix("refs/heads/") ? String(ref.dropFirst("refs/heads/".count)) : ref
     } else if s == "detached" {
       isDetached = true
+    } else if s == "prunable" || s.hasPrefix("prunable ") {
+      isPrunable = true
     }
   }
   flush()

@@ -122,6 +122,15 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 
 - import の整理（未使用 import の削除、並び替え）は commit 時に lint が自動実行する。手動で整理しない
 
+## リリースステージとデータポリシー
+
+gozd は現在 **ベータ版**。安定版リリース前であり、永続データ（`~/.config/gozd/` 配下 / `.proto` schema）に **後方互換性は作らない**。
+
+- proto schema 進化（フィールド削除・rename・型変更）で旧 JSON が parse 失敗した場合、**新規初期化が期待挙動**。マイグレーションコード（旧フィールド読み替え・退避コピー・shallow merge による未知フィールド保持等）は書かない
+- 破壊的変更を許容する。古い設定 / 永続データを「いつまでも動かす」ためのコードを足さない
+- 永続化ストアの load 経路で proto JSON parse 失敗を検知したら空オブジェクトで上書き save する（`TaskStore` / `ClaudeSessionStore` 参照）。stderr に reinit ログを残し観察可能性は保つ
+- 安定版に切り替わる時点で本セクションを書き換える
+
 ## 現在のフォーカス
 
 シングルウィンドウ + マルチ repo + マルチ worktree の運用環境（[workspace.md](docs/workspace.md)）。

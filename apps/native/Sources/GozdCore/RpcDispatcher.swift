@@ -151,6 +151,45 @@ public actor RpcDispatcher {
               String(describing: error), worktreePath)
           }
         }
+        // expected resume sid を必ず消費する。これで removeByPty 経路の
+        // 「expected 残存 = SessionStart 不達 = resume 失敗」判定が意味的に閉じる。
+        // 返り値が hook.sessionID と一致 → resume 成功 (no-op、attachSession が冪等処理)。
+        // 不一致かつ非空 → `claude --resume X` が失敗して zsh が素の `claude` に
+        // fallback したケース。dead expected を claudeSessions と tasks から掃除して、
+        // 後段 attachSession(Y) が「sessionID 空の最新 task」を再 attach できる候補に
+        // するため道を空ける (clearDeadSession で X 持ち task の sessionID が空に
+        // 書き戻されることで attachSession の候補ピックアップに乗る。元 task の id に
+        // 固定指定しているわけではないので、同 worktree に他 sessionID 空 task があれば
+        // createdAt 最新の方が拾われる)。pane close を待たずに新 sid で復活させるため、
+        // upsert(Y) / attachSession(Y) の前段で必ず実行する。
+        let expectedSid = (await pty.consumeExpectedResumeSid(for: hook.ptyID)) ?? ""
+        if !expectedSid.isEmpty && expectedSid != hook.sessionID {
+          do {
+            try await claudeSessions.removeBySessionId(
+              worktreePath: worktreePath, sessionId: expectedSid)
+          } catch {
+            FileHandle.standardError.write(
+              Data(
+                "[ClaudeSessionStore] resume-failure cleanup (session-start fallback) failed: \(error)\n"
+                  .utf8))
+            onNotify(
+              "error", "claude-sessions",
+              "Failed to clean up after resume failure (fallback)",
+              String(describing: error), worktreePath)
+          }
+          do {
+            try await tasks.clearDeadSession(dir: worktreePath, sessionId: expectedSid)
+          } catch {
+            FileHandle.standardError.write(
+              Data(
+                "[TaskStore] clearDeadSession (session-start fallback) failed: \(error)\n"
+                  .utf8))
+            onNotify(
+              "error", "task-store",
+              "Failed to clear dead session from task after resume failure (fallback)",
+              String(describing: error), worktreePath)
+          }
+        }
         // 永続化を先に成功させてから PTYRegistry のマッピングを更新する。
         // 逆順だと upsert が throw した場合 PTYRegistry だけ新 sessionId に進み、
         // 次回 cleanup の根拠（永続化と同期した sessionId）を失う。
@@ -158,30 +197,40 @@ public actor RpcDispatcher {
           worktreePath: worktreePath,
           sessionId: hook.sessionID
         )
-        // resume 成功: spawn 時の expected sid と一致する SessionStart が着弾したので
-        // expected を消費する。これで removeByPty 経路の resume 失敗判定が「expected が
-        // 残っている = SessionStart 不達」として正しく動く。source 不問で一致だけ見るのは
-        // resume 経路で必ず一致する一方、新規 session では expected が未設定 (= 一致しない)
-        // で no-op になるため。
-        await pty.clearExpectedResumeSidIfMatches(
-          for: hook.ptyID, sessionId: hook.sessionID)
         // SessionStart hook: 該当 worktree で sessionID 空の最新 task に attach。
         // 無ければ新規 task を作る (PR/issue picker を経ない Claude 直接起動経路)。
-        // 失敗は renderer にトースト通知し、ユーザーが状態を診断できるようにする。
+        // attachSession が throw した場合は直前の upsert(Y) を rollback して中間状態
+        // (「claude-sessions に Y は存在 / 対応 task は紐付け無し」の孤児 Y) を残さない。
+        // rollback しないと UI 上「task に session が付かないまま claude-sessions だけ
+        // 増えていく」観察不能な leak を生む。pty.setSessionId も skip して PTYRegistry
+        // と永続化の sid を取り違えないようにする。
         do {
           try await tasks.attachSession(
             dir: worktreePath,
             sessionId: hook.sessionID,
             worktreeDir: worktreePath
           )
+          await pty.setSessionId(for: hook.ptyID, sessionId: hook.sessionID)
         } catch {
           FileHandle.standardError.write(
             Data("[TaskStore] attachSession failed: \(error)\n".utf8))
           onNotify(
             "error", "task-store", "Failed to attach session to task",
             String(describing: error), worktreePath)
+          do {
+            try await claudeSessions.removeBySessionId(
+              worktreePath: worktreePath, sessionId: hook.sessionID)
+          } catch {
+            FileHandle.standardError.write(
+              Data(
+                "[ClaudeSessionStore] attachSession rollback (upsert revert) failed: \(error)\n"
+                  .utf8))
+            onNotify(
+              "error", "claude-sessions",
+              "Failed to rollback claude-sessions after attachSession failure",
+              String(describing: error), worktreePath)
+          }
         }
-        await pty.setSessionId(for: hook.ptyID, sessionId: hook.sessionID)
       case "session-end":
         // 永続化削除を先に成功させてから PTYRegistry のマッピングを消す。
         // 逆順だと removeBySessionId が throw した場合 PTYRegistry からは消えるが
@@ -878,34 +927,29 @@ public actor RpcDispatcher {
     var removeError: Error?
     var removedSessionId = ""
 
-    // live sid と expected resume sid は独立に評価する。両方が同時に非空かつ別値になる
-    // ケースが存在するため:
-    //   spawn(expected=X) → claude --resume X が error 終了 (SessionStart 不達)
-    //   → ユーザーが同 PTY で素の `claude` を起動 → SessionStart hook で sid=Y 着弾
-    //   → clearExpectedResumeSidIfMatches は X ≠ Y で no-op、setSessionId(Y) のみ走る
-    //   → この時点で expected=X (dead) と live=Y (正常) が同居
-    // if/else if で排他にすると X が握り潰されて claude-sessions.json に永続漏れする。
+    // expected resume sid は SessionStart 経路 (applyClaudeSessionHook) で一度
+    // 着弾した時点で必ず consumeExpectedResumeSid されるため、removeByPty 到達時点で
+    // 残っているのは「SessionStart hook が一度も着弾していない」ケースに限られる。
+    // - 一致 (resume 成功): consume 後の上書きで normal attach
+    // - 不一致 (zsh fallback で新 sid 起動): consume + dead expected cleanup を session-start 内で完結
+    // - 不達 (zsh fallback も失敗 / ユーザーが素シェルのまま pane 閉鎖): expected 残存
     let liveSid = (await pty.sessionId(for: req.ptyID)) ?? ""
     let expectedSid = (await pty.consumeExpectedResumeSid(for: req.ptyID)) ?? ""
 
-    // 期待 sid が removeByPty 時点で残っている = SessionStart の resume 成功で
-    // clearExpectedResumeSidIfMatches が消費していない = resume 失敗確定。
-    //
-    // expected と live が同時に非空かつ同値になるケースは設計上発生し得ない:
-    // SessionStart 経路 (applyClaudeSessionHook) は dispatcher actor 内で
-    // clearExpectedResumeSidIfMatches → setSessionId を逐次 await しており、isolation で
-    // 「同 sid を expected と live の両方に持つ」状態を作れない。precondition で契約を
-    // 明示し、到達したら fatal で気付ける形にする。「万一の race に備える」予防的逃げ道
-    // (CLAUDE.md 規約で禁止) を保険として残さない。
+    // SessionStart 着弾時点で expected を必ず消費するので、removeByPty 時点で
+    // 「expected と live が同居」は構造的に発生し得ない (SessionStart 着弾 = expected
+    // 消費 = removeByPty では nil)。precondition で契約を明示し、到達したら fatal で
+    // 気付ける形にする。
     precondition(
-      expectedSid.isEmpty || expectedSid != liveSid,
-      "expectedSid (\(expectedSid)) == liveSid; actor isolation invariant broken"
+      expectedSid.isEmpty || liveSid.isEmpty,
+      "expectedSid (\(expectedSid)) and liveSid (\(liveSid)) both non-empty; SessionStart consume invariant broken"
     )
 
     if !expectedSid.isEmpty {
       // SessionStart hook が一度も着弾しないまま pane が閉じられた。
-      // `claude --resume <sid>` が transcript 不在等で error 終了したと判定し、
-      // stale な sid を片付ける。
+      // `claude --resume <sid>` が transcript 不在等で error 終了し、zsh fallback の
+      // 素 `claude` も SessionStart 不達のまま終わった (起動エラー / ユーザーが即 /exit)
+      // 等のケース。stale な sid を片付ける。
       // - claude-sessions.json: 該当 sid のエントリ削除
       // - tasks.json: clearDeadSession で sid を空に書き換え (ghRef ありなら task 残存、
       //   無ければ削除)。次のクリックで `--resume` ではなく素の claude 起動に流す

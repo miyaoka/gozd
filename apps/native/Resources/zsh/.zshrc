@@ -39,7 +39,31 @@ claude() {
 _gozd_resume_claude() {
   local _id="$GOZD_RESUME_CLAUDE_SESSION"
   unset GOZD_RESUME_CLAUDE_SESSION
+  # `claude --resume <sid>` は transcript 不在 (= 一度も会話が確定していない session
+  # に対する resume) で「No conversation found ...」を出して非 0 で抜ける。pane を
+  # 閉じてもらわなくても済むよう素の `claude` を続けて起動し、新 SessionStart 経由で
+  # task を再 attach する (native 側 RpcDispatcher.applyClaudeSessionHook が
+  # 「expected と異なる sid の SessionStart」を resume 失敗 + fallback と判定し
+  # dead sid を `claude-sessions.json` / `tasks.json` から掃除する)。
   claude --resume "$_id"
+  local _exit=$?
+  # fallback の発火範囲は exit code の denylist で決める。
+  # 除外: 0 (正常終了 /exit) / 130 (SIGINT = Ctrl-C 抜け) / 143 (SIGTERM)。これらは
+  # ユーザー操作で claude を終わらせたケースなので、fallback すると resume 成功した
+  # セッションを抜けた直後に勝手に新 session が立ち上がる (transcript が Claude 側の
+  # ファイルに残っているのに gozd 側からは旧 sid が dead 扱いされる + 副次的に
+  # 2 度目 SessionStart の previous != hook.sessionID 経路で旧 sid が
+  # claude-sessions.json から削除される) という UX 破壊を生む。
+  # 発火: それ以外の全ての非 0。transcript 不在 (resume 起動失敗) の他、claude 自身
+  # の runtime error (auth / network / API rate limit 等で会話中に非 0 終了したケース)
+  # も含む。後者では新規 session が立ち上がるが、「resume できる前提が壊れたら新
+  # session で再開する」仕様として認める。allowlist (transcript 不在のみを判定) は
+  # 実装不能 (claude が固有 exit code を分離出力していないため) なので denylist で
+  # 表現する。
+  case $_exit in
+    0|130|143) ;;
+    *) claude ;;
+  esac
 }
 [[ -n "$GOZD_RESUME_CLAUDE_SESSION" ]] && _gozd_resume_claude
 

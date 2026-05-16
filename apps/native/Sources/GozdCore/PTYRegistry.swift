@@ -212,19 +212,13 @@ public actor PTYRegistry {
     sessionIdById.removeValue(forKey: id)
   }
 
-  /// session-start (source=resume) で expected sid と一致したらクリアする。
-  /// 一致時のみクリアすることで「同 PTY で別 sid に --resume し直した」ケース等で
-  /// 古い expected を取り違えないようにする。
-  public func clearExpectedResumeSidIfMatches(for id: UInt32, sessionId: String) {
-    if expectedResumeSidById[id] == sessionId {
-      expectedResumeSidById.removeValue(forKey: id)
-    }
-  }
-
-  /// removeByPty 経路で「resume 失敗」検出のため expected sid を取り出してクリアする。
-  /// 非空なら SessionStart hook が一度も着弾しないまま pane が閉じられた = resume が
-  /// transcript 不在等で error 終了したケース。caller 側で claude-sessions / tasks の
-  /// 該当 sid を片付ける。
+  /// session-start hook 着弾時に expected sid を読み出して消費する。
+  /// caller (applyClaudeSessionHook) は返り値を hook.sessionID と比較し:
+  ///   - 一致: resume 成功 (no-op 後段で attachSession が冪等処理)
+  ///   - 不一致: resume 失敗 + zsh fallback で素の `claude` が起動した → 旧 expected を
+  ///     dead sid として claudeSessions / tasks から掃除する
+  /// SessionStart 着弾時に「必ず消費」することで、後段 removeByPty 経路の
+  /// `consumeExpectedResumeSid` 残存判定が「SessionStart 一度も不達」と意味的に等価になる。
   public func consumeExpectedResumeSid(for id: UInt32) -> String? {
     return expectedResumeSidById.removeValue(forKey: id)
   }
@@ -240,10 +234,10 @@ public actor PTYRegistry {
     worktreePathById.removeValue(forKey: id)
     sessionIdById.removeValue(forKey: id)
     // expectedResumeSidById はここで触らない。lifecycle は「SessionStart 着弾時に
-    // clearExpectedResumeSidIfMatches で消費」または「removeByPty 経路で
-    // consumeExpectedResumeSid で消費」のいずれかに限定する。clearAssociations の
-    // 責務は worktreePath / sessionId / explicitlyRemoved の管理のみで、
-    // resume 失敗 sid を silent に握り潰す経路を作らない (観察可能性の維持)。
+    // consumeExpectedResumeSid で消費 (一致でも不一致でも常に消費)」または
+    // 「removeByPty 経路で consumeExpectedResumeSid で消費」のいずれかに限定する。
+    // clearAssociations の責務は worktreePath / sessionId / explicitlyRemoved の
+    // 管理のみで、resume 失敗 sid を silent に握り潰す経路を作らない (観察可能性の維持)。
     explicitlyRemovedPtyIds.insert(id)
   }
 

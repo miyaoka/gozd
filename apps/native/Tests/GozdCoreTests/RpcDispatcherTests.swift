@@ -168,7 +168,7 @@ struct RpcDispatcherTests {
     _ = try await dispatcher.dispatch(path: "/pty/kill", body: killReq.jsonUTF8Data())
   }
 
-  @Test("/claudeSession/removeByPty: expected と live が同居するレース後でも両方を掃除する")
+  @Test("/claudeSession/removeByPty: session-start 経由で dead expected が掃除された後でも live cleanup が正しく動く")
   func removeByPtyResumeFailurePlusLive() async throws {
     let configDir = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: configDir)) }
@@ -181,8 +181,10 @@ struct RpcDispatcherTests {
       onPtyExit: { _, _ in }
     )
 
-    // dead-X (resume 失敗の対象) と live-Y (resume 失敗後に同 PTY で素 claude 起動して
-    // 発行された新 sid) を両方の永続化に仕込む。
+    // dead-X (resume 失敗の対象) と live-Y (resume 失敗後に zsh fallback で素 claude が
+    // 発行する想定の新 sid) を両方の永続化に仕込む。session-start hook で live-Y を
+    // 着弾させた時点で expected (dead-X) は消費 + cleanup されるが、その後の
+    // removeByPty で残った live-Y を正しく片付けられることを確認する。
     let claudeSessions = ClaudeSessionStore(configDir: configDir)
     try await claudeSessions.upsert(worktreePath: worktreeDir, sessionId: "dead-X")
     try await claudeSessions.upsert(worktreePath: worktreeDir, sessionId: "live-Y")
@@ -239,6 +241,159 @@ struct RpcDispatcherTests {
     #expect(kept.body == "PR work")
     #expect(kept.ghRef.number == 99)
     #expect(kept.sessionID == "")
+
+    var killReq = Gozd_V1_PtyKillRequest()
+    killReq.ptyID = spawnResp.ptyID
+    _ = try await dispatcher.dispatch(path: "/pty/kill", body: killReq.jsonUTF8Data())
+  }
+
+  @Test("session-start: expected と異なる sid で着弾したら dead expected を片付け、新 sid を同一 task に再 attach する (resume 失敗 + zsh fallback)")
+  func sessionStartFallbackReattach() async throws {
+    let configDir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: configDir)) }
+    let worktreeDir = try await makeGitRepoForRpc()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: worktreeDir)) }
+
+    let dispatcher = RpcDispatcher(
+      configDir: configDir,
+      onPtyText: { _, _ in },
+      onPtyExit: { _, _ in }
+    )
+
+    // 既存の永続化を仕込む。dead sid X が claude-sessions.json と PR task に残っている状態。
+    let claudeSessions = ClaudeSessionStore(configDir: configDir)
+    try await claudeSessions.upsert(worktreePath: worktreeDir, sessionId: "dead-X")
+    let tasks = TaskStore(configDir: configDir)
+    let originalTask = try await tasks.add(
+      dir: worktreeDir, body: "PR work", worktreeDir: worktreeDir,
+      ghRef: .forPr(99))
+    try await tasks.attachSession(
+      dir: worktreeDir, sessionId: "dead-X", worktreeDir: worktreeDir)
+
+    // PTY を spawn (expected=dead-X)。zsh fallback で素 claude が起動した想定で
+    // SessionStart hook を sid=live-Y で着弾させる。
+    var env = ProcessInfo.processInfo.environment
+    env["GOZD_RESUME_CLAUDE_SESSION"] = "dead-X"
+    var spawnReq = Gozd_V1_PtySpawnRequest()
+    spawnReq.dir = worktreeDir
+    spawnReq.worktreePath = worktreeDir
+    spawnReq.executable = "/bin/cat"
+    spawnReq.args = ["cat"]
+    spawnReq.env = env
+    spawnReq.rows = 24
+    spawnReq.cols = 80
+    let spawnResp = try Gozd_V1_PtySpawnResponse(
+      jsonUTF8Data: try await dispatcher.dispatch(
+        path: "/pty/spawn", body: spawnReq.jsonUTF8Data()))
+
+    var hook = Gozd_V1_HookMessage()
+    hook.event = "session-start"
+    hook.ptyID = spawnResp.ptyID
+    hook.sessionID = "live-Y"
+    hook.source = "startup"
+    var msg = Gozd_V1_ClientMessage()
+    msg.body = .hook(hook)
+    try await dispatcher.handleSocketMessage(try msg.jsonUTF8Data())
+
+    // claude-sessions: dead-X は消え、live-Y のみ残る
+    let sessions = try await claudeSessions.savedSessions(for: worktreeDir)
+    #expect(sessions.count == 1)
+    #expect(sessions.first?.sessionID == "live-Y")
+
+    // tasks: 同一 task (originalTask.id) に sid=live-Y が再 attach されている (orphan 新規 task 作成なし)
+    let remainingTasks = try await tasks.list(dir: worktreeDir)
+    #expect(remainingTasks.count == 1)
+    let reattached = try #require(remainingTasks.first)
+    #expect(reattached.id == originalTask.id)
+    #expect(reattached.body == "PR work")
+    #expect(reattached.ghRef.number == 99)
+    #expect(reattached.sessionID == "live-Y")
+
+    var killReq = Gozd_V1_PtyKillRequest()
+    killReq.ptyID = spawnResp.ptyID
+    _ = try await dispatcher.dispatch(path: "/pty/kill", body: killReq.jsonUTF8Data())
+  }
+
+  @Test("session-start 2 回目: expected は 1 回目で消費済み = mismatch 経路 no-op、previous 経路のみ発火 (PR 534 detachSession セマンティクスを保持)")
+  func sessionStartSecondHitAfterResume() async throws {
+    let configDir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: configDir)) }
+    let worktreeDir = try await makeGitRepoForRpc()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: worktreeDir)) }
+
+    let dispatcher = RpcDispatcher(
+      configDir: configDir,
+      onPtyText: { _, _ in },
+      onPtyExit: { _, _ in }
+    )
+
+    // 既存: resume 元 task が claude-sessions と tasks に存在
+    let claudeSessions = ClaudeSessionStore(configDir: configDir)
+    try await claudeSessions.upsert(worktreePath: worktreeDir, sessionId: "resume-X")
+    let tasks = TaskStore(configDir: configDir)
+    let originalTask = try await tasks.add(
+      dir: worktreeDir, body: "PR work", worktreeDir: worktreeDir,
+      ghRef: .forPr(42))
+    try await tasks.attachSession(
+      dir: worktreeDir, sessionId: "resume-X", worktreeDir: worktreeDir)
+
+    // PTY spawn (expected=resume-X)
+    var env = ProcessInfo.processInfo.environment
+    env["GOZD_RESUME_CLAUDE_SESSION"] = "resume-X"
+    var spawnReq = Gozd_V1_PtySpawnRequest()
+    spawnReq.dir = worktreeDir
+    spawnReq.worktreePath = worktreeDir
+    spawnReq.executable = "/bin/cat"
+    spawnReq.args = ["cat"]
+    spawnReq.env = env
+    spawnReq.rows = 24
+    spawnReq.cols = 80
+    let spawnResp = try Gozd_V1_PtySpawnResponse(
+      jsonUTF8Data: try await dispatcher.dispatch(
+        path: "/pty/spawn", body: spawnReq.jsonUTF8Data()))
+
+    // 1 回目 SessionStart (resume 成功 = 期待 sid と一致 → expected 消費 + no-op)
+    var hook1 = Gozd_V1_HookMessage()
+    hook1.event = "session-start"
+    hook1.ptyID = spawnResp.ptyID
+    hook1.sessionID = "resume-X"
+    hook1.source = "resume"
+    var msg1 = Gozd_V1_ClientMessage()
+    msg1.body = .hook(hook1)
+    try await dispatcher.handleSocketMessage(try msg1.jsonUTF8Data())
+
+    // 2 回目 SessionStart (例: ユーザーが /clear → 新 sid)
+    // 期待 sid は 1 回目で消費済みなので mismatch ブロックは fire しない。
+    // PR 534 由来の `previous != hook.sessionID` 経路で旧 X が claude-sessions から
+    // 削除され、`detachSession(X)` が走る。元 task は ghRef ありなので sessionID 保持
+    // (= resume-X のまま)。新 Y は attachSession で sessionID 空候補が無いため新規 task として
+    // 作成される。これは PR 534 が「/clear や --resume で session 切り替えのとき、旧 sid の
+    // transcript が Claude 側ファイルに残っていれば旧 sid を resume 用に保持する」設計
+    // 判断による意図的な挙動。本 PR では既存挙動を保ち、resume 失敗 + zsh fallback 経路
+    // (expected 経由) の方のみ「元 task に再 attach」を担保する。
+    var hook2 = Gozd_V1_HookMessage()
+    hook2.event = "session-start"
+    hook2.ptyID = spawnResp.ptyID
+    hook2.sessionID = "new-Y"
+    hook2.source = "startup"
+    var msg2 = Gozd_V1_ClientMessage()
+    msg2.body = .hook(hook2)
+    try await dispatcher.handleSocketMessage(try msg2.jsonUTF8Data())
+
+    // claude-sessions: X は previous 経路で消え、Y のみ残る
+    let sessions = try await claudeSessions.savedSessions(for: worktreeDir)
+    #expect(sessions.count == 1)
+    #expect(sessions.first?.sessionID == "new-Y")
+
+    // tasks: 元 task (sid=resume-X 保持) + 新規 task (sid=new-Y) の 2 つに分かれる
+    let remainingTasks = try await tasks.list(dir: worktreeDir)
+    #expect(remainingTasks.count == 2)
+    let original = try #require(remainingTasks.first { $0.id == originalTask.id })
+    #expect(original.sessionID == "resume-X")
+    #expect(original.ghRef.number == 42)
+    let newTask = try #require(remainingTasks.first { $0.id != originalTask.id })
+    #expect(newTask.sessionID == "new-Y")
+    #expect(newTask.hasGhRef == false)
 
     var killReq = Gozd_V1_PtyKillRequest()
     killReq.ptyID = spawnResp.ptyID

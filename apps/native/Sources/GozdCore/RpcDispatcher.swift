@@ -877,39 +877,26 @@ public actor RpcDispatcher {
     // これにより「Claude 起動直後の closePane」で発生しうる upsert race を構造的に防ぐ。
     var removeError: Error?
     var removedSessionId = ""
-    if let sessionId = await pty.sessionId(for: req.ptyID), !sessionId.isEmpty {
-      removedSessionId = sessionId
-      do {
-        try await claudeSessions.removeBySessionId(
-          worktreePath: req.worktreePath, sessionId: sessionId)
-      } catch {
-        removeError = error
-      }
-      // ターミナル close は session-end hook を発火させないため、ここで明示的に
-      // task.sessionID を切り離す。gh_ref が空なら同時に task も削除される
-      // (detachSession 内部で判定)。これにより root wt 上で直接 claude を起動した
-      // task (body のみ、ghRef なし) はターミナル close で揮発する。
-      // claudeSessions 側のエラーを優先するため tasks 側は throw しないが、失敗を
-      // 放置すると stale な sessionID が残るので notify する。
-      do {
-        try await tasks.detachSession(dir: req.worktreePath, sessionId: sessionId)
-      } catch {
-        FileHandle.standardError.write(
-          Data("[TaskStore] detachSession (removeByPty) failed: \(error)\n".utf8))
-        onNotify(
-          "error", "task-store", "Failed to detach session on terminal close",
-          String(describing: error), req.worktreePath)
-      }
-    } else if let expectedSid = await pty.consumeExpectedResumeSid(for: req.ptyID),
-      !expectedSid.isEmpty
-    {
-      // resume 失敗検出: spawn 時に GOZD_RESUME_CLAUDE_SESSION で渡した sid に対する
-      // SessionStart hook が一度も着弾しないまま pane が閉じられた。`claude --resume <sid>`
-      // が transcript 不在等で error 終了したと判定し、stale な sid を片付ける。
+
+    // live sid と expected resume sid は独立に評価する。両方が同時に非空かつ別値になる
+    // ケースが存在するため:
+    //   spawn(expected=X) → claude --resume X が error 終了 (SessionStart 不達)
+    //   → ユーザーが同 PTY で素の `claude` を起動 → SessionStart hook で sid=Y 着弾
+    //   → clearExpectedResumeSidIfMatches は X ≠ Y で no-op、setSessionId(Y) のみ走る
+    //   → この時点で expected=X (dead) と live=Y (正常) が同居
+    // if/else if で排他にすると X が握り潰されて claude-sessions.json に永続漏れする。
+    let liveSid = (await pty.sessionId(for: req.ptyID)) ?? ""
+    let expectedSid = (await pty.consumeExpectedResumeSid(for: req.ptyID)) ?? ""
+
+    // resume 失敗の dead sid を独立に片付ける。expected が live と同値の場合は
+    // (race 等で残った稀ケース) 後段の live cleanup が同 sid を扱うのでここでは skip。
+    if !expectedSid.isEmpty && expectedSid != liveSid {
+      // SessionStart hook が一度も着弾しないまま pane が閉じられた。
+      // `claude --resume <sid>` が transcript 不在等で error 終了したと判定し、
+      // stale な sid を片付ける。
       // - claude-sessions.json: 該当 sid のエントリ削除
       // - tasks.json: clearDeadSession で sid を空に書き換え (ghRef ありなら task 残存、
       //   無ければ削除)。次のクリックで `--resume` ではなく素の claude 起動に流す
-      removedSessionId = expectedSid
       do {
         try await claudeSessions.removeBySessionId(
           worktreePath: req.worktreePath, sessionId: expectedSid)
@@ -933,6 +920,43 @@ public actor RpcDispatcher {
           String(describing: error), req.worktreePath)
       }
     }
+
+    // live session cleanup。ターミナル close は session-end hook を発火させないため、
+    // ここで明示的に task.sessionID を切り離す。gh_ref が空なら同時に task も削除される
+    // (detachSession 内部で判定)。これにより root wt 上で直接 claude を起動した
+    // task (body のみ、ghRef なし) はターミナル close で揮発する。
+    if !liveSid.isEmpty {
+      removedSessionId = liveSid
+      do {
+        try await claudeSessions.removeBySessionId(
+          worktreePath: req.worktreePath, sessionId: liveSid)
+      } catch {
+        removeError = error
+      }
+      // claudeSessions 側のエラーを優先するため tasks 側は throw しないが、失敗を
+      // 放置すると stale な sessionID が残るので notify する。
+      do {
+        try await tasks.detachSession(dir: req.worktreePath, sessionId: liveSid)
+      } catch {
+        FileHandle.standardError.write(
+          Data("[TaskStore] detachSession (removeByPty) failed: \(error)\n".utf8))
+        onNotify(
+          "error", "task-store", "Failed to detach session on terminal close",
+          String(describing: error), req.worktreePath)
+      }
+    } else if !expectedSid.isEmpty {
+      // live なし + expected あり (純粋な resume 失敗 = 上の expected 分岐で処理済み)。
+      // removedSessionId に expected を載せて renderer に「何かは消した」と伝える。
+      removedSessionId = expectedSid
+    } else {
+      // live も expected もない。素 PTY pane (claude を一度も起動しなかった) の close。
+      // 通常パスだが、将来 race を疑う際の調査根拠として stderr に残す。
+      FileHandle.standardError.write(
+        Data(
+          "[RpcDispatcher] removeByPty: no live or expected session for pty=\(req.ptyID); plain shell close\n"
+            .utf8))
+    }
+
     await pty.clearAssociations(for: req.ptyID)
     if let error = removeError {
       throw error

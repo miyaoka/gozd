@@ -239,7 +239,11 @@ public actor PTYRegistry {
   public func clearAssociations(for id: UInt32) {
     worktreePathById.removeValue(forKey: id)
     sessionIdById.removeValue(forKey: id)
-    expectedResumeSidById.removeValue(forKey: id)
+    // expectedResumeSidById はここで触らない。lifecycle は「SessionStart 着弾時に
+    // clearExpectedResumeSidIfMatches で消費」または「removeByPty 経路で
+    // consumeExpectedResumeSid で消費」のいずれかに限定する。clearAssociations の
+    // 責務は worktreePath / sessionId / explicitlyRemoved の管理のみで、
+    // resume 失敗 sid を silent に握り潰す経路を作らない (観察可能性の維持)。
     explicitlyRemovedPtyIds.insert(id)
   }
 
@@ -253,7 +257,15 @@ public actor PTYRegistry {
     consumers.removeValue(forKey: id)
     worktreePathById.removeValue(forKey: id)
     sessionIdById.removeValue(forKey: id)
-    expectedResumeSidById.removeValue(forKey: id)
+    // PTY 子プロセスが SIGHUP 等で消滅した経路 (removeByPty を通らない稀ケース)。
+    // expected が残っているなら resume 失敗の sid を掃除する機会を逸している。
+    // ここでは silent に消すが、調査用に stderr に残す。
+    if let stale = expectedResumeSidById.removeValue(forKey: id) {
+      FileHandle.standardError.write(
+        Data(
+          "[PTYRegistry] remove: dropped expected resume sid=\(stale) without removeByPty for pty=\(id)\n"
+            .utf8))
+    }
   }
 }
 

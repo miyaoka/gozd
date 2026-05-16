@@ -249,7 +249,7 @@ export const useTerminalStore = defineStore("terminal", () => {
               // 内の任意 dir として projectKey 解決に使える。
               await refreshSavedSessionCounts([dir], dir);
               // Swift 側で TaskStore.detachSession が走り、sessionId を切り離した task は
-              // 残し (body / gh_ref 残存時)、identity 完全消失なら削除する。
+              // ghRef があれば残し、無ければ削除する (body は揮発メタデータで identity に含めない)。
               // useSidebarData がこの ref を watch して所属 repo を refetch することで、
               // WorktreeEntry.tasks 側の sessionId 切り離し / 削除を反映する。
               // terminalStore は repoStore に依存させない (Pinia setup での循環を避ける)。

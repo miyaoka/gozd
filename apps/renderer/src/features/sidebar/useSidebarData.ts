@@ -269,22 +269,17 @@ export function useSidebarData() {
     cleanups.push(onMessage<FsWatchReadyPayload>("fsWatchReady", ({ dir }) => fetchOwnerOf(dir)));
     // 永続化ストア (TaskStore / ClaudeSessionStore) の失敗 notify を該当 repo の
     // 真値再取得トリガとして使う。session hook (session-start / session-end /
-    // reconcileAll / removeByWorktree / removeByPty 等) の Swift 側 I/O が失敗した
-    // とき refetch で能動的に整合を取る。永続化と renderer state が乖離する可能性
-    // がある以上、再 fetch でしか真値に戻せない。
+    // removeByWorktree / removeByPty 等) の Swift 側 I/O が失敗したとき refetch で
+    // 能動的に整合を取る。永続化と renderer state が乖離する可能性がある以上、
+    // 再 fetch でしか真値に戻せない。
     // session hook 経路の I/O 失敗はディスクフル / 権限欠落 / 競合書き込みで連発
     // しうるため、N repo × hook 頻度で fetchRepo が爆発しないよう、notify payload
-    // の dir から発生源 repo を特定して該当 1 repo だけ refetch する。経路に紐付か
-    // ない通知 (起動時 reconcile / socket 等) は dir 空文字で届くため、その場合だけ
-    // 全 repo refetch にフォールバックする。
+    // の dir から発生源 repo を特定して該当 1 repo だけ refetch する。
     const ROLLBACK_SOURCES = new Set(["task-store", "claude-sessions"]);
     cleanups.push(
       onMessage<NotifyPayload>("notify", (payload) => {
         if (payload.type !== "error" || !ROLLBACK_SOURCES.has(payload.source)) return;
-        if (payload.dir === "") {
-          for (const rootDir of repoStore.dirOrder) void fetchRepo(rootDir);
-          return;
-        }
+        if (payload.dir === "") return;
         const owning = repoStore.findRepoOwning(payload.dir);
         if (owning === undefined) return;
         void fetchRepo(owning.rootDir);

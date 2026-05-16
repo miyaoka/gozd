@@ -466,17 +466,28 @@ export const useTerminalStore = defineStore("terminal", () => {
     const [firstSession, ...remainingSessions] = sessions;
     if (firstSession !== undefined) {
       pendingResumeByLeafId.value[initialLeafId] = firstSession.sessionId;
-    } else if (preferredAutostartByDir.value[dir]) {
-      // session 未紐付け task クリックで visit を誘発したケース。
-      // resume すべき session が無いので、初期 leaf で素の claude を autostart する。
-      delete preferredAutostartByDir.value[dir];
-      pendingAutostartByLeafId.value[initialLeafId] = true;
     }
     // 2 つ目以降のセッションは split で leaf を増やす
     for (const session of remainingSessions) {
       const newLeafId = layout.splitPane(dir, "horizontal");
       if (newLeafId !== undefined) {
         pendingResumeByLeafId.value[newLeafId] = session.sessionId;
+      }
+    }
+    // session 未紐付け task クリックで visit を誘発したケース。saved session の resume
+    // とは排他ではなく共存させる (訪問済み経路の requestNewClaudeSession と同じ流儀):
+    // - firstSession 無し → 初期 leaf を直接 autostart に
+    // - firstSession あり → 追加 leaf を split して autostart + focus
+    if (preferredAutostartByDir.value[dir]) {
+      delete preferredAutostartByDir.value[dir];
+      if (firstSession === undefined) {
+        pendingAutostartByLeafId.value[initialLeafId] = true;
+      } else {
+        const autostartLeafId = layout.splitPane(dir, "horizontal");
+        if (autostartLeafId !== undefined) {
+          pendingAutostartByLeafId.value[autostartLeafId] = true;
+          layout.focusPane(autostartLeafId);
+        }
       }
     }
   }

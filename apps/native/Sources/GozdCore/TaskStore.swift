@@ -145,18 +145,21 @@ public actor TaskStore {
   }
 
   /// resume 失敗検出経路 (claude --resume が transcript 不在等で error 終了) で呼ぶ。
-  /// 該当 sid を持つ task に対し、ghRef があれば sessionID を空に書き換え、無ければ
-  /// task ごと削除する。`detachSession` との違いは「identity ありでも sessionID を
-  /// クリアする」こと。次のクリックで `--resume` ではなく素の `claude` 起動経路に流す
-  /// ためで、SessionEnd 由来の detach (resume 期待で sid を保持する) とは意図が異なる。
   ///
-  /// `markHiddenIfGhRef` で caller の意図を分ける:
-  ///   - `true` (terminal close 由来 / `removeByPty`): サイドバー表示も消す。再表示は
-  ///     picker での再選択 (`add` の upsert) を待つ。pane が閉じているので直後の
-  ///     attachSession は走らない
-  ///   - `false` (session-start fallback 由来 / `applyClaudeSessionHook`): hidden を
-  ///     据え置く。直後の `attachSession(新 sid)` が hidden=false な ghRef task を
-  ///     拾って自動転移するため、ユーザー視点で連続性を保てる
+  /// 動作:
+  ///   - `gh_ref` なし: task ごと削除する (`markHiddenIfGhRef` 値は無関係)
+  ///   - `gh_ref` あり + `markHiddenIfGhRef == true` (terminal close 由来 /
+  ///     `removeByPty`): sessionID を空にしつつ `hidden=true` を立てる。サイドバー
+  ///     表示も消し、再表示は picker での再選択 (`add` の upsert) を待つ。pane が
+  ///     閉じているので直後の attachSession は走らない
+  ///   - `gh_ref` あり + `markHiddenIfGhRef == false` (session-start fallback 由来 /
+  ///     `applyClaudeSessionHook`): sessionID だけ空にして `hidden` は据え置く。
+  ///     直後の `attachSession(新 sid)` が hidden=false な ghRef task を拾って自動
+  ///     転移するため、ユーザー視点で連続性を保てる
+  ///
+  /// `detachSession` との違い: identity ありでも sessionID を確定 dead として書き換え
+  /// (空に倒し) 次のクリックを `--resume` ではなく素の `claude` 起動経路へ流す。
+  /// SessionEnd 由来の detach (resume 期待で sid を保持する) とは意図が異なる。
   public func clearDeadSession(
     dir: String, sessionId: String, markHiddenIfGhRef: Bool
   ) throws {

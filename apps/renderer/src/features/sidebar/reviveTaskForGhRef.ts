@@ -29,8 +29,9 @@ export async function reviveTaskForGhRef(params: {
   if (rootDir === undefined) {
     // wtByBranch.get で見つけた path なので worktreesRes 経由で存在は保証されている。
     // ここに来るのは repoStore.repos と worktreeList の整合が壊れた異常ケースなので
-    // silent skip せず観察可能化する。
-    notify.error(`${errorLabel}: repo root not resolved for ${existingDir}`);
+    // silent skip せず観察可能化する。詳細は cause 経由で渡して、トースト本文は
+    // `errorLabel` のまま短く保つ (CLAUDE.md renderer の通知規約)。
+    notify.error(errorLabel, new Error(`repo root not resolved for ${existingDir}`));
     return;
   }
 

@@ -138,9 +138,6 @@ func hookCommand(event: String) async {
   if let sessionId = stdinJson["session_id"] as? String {
     hook.sessionID = sessionId
   }
-  if let transcriptPath = stdinJson["transcript_path"] as? String {
-    hook.transcriptPath = transcriptPath
-  }
   if let source = stdinJson["source"] as? String {
     hook.source = source
   }

@@ -43,7 +43,6 @@ export interface HookMessage {
   isInterrupt: boolean;
   /** session-start / session-end のみ。Claude Code の resume 起動に必要。 */
   sessionId: string;
-  transcriptPath: string;
   /** session-start のみ。"startup" / "resume" / "clear" / "compact" 等 */
   source: string;
 }
@@ -142,7 +141,6 @@ function createBaseHookMessage(): HookMessage {
     toolInput: "",
     isInterrupt: false,
     sessionId: "",
-    transcriptPath: "",
     source: "",
   };
 }
@@ -169,9 +167,6 @@ export const HookMessage: MessageFns<HookMessage> = {
     }
     if (message.sessionId !== "") {
       writer.uint32(58).string(message.sessionId);
-    }
-    if (message.transcriptPath !== "") {
-      writer.uint32(66).string(message.transcriptPath);
     }
     if (message.source !== "") {
       writer.uint32(74).string(message.source);
@@ -242,14 +237,6 @@ export const HookMessage: MessageFns<HookMessage> = {
           message.sessionId = reader.string();
           continue;
         }
-        case 8: {
-          if (tag !== 66) {
-            break;
-          }
-
-          message.transcriptPath = reader.string();
-          continue;
-        }
         case 9: {
           if (tag !== 74) {
             break;
@@ -300,11 +287,6 @@ export const HookMessage: MessageFns<HookMessage> = {
         : isSet(object.session_id)
         ? globalThis.String(object.session_id)
         : "",
-      transcriptPath: isSet(object.transcriptPath)
-        ? globalThis.String(object.transcriptPath)
-        : isSet(object.transcript_path)
-        ? globalThis.String(object.transcript_path)
-        : "",
       source: isSet(object.source) ? globalThis.String(object.source) : "",
     };
   },
@@ -332,9 +314,6 @@ export const HookMessage: MessageFns<HookMessage> = {
     if (message.sessionId !== "") {
       obj.sessionId = message.sessionId;
     }
-    if (message.transcriptPath !== "") {
-      obj.transcriptPath = message.transcriptPath;
-    }
     if (message.source !== "") {
       obj.source = message.source;
     }
@@ -353,7 +332,6 @@ export const HookMessage: MessageFns<HookMessage> = {
     message.toolInput = object.toolInput ?? "";
     message.isInterrupt = object.isInterrupt ?? false;
     message.sessionId = object.sessionId ?? "";
-    message.transcriptPath = object.transcriptPath ?? "";
     message.source = object.source ?? "";
     return message;
   },

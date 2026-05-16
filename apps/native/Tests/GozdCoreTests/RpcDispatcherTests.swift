@@ -109,6 +109,142 @@ struct RpcDispatcherTests {
     #expect(exitFlag.isSet)
   }
 
+  @Test("/claudeSession/removeByPty: expected resume sid 残留時に claude-sessions / tasks を片付ける (resume 失敗検出)")
+  func removeByPtyResumeFailureCleanup() async throws {
+    let configDir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: configDir)) }
+    let worktreeDir = try await makeGitRepoForRpc()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: worktreeDir)) }
+
+    let dispatcher = RpcDispatcher(
+      configDir: configDir,
+      onPtyText: { _, _ in },
+      onPtyExit: { _, _ in }
+    )
+
+    // 既存の永続化を仕込む。dead sid X が claude-sessions.json / tasks.json に居る状態。
+    let claudeSessions = ClaudeSessionStore(configDir: configDir)
+    try await claudeSessions.upsert(worktreePath: worktreeDir, sessionId: "dead-X")
+    let tasks = TaskStore(configDir: configDir)
+    _ = try await tasks.add(
+      dir: worktreeDir, body: "PR work", worktreeDir: worktreeDir,
+      ghRef: .forPr(99))
+    try await tasks.attachSession(
+      dir: worktreeDir, sessionId: "dead-X", worktreeDir: worktreeDir)
+
+    // PTY を spawn する。GOZD_RESUME_CLAUDE_SESSION で dead-X を渡し、SessionStart hook は
+    // 一度も着弾させずに removeByPty する (= resume 失敗シナリオ)。
+    var env = ProcessInfo.processInfo.environment
+    env["GOZD_RESUME_CLAUDE_SESSION"] = "dead-X"
+    var spawnReq = Gozd_V1_PtySpawnRequest()
+    spawnReq.dir = worktreeDir
+    spawnReq.worktreePath = worktreeDir
+    spawnReq.executable = "/bin/cat"
+    spawnReq.args = ["cat"]
+    spawnReq.env = env
+    spawnReq.rows = 24
+    spawnReq.cols = 80
+    let spawnResp = try Gozd_V1_PtySpawnResponse(
+      jsonUTF8Data: try await dispatcher.dispatch(
+        path: "/pty/spawn", body: spawnReq.jsonUTF8Data()))
+
+    var removeReq = Gozd_V1_ClaudeSessionRemoveByPtyRequest()
+    removeReq.ptyID = spawnResp.ptyID
+    removeReq.worktreePath = worktreeDir
+    _ = try await dispatcher.dispatch(
+      path: "/claudeSession/removeByPty", body: removeReq.jsonUTF8Data())
+
+    // claude-sessions.json の dead-X は削除されている
+    let remainingSessions = try await claudeSessions.savedSessions(for: worktreeDir)
+    #expect(remainingSessions.isEmpty)
+    // tasks.json の task は ghRef があるので残る + sessionId は空にクリアされる
+    let remainingTasks = try await tasks.list(dir: worktreeDir)
+    #expect(remainingTasks.count == 1)
+    #expect(remainingTasks.first?.sessionID == "")
+    #expect(remainingTasks.first?.ghRef.number == 99)
+
+    var killReq = Gozd_V1_PtyKillRequest()
+    killReq.ptyID = spawnResp.ptyID
+    _ = try await dispatcher.dispatch(path: "/pty/kill", body: killReq.jsonUTF8Data())
+  }
+
+  @Test("/claudeSession/removeByPty: expected と live が同居するレース後でも両方を掃除する")
+  func removeByPtyResumeFailurePlusLive() async throws {
+    let configDir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: configDir)) }
+    let worktreeDir = try await makeGitRepoForRpc()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: worktreeDir)) }
+
+    let dispatcher = RpcDispatcher(
+      configDir: configDir,
+      onPtyText: { _, _ in },
+      onPtyExit: { _, _ in }
+    )
+
+    // dead-X (resume 失敗の対象) と live-Y (resume 失敗後に同 PTY で素 claude 起動して
+    // 発行された新 sid) を両方の永続化に仕込む。
+    let claudeSessions = ClaudeSessionStore(configDir: configDir)
+    try await claudeSessions.upsert(worktreePath: worktreeDir, sessionId: "dead-X")
+    try await claudeSessions.upsert(worktreePath: worktreeDir, sessionId: "live-Y")
+    let tasks = TaskStore(configDir: configDir)
+    _ = try await tasks.add(
+      dir: worktreeDir, body: "PR work", worktreeDir: worktreeDir,
+      ghRef: .forPr(99))
+    try await tasks.attachSession(
+      dir: worktreeDir, sessionId: "dead-X", worktreeDir: worktreeDir)
+    // 新規 task を作って Y を attach (root wt 直接起動相当だが ghRef 無しで body 付き)
+    _ = try await tasks.add(
+      dir: worktreeDir, body: "scratch", worktreeDir: worktreeDir, ghRef: nil)
+    try await tasks.attachSession(
+      dir: worktreeDir, sessionId: "live-Y", worktreeDir: worktreeDir)
+
+    // PTY spawn (expected=dead-X) → SessionStart hook で live-Y を載せる (resume 失敗後の
+    // 素 claude 起動相当)。
+    var env = ProcessInfo.processInfo.environment
+    env["GOZD_RESUME_CLAUDE_SESSION"] = "dead-X"
+    var spawnReq = Gozd_V1_PtySpawnRequest()
+    spawnReq.dir = worktreeDir
+    spawnReq.worktreePath = worktreeDir
+    spawnReq.executable = "/bin/cat"
+    spawnReq.args = ["cat"]
+    spawnReq.env = env
+    spawnReq.rows = 24
+    spawnReq.cols = 80
+    let spawnResp = try Gozd_V1_PtySpawnResponse(
+      jsonUTF8Data: try await dispatcher.dispatch(
+        path: "/pty/spawn", body: spawnReq.jsonUTF8Data()))
+
+    var hook = Gozd_V1_HookMessage()
+    hook.event = "session-start"
+    hook.ptyID = spawnResp.ptyID
+    hook.sessionID = "live-Y"
+    hook.source = "startup"
+    var msg = Gozd_V1_ClientMessage()
+    msg.body = .hook(hook)
+    try await dispatcher.handleSocketMessage(try msg.jsonUTF8Data())
+
+    var removeReq = Gozd_V1_ClaudeSessionRemoveByPtyRequest()
+    removeReq.ptyID = spawnResp.ptyID
+    removeReq.worktreePath = worktreeDir
+    _ = try await dispatcher.dispatch(
+      path: "/claudeSession/removeByPty", body: removeReq.jsonUTF8Data())
+
+    // claude-sessions.json は X と Y 両方とも消える
+    let remainingSessions = try await claudeSessions.savedSessions(for: worktreeDir)
+    #expect(remainingSessions.isEmpty)
+    // tasks: PR task (ghRef あり) は sid クリアで残る、scratch task (ghRef 無し) は削除
+    let remainingTasks = try await tasks.list(dir: worktreeDir)
+    #expect(remainingTasks.count == 1)
+    let kept = try #require(remainingTasks.first)
+    #expect(kept.body == "PR work")
+    #expect(kept.ghRef.number == 99)
+    #expect(kept.sessionID == "")
+
+    var killReq = Gozd_V1_PtyKillRequest()
+    killReq.ptyID = spawnResp.ptyID
+    _ = try await dispatcher.dispatch(path: "/pty/kill", body: killReq.jsonUTF8Data())
+  }
+
   @Test("/appConfig/save → /appConfig/load で round-trip")
   func appConfigRoundTrip() async throws {
     let dir = try makeTempDir()

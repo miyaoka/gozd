@@ -62,14 +62,6 @@ struct ContentView: View {
         .sharedBackgroundVisibility(.hidden)
       }
       .task {
-        // 起動時 reconcile を page.load より前に await する。
-        // unregisterPane 経路 (/claudeSession/removeByPty) で取りこぼした残骸
-        // （クラッシュ等）の最後のセーフティネット。reconcile 完了前に renderer の
-        // 初回 listByDir / listByProject が走ると掃除前の claude-sessions.json を
-        // 読むため、ここで明示的に順序を保証する。read 時の silent save をやめた
-        // 代わりに、起動時 1 回だけ明示的に掃除する設計。
-        await runtime.dispatcher.reconcileClaudeSessions()
-
         // ロード経路は 3 つ:
         //   1. dev: $GOZD_DEV_VITE_URL があれば Vite dev server をロード（HMR）
         //   2. build: gozd-app:// 経由で .app 内 Resources/app/views/main/index.html をロード。
@@ -279,7 +271,9 @@ final class AppRuntime {
     // - detail はスタックトレース相当の生文字列
     // - dir は失敗の発生源 worktree path / project anchor dir。renderer 側が
     //   `findRepoOwning(dir)` で repo を特定して該当 repo だけ refetch する手がかり。
-    //   特定不能 / 経路に紐付かない通知では空文字を渡す (renderer 側は全 repo refetch)。
+    //   rollback 対象 source ("task-store" / "claude-sessions") は必ず非空 dir を渡す。
+    //   それ以外 ("socket" / "claude-hooks" 等経路に紐付かない通知) は空文字でよく、
+    //   購読側 (useSidebarData) は空文字を skip して fan-out しない。
     let sendNotify:
       @Sendable (String, String, String, String, String) -> Void = {
         type, source, message, detail, dir in

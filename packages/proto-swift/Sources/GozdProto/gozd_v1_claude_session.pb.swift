@@ -29,9 +29,6 @@ public struct Gozd_V1_ClaudeSession: Sendable {
 
   public var sessionID: String = String()
 
-  /// ~/.claude/projects/<encoded-cwd>/<session-id>.jsonl への絶対パス
-  public var transcriptPath: String = String()
-
   /// ISO8601。デバッグ用途
   public var updatedAt: String = String()
 
@@ -144,7 +141,7 @@ fileprivate let _protobuf_package = "gozd.v1"
 
 extension Gozd_V1_ClaudeSession: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ClaudeSession"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}worktree_path\0\u{3}session_id\0\u{3}transcript_path\0\u{3}updated_at\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}worktree_path\0\u{3}session_id\0\u{4}\u{2}updated_at\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -154,7 +151,6 @@ extension Gozd_V1_ClaudeSession: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.worktreePath) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
-      case 3: try { try decoder.decodeSingularStringField(value: &self.transcriptPath) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self.updatedAt) }()
       default: break
       }
@@ -168,9 +164,6 @@ extension Gozd_V1_ClaudeSession: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
     if !self.sessionID.isEmpty {
       try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 2)
     }
-    if !self.transcriptPath.isEmpty {
-      try visitor.visitSingularStringField(value: self.transcriptPath, fieldNumber: 3)
-    }
     if !self.updatedAt.isEmpty {
       try visitor.visitSingularStringField(value: self.updatedAt, fieldNumber: 4)
     }
@@ -180,7 +173,6 @@ extension Gozd_V1_ClaudeSession: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
   public static func ==(lhs: Gozd_V1_ClaudeSession, rhs: Gozd_V1_ClaudeSession) -> Bool {
     if lhs.worktreePath != rhs.worktreePath {return false}
     if lhs.sessionID != rhs.sessionID {return false}
-    if lhs.transcriptPath != rhs.transcriptPath {return false}
     if lhs.updatedAt != rhs.updatedAt {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true

@@ -12,8 +12,6 @@ export const protobufPackage = "gozd.v1";
 export interface ClaudeSession {
   worktreePath: string;
   sessionId: string;
-  /** ~/.claude/projects/<encoded-cwd>/<session-id>.jsonl への絶対パス */
-  transcriptPath: string;
   /** ISO8601。デバッグ用途 */
   updatedAt: string;
 }
@@ -66,7 +64,7 @@ export interface ClaudeSessionRemoveByPtyResponse {
 }
 
 function createBaseClaudeSession(): ClaudeSession {
-  return { worktreePath: "", sessionId: "", transcriptPath: "", updatedAt: "" };
+  return { worktreePath: "", sessionId: "", updatedAt: "" };
 }
 
 export const ClaudeSession: MessageFns<ClaudeSession> = {
@@ -76,9 +74,6 @@ export const ClaudeSession: MessageFns<ClaudeSession> = {
     }
     if (message.sessionId !== "") {
       writer.uint32(18).string(message.sessionId);
-    }
-    if (message.transcriptPath !== "") {
-      writer.uint32(26).string(message.transcriptPath);
     }
     if (message.updatedAt !== "") {
       writer.uint32(34).string(message.updatedAt);
@@ -107,14 +102,6 @@ export const ClaudeSession: MessageFns<ClaudeSession> = {
           }
 
           message.sessionId = reader.string();
-          continue;
-        }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.transcriptPath = reader.string();
           continue;
         }
         case 4: {
@@ -146,11 +133,6 @@ export const ClaudeSession: MessageFns<ClaudeSession> = {
         : isSet(object.session_id)
         ? globalThis.String(object.session_id)
         : "",
-      transcriptPath: isSet(object.transcriptPath)
-        ? globalThis.String(object.transcriptPath)
-        : isSet(object.transcript_path)
-        ? globalThis.String(object.transcript_path)
-        : "",
       updatedAt: isSet(object.updatedAt)
         ? globalThis.String(object.updatedAt)
         : isSet(object.updated_at)
@@ -167,9 +149,6 @@ export const ClaudeSession: MessageFns<ClaudeSession> = {
     if (message.sessionId !== "") {
       obj.sessionId = message.sessionId;
     }
-    if (message.transcriptPath !== "") {
-      obj.transcriptPath = message.transcriptPath;
-    }
     if (message.updatedAt !== "") {
       obj.updatedAt = message.updatedAt;
     }
@@ -183,7 +162,6 @@ export const ClaudeSession: MessageFns<ClaudeSession> = {
     const message = createBaseClaudeSession();
     message.worktreePath = object.worktreePath ?? "";
     message.sessionId = object.sessionId ?? "";
-    message.transcriptPath = object.transcriptPath ?? "";
     message.updatedAt = object.updatedAt ?? "";
     return message;
   },

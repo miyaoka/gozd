@@ -11,7 +11,7 @@ export interface NotifyPayload {
   /**
    * 失敗の発生源 worktree path / project anchor dir。renderer 側が
    * `findRepoOwning(dir)` で該当 repo を特定して絞り込み refetch する手がかり。
-   * 起動時 reconcile や socket / claude-hooks など経路に紐付かない通知は空文字。
+   * socket / claude-hooks など経路に紐付かない通知は空文字 (購読側で skip)。
    */
   dir: string;
 }

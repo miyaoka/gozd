@@ -79,6 +79,12 @@ public actor PTYRegistry {
   // 解決するために使う。/clear や --resume で sessionId が切り替わったときの旧 ID 削除も
   // 同じマッピングを参照する（applyClaudeSessionHook 側で比較）。
   private var sessionIdById: [UInt32: String] = [:]
+  // ptyId → spawn 時の env[GOZD_RESUME_CLAUDE_SESSION] (resume 期待 sid)。
+  // SessionStart hook (source=resume) が同じ sid で着弾したらクリアする。
+  // unregisterPane 時点でも残っているなら resume 失敗 (claude --resume が transcript
+  // 不在で error 終了したケース) と判定し、claude-sessions.json と task から該当 sid を
+  // 掃除する。proactive な transcript 存在チェックを廃止した代わりの reactive 検出経路。
+  private var expectedResumeSidById: [UInt32: String] = [:]
   // 削除 RPC で clearAssociations された ptyId 集合。late session-start hook が
   // 到達したとき、「明示削除後の late hook」と「そもそも未登録 PTY」を区別して
   // 観察ログを出すために使う（applyClaudeSessionHook 側で参照）。ptyId は
@@ -136,6 +142,9 @@ public actor PTYRegistry {
     ptys[id] = pty
     if !worktreePath.isEmpty {
       worktreePathById[id] = worktreePath
+    }
+    if let expected = env["GOZD_RESUME_CLAUDE_SESSION"], !expected.isEmpty {
+      expectedResumeSidById[id] = expected
     }
     pidTracker?.add(pty.pid)
 
@@ -203,6 +212,23 @@ public actor PTYRegistry {
     sessionIdById.removeValue(forKey: id)
   }
 
+  /// session-start (source=resume) で expected sid と一致したらクリアする。
+  /// 一致時のみクリアすることで「同 PTY で別 sid に --resume し直した」ケース等で
+  /// 古い expected を取り違えないようにする。
+  public func clearExpectedResumeSidIfMatches(for id: UInt32, sessionId: String) {
+    if expectedResumeSidById[id] == sessionId {
+      expectedResumeSidById.removeValue(forKey: id)
+    }
+  }
+
+  /// removeByPty 経路で「resume 失敗」検出のため expected sid を取り出してクリアする。
+  /// 非空なら SessionStart hook が一度も着弾しないまま pane が閉じられた = resume が
+  /// transcript 不在等で error 終了したケース。caller 側で claude-sessions / tasks の
+  /// 該当 sid を片付ける。
+  public func consumeExpectedResumeSid(for id: UInt32) -> String? {
+    return expectedResumeSidById.removeValue(forKey: id)
+  }
+
   /// unregisterPane 経由の削除 RPC から呼ぶ。worktreePath と sessionId の紐付けを
   /// 両方クリアする。意図: 削除 RPC 受信後に到達する late session-start hook を
   /// `applyClaudeSessionHook` の `!worktreePath.isEmpty` ガードで弾く。これにより
@@ -213,6 +239,11 @@ public actor PTYRegistry {
   public func clearAssociations(for id: UInt32) {
     worktreePathById.removeValue(forKey: id)
     sessionIdById.removeValue(forKey: id)
+    // expectedResumeSidById はここで触らない。lifecycle は「SessionStart 着弾時に
+    // clearExpectedResumeSidIfMatches で消費」または「removeByPty 経路で
+    // consumeExpectedResumeSid で消費」のいずれかに限定する。clearAssociations の
+    // 責務は worktreePath / sessionId / explicitlyRemoved の管理のみで、
+    // resume 失敗 sid を silent に握り潰す経路を作らない (観察可能性の維持)。
     explicitlyRemovedPtyIds.insert(id)
   }
 
@@ -226,6 +257,15 @@ public actor PTYRegistry {
     consumers.removeValue(forKey: id)
     worktreePathById.removeValue(forKey: id)
     sessionIdById.removeValue(forKey: id)
+    // PTY 子プロセスが SIGHUP 等で消滅した経路 (removeByPty を通らない稀ケース)。
+    // expected が残っているなら resume 失敗の sid を掃除する機会を逸している。
+    // ここでは silent に消すが、調査用に stderr に残す。
+    if let stale = expectedResumeSidById.removeValue(forKey: id) {
+      FileHandle.standardError.write(
+        Data(
+          "[PTYRegistry] remove: dropped expected resume sid=\(stale) without removeByPty for pty=\(id)\n"
+            .utf8))
+    }
   }
 }
 

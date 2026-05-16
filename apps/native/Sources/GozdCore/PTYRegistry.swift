@@ -234,10 +234,10 @@ public actor PTYRegistry {
     worktreePathById.removeValue(forKey: id)
     sessionIdById.removeValue(forKey: id)
     // expectedResumeSidById はここで触らない。lifecycle は「SessionStart 着弾時に
-    // clearExpectedResumeSidIfMatches で消費」または「removeByPty 経路で
-    // consumeExpectedResumeSid で消費」のいずれかに限定する。clearAssociations の
-    // 責務は worktreePath / sessionId / explicitlyRemoved の管理のみで、
-    // resume 失敗 sid を silent に握り潰す経路を作らない (観察可能性の維持)。
+    // consumeExpectedResumeSid で消費 (一致でも不一致でも常に消費)」または
+    // 「removeByPty 経路で consumeExpectedResumeSid で消費」のいずれかに限定する。
+    // clearAssociations の責務は worktreePath / sessionId / explicitlyRemoved の
+    // 管理のみで、resume 失敗 sid を silent に握り潰す経路を作らない (観察可能性の維持)。
     explicitlyRemovedPtyIds.insert(id)
   }
 

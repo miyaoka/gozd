@@ -156,8 +156,11 @@ public actor RpcDispatcher {
         // 返り値が hook.sessionID と一致 → resume 成功 (no-op、attachSession が冪等処理)。
         // 不一致かつ非空 → `claude --resume X` が失敗して zsh が素の `claude` に
         // fallback したケース。dead expected を claudeSessions と tasks から掃除して、
-        // 後段 attachSession(Y) が「sessionID 空の最新 task」(= 元 X 持ち task) を
-        // 再 attach できるよう道を空ける。pane close を待たずに新 sid で復活させるため、
+        // 後段 attachSession(Y) が「sessionID 空の最新 task」を再 attach できる候補に
+        // するため道を空ける (clearDeadSession で X 持ち task の sessionID が空に
+        // 書き戻されることで attachSession の候補ピックアップに乗る。元 task の id に
+        // 固定指定しているわけではないので、同 worktree に他 sessionID 空 task があれば
+        // createdAt 最新の方が拾われる)。pane close を待たずに新 sid で復活させるため、
         // upsert(Y) / attachSession(Y) の前段で必ず実行する。
         let expectedSid = (await pty.consumeExpectedResumeSid(for: hook.ptyID)) ?? ""
         if !expectedSid.isEmpty && expectedSid != hook.sessionID {
@@ -196,21 +199,38 @@ public actor RpcDispatcher {
         )
         // SessionStart hook: 該当 worktree で sessionID 空の最新 task に attach。
         // 無ければ新規 task を作る (PR/issue picker を経ない Claude 直接起動経路)。
-        // 失敗は renderer にトースト通知し、ユーザーが状態を診断できるようにする。
+        // attachSession が throw した場合は直前の upsert(Y) を rollback して中間状態
+        // (「claude-sessions に Y は存在 / 対応 task は紐付け無し」の孤児 Y) を残さない。
+        // rollback しないと UI 上「task に session が付かないまま claude-sessions だけ
+        // 増えていく」観察不能な leak を生む。pty.setSessionId も skip して PTYRegistry
+        // と永続化の sid を取り違えないようにする。
         do {
           try await tasks.attachSession(
             dir: worktreePath,
             sessionId: hook.sessionID,
             worktreeDir: worktreePath
           )
+          await pty.setSessionId(for: hook.ptyID, sessionId: hook.sessionID)
         } catch {
           FileHandle.standardError.write(
             Data("[TaskStore] attachSession failed: \(error)\n".utf8))
           onNotify(
             "error", "task-store", "Failed to attach session to task",
             String(describing: error), worktreePath)
+          do {
+            try await claudeSessions.removeBySessionId(
+              worktreePath: worktreePath, sessionId: hook.sessionID)
+          } catch {
+            FileHandle.standardError.write(
+              Data(
+                "[ClaudeSessionStore] attachSession rollback (upsert revert) failed: \(error)\n"
+                  .utf8))
+            onNotify(
+              "error", "claude-sessions",
+              "Failed to rollback claude-sessions after attachSession failure",
+              String(describing: error), worktreePath)
+          }
         }
-        await pty.setSessionId(for: hook.ptyID, sessionId: hook.sessionID)
       case "session-end":
         // 永続化削除を先に成功させてから PTYRegistry のマッピングを消す。
         // 逆順だと removeBySessionId が throw した場合 PTYRegistry からは消えるが

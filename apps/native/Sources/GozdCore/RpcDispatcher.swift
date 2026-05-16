@@ -181,7 +181,7 @@ public actor RpcDispatcher {
           try await claudeSessions.removeBySessionId(
             worktreePath: worktreePath, sessionId: previous)
           // 旧 session を持っていた Task から sessionID を切り離す。task 本体は
-          // 残し (body/pr/issue があれば永続)、新 session 開始経路 (attachSession)
+          // 残し (body / gh_ref があれば永続)、新 session 開始経路 (attachSession)
           // と矛盾しないよう「sessionID 空 + 同 worktree」候補を増やす。
           do {
             try await tasks.detachSession(dir: worktreePath, sessionId: previous)
@@ -225,7 +225,7 @@ public actor RpcDispatcher {
         try await claudeSessions.removeBySessionId(
           worktreePath: worktreePath, sessionId: hook.sessionID)
         // SessionEnd: task.sessionID は保持して `claude --resume` の起点に使う。
-        // body/pr/issue がすべて空の task のみ削除する (Claude 直接起動 + 即終了の残骸)。
+        // body / gh_ref がすべて空の task のみ削除する (Claude 直接起動 + 即終了の残骸)。
         do {
           try await tasks.detachSession(dir: worktreePath, sessionId: hook.sessionID)
         } catch {
@@ -951,7 +951,7 @@ public actor RpcDispatcher {
         removeError = error
       }
       // ターミナル close は session-end hook を発火させないため、ここで明示的に
-      // task.sessionID を切り離す。body/pr/issue が空なら同時に task も削除される
+      // task.sessionID を切り離す。body / gh_ref が空なら同時に task も削除される
       // (detachSession 内部で判定)。claudeSessions 側のエラーを優先するため tasks 側は
       // throw しないが、失敗を放置すると stale な sessionID が残るので notify する。
       do {

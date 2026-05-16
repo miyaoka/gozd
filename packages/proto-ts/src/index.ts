@@ -40,7 +40,6 @@ export {
   FileEntry,
   FileReadResult,
   GhRef,
-  GhRefKind,
   GitCommit,
   GitFileChange,
   GitIssue,

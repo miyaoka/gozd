@@ -1,8 +1,7 @@
 import { type GhRef, GhRefKind } from "./generated/gozd/v1/common";
 
-// `kind` の hardcode を呼び出し側から消し、proto enum (GhRefKind) を業務コードに
-// 露出させないためのドメインヘルパー。GitHub の番号空間共有を踏まえ、PR / issue を
-// 1 行で表現する。
+// `GhRefKind` は barrel から export せず、本ヘルパー越しでしか `kind` を組み立てられない
+// ようにする。呼び出し側で `kind` を取り違える可能性を構造的に排除する。
 export const ghRefForPr = (number: number): GhRef => ({
   kind: GhRefKind.GH_REF_KIND_PR,
   number,

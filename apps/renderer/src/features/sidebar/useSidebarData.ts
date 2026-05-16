@@ -119,13 +119,12 @@ export function useSidebarData() {
   // --- ターミナルタイトル → 同 leaf に紐付く Task タイトル同期 ---
   //
   // 1 wt = 複数 session の前提で、leafId → ptyId → sessionId →
-  // task.id の経路で対象 Task を厳密に特定する。RPC 処理中に来た更新は
-  // pendingSync に退避し、完了後に再実行する。
+  // 同 sessionId を attach 中の task の経路で対象 Task を厳密に特定する。RPC 処理中に
+  // 来た更新は pendingSync に退避し、完了後に再実行する。
   //
-  // session 確立直後の race: session-start hook を受けた `onMessage("hook", ...)`
-  // 経路で wt.tasks に楽観 push し、Swift 側 TaskStore.upsertForSession の同期
-  // 完了と整合する。それでも renderer state 反映前に OSC title が到達した場合は
-  // syncTaskTitle 内の 1 回 fetchRepo で再評価する。
+  // session 確立直後の race: session-start hook 受信後 fetchRepo で server attachSession
+  // の結果を取り直すまでに OSC title が到達した場合、syncTaskTitle 内の 1 回 fetchRepo
+  // で再評価する。
 
   let titleSyncing = false;
   let pendingSync: { leafId: string; title: string } | undefined;
@@ -153,31 +152,27 @@ export function useSidebarData() {
     let wt = owning.worktrees.find((w) => w.path === targetDir);
     if (wt === undefined) return;
 
-    if (!wt.tasks.some((t) => t.id === sessionId)) {
-      // session-start hook の楽観 push が反映されておらず、かつ Swift 側 TaskStore
-      // への永続化と renderer state の同期が間に合っていない race。1 度だけ
-      // refetch して再評価する。それでも無ければ次の OSC title でリカバリされる。
+    // task ≠ session 設計: task は UUID 識別、session は task.sessionId に attach される。
+    // 当該 sessionId を attach 中の task を探す。
+    if (!wt.tasks.some((t) => t.sessionId === sessionId)) {
+      // session-start hook 由来の attach が renderer state に反映されていない race。
+      // 1 度だけ refetch して再評価する。それでも無ければ次の OSC title でリカバリされる。
       await fetchRepo(projectDir);
       const refreshed = repoStore.repos[projectDir];
       wt = refreshed?.worktrees.find((w) => w.path === targetDir);
       if (wt === undefined) return;
-      if (!wt.tasks.some((t) => t.id === sessionId)) return;
+      if (!wt.tasks.some((t) => t.sessionId === sessionId)) return;
     }
 
     // dedupe: 既に同じ title が反映済みなら rpcTaskUpdate を打たない。
-    // session-start 再投入と通常の title watch が同一 (leaf,title) で重なっても
-    // RPC が二重発射しないように、書き込み直前の値で比較する。
     // body は将来的に複数行になりうるため、1 行目を trim した値で比較する
-    // (taskDisplayTitle / extractTaskTitle と同じ正規化)。`body === title` の直接比較は
-    // 「body はタイトル 1 行のみ」という暗黙前提に依存していて、その契約が変わった
-    // 瞬間に dedupe が無効化されるため使わない。
-    const existing = wt.tasks.find((t) => t.id === sessionId);
-    if (existing !== undefined) {
-      const [firstLine = ""] = existing.body.split("\n");
-      if (firstLine.trim() === title) return;
-    }
+    // (taskDisplayTitle / extractTaskTitle と同じ正規化)。
+    const existing = wt.tasks.find((t) => t.sessionId === sessionId);
+    if (existing === undefined) return;
+    const [firstLine = ""] = existing.body.split("\n");
+    if (firstLine.trim() === title) return;
 
-    const result = await tryCatch(rpcTaskUpdate({ dir: projectDir, id: sessionId, body: title }));
+    const result = await tryCatch(rpcTaskUpdate({ dir: projectDir, id: existing.id, body: title }));
     if (result.ok && result.value.task !== undefined) {
       const updatedTask = result.value.task;
       const freshRepo = repoStore.repos[projectDir];
@@ -273,14 +268,10 @@ export function useSidebarData() {
     // worktree list を取り直す。
     cleanups.push(onMessage<FsWatchReadyPayload>("fsWatchReady", ({ dir }) => fetchOwnerOf(dir)));
     // 永続化ストア (TaskStore / ClaudeSessionStore) の失敗 notify を該当 repo の
-    // 真値再取得トリガとして使う。この経路が兼用する責務は 2 つ:
-    // - session hook (session-start / session-end) の楽観更新の rollback。
-    //   renderer 側で wt.tasks を楽観 push / filter remove したあと、Swift 側の
-    //   upsertForSession / upsert / removeBySession / removeBySessionId のいずれか
-    //   が失敗した場合、refetch で真値に戻す
-    // - 楽観更新を伴わない経路 (reconcileAll / removeByWorktree / removeByPty 等)
-    //   の失敗時も該当 repo の真値を取り直す。永続化と renderer state が乖離
-    //   する可能性がある以上、refetch で能動的に整合を取る
+    // 真値再取得トリガとして使う。session hook (session-start / session-end /
+    // reconcileAll / removeByWorktree / removeByPty 等) の Swift 側 I/O が失敗した
+    // とき refetch で能動的に整合を取る。永続化と renderer state が乖離する可能性
+    // がある以上、再 fetch でしか真値に戻せない。
     // session hook 経路の I/O 失敗はディスクフル / 権限欠落 / 競合書き込みで連発
     // しうるため、N repo × hook 頻度で fetchRepo が爆発しないよう、notify payload
     // の dir から発生源 repo を特定して該当 1 repo だけ refetch する。経路に紐付か
@@ -300,13 +291,11 @@ export function useSidebarData() {
       }),
     );
 
-    // Claude session の生成 / 終了で wt.tasks を楽観更新し UI に即時反映する。
-    // Swift 側 TaskStore は applyClaudeSessionHook で session-start / session-end
-    // と同期に upsertForSession / removeBySession を完了させるため、renderer 側の
-    // 楽観更新と永続化は同期完結する。後追い fetchRepo は OSC title sync の
-    // freshWt.tasks.map 更新を上書きする race を生むため呼ばない。真値の差し戻しは
-    // 永続化失敗 notify 経路 (`ROLLBACK_SOURCES` を見る onMessage("notify") 購読)
-    // と次の任意 fetch (worktreeChange / fsWatchReady / explicit refresh) に任せる。
+    // Claude session の生成 / 終了で repo を再 fetch して真値を反映する。
+    // attach 先 task の選択 (sessionId 空の最新候補 or 新規作成) と detach 時の
+    // task 削除条件は server 側 TaskStore.attachSession / detachSession を SSOT
+    // とする。renderer 側で抽選ロジックを再現すると、tie-break や条件を将来変えた
+    // 時に片方だけ更新する事故が起きるため楽観更新は行わない。
     cleanups.push(
       onMessage<HookPayload>("hook", (payload) => {
         if (payload.event !== "session-start" && payload.event !== "session-end") return;
@@ -325,42 +314,27 @@ export function useSidebarData() {
         if (dir === undefined) return;
         const owning = repoStore.findRepoOwning(dir);
         if (owning === undefined) return;
-        const wt = owning.worktrees.find((w) => w.path === dir);
-        if (wt === undefined) return;
         if (payload.event === "session-start") {
-          // 既存 (重複 hook / 復元レース) は無視。なければ append。
-          if (!wt.tasks.some((t) => t.id === payload.sessionId)) {
-            wt.tasks = [
-              ...wt.tasks,
-              {
-                id: payload.sessionId,
-                body: "",
-                worktreeDir: dir,
-                prNumber: 0,
-                issueNumber: 0,
-                createdAt: new Date().toISOString(),
-              },
-            ];
-          }
           // leaf の最新 session を自前 mapping に記録。session-end 側の late 判定で使う。
           latestSessionByLeaf.set(leafId, payload.sessionId);
-          // race recovery: title イベントが session-start より先に到達した leaf は
-          // syncTaskTitle が「task 未登録」で 1 回 fetchRepo して諦めて終わっている。
-          // ここで wt.tasks に当該 sessionId が登録されたのを機に、保持している
-          // 最新タイトルがあれば再同期を回す。これで `New session` 残留を解消する。
-          const pendingTitle = terminalStore.titleByLeafId[leafId];
-          if (pendingTitle !== undefined && pendingTitle !== "") {
-            const cleaned = stripClaudeStatusPrefix(pendingTitle);
-            if (cleaned && cleaned !== CLAUDE_PLACEHOLDER_TITLE) {
-              void drainTitleSync(leafId, cleaned);
+          // server attachSession の結果を真値として取り直す。完了後、保留タイトルが
+          // あれば再 sync を回す。fetch 失敗は ROLLBACK_SOURCES notify 経路が refetch
+          // するため、ここでは握りつぶさず後段に委ねる。
+          void (async () => {
+            await fetchRepo(owning.rootDir);
+            // race recovery: title イベントが session-start より先に到達した leaf は
+            // syncTaskTitle が「task 未登録」で 1 回 fetchRepo して諦めて終わっている。
+            // fetch 完了で wt.tasks に sessionId が乗ったのを機に、保持している最新
+            // タイトルがあれば再同期を回す。これで `New session` 残留を解消する。
+            const pendingTitle = terminalStore.titleByLeafId[leafId];
+            if (pendingTitle !== undefined && pendingTitle !== "") {
+              const cleaned = stripClaudeStatusPrefix(pendingTitle);
+              if (cleaned && cleaned !== CLAUDE_PLACEHOLDER_TITLE) {
+                void drainTitleSync(leafId, cleaned);
+              }
             }
-          }
+          })();
         } else {
-          wt.tasks = wt.tasks.filter((t) => t.id !== payload.sessionId);
-          // 同 leaf で次の Claude session が立ち上がったとき、前 session が残した
-          // OSC title が session-start の replay 経路で誤って流れ込むのを防ぐ。
-          // setTitle(leafId, "") は titleByLeafId のエントリ削除と等価。
-          //
           // late 防御: leaf の最新 session-start で記録した sessionId と
           // payload.sessionId を比較。terminalStore.getSessionIdByPtyId を使うと
           // claudeStatus 側 handler の subscription 登録順に依存して結果が変わる
@@ -373,6 +347,8 @@ export function useSidebarData() {
             terminalStore.setTitle(leafId, "");
             latestSessionByLeaf.delete(leafId);
           }
+          // server detachSession 後の真値を取り直す。
+          void fetchRepo(owning.rootDir);
         }
       }),
     );

@@ -133,7 +133,13 @@ export {
   ShellCommandUninstallRequest,
   ShellCommandUninstallResponse,
 } from "./generated/gozd/v1/shell_command";
-export { TaskList, TaskUpdateRequest, TaskUpdateResponse } from "./generated/gozd/v1/task";
+export {
+  TaskAddRequest,
+  TaskAddResponse,
+  TaskList,
+  TaskUpdateRequest,
+  TaskUpdateResponse,
+} from "./generated/gozd/v1/task";
 export {
   VoicevoxCheckEngineRequest,
   VoicevoxCheckEngineResponse,

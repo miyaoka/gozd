@@ -4,6 +4,7 @@ export {
   rpcGitBranchList,
   rpcGitDefaultBranch,
   rpcGitWorktreeList,
+  rpcTaskAdd,
 } from "./rpc";
 export type { BranchChangePayload, FsWatchReadyPayload } from "./rpc";
 export { useGozdOpenHandler } from "./useGozdOpenHandler";

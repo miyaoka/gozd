@@ -48,6 +48,7 @@ public struct Gozd_V1_Task: Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  /// UUID。Claude session とは独立した task 固有の identity。
   public var id: String = String()
 
   public var body: String = String()
@@ -60,6 +61,10 @@ public struct Gozd_V1_Task: Sendable {
 
   /// ISO 8601
   public var createdAt: String = String()
+
+  /// 最後に attach された Claude session の ID。空文字は session 未起動 / 終了済み。
+  /// SessionEnd では消さず保持し、サイドバークリック時の `claude --resume` 起点に使う。
+  public var sessionID: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -299,7 +304,7 @@ extension Gozd_V1_WorktreeEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
 
 extension Gozd_V1_Task: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Task"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}body\0\u{3}worktree_dir\0\u{3}pr_number\0\u{3}issue_number\0\u{3}created_at\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}body\0\u{3}worktree_dir\0\u{3}pr_number\0\u{3}issue_number\0\u{3}created_at\0\u{3}session_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -313,6 +318,7 @@ extension Gozd_V1_Task: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementat
       case 4: try { try decoder.decodeSingularUInt32Field(value: &self.prNumber) }()
       case 5: try { try decoder.decodeSingularUInt32Field(value: &self.issueNumber) }()
       case 6: try { try decoder.decodeSingularStringField(value: &self.createdAt) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
       default: break
       }
     }
@@ -337,6 +343,9 @@ extension Gozd_V1_Task: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementat
     if !self.createdAt.isEmpty {
       try visitor.visitSingularStringField(value: self.createdAt, fieldNumber: 6)
     }
+    if !self.sessionID.isEmpty {
+      try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 7)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -347,6 +356,7 @@ extension Gozd_V1_Task: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementat
     if lhs.prNumber != rhs.prNumber {return false}
     if lhs.issueNumber != rhs.issueNumber {return false}
     if lhs.createdAt != rhs.createdAt {return false}
+    if lhs.sessionID != rhs.sessionID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

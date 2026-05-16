@@ -4,7 +4,12 @@
 ## state アイコン
 
 WCAG 1.4.1 準拠で色 + 形 + aria-label の 3 軸で状態を表現する。アニメーションは spin / pulse のみ
-（bounce は notification spam に見えるため不採用）。`resumable` は live PTY 未接続の永続セッションを指す。
+（bounce は notification spam に見えるため不採用）。
+
+- `not-started`: PR/issue picker や手動作成で生まれただけで Claude session が未 attach の task。
+  クリックすると素の `claude` が起動して SessionStart hook で attach される。
+- `resumable`: 過去に session を持っていた (task.sessionId 非空) が live PTY に未接続。
+  クリックすると `claude --resume <sessionId>` が起動する。
 
 ## 相対時刻の起点
 
@@ -23,7 +28,7 @@ import { resolveTaskBaseTime } from "../../taskBaseTime";
 import { useRelativeTime } from "../../useRelativeTime";
 import { taskDisplayTitle } from "../../utils";
 
-type StateKind = "asking" | "working" | "done" | "idle" | "resumable";
+type StateKind = "asking" | "working" | "done" | "idle" | "resumable" | "not-started";
 
 const STATE_VISUAL: Record<
   StateKind,
@@ -56,6 +61,11 @@ const STATE_VISUAL: Record<
     color: "text-zinc-500/60",
     ariaLabel: "Resumable",
   },
+  "not-started": {
+    icon: "icon-[lucide--circle-dashed]",
+    color: "text-zinc-500/60",
+    ariaLabel: "Not started",
+  },
 };
 
 const props = defineProps<{
@@ -68,9 +78,15 @@ const emit = defineEmits<{
   select: [task: Task];
 }>();
 
-const stateKind = computed<StateKind>(() => props.status?.state ?? "resumable");
+const stateKind = computed<StateKind>(() => {
+  if (props.status) return props.status.state;
+  // status 不在の意味は task.sessionId の有無で分かれる:
+  // - sessionId 空: Claude が一度も起動していない (PR/issue picker や手動作成直後)
+  // - sessionId あり: 起動していたが SessionEnd / live PTY 未接続 (`claude --resume` 可能)
+  return props.task.sessionId === "" ? "not-started" : "resumable";
+});
 const visual = computed(() => STATE_VISUAL[stateKind.value]);
-const title = computed(() => taskDisplayTitle(props.task.body));
+const title = computed(() => taskDisplayTitle(props.task));
 
 const baseTime = computed<number | undefined>(() => resolveTaskBaseTime(props.status, props.task));
 

@@ -16,6 +16,7 @@ message WorktreeEntry {
 }
 
 message Task {
+  // UUID。Claude session とは独立した task 固有の identity。
   string id = 1;
   string body = 2;
   string worktree_dir = 3;
@@ -23,6 +24,9 @@ message Task {
   uint32 issue_number = 5;
   // ISO 8601
   string created_at = 6;
+  // 最後に attach された Claude session の ID。空文字は session 未起動 / 終了済み。
+  // SessionEnd では消さず保持し、サイドバークリック時の `claude --resume` 起点に使う。
+  string session_id = 7;
 }
 
 // ディレクトリエントリ。fs/readDir / filer 用。

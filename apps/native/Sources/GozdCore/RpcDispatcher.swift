@@ -180,16 +180,16 @@ public actor RpcDispatcher {
         {
           try await claudeSessions.removeBySessionId(
             worktreePath: worktreePath, sessionId: previous)
-          // TaskStore からも旧 session 由来の Task を掃除する。先に消さないと
-          // worktree 内に「死んだ session の Task」が残り、サイドバー表示で
-          // stale エントリが見える。
+          // 旧 session を持っていた Task から sessionID を切り離す。task 本体は
+          // 残し (body/pr/issue があれば永続)、新 session 開始経路 (attachSession)
+          // と矛盾しないよう「sessionID 空 + 同 worktree」候補を増やす。
           do {
-            try await tasks.removeBySession(dir: worktreePath, sessionId: previous)
+            try await tasks.detachSession(dir: worktreePath, sessionId: previous)
           } catch {
             FileHandle.standardError.write(
-              Data("[TaskStore] removeBySession (previous) failed: \(error)\n".utf8))
+              Data("[TaskStore] detachSession (previous) failed: \(error)\n".utf8))
             onNotify(
-              "error", "task-store", "Failed to remove previous session task",
+              "error", "task-store", "Failed to detach previous session from task",
               String(describing: error), worktreePath)
           }
         }
@@ -201,21 +201,20 @@ public actor RpcDispatcher {
           sessionId: hook.sessionID,
           transcriptPath: hook.transcriptPath
         )
-        // task.id = session_id の同一視ルール: TaskStore に session 由来の Task を
-        // auto upsert する。ClaudeSessionStore 側の整合は既に確立しているため、Task
-        // の欠落はサイドバー UI の表示欠けに留まり、resume 等の中核機能には影響しない。
+        // SessionStart hook: 該当 worktree で sessionID 空の最新 task に attach。
+        // 無ければ新規 task を作る (PR/issue picker を経ない Claude 直接起動経路)。
         // 失敗は renderer にトースト通知し、ユーザーが状態を診断できるようにする。
         do {
-          try await tasks.upsertForSession(
+          try await tasks.attachSession(
             dir: worktreePath,
             sessionId: hook.sessionID,
             worktreeDir: worktreePath
           )
         } catch {
           FileHandle.standardError.write(
-            Data("[TaskStore] upsertForSession failed: \(error)\n".utf8))
+            Data("[TaskStore] attachSession failed: \(error)\n".utf8))
           onNotify(
-            "error", "task-store", "Failed to add task for new session",
+            "error", "task-store", "Failed to attach session to task",
             String(describing: error), worktreePath)
         }
         await pty.setSessionId(for: hook.ptyID, sessionId: hook.sessionID)
@@ -225,13 +224,15 @@ public actor RpcDispatcher {
         // 永続化には残り続け、次回 cleanup（removeByPty）で sessionId 解決ができない。
         try await claudeSessions.removeBySessionId(
           worktreePath: worktreePath, sessionId: hook.sessionID)
+        // SessionEnd: task.sessionID は保持して `claude --resume` の起点に使う。
+        // body/pr/issue がすべて空の task のみ削除する (Claude 直接起動 + 即終了の残骸)。
         do {
-          try await tasks.removeBySession(dir: worktreePath, sessionId: hook.sessionID)
+          try await tasks.detachSession(dir: worktreePath, sessionId: hook.sessionID)
         } catch {
           FileHandle.standardError.write(
-            Data("[TaskStore] removeBySession failed: \(error)\n".utf8))
+            Data("[TaskStore] detachSession failed: \(error)\n".utf8))
           onNotify(
-            "error", "task-store", "Failed to remove task for ended session",
+            "error", "task-store", "Failed to detach session from task",
             String(describing: error), worktreePath)
         }
         await pty.clearSessionId(for: hook.ptyID)
@@ -332,6 +333,8 @@ public actor RpcDispatcher {
       return try await handleCreateWorktree(body)
     case "/git/worktreeRemove":
       return try await handleWorktreeRemove(body)
+    case "/task/add":
+      return try await handleTaskAdd(body)
     case "/task/update":
       return try await handleTaskUpdate(body)
     case "/fs/readFileAbsolute":
@@ -583,9 +586,19 @@ public actor RpcDispatcher {
       )
     }
     let listedTasks = try await tasks.list(dir: req.dir)
-    let allTasks = registeredSessionIds.map { ids in
-      listedTasks.filter { ids.contains($0.id) }
-    } ?? listedTasks
+    // task ≠ session 設計: 身元 (body / pr / issue) があれば session が dead でも表示する。
+    // session 単独で生きていた task (Claude 直接起動 + 即終了の残骸) のみ filter で落とす。
+    let allTasks: [Gozd_V1_Task]
+    if let ids = registeredSessionIds {
+      allTasks = listedTasks.filter { task in
+        if !task.body.isEmpty || task.prNumber > 0 || task.issueNumber > 0 {
+          return true
+        }
+        return !task.sessionID.isEmpty && ids.contains(task.sessionID)
+      }
+    } else {
+      allTasks = listedTasks
+    }
     // サイドバーで各 worktree に変更ファイル数を出すため、worktree ごとに git status を並列取得する。
     // 1 worktree でも失敗したら集約段階で throw して上位（renderer 側 tryCatch → notify.error）に伝える。
     let statusesByPath: [String: [String: String]] = try await withThrowingTaskGroup(
@@ -890,10 +903,11 @@ public actor RpcDispatcher {
     try await claudeSessions.removeByWorktreePath(
       projectAnchorDir: req.dir, worktreePath: req.path
     )
-    // task.id = session_id の同一視で、worktree 物理削除に Task の片付けも
-    // 連動させる。claudeSessions だけ消して tasks を放置すると `tasks.json` に
-    // 孤児 Task が残り、サイドバーにゾンビ行が出る (handleClaudeSessionRemoveByPty
-    // と対称)。失敗は notify でユーザーに伝え、claudeSessions 側の成功を巻き戻さない。
+    // worktree 物理削除に Task の片付けも連動させる。task は worktreeDir に紐づく
+    // 永続オブジェクトなので、claudeSessions だけ消して tasks を放置すると
+    // `tasks.json` に孤児 Task が残り、サイドバーにゾンビ行が出る
+    // (handleClaudeSessionRemoveByPty と対称)。失敗は notify でユーザーに伝え、
+    // claudeSessions 側の成功を巻き戻さない。
     do {
       try await tasks.removeByWorktree(dir: req.dir, worktreePath: req.path)
     } catch {
@@ -938,18 +952,17 @@ public actor RpcDispatcher {
       } catch {
         removeError = error
       }
-      // task.id = session_id の同一視: TaskStore からも掃除する。
-      // ターミナル close は session-end hook を発火させないため、ここで明示削除
-      // しないと Task が tasks.json に残り続けてサイドバーに居座る。
-      // claudeSessions 側のエラーを優先するため tasks 側は throw しないが、
-      // 失敗を放置するとサイドバーにゾンビが残るので renderer に通知する。
+      // ターミナル close は session-end hook を発火させないため、ここで明示的に
+      // task.sessionID を切り離す。body/pr/issue が空なら同時に task も削除される
+      // (detachSession 内部で判定)。claudeSessions 側のエラーを優先するため tasks 側は
+      // throw しないが、失敗を放置すると stale な sessionID が残るので notify する。
       do {
-        try await tasks.removeBySession(dir: req.worktreePath, sessionId: sessionId)
+        try await tasks.detachSession(dir: req.worktreePath, sessionId: sessionId)
       } catch {
         FileHandle.standardError.write(
-          Data("[TaskStore] removeBySession (removeByPty) failed: \(error)\n".utf8))
+          Data("[TaskStore] detachSession (removeByPty) failed: \(error)\n".utf8))
         onNotify(
-          "error", "task-store", "Failed to remove task on terminal close",
+          "error", "task-store", "Failed to detach session on terminal close",
           String(describing: error), req.worktreePath)
       }
     }
@@ -964,8 +977,23 @@ public actor RpcDispatcher {
 
   // MARK: - tasks
 
-  // session = Task の同一視。Task の生成 / 削除は session hook 経由で
-  // 自動化され、外向けには body 同期 (update) のみ公開する。
+  // task ≠ Claude session。task は PR/issue/手動操作で作られ、Claude session は
+  // task に attach する短命属性 (attachSession / detachSession) として扱う。
+
+  private func handleTaskAdd(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_TaskAddRequest(jsonUTF8Data: body)
+    let task = try await tasks.add(
+      dir: req.dir,
+      body: req.body,
+      worktreeDir: req.worktreeDir,
+      prNumber: req.prNumber,
+      issueNumber: req.issueNumber
+    )
+    var resp = Gozd_V1_TaskAddResponse()
+    resp.task = task
+    return try resp.jsonUTF8Data()
+  }
+
   private func handleTaskUpdate(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_TaskUpdateRequest(jsonUTF8Data: body)
     let task = try await tasks.update(dir: req.dir, id: req.id, body: req.body)

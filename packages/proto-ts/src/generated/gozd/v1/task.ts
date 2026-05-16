@@ -15,6 +15,18 @@ export interface TaskList {
   tasks: Task[];
 }
 
+export interface TaskAddRequest {
+  dir: string;
+  body: string;
+  worktreeDir: string;
+  prNumber: number;
+  issueNumber: number;
+}
+
+export interface TaskAddResponse {
+  task: Task | undefined;
+}
+
 export interface TaskUpdateRequest {
   dir: string;
   id: string;
@@ -79,6 +91,200 @@ export const TaskList: MessageFns<TaskList> = {
   fromPartial(object: DeepPartial<TaskList>): TaskList {
     const message = createBaseTaskList();
     message.tasks = object.tasks?.map((e) => Task.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseTaskAddRequest(): TaskAddRequest {
+  return { dir: "", body: "", worktreeDir: "", prNumber: 0, issueNumber: 0 };
+}
+
+export const TaskAddRequest: MessageFns<TaskAddRequest> = {
+  encode(message: TaskAddRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    if (message.body !== "") {
+      writer.uint32(18).string(message.body);
+    }
+    if (message.worktreeDir !== "") {
+      writer.uint32(26).string(message.worktreeDir);
+    }
+    if (message.prNumber !== 0) {
+      writer.uint32(32).uint32(message.prNumber);
+    }
+    if (message.issueNumber !== 0) {
+      writer.uint32(40).uint32(message.issueNumber);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): TaskAddRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTaskAddRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.body = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.worktreeDir = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.prNumber = reader.uint32();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.issueNumber = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): TaskAddRequest {
+    return {
+      dir: isSet(object.dir) ? globalThis.String(object.dir) : "",
+      body: isSet(object.body) ? globalThis.String(object.body) : "",
+      worktreeDir: isSet(object.worktreeDir)
+        ? globalThis.String(object.worktreeDir)
+        : isSet(object.worktree_dir)
+        ? globalThis.String(object.worktree_dir)
+        : "",
+      prNumber: isSet(object.prNumber)
+        ? globalThis.Number(object.prNumber)
+        : isSet(object.pr_number)
+        ? globalThis.Number(object.pr_number)
+        : 0,
+      issueNumber: isSet(object.issueNumber)
+        ? globalThis.Number(object.issueNumber)
+        : isSet(object.issue_number)
+        ? globalThis.Number(object.issue_number)
+        : 0,
+    };
+  },
+
+  toJSON(message: TaskAddRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    if (message.body !== "") {
+      obj.body = message.body;
+    }
+    if (message.worktreeDir !== "") {
+      obj.worktreeDir = message.worktreeDir;
+    }
+    if (message.prNumber !== 0) {
+      obj.prNumber = Math.round(message.prNumber);
+    }
+    if (message.issueNumber !== 0) {
+      obj.issueNumber = Math.round(message.issueNumber);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<TaskAddRequest>): TaskAddRequest {
+    return TaskAddRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<TaskAddRequest>): TaskAddRequest {
+    const message = createBaseTaskAddRequest();
+    message.dir = object.dir ?? "";
+    message.body = object.body ?? "";
+    message.worktreeDir = object.worktreeDir ?? "";
+    message.prNumber = object.prNumber ?? 0;
+    message.issueNumber = object.issueNumber ?? 0;
+    return message;
+  },
+};
+
+function createBaseTaskAddResponse(): TaskAddResponse {
+  return { task: undefined };
+}
+
+export const TaskAddResponse: MessageFns<TaskAddResponse> = {
+  encode(message: TaskAddResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.task !== undefined) {
+      Task.encode(message.task, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): TaskAddResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTaskAddResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.task = Task.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): TaskAddResponse {
+    return { task: isSet(object.task) ? Task.fromJSON(object.task) : undefined };
+  },
+
+  toJSON(message: TaskAddResponse): unknown {
+    const obj: any = {};
+    if (message.task !== undefined) {
+      obj.task = Task.toJSON(message.task);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<TaskAddResponse>): TaskAddResponse {
+    return TaskAddResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<TaskAddResponse>): TaskAddResponse {
+    const message = createBaseTaskAddResponse();
+    message.task = (object.task !== undefined && object.task !== null) ? Task.fromPartial(object.task) : undefined;
     return message;
   },
 };

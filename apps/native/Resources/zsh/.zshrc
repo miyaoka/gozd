@@ -42,3 +42,12 @@ _gozd_resume_claude() {
   claude --resume "$_id"
 }
 [[ -n "$GOZD_RESUME_CLAUDE_SESSION" ]] && _gozd_resume_claude
+
+# session 未紐付け task をサイドバーでクリックした場合、resume せず素の claude を起動する。
+# SessionStart hook が走った後、native 側 attachSession が「sessionId 空の最新 task」に
+# 新 sessionId を結びつけることで task と session の紐付けが成立する。
+_gozd_start_claude() {
+  unset GOZD_AUTOSTART_CLAUDE
+  claude
+}
+[[ -n "$GOZD_AUTOSTART_CLAUDE" ]] && _gozd_start_claude

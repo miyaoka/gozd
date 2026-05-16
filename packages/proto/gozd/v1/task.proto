@@ -6,15 +6,27 @@ import "gozd/v1/common.proto";
 
 // プロジェクト固有の Task 永続化 (`~/.config/gozd/projects/<projectKey>/tasks.json`)。
 //
-// task = Claude session の同一視ルール (issue #504): Task は session-start hook で
-// auto upsert、session-end hook で auto remove される。renderer から書く API は
-// OSC ターミナルタイトル → body 同期の rpcTaskUpdate のみ。
+// task ≠ Claude session。task は PR / issue / 手動作成で生まれ、worktree の寿命に
+// 揃った永続オブジェクト。Claude session は task に attach する短命属性として
+// task.session_id に格納する。SessionStart で attach、SessionEnd では切り離さず保持し
+// 次回 `claude --resume` の起点に使う。
 //
 // projectKey は dir の realpath から server 側で算出する。renderer は dir のみ渡す。
 
 // TaskStore の永続化形式（tasks.json）。
 message TaskList {
   repeated Task tasks = 1;
+}
+
+message TaskAddRequest {
+  string dir = 1;
+  string body = 2;
+  string worktree_dir = 3;
+  uint32 pr_number = 4;
+  uint32 issue_number = 5;
+}
+message TaskAddResponse {
+  Task task = 1;
 }
 
 message TaskUpdateRequest {

@@ -39,6 +39,7 @@ import { useWorktreeStore } from "../worktree";
 import { RepoSection } from "./features/repo";
 import { useWorktreeActions } from "./features/worktree";
 import ProjectConfigPanel from "./ProjectConfigPanel.vue";
+import SidebarClock from "./SidebarClock.vue";
 import SidebarMenu from "./SidebarMenu.vue";
 import { useDialogs } from "./useDialogs";
 import { useSidebarData } from "./useSidebarData";
@@ -197,23 +198,26 @@ const activeRootWorktree = computed(() => {
           <span class="icon-[lucide--bot] text-base" />
         </button>
       </div>
-      <button
-        type="button"
-        :aria-label="editMode ? 'Exit edit mode' : 'Edit repositories'"
-        :title="editMode ? 'Done' : 'Edit repositories'"
-        class="grid size-7 place-items-center rounded-sm transition-colors"
-        :class="
-          editMode
-            ? 'bg-blue-600 text-white hover:bg-blue-500'
-            : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100'
-        "
-        @click="toggleEditMode"
-      >
-        <span
-          class="text-base"
-          :class="editMode ? 'icon-[lucide--check]' : 'icon-[lucide--pencil]'"
-        />
-      </button>
+      <div class="flex items-center gap-2">
+        <SidebarClock />
+        <button
+          type="button"
+          :aria-label="editMode ? 'Exit edit mode' : 'Edit repositories'"
+          :title="editMode ? 'Done' : 'Edit repositories'"
+          class="grid size-7 place-items-center rounded-sm transition-colors"
+          :class="
+            editMode
+              ? 'bg-blue-600 text-white hover:bg-blue-500'
+              : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100'
+          "
+          @click="toggleEditMode"
+        >
+          <span
+            class="text-base"
+            :class="editMode ? 'icon-[lucide--check]' : 'icon-[lucide--pencil]'"
+          />
+        </button>
+      </div>
     </div>
 
     <div class="_sidebar-scroll flex flex-1 scrollbar-none flex-col overflow-y-auto py-4">

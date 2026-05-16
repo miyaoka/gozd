@@ -890,11 +890,18 @@ public actor RpcDispatcher {
 
     // 期待 sid が removeByPty 時点で残っている = SessionStart の resume 成功で
     // clearExpectedResumeSidIfMatches が消費していない = resume 失敗確定。
-    // expected と live が一致するケースは正常経路では発生し得ない (一致なら SessionStart
-    // で消費済みのはず) が、race / 不整合に備えて等値性で skip せず常に dead 扱いで
-    // 掃除する。clearDeadSession は sessionID 一致した task の sid を空書き (ghRef あり)
-    // または task ごと削除 (ghRef なし) するので、後段 live cleanup の detachSession が
-    // 同 sid を見つけられず no-op になるだけで害は無い。
+    //
+    // expected と live が同時に非空かつ同値になるケースは設計上発生し得ない:
+    // SessionStart 経路 (applyClaudeSessionHook) は dispatcher actor 内で
+    // clearExpectedResumeSidIfMatches → setSessionId を逐次 await しており、isolation で
+    // 「同 sid を expected と live の両方に持つ」状態を作れない。precondition で契約を
+    // 明示し、到達したら fatal で気付ける形にする。「万一の race に備える」予防的逃げ道
+    // (CLAUDE.md 規約で禁止) を保険として残さない。
+    precondition(
+      expectedSid.isEmpty || expectedSid != liveSid,
+      "expectedSid (\(expectedSid)) == liveSid; actor isolation invariant broken"
+    )
+
     if !expectedSid.isEmpty {
       // SessionStart hook が一度も着弾しないまま pane が閉じられた。
       // `claude --resume <sid>` が transcript 不在等で error 終了したと判定し、

@@ -903,10 +903,11 @@ public actor RpcDispatcher {
     try await claudeSessions.removeByWorktreePath(
       projectAnchorDir: req.dir, worktreePath: req.path
     )
-    // task.id = session_id の同一視で、worktree 物理削除に Task の片付けも
-    // 連動させる。claudeSessions だけ消して tasks を放置すると `tasks.json` に
-    // 孤児 Task が残り、サイドバーにゾンビ行が出る (handleClaudeSessionRemoveByPty
-    // と対称)。失敗は notify でユーザーに伝え、claudeSessions 側の成功を巻き戻さない。
+    // worktree 物理削除に Task の片付けも連動させる。task は worktreeDir に紐づく
+    // 永続オブジェクトなので、claudeSessions だけ消して tasks を放置すると
+    // `tasks.json` に孤児 Task が残り、サイドバーにゾンビ行が出る
+    // (handleClaudeSessionRemoveByPty と対称)。失敗は notify でユーザーに伝え、
+    // claudeSessions 側の成功を巻き戻さない。
     do {
       try await tasks.removeByWorktree(dir: req.dir, worktreePath: req.path)
     } catch {

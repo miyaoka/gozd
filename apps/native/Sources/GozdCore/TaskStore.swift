@@ -97,19 +97,36 @@ public actor TaskStore {
   }
 
   /// SessionEnd hook 由来。task.sessionID は保持して `claude --resume` の起点に使う。
-  /// body / pr_number / issue_number がすべて空の task は session が唯一の identity
-  /// 源だったので削除する (Claude 直接起動 + 即終了の残骸を掃除)。
+  /// 削除判定は孤児共通条件 `Self.isOrphan` を使う (reconcileAll と SSOT)。
+  /// 注意: detachSession 文脈での `isOrphan` 評価は「現在 attach 中の sessionID は
+  /// 切り離す予定」という前提で行う。task.sessionID をフィールド更新する前に
+  /// `isOrphan` を呼ぶと sessionID 残存で false を返すため、判定では sessionID を
+  /// 「これから 0 に揃える」値として扱う (= body / pr / issue の 3 項だけ見れば十分)。
   public func detachSession(dir: String, sessionId: String) throws {
     var list = try loadFile(for: dir)
     guard let idx = list.tasks.firstIndex(where: { $0.sessionID == sessionId }) else {
       return
     }
-    let task = list.tasks[idx]
-    if task.body.isEmpty && task.prNumber == 0 && task.issueNumber == 0 {
+    var task = list.tasks[idx]
+    task.sessionID = ""
+    if Self.isOrphan(task) {
       list.tasks.remove(at: idx)
+    } else {
+      // sessionID は detach の意味として renderer 側でも空文字に揃えるが、本 store
+      // の永続化では「再 resume の起点」として保持する設計。worktreeList の filter は
+      // identity (body / pr / issue) の有無で判定するため、sessionID を残しても
+      // サイドバー表示には影響しない。
+      // (実装としては元の list.tasks[idx] の sessionID を保持する形で何もしない)
     }
-    // sessionID は保持。再 resume 経路で使う。body/pr/issue があれば task も残す。
     try saveFile(list, for: dir)
+  }
+
+  /// 「task の identity が完全に消えた」判定の SSOT。detachSession と reconcileAll の
+  /// 両方から呼ぶ。body / pr_number / issue_number / sessionID すべて空が条件。
+  /// 1 項でも残っていれば identity 源があるので維持する。
+  private static func isOrphan(_ task: Gozd_V1_Task) -> Bool {
+    return task.body.isEmpty && task.prNumber == 0 && task.issueNumber == 0
+      && task.sessionID.isEmpty
   }
 
   /// worktree 物理削除 (handleWorktreeRemove) からの連動掃除。
@@ -224,10 +241,8 @@ public actor TaskStore {
           mutated = true
         }
       }
-      // identity 源が完全に消えた task を削除: body / pr / issue / sessionID すべて空。
-      taskList.tasks.removeAll {
-        $0.body.isEmpty && $0.prNumber == 0 && $0.issueNumber == 0 && $0.sessionID.isEmpty
-      }
+      // identity 源が完全に消えた task を削除 (detachSession と SSOT)。
+      taskList.tasks.removeAll { Self.isOrphan($0) }
       let dropped = before - taskList.tasks.count
       if dropped > 0 { mutated = true }
       if mutated {

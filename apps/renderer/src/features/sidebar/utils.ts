@@ -89,13 +89,14 @@ export function formatRelativeTime(from: number, now: number): string {
 
 /**
  * Task title を表示用に正規化。PR / issue 番号付き task は `#N タイトル` を返す。
- * Claude プレースホルダ / 空文字は番号ありなら `#N (no title)`、無しなら
- * `New session` にフォールバックする。
+ * body が空 (Claude プレースホルダ含む) の場合、番号ありなら `#N` 単体、番号無しなら
+ * `New session` にフォールバックする。番号付きで body 空の状態は PR/issue picker 直後
+ * (Claude 未起動 + OSC title 未到達) の過渡状態で、Not started アイコンと併せて識別される。
  */
 export function taskDisplayTitle(task: Task): string {
   const prefix = taskNumberPrefix(task);
   const title = extractTaskTitle(task.body);
   if (title !== undefined) return `${prefix}${title}`;
-  if (prefix !== "") return `${prefix.trimEnd()}`;
+  if (prefix !== "") return prefix.trimEnd();
   return "New session";
 }

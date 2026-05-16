@@ -23,9 +23,10 @@ import { useIssuePicker } from "./useIssuePicker";
 
 /**
  * 同じ issue から派生した worktree を一意に識別する branch 名。
- * Task = session 同一視ルール以降、issue ↔ worktree の永続マッピングを
- * branch 名に埋め込んで検出することで「同じ issue を 2 回選んで worktree が
- * 増殖する」退行を防ぐ。PR picker が `pr.headRef` を真にしているのと対称。
+ * issue ↔ worktree の永続マッピングを Task に持たず branch 名に埋め込むことで、
+ * 「同じ issue を 2 回選んで worktree が増殖する」退行を防ぎ、Task 永続化が
+ * 壊れても worktree 逆引きが成立する。PR picker が `pr.headRef` を真にして
+ * いるのと対称。
  */
 function issueBranchName(issueNumber: number): string {
   return `issue-${issueNumber}`;
@@ -145,9 +146,16 @@ export function registerIssueCommand(): () => void {
                 issueNumber: issue.number,
               }),
             );
+            // taskAdd 失敗時は autostart を抑止する。続けると attachSession が
+            // 「sessionId 空の最新 task = 無し」経路に入って body 空の新規 task を
+            // 作り、issue タイトルを失った状態で永続化される。worktree は残るので
+            // ユーザーは手動で復旧でき、再選択で wtByBranch が hit してこの経路を
+            // 通らず既存 worktree への切り替えに倒れる。
             if (!taskResult.ok) {
               notify.error("Failed to create task for issue", taskResult.error);
-            } else if (taskResult.value.task !== undefined) {
+              return;
+            }
+            if (taskResult.value.task !== undefined) {
               const created = taskResult.value.task;
               const repo = repoStore.repos[rootDir];
               const wt = repo?.worktrees.find((w) => w.path === result.value.dir);

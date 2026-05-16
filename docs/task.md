@@ -82,6 +82,14 @@ worktree visit → ターミナル起動 → ユーザーが `claude` を実行
   → 該当無しなら新規 task を作成 (body=""、sessionId=新 sid)
 ```
 
+OSC title が反映されて body が埋まった task は SessionEnd 後も `sessionId` を保持して永続化される (`detachSession` の孤児判定 `body / pr / issue / sessionId` AND で身元残存のため削除されない)。サイドバーでは `Resumable` 状態で残り、再クリックすると `claude --resume` 経路で同じ task に再 attach される。Claude を完全に捨てたい場合は次のアプリ起動時 reconcile を経て `transcript` が dead 判定されると `sessionId` がクリアされ、body は残ったまま `Not started` に降格する。
+
+### autostart で起動した claude を終了したあとの挙動
+
+PR/issue picker や session 未紐付け task クリックで `claude` を autostart した leaf でユーザーが `/exit` すると、claude プロセスは終了して素の zsh プロンプトに戻る。task 側は SessionEnd hook 経由で `detachSession` が走り、`sessionId` を切り離す (body が埋まっていれば task は残り `Resumable` 表示、body / pr / issue / sessionId すべて空なら task ごと削除)。
+
+ターミナル自体は素の zsh として残る (`claude` プロセスのみ終了して shell は kill しない)。サイドバーで再度 task をクリックすると `claude --resume <sessionId>` 経路 (sessionId 保持時) または新規 claude 経路 (`Not started` 降格後) に乗る。
+
 ### サイドバークリックの分岐 (`SidebarPane.onSelectTask`)
 
 | task.sessionId | live PTY | 動作                                                                    |

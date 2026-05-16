@@ -79,34 +79,42 @@ export function registerPrCommand(): () => void {
               notify.error("Failed to create worktree", result.error);
               return;
             }
+            // rootDir が解決できない / worktree レスポンスが空のときは早期 return。
+            // 続行して autostart すると、サイドバーに表れない worktree でターミナル
+            // だけ動く不整合状態に落ちる。issue-picker と挙動を揃える。
             const rootDir = repoStore.findRepoOwning(dir)?.rootDir;
             if (rootDir === undefined || result.value.worktree === undefined) {
               notify.error("Worktree created but sidebar could not be updated");
-            } else {
-              repoStore.appendWorktree(rootDir, result.value.worktree);
+              return;
             }
+            repoStore.appendWorktree(rootDir, result.value.worktree);
             // PR タイトルを body に持つ task を作成し worktree に紐付ける。
             // Claude session 未起動状態 (sessionId 空) で永続化され、初期 leaf で
             // 素の claude を autostart して SessionStart hook で attach される。
-            if (rootDir !== undefined) {
-              const taskResult = await tryCatch(
-                rpcTaskAdd({
-                  dir: rootDir,
-                  body: pr.title,
-                  worktreeDir: result.value.dir,
-                  prNumber: pr.number,
-                  issueNumber: 0,
-                }),
-              );
-              if (!taskResult.ok) {
-                notify.error("Failed to create task for pull request", taskResult.error);
-              } else if (taskResult.value.task !== undefined) {
-                const created = taskResult.value.task;
-                const repo = repoStore.repos[rootDir];
-                const wt = repo?.worktrees.find((w) => w.path === result.value.dir);
-                if (wt !== undefined && !wt.tasks.some((t) => t.id === created.id)) {
-                  wt.tasks = [...wt.tasks, created];
-                }
+            const taskResult = await tryCatch(
+              rpcTaskAdd({
+                dir: rootDir,
+                body: pr.title,
+                worktreeDir: result.value.dir,
+                prNumber: pr.number,
+                issueNumber: 0,
+              }),
+            );
+            // taskAdd 失敗時は autostart を抑止する。続けると attachSession が
+            // 「sessionId 空の最新 task = 無し」経路に入って body 空の新規 task を
+            // 作り、PR タイトルを失った状態で永続化される。worktree は残るので
+            // ユーザーは手動で復旧でき、再選択で wtByBranch が hit してこの経路を
+            // 通らず既存 worktree への切り替えに倒れる。
+            if (!taskResult.ok) {
+              notify.error("Failed to create task for pull request", taskResult.error);
+              return;
+            }
+            if (taskResult.value.task !== undefined) {
+              const created = taskResult.value.task;
+              const repo = repoStore.repos[rootDir];
+              const wt = repo?.worktrees.find((w) => w.path === result.value.dir);
+              if (wt !== undefined && !wt.tasks.some((t) => t.id === created.id)) {
+                wt.tasks = [...wt.tasks, created];
               }
             }
             // 直後の setOpen で visit が走り初期 leaf が作られる前に autostart ヒントを残す。

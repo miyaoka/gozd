@@ -214,7 +214,7 @@ zsh 起動
 
 `AppStateStore` / `AppConfigStore` / `ProjectConfigStore` の load は `JSONDecodingOptions.ignoreUnknownFields = true` を有効にして forward/backward compat を確保する。save は raw dict と shallow merge して未知の top-level キーを落とさない。
 
-`TaskStore` (`tasks.json`) と `ClaudeSessionStore` (`claude-sessions.json`) の load は parse 失敗時に **空オブジェクトで上書き save** する。壊れたデータは保護しても価値がなく、throw に倒すと上位 (`handleGitWorktreeList`) で worktree list 全体が renderer に届かない（補助データ 1 件の破損で UI 全体が止まる）副作用がある。stderr に reinitialized ログを残し、観察可能性は確保する。
+`TaskStore` (`tasks.json`) と `ClaudeSessionStore` (`claude-sessions.json`) の load は parse 失敗時に **空オブジェクトで上書き save** する。本アプリはベータ版で永続データに後方互換を作らない (CLAUDE.md 規約) ため、proto schema 進化で旧 JSON が parse 失敗した場合は新規初期化が期待挙動。これらは補助データ (Task / Claude session) であり、主データ (worktree list 等) の取得経路への throw 伝播を避けるためにも load 経路では throw しない。stderr に reinitialized ログを残して観察可能性を確保する。
 
 ### スコープの使い分け
 

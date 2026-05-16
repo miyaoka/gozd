@@ -109,6 +109,20 @@ export const useTerminalStore = defineStore("terminal", () => {
   const preferredResumeByDir = ref<Record<string, string>>({});
 
   /**
+   * leafId → 次回 spawn 時に GOZD_AUTOSTART_CLAUDE フラグを立てる印。
+   * session 未紐付け task (PR/issue 経由で worktree のみ作成された等) をクリック
+   * した時に、resume ではなく素の `claude` を起動するために使う。spawnPty が env
+   * を組み立てるタイミングで一度だけ消費する。
+   */
+  const pendingAutostartByLeafId = ref<Record<string, true>>({});
+
+  /**
+   * 未訪問 worktree に対する「visit で最初の leaf に autostart フラグを乗せる」ヒント。
+   * preferredResumeByDir と排他的に使う。visit 内で 1 回だけ消費する。
+   */
+  const preferredAutostartByDir = ref<Record<string, true>>({});
+
+  /**
    * worktreePath → 永続化済み Claude セッション数。サイドバーの resume バッジ表示用。
    * 「resume 可能 = 永続化されているがまだ live PTY に接続されていない」分は
    * `getResumeableSessionCount(dir)` で saved - live を取って算出する。
@@ -150,6 +164,10 @@ export const useTerminalStore = defineStore("terminal", () => {
       if (resumeId !== undefined) {
         env.GOZD_RESUME_CLAUDE_SESSION = resumeId;
       }
+      const autostart = pendingAutostartByLeafId.value[leafId];
+      if (autostart) {
+        env.GOZD_AUTOSTART_CLAUDE = "1";
+      }
       const res = await rpcPtySpawn({
         dir,
         executable: DEFAULT_SHELL,
@@ -161,6 +179,9 @@ export const useTerminalStore = defineStore("terminal", () => {
       });
       if (resumeId !== undefined) {
         delete pendingResumeByLeafId.value[leafId];
+      }
+      if (autostart) {
+        delete pendingAutostartByLeafId.value[leafId];
       }
       return res.ptyId;
     },
@@ -444,6 +465,11 @@ export const useTerminalStore = defineStore("terminal", () => {
     const [firstSession, ...remainingSessions] = sessions;
     if (firstSession !== undefined) {
       pendingResumeByLeafId.value[initialLeafId] = firstSession.sessionId;
+    } else if (preferredAutostartByDir.value[dir]) {
+      // session 未紐付け task クリックで visit を誘発したケース。
+      // resume すべき session が無いので、初期 leaf で素の claude を autostart する。
+      delete preferredAutostartByDir.value[dir];
+      pendingAutostartByLeafId.value[initialLeafId] = true;
     }
     // 2 つ目以降のセッションは split で leaf を増やす
     for (const session of remainingSessions) {
@@ -492,6 +518,32 @@ export const useTerminalStore = defineStore("terminal", () => {
   }
 
   /**
+   * サイドバーから session 未紐付け task (PR/issue 由来等) をクリックしたときに呼ぶ。
+   * - 未訪問: 次回の visit で初期 leaf を素の claude 起動として生成するヒントを残す。
+   * - 訪問済み: その場で split して新 leaf に autostart フラグを仕込み、フォーカスを移す。
+   *
+   * SessionStart hook が走ると server 側 attachSession が「sessionId 空の最新 task」
+   * に新 sessionId を結びつける。クリックした task と attach 先が一致するのは
+   * 「wt に sessionId 空の task が 1 つだけ」のケース。複数ある場合は最新が選ばれる。
+   */
+  function requestNewClaudeSession(dir: string) {
+    if (!visitedDirs.value.includes(dir)) {
+      preferredAutostartByDir.value[dir] = true;
+      return;
+    }
+    const newLeafId = layout.splitPane(dir, "horizontal");
+    if (newLeafId === undefined) {
+      notify.error(
+        "Failed to start Claude session",
+        new Error(`splitPane returned undefined; dir=${dir}`),
+      );
+      return;
+    }
+    pendingAutostartByLeafId.value[newLeafId] = true;
+    layout.focusPane(newLeafId);
+  }
+
+  /**
    * worktree が外部削除された / アクティブから外れたときの cleanup。
    * `layout.remove` を呼ぶ前に visitGenByDir の世代を進めることで、
    * 進行中の `visit` の await 後 world は stale 判定で破棄される。
@@ -503,6 +555,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     // 未消費の resume ヒントを掃除する。worktree が削除→再作成された後の visit に
     // 古いヒントが流れ込まないよう、layout 撤去と同じタイミングで落とす。
     delete preferredResumeByDir.value[dir];
+    delete preferredAutostartByDir.value[dir];
     layout.remove(dir);
   }
 
@@ -582,6 +635,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     // layout
     visit,
     requestResumeSession,
+    requestNewClaudeSession,
     splitPane: layout.splitPane,
     closePane: layout.closePane,
     resetLayout: layout.resetLayout,

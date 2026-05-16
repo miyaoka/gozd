@@ -25,6 +25,7 @@ export interface WorktreeEntry_GitStatusesEntry {
 }
 
 export interface Task {
+  /** UUID。Claude session とは独立した task 固有の identity。 */
   id: string;
   body: string;
   worktreeDir: string;
@@ -32,6 +33,11 @@ export interface Task {
   issueNumber: number;
   /** ISO 8601 */
   createdAt: string;
+  /**
+   * 最後に attach された Claude session の ID。空文字は session 未起動 / 終了済み。
+   * SessionEnd では消さず保持し、サイドバークリック時の `claude --resume` 起点に使う。
+   */
+  sessionId: string;
 }
 
 /** ディレクトリエントリ。fs/readDir / filer 用。 */
@@ -362,7 +368,7 @@ export const WorktreeEntry_GitStatusesEntry: MessageFns<WorktreeEntry_GitStatuse
 };
 
 function createBaseTask(): Task {
-  return { id: "", body: "", worktreeDir: "", prNumber: 0, issueNumber: 0, createdAt: "" };
+  return { id: "", body: "", worktreeDir: "", prNumber: 0, issueNumber: 0, createdAt: "", sessionId: "" };
 }
 
 export const Task: MessageFns<Task> = {
@@ -384,6 +390,9 @@ export const Task: MessageFns<Task> = {
     }
     if (message.createdAt !== "") {
       writer.uint32(50).string(message.createdAt);
+    }
+    if (message.sessionId !== "") {
+      writer.uint32(58).string(message.sessionId);
     }
     return writer;
   },
@@ -443,6 +452,14 @@ export const Task: MessageFns<Task> = {
           message.createdAt = reader.string();
           continue;
         }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.sessionId = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -476,6 +493,11 @@ export const Task: MessageFns<Task> = {
         : isSet(object.created_at)
         ? globalThis.String(object.created_at)
         : "",
+      sessionId: isSet(object.sessionId)
+        ? globalThis.String(object.sessionId)
+        : isSet(object.session_id)
+        ? globalThis.String(object.session_id)
+        : "",
     };
   },
 
@@ -499,6 +521,9 @@ export const Task: MessageFns<Task> = {
     if (message.createdAt !== "") {
       obj.createdAt = message.createdAt;
     }
+    if (message.sessionId !== "") {
+      obj.sessionId = message.sessionId;
+    }
     return obj;
   },
 
@@ -513,6 +538,7 @@ export const Task: MessageFns<Task> = {
     message.prNumber = object.prNumber ?? 0;
     message.issueNumber = object.issueNumber ?? 0;
     message.createdAt = object.createdAt ?? "";
+    message.sessionId = object.sessionId ?? "";
     return message;
   },
 };

@@ -1,4 +1,4 @@
-import type { WorktreeEntry } from "@gozd/proto";
+import type { Task, WorktreeEntry } from "@gozd/proto";
 
 /**
  * Task の body から表示可能なタイトル (一行目を trim) を取り出す。
@@ -41,14 +41,25 @@ export function branchLabel(branch: string | undefined): string {
 }
 
 /**
+ * Task の PR / issue 番号をプレフィックス文字列 (`#123 `) として返す。
+ * 両方 0 なら空文字。両方 > 0 は仕様上発生しないが、PR を優先する。
+ */
+function taskNumberPrefix(task: Task): string {
+  if (task.prNumber > 0) return `#${task.prNumber} `;
+  if (task.issueNumber > 0) return `#${task.issueNumber} `;
+  return "";
+}
+
+/**
  * worktree の表示名: 任意 Task に有効なタイトルがあればそれ、なければブランチ名。
+ * PR / issue 番号付き task は `#N タイトル` の形で先頭に番号を付ける。
  * Claude プレースホルダ (`CLAUDE_PLACEHOLDER_TITLE`) は無効扱いし、
  * confirm / error メッセージで "Claude Code" が露出するのを防ぐ。
  */
 export function worktreeDisplayName(wt: WorktreeEntry): string {
   for (const task of wt.tasks) {
     const title = extractTaskTitle(task.body);
-    if (title !== undefined) return title;
+    if (title !== undefined) return `${taskNumberPrefix(task)}${title}`;
   }
   return branchLabel(wt.branch);
 }
@@ -77,9 +88,14 @@ export function formatRelativeTime(from: number, now: number): string {
 }
 
 /**
- * Task title を表示用に正規化。Claude プレースホルダ / 空文字は
+ * Task title を表示用に正規化。PR / issue 番号付き task は `#N タイトル` を返す。
+ * Claude プレースホルダ / 空文字は番号ありなら `#N (no title)`、無しなら
  * `New session` にフォールバックする。
  */
-export function taskDisplayTitle(body: string): string {
-  return extractTaskTitle(body) ?? "New session";
+export function taskDisplayTitle(task: Task): string {
+  const prefix = taskNumberPrefix(task);
+  const title = extractTaskTitle(task.body);
+  if (title !== undefined) return `${prefix}${title}`;
+  if (prefix !== "") return `${prefix.trimEnd()}`;
+  return "New session";
 }

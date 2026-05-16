@@ -14,6 +14,10 @@ import {
   LoadAppStateResponse,
   SaveAppStateRequest,
   SaveAppStateResponse,
+  TaskAddRequest,
+  TaskAddResponse,
+  TaskRemoveRequest,
+  TaskRemoveResponse,
   TaskUpdateRequest,
   TaskUpdateResponse,
 } from "@gozd/proto";
@@ -39,11 +43,16 @@ export const rpcGitWorktreeRemove = (req: GitWorktreeRemoveRequest) =>
 
 // --- task ---
 
-// task = session の同一視ルールで Task の生成 / 削除は session
-// hook が自動化する。renderer から書くのは OSC ターミナルタイトル → body
-// の同期 (rpcTaskUpdate) のみ。
+// task ≠ session 設計: task は PR/issue picker や手動操作で生まれる永続オブジェクト。
+// Claude session は task に attach する短命属性として server 側で扱う。
+export const rpcTaskAdd = (req: TaskAddRequest) =>
+  rpc("/task/add", req, TaskAddRequest, TaskAddResponse);
+
 export const rpcTaskUpdate = (req: TaskUpdateRequest) =>
   rpc("/task/update", req, TaskUpdateRequest, TaskUpdateResponse);
+
+const rpcTaskRemove = (req: TaskRemoveRequest) =>
+  rpc("/task/remove", req, TaskRemoveRequest, TaskRemoveResponse);
 
 // --- app-state 永続化（sidebar repos / order / collapse の保存） ---
 

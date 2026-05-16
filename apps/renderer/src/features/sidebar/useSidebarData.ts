@@ -153,31 +153,27 @@ export function useSidebarData() {
     let wt = owning.worktrees.find((w) => w.path === targetDir);
     if (wt === undefined) return;
 
-    if (!wt.tasks.some((t) => t.id === sessionId)) {
-      // session-start hook の楽観 push が反映されておらず、かつ Swift 側 TaskStore
-      // への永続化と renderer state の同期が間に合っていない race。1 度だけ
-      // refetch して再評価する。それでも無ければ次の OSC title でリカバリされる。
+    // task ≠ session 設計: task は UUID 識別、session は task.sessionId に attach される。
+    // 当該 sessionId を attach 中の task を探す。
+    if (!wt.tasks.some((t) => t.sessionId === sessionId)) {
+      // session-start hook 由来の attach が renderer state に反映されていない race。
+      // 1 度だけ refetch して再評価する。それでも無ければ次の OSC title でリカバリされる。
       await fetchRepo(projectDir);
       const refreshed = repoStore.repos[projectDir];
       wt = refreshed?.worktrees.find((w) => w.path === targetDir);
       if (wt === undefined) return;
-      if (!wt.tasks.some((t) => t.id === sessionId)) return;
+      if (!wt.tasks.some((t) => t.sessionId === sessionId)) return;
     }
 
     // dedupe: 既に同じ title が反映済みなら rpcTaskUpdate を打たない。
-    // session-start 再投入と通常の title watch が同一 (leaf,title) で重なっても
-    // RPC が二重発射しないように、書き込み直前の値で比較する。
     // body は将来的に複数行になりうるため、1 行目を trim した値で比較する
-    // (taskDisplayTitle / extractTaskTitle と同じ正規化)。`body === title` の直接比較は
-    // 「body はタイトル 1 行のみ」という暗黙前提に依存していて、その契約が変わった
-    // 瞬間に dedupe が無効化されるため使わない。
-    const existing = wt.tasks.find((t) => t.id === sessionId);
-    if (existing !== undefined) {
-      const [firstLine = ""] = existing.body.split("\n");
-      if (firstLine.trim() === title) return;
-    }
+    // (taskDisplayTitle / extractTaskTitle と同じ正規化)。
+    const existing = wt.tasks.find((t) => t.sessionId === sessionId);
+    if (existing === undefined) return;
+    const [firstLine = ""] = existing.body.split("\n");
+    if (firstLine.trim() === title) return;
 
-    const result = await tryCatch(rpcTaskUpdate({ dir: projectDir, id: sessionId, body: title }));
+    const result = await tryCatch(rpcTaskUpdate({ dir: projectDir, id: existing.id, body: title }));
     if (result.ok && result.value.task !== undefined) {
       const updatedTask = result.value.task;
       const freshRepo = repoStore.repos[projectDir];
@@ -328,19 +324,22 @@ export function useSidebarData() {
         const wt = owning.worktrees.find((w) => w.path === dir);
         if (wt === undefined) return;
         if (payload.event === "session-start") {
-          // 既存 (重複 hook / 復元レース) は無視。なければ append。
-          if (!wt.tasks.some((t) => t.id === payload.sessionId)) {
-            wt.tasks = [
-              ...wt.tasks,
-              {
-                id: payload.sessionId,
-                body: "",
-                worktreeDir: dir,
-                prNumber: 0,
-                issueNumber: 0,
-                createdAt: new Date().toISOString(),
-              },
-            ];
+          // task ≠ session 設計: session は task.sessionId に attach する。
+          // server 側 attachSession のロジックを renderer でも再現:
+          //   1. 同 sessionId が既に attach 済み → no-op (重複 hook / 復元レース)
+          //   2. 同 worktree で sessionId 空の最新 task → attach
+          //   3. 該当無し → fetchRepo で server 側が生成した UUID task を取り直す
+          if (!wt.tasks.some((t) => t.sessionId === payload.sessionId)) {
+            const candidates = wt.tasks.filter((t) => t.worktreeDir === dir && t.sessionId === "");
+            const target = [...candidates].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0];
+            if (target !== undefined) {
+              wt.tasks = wt.tasks.map((t) =>
+                t.id === target.id ? { ...t, sessionId: payload.sessionId } : t,
+              );
+            } else {
+              // server 側 attachSession が新規 task を作成しているため真値を取り直す。
+              void fetchRepo(owning.rootDir);
+            }
           }
           // leaf の最新 session を自前 mapping に記録。session-end 側の late 判定で使う。
           latestSessionByLeaf.set(leafId, payload.sessionId);
@@ -356,7 +355,13 @@ export function useSidebarData() {
             }
           }
         } else {
-          wt.tasks = wt.tasks.filter((t) => t.id !== payload.sessionId);
+          // session-end: task.sessionId を切り離す。body/pr/issue が空なら task ごと削除
+          // (server 側 detachSession と対称)。
+          wt.tasks = wt.tasks.flatMap((t) => {
+            if (t.sessionId !== payload.sessionId) return [t];
+            if (t.body === "" && t.prNumber === 0 && t.issueNumber === 0) return [];
+            return [{ ...t, sessionId: "" }];
+          });
           // 同 leaf で次の Claude session が立ち上がったとき、前 session が残した
           // OSC title が session-start の replay 経路で誤って流れ込むのを防ぐ。
           // setTitle(leafId, "") は titleByLeafId のエントリ削除と等価。

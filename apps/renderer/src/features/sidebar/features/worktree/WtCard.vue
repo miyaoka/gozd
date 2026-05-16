@@ -1,11 +1,15 @@
 <doc lang="md">
 1 worktree のカード。ヘッダ (branch icon / branch / git status / resumable count / ⋮) と、
-session 由来の Task 行 (TaskRow) を縦に並べる。task が無い wt はヘッダのみ。
+Task 行 (TaskRow) を縦に並べる。task が無い wt はヘッダのみ。
+
+Task は PR/issue picker や手動操作で永続的に作られ、Claude session は
+`task.sessionId` に attach する短命属性として扱う。session 未紐付けの task
+(`sessionId == ""`) も表示対象で、行をクリックすると素の `claude` が起動する。
 
 ## ハイライト
 
-active wt の場合、wt ヘッダには常に capsule fill。さらに focused PTY が task
-(= session) なら該当 task 行にも capsule。wt と task の両方が同時にハイライト
+active wt の場合、wt ヘッダには常に capsule fill。さらに focused PTY が task に
+紐づいているなら該当 task 行にも capsule。wt と task の両方が同時にハイライト
 されることで「どの wt のどの task に focus があるか」が一目で識別できる。
 
 ## 並び順
@@ -65,10 +69,14 @@ interface TaskWithStatus {
  * 行頭アイコンと相対時刻で表現する責務分担。
  */
 const tasksWithStatus = computed<TaskWithStatus[]>(() => {
+  // task ≠ session 設計: sessionId が空 (PR/issue 由来で未起動 / SessionEnd で切り離し済み)
+  // の task は status / ptyId 共に undefined になる。サイドバークリック時に素の claude を
+  // 起動する分岐は SidebarPane.onSelectTask 側で扱う。
   const list = props.wt.tasks.map<TaskWithStatus>((task) => ({
     task,
-    status: terminalStore.getClaudeStatusBySessionId(task.id),
-    ptyId: terminalStore.getPtyIdBySessionId(task.id),
+    status:
+      task.sessionId === "" ? undefined : terminalStore.getClaudeStatusBySessionId(task.sessionId),
+    ptyId: task.sessionId === "" ? undefined : terminalStore.getPtyIdBySessionId(task.sessionId),
   }));
   return list.sort((a, b) => Date.parse(a.task.createdAt) - Date.parse(b.task.createdAt));
 });

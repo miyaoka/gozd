@@ -13,6 +13,7 @@ import {
   rpcGitBranchList,
   rpcGitDefaultBranch,
   rpcGitWorktreeList,
+  rpcTaskAdd,
 } from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
@@ -132,6 +133,32 @@ export function registerIssueCommand(): () => void {
             } else {
               repoStore.appendWorktree(rootDir, result.value.worktree);
             }
+            // issue タイトルを body に持つ task を作成し worktree に紐付ける。
+            // Claude session 未起動状態 (sessionId 空) で永続化され、サイドバー行を
+            // クリックすると素の claude が起動して SessionStart hook で attach される。
+            const taskResult = await tryCatch(
+              rpcTaskAdd({
+                dir: rootDir,
+                body: issue.title,
+                worktreeDir: result.value.dir,
+                prNumber: 0,
+                issueNumber: issue.number,
+              }),
+            );
+            if (!taskResult.ok) {
+              notify.error("Failed to create task for issue", taskResult.error);
+            } else if (taskResult.value.task !== undefined) {
+              const created = taskResult.value.task;
+              const repo = repoStore.repos[rootDir];
+              const wt = repo?.worktrees.find((w) => w.path === result.value.dir);
+              if (wt !== undefined && !wt.tasks.some((t) => t.id === created.id)) {
+                wt.tasks = [...wt.tasks, created];
+              }
+            }
+            // 直後の setOpen で visit が走り初期 leaf が作られる前に autostart ヒントを残す。
+            // これで visit が初期 leaf に素の `claude` 起動を仕込み、SessionStart hook で
+            // 上で作成した task に attach される。後追いクリック起動の二重 leaf を防ぐ。
+            terminalStore.requestNewClaudeSession(result.value.dir);
             terminalStore.viewMode = "wt";
             worktreeStore.setOpen(result.value.dir);
           })();

@@ -104,9 +104,25 @@ public actor ClaudeSessionStore {
       guard fm.fileExists(atPath: fileURL.path) else { continue }
       let data = try Data(contentsOf: fileURL)
       var list: Gozd_V1_ClaudeSessionList
-      if let json = String(bytes: data, encoding: .utf8),
-        let parsed = try? Gozd_V1_ClaudeSessionList(jsonString: json)
-      {
+      let parsedSessions: Gozd_V1_ClaudeSessionList?
+      if let json = String(bytes: data, encoding: .utf8) {
+        do {
+          parsedSessions = try Gozd_V1_ClaudeSessionList(jsonString: json)
+        } catch {
+          FileHandle.standardError.write(
+            Data(
+              "[ClaudeSessionStore] reconcile: parse failed for claude-sessions.json in \(projectKey): \(error)\n"
+                .utf8))
+          parsedSessions = nil
+        }
+      } else {
+        FileHandle.standardError.write(
+          Data(
+            "[ClaudeSessionStore] reconcile: invalid UTF-8 in claude-sessions.json for \(projectKey)\n"
+              .utf8))
+        parsedSessions = nil
+      }
+      if let parsed = parsedSessions {
         list = parsed
       } else {
         let empty = Gozd_V1_ClaudeSessionList()
@@ -174,10 +190,18 @@ public actor ClaudeSessionStore {
       return Gozd_V1_ClaudeSessionList()
     }
     let data = try Data(contentsOf: url)
-    if let json = String(bytes: data, encoding: .utf8),
-      let list = try? Gozd_V1_ClaudeSessionList(jsonString: json)
-    {
-      return list
+    if let json = String(bytes: data, encoding: .utf8) {
+      do {
+        return try Gozd_V1_ClaudeSessionList(jsonString: json)
+      } catch {
+        FileHandle.standardError.write(
+          Data(
+            "[ClaudeSessionStore] loadFile: parse failed at \(url.path): \(error)\n"
+              .utf8))
+      }
+    } else {
+      FileHandle.standardError.write(
+        Data("[ClaudeSessionStore] loadFile: invalid UTF-8 at \(url.path)\n".utf8))
     }
     let empty = Gozd_V1_ClaudeSessionList()
     try saveFile(empty, for: dir)

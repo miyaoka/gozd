@@ -157,9 +157,25 @@ public actor TaskStore {
       guard fm.fileExists(atPath: tasksURL.path) else { continue }
       let tasksData = try Data(contentsOf: tasksURL)
       var taskList: Gozd_V1_TaskList
-      if let tasksJson = String(bytes: tasksData, encoding: .utf8),
-        let parsed = try? Gozd_V1_TaskList(jsonString: tasksJson)
-      {
+      let parsedTasks: Gozd_V1_TaskList?
+      if let tasksJson = String(bytes: tasksData, encoding: .utf8) {
+        do {
+          parsedTasks = try Gozd_V1_TaskList(jsonString: tasksJson)
+        } catch {
+          FileHandle.standardError.write(
+            Data(
+              "[TaskStore] reconcile: parse failed for tasks.json in \(projectKey): \(error)\n"
+                .utf8))
+          parsedTasks = nil
+        }
+      } else {
+        FileHandle.standardError.write(
+          Data(
+            "[TaskStore] reconcile: invalid UTF-8 in tasks.json for \(projectKey)\n"
+              .utf8))
+        parsedTasks = nil
+      }
+      if let parsed = parsedTasks {
         taskList = parsed
       } else {
         let empty = Gozd_V1_TaskList()
@@ -226,10 +242,18 @@ public actor TaskStore {
       return Gozd_V1_TaskList()
     }
     let data = try Data(contentsOf: url)
-    if let json = String(bytes: data, encoding: .utf8),
-      let list = try? Gozd_V1_TaskList(jsonString: json)
-    {
-      return list
+    if let json = String(bytes: data, encoding: .utf8) {
+      do {
+        return try Gozd_V1_TaskList(jsonString: json)
+      } catch {
+        FileHandle.standardError.write(
+          Data(
+            "[TaskStore] loadFile: parse failed at \(url.path): \(error)\n"
+              .utf8))
+      }
+    } else {
+      FileHandle.standardError.write(
+        Data("[TaskStore] loadFile: invalid UTF-8 at \(url.path)\n".utf8))
     }
     let empty = Gozd_V1_TaskList()
     try saveFile(empty, for: dir)

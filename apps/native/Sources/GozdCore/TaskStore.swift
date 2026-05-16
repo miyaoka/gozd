@@ -132,6 +132,12 @@ public actor TaskStore {
   /// 受け取る。claude-sessions.json の read / reinit は ClaudeSessionStore に集約され、
   /// 同ファイルを TaskStore 側でも parse する SSOT 違反を避ける。
   ///
+  /// 引数の map に projectKey のキーが無い場合は空集合扱いとし、当該 projectKey の全 task
+  /// が dead 判定対象 (sessionID クリア + identity 空なら orphan 削除) になる。これは
+  /// 「claude-sessions.json が存在しない projectKey」「reinit で空になった projectKey」
+  /// のいずれも「生存 sid が存在しない」というセマンティクスで揃えるため。明示的に空集合を
+  /// マップしたケースと map 不在ケースは同義に扱う。
+  ///
   /// parse 失敗 (UTF-8 不正 / JSON syntax 不正 / proto schema 進化) の tasks.json は
   /// 空オブジェクトで上書き save する。永続データに後方互換を作らない (CLAUDE.md 規約)
   /// ため、schema 進化で旧 JSON が parse 失敗した時は新規初期化が期待挙動。

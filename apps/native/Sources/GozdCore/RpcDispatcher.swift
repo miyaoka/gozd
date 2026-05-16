@@ -89,10 +89,15 @@ public actor RpcDispatcher {
       onNotify(
         "error", "claude-sessions", "Claude session store reconcile failed",
         String(describing: error), "")
-      // claudeSessions.reconcileAll の throw は projects/ ディレクトリ列挙失敗等の
-      // 致命環境。live session 集合が全 projectKey 規模で不明な状態で TaskStore の
-      // dead 判定 (sid クリア + orphan 削除) を回すと、全生存 task を巻き添え削除する
-      // 危険があるため tasks.reconcileAll は skip する。
+      // claudeSessions.reconcileAll の throw 源は次のいずれか:
+      //   - projects/ ディレクトリ列挙失敗 (致命環境)
+      //   - 個別 projectKey の claude-sessions.json read 失敗 (FS I/O エラー)
+      //   - reinit / save 時の proto JSON encode / write 失敗
+      // 後 2 つは特定 projectKey の I/O 失敗で、他 projectKey の live session 集合は
+      // 取得できている可能性がある。partial 集合で続行する設計は本経路では採らず、
+      // 安全側で tasks.reconcileAll を全 skip する。live session 集合が一部欠落した
+      // 状態で dead 判定 (sid クリア + orphan 削除) を回すと、欠落側の生存 task を
+      // 巻き添え削除する破壊が起きうるため、partial 続行よりも全 skip を選ぶ。
       return
     }
     do {

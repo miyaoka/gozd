@@ -545,17 +545,24 @@ public actor RpcDispatcher {
     }
     // 各 wt の git status は補助データ。1 wt の失敗で worktree list 全体を捨てない
     // ため、per-wt で握って空 statuses で続行する。prunable wt は listing から除外
-    // 済みなので、ここで失敗するのは worktree 実 path 不整合などの稀ケース。
+    // 済みなので、ここで失敗するのは worktree 実 path 不整合などの稀ケース。失敗は
+    // stderr に残して silent 握り潰しを避ける (主経路に throw は伝播させない)。
     let statusesByPath: [String: [String: String]] = await withTaskGroup(
       of: (String, [String: String]).self
     ) { group in
       for wt in worktrees {
         let path = wt.path
         group.addTask {
-          guard let statuses = try? await GitOps.gitStatus(dir: path) else {
+          do {
+            let statuses = try await GitOps.gitStatus(dir: path)
+            return (path, statuses)
+          } catch {
+            FileHandle.standardError.write(
+              Data(
+                "[handleGitWorktreeList] gitStatus failed for \(path): \(error)\n"
+                  .utf8))
             return (path, [:])
           }
-          return (path, statuses)
         }
       }
       var result: [String: [String: String]] = [:]

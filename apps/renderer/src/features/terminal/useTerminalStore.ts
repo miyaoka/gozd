@@ -243,7 +243,7 @@ export const useTerminalStore = defineStore("terminal", () => {
             const res = await tryCatch(rpcClaudeSessionRemoveByPty({ ptyId, worktreePath: dir }));
             if (!res.ok) {
               notify.error("Failed to remove saved Claude session", res.error);
-            } else {
+            } else if (res.value.removedSessionId !== "") {
               // 削除成功後に badge を即時更新する。fetchRepo 起点の再カウントを
               // 待つと、次のサイドバー操作まで古い値が出続けるため。dir はプロジェクト
               // 内の任意 dir として projectKey 解決に使える。
@@ -258,6 +258,8 @@ export const useTerminalStore = defineStore("terminal", () => {
                 sessionId: res.value.removedSessionId,
               };
             }
+            // removedSessionId が空 = claude を一度も起動せず close した pane。
+            // 永続化に変化が無いので refetch を skip し、サイドバーの無駄な発火を防ぐ。
             // 削除 RPC の完了後に kill。失敗時も pane の UI は閉じる契約なので
             // kill は実行する。paneRegistry にまだ entry があるので killPty は有効。
             ptySession.killPty(leafId);

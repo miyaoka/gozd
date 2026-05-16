@@ -87,6 +87,85 @@ struct PTYRegistryTests {
     // ここまで例外なく到達すれば OK
     #expect(await registry.count() == 0)
   }
+
+  // MARK: - expected resume sid lifecycle
+
+  @Test("spawn 時 env[GOZD_RESUME_CLAUDE_SESSION] が expectedResumeSidById に保存される")
+  func expectedResumeSidPopulatedFromEnv() async throws {
+    let events = EventCollector()
+    let registry = PTYRegistry(
+      onText: { id, text in events.appendText(id: id, text: text) },
+      onExit: { id, reason in events.appendExit(id: id, reason: reason) }
+    )
+
+    var env = ProcessInfo.processInfo.environment
+    env["GOZD_RESUME_CLAUDE_SESSION"] = "expected-sid-X"
+    let id = try await registry.spawn(
+      executable: "/bin/cat", args: ["cat"], env: env, cwd: "/tmp", rows: 24, cols: 80
+    )
+    defer { Task { await registry.kill(id: id) } }
+
+    // SessionStart 不達のまま consume すれば expected が返る (= resume 失敗判定)
+    let consumed = await registry.consumeExpectedResumeSid(for: id)
+    #expect(consumed == "expected-sid-X")
+    // 2 回目の consume は空 (1 回消費したら消える)
+    let second = await registry.consumeExpectedResumeSid(for: id)
+    #expect(second == nil)
+  }
+
+  @Test("clearExpectedResumeSidIfMatches は sid 一致時のみクリアする")
+  func clearExpectedSidConditional() async throws {
+    let events = EventCollector()
+    let registry = PTYRegistry(
+      onText: { id, text in events.appendText(id: id, text: text) },
+      onExit: { id, reason in events.appendExit(id: id, reason: reason) }
+    )
+
+    var env = ProcessInfo.processInfo.environment
+    env["GOZD_RESUME_CLAUDE_SESSION"] = "expected-sid-X"
+    let id = try await registry.spawn(
+      executable: "/bin/cat", args: ["cat"], env: env, cwd: "/tmp", rows: 24, cols: 80
+    )
+    defer { Task { await registry.kill(id: id) } }
+
+    // 別 sid (resume 失敗後に新 claude が起動して別 sid を発行したケース) では no-op
+    await registry.clearExpectedResumeSidIfMatches(for: id, sessionId: "other-sid-Y")
+    let stillThere = await registry.consumeExpectedResumeSid(for: id)
+    #expect(stillThere == "expected-sid-X")
+
+    // 同 sid (resume 成功) なら消費される
+    var env2 = ProcessInfo.processInfo.environment
+    env2["GOZD_RESUME_CLAUDE_SESSION"] = "expected-sid-Z"
+    let id2 = try await registry.spawn(
+      executable: "/bin/cat", args: ["cat"], env: env2, cwd: "/tmp", rows: 24, cols: 80
+    )
+    defer { Task { await registry.kill(id: id2) } }
+    await registry.clearExpectedResumeSidIfMatches(for: id2, sessionId: "expected-sid-Z")
+    let cleared = await registry.consumeExpectedResumeSid(for: id2)
+    #expect(cleared == nil)
+  }
+
+  @Test("clearAssociations は expectedResumeSid を触らない (silent drop しない契約)")
+  func clearAssociationsLeavesExpectedSid() async throws {
+    let events = EventCollector()
+    let registry = PTYRegistry(
+      onText: { id, text in events.appendText(id: id, text: text) },
+      onExit: { id, reason in events.appendExit(id: id, reason: reason) }
+    )
+
+    var env = ProcessInfo.processInfo.environment
+    env["GOZD_RESUME_CLAUDE_SESSION"] = "expected-sid-X"
+    let id = try await registry.spawn(
+      executable: "/bin/cat", args: ["cat"], env: env, cwd: "/tmp", rows: 24, cols: 80
+    )
+    defer { Task { await registry.kill(id: id) } }
+
+    // clearAssociations は worktreePath / sessionId / explicitlyRemoved 管理のみ。
+    // expected は呼び出し側で consumeExpectedResumeSid して片付ける契約。
+    await registry.clearAssociations(for: id)
+    let stillThere = await registry.consumeExpectedResumeSid(for: id)
+    #expect(stillThere == "expected-sid-X")
+  }
 }
 
 // MARK: - Helpers

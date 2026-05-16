@@ -888,9 +888,14 @@ public actor RpcDispatcher {
     let liveSid = (await pty.sessionId(for: req.ptyID)) ?? ""
     let expectedSid = (await pty.consumeExpectedResumeSid(for: req.ptyID)) ?? ""
 
-    // resume 失敗の dead sid を独立に片付ける。expected が live と同値の場合は
-    // (race 等で残った稀ケース) 後段の live cleanup が同 sid を扱うのでここでは skip。
-    if !expectedSid.isEmpty && expectedSid != liveSid {
+    // 期待 sid が removeByPty 時点で残っている = SessionStart の resume 成功で
+    // clearExpectedResumeSidIfMatches が消費していない = resume 失敗確定。
+    // expected と live が一致するケースは正常経路では発生し得ない (一致なら SessionStart
+    // で消費済みのはず) が、race / 不整合に備えて等値性で skip せず常に dead 扱いで
+    // 掃除する。clearDeadSession は sessionID 一致した task の sid を空書き (ghRef あり)
+    // または task ごと削除 (ghRef なし) するので、後段 live cleanup の detachSession が
+    // 同 sid を見つけられず no-op になるだけで害は無い。
+    if !expectedSid.isEmpty {
       // SessionStart hook が一度も着弾しないまま pane が閉じられた。
       // `claude --resume <sid>` が transcript 不在等で error 終了したと判定し、
       // stale な sid を片付ける。
@@ -945,17 +950,14 @@ public actor RpcDispatcher {
           String(describing: error), req.worktreePath)
       }
     } else if !expectedSid.isEmpty {
-      // live なし + expected あり (純粋な resume 失敗 = 上の expected 分岐で処理済み)。
-      // removedSessionId に expected を載せて renderer に「何かは消した」と伝える。
+      // live なし + expected あり (純粋な resume 失敗)。removedSessionId に expected を
+      // 載せて renderer に「何かは消した」と伝える。renderer 側はこの値を見て
+      // lastRemovedSessionInfo を更新し、所属 repo を refetch する。
       removedSessionId = expectedSid
-    } else {
-      // live も expected もない。素 PTY pane (claude を一度も起動しなかった) の close。
-      // 通常パスだが、将来 race を疑う際の調査根拠として stderr に残す。
-      FileHandle.standardError.write(
-        Data(
-          "[RpcDispatcher] removeByPty: no live or expected session for pty=\(req.ptyID); plain shell close\n"
-            .utf8))
     }
+    // else: live も expected もない素 PTY pane (claude を一度も起動しなかった) の close。
+    // 正常経路でログ価値が薄いため stderr には残さない。removedSessionId は空のままで、
+    // renderer 側は sessionId 空をトリガに refetch を skip する契約。
 
     await pty.clearAssociations(for: req.ptyID)
     if let error = removeError {

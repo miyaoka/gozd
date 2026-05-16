@@ -271,7 +271,9 @@ final class AppRuntime {
     // - detail はスタックトレース相当の生文字列
     // - dir は失敗の発生源 worktree path / project anchor dir。renderer 側が
     //   `findRepoOwning(dir)` で repo を特定して該当 repo だけ refetch する手がかり。
-    //   特定不能 / 経路に紐付かない通知では空文字を渡す (renderer 側は全 repo refetch)。
+    //   rollback 対象 source ("task-store" / "claude-sessions") は必ず非空 dir を渡す。
+    //   それ以外 ("socket" / "claude-hooks" 等経路に紐付かない通知) は空文字でよく、
+    //   購読側 (useSidebarData) は空文字を skip して fan-out しない。
     let sendNotify:
       @Sendable (String, String, String, String, String) -> Void = {
         type, source, message, detail, dir in

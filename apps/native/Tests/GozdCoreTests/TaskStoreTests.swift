@@ -144,13 +144,13 @@ struct TaskStoreTests {
     #expect(!task.id.isEmpty)
   }
 
-  @Test("attachSession: 同 sessionID 再 attach は冪等で hidden を触らない")
-  func attachSessionIdempotentDoesNotTouchHidden() async throws {
+  @Test("attachSession: 同 sessionID 再 attach は hidden=true なら hidden=false に倒して蘇生 (resume 復帰)")
+  func attachSessionResumeRevivesHidden() async throws {
     let env = try await makeEnv()
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
-    _ = try await store.add(
+    let original = try await store.add(
       dir: env.worktreeA, body: "PR #11", worktreeDir: env.worktreeA, ghRef: .forPr(11)
     )
     try await store.attachSession(
@@ -159,14 +159,39 @@ struct TaskStoreTests {
     try await store.detachSession(dir: env.worktreeA, sessionId: "first")
     #expect(try await store.list(dir: env.worktreeA).first?.hidden == true)
 
-    // 同 sessionID で再 attach: 冪等経路。hidden=true を触らない (picker upsert
-    // でのみ復活させる規律)。
+    // `claude --resume first` で同 sessionID の SessionStart hook が着弾。
+    // 同一セッションの継続が確定しているため hidden=false に倒してサイドバー
+    // 表示を復活させる。sessionID / body / id / createdAt は維持。
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "first", worktreeDir: env.worktreeA)
 
+    let revived = try #require(try await store.list(dir: env.worktreeA).first)
+    #expect(!revived.hidden)
+    #expect(revived.sessionID == "first")
+    #expect(revived.body == "PR #11")
+    #expect(revived.id == original.id)
+    #expect(revived.createdAt == original.createdAt)
+  }
+
+  @Test("attachSession: hidden=false な同 sessionID 再 attach は no-op (重複 hook)")
+  func attachSessionIdempotentWhenNotHidden() async throws {
+    let env = try await makeEnv()
+    defer { cleanup(env) }
+    let store = TaskStore(configDir: env.configDir)
+
+    _ = try await store.add(
+      dir: env.worktreeA, body: "PR #12", worktreeDir: env.worktreeA, ghRef: .forPr(12)
+    )
+    try await store.attachSession(
+      dir: env.worktreeA, sessionId: "live", worktreeDir: env.worktreeA)
+
+    try await store.attachSession(
+      dir: env.worktreeA, sessionId: "live", worktreeDir: env.worktreeA)
+
     let kept = try #require(try await store.list(dir: env.worktreeA).first)
-    #expect(kept.hidden)
-    #expect(kept.sessionID == "first")
+    #expect(!kept.hidden)
+    #expect(kept.sessionID == "live")
+    #expect(try await store.list(dir: env.worktreeA).count == 1)
   }
 
   @Test("attachSession: hidden=true な ghRef task はピックアップ候補から外れる (素 claude 取り憑き防止)")

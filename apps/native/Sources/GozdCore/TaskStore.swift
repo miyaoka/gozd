@@ -93,8 +93,12 @@ public actor TaskStore {
   /// Claude session-start hook を Task に attach する。
   ///
   /// 優先順位:
-  ///   1. 既に sessionID が一致する task → no-op (idempotent)。当該 task が hidden
-  ///      でも触らない (`hidden=true` 状態の task は picker 経由でのみ蘇生する規律)
+  ///   1. 既に sessionID が一致する task → 同一セッションの継続 (resume) が確定して
+  ///      いる経路なので、hidden=true なら **hidden=false に倒して蘇生** する。
+  ///      ghRef task が terminal close で hidden 化された後、`claude --resume` で
+  ///      復帰したケースをサイドバー表示に復帰させる正規ルート。sessionID 一致は
+  ///      「別経路で起動した素 claude が偶発的に取り憑く」事故シナリオには該当しない
+  ///      (sessionID は per-Claude-process 一意で、外から再現できないため)。
   ///   2. 同一 worktreeDir で `sessionID == ""` かつ `hidden == false` の task のうち
   ///      最新のもの (createdAt 降順) に attach。**hidden を候補から外す**のは
   ///      「terminal close 済みの ghRef task に、別経路で起動した素 claude が取り憑く」
@@ -102,7 +106,11 @@ public actor TaskStore {
   ///   3. 該当無し → 新規 task を作成し sessionID を入れる (Claude 直接起動経路)
   public func attachSession(dir: String, sessionId: String, worktreeDir: String) throws {
     var list = try loadFile(for: dir)
-    if list.tasks.contains(where: { $0.sessionID == sessionId }) {
+    if let idx = list.tasks.firstIndex(where: { $0.sessionID == sessionId }) {
+      if list.tasks[idx].hidden {
+        list.tasks[idx].hidden = false
+        try saveFile(list, for: dir)
+      }
       return
     }
     let candidates = list.tasks.enumerated().filter {

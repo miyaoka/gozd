@@ -107,6 +107,20 @@ public struct DiffHunkInfo: Equatable, Sendable {
   }
 }
 
+public struct DiffHunksResult: Equatable, Sendable {
+  public let hunks: [DiffHunkInfo]
+  /// 入力 `original` の総行数 (git の line counting 規約に従う)。
+  /// trailing バー / context 拡張の絶対座標計算の SSOT として renderer に返す。
+  public let oldTotalLines: UInt32
+  /// 入力 `current` の総行数 (git の line counting 規約に従う)。
+  public let newTotalLines: UInt32
+  public init(hunks: [DiffHunkInfo], oldTotalLines: UInt32, newTotalLines: UInt32) {
+    self.hunks = hunks
+    self.oldTotalLines = oldTotalLines
+    self.newTotalLines = newTotalLines
+  }
+}
+
 public enum GitOps {
   /// `git status --porcelain=v1 -z --untracked-files=all` 相当。
   /// `--untracked-files=all` は untracked ディレクトリ配下のファイルも個別に列挙させる
@@ -367,24 +381,42 @@ public enum GitOps {
     return result
   }
 
-  /// 2 つのテキスト間の hunk 単位差分を返す。
+  /// 2 つのテキスト間の hunk 単位差分と総行数を返す。
   ///
   /// 設計判断: `git diff --no-index` を使い、差分エンジンを git 本体（xdiff、C 実装）に委譲する。
   /// renderer 側で jsdiff の `diffLines` を全文に対して回すと、`pnpm-lock.yaml` のような大ファイルで
   /// Myers LCS が O(N×M) に膨れメインスレッドが固まる。git に処理を移すことで:
   ///   - LCS は C で計算され GUI スレッドを塞がない
   ///   - 結果が hunk 単位に集約されるため、renderer は不変行を全描画せず gap を静的バーで省略表示できる
+  ///   - 総行数も git の line counting 規約に揃えて返すことで、trailing バー描画と context 拡張の
+  ///     絶対座標計算の SSOT を Swift に置く（renderer 側 split("\n") の二重実装を排除）
   ///
   /// 実装:
   ///   - `NSTemporaryDirectory()` 配下にユニークディレクトリを作り `a` / `b` の 2 ファイルを書き出す
-  ///   - `git diff --no-index --no-color -U3` を実行
+  ///   - `git -c diff.algorithm=myers -c diff.renames=false -c core.autocrlf=false -c core.eol=lf
+  ///     diff --no-index --no-color -U3` を実行。ユーザー global config 依存で算法 / 改行扱いが
+  ///     変わると hunk 境界と renderer の line counting がずれるため、本 RPC が依存するオプションを
+  ///     明示固定する
   ///   - exit code は 0 (差分なし) / 1 (差分あり) のいずれも success として扱う（>1 は通常エラー扱い）
+  ///   - 出力が `Binary files ... differ` 1 行の場合は呼び出し側で UTF-8 化済みのテキストを渡している
+  ///     前提が破れているサイン。`GitError.commandFailed` を投げて UI に観察可能化する
   ///   - unified diff 出力を `DiffHunkInfo` 配列に parse
-  public static func diffHunks(original: String, current: String) async throws -> [DiffHunkInfo] {
+  public static func diffHunks(original: String, current: String) async throws -> DiffHunksResult
+  {
     let tmpRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
     let tmpDir = tmpRoot.appendingPathComponent("gozd-diff-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: tmpDir) }
+    defer {
+      // 削除失敗は累積すると TMPDIR を圧迫するため stderr に observable に出す。
+      // throw はしない（diff 結果取得自体は成功している）。
+      do {
+        try FileManager.default.removeItem(at: tmpDir)
+      } catch {
+        FileHandle.standardError.write(
+          Data("[GitOps] failed to remove diff tmp dir \(tmpDir.path): \(error)\n".utf8)
+        )
+      }
+    }
 
     let aURL = tmpDir.appendingPathComponent("a")
     let bURL = tmpDir.appendingPathComponent("b")
@@ -393,11 +425,44 @@ public enum GitOps {
 
     let stdout = try await runGitDiffNoIndex(
       args: [
-        "diff", "--no-index", "--no-color", "-U3", "--", aURL.path, bURL.path,
+        "-c", "diff.algorithm=myers",
+        "-c", "diff.renames=false",
+        "-c", "core.autocrlf=false",
+        "-c", "core.eol=lf",
+        "diff", "--no-index", "--no-color", "-U3",
+        "--", aURL.path, bURL.path,
       ],
       cwd: tmpDir.path
     )
-    return parseUnifiedDiffHunks(String(decoding: stdout, as: UTF8.self))
+    let output = String(decoding: stdout, as: UTF8.self)
+
+    // `git diff --no-index` は NUL バイトを検知すると hunk を生成せず
+    // `Binary files <a> and <b> differ` 1 行を返す。renderer 側で binary 判定をすり抜けた
+    // 入力が来た場合の防御線。silent に hunks=[] を返すと UI 上「差分なし」に見えるため
+    // commandFailed で observable に倒す。
+    if output.contains("\nBinary files ") || output.hasPrefix("Binary files ") {
+      throw GitError.commandFailed(
+        exitCode: 0,
+        stderr: "git diff --no-index reported binary content (renderer pre-filter bypassed)"
+      )
+    }
+
+    let hunks = parseUnifiedDiffHunks(output)
+    return DiffHunksResult(
+      hunks: hunks,
+      oldTotalLines: countDiffLines(original),
+      newTotalLines: countDiffLines(current)
+    )
+  }
+
+  /// git の line counting 規約でテキスト行数を返す。
+  /// 規約: 空文字 = 0、末尾 `\n` 有り = `\n` 区切りで作られる「終端付き行」の数、
+  /// 末尾 `\n` 無し = `\n` 区切りの数 + 1（最後の `\\ No newline at end of file` で参照される行）。
+  public static func countDiffLines(_ text: String) -> UInt32 {
+    if text.isEmpty { return 0 }
+    let parts = text.split(separator: "\n", omittingEmptySubsequences: false)
+    let trailing = text.hasSuffix("\n") ? 1 : 0
+    return UInt32(parts.count - trailing)
   }
 
   /// `git show HEAD:<path>` 相当。
@@ -689,16 +754,37 @@ private func runGitDiffNoIndexOnce(gitPath: String, args: [String], cwd: String)
 /// `oldLines` / `newLines` は count 省略時 1 として扱う（unified diff 仕様）。
 func parseUnifiedDiffHunks(_ text: String) -> [DiffHunkInfo] {
   var hunks: [DiffHunkInfo] = []
-  let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+  var lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+  // `text` が `\n` で終わる場合、split は末尾に空 Substring を 1 つ作る。これは
+  // 改行終端の正規アーティファクトなので「想定外行」計上の対象から外す。
+  if lines.last?.isEmpty == true {
+    lines.removeLast()
+  }
+  // unified diff の想定外行 (file header / hunk header / 既知 marker 以外) を skip した件数。
+  // 想定通り 0 のはずなので、>0 で出力された場合はパーサと git 出力の乖離として stderr に出す。
+  var unexpectedSkips = 0
 
   var i = 0
   while i < lines.count {
     let raw = lines[i]
     guard raw.hasPrefix("@@") else {
+      // 先頭は file header（"diff " / "--- " / "+++ " / "index "）か末尾の空行。
+      // それ以外の prefix が来たら hunk 探索中の異常 → 計上する。
+      if !raw.isEmpty
+        && !raw.hasPrefix("diff ") && !raw.hasPrefix("--- ") && !raw.hasPrefix("+++ ")
+        && !raw.hasPrefix("index ") && !raw.hasPrefix("new file mode")
+        && !raw.hasPrefix("deleted file mode") && !raw.hasPrefix("similarity index")
+        && !raw.hasPrefix("rename from") && !raw.hasPrefix("rename to")
+      {
+        unexpectedSkips += 1
+      }
       i += 1
       continue
     }
     guard let header = parseHunkHeader(String(raw)) else {
+      // `@@` で始まるが header 形式に合わない行は parser バグか git 出力の変化。
+      FileHandle.standardError.write(
+        Data("[GitOps] unparseable hunk header: \(raw)\n".utf8))
       i += 1
       continue
     }
@@ -712,13 +798,15 @@ func parseUnifiedDiffHunks(_ text: String) -> [DiffHunkInfo] {
         break
       }
       if l.hasPrefix("\\") {
+        // `\ No newline at end of file` は装飾、無視
         i += 1
         continue
       }
-      // 空行はパーサ末尾 (split による trailing empty) などで発生し得るが、
-      // hunk 内の本当の空行は context 側で必ず先頭スペース付きで表現される。
-      // ここでは前提に従い skip する。
+      // hunk 本文中の prefix は ` ` / `+` / `-` のいずれか (unified diff 規約)。
+      // 空 Substring は split による trailing empty の可能性があるが、その場合は
+      // hunk 内ではなく hunk 直後の末尾位置にしか出現しない想定。
       guard let first = l.first else {
+        unexpectedSkips += 1
         i += 1
         continue
       }
@@ -729,6 +817,7 @@ func parseUnifiedDiffHunks(_ text: String) -> [DiffHunkInfo] {
       case "+": kind = .added
       case "-": kind = .removed
       default:
+        unexpectedSkips += 1
         i += 1
         continue
       }
@@ -743,6 +832,10 @@ func parseUnifiedDiffHunks(_ text: String) -> [DiffHunkInfo] {
         newLines: header.newLines,
         lines: hunkLines
       ))
+  }
+  if unexpectedSkips > 0 {
+    FileHandle.standardError.write(
+      Data("[GitOps] parseUnifiedDiffHunks: skipped \(unexpectedSkips) unexpected line(s)\n".utf8))
   }
   return hunks
 }
@@ -762,17 +855,33 @@ private func parseHunkHeader(_ line: String) -> HunkHeader? {
   let range = NSRange(location: 0, length: ns.length)
   guard let m = re.firstMatch(in: line, range: range) else { return nil }
 
-  func num(_ idx: Int, default def: UInt32) -> UInt32 {
-    let r = m.range(at: idx)
-    guard r.location != NSNotFound else { return def }
-    return UInt32(ns.substring(with: r)) ?? def
+  // count 省略時の規約値 (unified diff 仕様)。
+  // 数値部の `UInt32` 変換は失敗を default で握ると observability を奪うため
+  // header parse 失敗として nil を返し、呼び出し側で stderr に出させる。
+  let oldStart = UInt32(ns.substring(with: m.range(at: 1)))
+  let newStart = UInt32(ns.substring(with: m.range(at: 3)))
+  guard let oldStart, let newStart else { return nil }
+
+  let oldLinesRange = m.range(at: 2)
+  let newLinesRange = m.range(at: 4)
+  let oldLines: UInt32
+  if oldLinesRange.location == NSNotFound {
+    oldLines = 1
+  } else if let v = UInt32(ns.substring(with: oldLinesRange)) {
+    oldLines = v
+  } else {
+    return nil
+  }
+  let newLines: UInt32
+  if newLinesRange.location == NSNotFound {
+    newLines = 1
+  } else if let v = UInt32(ns.substring(with: newLinesRange)) {
+    newLines = v
+  } else {
+    return nil
   }
   return HunkHeader(
-    oldStart: num(1, default: 0),
-    oldLines: num(2, default: 1),
-    newStart: num(3, default: 0),
-    newLines: num(4, default: 1)
-  )
+    oldStart: oldStart, oldLines: oldLines, newStart: newStart, newLines: newLines)
 }
 
 /// `git worktree list --porcelain` の出力をパースする。

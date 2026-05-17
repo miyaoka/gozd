@@ -648,9 +648,11 @@ public actor RpcDispatcher {
 
   private func handleGitDiffHunks(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitDiffHunksRequest(jsonUTF8Data: body)
-    let hunks = try await GitOps.diffHunks(original: req.original, current: req.current)
+    let result = try await GitOps.diffHunks(original: req.original, current: req.current)
     var resp = Gozd_V1_GitDiffHunksResponse()
-    resp.hunks = hunks.map { h in
+    resp.oldTotalLines = result.oldTotalLines
+    resp.newTotalLines = result.newTotalLines
+    resp.hunks = result.hunks.map { h in
       var pb = Gozd_V1_DiffHunk()
       pb.oldStart = h.oldStart
       pb.oldLines = h.oldLines

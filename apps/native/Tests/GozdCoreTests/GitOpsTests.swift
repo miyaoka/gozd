@@ -418,16 +418,18 @@ struct ParseUnifiedDiffHunksTests {
 struct GitOpsDiffHunksTests {
   @Test("同一テキストは空 hunks")
   func identicalIsEmpty() async throws {
-    let hunks = try await GitOps.diffHunks(original: "a\nb\nc\n", current: "a\nb\nc\n")
-    #expect(hunks.isEmpty)
+    let r = try await GitOps.diffHunks(original: "a\nb\nc\n", current: "a\nb\nc\n")
+    #expect(r.hunks.isEmpty)
+    #expect(r.oldTotalLines == 3)
+    #expect(r.newTotalLines == 3)
   }
 
   @Test("1 行置換は 1 hunk")
   func singleLineReplace() async throws {
-    let hunks = try await GitOps.diffHunks(original: "a\nb\nc\n", current: "a\nB\nc\n")
-    #expect(hunks.count == 1)
-    let removed = hunks[0].lines.filter { $0.kind == .removed }.map(\.text)
-    let added = hunks[0].lines.filter { $0.kind == .added }.map(\.text)
+    let r = try await GitOps.diffHunks(original: "a\nb\nc\n", current: "a\nB\nc\n")
+    #expect(r.hunks.count == 1)
+    let removed = r.hunks[0].lines.filter { $0.kind == .removed }.map(\.text)
+    let added = r.hunks[0].lines.filter { $0.kind == .added }.map(\.text)
     #expect(removed == ["b"])
     #expect(added == ["B"])
   }
@@ -441,21 +443,65 @@ struct GitOpsDiffHunksTests {
       origLines.append("line\(i)")
       currLines.append(i == 1 ? "LINE1" : i == 30 ? "LINE30" : "line\(i)")
     }
-    let hunks = try await GitOps.diffHunks(
+    let r = try await GitOps.diffHunks(
       original: origLines.joined(separator: "\n") + "\n",
       current: currLines.joined(separator: "\n") + "\n"
     )
-    #expect(hunks.count == 2)
+    #expect(r.hunks.count == 2)
+    #expect(r.oldTotalLines == 30)
+    #expect(r.newTotalLines == 30)
   }
 
   @Test("末尾に newline が無いケースも parse できる")
   func handlesNoNewlineAtEndOfFile() async throws {
-    let hunks = try await GitOps.diffHunks(original: "a\nb", current: "a\nB")
-    #expect(hunks.count == 1)
-    let added = hunks[0].lines.filter { $0.kind == .added }.map(\.text)
-    let removed = hunks[0].lines.filter { $0.kind == .removed }.map(\.text)
+    let r = try await GitOps.diffHunks(original: "a\nb", current: "a\nB")
+    #expect(r.hunks.count == 1)
+    let added = r.hunks[0].lines.filter { $0.kind == .added }.map(\.text)
+    let removed = r.hunks[0].lines.filter { $0.kind == .removed }.map(\.text)
     #expect(removed == ["b"])
     #expect(added == ["B"])
+    // 末尾改行なしは git 規約で 1 行多くカウントされる
+    #expect(r.oldTotalLines == 2)
+    #expect(r.newTotalLines == 2)
+  }
+
+  @Test("NUL バイトを含む入力は commandFailed で観察可能に倒す")
+  func binaryInputThrows() async throws {
+    let withNul = "a\u{0000}b"
+    do {
+      _ = try await GitOps.diffHunks(original: withNul, current: "different\u{0000}content")
+      Issue.record("expected throw")
+    } catch GitError.commandFailed {
+      // expected
+    }
+  }
+}
+
+@Suite("GitOps.countDiffLines")
+struct CountDiffLinesTests {
+  @Test("空文字は 0 行")
+  func empty() {
+    #expect(GitOps.countDiffLines("") == 0)
+  }
+
+  @Test("単行 + 改行は 1 行")
+  func singleLineWithNewline() {
+    #expect(GitOps.countDiffLines("a\n") == 1)
+  }
+
+  @Test("単行 + 改行なしは 1 行")
+  func singleLineNoNewline() {
+    #expect(GitOps.countDiffLines("a") == 1)
+  }
+
+  @Test("複数行 + 末尾改行は \\n 数と同じ")
+  func multiLineWithTrailingNewline() {
+    #expect(GitOps.countDiffLines("a\nb\nc\n") == 3)
+  }
+
+  @Test("複数行 + 末尾改行なしは \\n 数 + 1")
+  func multiLineNoTrailingNewline() {
+    #expect(GitOps.countDiffLines("a\nb\nc") == 3)
   }
 }
 

@@ -247,6 +247,14 @@ public struct Gozd_V1_GitDiffHunksResponse: Sendable {
 
   public var hunks: [Gozd_V1_DiffHunk] = []
 
+  /// 入力 original / current の総行数。trailing バー描画と context 拡張の
+  /// 絶対座標計算は git の line counting 規約に揃える必要があるため、
+  /// SSOT を Swift 側に置く。renderer 側で `text.split("\n").length` を回すと
+  /// CRLF / 末尾改行の扱いが git と分かれて表示行数と実態がずれる。
+  public var oldTotalLines: UInt32 = 0
+
+  public var newTotalLines: UInt32 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -883,7 +891,7 @@ extension Gozd_V1_DiffHunk: SwiftProtobuf.Message, SwiftProtobuf._MessageImpleme
 
 extension Gozd_V1_GitDiffHunksResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GitDiffHunksResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}hunks\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}hunks\0\u{3}old_total_lines\0\u{3}new_total_lines\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -892,6 +900,8 @@ extension Gozd_V1_GitDiffHunksResponse: SwiftProtobuf.Message, SwiftProtobuf._Me
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeRepeatedMessageField(value: &self.hunks) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.oldTotalLines) }()
+      case 3: try { try decoder.decodeSingularUInt32Field(value: &self.newTotalLines) }()
       default: break
       }
     }
@@ -901,11 +911,19 @@ extension Gozd_V1_GitDiffHunksResponse: SwiftProtobuf.Message, SwiftProtobuf._Me
     if !self.hunks.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.hunks, fieldNumber: 1)
     }
+    if self.oldTotalLines != 0 {
+      try visitor.visitSingularUInt32Field(value: self.oldTotalLines, fieldNumber: 2)
+    }
+    if self.newTotalLines != 0 {
+      try visitor.visitSingularUInt32Field(value: self.newTotalLines, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Gozd_V1_GitDiffHunksResponse, rhs: Gozd_V1_GitDiffHunksResponse) -> Bool {
     if lhs.hunks != rhs.hunks {return false}
+    if lhs.oldTotalLines != rhs.oldTotalLines {return false}
+    if lhs.newTotalLines != rhs.newTotalLines {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

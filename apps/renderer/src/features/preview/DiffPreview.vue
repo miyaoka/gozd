@@ -3,16 +3,18 @@ hunk 単位の unified diff ビュー。
 
 ## 設計
 
-diff 計算は SSOT を git に置き、renderer は `rpcGitDiffHunks` で取得した `hunks` を描画するだけ。
-全文 jsdiff を JS で回すと大ファイル (`pnpm-lock.yaml` 等) で Myers LCS が O(N×M) で
-固まるため、git の C 実装 (xdiff) に処理を委ねる。
+diff 計算は SSOT を git に置き、renderer は `rpcGitDiffHunks` で取得した `hunks` と
+`oldTotalLines` / `newTotalLines` を描画するだけ。全文 jsdiff を JS で回すと
+大ファイル (`pnpm-lock.yaml` 等) で Myers LCS が O(N×M) で固まるため、
+git の C 実装 (xdiff) に処理を委ねる。
 
 ## 描画
 
 `hunksToViewItems` で hunk 配列を `DiffViewItem[]` に展開する:
 
 - 各 hunk 行を `{ type: "line", ... }` として並べる
-- hunk 間 / ファイル先頭・末尾の連続 unchanged 範囲は `{ type: "hunk-bar", oldGap, newGap }` で静的に表示
+- hunk 間 / ファイル先頭・末尾の連続 unchanged 範囲は `{ type: "hunk-bar", oldStart, oldEnd, newStart, newEnd }` で静的表示
+- バーには絶対座標 (1-based, inclusive) を持たせて、#540 で「クリックで該当範囲を context 拡張 diff として取り直す」拡張に shape を変えずに対応できるようにする
 
 split view (#540) では同じ hunks を別の `hunksToSplitRows` 系関数に渡せば 4 列構造に再構築できる前提で
 view item の生成を関数として独立させている。
@@ -22,6 +24,12 @@ view item の生成を関数として独立させている。
 Shiki の `codeToTokens` で original / current それぞれのトークン配列を取得し、
 diff の各行に対応するトークンをマッピングして色付き表示する。
 removed 行は original のトークン、added / unchanged 行は current のトークンを使用する。
+
+## 入力契約
+
+`original` / `current` は UTF-8 として解釈可能なテキストである必要がある。NUL バイトを含む
+バイナリは PreviewPane 側の `isBinary` 判定で弾かれる前提。万一すり抜けた場合は
+Swift 側で `Binary files ... differ` を検知して error にトーストする。
 
 > [!NOTE]
 > 複数行コメントやテンプレートリテラルの開始/終了が変更に含まれる場合、
@@ -55,11 +63,17 @@ interface DiffLineItem {
   newLineNo?: number;
 }
 
+/**
+ * バーで省略された unchanged 範囲。1-based, inclusive。
+ * #540 のクリック展開で `gitDiffHunks` を `-U N` で取り直す際の起点座標として使う。
+ * 範囲が空 (start > end) のときは emit されない。
+ */
 interface DiffBarItem {
   type: "hunk-bar";
-  /** バーが省略している unchanged 行数 (old/new で一致するはずだが個別に保持) */
-  oldGap: number;
-  newGap: number;
+  oldStart: number;
+  oldEnd: number;
+  newStart: number;
+  newEnd: number;
 }
 
 type DiffViewItem = DiffLineItem | DiffBarItem;
@@ -67,30 +81,42 @@ type DiffViewItem = DiffLineItem | DiffBarItem;
 const notification = useNotificationStore();
 
 const hunks = ref<DiffHunk[]>();
+const oldTotalLines = ref(0);
+const newTotalLines = ref(0);
 const loading = ref(false);
+const error = ref<string>();
 
 /**
  * hunk 配列を render 用の view item 列に展開する。
  *
  * - hunk 内の各 line を `DiffLineItem` に変換
  * - 隣接 hunk 間 / ファイル先頭・末尾の連続 unchanged 範囲は `DiffBarItem` で省略表示
+ * - 総行数は Swift 側 (`rpcGitDiffHunks` の oldTotalLines / newTotalLines) を SSOT とし、
+ *   renderer 側で `text.split("\n")` を独自に回さない (git の line counting 規約とずれる)
  *
  * #540 で「バーのクリックで該当範囲を context 拡張 diff として取り直す」拡張をする際は
- * `DiffBarItem` に range 情報を足してこの関数を変更する。split view も同じ hunks を別関数で
+ * `DiffBarItem` の `oldStart`〜`newEnd` 範囲をそのまま渡せる。split view も同じ hunks を別関数で
  * 4 列展開する想定。
  */
-function hunksToViewItems(hs: DiffHunk[], totalOld: number, totalNew: number): DiffViewItem[] {
+function hunksToViewItems(hs: DiffHunk[], oldTotal: number, newTotal: number): DiffViewItem[] {
   const items: DiffViewItem[] = [];
   // 前 hunk の終端 (1-based、未開始は 0)
   let prevOldEnd = 0;
   let prevNewEnd = 0;
 
   for (const h of hs) {
-    // 前 hunk と現 hunk の間に存在する unchanged 行をバーで省略
-    const oldGap = h.oldStart - prevOldEnd - 1;
-    const newGap = h.newStart - prevNewEnd - 1;
-    if (oldGap > 0 || newGap > 0) {
-      items.push({ type: "hunk-bar", oldGap, newGap });
+    const barOldStart = prevOldEnd + 1;
+    const barOldEnd = h.oldStart - 1;
+    const barNewStart = prevNewEnd + 1;
+    const barNewEnd = h.newStart - 1;
+    if (barOldEnd >= barOldStart || barNewEnd >= barNewStart) {
+      items.push({
+        type: "hunk-bar",
+        oldStart: barOldStart,
+        oldEnd: barOldEnd,
+        newStart: barNewStart,
+        newEnd: barNewEnd,
+      });
     }
 
     let oldLine = h.oldStart;
@@ -119,29 +145,22 @@ function hunksToViewItems(hs: DiffHunk[], totalOld: number, totalNew: number): D
   }
 
   // 最終 hunk 以降の trailing unchanged
-  const trailingOld = totalOld - prevOldEnd;
-  const trailingNew = totalNew - prevNewEnd;
-  if (trailingOld > 0 || trailingNew > 0) {
-    items.push({ type: "hunk-bar", oldGap: trailingOld, newGap: trailingNew });
+  if (prevOldEnd < oldTotal || prevNewEnd < newTotal) {
+    items.push({
+      type: "hunk-bar",
+      oldStart: prevOldEnd + 1,
+      oldEnd: oldTotal,
+      newStart: prevNewEnd + 1,
+      newEnd: newTotal,
+    });
   }
 
   return items;
 }
 
-/** 末尾改行を 1 個分だけ無視した行数 (split("\n").length と同じ計算) */
-function countLines(text: string): number {
-  if (text.length === 0) return 0;
-  const endsWithNewline = text.endsWith("\n");
-  const n = text.split("\n").length;
-  return endsWithNewline ? n - 1 : n;
-}
-
-const totalOldLines = computed(() => countLines(props.original));
-const totalNewLines = computed(() => countLines(props.current));
-
 const viewItems = computed<DiffViewItem[]>(() => {
   if (!hunks.value) return [];
-  return hunksToViewItems(hunks.value, totalOldLines.value, totalNewLines.value);
+  return hunksToViewItems(hunks.value, oldTotalLines.value, newTotalLines.value);
 });
 
 watch(
@@ -153,24 +172,27 @@ watch(
     });
 
     loading.value = true;
+    error.value = undefined;
     const result = await tryCatch(rpcGitDiffHunks({ original, current }));
     if (cancelled) return;
     loading.value = false;
 
     if (!result.ok) {
-      hunks.value = [];
+      hunks.value = undefined;
+      error.value = result.error.message;
       notification.error("Failed to compute diff", result.error);
       return;
     }
     hunks.value = result.value.hunks;
+    oldTotalLines.value = result.value.oldTotalLines;
+    newTotalLines.value = result.value.newTotalLines;
   },
   { immediate: true },
 );
 
-/** diff 行番号からの桁数 (split / commit 切替時の幅一定化) */
 const lineNoWidth = computed(() => {
-  const maxLine = Math.max(totalOldLines.value, totalNewLines.value);
-  return `${String(Math.max(maxLine, 1)).length}ch`;
+  const maxLine = Math.max(oldTotalLines.value, newTotalLines.value, 1);
+  return `${String(maxLine).length}ch`;
 });
 
 const LINE_BG_CLASSES: Record<DiffLineKindName, string> = {
@@ -214,7 +236,12 @@ watch(
   { immediate: true },
 );
 
-/** 各行を token 配列付きの描画モデルに変換 */
+/**
+ * 各行を token 配列付きの描画モデルに変換。
+ * tokens が undefined のケース: 言語未対応 / token 配列の line index 範囲外。
+ * 後者は countDiffLines (Swift) と Shiki の行分割の僅かな差で発生し得るが、
+ * template 側 `v-if="row.tokens"` で fallback renderer に倒すため壊れはしない。
+ */
 const renderRows = computed(() => {
   const orig = originalTokens.value;
   const curr = currentTokens.value;
@@ -237,7 +264,9 @@ const tokensReady = computed(
 );
 
 function barLabel(item: DiffBarItem): string {
-  const lines = Math.max(item.oldGap, item.newGap);
+  const oldLines = item.oldEnd - item.oldStart + 1;
+  const newLines = item.newEnd - item.newStart + 1;
+  const lines = Math.max(oldLines, newLines);
   return `${lines} unchanged line${lines === 1 ? "" : "s"}`;
 }
 </script>
@@ -245,6 +274,8 @@ function barLabel(item: DiffBarItem): string {
 <template>
   <div class="p-4 text-sm/tight" :style="{ '--line-no-width': lineNoWidth }">
     <div v-if="loading && !hunks" class="text-zinc-500">Computing diff...</div>
+
+    <div v-else-if="error" class="text-red-400">Failed to compute diff: {{ error }}</div>
 
     <template v-else>
       <template v-for="(row, i) in renderRows" :key="i">

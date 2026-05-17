@@ -177,6 +177,14 @@ export interface DiffHunk {
 
 export interface GitDiffHunksResponse {
   hunks: DiffHunk[];
+  /**
+   * 入力 original / current の総行数。trailing バー描画と context 拡張の
+   * 絶対座標計算は git の line counting 規約に揃える必要があるため、
+   * SSOT を Swift 側に置く。renderer 側で `text.split("\n").length` を回すと
+   * CRLF / 末尾改行の扱いが git と分かれて表示行数と実態がずれる。
+   */
+  oldTotalLines: number;
+  newTotalLines: number;
 }
 
 /** gitShowFile: HEAD のファイル内容 */
@@ -950,13 +958,19 @@ export const DiffHunk: MessageFns<DiffHunk> = {
 };
 
 function createBaseGitDiffHunksResponse(): GitDiffHunksResponse {
-  return { hunks: [] };
+  return { hunks: [], oldTotalLines: 0, newTotalLines: 0 };
 }
 
 export const GitDiffHunksResponse: MessageFns<GitDiffHunksResponse> = {
   encode(message: GitDiffHunksResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     for (const v of message.hunks) {
       DiffHunk.encode(v!, writer.uint32(10).fork()).join();
+    }
+    if (message.oldTotalLines !== 0) {
+      writer.uint32(16).uint32(message.oldTotalLines);
+    }
+    if (message.newTotalLines !== 0) {
+      writer.uint32(24).uint32(message.newTotalLines);
     }
     return writer;
   },
@@ -976,6 +990,22 @@ export const GitDiffHunksResponse: MessageFns<GitDiffHunksResponse> = {
           message.hunks.push(DiffHunk.decode(reader, reader.uint32()));
           continue;
         }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.oldTotalLines = reader.uint32();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.newTotalLines = reader.uint32();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -986,13 +1016,31 @@ export const GitDiffHunksResponse: MessageFns<GitDiffHunksResponse> = {
   },
 
   fromJSON(object: any): GitDiffHunksResponse {
-    return { hunks: globalThis.Array.isArray(object?.hunks) ? object.hunks.map((e: any) => DiffHunk.fromJSON(e)) : [] };
+    return {
+      hunks: globalThis.Array.isArray(object?.hunks) ? object.hunks.map((e: any) => DiffHunk.fromJSON(e)) : [],
+      oldTotalLines: isSet(object.oldTotalLines)
+        ? globalThis.Number(object.oldTotalLines)
+        : isSet(object.old_total_lines)
+        ? globalThis.Number(object.old_total_lines)
+        : 0,
+      newTotalLines: isSet(object.newTotalLines)
+        ? globalThis.Number(object.newTotalLines)
+        : isSet(object.new_total_lines)
+        ? globalThis.Number(object.new_total_lines)
+        : 0,
+    };
   },
 
   toJSON(message: GitDiffHunksResponse): unknown {
     const obj: any = {};
     if (message.hunks?.length) {
       obj.hunks = message.hunks.map((e) => DiffHunk.toJSON(e));
+    }
+    if (message.oldTotalLines !== 0) {
+      obj.oldTotalLines = Math.round(message.oldTotalLines);
+    }
+    if (message.newTotalLines !== 0) {
+      obj.newTotalLines = Math.round(message.newTotalLines);
     }
     return obj;
   },
@@ -1003,6 +1051,8 @@ export const GitDiffHunksResponse: MessageFns<GitDiffHunksResponse> = {
   fromPartial(object: DeepPartial<GitDiffHunksResponse>): GitDiffHunksResponse {
     const message = createBaseGitDiffHunksResponse();
     message.hunks = object.hunks?.map((e) => DiffHunk.fromPartial(e)) || [];
+    message.oldTotalLines = object.oldTotalLines ?? 0;
+    message.newTotalLines = object.newTotalLines ?? 0;
     return message;
   },
 };

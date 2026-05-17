@@ -63,6 +63,12 @@ message DiffHunk {
 
 message GitDiffHunksResponse {
   repeated DiffHunk hunks = 1;
+  // 入力 original / current の総行数。trailing バー描画と context 拡張の
+  // 絶対座標計算は git の line counting 規約に揃える必要があるため、
+  // SSOT を Swift 側に置く。renderer 側で `text.split("\n").length` を回すと
+  // CRLF / 末尾改行の扱いが git と分かれて表示行数と実態がずれる。
+  uint32 old_total_lines = 2;
+  uint32 new_total_lines = 3;
 }
 
 // gitShowFile: HEAD のファイル内容

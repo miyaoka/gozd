@@ -4,7 +4,7 @@
 ## プレビュー種別
 
 - コード → CodePreview（Shiki ハイライト）
-- 差分 → DiffPreview（jsdiff 行単位）
+- 差分 → DiffPreview（`git diff --no-index` で取得した hunk 配列を描画）
 - 画像 / SVG → ImagePreview（ファイルサーバー URL）
 - Markdown → MarkdownPreview（marked + DOMPurify）
 

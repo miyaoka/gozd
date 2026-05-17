@@ -150,7 +150,7 @@ struct TaskStoreTests {
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
-    _ = try await store.add(
+    let original = try await store.add(
       dir: env.worktreeA, body: "PR #11", worktreeDir: env.worktreeA, ghRef: .forPr(11)
     )
     try await store.attachSession(
@@ -169,6 +169,8 @@ struct TaskStoreTests {
     #expect(!revived.hidden)
     #expect(revived.sessionID == "first")
     #expect(revived.body == "PR #11")
+    #expect(revived.id == original.id)
+    #expect(revived.createdAt == original.createdAt)
   }
 
   @Test("attachSession: hidden=false な同 sessionID 再 attach は no-op (重複 hook)")

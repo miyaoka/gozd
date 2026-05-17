@@ -97,8 +97,9 @@ export function registerIssueCommand(): () => void {
             // Claude session 未起動状態 (sessionId 空) で永続化され、サイドバー行を
             // クリックすると素の claude が起動して SessionStart hook で attach される。
             // taskAdd 後の真値反映は requestRefresh に委ねる (楽観更新で renderer 側を
-            // 直書きしない)。失敗時は autostart を抑止し、worktree だけ残った状態で
-            // ユーザー復旧に倒す。
+            // 直書きしない)。失敗時は autostart を抑止し、worktree だけ残る (task 不在の
+            // ため `git worktree remove` で手動回収するか、再度 issue を選び直して別の
+            // worktree を作る)。
             const taskResult = await tryCatch(
               rpcTaskAdd({
                 dir: rootDir,

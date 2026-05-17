@@ -104,9 +104,11 @@ zsh wrapper は resume 起動の exit code を見て次の denylist で fallback
 ### Issue から worktree 作成
 
 ```text
-"Workspace: Open Issue" → issue 選択 → worktree 作成 (branch=issue-<N>) + Task 作成
+"Workspace: Open Issue" → issue 選択 → worktree 作成 (branch=YYYYMMDD_HHMMSS) + Task 作成
   (body=issue タイトル、ghRef={kind: ISSUE, number: issue 番号}、sessionId="")
 ```
+
+PR picker と異なり branch 名は timestamp ベース (通常の新規 worktree と同じ命名)。同じ issue から複数の worktree を独立して並行で作れる。issue は head ref を持たないため worktree との 1:1 紐付けを branch 名に埋め込まない。
 
 ### Claude を worktree で直接起動 (PR/issue 経由なし)
 
@@ -134,14 +136,14 @@ PR/issue picker や session 未紐付け task クリックで `claude` を autos
 
 ### 削除・クリーンアップ
 
-| トリガー                                 | 挙動                                                                                                                                                                                                           | hidden 解除契機                                                                                                                                                                                          |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| worktree 行 `[⋮]` → "Remove worktree"    | worktree 削除 + 該当 `worktreeDir` の全 Task 削除                                                                                                                                                              | —                                                                                                                                                                                                        |
-| ターミナル close (PTY 終了)              | `detachSession`: `ghRef` 無しなら task 削除。`ghRef` ありなら sessionId を保持しつつ `hidden=true` (再 resume の起点として sessionId を残す)                                                                   | `claude --resume <同 sid>` で SessionStart hook 着弾 → `attachSession` が sessionID 一致経路で `hidden=false` に倒す。または PR/issue picker で同じ `ghRef` を再選択 → `add` の upsert で `hidden=false` |
-| SessionEnd hook                          | `detachSession`: 同上                                                                                                                                                                                          | 同上                                                                                                                                                                                                     |
-| resume 失敗 + zsh fallback で新 sid 着弾 | `clearDeadSession(markHiddenIfGhRef=false)`: dead 期待 sid を claude session ストアから削除し、task の sessionId を空にする (ghRef 無しなら task 削除)。`hidden` は据え置く                                    | 直後の `attachSession(新 sid)` が `hidden=false` な ghRef task を拾って転移                                                                                                                              |
-| ターミナル close で resume 失敗検出      | `clearDeadSession(markHiddenIfGhRef=true)`: 期待 sid が SessionStart hook 不達のまま閉じた場合、dead sid を claude session ストアから削除し、task の sessionId を空 + `hidden=true` (ghRef 無しなら task 削除) | PR/issue picker で同じ `ghRef` を再選択 → `add` の upsert で `hidden=false`                                                                                                                              |
-| 外部で worktree 消失                     | `gitWorktreeList` 取得時に存在しない `worktreeDir` を検出し Task 自動削除                                                                                                                                      | —                                                                                                                                                                                                        |
+| トリガー                                 | 挙動                                                                                                                                                                                                           | hidden 解除契機                                                                                                                                                                                                                                                        |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| worktree 行 `[⋮]` → "Remove worktree"    | worktree 削除 + 該当 `worktreeDir` の全 Task 削除                                                                                                                                                              | —                                                                                                                                                                                                                                                                      |
+| ターミナル close (PTY 終了)              | `detachSession`: `ghRef` 無しなら task 削除。`ghRef` ありなら sessionId を保持しつつ `hidden=true` (再 resume の起点として sessionId を残す)                                                                   | `claude --resume <同 sid>` で SessionStart hook 着弾 → `attachSession` が sessionID 一致経路で `hidden=false` に倒す。または PR picker で同じ `ghRef` を再選択 → `add` の upsert で `hidden=false` (issue picker は常に新規 worktree を作るため再活性化経路は持たない) |
+| SessionEnd hook                          | `detachSession`: 同上                                                                                                                                                                                          | 同上                                                                                                                                                                                                                                                                   |
+| resume 失敗 + zsh fallback で新 sid 着弾 | `clearDeadSession(markHiddenIfGhRef=false)`: dead 期待 sid を claude session ストアから削除し、task の sessionId を空にする (ghRef 無しなら task 削除)。`hidden` は据え置く                                    | 直後の `attachSession(新 sid)` が `hidden=false` な ghRef task を拾って転移                                                                                                                                                                                            |
+| ターミナル close で resume 失敗検出      | `clearDeadSession(markHiddenIfGhRef=true)`: 期待 sid が SessionStart hook 不達のまま閉じた場合、dead sid を claude session ストアから削除し、task の sessionId を空 + `hidden=true` (ghRef 無しなら task 削除) | PR picker で同じ `ghRef` を再選択 → `add` の upsert で `hidden=false` (issue picker は常に新規 worktree を作るため再活性化経路は持たない)                                                                                                                              |
+| 外部で worktree 消失                     | `gitWorktreeList` 取得時に存在しない `worktreeDir` を検出し Task 自動削除                                                                                                                                      | —                                                                                                                                                                                                                                                                      |
 
 ## RPC
 
@@ -150,7 +152,7 @@ taskAdd:    { dir, body, worktreeDir, ghRef? } → Task
 taskUpdate: { dir, id, body } → Task            (OSC title 同期で使用)
 ```
 
-`taskAdd` は **upsert** 動作。`ghRef` 指定があり同 `worktreeDir` + 同 `ghRef` の既存 task が見つかれば、その `body` を上書き + `hidden=false` で再活性化して返す (`id` / `createdAt` / `sessionId` は保持)。それ以外は新規 task を UUID で作成する。PR/issue picker は新規作成ルートと wtByBranch hit ルートの両方で同じ `taskAdd` を呼び、再選択で hidden 化済み task を蘇らせる。
+`taskAdd` は **upsert** 動作。`ghRef` 指定があり同 `worktreeDir` + 同 `ghRef` の既存 task が見つかれば、その `body` を上書き + `hidden=false` で再活性化して返す (`id` / `createdAt` / `sessionId` は保持)。それ以外は新規 task を UUID で作成する。PR picker は新規作成ルートと `pr.headRef` による既存 worktree hit ルートの両方で同じ `taskAdd` を呼び、再選択で hidden 化済み task を蘇らせる。issue picker は branch を timestamp ベースにしているため常に新規作成ルートに倒れる (hidden 化された issue task は picker 経由では蘇らず、`claude --resume <sid>` 経路のみで `hidden=false` に戻せる)。
 
 ## サイドバー UI
 

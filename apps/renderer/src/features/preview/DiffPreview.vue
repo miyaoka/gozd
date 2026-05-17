@@ -158,8 +158,11 @@ const inFlightBars = new Set<string>();
  * `toggleBar` は await 前にこの token をキャプチャし、await 復帰時に token が変わっていたら
  * 結果を破棄する。`props.original` の参照同一性に依存しないため、上流 (PreviewPane) が
  * 同じファイルに同じ string インスタンスを再供給するように最適化されても安全。
+ *
+ * `inFlightBars` と同じく non-reactive。UI から参照せず watch / computed の依存にも入れないため
+ * `ref` で囲む必要がない。Symbol は常に unique なので description 文字列は省略する。
  */
-const loadToken = ref<symbol>(Symbol("diff-load"));
+let loadToken: symbol = Symbol();
 
 function barKey(bar: DiffBarItem): string {
   return `${bar.oldStart}-${bar.newStart}-${bar.lines}`;
@@ -332,7 +335,7 @@ watch(
     state.value = { kind: "loading" };
     expansions.value = new Map();
     inFlightBars.clear();
-    loadToken.value = Symbol("diff-load");
+    loadToken = Symbol();
     const result = await tryCatch(rpcGitDiffHunks({ original, current }));
     if (cancelled) return;
 
@@ -553,7 +556,7 @@ async function toggleBar(bar: DiffBarItem): Promise<void> {
   }
   if (inFlightBars.has(key)) return;
   inFlightBars.add(key);
-  const myToken = loadToken.value;
+  const myToken = loadToken;
   const result = await tryCatch(
     rpcGitDiffExpandLines({
       original: props.original,
@@ -564,7 +567,7 @@ async function toggleBar(bar: DiffBarItem): Promise<void> {
     }),
   );
   inFlightBars.delete(key);
-  if (loadToken.value !== myToken) return;
+  if (loadToken !== myToken) return;
   if (!result.ok) {
     notification.error("Failed to expand diff range", result.error);
     return;

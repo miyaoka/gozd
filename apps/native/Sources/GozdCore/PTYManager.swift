@@ -178,6 +178,13 @@ public final class PTYManager {
     // self をキャプチャしないことで Sendable closure 制約を満たす。
     // 単発 read だと「event 1 回で data + EOF が同時に観測される」ケースで data を取りこぼす
     // 可能性があり、event coalescing による flaky の温床になる。drain loop で吸い切る。
+    //
+    // finish 経路の本筋は exit handler 側 (waitpid + closeSecondary + final drain 後の
+    // markReadClosed)。設計判断 6 (親側で slave fd を 1 reference 保持) の下では、
+    // `closeSecondary` が呼ばれる exit handler 内まで master の EOF は正常系で到達しない。
+    // つまり read source 側で `.closed` を観測して markReadClosed を呼ぶのは、exit handler
+    // 完了後に遅延配信される EOF event を受けた場合のための冗長化経路。
+    // `alreadyReadClosed` / `finished` フラグで idempotent なので二重発火しても no-op。
     source.setEventHandler { [source, state] in
       ptyTrace("read", pid: childPid, "eventHandler fired")
       switch drainPTY(fd: masterFd, pid: childPid, caller: "read-source", onData: onData) {
@@ -241,21 +248,26 @@ public final class PTYManager {
       // 直後の master read で EOF が観測できるようになる。
       state.closeSecondary()
 
-      // **正規 finish 経路**: secondary close 後に final drain で EOF を取って markReadClosed。
-      // ここで `.drained` (EAGAIN) になるケースは、tty hangup の伝播より早く drain を
-      // 呼んだ場合のみ。その場合は **read source 側が二重防御**として残っており、kqueue
-      // が EOF を dispatch すると read-source event handler で markReadClosed が走る。
-      // どちらの経路でも `PTYFinishState` が `finished` フラグで 1 度だけの finish を保証する。
-      if case .closed = drainPTY(fd: masterFd, pid: childPid, caller: "exit-final", onData: onData)
-      {
-        ptyTrace("exit", pid: childPid, "final-drain → .closed → cancel + markReadClosed")
-        source.cancel()
-        state.markReadClosed(onComplete: onExit)
-      } else {
-        ptyTrace(
-          "exit", pid: childPid,
-          "final-drain → .drained → defer markReadClosed to read-source fallback")
-      }
+      // **finish 経路は exit handler に一本化する**。次の 3 条件が揃った時点で master fd へ
+      // 新規 data が到達することは原理的に無い:
+      //
+      //   1. waitpid 成功 → 子 reap 済み (writer 不在)
+      //   2. closeSecondary → tty reference 0、ttyclose → ttyflush が走るが queue は既に空
+      //   3. exit-final drain → EAGAIN または EOF (現時点で kernel buffer 空)
+      //
+      // 以前は exit-final が `.closed` の時のみ markReadClosed を呼び、`.drained` の場合は
+      // 「read source が EOF を観測したら markReadClosed」に委ねていた。CI macOS-26 runner で
+      // tty hangup 伝搬 (`closeSecondary` → master の NOTE_EOF) に 2 秒以上かかるケースが
+      // 確認されており、その経路では onExit 配送が同分遅延する。
+      // EOF event を待つ意味は無いので read source を即時 cancel + markReadClosed する。
+      // 遅延配信される EOF event が read source handler に届いても、`markReadClosed` は
+      // `alreadyReadClosed` フラグで idempotent なので no-op。
+      let finalResult = drainPTY(
+        fd: masterFd, pid: childPid, caller: "exit-final", onData: onData)
+      ptyTrace(
+        "exit", pid: childPid, "final-drain → \(finalResult) → cancel + markReadClosed")
+      source.cancel()
+      state.markReadClosed(onComplete: onExit)
 
       state.setExitReason(exitReason, onComplete: onExit)
       exit.cancel()

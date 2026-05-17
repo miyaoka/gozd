@@ -421,40 +421,38 @@ final class PTYFinishState: @unchecked Sendable {
   ///
   /// trace は lock 開放後に出す。`ptyTrace` は内部で別 lock を取るため、`PTYFinishState.lock`
   /// を保持したまま呼ぶと潜在的なロック順序違反になる（closeSecondary も同じ形を採用）。
+  /// lock 内本処理は `writeLocked` に切り出し、本関数は lock + 呼び出し + unlock + trace の
+  /// フラットな構造に保つ（CLAUDE.md「if-else の分岐は関数に切り出す」）。
   func write(_ ptr: UnsafeRawPointer, len: Int) -> PTYWriteResult {
     lock.lock()
-    let result: PTYWriteResult
-    let traceMessage: String?
-    if primaryClosed {
-      result = .closed
-      traceMessage = nil
-    } else {
-      let n = Darwin.write(primaryFd, ptr, len)
-      if n > 0 {
-        result = .wrote(n)
-        traceMessage = nil
-      } else if n == 0 {
-        // POSIX 上 write が 0 を返すのは未定義。観測できるよう trace に残す。
-        result = .closed
-        traceMessage =
-          "Darwin.write returned 0 (POSIX undefined) fd=\(primaryFd) len=\(len) → closed"
-      } else {
-        let err = errno
-        if err == EINTR || err == EAGAIN || err == EWOULDBLOCK {
-          result = .retry(err)
-          traceMessage = nil
-        } else {
-          // EBADF / EPIPE / EIO 等の致命的 errno。caller 側で観測できないため trace を残す。
-          result = .closed
-          traceMessage = "fatal errno=\(err) fd=\(primaryFd) len=\(len) → closed"
-        }
-      }
-    }
+    let (result, traceMessage) = writeLocked(ptr, len: len)
     lock.unlock()
     if let traceMessage {
       ptyTrace("write", pid: pid, traceMessage)
     }
     return result
+  }
+
+  /// `write` の lock 保持中処理。早期 return で if-else ネストを潰すため切り出した。
+  /// 戻り値の 2 要素目は trace に残すべきメッセージ（nil なら trace 出力なし）。
+  /// 呼び出し側で lock を取得済みであること。
+  private func writeLocked(_ ptr: UnsafeRawPointer, len: Int) -> (PTYWriteResult, String?) {
+    if primaryClosed { return (.closed, nil) }
+    let n = Darwin.write(primaryFd, ptr, len)
+    if n > 0 { return (.wrote(n), nil) }
+    if n == 0 {
+      // POSIX 上 write が 0 を返すのは未定義。観測できるよう trace に残す。
+      return (
+        .closed,
+        "Darwin.write returned 0 (POSIX undefined) fd=\(primaryFd) len=\(len) → closed"
+      )
+    }
+    let err = errno
+    if err == EINTR || err == EAGAIN || err == EWOULDBLOCK {
+      return (.retry(err), nil)
+    }
+    // EBADF / EPIPE / EIO 等の致命的 errno。caller 側で観測できないため trace を残す。
+    return (.closed, "fatal errno=\(err) fd=\(primaryFd) len=\(len) → closed")
   }
 
   /// terminal サイズ通知。close 済みなら no-op。

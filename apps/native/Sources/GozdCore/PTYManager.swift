@@ -178,6 +178,12 @@ public final class PTYManager {
     // self をキャプチャしないことで Sendable closure 制約を満たす。
     // 単発 read だと「event 1 回で data + EOF が同時に観測される」ケースで data を取りこぼす
     // 可能性があり、event coalescing による flaky の温床になる。drain loop で吸い切る。
+    //
+    // finish 経路の本筋は exit handler 側 (waitpid + closeSecondary + final drain 後の
+    // markReadClosed)。read source 側で `.closed` を観測して markReadClosed を呼ぶのは、
+    // 子が自発的に exit する前に master の EOF を観測した場合 (例: 子が stdout を明示 close
+    // しただけで生存しているケース) と、exit handler 完了後に遅延配信される EOF event を
+    // 受けた場合の両方を兼ねる。後者は `alreadyReadClosed` / `finished` フラグで idempotent。
     source.setEventHandler { [source, state] in
       ptyTrace("read", pid: childPid, "eventHandler fired")
       switch drainPTY(fd: masterFd, pid: childPid, caller: "read-source", onData: onData) {
@@ -250,8 +256,8 @@ public final class PTYManager {
       //
       // 以前は exit-final が `.closed` の時のみ markReadClosed を呼び、`.drained` の場合は
       // 「read source が EOF を観測したら markReadClosed」に委ねていた。CI macOS-26 runner で
-      // tty hangup 伝搬 (`closeSecondary` → master の NOTE_EOF) に 2 秒以上かかるケースを
-      // 観測し、onExit 配送がその分だけ遅延して test が timeout した (issue #549)。
+      // tty hangup 伝搬 (`closeSecondary` → master の NOTE_EOF) に 2 秒以上かかるケースが
+      // 確認されており、その経路では onExit 配送が同分遅延する。
       // EOF event を待つ意味は無いので read source を即時 cancel + markReadClosed する。
       // 遅延配信される EOF event が read source handler に届いても、`markReadClosed` は
       // `alreadyReadClosed` フラグで idempotent なので no-op。

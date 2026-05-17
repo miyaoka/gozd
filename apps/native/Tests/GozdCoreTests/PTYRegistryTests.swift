@@ -164,15 +164,23 @@ struct PTYRegistryTests {
 
 // MARK: - Helpers
 
+/// `condition()` が true を返すまで小さくポーリングで待つ。timeout 到達時に
+/// `Issue.record` で test を fail させる。silent return すると後段の `#expect` が
+/// 別の症状（exit が nil など）で間接 fail し、timeout だった事象を追跡できなくなる。
 private func waitUntil(
   timeout: Duration,
-  _ condition: @escaping @Sendable () -> Bool
+  description: String = "condition",
+  _ condition: @escaping @Sendable () -> Bool,
+  sourceLocation: SourceLocation = #_sourceLocation
 ) async throws {
   let deadline = ContinuousClock.now.advanced(by: timeout)
   while ContinuousClock.now < deadline {
     if condition() { return }
     try await Task.sleep(for: .milliseconds(50))
   }
+  Issue.record(
+    "waitUntil timed out after \(timeout) waiting for: \(description)",
+    sourceLocation: sourceLocation)
 }
 
 private final class EventCollector: @unchecked Sendable {

@@ -127,12 +127,16 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
 
 ### DiffPreview
 
-- `diff` パッケージ（jsdiff）の `diffLines()` で行単位差分を算出
+- diff 計算の SSOT は git。`rpcGitDiffHunks` で original / current を Swift に送り、`git diff --no-index` を経由した hunk 配列を受け取って描画する
+  - renderer 側で jsdiff の全文 LCS を回すと `pnpm-lock.yaml` のような数万行ファイルで O(N×M) でメインスレッドが固まる。git の C 実装 (xdiff) に処理を委ねる
+  - Swift 側は `NSTemporaryDirectory()` に 2 ファイル書き出し → `git diff --no-index --no-color -U3` → unified diff を `DiffHunk[]` に parse
+  - hunk 間 / ファイル先頭・末尾の連続 unchanged 行は静的な「N unchanged lines」バーで省略表示する
 - Shiki の `codeToTokens()` で original / current それぞれのトークン配列を取得し、diff の各行に対応するトークンの色を適用
   - removed 行 → original のトークン、added / unchanged 行 → current のトークン
   - diff の色分けは背景色のみ。テキスト色はトークンに委ねる
   - 言語未対応時はフォールバック表示（追加=緑、削除=赤）
 - 2列の行番号（旧ファイル / 新ファイル）を flex レイアウトで表示
+- バーのクリック展開と split view は #540 で対応する
 
 ### MarkdownPreview
 

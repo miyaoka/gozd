@@ -320,6 +320,145 @@ struct GitOpsTreeFileOIDTests {
   }
 }
 
+@Suite("GitOps.parseUnifiedDiffHunks")
+struct ParseUnifiedDiffHunksTests {
+  @Test("空文字列は空配列")
+  func empty() {
+    #expect(parseUnifiedDiffHunks("") == [])
+  }
+
+  @Test("1 hunk: 単純な置換")
+  func singleHunkReplacement() {
+    let diff = """
+      diff --git a/a b/b
+      --- a/a
+      +++ b/b
+      @@ -1,3 +1,3 @@
+       line1
+      -old
+      +new
+       line3
+      """
+    let hunks = parseUnifiedDiffHunks(diff)
+    #expect(hunks.count == 1)
+    let h = hunks[0]
+    #expect(h.oldStart == 1)
+    #expect(h.oldLines == 3)
+    #expect(h.newStart == 1)
+    #expect(h.newLines == 3)
+    #expect(h.lines.map(\.kind) == [.context, .removed, .added, .context])
+    #expect(h.lines.map(\.text) == ["line1", "old", "new", "line3"])
+  }
+
+  @Test("count 省略の hunk header は 1 行扱い")
+  func singleLineHunkHeader() {
+    let diff = """
+      @@ -5 +7 @@
+      -x
+      +y
+      """
+    let hunks = parseUnifiedDiffHunks(diff)
+    #expect(hunks.count == 1)
+    #expect(hunks[0].oldStart == 5)
+    #expect(hunks[0].oldLines == 1)
+    #expect(hunks[0].newStart == 7)
+    #expect(hunks[0].newLines == 1)
+  }
+
+  @Test("\\ No newline at end of file は装飾として skip する")
+  func skipsNoNewlineMarker() {
+    let diff = """
+      @@ -1 +1 @@
+      -old
+      \\ No newline at end of file
+      +new
+      \\ No newline at end of file
+      """
+    let hunks = parseUnifiedDiffHunks(diff)
+    #expect(hunks.count == 1)
+    #expect(hunks[0].lines.map(\.kind) == [.removed, .added])
+    #expect(hunks[0].lines.map(\.text) == ["old", "new"])
+  }
+
+  @Test("複数 hunk を順番に parse する")
+  func multipleHunks() {
+    let diff = """
+      @@ -1,2 +1,2 @@
+       a
+      -b
+      +B
+      @@ -10,2 +10,2 @@
+       c
+      -d
+      +D
+      """
+    let hunks = parseUnifiedDiffHunks(diff)
+    #expect(hunks.count == 2)
+    #expect(hunks[0].oldStart == 1)
+    #expect(hunks[1].oldStart == 10)
+  }
+
+  @Test("file header 行は無視する")
+  func ignoresFileHeaders() {
+    let diff = """
+      diff --git a/tmp/x/a b/tmp/x/b
+      --- a/tmp/x/a
+      +++ b/tmp/x/b
+      @@ -1 +1 @@
+      -a
+      +b
+      """
+    let hunks = parseUnifiedDiffHunks(diff)
+    #expect(hunks.count == 1)
+    #expect(hunks[0].lines.count == 2)
+  }
+}
+
+@Suite("GitOps.diffHunks")
+struct GitOpsDiffHunksTests {
+  @Test("同一テキストは空 hunks")
+  func identicalIsEmpty() async throws {
+    let hunks = try await GitOps.diffHunks(original: "a\nb\nc\n", current: "a\nb\nc\n")
+    #expect(hunks.isEmpty)
+  }
+
+  @Test("1 行置換は 1 hunk")
+  func singleLineReplace() async throws {
+    let hunks = try await GitOps.diffHunks(original: "a\nb\nc\n", current: "a\nB\nc\n")
+    #expect(hunks.count == 1)
+    let removed = hunks[0].lines.filter { $0.kind == .removed }.map(\.text)
+    let added = hunks[0].lines.filter { $0.kind == .added }.map(\.text)
+    #expect(removed == ["b"])
+    #expect(added == ["B"])
+  }
+
+  @Test("離れた変更は複数 hunks")
+  func distantChangesProduceMultipleHunks() async throws {
+    // 30 行のうち 1 行目と 30 行目だけ違う → 3 行 context だと 2 hunk
+    var origLines: [String] = []
+    var currLines: [String] = []
+    for i in 1...30 {
+      origLines.append("line\(i)")
+      currLines.append(i == 1 ? "LINE1" : i == 30 ? "LINE30" : "line\(i)")
+    }
+    let hunks = try await GitOps.diffHunks(
+      original: origLines.joined(separator: "\n") + "\n",
+      current: currLines.joined(separator: "\n") + "\n"
+    )
+    #expect(hunks.count == 2)
+  }
+
+  @Test("末尾に newline が無いケースも parse できる")
+  func handlesNoNewlineAtEndOfFile() async throws {
+    let hunks = try await GitOps.diffHunks(original: "a\nb", current: "a\nB")
+    #expect(hunks.count == 1)
+    let added = hunks[0].lines.filter { $0.kind == .added }.map(\.text)
+    let removed = hunks[0].lines.filter { $0.kind == .removed }.map(\.text)
+    #expect(removed == ["b"])
+    #expect(added == ["B"])
+  }
+}
+
 // MARK: - Helpers
 
 private func makeTempDir() throws -> URL {

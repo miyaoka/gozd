@@ -1,4 +1,6 @@
 import {
+  GitDiffHunksRequest,
+  GitDiffHunksResponse,
   GitShowCommitFileRequest,
   GitShowCommitFileResponse,
   GitShowFileRequest,
@@ -12,3 +14,6 @@ export const rpcGitShowFile = (req: GitShowFileRequest) =>
 
 export const rpcGitShowCommitFile = (req: GitShowCommitFileRequest) =>
   rpc("/git/showCommitFile", req, GitShowCommitFileRequest, GitShowCommitFileResponse);
+
+export const rpcGitDiffHunks = (req: GitDiffHunksRequest) =>
+  rpc("/git/diffHunks", req, GitDiffHunksRequest, GitDiffHunksResponse);

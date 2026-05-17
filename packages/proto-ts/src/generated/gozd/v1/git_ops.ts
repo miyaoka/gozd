@@ -10,6 +10,45 @@ import { FileReadResult, GitCommit, GitFileChange, GitIssue, GitPullRequest, Wor
 
 export const protobufPackage = "gozd.v1";
 
+export enum DiffLineKind {
+  DIFF_LINE_KIND_CONTEXT = 0,
+  DIFF_LINE_KIND_ADDED = 1,
+  DIFF_LINE_KIND_REMOVED = 2,
+  UNRECOGNIZED = -1,
+}
+
+export function diffLineKindFromJSON(object: any): DiffLineKind {
+  switch (object) {
+    case 0:
+    case "DIFF_LINE_KIND_CONTEXT":
+      return DiffLineKind.DIFF_LINE_KIND_CONTEXT;
+    case 1:
+    case "DIFF_LINE_KIND_ADDED":
+      return DiffLineKind.DIFF_LINE_KIND_ADDED;
+    case 2:
+    case "DIFF_LINE_KIND_REMOVED":
+      return DiffLineKind.DIFF_LINE_KIND_REMOVED;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return DiffLineKind.UNRECOGNIZED;
+  }
+}
+
+export function diffLineKindToJSON(object: DiffLineKind): string {
+  switch (object) {
+    case DiffLineKind.DIFF_LINE_KIND_CONTEXT:
+      return "DIFF_LINE_KIND_CONTEXT";
+    case DiffLineKind.DIFF_LINE_KIND_ADDED:
+      return "DIFF_LINE_KIND_ADDED";
+    case DiffLineKind.DIFF_LINE_KIND_REMOVED:
+      return "DIFF_LINE_KIND_REMOVED";
+    case DiffLineKind.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
 /**
  * gh 経路の失敗種別。`ok=false` のとき renderer 側で文言を区別するために使う。
  * `OK` は ok=true 時のデフォルト値で、`ok=false` 時にこのフィールドが OK のまま来ることは
@@ -103,14 +142,41 @@ export interface GitLogResponse {
   defaultBranch: string;
 }
 
-/** gitDiffFile: 単一ファイルの作業ツリー diff */
-export interface GitDiffFileRequest {
-  dir: string;
-  relPath: string;
+/**
+ * gitDiffHunks: 2 つのテキスト間の hunk 単位差分を計算する。
+ *
+ * renderer 側で jsdiff の `diffLines()` を全文に対して回すと、`pnpm-lock.yaml` のような
+ * 数万行ファイルで Myers LCS が O(N×M) で爆発しメインスレッドが固まる。git の最適化された
+ * diff エンジン（xdiff、C 実装）に SSOT を移して計算コストを切り離す。
+ *
+ * Swift 側は受け取った original / current を tmp に書き出し `git diff --no-index --no-color`
+ * を実行、unified diff 出力を Hunk[] に parse して返す。renderer は hunk を順次描画し、
+ * hunk 間の skipped context 行は静的バーで表示する（click 展開・split view は別 issue）。
+ */
+export interface GitDiffHunksRequest {
+  original: string;
+  current: string;
 }
 
-export interface GitDiffFileResponse {
-  diff: string;
+export interface DiffHunkLine {
+  kind: DiffLineKind;
+  text: string;
+}
+
+/**
+ * 1 hunk の範囲 + 各 line。start / lines は unified diff の `@@ -oldStart,oldLines +newStart,newLines @@`
+ * と同じ意味で 1-based。oldLines / newLines は context + 該当 side の add/remove の合計行数。
+ */
+export interface DiffHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: DiffHunkLine[];
+}
+
+export interface GitDiffHunksResponse {
+  hunks: DiffHunk[];
 }
 
 /** gitShowFile: HEAD のファイル内容 */
@@ -589,25 +655,25 @@ export const GitLogResponse: MessageFns<GitLogResponse> = {
   },
 };
 
-function createBaseGitDiffFileRequest(): GitDiffFileRequest {
-  return { dir: "", relPath: "" };
+function createBaseGitDiffHunksRequest(): GitDiffHunksRequest {
+  return { original: "", current: "" };
 }
 
-export const GitDiffFileRequest: MessageFns<GitDiffFileRequest> = {
-  encode(message: GitDiffFileRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.dir !== "") {
-      writer.uint32(10).string(message.dir);
+export const GitDiffHunksRequest: MessageFns<GitDiffHunksRequest> = {
+  encode(message: GitDiffHunksRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.original !== "") {
+      writer.uint32(10).string(message.original);
     }
-    if (message.relPath !== "") {
-      writer.uint32(18).string(message.relPath);
+    if (message.current !== "") {
+      writer.uint32(18).string(message.current);
     }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): GitDiffFileRequest {
+  decode(input: BinaryReader | Uint8Array, length?: number): GitDiffHunksRequest {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseGitDiffFileRequest();
+    const message = createBaseGitDiffHunksRequest();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -616,7 +682,7 @@ export const GitDiffFileRequest: MessageFns<GitDiffFileRequest> = {
             break;
           }
 
-          message.dir = reader.string();
+          message.original = reader.string();
           continue;
         }
         case 2: {
@@ -624,7 +690,7 @@ export const GitDiffFileRequest: MessageFns<GitDiffFileRequest> = {
             break;
           }
 
-          message.relPath = reader.string();
+          message.current = reader.string();
           continue;
         }
       }
@@ -636,55 +702,269 @@ export const GitDiffFileRequest: MessageFns<GitDiffFileRequest> = {
     return message;
   },
 
-  fromJSON(object: any): GitDiffFileRequest {
+  fromJSON(object: any): GitDiffHunksRequest {
     return {
-      dir: isSet(object.dir) ? globalThis.String(object.dir) : "",
-      relPath: isSet(object.relPath)
-        ? globalThis.String(object.relPath)
-        : isSet(object.rel_path)
-        ? globalThis.String(object.rel_path)
-        : "",
+      original: isSet(object.original) ? globalThis.String(object.original) : "",
+      current: isSet(object.current) ? globalThis.String(object.current) : "",
     };
   },
 
-  toJSON(message: GitDiffFileRequest): unknown {
+  toJSON(message: GitDiffHunksRequest): unknown {
     const obj: any = {};
-    if (message.dir !== "") {
-      obj.dir = message.dir;
+    if (message.original !== "") {
+      obj.original = message.original;
     }
-    if (message.relPath !== "") {
-      obj.relPath = message.relPath;
+    if (message.current !== "") {
+      obj.current = message.current;
     }
     return obj;
   },
 
-  create(base?: DeepPartial<GitDiffFileRequest>): GitDiffFileRequest {
-    return GitDiffFileRequest.fromPartial(base ?? {});
+  create(base?: DeepPartial<GitDiffHunksRequest>): GitDiffHunksRequest {
+    return GitDiffHunksRequest.fromPartial(base ?? {});
   },
-  fromPartial(object: DeepPartial<GitDiffFileRequest>): GitDiffFileRequest {
-    const message = createBaseGitDiffFileRequest();
-    message.dir = object.dir ?? "";
-    message.relPath = object.relPath ?? "";
+  fromPartial(object: DeepPartial<GitDiffHunksRequest>): GitDiffHunksRequest {
+    const message = createBaseGitDiffHunksRequest();
+    message.original = object.original ?? "";
+    message.current = object.current ?? "";
     return message;
   },
 };
 
-function createBaseGitDiffFileResponse(): GitDiffFileResponse {
-  return { diff: "" };
+function createBaseDiffHunkLine(): DiffHunkLine {
+  return { kind: 0, text: "" };
 }
 
-export const GitDiffFileResponse: MessageFns<GitDiffFileResponse> = {
-  encode(message: GitDiffFileResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.diff !== "") {
-      writer.uint32(10).string(message.diff);
+export const DiffHunkLine: MessageFns<DiffHunkLine> = {
+  encode(message: DiffHunkLine, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.kind !== 0) {
+      writer.uint32(8).int32(message.kind);
+    }
+    if (message.text !== "") {
+      writer.uint32(18).string(message.text);
     }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): GitDiffFileResponse {
+  decode(input: BinaryReader | Uint8Array, length?: number): DiffHunkLine {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseGitDiffFileResponse();
+    const message = createBaseDiffHunkLine();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.kind = reader.int32() as any;
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.text = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DiffHunkLine {
+    return {
+      kind: isSet(object.kind) ? diffLineKindFromJSON(object.kind) : 0,
+      text: isSet(object.text) ? globalThis.String(object.text) : "",
+    };
+  },
+
+  toJSON(message: DiffHunkLine): unknown {
+    const obj: any = {};
+    if (message.kind !== 0) {
+      obj.kind = diffLineKindToJSON(message.kind);
+    }
+    if (message.text !== "") {
+      obj.text = message.text;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<DiffHunkLine>): DiffHunkLine {
+    return DiffHunkLine.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<DiffHunkLine>): DiffHunkLine {
+    const message = createBaseDiffHunkLine();
+    message.kind = object.kind ?? 0;
+    message.text = object.text ?? "";
+    return message;
+  },
+};
+
+function createBaseDiffHunk(): DiffHunk {
+  return { oldStart: 0, oldLines: 0, newStart: 0, newLines: 0, lines: [] };
+}
+
+export const DiffHunk: MessageFns<DiffHunk> = {
+  encode(message: DiffHunk, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.oldStart !== 0) {
+      writer.uint32(8).uint32(message.oldStart);
+    }
+    if (message.oldLines !== 0) {
+      writer.uint32(16).uint32(message.oldLines);
+    }
+    if (message.newStart !== 0) {
+      writer.uint32(24).uint32(message.newStart);
+    }
+    if (message.newLines !== 0) {
+      writer.uint32(32).uint32(message.newLines);
+    }
+    for (const v of message.lines) {
+      DiffHunkLine.encode(v!, writer.uint32(42).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): DiffHunk {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDiffHunk();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.oldStart = reader.uint32();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.oldLines = reader.uint32();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.newStart = reader.uint32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.newLines = reader.uint32();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.lines.push(DiffHunkLine.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DiffHunk {
+    return {
+      oldStart: isSet(object.oldStart)
+        ? globalThis.Number(object.oldStart)
+        : isSet(object.old_start)
+        ? globalThis.Number(object.old_start)
+        : 0,
+      oldLines: isSet(object.oldLines)
+        ? globalThis.Number(object.oldLines)
+        : isSet(object.old_lines)
+        ? globalThis.Number(object.old_lines)
+        : 0,
+      newStart: isSet(object.newStart)
+        ? globalThis.Number(object.newStart)
+        : isSet(object.new_start)
+        ? globalThis.Number(object.new_start)
+        : 0,
+      newLines: isSet(object.newLines)
+        ? globalThis.Number(object.newLines)
+        : isSet(object.new_lines)
+        ? globalThis.Number(object.new_lines)
+        : 0,
+      lines: globalThis.Array.isArray(object?.lines)
+        ? object.lines.map((e: any) => DiffHunkLine.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: DiffHunk): unknown {
+    const obj: any = {};
+    if (message.oldStart !== 0) {
+      obj.oldStart = Math.round(message.oldStart);
+    }
+    if (message.oldLines !== 0) {
+      obj.oldLines = Math.round(message.oldLines);
+    }
+    if (message.newStart !== 0) {
+      obj.newStart = Math.round(message.newStart);
+    }
+    if (message.newLines !== 0) {
+      obj.newLines = Math.round(message.newLines);
+    }
+    if (message.lines?.length) {
+      obj.lines = message.lines.map((e) => DiffHunkLine.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<DiffHunk>): DiffHunk {
+    return DiffHunk.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<DiffHunk>): DiffHunk {
+    const message = createBaseDiffHunk();
+    message.oldStart = object.oldStart ?? 0;
+    message.oldLines = object.oldLines ?? 0;
+    message.newStart = object.newStart ?? 0;
+    message.newLines = object.newLines ?? 0;
+    message.lines = object.lines?.map((e) => DiffHunkLine.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseGitDiffHunksResponse(): GitDiffHunksResponse {
+  return { hunks: [] };
+}
+
+export const GitDiffHunksResponse: MessageFns<GitDiffHunksResponse> = {
+  encode(message: GitDiffHunksResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.hunks) {
+      DiffHunk.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitDiffHunksResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitDiffHunksResponse();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -693,7 +973,7 @@ export const GitDiffFileResponse: MessageFns<GitDiffFileResponse> = {
             break;
           }
 
-          message.diff = reader.string();
+          message.hunks.push(DiffHunk.decode(reader, reader.uint32()));
           continue;
         }
       }
@@ -705,24 +985,24 @@ export const GitDiffFileResponse: MessageFns<GitDiffFileResponse> = {
     return message;
   },
 
-  fromJSON(object: any): GitDiffFileResponse {
-    return { diff: isSet(object.diff) ? globalThis.String(object.diff) : "" };
+  fromJSON(object: any): GitDiffHunksResponse {
+    return { hunks: globalThis.Array.isArray(object?.hunks) ? object.hunks.map((e: any) => DiffHunk.fromJSON(e)) : [] };
   },
 
-  toJSON(message: GitDiffFileResponse): unknown {
+  toJSON(message: GitDiffHunksResponse): unknown {
     const obj: any = {};
-    if (message.diff !== "") {
-      obj.diff = message.diff;
+    if (message.hunks?.length) {
+      obj.hunks = message.hunks.map((e) => DiffHunk.toJSON(e));
     }
     return obj;
   },
 
-  create(base?: DeepPartial<GitDiffFileResponse>): GitDiffFileResponse {
-    return GitDiffFileResponse.fromPartial(base ?? {});
+  create(base?: DeepPartial<GitDiffHunksResponse>): GitDiffHunksResponse {
+    return GitDiffHunksResponse.fromPartial(base ?? {});
   },
-  fromPartial(object: DeepPartial<GitDiffFileResponse>): GitDiffFileResponse {
-    const message = createBaseGitDiffFileResponse();
-    message.diff = object.diff ?? "";
+  fromPartial(object: DeepPartial<GitDiffHunksResponse>): GitDiffHunksResponse {
+    const message = createBaseGitDiffHunksResponse();
+    message.hunks = object.hunks?.map((e) => DiffHunk.fromPartial(e)) || [];
     return message;
   },
 };

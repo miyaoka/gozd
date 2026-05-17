@@ -74,6 +74,39 @@ public struct FileChangeInfo: Equatable, Sendable {
   }
 }
 
+public enum DiffHunkLineKind: Sendable {
+  case context
+  case added
+  case removed
+}
+
+public struct DiffHunkLineInfo: Equatable, Sendable {
+  public let kind: DiffHunkLineKind
+  public let text: String
+  public init(kind: DiffHunkLineKind, text: String) {
+    self.kind = kind
+    self.text = text
+  }
+}
+
+public struct DiffHunkInfo: Equatable, Sendable {
+  public let oldStart: UInt32
+  public let oldLines: UInt32
+  public let newStart: UInt32
+  public let newLines: UInt32
+  public let lines: [DiffHunkLineInfo]
+  public init(
+    oldStart: UInt32, oldLines: UInt32, newStart: UInt32, newLines: UInt32,
+    lines: [DiffHunkLineInfo]
+  ) {
+    self.oldStart = oldStart
+    self.oldLines = oldLines
+    self.newStart = newStart
+    self.newLines = newLines
+    self.lines = lines
+  }
+}
+
 public enum GitOps {
   /// `git status --porcelain=v1 -z --untracked-files=all` 相当。
   /// `--untracked-files=all` は untracked ディレクトリ配下のファイルも個別に列挙させる
@@ -334,10 +367,37 @@ public enum GitOps {
     return result
   }
 
-  /// `git diff -- <path>` 相当（作業ツリー差分）。
-  public static func diffFile(dir: String, relPath: String) async throws -> String {
-    let stdout = try await runGit(args: ["diff", "--", relPath], cwd: dir)
-    return String(decoding: stdout, as: UTF8.self)
+  /// 2 つのテキスト間の hunk 単位差分を返す。
+  ///
+  /// 設計判断: `git diff --no-index` を使い、差分エンジンを git 本体（xdiff、C 実装）に委譲する。
+  /// renderer 側で jsdiff の `diffLines` を全文に対して回すと、`pnpm-lock.yaml` のような大ファイルで
+  /// Myers LCS が O(N×M) に膨れメインスレッドが固まる。git に処理を移すことで:
+  ///   - LCS は C で計算され GUI スレッドを塞がない
+  ///   - 結果が hunk 単位に集約されるため、renderer は不変行を全描画せず gap を静的バーで省略表示できる
+  ///
+  /// 実装:
+  ///   - `NSTemporaryDirectory()` 配下にユニークディレクトリを作り `a` / `b` の 2 ファイルを書き出す
+  ///   - `git diff --no-index --no-color -U3` を実行
+  ///   - exit code は 0 (差分なし) / 1 (差分あり) のいずれも success として扱う（>1 は通常エラー扱い）
+  ///   - unified diff 出力を `DiffHunkInfo` 配列に parse
+  public static func diffHunks(original: String, current: String) async throws -> [DiffHunkInfo] {
+    let tmpRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+    let tmpDir = tmpRoot.appendingPathComponent("gozd-diff-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+    let aURL = tmpDir.appendingPathComponent("a")
+    let bURL = tmpDir.appendingPathComponent("b")
+    try Data(original.utf8).write(to: aURL)
+    try Data(current.utf8).write(to: bURL)
+
+    let stdout = try await runGitDiffNoIndex(
+      args: [
+        "diff", "--no-index", "--no-color", "-U3", "--", aURL.path, bURL.path,
+      ],
+      cwd: tmpDir.path
+    )
+    return parseUnifiedDiffHunks(String(decoding: stdout, as: UTF8.self))
   }
 
   /// `git show HEAD:<path>` 相当。
@@ -572,6 +632,147 @@ private func runGitOnce(gitPath: String, args: [String], cwd: String) async thro
   throw GitError.commandFailed(
     exitCode: process.terminationStatus,
     stderr: String(decoding: stderrData, as: UTF8.self))
+}
+
+/// `git diff --no-index` 用の variant。exit 0 (差分なし) / 1 (差分あり) を共に
+/// 成功扱いし stdout を返す。>1 は通常エラー扱いで throw する。
+/// `git diff` は差分があると exit 1 を返す仕様で、これを runGit の標準ハンドリングに
+/// 通すと throw されて stdout を失うため専用 path を用意する。
+func runGitDiffNoIndex(args: [String], cwd: String) async throws -> Data {
+  do {
+    return try await runGitDiffNoIndexOnce(
+      gitPath: try await resolveGitPath(), args: args, cwd: cwd)
+  } catch GitError.launchFailed {
+    await CommandResolver.shared.invalidate("git")
+    return try await runGitDiffNoIndexOnce(
+      gitPath: try await resolveGitPath(), args: args, cwd: cwd)
+  }
+}
+
+private func runGitDiffNoIndexOnce(gitPath: String, args: [String], cwd: String) async throws
+  -> Data
+{
+  let process = Process()
+  process.executableURL = URL(fileURLWithPath: gitPath)
+  process.arguments = args
+  process.currentDirectoryURL = URL(fileURLWithPath: cwd)
+  process.environment = gozdGitEnv()
+
+  let stdoutPipe = Pipe()
+  let stderrPipe = Pipe()
+  process.standardOutput = stdoutPipe
+  process.standardError = stderrPipe
+
+  let (stdoutData, stderrData) = try await runProcessCollectingOutput(
+    process: process,
+    stdoutPipe: stdoutPipe,
+    stderrPipe: stderrPipe
+  )
+
+  if process.terminationStatus <= 1 {
+    return stdoutData
+  }
+  throw GitError.commandFailed(
+    exitCode: process.terminationStatus,
+    stderr: String(decoding: stderrData, as: UTF8.self))
+}
+
+/// unified diff（`git diff --no-index --no-color` の出力）を Hunk 配列に変換する。
+///
+/// 各 hunk は `@@ -oldStart[,oldLines] +newStart[,newLines] @@` ヘッダで始まり、
+///   ` ` 行 = context
+///   `-` 行 = removed (original 側のみ)
+///   `+` 行 = added (current 側のみ)
+///   `\` 行 = `\\ No newline at end of file` の装飾。読み飛ばす
+/// で構成される。`diff --git` / `index` / `---` / `+++` ヘッダは無視する。
+///
+/// `oldLines` / `newLines` は count 省略時 1 として扱う（unified diff 仕様）。
+func parseUnifiedDiffHunks(_ text: String) -> [DiffHunkInfo] {
+  var hunks: [DiffHunkInfo] = []
+  let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+
+  var i = 0
+  while i < lines.count {
+    let raw = lines[i]
+    guard raw.hasPrefix("@@") else {
+      i += 1
+      continue
+    }
+    guard let header = parseHunkHeader(String(raw)) else {
+      i += 1
+      continue
+    }
+    var hunkLines: [DiffHunkLineInfo] = []
+    i += 1
+    while i < lines.count {
+      let l = lines[i]
+      if l.hasPrefix("@@") || l.hasPrefix("diff ") || l.hasPrefix("--- ")
+        || l.hasPrefix("+++ ")
+      {
+        break
+      }
+      if l.hasPrefix("\\") {
+        i += 1
+        continue
+      }
+      // 空行はパーサ末尾 (split による trailing empty) などで発生し得るが、
+      // hunk 内の本当の空行は context 側で必ず先頭スペース付きで表現される。
+      // ここでは前提に従い skip する。
+      guard let first = l.first else {
+        i += 1
+        continue
+      }
+      let rest = String(l.dropFirst())
+      let kind: DiffHunkLineKind
+      switch first {
+      case " ": kind = .context
+      case "+": kind = .added
+      case "-": kind = .removed
+      default:
+        i += 1
+        continue
+      }
+      hunkLines.append(DiffHunkLineInfo(kind: kind, text: rest))
+      i += 1
+    }
+    hunks.append(
+      DiffHunkInfo(
+        oldStart: header.oldStart,
+        oldLines: header.oldLines,
+        newStart: header.newStart,
+        newLines: header.newLines,
+        lines: hunkLines
+      ))
+  }
+  return hunks
+}
+
+private struct HunkHeader {
+  let oldStart: UInt32
+  let oldLines: UInt32
+  let newStart: UInt32
+  let newLines: UInt32
+}
+
+private func parseHunkHeader(_ line: String) -> HunkHeader? {
+  // 例: "@@ -1,5 +1,7 @@" / "@@ -1 +1 @@" / "@@ -0,0 +1,3 @@ optional ctx"
+  let pattern = #"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@"#
+  guard let re = try? NSRegularExpression(pattern: pattern) else { return nil }
+  let ns = line as NSString
+  let range = NSRange(location: 0, length: ns.length)
+  guard let m = re.firstMatch(in: line, range: range) else { return nil }
+
+  func num(_ idx: Int, default def: UInt32) -> UInt32 {
+    let r = m.range(at: idx)
+    guard r.location != NSNotFound else { return def }
+    return UInt32(ns.substring(with: r)) ?? def
+  }
+  return HunkHeader(
+    oldStart: num(1, default: 0),
+    oldLines: num(2, default: 1),
+    newStart: num(3, default: 0),
+    newLines: num(4, default: 1)
+  )
 }
 
 /// `git worktree list --porcelain` の出力をパースする。

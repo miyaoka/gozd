@@ -151,7 +151,8 @@ export interface GitLogResponse {
  *
  * Swift 側は受け取った original / current を tmp に書き出し `git diff --no-index --no-color`
  * を実行、unified diff 出力を Hunk[] に parse して返す。renderer は hunk を順次描画し、
- * hunk 間の skipped context 行は静的バーで表示する（click 展開・split view は別 issue）。
+ * hunk 間の skipped context 行は静的バーで表示する。バーのクリック展開時は
+ * `gitDiffExpandLines` を呼び、行範囲のテキストを Swift から取得する。
  */
 export interface GitDiffHunksRequest {
   original: string;
@@ -185,6 +186,39 @@ export interface GitDiffHunksResponse {
    */
   oldTotalLines: number;
   newTotalLines: number;
+}
+
+/**
+ * gitDiffExpandLines: hunk-bar クリック展開用に original / current 全文から指定行範囲を切り出す。
+ *
+ * renderer 側で `text.split("\n")` を回すと CRLF / 末尾改行の扱いが Swift 側
+ * `countDiffLines` と分かれて、表示行と Swift が返す `old_total_lines` / `new_total_lines`
+ * で末尾 1 行ずれる。バー展開も SSOT を Swift に寄せるため、専用 RPC で行配列を切り出す。
+ *
+ * 1-based。`old_start` / `new_start` から `lines` 行分を取得する。範囲外は server 側で error。
+ */
+export interface GitDiffExpandLinesRequest {
+  original: string;
+  current: string;
+  oldStart: number;
+  newStart: number;
+  lines: number;
+}
+
+/**
+ * 1 行分の old / new テキストペア。
+ * unified diff の invariant (hunk 間 / trailing の unchanged 行数は両側で一致) により
+ * old_line_no と new_line_no は必ずペアで存在する。
+ */
+export interface DiffExpandedLine {
+  oldLineNo: number;
+  newLineNo: number;
+  oldText: string;
+  newText: string;
+}
+
+export interface GitDiffExpandLinesResponse {
+  lines: DiffExpandedLine[];
 }
 
 /** gitShowFile: HEAD のファイル内容 */
@@ -1058,6 +1092,322 @@ export const GitDiffHunksResponse: MessageFns<GitDiffHunksResponse> = {
     message.hunks = object.hunks?.map((e) => DiffHunk.fromPartial(e)) || [];
     message.oldTotalLines = object.oldTotalLines ?? 0;
     message.newTotalLines = object.newTotalLines ?? 0;
+    return message;
+  },
+};
+
+function createBaseGitDiffExpandLinesRequest(): GitDiffExpandLinesRequest {
+  return { original: "", current: "", oldStart: 0, newStart: 0, lines: 0 };
+}
+
+export const GitDiffExpandLinesRequest: MessageFns<GitDiffExpandLinesRequest> = {
+  encode(message: GitDiffExpandLinesRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.original !== "") {
+      writer.uint32(10).string(message.original);
+    }
+    if (message.current !== "") {
+      writer.uint32(18).string(message.current);
+    }
+    if (message.oldStart !== 0) {
+      writer.uint32(24).uint32(message.oldStart);
+    }
+    if (message.newStart !== 0) {
+      writer.uint32(32).uint32(message.newStart);
+    }
+    if (message.lines !== 0) {
+      writer.uint32(40).uint32(message.lines);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitDiffExpandLinesRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitDiffExpandLinesRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.original = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.current = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.oldStart = reader.uint32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.newStart = reader.uint32();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.lines = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitDiffExpandLinesRequest {
+    return {
+      original: isSet(object.original) ? globalThis.String(object.original) : "",
+      current: isSet(object.current) ? globalThis.String(object.current) : "",
+      oldStart: isSet(object.oldStart)
+        ? globalThis.Number(object.oldStart)
+        : isSet(object.old_start)
+        ? globalThis.Number(object.old_start)
+        : 0,
+      newStart: isSet(object.newStart)
+        ? globalThis.Number(object.newStart)
+        : isSet(object.new_start)
+        ? globalThis.Number(object.new_start)
+        : 0,
+      lines: isSet(object.lines) ? globalThis.Number(object.lines) : 0,
+    };
+  },
+
+  toJSON(message: GitDiffExpandLinesRequest): unknown {
+    const obj: any = {};
+    if (message.original !== "") {
+      obj.original = message.original;
+    }
+    if (message.current !== "") {
+      obj.current = message.current;
+    }
+    if (message.oldStart !== 0) {
+      obj.oldStart = Math.round(message.oldStart);
+    }
+    if (message.newStart !== 0) {
+      obj.newStart = Math.round(message.newStart);
+    }
+    if (message.lines !== 0) {
+      obj.lines = Math.round(message.lines);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitDiffExpandLinesRequest>): GitDiffExpandLinesRequest {
+    return GitDiffExpandLinesRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitDiffExpandLinesRequest>): GitDiffExpandLinesRequest {
+    const message = createBaseGitDiffExpandLinesRequest();
+    message.original = object.original ?? "";
+    message.current = object.current ?? "";
+    message.oldStart = object.oldStart ?? 0;
+    message.newStart = object.newStart ?? 0;
+    message.lines = object.lines ?? 0;
+    return message;
+  },
+};
+
+function createBaseDiffExpandedLine(): DiffExpandedLine {
+  return { oldLineNo: 0, newLineNo: 0, oldText: "", newText: "" };
+}
+
+export const DiffExpandedLine: MessageFns<DiffExpandedLine> = {
+  encode(message: DiffExpandedLine, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.oldLineNo !== 0) {
+      writer.uint32(8).uint32(message.oldLineNo);
+    }
+    if (message.newLineNo !== 0) {
+      writer.uint32(16).uint32(message.newLineNo);
+    }
+    if (message.oldText !== "") {
+      writer.uint32(26).string(message.oldText);
+    }
+    if (message.newText !== "") {
+      writer.uint32(34).string(message.newText);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): DiffExpandedLine {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDiffExpandedLine();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.oldLineNo = reader.uint32();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.newLineNo = reader.uint32();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.oldText = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.newText = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DiffExpandedLine {
+    return {
+      oldLineNo: isSet(object.oldLineNo)
+        ? globalThis.Number(object.oldLineNo)
+        : isSet(object.old_line_no)
+        ? globalThis.Number(object.old_line_no)
+        : 0,
+      newLineNo: isSet(object.newLineNo)
+        ? globalThis.Number(object.newLineNo)
+        : isSet(object.new_line_no)
+        ? globalThis.Number(object.new_line_no)
+        : 0,
+      oldText: isSet(object.oldText)
+        ? globalThis.String(object.oldText)
+        : isSet(object.old_text)
+        ? globalThis.String(object.old_text)
+        : "",
+      newText: isSet(object.newText)
+        ? globalThis.String(object.newText)
+        : isSet(object.new_text)
+        ? globalThis.String(object.new_text)
+        : "",
+    };
+  },
+
+  toJSON(message: DiffExpandedLine): unknown {
+    const obj: any = {};
+    if (message.oldLineNo !== 0) {
+      obj.oldLineNo = Math.round(message.oldLineNo);
+    }
+    if (message.newLineNo !== 0) {
+      obj.newLineNo = Math.round(message.newLineNo);
+    }
+    if (message.oldText !== "") {
+      obj.oldText = message.oldText;
+    }
+    if (message.newText !== "") {
+      obj.newText = message.newText;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<DiffExpandedLine>): DiffExpandedLine {
+    return DiffExpandedLine.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<DiffExpandedLine>): DiffExpandedLine {
+    const message = createBaseDiffExpandedLine();
+    message.oldLineNo = object.oldLineNo ?? 0;
+    message.newLineNo = object.newLineNo ?? 0;
+    message.oldText = object.oldText ?? "";
+    message.newText = object.newText ?? "";
+    return message;
+  },
+};
+
+function createBaseGitDiffExpandLinesResponse(): GitDiffExpandLinesResponse {
+  return { lines: [] };
+}
+
+export const GitDiffExpandLinesResponse: MessageFns<GitDiffExpandLinesResponse> = {
+  encode(message: GitDiffExpandLinesResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.lines) {
+      DiffExpandedLine.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitDiffExpandLinesResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitDiffExpandLinesResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.lines.push(DiffExpandedLine.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitDiffExpandLinesResponse {
+    return {
+      lines: globalThis.Array.isArray(object?.lines) ? object.lines.map((e: any) => DiffExpandedLine.fromJSON(e)) : [],
+    };
+  },
+
+  toJSON(message: GitDiffExpandLinesResponse): unknown {
+    const obj: any = {};
+    if (message.lines?.length) {
+      obj.lines = message.lines.map((e) => DiffExpandedLine.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitDiffExpandLinesResponse>): GitDiffExpandLinesResponse {
+    return GitDiffExpandLinesResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitDiffExpandLinesResponse>): GitDiffExpandLinesResponse {
+    const message = createBaseGitDiffExpandLinesResponse();
+    message.lines = object.lines?.map((e) => DiffExpandedLine.fromPartial(e)) || [];
     return message;
   },
 };

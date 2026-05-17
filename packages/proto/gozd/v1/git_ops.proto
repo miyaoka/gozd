@@ -34,7 +34,8 @@ message GitLogResponse {
 //
 // Swift 側は受け取った original / current を tmp に書き出し `git diff --no-index --no-color`
 // を実行、unified diff 出力を Hunk[] に parse して返す。renderer は hunk を順次描画し、
-// hunk 間の skipped context 行は静的バーで表示する（click 展開・split view は別 issue）。
+// hunk 間の skipped context 行は静的バーで表示する。バーのクリック展開時は
+// `gitDiffExpandLines` を呼び、行範囲のテキストを Swift から取得する。
 message GitDiffHunksRequest {
   string original = 1;
   string current = 2;
@@ -69,6 +70,35 @@ message GitDiffHunksResponse {
   // CRLF / 末尾改行の扱いが git と分かれて表示行数と実態がずれる。
   uint32 old_total_lines = 2;
   uint32 new_total_lines = 3;
+}
+
+// gitDiffExpandLines: hunk-bar クリック展開用に original / current 全文から指定行範囲を切り出す。
+//
+// renderer 側で `text.split("\n")` を回すと CRLF / 末尾改行の扱いが Swift 側
+// `countDiffLines` と分かれて、表示行と Swift が返す `old_total_lines` / `new_total_lines`
+// で末尾 1 行ずれる。バー展開も SSOT を Swift に寄せるため、専用 RPC で行配列を切り出す。
+//
+// 1-based。`old_start` / `new_start` から `lines` 行分を取得する。範囲外は server 側で error。
+message GitDiffExpandLinesRequest {
+  string original = 1;
+  string current = 2;
+  uint32 old_start = 3;
+  uint32 new_start = 4;
+  uint32 lines = 5;
+}
+
+// 1 行分の old / new テキストペア。
+// unified diff の invariant (hunk 間 / trailing の unchanged 行数は両側で一致) により
+// old_line_no と new_line_no は必ずペアで存在する。
+message DiffExpandedLine {
+  uint32 old_line_no = 1;
+  uint32 new_line_no = 2;
+  string old_text = 3;
+  string new_text = 4;
+}
+
+message GitDiffExpandLinesResponse {
+  repeated DiffExpandedLine lines = 1;
 }
 
 // gitShowFile: HEAD のファイル内容

@@ -485,6 +485,58 @@ public enum GitOps {
     return UInt32(parts.count - trailing)
   }
 
+  /// `countDiffLines` と同じ規約で text を 1 行ずつの配列に分解する。
+  /// 末尾 `\n` 有りの場合は最後の空要素を除外する (git の line counting に揃える)。
+  /// 添字は 0-based。1-based の絶対座標から引くときは呼び出し側で `- 1` する。
+  static func splitDiffLines(_ text: String) -> [String] {
+    if text.isEmpty { return [] }
+    let parts = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    let trailing = text.hasSuffix("\n") ? 1 : 0
+    return Array(parts.prefix(parts.count - trailing))
+  }
+
+  /// hunk-bar クリック展開用に original / current 全文から指定行範囲を切り出す。
+  ///
+  /// 1-based。`oldStart` / `newStart` から `lines` 行分を取得して `(oldLineNo, newLineNo, oldText, newText)`
+  /// のタプル配列で返す。`countDiffLines` と同じ line counting 規約で行配列化することで、
+  /// renderer 側の `text.split("\n").length` との末尾 1 行ずれを起こさない。
+  ///
+  /// 範囲外は silent に空文字を返さず `GitError.unexpectedOutput` を投げて observable に倒す
+  /// (CLAUDE.md `fallback せずエラーにする` 規約)。
+  public static func expandDiffLines(
+    original: String,
+    current: String,
+    oldStart: UInt32,
+    newStart: UInt32,
+    lines: UInt32
+  ) throws -> [(oldLineNo: UInt32, newLineNo: UInt32, oldText: String, newText: String)] {
+    if lines == 0 { return [] }
+    let oldLines = splitDiffLines(original)
+    let newLines = splitDiffLines(current)
+    let oldEnd = Int(oldStart) + Int(lines) - 1
+    let newEnd = Int(newStart) + Int(lines) - 1
+    guard oldStart >= 1, newStart >= 1, oldEnd <= oldLines.count, newEnd <= newLines.count else {
+      throw GitError.unexpectedOutput(
+        "expandDiffLines out of range: oldStart=\(oldStart) newStart=\(newStart) lines=\(lines) "
+          + "oldTotal=\(oldLines.count) newTotal=\(newLines.count)"
+      )
+    }
+    var result:
+      [(oldLineNo: UInt32, newLineNo: UInt32, oldText: String, newText: String)] = []
+    result.reserveCapacity(Int(lines))
+    for k in 0..<Int(lines) {
+      let oNo = Int(oldStart) - 1 + k
+      let nNo = Int(newStart) - 1 + k
+      result.append((
+        oldLineNo: UInt32(oNo + 1),
+        newLineNo: UInt32(nNo + 1),
+        oldText: oldLines[oNo],
+        newText: newLines[nNo]
+      ))
+    }
+    return result
+  }
+
   /// `git show HEAD:<path>` 相当。
   public static func showFile(dir: String, relPath: String) async throws -> Data {
     return try await runGit(args: ["show", "HEAD:\(relPath)"], cwd: dir)

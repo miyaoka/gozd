@@ -168,7 +168,7 @@ public final class PTYManager {
     // 落ちる（onExit 後に onData が来る race）。同 queue + ガード（readClosed && exitReason
     // が両方揃ってから onExit を 1 度だけ呼ぶ）で「onExit は drain 済みを意味する」契約に揃える。
     let queue = DispatchQueue(label: "io.github.miyaoka.gozd.PTYManager.\(childPid)")
-    let state = PTYFinishState(primaryFd: masterFd, secondaryFd: slaveFd)
+    let state = PTYFinishState(primaryFd: masterFd, secondaryFd: slaveFd, pid: childPid)
     self.state = state
 
     let source = DispatchSource.makeReadSource(
@@ -186,7 +186,7 @@ public final class PTYManager {
       case .closed:
         ptyTrace("read", pid: childPid, "drain → .closed → cancel + markReadClosed")
         source.cancel()
-        state.markReadClosed(pid: childPid, onComplete: onExit)
+        state.markReadClosed(onComplete: onExit)
       }
     }
     // 注意: ここで close(masterFd) を呼ばない。exit handler 側の final drain が fd を読むため、
@@ -239,7 +239,7 @@ public final class PTYManager {
       // ここで親側の slave fd を close する。tty reference が 0 になり ttyclose →
       // ttyflush が走るが、read queue は drain 済みなので flush 対象は空。
       // 直後の master read で EOF が観測できるようになる。
-      state.closeSecondary(pid: childPid)
+      state.closeSecondary()
 
       // **正規 finish 経路**: secondary close 後に final drain で EOF を取って markReadClosed。
       // ここで `.drained` (EAGAIN) になるケースは、tty hangup の伝播より早く drain を
@@ -250,14 +250,14 @@ public final class PTYManager {
       {
         ptyTrace("exit", pid: childPid, "final-drain → .closed → cancel + markReadClosed")
         source.cancel()
-        state.markReadClosed(pid: childPid, onComplete: onExit)
+        state.markReadClosed(onComplete: onExit)
       } else {
         ptyTrace(
           "exit", pid: childPid,
           "final-drain → .drained → defer markReadClosed to read-source fallback")
       }
 
-      state.setExitReason(exitReason, pid: childPid, onComplete: onExit)
+      state.setExitReason(exitReason, onComplete: onExit)
       exit.cancel()
     }
     exit.resume()
@@ -377,15 +377,19 @@ final class PTYFinishState: @unchecked Sendable {
   private let lock = NSLock()
   private let primaryFd: Int32
   private let secondaryFd: Int32
+  /// trace ログの pid タグに使う。caller 側で毎回引数で渡す重複を排除し、各 trace 行
+  /// （write 含む）で同一の pid が出力される一貫性を保証する。
+  private let pid: Int32
   private var readClosed = false
   private var exitReason: PTYExitReason?
   private var finished = false
   private var primaryClosed = false
   private var secondaryClosed = false
 
-  init(primaryFd: Int32, secondaryFd: Int32) {
+  init(primaryFd: Int32, secondaryFd: Int32, pid: Int32) {
     self.primaryFd = primaryFd
     self.secondaryFd = secondaryFd
+    self.pid = pid
   }
 
   /// primary (master) fd を 1 度だけ close する。lock 保持の前提で呼ぶ。
@@ -398,7 +402,7 @@ final class PTYFinishState: @unchecked Sendable {
 
   /// secondary (slave) fd を 1 度だけ close する。tty の最後の reference を release し、
   /// ttyclose → ttyflush を起こす。drain 済みのタイミングで呼べば flush 対象は空。
-  func closeSecondary(pid: Int32 = 0) {
+  func closeSecondary() {
     lock.lock()
     let closedNow = !secondaryClosed
     if closedNow {
@@ -414,27 +418,43 @@ final class PTYFinishState: @unchecked Sendable {
   /// 倒す（write 経路で EBADF / EPIPE / EIO を観測したら以後の write は意味が無い）。
   /// 致命的 errno と `n == 0`（POSIX 上未定義動作）は `ptyTrace` で観測可能に残す。
   /// silent に `.closed` に倒すと「write が永続的に何も書かなくなった」事象を後追いできない。
+  ///
+  /// trace は lock 開放後に出す。`ptyTrace` は内部で別 lock を取るため、`PTYFinishState.lock`
+  /// を保持したまま呼ぶと潜在的なロック順序違反になる（closeSecondary も同じ形を採用）。
   func write(_ ptr: UnsafeRawPointer, len: Int) -> PTYWriteResult {
     lock.lock()
-    defer { lock.unlock() }
-    if primaryClosed { return .closed }
-    let n = Darwin.write(primaryFd, ptr, len)
-    if n > 0 { return .wrote(n) }
-    if n == 0 {
-      // POSIX 上 write が 0 を返すのは未定義。観測できるよう trace に残す。
-      ptyTrace(
-        "write",
-        "Darwin.write returned 0 (POSIX undefined) fd=\(primaryFd) len=\(len) → closed")
-      return .closed
+    let result: PTYWriteResult
+    let traceMessage: String?
+    if primaryClosed {
+      result = .closed
+      traceMessage = nil
+    } else {
+      let n = Darwin.write(primaryFd, ptr, len)
+      if n > 0 {
+        result = .wrote(n)
+        traceMessage = nil
+      } else if n == 0 {
+        // POSIX 上 write が 0 を返すのは未定義。観測できるよう trace に残す。
+        result = .closed
+        traceMessage =
+          "Darwin.write returned 0 (POSIX undefined) fd=\(primaryFd) len=\(len) → closed"
+      } else {
+        let err = errno
+        if err == EINTR || err == EAGAIN || err == EWOULDBLOCK {
+          result = .retry(err)
+          traceMessage = nil
+        } else {
+          // EBADF / EPIPE / EIO 等の致命的 errno。caller 側で観測できないため trace を残す。
+          result = .closed
+          traceMessage = "fatal errno=\(err) fd=\(primaryFd) len=\(len) → closed"
+        }
+      }
     }
-    let err = errno
-    if err == EINTR || err == EAGAIN || err == EWOULDBLOCK {
-      return .retry(err)
+    lock.unlock()
+    if let traceMessage {
+      ptyTrace("write", pid: pid, traceMessage)
     }
-    // EBADF / EPIPE / EIO 等の致命的 errno。caller 側で観測できないため trace を残す。
-    ptyTrace(
-      "write", "fatal errno=\(err) fd=\(primaryFd) len=\(len) → closed")
-    return .closed
+    return result
   }
 
   /// terminal サイズ通知。close 済みなら no-op。
@@ -446,7 +466,7 @@ final class PTYFinishState: @unchecked Sendable {
     _ = ioctl(primaryFd, TIOCSWINSZ, &ws)
   }
 
-  func markReadClosed(pid: Int32 = 0, onComplete: (PTYExitReason) -> Void) {
+  func markReadClosed(onComplete: (PTYExitReason) -> Void) {
     lock.lock()
     let alreadyReadClosed = readClosed
     readClosed = true
@@ -466,7 +486,7 @@ final class PTYFinishState: @unchecked Sendable {
   }
 
   func setExitReason(
-    _ reason: PTYExitReason, pid: Int32 = 0, onComplete: (PTYExitReason) -> Void
+    _ reason: PTYExitReason, onComplete: (PTYExitReason) -> Void
   ) {
     lock.lock()
     exitReason = reason

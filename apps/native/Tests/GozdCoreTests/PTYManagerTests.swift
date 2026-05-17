@@ -144,12 +144,19 @@ struct PTYManagerTests {
     let exit = ExitCollector()
     let pty = PTYManager()
 
+    // 実行時に確実に存在しないパスを動的生成。固定文字列ハードコードだと
+    // 偶発的にユーザーがそのパスを作っていると test が偽陰性になる。
+    // CLAUDE.md 「`/tmp` をハードコードしない、`NSTemporaryDirectory()` を使う」に準拠。
+    let nonexistentCwd =
+      (NSTemporaryDirectory() as NSString)
+      .appendingPathComponent("gozd-chdir-test-\(UUID().uuidString)")
+
     try pty.spawn(
       executable: "/usr/bin/true",
       args: ["true"],
       env: ProcessInfo.processInfo.environment,
-      // 一意に存在しないパス。CPty.c の chdir() != 0 経路で _exit(124)。
-      cwd: "/nonexistent-gozd-chdir-test-target-zzzz",
+      // 動的生成した「絶対に存在しない」パス。CPty.c の chdir() != 0 経路で _exit(124)。
+      cwd: nonexistentCwd,
       rows: 24,
       cols: 80,
       onData: { data.append($0) },

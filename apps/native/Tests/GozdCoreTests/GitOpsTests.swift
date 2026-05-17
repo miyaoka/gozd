@@ -588,6 +588,161 @@ struct CountDiffLinesTests {
   }
 }
 
+@Suite("GitOps.splitDiffLines")
+struct SplitDiffLinesTests {
+  @Test("空文字は空配列")
+  func empty() {
+    #expect(GitOps.splitDiffLines("") == [])
+  }
+
+  @Test("単行 + 末尾改行は 1 要素")
+  func singleLineWithNewline() {
+    #expect(GitOps.splitDiffLines("a\n") == ["a"])
+  }
+
+  @Test("単行 + 末尾改行なしも 1 要素")
+  func singleLineNoNewline() {
+    #expect(GitOps.splitDiffLines("a") == ["a"])
+  }
+
+  @Test("複数行 + 末尾改行は \\n 区切りの terminated 行")
+  func multiLineWithTrailingNewline() {
+    #expect(GitOps.splitDiffLines("a\nb\nc\n") == ["a", "b", "c"])
+  }
+
+  @Test("複数行 + 末尾改行なしは最終行も保持")
+  func multiLineNoTrailingNewline() {
+    #expect(GitOps.splitDiffLines("a\nb\nc") == ["a", "b", "c"])
+  }
+
+  @Test("空行を含む内容も省略しない")
+  func keepsEmptyLines() {
+    #expect(GitOps.splitDiffLines("a\n\nb\n") == ["a", "", "b"])
+  }
+
+  @Test("countDiffLines と要素数が一致する")
+  func countAlignsWithCount() {
+    let samples = ["", "a", "a\n", "a\nb\nc", "a\nb\nc\n", "a\n\nb\n"]
+    for s in samples {
+      #expect(UInt32(GitOps.splitDiffLines(s).count) == GitOps.countDiffLines(s))
+    }
+  }
+}
+
+@Suite("GitOps.expandDiffLines")
+struct ExpandDiffLinesTests {
+  @Test("lines == 0 は空配列を返す")
+  func zeroLines() throws {
+    let result = try GitOps.expandDiffLines(
+      original: "a\nb\nc\n",
+      current: "a\nb\nc\n",
+      oldStart: 1,
+      newStart: 1,
+      lines: 0
+    )
+    #expect(result.isEmpty)
+  }
+
+  @Test("1-based でテキスト範囲を切り出す")
+  func slicesRange() throws {
+    let result = try GitOps.expandDiffLines(
+      original: "o1\no2\no3\no4\n",
+      current: "c1\nc2\nc3\nc4\n",
+      oldStart: 2,
+      newStart: 2,
+      lines: 2
+    )
+    #expect(result.count == 2)
+    #expect(result[0].oldLineNo == 2)
+    #expect(result[0].newLineNo == 2)
+    #expect(result[0].oldText == "o2")
+    #expect(result[0].newText == "c2")
+    #expect(result[1].oldLineNo == 3)
+    #expect(result[1].newLineNo == 3)
+    #expect(result[1].oldText == "o3")
+    #expect(result[1].newText == "c3")
+  }
+
+  @Test("末尾改行なしの最終行も切り出せる")
+  func trailingNoNewline() throws {
+    let result = try GitOps.expandDiffLines(
+      original: "a\nb\nc",
+      current: "a\nb\nc",
+      oldStart: 3,
+      newStart: 3,
+      lines: 1
+    )
+    #expect(result.count == 1)
+    #expect(result[0].oldText == "c")
+    #expect(result[0].newText == "c")
+  }
+
+  @Test("範囲外 (old) は GitError.unexpectedOutput を投げる")
+  func outOfRangeOld() {
+    #expect(throws: GitError.self) {
+      try GitOps.expandDiffLines(
+        original: "a\nb\n",
+        current: "a\nb\nc\n",
+        oldStart: 3,
+        newStart: 1,
+        lines: 1
+      )
+    }
+  }
+
+  @Test("範囲外 (new) は GitError.unexpectedOutput を投げる")
+  func outOfRangeNew() {
+    #expect(throws: GitError.self) {
+      try GitOps.expandDiffLines(
+        original: "a\nb\nc\n",
+        current: "a\nb\n",
+        oldStart: 1,
+        newStart: 3,
+        lines: 1
+      )
+    }
+  }
+
+  @Test("oldStart == 0 は範囲外として throw する")
+  func zeroOldStart() {
+    #expect(throws: GitError.self) {
+      try GitOps.expandDiffLines(
+        original: "a\nb\n",
+        current: "a\nb\n",
+        oldStart: 0,
+        newStart: 1,
+        lines: 1
+      )
+    }
+  }
+
+  @Test("newStart == 0 は範囲外として throw する")
+  func zeroNewStart() {
+    #expect(throws: GitError.self) {
+      try GitOps.expandDiffLines(
+        original: "a\nb\n",
+        current: "a\nb\n",
+        oldStart: 1,
+        newStart: 0,
+        lines: 1
+      )
+    }
+  }
+
+  @Test("空文字 input は lines > 0 で throw")
+  func emptyInput() {
+    #expect(throws: GitError.self) {
+      try GitOps.expandDiffLines(
+        original: "",
+        current: "",
+        oldStart: 1,
+        newStart: 1,
+        lines: 1
+      )
+    }
+  }
+}
+
 // MARK: - Helpers
 
 private func makeTempDir() throws -> URL {

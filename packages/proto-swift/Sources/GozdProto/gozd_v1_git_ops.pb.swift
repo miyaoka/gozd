@@ -189,7 +189,8 @@ public struct Gozd_V1_GitLogResponse: Sendable {
 ///
 /// Swift 側は受け取った original / current を tmp に書き出し `git diff --no-index --no-color`
 /// を実行、unified diff 出力を Hunk[] に parse して返す。renderer は hunk を順次描画し、
-/// hunk 間の skipped context 行は静的バーで表示する（click 展開・split view は別 issue）。
+/// hunk 間の skipped context 行は静的バーで表示する。バーのクリック展開時は
+/// `gitDiffExpandLines` を呼び、行範囲のテキストを Swift から取得する。
 public struct Gozd_V1_GitDiffHunksRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -254,6 +255,66 @@ public struct Gozd_V1_GitDiffHunksResponse: Sendable {
   public var oldTotalLines: UInt32 = 0
 
   public var newTotalLines: UInt32 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// gitDiffExpandLines: hunk-bar クリック展開用に original / current 全文から指定行範囲を切り出す。
+///
+/// renderer 側で `text.split("\n")` を回すと CRLF / 末尾改行の扱いが Swift 側
+/// `countDiffLines` と分かれて、表示行と Swift が返す `old_total_lines` / `new_total_lines`
+/// で末尾 1 行ずれる。バー展開も SSOT を Swift に寄せるため、専用 RPC で行配列を切り出す。
+///
+/// 1-based。`old_start` / `new_start` から `lines` 行分を取得する。範囲外は server 側で error。
+public struct Gozd_V1_GitDiffExpandLinesRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var original: String = String()
+
+  public var current: String = String()
+
+  public var oldStart: UInt32 = 0
+
+  public var newStart: UInt32 = 0
+
+  public var lines: UInt32 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// 1 行分の old / new テキストペア。
+/// unified diff の invariant (hunk 間 / trailing の unchanged 行数は両側で一致) により
+/// old_line_no と new_line_no は必ずペアで存在する。
+public struct Gozd_V1_DiffExpandedLine: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var oldLineNo: UInt32 = 0
+
+  public var newLineNo: UInt32 = 0
+
+  public var oldText: String = String()
+
+  public var newText: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Gozd_V1_GitDiffExpandLinesResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var lines: [Gozd_V1_DiffExpandedLine] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -930,6 +991,131 @@ extension Gozd_V1_GitDiffHunksResponse: SwiftProtobuf.Message, SwiftProtobuf._Me
     if lhs.hunks != rhs.hunks {return false}
     if lhs.oldTotalLines != rhs.oldTotalLines {return false}
     if lhs.newTotalLines != rhs.newTotalLines {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitDiffExpandLinesRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitDiffExpandLinesRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}original\0\u{1}current\0\u{3}old_start\0\u{3}new_start\0\u{1}lines\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.original) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.current) }()
+      case 3: try { try decoder.decodeSingularUInt32Field(value: &self.oldStart) }()
+      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.newStart) }()
+      case 5: try { try decoder.decodeSingularUInt32Field(value: &self.lines) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.original.isEmpty {
+      try visitor.visitSingularStringField(value: self.original, fieldNumber: 1)
+    }
+    if !self.current.isEmpty {
+      try visitor.visitSingularStringField(value: self.current, fieldNumber: 2)
+    }
+    if self.oldStart != 0 {
+      try visitor.visitSingularUInt32Field(value: self.oldStart, fieldNumber: 3)
+    }
+    if self.newStart != 0 {
+      try visitor.visitSingularUInt32Field(value: self.newStart, fieldNumber: 4)
+    }
+    if self.lines != 0 {
+      try visitor.visitSingularUInt32Field(value: self.lines, fieldNumber: 5)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitDiffExpandLinesRequest, rhs: Gozd_V1_GitDiffExpandLinesRequest) -> Bool {
+    if lhs.original != rhs.original {return false}
+    if lhs.current != rhs.current {return false}
+    if lhs.oldStart != rhs.oldStart {return false}
+    if lhs.newStart != rhs.newStart {return false}
+    if lhs.lines != rhs.lines {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_DiffExpandedLine: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DiffExpandedLine"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}old_line_no\0\u{3}new_line_no\0\u{3}old_text\0\u{3}new_text\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.oldLineNo) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.newLineNo) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.oldText) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.newText) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.oldLineNo != 0 {
+      try visitor.visitSingularUInt32Field(value: self.oldLineNo, fieldNumber: 1)
+    }
+    if self.newLineNo != 0 {
+      try visitor.visitSingularUInt32Field(value: self.newLineNo, fieldNumber: 2)
+    }
+    if !self.oldText.isEmpty {
+      try visitor.visitSingularStringField(value: self.oldText, fieldNumber: 3)
+    }
+    if !self.newText.isEmpty {
+      try visitor.visitSingularStringField(value: self.newText, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_DiffExpandedLine, rhs: Gozd_V1_DiffExpandedLine) -> Bool {
+    if lhs.oldLineNo != rhs.oldLineNo {return false}
+    if lhs.newLineNo != rhs.newLineNo {return false}
+    if lhs.oldText != rhs.oldText {return false}
+    if lhs.newText != rhs.newText {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitDiffExpandLinesResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitDiffExpandLinesResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}lines\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.lines) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.lines.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.lines, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitDiffExpandLinesResponse, rhs: Gozd_V1_GitDiffExpandLinesResponse) -> Bool {
+    if lhs.lines != rhs.lines {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

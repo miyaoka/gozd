@@ -331,6 +331,8 @@ public actor RpcDispatcher {
       return try await handleGitLog(body)
     case "/git/diffHunks":
       return try await handleGitDiffHunks(body)
+    case "/git/diffExpandLines":
+      return try handleGitDiffExpandLines(body)
     case "/git/showFile":
       return try await handleGitShowFile(body)
     case "/git/showCommitFile":
@@ -684,6 +686,27 @@ public actor RpcDispatcher {
         pbLine.text = l.text
         return pbLine
       }
+      return pb
+    }
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleGitDiffExpandLines(_ body: Data) throws -> Data {
+    let req = try Gozd_V1_GitDiffExpandLinesRequest(jsonUTF8Data: body)
+    let result = try GitOps.expandDiffLines(
+      original: req.original,
+      current: req.current,
+      oldStart: req.oldStart,
+      newStart: req.newStart,
+      lines: req.lines
+    )
+    var resp = Gozd_V1_GitDiffExpandLinesResponse()
+    resp.lines = result.map { entry in
+      var pb = Gozd_V1_DiffExpandedLine()
+      pb.oldLineNo = entry.oldLineNo
+      pb.newLineNo = entry.newLineNo
+      pb.oldText = entry.oldText
+      pb.newText = entry.newText
       return pb
     }
     return try resp.jsonUTF8Data()

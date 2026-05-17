@@ -83,6 +83,7 @@ export {
 export {
   CreateWorktreeRequest,
   CreateWorktreeResponse,
+  DiffExpandedLine,
   DiffHunk,
   DiffHunkLine,
   DiffLineKind,
@@ -91,6 +92,8 @@ export {
   GitCommitFilesResponse,
   GitDefaultBranchRequest,
   GitDefaultBranchResponse,
+  GitDiffExpandLinesRequest,
+  GitDiffExpandLinesResponse,
   GitDiffHunksRequest,
   GitDiffHunksResponse,
   GitFetchRemotesRequest,

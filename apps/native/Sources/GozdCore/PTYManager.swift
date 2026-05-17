@@ -42,7 +42,9 @@ public final class PTYManager {
   public typealias DataHandler = @Sendable (Data) -> Void
   public typealias ExitHandler = @Sendable (PTYExitReason) -> Void
 
-  public private(set) var pid: pid_t = -1
+  // `PTYRegistry.spawn` が `pidTracker.add(pty.pid)` で参照するため internal は必要。
+  // モジュール外には露出しない（暗黙的 internal）。
+  private(set) var pid: pid_t = -1
   private var state: PTYFinishState?
   private var readSource: DispatchSourceRead?
   private var exitSource: DispatchSourceProcess?
@@ -123,13 +125,16 @@ public final class PTYManager {
     // gozd_pty_spawn 戻り値: 0=成功 / -1=openpty 失敗 / -2=fork 失敗。
     // errno のみで判別すると EAGAIN を openpty / fork 双方が返し得るため取り違える。
     // 戻り値で syscall を確実に区別する。
+    // 0/-1/-2 以外は C bridge 側のバグなので `fatalError` で即座に落とす。
+    // 「想定外なら fallback enum で握り潰す」設計だと観察可能性を失う。
     if spawnRet != 0 {
       let err = errno
       freeCStrings(argEntries, envEntries, cExecutable, cCwd, argv, envp)
       switch spawnRet {
       case -1: throw PTYError.openptyFailed(errno: err)
       case -2: throw PTYError.forkFailed(errno: err)
-      default: throw PTYError.spawnFailed(errno: err)
+      default:
+        fatalError("gozd_pty_spawn returned unexpected code: \(spawnRet) (errno: \(err))")
       }
     }
 
@@ -311,10 +316,8 @@ public enum PTYError: Error, Equatable {
   case openptyFailed(errno: Int32)
   /// `fork(2)` の失敗（C bridge 戻り値 -2）。
   case forkFailed(errno: Int32)
-  /// 想定外の戻り値（fallback）。通常到達しない。
-  case spawnFailed(errno: Int32)
   /// spawn 前段の strdup などで OOM 検出した場合。spawn syscall 自体は呼ばれていないので
-  /// `spawnFailed` を流用すると上位 log で失敗 syscall を取り違える。
+  /// `openptyFailed` / `forkFailed` を流用すると上位 log で失敗 syscall を取り違える。
   case preforkAllocFailed(errno: Int32)
 }
 
@@ -408,17 +411,29 @@ final class PTYFinishState: @unchecked Sendable {
 
   /// `PTYManager.write` から呼ぶ writer。close 済みなら `.closed` を返す。
   /// EAGAIN / EINTR / EWOULDBLOCK は `.retry(errno)`、それ以外の致命的 errno は `.closed` に
-  /// 倒す（write 経路で EBADF を観測したら以後の write は意味が無い）。
+  /// 倒す（write 経路で EBADF / EPIPE / EIO を観測したら以後の write は意味が無い）。
+  /// 致命的 errno と `n == 0`（POSIX 上未定義動作）は `ptyTrace` で観測可能に残す。
+  /// silent に `.closed` に倒すと「write が永続的に何も書かなくなった」事象を後追いできない。
   func write(_ ptr: UnsafeRawPointer, len: Int) -> PTYWriteResult {
     lock.lock()
     defer { lock.unlock() }
     if primaryClosed { return .closed }
     let n = Darwin.write(primaryFd, ptr, len)
     if n > 0 { return .wrote(n) }
+    if n == 0 {
+      // POSIX 上 write が 0 を返すのは未定義。観測できるよう trace に残す。
+      ptyTrace(
+        "write",
+        "Darwin.write returned 0 (POSIX undefined) fd=\(primaryFd) len=\(len) → closed")
+      return .closed
+    }
     let err = errno
     if err == EINTR || err == EAGAIN || err == EWOULDBLOCK {
       return .retry(err)
     }
+    // EBADF / EPIPE / EIO 等の致命的 errno。caller 側で観測できないため trace を残す。
+    ptyTrace(
+      "write", "fatal errno=\(err) fd=\(primaryFd) len=\(len) → closed")
     return .closed
   }
 

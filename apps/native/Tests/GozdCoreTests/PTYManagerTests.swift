@@ -138,6 +138,51 @@ struct PTYManagerTests {
     #expect(exit.snapshot() == .exited(code: 0))
   }
 
+  @Test("存在しない cwd を指定すると exited(code: 124) を返す (chdir 失敗)")
+  func chdirFailureReportedAsExit124() async throws {
+    let data = DataCollector()
+    let exit = ExitCollector()
+    let pty = PTYManager()
+
+    try pty.spawn(
+      executable: "/usr/bin/true",
+      args: ["true"],
+      env: ProcessInfo.processInfo.environment,
+      // 一意に存在しないパス。CPty.c の chdir() != 0 経路で _exit(124)。
+      cwd: "/nonexistent-gozd-chdir-test-target-zzzz",
+      rows: 24,
+      cols: 80,
+      onData: { data.append($0) },
+      onExit: { exit.set($0) }
+    )
+
+    try await waitUntil(timeout: .seconds(3)) { exit.snapshot() != nil }
+    #expect(exit.snapshot() == .exited(code: 124))
+  }
+
+  @Test("ディレクトリを executable に指定すると exited(code: 126) を返す (execve EACCES)")
+  func execveEACCESReportedAsExit126() async throws {
+    let data = DataCollector()
+    let exit = ExitCollector()
+    let pty = PTYManager()
+
+    // /tmp はディレクトリで execute bit は付くが execve は EACCES を返す
+    // （macOS execve(2): 「The new process file is not a regular file」も含めて EACCES）。
+    try pty.spawn(
+      executable: "/tmp",
+      args: ["tmp"],
+      env: ProcessInfo.processInfo.environment,
+      cwd: "/tmp",
+      rows: 24,
+      cols: 80,
+      onData: { data.append($0) },
+      onExit: { exit.set($0) }
+    )
+
+    try await waitUntil(timeout: .seconds(3)) { exit.snapshot() != nil }
+    #expect(exit.snapshot() == .exited(code: 126))
+  }
+
   @Test("実行できないパス (/path/does/not/exist) は exited(code: 127) を返す")
   func execveENOENTReportedAsExit127() async throws {
     let data = DataCollector()

@@ -329,8 +329,8 @@ public actor RpcDispatcher {
       return try await handleGitWorktreeList(body)
     case "/git/log":
       return try await handleGitLog(body)
-    case "/git/diffFile":
-      return try await handleGitDiffFile(body)
+    case "/git/diffHunks":
+      return try await handleGitDiffHunks(body)
     case "/git/showFile":
       return try await handleGitShowFile(body)
     case "/git/showCommitFile":
@@ -644,11 +644,31 @@ public actor RpcDispatcher {
     return try resp.jsonUTF8Data()
   }
 
-  private func handleGitDiffFile(_ body: Data) async throws -> Data {
-    let req = try Gozd_V1_GitDiffFileRequest(jsonUTF8Data: body)
-    let diff = try await GitOps.diffFile(dir: req.dir, relPath: req.relPath)
-    var resp = Gozd_V1_GitDiffFileResponse()
-    resp.diff = diff
+  private func handleGitDiffHunks(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitDiffHunksRequest(jsonUTF8Data: body)
+    let result = try await GitOps.diffHunks(original: req.original, current: req.current)
+    var resp = Gozd_V1_GitDiffHunksResponse()
+    resp.oldTotalLines = result.oldTotalLines
+    resp.newTotalLines = result.newTotalLines
+    resp.hunks = result.hunks.map { h in
+      var pb = Gozd_V1_DiffHunk()
+      pb.oldStart = h.oldStart
+      pb.oldLines = h.oldLines
+      pb.newStart = h.newStart
+      pb.newLines = h.newLines
+      pb.lines = h.lines.map { l in
+        var pbLine = Gozd_V1_DiffHunkLine()
+        pbLine.kind =
+          switch l.kind {
+          case .context: .context
+          case .added: .added
+          case .removed: .removed
+          }
+        pbLine.text = l.text
+        return pbLine
+      }
+      return pb
+    }
     return try resp.jsonUTF8Data()
   }
 

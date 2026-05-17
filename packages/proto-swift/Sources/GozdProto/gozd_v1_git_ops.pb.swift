@@ -20,6 +20,44 @@ fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAP
   typealias Version = _2
 }
 
+public enum Gozd_V1_DiffLineKind: SwiftProtobuf.Enum, Swift.CaseIterable {
+  public typealias RawValue = Int
+  case context // = 0
+  case added // = 1
+  case removed // = 2
+  case UNRECOGNIZED(Int)
+
+  public init() {
+    self = .context
+  }
+
+  public init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .context
+    case 1: self = .added
+    case 2: self = .removed
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  public var rawValue: Int {
+    switch self {
+    case .context: return 0
+    case .added: return 1
+    case .removed: return 2
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  public static let allCases: [Gozd_V1_DiffLineKind] = [
+    .context,
+    .added,
+    .removed,
+  ]
+
+}
+
 /// gh 経路の失敗種別。`ok=false` のとき renderer 側で文言を区別するために使う。
 /// `OK` は ok=true 時のデフォルト値で、`ok=false` 時にこのフィールドが OK のまま来ることは
 /// ない（必ず以下のいずれかに分類される）。
@@ -143,27 +181,79 @@ public struct Gozd_V1_GitLogResponse: Sendable {
   public init() {}
 }
 
-/// gitDiffFile: 単一ファイルの作業ツリー diff
-public struct Gozd_V1_GitDiffFileRequest: Sendable {
+/// gitDiffHunks: 2 つのテキスト間の hunk 単位差分を計算する。
+///
+/// renderer 側で jsdiff の `diffLines()` を全文に対して回すと、`pnpm-lock.yaml` のような
+/// 数万行ファイルで Myers LCS が O(N×M) で爆発しメインスレッドが固まる。git の最適化された
+/// diff エンジン（xdiff、C 実装）に SSOT を移して計算コストを切り離す。
+///
+/// Swift 側は受け取った original / current を tmp に書き出し `git diff --no-index --no-color`
+/// を実行、unified diff 出力を Hunk[] に parse して返す。renderer は hunk を順次描画し、
+/// hunk 間の skipped context 行は静的バーで表示する（click 展開・split view は別 issue）。
+public struct Gozd_V1_GitDiffHunksRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var dir: String = String()
+  public var original: String = String()
 
-  public var relPath: String = String()
+  public var current: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 }
 
-public struct Gozd_V1_GitDiffFileResponse: Sendable {
+public struct Gozd_V1_DiffHunkLine: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var diff: String = String()
+  public var kind: Gozd_V1_DiffLineKind = .context
+
+  public var text: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// 1 hunk の範囲 + 各 line。start / lines は unified diff の `@@ -oldStart,oldLines +newStart,newLines @@`
+/// と同じ意味で 1-based。oldLines / newLines は context + 該当 side の add/remove の合計行数。
+public struct Gozd_V1_DiffHunk: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var oldStart: UInt32 = 0
+
+  public var oldLines: UInt32 = 0
+
+  public var newStart: UInt32 = 0
+
+  public var newLines: UInt32 = 0
+
+  public var lines: [Gozd_V1_DiffHunkLine] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Gozd_V1_GitDiffHunksResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var hunks: [Gozd_V1_DiffHunk] = []
+
+  /// 入力 original / current の総行数。trailing バー描画と context 拡張の
+  /// 絶対座標計算は git の line counting 規約に揃える必要があるため、
+  /// SSOT を Swift 側に置く。renderer 側で `text.split("\n").length` を回すと
+  /// CRLF / 末尾改行の扱いが git と分かれて表示行数と実態がずれる。
+  public var oldTotalLines: UInt32 = 0
+
+  public var newTotalLines: UInt32 = 0
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -504,6 +594,10 @@ public struct Gozd_V1_GitWorktreeRemoveResponse: Sendable {
 
 fileprivate let _protobuf_package = "gozd.v1"
 
+extension Gozd_V1_DiffLineKind: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0DIFF_LINE_KIND_CONTEXT\0\u{1}DIFF_LINE_KIND_ADDED\0\u{1}DIFF_LINE_KIND_REMOVED\0")
+}
+
 extension Gozd_V1_GhErrorKind: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0GH_ERROR_KIND_OK\0\u{1}GH_ERROR_KIND_RATE_LIMIT\0\u{1}GH_ERROR_KIND_UNAUTHENTICATED\0\u{1}GH_ERROR_KIND_REPO_NOT_FOUND\0\u{1}GH_ERROR_KIND_NETWORK\0\u{1}GH_ERROR_KIND_OTHER\0")
 }
@@ -648,9 +742,9 @@ extension Gozd_V1_GitLogResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageI
   }
 }
 
-extension Gozd_V1_GitDiffFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".GitDiffFileRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{3}rel_path\0")
+extension Gozd_V1_GitDiffHunksRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitDiffHunksRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}original\0\u{1}current\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -658,34 +752,34 @@ extension Gozd_V1_GitDiffFileRequest: SwiftProtobuf.Message, SwiftProtobuf._Mess
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.dir) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.relPath) }()
+      case 1: try { try decoder.decodeSingularStringField(value: &self.original) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.current) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.dir.isEmpty {
-      try visitor.visitSingularStringField(value: self.dir, fieldNumber: 1)
+    if !self.original.isEmpty {
+      try visitor.visitSingularStringField(value: self.original, fieldNumber: 1)
     }
-    if !self.relPath.isEmpty {
-      try visitor.visitSingularStringField(value: self.relPath, fieldNumber: 2)
+    if !self.current.isEmpty {
+      try visitor.visitSingularStringField(value: self.current, fieldNumber: 2)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Gozd_V1_GitDiffFileRequest, rhs: Gozd_V1_GitDiffFileRequest) -> Bool {
-    if lhs.dir != rhs.dir {return false}
-    if lhs.relPath != rhs.relPath {return false}
+  public static func ==(lhs: Gozd_V1_GitDiffHunksRequest, rhs: Gozd_V1_GitDiffHunksRequest) -> Bool {
+    if lhs.original != rhs.original {return false}
+    if lhs.current != rhs.current {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Gozd_V1_GitDiffFileResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".GitDiffFileResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}diff\0")
+extension Gozd_V1_DiffHunkLine: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DiffHunkLine"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}kind\0\u{1}text\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -693,21 +787,116 @@ extension Gozd_V1_GitDiffFileResponse: SwiftProtobuf.Message, SwiftProtobuf._Mes
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.diff) }()
+      case 1: try { try decoder.decodeSingularEnumField(value: &self.kind) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.text) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.diff.isEmpty {
-      try visitor.visitSingularStringField(value: self.diff, fieldNumber: 1)
+    if self.kind != .context {
+      try visitor.visitSingularEnumField(value: self.kind, fieldNumber: 1)
+    }
+    if !self.text.isEmpty {
+      try visitor.visitSingularStringField(value: self.text, fieldNumber: 2)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Gozd_V1_GitDiffFileResponse, rhs: Gozd_V1_GitDiffFileResponse) -> Bool {
-    if lhs.diff != rhs.diff {return false}
+  public static func ==(lhs: Gozd_V1_DiffHunkLine, rhs: Gozd_V1_DiffHunkLine) -> Bool {
+    if lhs.kind != rhs.kind {return false}
+    if lhs.text != rhs.text {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_DiffHunk: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DiffHunk"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}old_start\0\u{3}old_lines\0\u{3}new_start\0\u{3}new_lines\0\u{1}lines\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.oldStart) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.oldLines) }()
+      case 3: try { try decoder.decodeSingularUInt32Field(value: &self.newStart) }()
+      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.newLines) }()
+      case 5: try { try decoder.decodeRepeatedMessageField(value: &self.lines) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.oldStart != 0 {
+      try visitor.visitSingularUInt32Field(value: self.oldStart, fieldNumber: 1)
+    }
+    if self.oldLines != 0 {
+      try visitor.visitSingularUInt32Field(value: self.oldLines, fieldNumber: 2)
+    }
+    if self.newStart != 0 {
+      try visitor.visitSingularUInt32Field(value: self.newStart, fieldNumber: 3)
+    }
+    if self.newLines != 0 {
+      try visitor.visitSingularUInt32Field(value: self.newLines, fieldNumber: 4)
+    }
+    if !self.lines.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.lines, fieldNumber: 5)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_DiffHunk, rhs: Gozd_V1_DiffHunk) -> Bool {
+    if lhs.oldStart != rhs.oldStart {return false}
+    if lhs.oldLines != rhs.oldLines {return false}
+    if lhs.newStart != rhs.newStart {return false}
+    if lhs.newLines != rhs.newLines {return false}
+    if lhs.lines != rhs.lines {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitDiffHunksResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitDiffHunksResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}hunks\0\u{3}old_total_lines\0\u{3}new_total_lines\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.hunks) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.oldTotalLines) }()
+      case 3: try { try decoder.decodeSingularUInt32Field(value: &self.newTotalLines) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.hunks.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.hunks, fieldNumber: 1)
+    }
+    if self.oldTotalLines != 0 {
+      try visitor.visitSingularUInt32Field(value: self.oldTotalLines, fieldNumber: 2)
+    }
+    if self.newTotalLines != 0 {
+      try visitor.visitSingularUInt32Field(value: self.newTotalLines, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitDiffHunksResponse, rhs: Gozd_V1_GitDiffHunksResponse) -> Bool {
+    if lhs.hunks != rhs.hunks {return false}
+    if lhs.oldTotalLines != rhs.oldTotalLines {return false}
+    if lhs.newTotalLines != rhs.newTotalLines {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

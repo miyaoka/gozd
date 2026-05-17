@@ -26,13 +26,49 @@ message GitLogResponse {
   string default_branch = 3;
 }
 
-// gitDiffFile: 単一ファイルの作業ツリー diff
-message GitDiffFileRequest {
-  string dir = 1;
-  string rel_path = 2;
+// gitDiffHunks: 2 つのテキスト間の hunk 単位差分を計算する。
+//
+// renderer 側で jsdiff の `diffLines()` を全文に対して回すと、`pnpm-lock.yaml` のような
+// 数万行ファイルで Myers LCS が O(N×M) で爆発しメインスレッドが固まる。git の最適化された
+// diff エンジン（xdiff、C 実装）に SSOT を移して計算コストを切り離す。
+//
+// Swift 側は受け取った original / current を tmp に書き出し `git diff --no-index --no-color`
+// を実行、unified diff 出力を Hunk[] に parse して返す。renderer は hunk を順次描画し、
+// hunk 間の skipped context 行は静的バーで表示する（click 展開・split view は別 issue）。
+message GitDiffHunksRequest {
+  string original = 1;
+  string current = 2;
 }
-message GitDiffFileResponse {
-  string diff = 1;
+
+enum DiffLineKind {
+  DIFF_LINE_KIND_CONTEXT = 0;
+  DIFF_LINE_KIND_ADDED = 1;
+  DIFF_LINE_KIND_REMOVED = 2;
+}
+
+message DiffHunkLine {
+  DiffLineKind kind = 1;
+  string text = 2;
+}
+
+// 1 hunk の範囲 + 各 line。start / lines は unified diff の `@@ -oldStart,oldLines +newStart,newLines @@`
+// と同じ意味で 1-based。oldLines / newLines は context + 該当 side の add/remove の合計行数。
+message DiffHunk {
+  uint32 old_start = 1;
+  uint32 old_lines = 2;
+  uint32 new_start = 3;
+  uint32 new_lines = 4;
+  repeated DiffHunkLine lines = 5;
+}
+
+message GitDiffHunksResponse {
+  repeated DiffHunk hunks = 1;
+  // 入力 original / current の総行数。trailing バー描画と context 拡張の
+  // 絶対座標計算は git の line counting 規約に揃える必要があるため、
+  // SSOT を Swift 側に置く。renderer 側で `text.split("\n").length` を回すと
+  // CRLF / 末尾改行の扱いが git と分かれて表示行数と実態がずれる。
+  uint32 old_total_lines = 2;
+  uint32 new_total_lines = 3;
 }
 
 // gitShowFile: HEAD のファイル内容

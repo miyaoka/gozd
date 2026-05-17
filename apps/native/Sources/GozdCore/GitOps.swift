@@ -444,7 +444,7 @@ public enum GitOps {
     // 巨大 output 全体への `contains` は本 PR の目的 (大ファイル性能改善) と矛盾するため避け、
     // file header 数行で十分なことを根拠に `prefix(8)` で打ち切る。
     // silent に hunks=[] を返すと UI 上「差分なし」に見えるため unexpectedOutput で observable に倒す。
-    // `commandFailed` は exitCode != 0 を含意するため流用しない (line 558 のコメント参照)。
+    // `commandFailed` は exitCode != 0 を含意するため流用しない (GitError.commandFailed の case コメント参照)。
     let outputHeaderLines = output.split(separator: "\n", omittingEmptySubsequences: false).prefix(
       8)
     if outputHeaderLines.contains(where: { $0.hasPrefix("Binary files ") }) {

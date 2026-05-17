@@ -133,7 +133,7 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
   - 総行数 (`oldTotalLines` / `newTotalLines`) も response に含めて返す。renderer は `text.split("\n")` を独自に回さない (git の line counting 規約と分かれて trailing バーの表示行数がずれるため)
   - hunk 間 / ファイル先頭・末尾の連続 unchanged 行は静的な「N unchanged lines」バーで省略表示する。バーは `oldStart` / `newStart` (1-based) と `lines` を保持し、#540 のクリック展開で `-U N` での再取得起点として使う。`oldGap === newGap` は unified diff の invariant なので shape を 1 本の `lines` に統合してある
   - 失敗時は `Failed to compute diff: <message>` を pane に表示する (トーストだけだと閉じた後に状態を追えない)
-- 入力契約: `original` / `current` は UTF-8 として解釈可能なテキスト。バイナリは PreviewPane の `isBinary` 判定で弾く前提。万一 NUL バイトがすり抜けた場合は Swift 側で `Binary files ... differ` を検出して `commandFailed` で観察可能化する
+- 入力契約: `original` / `current` は UTF-8 として解釈可能なテキスト。バイナリは PreviewPane の `isBinary` 判定で弾く前提。万一 NUL バイトがすり抜けた場合は Swift 側で `Binary files ... differ` を検出して `unexpectedOutput` (exit 0 で正常終了したが stdout フォーマットが想定外、を意味する case) で観察可能化する
 - Shiki の `codeToTokens()` で original / current それぞれのトークン配列を取得し、diff の各行に対応するトークンの色を適用
   - removed 行 → original のトークン、added / unchanged 行 → current のトークン
   - diff の色分けは背景色のみ。テキスト色はトークンに委ねる

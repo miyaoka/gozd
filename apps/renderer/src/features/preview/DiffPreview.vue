@@ -13,8 +13,9 @@ git の C 実装 (xdiff) に処理を委ねる。
 `hunksToViewItems` で hunk 配列を `DiffViewItem[]` に展開する:
 
 - 各 hunk 行を `{ type: "line", ... }` として並べる
-- hunk 間 / ファイル先頭・末尾の連続 unchanged 範囲は `{ type: "hunk-bar", oldStart, oldEnd, newStart, newEnd }` で静的表示
-- バーには絶対座標 (1-based, inclusive) を持たせて、#540 で「クリックで該当範囲を context 拡張 diff として取り直す」拡張に shape を変えずに対応できるようにする
+- hunk 間 / ファイル先頭・末尾の連続 unchanged 範囲は `{ type: "hunk-bar", oldStart, newStart, lines }` で静的表示
+- バーは 1-based 絶対座標 (`oldStart` / `newStart`) と省略行数 (`lines`) を持つ。`oldEnd = oldStart + lines - 1`、`newEnd = newStart + lines - 1` で導出。#540 のクリック展開で `gitDiffHunks` を `-U N` で取り直す際は `lines` をそのまま渡せる
+- `oldGap === newGap` が unified diff の invariant なので shape を 1 本の `lines` に統合してある。invariant が破れた場合は `hunksToViewItems` が throw し、watch 経由で error UI + トーストに倒す
 
 split view (#540) では同じ hunks を別の `hunksToSplitRows` 系関数に渡せば 4 列構造に再構築できる前提で
 view item の生成を関数として独立させている。
@@ -81,23 +82,28 @@ type DiffViewItem = DiffLineItem | DiffBarItem;
 
 const notification = useNotificationStore();
 
-const hunks = ref<DiffHunk[]>();
 const oldTotalLines = ref(0);
 const newTotalLines = ref(0);
 const loading = ref(false);
 const error = ref<string>();
+const viewItems = ref<DiffViewItem[]>([]);
+/** hunks の有無で読み込み完了を判定する (loading + viewItems では「結果空」と区別がつかない) */
+const hasResult = ref(false);
 
 /**
- * hunk 配列を render 用の view item 列に展開する。
+ * hunk 配列を render 用の view item 列に展開する。pure (例外送出を除き副作用なし)。
  *
  * - hunk 内の各 line を `DiffLineItem` に変換
  * - 隣接 hunk 間 / ファイル先頭・末尾の連続 unchanged 範囲は `DiffBarItem` で省略表示
  * - 総行数は Swift 側 (`rpcGitDiffHunks` の oldTotalLines / newTotalLines) を SSOT とし、
  *   renderer 側で `text.split("\n")` を独自に回さない (git の line counting 規約とずれる)
+ * - unified diff の invariant (hunk 間 / trailing の unchanged 行数は old / new 両側で一致) が
+ *   破れた場合は `Error` を throw する。CLAUDE.md の「fallback せずエラーにする」規律に従い、
+ *   `Math.max` で取り繕って描画する fallback は持たせない。呼び出し側は `tryCatch` で error UI に倒す
  *
  * #540 で「バーのクリックで該当範囲を context 拡張 diff として取り直す」拡張をする際は
- * `DiffBarItem` の `oldStart`〜`newEnd` 範囲をそのまま渡せる。split view も同じ hunks を別関数で
- * 4 列展開する想定。
+ * `DiffBarItem` の `{ oldStart, newStart, lines }` をそのまま渡せる。split view も同じ hunks を
+ * 別関数で 4 列展開する想定。
  */
 function hunksToViewItems(hs: DiffHunk[], oldTotal: number, newTotal: number): DiffViewItem[] {
   const items: DiffViewItem[] = [];
@@ -108,20 +114,17 @@ function hunksToViewItems(hs: DiffHunk[], oldTotal: number, newTotal: number): D
   for (const h of hs) {
     const oldGap = h.oldStart - prevOldEnd - 1;
     const newGap = h.newStart - prevNewEnd - 1;
-    // unified diff semantics 上 oldGap === newGap が invariant (hunk 間の context は両側同一)。
-    // 万一破れた場合は console.error で observable に倒し、表示は max を採用 (silent fallback にしない)
     if (oldGap !== newGap) {
-      console.error(
-        `[DiffPreview] unified diff invariant violation: oldGap=${oldGap} newGap=${newGap}`,
+      throw new Error(
+        `unified diff invariant violation between hunks: oldGap=${oldGap} newGap=${newGap}`,
       );
     }
-    const gap = Math.max(oldGap, newGap, 0);
-    if (gap > 0) {
+    if (oldGap > 0) {
       items.push({
         type: "hunk-bar",
         oldStart: prevOldEnd + 1,
         newStart: prevNewEnd + 1,
-        lines: gap,
+        lines: oldGap,
       });
     }
 
@@ -150,31 +153,24 @@ function hunksToViewItems(hs: DiffHunk[], oldTotal: number, newTotal: number): D
     prevNewEnd = h.newStart + h.newLines - 1;
   }
 
-  // 最終 hunk 以降の trailing unchanged。両側に同じ数だけ残るのが invariant。
   const oldTrailing = oldTotal - prevOldEnd;
   const newTrailing = newTotal - prevNewEnd;
   if (oldTrailing !== newTrailing) {
-    console.error(
-      `[DiffPreview] unified diff trailing invariant violation: old=${oldTrailing} new=${newTrailing}`,
+    throw new Error(
+      `unified diff trailing invariant violation: old=${oldTrailing} new=${newTrailing}`,
     );
   }
-  const trailing = Math.max(oldTrailing, newTrailing, 0);
-  if (trailing > 0) {
+  if (oldTrailing > 0) {
     items.push({
       type: "hunk-bar",
       oldStart: prevOldEnd + 1,
       newStart: prevNewEnd + 1,
-      lines: trailing,
+      lines: oldTrailing,
     });
   }
 
   return items;
 }
-
-const viewItems = computed<DiffViewItem[]>(() => {
-  if (!hunks.value) return [];
-  return hunksToViewItems(hunks.value, oldTotalLines.value, newTotalLines.value);
-});
 
 watch(
   () => [props.original, props.current] as const,
@@ -186,19 +182,32 @@ watch(
 
     loading.value = true;
     error.value = undefined;
+    hasResult.value = false;
     const result = await tryCatch(rpcGitDiffHunks({ original, current }));
     if (cancelled) return;
     loading.value = false;
 
     if (!result.ok) {
-      hunks.value = undefined;
+      viewItems.value = [];
       error.value = result.error.message;
       notification.error("Failed to compute diff", result.error);
       return;
     }
-    hunks.value = result.value.hunks;
-    oldTotalLines.value = result.value.oldTotalLines;
-    newTotalLines.value = result.value.newTotalLines;
+
+    const { hunks, oldTotalLines: oldTotal, newTotalLines: newTotal } = result.value;
+    oldTotalLines.value = oldTotal;
+    newTotalLines.value = newTotal;
+
+    const buildResult = tryCatch(() => hunksToViewItems(hunks, oldTotal, newTotal));
+    if (cancelled) return;
+    if (!buildResult.ok) {
+      viewItems.value = [];
+      error.value = buildResult.error.message;
+      notification.error("Diff invariant violation", buildResult.error);
+      return;
+    }
+    viewItems.value = buildResult.value;
+    hasResult.value = true;
   },
   { immediate: true },
 );
@@ -283,7 +292,7 @@ function barLabel(item: DiffBarItem): string {
 
 <template>
   <div class="p-4 text-sm/tight" :style="{ '--line-no-width': lineNoWidth }">
-    <div v-if="loading && !hunks" class="text-zinc-500">Computing diff...</div>
+    <div v-if="loading && !hasResult" class="text-zinc-500">Computing diff...</div>
 
     <div v-else-if="error" class="text-red-400">Failed to compute diff: {{ error }}</div>
 

@@ -136,11 +136,18 @@ const viewMode = ref<"split" | "unified">("split");
  * key には oldStart / newStart / lines を全て含めるので、再 fetch で bar 構成が変わった場合は
  * 自動的にキャッシュが効かなくなる (key が一致しないため undefined 扱い)。
  *
- * 行配列の SSOT を Swift に寄せるため Set ではなく Map を使う。renderer 側で `text.split("\n")` を
- * 回すと CRLF / 末尾改行で Swift 側 `countDiffLines` と末尾 1 行ずれる (countDiffLines は
- * 末尾 `\n` ありなら最後の空要素を除外する仕様)。
+ * 行配列のキャッシュ。renderer 側で `text.split("\n")` を回すと CRLF / 末尾改行で
+ * Swift 側 `countDiffLines` と末尾 1 行ずれる (countDiffLines は末尾 `\n` ありなら最後の空要素を除外
+ * する仕様) ため、行配列の SSOT も Swift に置く。Map の value は `rpcGitDiffExpandLines` の結果。
  */
 const expansions = ref<Map<string, DiffExpandedLine[]>>(new Map());
+
+/**
+ * 進行中の `rpcGitDiffExpandLines` を持つバー key。同じ key の重複クリックを抑止する。
+ * `props.original` / `props.current` の watch でファイル切替時にクリアし、旧ファイル用の
+ * in-flight 状態が新ファイル UI に持ち越されないようにする。
+ */
+const inFlightBars = new Set<string>();
 
 function barKey(bar: DiffBarItem): string {
   return `${bar.oldStart}-${bar.newStart}-${bar.lines}`;
@@ -312,6 +319,7 @@ watch(
 
     state.value = { kind: "loading" };
     expansions.value = new Map();
+    inFlightBars.clear();
     const result = await tryCatch(rpcGitDiffHunks({ original, current }));
     if (cancelled) return;
 
@@ -380,9 +388,11 @@ watch(
     );
     if (cancelled) return;
     if (!result.ok) {
-      // Shiki ハイライト失敗は描画自体は LINE_FALLBACK_CLASSES で続行できるが、
-      // silent に倒すと開発者が原因を追えない (renderer 規約: silent fallback 禁止)。
-      notification.info("Syntax highlight unavailable", result.error);
+      // `highlightTokens` は言語不明 / 未ロードを undefined で正常返却する (useHighlight.ts)。
+      // ここで tryCatch が捕捉するのは Shiki 初期化失敗や予期しない例外で、想定外経路。
+      // 描画自体は LINE_FALLBACK_CLASSES で続行できるが、silent に倒すと原因を追えないため
+      // error として通知する (renderer 規約: silent fallback 禁止)。
+      notification.error("Syntax highlight failed", result.error);
       return;
     }
 
@@ -511,6 +521,12 @@ function barLabel(item: DiffBarItem): string {
  *
  * 並行クリックを抑止するため `inFlightBars` で in-flight key を追跡する。同じ key の RPC が
  * 進行中の間は no-op。
+ *
+ * await 前に `props.original` / `props.current` をキャプチャしておき、await 復帰時に props が
+ * 変わっていたら expansions への書き戻しを破棄する。watch 側はファイル切替時に expansions /
+ * inFlightBars をクリアするが、RPC が遅延して in-flight のまま新ファイルへ切り替わった場合、
+ * 旧ファイル用のレスポンスが新ファイルの `expansions` Map に紛れ込むのを防ぐ必要がある
+ * (barKey は oldStart/newStart/lines のみで filePath を識別しないので key 衝突しうる)。
  */
 async function toggleBar(bar: DiffBarItem): Promise<void> {
   const key = barKey(bar);
@@ -522,15 +538,19 @@ async function toggleBar(bar: DiffBarItem): Promise<void> {
   }
   if (inFlightBars.has(key)) return;
   inFlightBars.add(key);
+  const capturedOriginal = props.original;
+  const capturedCurrent = props.current;
   const result = await tryCatch(
     rpcGitDiffExpandLines({
-      original: props.original,
-      current: props.current,
+      original: capturedOriginal,
+      current: capturedCurrent,
       oldStart: bar.oldStart,
       newStart: bar.newStart,
       lines: bar.lines,
     }),
   );
+  // await 中にファイル切替が起きていたら破棄。inFlightBars は watch 側で clear 済み。
+  if (props.original !== capturedOriginal || props.current !== capturedCurrent) return;
   inFlightBars.delete(key);
   if (!result.ok) {
     notification.error("Failed to expand diff range", result.error);
@@ -540,8 +560,6 @@ async function toggleBar(bar: DiffBarItem): Promise<void> {
   next.set(key, result.value.lines);
   expansions.value = next;
 }
-
-const inFlightBars = new Set<string>();
 
 /** split row の左セル背景クラス */
 function splitLeftBg(row: DiffSplitRowItem): string {

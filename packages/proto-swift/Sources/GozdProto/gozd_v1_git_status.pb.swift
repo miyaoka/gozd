@@ -46,6 +46,16 @@ public struct Gozd_V1_GitStatusResponse: Sendable {
   /// 値は常に長さ 2 の文字列。1 文字目 = index 状態、2 文字目 = working tree 状態。
   public var entries: Dictionary<String,String> = [:]
 
+  /// upstream（追跡リモートブランチ）が設定されているか。
+  /// false の場合 ahead / behind は意味を持たない。
+  public var hasUpstream_p: Bool = false
+
+  /// upstream に対して先行しているローカルコミット数（未 push）。
+  public var ahead: UInt32 = 0
+
+  /// upstream に対して遅れているリモートコミット数（未 pull）。
+  public var behind: UInt32 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -87,7 +97,7 @@ extension Gozd_V1_GitStatusRequest: SwiftProtobuf.Message, SwiftProtobuf._Messag
 
 extension Gozd_V1_GitStatusResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GitStatusResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}entries\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}entries\0\u{3}has_upstream\0\u{1}ahead\0\u{1}behind\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -96,6 +106,9 @@ extension Gozd_V1_GitStatusResponse: SwiftProtobuf.Message, SwiftProtobuf._Messa
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString,SwiftProtobuf.ProtobufString>.self, value: &self.entries) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.hasUpstream_p) }()
+      case 3: try { try decoder.decodeSingularUInt32Field(value: &self.ahead) }()
+      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.behind) }()
       default: break
       }
     }
@@ -105,11 +118,23 @@ extension Gozd_V1_GitStatusResponse: SwiftProtobuf.Message, SwiftProtobuf._Messa
     if !self.entries.isEmpty {
       try visitor.visitMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString,SwiftProtobuf.ProtobufString>.self, value: self.entries, fieldNumber: 1)
     }
+    if self.hasUpstream_p != false {
+      try visitor.visitSingularBoolField(value: self.hasUpstream_p, fieldNumber: 2)
+    }
+    if self.ahead != 0 {
+      try visitor.visitSingularUInt32Field(value: self.ahead, fieldNumber: 3)
+    }
+    if self.behind != 0 {
+      try visitor.visitSingularUInt32Field(value: self.behind, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Gozd_V1_GitStatusResponse, rhs: Gozd_V1_GitStatusResponse) -> Bool {
     if lhs.entries != rhs.entries {return false}
+    if lhs.hasUpstream_p != rhs.hasUpstream_p {return false}
+    if lhs.ahead != rhs.ahead {return false}
+    if lhs.behind != rhs.behind {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

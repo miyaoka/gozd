@@ -3,7 +3,17 @@ import { describe, expect, test } from "bun:test";
 import { collectFsWatchTargetDirs, type RepoState } from "./useRepoStore";
 
 function wt(path: string, branch: string, isMain = false): WorktreeEntry {
-  return { path, head: "", branch, isMain, gitStatuses: {}, tasks: [] };
+  return {
+    path,
+    head: "",
+    branch,
+    isMain,
+    gitStatuses: {},
+    tasks: [],
+    hasUpstream: false,
+    ahead: 0,
+    behind: 0,
+  };
 }
 
 describe("collectFsWatchTargetDirs", () => {

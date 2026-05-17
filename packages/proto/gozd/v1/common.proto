@@ -13,6 +13,13 @@ message WorktreeEntry {
   // ファイル相対パス → porcelain v1 XY コード
   map<string, string> git_statuses = 5;
   repeated Task tasks = 6;
+  // upstream（追跡リモートブランチ）が設定されているか。
+  // false の場合 ahead / behind は意味を持たず、UI 側で表示しない。
+  bool has_upstream = 7;
+  // upstream に対して先行しているローカルコミット数（未 push）。
+  uint32 ahead = 8;
+  // upstream に対して遅れているリモートコミット数（未 pull）。
+  uint32 behind = 9;
 }
 
 message Task {

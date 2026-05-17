@@ -26,6 +26,15 @@ export interface GitStatusResponse {
    * 値は常に長さ 2 の文字列。1 文字目 = index 状態、2 文字目 = working tree 状態。
    */
   entries: { [key: string]: string };
+  /**
+   * upstream（追跡リモートブランチ）が設定されているか。
+   * false の場合 ahead / behind は意味を持たない。
+   */
+  hasUpstream: boolean;
+  /** upstream に対して先行しているローカルコミット数（未 push）。 */
+  ahead: number;
+  /** upstream に対して遅れているリモートコミット数（未 pull）。 */
+  behind: number;
 }
 
 export interface GitStatusResponse_EntriesEntry {
@@ -92,7 +101,7 @@ export const GitStatusRequest: MessageFns<GitStatusRequest> = {
 };
 
 function createBaseGitStatusResponse(): GitStatusResponse {
-  return { entries: {} };
+  return { entries: {}, hasUpstream: false, ahead: 0, behind: 0 };
 }
 
 export const GitStatusResponse: MessageFns<GitStatusResponse> = {
@@ -100,6 +109,15 @@ export const GitStatusResponse: MessageFns<GitStatusResponse> = {
     globalThis.Object.entries(message.entries).forEach(([key, value]: [string, string]) => {
       GitStatusResponse_EntriesEntry.encode({ key: key as any, value }, writer.uint32(10).fork()).join();
     });
+    if (message.hasUpstream !== false) {
+      writer.uint32(16).bool(message.hasUpstream);
+    }
+    if (message.ahead !== 0) {
+      writer.uint32(24).uint32(message.ahead);
+    }
+    if (message.behind !== 0) {
+      writer.uint32(32).uint32(message.behind);
+    }
     return writer;
   },
 
@@ -119,6 +137,30 @@ export const GitStatusResponse: MessageFns<GitStatusResponse> = {
           if (entry1.value !== undefined) {
             message.entries[entry1.key] = entry1.value;
           }
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.hasUpstream = reader.bool();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.ahead = reader.uint32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.behind = reader.uint32();
           continue;
         }
       }
@@ -141,6 +183,13 @@ export const GitStatusResponse: MessageFns<GitStatusResponse> = {
           {},
         )
         : {},
+      hasUpstream: isSet(object.hasUpstream)
+        ? globalThis.Boolean(object.hasUpstream)
+        : isSet(object.has_upstream)
+        ? globalThis.Boolean(object.has_upstream)
+        : false,
+      ahead: isSet(object.ahead) ? globalThis.Number(object.ahead) : 0,
+      behind: isSet(object.behind) ? globalThis.Number(object.behind) : 0,
     };
   },
 
@@ -154,6 +203,15 @@ export const GitStatusResponse: MessageFns<GitStatusResponse> = {
           obj.entries[k] = v;
         });
       }
+    }
+    if (message.hasUpstream !== false) {
+      obj.hasUpstream = message.hasUpstream;
+    }
+    if (message.ahead !== 0) {
+      obj.ahead = Math.round(message.ahead);
+    }
+    if (message.behind !== 0) {
+      obj.behind = Math.round(message.behind);
     }
     return obj;
   },
@@ -172,6 +230,9 @@ export const GitStatusResponse: MessageFns<GitStatusResponse> = {
       },
       {},
     );
+    message.hasUpstream = object.hasUpstream ?? false;
+    message.ahead = object.ahead ?? 0;
+    message.behind = object.behind ?? 0;
     return message;
   },
 };

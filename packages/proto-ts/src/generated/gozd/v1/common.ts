@@ -56,6 +56,15 @@ export interface WorktreeEntry {
   /** ファイル相対パス → porcelain v1 XY コード */
   gitStatuses: { [key: string]: string };
   tasks: Task[];
+  /**
+   * upstream（追跡リモートブランチ）が設定されているか。
+   * false の場合 ahead / behind は意味を持たず、UI 側で表示しない。
+   */
+  hasUpstream: boolean;
+  /** upstream に対して先行しているローカルコミット数（未 push）。 */
+  ahead: number;
+  /** upstream に対して遅れているリモートコミット数（未 pull）。 */
+  behind: number;
 }
 
 export interface WorktreeEntry_GitStatusesEntry {
@@ -171,7 +180,17 @@ export interface ProjectConfig {
 }
 
 function createBaseWorktreeEntry(): WorktreeEntry {
-  return { path: "", head: "", branch: "", isMain: false, gitStatuses: {}, tasks: [] };
+  return {
+    path: "",
+    head: "",
+    branch: "",
+    isMain: false,
+    gitStatuses: {},
+    tasks: [],
+    hasUpstream: false,
+    ahead: 0,
+    behind: 0,
+  };
 }
 
 export const WorktreeEntry: MessageFns<WorktreeEntry> = {
@@ -193,6 +212,15 @@ export const WorktreeEntry: MessageFns<WorktreeEntry> = {
     });
     for (const v of message.tasks) {
       Task.encode(v!, writer.uint32(50).fork()).join();
+    }
+    if (message.hasUpstream !== false) {
+      writer.uint32(56).bool(message.hasUpstream);
+    }
+    if (message.ahead !== 0) {
+      writer.uint32(64).uint32(message.ahead);
+    }
+    if (message.behind !== 0) {
+      writer.uint32(72).uint32(message.behind);
     }
     return writer;
   },
@@ -255,6 +283,30 @@ export const WorktreeEntry: MessageFns<WorktreeEntry> = {
           message.tasks.push(Task.decode(reader, reader.uint32()));
           continue;
         }
+        case 7: {
+          if (tag !== 56) {
+            break;
+          }
+
+          message.hasUpstream = reader.bool();
+          continue;
+        }
+        case 8: {
+          if (tag !== 64) {
+            break;
+          }
+
+          message.ahead = reader.uint32();
+          continue;
+        }
+        case 9: {
+          if (tag !== 72) {
+            break;
+          }
+
+          message.behind = reader.uint32();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -292,6 +344,13 @@ export const WorktreeEntry: MessageFns<WorktreeEntry> = {
         )
         : {},
       tasks: globalThis.Array.isArray(object?.tasks) ? object.tasks.map((e: any) => Task.fromJSON(e)) : [],
+      hasUpstream: isSet(object.hasUpstream)
+        ? globalThis.Boolean(object.hasUpstream)
+        : isSet(object.has_upstream)
+        ? globalThis.Boolean(object.has_upstream)
+        : false,
+      ahead: isSet(object.ahead) ? globalThis.Number(object.ahead) : 0,
+      behind: isSet(object.behind) ? globalThis.Number(object.behind) : 0,
     };
   },
 
@@ -321,6 +380,15 @@ export const WorktreeEntry: MessageFns<WorktreeEntry> = {
     if (message.tasks?.length) {
       obj.tasks = message.tasks.map((e) => Task.toJSON(e));
     }
+    if (message.hasUpstream !== false) {
+      obj.hasUpstream = message.hasUpstream;
+    }
+    if (message.ahead !== 0) {
+      obj.ahead = Math.round(message.ahead);
+    }
+    if (message.behind !== 0) {
+      obj.behind = Math.round(message.behind);
+    }
     return obj;
   },
 
@@ -343,6 +411,9 @@ export const WorktreeEntry: MessageFns<WorktreeEntry> = {
       {},
     );
     message.tasks = object.tasks?.map((e) => Task.fromPartial(e)) || [];
+    message.hasUpstream = object.hasUpstream ?? false;
+    message.ahead = object.ahead ?? 0;
+    message.behind = object.behind ?? 0;
     return message;
   },
 };

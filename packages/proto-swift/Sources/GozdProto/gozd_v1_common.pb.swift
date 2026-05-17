@@ -76,6 +76,16 @@ public struct Gozd_V1_WorktreeEntry: Sendable {
 
   public var tasks: [Gozd_V1_Task] = []
 
+  /// upstream（追跡リモートブランチ）が設定されているか。
+  /// false の場合 ahead / behind は意味を持たず、UI 側で表示しない。
+  public var hasUpstream_p: Bool = false
+
+  /// upstream に対して先行しているローカルコミット数（未 push）。
+  public var ahead: UInt32 = 0
+
+  /// upstream に対して遅れているリモートコミット数（未 pull）。
+  public var behind: UInt32 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -320,7 +330,7 @@ extension Gozd_V1_GhRefKind: SwiftProtobuf._ProtoNameProviding {
 
 extension Gozd_V1_WorktreeEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WorktreeEntry"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}head\0\u{1}branch\0\u{3}is_main\0\u{3}git_statuses\0\u{1}tasks\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}head\0\u{1}branch\0\u{3}is_main\0\u{3}git_statuses\0\u{1}tasks\0\u{3}has_upstream\0\u{1}ahead\0\u{1}behind\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -334,6 +344,9 @@ extension Gozd_V1_WorktreeEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
       case 4: try { try decoder.decodeSingularBoolField(value: &self.isMain) }()
       case 5: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString,SwiftProtobuf.ProtobufString>.self, value: &self.gitStatuses) }()
       case 6: try { try decoder.decodeRepeatedMessageField(value: &self.tasks) }()
+      case 7: try { try decoder.decodeSingularBoolField(value: &self.hasUpstream_p) }()
+      case 8: try { try decoder.decodeSingularUInt32Field(value: &self.ahead) }()
+      case 9: try { try decoder.decodeSingularUInt32Field(value: &self.behind) }()
       default: break
       }
     }
@@ -358,6 +371,15 @@ extension Gozd_V1_WorktreeEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
     if !self.tasks.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.tasks, fieldNumber: 6)
     }
+    if self.hasUpstream_p != false {
+      try visitor.visitSingularBoolField(value: self.hasUpstream_p, fieldNumber: 7)
+    }
+    if self.ahead != 0 {
+      try visitor.visitSingularUInt32Field(value: self.ahead, fieldNumber: 8)
+    }
+    if self.behind != 0 {
+      try visitor.visitSingularUInt32Field(value: self.behind, fieldNumber: 9)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -368,6 +390,9 @@ extension Gozd_V1_WorktreeEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
     if lhs.isMain != rhs.isMain {return false}
     if lhs.gitStatuses != rhs.gitStatuses {return false}
     if lhs.tasks != rhs.tasks {return false}
+    if lhs.hasUpstream_p != rhs.hasUpstream_p {return false}
+    if lhs.ahead != rhs.ahead {return false}
+    if lhs.behind != rhs.behind {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

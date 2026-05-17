@@ -15,4 +15,11 @@ message GitStatusResponse {
   // ファイル相対パス → porcelain v1 の XY ステータスコード（例: " M", "??", "M ", "R "）。
   // 値は常に長さ 2 の文字列。1 文字目 = index 状態、2 文字目 = working tree 状態。
   map<string, string> entries = 1;
+  // upstream（追跡リモートブランチ）が設定されているか。
+  // false の場合 ahead / behind は意味を持たない。
+  bool has_upstream = 2;
+  // upstream に対して先行しているローカルコミット数（未 push）。
+  uint32 ahead = 3;
+  // upstream に対して遅れているリモートコミット数（未 pull）。
+  uint32 behind = 4;
 }

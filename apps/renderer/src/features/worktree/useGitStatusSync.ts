@@ -50,7 +50,12 @@ export function useGitStatusSync() {
     // gitStatuses を直接 repoStore に反映する。サイドバー / Filer / GitGraph は
     // すべて repoStore（または派生 computed）を読むので 1 回の書き込みで全箇所が更新される。
     cleanup = onMessage<GitStatusChangePayload>("gitStatusChange", (payload) => {
-      repoStore.setWorktreeGitStatuses(payload.dir, payload.statuses);
+      repoStore.setWorktreeGitStatuses(payload.dir, {
+        statuses: payload.statuses,
+        hasUpstream: payload.hasUpstream,
+        ahead: payload.ahead,
+        behind: payload.behind,
+      });
     });
   });
   onUnmounted(() => {

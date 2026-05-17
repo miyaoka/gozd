@@ -399,9 +399,12 @@ public actor RpcDispatcher {
 
   private func handleGitStatus(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitStatusRequest(jsonUTF8Data: body)
-    let entries = try await GitOps.gitStatus(dir: req.dir)
+    let status = try await GitOps.gitStatusFull(dir: req.dir)
     var resp = Gozd_V1_GitStatusResponse()
-    resp.entries = entries
+    resp.entries = status.statuses
+    resp.hasUpstream_p = status.hasUpstream
+    resp.ahead = status.ahead
+    resp.behind = status.behind
     return try resp.jsonUTF8Data()
   }
 
@@ -583,26 +586,28 @@ public actor RpcDispatcher {
     // ため、per-wt で握って空 statuses で続行する。prunable wt は listing から除外
     // 済みなので、ここで失敗するのは worktree 実 path 不整合などの稀ケース。失敗は
     // stderr に残して silent 握り潰しを避ける (主経路に throw は伝播させない)。
-    let statusesByPath: [String: [String: String]] = await withTaskGroup(
-      of: (String, [String: String]).self
+    let fullByPath: [String: GitOps.StatusFull] = await withTaskGroup(
+      of: (String, GitOps.StatusFull?).self
     ) { group in
       for wt in worktrees {
         let path = wt.path
         group.addTask {
           do {
-            let statuses = try await GitOps.gitStatus(dir: path)
-            return (path, statuses)
+            let full = try await GitOps.gitStatusFull(dir: path)
+            return (path, full)
           } catch {
             FileHandle.standardError.write(
               Data(
-                "[handleGitWorktreeList] gitStatus failed for \(path): \(error)\n"
+                "[handleGitWorktreeList] gitStatusFull failed for \(path): \(error)\n"
                   .utf8))
-            return (path, [:])
+            return (path, nil)
           }
         }
       }
-      var result: [String: [String: String]] = [:]
-      for await (path, statuses) in group { result[path] = statuses }
+      var result: [String: GitOps.StatusFull] = [:]
+      for await (path, full) in group {
+        if let full { result[path] = full }
+      }
       return result
     }
     var resp = Gozd_V1_GitWorktreeListResponse()
@@ -612,7 +617,11 @@ public actor RpcDispatcher {
       entry.head = wt.head
       entry.branch = wt.branch ?? ""
       entry.isMain = wt.isMain
-      entry.gitStatuses = statusesByPath[wt.path] ?? [:]
+      let full = fullByPath[wt.path]
+      entry.gitStatuses = full?.statuses ?? [:]
+      entry.hasUpstream_p = full?.hasUpstream ?? false
+      entry.ahead = full?.ahead ?? 0
+      entry.behind = full?.behind ?? 0
       // この worktree に紐づく全 Task を埋める。1 wt = 複数 Claude session の前提で
       // session 単位の Task が複数並ぶ。
       entry.tasks = allTasks.filter { $0.worktreeDir == wt.path }

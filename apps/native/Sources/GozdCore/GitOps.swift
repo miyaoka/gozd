@@ -488,6 +488,10 @@ public enum GitOps {
   /// `countDiffLines` と同じ規約で text を 1 行ずつの配列に分解する。
   /// 末尾 `\n` 有りの場合は最後の空要素を除外する (git の line counting に揃える)。
   /// 添字は 0-based。1-based の絶対座標から引くときは呼び出し側で `- 1` する。
+  ///
+  /// `internal` で公開する: `countDiffLines` と `expandDiffLines` の 2 つの public 関数が
+  /// 内部で共有する正規化ロジックであり、外部 RPC ハンドラから直接呼ぶ用途は無い。
+  /// テストからは `@testable import GozdCore` 経由で境界整合 (`split.count == count`) を検証する。
   static func splitDiffLines(_ text: String) -> [String] {
     if text.isEmpty { return [] }
     let parts = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)

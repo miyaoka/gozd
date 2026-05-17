@@ -146,8 +146,20 @@ const expansions = ref<Map<string, DiffExpandedLine[]>>(new Map());
  * 進行中の `rpcGitDiffExpandLines` を持つバー key。同じ key の重複クリックを抑止する。
  * `props.original` / `props.current` の watch でファイル切替時にクリアし、旧ファイル用の
  * in-flight 状態が新ファイル UI に持ち越されないようにする。
+ *
+ * non-reactive (`ref` で囲まない): UI からは参照せず、抑止用の boolean state としてだけ使う。
+ * もし template から「展開中インジケータ」を表示する要件が出たら、その時点で
+ * `ref<Set<string>>` に昇格して reactivity を持たせる。
  */
 const inFlightBars = new Set<string>();
+
+/**
+ * 現在の diff ロードを識別する token。watch ハンドラ開始時に新しい Symbol を発行する。
+ * `toggleBar` は await 前にこの token をキャプチャし、await 復帰時に token が変わっていたら
+ * 結果を破棄する。`props.original` の参照同一性に依存しないため、上流 (PreviewPane) が
+ * 同じファイルに同じ string インスタンスを再供給するように最適化されても安全。
+ */
+const loadToken = ref<symbol>(Symbol("diff-load"));
 
 function barKey(bar: DiffBarItem): string {
   return `${bar.oldStart}-${bar.newStart}-${bar.lines}`;
@@ -320,6 +332,7 @@ watch(
     state.value = { kind: "loading" };
     expansions.value = new Map();
     inFlightBars.clear();
+    loadToken.value = Symbol("diff-load");
     const result = await tryCatch(rpcGitDiffHunks({ original, current }));
     if (cancelled) return;
 
@@ -522,11 +535,13 @@ function barLabel(item: DiffBarItem): string {
  * 並行クリックを抑止するため `inFlightBars` で in-flight key を追跡する。同じ key の RPC が
  * 進行中の間は no-op。
  *
- * await 前に `props.original` / `props.current` をキャプチャしておき、await 復帰時に props が
- * 変わっていたら expansions への書き戻しを破棄する。watch 側はファイル切替時に expansions /
- * inFlightBars をクリアするが、RPC が遅延して in-flight のまま新ファイルへ切り替わった場合、
- * 旧ファイル用のレスポンスが新ファイルの `expansions` Map に紛れ込むのを防ぐ必要がある
- * (barKey は oldStart/newStart/lines のみで filePath を識別しないので key 衝突しうる)。
+ * `loadToken` を await 前にキャプチャしておき、await 復帰時に token が変わっていたら結果を破棄する。
+ * これにより RPC が遅延して in-flight のまま新ファイルへ切り替わった場合に、旧ファイル用の
+ * レスポンスが新ファイルの `expansions` Map に紛れ込むのを防ぐ (barKey は oldStart/newStart/lines
+ * のみで識別するため、異なるファイルでも key 衝突しうる)。
+ *
+ * `inFlightBars.delete` は token 判定の前に呼ぶ。watch 側 clear と二重に走っても Set.delete は
+ * idempotent なので問題なく、対称性が崩れない (add と必ず対になる)。
  */
 async function toggleBar(bar: DiffBarItem): Promise<void> {
   const key = barKey(bar);
@@ -538,20 +553,18 @@ async function toggleBar(bar: DiffBarItem): Promise<void> {
   }
   if (inFlightBars.has(key)) return;
   inFlightBars.add(key);
-  const capturedOriginal = props.original;
-  const capturedCurrent = props.current;
+  const myToken = loadToken.value;
   const result = await tryCatch(
     rpcGitDiffExpandLines({
-      original: capturedOriginal,
-      current: capturedCurrent,
+      original: props.original,
+      current: props.current,
       oldStart: bar.oldStart,
       newStart: bar.newStart,
       lines: bar.lines,
     }),
   );
-  // await 中にファイル切替が起きていたら破棄。inFlightBars は watch 側で clear 済み。
-  if (props.original !== capturedOriginal || props.current !== capturedCurrent) return;
   inFlightBars.delete(key);
+  if (loadToken.value !== myToken) return;
   if (!result.ok) {
     notification.error("Failed to expand diff range", result.error);
     return;

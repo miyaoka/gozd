@@ -345,8 +345,6 @@ public actor RpcDispatcher {
       return try await handleGitViewer(body)
     case "/git/defaultBranch":
       return try await handleGitDefaultBranch(body)
-    case "/git/branchList":
-      return try await handleGitBranchList(body)
     case "/git/createWorktree":
       return try await handleCreateWorktree(body)
     case "/git/worktreeRemove":
@@ -840,14 +838,6 @@ public actor RpcDispatcher {
     }
     var resp = Gozd_V1_GitDefaultBranchResponse()
     resp.branch = branch
-    return try resp.jsonUTF8Data()
-  }
-
-  private func handleGitBranchList(_ body: Data) async throws -> Data {
-    let req = try Gozd_V1_GitBranchListRequest(jsonUTF8Data: body)
-    let branches = try await GitOps.branchList(dir: req.dir)
-    var resp = Gozd_V1_GitBranchListResponse()
-    resp.branches = branches
     return try resp.jsonUTF8Data()
   }
 

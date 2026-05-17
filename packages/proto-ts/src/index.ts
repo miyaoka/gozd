@@ -83,8 +83,6 @@ export {
   CreateWorktreeRequest,
   CreateWorktreeResponse,
   GhErrorKind,
-  GitBranchListRequest,
-  GitBranchListResponse,
   GitCommitFilesRequest,
   GitCommitFilesResponse,
   GitDefaultBranchRequest,

@@ -5,15 +5,16 @@ import { useRepoStore } from "../../shared/repo";
 import { rpcTaskAdd } from "./rpc";
 
 /**
- * PR/issue picker の wtByBranch hit ルート専用ヘルパー。
+ * PR picker の `pr.headRef` hit ルート専用ヘルパー。
  *
- * 同じ PR/issue を再選択した時に、terminal close で `hidden=true` 化された既存 task を
+ * 同じ PR を再選択した時に、terminal close で `hidden=true` 化された既存 task を
  * server 側 `TaskStore.add` の upsert (同 worktreeDir + 同 ghRef キー) で蘇生する。
  * 成功後は `repoStore.requestRefresh(rootDir)` で SSOT 取り直しを `useSidebarData` に
  * 依頼する (楽観更新で `repos[...]` を直書きしない)。
  *
- * pr-picker / issue-picker の hit ルートは body / ghRef が違うだけで構造は同じだったため、
- * SSOT 違反を避けて 1 ヶ所に集約する。
+ * issue picker は branch を timestamp ベースにしており既存 worktree hit ルートを持たない
+ * (同 issue から複数 worktree が独立して生える設計) ため、本ヘルパーは PR picker からのみ
+ * 呼ばれる。
  */
 export async function reviveTaskForGhRef(params: {
   existingDir: string;

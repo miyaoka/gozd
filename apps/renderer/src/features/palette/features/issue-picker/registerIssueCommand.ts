@@ -9,30 +9,12 @@ import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
-import {
-  reviveTaskForGhRef,
-  rpcCreateWorktree,
-  rpcGitBranchList,
-  rpcGitDefaultBranch,
-  rpcGitWorktreeList,
-  rpcTaskAdd,
-} from "../../../sidebar";
+import { rpcCreateWorktree, rpcGitDefaultBranch, rpcTaskAdd } from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
 import { fetchViewer, ghErrorMessage } from "../pr-picker";
 import { rpcGitIssueList } from "./rpc";
 import { useIssuePicker } from "./useIssuePicker";
-
-/**
- * 同じ issue から派生した worktree を一意に識別する branch 名。
- * issue ↔ worktree の永続マッピングを Task に持たず branch 名に埋め込むことで、
- * 「同じ issue を 2 回選んで worktree が増殖する」退行を防ぎ、Task 永続化が
- * 壊れても worktree 逆引きが成立する。PR picker が `pr.headRef` を真にして
- * いるのと対称。
- */
-function issueBranchName(issueNumber: number): string {
-  return `issue-${issueNumber}`;
-}
 
 export function registerIssueCommand(): () => void {
   const registry = useCommandRegistry();
@@ -50,18 +32,13 @@ export function registerIssueCommand(): () => void {
         const dir = worktreeStore.dir;
         if (dir === undefined) return;
         const fetchResult = await tryCatch(
-          Promise.all([
-            rpcGitIssueList({ dir }),
-            rpcGitWorktreeList({ dir }),
-            rpcGitBranchList({ dir }),
-            fetchViewer(dir),
-          ]),
+          Promise.all([rpcGitIssueList({ dir }), fetchViewer(dir)]),
         );
         if (!fetchResult.ok) {
           notify.error("Failed to load issues", fetchResult.error);
           return;
         }
-        const [issuesRes, worktreesRes, branchesRes, viewerLogin] = fetchResult.value;
+        const [issuesRes, viewerLogin] = fetchResult.value;
         if (!issuesRes.ok) {
           notify.error(
             ghErrorMessage(issuesRes.errorKind, "Failed to load issues"),
@@ -71,49 +48,11 @@ export function registerIssueCommand(): () => void {
         }
         if (issuesRes.issues.length === 0) return;
 
-        // branch 名から既存 worktree を逆引きする。issue picker の決定的 branch
-        // (`issue-<number>`) と PR picker の `pr.headRef` の両方をこのマップで吸う。
-        const wtByBranch = new Map(
-          worktreesRes.worktrees.filter((wt) => wt.branch !== "").map((wt) => [wt.branch, wt.path]),
-        );
-        // worktree 不在の孤立 branch も含めた local branch 一覧。`issue-<N>` の
-        // 決定的命名衝突を事前検出するために使う。
-        const allBranches = new Set(branchesRes.branches);
-
         // この callback は IssuePickerDialog 側で close() 後に呼ばれるため、
         // 連打による再エントリは dialog の DOM 除去で塞がれている。`isCreating` 相当のガードは不要。
         // viewer 取得失敗時は undefined。空文字に倒して picker dialog の "@me" filter UI
         // を degraded mode (filter 非表示) にする。
         show(issuesRes.issues, viewerLogin ?? "", (issue) => {
-          const branchName = issueBranchName(issue.number);
-          const existingDir = wtByBranch.get(branchName);
-          if (existingDir !== undefined) {
-            // 直前に terminal close で hidden 化されている可能性があるため、同 ghRef
-            // で taskAdd (server 側 upsert) を呼んで hidden を解除する。完了後の
-            // 真値反映は `useRepoStore.requestRefresh` 経由で `useSidebarData` の
-            // fetchRepo に委譲する (楽観更新で renderer 側を直書きしない)。
-            void (async () => {
-              await reviveTaskForGhRef({
-                existingDir,
-                body: issue.title,
-                ghRef: ghRefForIssue(issue.number),
-                errorLabel: "Failed to revive task for issue",
-              });
-              terminalStore.viewMode = "wt";
-              worktreeStore.setOpen(existingDir);
-            })();
-            return;
-          }
-          // `issue-<N>` が worktree を持たない孤立 branch として既に存在する場合、
-          // `git worktree add -b issue-<N>` は "branch already exists" で失敗する。
-          // 事前検出してユーザーに復旧操作 (`git branch -D <name>` 等) を促す。
-          if (allBranches.has(branchName)) {
-            notify.error(
-              `Branch '${branchName}' already exists without a worktree. ` +
-                `Remove or rename it before opening this issue.`,
-            );
-            return;
-          }
           void (async () => {
             // 新規 worktree は default branch を起点に作る。Swift 側で `origin/HEAD` を
             // 優先し、未設定（remote 無し / push 前 repo）の場合は main repo root 自身の
@@ -131,11 +70,14 @@ export function registerIssueCommand(): () => void {
               );
               return;
             }
+            // 通常の新規 worktree と同じ timestamp ベースで命名する。issue 番号を branch 名に
+            // 埋め込まないため、同じ issue から複数の worktree を独立して作れる。
+            const timestamp = generateTimestamp();
             const result = await tryCatch(
               rpcCreateWorktree({
                 dir: rootDir,
-                worktreeDir: generateTimestamp(),
-                branch: branchName,
+                worktreeDir: timestamp,
+                branch: timestamp,
                 startPoint: branchResult.value.branch,
               }),
             );
@@ -155,8 +97,9 @@ export function registerIssueCommand(): () => void {
             // Claude session 未起動状態 (sessionId 空) で永続化され、サイドバー行を
             // クリックすると素の claude が起動して SessionStart hook で attach される。
             // taskAdd 後の真値反映は requestRefresh に委ねる (楽観更新で renderer 側を
-            // 直書きしない)。失敗時は autostart を抑止し、worktree だけ残った状態で
-            // ユーザー復旧 (再選択で wtByBranch hit) に倒す。
+            // 直書きしない)。失敗時は autostart を抑止し、worktree だけ残る (task 不在の
+            // ため `git worktree remove` で手動回収するか、再度 issue を選び直して別の
+            // worktree を作る)。
             const taskResult = await tryCatch(
               rpcTaskAdd({
                 dir: rootDir,

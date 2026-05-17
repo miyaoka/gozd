@@ -7,7 +7,6 @@
 #include <unistd.h>
 #include <signal.h>
 #include <stdlib.h>
-#include <errno.h>
 
 // openpty + fork + login_tty + execve を 1 関数にまとめた wrapper（issue #544）。
 //
@@ -31,7 +30,20 @@
 //
 // 戻り値:
 //   - 0: 成功。out_master / out_slave / out_pid に値が入る。
-//   - -1: 失敗。errno が set される（openpty 失敗 / fork 失敗）。
+//   - -1: openpty 失敗（errno が set される）。
+//   - -2: fork 失敗（errno が set される）。
+//
+// 親プロセスは戻り値で openpty / fork のどちらが失敗したかを区別できる。errno のみ
+// では EAGAIN を openpty / fork 双方が返し得るため、syscall を取り違える。
+//
+// child 側で setup に失敗した場合は execve まで到達せず以下の exit code で抜ける。
+// 親は `PTYExitReason.exited(code: N)` から失敗段階を判別できる:
+//
+//   - 123: execve 失敗（EACCES / ENOENT 以外の errno、例: E2BIG / ENOEXEC）。
+//   - 124: chdir 失敗（指定 cwd へ移れない: 権限・存在しない・symlink 切れ等）。
+//   - 125: login_tty 失敗（PTY セットアップ失敗: setsid / TIOCSCTTY / dup2）。
+//   - 126: execve EACCES（POSIX 慣例: not executable）。
+//   - 127: execve ENOENT（POSIX 慣例: command not found）。
 int gozd_pty_spawn(
     int *out_master,
     int *out_slave,

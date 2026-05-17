@@ -11,13 +11,11 @@ import Foundation
 //
 // 2. **read source の closure は self をキャプチャしない**。setEventHandler は
 //    `@Sendable () -> Void` を要求するため、non-Sendable self を捕まえると Swift 6.2
-//    strict concurrency 下でエラー。closure には `fd: Int32`、`onData: @Sendable`、
-//    `source` だけを渡し、EOF / read error 時は `source.cancel()` → cancelHandler の
-//    `close(fd)` で片付ける。
+//    strict concurrency 下でエラー。closure には `state: PTYFinishState`、`onData: @Sendable`、
+//    `source` だけを渡し、EOF / read error 時は `source.cancel()` → state 経由で fd close。
 //
-// 3. **fork 子側は C 呼び出しのみ**。`chdir / login_tty / execve / _exit` のみ使用。
-//    argv / envp / cwd / executable は呼び出し前に C 配列として確保し、親側で fork 後に
-//    free する（COW なので子に影響しない）。
+// 3. **fork 子側は C 呼び出しのみ**。CPty.c の `gozd_pty_spawn` にまとめ、Swift 側に
+//    子プロセスのコードは一切持たない。fork 後の async-signal-safe 違反の余地をゼロにする。
 //
 // 4. **kill は SIGHUP**。SIGTERM では interactive zsh が無視するため SIGHUP 固定
 //    （spike で検証）。
@@ -35,16 +33,17 @@ import Foundation
 //    tty reference は 0 にならず ttyclose が走らない。`waitpid` で child の死亡を
 //    確定し、master を drain し切ってから親が secondary fd を明示的に close すると
 //    ようやく tty が close される（その時点で read queue は空なので flush 対象なし）。
+//
+// 7. **fd 状態は PTYFinishState に集約する（SSOT）**。primary / secondary fd の保持・
+//    close 判定・write / resize / read source の close 後 race ガードを全て
+//    `PTYFinishState` で行う。PTYManager 側は fd 番号を直接保持せず、`state` 経由で
+//    操作する。close 後の操作は state 内 lock + フラグで silent に no-op に倒す。
 public final class PTYManager {
   public typealias DataHandler = @Sendable (Data) -> Void
   public typealias ExitHandler = @Sendable (PTYExitReason) -> Void
 
-  public private(set) var primaryFd: Int32 = -1
-  /// 親側で保持する slave (secondary) fd。`forkpty` 相当の child setup 後も
-  /// close せず維持することで、child `_exit` で tty reference が 0 になることを
-  /// 防ぐアンカー。exit handler が drain 完了後に明示的に close する。
-  public private(set) var secondaryFd: Int32 = -1
   public private(set) var pid: pid_t = -1
+  private var state: PTYFinishState?
   private var readSource: DispatchSourceRead?
   private var exitSource: DispatchSourceProcess?
 
@@ -121,16 +120,19 @@ public final class PTYManager {
       envp,
       cCwd
     )
-    if spawnRet == -1 {
-      // openpty か fork のいずれかが失敗。errno で見分けがつく
-      // （openpty は ENOENT / ENXIO / EAGAIN 等、fork は EAGAIN / ENOMEM 等）。
+    // gozd_pty_spawn 戻り値: 0=成功 / -1=openpty 失敗 / -2=fork 失敗。
+    // errno のみで判別すると EAGAIN を openpty / fork 双方が返し得るため取り違える。
+    // 戻り値で syscall を確実に区別する。
+    if spawnRet != 0 {
       let err = errno
       freeCStrings(argEntries, envEntries, cExecutable, cCwd, argv, envp)
-      throw PTYError.spawnFailed(errno: err)
+      switch spawnRet {
+      case -1: throw PTYError.openptyFailed(errno: err)
+      case -2: throw PTYError.forkFailed(errno: err)
+      default: throw PTYError.spawnFailed(errno: err)
+      }
     }
 
-    primaryFd = masterFd
-    secondaryFd = slaveFd
     pid = childPid
     ptyTrace(
       "spawn", pid: childPid,
@@ -162,18 +164,18 @@ public final class PTYManager {
     // が両方揃ってから onExit を 1 度だけ呼ぶ）で「onExit は drain 済みを意味する」契約に揃える。
     let queue = DispatchQueue(label: "io.github.miyaoka.gozd.PTYManager.\(childPid)")
     let state = PTYFinishState(primaryFd: masterFd, secondaryFd: slaveFd)
+    self.state = state
 
-    let fd = masterFd  // closure キャプチャ用エイリアス（既存コードの可読性維持）
     let source = DispatchSource.makeReadSource(
-      fileDescriptor: fd,
+      fileDescriptor: masterFd,
       queue: queue
     )
     // self をキャプチャしないことで Sendable closure 制約を満たす。
     // 単発 read だと「event 1 回で data + EOF が同時に観測される」ケースで data を取りこぼす
     // 可能性があり、event coalescing による flaky の温床になる。drain loop で吸い切る。
-    source.setEventHandler { [source] in
+    source.setEventHandler { [source, state] in
       ptyTrace("read", pid: childPid, "eventHandler fired")
-      switch drainPTY(fd: fd, pid: childPid, caller: "read-source", onData: onData) {
+      switch drainPTY(fd: masterFd, pid: childPid, caller: "read-source", onData: onData) {
       case .drained:
         return
       case .closed:
@@ -182,8 +184,8 @@ public final class PTYManager {
         state.markReadClosed(pid: childPid, onComplete: onExit)
       }
     }
-    // 注意: ここで close(fd) を呼ばない。exit handler 側の final drain が fd を読むため、
-    // close は `PTYFinishState.tryFinish` の completion 時に 1 度だけ実行する。
+    // 注意: ここで close(masterFd) を呼ばない。exit handler 側の final drain が fd を読むため、
+    // close は `PTYFinishState` が finish 完了時に 1 度だけ実行する。
     source.resume()
     ptyTrace("spawn", pid: childPid, "read source resumed")
     readSource = source
@@ -194,12 +196,12 @@ public final class PTYManager {
       eventMask: .exit,
       queue: queue
     )
-    exit.setEventHandler { [exit, source] in
+    exit.setEventHandler { [exit, source, state] in
       ptyTrace("exit", pid: childPid, "eventHandler fired (pre-waitpid drain)")
       // exit event と read readiness の到着順に依存しないよう、waitpid 前にも drain する。
       // 親側で slave fd を保持しているため、この段階では EOF は来ない（EAGAIN が期待値）が、
       // child の死亡前に書かれた bytes は読める。
-      _ = drainPTY(fd: fd, pid: childPid, caller: "exit-pre", onData: onData)
+      _ = drainPTY(fd: masterFd, pid: childPid, caller: "exit-pre", onData: onData)
 
       // process source の exit handler 内では子は zombie 確定。`WNOHANG` を使うと
       // 戻り値 0（reap 未完）と exit code 0 の区別が曖昧になるため、blocking
@@ -227,19 +229,27 @@ public final class PTYManager {
 
       // waitpid 直後にもう一度 drain。child の最終 write は kernel buffer まで届いており、
       // 親保持の slave fd のおかげで ttyflush で消されていない。ここで master を吸い切る。
-      _ = drainPTY(fd: fd, pid: childPid, caller: "exit-post-waitpid", onData: onData)
+      _ = drainPTY(fd: masterFd, pid: childPid, caller: "exit-post-waitpid", onData: onData)
 
       // ここで親側の slave fd を close する。tty reference が 0 になり ttyclose →
       // ttyflush が走るが、read queue は drain 済みなので flush 対象は空。
       // 直後の master read で EOF が観測できるようになる。
       state.closeSecondary(pid: childPid)
 
-      // final drain: slave close 後の EOF を観測して finish に進める。read source 側でも
-      // EOF event が拾える経路を残しているが、ここで確定させる方が race window が狭い。
-      if case .closed = drainPTY(fd: fd, pid: childPid, caller: "exit-final", onData: onData) {
+      // **正規 finish 経路**: secondary close 後に final drain で EOF を取って markReadClosed。
+      // ここで `.drained` (EAGAIN) になるケースは、tty hangup の伝播より早く drain を
+      // 呼んだ場合のみ。その場合は **read source 側が二重防御**として残っており、kqueue
+      // が EOF を dispatch すると read-source event handler で markReadClosed が走る。
+      // どちらの経路でも `PTYFinishState` が `finished` フラグで 1 度だけの finish を保証する。
+      if case .closed = drainPTY(fd: masterFd, pid: childPid, caller: "exit-final", onData: onData)
+      {
         ptyTrace("exit", pid: childPid, "final-drain → .closed → cancel + markReadClosed")
         source.cancel()
         state.markReadClosed(pid: childPid, onComplete: onExit)
+      } else {
+        ptyTrace(
+          "exit", pid: childPid,
+          "final-drain → .drained → defer markReadClosed to read-source fallback")
       }
 
       state.setExitReason(exitReason, pid: childPid, onComplete: onExit)
@@ -255,36 +265,38 @@ public final class PTYManager {
   /// `write(2)` は短いバッファでも部分書き込みが起き得る（特に大きな paste や
   /// 連続入力）。全バイト書き切るまで loop し、`EINTR` は retry、`EAGAIN` /
   /// `EWOULDBLOCK` は短い sleep で待つ。`EPIPE` 等の致命的 errno は諦める。
+  /// state 経由で書き込むことで、close 後 race で EBADF / 別 fd 誤書き込みを防ぐ。
   public func write(_ data: Data) {
-    guard primaryFd >= 0 else { return }
+    guard let state else { return }
     data.withUnsafeBytes { buffer in
       guard let base = buffer.baseAddress else { return }
       let total = buffer.count
       var written = 0
       while written < total {
-        let n = Darwin.write(primaryFd, base.advanced(by: written), total - written)
-        if n > 0 {
+        let result = state.write(base.advanced(by: written), len: total - written)
+        switch result {
+        case .closed:
+          return
+        case .wrote(let n):
           written += n
-          continue
+        case .retry(let err):
+          if err == EAGAIN || err == EWOULDBLOCK {
+            // PTY master は通常 blocking だが、念のため 1ms 待って retry。
+            // busy-loop 暴走を避ける。
+            usleep(1_000)
+            continue
+          }
+          // EINTR は即時 retry
+          if err == EINTR { continue }
+          return
         }
-        let err = errno
-        if err == EINTR { continue }
-        if err == EAGAIN || err == EWOULDBLOCK {
-          // PTY master は通常 blocking だが、念のため 1ms 待って retry。
-          // busy-loop 暴走を避ける。
-          usleep(1_000)
-          continue
-        }
-        return
       }
     }
   }
 
   /// terminal サイズを子プロセスに通知する（xterm.js のリサイズ連動）。
   public func resize(rows: UInt16, cols: UInt16) {
-    guard primaryFd >= 0 else { return }
-    var ws = winsize(ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0)
-    _ = ioctl(primaryFd, TIOCSWINSZ, &ws)
+    state?.resize(rows: rows, cols: cols)
   }
 
   /// 子プロセスに SIGHUP を送る。SIGTERM は interactive zsh が無視するため不可。
@@ -295,7 +307,11 @@ public final class PTYManager {
 }
 
 public enum PTYError: Error, Equatable {
-  /// `gozd_pty_spawn`（openpty + fork）の失敗。errno で内訳判別する。
+  /// `openpty(3)` の失敗（C bridge 戻り値 -1）。
+  case openptyFailed(errno: Int32)
+  /// `fork(2)` の失敗（C bridge 戻り値 -2）。
+  case forkFailed(errno: Int32)
+  /// 想定外の戻り値（fallback）。通常到達しない。
   case spawnFailed(errno: Int32)
   /// spawn 前段の strdup などで OOM 検出した場合。spawn syscall 自体は呼ばれていないので
   /// `spawnFailed` を流用すると上位 log で失敗 syscall を取り違える。
@@ -326,22 +342,35 @@ public enum PTYExitReason: Sendable, Equatable {
   }
 }
 
-/// `PTYManager.spawn` の readSource / exitSource ハンドラ間で共有する終了確定状態。
+/// `PTYFinishState.write` の戻り値。
+/// 旧来の `Int` 戻り値 + `errno` 経由通知より明示的にする。
+enum PTYWriteResult {
+  /// `n` バイト書き込めた（partial / full）。
+  case wrote(Int)
+  /// EINTR / EAGAIN / EWOULDBLOCK。`errno` を含める。呼び出し側が retry / sleep を判断する。
+  case retry(Int32)
+  /// fd は close 済み、または致命的 errno（EBADF / EPIPE 等）。呼び出し側は書き込みを諦める。
+  case closed
+}
+
+/// `PTYManager.spawn` の readSource / exitSource ハンドラ間で共有する終了確定状態 + fd 所有者。
 /// 両ハンドラは同じ per-PTY serial queue に載っており、queue 自体が直列化を保証する。
 /// それでも `@Sendable` クロージャに reference 型をキャプチャする以上、
 /// Swift 6.2 の strict concurrency が Sendable を要求するため `@unchecked Sendable` を
 /// 付ける。NSLock を併用して値変更を atomic にし、queue 直列化と二重防御にする。
 ///
+/// **SSOT**: primary (master) / secondary (slave) fd の保持・close 判定・write / resize の
+/// race ガードを全てここで行う。`PTYManager` 側は fd 番号を持たず、本 state 経由で操作する。
+/// これにより close 後に write が EBADF / 別 fd 誤書き込みするレースを防ぐ。
+///
 /// finish の意味は「readClosed && exitReason」の両方が揃った時で、その時に 1 度だけ
-/// `onComplete(reason)` を呼び、`primaryFd` を close する。fd close をここに集約する
-/// ことで、readSource cancel と exit handler の final drain が同 fd を競合 close する
-/// 事故を避ける。
+/// `onComplete(reason)` を呼び、`primaryFd` を close する。
 ///
 /// `secondaryFd` は親側で保持する slave fd。child の `_exit` で tty reference が 0 に
 /// なって ttyflush で出力が drop するのを防ぐアンカー（issue #544 / 方針 A）。
 /// `closeSecondary` で exit handler が drain 済みのタイミングで close する。leak を防ぐ
-/// ため `deinit` でも未 close なら close する。
-private final class PTYFinishState: @unchecked Sendable {
+/// ため `deinit` でも未 close なら state 経由で close する（lock + フラグで double close 防ぐ）。
+final class PTYFinishState: @unchecked Sendable {
   private let lock = NSLock()
   private let primaryFd: Int32
   private let secondaryFd: Int32
@@ -368,13 +397,38 @@ private final class PTYFinishState: @unchecked Sendable {
   /// ttyclose → ttyflush を起こす。drain 済みのタイミングで呼べば flush 対象は空。
   func closeSecondary(pid: Int32 = 0) {
     lock.lock()
-    let already = secondaryClosed
-    if !secondaryClosed {
+    let closedNow = !secondaryClosed
+    if closedNow {
       secondaryClosed = true
       close(secondaryFd)
     }
     lock.unlock()
-    ptyTrace("fin", pid: pid, "closeSecondary fd=\(secondaryFd) already=\(already)")
+    ptyTrace("fin", pid: pid, "closeSecondary fd=\(secondaryFd) closed-now=\(closedNow)")
+  }
+
+  /// `PTYManager.write` から呼ぶ writer。close 済みなら `.closed` を返す。
+  /// EAGAIN / EINTR / EWOULDBLOCK は `.retry(errno)`、それ以外の致命的 errno は `.closed` に
+  /// 倒す（write 経路で EBADF を観測したら以後の write は意味が無い）。
+  func write(_ ptr: UnsafeRawPointer, len: Int) -> PTYWriteResult {
+    lock.lock()
+    defer { lock.unlock() }
+    if primaryClosed { return .closed }
+    let n = Darwin.write(primaryFd, ptr, len)
+    if n > 0 { return .wrote(n) }
+    let err = errno
+    if err == EINTR || err == EAGAIN || err == EWOULDBLOCK {
+      return .retry(err)
+    }
+    return .closed
+  }
+
+  /// terminal サイズ通知。close 済みなら no-op。
+  func resize(rows: UInt16, cols: UInt16) {
+    lock.lock()
+    defer { lock.unlock() }
+    if primaryClosed { return }
+    var ws = winsize(ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0)
+    _ = ioctl(primaryFd, TIOCSWINSZ, &ws)
   }
 
   func markReadClosed(pid: Int32 = 0, onComplete: (PTYExitReason) -> Void) {
@@ -416,13 +470,17 @@ private final class PTYFinishState: @unchecked Sendable {
   }
 
   /// PTYManager が finish 前に解放された場合の保険。double close は各フラグで防ぐ。
+  /// `deinit` は ARC 経由で任意の thread から呼ばれ得るため、lock を取って flag を見て
+  /// から close する（直接 close すると finish 経路と double close の余地が残る）。
   deinit {
-    if !primaryClosed {
-      close(primaryFd)
-    }
-    if !secondaryClosed {
-      close(secondaryFd)
-    }
+    lock.lock()
+    let primaryNeedsClose = !primaryClosed
+    let secondaryNeedsClose = !secondaryClosed
+    if primaryNeedsClose { primaryClosed = true }
+    if secondaryNeedsClose { secondaryClosed = true }
+    lock.unlock()
+    if primaryNeedsClose { close(primaryFd) }
+    if secondaryNeedsClose { close(secondaryFd) }
   }
 }
 

@@ -1,4 +1,5 @@
 #include "CPty.h"
+#include <errno.h>
 
 int gozd_pty_spawn(
     int *out_master,
@@ -22,7 +23,7 @@ int gozd_pty_spawn(
         close(master);
         close(slave);
         errno = err;
-        return -1;
+        return -2;
     }
 
     if (pid == 0) {
@@ -49,14 +50,32 @@ int gozd_pty_spawn(
         // 子側で master を閉じる。child は slave 側だけ持つ。
         close(master);
         // setsid + TIOCSCTTY + dup2(slave, 0/1/2) + close(slave > 2) を 1 呼び出しで行う。
-        // forkpty が内部で呼んでいるのと同じ標準ヘルパー。
-        login_tty(slave);
+        // forkpty が内部で呼んでいるのと同じ標準ヘルパー。失敗時は親が
+        // PTYExitReason.exited(code: 125) として観測できるよう専用 exit code で抜ける。
+        if (login_tty(slave) == -1) {
+            _exit(125);
+        }
 
         if (cwd != NULL) {
-            (void)chdir(cwd);
+            // chdir 失敗（権限なし / ENOENT / symlink 切れ等）を silent に握り潰すと、
+            // 子は親の cwd か `/` で execve に進み production で「想定外のディレクトリ
+            // で claude が起動して別 repo を見る」等の症状が出るが原因が観測できなく
+            // なる。専用 exit code で親に伝える。
+            if (chdir(cwd) != 0) {
+                _exit(124);
+            }
         }
         execve(executable, argv, envp);
-        _exit(127);
+        // execve 失敗時は errno に応じて POSIX shell 慣例の exit code に倒す。
+        // 親は exit code から失敗 syscall + 大まかな errno を判別できる。
+        switch (errno) {
+            case EACCES:
+                _exit(126);
+            case ENOENT:
+                _exit(127);
+            default:
+                _exit(123);
+        }
     }
 
     // parent

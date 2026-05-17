@@ -475,6 +475,36 @@ struct GitOpsDiffHunksTests {
       // expected
     }
   }
+
+  @Test("新規ファイル相当 (original 空 / current あり) は `@@ -0,0 +1,N @@` で hunk を返す")
+  func addedFileLikeDiff() async throws {
+    let r = try await GitOps.diffHunks(original: "", current: "a\nb\nc\n")
+    #expect(r.hunks.count == 1)
+    let h = r.hunks[0]
+    // unified diff 規約: 旧側が空のとき oldStart=0, oldLines=0
+    #expect(h.oldStart == 0)
+    #expect(h.oldLines == 0)
+    #expect(h.newStart == 1)
+    #expect(h.newLines == 3)
+    #expect(h.lines.allSatisfy { $0.kind == .added })
+    #expect(r.oldTotalLines == 0)
+    #expect(r.newTotalLines == 3)
+  }
+
+  @Test("削除ファイル相当 (original あり / current 空) は `@@ -1,N +0,0 @@` で hunk を返す")
+  func deletedFileLikeDiff() async throws {
+    let r = try await GitOps.diffHunks(original: "a\nb\nc\n", current: "")
+    #expect(r.hunks.count == 1)
+    let h = r.hunks[0]
+    #expect(h.oldStart == 1)
+    #expect(h.oldLines == 3)
+    // 新側が空のとき newStart=0, newLines=0
+    #expect(h.newStart == 0)
+    #expect(h.newLines == 0)
+    #expect(h.lines.allSatisfy { $0.kind == .removed })
+    #expect(r.oldTotalLines == 3)
+    #expect(r.newTotalLines == 0)
+  }
 }
 
 @Suite("GitOps.countDiffLines")

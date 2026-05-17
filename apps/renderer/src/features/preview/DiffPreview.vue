@@ -117,8 +117,15 @@ function hunksToViewItems(hs: DiffHunk[], oldTotal: number, newTotal: number): D
   let prevNewEnd = 0;
 
   for (const h of hs) {
-    const oldGap = h.oldStart - prevOldEnd - 1;
-    const newGap = h.newStart - prevNewEnd - 1;
+    // unified diff の `@@ -0,0 +A,B @@` (新規ファイル) や `@@ -X,Y +0,0 @@` (削除ファイル) では
+    // 該当 side の start = 0, lines = 0 になる。この side には gap も末尾も存在しないため、
+    // gap 計算ではあたかも `prevEnd + 1` から始まる 0 長 hunk とみなして 0 にする。
+    // この正規化を入れないと `0 - 0 - 1 = -1` の負 gap が出て、invariant 違反として throw される
+    // (新規ファイル / 削除ファイルの diff プレビューが壊れる)。
+    const effectiveOldStart = h.oldLines === 0 ? prevOldEnd + 1 : h.oldStart;
+    const effectiveNewStart = h.newLines === 0 ? prevNewEnd + 1 : h.newStart;
+    const oldGap = effectiveOldStart - prevOldEnd - 1;
+    const newGap = effectiveNewStart - prevNewEnd - 1;
     if (oldGap !== newGap) {
       throw new Error(
         `unified diff invariant violation between hunks: oldGap=${oldGap} newGap=${newGap}`,
@@ -154,8 +161,9 @@ function hunksToViewItems(hs: DiffHunk[], oldTotal: number, newTotal: number): D
         newLine += 1;
       }
     }
-    prevOldEnd = h.oldStart + h.oldLines - 1;
-    prevNewEnd = h.newStart + h.newLines - 1;
+    // 0-line side では prevEnd を更新しない (`oldStart + oldLines - 1 = -1` になるため)。
+    if (h.oldLines > 0) prevOldEnd = h.oldStart + h.oldLines - 1;
+    if (h.newLines > 0) prevNewEnd = h.newStart + h.newLines - 1;
   }
 
   const oldTrailing = oldTotal - prevOldEnd;

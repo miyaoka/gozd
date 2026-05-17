@@ -81,19 +81,19 @@ interface DiffBarItem {
 type DiffViewItem = DiffLineItem | DiffBarItem;
 
 /**
- * Diff 取得の状態。idle / loading / success / error の 4 状態を discriminated union で表現する。
+ * Diff 取得の状態。loading / success / error の 3 状態を discriminated union で表現する。
  * 旧実装は loading / error / hasResult / viewItems の 4 ref で表現していたが、無効状態 (loading=true
  * かつ error 立ち / hasResult=true かつ error 立ち) が型上許され、再 fetch のたびに 4 ref を漏れなく
  * リセットする必要があった。union に集約することで、template 側の `v-if` も `state.kind` で網羅できる。
+ * watch は `immediate: true` で初回から `loading` 始まりになるので idle 状態は持たない。
  */
 type DiffState =
-  | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "success"; items: DiffViewItem[]; oldTotal: number; newTotal: number }
   | { kind: "error"; message: string };
 
 const notification = useNotificationStore();
-const state = ref<DiffState>({ kind: "idle" });
+const state = ref<DiffState>({ kind: "loading" });
 
 /**
  * hunk 配列を render 用の view item 列に展開する。pure (例外送出を除き副作用なし)。
@@ -207,10 +207,6 @@ watch(
   { immediate: true },
 );
 
-const viewItems = computed<DiffViewItem[]>(() =>
-  state.value.kind === "success" ? state.value.items : [],
-);
-
 const lineNoWidth = computed(() => {
   const s = state.value;
   if (s.kind !== "success") return "1ch";
@@ -266,9 +262,10 @@ watch(
  * template 側 `v-if="row.tokens"` で fallback renderer に倒すため壊れはしない。
  */
 const renderRows = computed(() => {
+  if (state.value.kind !== "success") return [];
   const orig = originalTokens.value;
   const curr = currentTokens.value;
-  return viewItems.value.map((item) => {
+  return state.value.items.map((item) => {
     if (item.type === "hunk-bar") return item;
     let tokens: ThemedToken[] | undefined;
     if (orig && curr) {

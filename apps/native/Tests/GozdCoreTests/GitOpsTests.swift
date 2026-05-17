@@ -202,6 +202,59 @@ struct GitOpsRunGitLargeOutputTests {
   }
 }
 
+@Suite("GitOps.buildNonInteractiveEnv")
+struct BuildNonInteractiveEnvTests {
+  @Test("GIT_TERMINAL_PROMPT は常に 0 に固定される")
+  func terminalPromptForcedOff() {
+    let env = buildNonInteractiveEnv(base: [:])
+    #expect(env["GIT_TERMINAL_PROMPT"] == "0")
+  }
+
+  @Test("GIT_SSH_COMMAND 未設定なら `ssh -o BatchMode=yes`")
+  func sshCommandDefault() {
+    let env = buildNonInteractiveEnv(base: [:])
+    #expect(env["GIT_SSH_COMMAND"] == "ssh -o BatchMode=yes")
+  }
+
+  @Test("既存 GIT_SSH_COMMAND は末尾に BatchMode=yes を追記して保持する")
+  func sshCommandAppendsFlag() {
+    let env = buildNonInteractiveEnv(base: ["GIT_SSH_COMMAND": "ssh -i /custom/key"])
+    #expect(env["GIT_SSH_COMMAND"] == "ssh -i /custom/key -o BatchMode=yes")
+  }
+
+  @Test("空文字列 GIT_SSH_COMMAND は未設定扱いで ssh にフォールバックする")
+  func sshCommandEmptyFallback() {
+    let env = buildNonInteractiveEnv(base: ["GIT_SSH_COMMAND": ""])
+    #expect(env["GIT_SSH_COMMAND"] == "ssh -o BatchMode=yes")
+  }
+
+  @Test("空白のみの GIT_SSH_COMMAND は未設定扱いで ssh にフォールバックする")
+  func sshCommandWhitespaceFallback() {
+    let env = buildNonInteractiveEnv(base: ["GIT_SSH_COMMAND": "   "])
+    #expect(env["GIT_SSH_COMMAND"] == "ssh -o BatchMode=yes")
+  }
+
+  @Test("空白を含むカスタム ssh パスも上書きせず末尾追記する")
+  func sshCommandWithSpaces() {
+    let env = buildNonInteractiveEnv(base: ["GIT_SSH_COMMAND": "/path with spaces/ssh -F /cfg"])
+    #expect(env["GIT_SSH_COMMAND"] == "/path with spaces/ssh -F /cfg -o BatchMode=yes")
+  }
+
+  @Test("base に渡した他の env は変更されない")
+  func unrelatedEnvPreserved() {
+    let env = buildNonInteractiveEnv(base: ["FOO": "bar", "GIT_OPTIONAL_LOCKS": "0"])
+    #expect(env["FOO"] == "bar")
+    #expect(env["GIT_OPTIONAL_LOCKS"] == "0")
+  }
+
+  @Test("base を変更せず新規 dict を返す (副作用なし)")
+  func basePreservedAcrossCalls() {
+    let base = ["GIT_SSH_COMMAND": "ssh -F /cfg"]
+    _ = buildNonInteractiveEnv(base: base)
+    #expect(base["GIT_SSH_COMMAND"] == "ssh -F /cfg")
+  }
+}
+
 @Suite("GitOps.gitStatusFull")
 struct GitOpsStatusFullTests {
   @Test("HEAD が指す branch 名が `branchHead` に入る")

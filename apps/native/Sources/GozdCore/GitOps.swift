@@ -137,6 +137,31 @@ public enum GitOps {
     return parseWorktreePorcelain(stdout)
   }
 
+  /// `git fetch --all --no-write-fetch-head` 相当。背景自動 fetch 用。
+  ///
+  /// - `--all`: 全 remote を fetch。upstream が `origin` 以外 (fork PR workflow で
+  ///   upstream=upstream / origin=fork 等) でも UI の ahead/behind を最新化できる。
+  ///   VSCode autofetch の `"all"` モード相当
+  /// - `--no-write-fetch-head`: `FETCH_HEAD` を書き換えない。`FETCH_HEAD` は手動
+  ///   `git pull` の起点としてユーザーが意識する短期記憶で、背景 fetch が
+  ///   上書きするとユーザーの「最後に fetch した内容」感覚が壊れる
+  /// - `--prune` は付けない: リモートで削除された branch がローカル refs から消えると
+  ///   サイドバー表示も同期して消え、ユーザーが混乱する。明示操作に残す
+  /// - `--tags` は付けない: 重く、ahead/behind 計算には不要
+  ///
+  /// 非対話化:
+  ///
+  /// - `GIT_TERMINAL_PROMPT=0`: HTTPS の credential prompt を抑止し、認証情報が
+  ///   無い場合は即座に exit 128 で失敗させる (hang 防止)
+  /// - `GIT_SSH_COMMAND` 末尾に ` -o BatchMode=yes`: SSH の passphrase / known_hosts
+  ///   prompt を抑止。agent / key が無効なら即失敗
+  ///
+  /// 失敗は throw する。呼び出し側で「offline / 認証失敗等は静かに飲み込む」判断をする。
+  public static func fetchRemotes(dir: String) async throws {
+    _ = try await runGitNonInteractive(
+      args: ["fetch", "--all", "--no-write-fetch-head"], cwd: dir)
+  }
+
   public struct LogResult: Sendable {
     public let headCommits: [CommitInfo]
     public let defaultBranchCommits: [CommitInfo]
@@ -666,6 +691,65 @@ func runGit(args: [String], cwd: String) async throws -> Data {
     await CommandResolver.shared.invalidate("git")
     return try await runGitOnce(gitPath: try await resolveGitPath(), args: args, cwd: cwd)
   }
+}
+
+/// 非対話 git 起動用の env を組み立てる。pure function (テスト可能)。
+///
+/// - `GIT_TERMINAL_PROMPT=0`: HTTPS credential prompt を抑止
+/// - `GIT_SSH_COMMAND` には ` -o BatchMode=yes` を末尾に追記する。完全上書きすると
+///   ユーザーが ProxyCommand 等を env に設定しているケースを壊すため、既存値を保つ。
+///   ただし空文字列 / 空白のみは「未設定」と等価扱いにする。そのまま追記すると
+///   先頭の ssh 実行ファイル名が消えて " -o BatchMode=yes" になり ssh が起動できない
+///
+/// `base` には `gozdGitEnv()` 等の親 env を渡す。新規 dict を返し副作用は持たない。
+public func buildNonInteractiveEnv(base: [String: String]) -> [String: String] {
+  var env = base
+  env["GIT_TERMINAL_PROMPT"] = "0"
+  let trimmed = env["GIT_SSH_COMMAND"]?.trimmingCharacters(in: .whitespaces) ?? ""
+  let existingSsh = trimmed.isEmpty ? "ssh" : trimmed
+  env["GIT_SSH_COMMAND"] = "\(existingSsh) -o BatchMode=yes"
+  return env
+}
+
+/// 認証 prompt を完全に塞いで git を起動する。HTTPS / SSH のどちらでも背景 fetch が
+/// passphrase / username 入力で hang するのを防ぐため、`fetch` 等のリモート操作専用。
+func runGitNonInteractive(args: [String], cwd: String) async throws -> Data {
+  do {
+    return try await runGitNonInteractiveOnce(
+      gitPath: try await resolveGitPath(), args: args, cwd: cwd)
+  } catch GitError.launchFailed {
+    await CommandResolver.shared.invalidate("git")
+    return try await runGitNonInteractiveOnce(
+      gitPath: try await resolveGitPath(), args: args, cwd: cwd)
+  }
+}
+
+private func runGitNonInteractiveOnce(gitPath: String, args: [String], cwd: String) async throws
+  -> Data
+{
+  let process = Process()
+  process.executableURL = URL(fileURLWithPath: gitPath)
+  process.arguments = args
+  process.currentDirectoryURL = URL(fileURLWithPath: cwd)
+  process.environment = buildNonInteractiveEnv(base: gozdGitEnv())
+
+  let stdoutPipe = Pipe()
+  let stderrPipe = Pipe()
+  process.standardOutput = stdoutPipe
+  process.standardError = stderrPipe
+
+  let (stdoutData, stderrData) = try await runProcessCollectingOutput(
+    process: process,
+    stdoutPipe: stdoutPipe,
+    stderrPipe: stderrPipe
+  )
+
+  if process.terminationStatus == 0 {
+    return stdoutData
+  }
+  throw GitError.commandFailed(
+    exitCode: process.terminationStatus,
+    stderr: String(decoding: stderrData, as: UTF8.self))
 }
 
 private func runGitOnce(gitPath: String, args: [String], cwd: String) async throws -> Data {

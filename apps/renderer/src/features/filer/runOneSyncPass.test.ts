@@ -4,7 +4,15 @@ import { collectFsWatchTargetDirs, type RepoState } from "../../shared/repo";
 import { runOneSyncPass, type SyncPassDeps } from "./runOneSyncPass";
 
 function wt(path: string, branch: string, isMain = false): WorktreeEntry {
-  return { path, head: "", branch, isMain, gitStatuses: {}, tasks: [] };
+  return {
+    path,
+    head: "",
+    branch,
+    isMain,
+    gitStatuses: {},
+    tasks: [],
+    upstream: undefined,
+  };
 }
 
 /**

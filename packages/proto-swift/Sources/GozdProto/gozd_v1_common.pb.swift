@@ -76,6 +76,38 @@ public struct Gozd_V1_WorktreeEntry: Sendable {
 
   public var tasks: [Gozd_V1_Task] = []
 
+  /// upstream（追跡リモートブランチ）に対する差分。upstream 未設定なら不在。
+  /// optional により「未設定」をフィールド不在で表現し、ahead/behind を見るには
+  /// upstream 自体の存在をチェックする契約を型レベルで強制する。
+  public var upstream: Gozd_V1_UpstreamStatus {
+    get {_upstream ?? Gozd_V1_UpstreamStatus()}
+    set {_upstream = newValue}
+  }
+  /// Returns true if `upstream` has been explicitly set.
+  public var hasUpstream: Bool {self._upstream != nil}
+  /// Clears the value of `upstream`. Subsequent reads from it will return its default value.
+  public mutating func clearUpstream() {self._upstream = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _upstream: Gozd_V1_UpstreamStatus? = nil
+}
+
+/// upstream（追跡リモートブランチ）との差分。`git status --porcelain=v2 --branch` の
+/// `# branch.ab` 行に対応。upstream 自体が未設定のときはこの message ごと不在になる。
+public struct Gozd_V1_UpstreamStatus: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// upstream に対して先行しているローカルコミット数（未 push）。
+  public var ahead: UInt32 = 0
+
+  /// upstream に対して遅れているリモートコミット数（未 pull）。
+  public var behind: UInt32 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -320,7 +352,7 @@ extension Gozd_V1_GhRefKind: SwiftProtobuf._ProtoNameProviding {
 
 extension Gozd_V1_WorktreeEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WorktreeEntry"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}head\0\u{1}branch\0\u{3}is_main\0\u{3}git_statuses\0\u{1}tasks\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}head\0\u{1}branch\0\u{3}is_main\0\u{3}git_statuses\0\u{1}tasks\0\u{1}upstream\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -334,12 +366,17 @@ extension Gozd_V1_WorktreeEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
       case 4: try { try decoder.decodeSingularBoolField(value: &self.isMain) }()
       case 5: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString,SwiftProtobuf.ProtobufString>.self, value: &self.gitStatuses) }()
       case 6: try { try decoder.decodeRepeatedMessageField(value: &self.tasks) }()
+      case 7: try { try decoder.decodeSingularMessageField(value: &self._upstream) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.path.isEmpty {
       try visitor.visitSingularStringField(value: self.path, fieldNumber: 1)
     }
@@ -358,6 +395,9 @@ extension Gozd_V1_WorktreeEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
     if !self.tasks.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.tasks, fieldNumber: 6)
     }
+    try { if let v = self._upstream {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -368,6 +408,42 @@ extension Gozd_V1_WorktreeEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
     if lhs.isMain != rhs.isMain {return false}
     if lhs.gitStatuses != rhs.gitStatuses {return false}
     if lhs.tasks != rhs.tasks {return false}
+    if lhs._upstream != rhs._upstream {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_UpstreamStatus: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".UpstreamStatus"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}ahead\0\u{1}behind\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.ahead) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.behind) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.ahead != 0 {
+      try visitor.visitSingularUInt32Field(value: self.ahead, fieldNumber: 1)
+    }
+    if self.behind != 0 {
+      try visitor.visitSingularUInt32Field(value: self.behind, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_UpstreamStatus, rhs: Gozd_V1_UpstreamStatus) -> Bool {
+    if lhs.ahead != rhs.ahead {return false}
+    if lhs.behind != rhs.behind {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

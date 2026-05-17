@@ -6,6 +6,7 @@
 
 /* eslint-disable */
 import { BinaryReader, BinaryWriter } from "@bufbuild/protobuf/wire";
+import { UpstreamStatus } from "./common";
 
 export const protobufPackage = "gozd.v1";
 
@@ -26,6 +27,8 @@ export interface GitStatusResponse {
    * 値は常に長さ 2 の文字列。1 文字目 = index 状態、2 文字目 = working tree 状態。
    */
   entries: { [key: string]: string };
+  /** upstream に対する差分。未設定なら不在。 */
+  upstream?: UpstreamStatus | undefined;
 }
 
 export interface GitStatusResponse_EntriesEntry {
@@ -92,7 +95,7 @@ export const GitStatusRequest: MessageFns<GitStatusRequest> = {
 };
 
 function createBaseGitStatusResponse(): GitStatusResponse {
-  return { entries: {} };
+  return { entries: {}, upstream: undefined };
 }
 
 export const GitStatusResponse: MessageFns<GitStatusResponse> = {
@@ -100,6 +103,9 @@ export const GitStatusResponse: MessageFns<GitStatusResponse> = {
     globalThis.Object.entries(message.entries).forEach(([key, value]: [string, string]) => {
       GitStatusResponse_EntriesEntry.encode({ key: key as any, value }, writer.uint32(10).fork()).join();
     });
+    if (message.upstream !== undefined) {
+      UpstreamStatus.encode(message.upstream, writer.uint32(18).fork()).join();
+    }
     return writer;
   },
 
@@ -119,6 +125,14 @@ export const GitStatusResponse: MessageFns<GitStatusResponse> = {
           if (entry1.value !== undefined) {
             message.entries[entry1.key] = entry1.value;
           }
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.upstream = UpstreamStatus.decode(reader, reader.uint32());
           continue;
         }
       }
@@ -141,6 +155,7 @@ export const GitStatusResponse: MessageFns<GitStatusResponse> = {
           {},
         )
         : {},
+      upstream: isSet(object.upstream) ? UpstreamStatus.fromJSON(object.upstream) : undefined,
     };
   },
 
@@ -154,6 +169,9 @@ export const GitStatusResponse: MessageFns<GitStatusResponse> = {
           obj.entries[k] = v;
         });
       }
+    }
+    if (message.upstream !== undefined) {
+      obj.upstream = UpstreamStatus.toJSON(message.upstream);
     }
     return obj;
   },
@@ -172,6 +190,9 @@ export const GitStatusResponse: MessageFns<GitStatusResponse> = {
       },
       {},
     );
+    message.upstream = (object.upstream !== undefined && object.upstream !== null)
+      ? UpstreamStatus.fromPartial(object.upstream)
+      : undefined;
     return message;
   },
 };

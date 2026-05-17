@@ -48,7 +48,10 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
     const result = await tryCatch(rpcGitStatus({ dir }));
     if (repoStore.getGitStatusGen(dir) !== startGen) return;
     if (result.ok) {
-      repoStore.setWorktreeGitStatuses(dir, result.value.entries);
+      repoStore.setWorktreeGitStatuses(dir, {
+        statuses: result.value.entries,
+        upstream: result.value.upstream,
+      });
     } else {
       const notify = useNotificationStore();
       notify.error("Failed to get git status", result.error);

@@ -1,4 +1,4 @@
-import { AppState, type WorktreeEntry } from "@gozd/proto";
+import { AppState, type UpstreamStatus, type WorktreeEntry } from "@gozd/proto";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
 
@@ -167,7 +167,11 @@ export const useRepoStore = defineStore("repo", () => {
           // fetch 中に push / 単発更新が走っていた → 現値を保持
           const fresher = current.worktrees.find((w) => w.path === wt.path);
           if (fresher !== undefined) {
-            return { ...wt, gitStatuses: fresher.gitStatuses };
+            return {
+              ...wt,
+              gitStatuses: fresher.gitStatuses,
+              upstream: fresher.upstream,
+            };
           }
         }
         return wt;
@@ -214,21 +218,31 @@ export const useRepoStore = defineStore("repo", () => {
     }
   }
 
+  interface WorktreeStatusPatch {
+    statuses: Record<string, string>;
+    /** upstream 未設定なら undefined。`hasUpstream` のような boolean を併持しない */
+    upstream: UpstreamStatus | undefined;
+  }
+
   /**
-   * 任意 dir に対応する worktree の gitStatuses だけをピンポイント更新する。
+   * 任意 dir に対応する worktree の gitStatuses + upstream 情報をピンポイント更新する。
    * gitStatusChange push / 単発の rpcGitStatus 結果を反映する経路で使用。
    * dir に該当する worktree が見つからなければ no-op。
    * 書き込み毎に per-dir 世代を進め、in-flight な loadGitStatus / fetchRepo の
    * 古いレスポンスがこの値を上書きできないようにする。
    */
-  function setWorktreeGitStatuses(dir: string, statuses: Record<string, string>) {
+  function setWorktreeGitStatuses(dir: string, patch: WorktreeStatusPatch) {
     const repo = findRepoOwning(dir);
     if (repo === undefined) return;
     const idx = repo.worktrees.findIndex((wt) => wt.path === dir);
     if (idx < 0) return;
     gitStatusGenByDir.set(dir, (gitStatusGenByDir.get(dir) ?? 0) + 1);
     const next = [...repo.worktrees];
-    next[idx] = { ...next[idx], gitStatuses: statuses };
+    next[idx] = {
+      ...next[idx],
+      gitStatuses: patch.statuses,
+      upstream: patch.upstream,
+    };
     repos.value[repo.rootDir] = { ...repo, worktrees: next };
   }
 

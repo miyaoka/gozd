@@ -288,6 +288,24 @@ export interface GitViewerResponse {
 }
 
 /**
+ * gitFetchRemotes: `git fetch --all --no-write-fetch-head` 相当。
+ * 背景自動 fetch で refs/remotes/<remote>/* を更新し、status 経路 (FSWatchRegistry →
+ * gitStatusFull → gitStatusChange push) を介して各 worktree の ahead/behind を最新化する。
+ * upstream が origin 以外 (例: fork PR workflow で upstream=upstream / origin=fork) でも
+ * 全 remote を更新できるよう --all を採用。VSCode autofetch の "all" モード相当。
+ * 失敗 (offline / 認証失敗等) は ok=false + error_detail で返し、呼び出し側で握り潰す。
+ */
+export interface GitFetchRemotesRequest {
+  dir: string;
+}
+
+export interface GitFetchRemotesResponse {
+  ok: boolean;
+  /** 失敗時の stderr 冒頭 (debug 用、最大 512B 程度に切り詰める) */
+  errorDetail: string;
+}
+
+/**
  * gitDefaultBranch: `git worktree add -b <new> <abs> <ref>` の `<ref>` にそのまま渡せる
  * 「default branch ref」を返す。新規 worktree 作成時の起点を一意に決めるために使う。
  * 解決順序は二段 fallback:
@@ -2109,6 +2127,144 @@ export const GitViewerResponse: MessageFns<GitViewerResponse> = {
     message.ok = object.ok ?? false;
     message.login = object.login ?? "";
     message.errorKind = object.errorKind ?? 0;
+    message.errorDetail = object.errorDetail ?? "";
+    return message;
+  },
+};
+
+function createBaseGitFetchRemotesRequest(): GitFetchRemotesRequest {
+  return { dir: "" };
+}
+
+export const GitFetchRemotesRequest: MessageFns<GitFetchRemotesRequest> = {
+  encode(message: GitFetchRemotesRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitFetchRemotesRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitFetchRemotesRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitFetchRemotesRequest {
+    return { dir: isSet(object.dir) ? globalThis.String(object.dir) : "" };
+  },
+
+  toJSON(message: GitFetchRemotesRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitFetchRemotesRequest>): GitFetchRemotesRequest {
+    return GitFetchRemotesRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitFetchRemotesRequest>): GitFetchRemotesRequest {
+    const message = createBaseGitFetchRemotesRequest();
+    message.dir = object.dir ?? "";
+    return message;
+  },
+};
+
+function createBaseGitFetchRemotesResponse(): GitFetchRemotesResponse {
+  return { ok: false, errorDetail: "" };
+}
+
+export const GitFetchRemotesResponse: MessageFns<GitFetchRemotesResponse> = {
+  encode(message: GitFetchRemotesResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.ok !== false) {
+      writer.uint32(8).bool(message.ok);
+    }
+    if (message.errorDetail !== "") {
+      writer.uint32(18).string(message.errorDetail);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitFetchRemotesResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitFetchRemotesResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.ok = reader.bool();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.errorDetail = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitFetchRemotesResponse {
+    return {
+      ok: isSet(object.ok) ? globalThis.Boolean(object.ok) : false,
+      errorDetail: isSet(object.errorDetail)
+        ? globalThis.String(object.errorDetail)
+        : isSet(object.error_detail)
+        ? globalThis.String(object.error_detail)
+        : "",
+    };
+  },
+
+  toJSON(message: GitFetchRemotesResponse): unknown {
+    const obj: any = {};
+    if (message.ok !== false) {
+      obj.ok = message.ok;
+    }
+    if (message.errorDetail !== "") {
+      obj.errorDetail = message.errorDetail;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitFetchRemotesResponse>): GitFetchRemotesResponse {
+    return GitFetchRemotesResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitFetchRemotesResponse>): GitFetchRemotesResponse {
+    const message = createBaseGitFetchRemotesResponse();
+    message.ok = object.ok ?? false;
     message.errorDetail = object.errorDetail ?? "";
     return message;
   },

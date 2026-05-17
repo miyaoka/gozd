@@ -172,6 +172,21 @@ message GitViewerResponse {
   string error_detail = 4;
 }
 
+// gitFetchRemotes: `git fetch --all --no-write-fetch-head` 相当。
+// 背景自動 fetch で refs/remotes/<remote>/* を更新し、status 経路 (FSWatchRegistry →
+// gitStatusFull → gitStatusChange push) を介して各 worktree の ahead/behind を最新化する。
+// upstream が origin 以外 (例: fork PR workflow で upstream=upstream / origin=fork) でも
+// 全 remote を更新できるよう --all を採用。VSCode autofetch の "all" モード相当。
+// 失敗 (offline / 認証失敗等) は ok=false + error_detail で返し、呼び出し側で握り潰す。
+message GitFetchRemotesRequest {
+  string dir = 1;
+}
+message GitFetchRemotesResponse {
+  bool ok = 1;
+  // 失敗時の stderr 冒頭 (debug 用、最大 512B 程度に切り詰める)
+  string error_detail = 2;
+}
+
 // gitDefaultBranch: `git worktree add -b <new> <abs> <ref>` の `<ref>` にそのまま渡せる
 // 「default branch ref」を返す。新規 worktree 作成時の起点を一意に決めるために使う。
 // 解決順序は二段 fallback:

@@ -138,6 +138,20 @@ function onHeaderClick() {
           <StatusIcons :entries="statusIcons" />
         </span>
         <span
+          v-if="wt.upstream && (wt.upstream.ahead > 0 || wt.upstream.behind > 0)"
+          class="flex items-center gap-1 text-[10px] text-zinc-400 tabular-nums"
+          :title="`ahead ${wt.upstream.ahead} / behind ${wt.upstream.behind} vs upstream`"
+        >
+          <span v-if="wt.upstream.ahead > 0" class="flex items-center gap-0.5">
+            <span class="icon-[lucide--arrow-up] size-3" />
+            <span>{{ wt.upstream.ahead }}</span>
+          </span>
+          <span v-if="wt.upstream.behind > 0" class="flex items-center gap-0.5">
+            <span class="icon-[lucide--arrow-down] size-3" />
+            <span>{{ wt.upstream.behind }}</span>
+          </span>
+        </span>
+        <span
           v-if="resumeableSessionCount > 0"
           class="flex items-center gap-1 text-[10px] text-zinc-400"
           :title="`${resumeableSessionCount} resumable session${resumeableSessionCount === 1 ? '' : 's'}`"

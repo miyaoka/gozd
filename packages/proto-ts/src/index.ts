@@ -92,6 +92,8 @@ export {
   GitDefaultBranchResponse,
   GitDiffHunksRequest,
   GitDiffHunksResponse,
+  GitFetchOriginRequest,
+  GitFetchOriginResponse,
   GitIssueListRequest,
   GitIssueListResponse,
   GitLogRequest,

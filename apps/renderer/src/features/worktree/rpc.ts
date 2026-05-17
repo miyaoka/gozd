@@ -1,9 +1,17 @@
-import { GitStatusRequest, GitStatusResponse } from "@gozd/proto";
+import {
+  GitFetchOriginRequest,
+  GitFetchOriginResponse,
+  GitStatusRequest,
+  GitStatusResponse,
+} from "@gozd/proto";
 
 import { rpc } from "../../shared/rpc";
 
 export const rpcGitStatus = (req: GitStatusRequest) =>
   rpc("/git/status", req, GitStatusRequest, GitStatusResponse);
+
+export const rpcGitFetchOrigin = (req: GitFetchOriginRequest) =>
+  rpc("/git/fetchOrigin", req, GitFetchOriginRequest, GitFetchOriginResponse);
 
 // gitStatusChange push event payload
 export interface GitStatusChangePayload {

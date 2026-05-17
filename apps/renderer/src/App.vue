@@ -13,7 +13,7 @@ import {
   useTitleContextSync,
 } from "./features/layout";
 import { useGozdOpenHandler, useRepoContextKey } from "./features/sidebar";
-import { useGitStatusSync } from "./features/worktree";
+import { useGitStatusSync, useRemoteFetchSync } from "./features/worktree";
 import { useKeyBindings } from "./shared/command";
 
 useKeyBindings();
@@ -23,6 +23,7 @@ useGozdOpenHandler();
 useRepoContextKey();
 useFsWatchSync();
 useGitStatusSync();
+useRemoteFetchSync();
 useTitleContextSync();
 </script>
 

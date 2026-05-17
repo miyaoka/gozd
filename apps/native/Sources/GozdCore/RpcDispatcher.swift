@@ -343,6 +343,8 @@ public actor RpcDispatcher {
       return try await handleGitIssueList(body)
     case "/git/viewer":
       return try await handleGitViewer(body)
+    case "/git/fetchOrigin":
+      return try await handleGitFetchOrigin(body)
     case "/git/defaultBranch":
       return try await handleGitDefaultBranch(body)
     case "/git/createWorktree":
@@ -844,6 +846,24 @@ public actor RpcDispatcher {
     case .network: return .network
     case .other: return .other
     }
+  }
+
+  private func handleGitFetchOrigin(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitFetchOriginRequest(jsonUTF8Data: body)
+    var resp = Gozd_V1_GitFetchOriginResponse()
+    do {
+      try await GitOps.fetchOrigin(dir: req.dir)
+      resp.ok = true
+    } catch let GitError.commandFailed(_, stderr) {
+      // offline / 認証失敗 / origin 未設定 etc. は呼び出し側で握り潰す。
+      // stderr 冒頭のみを debug 用に積む (UI には出さない)。
+      resp.ok = false
+      resp.errorDetail = String(stderr.prefix(512))
+    } catch {
+      resp.ok = false
+      resp.errorDetail = "\(error)"
+    }
+    return try resp.jsonUTF8Data()
   }
 
   private func handleGitDefaultBranch(_ body: Data) async throws -> Data {

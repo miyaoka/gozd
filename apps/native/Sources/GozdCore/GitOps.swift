@@ -137,6 +137,28 @@ public enum GitOps {
     return parseWorktreePorcelain(stdout)
   }
 
+  /// `git fetch --no-write-fetch-head origin` 相当。背景自動 fetch 用。
+  ///
+  /// - `--no-write-fetch-head`: `FETCH_HEAD` を書き換えない。`FETCH_HEAD` は手動
+  ///   `git pull` の起点としてユーザーが意識する短期記憶で、背景 fetch が
+  ///   上書きするとユーザーの「最後に fetch した内容」感覚が壊れる
+  /// - `--prune` は付けない: リモートで削除された branch がローカル refs から消えると
+  ///   サイドバー表示も同期して消え、ユーザーが混乱する。明示操作に残す
+  /// - `--tags` は付けない: 重く、ahead/behind 計算には不要
+  ///
+  /// 非対話化:
+  ///
+  /// - `GIT_TERMINAL_PROMPT=0`: HTTPS の credential prompt を抑止し、認証情報が
+  ///   無い場合は即座に exit 128 で失敗させる (hang 防止)
+  /// - `GIT_SSH_COMMAND="ssh -o BatchMode=yes"`: SSH の passphrase / known_hosts prompt
+  ///   を抑止。agent / key が無効なら即失敗
+  ///
+  /// 失敗は throw する。呼び出し側で「offline / 認証失敗等は静かに飲み込む」判断をする。
+  public static func fetchOrigin(dir: String) async throws {
+    _ = try await runGitNonInteractive(
+      args: ["fetch", "--no-write-fetch-head", "origin"], cwd: dir)
+  }
+
   public struct LogResult: Sendable {
     public let headCommits: [CommitInfo]
     public let defaultBranchCommits: [CommitInfo]
@@ -666,6 +688,53 @@ func runGit(args: [String], cwd: String) async throws -> Data {
     await CommandResolver.shared.invalidate("git")
     return try await runGitOnce(gitPath: try await resolveGitPath(), args: args, cwd: cwd)
   }
+}
+
+/// 認証 prompt を完全に塞いで git を起動する。HTTPS / SSH のどちらでも背景 fetch が
+/// passphrase / username 入力で hang するのを防ぐため、`fetch` 等のリモート操作専用。
+func runGitNonInteractive(args: [String], cwd: String) async throws -> Data {
+  do {
+    return try await runGitNonInteractiveOnce(
+      gitPath: try await resolveGitPath(), args: args, cwd: cwd)
+  } catch GitError.launchFailed {
+    await CommandResolver.shared.invalidate("git")
+    return try await runGitNonInteractiveOnce(
+      gitPath: try await resolveGitPath(), args: args, cwd: cwd)
+  }
+}
+
+private func runGitNonInteractiveOnce(gitPath: String, args: [String], cwd: String) async throws
+  -> Data
+{
+  let process = Process()
+  process.executableURL = URL(fileURLWithPath: gitPath)
+  process.arguments = args
+  process.currentDirectoryURL = URL(fileURLWithPath: cwd)
+  var env = gozdGitEnv()
+  env["GIT_TERMINAL_PROMPT"] = "0"
+  // 既存の GIT_SSH_COMMAND があれば BatchMode=yes を末尾に足す。素の ssh だけで
+  // 上書きすると ユーザーが ProxyCommand 等を設定していたケースを壊す。
+  let existingSsh = env["GIT_SSH_COMMAND"] ?? "ssh"
+  env["GIT_SSH_COMMAND"] = "\(existingSsh) -o BatchMode=yes"
+  process.environment = env
+
+  let stdoutPipe = Pipe()
+  let stderrPipe = Pipe()
+  process.standardOutput = stdoutPipe
+  process.standardError = stderrPipe
+
+  let (stdoutData, stderrData) = try await runProcessCollectingOutput(
+    process: process,
+    stdoutPipe: stdoutPipe,
+    stderrPipe: stderrPipe
+  )
+
+  if process.terminationStatus == 0 {
+    return stdoutData
+  }
+  throw GitError.commandFailed(
+    exitCode: process.terminationStatus,
+    stderr: String(decoding: stderrData, as: UTF8.self))
 }
 
 private func runGitOnce(gitPath: String, args: [String], cwd: String) async throws -> Data {

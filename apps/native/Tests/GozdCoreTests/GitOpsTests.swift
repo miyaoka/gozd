@@ -222,6 +222,18 @@ struct BuildNonInteractiveEnvTests {
     #expect(env["GIT_SSH_COMMAND"] == "ssh -i /custom/key -o BatchMode=yes")
   }
 
+  @Test("空文字列 GIT_SSH_COMMAND は未設定扱いで ssh にフォールバックする")
+  func sshCommandEmptyFallback() {
+    let env = buildNonInteractiveEnv(base: ["GIT_SSH_COMMAND": ""])
+    #expect(env["GIT_SSH_COMMAND"] == "ssh -o BatchMode=yes")
+  }
+
+  @Test("空白のみの GIT_SSH_COMMAND は未設定扱いで ssh にフォールバックする")
+  func sshCommandWhitespaceFallback() {
+    let env = buildNonInteractiveEnv(base: ["GIT_SSH_COMMAND": "   "])
+    #expect(env["GIT_SSH_COMMAND"] == "ssh -o BatchMode=yes")
+  }
+
   @Test("空白を含むカスタム ssh パスも上書きせず末尾追記する")
   func sshCommandWithSpaces() {
     let env = buildNonInteractiveEnv(base: ["GIT_SSH_COMMAND": "/path with spaces/ssh -F /cfg"])

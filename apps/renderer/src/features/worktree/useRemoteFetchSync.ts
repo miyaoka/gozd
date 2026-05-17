@@ -18,8 +18,9 @@
  * - **repo 切替時の発射は初回のみ**。`lastFetchedAt` 未設定の repo を初めて開いた
  *   ときだけ即時 fetch する。A↔B 往復のたびに fetch を炊くと credential 消費が無駄
  * - **in-flight ロック**で同 repo 並列発射を抑止。RPC 遅延時に重複 fetch を防ぐ
- * - **失敗は console.warn に 1 行残す**。toast は出さない (通知爆発防止) が、
- *   開発者ツールから連続失敗 / errorDetail を観察できる経路は確保する
+ * - **失敗は `useNotificationStore.info` で通知**。プロジェクト規約「console.error で
+ *   握り潰さない」に従う。連射抑制は 30s backoff で効くため、トースト爆発はしない
+ *   (offline 等の継続的失敗でも 30s に 1 件)
  *
  * 後段は既存パイプに乗る: fetch が成功すると `refs/remotes/<remote>/*` が書き換わり、
  * FSWatchRegistry が gitStatusFull を再実行して `gitStatusChange` push を発射する。
@@ -28,6 +29,7 @@
 import { tryCatch } from "@gozd/shared";
 import { useWindowFocus } from "@vueuse/core";
 import { onUnmounted, watch } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { rpcGitFetchRemotes } from "./rpc";
 
@@ -38,6 +40,7 @@ const FAILURE_BACKOFF_MS = 30_000;
 
 export function useRemoteFetchSync() {
   const repoStore = useRepoStore();
+  const notify = useNotificationStore();
   const focused = useWindowFocus();
 
   /** rootDir → 「この時刻まで次の fetch を抑制」する deadline (ms epoch) */
@@ -65,17 +68,14 @@ export function useRemoteFetchSync() {
     const now = Date.now();
     if (!result.ok) {
       // RPC 層の失敗 (transport error 等)。短 backoff してリトライ可能にする
-      console.warn("[useRemoteFetchSync] RPC failed", { rootDir, error: result.error });
+      notify.info(`Background git fetch failed for ${rootDir}`, result.error);
       nextFetchAllowedAt.set(rootDir, now + FAILURE_BACKOFF_MS);
       return;
     }
     if (!result.value.ok) {
       // RPC は成功したが git fetch が失敗 (offline / 認証失敗 / remote 未設定)。
-      // errorDetail を log に残し、短 backoff で次サイクルに任せる
-      console.warn("[useRemoteFetchSync] git fetch failed", {
-        rootDir,
-        errorDetail: result.value.errorDetail,
-      });
+      // errorDetail を cause として通知し、短 backoff で次サイクルに任せる
+      notify.info(`Background git fetch failed for ${rootDir}`, result.value.errorDetail);
       nextFetchAllowedAt.set(rootDir, now + FAILURE_BACKOFF_MS);
       return;
     }

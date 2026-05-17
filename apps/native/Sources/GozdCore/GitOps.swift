@@ -697,13 +697,16 @@ func runGit(args: [String], cwd: String) async throws -> Data {
 ///
 /// - `GIT_TERMINAL_PROMPT=0`: HTTPS credential prompt を抑止
 /// - `GIT_SSH_COMMAND` には ` -o BatchMode=yes` を末尾に追記する。完全上書きすると
-///   ユーザーが ProxyCommand 等を env に設定しているケースを壊すため、既存値を保つ
+///   ユーザーが ProxyCommand 等を env に設定しているケースを壊すため、既存値を保つ。
+///   ただし空文字列 / 空白のみは「未設定」と等価扱いにする。そのまま追記すると
+///   先頭の ssh 実行ファイル名が消えて " -o BatchMode=yes" になり ssh が起動できない
 ///
 /// `base` には `gozdGitEnv()` 等の親 env を渡す。新規 dict を返し副作用は持たない。
 public func buildNonInteractiveEnv(base: [String: String]) -> [String: String] {
   var env = base
   env["GIT_TERMINAL_PROMPT"] = "0"
-  let existingSsh = env["GIT_SSH_COMMAND"] ?? "ssh"
+  let trimmed = env["GIT_SSH_COMMAND"]?.trimmingCharacters(in: .whitespaces) ?? ""
+  let existingSsh = trimmed.isEmpty ? "ssh" : trimmed
   env["GIT_SSH_COMMAND"] = "\(existingSsh) -o BatchMode=yes"
   return env
 }

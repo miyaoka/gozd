@@ -90,17 +90,6 @@ public enum GitOps {
     return parseWorktreePorcelain(stdout)
   }
 
-  /// local ブランチ名一覧。worktree 不在の孤立 branch も含む。
-  /// issue picker の `issue-<N>` 決定的命名衝突検出に使う。
-  public static func branchList(dir: String) async throws -> [String] {
-    let stdout = try await runGit(
-      args: ["for-each-ref", "--format=%(refname:short)", "refs/heads/"], cwd: dir)
-    let text = String(decoding: stdout, as: UTF8.self)
-    return text.split(whereSeparator: \.isNewline)
-      .map(String.init)
-      .filter { !$0.isEmpty }
-  }
-
   public struct LogResult: Sendable {
     public let headCommits: [CommitInfo]
     public let defaultBranchCommits: [CommitInfo]

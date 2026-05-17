@@ -343,8 +343,8 @@ public actor RpcDispatcher {
       return try await handleGitIssueList(body)
     case "/git/viewer":
       return try await handleGitViewer(body)
-    case "/git/fetchOrigin":
-      return try await handleGitFetchOrigin(body)
+    case "/git/fetchRemotes":
+      return try await handleGitFetchRemotes(body)
     case "/git/defaultBranch":
       return try await handleGitDefaultBranch(body)
     case "/git/createWorktree":
@@ -404,9 +404,12 @@ public actor RpcDispatcher {
     let status = try await GitOps.gitStatusFull(dir: req.dir)
     var resp = Gozd_V1_GitStatusResponse()
     resp.entries = status.statuses
-    resp.hasUpstream_p = status.hasUpstream
-    resp.ahead = status.ahead
-    resp.behind = status.behind
+    if status.hasUpstream {
+      var upstream = Gozd_V1_UpstreamStatus()
+      upstream.ahead = status.ahead
+      upstream.behind = status.behind
+      resp.upstream = upstream
+    }
     return try resp.jsonUTF8Data()
   }
 
@@ -621,9 +624,12 @@ public actor RpcDispatcher {
       entry.isMain = wt.isMain
       let full = fullByPath[wt.path]
       entry.gitStatuses = full?.statuses ?? [:]
-      entry.hasUpstream_p = full?.hasUpstream ?? false
-      entry.ahead = full?.ahead ?? 0
-      entry.behind = full?.behind ?? 0
+      if let full, full.hasUpstream {
+        var upstream = Gozd_V1_UpstreamStatus()
+        upstream.ahead = full.ahead
+        upstream.behind = full.behind
+        entry.upstream = upstream
+      }
       // この worktree に紐づく全 Task を埋める。1 wt = 複数 Claude session の前提で
       // session 単位の Task が複数並ぶ。
       entry.tasks = allTasks.filter { $0.worktreeDir == wt.path }
@@ -848,14 +854,14 @@ public actor RpcDispatcher {
     }
   }
 
-  private func handleGitFetchOrigin(_ body: Data) async throws -> Data {
-    let req = try Gozd_V1_GitFetchOriginRequest(jsonUTF8Data: body)
-    var resp = Gozd_V1_GitFetchOriginResponse()
+  private func handleGitFetchRemotes(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitFetchRemotesRequest(jsonUTF8Data: body)
+    var resp = Gozd_V1_GitFetchRemotesResponse()
     do {
-      try await GitOps.fetchOrigin(dir: req.dir)
+      try await GitOps.fetchRemotes(dir: req.dir)
       resp.ok = true
     } catch let GitError.commandFailed(_, stderr) {
-      // offline / 認証失敗 / origin 未設定 etc. は呼び出し側で握り潰す。
+      // offline / 認証失敗 / remote 未設定 etc. は呼び出し側で握り潰す。
       // stderr 冒頭のみを debug 用に積む (UI には出さない)。
       resp.ok = false
       resp.errorDetail = String(stderr.prefix(512))

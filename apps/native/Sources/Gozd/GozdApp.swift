@@ -233,15 +233,20 @@ final class AppRuntime {
       }
     }
     let onGitStatusChange: FSWatchRegistry.GitStatusChangeHandler = { dir, status in
-      let payload: [String: Any] = [
+      var payload: [String: Any] = [
         "dir": dir,
         "statuses": status.statuses,
         "head": status.head,
         "branchHead": status.branchHead,
-        "hasUpstream": status.hasUpstream,
-        "ahead": Int(status.ahead),
-        "behind": Int(status.behind),
       ]
+      // upstream 未設定なら upstream フィールドごと不在にする。renderer 側は
+      // `upstream === undefined` を「ahead/behind を読まない」契約として扱う。
+      if status.hasUpstream {
+        payload["upstream"] = [
+          "ahead": Int(status.ahead),
+          "behind": Int(status.behind),
+        ]
+      }
       Task { @MainActor in
         await pushToRenderer(
           page: holder.page, type: "gitStatusChange", payload: payload)

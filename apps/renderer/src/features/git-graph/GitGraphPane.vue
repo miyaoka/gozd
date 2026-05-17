@@ -217,12 +217,12 @@ watch(sortMode, () => {
 // 変化も発火条件に含めて、SSOT 経路の取りこぼしを構造的に防ぐ。
 const disposeGitStatus = onMessage<GitStatusChangePayload>(
   "gitStatusChange",
-  ({ dir, head, branchHead, hasUpstream, ahead, behind }) => {
+  ({ dir, head, branchHead, upstream }) => {
     // active worktree dir 以外の push は無視。closure 変数 (lastHead / lastBranchHead /
     // lastUpstream) は active dir の不変条件として保持しているため、別 worktree の値で
     // 上書きすると active dir に戻ったときに偽陽性で再 fetch が走る。
     if (dir !== worktreeStore.dir) return;
-    const upstreamKey = hasUpstream ? `${ahead}/${behind}` : "";
+    const upstreamKey = upstream !== undefined ? `${upstream.ahead}/${upstream.behind}` : "";
     const headChanged = head !== "" && head !== lastHead;
     const branchHeadChanged = branchHead !== lastBranchHead;
     const upstreamChanged = upstreamKey !== lastUpstream;

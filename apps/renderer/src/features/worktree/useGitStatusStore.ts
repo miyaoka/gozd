@@ -50,9 +50,7 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
     if (result.ok) {
       repoStore.setWorktreeGitStatuses(dir, {
         statuses: result.value.entries,
-        hasUpstream: result.value.hasUpstream,
-        ahead: result.value.ahead,
-        behind: result.value.behind,
+        upstream: result.value.upstream,
       });
     } else {
       const notify = useNotificationStore();

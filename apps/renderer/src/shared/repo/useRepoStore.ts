@@ -1,4 +1,4 @@
-import { AppState, type WorktreeEntry } from "@gozd/proto";
+import { AppState, type UpstreamStatus, type WorktreeEntry } from "@gozd/proto";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
 
@@ -170,9 +170,7 @@ export const useRepoStore = defineStore("repo", () => {
             return {
               ...wt,
               gitStatuses: fresher.gitStatuses,
-              hasUpstream: fresher.hasUpstream,
-              ahead: fresher.ahead,
-              behind: fresher.behind,
+              upstream: fresher.upstream,
             };
           }
         }
@@ -222,9 +220,8 @@ export const useRepoStore = defineStore("repo", () => {
 
   interface WorktreeStatusPatch {
     statuses: Record<string, string>;
-    hasUpstream: boolean;
-    ahead: number;
-    behind: number;
+    /** upstream 未設定なら undefined。`hasUpstream` のような boolean を併持しない */
+    upstream: UpstreamStatus | undefined;
   }
 
   /**
@@ -244,9 +241,7 @@ export const useRepoStore = defineStore("repo", () => {
     next[idx] = {
       ...next[idx],
       gitStatuses: patch.statuses,
-      hasUpstream: patch.hasUpstream,
-      ahead: patch.ahead,
-      behind: patch.behind,
+      upstream: patch.upstream,
     };
     repos.value[repo.rootDir] = { ...repo, worktrees: next };
   }

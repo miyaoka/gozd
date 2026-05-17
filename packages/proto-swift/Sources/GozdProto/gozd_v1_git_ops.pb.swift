@@ -491,11 +491,13 @@ public struct Gozd_V1_GitViewerResponse: Sendable {
   public init() {}
 }
 
-/// gitFetchOrigin: `git fetch --no-write-fetch-head origin` 相当。
-/// 背景自動 fetch で refs/remotes/origin/* を更新し、status 経路 (FSWatchRegistry →
+/// gitFetchRemotes: `git fetch --all --no-write-fetch-head` 相当。
+/// 背景自動 fetch で refs/remotes/<remote>/* を更新し、status 経路 (FSWatchRegistry →
 /// gitStatusFull → gitStatusChange push) を介して各 worktree の ahead/behind を最新化する。
+/// upstream が origin 以外 (例: fork PR workflow で upstream=upstream / origin=fork) でも
+/// 全 remote を更新できるよう --all を採用。VSCode autofetch の "all" モード相当。
 /// 失敗 (offline / 認証失敗等) は ok=false + error_detail で返し、呼び出し側で握り潰す。
-public struct Gozd_V1_GitFetchOriginRequest: Sendable {
+public struct Gozd_V1_GitFetchRemotesRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -507,7 +509,7 @@ public struct Gozd_V1_GitFetchOriginRequest: Sendable {
   public init() {}
 }
 
-public struct Gozd_V1_GitFetchOriginResponse: Sendable {
+public struct Gozd_V1_GitFetchRemotesResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1396,8 +1398,8 @@ extension Gozd_V1_GitViewerResponse: SwiftProtobuf.Message, SwiftProtobuf._Messa
   }
 }
 
-extension Gozd_V1_GitFetchOriginRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".GitFetchOriginRequest"
+extension Gozd_V1_GitFetchRemotesRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitFetchRemotesRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -1419,15 +1421,15 @@ extension Gozd_V1_GitFetchOriginRequest: SwiftProtobuf.Message, SwiftProtobuf._M
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Gozd_V1_GitFetchOriginRequest, rhs: Gozd_V1_GitFetchOriginRequest) -> Bool {
+  public static func ==(lhs: Gozd_V1_GitFetchRemotesRequest, rhs: Gozd_V1_GitFetchRemotesRequest) -> Bool {
     if lhs.dir != rhs.dir {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Gozd_V1_GitFetchOriginResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".GitFetchOriginResponse"
+extension Gozd_V1_GitFetchRemotesResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitFetchRemotesResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}ok\0\u{3}error_detail\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -1453,7 +1455,7 @@ extension Gozd_V1_GitFetchOriginResponse: SwiftProtobuf.Message, SwiftProtobuf._
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Gozd_V1_GitFetchOriginResponse, rhs: Gozd_V1_GitFetchOriginResponse) -> Bool {
+  public static func ==(lhs: Gozd_V1_GitFetchRemotesResponse, rhs: Gozd_V1_GitFetchRemotesResponse) -> Bool {
     if lhs.ok != rhs.ok {return false}
     if lhs.errorDetail != rhs.errorDetail {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}

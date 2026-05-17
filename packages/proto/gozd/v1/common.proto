@@ -13,13 +13,19 @@ message WorktreeEntry {
   // ファイル相対パス → porcelain v1 XY コード
   map<string, string> git_statuses = 5;
   repeated Task tasks = 6;
-  // upstream（追跡リモートブランチ）が設定されているか。
-  // false の場合 ahead / behind は意味を持たず、UI 側で表示しない。
-  bool has_upstream = 7;
+  // upstream（追跡リモートブランチ）に対する差分。upstream 未設定なら不在。
+  // optional により「未設定」をフィールド不在で表現し、ahead/behind を見るには
+  // upstream 自体の存在をチェックする契約を型レベルで強制する。
+  optional UpstreamStatus upstream = 7;
+}
+
+// upstream（追跡リモートブランチ）との差分。`git status --porcelain=v2 --branch` の
+// `# branch.ab` 行に対応。upstream 自体が未設定のときはこの message ごと不在になる。
+message UpstreamStatus {
   // upstream に対して先行しているローカルコミット数（未 push）。
-  uint32 ahead = 8;
+  uint32 ahead = 1;
   // upstream に対して遅れているリモートコミット数（未 pull）。
-  uint32 behind = 9;
+  uint32 behind = 2;
 }
 
 message Task {

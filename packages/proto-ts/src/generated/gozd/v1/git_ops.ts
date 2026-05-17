@@ -288,16 +288,18 @@ export interface GitViewerResponse {
 }
 
 /**
- * gitFetchOrigin: `git fetch --no-write-fetch-head origin` 相当。
- * 背景自動 fetch で refs/remotes/origin/* を更新し、status 経路 (FSWatchRegistry →
+ * gitFetchRemotes: `git fetch --all --no-write-fetch-head` 相当。
+ * 背景自動 fetch で refs/remotes/<remote>/* を更新し、status 経路 (FSWatchRegistry →
  * gitStatusFull → gitStatusChange push) を介して各 worktree の ahead/behind を最新化する。
+ * upstream が origin 以外 (例: fork PR workflow で upstream=upstream / origin=fork) でも
+ * 全 remote を更新できるよう --all を採用。VSCode autofetch の "all" モード相当。
  * 失敗 (offline / 認証失敗等) は ok=false + error_detail で返し、呼び出し側で握り潰す。
  */
-export interface GitFetchOriginRequest {
+export interface GitFetchRemotesRequest {
   dir: string;
 }
 
-export interface GitFetchOriginResponse {
+export interface GitFetchRemotesResponse {
   ok: boolean;
   /** 失敗時の stderr 冒頭 (debug 用、最大 512B 程度に切り詰める) */
   errorDetail: string;
@@ -2130,22 +2132,22 @@ export const GitViewerResponse: MessageFns<GitViewerResponse> = {
   },
 };
 
-function createBaseGitFetchOriginRequest(): GitFetchOriginRequest {
+function createBaseGitFetchRemotesRequest(): GitFetchRemotesRequest {
   return { dir: "" };
 }
 
-export const GitFetchOriginRequest: MessageFns<GitFetchOriginRequest> = {
-  encode(message: GitFetchOriginRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const GitFetchRemotesRequest: MessageFns<GitFetchRemotesRequest> = {
+  encode(message: GitFetchRemotesRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.dir !== "") {
       writer.uint32(10).string(message.dir);
     }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): GitFetchOriginRequest {
+  decode(input: BinaryReader | Uint8Array, length?: number): GitFetchRemotesRequest {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseGitFetchOriginRequest();
+    const message = createBaseGitFetchRemotesRequest();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -2166,11 +2168,11 @@ export const GitFetchOriginRequest: MessageFns<GitFetchOriginRequest> = {
     return message;
   },
 
-  fromJSON(object: any): GitFetchOriginRequest {
+  fromJSON(object: any): GitFetchRemotesRequest {
     return { dir: isSet(object.dir) ? globalThis.String(object.dir) : "" };
   },
 
-  toJSON(message: GitFetchOriginRequest): unknown {
+  toJSON(message: GitFetchRemotesRequest): unknown {
     const obj: any = {};
     if (message.dir !== "") {
       obj.dir = message.dir;
@@ -2178,22 +2180,22 @@ export const GitFetchOriginRequest: MessageFns<GitFetchOriginRequest> = {
     return obj;
   },
 
-  create(base?: DeepPartial<GitFetchOriginRequest>): GitFetchOriginRequest {
-    return GitFetchOriginRequest.fromPartial(base ?? {});
+  create(base?: DeepPartial<GitFetchRemotesRequest>): GitFetchRemotesRequest {
+    return GitFetchRemotesRequest.fromPartial(base ?? {});
   },
-  fromPartial(object: DeepPartial<GitFetchOriginRequest>): GitFetchOriginRequest {
-    const message = createBaseGitFetchOriginRequest();
+  fromPartial(object: DeepPartial<GitFetchRemotesRequest>): GitFetchRemotesRequest {
+    const message = createBaseGitFetchRemotesRequest();
     message.dir = object.dir ?? "";
     return message;
   },
 };
 
-function createBaseGitFetchOriginResponse(): GitFetchOriginResponse {
+function createBaseGitFetchRemotesResponse(): GitFetchRemotesResponse {
   return { ok: false, errorDetail: "" };
 }
 
-export const GitFetchOriginResponse: MessageFns<GitFetchOriginResponse> = {
-  encode(message: GitFetchOriginResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const GitFetchRemotesResponse: MessageFns<GitFetchRemotesResponse> = {
+  encode(message: GitFetchRemotesResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.ok !== false) {
       writer.uint32(8).bool(message.ok);
     }
@@ -2203,10 +2205,10 @@ export const GitFetchOriginResponse: MessageFns<GitFetchOriginResponse> = {
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): GitFetchOriginResponse {
+  decode(input: BinaryReader | Uint8Array, length?: number): GitFetchRemotesResponse {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseGitFetchOriginResponse();
+    const message = createBaseGitFetchRemotesResponse();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -2235,7 +2237,7 @@ export const GitFetchOriginResponse: MessageFns<GitFetchOriginResponse> = {
     return message;
   },
 
-  fromJSON(object: any): GitFetchOriginResponse {
+  fromJSON(object: any): GitFetchRemotesResponse {
     return {
       ok: isSet(object.ok) ? globalThis.Boolean(object.ok) : false,
       errorDetail: isSet(object.errorDetail)
@@ -2246,7 +2248,7 @@ export const GitFetchOriginResponse: MessageFns<GitFetchOriginResponse> = {
     };
   },
 
-  toJSON(message: GitFetchOriginResponse): unknown {
+  toJSON(message: GitFetchRemotesResponse): unknown {
     const obj: any = {};
     if (message.ok !== false) {
       obj.ok = message.ok;
@@ -2257,11 +2259,11 @@ export const GitFetchOriginResponse: MessageFns<GitFetchOriginResponse> = {
     return obj;
   },
 
-  create(base?: DeepPartial<GitFetchOriginResponse>): GitFetchOriginResponse {
-    return GitFetchOriginResponse.fromPartial(base ?? {});
+  create(base?: DeepPartial<GitFetchRemotesResponse>): GitFetchRemotesResponse {
+    return GitFetchRemotesResponse.fromPartial(base ?? {});
   },
-  fromPartial(object: DeepPartial<GitFetchOriginResponse>): GitFetchOriginResponse {
-    const message = createBaseGitFetchOriginResponse();
+  fromPartial(object: DeepPartial<GitFetchRemotesResponse>): GitFetchRemotesResponse {
+    const message = createBaseGitFetchRemotesResponse();
     message.ok = object.ok ?? false;
     message.errorDetail = object.errorDetail ?? "";
     return message;

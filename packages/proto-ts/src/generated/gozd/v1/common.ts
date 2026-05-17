@@ -57,19 +57,27 @@ export interface WorktreeEntry {
   gitStatuses: { [key: string]: string };
   tasks: Task[];
   /**
-   * upstream（追跡リモートブランチ）が設定されているか。
-   * false の場合 ahead / behind は意味を持たず、UI 側で表示しない。
+   * upstream（追跡リモートブランチ）に対する差分。upstream 未設定なら不在。
+   * optional により「未設定」をフィールド不在で表現し、ahead/behind を見るには
+   * upstream 自体の存在をチェックする契約を型レベルで強制する。
    */
-  hasUpstream: boolean;
-  /** upstream に対して先行しているローカルコミット数（未 push）。 */
-  ahead: number;
-  /** upstream に対して遅れているリモートコミット数（未 pull）。 */
-  behind: number;
+  upstream?: UpstreamStatus | undefined;
 }
 
 export interface WorktreeEntry_GitStatusesEntry {
   key: string;
   value: string;
+}
+
+/**
+ * upstream（追跡リモートブランチ）との差分。`git status --porcelain=v2 --branch` の
+ * `# branch.ab` 行に対応。upstream 自体が未設定のときはこの message ごと不在になる。
+ */
+export interface UpstreamStatus {
+  /** upstream に対して先行しているローカルコミット数（未 push）。 */
+  ahead: number;
+  /** upstream に対して遅れているリモートコミット数（未 pull）。 */
+  behind: number;
 }
 
 export interface Task {
@@ -180,17 +188,7 @@ export interface ProjectConfig {
 }
 
 function createBaseWorktreeEntry(): WorktreeEntry {
-  return {
-    path: "",
-    head: "",
-    branch: "",
-    isMain: false,
-    gitStatuses: {},
-    tasks: [],
-    hasUpstream: false,
-    ahead: 0,
-    behind: 0,
-  };
+  return { path: "", head: "", branch: "", isMain: false, gitStatuses: {}, tasks: [], upstream: undefined };
 }
 
 export const WorktreeEntry: MessageFns<WorktreeEntry> = {
@@ -213,14 +211,8 @@ export const WorktreeEntry: MessageFns<WorktreeEntry> = {
     for (const v of message.tasks) {
       Task.encode(v!, writer.uint32(50).fork()).join();
     }
-    if (message.hasUpstream !== false) {
-      writer.uint32(56).bool(message.hasUpstream);
-    }
-    if (message.ahead !== 0) {
-      writer.uint32(64).uint32(message.ahead);
-    }
-    if (message.behind !== 0) {
-      writer.uint32(72).uint32(message.behind);
+    if (message.upstream !== undefined) {
+      UpstreamStatus.encode(message.upstream, writer.uint32(58).fork()).join();
     }
     return writer;
   },
@@ -284,27 +276,11 @@ export const WorktreeEntry: MessageFns<WorktreeEntry> = {
           continue;
         }
         case 7: {
-          if (tag !== 56) {
+          if (tag !== 58) {
             break;
           }
 
-          message.hasUpstream = reader.bool();
-          continue;
-        }
-        case 8: {
-          if (tag !== 64) {
-            break;
-          }
-
-          message.ahead = reader.uint32();
-          continue;
-        }
-        case 9: {
-          if (tag !== 72) {
-            break;
-          }
-
-          message.behind = reader.uint32();
+          message.upstream = UpstreamStatus.decode(reader, reader.uint32());
           continue;
         }
       }
@@ -344,13 +320,7 @@ export const WorktreeEntry: MessageFns<WorktreeEntry> = {
         )
         : {},
       tasks: globalThis.Array.isArray(object?.tasks) ? object.tasks.map((e: any) => Task.fromJSON(e)) : [],
-      hasUpstream: isSet(object.hasUpstream)
-        ? globalThis.Boolean(object.hasUpstream)
-        : isSet(object.has_upstream)
-        ? globalThis.Boolean(object.has_upstream)
-        : false,
-      ahead: isSet(object.ahead) ? globalThis.Number(object.ahead) : 0,
-      behind: isSet(object.behind) ? globalThis.Number(object.behind) : 0,
+      upstream: isSet(object.upstream) ? UpstreamStatus.fromJSON(object.upstream) : undefined,
     };
   },
 
@@ -380,14 +350,8 @@ export const WorktreeEntry: MessageFns<WorktreeEntry> = {
     if (message.tasks?.length) {
       obj.tasks = message.tasks.map((e) => Task.toJSON(e));
     }
-    if (message.hasUpstream !== false) {
-      obj.hasUpstream = message.hasUpstream;
-    }
-    if (message.ahead !== 0) {
-      obj.ahead = Math.round(message.ahead);
-    }
-    if (message.behind !== 0) {
-      obj.behind = Math.round(message.behind);
+    if (message.upstream !== undefined) {
+      obj.upstream = UpstreamStatus.toJSON(message.upstream);
     }
     return obj;
   },
@@ -411,9 +375,9 @@ export const WorktreeEntry: MessageFns<WorktreeEntry> = {
       {},
     );
     message.tasks = object.tasks?.map((e) => Task.fromPartial(e)) || [];
-    message.hasUpstream = object.hasUpstream ?? false;
-    message.ahead = object.ahead ?? 0;
-    message.behind = object.behind ?? 0;
+    message.upstream = (object.upstream !== undefined && object.upstream !== null)
+      ? UpstreamStatus.fromPartial(object.upstream)
+      : undefined;
     return message;
   },
 };
@@ -490,6 +454,82 @@ export const WorktreeEntry_GitStatusesEntry: MessageFns<WorktreeEntry_GitStatuse
     const message = createBaseWorktreeEntry_GitStatusesEntry();
     message.key = object.key ?? "";
     message.value = object.value ?? "";
+    return message;
+  },
+};
+
+function createBaseUpstreamStatus(): UpstreamStatus {
+  return { ahead: 0, behind: 0 };
+}
+
+export const UpstreamStatus: MessageFns<UpstreamStatus> = {
+  encode(message: UpstreamStatus, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.ahead !== 0) {
+      writer.uint32(8).uint32(message.ahead);
+    }
+    if (message.behind !== 0) {
+      writer.uint32(16).uint32(message.behind);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): UpstreamStatus {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseUpstreamStatus();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.ahead = reader.uint32();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.behind = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): UpstreamStatus {
+    return {
+      ahead: isSet(object.ahead) ? globalThis.Number(object.ahead) : 0,
+      behind: isSet(object.behind) ? globalThis.Number(object.behind) : 0,
+    };
+  },
+
+  toJSON(message: UpstreamStatus): unknown {
+    const obj: any = {};
+    if (message.ahead !== 0) {
+      obj.ahead = Math.round(message.ahead);
+    }
+    if (message.behind !== 0) {
+      obj.behind = Math.round(message.behind);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<UpstreamStatus>): UpstreamStatus {
+    return UpstreamStatus.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<UpstreamStatus>): UpstreamStatus {
+    const message = createBaseUpstreamStatus();
+    message.ahead = object.ahead ?? 0;
+    message.behind = object.behind ?? 0;
     return message;
   },
 };

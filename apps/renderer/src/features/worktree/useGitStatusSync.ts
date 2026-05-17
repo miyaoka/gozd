@@ -52,9 +52,7 @@ export function useGitStatusSync() {
     cleanup = onMessage<GitStatusChangePayload>("gitStatusChange", (payload) => {
       repoStore.setWorktreeGitStatuses(payload.dir, {
         statuses: payload.statuses,
-        hasUpstream: payload.hasUpstream,
-        ahead: payload.ahead,
-        behind: payload.behind,
+        upstream: payload.upstream,
       });
     });
   });

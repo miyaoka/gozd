@@ -138,17 +138,17 @@ function onHeaderClick() {
           <StatusIcons :entries="statusIcons" />
         </span>
         <span
-          v-if="wt.hasUpstream && (wt.ahead > 0 || wt.behind > 0)"
+          v-if="wt.upstream && (wt.upstream.ahead > 0 || wt.upstream.behind > 0)"
           class="flex items-center gap-1 text-[10px] text-zinc-400 tabular-nums"
-          :title="`ahead ${wt.ahead} / behind ${wt.behind} vs upstream`"
+          :title="`ahead ${wt.upstream.ahead} / behind ${wt.upstream.behind} vs upstream`"
         >
-          <span v-if="wt.ahead > 0" class="flex items-center gap-0.5">
+          <span v-if="wt.upstream.ahead > 0" class="flex items-center gap-0.5">
             <span class="icon-[lucide--arrow-up] size-3" />
-            <span>{{ wt.ahead }}</span>
+            <span>{{ wt.upstream.ahead }}</span>
           </span>
-          <span v-if="wt.behind > 0" class="flex items-center gap-0.5">
+          <span v-if="wt.upstream.behind > 0" class="flex items-center gap-0.5">
             <span class="icon-[lucide--arrow-down] size-3" />
-            <span>{{ wt.behind }}</span>
+            <span>{{ wt.upstream.behind }}</span>
           </span>
         </span>
         <span

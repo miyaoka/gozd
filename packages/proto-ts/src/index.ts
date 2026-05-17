@@ -47,6 +47,7 @@ export {
   OpenTargetSelection,
   ProjectConfig,
   Task,
+  UpstreamStatus,
   WorktreeEntry,
 } from "./generated/gozd/v1/common";
 export { EchoRequest, EchoResponse } from "./generated/gozd/v1/echo";
@@ -92,8 +93,8 @@ export {
   GitDefaultBranchResponse,
   GitDiffHunksRequest,
   GitDiffHunksResponse,
-  GitFetchOriginRequest,
-  GitFetchOriginResponse,
+  GitFetchRemotesRequest,
+  GitFetchRemotesResponse,
   GitIssueListRequest,
   GitIssueListResponse,
   GitLogRequest,

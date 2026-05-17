@@ -6,6 +6,7 @@
 
 /* eslint-disable */
 import { BinaryReader, BinaryWriter } from "@bufbuild/protobuf/wire";
+import { UpstreamStatus } from "./common";
 
 export const protobufPackage = "gozd.v1";
 
@@ -26,15 +27,8 @@ export interface GitStatusResponse {
    * 値は常に長さ 2 の文字列。1 文字目 = index 状態、2 文字目 = working tree 状態。
    */
   entries: { [key: string]: string };
-  /**
-   * upstream（追跡リモートブランチ）が設定されているか。
-   * false の場合 ahead / behind は意味を持たない。
-   */
-  hasUpstream: boolean;
-  /** upstream に対して先行しているローカルコミット数（未 push）。 */
-  ahead: number;
-  /** upstream に対して遅れているリモートコミット数（未 pull）。 */
-  behind: number;
+  /** upstream に対する差分。未設定なら不在。 */
+  upstream?: UpstreamStatus | undefined;
 }
 
 export interface GitStatusResponse_EntriesEntry {
@@ -101,7 +95,7 @@ export const GitStatusRequest: MessageFns<GitStatusRequest> = {
 };
 
 function createBaseGitStatusResponse(): GitStatusResponse {
-  return { entries: {}, hasUpstream: false, ahead: 0, behind: 0 };
+  return { entries: {}, upstream: undefined };
 }
 
 export const GitStatusResponse: MessageFns<GitStatusResponse> = {
@@ -109,14 +103,8 @@ export const GitStatusResponse: MessageFns<GitStatusResponse> = {
     globalThis.Object.entries(message.entries).forEach(([key, value]: [string, string]) => {
       GitStatusResponse_EntriesEntry.encode({ key: key as any, value }, writer.uint32(10).fork()).join();
     });
-    if (message.hasUpstream !== false) {
-      writer.uint32(16).bool(message.hasUpstream);
-    }
-    if (message.ahead !== 0) {
-      writer.uint32(24).uint32(message.ahead);
-    }
-    if (message.behind !== 0) {
-      writer.uint32(32).uint32(message.behind);
+    if (message.upstream !== undefined) {
+      UpstreamStatus.encode(message.upstream, writer.uint32(18).fork()).join();
     }
     return writer;
   },
@@ -140,27 +128,11 @@ export const GitStatusResponse: MessageFns<GitStatusResponse> = {
           continue;
         }
         case 2: {
-          if (tag !== 16) {
+          if (tag !== 18) {
             break;
           }
 
-          message.hasUpstream = reader.bool();
-          continue;
-        }
-        case 3: {
-          if (tag !== 24) {
-            break;
-          }
-
-          message.ahead = reader.uint32();
-          continue;
-        }
-        case 4: {
-          if (tag !== 32) {
-            break;
-          }
-
-          message.behind = reader.uint32();
+          message.upstream = UpstreamStatus.decode(reader, reader.uint32());
           continue;
         }
       }
@@ -183,13 +155,7 @@ export const GitStatusResponse: MessageFns<GitStatusResponse> = {
           {},
         )
         : {},
-      hasUpstream: isSet(object.hasUpstream)
-        ? globalThis.Boolean(object.hasUpstream)
-        : isSet(object.has_upstream)
-        ? globalThis.Boolean(object.has_upstream)
-        : false,
-      ahead: isSet(object.ahead) ? globalThis.Number(object.ahead) : 0,
-      behind: isSet(object.behind) ? globalThis.Number(object.behind) : 0,
+      upstream: isSet(object.upstream) ? UpstreamStatus.fromJSON(object.upstream) : undefined,
     };
   },
 
@@ -204,14 +170,8 @@ export const GitStatusResponse: MessageFns<GitStatusResponse> = {
         });
       }
     }
-    if (message.hasUpstream !== false) {
-      obj.hasUpstream = message.hasUpstream;
-    }
-    if (message.ahead !== 0) {
-      obj.ahead = Math.round(message.ahead);
-    }
-    if (message.behind !== 0) {
-      obj.behind = Math.round(message.behind);
+    if (message.upstream !== undefined) {
+      obj.upstream = UpstreamStatus.toJSON(message.upstream);
     }
     return obj;
   },
@@ -230,9 +190,9 @@ export const GitStatusResponse: MessageFns<GitStatusResponse> = {
       },
       {},
     );
-    message.hasUpstream = object.hasUpstream ?? false;
-    message.ahead = object.ahead ?? 0;
-    message.behind = object.behind ?? 0;
+    message.upstream = (object.upstream !== undefined && object.upstream !== null)
+      ? UpstreamStatus.fromPartial(object.upstream)
+      : undefined;
     return message;
   },
 };

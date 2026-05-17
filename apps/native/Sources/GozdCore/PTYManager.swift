@@ -180,10 +180,11 @@ public final class PTYManager {
     // 可能性があり、event coalescing による flaky の温床になる。drain loop で吸い切る。
     //
     // finish 経路の本筋は exit handler 側 (waitpid + closeSecondary + final drain 後の
-    // markReadClosed)。read source 側で `.closed` を観測して markReadClosed を呼ぶのは、
-    // 子が自発的に exit する前に master の EOF を観測した場合 (例: 子が stdout を明示 close
-    // しただけで生存しているケース) と、exit handler 完了後に遅延配信される EOF event を
-    // 受けた場合の両方を兼ねる。後者は `alreadyReadClosed` / `finished` フラグで idempotent。
+    // markReadClosed)。設計判断 6 (親側で slave fd を 1 reference 保持) の下では、
+    // `closeSecondary` が呼ばれる exit handler 内まで master の EOF は正常系で到達しない。
+    // つまり read source 側で `.closed` を観測して markReadClosed を呼ぶのは、exit handler
+    // 完了後に遅延配信される EOF event を受けた場合のための冗長化経路。
+    // `alreadyReadClosed` / `finished` フラグで idempotent なので二重発火しても no-op。
     source.setEventHandler { [source, state] in
       ptyTrace("read", pid: childPid, "eventHandler fired")
       switch drainPTY(fd: masterFd, pid: childPid, caller: "read-source", onData: onData) {

@@ -80,15 +80,20 @@ interface DiffBarItem {
 
 type DiffViewItem = DiffLineItem | DiffBarItem;
 
-const notification = useNotificationStore();
+/**
+ * Diff 取得の状態。idle / loading / success / error の 4 状態を discriminated union で表現する。
+ * 旧実装は loading / error / hasResult / viewItems の 4 ref で表現していたが、無効状態 (loading=true
+ * かつ error 立ち / hasResult=true かつ error 立ち) が型上許され、再 fetch のたびに 4 ref を漏れなく
+ * リセットする必要があった。union に集約することで、template 側の `v-if` も `state.kind` で網羅できる。
+ */
+type DiffState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "success"; items: DiffViewItem[]; oldTotal: number; newTotal: number }
+  | { kind: "error"; message: string };
 
-const oldTotalLines = ref(0);
-const newTotalLines = ref(0);
-const loading = ref(false);
-const error = ref<string>();
-const viewItems = ref<DiffViewItem[]>([]);
-/** hunks の有無で読み込み完了を判定する (loading + viewItems では「結果空」と区別がつかない) */
-const hasResult = ref(false);
+const notification = useNotificationStore();
+const state = ref<DiffState>({ kind: "idle" });
 
 /**
  * hunk 配列を render 用の view item 列に展開する。pure (例外送出を除き副作用なし)。
@@ -180,40 +185,36 @@ watch(
       cancelled = true;
     });
 
-    loading.value = true;
-    error.value = undefined;
-    hasResult.value = false;
+    state.value = { kind: "loading" };
     const result = await tryCatch(rpcGitDiffHunks({ original, current }));
     if (cancelled) return;
-    loading.value = false;
 
     if (!result.ok) {
-      viewItems.value = [];
-      error.value = result.error.message;
+      state.value = { kind: "error", message: result.error.message };
       notification.error("Failed to compute diff", result.error);
       return;
     }
 
     const { hunks, oldTotalLines: oldTotal, newTotalLines: newTotal } = result.value;
-    oldTotalLines.value = oldTotal;
-    newTotalLines.value = newTotal;
-
     const buildResult = tryCatch(() => hunksToViewItems(hunks, oldTotal, newTotal));
-    if (cancelled) return;
     if (!buildResult.ok) {
-      viewItems.value = [];
-      error.value = buildResult.error.message;
+      state.value = { kind: "error", message: buildResult.error.message };
       notification.error("Diff invariant violation", buildResult.error);
       return;
     }
-    viewItems.value = buildResult.value;
-    hasResult.value = true;
+    state.value = { kind: "success", items: buildResult.value, oldTotal, newTotal };
   },
   { immediate: true },
 );
 
+const viewItems = computed<DiffViewItem[]>(() =>
+  state.value.kind === "success" ? state.value.items : [],
+);
+
 const lineNoWidth = computed(() => {
-  const maxLine = Math.max(oldTotalLines.value, newTotalLines.value, 1);
+  const s = state.value;
+  if (s.kind !== "success") return "1ch";
+  const maxLine = Math.max(s.oldTotal, s.newTotal, 1);
   return `${String(maxLine).length}ch`;
 });
 
@@ -292,11 +293,13 @@ function barLabel(item: DiffBarItem): string {
 
 <template>
   <div class="p-4 text-sm/tight" :style="{ '--line-no-width': lineNoWidth }">
-    <div v-if="loading && !hasResult" class="text-zinc-500">Computing diff...</div>
+    <div v-if="state.kind === 'loading'" class="text-zinc-500">Computing diff...</div>
 
-    <div v-else-if="error" class="text-red-400">Failed to compute diff: {{ error }}</div>
+    <div v-else-if="state.kind === 'error'" class="text-red-400">
+      Failed to compute diff: {{ state.message }}
+    </div>
 
-    <template v-else>
+    <template v-else-if="state.kind === 'success'">
       <template v-for="(row, i) in renderRows" :key="i">
         <!-- hunk 間 / 先頭・末尾の連続 unchanged 行を省略するバー -->
         <div v-if="row.type === 'hunk-bar'" class="_hunk-bar">

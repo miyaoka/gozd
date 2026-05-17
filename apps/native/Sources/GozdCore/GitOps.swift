@@ -437,13 +437,19 @@ public enum GitOps {
     let output = String(decoding: stdout, as: UTF8.self)
 
     // `git diff --no-index` は NUL バイトを検知すると hunk を生成せず
-    // `Binary files <a> and <b> differ` 1 行を返す。renderer 側で binary 判定をすり抜けた
-    // 入力が来た場合の防御線。silent に hunks=[] を返すと UI 上「差分なし」に見えるため
-    // commandFailed で observable に倒す。
-    if output.contains("\nBinary files ") || output.hasPrefix("Binary files ") {
-      throw GitError.commandFailed(
-        exitCode: 0,
-        stderr: "git diff --no-index reported binary content (renderer pre-filter bypassed)"
+    // `Binary files <a> and <b> differ` 行を返す。実際の出力は
+    //   `diff --git ...` → `index ...` → `Binary files ... differ`
+    // の 3 行構成で、hunks (`@@`) と混在しない仕様。renderer 側で binary 判定をすり抜けた
+    // 入力が来た場合の防御線として先頭数行のみを走査して検知する。
+    // 巨大 output 全体への `contains` は本 PR の目的 (大ファイル性能改善) と矛盾するため避け、
+    // file header 数行で十分なことを根拠に `prefix(8)` で打ち切る。
+    // silent に hunks=[] を返すと UI 上「差分なし」に見えるため unexpectedOutput で observable に倒す。
+    // `commandFailed` は exitCode != 0 を含意するため流用しない (line 558 のコメント参照)。
+    let outputHeaderLines = output.split(separator: "\n", omittingEmptySubsequences: false).prefix(
+      8)
+    if outputHeaderLines.contains(where: { $0.hasPrefix("Binary files ") }) {
+      throw GitError.unexpectedOutput(
+        "git diff --no-index reported binary content (renderer pre-filter bypassed)"
       )
     }
 
@@ -742,14 +748,21 @@ private func runGitDiffNoIndexOnce(gitPath: String, args: [String], cwd: String)
     stderr: String(decoding: stderrData, as: UTF8.self))
 }
 
-/// unified diff（`git diff --no-index --no-color` の出力）を Hunk 配列に変換する。
+/// `git diff --no-index --no-color` 出力専用の unified diff parser。
+///
+/// 本実装は `diffHunks` の content-based 経路のみで使う。`--no-index` + `-c diff.renames=false`
+/// 固定下では file header に出現する行は `diff --git` / `index ` / `--- ` / `+++ ` のみ
+/// (`--no-index` でも git は ad-hoc blob hash を計算して `index <a>..<b> <mode>` を emit する。
+/// rename 系 / mode 系は本 invocation 固定下で emit されない)。
+/// 汎用 unified diff (`git diff <hash>..<hash>` 等) との両用にすると whitelist がぶれて
+/// unexpectedSkips の計上閾値が曖昧になるため、本 parser は `--no-index` 専用と明示する。
 ///
 /// 各 hunk は `@@ -oldStart[,oldLines] +newStart[,newLines] @@` ヘッダで始まり、
 ///   ` ` 行 = context
 ///   `-` 行 = removed (original 側のみ)
 ///   `+` 行 = added (current 側のみ)
 ///   `\` 行 = `\\ No newline at end of file` の装飾。読み飛ばす
-/// で構成される。`diff --git` / `index` / `---` / `+++` ヘッダは無視する。
+/// で構成される。`diff --git` / `---` / `+++` ヘッダは無視する。
 ///
 /// `oldLines` / `newLines` は count 省略時 1 として扱う（unified diff 仕様）。
 func parseUnifiedDiffHunks(_ text: String) -> [DiffHunkInfo] {
@@ -768,13 +781,13 @@ func parseUnifiedDiffHunks(_ text: String) -> [DiffHunkInfo] {
   while i < lines.count {
     let raw = lines[i]
     guard raw.hasPrefix("@@") else {
-      // 先頭は file header（"diff " / "--- " / "+++ " / "index "）か末尾の空行。
-      // それ以外の prefix が来たら hunk 探索中の異常 → 計上する。
+      // `--no-index` モードで file header に出る行は `diff --git` / `index ` / `--- ` / `+++ `。
+      // `--no-index` でも git は両ファイルの blob OID を計算して `index <a>..<b> <mode>` を emit する。
+      // rename / mode 系は `-c diff.renames=false` 固定下では出ないため whitelist には含めない。
+      // 上記以外の prefix が来たら hunk 探索中の異常 → 計上する。
       if !raw.isEmpty
-        && !raw.hasPrefix("diff ") && !raw.hasPrefix("--- ") && !raw.hasPrefix("+++ ")
-        && !raw.hasPrefix("index ") && !raw.hasPrefix("new file mode")
-        && !raw.hasPrefix("deleted file mode") && !raw.hasPrefix("similarity index")
-        && !raw.hasPrefix("rename from") && !raw.hasPrefix("rename to")
+        && !raw.hasPrefix("diff ") && !raw.hasPrefix("index ")
+        && !raw.hasPrefix("--- ") && !raw.hasPrefix("+++ ")
       {
         unexpectedSkips += 1
       }

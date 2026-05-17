@@ -64,16 +64,17 @@ interface DiffLineItem {
 }
 
 /**
- * バーで省略された unchanged 範囲。1-based, inclusive。
- * #540 のクリック展開で `gitDiffHunks` を `-U N` で取り直す際の起点座標として使う。
- * 範囲が空 (start > end) のときは emit されない。
+ * バーで省略された unchanged 範囲。1-based。
+ * unified diff semantics 上、hunk 間 / 末尾 trailing の unchanged 行数は old / new 両側で常に同じ
+ * (両側に対応がある context 範囲なので)。この invariant を shape で enforce するため `lines` を 1 本だけ持つ。
+ * `oldEnd = oldStart + lines - 1`、`newEnd = newStart + lines - 1` で導出する。
+ * #540 のクリック展開で `gitDiffHunks` を `-U N` で取り直す際は `lines` をそのまま渡す。
  */
 interface DiffBarItem {
   type: "hunk-bar";
   oldStart: number;
-  oldEnd: number;
   newStart: number;
-  newEnd: number;
+  lines: number;
 }
 
 type DiffViewItem = DiffLineItem | DiffBarItem;
@@ -105,17 +106,22 @@ function hunksToViewItems(hs: DiffHunk[], oldTotal: number, newTotal: number): D
   let prevNewEnd = 0;
 
   for (const h of hs) {
-    const barOldStart = prevOldEnd + 1;
-    const barOldEnd = h.oldStart - 1;
-    const barNewStart = prevNewEnd + 1;
-    const barNewEnd = h.newStart - 1;
-    if (barOldEnd >= barOldStart || barNewEnd >= barNewStart) {
+    const oldGap = h.oldStart - prevOldEnd - 1;
+    const newGap = h.newStart - prevNewEnd - 1;
+    // unified diff semantics 上 oldGap === newGap が invariant (hunk 間の context は両側同一)。
+    // 万一破れた場合は console.error で observable に倒し、表示は max を採用 (silent fallback にしない)
+    if (oldGap !== newGap) {
+      console.error(
+        `[DiffPreview] unified diff invariant violation: oldGap=${oldGap} newGap=${newGap}`,
+      );
+    }
+    const gap = Math.max(oldGap, newGap, 0);
+    if (gap > 0) {
       items.push({
         type: "hunk-bar",
-        oldStart: barOldStart,
-        oldEnd: barOldEnd,
-        newStart: barNewStart,
-        newEnd: barNewEnd,
+        oldStart: prevOldEnd + 1,
+        newStart: prevNewEnd + 1,
+        lines: gap,
       });
     }
 
@@ -144,14 +150,21 @@ function hunksToViewItems(hs: DiffHunk[], oldTotal: number, newTotal: number): D
     prevNewEnd = h.newStart + h.newLines - 1;
   }
 
-  // 最終 hunk 以降の trailing unchanged
-  if (prevOldEnd < oldTotal || prevNewEnd < newTotal) {
+  // 最終 hunk 以降の trailing unchanged。両側に同じ数だけ残るのが invariant。
+  const oldTrailing = oldTotal - prevOldEnd;
+  const newTrailing = newTotal - prevNewEnd;
+  if (oldTrailing !== newTrailing) {
+    console.error(
+      `[DiffPreview] unified diff trailing invariant violation: old=${oldTrailing} new=${newTrailing}`,
+    );
+  }
+  const trailing = Math.max(oldTrailing, newTrailing, 0);
+  if (trailing > 0) {
     items.push({
       type: "hunk-bar",
       oldStart: prevOldEnd + 1,
-      oldEnd: oldTotal,
       newStart: prevNewEnd + 1,
-      newEnd: newTotal,
+      lines: trailing,
     });
   }
 
@@ -264,10 +277,7 @@ const tokensReady = computed(
 );
 
 function barLabel(item: DiffBarItem): string {
-  const oldLines = item.oldEnd - item.oldStart + 1;
-  const newLines = item.newEnd - item.newStart + 1;
-  const lines = Math.max(oldLines, newLines);
-  return `${lines} unchanged line${lines === 1 ? "" : "s"}`;
+  return `${item.lines} unchanged line${item.lines === 1 ? "" : "s"}`;
 }
 </script>
 

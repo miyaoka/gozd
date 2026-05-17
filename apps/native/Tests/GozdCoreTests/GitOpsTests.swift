@@ -465,13 +465,13 @@ struct GitOpsDiffHunksTests {
     #expect(r.newTotalLines == 2)
   }
 
-  @Test("NUL バイトを含む入力は commandFailed で観察可能に倒す")
+  @Test("NUL バイトを含む入力は unexpectedOutput で観察可能に倒す")
   func binaryInputThrows() async throws {
     let withNul = "a\u{0000}b"
     do {
       _ = try await GitOps.diffHunks(original: withNul, current: "different\u{0000}content")
       Issue.record("expected throw")
-    } catch GitError.commandFailed {
+    } catch GitError.unexpectedOutput {
       // expected
     }
   }

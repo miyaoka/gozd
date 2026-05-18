@@ -28,7 +28,7 @@ import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
-import { getFileIconUrl, rpcFsReadFile, rpcFsReadFileAbsolute } from "../filer";
+import { getFileIconUrl, relDirOf, rpcFsReadFile, rpcFsReadFileAbsolute } from "../filer";
 import type { FsChangePayload } from "../filer";
 import { useGitGraphStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
@@ -427,17 +427,15 @@ watch(
 );
 
 /** ファイル変更通知で選択中ファイルの内容を再取得（モード・UI状態は維持） */
-function parentDir(filePath: string): string {
-  const idx = filePath.lastIndexOf("/");
-  if (idx < 0) return ".";
-  return filePath.substring(0, idx);
-}
-
-const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ relDir }) => {
+const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ dir: eventDir, relDir }) => {
   if (!selectedPath.value) return;
   // コミットモードではファイル変更通知を無視（表示内容は git オブジェクトから取得済み）
-  if (gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null) return;
-  if (relDir !== parentDir(selectedPath.value)) return;
+  if (gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null) {
+    return;
+  }
+  // useFsWatchSync は全 worktree を watch するため、active dir 以外の event は無視する。
+  if (eventDir !== worktreeStore.dir) return;
+  if (relDir !== relDirOf(selectedPath.value)) return;
   void fetchContent(selectedPath.value, selectedGitChange.value);
 });
 onUnmounted(unsubscribeFsChange);

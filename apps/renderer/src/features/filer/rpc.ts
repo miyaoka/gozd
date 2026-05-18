@@ -33,7 +33,11 @@ export const rpcFsUnwatch = (req: FsUnwatchRequest) =>
 export const rpcFsUnwatchAll = (req: FsUnwatchAllRequest) =>
   rpc("/fs/unwatchAll", req, FsUnwatchAllRequest, FsUnwatchAllResponse);
 
-// fsChange push event payload
+// fsChange push event payload.
+// `dir` は購読時に渡した dir（renderer 側 worktree dir と文字列同一）。
+// `relDir` は変更ファイルの親 dir を `dir` からの相対パスで表現する。
+// Swift `FSWatchRegistry.relativeDir()` の SSOT に従い、worktree 直下は `""`、
+// サブディレクトリ配下は末尾 "/" を含まないディレクトリ相対パス。
 export interface FsChangePayload {
   dir: string;
   relDir: string;

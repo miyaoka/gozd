@@ -1,4 +1,5 @@
 export { default as FilerPane } from "./FilerPane.vue";
+export { relDirOf } from "./relDirOf";
 export { rpcFsReadFile, rpcFsReadFileAbsolute } from "./rpc";
 export type { FsChangePayload } from "./rpc";
 export { getFileIconUrl, getFolderIconUrl } from "./useFileIcon";

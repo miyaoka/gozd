@@ -230,7 +230,6 @@ const activeRootWorktree = computed(() => {
           :edit-mode="editMode"
           :active-dir="worktreeStore.dir"
           :is-creating="isCreatingFor(rootDir)"
-          :get-resumeable-session-count="terminalStore.getResumeableSessionCount"
           :get-focused-pty-id="getFocusedPtyId"
           @remove-repo="onRemoveRepo"
           @select-wt="onSelectWt"

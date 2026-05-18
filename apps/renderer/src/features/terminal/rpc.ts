@@ -2,8 +2,6 @@
 import {
   ClaudeSessionListByDirRequest,
   ClaudeSessionListByDirResponse,
-  ClaudeSessionListByProjectRequest,
-  ClaudeSessionListByProjectResponse,
   ClaudeSessionRemoveByPtyRequest,
   ClaudeSessionRemoveByPtyResponse,
   OpenExternalRequest,
@@ -31,14 +29,6 @@ export const rpcClaudeSessionListByDir = (req: ClaudeSessionListByDirRequest) =>
     req,
     ClaudeSessionListByDirRequest,
     ClaudeSessionListByDirResponse,
-  );
-
-export const rpcClaudeSessionListByProject = (req: ClaudeSessionListByProjectRequest) =>
-  rpc(
-    "/claudeSession/listByProject",
-    req,
-    ClaudeSessionListByProjectRequest,
-    ClaudeSessionListByProjectResponse,
   );
 
 export const rpcClaudeSessionRemoveByPty = (req: ClaudeSessionRemoveByPtyRequest) =>

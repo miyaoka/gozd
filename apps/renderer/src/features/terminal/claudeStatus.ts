@@ -12,6 +12,19 @@ import type { Ref } from "vue";
 export type ClaudeState = "idle" | "working" | "asking" | "done";
 
 /**
+ * Claude state ごとの視覚アイコン定義 (SSOT)。
+ * 色や aria-label / 表示ラベルは表示文脈 (ターミナル上 / サイドバー上) で
+ * 微妙に異なるため各コンポーネント側で持つ。形 (icon) と動き (animate) のみ
+ * ここで一元管理して、TerminalLeaf と TaskRow で同じ状態が同じ形に揃うことを保証する。
+ */
+export const CLAUDE_STATE_ICON: Record<ClaudeState, { icon: string; animate?: string }> = {
+  idle: { icon: "icon-[lucide--circle-ellipsis]" },
+  working: { icon: "icon-[lucide--loader]", animate: "animate-spin" },
+  asking: { icon: "icon-[lucide--message-circle-warning]" },
+  done: { icon: "icon-[lucide--circle-check]" },
+};
+
+/**
  * Claude Code の状態エントリ。状態と付随データを一体管理する。
  * - lastActivityAt: 最後に Claude が動いた時刻。session-start / running / tool-done /
  *   tool-failure（非 interrupt）/ done / stop-failure で更新。idle（interrupt 含む）/

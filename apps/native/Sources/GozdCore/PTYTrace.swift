@@ -16,6 +16,13 @@ import Foundation
 // 観測機構の信頼性が落ちる方が実害が大きいと判断した。
 // 行間の到着順は時刻と pid タグから事後復元できるため lock 内では保証しない。
 //
+// 1 行のサイズ上限: 数百バイト以内を想定する。POSIX `write(2)` は `PIPE_BUF`
+// （macOS で 512 byte）を超えると atomic 保証外で、NSLock は同プロセス内の write 序列化
+// にしか効かないため、別 process が同 stderr に出す行と混じる可能性が残る。
+// 現状の trace message（drainPTY 集約結果、`waitUntil` の lastTicks=[…] 含め最長でも
+// 数百バイト）は問題なし。将来 history を 100 件に拡張したり長 message を足す PR で
+// この上限を超える場合は、message を圧縮するか 1 行を複数 trace に分割すること。
+//
 // `[PTY-TRACE]` と `[TEST-TRACE]` の 2 系統を持つ:
 //
 // - `[PTY-TRACE]`: GozdCore 内の PTY ライフサイクルイベント。`ptyTrace` から発射。

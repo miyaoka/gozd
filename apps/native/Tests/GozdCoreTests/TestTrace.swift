@@ -15,6 +15,13 @@ import Testing
 /// 再発時に「同じ runner で再現か / 別 runner か」を切り分ける材料。
 /// Swift の global `let` は言語仕様により最初の参照時に thread-safe な lazy 初期化が
 /// 1 度だけ走る（並行 access があっても初期化 closure の二重実行は起きない）。
+///
+/// 出力タイミングの注意: 「最初の `testTrace` 呼び出し時」に出るため、それ以前に
+/// `[PTY-TRACE]` が先に発射される経路（例: テストの `init` で PTYManager を生成する等）
+/// では `[TEST-TRACE … test=<runner-env>]` が `[PTY-TRACE]` 群の **後** に出る。
+/// issue ( #556 ) の用途（runner 識別の切り分け）では出力順序は意味を持たない。
+/// 「runner 環境変動と PTY 内部状態の絶対時刻相関」を見る用途が出た時は、
+/// `gozdTraceStart` 初期化と本 once の出力順序を保証する別経路が必要。
 private let _logRunnerEnvironmentOnce: Void = {
   guard gozdTraceEnabled else { return }
   let info = ProcessInfo.processInfo

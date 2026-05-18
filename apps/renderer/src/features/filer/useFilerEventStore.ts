@@ -13,7 +13,7 @@ import { ref } from "vue";
  * 発火させるため（オブジェクト reference の同一性で watch がスキップされるのを防ぐ）。
  */
 export const useFilerEventStore = defineStore("filer-event", () => {
-  /** 最後の fsChange イベント。relDir は worktree 相対パス（"" / "." はルート扱い） */
+  /** 最後の fsChange イベント。relDir は worktree 相対パスで、直下は `""`（Swift SSOT） */
   const fsChangeEvent = ref<{ version: number; relDir: string }>();
   let fsChangeVersion = 0;
   function emitFsChange(relDir: string) {

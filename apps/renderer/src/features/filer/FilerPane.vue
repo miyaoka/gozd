@@ -119,8 +119,9 @@ function handleFsChange(eventDir: string, relDir: string) {
   // useFsWatchSync は全 worktree を watch するため、別 repo / 別 worktree の
   // fsChange も到達する。active worktree dir 以外は無視する。
   if (eventDir !== dir.value) return;
-  // ルートディレクトリの変更（"" or "."）は loadRoot で全件再構築
-  if (relDir === "" || relDir === ".") {
+  // worktree 直下の変更は loadRoot で全件再構築。relDir 表現は Swift
+  // `FSWatchRegistry.relativeDir()` の SSOT に従い、直下は常に `""`。
+  if (relDir === "") {
     void loadRoot();
     return;
   }

@@ -13,6 +13,11 @@
 
 gozd はスロベニア語で「森」（/ɡɔ́st/、「ゴスト」）。
 
+## 動作環境
+
+- macOS 26 Tahoe 以降
+- zsh（PTY 起動時に gozd が zsh 初期化チェーンを差し込む前提）
+
 ## 特徴
 
 ### Claude を並列で走らせる
@@ -41,17 +46,7 @@ gozd はスロベニア語で「森」（/ɡɔ́st/、「ゴスト」）。
 - `gozd <path>` で開く。すでに開いていればフォーカス、未起動なら自動で立ち上げ
 - 普段のターミナルで `gozd` を打つだけで、その場所が gozd のセッションに合流する
 
-## 開発時
-
-事前に [mise](https://mise.jdx.dev/) を導入しておく。
-
-```bash
-mise install
-pnpm install
-pnpm run dev
-```
-
-## ビルド版
+## インストール
 
 初回はビルドしてアプリを起動する。
 
@@ -79,3 +74,16 @@ gozd src/main.ts  # src/ で開き、main.ts を開く
 - もしくはターミナルで `gozd <repo のパス>` を実行して開く
 
 追加後はサイドバーから worktree を作って作業を始める。
+
+## 開発
+
+事前に以下を導入しておく。
+
+- Xcode 26 以降（Swift 6.2 / macOS 26 SDK が含まれる）
+- [mise](https://mise.jdx.dev/)（残りのツールチェインを `mise install` でまとめて揃える）
+
+```bash
+mise install
+pnpm install
+pnpm run dev
+```

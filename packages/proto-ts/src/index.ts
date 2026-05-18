@@ -96,6 +96,8 @@ export {
   GitDiffHunksResponse,
   GitFetchRemotesRequest,
   GitFetchRemotesResponse,
+  GitGithubIdentityRequest,
+  GitGithubIdentityResponse,
   GitIssueListRequest,
   GitIssueListResponse,
   GitLogRequest,

@@ -96,6 +96,26 @@ socket / launch dir / claude settings は `GOZD_DEV_PROJECT_ROOT` の有無で `
 
 永続データ（`~/.config/gozd/` 配下）は dev / stable で **共有** する。worktree 本体（`~/.local/share/gozd/worktrees/`）が共有なのと同じ扱い。
 
+## WebPage の navigation policy
+
+renderer 内の外部リンク (`<a target="_blank">` / `window.open`) を OS のデフォルトブラウザに渡すには `WebPage.NavigationDeciding` 準拠の `ExternalLinkNavigationDecider` (`apps/native/Sources/Gozd/ExternalLinkNavigationDecider.swift`) を `WebPage(configuration:navigationDecider:)` に差し込む必要がある（WWDC25「Meet WebKit for SwiftUI」公式パターン）。デフォルトでは main frame が外部 URL に置換されて renderer の UI 全体が消えるため、構造的に必要な防壁。
+
+判定軸は **scheme による 3 分岐** に統一する:
+
+- http(s) かつ dev mode の `$GOZD_DEV_VITE_URL` origin (scheme + host + port すべて一致) → 内部扱いで `.allow`
+- http(s) かつそれ以外 → 外部とみなして OS のデフォルトブラウザに渡し `.cancel`
+- それ以外の scheme（`gozd-rpc://` / `gozd-app://` / `about:` / `file:` 等）→ `.allow`
+
+`navigationType`（`linkActivated` / `formSubmitted` / `.reload` 等）や `action.target` の値には依存しない。renderer は単一 WebPage 上に Vue UI を構築する設計なので、main frame であれ subframe であれ http(s) への遷移は外部 host なら OS ブラウザで開くのが期待挙動であり、`<a href>` 以外の経路（form submit / window.open / meta refresh 等）でも構造的に外部送りで揃える。起動時の `page.load(http://localhost:5173/)` は dev origin allow 経路で透過する。
+
+dev mode で参照される `$GOZD_DEV_VITE_URL` は **origin 表現に限定** する（path なし / 空 / `/`）。path 付きの値が来た場合、起動時に nil 化して stderr にエラーを残す（`isInternalDevURL` は host:port 一致のみを見るため、path 付きを許すと path が違う external URL も internal allow に倒れる事故源になる）。
+
+外部 URL の launch 失敗（壊れた URL / 既定ブラウザが解決不能 等）は具体的な error 情報込みで stderr に残す（`[NavigationDecider] failed to open external URL: <url>: <error>` 形式、silent drop 禁止規律と整合）。
+
+renderer 側の `<a href>` には `target="_blank" rel="noopener noreferrer"` を付ける（defense in depth）。decider が `.cancel` する前の thin window で WebKit が referrer / opener を組み立てる可能性に備える保険であり、decider 経路と二重防御で揃える契約。`window.open` への迂回や `e.preventDefault()` での workaround は不要。
+
+副作用として、markdown preview ([preview.md](preview.md)) で render される `[text](https://...)` 由来の `<a href>` も同じ decider を経由するため、すべて外部ブラウザで開かれる。WebView 内で main frame を置換されるリスクが構造的に無くなる代わりに、「markdown 内のリンクは必ず外部ブラウザで開く」という挙動が決定的になる。
+
 ## 通信経路
 
 ### gozd-rpc:// URLSchemeHandler（renderer ↔ native）

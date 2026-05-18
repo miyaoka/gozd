@@ -63,9 +63,32 @@ public enum GitHubOps {
     }
     """
 
+  /// `RepoIdentity` を `Result<(owner, repo), GhError>` に正規化する。`prList` / `issueList`
+  /// など「GitHub identity が取れなければ GhError で即失敗したい」呼び出し側に共通する適応層。
+  /// 失敗 detail 文字列もここで 1 箇所に集約することで、prList / issueList で文言が乖離しない。
+  private static func resolveGitHubRepoOrError(
+    dir: String
+  ) async throws -> Result<(owner: String, repo: String), GhError> {
+    switch try await repoOwnerName(dir: dir) {
+    case .ok(let owner, let repo):
+      return .success((owner: owner, repo: repo))
+    case .unsetRemote:
+      return .failure(GhError(kind: .repoNotFound, detail: "remote.origin not set"))
+    case .parserRejected:
+      // raw URL は credential 漏出防止のため `detail` に載せない (固定文言のみ)
+      return .failure(GhError(kind: .repoNotFound, detail: "unsupported remote URL"))
+    }
+  }
+
   public static func prList(dir: String) async throws -> PrListResult {
-    guard let (owner, repo) = try await repoOwnerName(dir: dir) else {
-      return .failure(GhError(kind: .repoNotFound, detail: "no remote.origin.url"))
+    let owner: String
+    let repo: String
+    switch try await resolveGitHubRepoOrError(dir: dir) {
+    case .success(let pair):
+      owner = pair.owner
+      repo = pair.repo
+    case .failure(let err):
+      return .failure(err)
     }
     let data: Data
     do {
@@ -122,8 +145,14 @@ public enum GitHubOps {
   }
 
   public static func issueList(dir: String) async throws -> IssueListResult {
-    guard let (owner, repo) = try await repoOwnerName(dir: dir) else {
-      return .failure(GhError(kind: .repoNotFound, detail: "no remote.origin.url"))
+    let owner: String
+    let repo: String
+    switch try await resolveGitHubRepoOrError(dir: dir) {
+    case .success(let pair):
+      owner = pair.owner
+      repo = pair.repo
+    case .failure(let err):
+      return .failure(err)
     }
     let data: Data
     do {
@@ -177,6 +206,20 @@ public enum GitHubOps {
     ]
   }
 
+  /// `repoOwnerName` の戻り型。「remote 未設定」と「parser が拒否した」を区別して
+  /// 観察可能性を確保する (silent fallback で「あれ動かない」をなくす)。`parserRejected` は
+  /// 非 github.com host / path セグメント数不一致 / 想定外形式すべてを含む (parser 内部の
+  /// 詳細粒度は外に出さない)。
+  ///
+  /// raw URL は意図的に associated value として保持しない。`https://<token>@github.com/owner/repo`
+  /// のような credential 埋め込み remote (GitHub Actions の `actions/checkout` で典型) を
+  /// stderr / GhError.detail 経由で renderer や ログに漏出させないため。
+  enum RepoIdentity {
+    case ok(owner: String, repo: String)
+    case unsetRemote
+    case parserRejected
+  }
+
   /// `git config --get remote.origin.url` をパースして GitHub の owner/repo を取得する。
   ///
   /// 以前は `gh repo view --json owner,name` を使っていたが、これは picker / PR 一覧の
@@ -188,20 +231,27 @@ public enum GitHubOps {
   /// - `git@github.com:<owner>/<repo>(.git)?`
   /// - `ssh://git@github.com/<owner>/<repo>(.git)?`
   ///
-  /// GitLab / Bitbucket / GitHub Enterprise 等の non-github.com remote は nil を返す
-  /// (`gh` のデフォルト host は github.com なので、別ホスト remote で `gh api graphql` を
-  /// 実行すると認証失敗が混入し、観察可能性を汚す)。
-  private static func repoOwnerName(dir: String) async throws -> (owner: String, repo: String)? {
+  /// 戻り値:
+  /// - `.ok(owner, repo)`: 上記形式の github.com remote が見つかった
+  /// - `.unsetRemote`: `remote.origin` が設定されていない (新規 repo / clone なし)
+  /// - `.parserRejected`: 非 github.com host (GitLab / Bitbucket / GHE 等) /
+  ///   path セグメント数不一致 / 想定外形式。`gh` のデフォルト host は github.com なので、
+  ///   別ホスト remote で `gh api graphql` を実行すると認証失敗が混入し観察可能性を汚すため、
+  ///   そもそも host policy で弾く設計。raw URL は credential 漏出防止のため呼び出し側に渡さない
+  static func repoOwnerName(dir: String) async throws -> RepoIdentity {
     let data: Data
     do {
       data = try await runGit(args: ["config", "--get", "remote.origin.url"], cwd: dir)
     } catch GitError.commandFailed {
       // remote.origin 未設定（新規 repo / fork なし）。PR 一覧自体が成立しない。
-      return nil
+      return .unsetRemote
     }
     let url = String(decoding: data, as: UTF8.self)
       .trimmingCharacters(in: .whitespacesAndNewlines)
-    return parseGitHubOwnerRepo(url: url)
+    guard let parsed = parseGitHubOwnerRepo(url: url) else {
+      return .parserRejected
+    }
+    return .ok(owner: parsed.owner, repo: parsed.repo)
   }
 
   /// `gh api user --jq .login` で認証中ユーザーの login を返す。

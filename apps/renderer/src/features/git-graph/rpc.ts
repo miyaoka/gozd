@@ -1,6 +1,8 @@
 import {
   GitCommitFilesRequest,
   GitCommitFilesResponse,
+  GitGithubIdentityRequest,
+  GitGithubIdentityResponse,
   GitLogRequest,
   GitLogResponse,
 } from "@gozd/proto";
@@ -12,3 +14,6 @@ export const rpcGitLog = (req: GitLogRequest) =>
 
 export const rpcGitCommitFiles = (req: GitCommitFilesRequest) =>
   rpc("/git/commitFiles", req, GitCommitFilesRequest, GitCommitFilesResponse);
+
+export const rpcGitGithubIdentity = (req: GitGithubIdentityRequest) =>
+  rpc("/git/githubIdentity", req, GitGithubIdentityRequest, GitGithubIdentityResponse);

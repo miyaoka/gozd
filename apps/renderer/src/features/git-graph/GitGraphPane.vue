@@ -32,13 +32,16 @@ import {
   useWorktreeStore,
 } from "../worktree";
 import CommitDetailPane from "./CommitDetailPane.vue";
+import CommitSegmentList from "./CommitSegmentList";
 import type { DisplayRef } from "./displayRef";
 import { computeGraphLayout } from "./graphLayout";
 import type { GraphLayout } from "./graphLayout";
+import type { CommitMessageSegment } from "./linkifyCommitMessage";
+import { buildRepoBaseUrl, linkifyCommitMessage } from "./linkifyCommitMessage";
 import { mergeCommitStreams } from "./mergeCommitStreams";
 import type { SortMode } from "./mergeCommitStreams";
 import RefBadge from "./RefBadge.vue";
-import { rpcGitLog } from "./rpc";
+import { rpcGitGithubIdentity, rpcGitLog } from "./rpc";
 import { useGitGraphStore } from "./useGitGraphStore";
 
 const rootRef = useTemplateRef<HTMLElement>("root");
@@ -382,6 +385,50 @@ async function loadPrList() {
   prByBranch.value = map;
 }
 
+// --- GitHub repo identity (コミットメッセージ `#N` リンク化の SSOT) ---
+
+/** active worktree の origin remote を parse した `(owner, repo)`。
+ * Swift 側 `GitHubOps.parseGitHubOwnerRepo` 経由のため、`gh pr list` と同じ host policy
+ * (github.com 限定) で揃う。remote 未設定 / 非 github.com host は両フィールドが空文字で届く。
+ * worktree 切替時に 1 回だけ取得。push / fetch 等の SSOT push 経路では再取得不要
+ * (remote URL は `git remote set-url` でしか変わらず、それは FSEvents の射程外で
+ * 低頻度な手動操作のため、active 切替時の取得で実用上十分)。 */
+const repoIdentity = ref({ owner: "", repo: "" });
+/** loadRepoIdentity の世代管理。並行実行で古いレスポンスが後着して上書きするのを防ぐ */
+let loadRepoIdentityGen = 0;
+
+async function loadRepoIdentity() {
+  const gen = ++loadRepoIdentityGen;
+  const dir = worktreeStore.dir;
+  if (dir === undefined) return;
+  const result = await tryCatch(rpcGitGithubIdentity({ dir }));
+  if (gen !== loadRepoIdentityGen) return;
+  if (!result.ok) {
+    // launch failure は git CLI 解決失敗 (PATH 不在等) のみ。
+    // remote 未設定 / 非 github は native 側で空文字 + stderr ログに倒すため、ここには来ない。
+    notify.error("Failed to load GitHub identity", result.error);
+    return;
+  }
+  repoIdentity.value = { owner: result.value.owner, repo: result.value.repo };
+}
+
+/** GitHub repo base URL (`https://github.com/<owner>/<repo>`)。
+ * コミットメッセージの `#N` リンク化に使う。remote 未設定 / 非 github.com host は undefined。 */
+const issueLinkBaseUrl = computed(() => buildRepoBaseUrl(repoIdentity.value));
+
+/** 表示中の各 commit の subject を linkify した segments を hash で引ける map。
+ * template から関数呼び出しすると毎 render で `linkifyCommitMessage` (string.matchAll の O(n)
+ * コスト) が全 commit 分実行されるため、computed で `(commits, baseUrl)` が変わったときだけ
+ * 再計算する形に変える。row hover / 選択変更 等の再 render では再計算しない。 */
+const commitMessageSegmentsByHash = computed(() => {
+  const baseUrl = issueLinkBaseUrl.value;
+  const map = new Map<string, CommitMessageSegment[]>();
+  for (const node of layout.value.nodes) {
+    map.set(node.commit.hash, linkifyCommitMessage(node.commit.message, baseUrl));
+  }
+  return map;
+});
+
 // active worktree の PR 一覧を 60 秒間隔で取得する。
 // gozd の primary use case は「Claude / ユーザーが worktree で `gh pr create` する」ことであり、
 // 既 push branch での `gh pr create` / `gh pr edit` / `gh pr comment` / `gh pr review` 等は
@@ -397,15 +444,23 @@ const { pause: pausePrPolling, resume: resumePrPolling } = useIntervalFn(
 
 onMounted(() => {
   void loadPrList();
+  void loadRepoIdentity();
 });
 
-// worktree 切り替え時に PR 再取得 + interval を新 dir 基準に再スタート。
+// worktree 切り替え時に PR / repo identity 再取得 + interval を新 dir 基準に再スタート。
 // 切替直後に間隔分待たされず、かつ古い dir のタイマーで二重発火しない。
+//
+// fetch 完了前の async 窓で旧 repo の identity / PR map が残ると、新 repo の commit が描画
+// された瞬間に「新 repo の #N を旧 repo の URL にリンク」「新 branch を旧 PR バッジに紐付け」
+// 等の cross-repo 事故が起きる。これを構造的に防ぐため、fetch 発射前に同期で空に倒す。
 watch(
   () => worktreeStore.dir,
   () => {
     pausePrPolling();
+    repoIdentity.value = { owner: "", repo: "" };
+    prByBranch.value = new Map();
     void loadPrList();
+    void loadRepoIdentity();
     resumePrPolling();
   },
 );
@@ -994,7 +1049,9 @@ const isWorkingTreeActive = computed(
                   :pr-by-branch="prByBranch"
                 />
                 <span class="truncate">
-                  {{ node.commit.message }}
+                  <CommitSegmentList
+                    :segments="commitMessageSegmentsByHash.get(node.commit.hash) ?? []"
+                  />
                 </span>
               </div>
 
@@ -1030,7 +1087,7 @@ const isWorkingTreeActive = computed(
           class="shrink-0 overflow-hidden border-l border-zinc-700"
           :style="{ width: `${detailWidth}px` }"
         >
-          <CommitDetailPane :commits="gitGraphStore.selectedCommits" />
+          <CommitDetailPane :commits="gitGraphStore.selectedCommits" :base-url="issueLinkBaseUrl" />
         </div>
       </template>
     </div>

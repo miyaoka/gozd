@@ -45,12 +45,15 @@ interface CommandRegistry {
   execute(id: string, args?: unknown): boolean;
   listForPalette(): readonly CommandEntry[];
   reset(): void;
+  setErrorHandler(handler: (message: string, cause?: unknown) => void): void;
 }
 ```
 
 - `register()` は dispose 関数を返す。同一 ID の二重登録は上書き（HMR 安全）
-- `execute()` は handler を `tryCatch` でラップして実行する。handler 内で例外が発生した場合は `console.error` で記録し `false` を返す。未登録なら `false`
-- `listForPalette()` は label が設定されているコマンドのみを返す。コマンドパレット UI が使用する
+- `execute()` は handler を `tryCatch` でラップして実行する。handler 内で例外が発生した場合は注入済みのエラー通知コールバックに渡して `false` を返す。未登録または `precondition` 不成立なら `false`
+- `listForPalette()` は label が設定されており、かつ `precondition` が true（または未指定）のコマンドのみを返す。コマンドパレット UI が使用する
+- `setErrorHandler()` は feature 層から通知ストアを注入するための inversion。`shared/command` から feature への直接依存を避ける
+- **アプリ起動時に `setErrorHandler` で通知ストアの `error` を必ず接続する**。注入し忘れると handler の例外が標準コンソールにしか出ず、`useNotificationStore` を通したトースト通知ポリシー（CLAUDE.md 規約）と一致しなくなる
 - dispose 時は一致チェックし、他の登録を壊さない
 
 ### CommandInput
@@ -63,6 +66,8 @@ type CommandHandler = (args?: unknown) => boolean;
 interface CommandDescriptor {
   label: string; // コマンドパレットに表示する名前
   handler: CommandHandler;
+  /** コマンドの有効化条件。false の場合パレットに表示されず、`execute()` もスキップされる */
+  precondition?: string;
 }
 
 type CommandInput = CommandHandler | CommandDescriptor;
@@ -71,6 +76,7 @@ type CommandInput = CommandHandler | CommandDescriptor;
 - `label` 付きで登録したコマンドのみコマンドパレットに表示される
 - `label` なし（関数のみ）のコマンドはパレットに表示されない（引数付きコマンド等）
 - handler は処理した場合 `true`、何もしなかった場合 `false` を返す。呼び出し元はこの戻り値で `preventDefault` 等を判断する
+- `precondition` は context key 式（`parseWhen` で AST 化される）。`execute()` 経由・キーバインド経由のどちらでも条件不成立ならスキップされる。`when` と違いコマンド自体の有効/無効を示し、パレットでの可視性にも効く
 
 ### コマンド登録の例
 
@@ -104,17 +110,23 @@ interface ContextMap {
   previewVisible: boolean;
   commandPaletteVisible: boolean;
   quickPickVisible: boolean;
+  prPickerVisible: boolean;
+  issuePickerVisible: boolean;
   inputFocused: boolean;
+  isGitRepo: boolean;
 }
 ```
 
-| キー名                  | source                                                                            |
-| ----------------------- | --------------------------------------------------------------------------------- |
-| `terminalFocus`         | xterm の focus/blur + worktree 切替 / closePane / visibilitychange で更新         |
-| `previewVisible`        | MainLayout の `watchEffect` で `previewOpen` を同期（Preview popover の開閉状態） |
-| `commandPaletteVisible` | CommandPalette の show/close で更新                                               |
-| `quickPickVisible`      | QuickPick の useDialog isOpen で更新                                              |
-| `inputFocused`          | useKeyBindings の focusin/focusout で更新。input/textarea/contenteditable を検出  |
+| キー名                  | source                                                                                             |
+| ----------------------- | -------------------------------------------------------------------------------------------------- |
+| `terminalFocus`         | アクティブターミナルのフォーカス変化 + worktree 切替 / closePane / visibilitychange で同期         |
+| `previewVisible`        | Preview popover の開閉状態と同期                                                                   |
+| `commandPaletteVisible` | コマンドパレット dialog の open/close で同期                                                       |
+| `quickPickVisible`      | QuickPick dialog の open/close で同期                                                              |
+| `prPickerVisible`       | PR ピッカー dialog の open/close で同期                                                            |
+| `issuePickerVisible`    | Issue ピッカー dialog の open/close で同期                                                         |
+| `inputFocused`          | document の focusin/focusout を購読し、input/textarea/contenteditable へのフォーカスを検出して同期 |
+| `isGitRepo`             | 選択中 repo が git 管理下か。repo 選択の変化に追従して同期                                         |
 
 ### When 条件
 

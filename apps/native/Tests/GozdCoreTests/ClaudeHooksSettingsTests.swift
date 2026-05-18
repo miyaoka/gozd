@@ -37,7 +37,7 @@ struct ClaudeHooksSettingsTests {
     #expect(cmd.contains("nc -w 1 -U"))
   }
 
-  @Test("CLI 経由のコマンドは GOZD_CLI_RUNNER + GOZD_CLI_PATH を使う")
+  @Test("CLI 経由のコマンドは GOZD_CLI_PATH を直接実行する")
   func cliCommandFormat() {
     let s = ClaudeHooksSettings.settings()
     let hooks = s["hooks"] as! [String: Any]
@@ -45,7 +45,6 @@ struct ClaudeHooksSettingsTests {
     let inner = (stop["hooks"] as! [[String: String]])[0]
     let cmd = inner["command"]!
 
-    #expect(cmd.contains("$GOZD_CLI_RUNNER"))
     #expect(cmd.contains("\"$GOZD_CLI_PATH\""))
     #expect(cmd.contains("hook done"))
   }
@@ -58,7 +57,6 @@ struct ClaudeHooksSettingsTests {
       let entry = (hooks[event] as! [[String: Any]])[0]
       let inner = (entry["hooks"] as! [[String: String]])[0]
       let cmd = inner["command"]!
-      #expect(cmd.contains("$GOZD_CLI_RUNNER"), "\(event) should use CLI runner")
       #expect(cmd.contains("\"$GOZD_CLI_PATH\""), "\(event) should reference CLI path")
     }
   }

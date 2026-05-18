@@ -9,7 +9,7 @@ import Foundation
 //
 // 2. **2 経路の hook command**:
 //    - `nc -w 1 -U $GOZD_SOCKET_PATH`: 軽量、固定 JSON 直送。stdin payload 不要なイベント用
-//    - `$GOZD_CLI_RUNNER "$GOZD_CLI_PATH" hook <event>`: CLI 経由、stdin の Claude 側 hook JSON を
+//    - `"$GOZD_CLI_PATH" hook <event>`: CLI 経由、stdin の Claude 側 hook JSON を
 //      パースして rich payload を含む HookMessage を作る。発火頻度の低い rich event 用
 //
 // 3. **wire 形式は proto3 JSON mapping**: `{"hook":{"event":"<name>","ptyId":<n>}}` の形で
@@ -79,7 +79,7 @@ private func ncCommand(_ event: String) -> String {
 }
 
 private func cliCommand(_ event: String) -> String {
-  return "$GOZD_CLI_RUNNER \"$GOZD_CLI_PATH\" hook \(event)"
+  return "\"$GOZD_CLI_PATH\" hook \(event)"
 }
 
 private func ensureDirectory(forFile path: String) throws {

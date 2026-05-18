@@ -53,6 +53,12 @@ undefined ──SessionStart──→ idle ──UserPromptSubmit──→ worki
 - **nc 直接送信**: 軽量。stdin データ不要で発火頻度の高いイベント向け
 - **CLI 経由**: stdin の JSON をパースして payload にマージ。詳細データが必要なイベント向け
 
+### PermissionRequest debounce の cancel 経路
+
+`needs-input` 受信時に `setTimeout(150ms)` でタイマーを張り、満了時に `asking` へ遷移する。タイマー満了前に **`running` / `done` / `tool-done` / `tool-failure` / `session-end` / `stop-failure`** のいずれかが来ると `cancelAskTimer(ptyId)` でタイマーを破棄する。
+
+これにより「自動承認で一瞬で抜けるツール呼び出し（tool-done が即来る）」では `asking` バッジが瞬きせず、人間が本当に止まる承認だけが UI に出る。debounce 中に `session-end` で当該 PTY のエントリが消えていた場合は、タイマー満了時に遷移を中止する。
+
 ## interrupt 検知の制約
 
 > [!WARNING]

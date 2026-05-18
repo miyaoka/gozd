@@ -8,8 +8,7 @@ struct GozdEnvOverlayTests {
   private func makeOverlay() -> GozdEnvOverlay {
     GozdEnvOverlay(
       socketPath: "/tmp/gozd-dev.sock",
-      cliPath: "/proj/apps/cli/src/index.ts",
-      cliRunner: "bun",
+      cliPath: "/proj/apps/native/.build/debug/gozd-cli",
       claudeSettingsPath: "/tmp/gozd-dev-claude-settings.json",
       zdotdir: "/proj/apps/desktop/zsh",
       userHome: "/Users/test"
@@ -21,8 +20,7 @@ struct GozdEnvOverlayTests {
     let env = makeOverlay().merged(into: [:], ptyId: 42)
     #expect(env["GOZD_PTY_ID"] == "42")
     #expect(env["GOZD_SOCKET_PATH"] == "/tmp/gozd-dev.sock")
-    #expect(env["GOZD_CLI_PATH"] == "/proj/apps/cli/src/index.ts")
-    #expect(env["GOZD_CLI_RUNNER"] == "bun")
+    #expect(env["GOZD_CLI_PATH"] == "/proj/apps/native/.build/debug/gozd-cli")
     #expect(env["GOZD_CLAUDE_SETTINGS_PATH"] == "/tmp/gozd-dev-claude-settings.json")
   }
 

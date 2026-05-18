@@ -13,8 +13,7 @@ import Foundation
 //
 // gozd overlay が最後に上書きするキー:
 //   - GOZD_PTY_ID: spawn ごとに採番される ID
-//   - GOZD_SOCKET_PATH / GOZD_CLI_PATH / GOZD_CLI_RUNNER /
-//     GOZD_CLAUDE_SETTINGS_PATH: hook コマンド経路の解決
+//   - GOZD_SOCKET_PATH / GOZD_CLI_PATH / GOZD_CLAUDE_SETTINGS_PATH: hook コマンド経路の解決
 //   - GOZD_ZDOTDIR / GOZD_ORIG_ZDOTDIR / ZDOTDIR: zsh 初期化チェーン
 //   - TERM_PROGRAM=gozd / FORCE_HYPERLINK=1: ターミナル識別と OSC 8 許可
 //   - HOME: 親プロセスの値を尊重（通常は親の HOME が常に正しい）
@@ -24,7 +23,6 @@ import Foundation
 public struct GozdEnvOverlay: Sendable {
   public let socketPath: String
   public let cliPath: String
-  public let cliRunner: String
   public let claudeSettingsPath: String
   public let zdotdir: String
   public let userHome: String
@@ -50,14 +48,12 @@ public struct GozdEnvOverlay: Sendable {
   public init(
     socketPath: String,
     cliPath: String,
-    cliRunner: String,
     claudeSettingsPath: String,
     zdotdir: String,
     userHome: String
   ) {
     self.socketPath = socketPath
     self.cliPath = cliPath
-    self.cliRunner = cliRunner
     self.claudeSettingsPath = claudeSettingsPath
     self.zdotdir = zdotdir
     self.userHome = userHome
@@ -78,7 +74,6 @@ public struct GozdEnvOverlay: Sendable {
     result["GOZD_PTY_ID"] = String(ptyId)
     result["GOZD_SOCKET_PATH"] = socketPath
     result["GOZD_CLI_PATH"] = cliPath
-    result["GOZD_CLI_RUNNER"] = cliRunner
     result["GOZD_CLAUDE_SETTINGS_PATH"] = claudeSettingsPath
 
     // ZDOTDIR チェーン: 元値（親 or renderer 指定）を退避してから gozd 側に切替

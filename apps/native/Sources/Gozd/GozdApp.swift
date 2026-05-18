@@ -450,7 +450,6 @@ final class AppRuntime {
       return GozdEnvOverlay(
         socketPath: socketPath,
         cliPath: cliPath,
-        cliRunner: "",
         claudeSettingsPath: claudeSettingsPath,
         zdotdir: zdotdir,
         userHome: userHome
@@ -467,7 +466,6 @@ final class AppRuntime {
       return GozdEnvOverlay(
         socketPath: socketPath,
         cliPath: cliPath,
-        cliRunner: "",
         claudeSettingsPath: claudeSettingsPath,
         zdotdir: zdotdir,
         userHome: userHome
@@ -477,7 +475,6 @@ final class AppRuntime {
     return GozdEnvOverlay(
       socketPath: socketPath,
       cliPath: "",
-      cliRunner: "",
       claudeSettingsPath: claudeSettingsPath,
       zdotdir: userHome,
       userHome: userHome

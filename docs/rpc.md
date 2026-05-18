@@ -36,7 +36,7 @@ renderer（Vue / WebKit）と native（Swift）間の通信。`.proto` を SSOT 
 | `client_message.proto` | CLI / Claude hooks → native の `ClientMessage` oneof               |
 | `common.proto`         | 共有型（WorktreeEntry / Task / GhRef / GitFileChange 等）          |
 
-新しい RPC を足すときは該当の `.proto` に request / response / event を追加し、`buf generate` で TS / Swift の生成物を更新する。dispatcher 側の path 登録は `apps/native/Sources/GozdCore/RpcDispatcher.swift` の `dispatch(path:)` switch に case を追加する。
+新しい RPC を足すときは該当の `.proto` に request / response / event を追加して生成物を更新し、両言語の公開 API (`@gozd/proto` / `GozdProto`) 経由で利用する。dispatcher 側の path 登録手順などの内部実装ガイドは、native 層モジュール内 README を参照する。
 
 ## 通信モデル
 
@@ -97,7 +97,7 @@ push の payload は proto 型と 1:1 対応していない（push type 名と p
 - `gitStatusChange` の payload は `branchHead` / `upstream` ({ ahead, behind }) を nested object として渡すが、`GitStatusChangeEvent.proto` は flat な ahead/behind を持つだけ
 - `remoteRefsChange` / `fsWatchReady` は proto に対応メッセージが存在しない（前者は dir のみ、後者は renderer 内部 dispatch）
 
-実際のフィールドは送信側 (`apps/native/Sources/Gozd/GozdApp.swift` の `pushToRenderer` / `callJavaScript` 呼び出し箇所) と受信側 (`apps/renderer/src/features/*/rpc.ts` 等の `*Payload` 型) を直接見て確認する。`packages/proto/gozd/v1/events.proto` は構造の参考に留める。
+実際の payload 形は、native 側 push 発火箇所と renderer 側 `*Payload` 型を SSOT とする。`events.proto` は構造の参考に留める。
 
 ### CLI / Claude hooks → native（NDJSON socket）
 
@@ -108,20 +108,10 @@ CLI は `gozd-cli` バイナリ。`Unix Domain Socket`（`$TMPDIR/gozd-{channel}
 
 `SocketServer`（`apps/native/Sources/GozdCore/SocketServer.swift`）が NWListener で受け、`RpcDispatcher.handleSocketMessage(line)` に流す。decode 失敗（不正 JSON / oneof 未指定）は stderr にログするだけで接続は維持する。
 
-## Renderer 側の購読パターン
+## Renderer 側の購読契約
 
-`apps/renderer/src/shared/rpc/messages.ts` がイベントバス相当の API を提供する。型付き generic + disposer パターンでリスナー登録する。
+shared/rpc がイベントバス相当の API を提供する。型付き generic + disposer パターンで購読する契約:
 
-```typescript
-import { onMessage } from "../../shared/rpc";
-import type { FsChangePayload } from "./rpc";
-
-const unsubscribe = onMessage<FsChangePayload>("fsChange", ({ dir, relDir }) => {
-  // ...
-});
-onUnmounted(unsubscribe);
-```
-
-renderer 内部から push を発射するときは `dispatchMessage(type, payload)` を使う。native 経由と同じ subscriber に流れるので、`useFsWatchSync` が `rpcFsWatch` 成功直後に `fsWatchReady` を発射する経路などに使う。
-
-push の到達タイミングはイベント駆動で順序保証はないため、リスナー側で必要な整合性を担保する（例: `gitStatusChange` は `dir` をキーに最新値で上書きする）。
+- `onMessage<TPayload>(type, handler)` で型付き購読、戻り値の disposer を `onUnmounted` で解除
+- renderer 内部から push を発射する経路もイベントバス経由（native 経由と同じ subscriber に流れるため、source dir に紐付く再同期シグナル等で利用）
+- push の到達順序は保証されない。リスナー側で必要な整合性を担保する（例: `gitStatusChange` は `dir` をキーに最新値で上書きする）

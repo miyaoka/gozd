@@ -140,7 +140,7 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
   - split: 左セル → original のトークン、右セル → current のトークン
   - diff の色分けは背景色のみ。テキスト色はトークンに委ねる
   - 言語未対応時はフォールバック表示（追加=緑、削除=赤）
-- `hunksToViewItems` (unified) と `hunksToSplitRows` (split) の両方を取得時に展開し `baseItems` / `baseSplitItems` として保持。view mode 切替で再 fetch は走らない
+- unified と split の両方の表示形式を取得時に事前展開して保持。view mode 切替で再 fetch は走らない
 - split view では modified hunk 内で連続する removed run と added run を貪欲ペアリングし、余った片側は反対セルを空 (灰色背景) にして残す
 
 ### MarkdownPreview

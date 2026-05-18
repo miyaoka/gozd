@@ -57,7 +57,7 @@ undefined ──SessionStart──→ idle ──UserPromptSubmit──→ worki
 
 `needs-input` 受信時に `setTimeout(150ms)` でタイマーを張り、満了時に `asking` へ遷移する。タイマー満了前に **`running` / `done` / `tool-done` / `tool-failure` / `session-end` / `stop-failure`** のいずれかが来ると `cancelAskTimer(ptyId)` でタイマーを破棄する。
 
-これにより「自動承認で一瞬で抜けるツール呼び出し（tool-done が即来る）」では `asking` バッジが瞬きせず、人間が本当に止まる承認だけが UI に出る。debounce 中に `session-end` で当該 PTY のエントリが消えていた場合は、満了 callback 内で `prev === undefined` のため遷移を諦める。
+これにより「自動承認で一瞬で抜けるツール呼び出し（tool-done が即来る）」では `asking` バッジが瞬きせず、人間が本当に止まる承認だけが UI に出る。debounce 中に `session-end` で当該 PTY のエントリが消えていた場合は、タイマー満了時に遷移を中止する。
 
 ## interrupt 検知の制約
 

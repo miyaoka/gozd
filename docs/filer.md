@@ -4,70 +4,63 @@
 
 ## 構成
 
-```text
-features/filer/
-├── FilerPane.vue          # ルートペイン（root entries の load + fsChange / gitStatusChange 購読）
-├── FileTreeItem.vue       # 再帰ツリーアイテム（展開/折りたたみ、アイコン、git 色分け、reveal）
-├── filerUtils.ts          # 削除エントリ生成、ソート、エントリ型
-├── iconUrlMap.ts          # material-icon-theme manifest → アイコン URL マップ
-├── useFileIcon.ts         # ファイル名 / 拡張子 / 言語 ID からアイコン URL を解決
-├── useFilerEventStore.ts  # FilerPane → FileTreeItem の event bus（再構築通知）
-├── useFsWatchSync.ts      # 全 repo / 全 worktree dir を native FSWatchRegistry に同期
-├── runOneSyncPass.ts      # watchedDirs と targetDirs の差分から fsWatch / fsUnwatch を発射
-├── runSerializedSync.ts   # 並列実行を mutex + coalesce で 1 本化
-└── rpc.ts                 # rpcFsReadDir / rpcFsReadFile / rpcFsWatch / rpcFsUnwatch 等
-```
+| 役割             | 担当                                                                                         |
+| ---------------- | -------------------------------------------------------------------------------------------- |
+| ルートペイン     | ルートエントリの load と push イベントの購読、子ツリーへの通知集約                           |
+| ツリー UI        | 再帰的なノード表示、フォルダ展開・折りたたみ、git 色分けバッジ、アイコン、自動展開（reveal） |
+| ファイル監視同期 | 開いている全 repo / 全 worktree の dir を native の watch registry に同期して登録 / 解除     |
+| アイコン解決     | ファイル名 / 拡張子 / 言語 ID からアイコン URL を解決                                        |
+| イベントバス     | ルートペインからツリー子ノードへの再構築・reveal 通知                                        |
 
-git status の状態管理 (`useGitStatusStore`) と worktree 状態 (`useWorktreeStore`) は `features/worktree/` 配下にある。Filer はそれを購読する側。
+git status の状態（`useGitStatusStore`）と worktree 状態（`useWorktreeStore`）は `features/worktree/` で管理し、Filer はそれを購読する側。
 
 ## データフロー
 
 ```mermaid
 flowchart LR
-    FSE[Swift FSEvents\nFSWatchRegistry] -->|fsChange / gitStatusChange| FP[FilerPane]
-    FP -->|"emit (event store)"| FTI[FileTreeItem]
+    FSE[native FSEvents] -->|fsChange / gitStatusChange| FP[ルートペイン]
+    FP -->|event bus| FTI[ツリー子ノード]
     FP --> root[rootEntries 再構築]
     FTI --> children[展開中の子の cache 破棄 / 再 load]
-    REPO[useRepoStore] -->|fsWatchTargetDirs| FWS[useFsWatchSync]
-    FWS -->|rpcFsWatch / rpcFsUnwatch| FSR[FSWatchRegistry]
+    REPO[useRepoStore] -->|watch 対象 dir 集合| FWS[watch 同期 layer]
+    FWS -->|fsWatch / fsUnwatch| FSR[native watch registry]
 ```
 
-ファイル監視の実体は Swift 側 `FSWatchRegistry`（FSEvents をラップ）。renderer は `useFsWatchSync` が `useRepoStore.fsWatchTargetDirs` (computed) を `watch` し、開いている全 repo / 全 worktree の dir を `rpcFsWatch` で登録する。詳細は [architecture.md](architecture.md#fswatch-の対象スコープ)。
+ファイル監視の実体は Swift 側の watch registry（FSEvents をラップ）。renderer は repo store の派生 computed として「開いている全 repo / 全 worktree の dir 集合」を計算し、watch 同期 layer がその集合を観測して差分を `rpcFsWatch` / `rpcFsUnwatch` で発射する。詳細は [architecture.md](architecture.md#fswatch-の対象スコープ)。
 
-| push event        | 発火条件                                                                                                                             | FilerPane の挙動                                                                                               |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| `fsChange`        | watch 対象 dir 配下のファイル変化                                                                                                    | active dir 一致時のみ反応。`relDir === ""` or `"."` で `loadRoot`、それ以外は filer event store 経由で子に通知 |
-| `gitStatusChange` | per-wt の `.git/index` / HEAD、common の `refs/remotes/*` / `packed-refs`、作業ツリー側のファイル変更 (`fsChange` と同 burst で発火) | active dir 一致時のみ反応。`gitStatusStore` の再 load + root 再構築 + event store で全 FileTreeItem に通知     |
-| `fsWatchReady`    | `rpcFsWatch` 成功直後の再同期シグナル                                                                                                | useSidebarData / GitGraphPane 側で消費（FilerPane は購読しない）                                               |
+| push event        | 発火条件                                                                                                                              | ルートペインの挙動                                                                                                |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `fsChange`        | watch 対象 dir 配下のファイル変化                                                                                                     | active dir 一致時のみ反応。ルート配下の変更はルート再 load、サブディレクトリ配下の変更は event bus 経由で子に通知 |
+| `gitStatusChange` | per-wt の `.git/index` / HEAD、common の `refs/remotes/*` / `packed-refs`、作業ツリー側のファイル変更（`fsChange` と同 burst で発火） | active dir 一致時のみ反応。`gitStatusStore` の再 load + ルート再構築 + event bus で全ツリー子ノードに通知         |
+| `fsWatchReady`    | watch 登録成功直後の再同期シグナル                                                                                                    | サイドバー / GitGraphPane 側で消費（ルートペインは購読しない）                                                    |
 
 > [!NOTE]
-> `gitStatusChange` の native 側 debounce は `FSWatchRegistry` 内部で行う。`.git/` 配下の `fs.watchFile` (Node.js API) ベースの 500ms ポーリングは持たない（過去設計）。
+> `gitStatusChange` の native 側 debounce は watch registry 内部で行う。`.git/` 配下を Node.js API の `fs.watchFile` で 500ms ポーリングする旧設計は持たない。
 
-## 多軸 race 防止
+## 並走 race の防御
 
-複数の async 操作が並列で `rootEntries` を上書きしないよう、世代カウンタで防御している:
+複数の async 操作が並列で `rootEntries` を上書きしないよう、世代カウンタで防御する設計を採用している。
 
-- `loadRootSeq` — `loadRoot()` の世代。`dir` が A → B → A と変わったとき同じ dir 値で旧呼び出しと新呼び出しを区別する
-- `gitStatusChangeSeq` — `handleGitStatusChange` 専用世代。同一 dir 内で push が連続発火しても古い `rpcFsReadDir` 応答で新しい応答を踏み潰さない
+- ルート load 専用世代: `dir` が A → B → A と切り替わったときに、同じ dir 値で旧呼び出しと新呼び出しを区別する
+- gitStatusChange ハンドラ専用世代: 同一 dir 内で push が連続発火した場合、古い `rpcFsReadDir` 応答で新しい応答を踏み潰さない
 
-`handleGitStatusChange` の継続判定は `(gitStatusChangeSeq + loadRootSeq + dir.value)` の 3 軸チェックで「自分が投げた呼び出しの後により新しいものが来ていない」ことを構造的に保証する。
+gitStatusChange ハンドラの継続判定は「専用世代 + ルート load 世代 + 現在の dir 値」の 3 軸で「自分が投げた呼び出しの後により新しいものが来ていない」ことを構造的に保証する。
 
-`useFsWatchSync` 側は `runSerializedSync` で並列実行を 1 本に集約する。`watch` の依存変更で再 run が連続して起きても、`watchedDirs` 更新の race で削除済み worktree の watch が leak しない。
+watch 同期 layer 側は mutex + coalesce で並列実行を 1 本に集約し、watch 対象集合の更新 race で削除済み worktree の watch が leak しないようにしている。
 
 ## ツリー自動展開（reveal）
 
 ファイル選択時に、対象パスまでツリーを自動展開してスクロールインビューする。
 
-- `useFilerEventStore.requestReveal(path)` が reveal target を伝搬
-- `FileTreeItem` は自身の path が target の祖先か判定し、自動展開 + 子の load
-- 最終ノードに到達したら `scrollIntoView({ block: "nearest" })`
-- `worktreeStore.revealVersion` を bump することで「同じファイルを再度 reveal」も検知できる
+- イベントバスが reveal target を伝搬し、各ツリー子ノードは自身の path が target の祖先か判定して自動展開 + 子の load を行う
+- 最終ノードに到達したら `scrollIntoView({ block: "nearest" })` で表示
+- 同じファイルを再度 reveal するケースを取り扱うため、`worktreeStore.revealVersion` を bump することで「再 reveal イベント」を発火させる
 
-dir watch は `flush: "sync"` で発火する。これは `setOpen({ selection })` で dir 変化と `revealVersion` ++ が同 tick で起きたとき、dir 変化が先に dispatch され、`rootEntries` の reset → `loadRoot` 起動 → 子マウント後の revealVersion watch (immediate) が target を処理する順序を flush ステージで構造的に保証するため。
+dir 切替と revealVersion 更新が同 tick で起きた場合の順序保証（dir 変化 → ルート初期化 → 子マウント後の reveal 処理）は、ルートペインの dir watch を同期 flush に固定することで構造的に成立させている。
 
 ## git status の色分け
 
-`git status --porcelain=v2` のステータスコード（XY の2文字）から変更種別を判定する。worktree 側（Y）を優先し、なければ index 側（X）を使う。実装は `resolveGitChangeKind`（`features/worktree/`）。
+`git status --porcelain=v2` のステータスコード（XY の 2 文字）から変更種別を判定する。worktree 側（Y）を優先し、なければ index 側（X）を使う。
 
 | 種別      | 色     | 対象コード |
 | --------- | ------ | ---------- |
@@ -81,19 +74,17 @@ dir watch は `flush: "sync"` で発火する。これは `setOpen({ selection }
 
 ## 削除ファイルの表示
 
-`git status` で `D` ステータスのファイルは、ディスク上に存在しないがツリーに仮想エントリとして表示する。`getDeletedEntries()` (`filerUtils.ts`) がディレクトリ直下の削除ファイル / サブディレクトリを生成し、既存名と重複しないものだけを `mergeWithGitStatus` で追加する。
-
-判定は `statusCode[0] === "D" || statusCode[1] === "D"` で index 側 / worktree 側のどちらの削除も拾う。
+`git status` で `D` ステータスのファイル（index 側 / worktree 側のいずれの削除も含む）は、ディスク上に存在しないがツリーに仮想エントリとして表示する。ディレクトリ直下の削除ファイル / サブディレクトリを抽出し、ディスク上の既存エントリと重複しないものだけをツリーに追加する。
 
 ## ファイルアイコン
 
-`material-icon-theme` の `generateManifest()` が出力する `iconDefinitions` と、Vite の `import.meta.glob` でハッシュ付きパスに変換した SVG を `iconUrlMap.buildIconUrlByName` で結合する。
+`material-icon-theme` の manifest と、Vite が解決した SVG アセットを結合して「アイコン名 → URL」マップを構築する。
 
-解決優先順位（`useFileIcon.ts`）:
+解決優先順位:
 
 - ファイル名完全一致（`Dockerfile`, `.gitignore` 等）
 - 拡張子一致（複合拡張子対応: `.test.ts` → `test.ts` → `ts` の順でループ）
-- 拡張子 → VS Code 言語 ID → アイコン名（`EXTENSION_LANGUAGE_ID_MAP` で変換）
+- 拡張子 → VS Code 言語 ID → アイコン名（変換テーブル経由）
 - デフォルトアイコン
 
 SVG は `import.meta.glob` で一括取り込みし、Vite がビルド時にハッシュ付きパスに変換する。`assetsInlineLimit: 0` で SVG のインライン化を防止している。
@@ -102,7 +93,7 @@ SVG は `import.meta.glob` で一括取り込みし、Vite がビルド時にハ
 
 Filer から参照する store は `features/worktree/` に置く。
 
-- `useWorktreeStore` — 選択中 worktree の `dir` / `selectedPath` / `fileServerBaseUrl` / `revealVersion` を保持
-- `useGitStatusStore` — `gitStatuses` と `loadGitStatus()` を提供。`gitStatusChange` push のたびに FilerPane から呼ばれる
+- `useWorktreeStore` — 選択中 worktree の dir / 選択中ファイルパス / file server base URL / reveal version
+- `useGitStatusStore` — git status マップと再 load API。`gitStatusChange` push のたびにルートペインから呼ばれる
 
-worktree 切替で `selectedPath` は即リセット (`watch(dir, ..., { flush: "sync" })`)、`gitStatuses` も新しい dir で再 load される。
+worktree 切替時は選択中ファイルパスを即リセット、`gitStatuses` も新しい dir で再 load される。

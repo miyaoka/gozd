@@ -56,7 +56,7 @@ sequenceDiagram
 
 - shell: `/bin/zsh`（renderer 側で固定。`apps/renderer/src/features/terminal/useTerminalStore.ts` の `DEFAULT_SHELL`）
 - cwd: `ptySpawn` の `dir` パラメータ（worktree ごとに異なる）
-- 環境変数: native 側 `GozdEnvOverlay`（`apps/native/Sources/GozdCore/GozdEnvOverlay.swift`）が固定値で上書きする。renderer から渡す `env` でも未指定であれば overlay 側で `FORCE_HYPERLINK=1` / `TERM=xterm-256color` / `COLORTERM=truecolor` / `TERM_PROGRAM=gozd` を埋める。`FORCE_HYPERLINK=1` は CLI ツール（Claude Code 等）の OSC 8 ハイパーリンク出力を許可する用途。一覧は [architecture.md](architecture.md#ターミナル環境変数) を参照
+- 環境変数: PTY spawn 時に native 側で固定の overlay が適用され、CLI ツール向けに `FORCE_HYPERLINK=1` / `TERM=xterm-256color` / `COLORTERM=truecolor` / `TERM_PROGRAM=gozd` を保証する（renderer から `env` を渡しても、上記キーは指定が無い場合のみ overlay 側で埋まる）。全項目と上書き順序は [architecture.md](architecture.md#ターミナル環境変数) を参照
 - UTF-8 デコード: `TextDecoder({ stream: true })` でチャンク分割時のマルチバイト文字化けを防止
 
 ## ターミナル分割

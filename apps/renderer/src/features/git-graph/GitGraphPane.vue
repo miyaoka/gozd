@@ -249,13 +249,9 @@ onUnmounted(disposeGitStatus);
 
 // ブランチ ref の変更 (作成・削除・リネーム) は repo 共有の commonGitDir で起き、
 // 同 repo の worktree 群のうち primary 1 つだけが push される。primary が active と
-// 一致するとは限らないため、「active と同じ repo の push か」で filter する。
+// 一致するとは限らないため、`isSameRepoAsActive` で active と同じ repo か判定する。
 const disposeBranchChange = onMessage<BranchChangePayload>("branchChange", ({ dir }) => {
-  const activeDir = worktreeStore.dir;
-  if (activeDir === undefined) return;
-  const sourceRoot = repoStore.findRepoOwning(dir)?.rootDir;
-  const activeRoot = repoStore.findRepoOwning(activeDir)?.rootDir;
-  if (sourceRoot === undefined || sourceRoot !== activeRoot) return;
+  if (!repoStore.isSameRepoAsActive(dir)) return;
   void loadLog();
 });
 onUnmounted(disposeBranchChange);
@@ -263,18 +259,16 @@ onUnmounted(disposeBranchChange);
 // `git fetch` / `git push` でローカルの remote-tracking ref が動いたとき発火する。
 // `gitStatusChange` 経路は current branch の upstream key (ahead/behind) しか
 // 変化を載せないため、別ブランチ (`origin/other-branch`) だけが動いた場合に取り
-// こぼす。`remoteRefsChange` はこれを補う repo スコープ通知。`branchChange` と
-// 同じく primary watcher 1 つだけが発火するので、active と同じ repo か判定する。
+// こぼす。`remoteRefsChange` はこれを補う repo スコープ通知。
 // PR 一覧 (`gh pr list`) は network state に依存し、ローカルの remote ref 動きとは
 // 必ずしも同期しないため、ここでは `loadLog` のみ発火する (60s polling に任せる)。
+// current branch の remote ref が動くと `gitStatusChange` 経路でも upstream key 変化で
+// `loadLog` が走るため、本 handler と合わせて短時間に最大 2 回 `rpcGitLog` が発射される。
+// `loadLogGen` の世代管理で UI 状態は壊れないが、観察可能性ログには重複が乗る。
 const disposeRemoteRefsChange = onMessage<RemoteRefsChangePayload>(
   "remoteRefsChange",
   ({ dir }) => {
-    const activeDir = worktreeStore.dir;
-    if (activeDir === undefined) return;
-    const sourceRoot = repoStore.findRepoOwning(dir)?.rootDir;
-    const activeRoot = repoStore.findRepoOwning(activeDir)?.rootDir;
-    if (sourceRoot === undefined || sourceRoot !== activeRoot) return;
+    if (!repoStore.isSameRepoAsActive(dir)) return;
     void loadLog();
   },
 );
@@ -283,13 +277,9 @@ onUnmounted(disposeRemoteRefsChange);
 // `useFsWatchSync` の `rpcFsWatch` 完了直後に発射される再同期通知。watch 起動往復中の
 // FS 変化を救済するため、1 度だけ git log を取り直す。dispatch 側で rootDir 単位に
 // dedup されており、payload.dir は repo の代表 worktree (active とは限らない) なので、
-// active と同じ repo か否かで filter する。
+// `isSameRepoAsActive` で active と同じ repo か判定する。
 const disposeFsWatchReady = onMessage<FsWatchReadyPayload>("fsWatchReady", ({ dir }) => {
-  const activeDir = worktreeStore.dir;
-  if (activeDir === undefined) return;
-  const sourceRoot = repoStore.findRepoOwning(dir)?.rootDir;
-  const activeRoot = repoStore.findRepoOwning(activeDir)?.rootDir;
-  if (sourceRoot === undefined || sourceRoot !== activeRoot) return;
+  if (!repoStore.isSameRepoAsActive(dir)) return;
   void loadLog();
 });
 onUnmounted(disposeFsWatchReady);

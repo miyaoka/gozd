@@ -143,10 +143,10 @@ struct FSWatchRegistryTests {
     #expect(events.contains("gitStatusChange"))
   }
 
-  @Test("`git pack-refs --all` で packed-refs が更新されると branchChange + gitStatusChange が dispatch される")
+  @Test("`git pack-refs --all` で packed-refs が更新されると branchChange + gitStatusChange + remoteRefsChange が dispatch される")
   func dispatchesOnPackRefs() async throws {
     // pack 後はファイル名から local / remote のどちらが pack されたか判別不能なため、
-    // 両方の subscriber に通知する設計。pack 自体はテスト時に 0 loose ref でも実行可能。
+    // 3 つの subscriber すべてに通知する設計。pack 自体はテスト時に 0 loose ref でも実行可能。
     let tmpDir = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: tmpDir) }
     try await initGitRepo(at: tmpDir)
@@ -173,9 +173,11 @@ struct FSWatchRegistryTests {
 
     try await waitForEvent(collector, matching: { $0 == "branchChange" })
     try await waitForEvent(collector, matching: { $0 == "gitStatusChange" })
+    try await waitForEvent(collector, matching: { $0 == "remoteRefsChange" })
     let events = collector.snapshot()
     #expect(events.contains("branchChange"))
     #expect(events.contains("gitStatusChange"))
+    #expect(events.contains("remoteRefsChange"))
   }
 
   @Test("main repo + worktree clone を並列 watch 中、`.git/worktrees/<name>/` 単独削除で worktreeChange が fire し branchChange は伴走しない")
@@ -240,6 +242,48 @@ struct FSWatchRegistryTests {
     // 仮に伴走したら、本 test は「branchChange の伴走 fetch で隠蔽されていた死角」を
     // 再現できておらず、worktreeChange 単独経路の regression を捕まえられない。
     #expect(branchChangeCount.value == 0)
+  }
+
+  @Test("main repo + worktree clone を並列 watch 中、`pack-refs` で remoteRefsChange が primary 経由で dispatch される")
+  func dispatchesRemoteRefsChangeFromPrimaryOnPackedRefs() async throws {
+    // `remoteRefsChange` は新規 push event。`branchChange` / `worktreeChange` と同じ
+    // primary watcher dispatch コードを共有するが、watcher の handler 接続漏れや
+    // dispatch 分岐ミスを classify ユニットテストでは検知できないため、2 watcher 並列で
+    // 「primary が確立した状態で dispatch される」invariant をここで守る。
+    // `packed-refs` を選んだ理由は、テスト時に `git pack-refs --all` で確定的に再現
+    // できるため (`refs/remotes/*` 単独だと remote 設定 + fetch のセットアップが必要)。
+    let mainRepo = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: mainRepo) }
+    try await initGitRepo(at: mainRepo)
+
+    let seed = mainRepo.appendingPathComponent("seed.txt")
+    try "seed".write(to: seed, atomically: true, encoding: .utf8)
+    try await runGitCmd(["add", "seed.txt"], cwd: mainRepo)
+    try await runGitCmd(["commit", "-m", "seed"], cwd: mainRepo)
+
+    let worktreeRoot = mainRepo.deletingLastPathComponent()
+      .appendingPathComponent("wt-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: worktreeRoot) }
+    try await runGitCmd(
+      ["worktree", "add", "-b", "feature", worktreeRoot.path], cwd: mainRepo)
+
+    let remoteRefsChangeCount = EventCounter()
+    let registry = FSWatchRegistry(
+      onFsChange: { _, _ in },
+      onGitStatusChange: { _, _ in },
+      onBranchChange: { _ in },
+      onRemoteRefsChange: { _ in remoteRefsChangeCount.increment() },
+      onWorktreeChange: { _ in }
+    )
+
+    try await registry.watch(dir: mainRepo.path)
+    try await registry.watch(dir: worktreeRoot.path)
+    try await Task.sleep(for: .milliseconds(300))
+
+    try await runGitCmd(["pack-refs", "--all"], cwd: mainRepo)
+
+    try await waitForCount(remoteRefsChangeCount, atLeast: 1)
+    #expect(remoteRefsChangeCount.value >= 1)
   }
 
   @Test("同一 dir を再 watch すると古い entry を破棄して再構築する（idempotent re-entry 契約）")

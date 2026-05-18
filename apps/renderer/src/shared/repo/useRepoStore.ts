@@ -134,6 +134,21 @@ export const useRepoStore = defineStore("repo", () => {
     return undefined;
   }
 
+  /** `dir` が active repo (selectedDir 所属) と同じ repo を共有しているか。
+   * 全 worktree watch 経路で受け取る push (`branchChange` / `remoteRefsChange` /
+   * `fsWatchReady` 等) は **どの worktree が source か** に依らず「同 repo か」で active
+   * 側の購読を絞りたい局面が多い。各 subscriber に同じ filter ロジックを書くと SSOT
+   * 違反 (filter 方向のドリフト) を生むため、ここに集約する。
+   * どちらかが未割当 / 所有 repo 不明な場合は false を返す。 */
+  function isSameRepoAsActive(dir: string): boolean {
+    const activeDir = selectedDir.value;
+    if (activeDir === undefined) return false;
+    const sourceRoot = findRepoOwning(dir)?.rootDir;
+    const activeRoot = findRepoOwning(activeDir)?.rootDir;
+    if (sourceRoot === undefined || activeRoot === undefined) return false;
+    return sourceRoot === activeRoot;
+  }
+
   /** 新規 repo を追加。既存ならメタ情報を上書き */
   function addRepo(state: RepoState) {
     if (!(state.rootDir in repos.value)) {
@@ -368,6 +383,7 @@ export const useRepoStore = defineStore("repo", () => {
     fsWatchTargetDirs,
     collapsedRoots,
     findRepoOwning,
+    isSameRepoAsActive,
     addRepo,
     updateRepoData,
     setWorktreeGitStatuses,

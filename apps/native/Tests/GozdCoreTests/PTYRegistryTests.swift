@@ -37,7 +37,10 @@ struct PTYRegistryTests {
     )
     #expect(id2 == id1 + 1)
 
-    try await waitUntil(timeout: .seconds(3)) {
+    // issue ( #566 ) 観測: 本 test は CI attempt 1 で tick=1 ( +1.161s ) → tick=2 ( +2.534s )
+    // と `Task.sleep(50ms)` が 1.37s stall した ( SocketServer / receivesOutputAndExit と
+    // 同じ stall window )。GCD ベース版に切り替えて経路を分離する。
+    try await waitUntilDispatch(timeout: .seconds(3)) {
       events.exitedIds().contains(id1) && events.exitedIds().contains(id2)
     }
 

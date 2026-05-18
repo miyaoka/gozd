@@ -18,11 +18,14 @@ struct SocketServerTests {
     try server.start { data in messages.append(data) }
     defer { server.stop() }
 
-    try await waitUntil(timeout: .seconds(2)) { fileExists(path) }
+    // issue ( #566 ) 観測: SocketServer suite の `fileExists` polling は CI attempt 1 で
+    // `Task.sleep` 経路の stall を踏んだ。GCD ベースの `waitUntilDispatch` に置き換えて、
+    // 並列実行下でも tick が発火し続けるかを観測する。
+    try await waitUntilDispatch(timeout: .seconds(2)) { fileExists(path) }
 
     try sendOverUnixSocket(path: path, data: Data(#"{"type":"ping"}\#n"#.utf8))
 
-    try await waitUntil(timeout: .seconds(2)) { messages.snapshot().count == 1 }
+    try await waitUntilDispatch(timeout: .seconds(2)) { messages.snapshot().count == 1 }
     let received = messages.snapshot()
     #expect(received.count == 1)
     #expect(String(decoding: received[0], as: UTF8.self) == #"{"type":"ping"}"#)
@@ -40,7 +43,7 @@ struct SocketServerTests {
     try server.start { data in messages.append(data) }
     defer { server.stop() }
 
-    try await waitUntil(timeout: .seconds(2)) { fileExists(path) }
+    try await waitUntilDispatch(timeout: .seconds(2)) { fileExists(path) }
 
     let payload = Data(
       """
@@ -51,7 +54,7 @@ struct SocketServerTests {
       """.utf8)
     try sendOverUnixSocket(path: path, data: payload)
 
-    try await waitUntil(timeout: .seconds(2)) { messages.snapshot().count == 3 }
+    try await waitUntilDispatch(timeout: .seconds(2)) { messages.snapshot().count == 3 }
     let received = messages.snapshot().map { String(decoding: $0, as: UTF8.self) }
     #expect(received == [#"{"i":1}"#, #"{"i":2}"#, #"{"i":3}"#])
   }
@@ -68,7 +71,7 @@ struct SocketServerTests {
     try server.start { data in messages.append(data) }
     defer { server.stop() }
 
-    try await waitUntil(timeout: .seconds(2)) { fileExists(path) }
+    try await waitUntilDispatch(timeout: .seconds(2)) { fileExists(path) }
 
     try await withThrowingTaskGroup(of: Void.self) { group in
       for i in 0..<5 {
@@ -79,7 +82,7 @@ struct SocketServerTests {
       try await group.waitForAll()
     }
 
-    try await waitUntil(timeout: .seconds(3)) { messages.snapshot().count == 5 }
+    try await waitUntilDispatch(timeout: .seconds(3)) { messages.snapshot().count == 5 }
     let received = Set(messages.snapshot().map { String(decoding: $0, as: UTF8.self) })
     let expected: Set<String> = (0..<5).map { #"{"i":\#($0)}"# }.reduce(into: Set()) {
       $0.insert($1)

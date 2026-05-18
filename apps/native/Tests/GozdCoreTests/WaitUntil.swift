@@ -27,7 +27,7 @@ import Testing
 //   これにより polling loop の実行 thread が Swift Concurrency の cooperative executor から
 //   完全に外れる。GCD pool も使わないため `Thread.sleep(forTimeInterval:)` の blocking が
 //   他 GCD 処理を阻害しない ( SocketServer 専用 queue 含め `DispatchQueue.global()` の
-//   worker pool に依存する全経路が無事 )。
+//   worker pool に依存する他 GCD 処理は worker 枯渇の間接影響を受けない )。
 //
 //   先行版の `waitUntilDispatch` ( CI run 26029332080 attempt 1 で実証 ) は `withCheckedContinuation`
 //   経由で sleep の wait phase だけを GCD に逃がし、resume 後の polling iteration が
@@ -113,8 +113,13 @@ func waitUntil(
 }
 
 /// `waitUntil` の **polling loop 全体を dedicated NSThread 上で完結** させる版。Swift
-/// Concurrency の cooperative executor 経路を完全に外し、`Task.sleep` 経路で詰まる stall
-/// ( CI run 26029332080 attempt 1 で観測 ) との切り分けに使う。
+/// Concurrency の cooperative executor 経路を完全に外し、`Task.sleep` 経路で詰まる
+/// 2 秒 stall ( PR #565 attempt 1 で初観測 ) との切り分けに使う。
+///
+/// 中間版 `waitUntilDispatch` ( GCD `asyncAfter` + `withCheckedContinuation` 経由、
+/// CI run 26029332080 attempt 1 で観測 ) も cooperative executor stall に巻き込まれ
+/// 観測無効と実証されたため、polling loop **全体** を Swift Concurrency runtime から
+/// 外す構造に到達した。
 ///
 /// 実装上の契約:
 ///

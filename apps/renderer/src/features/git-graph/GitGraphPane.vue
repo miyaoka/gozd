@@ -138,26 +138,29 @@ let lastBranchHead = "";
 let lastUpstream = "";
 /** loadLog の世代管理。並行実行で古いレスポンスが後着して上書きするのを防ぐ */
 let loadLogGen = 0;
-/** loadLog が in-flight 中か。`scheduleLoadLog` の coalescing 判定にのみ使う。
- * 明示 trigger (worktree 切替 / firstParentOnly / gitStatusChange の headChanged 経路で
- * await + scroll する場面) では常に fresh な loadLog を走らせ、世代管理で古い結果を
- * 捨てる既存セマンティクスを保つ。push burst 由来の `scheduleLoadLog` のみが
- * 「in-flight 中なら trailing 1 回にまとめる」coalescing 対象。 */
-let loadLogInFlight = false;
-/** in-flight 中に `scheduleLoadLog` が来たかを示す 1 bit。in-flight 完了時に 1 度だけ
- * 再 fire させる。burst N 発火を最大 2 fetch (in-flight + 1 trailing) に畳む。 */
+/** 現在 in-flight な `loadLog` 呼び出しの数。`scheduleLoadLog` の coalescing 判定に使う。
+ * boolean 1 個では、明示 trigger (worktree 切替 / firstParentOnly / `headChanged` 経路) の
+ * loadLog と burst 由来の trailing fetch が交錯する thin window で「最後の finally が
+ * 抜けた瞬間」を取れず、burst N 発火を最大 2 fetch に集約する保証が崩れる。
+ * counter にすると `count === 0` で「全 in-flight 完了」を厳密に判定でき、pending の
+ * 消費タイミングが「最後の loadLog の finally」に固定される。 */
+let loadLogInFlightCount = 0;
+/** in-flight 中に `scheduleLoadLog` が来たかを示す 1 bit。`loadLogInFlightCount === 0` に
+ * 落ちた時点で 1 度だけ trailing fetch を発射する。burst N 発火を最大 2 fetch (in-flight + trailing)
+ * に集約する。 */
 let loadLogScheduled = false;
 
 /** @returns 世代チェックを通過して state を更新した場合 true */
 async function loadLog(): Promise<boolean> {
-  loadLogInFlight = true;
+  loadLogInFlightCount += 1;
   try {
     return await runLoadLog();
   } finally {
-    loadLogInFlight = false;
-    if (loadLogScheduled) {
+    loadLogInFlightCount -= 1;
+    // 最後の in-flight が完了したタイミングでだけ trailing を発射する。並走 loadLog の
+    // 途中で抜けた finally では pending を消費せず、最終の 1 つに集約する。
+    if (loadLogInFlightCount === 0 && loadLogScheduled) {
       loadLogScheduled = false;
-      // burst 内の trailing 1 fetch を fire-and-forget で発射する。
       // ここで await すると caller の世代に乗らずタイミングが歪むため、fire-and-forget。
       void loadLog();
     }
@@ -173,9 +176,14 @@ async function loadLog(): Promise<boolean> {
  * `branchChange` も伴って同じ burst 内で `rpcGitLog` が 2〜3 回並列発射されるため。
  * `loadLogGen` の世代管理は到達した結果を捨てる事後防衛で、`rpcGitLog` の発射自体は
  * 抑止しない (native 側の git 実行コスト / observability ログ汚染が残る)。
- * `scheduleLoadLog` は発射そのものを抑止する事前防衛。 */
+ * `scheduleLoadLog` は発射そのものを抑止する事前防衛。
+ *
+ * 明示 trigger 由来の `await loadLog()` (`headChanged` 経路 / worktree 切替 / firstParentOnly)
+ * も `loadLogInFlightCount > 0` を立てるため、同 burst 内の `scheduleLoadLog` は trailing 側に
+ * 畳まれる。明示 trigger 経路と burst 経路が同じ counter を共有することで coalescing が
+ * 両方向に働く。 */
 function scheduleLoadLog() {
-  if (loadLogInFlight) {
+  if (loadLogInFlightCount > 0) {
     loadLogScheduled = true;
     return;
   }
@@ -287,10 +295,12 @@ const disposeGitStatus = onMessage<GitStatusChangePayload>(
     } else if (branchHeadChanged || upstreamChanged) {
       scheduleLoadLog();
     }
-    // upstream 変化（push/fetch）時に PR 一覧も再取得
-    if (upstreamChanged) {
-      void loadPrList();
-    }
+    // `upstreamChanged` (`# branch.ab` の ahead/behind 数値が変化) は構造的に
+    // `refs/remotes/origin/<current-branch>` の書き換えが起きた場合に限られ、その時は
+    // 必ず `remoteRefsChange` も同じ burst で発射される (classify が両方を立てる)。
+    // `loadPrList` は `remoteRefsChange` handler 側の SSOT で発射するため、ここで呼ぶと
+    // `gh pr list` が 2 連射される。`scheduleLoadLog` を入れた事前防衛と対称にするため
+    // ここからは外す。HEAD 移動による branch.ab 変化は `headChanged` 経路に流れる。
   },
 );
 onUnmounted(disposeGitStatus);

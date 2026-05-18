@@ -33,8 +33,24 @@ private let _logRunnerEnvironmentOnce: Void = {
 /// ここで打った test name は trace ログ単独で pid と test を結びつける唯一の橋になる。
 /// `waitUntil` 内 polling やテスト経路途中で取りこぼしが起きても、entry / exit が出ていれば
 /// 「この pid を spawn した test はどれか」が直前直後の entry/exit から再構築可能。
-/// 使い方: 各 test の冒頭で `testTrace("started")` を呼び、
+///
+/// 使い方: 各 test の冒頭で `testTrace("started")` を呼び、その直後に
 /// `defer { testTrace("ended") }` を置く。
+///
+/// **trace key の予約語**: `"started"` / `"ended"` は test entry / exit を示す予約語として扱う。
+/// `[TEST-TRACE …] started` / `[TEST-TRACE …] ended` で grep するため、test 内で
+/// `testTrace("started …")` のような任意メッセージとしては使わない。
+///
+/// **defer LIFO 規約**: Swift の `defer` は LIFO で発火する。test 内に追加の `defer` を
+/// 書く場合、`defer { testTrace("ended") }` を **test の最初に登録する** ことを推奨する
+/// ( = LIFO で最後に発火 )。これにより `[TEST-TRACE … started]` と
+/// `[TEST-TRACE … ended]` の間に test 由来のすべての `[PTY-TRACE]` が収まり、解析者は
+/// 「started〜ended の区間に出た pid を test に紐付けるだけ」で経路復元が完結する。
+///
+/// 例外として `defer { Task { … } }` のような **detached cleanup** は test return 後の
+/// 非同期 task として走るため、defer 順序にかかわらず ended の trace に間に合わないこと
+/// がある。この場合 ended 後の `[PTY-TRACE]` 行は前 test の遅延 cleanup である可能性を
+/// 解析者が考慮する必要がある。
 @inline(__always)
 func testTrace(_ message: @autoclosure () -> String) {
   guard gozdTraceEnabled else { return }

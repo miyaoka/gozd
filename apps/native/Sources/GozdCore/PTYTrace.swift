@@ -74,8 +74,13 @@ import Foundation
 #else
   // release build でも関数定義自体は残るが、本体は空で `@inline(__always)` により
   // call site から完全に inline 展開・除去される（ABI 上のコストは無い）。
-  // `gozdTraceStart` は release build では宣言しない。test target は `@testable import GozdCore`
-  // 経由で参照するが、`@testable` は DEBUG build を要求するため #else 経路では到達不能。
+  //
+  // `gozdTraceStart` は release build では宣言しない。`@testable import GozdCore` は対象
+  // module の `-enable-testing` ビルドを要求し、本リポジトリの `apps/native/Package.swift`
+  // は GozdCore に明示的な `-enable-testing` を付けていないため、SwiftPM のデフォルト
+  // ( DEBUG build 時のみ enable ) に従う。よって現状の運用では release build で
+  // `@testable import GozdCore` が link 失敗し、#else 経路の gozdTraceStart 参照は到達不能。
+  // 将来 release build に `-enable-testing` を追加する場合は本宣言も対称化する必要がある。
   // 不要な `ContinuousClock.now` evaluation が linker dead-strip 通過後に残る経路を塞ぐ。
   let gozdTraceEnabled: Bool = false
   @inline(__always) func gozdTraceLine(_ line: String) {}

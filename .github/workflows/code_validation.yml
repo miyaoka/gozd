@@ -124,12 +124,14 @@ jobs:
 
       - name: swift test
         working-directory: apps/native
-        # GOZD_PTY_TRACE: PTYRegistryTests.spawnAndExitDispatch が CI で稀に flaky に
-        # なる issue #450 の原因特定用。DEBUG build かつこの env=1 のときのみ
-        # PTYManager 内のライフサイクルイベント（drainPTY の集約結果、source
-        # eventHandler の発火順、waitpid の戻り値・errno、PTYFinishState の状態
-        # 遷移）を stderr に時系列出力する。再発時に CI ログから経路を逐語で復元
-        # するために残す。
+        # GOZD_PTY_TRACE: PTY ライフサイクル / テスト境界 trace を CI ログに残す
+        # ための観測 hook。issue #450 (PTYRegistryTests.spawnAndExitDispatch) と
+        # issue #556 (PTYManagerTests.resizeIsSafe) で再発した flake の root cause
+        # を一意特定するために維持する。DEBUG build かつこの env=1 のときのみ、
+        # PTYManager 内のライフサイクルイベント（drainPTY 集約結果、source
+        # eventHandler 発火順、waitpid 戻り値・errno、PTYFinishState 状態遷移、
+        # resize/kill/write の syscall 結果）と、テスト境界（test entry/exit、
+        # waitUntil tick 履歴、runner 環境 snapshot）を stderr に時系列出力する。
         env:
           GOZD_PTY_TRACE: "1"
         run: swift test

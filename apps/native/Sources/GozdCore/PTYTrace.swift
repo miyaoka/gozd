@@ -44,7 +44,12 @@ import Foundation
   let gozdTraceEnabled: Bool = {
     ProcessInfo.processInfo.environment["GOZD_PTY_TRACE"] == "1"
   }()
-  /// プロセス起動からの経過時間基準。`[PTY-TRACE]` / `[TEST-TRACE]` の elapsed 表記に共通利用する。
+  /// 「`gozdTraceStart` シンボルへの最初の参照時点」を基準にした相対時刻の起点。
+  /// Swift の global `let` は最初の参照時 lazy 初期化（言語仕様で thread-safe）。
+  /// 通常 `ptyTrace` / `testTrace` のいずれかから最初に触れた瞬間に初期化されるため、
+  /// 厳密には「プロセス起動からの elapsed」ではなく「最初の trace 呼び出しからの elapsed」。
+  /// `[PTY-TRACE]` / `[TEST-TRACE]` の elapsed は同一プロセス内なら同じ `let` を共有するため
+  /// 両系統の elapsed は相対比較可能。プロセス起動からの absolute は要求していない。
   let gozdTraceStart = ContinuousClock.now
   private let gozdTraceLock = NSLock()
 
@@ -69,8 +74,10 @@ import Foundation
 #else
   // release build でも関数定義自体は残るが、本体は空で `@inline(__always)` により
   // call site から完全に inline 展開・除去される（ABI 上のコストは無い）。
+  // `gozdTraceStart` は release build では宣言しない。test target は `@testable import GozdCore`
+  // 経由で参照するが、`@testable` は DEBUG build を要求するため #else 経路では到達不能。
+  // 不要な `ContinuousClock.now` evaluation が linker dead-strip 通過後に残る経路を塞ぐ。
   let gozdTraceEnabled: Bool = false
-  let gozdTraceStart = ContinuousClock.now
   @inline(__always) func gozdTraceLine(_ line: String) {}
   @inline(__always)
   func ptyTrace(_ tag: String, pid: Int32 = 0, _ message: @autoclosure () -> String) {}

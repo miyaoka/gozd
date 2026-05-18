@@ -7,11 +7,14 @@ import Testing
 // 同時刻に spawn され、CI trace 上で pid 多重化が起きる。`resizeIsSafe` のような
 // timeout 系 flake が再発した時、「どの pid を見ていたのか」をテスト失敗時刻と
 // 一致する spawn pid から目で突き合わせるしか手段が無くなる。
-// 本 suite は ~5s 規模で、直列化による性能劣化は許容範囲。
+// 本 suite は ローカル swift test 実測で 1 秒未満、CI macos-26 でも秒オーダー内に収まる
+// ことを想定。直列化による性能劣化は許容範囲。
 @Suite("PTYManager", .serialized)
 struct PTYManagerTests {
   @Test("子プロセスの stdout を受け取り、正常終了 (.exited(0)) を検知する")
   func receivesOutputAndExit() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let data = DataCollector()
     let exit = ExitCollector()
     let pty = PTYManager()
@@ -37,6 +40,8 @@ struct PTYManagerTests {
 
   @Test("write した内容を子プロセス経由で読み戻せる（cat エコー）")
   func writeRoundTrip() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let data = DataCollector()
     let exit = ExitCollector()
     let pty = PTYManager()
@@ -73,6 +78,8 @@ struct PTYManagerTests {
 
   @Test("resize は fd 確立前後で crash しない")
   func resizeIsSafe() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let pty = PTYManager()
     pty.resize(rows: 30, cols: 100)  // fd 未確立: no-op
     let data = DataCollector()
@@ -95,6 +102,8 @@ struct PTYManagerTests {
 
   @Test("0 byte 出力で正常終了する child (/usr/bin/true) でも onExit が発火する")
   func zeroByteOutput() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let data = DataCollector()
     let exit = ExitCollector()
     let pty = PTYManager()
@@ -119,6 +128,8 @@ struct PTYManagerTests {
 
   @Test("stderr のみに書く child の出力も master fd から読める")
   func stderrIsCapturedThroughSlave() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let data = DataCollector()
     let exit = ExitCollector()
     let pty = PTYManager()
@@ -145,6 +156,8 @@ struct PTYManagerTests {
 
   @Test("存在しない cwd を指定すると exited(code: 124) を返す (chdir 失敗)")
   func chdirFailureReportedAsExit124() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let data = DataCollector()
     let exit = ExitCollector()
     let pty = PTYManager()
@@ -174,6 +187,8 @@ struct PTYManagerTests {
 
   @Test("ディレクトリを executable に指定すると exited(code: 126) を返す (execve EACCES)")
   func execveEACCESReportedAsExit126() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let data = DataCollector()
     let exit = ExitCollector()
     let pty = PTYManager()
@@ -197,6 +212,8 @@ struct PTYManagerTests {
 
   @Test("実行できないパス (/path/does/not/exist) は exited(code: 127) を返す")
   func execveENOENTReportedAsExit127() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let data = DataCollector()
     let exit = ExitCollector()
     let pty = PTYManager()

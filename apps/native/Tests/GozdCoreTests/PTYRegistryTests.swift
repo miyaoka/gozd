@@ -3,10 +3,16 @@ import Testing
 
 @testable import GozdCore
 
-@Suite("PTYRegistry")
+// `.serialized` で直列実行する（issue #556 観測項目 4）。
+// PTYManagerTests と同様、複数 PTY の並列 spawn を構造的に消すことで再発時の
+// trace 解析（pid と test の対応復元）を容易にする。
+// PTY を spawn する suite を跨いだ並列実行も避けるため、両 suite を揃って直列化する。
+@Suite("PTYRegistry", .serialized)
 struct PTYRegistryTests {
   @Test("spawn は連番の ptyId を返し、onText / onExit が ID 付きで配送される")
   func spawnAndExitDispatch() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let events = EventCollector()
     let registry = PTYRegistry(
       onText: { id, text in events.appendText(id: id, text: text) },
@@ -41,6 +47,8 @@ struct PTYRegistryTests {
 
   @Test("kill 後に PTY が registry から自動削除される")
   func cleanupOnKill() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let events = EventCollector()
     let registry = PTYRegistry(
       onText: { id, text in events.appendText(id: id, text: text) },
@@ -75,6 +83,8 @@ struct PTYRegistryTests {
 
   @Test("未知の ptyId への write / resize / kill は no-op")
   func unknownIdIsNoop() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let events = EventCollector()
     let registry = PTYRegistry(
       onText: { id, text in events.appendText(id: id, text: text) },
@@ -92,6 +102,8 @@ struct PTYRegistryTests {
 
   @Test("spawn 時 env[GOZD_RESUME_CLAUDE_SESSION] が expectedResumeSidById に保存される")
   func expectedResumeSidPopulatedFromEnv() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let events = EventCollector()
     let registry = PTYRegistry(
       onText: { id, text in events.appendText(id: id, text: text) },
@@ -115,6 +127,8 @@ struct PTYRegistryTests {
 
   @Test("consumeExpectedResumeSid は sid 関係なく必ず消費する (SessionStart 着弾の単一エントリポイント)")
   func consumeExpectedSidAlwaysConsumes() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let events = EventCollector()
     let registry = PTYRegistry(
       onText: { id, text in events.appendText(id: id, text: text) },
@@ -141,6 +155,8 @@ struct PTYRegistryTests {
 
   @Test("clearAssociations は expectedResumeSid を触らない (silent drop しない契約)")
   func clearAssociationsLeavesExpectedSid() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let events = EventCollector()
     let registry = PTYRegistry(
       onText: { id, text in events.appendText(id: id, text: text) },

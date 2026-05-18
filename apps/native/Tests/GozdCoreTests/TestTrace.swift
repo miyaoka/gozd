@@ -13,8 +13,8 @@ import Testing
 
 /// 最初の `testTrace` 呼び出し時に CI runner の OS / CPU / host を 1 度だけ log する。
 /// 再発時に「同じ runner で再現か / 別 runner か」を切り分ける材料。
-/// top-level `let` の初期化は Swift runtime が dispatch_once で thread-safe に行うため、
-/// 競合や二重発火は起きない。
+/// Swift の global `let` は言語仕様により最初の参照時に thread-safe な lazy 初期化が
+/// 1 度だけ走る（並行 access があっても初期化 closure の二重実行は起きない）。
 private let _logRunnerEnvironmentOnce: Void = {
   guard gozdTraceEnabled else { return }
   let info = ProcessInfo.processInfo
@@ -28,6 +28,13 @@ private let _logRunnerEnvironmentOnce: Void = {
   )
 }()
 
+/// テスト本体の最初と最後に呼び、`[TEST-TRACE]` に entry / exit を打つことを推奨する。
+/// `Test.current?.name` は test body の直系 thread / task では確実に解決されるため、
+/// ここで打った test name は trace ログ単独で pid と test を結びつける唯一の橋になる。
+/// `waitUntil` 内 polling やテスト経路途中で取りこぼしが起きても、entry / exit が出ていれば
+/// 「この pid を spawn した test はどれか」が直前直後の entry/exit から再構築可能。
+/// 使い方: 各 test の冒頭で `testTrace("started")` を呼び、
+/// `defer { testTrace("ended") }` を置く。
 @inline(__always)
 func testTrace(_ message: @autoclosure () -> String) {
   guard gozdTraceEnabled else { return }

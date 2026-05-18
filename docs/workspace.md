@@ -26,7 +26,7 @@
 
 `gozd <path>` を実行すると、対象 path が既存 repo の worktree に含まれていればその repo にフォーカス + worktree 切替、含まれていなければ新規 repo として既存ウィンドウに追加される。新ウィンドウは作らない。
 
-非 git ディレクトリも同じ仕組みで「project」として登録される。worktree 概念がないため、サイドバーの ROOT / WORKTREES セクションは表示せず、repo 切替リストとターミナルのみが利用可能。
+非 git ディレクトリも同じ仕組みで「project」として登録される。worktree 概念がないため、`RepoSection` 内に WtCard 列は描かれず、ヘッダとターミナルのみが利用可能。
 
 ## アプリ状態の復元
 
@@ -83,7 +83,7 @@ save の発火条件は `buildAppStateSnapshot()` のシリアライズ結果が
 - main で直接コミットしない。Claude も main では作業しない
 - 「参照用」は規範ではなく、新規 worktree がリモートのデフォルトブランチ（`origin/HEAD`）を起点に作られる仕様の帰結。main はその起点を最新に保つために pull する場、という位置づけになる
   - サイドバーの新規 worktree ボタン / Issue picker 経由は `origin/HEAD` 起点
-  - PR picker 経由はその PR のブランチ起点（remote が `origin` 以外の fork PR も含む）
+  - PR picker 経由はその PR の `origin/<headRef>` 起点。fork PR は `headRef` を `origin` から解決できないため、picker のリスト時点で除外する（`GitHubOps.swift` の `headOwner != repoOwner` で弾く）
 
 ### 作業用 worktree
 
@@ -134,15 +134,27 @@ macOS 26 Tahoe の Liquid Glass を有効化するため、Window scene の chro
 
 ウィンドウ内に同居する repo / dir 全体のナビゲーション。常時表示（git 管理外の dir でも表示される）。
 
-上から順に:
+構造:
 
-- **repo 切替リスト**: `useRepoStore.dirOrder` 順に同居中の全 repo / dir を縦に並べる。git は `lucide--folder-git-2`、非 git は `lucide--folder` で区別。クリックで `selectedDir` を切り替える
-- **Add directory ボタン**: native の `NSOpenPanel` を `/open/pickAndOpen` RPC 経由で起動し、ユーザーが選んだ dir を既存ウィンドウに追加する
-- **repo 名ヘッダ**: 選択中 repo の表示名（編集可能、`renameSelectedRepo`）
-- **ROOT / WORKTREES セクション**: **git repo の時のみ表示**。選択中 repo の main worktree と worktree 一覧を表示
-  - worktree 行: git 変更ファイル数（modified/added/deleted/untracked）をバッジ表示。Claude Code の状態（working/asking/done）を右上にアイコンで重ねて表示し、working 時は経過時間も表示。done は worktree クリックでクリアされる（既読消化）
+- **トップツールバー**:
+  - 左に view mode トグル: `wt`（active worktree モード）/ `claude`（claude terminals モード）
+  - 右に時計と編集モードトグルボタン（pencil ↔ check アイコン）
+- **RepoSection リスト**: `useRepoStore.dirOrder` 順に同居中の全 repo / dir を縦に **並列展開** する。`RepoSection` 単位で折りたたみ可能。編集モード中は drag-drop で並び替えできる
+- **Add directory ボタン**: **編集モード時のみ** リスト末尾に表示。クリックで native の `NSOpenPanel` を開き、ユーザーが選んだ **任意のディレクトリ**（git 管理下 / 外問わず）を既存ウィンドウに追加する
 
-非選択 repo の Claude セッションは終了せず並列で動き続けるため、サイドバー上のバッジで状態が見える形にする予定（現状未実装）。
+各 `RepoSection` の中身:
+
+- ヘッダ: chevron + folder アイコン（git は `lucide--folder-git-2`、非 git は `lucide--folder`）+ repo 名。編集モード中は ✕ アイコンで repo 解除
+- **WtCard 列**: `main wt 先頭固定 + その他 wt は `repoStore.worktrees` の append 順`（= `git worktree list` の順）。Claude state による並び替えはしない（位置の安定性を優先）
+- 末尾に `+ New worktree` ボタン
+
+各 `WtCard`:
+
+- ヘッダ: branch アイコン + ブランチ名 + git 変更ファイル数バッジ（modified/added/deleted/untracked）+ ⋮ メニュー
+- 配下の TaskRow 列: 1 task ＝ 1 行。task は永続オブジェクト（PR/issue picker 由来 or 手動作成）。Claude session は `task.sessionId` に attach する短命属性として表現する
+  - 行頭アイコンで `working / asking / done / idle / resumable / not-started` の 6 状態を識別
+  - `working` 時は経過時間、`done` 時は応答テキストの抜粋、`asking` 時はツール承認要求の抜粋をバブルで表示
+  - task は `createdAt` 昇順の append 順で固定（state による並び替えはしない）
 
 ### ビュー切り替え
 

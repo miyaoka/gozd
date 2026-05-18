@@ -110,6 +110,8 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 
 desktop からの `fsChange` メッセージを購読し、選択中ファイルの親ディレクトリが変更対象なら `fetchContent()` を再実行する。モードや Preview チェックボックスの状態は維持する。コミットモードでは git オブジェクトからの取得済み内容を表示するため、ファイル変更通知は無視する。
 
+`useFsWatchSync` は全 worktree を watch するため、`fsChange.dir` が active dir と一致する event のみ反応する（[architecture.md の SSOT push の dir filter 規律](architecture.md#ssot-push-の-dir-filter-規律)）。親ディレクトリの照合では worktree 直下ファイルの relDir を native 側の `""` 表現に揃え、root file の通知を取りこぼさないようにしている。
+
 ### 非同期レース防止
 
 バージョンカウンター（`fetchVersion`）で管理する。`fetchContent()` 呼び出し時にインクリメントし、レスポンス到着時にバージョンが一致しなければ結果を破棄する。

@@ -61,6 +61,18 @@ export interface BranchChangePayload {
   dir: string;
 }
 
+/** `refs/remotes/*` / `packed-refs` の更新 (push / fetch 後) を repo スコープで通知する push。
+ * `branchChange` と同じく commonGitDir 単位の primary watcher 1 つに collapse される。
+ *
+ * `gitStatusChange` との使い分け:
+ *   - `gitStatusChange`: per-worktree の ahead/behind と HEAD を更新する経路。dir は source worktree
+ *   - `remoteRefsChange`: 「remote ref トポロジが変わった」を repo スコープで通知する経路。
+ *     current branch 以外の remote ref が動いた場合、`gitStatusChange` の upstream key は
+ *     変化しないため、git log を再 load するトリガはこちらに頼る */
+export interface RemoteRefsChangePayload {
+  dir: string;
+}
+
 export interface WorktreeChangePayload {
   dir: string;
 }

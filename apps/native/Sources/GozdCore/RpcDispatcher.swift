@@ -48,6 +48,7 @@ public actor RpcDispatcher {
     onFsChange: @escaping FSWatchRegistry.FsChangeHandler = { _, _ in },
     onGitStatusChange: @escaping FSWatchRegistry.GitStatusChangeHandler = { _, _ in },
     onBranchChange: @escaping FSWatchRegistry.BranchChangeHandler = { _ in },
+    onRemoteRefsChange: @escaping FSWatchRegistry.RemoteRefsChangeHandler = { _ in },
     onWorktreeChange: @escaping FSWatchRegistry.WorktreeChangeHandler = { _ in },
     onNotify: @escaping NotifyHandler = { _, _, _, _, _ in },
     envOverlay: GozdEnvOverlay? = nil,
@@ -59,6 +60,7 @@ public actor RpcDispatcher {
       onFsChange: onFsChange,
       onGitStatusChange: onGitStatusChange,
       onBranchChange: onBranchChange,
+      onRemoteRefsChange: onRemoteRefsChange,
       onWorktreeChange: onWorktreeChange
     )
     self.appState = AppStateStore(configDir: configDir)

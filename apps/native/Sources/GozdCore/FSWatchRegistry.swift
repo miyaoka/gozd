@@ -11,10 +11,13 @@ import Foundation
 // 2. **イベント分類**:
 //    - per-worktree git dir 配下の `HEAD` / `index` → `gitStatusChange`
 //    - common git dir 配下の `refs/heads/...` → `branchChange`
-//    - common git dir 配下の `refs/remotes/...` → `gitStatusChange`
-//      （`git push` 成功時にローカルの remote-tracking ref が書き換わる。
-//      ahead/behind の更新を git-graph に伝えるための SSOT）
-//    - common git dir 配下の `packed-refs` → `branchChange` + `gitStatusChange`
+//    - common git dir 配下の `refs/remotes/...` → `gitStatusChange` + `remoteRefsChange`
+//      （`git push` / `git fetch` 成功時にローカルの remote-tracking ref が書き換わる。
+//      `gitStatusChange` で per-worktree の ahead/behind を更新しつつ、`remoteRefsChange`
+//      で repo スコープの ref トポロジ変化を git-graph に通知する。current branch 以外の
+//      remote ref が動いたとき、`gitStatusChange` の `# branch.ab` だけでは検知できない
+//      ため、git log を再取得する別経路を分けて持つ）
+//    - common git dir 配下の `packed-refs` → `branchChange` + `gitStatusChange` + `remoteRefsChange`
 //      （pack 後はローカル ref と remote-tracking ref のどちらが書き換わったか
 //      ファイル名だけでは判別できないため、両方を発火させる）
 //    - common git dir 配下の `worktrees/...` → `worktreeChange`
@@ -46,6 +49,9 @@ public actor FSWatchRegistry {
   /// branchChange ハンドラ。同 repo を共有する worktree 群の中から primary 1 つだけが
   /// 発火するため、push は repo につき 1 回 / バッチ。
   public typealias BranchChangeHandler = @Sendable (_ dir: String) -> Void
+  /// remoteRefsChange ハンドラ。`refs/remotes/...` / `packed-refs` 由来。
+  /// `branchChange` と同じく commonGitDir 単位の primary watcher 1 つに collapse される。
+  public typealias RemoteRefsChangeHandler = @Sendable (_ dir: String) -> Void
   public typealias WorktreeChangeHandler = @Sendable (_ dir: String) -> Void
 
   private struct Entry {
@@ -72,12 +78,14 @@ public actor FSWatchRegistry {
     let hasFsChange: Bool
     let hasGitStatusChange: Bool
     let hasBranchChange: Bool
+    let hasRemoteRefsChange: Bool
     let hasWorktreeChange: Bool
   }
 
   private let onFsChange: FsChangeHandler
   private let onGitStatusChange: GitStatusChangeHandler
   private let onBranchChange: BranchChangeHandler
+  private let onRemoteRefsChange: RemoteRefsChangeHandler
   private let onWorktreeChange: WorktreeChangeHandler
   private var entries: [String: Entry] = [:]
   /// watch 時に renderer から渡された原文 dir → realpath 解決後のキー の逆引き。
@@ -99,11 +107,13 @@ public actor FSWatchRegistry {
     onFsChange: @escaping FsChangeHandler,
     onGitStatusChange: @escaping GitStatusChangeHandler,
     onBranchChange: @escaping BranchChangeHandler,
+    onRemoteRefsChange: @escaping RemoteRefsChangeHandler,
     onWorktreeChange: @escaping WorktreeChangeHandler
   ) {
     self.onFsChange = onFsChange
     self.onGitStatusChange = onGitStatusChange
     self.onBranchChange = onBranchChange
+    self.onRemoteRefsChange = onRemoteRefsChange
     self.onWorktreeChange = onWorktreeChange
   }
 
@@ -306,20 +316,21 @@ public actor FSWatchRegistry {
         onFsChange(originalDir, relDir)
       }
     }
-    // `branchChange` / `worktreeChange` は common git dir 配下の event から派生し、
-    // repo を共有する全 worktree の watcher が同じ event で同時発火する。
+    // `branchChange` / `remoteRefsChange` / `worktreeChange` は common git dir 配下の
+    // event から派生し、repo を共有する全 worktree の watcher が同じ event で同時発火する。
     // ここで commonGitDir 単位の primary watcher 1 つに collapse し、N 個の watcher 由来の
     // N 連射を 1 push にまとめる。primary は main worktree
     // (`perWorktreeGitDir == commonGitDir`) を選ぶ (`recomputePrimary` 参照)。
     let isPrimaryForCommonDir = isPrimaryWatcher(forCommonGitDir: entry.commonGitDir, dir: dir)
-    // primary watcher が未確立で `worktreeChange` / `branchChange` を立てた場合は silent drop に
+    // primary watcher が未確立で repo-scope event を立てた場合は silent drop に
     // 陥る。renderer (useFsWatchSync) は repo を開いた時点で main worktree も登録するため
     // 通常運用では発生しないが、`watch()` の `await GitOps.gitDirs` 中に non-main wt の event
     // が先に届く startup race / bare repo / 単体テストでの部分登録で起こり得る。観察可能化
     // のため stderr にログする。dispatch 自体は contract どおり走らない。
     // entries の dir 一覧と各 entry が main worktree (`perWorktreeGitDir == commonGitDir`)
     // かどうかを併記して、startup race か bare repo か永続未確立かを log から切り分け可能にする。
-    if (result.hasBranchChange || result.hasWorktreeChange) && !isPrimaryForCommonDir,
+    if (result.hasBranchChange || result.hasRemoteRefsChange || result.hasWorktreeChange)
+      && !isPrimaryForCommonDir,
       let commonGitDir = entry.commonGitDir,
       primaryByCommonGitDir[commonGitDir] == nil
     {
@@ -329,11 +340,14 @@ public actor FSWatchRegistry {
         .sorted()
       FileHandle.standardError.write(
         Data(
-          "[FSWatchRegistry] primary missing for commonGitDir=\(commonGitDir); dropping branchChange=\(result.hasBranchChange) worktreeChange=\(result.hasWorktreeChange) from dir=\(dir); entries=\(siblings)\n"
+          "[FSWatchRegistry] primary missing for commonGitDir=\(commonGitDir); dropping branchChange=\(result.hasBranchChange) remoteRefsChange=\(result.hasRemoteRefsChange) worktreeChange=\(result.hasWorktreeChange) from dir=\(dir); entries=\(siblings)\n"
             .utf8))
     }
     if result.hasBranchChange && isPrimaryForCommonDir {
       onBranchChange(originalDir)
+    }
+    if result.hasRemoteRefsChange && isPrimaryForCommonDir {
+      onRemoteRefsChange(originalDir)
     }
     if result.hasWorktreeChange && isPrimaryForCommonDir {
       onWorktreeChange(originalDir)
@@ -382,8 +396,10 @@ public actor FSWatchRegistry {
   ///   1. per-worktree git dir 配下 → `HEAD` / `index` のみ `gitStatusChange`
   ///   2. common git dir 配下 →
   ///      - `refs/heads/...` を `branchChange`
-  ///      - `refs/remotes/...` を `gitStatusChange`（push / fetch 後の ahead/behind 更新）
-  ///      - `packed-refs` を `branchChange` + `gitStatusChange`（local / remote 両方を含み得るため）
+  ///      - `refs/remotes/...` を `gitStatusChange` + `remoteRefsChange`
+  ///        （per-worktree の ahead/behind 更新と repo スコープの ref トポロジ変化を分離発火）
+  ///      - `packed-refs` を `branchChange` + `gitStatusChange` + `remoteRefsChange`
+  ///        （local / remote 両方を含み得るため、すべてを発火させる）
   ///      - `worktrees/...` を `worktreeChange`
   ///   3. 作業ツリー配下（git dir 配下に該当しない場合）→ `fsChange` + `gitStatusChange`
   ///
@@ -410,6 +426,7 @@ public actor FSWatchRegistry {
     var hasFsChange = false
     var hasGitStatusChange = false
     var hasBranchChange = false
+    var hasRemoteRefsChange = false
     var hasWorktreeChange = false
 
     // 通常 clone では perWorktreeGitDir == commonGitDir なので、両ルールを同じ path に
@@ -443,14 +460,19 @@ public actor FSWatchRegistry {
           hasBranchChange = true
         } else if rel.hasPrefix("refs/remotes/") {
           // push / fetch 成功でローカルの remote-tracking ref が書き換わる。
-          // git-graph は gitStatusChange の `# branch.ab` で ahead/behind 更新を検知する。
+          // - `gitStatusChange`: current branch の `# branch.ab` (ahead/behind) を更新
+          // - `remoteRefsChange`: current 以外のブランチの remote ref が動いた場合の
+          //   git-graph 再 load トリガ (gitStatusChange の upstream key は current branch
+          //   分しか変化を載せないため、それだけでは取りこぼす)
           hasGitStatusChange = true
+          hasRemoteRefsChange = true
         } else if rel == "packed-refs" {
           // pack 後は loose ref がまとめられるが、ファイル名からは local ref と
           // remote-tracking ref のどちらが書き換わったか判別できない。
-          // 両方の subscriber に通知する（worktree 一覧再取得 + ahead/behind 再取得）。
+          // 全 subscriber に通知する（worktree 一覧再取得 + ahead/behind 再取得 + git log 再 load）。
           hasBranchChange = true
           hasGitStatusChange = true
+          hasRemoteRefsChange = true
         }
       }
 
@@ -469,6 +491,7 @@ public actor FSWatchRegistry {
       hasFsChange: hasFsChange,
       hasGitStatusChange: hasGitStatusChange,
       hasBranchChange: hasBranchChange,
+      hasRemoteRefsChange: hasRemoteRefsChange,
       hasWorktreeChange: hasWorktreeChange
     )
   }

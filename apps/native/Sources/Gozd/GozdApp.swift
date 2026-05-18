@@ -261,6 +261,15 @@ final class AppRuntime {
         )
       }
     }
+    let onRemoteRefsChange: FSWatchRegistry.RemoteRefsChangeHandler = { dir in
+      Task { @MainActor in
+        await pushToRenderer(
+          page: holder.page,
+          type: "remoteRefsChange",
+          payload: ["dir": dir]
+        )
+      }
+    }
     let onWorktreeChange: FSWatchRegistry.WorktreeChangeHandler = { dir in
       Task { @MainActor in
         await pushToRenderer(
@@ -302,6 +311,7 @@ final class AppRuntime {
       onFsChange: onFsChange,
       onGitStatusChange: onGitStatusChange,
       onBranchChange: onBranchChange,
+      onRemoteRefsChange: onRemoteRefsChange,
       onWorktreeChange: onWorktreeChange,
       onNotify: sendNotify,
       envOverlay: envOverlay,

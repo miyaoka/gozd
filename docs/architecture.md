@@ -113,7 +113,7 @@ native → renderer の push は `WebPage.callJavaScript("window.__gozdReceive(t
 
 FSEvents 経由の push は ms オーダーで届くが、watch 開始往復中の取りこぼしや、`callJavaScript` の失敗で 1 度の event を落とすと、UI 状態と git refs の実体が永続的にずれる。これを防ぐため、全 push に source `dir` を載せ、購読側が自分の責務に応じて filter する契約を統一する。
 
-- **payload に dir を載せる**: `gitStatusChange` / `branchChange` / `worktreeChange` / `fsWatchReady` すべての push payload は `dir` を必須フィールドとして持つ。購読側はこの `dir` を見て active dir / 所有 repo を判定する。dir を載せないと N watch × M subscriber の cross product 発火が避けられず、累積発火が外部リソース（GitHub rate limit 等）を食い潰す
+- **payload に dir を載せる**: `gitStatusChange` / `branchChange` / `remoteRefsChange` / `worktreeChange` / `fsWatchReady` すべての push payload は `dir` を必須フィールドとして持つ。購読側はこの `dir` を見て active dir / 所有 repo を判定する。dir を載せないと N watch × M subscriber の cross product 発火が避けられず、累積発火が外部リソース（GitHub rate limit 等）を食い潰す
 - **再同期トリガー**: `useFsWatchSync` が `rpcFsWatch` 成功ごとに renderer 内部で `fsWatchReady` を **dir 1 件につき 1 push** 発射する。GitGraphPane は active dir 一致のときだけ `loadLog`、useSidebarData は source dir の所有 repo を再 fetch する
 - **active filter / source-dir filter の使い分け**: pane の責務によって filter 方向を変える
   - GitGraphPane（active worktree の git log を表示）: `dir !== worktreeStore.dir` なら早期 return

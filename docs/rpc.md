@@ -52,17 +52,18 @@ native は `WebPage.callJavaScript("window.__gozdReceive(type, payload)", ...)` 
 
 主な push type:
 
-| type              | 用途                                           |
-| ----------------- | ---------------------------------------------- |
-| `ptyText`         | PTY 出力                                       |
-| `ptyExit`         | PTY 終了                                       |
-| `fsChange`        | ファイル変更通知                               |
-| `gitStatusChange` | git status 変化 + HEAD ハッシュ + ahead/behind |
-| `branchChange`    | ブランチ参照の変化                             |
-| `worktreeChange`  | 非アクティブ worktree でのファイル変更通知     |
-| `gozdOpen`        | CLI / launch request からの open リクエスト    |
-| `hook`            | Claude Code Hook イベント                      |
-| `notify`          | native 側のバックグラウンドエラー / 情報通知   |
+| type               | 用途                                                             |
+| ------------------ | ---------------------------------------------------------------- |
+| `ptyText`          | PTY 出力                                                         |
+| `ptyExit`          | PTY 終了                                                         |
+| `fsChange`         | ファイル変更通知                                                 |
+| `gitStatusChange`  | git status 変化 + HEAD ハッシュ + ahead/behind                   |
+| `branchChange`     | ローカルブランチ参照の変化 (`refs/heads/*`)                      |
+| `remoteRefsChange` | リモート tracking 参照の変化 (`refs/remotes/*`、push / fetch 後) |
+| `worktreeChange`   | 非アクティブ worktree でのファイル変更通知                       |
+| `gozdOpen`         | CLI / launch request からの open リクエスト                      |
+| `hook`             | Claude Code Hook イベント                                        |
+| `notify`           | native 側のバックグラウンドエラー / 情報通知                     |
 
 push の payload は proto 型と 1:1 対応していない（push type 名と proto メッセージ名が異なる、または proto に存在しないフィールドを native が直接 JSON で渡すケースがある）。実際のフィールドは送信側 (`apps/native/Sources/Gozd/GozdApp.swift` の `callJavaScript` 呼び出し箇所) と受信側 (`apps/renderer/src/features/*/rpc.ts` 等の `*Payload` 型) を直接見て確認する。`packages/proto/gozd/v1/events.proto` は構造の参考に留める。
 

@@ -22,7 +22,7 @@ import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
 import { ResizeHandle } from "../layout";
 import { ghErrorMessage, rpcGitPrList } from "../palette";
-import type { BranchChangePayload, FsWatchReadyPayload } from "../sidebar";
+import type { BranchChangePayload, FsWatchReadyPayload, RemoteRefsChangePayload } from "../sidebar";
 import type { GitStatusChangePayload } from "../worktree";
 import {
   UNCOMMITTED_HASH,
@@ -138,9 +138,59 @@ let lastBranchHead = "";
 let lastUpstream = "";
 /** loadLog の世代管理。並行実行で古いレスポンスが後着して上書きするのを防ぐ */
 let loadLogGen = 0;
+/** 現在 in-flight な `loadLog` 呼び出しの数。`scheduleLoadLog` の coalescing 判定に使う。
+ * boolean 1 個では、明示 trigger (worktree 切替 / firstParentOnly / `headChanged` 経路) の
+ * loadLog と burst 由来の trailing fetch が交錯する thin window で「最後の finally が
+ * 抜けた瞬間」を取れず、burst N 発火を最大 2 fetch に集約する保証が崩れる。
+ * counter にすると `count === 0` で「全 in-flight 完了」を厳密に判定でき、pending の
+ * 消費タイミングが「最後の loadLog の finally」に固定される。 */
+let loadLogInFlightCount = 0;
+/** in-flight 中に `scheduleLoadLog` が来たかを示す 1 bit。`loadLogInFlightCount === 0` に
+ * 落ちた時点で 1 度だけ trailing fetch を発射する。burst N 発火を最大 2 fetch (in-flight + trailing)
+ * に集約する。 */
+let loadLogScheduled = false;
 
 /** @returns 世代チェックを通過して state を更新した場合 true */
 async function loadLog(): Promise<boolean> {
+  loadLogInFlightCount += 1;
+  try {
+    return await runLoadLog();
+  } finally {
+    loadLogInFlightCount -= 1;
+    // 最後の in-flight が完了したタイミングでだけ trailing を発射する。並走 loadLog の
+    // 途中で抜けた finally では pending を消費せず、最終の 1 つに集約する。
+    if (loadLogInFlightCount === 0 && loadLogScheduled) {
+      loadLogScheduled = false;
+      // ここで await すると caller の世代に乗らずタイミングが歪むため、fire-and-forget。
+      void loadLog();
+    }
+  }
+}
+
+/** push burst (`gitStatusChange` + `remoteRefsChange` + `branchChange` 連射) からの fire-and-forget
+ * 経路。in-flight な loadLog があれば trailing 1 fetch にまとめ、なければ即 loadLog する。
+ * 戻り値を必要としない、scroll を制御しない、await されない呼び出しはこちらを使う。
+ *
+ * 明示 trigger 用の `loadLog` を直接呼ばないのは、`refs/remotes/*` 1 回の write で
+ * `gitStatusChange` + `remoteRefsChange` が両方発射され、さらに `packed-refs` だと
+ * `branchChange` も伴って同じ burst 内で `rpcGitLog` が 2〜3 回並列発射されるため。
+ * `loadLogGen` の世代管理は到達した結果を捨てる事後防衛で、`rpcGitLog` の発射自体は
+ * 抑止しない (native 側の git 実行コスト / observability ログ汚染が残る)。
+ * `scheduleLoadLog` は発射そのものを抑止する事前防衛。
+ *
+ * 明示 trigger 由来の `await loadLog()` (`headChanged` 経路 / worktree 切替 / firstParentOnly)
+ * も `loadLogInFlightCount > 0` を立てるため、同 burst 内の `scheduleLoadLog` は trailing 側に
+ * 畳まれる。明示 trigger 経路と burst 経路が同じ counter を共有することで coalescing が
+ * 両方向に働く。 */
+function scheduleLoadLog() {
+  if (loadLogInFlightCount > 0) {
+    loadLogScheduled = true;
+    return;
+  }
+  void loadLog();
+}
+
+async function runLoadLog(): Promise<boolean> {
   const gen = ++loadLogGen;
   const dir = worktreeStore.dir;
   if (dir === undefined) return false;
@@ -231,46 +281,68 @@ const disposeGitStatus = onMessage<GitStatusChangePayload>(
     if (branchHeadChanged) lastBranchHead = branchHead;
     if (upstreamChanged) lastUpstream = upstreamKey;
 
-    if (headChanged || branchHeadChanged || upstreamChanged) {
+    // headChanged は HEAD コミット位置にスクロールしたいため await loadLog で結果を待つ。
+    // branchHead / upstream 変化のみの場合は scroll 不要なので scheduleLoadLog で coalesce
+    // させる (`refs/remotes/*` で gitStatusChange + remoteRefsChange が両方発射される burst
+    // でもここを scheduleLoadLog にしておけば 2 重 fetch を畳める)。
+    if (headChanged) {
       void (async () => {
         const updated = await loadLog();
-        if (!updated || !headChanged) return;
+        if (!updated) return;
         await nextTick();
         scrollHeadIntoView();
       })();
+    } else if (branchHeadChanged || upstreamChanged) {
+      scheduleLoadLog();
     }
-    // upstream 変化（push/fetch）時に PR 一覧も再取得
-    if (upstreamChanged) {
-      void loadPrList();
-    }
+    // `upstreamChanged` (`# branch.ab` の ahead/behind 数値が変化) の主要発生経路は:
+    //   1. HEAD 移動 → `headChanged` の if 経路に流れて else if に来ない
+    //   2. `refs/remotes/origin/<current-branch>` の書き換え → 同 burst で必ず `remoteRefsChange` 発射
+    // よって本 else if に到達する `upstreamChanged` は (2) に限られ、`loadPrList` は
+    // `remoteRefsChange` handler 側に集約してよい (両方で呼ぶと `gh pr list` 2 連射)。
+    // 例外: `git branch --set-upstream-to` / `--unset-upstream` で `.git/config` だけが変わる
+    // 経路は classify の射程外 (refs を動かさない) ため、その後の何か別 trigger で本 else if
+    // に流れることがある。本 PR の射程では 60s polling で吸収する想定。
   },
 );
 onUnmounted(disposeGitStatus);
 
 // ブランチ ref の変更 (作成・削除・リネーム) は repo 共有の commonGitDir で起き、
 // 同 repo の worktree 群のうち primary 1 つだけが push される。primary が active と
-// 一致するとは限らないため、「active と同じ repo の push か」で filter する。
+// 一致するとは限らないため、`isSameRepoAsActive` で active と同じ repo か判定する。
 const disposeBranchChange = onMessage<BranchChangePayload>("branchChange", ({ dir }) => {
-  const activeDir = worktreeStore.dir;
-  if (activeDir === undefined) return;
-  const sourceRoot = repoStore.findRepoOwning(dir)?.rootDir;
-  const activeRoot = repoStore.findRepoOwning(activeDir)?.rootDir;
-  if (sourceRoot === undefined || sourceRoot !== activeRoot) return;
-  void loadLog();
+  if (!repoStore.isSameRepoAsActive(dir)) return;
+  scheduleLoadLog();
 });
 onUnmounted(disposeBranchChange);
+
+// `git fetch` / `git push` でローカルの remote-tracking ref が動いたとき発火する。
+// `gitStatusChange` 経路は current branch の upstream key (ahead/behind) しか
+// 変化を載せないため、別ブランチ (`origin/other-branch`) だけが動いた場合に取り
+// こぼす。`remoteRefsChange` はこれを補う repo スコープ通知。
+// 同じ remote ref burst で `gitStatusChange` 経路と本 handler の両方が `loadLog` を立てるため、
+// `scheduleLoadLog` で coalescing して 1〜2 fetch にまとめる。
+// PR 一覧の即時反映もここで取り直す: 外部端末で current 以外の branch に push されて gh 側で
+// 新規 PR が立った直後にバッジを動かしたい運用要件と整合する。`loadPrList` は本 handler を
+// SSOT 発火元として `disposeGitStatus.upstreamChanged` 側では呼ばない (current branch ref の
+// 書き換えでも本 handler が同 burst で必ず発射されるため、両方呼ぶと `gh pr list` 2 連射になる)。
+const disposeRemoteRefsChange = onMessage<RemoteRefsChangePayload>(
+  "remoteRefsChange",
+  ({ dir }) => {
+    if (!repoStore.isSameRepoAsActive(dir)) return;
+    scheduleLoadLog();
+    void loadPrList();
+  },
+);
+onUnmounted(disposeRemoteRefsChange);
 
 // `useFsWatchSync` の `rpcFsWatch` 完了直後に発射される再同期通知。watch 起動往復中の
 // FS 変化を救済するため、1 度だけ git log を取り直す。dispatch 側で rootDir 単位に
 // dedup されており、payload.dir は repo の代表 worktree (active とは限らない) なので、
-// active と同じ repo か否かで filter する。
+// `isSameRepoAsActive` で active と同じ repo か判定する。
 const disposeFsWatchReady = onMessage<FsWatchReadyPayload>("fsWatchReady", ({ dir }) => {
-  const activeDir = worktreeStore.dir;
-  if (activeDir === undefined) return;
-  const sourceRoot = repoStore.findRepoOwning(dir)?.rootDir;
-  const activeRoot = repoStore.findRepoOwning(activeDir)?.rootDir;
-  if (sourceRoot === undefined || sourceRoot !== activeRoot) return;
-  void loadLog();
+  if (!repoStore.isSameRepoAsActive(dir)) return;
+  scheduleLoadLog();
 });
 onUnmounted(disposeFsWatchReady);
 

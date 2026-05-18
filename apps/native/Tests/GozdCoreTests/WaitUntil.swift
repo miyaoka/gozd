@@ -21,10 +21,13 @@ import Testing
 //   を並列に記録し、稀な system clock 異常 ( NTP 巻き戻し / sleep wake 後の補正 ) と
 //   通常の単調進行を区別する保険として残す。(i)/(ii) 切り分けの主軸ではない。
 //
-// - `waitUntilThreaded` を追加する。`DispatchQueue.global().async` で polling loop **全体**
-//   ( condition 評価 / trace 出力 / sleep ) を GCD thread 上で完結させ、`withCheckedContinuation`
-//   の resume は polling 終了 ( resolved / timeout ) 時のみ呼ぶ。これにより polling loop の
-//   実行 thread が Swift Concurrency の cooperative executor から完全に外れる。
+// - `waitUntilThreaded` を追加する。`Thread { ... }.start()` で立てた dedicated NSThread で
+//   polling loop **全体** ( condition 評価 / trace 出力 / sleep ) を完結させ、
+//   `withCheckedContinuation` の resume は polling 終了 ( resolved / timeout ) 時のみ呼ぶ。
+//   これにより polling loop の実行 thread が Swift Concurrency の cooperative executor から
+//   完全に外れる。GCD pool も使わないため `Thread.sleep(forTimeInterval:)` の blocking が
+//   他 GCD 処理を阻害しない ( SocketServer 専用 queue 含め `DispatchQueue.global()` の
+//   worker pool に依存する全経路が無事 )。
 //
 //   先行版の `waitUntilDispatch` ( CI run 26029332080 attempt 1 で実証 ) は `withCheckedContinuation`
 //   経由で sleep の wait phase だけを GCD に逃がし、resume 後の polling iteration が
@@ -118,7 +121,8 @@ func waitUntil(
 /// - polling loop ( condition 評価 / trace 出力 / `Thread.sleep(forTimeInterval:)` ) は
 ///   `Thread { ... }.start()` で立てた **dedicated NSThread** 上で完結する。GCD worker
 ///   thread pool を使わないため、`Thread.sleep` の blocking で GCD pool を専有する経路は
-///   発生しない ( = 並走する `DispatchQueue.global()` ベースの test 用処理を阻害しない )。
+///   発生しない ( SocketServer 専用 queue 含め、`DispatchQueue.global()` の worker pool に
+///   依存する他 GCD 処理は worker 枯渇の間接影響を受けない )。
 ///   `withCheckedContinuation` の resume は polling 終了時 ( resolved / timeout ) の **1 回のみ**
 /// - `condition` は **同期的に評価できる predicate に限定** する ( `await` を含む condition は
 ///   渡してはいけない )。内部で async を呼ぶと再び cooperative executor に hop して観測精度が

@@ -46,6 +46,11 @@ import Testing
 /// `#expect` が別の症状（exit が nil など）で間接 fail し、timeout だった事象を追跡
 /// できなくなる。
 ///
+/// **cancel 経路**: `try await Task.sleep(for:)` を使うため、外側 Task が cancel されると
+/// `CancellationError` を throw する。これは `waitUntilThreaded` ( cancel 非対応 ) との
+/// 意図的な非対称設計。observation PR では Task.sleep 経路と完全独立 thread 経路を
+/// 並走させて挙動を比較するのが目的で、cancel 経路まで揃える必要はない。
+///
 /// - Parameters:
 ///   - timeout: 待機の上限。超過時に Issue.record。
 ///   - description: timeout 失敗メッセージに含める「何を待っていたか」の説明。
@@ -104,21 +109,28 @@ func waitUntil(
     sourceLocation: sourceLocation)
 }
 
-/// `waitUntil` の **polling loop 全体を GCD thread 上で完結** させる版。Swift Concurrency
-/// の cooperative executor 経路を完全に外し、`Task.sleep` 経路で詰まる stall ( CI run
-/// 26029332080 attempt 1 で観測 ) との切り分けに使う。
+/// `waitUntil` の **polling loop 全体を dedicated NSThread 上で完結** させる版。Swift
+/// Concurrency の cooperative executor 経路を完全に外し、`Task.sleep` 経路で詰まる stall
+/// ( CI run 26029332080 attempt 1 で観測 ) との切り分けに使う。
 ///
 /// 実装上の契約:
 ///
-/// - polling loop ( condition 評価 / trace 出力 / `Thread.sleep` ) は `DispatchQueue.global().async`
-///   の closure 内で 1 つの GCD worker thread 上に閉じる。`withCheckedContinuation` の
-///   resume は polling 終了時 ( resolved / timeout ) の **1 回のみ**
+/// - polling loop ( condition 評価 / trace 出力 / `Thread.sleep(forTimeInterval:)` ) は
+///   `Thread { ... }.start()` で立てた **dedicated NSThread** 上で完結する。GCD worker
+///   thread pool を使わないため、`Thread.sleep` の blocking で GCD pool を専有する経路は
+///   発生しない ( = 並走する `DispatchQueue.global()` ベースの test 用処理を阻害しない )。
+///   `withCheckedContinuation` の resume は polling 終了時 ( resolved / timeout ) の **1 回のみ**
 /// - `condition` は **同期的に評価できる predicate に限定** する ( `await` を含む condition は
 ///   渡してはいけない )。内部で async を呼ぶと再び cooperative executor に hop して観測精度が
 ///   失われる。本 PR 対象 5 test の condition ( `fileExists` / `MessageCollector.snapshot()` /
 ///   `ExitCollector.snapshot()` / `events.exitedIds()` ) はすべて同期完結する NSLock ベースで
 ///   契約を満たす
-/// - `Issue.record` は cooperative executor / GCD どちらの thread からも呼べる
+/// - `Issue.record` は cooperative executor / GCD / NSThread どこから呼んでも safe
+///
+/// **cancel 経路**: 本関数は cancel に応答しない設計 ( `throws` を返さない、`Task.checkCancellation`
+/// を呼ばない )。NSThread を `cancel()` で止める経路は条件分岐コストが trace に乗るので
+/// 観測 PR では採用しない。外側 Task が cancel されても polling は timeout まで継続する。
+/// `waitUntil` ( cancel あり ) との意図的な非対称設計で、両経路の挙動を独立に観測する目的。
 ///
 /// trace 出力は `[TEST-TRACE]` 共有 + 行内 `waitUntilThreaded` で grep 分離可能。
 /// `waitUntil` と同じ tick / before-sleep / after-sleep の粒度で出す。
@@ -130,7 +142,7 @@ func waitUntilThreaded(
 ) async {
   testTrace("waitUntilThreaded entered timeout=\(timeout) desc=\(description)")
   let result: ThreadedWaitResult = await withCheckedContinuation { continuation in
-    DispatchQueue.global().async {
+    let thread = Thread {
       let started = ContinuousClock.now
       let deadline = started.advanced(by: timeout)
       let historyCap = 10
@@ -165,6 +177,8 @@ func waitUntilThreaded(
       continuation.resume(
         returning: .timeout(elapsed: finalElapsed, tickCount: tickCount, history: historyText))
     }
+    thread.name = "WaitUntilThreaded"
+    thread.start()
   }
   switch result {
   case .resolved:
@@ -180,9 +194,12 @@ func waitUntilThreaded(
   }
 }
 
-/// `waitUntilThreaded` 内 GCD thread からの trace は `Test.current` が解決できる保証が
-/// 無いため、`testTrace` ではなく `gozdTraceLine` を直接呼んで `<no-test>` 経由ではなく
-/// `<threaded>` タグで吐く。GCD thread と `Test.current` の TaskLocal の関係は未保証。
+/// `waitUntilThreaded` 内 dedicated NSThread からの trace は `Test.current` が解決できる
+/// 保証が無いため、`testTrace` ではなく `gozdTraceLine` を直接呼んで `<no-test>` 経由ではなく
+/// `<threaded>` タグで吐く。NSThread と `Test.current` の TaskLocal の関係は未保証
+/// ( TaskLocal は Swift Concurrency の Task に紐づく storage で、NSThread closure は
+/// Task の outside で実行されるため、TaskLocal は伝播せず `Test.current` は nil になる
+/// のが期待動作。実観測は CI run の trace で `<threaded>` が出ることで確認する )。
 private func threadedTrace(_ message: String) {
   guard gozdTraceEnabled else { return }
   let elapsed = ContinuousClock.now - gozdTraceStart

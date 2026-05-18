@@ -82,8 +82,8 @@ save の発火条件は `buildAppStateSnapshot()` のシリアライズ結果が
 - main は参照・確認専用。dev サーバーの起動や build は自由に行える
 - main で直接コミットしない。Claude も main では作業しない
 - 「参照用」は規範ではなく、新規 worktree がリモートのデフォルトブランチ（`origin/HEAD`）を起点に作られる仕様の帰結。main はその起点を最新に保つために pull する場、という位置づけになる
-  - サイドバーの新規 worktree ボタン / Issue picker 経由は `origin/HEAD` 起点
-  - PR picker 経由はその PR の `origin/<headRef>` 起点。fork PR は `headRef` を `origin` から解決できないため、picker のリスト時点で除外する（`GitHubOps.swift` の `headOwner != repoOwner` で弾く）
+  - サイドバーの新規 worktree ボタン / Issue picker 経由はリモートのデフォルトブランチ起点
+  - PR picker 経由はその PR の head ブランチを `origin` 上で解決した ref 起点。fork PR は head が `origin` 上に無いため picker のリスト時点で除外する
 
 ### 作業用 worktree
 
@@ -137,25 +137,25 @@ macOS 26 Tahoe の Liquid Glass を有効化するため、Window scene の chro
 構造:
 
 - **トップツールバー**:
-  - 左に view mode トグル: `wt`（active worktree モード）/ `claude`（claude terminals モード）
-  - 右に時計と編集モードトグルボタン（pencil ↔ check アイコン）
-- **RepoSection リスト**: `useRepoStore.dirOrder` 順に同居中の全 repo / dir を縦に **並列展開** する。`RepoSection` 単位で折りたたみ可能。編集モード中は drag-drop で並び替えできる
-- **Add directory ボタン**: **編集モード時のみ** リスト末尾に表示。クリックで native の `NSOpenPanel` を開き、ユーザーが選んだ **任意のディレクトリ**（git 管理下 / 外問わず）を既存ウィンドウに追加する
+  - 左にビューモードトグル: アクティブな worktree のターミナル / 動いている Claude ターミナル一覧
+  - 右に時計と編集モードトグル
+- **repo セクション一覧**: 設定された並び順で同居中の全 repo / dir を縦に **並列展開**。セクション単位で折りたたみ可能。編集モード中は drag-drop で並び替え
+- **Add directory ボタン**: 編集モード時のみリスト末尾に表示。クリックでネイティブのフォルダ選択ダイアログを開き、ユーザーが選んだ任意のディレクトリ（git 管理下 / 外問わず）を既存ウィンドウに追加する
 
-各 `RepoSection` の中身:
+各 repo セクションの中身:
 
-- ヘッダ: chevron + folder アイコン（git は `lucide--folder-git-2`、非 git は `lucide--folder`）+ repo 名。編集モード中は ✕ アイコンで repo 解除
-- **WtCard 列**: `main wt 先頭固定 + その他 wt は `repoStore.worktrees` の append 順`（= `git worktree list` の順）。Claude state による並び替えはしない（位置の安定性を優先）
-- 末尾に `+ New worktree` ボタン
+- ヘッダ: 展開トグル + folder アイコン（git / 非 git で区別）+ repo 名。編集モード中は ✕ で repo 解除
+- worktree カード列: main worktree を先頭に固定し、その後は `git worktree list` の順を維持。Claude state による並び替えはしない（位置の安定性を優先）
+- 末尾に新規 worktree 作成ボタン
 
-各 `WtCard`:
+各 worktree カード:
 
-- ヘッダ: branch アイコン + ブランチ名 + git 変更ファイル数バッジ（modified/added/deleted/untracked）+ upstream に対する ahead / behind 表示（上下矢印 + 数値）+ ⋮ メニュー
-- 配下の TaskRow 列: 1 task ＝ 1 行。task は永続オブジェクト（PR/issue picker 由来 or 手動作成）。Claude session は `task.sessionId` に attach する短命属性として表現する
+- ヘッダ: branch アイコン + ブランチ名 + git 変更ファイル数バッジ（modified / added / deleted / untracked）+ upstream に対する ahead / behind 表示（上下矢印 + 数値）+ メニュー
+- 配下のタスク行: 1 task ＝ 1 行。task は永続オブジェクト（PR / issue picker 由来 or 手動作成）。Claude session は task に attach する短命属性として表現する
   - 行頭アイコンで `working / asking / done / idle / resumable / not-started` の 6 状態を識別
   - 経過時間（相対時刻）は全 state で常時表示
-  - バブル表示は `done` / `asking` 限定。`done` 時は応答テキストの抜粋、`asking` 時はツール承認要求の抜粋
-  - task は `createdAt` 昇順の append 順で固定（state による並び替えはしない）
+  - バブルは `done` / `asking` 限定。`done` は応答テキストの抜粋、`asking` はツール承認要求の抜粋
+  - task は作成順の append で固定（state による並び替えはしない）
 
 ### ビュー切り替え
 

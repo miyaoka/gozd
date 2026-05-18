@@ -26,7 +26,7 @@
 
 `gozd <path>` を実行すると、対象 path が既存 repo の worktree に含まれていればその repo にフォーカス + worktree 切替、含まれていなければ新規 repo として既存ウィンドウに追加される。新ウィンドウは作らない。
 
-非 git ディレクトリも同じ仕組みで「project」として登録される。worktree 概念がないため、サイドバーの ROOT / WORKTREES セクションは表示せず、repo 切替リストとターミナルのみが利用可能。
+非 git ディレクトリも同じ仕組みで「project」として登録される。worktree 概念がないため、`RepoSection` 内に WtCard 列は描かれず、ヘッダとターミナルのみが利用可能。
 
 ## アプリ状態の復元
 
@@ -81,6 +81,9 @@ save の発火条件は `buildAppStateSnapshot()` のシリアライズ結果が
 - メインディレクトリ（clone 元）が main の worktree として機能する
 - main は参照・確認専用。dev サーバーの起動や build は自由に行える
 - main で直接コミットしない。Claude も main では作業しない
+- 「参照用」は規範ではなく、新規 worktree がリモートのデフォルトブランチ（`origin/HEAD`）を起点に作られる仕様の帰結。main はその起点を最新に保つために pull する場、という位置づけになる
+  - サイドバーの新規 worktree ボタン / Issue picker 経由はリモートのデフォルトブランチ起点
+  - PR picker 経由はその PR の head ブランチを `origin` 上で解決した ref 起点。fork PR は head が `origin` 上に無いため picker のリスト時点で除外する
 
 ### 作業用 worktree
 
@@ -131,15 +134,28 @@ macOS 26 Tahoe の Liquid Glass を有効化するため、Window scene の chro
 
 ウィンドウ内に同居する repo / dir 全体のナビゲーション。常時表示（git 管理外の dir でも表示される）。
 
-上から順に:
+構造:
 
-- **repo 切替リスト**: `useRepoStore.dirOrder` 順に同居中の全 repo / dir を縦に並べる。git は `lucide--folder-git-2`、非 git は `lucide--folder` で区別。クリックで `selectedDir` を切り替える
-- **Add directory ボタン**: native の `NSOpenPanel` を `/open/pickAndOpen` RPC 経由で起動し、ユーザーが選んだ dir を既存ウィンドウに追加する
-- **repo 名ヘッダ**: 選択中 repo の表示名（編集可能、`renameSelectedRepo`）
-- **ROOT / WORKTREES セクション**: **git repo の時のみ表示**。選択中 repo の main worktree と worktree 一覧を表示
-  - worktree 行: git 変更ファイル数（modified/added/deleted/untracked）をバッジ表示。Claude Code の状態（working/asking/done）を右上にアイコンで重ねて表示し、working 時は経過時間も表示。done は worktree クリックでクリアされる（既読消化）
+- **トップツールバー**:
+  - 左にビューモードトグル: アクティブな worktree のターミナル / 動いている Claude ターミナル一覧
+  - 右に時計と編集モードトグル
+- **repo セクション一覧**: 設定された並び順で同居中の全 repo / dir を縦に **並列展開**。セクション単位で折りたたみ可能。編集モード中は drag-drop で並び替え
+- **Add directory ボタン**: 編集モード時のみリスト末尾に表示。クリックでネイティブのフォルダ選択ダイアログを開き、ユーザーが選んだ任意のディレクトリ（git 管理下 / 外問わず）を既存ウィンドウに追加する
 
-非選択 repo の Claude セッションは終了せず並列で動き続けるため、サイドバー上のバッジで状態が見える形にする予定（現状未実装）。
+各 repo セクションの中身:
+
+- ヘッダ: 展開トグル + folder アイコン（git / 非 git で区別）+ repo 名。編集モード中は ✕ で repo 解除
+- worktree カード列: main worktree を先頭に固定し、その後は `git worktree list` の順を維持。Claude state による並び替えはしない（位置の安定性を優先）
+- 末尾に新規 worktree 作成ボタン
+
+各 worktree カード:
+
+- ヘッダ: branch アイコン + ブランチ名 + git 変更ファイル数バッジ（modified / added / deleted / untracked）+ upstream に対する ahead / behind 表示（上下矢印 + 数値）+ メニュー
+- 配下のタスク行: 1 task ＝ 1 行。task は永続オブジェクト（PR / issue picker 由来 or 手動作成）。Claude session は task に attach する短命属性として表現する
+  - 行頭アイコンで `working / asking / done / idle / resumable / not-started` の 6 状態を識別
+  - 経過時間（相対時刻）は全 state で常時表示
+  - バブルは `done` / `asking` 限定。`done` は応答テキストの抜粋、`asking` はツール承認要求の抜粋
+  - task は作成順の append で固定（state による並び替えはしない）
 
 ### ビュー切り替え
 

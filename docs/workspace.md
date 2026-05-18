@@ -150,10 +150,11 @@ macOS 26 Tahoe の Liquid Glass を有効化するため、Window scene の chro
 
 各 `WtCard`:
 
-- ヘッダ: branch アイコン + ブランチ名 + git 変更ファイル数バッジ（modified/added/deleted/untracked）+ ⋮ メニュー
+- ヘッダ: branch アイコン + ブランチ名 + git 変更ファイル数バッジ（modified/added/deleted/untracked）+ upstream に対する ahead / behind 表示（上下矢印 + 数値）+ ⋮ メニュー
 - 配下の TaskRow 列: 1 task ＝ 1 行。task は永続オブジェクト（PR/issue picker 由来 or 手動作成）。Claude session は `task.sessionId` に attach する短命属性として表現する
   - 行頭アイコンで `working / asking / done / idle / resumable / not-started` の 6 状態を識別
-  - `working` 時は経過時間、`done` 時は応答テキストの抜粋、`asking` 時はツール承認要求の抜粋をバブルで表示
+  - 経過時間（相対時刻）は全 state で常時表示
+  - バブル表示は `done` / `asking` 限定。`done` 時は応答テキストの抜粋、`asking` 時はツール承認要求の抜粋
   - task は `createdAt` 昇順の append 順で固定（state による並び替えはしない）
 
 ### ビュー切り替え

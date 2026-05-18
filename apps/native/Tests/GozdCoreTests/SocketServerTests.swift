@@ -19,13 +19,19 @@ struct SocketServerTests {
     defer { server.stop() }
 
     // issue ( #566 ) 観測: SocketServer suite の `fileExists` polling は CI attempt 1 で
-    // `Task.sleep` 経路の stall を踏んだ。GCD ベースの `waitUntilDispatch` に置き換えて、
-    // 並列実行下でも tick が発火し続けるかを観測する。
-    try await waitUntilDispatch(timeout: .seconds(2)) { fileExists(path) }
+    // `Task.sleep` 経路の stall を踏んだ。polling loop 全体を GCD thread 上で完結させる
+    // `waitUntilThreaded` に置き換えて、cooperative executor 外で tick が発火し続けるか
+    // を観測する。先行版 `waitUntilDispatch` ( CI run 26029332080 attempt 1 で実証 ) は
+    // resume 経路が cooperative executor に hop して観測精度が不十分だった。
+    await waitUntilThreaded(timeout: .seconds(2)) { fileExists(path) }
 
     try sendOverUnixSocket(path: path, data: Data(#"{"type":"ping"}\#n"#.utf8))
 
-    try await waitUntilDispatch(timeout: .seconds(2)) { messages.snapshot().count == 1 }
+    // 後段 polling は attempt 1 で stall を踏んでいない ( fileExists 段で test が fail し
+    // ここまで到達しない )。同 test 内に Task.sleep 経路の比較対象を残すため waitUntil の
+    // ままにする。fileExists ( GCD ) と message-count ( Task ) が並走して、同 stall window
+    // でどちらが先に詰まるかを観測できる。
+    try await waitUntil(timeout: .seconds(2)) { messages.snapshot().count == 1 }
     let received = messages.snapshot()
     #expect(received.count == 1)
     #expect(String(decoding: received[0], as: UTF8.self) == #"{"type":"ping"}"#)
@@ -43,7 +49,7 @@ struct SocketServerTests {
     try server.start { data in messages.append(data) }
     defer { server.stop() }
 
-    try await waitUntilDispatch(timeout: .seconds(2)) { fileExists(path) }
+    await waitUntilThreaded(timeout: .seconds(2)) { fileExists(path) }
 
     let payload = Data(
       """
@@ -54,7 +60,8 @@ struct SocketServerTests {
       """.utf8)
     try sendOverUnixSocket(path: path, data: payload)
 
-    try await waitUntilDispatch(timeout: .seconds(2)) { messages.snapshot().count == 3 }
+    // 後段 polling は比較対象として waitUntil を残す ( receivesSingleLine と同設計 )。
+    try await waitUntil(timeout: .seconds(2)) { messages.snapshot().count == 3 }
     let received = messages.snapshot().map { String(decoding: $0, as: UTF8.self) }
     #expect(received == [#"{"i":1}"#, #"{"i":2}"#, #"{"i":3}"#])
   }
@@ -71,7 +78,7 @@ struct SocketServerTests {
     try server.start { data in messages.append(data) }
     defer { server.stop() }
 
-    try await waitUntilDispatch(timeout: .seconds(2)) { fileExists(path) }
+    await waitUntilThreaded(timeout: .seconds(2)) { fileExists(path) }
 
     try await withThrowingTaskGroup(of: Void.self) { group in
       for i in 0..<5 {
@@ -82,7 +89,8 @@ struct SocketServerTests {
       try await group.waitForAll()
     }
 
-    try await waitUntilDispatch(timeout: .seconds(3)) { messages.snapshot().count == 5 }
+    // 後段 polling は比較対象として waitUntil を残す ( receivesSingleLine と同設計 )。
+    try await waitUntil(timeout: .seconds(3)) { messages.snapshot().count == 5 }
     let received = Set(messages.snapshot().map { String(decoding: $0, as: UTF8.self) })
     let expected: Set<String> = (0..<5).map { #"{"i":\#($0)}"# }.reduce(into: Set()) {
       $0.insert($1)
@@ -104,9 +112,13 @@ private func fileExists(_ path: String) -> Bool {
   return stat(path, &st) == 0
 }
 
-// `waitUntil` は `WaitUntil.swift` の共有実装を使う（issue #556 観測項目 3）。
-// 旧実装は silent return で、timeout 時に Issue.record を呼ばず後段の `#expect` が
-// 別症状で間接 fail していた。共有版は tick 履歴を Issue.record の message に inline する。
+// `waitUntil` / `waitUntilThreaded` は `WaitUntil.swift` の共有実装を使う
+// （issue #556 観測項目 3 / issue #566 観測項目）。
+// 旧 silent return 版は timeout 時に Issue.record を呼ばず後段の `#expect` が別症状で
+// 間接 fail していた。共有版は tick 履歴を Issue.record の message に inline する。
+// 本 test は `fileExists` polling を `waitUntilThreaded` ( GCD thread 上で polling loop
+// 完結 )、後段 message-count polling を `waitUntil` ( Task.sleep 経路 ) に分けて、
+// 同 stall window で両経路の挙動を比較する。
 
 enum SocketClientError: Error, CustomStringConvertible {
   case createSocket(errno: Int32)

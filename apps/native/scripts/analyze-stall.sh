@@ -8,12 +8,15 @@
 # だった。本スクリプトは「どの test の tick がどの時刻に発火したか」「stall window
 # の幅 ( tick 間 gap が閾値を超える区間 ) はどれか」を 1 view で出す。
 #
+# 対応 helper: `waitUntil` ( Task.sleep 経路 ) / `waitUntilDispatch` ( 旧版、観測無効と
+# 判明 ) / `waitUntilThreaded` ( polling loop 全体を GCD thread 上で完結 )。kind 列で区別。
+#
 # 入力: CI log を stdin に流すか、第 1 引数に log file path を渡す。
 # 出力:
-#   - timeline section: 全 waitUntil / waitUntilDispatch tick を `+elapsed [test] tick=N
-#     result=B` の 1 行で時系列出力 (Task / Dispatch 経路は kind 列で区別される)
-#   - stall section: 連続 tick 間の gap が `STALL_THRESHOLD` ( default 0.5s ) を
-#     超える window を `gap=Δs from=+a to=+b` で列挙
+#   - timeline section: 全 tick を `+elapsed wall=<sec> [test] <kind> tick=N result=B` で
+#     時系列出力。wall 列は ContinuousClock と乖離があった場合のみ意味を持つ保険記録
+#   - stall windows section: 連続 tick 間の global gap が `STALL_THRESHOLD` ( default 0.5s )
+#     を超える window を `gap=Δs from=+a to=+b prev=[...] cur=[...]` で列挙
 #
 # 使い方:
 #   ./apps/native/scripts/analyze-stall.sh ci-log.txt
@@ -30,27 +33,37 @@ STALL_THRESHOLD="${STALL_THRESHOLD:-0.5}"
 
 input="${1:-/dev/stdin}"
 
-# tick 行を `elapsed<TAB>test<TAB>kind<TAB>tick<TAB>result` に正規化する。
-# trace 行例:
-#   2026-05-18T09:40:24.2295220Z [TEST-TRACE +0.004299333 seconds test=receivesMultipleLines()] waitUntil tick=1 elapsed=2.3875e-05 seconds result=false
+# tick 行を `elapsed<TAB>wall<TAB>test<TAB>kind<TAB>tick<TAB>result` に正規化する。
+# trace 行例 ( wall= は新版で付く。旧 trace との互換のためオプショナル ):
+#   2026-05-18T09:40:24.2295220Z [TEST-TRACE +0.004299333 seconds test=receivesMultipleLines()] waitUntil tick=1 elapsed=2.3875e-05 seconds wall=800792337.6 result=false
 extract() {
   perl -ne '
-    next unless /\[TEST-TRACE \+([0-9.eE+\-]+) seconds test=(\S+?)\] (waitUntilDispatch|waitUntil) tick=(\d+) elapsed=\S+ seconds (?:wall=\S+ )?result=(true|false)/;
-    print join("\t", $1, $2, $3, $4, $5), "\n";
+    next unless /\[TEST-TRACE \+([0-9.eE+\-]+) seconds test=(\S+?)\] (waitUntilThreaded|waitUntilDispatch|waitUntil) tick=(\d+) elapsed=\S+ seconds (?:wall=(\S+) )?result=(true|false)/;
+    my $elapsed = $1;
+    my $name    = $2;
+    my $kind    = $3;
+    my $tick    = $4;
+    my $wall    = defined($5) ? $5 : "";
+    my $result  = $6;
+    print join("\t", $elapsed, $wall, $name, $kind, $tick, $result), "\n";
   ' "$1" | sort -n -k1,1
 }
 
 print_timeline() {
   printf 'timeline:\n'
-  while IFS=$'\t' read -r elapsed name kind tick result; do
-    printf '  +%s [%s] %s tick=%s result=%s\n' "$elapsed" "$name" "$kind" "$tick" "$result"
+  while IFS=$'\t' read -r elapsed wall name kind tick result; do
+    if [[ -n "$wall" ]]; then
+      printf '  +%s wall=%s [%s] %s tick=%s result=%s\n' "$elapsed" "$wall" "$name" "$kind" "$tick" "$result"
+    else
+      printf '  +%s [%s] %s tick=%s result=%s\n' "$elapsed" "$name" "$kind" "$tick" "$result"
+    fi
   done
 }
 
 print_stall_windows() {
   local prev=-1 prev_label=""
-  local elapsed name kind tick result
-  while IFS=$'\t' read -r elapsed name kind tick result; do
+  local elapsed wall name kind tick result
+  while IFS=$'\t' read -r elapsed wall name kind tick result; do
     if [[ "$prev" != "-1" ]]; then
       local gap
       gap=$(awk -v a="$elapsed" -v b="$prev" 'BEGIN { printf "%.4f", a - b }')

@@ -284,6 +284,7 @@ public final class PTYManager {
   /// `EWOULDBLOCK` は短い sleep で待つ。`EPIPE` 等の致命的 errno は諦める。
   /// state 経由で書き込むことで、close 後 race で EBADF / 別 fd 誤書き込みを防ぐ。
   public func write(_ data: Data) {
+    ptyTrace("api", pid: pid, "write called len=\(data.count) hasState=\(state != nil)")
     guard let state else { return }
     data.withUnsafeBytes { buffer in
       guard let base = buffer.baseAddress else { return }
@@ -313,13 +314,21 @@ public final class PTYManager {
 
   /// terminal サイズを子プロセスに通知する（xterm.js のリサイズ連動）。
   public func resize(rows: UInt16, cols: UInt16) {
+    ptyTrace(
+      "api", pid: pid,
+      "resize called rows=\(rows) cols=\(cols) hasState=\(state != nil)")
     state?.resize(rows: rows, cols: cols)
   }
 
   /// 子プロセスに SIGHUP を送る。SIGTERM は interactive zsh が無視するため不可。
   public func kill() {
-    guard pid > 0 else { return }
-    _ = Darwin.kill(pid, SIGHUP)
+    guard pid > 0 else {
+      ptyTrace("api", pid: pid, "kill called but pid=\(pid) ≤ 0 → no-op")
+      return
+    }
+    let ret = Darwin.kill(pid, SIGHUP)
+    let err: Int32 = ret == -1 ? errno : 0
+    ptyTrace("api", pid: pid, "kill(SIGHUP) ret=\(ret) errno=\(err)")
   }
 }
 
@@ -468,12 +477,24 @@ final class PTYFinishState: @unchecked Sendable {
   }
 
   /// terminal サイズ通知。close 済みなら no-op。
+  /// ioctl の戻り値・errno は trace に残す。「resize 呼び出しが届いたが ioctl が EBADF を返した」
+  /// 経路を後追いするには戻り値の観測が必須。silent 失敗だと CI ログから判別不能になる。
   func resize(rows: UInt16, cols: UInt16) {
     lock.lock()
-    defer { lock.unlock() }
-    if primaryClosed { return }
+    if primaryClosed {
+      lock.unlock()
+      ptyTrace(
+        "fin", pid: pid,
+        "resize rows=\(rows) cols=\(cols) primaryClosed → no-op")
+      return
+    }
     var ws = winsize(ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0)
-    _ = ioctl(primaryFd, TIOCSWINSZ, &ws)
+    let ret = ioctl(primaryFd, TIOCSWINSZ, &ws)
+    let err: Int32 = ret == -1 ? errno : 0
+    lock.unlock()
+    ptyTrace(
+      "fin", pid: pid,
+      "resize fd=\(primaryFd) rows=\(rows) cols=\(cols) ioctl ret=\(ret) errno=\(err)")
   }
 
   func markReadClosed(onComplete: (PTYExitReason) -> Void) {

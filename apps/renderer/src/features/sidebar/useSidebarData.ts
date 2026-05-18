@@ -65,14 +65,6 @@ export function useSidebarData() {
     repoStore.updateRepoData(rootDir, wtList, gitStatusGenSnapshot);
 
     for (const dir of stalePaths) terminalStore.remove(dir);
-
-    // resume バッジ用に、このプロジェクトの保存セッション数を取り直す。
-    // worktree 一覧が確定した直後に走らせることで、削除済み worktree のエントリも
-    // refresh で消える（store 側の事前 delete + 再カウント方式）。
-    void terminalStore.refreshSavedSessionCounts(
-      wtList.map((wt) => wt.path),
-      rootDir,
-    );
   }
 
   // 新規 repo が追加されたら即 fetch

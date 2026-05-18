@@ -11,7 +11,6 @@ import type { PaneEntry } from "./ptySession";
 import type { HookPayload, PtyExitPayload, PtyTextPayload } from "./rpc";
 import {
   rpcClaudeSessionListByDir,
-  rpcClaudeSessionListByProject,
   rpcClaudeSessionRemoveByPty,
   rpcPtyKill,
   rpcPtySpawn,
@@ -123,20 +122,6 @@ export const useTerminalStore = defineStore("terminal", () => {
   const preferredAutostartByDir = ref<Record<string, true>>({});
 
   /**
-   * worktreePath → 永続化済み Claude セッション数。サイドバーの resume バッジ表示用。
-   * 「resume 可能 = 永続化されているがまだ live PTY に接続されていない」分は
-   * `getResumeableSessionCount(dir)` で saved - live を取って算出する。
-   */
-  const savedSessionCountByDir = ref<Record<string, number>>({});
-
-  /**
-   * `refreshSavedSessionCounts` の世代カウンタ（per project anchor）。
-   * await を跨いで stale な fetch 結果が新しい state を上書きしないよう、
-   * 完了時に最新世代と一致するかチェックして書き込む。
-   */
-  const refreshGenByAnchor = new Map<string, number>();
-
-  /**
    * `visit()` の世代カウンタ（per dir）。await 中に同じ dir が再 visit されたり、
    * 別の visit が並走したりしたとき、stale な復元処理が後勝ちでレイアウトを
    * 壊さないよう、await 後に最新世代と一致するかチェックする。
@@ -244,10 +229,6 @@ export const useTerminalStore = defineStore("terminal", () => {
             if (!res.ok) {
               notify.error("Failed to remove saved Claude session", res.error);
             } else if (res.value.removedSessionId !== "") {
-              // 削除成功後に badge を即時更新する。fetchRepo 起点の再カウントを
-              // 待つと、次のサイドバー操作まで古い値が出続けるため。dir はプロジェクト
-              // 内の任意 dir として projectKey 解決に使える。
-              await refreshSavedSessionCounts([dir], dir);
               // Swift 側で TaskStore.detachSession が走り、sessionId を切り離した task は
               // ghRef があれば残し、無ければ削除する (body は揮発メタデータで identity に含めない)。
               // useSidebarData がこの ref を watch して所属 repo を refetch することで、
@@ -358,53 +339,6 @@ export const useTerminalStore = defineStore("terminal", () => {
   }
 
   initSubscriptions();
-
-  // --- saved Claude セッション件数 ---
-
-  /**
-   * 指定プロジェクト全体の保存セッション数を再取得して savedSessionCountByDir を更新する。
-   * - `worktreePaths`: そのプロジェクトに属する worktree の絶対パス一覧。
-   *   このリストに含まれる既存エントリを一旦消してから fetch 結果で埋め直すことで、
-   *   ある worktree が 0 件になったケースもバッジから消える。
-   * - `anyDirInProject`: projectKey 解決に使う任意の dir（root でも worktree でも可）。
-   */
-  async function refreshSavedSessionCounts(
-    worktreePaths: string[],
-    anyDirInProject: string,
-  ): Promise<void> {
-    const gen = (refreshGenByAnchor.get(anyDirInProject) ?? 0) + 1;
-    refreshGenByAnchor.set(anyDirInProject, gen);
-
-    const fetched = await tryCatch(rpcClaudeSessionListByProject({ dir: anyDirInProject }));
-    // stale: 古い世代の結果は破棄する。新しい呼び出し側の値を尊重する。
-    if (refreshGenByAnchor.get(anyDirInProject) !== gen) return;
-    if (!fetched.ok) {
-      notify.error("Failed to load saved Claude sessions", fetched.error);
-      return;
-    }
-    // 最新世代の結果が確定したタイミングで、対象 worktree の count を一旦消して
-    // fetch 結果で埋め直す。await 前に消すと、fetch 中はバッジが一瞬消える挙動になる。
-    for (const path of worktreePaths) {
-      delete savedSessionCountByDir.value[path];
-    }
-    for (const session of fetched.value.sessions) {
-      const path = session.worktreePath;
-      savedSessionCountByDir.value[path] = (savedSessionCountByDir.value[path] ?? 0) + 1;
-    }
-  }
-
-  /**
-   * 指定 worktree の「resume 可能なセッション数」。永続化セッション数から、
-   * 既に live PTY 上で動作している Claude の数を引いた残り。
-   * - 未訪問 worktree: live=0 なので保存数がそのまま出る
-   * - 訪問済み + 全 resume 完了: live=saved で 0
-   */
-  function getResumeableSessionCount(dir: string): number {
-    const saved = savedSessionCountByDir.value[dir] ?? 0;
-    if (saved === 0) return 0;
-    const live = claude.getClaudeStatusesByDir(dir).length;
-    return Math.max(0, saved - live);
-  }
 
   // --- worktree visit + Claude セッション復元 ---
 
@@ -667,9 +601,6 @@ export const useTerminalStore = defineStore("terminal", () => {
     getPtyIdBySessionId: claude.getPtyIdBySessionId,
     getSessionIdByPtyId: claude.getSessionIdByPtyId,
     clearDoneStates: claude.clearDoneStates,
-    // saved sessions (resume バッジ用)
-    refreshSavedSessionCounts,
-    getResumeableSessionCount,
     // pane getter
     getPaneDir,
     getPtyId,

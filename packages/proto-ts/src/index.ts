@@ -29,8 +29,6 @@ export {
   ClaudeSessionList,
   ClaudeSessionListByDirRequest,
   ClaudeSessionListByDirResponse,
-  ClaudeSessionListByProjectRequest,
-  ClaudeSessionListByProjectResponse,
   ClaudeSessionRemoveByPtyRequest,
   ClaudeSessionRemoveByPtyResponse,
 } from "./generated/gozd/v1/claude_session";

@@ -383,8 +383,6 @@ public actor RpcDispatcher {
       return try await handleWindowSetTitleContext(body)
     case "/claudeSession/listByDir":
       return try await handleClaudeSessionListByDir(body)
-    case "/claudeSession/listByProject":
-      return try await handleClaudeSessionListByProject(body)
     case "/claudeSession/removeByPty":
       return try await handleClaudeSessionRemoveByPty(body)
     default:
@@ -984,14 +982,6 @@ public actor RpcDispatcher {
     let req = try Gozd_V1_ClaudeSessionListByDirRequest(jsonUTF8Data: body)
     let sessions = try await claudeSessions.savedSessions(for: req.dir)
     var resp = Gozd_V1_ClaudeSessionListByDirResponse()
-    resp.sessions = sessions
-    return try resp.jsonUTF8Data()
-  }
-
-  private func handleClaudeSessionListByProject(_ body: Data) async throws -> Data {
-    let req = try Gozd_V1_ClaudeSessionListByProjectRequest(jsonUTF8Data: body)
-    let sessions = try await claudeSessions.allSavedSessions(forProject: req.dir)
-    var resp = Gozd_V1_ClaudeSessionListByProjectResponse()
     resp.sessions = sessions
     return try resp.jsonUTF8Data()
   }

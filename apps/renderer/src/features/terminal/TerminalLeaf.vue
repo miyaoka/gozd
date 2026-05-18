@@ -25,6 +25,7 @@ import { computed, nextTick, ref, watch } from "vue";
 import { useContextKeys } from "../../shared/command";
 import { useWorktreeStore } from "../worktree";
 import type { ClaudeState } from "./claudeStatus";
+import { CLAUDE_STATE_ICON } from "./claudeStatus";
 import { currentTheme } from "./terminalConfig";
 import { useTerminalStore } from "./useTerminalStore";
 import XtermTerminal from "./XtermTerminal.vue";
@@ -142,12 +143,7 @@ function handleTerminalBlur() {
       >
         <span
           class="size-3.5"
-          :class="{
-            'icon-[lucide--circle-dot]': claudeState === 'idle',
-            'icon-[lucide--loader] animate-spin': claudeState === 'working',
-            'icon-[lucide--message-circle-warning]': claudeState === 'asking',
-            'icon-[lucide--circle-check]': claudeState === 'done',
-          }"
+          :class="[CLAUDE_STATE_ICON[claudeState].icon, CLAUDE_STATE_ICON[claudeState].animate]"
         />
         <span>{{ CLAUDE_STATE_LABEL[claudeState] }}</span>
       </div>

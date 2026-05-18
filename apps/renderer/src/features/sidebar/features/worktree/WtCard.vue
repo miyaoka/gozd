@@ -1,5 +1,5 @@
 <doc lang="md">
-1 worktree のカード。ヘッダ (branch icon / branch / git status / resumable count / ⋮) と、
+1 worktree のカード。ヘッダ (branch icon / branch / git status / ⋮) と、
 Task 行 (TaskRow) を縦に並べる。task が無い wt はヘッダのみ。
 
 Task は PR/issue picker や手動操作で永続的に作られ、Claude session は
@@ -35,7 +35,6 @@ const props = defineProps<{
   rootDir: string;
   active: boolean;
   focusedPtyId: number | undefined;
-  resumeableSessionCount: number;
 }>();
 
 const emit = defineEmits<{
@@ -150,14 +149,6 @@ function onHeaderClick() {
             <span class="icon-[lucide--arrow-down] size-3" />
             <span>{{ wt.upstream.behind }}</span>
           </span>
-        </span>
-        <span
-          v-if="resumeableSessionCount > 0"
-          class="flex items-center gap-1 text-[10px] text-zinc-400"
-          :title="`${resumeableSessionCount} resumable session${resumeableSessionCount === 1 ? '' : 's'}`"
-        >
-          <span class="icon-[lucide--rotate-cw] size-3" />
-          <span class="tabular-nums">{{ resumeableSessionCount }}</span>
         </span>
       </div>
       <button

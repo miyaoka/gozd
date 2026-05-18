@@ -31,17 +31,6 @@ message ClaudeSessionListByDirResponse {
   repeated ClaudeSession sessions = 1;
 }
 
-// プロジェクト全体（任意の worktree dir から projectKey 解決）の生存セッション一覧を返す。
-// サイドバーで「各 worktree に何個 resume 可能か」を一括取得するため。
-message ClaudeSessionListByProjectRequest {
-  // プロジェクト内のいずれかの dir。projectKey 解決に使う。
-  string dir = 1;
-}
-
-message ClaudeSessionListByProjectResponse {
-  repeated ClaudeSession sessions = 1;
-}
-
 // 指定 PTY に紐づく Claude セッションを永続化から削除する。renderer の
 // unregisterPane（terminal.closePane / resetLayout / worktree 削除）から呼ぶ。
 // session-end hook 経路ではなく PTY 単位の明示的削除なので、worktree_path も

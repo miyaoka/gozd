@@ -200,7 +200,7 @@ zsh 起動
 アプリの状態と設定は `~/.config/gozd/` に proto3 JSON で保存する。dev / stable で永続ディレクトリは共有する。channel で分離するのは衝突回避が必要な実行時リソース（socket / TMPDIR / Vite URL / CLI ソース参照先）のみ。ファイル I/O は常に native（Swift）側で行い、renderer からは RPC request 経由でアクセスする。
 
 > [!WARNING]
-> 永続ファイルへの cross-process ロックは未実装。dev / stable を同時起動した場合、各ストア（`AppStateStore` / `AppConfigStore` / `TaskStore` / `ProjectConfigStore`）の `load → mutate → save` が並走すると、最後に save したプロセスが他方の変更を上書きする可能性がある。
+> 永続ファイルへの cross-process ロックは未実装。dev / stable を同時起動した場合、各ストア（`AppStateStore` / `AppConfigStore` / `TaskStore` / `ProjectConfigStore` / `ClaudeSessionStore`）の `load → mutate → save` が並走すると、最後に save したプロセスが他方の変更を上書きする可能性がある。
 
 ```text
 ~/.config/gozd/
@@ -209,6 +209,7 @@ zsh 起動
 └── projects/
     └── <projectKey>/                     # <repoName>-<hash>（realpath の SHA-256 先頭12文字）
         ├── tasks.json                    # プロジェクト固有: Task 一覧
+        ├── claude-sessions.json          # プロジェクト固有: worktreePath ごとの Claude session_id
         └── config.json                   # プロジェクト固有: worktreeSymlinks 等
 ```
 
@@ -221,7 +222,7 @@ zsh 起動
 | スコープ       | 保存先                                  | 例                                            |
 | -------------- | --------------------------------------- | --------------------------------------------- |
 | グローバル     | `~/.config/gozd/` 直下                  | ウィンドウフレーム、repo 並び順、ユーザー設定 |
-| プロジェクト別 | `~/.config/gozd/projects/<projectKey>/` | Task、worktree スクリプト                     |
+| プロジェクト別 | `~/.config/gozd/projects/<projectKey>/` | Task、Claude session id、worktree スクリプト  |
 
 ### 新しい永続化データを追加するパターン
 

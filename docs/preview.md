@@ -127,19 +127,21 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
 
 ### DiffPreview
 
+- 表示モードは `split` (default) / `unified` の 2 つ。`viewMode` は preview セッション内 local state（永続化しない）
 - diff 計算の SSOT は git。`rpcGitDiffHunks` で original / current を Swift に送り、`git diff --no-index` を経由した hunk 配列 + 総行数を受け取って描画する
   - renderer 側で jsdiff の全文 LCS を回すと `pnpm-lock.yaml` のような数万行ファイルで O(N×M) でメインスレッドが固まる。git の C 実装 (xdiff) に処理を委ねる
   - Swift 側は `NSTemporaryDirectory()` に 2 ファイル書き出し → `git -c diff.algorithm=myers -c diff.renames=false -c core.autocrlf=false -c core.eol=lf diff --no-index --no-color -U3` → unified diff を `DiffHunk[]` に parse。algorithm / 改行扱いはユーザー global config に依存しないよう `-c` で固定
   - 総行数 (`oldTotalLines` / `newTotalLines`) も response に含めて返す。renderer は `text.split("\n")` を独自に回さない (git の line counting 規約と分かれて trailing バーの表示行数がずれるため)
-  - hunk 間 / ファイル先頭・末尾の連続 unchanged 行は静的な「N unchanged lines」バーで省略表示する。バーは `oldStart` / `newStart` (1-based) と `lines` を保持し、#540 のクリック展開で `-U N` での再取得起点として使う。`oldGap === newGap` は unified diff の invariant なので shape を 1 本の `lines` に統合してある
+  - hunk 間 / ファイル先頭・末尾の連続 unchanged 行は「N unchanged lines」バーで省略表示する。バーは `oldStart` / `newStart` (1-based) と `lines` を保持し、クリックで `rpcGitDiffExpandLines` を呼んで Swift 側 `countDiffLines` と同じ line counting 規約で切り出した行ペアを取得 → `expansions` Map にキャッシュ。`oldGap === newGap` は unified diff の invariant なので shape を 1 本の `lines` に統合してある
   - 失敗時は `Failed to compute diff: <message>` を pane に表示する (トーストだけだと閉じた後に状態を追えない)
 - 入力契約: `original` / `current` は UTF-8 として解釈可能なテキスト。バイナリは PreviewPane の `isBinary` 判定で弾く前提。万一 NUL バイトがすり抜けた場合は Swift 側で `Binary files ... differ` を検出して `unexpectedOutput` (exit 0 で正常終了したが stdout フォーマットが想定外、を意味する case) で観察可能化する
 - Shiki の `codeToTokens()` で original / current それぞれのトークン配列を取得し、diff の各行に対応するトークンの色を適用
-  - removed 行 → original のトークン、added / unchanged 行 → current のトークン
+  - unified: removed 行 → original のトークン、added / unchanged 行 → current のトークン
+  - split: 左セル → original のトークン、右セル → current のトークン
   - diff の色分けは背景色のみ。テキスト色はトークンに委ねる
   - 言語未対応時はフォールバック表示（追加=緑、削除=赤）
-- 2列の行番号（旧ファイル / 新ファイル）を flex レイアウトで表示
-- バーのクリック展開と split view は #540 で対応する
+- `hunksToViewItems` (unified) と `hunksToSplitRows` (split) の両方を取得時に展開し `baseItems` / `baseSplitItems` として保持。view mode 切替で再 fetch は走らない
+- split view では modified hunk 内で連続する removed run と added run を貪欲ペアリングし、余った片側は反対セルを空 (灰色背景) にして残す
 
 ### MarkdownPreview
 

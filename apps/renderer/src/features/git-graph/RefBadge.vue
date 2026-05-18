@@ -32,24 +32,27 @@ const REF_TYPE_CLASS: Record<DisplayRef["type"], string> = {
 const CURRENT_LOCAL_CLASS = "bg-yellow-500 text-black";
 const CURRENT_REMOTE_CLASS = "bg-yellow-500 text-black opacity-50";
 const DEFAULT_CLASS = "ring-1 ring-inset ring-current";
-
-function openPrUrl(url: string) {
-  window.open(url);
-}
 </script>
 
 <template>
   <!-- PR number badge (left of branch label) -->
-  <span
+  <!-- 外部リンクは native 側の `ExternalLinkNavigationDecider` が OS のブラウザに渡す。
+       `target="_blank" rel="noopener noreferrer"` は decider 経路が完全に握る前 (decider が
+       cancel するまでの thin window) に WebKit が referrer / opener を組み立てる可能性に対する
+       defense in depth。行クリック伝播は `@click.stop` で止める。 -->
+  <a
     v-if="pr"
-    class="flex shrink-0 cursor-pointer items-center gap-0.5 rounded-sm px-1 py-0.5 text-[10px] leading-none font-medium"
+    :href="pr.url"
+    target="_blank"
+    rel="noopener noreferrer"
+    class="flex shrink-0 items-center gap-0.5 rounded-sm px-1 py-0.5 text-[10px] leading-none font-medium no-underline"
     :class="pr.isDraft ? 'bg-zinc-700 text-zinc-300' : 'bg-purple-800 text-purple-200'"
     :title="`PR #${pr.number}${pr.isDraft ? ' (draft)' : ''}`"
-    @click.stop="openPrUrl(pr.url)"
+    @click.stop
   >
     <span class="icon-[lucide--git-pull-request] size-3" />
     #{{ pr.number }}
-  </span>
+  </a>
   <!-- Branch label -->
   <span
     class="flex shrink-0 items-center gap-0.5 rounded-sm px-1 py-0.5 text-[10px] leading-none font-medium"

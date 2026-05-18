@@ -585,6 +585,49 @@ public struct Gozd_V1_GitFetchRemotesResponse: Sendable {
   public init() {}
 }
 
+/// gitGithubIdentity: active worktree の origin remote から GitHub の (owner, repo) を返す。
+/// 内部実装は `GitHubOps.repoOwnerName` を **`gh pr list` 経路と共有** することで、
+/// 「git CLI への入力 / parser / host policy」すべてを 1 箇所に集約した SSOT 設計。
+/// `git remote get-url` ではなく `git config --get remote.origin.url` を使う (両経路を同一
+/// 入力に揃え、`~/.gitconfig` の `insteadOf` 解釈差で結果が乖離するのを防ぐ)。
+///
+/// host policy は **github.com 限定** (`gh` のデフォルト host と合わせる)。GitLab / Bitbucket /
+/// GitHub Enterprise 等の非 github.com remote、および remote 未設定 / parse 失敗はすべて
+/// owner / repo を空文字で返す。renderer 側はコミットメッセージ中の `#N` を
+/// `https://github.com/<owner>/<repo>/issues/<n>` にリンクするのに使い、空文字なら plain text。
+///
+/// wire format 上は失敗 3 経路 (remote 未設定 / 非 github.com / parser 拒否) を空文字 1 種類に
+/// 圧縮するが、native 側では `RepoIdentity` enum で区別し stderr に経路別ログを残す。
+/// 「あれ動かない」の切り分けが必要なときは `[handleGitGithubIdentity]` プレフィックスの
+/// stderr (および `gh pr list` 失敗時の GhError.detail) を参照する。
+public struct Gozd_V1_GitGithubIdentityRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var dir: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Gozd_V1_GitGithubIdentityResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// GitHub repo の owner。非 github.com / remote 未設定 / parse 失敗では空文字
+  public var owner: String = String()
+
+  /// GitHub repo の repo。`.git` suffix は剥がされている。非 github.com / remote 未設定 / parse 失敗では空文字
+  public var repo: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 /// gitDefaultBranch: `git worktree add -b <new> <abs> <ref>` の `<ref>` にそのまま渡せる
 /// 「default branch ref」を返す。新規 worktree 作成時の起点を一意に決めるために使う。
 /// 解決順序は二段 fallback:
@@ -1644,6 +1687,71 @@ extension Gozd_V1_GitFetchRemotesResponse: SwiftProtobuf.Message, SwiftProtobuf.
   public static func ==(lhs: Gozd_V1_GitFetchRemotesResponse, rhs: Gozd_V1_GitFetchRemotesResponse) -> Bool {
     if lhs.ok != rhs.ok {return false}
     if lhs.errorDetail != rhs.errorDetail {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitGithubIdentityRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitGithubIdentityRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.dir) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.dir.isEmpty {
+      try visitor.visitSingularStringField(value: self.dir, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitGithubIdentityRequest, rhs: Gozd_V1_GitGithubIdentityRequest) -> Bool {
+    if lhs.dir != rhs.dir {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitGithubIdentityResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitGithubIdentityResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}owner\0\u{1}repo\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.owner) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.repo) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.owner.isEmpty {
+      try visitor.visitSingularStringField(value: self.owner, fieldNumber: 1)
+    }
+    if !self.repo.isEmpty {
+      try visitor.visitSingularStringField(value: self.repo, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitGithubIdentityResponse, rhs: Gozd_V1_GitGithubIdentityResponse) -> Bool {
+    if lhs.owner != rhs.owner {return false}
+    if lhs.repo != rhs.repo {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

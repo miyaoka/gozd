@@ -351,6 +351,8 @@ public actor RpcDispatcher {
       return try await handleGitFetchRemotes(body)
     case "/git/defaultBranch":
       return try await handleGitDefaultBranch(body)
+    case "/git/githubIdentity":
+      return try await handleGitGithubIdentity(body)
     case "/git/createWorktree":
       return try await handleCreateWorktree(body)
     case "/git/worktreeRemove":
@@ -935,6 +937,34 @@ public actor RpcDispatcher {
     let stdout = try await runGit(args: ["symbolic-ref", "--short", "HEAD"], cwd: dir)
     return String(decoding: stdout, as: UTF8.self).trimmingCharacters(
       in: .whitespacesAndNewlines)
+  }
+
+  private func handleGitGithubIdentity(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitGithubIdentityRequest(jsonUTF8Data: body)
+    // `repoOwnerName` 内部の `runGit` が `GitError.launchFailed` (git CLI 解決失敗 / PATH 不在等)
+    // を throw した場合は rethrow して renderer に通知する (silent drop 禁止規律と整合)。
+    // `commandFailed` (git config が remote.origin 未設定で exit) は `RepoIdentity.unsetRemote`
+    // に倒され、ここでは throw されない。
+    //
+    // `repoOwnerName` は `gh pr list` 経路と共有することで、git CLI への入力 / parser /
+    // host policy をすべて 1 箇所に集約する SSOT 設計。これにより `gh pr list` で PR が拾える
+    // repo では必ず `#N` リンクの base も導出できる、という整合性が構造的に保証される。
+    var resp = Gozd_V1_GitGithubIdentityResponse()
+    switch try await GitHubOps.repoOwnerName(dir: req.dir) {
+    case .ok(let owner, let repo):
+      resp.owner = owner
+      resp.repo = repo
+    case .unsetRemote:
+      // remote 未設定 (新規 repo / fork なし)。UI には出ないが観察可能にする。
+      FileHandle.standardError.write(
+        Data("[handleGitGithubIdentity] remote.origin not set for dir=\(req.dir)\n".utf8))
+    case .parserRejected:
+      // 非 github.com host / 想定外 URL 形式。raw URL は credential 漏出防止のため
+      // stderr にも載せない (固定文言 + dir のみで切り分け)。
+      FileHandle.standardError.write(
+        Data("[handleGitGithubIdentity] unsupported remote URL for dir=\(req.dir)\n".utf8))
+    }
+    return try resp.jsonUTF8Data()
   }
 
   private func handleCreateWorktree(_ body: Data) async throws -> Data {

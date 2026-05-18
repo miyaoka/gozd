@@ -149,6 +149,7 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
 
 - `marked` で HTML に変換後、`DOMPurify.sanitize()` で XSS 対策
 - YAML frontmatter を `hooks.preprocess` でコードブロックに変換して表示
+- markdown 中の `[text](https://...)` 由来 `<a>` は、native の `ExternalLinkNavigationDecider`（[architecture.md](architecture.md) の「WebPage の navigation policy」参照）が拾って OS のデフォルトブラウザで開く。WebView 内で main frame が外部 URL に置換されることはない
 
 ### ImagePreview
 

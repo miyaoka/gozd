@@ -340,6 +340,34 @@ export interface GitFetchRemotesResponse {
 }
 
 /**
+ * gitGithubIdentity: active worktree の origin remote から GitHub の (owner, repo) を返す。
+ * 内部実装は `GitHubOps.repoOwnerName` を **`gh pr list` 経路と共有** することで、
+ * 「git CLI への入力 / parser / host policy」すべてを 1 箇所に集約した SSOT 設計。
+ * `git remote get-url` ではなく `git config --get remote.origin.url` を使う (両経路を同一
+ * 入力に揃え、`~/.gitconfig` の `insteadOf` 解釈差で結果が乖離するのを防ぐ)。
+ *
+ * host policy は **github.com 限定** (`gh` のデフォルト host と合わせる)。GitLab / Bitbucket /
+ * GitHub Enterprise 等の非 github.com remote、および remote 未設定 / parse 失敗はすべて
+ * owner / repo を空文字で返す。renderer 側はコミットメッセージ中の `#N` を
+ * `https://github.com/<owner>/<repo>/issues/<n>` にリンクするのに使い、空文字なら plain text。
+ *
+ * wire format 上は失敗 3 経路 (remote 未設定 / 非 github.com / parser 拒否) を空文字 1 種類に
+ * 圧縮するが、native 側では `RepoIdentity` enum で区別し stderr に経路別ログを残す。
+ * 「あれ動かない」の切り分けが必要なときは `[handleGitGithubIdentity]` プレフィックスの
+ * stderr (および `gh pr list` 失敗時の GhError.detail) を参照する。
+ */
+export interface GitGithubIdentityRequest {
+  dir: string;
+}
+
+export interface GitGithubIdentityResponse {
+  /** GitHub repo の owner。非 github.com / remote 未設定 / parse 失敗では空文字 */
+  owner: string;
+  /** GitHub repo の repo。`.git` suffix は剥がされている。非 github.com / remote 未設定 / parse 失敗では空文字 */
+  repo: string;
+}
+
+/**
  * gitDefaultBranch: `git worktree add -b <new> <abs> <ref>` の `<ref>` にそのまま渡せる
  * 「default branch ref」を返す。新規 worktree 作成時の起点を一意に決めるために使う。
  * 解決順序は二段 fallback:
@@ -2616,6 +2644,140 @@ export const GitFetchRemotesResponse: MessageFns<GitFetchRemotesResponse> = {
     const message = createBaseGitFetchRemotesResponse();
     message.ok = object.ok ?? false;
     message.errorDetail = object.errorDetail ?? "";
+    return message;
+  },
+};
+
+function createBaseGitGithubIdentityRequest(): GitGithubIdentityRequest {
+  return { dir: "" };
+}
+
+export const GitGithubIdentityRequest: MessageFns<GitGithubIdentityRequest> = {
+  encode(message: GitGithubIdentityRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitGithubIdentityRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitGithubIdentityRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitGithubIdentityRequest {
+    return { dir: isSet(object.dir) ? globalThis.String(object.dir) : "" };
+  },
+
+  toJSON(message: GitGithubIdentityRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitGithubIdentityRequest>): GitGithubIdentityRequest {
+    return GitGithubIdentityRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitGithubIdentityRequest>): GitGithubIdentityRequest {
+    const message = createBaseGitGithubIdentityRequest();
+    message.dir = object.dir ?? "";
+    return message;
+  },
+};
+
+function createBaseGitGithubIdentityResponse(): GitGithubIdentityResponse {
+  return { owner: "", repo: "" };
+}
+
+export const GitGithubIdentityResponse: MessageFns<GitGithubIdentityResponse> = {
+  encode(message: GitGithubIdentityResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.owner !== "") {
+      writer.uint32(10).string(message.owner);
+    }
+    if (message.repo !== "") {
+      writer.uint32(18).string(message.repo);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitGithubIdentityResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitGithubIdentityResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.owner = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.repo = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitGithubIdentityResponse {
+    return {
+      owner: isSet(object.owner) ? globalThis.String(object.owner) : "",
+      repo: isSet(object.repo) ? globalThis.String(object.repo) : "",
+    };
+  },
+
+  toJSON(message: GitGithubIdentityResponse): unknown {
+    const obj: any = {};
+    if (message.owner !== "") {
+      obj.owner = message.owner;
+    }
+    if (message.repo !== "") {
+      obj.repo = message.repo;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitGithubIdentityResponse>): GitGithubIdentityResponse {
+    return GitGithubIdentityResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitGithubIdentityResponse>): GitGithubIdentityResponse {
+    const message = createBaseGitGithubIdentityResponse();
+    message.owner = object.owner ?? "";
+    message.repo = object.repo ?? "";
     return message;
   },
 };

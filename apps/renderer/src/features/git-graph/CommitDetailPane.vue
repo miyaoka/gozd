@@ -9,14 +9,29 @@ Commit detail pane showing metadata for selected commits in the git graph.
 
 <script setup lang="ts">
 import type { GitCommit } from "@gozd/proto";
+import { computed } from "vue";
 import { UNCOMMITTED_HASH } from "../worktree";
+import CommitSegmentList from "./CommitSegmentList";
+import { linkifyCommitMessage } from "./linkifyCommitMessage";
 
 interface Props {
   /** 表示対象のコミット配列 */
   commits: GitCommit[];
+  /** GitHub repo base URL。`#番号` を issue/PR リンクに変換するのに使う */
+  baseUrl: string | undefined;
 }
 
-defineProps<Props>();
+const props = defineProps<Props>();
+
+/** subject / body の linkify 結果を `(commits, baseUrl)` が変わったときだけ再計算する。
+ * template から関数呼び出しすると毎 render で `linkifyCommitMessage` (string.matchAll の O(n))
+ * が走るので、`commits.length` × `(message + body)` の再計算を抑える。 */
+const subjectSegmentsList = computed(() =>
+  props.commits.map((c) => linkifyCommitMessage(c.message, props.baseUrl)),
+);
+const bodySegmentsList = computed(() =>
+  props.commits.map((c) => linkifyCommitMessage(c.body, props.baseUrl)),
+);
 
 function isUncommitted(hash: string): boolean {
   return hash === UNCOMMITTED_HASH;
@@ -58,11 +73,14 @@ function formatDetailDate(timestamp: number): string {
       <template v-else>
         <!-- Subject -->
         <div class="text-sm font-semibold text-zinc-200">
-          {{ commit.message }}
+          <CommitSegmentList :segments="subjectSegmentsList[i]" />
         </div>
 
-        <!-- Body -->
-        <pre v-if="commit.body" class="whitespace-pre-wrap text-zinc-400">{{ commit.body }}</pre>
+        <!-- Body: `<pre>` 配下でも `CommitSegmentList` は render function 実装のため
+             template 改行由来の whitespace text node 混入が構造的に起きない。 -->
+        <pre v-if="commit.body" class="whitespace-pre-wrap text-zinc-400"><CommitSegmentList
+          :segments="bodySegmentsList[i]"
+        /></pre>
 
         <!-- Meta fields -->
         <div class="flex flex-col gap-1.5">

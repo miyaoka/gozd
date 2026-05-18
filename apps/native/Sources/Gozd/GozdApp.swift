@@ -322,7 +322,9 @@ final class AppRuntime {
     var config = WebPage.Configuration()
     config.urlSchemeHandlers[URLScheme("gozd-rpc")!] = RpcSchemeHandler(dispatcher: createdDispatcher)
     config.urlSchemeHandlers[URLScheme("gozd-app")!] = BundleAssetSchemeHandler()
-    let page = WebPage(configuration: config)
+    // 外部リンク (`<a target="_blank">` / `window.open`) を OS のブラウザに渡す。
+    // 未設定だと主フレームを置換しようとして renderer の UI 全体が消える。
+    let page = WebPage(configuration: config, navigationDecider: ExternalLinkNavigationDecider())
     page.isInspectable = true
     holder.page = page
     self.page = page

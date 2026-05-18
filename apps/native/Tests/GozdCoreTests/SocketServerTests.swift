@@ -8,6 +8,8 @@ import Testing
 struct SocketServerTests {
   @Test("単一の NDJSON 行を受信できる")
   func receivesSingleLine() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let path = makeSocketPath()
     defer { unlink(path) }
 
@@ -28,6 +30,8 @@ struct SocketServerTests {
 
   @Test("1 接続で複数行を順序通りに受信する")
   func receivesMultipleLines() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let path = makeSocketPath()
     defer { unlink(path) }
 
@@ -54,6 +58,8 @@ struct SocketServerTests {
 
   @Test("複数接続から並行受信できる")
   func receivesFromMultipleConnections() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let path = makeSocketPath()
     defer { unlink(path) }
 
@@ -95,16 +101,9 @@ private func fileExists(_ path: String) -> Bool {
   return stat(path, &st) == 0
 }
 
-private func waitUntil(
-  timeout: Duration,
-  _ condition: @escaping @Sendable () -> Bool
-) async throws {
-  let deadline = ContinuousClock.now.advanced(by: timeout)
-  while ContinuousClock.now < deadline {
-    if condition() { return }
-    try await Task.sleep(for: .milliseconds(30))
-  }
-}
+// `waitUntil` は `WaitUntil.swift` の共有実装を使う（issue #556 観測項目 3）。
+// 旧実装は silent return で、timeout 時に Issue.record を呼ばず後段の `#expect` が
+// 別症状で間接 fail していた。共有版は tick 履歴を Issue.record の message に inline する。
 
 enum SocketClientError: Error, CustomStringConvertible {
   case createSocket(errno: Int32)

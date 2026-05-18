@@ -3,10 +3,18 @@ import Testing
 
 @testable import GozdCore
 
-@Suite("PTYManager")
+// `.serialized` で直列実行する（issue #556 観測項目 4）。並列実行下では複数の PTY が
+// 同時刻に spawn され、CI trace 上で pid 多重化が起きる。`resizeIsSafe` のような
+// timeout 系 flake が再発した時、「どの pid を見ていたのか」をテスト失敗時刻と
+// 一致する spawn pid から目で突き合わせるしか手段が無くなる。
+// 本 suite は ローカル swift test 実測で 1 秒未満、CI macos-26 でも秒オーダー内に収まる
+// ことを想定。直列化による性能劣化は許容範囲。
+@Suite("PTYManager", .serialized)
 struct PTYManagerTests {
   @Test("子プロセスの stdout を受け取り、正常終了 (.exited(0)) を検知する")
   func receivesOutputAndExit() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let data = DataCollector()
     let exit = ExitCollector()
     let pty = PTYManager()
@@ -32,6 +40,8 @@ struct PTYManagerTests {
 
   @Test("write した内容を子プロセス経由で読み戻せる（cat エコー）")
   func writeRoundTrip() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let data = DataCollector()
     let exit = ExitCollector()
     let pty = PTYManager()
@@ -68,6 +78,8 @@ struct PTYManagerTests {
 
   @Test("resize は fd 確立前後で crash しない")
   func resizeIsSafe() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let pty = PTYManager()
     pty.resize(rows: 30, cols: 100)  // fd 未確立: no-op
     let data = DataCollector()
@@ -90,6 +102,8 @@ struct PTYManagerTests {
 
   @Test("0 byte 出力で正常終了する child (/usr/bin/true) でも onExit が発火する")
   func zeroByteOutput() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let data = DataCollector()
     let exit = ExitCollector()
     let pty = PTYManager()
@@ -114,6 +128,8 @@ struct PTYManagerTests {
 
   @Test("stderr のみに書く child の出力も master fd から読める")
   func stderrIsCapturedThroughSlave() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let data = DataCollector()
     let exit = ExitCollector()
     let pty = PTYManager()
@@ -140,6 +156,8 @@ struct PTYManagerTests {
 
   @Test("存在しない cwd を指定すると exited(code: 124) を返す (chdir 失敗)")
   func chdirFailureReportedAsExit124() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let data = DataCollector()
     let exit = ExitCollector()
     let pty = PTYManager()
@@ -169,6 +187,8 @@ struct PTYManagerTests {
 
   @Test("ディレクトリを executable に指定すると exited(code: 126) を返す (execve EACCES)")
   func execveEACCESReportedAsExit126() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let data = DataCollector()
     let exit = ExitCollector()
     let pty = PTYManager()
@@ -192,6 +212,8 @@ struct PTYManagerTests {
 
   @Test("実行できないパス (/path/does/not/exist) は exited(code: 127) を返す")
   func execveENOENTReportedAsExit127() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let data = DataCollector()
     let exit = ExitCollector()
     let pty = PTYManager()
@@ -216,24 +238,8 @@ struct PTYManagerTests {
 
 // MARK: - Helpers
 
-/// `condition()` が true を返すまで小さくポーリングで待つ。timeout 到達時に
-/// `Issue.record` で test を fail させる。silent return すると後段の `#expect` が
-/// 別の症状（exit が nil など）で間接 fail し、timeout だった事象を追跡できなくなる。
-private func waitUntil(
-  timeout: Duration,
-  description: String = "condition",
-  _ condition: @escaping @Sendable () -> Bool,
-  sourceLocation: SourceLocation = #_sourceLocation
-) async throws {
-  let deadline = ContinuousClock.now.advanced(by: timeout)
-  while ContinuousClock.now < deadline {
-    if condition() { return }
-    try await Task.sleep(for: .milliseconds(50))
-  }
-  Issue.record(
-    "waitUntil timed out after \(timeout) waiting for: \(description)",
-    sourceLocation: sourceLocation)
-}
+// `waitUntil` は `WaitUntil.swift` の共有実装を使う（issue #556 観測項目 3）。
+// tick polling 履歴を持ち、timeout 時に Issue.record の message に inline する。
 
 private final class DataCollector: @unchecked Sendable {
   private let lock = NSLock()

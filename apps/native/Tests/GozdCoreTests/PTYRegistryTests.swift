@@ -3,10 +3,16 @@ import Testing
 
 @testable import GozdCore
 
-@Suite("PTYRegistry")
+// `.serialized` で直列実行する（issue #556 観測項目 4）。
+// PTYManagerTests と同様、複数 PTY の並列 spawn を構造的に消すことで再発時の
+// trace 解析（pid と test の対応復元）を容易にする。
+// PTY を spawn する suite を跨いだ並列実行も避けるため、両 suite を揃って直列化する。
+@Suite("PTYRegistry", .serialized)
 struct PTYRegistryTests {
   @Test("spawn は連番の ptyId を返し、onText / onExit が ID 付きで配送される")
   func spawnAndExitDispatch() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let events = EventCollector()
     let registry = PTYRegistry(
       onText: { id, text in events.appendText(id: id, text: text) },
@@ -41,6 +47,8 @@ struct PTYRegistryTests {
 
   @Test("kill 後に PTY が registry から自動削除される")
   func cleanupOnKill() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let events = EventCollector()
     let registry = PTYRegistry(
       onText: { id, text in events.appendText(id: id, text: text) },
@@ -75,6 +83,8 @@ struct PTYRegistryTests {
 
   @Test("未知の ptyId への write / resize / kill は no-op")
   func unknownIdIsNoop() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let events = EventCollector()
     let registry = PTYRegistry(
       onText: { id, text in events.appendText(id: id, text: text) },
@@ -92,6 +102,8 @@ struct PTYRegistryTests {
 
   @Test("spawn 時 env[GOZD_RESUME_CLAUDE_SESSION] が expectedResumeSidById に保存される")
   func expectedResumeSidPopulatedFromEnv() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let events = EventCollector()
     let registry = PTYRegistry(
       onText: { id, text in events.appendText(id: id, text: text) },
@@ -115,6 +127,8 @@ struct PTYRegistryTests {
 
   @Test("consumeExpectedResumeSid は sid 関係なく必ず消費する (SessionStart 着弾の単一エントリポイント)")
   func consumeExpectedSidAlwaysConsumes() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let events = EventCollector()
     let registry = PTYRegistry(
       onText: { id, text in events.appendText(id: id, text: text) },
@@ -141,6 +155,8 @@ struct PTYRegistryTests {
 
   @Test("clearAssociations は expectedResumeSid を触らない (silent drop しない契約)")
   func clearAssociationsLeavesExpectedSid() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
     let events = EventCollector()
     let registry = PTYRegistry(
       onText: { id, text in events.appendText(id: id, text: text) },
@@ -164,24 +180,7 @@ struct PTYRegistryTests {
 
 // MARK: - Helpers
 
-/// `condition()` が true を返すまで小さくポーリングで待つ。timeout 到達時に
-/// `Issue.record` で test を fail させる。silent return すると後段の `#expect` が
-/// 別の症状（exit が nil など）で間接 fail し、timeout だった事象を追跡できなくなる。
-private func waitUntil(
-  timeout: Duration,
-  description: String = "condition",
-  _ condition: @escaping @Sendable () -> Bool,
-  sourceLocation: SourceLocation = #_sourceLocation
-) async throws {
-  let deadline = ContinuousClock.now.advanced(by: timeout)
-  while ContinuousClock.now < deadline {
-    if condition() { return }
-    try await Task.sleep(for: .milliseconds(50))
-  }
-  Issue.record(
-    "waitUntil timed out after \(timeout) waiting for: \(description)",
-    sourceLocation: sourceLocation)
-}
+// `waitUntil` は `WaitUntil.swift` の共有実装を使う（issue #556 観測項目 3）。
 
 private final class EventCollector: @unchecked Sendable {
   private let lock = NSLock()

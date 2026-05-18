@@ -107,7 +107,9 @@ scope は active worktree 1 個に限定するため負荷は 60 query/h (GH Gra
 | `remoteRefsChange`          | push / fetch で remote ref が動いたとき (current 以外の branch 動きも含む) |
 | `useIntervalFn` (60 秒間隔) | active worktree に対する定期取得                                           |
 
-`gitStatusChange.upstreamChanged` 側では `loadPrList` を呼ばない。`# branch.ab` の数値変化は構造的に `refs/remotes/origin/<current-branch>` の書き換えに対応し、その場合は必ず `remoteRefsChange` も同じ burst で発射されるため、`gitStatusChange` 側で呼ぶと `gh pr list` が 2 連射される。`branchChange` / `fsWatchReady` は graph 再描画のみで PR list を取り直さない。
+`gitStatusChange.upstreamChanged` 側では `loadPrList` を呼ばない。`# branch.ab` の数値変化のうち、`headChanged` でない経路は構造的に `refs/remotes/origin/<current-branch>` の書き換えに対応し、その場合は必ず `remoteRefsChange` も同じ burst で発射されるため、`gitStatusChange` 側で呼ぶと `gh pr list` が 2 連射される。`branchChange` / `fsWatchReady` は graph 再描画のみで PR list を取り直さない。
+
+例外: `git branch --set-upstream-to` / `--unset-upstream` で `.git/config` だけが書き換わる経路は FSEvents の射程外 (refs を動かさない) で classify が silent drop する。後段の何か別 trigger で `gitStatusChange` が再発火したとき `upstreamChanged` 単独経路に流れて `loadPrList` が呼ばれないが、60s polling で吸収する想定。upstream 設定変更は gozd の primary use case (Claude が `gh pr create` する流れ) では低頻度の操作で、運用影響は限定的。
 
 picker 経由は独立: PR picker 起動ごとに `rpcGitPrList` が 1 回走る。
 

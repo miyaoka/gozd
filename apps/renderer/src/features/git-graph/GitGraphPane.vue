@@ -295,12 +295,14 @@ const disposeGitStatus = onMessage<GitStatusChangePayload>(
     } else if (branchHeadChanged || upstreamChanged) {
       scheduleLoadLog();
     }
-    // `upstreamChanged` (`# branch.ab` の ahead/behind 数値が変化) は構造的に
-    // `refs/remotes/origin/<current-branch>` の書き換えが起きた場合に限られ、その時は
-    // 必ず `remoteRefsChange` も同じ burst で発射される (classify が両方を立てる)。
-    // `loadPrList` は `remoteRefsChange` handler 側の SSOT で発射するため、ここで呼ぶと
-    // `gh pr list` が 2 連射される。`scheduleLoadLog` を入れた事前防衛と対称にするため
-    // ここからは外す。HEAD 移動による branch.ab 変化は `headChanged` 経路に流れる。
+    // `upstreamChanged` (`# branch.ab` の ahead/behind 数値が変化) の主要発生経路は:
+    //   1. HEAD 移動 → `headChanged` の if 経路に流れて else if に来ない
+    //   2. `refs/remotes/origin/<current-branch>` の書き換え → 同 burst で必ず `remoteRefsChange` 発射
+    // よって本 else if に到達する `upstreamChanged` は (2) に限られ、`loadPrList` は
+    // `remoteRefsChange` handler 側に集約してよい (両方で呼ぶと `gh pr list` 2 連射)。
+    // 例外: `git branch --set-upstream-to` / `--unset-upstream` で `.git/config` だけが変わる
+    // 経路は classify の射程外 (refs を動かさない) ため、その後の何か別 trigger で本 else if
+    // に流れることがある。本 PR の射程では 60s polling で吸収する想定。
   },
 );
 onUnmounted(disposeGitStatus);
@@ -318,12 +320,12 @@ onUnmounted(disposeBranchChange);
 // `gitStatusChange` 経路は current branch の upstream key (ahead/behind) しか
 // 変化を載せないため、別ブランチ (`origin/other-branch`) だけが動いた場合に取り
 // こぼす。`remoteRefsChange` はこれを補う repo スコープ通知。
-// 同じ remote ref burst で `gitStatusChange` の `upstreamChanged` 経路と本 handler の
-// 両方が `loadLog` を立てるため、`scheduleLoadLog` で coalescing して 1 fetch にまとめる。
-// PR 一覧の即時反映も `gh pr list` で取り直す: 外部端末で current 以外の branch に push されて
-// gh 側で新規 PR が立った直後にバッジを動かしたい運用要件と整合する。`gitStatusChange` 側でも
-// `upstreamChanged` で `loadPrList` を呼ぶため、ここでも呼ぶ方が対称。`gh pr list` は本 PR の
-// scope (active 1 worktree) では 1 RPC で、auto-fetch (180s) 周期に 1 回足すコストに収まる。
+// 同じ remote ref burst で `gitStatusChange` 経路と本 handler の両方が `loadLog` を立てるため、
+// `scheduleLoadLog` で coalescing して 1〜2 fetch にまとめる。
+// PR 一覧の即時反映もここで取り直す: 外部端末で current 以外の branch に push されて gh 側で
+// 新規 PR が立った直後にバッジを動かしたい運用要件と整合する。`loadPrList` は本 handler を
+// SSOT 発火元として `disposeGitStatus.upstreamChanged` 側では呼ばない (current branch ref の
+// 書き換えでも本 handler が同 burst で必ず発射されるため、両方呼ぶと `gh pr list` 2 連射になる)。
 const disposeRemoteRefsChange = onMessage<RemoteRefsChangePayload>(
   "remoteRefsChange",
   ({ dir }) => {

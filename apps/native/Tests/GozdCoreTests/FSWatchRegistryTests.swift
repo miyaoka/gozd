@@ -15,6 +15,7 @@ struct FSWatchRegistryTests {
       onFsChange: { dir, _ in collector.append("fsChange:\(dir)") },
       onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
       onBranchChange: { _ in collector.append("branchChange") },
+      onRemoteRefsChange: { _ in collector.append("remoteRefsChange") },
       onWorktreeChange: { _ in collector.append("worktreeChange") }
     )
 
@@ -41,6 +42,7 @@ struct FSWatchRegistryTests {
       onFsChange: { _, _ in collector.append("fsChange") },
       onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
       onBranchChange: { _ in collector.append("branchChange") },
+      onRemoteRefsChange: { _ in collector.append("remoteRefsChange") },
       onWorktreeChange: { _ in collector.append("worktreeChange") }
     )
 
@@ -90,6 +92,7 @@ struct FSWatchRegistryTests {
       onFsChange: { _, _ in collector.append("fsChange") },
       onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
       onBranchChange: { _ in collector.append("branchChange") },
+      onRemoteRefsChange: { _ in collector.append("remoteRefsChange") },
       onWorktreeChange: { _ in collector.append("worktreeChange") }
     )
 
@@ -123,6 +126,7 @@ struct FSWatchRegistryTests {
       onFsChange: { _, _ in collector.append("fsChange") },
       onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
       onBranchChange: { _ in collector.append("branchChange") },
+      onRemoteRefsChange: { _ in collector.append("remoteRefsChange") },
       onWorktreeChange: { _ in collector.append("worktreeChange") }
     )
 
@@ -157,6 +161,7 @@ struct FSWatchRegistryTests {
       onFsChange: { _, _ in collector.append("fsChange") },
       onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
       onBranchChange: { _ in collector.append("branchChange") },
+      onRemoteRefsChange: { _ in collector.append("remoteRefsChange") },
       onWorktreeChange: { _ in collector.append("worktreeChange") }
     )
 
@@ -213,6 +218,7 @@ struct FSWatchRegistryTests {
       onFsChange: { _, _ in },
       onGitStatusChange: { _, _ in },
       onBranchChange: { _ in branchChangeCount.increment() },
+      onRemoteRefsChange: { _ in },
       onWorktreeChange: { _ in worktreeChangeCount.increment() }
     )
 
@@ -250,6 +256,7 @@ struct FSWatchRegistryTests {
       onFsChange: { _, _ in collector.append("fsChange") },
       onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
       onBranchChange: { _ in collector.append("branchChange") },
+      onRemoteRefsChange: { _ in collector.append("remoteRefsChange") },
       onWorktreeChange: { _ in collector.append("worktreeChange") }
     )
 
@@ -288,6 +295,7 @@ struct FSWatchRegistryTests {
       onFsChange: { _, _ in collector.append("fsChange") },
       onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
       onBranchChange: { _ in collector.append("branchChange") },
+      onRemoteRefsChange: { _ in collector.append("remoteRefsChange") },
       onWorktreeChange: { _ in collector.append("worktreeChange") }
     )
 
@@ -318,6 +326,7 @@ struct FSWatchRegistryTests {
       onFsChange: { _, _ in },
       onGitStatusChange: { _, _ in },
       onBranchChange: { _ in },
+      onRemoteRefsChange: { _ in },
       onWorktreeChange: { _ in }
     )
     let count = await registry.unwatchAll()
@@ -334,6 +343,7 @@ struct FSWatchRegistryTests {
       onFsChange: { _, _ in collector.append("fsChange") },
       onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
       onBranchChange: { _ in collector.append("branchChange") },
+      onRemoteRefsChange: { _ in collector.append("remoteRefsChange") },
       onWorktreeChange: { _ in collector.append("worktreeChange") }
     )
 
@@ -419,10 +429,11 @@ struct ClassifyTests {
     #expect(!result.hasWorktreeChange)
   }
 
-  @Test("worktree 配置: common git dir 配下の refs/remotes/origin/main は gitStatusChange")
+  @Test("worktree 配置: common git dir 配下の refs/remotes/origin/main は gitStatusChange + remoteRefsChange")
   func worktreeCommonRemoteRef() {
     // git push / fetch 成功でローカルの remote-tracking ref が書き換わる。
-    // git-graph の ahead/behind を更新するための gitStatusChange 経路。
+    // - `gitStatusChange`: per-worktree の ahead/behind 更新
+    // - `remoteRefsChange`: repo スコープの ref トポロジ変化 (current 以外の branch が動いた場合の git-graph 再 load)
     // worktree 一覧構造は変わらないため branchChange は発火させない。
     let dir = pathOf("wt", "foo")
     let perWt = pathOf("parent", ".git", "worktrees", "foo")
@@ -431,12 +442,13 @@ struct ClassifyTests {
       dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
       events: [ev(pathOf("parent", ".git", "refs", "remotes", "origin", "main"))])
     #expect(result.hasGitStatusChange)
+    #expect(result.hasRemoteRefsChange)
     #expect(!result.hasBranchChange)
     #expect(!result.hasFsChange)
     #expect(!result.hasWorktreeChange)
   }
 
-  @Test("worktree 配置: refs/remotes/origin/HEAD（symbolic ref）も gitStatusChange")
+  @Test("worktree 配置: refs/remotes/origin/HEAD（symbolic ref）も gitStatusChange + remoteRefsChange")
   func worktreeCommonRemoteHeadSymRef() {
     // `origin/HEAD` は固定名の symbolic ref。`hasPrefix("refs/remotes/")` で同分岐に
     // 落ちる事を保証し、将来「branch 一覧変化」として再分類したくなった時の足場にする。
@@ -447,10 +459,11 @@ struct ClassifyTests {
       dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
       events: [ev(pathOf("parent", ".git", "refs", "remotes", "origin", "HEAD"))])
     #expect(result.hasGitStatusChange)
+    #expect(result.hasRemoteRefsChange)
     #expect(!result.hasBranchChange)
   }
 
-  @Test("worktree 配置: branch 名にスラッシュを含む refs/remotes/origin/feature/sub も gitStatusChange")
+  @Test("worktree 配置: branch 名にスラッシュを含む refs/remotes/origin/feature/sub も gitStatusChange + remoteRefsChange")
   func worktreeCommonRemoteRefNestedName() {
     // `feature/sub` のようなスラッシュ区切り branch 名。`hasPrefix` 判定なので通るはずだが、
     // 将来 `==` 等価判定にリグレッションした時に検知できるよう明示的に踏む。
@@ -461,6 +474,7 @@ struct ClassifyTests {
       dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
       events: [ev(pathOf("parent", ".git", "refs", "remotes", "origin", "feature", "sub"))])
     #expect(result.hasGitStatusChange)
+    #expect(result.hasRemoteRefsChange)
     #expect(!result.hasBranchChange)
   }
 
@@ -560,8 +574,9 @@ struct ClassifyTests {
     #expect(result.hasGitStatusChange)
   }
 
-  @Test("packed-refs 変更で branchChange + gitStatusChange の両方が立つ")
+  @Test("packed-refs 変更で branchChange + gitStatusChange + remoteRefsChange が立つ")
   func packedRefsFiresBoth() {
+    // packed-refs は local / remote の判別ができないため、全 subscriber に通知する。
     let dir = pathOf("repo")
     let gitDir = pathOf("repo", ".git")
     let result = FSWatchRegistry.classify(
@@ -569,6 +584,7 @@ struct ClassifyTests {
       events: [ev(pathOf("repo", ".git", "packed-refs"))])
     #expect(result.hasBranchChange)
     #expect(result.hasGitStatusChange)
+    #expect(result.hasRemoteRefsChange)
   }
 
   @Test("dir 配下でも git dir 配下でもない event は無視")

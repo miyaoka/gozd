@@ -22,7 +22,7 @@ import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
 import { ResizeHandle } from "../layout";
 import { ghErrorMessage, rpcGitPrList } from "../palette";
-import type { BranchChangePayload, FsWatchReadyPayload } from "../sidebar";
+import type { BranchChangePayload, FsWatchReadyPayload, RemoteRefsChangePayload } from "../sidebar";
 import type { GitStatusChangePayload } from "../worktree";
 import {
   UNCOMMITTED_HASH,
@@ -259,6 +259,26 @@ const disposeBranchChange = onMessage<BranchChangePayload>("branchChange", ({ di
   void loadLog();
 });
 onUnmounted(disposeBranchChange);
+
+// `git fetch` / `git push` でローカルの remote-tracking ref が動いたとき発火する。
+// `gitStatusChange` 経路は current branch の upstream key (ahead/behind) しか
+// 変化を載せないため、別ブランチ (`origin/other-branch`) だけが動いた場合に取り
+// こぼす。`remoteRefsChange` はこれを補う repo スコープ通知。`branchChange` と
+// 同じく primary watcher 1 つだけが発火するので、active と同じ repo か判定する。
+// PR 一覧 (`gh pr list`) は network state に依存し、ローカルの remote ref 動きとは
+// 必ずしも同期しないため、ここでは `loadLog` のみ発火する (60s polling に任せる)。
+const disposeRemoteRefsChange = onMessage<RemoteRefsChangePayload>(
+  "remoteRefsChange",
+  ({ dir }) => {
+    const activeDir = worktreeStore.dir;
+    if (activeDir === undefined) return;
+    const sourceRoot = repoStore.findRepoOwning(dir)?.rootDir;
+    const activeRoot = repoStore.findRepoOwning(activeDir)?.rootDir;
+    if (sourceRoot === undefined || sourceRoot !== activeRoot) return;
+    void loadLog();
+  },
+);
+onUnmounted(disposeRemoteRefsChange);
 
 // `useFsWatchSync` の `rpcFsWatch` 完了直後に発射される再同期通知。watch 起動往復中の
 // FS 変化を救済するため、1 度だけ git log を取り直す。dispatch 側で rootDir 単位に

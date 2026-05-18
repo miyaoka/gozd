@@ -81,6 +81,9 @@ save の発火条件は `buildAppStateSnapshot()` のシリアライズ結果が
 - メインディレクトリ（clone 元）が main の worktree として機能する
 - main は参照・確認専用。dev サーバーの起動や build は自由に行える
 - main で直接コミットしない。Claude も main では作業しない
+- 「参照用」は規範ではなく、新規 worktree がリモートのデフォルトブランチ（`origin/HEAD`）を起点に作られる仕様の帰結。main はその起点を最新に保つために pull する場、という位置づけになる
+  - サイドバーの新規 worktree ボタン / Issue picker 経由は `origin/HEAD` 起点
+  - PR picker 経由はその PR のブランチ起点（remote が `origin` 以外の fork PR も含む）
 
 ### 作業用 worktree
 

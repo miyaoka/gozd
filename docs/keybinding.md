@@ -80,7 +80,9 @@ global keydown listener（capture phase）で以下の順に処理する。
 - `e.defaultPrevented` → 除外
 - `e.isComposing` → 除外（日本語入力中）
 - `e.repeat` → 除外（連打防止）
-- macOS 予約キー（Cmd+C/V/X/A/Z/Q/H/M/,）→ 除外
+
+> [!NOTE]
+> 「macOS 予約キー (Cmd+C/V/X 等)」をハードコードで除外する仕組みは持たない。bind されていないキーは matching ループで unmatch となり、`preventDefault()` を呼ばないためブラウザ既定 (コピー / ペースト等) がそのまま動く。bind すれば上書き可能で、上書きの可否は OS の挙動に依存する (Cmd+Q / H / M 等は JS より前に macOS が処理する)。
 
 ### ディスパッチ
 

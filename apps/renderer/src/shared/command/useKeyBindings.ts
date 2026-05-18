@@ -26,18 +26,6 @@ interface ResolvedBinding {
   args: unknown;
 }
 
-/** macOS 予約キー（コマンドシステムで横取りしない）。e.code 値で指定 */
-const MAC_RESERVED_CODES = new Set([
-  "KeyC",
-  "KeyV",
-  "KeyX",
-  "KeyA",
-  "KeyZ",
-  "KeyQ",
-  "KeyH",
-  "KeyM",
-]);
-
 /** keybinding テーブルを parse して ResolvedBinding 配列にする */
 function resolveBindings(bindings: KeyBinding[]): ResolvedBinding[] {
   return bindings.map((b) => {
@@ -57,6 +45,9 @@ function resolveBindings(bindings: KeyBinding[]): ResolvedBinding[] {
 /**
  * キーイベントをコマンドシステムで処理すべきか判定する。
  * false を返した場合はブラウザ/OS のデフォルト動作に委ねる。
+ *
+ * 一致する binding が無い場合は matching ループ側で素通りし `preventDefault` を呼ばないため、
+ * ブラウザ既定 (Cmd+C のコピー等) は自然に動く。よって個別キーをここで予約する必要は無い。
  */
 function shouldHandle(e: KeyboardEvent): boolean {
   // 他の capture listener が既に処理済み
@@ -67,11 +58,6 @@ function shouldHandle(e: KeyboardEvent): boolean {
 
   // 構造変更コマンドの連打防止
   if (e.repeat) return false;
-
-  // macOS 予約キー（Cmd+C/V/X/A/Z/Q/H/M）は OS に委ねる
-  if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
-    if (MAC_RESERVED_CODES.has(e.code)) return false;
-  }
 
   return true;
 }

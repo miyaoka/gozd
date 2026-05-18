@@ -64,7 +64,7 @@ atom     = "!" atom | contextKey
 
 ## useContextKeys — context key の評価
 
-`reactive<ContextMap>` で Vue のリアクティビティシステムと統合。
+`ref<ContextMap>` で Vue のリアクティビティシステムと統合（コンテキスト全体を 1 つの ref で持ち、`set()` 時に該当 key を上書きする）。
 
 - `set(key, value)` で更新
 - `evaluate(when)` で When AST を現在の state で再帰評価
@@ -81,8 +81,10 @@ atom     = "!" atom | contextKey
 - `e.defaultPrevented` — 他の capture listener が処理済み
 - `e.isComposing` — 日本語入力中
 - `e.repeat` — 連打
-- terminalFocus が false かつ target が input/textarea/contenteditable
-- macOS 予約キー（Cmd+C/V/X/A/Z/Q/H/M/,）— `MAC_RESERVED_CODES` で定義
+
+「macOS 予約キー (Cmd+C/V/X 等)」のような特殊なホワイトリストは持たない。bind されていないキーは matching ループで unmatch となり `preventDefault()` を呼ばずに抜けるため、ブラウザ既定 (コピー / ペースト等) が自然に動く。Cmd+C 等を上書きしたければそのまま bind すればよい (自己責任)。
+
+input/textarea/contenteditable のフォーカス除外は `shouldHandle` 内では行わない。`focusin`/`focusout` で `inputFocused` context key を更新し、各 keybinding 側が `when` 句（例: `terminalFocus && !inputFocused`）で gating する設計（VS Code の `inputFocus` と同じパターン）。
 
 ### 照合
 

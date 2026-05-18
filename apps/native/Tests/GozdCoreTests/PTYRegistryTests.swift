@@ -37,7 +37,11 @@ struct PTYRegistryTests {
     )
     #expect(id2 == id1 + 1)
 
-    try await waitUntil(timeout: .seconds(3)) {
+    // issue ( #566 ) 観測: 本 test は CI attempt 1 で tick=1 ( +1.161s ) → tick=2 ( +2.534s )
+    // と `Task.sleep(50ms)` が 1.37s stall した ( SocketServer / receivesOutputAndExit と
+    // 同じ stall window )。polling loop 全体を GCD thread 上で完結させる
+    // `waitUntilThreaded` に切り替えて経路を完全分離する。
+    await waitUntilThreaded(timeout: .seconds(3)) {
       events.exitedIds().contains(id1) && events.exitedIds().contains(id2)
     }
 
@@ -180,7 +184,10 @@ struct PTYRegistryTests {
 
 // MARK: - Helpers
 
-// `waitUntil` は `WaitUntil.swift` の共有実装を使う（issue #556 観測項目 3）。
+// `waitUntil` / `waitUntilThreaded` は `WaitUntil.swift` の共有実装を使う
+// （issue #556 観測項目 3 / issue #566 観測項目）。
+// `spawnAndExitDispatch` のみ `waitUntilThreaded` ( GCD thread で polling loop 完結 ) を使い、
+// 他 test は `waitUntil` ( Task.sleep 経路 ) のまま並走させて同 stall window で経路を比較する。
 
 private final class EventCollector: @unchecked Sendable {
   private let lock = NSLock()

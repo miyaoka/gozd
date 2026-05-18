@@ -34,11 +34,11 @@ flowchart LR
 
 ファイル監視の実体は Swift 側 `FSWatchRegistry`（FSEvents をラップ）。renderer は `useFsWatchSync` が `useRepoStore.fsWatchTargetDirs` (computed) を `watch` し、開いている全 repo / 全 worktree の dir を `rpcFsWatch` で登録する。詳細は [architecture.md](architecture.md#fswatch-の対象スコープ)。
 
-| push event        | 発火条件                                      | FilerPane の挙動                                                                                               |
-| ----------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `fsChange`        | watch 対象 dir 配下のファイル変化             | active dir 一致時のみ反応。`relDir === ""` or `"."` で `loadRoot`、それ以外は filer event store 経由で子に通知 |
-| `gitStatusChange` | `.git/index` / HEAD / `refs/remotes/*` の変化 | active dir 一致時のみ反応。`gitStatusStore` の再 load + root 再構築 + event store で全 FileTreeItem に通知     |
-| `fsWatchReady`    | `rpcFsWatch` 成功直後の再同期シグナル         | useSidebarData / GitGraphPane 側で消費（FilerPane は購読しない）                                               |
+| push event        | 発火条件                                                                                                                             | FilerPane の挙動                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `fsChange`        | watch 対象 dir 配下のファイル変化                                                                                                    | active dir 一致時のみ反応。`relDir === ""` or `"."` で `loadRoot`、それ以外は filer event store 経由で子に通知 |
+| `gitStatusChange` | per-wt の `.git/index` / HEAD、common の `refs/remotes/*` / `packed-refs`、作業ツリー側のファイル変更 (`fsChange` と同 burst で発火) | active dir 一致時のみ反応。`gitStatusStore` の再 load + root 再構築 + event store で全 FileTreeItem に通知     |
+| `fsWatchReady`    | `rpcFsWatch` 成功直後の再同期シグナル                                                                                                | useSidebarData / GitGraphPane 側で消費（FilerPane は購読しない）                                               |
 
 > [!NOTE]
 > `gitStatusChange` の native 側 debounce は `FSWatchRegistry` 内部で行う。`.git/` 配下の `fs.watchFile` (Node.js API) ベースの 500ms ポーリングは持たない（過去設計）。

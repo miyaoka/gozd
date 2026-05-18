@@ -44,9 +44,16 @@ gozd はスロベニア語で「森」（[ɡɔ́st]、「ゴスト」）。
 
 ## インストール
 
-初回はビルドしてアプリを起動する。
+ソースからビルドして配置する。事前に以下を導入しておく。
+
+- Xcode 26 以降（Swift 6.2 / macOS 26 SDK が含まれる）
+- [mise](https://mise.jdx.dev/)（残りのツールチェインを `mise install` でまとめて揃える）
+
+初回はツールチェイン / 依存をインストールし、ビルドしてアプリを起動する。
 
 ```bash
+mise install
+pnpm install
 pnpm run bootstrap
 ```
 
@@ -73,13 +80,8 @@ gozd src/main.ts  # src/ で開き、main.ts を開く
 
 ## 開発
 
-事前に以下を導入しておく。
-
-- Xcode 26 以降（Swift 6.2 / macOS 26 SDK が含まれる）
-- [mise](https://mise.jdx.dev/)（残りのツールチェインを `mise install` でまとめて揃える）
+インストール手順でツールチェイン / 依存を導入済みの前提。開発ビルドを起動する。
 
 ```bash
-mise install
-pnpm install
 pnpm run dev
 ```

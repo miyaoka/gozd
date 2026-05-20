@@ -30,8 +30,14 @@ const wordWrap = ref(true);
  * 集約された fetch 失敗の状態。`flushDebounceMs` の窓で並列発射された複数失敗を 1 つの
  * toast に丸める。fire 後に reset し、次のバッチで再び集計開始する (selection 変化で
  * 各 item が再 fetch する経路でも新たな失敗があれば再通知される)。
+ *
+ * トースト message は件数を含めない固定文字列にして、`useNotificationStore.error` の
+ * dedup (同一 type + 同一 message で重複抑制) が効くようにする。窓を跨いだ追加失敗も
+ * 同じ 1 件のトーストに丸まり、`cause` だけ最新で上書きされる。
+ * 件数 / 直近 cause は wrapper Error の message と `Error.cause` chain で詳細パネルに展開される。
  */
 const flushDebounceMs = 100;
+const TOAST_MESSAGE = "Failed to load some changes in summary";
 let failureCount = 0;
 let lastCause: Error | undefined;
 let flushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -42,12 +48,15 @@ function onItemFetchFailed(cause: Error) {
   if (flushTimer !== undefined) return;
   flushTimer = setTimeout(() => {
     const count = failureCount;
-    const cause2 = lastCause;
+    const innerCause = lastCause;
     failureCount = 0;
     lastCause = undefined;
     flushTimer = undefined;
     const noun = count === 1 ? "change" : "changes";
-    notification.error(`Failed to load ${count} ${noun} in summary`, cause2);
+    // 件数情報は wrapper Error の message に詰め、直近 cause を chain に繋ぐ。
+    // formatCause.ts の Error chain 展開で詳細パネルに「failure count: N」+「Caused by: <inner>」が出る。
+    const aggregate = new Error(`failure count: ${count} ${noun}`, { cause: innerCause });
+    notification.error(TOAST_MESSAGE, aggregate);
   }, flushDebounceMs);
 }
 

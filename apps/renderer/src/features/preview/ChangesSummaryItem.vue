@@ -15,6 +15,17 @@ Summary view の 1 ファイル分のブロック。
 発射されるのは「画面に見える数件」だけになり、Swift 側 git プロセスの瞬間ピークを抑える。
 一度 visible になったら hasBeenVisible は true で固定し、scroll-out / scroll-back では
 再 fetch しない (props 変化があれば再 fetch)。
+
+## fsChange 購読 (per-item)
+
+`onMessage("fsChange", ...)` を各 item で個別に登録する。N=100 件 mount なら N 個の
+listener が `useChangesStore` 寿命中ずっと存在し、1 イベントで N 個の callback が走る
+(filter で大半は早期 return)。
+
+これは SSOT 違反気味（同じ filter ロジックの N 重複）だが、現状 N≦100 程度では実害は
+無いと判断して per-item 購読を採用する。SSOT 化の代替案は `useChangesStore` で 1 回購読
+し dirty path Map を管理する形だが、IntersectionObserver による lazy fetch との噛み合
+わせ調整が必要で複雑度が増す。N が想定を超えた時点で本構造を見直す。
 </doc>
 
 <script setup lang="ts">

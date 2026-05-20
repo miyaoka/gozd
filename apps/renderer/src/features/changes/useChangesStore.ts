@@ -2,6 +2,7 @@ import type { GitFileChange } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { rpcGitCommitFiles, useGitGraphStore } from "../git-graph";
 import {
   UNCOMMITTED_HASH,
@@ -44,6 +45,7 @@ export const useChangesStore = defineStore("changes", () => {
   const worktreeStore = useWorktreeStore();
   const gitGraphStore = useGitGraphStore();
   const gitStatusStore = useGitStatusStore();
+  const notification = useNotificationStore();
 
   /** コミット選択時に取得した変更ファイル一覧 */
   const commitFiles = ref<GitFileChange[]>([]);
@@ -129,7 +131,13 @@ export const useChangesStore = defineStore("changes", () => {
           }),
         );
         if (seq !== requestSeq) return;
-        commitFiles.value = result.ok ? result.value.changes : [];
+        if (!result.ok) {
+          notification.error("Failed to load changed files for range", result.error);
+          commitFiles.value = [];
+          loading.value = false;
+          return;
+        }
+        commitFiles.value = result.value.changes;
         loading.value = false;
         return;
       }
@@ -146,7 +154,13 @@ export const useChangesStore = defineStore("changes", () => {
         }),
       );
       if (seq !== requestSeq) return;
-      commitFiles.value = result.ok ? result.value.changes : [];
+      if (!result.ok) {
+        notification.error("Failed to load changed files for commit", result.error);
+        commitFiles.value = [];
+        loading.value = false;
+        return;
+      }
+      commitFiles.value = result.value.changes;
       loading.value = false;
     },
     { immediate: true },

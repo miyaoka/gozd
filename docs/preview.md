@@ -164,16 +164,33 @@ SVG / Markdown / 画像ファイルで、レンダリング結果とソースコ
 
 ## Changes summary view
 
-ChangesPane ヘッダーの `View all` ボタンで preview ペインを「全変更ファイルの diff を縦並びで表示するモード」に切り替える。GitHub PR の Files changed タブ相当。
+ChangesPane の `View all` ボタンで preview ペインを「全変更ファイルの diff を縦並びで表示するモード」に切り替える。GitHub PR の Files changed タブ相当。
 
-- データソースは `useChangesStore.fileChanges`（ChangesPane の樹状ビューと同じ SSOT）。uncommitted / 単一コミット / 範囲選択のいずれの選択状態にも追従する
-- 1 ファイル = 1 ブロック。各ブロックはヘッダー（アイコン + パス + 変更種別バッジ + 折りたたみトグル）と `DiffPreview` の組み合わせ
-- split / unified 切替と word wrap は summary 全体で 1 つのツールバーに統合される。`DiffPreview` の `externalViewMode` prop で個別ファイルのトグルバーは非表示にする
-- Filer や ChangesPane のファイル行をクリックすると `worktreeStore.selectPath` が発火する。PreviewPane は `revealVersion` (selectPath で +1 されるカウンタ) を watch して summary を disable し、単一ファイル表示に戻る。git-graph 上の commit / range 切替では summary は維持される
-- worktree 切替 (`worktreeStore.dir` 変化) でも summary は自動で disable される。Filer 選択が clear されるのと対称
-- summary view 内の Close button は summary を disable しつつ popover も閉じる。次回 popover を開いた時は単一ファイル表示に戻る
-- summary 表示中に ChangesPane の `View all` を再押下すると summary は disable される。popover は開いたまま、PreviewPane が単一ファイル表示にフォールバックする (selectedPath があればその diff、なければ "Select a file to preview" placeholder)。popover の close は伴わない
-- per-item の fetch 失敗は item ブロック内に赤テキストで表示しつつ、ChangesSummaryView が `fetch-failed` emit を 100ms debounce で集約し `notification.error` を 1 件だけ出す。N 件 fan-out で toast が大量化するのを避ける契約。トースト message は件数を含まない固定文字列で、`useNotificationStore` の dedup を効かせる (バッチを跨いだ追加失敗も同じ 1 トーストに丸まる)。詳細件数 / 直近 cause は `cause` フィールドに構造化情報として渡る
-- uncommitted モードでは ChangesSummaryItem も `fsChange` を購読し、PreviewPane の単一ファイル view と同じ「リアクティブ更新」規律（上記）で diff を hot-reload する。`gitStatus` の bit が同じまま中身だけ変わった (M→M) ケースで diff が古いまま残るのを防ぐ。コミットモードでは購読側で早期 return して fs 変更を無視する
-- summary view のフェッチ経路は PreviewPane の単一ファイル版と同じ規約に従う。uncommitted は `gitShowFile` + `fsReadFile`、コミットモードは `gitShowCommitFile` を per-item で実行する
-- 状態の SSOT は `useChangesSummaryStore.enabled`。MainLayout はこのフラグを watch し、有効化時に preview popover を自動オープンする
+### スコープと追従
+
+- 表示する変更ファイル一覧は Changes パネル (ファイルツリー) と同じ SSOT を共有する。uncommitted / 単一コミット / 範囲選択のいずれの選択状態にも追従し、ChangesPane と summary は常に同じファイル集合を見る
+- worktree を切り替えると summary は自動で解除される (Filer 選択が clear されるのと対称)
+
+### UI 構成
+
+- 1 ファイル = 1 ブロック。ヘッダー (アイコン / パス / 変更種別バッジ / 折りたたみトグル) と diff 本体の組み合わせ
+- 表示モード (split / unified) と word wrap はビュー全体で 1 つのツールバーに統合され、各 diff に共通で適用される。ファイル個別のトグルは出さない
+
+### モード遷移
+
+- Filer や ChangesPane でファイル行をクリックすると summary は解除され、単一ファイル表示に戻る
+- git-graph 上で commit / range を切り替えても summary は維持される (上のスコープに従ってファイル集合が入れ替わる)
+- ChangesPane の `View all` を再押下すると summary は解除される。popover は閉じず、単一ファイル表示にフォールバックする (選択中ファイルがあればその diff、無ければ placeholder)
+- summary 内の Close ボタンは summary を解除しつつ popover も閉じる
+- summary を有効化すると preview popover が自動で開く
+
+### データ取得とリアクティブ更新
+
+- 各ファイルの diff は単一ファイル view と同じ取得経路に従う (uncommitted は HEAD vs 作業ツリー、コミット / 範囲は git オブジェクトから)。差分は per-item に個別フェッチされる
+- 大量変更でも初期描画を固めないため、各 item はビューポートに入って初めて diff をフェッチする (lazy 取得)
+- uncommitted モードでは [単一ファイル view と同じ「リアクティブ更新」規律](#リアクティブ更新)に従い、ファイル中身が変われば diff が自動で hot-reload される。コミットモードでは fs 変更は無視する
+
+### 失敗時の通知
+
+- 個別ファイルの取得失敗は item ブロック内に赤テキストで表示される
+- 複数ファイルの並列フェッチが同時に失敗するケースに備え、summary は失敗を debounce で集約し、固定メッセージのトースト 1 件にまとめる (バッチを跨いだ追加失敗も同じトーストに丸まる)。詳細件数と直近の原因はトーストの cause 詳細パネルに展開される

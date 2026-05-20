@@ -12,148 +12,44 @@ Changed files tree. Shows HEAD vs working directory by default, or a selected co
 
 ## Data source
 
-- Default (Uncommitted Changes selected): shows git status converted to GitFileChange[]
-- Normal commit selected: fetches changed files via `gitCommitFiles` RPC
-- Shift+click range:
-  - Walks first-parents from the upper endpoint (newer, falling back to HEAD when newer is
-    Working Tree) until reaching the lower endpoint's display position. Both endpoints are
-    inclusive when they sit on the walked line.
-  - Independent commits from another branch that the date-sorted display interleaves are
-    skipped because they are not on `parents[0]`.
-  - The resulting hash list is sent to the backend as `range_hashes` and stored in the
-    git-graph store as `activeCommitHashes` for dot highlighting.
-  - When the range includes Working Tree, `include_working_tree=true` is sent so the backend
-    diffs against the working tree (`git diff <older>^`).
-  - When the non-Working-Tree endpoint is the HEAD commit AND HEAD is not at the top of the
-    commits array (origin/main commits are interleaved above HEAD), the range collapses to
-    "Working Tree only" — RPC is skipped and gitStatuses is shown as if a single Uncommitted
-    Changes row were selected. Visual range highlighting is preserved. When HEAD is the top
-    commit (no other branch above it), the range is treated normally so HEAD's commit diff
-    plus uncommitted changes are both shown.
-- Clicking a file emits `select` with the relative path
+ファイル一覧の決定ロジックと RPC fetch は `useChangesStore` が SSOT。
+ChangesPane は store の `fileChanges` をツリーに整形して描画するだけ。
+
+## View all
+
+ヘッダーの View all ボタンで `useChangesSummaryStore` を toggle する。
+summary 有効時は preview ペインに全変更の縦並び diff が表示される。
 </doc>
 
 <script setup lang="ts">
-import type { GitCommit, GitFileChange } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
-import { computed, ref, watch } from "vue";
+import { ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { rpcGitCommitFiles, useGitGraphStore } from "../git-graph";
-import {
-  UNCOMMITTED_HASH,
-  useGitStatusStore,
-  resolveGitChangeKind,
-  useWorktreeStore,
-} from "../worktree";
-import type { GitChangeKind } from "../worktree";
 import { buildChangesTree } from "./changesTree";
 import type { ChangesTreeNode } from "./changesTree";
 import ChangesTreeItem from "./ChangesTreeItem.vue";
+import { useChangesStore } from "./useChangesStore";
+import { useChangesSummaryStore } from "./useChangesSummaryStore";
 
 const emit = defineEmits<{
   select: [relPath: string];
 }>();
 
-const worktreeStore = useWorktreeStore();
-const gitGraphStore = useGitGraphStore();
-const gitStatusStore = useGitStatusStore();
 const notify = useNotificationStore();
-
-/** コミット選択時に取得した変更ファイル一覧 */
-const commitFiles = ref<GitFileChange[]>([]);
-const loading = ref(false);
-/** in-flight リクエストの無効化用シーケンス番号 */
-let requestSeq = 0;
-
-/** Uncommitted Changes 行が選択されているか */
-const isUncommittedMode = computed(() => gitGraphStore.selectedHash === UNCOMMITTED_HASH);
-
-/** 範囲選択モードか */
-const isRangeMode = computed(() => gitGraphStore.compareHash !== null);
-
-/** HEAD ref を持つ commit の hash */
-const headHash = computed(() => gitGraphStore.commits.find((c) => c.refs.includes("HEAD"))?.hash);
-
-/** 範囲選択の片端が Working Tree か */
-const includesWorkingTree = computed(
-  () =>
-    gitGraphStore.selectedHash === UNCOMMITTED_HASH ||
-    gitGraphStore.compareHash === UNCOMMITTED_HASH,
-);
-
-/** 非 Working Tree 側 endpoint の hash */
-const otherEndpointHash = computed(() =>
-  gitGraphStore.selectedHash === UNCOMMITTED_HASH
-    ? gitGraphStore.compareHash
-    : gitGraphStore.selectedHash,
-);
-
-/**
- * Working Tree のみとして処理すべきか。
- *
- * 「Working Tree と HEAD を選んだが、HEAD が表示順で最上位ではない」ケースに限定する。
- * これは origin/main 等が HEAD より進行していて、Working Tree と HEAD の間に他枝の
- * commit が挟まっている状態。範囲を素直に解釈すると挟まる commit まで含めてしまうので、
- * uncommitted changes のみに倒す。
- *
- * HEAD が表示順で最上位 (commits[0]) の通常ケース (Working Tree → HEAD で間に他 commit
- * なし) では false を返し、`include_working_tree=true` の通常 range として処理する
- * (`git diff <HEAD>^` で HEAD コミット差分 + uncommitted changes が出る)。
- */
-const workingTreeOnly = computed(() => {
-  if (!isRangeMode.value || !includesWorkingTree.value) return false;
-  const otherHash = otherEndpointHash.value;
-  if (otherHash === null || otherHash !== headHash.value) return false;
-  const headIdx = gitGraphStore.hashToIndex.get(otherHash);
-  return headIdx !== undefined && headIdx > 0;
-});
-
-/** git status の Record<string, string> を GitFileChange[] に変換 */
-function gitStatusToFileChanges(statuses: Record<string, string>): GitFileChange[] {
-  return Object.entries(statuses).map(([filePath, statusCode]) => {
-    const kind = resolveGitChangeKind(statusCode);
-    const TYPE_MAP: Record<GitChangeKind, GitFileChange["type"]> = {
-      modified: "M",
-      added: "A",
-      deleted: "D",
-      untracked: "U",
-      renamed: "R",
-    };
-    return {
-      oldFilePath: filePath,
-      newFilePath: filePath,
-      type: TYPE_MAP[kind],
-    };
-  });
-}
-
-/**
- * 表示するファイル一覧。
- *
- * - 単一 Working Tree 選択: gitStatuses ベース (uncommitted changes)
- * - workingTreeOnly (Working Tree + HEAD の範囲): gitStatuses ベース (single Working Tree と一致)
- * - それ以外: commitFiles ref (RPC で取得した diff)
- */
-const fileChanges = computed<GitFileChange[]>(() => {
-  if ((isUncommittedMode.value && !isRangeMode.value) || workingTreeOnly.value) {
-    return gitStatusToFileChanges(gitStatusStore.gitStatuses);
-  }
-  return commitFiles.value;
-});
-
-const fileCount = computed(() => fileChanges.value.length);
+const changesStore = useChangesStore();
+const summaryStore = useChangesSummaryStore();
 
 /**
  * GitHub PR 風のディレクトリツリー（chain 圧縮済み）。
  *
  * `buildChangesTree` は不正 path（空 segment / 重複 / file⇔folder 衝突）で throw する。
  * computed は pure / 同期である必要があるため、ツリー構築と失敗時のトースト通知は
- * 副作用を持てる `watchEffect` 側に閉じ込め、テンプレートには素の `ref<T[]>` を渡す。
+ * 副作用を持てる `watch` 側に閉じ込め、テンプレートには素の `ref<T[]>` を渡す。
  */
 const tree = ref<ChangesTreeNode[]>([]);
 
 watch(
-  fileChanges,
+  () => changesStore.fileChanges,
   (changes) => {
     const result = tryCatch(() => buildChangesTree(changes));
     if (result.ok) {
@@ -179,147 +75,9 @@ function toggleFolder(fullPath: string) {
   collapsedFolders.value = next;
 }
 
-/**
- * 範囲選択時の対象 commit hash 列を組み立てる。
- *
- * 仕様: newer (上端) から `commit.parents[0]` を辿り、older の表示位置に到達したら停止する。
- * 「先端ブランチの first-parent walk」を表現し、別枝の独立コミット（mergeCommitStreams が
- * date 順で挿入する origin/HEAD 系の commit など）は対象に含まれない。
- *
- * 終了条件:
- *   - 次の commit が older の表示位置を **超えた**（older 自身は first-parent 線上にあれば含む）
- *   - 次の commit が commits 配列に存在しない（= log フェッチ範囲外）
- *   - parents[0] が無い（= root commit）
- *
- * UNCOMMITTED_HASH 端の扱い:
- *   - newer = UNCOMMITTED_HASH: HEAD ref を持つ commit を walk 開始点にフォールバック
- *   - older = UNCOMMITTED_HASH: stopIdx = -1 → 即停止すべきところを Infinity に倒し、
- *     walk が最後まで進むようにする（Working Tree 端は「最も新しい」扱い）
- */
-function buildRangeHashes(
-  selected: string,
-  compare: string,
-  hashToIndex: Map<string, number>,
-  commits: readonly GitCommit[],
-): string[] {
-  const sIdx = selected === UNCOMMITTED_HASH ? -1 : (hashToIndex.get(selected) ?? Infinity);
-  const cIdx = compare === UNCOMMITTED_HASH ? -1 : (hashToIndex.get(compare) ?? Infinity);
-
-  const newerIsSelected = sIdx <= cIdx;
-  const newerRaw = newerIsSelected ? selected : compare;
-  const olderIdxRaw = newerIsSelected ? cIdx : sIdx;
-
-  const startHash =
-    newerRaw === UNCOMMITTED_HASH
-      ? (commits.find((c) => c.refs.includes("HEAD"))?.hash ?? "")
-      : newerRaw;
-  if (startHash === "") return [];
-
-  // older が UNCOMMITTED_HASH (-1) の場合は stopIdx を Infinity にして最後まで walk する
-  const stopIdx = olderIdxRaw < 0 ? Number.POSITIVE_INFINITY : olderIdxRaw;
-
-  const result: string[] = [];
-  let currentHash = startHash;
-  while (true) {
-    const idx = hashToIndex.get(currentHash);
-    if (idx === undefined || idx > stopIdx) break;
-    const commit = commits[idx];
-    result.push(commit.hash);
-    if (idx === stopIdx) break; // older 自身に到達。追加してから停止
-    const firstParent = commit.parents[0];
-    if (firstParent === undefined) break;
-    currentHash = firstParent;
-  }
-  return result;
+function onClickViewAll() {
+  summaryStore.toggle();
 }
-
-// コミット選択 / commits 配列が変わったら変更ファイルを取得
-// commits 依存を持つことで、fetch / branch update / HEAD 変化で commits が再構築された後も
-// rangeHashes / activeCommitHashes / Changes diff / workingTreeOnly が再評価される
-watch(
-  () => [gitGraphStore.selectedHash, gitGraphStore.compareHash, gitGraphStore.commits] as const,
-  async ([hash, compareHash]) => {
-    const seq = ++requestSeq;
-
-    // 単一 Working Tree 選択: 既存通り gitStatuses 経由
-    if (hash === UNCOMMITTED_HASH && compareHash === null) {
-      commitFiles.value = [];
-      loading.value = false;
-      return;
-    }
-    const dir = worktreeStore.dir;
-    if (dir === undefined) {
-      commitFiles.value = [];
-      loading.value = false;
-      return;
-    }
-
-    // 範囲選択 mode
-    if (compareHash !== null) {
-      // workingTreeOnly: activeCommitHashes を空集合にして dot 強調と Detail pane も
-      // 「Uncommitted Changes のみ」に倒す。visual range (isSelectedRow) は維持される
-      if (workingTreeOnly.value) {
-        gitGraphStore.setActiveCommitHashes([]);
-        commitFiles.value = [];
-        loading.value = false;
-        return;
-      }
-
-      const rangeHashes = buildRangeHashes(
-        hash,
-        compareHash,
-        gitGraphStore.hashToIndex,
-        gitGraphStore.commits,
-      );
-      gitGraphStore.setActiveCommitHashes(rangeHashes);
-
-      // Working Tree 端を含むのに HEAD が見つからない: walk 起点が決まらないので空に倒す
-      if (includesWorkingTree.value && headHash.value === undefined) {
-        commitFiles.value = [];
-        loading.value = false;
-        return;
-      }
-
-      // rangeHashes 空: range 解決失敗。単一 commit 経路に落とさず空で確定
-      if (rangeHashes.length === 0) {
-        commitFiles.value = [];
-        loading.value = false;
-        return;
-      }
-
-      loading.value = true;
-      const result = await tryCatch(
-        rpcGitCommitFiles({
-          dir,
-          hash,
-          compareHash,
-          rangeHashes,
-          includeWorkingTree: includesWorkingTree.value,
-        }),
-      );
-      if (seq !== requestSeq) return;
-      commitFiles.value = result.ok ? result.value.changes : [];
-      loading.value = false;
-      return;
-    }
-
-    // 単一 commit mode
-    loading.value = true;
-    const result = await tryCatch(
-      rpcGitCommitFiles({
-        dir,
-        hash,
-        compareHash: "",
-        rangeHashes: [],
-        includeWorkingTree: false,
-      }),
-    );
-    if (seq !== requestSeq) return;
-    commitFiles.value = result.ok ? result.value.changes : [];
-    loading.value = false;
-  },
-  { immediate: true },
-);
 </script>
 
 <template>
@@ -329,10 +87,24 @@ watch(
     <div class="flex shrink-0 items-center gap-1.5 border-b border-zinc-700 px-3 py-1.5">
       <span class="icon-[lucide--git-branch] size-4 text-zinc-400" />
       <span class="text-xs font-semibold text-zinc-400">Changes</span>
-      <span v-if="fileCount > 0" class="text-xs text-zinc-500">({{ fileCount }})</span>
+      <span v-if="changesStore.fileChanges.length > 0" class="text-xs text-zinc-500"
+        >({{ changesStore.fileChanges.length }})</span
+      >
+      <button
+        type="button"
+        class="ml-auto flex items-center gap-1 px-2 py-0.5 text-xs transition-colors"
+        :class="summaryStore.enabled ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300'"
+        :disabled="changesStore.fileChanges.length === 0"
+        title="Show all diffs in preview"
+        aria-label="Toggle changes summary"
+        @click="onClickViewAll"
+      >
+        <span class="icon-[lucide--file-diff] size-3.5" />
+        View all
+      </button>
     </div>
 
-    <div v-if="loading" class="flex-1 overflow-y-auto p-2">
+    <div v-if="changesStore.loading" class="flex-1 overflow-y-auto p-2">
       <div class="text-xs text-zinc-500">Loading...</div>
     </div>
 

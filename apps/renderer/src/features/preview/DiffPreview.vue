@@ -65,12 +65,21 @@ import { useNotificationStore } from "../../shared/notification";
 import { rpcGitDiffExpandLines, rpcGitDiffHunks } from "./rpc";
 import { type ThemedToken, highlightTokens } from "./useHighlight";
 
-const props = defineProps<{
-  original: string;
-  current: string;
-  filePath: string;
-  wordWrap: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    original: string;
+    current: string;
+    filePath: string;
+    wordWrap: boolean;
+    /**
+     * 外部から viewMode を制御する場合に指定する。
+     * 指定時は内部の split/unified トグルバーを非表示にする (親側で 1 つの toolbar に統合する用途)。
+     * 未指定なら内部 ref で split/unified をローカル管理し、トグルバーも自分で描画する。
+     */
+    externalViewMode?: "split" | "unified";
+  }>(),
+  { externalViewMode: undefined },
+);
 
 type DiffLineKindName = "added" | "removed" | "unchanged";
 
@@ -128,8 +137,10 @@ const state = ref<DiffState>({ kind: "loading" });
 
 /**
  * 表示モード。default は split。preview セッションを跨いだ永続化はしない (ローカル state のみ)。
+ * `externalViewMode` prop が指定された場合はそちらを優先する (summary view から束ねるケース)。
  */
-const viewMode = ref<"split" | "unified">("split");
+const internalViewMode = ref<"split" | "unified">("split");
+const viewMode = computed(() => props.externalViewMode ?? internalViewMode.value);
 
 /**
  * 展開済み hunk-bar のキャッシュ。key は `barKey`、value は `rpcGitDiffExpandLines` 結果の行配列。
@@ -594,9 +605,9 @@ function splitRightBg(row: DiffSplitRowItem): string {
 
 <template>
   <div class="flex h-full flex-col">
-    <!-- ビューモードトグル -->
+    <!-- ビューモードトグル (externalViewMode 指定時は親側で 1 本に統合) -->
     <div
-      v-if="state.kind === 'success'"
+      v-if="state.kind === 'success' && externalViewMode === undefined"
       class="flex items-center border-b border-zinc-700 px-2 py-1"
     >
       <div class="flex items-center gap-0.5">
@@ -606,7 +617,7 @@ function splitRightBg(row: DiffSplitRowItem): string {
           :class="viewMode === 'split' ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300'"
           title="Split view"
           aria-label="Split view"
-          @click="viewMode = 'split'"
+          @click="internalViewMode = 'split'"
         >
           <span class="icon-[lucide--columns-2] size-3.5" />
           Split
@@ -617,7 +628,7 @@ function splitRightBg(row: DiffSplitRowItem): string {
           :class="viewMode === 'unified' ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300'"
           title="Unified view"
           aria-label="Unified view"
-          @click="viewMode = 'unified'"
+          @click="internalViewMode = 'unified'"
         >
           <span class="icon-[lucide--align-justify] size-3.5" />
           Unified

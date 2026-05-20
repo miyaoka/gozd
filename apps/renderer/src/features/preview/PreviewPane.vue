@@ -28,11 +28,13 @@ import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
+import { useChangesSummaryStore } from "../changes";
 import { getFileIconUrl, relDirOf, rpcFsReadFile, rpcFsReadFileAbsolute } from "../filer";
 import type { FsChangePayload } from "../filer";
 import { useGitGraphStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import type { GitChangeKind } from "../worktree";
+import ChangesSummaryView from "./ChangesSummaryView.vue";
 import CodePreview from "./CodePreview.vue";
 import DiffPreview from "./DiffPreview.vue";
 import ImagePreview from "./ImagePreview.vue";
@@ -76,6 +78,7 @@ const worktreeStore = useWorktreeStore();
 const { selectedPath, selectedLineNumber, selectedGitChange, fileServerBaseUrl, revealVersion } =
   storeToRefs(worktreeStore);
 const gitGraphStore = useGitGraphStore();
+const summaryStore = useChangesSummaryStore();
 const notification = useNotificationStore();
 
 const currentContent = ref<string>();
@@ -391,6 +394,21 @@ async function fetchCommitContent(filePath: string) {
   loading.value = false;
 }
 
+/**
+ * 個別ファイル選択時のみ summary モードを抜ける。
+ * git-graph の commit 切替 (selectedHash / compareHash の変化) では summary は維持する。
+ * `revealVersion` は `selectPath()` 専用のバージョンカウンタなので、これを trigger に使うことで
+ * 「ユーザーがファイル行を実際にクリックした」経路のみで disable が走る。
+ */
+watch(
+  () => [selectedPath.value, revealVersion.value] as const,
+  ([path]) => {
+    if (path !== undefined && path !== "") {
+      summaryStore.disable();
+    }
+  },
+);
+
 /** ファイル選択・git status 変化・コミット選択変化時にリセット＋再取得 */
 watch(
   () =>
@@ -489,6 +507,17 @@ function fileName(filePath: string): string {
   return filePath.split("/").pop() ?? filePath;
 }
 
+/**
+ * summary の Close button: popover を閉じるだけでなく summary state も off にする。
+ * これをしないと、次回 popover が開いた時 (file 選択 / preview-anchor click) に summary
+ * が enabled のまま残っているため再び summary view が出る。Close は「summary を閉じて
+ * popover も閉じる」意図のユーザー操作として一貫させる。
+ */
+function onCloseSummary() {
+  summaryStore.disable();
+  emit("close");
+}
+
 const headerIconUrl = computed(() => {
   const path = selectedPath.value;
   if (path === undefined) return undefined;
@@ -497,7 +526,9 @@ const headerIconUrl = computed(() => {
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden">
+  <ChangesSummaryView v-if="summaryStore.enabled" @close="onCloseSummary" />
+
+  <div v-else class="flex h-full flex-col overflow-hidden">
     <!-- ヘッダー（常に表示） -->
     <div class="flex items-center gap-2 border-b border-zinc-700 px-3 py-2">
       <template v-if="selectedPath">

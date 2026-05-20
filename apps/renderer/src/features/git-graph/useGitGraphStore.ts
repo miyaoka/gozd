@@ -2,6 +2,7 @@ import type { GitCommit } from "@gozd/proto";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { UNCOMMITTED_HASH } from "../worktree";
+import { buildRangeHashes } from "./rangeHashes";
 
 /** Working Tree 用の仮想コミット。CommitDetailPane で "Uncommitted Changes" 表示に使用 */
 const uncommittedCommit: GitCommit = {
@@ -23,13 +24,6 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
   /** ユーザー操作による選択のバージョン。select / selectCompare でのみインクリメント */
   const selectionVersion = ref(0);
 
-  /**
-   * 範囲選択時に first-parent walk で得られた実 diff 対象 commit hash の Set。
-   * ChangesPane が rpcGitCommitFiles の戻り値から書き込み、GitGraphPane がハイライト判定に使う。
-   * null は単一選択 / 未取得状態。
-   */
-  const activeCommitHashes = ref<Set<string> | null>(null);
-
   /** git log で取得したコミット一覧。GitGraphPane が loadLog() で更新し、ChangesPane が選択状態経由で参照する */
   const commits = ref<GitCommit[]>([]);
 
@@ -42,14 +36,79 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
     return map;
   });
 
+  /** HEAD ref を持つ commit の hash。loadLog 完了前は undefined */
+  const headHash = computed(() => commits.value.find((c) => c.refs.includes("HEAD"))?.hash);
+
+  /** range 選択モードか */
+  const isRangeMode = computed(() => compareHash.value !== null);
+
+  /** 範囲選択の片端が Working Tree か */
+  const includesWorkingTree = computed(
+    () => selectedHash.value === UNCOMMITTED_HASH || compareHash.value === UNCOMMITTED_HASH,
+  );
+
+  /** 非 Working Tree 側 endpoint の hash (両端 WT のときは null) */
+  const otherEndpointHash = computed(() =>
+    selectedHash.value === UNCOMMITTED_HASH ? compareHash.value : selectedHash.value,
+  );
+
+  /**
+   * Working Tree のみとして処理すべきか。
+   *
+   * 「Working Tree と HEAD を選んだが、HEAD が表示順で最上位ではない」ケースに限定する。
+   * origin/main 等が HEAD より進行していて、Working Tree と HEAD の間に他枝の
+   * commit が挟まっている状態。範囲を素直に解釈すると挟まる commit まで含めてしまうので、
+   * uncommitted changes のみに倒す。
+   *
+   * HEAD が表示順で最上位 (commits[0]) の通常ケース (Working Tree → HEAD で間に他 commit
+   * なし) では false を返し、range として処理する (HEAD コミット差分 + uncommitted changes
+   * を一括表示するため)。
+   */
+  const workingTreeOnly = computed(() => {
+    if (!isRangeMode.value || !includesWorkingTree.value) return false;
+    const other = otherEndpointHash.value;
+    if (other === null || other !== headHash.value) return false;
+    const headIdx = hashToIndex.value.get(other);
+    return headIdx !== undefined && headIdx > 0;
+  });
+
+  /**
+   * 範囲選択時の対象 commit hash 列。newer から first-parent walk で組み立てる。
+   * 範囲モードでないときは null。workingTreeOnly のときは空配列 (uncommitted のみとして扱う)。
+   * `commits` ロード途中で endpoint が解決できないときは空配列。
+   */
+  const rangeHashes = computed<string[] | null>(() => {
+    const cmp = compareHash.value;
+    if (cmp === null) return null;
+    if (workingTreeOnly.value) return [];
+    return buildRangeHashes(
+      selectedHash.value,
+      cmp,
+      hashToIndex.value,
+      commits.value,
+      UNCOMMITTED_HASH,
+    );
+  });
+
+  /**
+   * dot 強調用 first-parent walk 結果の Set。範囲モードのみ意味を持つ (単一選択は null)。
+   *
+   * `rangeHashes` の同期 derived。元実装の「ChangesPane が RPC fetch のついでに書き込む」
+   * 経路を廃し、git-graph store 内で `selectedHash` / `compareHash` / `commits` から
+   * 同期的に算出する。cross-store 書き込みは不要。
+   */
+  const activeCommitHashes = computed<Set<string> | null>(() => {
+    const hashes = rangeHashes.value;
+    if (hashes === null) return null;
+    return new Set(hashes);
+  });
+
   /**
    * 選択中のコミット配列（CommitDetailPane が参照する diff 対象 commit 列）。
    *
    * - 単一選択: そのコミット 1 つ
-   * - 範囲選択 + activeCommitHashes 取得済み: first-parent walk で得た実 diff 対象のみ。
-   *   walk 対象外の別枝コミットは除外する。range 内に UNCOMMITTED_HASH の端点があれば先頭に含める
-   *   （Working Tree 端を含む range で uncommitted changes も diff 対象になるため）
-   * - 範囲選択 + activeCommitHashes 未取得（fetch 中）: range 内の全コミットをフォールバック表示
+   * - 範囲選択: first-parent walk で得た実 diff 対象のみ (Working Tree 端を含めば先頭に
+   *   uncommittedCommit を挿入)。off-branch の commit は除外する
    */
   const selectedCommits = computed<GitCommit[]>(() => {
     const map = hashToIndex.value;
@@ -86,25 +145,18 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
   function select(hash: string) {
     selectedHash.value = hash;
     compareHash.value = null;
-    activeCommitHashes.value = null;
     selectionVersion.value++;
   }
 
   /** shift+クリックで範囲選択の終点を指定する */
   function selectCompare(hash: string) {
     compareHash.value = hash;
-    activeCommitHashes.value = null;
     selectionVersion.value++;
   }
 
   function resetSelection() {
     selectedHash.value = UNCOMMITTED_HASH;
     compareHash.value = null;
-    activeCommitHashes.value = null;
-  }
-
-  function setActiveCommitHashes(hashes: string[]) {
-    activeCommitHashes.value = new Set(hashes);
   }
 
   return {
@@ -114,11 +166,16 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
     commits,
     selectedCommits,
     hashToIndex,
+    headHash,
+    isRangeMode,
+    includesWorkingTree,
+    otherEndpointHash,
+    workingTreeOnly,
+    rangeHashes,
     activeCommitHashes,
     select,
     selectCompare,
     resetSelection,
-    setActiveCommitHashes,
   };
 });
 

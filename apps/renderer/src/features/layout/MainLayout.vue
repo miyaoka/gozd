@@ -19,6 +19,7 @@ import { useWindowSize } from "@vueuse/core";
 import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
+import { useChangesSummaryStore } from "../changes";
 import { GitGraphPane } from "../git-graph";
 import { NavigatorPane } from "../navigator";
 import {
@@ -41,6 +42,7 @@ import { rpcWindowClose } from "./rpc";
 
 const worktreeStore = useWorktreeStore();
 const repoStore = useRepoStore();
+const summaryStore = useChangesSummaryStore();
 const contextKeys = useContextKeys();
 const previewPopoverRef = useTemplateRef<HTMLElement>("previewPopover");
 
@@ -185,6 +187,14 @@ watch(
   () => {
     if (!worktreeStore.selectedPath) return;
     openPreview();
+  },
+);
+
+// Changes summary が有効化されたら Preview popover を自動で開く
+watch(
+  () => summaryStore.enabled,
+  (enabled) => {
+    if (enabled) openPreview();
   },
 );
 

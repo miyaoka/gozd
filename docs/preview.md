@@ -6,12 +6,14 @@
 
 ```
 features/preview/
-├── PreviewPane.vue       # ルートペイン（ファイル種別判定、モード切替、データ取得）
-├── CodePreview.vue       # コード表示（Shiki ハイライト + 行番号）
-├── DiffPreview.vue       # diff 表示（行単位の差分色分け、2列行番号）
-├── ImagePreview.vue      # 画像表示
-├── MarkdownPreview.vue   # Markdown レンダリング（marked + DOMPurify）
-└── useHighlight.ts       # Shiki ハイライタの遅延初期化と言語検出
+├── PreviewPane.vue           # ルートペイン（ファイル種別判定、モード切替、データ取得）
+├── CodePreview.vue           # コード表示（Shiki ハイライト + 行番号）
+├── DiffPreview.vue           # diff 表示（行単位の差分色分け、2列行番号）
+├── ImagePreview.vue          # 画像表示
+├── MarkdownPreview.vue       # Markdown レンダリング（marked + DOMPurify）
+├── ChangesSummaryView.vue    # 全変更ファイルを縦並びで diff 表示するビュー
+├── ChangesSummaryItem.vue    # summary view の 1 ファイル分のブロック
+└── useHighlight.ts           # Shiki ハイライタの遅延初期化と言語検出
 ```
 
 ## ファイル種別
@@ -159,3 +161,36 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
 ## Preview チェックボックス
 
 SVG / Markdown / 画像ファイルで、レンダリング結果とソースコードを切り替える。diff モードでは非表示。デフォルトは有効（プレビュー表示）。
+
+## Changes summary view
+
+ChangesPane の `View all` ボタンで preview ペインを「全変更ファイルの diff を縦並びで表示するモード」に切り替える。GitHub PR の Files changed タブ相当。
+
+### スコープと追従
+
+- 表示する変更ファイル一覧は Changes パネル (ファイルツリー) と同じ SSOT を共有する。uncommitted / 単一コミット / 範囲選択のいずれの選択状態にも追従し、ChangesPane と summary は常に同じファイル集合を見る
+- worktree を切り替えると summary は自動で解除される (Filer 選択が clear されるのと対称)
+
+### UI 構成
+
+- 1 ファイル = 1 ブロック。ヘッダー (アイコン / パス / 変更種別バッジ / 折りたたみトグル) と diff 本体の組み合わせ
+- 表示モード (split / unified) と word wrap はビュー全体で 1 つのツールバーに統合され、各 diff に共通で適用される。ファイル個別のトグルは出さない
+
+### モード遷移
+
+- Filer や ChangesPane でファイル行をクリックすると summary は解除され、単一ファイル表示に戻る
+- git-graph 上で commit / range を切り替えても summary は維持される (上のスコープに従ってファイル集合が入れ替わる)
+- ChangesPane の `View all` を再押下すると summary は解除される。popover は閉じず、単一ファイル表示にフォールバックする (選択中ファイルがあればその diff、無ければ placeholder)
+- summary 内の Close ボタンは summary を解除しつつ popover も閉じる
+- summary を有効化すると preview popover が自動で開く
+
+### データ取得とリアクティブ更新
+
+- 各ファイルの diff は単一ファイル view と同じ取得経路に従う (uncommitted は HEAD vs 作業ツリー、コミット / 範囲は git オブジェクトから)。差分は per-item に個別フェッチされる
+- 大量変更でも初期描画を固めないため、各 item はビューポートに入って初めて diff をフェッチする (lazy 取得)
+- uncommitted モードでは [単一ファイル view と同じ「リアクティブ更新」規律](#リアクティブ更新)に従い、ファイル中身が変われば diff が自動で hot-reload される。コミットモードでは fs 変更は無視する
+
+### 失敗時の通知
+
+- 個別ファイルの取得失敗は item ブロック内に赤テキストで表示される
+- 複数ファイルの並列フェッチが同時に失敗するケースに備え、summary は失敗を debounce で集約し、固定メッセージのトースト 1 件にまとめる (バッチを跨いだ追加失敗も同じトーストに丸まる)。詳細件数と直近の原因はトーストの cause 詳細パネルに展開される

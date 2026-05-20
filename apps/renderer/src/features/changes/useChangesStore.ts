@@ -1,4 +1,4 @@
-import type { GitCommit, GitFileChange } from "@gozd/proto";
+import type { GitFileChange } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
@@ -31,54 +31,14 @@ function gitStatusToFileChanges(statuses: Record<string, string>): GitFileChange
 }
 
 /**
- * 範囲選択時の対象 commit hash 列を組み立てる。
- *
- * 仕様: newer (上端) から `commit.parents[0]` を辿り、older の表示位置に到達したら停止する。
- * 別枝の独立コミット (mergeCommitStreams が date 順で挿入する origin/HEAD 系の commit など)
- * は対象に含まれない。UNCOMMITTED_HASH 端の扱いは ChangesPane 原実装と同じ。
- */
-function buildRangeHashes(
-  selected: string,
-  compare: string,
-  hashToIndex: Map<string, number>,
-  commits: readonly GitCommit[],
-): string[] {
-  const sIdx = selected === UNCOMMITTED_HASH ? -1 : (hashToIndex.get(selected) ?? Infinity);
-  const cIdx = compare === UNCOMMITTED_HASH ? -1 : (hashToIndex.get(compare) ?? Infinity);
-
-  const newerIsSelected = sIdx <= cIdx;
-  const newerRaw = newerIsSelected ? selected : compare;
-  const olderIdxRaw = newerIsSelected ? cIdx : sIdx;
-
-  const startHash =
-    newerRaw === UNCOMMITTED_HASH
-      ? (commits.find((c) => c.refs.includes("HEAD"))?.hash ?? "")
-      : newerRaw;
-  if (startHash === "") return [];
-
-  const stopIdx = olderIdxRaw < 0 ? Number.POSITIVE_INFINITY : olderIdxRaw;
-
-  const result: string[] = [];
-  let currentHash = startHash;
-  while (true) {
-    const idx = hashToIndex.get(currentHash);
-    if (idx === undefined || idx > stopIdx) break;
-    const commit = commits[idx];
-    result.push(commit.hash);
-    if (idx === stopIdx) break;
-    const firstParent = commit.parents[0];
-    if (firstParent === undefined) break;
-    currentHash = firstParent;
-  }
-  return result;
-}
-
-/**
  * 変更ファイル一覧 (uncommitted / commit / range) の SSOT。
  *
  * ChangesPane の樹状ビューと ChangesSummaryView の縦並び diff ビューが同じソースを参照する。
- * RPC fetch と `setActiveCommitHashes` の副作用も含めて store に閉じ込めることで、
- * 2 つのビューが同時に画面に出ても fetch を二重発火しない。
+ * RPC fetch を store に閉じ込めることで、2 つのビューが同時に画面に出ても fetch を二重発火しない。
+ *
+ * 選択モード判定 (uncommitted / range / single commit) / `workingTreeOnly` / `rangeHashes` の
+ * derived 値はすべて `useGitGraphStore` 側で同期 computed として算出されており、当 store は
+ * それらを **読むだけ** で git-graph 側の state を書き換えない (cross-store write の禁止)。
  */
 export const useChangesStore = defineStore("changes", () => {
   const worktreeStore = useWorktreeStore();
@@ -92,33 +52,9 @@ export const useChangesStore = defineStore("changes", () => {
   let requestSeq = 0;
 
   const isUncommittedMode = computed(() => gitGraphStore.selectedHash === UNCOMMITTED_HASH);
-  const isRangeMode = computed(() => gitGraphStore.compareHash !== null);
-  const headHash = computed(() => gitGraphStore.commits.find((c) => c.refs.includes("HEAD"))?.hash);
-  const includesWorkingTree = computed(
-    () =>
-      gitGraphStore.selectedHash === UNCOMMITTED_HASH ||
-      gitGraphStore.compareHash === UNCOMMITTED_HASH,
-  );
-  const otherEndpointHash = computed(() =>
-    gitGraphStore.selectedHash === UNCOMMITTED_HASH
-      ? gitGraphStore.compareHash
-      : gitGraphStore.selectedHash,
-  );
-
-  /**
-   * Working Tree のみとして処理すべきか。
-   * 詳細は ChangesPane (廃止前) の同名 computed コメント参照。
-   */
-  const workingTreeOnly = computed(() => {
-    if (!isRangeMode.value || !includesWorkingTree.value) return false;
-    const otherHash = otherEndpointHash.value;
-    if (otherHash === null || otherHash !== headHash.value) return false;
-    const headIdx = gitGraphStore.hashToIndex.get(otherHash);
-    return headIdx !== undefined && headIdx > 0;
-  });
 
   const fileChanges = computed<GitFileChange[]>(() => {
-    if ((isUncommittedMode.value && !isRangeMode.value) || workingTreeOnly.value) {
+    if ((isUncommittedMode.value && !gitGraphStore.isRangeMode) || gitGraphStore.workingTreeOnly) {
       return gitStatusToFileChanges(gitStatusStore.gitStatuses);
     }
     return commitFiles.value;
@@ -126,8 +62,25 @@ export const useChangesStore = defineStore("changes", () => {
 
   // コミット選択 / commits 配列が変わったら変更ファイルを取得
   watch(
-    () => [gitGraphStore.selectedHash, gitGraphStore.compareHash, gitGraphStore.commits] as const,
-    async ([hash, compareHash]) => {
+    () =>
+      [
+        gitGraphStore.selectedHash,
+        gitGraphStore.compareHash,
+        gitGraphStore.commits,
+        gitGraphStore.rangeHashes,
+        gitGraphStore.workingTreeOnly,
+        gitGraphStore.includesWorkingTree,
+        gitGraphStore.headHash,
+      ] as const,
+    async ([
+      hash,
+      compareHash,
+      ,
+      rangeHashesValue,
+      workingTreeOnlyValue,
+      includesWorkingTreeValue,
+      headHashValue,
+    ]) => {
       const seq = ++requestSeq;
 
       if (hash === UNCOMMITTED_HASH && compareHash === null) {
@@ -142,28 +95,23 @@ export const useChangesStore = defineStore("changes", () => {
         return;
       }
 
+      // 範囲モード
       if (compareHash !== null) {
-        if (workingTreeOnly.value) {
-          gitGraphStore.setActiveCommitHashes([]);
+        if (workingTreeOnlyValue) {
           commitFiles.value = [];
           loading.value = false;
           return;
         }
 
-        const rangeHashes = buildRangeHashes(
-          hash,
-          compareHash,
-          gitGraphStore.hashToIndex,
-          gitGraphStore.commits,
-        );
-        gitGraphStore.setActiveCommitHashes(rangeHashes);
-
-        if (includesWorkingTree.value && headHash.value === undefined) {
+        // Working Tree 端を含むのに HEAD が見つからない: walk 起点が決まらないので空に倒す
+        if (includesWorkingTreeValue && headHashValue === undefined) {
           commitFiles.value = [];
           loading.value = false;
           return;
         }
 
+        const rangeHashes = rangeHashesValue ?? [];
+        // rangeHashes 空: range 解決失敗 (commits ロード途中など)。単一 commit 経路に落とさず空で確定
         if (rangeHashes.length === 0) {
           commitFiles.value = [];
           loading.value = false;
@@ -177,7 +125,7 @@ export const useChangesStore = defineStore("changes", () => {
             hash,
             compareHash,
             rangeHashes,
-            includeWorkingTree: includesWorkingTree.value,
+            includeWorkingTree: includesWorkingTreeValue,
           }),
         );
         if (seq !== requestSeq) return;
@@ -186,6 +134,7 @@ export const useChangesStore = defineStore("changes", () => {
         return;
       }
 
+      // 単一 commit
       loading.value = true;
       const result = await tryCatch(
         rpcGitCommitFiles({

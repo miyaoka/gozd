@@ -33,7 +33,6 @@ import { useChangesSummaryStore } from "./useChangesSummaryStore";
 
 const emit = defineEmits<{
   select: [relPath: string];
-  toggleSummary: [];
 }>();
 
 const notify = useNotificationStore();
@@ -78,7 +77,6 @@ function toggleFolder(fullPath: string) {
 
 function onClickViewAll() {
   summaryStore.toggle();
-  emit("toggleSummary");
 }
 </script>
 

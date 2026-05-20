@@ -15,15 +15,11 @@ export const useChangesSummaryStore = defineStore("changes-summary", () => {
     enabled.value = !enabled.value;
   }
 
-  function enable() {
-    enabled.value = true;
-  }
-
   function disable() {
     enabled.value = false;
   }
 
-  return { enabled, toggle, enable, disable };
+  return { enabled, toggle, disable };
 });
 
 if (import.meta.hot) {

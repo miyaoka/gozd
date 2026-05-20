@@ -394,6 +394,21 @@ async function fetchCommitContent(filePath: string) {
   loading.value = false;
 }
 
+/**
+ * 個別ファイル選択時のみ summary モードを抜ける。
+ * git-graph の commit 切替 (selectedHash / compareHash の変化) では summary は維持する。
+ * `revealVersion` は `selectPath()` 専用のバージョンカウンタなので、これを trigger に使うことで
+ * 「ユーザーがファイル行を実際にクリックした」経路のみで disable が走る。
+ */
+watch(
+  () => [selectedPath.value, revealVersion.value] as const,
+  ([path]) => {
+    if (path !== undefined && path !== "") {
+      summaryStore.disable();
+    }
+  },
+);
+
 /** ファイル選択・git status 変化・コミット選択変化時にリセット＋再取得 */
 watch(
   () =>
@@ -406,11 +421,6 @@ watch(
   async ([path, gitChange, selectedHash, compareHash]) => {
     previewEnabled.value = true;
     commitGitChange.value = undefined;
-
-    // 個別ファイルが選ばれたら summary モードを抜ける (Filer / Changes tree のクリック動線を尊重)
-    if (path !== undefined && path !== "") {
-      summaryStore.disable();
-    }
 
     if (!path) {
       currentContent.value = undefined;
@@ -497,6 +507,17 @@ function fileName(filePath: string): string {
   return filePath.split("/").pop() ?? filePath;
 }
 
+/**
+ * summary の Close button: popover を閉じるだけでなく summary state も off にする。
+ * これをしないと、次回 popover が開いた時 (file 選択 / preview-anchor click) に summary
+ * が enabled のまま残っているため再び summary view が出る。Close は「summary を閉じて
+ * popover も閉じる」意図のユーザー操作として一貫させる。
+ */
+function onCloseSummary() {
+  summaryStore.disable();
+  emit("close");
+}
+
 const headerIconUrl = computed(() => {
   const path = selectedPath.value;
   if (path === undefined) return undefined;
@@ -505,7 +526,7 @@ const headerIconUrl = computed(() => {
 </script>
 
 <template>
-  <ChangesSummaryView v-if="summaryStore.enabled" @close="emit('close')" />
+  <ChangesSummaryView v-if="summaryStore.enabled" @close="onCloseSummary" />
 
   <div v-else class="flex h-full flex-col overflow-hidden">
     <!-- ヘッダー（常に表示） -->

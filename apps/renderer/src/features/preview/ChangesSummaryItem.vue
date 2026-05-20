@@ -7,13 +7,21 @@ Summary view の 1 ファイル分のブロック。
 - commit / range: `rpcGitShowCommitFile` で from / to を一括取得 (newer が Working Tree なら fs から to を取る)
 
 `PreviewPane` の fetchContent / fetchCommitContent と同じ方針。差分は「単一ファイル選択を per-item に複製」した点だけ。
+
+## 遅延フェッチ
+
+`useIntersectionObserver` でビューポート進入を観測し、`hasBeenVisible` が true に
+なってから初めて fetch を発火する。N=100 のような大きな PR でも、初描画時に同時並列
+発射されるのは「画面に見える数件」だけになり、Swift 側 git プロセスの瞬間ピークを抑える。
+一度 visible になったら hasBeenVisible は true で固定し、scroll-out / scroll-back では
+再 fetch しない (props 変化があれば再 fetch)。
 </doc>
 
 <script setup lang="ts">
 import { type GitFileChange } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
-import { computed, ref, watch } from "vue";
-import { useNotificationStore } from "../../shared/notification";
+import { useIntersectionObserver } from "@vueuse/core";
+import { computed, ref, useTemplateRef, watch } from "vue";
 import { getFileIconUrl, rpcFsReadFile } from "../filer";
 import { useGitGraphStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
@@ -29,7 +37,19 @@ const props = defineProps<{
 
 const worktreeStore = useWorktreeStore();
 const gitGraphStore = useGitGraphStore();
-const notification = useNotificationStore();
+
+const rootRef = useTemplateRef<HTMLElement>("rootRef");
+/**
+ * ビューポートに一度でも入ったか。fetch のゲート。
+ * 一度 true になったら戻さない (scroll-out で fetch を取りやめると初回確認後に消える不快な
+ * UX になる + 失敗 / 成功 result も捨てることになる)。
+ */
+const hasBeenVisible = ref(false);
+useIntersectionObserver(rootRef, ([entry]) => {
+  if (entry?.isIntersecting && !hasBeenVisible.value) {
+    hasBeenVisible.value = true;
+  }
+});
 
 const original = ref<string>();
 const current = ref<string>();
@@ -100,8 +120,11 @@ async function fetchUncommitted(dir: string, version: number) {
   if (version !== fetchVersion) return;
 
   if (!fetchResult.ok) {
+    // per-item の error.value がブロック内 (赤テキスト) で表示される。
+    // summary では N ファイル分の fetch が並列に走るため、ファイル単位の失敗を
+    // notification.error でトーストすると最大 N 個飛んで noisy になる + dedup で
+    // cause が上書きされ他失敗の stack を失う。失敗は item の画面内表示に閉じる。
     error.value = fetchResult.error.message;
-    notification.error("Failed to read file", fetchResult.error);
     loading.value = false;
     return;
   }
@@ -187,8 +210,9 @@ async function fetchCommit(dir: string, version: number) {
   if (version !== fetchVersion) return;
 
   if (!fetchResult.ok) {
+    // per-item の error.value がブロック内に表示されるため、トーストは出さない
+    // (上の fetchUncommitted と同じ理由 — N 件 fan-out で noisy)
     error.value = fetchResult.error.message;
-    notification.error("Failed to read commit file", fetchResult.error);
     loading.value = false;
     return;
   }
@@ -220,12 +244,21 @@ async function fetchCommit(dir: string, version: number) {
 watch(
   () =>
     [
+      hasBeenVisible.value,
       props.change.newFilePath,
       props.change.oldFilePath,
       gitGraphStore.selectedHash,
       gitGraphStore.compareHash,
+      // commits を依存に含めることで、初回 watch で commits ロード途中 → fetchCommit が
+      // `Commit not found in loaded git log` で error 確定したケースを救済する。
+      // useChangesStore の watch と同じ依存集合に揃える (commits 再ロード後の stale error 防止)
+      gitGraphStore.commits,
     ] as const,
-  async () => {
+  async ([visible]) => {
+    // ビューポートに入るまで fetch しない (N=100 の summary で同時起動を抑制)。
+    // loading = true のままにして「Loading...」を見せておく
+    if (!visible) return;
+
     loading.value = true;
     error.value = undefined;
     original.value = undefined;
@@ -254,7 +287,7 @@ watch(
 </script>
 
 <template>
-  <div class="border-b border-zinc-700 last:border-b-0">
+  <div ref="rootRef" class="border-b border-zinc-700 last:border-b-0">
     <!-- ヘッダー: アイコン + パス + バッジ + collapse トグル -->
     <button
       type="button"

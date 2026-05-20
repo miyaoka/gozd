@@ -6,10 +6,14 @@
 - `useChangesStore` の `fileChanges` を購読し、各ファイルを `ChangesSummaryItem` で描画
 - ヘッダーで split / unified の global 切替と word wrap トグルを提供
 - ファイル単位の split/unified トグルは externalViewMode prop で非表示にし、ここに統合する
+- ファイル fetch 失敗は `fetch-failed` emit を debounce で集約し、N 件の失敗を 1 つの
+  `notification.error` toast にまとめる (`useNotificationStore.error` 内部で `console.error` も
+  走るため stack が devtools に残る)。per-item の `error.value` は引き続き赤テキストで表示
 </doc>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { onUnmounted, ref } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { useChangesStore } from "../changes";
 import ChangesSummaryItem from "./ChangesSummaryItem.vue";
 
@@ -18,8 +22,38 @@ const emit = defineEmits<{
 }>();
 
 const changesStore = useChangesStore();
+const notification = useNotificationStore();
 const viewMode = ref<"split" | "unified">("split");
 const wordWrap = ref(true);
+
+/**
+ * 集約された fetch 失敗の状態。`flushDebounceMs` の窓で並列発射された複数失敗を 1 つの
+ * toast に丸める。fire 後に reset し、次のバッチで再び集計開始する (selection 変化で
+ * 各 item が再 fetch する経路でも新たな失敗があれば再通知される)。
+ */
+const flushDebounceMs = 100;
+let failureCount = 0;
+let lastCause: Error | undefined;
+let flushTimer: ReturnType<typeof setTimeout> | undefined;
+
+function onItemFetchFailed(cause: Error) {
+  failureCount += 1;
+  lastCause = cause;
+  if (flushTimer !== undefined) return;
+  flushTimer = setTimeout(() => {
+    const count = failureCount;
+    const cause2 = lastCause;
+    failureCount = 0;
+    lastCause = undefined;
+    flushTimer = undefined;
+    const noun = count === 1 ? "change" : "changes";
+    notification.error(`Failed to load ${count} ${noun} in summary`, cause2);
+  }, flushDebounceMs);
+}
+
+onUnmounted(() => {
+  if (flushTimer !== undefined) clearTimeout(flushTimer);
+});
 </script>
 
 <template>
@@ -91,6 +125,7 @@ const wordWrap = ref(true);
           :change="change"
           :view-mode="viewMode"
           :word-wrap="wordWrap"
+          @fetch-failed="onItemFetchFailed"
         />
       </template>
     </div>

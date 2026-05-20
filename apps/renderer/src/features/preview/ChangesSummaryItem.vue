@@ -21,8 +21,10 @@ Summary view の 1 ファイル分のブロック。
 import { type GitFileChange } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { useIntersectionObserver } from "@vueuse/core";
-import { computed, ref, useTemplateRef, watch } from "vue";
-import { getFileIconUrl, rpcFsReadFile } from "../filer";
+import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
+import { onMessage } from "../../shared/rpc";
+import { getFileIconUrl, relDirOf, rpcFsReadFile } from "../filer";
+import type { FsChangePayload } from "../filer";
 import { useGitGraphStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import type { GitChangeKind } from "../worktree";
@@ -33,6 +35,16 @@ const props = defineProps<{
   change: GitFileChange;
   viewMode: "split" | "unified";
   wordWrap: boolean;
+}>();
+
+/**
+ * fetch 失敗時に summary view へ通知する。view 側で 1 件の集約 toast に丸めて
+ * notification.error を呼ぶ (item で都度呼ぶと N 件 fan-out で toast が大量化する)。
+ * error.value は引き続き item の画面内に赤テキストで表示するので、ユーザーは
+ * どのファイルが失敗したかを per-item でも確認できる。
+ */
+const emit = defineEmits<{
+  fetchFailed: [cause: Error];
 }>();
 
 const worktreeStore = useWorktreeStore();
@@ -120,11 +132,11 @@ async function fetchUncommitted(dir: string, version: number) {
   if (version !== fetchVersion) return;
 
   if (!fetchResult.ok) {
-    // per-item の error.value がブロック内 (赤テキスト) で表示される。
-    // summary では N ファイル分の fetch が並列に走るため、ファイル単位の失敗を
-    // notification.error でトーストすると最大 N 個飛んで noisy になる + dedup で
-    // cause が上書きされ他失敗の stack を失う。失敗は item の画面内表示に閉じる。
+    // per-item で error.value を画面内に赤テキスト表示しつつ、view 側に集約通知を投げる。
+    // view 側は debounce 経由で notification.error を 1 回だけ呼ぶ (`useNotificationStore`
+    // 内部で `console.error` が走るため stack も devtools に残る)。
     error.value = fetchResult.error.message;
+    emit("fetchFailed", fetchResult.error);
     loading.value = false;
     return;
   }
@@ -210,9 +222,10 @@ async function fetchCommit(dir: string, version: number) {
   if (version !== fetchVersion) return;
 
   if (!fetchResult.ok) {
-    // per-item の error.value がブロック内に表示されるため、トーストは出さない
-    // (上の fetchUncommitted と同じ理由 — N 件 fan-out で noisy)
+    // 上の fetchUncommitted と同じく view 側で集約。per-item で error.value を表示しつつ
+    // emit で view に通知する。
     error.value = fetchResult.error.message;
+    emit("fetchFailed", fetchResult.error);
     loading.value = false;
     return;
   }
@@ -241,6 +254,40 @@ async function fetchCommit(dir: string, version: number) {
   loading.value = false;
 }
 
+/**
+ * uncommitted / commit のどちらかを発射する dispatch。state リセット込み。
+ *
+ * `reset=true` (デフォルト) は state を初期化してから fetch。watch trigger 経由の
+ * 通常呼び出しで使う。fsChange 経由の hot reload では `reset=false` を使い、
+ * 表示中の diff を loading 状態にしないまま fetch 完了で差し替える (uncommitted のみ)。
+ */
+async function runFetch(reset = true) {
+  if (reset) {
+    loading.value = true;
+    error.value = undefined;
+    original.value = undefined;
+    current.value = undefined;
+    isBinary.value = false;
+    isOriginalBinary.value = false;
+    effectiveKind.value = undefined;
+  }
+
+  const version = ++fetchVersion;
+  const dir = worktreeStore.dir;
+  if (dir === undefined) {
+    loading.value = false;
+    return;
+  }
+
+  const isCommitMode =
+    gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null;
+  if (isCommitMode) {
+    await fetchCommit(dir, version);
+  } else {
+    await fetchUncommitted(dir, version);
+  }
+}
+
 watch(
   () =>
     [
@@ -258,32 +305,35 @@ watch(
     // ビューポートに入るまで fetch しない (N=100 の summary で同時起動を抑制)。
     // loading = true のままにして「Loading...」を見せておく
     if (!visible) return;
-
-    loading.value = true;
-    error.value = undefined;
-    original.value = undefined;
-    current.value = undefined;
-    isBinary.value = false;
-    isOriginalBinary.value = false;
-    effectiveKind.value = undefined;
-
-    const version = ++fetchVersion;
-    const dir = worktreeStore.dir;
-    if (dir === undefined) {
-      loading.value = false;
-      return;
-    }
-
-    const isCommitMode =
-      gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null;
-    if (isCommitMode) {
-      await fetchCommit(dir, version);
-    } else {
-      await fetchUncommitted(dir, version);
-    }
+    await runFetch();
   },
   { immediate: true },
 );
+
+/**
+ * uncommitted モードでファイル中身が変わったら再 fetch する。
+ *
+ * `useChangesStore.fileChanges` は git status (状態種別) の変化しか拾わないので、
+ * 例えば M → M (中身は別) のケースでは props.change の identity が変わらず watch が走らない。
+ * PreviewPane の単一ファイル view と同じ fsChange 購読規律 (docs/preview.md のリアクティブ更新)
+ * を summary item にも適用して、画面の diff と実ファイルの整合を保つ。
+ *
+ * - commit mode は無視 (表示内容は git オブジェクト由来で fs 変更とは独立)
+ * - ビューポート未到達の item は `hasBeenVisible=false` のまま再 fetch をスキップ
+ *   (visible になった時に通常 watch が初回 fetch するため、ここで先回りは不要)
+ * - useFsWatchSync は全 worktree を watch するため active dir 以外の event は無視
+ */
+const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ dir: eventDir, relDir }) => {
+  if (!hasBeenVisible.value) return;
+  if (gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null) {
+    return;
+  }
+  if (eventDir !== worktreeStore.dir) return;
+  const path = props.change.newFilePath || props.change.oldFilePath;
+  if (relDir !== relDirOf(path)) return;
+  void runFetch(false);
+});
+onUnmounted(unsubscribeFsChange);
 </script>
 
 <template>

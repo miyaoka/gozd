@@ -19,8 +19,10 @@ Summary view の 1 ファイル分のブロック。
 ## fsChange 購読 (per-item)
 
 `onMessage("fsChange", ...)` を各 item で個別に登録する。N=100 件 mount なら N 個の
-listener が `useChangesStore` 寿命中ずっと存在し、1 イベントで N 個の callback が走る
-(filter で大半は早期 return)。
+listener が **ChangesSummaryItem コンポーネントの mount 中** ずっと存在し、1 イベントで
+N 個の callback が走る (filter で大半は早期 return)。summary view を閉じる
+(`summaryStore.enabled=false` で `<ChangesSummaryView v-if>` が false になる) と全 item
+が unmount され、`onUnmounted(unsubscribeFsChange)` で listener も全て解除される。
 
 これは SSOT 違反気味（同じ filter ロジックの N 重複）だが、現状 N≦100 程度では実害は
 無いと判断して per-item 購読を採用する。SSOT 化の代替案は `useChangesStore` で 1 回購読

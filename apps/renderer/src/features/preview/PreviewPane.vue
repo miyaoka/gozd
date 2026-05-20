@@ -28,11 +28,13 @@ import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
+import { useChangesSummaryStore } from "../changes";
 import { getFileIconUrl, relDirOf, rpcFsReadFile, rpcFsReadFileAbsolute } from "../filer";
 import type { FsChangePayload } from "../filer";
 import { useGitGraphStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import type { GitChangeKind } from "../worktree";
+import ChangesSummaryView from "./ChangesSummaryView.vue";
 import CodePreview from "./CodePreview.vue";
 import DiffPreview from "./DiffPreview.vue";
 import ImagePreview from "./ImagePreview.vue";
@@ -76,6 +78,7 @@ const worktreeStore = useWorktreeStore();
 const { selectedPath, selectedLineNumber, selectedGitChange, fileServerBaseUrl, revealVersion } =
   storeToRefs(worktreeStore);
 const gitGraphStore = useGitGraphStore();
+const summaryStore = useChangesSummaryStore();
 const notification = useNotificationStore();
 
 const currentContent = ref<string>();
@@ -404,6 +407,11 @@ watch(
     previewEnabled.value = true;
     commitGitChange.value = undefined;
 
+    // 個別ファイルが選ばれたら summary モードを抜ける (Filer / Changes tree のクリック動線を尊重)
+    if (path !== undefined && path !== "") {
+      summaryStore.disable();
+    }
+
     if (!path) {
       currentContent.value = undefined;
       originalContent.value = undefined;
@@ -497,7 +505,9 @@ const headerIconUrl = computed(() => {
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden">
+  <ChangesSummaryView v-if="summaryStore.enabled" @close="emit('close')" />
+
+  <div v-else class="flex h-full flex-col overflow-hidden">
     <!-- ヘッダー（常に表示） -->
     <div class="flex items-center gap-2 border-b border-zinc-700 px-3 py-2">
       <template v-if="selectedPath">

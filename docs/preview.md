@@ -6,12 +6,14 @@
 
 ```
 features/preview/
-├── PreviewPane.vue       # ルートペイン（ファイル種別判定、モード切替、データ取得）
-├── CodePreview.vue       # コード表示（Shiki ハイライト + 行番号）
-├── DiffPreview.vue       # diff 表示（行単位の差分色分け、2列行番号）
-├── ImagePreview.vue      # 画像表示
-├── MarkdownPreview.vue   # Markdown レンダリング（marked + DOMPurify）
-└── useHighlight.ts       # Shiki ハイライタの遅延初期化と言語検出
+├── PreviewPane.vue           # ルートペイン（ファイル種別判定、モード切替、データ取得）
+├── CodePreview.vue           # コード表示（Shiki ハイライト + 行番号）
+├── DiffPreview.vue           # diff 表示（行単位の差分色分け、2列行番号）
+├── ImagePreview.vue          # 画像表示
+├── MarkdownPreview.vue       # Markdown レンダリング（marked + DOMPurify）
+├── ChangesSummaryView.vue    # 全変更ファイルを縦並びで diff 表示するビュー
+├── ChangesSummaryItem.vue    # summary view の 1 ファイル分のブロック
+└── useHighlight.ts           # Shiki ハイライタの遅延初期化と言語検出
 ```
 
 ## ファイル種別
@@ -159,3 +161,14 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
 ## Preview チェックボックス
 
 SVG / Markdown / 画像ファイルで、レンダリング結果とソースコードを切り替える。diff モードでは非表示。デフォルトは有効（プレビュー表示）。
+
+## Changes summary view
+
+ChangesPane ヘッダーの `View all` ボタンで preview ペインを「全変更ファイルの diff を縦並びで表示するモード」に切り替える。GitHub PR の Files changed タブ相当。
+
+- データソースは `useChangesStore.fileChanges`（ChangesPane の樹状ビューと同じ SSOT）。uncommitted / 単一コミット / 範囲選択のいずれの選択状態にも追従する
+- 1 ファイル = 1 ブロック。各ブロックはヘッダー（アイコン + パス + 変更種別バッジ + 折りたたみトグル）と `DiffPreview` の組み合わせ
+- split / unified 切替と word wrap は summary 全体で 1 つのツールバーに統合される。`DiffPreview` の `externalViewMode` prop で個別ファイルのトグルバーは非表示にする
+- Filer や ChangesPane のファイル行をクリックすると `worktreeStore.selectPath` が発火し、summary モードは自動で disable される（単一ファイル表示に戻る）
+- summary view のフェッチ経路は PreviewPane の単一ファイル版と同じ規約に従う。uncommitted は `gitShowFile` + `fsReadFile`、コミットモードは `gitShowCommitFile` を per-item で実行する
+- 状態の SSOT は `useChangesSummaryStore.enabled`。MainLayout はこのフラグを watch し、有効化時に preview popover を自動オープンする

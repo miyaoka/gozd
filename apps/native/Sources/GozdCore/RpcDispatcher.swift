@@ -357,6 +357,10 @@ public actor RpcDispatcher {
       return try await handleCreateWorktree(body)
     case "/git/worktreeRemove":
       return try await handleWorktreeRemove(body)
+    case "/git/blameLine":
+      return try await handleGitBlameLine(body)
+    case "/git/logLine":
+      return try await handleGitLogLine(body)
     case "/task/add":
       return try await handleTaskAdd(body)
     case "/task/update":
@@ -777,6 +781,44 @@ public actor RpcDispatcher {
       )
     }
     return fr
+  }
+
+  private func handleGitBlameLine(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitBlameLineRequest(jsonUTF8Data: body)
+    let info = try await GitOps.blameLine(
+      dir: req.dir, relPath: req.relPath, rev: req.rev, line: req.line)
+    var resp = Gozd_V1_GitBlameLineResponse()
+    var c = Gozd_V1_GitBlameCommit()
+    c.hash = info.hash
+    c.shortHash = info.shortHash
+    c.author = info.author
+    c.authorMail = info.authorMail
+    c.authorTime = info.authorTime
+    c.summary = info.summary
+    c.sourceLine = info.sourceLine
+    c.notCommitted = info.notCommitted
+    resp.commit = c
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleGitLogLine(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitLogLineRequest(jsonUTF8Data: body)
+    let commits = try await GitOps.logLine(
+      dir: req.dir, relPath: req.relPath, rev: req.rev, line: req.line, maxCount: req.maxCount)
+    var resp = Gozd_V1_GitLogLineResponse()
+    resp.commits = commits.map { c in
+      var pb = Gozd_V1_GitCommit()
+      pb.hash = c.hash
+      pb.shortHash = c.shortHash
+      pb.parents = c.parents
+      pb.author = c.author
+      pb.date = c.date
+      pb.message = c.message
+      pb.body = c.body
+      pb.refs = c.refs
+      return pb
+    }
+    return try resp.jsonUTF8Data()
   }
 
   private func handleGitCommitFiles(_ body: Data) async throws -> Data {

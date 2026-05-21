@@ -81,6 +81,21 @@ const props = withDefaults(
   { externalViewMode: undefined },
 );
 
+/**
+ * 行番号クリック。side で original / current のどちら側の rev を blame するかを区別する。
+ * - "old" → row.oldLineNo の行番号で original (= 比較元 rev) を blame
+ * - "new" → row.newLineNo の行番号で current (= 比較先 rev / working tree) を blame
+ */
+const emit = defineEmits<{
+  lineNumberClick: [payload: { side: "old" | "new"; line: number; anchorEl: HTMLElement }];
+}>();
+
+function onLineClick(side: "old" | "new", line: number, ev: MouseEvent): void {
+  const target = ev.currentTarget;
+  if (!(target instanceof HTMLElement)) return;
+  emit("lineNumberClick", { side, line, anchorEl: target });
+}
+
 type DiffLineKindName = "added" | "removed" | "unchanged";
 
 interface DiffLineItem {
@@ -662,8 +677,24 @@ function splitRightBg(row: DiffSplitRowItem): string {
             class="_diff-line"
             :class="tokensReady ? LINE_BG_CLASSES[row.kind] : LINE_FALLBACK_CLASSES[row.kind]"
           >
-            <span class="_line-no">{{ row.oldLineNo ?? "" }}</span>
-            <span class="_line-no">{{ row.newLineNo ?? "" }}</span>
+            <button
+              v-if="row.oldLineNo !== undefined"
+              type="button"
+              class="_line-no _line-no-btn"
+              @click="onLineClick('old', row.oldLineNo, $event)"
+            >
+              {{ row.oldLineNo }}
+            </button>
+            <span v-else class="_line-no" />
+            <button
+              v-if="row.newLineNo !== undefined"
+              type="button"
+              class="_line-no _line-no-btn"
+              @click="onLineClick('new', row.newLineNo, $event)"
+            >
+              {{ row.newLineNo }}
+            </button>
+            <span v-else class="_line-no" />
             <span class="_line-text" :class="wordWrap ? '_word-wrap' : ''">
               <template v-if="row.tokens">
                 <span
@@ -694,9 +725,16 @@ function splitRightBg(row: DiffSplitRowItem): string {
           </button>
 
           <template v-else>
-            <span class="_line-no _split-cell" :class="splitLeftBg(row)">{{
-              row.oldLineNo ?? ""
-            }}</span>
+            <button
+              v-if="row.oldLineNo !== undefined"
+              type="button"
+              class="_line-no _split-cell _line-no-btn"
+              :class="splitLeftBg(row)"
+              @click="onLineClick('old', row.oldLineNo, $event)"
+            >
+              {{ row.oldLineNo }}
+            </button>
+            <span v-else class="_line-no _split-cell" :class="splitLeftBg(row)" />
             <span
               class="_line-text _split-cell _split-text"
               :class="[splitLeftBg(row), wordWrap ? '_word-wrap' : '']"
@@ -713,9 +751,16 @@ function splitRightBg(row: DiffSplitRowItem): string {
                 <template v-else>{{ row.oldText }}</template>
               </template>
             </span>
-            <span class="_line-no _split-cell _split-divider" :class="splitRightBg(row)">{{
-              row.newLineNo ?? ""
-            }}</span>
+            <button
+              v-if="row.newLineNo !== undefined"
+              type="button"
+              class="_line-no _split-cell _split-divider _line-no-btn"
+              :class="splitRightBg(row)"
+              @click="onLineClick('new', row.newLineNo, $event)"
+            >
+              {{ row.newLineNo }}
+            </button>
+            <span v-else class="_line-no _split-cell _split-divider" :class="splitRightBg(row)" />
             <span
               class="_line-text _split-cell _split-text"
               :class="[splitRightBg(row), wordWrap ? '_word-wrap' : '']"
@@ -751,6 +796,19 @@ function splitRightBg(row: DiffSplitRowItem): string {
   text-align: right;
   color: var(--color-zinc-600);
   user-select: none;
+}
+
+._line-no-btn {
+  padding: 0;
+  background: transparent;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+._line-no-btn:hover {
+  color: var(--color-blue-400);
+  text-decoration: underline;
 }
 
 ._line-no + ._line-text {

@@ -406,6 +406,70 @@ export interface GitWorktreeRemoveRequest {
 export interface GitWorktreeRemoveResponse {
 }
 
+/**
+ * gitBlameLine: 1 行の blame 結果を返す。`git blame --porcelain -L <line>,<line> [<rev>] -- <relPath>` 相当。
+ *
+ * rev の参照は 3 通り:
+ *   - "" (空文字): rev を渡さず working tree を blame。ローカル未コミット変更を含む
+ *   - "HEAD" / <commit hash> / "<hash>^": そのコミットの blob を blame
+ *
+ * 単一行 RPC として設計しているのは popover UI 用途のため。ファイル全体の gutter 常時表示が
+ * 要件になった時点で全行版を別 RPC で足す（並列でファイル全体を 1 度に取らせる方が cheap）。
+ */
+export interface GitBlameLineRequest {
+  dir: string;
+  relPath: string;
+  rev: string;
+  /** 1-based */
+  line: number;
+}
+
+export interface GitBlameCommit {
+  hash: string;
+  shortHash: string;
+  author: string;
+  authorMail: string;
+  /** Unix timestamp (秒) */
+  authorTime: number;
+  /** commit メッセージ subject (1 行目) */
+  summary: string;
+  /** commit 内のソース行番号 (history 起点として使う) */
+  sourceLine: number;
+  /**
+   * hash が全 0 (working tree の未コミット行) なら true。
+   * この場合 author / author_mail / summary は git が "Not Committed Yet" 系を返すため
+   * renderer 側で「未コミット」表記に倒す。
+   */
+  notCommitted: boolean;
+}
+
+export interface GitBlameLineResponse {
+  commit: GitBlameCommit | undefined;
+}
+
+/**
+ * gitLogLine: 指定行の変更履歴を返す。`git log -L<line>,<line>:<relPath> --no-patch [<rev>]` 相当。
+ *
+ * rev:
+ *   - "" (空文字): HEAD 起点で walk
+ *   - それ以外: 指定 rev から walk
+ *
+ * max_count は 0 のとき git にも `--max-count` を渡さない (= 全件)。
+ * `git log -L` は patch が出るのが default だが、popover では commit 一覧だけ欲しいため
+ * `--no-patch` で抑制する。
+ */
+export interface GitLogLineRequest {
+  dir: string;
+  relPath: string;
+  rev: string;
+  line: number;
+  maxCount: number;
+}
+
+export interface GitLogLineResponse {
+  commits: GitCommit[];
+}
+
 function createBaseGitWorktreeListRequest(): GitWorktreeListRequest {
   return { dir: "" };
 }
@@ -3227,6 +3291,571 @@ export const GitWorktreeRemoveResponse: MessageFns<GitWorktreeRemoveResponse> = 
   },
 };
 
+function createBaseGitBlameLineRequest(): GitBlameLineRequest {
+  return { dir: "", relPath: "", rev: "", line: 0 };
+}
+
+export const GitBlameLineRequest: MessageFns<GitBlameLineRequest> = {
+  encode(message: GitBlameLineRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    if (message.relPath !== "") {
+      writer.uint32(18).string(message.relPath);
+    }
+    if (message.rev !== "") {
+      writer.uint32(26).string(message.rev);
+    }
+    if (message.line !== 0) {
+      writer.uint32(32).uint32(message.line);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitBlameLineRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitBlameLineRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.relPath = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.rev = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.line = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitBlameLineRequest {
+    return {
+      dir: isSet(object.dir) ? globalThis.String(object.dir) : "",
+      relPath: isSet(object.relPath)
+        ? globalThis.String(object.relPath)
+        : isSet(object.rel_path)
+        ? globalThis.String(object.rel_path)
+        : "",
+      rev: isSet(object.rev) ? globalThis.String(object.rev) : "",
+      line: isSet(object.line) ? globalThis.Number(object.line) : 0,
+    };
+  },
+
+  toJSON(message: GitBlameLineRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    if (message.relPath !== "") {
+      obj.relPath = message.relPath;
+    }
+    if (message.rev !== "") {
+      obj.rev = message.rev;
+    }
+    if (message.line !== 0) {
+      obj.line = Math.round(message.line);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitBlameLineRequest>): GitBlameLineRequest {
+    return GitBlameLineRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitBlameLineRequest>): GitBlameLineRequest {
+    const message = createBaseGitBlameLineRequest();
+    message.dir = object.dir ?? "";
+    message.relPath = object.relPath ?? "";
+    message.rev = object.rev ?? "";
+    message.line = object.line ?? 0;
+    return message;
+  },
+};
+
+function createBaseGitBlameCommit(): GitBlameCommit {
+  return {
+    hash: "",
+    shortHash: "",
+    author: "",
+    authorMail: "",
+    authorTime: 0,
+    summary: "",
+    sourceLine: 0,
+    notCommitted: false,
+  };
+}
+
+export const GitBlameCommit: MessageFns<GitBlameCommit> = {
+  encode(message: GitBlameCommit, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.hash !== "") {
+      writer.uint32(10).string(message.hash);
+    }
+    if (message.shortHash !== "") {
+      writer.uint32(18).string(message.shortHash);
+    }
+    if (message.author !== "") {
+      writer.uint32(26).string(message.author);
+    }
+    if (message.authorMail !== "") {
+      writer.uint32(34).string(message.authorMail);
+    }
+    if (message.authorTime !== 0) {
+      writer.uint32(40).int64(message.authorTime);
+    }
+    if (message.summary !== "") {
+      writer.uint32(50).string(message.summary);
+    }
+    if (message.sourceLine !== 0) {
+      writer.uint32(56).uint32(message.sourceLine);
+    }
+    if (message.notCommitted !== false) {
+      writer.uint32(64).bool(message.notCommitted);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitBlameCommit {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitBlameCommit();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.hash = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.shortHash = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.author = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.authorMail = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.authorTime = longToNumber(reader.int64());
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.summary = reader.string();
+          continue;
+        }
+        case 7: {
+          if (tag !== 56) {
+            break;
+          }
+
+          message.sourceLine = reader.uint32();
+          continue;
+        }
+        case 8: {
+          if (tag !== 64) {
+            break;
+          }
+
+          message.notCommitted = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitBlameCommit {
+    return {
+      hash: isSet(object.hash) ? globalThis.String(object.hash) : "",
+      shortHash: isSet(object.shortHash)
+        ? globalThis.String(object.shortHash)
+        : isSet(object.short_hash)
+        ? globalThis.String(object.short_hash)
+        : "",
+      author: isSet(object.author) ? globalThis.String(object.author) : "",
+      authorMail: isSet(object.authorMail)
+        ? globalThis.String(object.authorMail)
+        : isSet(object.author_mail)
+        ? globalThis.String(object.author_mail)
+        : "",
+      authorTime: isSet(object.authorTime)
+        ? globalThis.Number(object.authorTime)
+        : isSet(object.author_time)
+        ? globalThis.Number(object.author_time)
+        : 0,
+      summary: isSet(object.summary) ? globalThis.String(object.summary) : "",
+      sourceLine: isSet(object.sourceLine)
+        ? globalThis.Number(object.sourceLine)
+        : isSet(object.source_line)
+        ? globalThis.Number(object.source_line)
+        : 0,
+      notCommitted: isSet(object.notCommitted)
+        ? globalThis.Boolean(object.notCommitted)
+        : isSet(object.not_committed)
+        ? globalThis.Boolean(object.not_committed)
+        : false,
+    };
+  },
+
+  toJSON(message: GitBlameCommit): unknown {
+    const obj: any = {};
+    if (message.hash !== "") {
+      obj.hash = message.hash;
+    }
+    if (message.shortHash !== "") {
+      obj.shortHash = message.shortHash;
+    }
+    if (message.author !== "") {
+      obj.author = message.author;
+    }
+    if (message.authorMail !== "") {
+      obj.authorMail = message.authorMail;
+    }
+    if (message.authorTime !== 0) {
+      obj.authorTime = Math.round(message.authorTime);
+    }
+    if (message.summary !== "") {
+      obj.summary = message.summary;
+    }
+    if (message.sourceLine !== 0) {
+      obj.sourceLine = Math.round(message.sourceLine);
+    }
+    if (message.notCommitted !== false) {
+      obj.notCommitted = message.notCommitted;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitBlameCommit>): GitBlameCommit {
+    return GitBlameCommit.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitBlameCommit>): GitBlameCommit {
+    const message = createBaseGitBlameCommit();
+    message.hash = object.hash ?? "";
+    message.shortHash = object.shortHash ?? "";
+    message.author = object.author ?? "";
+    message.authorMail = object.authorMail ?? "";
+    message.authorTime = object.authorTime ?? 0;
+    message.summary = object.summary ?? "";
+    message.sourceLine = object.sourceLine ?? 0;
+    message.notCommitted = object.notCommitted ?? false;
+    return message;
+  },
+};
+
+function createBaseGitBlameLineResponse(): GitBlameLineResponse {
+  return { commit: undefined };
+}
+
+export const GitBlameLineResponse: MessageFns<GitBlameLineResponse> = {
+  encode(message: GitBlameLineResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.commit !== undefined) {
+      GitBlameCommit.encode(message.commit, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitBlameLineResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitBlameLineResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.commit = GitBlameCommit.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitBlameLineResponse {
+    return { commit: isSet(object.commit) ? GitBlameCommit.fromJSON(object.commit) : undefined };
+  },
+
+  toJSON(message: GitBlameLineResponse): unknown {
+    const obj: any = {};
+    if (message.commit !== undefined) {
+      obj.commit = GitBlameCommit.toJSON(message.commit);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitBlameLineResponse>): GitBlameLineResponse {
+    return GitBlameLineResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitBlameLineResponse>): GitBlameLineResponse {
+    const message = createBaseGitBlameLineResponse();
+    message.commit = (object.commit !== undefined && object.commit !== null)
+      ? GitBlameCommit.fromPartial(object.commit)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseGitLogLineRequest(): GitLogLineRequest {
+  return { dir: "", relPath: "", rev: "", line: 0, maxCount: 0 };
+}
+
+export const GitLogLineRequest: MessageFns<GitLogLineRequest> = {
+  encode(message: GitLogLineRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    if (message.relPath !== "") {
+      writer.uint32(18).string(message.relPath);
+    }
+    if (message.rev !== "") {
+      writer.uint32(26).string(message.rev);
+    }
+    if (message.line !== 0) {
+      writer.uint32(32).uint32(message.line);
+    }
+    if (message.maxCount !== 0) {
+      writer.uint32(40).uint32(message.maxCount);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitLogLineRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitLogLineRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.relPath = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.rev = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.line = reader.uint32();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.maxCount = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitLogLineRequest {
+    return {
+      dir: isSet(object.dir) ? globalThis.String(object.dir) : "",
+      relPath: isSet(object.relPath)
+        ? globalThis.String(object.relPath)
+        : isSet(object.rel_path)
+        ? globalThis.String(object.rel_path)
+        : "",
+      rev: isSet(object.rev) ? globalThis.String(object.rev) : "",
+      line: isSet(object.line) ? globalThis.Number(object.line) : 0,
+      maxCount: isSet(object.maxCount)
+        ? globalThis.Number(object.maxCount)
+        : isSet(object.max_count)
+        ? globalThis.Number(object.max_count)
+        : 0,
+    };
+  },
+
+  toJSON(message: GitLogLineRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    if (message.relPath !== "") {
+      obj.relPath = message.relPath;
+    }
+    if (message.rev !== "") {
+      obj.rev = message.rev;
+    }
+    if (message.line !== 0) {
+      obj.line = Math.round(message.line);
+    }
+    if (message.maxCount !== 0) {
+      obj.maxCount = Math.round(message.maxCount);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitLogLineRequest>): GitLogLineRequest {
+    return GitLogLineRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitLogLineRequest>): GitLogLineRequest {
+    const message = createBaseGitLogLineRequest();
+    message.dir = object.dir ?? "";
+    message.relPath = object.relPath ?? "";
+    message.rev = object.rev ?? "";
+    message.line = object.line ?? 0;
+    message.maxCount = object.maxCount ?? 0;
+    return message;
+  },
+};
+
+function createBaseGitLogLineResponse(): GitLogLineResponse {
+  return { commits: [] };
+}
+
+export const GitLogLineResponse: MessageFns<GitLogLineResponse> = {
+  encode(message: GitLogLineResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.commits) {
+      GitCommit.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitLogLineResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitLogLineResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.commits.push(GitCommit.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitLogLineResponse {
+    return {
+      commits: globalThis.Array.isArray(object?.commits) ? object.commits.map((e: any) => GitCommit.fromJSON(e)) : [],
+    };
+  },
+
+  toJSON(message: GitLogLineResponse): unknown {
+    const obj: any = {};
+    if (message.commits?.length) {
+      obj.commits = message.commits.map((e) => GitCommit.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitLogLineResponse>): GitLogLineResponse {
+    return GitLogLineResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitLogLineResponse>): GitLogLineResponse {
+    const message = createBaseGitLogLineResponse();
+    message.commits = object.commits?.map((e) => GitCommit.fromPartial(e)) || [];
+    return message;
+  },
+};
+
 type Builtin = Date | Function | Uint8Array | string | number | boolean | undefined;
 
 export type DeepPartial<T> = T extends Builtin ? T
@@ -3234,6 +3863,17 @@ export type DeepPartial<T> = T extends Builtin ? T
   : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
   : T extends {} ? { [K in keyof T]?: DeepPartial<T[K]> }
   : Partial<T>;
+
+function longToNumber(int64: { toString(): string }): number {
+  const num = globalThis.Number(int64.toString());
+  if (num > globalThis.Number.MAX_SAFE_INTEGER) {
+    throw new globalThis.Error("Value is larger than Number.MAX_SAFE_INTEGER");
+  }
+  if (num < globalThis.Number.MIN_SAFE_INTEGER) {
+    throw new globalThis.Error("Value is smaller than Number.MIN_SAFE_INTEGER");
+  }
+  return num;
+}
 
 function isSet(value: any): boolean {
   return value !== null && value !== undefined;

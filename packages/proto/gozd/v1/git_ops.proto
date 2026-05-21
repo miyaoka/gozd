@@ -275,3 +275,61 @@ message GitWorktreeRemoveRequest {
 }
 message GitWorktreeRemoveResponse {}
 
+// gitBlameLine: 1 行の blame 結果を返す。`git blame --porcelain -L <line>,<line> [<rev>] -- <relPath>` 相当。
+//
+// rev の参照は 3 通り:
+//   - "" (空文字): rev を渡さず working tree を blame。ローカル未コミット変更を含む
+//   - "HEAD" / <commit hash> / "<hash>^": そのコミットの blob を blame
+//
+// 単一行 RPC として設計しているのは popover UI 用途のため。ファイル全体の gutter 常時表示が
+// 要件になった時点で全行版を別 RPC で足す（並列でファイル全体を 1 度に取らせる方が cheap）。
+message GitBlameLineRequest {
+  string dir = 1;
+  string rel_path = 2;
+  string rev = 3;
+  // 1-based
+  uint32 line = 4;
+}
+
+message GitBlameCommit {
+  string hash = 1;
+  string short_hash = 2;
+  string author = 3;
+  string author_mail = 4;
+  // Unix timestamp (秒)
+  int64 author_time = 5;
+  // commit メッセージ subject (1 行目)
+  string summary = 6;
+  // commit 内のソース行番号 (history 起点として使う)
+  uint32 source_line = 7;
+  // hash が全 0 (working tree の未コミット行) なら true。
+  // この場合 author / author_mail / summary は git が "Not Committed Yet" 系を返すため
+  // renderer 側で「未コミット」表記に倒す。
+  bool not_committed = 8;
+}
+
+message GitBlameLineResponse {
+  GitBlameCommit commit = 1;
+}
+
+// gitLogLine: 指定行の変更履歴を返す。`git log -L<line>,<line>:<relPath> --no-patch [<rev>]` 相当。
+//
+// rev:
+//   - "" (空文字): HEAD 起点で walk
+//   - それ以外: 指定 rev から walk
+//
+// max_count は 0 のとき git にも `--max-count` を渡さない (= 全件)。
+// `git log -L` は patch が出るのが default だが、popover では commit 一覧だけ欲しいため
+// `--no-patch` で抑制する。
+message GitLogLineRequest {
+  string dir = 1;
+  string rel_path = 2;
+  string rev = 3;
+  uint32 line = 4;
+  uint32 max_count = 5;
+}
+
+message GitLogLineResponse {
+  repeated GitCommit commits = 1;
+}
+

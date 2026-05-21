@@ -617,6 +617,145 @@ public enum GitOps {
       args: ["diff"] + diffOptions + ["\(hash)^", hash], cwd: dir)
     return parseDiffNameStatus(stdout)
   }
+
+  /// 単一行の blame 結果。`git blame --porcelain -L <line>,<line> [<rev>] -- <relPath>` を
+  /// 1 行ぶんに絞ってヘッダ + メタ行のみを parse する。
+  ///
+  /// rev が空文字なら rev を渡さず working tree を blame。working tree の未コミット行は
+  /// porcelain ヘッダの sha が全 0 で返るため `notCommitted` フラグに倒す。
+  ///
+  /// `--incremental` を使わない理由: 1 行 RPC 用途では出力は数行で、`--porcelain` の方が
+  /// すべてのメタ行が必ず付随する保証があり parse 規約が簡単。
+  public static func blameLine(dir: String, relPath: String, rev: String, line: UInt32)
+    async throws -> BlameLineInfo
+  {
+    var args = ["blame", "--porcelain", "-L", "\(line),\(line)"]
+    if !rev.isEmpty { args.append(rev) }
+    args.append("--")
+    args.append(relPath)
+    let stdout = try await runGit(args: args, cwd: dir)
+    let text = String(decoding: stdout, as: UTF8.self)
+
+    var hash = ""
+    var sourceLine: UInt32 = line
+    var author = ""
+    var authorMail = ""
+    var authorTime: Int64 = 0
+    var summary = ""
+    var headerSeen = false
+    for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
+      let s = String(rawLine)
+      if s.hasPrefix("\t") {
+        // ソース行本体。--porcelain は 1 回だけ出力する。以降のメタ行はないので break。
+        break
+      }
+      if !headerSeen {
+        // 最初の非タブ行はヘッダ: "<sha> <orig_line> <final_line> [<group_size>]"
+        let parts = s.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        if parts.count >= 3 {
+          hash = parts[0]
+          if let n = UInt32(parts[1]) { sourceLine = n }
+        }
+        headerSeen = true
+        continue
+      }
+      if s.hasPrefix("author ") {
+        author = String(s.dropFirst("author ".count))
+      } else if s.hasPrefix("author-mail ") {
+        // `<email>` 形式で囲まれる。<> を剥がして mailto-friendly に。
+        let raw = String(s.dropFirst("author-mail ".count))
+        if raw.hasPrefix("<") && raw.hasSuffix(">") {
+          authorMail = String(raw.dropFirst().dropLast())
+        } else {
+          authorMail = raw
+        }
+      } else if s.hasPrefix("author-time ") {
+        if let n = Int64(s.dropFirst("author-time ".count)) { authorTime = n }
+      } else if s.hasPrefix("summary ") {
+        summary = String(s.dropFirst("summary ".count))
+      }
+    }
+
+    if hash.isEmpty {
+      throw GitError.unexpectedOutput("git blame: missing porcelain header")
+    }
+    let notCommitted = hash.allSatisfy { $0 == "0" }
+    let shortHash = String(hash.prefix(7))
+    return BlameLineInfo(
+      hash: hash,
+      shortHash: shortHash,
+      author: author,
+      authorMail: authorMail,
+      authorTime: authorTime,
+      summary: summary,
+      sourceLine: sourceLine,
+      notCommitted: notCommitted
+    )
+  }
+
+  /// 単一行の変更履歴。`git log -L<line>,<line>:<relPath> --no-patch [<rev>]` 相当。
+  ///
+  /// `--no-patch` で diff 本体を抑制し、custom `--format` で commit metadata のみ取り出す。
+  /// 既存 `log` と同じ %x1f / %x1e 区切りに揃えて parse ロジックを共有する。
+  public static func logLine(
+    dir: String, relPath: String, rev: String, line: UInt32, maxCount: UInt32
+  ) async throws -> [CommitInfo] {
+    let format = "%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e"
+    var args = [
+      "log",
+      "--format=\(format)",
+      "--decorate=short",
+      "--no-patch",
+      "-L", "\(line),\(line):\(relPath)",
+    ]
+    if maxCount > 0 { args.append("--max-count=\(maxCount)") }
+    if !rev.isEmpty { args.append(rev) }
+    let stdout = try await runGit(args: args, cwd: dir)
+    let text = String(decoding: stdout, as: UTF8.self)
+    var commits: [CommitInfo] = []
+    for record in text.split(separator: "\u{1e}", omittingEmptySubsequences: true) {
+      let trimmed = record.trimmingCharacters(in: .whitespacesAndNewlines)
+      if trimmed.isEmpty { continue }
+      let parts = trimmed.split(separator: "\u{1f}", omittingEmptySubsequences: false).map(
+        String.init)
+      guard parts.count == 8 else { continue }
+      let parents =
+        parts[2].isEmpty
+        ? [] : parts[2].split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+      let date = Int64(parts[4]) ?? 0
+      let refs = parseRefs(parts[7])
+      commits.append(
+        CommitInfo(
+          hash: parts[0], shortHash: parts[1], parents: parents, author: parts[3], date: date,
+          message: parts[5], body: parts[6], refs: refs))
+    }
+    return commits
+  }
+}
+
+/// 単一行の blame 結果。
+public struct BlameLineInfo: Equatable, Sendable {
+  public let hash: String
+  public let shortHash: String
+  public let author: String
+  public let authorMail: String
+  public let authorTime: Int64
+  public let summary: String
+  public let sourceLine: UInt32
+  public let notCommitted: Bool
+  public init(
+    hash: String, shortHash: String, author: String, authorMail: String, authorTime: Int64,
+    summary: String, sourceLine: UInt32, notCommitted: Bool
+  ) {
+    self.hash = hash
+    self.shortHash = shortHash
+    self.author = author
+    self.authorMail = authorMail
+    self.authorTime = authorTime
+    self.summary = summary
+    self.sourceLine = sourceLine
+    self.notCommitted = notCommitted
+  }
 }
 
 /// git の well-known empty tree object hash。`git hash-object -t tree </dev/null` で

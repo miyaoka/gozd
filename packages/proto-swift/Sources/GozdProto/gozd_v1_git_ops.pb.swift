@@ -727,6 +727,127 @@ public struct Gozd_V1_GitWorktreeRemoveResponse: Sendable {
   public init() {}
 }
 
+/// gitBlameLine: 1 行の blame 結果を返す。`git blame --porcelain -L <line>,<line> [<rev>] -- <relPath>` 相当。
+///
+/// rev の参照は 3 通り:
+///   - "" (空文字): rev を渡さず working tree を blame。ローカル未コミット変更を含む
+///   - "HEAD" / <commit hash> / "<hash>^": そのコミットの blob を blame
+///
+/// 単一行 RPC として設計しているのは popover UI 用途のため。ファイル全体の gutter 常時表示が
+/// 要件になった時点で全行版を別 RPC で足す（並列でファイル全体を 1 度に取らせる方が cheap）。
+public struct Gozd_V1_GitBlameLineRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var dir: String = String()
+
+  public var relPath: String = String()
+
+  public var rev: String = String()
+
+  /// 1-based
+  public var line: UInt32 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Gozd_V1_GitBlameCommit: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var hash: String = String()
+
+  public var shortHash: String = String()
+
+  public var author: String = String()
+
+  public var authorMail: String = String()
+
+  /// Unix timestamp (秒)
+  public var authorTime: Int64 = 0
+
+  /// commit メッセージ subject (1 行目)
+  public var summary: String = String()
+
+  /// commit 内のソース行番号 (history 起点として使う)
+  public var sourceLine: UInt32 = 0
+
+  /// hash が全 0 (working tree の未コミット行) なら true。
+  /// この場合 author / author_mail / summary は git が "Not Committed Yet" 系を返すため
+  /// renderer 側で「未コミット」表記に倒す。
+  public var notCommitted: Bool = false
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Gozd_V1_GitBlameLineResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var commit: Gozd_V1_GitBlameCommit {
+    get {_commit ?? Gozd_V1_GitBlameCommit()}
+    set {_commit = newValue}
+  }
+  /// Returns true if `commit` has been explicitly set.
+  public var hasCommit: Bool {self._commit != nil}
+  /// Clears the value of `commit`. Subsequent reads from it will return its default value.
+  public mutating func clearCommit() {self._commit = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _commit: Gozd_V1_GitBlameCommit? = nil
+}
+
+/// gitLogLine: 指定行の変更履歴を返す。`git log -L<line>,<line>:<relPath> --no-patch [<rev>]` 相当。
+///
+/// rev:
+///   - "" (空文字): HEAD 起点で walk
+///   - それ以外: 指定 rev から walk
+///
+/// max_count は 0 のとき git にも `--max-count` を渡さない (= 全件)。
+/// `git log -L` は patch が出るのが default だが、popover では commit 一覧だけ欲しいため
+/// `--no-patch` で抑制する。
+public struct Gozd_V1_GitLogLineRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var dir: String = String()
+
+  public var relPath: String = String()
+
+  public var rev: String = String()
+
+  public var line: UInt32 = 0
+
+  public var maxCount: UInt32 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Gozd_V1_GitLogLineResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var commits: [Gozd_V1_GitCommit] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate let _protobuf_package = "gozd.v1"
@@ -1955,6 +2076,230 @@ extension Gozd_V1_GitWorktreeRemoveResponse: SwiftProtobuf.Message, SwiftProtobu
   }
 
   public static func ==(lhs: Gozd_V1_GitWorktreeRemoveResponse, rhs: Gozd_V1_GitWorktreeRemoveResponse) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitBlameLineRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitBlameLineRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{3}rel_path\0\u{1}rev\0\u{1}line\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.dir) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.relPath) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.rev) }()
+      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.line) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.dir.isEmpty {
+      try visitor.visitSingularStringField(value: self.dir, fieldNumber: 1)
+    }
+    if !self.relPath.isEmpty {
+      try visitor.visitSingularStringField(value: self.relPath, fieldNumber: 2)
+    }
+    if !self.rev.isEmpty {
+      try visitor.visitSingularStringField(value: self.rev, fieldNumber: 3)
+    }
+    if self.line != 0 {
+      try visitor.visitSingularUInt32Field(value: self.line, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitBlameLineRequest, rhs: Gozd_V1_GitBlameLineRequest) -> Bool {
+    if lhs.dir != rhs.dir {return false}
+    if lhs.relPath != rhs.relPath {return false}
+    if lhs.rev != rhs.rev {return false}
+    if lhs.line != rhs.line {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitBlameCommit: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitBlameCommit"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}hash\0\u{3}short_hash\0\u{1}author\0\u{3}author_mail\0\u{3}author_time\0\u{1}summary\0\u{3}source_line\0\u{3}not_committed\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.hash) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.shortHash) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.author) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.authorMail) }()
+      case 5: try { try decoder.decodeSingularInt64Field(value: &self.authorTime) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self.summary) }()
+      case 7: try { try decoder.decodeSingularUInt32Field(value: &self.sourceLine) }()
+      case 8: try { try decoder.decodeSingularBoolField(value: &self.notCommitted) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.hash.isEmpty {
+      try visitor.visitSingularStringField(value: self.hash, fieldNumber: 1)
+    }
+    if !self.shortHash.isEmpty {
+      try visitor.visitSingularStringField(value: self.shortHash, fieldNumber: 2)
+    }
+    if !self.author.isEmpty {
+      try visitor.visitSingularStringField(value: self.author, fieldNumber: 3)
+    }
+    if !self.authorMail.isEmpty {
+      try visitor.visitSingularStringField(value: self.authorMail, fieldNumber: 4)
+    }
+    if self.authorTime != 0 {
+      try visitor.visitSingularInt64Field(value: self.authorTime, fieldNumber: 5)
+    }
+    if !self.summary.isEmpty {
+      try visitor.visitSingularStringField(value: self.summary, fieldNumber: 6)
+    }
+    if self.sourceLine != 0 {
+      try visitor.visitSingularUInt32Field(value: self.sourceLine, fieldNumber: 7)
+    }
+    if self.notCommitted != false {
+      try visitor.visitSingularBoolField(value: self.notCommitted, fieldNumber: 8)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitBlameCommit, rhs: Gozd_V1_GitBlameCommit) -> Bool {
+    if lhs.hash != rhs.hash {return false}
+    if lhs.shortHash != rhs.shortHash {return false}
+    if lhs.author != rhs.author {return false}
+    if lhs.authorMail != rhs.authorMail {return false}
+    if lhs.authorTime != rhs.authorTime {return false}
+    if lhs.summary != rhs.summary {return false}
+    if lhs.sourceLine != rhs.sourceLine {return false}
+    if lhs.notCommitted != rhs.notCommitted {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitBlameLineResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitBlameLineResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}commit\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._commit) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._commit {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitBlameLineResponse, rhs: Gozd_V1_GitBlameLineResponse) -> Bool {
+    if lhs._commit != rhs._commit {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitLogLineRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitLogLineRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{3}rel_path\0\u{1}rev\0\u{1}line\0\u{3}max_count\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.dir) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.relPath) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.rev) }()
+      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.line) }()
+      case 5: try { try decoder.decodeSingularUInt32Field(value: &self.maxCount) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.dir.isEmpty {
+      try visitor.visitSingularStringField(value: self.dir, fieldNumber: 1)
+    }
+    if !self.relPath.isEmpty {
+      try visitor.visitSingularStringField(value: self.relPath, fieldNumber: 2)
+    }
+    if !self.rev.isEmpty {
+      try visitor.visitSingularStringField(value: self.rev, fieldNumber: 3)
+    }
+    if self.line != 0 {
+      try visitor.visitSingularUInt32Field(value: self.line, fieldNumber: 4)
+    }
+    if self.maxCount != 0 {
+      try visitor.visitSingularUInt32Field(value: self.maxCount, fieldNumber: 5)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitLogLineRequest, rhs: Gozd_V1_GitLogLineRequest) -> Bool {
+    if lhs.dir != rhs.dir {return false}
+    if lhs.relPath != rhs.relPath {return false}
+    if lhs.rev != rhs.rev {return false}
+    if lhs.line != rhs.line {return false}
+    if lhs.maxCount != rhs.maxCount {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitLogLineResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitLogLineResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}commits\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.commits) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.commits.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.commits, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitLogLineResponse, rhs: Gozd_V1_GitLogLineResponse) -> Bool {
+    if lhs.commits != rhs.commits {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

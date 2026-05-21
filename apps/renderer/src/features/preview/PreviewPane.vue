@@ -34,6 +34,7 @@ import type { FsChangePayload } from "../filer";
 import { useGitGraphStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import type { GitChangeKind } from "../worktree";
+import BlamePopover from "./BlamePopover.vue";
 import ChangesSummaryView from "./ChangesSummaryView.vue";
 import CodePreview from "./CodePreview.vue";
 import DiffPreview from "./DiffPreview.vue";
@@ -523,6 +524,79 @@ const headerIconUrl = computed(() => {
   if (path === undefined) return undefined;
   return getFileIconUrl(fileName(path));
 });
+
+/**
+ * Current 側 (newer / working tree) を blame する際の rev。
+ * - uncommitted モード: "" = working tree
+ * - commit モード: newer hash (Working Tree なら "")
+ * orderedRange が null (不整合) なら undefined を返し、Diff の "new" クリックは無効化する。
+ */
+const currentRev = computed<string | undefined>(() => {
+  const isCommitMode =
+    gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null;
+  if (!isCommitMode) return "";
+  const range = orderedRange.value;
+  if (range === null) return undefined;
+  return range.newer === UNCOMMITTED_HASH ? "" : range.newer;
+});
+
+/**
+ * Original 側 (older^) を blame する際の rev。
+ * - uncommitted モード: "HEAD"
+ * - commit モード: `<olderEnd>^` (olderEnd = older ?? newer)。fetchCommitContent の fromHash と一致
+ */
+const originalRev = computed<string | undefined>(() => {
+  const isCommitMode =
+    gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null;
+  if (!isCommitMode) return "HEAD";
+  const range = orderedRange.value;
+  if (range === null) return undefined;
+  const olderEnd = range.older ?? range.newer;
+  // Working Tree が older 端 (本来 newer のはずが両端 working tree のような不整合) は
+  // orderedRange 側で null 化されるため到達しない。defensive に "" は返さない。
+  return `${olderEnd}^`;
+});
+
+const blamePopoverRef = ref<InstanceType<typeof BlamePopover>>();
+
+function modeLabelForRev(rev: string): string {
+  if (rev === "") return "Working Tree";
+  if (rev === "HEAD") return "HEAD";
+  return rev;
+}
+
+function openBlame(rev: string, line: number, anchorEl: HTMLElement): void {
+  const dir = worktreeStore.dir;
+  const path = selectedPath.value;
+  if (dir === undefined || path === undefined) return;
+  // 絶対パスのファイル (filer の "open external" 経由) は git 管理外なので blame しない。
+  if (path.startsWith("/")) return;
+  void blamePopoverRef.value?.openPopover(anchorEl, {
+    dir,
+    relPath: path,
+    rev,
+    line,
+    modeLabel: modeLabelForRev(rev),
+  });
+}
+
+function onCodeLineClick(payload: { line: number; anchorEl: HTMLElement }): void {
+  // CodePreview は activeMode の content (current か original) をそのまま渡しているので
+  // activeMode に応じて rev を切り替える。
+  const rev = activeMode.value === "original" ? originalRev.value : currentRev.value;
+  if (rev === undefined) return;
+  openBlame(rev, payload.line, payload.anchorEl);
+}
+
+function onDiffLineClick(payload: {
+  side: "old" | "new";
+  line: number;
+  anchorEl: HTMLElement;
+}): void {
+  const rev = payload.side === "old" ? originalRev.value : currentRev.value;
+  if (rev === undefined) return;
+  openBlame(rev, payload.line, payload.anchorEl);
+}
 </script>
 
 <template>
@@ -623,6 +697,7 @@ const headerIconUrl = computed(() => {
           :current="currentContent"
           :file-path="selectedPath ?? ''"
           :word-wrap="wordWrap"
+          @line-number-click="onDiffLineClick"
         />
 
         <!-- 画像プレビュー（バイナリ画像 + SVG preview モード） -->
@@ -647,8 +722,11 @@ const headerIconUrl = computed(() => {
           :line-number="selectedLineNumber"
           :reveal-version="revealVersion"
           :word-wrap="wordWrap"
+          @line-number-click="onCodeLineClick"
         />
       </div>
     </template>
+
+    <BlamePopover ref="blamePopoverRef" />
   </div>
 </template>

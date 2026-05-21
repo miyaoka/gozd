@@ -88,6 +88,20 @@ async function highlight(code: string, filePath: string): Promise<string | undef
   const lineNumberTransformer: ShikiTransformer = {
     line(node, line) {
       node.properties["data-line"] = line;
+      // クリックターゲット用の line-no ボタンを行頭に挿入する。
+      // CSS `::before { content: attr(data-line) }` だと疑似要素のためクリック識別が
+      // 取れず、行全体の click + 位置判定をすると text node 上のクリックと識別できない。
+      // 実 DOM ボタンに変えてイベント delegation を効かせる方針。
+      node.children.unshift({
+        type: "element",
+        tagName: "button",
+        properties: {
+          type: "button",
+          class: "_line-no-btn",
+          "data-line-no-btn": line,
+        },
+        children: [{ type: "text", value: String(line) }],
+      });
     },
   };
 

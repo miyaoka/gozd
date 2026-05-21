@@ -9,6 +9,7 @@ features/preview/
 ├── PreviewPane.vue           # ルートペイン（ファイル種別判定、モード切替、データ取得）
 ├── CodePreview.vue           # コード表示（Shiki ハイライト + 行番号）
 ├── DiffPreview.vue           # diff 表示（行単位の差分色分け、2列行番号）
+├── BlamePopover.vue          # 行番号クリックで開く blame / line history popover
 ├── ImagePreview.vue          # 画像表示
 ├── MarkdownPreview.vue       # Markdown レンダリング（marked + DOMPurify）
 ├── ChangesSummaryView.vue    # 全変更ファイルを縦並びで diff 表示するビュー
@@ -124,10 +125,11 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
 
 - Shiki の `createHighlighter` で遅延初期化（シングルトン）
 - `github-dark` テーマ
-- `ShikiTransformer` で各行に `data-line` 属性を付与し、CSS `::before` で行番号表示
+- `ShikiTransformer` で各行に `data-line` 属性を付与し、行頭に `<button data-line-no-btn>` を実 DOM 挿入（疑似要素 `::before` ではなくクリックターゲットにできる button にして event delegation で blame 起動経路に流す）
 - 言語検出: 拡張子 → `EXTENSION_LANG_MAP` で Shiki 言語 ID に変換
 - word-wrap トグルボタンでコードの折り返しを切り替え
 - 行番号指定時（`:行番号` サフィックス付きリンクから）は該当行にスクロールし、黄色背景でハイライト
+- 行番号 button クリックで `lineNumberClick` イベントを emit（PreviewPane が BlamePopover に橋渡し）
 
 ### DiffPreview
 
@@ -146,6 +148,37 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
   - 言語未対応時はフォールバック表示（追加=緑、削除=赤）
 - unified と split の両方の表示形式を取得時に事前展開して保持。view mode 切替で再 fetch は走らない
 - split view では modified hunk 内で連続する removed run と added run を貪欲ペアリングし、余った片側は反対セルを空 (灰色背景) にして残す
+- 行番号セル (old / new いずれも) は button 化されており、クリックで `lineNumberClick({ side, line, anchorEl })` を emit する。`side` は old → Original 側 rev、new → Current 側 rev で BlamePopover を起動するために使う ([BlamePopover セクション](#blamepopover) 参照)
+
+### BlamePopover
+
+行番号クリックで開く blame / line history popover。HTML Popover API (`popover="auto"`) と CSS Anchor Positioning (`top: anchor(bottom)`) を使い、Esc / 外クリックでの dismiss と viewport flip をブラウザに委譲する (SidebarMenu と同じパターン)。
+
+`PreviewPane` が rev を決定して `openPopover(anchorEl, ctx)` を呼ぶ。rev の決定ルール:
+
+| 経路                                           | rev                                       |
+| ---------------------------------------------- | ----------------------------------------- |
+| Uncommitted モードの Current                   | `""` (空文字 = working tree)              |
+| Uncommitted モードの Original                  | `"HEAD"`                                  |
+| コミットモードの Current (newer = 実 hash)     | `<newer hash>`                            |
+| コミットモードの Current (newer = WorkingTree) | `""`                                      |
+| コミットモードの Original                      | `<olderEnd>^` (olderEnd = older ?? newer) |
+| Diff モード (clicked side = old)               | Original 側の rev                         |
+| Diff モード (clicked side = new)               | Current 側の rev                          |
+
+Diff モードでは `lineNumberClick` payload の `side: "old" | "new"` で行が属する側を判定する。片側だけの add/remove 行は反対側に行番号がなく button も描画されないので、clicked side は常に存在する側だけ。
+
+#### 2 ステート
+
+- **Blame**: `rpcGitBlameLine` を 1 行に絞って呼び (`git blame --porcelain -L N,N [<rev>] -- <relPath>`)、commit hash / author / 相対日付 / summary を表示。working tree の未コミット行は sha が全 0 で返るため `notCommitted` フラグで "Not committed yet" 表記に倒す
+- **History**: `rpcGitLogLine` で `git log -L<n>,<n>:<relPath> --no-patch [<rev>]` を呼び、その行を変更してきた commit 一覧を新しい順で表示。click で `gitGraphStore.select(hash)` を呼んで git-graph 側の選択にも反映しつつ popover を閉じる
+
+History 起点の行番号は blame が返す `source_line` を優先する。表示中のファイル (working tree や任意 rev) で行が挿入・移動された影響を吸収し、history walk が中断されないようにするため。blame 取得が未完了 / 失敗した場合は表示行番号を fallback として使う。
+
+#### スコープ外
+
+- 絶対パスで開いたファイル (filer の "open external" 経由) は git 管理外として early return し popover は出さない
+- ファイル全体への blame gutter 常時表示 (GitLens 風) は別 RPC で対応する想定。現状は 1 行 popover に絞っている
 
 ### MarkdownPreview
 

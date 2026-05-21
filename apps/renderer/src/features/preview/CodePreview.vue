@@ -20,6 +20,11 @@ const props = defineProps<{
   wordWrap: boolean;
 }>();
 
+const emit = defineEmits<{
+  /** 行番号クリック。anchorEl は popover anchor 用、line は 1-based の表示行 */
+  lineNumberClick: [payload: { line: number; anchorEl: HTMLElement }];
+}>();
+
 const highlightedHtml = ref<string>();
 const containerRef = ref<HTMLElement>();
 const activeLineNumber = ref<number>();
@@ -91,6 +96,25 @@ watch(
     }
   },
 );
+
+/**
+ * 行番号ボタンの click をコンテナ delegation で拾う。
+ * Shiki / fallback どちらも `[data-line-no-btn]` 属性付きの button を持つので、
+ * `closest` で 1 経路に統一する。
+ */
+function onContainerClick(e: MouseEvent) {
+  const target = e.target;
+  if (!(target instanceof HTMLElement)) return;
+  const btn = target.closest("[data-line-no-btn]");
+  if (!(btn instanceof HTMLElement)) return;
+  const lineStr = btn.dataset.lineNoBtn;
+  if (lineStr === undefined) return;
+  const line = Number(lineStr);
+  if (!Number.isInteger(line) || line <= 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  emit("lineNumberClick", { line, anchorEl: btn });
+}
 </script>
 
 <template>
@@ -102,6 +126,7 @@ watch(
     :class="wordWrap ? '_word-wrap' : ''"
     :style="{ '--line-no-width': lineNoWidth }"
     v-html="highlightedHtml"
+    @click="onContainerClick"
   />
 
   <!-- フォールバック: プレーンテキスト -->
@@ -111,25 +136,40 @@ watch(
     class="_line-numbered p-4 text-sm/tight text-zinc-300"
     :class="wordWrap ? '_word-wrap break-all whitespace-pre-wrap' : ''"
     :style="{ '--line-no-width': lineNoWidth }"
+    @click="onContainerClick"
   ><code><span
         v-for="(line, i) in content.split('\n')"
         :key="i"
         class="_line"
         :data-line="i + 1"
-      >{{ line }}
+      ><button
+          type="button"
+          class="_line-no-btn"
+          :data-line-no-btn="i + 1"
+        >{{ i + 1 }}</button>{{ line }}
 </span></code></pre>
 </template>
 
 <style scoped>
-._line-numbered ._line::before,
-._highlighted-code :deep(.line::before) {
-  content: attr(data-line);
+._line-numbered ._line ._line-no-btn,
+._highlighted-code :deep(.line ._line-no-btn) {
   display: inline-block;
   width: var(--line-no-width, 3ch);
   margin-right: 1.5ch;
+  padding: 0;
+  background: transparent;
+  border: none;
   text-align: right;
+  font: inherit;
   color: var(--color-zinc-600);
   user-select: none;
+  cursor: pointer;
+}
+
+._line-numbered ._line ._line-no-btn:hover,
+._highlighted-code :deep(.line ._line-no-btn:hover) {
+  color: var(--color-blue-400);
+  text-decoration: underline;
 }
 
 /* 折り返し時: 行番号を absolute で固定し、折り返し行が行番号の右側に揃うよう padding で確保 */
@@ -141,8 +181,8 @@ watch(
   min-height: 1lh;
 }
 
-._line-numbered._word-wrap ._line::before,
-._highlighted-code._word-wrap :deep(.line::before) {
+._line-numbered._word-wrap ._line ._line-no-btn,
+._highlighted-code._word-wrap :deep(.line ._line-no-btn) {
   position: absolute;
   left: 0;
   margin-right: 0;

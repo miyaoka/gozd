@@ -11,9 +11,14 @@ import {
  *
  * Linguist のデフォルト挙動 (= ASCII order での first-write-wins) を上書きしたい場合に
  * 列挙する。各エントリには「なぜ Linguist と違う選択をするか」を理由付きで残す。
- * 値が `undefined` を含む型なので、未定義 key の lookup は型上 `undefined` で返る。
+ *
+ * 値型は `BundledLanguage | null`:
+ *  - `BundledLanguage`: Linguist のマッピングを上書き
+ *  - `null`: Linguist 由来のマッピングを **除去** し、`detectLang` を `undefined` で返す
+ *    (= ハイライトしない / plain text fallback)。collision diagnostic で観察された
+ *    意図しないマッピングを明示的に黙らせる経路
  */
-const EXTENSION_OVERRIDES: Partial<Record<string, BundledLanguage>> = {
+const EXTENSION_OVERRIDES: Partial<Record<string, BundledLanguage | null>> = {
   // .m: Linguist は MATLAB を ASCII 順優先で `.m → matlab` に倒すが、gozd は MATLAB ファイルを
   // 扱わず、apps/native の Objective-C / C ブリッジが対象。
   m: "objective-c",
@@ -29,8 +34,8 @@ const EXTENSION_OVERRIDES: Partial<Record<string, BundledLanguage>> = {
   jsx: "jsx",
 };
 
-/** プロジェクト固有のファイル名 override (現在は無し) */
-const FILENAME_OVERRIDES: Partial<Record<string, BundledLanguage>> = {};
+/** プロジェクト固有のファイル名 override (現在は無し)。値型は EXTENSION_OVERRIDES と同形 */
+const FILENAME_OVERRIDES: Partial<Record<string, BundledLanguage | null>> = {};
 
 /** ファイル名から Shiki BundledLanguage を推定する。
  *
@@ -50,7 +55,9 @@ const FILENAME_OVERRIDES: Partial<Record<string, BundledLanguage>> = {};
 function detectLang(filePath: string): BundledLanguage | undefined {
   const fileName = filePath.split("/").pop() ?? "";
 
-  const filenameMatch = FILENAME_OVERRIDES[fileName] ?? LINGUIST_FILENAME_LANG_MAP[fileName];
+  const filenameOverride = FILENAME_OVERRIDES[fileName];
+  if (filenameOverride === null) return undefined; // 明示除去
+  const filenameMatch = filenameOverride ?? LINGUIST_FILENAME_LANG_MAP[fileName];
   if (filenameMatch !== undefined) return filenameMatch;
 
   const lastDot = fileName.lastIndexOf(".");
@@ -58,7 +65,9 @@ function detectLang(filePath: string): BundledLanguage | undefined {
   const lc = fileName.slice(lastDot + 1).toLowerCase();
   if (lc === "") return undefined;
 
-  return EXTENSION_OVERRIDES[lc] ?? LINGUIST_EXTENSION_LANG_MAP[lc];
+  const extOverride = EXTENSION_OVERRIDES[lc];
+  if (extOverride === null) return undefined; // 明示除去
+  return extOverride ?? LINGUIST_EXTENSION_LANG_MAP[lc];
 }
 
 /** コードをハイライトして HTML 文字列を返す。言語不明ならプレーンテキストを返す。

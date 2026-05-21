@@ -3,7 +3,7 @@
  * Shiki の `bundledLanguagesInfo` を交差させて、拡張子 / ファイル名 → Shiki BundledLanguage
  * の静的マップを生成する。
  *
- * 実行: bun packages/shiki-lang-map/scripts/generateExtensionLangMap.ts
+ * 実行: bun packages/shiki-lang-map/src/generateExtensionLangMap.ts
  * 設計詳細: packages/shiki-lang-map/README.md
  */
 
@@ -11,9 +11,10 @@ import fs from "node:fs";
 import path from "node:path";
 import type { BundledLanguage, BundledLanguageInfo } from "shiki";
 import { bundledLanguagesInfo } from "shiki";
+import type { Language } from "linguist-languages";
 import * as linguist from "linguist-languages";
 
-const SCRIPT_REL_PATH = "packages/shiki-lang-map/scripts/generateExtensionLangMap.ts";
+const SCRIPT_REL_PATH = "packages/shiki-lang-map/src/generateExtensionLangMap.ts";
 const OUTPUT_FILE = path.resolve(import.meta.dir, "../dist/extensionLangMap.generated.ts");
 
 /** Linguist name (lowercase) → Shiki id の **明示** マッピング。
@@ -46,20 +47,13 @@ for (const info of bundledLanguagesInfo as readonly BundledLanguageInfo[]) {
   for (const a of info.aliases ?? []) shikiAliases.add(a);
 }
 
-interface LinguistLang {
-  name: string;
-  extensions?: readonly string[];
-  filenames?: readonly string[];
-  aliases?: readonly string[];
-}
-
 /** Linguist language entry から Shiki BundledLanguage id を解決する。
  *
  * Linguist の `name` と Shiki の `id` は必ずしも一致しない (例: Linguist
  * `"Protocol Buffer"` ↔ Shiki `"proto"`)。Linguist 側の `aliases` も走査することで
  * 表記揺れを吸収する。
  */
-function resolveShikiId(lang: LinguistLang, usedExplicit: Set<string>): string | undefined {
+function resolveShikiId(lang: Language, usedExplicit: Set<string>): string | undefined {
   const name = lang.name.toLowerCase();
 
   // 1. 明示 alias table (一番強い)
@@ -109,6 +103,10 @@ interface Collision {
 /** key → Shiki id を first-write-wins で記録しつつ、別 Shiki id へ落ちる loser を
  * collision として捕集する書き込みヘルパ。`!` non-null assertion を使わずに Map の
  * 戻り値 union 型 (`Owner | undefined`) で narrow するため Map ベースで実装する。
+ *
+ * losers は (lang, shikiId) の組で重複排除する。Linguist 上で別 lang として登録される
+ * 言語が同一 ext を持ち、resolveShikiId で同じ Shiki id に解決されると、診断出力に
+ * 同 (lang, shikiId) loser が複数現れる構造的可能性があるため。
  */
 function pushAssignment(
   owners: Map<string, Owner>,
@@ -127,6 +125,10 @@ function pushAssignment(
     collisions.set(key, { key, winner: existing, losers: [candidate] });
     return;
   }
+  const duplicate = recorded.losers.some(
+    (l) => l.lang === candidate.lang && l.shikiId === candidate.shikiId,
+  );
+  if (duplicate) return;
   recorded.losers.push(candidate);
 }
 
@@ -136,8 +138,10 @@ const filenameOwners = new Map<string, Owner>();
 const filenameCollisions = new Map<string, Collision>();
 const usedExplicit = new Set<string>();
 
-const allLangs = Object.values(linguist) as readonly LinguistLang[];
-const sortedLangs = [...allLangs].sort((a, b) => a.name.localeCompare(b.name));
+const allLangs = Object.values(linguist) as readonly Language[];
+// ASCII strict 比較で固定。`localeCompare` は実行 locale 依存で、codegen の
+// 決定性 (README / commit message の「ASCII order」契約) と整合しないため避ける。
+const sortedLangs = [...allLangs].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 
 let matchedLangCount = 0;
 let unmatchedLangCount = 0;
@@ -170,13 +174,17 @@ for (const name of Object.keys(NAME_TO_SHIKI)) {
   if (!usedExplicit.has(name)) unusedExplicit.push(name);
 }
 
-// 出力: ASCII order でソート
+// 出力: ASCII strict 順 (locale 非依存)
+function asciiCompare(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 const extEntries = [...extOwners.entries()]
   .map(([key, owner]) => [key, owner.shikiId] as const)
-  .sort(([a], [b]) => a.localeCompare(b));
+  .sort(([a], [b]) => asciiCompare(a, b));
 const filenameEntries = [...filenameOwners.entries()]
   .map(([key, owner]) => [key, owner.shikiId] as const)
-  .sort(([a], [b]) => a.localeCompare(b));
+  .sort(([a], [b]) => asciiCompare(a, b));
 
 function fmtEntry([key, value]: readonly [string, string]): string {
   return `  ${JSON.stringify(key)}: ${JSON.stringify(value)},`;
@@ -219,7 +227,7 @@ function logCollisions(label: string, collisions: ReadonlyMap<string, Collision>
     `\nAmbiguous ${label}: ${collisions.size} ${label} collide across Shiki langs ` +
       `(first-write-wins by Linguist ASCII order). Override in consumer if intent differs:`,
   );
-  const sorted = [...collisions.values()].sort((a, b) => a.key.localeCompare(b.key));
+  const sorted = [...collisions.values()].sort((a, b) => asciiCompare(a.key, b.key));
   for (const c of sorted) {
     const losers = c.losers.map((l) => `${l.lang}=${l.shikiId}`).join(", ");
     console.log(`  ${c.key} → ${c.winner.shikiId} (${c.winner.lang}) [losers: ${losers}]`);

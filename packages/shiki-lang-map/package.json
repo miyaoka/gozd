@@ -7,10 +7,11 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "prepare": "bun scripts/generateExtensionLangMap.ts",
+    "prepare": "bun src/generateExtensionLangMap.ts",
     "typecheck": "tsgo --noEmit",
-    "lint": "oxlint --type-aware src/ scripts/",
-    "fix": "oxlint --type-aware --fix src/ scripts/ && oxfmt src/ scripts/"
+    "lint": "oxlint --type-aware src/",
+    "fix": "oxlint --type-aware --fix src/ && oxfmt src/",
+    "test": "bun test"
   },
   "peerDependencies": {
     "shiki": "^4.0.0"

@@ -9,6 +9,7 @@
  * upstream の dynamic import / TSImportType / barrel 判定変更で挙動が変わったら
  * このテストが落ちるよう、最小限の代表パターンだけを置く。
  */
+import path from "node:path";
 import barrelImportPlugin from "@miyaoka/eslint-plugin-barrel-import";
 import { describe, test } from "bun:test";
 import { RuleTester } from "eslint";
@@ -30,7 +31,10 @@ const SCOPES = {
   features: { directories: ["features"], dependsOn: ["shared"] },
 };
 
-const BASE = "/project/apps/renderer/src";
+// 実 lint 経路 (`apps/renderer/src/features/...`) と同じ絶対パスで fixture を組む。
+// 架空の `/project/...` パスでは CWD / symlink / 絶対パス前提などの絡みで起きる
+// false-negative を取りこぼす可能性があるため、リポジトリ実体に揃える。
+const BASE = path.resolve(import.meta.dirname, "..");
 
 tester.run("barrel-import (gozd scopes smoke)", rule, {
   valid: [

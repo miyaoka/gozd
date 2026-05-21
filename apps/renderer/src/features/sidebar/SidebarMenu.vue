@@ -40,13 +40,17 @@ type PopoverElement = HTMLElement & { showPopover(options?: ShowPopoverOptions):
 const menuRef = ref<PopoverElement>();
 const menuContext = computed(() => props.openState?.context);
 
+// アクション click / light-dismiss どちらも @toggle 経由で `close` emit に集約する。
+// 一方、新しい anchor に切り替えるための「自前 hide → show」経路では close emit を
+// 親に伝えると openState が clear されて showPopover 直後に content が空になるため、
+// この経路でのみ次の @toggle "closed" を skip する。
+let suppressNextCloseEmit = false;
+
 // openState がセットされた時点で popover を開く。
-// 閉じる経路は (a) アクション click → hidePopover (b) 外側 click による light-dismiss
-// のどちらも @toggle 経由で `close` emit に集約するため、ここでは show のみ。
-//
-// `showPopover` は popover-visibility-state が showing の状態で呼ぶと InvalidStateError を
-// throw する (Popover API spec)。通常は UA light-dismiss が先に走るため新 anchor 受信時には
-// すでに closed だが、その順序に依存せず保険として :popover-open を check する。
+// 既に open 中（keyboard / 外側 click 抑止などで light-dismiss が走らなかった
+// 場合の anchor 切り替え経路）は spec 上 showPopover を再度呼ぶと
+// InvalidStateError になるため、明示的に hidePopover → showPopover の順序で
+// anchor を付け替える。
 watch(
   () => props.openState,
   async (state) => {
@@ -54,7 +58,10 @@ watch(
     await nextTick();
     const el = menuRef.value;
     if (!el) return;
-    if (el.matches(":popover-open")) return;
+    if (el.matches(":popover-open")) {
+      suppressNextCloseEmit = true;
+      el.hidePopover();
+    }
     el.showPopover({ source: state.anchorEl });
   },
 );
@@ -69,9 +76,15 @@ function handleTaskRemove(task: Task, rootDir: string) {
   emit("taskRemove", task, rootDir);
 }
 
-// popover が閉じた瞬間に親へ通知 (light-dismiss / hidePopover どちらも経由する)
+// popover が閉じた瞬間に親へ通知 (light-dismiss / hidePopover どちらも経由する)。
+// 自前 hide → show の中間 hide は suppressNextCloseEmit で skip する。
 function onToggle(event: ToggleEvent) {
-  if (event.newState === "closed") emit("close");
+  if (event.newState !== "closed") return;
+  if (suppressNextCloseEmit) {
+    suppressNextCloseEmit = false;
+    return;
+  }
+  emit("close");
 }
 </script>
 

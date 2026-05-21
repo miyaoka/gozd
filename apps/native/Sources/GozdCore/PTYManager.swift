@@ -384,11 +384,21 @@ extension PTYError: CustomStringConvertible {
   /// strerror 出力（観察ログ品質）を諦めることになる。よって rc は信用せず
   /// buffer を返す。
   ///
-  /// ただし POSIX 文面の最悪ケース（rc != 0 時の buffer 中間に部分的ゴミ）に
-  /// 備え、buffer 内容が「印字可能 ASCII (0x20–0x7E) のみ」であることを構造的に
-  /// 検証する。観察ログに制御文字 / 非 ASCII バイトが漏れると Console.app の
-  /// 1 行性が崩れる / grep 経路が壊れるため、印字可能性を満たさない buffer は
-  /// 自前 fallback に倒す。NUL のみ（空 buffer）も同経路で fallback。
+  /// ただし POSIX 文面の最悪ケース（rc != 0 時の buffer 中間に部分的ゴミ）と
+  /// 観察ログの 1 行性に備え、buffer 内容に制御文字（0x00-0x1F / 0x7F）が含まれない
+  /// ことを構造的に検証する。
+  ///
+  /// 非 ASCII バイト（0x80-0xFF）は **許容する**: `strerror_r` は `LC_MESSAGES`
+  /// ロケール依存（POSIX 仕様）で、`LANG=ja_JP.UTF-8` 等の環境では valid errno に
+  /// 対しても multi-byte UTF-8 シーケンスが buffer に書かれる。これらは観察ログの
+  /// 1 行性を破壊しない（multi-byte の構成バイトは 0x80-0xFF で制御文字に重ならない）
+  /// ため信頼する。これで stderr の 1 行性と renderer に届く identifier 品質の双方を
+  /// 同時に満たせる。
+  ///
+  /// gate に倒れる条件:
+  ///   - buffer が空（NUL のみ）
+  ///   - buffer に制御文字（CR/LF/TAB/NUL 等の 0x00-0x1F、DEL 0x7F）が含まれる
+  /// 上記いずれかなら自前 fallback `"unknown errno N"` を返す。
   ///
   /// `PTYError` / `PTYExitReason` 両方の `description` から共有するため `internal`。
   static func errnoText(_ code: Int32) -> String {
@@ -399,14 +409,14 @@ extension PTYError: CustomStringConvertible {
     if slice.isEmpty {
       return "unknown errno \(code)"
     }
-    // 印字可能 ASCII (space 0x20 〜 tilde 0x7E) のみで構成されることを確認。
-    // 制御文字 (CR/LF/TAB 含む)、DEL (0x7F)、非 ASCII (0x80–0xFF) を含む buffer は
-    // 観察可能性を毀損するため信用しない。CChar (Int8) → UInt8 bitPattern で評価。
-    let isPrintableAscii = slice.allSatisfy { c in
+    // 制御文字 (0x00-0x1F, 0x7F) を含む buffer は観察ログの 1 行性を破壊するため
+    // 信用しない。CChar (Int8) を UInt8 bitPattern で評価。multi-byte UTF-8 の
+    // 構成バイト (0x80-0xFF) は許容して非英語 locale の strerror を保持する。
+    let hasControlChar = slice.contains { c in
       let u = UInt8(bitPattern: c)
-      return u >= 0x20 && u <= 0x7E
+      return u < 0x20 || u == 0x7F
     }
-    if !isPrintableAscii {
+    if hasControlChar {
       return "unknown errno \(code)"
     }
     return String(decoding: slice.lazy.map { UInt8(bitPattern: $0) }, as: UTF8.self)

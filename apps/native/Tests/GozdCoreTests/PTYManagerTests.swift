@@ -317,20 +317,21 @@ struct PTYManagerTests {
     }
   }
 
-  @Test("errnoText の strerror 出力部分は印字可能 ASCII / 非空 / 単一行 (SUT 単独不変条件)")
-  func errnoTextStrerrorOutputIsAsciiPrintableSingleLine() {
+  @Test("errnoText の strerror 出力は制御文字 / 改行を含まず非空 (SUT 単独不変条件)")
+  func errnoTextStrerrorOutputIsControlCharFreeAndNonEmpty() {
     // `ptyErrorDescriptionMatchesContractFormat` は SUT と同根の `expectedErrnoText`
     // mirror で完全一致を主張するため、SUT と mirror が同じバグを抱えると pass して
-    // しまう（reviewer 指摘 E）。これを補強するため、SUT 単独で観察可能な strerror
-    // 出力の最低限の品質を assert する。
+    // しまう。これを補強するため、SUT 単独で観察可能な strerror 出力の最低限の品質を
+    // assert する。
     //
     // mirror に依存せず、description 文字列から `errnoText` 出力部分を抽出して
     // 検証する。`errnoText` の出力品質契約:
     //   - 非空
-    //   - 印字可能 ASCII (0x20–0x7E) のみで構成される（SUT 側の防御と一致）
-    //   - 改行 / TAB / 制御文字を含まない
-    // 具体的な文字列内容（"Cannot allocate memory" 等）は macOS バージョン依存
-    // なので主張しない。あくまで「観察ログを壊さない品質」を fix する。
+    //   - 制御文字 (0x00-0x1F, 0x7F) を含まない（CR/LF/TAB/NUL/DEL すべて排除）
+    //   - 上記の帰結として単一行（CR/LF が含まれない）
+    // 具体的な文字列内容（"Cannot allocate memory" 等）や ASCII/非 ASCII の区別は
+    // macOS バージョン / locale 依存なので主張しない。あくまで「観察ログを壊さない
+    // 品質」を fix する。multi-byte UTF-8 (0x80-0xFF) は構造的に許容される。
     for code: Int32 in [ENOMEM, EAGAIN, ECHILD, EINTR, EFAULT, 0, -1, 9999] {
       let desc = PTYError.openptyFailed(errno: code).description
       // 形式: "PTYError.openptyFailed(errno=N <strerror>)" から <strerror> を抽出
@@ -341,9 +342,17 @@ struct PTYManagerTests {
       let strerrorEnd = desc.index(before: desc.endIndex)
       let strerrorText = desc[strerrorStart..<strerrorEnd]
       #expect(!strerrorText.isEmpty, "errno=\(code) produced empty strerror text")
+      // 改行を直接検査（単一行性の明示的 assertion）
+      #expect(!strerrorText.contains("\n"), "errno=\(code) contains LF: \(strerrorText.debugDescription)")
+      #expect(!strerrorText.contains("\r"), "errno=\(code) contains CR: \(strerrorText.debugDescription)")
+      // 全制御文字を unicodeScalars 経由で網羅検査
+      let hasControl = strerrorText.unicodeScalars.contains { scalar in
+        let v = scalar.value
+        return v < 0x20 || v == 0x7F
+      }
       #expect(
-        strerrorText.unicodeScalars.allSatisfy { $0.value >= 0x20 && $0.value <= 0x7E },
-        "errno=\(code) strerror text contains non-printable-ASCII: \(strerrorText.debugDescription)"
+        !hasControl,
+        "errno=\(code) strerror text contains control char: \(strerrorText.debugDescription)"
       )
     }
   }

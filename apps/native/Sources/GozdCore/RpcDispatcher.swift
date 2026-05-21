@@ -492,13 +492,8 @@ public actor RpcDispatcher {
       // 併記する。worktreePath は cwd と独立で、複数 worktree が並列に Claude を
       // 起動する gozd の primary use case で「どの worktree の spawn か」を識別する
       // ために必要（cwd はユーザーが任意に cd した path で worktree とは限らない）。
-      // path quoting は採用しない: 他の dispatcher stderr log（handleGitGithubIdentity,
-      // TaskStore, GitHubOps 等）も素埋め込みのまま運用されており、stderr log の書式は
-      // 「素埋め込み」を SSOT として揃える。`worktreePath` / `cwd` には git / 一般的な
-      // 開発フローで改行 / 制御文字を含むパスが入る現実的経路は無く、ここで quote 化
-      // する積極理由は乏しい。仮に必要になった場合はプロジェクト全体の stderr log 衛生
-      // ポリシーとして CLAUDE.md / docs/ に明文化した上で全箇所を統一する。
-      // 「次の PR で潰す」のような追跡されない先送りは避ける。
+      // stderr log の書式は CLAUDE.md「観察ログ (stderr) の書式」の SSOT に従い、
+      // 素埋め込みで書く（quote 化しない）。
       FileHandle.standardError.write(
         Data(
           "[handlePtySpawn] pty.spawn failed: \(error) executable=\(req.executable) cwd=\(req.dir) worktreePath=\(req.worktreePath)\n"

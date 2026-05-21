@@ -1,6 +1,11 @@
 /**
  * 通知ストア。module singleton パターン。
  * トースト通知の追加・削除・タイムアウト管理を行う。
+ *
+ * `error` / `info` は toast 表示 + console 出力、`debug` は **console.debug への
+ * 集約窓口**で toast 表示なし。renderer 規約 (CLAUDE.md エラーハンドリング) で
+ * 「呼び出し側で console を直書きしない (store 経由)」方針を満たすため、
+ * 切り分け用 log もこの store 経由で発火する。
  */
 import { ref } from "vue";
 
@@ -54,11 +59,22 @@ function dismiss(id: number) {
   notifications.value = notifications.value.filter((n) => n.id !== id);
 }
 
+/**
+ * 観測専用の log を出す。toast には載せず console.debug にだけ出力する。
+ * 「ユーザーには見せたくないが dev tools での切り分けには使いたい」用途
+ * (state machine の no-op 経路、低頻度の境界条件) を notification store 経由に
+ * 集約することで、CLAUDE.md「呼び出し側で console を直書きしない」規約と整合させる。
+ */
+function debug(message: string, payload?: unknown) {
+  console.debug(message, ...(payload !== undefined ? [payload] : []));
+}
+
 export function useNotificationStore() {
   return {
     notifications,
     error: (message: string, cause?: unknown) => add("error", message, cause),
     info: (message: string, cause?: unknown) => add("info", message, cause),
+    debug,
     dismiss,
   };
 }

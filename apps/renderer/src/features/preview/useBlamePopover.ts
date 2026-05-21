@@ -206,8 +206,9 @@ function closeIfActive(dir: string, relPath: string): void {
   }
   // 不一致 no-op: popover が他 owner / 他 file に対して開いている時のクロス呼び出し。
   // 期待される動作だが、「あれ popover 閉じないんだけど」の切り分けに使えるよう
-  // dev tools で観測できる形にしておく (notification は出さない — 正常運用でも起きる)。
-  console.debug("[useBlamePopover] closeIfActive no-op: context mismatch", {
+  // notification.debug 経由で dev tools に観測ログを出す (toast には載せない)。
+  // console を呼び出し側で直書きしない renderer 規約 (CLAUDE.md) に従う。
+  notification.debug("[useBlamePopover] closeIfActive no-op: context mismatch", {
     requested: { dir, relPath },
     active: { dir: ctx.dir, relPath: ctx.relPath },
   });

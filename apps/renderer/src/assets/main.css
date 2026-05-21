@@ -5,6 +5,11 @@ button {
   cursor: pointer;
 }
 
+/* Tailwind v4 preflight が `<dialog>` の margin: auto を意図的にリセットする (tailwindlabs/tailwindcss issue 16372) ため、UA 標準の中央配置を復元する */
+dialog {
+  margin: auto;
+}
+
 /* 細いオーバーレイスクロールバー */
 ::-webkit-scrollbar {
   width: 6px;

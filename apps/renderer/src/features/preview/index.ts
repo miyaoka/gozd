@@ -1,4 +1,4 @@
 export { default as BlamePopover } from "./BlamePopover.vue";
 export { default as PreviewPane } from "./PreviewPane.vue";
 export { previewFontFamily, previewFontSize } from "./previewConfig";
-;
+export { useMarkdownHistoryStore } from "./useMarkdownHistoryStore";

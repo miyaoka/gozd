@@ -20,6 +20,12 @@
   範囲選択時は `commits` 配列の index で時系列順に整列し（クリック順非依存）、older 側を Original、newer 側を Current に固定する
 - fsChange メッセージで選択中ファイルをリアクティブに再取得（uncommitted モードのみ）
 - バージョンカウンターで非同期レースを防止
+
+## ヘッダの back / forward ボタン
+
+Markdown preview の内部リンク履歴 (`useMarkdownHistoryStore`) を操作する矢印ボタン。
+履歴の有無で header の幅が揺れないよう常時描画し、`canGoBack` / `canGoForward` が false の側は
+`disabled` 属性 + `disabled:opacity-40` で見た目だけ落とす。
 </doc>
 
 <script setup lang="ts">
@@ -42,6 +48,7 @@ import MarkdownPreview from "./MarkdownPreview.vue";
 import { previewFontFamily, previewFontSize } from "./previewConfig";
 import { rpcGitShowCommitFile, rpcGitShowFile } from "./rpc";
 import { useBlamePopover } from "./useBlamePopover";
+import { useMarkdownHistoryStore } from "./useMarkdownHistoryStore";
 
 type PreviewMode = "current" | "diff" | "original";
 
@@ -87,6 +94,7 @@ const {
 } = storeToRefs(worktreeStore);
 const gitGraphStore = useGitGraphStore();
 const summaryStore = useChangesSummaryStore();
+const markdownHistory = useMarkdownHistoryStore();
 const notification = useNotificationStore();
 
 const currentContent = ref<string>();
@@ -687,6 +695,27 @@ watch(
   <div v-else class="flex h-full flex-col overflow-hidden">
     <!-- ヘッダー（常に表示） -->
     <div class="flex items-center gap-2 border-b border-zinc-700 px-3 py-2">
+      <!-- markdown preview 内部リンク履歴ナビ。履歴の有無でレイアウトが揺れないよう常時表示 -->
+      <button
+        type="button"
+        class="shrink-0 text-zinc-500 hover:text-zinc-300 disabled:cursor-default disabled:opacity-40 disabled:hover:text-zinc-500"
+        :disabled="!markdownHistory.canGoBack"
+        title="Go back"
+        aria-label="Go back"
+        @click="markdownHistory.goBack()"
+      >
+        <span class="icon-[lucide--arrow-left] size-4" />
+      </button>
+      <button
+        type="button"
+        class="shrink-0 text-zinc-500 hover:text-zinc-300 disabled:cursor-default disabled:opacity-40 disabled:hover:text-zinc-500"
+        :disabled="!markdownHistory.canGoForward"
+        title="Go forward"
+        aria-label="Go forward"
+        @click="markdownHistory.goForward()"
+      >
+        <span class="icon-[lucide--arrow-right] size-4" />
+      </button>
       <template v-if="selectedDisplayPath">
         <img :src="headerIconUrl" class="size-4 shrink-0" alt="" />
         <span class="truncate text-sm text-zinc-300" :title="selectedDisplayPath">{{

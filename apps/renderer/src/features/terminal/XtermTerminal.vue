@@ -105,9 +105,12 @@ watch(
   },
 );
 
-// focused prop が true になったら imperative に DOM focus を当てる。
-// immediate: true で mount 直後の初期 focused も拾う（split 直後の新規 leaf 対応）。
-// flush: "post" で DOM 更新後に実行し、nextTick で terminal 初期化（onMounted 内で行う）を待つ。
+// focused prop が true → false → true の遷移で imperative に DOM focus を当てる。
+// 初期 focused の取りこぼしは onMounted 内で `terminal.open(container)` 完了直後に
+// props.focused を見て自前で focus する。watch に immediate: true を付けると
+// async onMounted 内の `terminal = new Terminal(...)` 完了との順序保証が無く、
+// `nextTick` 待ちでも terminal が未初期化のまま `terminal?.focus()` が silent no-op に
+// 倒れる事故源になるため避ける。
 watch(
   () => props.focused,
   async (focused) => {
@@ -115,7 +118,7 @@ watch(
     await nextTick();
     terminal?.focus();
   },
-  { immediate: true, flush: "post" },
+  { flush: "post" },
 );
 
 onMounted(async () => {
@@ -214,6 +217,13 @@ onMounted(async () => {
   terminal.textarea?.addEventListener("blur", () => {
     emit("blur");
   });
+
+  // mount 時点で props.focused が立っていれば初回 focus を当てる。
+  // 以降の false→true 遷移は上位の watch で拾うが、初期値は
+  // `terminal` 初期化との順序保証が無いため watch に頼らず明示的に呼ぶ。
+  if (props.focused) {
+    terminal.focus();
+  }
 
   // Shift+Enter で Esc+CR を送信する（Claude Code が改行として認識するシーケンス）
   // keydown で送信、keypress で xterm のデフォルト改行を抑止、keyup は通過させる

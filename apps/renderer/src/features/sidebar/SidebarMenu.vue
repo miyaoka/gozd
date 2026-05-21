@@ -43,12 +43,19 @@ const menuContext = computed(() => props.openState?.context);
 // openState がセットされた時点で popover を開く。
 // 閉じる経路は (a) アクション click → hidePopover (b) 外側 click による light-dismiss
 // のどちらも @toggle 経由で `close` emit に集約するため、ここでは show のみ。
+//
+// `showPopover` は popover-visibility-state が showing の状態で呼ぶと InvalidStateError を
+// throw する (Popover API spec)。通常は UA light-dismiss が先に走るため新 anchor 受信時には
+// すでに closed だが、その順序に依存せず保険として :popover-open を check する。
 watch(
   () => props.openState,
   async (state) => {
     if (!state) return;
     await nextTick();
-    menuRef.value?.showPopover({ source: state.anchorEl });
+    const el = menuRef.value;
+    if (!el) return;
+    if (el.matches(":popover-open")) return;
+    el.showPopover({ source: state.anchorEl });
   },
 );
 

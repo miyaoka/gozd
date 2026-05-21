@@ -205,6 +205,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.12.4
+      '@typescript-eslint/parser':
+        specifier: 8.59.3
+        version: 8.59.3(eslint@10.4.0(jiti@2.7.0))(typescript@6.0.3)
       '@typescript/native-preview':
         specifier: 'catalog:'
         version: 7.0.0-dev.20260518.1

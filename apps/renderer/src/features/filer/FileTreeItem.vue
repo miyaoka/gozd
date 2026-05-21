@@ -11,7 +11,8 @@
 
 - `path === ""` を worktree 自体を指す値として扱う（Swift `relDir` SSOT と整合）。`isRootPath()` で 1 か所判定
 - ボタン非表示、初期 `expanded = true`、`onMounted` で `loadChildren()` を起動
-- ルートでは表示要素由来の computed（`textColorClass` / `effectiveGitChange` / `iconUrl`）を呼ばない
+- 表示要素由来の computed（`textColorClass` / `effectiveGitChange` / `iconUrl`）はテンプレートが `<button v-if="!isRoot">` でガードしているため、root では lazy 評価により実行されない。ルート専用の早期 return は持たない（v-if を唯一の防壁とする）
+- `depth` の意味は「自身のインデント階層」。root には FilerPane が sentinel `-1` を渡し、root 自身は描画されないので depth は使われない。子に渡す depth は通常通り `depth + 1` で、root 直下の子は `-1 + 1 = 0` から始まる
 
 ## レース対策
 
@@ -70,7 +71,11 @@ const props = defineProps<{
   gitChange?: GitChangeKind;
   /** git status マップ全体（ディレクトリの変更種別推論に使用） */
   gitStatuses: Record<string, string>;
-  /** 自身のインデント階層。子に渡す depth は `childDepth` computed で算出する */
+  /**
+   * 自身のインデント階層。worktree 不可視ルートには FilerPane が sentinel `-1` を渡す
+   * （root は描画されないので負値の paddingLeft は実体に到達しない）。
+   * 子は通常通り `depth + 1` を受け取る。root 直下は `-1 + 1 = 0` から始まる。
+   */
   depth: number;
   selectedRelPath?: string;
 }>();
@@ -98,11 +103,12 @@ const loading = ref(false);
  */
 let loadSeq = 0;
 
-/** ルート不可視ノードは表示要素を描画しないので、関連 computed は早期 return で無駄計算を避ける */
+// 以下の表示要素由来 computed はテンプレートの `<button v-if="!isRoot">` 配下でしか参照されない。
+// Vue の computed は lazy 評価のため、root では実体が走らない。早期 return ガードは持たない
+// （v-if が唯一の防壁）。
 
 /** gitStatuses マップからリアルタイムに変更種別を算出する */
 const effectiveGitChange = computed<GitChangeKind | undefined>(() => {
-  if (isRoot.value) return undefined;
   // 削除エントリ（打ち消し線）は親から渡された gitChange をそのまま使う
   if (props.gitChange === "deleted") return "deleted";
   if (props.isDirectory) {
@@ -112,7 +118,6 @@ const effectiveGitChange = computed<GitChangeKind | undefined>(() => {
 });
 
 const textColorClass = computed(() => {
-  if (isRoot.value) return "";
   if (effectiveGitChange.value) return GIT_CHANGE_COLOR_MAP[effectiveGitChange.value];
   if (props.isIgnored) return "text-zinc-500";
   if (props.selectedRelPath === props.path) return "text-white";
@@ -124,18 +129,11 @@ const isDeleted = computed(() => props.gitChange === "deleted");
 
 /** material-icon-theme のアイコン URL */
 const iconUrl = computed(() => {
-  if (isRoot.value) return "";
   if (props.isDirectory) {
     return getFolderIconUrl(props.name, expanded.value);
   }
   return getFileIconUrl(props.name);
 });
-
-/**
- * 子に渡す depth。ルート不可視ノードは描画されないので、ルートの直下を depth 0 から始める。
- * `depth` prop の意味を「自身のインデント階層」と一貫させるための変換を 1 か所に閉じる。
- */
-const childDepth = computed(() => (isRoot.value ? 0 : props.depth + 1));
 
 async function toggle() {
   if (!props.isDirectory) {
@@ -337,7 +335,7 @@ function onChildSelect(childPath: string) {
         :is-ignored="child.isIgnored"
         :git-change="child.gitChange"
         :git-statuses="gitStatuses"
-        :depth="childDepth"
+        :depth="depth + 1"
         :selected-rel-path="selectedRelPath"
         @select="onChildSelect"
       />

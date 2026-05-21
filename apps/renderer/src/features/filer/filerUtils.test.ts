@@ -104,7 +104,7 @@ describe("pathForNativeRpc", () => {
 });
 
 describe("isDescendantOf", () => {
-  test("root はあらゆる relPath の祖先扱い", () => {
+  test("root はあらゆる非ルート relPath の祖先扱い", () => {
     expect(isDescendantOf("src/foo.ts", "")).toBe(true);
     expect(isDescendantOf("a", "")).toBe(true);
   });
@@ -116,6 +116,10 @@ describe("isDescendantOf", () => {
 
   test("自分自身は配下扱いではない（厳密配下）", () => {
     expect(isDescendantOf("src", "src")).toBe(false);
+  });
+
+  test("root × root も厳密配下に従って自分自身扱い（false）", () => {
+    expect(isDescendantOf("", "")).toBe(false);
   });
 
   test("prefix のみ一致する別 dir は配下扱いではない（/foo が /foobar の prefix にならない）", () => {

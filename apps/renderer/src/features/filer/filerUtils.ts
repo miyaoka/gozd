@@ -87,11 +87,12 @@ function pathForNativeRpc(path: string): string {
 }
 
 /**
- * `targetPath` が `ancestorPath` の配下にあるか判定する。worktree ルート
- * （`ancestorPath === ""`）はあらゆる relPath の祖先扱い。
+ * `targetPath` が `ancestorPath` の **厳密配下** にあるか判定する（自分自身は配下扱いではない）。
+ * worktree ルート（`ancestorPath === ""`）はあらゆる非ルート relPath の祖先扱い。
+ * root × root のケースは「祖先 != 自分自身」の規律に従って false を返す。
  */
 function isDescendantOf(targetPath: string, ancestorPath: string): boolean {
-  if (isRootPath(ancestorPath)) return true;
+  if (isRootPath(ancestorPath)) return !isRootPath(targetPath);
   return targetPath.startsWith(ancestorPath + "/");
 }
 

@@ -245,6 +245,12 @@ export const useRepoStore = defineStore("repo", () => {
    * dir に該当する worktree が見つからなければ no-op。
    * 書き込み毎に per-dir 世代を進め、in-flight な loadGitStatus / fetchRepo の
    * 古いレスポンスがこの値を上書きできないようにする。
+   *
+   * **不変条件**: 呼び出しごとに `worktree` と上位 `repo` を新規オブジェクトに置き換える
+   * （shallow copy）。`useGitStatusStore.gitStatuses` computed の reference 同一性を変化させ、
+   * FilerPane の `watch(gitStatuses)` を確実に発火させるための SSOT。「同じ statuses なら
+   * no-op で skip する」最適化を入れる場合は、watch 側を reference ベースから書き込み
+   * version ref ベースに切り替える必要がある。
    */
   function setWorktreeGitStatuses(dir: string, patch: WorktreeStatusPatch) {
     const repo = findRepoOwning(dir);

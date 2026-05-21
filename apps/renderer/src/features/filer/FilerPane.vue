@@ -47,6 +47,12 @@ function handleFsChange(eventDir: string, relDir: string) {
 // dir 切替時にも computed の値は変わるが、ルート FileTreeItem は `:key="dir"` で
 // 再マウントされるため、世代カウンタによる race ガード（FileTreeItem.loadChildren）と
 // 重複しても挙動は最終的に整合する。
+//
+// 暗黙契約: `useRepoStore.setWorktreeGitStatuses` が呼ばれるたびに worktree object と
+// gitStatuses の reference を新規生成すること。両 push / 初回 RPC ともに deserialize 由来の
+// 新規オブジェクトを渡すので reference 同一性は保たれる。同 reference を渡す最適化が将来
+// 入る場合は、shared 層で書き込み version ref を持たせて filer がそれを watch する経路に
+// 切り替える必要がある。
 watch(gitStatuses, () => {
   filerEventStore.emitGitStatusChange();
 });
@@ -74,7 +80,7 @@ onUnmounted(() => {
         :is-directory="true"
         :is-ignored="false"
         :git-statuses="gitStatuses"
-        :depth="0"
+        :depth="-1"
         :selected-rel-path="selectedRelPath"
         @select="onSelect"
       />

@@ -204,5 +204,21 @@ describe("findAbsolutePathMatches", () => {
       );
       expect(matches[0]?.selectPath).toBe("/Users/me/elsewhere/x.ts");
     });
+
+    test("`[/path]` のような bracket 始まりも boundary が立って検出される", () => {
+      // `[` は word char ではないため boundary 成立
+      const matches = findAbsolutePathMatches("[/Users/me/elsewhere/foo.ts]", dirPrefix, homeDir);
+      expect(matches[0]?.selectPath).toBe("/Users/me/elsewhere/foo.ts");
+    });
+
+    test("`{/path}` のような curly 始まりも検出される", () => {
+      const matches = findAbsolutePathMatches("{/Users/me/elsewhere/foo.ts}", dirPrefix, homeDir);
+      expect(matches[0]?.selectPath).toBe("/Users/me/elsewhere/foo.ts");
+    });
+
+    test("`</path>` のような angle bracket 始まりも検出される", () => {
+      const matches = findAbsolutePathMatches("</Users/me/elsewhere/foo.ts>", dirPrefix, homeDir);
+      expect(matches[0]?.selectPath).toBe("/Users/me/elsewhere/foo.ts");
+    });
   });
 });

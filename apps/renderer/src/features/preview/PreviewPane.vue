@@ -438,7 +438,10 @@ watch(
     }
 
     const isCommitMode = selectedHash !== UNCOMMITTED_HASH || compareHash !== null;
-    if (isCommitMode) {
+    // 絶対パス（worktree 外）は git 履歴を持たず rpcFsReadFile は worktree 境界外で
+    // FSError.outsideDir を返すため、commit mode 中でも fsReadFileAbsolute 経路に倒す。
+    const isAbsolute = path.startsWith("/");
+    if (isCommitMode && !isAbsolute) {
       await fetchCommitContent(path);
     } else {
       activeMode.value = defaultMode(gitChange);

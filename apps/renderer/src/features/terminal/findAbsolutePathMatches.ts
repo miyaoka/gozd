@@ -6,10 +6,16 @@ const PATH_TERMINATORS = /[\s()}\]>'",:;]/;
 /** パスの直後に `:行番号` が続くかを検出する正規表現 */
 const LINE_NUMBER_SUFFIX = /^:(\d+)/;
 
+/** path 内に出現しない区切り側の文字。word char 否定で書くことで、
+ *  `[`、`{`、`<`、`(`、`'`、`"` のような括弧/引用符類が boundary として認められる。
+ *  PATH_TERMINATORS（パス末尾の切れ目）とは責務が違う: あちらは「path 内に登場しない」が中心、
+ *  こちらは「直前にあれば token 境界が立つ」が中心。 */
+const WORD_CHAR = /[A-Za-z0-9_]/;
+
 /** prefix が単語境界の直後で始まっているか（URL の path 部分のような連続 token 内では拾わない） */
 function hasBoundaryBefore(text: string, idx: number): boolean {
   if (idx === 0) return true;
-  return PATH_TERMINATORS.test(text[idx - 1]!);
+  return !WORD_CHAR.test(text[idx - 1]!);
 }
 
 /** boundary が立っている prefix の出現位置を search start から探す */

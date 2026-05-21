@@ -108,51 +108,65 @@ function resolveMarkdownLink({
   // 「normalized が basePath の dir prefix で始まる」ことを唯一の通過条件にする。これにより
   // `/etc/passwd` のような system path への直接 jump と、`../../etc/passwd` のような相対 traversal、
   // および `/Users/<user>/.ssh/id_rsa` のような sibling 領域参照を一律 invalid に倒す。
-  // 「同じドキュメントツリー」までを信頼するか「同じ dir」までで止めるかは設計判断で、
-  // markdown 内 link の信頼境界をできるだけ狭く取る方針を選択した。
-  const isAbsoluteBase = basePath !== undefined && basePath.startsWith("/");
-
-  // 絶対 basePath 用に親 dir を導出する。relDirOf は worktree 相対パス契約のため絶対パスに
-  // 流用すると `/foo.md` で空文字を返し信頼境界が破綻する。root 直下のファイル
-  // (lastIndexOf("/") === 0) では baseDir を "/" で表現する。
-  const absoluteBaseDir = (path: string): string => {
-    const lastSlash = path.lastIndexOf("/");
-    return lastSlash <= 0 ? "/" : path.substring(0, lastSlash);
-  };
-
-  // `/` 始まり:
-  // - 相対 basePath: worktree root 相対として `/` を剥がす
-  // - 絶対 basePath: そのまま絶対パス（後で basePath dir 内チェックで絞り込む）
-  let combined: string;
-  if (decodedPath.startsWith("/")) {
-    combined = isAbsoluteBase ? decodedPath : decodedPath.substring(1);
-  } else if (isAbsoluteBase) {
-    const baseDir = absoluteBaseDir(basePath!);
-    combined = baseDir === "/" ? `/${decodedPath}` : `${baseDir}/${decodedPath}`;
-  } else {
-    const dir = basePath === undefined ? "" : relDirOf(basePath);
-    combined = dir === "" ? decodedPath : `${dir}/${decodedPath}`;
+  // 絶対 basePath の処理は別関数に分離し、control flow narrowing で basePath: string が効くため
+  // non-null assertion (`!`) を使わない構造にする。
+  if (basePath !== undefined && basePath.startsWith("/")) {
+    return resolveWithAbsoluteBase(basePath, decodedPath, rawFragment, href, normalizePath);
   }
+
+  // 相対 basePath 経路（active worktree 内のファイルを起点とする従来挙動）
+  // `/` 始まり: worktree root 相対として `/` を剥がす / それ以外: basePath dir 相対
+  const dir = basePath === undefined ? "" : relDirOf(basePath);
+  const combined = decodedPath.startsWith("/")
+    ? decodedPath.substring(1)
+    : dir === ""
+      ? decodedPath
+      : `${dir}/${decodedPath}`;
 
   const normalized = normalizePath(combined);
 
-  if (isAbsoluteBase) {
-    const baseDir = absoluteBaseDir(basePath!);
-    const isAllowed =
-      baseDir === "/"
-        ? // root 直下: `/<name>` (slash が 1 つだけ) のみ許可。`/etc/passwd` は invalid。
-          normalized.startsWith("/") && normalized.length > 1 && normalized.indexOf("/", 1) === -1
-        : // 通常: baseDir 配下のみ許可（baseDir 自身への参照は不可）
-          normalized.startsWith(`${baseDir}/`);
-
-    if (!isAllowed) {
-      return {
-        kind: "invalid",
-        reason: `Link target is outside the source file directory: ${href}`,
-      };
-    }
-  } else if (escapesWorktree(normalized)) {
+  if (escapesWorktree(normalized)) {
     return { kind: "invalid", reason: `Link target is outside the worktree: ${href}` };
+  }
+
+  const { lineNumber, droppedAnchor } = parseAnchor(rawFragment);
+  return { kind: "internal", path: normalized, lineNumber, droppedAnchor };
+}
+
+/**
+ * 絶対 basePath 起点の link 解決。relDirOf は worktree 相対契約のため絶対パスでは使わず、
+ * 内部で親 dir を抽出する。root 直下のファイル (lastIndexOf("/") === 0) では baseDir を "/" で表現する。
+ */
+function resolveWithAbsoluteBase(
+  basePath: string,
+  decodedPath: string,
+  rawFragment: string,
+  href: string,
+  normalizePath: (path: string) => string,
+): ResolvedLink {
+  const lastSlash = basePath.lastIndexOf("/");
+  const baseDir = lastSlash <= 0 ? "/" : basePath.substring(0, lastSlash);
+
+  const combined = decodedPath.startsWith("/")
+    ? decodedPath
+    : baseDir === "/"
+      ? `/${decodedPath}`
+      : `${baseDir}/${decodedPath}`;
+
+  const normalized = normalizePath(combined);
+
+  const isAllowed =
+    baseDir === "/"
+      ? // root 直下: `/<name>` (slash が 1 つだけ) のみ許可。`/etc/passwd` は invalid。
+        normalized.startsWith("/") && normalized.length > 1 && normalized.indexOf("/", 1) === -1
+      : // 通常: baseDir 配下のみ許可（baseDir 自身への参照は不可）
+        normalized.startsWith(`${baseDir}/`);
+
+  if (!isAllowed) {
+    return {
+      kind: "invalid",
+      reason: `Link target is outside the source file directory: ${href}`,
+    };
   }
 
   const { lineNumber, droppedAnchor } = parseAnchor(rawFragment);

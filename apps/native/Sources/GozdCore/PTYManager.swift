@@ -376,20 +376,40 @@ extension PTYError: CustomStringConvertible {
   ///
   /// rc 値は捨てる。POSIX 文面では `rc != 0` 時の buffer 内容は未定義だが、
   /// macOS Darwin / Linux glibc 双方の実機では invalid errno でも buffer に
-  /// "Unknown error: N" / "Undefined error: N" 相当の readable な文字列を書く。
+  /// "Unknown error: N" / "Undefined error: N" 相当の readable な文字列を書く
+  /// （Darwin manpage strerror_r(3): "If the error number is not recognized,
+  /// these functions return EINVAL ... The strerror_r() function ... copies an
+  /// error message string into the buffer ..." — EINVAL でも buffer は埋まる）。
   /// rc != 0 を理由に buffer を捨てて自前 fallback 文字列に倒すと、本物の
   /// strerror 出力（観察ログ品質）を諦めることになる。よって rc は信用せず
-  /// buffer を返し、空 buffer（NUL のみ）のときだけ自前 fallback に倒す。
+  /// buffer を返す。
+  ///
+  /// ただし POSIX 文面の最悪ケース（rc != 0 時の buffer 中間に部分的ゴミ）に
+  /// 備え、buffer 内容が「印字可能 ASCII (0x20–0x7E) のみ」であることを構造的に
+  /// 検証する。観察ログに制御文字 / 非 ASCII バイトが漏れると Console.app の
+  /// 1 行性が崩れる / grep 経路が壊れるため、印字可能性を満たさない buffer は
+  /// 自前 fallback に倒す。NUL のみ（空 buffer）も同経路で fallback。
   ///
   /// `PTYError` / `PTYExitReason` 両方の `description` から共有するため `internal`。
   static func errnoText(_ code: Int32) -> String {
     var buf = [CChar](repeating: 0, count: 256)
     _ = strerror_r(code, &buf, buf.count)
     let nul = buf.firstIndex(of: 0) ?? buf.endIndex
-    if nul == buf.startIndex {
+    let slice = buf[..<nul]
+    if slice.isEmpty {
       return "unknown errno \(code)"
     }
-    return String(decoding: buf[..<nul].lazy.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+    // 印字可能 ASCII (space 0x20 〜 tilde 0x7E) のみで構成されることを確認。
+    // 制御文字 (CR/LF/TAB 含む)、DEL (0x7F)、非 ASCII (0x80–0xFF) を含む buffer は
+    // 観察可能性を毀損するため信用しない。CChar (Int8) → UInt8 bitPattern で評価。
+    let isPrintableAscii = slice.allSatisfy { c in
+      let u = UInt8(bitPattern: c)
+      return u >= 0x20 && u <= 0x7E
+    }
+    if !isPrintableAscii {
+      return "unknown errno \(code)"
+    }
+    return String(decoding: slice.lazy.map { UInt8(bitPattern: $0) }, as: UTF8.self)
   }
 }
 

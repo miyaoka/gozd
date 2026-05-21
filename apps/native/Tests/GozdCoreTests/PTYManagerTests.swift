@@ -300,7 +300,12 @@ struct PTYManagerTests {
     // 完全一致が必要な valid errno 3 case (`ptyErrorDescriptionMatchesContractFormat`)
     // とは責務を分ける: 完全一致は SSOT mirror で組み立てた expected と等価性を主張、
     // 本 test は OS 実装差を吸収する形式契約。
-    for code: Int32 in [9999, 0, -1] {
+    // Int32 の真の境界 (max / min) も含む。`PTYError.openptyFailed(errno:)` 等の
+    // associated value は `Int32` で受けるため構造的に渡せる入力域全体を境界として
+    // 扱う。`strerror_r` の第 1 引数 (`int` = `Int32`) は POSIX 文面では errno 値域
+    // 外のときに EINVAL を返すが、これは指摘 A の printable-ASCII チェック経路で
+    // safely fallback に倒れる契約。
+    for code: Int32 in [Int32.max, Int32.min, 9999, 0, -1] {
       let openpty = PTYError.openptyFailed(errno: code)
       #expect(openpty.description.hasPrefix("PTYError.openptyFailed(errno=\(code) "))
       #expect(openpty.description.hasSuffix(")"))
@@ -309,6 +314,37 @@ struct PTYManagerTests {
       let waitFail = PTYExitReason.waitpidFailed(errno: code)
       #expect(waitFail.description.hasPrefix("PTYExitReason.waitpidFailed(errno=\(code) "))
       #expect(waitFail.description.hasSuffix(")"))
+    }
+  }
+
+  @Test("errnoText の strerror 出力部分は印字可能 ASCII / 非空 / 単一行 (SUT 単独不変条件)")
+  func errnoTextStrerrorOutputIsAsciiPrintableSingleLine() {
+    // `ptyErrorDescriptionMatchesContractFormat` は SUT と同根の `expectedErrnoText`
+    // mirror で完全一致を主張するため、SUT と mirror が同じバグを抱えると pass して
+    // しまう（reviewer 指摘 E）。これを補強するため、SUT 単独で観察可能な strerror
+    // 出力の最低限の品質を assert する。
+    //
+    // mirror に依存せず、description 文字列から `errnoText` 出力部分を抽出して
+    // 検証する。`errnoText` の出力品質契約:
+    //   - 非空
+    //   - 印字可能 ASCII (0x20–0x7E) のみで構成される（SUT 側の防御と一致）
+    //   - 改行 / TAB / 制御文字を含まない
+    // 具体的な文字列内容（"Cannot allocate memory" 等）は macOS バージョン依存
+    // なので主張しない。あくまで「観察ログを壊さない品質」を fix する。
+    for code: Int32 in [ENOMEM, EAGAIN, ECHILD, EINTR, EFAULT, 0, -1, 9999] {
+      let desc = PTYError.openptyFailed(errno: code).description
+      // 形式: "PTYError.openptyFailed(errno=N <strerror>)" から <strerror> を抽出
+      let prefix = "PTYError.openptyFailed(errno=\(code) "
+      #expect(desc.hasPrefix(prefix))
+      #expect(desc.hasSuffix(")"))
+      let strerrorStart = desc.index(desc.startIndex, offsetBy: prefix.count)
+      let strerrorEnd = desc.index(before: desc.endIndex)
+      let strerrorText = desc[strerrorStart..<strerrorEnd]
+      #expect(!strerrorText.isEmpty, "errno=\(code) produced empty strerror text")
+      #expect(
+        strerrorText.unicodeScalars.allSatisfy { $0.value >= 0x20 && $0.value <= 0x7E },
+        "errno=\(code) strerror text contains non-printable-ASCII: \(strerrorText.debugDescription)"
+      )
     }
   }
 }
@@ -331,8 +367,14 @@ struct PTYManagerTests {
 /// イディオムを使うこと自体が形式契約の test 対象になっている。SUT 側
 /// `errnoText` のイディオムを変える時は本 helper も同時に同期更新する。
 ///
-/// boundary errno (9999 / 0 / -1) に対する OS 実装差吸収は別 test
-/// (`errnoTextHandlesBoundaryErrnoSafely`) で prefix/suffix の不変条件のみを
+/// 限界: 本 helper と SUT が同じイディオムで実装されているため、両者に同じバグが
+/// 入った場合 (例: UTF-8 解釈ミス、buffer サイズ不足、bitPattern reinterpret 誤り)
+/// この test 経路では検出できない。この相互救済を断つため、SUT 単独の strerror 出力
+/// 品質 test (`errnoTextStrerrorOutputIsAsciiPrintableSingleLine`) を別途置き、
+/// mirror に依存しない不変条件（印字可能 ASCII / 非空 / 単一行）も assert している。
+///
+/// boundary errno (Int32.max / Int32.min / 9999 / 0 / -1) に対する OS 実装差吸収は
+/// 別 test (`errnoTextHandlesBoundaryErrnoSafely`) で prefix/suffix の不変条件のみを
 /// 主張する形に分離している。本 helper は boundary 経路では呼ばれない。
 private func expectedErrnoText(_ code: Int32) -> String {
   var buf = [CChar](repeating: 0, count: 256)

@@ -626,9 +626,15 @@ public enum GitOps {
   ///
   /// `--incremental` を使わない理由: 1 行 RPC 用途では出力は数行で、`--porcelain` の方が
   /// すべてのメタ行が必ず付随する保証があり parse 規約が簡単。
+  ///
+  /// 大ファイル保護: blame は出力が 1 行でも対象ファイル全体を walk するため、
+  /// `pnpm-lock.yaml` 級 (数 MB) のファイルでブロックする。`git cat-file -s` で
+  /// blob サイズを先に測り `BLAME_MAX_BLOB_BYTES` を超えたら `commandFailed` 互換で reject。
   public static func blameLine(dir: String, relPath: String, rev: String, line: UInt32)
     async throws -> BlameLineInfo
   {
+    try validateRev(rev)
+    try await ensureBlameableSize(dir: dir, rev: rev, relPath: relPath)
     var args = ["blame", "--porcelain", "-L", "\(line),\(line)"]
     if !rev.isEmpty { args.append(rev) }
     args.append("--")
@@ -644,9 +650,12 @@ public enum GitOps {
     var summary = ""
     var headerSeen = false
     for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
-      let s = String(rawLine)
-      if s.hasPrefix("\t") {
+      // CRLF 等の trailing whitespace で `Int64(...)` parse が失敗して
+      // authorTime が 0 に倒れるのを防ぐため trim する。
+      let s = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+      if rawLine.first == "\t" {
         // ソース行本体。--porcelain は 1 回だけ出力する。以降のメタ行はないので break。
+        // trim 前の文字を見ないと先頭タブが落ちて誤判定する。
         break
       }
       if !headerSeen {
@@ -697,9 +706,18 @@ public enum GitOps {
   ///
   /// `--no-patch` で diff 本体を抑制し、custom `--format` で commit metadata のみ取り出す。
   /// 既存 `log` と同じ %x1f / %x1e 区切りに揃えて parse ロジックを共有する。
+  ///
+  /// path に `:` を含む場合は `-L<n>,<n>:<path>` の syntax が壊れるため reject。
+  /// rev は `validateRev` で `-` 始まり等の option 注入を弾く。
   public static func logLine(
     dir: String, relPath: String, rev: String, line: UInt32, maxCount: UInt32
   ) async throws -> [CommitInfo] {
+    try validateRev(rev)
+    if relPath.contains(":") {
+      // git log -L の `-L<n>,<n>:<path>` は `:` を separator として使うため、
+      // path に `:` を含むと正しく parse されない。仕様上の制約のため明示 reject。
+      throw GitError.unexpectedOutput("git log -L: path contains ':', which is unsupported")
+    }
     let format = "%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e"
     var args = [
       "log",
@@ -730,6 +748,72 @@ public enum GitOps {
           message: parts[5], body: parts[6], refs: refs))
     }
     return commits
+  }
+}
+
+/// blame 対象ファイルのサイズ上限。これを超えると blame は秒オーダーでブロックするため
+/// 早期に reject する。閾値は GitHub の blame UI のハード上限と同等の目安。
+private let BLAME_MAX_BLOB_BYTES = 2 * 1024 * 1024
+
+/// `rev` 文字列を `git` 引数として安全に渡せるか検証する。
+///
+/// 許可: 空文字 / "HEAD" / 7-64 文字の hex hash / 末尾に "^" / "~N" が連続する revision 表記。
+/// `-` 始まりや空白を含む値が来ると `git` が option として解釈し option 注入になりうるため reject。
+/// 厳密に full git revision syntax を再現するわけではなく、本 RPC が想定する rev 計算経路
+/// (`""` / `"HEAD"` / `<hash>` / `<hash>^` / `<hash>~N`) に限定する。
+private func validateRev(_ rev: String) throws {
+  if rev.isEmpty { return }
+  if rev == "HEAD" { return }
+  let allowed: Set<Character> = Set("0123456789abcdefABCDEF^~")
+  guard let first = rev.first else { return }
+  // `-` 始まりは絶対禁止 (option 解釈の余地)。
+  if first == "-" {
+    throw GitError.unexpectedOutput("git rev validation: leading '-' is not allowed: \(rev)")
+  }
+  // 先頭は 16 進数のいずれかでなければならない。HEAD 等の名前付き ref は本 RPC では使わない契約。
+  let hexChars: Set<Character> = Set("0123456789abcdefABCDEF")
+  guard hexChars.contains(first) else {
+    throw GitError.unexpectedOutput("git rev validation: must start with hex digit: \(rev)")
+  }
+  for c in rev {
+    if !allowed.contains(c) {
+      throw GitError.unexpectedOutput("git rev validation: invalid character in rev: \(rev)")
+    }
+  }
+  // 数字も含むため digit-only な短い列を hash と誤認することがあるが、
+  // git 自身が revision parse で reject するので 2 重にチェックしない。
+}
+
+/// blame 実行前にファイルサイズが上限以下かを確認する。
+/// rev 指定時は `git cat-file -s <rev>:<relPath>`、working tree (rev="") なら fs stat。
+private func ensureBlameableSize(dir: String, rev: String, relPath: String) async throws {
+  let bytes: Int
+  if rev.isEmpty {
+    // working tree。Path を URL で組み立てて `FileManager.attributesOfItem` で読む。
+    let fileURL = URL(fileURLWithPath: dir, isDirectory: true)
+      .appendingPathComponent(relPath, isDirectory: false)
+    do {
+      let attrs = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+      bytes = (attrs[.size] as? Int) ?? 0
+    } catch {
+      // size が取れないなら blame に進ませる (file not found 等は blame 経路で表面化)。
+      return
+    }
+  } else {
+    do {
+      let stdout = try await runGit(
+        args: ["cat-file", "-s", "\(rev):\(relPath)"], cwd: dir)
+      let s = String(decoding: stdout, as: UTF8.self).trimmingCharacters(
+        in: .whitespacesAndNewlines)
+      bytes = Int(s) ?? 0
+    } catch {
+      // rev:path が解決できない (root commit の ^ 等) は blame 側で notFound 経路に倒れる。
+      return
+    }
+  }
+  if bytes > BLAME_MAX_BLOB_BYTES {
+    throw GitError.unexpectedOutput(
+      "git blame: file too large (\(bytes) bytes > \(BLAME_MAX_BLOB_BYTES))")
   }
 }
 

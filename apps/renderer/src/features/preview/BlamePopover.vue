@@ -1,29 +1,19 @@
 <doc lang="md">
-行番号クリックで開く blame popover。
+行番号クリックで開く blame / history popover。
 
-`openPopover(anchorEl, ctx)` で SidebarMenu と同じく Popover API の implicit anchor を
-使って行番号要素の右下に出す。`popover="auto"` で Esc / 外クリックの dismiss は
-ブラウザに委譲する。
+開閉とデータ取得は `useBlamePopover` (module singleton) が SSOT。
+このコンポーネントは state を購読して描画するだけで、`open()` の呼び出し元は
+PreviewPane / ChangesSummaryItem 等の親側。
 
-## 2 ステート
-
-- `blame` (初期): クリックされた 1 行の blame 結果を表示。`source_line` を起点に
-  history を取りに行ける
-- `history`: `git log -L<line>,<line>:<file>` 相当の commit 一覧を表示。
-  クリックで git-graph store の `select(hash)` を呼んで popover を閉じる
-
-`source_line` を起点にするのは blame が「現在の表示行 → 元 commit の行番号」を
-返してくれるため。表示中ファイル (working tree / 任意 rev) で行が後から挿入された
-影響を吸収して、history walk が中断されないようにする。
+Popover API (`popover="auto"`) の Esc / 外クリック dismiss を `@toggle` で
+受けて composable の `close()` に同期させ、anchorEl の付け替えは
+`openVersion` の watcher 経由で `showPopover({ source })` を呼ぶ。
 </doc>
 
 <script setup lang="ts">
-import type { GitBlameCommit, GitCommit } from "@gozd/proto";
-import { tryCatch } from "@gozd/shared";
-import { nextTick, ref } from "vue";
-import { useNotificationStore } from "../../shared/notification";
+import { nextTick, ref, watch } from "vue";
 import { useGitGraphStore } from "../git-graph";
-import { rpcGitBlameLine, rpcGitLogLine } from "./rpc";
+import { useBlamePopover } from "./useBlamePopover";
 
 /**
  * Popover API の `showPopover({ source })` 引数。lib.dom.d.ts に未取り込みなので
@@ -32,124 +22,47 @@ import { rpcGitBlameLine, rpcGitLogLine } from "./rpc";
 type ShowPopoverOptions = { source?: HTMLElement };
 type PopoverElement = HTMLElement & { showPopover(options?: ShowPopoverOptions): void };
 
-type PopoverContext = {
-  dir: string;
-  relPath: string;
-  /** "" = working tree, "HEAD" / <hash> / "<hash>^" など */
-  rev: string;
-  /** 1-based、表示中のテキスト上の行番号 */
-  line: number;
-  /** Original / Current などモード表記。header の補助情報として表示する */
-  modeLabel: string;
-};
+const popoverRef = ref<PopoverElement>();
 
-type ViewMode = "blame" | "history";
-
-type BlameState =
-  | { kind: "loading" }
-  | { kind: "ready"; commit: GitBlameCommit }
-  | { kind: "error"; message: string };
-
-type HistoryState =
-  | { kind: "loading" }
-  | { kind: "ready"; commits: GitCommit[] }
-  | { kind: "error"; message: string };
-
-const notification = useNotificationStore();
+const { context, anchorEl, openVersion, viewMode, blameState, historyState, close, setViewMode } =
+  useBlamePopover();
 const gitGraphStore = useGitGraphStore();
 
-const popoverRef = ref<PopoverElement>();
-const context = ref<PopoverContext>();
-const viewMode = ref<ViewMode>("blame");
-const blameState = ref<BlameState>({ kind: "loading" });
-const historyState = ref<HistoryState>({ kind: "loading" });
-
-/** 重複 RPC 抑止。新規 open のたびにインクリメントし、await 復帰時に変わっていたら破棄 */
-let loadVersion = 0;
-
-const HISTORY_MAX = 100;
-
-/** popover を anchorEl の下に表示し、blame を fetch する */
-async function openPopover(anchorEl: HTMLElement, ctx: PopoverContext): Promise<void> {
-  context.value = ctx;
-  viewMode.value = "blame";
-  blameState.value = { kind: "loading" };
-  historyState.value = { kind: "loading" };
-  const version = ++loadVersion;
+/**
+ * open のたびにインクリメントされる `openVersion` を見て、ブラウザに
+ * `showPopover({ source })` を発火させる。同じ anchor で再 open しても version が
+ * 変わるので確実にイベントが届く。
+ */
+watch(openVersion, async (v) => {
+  if (v === 0) return;
+  const el = anchorEl.value;
+  if (el === undefined) return;
   await nextTick();
-  popoverRef.value?.showPopover({ source: anchorEl });
+  popoverRef.value?.showPopover({ source: el });
+});
 
-  const result = await tryCatch(
-    rpcGitBlameLine({ dir: ctx.dir, relPath: ctx.relPath, rev: ctx.rev, line: ctx.line }),
-  );
-  if (version !== loadVersion) return;
-  if (!result.ok) {
-    blameState.value = { kind: "error", message: result.error.message };
-    notification.error("Failed to blame line", result.error);
-    return;
+/**
+ * Popover API は Esc / 外クリック / 親 popover の close 連動で勝手に閉じうる。
+ * その際は composable 側の state も同期して clear する (進行中 RPC を破棄)。
+ */
+function onToggle(event: Event): void {
+  if (!(event instanceof ToggleEvent)) return;
+  if (event.newState === "closed" && context.value !== undefined) {
+    close();
   }
-  const commit = result.value.commit;
-  if (commit === undefined) {
-    blameState.value = { kind: "error", message: "blame response had no commit" };
-    return;
-  }
-  blameState.value = { kind: "ready", commit };
-}
-
-function closePopover(): void {
-  popoverRef.value?.hidePopover();
-}
-
-/** 表示中のファイル状態に合わせた起点で history (log -L) を取得する */
-async function loadHistory(): Promise<void> {
-  const ctx = context.value;
-  if (ctx === undefined) return;
-  // blame が source_line を返していればそれを history 起点に使う (rev の元行番号)。
-  // 取れていない場合 (blame loading / error) は表示中の line をそのまま使う fallback。
-  const blame = blameState.value;
-  const startLine =
-    blame.kind === "ready" && blame.commit.sourceLine > 0 ? blame.commit.sourceLine : ctx.line;
-  // blame が working tree (rev="") の hash を返している場合は rev に hash を渡すと
-  // 「未来 commit から walk」になり結果が空になる。rev を空に倒すと HEAD 起点で走る。
-  // 表示が rev 指定 (Original 等) の場合はその rev のままで OK。
-  const rev = ctx.rev;
-  historyState.value = { kind: "loading" };
-  const version = ++loadVersion;
-  const result = await tryCatch(
-    rpcGitLogLine({
-      dir: ctx.dir,
-      relPath: ctx.relPath,
-      rev,
-      line: startLine,
-      maxCount: HISTORY_MAX,
-    }),
-  );
-  if (version !== loadVersion) return;
-  if (!result.ok) {
-    historyState.value = { kind: "error", message: result.error.message };
-    notification.error("Failed to load line history", result.error);
-    return;
-  }
-  historyState.value = { kind: "ready", commits: result.value.commits };
-}
-
-async function switchToHistory(): Promise<void> {
-  viewMode.value = "history";
-  if (historyState.value.kind === "loading" || historyState.value.kind === "error") {
-    await loadHistory();
-  }
-}
-
-function switchToBlame(): void {
-  viewMode.value = "blame";
 }
 
 function onCommitClick(hash: string): void {
   gitGraphStore.select(hash);
-  closePopover();
+  popoverRef.value?.hidePopover();
 }
 
-/** Unix 秒 → 人間が読みやすい相対時刻文字列 */
+const HISTORY_DISABLED_TITLE = "History is unavailable for uncommitted lines";
+
+function isHistoryDisabled(): boolean {
+  return blameState.value.kind === "ready" && blameState.value.commit.notCommitted;
+}
+
 function relativeTime(unixSec: number): string {
   if (unixSec <= 0) return "";
   const diffSec = Math.floor(Date.now() / 1000) - unixSec;
@@ -166,8 +79,6 @@ function absoluteTime(unixSec: number): string {
   const d = new Date(unixSec * 1000);
   return d.toLocaleString();
 }
-
-defineExpose({ openPopover });
 </script>
 
 <template>
@@ -179,6 +90,7 @@ defineExpose({ openPopover });
       top: 'anchor(bottom)',
       left: 'anchor(left)',
     }"
+    @toggle="onToggle"
   >
     <!-- ヘッダー -->
     <div class="flex items-center gap-2 border-b border-zinc-700 px-3 py-2 text-xs text-zinc-400">
@@ -191,15 +103,20 @@ defineExpose({ openPopover });
           type="button"
           class="px-2 py-0.5 text-xs transition-colors"
           :class="viewMode === 'blame' ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300'"
-          @click="switchToBlame"
+          @click="setViewMode('blame')"
         >
           Blame
         </button>
         <button
           type="button"
           class="px-2 py-0.5 text-xs transition-colors"
-          :class="viewMode === 'history' ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300'"
-          @click="switchToHistory"
+          :class="[
+            viewMode === 'history' ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300',
+            isHistoryDisabled() ? 'cursor-not-allowed opacity-40' : '',
+          ]"
+          :disabled="isHistoryDisabled()"
+          :title="isHistoryDisabled() ? HISTORY_DISABLED_TITLE : ''"
+          @click="setViewMode('history')"
         >
           History
         </button>
@@ -216,7 +133,7 @@ defineExpose({ openPopover });
         <div v-else-if="blameState.kind === 'error'" class="px-3 py-2 text-xs text-red-400">
           {{ blameState.message }}
         </div>
-        <template v-else>
+        <template v-else-if="blameState.kind === 'ready'">
           <div v-if="blameState.commit.notCommitted" class="p-3 text-xs text-zinc-400">
             Not committed yet (working tree only)
           </div>
@@ -241,8 +158,10 @@ defineExpose({ openPopover });
             <div class="mt-3 flex items-center gap-2">
               <button
                 type="button"
-                class="rounded-sm border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-                @click="switchToHistory"
+                class="rounded-sm border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
+                :disabled="isHistoryDisabled()"
+                :title="isHistoryDisabled() ? HISTORY_DISABLED_TITLE : ''"
+                @click="setViewMode('history')"
               >
                 <span class="mr-1 icon-[lucide--history] size-3" />
                 View line history
@@ -268,10 +187,13 @@ defineExpose({ openPopover });
         <div v-else-if="historyState.kind === 'error'" class="px-3 py-2 text-xs text-red-400">
           {{ historyState.message }}
         </div>
-        <div v-else-if="historyState.commits.length === 0" class="px-3 py-2 text-xs text-zinc-500">
+        <div
+          v-else-if="historyState.kind === 'ready' && historyState.commits.length === 0"
+          class="px-3 py-2 text-xs text-zinc-500"
+        >
           No commits touched this line.
         </div>
-        <ul v-else class="divide-y divide-zinc-800">
+        <ul v-else-if="historyState.kind === 'ready'" class="divide-y divide-zinc-800">
           <li v-for="c in historyState.commits" :key="c.hash">
             <button
               type="button"

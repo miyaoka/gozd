@@ -30,7 +30,7 @@ import {
   registerIssueCommand,
   registerPrCommand,
 } from "../palette";
-import { PreviewPane } from "../preview";
+import { BlamePopover, PreviewPane } from "../preview";
 import { registerSettingsCommand, SettingsModal } from "../settings";
 import { registerShellCommandActions } from "../shell-command";
 import { SidebarPane } from "../sidebar";
@@ -309,6 +309,7 @@ watch(
     <PrPickerDialog />
     <IssuePickerDialog />
     <SettingsModal />
+    <BlamePopover />
     <NotificationToast />
   </div>
 </template>

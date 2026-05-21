@@ -43,6 +43,7 @@ import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import type { GitChangeKind } from "../worktree";
 import DiffPreview from "./DiffPreview.vue";
 import { rpcGitShowCommitFile, rpcGitShowFile } from "./rpc";
+import { useBlamePopover } from "./useBlamePopover";
 
 const props = defineProps<{
   change: GitFileChange;
@@ -128,6 +129,88 @@ const canShowDiff = computed(() => {
 
 /** 折りたたみ状態。デフォルト展開 */
 const collapsed = ref(false);
+
+const blamePopover = useBlamePopover();
+
+/**
+ * uncommitted / commit mode に応じた currentRev / originalRev。
+ * PreviewPane と同じ規則で「Current = newer side」「Original = older 側 `<older>^`」。
+ * uncommitted モードでは current="" (working tree) / original="HEAD"、
+ * commit モードでは fetchCommit の newer / older を再利用する。
+ */
+const isCommitMode = computed(
+  () => gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null,
+);
+
+type Endpoints = { newer: string; older: string | undefined };
+
+/**
+ * fetchCommit と同じ newer / older 決定ロジックを SSOT として 1 度だけ計算する。
+ * commit が hashToIndex に無い (loaded log の外) ケースは null を返し、blame は disable する。
+ */
+const endpoints = computed<Endpoints | null>(() => {
+  if (!isCommitMode.value) return null;
+  const selectedHash = gitGraphStore.selectedHash;
+  const compareHash = gitGraphStore.compareHash;
+  if (compareHash === null) return { newer: selectedHash, older: undefined };
+  if (selectedHash === UNCOMMITTED_HASH && compareHash === UNCOMMITTED_HASH) return null;
+  const map = gitGraphStore.hashToIndex;
+  const idxOf = (h: string) => (h === UNCOMMITTED_HASH ? -1 : map.get(h));
+  const sIdx = idxOf(selectedHash);
+  const cIdx = idxOf(compareHash);
+  if (sIdx === undefined || cIdx === undefined) return null;
+  if (sIdx >= cIdx) return { newer: compareHash, older: selectedHash };
+  return { newer: selectedHash, older: compareHash };
+});
+
+const currentRev = computed<string | undefined>(() => {
+  if (!isCommitMode.value) return "";
+  const ep = endpoints.value;
+  if (ep === null) return undefined;
+  return ep.newer === UNCOMMITTED_HASH ? "" : ep.newer;
+});
+
+const originalRev = computed<string | undefined>(() => {
+  if (!isCommitMode.value) return "HEAD";
+  const ep = endpoints.value;
+  if (ep === null) return undefined;
+  if (ep.older === undefined) return `${ep.newer}^`;
+  return `${ep.older}^`;
+});
+
+/** 絶対パスの外部 open は blame できない (git 管理外)。silent dead button 禁止のため button 描画自体を gate */
+const blameEnabled = computed(() => !displayPath.value.startsWith("/"));
+
+function modeLabelForRev(rev: string): string {
+  if (rev === "") return "Working Tree";
+  if (rev === "HEAD") return "HEAD";
+  return rev;
+}
+
+function onLineNumberClick(payload: {
+  side: "old" | "new";
+  line: number;
+  anchorEl: HTMLElement;
+}): void {
+  const dir = worktreeStore.dir;
+  if (dir === undefined) return;
+  const rev = payload.side === "old" ? originalRev.value : currentRev.value;
+  if (rev === undefined) return;
+  // renamed (R) のとき blame 対象 path は side に揃える: old side は oldFilePath、
+  // new side は newFilePath。これを取り違えると rev で存在しない path を blame して
+  // 即 not_found に倒れる。
+  const path =
+    payload.side === "old"
+      ? props.change.oldFilePath || props.change.newFilePath
+      : props.change.newFilePath || props.change.oldFilePath;
+  blamePopover.open(payload.anchorEl, {
+    dir,
+    relPath: path,
+    rev,
+    line: payload.line,
+    modeLabel: modeLabelForRev(rev),
+  });
+}
 
 let fetchVersion = 0;
 
@@ -390,6 +473,8 @@ onUnmounted(unsubscribeFsChange);
         :file-path="displayPath"
         :word-wrap="wordWrap"
         :external-view-mode="viewMode"
+        :blame-enabled="blameEnabled"
+        @line-number-click="onLineNumberClick"
       />
       <div v-else class="px-3 py-2 text-xs text-zinc-500">No diff</div>
     </div>

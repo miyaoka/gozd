@@ -34,7 +34,6 @@ import type { FsChangePayload } from "../filer";
 import { useGitGraphStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import type { GitChangeKind } from "../worktree";
-import BlamePopover from "./BlamePopover.vue";
 import ChangesSummaryView from "./ChangesSummaryView.vue";
 import CodePreview from "./CodePreview.vue";
 import DiffPreview from "./DiffPreview.vue";
@@ -42,6 +41,7 @@ import ImagePreview from "./ImagePreview.vue";
 import MarkdownPreview from "./MarkdownPreview.vue";
 import { previewFontFamily, previewFontSize } from "./previewConfig";
 import { rpcGitShowCommitFile, rpcGitShowFile } from "./rpc";
+import { useBlamePopover } from "./useBlamePopover";
 
 type PreviewMode = "current" | "diff" | "original";
 
@@ -526,15 +526,21 @@ const headerIconUrl = computed(() => {
 });
 
 /**
+ * commit mode (single 単体 or 範囲) かを集約判定。
+ * `orderedRange` の null 経路を分けるのに使う。
+ */
+const isCommitMode = computed(
+  () => gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null,
+);
+
+/**
  * Current 側 (newer / working tree) を blame する際の rev。
  * - uncommitted モード: "" = working tree
  * - commit モード: newer hash (Working Tree なら "")
- * orderedRange が null (不整合) なら undefined を返し、Diff の "new" クリックは無効化する。
+ * orderedRange が null (不整合) なら undefined を返し、blame button は描画自体抑止する。
  */
 const currentRev = computed<string | undefined>(() => {
-  const isCommitMode =
-    gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null;
-  if (!isCommitMode) return "";
+  if (!isCommitMode.value) return "";
   const range = orderedRange.value;
   if (range === null) return undefined;
   return range.newer === UNCOMMITTED_HASH ? "" : range.newer;
@@ -543,21 +549,29 @@ const currentRev = computed<string | undefined>(() => {
 /**
  * Original 側 (older^) を blame する際の rev。
  * - uncommitted モード: "HEAD"
- * - commit モード: `<olderEnd>^` (olderEnd = older ?? newer)。fetchCommitContent の fromHash と一致
+ * - commit モード: `<older>^`。range.older は orderedRange が null でない限り
+ *   必ず string で来る (型保証)。fetchCommitContent の fromHash と一致。
  */
 const originalRev = computed<string | undefined>(() => {
-  const isCommitMode =
-    gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null;
-  if (!isCommitMode) return "HEAD";
+  if (!isCommitMode.value) return "HEAD";
   const range = orderedRange.value;
   if (range === null) return undefined;
-  const olderEnd = range.older ?? range.newer;
-  // Working Tree が older 端 (本来 newer のはずが両端 working tree のような不整合) は
-  // orderedRange 側で null 化されるため到達しない。defensive に "" は返さない。
-  return `${olderEnd}^`;
+  if (range.older === undefined) {
+    // 単一 commit 選択 (compareHash === null)。fetchCommitContent と同じく `<newer>^`
+    return `${range.newer}^`;
+  }
+  return `${range.older}^`;
 });
 
-const blamePopoverRef = ref<InstanceType<typeof BlamePopover>>();
+/** blame 不可なファイル (絶対パスの外部 open) を弾く判定。button 描画自体を gate する */
+const blameEnabled = computed(() => {
+  const path = selectedPath.value;
+  if (path === undefined) return false;
+  if (path.startsWith("/")) return false;
+  return true;
+});
+
+const blamePopover = useBlamePopover();
 
 function modeLabelForRev(rev: string): string {
   if (rev === "") return "Working Tree";
@@ -569,9 +583,7 @@ function openBlame(rev: string, line: number, anchorEl: HTMLElement): void {
   const dir = worktreeStore.dir;
   const path = selectedPath.value;
   if (dir === undefined || path === undefined) return;
-  // 絶対パスのファイル (filer の "open external" 経由) は git 管理外なので blame しない。
-  if (path.startsWith("/")) return;
-  void blamePopoverRef.value?.openPopover(anchorEl, {
+  blamePopover.open(anchorEl, {
     dir,
     relPath: path,
     rev,
@@ -597,6 +609,20 @@ function onDiffLineClick(payload: {
   if (rev === undefined) return;
   openBlame(rev, payload.line, payload.anchorEl);
 }
+
+/**
+ * 表示中ファイル / commit selection / mode 切替で popover を必ず閉じる。
+ * 文脈と blame popover が乖離した状態 (file B を選択しているのに popover は file A
+ * の Line N を指す) を残さないための watcher。
+ */
+watch(
+  [selectedPath, () => gitGraphStore.selectedHash, () => gitGraphStore.compareHash, activeMode],
+  () => {
+    if (blamePopover.context.value !== undefined) {
+      blamePopover.close();
+    }
+  },
+);
 </script>
 
 <template>
@@ -697,6 +723,7 @@ function onDiffLineClick(payload: {
           :current="currentContent"
           :file-path="selectedPath ?? ''"
           :word-wrap="wordWrap"
+          :blame-enabled="blameEnabled"
           @line-number-click="onDiffLineClick"
         />
 
@@ -722,11 +749,10 @@ function onDiffLineClick(payload: {
           :line-number="selectedLineNumber"
           :reveal-version="revealVersion"
           :word-wrap="wordWrap"
+          :blame-enabled="blameEnabled"
           @line-number-click="onCodeLineClick"
         />
       </div>
     </template>
-
-    <BlamePopover ref="blamePopoverRef" />
   </div>
 </template>

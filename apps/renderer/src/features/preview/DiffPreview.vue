@@ -77,8 +77,13 @@ const props = withDefaults(
      * 未指定なら内部 ref で split/unified をローカル管理し、トグルバーも自分で描画する。
      */
     externalViewMode?: "split" | "unified";
+    /**
+     * 行番号を blame ボタンとして描画するか。false なら静的な行番号セルに倒し、
+     * hover も cursor:pointer も出さない (silent dead button 禁止規約)。
+     */
+    blameEnabled?: boolean;
   }>(),
-  { externalViewMode: undefined },
+  { externalViewMode: undefined, blameEnabled: false },
 );
 
 /**
@@ -91,6 +96,7 @@ const emit = defineEmits<{
 }>();
 
 function onLineClick(side: "old" | "new", line: number, ev: MouseEvent): void {
+  if (!props.blameEnabled) return;
   const target = ev.currentTarget;
   if (!(target instanceof HTMLElement)) return;
   emit("lineNumberClick", { side, line, anchorEl: target });
@@ -678,23 +684,23 @@ function splitRightBg(row: DiffSplitRowItem): string {
             :class="tokensReady ? LINE_BG_CLASSES[row.kind] : LINE_FALLBACK_CLASSES[row.kind]"
           >
             <button
-              v-if="row.oldLineNo !== undefined"
+              v-if="row.oldLineNo !== undefined && blameEnabled"
               type="button"
               class="_line-no _line-no-btn"
               @click="onLineClick('old', row.oldLineNo, $event)"
             >
               {{ row.oldLineNo }}
             </button>
-            <span v-else class="_line-no" />
+            <span v-else class="_line-no">{{ row.oldLineNo ?? "" }}</span>
             <button
-              v-if="row.newLineNo !== undefined"
+              v-if="row.newLineNo !== undefined && blameEnabled"
               type="button"
               class="_line-no _line-no-btn"
               @click="onLineClick('new', row.newLineNo, $event)"
             >
               {{ row.newLineNo }}
             </button>
-            <span v-else class="_line-no" />
+            <span v-else class="_line-no">{{ row.newLineNo ?? "" }}</span>
             <span class="_line-text" :class="wordWrap ? '_word-wrap' : ''">
               <template v-if="row.tokens">
                 <span
@@ -726,7 +732,7 @@ function splitRightBg(row: DiffSplitRowItem): string {
 
           <template v-else>
             <button
-              v-if="row.oldLineNo !== undefined"
+              v-if="row.oldLineNo !== undefined && blameEnabled"
               type="button"
               class="_line-no _split-cell _line-no-btn"
               :class="splitLeftBg(row)"
@@ -734,7 +740,9 @@ function splitRightBg(row: DiffSplitRowItem): string {
             >
               {{ row.oldLineNo }}
             </button>
-            <span v-else class="_line-no _split-cell" :class="splitLeftBg(row)" />
+            <span v-else class="_line-no _split-cell" :class="splitLeftBg(row)">{{
+              row.oldLineNo ?? ""
+            }}</span>
             <span
               class="_line-text _split-cell _split-text"
               :class="[splitLeftBg(row), wordWrap ? '_word-wrap' : '']"
@@ -752,7 +760,7 @@ function splitRightBg(row: DiffSplitRowItem): string {
               </template>
             </span>
             <button
-              v-if="row.newLineNo !== undefined"
+              v-if="row.newLineNo !== undefined && blameEnabled"
               type="button"
               class="_line-no _split-cell _split-divider _line-no-btn"
               :class="splitRightBg(row)"
@@ -760,7 +768,9 @@ function splitRightBg(row: DiffSplitRowItem): string {
             >
               {{ row.newLineNo }}
             </button>
-            <span v-else class="_line-no _split-cell _split-divider" :class="splitRightBg(row)" />
+            <span v-else class="_line-no _split-cell _split-divider" :class="splitRightBg(row)">{{
+              row.newLineNo ?? ""
+            }}</span>
             <span
               class="_line-text _split-cell _split-text"
               :class="[splitRightBg(row), wordWrap ? '_word-wrap' : '']"

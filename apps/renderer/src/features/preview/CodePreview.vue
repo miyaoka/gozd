@@ -10,15 +10,23 @@ import { tryCatch } from "@gozd/shared";
 import { watch, ref, nextTick, computed } from "vue";
 import { highlight } from "./useHighlight";
 
-const props = defineProps<{
-  content: string;
-  filePath: string;
-  /** スクロール・ハイライト対象の行番号（1-based） */
-  lineNumber?: number;
-  /** 同一パス・同一行番号でもスクロールを再発火させるためのカウンタ */
-  revealVersion: number;
-  wordWrap: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    content: string;
+    filePath: string;
+    /** スクロール・ハイライト対象の行番号（1-based） */
+    lineNumber?: number;
+    /** 同一パス・同一行番号でもスクロールを再発火させるためのカウンタ */
+    revealVersion: number;
+    wordWrap: boolean;
+    /**
+     * 行番号を blame ボタンとして描画するか。false なら静的な表示に倒し、
+     * hover も cursor:pointer も出さない (silent dead button を避ける契約)。
+     */
+    blameEnabled?: boolean;
+  }>(),
+  { blameEnabled: false },
+);
 
 const emit = defineEmits<{
   /** 行番号クリック。anchorEl は popover anchor 用、line は 1-based の表示行 */
@@ -100,9 +108,12 @@ watch(
 /**
  * 行番号ボタンの click をコンテナ delegation で拾う。
  * Shiki / fallback どちらも `[data-line-no-btn]` 属性付きの button を持つので、
- * `closest` で 1 経路に統一する。
+ * `closest` で 1 経路に統一する。`blameEnabled` が false のときは早期 return し、
+ * CSS でも cursor:pointer / hover styling を抑制して「クリックしても何も起きない
+ * ボタン」を作らない契約 (silent dead button 禁止)。
  */
 function onContainerClick(e: MouseEvent) {
+  if (!props.blameEnabled) return;
   const target = e.target;
   if (!(target instanceof HTMLElement)) return;
   const btn = target.closest("[data-line-no-btn]");
@@ -123,7 +134,7 @@ function onContainerClick(e: MouseEvent) {
     v-if="highlightedHtml"
     ref="containerRef"
     class="_highlighted-code text-sm/tight"
-    :class="wordWrap ? '_word-wrap' : ''"
+    :class="[wordWrap ? '_word-wrap' : '', blameEnabled ? '_blame-on' : '']"
     :style="{ '--line-no-width': lineNoWidth }"
     v-html="highlightedHtml"
     @click="onContainerClick"
@@ -134,7 +145,10 @@ function onContainerClick(e: MouseEvent) {
     v-else
     ref="containerRef"
     class="_line-numbered p-4 text-sm/tight text-zinc-300"
-    :class="wordWrap ? '_word-wrap break-all whitespace-pre-wrap' : ''"
+    :class="[
+      wordWrap ? '_word-wrap break-all whitespace-pre-wrap' : '',
+      blameEnabled ? '_blame-on' : '',
+    ]"
     :style="{ '--line-no-width': lineNoWidth }"
     @click="onContainerClick"
   ><code><span
@@ -146,6 +160,8 @@ function onContainerClick(e: MouseEvent) {
           type="button"
           class="_line-no-btn"
           :data-line-no-btn="i + 1"
+          :disabled="!blameEnabled"
+          :tabindex="blameEnabled ? 0 : -1"
         >{{ i + 1 }}</button>{{ line }}
 </span></code></pre>
 </template>
@@ -163,11 +179,17 @@ function onContainerClick(e: MouseEvent) {
   font: inherit;
   color: var(--color-zinc-600);
   user-select: none;
+  cursor: default;
+}
+
+/* blame 可能なときだけ hover styling + pointer cursor。silent dead button 禁止規約。 */
+._line-numbered._blame-on ._line ._line-no-btn,
+._highlighted-code._blame-on :deep(.line ._line-no-btn) {
   cursor: pointer;
 }
 
-._line-numbered ._line ._line-no-btn:hover,
-._highlighted-code :deep(.line ._line-no-btn:hover) {
+._line-numbered._blame-on ._line ._line-no-btn:hover,
+._highlighted-code._blame-on :deep(.line ._line-no-btn:hover) {
   color: var(--color-blue-400);
   text-decoration: underline;
 }

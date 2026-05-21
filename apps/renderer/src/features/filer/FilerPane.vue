@@ -25,7 +25,7 @@ import type { FsChangePayload } from "./rpc";
 import { useFilerEventStore } from "./useFilerEventStore";
 
 const worktreeStore = useWorktreeStore();
-const { dir, selectedPath } = storeToRefs(worktreeStore);
+const { dir, selectedRelPath } = storeToRefs(worktreeStore);
 const gitStatusStore = useGitStatusStore();
 const { gitStatuses } = storeToRefs(gitStatusStore);
 const notify = useNotificationStore();
@@ -103,7 +103,7 @@ async function loadRoot() {
 }
 
 function onSelect(path: string) {
-  worktreeStore.selectPath(path);
+  worktreeStore.selectRelPath(path);
 }
 
 function handleFsChange(eventDir: string, relDir: string) {
@@ -195,7 +195,7 @@ onUnmounted(() => {
           :git-change="entry.gitChange"
           :git-statuses="gitStatuses"
           :depth="0"
-          :selected-path="selectedPath"
+          :selected-rel-path="selectedRelPath"
           @select="onSelect"
         />
       </template>

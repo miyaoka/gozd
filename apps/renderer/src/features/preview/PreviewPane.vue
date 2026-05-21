@@ -33,7 +33,7 @@ import { getFileIconUrl, relDirOf, rpcFsReadFile, rpcFsReadFileAbsolute } from "
 import type { FsChangePayload } from "../filer";
 import { useGitGraphStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
-import type { GitChangeKind } from "../worktree";
+import type { GitChangeKind, Selection } from "../worktree";
 import ChangesSummaryView from "./ChangesSummaryView.vue";
 import CodePreview from "./CodePreview.vue";
 import DiffPreview from "./DiffPreview.vue";
@@ -41,7 +41,7 @@ import ImagePreview from "./ImagePreview.vue";
 import MarkdownPreview from "./MarkdownPreview.vue";
 import { previewFontFamily, previewFontSize } from "./previewConfig";
 import { rpcGitShowCommitFile, rpcGitShowFile } from "./rpc";
-import { isBlameablePath, useBlamePopover } from "./useBlamePopover";
+import { useBlamePopover } from "./useBlamePopover";
 
 type PreviewMode = "current" | "diff" | "original";
 
@@ -76,8 +76,15 @@ const emit = defineEmits<{
 }>();
 
 const worktreeStore = useWorktreeStore();
-const { selectedPath, selectedLineNumber, selectedGitChange, fileServerBaseUrl, revealVersion } =
-  storeToRefs(worktreeStore);
+const {
+  selection,
+  selectedRelPath,
+  selectedDisplayPath,
+  selectedLineNumber,
+  selectedGitChange,
+  fileServerBaseUrl,
+  revealVersion,
+} = storeToRefs(worktreeStore);
 const gitGraphStore = useGitGraphStore();
 const summaryStore = useChangesSummaryStore();
 const notification = useNotificationStore();
@@ -118,12 +125,13 @@ function hasGitDiff(gitChange: GitChangeKind | undefined): boolean {
 }
 
 const fileType = computed<FileType>(() => {
-  if (!selectedPath.value) return "code";
-  return detectFileType(selectedPath.value);
+  const path = selectedDisplayPath.value;
+  if (path === undefined) return "code";
+  return detectFileType(path);
 });
 
 /** 選択中パスが worktree 外の絶対パスか（terminal link から worktree 外を開いた場合） */
-const isExternalPath = computed(() => selectedPath.value?.startsWith("/") ?? false);
+const isExternalPath = computed(() => selection.value?.kind === "absolute");
 
 /** 画像プレビュー表示中か（diff 不可のため モード制限に使用） */
 const isImagePreview = computed(() => {
@@ -219,7 +227,7 @@ const fetchVersionRef = ref(0);
 let fetchVersion = 0;
 
 /** ファイル内容を取得する（watch と fsChange から共用） */
-async function fetchContent(path: string, gitChange: GitChangeKind | undefined) {
+async function fetchContent(sel: Selection, gitChange: GitChangeKind | undefined) {
   loading.value = true;
   error.value = undefined;
   isDirectory.value = false;
@@ -231,9 +239,6 @@ async function fetchContent(path: string, gitChange: GitChangeKind | undefined) 
   const isDeleted = gitChange === "deleted";
   const hasDiff = hasGitDiff(gitChange);
 
-  // 絶対パスの場合は fsReadFileAbsolute を使い、git 操作は不要
-  const isAbsolute = path.startsWith("/");
-
   const dir = worktreeStore.dir;
   // await 前の同期パス: version === fetchVersion 保証のため version ガード不要。
   if (dir === undefined) {
@@ -241,20 +246,21 @@ async function fetchContent(path: string, gitChange: GitChangeKind | undefined) 
     return;
   }
 
-  // 並列でデータ取得
+  // 並列でデータ取得。worktreeRelative は fsReadFile + git show を、
+  // absolute は fsReadFileAbsolute 単独を呼ぶ (worktree 外は git 履歴を持たない)。
   const currentPromise = isDeleted
     ? Promise.resolve(undefined)
-    : isAbsolute
-      ? rpcFsReadFileAbsolute({ absolutePath: path }).then((r) => r.result)
-      : rpcFsReadFile({ dir, path }).then((r) => ({
+    : sel.kind === "absolute"
+      ? rpcFsReadFileAbsolute({ absolutePath: sel.absPath }).then((r) => r.result)
+      : rpcFsReadFile({ dir, path: sel.relPath }).then((r) => ({
           content: r.content,
           isBinary: r.isBinary,
           isDirectory: r.isDirectory,
           notFound: r.notFound,
         }));
   const originalPromise =
-    !isAbsolute && (hasDiff || isDeleted)
-      ? rpcGitShowFile({ dir, relPath: path }).then((r) => r.result)
+    sel.kind === "worktreeRelative" && (hasDiff || isDeleted)
+      ? rpcGitShowFile({ dir, relPath: sel.relPath }).then((r) => r.result)
       : Promise.resolve(undefined);
   const fetchResult = await tryCatch(Promise.all([currentPromise, originalPromise]));
 
@@ -401,32 +407,42 @@ async function fetchCommitContent(filePath: string) {
 /**
  * 個別ファイル選択時のみ summary モードを抜ける。
  * git-graph の commit 切替 (selectedHash / compareHash の変化) では summary は維持する。
- * `revealVersion` は `selectPath()` 専用のバージョンカウンタなので、これを trigger に使うことで
+ * `revealVersion` は select*Path() 専用のバージョンカウンタなので、これを trigger に使うことで
  * 「ユーザーがファイル行を実際にクリックした」経路のみで disable が走る。
  */
 watch(
-  () => [selectedPath.value, revealVersion.value] as const,
+  () => [selectedDisplayPath.value, revealVersion.value] as const,
   ([path]) => {
-    if (path !== undefined && path !== "") {
+    if (path !== undefined) {
       summaryStore.disable();
     }
   },
 );
 
-/** ファイル選択・git status 変化・コミット選択変化時にリセット＋再取得 */
+/**
+ * ファイル選択・git status 変化・コミット選択変化時にリセット＋再取得。
+ *
+ * **deps はプリミティブで揃える**: selection オブジェクトを deps にすると、`selectRelPath` /
+ * `selectAbsPath` が毎回新 object literal を作るため、同一パス再クリックでも identity 変化で
+ * watch が発火し refetch が連打される。path 文字列 + kind + commit selection を deps にすることで
+ * 「実際に refetch が必要な軸」だけで発火させる (= 同一パス再クリックは revealVersion 経路で
+ * scroll / reveal のみ走らせ content fetch は走らせない)。
+ */
 watch(
   () =>
     [
-      selectedPath.value,
+      selectedDisplayPath.value,
+      selection.value?.kind,
       selectedGitChange.value,
       gitGraphStore.selectedHash,
       gitGraphStore.compareHash,
     ] as const,
-  async ([path, gitChange, selectedHash, compareHash]) => {
+  async ([path, _kind, gitChange, selectedHash, compareHash]) => {
     previewEnabled.value = true;
     commitGitChange.value = undefined;
 
-    if (!path) {
+    const sel = selection.value;
+    if (path === undefined || sel === undefined) {
       currentContent.value = undefined;
       originalContent.value = undefined;
       isBinary.value = false;
@@ -438,14 +454,13 @@ watch(
     }
 
     const isCommitMode = selectedHash !== UNCOMMITTED_HASH || compareHash !== null;
-    // 絶対パス（worktree 外）は git 履歴を持たず rpcFsReadFile は worktree 境界外で
-    // FSError.outsideDir を返すため、commit mode 中でも fsReadFileAbsolute 経路に倒す。
-    const isAbsolute = path.startsWith("/");
-    if (isCommitMode && !isAbsolute) {
-      await fetchCommitContent(path);
+    // 絶対パス（worktree 外）は git 履歴を持たないため、commit mode 中でも fsReadFileAbsolute
+    // 経路に倒す。
+    if (isCommitMode && sel.kind === "worktreeRelative") {
+      await fetchCommitContent(sel.relPath);
     } else {
       activeMode.value = defaultMode(gitChange);
-      await fetchContent(path, gitChange);
+      await fetchContent(sel, gitChange);
     }
   },
   { immediate: true },
@@ -453,19 +468,24 @@ watch(
 
 /** ファイル変更通知で選択中ファイルの内容を再取得（モード・UI状態は維持） */
 const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ dir: eventDir, relDir }) => {
-  if (!selectedPath.value) return;
+  const sel = selection.value;
+  if (sel === undefined) return;
   // コミットモードではファイル変更通知を無視（表示内容は git オブジェクトから取得済み）
   if (gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null) {
     return;
   }
   // useFsWatchSync は全 worktree を watch するため、active dir 以外の event は無視する。
   if (eventDir !== worktreeStore.dir) return;
-  if (relDir !== relDirOf(selectedPath.value)) return;
+  // worktree 外の絶対パスは fsChange event の dir 軸 (active worktree) の責務外。
+  // active worktree 内の任意のファイル変更で外部 absPath を毎回再 fetch しないよう early return。
+  // 外部 absPath の hot reload が必要になったら per-file watch の専用経路を別途設計する。
+  if (sel.kind !== "worktreeRelative") return;
+  if (relDir !== relDirOf(sel.relPath)) return;
   // fetchContent で currentContent / originalContent が更新されると CodePreview / DiffPreview
   // が再ハイライト・再描画し、line-no button DOM が置換される。blame popover が同 file に
   // 対して開いていれば anchorEl が detached になるため、再 fetch 前に閉じる。
-  blamePopover.closeIfActive(eventDir, selectedPath.value);
-  void fetchContent(selectedPath.value, selectedGitChange.value);
+  blamePopover.closeIfActive(eventDir, sel.relPath);
+  void fetchContent(sel, selectedGitChange.value);
 });
 onUnmounted(unsubscribeFsChange);
 
@@ -480,16 +500,16 @@ const displayIsBinary = computed(() => {
   return isBinary.value;
 });
 
-/** ファイルサーバー経由の URL を構築 */
+/**
+ * ファイルサーバー経由の URL を構築。worktree 相対パスのみが対象 (file server は
+ * worktree 配下を提供する経路)。絶対パス選択中は呼び出さない。
+ */
 function buildFileServerUrl(
   relPath: string,
   version: number,
   gitOriginal = false,
 ): string | undefined {
   if (!fileServerBaseUrl.value) return undefined;
-  // 絶対パス（worktree 外）は file server 経路で扱えない（worktree 相対のみ提供する経路）。
-  // 画像/SVG は fsReadFileAbsolute 経由の binary 表示にフォールバックする。
-  if (relPath.startsWith("/")) return undefined;
   const base = fileServerBaseUrl.value.endsWith("/")
     ? fileServerBaseUrl.value
     : `${fileServerBaseUrl.value}/`;
@@ -504,11 +524,13 @@ function buildFileServerUrl(
 const imageUrl = computed(() => {
   if (!previewEnabled.value) return undefined;
   const ft = fileType.value;
-  if ((ft === "image" || ft === "svg") && selectedPath.value) {
-    const isOriginal = activeMode.value === "original";
-    return buildFileServerUrl(selectedPath.value, fetchVersionRef.value, isOriginal);
-  }
-  return undefined;
+  if (ft !== "image" && ft !== "svg") return undefined;
+  // 絶対パス（worktree 外）は file server 経路で扱えない。画像/SVG は
+  // fsReadFileAbsolute 経由の binary 表示にフォールバックする。
+  const relPath = selectedRelPath.value;
+  if (relPath === undefined) return undefined;
+  const isOriginal = activeMode.value === "original";
+  return buildFileServerUrl(relPath, fetchVersionRef.value, isOriginal);
 });
 
 /** preview チェックボックスを表示するか（diff モードでは非表示） */
@@ -538,7 +560,7 @@ function onCloseSummary() {
 }
 
 const headerIconUrl = computed(() => {
-  const path = selectedPath.value;
+  const path = selectedDisplayPath.value;
   if (path === undefined) return undefined;
   return getFileIconUrl(fileName(path));
 });
@@ -582,8 +604,8 @@ const originalRev = computed<string | undefined>(() => {
 });
 
 /** blame 不可なファイル (絶対パスの外部 open) を弾く判定。button 描画自体を gate する。
- *  判定の SSOT は `useBlamePopover.isBlameablePath` に集約 */
-const blameEnabled = computed(() => isBlameablePath(selectedPath.value));
+ *  worktreeRelative selection でのみ blame が成立する (worktree 外は git 履歴を持たない) */
+const blameEnabled = computed(() => selection.value?.kind === "worktreeRelative");
 
 const blamePopover = useBlamePopover();
 
@@ -595,11 +617,13 @@ function modeLabelForRev(rev: string): string {
 
 function openBlame(rev: string, line: number, anchorEl: HTMLElement): void {
   const dir = worktreeStore.dir;
-  const path = selectedPath.value;
-  if (dir === undefined || path === undefined) return;
+  const relPath = selectedRelPath.value;
+  // 絶対パス選択中 (worktree 外) は relPath が undefined になり blame を成立できない。
+  // `blameEnabled` で button 描画自体を gate しているため通常は到達しないが、二重防御として early return。
+  if (dir === undefined || relPath === undefined) return;
   blamePopover.open(anchorEl, {
     dir,
-    relPath: path,
+    relPath,
     rev,
     line,
     modeLabel: modeLabelForRev(rev),
@@ -631,7 +655,6 @@ function onDiffLineClick(payload: {
  */
 watch(
   [
-    selectedPath,
     // content reload watcher (上で定義) の deps と同一集合にする。
     // 「content が更新される条件」と「popover を閉じる条件」が分かれていると、
     // selectedGitChange だけ変化 (status push で modified ↔ renamed 等) し
@@ -639,6 +662,9 @@ watch(
     // CodePreview / DiffPreview の再描画で button DOM が置換され anchor が detached
     // になる。両 watcher の deps を同期させて invariant「content が変わるなら必ず close」
     // を構造で保証する。
+    // selection 自体は object identity が毎クリック変わるため、プリミティブで揃える。
+    selectedDisplayPath,
+    () => selection.value?.kind,
     selectedGitChange,
     () => gitGraphStore.selectedHash,
     () => gitGraphStore.compareHash,
@@ -661,10 +687,10 @@ watch(
   <div v-else class="flex h-full flex-col overflow-hidden">
     <!-- ヘッダー（常に表示） -->
     <div class="flex items-center gap-2 border-b border-zinc-700 px-3 py-2">
-      <template v-if="selectedPath">
+      <template v-if="selectedDisplayPath">
         <img :src="headerIconUrl" class="size-4 shrink-0" alt="" />
-        <span class="truncate text-sm text-zinc-300" :title="selectedPath">{{
-          fileName(selectedPath)
+        <span class="truncate text-sm text-zinc-300" :title="selectedDisplayPath">{{
+          fileName(selectedDisplayPath)
         }}</span>
       </template>
       <span v-else class="text-sm text-zinc-500">Preview</span>
@@ -680,7 +706,10 @@ watch(
     </div>
 
     <!-- 未選択 -->
-    <div v-if="!selectedPath" class="flex flex-1 items-center justify-center text-sm text-zinc-500">
+    <div
+      v-if="!selectedDisplayPath"
+      class="flex flex-1 items-center justify-center text-sm text-zinc-500"
+    >
       Select a file to preview
     </div>
 
@@ -751,7 +780,7 @@ watch(
           "
           :original="originalContent"
           :current="currentContent"
-          :file-path="selectedPath ?? ''"
+          :file-path="selectedDisplayPath ?? ''"
           :word-wrap="wordWrap"
           :blame-enabled="blameEnabled"
           @line-number-click="onDiffLineClick"
@@ -783,7 +812,7 @@ watch(
         <CodePreview
           v-else-if="displayContent !== undefined"
           :content="displayContent"
-          :file-path="selectedPath"
+          :file-path="selectedDisplayPath"
           :line-number="selectedLineNumber"
           :reveal-version="revealVersion"
           :word-wrap="wordWrap"

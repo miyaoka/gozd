@@ -11,7 +11,7 @@
 
 - filer event store の fsChange を watch して自分の path 該当時に再読み込み
 - filer event store の gitStatusChange を watch して展開中なら children を再構築
-- worktreeStore.revealVersion を watch して selectedPath が自分または配下なら展開＋スクロール
+- worktreeStore.revealVersion を watch して selectedRelPath が自分または配下なら展開＋スクロール
 - 親→子の命令呼び出し（defineExpose）は使わず、各ノードが自律的にイベントを処理する設計
 </doc>
 
@@ -51,7 +51,7 @@ const props = defineProps<{
   /** git status マップ全体（ディレクトリの変更種別推論に使用） */
   gitStatuses: Record<string, string>;
   depth: number;
-  selectedPath?: string;
+  selectedRelPath?: string;
 }>();
 
 const emit = defineEmits<{
@@ -80,7 +80,7 @@ const effectiveGitChange = computed<GitChangeKind | undefined>(() => {
 const textColorClass = computed(() => {
   if (effectiveGitChange.value) return GIT_CHANGE_COLOR_MAP[effectiveGitChange.value];
   if (props.isIgnored) return "text-zinc-500";
-  if (props.selectedPath === props.path) return "text-white";
+  if (props.selectedRelPath === props.path) return "text-white";
   return "text-zinc-300";
 });
 
@@ -187,12 +187,15 @@ watch(
 );
 
 /**
- * revealVersion 変化で worktreeStore.selectedPath を見て、自分が target または target の祖先なら処理。
+ * revealVersion 変化で worktreeStore.selectedRelPath を見て、自分が target または target の祖先なら処理。
  * 祖先の場合は展開するだけ。子は v-for でマウント後に自分の revealVersion watch (immediate)
  * で target を処理する再帰チェーン。
+ *
+ * absolute 選択中 (worktree 外) は selectedRelPath が undefined になり reveal は no-op。
+ * ツリーが持っていないパスをマッチさせる経路を型レベルで排除する。
  */
 async function handleReveal() {
-  const targetPath = worktreeStore.selectedPath;
+  const targetPath = worktreeStore.selectedRelPath;
   if (targetPath === undefined) return;
   // 自身がターゲットの場合、展開してスクロールインビュー
   if (targetPath === props.path) {
@@ -238,7 +241,7 @@ function onChildSelect(childPath: string) {
       ref="button"
       class="flex w-full items-center gap-1 rounded-sm px-1 py-0.5 text-left text-sm hover:bg-zinc-700"
       :class="[
-        selectedPath === path ? 'bg-zinc-700' : '',
+        selectedRelPath === path ? 'bg-zinc-700' : '',
         textColorClass,
         isDeleted ? 'line-through opacity-60' : '',
       ]"
@@ -277,7 +280,7 @@ function onChildSelect(childPath: string) {
         :git-change="child.gitChange"
         :git-statuses="gitStatuses"
         :depth="depth + 1"
-        :selected-path="selectedPath"
+        :selected-rel-path="selectedRelPath"
         @select="onChildSelect"
       />
     </template>

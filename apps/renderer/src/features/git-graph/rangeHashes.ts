@@ -19,7 +19,6 @@ import type { GitCommit } from "@gozd/proto";
  *
  * `uncommittedHash` は worktree feature の `UNCOMMITTED_HASH` を呼び出し側が渡す。
  * 引数経由にすることで rangeHashes 自体は worktree barrel に依存しなくなり、
- * bun test (rpc/messages の `window.__gozdReceive` 副作用が走らない環境) でも
  * 純粋関数として独立にテスト可能になる。
  */
 export function buildRangeHashes(

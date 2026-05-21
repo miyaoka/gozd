@@ -172,11 +172,11 @@ function onPreviewToggle(e: ToggleEvent) {
   previewOpen.value = e.newState === "open";
 }
 
-// ファイル選択時に Preview を自動オープン
+// ファイル選択時に Preview を自動オープン (path 軸で識別; selection object identity の発火は避ける)
 watch(
-  () => worktreeStore.selectedPath,
+  () => worktreeStore.selectedDisplayPath,
   (path) => {
-    if (!path) return;
+    if (path === undefined) return;
     openPreview();
   },
 );
@@ -185,7 +185,7 @@ watch(
 watch(
   () => worktreeStore.revealVersion,
   () => {
-    if (!worktreeStore.selectedPath) return;
+    if (worktreeStore.selectedDisplayPath === undefined) return;
     openPreview();
   },
 );

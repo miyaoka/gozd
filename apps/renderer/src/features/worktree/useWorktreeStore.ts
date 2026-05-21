@@ -3,40 +3,31 @@ import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 import { useRepoStore } from "../../shared/repo";
 import { resolveFileGitChange } from "./gitStatusUtils";
-import { normalizePath } from "./pathUtils";
+import {
+  normalizeAbsolute,
+  normalizeRelative,
+  pathTargetToString,
+  type PathTarget,
+} from "./pathUtils";
 import { useGitStatusStore } from "./useGitStatusStore";
 
-interface Selection {
-  path: string;
-  lineNumber?: number;
-}
+/**
+ * プレビュー対象の selection。`PathTarget` に行番号 (terminal link / markdown anchor 由来) を
+ * 追加した形。store 内部状態は本型で保持し、消費側は `kind` で switch する。
+ */
+export type Selection = PathTarget & { lineNumber?: number };
 
 export const useWorktreeStore = defineStore("worktree", () => {
   const repoStore = useRepoStore();
   const fileServerBaseUrl = ref<string>();
 
-  /**
-   * プレビュー対象の選択状態。worktree 横断で 1 つだけ保持し、dir が変わるたびにクリアする。
-   *
-   * **path の形式契約**:
-   * - active worktree 内のファイル: 相対パス（例: `src/foo.ts`）
-   * - worktree 外のファイル: 絶対パス（例: `/Users/<user>/ghq/.../README.md`）。
-   *   terminal link から worktree 外パスを Shift+クリックした場合に渡される。
-   *
-   * 購読側は path が絶対パスを取りうる前提で分岐する:
-   * - PreviewPane: `path.startsWith("/")` で fsReadFile / fsReadFileAbsolute を切り替え
-   * - FilerPane reveal: ツリーは active worktree 配下しか持たないため、絶対パスは
-   *   reveal 対象外（ハイライトされない契約）
-   * - resolveFileGitChange: gitStatuses record の lookup に失敗して `undefined` を返す
-   *   （worktree 外パスは git status に存在しないため挙動として整合）
-   */
   const selection = ref<Selection>();
 
   /**
    * 同一パスでも reveal を発火させるためのバージョンカウンタ。
    * **invariant**: `revealVersion` の bump は必ず `selection.value` の同期更新と
-   * セットで行う（= 必ず `selectPath()` 経由で更新する）。
-   * 購読側（FilerPane の watch）は `revealVersion` を trigger にして `selectedPath`
+   * セットで行う（= 必ず `selectRelPath()` / `selectAbsPath()` 経由で更新する）。
+   * 購読側（FilerPane の watch）は `revealVersion` を trigger にして `selectedRelPath`
    * を直接読むため、両者が同 tick で一致していないと古いパスで reveal が走る。
    */
   const revealVersion = ref(0);
@@ -50,23 +41,38 @@ export const useWorktreeStore = defineStore("worktree", () => {
   const dir = computed(() => repoStore.selectedDir);
 
   /**
-   * 選択中のパス。形式は `selection` の契約に従い、相対パスまたは絶対パスを取る。
-   * worktree 切替で undefined にリセットされる
+   * worktree 内のパス（filer reveal / git 系 RPC が扱える）。
+   * 絶対パス選択中は undefined を返す。
    */
-  const selectedPath = computed(() => selection.value?.path);
+  const selectedRelPath = computed(() =>
+    selection.value?.kind === "worktreeRelative" ? selection.value.relPath : undefined,
+  );
+
+  /**
+   * 表示用パス文字列（ヘッダのタイトル / breadcrumb 等）。worktreeRelative なら relPath、
+   * absolute なら absPath を返す。RPC 呼び出しや git 操作の入力には使わない。
+   */
+  const selectedDisplayPath = computed(() => {
+    const sel = selection.value;
+    return sel === undefined ? undefined : pathTargetToString(sel);
+  });
 
   /** リンクから指定された行番号（1-based）。スクロール・ハイライトに使用 */
   const selectedLineNumber = computed(() => selection.value?.lineNumber);
 
-  /** git status から都度算出するため、status 更新時に自動反映される */
+  /**
+   * git status から都度算出するため、status 更新時に自動反映される。
+   * absolute 選択中は worktree 外で git 履歴を持たないため undefined。
+   */
   const selectedGitChange = computed(() => {
-    if (!selectedPath.value) return undefined;
-    return resolveFileGitChange(selectedPath.value, gitStatusStore.gitStatuses);
+    const relPath = selectedRelPath.value;
+    if (relPath === undefined) return undefined;
+    return resolveFileGitChange(relPath, gitStatusStore.gitStatuses);
   });
 
   // dir が変わるたびに selection を即座に落とす。setOpen を経由しない経路
   // （repoStore.removeRepo 内の selectedDir 直書きなど）でも一貫してクリアされる。
-  // flush: 'sync' により、setOpen が同期で続けて selectPath を書き込む際に
+  // flush: 'sync' により、setOpen が同期で続けて selectRelPath を書き込む際に
   // 「クリア → 新値書き込み」の順序が崩れない。
   watch(
     dir,
@@ -85,9 +91,12 @@ export const useWorktreeStore = defineStore("worktree", () => {
    * worktree 切替（同 repo 内）専用。新 dir は既に repoStore に登録済みであることが前提。
    * 新規 repo の追加は App.vue の gozdOpen ハンドラが行う。
    *
-   * `options.selection` 経由の reveal は、`selectPath` で `revealVersion` を進めることで
+   * `options.selection` 経由の reveal は、`selectRelPath` で `revealVersion` を進めることで
    * FilerPane 側の `revealVersion` watch から発火させる（reveal 経路の SSOT）。
    * ツリー未ロード時の保留は FilerPane 内の `pendingRevealPath` でカバーされる。
+   *
+   * `OpenTargetSelection.relPath` は proto 契約上 worktree 相対のため、
+   * 常に `selectRelPath` 経路に流す。
    */
   function setOpen(newDir: string, options: SetOpenOptions = {}) {
     repoStore.selectDir(newDir);
@@ -96,19 +105,41 @@ export const useWorktreeStore = defineStore("worktree", () => {
       fileServerBaseUrl.value = options.fileServerBaseUrl;
     }
     if (options.selection) {
-      // ツリーロード前でもヘッダー等が即時反映されるよう selection も同期で書き込む。
-      // revealVersion ++ により FilerPane の watch が reveal を実行する。
-      selectPath(options.selection.relPath);
+      selectRelPath(options.selection.relPath);
     }
   }
 
-  function selectPath(path: string, lineNumber?: number) {
+  function selectRelPath(relPath: string, lineNumber?: number) {
     if (!dir.value) return;
     selection.value = {
-      path: normalizePath(path),
+      kind: "worktreeRelative",
+      relPath: normalizeRelative(relPath),
       lineNumber,
     };
     revealVersion.value++;
+  }
+
+  function selectAbsPath(absPath: string, lineNumber?: number) {
+    if (!dir.value) return;
+    selection.value = {
+      kind: "absolute",
+      absPath: normalizeAbsolute(absPath),
+      lineNumber,
+    };
+    revealVersion.value++;
+  }
+
+  /**
+   * `PathTarget` を受けて kind に応じた select* に振り分ける。terminal link / markdown link
+   * のように source 側で kind を分けて持っている経路で使う。kind 別 switch を呼び出し側に
+   * 書かないことで「新規購読側で振り分け忘れる」経路を消す SSOT。
+   */
+  function selectFromTarget(target: PathTarget, lineNumber?: number) {
+    if (target.kind === "worktreeRelative") {
+      selectRelPath(target.relPath, lineNumber);
+    } else {
+      selectAbsPath(target.absPath, lineNumber);
+    }
   }
 
   function clearSelectedPath() {
@@ -118,13 +149,17 @@ export const useWorktreeStore = defineStore("worktree", () => {
   return {
     dir,
     fileServerBaseUrl,
-    selectedPath,
+    selection,
+    selectedRelPath,
+    selectedDisplayPath,
     selectedLineNumber,
     selectedGitChange,
     revealVersion,
     selectionVersion,
     setOpen,
-    selectPath,
+    selectRelPath,
+    selectAbsPath,
+    selectFromTarget,
     clearSelectedPath,
   };
 });

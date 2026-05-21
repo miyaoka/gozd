@@ -9,9 +9,7 @@ import { buildRangeHashes } from "./rangeHashes";
  * の同一性で UNCOMMITTED 経路の挙動が決まる。
  *
  * production 値をリテラルで複製すると SSOT 二重管理になるため、テスト内では非生産値の
- * 合成 sentinel を使う。これにより worktree barrel import を経由せずに済み、
- * `rpc/messages.ts` の `window.__gozdReceive` 副作用 (bun test 環境では fail) も
- * 踏まないで済む。
+ * 合成 sentinel を使う。
  */
 const WT_SENTINEL = "__test-working-tree__";
 

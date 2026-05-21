@@ -1,5 +1,5 @@
 import type { IBuffer, IBufferLine, ILink, ILinkProvider, Terminal } from "@xterm/xterm";
-import { useWorktreeStore } from "../worktree";
+import { pathTargetToString, useWorktreeStore } from "../worktree";
 import { findAbsolutePathMatches, resolveHomeDir } from "./findAbsolutePathMatches";
 import { findRelativePaths } from "./findRelativePaths";
 
@@ -155,7 +155,7 @@ function findAbsolutePathLinks(
   const currentLineEnd = currentLineOffset + currentLineLength;
   const matches = findAbsolutePathMatches(joinedText, dirPrefix, homeDir);
 
-  for (const { idx, totalEnd, selectPath, lineNumber: lineNum } of matches) {
+  for (const { idx, totalEnd, selection, lineNumber: lineNum } of matches) {
     if (idx >= currentLineEnd || totalEnd <= currentLineOffset) continue;
 
     const linkStart = Math.max(idx, currentLineOffset) - currentLineOffset;
@@ -166,10 +166,10 @@ function findAbsolutePathLinks(
       lineNumber,
       linkStart,
       linkEnd,
-      selectPath,
+      pathTargetToString(selection),
       (event) => {
         if (!event.shiftKey) return;
-        worktreeStore.selectPath(selectPath, lineNum);
+        worktreeStore.selectFromTarget(selection, lineNum);
       },
       links,
     );
@@ -232,7 +232,7 @@ function findRelativePathLinks(
       text: relPath,
       activate: (event) => {
         if (!event.shiftKey) return;
-        worktreeStore.selectPath(relPath, lineNum);
+        worktreeStore.selectRelPath(relPath, lineNum);
       },
     });
   }

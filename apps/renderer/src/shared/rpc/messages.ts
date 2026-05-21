@@ -10,8 +10,10 @@
 //    呼び出し側が `onMessage<MyPayload>("my-type", fn)` の generic で型を当てる。
 //    GozdMessageMap を持つと shared が feature 知識を持ってしまうため。
 //
-// 2. **window.__gozdReceive はシングルトン**。複数モジュールが上書きしないよう、
-//    最初に import されたタイミングで dispatcher に固定する。
+// 2. **`window` への登録は明示の `initRpcDispatcher()` で行う**。モジュールトップレベルで
+//    `window.__gozdReceive = ...` を実行すると import するだけで window へ書き込む副作用が
+//    生じ、bun:test / SSR / 非 DOM 環境でロードエラーになる。renderer の bootstrap
+//    (`main.ts`) で 1 回だけ呼び出す契約にすることで、import 時の副作用を排除する。
 
 type AnyListener = (payload: unknown) => void;
 
@@ -23,11 +25,24 @@ declare global {
   }
 }
 
-window.__gozdReceive = (type, payload) => {
+function dispatchToListeners(type: string, payload: unknown): void {
   const fns = listeners.get(type);
   if (fns === undefined) return;
   for (const fn of fns) fn(payload);
-};
+}
+
+/**
+ * renderer bootstrap で 1 回だけ呼ぶ。native (Swift) からの
+ * `WebPage.callJavaScript("window.__gozdReceive(...)")` を受けるため
+ * dispatcher を `window` に固定する。
+ *
+ * test / SSR では呼ばない契約。listener 登録 (`onMessage`) や renderer 内部の
+ * 再同期 push (`dispatchMessage`) は init 不要で動く (どちらも `dispatchToListeners`
+ * を直接呼ぶため、window indirection が無くて済む)。
+ */
+export function initRpcDispatcher(): void {
+  window.__gozdReceive = dispatchToListeners;
+}
 
 export function onMessage<T>(type: string, fn: (payload: T) => void): () => void {
   const arr = listeners.get(type) ?? [];
@@ -51,7 +66,9 @@ export function onMessage<T>(type: string, fn: (payload: T) => void): () => void
  * 区別せず処理する）。
  *
  * 命名は `dispatchMessage` で、native の push と意味的に並ぶ位置に置く。
+ * 実装は `dispatchToListeners` 直呼び出し: window 経由を挟まないため、
+ * `initRpcDispatcher` を呼んでいない test 環境からも動く。
  */
 export function dispatchMessage(type: string, payload: unknown): void {
-  window.__gozdReceive?.(type, payload);
+  dispatchToListeners(type, payload);
 }

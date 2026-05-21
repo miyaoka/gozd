@@ -7,7 +7,7 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 - ResizeHandle で上下の比率をリサイズ可能
 - git リポジトリでない場合は Filer のみ表示
 - FilerPane の reveal は worktreeStore.revealVersion を内部で購読しているため props 経由不要
-- ChangesPane の `select` emit を `worktreeStore.selectPath()` に接続
+- ChangesPane の `select` emit を `worktreeStore.selectRelPath()` に接続
 </doc>
 
 <script setup lang="ts">
@@ -53,7 +53,7 @@ function getFilerHeight(): number {
 }
 
 function onChangesSelect(relPath: string) {
-  worktreeStore.selectPath(relPath);
+  worktreeStore.selectRelPath(relPath);
 }
 </script>
 

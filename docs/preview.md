@@ -153,10 +153,17 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
 - YAML frontmatter を `hooks.preprocess` でコードブロックに変換して表示
 - markdown 中の `[text](https://...)` 由来 `<a>` は、native の `ExternalLinkNavigationDecider`（[architecture.md](architecture.md) の「WebPage の navigation policy」参照）が拾って OS のデフォルトブラウザで開く。WebView 内で main frame が外部 URL に置換されることはない
 - 相対パスリンク (`[text](./foo.md)` / `[text](../bar.md)` / `[text](/baz.md)` 等の scheme なしリンク) は MarkdownPreview 内の `@click` でイベント委譲して捕捉し、`worktreeStore.selectPath()` でプレビュー対象を切り替える。WebView のデフォルトナビゲーション (現在 URL に対する相対解決) に任せると `http://localhost:5173/...` / `gozd-app://localhost/...` の存在しないリソースを指してクリックが死ぬため、構造的に preventDefault して内部経路に倒す
-  - `/` 始まりは worktree ルート相対として扱う
-  - `./` / `../` / 名前のみは現在の `selectedPath` のディレクトリ基準で結合
-  - `#fragment` 単独は同一文書内アンカーとしてブラウザのデフォルトスクロールに任せる
-  - `http(s)://` / `mailto:` 等の scheme 付きはハンドラを素通りさせて `ExternalLinkNavigationDecider` 経路に渡す
+- 解決ロジックは純粋関数 `resolveMarkdownLink` に切り出し、`relDirOf` / `normalizePath` を引数で受け取って依存反転している。テスト (`resolveMarkdownLink.test.ts`) でテーブル駆動の境界条件をカバー
+- href の分岐 (VS Code `markdown-language-features/preview-src/index.ts` と同じ責務分担):
+  - `/` 始まり: worktree ルート相対として扱い、先頭の `/` を除去
+  - `./` / `../` / 名前のみ: 現在の `selectedPath` のディレクトリ基準で結合 → `normalizePath`
+  - `#fragment` 単独: 同一文書内アンカーとしてブラウザのデフォルトスクロールに任せる
+  - `http(s)://` / `mailto:` / `gozd-rpc://` 等 scheme 付き: ハンドラを素通りさせて `ExternalLinkNavigationDecider` 経路 (外部) または WebView 既定に渡す
+- `[text](./foo%20bar.md)` のような URL エンコードされた href は `decodeURIComponent` で復号 (失敗時は invalid 通知)
+- 行番号フラグメント (`./foo.ts#L42` / `#42` / `#L42,5` / `#L42-L50`) は `getLocationFragmentFromLinkText` (VS Code) と同じ regex で startLine だけ抽出し、`selectPath(path, lineNumber)` の lineNumber に渡す。CodePreview の `selectedLineNumber` 経由で行スクロール / ハイライトが効く
+- それ以外の anchor (`#installation` 等の見出しアンカー) は info notification で「Anchor ignored (not a line number)」を出して silent drop を避ける (Markdown 内見出しへの自動スクロールは現状未対応)
+- worktree root の外を指す解決結果 (`..` で抜ける / 不正な URL encoding / 空 href) は error notification を出して selection は更新しない
+- middle click (`auxclick`) はハンドラに通さず WebView の既定挙動に任せる (VS Code も未対応)
 
 ### ImagePreview
 

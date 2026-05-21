@@ -37,3 +37,12 @@ message TaskUpdateRequest {
 message TaskUpdateResponse {
   Task task = 1;
 }
+
+// ⋮ メニューからの明示削除。worktree 削除 cascade とは別経路。
+// root worktree のように `git worktree remove` できない場所で生まれた task や、
+// closed_by_user で滞留した task を片付けるためのユーザー操作。
+message TaskRemoveRequest {
+  string dir = 1;
+  string id = 2;
+}
+message TaskRemoveResponse {}

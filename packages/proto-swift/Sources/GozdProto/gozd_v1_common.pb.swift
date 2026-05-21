@@ -143,10 +143,12 @@ public struct Gozd_V1_Task: Sendable {
   /// SessionEnd では消さず保持し、サイドバークリック時の `claude --resume` 起点に使う。
   public var sessionID: String = String()
 
-  /// サイドバーから非表示にするフラグ。ターミナル close / SessionEnd で gh_ref 持ち
-  /// task を削除する代わりに立てる。同 worktree_dir + 同 gh_ref で TaskAdd が来た時
-  /// (PR/issue picker からの再選択) や SessionStart の attach 経路で false に戻す。
-  public var hidden: Bool = false
+  /// ユーザーが明示的にターミナルを close した task かどうか。
+  /// SessionEnd / terminal close (detachSession) で true に倒し、resume クリック /
+  /// PR picker 再選択 / 同 sid SessionStart hook (attachSession) で false に戻す。
+  /// app close (renderer 強制終了) では detachSession 経路を通らないため据え置き。
+  /// サイドバー UI の "closed" / "resumable" 状態区別に使う。
+  public var closedByUser: Bool = false
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -451,7 +453,7 @@ extension Gozd_V1_UpstreamStatus: SwiftProtobuf.Message, SwiftProtobuf._MessageI
 
 extension Gozd_V1_Task: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Task"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}body\0\u{3}worktree_dir\0\u{3}gh_ref\0\u{3}created_at\0\u{3}session_id\0\u{1}hidden\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}body\0\u{3}worktree_dir\0\u{3}gh_ref\0\u{3}created_at\0\u{3}session_id\0\u{3}closed_by_user\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -465,7 +467,7 @@ extension Gozd_V1_Task: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementat
       case 4: try { try decoder.decodeSingularMessageField(value: &self._ghRef) }()
       case 5: try { try decoder.decodeSingularStringField(value: &self.createdAt) }()
       case 6: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
-      case 7: try { try decoder.decodeSingularBoolField(value: &self.hidden) }()
+      case 7: try { try decoder.decodeSingularBoolField(value: &self.closedByUser) }()
       default: break
       }
     }
@@ -494,8 +496,8 @@ extension Gozd_V1_Task: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementat
     if !self.sessionID.isEmpty {
       try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 6)
     }
-    if self.hidden != false {
-      try visitor.visitSingularBoolField(value: self.hidden, fieldNumber: 7)
+    if self.closedByUser != false {
+      try visitor.visitSingularBoolField(value: self.closedByUser, fieldNumber: 7)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -507,7 +509,7 @@ extension Gozd_V1_Task: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementat
     if lhs._ghRef != rhs._ghRef {return false}
     if lhs.createdAt != rhs.createdAt {return false}
     if lhs.sessionID != rhs.sessionID {return false}
-    if lhs.hidden != rhs.hidden {return false}
+    if lhs.closedByUser != rhs.closedByUser {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

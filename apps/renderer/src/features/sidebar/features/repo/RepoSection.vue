@@ -42,6 +42,7 @@ const emit = defineEmits<{
   selectTask: [wt: WorktreeEntry, task: Task];
   addWorktree: [rootDir: string];
   openWorktreeMenu: [anchorEl: HTMLElement, wt: WorktreeEntry, rootDir: string];
+  openTaskMenu: [anchorEl: HTMLElement, task: Task, rootDir: string];
 }>();
 
 const repoStore = useRepoStore();
@@ -130,6 +131,7 @@ function onHeaderClick() {
         @select-wt="emit('selectWt', $event)"
         @select-task="(w, t) => emit('selectTask', w, t)"
         @open-menu="(anchorEl, wt2) => emit('openWorktreeMenu', anchorEl, wt2, rootDir)"
+        @open-task-menu="(anchorEl, _wt, t) => emit('openTaskMenu', anchorEl, t, rootDir)"
       />
       <button
         type="button"

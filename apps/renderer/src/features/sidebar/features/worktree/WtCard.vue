@@ -41,6 +41,7 @@ const emit = defineEmits<{
   selectWt: [wt: WorktreeEntry];
   selectTask: [wt: WorktreeEntry, task: Task];
   openMenu: [anchorEl: HTMLElement, wt: WorktreeEntry];
+  openTaskMenu: [anchorEl: HTMLElement, wt: WorktreeEntry, task: Task];
 }>();
 
 const terminalStore = useTerminalStore();
@@ -170,6 +171,7 @@ function onHeaderClick() {
         :status="entry.status"
         :active="focusedTaskId === entry.task.id"
         @select="(t) => emit('selectTask', wt, t)"
+        @open-menu="(anchorEl, t) => emit('openTaskMenu', anchorEl, wt, t)"
       />
     </div>
   </article>

@@ -234,13 +234,19 @@ struct RpcDispatcherTests {
     // claude-sessions.json は X と Y 両方とも消える
     let remainingSessions = try await claudeSessions.savedSessions(for: worktreeDir)
     #expect(remainingSessions.isEmpty)
-    // tasks: PR task (ghRef あり) は sid クリアで残る、scratch task (ghRef 無し) は削除
+    // tasks: PR task (ghRef あり) は sid クリアで残る、scratch task (ghRef 無し) も
+    // 削除されず closed_by_user=true + sessionID 保持で残る (新仕様: terminal close で
+    // task は削除しない。削除はユーザーの ⋮ メニュー or worktree 削除 cascade のみ)
     let remainingTasks = try await tasks.list(dir: worktreeDir)
-    #expect(remainingTasks.count == 1)
-    let kept = try #require(remainingTasks.first)
-    #expect(kept.body == "PR work")
-    #expect(kept.ghRef.number == 99)
-    #expect(kept.sessionID == "")
+    #expect(remainingTasks.count == 2)
+    let prTask = try #require(remainingTasks.first { $0.hasGhRef })
+    #expect(prTask.body == "PR work")
+    #expect(prTask.ghRef.number == 99)
+    #expect(prTask.sessionID == "")
+    let scratchTask = try #require(remainingTasks.first { !$0.hasGhRef })
+    #expect(scratchTask.body == "scratch")
+    #expect(scratchTask.sessionID == "live-Y")
+    #expect(scratchTask.closedByUser)
 
     var killReq = Gozd_V1_PtyKillRequest()
     killReq.ptyID = spawnResp.ptyID

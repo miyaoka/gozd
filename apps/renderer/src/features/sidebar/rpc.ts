@@ -14,6 +14,8 @@ import {
   SaveAppStateResponse,
   TaskAddRequest,
   TaskAddResponse,
+  TaskRemoveRequest,
+  TaskRemoveResponse,
   TaskUpdateRequest,
   TaskUpdateResponse,
 } from "@gozd/proto";
@@ -43,6 +45,10 @@ export const rpcTaskAdd = (req: TaskAddRequest) =>
 
 export const rpcTaskUpdate = (req: TaskUpdateRequest) =>
   rpc("/task/update", req, TaskUpdateRequest, TaskUpdateResponse);
+
+// ⋮ メニューからの明示削除。worktree 削除 cascade と並ぶ唯一のユーザー操作削除経路。
+export const rpcTaskRemove = (req: TaskRemoveRequest) =>
+  rpc("/task/remove", req, TaskRemoveRequest, TaskRemoveResponse);
 
 // --- app-state 永続化（sidebar repos / order / collapse の保存） ---
 

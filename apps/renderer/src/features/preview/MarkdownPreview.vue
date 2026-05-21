@@ -2,16 +2,22 @@
 marked で Markdown → HTML 変換し、DOMPurify でサニタイズして表示する。
 
 - YAML frontmatter はコードブロックとして描画
+- 相対パスリンクのクリックは worktree 相対パスとして解決し、プレビュー対象を切り替える
+  （http(s) / mailto: 等の絶対 URL は `ExternalLinkNavigationDecider` 経路で外部ブラウザに渡す）
 </doc>
 
 <script setup lang="ts">
 import DOMPurify from "dompurify";
 import { marked, type MarkedExtension } from "marked";
 import { ref, watch } from "vue";
+import { relDirOf } from "../filer";
+import { useWorktreeStore } from "../worktree";
 
 const props = defineProps<{
   content: string;
 }>();
+
+const worktreeStore = useWorktreeStore();
 
 const renderedHtml = ref<string>();
 
@@ -39,10 +45,50 @@ watch(
   },
   { immediate: true },
 );
+
+/** scheme 付き URL（http://、mailto: 等）かどうかを判定 */
+const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
+
+/**
+ * リンクの相対パス解決:
+ * - `/` 始まり: worktree ルート基準の絶対（先頭の `/` を除去して相対化）
+ * - それ以外: 現在の `selectedPath` のディレクトリ基準で結合
+ * normalizePath は `worktreeStore.selectPath` 側で実行されるためここでは行わない。
+ */
+function resolveRelativeLink(href: string): string {
+  if (href.startsWith("/")) return href.substring(1);
+  const basePath = worktreeStore.selectedPath;
+  const baseDir = basePath === undefined ? "" : relDirOf(basePath);
+  return baseDir === "" ? href : `${baseDir}/${href}`;
+}
+
+function onLinkClick(e: MouseEvent) {
+  // modifier 付きクリックは新規ウィンドウ等の意図とみなさずデフォルトに任せる経路を残さない:
+  // 単一 WebView 構成なので middle/cmd click でも内部遷移として扱う
+  const target = e.target;
+  if (!(target instanceof HTMLElement)) return;
+  const anchor = target.closest("a");
+  if (anchor === null) return;
+  const href = anchor.getAttribute("href");
+  if (href === null || href === "") return;
+
+  // フラグメントのみ: 同一文書内アンカー。ブラウザのデフォルトスクロールに任せる
+  if (href.startsWith("#")) return;
+
+  // 絶対 URL（http://、mailto: 等）: NavigationDecider が外部ブラウザに送る
+  if (URL_SCHEME_RE.test(href)) return;
+
+  // 相対パス: プレビュー切り替え
+  e.preventDefault();
+  const hashIdx = href.indexOf("#");
+  const pathPart = hashIdx >= 0 ? href.substring(0, hashIdx) : href;
+  if (pathPart === "") return;
+  worktreeStore.selectPath(resolveRelativeLink(pathPart));
+}
 </script>
 
 <template>
-  <div class="_markdown-body p-6 text-sm/relaxed" v-html="renderedHtml" />
+  <div class="_markdown-body p-6 text-sm/relaxed" v-html="renderedHtml" @click="onLinkClick" />
 </template>
 
 <style scoped>

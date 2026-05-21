@@ -152,6 +152,11 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
 - `marked` で HTML に変換後、`DOMPurify.sanitize()` で XSS 対策
 - YAML frontmatter を `hooks.preprocess` でコードブロックに変換して表示
 - markdown 中の `[text](https://...)` 由来 `<a>` は、native の `ExternalLinkNavigationDecider`（[architecture.md](architecture.md) の「WebPage の navigation policy」参照）が拾って OS のデフォルトブラウザで開く。WebView 内で main frame が外部 URL に置換されることはない
+- 相対パスリンク (`[text](./foo.md)` / `[text](../bar.md)` / `[text](/baz.md)` 等の scheme なしリンク) は MarkdownPreview 内の `@click` でイベント委譲して捕捉し、`worktreeStore.selectPath()` でプレビュー対象を切り替える。WebView のデフォルトナビゲーション (現在 URL に対する相対解決) に任せると `http://localhost:5173/...` / `gozd-app://localhost/...` の存在しないリソースを指してクリックが死ぬため、構造的に preventDefault して内部経路に倒す
+  - `/` 始まりは worktree ルート相対として扱う
+  - `./` / `../` / 名前のみは現在の `selectedPath` のディレクトリ基準で結合
+  - `#fragment` 単独は同一文書内アンカーとしてブラウザのデフォルトスクロールに任せる
+  - `http(s)://` / `mailto:` 等の scheme 付きはハンドラを素通りさせて `ExternalLinkNavigationDecider` 経路に渡す
 
 ### ImagePreview
 

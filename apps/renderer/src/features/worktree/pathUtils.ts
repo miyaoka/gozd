@@ -24,6 +24,22 @@ export function pathTargetToString(target: PathTarget): string {
 }
 
 /**
+ * `PathTarget` の値同一性を判定する純粋関数。
+ * Selection 経由の object identity 比較は新規 object literal が毎回作られるため成立しない。
+ * 「同じファイルへの再 navigate を no-op に倒す」「履歴に同パス重複を積まない」などで
+ * SSOT として使う。kind が異なれば即 false、同じなら path 文字列を比較する。
+ */
+export function pathTargetEquals(a: PathTarget, b: PathTarget): boolean {
+  if (a.kind === "worktreeRelative" && b.kind === "worktreeRelative") {
+    return a.relPath === b.relPath;
+  }
+  if (a.kind === "absolute" && b.kind === "absolute") {
+    return a.absPath === b.absPath;
+  }
+  return false;
+}
+
+/**
  * worktree 相対パスの `.` / `..` / 連続スラッシュ / 末尾スラッシュを正規化する。
  * 先頭の `..` は worktree root より上を指すため保持する（呼び出し側で escape 判定）。
  * 引数は相対パスであることを期待する（先頭 `/` 始まりは渡さない契約）。

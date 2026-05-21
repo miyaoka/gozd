@@ -30,7 +30,7 @@ import {
   registerIssueCommand,
   registerPrCommand,
 } from "../palette";
-import { BlamePopover, PreviewPane, useMarkdownHistoryStore } from "../preview";
+import { BlamePopover, PreviewPane, registerMarkdownHistoryCommands } from "../preview";
 import { registerSettingsCommand, SettingsModal } from "../settings";
 import { registerShellCommandActions } from "../shell-command";
 import { SidebarPane } from "../sidebar";
@@ -43,7 +43,6 @@ import { rpcWindowClose } from "./rpc";
 const worktreeStore = useWorktreeStore();
 const repoStore = useRepoStore();
 const summaryStore = useChangesSummaryStore();
-const markdownHistory = useMarkdownHistoryStore();
 const contextKeys = useContextKeys();
 const previewPopoverRef = useTemplateRef<HTMLElement>("previewPopover");
 
@@ -60,16 +59,6 @@ const disposePreviewToggle = register("preview.toggle", {
     return true;
   },
 });
-const disposeMarkdownBack = register("markdownPreview.back", {
-  label: "Markdown Preview: Go Back",
-  precondition: "previewVisible",
-  handler: () => markdownHistory.goBack(),
-});
-const disposeMarkdownForward = register("markdownPreview.forward", {
-  label: "Markdown Preview: Go Forward",
-  precondition: "previewVisible",
-  handler: () => markdownHistory.goForward(),
-});
 const disposeWindowClose = register("window.close", {
   label: "Window: Close",
   handler: () => {
@@ -82,15 +71,15 @@ const disposeSettingsCommand = registerSettingsCommand();
 const disposePrCommand = registerPrCommand();
 const disposeIssueCommand = registerIssueCommand();
 const disposeShellCommandActions = registerShellCommandActions();
+const disposeMarkdownHistoryCommands = registerMarkdownHistoryCommands();
 onUnmounted(disposePreviewToggle);
-onUnmounted(disposeMarkdownBack);
-onUnmounted(disposeMarkdownForward);
 onUnmounted(disposeWindowClose);
 onUnmounted(disposeThemeCommand);
 onUnmounted(disposeSettingsCommand);
 onUnmounted(disposePrCommand);
 onUnmounted(disposeIssueCommand);
 onUnmounted(disposeShellCommandActions);
+onUnmounted(disposeMarkdownHistoryCommands);
 
 /** ハンドル幅 w-2 = 8px */
 const HANDLE_WIDTH = 8;

@@ -6,14 +6,19 @@
  * `worktreeStore.selection` が変化したら履歴は破棄する（ブラウザの「別 origin に飛んだら
  * 履歴コンテキストが切れる」のと同じ感覚）。
  *
- * 内部 nav と外部 nav の判別: `isInternalNav` フラグを navigate / goBack / goForward の
- * 直前に立て、`selection` を sync watch して fire 時にフラグを読み reset する。flush: 'sync'
- * により selection 書き換えと同 tick で callback が走るため、フラグの寿命は厳密に「1 回の
- * worktreeStore.selectFromTarget 呼び出し分」になる。
+ * 内部 nav と外部 nav の判別: `applySelection` の同期スコープ内で `isInternalNav` フラグを
+ * 立て、`finally` で必ず reset する。`worktreeStore.selection` を `flush: 'sync'` で watch し、
+ * フラグが立っていなければ「外部遷移」とみなして両スタックをクリアする。flag reset を
+ * watch の副作用に依存させないことで、`worktreeStore.selectRelPath` の `dir` 未確立 early
+ * return 経路など、selection の書き換えが走らない経路でもフラグが居残らないことを保証する。
+ *
+ * 履歴スタックの上限: **設けない**。md preview の navigate は人間が `<a>` をクリックする
+ * 経路でのみ発生するため、現実的な操作頻度で memory pressure になる事象が観測されていない。
+ * 必要になったら本ファイル冒頭の不変条件として明示した上で cap を入れる。
  */
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
-import { type PathTarget, type Selection, useWorktreeStore } from "../worktree";
+import { type PathTarget, pathTargetEquals, type Selection, useWorktreeStore } from "../worktree";
 
 interface HistoryEntry {
   selection: Selection;
@@ -38,10 +43,26 @@ export const useMarkdownHistoryStore = defineStore("markdown-history", () => {
 
   function applySelection(entry: HistoryEntry) {
     isInternalNav = true;
-    worktreeStore.selectFromTarget(entry.selection, entry.selection.lineNumber);
+    try {
+      worktreeStore.selectFromTarget(entry.selection, entry.selection.lineNumber);
+    } finally {
+      isInternalNav = false;
+    }
+  }
+
+  /** 現在の selection と target+lineNumber が同値か。`navigate` の冪等化に使う */
+  function isSameAsCurrent(target: PathTarget, lineNumber: number | undefined): boolean {
+    const sel = worktreeStore.selection;
+    if (sel === undefined) return false;
+    return pathTargetEquals(sel, target) && sel.lineNumber === lineNumber;
   }
 
   function navigate(target: PathTarget, lineNumber?: number) {
+    // 同パス + 同 lineNumber への再 navigate は履歴に積まずに no-op。
+    // これをやらないと自己リンクや「[a.md] ↔ [b.md] 往復」で back スタックが汚染され、
+    // back ボタン押下で見た目変化のない遷移が混じる。
+    if (isSameAsCurrent(target, lineNumber)) return;
+
     const current = snapshotCurrent();
     if (current !== undefined) {
       back.value.push(current);
@@ -50,41 +71,32 @@ export const useMarkdownHistoryStore = defineStore("markdown-history", () => {
     applySelection({ selection: { ...target, lineNumber } });
   }
 
-  function goBack(): boolean {
+  function goBack() {
     const prev = back.value.pop();
-    if (prev === undefined) return false;
+    if (prev === undefined) return;
     const current = snapshotCurrent();
     if (current !== undefined) {
       forward.value.push(current);
     }
     applySelection(prev);
-    return true;
   }
 
-  function goForward(): boolean {
+  function goForward() {
     const next = forward.value.pop();
-    if (next === undefined) return false;
+    if (next === undefined) return;
     const current = snapshotCurrent();
     if (current !== undefined) {
       back.value.push(current);
     }
     applySelection(next);
-    return true;
-  }
-
-  function clear() {
-    back.value = [];
-    forward.value = [];
   }
 
   watch(
     () => worktreeStore.selection,
     () => {
-      if (isInternalNav) {
-        isInternalNav = false;
-        return;
-      }
-      clear();
+      if (isInternalNav) return;
+      back.value = [];
+      forward.value = [];
     },
     { flush: "sync" },
   );
@@ -95,7 +107,6 @@ export const useMarkdownHistoryStore = defineStore("markdown-history", () => {
     navigate,
     goBack,
     goForward,
-    clear,
   };
 });
 

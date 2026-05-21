@@ -125,7 +125,7 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
 
 - Shiki の `createHighlighter` で遅延初期化（シングルトン）
 - `github-dark` テーマ
-- `ShikiTransformer` で各行に `data-line` 属性を付与し、行頭に `<button data-line-no-btn>` を実 DOM 挿入（疑似要素 `::before` ではなくクリックターゲットにできる button にして event delegation で blame 起動経路に流す）
+- `ShikiTransformer` で各行に `data-line` 属性を付与し、行頭に line-no 要素を実 DOM 挿入する。挿入する要素は親から渡された `blameEnabled` で切り替え、true なら `<button data-line-no-btn>` (event delegation で blame 起動経路)、false なら `<span class="_line-no-static" aria-hidden="true">` (focusable を奪い keyboard 経路でも何も起きないことを構造で保証)。fallback markup も同じ `v-if` で button/span を切替え、疑似要素 `::before` 由来のクリック判定問題と silent dead button を両方避ける
 - 言語検出: 拡張子 → `EXTENSION_LANG_MAP` で Shiki 言語 ID に変換
 - word-wrap トグルボタンでコードの折り返しを切り替え
 - 行番号指定時（`:行番号` サフィックス付きリンクから）は該当行にスクロールし、黄色背景でハイライト
@@ -148,7 +148,7 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
   - 言語未対応時はフォールバック表示（追加=緑、削除=赤）
 - unified と split の両方の表示形式を取得時に事前展開して保持。view mode 切替で再 fetch は走らない
 - split view では modified hunk 内で連続する removed run と added run を貪欲ペアリングし、余った片側は反対セルを空 (灰色背景) にして残す
-- 行番号セル (old / new いずれも) は親から `blameEnabled` を受けたときだけ button 化され、クリックで `lineNumberClick({ side, line, anchorEl })` を emit する。`side` は old → Original 側 rev、new → Current 側 rev で BlamePopover を起動するために使う ([BlamePopover セクション](#blamepopover) 参照)。`blameEnabled=false` のときは button ではなく静的な数字セルとして描画し、hover / pointer cursor も出ない (silent dead button を作らない契約)
+- 行番号セル (old / new いずれも) は親から `blameEnabled` を受けたときだけ `<button>` として描画し、クリックで `lineNumberClick({ side, line, anchorEl })` を emit する。`side` は old → Original 側 rev、new → Current 側 rev で BlamePopover を起動するために使う ([BlamePopover セクション](#blamepopover) 参照)。`blameEnabled=false` のときは button ではなく `<span class="_line-no">` として描画し、focusable も hover / pointer cursor も持たない (silent dead button を作らない契約)。CodePreview と同じ規約
 
 ### BlamePopover
 
@@ -184,12 +184,15 @@ History は blame 完了を必ず待ってから走る。起点 commit は blame
 
 - 表示中ファイル / `gitGraphStore.selectedHash` / `compareHash` / `activeMode` のいずれかが変わると `useBlamePopover().close()` を発火し popover を閉じる (文脈乖離した popover を残さない)
 - Popover API の `toggle` イベントを受けて Esc / 外クリック dismiss も composable 側の state を clear する
-- `open()` / `close()` は `activeVersion` をインクリメントし、進行中の blame / history RPC は await 復帰時に version 不一致なら結果を破棄する。同一 popover 内で blame と history の race も同じ counter で揃える
+- `open()` / `close()` は `activeVersion` をインクリメントし、進行中の blame / history RPC は await 復帰時に version 不一致なら結果を破棄する
+- 進行中 blame は `blameInFlight = { version, promise }` で tuple 化して保持する。`loadHistory` は await 前に `myVersion = activeVersion` を capture し、`blameInFlight.version === myVersion` のときだけ自分 version の blame を await する。let の素 Promise 参照だと `open(B)` で `blamePromise` が reassign されても、待機中の loadHistory は古い (A の) 参照を引きずって別 version の blame を待ち続けるバグになる。tuple version 比較でこれを構造的に防ぐ
 
 #### Swift 側の防御
 
-- `rev` は `validateRev` で 空文字 / `HEAD` / hex hash + 末尾 `^` `~` のみ許可。`-` 始まりや空白文字は option 注入として reject
+- `rev` は `validateRev` で `空文字 / "HEAD" / hex hash + 末尾 ^ ~` のみ許可。`-` 始まりや空白文字は option 注入として reject
+- `blameLine` は空文字 (working tree) を許容するが、`logLine` は空文字を `unexpectedOutput` で reject する。`logLine` の rev は呼び出し側が必ず blame した commit hash を起点として流す契約のため、空文字で HEAD 起点 walk に倒れると「blame した commit を含まない history」が返って意味契約が壊れる。proto 側も同じ契約 (`gitLogLine` メッセージのコメント参照)
 - blame 対象ファイルは `git cat-file -s` (または fs stat) でサイズを先に測り、`BLAME_MAX_BLOB_BYTES` (2 MiB) を超えるなら `unexpectedOutput` で reject。`pnpm-lock.yaml` 級ファイル全体 walk による UI ブロックを防ぐ
+- size 取得失敗の silent 通過は「予期された不在」経路のみ: working tree は `NSFileReadNoSuchFileError` のみ、`git cat-file` は `GitError.commandFailed` (exit 128 = path 未解決) のみ。`launchFailed` / `commandNotFound` / 数値 parse 失敗等は throw で観察可能化する (規約「fallback せずエラーにする」と整合)
 - `git log -L` は path に `:` を含むと syntax が壊れるため、`logLine` 側で reject する
 - `git blame --porcelain` の parse は各行を trim してから処理し、CRLF 等の trailing whitespace で `author-time` 等の数値 parse が silent に 0 へ倒れるのを防ぐ
 

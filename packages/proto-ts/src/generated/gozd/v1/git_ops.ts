@@ -448,11 +448,13 @@ export interface GitBlameLineResponse {
 }
 
 /**
- * gitLogLine: 指定行の変更履歴を返す。`git log -L<line>,<line>:<relPath> --no-patch [<rev>]` 相当。
+ * gitLogLine: 指定行の変更履歴を返す。`git log -L<line>,<line>:<relPath> --no-patch <rev>` 相当。
  *
- * rev:
- *   - "" (空文字): HEAD 起点で walk
- *   - それ以外: 指定 rev から walk
+ * rev は **必須** (空文字は server 側で reject される)。呼び出し側 (renderer の
+ * `useBlamePopover`) は必ず「blame で得た commit hash」を起点として流す契約で、
+ * HEAD 起点 walk に倒れると「blame した commit を含まない history」が返って
+ * 意味契約が壊れるため。空文字を渡すと `unexpectedOutput` で "rev must be specified"
+ * エラーになる。許容形式は `validateRev` 同等 (HEAD / hex hash / 末尾 `^` / `~N`)。
  *
  * max_count は 0 のとき git にも `--max-count` を渡さない (= 全件)。
  * `git log -L` は patch が出るのが default だが、popover では commit 一覧だけ欲しいため

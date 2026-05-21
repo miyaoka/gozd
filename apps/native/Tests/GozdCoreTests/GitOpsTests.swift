@@ -743,6 +743,213 @@ struct ExpandDiffLinesTests {
   }
 }
 
+@Suite("GitOps.validateRev")
+struct GitOpsValidateRevTests {
+  @Test("空文字は通過 (working tree blame 経路)")
+  func emptyAllowed() throws {
+    try validateRev("")
+  }
+
+  @Test("HEAD は通過")
+  func headAllowed() throws {
+    try validateRev("HEAD")
+  }
+
+  @Test("hex hash は通過")
+  func hexHashAllowed() throws {
+    try validateRev("abc1234")
+    try validateRev("abcdef0123456789abcdef0123456789abcdef01")
+    try validateRev("ABCDEF01")
+  }
+
+  @Test("hex hash + 末尾 ^ / ~ は通過")
+  func hashWithSuffixAllowed() throws {
+    try validateRev("abc1234^")
+    try validateRev("abc1234~1")
+    try validateRev("abc1234^^")
+  }
+
+  @Test("`-` 始まりは option 注入として reject")
+  func dashLeading() {
+    #expect(throws: GitError.self) { try validateRev("-foo") }
+    #expect(throws: GitError.self) { try validateRev("--upload-pack=evil") }
+  }
+
+  @Test("非 hex 開始は reject (HEAD は別経路で許可済み)")
+  func nonHexStart() {
+    #expect(throws: GitError.self) { try validateRev("main") }
+    #expect(throws: GitError.self) { try validateRev("origin/main") }
+    #expect(throws: GitError.self) { try validateRev("v1.0.0") }
+    #expect(throws: GitError.self) { try validateRev("^HEAD") }
+  }
+
+  @Test("空白を含む rev は reject")
+  func whitespaceRejected() {
+    #expect(throws: GitError.self) { try validateRev("abc 1234") }
+    #expect(throws: GitError.self) { try validateRev("abc1234 ") }
+    #expect(throws: GitError.self) { try validateRev(" abc1234") }
+  }
+
+  @Test("hex 外の記号は reject")
+  func nonHexSymbol() {
+    #expect(throws: GitError.self) { try validateRev("abc;rm -rf /") }
+    #expect(throws: GitError.self) { try validateRev("abc/def") }
+    #expect(throws: GitError.self) { try validateRev("abc.def") }
+  }
+}
+
+@Suite("GitOps.logLine")
+struct GitOpsLogLineTests {
+  @Test("空 rev は unexpectedOutput で reject (blame-anchored contract)")
+  func emptyRevRejected() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "v1\nv2\n".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
+
+    do {
+      _ = try await GitOps.logLine(
+        dir: dir.path, relPath: "a.txt", rev: "", line: 1, maxCount: 10)
+      Issue.record("expected throw, got success")
+    } catch let GitError.unexpectedOutput(message) {
+      #expect(message.contains("rev must be specified"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("path に `:` を含む場合は unexpectedOutput で reject")
+  func pathColonRejected() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    do {
+      _ = try await GitOps.logLine(
+        dir: dir.path, relPath: "foo:bar.txt", rev: "HEAD", line: 1, maxCount: 10)
+      Issue.record("expected throw, got success")
+    } catch let GitError.unexpectedOutput(message) {
+      #expect(message.contains("path contains ':'"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("`-` 始まりの rev は validateRev で reject")
+  func dashRevRejected() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    do {
+      _ = try await GitOps.logLine(
+        dir: dir.path, relPath: "a.txt", rev: "-foo", line: 1, maxCount: 10)
+      Issue.record("expected throw, got success")
+    } catch let GitError.unexpectedOutput(message) {
+      #expect(message.contains("leading '-'"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("正常: HEAD 起点で 1 行の history を返す")
+  func historyHappyPath() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let file = dir.appendingPathComponent("a.txt")
+    try "first\n".write(to: file, atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "add a"], cwd: dir.path)
+    try "first modified\n".write(to: file, atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["commit", "-am", "modify a"], cwd: dir.path)
+
+    let commits = try await GitOps.logLine(
+      dir: dir.path, relPath: "a.txt", rev: "HEAD", line: 1, maxCount: 10)
+    #expect(commits.count == 2)
+    #expect(commits[0].message == "modify a")
+    #expect(commits[1].message == "add a")
+  }
+}
+
+@Suite("GitOps.blameLine")
+struct GitOpsBlameLineTests {
+  @Test("正常: 単一行 blame で author / summary / sourceLine を返す")
+  func blameHappyPath() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let file = dir.appendingPathComponent("a.txt")
+    try "first\nsecond\nthird\n".write(to: file, atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
+
+    let info = try await GitOps.blameLine(
+      dir: dir.path, relPath: "a.txt", rev: "HEAD", line: 2)
+    #expect(info.author == "Test")
+    #expect(info.summary == "init")
+    #expect(info.sourceLine == 2)
+    #expect(info.notCommitted == false)
+    #expect(info.hash.count == 40)
+    #expect(info.shortHash == String(info.hash.prefix(7)))
+  }
+
+  @Test("working tree (rev='') の未コミット行は notCommitted=true")
+  func notCommittedLine() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let file = dir.appendingPathComponent("a.txt")
+    try "committed line\n".write(to: file, atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
+    // working tree に未コミットの追加行を入れる
+    try "committed line\nuncommitted line\n".write(to: file, atomically: true, encoding: .utf8)
+
+    let info = try await GitOps.blameLine(dir: dir.path, relPath: "a.txt", rev: "", line: 2)
+    #expect(info.notCommitted == true)
+    #expect(info.hash.allSatisfy { $0 == "0" })
+  }
+
+  @Test("BLAME_MAX_BLOB_BYTES 超のファイルは unexpectedOutput で reject")
+  func sizeGuardRejects() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let file = dir.appendingPathComponent("big.txt")
+    // BLAME_MAX_BLOB_BYTES (2 MiB) + 1 byte の content を 1 行ずつ書く
+    let lineCount = (BLAME_MAX_BLOB_BYTES / 4) + 1
+    var sb = ""
+    sb.reserveCapacity(BLAME_MAX_BLOB_BYTES + 16)
+    for _ in 0..<lineCount {
+      sb.append("abc\n")
+    }
+    try sb.write(to: file, atomically: true, encoding: .utf8)
+
+    // working tree (rev="") 経路でサイズ gate を踏む
+    do {
+      _ = try await GitOps.blameLine(dir: dir.path, relPath: "big.txt", rev: "", line: 1)
+      Issue.record("expected throw, got success")
+    } catch let GitError.unexpectedOutput(message) {
+      #expect(message.contains("file too large"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("`-` 始まり rev は validateRev で reject")
+  func dashRevRejected() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "x".write(to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+
+    do {
+      _ = try await GitOps.blameLine(dir: dir.path, relPath: "a.txt", rev: "-foo", line: 1)
+      Issue.record("expected throw, got success")
+    } catch let GitError.unexpectedOutput(message) {
+      #expect(message.contains("leading '-'"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+}
+
 // MARK: - Helpers
 
 private func makeTempDir() throws -> URL {

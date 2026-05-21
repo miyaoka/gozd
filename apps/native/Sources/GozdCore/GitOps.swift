@@ -761,7 +761,8 @@ public enum GitOps {
 
 /// blame 対象ファイルのサイズ上限。これを超えると blame は秒オーダーでブロックするため
 /// 早期に reject する。閾値は GitHub の blame UI のハード上限と同等の目安。
-private let BLAME_MAX_BLOB_BYTES = 2 * 1024 * 1024
+/// `internal` にして `@testable import GozdCore` で boundary テストから直接参照できるようにする。
+let BLAME_MAX_BLOB_BYTES = 2 * 1024 * 1024
 
 /// `rev` 文字列を `git` 引数として安全に渡せるか検証する。
 ///
@@ -769,7 +770,8 @@ private let BLAME_MAX_BLOB_BYTES = 2 * 1024 * 1024
 /// `-` 始まりや空白を含む値が来ると `git` が option として解釈し option 注入になりうるため reject。
 /// 厳密に full git revision syntax を再現するわけではなく、本 RPC が想定する rev 計算経路
 /// (`""` / `"HEAD"` / `<hash>` / `<hash>^` / `<hash>~N`) に限定する。
-private func validateRev(_ rev: String) throws {
+/// `internal` にして `@testable import GozdCore` で boundary テストから直接呼べるようにする。
+func validateRev(_ rev: String) throws {
   if rev.isEmpty { return }
   if rev == "HEAD" { return }
   let allowed: Set<Character> = Set("0123456789abcdefABCDEF^~")
@@ -826,7 +828,13 @@ private func ensureBlameableSize(dir: String, rev: String, relPath: String) asyn
         args: ["cat-file", "-s", "\(rev):\(relPath)"], cwd: dir)
       let s = String(decoding: stdout, as: UTF8.self).trimmingCharacters(
         in: .whitespacesAndNewlines)
-      bytes = Int(s) ?? 0
+      // exit 0 で stdout が非数値 (repo 破損 / 想定外フォーマット) の場合に
+      // `?? 0` で 0 化すると size gate を素通りして blame に進んでしまう。
+      // 観察可能化のため throw に倒す ("fallback せずエラーにする" 規約)。
+      guard let parsed = Int(s) else {
+        throw GitError.unexpectedOutput("git cat-file -s returned unparseable size: \(s)")
+      }
+      bytes = parsed
     } catch GitError.commandFailed {
       // exit code != 0: root commit の `^` / 未追跡 path / invalid rev 等で `cat-file` が
       // 失敗するケースのみ silent 通過。blame 側でも同 rev:path が解決失敗するため

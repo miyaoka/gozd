@@ -55,7 +55,14 @@ const blameState = ref<BlameState>({ kind: "idle" });
 const historyState = ref<HistoryState>({ kind: "idle" });
 
 let activeVersion = 0;
-let blamePromise: Promise<void> | undefined;
+/**
+ * 進行中の blame 取得とその version を 1 つにバインドして保持する。
+ * loadHistory は「自分の version の blame」を待ちたいので、let の素 Promise だと
+ * await 評価時の参照を引きずって別 version の blame を待ち続けるバグになる。
+ * tuple で version を一緒に持つことで、await 後の version 不一致を検出して
+ * 「他 version の blame に乗ったまま history 発射」を構造的に防ぐ。
+ */
+let blameInFlight: { version: number; promise: Promise<void> } | undefined;
 
 async function loadBlame(ctx: BlameContext, version: number): Promise<void> {
   const notification = useNotificationStore();
@@ -70,18 +77,28 @@ async function loadBlame(ctx: BlameContext, version: number): Promise<void> {
   }
   const commit = result.value.commit;
   if (commit === undefined) {
-    blameState.value = { kind: "error", message: "blame response had no commit" };
+    // proto schema 違反 (server が必須フィールドを返さない予期しない経路)。
+    // popover が閉じた後に観察不能にならないよう state error + toast を併発する。
+    const err = new Error("blame response had no commit");
+    blameState.value = { kind: "error", message: err.message };
+    notification.error("Failed to blame line", err);
     return;
   }
   blameState.value = { kind: "ready", commit };
 }
 
 async function loadHistory(): Promise<void> {
+  // version は await 前に capture。await 後の activeVersion 比較で「途中で open() が
+  // 走って別 context に切り替わった」場合に history 結果を捨てる。
+  const myVersion = activeVersion;
   const ctx = context.value;
   if (ctx === undefined) return;
-  // blame 完了を必ず待つ (race の章を参照)
-  if (blamePromise) await blamePromise;
-  const versionAtStart = activeVersion;
+  // 自分 version の blame の完了を待つ。別 version の in-flight (古い参照) は無視する。
+  const bp = blameInFlight;
+  if (bp !== undefined && bp.version === myVersion) {
+    await bp.promise;
+    if (myVersion !== activeVersion) return;
+  }
   const blame = blameState.value;
   if (blame.kind !== "ready") {
     // blame error / cancel 時は history も error に倒し、空配列 fallback で
@@ -111,7 +128,7 @@ async function loadHistory(): Promise<void> {
       maxCount: HISTORY_MAX,
     }),
   );
-  if (versionAtStart !== activeVersion) return;
+  if (myVersion !== activeVersion) return;
   if (!result.ok) {
     historyState.value = { kind: "error", message: result.error.message };
     notification.error("Failed to load line history", result.error);
@@ -128,7 +145,7 @@ function open(el: HTMLElement, ctx: BlameContext): void {
   blameState.value = { kind: "loading" };
   historyState.value = { kind: "idle" };
   openVersion.value = version;
-  blamePromise = loadBlame(ctx, version);
+  blameInFlight = { version, promise: loadBlame(ctx, version) };
 }
 
 function close(): void {
@@ -139,7 +156,7 @@ function close(): void {
   viewMode.value = "blame";
   blameState.value = { kind: "idle" };
   historyState.value = { kind: "idle" };
-  blamePromise = undefined;
+  blameInFlight = undefined;
 }
 
 function setViewMode(mode: ViewMode): void {

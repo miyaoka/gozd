@@ -75,8 +75,18 @@ async function getHighlighter(): Promise<Highlighter> {
   return highlighter;
 }
 
-/** コードをハイライトして HTML 文字列を返す。言語不明ならプレーンテキストを返す */
-async function highlight(code: string, filePath: string): Promise<string | undefined> {
+/** コードをハイライトして HTML 文字列を返す。言語不明ならプレーンテキストを返す。
+ *
+ * `blameEnabled` が true のときだけ行頭に `<button data-line-no-btn>` を挿入し、
+ * false のときは `<span class="_line-no-static">` を挿入する。button だと CSS で
+ * cursor を消しても keyboard (Tab + Enter) で到達でき silent dead button になるため、
+ * blame できない経路では DOM 要素自体を span に倒して focusable を奪う契約。
+ */
+async function highlight(
+  code: string,
+  filePath: string,
+  blameEnabled: boolean,
+): Promise<string | undefined> {
   const lang = detectLang(filePath);
   if (!lang) return undefined;
 
@@ -88,20 +98,32 @@ async function highlight(code: string, filePath: string): Promise<string | undef
   const lineNumberTransformer: ShikiTransformer = {
     line(node, line) {
       node.properties["data-line"] = line;
-      // クリックターゲット用の line-no ボタンを行頭に挿入する。
+      // クリックターゲット用の line-no 要素を行頭に挿入する。
       // CSS `::before { content: attr(data-line) }` だと疑似要素のためクリック識別が
       // 取れず、行全体の click + 位置判定をすると text node 上のクリックと識別できない。
-      // 実 DOM ボタンに変えてイベント delegation を効かせる方針。
-      node.children.unshift({
-        type: "element",
-        tagName: "button",
-        properties: {
-          type: "button",
-          class: "_line-no-btn",
-          "data-line-no-btn": line,
-        },
-        children: [{ type: "text", value: String(line) }],
-      });
+      // 実 DOM 要素にしてイベント delegation を効かせる方針。
+      if (blameEnabled) {
+        node.children.unshift({
+          type: "element",
+          tagName: "button",
+          properties: {
+            type: "button",
+            class: "_line-no-btn",
+            "data-line-no-btn": line,
+          },
+          children: [{ type: "text", value: String(line) }],
+        });
+      } else {
+        node.children.unshift({
+          type: "element",
+          tagName: "span",
+          properties: {
+            class: "_line-no-static",
+            "aria-hidden": "true",
+          },
+          children: [{ type: "text", value: String(line) }],
+        });
+      }
     },
   };
 

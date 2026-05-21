@@ -702,16 +702,24 @@ public enum GitOps {
     )
   }
 
-  /// 単一行の変更履歴。`git log -L<line>,<line>:<relPath> --no-patch [<rev>]` 相当。
+  /// 単一行の変更履歴。`git log -L<line>,<line>:<relPath> --no-patch <rev>` 相当。
   ///
   /// `--no-patch` で diff 本体を抑制し、custom `--format` で commit metadata のみ取り出す。
   /// 既存 `log` と同じ %x1f / %x1e 区切りに揃えて parse ロジックを共有する。
   ///
   /// path に `:` を含む場合は `-L<n>,<n>:<path>` の syntax が壊れるため reject。
-  /// rev は `validateRev` で `-` 始まり等の option 注入を弾く。
+  /// rev は `validateRev` で `-` 始まり等の option 注入を弾き、加えて **空文字も reject** する。
+  /// 本 RPC は呼び出し側 (`useBlamePopover`) が必ず blame した commit hash を起点として
+  /// 流す契約のため、rev="" で HEAD 起点 walk に倒れると「blame した commit を含まない
+  /// history」が返って意味契約が壊れる。SSOT 違反を構造的に防ぐため空文字は明示 reject。
   public static func logLine(
     dir: String, relPath: String, rev: String, line: UInt32, maxCount: UInt32
   ) async throws -> [CommitInfo] {
+    if rev.isEmpty {
+      throw GitError.unexpectedOutput(
+        "git log -L: rev must be specified (empty rev would walk HEAD and break the "
+          + "blame-anchored contract)")
+    }
     try validateRev(rev)
     if relPath.contains(":") {
       // git log -L の `-L<n>,<n>:<path>` は `:` を separator として使うため、
@@ -727,7 +735,7 @@ public enum GitOps {
       "-L", "\(line),\(line):\(relPath)",
     ]
     if maxCount > 0 { args.append("--max-count=\(maxCount)") }
-    if !rev.isEmpty { args.append(rev) }
+    args.append(rev)
     let stdout = try await runGit(args: args, cwd: dir)
     let text = String(decoding: stdout, as: UTF8.self)
     var commits: [CommitInfo] = []
@@ -786,6 +794,13 @@ private func validateRev(_ rev: String) throws {
 
 /// blame 実行前にファイルサイズが上限以下かを確認する。
 /// rev 指定時は `git cat-file -s <rev>:<relPath>`、working tree (rev="") なら fs stat。
+///
+/// 観察可能性: silent fallback は **想定された "存在しない" 経路のみ** に限定する。
+/// - working tree: file-not-found (`NSFileReadNoSuchFileError`) のみ silent 通過。
+///   blame は同条件で git の「no such path」エラーに倒れて RPC error として表面化する
+/// - rev 指定: `git cat-file -s` の `commandFailed`（exit 128 等、path 未解決 / 不正 rev）のみ
+///   silent 通過。`launchFailed` / `commandNotFound` / `unexpectedOutput` は再 throw して
+///   観察可能化する。これらは「予期しない異常」で blame に進むと UI ブロックが救えない
 private func ensureBlameableSize(dir: String, rev: String, relPath: String) async throws {
   let bytes: Int
   if rev.isEmpty {
@@ -795,9 +810,15 @@ private func ensureBlameableSize(dir: String, rev: String, relPath: String) asyn
     do {
       let attrs = try FileManager.default.attributesOfItem(atPath: fileURL.path)
       bytes = (attrs[.size] as? Int) ?? 0
-    } catch {
-      // size が取れないなら blame に進ませる (file not found 等は blame 経路で表面化)。
-      return
+    } catch let nsError as NSError {
+      // file-not-found のみ「blame 側で notFound として表面化させる」silent 経路。
+      // permission / I/O 異常等は throw して隠さない。
+      if nsError.domain == NSCocoaErrorDomain
+        && nsError.code == NSFileReadNoSuchFileError
+      {
+        return
+      }
+      throw nsError
     }
   } else {
     do {
@@ -806,10 +827,13 @@ private func ensureBlameableSize(dir: String, rev: String, relPath: String) asyn
       let s = String(decoding: stdout, as: UTF8.self).trimmingCharacters(
         in: .whitespacesAndNewlines)
       bytes = Int(s) ?? 0
-    } catch {
-      // rev:path が解決できない (root commit の ^ 等) は blame 側で notFound 経路に倒れる。
+    } catch GitError.commandFailed {
+      // exit code != 0: root commit の `^` / 未追跡 path / invalid rev 等で `cat-file` が
+      // 失敗するケースのみ silent 通過。blame 側でも同 rev:path が解決失敗するため
+      // RPC error として一貫した経路で表面化する。
       return
     }
+    // launchFailed / commandNotFound / unexpectedOutput / その他は再 throw して観察可能化する
   }
   if bytes > BLAME_MAX_BLOB_BYTES {
     throw GitError.unexpectedOutput(

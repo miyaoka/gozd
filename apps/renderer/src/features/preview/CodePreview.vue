@@ -68,7 +68,7 @@ async function scrollToLine(line: number) {
 }
 
 watch(
-  () => [props.content, props.filePath],
+  () => [props.content, props.filePath, props.blameEnabled],
   async (_, __, onCleanup) => {
     highlightedHtml.value = undefined;
     activeLineNumber.value = undefined;
@@ -78,7 +78,7 @@ watch(
       cancelled = true;
     });
 
-    const result = await tryCatch(highlight(props.content, props.filePath));
+    const result = await tryCatch(highlight(props.content, props.filePath, props.blameEnabled));
     if (cancelled || !result.ok) return;
 
     // result.value が undefined の場合はフォールバック表示（Shiki 未対応言語）
@@ -134,7 +134,7 @@ function onContainerClick(e: MouseEvent) {
     v-if="highlightedHtml"
     ref="containerRef"
     class="_highlighted-code text-sm/tight"
-    :class="[wordWrap ? '_word-wrap' : '', blameEnabled ? '_blame-on' : '']"
+    :class="wordWrap ? '_word-wrap' : ''"
     :style="{ '--line-no-width': lineNoWidth }"
     v-html="highlightedHtml"
     @click="onContainerClick"
@@ -145,10 +145,7 @@ function onContainerClick(e: MouseEvent) {
     v-else
     ref="containerRef"
     class="_line-numbered p-4 text-sm/tight text-zinc-300"
-    :class="[
-      wordWrap ? '_word-wrap break-all whitespace-pre-wrap' : '',
-      blameEnabled ? '_blame-on' : '',
-    ]"
+    :class="wordWrap ? '_word-wrap break-all whitespace-pre-wrap' : ''"
     :style="{ '--line-no-width': lineNoWidth }"
     @click="onContainerClick"
   ><code><span
@@ -157,16 +154,20 @@ function onContainerClick(e: MouseEvent) {
         class="_line"
         :data-line="i + 1"
       ><button
+          v-if="blameEnabled"
           type="button"
           class="_line-no-btn"
           :data-line-no-btn="i + 1"
-          :disabled="!blameEnabled"
-          :tabindex="blameEnabled ? 0 : -1"
-        >{{ i + 1 }}</button>{{ line }}
+        >{{ i + 1 }}</button><span
+          v-else
+          class="_line-no-static"
+          aria-hidden="true"
+        >{{ i + 1 }}</span>{{ line }}
 </span></code></pre>
 </template>
 
 <style scoped>
+/* blame ON: `<button data-line-no-btn>` (Shiki / fallback どちらも同形) */
 ._line-numbered ._line ._line-no-btn,
 ._highlighted-code :deep(.line ._line-no-btn) {
   display: inline-block;
@@ -179,19 +180,25 @@ function onContainerClick(e: MouseEvent) {
   font: inherit;
   color: var(--color-zinc-600);
   user-select: none;
-  cursor: default;
-}
-
-/* blame 可能なときだけ hover styling + pointer cursor。silent dead button 禁止規約。 */
-._line-numbered._blame-on ._line ._line-no-btn,
-._highlighted-code._blame-on :deep(.line ._line-no-btn) {
   cursor: pointer;
 }
 
-._line-numbered._blame-on ._line ._line-no-btn:hover,
-._highlighted-code._blame-on :deep(.line ._line-no-btn:hover) {
+._line-numbered ._line ._line-no-btn:hover,
+._highlighted-code :deep(.line ._line-no-btn:hover) {
   color: var(--color-blue-400);
   text-decoration: underline;
+}
+
+/* blame OFF: `<span class="_line-no-static">`。focusable を奪うため span に倒す。
+   silent dead button 禁止規約: keyboard 経路 (Tab + Enter) でも何も起きないことを構造で保証する */
+._line-numbered ._line ._line-no-static,
+._highlighted-code :deep(.line ._line-no-static) {
+  display: inline-block;
+  width: var(--line-no-width, 3ch);
+  margin-right: 1.5ch;
+  text-align: right;
+  color: var(--color-zinc-600);
+  user-select: none;
 }
 
 /* 折り返し時: 行番号を absolute で固定し、折り返し行が行番号の右側に揃うよう padding で確保 */
@@ -204,7 +211,9 @@ function onContainerClick(e: MouseEvent) {
 }
 
 ._line-numbered._word-wrap ._line ._line-no-btn,
-._highlighted-code._word-wrap :deep(.line ._line-no-btn) {
+._highlighted-code._word-wrap :deep(.line ._line-no-btn),
+._line-numbered._word-wrap ._line ._line-no-static,
+._highlighted-code._word-wrap :deep(.line ._line-no-static) {
   position: absolute;
   left: 0;
   margin-right: 0;

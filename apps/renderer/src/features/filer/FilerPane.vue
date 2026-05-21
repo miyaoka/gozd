@@ -5,16 +5,19 @@
 
 - worktree の dir が設定されると、worktree 自体を表す不可視ルート FileTreeItem を 1 個描画する
 - ツリー全体（ルート直下を含む）の管理は FileTreeItem 側に再帰委譲する
-- fsChange / gitStatusChange の RPC メッセージを購読し、filer event store 経由で各 FileTreeItem に通知する
 - dir 切替時は `:key="dir"` でルート FileTreeItem を再マウントする（旧 dir の in-flight loadChildren を構造的に破棄）
+
+## gitStatus / fsChange の購読
+
+- `fsChange` push は `dir` フィルタを通して `filerEventStore.emitFsChange(relDir)` に流す
+- `gitStatuses` は `useGitStatusStore` の computed（`repoStore` 派生）で、初回 `loadGitStatus()` 完了 / `gitStatusChange` push の両経路で更新される。これを `watch` して `filerEventStore.emitGitStatusChange()` を発火することで、両経路を 1 本のトリガに揃える（初回マウント直後に削除仮想エントリが取りこぼされる race を解消）
 </doc>
 
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
-import { onUnmounted } from "vue";
+import { onUnmounted, watch } from "vue";
 import { onMessage } from "../../shared/rpc";
 import { useGitStatusStore, useWorktreeStore } from "../worktree";
-import type { GitStatusChangePayload } from "../worktree";
 import FileTreeItem from "./FileTreeItem.vue";
 import type { FsChangePayload } from "./rpc";
 import { useFilerEventStore } from "./useFilerEventStore";
@@ -38,23 +41,21 @@ function handleFsChange(eventDir: string, relDir: string) {
   filerEventStore.emitFsChange(relDir);
 }
 
-function handleGitStatusChange(eventDir: string) {
-  // useFsWatchSync は全 worktree を watch するため、別 worktree の gitStatusChange も
-  // 到達する。active worktree dir 以外は無視して空打ちの再 merge を防ぐ。
-  if (eventDir !== dir.value) return;
+// gitStatuses は useGitStatusStore の computed で、初回 loadGitStatus() 完了と
+// gitStatusChange push の両方が同じ ref を更新する SSOT。ここを watch することで、
+// 両経路の更新を 1 本のトリガ（emitGitStatusChange）に揃える。
+// dir 切替時にも computed の値は変わるが、ルート FileTreeItem は `:key="dir"` で
+// 再マウントされるため、世代カウンタによる race ガード（FileTreeItem.loadChildren）と
+// 重複しても挙動は最終的に整合する。
+watch(gitStatuses, () => {
   filerEventStore.emitGitStatusChange();
-}
+});
 
 const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ dir: eventDir, relDir }) =>
   handleFsChange(eventDir, relDir),
 );
-const unsubscribeGitStatus = onMessage<GitStatusChangePayload>(
-  "gitStatusChange",
-  ({ dir: eventDir }) => handleGitStatusChange(eventDir),
-);
 onUnmounted(() => {
   unsubscribeFsChange();
-  unsubscribeGitStatus();
 });
 </script>
 
@@ -73,9 +74,8 @@ onUnmounted(() => {
         :is-directory="true"
         :is-ignored="false"
         :git-statuses="gitStatuses"
-        :depth="-1"
+        :depth="0"
         :selected-rel-path="selectedRelPath"
-        :is-root="true"
         @select="onSelect"
       />
     </div>

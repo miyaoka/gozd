@@ -69,6 +69,32 @@ function joinPath(parent: string, name: string): string {
   return parent === "" ? name : `${parent}/${name}`;
 }
 
+/**
+ * worktree 自体（不可視ルート）を表す path 値かどうか。Swift の `relDir` SSOT に合わせ、
+ * worktree 直下を `""` で表現する規約に依存する全分岐の根拠を 1 か所に集約する。
+ */
+function isRootPath(path: string): boolean {
+  return path === "";
+}
+
+/**
+ * native の `URL(fileURLWithPath:)` は空文字を未定義扱いするため、worktree 直下を
+ * RPC で指す時だけ `.` に置き換える。entries は dir からの相対で返るため、結果側の
+ * パス組み立て（`joinPath`）は影響を受けない。
+ */
+function pathForNativeRpc(path: string): string {
+  return isRootPath(path) ? "." : path;
+}
+
+/**
+ * `targetPath` が `ancestorPath` の配下にあるか判定する。worktree ルート
+ * （`ancestorPath === ""`）はあらゆる relPath の祖先扱い。
+ */
+function isDescendantOf(targetPath: string, ancestorPath: string): boolean {
+  if (isRootPath(ancestorPath)) return true;
+  return targetPath.startsWith(ancestorPath + "/");
+}
+
 /** ディレクトリ優先 → 名前順 */
 function sortEntries(entries: FileEntry[]): FileEntry[] {
   return [...entries].sort((a, b) => {
@@ -79,5 +105,14 @@ function sortEntries(entries: FileEntry[]): FileEntry[] {
   });
 }
 
-export { dirName, getDeletedEntries, joinPath, sortEntries, toFileEntries };
+export {
+  dirName,
+  getDeletedEntries,
+  isDescendantOf,
+  isRootPath,
+  joinPath,
+  pathForNativeRpc,
+  sortEntries,
+  toFileEntries,
+};
 export type { FileEntry };

@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { dirName, sortEntries, toFileEntries, type FileEntry } from "./filerUtils";
+import {
+  dirName,
+  isDescendantOf,
+  isRootPath,
+  joinPath,
+  pathForNativeRpc,
+  sortEntries,
+  toFileEntries,
+  type FileEntry,
+} from "./filerUtils";
 
 describe("dirName", () => {
   test("パスの末尾をディレクトリ名として返す", () => {
@@ -47,6 +56,70 @@ describe("sortEntries", () => {
 
   test("空配列を処理できる", () => {
     expect(sortEntries([])).toEqual([]);
+  });
+});
+
+describe("joinPath", () => {
+  test("worktree 直下の親は先頭スラッシュなし", () => {
+    expect(joinPath("", "name")).toBe("name");
+  });
+
+  test("通常の親は / で連結する", () => {
+    expect(joinPath("dir", "name")).toBe("dir/name");
+  });
+
+  test("ネストした親も / で連結する", () => {
+    expect(joinPath("a/b", "c")).toBe("a/b/c");
+  });
+
+  test("name が空文字でも先頭スラッシュは付かない", () => {
+    expect(joinPath("", "")).toBe("");
+  });
+});
+
+describe("isRootPath", () => {
+  test("空文字列は root", () => {
+    expect(isRootPath("")).toBe(true);
+  });
+
+  test("通常の relPath は root ではない", () => {
+    expect(isRootPath("src")).toBe(false);
+    expect(isRootPath("a/b")).toBe(false);
+  });
+
+  test(". は root ではない（Swift relDir SSOT に従い root は空文字のみ）", () => {
+    expect(isRootPath(".")).toBe(false);
+  });
+});
+
+describe("pathForNativeRpc", () => {
+  test("root は . に置き換わる", () => {
+    expect(pathForNativeRpc("")).toBe(".");
+  });
+
+  test("通常の relPath はそのまま", () => {
+    expect(pathForNativeRpc("src")).toBe("src");
+    expect(pathForNativeRpc("a/b")).toBe("a/b");
+  });
+});
+
+describe("isDescendantOf", () => {
+  test("root はあらゆる relPath の祖先扱い", () => {
+    expect(isDescendantOf("src/foo.ts", "")).toBe(true);
+    expect(isDescendantOf("a", "")).toBe(true);
+  });
+
+  test("ディレクトリ配下の relPath は配下扱い", () => {
+    expect(isDescendantOf("src/foo.ts", "src")).toBe(true);
+    expect(isDescendantOf("src/a/b.ts", "src/a")).toBe(true);
+  });
+
+  test("自分自身は配下扱いではない（厳密配下）", () => {
+    expect(isDescendantOf("src", "src")).toBe(false);
+  });
+
+  test("prefix のみ一致する別 dir は配下扱いではない（/foo が /foobar の prefix にならない）", () => {
+    expect(isDescendantOf("srcbar/foo.ts", "src")).toBe(false);
   });
 });
 

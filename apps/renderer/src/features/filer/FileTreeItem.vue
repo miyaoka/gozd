@@ -7,10 +7,17 @@
 - material-icon-theme のアイコンを表示
 - git status に応じた色分け（modified=黄、added=緑、deleted=赤、renamed=青）と削除ファイルの打ち消し線
 
-## ルートノード
+## ルートノード（worktree 自体を表す不可視ノード）
 
-- `isRoot` を渡すと worktree 自体を表す不可視ノードとして振る舞う（ボタン非表示、常時 expanded、初期マウントで子を読み込み）
-- `path === ""` が worktree 直下を表す。子の `path` 組み立てと git status マッチには `joinPath` を経由する
+- `path === ""` を worktree 自体を指す値として扱う（Swift `relDir` SSOT と整合）。`isRootPath()` で 1 か所判定
+- ボタン非表示、初期 `expanded = true`、`onMounted` で `loadChildren()` を起動
+- ルートでは表示要素由来の computed（`textColorClass` / `effectiveGitChange` / `iconUrl`）を呼ばない
+
+## レース対策
+
+- `loadChildren` は per-instance 世代カウンタで保護。await 後に「自分が最新の呼び出し」でなければ
+  結果を破棄する。同一 dir 内で `fsChange` / `gitStatusChange` が連発した時に古い `rpcFsReadDir`
+  レスポンスが新しい entries を踏み潰すのを防ぐ（FilerPane 側にあったルート専用ガードを SSOT 化）
 
 ## 更新（イベント駆動）
 
@@ -31,7 +38,15 @@ import {
   useWorktreeStore,
 } from "../worktree";
 import type { GitChangeKind } from "../worktree";
-import { getDeletedEntries, joinPath, sortEntries, toFileEntries } from "./filerUtils";
+import {
+  getDeletedEntries,
+  isDescendantOf,
+  isRootPath,
+  joinPath,
+  pathForNativeRpc,
+  sortEntries,
+  toFileEntries,
+} from "./filerUtils";
 import type { FileEntry } from "./filerUtils";
 import { rpcFsReadDir } from "./rpc";
 import { getFileIconUrl, getFolderIconUrl } from "./useFileIcon";
@@ -47,7 +62,7 @@ const GIT_CHANGE_COLOR_MAP: Record<GitChangeKind, string> = {
 
 const props = defineProps<{
   name: string;
-  /** worktree からの相対パス。worktree 直下（ルートノード）は `""` */
+  /** worktree からの相対パス。worktree 直下（不可視ルート）は `""` */
   path: string;
   isDirectory: boolean;
   isIgnored: boolean;
@@ -55,10 +70,9 @@ const props = defineProps<{
   gitChange?: GitChangeKind;
   /** git status マップ全体（ディレクトリの変更種別推論に使用） */
   gitStatuses: Record<string, string>;
+  /** 自身のインデント階層。子に渡す depth は `childDepth` computed で算出する */
   depth: number;
   selectedRelPath?: string;
-  /** worktree 自体を表す不可視ルートノード。ボタンを描画せず、初期マウントで子を読み込む */
-  isRoot?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -69,13 +83,26 @@ const notify = useNotificationStore();
 const worktreeStore = useWorktreeStore();
 const filerEventStore = useFilerEventStore();
 
+const isRoot = computed(() => isRootPath(props.path));
+
 const buttonRef = useTemplateRef<HTMLButtonElement>("button");
-const expanded = ref(props.isRoot ?? false);
+const expanded = ref(isRoot.value);
 const children = ref<FileEntry[]>();
 const loading = ref(false);
 
+/**
+ * loadChildren の呼び出し世代カウンタ。`fsChange` / `gitStatusChange` の連続発火で
+ * `rpcFsReadDir` レスポンス順序が逆転して古い entries が新しい entries を踏み潰す race を防ぐ。
+ * 旧 FilerPane の `loadRootSeq` / `gitStatusChangeSeq` が担っていたルート専用ガードを、
+ * 全ノードの共通ガードとして FileTreeItem に内製化したもの。
+ */
+let loadSeq = 0;
+
+/** ルート不可視ノードは表示要素を描画しないので、関連 computed は早期 return で無駄計算を避ける */
+
 /** gitStatuses マップからリアルタイムに変更種別を算出する */
 const effectiveGitChange = computed<GitChangeKind | undefined>(() => {
+  if (isRoot.value) return undefined;
   // 削除エントリ（打ち消し線）は親から渡された gitChange をそのまま使う
   if (props.gitChange === "deleted") return "deleted";
   if (props.isDirectory) {
@@ -85,6 +112,7 @@ const effectiveGitChange = computed<GitChangeKind | undefined>(() => {
 });
 
 const textColorClass = computed(() => {
+  if (isRoot.value) return "";
   if (effectiveGitChange.value) return GIT_CHANGE_COLOR_MAP[effectiveGitChange.value];
   if (props.isIgnored) return "text-zinc-500";
   if (props.selectedRelPath === props.path) return "text-white";
@@ -96,11 +124,18 @@ const isDeleted = computed(() => props.gitChange === "deleted");
 
 /** material-icon-theme のアイコン URL */
 const iconUrl = computed(() => {
+  if (isRoot.value) return "";
   if (props.isDirectory) {
     return getFolderIconUrl(props.name, expanded.value);
   }
   return getFileIconUrl(props.name);
 });
+
+/**
+ * 子に渡す depth。ルート不可視ノードは描画されないので、ルートの直下を depth 0 から始める。
+ * `depth` prop の意味を「自身のインデント階層」と一貫させるための変換を 1 か所に閉じる。
+ */
+const childDepth = computed(() => (isRoot.value ? 0 : props.depth + 1));
 
 async function toggle() {
   if (!props.isDirectory) {
@@ -117,24 +152,27 @@ async function toggle() {
 }
 
 async function loadChildren() {
+  const mySeq = ++loadSeq;
   loading.value = true;
   const dir = worktreeStore.dir;
   if (dir === undefined) {
-    children.value = [];
-    loading.value = false;
+    if (mySeq === loadSeq) {
+      children.value = [];
+      loading.value = false;
+    }
     return;
   }
-  // native 側 `URL(fileURLWithPath:)` は空文字列を未定義扱いするため、worktree 直下は `.` で投げる。
-  // 結果は dir からの相対 entries で返るので、children 側の path 組み立て (joinPath) は影響を受けない。
-  const rpcPath = props.path === "" ? "." : props.path;
-  const result = await tryCatch(rpcFsReadDir({ dir, path: rpcPath }));
+  const result = await tryCatch(rpcFsReadDir({ dir, path: pathForNativeRpc(props.path) }));
+  // await 中に loadChildren が再度呼ばれた場合、この呼び出しの結果は破棄する
+  if (mySeq !== loadSeq) return;
   if (!result.ok) {
     // 削除ディレクトリの場合、readDir は失敗するので削除エントリのみ表示
     const deletedEntries = getDeletedEntries(props.path, props.gitStatuses);
     if (deletedEntries.length > 0) {
       children.value = sortEntries(deletedEntries);
     } else {
-      notify.error(`Failed to read directory: ${props.path}`, result.error);
+      const label = isRoot.value ? "(worktree root)" : props.path;
+      notify.error(`Failed to read directory: ${label}`, result.error);
       children.value = [];
     }
     loading.value = false;
@@ -167,7 +205,7 @@ function mergeWithGitStatus(entries: FileEntry[]): FileEntry[] {
 // ルートノードは worktree 自体を表すため、マウント時点で子（ルート直下のエントリ）を読み込む。
 // 通常ノードは初回展開時に loadChildren が走るが、ルートは常時 expanded なので初期 mount にフックする。
 onMounted(() => {
-  if (props.isRoot) void loadChildren();
+  if (isRoot.value) void loadChildren();
 });
 
 // fsChange を購読し、自分の path が変更対象なら再読み込み（折りたたみ中はキャッシュ破棄）。
@@ -208,7 +246,7 @@ watch(
  * 祖先の場合は展開するだけ。子は v-for でマウント後に自分の revealVersion watch (immediate)
  * で target を処理する再帰チェーン。
  *
- * ルートノード（path === ""）はあらゆる target の祖先扱い（target が worktree 内なら自身配下にある）。
+ * ルートノード（path === ""）は `isDescendantOf` で worktree 内の任意 target の祖先扱い。
  *
  * absolute 選択中 (worktree 外) は selectedRelPath が undefined になり reveal は no-op。
  * ツリーが持っていないパスをマッチさせる経路を型レベルで排除する。
@@ -229,8 +267,7 @@ async function handleReveal() {
   }
   // ディレクトリでないか、ターゲットが自身の配下でない場合は何もしない
   if (!props.isDirectory) return;
-  const prefix = props.path === "" ? "" : props.path + "/";
-  if (!targetPath.startsWith(prefix)) return;
+  if (!isDescendantOf(targetPath, props.path)) return;
   // 自身の配下に target がある場合、自分は展開するだけ（target そのものへの scroll は
   // 子の watch が処理する）。子は v-for で children を読み込むとマウントされ、
   // immediate watch が現在の revealVersion で発火する
@@ -300,7 +337,7 @@ function onChildSelect(childPath: string) {
         :is-ignored="child.isIgnored"
         :git-change="child.gitChange"
         :git-statuses="gitStatuses"
-        :depth="depth + 1"
+        :depth="childDepth"
         :selected-rel-path="selectedRelPath"
         @select="onChildSelect"
       />

@@ -346,5 +346,35 @@ describe("resolveMarkdownLink", () => {
       // ./ → normalize で /Users/me/elsewhere に解決 → basePath dir 自身は配下とみなさず invalid
       expect(resolve("./", "/Users/me/elsewhere/README.md").kind).toBe("invalid");
     });
+
+    describe("root 直下の絶対 basePath (`/foo.md` 等の退化ケース)", () => {
+      const rootBase = "/foo.md";
+
+      test("sibling 参照 (`./bar.md`) は `/bar.md` として internal", () => {
+        expect(resolve("./bar.md", rootBase)).toEqual({
+          kind: "internal",
+          path: "/bar.md",
+          lineNumber: undefined,
+          droppedAnchor: false,
+        });
+      });
+
+      test("root 直下の絶対パス (`/bar.md`) も internal", () => {
+        expect(resolve("/bar.md", rootBase)).toEqual({
+          kind: "internal",
+          path: "/bar.md",
+          lineNumber: undefined,
+          droppedAnchor: false,
+        });
+      });
+
+      test("root 直下に居ても `/etc/passwd` 等 sub-dir 配下は invalid (bypass 防止)", () => {
+        expect(resolve("/etc/passwd", rootBase).kind).toBe("invalid");
+      });
+
+      test("root 直下に居ても `./foo/bar.md` のような子 dir 経路は invalid", () => {
+        expect(resolve("./foo/bar.md", rootBase).kind).toBe("invalid");
+      });
+    });
   });
 });

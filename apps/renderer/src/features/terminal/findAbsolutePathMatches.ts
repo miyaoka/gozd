@@ -1,8 +1,26 @@
+import { parseLineNumberSuffix } from "./parseLineNumberSuffix";
+
 /** パスの末尾区切り文字 */
 const PATH_TERMINATORS = /[\s()}\]>'",:;]/;
 
 /** パスの直後に `:行番号` が続くかを検出する正規表現 */
 const LINE_NUMBER_SUFFIX = /^:(\d+)/;
+
+/** prefix が単語境界の直後で始まっているか（URL の path 部分のような連続 token 内では拾わない） */
+function hasBoundaryBefore(text: string, idx: number): boolean {
+  if (idx === 0) return true;
+  return PATH_TERMINATORS.test(text[idx - 1]!);
+}
+
+/** boundary が立っている prefix の出現位置を search start から探す */
+function indexOfWithBoundary(text: string, prefix: string, start: number): number {
+  let idx = text.indexOf(prefix, start);
+  while (idx !== -1) {
+    if (hasBoundaryBefore(text, idx)) return idx;
+    idx = text.indexOf(prefix, idx + 1);
+  }
+  return -1;
+}
 
 export interface AbsolutePathMatch {
   /** マッチ全体の開始位置（行番号サフィックスも含む） */
@@ -57,17 +75,20 @@ export function findAbsolutePathMatches(
   let searchStart = 0;
 
   while (searchStart < text.length) {
+    // 単語境界の直後（行頭 / 区切り文字直後）でのみ拾う。これにより
+    // `https://example.com/Users/<user>/foo` の `/Users/...` 部分のような URL 内 path を
+    // 絶対パスとして誤検出しない。
     const candidates: Array<{ idx: number; prefixLen: number; expandTilde: boolean }> = [];
-    const dirIdx = text.indexOf(dirPrefix, searchStart);
+    const dirIdx = indexOfWithBoundary(text, dirPrefix, searchStart);
     if (dirIdx !== -1) {
       candidates.push({ idx: dirIdx, prefixLen: dirPrefix.length, expandTilde: false });
     }
     if (homePrefix) {
-      const homeIdx = text.indexOf(homePrefix, searchStart);
+      const homeIdx = indexOfWithBoundary(text, homePrefix, searchStart);
       if (homeIdx !== -1) {
         candidates.push({ idx: homeIdx, prefixLen: homePrefix.length, expandTilde: false });
       }
-      const tildeIdx = text.indexOf("~/", searchStart);
+      const tildeIdx = indexOfWithBoundary(text, "~/", searchStart);
       if (tildeIdx !== -1) {
         candidates.push({ idx: tildeIdx, prefixLen: 2, expandTilde: true });
       }
@@ -84,19 +105,11 @@ export function findAbsolutePathMatches(
       ? `${homeDir}/${text.slice(idx + prefixLen, pathEnd)}`
       : text.slice(idx, pathEnd);
 
-    // パス直後に `:行番号` が続くか。判定規律は resolveMarkdownLink.parseAnchor に揃える:
-    // 1-based の正整数 (Number.isSafeInteger 内) のみ採用し、`:0` や `:99999999999999999999` 等は
-    // suffix は consume するが lineNumber は undefined にする (下流に 0 や精度損失値を流さない)。
+    // パス直後の `:行番号` を SSOT 関数 (parseLineNumberSuffix) で validate する。
+    // `:0` や Number.isSafeInteger 外は suffix は consume するが lineNumber は undefined。
     const lineMatch = LINE_NUMBER_SUFFIX.exec(text.slice(pathEnd));
-    let lineNumber: number | undefined;
-    let totalEnd: number;
-    if (lineMatch) {
-      const parsed = Number.parseInt(lineMatch[1]!, 10);
-      lineNumber = Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
-      totalEnd = pathEnd + lineMatch[0].length;
-    } else {
-      totalEnd = pathEnd;
-    }
+    const lineNumber = lineMatch ? parseLineNumberSuffix(lineMatch[1]) : undefined;
+    const totalEnd = lineMatch ? pathEnd + lineMatch[0].length : pathEnd;
 
     const selectPath = fullPath.startsWith(dirPrefix) ? fullPath.slice(dirPrefix.length) : fullPath;
 

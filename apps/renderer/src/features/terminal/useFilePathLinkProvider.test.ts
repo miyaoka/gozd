@@ -56,6 +56,16 @@ describe("findRelativePaths", () => {
     expect(result?.lineNumber).toBeUndefined();
   });
 
+  test("行番号 `:0` は SSOT (parseLineNumberSuffix) で undefined に倒す", () => {
+    const [result] = findRelativePaths("src/main.ts:0");
+    expect(result?.lineNumber).toBeUndefined();
+  });
+
+  test("Number.MAX_SAFE_INTEGER を超える行番号も undefined", () => {
+    const [result] = findRelativePaths("src/main.ts:99999999999999999999");
+    expect(result?.lineNumber).toBeUndefined();
+  });
+
   test("テキスト中の行番号付きパスを検出する", () => {
     const results = findRelativePaths("error at src/app.vue:25 and src/main.ts:100");
     expect(results).toEqual([
@@ -167,6 +177,32 @@ describe("findAbsolutePathMatches", () => {
       const matches = findAbsolutePathMatches("~/:42", dirPrefix, homeDir);
       expect(matches[0]?.selectPath).toBe("/Users/me/");
       expect(matches[0]?.lineNumber).toBe(42);
+    });
+  });
+
+  describe("token boundary", () => {
+    test("URL の path 部分にある `/Users/<user>/...` は誤検出しない", () => {
+      // homePrefix `/Users/me/` の直前が `m` (word char) なので boundary が立たず skip される
+      const matches = findAbsolutePathMatches(
+        "see https://example.com/Users/me/foo.ts for details",
+        dirPrefix,
+        homeDir,
+      );
+      expect(matches).toEqual([]);
+    });
+
+    test("行頭の絶対パスは boundary 成立で検出される", () => {
+      const matches = findAbsolutePathMatches("/Users/me/elsewhere/x.ts", dirPrefix, homeDir);
+      expect(matches[0]?.selectPath).toBe("/Users/me/elsewhere/x.ts");
+    });
+
+    test("空白直後の絶対パスも boundary 成立で検出される", () => {
+      const matches = findAbsolutePathMatches(
+        "open /Users/me/elsewhere/x.ts now",
+        dirPrefix,
+        homeDir,
+      );
+      expect(matches[0]?.selectPath).toBe("/Users/me/elsewhere/x.ts");
     });
   });
 });

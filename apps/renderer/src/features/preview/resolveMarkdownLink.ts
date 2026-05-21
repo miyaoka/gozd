@@ -112,12 +112,23 @@ function resolveMarkdownLink({
   // markdown 内 link の信頼境界をできるだけ狭く取る方針を選択した。
   const isAbsoluteBase = basePath !== undefined && basePath.startsWith("/");
 
+  // 絶対 basePath 用に親 dir を導出する。relDirOf は worktree 相対パス契約のため絶対パスに
+  // 流用すると `/foo.md` で空文字を返し信頼境界が破綻する。root 直下のファイル
+  // (lastIndexOf("/") === 0) では baseDir を "/" で表現する。
+  const absoluteBaseDir = (path: string): string => {
+    const lastSlash = path.lastIndexOf("/");
+    return lastSlash <= 0 ? "/" : path.substring(0, lastSlash);
+  };
+
   // `/` 始まり:
   // - 相対 basePath: worktree root 相対として `/` を剥がす
-  // - 絶対 basePath: そのまま絶対パス（直後に basePath dir 内チェックで絞り込む）
+  // - 絶対 basePath: そのまま絶対パス（後で basePath dir 内チェックで絞り込む）
   let combined: string;
   if (decodedPath.startsWith("/")) {
     combined = isAbsoluteBase ? decodedPath : decodedPath.substring(1);
+  } else if (isAbsoluteBase) {
+    const baseDir = absoluteBaseDir(basePath!);
+    combined = baseDir === "/" ? `/${decodedPath}` : `${baseDir}/${decodedPath}`;
   } else {
     const dir = basePath === undefined ? "" : relDirOf(basePath);
     combined = dir === "" ? decodedPath : `${dir}/${decodedPath}`;
@@ -126,9 +137,15 @@ function resolveMarkdownLink({
   const normalized = normalizePath(combined);
 
   if (isAbsoluteBase) {
-    const baseDir = relDirOf(basePath!);
-    const baseDirPrefix = baseDir.endsWith("/") ? baseDir : `${baseDir}/`;
-    if (!normalized.startsWith(baseDirPrefix) || normalized === baseDir) {
+    const baseDir = absoluteBaseDir(basePath!);
+    const isAllowed =
+      baseDir === "/"
+        ? // root 直下: `/<name>` (slash が 1 つだけ) のみ許可。`/etc/passwd` は invalid。
+          normalized.startsWith("/") && normalized.length > 1 && normalized.indexOf("/", 1) === -1
+        : // 通常: baseDir 配下のみ許可（baseDir 自身への参照は不可）
+          normalized.startsWith(`${baseDir}/`);
+
+    if (!isAllowed) {
       return {
         kind: "invalid",
         reason: `Link target is outside the source file directory: ${href}`,

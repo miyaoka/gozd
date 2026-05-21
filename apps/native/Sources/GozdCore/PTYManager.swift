@@ -374,19 +374,24 @@ extension PTYError: CustomStringConvertible {
   /// （deprecation message: "after truncating the null termination"）。errno text は
   /// ASCII 範囲のため `CChar` (Int8) → `UInt8` の bitPattern reinterpret で UTF-8 と等価。
   ///
-  /// rc 値は捨てる。POSIX 文面では `rc != 0` 時の buffer 内容は未定義だが、
-  /// macOS Darwin / Linux glibc 双方の実機では invalid errno でも buffer に
-  /// "Unknown error: N" / "Undefined error: N" 相当の readable な文字列を書く
-  /// （Darwin manpage strerror_r(3): "If the error number is not recognized,
-  /// these functions return EINVAL ... The strerror_r() function ... copies an
-  /// error message string into the buffer ..." — EINVAL でも buffer は埋まる）。
-  /// rc != 0 を理由に buffer を捨てて自前 fallback 文字列に倒すと、本物の
-  /// strerror 出力（観察ログ品質）を諦めることになる。よって rc は信用せず
-  /// buffer を返す。
+  /// **主根拠 (Darwin manpage 保証)**: macOS Darwin の strerror_r(3) manpage は
+  /// "If the error number is not recognized, these functions return EINVAL ...
+  /// The strerror_r() function ... copies an error message string into the
+  /// buffer ..." と明記しており、**invalid errno (EINVAL を返す経路) でも
+  /// buffer に readable な error message string を埋める** ことを保証する。
+  /// gozd は macOS 26 Tahoe 専用 (CLAUDE.md「対応プラットフォーム」) のため、
+  /// Darwin 保証の範囲で実用上の挙動は閉じる。よって rc 値は捨てて buffer を
+  /// そのまま返す方針が観察可能性（renderer に届く identifier 品質、Console.app
+  /// 観察ログの人間可読性）を最大化する。Linux glibc も同等挙動を示すと観察済み。
   ///
-  /// ただし POSIX 文面の最悪ケース（rc != 0 時の buffer 中間に部分的ゴミ）と
-  /// 観察ログの 1 行性に備え、buffer 内容に制御文字（0x00-0x1F / 0x7F）が含まれない
-  /// ことを構造的に検証する。
+  /// **防御的多重化として gate を入れる**: 上記 Darwin 保証は POSIX 文面では
+  /// 未定義領域 (`rc != 0` 時 buffer 未定義) に依存している。Darwin 将来 version
+  /// で挙動が変わる / OS 内部状態の異常 / マルチスレッド境界の不整合 等の
+  /// 想定外シナリオで「control char 混入 buffer」が返る可能性をゼロとは断言
+  /// できない。観察ログの 1 行性 (Console.app の grep 経路 / event 分離) は
+  /// 構造的に守りたいので、buffer に制御文字 (0x00-0x1F / 0x7F) が含まれる場合
+  /// のみ自前 fallback に倒す gate を入れる。`PTYError` / `PTYExitReason` の
+  /// `description` は spawn 失敗ごとの低頻度経路なので gate のコストは無視できる。
   ///
   /// 非 ASCII バイト（0x80-0xFF）は **許容する**: `strerror_r` は `LC_MESSAGES`
   /// ロケール依存（POSIX 仕様）で、`LANG=ja_JP.UTF-8` 等の環境では valid errno に
@@ -401,12 +406,13 @@ extension PTYError: CustomStringConvertible {
   /// 上記いずれかなら自前 fallback `"unknown errno N"` を返す。
   ///
   /// invalid UTF-8 sequence の扱い: `String(decoding:as: UTF8.self)` は不正な
-  /// バイト列を U+FFFD (Unicode replacement character) に置換する。POSIX 文面の
-  /// 最悪ケース（rc != 0 時に buffer が部分的に corrupt しているケース）で、
-  /// 制御文字を含まない non-ASCII gibberish が U+FFFD 混じりで description に
-  /// 乗る可能性がある。これは invalid errno 経路の現実離れした最悪ケースに限り
-  /// 発現する副作用で、観察ログとしては「errno N に対し何らかの非標準応答が
-  /// あった」識別子として acceptable と判定し、追加の gate は入れない。
+  /// バイト列を U+FFFD (Unicode replacement character) に置換する。Darwin 保証の
+  /// 範囲外で非標準的な non-ASCII gibberish が返った場合、それが U+FFFD 混じりで
+  /// description に乗る可能性がある。観察ログとしては「errno N に対し何らかの
+  /// 非標準応答があった」識別子として acceptable と判定し、追加の UTF-8 validity
+  /// gate は入れない。validity gate を入れると BCP-47 locale の合法な multi-byte
+  /// sequence で edge case を起こすリスクがあり、locale 依存性を考慮した上で
+  /// U+FFFD 許容が最も観察可能性を維持する判断。
   ///
   /// `PTYError` / `PTYExitReason` 両方の `description` から共有するため `internal`。
   static func errnoText(_ code: Int32) -> String {

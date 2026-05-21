@@ -171,7 +171,9 @@ dispatcher / store / hook ハンドラなどから `FileHandle.standardError.wri
 
 対象外:
 
-- **trace 系統** (`PTYTrace.swift` の `[PTY-TRACE +elapsed pid tag]` / `[TEST-TRACE]`): 専用の prefix フォーマット (elapsed timestamp + pid + tag) を持ち、デバッグトレース用途として別系統で運用する。handler 名 prefix 規約の対象外
+- **trace 系統**: 専用の prefix フォーマットを持ち、デバッグトレース用途として別系統で運用する。handler 名 prefix 規約の対象外
+  - `[PTY-TRACE +elapsed pid=N tag]` (`PTYTrace.swift`): GozdCore 内の PTY ライフサイクルイベント。pid を含む
+  - `[TEST-TRACE +elapsed test=NAME]` (`TestTrace.swift`): test ハーネス側のトレース。pid は含まない
 - print/NSLog 経由のログは対象外（gozd では使わない方針）
 
 ## Swift

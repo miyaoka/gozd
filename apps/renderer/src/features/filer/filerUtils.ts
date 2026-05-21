@@ -1,3 +1,4 @@
+import type { FsReadDirEntry } from "@gozd/proto";
 import type { GitChangeKind } from "../worktree";
 
 interface FileEntry {
@@ -46,7 +47,7 @@ function getDeletedEntries(dirPath: string, gitStatuses: Record<string, string>)
 }
 
 /** proto の FsReadDirEntry を FileEntry に変換する */
-function toFileEntries(entries: { name: string; type: string; isIgnored: boolean }[]): FileEntry[] {
+function toFileEntries(entries: FsReadDirEntry[]): FileEntry[] {
   return entries.map((e) => ({
     name: e.name,
     isDirectory: e.type === "directory",

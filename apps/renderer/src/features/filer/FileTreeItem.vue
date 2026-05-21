@@ -138,11 +138,11 @@ async function loadChildren() {
 function mergeWithGitStatus(entries: FileEntry[]): FileEntry[] {
   const existingNames = new Set(entries.map((e) => e.name));
 
-  const withGitChange = entries.map((entry) => {
+  const withGitChange = entries.map((entry): FileEntry => {
     const filePath = `${props.path}/${entry.name}`;
     const statusCode = props.gitStatuses[filePath];
     if (statusCode) {
-      return { ...entry, gitChange: resolveGitChangeKind(statusCode) } as FileEntry;
+      return { ...entry, gitChange: resolveGitChangeKind(statusCode) };
     }
     return entry;
   });

@@ -5,9 +5,10 @@
  *
  * 表示・選択・link 解決といった複数 feature の SSOT として worktree barrel から export する。
  *
- * 本型と `pathTargetToString` を **副作用なしの leaf ファイル** (`pathUtils.ts`) に置くことで、
- * bun:test 環境から `import` しても `useWorktreeStore` 経由で `shared/rpc` の
- * `window.__gozdReceive` 副作用が走らない（store ファイルに置くと barrel ロードで巻き込む）。
+ * 本型と `pathTargetToString` は worktree feature 内の最下層 leaf (`pathUtils.ts`) に置く:
+ * store / RPC など上位レイヤーには依存させず、shared / 他 feature からも安全に import できる。
+ * 「型・正規化・表示文字列」という純粋な値ドメインだけを集約することで、テスト・SSR を含む
+ * あらゆる文脈から副作用なしに参照できる。
  */
 export type PathTarget =
   | { kind: "worktreeRelative"; relPath: string }

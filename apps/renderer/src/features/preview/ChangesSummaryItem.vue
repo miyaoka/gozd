@@ -43,7 +43,7 @@ import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import type { GitChangeKind } from "../worktree";
 import DiffPreview from "./DiffPreview.vue";
 import { rpcGitShowCommitFile, rpcGitShowFile } from "./rpc";
-import { useBlamePopover } from "./useBlamePopover";
+import { isBlameablePath, useBlamePopover } from "./useBlamePopover";
 
 const props = defineProps<{
   change: GitFileChange;
@@ -178,8 +178,14 @@ const originalRev = computed<string | undefined>(() => {
   return `${ep.older}^`;
 });
 
-/** 絶対パスの外部 open は blame できない (git 管理外)。silent dead button 禁止のため button 描画自体を gate */
-const blameEnabled = computed(() => !displayPath.value.startsWith("/"));
+/**
+ * DiffPreview に渡す blame button gate。renamed (R) の場合 left side / right side で
+ * blame 対象 path が異なるため、両側のうち blame 可能な path が 1 つでもあれば
+ * button を出す。判定 SSOT は `isBlameablePath` に集約。
+ */
+const blameEnabled = computed(() => {
+  return isBlameablePath(props.change.oldFilePath) || isBlameablePath(props.change.newFilePath);
+});
 
 function modeLabelForRev(rev: string): string {
   if (rev === "") return "Working Tree";
@@ -198,11 +204,14 @@ function onLineNumberClick(payload: {
   if (rev === undefined) return;
   // renamed (R) のとき blame 対象 path は side に揃える: old side は oldFilePath、
   // new side は newFilePath。これを取り違えると rev で存在しない path を blame して
-  // 即 not_found に倒れる。
+  // 即 not_found に倒れる。fallback 反対側は path だけ揃え rev は side 側のまま使う。
   const path =
     payload.side === "old"
       ? props.change.oldFilePath || props.change.newFilePath
       : props.change.newFilePath || props.change.oldFilePath;
+  // SSOT 判定: 該当 side の blame 対象 path 自体が blameable でなければ早期 return。
+  // blameEnabled が true でも片側だけ blameable のケースがあるため再確認する。
+  if (!isBlameablePath(path)) return;
   blamePopover.open(payload.anchorEl, {
     dir,
     relPath: path,
@@ -211,6 +220,16 @@ function onLineNumberClick(payload: {
     modeLabel: modeLabelForRev(rev),
   });
 }
+
+/**
+ * 自分が blame popover の owner だった場合は unmount 時に必ず close する。
+ * summary view で fileChanges が更新されて item が v-for re-key で消えると、
+ * popover の anchorEl は detached element を指し続けるため、明示的に close する
+ * 必要がある。closeIfActive は他 owner の context を巻き込まない設計。
+ */
+onUnmounted(() => {
+  blamePopover.closeIfActive(displayPath.value);
+});
 
 let fetchVersion = 0;
 

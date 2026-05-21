@@ -821,6 +821,13 @@ function splitRightBg(row: DiffSplitRowItem): string {
   text-decoration: underline;
 }
 
+/* keyboard focus 可視化。silent dead button 禁止規約の延長 */
+._line-no-btn:focus-visible {
+  outline: 2px solid var(--color-blue-400);
+  outline-offset: -2px;
+  color: var(--color-blue-400);
+}
+
 ._line-no + ._line-text {
   margin-left: 1.5ch;
 }

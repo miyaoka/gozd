@@ -766,10 +766,17 @@ let BLAME_MAX_BLOB_BYTES = 2 * 1024 * 1024
 
 /// `rev` 文字列を `git` 引数として安全に渡せるか検証する。
 ///
-/// 許可: 空文字 / "HEAD" / 7-64 文字の hex hash / 末尾に "^" / "~N" が連続する revision 表記。
-/// `-` 始まりや空白を含む値が来ると `git` が option として解釈し option 注入になりうるため reject。
-/// 厳密に full git revision syntax を再現するわけではなく、本 RPC が想定する rev 計算経路
-/// (`""` / `"HEAD"` / `<hash>` / `<hash>^` / `<hash>~N`) に限定する。
+/// 役割: **option 注入を弾く safety net**。長さ check や git revision syntax の完全再現は
+/// 行わない (git 自身が revision parse で reject するため二重実装は避ける)。
+///
+/// 許可: 空文字 / "HEAD" / 先頭が 16 進文字 (`[0-9a-fA-F]`) で全体が hex + `^` + `~` で構成される文字列。
+/// reject: `-` 始まり (option 解釈の余地) / 非 hex 始まり (`main` 等の named ref) / 空白文字 / hex 外の記号。
+///
+/// 本 RPC が想定する rev 計算経路 (`""` / `"HEAD"` / `<hash>` / `<hash>^` / `<hash>~N`) に
+/// 限定する設計判断: hex hash + 末尾 `^` `~N` の組み合わせのみが renderer から流れる契約のため。
+/// `HEAD^` / `HEAD~` のような named ref + suffix は本 RPC ではサポートしない (renderer は
+/// 必ず hash 化してから流す契約)。
+///
 /// `internal` にして `@testable import GozdCore` で boundary テストから直接呼べるようにする。
 func validateRev(_ rev: String) throws {
   if rev.isEmpty { return }

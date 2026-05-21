@@ -45,7 +45,26 @@ type HistoryState =
 
 type ViewMode = "blame" | "history";
 
+/**
+ * 与えられた path が blame 対象として有効か判定する。
+ * 絶対パス始まりの file (filer の "open external" 経路) は git 管理外として false。
+ * PreviewPane / ChangesSummaryItem の重複判定を 1 箇所に集約する SSOT。
+ *
+ * `undefined` / 空文字も false に倒す。selectedPath が未確定なケースの安全策。
+ */
+export function isBlameablePath(path: string | undefined): boolean {
+  if (path === undefined || path === "") return false;
+  if (path.startsWith("/")) return false;
+  return true;
+}
+
 const HISTORY_MAX = 100;
+
+// notification は module scope で 1 度だけ取得。load 系関数の毎回呼び出しを避け、
+// 既存 store 利用パターン (script setup の最上位で取得) と揃える。
+// `useNotificationStore` は Pinia ではなく plain module ref singleton のため、
+// import 時点で生存し最初の呼び出しから安定して使える。
+const notification = useNotificationStore();
 
 const context = ref<BlameContext>();
 const anchorEl = ref<HTMLElement>();
@@ -65,7 +84,6 @@ let activeVersion = 0;
 let blameInFlight: { version: number; promise: Promise<void> } | undefined;
 
 async function loadBlame(ctx: BlameContext, version: number): Promise<void> {
-  const notification = useNotificationStore();
   const result = await tryCatch(
     rpcGitBlameLine({ dir: ctx.dir, relPath: ctx.relPath, rev: ctx.rev, line: ctx.line }),
   );
@@ -93,6 +111,10 @@ async function loadHistory(): Promise<void> {
   const myVersion = activeVersion;
   const ctx = context.value;
   if (ctx === undefined) return;
+  // History タブを開いた瞬間に loading 表示へ倒す。blame await 後の分岐で loading を
+  // 後置きすると、history タブクリック直後に template の 3 つの v-if (loading / error /
+  // ready) いずれにも該当しない idle のまま 1 フレーム空描画が出る (UX 違和感)
+  historyState.value = { kind: "loading" };
   // 自分 version の blame の完了を待つ。別 version の in-flight (古い参照) は無視する。
   const bp = blameInFlight;
   if (bp !== undefined && bp.version === myVersion) {
@@ -114,8 +136,6 @@ async function loadHistory(): Promise<void> {
     historyState.value = { kind: "ready", commits: [] };
     return;
   }
-  historyState.value = { kind: "loading" };
-  const notification = useNotificationStore();
   const result = await tryCatch(
     rpcGitLogLine({
       dir: ctx.dir,
@@ -159,6 +179,17 @@ function close(): void {
   blameInFlight = undefined;
 }
 
+/**
+ * 自身が open 元 (matchPath = アクティブ context の relPath と一致) であれば close を発火。
+ * owner (ChangesSummaryItem / PreviewPane) の unmount 時に呼んで detached anchor を残さない。
+ * 他 owner が open している context にぶつけても no-op で安全。
+ */
+function closeIfActive(relPath: string): void {
+  if (context.value?.relPath === relPath) {
+    close();
+  }
+}
+
 function setViewMode(mode: ViewMode): void {
   viewMode.value = mode;
   if (mode === "history" && historyState.value.kind === "idle") {
@@ -176,6 +207,7 @@ export function useBlamePopover() {
     historyState,
     open,
     close,
+    closeIfActive,
     setViewMode,
   };
 }

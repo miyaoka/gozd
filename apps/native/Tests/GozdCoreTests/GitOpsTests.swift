@@ -948,6 +948,49 @@ struct GitOpsBlameLineTests {
       Issue.record("unexpected error: \(error)")
     }
   }
+
+  @Test("ファイルの行数を超えた line は git fatal で commandFailed throw")
+  func lineOutOfRange() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let file = dir.appendingPathComponent("a.txt")
+    try "only one line\n".write(to: file, atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
+
+    do {
+      _ = try await GitOps.blameLine(
+        dir: dir.path, relPath: "a.txt", rev: "HEAD", line: 9999)
+      Issue.record("expected throw, got success")
+    } catch let GitError.commandFailed(exitCode, _) {
+      // git は範囲外行で exit code != 0 を返す。message 文言は git バージョン依存で
+      // 変わりうるので exitCode のみ pin。
+      #expect(exitCode != 0)
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("空ファイル (working tree) は size gate 通過後 blame で 0 行 fatal")
+  func emptyFileWorkingTree() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let file = dir.appendingPathComponent("empty.txt")
+    try Data().write(to: file)
+    try await runTestGit(args: ["add", "empty.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init empty"], cwd: dir.path)
+
+    do {
+      _ = try await GitOps.blameLine(dir: dir.path, relPath: "empty.txt", rev: "", line: 1)
+      Issue.record("expected throw, got success")
+    } catch let GitError.commandFailed(exitCode, _) {
+      // 0 行ファイルで `-L 1,1` は範囲外なので git fatal。size gate は通過する
+      // (空ファイル = 0 byte で BLAME_MAX_BLOB_BYTES 以下)。
+      #expect(exitCode != 0)
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
 }
 
 // MARK: - Helpers

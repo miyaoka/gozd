@@ -41,7 +41,7 @@ import ImagePreview from "./ImagePreview.vue";
 import MarkdownPreview from "./MarkdownPreview.vue";
 import { previewFontFamily, previewFontSize } from "./previewConfig";
 import { rpcGitShowCommitFile, rpcGitShowFile } from "./rpc";
-import { useBlamePopover } from "./useBlamePopover";
+import { isBlameablePath, useBlamePopover } from "./useBlamePopover";
 
 type PreviewMode = "current" | "diff" | "original";
 
@@ -563,13 +563,9 @@ const originalRev = computed<string | undefined>(() => {
   return `${range.older}^`;
 });
 
-/** blame 不可なファイル (絶対パスの外部 open) を弾く判定。button 描画自体を gate する */
-const blameEnabled = computed(() => {
-  const path = selectedPath.value;
-  if (path === undefined) return false;
-  if (path.startsWith("/")) return false;
-  return true;
-});
+/** blame 不可なファイル (絶対パスの外部 open) を弾く判定。button 描画自体を gate する。
+ *  判定の SSOT は `useBlamePopover.isBlameablePath` に集約 */
+const blameEnabled = computed(() => isBlameablePath(selectedPath.value));
 
 const blamePopover = useBlamePopover();
 
@@ -616,7 +612,15 @@ function onDiffLineClick(payload: {
  * の Line N を指す) を残さないための watcher。
  */
 watch(
-  [selectedPath, () => gitGraphStore.selectedHash, () => gitGraphStore.compareHash, activeMode],
+  [
+    selectedPath,
+    () => gitGraphStore.selectedHash,
+    () => gitGraphStore.compareHash,
+    activeMode,
+    // summary view 切替で CodePreview / DiffPreview が unmount され anchor が detached
+    // になるため、popover も同時に閉じる必要がある。
+    () => summaryStore.enabled,
+  ],
   () => {
     if (blamePopover.context.value !== undefined) {
       blamePopover.close();

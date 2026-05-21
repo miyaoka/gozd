@@ -122,8 +122,10 @@ function onContainerClick(e: MouseEvent) {
   if (lineStr === undefined) return;
   const line = Number(lineStr);
   if (!Number.isInteger(line) || line <= 0) return;
+  // preventDefault は button の form submit / focus 移動の副作用を抑えるため。
+  // stopPropagation はしない: 親 (PreviewPane / 上位 layout) で将来 click delegation
+  // を仕掛けたい場合に潰さない方針。close() の Popover API トグルは別経路。
   e.preventDefault();
-  e.stopPropagation();
   emit("lineNumberClick", { line, anchorEl: btn });
 }
 </script>
@@ -187,6 +189,15 @@ function onContainerClick(e: MouseEvent) {
 ._highlighted-code :deep(.line ._line-no-btn:hover) {
   color: var(--color-blue-400);
   text-decoration: underline;
+}
+
+/* keyboard focus 可視化。silent dead button 禁止規約の延長で、Tab 到達した button が
+   視認できることを担保する。outline は Tailwind の blue-400 と整合させる */
+._line-numbered ._line ._line-no-btn:focus-visible,
+._highlighted-code :deep(.line ._line-no-btn:focus-visible) {
+  outline: 2px solid var(--color-blue-400);
+  outline-offset: -2px;
+  color: var(--color-blue-400);
 }
 
 /* blame OFF: `<span class="_line-no-static">`。focusable を奪うため span に倒す。

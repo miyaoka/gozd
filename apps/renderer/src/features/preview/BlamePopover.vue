@@ -12,6 +12,7 @@ Popover API (`popover="auto"`) の Esc / 外クリック dismiss を `@toggle` �
 
 <script setup lang="ts">
 import { nextTick, ref, watch } from "vue";
+import { formatAbsoluteTime, formatRelativeTime } from "../../shared/time";
 import { useGitGraphStore } from "../git-graph";
 import { useBlamePopover } from "./useBlamePopover";
 
@@ -61,23 +62,6 @@ const HISTORY_DISABLED_TITLE = "History is unavailable for uncommitted lines";
 
 function isHistoryDisabled(): boolean {
   return blameState.value.kind === "ready" && blameState.value.commit.notCommitted;
-}
-
-function relativeTime(unixSec: number): string {
-  if (unixSec <= 0) return "";
-  const diffSec = Math.floor(Date.now() / 1000) - unixSec;
-  if (diffSec < 60) return `${diffSec}s ago`;
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-  if (diffSec < 86400 * 30) return `${Math.floor(diffSec / 86400)}d ago`;
-  if (diffSec < 86400 * 365) return `${Math.floor(diffSec / 86400 / 30)}mo ago`;
-  return `${Math.floor(diffSec / 86400 / 365)}y ago`;
-}
-
-function absoluteTime(unixSec: number): string {
-  if (unixSec <= 0) return "";
-  const d = new Date(unixSec * 1000);
-  return d.toLocaleString();
 }
 </script>
 
@@ -147,9 +131,9 @@ function absoluteTime(unixSec: number): string {
               }}</span>
               <span
                 class="ml-auto shrink-0 text-zinc-500"
-                :title="absoluteTime(Number(blameState.commit.authorTime))"
+                :title="formatAbsoluteTime(Number(blameState.commit.authorTime))"
               >
-                {{ relativeTime(Number(blameState.commit.authorTime)) }}
+                {{ formatRelativeTime(Number(blameState.commit.authorTime)) }}
               </span>
             </div>
             <p class="mt-2 wrap-break-word whitespace-pre-wrap text-zinc-200">
@@ -208,8 +192,8 @@ function absoluteTime(unixSec: number): string {
                 <span class="block truncate text-zinc-200">{{ c.message }}</span>
                 <span class="mt-0.5 flex items-center gap-2 text-[11px] text-zinc-500">
                   <span class="truncate">{{ c.author }}</span>
-                  <span :title="absoluteTime(Number(c.date))">{{
-                    relativeTime(Number(c.date))
+                  <span :title="formatAbsoluteTime(Number(c.date))">{{
+                    formatRelativeTime(Number(c.date))
                   }}</span>
                 </span>
               </span>

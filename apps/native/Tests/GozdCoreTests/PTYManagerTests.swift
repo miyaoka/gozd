@@ -379,8 +379,13 @@ struct PTYManagerTests {
 /// 限界: 本 helper と SUT が同じイディオムで実装されているため、両者に同じバグが
 /// 入った場合 (例: UTF-8 解釈ミス、buffer サイズ不足、bitPattern reinterpret 誤り)
 /// この test 経路では検出できない。この相互救済を断つため、SUT 単独の strerror 出力
-/// 品質 test (`errnoTextStrerrorOutputIsAsciiPrintableSingleLine`) を別途置き、
-/// mirror に依存しない不変条件（印字可能 ASCII / 非空 / 単一行）も assert している。
+/// 品質 test (`errnoTextStrerrorOutputIsControlCharFreeAndNonEmpty`) を別途置き、
+/// mirror に依存しない不変条件（制御文字 / 改行を含まない / 非空）も assert している。
+///
+/// SUT と完全同期するため、空 buffer fallback と control-char gate も mirror に持たせる
+/// （SUT 側 `errnoText` の実装を参照）。valid errno (ENOMEM / EAGAIN / ECHILD / SIGHUP 等)
+/// では実機の strerror_r が制御文字を返さないため gate は通過し、SUT と同じ文字列を返す。
+/// 将来 SUT 側の gate 条件を変えた場合、本 helper も同時に同期更新する。
 ///
 /// boundary errno (Int32.max / Int32.min / 9999 / 0 / -1) に対する OS 実装差吸収は
 /// 別 test (`errnoTextHandlesBoundaryErrnoSafely`) で prefix/suffix の不変条件のみを
@@ -389,7 +394,18 @@ private func expectedErrnoText(_ code: Int32) -> String {
   var buf = [CChar](repeating: 0, count: 256)
   _ = strerror_r(code, &buf, buf.count)
   let nul = buf.firstIndex(of: 0) ?? buf.endIndex
-  return String(decoding: buf[..<nul].lazy.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+  let slice = buf[..<nul]
+  if slice.isEmpty {
+    return "unknown errno \(code)"
+  }
+  let hasControlChar = slice.contains { c in
+    let u = UInt8(bitPattern: c)
+    return u < 0x20 || u == 0x7F
+  }
+  if hasControlChar {
+    return "unknown errno \(code)"
+  }
+  return String(decoding: slice.lazy.map { UInt8(bitPattern: $0) }, as: UTF8.self)
 }
 
 // MARK: - Helpers

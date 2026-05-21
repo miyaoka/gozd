@@ -1,16 +1,5 @@
-import type { PathTarget } from "../worktree";
+import { pathTargetToString, type PathTarget } from "../worktree";
 import { parseLineNumberSuffix } from "./parseLineNumberSuffix";
-
-/**
- * `PathTarget` の表示用文字列。`pathTargetToString` (worktree feature) の重複だが、
- * bun:test 環境で worktree barrel をロードすると `useWorktreeStore` 経由で
- * shared/rpc の `window.__gozdReceive` を参照する副作用が走り、本ファイルをユニット
- * テスト対象にできなくなる。`import type` でも本一行関数は import できないため、
- * 純粋関数として local に複写する (型 SSOT は `PathTarget` 自体で確保)。
- */
-function targetDisplay(target: PathTarget): string {
-  return target.kind === "worktreeRelative" ? target.relPath : target.absPath;
-}
 
 /** パスの末尾区切り文字 */
 const PATH_TERMINATORS = /[\s()}\]>'",:;]/;
@@ -133,7 +122,7 @@ export function findAbsolutePathMatches(
       ? { kind: "worktreeRelative", relPath: fullPath.slice(dirPrefix.length) }
       : { kind: "absolute", absPath: fullPath };
 
-    const display = targetDisplay(selection);
+    const display = pathTargetToString(selection);
     if (display.length > 0) {
       matches.push({ idx, totalEnd, selection, lineNumber });
     }

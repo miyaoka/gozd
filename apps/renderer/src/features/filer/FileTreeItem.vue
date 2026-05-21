@@ -280,7 +280,7 @@ function onChildSelect(childPath: string) {
         :git-change="child.gitChange"
         :git-statuses="gitStatuses"
         :depth="depth + 1"
-        :selected-path="selectedRelPath"
+        :selected-rel-path="selectedRelPath"
         @select="onChildSelect"
       />
     </template>

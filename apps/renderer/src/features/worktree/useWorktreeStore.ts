@@ -3,35 +3,19 @@ import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 import { useRepoStore } from "../../shared/repo";
 import { resolveFileGitChange } from "./gitStatusUtils";
-import { normalizeAbsolute, normalizeRelative } from "./pathUtils";
+import {
+  normalizeAbsolute,
+  normalizeRelative,
+  pathTargetToString,
+  type PathTarget,
+} from "./pathUtils";
 import { useGitStatusStore } from "./useGitStatusStore";
-
-/**
- * パスの種別を kind で分離した選択ターゲット。
- * worktree 内 (filer reveal / git ops が成立) と worktree 外の絶対パス (fsReadFileAbsolute のみ)
- * という非対称性を型で表現する。
- *
- * 表示・選択・link 解決といった複数 feature の SSOT として worktree barrel から export する。
- */
-export type PathTarget =
-  | { kind: "worktreeRelative"; relPath: string }
-  | { kind: "absolute"; absPath: string };
 
 /**
  * プレビュー対象の selection。`PathTarget` に行番号 (terminal link / markdown anchor 由来) を
  * 追加した形。store 内部状態は本型で保持し、消費側は `kind` で switch する。
  */
 export type Selection = PathTarget & { lineNumber?: number };
-
-/**
- * `PathTarget` の表示用文字列を抽出する純粋関数。
- * ヘッダ表示 / xterm link `text` / log 出力など、kind に関係なく単一の文字列が
- * 必要な箇所で使う。`PathTarget` を扱う複数 feature が同じ射影を独立実装しないよう
- * worktree barrel から export する SSOT。
- */
-export function pathTargetToString(target: PathTarget): string {
-  return target.kind === "worktreeRelative" ? target.relPath : target.absPath;
-}
 
 export const useWorktreeStore = defineStore("worktree", () => {
   const repoStore = useRepoStore();

@@ -5,9 +5,12 @@ button {
   cursor: pointer;
 }
 
-/* Tailwind v4 preflight が `<dialog>` の margin: auto を意図的にリセットする (tailwindlabs/tailwindcss issue 16372) ため、UA 標準の中央配置を復元する */
+/* `<dialog>` の UA stylesheet（background-color: canvas / border: solid / padding: 1em）を一括打ち消す。dialog の見た目はすべて内側のラッパーで描画する規約のため、UA 装飾は要素単位で剥がす。margin: auto は Tailwind v4 preflight が消す (tailwindlabs/tailwindcss issue 16372) ので合わせて復元する */
 dialog {
   margin: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
 }
 
 /* 細いオーバーレイスクロールバー */

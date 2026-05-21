@@ -208,9 +208,6 @@ watch(isOpen, (open) => {
 
 <style>
 ._settings-dialog {
-  padding: 0;
-  border: none;
-  background: transparent;
   margin: 15vh auto 0;
 }
 

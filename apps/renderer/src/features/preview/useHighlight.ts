@@ -1,78 +1,73 @@
+import { LINGUIST_EXTENSION_LANG_MAP, LINGUIST_FILENAME_LANG_MAP } from "@gozd/shiki-lang-map";
 import {
   type BundledLanguage,
-  type Highlighter,
   type ShikiTransformer,
   type ThemedToken,
-  createHighlighter,
+  codeToHtml as shikiCodeToHtml,
+  codeToTokens as shikiCodeToTokens,
 } from "shiki";
 
-let highlighter: Highlighter | undefined;
-let initPromise: Promise<Highlighter> | undefined;
-
-/** 拡張子 → Shiki 言語 ID のマッピング */
-const EXTENSION_LANG_MAP: Record<string, BundledLanguage> = {
-  ts: "typescript",
-  tsx: "tsx",
-  mts: "typescript",
-  cts: "typescript",
-  js: "javascript",
-  jsx: "jsx",
-  mjs: "javascript",
-  cjs: "javascript",
-  vue: "vue",
-  json: "json",
-  jsonc: "jsonc",
-  md: "markdown",
-  html: "html",
-  css: "css",
-  scss: "scss",
-  less: "less",
-  yaml: "yaml",
-  yml: "yaml",
-  toml: "toml",
-  sh: "bash",
-  bash: "bash",
-  zsh: "bash",
-  xml: "xml",
-  svg: "xml",
+/** プロジェクト固有の拡張子 override。
+ *
+ * Linguist のデフォルト挙動 (= ASCII order での first-write-wins) を上書きしたい場合に
+ * 列挙する。各エントリには「なぜ Linguist と違う選択をするか」を理由付きで残す。
+ *
+ * 値型は `BundledLanguage | null`:
+ *  - `BundledLanguage`: Linguist のマッピングを上書き
+ *  - `null`: Linguist 由来のマッピングを **除去** し、`detectLang` を `undefined` で返す
+ *    (= ハイライトしない / plain text fallback)。collision diagnostic で観察された
+ *    意図しないマッピングを明示的に黙らせる経路
+ */
+const EXTENSION_OVERRIDES: Partial<Record<string, BundledLanguage | null>> = {
+  // .m: Linguist は MATLAB を ASCII 順優先で `.m → matlab` に倒すが、gozd は MATLAB ファイルを
+  // 扱わず、apps/native の Objective-C / C ブリッジが対象。
+  m: "objective-c",
+  // .php: Linguist で Hack が ASCII 先勝ちのため `.php → hack` に倒れるが、PHP ファイルは
+  // 圧倒的に多数派。Shiki に `php` grammar が存在する。
+  php: "php",
+  // .sql: Linguist で PLSQL が ASCII 先勝ちのため `.sql → plsql` に倒れるが、PL/SQL は
+  // Oracle 固有方言。一般的な SQL ファイルは `sql` grammar が妥当。
   sql: "sql",
-  graphql: "graphql",
-  gql: "graphql",
-  dockerfile: "dockerfile",
-  rs: "rust",
-  go: "go",
-  py: "python",
-  rb: "ruby",
+  // .jsx: Linguist は JSX を JavaScript の拡張子として持つため `.jsx → javascript` に倒れる。
+  // Shiki は `jsx` grammar (`source.js.jsx`) を独立して提供するので、JSX タグの色付けが効く
+  // ように override する。
+  jsx: "jsx",
 };
 
-/** ファイル名から言語 ID を推定 */
+/** プロジェクト固有のファイル名 override (現在は無し)。値型は EXTENSION_OVERRIDES と同形 */
+const FILENAME_OVERRIDES: Partial<Record<string, BundledLanguage | null>> = {};
+
+/** ファイル名から Shiki BundledLanguage を推定する。
+ *
+ * 解決順序:
+ *   filename override → Linguist filename → extension override → Linguist extension
+ *
+ * Linguist 由来のテーブルは build 時 codegen (`@gozd/shiki-lang-map`) で生成される。
+ * データ SSOT は GitHub Linguist の `languages.yml` (linguist-languages npm)。
+ *
+ * 拡張子経路は `fileName.lastIndexOf(".") > 0` の場合のみ実行する。これで以下を弾く:
+ * - `Makefile` / `LICENSE` 等の no-ext ファイル: `lastIndexOf === -1`
+ * - `.bashrc` / `.gitignore` 等の dotfile: `lastIndexOf === 0` (先頭の `.` のみ)
+ * 弾かないと filename map miss → `split(".").pop()` がファイル名全体を ext として返し、
+ * Linguist が将来短い ext (`license` / `readme` 等) を追加した場合に偶然 hit して
+ * 黙って誤分類するリスクが残る。
+ */
 function detectLang(filePath: string): BundledLanguage | undefined {
   const fileName = filePath.split("/").pop() ?? "";
-  // 拡張子なしのファイル名マッチ（Dockerfile, Makefile 等）
-  const FILENAME_LANG_MAP: Record<string, BundledLanguage> = {
-    Dockerfile: "dockerfile",
-    Makefile: "makefile",
-  };
-  const fileNameMatch = FILENAME_LANG_MAP[fileName];
-  if (fileNameMatch) return fileNameMatch;
 
-  const ext = fileName.split(".").pop()?.toLowerCase();
-  if (!ext) return undefined;
-  return EXTENSION_LANG_MAP[ext];
-}
+  const filenameOverride = FILENAME_OVERRIDES[fileName];
+  if (filenameOverride === null) return undefined; // 明示除去
+  const filenameMatch = filenameOverride ?? LINGUIST_FILENAME_LANG_MAP[fileName];
+  if (filenameMatch !== undefined) return filenameMatch;
 
-/** Shiki インスタンスを遅延初期化して返す */
-async function getHighlighter(): Promise<Highlighter> {
-  if (highlighter) return highlighter;
-  if (initPromise) return initPromise;
+  const lastDot = fileName.lastIndexOf(".");
+  if (lastDot <= 0) return undefined;
+  const lc = fileName.slice(lastDot + 1).toLowerCase();
+  if (lc === "") return undefined;
 
-  initPromise = createHighlighter({
-    themes: ["github-dark"],
-    langs: Object.values(EXTENSION_LANG_MAP),
-  });
-
-  highlighter = await initPromise;
-  return highlighter;
+  const extOverride = EXTENSION_OVERRIDES[lc];
+  if (extOverride === null) return undefined; // 明示除去
+  return extOverride ?? LINGUIST_EXTENSION_LANG_MAP[lc];
 }
 
 /** コードをハイライトして HTML 文字列を返す。言語不明ならプレーンテキストを返す。
@@ -81,6 +76,9 @@ async function getHighlighter(): Promise<Highlighter> {
  * false のときは `<span class="_line-no-static">` を挿入する。button だと CSS で
  * cursor を消しても keyboard (Tab + Enter) で到達でき silent dead button になるため、
  * blame できない経路では DOM 要素自体を span に倒して focusable を奪う契約。
+ *
+ * Shiki の shorthand `codeToHtml` は内部で grammar を on-demand load する
+ * (`createSingletonShorthands` 経路、`getSingletonHighlighter` で idempotent)。
  */
 async function highlight(
   code: string,
@@ -89,11 +87,6 @@ async function highlight(
 ): Promise<string | undefined> {
   const lang = detectLang(filePath);
   if (!lang) return undefined;
-
-  const h = await getHighlighter();
-  // ハイライタの loaded langs に含まれない場合はスキップ
-  const loadedLangs = h.getLoadedLanguages();
-  if (!loadedLangs.includes(lang)) return undefined;
 
   const lineNumberTransformer: ShikiTransformer = {
     line(node, line) {
@@ -127,7 +120,7 @@ async function highlight(
     },
   };
 
-  return h.codeToHtml(code, {
+  return shikiCodeToHtml(code, {
     lang,
     theme: "github-dark",
     transformers: [lineNumberTransformer],
@@ -142,11 +135,7 @@ async function highlightTokens(
   const lang = detectLang(filePath);
   if (!lang) return undefined;
 
-  const h = await getHighlighter();
-  const loadedLangs = h.getLoadedLanguages();
-  if (!loadedLangs.includes(lang)) return undefined;
-
-  const { tokens } = h.codeToTokens(code, {
+  const { tokens } = await shikiCodeToTokens(code, {
     lang,
     theme: "github-dark",
   });

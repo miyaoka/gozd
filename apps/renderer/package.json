@@ -17,6 +17,7 @@
     "@dnd-kit/vue": "0.4.0",
     "@gozd/proto": "workspace:*",
     "@gozd/shared": "workspace:*",
+    "@gozd/shiki-lang-map": "workspace:*",
     "@gozd/themes": "workspace:*",
     "@vueuse/core": "14.3.0",
     "@xterm/addon-fit": "0.11.0",

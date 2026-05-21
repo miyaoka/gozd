@@ -391,7 +391,7 @@ struct PTYManagerTests {
 /// 別 test (`errnoTextHandlesBoundaryErrnoSafely`) で prefix/suffix の不変条件のみを
 /// 主張する形に分離している。本 helper は boundary 経路では呼ばれない。
 private func expectedErrnoText(_ code: Int32) -> String {
-  var buf = [CChar](repeating: 0, count: 256)
+  var buf = [CChar](repeating: 0, count: PTYError.errnoTextBufferSize)
   _ = strerror_r(code, &buf, buf.count)
   let nul = buf.firstIndex(of: 0) ?? buf.endIndex
   let slice = buf[..<nul]

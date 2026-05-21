@@ -357,66 +357,69 @@ extension PTYError: CustomStringConvertible {
     }
   }
 
-  /// errno → 人間可読文字列。`strerror(3)` は POSIX 文面上 thread-safe ではない
-  /// （同一スレッド内で次回呼び出しまで有効、別スレッドが同時に呼ぶと buffer が
-  /// 上書きされる可能性がある）。`String(cString:)` のコピーは API 仕様上の race
-  /// window を閉じる根拠にならないため、thread-safe な `strerror_r(3)` (POSIX 版、
-  /// `int` 戻り) を使う。
+  /// errno → 人間可読文字列。`PTYError` / `PTYExitReason` 両方の `description`
+  /// から共有するため `internal`。
   ///
-  /// `swift-system` の `Errno.description` は内部で `strerror` (thread-unsafe) を
-  /// 使っており ( apple/swift-system #156 ) 採用しない。`Foundation.POSIXError` も
-  /// NSError bridge 経由で内部実装は同根のため不採用。errno → text の thread-safe
-  /// 経路は現状 `strerror_r` 直叩きが業界推奨に残っている。
+  /// # API 選択
   ///
-  /// 文字列化は SE-0405 の公式 deprecation 方針に従い、`String(cString: [CChar])`
-  /// （Swift 6 で deprecated）を避けて `String(decoding: slice, as: UTF8.self)` を
-  /// 使う。`firstIndex(of: 0)` で NUL 終端まで truncate するイディオムが公式推奨
-  /// （deprecation message: "after truncating the null termination"）。errno text は
-  /// ASCII 範囲のため `CChar` (Int8) → `UInt8` の bitPattern reinterpret で UTF-8 と等価。
+  /// - `strerror(3)` は POSIX 文面上 thread-safe ではない（同一スレッド内で次回呼び出し
+  ///   まで有効、別スレッドが同時に呼ぶと buffer が上書きされる）。よって thread-safe な
+  ///   `strerror_r(3)` (POSIX 版、`int` 戻り) を使う
+  /// - `swift-system` の `Errno.description` は内部で `strerror` を呼ぶ + 未解決の
+  ///   thread-safety bug ( apple/swift-system #156 ) のため不採用
+  /// - `Foundation.POSIXError` も NSError bridge 経由で内部実装は同根のため不採用
+  /// - 文字列化は SE-0405 (`String(decoding:as: UTF8.self)` + `firstIndex(of: 0)` で
+  ///   NUL truncate) の公式イディオムに従う。`String(cString: [CChar])` は Swift 6 で
+  ///   deprecated（deprecation message: "after truncating the null termination"）。
+  ///   `CChar` (Int8) → `UInt8` の bitPattern reinterpret で UTF-8 バイト列とみなす
   ///
-  /// **主根拠 (Darwin manpage 保証)**: macOS Darwin の strerror_r(3) manpage は
-  /// "If the error number is not recognized, these functions return EINVAL ...
-  /// The strerror_r() function ... copies an error message string into the
-  /// buffer ..." と明記しており、**invalid errno (EINVAL を返す経路) でも
-  /// buffer に readable な error message string を埋める** ことを保証する。
-  /// gozd は macOS 26 Tahoe 専用 (CLAUDE.md「対応プラットフォーム」) のため、
-  /// Darwin 保証の範囲で実用上の挙動は閉じる。よって rc 値は捨てて buffer を
-  /// そのまま返す方針が観察可能性（renderer に届く identifier 品質、Console.app
-  /// 観察ログの人間可読性）を最大化する。Linux glibc も同等挙動を示すと観察済み。
+  /// # buffer / rc の扱い
   ///
-  /// **防御的多重化として gate を入れる**: 上記 Darwin 保証は POSIX 文面では
-  /// 未定義領域 (`rc != 0` 時 buffer 未定義) に依存している。Darwin 将来 version
-  /// で挙動が変わる / OS 内部状態の異常 / マルチスレッド境界の不整合 等の
-  /// 想定外シナリオで「control char 混入 buffer」が返る可能性をゼロとは断言
-  /// できない。観察ログの 1 行性 (Console.app の grep 経路 / event 分離) は
-  /// 構造的に守りたいので、buffer に制御文字 (0x00-0x1F / 0x7F) が含まれる場合
-  /// のみ自前 fallback に倒す gate を入れる。`PTYError` / `PTYExitReason` の
-  /// `description` は spawn 失敗ごとの低頻度経路なので gate のコストは無視できる。
+  /// `strerror_r` の rc 値は捨てて buffer を返す。
   ///
-  /// 非 ASCII バイト（0x80-0xFF）は **許容する**: `strerror_r` は `LC_MESSAGES`
-  /// ロケール依存（POSIX 仕様）で、`LANG=ja_JP.UTF-8` 等の環境では valid errno に
-  /// 対しても multi-byte UTF-8 シーケンスが buffer に書かれる。これらは観察ログの
-  /// 1 行性を破壊しない（multi-byte の構成バイトは 0x80-0xFF で制御文字に重ならない）
-  /// ため信頼する。これで stderr の 1 行性と renderer に届く identifier 品質の双方を
-  /// 同時に満たせる。
+  /// Darwin manpage strerror_r(3) は "If the error number is not recognized, these
+  /// functions return EINVAL ... The strerror_r() function ... copies an error
+  /// message string into the buffer ..." と明記しており、**invalid errno (EINVAL を
+  /// 返す経路) でも buffer に readable な error message string を埋める** ことを
+  /// 保証する。gozd は macOS 26 Tahoe 専用 (CLAUDE.md「対応プラットフォーム」) のため、
+  /// Darwin 保証の範囲で挙動が閉じる。rc != 0 を理由に buffer を捨てると本物の
+  /// strerror 出力 (renderer に届く identifier 品質、Console.app の人間可読性) を
+  /// 失うため、buffer を信用する方針が観察可能性を最大化する。
   ///
-  /// gate に倒れる条件:
-  ///   - buffer が空（NUL のみ）
-  ///   - buffer に制御文字（CR/LF/TAB/NUL 等の 0x00-0x1F、DEL 0x7F）が含まれる
-  /// 上記いずれかなら自前 fallback `"unknown errno N"` を返す。
+  /// 非 ASCII バイト（0x80-0xFF）は許容する。`strerror_r` は `LC_MESSAGES` ロケール
+  /// 依存（POSIX 仕様）で、`LANG=ja_JP.UTF-8` 等の環境では valid errno に対しても
+  /// multi-byte UTF-8 シーケンスが buffer に書かれる。非 ASCII 構成バイトは観察ログの
+  /// 1 行性を破壊しない（制御文字に重ならない）ため信頼する。これで stderr の 1 行性と
+  /// renderer に届く identifier 品質の双方を同時に満たせる。
   ///
-  /// invalid UTF-8 sequence の扱い: `String(decoding:as: UTF8.self)` は不正な
-  /// バイト列を U+FFFD (Unicode replacement character) に置換する。Darwin 保証の
-  /// 範囲外で非標準的な non-ASCII gibberish が返った場合、それが U+FFFD 混じりで
-  /// description に乗る可能性がある。観察ログとしては「errno N に対し何らかの
-  /// 非標準応答があった」識別子として acceptable と判定し、追加の UTF-8 validity
-  /// gate は入れない。validity gate を入れると BCP-47 locale の合法な multi-byte
-  /// sequence で edge case を起こすリスクがあり、locale 依存性を考慮した上で
-  /// U+FFFD 許容が最も観察可能性を維持する判断。
+  /// # 防御的 gate
   ///
-  /// `PTYError` / `PTYExitReason` 両方の `description` から共有するため `internal`。
+  /// Darwin 保証は POSIX 未定義領域 (`rc != 0` 時 buffer 未定義) に依存しているため、
+  /// 将来 version の挙動変化 / OS 内部状態の異常で「制御文字混入 buffer」が返る
+  /// 可能性をゼロにできない（マルチスレッド race は `strerror_r` の POSIX 版が
+  /// thread-safe なため脅威モデルから除外）。観察ログの 1 行性 (Console.app の grep
+  /// 経路 / event 分離) を構造的に守るため、以下の条件で自前 fallback
+  /// `"unknown errno N"` に倒す:
+  ///
+  /// - buffer が空（NUL のみ）
+  /// - buffer に制御文字（CR/LF/TAB/NUL 等の 0x00-0x1F、DEL 0x7F）が含まれる
+  ///
+  /// gate のコストは spawn 失敗ごとの低頻度経路で無視できる。
+  ///
+  /// # invalid UTF-8 sequence
+  ///
+  /// `String(decoding:as: UTF8.self)` は不正バイト列を U+FFFD (Unicode replacement
+  /// character) に置換する。Darwin 保証範囲外の最悪ケース（制御文字を含まない
+  /// 非 ASCII gibberish）で description に U+FFFD 混じりの文字列が乗る可能性がある。
+  /// 観察ログ識別子として「errno N に対し非標準応答があった」として acceptable と
+  /// 判定し、UTF-8 validity gate は入れない。
+  ///
+  /// validity gate を入れない理由は、非 UTF-8 ロケール（ISO-8859-1 / Shift_JIS 等の
+  /// レガシー単 byte / non-UTF-8 multi-byte ロケール）で `strerror_r` が返す非 UTF-8
+  /// 文字列を取りこぼす副作用を避けるため。現代 macOS の主要ロケール (UTF-8 ベース)
+  /// では理論上の懸念だが、locale 依存性と観察可能性のバランスで U+FFFD 許容を選んだ。
   static func errnoText(_ code: Int32) -> String {
-    var buf = [CChar](repeating: 0, count: 256)
+    var buf = [CChar](repeating: 0, count: errnoTextBufferSize)
     _ = strerror_r(code, &buf, buf.count)
     let nul = buf.firstIndex(of: 0) ?? buf.endIndex
     let slice = buf[..<nul]
@@ -435,6 +438,15 @@ extension PTYError: CustomStringConvertible {
     }
     return String(decoding: slice.lazy.map { UInt8(bitPattern: $0) }, as: UTF8.self)
   }
+
+  /// `strerror_r` に渡す buffer のサイズ。実機の strerror 出力は Linux glibc で
+  /// 100 byte 未満 / macOS Darwin でも 80 byte 程度に収まる。256 は将来の長文 errno
+  /// (e.g. Darwin の "Cross-device link" 系) に対しても十分な余裕がある選択。
+  /// ロケール依存の multi-byte UTF-8 では 1 文字あたり 1-4 バイトを消費するため
+  /// ASCII 想定より緩衝が必要だが、256 はそれでも 2 倍以上のヘッドルームを確保する。
+  /// test 側 mirror (`expectedErrnoText`) から参照するため `internal` で公開する
+  /// (構造定数で運用 API としての副作用は無い)。
+  internal static let errnoTextBufferSize = 256
 }
 
 public enum PTYExitReason: Sendable, Equatable {

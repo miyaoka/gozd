@@ -129,4 +129,33 @@ describe("findAbsolutePathMatches", () => {
     const matches = findAbsolutePathMatches("~/foo.ts and /Users/me/bar.ts", "/tmp/proj/", "");
     expect(matches).toEqual([]);
   });
+
+  describe("境界条件", () => {
+    test("dirPrefix 単独 (末尾 / のみ) は selectPath が空になり結果から落ちる", () => {
+      const matches = findAbsolutePathMatches("/Users/me/proj/", dirPrefix, homeDir);
+      expect(matches).toEqual([]);
+    });
+
+    test("行番号 `:0` も lineNumber=0 として返す（呼び出し側で 1-based 検証する想定）", () => {
+      const matches = findAbsolutePathMatches("/Users/me/proj/a.ts:0", dirPrefix, homeDir);
+      expect(matches[0]?.lineNumber).toBe(0);
+    });
+
+    test("巨大な行番号もそのまま Number で返す", () => {
+      const matches = findAbsolutePathMatches(
+        "/Users/me/proj/a.ts:99999999999",
+        dirPrefix,
+        homeDir,
+      );
+      expect(matches[0]?.lineNumber).toBe(99999999999);
+    });
+
+    test("`~/:42` のように tilde 直後が PATH_TERMINATORS の場合、homeDir 自体を絶対パスとして返す", () => {
+      // homeDir + "/" がそのまま絶対パスとして返り、`:行番号` も読まれる。
+      // 呼び出し側 (PreviewPane) でディレクトリ判定 (`isDirectory`) を受け取る挙動に依存する。
+      const matches = findAbsolutePathMatches("~/:42", dirPrefix, homeDir);
+      expect(matches[0]?.selectPath).toBe("/Users/me/");
+      expect(matches[0]?.lineNumber).toBe(42);
+    });
+  });
 });

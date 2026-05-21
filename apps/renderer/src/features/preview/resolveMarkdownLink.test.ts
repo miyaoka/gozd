@@ -292,4 +292,42 @@ describe("resolveMarkdownLink", () => {
       expect(resolve("../../../etc/passwd", "docs/preview.md").kind).toBe("invalid");
     });
   });
+
+  describe("absolute basePath (worktree 外 markdown を terminal link から開いた経路)", () => {
+    test("相対リンクは絶対 basePath dir を起点に絶対パスとして解決する", () => {
+      expect(resolve("./image.png", "/Users/me/elsewhere/README.md")).toEqual({
+        kind: "internal",
+        path: "/Users/me/elsewhere/image.png",
+        lineNumber: undefined,
+        droppedAnchor: false,
+      });
+    });
+
+    test("`../` も絶対 basePath で正しく resolve され invalid にならない", () => {
+      expect(resolve("../sibling.md", "/Users/me/elsewhere/docs/README.md")).toEqual({
+        kind: "internal",
+        path: "/Users/me/elsewhere/sibling.md",
+        lineNumber: undefined,
+        droppedAnchor: false,
+      });
+    });
+
+    test("`/` 始まりは absolute base のもとでは絶対パスとして扱う", () => {
+      expect(resolve("/Users/me/other/foo.md", "/Users/me/elsewhere/README.md")).toEqual({
+        kind: "internal",
+        path: "/Users/me/other/foo.md",
+        lineNumber: undefined,
+        droppedAnchor: false,
+      });
+    });
+
+    test("行番号 fragment も absolute base 経路で抽出される", () => {
+      expect(resolve("./foo.ts#L42", "/Users/me/elsewhere/README.md")).toEqual({
+        kind: "internal",
+        path: "/Users/me/elsewhere/foo.ts",
+        lineNumber: 42,
+        droppedAnchor: false,
+      });
+    });
+  });
 });

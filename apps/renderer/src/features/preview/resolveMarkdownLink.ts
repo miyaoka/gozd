@@ -103,10 +103,17 @@ function resolveMarkdownLink({
   }
   const decodedPath = decoded.value;
 
-  // `/` 始まり: worktree ルート相対として扱う / それ以外: selectedPath dir 相対
+  // basePath が worktree 外の絶対パスのとき、相対リンクは絶対 basePath dir を起点に解決し、
+  // 結果も絶対パスのまま返す（escapesWorktree 判定は無意味なのでスキップ）。
+  // terminal link 経由で worktree 外 markdown を開いた際、内部の相対リンクが全部
+  // invalid に倒れて操作不能になる症状を避ける。
+  const isAbsoluteBase = basePath !== undefined && basePath.startsWith("/");
+
+  // `/` 始まり: worktree 内 basePath なら worktree root 相対、絶対 basePath なら絶対パスそのまま
+  // それ以外: basePath dir 相対
   let combined: string;
   if (decodedPath.startsWith("/")) {
-    combined = decodedPath.substring(1);
+    combined = isAbsoluteBase ? decodedPath : decodedPath.substring(1);
   } else {
     const dir = basePath === undefined ? "" : relDirOf(basePath);
     combined = dir === "" ? decodedPath : `${dir}/${decodedPath}`;
@@ -114,7 +121,7 @@ function resolveMarkdownLink({
 
   const normalized = normalizePath(combined);
 
-  if (escapesWorktree(normalized)) {
+  if (!isAbsoluteBase && escapesWorktree(normalized)) {
     return { kind: "invalid", reason: `Link target is outside the worktree: ${href}` };
   }
 

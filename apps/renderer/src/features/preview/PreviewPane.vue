@@ -481,6 +481,9 @@ function buildFileServerUrl(
   gitOriginal = false,
 ): string | undefined {
   if (!fileServerBaseUrl.value) return undefined;
+  // 絶対パス（worktree 外）は file server 経路で扱えない（worktree 相対のみ提供する経路）。
+  // 画像/SVG は fsReadFileAbsolute 経由の binary 表示にフォールバックする。
+  if (relPath.startsWith("/")) return undefined;
   const base = fileServerBaseUrl.value.endsWith("/")
     ? fileServerBaseUrl.value
     : `${fileServerBaseUrl.value}/`;

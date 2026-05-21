@@ -106,20 +106,16 @@ function getFocusedPtyId(dir: string): number | undefined {
 }
 
 async function handleTaskRemove(rootDir: string, task: Task) {
-  // ⋮ メニューからの明示削除。task の identity (worktreeDir) は payload から渡されるため
-  // active wt に依存しない。Swift 側 TaskStore.remove で永続化を消した後、optimistic に
-  // repoStore からも当該 task を取り除く。次回 fetch でも同じ結果になるはず。
+  // ⋮ メニューからの明示削除。Swift 側 TaskStore.remove で永続化を消した後、
+  // `requestRefresh` で server から真値を取り直す。他の task 系操作
+  // (reviveTaskForGhRef / registerPrCommand / registerIssueCommand) と SSOT 取得規約を
+  // 揃え、`repos[...]` の直書き楽観更新 (race の源) を避ける。
   const result = await tryCatch(rpcTaskRemove({ dir: task.worktreeDir, id: task.id }));
   if (!result.ok) {
     notify.error("Failed to remove task", result.error);
     return;
   }
-  const repo = repoStore.repos[rootDir];
-  if (!repo) return;
-  const newWorktrees = repo.worktrees.map((wt) =>
-    wt.path === task.worktreeDir ? { ...wt, tasks: wt.tasks.filter((t) => t.id !== task.id) } : wt,
-  );
-  repoStore.updateRepoData(rootDir, newWorktrees);
+  repoStore.requestRefresh(rootDir);
 }
 
 function onRemoveRepo(rootDir: string) {

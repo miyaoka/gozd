@@ -393,6 +393,71 @@ struct TaskStoreTests {
     #expect(kept.closedByUser)
   }
 
+  @Test("attachSession: candidate に closedByUser=true な task を含める (素 claude 再起動で closed task を蘇生)")
+  func attachSessionRevivesClosedCandidate() async throws {
+    let env = try await makeEnv()
+    defer { cleanup(env) }
+    let store = TaskStore(configDir: env.configDir)
+
+    // root wt で素 claude を起動 → /exit (closed_by_user=true で滞留)
+    let original = try await store.add(
+      dir: env.worktreeA, body: "scratch work", worktreeDir: env.worktreeA, ghRef: nil,
+      createdAt: "2026-05-15T00:00:00Z"
+    )
+    try await store.attachSession(
+      dir: env.worktreeA, sessionId: "old-sid", worktreeDir: env.worktreeA)
+    try await store.detachSession(dir: env.worktreeA, sessionId: "old-sid")
+    #expect(try await store.list(dir: env.worktreeA).first?.closedByUser == true)
+
+    // 同 worktree で再度素 claude を起動 → SessionStart hook が新 sid で着弾。
+    // candidate に closedByUser=true を含めたことで、新規 task が増えず元 task に転移する。
+    try await store.attachSession(
+      dir: env.worktreeA, sessionId: "new-sid", worktreeDir: env.worktreeA)
+
+    let list = try await store.list(dir: env.worktreeA)
+    #expect(list.count == 1)
+    let revived = try #require(list.first)
+    #expect(revived.id == original.id)
+    #expect(revived.sessionID == "new-sid")
+    #expect(!revived.closedByUser)
+    #expect(revived.body == "scratch work")
+  }
+
+  @Test("attachSession: sessionID 空 task と closed task が並ぶ場合、createdAt 最新を pick")
+  func attachSessionPicksLatestAmongMixedCandidates() async throws {
+    let env = try await makeEnv()
+    defer { cleanup(env) }
+    let store = TaskStore(configDir: env.configDir)
+
+    // 古い closed task
+    let older = try await store.add(
+      dir: env.worktreeA, body: "older closed", worktreeDir: env.worktreeA, ghRef: nil,
+      createdAt: "2026-05-10T00:00:00Z"
+    )
+    try await store.attachSession(
+      dir: env.worktreeA, sessionId: "old-sid", worktreeDir: env.worktreeA)
+    try await store.detachSession(dir: env.worktreeA, sessionId: "old-sid")
+
+    // 新しい sessionID 空 task
+    let newer = try await store.add(
+      dir: env.worktreeA, body: "newer empty", worktreeDir: env.worktreeA, ghRef: nil,
+      createdAt: "2026-05-20T00:00:00Z"
+    )
+
+    try await store.attachSession(
+      dir: env.worktreeA, sessionId: "fresh", worktreeDir: env.worktreeA)
+
+    let list = try await store.list(dir: env.worktreeA)
+    let olderResult = try #require(list.first { $0.id == older.id })
+    let newerResult = try #require(list.first { $0.id == newer.id })
+    // newer (createdAt 最新) がピックされる
+    #expect(newerResult.sessionID == "fresh")
+    #expect(!newerResult.closedByUser)
+    // older は触られない
+    #expect(olderResult.sessionID == "old-sid")
+    #expect(olderResult.closedByUser)
+  }
+
   @Test("clearDeadSession: sessionId 不一致なら no-op")
   func clearDeadSessionUnknownId() async throws {
     let env = try await makeEnv()

@@ -99,9 +99,15 @@ public actor TaskStore {
   ///
   /// 優先順位:
   ///   1. 既に sessionID が一致する task → 同一セッションの継続 (resume) が確定して
-  ///      いる経路。`closed_by_user=false` に倒して「生きている」状態に戻す。
-  ///   2. 同一 worktreeDir で `sessionID == ""` の task のうち最新 (createdAt 降順)
-  ///      に attach。同時に `closed_by_user=false` に倒す。
+  ///      いる経路。`closed_by_user` が true なら false に倒して「生きている」状態に
+  ///      戻す。
+  ///   2. 同一 worktreeDir で attach 可能な candidate に新 sid を上書き attach。
+  ///      candidate は「`sessionID == ""`」または「`closedByUser == true`」の task。
+  ///      createdAt 降順で最新を pick。同時に `closed_by_user` を false に倒す。
+  ///      closed な ghRef task に素 claude が偶発取り憑くシナリオも許容する (同 worktree
+  ///      で素 claude を起動した = そのコンテキストで作業継続する意図と解釈する)。
+  ///      この拡張で「ghRef 無し closed task が同 worktree に累積する」問題を構造的に
+  ///      解消する。
   ///   3. 該当無し → 新規 task を作成し sessionID を入れる (Claude 直接起動経路)。
   public func attachSession(dir: String, sessionId: String, worktreeDir: String) throws {
     var list = try loadFile(for: dir)
@@ -113,11 +119,14 @@ public actor TaskStore {
       return
     }
     let candidates = list.tasks.enumerated().filter {
-      $0.element.worktreeDir == worktreeDir && $0.element.sessionID.isEmpty
+      $0.element.worktreeDir == worktreeDir
+        && ($0.element.sessionID.isEmpty || $0.element.closedByUser)
     }
     if let pick = candidates.max(by: { $0.element.createdAt < $1.element.createdAt }) {
       list.tasks[pick.offset].sessionID = sessionId
-      list.tasks[pick.offset].closedByUser = false
+      if list.tasks[pick.offset].closedByUser {
+        list.tasks[pick.offset].closedByUser = false
+      }
     } else {
       var task = Gozd_V1_Task()
       task.id = UUID().uuidString

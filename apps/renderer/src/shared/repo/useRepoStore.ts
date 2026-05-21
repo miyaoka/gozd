@@ -49,10 +49,10 @@ export const useRepoStore = defineStore("repo", () => {
   /**
    * 明示 refetch 要求。feature 層 (sidebar / picker 等) が `requestRefresh(rootDir)`
    * を呼ぶと nonce が進み、`useSidebarData` の watch 経由で `fetchRepo(rootDir)` が
-   * 走る。`gitStatusChange` 等の push に依らない経路 (例: PR/issue picker での
-   * 既存 worktree hit から hidden 化 task を蘇生したいケース) で SSOT を取り直すための
-   * 単一信号。楽観更新 (renderer 側で `repos[...]` を直書きして race を許す経路) を
-   * 避ける。store には reactivity が必要なので ref で持つ。
+   * 走る。`gitStatusChange` 等の push に依らない経路 (例: PR picker での既存 worktree
+   * hit から closed_by_user な task を蘇生したいケース、task ⋮ メニューでの明示削除)
+   * で SSOT を取り直すための単一信号。楽観更新 (renderer 側で `repos[...]` を直書きして
+   * race を許す経路) を避ける。store には reactivity が必要なので ref で持つ。
    */
   const refreshRequest = ref<{ rootDir: string; nonce: number }>();
   function requestRefresh(rootDir: string): void {

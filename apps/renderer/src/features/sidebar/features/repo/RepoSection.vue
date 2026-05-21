@@ -131,7 +131,7 @@ function onHeaderClick() {
         @select-wt="emit('selectWt', $event)"
         @select-task="(w, t) => emit('selectTask', w, t)"
         @open-menu="(anchorEl, wt2) => emit('openWorktreeMenu', anchorEl, wt2, rootDir)"
-        @open-task-menu="(anchorEl, _wt, t) => emit('openTaskMenu', anchorEl, t, rootDir)"
+        @open-task-menu="(anchorEl, t) => emit('openTaskMenu', anchorEl, t, rootDir)"
       />
       <button
         type="button"

@@ -584,18 +584,12 @@ public actor RpcDispatcher {
   private func handleGitWorktreeList(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitWorktreeListRequest(jsonUTF8Data: body)
     let worktrees = try await GitOps.worktreeList(dir: req.dir)
-    let listedTasks = try await tasks.list(dir: req.dir)
-    // task ≠ session 設計: terminal close でも task は削除されないため、
-    // ghRef の有無や closed_by_user の値に関わらず全 task を表示対象に出す。
-    // ただし「ghRef 無し + sessionID 空」の task は身元が無く、サイドバーから
-    // 削除する手段も無くなる (worktree 削除 cascade に頼るのみ) ので除外する。
-    // この組み合わせは clearDeadSession で生まれうるが、ユーザーの ⋮ メニューで
-    // 明示削除する経路と二重で消えても問題なく、defensive な観点で弾いておく。
-    let allTasks = listedTasks.filter { task in
-      if task.hasGhRef { return true }
-      if !task.sessionID.isEmpty { return true }
-      return false
-    }
+    let allTasks = try await tasks.list(dir: req.dir)
+    // task ≠ session 設計: terminal close / SessionEnd / clearDeadSession のいずれの
+    // 経路でも task は削除されない。filter で UI から消すと永続化に滞留しても削除手段が
+    // 失われ、「削除はユーザーの明示操作のみ」という設計と矛盾する。よって全 task を
+    // 無条件で出す。「sessionId 空 + ghRef 無し」のような身元なし task もサイドバーに
+    // `not-started` として表示され、⋮ メニューの Remove task で片付けられる。
     // 各 wt の git status は補助データ。1 wt の失敗で worktree list 全体を捨てない
     // ため、per-wt で握って空 statuses で続行する。prunable wt は listing から除外
     // 済みなので、ここで失敗するのは worktree 実 path 不整合などの稀ケース。失敗は

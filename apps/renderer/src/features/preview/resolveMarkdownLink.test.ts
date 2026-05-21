@@ -29,7 +29,7 @@ function fakeNormalizePath(path: string): string {
   const startIdx = isTilde ? 1 : 0;
 
   for (let i = startIdx; i < segments.length; i++) {
-    const seg = segments[i]!;
+    const seg = segments[i];
     if (seg === ".") continue;
     if (seg === "..") {
       if (result.length > 0 && result[result.length - 1] !== "..") {

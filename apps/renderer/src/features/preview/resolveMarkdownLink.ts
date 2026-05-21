@@ -46,7 +46,7 @@ function parseAnchor(fragment: string): { lineNumber: number | undefined; droppe
   const text = decoded.ok ? decoded.value : fragment;
   const match = LINE_FRAGMENT_RE.exec(text);
   if (match === null) return { lineNumber: undefined, droppedAnchor: true };
-  const parsed = Number.parseInt(match[1]!, 10);
+  const parsed = Number.parseInt(match[1], 10);
   if (Number.isNaN(parsed) || parsed <= 0) {
     return { lineNumber: undefined, droppedAnchor: true };
   }

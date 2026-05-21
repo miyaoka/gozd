@@ -122,9 +122,11 @@ public actor TaskStore {
       $0.element.worktreeDir == worktreeDir
         && ($0.element.sessionID.isEmpty || $0.element.closedByUser)
     }
-    // 1次キー: createdAt 昇順 (= 最新を pick)。
-    // 2次キー: id (UUID) 昇順。createdAt は ISO 8601 秒粒度なので 1 秒以内に複数 task を
-    // 作ると同値になる。tie-break を入れないと max(by:) の入力順序依存で非決定的になる。
+    // 1次キー: createdAt の最大値を pick (= 最新)。
+    // 2次キー: id (UUID) の最大値を pick (辞書順で末尾)。createdAt は ISO 8601 秒粒度
+    // なので 1 秒以内に複数 task を作ると同値になる。tie-break を入れないと max(by:) の
+    // 入力順序依存で非決定的になる。`<` 比較は max(by:) に渡す述語で「strict less」を
+    // 表すための既定形 (Swift 標準ライブラリ規約)。
     if let pick = candidates.max(by: { a, b in
       if a.element.createdAt != b.element.createdAt {
         return a.element.createdAt < b.element.createdAt

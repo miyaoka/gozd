@@ -496,7 +496,7 @@ struct TaskStoreTests {
     #expect(olderResult.closedByUser)
   }
 
-  @Test("attachSession: createdAt 同値の candidate は id 昇順で tie-break (決定論的)")
+  @Test("attachSession: createdAt 同値の candidate は id 辞書順で最大の方を pick (決定論的 tie-break)")
   func attachSessionTieBreaksOnIdWhenCreatedAtEqual() async throws {
     let env = try await makeEnv()
     defer { cleanup(env) }
@@ -518,7 +518,7 @@ struct TaskStoreTests {
 
     let list = try await store.list(dir: env.worktreeA)
     let attached = try #require(list.first { $0.sessionID == "fresh" })
-    // tie-break: id 昇順で max を pick = id が大きい方
+    // tie-break: id 辞書順で最大値 (= 大きい方) を pick
     let expectedWinnerId = a.id > b.id ? a.id : b.id
     #expect(attached.id == expectedWinnerId)
   }

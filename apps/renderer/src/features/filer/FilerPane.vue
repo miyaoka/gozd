@@ -195,7 +195,7 @@ onUnmounted(() => {
           :git-change="entry.gitChange"
           :git-statuses="gitStatuses"
           :depth="0"
-          :selected-path="selectedRelPath"
+          :selected-rel-path="selectedRelPath"
           @select="onSelect"
         />
       </template>

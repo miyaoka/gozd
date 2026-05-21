@@ -23,6 +23,16 @@ export type PathTarget =
  */
 export type Selection = PathTarget & { lineNumber?: number };
 
+/**
+ * `PathTarget` の表示用文字列を抽出する純粋関数。
+ * ヘッダ表示 / xterm link `text` / log 出力など、kind に関係なく単一の文字列が
+ * 必要な箇所で使う。`PathTarget` を扱う複数 feature が同じ射影を独立実装しないよう
+ * worktree barrel から export する SSOT。
+ */
+export function pathTargetToString(target: PathTarget): string {
+  return target.kind === "worktreeRelative" ? target.relPath : target.absPath;
+}
+
 export const useWorktreeStore = defineStore("worktree", () => {
   const repoStore = useRepoStore();
   const fileServerBaseUrl = ref<string>();
@@ -60,8 +70,7 @@ export const useWorktreeStore = defineStore("worktree", () => {
    */
   const selectedDisplayPath = computed(() => {
     const sel = selection.value;
-    if (sel === undefined) return undefined;
-    return sel.kind === "worktreeRelative" ? sel.relPath : sel.absPath;
+    return sel === undefined ? undefined : pathTargetToString(sel);
   });
 
   /** リンクから指定された行番号（1-based）。スクロール・ハイライトに使用 */
@@ -136,6 +145,19 @@ export const useWorktreeStore = defineStore("worktree", () => {
     revealVersion.value++;
   }
 
+  /**
+   * `PathTarget` を受けて kind に応じた select* に振り分ける。terminal link / markdown link
+   * のように source 側で kind を分けて持っている経路で使う。kind 別 switch を呼び出し側に
+   * 書かないことで「新規購読側で振り分け忘れる」経路を消す SSOT。
+   */
+  function selectFromTarget(target: PathTarget, lineNumber?: number) {
+    if (target.kind === "worktreeRelative") {
+      selectRelPath(target.relPath, lineNumber);
+    } else {
+      selectAbsPath(target.absPath, lineNumber);
+    }
+  }
+
   function clearSelectedPath() {
     selection.value = undefined;
   }
@@ -153,6 +175,7 @@ export const useWorktreeStore = defineStore("worktree", () => {
     setOpen,
     selectRelPath,
     selectAbsPath,
+    selectFromTarget,
     clearSelectedPath,
   };
 });

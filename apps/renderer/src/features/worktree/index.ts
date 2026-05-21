@@ -3,7 +3,7 @@ export { generateTimestamp } from "./generateTimestamp";
 export { normalizeAbsolute, normalizeRelative } from "./pathUtils";
 export type { GitStatusChangePayload } from "./rpc";
 export { default as StatusIcons } from "./StatusIcons.vue";
-export { useWorktreeStore } from "./useWorktreeStore";
+export { pathTargetToString, useWorktreeStore } from "./useWorktreeStore";
 export type { PathTarget, Selection } from "./useWorktreeStore";
 export { useGitStatusStore } from "./useGitStatusStore";
 export { useGitStatusSync } from "./useGitStatusSync";

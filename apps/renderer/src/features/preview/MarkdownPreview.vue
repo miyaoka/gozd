@@ -94,11 +94,7 @@ function onLinkClick(e: MouseEvent) {
   if (resolved.droppedAnchor) {
     notification.info(ANCHOR_IGNORED_MESSAGE, { href });
   }
-  if (resolved.selection.kind === "worktreeRelative") {
-    worktreeStore.selectRelPath(resolved.selection.relPath, resolved.lineNumber);
-  } else {
-    worktreeStore.selectAbsPath(resolved.selection.absPath, resolved.lineNumber);
-  }
+  worktreeStore.selectFromTarget(resolved.selection, resolved.lineNumber);
 }
 </script>
 

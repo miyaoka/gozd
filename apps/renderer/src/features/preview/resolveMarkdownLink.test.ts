@@ -268,6 +268,18 @@ describe("resolveMarkdownLink", () => {
     test("深いネスト経由でも worktree 外は invalid", () => {
       expect(resolve("../../../etc/passwd", "docs/preview.md").kind).toBe("invalid");
     });
+
+    test("`~/` 始まりは worktree 外 (home 参照) として invalid", () => {
+      expect(resolve("~/secret.md", "README.md").kind).toBe("invalid");
+    });
+
+    test("`./~/foo.md` は normalize 後に `~/` 始まりとなり invalid", () => {
+      expect(resolve("./~/foo.md", "README.md").kind).toBe("invalid");
+    });
+
+    test("`~` 単独も invalid", () => {
+      expect(resolve("~", "README.md").kind).toBe("invalid");
+    });
   });
 
   describe("absolute basePath (worktree 外 markdown を terminal link から開いた経路)", () => {

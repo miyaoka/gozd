@@ -411,28 +411,38 @@ async function fetchCommitContent(filePath: string) {
  * 「ユーザーがファイル行を実際にクリックした」経路のみで disable が走る。
  */
 watch(
-  () => [selection.value, revealVersion.value] as const,
-  ([sel]) => {
-    if (sel !== undefined) {
+  () => [selectedDisplayPath.value, revealVersion.value] as const,
+  ([path]) => {
+    if (path !== undefined) {
       summaryStore.disable();
     }
   },
 );
 
-/** ファイル選択・git status 変化・コミット選択変化時にリセット＋再取得 */
+/**
+ * ファイル選択・git status 変化・コミット選択変化時にリセット＋再取得。
+ *
+ * **deps はプリミティブで揃える**: selection オブジェクトを deps にすると、`selectRelPath` /
+ * `selectAbsPath` が毎回新 object literal を作るため、同一パス再クリックでも identity 変化で
+ * watch が発火し refetch が連打される。path 文字列 + kind + commit selection を deps にすることで
+ * 「実際に refetch が必要な軸」だけで発火させる (= 同一パス再クリックは revealVersion 経路で
+ * scroll / reveal のみ走らせ content fetch は走らせない)。
+ */
 watch(
   () =>
     [
-      selection.value,
+      selectedDisplayPath.value,
+      selection.value?.kind,
       selectedGitChange.value,
       gitGraphStore.selectedHash,
       gitGraphStore.compareHash,
     ] as const,
-  async ([sel, gitChange, selectedHash, compareHash]) => {
+  async ([path, _kind, gitChange, selectedHash, compareHash]) => {
     previewEnabled.value = true;
     commitGitChange.value = undefined;
 
-    if (sel === undefined) {
+    const sel = selection.value;
+    if (path === undefined || sel === undefined) {
       currentContent.value = undefined;
       originalContent.value = undefined;
       isBinary.value = false;
@@ -467,11 +477,9 @@ const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ dir: event
   // useFsWatchSync は全 worktree を watch するため、active dir 以外の event は無視する。
   if (eventDir !== worktreeStore.dir) return;
   // worktree 外の絶対パスは fsChange event の dir 軸 (active worktree) の責務外。
-  // blame popover も worktree 内のみで開くため close 経路は worktreeRelative に絞る。
-  if (sel.kind !== "worktreeRelative") {
-    void fetchContent(sel, selectedGitChange.value);
-    return;
-  }
+  // active worktree 内の任意のファイル変更で外部 absPath を毎回再 fetch しないよう early return。
+  // 外部 absPath の hot reload が必要になったら per-file watch の専用経路を別途設計する。
+  if (sel.kind !== "worktreeRelative") return;
   if (relDir !== relDirOf(sel.relPath)) return;
   // fetchContent で currentContent / originalContent が更新されると CodePreview / DiffPreview
   // が再ハイライト・再描画し、line-no button DOM が置換される。blame popover が同 file に
@@ -647,7 +655,6 @@ function onDiffLineClick(payload: {
  */
 watch(
   [
-    selection,
     // content reload watcher (上で定義) の deps と同一集合にする。
     // 「content が更新される条件」と「popover を閉じる条件」が分かれていると、
     // selectedGitChange だけ変化 (status push で modified ↔ renamed 等) し
@@ -655,6 +662,9 @@ watch(
     // CodePreview / DiffPreview の再描画で button DOM が置換され anchor が detached
     // になる。両 watcher の deps を同期させて invariant「content が変わるなら必ず close」
     // を構造で保証する。
+    // selection 自体は object identity が毎クリック変わるため、プリミティブで揃える。
+    selectedDisplayPath,
+    () => selection.value?.kind,
     selectedGitChange,
     () => gitGraphStore.selectedHash,
     () => gitGraphStore.compareHash,

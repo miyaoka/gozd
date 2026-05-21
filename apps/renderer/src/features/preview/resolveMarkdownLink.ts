@@ -66,13 +66,20 @@ function parseAnchor(fragment: string): { lineNumber: number | undefined; droppe
 
 /**
  * 解決後の worktree 相対パスが worktree root の外を指すかを判定する。
- * `..hidden.md` のような正当な隠しファイル名を巻き込まないよう、
- * `..` 単独 / `..` の後に segment 区切り `/` がある場合のみ「外」とみなす。
- * (絶対パス始まり / `~/` 始まりは normalizeRelative の入力契約上ここには到達しない)
+ *
+ * `..hidden.md` / `~tmp.md` のような正当な隠しファイル名を巻き込まないよう、
+ * `..` / `~` 単独、または `../` / `~/` で始まる場合のみ「外」とみなす。
+ *
+ * `~/` 経路:
+ *   - normalizeRelative はチルダを通常 segment として保持する (`~/foo` → `~/foo`)
+ *   - ここで弾かないと store に `~/secret.md` のような未展開リテラルが渡り、Swift の
+ *     fsReadFile が join した先で notFound に倒れる。markdown link で `[x](~/...)` を
+ *     書いた意図はユーザー dir 参照 (= worktree 外) なので silent notFound ではなく
+ *     invalid (outside the worktree) に倒して通知する
  */
 function escapesWorktree(relPath: string): boolean {
-  if (relPath === "" || relPath === "..") return true;
-  return relPath.startsWith("../");
+  if (relPath === "" || relPath === ".." || relPath === "~") return true;
+  return relPath.startsWith("../") || relPath.startsWith("~/");
 }
 
 function resolveMarkdownLink({

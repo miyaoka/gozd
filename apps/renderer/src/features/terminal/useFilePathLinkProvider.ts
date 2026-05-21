@@ -1,24 +1,7 @@
 import type { IBuffer, IBufferLine, ILink, ILinkProvider, Terminal } from "@xterm/xterm";
-import { type PathTarget, useWorktreeStore } from "../worktree";
-import {
-  findAbsolutePathMatches,
-  resolveHomeDir,
-  selectionDisplayPath,
-} from "./findAbsolutePathMatches";
+import { pathTargetToString, useWorktreeStore } from "../worktree";
+import { findAbsolutePathMatches, resolveHomeDir } from "./findAbsolutePathMatches";
 import { findRelativePaths } from "./findRelativePaths";
-
-/** selection の kind に応じて store の対応メソッドに振り分ける */
-function dispatchSelect(
-  worktreeStore: ReturnType<typeof useWorktreeStore>,
-  selection: PathTarget,
-  lineNumber: number | undefined,
-): void {
-  if (selection.kind === "worktreeRelative") {
-    worktreeStore.selectRelPath(selection.relPath, lineNumber);
-  } else {
-    worktreeStore.selectAbsPath(selection.absPath, lineNumber);
-  }
-}
 
 /**
  * ターミナル出力中のファイルパスを検出し、クリックでファイラー/プレビューに反映する LinkProvider を作成する。
@@ -183,10 +166,10 @@ function findAbsolutePathLinks(
       lineNumber,
       linkStart,
       linkEnd,
-      selectionDisplayPath(selection),
+      pathTargetToString(selection),
       (event) => {
         if (!event.shiftKey) return;
-        dispatchSelect(worktreeStore, selection, lineNum);
+        worktreeStore.selectFromTarget(selection, lineNum);
       },
       links,
     );

@@ -51,7 +51,7 @@ const props = defineProps<{
   /** git status マップ全体（ディレクトリの変更種別推論に使用） */
   gitStatuses: Record<string, string>;
   depth: number;
-  selectedPath?: string;
+  selectedRelPath?: string;
 }>();
 
 const emit = defineEmits<{
@@ -80,7 +80,7 @@ const effectiveGitChange = computed<GitChangeKind | undefined>(() => {
 const textColorClass = computed(() => {
   if (effectiveGitChange.value) return GIT_CHANGE_COLOR_MAP[effectiveGitChange.value];
   if (props.isIgnored) return "text-zinc-500";
-  if (props.selectedPath === props.path) return "text-white";
+  if (props.selectedRelPath === props.path) return "text-white";
   return "text-zinc-300";
 });
 
@@ -241,7 +241,7 @@ function onChildSelect(childPath: string) {
       ref="button"
       class="flex w-full items-center gap-1 rounded-sm px-1 py-0.5 text-left text-sm hover:bg-zinc-700"
       :class="[
-        selectedPath === path ? 'bg-zinc-700' : '',
+        selectedRelPath === path ? 'bg-zinc-700' : '',
         textColorClass,
         isDeleted ? 'line-through opacity-60' : '',
       ]"
@@ -280,7 +280,7 @@ function onChildSelect(childPath: string) {
         :git-change="child.gitChange"
         :git-statuses="gitStatuses"
         :depth="depth + 1"
-        :selected-path="selectedPath"
+        :selected-path="selectedRelPath"
         @select="onChildSelect"
       />
     </template>

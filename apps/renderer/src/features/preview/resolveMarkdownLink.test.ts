@@ -294,7 +294,7 @@ describe("resolveMarkdownLink", () => {
   });
 
   describe("absolute basePath (worktree 外 markdown を terminal link から開いた経路)", () => {
-    test("相対リンクは絶対 basePath dir を起点に絶対パスとして解決する", () => {
+    test("相対リンクは絶対 basePath dir 内に絶対パスとして解決する", () => {
       expect(resolve("./image.png", "/Users/me/elsewhere/README.md")).toEqual({
         kind: "internal",
         path: "/Users/me/elsewhere/image.png",
@@ -303,22 +303,19 @@ describe("resolveMarkdownLink", () => {
       });
     });
 
-    test("`../` も絶対 basePath で正しく resolve され invalid にならない", () => {
-      expect(resolve("../sibling.md", "/Users/me/elsewhere/docs/README.md")).toEqual({
+    test("子ディレクトリへの相対リンクは internal", () => {
+      expect(resolve("./images/x.png", "/Users/me/elsewhere/README.md")).toEqual({
         kind: "internal",
-        path: "/Users/me/elsewhere/sibling.md",
+        path: "/Users/me/elsewhere/images/x.png",
         lineNumber: undefined,
         droppedAnchor: false,
       });
     });
 
-    test("`/` 始まりは absolute base のもとでは絶対パスとして扱う", () => {
-      expect(resolve("/Users/me/other/foo.md", "/Users/me/elsewhere/README.md")).toEqual({
-        kind: "internal",
-        path: "/Users/me/other/foo.md",
-        lineNumber: undefined,
-        droppedAnchor: false,
-      });
+    test("`../` で basePath dir を抜けるリンクは invalid (信頼境界縮小)", () => {
+      // basePath dir `/Users/me/elsewhere/docs` を抜ける `../sibling.md` は invalid。
+      // 同じドキュメントツリー扱いせず、絶対 basePath では「source file の dir 配下のみ」を信頼境界とする。
+      expect(resolve("../sibling.md", "/Users/me/elsewhere/docs/README.md").kind).toBe("invalid");
     });
 
     test("行番号 fragment も absolute base 経路で抽出される", () => {
@@ -328,6 +325,26 @@ describe("resolveMarkdownLink", () => {
         lineNumber: 42,
         droppedAnchor: false,
       });
+    });
+
+    test("`/` 始まりの絶対パスは basePath dir 配下でない限り invalid (path traversal block)", () => {
+      // basePath dir = `/Users/me/elsewhere`。/Users/me/other/foo.md は配下でないため invalid
+      expect(resolve("/Users/me/other/foo.md", "/Users/me/elsewhere/README.md").kind).toBe(
+        "invalid",
+      );
+    });
+
+    test("`/etc/passwd` 系の絶対パスは basePath dir を抜けるため invalid", () => {
+      expect(resolve("/etc/passwd", "/Users/me/elsewhere/README.md").kind).toBe("invalid");
+    });
+
+    test("`../../etc/passwd` 系の相対 traversal も basePath dir を抜けると invalid", () => {
+      expect(resolve("../../etc/passwd", "/Users/me/elsewhere/README.md").kind).toBe("invalid");
+    });
+
+    test("basePath dir そのもの (末尾 `/`) を指すリンクは invalid (ディレクトリ参照)", () => {
+      // ./ → normalize で /Users/me/elsewhere に解決 → basePath dir 自身は配下とみなさず invalid
+      expect(resolve("./", "/Users/me/elsewhere/README.md").kind).toBe("invalid");
     });
   });
 });

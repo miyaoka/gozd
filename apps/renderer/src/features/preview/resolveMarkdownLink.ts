@@ -103,14 +103,18 @@ function resolveMarkdownLink({
   }
   const decodedPath = decoded.value;
 
-  // basePath が worktree 外の絶対パスのとき、相対リンクは絶対 basePath dir を起点に解決し、
-  // 結果も絶対パスのまま返す（escapesWorktree 判定は無意味なのでスキップ）。
-  // terminal link 経由で worktree 外 markdown を開いた際、内部の相対リンクが全部
-  // invalid に倒れて操作不能になる症状を避ける。
+  // basePath が worktree 外の絶対パスのとき、信頼境界を「source file が居る dir 配下」に縮小する。
+  // escapesWorktree（worktree root 基準）は意味を成さない代わりに、
+  // 「normalized が basePath の dir prefix で始まる」ことを唯一の通過条件にする。これにより
+  // `/etc/passwd` のような system path への直接 jump と、`../../etc/passwd` のような相対 traversal、
+  // および `/Users/<user>/.ssh/id_rsa` のような sibling 領域参照を一律 invalid に倒す。
+  // 「同じドキュメントツリー」までを信頼するか「同じ dir」までで止めるかは設計判断で、
+  // markdown 内 link の信頼境界をできるだけ狭く取る方針を選択した。
   const isAbsoluteBase = basePath !== undefined && basePath.startsWith("/");
 
-  // `/` 始まり: worktree 内 basePath なら worktree root 相対、絶対 basePath なら絶対パスそのまま
-  // それ以外: basePath dir 相対
+  // `/` 始まり:
+  // - 相対 basePath: worktree root 相対として `/` を剥がす
+  // - 絶対 basePath: そのまま絶対パス（直後に basePath dir 内チェックで絞り込む）
   let combined: string;
   if (decodedPath.startsWith("/")) {
     combined = isAbsoluteBase ? decodedPath : decodedPath.substring(1);
@@ -121,7 +125,16 @@ function resolveMarkdownLink({
 
   const normalized = normalizePath(combined);
 
-  if (!isAbsoluteBase && escapesWorktree(normalized)) {
+  if (isAbsoluteBase) {
+    const baseDir = relDirOf(basePath!);
+    const baseDirPrefix = baseDir.endsWith("/") ? baseDir : `${baseDir}/`;
+    if (!normalized.startsWith(baseDirPrefix) || normalized === baseDir) {
+      return {
+        kind: "invalid",
+        reason: `Link target is outside the source file directory: ${href}`,
+      };
+    }
+  } else if (escapesWorktree(normalized)) {
     return { kind: "invalid", reason: `Link target is outside the worktree: ${href}` };
   }
 

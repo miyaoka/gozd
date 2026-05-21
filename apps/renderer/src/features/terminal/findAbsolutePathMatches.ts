@@ -84,10 +84,19 @@ export function findAbsolutePathMatches(
       ? `${homeDir}/${text.slice(idx + prefixLen, pathEnd)}`
       : text.slice(idx, pathEnd);
 
-    // パス直後に `:行番号` が続くか
+    // パス直後に `:行番号` が続くか。判定規律は resolveMarkdownLink.parseAnchor に揃える:
+    // 1-based の正整数 (Number.isSafeInteger 内) のみ採用し、`:0` や `:99999999999999999999` 等は
+    // suffix は consume するが lineNumber は undefined にする (下流に 0 や精度損失値を流さない)。
     const lineMatch = LINE_NUMBER_SUFFIX.exec(text.slice(pathEnd));
-    const lineNumber = lineMatch ? Number(lineMatch[1]) : undefined;
-    const totalEnd = lineMatch ? pathEnd + lineMatch[0].length : pathEnd;
+    let lineNumber: number | undefined;
+    let totalEnd: number;
+    if (lineMatch) {
+      const parsed = Number.parseInt(lineMatch[1]!, 10);
+      lineNumber = Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+      totalEnd = pathEnd + lineMatch[0].length;
+    } else {
+      totalEnd = pathEnd;
+    }
 
     const selectPath = fullPath.startsWith(dirPrefix) ? fullPath.slice(dirPrefix.length) : fullPath;
 

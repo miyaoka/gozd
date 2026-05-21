@@ -136,18 +136,29 @@ describe("findAbsolutePathMatches", () => {
       expect(matches).toEqual([]);
     });
 
-    test("行番号 `:0` も lineNumber=0 として返す（呼び出し側で 1-based 検証する想定）", () => {
+    test("行番号 `:0` は consume するが lineNumber は undefined", () => {
       const matches = findAbsolutePathMatches("/Users/me/proj/a.ts:0", dirPrefix, homeDir);
-      expect(matches[0]?.lineNumber).toBe(0);
+      expect(matches[0]?.lineNumber).toBeUndefined();
+      // `:0` も totalEnd に含めて consume する（後続の indexOf 再走査で重複検出させない）
+      expect(matches[0]?.totalEnd).toBe("/Users/me/proj/a.ts:0".length);
     });
 
-    test("巨大な行番号もそのまま Number で返す", () => {
+    test("safe integer 内の大きな行番号はそのまま返す", () => {
       const matches = findAbsolutePathMatches(
         "/Users/me/proj/a.ts:99999999999",
         dirPrefix,
         homeDir,
       );
       expect(matches[0]?.lineNumber).toBe(99999999999);
+    });
+
+    test("Number.MAX_SAFE_INTEGER を超える行番号は精度損失するため undefined", () => {
+      const matches = findAbsolutePathMatches(
+        "/Users/me/proj/a.ts:99999999999999999999",
+        dirPrefix,
+        homeDir,
+      );
+      expect(matches[0]?.lineNumber).toBeUndefined();
     });
 
     test("`~/:42` のように tilde 直後が PATH_TERMINATORS の場合、homeDir 自体を絶対パスとして返す", () => {

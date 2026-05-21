@@ -122,6 +122,9 @@ const fileType = computed<FileType>(() => {
   return detectFileType(selectedPath.value);
 });
 
+/** 選択中パスが worktree 外の絶対パスか（terminal link から worktree 外を開いた場合） */
+const isExternalPath = computed(() => selectedPath.value?.startsWith("/") ?? false);
+
 /** 画像プレビュー表示中か（diff 不可のため モード制限に使用） */
 const isImagePreview = computed(() => {
   const ft = fileType.value;
@@ -508,6 +511,11 @@ const imageUrl = computed(() => {
 /** preview チェックボックスを表示するか（diff モードでは非表示） */
 const showPreviewCheckbox = computed(() => {
   if (activeMode.value === "diff") return false;
+  // 絶対パス（worktree 外）の image / svg は file server 経由で読めないため Preview トグルを出さない。
+  // markdown はテキスト経路で読めるためトグル対象を維持する。
+  if (isExternalPath.value && (fileType.value === "image" || fileType.value === "svg")) {
+    return false;
+  }
   return hasRenderedView(fileType.value);
 });
 
@@ -748,6 +756,14 @@ watch(
 
         <!-- 画像プレビュー（バイナリ画像 + SVG preview モード） -->
         <ImagePreview v-else-if="imageUrl" :src="imageUrl" />
+
+        <!-- worktree 外の絶対パス image / svg は file server 経由で読めないため未対応を明示する -->
+        <div
+          v-else-if="(fileType === 'image' || fileType === 'svg') && isExternalPath"
+          class="p-4 text-sm text-zinc-500"
+        >
+          Image preview is not available for paths outside the worktree
+        </div>
 
         <!-- バイナリ（画像以外） -->
         <div v-else-if="displayIsBinary" class="p-4 text-sm text-zinc-500">

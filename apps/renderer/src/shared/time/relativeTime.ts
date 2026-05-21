@@ -1,19 +1,43 @@
-/** Unix 秒を「3d ago」「45m ago」のような相対時刻文字列に整形する。
+/**
+ * Unix 秒を「3d ago」「45m ago」のような相対時刻文字列に整形する。
  *
  * `unixSec <= 0` (= 取得失敗 / 未コミット行 etc) は空文字を返す。呼び出し側で
  * 「データ無し」と区別するために `?? ""` のような fallback は使わず、関数仕様として固定。
  *
- * y / mo / d / h / m / s の閾値は概算 (30 日 = 1 mo 等)。月跨ぎの厳密性は不要な
- * UI 表示用途のみで使う想定。 */
+ * フォーマット出力は `Intl.RelativeTimeFormat({ style: "narrow", numeric: "always" })`
+ * に委譲する。利点:
+ *   - 未来時刻 (時計ズレ等で diffSec が負) は自然に `"in 3s"` 表記になる
+ *     (自前実装だと `"-3s ago"` の不格好な文字列が出る - clamp が不要)
+ *   - 桁区切り (`"86,400s ago"` 等) や locale 切替 (将来) を Intl 側に SSOT 化
+ *
+ * 「秒数 → 最適な単位 (s/m/h/d/mo/y) 選択」は Intl が肩代わりしないので自前で残す。
+ * 閾値は概算 (30 日 = 1 mo 等)。月跨ぎの厳密性は不要な UI 表示用途のみで使う想定。
+ */
+const RELATIVE_TIME_FORMATTER = new Intl.RelativeTimeFormat("en", {
+  style: "narrow",
+  numeric: "always",
+});
+
 export function formatRelativeTime(unixSec: number): string {
   if (unixSec <= 0) return "";
   const diffSec = Math.floor(Date.now() / 1000) - unixSec;
-  if (diffSec < 60) return `${diffSec}s ago`;
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-  if (diffSec < 86400 * 30) return `${Math.floor(diffSec / 86400)}d ago`;
-  if (diffSec < 86400 * 365) return `${Math.floor(diffSec / 86400 / 30)}mo ago`;
-  return `${Math.floor(diffSec / 86400 / 365)}y ago`;
+  // 過去を負号、未来を正号として Intl に渡す慣習。
+  // RTF は負号 = "ago"、正号 = "in" を locale-correct に解決する。
+  const sign = diffSec >= 0 ? -1 : 1;
+  const absSec = Math.abs(diffSec);
+  if (absSec < 60) return RELATIVE_TIME_FORMATTER.format(sign * absSec, "second");
+  if (absSec < 3600)
+    return RELATIVE_TIME_FORMATTER.format(sign * Math.floor(absSec / 60), "minute");
+  if (absSec < 86400) {
+    return RELATIVE_TIME_FORMATTER.format(sign * Math.floor(absSec / 3600), "hour");
+  }
+  if (absSec < 86400 * 30) {
+    return RELATIVE_TIME_FORMATTER.format(sign * Math.floor(absSec / 86400), "day");
+  }
+  if (absSec < 86400 * 365) {
+    return RELATIVE_TIME_FORMATTER.format(sign * Math.floor(absSec / 86400 / 30), "month");
+  }
+  return RELATIVE_TIME_FORMATTER.format(sign * Math.floor(absSec / 86400 / 365), "year");
 }
 
 /** Unix 秒を locale 依存の絶対時刻文字列に整形する。

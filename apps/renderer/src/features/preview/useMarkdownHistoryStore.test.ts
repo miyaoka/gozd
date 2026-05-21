@@ -105,7 +105,7 @@ describe("useMarkdownHistoryStore", () => {
     expect(history.canGoForward).toBe(false);
   });
 
-  test("同パス・同 lineNumber への再 navigate は履歴に積まない (指摘 1 回帰防止)", () => {
+  test("同パス・同 lineNumber への再 navigate は履歴に積まない (自己リンク・往復による back 汚染防止)", () => {
     const wt = useWorktreeStore();
     const history = useMarkdownHistoryStore();
     wt.selectRelPath("a.md");

@@ -103,7 +103,8 @@ public actor TaskStore {
   ///      戻す。
   ///   2. 同一 worktreeDir で attach 可能な candidate に新 sid を上書き attach。
   ///      candidate は「`sessionID == ""`」または「`closedByUser == true`」の task。
-  ///      createdAt 降順で最新を pick。同時に `closed_by_user` を false に倒す。
+  ///      pick は createdAt 最大値 (= 最新)、tie-break は id 辞書順で最大値。
+  ///      同時に `closed_by_user` を false に倒す。
   ///      closed な ghRef task に素 claude が偶発取り憑くシナリオも許容する (同 worktree
   ///      で素 claude を起動した = そのコンテキストで作業継続する意図と解釈する)。
   ///      この拡張で「ghRef 無し closed task が同 worktree に累積する」問題を構造的に

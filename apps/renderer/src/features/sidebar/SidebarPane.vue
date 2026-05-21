@@ -260,7 +260,7 @@ const activeRootWorktree = computed(() => {
     <!-- 確認ダイアログ -->
     <dialog
       ref="confirmRef"
-      class="backdrop:bg-black/50"
+      class="m-auto backdrop:bg-black/50"
       @click="$event.target === confirmRef && closeConfirm()"
     >
       <div class="space-y-4 rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-white">

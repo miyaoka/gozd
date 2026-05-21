@@ -148,6 +148,9 @@ importers:
       '@iconify/tailwind4':
         specifier: 1.2.3
         version: 1.2.3(tailwindcss@4.3.0)
+      '@miyaoka/eslint-plugin-barrel-import':
+        specifier: 0.0.0
+        version: 0.0.0(eslint@10.4.0(jiti@2.7.0))
       '@miyaoka/vite-plugin-doc-block':
         specifier: 0.0.2
         version: 0.0.2(vite@8.0.13(@types/node@25.8.0)(jiti@2.7.0)(yaml@2.9.0))(vue@3.5.34(typescript@6.0.3))
@@ -461,6 +464,11 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@miyaoka/eslint-plugin-barrel-import@0.0.0':
+    resolution: {integrity: sha512-j8uDx/SCXcplFzCyYAy9jhy/zgXYE9CHIm4XC22FmdEpF4DctebObC9+1l000QfFaSnTr7PFPkJjxHLzZXKn4Q==}
+    peerDependencies:
+      eslint: '>=9'
 
   '@miyaoka/vite-plugin-doc-block@0.0.2':
     resolution: {integrity: sha512-YRw8jgPIo1RyXNN4GY1lGOSrzillJzbor5gm2FT//cy3Xher069HoaZS7IMN9r2trpzfY3PkE14wEw9s/CGx+A==}
@@ -2971,6 +2979,10 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  '@miyaoka/eslint-plugin-barrel-import@0.0.0(eslint@10.4.0(jiti@2.7.0))':
+    dependencies:
+      eslint: 10.4.0(jiti@2.7.0)
 
   '@miyaoka/vite-plugin-doc-block@0.0.2(vite@8.0.13(@types/node@25.8.0)(jiti@2.7.0)(yaml@2.9.0))(vue@3.5.34(typescript@6.0.3))':
     dependencies:

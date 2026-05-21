@@ -1,4 +1,4 @@
-import pluginGozd from "@gozd/eslint-plugin";
+import pluginBarrelImport from "@miyaoka/eslint-plugin-barrel-import";
 import skipFormatting from "@vue/eslint-config-prettier/skip-formatting";
 import { defineConfigWithVueTs, vueTsConfigs } from "@vue/eslint-config-typescript";
 import type { ESLint } from "eslint";
@@ -133,10 +133,18 @@ export default defineConfigWithVueTs(
   // OK: 同一 feature 内の通常ファイル参照
   {
     plugins: {
-      gozd: pluginGozd,
+      "barrel-import": pluginBarrelImport,
     },
     rules: {
-      "gozd/barrel-import": "error",
+      "barrel-import/barrel-import": [
+        "error",
+        {
+          scopes: {
+            shared: { directories: ["shared"], dependsOn: [], isolateModules: true },
+            features: { directories: ["features"], dependsOn: ["shared"] },
+          },
+        },
+      ],
     },
   },
 

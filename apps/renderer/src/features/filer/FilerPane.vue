@@ -17,7 +17,7 @@ import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { resolveGitChangeKind, useGitStatusStore, useWorktreeStore } from "../worktree";
 import type { GitStatusChangePayload } from "../worktree";
-import { getDeletedEntries, sortEntries } from "./filerUtils";
+import { getDeletedEntries, sortEntries, toFileEntries } from "./filerUtils";
 import type { FileEntry } from "./filerUtils";
 import FileTreeItem from "./FileTreeItem.vue";
 import { rpcFsReadDir } from "./rpc";
@@ -46,15 +46,6 @@ let loadRootSeq = 0;
  * 世代軸と互いに干渉しない SSOT として機能する。
  */
 let gitStatusChangeSeq = 0;
-
-/** proto の FsReadDirEntry を FileEntry に変換する */
-function toFileEntries(entries: { name: string; type: string; isIgnored: boolean }[]): FileEntry[] {
-  return entries.map((e) => ({
-    name: e.name,
-    isDirectory: e.type === "directory",
-    isIgnored: e.isIgnored,
-  }));
-}
 
 /** readDir の結果に git 変更情報と削除ファイルをマージする */
 function mergeWithGitStatus(entries: FileEntry[], dirPath: string): FileEntry[] {

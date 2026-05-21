@@ -20,8 +20,17 @@
  *   - **per-instance** (component setup 内で呼ぶ): その component が unmount されたら自動で
  *     effect scope が破棄され、watch が止まる。
  *   - **module singleton** (module top-level で 1 度だけ呼ぶ): component を跨いで state を
- *     共有したいときに使う (useBlamePopover / useSidebarMenu と同パターン)。この経路では
+ *     共有したいときに使う (useBlamePopover / useWorktreeMenu と同パターン)。この経路では
  *     呼び出し側で `stop()` を `import.meta.hot.dispose` 等に渡し HMR 時の重複 watch を防ぐ。
+ *
+ * 複数 menu kind の扱い:
+ *   menu の種類ごとに独立した singleton を作る (例: useWorktreeMenu / useTaskMenu)。
+ *   `context` を discriminated union にして 1 popover に統合しない。理由は:
+ *     - 各 menu の concern が混ざり template 側の type narrowing が複雑化する
+ *     - HTML Popover API の auto semantics で別 popover instance に切り替わるとき、
+ *       既存 popover の close 処理がブラウザ実装に任せられて自前 race 制御から外れる
+ *     - 自前 hide → show race 制御の状態空間が「同種 anchor 切り替え」と「light-dismiss」
+ *       だけに縮み、テストすべき組み合わせも減る
  */
 import {
   effectScope,

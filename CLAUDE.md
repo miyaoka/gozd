@@ -162,12 +162,17 @@ macOS 26 Tahoe 以降専用（`WebPage` API は macOS 26 で追加された Swif
 
 ### 観察ログ (stderr) の書式
 
-dispatcher / store / hook ハンドラなどから `FileHandle.standardError.write` で出す観察ログは以下の SSOT に揃える:
+dispatcher / store / hook ハンドラなどから `FileHandle.standardError.write` で出す **ad-hoc な観察ログ** は以下の SSOT に揃える:
 
 - **素埋め込み**（`"\(value)"` 直書き）を採用する。`String(reflecting:)` などで path / executable / 任意フィールドを quote 化しない。stderr log 全体の書式統一を維持するため、1 箇所だけ quote 化する変更は入れない
 - prefix は handler 関数名 (`[handlePtySpawn]`) または store 名 (`[ClaudeSessionStore]`) を使う。grep で経路を絞れるよう一貫させる
 - 改行 / 制御文字を含み得るフィールドは log に乗せる前に source 側で sanitize する（例: `PTYError.errnoText` の control-char gate）。log フォーマット側で escape しない
 - 仮に path quoting が必要になった場合は本セクションを改定して全箇所を統一する。一部箇所だけの差分は入れない
+
+対象外:
+
+- **trace 系統** (`PTYTrace.swift` の `[PTY-TRACE +elapsed pid tag]` / `[TEST-TRACE]`): 専用の prefix フォーマット (elapsed timestamp + pid + tag) を持ち、デバッグトレース用途として別系統で運用する。handler 名 prefix 規約の対象外
+- print/NSLog 経由のログは対象外（gozd では使わない方針）
 
 ## Swift
 

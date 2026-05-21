@@ -400,6 +400,14 @@ extension PTYError: CustomStringConvertible {
   ///   - buffer に制御文字（CR/LF/TAB/NUL 等の 0x00-0x1F、DEL 0x7F）が含まれる
   /// 上記いずれかなら自前 fallback `"unknown errno N"` を返す。
   ///
+  /// invalid UTF-8 sequence の扱い: `String(decoding:as: UTF8.self)` は不正な
+  /// バイト列を U+FFFD (Unicode replacement character) に置換する。POSIX 文面の
+  /// 最悪ケース（rc != 0 時に buffer が部分的に corrupt しているケース）で、
+  /// 制御文字を含まない non-ASCII gibberish が U+FFFD 混じりで description に
+  /// 乗る可能性がある。これは invalid errno 経路の現実離れした最悪ケースに限り
+  /// 発現する副作用で、観察ログとしては「errno N に対し何らかの非標準応答が
+  /// あった」識別子として acceptable と判定し、追加の gate は入れない。
+  ///
   /// `PTYError` / `PTYExitReason` 両方の `description` から共有するため `internal`。
   static func errnoText(_ code: Int32) -> String {
     var buf = [CChar](repeating: 0, count: 256)

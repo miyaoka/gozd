@@ -10,13 +10,21 @@ export function useDialogs() {
   const confirmAction = ref<(() => Promise<void>) | undefined>();
 
   function showConfirm(message: string, action: () => Promise<void>) {
+    const dialog = confirmRef.value;
+    if (dialog === undefined) {
+      throw new Error("confirmRef is not mounted");
+    }
     confirmMessage.value = message;
     confirmAction.value = action;
-    confirmRef.value?.showModal();
+    dialog.showModal();
   }
 
   function closeConfirm() {
-    confirmRef.value?.close();
+    const dialog = confirmRef.value;
+    if (dialog === undefined) {
+      throw new Error("confirmRef is not mounted");
+    }
+    dialog.close();
     confirmAction.value = undefined;
   }
 

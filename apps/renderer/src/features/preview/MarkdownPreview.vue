@@ -2,16 +2,27 @@
 marked で Markdown → HTML 変換し、DOMPurify でサニタイズして表示する。
 
 - YAML frontmatter はコードブロックとして描画
+- 相対パスリンクのクリックは worktree 相対パスとして解決し、プレビュー対象を切り替える
+  （http(s) / mailto: 等の絶対 URL は `ExternalLinkNavigationDecider` 経路で外部ブラウザに渡す）
+- 行番号フラグメント (`./foo.ts#L42`) は lineNumber として `selectPath` に渡す
+- 解決ロジックは `resolveMarkdownLink` に分離 (純粋関数 + ユニットテスト)
 </doc>
 
 <script setup lang="ts">
 import DOMPurify from "dompurify";
 import { marked, type MarkedExtension } from "marked";
 import { ref, watch } from "vue";
+import { useNotificationStore } from "../../shared/notification";
+import { relDirOf } from "../filer";
+import { normalizePath, useWorktreeStore } from "../worktree";
+import { resolveMarkdownLink } from "./resolveMarkdownLink";
 
 const props = defineProps<{
   content: string;
 }>();
+
+const worktreeStore = useWorktreeStore();
+const notification = useNotificationStore();
 
 const renderedHtml = ref<string>();
 
@@ -39,10 +50,55 @@ watch(
   },
   { immediate: true },
 );
+
+/**
+ * クリック経路は VS Code (`markdown-language-features/preview-src/index.ts`) に揃える。
+ * - 左クリックの `@click` のみ。middle click (`auxclick`) は WebView の既定挙動に任せる
+ *   (VS Code でも未対応 / 内部リンクとして扱わない)
+ * - scheme 付き URL と `#fragment` 単独は preventDefault せず素通しし、
+ *   `ExternalLinkNavigationDecider` (外部 URL) / ブラウザ既定スクロール (`#`) に委ねる
+ *
+ * notification は **固定 message + 詳細を `cause` に分離** する。
+ * `useNotificationStore` は同一 message を重複抑制するため、href 違いのリンクを連続
+ * クリックしてもトーストが累積しない。href の生値は `cause` 側にだけ保持し、トースト
+ * 詳細パネルで確認できる経路を残す。
+ */
+const ANCHOR_IGNORED_MESSAGE = "Heading anchors are not yet supported; opened the file only";
+const LINK_INVALID_MESSAGE = "Could not open link from markdown preview";
+
+function onLinkClick(e: MouseEvent) {
+  const target = e.target;
+  if (!(target instanceof HTMLElement)) return;
+  const anchor = target.closest("a");
+  if (anchor === null) return;
+  const href = anchor.getAttribute("href");
+  if (href === null) return;
+
+  const resolved = resolveMarkdownLink({
+    href,
+    basePath: worktreeStore.selectedPath,
+    relDirOf,
+    normalizePath,
+  });
+
+  if (resolved.kind === "passthrough") return;
+
+  e.preventDefault();
+
+  if (resolved.kind === "invalid") {
+    notification.error(LINK_INVALID_MESSAGE, { href, reason: resolved.reason });
+    return;
+  }
+
+  if (resolved.droppedAnchor) {
+    notification.info(ANCHOR_IGNORED_MESSAGE, { href });
+  }
+  worktreeStore.selectPath(resolved.path, resolved.lineNumber);
+}
 </script>
 
 <template>
-  <div class="_markdown-body p-6 text-sm/relaxed" v-html="renderedHtml" />
+  <div class="_markdown-body p-6 text-sm/relaxed" v-html="renderedHtml" @click="onLinkClick" />
 </template>
 
 <style scoped>

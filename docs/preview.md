@@ -149,9 +149,30 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
 
 ### MarkdownPreview
 
-- `marked` で HTML に変換後、`DOMPurify.sanitize()` で XSS 対策
-- YAML frontmatter を `hooks.preprocess` でコードブロックに変換して表示
-- markdown 中の `[text](https://...)` 由来 `<a>` は、native の `ExternalLinkNavigationDecider`（[architecture.md](architecture.md) の「WebPage の navigation policy」参照）が拾って OS のデフォルトブラウザで開く。WebView 内で main frame が外部 URL に置換されることはない
+- Markdown を HTML に変換して描画する。HTML はサニタイズして XSS を防ぐ
+- YAML frontmatter はコードブロックとして描画する
+
+#### リンクの遷移先ルール
+
+Markdown 内のリンクは href の形式によって遷移先が決まる。リンク経路の役割分担は [architecture.md](architecture.md) の「WebPage の navigation policy」と整合する。
+
+| href の形式                                                                      | 遷移先                                                                               |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `http(s)://` / `mailto:`                                                         | OS のデフォルトブラウザで開く（外部ナビゲーション）                                  |
+| `#fragment` 単独                                                                 | 同一文書内のアンカーへスクロール                                                     |
+| `/` 始まり                                                                       | worktree ルートからの相対パスとしてプレビュー対象を切り替える                        |
+| `./` / `../` / 名前のみ                                                          | 現在表示中の Markdown ファイルのディレクトリ基準で結合してプレビュー対象を切り替える |
+| 行番号フラグメント (`./foo.ts#L42` 等)                                           | path 部分でファイル切替、行番号は CodePreview の行ハイライト/スクロールに反映        |
+| その他 scheme (`gozd-rpc:` / `gozd-app:` / `file:` / `data:` / `javascript:` 等) | 無視（信頼境界外として遷移しない）                                                   |
+
+#### 例外条件と通知
+
+- worktree ルートの外を指すリンク (`../` で抜ける等) と不正な URL エンコードは通知のみでファイル切替を行わない
+- 行番号でない anchor (見出しアンカー等) はファイル切替は行うが、見出しスクロールは行わず通知で挙動を明示する（自動スクロールは未対応）
+- 修飾子付きクリック / 中ボタンクリック等の特殊操作はブラウザ既定挙動に委ねる
+- 通知は href ごとに別メッセージを出さず、固定 message と詳細 cause に分けて重複抑制を効かせる
+
+実装の詳細（クリック捕捉経路、解決ロジック、行番号フラグメントの抽出規則、URL デコードの取り扱い）は `MarkdownPreview.vue` の `<doc>` ブロックと `resolveMarkdownLink` を参照。
 
 ### ImagePreview
 

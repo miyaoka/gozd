@@ -1,5 +1,6 @@
 export { UNCOMMITTED_HASH } from "./constants";
 export { generateTimestamp } from "./generateTimestamp";
+export { normalizePath } from "./pathUtils";
 export type { GitStatusChangePayload } from "./rpc";
 export { default as StatusIcons } from "./StatusIcons.vue";
 export { useWorktreeStore } from "./useWorktreeStore";

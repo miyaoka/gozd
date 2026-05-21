@@ -122,7 +122,15 @@ public actor TaskStore {
       $0.element.worktreeDir == worktreeDir
         && ($0.element.sessionID.isEmpty || $0.element.closedByUser)
     }
-    if let pick = candidates.max(by: { $0.element.createdAt < $1.element.createdAt }) {
+    // 1次キー: createdAt 昇順 (= 最新を pick)。
+    // 2次キー: id (UUID) 昇順。createdAt は ISO 8601 秒粒度なので 1 秒以内に複数 task を
+    // 作ると同値になる。tie-break を入れないと max(by:) の入力順序依存で非決定的になる。
+    if let pick = candidates.max(by: { a, b in
+      if a.element.createdAt != b.element.createdAt {
+        return a.element.createdAt < b.element.createdAt
+      }
+      return a.element.id < b.element.id
+    }) {
       list.tasks[pick.offset].sessionID = sessionId
       if list.tasks[pick.offset].closedByUser {
         list.tasks[pick.offset].closedByUser = false

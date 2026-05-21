@@ -360,7 +360,7 @@ extension PTYError: CustomStringConvertible {
   /// errno → 人間可読文字列。`PTYError` / `PTYExitReason` 両方の `description`
   /// から共有するため `internal`。
   ///
-  /// # API 選択
+  /// ## API 選択
   ///
   /// - `strerror(3)` は POSIX 文面上 thread-safe ではない（同一スレッド内で次回呼び出し
   ///   まで有効、別スレッドが同時に呼ぶと buffer が上書きされる）。よって thread-safe な
@@ -373,7 +373,7 @@ extension PTYError: CustomStringConvertible {
   ///   deprecated（deprecation message: "after truncating the null termination"）。
   ///   `CChar` (Int8) → `UInt8` の bitPattern reinterpret で UTF-8 バイト列とみなす
   ///
-  /// # buffer / rc の扱い
+  /// ## buffer / rc の扱い
   ///
   /// `strerror_r` の rc 値は捨てて buffer を返す。
   ///
@@ -392,7 +392,7 @@ extension PTYError: CustomStringConvertible {
   /// 1 行性を破壊しない（制御文字に重ならない）ため信頼する。これで stderr の 1 行性と
   /// renderer に届く identifier 品質の双方を同時に満たせる。
   ///
-  /// # 防御的 gate
+  /// ## 防御的 gate
   ///
   /// Darwin 保証は POSIX 未定義領域 (`rc != 0` 時 buffer 未定義) に依存しているため、
   /// 将来 version の挙動変化 / OS 内部状態の異常で「制御文字混入 buffer」が返る
@@ -406,7 +406,7 @@ extension PTYError: CustomStringConvertible {
   ///
   /// gate のコストは spawn 失敗ごとの低頻度経路で無視できる。
   ///
-  /// # invalid UTF-8 sequence
+  /// ## invalid UTF-8 sequence
   ///
   /// `String(decoding:as: UTF8.self)` は不正バイト列を U+FFFD (Unicode replacement
   /// character) に置換する。Darwin 保証範囲外の最悪ケース（制御文字を含まない

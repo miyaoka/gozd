@@ -87,8 +87,12 @@ public actor PTYRegistry {
   private var expectedResumeSidById: [UInt32: String] = [:]
   // 削除 RPC で clearAssociations された ptyId 集合。late session-start hook が
   // 到達したとき、「明示削除後の late hook」と「そもそも未登録 PTY」を区別して
-  // 観察ログを出すために使う（applyClaudeSessionHook 側で参照）。ptyId は
-  // 単調増加で再利用されないので、PTY exit 後も残しておいて問題ない。
+  // 観察ログを出すために使う（applyClaudeSessionHook 側で参照）。
+  // 不変条件: spawn が成功した ptyId は単調増加で再利用されない（`nextId += 1` は
+  // spawn 成功後にのみ走るため成功 id は決して衝突しない）。一方 spawn が throw した
+  // id は再利用され得るが、その id は ptys に登録されておらず `clearAssociations` も
+  // 呼ばれないため、本集合に入る経路がない。よって本集合内では再利用は起きず、
+  // PTY exit 後も残しておいて問題ない。
   private var explicitlyRemovedPtyIds: Set<UInt32> = []
   private var nextId: UInt32 = 1
 
@@ -197,6 +201,13 @@ public actor PTYRegistry {
   /// hook 受信側が ptyId から worktreePath を逆引きするための accessor。
   public func worktreePath(for id: UInt32) -> String? {
     return worktreePathById[id]
+  }
+
+  /// 次に spawn が成功した時に割り当てられる ptyId を返す。
+  /// 「spawn 失敗時に id を消費しない」契約をテストから観察するための seam。
+  /// 直接の運用経路では使わない。
+  internal func peekNextId() -> UInt32 {
+    return nextId
   }
 
   /// 削除 RPC / hook ハンドラが ptyId から直近 sessionId を逆引きするための accessor。

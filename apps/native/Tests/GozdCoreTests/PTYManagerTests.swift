@@ -279,12 +279,43 @@ struct PTYManagerTests {
     #expect(waitFail.description == "PTYExitReason.waitpidFailed(errno=\(ECHILD) \(expectedErrnoText(ECHILD)))")
     #expect("\(waitFail)" == waitFail.description)
   }
+
+  @Test("errnoText は無効 errno (rc != 0 経路) で `unknown errno N` に倒れる")
+  func errnoTextFallsBackOnInvalidErrno() {
+    // POSIX 文面では `strerror_r` の `rc != 0` 時の buffer 内容は未定義。本実装は
+    // この未定義領域を信じず明示的 fallback 文字列 `"unknown errno N"` を返す契約。
+    // 9999 は POSIX で定義されていない invalid errno の代表値（Linux / macOS で
+    // EINVAL を返す）。本契約が壊れると、観察ログに macOS バージョン依存の Darwin
+    // 文字列が漏れ出して観察可能性が分散する。
+    let invalid = PTYError.openptyFailed(errno: 9999)
+    #expect(invalid.description == "PTYError.openptyFailed(errno=9999 unknown errno 9999)")
+    #expect("\(invalid)" == invalid.description)
+
+    // PTYExitReason 側も同じ fallback 経路を踏むことを確認。`errnoText` の SSOT が
+    // 2 enum で共有されていることの構造的検証も兼ねる。
+    let waitFail = PTYExitReason.waitpidFailed(errno: 9999)
+    #expect(waitFail.description == "PTYExitReason.waitpidFailed(errno=9999 unknown errno 9999)")
+  }
 }
 
-/// 本 SUT (`PTYError.errnoText`) と同じく `strerror_r(3)` + SE-0405 イディオムで
-/// 期待値を構築する。`strerror(3)` ベースで期待値を作ると本実装と独立にならず
-/// (POSIX 文面の thread-safety 議論で本実装を `strerror_r` にしている動機が消える)、
-/// `String(cString: [CChar])` で組むと本実装と非対称になるため避ける。
+/// 本 SUT (`PTYError.errnoText`) と同じ実装を **意図的に** 再現した mirror。
+///
+/// 構造的 SSOT 重複に見えるが、これは形式契約 test の道具立てとして妥当な
+/// パターン:
+///   - test の目的は「`description` が `PTYError.<case>(errno=<n> <strerror>)`
+///     形式に厳密に従う」契約を完全一致で固定すること
+///   - macOS の strerror_r 出力文字列はバージョン依存（"Cannot allocate memory" /
+///     "Resource temporarily unavailable" 等）で test に直書きすると CI で壊れる
+///   - そのため期待値も同じ `strerror_r` API から組み立てる必要がある
+///
+/// 別案として正規表現 / prefix+suffix での形式検査も検討したが、それでは前回
+/// 強化した「完全一致で形式を fix する」契約が弱まる。SUT と mirror が同じ
+/// イディオムを使うこと自体が形式契約の test 対象になっている。SUT 側
+/// `errnoText` のイディオムを変える時は本 helper も同時に同期更新する。
+///
+/// rc != 0 (無効 errno) 経路は SUT 側で `"unknown errno N"` に倒すが、本 helper は
+/// rc を捨てて buffer の中身を文字列化する。両者の差異は `errnoTextFallsBackOnInvalidErrno`
+/// test で SUT 側の文字列形式に対する完全一致として固定する（本 helper は呼ばれない）。
 private func expectedErrnoText(_ code: Int32) -> String {
   var buf = [CChar](repeating: 0, count: 256)
   _ = strerror_r(code, &buf, buf.count)

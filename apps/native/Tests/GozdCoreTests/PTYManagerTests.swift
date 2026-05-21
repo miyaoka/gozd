@@ -238,6 +238,29 @@ struct PTYManagerTests {
     // POSIX shell 慣例 / CPty.c の child で execve ENOENT → _exit(127)。
     #expect(exit.snapshot() == .exited(code: 127))
   }
+
+  @Test("PTYError の description は case 名 + errno + strerror を含む (issue #493)")
+  func ptyErrorDescriptionIncludesCaseAndErrno() {
+    // RpcSchemeHandler が `"\(error)"` で 500 response payload を作るため、
+    // CustomStringConvertible に乗った description が renderer まで届く文字列となる。
+    // case 名・errno 数値・strerror の 3 点を必ず含むことを契約として固定する。
+    let openpty = PTYError.openptyFailed(errno: ENOMEM)
+    #expect(openpty.description.contains("openptyFailed"))
+    #expect(openpty.description.contains("\(ENOMEM)"))
+    #expect(openpty.description.contains(String(cString: strerror(ENOMEM))))
+
+    let fork = PTYError.forkFailed(errno: EAGAIN)
+    #expect(fork.description.contains("forkFailed"))
+    #expect(fork.description.contains("\(EAGAIN)"))
+    #expect(fork.description.contains(String(cString: strerror(EAGAIN))))
+
+    let prealloc = PTYError.preforkAllocFailed(errno: ENOMEM)
+    #expect(prealloc.description.contains("preforkAllocFailed"))
+    #expect(prealloc.description.contains("\(ENOMEM)"))
+
+    // `"\(error)"` 経路でも同じ description が出ること（String(describing:) との一致）。
+    #expect("\(openpty)" == openpty.description)
+  }
 }
 
 // MARK: - Helpers

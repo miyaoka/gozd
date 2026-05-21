@@ -342,6 +342,26 @@ public enum PTYError: Error, Equatable {
   case preforkAllocFailed(errno: Int32)
 }
 
+extension PTYError: CustomStringConvertible {
+  /// 上位 catch が `"\(error)"` や `String(describing:)` で文字列化したときに case 名と
+  /// errno + strerror(3) が必ず残るようにする。Console.app log (stderr) と
+  /// `RpcSchemeHandler` の 500 response payload の双方に同じ文字列が届く。
+  public var description: String {
+    switch self {
+    case .openptyFailed(let errno):
+      return "PTYError.openptyFailed(errno=\(errno) \(errnoText(errno)))"
+    case .forkFailed(let errno):
+      return "PTYError.forkFailed(errno=\(errno) \(errnoText(errno)))"
+    case .preforkAllocFailed(let errno):
+      return "PTYError.preforkAllocFailed(errno=\(errno) \(errnoText(errno)))"
+    }
+  }
+}
+
+private func errnoText(_ errno: Int32) -> String {
+  String(cString: strerror(errno))
+}
+
 public enum PTYExitReason: Sendable, Equatable {
   case exited(code: Int32)
   case signaled(signal: Int32, coreDumped: Bool)

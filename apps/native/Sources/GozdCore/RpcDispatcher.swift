@@ -472,15 +472,29 @@ public actor RpcDispatcher {
 
   private func handlePtySpawn(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_PtySpawnRequest(jsonUTF8Data: body)
-    let id = try await pty.spawn(
-      executable: req.executable,
-      args: req.args,
-      env: req.env,
-      cwd: req.dir,
-      rows: UInt16(req.rows),
-      cols: UInt16(req.cols),
-      worktreePath: req.worktreePath
-    )
+    let id: UInt32
+    do {
+      id = try await pty.spawn(
+        executable: req.executable,
+        args: req.args,
+        env: req.env,
+        cwd: req.dir,
+        rows: UInt16(req.rows),
+        cols: UInt16(req.cols),
+        worktreePath: req.worktreePath
+      )
+    } catch let error as PTYError {
+      // PTYError のサブ case（openptyFailed / forkFailed / preforkAllocFailed）を
+      // 構造化 log に書き残す。包括 catch まで bubble させると Console.app には
+      // case 名 + errno が残るが、失敗した executable / cwd が落ちて再現困難になる。
+      FileHandle.standardError.write(
+        Data(
+          "[RpcDispatcher] pty.spawn failed: \(error) executable=\(req.executable) cwd=\(req.dir)\n"
+            .utf8
+        )
+      )
+      throw error
+    }
     var resp = Gozd_V1_PtySpawnResponse()
     resp.ptyID = id
     return try resp.jsonUTF8Data()

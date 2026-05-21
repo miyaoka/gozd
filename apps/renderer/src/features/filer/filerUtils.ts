@@ -1,3 +1,4 @@
+import type { FsReadDirEntry } from "@gozd/proto";
 import type { GitChangeKind } from "../worktree";
 
 interface FileEntry {
@@ -45,6 +46,15 @@ function getDeletedEntries(dirPath: string, gitStatuses: Record<string, string>)
   }));
 }
 
+/** proto の FsReadDirEntry を FileEntry に変換する */
+function toFileEntries(entries: FsReadDirEntry[]): FileEntry[] {
+  return entries.map((e) => ({
+    name: e.name,
+    isDirectory: e.type === "directory",
+    isIgnored: e.isIgnored,
+  }));
+}
+
 /** ディレクトリパスの末尾から表示名を抽出 */
 function dirName(dirPath: string): string {
   const parts = dirPath.split("/");
@@ -61,5 +71,5 @@ function sortEntries(entries: FileEntry[]): FileEntry[] {
   });
 }
 
-export { dirName, getDeletedEntries, sortEntries };
+export { dirName, getDeletedEntries, sortEntries, toFileEntries };
 export type { FileEntry };

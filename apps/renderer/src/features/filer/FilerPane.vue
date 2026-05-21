@@ -17,7 +17,7 @@ import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { resolveGitChangeKind, useGitStatusStore, useWorktreeStore } from "../worktree";
 import type { GitStatusChangePayload } from "../worktree";
-import { getDeletedEntries, sortEntries } from "./filerUtils";
+import { getDeletedEntries, sortEntries, toFileEntries } from "./filerUtils";
 import type { FileEntry } from "./filerUtils";
 import FileTreeItem from "./FileTreeItem.vue";
 import { rpcFsReadDir } from "./rpc";
@@ -47,25 +47,16 @@ let loadRootSeq = 0;
  */
 let gitStatusChangeSeq = 0;
 
-/** proto の FsReadDirEntry を FileEntry に変換する */
-function toFileEntries(entries: { name: string; type: string; isIgnored: boolean }[]): FileEntry[] {
-  return entries.map((e) => ({
-    name: e.name,
-    isDirectory: e.type === "directory",
-    isIgnored: e.isIgnored,
-  }));
-}
-
 /** readDir の結果に git 変更情報と削除ファイルをマージする */
 function mergeWithGitStatus(entries: FileEntry[], dirPath: string): FileEntry[] {
   const existingNames = new Set(entries.map((e) => e.name));
 
   // 既存エントリに git 変更種別を付与
-  const withGitChange = entries.map((entry) => {
+  const withGitChange = entries.map((entry): FileEntry => {
     const filePath = dirPath === "" ? entry.name : `${dirPath}/${entry.name}`;
     const statusCode = gitStatuses.value[filePath];
     if (statusCode) {
-      return { ...entry, gitChange: resolveGitChangeKind(statusCode) } as FileEntry;
+      return { ...entry, gitChange: resolveGitChangeKind(statusCode) };
     }
     return entry;
   });

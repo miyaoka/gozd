@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { dirName, sortEntries, type FileEntry } from "./filerUtils";
+import { dirName, sortEntries, toFileEntries, type FileEntry } from "./filerUtils";
 
 describe("dirName", () => {
   test("パスの末尾をディレクトリ名として返す", () => {
@@ -47,5 +47,41 @@ describe("sortEntries", () => {
 
   test("空配列を処理できる", () => {
     expect(sortEntries([])).toEqual([]);
+  });
+});
+
+describe("toFileEntries", () => {
+  test("isIgnored: true を伝搬する", () => {
+    const result = toFileEntries([{ name: "node_modules", type: "directory", isIgnored: true }]);
+    expect(result[0]?.isIgnored).toBe(true);
+  });
+
+  test("isIgnored: false を伝搬する", () => {
+    const result = toFileEntries([{ name: "src", type: "directory", isIgnored: false }]);
+    expect(result[0]?.isIgnored).toBe(false);
+  });
+
+  test("type === 'directory' は isDirectory: true になる", () => {
+    const result = toFileEntries([{ name: "src", type: "directory", isIgnored: false }]);
+    expect(result[0]?.isDirectory).toBe(true);
+  });
+
+  test("type === 'file' は isDirectory: false になる", () => {
+    const result = toFileEntries([{ name: "a.txt", type: "file", isIgnored: false }]);
+    expect(result[0]?.isDirectory).toBe(false);
+  });
+
+  test("type === 'symlink' は isDirectory: false になる", () => {
+    const result = toFileEntries([{ name: "link", type: "symlink", isIgnored: false }]);
+    expect(result[0]?.isDirectory).toBe(false);
+  });
+
+  test("type === 'other' は isDirectory: false になる", () => {
+    const result = toFileEntries([{ name: "fifo", type: "other", isIgnored: false }]);
+    expect(result[0]?.isDirectory).toBe(false);
+  });
+
+  test("空配列を処理できる", () => {
+    expect(toFileEntries([])).toEqual([]);
   });
 });

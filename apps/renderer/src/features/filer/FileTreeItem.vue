@@ -26,7 +26,7 @@ import {
   useWorktreeStore,
 } from "../worktree";
 import type { GitChangeKind } from "../worktree";
-import { getDeletedEntries, sortEntries } from "./filerUtils";
+import { getDeletedEntries, sortEntries, toFileEntries } from "./filerUtils";
 import type { FileEntry } from "./filerUtils";
 import { rpcFsReadDir } from "./rpc";
 import { getFileIconUrl, getFolderIconUrl } from "./useFileIcon";
@@ -130,12 +130,7 @@ async function loadChildren() {
     loading.value = false;
     return;
   }
-  const entries = result.value.entries.map((e) => ({
-    name: e.name,
-    isDirectory: e.type === "directory",
-    isIgnored: false,
-  }));
-  children.value = mergeWithGitStatus(entries);
+  children.value = mergeWithGitStatus(toFileEntries(result.value.entries));
   loading.value = false;
 }
 
@@ -143,11 +138,11 @@ async function loadChildren() {
 function mergeWithGitStatus(entries: FileEntry[]): FileEntry[] {
   const existingNames = new Set(entries.map((e) => e.name));
 
-  const withGitChange = entries.map((entry) => {
+  const withGitChange = entries.map((entry): FileEntry => {
     const filePath = `${props.path}/${entry.name}`;
     const statusCode = props.gitStatuses[filePath];
     if (statusCode) {
-      return { ...entry, gitChange: resolveGitChangeKind(statusCode) } as FileEntry;
+      return { ...entry, gitChange: resolveGitChangeKind(statusCode) };
     }
     return entry;
   });

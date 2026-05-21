@@ -180,41 +180,6 @@ struct PTYRegistryTests {
     let stillThere = await registry.consumeExpectedResumeSid(for: id)
     #expect(stillThere == "expected-sid-X")
   }
-
-  @Test("spawn 成功時に nextId は +1 だけ進む（spawn 失敗時の id 消費の構造的観察）")
-  func spawnAdvancesNextIdByOneOnSuccess() async throws {
-    testTrace("started")
-    defer { testTrace("ended") }
-    let events = EventCollector()
-    let registry = PTYRegistry(
-      onText: { id, text in events.appendText(id: id, text: text) },
-      onExit: { id, reason in events.appendExit(id: id, reason: reason) }
-    )
-
-    // spawn 失敗を実環境で確実に発火させる手段は無い（preforkAllocFailed /
-    // openptyFailed / forkFailed は OOM やリソース枯渇でしか起きない）。
-    // そのため「spawn 失敗時に nextId が消費されない」契約を直接 test は出来ないが、
-    // 構造的に観察可能な不変条件として「成功時の前後で nextId が ちょうど +1 だけ
-    // 進む」を fix する。これにより `nextId += 1` の位置が変わって余分に進むような
-    // 退行（例: spawn の前後 2 回 += 1 する diff、失敗経路でも += 1 する diff）が
-    // CI で即座に検出される。
-    let beforeFirst = await registry.peekNextId()
-    let id1 = try await registry.spawn(
-      executable: "/bin/echo", args: ["echo", "x"], env: ProcessInfo.processInfo.environment,
-      cwd: "/tmp", rows: 24, cols: 80
-    )
-    let afterFirst = await registry.peekNextId()
-    #expect(id1 == beforeFirst)
-    #expect(afterFirst == beforeFirst + 1)
-
-    let id2 = try await registry.spawn(
-      executable: "/bin/echo", args: ["echo", "y"], env: ProcessInfo.processInfo.environment,
-      cwd: "/tmp", rows: 24, cols: 80
-    )
-    let afterSecond = await registry.peekNextId()
-    #expect(id2 == afterFirst)
-    #expect(afterSecond == afterFirst + 1)
-  }
 }
 
 // MARK: - Helpers

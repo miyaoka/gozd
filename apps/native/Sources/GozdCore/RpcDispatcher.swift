@@ -488,14 +488,17 @@ public actor RpcDispatcher {
       // は 500 response の body に文字列を載せるだけで stderr には書き出さない。
       // よって本 handler 側で stderr に書かなければ Console.app には spawn 失敗の
       // 痕跡が残らない。PTYError のサブ case（openptyFailed / forkFailed /
-      // preforkAllocFailed）に加え、再現に必要な executable / cwd も併記する。
-      // executable / cwd は `String(reflecting:)` で quote + escape する。macOS の
-      // path には改行 (`\n`) や制御文字を含めることが構造的に可能で、quote 化
-      // しないと log 1 行が分断され、Console.app での grep / 後段 parser での
-      // event 分離が壊れる。
+      // preforkAllocFailed）に加え、再現に必要な executable / cwd / worktreePath を
+      // 併記する。worktreePath は cwd と独立で、複数 worktree が並列に Claude を
+      // 起動する gozd の primary use case で「どの worktree の spawn か」を識別する
+      // ために必要（cwd はユーザーが任意に cd した path で worktree とは限らない）。
+      // path quoting は本 PR では入れない: 他の dispatcher stderr log（handleGitGithubIdentity,
+      // TaskStore, GitHubOps 等）は素埋め込みのまま運用されており、ここ 1 箇所だけ
+      // quote 化すると stderr log の書式 SSOT が分裂する。系として揃えるなら全箇所を
+      // 統一する必要があり、本 PR スコープを越える。
       FileHandle.standardError.write(
         Data(
-          "[handlePtySpawn] pty.spawn failed: \(error) executable=\(String(reflecting: req.executable)) cwd=\(String(reflecting: req.dir))\n"
+          "[handlePtySpawn] pty.spawn failed: \(error) executable=\(req.executable) cwd=\(req.dir) worktreePath=\(req.worktreePath)\n"
             .utf8
         )
       )

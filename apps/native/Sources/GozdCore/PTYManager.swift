@@ -374,14 +374,21 @@ extension PTYError: CustomStringConvertible {
   /// （deprecation message: "after truncating the null termination"）。errno text は
   /// ASCII 範囲のため `CChar` (Int8) → `UInt8` の bitPattern reinterpret で UTF-8 と等価。
   ///
+  /// rc 値は捨てる。POSIX 文面では `rc != 0` 時の buffer 内容は未定義だが、
+  /// macOS Darwin / Linux glibc 双方の実機では invalid errno でも buffer に
+  /// "Unknown error: N" / "Undefined error: N" 相当の readable な文字列を書く。
+  /// rc != 0 を理由に buffer を捨てて自前 fallback 文字列に倒すと、本物の
+  /// strerror 出力（観察ログ品質）を諦めることになる。よって rc は信用せず
+  /// buffer を返し、空 buffer（NUL のみ）のときだけ自前 fallback に倒す。
+  ///
   /// `PTYError` / `PTYExitReason` 両方の `description` から共有するため `internal`。
   static func errnoText(_ code: Int32) -> String {
     var buf = [CChar](repeating: 0, count: 256)
-    let rc = strerror_r(code, &buf, buf.count)
-    if rc != 0 {
+    _ = strerror_r(code, &buf, buf.count)
+    let nul = buf.firstIndex(of: 0) ?? buf.endIndex
+    if nul == buf.startIndex {
       return "unknown errno \(code)"
     }
-    let nul = buf.firstIndex(of: 0) ?? buf.endIndex
     return String(decoding: buf[..<nul].lazy.map { UInt8(bitPattern: $0) }, as: UTF8.self)
   }
 }

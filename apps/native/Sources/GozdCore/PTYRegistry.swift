@@ -203,13 +203,6 @@ public actor PTYRegistry {
     return worktreePathById[id]
   }
 
-  /// 次に spawn が成功した時に割り当てられる ptyId を返す。
-  /// 「spawn 失敗時に id を消費しない」契約をテストから観察するための seam。
-  /// 直接の運用経路では使わない。
-  internal func peekNextId() -> UInt32 {
-    return nextId
-  }
-
   /// 削除 RPC / hook ハンドラが ptyId から直近 sessionId を逆引きするための accessor。
   /// 未観測なら nil。
   public func sessionId(for id: UInt32) -> String? {

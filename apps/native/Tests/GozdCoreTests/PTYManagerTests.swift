@@ -280,38 +280,43 @@ struct PTYManagerTests {
     #expect("\(waitFail)" == waitFail.description)
   }
 
-  @Test("errnoText は無効 errno でも description 形式 (errno 値 + 閉じ括弧) を保つ")
-  func errnoTextHandlesInvalidErrnoSafely() {
-    // 9999 は POSIX で定義されていない invalid errno。Darwin の `strerror_r` は
-    // 現状 rc != 0 を返し、SUT は `unknown errno N` fallback に倒れるが、POSIX 文面
-    // は invalid errno で:
-    //   (a) rc != 0 で buffer 内容未定義
-    //   (b) rc == 0 で buffer に "Unknown error: N" を書く（Linux glibc 経路）
-    // のどちらも合法としている。よって完全一致 test を組むと Darwin 実装変更で
-    // CI が壊れるリスクがある。
+  @Test("errnoText は invalid / sentinel errno でも description 形式 (errno 値 + 閉じ括弧) を保つ")
+  func errnoTextHandlesBoundaryErrnoSafely() {
+    // 境界 errno をまとめて検査する:
+    //   - 9999: POSIX で未定義の invalid errno
+    //   - 0:    "エラー無し" sentinel（waitpidFailed で渡されることは構造的に想定外だが
+    //          Int32 型で構造的に渡せるため境界として cover する）
+    //   - -1:   負の errno（Int32 で渡せる構造的境界）
     //
-    // ここでは「Darwin 実装に依存せず保証される不変条件」のみを固定する:
-    //   - description は `"PTYError.<case>(errno=9999 "` で始まる
+    // SUT (`errnoText`) は rc を信用せず buffer を返す方針のため、Darwin / Linux glibc
+    // 双方で invalid / sentinel errno に対しても buffer に readable な文字列が書かれる
+    // 実機挙動を尊重する。ただしその文字列内容 (`"Unknown error: 9999"` / `"Undefined
+    // error: 0"` 等) は OS バージョン依存で test に直書きできない。
+    //
+    // よってここでは「OS 実装に依存せず保証される不変条件」のみを固定する:
+    //   - description は `"PTYError.<case>(errno=N "` で始まる
     //   - 末尾は `")"` で閉じる
     //   - errno 数値が必ず embed される
-    // これにより、前回完全一致を強化した動機（他 case 名混入 / 無関係文言の混入 /
-    // 形式の崩れ）は依然として捕捉される一方、`strerror_r` の rc != 0 / "Unknown
-    // error: N" の Darwin 実装差では壊れない。有効 errno 3 case
-    // (`ptyErrorDescriptionMatchesContractFormat`) では完全一致を維持する。
-    let invalid = PTYError.openptyFailed(errno: 9999)
-    #expect(invalid.description.hasPrefix("PTYError.openptyFailed(errno=9999 "))
-    #expect(invalid.description.hasSuffix(")"))
-    #expect("\(invalid)" == invalid.description)
+    // 完全一致が必要な valid errno 3 case (`ptyErrorDescriptionMatchesContractFormat`)
+    // とは責務を分ける: 完全一致は SSOT mirror で組み立てた expected と等価性を主張、
+    // 本 test は OS 実装差を吸収する形式契約。
+    for code: Int32 in [9999, 0, -1] {
+      let openpty = PTYError.openptyFailed(errno: code)
+      #expect(openpty.description.hasPrefix("PTYError.openptyFailed(errno=\(code) "))
+      #expect(openpty.description.hasSuffix(")"))
+      #expect("\(openpty)" == openpty.description)
 
-    // PTYExitReason 側も同じ Darwin 非依存契約。`errnoText` の SSOT が 2 enum で
-    // 共有されていることの構造的検証も兼ねる。
-    let waitFail = PTYExitReason.waitpidFailed(errno: 9999)
-    #expect(waitFail.description.hasPrefix("PTYExitReason.waitpidFailed(errno=9999 "))
-    #expect(waitFail.description.hasSuffix(")"))
+      let waitFail = PTYExitReason.waitpidFailed(errno: code)
+      #expect(waitFail.description.hasPrefix("PTYExitReason.waitpidFailed(errno=\(code) "))
+      #expect(waitFail.description.hasSuffix(")"))
+    }
   }
 }
 
 /// 本 SUT (`PTYError.errnoText`) と同じ実装を **意図的に** 再現した mirror。
+/// `ptyErrorDescriptionMatchesContractFormat` / `ptyExitReasonDescriptionMatchesContractFormat`
+/// から呼ばれ、valid errno (ENOMEM / EAGAIN / ECHILD / SIGHUP 等) に対して
+/// SUT が生成する `description` の完全一致 expected を組み立てる。
 ///
 /// 構造的 SSOT 重複に見えるが、これは形式契約 test の道具立てとして妥当な
 /// パターン:
@@ -321,14 +326,14 @@ struct PTYManagerTests {
 ///     "Resource temporarily unavailable" 等）で test に直書きすると CI で壊れる
 ///   - そのため期待値も同じ `strerror_r` API から組み立てる必要がある
 ///
-/// 別案として正規表現 / prefix+suffix での形式検査も検討したが、それでは前回
-/// 強化した「完全一致で形式を fix する」契約が弱まる。SUT と mirror が同じ
+/// 別案として正規表現 / prefix+suffix での形式検査も検討したが、valid errno に
+/// 対しては「完全一致で形式を fix する」契約が望ましい。SUT と mirror が同じ
 /// イディオムを使うこと自体が形式契約の test 対象になっている。SUT 側
 /// `errnoText` のイディオムを変える時は本 helper も同時に同期更新する。
 ///
-/// rc != 0 (無効 errno) 経路は SUT 側で `"unknown errno N"` に倒すが、本 helper は
-/// rc を捨てて buffer の中身を文字列化する。両者の差異は `errnoTextFallsBackOnInvalidErrno`
-/// test で SUT 側の文字列形式に対する完全一致として固定する（本 helper は呼ばれない）。
+/// boundary errno (9999 / 0 / -1) に対する OS 実装差吸収は別 test
+/// (`errnoTextHandlesBoundaryErrnoSafely`) で prefix/suffix の不変条件のみを
+/// 主張する形に分離している。本 helper は boundary 経路では呼ばれない。
 private func expectedErrnoText(_ code: Int32) -> String {
   var buf = [CChar](repeating: 0, count: 256)
   _ = strerror_r(code, &buf, buf.count)

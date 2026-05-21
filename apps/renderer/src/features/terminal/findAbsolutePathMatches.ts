@@ -15,7 +15,7 @@ const WORD_CHAR = /[A-Za-z0-9_]/;
 /** prefix が単語境界の直後で始まっているか（URL の path 部分のような連続 token 内では拾わない） */
 function hasBoundaryBefore(text: string, idx: number): boolean {
   if (idx === 0) return true;
-  return !WORD_CHAR.test(text[idx - 1]!);
+  return !WORD_CHAR.test(text[idx - 1]);
 }
 
 /** boundary が立っている prefix の出現位置を search start から探す */
@@ -42,7 +42,7 @@ export interface AbsolutePathMatch {
 /** パスの末尾位置を探す（区切り文字 or 行末まで） */
 function findPathEnd(text: string, from: number): number {
   let end = from;
-  while (end < text.length && !PATH_TERMINATORS.test(text[end]!)) {
+  while (end < text.length && !PATH_TERMINATORS.test(text[end])) {
     end++;
   }
   return end;
@@ -55,7 +55,7 @@ function findPathEnd(text: string, from: number): number {
  */
 export function resolveHomeDir(dirPrefix: string): string {
   const match = dirPrefix.match(/^(\/Users\/[^/]+)\//);
-  return match ? match[1]! : "";
+  return match ? match[1] : "";
 }
 
 /**
@@ -104,7 +104,7 @@ export function findAbsolutePathMatches(
 
     // idx 昇順、同 idx なら prefixLen 降順（dir > home > tilde）
     candidates.sort((a, b) => a.idx - b.idx || b.prefixLen - a.prefixLen);
-    const { idx, prefixLen, expandTilde } = candidates[0]!;
+    const { idx, prefixLen, expandTilde } = candidates[0];
 
     const pathEnd = findPathEnd(text, idx + prefixLen);
     const fullPath = expandTilde

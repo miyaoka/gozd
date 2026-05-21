@@ -23,9 +23,9 @@ export function findRelativePaths(text: string): RelativePathMatch[] {
     const startIdx = match.index;
     const lineNumber = parseLineNumberSuffix(match[2]);
     results.push({
-      path: match[1]!,
+      path: match[1],
       startIdx,
-      endIdx: startIdx + match[0]!.length,
+      endIdx: startIdx + match[0].length,
       ...(lineNumber !== undefined ? { lineNumber } : {}),
     });
   }

@@ -122,6 +122,9 @@ const fileType = computed<FileType>(() => {
   return detectFileType(selectedPath.value);
 });
 
+/** 選択中パスが worktree 外の絶対パスか（terminal link から worktree 外を開いた場合） */
+const isExternalPath = computed(() => selectedPath.value?.startsWith("/") ?? false);
+
 /** 画像プレビュー表示中か（diff 不可のため モード制限に使用） */
 const isImagePreview = computed(() => {
   const ft = fileType.value;
@@ -435,7 +438,10 @@ watch(
     }
 
     const isCommitMode = selectedHash !== UNCOMMITTED_HASH || compareHash !== null;
-    if (isCommitMode) {
+    // 絶対パス（worktree 外）は git 履歴を持たず rpcFsReadFile は worktree 境界外で
+    // FSError.outsideDir を返すため、commit mode 中でも fsReadFileAbsolute 経路に倒す。
+    const isAbsolute = path.startsWith("/");
+    if (isCommitMode && !isAbsolute) {
       await fetchCommitContent(path);
     } else {
       activeMode.value = defaultMode(gitChange);
@@ -481,6 +487,9 @@ function buildFileServerUrl(
   gitOriginal = false,
 ): string | undefined {
   if (!fileServerBaseUrl.value) return undefined;
+  // 絶対パス（worktree 外）は file server 経路で扱えない（worktree 相対のみ提供する経路）。
+  // 画像/SVG は fsReadFileAbsolute 経由の binary 表示にフォールバックする。
+  if (relPath.startsWith("/")) return undefined;
   const base = fileServerBaseUrl.value.endsWith("/")
     ? fileServerBaseUrl.value
     : `${fileServerBaseUrl.value}/`;
@@ -505,6 +514,11 @@ const imageUrl = computed(() => {
 /** preview チェックボックスを表示するか（diff モードでは非表示） */
 const showPreviewCheckbox = computed(() => {
   if (activeMode.value === "diff") return false;
+  // 絶対パス（worktree 外）の image / svg は file server 経由で読めないため Preview トグルを出さない。
+  // markdown はテキスト経路で読めるためトグル対象を維持する。
+  if (isExternalPath.value && (fileType.value === "image" || fileType.value === "svg")) {
+    return false;
+  }
   return hasRenderedView(fileType.value);
 });
 
@@ -745,6 +759,14 @@ watch(
 
         <!-- 画像プレビュー（バイナリ画像 + SVG preview モード） -->
         <ImagePreview v-else-if="imageUrl" :src="imageUrl" />
+
+        <!-- worktree 外の絶対パス image / svg は file server 経由で読めないため未対応を明示する -->
+        <div
+          v-else-if="(fileType === 'image' || fileType === 'svg') && isExternalPath"
+          class="p-4 text-sm text-zinc-500"
+        >
+          Image preview is not available for paths outside the worktree
+        </div>
 
         <!-- バイナリ（画像以外） -->
         <div v-else-if="displayIsBinary" class="p-4 text-sm text-zinc-500">

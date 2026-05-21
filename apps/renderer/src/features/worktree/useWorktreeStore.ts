@@ -15,7 +15,21 @@ export const useWorktreeStore = defineStore("worktree", () => {
   const repoStore = useRepoStore();
   const fileServerBaseUrl = ref<string>();
 
-  /** プレビュー対象の選択状態。worktree 横断で 1 つだけ保持し、dir が変わるたびにクリアする */
+  /**
+   * プレビュー対象の選択状態。worktree 横断で 1 つだけ保持し、dir が変わるたびにクリアする。
+   *
+   * **path の形式契約**:
+   * - active worktree 内のファイル: 相対パス（例: `src/foo.ts`）
+   * - worktree 外のファイル: 絶対パス（例: `/Users/<user>/ghq/.../README.md`）。
+   *   terminal link から worktree 外パスを Shift+クリックした場合に渡される。
+   *
+   * 購読側は path が絶対パスを取りうる前提で分岐する:
+   * - PreviewPane: `path.startsWith("/")` で fsReadFile / fsReadFileAbsolute を切り替え
+   * - FilerPane reveal: ツリーは active worktree 配下しか持たないため、絶対パスは
+   *   reveal 対象外（ハイライトされない契約）
+   * - resolveFileGitChange: gitStatuses record の lookup に失敗して `undefined` を返す
+   *   （worktree 外パスは git status に存在しないため挙動として整合）
+   */
   const selection = ref<Selection>();
 
   /**
@@ -35,7 +49,10 @@ export const useWorktreeStore = defineStore("worktree", () => {
   /** 現在 UI で選択中の dir。repoStore.selectedDir の薄いエイリアス */
   const dir = computed(() => repoStore.selectedDir);
 
-  /** 選択中のパス（相対パス）。worktree 切替で undefined にリセットされる */
+  /**
+   * 選択中のパス。形式は `selection` の契約に従い、相対パスまたは絶対パスを取る。
+   * worktree 切替で undefined にリセットされる
+   */
   const selectedPath = computed(() => selection.value?.path);
 
   /** リンクから指定された行番号（1-based）。スクロール・ハイライトに使用 */

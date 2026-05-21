@@ -46,7 +46,7 @@ function parseAnchor(fragment: string): { lineNumber: number | undefined; droppe
   const text = decoded.ok ? decoded.value : fragment;
   const match = LINE_FRAGMENT_RE.exec(text);
   if (match === null) return { lineNumber: undefined, droppedAnchor: true };
-  const parsed = Number.parseInt(match[1]!, 10);
+  const parsed = Number.parseInt(match[1], 10);
   if (Number.isNaN(parsed) || parsed <= 0) {
     return { lineNumber: undefined, droppedAnchor: true };
   }
@@ -103,19 +103,70 @@ function resolveMarkdownLink({
   }
   const decodedPath = decoded.value;
 
-  // `/` 始まり: worktree ルート相対として扱う / それ以外: selectedPath dir 相対
-  let combined: string;
-  if (decodedPath.startsWith("/")) {
-    combined = decodedPath.substring(1);
-  } else {
-    const dir = basePath === undefined ? "" : relDirOf(basePath);
-    combined = dir === "" ? decodedPath : `${dir}/${decodedPath}`;
+  // basePath が worktree 外の絶対パスのとき、信頼境界を「source file が居る dir 配下」に縮小する。
+  // escapesWorktree（worktree root 基準）は意味を成さない代わりに、
+  // 「normalized が basePath の dir prefix で始まる」ことを唯一の通過条件にする。これにより
+  // `/etc/passwd` のような system path への直接 jump と、`../../etc/passwd` のような相対 traversal、
+  // および `/Users/<user>/.ssh/id_rsa` のような sibling 領域参照を一律 invalid に倒す。
+  // 絶対 basePath の処理は別関数に分離し、control flow narrowing で basePath: string が効くため
+  // non-null assertion (`!`) を使わない構造にする。
+  if (basePath !== undefined && basePath.startsWith("/")) {
+    return resolveWithAbsoluteBase(basePath, decodedPath, rawFragment, href, normalizePath);
   }
+
+  // 相対 basePath 経路（active worktree 内のファイルを起点とする従来挙動）
+  // `/` 始まり: worktree root 相対として `/` を剥がす / それ以外: basePath dir 相対
+  const dir = basePath === undefined ? "" : relDirOf(basePath);
+  const combined = decodedPath.startsWith("/")
+    ? decodedPath.substring(1)
+    : dir === ""
+      ? decodedPath
+      : `${dir}/${decodedPath}`;
 
   const normalized = normalizePath(combined);
 
   if (escapesWorktree(normalized)) {
     return { kind: "invalid", reason: `Link target is outside the worktree: ${href}` };
+  }
+
+  const { lineNumber, droppedAnchor } = parseAnchor(rawFragment);
+  return { kind: "internal", path: normalized, lineNumber, droppedAnchor };
+}
+
+/**
+ * 絶対 basePath 起点の link 解決。relDirOf は worktree 相対契約のため絶対パスでは使わず、
+ * 内部で親 dir を抽出する。root 直下のファイル (lastIndexOf("/") === 0) では baseDir を "/" で表現する。
+ */
+function resolveWithAbsoluteBase(
+  basePath: string,
+  decodedPath: string,
+  rawFragment: string,
+  href: string,
+  normalizePath: (path: string) => string,
+): ResolvedLink {
+  const lastSlash = basePath.lastIndexOf("/");
+  const baseDir = lastSlash <= 0 ? "/" : basePath.substring(0, lastSlash);
+
+  const combined = decodedPath.startsWith("/")
+    ? decodedPath
+    : baseDir === "/"
+      ? `/${decodedPath}`
+      : `${baseDir}/${decodedPath}`;
+
+  const normalized = normalizePath(combined);
+
+  const isAllowed =
+    baseDir === "/"
+      ? // root 直下: `/<name>` (slash が 1 つだけ) のみ許可。`/etc/passwd` は invalid。
+        normalized.startsWith("/") && normalized.length > 1 && normalized.indexOf("/", 1) === -1
+      : // 通常: baseDir 配下のみ許可（baseDir 自身への参照は不可）
+        normalized.startsWith(`${baseDir}/`);
+
+  if (!isAllowed) {
+    return {
+      kind: "invalid",
+      reason: `Link target is outside the source file directory: ${href}`,
+    };
   }
 
   const { lineNumber, droppedAnchor } = parseAnchor(rawFragment);

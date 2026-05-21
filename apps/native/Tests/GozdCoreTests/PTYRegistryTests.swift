@@ -35,6 +35,10 @@ struct PTYRegistryTests {
       rows: 24,
       cols: 80
     )
+    // ptyId 採番の不変条件「成功 spawn 時に nextId は +1 だけ進む」をここで担保する。
+    // `peekNextId()` 専用 seam を test 用に公開する案を以前持っていたが、
+    // module API に test-only accessor を漏らすコストを避けるため撤去し、配送機構
+    // test である本 test の副次 assertion に統合した（PR #597 review feedback）。
     #expect(id2 == id1 + 1)
 
     // issue ( #566 ) 観測: 本 test は CI attempt 1 で tick=1 ( +1.161s ) → tick=2 ( +2.534s )

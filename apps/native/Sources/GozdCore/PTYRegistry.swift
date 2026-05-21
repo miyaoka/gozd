@@ -87,8 +87,12 @@ public actor PTYRegistry {
   private var expectedResumeSidById: [UInt32: String] = [:]
   // 削除 RPC で clearAssociations された ptyId 集合。late session-start hook が
   // 到達したとき、「明示削除後の late hook」と「そもそも未登録 PTY」を区別して
-  // 観察ログを出すために使う（applyClaudeSessionHook 側で参照）。ptyId は
-  // 単調増加で再利用されないので、PTY exit 後も残しておいて問題ない。
+  // 観察ログを出すために使う（applyClaudeSessionHook 側で参照）。
+  // 不変条件: spawn が成功した ptyId は単調増加で再利用されない（`nextId += 1` は
+  // spawn 成功後にのみ走るため成功 id は決して衝突しない）。一方 spawn が throw した
+  // id は再利用され得るが、その id は ptys に登録されておらず `clearAssociations` も
+  // 呼ばれないため、本集合に入る経路がない。よって本集合内では再利用は起きず、
+  // PTY exit 後も残しておいて問題ない。
   private var explicitlyRemovedPtyIds: Set<UInt32> = []
   private var nextId: UInt32 = 1
 
@@ -113,8 +117,11 @@ public actor PTYRegistry {
     cols: UInt16,
     worktreePath: String = ""
   ) throws -> UInt32 {
+    // `nextId` は spawn 成功後に進める。spawn が throw した場合に id を消費せず
+    // 次の試行で同じ id を再利用できる（PTY は生成されていないため id 衝突は無い）。
+    // 先に進めると失敗時に id が穴開きで上昇し、ptys / worktreePathById マップに
+    // 紐付かない「観測不能な id」が累積する。
     let id = nextId
-    nextId += 1
 
     let (stream, continuation) = AsyncStream<PTYEvent>.makeStream()
 
@@ -139,6 +146,7 @@ public actor PTYRegistry {
         continuation.finish()
       }
     )
+    nextId += 1
     ptys[id] = pty
     if !worktreePath.isEmpty {
       worktreePathById[id] = worktreePath

@@ -657,6 +657,13 @@ struct RpcSchemeHandler: URLSchemeHandler {
         } catch RpcError.unknownPath(let p) {
           yield(continuation: continuation, status: 404, url: url, message: "unknown RPC: \(p)")
         } catch {
+          // 500 response の body は `"\(error)"` （= `String(describing:)`）で組み立てる。
+          // Swift は `CustomStringConvertible` 準拠を優先するため、dispatcher から
+          // throw する Error 型は `CustomStringConvertible` で人間可読な identifier
+          // を提供する契約とする（例: `PTYError` の case 名 + errno + strerror）。
+          // この経路は renderer 側で `Error(\`RPC ${path} failed: ${res.status} ${text}\`)`
+          // として再 raise されるため、Error の `description` 品質が renderer 通知の
+          // 識別性を決定する。
           yield(continuation: continuation, status: 500, url: url, message: "\(error)")
         }
         continuation.finish()

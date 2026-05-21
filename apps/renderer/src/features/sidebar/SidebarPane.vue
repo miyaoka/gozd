@@ -63,8 +63,27 @@ const { isCreatingFor, handleWorktreeSelect, addWorktree, handleWorktreeRemove }
   });
 
 // --- メニュー ---
+//
+// SidebarMenu に anchorEl + context を渡して開閉させる。menuOpenState を undefined にする
+// 経路は SidebarMenu からの `close` emit に一本化する（light-dismiss / アクション click 両対応）。
 
-const sidebarMenuRef = ref<InstanceType<typeof SidebarMenu>>();
+type MenuContext =
+  | { type: "worktree"; worktree: WorktreeEntry; rootDir: string }
+  | { type: "task"; task: Task; rootDir: string };
+
+const menuOpenState = ref<{ anchorEl: HTMLElement; context: MenuContext }>();
+
+function openWorktreeMenu(anchorEl: HTMLElement, wt: WorktreeEntry, rootDir: string) {
+  menuOpenState.value = { anchorEl, context: { type: "worktree", worktree: wt, rootDir } };
+}
+
+function openTaskMenu(anchorEl: HTMLElement, task: Task, rootDir: string) {
+  menuOpenState.value = { anchorEl, context: { type: "task", task, rootDir } };
+}
+
+function onCloseMenu() {
+  menuOpenState.value = undefined;
+}
 
 function onSelectWt(wt: WorktreeEntry) {
   // 同 wt 再クリック時の done 消化は worktreeStore.setOpen の selectionVersion 経由で
@@ -249,14 +268,8 @@ const activeRootWorktree = computed(() => {
           @select-wt="onSelectWt"
           @select-task="onSelectTask"
           @add-worktree="addWorktree"
-          @open-worktree-menu="
-            (anchorEl, wt, rd) =>
-              sidebarMenuRef?.openMenu(anchorEl, { type: 'worktree', worktree: wt, rootDir: rd })
-          "
-          @open-task-menu="
-            (anchorEl, task, rd) =>
-              sidebarMenuRef?.openMenu(anchorEl, { type: 'task', task, rootDir: rd })
-          "
+          @open-worktree-menu="openWorktreeMenu"
+          @open-task-menu="openTaskMenu"
         />
       </DragDropProvider>
 
@@ -274,7 +287,8 @@ const activeRootWorktree = computed(() => {
 
     <!-- ⋮ メニュー（worktree / task） -->
     <SidebarMenu
-      ref="sidebarMenuRef"
+      :open-state="menuOpenState"
+      @close="onCloseMenu"
       @worktree-remove="(wt, rd) => handleWorktreeRemove(rd, wt)"
       @task-remove="(task, rd) => handleTaskRemove(rd, task)"
     />

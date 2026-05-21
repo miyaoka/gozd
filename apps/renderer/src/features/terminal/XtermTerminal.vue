@@ -10,7 +10,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal, type IMarker } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { onMounted, onBeforeUnmount, ref, watch } from "vue";
+import { nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { rpcOpenExternal, rpcPtyResize, rpcPtyWrite } from "./rpc";
 import {
   currentTheme,
@@ -28,6 +28,8 @@ const props = defineProps<{
   leafId: string;
   /** true の間は ResizeObserver による自動 fit() を抑制する */
   fitSuspended?: boolean;
+  /** true になったタイミングで imperative に DOM focus を当てる */
+  focused?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -103,12 +105,18 @@ watch(
   },
 );
 
-/** 外部から imperative に focus を呼ぶための公開メソッド */
-function focus() {
-  terminal?.focus();
-}
-
-defineExpose({ focus });
+// focused prop が true になったら imperative に DOM focus を当てる。
+// immediate: true で mount 直後の初期 focused も拾う（split 直後の新規 leaf 対応）。
+// flush: "post" で DOM 更新後に実行し、nextTick で terminal 初期化（onMounted 内で行う）を待つ。
+watch(
+  () => props.focused,
+  async (focused) => {
+    if (!focused) return;
+    await nextTick();
+    terminal?.focus();
+  },
+  { immediate: true, flush: "post" },
+);
 
 onMounted(async () => {
   const container = containerRef.value;

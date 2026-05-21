@@ -44,6 +44,7 @@ import SidebarClock from "./SidebarClock.vue";
 import SidebarMenu from "./SidebarMenu.vue";
 import { useDialogs } from "./useDialogs";
 import { useSidebarData } from "./useSidebarData";
+import { useSidebarMenu } from "./useSidebarMenu";
 import VoicevoxPanel from "./VoicevoxPanel.vue";
 
 const repoStore = useRepoStore();
@@ -64,25 +65,18 @@ const { isCreatingFor, handleWorktreeSelect, addWorktree, handleWorktreeRemove }
 
 // --- メニュー ---
 //
-// SidebarMenu に anchorEl + context を渡して開閉させる。menuOpenState を undefined にする
-// 経路は SidebarMenu からの `close` emit に一本化する（light-dismiss / アクション click 両対応）。
+// 開閉と context は useSidebarMenu (module singleton) 経由で SidebarMenu と共有する。
+// ここでは open() を呼ぶだけで、light-dismiss / アクション click の close 経路は
+// composable が内部で扱う。
 
-type MenuContext =
-  | { type: "worktree"; worktree: WorktreeEntry; rootDir: string }
-  | { type: "task"; task: Task; rootDir: string };
-
-const menuOpenState = ref<{ anchorEl: HTMLElement; context: MenuContext }>();
+const { open: openMenu } = useSidebarMenu();
 
 function openWorktreeMenu(anchorEl: HTMLElement, wt: WorktreeEntry, rootDir: string) {
-  menuOpenState.value = { anchorEl, context: { type: "worktree", worktree: wt, rootDir } };
+  openMenu(anchorEl, { type: "worktree", worktree: wt, rootDir });
 }
 
 function openTaskMenu(anchorEl: HTMLElement, task: Task, rootDir: string) {
-  menuOpenState.value = { anchorEl, context: { type: "task", task, rootDir } };
-}
-
-function onCloseMenu() {
-  menuOpenState.value = undefined;
+  openMenu(anchorEl, { type: "task", task, rootDir });
 }
 
 function onSelectWt(wt: WorktreeEntry) {
@@ -287,8 +281,6 @@ const activeRootWorktree = computed(() => {
 
     <!-- ⋮ メニュー（worktree / task） -->
     <SidebarMenu
-      :open-state="menuOpenState"
-      @close="onCloseMenu"
       @worktree-remove="(wt, rd) => handleWorktreeRemove(rd, wt)"
       @task-remove="(task, rd) => handleTaskRemove(rd, task)"
     />

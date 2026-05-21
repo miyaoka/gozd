@@ -1,0 +1,25 @@
+{
+  "name": "@gozd/shiki-lang-map",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "prepare": "bun scripts/generateExtensionLangMap.ts",
+    "typecheck": "tsgo --noEmit",
+    "lint": "oxlint --type-aware src/ scripts/",
+    "fix": "oxlint --type-aware --fix src/ scripts/ && oxfmt src/ scripts/"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "@types/node": "catalog:",
+    "@typescript/native-preview": "catalog:",
+    "linguist-languages": "^9.3.2",
+    "oxfmt": "catalog:",
+    "oxlint": "catalog:",
+    "oxlint-tsgolint": "catalog:",
+    "shiki": "4.0.2"
+  }
+}

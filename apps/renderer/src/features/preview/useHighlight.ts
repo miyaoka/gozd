@@ -1,78 +1,50 @@
+import { LINGUIST_EXTENSION_LANG_MAP, LINGUIST_FILENAME_LANG_MAP } from "@gozd/shiki-lang-map";
 import {
   type BundledLanguage,
-  type Highlighter,
   type ShikiTransformer,
   type ThemedToken,
-  createHighlighter,
+  codeToHtml as shikiCodeToHtml,
+  codeToTokens as shikiCodeToTokens,
 } from "shiki";
 
-let highlighter: Highlighter | undefined;
-let initPromise: Promise<Highlighter> | undefined;
-
-/** 拡張子 → Shiki 言語 ID のマッピング */
-const EXTENSION_LANG_MAP: Record<string, BundledLanguage> = {
-  ts: "typescript",
-  tsx: "tsx",
-  mts: "typescript",
-  cts: "typescript",
-  js: "javascript",
-  jsx: "jsx",
-  mjs: "javascript",
-  cjs: "javascript",
-  vue: "vue",
-  json: "json",
-  jsonc: "jsonc",
-  md: "markdown",
-  html: "html",
-  css: "css",
-  scss: "scss",
-  less: "less",
-  yaml: "yaml",
-  yml: "yaml",
-  toml: "toml",
-  sh: "bash",
-  bash: "bash",
-  zsh: "bash",
-  xml: "xml",
-  svg: "xml",
-  sql: "sql",
-  graphql: "graphql",
-  gql: "graphql",
-  dockerfile: "dockerfile",
-  rs: "rust",
-  go: "go",
-  py: "python",
-  rb: "ruby",
+/** プロジェクト固有の拡張子 override。
+ *
+ * Linguist の デフォルト挙動 (= ASCII order での first-write-wins) を上書きしたい場合に
+ * 列挙する。各エントリには「なぜ Linguist と違う選択をするか」を理由付きで残す。
+ */
+const EXTENSION_OVERRIDES: Record<string, BundledLanguage> = {
+  // gozd は Swift / Objective-C 文脈 (apps/native の Swift と C ブリッジ)。
+  // Linguist は MATLAB を ASCII 順優先で `.m → matlab` に倒すが、本アプリでは MATLAB
+  // ファイルを扱わないため Objective-C を採用する。
+  m: "objective-c",
 };
 
-/** ファイル名から言語 ID を推定 */
+/** プロジェクト固有のファイル名 override (現在は無し) */
+const FILENAME_OVERRIDES: Record<string, BundledLanguage> = {};
+
+/** ファイル名から Shiki BundledLanguage を推定する。
+ *
+ * 解決順序:
+ *   filename override → Linguist filename → extension override → Linguist extension
+ *
+ * Linguist 由来のテーブルは build 時 codegen (`scripts/generateExtensionLangMap.ts`)
+ * で生成される。データ SSOT は GitHub Linguist の `languages.yml` (linguist-languages npm)。
+ */
 function detectLang(filePath: string): BundledLanguage | undefined {
   const fileName = filePath.split("/").pop() ?? "";
-  // 拡張子なしのファイル名マッチ（Dockerfile, Makefile 等）
-  const FILENAME_LANG_MAP: Record<string, BundledLanguage> = {
-    Dockerfile: "dockerfile",
-    Makefile: "makefile",
-  };
-  const fileNameMatch = FILENAME_LANG_MAP[fileName];
-  if (fileNameMatch) return fileNameMatch;
 
-  const ext = fileName.split(".").pop()?.toLowerCase();
-  if (!ext) return undefined;
-  return EXTENSION_LANG_MAP[ext];
-}
+  const filenameMatch =
+    FILENAME_OVERRIDES[fileName] ??
+    (LINGUIST_FILENAME_LANG_MAP as Record<string, BundledLanguage>)[fileName];
+  if (filenameMatch) return filenameMatch;
 
-/** Shiki インスタンスを遅延初期化して返す */
-async function getHighlighter(): Promise<Highlighter> {
-  if (highlighter) return highlighter;
-  if (initPromise) return initPromise;
+  const ext = fileName.split(".").pop();
+  if (ext === undefined || ext === "") return undefined;
+  const lc = ext.toLowerCase();
 
-  initPromise = createHighlighter({
-    themes: ["github-dark"],
-    langs: Object.values(EXTENSION_LANG_MAP),
-  });
-
-  highlighter = await initPromise;
-  return highlighter;
+  return (
+    EXTENSION_OVERRIDES[lc] ?? (LINGUIST_EXTENSION_LANG_MAP as Record<string, BundledLanguage>)[lc]
+  );
 }
 
 /** コードをハイライトして HTML 文字列を返す。言語不明ならプレーンテキストを返す。
@@ -81,6 +53,9 @@ async function getHighlighter(): Promise<Highlighter> {
  * false のときは `<span class="_line-no-static">` を挿入する。button だと CSS で
  * cursor を消しても keyboard (Tab + Enter) で到達でき silent dead button になるため、
  * blame できない経路では DOM 要素自体を span に倒して focusable を奪う契約。
+ *
+ * Shiki の shorthand `codeToHtml` は内部で grammar を on-demand load する
+ * (`createSingletonShorthands` 経路、`getSingletonHighlighter` で idempotent)。
  */
 async function highlight(
   code: string,
@@ -89,11 +64,6 @@ async function highlight(
 ): Promise<string | undefined> {
   const lang = detectLang(filePath);
   if (!lang) return undefined;
-
-  const h = await getHighlighter();
-  // ハイライタの loaded langs に含まれない場合はスキップ
-  const loadedLangs = h.getLoadedLanguages();
-  if (!loadedLangs.includes(lang)) return undefined;
 
   const lineNumberTransformer: ShikiTransformer = {
     line(node, line) {
@@ -127,7 +97,7 @@ async function highlight(
     },
   };
 
-  return h.codeToHtml(code, {
+  return shikiCodeToHtml(code, {
     lang,
     theme: "github-dark",
     transformers: [lineNumberTransformer],
@@ -142,11 +112,7 @@ async function highlightTokens(
   const lang = detectLang(filePath);
   if (!lang) return undefined;
 
-  const h = await getHighlighter();
-  const loadedLangs = h.getLoadedLanguages();
-  if (!loadedLangs.includes(lang)) return undefined;
-
-  const { tokens } = h.codeToTokens(code, {
+  const { tokens } = await shikiCodeToTokens(code, {
     lang,
     theme: "github-dark",
   });

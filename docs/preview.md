@@ -14,7 +14,7 @@ features/preview/
 ├── MarkdownPreview.vue       # Markdown レンダリング（marked + DOMPurify）
 ├── ChangesSummaryView.vue    # 全変更ファイルを縦並びで diff 表示するビュー
 ├── ChangesSummaryItem.vue    # summary view の 1 ファイル分のブロック
-└── useHighlight.ts           # Shiki ハイライタの遅延初期化と言語検出
+└── useHighlight.ts           # Shiki shorthand 呼び出し + 拡張子 → BundledLanguage 検出 (override 層)
 ```
 
 ## ファイル種別
@@ -123,10 +123,10 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
 
 ### CodePreview
 
-- Shiki の `createHighlighter` で遅延初期化（シングルトン）
+- Shiki の shorthand `codeToHtml` / `codeToTokens` を直接呼ぶ。内部の `createSingletonShorthands` 経路で grammar が **on-demand load** される (公式 best-practice: [Shiki - Best Performance Practices](https://shiki.style/guide/best-performance))。`createHighlighter({ langs: [...] })` での eager init を避けることで「map に列挙した分だけ起動コストが乗る」問題を構造的に消す
 - `github-dark` テーマ
 - `ShikiTransformer` で各行に `data-line` 属性を付与し、行頭に line-no 要素を実 DOM 挿入する。挿入する要素は親から渡された `blameEnabled` で切り替え、true なら `<button data-line-no-btn>` (event delegation で blame 起動経路)、false なら `<span class="_line-no-static" aria-hidden="true">` (focusable を奪い keyboard 経路でも何も起きないことを構造で保証)。fallback markup も同じ `v-if` で button/span を切替え、疑似要素 `::before` 由来のクリック判定問題と silent dead button を両方避ける
-- 言語検出: 拡張子 → `EXTENSION_LANG_MAP` で Shiki 言語 ID に変換
+- 言語検出: 拡張子 / ファイル名 → Shiki `BundledLanguage` に変換。マッピングは `@gozd/shiki-lang-map` (GitHub Linguist の `languages.yml` × Shiki bundled langs の交差を build 時 codegen) を SSOT として参照し、`useHighlight.ts` 内の `EXTENSION_OVERRIDES` / `FILENAME_OVERRIDES` で gozd 固有 policy (例: `.m → objective-c`) を上書きする
 - word-wrap トグルボタンでコードの折り返しを切り替え
 - 行番号指定時（`:行番号` サフィックス付きリンクから）は該当行にスクロールし、黄色背景でハイライト
 - 行番号 button クリックで `lineNumberClick` イベントを emit（PreviewPane が BlamePopover に橋渡し）

@@ -7,6 +7,19 @@
 - material-icon-theme のアイコンを表示
 - git status に応じた色分け（modified=黄、added=緑、deleted=赤、renamed=青）と削除ファイルの打ち消し線
 
+## ルートノード（worktree 自体を表す不可視ノード）
+
+- `path === ""` を worktree 自体を指す値として扱う（Swift `relDir` SSOT と整合）。`isRootPath()` で 1 か所判定
+- ボタン非表示、初期 `expanded = true`、`onMounted` で `loadChildren()` を起動
+- 表示要素由来の computed（`textColorClass` / `effectiveGitChange` / `iconUrl`）はテンプレートが `<button v-if="!isRoot">` でガードしているため、root では lazy 評価により実行されない。ルート専用の早期 return は持たない（v-if を唯一の防壁とする）
+- `depth` の意味は「自身のインデント階層」。root には FilerPane が sentinel `-1` を渡し、root 自身は描画されないので depth は使われない。子に渡す depth は通常通り `depth + 1` で、root 直下の子は `-1 + 1 = 0` から始まる
+
+## レース対策
+
+- `loadChildren` は per-instance 世代カウンタで保護。await 後に「自分が最新の呼び出し」でなければ
+  結果を破棄する。同一 dir 内で `fsChange` / `gitStatusChange` が連発した時に古い `rpcFsReadDir`
+  レスポンスが新しい entries を踏み潰すのを防ぐ（FilerPane 側にあったルート専用ガードを SSOT 化）
+
 ## 更新（イベント駆動）
 
 - filer event store の fsChange を watch して自分の path 該当時に再読み込み
@@ -17,7 +30,7 @@
 
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
-import { computed, ref, useTemplateRef, watch } from "vue";
+import { computed, onMounted, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import {
   resolveDirectoryGitChange,
@@ -26,7 +39,15 @@ import {
   useWorktreeStore,
 } from "../worktree";
 import type { GitChangeKind } from "../worktree";
-import { getDeletedEntries, sortEntries, toFileEntries } from "./filerUtils";
+import {
+  getDeletedEntries,
+  isDescendantOf,
+  isRootPath,
+  joinPath,
+  pathForNativeRpc,
+  sortEntries,
+  toFileEntries,
+} from "./filerUtils";
 import type { FileEntry } from "./filerUtils";
 import { rpcFsReadDir } from "./rpc";
 import { getFileIconUrl, getFolderIconUrl } from "./useFileIcon";
@@ -42,7 +63,7 @@ const GIT_CHANGE_COLOR_MAP: Record<GitChangeKind, string> = {
 
 const props = defineProps<{
   name: string;
-  /** ルートからの相対パス */
+  /** worktree からの相対パス。worktree 直下（不可視ルート）は `""` */
   path: string;
   isDirectory: boolean;
   isIgnored: boolean;
@@ -50,6 +71,11 @@ const props = defineProps<{
   gitChange?: GitChangeKind;
   /** git status マップ全体（ディレクトリの変更種別推論に使用） */
   gitStatuses: Record<string, string>;
+  /**
+   * 自身のインデント階層。worktree 不可視ルートには FilerPane が sentinel `-1` を渡す
+   * （root は描画されないので負値の paddingLeft は実体に到達しない）。
+   * 子は通常通り `depth + 1` を受け取る。root 直下は `-1 + 1 = 0` から始まる。
+   */
   depth: number;
   selectedRelPath?: string;
 }>();
@@ -62,10 +88,24 @@ const notify = useNotificationStore();
 const worktreeStore = useWorktreeStore();
 const filerEventStore = useFilerEventStore();
 
+const isRoot = computed(() => isRootPath(props.path));
+
 const buttonRef = useTemplateRef<HTMLButtonElement>("button");
-const expanded = ref(false);
+const expanded = ref(isRoot.value);
 const children = ref<FileEntry[]>();
 const loading = ref(false);
+
+/**
+ * loadChildren の呼び出し世代カウンタ。`fsChange` / `gitStatusChange` の連続発火で
+ * `rpcFsReadDir` レスポンス順序が逆転して古い entries が新しい entries を踏み潰す race を防ぐ。
+ * 旧 FilerPane の `loadRootSeq` / `gitStatusChangeSeq` が担っていたルート専用ガードを、
+ * 全ノードの共通ガードとして FileTreeItem に内製化したもの。
+ */
+let loadSeq = 0;
+
+// 以下の表示要素由来 computed はテンプレートの `<button v-if="!isRoot">` 配下でしか参照されない。
+// Vue の computed は lazy 評価のため、root では実体が走らない。早期 return ガードは持たない
+// （v-if が唯一の防壁）。
 
 /** gitStatuses マップからリアルタイムに変更種別を算出する */
 const effectiveGitChange = computed<GitChangeKind | undefined>(() => {
@@ -110,21 +150,27 @@ async function toggle() {
 }
 
 async function loadChildren() {
+  const mySeq = ++loadSeq;
   loading.value = true;
   const dir = worktreeStore.dir;
   if (dir === undefined) {
-    children.value = [];
-    loading.value = false;
+    if (mySeq === loadSeq) {
+      children.value = [];
+      loading.value = false;
+    }
     return;
   }
-  const result = await tryCatch(rpcFsReadDir({ dir, path: props.path }));
+  const result = await tryCatch(rpcFsReadDir({ dir, path: pathForNativeRpc(props.path) }));
+  // await 中に loadChildren が再度呼ばれた場合、この呼び出しの結果は破棄する
+  if (mySeq !== loadSeq) return;
   if (!result.ok) {
     // 削除ディレクトリの場合、readDir は失敗するので削除エントリのみ表示
     const deletedEntries = getDeletedEntries(props.path, props.gitStatuses);
     if (deletedEntries.length > 0) {
       children.value = sortEntries(deletedEntries);
     } else {
-      notify.error(`Failed to read directory: ${props.path}`, result.error);
+      const label = isRoot.value ? "(worktree root)" : props.path;
+      notify.error(`Failed to read directory: ${label}`, result.error);
       children.value = [];
     }
     loading.value = false;
@@ -139,7 +185,7 @@ function mergeWithGitStatus(entries: FileEntry[]): FileEntry[] {
   const existingNames = new Set(entries.map((e) => e.name));
 
   const withGitChange = entries.map((entry): FileEntry => {
-    const filePath = `${props.path}/${entry.name}`;
+    const filePath = joinPath(props.path, entry.name);
     const statusCode = props.gitStatuses[filePath];
     if (statusCode) {
       return { ...entry, gitChange: resolveGitChangeKind(statusCode) };
@@ -154,8 +200,15 @@ function mergeWithGitStatus(entries: FileEntry[]): FileEntry[] {
   return sortEntries([...withGitChange, ...deletedEntries]);
 }
 
+// ルートノードは worktree 自体を表すため、マウント時点で子（ルート直下のエントリ）を読み込む。
+// 通常ノードは初回展開時に loadChildren が走るが、ルートは常時 expanded なので初期 mount にフックする。
+onMounted(() => {
+  if (isRoot.value) void loadChildren();
+});
+
 // fsChange を購読し、自分の path が変更対象なら再読み込み（折りたたみ中はキャッシュ破棄）。
 // 自分の path 配下のノードは独立に同じ store を watch しているため、再帰伝播は不要。
+// ルートノード（path === ""）は worktree 直下の fsChange（relDir === ""）にマッチする。
 watch(
   () => filerEventStore.fsChangeEvent,
   (event) => {
@@ -191,6 +244,8 @@ watch(
  * 祖先の場合は展開するだけ。子は v-for でマウント後に自分の revealVersion watch (immediate)
  * で target を処理する再帰チェーン。
  *
+ * ルートノード（path === ""）は `isDescendantOf` で worktree 内の任意 target の祖先扱い。
+ *
  * absolute 選択中 (worktree 外) は selectedRelPath が undefined になり reveal は no-op。
  * ツリーが持っていないパスをマッチさせる経路を型レベルで排除する。
  */
@@ -210,7 +265,7 @@ async function handleReveal() {
   }
   // ディレクトリでないか、ターゲットが自身の配下でない場合は何もしない
   if (!props.isDirectory) return;
-  if (!targetPath.startsWith(props.path + "/")) return;
+  if (!isDescendantOf(targetPath, props.path)) return;
   // 自身の配下に target がある場合、自分は展開するだけ（target そのものへの scroll は
   // 子の watch が処理する）。子は v-for で children を読み込むとマウントされ、
   // immediate watch が現在の revealVersion で発火する
@@ -238,6 +293,7 @@ function onChildSelect(childPath: string) {
 <template>
   <div>
     <button
+      v-if="!isRoot"
       ref="button"
       class="flex w-full items-center gap-1 rounded-sm px-1 py-0.5 text-left text-sm hover:bg-zinc-700"
       :class="[
@@ -274,7 +330,7 @@ function onChildSelect(childPath: string) {
         v-for="child in children"
         :key="`${child.name}-${child.isDirectory}`"
         :name="child.name"
-        :path="`${path}/${child.name}`"
+        :path="joinPath(path, child.name)"
         :is-directory="child.isDirectory"
         :is-ignored="child.isIgnored"
         :git-change="child.gitChange"

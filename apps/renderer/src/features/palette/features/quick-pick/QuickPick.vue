@@ -212,9 +212,6 @@ function handleKeydown(e: KeyboardEvent) {
 
 <style>
 ._quick-pick-dialog {
-  padding: 0;
-  border: none;
-  background: transparent;
   margin: 15vh auto 0;
 }
 

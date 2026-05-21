@@ -194,8 +194,6 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
 
 <style scoped>
 ._issue-picker-dialog {
-  padding: 0;
-  border: none;
   margin: 15vh auto 0;
 }
 

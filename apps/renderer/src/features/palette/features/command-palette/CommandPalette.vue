@@ -166,8 +166,6 @@ onUnmounted(disposeShow);
 <style scoped>
 /* dialog をビューポート上部中央に配置 */
 ._command-palette-dialog {
-  padding: 0;
-  border: none;
   margin: 15vh auto 0;
 }
 

@@ -216,8 +216,6 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
 
 <style scoped>
 ._pr-picker-dialog {
-  padding: 0;
-  border: none;
   margin: 15vh auto 0;
 }
 

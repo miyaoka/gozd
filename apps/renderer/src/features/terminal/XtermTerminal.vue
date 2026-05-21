@@ -10,7 +10,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal, type IMarker } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { onMounted, onBeforeUnmount, ref, watch } from "vue";
+import { nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { rpcOpenExternal, rpcPtyResize, rpcPtyWrite } from "./rpc";
 import {
   currentTheme,
@@ -28,6 +28,8 @@ const props = defineProps<{
   leafId: string;
   /** true の間は ResizeObserver による自動 fit() を抑制する */
   fitSuspended?: boolean;
+  /** true になったタイミングで imperative に DOM focus を当てる */
+  focused?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -103,12 +105,21 @@ watch(
   },
 );
 
-/** 外部から imperative に focus を呼ぶための公開メソッド */
-function focus() {
-  terminal?.focus();
-}
-
-defineExpose({ focus });
+// focused prop が true → false → true の遷移で imperative に DOM focus を当てる。
+// 初期 focused の取りこぼしは onMounted 内で `terminal.open(container)` 完了直後に
+// props.focused を見て自前で focus する。watch に immediate: true を付けると
+// async onMounted 内の `terminal = new Terminal(...)` 完了との順序保証が無く、
+// `nextTick` 待ちでも terminal が未初期化のまま `terminal?.focus()` が silent no-op に
+// 倒れる事故源になるため避ける。
+watch(
+  () => props.focused,
+  async (focused) => {
+    if (!focused) return;
+    await nextTick();
+    terminal?.focus();
+  },
+  { flush: "post" },
+);
 
 onMounted(async () => {
   const container = containerRef.value;
@@ -206,6 +217,13 @@ onMounted(async () => {
   terminal.textarea?.addEventListener("blur", () => {
     emit("blur");
   });
+
+  // mount 時点で props.focused が立っていれば初回 focus を当てる。
+  // 以降の false→true 遷移は上位の watch で拾うが、初期値は
+  // `terminal` 初期化との順序保証が無いため watch に頼らず明示的に呼ぶ。
+  if (props.focused) {
+    terminal.focus();
+  }
 
   // Shift+Enter で Esc+CR を送信する（Claude Code が改行として認識するシーケンス）
   // keydown で送信、keypress で xterm のデフォルト改行を抑止、keyup は通過させる

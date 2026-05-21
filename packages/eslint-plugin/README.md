@@ -1,51 +1,20 @@
 # @gozd/eslint-plugin
 
-`features/` と `shared/` のバレルファイル（index.ts）強制と依存方向制御を行う ESLint プラグイン。
+gozd プロジェクト固有の ESLint ルールを提供する。
 
 ## ルール
 
-### `gozd/barrel-import`
+### `gozd/no-define-expose`
 
-`features/` や `shared/` 配下のモジュールはバレルファイル（index.ts）経由でのみ import 可能にする。設定不要。
+Vue SFC の `defineExpose` の使用を禁止する。
+
+親から子の内部メソッドを命令的に呼ぶ設計はコンポーネント間の依存を不透明にする。値は props で渡し、子が自分で処理する。共有ロジックは composable に出す。
 
 #### 判定ロジック
 
-import パスを解決し、`features/X/` や `shared/X/` のスコープを抽出して以下を判定する。
+`defineExpose` は Vue の compiler macro であり、import されずに直接呼び出される。AST 上は `CallExpression` で callee が Identifier `defineExpose` となる。識別子名一致のみで判定するため、`foo.defineExpose()` のような member call や別名で wrap した呼び出しは対象外。
 
-- **スコープ外 → スコープ内**: index.ts 経由のみ許可。内部ファイルの直接 import は禁止
-- **同一スコープ内**: 自由に import 可能
-- **子 feature → 親スコープ**: 自由に import 可能（子は親の一部）
-- **子 feature 間**: index.ts 経由のみ許可。異なる子 feature の内部ファイル直接 import は禁止
-- **shared → features**: 全面禁止（バレル経由でも不可。下位層が上位層に依存してはいけない）
-
-#### 対応パターン
-
-```text
-NG: feature 外 → 内部モジュール直接 import
-NG: 親 feature 内 → 子 feature の内部モジュール直接 import（再帰的にネストされた子 feature 含む）
-NG: 親 feature 内 → 子 feature のバレルでないファイル直接 import
-NG: 子 feature 間の内部直接 import
-NG: shared → feature（バレル経由でも禁止）
-OK: feature 外 → バレル経由
-OK: 親 feature 内 → 子 feature のバレル経由
-OK: 親 feature 内 → 再帰的にネストされた子 feature のバレル経由
-OK: 同一 feature / shared 内の通常ファイル参照
-OK: 子 feature → 親の通常ファイル参照
-OK: 子 feature 間のバレル経由
-OK: 外部パッケージ（相対パスでない import）
-```
-
-#### スコープの抽出
-
-パス内の `features/X` または `shared/X` を最も深い位置から探し、スコープとする。
-
-```text
-src/features/terminal/useTerminalStore.ts         → features/terminal
-src/features/sidebar/features/worktree/index.ts   → features/worktree
-src/shared/rpc/useRpc.ts                          → shared/rpc
-```
-
-## 設定例
+#### 設定例
 
 ```typescript
 import pluginGozd from "@gozd/eslint-plugin";
@@ -56,7 +25,7 @@ export default [
       gozd: pluginGozd,
     },
     rules: {
-      "gozd/barrel-import": "error",
+      "gozd/no-define-expose": "error",
     },
   },
 ];

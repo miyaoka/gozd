@@ -9,7 +9,7 @@
 ## フォーカス
 
 - xterm の onFocus → store.focusPane() でフォーカス状態を更新
-- store の focusedLeafId を watch し、自身が focused になったら imperative に terminal.focus()
+- 自身が focused になったタイミングで子の terminal.focus() を呼ぶ責務は XtermTerminal に委譲し、isFocused を props として渡す
 - focus 時に worktreeStore.setOpen() を呼んで選択を追従させる（viewMode は変更しない）
 - 既読消化（done → idle）は useSidebarData が selectionVersion を watch して処理するため、ここでは setOpen を呼ぶだけでよい
 
@@ -21,7 +21,7 @@
 </doc>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed } from "vue";
 import { useContextKeys } from "../../shared/command";
 import { useWorktreeStore } from "../worktree";
 import type { ClaudeState } from "./claudeStatus";
@@ -39,8 +39,6 @@ const props = defineProps<Props>();
 const terminalStore = useTerminalStore();
 const worktreeStore = useWorktreeStore();
 const contextKeys = useContextKeys();
-
-const xtermRef = ref<InstanceType<typeof XtermTerminal>>();
 
 // claude タイルモードでは各 worktree が独立に focusedLeafId を持つため、
 // 単純比較だと worktree ごとに 1 つずつ active 表示になってしまう。
@@ -80,21 +78,6 @@ const cwdLabel = computed(() => {
 
 /** OSC 0/2 で設定されたターミナルタイトル */
 const title = computed(() => terminalStore.titleByLeafId[props.leafId]);
-
-/**
- * store の focusedLeafId が自身を指しているなら imperative に DOM focus する。
- * immediate: true で mount 時の初期値も拾う（split 直後の新規 leaf 対応）。
- * flush: "post" で DOM 更新後に実行し、nextTick で child ref 確定を待つ。
- */
-watch(
-  isFocused,
-  async (focused) => {
-    if (!focused) return;
-    await nextTick();
-    xtermRef.value?.focus();
-  },
-  { immediate: true, flush: "post" },
-);
 
 function handleTerminalFocus() {
   contextKeys.set("terminalFocus", true);
@@ -152,11 +135,11 @@ function handleTerminalBlur() {
         :class="isFocused ? 'opacity-100' : 'opacity-50'"
       >
         <XtermTerminal
-          ref="xtermRef"
           class="size-full"
           :dir="dir"
           :leaf-id="leafId"
           :fit-suspended="effectiveFitSuspended"
+          :focused="isFocused"
           @focus="handleTerminalFocus"
           @blur="handleTerminalBlur"
         />

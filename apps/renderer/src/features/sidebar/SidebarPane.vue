@@ -41,10 +41,13 @@ import { useWorktreeActions } from "./features/worktree";
 import ProjectConfigPanel from "./ProjectConfigPanel.vue";
 import { rpcTaskRemove } from "./rpc";
 import SidebarClock from "./SidebarClock.vue";
-import SidebarMenu from "./SidebarMenu.vue";
+import TaskMenu from "./TaskMenu.vue";
 import { useDialogs } from "./useDialogs";
 import { useSidebarData } from "./useSidebarData";
+import { useTaskMenu } from "./useTaskMenu";
+import { useWorktreeMenu } from "./useWorktreeMenu";
 import VoicevoxPanel from "./VoicevoxPanel.vue";
+import WorktreeMenu from "./WorktreeMenu.vue";
 
 const repoStore = useRepoStore();
 const worktreeStore = useWorktreeStore();
@@ -63,8 +66,21 @@ const { isCreatingFor, handleWorktreeSelect, addWorktree, handleWorktreeRemove }
   });
 
 // --- メニュー ---
+//
+// worktree / task の ⋮ メニューはそれぞれ独立した popover singleton。
+// SidebarPane は open() を呼ぶだけで、light-dismiss / アクション click の close 経路は
+// composable が内部で扱う。
 
-const sidebarMenuRef = ref<InstanceType<typeof SidebarMenu>>();
+const { open: openWorktreeMenu } = useWorktreeMenu();
+const { open: openTaskMenu } = useTaskMenu();
+
+function onOpenWorktreeMenu(anchorEl: HTMLElement, worktree: WorktreeEntry, rootDir: string) {
+  openWorktreeMenu(anchorEl, { worktree, rootDir });
+}
+
+function onOpenTaskMenu(anchorEl: HTMLElement, task: Task, rootDir: string) {
+  openTaskMenu(anchorEl, { task, rootDir });
+}
 
 function onSelectWt(wt: WorktreeEntry) {
   // 同 wt 再クリック時の done 消化は worktreeStore.setOpen の selectionVersion 経由で
@@ -249,14 +265,8 @@ const activeRootWorktree = computed(() => {
           @select-wt="onSelectWt"
           @select-task="onSelectTask"
           @add-worktree="addWorktree"
-          @open-worktree-menu="
-            (anchorEl, wt, rd) =>
-              sidebarMenuRef?.openMenu(anchorEl, { type: 'worktree', worktree: wt, rootDir: rd })
-          "
-          @open-task-menu="
-            (anchorEl, task, rd) =>
-              sidebarMenuRef?.openMenu(anchorEl, { type: 'task', task, rootDir: rd })
-          "
+          @open-worktree-menu="onOpenWorktreeMenu"
+          @open-task-menu="onOpenTaskMenu"
         />
       </DragDropProvider>
 
@@ -273,11 +283,8 @@ const activeRootWorktree = computed(() => {
     </div>
 
     <!-- ⋮ メニュー（worktree / task） -->
-    <SidebarMenu
-      ref="sidebarMenuRef"
-      @worktree-remove="(wt, rd) => handleWorktreeRemove(rd, wt)"
-      @task-remove="(task, rd) => handleTaskRemove(rd, task)"
-    />
+    <WorktreeMenu @remove="(wt, rd) => handleWorktreeRemove(rd, wt)" />
+    <TaskMenu @remove="(task, rd) => handleTaskRemove(rd, task)" />
 
     <!-- 確認ダイアログ -->
     <dialog

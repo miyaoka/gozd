@@ -1,4 +1,5 @@
 import pluginGozd from "@gozd/eslint-plugin";
+import pluginBarrelImport from "@miyaoka/eslint-plugin-barrel-import";
 import skipFormatting from "@vue/eslint-config-prettier/skip-formatting";
 import { defineConfigWithVueTs, vueTsConfigs } from "@vue/eslint-config-typescript";
 import type { ESLint } from "eslint";
@@ -38,6 +39,11 @@ export default defineConfigWithVueTs(
           ignoreRestSiblings: true,
         },
       ],
+
+      // vue/multi-word-component-names: 公式 essential 設定に含まれるが、Vue コア
+      // (Transition / KeepAlive / Suspense / Teleport) や Headless UI 等のライブラリが
+      // 単一語コンポーネント名を採用しており、実用上は強制する意味が薄れている。
+      "vue/multi-word-component-names": "off",
 
       // vue: reactive() / watchEffect() を禁止
       // - reactive: ref() のみ使用する（issue #501）
@@ -133,10 +139,22 @@ export default defineConfigWithVueTs(
   // OK: 同一 feature 内の通常ファイル参照
   {
     plugins: {
+      "barrel-import": pluginBarrelImport,
       gozd: pluginGozd,
     },
     rules: {
-      "gozd/barrel-import": "error",
+      "barrel-import/barrel-import": [
+        "error",
+        {
+          scopes: {
+            shared: { directories: ["shared"], dependsOn: [], isolateModules: true },
+            features: { directories: ["features"], dependsOn: ["shared"] },
+          },
+        },
+      ],
+      // 親から子の内部メソッドを命令的に呼ぶ設計を禁止
+      // props または composable パターンを使う（issue #291）
+      "gozd/no-define-expose": "error",
     },
   },
 

@@ -15,6 +15,7 @@
   "devDependencies": {
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
+    "@typescript-eslint/parser": "catalog:",
     "@typescript/native-preview": "catalog:",
     "eslint": "catalog:",
     "oxfmt": "catalog:",

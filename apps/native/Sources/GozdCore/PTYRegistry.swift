@@ -113,8 +113,11 @@ public actor PTYRegistry {
     cols: UInt16,
     worktreePath: String = ""
   ) throws -> UInt32 {
+    // `nextId` は spawn 成功後に進める。spawn が throw した場合に id を消費せず
+    // 次の試行で同じ id を再利用できる（PTY は生成されていないため id 衝突は無い）。
+    // 先に進めると失敗時に id が穴開きで上昇し、ptys / worktreePathById マップに
+    // 紐付かない「観測不能な id」が累積する。
     let id = nextId
-    nextId += 1
 
     let (stream, continuation) = AsyncStream<PTYEvent>.makeStream()
 
@@ -139,6 +142,7 @@ public actor PTYRegistry {
         continuation.finish()
       }
     )
+    nextId += 1
     ptys[id] = pty
     if !worktreePath.isEmpty {
       worktreePathById[id] = worktreePath

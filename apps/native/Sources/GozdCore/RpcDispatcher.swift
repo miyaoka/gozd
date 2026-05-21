@@ -484,12 +484,14 @@ public actor RpcDispatcher {
         worktreePath: req.worktreePath
       )
     } catch let error as PTYError {
-      // PTYError のサブ case（openptyFailed / forkFailed / preforkAllocFailed）を
-      // 構造化 log に書き残す。包括 catch まで bubble させると Console.app には
-      // case 名 + errno が残るが、失敗した executable / cwd が落ちて再現困難になる。
+      // `RpcSchemeHandler` の包括 catch (`GozdApp.swift` 内 `RpcSchemeHandler.reply`)
+      // は 500 response の body に文字列を載せるだけで stderr には書き出さない。
+      // よって本 handler 側で stderr に書かなければ Console.app には spawn 失敗の
+      // 痕跡が残らない。PTYError のサブ case（openptyFailed / forkFailed /
+      // preforkAllocFailed）に加え、再現に必要な executable / cwd も併記する。
       FileHandle.standardError.write(
         Data(
-          "[RpcDispatcher] pty.spawn failed: \(error) executable=\(req.executable) cwd=\(req.dir)\n"
+          "[handlePtySpawn] pty.spawn failed: \(error) executable=\(req.executable) cwd=\(req.dir)\n"
             .utf8
         )
       )

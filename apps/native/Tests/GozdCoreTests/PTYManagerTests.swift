@@ -239,28 +239,57 @@ struct PTYManagerTests {
     #expect(exit.snapshot() == .exited(code: 127))
   }
 
-  @Test("PTYError の description は case 名 + errno + strerror を含む (issue #493)")
-  func ptyErrorDescriptionIncludesCaseAndErrno() {
+  @Test("PTYError の description は `PTYError.<case>(errno=<n> <strerror>)` 形式で完全一致する")
+  func ptyErrorDescriptionMatchesContractFormat() {
     // RpcSchemeHandler が `"\(error)"` で 500 response payload を作るため、
     // CustomStringConvertible に乗った description が renderer まで届く文字列となる。
-    // case 名・errno 数値・strerror の 3 点を必ず含むことを契約として固定する。
+    // PR 本文と doc コメントで宣言した形式を **完全一致** で固定する。substring
+    // 検査では「無関係文言が混ざっても pass する」「他 case 名が混入しても pass する」
+    // を許してしまうため契約として弱い。
     let openpty = PTYError.openptyFailed(errno: ENOMEM)
-    #expect(openpty.description.contains("openptyFailed"))
-    #expect(openpty.description.contains("\(ENOMEM)"))
-    #expect(openpty.description.contains(String(cString: strerror(ENOMEM))))
+    #expect(openpty.description == "PTYError.openptyFailed(errno=\(ENOMEM) \(expectedErrnoText(ENOMEM)))")
+    #expect("\(openpty)" == openpty.description)
 
     let fork = PTYError.forkFailed(errno: EAGAIN)
-    #expect(fork.description.contains("forkFailed"))
-    #expect(fork.description.contains("\(EAGAIN)"))
-    #expect(fork.description.contains(String(cString: strerror(EAGAIN))))
+    #expect(fork.description == "PTYError.forkFailed(errno=\(EAGAIN) \(expectedErrnoText(EAGAIN)))")
+    #expect("\(fork)" == fork.description)
 
     let prealloc = PTYError.preforkAllocFailed(errno: ENOMEM)
-    #expect(prealloc.description.contains("preforkAllocFailed"))
-    #expect(prealloc.description.contains("\(ENOMEM)"))
-
-    // `"\(error)"` 経路でも同じ description が出ること（String(describing:) との一致）。
-    #expect("\(openpty)" == openpty.description)
+    #expect(prealloc.description == "PTYError.preforkAllocFailed(errno=\(ENOMEM) \(expectedErrnoText(ENOMEM)))")
+    #expect("\(prealloc)" == prealloc.description)
   }
+
+  @Test("PTYExitReason の description は case ごとに付随情報を含む形式で完全一致する")
+  func ptyExitReasonDescriptionMatchesContractFormat() {
+    // `PTYError` と対称に、`PTYExitReason` も `"\(reason)"` で stderr / log に
+    // 残す経路で case 名 + 付随情報が確実に出ることを契約として固定する。
+    let exited = PTYExitReason.exited(code: 42)
+    #expect(exited.description == "PTYExitReason.exited(code=42)")
+    #expect("\(exited)" == exited.description)
+
+    let signaled = PTYExitReason.signaled(signal: SIGHUP, coreDumped: false)
+    #expect(signaled.description == "PTYExitReason.signaled(signal=\(SIGHUP) coreDumped=false)")
+    #expect("\(signaled)" == signaled.description)
+
+    let stopped = PTYExitReason.stopped
+    #expect(stopped.description == "PTYExitReason.stopped")
+    #expect("\(stopped)" == stopped.description)
+
+    let waitFail = PTYExitReason.waitpidFailed(errno: ECHILD)
+    #expect(waitFail.description == "PTYExitReason.waitpidFailed(errno=\(ECHILD) \(expectedErrnoText(ECHILD)))")
+    #expect("\(waitFail)" == waitFail.description)
+  }
+}
+
+/// 本 SUT (`PTYError.errnoText`) と同じく `strerror_r(3)` + SE-0405 イディオムで
+/// 期待値を構築する。`strerror(3)` ベースで期待値を作ると本実装と独立にならず
+/// (POSIX 文面の thread-safety 議論で本実装を `strerror_r` にしている動機が消える)、
+/// `String(cString: [CChar])` で組むと本実装と非対称になるため避ける。
+private func expectedErrnoText(_ code: Int32) -> String {
+  var buf = [CChar](repeating: 0, count: 256)
+  _ = strerror_r(code, &buf, buf.count)
+  let nul = buf.firstIndex(of: 0) ?? buf.endIndex
+  return String(decoding: buf[..<nul].lazy.map { UInt8(bitPattern: $0) }, as: UTF8.self)
 }
 
 // MARK: - Helpers

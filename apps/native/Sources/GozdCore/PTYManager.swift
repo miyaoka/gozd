@@ -349,17 +349,41 @@ extension PTYError: CustomStringConvertible {
   public var description: String {
     switch self {
     case .openptyFailed(let errno):
-      return "PTYError.openptyFailed(errno=\(errno) \(errnoText(errno)))"
+      return "PTYError.openptyFailed(errno=\(errno) \(Self.errnoText(errno)))"
     case .forkFailed(let errno):
-      return "PTYError.forkFailed(errno=\(errno) \(errnoText(errno)))"
+      return "PTYError.forkFailed(errno=\(errno) \(Self.errnoText(errno)))"
     case .preforkAllocFailed(let errno):
-      return "PTYError.preforkAllocFailed(errno=\(errno) \(errnoText(errno)))"
+      return "PTYError.preforkAllocFailed(errno=\(errno) \(Self.errnoText(errno)))"
     }
   }
-}
 
-private func errnoText(_ errno: Int32) -> String {
-  String(cString: strerror(errno))
+  /// errno → 人間可読文字列。`strerror(3)` は POSIX 文面上 thread-safe ではない
+  /// （同一スレッド内で次回呼び出しまで有効、別スレッドが同時に呼ぶと buffer が
+  /// 上書きされる可能性がある）。`String(cString:)` のコピーは API 仕様上の race
+  /// window を閉じる根拠にならないため、thread-safe な `strerror_r(3)` (POSIX 版、
+  /// `int` 戻り) を使う。
+  ///
+  /// `swift-system` の `Errno.description` は内部で `strerror` (thread-unsafe) を
+  /// 使っており ( apple/swift-system #156 ) 採用しない。`Foundation.POSIXError` も
+  /// NSError bridge 経由で内部実装は同根のため不採用。errno → text の thread-safe
+  /// 経路は現状 `strerror_r` 直叩きが業界推奨に残っている。
+  ///
+  /// 文字列化は SE-0405 の公式 deprecation 方針に従い、`String(cString: [CChar])`
+  /// （Swift 6 で deprecated）を避けて `String(decoding: slice, as: UTF8.self)` を
+  /// 使う。`firstIndex(of: 0)` で NUL 終端まで truncate するイディオムが公式推奨
+  /// （deprecation message: "after truncating the null termination"）。errno text は
+  /// ASCII 範囲のため `CChar` (Int8) → `UInt8` の bitPattern reinterpret で UTF-8 と等価。
+  ///
+  /// `PTYError` / `PTYExitReason` 両方の `description` から共有するため `internal`。
+  static func errnoText(_ code: Int32) -> String {
+    var buf = [CChar](repeating: 0, count: 256)
+    let rc = strerror_r(code, &buf, buf.count)
+    if rc != 0 {
+      return "unknown errno \(code)"
+    }
+    let nul = buf.firstIndex(of: 0) ?? buf.endIndex
+    return String(decoding: buf[..<nul].lazy.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+  }
 }
 
 public enum PTYExitReason: Sendable, Equatable {
@@ -383,6 +407,24 @@ public enum PTYExitReason: Sendable, Equatable {
       return .stopped
     }
     return .signaled(signal: lower, coreDumped: (status & 0x80) != 0)
+  }
+}
+
+extension PTYExitReason: CustomStringConvertible {
+  /// `PTYError` と同じく、`"\(reason)"` / `String(describing:)` 経由で case 名 +
+  /// 付随情報が必ず stderr / log に残るようにする。`waitpidFailed` は errno を
+  /// 持つため `strerror_r(3)` 経由で人間可読化する。
+  public var description: String {
+    switch self {
+    case .exited(let code):
+      return "PTYExitReason.exited(code=\(code))"
+    case .signaled(let signal, let coreDumped):
+      return "PTYExitReason.signaled(signal=\(signal) coreDumped=\(coreDumped))"
+    case .stopped:
+      return "PTYExitReason.stopped"
+    case .waitpidFailed(let errno):
+      return "PTYExitReason.waitpidFailed(errno=\(errno) \(PTYError.errnoText(errno)))"
+    }
   }
 }
 

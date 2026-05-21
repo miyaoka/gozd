@@ -1,7 +1,24 @@
 import type { IBuffer, IBufferLine, ILink, ILinkProvider, Terminal } from "@xterm/xterm";
-import { useWorktreeStore } from "../worktree";
-import { findAbsolutePathMatches, resolveHomeDir } from "./findAbsolutePathMatches";
+import { type PathTarget, useWorktreeStore } from "../worktree";
+import {
+  findAbsolutePathMatches,
+  resolveHomeDir,
+  selectionDisplayPath,
+} from "./findAbsolutePathMatches";
 import { findRelativePaths } from "./findRelativePaths";
+
+/** selection の kind に応じて store の対応メソッドに振り分ける */
+function dispatchSelect(
+  worktreeStore: ReturnType<typeof useWorktreeStore>,
+  selection: PathTarget,
+  lineNumber: number | undefined,
+): void {
+  if (selection.kind === "worktreeRelative") {
+    worktreeStore.selectRelPath(selection.relPath, lineNumber);
+  } else {
+    worktreeStore.selectAbsPath(selection.absPath, lineNumber);
+  }
+}
 
 /**
  * ターミナル出力中のファイルパスを検出し、クリックでファイラー/プレビューに反映する LinkProvider を作成する。
@@ -155,7 +172,7 @@ function findAbsolutePathLinks(
   const currentLineEnd = currentLineOffset + currentLineLength;
   const matches = findAbsolutePathMatches(joinedText, dirPrefix, homeDir);
 
-  for (const { idx, totalEnd, selectPath, lineNumber: lineNum } of matches) {
+  for (const { idx, totalEnd, selection, lineNumber: lineNum } of matches) {
     if (idx >= currentLineEnd || totalEnd <= currentLineOffset) continue;
 
     const linkStart = Math.max(idx, currentLineOffset) - currentLineOffset;
@@ -166,10 +183,10 @@ function findAbsolutePathLinks(
       lineNumber,
       linkStart,
       linkEnd,
-      selectPath,
+      selectionDisplayPath(selection),
       (event) => {
         if (!event.shiftKey) return;
-        worktreeStore.selectPath(selectPath, lineNum);
+        dispatchSelect(worktreeStore, selection, lineNum);
       },
       links,
     );
@@ -232,7 +249,7 @@ function findRelativePathLinks(
       text: relPath,
       activate: (event) => {
         if (!event.shiftKey) return;
-        worktreeStore.selectPath(relPath, lineNum);
+        worktreeStore.selectRelPath(relPath, lineNum);
       },
     });
   }

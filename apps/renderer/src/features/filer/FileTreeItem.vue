@@ -11,7 +11,7 @@
 
 - filer event store の fsChange を watch して自分の path 該当時に再読み込み
 - filer event store の gitStatusChange を watch して展開中なら children を再構築
-- worktreeStore.revealVersion を watch して selectedPath が自分または配下なら展開＋スクロール
+- worktreeStore.revealVersion を watch して selectedRelPath が自分または配下なら展開＋スクロール
 - 親→子の命令呼び出し（defineExpose）は使わず、各ノードが自律的にイベントを処理する設計
 </doc>
 
@@ -187,12 +187,15 @@ watch(
 );
 
 /**
- * revealVersion 変化で worktreeStore.selectedPath を見て、自分が target または target の祖先なら処理。
+ * revealVersion 変化で worktreeStore.selectedRelPath を見て、自分が target または target の祖先なら処理。
  * 祖先の場合は展開するだけ。子は v-for でマウント後に自分の revealVersion watch (immediate)
  * で target を処理する再帰チェーン。
+ *
+ * absolute 選択中 (worktree 外) は selectedRelPath が undefined になり reveal は no-op。
+ * ツリーが持っていないパスをマッチさせる経路を型レベルで排除する。
  */
 async function handleReveal() {
-  const targetPath = worktreeStore.selectedPath;
+  const targetPath = worktreeStore.selectedRelPath;
   if (targetPath === undefined) return;
   // 自身がターゲットの場合、展開してスクロールインビュー
   if (targetPath === props.path) {

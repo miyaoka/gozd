@@ -45,19 +45,6 @@ type HistoryState =
 
 type ViewMode = "blame" | "history";
 
-/**
- * 与えられた path が blame 対象として有効か判定する。
- * 絶対パス始まりの file (filer の "open external" 経路) は git 管理外として false。
- * PreviewPane / ChangesSummaryItem の重複判定を 1 箇所に集約する SSOT。
- *
- * `undefined` / 空文字も false に倒す。selectedPath が未確定なケースの安全策。
- */
-export function isBlameablePath(path: string | undefined): boolean {
-  if (path === undefined || path === "") return false;
-  if (path.startsWith("/")) return false;
-  return true;
-}
-
 const HISTORY_MAX = 100;
 
 // notification は module scope で 1 度だけ取得。load 系関数の毎回呼び出しを避け、

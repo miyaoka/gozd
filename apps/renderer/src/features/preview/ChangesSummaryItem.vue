@@ -43,7 +43,7 @@ import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import type { GitChangeKind } from "../worktree";
 import DiffPreview from "./DiffPreview.vue";
 import { rpcGitShowCommitFile, rpcGitShowFile } from "./rpc";
-import { isBlameablePath, useBlamePopover } from "./useBlamePopover";
+import { useBlamePopover } from "./useBlamePopover";
 
 const props = defineProps<{
   change: GitFileChange;
@@ -180,12 +180,13 @@ const originalRev = computed<string | undefined>(() => {
 
 /**
  * DiffPreview に渡す blame button gate。renamed (R) の場合 left side / right side で
- * blame 対象 path が異なるため、両側のうち blame 可能な path が 1 つでもあれば
- * button を出す。判定 SSOT は `isBlameablePath` に集約。
+ * blame 対象 path が異なるため、両側のうち path が存在 (= 空文字でない) すれば button を出す。
+ * `GitFileChange` の path は git diff 由来で worktree 相対が proto 契約のため、
+ * 空文字判定だけで blameable 判定が成立する。
  */
-const blameEnabled = computed(() => {
-  return isBlameablePath(props.change.oldFilePath) || isBlameablePath(props.change.newFilePath);
-});
+const blameEnabled = computed(
+  () => props.change.oldFilePath !== "" || props.change.newFilePath !== "",
+);
 
 function modeLabelForRev(rev: string): string {
   if (rev === "") return "Working Tree";
@@ -209,9 +210,9 @@ function onLineNumberClick(payload: {
     payload.side === "old"
       ? props.change.oldFilePath || props.change.newFilePath
       : props.change.newFilePath || props.change.oldFilePath;
-  // SSOT 判定: 該当 side の blame 対象 path 自体が blameable でなければ早期 return。
-  // blameEnabled が true でも片側だけ blameable のケースがあるため再確認する。
-  if (!isBlameablePath(path)) return;
+  // 該当 side の blame 対象 path 自体が無ければ早期 return。
+  // blameEnabled が true でも片側だけ存在するケースがあるため再確認する。
+  if (path === "") return;
   blamePopover.open(payload.anchorEl, {
     dir,
     relPath: path,

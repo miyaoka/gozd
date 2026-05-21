@@ -1,3 +1,4 @@
+import type { PathTarget } from "../worktree";
 import { parseLineNumberSuffix } from "./parseLineNumberSuffix";
 
 /** パスの末尾区切り文字 */
@@ -33,10 +34,15 @@ export interface AbsolutePathMatch {
   idx: number;
   /** マッチ全体の終了位置（行番号サフィックスも含む） */
   totalEnd: number;
-  /** worktree 内なら相対パス、worktree 外なら絶対パス */
-  selectPath: string;
+  /** 選択ターゲット（worktree 内なら relPath、worktree 外なら absPath） */
+  selection: PathTarget;
   /** パス直後の `:N` から取り出した 1-based 行番号 */
   lineNumber?: number;
+}
+
+/** display 用に selection の文字列表現を取り出す（xterm の `text` / debug 表示用） */
+export function selectionDisplayPath(selection: PathTarget): string {
+  return selection.kind === "worktreeRelative" ? selection.relPath : selection.absPath;
 }
 
 /** パスの末尾位置を探す（区切り文字 or 行末まで） */
@@ -117,10 +123,13 @@ export function findAbsolutePathMatches(
     const lineNumber = lineMatch ? parseLineNumberSuffix(lineMatch[1]) : undefined;
     const totalEnd = lineMatch ? pathEnd + lineMatch[0].length : pathEnd;
 
-    const selectPath = fullPath.startsWith(dirPrefix) ? fullPath.slice(dirPrefix.length) : fullPath;
+    const selection: PathTarget = fullPath.startsWith(dirPrefix)
+      ? { kind: "worktreeRelative", relPath: fullPath.slice(dirPrefix.length) }
+      : { kind: "absolute", absPath: fullPath };
 
-    if (selectPath.length > 0) {
-      matches.push({ idx, totalEnd, selectPath, lineNumber });
+    const display = selectionDisplayPath(selection);
+    if (display.length > 0) {
+      matches.push({ idx, totalEnd, selection, lineNumber });
     }
 
     searchStart = totalEnd;

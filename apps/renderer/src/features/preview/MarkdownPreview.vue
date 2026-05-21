@@ -14,7 +14,7 @@ import { marked, type MarkedExtension } from "marked";
 import { ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { relDirOf } from "../filer";
-import { normalizePath, useWorktreeStore } from "../worktree";
+import { normalizeAbsolute, normalizeRelative, useWorktreeStore } from "../worktree";
 import { resolveMarkdownLink } from "./resolveMarkdownLink";
 
 const props = defineProps<{
@@ -76,9 +76,10 @@ function onLinkClick(e: MouseEvent) {
 
   const resolved = resolveMarkdownLink({
     href,
-    basePath: worktreeStore.selectedPath,
+    basePath: worktreeStore.selection,
     relDirOf,
-    normalizePath,
+    normalizeRelative,
+    normalizeAbsolute,
   });
 
   if (resolved.kind === "passthrough") return;
@@ -93,7 +94,11 @@ function onLinkClick(e: MouseEvent) {
   if (resolved.droppedAnchor) {
     notification.info(ANCHOR_IGNORED_MESSAGE, { href });
   }
-  worktreeStore.selectPath(resolved.path, resolved.lineNumber);
+  if (resolved.selection.kind === "worktreeRelative") {
+    worktreeStore.selectRelPath(resolved.selection.relPath, resolved.lineNumber);
+  } else {
+    worktreeStore.selectAbsPath(resolved.selection.absPath, resolved.lineNumber);
+  }
 }
 </script>
 

@@ -1,25 +1,18 @@
 /**
- * パス中の `.` と `..` を解決し、連続スラッシュ・末尾スラッシュを除去する。
- * 絶対パスではルートを越える `..` を無視し、相対パスでは先頭の `..` を保持する。
+ * worktree 相対パスの `.` / `..` / 連続スラッシュ / 末尾スラッシュを正規化する。
+ * 先頭の `..` は worktree root より上を指すため保持する（呼び出し側で escape 判定）。
+ * 引数は相対パスであることを期待する（先頭 `/` 始まりは渡さない契約）。
  */
-function normalizePath(path: string): string {
-  const isAbsolute = path.startsWith("/");
-  const isTilde = path.startsWith("~/");
-
-  const segments = path.split("/").filter((s) => s !== "");
+function normalizeRelative(relPath: string): string {
+  const segments = relPath.split("/").filter((s) => s !== "");
   const result: string[] = [];
 
-  // ~ プレフィックスはセグメントから除外して後で復元する
-  const startIdx = isTilde ? 1 : 0;
-
-  for (let i = startIdx; i < segments.length; i++) {
-    const seg = segments[i];
+  for (const seg of segments) {
     if (seg === ".") continue;
     if (seg === "..") {
       if (result.length > 0 && result[result.length - 1] !== "..") {
         result.pop();
-      } else if (!isAbsolute && !isTilde) {
-        // 相対パスでは先頭の .. を保持
+      } else {
         result.push("..");
       }
       continue;
@@ -27,10 +20,28 @@ function normalizePath(path: string): string {
     result.push(seg);
   }
 
-  const joined = result.join("/");
-  if (isTilde) return `~/${joined}`;
-  if (isAbsolute) return `/${joined}`;
-  return joined;
+  return result.join("/");
 }
 
-export { normalizePath };
+/**
+ * 絶対パスの `.` / `..` / 連続スラッシュ / 末尾スラッシュを正規化する。
+ * ルートを越える `..` は無視し、ルート (`/`) で停まる。
+ * 引数は `/` 始まりの絶対パスであることを期待する。
+ */
+function normalizeAbsolute(absPath: string): string {
+  const segments = absPath.split("/").filter((s) => s !== "");
+  const result: string[] = [];
+
+  for (const seg of segments) {
+    if (seg === ".") continue;
+    if (seg === "..") {
+      if (result.length > 0) result.pop();
+      continue;
+    }
+    result.push(seg);
+  }
+
+  return `/${result.join("/")}`;
+}
+
+export { normalizeAbsolute, normalizeRelative };

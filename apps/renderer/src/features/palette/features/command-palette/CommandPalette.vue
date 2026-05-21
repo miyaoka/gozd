@@ -168,7 +168,6 @@ onUnmounted(disposeShow);
 ._command-palette-dialog {
   padding: 0;
   border: none;
-  background: transparent;
   margin: 15vh auto 0;
 }
 

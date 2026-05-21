@@ -41,6 +41,7 @@ import ImagePreview from "./ImagePreview.vue";
 import MarkdownPreview from "./MarkdownPreview.vue";
 import { previewFontFamily, previewFontSize } from "./previewConfig";
 import { rpcGitShowCommitFile, rpcGitShowFile } from "./rpc";
+import { isBlameablePath, useBlamePopover } from "./useBlamePopover";
 
 type PreviewMode = "current" | "diff" | "original";
 
@@ -454,6 +455,10 @@ const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ dir: event
   // useFsWatchSync は全 worktree を watch するため、active dir 以外の event は無視する。
   if (eventDir !== worktreeStore.dir) return;
   if (relDir !== relDirOf(selectedPath.value)) return;
+  // fetchContent で currentContent / originalContent が更新されると CodePreview / DiffPreview
+  // が再ハイライト・再描画し、line-no button DOM が置換される。blame popover が同 file に
+  // 対して開いていれば anchorEl が detached になるため、再 fetch 前に閉じる。
+  blamePopover.closeIfActive(eventDir, selectedPath.value);
   void fetchContent(selectedPath.value, selectedGitChange.value);
 });
 onUnmounted(unsubscribeFsChange);
@@ -523,6 +528,117 @@ const headerIconUrl = computed(() => {
   if (path === undefined) return undefined;
   return getFileIconUrl(fileName(path));
 });
+
+/**
+ * commit mode (single 単体 or 範囲) かを集約判定。
+ * `orderedRange` の null 経路を分けるのに使う。
+ */
+const isCommitMode = computed(
+  () => gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null,
+);
+
+/**
+ * Current 側 (newer / working tree) を blame する際の rev。
+ * - uncommitted モード: "" = working tree
+ * - commit モード: newer hash (Working Tree なら "")
+ * orderedRange が null (不整合) なら undefined を返し、blame button は描画自体抑止する。
+ */
+const currentRev = computed<string | undefined>(() => {
+  if (!isCommitMode.value) return "";
+  const range = orderedRange.value;
+  if (range === null) return undefined;
+  return range.newer === UNCOMMITTED_HASH ? "" : range.newer;
+});
+
+/**
+ * Original 側 (older^) を blame する際の rev。
+ * - uncommitted モード: "HEAD"
+ * - commit モード: `<older>^`。range.older は orderedRange が null でない限り
+ *   必ず string で来る (型保証)。fetchCommitContent の fromHash と一致。
+ */
+const originalRev = computed<string | undefined>(() => {
+  if (!isCommitMode.value) return "HEAD";
+  const range = orderedRange.value;
+  if (range === null) return undefined;
+  if (range.older === undefined) {
+    // 単一 commit 選択 (compareHash === null)。fetchCommitContent と同じく `<newer>^`
+    return `${range.newer}^`;
+  }
+  return `${range.older}^`;
+});
+
+/** blame 不可なファイル (絶対パスの外部 open) を弾く判定。button 描画自体を gate する。
+ *  判定の SSOT は `useBlamePopover.isBlameablePath` に集約 */
+const blameEnabled = computed(() => isBlameablePath(selectedPath.value));
+
+const blamePopover = useBlamePopover();
+
+function modeLabelForRev(rev: string): string {
+  if (rev === "") return "Working Tree";
+  if (rev === "HEAD") return "HEAD";
+  return rev;
+}
+
+function openBlame(rev: string, line: number, anchorEl: HTMLElement): void {
+  const dir = worktreeStore.dir;
+  const path = selectedPath.value;
+  if (dir === undefined || path === undefined) return;
+  blamePopover.open(anchorEl, {
+    dir,
+    relPath: path,
+    rev,
+    line,
+    modeLabel: modeLabelForRev(rev),
+  });
+}
+
+function onCodeLineClick(payload: { line: number; anchorEl: HTMLElement }): void {
+  // CodePreview は activeMode の content (current か original) をそのまま渡しているので
+  // activeMode に応じて rev を切り替える。
+  const rev = activeMode.value === "original" ? originalRev.value : currentRev.value;
+  if (rev === undefined) return;
+  openBlame(rev, payload.line, payload.anchorEl);
+}
+
+function onDiffLineClick(payload: {
+  side: "old" | "new";
+  line: number;
+  anchorEl: HTMLElement;
+}): void {
+  const rev = payload.side === "old" ? originalRev.value : currentRev.value;
+  if (rev === undefined) return;
+  openBlame(rev, payload.line, payload.anchorEl);
+}
+
+/**
+ * 表示中ファイル / commit selection / mode 切替で popover を必ず閉じる。
+ * 文脈と blame popover が乖離した状態 (file B を選択しているのに popover は file A
+ * の Line N を指す) を残さないための watcher。
+ */
+watch(
+  [
+    selectedPath,
+    // content reload watcher (上で定義) の deps と同一集合にする。
+    // 「content が更新される条件」と「popover を閉じる条件」が分かれていると、
+    // selectedGitChange だけ変化 (status push で modified ↔ renamed 等) し
+    // activeMode が同値に解決される経路で reload が走るが close は fire せず、
+    // CodePreview / DiffPreview の再描画で button DOM が置換され anchor が detached
+    // になる。両 watcher の deps を同期させて invariant「content が変わるなら必ず close」
+    // を構造で保証する。
+    selectedGitChange,
+    () => gitGraphStore.selectedHash,
+    () => gitGraphStore.compareHash,
+    activeMode,
+    // summary view 切替で CodePreview / DiffPreview が unmount され anchor が detached
+    // になるため、popover も同時に閉じる必要がある。
+    () => summaryStore.enabled,
+  ],
+  () => {
+    if (blamePopover.context.value !== undefined) {
+      blamePopover.close();
+    }
+  },
+);
 </script>
 
 <template>
@@ -623,6 +739,8 @@ const headerIconUrl = computed(() => {
           :current="currentContent"
           :file-path="selectedPath ?? ''"
           :word-wrap="wordWrap"
+          :blame-enabled="blameEnabled"
+          @line-number-click="onDiffLineClick"
         />
 
         <!-- 画像プレビュー（バイナリ画像 + SVG preview モード） -->
@@ -647,6 +765,8 @@ const headerIconUrl = computed(() => {
           :line-number="selectedLineNumber"
           :reveal-version="revealVersion"
           :word-wrap="wordWrap"
+          :blame-enabled="blameEnabled"
+          @line-number-click="onCodeLineClick"
         />
       </div>
     </template>

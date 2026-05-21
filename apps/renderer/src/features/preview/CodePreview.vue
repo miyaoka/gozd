@@ -10,14 +10,27 @@ import { tryCatch } from "@gozd/shared";
 import { watch, ref, nextTick, computed } from "vue";
 import { highlight } from "./useHighlight";
 
-const props = defineProps<{
-  content: string;
-  filePath: string;
-  /** スクロール・ハイライト対象の行番号（1-based） */
-  lineNumber?: number;
-  /** 同一パス・同一行番号でもスクロールを再発火させるためのカウンタ */
-  revealVersion: number;
-  wordWrap: boolean;
+const props = withDefaults(
+  defineProps<{
+    content: string;
+    filePath: string;
+    /** スクロール・ハイライト対象の行番号（1-based） */
+    lineNumber?: number;
+    /** 同一パス・同一行番号でもスクロールを再発火させるためのカウンタ */
+    revealVersion: number;
+    wordWrap: boolean;
+    /**
+     * 行番号を blame ボタンとして描画するか。false なら静的な表示に倒し、
+     * hover も cursor:pointer も出さない (silent dead button を避ける契約)。
+     */
+    blameEnabled?: boolean;
+  }>(),
+  { blameEnabled: false },
+);
+
+const emit = defineEmits<{
+  /** 行番号クリック。anchorEl は popover anchor 用、line は 1-based の表示行 */
+  lineNumberClick: [payload: { line: number; anchorEl: HTMLElement }];
 }>();
 
 const highlightedHtml = ref<string>();
@@ -55,7 +68,7 @@ async function scrollToLine(line: number) {
 }
 
 watch(
-  () => [props.content, props.filePath],
+  () => [props.content, props.filePath, props.blameEnabled],
   async (_, __, onCleanup) => {
     highlightedHtml.value = undefined;
     activeLineNumber.value = undefined;
@@ -65,7 +78,7 @@ watch(
       cancelled = true;
     });
 
-    const result = await tryCatch(highlight(props.content, props.filePath));
+    const result = await tryCatch(highlight(props.content, props.filePath, props.blameEnabled));
     if (cancelled || !result.ok) return;
 
     // result.value が undefined の場合はフォールバック表示（Shiki 未対応言語）
@@ -91,6 +104,30 @@ watch(
     }
   },
 );
+
+/**
+ * 行番号ボタンの click をコンテナ delegation で拾う。
+ * Shiki / fallback どちらも `[data-line-no-btn]` 属性付きの button を持つので、
+ * `closest` で 1 経路に統一する。`blameEnabled` が false のときは早期 return し、
+ * CSS でも cursor:pointer / hover styling を抑制して「クリックしても何も起きない
+ * ボタン」を作らない契約 (silent dead button 禁止)。
+ */
+function onContainerClick(e: MouseEvent) {
+  if (!props.blameEnabled) return;
+  const target = e.target;
+  if (!(target instanceof HTMLElement)) return;
+  const btn = target.closest("[data-line-no-btn]");
+  if (!(btn instanceof HTMLElement)) return;
+  const lineStr = btn.dataset.lineNoBtn;
+  if (lineStr === undefined) return;
+  const line = Number(lineStr);
+  if (!Number.isInteger(line) || line <= 0) return;
+  // preventDefault は button の form submit / focus 移動の副作用を抑えるため。
+  // stopPropagation はしない: 親 (PreviewPane / 上位 layout) で将来 click delegation
+  // を仕掛けたい場合に潰さない方針。close() の Popover API トグルは別経路。
+  e.preventDefault();
+  emit("lineNumberClick", { line, anchorEl: btn });
+}
 </script>
 
 <template>
@@ -102,6 +139,7 @@ watch(
     :class="wordWrap ? '_word-wrap' : ''"
     :style="{ '--line-no-width': lineNoWidth }"
     v-html="highlightedHtml"
+    @click="onContainerClick"
   />
 
   <!-- フォールバック: プレーンテキスト -->
@@ -111,19 +149,61 @@ watch(
     class="_line-numbered p-4 text-sm/tight text-zinc-300"
     :class="wordWrap ? '_word-wrap break-all whitespace-pre-wrap' : ''"
     :style="{ '--line-no-width': lineNoWidth }"
+    @click="onContainerClick"
   ><code><span
         v-for="(line, i) in content.split('\n')"
         :key="i"
         class="_line"
         :data-line="i + 1"
-      >{{ line }}
+      ><button
+          v-if="blameEnabled"
+          type="button"
+          class="_line-no-btn"
+          :data-line-no-btn="i + 1"
+        >{{ i + 1 }}</button><span
+          v-else
+          class="_line-no-static"
+          aria-hidden="true"
+        >{{ i + 1 }}</span>{{ line }}
 </span></code></pre>
 </template>
 
 <style scoped>
-._line-numbered ._line::before,
-._highlighted-code :deep(.line::before) {
-  content: attr(data-line);
+/* blame ON: `<button data-line-no-btn>` (Shiki / fallback どちらも同形) */
+._line-numbered ._line ._line-no-btn,
+._highlighted-code :deep(.line ._line-no-btn) {
+  display: inline-block;
+  width: var(--line-no-width, 3ch);
+  margin-right: 1.5ch;
+  padding: 0;
+  background: transparent;
+  border: none;
+  text-align: right;
+  font: inherit;
+  color: var(--color-zinc-600);
+  user-select: none;
+  cursor: pointer;
+}
+
+._line-numbered ._line ._line-no-btn:hover,
+._highlighted-code :deep(.line ._line-no-btn:hover) {
+  color: var(--color-blue-400);
+  text-decoration: underline;
+}
+
+/* keyboard focus 可視化。silent dead button 禁止規約の延長で、Tab 到達した button が
+   視認できることを担保する。outline は Tailwind の blue-400 と整合させる */
+._line-numbered ._line ._line-no-btn:focus-visible,
+._highlighted-code :deep(.line ._line-no-btn:focus-visible) {
+  outline: 2px solid var(--color-blue-400);
+  outline-offset: -2px;
+  color: var(--color-blue-400);
+}
+
+/* blame OFF: `<span class="_line-no-static">`。focusable を奪うため span に倒す。
+   silent dead button 禁止規約: keyboard 経路 (Tab + Enter) でも何も起きないことを構造で保証する */
+._line-numbered ._line ._line-no-static,
+._highlighted-code :deep(.line ._line-no-static) {
   display: inline-block;
   width: var(--line-no-width, 3ch);
   margin-right: 1.5ch;
@@ -141,8 +221,10 @@ watch(
   min-height: 1lh;
 }
 
-._line-numbered._word-wrap ._line::before,
-._highlighted-code._word-wrap :deep(.line::before) {
+._line-numbered._word-wrap ._line ._line-no-btn,
+._highlighted-code._word-wrap :deep(.line ._line-no-btn),
+._line-numbered._word-wrap ._line ._line-no-static,
+._highlighted-code._word-wrap :deep(.line ._line-no-static) {
   position: absolute;
   left: 0;
   margin-right: 0;

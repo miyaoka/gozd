@@ -69,23 +69,6 @@ export function hasChanges(gitStatuses: Record<string, string> | undefined): boo
   return Object.keys(gitStatuses).length > 0;
 }
 
-const SECOND_MS = 1000;
-const MINUTE_MS = 60 * SECOND_MS;
-const HOUR_MS = 60 * MINUTE_MS;
-const DAY_MS = 24 * HOUR_MS;
-
-/**
- * 経過時間を相対表記で返す。
- * <60s → `now`、<60m → `Nm`、<24h → `Nh`、>=24h → `Nd`。
- */
-export function formatRelativeTime(from: number, now: number): string {
-  const elapsed = now - from;
-  if (elapsed < MINUTE_MS) return "now";
-  if (elapsed < HOUR_MS) return `${Math.floor(elapsed / MINUTE_MS)}m`;
-  if (elapsed < DAY_MS) return `${Math.floor(elapsed / HOUR_MS)}h`;
-  return `${Math.floor(elapsed / DAY_MS)}d`;
-}
-
 /**
  * Task title を表示用に正規化。gh_ref 付き task は `#N タイトル` を返す。
  * body が空 (Claude プレースホルダ含む) の場合、gh_ref ありなら `#N` 単体、無しなら

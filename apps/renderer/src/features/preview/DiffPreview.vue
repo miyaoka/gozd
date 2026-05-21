@@ -77,9 +77,30 @@ const props = withDefaults(
      * 未指定なら内部 ref で split/unified をローカル管理し、トグルバーも自分で描画する。
      */
     externalViewMode?: "split" | "unified";
+    /**
+     * 行番号を blame ボタンとして描画するか。false なら静的な行番号セルに倒し、
+     * hover も cursor:pointer も出さない (silent dead button 禁止規約)。
+     */
+    blameEnabled?: boolean;
   }>(),
-  { externalViewMode: undefined },
+  { externalViewMode: undefined, blameEnabled: false },
 );
+
+/**
+ * 行番号クリック。side で original / current のどちら側の rev を blame するかを区別する。
+ * - "old" → row.oldLineNo の行番号で original (= 比較元 rev) を blame
+ * - "new" → row.newLineNo の行番号で current (= 比較先 rev / working tree) を blame
+ */
+const emit = defineEmits<{
+  lineNumberClick: [payload: { side: "old" | "new"; line: number; anchorEl: HTMLElement }];
+}>();
+
+function onLineClick(side: "old" | "new", line: number, ev: MouseEvent): void {
+  if (!props.blameEnabled) return;
+  const target = ev.currentTarget;
+  if (!(target instanceof HTMLElement)) return;
+  emit("lineNumberClick", { side, line, anchorEl: target });
+}
 
 type DiffLineKindName = "added" | "removed" | "unchanged";
 
@@ -662,8 +683,24 @@ function splitRightBg(row: DiffSplitRowItem): string {
             class="_diff-line"
             :class="tokensReady ? LINE_BG_CLASSES[row.kind] : LINE_FALLBACK_CLASSES[row.kind]"
           >
-            <span class="_line-no">{{ row.oldLineNo ?? "" }}</span>
-            <span class="_line-no">{{ row.newLineNo ?? "" }}</span>
+            <button
+              v-if="row.oldLineNo !== undefined && blameEnabled"
+              type="button"
+              class="_line-no _line-no-btn"
+              @click="onLineClick('old', row.oldLineNo, $event)"
+            >
+              {{ row.oldLineNo }}
+            </button>
+            <span v-else class="_line-no">{{ row.oldLineNo ?? "" }}</span>
+            <button
+              v-if="row.newLineNo !== undefined && blameEnabled"
+              type="button"
+              class="_line-no _line-no-btn"
+              @click="onLineClick('new', row.newLineNo, $event)"
+            >
+              {{ row.newLineNo }}
+            </button>
+            <span v-else class="_line-no">{{ row.newLineNo ?? "" }}</span>
             <span class="_line-text" :class="wordWrap ? '_word-wrap' : ''">
               <template v-if="row.tokens">
                 <span
@@ -694,7 +731,16 @@ function splitRightBg(row: DiffSplitRowItem): string {
           </button>
 
           <template v-else>
-            <span class="_line-no _split-cell" :class="splitLeftBg(row)">{{
+            <button
+              v-if="row.oldLineNo !== undefined && blameEnabled"
+              type="button"
+              class="_line-no _split-cell _line-no-btn"
+              :class="splitLeftBg(row)"
+              @click="onLineClick('old', row.oldLineNo, $event)"
+            >
+              {{ row.oldLineNo }}
+            </button>
+            <span v-else class="_line-no _split-cell" :class="splitLeftBg(row)">{{
               row.oldLineNo ?? ""
             }}</span>
             <span
@@ -713,7 +759,16 @@ function splitRightBg(row: DiffSplitRowItem): string {
                 <template v-else>{{ row.oldText }}</template>
               </template>
             </span>
-            <span class="_line-no _split-cell _split-divider" :class="splitRightBg(row)">{{
+            <button
+              v-if="row.newLineNo !== undefined && blameEnabled"
+              type="button"
+              class="_line-no _split-cell _split-divider _line-no-btn"
+              :class="splitRightBg(row)"
+              @click="onLineClick('new', row.newLineNo, $event)"
+            >
+              {{ row.newLineNo }}
+            </button>
+            <span v-else class="_line-no _split-cell _split-divider" :class="splitRightBg(row)">{{
               row.newLineNo ?? ""
             }}</span>
             <span
@@ -751,6 +806,26 @@ function splitRightBg(row: DiffSplitRowItem): string {
   text-align: right;
   color: var(--color-zinc-600);
   user-select: none;
+}
+
+._line-no-btn {
+  padding: 0;
+  background: transparent;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+._line-no-btn:hover {
+  color: var(--color-blue-400);
+  text-decoration: underline;
+}
+
+/* keyboard focus 可視化。silent dead button 禁止規約の延長 */
+._line-no-btn:focus-visible {
+  outline: 2px solid var(--color-blue-400);
+  outline-offset: -2px;
+  color: var(--color-blue-400);
 }
 
 ._line-no + ._line-text {

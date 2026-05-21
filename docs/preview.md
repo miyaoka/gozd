@@ -9,6 +9,7 @@ features/preview/
 ├── PreviewPane.vue           # ルートペイン（ファイル種別判定、モード切替、データ取得）
 ├── CodePreview.vue           # コード表示（Shiki ハイライト + 行番号）
 ├── DiffPreview.vue           # diff 表示（行単位の差分色分け、2列行番号）
+├── BlamePopover.vue          # 行番号クリックで開く blame / line history popover
 ├── ImagePreview.vue          # 画像表示
 ├── MarkdownPreview.vue       # Markdown レンダリング（marked + DOMPurify）
 ├── ChangesSummaryView.vue    # 全変更ファイルを縦並びで diff 表示するビュー
@@ -124,10 +125,11 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
 
 - Shiki の `createHighlighter` で遅延初期化（シングルトン）
 - `github-dark` テーマ
-- `ShikiTransformer` で各行に `data-line` 属性を付与し、CSS `::before` で行番号表示
+- `ShikiTransformer` で各行に `data-line` 属性を付与し、行頭に line-no 要素を実 DOM 挿入する。挿入する要素は親から渡された `blameEnabled` で切り替え、true なら `<button data-line-no-btn>` (event delegation で blame 起動経路)、false なら `<span class="_line-no-static" aria-hidden="true">` (focusable を奪い keyboard 経路でも何も起きないことを構造で保証)。fallback markup も同じ `v-if` で button/span を切替え、疑似要素 `::before` 由来のクリック判定問題と silent dead button を両方避ける
 - 言語検出: 拡張子 → `EXTENSION_LANG_MAP` で Shiki 言語 ID に変換
 - word-wrap トグルボタンでコードの折り返しを切り替え
 - 行番号指定時（`:行番号` サフィックス付きリンクから）は該当行にスクロールし、黄色背景でハイライト
+- 行番号 button クリックで `lineNumberClick` イベントを emit（PreviewPane が BlamePopover に橋渡し）
 
 ### DiffPreview
 
@@ -146,6 +148,61 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
   - 言語未対応時はフォールバック表示（追加=緑、削除=赤）
 - unified と split の両方の表示形式を取得時に事前展開して保持。view mode 切替で再 fetch は走らない
 - split view では modified hunk 内で連続する removed run と added run を貪欲ペアリングし、余った片側は反対セルを空 (灰色背景) にして残す
+- 行番号セル (old / new いずれも) は親から `blameEnabled` を受けたときだけ `<button>` として描画し、クリックで `lineNumberClick({ side, line, anchorEl })` を emit する。`side` は old → Original 側 rev、new → Current 側 rev で BlamePopover を起動するために使う ([BlamePopover セクション](#blamepopover) 参照)。`blameEnabled=false` のときは button ではなく `<span class="_line-no">` として描画し、focusable も hover / pointer cursor も持たない (silent dead button を作らない契約)。CodePreview と同じ規約
+
+### BlamePopover
+
+行番号クリックで開く blame / line history popover。HTML Popover API (`popover="auto"`) と CSS Anchor Positioning (`top: anchor(bottom)`) を使い、Esc / 外クリックでの dismiss と viewport flip をブラウザに委譲する (SidebarMenu と同じパターン)。
+
+#### 起動経路 (composable)
+
+open / close / state は `useBlamePopover` (module singleton) が SSOT。`defineExpose` で親から子の内部メソッドを呼ぶ設計禁止規約 (apps/renderer/CLAUDE.md) に従い、`BlamePopover.vue` は state を購読して描画するだけで操作は composable に集約する。PreviewPane と ChangesSummaryItem は `useBlamePopover().open(anchorEl, ctx)` を呼ぶ。`BlamePopover` は MainLayout に 1 度だけ mount する。
+
+#### rev の決定ルール
+
+| 経路                                           | rev                          |
+| ---------------------------------------------- | ---------------------------- |
+| Uncommitted モードの Current                   | `""` (空文字 = working tree) |
+| Uncommitted モードの Original                  | `"HEAD"`                     |
+| コミットモードの Current (newer = 実 hash)     | `<newer hash>`               |
+| コミットモードの Current (newer = WorkingTree) | `""`                         |
+| コミットモードの Original (単一 commit 選択)   | `<newer>^`                   |
+| コミットモードの Original (範囲選択)           | `<older>^`                   |
+| Diff モード (clicked side = old)               | Original 側の rev            |
+| Diff モード (clicked side = new)               | Current 側の rev             |
+
+Diff モードでは `lineNumberClick` payload の `side: "old" | "new"` で行が属する側を判定する。片側だけの add/remove 行は反対側に行番号がなく button も描画されないので、clicked side は常に存在する側だけ。
+
+#### 2 ステート
+
+- **Blame**: `rpcGitBlameLine` を 1 行に絞って呼び (`git blame --porcelain -L N,N [<rev>] -- <relPath>`)、commit hash / author / 相対日付 / summary を表示。working tree の未コミット行は sha が全 0 で返るため `notCommitted` フラグで "Not committed yet" 表記に倒す
+- **History**: `rpcGitLogLine` で `git log -L<n>,<n>:<relPath> --no-patch <hash>` を呼び、その行を変更してきた commit 一覧を新しい順で表示。click で `gitGraphStore.select(hash)` を呼んで git-graph 側の選択にも反映しつつ popover を閉じる
+
+History は blame 完了を必ず待ってから走る。起点 commit は blame が返す `commit.hash` に固定し、起点行番号は blame の `source_line` を使う。`ctx.rev` を起点に渡すと、Original (`<older>^`) などで「blame した commit を含まない history」が返って意味契約が壊れるため。blame error / cancel 時は history も error に倒す (loading 中の表示行 fallback は廃止)。`notCommitted` 行 (working tree のみ) は history を実行しても空になるため History タブを disable し説明文を出す。
+
+#### 状態同期と race
+
+- 表示中ファイル / `gitGraphStore.selectedHash` / `compareHash` / `activeMode` / `summaryStore.enabled` のいずれかが変わると `useBlamePopover().close()` を発火し popover を閉じる (文脈乖離した popover を残さない)。`summaryStore.enabled` を含めるのは、summary view 切替で CodePreview / DiffPreview が unmount され anchor が detached になるため
+- PreviewPane / ChangesSummaryItem の `fsChange` callback は `fetchContent()` / `runFetch()` の **前** に `useBlamePopover().closeIfActive(dir, relPath)` を発火する。content 更新で CodePreview の Shiki / fallback button や DiffPreview の line-no button が DOM 置換されると anchor が detached になるため、再描画と同フレームで popover を閉じる
+- ChangesSummaryItem は `onUnmounted` で `closeIfActive(dir, displayPath)` を発火する。`fileChanges` 更新で `v-for` re-key で item が消えるケースも anchor detach 経路として共通化
+- `closeIfActive(dir, relPath)` は context が完全一致する場合のみ close する。他 owner の文脈にぶつけても no-op で安全
+- Popover API の `toggle` イベントを受けて Esc / 外クリック dismiss も composable 側の state を clear する
+- `open()` / `close()` は `activeVersion` をインクリメントし、進行中の blame / history RPC は await 復帰時に version 不一致なら結果を破棄する
+- 進行中 blame は `blameInFlight = { version, promise }` で tuple 化して保持する。`loadHistory` は await 前に `myVersion = activeVersion` を capture し、`blameInFlight.version === myVersion` のときだけ自分 version の blame を await する。let の素 Promise 参照だと `open(B)` で `blamePromise` が reassign されても、待機中の loadHistory は古い (A の) 参照を引きずって別 version の blame を待ち続けるバグになる。tuple version 比較でこれを構造的に防ぐ
+
+#### Swift 側の防御
+
+- `rev` は `validateRev` で `空文字 / "HEAD" / hex hash + 末尾 ^ ~` のみ許可。`-` 始まりや空白文字は option 注入として reject
+- `blameLine` は空文字 (working tree) を許容するが、`logLine` は空文字を `unexpectedOutput` で reject する。`logLine` の rev は呼び出し側が必ず blame した commit hash を起点として流す契約のため、空文字で HEAD 起点 walk に倒れると「blame した commit を含まない history」が返って意味契約が壊れる。proto 側も同じ契約 (`gitLogLine` メッセージのコメント参照)
+- blame 対象ファイルは `git cat-file -s` (または fs stat) でサイズを先に測り、`BLAME_MAX_BLOB_BYTES` (2 MiB) を超えるなら `unexpectedOutput` で reject。`pnpm-lock.yaml` 級ファイル全体 walk による UI ブロックを防ぐ
+- size 取得失敗の silent 通過は「予期された不在」経路のみ: working tree は `NSFileReadNoSuchFileError` のみ、`git cat-file` は `GitError.commandFailed` (exit 128 = path 未解決) のみ。`launchFailed` / `commandNotFound` / 数値 parse 失敗等は throw で観察可能化する (規約「fallback せずエラーにする」と整合)
+- `git log -L` は path に `:` を含むと syntax が壊れるため、`logLine` 側で reject する
+- `git blame --porcelain` の parse は各行を trim してから処理し、CRLF 等の trailing whitespace で `author-time` 等の数値 parse が silent に 0 へ倒れるのを防ぐ
+
+#### スコープ外
+
+- 絶対パスで開いたファイル (filer の "open external" 経由) は git 管理外として、CodePreview / DiffPreview / ChangesSummaryItem 側で `blameEnabled=false` を渡して button 描画自体を抑止する (popover は起動しない)
+- 単一行のみ。範囲選択 (multi-line) はスコープ外
 
 ### MarkdownPreview
 

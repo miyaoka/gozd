@@ -1,8 +1,12 @@
 import {
+  GitBlameLineRequest,
+  GitBlameLineResponse,
   GitDiffExpandLinesRequest,
   GitDiffExpandLinesResponse,
   GitDiffHunksRequest,
   GitDiffHunksResponse,
+  GitLogLineRequest,
+  GitLogLineResponse,
   GitShowCommitFileRequest,
   GitShowCommitFileResponse,
   GitShowFileRequest,
@@ -22,3 +26,9 @@ export const rpcGitDiffHunks = (req: GitDiffHunksRequest) =>
 
 export const rpcGitDiffExpandLines = (req: GitDiffExpandLinesRequest) =>
   rpc("/git/diffExpandLines", req, GitDiffExpandLinesRequest, GitDiffExpandLinesResponse);
+
+export const rpcGitBlameLine = (req: GitBlameLineRequest) =>
+  rpc("/git/blameLine", req, GitBlameLineRequest, GitBlameLineResponse);
+
+export const rpcGitLogLine = (req: GitLogLineRequest) =>
+  rpc("/git/logLine", req, GitLogLineRequest, GitLogLineResponse);

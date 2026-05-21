@@ -43,6 +43,7 @@ import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import type { GitChangeKind } from "../worktree";
 import DiffPreview from "./DiffPreview.vue";
 import { rpcGitShowCommitFile, rpcGitShowFile } from "./rpc";
+import { isBlameablePath, useBlamePopover } from "./useBlamePopover";
 
 const props = defineProps<{
   change: GitFileChange;
@@ -128,6 +129,111 @@ const canShowDiff = computed(() => {
 
 /** 折りたたみ状態。デフォルト展開 */
 const collapsed = ref(false);
+
+const blamePopover = useBlamePopover();
+
+/**
+ * uncommitted / commit mode に応じた currentRev / originalRev。
+ * PreviewPane と同じ規則で「Current = newer side」「Original = older 側 `<older>^`」。
+ * uncommitted モードでは current="" (working tree) / original="HEAD"、
+ * commit モードでは fetchCommit の newer / older を再利用する。
+ */
+const isCommitMode = computed(
+  () => gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null,
+);
+
+type Endpoints = { newer: string; older: string | undefined };
+
+/**
+ * fetchCommit と同じ newer / older 決定ロジックを SSOT として 1 度だけ計算する。
+ * commit が hashToIndex に無い (loaded log の外) ケースは null を返し、blame は disable する。
+ */
+const endpoints = computed<Endpoints | null>(() => {
+  if (!isCommitMode.value) return null;
+  const selectedHash = gitGraphStore.selectedHash;
+  const compareHash = gitGraphStore.compareHash;
+  if (compareHash === null) return { newer: selectedHash, older: undefined };
+  if (selectedHash === UNCOMMITTED_HASH && compareHash === UNCOMMITTED_HASH) return null;
+  const map = gitGraphStore.hashToIndex;
+  const idxOf = (h: string) => (h === UNCOMMITTED_HASH ? -1 : map.get(h));
+  const sIdx = idxOf(selectedHash);
+  const cIdx = idxOf(compareHash);
+  if (sIdx === undefined || cIdx === undefined) return null;
+  if (sIdx >= cIdx) return { newer: compareHash, older: selectedHash };
+  return { newer: selectedHash, older: compareHash };
+});
+
+const currentRev = computed<string | undefined>(() => {
+  if (!isCommitMode.value) return "";
+  const ep = endpoints.value;
+  if (ep === null) return undefined;
+  return ep.newer === UNCOMMITTED_HASH ? "" : ep.newer;
+});
+
+const originalRev = computed<string | undefined>(() => {
+  if (!isCommitMode.value) return "HEAD";
+  const ep = endpoints.value;
+  if (ep === null) return undefined;
+  if (ep.older === undefined) return `${ep.newer}^`;
+  return `${ep.older}^`;
+});
+
+/**
+ * DiffPreview に渡す blame button gate。renamed (R) の場合 left side / right side で
+ * blame 対象 path が異なるため、両側のうち blame 可能な path が 1 つでもあれば
+ * button を出す。判定 SSOT は `isBlameablePath` に集約。
+ */
+const blameEnabled = computed(() => {
+  return isBlameablePath(props.change.oldFilePath) || isBlameablePath(props.change.newFilePath);
+});
+
+function modeLabelForRev(rev: string): string {
+  if (rev === "") return "Working Tree";
+  if (rev === "HEAD") return "HEAD";
+  return rev;
+}
+
+function onLineNumberClick(payload: {
+  side: "old" | "new";
+  line: number;
+  anchorEl: HTMLElement;
+}): void {
+  const dir = worktreeStore.dir;
+  if (dir === undefined) return;
+  const rev = payload.side === "old" ? originalRev.value : currentRev.value;
+  if (rev === undefined) return;
+  // renamed (R) のとき blame 対象 path は side に揃える: old side は oldFilePath、
+  // new side は newFilePath。これを取り違えると rev で存在しない path を blame して
+  // 即 not_found に倒れる。fallback 反対側は path だけ揃え rev は side 側のまま使う。
+  const path =
+    payload.side === "old"
+      ? props.change.oldFilePath || props.change.newFilePath
+      : props.change.newFilePath || props.change.oldFilePath;
+  // SSOT 判定: 該当 side の blame 対象 path 自体が blameable でなければ早期 return。
+  // blameEnabled が true でも片側だけ blameable のケースがあるため再確認する。
+  if (!isBlameablePath(path)) return;
+  blamePopover.open(payload.anchorEl, {
+    dir,
+    relPath: path,
+    rev,
+    line: payload.line,
+    modeLabel: modeLabelForRev(rev),
+  });
+}
+
+/**
+ * 自分が blame popover の owner だった場合は unmount 時に必ず close する。
+ * summary view で fileChanges が更新されて item が v-for re-key で消えると、
+ * popover の anchorEl は detached element を指し続けるため、明示的に close する
+ * 必要がある。closeIfActive は他 owner の context を巻き込まない設計。
+ * dir も渡して同名ファイル別 worktree の取り違えを防ぐ。
+ */
+onUnmounted(() => {
+  const dir = worktreeStore.dir;
+  if (dir !== undefined) {
+    blamePopover.closeIfActive(dir, displayPath.value);
+  }
+});
 
 let fetchVersion = 0;
 
@@ -344,6 +450,11 @@ const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ dir: event
   if (eventDir !== worktreeStore.dir) return;
   const path = props.change.newFilePath || props.change.oldFilePath;
   if (relDir !== relDirOf(path)) return;
+  // fetch 前に popover を閉じる。runFetch で original / current が更新されると DiffPreview
+  // が base items を再構築し button DOM が置換されるため、popover anchor が detached に
+  // なる。content 入れ替えと同フレームで close することで「位置が壊れた popover が画面に
+  // 残る」を構造的に防ぐ。
+  blamePopover.closeIfActive(eventDir, path);
   void runFetch(false);
 });
 onUnmounted(unsubscribeFsChange);
@@ -390,6 +501,8 @@ onUnmounted(unsubscribeFsChange);
         :file-path="displayPath"
         :word-wrap="wordWrap"
         :external-view-mode="viewMode"
+        :blame-enabled="blameEnabled"
+        @line-number-click="onLineNumberClick"
       />
       <div v-else class="px-3 py-2 text-xs text-zinc-500">No diff</div>
     </div>

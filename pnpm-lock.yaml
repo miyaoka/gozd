@@ -276,7 +276,7 @@ importers:
         specifier: 'catalog:'
         version: 7.0.0-dev.20260518.1
       linguist-languages:
-        specifier: ^9.3.2
+        specifier: 9.3.2
         version: 9.3.2
       oxfmt:
         specifier: 'catalog:'

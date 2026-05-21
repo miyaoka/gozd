@@ -489,9 +489,13 @@ public actor RpcDispatcher {
       // よって本 handler 側で stderr に書かなければ Console.app には spawn 失敗の
       // 痕跡が残らない。PTYError のサブ case（openptyFailed / forkFailed /
       // preforkAllocFailed）に加え、再現に必要な executable / cwd も併記する。
+      // executable / cwd は `String(reflecting:)` で quote + escape する。macOS の
+      // path には改行 (`\n`) や制御文字を含めることが構造的に可能で、quote 化
+      // しないと log 1 行が分断され、Console.app での grep / 後段 parser での
+      // event 分離が壊れる。
       FileHandle.standardError.write(
         Data(
-          "[handlePtySpawn] pty.spawn failed: \(error) executable=\(req.executable) cwd=\(req.dir)\n"
+          "[handlePtySpawn] pty.spawn failed: \(error) executable=\(String(reflecting: req.executable)) cwd=\(String(reflecting: req.dir))\n"
             .utf8
         )
       )

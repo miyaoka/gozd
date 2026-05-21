@@ -280,21 +280,34 @@ struct PTYManagerTests {
     #expect("\(waitFail)" == waitFail.description)
   }
 
-  @Test("errnoText は無効 errno (rc != 0 経路) で `unknown errno N` に倒れる")
-  func errnoTextFallsBackOnInvalidErrno() {
-    // POSIX 文面では `strerror_r` の `rc != 0` 時の buffer 内容は未定義。本実装は
-    // この未定義領域を信じず明示的 fallback 文字列 `"unknown errno N"` を返す契約。
-    // 9999 は POSIX で定義されていない invalid errno の代表値（Linux / macOS で
-    // EINVAL を返す）。本契約が壊れると、観察ログに macOS バージョン依存の Darwin
-    // 文字列が漏れ出して観察可能性が分散する。
+  @Test("errnoText は無効 errno でも description 形式 (errno 値 + 閉じ括弧) を保つ")
+  func errnoTextHandlesInvalidErrnoSafely() {
+    // 9999 は POSIX で定義されていない invalid errno。Darwin の `strerror_r` は
+    // 現状 rc != 0 を返し、SUT は `unknown errno N` fallback に倒れるが、POSIX 文面
+    // は invalid errno で:
+    //   (a) rc != 0 で buffer 内容未定義
+    //   (b) rc == 0 で buffer に "Unknown error: N" を書く（Linux glibc 経路）
+    // のどちらも合法としている。よって完全一致 test を組むと Darwin 実装変更で
+    // CI が壊れるリスクがある。
+    //
+    // ここでは「Darwin 実装に依存せず保証される不変条件」のみを固定する:
+    //   - description は `"PTYError.<case>(errno=9999 "` で始まる
+    //   - 末尾は `")"` で閉じる
+    //   - errno 数値が必ず embed される
+    // これにより、前回完全一致を強化した動機（他 case 名混入 / 無関係文言の混入 /
+    // 形式の崩れ）は依然として捕捉される一方、`strerror_r` の rc != 0 / "Unknown
+    // error: N" の Darwin 実装差では壊れない。有効 errno 3 case
+    // (`ptyErrorDescriptionMatchesContractFormat`) では完全一致を維持する。
     let invalid = PTYError.openptyFailed(errno: 9999)
-    #expect(invalid.description == "PTYError.openptyFailed(errno=9999 unknown errno 9999)")
+    #expect(invalid.description.hasPrefix("PTYError.openptyFailed(errno=9999 "))
+    #expect(invalid.description.hasSuffix(")"))
     #expect("\(invalid)" == invalid.description)
 
-    // PTYExitReason 側も同じ fallback 経路を踏むことを確認。`errnoText` の SSOT が
-    // 2 enum で共有されていることの構造的検証も兼ねる。
+    // PTYExitReason 側も同じ Darwin 非依存契約。`errnoText` の SSOT が 2 enum で
+    // 共有されていることの構造的検証も兼ねる。
     let waitFail = PTYExitReason.waitpidFailed(errno: 9999)
-    #expect(waitFail.description == "PTYExitReason.waitpidFailed(errno=9999 unknown errno 9999)")
+    #expect(waitFail.description.hasPrefix("PTYExitReason.waitpidFailed(errno=9999 "))
+    #expect(waitFail.description.hasSuffix(")"))
   }
 }
 

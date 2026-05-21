@@ -39,6 +39,13 @@ const FILENAME_OVERRIDES: Partial<Record<string, BundledLanguage>> = {};
  *
  * Linguist 由来のテーブルは build 時 codegen (`@gozd/shiki-lang-map`) で生成される。
  * データ SSOT は GitHub Linguist の `languages.yml` (linguist-languages npm)。
+ *
+ * 拡張子経路は `fileName.lastIndexOf(".") > 0` の場合のみ実行する。これで以下を弾く:
+ * - `Makefile` / `LICENSE` 等の no-ext ファイル: `lastIndexOf === -1`
+ * - `.bashrc` / `.gitignore` 等の dotfile: `lastIndexOf === 0` (先頭の `.` のみ)
+ * 弾かないと filename map miss → `split(".").pop()` がファイル名全体を ext として返し、
+ * Linguist が将来短い ext (`license` / `readme` 等) を追加した場合に偶然 hit して
+ * 黙って誤分類するリスクが残る。
  */
 function detectLang(filePath: string): BundledLanguage | undefined {
   const fileName = filePath.split("/").pop() ?? "";
@@ -46,9 +53,10 @@ function detectLang(filePath: string): BundledLanguage | undefined {
   const filenameMatch = FILENAME_OVERRIDES[fileName] ?? LINGUIST_FILENAME_LANG_MAP[fileName];
   if (filenameMatch !== undefined) return filenameMatch;
 
-  const ext = fileName.split(".").pop();
-  if (ext === undefined || ext === "") return undefined;
-  const lc = ext.toLowerCase();
+  const lastDot = fileName.lastIndexOf(".");
+  if (lastDot <= 0) return undefined;
+  const lc = fileName.slice(lastDot + 1).toLowerCase();
+  if (lc === "") return undefined;
 
   return EXTENSION_OVERRIDES[lc] ?? LINGUIST_EXTENSION_LANG_MAP[lc];
 }

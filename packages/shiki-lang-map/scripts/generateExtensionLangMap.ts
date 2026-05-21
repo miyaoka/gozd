@@ -37,7 +37,9 @@ const NAME_TO_SHIKI: Record<string, BundledLanguage> = {
   "html+php": "html",
 };
 
-const shikiIds = new Set<string>((bundledLanguagesInfo as readonly BundledLanguageInfo[]).map((l) => l.id));
+const shikiIds = new Set<string>(
+  (bundledLanguagesInfo as readonly BundledLanguageInfo[]).map((l) => l.id),
+);
 // Shiki の alias (例: `"clj"` for `"clojure"`) も resolve できるので alias 集合も持つ
 const shikiAliases = new Set<string>();
 for (const info of bundledLanguagesInfo as readonly BundledLanguageInfo[]) {
@@ -93,16 +95,45 @@ function resolveShikiId(lang: LinguistLang, usedExplicit: Set<string>): string |
   return undefined;
 }
 
-interface CollisionRecord {
-  ext: string;
-  winner: { lang: string; shikiId: string };
-  losers: { lang: string; shikiId: string }[];
+interface Owner {
+  lang: string;
+  shikiId: string;
 }
 
-const extMap: Record<string, string> = {};
-const extOwners: Record<string, { lang: string; shikiId: string }> = {};
-const extCollisions: Record<string, CollisionRecord> = {};
-const filenameMap: Record<string, string> = {};
+interface Collision {
+  key: string;
+  winner: Owner;
+  losers: Owner[];
+}
+
+/** key → Shiki id を first-write-wins で記録しつつ、別 Shiki id へ落ちる loser を
+ * collision として捕集する書き込みヘルパ。`!` non-null assertion を使わずに Map の
+ * 戻り値 union 型 (`Owner | undefined`) で narrow するため Map ベースで実装する。
+ */
+function pushAssignment(
+  owners: Map<string, Owner>,
+  collisions: Map<string, Collision>,
+  key: string,
+  candidate: Owner,
+): void {
+  const existing = owners.get(key);
+  if (existing === undefined) {
+    owners.set(key, candidate);
+    return;
+  }
+  if (existing.shikiId === candidate.shikiId) return;
+  const recorded = collisions.get(key);
+  if (recorded === undefined) {
+    collisions.set(key, { key, winner: existing, losers: [candidate] });
+    return;
+  }
+  recorded.losers.push(candidate);
+}
+
+const extOwners = new Map<string, Owner>();
+const extCollisions = new Map<string, Collision>();
+const filenameOwners = new Map<string, Owner>();
+const filenameCollisions = new Map<string, Collision>();
 const usedExplicit = new Set<string>();
 
 const allLangs = Object.values(linguist) as readonly LinguistLang[];
@@ -118,26 +149,17 @@ for (const lang of sortedLangs) {
     continue;
   }
   matchedLangCount++;
+  const candidate: Owner = { lang: lang.name, shikiId };
 
   for (const ext of lang.extensions ?? []) {
     // ".swift" → "swift" / "..." (空文字含む) は skip
     const key = ext.replace(/^\./, "").toLowerCase();
     if (key === "") continue;
-    if (!(key in extMap)) {
-      extMap[key] = shikiId;
-      extOwners[key] = { lang: lang.name, shikiId };
-    } else if (extOwners[key]!.shikiId !== shikiId) {
-      // 別 Shiki id への loser を collision として記録
-      const winner = extOwners[key]!;
-      if (!(key in extCollisions)) {
-        extCollisions[key] = { ext: key, winner, losers: [] };
-      }
-      extCollisions[key]!.losers.push({ lang: lang.name, shikiId });
-    }
+    pushAssignment(extOwners, extCollisions, key, candidate);
   }
 
   for (const filename of lang.filenames ?? []) {
-    if (!(filename in filenameMap)) filenameMap[filename] = shikiId;
+    pushAssignment(filenameOwners, filenameCollisions, filename, candidate);
   }
 }
 
@@ -148,11 +170,15 @@ for (const name of Object.keys(NAME_TO_SHIKI)) {
   if (!usedExplicit.has(name)) unusedExplicit.push(name);
 }
 
-// 出力: 拡張子は ASCII order でソート
-const extEntries = Object.entries(extMap).sort(([a], [b]) => a.localeCompare(b));
-const filenameEntries = Object.entries(filenameMap).sort(([a], [b]) => a.localeCompare(b));
+// 出力: ASCII order でソート
+const extEntries = [...extOwners.entries()]
+  .map(([key, owner]) => [key, owner.shikiId] as const)
+  .sort(([a], [b]) => a.localeCompare(b));
+const filenameEntries = [...filenameOwners.entries()]
+  .map(([key, owner]) => [key, owner.shikiId] as const)
+  .sort(([a], [b]) => a.localeCompare(b));
 
-function fmtEntry([key, value]: [string, string]): string {
+function fmtEntry([key, value]: readonly [string, string]): string {
   return `  ${JSON.stringify(key)}: ${JSON.stringify(value)},`;
 }
 
@@ -164,9 +190,9 @@ import type { BundledLanguage } from "shiki";
 
 /** 拡張子 → Shiki BundledLanguage の対応表 (Linguist 由来)。
  *
- * 型は \`Partial<Record<string, BundledLanguage>>\` として export し、未存在 key の lookup が
- * \`undefined\` を返すことを呼び出し側で型上扱えるようにする (\`as Record<...>\` キャスト不要)。
- * 値の妥当性は宣言時に \`satisfies Record<string, BundledLanguage>\` で literal を検証する。
+ * 型は \`Readonly<Partial<Record<string, BundledLanguage>>>\` として export し、未存在 key の
+ * lookup が \`undefined\` を返すことを呼び出し側で型上扱えるようにする (\`as Record<...>\` キャスト不要)。
+ * 値の妥当性は宣言時に \`satisfies Readonly<Record<string, BundledLanguage>>\` で literal を検証する。
  */
 export const LINGUIST_EXTENSION_LANG_MAP: Readonly<Partial<Record<string, BundledLanguage>>> = {
 ${extEntries.map(fmtEntry).join("\n")}
@@ -181,26 +207,27 @@ ${filenameEntries.map(fmtEntry).join("\n")}
 fs.mkdirSync(path.dirname(OUTPUT_FILE), { recursive: true });
 fs.writeFileSync(OUTPUT_FILE, content);
 
-const collisionCount = Object.keys(extCollisions).length;
 console.log(
   `Generated ${path.relative(process.cwd(), OUTPUT_FILE)}: ` +
     `${extEntries.length} extensions, ${filenameEntries.length} filenames. ` +
     `Matched ${matchedLangCount} Linguist langs to Shiki bundle, ${unmatchedLangCount} unmatched.`,
 );
 
-if (collisionCount > 0) {
+function logCollisions(label: string, collisions: ReadonlyMap<string, Collision>): void {
+  if (collisions.size === 0) return;
   console.log(
-    `\nAmbiguous extensions: ${collisionCount} extensions collide across Shiki langs ` +
+    `\nAmbiguous ${label}: ${collisions.size} ${label} collide across Shiki langs ` +
       `(first-write-wins by Linguist ASCII order). Override in consumer if intent differs:`,
   );
-  const sortedCollisions = Object.values(extCollisions).sort((a, b) =>
-    a.ext.localeCompare(b.ext),
-  );
-  for (const c of sortedCollisions) {
+  const sorted = [...collisions.values()].sort((a, b) => a.key.localeCompare(b.key));
+  for (const c of sorted) {
     const losers = c.losers.map((l) => `${l.lang}=${l.shikiId}`).join(", ");
-    console.log(`  .${c.ext} → ${c.winner.shikiId} (${c.winner.lang}) [losers: ${losers}]`);
+    console.log(`  ${c.key} → ${c.winner.shikiId} (${c.winner.lang}) [losers: ${losers}]`);
   }
 }
+
+logCollisions("extensions", extCollisions);
+logCollisions("filenames", filenameCollisions);
 
 if (unusedExplicit.length > 0) {
   console.warn(

@@ -61,6 +61,14 @@ function dirName(dirPath: string): string {
   return parts[parts.length - 1] ?? dirPath;
 }
 
+/**
+ * worktree 相対パスの親 + 子名を連結する。worktree 直下のパスを表現する `""` を
+ * 親として渡すと先頭 `/` が付かない。`getDeletedEntries` の `prefix` 算出と同じ規律。
+ */
+function joinPath(parent: string, name: string): string {
+  return parent === "" ? name : `${parent}/${name}`;
+}
+
 /** ディレクトリ優先 → 名前順 */
 function sortEntries(entries: FileEntry[]): FileEntry[] {
   return [...entries].sort((a, b) => {
@@ -71,5 +79,5 @@ function sortEntries(entries: FileEntry[]): FileEntry[] {
   });
 }
 
-export { dirName, getDeletedEntries, sortEntries, toFileEntries };
+export { dirName, getDeletedEntries, joinPath, sortEntries, toFileEntries };
 export type { FileEntry };

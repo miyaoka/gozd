@@ -190,14 +190,27 @@ function close(): void {
  *     更新で button DOM が置換 → anchorEl が detached になる構造的問題を popover の
  *     auto close で潰す
  *
- * 他 owner が open している context にぶつけても dir + relPath 不一致で no-op になる。
+ * no-op 経路の分類:
+ *   - `ctx === undefined`: popover が open していない。close watcher / unmount 多重 fire の
+ *     正常 case で頻発するため log を出さない
+ *   - `ctx あるが dir / relPath 不一致`: 他 owner が open している context にぶつけた case。
+ *     正常運用 (PreviewPane と ChangesSummaryItem が同 file を取り合うケース等) でも起き得るが、
+ *     観察可能性のため debug log を 1 行出して切り分けを楽にする
  */
 function closeIfActive(dir: string, relPath: string): void {
   const ctx = context.value;
   if (ctx === undefined) return;
   if (ctx.dir === dir && ctx.relPath === relPath) {
     close();
+    return;
   }
+  // 不一致 no-op: popover が他 owner / 他 file に対して開いている時のクロス呼び出し。
+  // 期待される動作だが、「あれ popover 閉じないんだけど」の切り分けに使えるよう
+  // dev tools で観測できる形にしておく (notification は出さない — 正常運用でも起きる)。
+  console.debug("[useBlamePopover] closeIfActive no-op: context mismatch", {
+    requested: { dir, relPath },
+    active: { dir: ctx.dir, relPath: ctx.relPath },
+  });
 }
 
 function setViewMode(mode: ViewMode): void {

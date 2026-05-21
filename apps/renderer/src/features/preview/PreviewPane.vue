@@ -618,6 +618,14 @@ function onDiffLineClick(payload: {
 watch(
   [
     selectedPath,
+    // content reload watcher (上で定義) の deps と同一集合にする。
+    // 「content が更新される条件」と「popover を閉じる条件」が分かれていると、
+    // selectedGitChange だけ変化 (status push で modified ↔ renamed 等) し
+    // activeMode が同値に解決される経路で reload が走るが close は fire せず、
+    // CodePreview / DiffPreview の再描画で button DOM が置換され anchor が detached
+    // になる。両 watcher の deps を同期させて invariant「content が変わるなら必ず close」
+    // を構造で保証する。
+    selectedGitChange,
     () => gitGraphStore.selectedHash,
     () => gitGraphStore.compareHash,
     activeMode,

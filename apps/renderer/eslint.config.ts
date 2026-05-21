@@ -1,3 +1,4 @@
+import pluginGozd from "@gozd/eslint-plugin";
 import pluginBarrelImport from "@miyaoka/eslint-plugin-barrel-import";
 import skipFormatting from "@vue/eslint-config-prettier/skip-formatting";
 import { defineConfigWithVueTs, vueTsConfigs } from "@vue/eslint-config-typescript";
@@ -134,6 +135,7 @@ export default defineConfigWithVueTs(
   {
     plugins: {
       "barrel-import": pluginBarrelImport,
+      gozd: pluginGozd,
     },
     rules: {
       "barrel-import/barrel-import": [
@@ -145,6 +147,9 @@ export default defineConfigWithVueTs(
           },
         },
       ],
+      // 親から子の内部メソッドを命令的に呼ぶ設計を禁止
+      // props または composable パターンを使う（issue #291）
+      "gozd/no-define-expose": "error",
     },
   },
 

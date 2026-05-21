@@ -1,8 +1,8 @@
-import barrelImport from "./rules/barrelImport";
+import noDefineExpose from "./rules/noDefineExpose";
 
 const plugin = {
   rules: {
-    "barrel-import": barrelImport,
+    "no-define-expose": noDefineExpose,
   },
 };
 

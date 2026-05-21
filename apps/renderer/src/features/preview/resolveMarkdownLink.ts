@@ -3,17 +3,20 @@ import { tryCatch } from "@gozd/shared";
 /**
  * Markdown プレビュー内 `<a>` の href を解決し、内部遷移 / 素通し / 無効のいずれかを返す。
  *
- * VS Code (`markdown-language-features/preview-src/index.ts`) と同じ責務分担:
- * - scheme 付き URL (`http://`, `mailto:` 等) と `#fragment` 単独は **素通し**
- *   （`gozd-rpc://` 等の native scheme も含めて、scheme 付きはすべてブラウザの既定挙動に任せる）
- * - scheme 無しは内部リンクとして解決
+ * scheme 判定は信頼境界として allowlist 方式を採る。Markdown プレビューは
+ * リポジトリ内ファイル由来のテキストを描画するため、`gozd-rpc://` / `gozd-app://` /
+ * `file:` / `data:` / `javascript:` 等の native or 危険 scheme は明示的に invalid に倒す。
+ * passthrough は http(s) / mailto: のみ (外部ブラウザに渡す scheme)。
  *
- * 行番号フラグメント (`#L42`, `#L42,5`, `#42`) は VS Code の `getLocationFragmentFromLinkText` に倣い
- * lineNumber として抽出する。それ以外の anchor (`#section` 等の見出しアンカー) は
+ * 行番号フラグメント (`#L42`, `#L42,5`, `#42`) は VS Code の `getLocationFragmentFromLinkText`
+ * 互換の regex で lineNumber を抽出する。それ以外の anchor (`#section` 等の見出しアンカー) は
  * `droppedAnchor` として呼び出し側に通知する (silent drop を避ける)。
  */
 
 const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
+
+/** Markdown プレビューから外部ブラウザに渡すことを許可する scheme */
+const PASSTHROUGH_SCHEMES = ["http:", "https:", "mailto:"];
 
 /**
  * VS Code `getLocationFragmentFromLinkText` の正規表現に揃える。
@@ -50,6 +53,16 @@ function parseAnchor(fragment: string): { lineNumber: number | undefined; droppe
   return { lineNumber: parsed, droppedAnchor: false };
 }
 
+/**
+ * 解決後パスが worktree root の外を指すかを判定する。
+ * `..hidden.md` のような正当な隠しファイル名を巻き込まないよう、
+ * `..` 単独 / `..` の後に segment 区切り `/` がある場合のみ「外」とみなす (同様に `~` も)。
+ */
+function escapesWorktree(path: string): boolean {
+  if (path === "" || path === ".." || path === "~") return true;
+  return path.startsWith("../") || path.startsWith("/") || path.startsWith("~/");
+}
+
 function resolveMarkdownLink({
   href,
   basePath,
@@ -58,9 +71,17 @@ function resolveMarkdownLink({
 }: ResolveOptions): ResolvedLink {
   if (href === "") return { kind: "invalid", reason: "Empty link target" };
 
-  // scheme 付き URL / `#` 単独は WebView の既定挙動に任せる
-  if (URL_SCHEME_RE.test(href) || href.startsWith("#")) {
+  // `#` 単独はブラウザの既定挙動 (同一文書内アンカー) に任せる
+  if (href.startsWith("#")) return { kind: "passthrough" };
+
+  // scheme 判定: allowlist (http(s) / mailto) のみ passthrough。
+  // それ以外の scheme 付き URL は信頼境界を超えるため invalid に倒す。
+  const lowered = href.toLowerCase();
+  if (PASSTHROUGH_SCHEMES.some((s) => lowered.startsWith(s))) {
     return { kind: "passthrough" };
+  }
+  if (URL_SCHEME_RE.test(href)) {
+    return { kind: "invalid", reason: `Unsupported link scheme: ${href}` };
   }
 
   const hashIdx = href.indexOf("#");
@@ -93,14 +114,7 @@ function resolveMarkdownLink({
 
   const normalized = normalizePath(combined);
 
-  // worktree root の外を指すリンクは扱わない
-  // (絶対パスや `~` で始まる結果は normalizePath 仕様上ここでは到達しないが防御的に落とす)
-  if (
-    normalized === "" ||
-    normalized.startsWith("..") ||
-    normalized.startsWith("/") ||
-    normalized.startsWith("~")
-  ) {
+  if (escapesWorktree(normalized)) {
     return { kind: "invalid", reason: `Link target is outside the worktree: ${href}` };
   }
 

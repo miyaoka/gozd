@@ -149,21 +149,30 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
 
 ### MarkdownPreview
 
-- `marked` で HTML に変換後、`DOMPurify.sanitize()` で XSS 対策
-- YAML frontmatter を `hooks.preprocess` でコードブロックに変換して表示
-- markdown 中の `[text](https://...)` 由来 `<a>` は、native の `ExternalLinkNavigationDecider`（[architecture.md](architecture.md) の「WebPage の navigation policy」参照）が拾って OS のデフォルトブラウザで開く。WebView 内で main frame が外部 URL に置換されることはない
-- 相対パスリンク (`[text](./foo.md)` / `[text](../bar.md)` / `[text](/baz.md)` 等の scheme なしリンク) は MarkdownPreview 内の `@click` でイベント委譲して捕捉し、`worktreeStore.selectPath()` でプレビュー対象を切り替える。WebView のデフォルトナビゲーション (現在 URL に対する相対解決) に任せると `http://localhost:5173/...` / `gozd-app://localhost/...` の存在しないリソースを指してクリックが死ぬため、構造的に preventDefault して内部経路に倒す
-- 解決ロジックは純粋関数 `resolveMarkdownLink` に切り出し、`relDirOf` / `normalizePath` を引数で受け取って依存反転している。テスト (`resolveMarkdownLink.test.ts`) でテーブル駆動の境界条件をカバー
-- href の分岐 (VS Code `markdown-language-features/preview-src/index.ts` と同じ責務分担):
-  - `/` 始まり: worktree ルート相対として扱い、先頭の `/` を除去
-  - `./` / `../` / 名前のみ: 現在の `selectedPath` のディレクトリ基準で結合 → `normalizePath`
-  - `#fragment` 単独: 同一文書内アンカーとしてブラウザのデフォルトスクロールに任せる
-  - `http(s)://` / `mailto:` / `gozd-rpc://` 等 scheme 付き: ハンドラを素通りさせて `ExternalLinkNavigationDecider` 経路 (外部) または WebView 既定に渡す
-- `[text](./foo%20bar.md)` のような URL エンコードされた href は `decodeURIComponent` で復号 (失敗時は invalid 通知)
-- 行番号フラグメント (`./foo.ts#L42` / `#42` / `#L42,5` / `#L42-L50`) は `getLocationFragmentFromLinkText` (VS Code) と同じ regex で startLine だけ抽出し、`selectPath(path, lineNumber)` の lineNumber に渡す。CodePreview の `selectedLineNumber` 経由で行スクロール / ハイライトが効く
-- それ以外の anchor (`#installation` 等の見出しアンカー) は info notification で「Anchor ignored (not a line number)」を出して silent drop を避ける (Markdown 内見出しへの自動スクロールは現状未対応)
-- worktree root の外を指す解決結果 (`..` で抜ける / 不正な URL encoding / 空 href) は error notification を出して selection は更新しない
-- middle click (`auxclick`) はハンドラに通さず WebView の既定挙動に任せる (VS Code も未対応)
+- Markdown を HTML に変換して描画する。HTML はサニタイズして XSS を防ぐ
+- YAML frontmatter はコードブロックとして描画する
+
+#### リンクの遷移先ルール
+
+Markdown 内のリンクは href の形式によって遷移先が決まる。リンク経路の役割分担は [architecture.md](architecture.md) の「WebPage の navigation policy」と整合する。
+
+| href の形式                                                                      | 遷移先                                                                               |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `http(s)://` / `mailto:`                                                         | OS のデフォルトブラウザで開く（外部ナビゲーション）                                  |
+| `#fragment` 単独                                                                 | 同一文書内のアンカーへスクロール                                                     |
+| `/` 始まり                                                                       | worktree ルートからの相対パスとしてプレビュー対象を切り替える                        |
+| `./` / `../` / 名前のみ                                                          | 現在表示中の Markdown ファイルのディレクトリ基準で結合してプレビュー対象を切り替える |
+| 行番号フラグメント (`./foo.ts#L42` 等)                                           | path 部分でファイル切替、行番号は CodePreview の行ハイライト/スクロールに反映        |
+| その他 scheme (`gozd-rpc:` / `gozd-app:` / `file:` / `data:` / `javascript:` 等) | 無視（信頼境界外として遷移しない）                                                   |
+
+#### 例外条件と通知
+
+- worktree ルートの外を指すリンク (`../` で抜ける等) と不正な URL エンコードは通知のみでファイル切替を行わない
+- 行番号でない anchor (見出しアンカー等) はファイル切替は行うが、見出しスクロールは行わず通知で挙動を明示する（自動スクロールは未対応）
+- 修飾子付きクリック / 中ボタンクリック等の特殊操作はブラウザ既定挙動に委ねる
+- 通知は href ごとに別メッセージを出さず、固定 message と詳細 cause に分けて重複抑制を効かせる
+
+実装の詳細（クリック捕捉経路、解決ロジック、行番号フラグメントの抽出規則、URL デコードの取り扱い）は `MarkdownPreview.vue` の `<doc>` ブロックと `resolveMarkdownLink` を参照。
 
 ### ImagePreview
 

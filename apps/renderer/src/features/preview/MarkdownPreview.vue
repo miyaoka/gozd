@@ -57,7 +57,15 @@ watch(
  *   (VS Code でも未対応 / 内部リンクとして扱わない)
  * - scheme 付き URL と `#fragment` 単独は preventDefault せず素通しし、
  *   `ExternalLinkNavigationDecider` (外部 URL) / ブラウザ既定スクロール (`#`) に委ねる
+ *
+ * notification は **固定 message + 詳細を `cause` に分離** する。
+ * `useNotificationStore` は同一 message を重複抑制するため、href 違いのリンクを連続
+ * クリックしてもトーストが累積しない。href の生値は `cause` 側にだけ保持し、トースト
+ * 詳細パネルで確認できる経路を残す。
  */
+const ANCHOR_IGNORED_MESSAGE = "Heading anchors are not yet supported; opened the file only";
+const LINK_INVALID_MESSAGE = "Could not open link from markdown preview";
+
 function onLinkClick(e: MouseEvent) {
   const target = e.target;
   if (!(target instanceof HTMLElement)) return;
@@ -78,12 +86,12 @@ function onLinkClick(e: MouseEvent) {
   e.preventDefault();
 
   if (resolved.kind === "invalid") {
-    notification.error(resolved.reason);
+    notification.error(LINK_INVALID_MESSAGE, { href, reason: resolved.reason });
     return;
   }
 
   if (resolved.droppedAnchor) {
-    notification.info(`Anchor ignored (not a line number): ${href}`);
+    notification.info(ANCHOR_IGNORED_MESSAGE, { href });
   }
   worktreeStore.selectPath(resolved.path, resolved.lineNumber);
 }

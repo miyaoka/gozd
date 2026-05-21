@@ -2,9 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { resolveMarkdownLink } from "./resolveMarkdownLink";
 
 /**
- * `relDirOf` / `normalizePath` の挙動は別ファイル (filer/relDirOf.test.ts, worktree/pathUtils.test.ts) で
- * SSOT としてテストされている。ここでは `resolveMarkdownLink` 自体のロジックを切り分けるため
- * 同等仕様の小さな fake を inline で渡す。
+ * `relDirOf` / `normalizePath` の挙動は別ファイル
+ * (`filer/relDirOf.test.ts`, `worktree/pathUtils.test.ts`) で SSOT としてテスト済み。
+ *
+ * 本来は barrel 経由 (`../filer` / `../worktree`) で本物を import して挙動差を消したいが、
+ * worktree barrel は `useWorktreeStore` 等のロードで `window.__gozdReceive` を参照する
+ * shared/rpc モジュールを芋づる式に取り込むため bun:test 環境で失敗する。
+ * barrel-import ルールにより別 feature の内部モジュール (`../filer/relDirOf`) を直接
+ * import することも禁止されている。
+ *
+ * 折衷案として `pathUtils.ts:normalizePath` / `relDirOf.ts` のロジックを inline fake で
+ * 完全に写し取る (tilde 分岐含む)。本物との挙動差が出ないことは仕様の一致で担保する。
  */
 function fakeRelDirOf(path: string): string {
   const idx = path.lastIndexOf("/");
@@ -13,22 +21,31 @@ function fakeRelDirOf(path: string): string {
 
 function fakeNormalizePath(path: string): string {
   const isAbsolute = path.startsWith("/");
+  const isTilde = path.startsWith("~/");
+
   const segments = path.split("/").filter((s) => s !== "");
   const result: string[] = [];
-  for (const seg of segments) {
+
+  const startIdx = isTilde ? 1 : 0;
+
+  for (let i = startIdx; i < segments.length; i++) {
+    const seg = segments[i]!;
     if (seg === ".") continue;
     if (seg === "..") {
       if (result.length > 0 && result[result.length - 1] !== "..") {
         result.pop();
-      } else if (!isAbsolute) {
+      } else if (!isAbsolute && !isTilde) {
         result.push("..");
       }
       continue;
     }
     result.push(seg);
   }
+
   const joined = result.join("/");
-  return isAbsolute ? `/${joined}` : joined;
+  if (isTilde) return `~/${joined}`;
+  if (isAbsolute) return `/${joined}`;
+  return joined;
 }
 
 function resolve(href: string, basePath: string | undefined) {
@@ -41,7 +58,7 @@ function resolve(href: string, basePath: string | undefined) {
 }
 
 describe("resolveMarkdownLink", () => {
-  describe("passthrough", () => {
+  describe("passthrough (allowlist のみ)", () => {
     test("http(s) URL は passthrough", () => {
       expect(resolve("https://example.com/", "docs/preview.md")).toEqual({ kind: "passthrough" });
       expect(resolve("http://example.com/", "docs/preview.md")).toEqual({ kind: "passthrough" });
@@ -53,14 +70,38 @@ describe("resolveMarkdownLink", () => {
       });
     });
 
-    test("scheme 付き URL (gozd-rpc://, vscode:// 等) は passthrough", () => {
-      expect(resolve("gozd-rpc://localhost/", "docs/preview.md")).toEqual({ kind: "passthrough" });
-      expect(resolve("vscode://", "docs/preview.md")).toEqual({ kind: "passthrough" });
-    });
-
     test("# 単独は passthrough (同一文書内アンカー)", () => {
       expect(resolve("#section", "docs/preview.md")).toEqual({ kind: "passthrough" });
       expect(resolve("#", "docs/preview.md")).toEqual({ kind: "passthrough" });
+    });
+
+    test("scheme 大文字小文字混在も passthrough", () => {
+      expect(resolve("HTTPS://example.com/", "docs/preview.md")).toEqual({ kind: "passthrough" });
+      expect(resolve("Mailto:user@example.com", "docs/preview.md")).toEqual({
+        kind: "passthrough",
+      });
+    });
+  });
+
+  describe("scheme allowlist 外 (invalid)", () => {
+    test("gozd-rpc:// は invalid (RPC 経路への遷移を許可しない)", () => {
+      const result = resolve("gozd-rpc://localhost/fs/readFile", "docs/preview.md");
+      expect(result.kind).toBe("invalid");
+    });
+
+    test("gozd-app:// は invalid (内部 asset scheme)", () => {
+      const result = resolve("gozd-app://localhost/views/main/", "docs/preview.md");
+      expect(result.kind).toBe("invalid");
+    });
+
+    test("file:, data:, javascript: は invalid", () => {
+      expect(resolve("file:///etc/passwd", "docs/preview.md").kind).toBe("invalid");
+      expect(resolve("data:text/html,<h1>x</h1>", "docs/preview.md").kind).toBe("invalid");
+      expect(resolve("javascript:alert(1)", "docs/preview.md").kind).toBe("invalid");
+    });
+
+    test("vscode:// 等の未許可 scheme は invalid", () => {
+      expect(resolve("vscode://file/Users/foo", "docs/preview.md").kind).toBe("invalid");
     });
   });
 
@@ -136,6 +177,35 @@ describe("resolveMarkdownLink", () => {
         droppedAnchor: false,
       });
     });
+
+    test("`..` で始まる正当なファイル名は internal (worktree 外と誤検出しない)", () => {
+      // root file 起点で `..hidden.md` を参照 → normalize 後も `..hidden.md`。
+      // `..` 単独ではなく、`../` でも始まらないため worktree 内とみなす。
+      expect(resolve("./..hidden.md", "README.md")).toEqual({
+        kind: "internal",
+        path: "..hidden.md",
+        lineNumber: undefined,
+        droppedAnchor: false,
+      });
+    });
+
+    test("`..` 始まりのディレクトリ名も internal", () => {
+      expect(resolve("./..bak/foo.md", "README.md")).toEqual({
+        kind: "internal",
+        path: "..bak/foo.md",
+        lineNumber: undefined,
+        droppedAnchor: false,
+      });
+    });
+
+    test("`~` 始まりの正当なファイル名は internal", () => {
+      expect(resolve("./~tmp.md", "README.md")).toEqual({
+        kind: "internal",
+        path: "~tmp.md",
+        lineNumber: undefined,
+        droppedAnchor: false,
+      });
+    });
   });
 
   describe("line fragment", () => {
@@ -203,28 +273,23 @@ describe("resolveMarkdownLink", () => {
     });
 
     test("?query 単独は invalid", () => {
-      const result = resolve("?v=1", "docs/preview.md");
-      expect(result.kind).toBe("invalid");
+      expect(resolve("?v=1", "docs/preview.md").kind).toBe("invalid");
     });
 
     test("空白のみは invalid", () => {
-      const result = resolve("   ", "docs/preview.md");
-      expect(result.kind).toBe("invalid");
+      expect(resolve("   ", "docs/preview.md").kind).toBe("invalid");
     });
 
     test("不正な URL エンコーディング (%ZZ) は invalid", () => {
-      const result = resolve("./foo%ZZ.md", "docs/preview.md");
-      expect(result.kind).toBe("invalid");
+      expect(resolve("./foo%ZZ.md", "docs/preview.md").kind).toBe("invalid");
     });
 
     test("worktree 外を指す ../ は invalid", () => {
-      const result = resolve("../../etc/passwd", "README.md");
-      expect(result.kind).toBe("invalid");
+      expect(resolve("../../etc/passwd", "README.md").kind).toBe("invalid");
     });
 
     test("深いネスト経由でも worktree 外は invalid", () => {
-      const result = resolve("../../../etc/passwd", "docs/preview.md");
-      expect(result.kind).toBe("invalid");
+      expect(resolve("../../../etc/passwd", "docs/preview.md").kind).toBe("invalid");
     });
   });
 });

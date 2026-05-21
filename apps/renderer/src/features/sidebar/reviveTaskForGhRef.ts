@@ -7,8 +7,9 @@ import { rpcTaskAdd } from "./rpc";
 /**
  * PR picker の `pr.headRef` hit ルート専用ヘルパー。
  *
- * 同じ PR を再選択した時に、terminal close で `hidden=true` 化された既存 task を
+ * 同じ PR を再選択した時に、terminal close で `closed_by_user=true` 化された既存 task を
  * server 側 `TaskStore.add` の upsert (同 worktreeDir + 同 ghRef キー) で蘇生する。
+ * body 上書き + `closed_by_user=false` に倒すことで「再開した」状態に戻す。
  * 成功後は `repoStore.requestRefresh(rootDir)` で SSOT 取り直しを `useSidebarData` に
  * 依頼する (楽観更新で `repos[...]` を直書きしない)。
  *

@@ -100,11 +100,13 @@ export interface Task {
    */
   sessionId: string;
   /**
-   * サイドバーから非表示にするフラグ。ターミナル close / SessionEnd で gh_ref 持ち
-   * task を削除する代わりに立てる。同 worktree_dir + 同 gh_ref で TaskAdd が来た時
-   * (PR/issue picker からの再選択) や SessionStart の attach 経路で false に戻す。
+   * ユーザーが明示的にターミナルを close した task かどうか。
+   * SessionEnd / terminal close (detachSession) で true に倒し、resume クリック /
+   * PR picker 再選択 / 同 sid SessionStart hook (attachSession) で false に戻す。
+   * app close (renderer 強制終了) では detachSession 経路を通らないため据え置き。
+   * サイドバー UI の "closed" / "resumable" 状態区別に使う。
    */
-  hidden: boolean;
+  closedByUser: boolean;
 }
 
 /** GitHub PR / issue 参照。 */
@@ -535,7 +537,7 @@ export const UpstreamStatus: MessageFns<UpstreamStatus> = {
 };
 
 function createBaseTask(): Task {
-  return { id: "", body: "", worktreeDir: "", ghRef: undefined, createdAt: "", sessionId: "", hidden: false };
+  return { id: "", body: "", worktreeDir: "", ghRef: undefined, createdAt: "", sessionId: "", closedByUser: false };
 }
 
 export const Task: MessageFns<Task> = {
@@ -558,8 +560,8 @@ export const Task: MessageFns<Task> = {
     if (message.sessionId !== "") {
       writer.uint32(50).string(message.sessionId);
     }
-    if (message.hidden !== false) {
-      writer.uint32(56).bool(message.hidden);
+    if (message.closedByUser !== false) {
+      writer.uint32(56).bool(message.closedByUser);
     }
     return writer;
   },
@@ -624,7 +626,7 @@ export const Task: MessageFns<Task> = {
             break;
           }
 
-          message.hidden = reader.bool();
+          message.closedByUser = reader.bool();
           continue;
         }
       }
@@ -660,7 +662,11 @@ export const Task: MessageFns<Task> = {
         : isSet(object.session_id)
         ? globalThis.String(object.session_id)
         : "",
-      hidden: isSet(object.hidden) ? globalThis.Boolean(object.hidden) : false,
+      closedByUser: isSet(object.closedByUser)
+        ? globalThis.Boolean(object.closedByUser)
+        : isSet(object.closed_by_user)
+        ? globalThis.Boolean(object.closed_by_user)
+        : false,
     };
   },
 
@@ -684,8 +690,8 @@ export const Task: MessageFns<Task> = {
     if (message.sessionId !== "") {
       obj.sessionId = message.sessionId;
     }
-    if (message.hidden !== false) {
-      obj.hidden = message.hidden;
+    if (message.closedByUser !== false) {
+      obj.closedByUser = message.closedByUser;
     }
     return obj;
   },
@@ -701,7 +707,7 @@ export const Task: MessageFns<Task> = {
     message.ghRef = (object.ghRef !== undefined && object.ghRef !== null) ? GhRef.fromPartial(object.ghRef) : undefined;
     message.createdAt = object.createdAt ?? "";
     message.sessionId = object.sessionId ?? "";
-    message.hidden = object.hidden ?? false;
+    message.closedByUser = object.closedByUser ?? false;
     return message;
   },
 };

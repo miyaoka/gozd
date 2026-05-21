@@ -180,12 +180,13 @@ public actor RpcDispatcher {
               String(describing: error), worktreePath)
           }
           do {
-            // session-start fallback 経路: hidden は据え置き (markHiddenIfGhRef=false)。
-            // 直後の `attachSession(hook.sessionID)` が hidden=false な ghRef task を
-            // 拾って自動転移する設計のため、ここで hidden=true を立てるとピック対象から
-            // 外れて転移が壊れる。
+            // session-start fallback 経路: `closed_by_user` は据え置き
+            // (markClosedByUser=false)。直後の `attachSession(hook.sessionID)` が
+            // sessionID 空の同 worktree task を candidate ピックで自動転移する。
+            // ここで closed_by_user=true を立ててもピック対象から外れることは無いが、
+            // ユーザーは pane を閉じていないので semantic 的にも false 据え置きが正しい。
             try await tasks.clearDeadSession(
-              dir: worktreePath, sessionId: expectedSid, markHiddenIfGhRef: false)
+              dir: worktreePath, sessionId: expectedSid, markClosedByUser: false)
           } catch {
             FileHandle.standardError.write(
               Data(
@@ -245,7 +246,8 @@ public actor RpcDispatcher {
         try await claudeSessions.removeBySessionId(
           worktreePath: worktreePath, sessionId: hook.sessionID)
         // SessionEnd: task.sessionID は保持して `claude --resume` の起点に使う。
-        // gh_ref が空の task のみ削除する (Claude 直接起動 + 即終了の残骸)。
+        // task 本体は削除せず、`closed_by_user=true` を立ててサイドバー表示を
+        // `closed` 状態に切り替える。明示的削除はユーザーの ⋮ メニューで行う。
         do {
           try await tasks.detachSession(dir: worktreePath, sessionId: hook.sessionID)
         } catch {
@@ -365,6 +367,8 @@ public actor RpcDispatcher {
       return try await handleTaskAdd(body)
     case "/task/update":
       return try await handleTaskUpdate(body)
+    case "/task/remove":
+      return try await handleTaskRemove(body)
     case "/fs/readFileAbsolute":
       return try handleFsReadFileAbsolute(body)
     case "/fs/writeFile":
@@ -580,21 +584,12 @@ public actor RpcDispatcher {
   private func handleGitWorktreeList(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitWorktreeListRequest(jsonUTF8Data: body)
     let worktrees = try await GitOps.worktreeList(dir: req.dir)
-    let registered = try await claudeSessions.allSavedSessions(forProject: req.dir)
-    let registeredSessionIds = Set(registered.map { $0.sessionID })
-    let listedTasks = try await tasks.list(dir: req.dir)
-    // task ≠ session 設計: 身元 (gh_ref) があれば session が dead でも task 自体は
-    // 残るが、サイドバー表示は terminal close で hidden=true に倒されるため除外する。
-    // session 単独で生きていた task (root wt 上で直接 claude を起動したケース等) は
-    // session が live な間だけ表示し、PTY が消えれば自動で消える。
-    // hidden を入り口で弾くことで gh 系 / 直接起動系の挙動を揃える (terminal close で
-    // どちらもサイドバーから消える)。gh 系の永続情報は task 本体に残り、PR/issue picker
-    // で同じ識別子を再選択すると `TaskStore.add` の upsert で再表示される。
-    let allTasks = listedTasks.filter { task in
-      if task.hidden { return false }
-      if task.hasNonSessionIdentity { return true }
-      return !task.sessionID.isEmpty && registeredSessionIds.contains(task.sessionID)
-    }
+    let allTasks = try await tasks.list(dir: req.dir)
+    // task ≠ session 設計: terminal close / SessionEnd / clearDeadSession のいずれの
+    // 経路でも task は削除されない。filter で UI から消すと永続化に滞留しても削除手段が
+    // 失われ、「削除はユーザーの明示操作のみ」という設計と矛盾する。よって全 task を
+    // 無条件で出す。「sessionId 空 + ghRef 無し」のような身元なし task もサイドバーに
+    // `not-started` として表示され、⋮ メニューの Remove task で片付けられる。
     // 各 wt の git status は補助データ。1 wt の失敗で worktree list 全体を捨てない
     // ため、per-wt で握って空 statuses で続行する。prunable wt は listing から除外
     // 済みなので、ここで失敗するのは worktree 実 path 不整合などの稀ケース。失敗は
@@ -1093,8 +1088,9 @@ public actor RpcDispatcher {
       // 素 `claude` も SessionStart 不達のまま終わった (起動エラー / ユーザーが即 /exit)
       // 等のケース。stale な sid を片付ける。
       // - claude-sessions.json: 該当 sid のエントリ削除
-      // - tasks.json: clearDeadSession で sid を空に書き換え (ghRef ありなら task 残存、
-      //   無ければ削除)。次のクリックで `--resume` ではなく素の claude 起動に流す
+      // - tasks.json: clearDeadSession で sid を空に書き換え + closed_by_user=true。
+      //   task 本体は残り、次のクリックで `--resume` ではなく素の claude 起動に流す。
+      //   ユーザーの明示削除 (⋮ メニュー) を待つまで closed 状態で滞留する。
       do {
         try await claudeSessions.removeBySessionId(
           worktreePath: req.worktreePath, sessionId: expectedSid)
@@ -1108,11 +1104,11 @@ public actor RpcDispatcher {
           String(describing: error), req.worktreePath)
       }
       do {
-        // removeByPty 経路 (terminal close + resume 失敗): サイドバー表示も消す
-        // (markHiddenIfGhRef=true)。pane が閉じているので直後の attachSession は
-        // 走らない。再表示は picker での再選択 (`add` の upsert) を待つ。
+        // removeByPty 経路 (terminal close + resume 失敗): pane が閉じているので
+        // 直後の attachSession は走らない。ユーザーが pane を閉じた事実をシグナル化
+        // するため markClosedByUser=true。サイドバー上は `closed` 状態として残る。
         try await tasks.clearDeadSession(
-          dir: req.worktreePath, sessionId: expectedSid, markHiddenIfGhRef: true)
+          dir: req.worktreePath, sessionId: expectedSid, markClosedByUser: true)
       } catch {
         FileHandle.standardError.write(
           Data("[TaskStore] clearDeadSession failed: \(error)\n".utf8))
@@ -1124,9 +1120,9 @@ public actor RpcDispatcher {
     }
 
     // live session cleanup。ターミナル close は session-end hook を発火させないため、
-    // ここで明示的に task.sessionID を切り離す。gh_ref が空なら同時に task も削除される
-    // (detachSession 内部で判定)。これにより root wt 上で直接 claude を起動した
-    // task (body のみ、ghRef なし) はターミナル close で揮発する。
+    // ここで明示的に detachSession を呼び `closed_by_user=true` を立てる。task 本体と
+    // sessionID は保持されるので、サイドバー上は `closed` 状態として残り、明示削除は
+    // ユーザーの ⋮ メニュー or worktree 削除 cascade を待つ。
     if !liveSid.isEmpty {
       removedSessionId = liveSid
       do {
@@ -1189,6 +1185,12 @@ public actor RpcDispatcher {
     var resp = Gozd_V1_TaskUpdateResponse()
     resp.task = task
     return try resp.jsonUTF8Data()
+  }
+
+  private func handleTaskRemove(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_TaskRemoveRequest(jsonUTF8Data: body)
+    try await tasks.remove(dir: req.dir, id: req.id)
+    return try Gozd_V1_TaskRemoveResponse().jsonUTF8Data()
   }
 
   // MARK: - fs extra

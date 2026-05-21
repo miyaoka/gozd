@@ -91,8 +91,8 @@ export function useSidebarData() {
   );
 
   // 明示 refetch 要求: feature 層 (sidebar / picker 等) からの SSOT 取り直し signal。
-  // worktree dir 切り替えに乗らない経路 (例: 同 dir 再選択 + hidden task 蘇生) で
-  // 楽観更新ではなく真値 fetch に倒すための窓口。
+  // worktree dir 切り替えに乗らない経路 (例: 同 dir 再選択 + closed_by_user task の蘇生、
+  // task ⋮ メニューの明示削除) で楽観更新ではなく真値 fetch に倒すための窓口。
   watch(
     () => repoStore.refreshRequest,
     (req) => {

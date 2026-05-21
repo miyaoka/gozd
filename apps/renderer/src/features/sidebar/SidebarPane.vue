@@ -13,7 +13,7 @@
 - WtCard ヘッダクリック: `worktreeStore.dir` をその wt に切り替え。focus は wt の `focusedLeafId` 維持
 - TaskRow クリック: wt を active にしたうえで、task に対応する PTY の leaf を `focusPane`
 - focus 解決: `layoutsByDir[dir].focusedLeafId` (生きていれば) → 無効なら `findFirstLeaf(root)` (ensureLayout が担保)
-- ⋮ メニュー: SidebarMenu に委譲 (Remove worktree のみ。手動 task UI は廃止)
+- ⋮ メニュー: SidebarMenu に委譲 (worktree 行は Remove worktree、task 行は Remove task)
 
 ## 責務分離
 
@@ -39,6 +39,7 @@ import { useWorktreeStore } from "../worktree";
 import { RepoSection } from "./features/repo";
 import { useWorktreeActions } from "./features/worktree";
 import ProjectConfigPanel from "./ProjectConfigPanel.vue";
+import { rpcTaskRemove } from "./rpc";
 import SidebarClock from "./SidebarClock.vue";
 import SidebarMenu from "./SidebarMenu.vue";
 import { useDialogs } from "./useDialogs";
@@ -102,6 +103,19 @@ function getFocusedPtyId(dir: string): number | undefined {
   const focusedLeafId = terminalStore.layoutsByDir[dir]?.focusedLeafId;
   if (focusedLeafId === undefined) return undefined;
   return terminalStore.getPtyId(focusedLeafId);
+}
+
+async function handleTaskRemove(rootDir: string, task: Task) {
+  // ⋮ メニューからの明示削除。Swift 側 TaskStore.remove で永続化を消した後、
+  // `requestRefresh` で server から真値を取り直す。他の task 系操作
+  // (reviveTaskForGhRef / registerPrCommand / registerIssueCommand) と SSOT 取得規約を
+  // 揃え、`repos[...]` の直書き楽観更新 (race の源) を避ける。
+  const result = await tryCatch(rpcTaskRemove({ dir: task.worktreeDir, id: task.id }));
+  if (!result.ok) {
+    notify.error("Failed to remove task", result.error);
+    return;
+  }
+  repoStore.requestRefresh(rootDir);
 }
 
 function onRemoveRepo(rootDir: string) {
@@ -239,6 +253,10 @@ const activeRootWorktree = computed(() => {
             (anchorEl, wt, rd) =>
               sidebarMenuRef?.openMenu(anchorEl, { type: 'worktree', worktree: wt, rootDir: rd })
           "
+          @open-task-menu="
+            (anchorEl, task, rd) =>
+              sidebarMenuRef?.openMenu(anchorEl, { type: 'task', task, rootDir: rd })
+          "
         />
       </DragDropProvider>
 
@@ -254,8 +272,12 @@ const activeRootWorktree = computed(() => {
       </button>
     </div>
 
-    <!-- ⋮ メニュー（worktree） -->
-    <SidebarMenu ref="sidebarMenuRef" @worktree-remove="(wt, rd) => handleWorktreeRemove(rd, wt)" />
+    <!-- ⋮ メニュー（worktree / task） -->
+    <SidebarMenu
+      ref="sidebarMenuRef"
+      @worktree-remove="(wt, rd) => handleWorktreeRemove(rd, wt)"
+      @task-remove="(task, rd) => handleTaskRemove(rd, task)"
+    />
 
     <!-- 確認ダイアログ -->
     <dialog

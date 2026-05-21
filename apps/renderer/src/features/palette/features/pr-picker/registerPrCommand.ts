@@ -67,9 +67,9 @@ export function registerPrCommand(): () => void {
           const existingDir = wtByBranch.get(pr.headRef);
           if (existingDir !== undefined) {
             // 既存 worktree に切り替え（ステートレス化により switchDir RPC は廃止）。
-            // 直前に terminal close で hidden 化されている可能性があるため、同 ghRef
-            // で taskAdd (server 側 upsert) を呼んで hidden を解除する。完了後の
-            // 真値反映は `useRepoStore.requestRefresh` 経由で `useSidebarData` の
+            // 直前に terminal close で closed_by_user 化されている可能性があるため、
+            // 同 ghRef で taskAdd (server 側 upsert) を呼んで closed_by_user を解除する。
+            // 完了後の真値反映は `useRepoStore.requestRefresh` 経由で `useSidebarData` の
             // fetchRepo に委譲する (楽観更新で renderer 側を直書きしない)。
             void (async () => {
               await reviveTaskForGhRef({

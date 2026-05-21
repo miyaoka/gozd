@@ -41,10 +41,12 @@ message Task {
   // 最後に attach された Claude session の ID。空文字は session 未起動 / 終了済み。
   // SessionEnd では消さず保持し、サイドバークリック時の `claude --resume` 起点に使う。
   string session_id = 6;
-  // サイドバーから非表示にするフラグ。ターミナル close / SessionEnd で gh_ref 持ち
-  // task を削除する代わりに立てる。同 worktree_dir + 同 gh_ref で TaskAdd が来た時
-  // (PR/issue picker からの再選択) や SessionStart の attach 経路で false に戻す。
-  bool hidden = 7;
+  // ユーザーが明示的にターミナルを close した task かどうか。
+  // SessionEnd / terminal close (detachSession) で true に倒し、resume クリック /
+  // PR picker 再選択 / 同 sid SessionStart hook (attachSession) で false に戻す。
+  // app close (renderer 強制終了) では detachSession 経路を通らないため据え置き。
+  // サイドバー UI の "closed" / "resumable" 状態区別に使う。
+  bool closed_by_user = 7;
 }
 
 // GitHub PR / issue 参照。

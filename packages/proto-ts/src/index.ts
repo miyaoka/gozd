@@ -151,6 +151,8 @@ export {
   TaskAddRequest,
   TaskAddResponse,
   TaskList,
+  TaskRemoveRequest,
+  TaskRemoveResponse,
   TaskUpdateRequest,
   TaskUpdateResponse,
 } from "./generated/gozd/v1/task";

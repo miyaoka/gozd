@@ -234,13 +234,19 @@ struct RpcDispatcherTests {
     // claude-sessions.json は X と Y 両方とも消える
     let remainingSessions = try await claudeSessions.savedSessions(for: worktreeDir)
     #expect(remainingSessions.isEmpty)
-    // tasks: PR task (ghRef あり) は sid クリアで残る、scratch task (ghRef 無し) は削除
+    // tasks: PR task (ghRef あり) は sid クリアで残る、scratch task (ghRef 無し) も
+    // 削除されず closed_by_user=true + sessionID 保持で残る (新仕様: terminal close で
+    // task は削除しない。削除はユーザーの ⋮ メニュー or worktree 削除 cascade のみ)
     let remainingTasks = try await tasks.list(dir: worktreeDir)
-    #expect(remainingTasks.count == 1)
-    let kept = try #require(remainingTasks.first)
-    #expect(kept.body == "PR work")
-    #expect(kept.ghRef.number == 99)
-    #expect(kept.sessionID == "")
+    #expect(remainingTasks.count == 2)
+    let prTask = try #require(remainingTasks.first { $0.hasGhRef })
+    #expect(prTask.body == "PR work")
+    #expect(prTask.ghRef.number == 99)
+    #expect(prTask.sessionID == "")
+    let scratchTask = try #require(remainingTasks.first { !$0.hasGhRef })
+    #expect(scratchTask.body == "scratch")
+    #expect(scratchTask.sessionID == "live-Y")
+    #expect(scratchTask.closedByUser)
 
     var killReq = Gozd_V1_PtyKillRequest()
     killReq.ptyID = spawnResp.ptyID
@@ -314,7 +320,7 @@ struct RpcDispatcherTests {
     _ = try await dispatcher.dispatch(path: "/pty/kill", body: killReq.jsonUTF8Data())
   }
 
-  @Test("session-start 2 回目: expected は 1 回目で消費済み = mismatch 経路 no-op、previous 経路のみ発火 (PR 534 detachSession セマンティクスを保持)")
+  @Test("session-start 2 回目: previous 経路で detachSession 後、新 sid は元 task に上書き attach する (closed candidate 拡張)")
   func sessionStartSecondHitAfterResume() async throws {
     let configDir = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: configDir)) }
@@ -364,13 +370,12 @@ struct RpcDispatcherTests {
 
     // 2 回目 SessionStart (例: ユーザーが /clear → 新 sid)
     // 期待 sid は 1 回目で消費済みなので mismatch ブロックは fire しない。
-    // PR 534 由来の `previous != hook.sessionID` 経路で旧 X が claude-sessions から
-    // 削除され、`detachSession(X)` が走る。元 task は ghRef ありなので sessionID 保持
-    // (= resume-X のまま)。新 Y は attachSession で sessionID 空候補が無いため新規 task として
-    // 作成される。これは PR 534 が「/clear や --resume で session 切り替えのとき、旧 sid の
-    // transcript が Claude 側ファイルに残っていれば旧 sid を resume 用に保持する」設計
-    // 判断による意図的な挙動。本 PR では既存挙動を保ち、resume 失敗 + zsh fallback 経路
-    // (expected 経由) の方のみ「元 task に再 attach」を担保する。
+    // `previous != hook.sessionID` 経路で旧 X が claude-sessions から削除され、
+    // `detachSession(X)` が走り元 task は `closedByUser=true + sessionID=resume-X 保持`
+    // 状態になる。続く attachSession(new-Y) は candidate に `closedByUser=true` を含む
+    // ため (本 PR の拡張)、元 task に new-Y を上書き attach する。/clear 経路では旧 sid の
+    // resume 経路を失う代わりに、同 worktree での task 累積を構造的に防ぐ。これは
+    // 「closed task と新 task の同居を許さない」設計判断のトレードオフ。
     var hook2 = Gozd_V1_HookMessage()
     hook2.event = "session-start"
     hook2.ptyID = spawnResp.ptyID
@@ -385,15 +390,14 @@ struct RpcDispatcherTests {
     #expect(sessions.count == 1)
     #expect(sessions.first?.sessionID == "new-Y")
 
-    // tasks: 元 task (sid=resume-X 保持) + 新規 task (sid=new-Y) の 2 つに分かれる
+    // tasks: 元 task が sid=new-Y で上書き attach され、closedByUser=false に倒される
     let remainingTasks = try await tasks.list(dir: worktreeDir)
-    #expect(remainingTasks.count == 2)
-    let original = try #require(remainingTasks.first { $0.id == originalTask.id })
-    #expect(original.sessionID == "resume-X")
-    #expect(original.ghRef.number == 42)
-    let newTask = try #require(remainingTasks.first { $0.id != originalTask.id })
-    #expect(newTask.sessionID == "new-Y")
-    #expect(newTask.hasGhRef == false)
+    #expect(remainingTasks.count == 1)
+    let kept = try #require(remainingTasks.first)
+    #expect(kept.id == originalTask.id)
+    #expect(kept.sessionID == "new-Y")
+    #expect(kept.ghRef.number == 42)
+    #expect(!kept.closedByUser)
 
     var killReq = Gozd_V1_PtyKillRequest()
     killReq.ptyID = spawnResp.ptyID

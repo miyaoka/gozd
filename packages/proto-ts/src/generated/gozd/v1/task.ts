@@ -37,6 +37,19 @@ export interface TaskUpdateResponse {
   task: Task | undefined;
 }
 
+/**
+ * ⋮ メニューからの明示削除。worktree 削除 cascade とは別経路。
+ * root worktree のように `git worktree remove` できない場所で生まれた task や、
+ * closed_by_user で滞留した task を片付けるためのユーザー操作。
+ */
+export interface TaskRemoveRequest {
+  dir: string;
+  id: string;
+}
+
+export interface TaskRemoveResponse {
+}
+
 function createBaseTaskList(): TaskList {
   return { tasks: [] };
 }
@@ -415,6 +428,125 @@ export const TaskUpdateResponse: MessageFns<TaskUpdateResponse> = {
   fromPartial(object: DeepPartial<TaskUpdateResponse>): TaskUpdateResponse {
     const message = createBaseTaskUpdateResponse();
     message.task = (object.task !== undefined && object.task !== null) ? Task.fromPartial(object.task) : undefined;
+    return message;
+  },
+};
+
+function createBaseTaskRemoveRequest(): TaskRemoveRequest {
+  return { dir: "", id: "" };
+}
+
+export const TaskRemoveRequest: MessageFns<TaskRemoveRequest> = {
+  encode(message: TaskRemoveRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    if (message.id !== "") {
+      writer.uint32(18).string(message.id);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): TaskRemoveRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTaskRemoveRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.id = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): TaskRemoveRequest {
+    return {
+      dir: isSet(object.dir) ? globalThis.String(object.dir) : "",
+      id: isSet(object.id) ? globalThis.String(object.id) : "",
+    };
+  },
+
+  toJSON(message: TaskRemoveRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    if (message.id !== "") {
+      obj.id = message.id;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<TaskRemoveRequest>): TaskRemoveRequest {
+    return TaskRemoveRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<TaskRemoveRequest>): TaskRemoveRequest {
+    const message = createBaseTaskRemoveRequest();
+    message.dir = object.dir ?? "";
+    message.id = object.id ?? "";
+    return message;
+  },
+};
+
+function createBaseTaskRemoveResponse(): TaskRemoveResponse {
+  return {};
+}
+
+export const TaskRemoveResponse: MessageFns<TaskRemoveResponse> = {
+  encode(_: TaskRemoveResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): TaskRemoveResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTaskRemoveResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): TaskRemoveResponse {
+    return {};
+  },
+
+  toJSON(_: TaskRemoveResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<TaskRemoveResponse>): TaskRemoveResponse {
+    return TaskRemoveResponse.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<TaskRemoveResponse>): TaskRemoveResponse {
+    const message = createBaseTaskRemoveResponse();
     return message;
   },
 };

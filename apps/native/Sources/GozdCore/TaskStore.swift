@@ -14,9 +14,10 @@ import GozdProto
 // 2. **SessionStart hook**: 該当 worktreeDir で sessionID 空の最新 task に attach する。
 //    無ければ新規 task を作る (Claude 直接起動 = PR/issue 経由でないケース)。
 //
-// 3. **SessionEnd hook**: task.sessionID を切り離さず保持する。次回 `claude --resume`
-//    の起点に使う。gh_ref が空の task のみ削除する。body は identity に含めない
-//    (Claude が OSC タイトル経由で書く揮発メタデータであり、ユーザー意思ではないため)。
+// 3. **SessionEnd hook / terminal close**: task.sessionID を保持する。
+//    task 本体も削除しない (ghRef 有無に関わらず)。代わりに `closed_by_user=true` を
+//    立て、サイドバー上の状態表示を `resumable` → `closed` に切り替えるシグナルとする。
+//    削除はユーザーが明示的に行う (worktree 削除 cascade or task の ⋮ メニュー)。
 //
 // 4. **projectKey の算出は `ProjectKey` を参照**。worktree 配下のどの dir から呼ばれても
 //    main repo root に解決した上で同一 projectKey に揃える（`resolveAndCompute`）。
@@ -43,15 +44,10 @@ public actor TaskStore {
   ///
   /// 動作:
   ///   - `ghRef` 指定があり、同 `worktreeDir` + 同 `ghRef` の既存 task が見つかれば
-  ///     **upsert**: `hidden` を false に戻し、`body` を最新の PR/issue タイトルで
-  ///     上書きして返す。createdAt / id / sessionID は保持する。
+  ///     **upsert**: `body` を最新の PR/issue タイトルで上書きし、
+  ///     `closed_by_user=false` に倒して返す。createdAt / id / sessionID は保持する。
   ///   - それ以外は新規 task を UUID で作成。`createdAt` を省略すると現在時刻
   ///     (ISO 8601)。テスト時の順序仕込み用に caller が文字列で与えられる。
-  ///
-  /// upsert を入れた理由: terminal close で `detachSession` が `ghRef` 持ち task に
-  /// hidden=true を立てるため、再度 PR/issue picker で同じ PR を選んだときに再表示
-  /// する経路が必要。wtByBranch hit ルート (既存 worktree 切替) でも picker から
-  /// `add` が呼ばれる前提で、ここで identity 単位の冪等再活性化を完結させる。
   public func add(
     dir: String, body: String, worktreeDir: String, ghRef: Gozd_V1_GhRef?,
     createdAt: String? = nil
@@ -63,7 +59,7 @@ public actor TaskStore {
       })
     {
       list.tasks[idx].body = body
-      list.tasks[idx].hidden = false
+      list.tasks[idx].closedByUser = false
       try saveFile(list, for: dir)
       return list.tasks[idx]
     }
@@ -90,36 +86,58 @@ public actor TaskStore {
     return list.tasks[idx]
   }
 
+  /// ⋮ メニューからの明示削除。worktree 削除 cascade と並ぶ唯一のユーザー操作削除経路。
+  /// root worktree のように `git worktree remove` で消えない場所の task や、
+  /// `closed_by_user` で滞留した task を片付けるために使う。
+  public func remove(dir: String, id: String) throws {
+    var list = try loadFile(for: dir)
+    list.tasks.removeAll { $0.id == id }
+    try saveFile(list, for: dir)
+  }
+
   /// Claude session-start hook を Task に attach する。
   ///
   /// 優先順位:
   ///   1. 既に sessionID が一致する task → 同一セッションの継続 (resume) が確定して
-  ///      いる経路なので、hidden=true なら **hidden=false に倒して蘇生** する。
-  ///      ghRef task が terminal close で hidden 化された後、`claude --resume` で
-  ///      復帰したケースをサイドバー表示に復帰させる正規ルート。sessionID 一致は
-  ///      「別経路で起動した素 claude が偶発的に取り憑く」事故シナリオには該当しない
-  ///      (sessionID は per-Claude-process 一意で、外から再現できないため)。
-  ///   2. 同一 worktreeDir で `sessionID == ""` かつ `hidden == false` の task のうち
-  ///      最新のもの (createdAt 降順) に attach。**hidden を候補から外す**のは
-  ///      「terminal close 済みの ghRef task に、別経路で起動した素 claude が取り憑く」
-  ///      事故を構造的に防ぐため。ghRef task の蘇生は `add` の upsert (picker) に限定する
-  ///   3. 該当無し → 新規 task を作成し sessionID を入れる (Claude 直接起動経路)
+  ///      いる経路。`closed_by_user` が true なら false に倒して「生きている」状態に
+  ///      戻す。
+  ///   2. 同一 worktreeDir で attach 可能な candidate に新 sid を上書き attach。
+  ///      candidate は「`sessionID == ""`」または「`closedByUser == true`」の task。
+  ///      pick は createdAt 最大値 (= 最新)、tie-break は id 辞書順で最大値。
+  ///      同時に `closed_by_user` を false に倒す。
+  ///      closed な ghRef task に素 claude が偶発取り憑くシナリオも許容する (同 worktree
+  ///      で素 claude を起動した = そのコンテキストで作業継続する意図と解釈する)。
+  ///      この拡張で「ghRef 無し closed task が同 worktree に累積する」問題を構造的に
+  ///      解消する。
+  ///   3. 該当無し → 新規 task を作成し sessionID を入れる (Claude 直接起動経路)。
   public func attachSession(dir: String, sessionId: String, worktreeDir: String) throws {
     var list = try loadFile(for: dir)
     if let idx = list.tasks.firstIndex(where: { $0.sessionID == sessionId }) {
-      if list.tasks[idx].hidden {
-        list.tasks[idx].hidden = false
+      if list.tasks[idx].closedByUser {
+        list.tasks[idx].closedByUser = false
         try saveFile(list, for: dir)
       }
       return
     }
     let candidates = list.tasks.enumerated().filter {
       $0.element.worktreeDir == worktreeDir
-        && $0.element.sessionID.isEmpty
-        && !$0.element.hidden
+        && ($0.element.sessionID.isEmpty || $0.element.closedByUser)
     }
-    if let pick = candidates.max(by: { $0.element.createdAt < $1.element.createdAt }) {
+    // 1次キー: createdAt の最大値を pick (= 最新)。
+    // 2次キー: id (UUID) の最大値を pick (辞書順で末尾)。createdAt は ISO 8601 秒粒度
+    // なので 1 秒以内に複数 task を作ると同値になる。tie-break を入れないと max(by:) の
+    // 入力順序依存で非決定的になる。`<` 比較は max(by:) に渡す述語で「strict less」を
+    // 表すための既定形 (Swift 標準ライブラリ規約)。
+    if let pick = candidates.max(by: { a, b in
+      if a.element.createdAt != b.element.createdAt {
+        return a.element.createdAt < b.element.createdAt
+      }
+      return a.element.id < b.element.id
+    }) {
       list.tasks[pick.offset].sessionID = sessionId
+      if list.tasks[pick.offset].closedByUser {
+        list.tasks[pick.offset].closedByUser = false
+      }
     } else {
       var task = Gozd_V1_Task()
       task.id = UUID().uuidString
@@ -135,65 +153,45 @@ public actor TaskStore {
   /// SessionEnd hook / terminal close 由来。
   ///
   /// 動作:
-  ///   - `gh_ref` 持ち task: 削除せず `hidden=true` を立て、`sessionID` は保持する。
-  ///     サイドバー表示は消えるが、PR/issue 永続情報と `claude --resume` の起点は
-  ///     残る。同じ PR/issue を picker で再選択すると `add` の upsert 経路で
-  ///     `hidden=false` に戻り表示が復活する。
-  ///   - `gh_ref` 無し task: 従来通り削除する (Claude 直接起動 + 即終了の残骸掃除)。
+  ///   - task 本体は **削除しない** (ghRef 有無に関わらず)。
+  ///   - `sessionID` を保持する。次回 `claude --resume` の起点に使う。
+  ///   - `closed_by_user=true` を立てる。サイドバー UI 上で `closed` 状態として
+  ///     表示し、`resumable` (app close 由来の中断) と区別する。
   ///
-  /// sessionID 単独では身元にしない: 「再 resume 用に sessionID を残す」設計と
-  /// 矛盾するため、`hasNonSessionIdentity` で判定する。
+  /// app close (renderer 強制終了) ではこの関数は呼ばれないため、`closed_by_user`
+  /// は false のままで残り、サイドバーには `resumable` 表示が出る。
   public func detachSession(dir: String, sessionId: String) throws {
     var list = try loadFile(for: dir)
     guard let idx = list.tasks.firstIndex(where: { $0.sessionID == sessionId }) else {
       return
     }
-    hideOrRemove(&list, at: idx)
+    list.tasks[idx].closedByUser = true
     try saveFile(list, for: dir)
   }
 
   /// resume 失敗検出経路 (claude --resume が transcript 不在等で error 終了) で呼ぶ。
   ///
   /// 動作:
-  ///   - `gh_ref` なし: task ごと削除する (`markHiddenIfGhRef` 値は無関係)
-  ///   - `gh_ref` あり + `markHiddenIfGhRef == true` (terminal close 由来 /
-  ///     `removeByPty`): sessionID を空にしつつ `hidden=true` を立てる。サイドバー
-  ///     表示も消し、再表示は picker での再選択 (`add` の upsert) を待つ。pane が
-  ///     閉じているので直後の attachSession は走らない
-  ///   - `gh_ref` あり + `markHiddenIfGhRef == false` (session-start fallback 由来 /
-  ///     `applyClaudeSessionHook`): sessionID だけ空にして `hidden` は据え置く。
-  ///     直後の `attachSession(新 sid)` が hidden=false な ghRef task を拾って自動
-  ///     転移するため、ユーザー視点で連続性を保てる
-  ///
-  /// `detachSession` との違い: identity ありでも sessionID を確定 dead として書き換え
-  /// (空に倒し) 次のクリックを `--resume` ではなく素の `claude` 起動経路へ流す。
-  /// SessionEnd 由来の detach (resume 期待で sid を保持する) とは意図が異なる。
+  ///   - task 本体は削除せず、`sessionID` だけ空にする。次のクリックで `--resume`
+  ///     ではなく素の `claude` 起動経路へ流すための書き換え。
+  ///   - `markClosedByUser=true` (removeByPty 経路: terminal close で resume 失敗 +
+  ///     SessionStart hook 不達): `closed_by_user=true` も立てる。ユーザーが
+  ///     pane を閉じた事実をシグナル化する。
+  ///   - `markClosedByUser=false` (session-start fallback 経路: resume 失敗後に
+  ///     新 sid が立ち上がったケース): `closed_by_user` は据え置き。直後の
+  ///     `attachSession(新 sid)` が候補ピック経路で同一 task に転移する。
   public func clearDeadSession(
-    dir: String, sessionId: String, markHiddenIfGhRef: Bool
+    dir: String, sessionId: String, markClosedByUser: Bool
   ) throws {
     var list = try loadFile(for: dir)
     guard let idx = list.tasks.firstIndex(where: { $0.sessionID == sessionId }) else {
       return
     }
-    if list.tasks[idx].hasNonSessionIdentity {
-      list.tasks[idx].sessionID = ""
-      if markHiddenIfGhRef {
-        list.tasks[idx].hidden = true
-      }
-    } else {
-      list.tasks.remove(at: idx)
+    list.tasks[idx].sessionID = ""
+    if markClosedByUser {
+      list.tasks[idx].closedByUser = true
     }
     try saveFile(list, for: dir)
-  }
-
-  /// ghRef 持ちなら `hidden=true` を立て、無ければ task ごと削除する SSOT ヘルパー。
-  /// detachSession / clearDeadSession(markHiddenIfGhRef=true) で同じ判定を書かない。
-  private func hideOrRemove(_ list: inout Gozd_V1_TaskList, at idx: Int) {
-    if list.tasks[idx].hasNonSessionIdentity {
-      list.tasks[idx].hidden = true
-    } else {
-      list.tasks.remove(at: idx)
-    }
   }
 
   /// worktree 物理削除 (handleWorktreeRemove) からの連動掃除。
@@ -257,20 +255,6 @@ public actor TaskStore {
 
 public enum TaskStoreError: Error, Equatable {
   case notFound(String)
-}
-
-extension Gozd_V1_Task {
-  /// task が session 以外の identity 源 (gh_ref) を持つか。
-  /// detachSession の保持判定 / handleGitWorktreeList の filter で共通利用する。
-  ///
-  /// body は識別子に含めない。Claude が OSC ターミナルタイトル経由で自動付与する
-  /// メタデータであり、ユーザー意思の identity ではないため。terminal を閉じた時点で
-  /// body しか持たない task (root wt 上で直接 claude を起動したケース等) は揮発させる。
-  /// 一方 gh_ref は PR/issue picker でユーザーが明示的に紐づけた永続情報なので、
-  /// terminal close を越えて保持し、worktree 削除で cascade 回収する。
-  public var hasNonSessionIdentity: Bool {
-    hasGhRef
-  }
 }
 
 extension Gozd_V1_GhRef {

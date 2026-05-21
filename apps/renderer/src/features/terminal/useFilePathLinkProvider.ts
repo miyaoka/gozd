@@ -1,18 +1,15 @@
 import type { IBuffer, IBufferLine, ILink, ILinkProvider, Terminal } from "@xterm/xterm";
 import { useWorktreeStore } from "../worktree";
+import { findAbsolutePathMatches, resolveHomeDir } from "./findAbsolutePathMatches";
 import { findRelativePaths } from "./findRelativePaths";
-
-/** パスの末尾区切り文字 */
-const PATH_TERMINATORS = /[\s()}\]>'",:;]/;
-
-/** パスの直後に `:行番号` が続くかを検出する正規表現 */
-const LINE_NUMBER_SUFFIX = /^:(\d+)/;
 
 /**
  * ターミナル出力中のファイルパスを検出し、クリックでファイラー/プレビューに反映する LinkProvider を作成する。
- * - ワークスペース内のパス → 相対パスで selectPath
- * - ワークスペース外の絶対パス（`/Users/<user>/...` / `~/...`）→ 絶対パスで selectPath
- *   （プレビューが fsReadFileAbsolute で読む）
+ * - active worktree 内のパス → 相対パスで selectPath（Preview で内容表示、FilerPane で reveal）
+ * - worktree 外の絶対パス（`/Users/<user>/...` / `~/...`）→ 絶対パスで selectPath
+ *   - Preview は fsReadFileAbsolute で内容表示する
+ *   - FilerPane のツリーは active worktree 配下しか持たないため reveal 対象外
+ *     （ツリー上で選択ハイライトされない契約）
  * - Claude Code が明示的改行+インデントで折り返した長いパスも結合して検出
  */
 export function createFilePathLinkProvider(terminal: Terminal): ILinkProvider {
@@ -63,16 +60,6 @@ export function createFilePathLinkProvider(terminal: Terminal): ILinkProvider {
       callback(links.length > 0 ? links : undefined);
     },
   };
-}
-
-/**
- * `~/` プレフィックスを展開するために、dirPrefix からホームディレクトリを推定する。
- * dirPrefix が `/Users/miyaoka/...` のような形式なら `/Users/miyaoka` を返す。
- */
-function resolveHomeDir(dirPrefix: string): string {
-  const match = dirPrefix.match(/^(\/(?:Users|home)\/[^/]+)\//);
-  if (match) return match[1]!;
-  return "";
 }
 
 /**
@@ -150,7 +137,7 @@ function getLineOffset(buf: IBuffer, topLineIdx: number, targetLineIdx: number):
 }
 
 /**
- * 結合テキストから絶対パス（`/...` および `~/...`）を検出してリンクを作成する。
+ * 結合テキストから絶対パスを検出してリンクを作成する。
  * currentLineOffset/currentLineLength で現在行の範囲を指定し、
  * パスが現在行に重なる場合のみリンク化する。
  */
@@ -166,72 +153,26 @@ function findAbsolutePathLinks(
   links: ILink[],
 ): void {
   const currentLineEnd = currentLineOffset + currentLineLength;
-  const homePrefix = homeDir ? `${homeDir}/` : "";
-  let searchStart = 0;
+  const matches = findAbsolutePathMatches(joinedText, dirPrefix, homeDir);
 
-  while (searchStart < joinedText.length) {
-    // dirPrefix / homePrefix / `~/` のうち最も手前のものを採用する。
-    // homePrefix は dirPrefix を内包しうるが、dirPrefix が homeDir 外（例: `/tmp/...`）の
-    // ケースもあるため両方を探す。
-    const candidates: Array<{ idx: number; kind: "dir" | "home" | "tilde" }> = [];
-    const dirIdx = joinedText.indexOf(dirPrefix, searchStart);
-    if (dirIdx !== -1) candidates.push({ idx: dirIdx, kind: "dir" });
-    if (homePrefix) {
-      const homeIdx = joinedText.indexOf(homePrefix, searchStart);
-      if (homeIdx !== -1) candidates.push({ idx: homeIdx, kind: "home" });
-      const tildeIdx = joinedText.indexOf("~/", searchStart);
-      if (tildeIdx !== -1) candidates.push({ idx: tildeIdx, kind: "tilde" });
-    }
+  for (const { idx, totalEnd, selectPath, lineNumber: lineNum } of matches) {
+    if (idx >= currentLineEnd || totalEnd <= currentLineOffset) continue;
 
-    if (candidates.length === 0) break;
+    const linkStart = Math.max(idx, currentLineOffset) - currentLineOffset;
+    const linkEnd = Math.min(totalEnd, currentLineEnd) - currentLineOffset;
 
-    candidates.sort((a, b) => a.idx - b.idx);
-    const { idx, kind } = candidates[0]!;
-
-    let fullPath: string;
-    let pathEnd: number;
-
-    if (kind === "tilde") {
-      const afterTilde = idx + 2;
-      pathEnd = findPathEnd(joinedText, afterTilde);
-      fullPath = `${homeDir}/${joinedText.slice(afterTilde, pathEnd)}`;
-    } else {
-      pathEnd = findPathEnd(joinedText, idx);
-      fullPath = joinedText.slice(idx, pathEnd);
-    }
-
-    // パスの直後に `:行番号` が続くか検出
-    const lineMatch = LINE_NUMBER_SUFFIX.exec(joinedText.slice(pathEnd));
-    const lineNumber_ = lineMatch ? Number(lineMatch[1]) : undefined;
-    const totalEnd = lineMatch ? pathEnd + lineMatch[0].length : pathEnd;
-
-    // パスが現在行と重なるかチェック
-    if (idx < currentLineEnd && totalEnd > currentLineOffset) {
-      const selectPath = fullPath.startsWith(dirPrefix)
-        ? fullPath.slice(dirPrefix.length)
-        : fullPath;
-
-      if (selectPath.length > 0) {
-        // 現在行内のリンク範囲を算出（行番号サフィックスも含む）
-        const linkStart = Math.max(idx, currentLineOffset) - currentLineOffset;
-        const linkEnd = Math.min(totalEnd, currentLineEnd) - currentLineOffset;
-
-        pushLink(
-          bufLine,
-          lineNumber,
-          linkStart,
-          linkEnd,
-          selectPath,
-          (event) => {
-            if (!event.shiftKey) return;
-            worktreeStore.selectPath(selectPath, lineNumber_);
-          },
-          links,
-        );
-      }
-    }
-
-    searchStart = totalEnd;
+    pushLink(
+      bufLine,
+      lineNumber,
+      linkStart,
+      linkEnd,
+      selectPath,
+      (event) => {
+        if (!event.shiftKey) return;
+        worktreeStore.selectPath(selectPath, lineNum);
+      },
+      links,
+    );
   }
 }
 
@@ -302,15 +243,6 @@ function overlapsRange(link: ILink, startIdx: number, endIdx: number, lineNumber
   const { start, end } = link.range;
   if (start.y !== lineNumber || end.y !== lineNumber) return false;
   return startIdx < end.x && endIdx > start.x - 1;
-}
-
-/** パスの末尾位置を探す（区切り文字 or 行末まで） */
-function findPathEnd(text: string, from: number): number {
-  let end = from;
-  while (end < text.length && !PATH_TERMINATORS.test(text[end]!)) {
-    end++;
-  }
-  return end;
 }
 
 /**

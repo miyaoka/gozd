@@ -9,10 +9,11 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import type { BundledLanguage, BundledLanguageInfo } from "shiki";
+import type { BundledLanguage } from "shiki";
 import { bundledLanguagesInfo } from "shiki";
 import type { Language } from "linguist-languages";
 import * as linguist from "linguist-languages";
+import { asciiCompare } from "./asciiCompare";
 
 const SCRIPT_REL_PATH = "packages/shiki-lang-map/src/generateExtensionLangMap.ts";
 const OUTPUT_FILE = path.resolve(import.meta.dir, "../dist/extensionLangMap.generated.ts");
@@ -38,12 +39,10 @@ const NAME_TO_SHIKI: Record<string, BundledLanguage> = {
   "html+php": "html",
 };
 
-const shikiIds = new Set<string>(
-  (bundledLanguagesInfo as readonly BundledLanguageInfo[]).map((l) => l.id),
-);
+const shikiIds = new Set<string>(bundledLanguagesInfo.map((l) => l.id));
 // Shiki の alias (例: `"clj"` for `"clojure"`) も resolve できるので alias 集合も持つ
 const shikiAliases = new Set<string>();
-for (const info of bundledLanguagesInfo as readonly BundledLanguageInfo[]) {
+for (const info of bundledLanguagesInfo) {
   for (const a of info.aliases ?? []) shikiAliases.add(a);
 }
 
@@ -139,9 +138,9 @@ const filenameCollisions = new Map<string, Collision>();
 const usedExplicit = new Set<string>();
 
 const allLangs = Object.values(linguist) as readonly Language[];
-// ASCII strict 比較で固定。`localeCompare` は実行 locale 依存で、codegen の
-// 決定性 (README / commit message の「ASCII order」契約) と整合しないため避ける。
-const sortedLangs = [...allLangs].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+// ASCII strict 比較で固定 (`asciiCompare`)。`localeCompare` は実行 locale 依存で、
+// codegen の決定性 (README / commit message の「ASCII order」契約) と整合しない。
+const sortedLangs = [...allLangs].sort((a, b) => asciiCompare(a.name, b.name));
 
 let matchedLangCount = 0;
 let unmatchedLangCount = 0;
@@ -174,11 +173,7 @@ for (const name of Object.keys(NAME_TO_SHIKI)) {
   if (!usedExplicit.has(name)) unusedExplicit.push(name);
 }
 
-// 出力: ASCII strict 順 (locale 非依存)
-function asciiCompare(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
-
+// 出力: ASCII strict 順 (locale 非依存、`asciiCompare` SSOT)
 const extEntries = [...extOwners.entries()]
   .map(([key, owner]) => [key, owner.shikiId] as const)
   .sort(([a], [b]) => asciiCompare(a, b));

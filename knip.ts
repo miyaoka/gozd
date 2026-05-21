@@ -23,6 +23,7 @@ const config: KnipConfig = {
     "packages/eslint-plugin": {},
     "packages/proto-ts": {},
     "packages/shared": {},
+    "packages/shiki-lang-map": {},
     "packages/themes": {},
   },
 };

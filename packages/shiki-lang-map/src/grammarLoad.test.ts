@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { BundledLanguage } from "shiki";
 import { codeToHtml } from "shiki";
+import { asciiCompare } from "./asciiCompare";
 import { LINGUIST_EXTENSION_LANG_MAP, LINGUIST_FILENAME_LANG_MAP } from "./index";
 
 /**
@@ -25,7 +26,7 @@ function collectUniqueLangs(
       if (v !== undefined) set.add(v);
     }
   }
-  return [...set].sort();
+  return [...set].sort(asciiCompare);
 }
 
 const uniqueLangs = collectUniqueLangs(LINGUIST_EXTENSION_LANG_MAP, LINGUIST_FILENAME_LANG_MAP);

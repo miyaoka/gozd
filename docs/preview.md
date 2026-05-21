@@ -182,7 +182,10 @@ History は blame 完了を必ず待ってから走る。起点 commit は blame
 
 #### 状態同期と race
 
-- 表示中ファイル / `gitGraphStore.selectedHash` / `compareHash` / `activeMode` のいずれかが変わると `useBlamePopover().close()` を発火し popover を閉じる (文脈乖離した popover を残さない)
+- 表示中ファイル / `gitGraphStore.selectedHash` / `compareHash` / `activeMode` / `summaryStore.enabled` のいずれかが変わると `useBlamePopover().close()` を発火し popover を閉じる (文脈乖離した popover を残さない)。`summaryStore.enabled` を含めるのは、summary view 切替で CodePreview / DiffPreview が unmount され anchor が detached になるため
+- PreviewPane / ChangesSummaryItem の `fsChange` callback は `fetchContent()` / `runFetch()` の **前** に `useBlamePopover().closeIfActive(dir, relPath)` を発火する。content 更新で CodePreview の Shiki / fallback button や DiffPreview の line-no button が DOM 置換されると anchor が detached になるため、再描画と同フレームで popover を閉じる
+- ChangesSummaryItem は `onUnmounted` で `closeIfActive(dir, displayPath)` を発火する。`fileChanges` 更新で `v-for` re-key で item が消えるケースも anchor detach 経路として共通化
+- `closeIfActive(dir, relPath)` は context が完全一致する場合のみ close する。他 owner の文脈にぶつけても no-op で安全
 - Popover API の `toggle` イベントを受けて Esc / 外クリック dismiss も composable 側の state を clear する
 - `open()` / `close()` は `activeVersion` をインクリメントし、進行中の blame / history RPC は await 復帰時に version 不一致なら結果を破棄する
 - 進行中 blame は `blameInFlight = { version, promise }` で tuple 化して保持する。`loadHistory` は await 前に `myVersion = activeVersion` を capture し、`blameInFlight.version === myVersion` のときだけ自分 version の blame を await する。let の素 Promise 参照だと `open(B)` で `blamePromise` が reassign されても、待機中の loadHistory は古い (A の) 参照を引きずって別 version の blame を待ち続けるバグになる。tuple version 比較でこれを構造的に防ぐ

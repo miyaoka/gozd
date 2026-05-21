@@ -796,6 +796,18 @@ struct GitOpsValidateRevTests {
     #expect(throws: GitError.self) { try validateRev("abc/def") }
     #expect(throws: GitError.self) { try validateRev("abc.def") }
   }
+
+  @Test("HEAD は完全一致のみ通過、HEAD^ / HEAD~ は reject (named ref + suffix 非対称)")
+  func headSuffixRejected() {
+    // HEAD は通過 (完全一致 short-circuit)
+    #expect(throws: Never.self) { try validateRev("HEAD") }
+    // HEAD^ / HEAD~ は先頭文字 H が hex 文字ではないため reject される。docstring の
+    // 「named ref + suffix は本 RPC ではサポートしない (renderer は必ず hash 化してから
+    // 流す契約)」が test で機械的に保証される
+    #expect(throws: GitError.self) { try validateRev("HEAD^") }
+    #expect(throws: GitError.self) { try validateRev("HEAD~1") }
+    #expect(throws: GitError.self) { try validateRev("HEAD~") }
+  }
 }
 
 @Suite("GitOps.logLine")

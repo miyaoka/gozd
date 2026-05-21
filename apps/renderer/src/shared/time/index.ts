@@ -1,1 +1,1 @@
-export { formatAbsoluteTime, formatRelativeTime } from "./relativeTime";
+export { formatAbsoluteTime, formatRelativeTime, formatShortAge } from "./relativeTime";

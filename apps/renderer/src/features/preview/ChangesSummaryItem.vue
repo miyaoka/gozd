@@ -226,9 +226,13 @@ function onLineNumberClick(payload: {
  * summary view で fileChanges が更新されて item が v-for re-key で消えると、
  * popover の anchorEl は detached element を指し続けるため、明示的に close する
  * 必要がある。closeIfActive は他 owner の context を巻き込まない設計。
+ * dir も渡して同名ファイル別 worktree の取り違えを防ぐ。
  */
 onUnmounted(() => {
-  blamePopover.closeIfActive(displayPath.value);
+  const dir = worktreeStore.dir;
+  if (dir !== undefined) {
+    blamePopover.closeIfActive(dir, displayPath.value);
+  }
 });
 
 let fetchVersion = 0;
@@ -446,6 +450,11 @@ const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ dir: event
   if (eventDir !== worktreeStore.dir) return;
   const path = props.change.newFilePath || props.change.oldFilePath;
   if (relDir !== relDirOf(path)) return;
+  // fetch 前に popover を閉じる。runFetch で original / current が更新されると DiffPreview
+  // が base items を再構築し button DOM が置換されるため、popover anchor が detached に
+  // なる。content 入れ替えと同フレームで close することで「位置が壊れた popover が画面に
+  // 残る」を構造的に防ぐ。
+  blamePopover.closeIfActive(eventDir, path);
   void runFetch(false);
 });
 onUnmounted(unsubscribeFsChange);

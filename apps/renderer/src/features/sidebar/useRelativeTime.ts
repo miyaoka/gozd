@@ -1,6 +1,6 @@
 import { useTimeoutFn } from "@vueuse/core";
 import { ref, watch, type Ref } from "vue";
-import { formatRelativeTime } from "./utils";
+import { formatShortAge } from "../../shared/time";
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -52,7 +52,7 @@ export function useRelativeTime(baseTime: Ref<number | undefined>): Ref<string> 
       return;
     }
     const now = Date.now();
-    display.value = formatRelativeTime(latest, now);
+    display.value = formatShortAge(latest, now);
     nextDelay.value = nextBoundaryDelay(now - latest);
     stop();
     start();

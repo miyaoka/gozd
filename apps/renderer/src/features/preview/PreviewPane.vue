@@ -455,6 +455,10 @@ const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ dir: event
   // useFsWatchSync は全 worktree を watch するため、active dir 以外の event は無視する。
   if (eventDir !== worktreeStore.dir) return;
   if (relDir !== relDirOf(selectedPath.value)) return;
+  // fetchContent で currentContent / originalContent が更新されると CodePreview / DiffPreview
+  // が再ハイライト・再描画し、line-no button DOM が置換される。blame popover が同 file に
+  // 対して開いていれば anchorEl が detached になるため、再 fetch 前に閉じる。
+  blamePopover.closeIfActive(eventDir, selectedPath.value);
   void fetchContent(selectedPath.value, selectedGitChange.value);
 });
 onUnmounted(unsubscribeFsChange);

@@ -180,12 +180,22 @@ function close(): void {
 }
 
 /**
- * 自身が open 元 (matchPath = アクティブ context の relPath と一致) であれば close を発火。
- * owner (ChangesSummaryItem / PreviewPane) の unmount 時に呼んで detached anchor を残さない。
- * 他 owner が open している context にぶつけても no-op で安全。
+ * 自身が open 元 (アクティブ context が同 dir + 同 relPath) であれば close を発火。
+ *
+ * 2 系統の呼び出し経路:
+ *   - owner unmount: ChangesSummaryItem の onUnmounted で発火。v-for re-key で item が
+ *     消えた時に popover が detached anchor を抱えるのを防ぐ
+ *   - fsChange content reload: PreviewPane / ChangesSummaryItem の fsChange callback で、
+ *     fetchContent() / runFetch() の **前** に発火。CodePreview / DiffPreview の content
+ *     更新で button DOM が置換 → anchorEl が detached になる構造的問題を popover の
+ *     auto close で潰す
+ *
+ * 他 owner が open している context にぶつけても dir + relPath 不一致で no-op になる。
  */
-function closeIfActive(relPath: string): void {
-  if (context.value?.relPath === relPath) {
+function closeIfActive(dir: string, relPath: string): void {
+  const ctx = context.value;
+  if (ctx === undefined) return;
+  if (ctx.dir === dir && ctx.relPath === relPath) {
     close();
   }
 }

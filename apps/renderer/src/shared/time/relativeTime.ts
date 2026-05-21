@@ -23,3 +23,23 @@ export function formatAbsoluteTime(unixSec: number): string {
   if (unixSec <= 0) return "";
   return new Date(unixSec * 1000).toLocaleString();
 }
+
+const SECOND_MS = 1000;
+const MINUTE_MS = 60 * SECOND_MS;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+/** ms 経過時間を短縮表記で返す。task サイドバーのような限られた幅の UI で使う。
+ *
+ * `formatRelativeTime` との違い:
+ *   - 入力: ms × 2 引数 (from, now) — `Date.now()` 直接依存を避けてテスト可能性を高める
+ *   - 出力: `now` / `Nm` / `Nh` / `Nd` (`ago` サフィックスなし、s / mo / y 単位なし)
+ *
+ * UI 表示用途。月跨ぎなど厳密性が必要なケースには使わない。 */
+export function formatShortAge(from: number, now: number): string {
+  const elapsed = now - from;
+  if (elapsed < MINUTE_MS) return "now";
+  if (elapsed < HOUR_MS) return `${Math.floor(elapsed / MINUTE_MS)}m`;
+  if (elapsed < DAY_MS) return `${Math.floor(elapsed / HOUR_MS)}h`;
+  return `${Math.floor(elapsed / DAY_MS)}d`;
+}

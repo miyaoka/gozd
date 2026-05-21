@@ -283,10 +283,10 @@ importers:
         version: 0.50.0
       oxlint:
         specifier: 'catalog:'
-        version: 1.65.0(oxlint-tsgolint@0.22.1)
+        version: 1.65.0(oxlint-tsgolint@0.23.0)
       oxlint-tsgolint:
         specifier: 'catalog:'
-        version: 0.22.1
+        version: 0.23.0
       shiki:
         specifier: 4.0.2
         version: 4.0.2

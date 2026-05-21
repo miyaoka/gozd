@@ -9,42 +9,48 @@ import {
 
 /** プロジェクト固有の拡張子 override。
  *
- * Linguist の デフォルト挙動 (= ASCII order での first-write-wins) を上書きしたい場合に
+ * Linguist のデフォルト挙動 (= ASCII order での first-write-wins) を上書きしたい場合に
  * 列挙する。各エントリには「なぜ Linguist と違う選択をするか」を理由付きで残す。
+ * 値が `undefined` を含む型なので、未定義 key の lookup は型上 `undefined` で返る。
  */
-const EXTENSION_OVERRIDES: Record<string, BundledLanguage> = {
-  // gozd は Swift / Objective-C 文脈 (apps/native の Swift と C ブリッジ)。
-  // Linguist は MATLAB を ASCII 順優先で `.m → matlab` に倒すが、本アプリでは MATLAB
-  // ファイルを扱わないため Objective-C を採用する。
+const EXTENSION_OVERRIDES: Partial<Record<string, BundledLanguage>> = {
+  // .m: Linguist は MATLAB を ASCII 順優先で `.m → matlab` に倒すが、gozd は MATLAB ファイルを
+  // 扱わず、apps/native の Objective-C / C ブリッジが対象。
   m: "objective-c",
+  // .php: Linguist で Hack が ASCII 先勝ちのため `.php → hack` に倒れるが、PHP ファイルは
+  // 圧倒的に多数派。Shiki に `php` grammar が存在する。
+  php: "php",
+  // .sql: Linguist で PLSQL が ASCII 先勝ちのため `.sql → plsql` に倒れるが、PL/SQL は
+  // Oracle 固有方言。一般的な SQL ファイルは `sql` grammar が妥当。
+  sql: "sql",
+  // .jsx: Linguist は JSX を JavaScript の拡張子として持つため `.jsx → javascript` に倒れる。
+  // Shiki は `jsx` grammar (`source.js.jsx`) を独立して提供するので、JSX タグの色付けが効く
+  // ように override する。
+  jsx: "jsx",
 };
 
 /** プロジェクト固有のファイル名 override (現在は無し) */
-const FILENAME_OVERRIDES: Record<string, BundledLanguage> = {};
+const FILENAME_OVERRIDES: Partial<Record<string, BundledLanguage>> = {};
 
 /** ファイル名から Shiki BundledLanguage を推定する。
  *
  * 解決順序:
  *   filename override → Linguist filename → extension override → Linguist extension
  *
- * Linguist 由来のテーブルは build 時 codegen (`scripts/generateExtensionLangMap.ts`)
- * で生成される。データ SSOT は GitHub Linguist の `languages.yml` (linguist-languages npm)。
+ * Linguist 由来のテーブルは build 時 codegen (`@gozd/shiki-lang-map`) で生成される。
+ * データ SSOT は GitHub Linguist の `languages.yml` (linguist-languages npm)。
  */
 function detectLang(filePath: string): BundledLanguage | undefined {
   const fileName = filePath.split("/").pop() ?? "";
 
-  const filenameMatch =
-    FILENAME_OVERRIDES[fileName] ??
-    (LINGUIST_FILENAME_LANG_MAP as Record<string, BundledLanguage>)[fileName];
-  if (filenameMatch) return filenameMatch;
+  const filenameMatch = FILENAME_OVERRIDES[fileName] ?? LINGUIST_FILENAME_LANG_MAP[fileName];
+  if (filenameMatch !== undefined) return filenameMatch;
 
   const ext = fileName.split(".").pop();
   if (ext === undefined || ext === "") return undefined;
   const lc = ext.toLowerCase();
 
-  return (
-    EXTENSION_OVERRIDES[lc] ?? (LINGUIST_EXTENSION_LANG_MAP as Record<string, BundledLanguage>)[lc]
-  );
+  return EXTENSION_OVERRIDES[lc] ?? LINGUIST_EXTENSION_LANG_MAP[lc];
 }
 
 /** コードをハイライトして HTML 文字列を返す。言語不明ならプレーンテキストを返す。

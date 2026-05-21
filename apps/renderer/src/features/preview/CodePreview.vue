@@ -8,7 +8,10 @@ Shiki によるシンタックスハイライト付きコード表示。
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
 import { watch, ref, nextTick, computed } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { highlight } from "./useHighlight";
+
+const notification = useNotificationStore();
 
 const props = withDefaults(
   defineProps<{
@@ -79,7 +82,16 @@ watch(
     });
 
     const result = await tryCatch(highlight(props.content, props.filePath, props.blameEnabled));
-    if (cancelled || !result.ok) return;
+    if (cancelled) return;
+    if (!result.ok) {
+      // `highlight` は言語不明を undefined で正常返却する (useHighlight.ts)。
+      // ここで tryCatch が捕捉するのは Shiki の grammar load 失敗や予期しない例外で、
+      // map 拡大後は on-demand load 経路で起こりうる。silent fallback すると原因を
+      // 追えないため error として通知する (renderer 規約: silent fallback 禁止、
+      // DiffPreview と同じ契約)。
+      notification.error("Syntax highlight failed", result.error);
+      return;
+    }
 
     // result.value が undefined の場合はフォールバック表示（Shiki 未対応言語）
     if (result.value) {

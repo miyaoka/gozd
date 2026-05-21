@@ -12,6 +12,9 @@
     "lint": "oxlint --type-aware src/ scripts/",
     "fix": "oxlint --type-aware --fix src/ scripts/ && oxfmt src/ scripts/"
   },
+  "peerDependencies": {
+    "shiki": "^4.0.0"
+  },
   "devDependencies": {
     "@types/bun": "catalog:",
     "@types/node": "catalog:",

@@ -40,6 +40,11 @@ export default defineConfigWithVueTs(
         },
       ],
 
+      // vue/multi-word-component-names: 公式 essential 設定に含まれるが、Vue コア
+      // (Transition / KeepAlive / Suspense / Teleport) や Headless UI 等のライブラリが
+      // 単一語コンポーネント名を採用しており、実用上は強制する意味が薄れている。
+      "vue/multi-word-component-names": "off",
+
       // vue: reactive() / watchEffect() を禁止
       // - reactive: ref() のみ使用する（issue #501）
       // - watchEffect: 依存が暗黙的で誤発火 / 漏れの原因になるため watch() を使う

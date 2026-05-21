@@ -14,8 +14,17 @@
  *     場合、queue 済みの "closed" toggle が後から発火するため、`:popover-open` で再 open 済み
  *     なら誤発火とみなして openState を残す
  *   - 利用側は `Popover` のスロット内に menu 内容を書き、`context` を v-if で参照する
+ *   - class / style など見た目は利用側で `Popover` に attribute として渡す
+ *
+ * 使い分け:
+ *   - **per-instance** (component setup 内で呼ぶ): その component が unmount されたら自動で
+ *     effect scope が破棄され、watch が止まる。
+ *   - **module singleton** (module top-level で 1 度だけ呼ぶ): component を跨いで state を
+ *     共有したいときに使う (useBlamePopover / useSidebarMenu と同パターン)。この経路では
+ *     呼び出し側で `stop()` を `import.meta.hot.dispose` 等に渡し HMR 時の重複 watch を防ぐ。
  */
 import {
+  effectScope,
   computed,
   defineComponent,
   h,
@@ -38,17 +47,23 @@ interface PopoverOpenState<T> {
 }
 
 interface UsePopoverResult<T> {
-  /** template に置く popover root component。slot 内に menu 内容を書く */
-  PopoverRoot: Component;
+  /** template に置く popover component。slot 内に menu 内容を書く */
+  Popover: Component;
   /** 現在 open 中の context。閉じていれば undefined */
   context: ComputedRef<T | undefined>;
   /** anchorEl の直下に popover を開き、context を template に渡す */
   open: (anchorEl: HTMLElement, context: T) => void;
   /** popover を閉じる。@toggle 経由で openState も clear される */
   close: () => void;
+  /** effectScope を破棄して watch を止める。module singleton 利用時の HMR dispose に使う */
+  stop: () => void;
 }
 
 export function usePopover<T>(): UsePopoverResult<T> {
+  // detached scope: parent scope (component setup) があれば自動で連動するわけではない。
+  // module top-level 利用では呼び出し側が stop() を import.meta.hot.dispose に渡す契約。
+  const scope = effectScope(true);
+
   const popoverRef = ref<PopoverElement>();
   const openState = ref<PopoverOpenState<T>>();
   const context = computed<T | undefined>(() => openState.value?.context);
@@ -65,16 +80,18 @@ export function usePopover<T>(): UsePopoverResult<T> {
     popoverRef.value?.hidePopover();
   }
 
-  watch(openState, async (state) => {
-    if (!state) return;
-    await nextTick();
-    const el = popoverRef.value;
-    if (!el) return;
-    if (el.matches(":popover-open")) {
-      suppressNextCloseEmit = true;
-      el.hidePopover();
-    }
-    el.showPopover({ source: state.anchorEl });
+  scope.run(() => {
+    watch(openState, async (state) => {
+      if (!state) return;
+      await nextTick();
+      const el = popoverRef.value;
+      if (!el) return;
+      if (el.matches(":popover-open")) {
+        suppressNextCloseEmit = true;
+        el.hidePopover();
+      }
+      el.showPopover({ source: state.anchorEl });
+    });
   });
 
   function onToggle(event: Event): void {
@@ -90,8 +107,12 @@ export function usePopover<T>(): UsePopoverResult<T> {
     openState.value = undefined;
   }
 
-  const PopoverRoot = defineComponent({
-    name: "PopoverRoot",
+  function stop(): void {
+    scope.stop();
+  }
+
+  const Popover = defineComponent({
+    name: "Popover",
     inheritAttrs: false,
     setup(_, { slots, attrs }) {
       return () =>
@@ -108,5 +129,5 @@ export function usePopover<T>(): UsePopoverResult<T> {
     },
   });
 
-  return { PopoverRoot, context, open, close };
+  return { Popover, context, open, close, stop };
 }

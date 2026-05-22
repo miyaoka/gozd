@@ -58,6 +58,10 @@ const defaultBranch = ref<string | undefined>();
 const layout = ref<GraphLayout>({ nodes: [], lines: [], maxLanes: 1 });
 const firstParentOnly = ref(false);
 const sortMode = ref<SortMode>("date");
+/** ON のとき default branch 系統 (`origin/HEAD` の log) を merge せず、HEAD 系統のみ描画する。
+ * fetch 自体はそのまま行い、`mergeCommitStreams` への入力で `defaultBranchCommits` を空に倒す。
+ * `defaultBranch` 文字列値は RefBadge の `isDefault` 判定 SSOT なので保持する。 */
+const currentBranchOnly = ref(false);
 
 /** 変更ファイル数 */
 const uncommittedChangeCount = computed(() => Object.keys(gitStatuses.value).length);
@@ -206,7 +210,7 @@ async function runLoadLog(): Promise<boolean> {
 
   const merged = mergeCommitStreams({
     headCommits: result.headCommits,
-    defaultBranchCommits: result.defaultBranchCommits,
+    defaultBranchCommits: currentBranchOnly.value ? [] : result.defaultBranchCommits,
     sortMode: sortMode.value,
   });
 
@@ -258,6 +262,10 @@ watch(firstParentOnly, () => {
   void loadLog();
 });
 watch(sortMode, () => {
+  gitGraphStore.resetSelection();
+  void loadLog();
+});
+watch(currentBranchOnly, () => {
   gitGraphStore.resetSelection();
   void loadLog();
 });
@@ -882,6 +890,16 @@ const isWorkingTreeActive = computed(
         @click="firstParentOnly = !firstParentOnly"
       >
         First Parent
+      </button>
+      <button
+        class="rounded-sm px-1.5 py-0.5 text-[10px]"
+        :class="
+          currentBranchOnly ? 'bg-blue-800 text-blue-200' : 'text-zinc-500 hover:text-zinc-300'
+        "
+        title="Hide default branch and show current branch only"
+        @click="currentBranchOnly = !currentBranchOnly"
+      >
+        Current Branch
       </button>
       <button
         class="rounded-sm px-1.5 py-0.5 text-[10px]"

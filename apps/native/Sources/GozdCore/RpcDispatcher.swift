@@ -665,7 +665,8 @@ public actor RpcDispatcher {
   private func handleGitLog(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitLogRequest(jsonUTF8Data: body)
     let result = try await GitOps.logBoth(
-      dir: req.dir, maxCount: req.maxCount, firstParentOnly: req.firstParentOnly)
+      dir: req.dir, maxCount: req.maxCount, firstParentOnly: req.firstParentOnly,
+      currentBranchOnly: req.currentBranchOnly)
     func toProto(_ c: CommitInfo) -> Gozd_V1_GitCommit {
       var pb = Gozd_V1_GitCommit()
       pb.hash = c.hash

@@ -58,6 +58,7 @@ const defaultBranch = ref<string | undefined>();
 const layout = ref<GraphLayout>({ nodes: [], lines: [], maxLanes: 1 });
 const firstParentOnly = ref(false);
 const sortMode = ref<SortMode>("date");
+const currentBranchOnly = ref(false);
 
 /** 変更ファイル数 */
 const uncommittedChangeCount = computed(() => Object.keys(gitStatuses.value).length);
@@ -78,6 +79,11 @@ const currentBranch = computed(() => {
  * ローカルとリモートが異なるコミットに存在するブランチ名の Set。
  * 同じコミットにローカルとリモートが両方あれば synced（computeDisplayRefs で処理）。
  * 別コミットに分かれていれば out-of-sync としてここで検出する。
+ *
+ * 検出範囲は `commits.value` に出現する ref に限定される。`currentBranchOnly` が ON のとき
+ * `defaultBranchCommits` 由来の commit が消えるため、HEAD 系統から到達しない ref ペアの
+ * out-of-sync は検出できない。これは toggle の意味（「current branch だけ表示」=「他系統を
+ * 隠す」）の直接の帰結であり、副作用ではない。
  */
 const outOfSyncBranches = computed(() => {
   const localCommits = new Map<string, string>();
@@ -201,6 +207,7 @@ async function runLoadLog(): Promise<boolean> {
     dir,
     maxCount: 200,
     firstParentOnly: firstParentOnly.value,
+    currentBranchOnly: currentBranchOnly.value,
   });
   if (gen !== loadLogGen) return false;
 
@@ -258,6 +265,10 @@ watch(firstParentOnly, () => {
   void loadLog();
 });
 watch(sortMode, () => {
+  gitGraphStore.resetSelection();
+  void loadLog();
+});
+watch(currentBranchOnly, () => {
   gitGraphStore.resetSelection();
   void loadLog();
 });
@@ -879,6 +890,7 @@ const isWorkingTreeActive = computed(
       <button
         class="rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="firstParentOnly ? 'bg-blue-800 text-blue-200' : 'text-zinc-500 hover:text-zinc-300'"
+        :aria-pressed="firstParentOnly"
         @click="firstParentOnly = !firstParentOnly"
       >
         First Parent
@@ -886,8 +898,20 @@ const isWorkingTreeActive = computed(
       <button
         class="rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="
+          currentBranchOnly ? 'bg-blue-800 text-blue-200' : 'text-zinc-500 hover:text-zinc-300'
+        "
+        :aria-pressed="currentBranchOnly"
+        title="Hide default branch and show current branch only"
+        @click="currentBranchOnly = !currentBranchOnly"
+      >
+        Current Branch
+      </button>
+      <button
+        class="rounded-sm px-1.5 py-0.5 text-[10px]"
+        :class="
           sortMode === 'topo' ? 'bg-blue-800 text-blue-200' : 'text-zinc-500 hover:text-zinc-300'
         "
+        :aria-pressed="sortMode === 'topo'"
         @click="sortMode = sortMode === 'date' ? 'topo' : 'date'"
       >
         {{ sortMode === "date" ? "Date Order" : "Topo Order" }}
@@ -901,6 +925,7 @@ const isWorkingTreeActive = computed(
       <button
         class="ml-auto rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="detailOpen ? 'bg-blue-800 text-blue-200' : 'text-zinc-500 hover:text-zinc-300'"
+        :aria-pressed="detailOpen"
         title="Toggle commit detail"
         aria-label="Toggle commit detail"
         @click="detailOpen = !detailOpen"

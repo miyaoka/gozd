@@ -178,7 +178,9 @@ public enum GitOps {
   ///
   /// `try?` で 3 種を区別せず潰すと、git-graph が「空」「gozd が git を解決できていない」
   /// 「ユーザーが git をインストールしていない」を見分けられなくなる。
-  public static func logBoth(dir: String, maxCount: UInt32, firstParentOnly: Bool) async throws
+  public static func logBoth(
+    dir: String, maxCount: UInt32, firstParentOnly: Bool, currentBranchOnly: Bool
+  ) async throws
     -> LogResult
   {
     async let headTask = log(
@@ -191,7 +193,9 @@ public enum GitOps {
     }
     let head = try await headTask
     var defaultCommits: [CommitInfo] = []
-    if !defaultBranch.isEmpty {
+    // currentBranchOnly では default branch 系統の log fetch を skip する。`defaultBranch` 文字列は
+    // `symbolic-ref` だけは引き続き解決して返す (renderer の RefBadge `isDefault` 表示に使う)。
+    if !defaultBranch.isEmpty && !currentBranchOnly {
       do {
         defaultCommits = try await log(
           dir: dir, ref: "origin/\(defaultBranch)", maxCount: maxCount,

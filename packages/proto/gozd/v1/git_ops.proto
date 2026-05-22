@@ -19,6 +19,10 @@ message GitLogRequest {
   string dir = 1;
   uint32 max_count = 2;
   bool first_parent_only = 3;
+  // true のとき `origin/<default>` の log 取得を完全に skip し、`default_branch_commits` を
+  // 空配列で返す。`default_branch` 文字列は `git symbolic-ref` だけは引き続き解決して返す
+  // (RefBadge の `isDefault` 表示に使う)。
+  bool current_branch_only = 4;
 }
 message GitLogResponse {
   repeated GitCommit head_commits = 1;

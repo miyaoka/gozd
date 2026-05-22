@@ -30,7 +30,7 @@ import {
   registerIssueCommand,
   registerPrCommand,
 } from "../palette";
-import { BlamePopover, PreviewPane } from "../preview";
+import { BlamePopover, PreviewPane, registerMarkdownHistoryCommands } from "../preview";
 import { registerSettingsCommand, SettingsModal } from "../settings";
 import { registerShellCommandActions } from "../shell-command";
 import { SidebarPane } from "../sidebar";
@@ -71,6 +71,7 @@ const disposeSettingsCommand = registerSettingsCommand();
 const disposePrCommand = registerPrCommand();
 const disposeIssueCommand = registerIssueCommand();
 const disposeShellCommandActions = registerShellCommandActions();
+const disposeMarkdownHistoryCommands = registerMarkdownHistoryCommands();
 onUnmounted(disposePreviewToggle);
 onUnmounted(disposeWindowClose);
 onUnmounted(disposeThemeCommand);
@@ -78,6 +79,7 @@ onUnmounted(disposeSettingsCommand);
 onUnmounted(disposePrCommand);
 onUnmounted(disposeIssueCommand);
 onUnmounted(disposeShellCommandActions);
+onUnmounted(disposeMarkdownHistoryCommands);
 
 /** ハンドル幅 w-2 = 8px */
 const HANDLE_WIDTH = 8;

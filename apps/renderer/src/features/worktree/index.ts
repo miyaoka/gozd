@@ -1,6 +1,11 @@
 export { UNCOMMITTED_HASH } from "./constants";
 export { generateTimestamp } from "./generateTimestamp";
-export { normalizeAbsolute, normalizeRelative, pathTargetToString } from "./pathUtils";
+export {
+  normalizeAbsolute,
+  normalizeRelative,
+  pathTargetEquals,
+  pathTargetToString,
+} from "./pathUtils";
 export type { PathTarget } from "./pathUtils";
 export type { GitStatusChangePayload } from "./rpc";
 export { default as StatusIcons } from "./StatusIcons.vue";

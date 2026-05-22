@@ -134,6 +134,12 @@ export interface GitLogRequest {
   dir: string;
   maxCount: number;
   firstParentOnly: boolean;
+  /**
+   * true のとき `origin/<default>` の log 取得を完全に skip し、`default_branch_commits` を
+   * 空配列で返す。`default_branch` 文字列は `git symbolic-ref` だけは引き続き解決して返す
+   * (RefBadge の `isDefault` 表示に使う)。
+   */
+  currentBranchOnly: boolean;
 }
 
 export interface GitLogResponse {
@@ -593,7 +599,7 @@ export const GitWorktreeListResponse: MessageFns<GitWorktreeListResponse> = {
 };
 
 function createBaseGitLogRequest(): GitLogRequest {
-  return { dir: "", maxCount: 0, firstParentOnly: false };
+  return { dir: "", maxCount: 0, firstParentOnly: false, currentBranchOnly: false };
 }
 
 export const GitLogRequest: MessageFns<GitLogRequest> = {
@@ -606,6 +612,9 @@ export const GitLogRequest: MessageFns<GitLogRequest> = {
     }
     if (message.firstParentOnly !== false) {
       writer.uint32(24).bool(message.firstParentOnly);
+    }
+    if (message.currentBranchOnly !== false) {
+      writer.uint32(32).bool(message.currentBranchOnly);
     }
     return writer;
   },
@@ -641,6 +650,14 @@ export const GitLogRequest: MessageFns<GitLogRequest> = {
           message.firstParentOnly = reader.bool();
           continue;
         }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.currentBranchOnly = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -663,6 +680,11 @@ export const GitLogRequest: MessageFns<GitLogRequest> = {
         : isSet(object.first_parent_only)
         ? globalThis.Boolean(object.first_parent_only)
         : false,
+      currentBranchOnly: isSet(object.currentBranchOnly)
+        ? globalThis.Boolean(object.currentBranchOnly)
+        : isSet(object.current_branch_only)
+        ? globalThis.Boolean(object.current_branch_only)
+        : false,
     };
   },
 
@@ -677,6 +699,9 @@ export const GitLogRequest: MessageFns<GitLogRequest> = {
     if (message.firstParentOnly !== false) {
       obj.firstParentOnly = message.firstParentOnly;
     }
+    if (message.currentBranchOnly !== false) {
+      obj.currentBranchOnly = message.currentBranchOnly;
+    }
     return obj;
   },
 
@@ -688,6 +713,7 @@ export const GitLogRequest: MessageFns<GitLogRequest> = {
     message.dir = object.dir ?? "";
     message.maxCount = object.maxCount ?? 0;
     message.firstParentOnly = object.firstParentOnly ?? false;
+    message.currentBranchOnly = object.currentBranchOnly ?? false;
     return message;
   },
 };

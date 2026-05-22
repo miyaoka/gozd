@@ -58,9 +58,6 @@ const defaultBranch = ref<string | undefined>();
 const layout = ref<GraphLayout>({ nodes: [], lines: [], maxLanes: 1 });
 const firstParentOnly = ref(false);
 const sortMode = ref<SortMode>("date");
-/** ON のとき default branch 系統 (`origin/HEAD` の log) を merge せず、HEAD 系統のみ描画する。
- * fetch 自体はそのまま行い、`mergeCommitStreams` への入力で `defaultBranchCommits` を空に倒す。
- * `defaultBranch` 文字列値は RefBadge の `isDefault` 判定 SSOT なので保持する。 */
 const currentBranchOnly = ref(false);
 
 /** 変更ファイル数 */
@@ -82,6 +79,11 @@ const currentBranch = computed(() => {
  * ローカルとリモートが異なるコミットに存在するブランチ名の Set。
  * 同じコミットにローカルとリモートが両方あれば synced（computeDisplayRefs で処理）。
  * 別コミットに分かれていれば out-of-sync としてここで検出する。
+ *
+ * 検出範囲は `commits.value` に出現する ref に限定される。`currentBranchOnly` が ON のとき
+ * `defaultBranchCommits` 由来の commit が消えるため、HEAD 系統から到達しない ref ペアの
+ * out-of-sync は検出できない。これは toggle の意味（「current branch だけ表示」=「他系統を
+ * 隠す」）の直接の帰結であり、副作用ではない。
  */
 const outOfSyncBranches = computed(() => {
   const localCommits = new Map<string, string>();
@@ -205,12 +207,13 @@ async function runLoadLog(): Promise<boolean> {
     dir,
     maxCount: 200,
     firstParentOnly: firstParentOnly.value,
+    currentBranchOnly: currentBranchOnly.value,
   });
   if (gen !== loadLogGen) return false;
 
   const merged = mergeCommitStreams({
     headCommits: result.headCommits,
-    defaultBranchCommits: currentBranchOnly.value ? [] : result.defaultBranchCommits,
+    defaultBranchCommits: result.defaultBranchCommits,
     sortMode: sortMode.value,
   });
 
@@ -887,6 +890,7 @@ const isWorkingTreeActive = computed(
       <button
         class="rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="firstParentOnly ? 'bg-blue-800 text-blue-200' : 'text-zinc-500 hover:text-zinc-300'"
+        :aria-pressed="firstParentOnly"
         @click="firstParentOnly = !firstParentOnly"
       >
         First Parent
@@ -896,6 +900,7 @@ const isWorkingTreeActive = computed(
         :class="
           currentBranchOnly ? 'bg-blue-800 text-blue-200' : 'text-zinc-500 hover:text-zinc-300'
         "
+        :aria-pressed="currentBranchOnly"
         title="Hide default branch and show current branch only"
         @click="currentBranchOnly = !currentBranchOnly"
       >
@@ -906,6 +911,7 @@ const isWorkingTreeActive = computed(
         :class="
           sortMode === 'topo' ? 'bg-blue-800 text-blue-200' : 'text-zinc-500 hover:text-zinc-300'
         "
+        :aria-pressed="sortMode === 'topo'"
         @click="sortMode = sortMode === 'date' ? 'topo' : 'date'"
       >
         {{ sortMode === "date" ? "Date Order" : "Topo Order" }}
@@ -919,6 +925,7 @@ const isWorkingTreeActive = computed(
       <button
         class="ml-auto rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="detailOpen ? 'bg-blue-800 text-blue-200' : 'text-zinc-500 hover:text-zinc-300'"
+        :aria-pressed="detailOpen"
         title="Toggle commit detail"
         aria-label="Toggle commit detail"
         @click="detailOpen = !detailOpen"

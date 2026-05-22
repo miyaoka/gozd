@@ -160,6 +160,11 @@ public struct Gozd_V1_GitLogRequest: Sendable {
 
   public var firstParentOnly: Bool = false
 
+  /// true のとき `origin/<default>` の log 取得を完全に skip し、`default_branch_commits` を
+  /// 空配列で返す。`default_branch` 文字列は `git symbolic-ref` だけは引き続き解決して返す
+  /// (RefBadge の `isDefault` 表示に使う)。
+  public var currentBranchOnly: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -924,7 +929,7 @@ extension Gozd_V1_GitWorktreeListResponse: SwiftProtobuf.Message, SwiftProtobuf.
 
 extension Gozd_V1_GitLogRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GitLogRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{3}max_count\0\u{3}first_parent_only\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{3}max_count\0\u{3}first_parent_only\0\u{3}current_branch_only\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -935,6 +940,7 @@ extension Gozd_V1_GitLogRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
       case 1: try { try decoder.decodeSingularStringField(value: &self.dir) }()
       case 2: try { try decoder.decodeSingularUInt32Field(value: &self.maxCount) }()
       case 3: try { try decoder.decodeSingularBoolField(value: &self.firstParentOnly) }()
+      case 4: try { try decoder.decodeSingularBoolField(value: &self.currentBranchOnly) }()
       default: break
       }
     }
@@ -950,6 +956,9 @@ extension Gozd_V1_GitLogRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
     if self.firstParentOnly != false {
       try visitor.visitSingularBoolField(value: self.firstParentOnly, fieldNumber: 3)
     }
+    if self.currentBranchOnly != false {
+      try visitor.visitSingularBoolField(value: self.currentBranchOnly, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -957,6 +966,7 @@ extension Gozd_V1_GitLogRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
     if lhs.dir != rhs.dir {return false}
     if lhs.maxCount != rhs.maxCount {return false}
     if lhs.firstParentOnly != rhs.firstParentOnly {return false}
+    if lhs.currentBranchOnly != rhs.currentBranchOnly {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

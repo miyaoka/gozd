@@ -24,6 +24,6 @@
     "oxfmt": "catalog:",
     "oxlint": "catalog:",
     "oxlint-tsgolint": "catalog:",
-    "shiki": "4.0.2"
+    "shiki": "4.1.0"
   }
 }

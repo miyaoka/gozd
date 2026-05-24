@@ -15,9 +15,9 @@
 </doc>
 
 <script setup lang="ts">
-import { useWindowSize } from "@vueuse/core";
+import { useEventListener, useWindowSize } from "@vueuse/core";
 import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
-import { useCommandRegistry, useContextKeys } from "../../shared/command";
+import { isIMEActive, useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
 import { useChangesSummaryStore } from "../changes";
 import { GitGraphPane } from "../git-graph";
@@ -96,7 +96,7 @@ const centerTerminalRef = useTemplateRef<HTMLElement>("centerTerminal");
 
 const sidebarWidth = ref(260);
 const navigatorWidth = ref(256);
-const previewWidth = ref(480);
+const previewWidth = ref(1200);
 const previewOpen = ref(false);
 const gitGraphHeight = ref(128);
 
@@ -173,6 +173,23 @@ function closePreview() {
 function onPreviewToggle(e: ToggleEvent) {
   previewOpen.value = e.newState === "open";
 }
+
+// ESC で preview を閉じる。popover="manual" によって OS の auto dismiss が無いため、
+// HTML popover が popover="auto" で持っていた ESC dismiss の性質を自前で代替する。
+// 他の popover (BlamePopover 等) や dialog (SettingsModal 等) が前面にあるときはそちらに ESC を譲り、
+// すべて閉じた次の ESC で preview を閉じる。preventDefault は macOS の NSBeep 抑止に必須。
+useEventListener(document, "keydown", (e: KeyboardEvent) => {
+  if (e.defaultPrevented) return;
+  if (isIMEActive(e) || e.key !== "Escape") return;
+  if (!previewOpen.value) return;
+  const otherPopoverOpen = Array.from(document.querySelectorAll<HTMLElement>(":popover-open")).some(
+    (el) => el !== previewPopoverRef.value,
+  );
+  if (otherPopoverOpen) return;
+  if (document.querySelector("dialog[open]") !== null) return;
+  e.preventDefault();
+  closePreview();
+});
 
 // ファイル選択時に Preview を自動オープン (path 軸で識別; selection object identity の発火は避ける)
 watch(
@@ -286,7 +303,7 @@ watch(
     <!-- Preview popover: 開閉ボタンをアンカーにして左側に展開 -->
     <div
       ref="previewPopover"
-      popover="auto"
+      popover="manual"
       class="_preview-popover overflow-hidden border-0 border-l border-zinc-700 bg-zinc-900 p-0 [&:popover-open]:flex"
       :style="{ width: `${previewWidth}px` }"
       @toggle="onPreviewToggle"
@@ -337,9 +354,5 @@ watch(
   right: anchor(left);
   height: 100dvh;
   max-height: none;
-}
-
-._preview-popover::backdrop {
-  background-color: rgb(0 0 0 / 0.3);
 }
 </style>

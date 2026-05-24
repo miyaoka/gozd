@@ -81,7 +81,7 @@ onUnmounted(() => {
         aria-label="Close preview"
         @click="emit('close')"
       >
-        <span class="icon-[lucide--panel-right-close] size-4" />
+        <span class="icon-[lucide--x] size-4" />
       </button>
     </div>
 

@@ -161,6 +161,10 @@ export {
   VoicevoxCheckEngineResponse,
   VoicevoxLaunchRequest,
   VoicevoxLaunchResponse,
+  VoicevoxListSpeakersRequest,
+  VoicevoxListSpeakersResponse,
+  VoicevoxSpeaker,
+  VoicevoxSpeakerStyle,
   VoicevoxSpeakRequest,
   VoicevoxSpeakResponse,
 } from "./generated/gozd/v1/voicevox";

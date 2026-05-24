@@ -36,6 +36,8 @@ message VoicevoxConfig {
   bool enabled = 1;
   double speed_scale = 2;
   double volume_scale = 3;
+  // 0 ならデフォルト (renderer 側 fallback)
+  uint32 speaker_id = 4;
 }
 
 message LoadAppConfigRequest {}

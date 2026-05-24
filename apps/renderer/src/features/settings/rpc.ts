@@ -60,7 +60,12 @@ export function flattenAppConfig(c: AppConfig | undefined): Record<string, unkno
 function applyDotKey(config: AppConfig, key: string, value: unknown): void {
   const terminal = config.terminal ?? { theme: "", fontFamily: "", fontSize: 0 };
   const preview = config.preview ?? { fontFamily: "", fontSize: 0 };
-  const voicevox = config.voicevox ?? { enabled: false, speedScale: 0, volumeScale: 0 };
+  const voicevox = config.voicevox ?? {
+    enabled: false,
+    speedScale: 0,
+    volumeScale: 0,
+    speakerId: 0,
+  };
   config.terminal = terminal;
   config.preview = preview;
   config.voicevox = voicevox;

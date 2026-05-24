@@ -115,6 +115,9 @@ public struct Gozd_V1_VoicevoxConfig: Sendable {
 
   public var volumeScale: Double = 0
 
+  /// 0 ならデフォルト (renderer 側 fallback)
+  public var speakerID: UInt32 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -307,7 +310,7 @@ extension Gozd_V1_PreviewConfig: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
 
 extension Gozd_V1_VoicevoxConfig: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".VoicevoxConfig"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}enabled\0\u{3}speed_scale\0\u{3}volume_scale\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}enabled\0\u{3}speed_scale\0\u{3}volume_scale\0\u{3}speaker_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -318,6 +321,7 @@ extension Gozd_V1_VoicevoxConfig: SwiftProtobuf.Message, SwiftProtobuf._MessageI
       case 1: try { try decoder.decodeSingularBoolField(value: &self.enabled) }()
       case 2: try { try decoder.decodeSingularDoubleField(value: &self.speedScale) }()
       case 3: try { try decoder.decodeSingularDoubleField(value: &self.volumeScale) }()
+      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.speakerID) }()
       default: break
       }
     }
@@ -333,6 +337,9 @@ extension Gozd_V1_VoicevoxConfig: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     if self.volumeScale.bitPattern != 0 {
       try visitor.visitSingularDoubleField(value: self.volumeScale, fieldNumber: 3)
     }
+    if self.speakerID != 0 {
+      try visitor.visitSingularUInt32Field(value: self.speakerID, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -340,6 +347,7 @@ extension Gozd_V1_VoicevoxConfig: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     if lhs.enabled != rhs.enabled {return false}
     if lhs.speedScale != rhs.speedScale {return false}
     if lhs.volumeScale != rhs.volumeScale {return false}
+    if lhs.speakerID != rhs.speakerID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

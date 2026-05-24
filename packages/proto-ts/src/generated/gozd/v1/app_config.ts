@@ -45,6 +45,8 @@ export interface VoicevoxConfig {
   enabled: boolean;
   speedScale: number;
   volumeScale: number;
+  /** 0 ならデフォルト (renderer 側 fallback) */
+  speakerId: number;
 }
 
 export interface LoadAppConfigRequest {
@@ -344,7 +346,7 @@ export const PreviewConfig: MessageFns<PreviewConfig> = {
 };
 
 function createBaseVoicevoxConfig(): VoicevoxConfig {
-  return { enabled: false, speedScale: 0, volumeScale: 0 };
+  return { enabled: false, speedScale: 0, volumeScale: 0, speakerId: 0 };
 }
 
 export const VoicevoxConfig: MessageFns<VoicevoxConfig> = {
@@ -357,6 +359,9 @@ export const VoicevoxConfig: MessageFns<VoicevoxConfig> = {
     }
     if (message.volumeScale !== 0) {
       writer.uint32(25).double(message.volumeScale);
+    }
+    if (message.speakerId !== 0) {
+      writer.uint32(32).uint32(message.speakerId);
     }
     return writer;
   },
@@ -392,6 +397,14 @@ export const VoicevoxConfig: MessageFns<VoicevoxConfig> = {
           message.volumeScale = reader.double();
           continue;
         }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.speakerId = reader.uint32();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -414,6 +427,11 @@ export const VoicevoxConfig: MessageFns<VoicevoxConfig> = {
         : isSet(object.volume_scale)
         ? globalThis.Number(object.volume_scale)
         : 0,
+      speakerId: isSet(object.speakerId)
+        ? globalThis.Number(object.speakerId)
+        : isSet(object.speaker_id)
+        ? globalThis.Number(object.speaker_id)
+        : 0,
     };
   },
 
@@ -428,6 +446,9 @@ export const VoicevoxConfig: MessageFns<VoicevoxConfig> = {
     if (message.volumeScale !== 0) {
       obj.volumeScale = message.volumeScale;
     }
+    if (message.speakerId !== 0) {
+      obj.speakerId = Math.round(message.speakerId);
+    }
     return obj;
   },
 
@@ -439,6 +460,7 @@ export const VoicevoxConfig: MessageFns<VoicevoxConfig> = {
     message.enabled = object.enabled ?? false;
     message.speedScale = object.speedScale ?? 0;
     message.volumeScale = object.volumeScale ?? 0;
+    message.speakerId = object.speakerId ?? 0;
     return message;
   },
 };

@@ -14,6 +14,40 @@ import Foundation
 public enum VoicevoxOps {
   static let baseUrl = URL(string: "http://127.0.0.1:50021")!
 
+  /// `/speakers` レスポンスの型。1 entry = 1 キャラ ＋ style 配列。
+  public struct Speaker: Sendable {
+    public struct Style: Sendable {
+      public let name: String
+      public let id: UInt32
+    }
+    public let name: String
+    public let styles: [Style]
+  }
+
+  public static func listSpeakers() async -> [Speaker]? {
+    var req = URLRequest(url: baseUrl.appendingPathComponent("speakers"))
+    req.timeoutInterval = 5
+    do {
+      let (data, resp) = try await URLSession.shared.data(for: req)
+      guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+      guard let arr = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+        return nil
+      }
+      return arr.compactMap { entry in
+        guard let name = entry["name"] as? String,
+          let styleArr = entry["styles"] as? [[String: Any]]
+        else { return nil }
+        let styles: [Speaker.Style] = styleArr.compactMap { s in
+          guard let n = s["name"] as? String, let id = s["id"] as? Int else { return nil }
+          return Speaker.Style(name: n, id: UInt32(id))
+        }
+        return Speaker(name: name, styles: styles)
+      }
+    } catch {
+      return nil
+    }
+  }
+
   public static func checkEngine() async -> Bool {
     var req = URLRequest(url: baseUrl.appendingPathComponent("version"))
     req.timeoutInterval = 1.5

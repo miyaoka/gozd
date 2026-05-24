@@ -383,6 +383,8 @@ public actor RpcDispatcher {
       return try await handleVoicevoxLaunch(body)
     case "/voicevox/checkEngine":
       return try await handleVoicevoxCheckEngine(body)
+    case "/voicevox/listSpeakers":
+      return try await handleVoicevoxListSpeakers(body)
     case "/voicevox/speak":
       return try await handleVoicevoxSpeak(body)
     case "/window/close":
@@ -1287,6 +1289,25 @@ public actor RpcDispatcher {
     _ = try Gozd_V1_VoicevoxCheckEngineRequest(jsonUTF8Data: body)
     var resp = Gozd_V1_VoicevoxCheckEngineResponse()
     resp.ok = await VoicevoxOps.checkEngine()
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleVoicevoxListSpeakers(_ body: Data) async throws -> Data {
+    _ = try Gozd_V1_VoicevoxListSpeakersRequest(jsonUTF8Data: body)
+    var resp = Gozd_V1_VoicevoxListSpeakersResponse()
+    if let speakers = await VoicevoxOps.listSpeakers() {
+      resp.speakers = speakers.map { speaker in
+        var s = Gozd_V1_VoicevoxSpeaker()
+        s.name = speaker.name
+        s.styles = speaker.styles.map { style in
+          var st = Gozd_V1_VoicevoxSpeakerStyle()
+          st.name = style.name
+          st.id = style.id
+          return st
+        }
+        return s
+      }
+    }
     return try resp.jsonUTF8Data()
   }
 

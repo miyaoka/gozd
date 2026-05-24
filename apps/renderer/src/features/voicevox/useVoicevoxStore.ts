@@ -1,10 +1,16 @@
+import type { VoicevoxSpeaker } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { ref, watch } from "vue";
 import { onMessage } from "../../shared/rpc";
 import { rpcLoadAppConfig, rpcSaveAppConfig } from "../settings";
 import type { HookPayload } from "../terminal";
-import { rpcVoicevoxCheckEngine, rpcVoicevoxLaunch, rpcVoicevoxSpeak } from "./rpc";
+import {
+  rpcVoicevoxCheckEngine,
+  rpcVoicevoxLaunch,
+  rpcVoicevoxListSpeakers,
+  rpcVoicevoxSpeak,
+} from "./rpc";
 import { extractSpeechText } from "./speechText";
 
 /** ずんだもん（ノーマル） */
@@ -64,8 +70,18 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
   const enabled = ref(false);
   const speedScale = ref(DEFAULT_SPEED_SCALE);
   const volumeScale = ref(DEFAULT_VOLUME_SCALE);
+  const speakerId = ref<number>(DEFAULT_SPEAKER_ID);
+  /** Engine `/speakers` から取得したキャラ一覧。enable + Engine 起動済みでロードされる */
+  const speakers = ref<VoicevoxSpeaker[]>([]);
   /** 有効化処理中 */
   const activating = ref(false);
+
+  /** Engine から speakers を取得して保持する */
+  async function loadSpeakers(): Promise<void> {
+    const result = await tryCatch(rpcVoicevoxListSpeakers());
+    if (!result.ok) return;
+    speakers.value = result.value.speakers;
+  }
 
   /** RPC 経由で Engine の起動状態を確認する */
   async function checkEngineRunning(): Promise<boolean> {
@@ -93,7 +109,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
           text,
           speedScale: speed,
           volumeScale: volume,
-          speakerId: DEFAULT_SPEAKER_ID,
+          speakerId: speakerId.value,
         }),
       );
       if (!result.ok || result.value.wav.length === 0) return;
@@ -117,10 +133,13 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     if (cfg !== undefined) {
       if (cfg.speedScale > 0) speedScale.value = cfg.speedScale;
       if (cfg.volumeScale > 0) volumeScale.value = cfg.volumeScale;
+      if (cfg.speakerId > 0) speakerId.value = cfg.speakerId;
       if (cfg.enabled) {
         enabled.value = true;
         // Engine が起動していなければバックグラウンドで起動だけ試みる（ポーリングしない）
-        if (!(await checkEngineRunning())) {
+        if (await checkEngineRunning()) {
+          void loadSpeakers();
+        } else {
           void tryCatch(rpcVoicevoxLaunch());
         }
       }
@@ -139,12 +158,13 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
       enabled: enabled.value,
       speedScale: speedScale.value,
       volumeScale: volumeScale.value,
+      speakerId: speakerId.value,
     };
     void tryCatch(rpcSaveAppConfig(config));
   }
 
   // 設定変更時に保存
-  watch([enabled, speedScale, volumeScale], () => {
+  watch([enabled, speedScale, volumeScale, speakerId], () => {
     void saveSettings();
   });
 
@@ -161,6 +181,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     // Engine が既に起動しているかチェック
     if (await checkEngineRunning()) {
       enabled.value = true;
+      void loadSpeakers();
       activating.value = false;
       return undefined;
     }
@@ -175,6 +196,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     // Engine の起動を待つ
     if (await waitForEngine()) {
       enabled.value = true;
+      void loadSpeakers();
       activating.value = false;
       return undefined;
     }
@@ -220,7 +242,18 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
 
   initHookSubscription();
 
-  return { enabled, playing, speedScale, volumeScale, activating, activate, deactivate, stopAudio };
+  return {
+    enabled,
+    playing,
+    speedScale,
+    volumeScale,
+    speakerId,
+    speakers,
+    activating,
+    activate,
+    deactivate,
+    stopAudio,
+  };
 });
 
 if (import.meta.hot) {

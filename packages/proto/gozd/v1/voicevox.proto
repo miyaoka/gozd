@@ -24,3 +24,19 @@ message VoicevoxSpeakResponse {
   // 合成成功時の wav バイト列。失敗時は空。再生は呼び出し側（renderer）の責務。
   bytes wav = 1;
 }
+
+// Engine `/speakers` の薄いラッパー。キャラと style 一覧を返す。
+message VoicevoxListSpeakersRequest {}
+message VoicevoxListSpeakersResponse {
+  repeated VoicevoxSpeaker speakers = 1;
+}
+
+message VoicevoxSpeaker {
+  string name = 1;
+  repeated VoicevoxSpeakerStyle styles = 2;
+}
+
+message VoicevoxSpeakerStyle {
+  string name = 1;
+  uint32 id = 2;
+}

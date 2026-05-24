@@ -120,12 +120,12 @@ public enum VoicevoxOps {
     // symlink / mount alias を経由する場合に備えて実体パスへ解決
     let resolvedAppUrl = appUrl.resolvingSymlinksInPath()
     // slash 区切りの 1 本文字列を appendingPathComponent に渡すと挙動が macOS version 依存。
-    // segment 単位で連鎖させる (Apple Foundation 推奨)
-    let engineUrl = resolvedAppUrl
-      .appendingPathComponent("Contents")
-      .appendingPathComponent("Resources")
-      .appendingPathComponent("vv-engine")
-      .appendingPathComponent("run")
+    // segment 単位で連鎖させる (Apple Foundation 推奨)。
+    // VOICEVOX.app 内部レイアウトの SSOT として segment 配列を持ち、append を reduce で展開
+    let engineSegments = ["Contents", "Resources", "vv-engine", "run"]
+    let engineUrl = engineSegments.reduce(resolvedAppUrl) {
+      $0.appendingPathComponent($1)
+    }
     guard FileManager.default.isExecutableFile(atPath: engineUrl.path) else {
       StderrLog.write(
         tag: "VoicevoxOps.launch", "engine binary not executable at \(engineUrl.path)")

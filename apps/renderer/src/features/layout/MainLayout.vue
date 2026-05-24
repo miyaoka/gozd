@@ -40,12 +40,10 @@ import { registerSettingsCommand, SettingsModal } from "../settings";
 import { registerShellCommandActions } from "../shell-command";
 import { SidebarPane } from "../sidebar";
 import { registerThemeCommand, TerminalPane } from "../terminal";
-import { useWorktreeStore } from "../worktree";
 import NotificationToast from "./NotificationToast.vue";
 import ResizeHandle from "./ResizeHandle.vue";
 import { rpcWindowClose } from "./rpc";
 
-const worktreeStore = useWorktreeStore();
 const repoStore = useRepoStore();
 const summaryStore = useChangesSummaryStore();
 const previewStore = usePreviewStore();
@@ -185,35 +183,9 @@ useEventListener(document, "keydown", (e: KeyboardEvent) => {
   previewStore.close();
 });
 
-// worktree 切替 (dir 変化) で Preview を auto-close。
-// 新 worktree でファイル選択を伴う経路 (gozdOpen 経由等) では、後続の
-// selectedDisplayPath watch が auto-open で開き直すため、最終状態は新ファイルで表示継続になる。
-watch(
-  () => worktreeStore.dir,
-  () => {
-    previewStore.close();
-  },
-);
-
-// ファイル選択時に Preview を自動オープン (path 軸で識別; selection object identity の発火は避ける)
-watch(
-  () => worktreeStore.selectedDisplayPath,
-  (path) => {
-    if (path === undefined) return;
-    previewStore.open();
-  },
-);
-
-// gozdOpen で同一パスが指定された場合にも Preview を開く
-watch(
-  () => worktreeStore.revealVersion,
-  () => {
-    if (worktreeStore.selectedDisplayPath === undefined) return;
-    previewStore.open();
-  },
-);
-
 // Changes summary が有効化されたら Preview popover を自動で開く
+// dir 切替時の auto-close は usePreviewStore 内部の watch に集約してある
+// （[docs/preview.md](../../../../../docs/preview.md) の決定表を参照）。
 watch(
   () => summaryStore.enabled,
   (enabled) => {
@@ -310,7 +282,6 @@ watch(
       popover="manual"
       class="_preview-popover overflow-hidden border-0 border-l border-zinc-700 bg-zinc-900 p-0 [&:popover-open]:flex"
       :style="{ width: `${previewWidth}px` }"
-      @toggle="previewStore.syncFromToggleEvent"
     >
       <!-- 左端リサイズハンドル -->
       <ResizeHandle

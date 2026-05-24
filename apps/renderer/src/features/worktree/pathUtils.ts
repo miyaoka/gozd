@@ -28,6 +28,11 @@ export function pathTargetToString(target: PathTarget): string {
  * Selection 経由の object identity 比較は新規 object literal が毎回作られるため成立しない。
  * 「同じファイルへの再 navigate を no-op に倒す」「履歴に同パス重複を積まない」などで
  * SSOT として使う。kind が異なれば即 false、同じなら path 文字列を比較する。
+ *
+ * **注意**: 本関数は **生文字列比較**。`./a.ts` と `a.ts` を別と判定する。「正規化前の入力を
+ * 受けて同一性を判定する」用途では先に `normalizePathTarget` で揃えてから渡すこと。
+ * `useWorktreeStore.selection` は `selectRelPath` / `selectAbsPath` で正規化済みのため、
+ * 正規化済み同士の比較なら本関数を直接使ってよい。
  */
 export function pathTargetEquals(a: PathTarget, b: PathTarget): boolean {
   if (a.kind === "worktreeRelative" && b.kind === "worktreeRelative") {
@@ -37,6 +42,19 @@ export function pathTargetEquals(a: PathTarget, b: PathTarget): boolean {
     return a.absPath === b.absPath;
   }
   return false;
+}
+
+/**
+ * `PathTarget` を kind に応じて正規化する純粋関数。
+ * 「同一性判定の前段で入力側を正規化する」「外部入力（terminal の regex match 結果等）を
+ * 受けて selection と公平に比較する」ための SSOT。`useWorktreeStore.selectRelPath` /
+ * `selectAbsPath` の内部正規化と同じロジックを通す。
+ */
+export function normalizePathTarget(target: PathTarget): PathTarget {
+  if (target.kind === "worktreeRelative") {
+    return { kind: "worktreeRelative", relPath: normalizeRelative(target.relPath) };
+  }
+  return { kind: "absolute", absPath: normalizeAbsolute(target.absPath) };
 }
 
 /**

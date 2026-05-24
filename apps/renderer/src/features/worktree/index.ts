@@ -2,6 +2,7 @@ export { UNCOMMITTED_HASH } from "./constants";
 export { generateTimestamp } from "./generateTimestamp";
 export {
   normalizeAbsolute,
+  normalizePathTarget,
   normalizeRelative,
   pathTargetEquals,
   pathTargetToString,

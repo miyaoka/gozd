@@ -9,7 +9,8 @@ import { rpcTaskAdd } from "./rpc";
  *
  * 同じ PR を再選択した時に、terminal close で `closed_by_user=true` 化された既存 task を
  * server 側 `TaskStore.add` の upsert (同 worktreeDir + 同 ghRef キー) で蘇生する。
- * body 上書き + `closed_by_user=false` に倒すことで「再開した」状態に戻す。
+ * `gh_title` を最新の PR タイトルで上書きし、`closed_by_user=false` に倒す。ユーザーが
+ * dialog で編集した `user_title` は触らない (3 レイヤ分離契約)。
  * 成功後は `repoStore.requestRefresh(rootDir)` で SSOT 取り直しを `useSidebarData` に
  * 依頼する (楽観更新で `repos[...]` を直書きしない)。
  *
@@ -19,11 +20,11 @@ import { rpcTaskAdd } from "./rpc";
  */
 export async function reviveTaskForGhRef(params: {
   existingDir: string;
-  body: string;
+  ghTitle: string;
   ghRef: GhRef;
   errorLabel: string;
 }): Promise<void> {
-  const { existingDir, body, ghRef, errorLabel } = params;
+  const { existingDir, ghTitle, ghRef, errorLabel } = params;
   const repoStore = useRepoStore();
   const notify = useNotificationStore();
 
@@ -38,7 +39,12 @@ export async function reviveTaskForGhRef(params: {
   }
 
   const result = await tryCatch(
-    rpcTaskAdd({ dir: rootDir, body, worktreeDir: existingDir, ghRef }),
+    rpcTaskAdd({
+      dir: rootDir,
+      ghTitle,
+      worktreeDir: existingDir,
+      ghRef,
+    }),
   );
   if (!result.ok) {
     notify.error(errorLabel, result.error);

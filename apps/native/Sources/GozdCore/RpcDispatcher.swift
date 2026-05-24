@@ -361,8 +361,10 @@ public actor RpcDispatcher {
       return try await handleGitLogLine(body)
     case "/task/add":
       return try await handleTaskAdd(body)
-    case "/task/update":
-      return try await handleTaskUpdate(body)
+    case "/task/setTerminalTitle":
+      return try await handleTaskSetTerminalTitle(body)
+    case "/task/setUserTitle":
+      return try await handleTaskSetUserTitle(body)
     case "/task/remove":
       return try await handleTaskRemove(body)
     case "/fs/readFileAbsolute":
@@ -1182,7 +1184,7 @@ public actor RpcDispatcher {
     let req = try Gozd_V1_TaskAddRequest(jsonUTF8Data: body)
     let task = try await tasks.add(
       dir: req.dir,
-      body: req.body,
+      ghTitle: req.ghTitle,
       worktreeDir: req.worktreeDir,
       ghRef: req.hasGhRef ? req.ghRef : nil
     )
@@ -1191,10 +1193,19 @@ public actor RpcDispatcher {
     return try resp.jsonUTF8Data()
   }
 
-  private func handleTaskUpdate(_ body: Data) async throws -> Data {
-    let req = try Gozd_V1_TaskUpdateRequest(jsonUTF8Data: body)
-    let task = try await tasks.update(dir: req.dir, id: req.id, body: req.body)
-    var resp = Gozd_V1_TaskUpdateResponse()
+  private func handleTaskSetTerminalTitle(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_TaskSetTerminalTitleRequest(jsonUTF8Data: body)
+    let task = try await tasks.setTerminalTitle(
+      dir: req.dir, id: req.id, terminalTitle: req.terminalTitle)
+    var resp = Gozd_V1_TaskSetTerminalTitleResponse()
+    resp.task = task
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleTaskSetUserTitle(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_TaskSetUserTitleRequest(jsonUTF8Data: body)
+    let task = try await tasks.setUserTitle(dir: req.dir, id: req.id, userTitle: req.userTitle)
+    var resp = Gozd_V1_TaskSetUserTitleResponse()
     resp.task = task
     return try resp.jsonUTF8Data()
   }

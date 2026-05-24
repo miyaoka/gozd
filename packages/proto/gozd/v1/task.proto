@@ -20,21 +20,38 @@ message TaskList {
 
 message TaskAddRequest {
   string dir = 1;
-  string body = 2;
   string worktree_dir = 3;
   // GitHub PR / issue 参照。手動作成時は未指定で OK。
   optional GhRef gh_ref = 4;
+  // PR/issue picker からの snapshot タイトル。新規 task の gh_title に入る。
+  // upsert (同 worktree + 同 ghRef) では既存 task の gh_title を上書きする。
+  // user_title はこの経路では一切扱わない (編集 dialog 専用)。
+  string gh_title = 5;
 }
 message TaskAddResponse {
   Task task = 1;
 }
 
-message TaskUpdateRequest {
+// OSC ターミナルタイトルの観測値を Task に書き込む経路。renderer の useSidebarData が
+// terminal title 変化を観測して呼ぶ。user_title が空のときの表示フォールバックに使う。
+message TaskSetTerminalTitleRequest {
   string dir = 1;
   string id = 2;
-  string body = 3;
+  string terminal_title = 3;
 }
-message TaskUpdateResponse {
+message TaskSetTerminalTitleResponse {
+  Task task = 1;
+}
+
+// 編集 dialog からのユーザー明示タイトル設定。
+// 空文字を渡すと user_title をクリアし、表示は gh_title / terminal_title の
+// 自然なフォールバックチェーンに戻る (= reset 経路)。
+message TaskSetUserTitleRequest {
+  string dir = 1;
+  string id = 2;
+  string user_title = 3;
+}
+message TaskSetUserTitleResponse {
   Task task = 1;
 }
 

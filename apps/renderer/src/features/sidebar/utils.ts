@@ -1,22 +1,9 @@
 import type { Task, WorktreeEntry } from "@gozd/proto";
 
 /**
- * Task の body から表示可能なタイトル (一行目を trim) を取り出す。
- * 空文字 / `CLAUDE_PLACEHOLDER_TITLE` は「実質空」として undefined を返し、
- * 呼び出し側でフォールバック (branch 名 / "New session") に倒せるようにする。
- */
-function extractTaskTitle(body: string): string | undefined {
-  const [firstLine = ""] = body.split("\n");
-  const trimmed = firstLine.trim();
-  if (trimmed === "" || trimmed === CLAUDE_PLACEHOLDER_TITLE) return undefined;
-  return trimmed;
-}
-
-/**
  * Claude Code が transcript 起動直後に OSC タイトルとして送ってくる
  * プレースホルダ文字列。本物のタイトルが届くまでの中継値。
- * `useSidebarData` の OSC 受信側 early return と `taskDisplayTitle` の
- * 表示フォールバックの両方で SSOT として参照する。
+ * `useSidebarData` の OSC 受信側 early return と表示フォールバックの両方で SSOT として参照する。
  */
 export const CLAUDE_PLACEHOLDER_TITLE = "Claude Code";
 
@@ -41,6 +28,37 @@ export function branchLabel(branch: string | undefined): string {
 }
 
 /**
+ * terminal_title からタイトル候補を取り出す。
+ * 1 行目を trim し、空文字 / `CLAUDE_PLACEHOLDER_TITLE` は無効扱いで undefined を返す。
+ */
+function extractTerminalTitle(terminalTitle: string): string | undefined {
+  const [firstLine = ""] = terminalTitle.split("\n");
+  const trimmed = firstLine.trim();
+  if (trimmed === "" || trimmed === CLAUDE_PLACEHOLDER_TITLE) return undefined;
+  return trimmed;
+}
+
+/**
+ * 表示優先度に沿って Task のタイトル候補を 1 つ返す。
+ * 優先度: user_title > gh_title > terminal_title > undefined。
+ * 編集 dialog の初期値解決にも使う。
+ */
+function resolveDisplayTitle(task: Task): string | undefined {
+  if (task.userTitle !== "") return task.userTitle;
+  if (task.ghTitle !== "") return task.ghTitle;
+  return extractTerminalTitle(task.terminalTitle);
+}
+
+/**
+ * 編集 dialog の input placeholder 用: 「user_title を空にして Save したら表示される値」を
+ * 返す。`taskDisplayTitle` を SSOT として参照することで、placeholder の予告と
+ * サイドバーの実表示が必ず一致する (`#N ` prefix の有無 / "New session" フォールバック等)。
+ */
+export function placeholderForEmptyUserTitle(task: Task): string {
+  return taskDisplayTitle({ ...task, userTitle: "" });
+}
+
+/**
  * Task の GitHub 参照番号をプレフィックス文字列 (`#123 `) として返す。
  * GitHub では PR と issue が同一の番号空間を共有するため kind を見ずに番号だけ表示する。
  */
@@ -52,12 +70,10 @@ function taskNumberPrefix(task: Task): string {
 /**
  * worktree の表示名: 任意 Task に有効なタイトルがあればそれ、なければブランチ名。
  * gh_ref 付き task は `#N タイトル` の形で先頭に番号を付ける。
- * Claude プレースホルダ (`CLAUDE_PLACEHOLDER_TITLE`) は無効扱いし、
- * confirm / error メッセージで "Claude Code" が露出するのを防ぐ。
  */
 export function worktreeDisplayName(wt: WorktreeEntry): string {
   for (const task of wt.tasks) {
-    const title = extractTaskTitle(task.body);
+    const title = resolveDisplayTitle(task);
     if (title !== undefined) return `${taskNumberPrefix(task)}${title}`;
   }
   return branchLabel(wt.branch);
@@ -71,13 +87,12 @@ export function hasChanges(gitStatuses: Record<string, string> | undefined): boo
 
 /**
  * Task title を表示用に正規化。gh_ref 付き task は `#N タイトル` を返す。
- * body が空 (Claude プレースホルダ含む) の場合、gh_ref ありなら `#N` 単体、無しなら
- * `New session` にフォールバックする。gh_ref ありで body 空の状態は PR/issue picker 直後
- * (Claude 未起動 + OSC title 未到達) の過渡状態で、Not started アイコンと併せて識別される。
+ * resolveDisplayTitle に従い、user_title > gh_title > terminal_title の順でフォールバック。
+ * どれも空のとき、gh_ref ありなら `#N` 単体、無しなら `New session`。
  */
 export function taskDisplayTitle(task: Task): string {
   const prefix = taskNumberPrefix(task);
-  const title = extractTaskTitle(task.body);
+  const title = resolveDisplayTitle(task);
   if (title !== undefined) return `${prefix}${title}`;
   if (prefix !== "") return prefix.trimEnd();
   return "New session";

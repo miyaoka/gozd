@@ -7,7 +7,12 @@ import { onMessage } from "../../shared/rpc";
 import { useTerminalStore } from "../terminal";
 import type { HookPayload } from "../terminal";
 import { useWorktreeStore } from "../worktree";
-import { rpcAppStateLoad, rpcAppStateSave, rpcGitWorktreeList, rpcTaskUpdate } from "./rpc";
+import {
+  rpcAppStateLoad,
+  rpcAppStateSave,
+  rpcGitWorktreeList,
+  rpcTaskSetTerminalTitle,
+} from "./rpc";
 import type { BranchChangePayload, FsWatchReadyPayload, WorktreeChangePayload } from "./rpc";
 import { validateTasksCreatedAt } from "./taskBaseTime";
 import { CLAUDE_PLACEHOLDER_TITLE, stripClaudeStatusPrefix } from "./utils";
@@ -167,15 +172,17 @@ export function useSidebarData() {
       if (!wt.tasks.some((t) => t.sessionId === sessionId)) return;
     }
 
-    // dedupe: 既に同じ title が反映済みなら rpcTaskUpdate を打たない。
-    // body は将来的に複数行になりうるため、1 行目を trim した値で比較する
-    // (taskDisplayTitle / extractTaskTitle と同じ正規化)。
+    // dedupe: 既に同じ terminal_title が反映済みなら RPC を打たない。
+    // terminalTitle は将来的に複数行になりうるため、1 行目を trim した値で比較する
+    // (resolveDisplayTitle / extractTerminalTitle と同じ正規化)。
     const existing = wt.tasks.find((t) => t.sessionId === sessionId);
     if (existing === undefined) return;
-    const [firstLine = ""] = existing.body.split("\n");
+    const [firstLine = ""] = existing.terminalTitle.split("\n");
     if (firstLine.trim() === title) return;
 
-    const result = await tryCatch(rpcTaskUpdate({ dir: projectDir, id: existing.id, body: title }));
+    const result = await tryCatch(
+      rpcTaskSetTerminalTitle({ dir: projectDir, id: existing.id, terminalTitle: title }),
+    );
     if (result.ok && result.value.task !== undefined) {
       const updatedTask = result.value.task;
       const freshRepo = repoStore.repos[projectDir];

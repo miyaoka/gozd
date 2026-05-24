@@ -40,17 +40,23 @@ public actor TaskStore {
     return try loadFile(for: dir).tasks
   }
 
-  /// Task を作成または再活性化する。PR/issue picker や手動操作から呼ばれる。
+  /// Task を作成または再活性化する。PR/issue picker から呼ばれる経路 + Claude 直接起動の
+  /// SessionStart hook fallback (`attachSession` 内部) から呼ばれる経路がある。
   ///
   /// 動作:
   ///   - `ghRef` 指定があり、同 `worktreeDir` + 同 `ghRef` の既存 task が見つかれば
-  ///     **upsert**: `body` を最新の PR/issue タイトルで上書きし、
-  ///     `closed_by_user=false` に倒して返す。createdAt / id / sessionID は保持する。
-  ///   - それ以外は新規 task を UUID で作成。`createdAt` を省略すると現在時刻
-  ///     (ISO 8601)。テスト時の順序仕込み用に caller が文字列で与えられる。
+  ///     **upsert**: `gh_title` を最新の PR/issue タイトルで上書きし、
+  ///     `closed_by_user=false` に倒して返す。`user_title` はユーザー編集の確定値
+  ///     なので触らない (本関数からはそもそも書き込み経路を持たない)。createdAt / id /
+  ///     sessionID / terminalTitle / userTitle は保持される。
+  ///   - それ以外は新規 task を UUID で作成。新規 task の user_title は空 (編集 dialog
+  ///     で `setUserTitle` 経由でしか設定されない契約)。`createdAt` を省略すると現在時刻。
+  ///
+  /// `user_title` 書き込み経路は意図的にこの関数から外している (`setUserTitle` 専用)。
+  /// silent drop を避けるための物理分離。
   public func add(
-    dir: String, body: String, worktreeDir: String, ghRef: Gozd_V1_GhRef?,
-    createdAt: String? = nil
+    dir: String, ghTitle: String, worktreeDir: String,
+    ghRef: Gozd_V1_GhRef?, createdAt: String? = nil
   ) throws -> Gozd_V1_Task {
     var list = try loadFile(for: dir)
     if let ghRef,
@@ -58,14 +64,14 @@ public actor TaskStore {
         $0.worktreeDir == worktreeDir && $0.hasGhRef && $0.ghRef == ghRef
       })
     {
-      list.tasks[idx].body = body
+      list.tasks[idx].ghTitle = ghTitle
       list.tasks[idx].closedByUser = false
       try saveFile(list, for: dir)
       return list.tasks[idx]
     }
     var task = Gozd_V1_Task()
     task.id = UUID().uuidString
-    task.body = body
+    task.ghTitle = ghTitle
     task.worktreeDir = worktreeDir
     if let ghRef { task.ghRef = ghRef }
     task.createdAt = createdAt ?? ISO8601DateFormatter().string(from: Date())
@@ -74,14 +80,29 @@ public actor TaskStore {
     return task
   }
 
-  /// Task body を OSC ターミナルタイトル経由で書き換える。renderer 側 useSidebarData
-  /// から呼ばれる。
-  public func update(dir: String, id: String, body: String) throws -> Gozd_V1_Task {
+  /// OSC ターミナルタイトル経由で観測した値を Task に書き込む。renderer 側 useSidebarData
+  /// から呼ばれる。user_title が空のときの表示フォールバックに使う観測値。
+  public func setTerminalTitle(dir: String, id: String, terminalTitle: String) throws
+    -> Gozd_V1_Task
+  {
     var list = try loadFile(for: dir)
     guard let idx = list.tasks.firstIndex(where: { $0.id == id }) else {
       throw TaskStoreError.notFound(id)
     }
-    list.tasks[idx].body = body
+    list.tasks[idx].terminalTitle = terminalTitle
+    try saveFile(list, for: dir)
+    return list.tasks[idx]
+  }
+
+  /// 編集 dialog からのユーザー明示タイトル設定 (新規タイトル / クリア両用)。
+  /// 空文字を渡すと user_title をクリアし、表示は gh_title / terminal_title の
+  /// 自然なフォールバックチェーンに戻る (= reset 経路)。
+  public func setUserTitle(dir: String, id: String, userTitle: String) throws -> Gozd_V1_Task {
+    var list = try loadFile(for: dir)
+    guard let idx = list.tasks.firstIndex(where: { $0.id == id }) else {
+      throw TaskStoreError.notFound(id)
+    }
+    list.tasks[idx].userTitle = userTitle
     try saveFile(list, for: dir)
     return list.tasks[idx]
   }
@@ -141,7 +162,6 @@ public actor TaskStore {
     } else {
       var task = Gozd_V1_Task()
       task.id = UUID().uuidString
-      task.body = ""
       task.worktreeDir = worktreeDir
       task.sessionID = sessionId
       task.createdAt = ISO8601DateFormatter().string(from: Date())

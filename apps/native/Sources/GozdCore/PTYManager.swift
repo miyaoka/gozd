@@ -85,9 +85,11 @@ public final class PTYManager {
   /// ready pipe fd の所有権を caller に移譲する。1 度だけ呼べる accessor。
   /// `awaitReady` / `awaitReadyPipe` を経由する代わりに caller 自身で fd を消費する
   /// 経路 (`PTYRegistry.spawn` から actor 排他区間内で抽出 → 自由関数で blocking
-  /// read) を作るために公開する。所有権が移った後の close 責務は caller 側にある
-  /// (`awaitReadyPipe` 内 close か、caller の独自経路)。
-  public func takeReadyPipeFd() -> Int32 {
+  /// read) を作るために GozdCore module 内に閉じて公開する。所有権が移った後の close
+  /// 責務は caller 側にある (`awaitReadyPipe` 内 close か、caller の独自経路)。
+  /// `internal` は module 外 ( Gozd target など ) から ready fd 所有権を奪われて
+  /// `awaitReady()` / `deinit` の不変条件を壊される経路を塞ぐため。
+  func takeReadyPipeFd() -> Int32 {
     let fd = readyPipeFd
     readyPipeFd = -1
     return fd

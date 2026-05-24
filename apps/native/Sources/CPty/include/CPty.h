@@ -30,10 +30,14 @@
 //
 // 5. **ready pipe ( 親←子 ) で execve barrier を立てる**。子は login_tty / chdir
 //    完了後、execve 直前に 1 byte 書き、close する。親側は `out_ready_read_fd` を
-//    blocking read することで「子が execve 段階に到達した」ことを確認できる:
-//      - read が 1 byte ('R') を返した: 子は execve 直前まで進み、tty は ready
-//      - read が 0 byte (EOF) を返した: 子は execve 前に _exit ( login_tty / chdir
-//        失敗 ) したか、execve 自体が失敗した。kernel が _exit で write fd を閉じる経路
+//    blocking read することで「子が ready byte を書く段階まで到達した」ことを確認できる:
+//      - read が 1 byte ('R') を返した: 子は login_tty / chdir 完了 → execve に進んだ
+//        ( execve 自体の成功 / 失敗は本 barrier では識別しない。失敗した場合も ready byte
+//        は既に書かれており、親 read は 1 byte を受け取る。execve 失敗 ( exit code
+//        123 / 126 / 127 ) は後段の `onExit` 経路で配送される )
+//      - read が 0 byte (EOF) を返した: 子は ready byte を書く前に _exit した
+//        ( login_tty 失敗 → exit 125、chdir 失敗 → exit 124 のいずれか )。kernel が
+//        _exit で write fd を閉じる経路
 //    親側 `awaitReady()` で 1 度だけ read + close する責務を持つ ( PTYManager.swift )。
 //
 // 戻り値:

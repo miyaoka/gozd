@@ -23,7 +23,7 @@ struct PTYManagerTests {
       executable: "/bin/echo",
       args: ["echo", "hello"],
       env: ProcessInfo.processInfo.environment,
-      cwd: "/tmp",
+      cwd: testCwd,
       rows: 24,
       cols: 80,
       onData: { data.append($0) },
@@ -50,7 +50,7 @@ struct PTYManagerTests {
       executable: "/bin/cat",
       args: ["cat"],
       env: ProcessInfo.processInfo.environment,
-      cwd: "/tmp",
+      cwd: testCwd,
       rows: 24,
       cols: 80,
       onData: { data.append($0) },
@@ -89,7 +89,7 @@ struct PTYManagerTests {
       executable: "/bin/cat",
       args: ["cat"],
       env: ProcessInfo.processInfo.environment,
-      cwd: "/tmp",
+      cwd: testCwd,
       rows: 24,
       cols: 80,
       onData: { data.append($0) },
@@ -113,7 +113,7 @@ struct PTYManagerTests {
       executable: "/usr/bin/true",
       args: ["true"],
       env: ProcessInfo.processInfo.environment,
-      cwd: "/tmp",
+      cwd: testCwd,
       rows: 24,
       cols: 80,
       onData: { data.append($0) },
@@ -139,7 +139,7 @@ struct PTYManagerTests {
       executable: "/bin/sh",
       args: ["sh", "-c", "echo stderr-marker >&2"],
       env: ProcessInfo.processInfo.environment,
-      cwd: "/tmp",
+      cwd: testCwd,
       rows: 24,
       cols: 80,
       onData: { data.append($0) },
@@ -200,7 +200,7 @@ struct PTYManagerTests {
       executable: "/tmp",
       args: ["tmp"],
       env: ProcessInfo.processInfo.environment,
-      cwd: "/tmp",
+      cwd: testCwd,
       rows: 24,
       cols: 80,
       onData: { data.append($0) },
@@ -223,7 +223,7 @@ struct PTYManagerTests {
       executable: "/path/does/not/exist",
       args: ["nonexistent"],
       env: ProcessInfo.processInfo.environment,
-      cwd: "/tmp",
+      cwd: testCwd,
       rows: 24,
       cols: 80,
       onData: { data.append($0) },
@@ -409,6 +409,12 @@ private func expectedErrnoText(_ code: Int32) -> String {
 
 // `waitUntil` は `WaitUntil.swift` の共有実装 ( dedicated NSThread 上で polling loop を完結 )。
 // tick polling 履歴を保持し、timeout 時に Issue.record の message に inline する。
+
+// PTY spawn の cwd 引数に渡す「確定的に存在する dir」。`NSTemporaryDirectory()` は
+// macOS の per-user TMPDIR (`/var/folders/...`) を返し、グローバル `/tmp` と異なり
+// マルチユーザー環境 / サンドボックスでも衝突しない ( CLAUDE.md 規約「`/tmp` を
+// ハードコードしない、`NSTemporaryDirectory()` を使う」)。
+private let testCwd = NSTemporaryDirectory()
 
 private final class DataCollector: @unchecked Sendable {
   private let lock = NSLock()

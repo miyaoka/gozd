@@ -695,29 +695,33 @@ private func initGitRepo(at dir: URL) async throws {
 private func waitForEvent(
   _ collector: EventNameCollector,
   timeout: Duration = .seconds(2),
-  matching predicate: @escaping @Sendable (String) -> Bool
+  matching predicate: @escaping @Sendable (String) -> Bool,
+  sourceLocation: SourceLocation = #_sourceLocation
 ) async {
   await waitUntil(
     timeout: timeout,
     description: "event matching predicate",
-    lastObserved: { collector.snapshot().description }
-  ) {
-    collector.snapshot().contains(where: predicate)
-  }
+    lastObserved: { collector.snapshot().description },
+    {
+      collector.snapshot().contains(where: predicate)
+    },
+    sourceLocation: sourceLocation)
 }
 
 private func waitForCount(
   _ counter: EventCounter,
   atLeast target: Int,
-  timeout: Duration = .seconds(2)
+  timeout: Duration = .seconds(2),
+  sourceLocation: SourceLocation = #_sourceLocation
 ) async {
   await waitUntil(
     timeout: timeout,
     description: "count >= \(target)",
-    lastObserved: { "count=\(counter.value)" }
-  ) {
-    counter.value >= target
-  }
+    lastObserved: { "count=\(counter.value)" },
+    {
+      counter.value >= target
+    },
+    sourceLocation: sourceLocation)
 }
 
 private final class EventCounter: @unchecked Sendable {

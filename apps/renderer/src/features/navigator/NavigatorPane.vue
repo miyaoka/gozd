@@ -7,17 +7,19 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 - ResizeHandle で上下の比率をリサイズ可能
 - git リポジトリでない場合は Filer のみ表示
 - FilerPane の reveal は worktreeStore.revealVersion を内部で購読しているため props 経由不要
-- ChangesPane の `select` emit を `worktreeStore.selectRelPath()` に接続
+- FilerPane / ChangesPane の `select` emit はどちらも `onFileSelect` に集約。action 決定は `decideSelectAction` (pure) に委譲し、`select` / `toggle-close` / `exit-summary` の 3 分岐で navigator 経由の選択挙動を表現する。CLI の `gozd <file>` 等 navigator 外の open 経路はこの判定を通らない
 </doc>
 
 <script setup lang="ts">
 import { useElementSize } from "@vueuse/core";
 import { ref, useTemplateRef, watch } from "vue";
 import { useRepoStore } from "../../shared/repo";
-import { ChangesPane } from "../changes";
+import { ChangesPane, useChangesSummaryStore } from "../changes";
 import { FilerPane } from "../filer";
 import { ResizeHandle } from "../layout";
+import { usePreviewStore } from "../preview";
 import { useWorktreeStore } from "../worktree";
+import { decideSelectAction } from "./decideSelectAction";
 
 const HANDLE_HEIGHT = 8;
 const FILER_MIN_HEIGHT = 100;
@@ -25,6 +27,8 @@ const CHANGES_MIN_HEIGHT = 60;
 
 const repoStore = useRepoStore();
 const worktreeStore = useWorktreeStore();
+const previewStore = usePreviewStore();
+const summaryStore = useChangesSummaryStore();
 const filerWrapperRef = useTemplateRef<HTMLElement>("filerWrapper");
 const containerRef = useTemplateRef<HTMLElement>("container");
 const { height: containerHeight } = useElementSize(containerRef);
@@ -52,8 +56,24 @@ function getFilerHeight(): number {
   return filerWrapperRef.value?.offsetHeight ?? FILER_MIN_HEIGHT;
 }
 
-function onChangesSelect(relPath: string) {
-  worktreeStore.selectRelPath(relPath);
+function onFileSelect(relPath: string) {
+  const action = decideSelectAction({
+    relPath,
+    selectedRelPath: worktreeStore.selectedRelPath,
+    previewVisible: previewStore.isOpen,
+    summaryEnabled: summaryStore.enabled,
+  });
+  switch (action.kind) {
+    case "toggle-close":
+      previewStore.close();
+      return;
+    case "exit-summary":
+      summaryStore.disable();
+      return;
+    case "select":
+      worktreeStore.selectRelPath(relPath);
+      return;
+  }
 }
 </script>
 
@@ -71,7 +91,7 @@ function onChangesSelect(relPath: string) {
         </span>
       </div>
       <div class="min-h-0 flex-1 overflow-hidden">
-        <FilerPane />
+        <FilerPane @select="onFileSelect" />
       </div>
     </div>
 
@@ -85,7 +105,7 @@ function onChangesSelect(relPath: string) {
         :get-before-size="getFilerHeight"
       />
       <div class="shrink-0 overflow-hidden" :style="{ height: `${changesHeight}px` }">
-        <ChangesPane @select="onChangesSelect" />
+        <ChangesPane @select="onFileSelect" />
       </div>
     </template>
   </div>

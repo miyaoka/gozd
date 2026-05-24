@@ -77,6 +77,7 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 プレビューペインは右端に配置され、開閉可能。デフォルトは closed。
 
 - ファイル選択時に自動オープン
+- preview 表示中に同一ファイルを navigator (Filer / Changes) で再選択するとクローズする。summary 表示中の同一ファイル再選択は preview を閉じず summary を抜けて単一 file 表示に戻る。CLI の `gozd <file>` 等 navigator 外の open 経路はこの toggle 判定を通らず常に開く
 - worktree 切替 (dir 変化) で自動クローズ。新 worktree でファイル選択を伴う dir 切替 (`gozdOpen` で別 worktree のファイルを指定した経路等) では、続けて選択ファイルで auto-open されるため最終状態は新ファイルで表示継続になる
 - ヘッダーの close ボタンで閉じる
 - `preview.toggle` コマンドで切り替え

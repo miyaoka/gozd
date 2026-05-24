@@ -176,11 +176,13 @@ function onPreviewToggle(e: ToggleEvent) {
 
 // ESC で preview を閉じる。popover="manual" で OS の自動 dismiss が無いため自前で処理する。
 // 他の popover (BlamePopover 等) や dialog (SettingsModal 等) が開いている間はそちらに ESC を譲り、
-// 全てが閉じた次の ESC で preview を閉じる。
+// 全てが閉じた次の ESC で preview を閉じる。preventDefault は macOS の NSBeep (未処理 ESC のシステム
+// ビープ) 抑止のために必須。
 useEventListener(window, "keydown", (e: KeyboardEvent) => {
   if (e.isComposing || e.key !== "Escape") return;
   if (!previewOpen.value) return;
   if (document.querySelector(":popover-open:not(._preview-popover), dialog[open]")) return;
+  e.preventDefault();
   closePreview();
 });
 

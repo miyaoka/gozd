@@ -17,7 +17,7 @@
 <script setup lang="ts">
 import { useEventListener, useWindowSize } from "@vueuse/core";
 import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
-import { useCommandRegistry, useContextKeys } from "../../shared/command";
+import { isIMEActive, useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
 import { useChangesSummaryStore } from "../changes";
 import { GitGraphPane } from "../git-graph";
@@ -174,14 +174,18 @@ function onPreviewToggle(e: ToggleEvent) {
   previewOpen.value = e.newState === "open";
 }
 
-// ESC で preview を閉じる。popover="manual" で OS の自動 dismiss が無いため自前で処理する。
-// 他の popover (BlamePopover 等) や dialog (SettingsModal 等) が開いている間はそちらに ESC を譲り、
-// 全てが閉じた次の ESC で preview を閉じる。preventDefault は macOS の NSBeep (未処理 ESC のシステム
-// ビープ) 抑止のために必須。
+// ESC で preview を閉じる。popover="manual" によって OS の auto dismiss が無いため、
+// HTML popover が popover="auto" で持っていた ESC dismiss の性質を自前で代替する。
+// 他の popover (BlamePopover 等) や dialog (SettingsModal 等) が前面にあるときはそちらに ESC を譲り、
+// すべて閉じた次の ESC で preview を閉じる。preventDefault は macOS の NSBeep 抑止に必須。
 useEventListener(window, "keydown", (e: KeyboardEvent) => {
-  if (e.isComposing || e.key !== "Escape") return;
+  if (isIMEActive(e) || e.key !== "Escape") return;
   if (!previewOpen.value) return;
-  if (document.querySelector(":popover-open:not(._preview-popover), dialog[open]")) return;
+  const otherPopoverOpen = Array.from(document.querySelectorAll<HTMLElement>(":popover-open")).some(
+    (el) => el !== previewPopoverRef.value,
+  );
+  if (otherPopoverOpen) return;
+  if (document.querySelector("dialog[open]") !== null) return;
   e.preventDefault();
   closePreview();
 });

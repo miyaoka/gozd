@@ -961,7 +961,13 @@ public struct GitTreeEntryInfo: Equatable, Sendable {
 /// 間で stable な契約のため、ここで throw した時点で git 側 / 入力 hash 側 / 想定外環境 のいずれか
 /// の異常が即診断できる。
 func parseLsTree(_ data: Data) throws -> [GitTreeEntryInfo] {
-  let text = String(decoding: data, as: UTF8.self)
+  // `String(decoding:as:)` は不正 UTF-8 を U+FFFD で lossy 置換するため、Linux 等で
+  // 非 UTF-8 ファイル名がコミットされた場合に置換文字混じりの name が UI まで流れる。
+  // `String(bytes:encoding:)` で UTF-8 失敗を明示検出して `unexpectedOutput` に倒す
+  // (runTestGit helper の stderr 扱いと同じ規律、CLAUDE.md "fallback せずエラーにする" と整合)。
+  guard let text = String(bytes: data, encoding: .utf8) else {
+    throw GitError.unexpectedOutput("git ls-tree: non-UTF-8 output (\(data.count) bytes)")
+  }
   var result: [GitTreeEntryInfo] = []
   for record in text.split(separator: "\0", omittingEmptySubsequences: true) {
     let tabSplit = record.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)

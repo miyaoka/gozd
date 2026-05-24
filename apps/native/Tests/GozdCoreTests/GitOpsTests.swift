@@ -1072,6 +1072,21 @@ struct GitOpsParseLsTreeTests {
     }
   }
 
+  @Test("非 UTF-8 bytes は unexpectedOutput で throw する (lossy U+FFFD 置換を許さない)")
+  func nonUtf8Input() {
+    // 0xFF 0xFE は UTF-8 として不正。`String(decoding:as:)` は U+FFFD に置換するが、
+    // `String(bytes:encoding:)` は nil を返すので throw に倒す。
+    let data = Data([0xFF, 0xFE, 0x00])
+    do {
+      _ = try parseLsTree(data)
+      Issue.record("expected throw, got success")
+    } catch GitError.unexpectedOutput(let msg) {
+      #expect(msg.contains("non-UTF-8"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
   @Test("header の SP 区切りフィールドが 3 でない record は throw する")
   func malformedHeader() {
     let raw = "100644 blob\tREADME.md\0"

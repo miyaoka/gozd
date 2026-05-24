@@ -4,11 +4,10 @@
 # 「同時刻 stall window」を集計する。「どの test の tick がどの時刻に発火したか」
 # 「stall window の幅 ( tick 間 gap が閾値を超える区間 ) はどれか」を 1 view で出す。
 #
-# 対応 helper: `waitUntil` ( dedicated NSThread 上で polling loop を完結、`mode=threaded` token
-# 付き )。perl regex は旧版 `waitUntil` ( Task.sleep 経路、mode token なし ) / `waitUntilThreaded`
-# ( PR #567 で導入した別シンボル ) / `waitUntilDispatch` ( PR #567 で廃棄した中間版 ) も OR で
-# 拾うため過去の CI log にも適用可能。kind 列は `waitUntil-threaded` ( 現行 ) /
-# `waitUntilThreaded` / `waitUntilDispatch` / `waitUntil` ( 旧 Task.sleep 版 ) の 4 値で区別する。
+# 対応 helper: `waitUntil` ( dedicated NSThread polling、`mode=threaded` token 付き )。
+# perl regex は `waitUntilThreaded` / `waitUntilDispatch` / `waitUntil` ( mode token なし ) も
+# OR で拾い、kind 列を `waitUntil-threaded` / `waitUntilThreaded` / `waitUntilDispatch` /
+# `waitUntil` の 4 値に正規化する。
 #
 # 入力: CI log を stdin に流すか、第 1 引数に log file path を渡す。
 # 出力:

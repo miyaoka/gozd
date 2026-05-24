@@ -86,7 +86,7 @@ struct RpcDispatcherTests {
     )
 
     var spawnReq = Gozd_V1_PtySpawnRequest()
-    spawnReq.dir = "/tmp"
+    spawnReq.dir = testCwd
     spawnReq.executable = "/bin/cat"
     spawnReq.args = ["cat"]
     spawnReq.env = ProcessInfo.processInfo.environment
@@ -101,11 +101,7 @@ struct RpcDispatcherTests {
     killReq.ptyID = spawnResp.ptyID
     _ = try await dispatcher.dispatch(path: "/pty/kill", body: killReq.jsonUTF8Data())
 
-    let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-    while ContinuousClock.now < deadline {
-      if exitFlag.isSet { break }
-      try await Task.sleep(for: .milliseconds(30))
-    }
+    await waitUntil(timeout: .seconds(2), description: "exitFlag is set") { exitFlag.isSet }
     #expect(exitFlag.isSet)
   }
 
@@ -757,6 +753,12 @@ private func readGitForRpc(args: [String], cwd: String) async throws -> String {
 }
 
 // MARK: - Helpers
+
+// PTY spawn の cwd 引数に渡す「確定的に存在する dir」。`NSTemporaryDirectory()` は
+// macOS の per-user TMPDIR (`/var/folders/...`) を返し、グローバル `/tmp` と異なり
+// マルチユーザー環境 / サンドボックスでも衝突しない ( CLAUDE.md 規約「`/tmp` を
+// ハードコードしない、`NSTemporaryDirectory()` を使う」)。
+private let testCwd = NSTemporaryDirectory()
 
 private func makeTempDir() throws -> String {
   let raw = FileManager.default.temporaryDirectory

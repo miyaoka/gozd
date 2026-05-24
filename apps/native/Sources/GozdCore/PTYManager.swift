@@ -48,12 +48,51 @@ public final class PTYManager {
   private var state: PTYFinishState?
   private var readSource: DispatchSourceRead?
   private var exitSource: DispatchSourceProcess?
+  // ready pipe 親側 read fd ( CPty.c の execve barrier )。`awaitReady` が 1 度だけ
+  // blocking read + close する。spawn 失敗時 / awaitReady 後は -1 に倒す。`deinit`
+  // で未消費なら fd リークを防ぐため close する。
+  private var readyPipeFd: Int32 = -1
 
   public init() {}
 
   deinit {
     readSource?.cancel()
     exitSource?.cancel()
+    if readyPipeFd >= 0 {
+      close(readyPipeFd)
+    }
+  }
+
+  /// 子プロセスが execve 段階に到達するまで blocking read で待つ。CPty.c の ready pipe
+  /// ( 子が execve 直前に 1 byte 書き、_exit で kernel が close ) を 1 度だけ消費する。
+  ///
+  /// - read が 1 byte を返す: 子は login_tty + chdir 完了し execve 段階に到達。tty は
+  ///   ready で、`write` / `resize` / 子からの input 経路が機能する状態
+  /// - read が 0 byte ( EOF ) を返す: 子は execve 前に _exit ( login_tty / chdir 失敗 )。
+  ///   `onExit` 経路で exit code (124 / 125) が配送されるので test 側はそちらを観測
+  ///
+  /// 二重呼び出しは safe ( 2 回目以降は `fd < 0` で即 return )。
+  ///
+  /// actor (`PTYRegistry`) から呼ぶときは class instance を await 越えに sending する
+  /// ことになるため、`takeReadyPipeFd()` で fd を抽出してから自由関数 `awaitReadyPipe`
+  /// に渡す経路を使う ( CLAUDE.md「`@unchecked Sendable` を付けない」規律 + Swift 6.2
+  /// sending diagnostic 回避 )。本 method は PTYManager を直接保持する非 actor caller
+  /// ( `PTYManagerTests` 等 ) 専用。
+  public func awaitReady() async {
+    await awaitReadyPipe(fd: takeReadyPipeFd())
+  }
+
+  /// ready pipe fd の所有権を caller に移譲する。1 度だけ呼べる accessor。
+  /// `awaitReady` / `awaitReadyPipe` を経由する代わりに caller 自身で fd を消費する
+  /// 経路 (`PTYRegistry.spawn` から actor 排他区間内で抽出 → 自由関数で blocking
+  /// read) を作るために GozdCore module 内に閉じて公開する。所有権が移った後の close
+  /// 責務は caller 側にある (`awaitReadyPipe` 内 close か、caller の独自経路)。
+  /// `internal` は module 外 ( Gozd target など ) から ready fd 所有権を奪われて
+  /// `awaitReady()` / `deinit` の不変条件を壊される経路を塞ぐため。
+  func takeReadyPipeFd() -> Int32 {
+    let fd = readyPipeFd
+    readyPipeFd = -1
+    return fd
   }
 
   /// 子プロセスを PTY に fork して spawn する。
@@ -112,20 +151,22 @@ public final class PTYManager {
     var masterFd: Int32 = -1
     var slaveFd: Int32 = -1
     var childPid: pid_t = -1
+    var readyReadFd: Int32 = -1
     let spawnRet = gozd_pty_spawn(
       &masterFd,
       &slaveFd,
       &childPid,
+      &readyReadFd,
       &ws,
       cExecutable,
       argv,
       envp,
       cCwd
     )
-    // gozd_pty_spawn 戻り値: 0=成功 / -1=openpty 失敗 / -2=fork 失敗。
-    // errno のみで判別すると EAGAIN を openpty / fork 双方が返し得るため取り違える。
-    // 戻り値で syscall を確実に区別する。
-    // 0/-1/-2 以外は C bridge 側のバグなので `fatalError` で即座に落とす。
+    // gozd_pty_spawn 戻り値: 0=成功 / -1=openpty 失敗 / -2=fork 失敗 / -3=pipe 失敗。
+    // errno のみで判別すると EAGAIN を openpty / fork / pipe 全てが返し得るため
+    // 取り違える。戻り値で syscall を確実に区別する。
+    // 0/-1/-2/-3 以外は C bridge 側のバグなので `fatalError` で即座に落とす。
     // 「想定外なら fallback enum で握り潰す」設計だと観察可能性を失う。
     if spawnRet != 0 {
       let err = errno
@@ -133,12 +174,14 @@ public final class PTYManager {
       switch spawnRet {
       case -1: throw PTYError.openptyFailed(errno: err)
       case -2: throw PTYError.forkFailed(errno: err)
+      case -3: throw PTYError.readyPipeFailed(errno: err)
       default:
         fatalError("gozd_pty_spawn returned unexpected code: \(spawnRet) (errno: \(err))")
       }
     }
 
     pid = childPid
+    readyPipeFd = readyReadFd
     ptyTrace(
       "spawn", pid: childPid,
       "gozd_pty_spawn master=\(masterFd) slave=\(slaveFd) executable=\(executable)")
@@ -337,6 +380,9 @@ public enum PTYError: Error, Equatable {
   case openptyFailed(errno: Int32)
   /// `fork(2)` の失敗（C bridge 戻り値 -2）。
   case forkFailed(errno: Int32)
+  /// ready pipe 作成 (`pipe(2)`) の失敗（C bridge 戻り値 -3）。execve barrier 用 pipe
+  /// が用意できないと awaitReady が hang するため、ここで spawn を諦める。
+  case readyPipeFailed(errno: Int32)
   /// spawn 前段の strdup などで OOM 検出した場合。spawn syscall 自体は呼ばれていないので
   /// `openptyFailed` / `forkFailed` を流用すると上位 log で失敗 syscall を取り違える。
   case preforkAllocFailed(errno: Int32)
@@ -352,6 +398,8 @@ extension PTYError: CustomStringConvertible {
       return "PTYError.openptyFailed(errno=\(errno) \(Self.errnoText(errno)))"
     case .forkFailed(let errno):
       return "PTYError.forkFailed(errno=\(errno) \(Self.errnoText(errno)))"
+    case .readyPipeFailed(let errno):
+      return "PTYError.readyPipeFailed(errno=\(errno) \(Self.errnoText(errno)))"
     case .preforkAllocFailed(let errno):
       return "PTYError.preforkAllocFailed(errno=\(errno) \(Self.errnoText(errno)))"
     }
@@ -732,6 +780,33 @@ private func drainPTY(fd: Int32, pid: Int32 = 0, caller: String = "?", onData: (
   return result
 }
 
+
+/// ready pipe fd を消費して 1 byte ( or EOF ) を待つ自由関数。`PTYManager.awaitReady`
+/// と `PTYRegistry.spawn` の両方から呼ばれる SSOT。
+///
+/// blocking read は dedicated NSThread 上で実行し、Swift Concurrency cooperative
+/// executor / GCD pool / kqueue いずれの dispatch 経路にも乗せない。`Continuation` の
+/// resume は read + close 完了時の 1 回のみ。
+///
+/// `fd < 0` ( 未保持 / 既消費 ) なら即 return。fd は所有権が caller から渡された前提で、
+/// 本関数が close 責務を負う。
+func awaitReadyPipe(fd: Int32) async {
+  if fd < 0 { return }
+  await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+    let thread = Thread {
+      var buf: UInt8 = 0
+      while true {
+        let n = Darwin.read(fd, &buf, 1)
+        if n == -1 && errno == EINTR { continue }
+        break
+      }
+      Darwin.close(fd)
+      continuation.resume()
+    }
+    thread.name = "PTYAwaitReady"
+    thread.start()
+  }
+}
 
 private func freeCStrings(
   _ argEntries: [UnsafeMutablePointer<CChar>?],

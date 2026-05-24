@@ -23,7 +23,7 @@ struct PTYManagerTests {
       executable: "/bin/echo",
       args: ["echo", "hello"],
       env: ProcessInfo.processInfo.environment,
-      cwd: "/tmp",
+      cwd: testCwd,
       rows: 24,
       cols: 80,
       onData: { data.append($0) },
@@ -50,15 +50,16 @@ struct PTYManagerTests {
       executable: "/bin/cat",
       args: ["cat"],
       env: ProcessInfo.processInfo.environment,
-      cwd: "/tmp",
+      cwd: testCwd,
       rows: 24,
       cols: 80,
       onData: { data.append($0) },
       onExit: { exit.set($0) }
     )
 
-    // tty が ready になるのを待つ。
-    try await Task.sleep(for: .milliseconds(150))
+    // 子が execve 段階に到達するまで待つ ( CPty.c の ready pipe barrier を消費 )。
+    // 後段の write は ready 確定後にのみ意味を持つ。
+    await pty.awaitReady()
 
     pty.write(Data("ping\n".utf8))
 
@@ -88,7 +89,7 @@ struct PTYManagerTests {
       executable: "/bin/cat",
       args: ["cat"],
       env: ProcessInfo.processInfo.environment,
-      cwd: "/tmp",
+      cwd: testCwd,
       rows: 24,
       cols: 80,
       onData: { data.append($0) },
@@ -112,7 +113,7 @@ struct PTYManagerTests {
       executable: "/usr/bin/true",
       args: ["true"],
       env: ProcessInfo.processInfo.environment,
-      cwd: "/tmp",
+      cwd: testCwd,
       rows: 24,
       cols: 80,
       onData: { data.append($0) },
@@ -138,7 +139,7 @@ struct PTYManagerTests {
       executable: "/bin/sh",
       args: ["sh", "-c", "echo stderr-marker >&2"],
       env: ProcessInfo.processInfo.environment,
-      cwd: "/tmp",
+      cwd: testCwd,
       rows: 24,
       cols: 80,
       onData: { data.append($0) },
@@ -193,13 +194,15 @@ struct PTYManagerTests {
     let exit = ExitCollector()
     let pty = PTYManager()
 
-    // /tmp はディレクトリで execute bit は付くが execve は EACCES を返す
+    // ディレクトリパスは execute bit が付いていても execve は EACCES を返す
     // （macOS execve(2): 「The new process file is not a regular file」も含めて EACCES）。
+    // `/tmp` 等の specific path に依存しないため testCwd ( NSTemporaryDirectory() ) を
+    // 流用する。
     try pty.spawn(
-      executable: "/tmp",
+      executable: testCwd,
       args: ["tmp"],
       env: ProcessInfo.processInfo.environment,
-      cwd: "/tmp",
+      cwd: testCwd,
       rows: 24,
       cols: 80,
       onData: { data.append($0) },
@@ -222,7 +225,7 @@ struct PTYManagerTests {
       executable: "/path/does/not/exist",
       args: ["nonexistent"],
       env: ProcessInfo.processInfo.environment,
-      cwd: "/tmp",
+      cwd: testCwd,
       rows: 24,
       cols: 80,
       onData: { data.append($0) },
@@ -408,6 +411,12 @@ private func expectedErrnoText(_ code: Int32) -> String {
 
 // `waitUntil` は `WaitUntil.swift` の共有実装 ( dedicated NSThread 上で polling loop を完結 )。
 // tick polling 履歴を保持し、timeout 時に Issue.record の message に inline する。
+
+// PTY spawn の cwd 引数に渡す「確定的に存在する dir」。`NSTemporaryDirectory()` は
+// macOS の per-user TMPDIR (`/var/folders/...`) を返し、グローバル `/tmp` と異なり
+// マルチユーザー環境 / サンドボックスでも衝突しない ( CLAUDE.md 規約「`/tmp` を
+// ハードコードしない、`NSTemporaryDirectory()` を使う」)。
+private let testCwd = NSTemporaryDirectory()
 
 private final class DataCollector: @unchecked Sendable {
   private let lock = NSLock()

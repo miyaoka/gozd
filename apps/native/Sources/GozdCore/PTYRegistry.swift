@@ -95,6 +95,9 @@ public actor PTYRegistry {
   // PTY exit 後も残しておいて問題ない。
   private var explicitlyRemovedPtyIds: Set<UInt32> = []
   private var nextId: UInt32 = 1
+  // `awaitEmpty()` の suspended continuation 群。`remove(id:)` で count==0 到達時に
+  // 全 resume する。actor isolation により append / drain は serialize される。
+  private var awaitEmptyContinuations: [CheckedContinuation<Void, Never>] = []
 
   public init(
     onText: @escaping TextHandler,
@@ -116,7 +119,7 @@ public actor PTYRegistry {
     rows: UInt16,
     cols: UInt16,
     worktreePath: String = ""
-  ) throws -> UInt32 {
+  ) async throws -> UInt32 {
     // `nextId` は spawn 成功後に進める。spawn が throw した場合に id を消費せず
     // 次の試行で同じ id を再利用できる（PTY は生成されていないため id 衝突は無い）。
     // 先に進めると失敗時に id が穴開きで上昇し、ptys / worktreePathById マップに
@@ -146,6 +149,10 @@ public actor PTYRegistry {
         continuation.finish()
       }
     )
+    // state mutation はすべて await の **前** で済ませる。`PTYRegistry` は actor だが、
+    // `await` ごとに re-entrancy が許される (SE-0306) ため、id 採番 → await suspend →
+    // 別 caller が同じ id を観測 → ptys[id] 上書き、という race を防ぐには nextId 進行と
+    // ptys / pidTracker / per-id state の登録を 1 つの actor 排他区間に閉じる必要がある。
     nextId += 1
     ptys[id] = pty
     if !worktreePath.isEmpty {
@@ -158,6 +165,12 @@ public actor PTYRegistry {
 
     let pidTracker = self.pidTracker
     let pidForCleanup = pty.pid
+
+    // ready pipe fd を actor 排他区間内で抽出する。`await awaitReadyPipe(fd:)` は fd
+    // (Int32, Sendable) のみを suspend 越しに保持するため、non-Sendable な `pty` を
+    // sending せずに ready barrier を消費できる ( CLAUDE.md「`@unchecked Sendable` を
+    // 付けない」規律 + Swift 6.2 sending diagnostic 回避 )。
+    let readyPipeFd = pty.takeReadyPipeFd()
 
     // consumer Task: AsyncStream の FIFO 順序保証で「全データ → flush → exit」が確定。
     // detached なので actor の isolation を待たずに即座に for-await を回せる。
@@ -179,6 +192,10 @@ public actor PTYRegistry {
       await self?.remove(id: id)
     }
     consumers[id] = task
+
+    // 子が execve 段階に到達するまで待つ。state mutation は全て完了済なので、ここで
+    // await して actor isolation を解放しても他 caller の spawn と id 採番が衝突しない。
+    await awaitReadyPipe(fd: readyPipeFd)
     return id
   }
 
@@ -196,6 +213,21 @@ public actor PTYRegistry {
 
   public func count() -> Int {
     ptys.count
+  }
+
+  /// `ptys` が空になるまで待つ。
+  ///
+  /// - 呼び出し時点で `ptys.isEmpty == true` なら即 return
+  /// - そうでなければ Continuation を append し、`remove(id:)` で count==0 到達時に resume
+  ///
+  /// `spawn` の id 採番 / `ptys[id]` 登録は `await awaitReadyPipe(fd:)` より **前** に
+  /// actor 排他区間で完了するため、in-flight spawn 中の registry も `!ptys.isEmpty` で
+  /// 観測される ( = 即 return しない )。
+  public func awaitEmpty() async {
+    if ptys.isEmpty { return }
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+      awaitEmptyContinuations.append(continuation)
+    }
   }
 
   /// hook 受信側が ptyId から worktreePath を逆引きするための accessor。
@@ -267,6 +299,15 @@ public actor PTYRegistry {
         tag: "PTYRegistry",
         "remove: dropped expected resume sid=\(stale) without removeByPty for pty=\(id)"
       )
+    }
+    // ptys が空になった時点で awaitEmpty 待ちの Continuation を全 resume する。
+    // awaitEmpty は accessor 一つで複数 caller が並列に待ち得るため、配列を flush する。
+    if ptys.isEmpty && !awaitEmptyContinuations.isEmpty {
+      let pending = awaitEmptyContinuations
+      awaitEmptyContinuations.removeAll()
+      for continuation in pending {
+        continuation.resume()
+      }
     }
   }
 }

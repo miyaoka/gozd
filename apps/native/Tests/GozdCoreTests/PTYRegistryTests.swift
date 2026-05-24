@@ -23,7 +23,7 @@ struct PTYRegistryTests {
       executable: "/bin/echo",
       args: ["echo", "hello"],
       env: ProcessInfo.processInfo.environment,
-      cwd: "/tmp",
+      cwd: testCwd,
       rows: 24,
       cols: 80
     )
@@ -31,7 +31,7 @@ struct PTYRegistryTests {
       executable: "/bin/echo",
       args: ["echo", "world"],
       env: ProcessInfo.processInfo.environment,
-      cwd: "/tmp",
+      cwd: testCwd,
       rows: 24,
       cols: 80
     )
@@ -63,25 +63,20 @@ struct PTYRegistryTests {
       executable: "/bin/cat",
       args: ["cat"],
       env: ProcessInfo.processInfo.environment,
-      cwd: "/tmp",
+      cwd: testCwd,
       rows: 24,
       cols: 80
     )
     #expect(await registry.count() == 1)
 
-    try await Task.sleep(for: .milliseconds(100))
     await registry.kill(id: id)
 
     await waitUntil(timeout: .seconds(2)) {
       events.exitedIds().contains(id)
     }
-    // remove は exit handler 経由で `Task { await self.remove }` で発火するため、
-    // actor の serial execution に届くまで小さくポーリングする。
-    let deadline = ContinuousClock.now.advanced(by: .seconds(1))
-    while ContinuousClock.now < deadline {
-      if await registry.count() == 0 { break }
-      try await Task.sleep(for: .milliseconds(20))
-    }
+    // remove は exit handler 経由で `Task { await self.remove }` で発火する。
+    // actor 内の Continuation accessor で count==0 到達を待つ。
+    await registry.awaitEmpty()
     #expect(await registry.count() == 0)
   }
 
@@ -117,7 +112,7 @@ struct PTYRegistryTests {
     var env = ProcessInfo.processInfo.environment
     env["GOZD_RESUME_CLAUDE_SESSION"] = "expected-sid-X"
     let id = try await registry.spawn(
-      executable: "/bin/cat", args: ["cat"], env: env, cwd: "/tmp", rows: 24, cols: 80
+      executable: "/bin/cat", args: ["cat"], env: env, cwd: testCwd, rows: 24, cols: 80
     )
     defer { Task { await registry.kill(id: id) } }
 
@@ -142,7 +137,7 @@ struct PTYRegistryTests {
     var env = ProcessInfo.processInfo.environment
     env["GOZD_RESUME_CLAUDE_SESSION"] = "expected-sid-X"
     let id = try await registry.spawn(
-      executable: "/bin/cat", args: ["cat"], env: env, cwd: "/tmp", rows: 24, cols: 80
+      executable: "/bin/cat", args: ["cat"], env: env, cwd: testCwd, rows: 24, cols: 80
     )
     defer { Task { await registry.kill(id: id) } }
 
@@ -170,7 +165,7 @@ struct PTYRegistryTests {
     var env = ProcessInfo.processInfo.environment
     env["GOZD_RESUME_CLAUDE_SESSION"] = "expected-sid-X"
     let id = try await registry.spawn(
-      executable: "/bin/cat", args: ["cat"], env: env, cwd: "/tmp", rows: 24, cols: 80
+      executable: "/bin/cat", args: ["cat"], env: env, cwd: testCwd, rows: 24, cols: 80
     )
     defer { Task { await registry.kill(id: id) } }
 
@@ -182,10 +177,72 @@ struct PTYRegistryTests {
   }
 }
 
+// `PTYRegistry.spawn` は actor isolated method で内部に `await awaitReadyPipe(fd:)` を
+// 持つ。actor は `await` ごとに re-entrancy を許す (SE-0306) ため、id 採番 / `ptys[id]`
+// 登録 / `pidTracker` 加入は全て suspend point の **前** で完了する不変条件を持つ。
+// この suite はその不変条件が並列 spawn でも保たれることを直接 verify する。
+//
+// 親 suite `PTYRegistry` は `.serialized` で直列化されており、並列 spawn の race は
+// 構造的に踏めない。本 suite は default の parallel 実行に置き、`withThrowingTaskGroup`
+// で複数 spawn を同時発射した時の id 採番一意性を assert する。
+@Suite("PTYRegistry.ConcurrentSpawn")
+struct PTYRegistryConcurrentSpawnTests {
+  @Test("並列 spawn が一意な ptyId を採番し、並列 remove が actor 上で整合する")
+  func concurrentSpawnYieldsUniqueIds() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
+    let registry = PTYRegistry(
+      onText: { _, _ in },
+      onExit: { _, _ in }
+    )
+
+    let count = 8
+    let ids = try await withThrowingTaskGroup(of: UInt32.self) { group in
+      for _ in 0..<count {
+        group.addTask {
+          try await registry.spawn(
+            executable: "/bin/echo",
+            args: ["echo", "race"],
+            env: ProcessInfo.processInfo.environment,
+            cwd: testCwd,
+            rows: 24,
+            cols: 80
+          )
+        }
+      }
+      var collected: [UInt32] = []
+      for try await id in group {
+        collected.append(id)
+      }
+      return collected
+    }
+
+    // 主観点: id 採番一意性 ( actor re-entrancy 経由の `ptys[id]` 上書き race の regression
+    // guard )。
+    #expect(ids.count == count)
+    #expect(
+      Set(ids).count == count,
+      "expected \(count) unique ids, got duplicates in \(ids.sorted())")
+
+    // 副観点: `/bin/echo` × 8 件は即時 _exit するため、8 つの consumer Task が並列に
+    // `remove(id:)` を actor に発射する。`awaitEmpty()` の Continuation flush が並列
+    // remove 経路でも `ptys.isEmpty` 確定後に 1 度だけ resume されることをここで合わせて
+    // 担保する ( single-pty の `cleanupOnKill` test では並列 remove を踏めない )。
+    await registry.awaitEmpty()
+    #expect(await registry.count() == 0)
+  }
+}
+
 // MARK: - Helpers
 
 // `waitUntil` は `WaitUntil.swift` の共有実装 ( dedicated NSThread 上で polling loop を完結 )。
 // tick polling 履歴を保持し、timeout 時に Issue.record の message に inline する。
+
+// PTY spawn の cwd 引数に渡す「確定的に存在する dir」。`NSTemporaryDirectory()` は
+// macOS の per-user TMPDIR (`/var/folders/...`) を返し、グローバル `/tmp` と異なり
+// マルチユーザー環境 / サンドボックスでも衝突しない ( CLAUDE.md 規約「`/tmp` を
+// ハードコードしない、`NSTemporaryDirectory()` を使う」)。
+private let testCwd = NSTemporaryDirectory()
 
 private final class EventCollector: @unchecked Sendable {
   private let lock = NSLock()

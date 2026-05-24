@@ -194,10 +194,12 @@ struct PTYManagerTests {
     let exit = ExitCollector()
     let pty = PTYManager()
 
-    // /tmp はディレクトリで execute bit は付くが execve は EACCES を返す
+    // ディレクトリパスは execute bit が付いていても execve は EACCES を返す
     // （macOS execve(2): 「The new process file is not a regular file」も含めて EACCES）。
+    // `/tmp` 等の specific path に依存しないため testCwd ( NSTemporaryDirectory() ) を
+    // 流用する。
     try pty.spawn(
-      executable: "/tmp",
+      executable: testCwd,
       args: ["tmp"],
       env: ProcessInfo.processInfo.environment,
       cwd: testCwd,

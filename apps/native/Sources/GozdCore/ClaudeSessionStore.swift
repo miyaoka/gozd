@@ -100,21 +100,21 @@ public actor ClaudeSessionStore {
       do {
         return try Gozd_V1_ClaudeSessionList(jsonString: json)
       } catch {
-        FileHandle.standardError.write(
-          Data(
-            "[ClaudeSessionStore] loadFile: parse failed at \(url.path): \(error)\n"
-              .utf8))
+        StderrLog.write(
+          tag: "ClaudeSessionStore",
+          "loadFile: parse failed at \(url.path): \(error)"
+        )
       }
     } else {
-      FileHandle.standardError.write(
-        Data("[ClaudeSessionStore] loadFile: invalid UTF-8 at \(url.path)\n".utf8))
+      StderrLog.write(
+        tag: "ClaudeSessionStore", "loadFile: invalid UTF-8 at \(url.path)")
     }
     let empty = Gozd_V1_ClaudeSessionList()
     try saveFile(empty, for: dir)
-    FileHandle.standardError.write(
-      Data(
-        "[ClaudeSessionStore] loadFile: corrupted claude-sessions.json reinitialized at \(url.path)\n"
-          .utf8))
+    StderrLog.write(
+      tag: "ClaudeSessionStore",
+      "loadFile: corrupted claude-sessions.json reinitialized at \(url.path)"
+    )
     return empty
   }
 

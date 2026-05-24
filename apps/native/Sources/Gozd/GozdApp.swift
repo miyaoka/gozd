@@ -172,8 +172,7 @@ final class AppRuntime {
       claudeSettingsWriteError = nil
     } catch {
       claudeSettingsWriteError = error
-      FileHandle.standardError.write(
-        Data("[ClaudeHooks] settings write failed: \(error)\n".utf8))
+      StderrLog.write(tag: "ClaudeHooks", "settings write failed: \(error)")
     }
 
     // dev / build 共通の env overlay。dev では GOZD_DEV_PROJECT_ROOT 配下のソースを参照する。
@@ -340,9 +339,7 @@ final class AppRuntime {
           do {
             try await createdDispatcher.handleSocketMessage(line)
           } catch {
-            FileHandle.standardError.write(
-              Data("[SocketServer] decode failed: \(error)\n".utf8)
-            )
+            StderrLog.write(tag: "SocketServer", "decode failed: \(error)")
             sendNotify(
               "error", "socket", "Invalid client message", String(describing: error), "")
           }
@@ -350,8 +347,7 @@ final class AppRuntime {
       }
       print("[SocketServer] listening on \(socketPath)")
     } catch {
-      FileHandle.standardError.write(
-        Data("[SocketServer] start failed: \(error)\n".utf8))
+      StderrLog.write(tag: "SocketServer", "start failed: \(error)")
       sendNotify(
         "error", "socket", "Failed to start Unix socket server",
         String(describing: error), "")
@@ -600,8 +596,7 @@ final class WebPageHolder {
 @MainActor
 func pushToRenderer(page: WebPage?, type: String, payload: [String: Any]) async {
   guard let page else {
-    FileHandle.standardError.write(
-      Data("[GozdApp] push dropped (page not ready): type=\(type)\n".utf8))
+    StderrLog.write(tag: "GozdApp", "push dropped (page not ready): type=\(type)")
     return
   }
   do {
@@ -610,8 +605,7 @@ func pushToRenderer(page: WebPage?, type: String, payload: [String: Any]) async 
       arguments: ["type": type, "payload": payload]
     )
   } catch {
-    FileHandle.standardError.write(
-      Data("[GozdApp] push failed: type=\(type) error=\(error)\n".utf8))
+    StderrLog.write(tag: "GozdApp", "push failed: type=\(type) error=\(error)")
   }
 }
 

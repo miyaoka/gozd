@@ -338,10 +338,10 @@ public actor FSWatchRegistry {
         .filter { _, e in e.commonGitDir == commonGitDir }
         .map { key, e in "\(key)(main=\(e.perWorktreeGitDir == commonGitDir))" }
         .sorted()
-      FileHandle.standardError.write(
-        Data(
-          "[FSWatchRegistry] primary missing for commonGitDir=\(commonGitDir); dropping branchChange=\(result.hasBranchChange) remoteRefsChange=\(result.hasRemoteRefsChange) worktreeChange=\(result.hasWorktreeChange) from dir=\(dir); entries=\(siblings)\n"
-            .utf8))
+      StderrLog.write(
+        tag: "FSWatchRegistry",
+        "primary missing for commonGitDir=\(commonGitDir); dropping branchChange=\(result.hasBranchChange) remoteRefsChange=\(result.hasRemoteRefsChange) worktreeChange=\(result.hasWorktreeChange) from dir=\(dir); entries=\(siblings)"
+      )
     }
     if result.hasBranchChange && isPrimaryForCommonDir {
       onBranchChange(originalDir)
@@ -360,8 +360,8 @@ public actor FSWatchRegistry {
       } catch {
         // 観察可能性のためログを残す。renderer は次の FSEvents バッチで再 fetch するため
         // 致命的ではないが、繰り返し発生していれば一時障害として診断したい。
-        FileHandle.standardError.write(
-          Data("[FSWatchRegistry] gitStatusFull failed for \(dir): \(error)\n".utf8))
+        StderrLog.write(
+          tag: "FSWatchRegistry", "gitStatusFull failed for \(dir): \(error)")
         return
       }
       // gitStatusFull の await 中に unwatch されている可能性があるため再 check

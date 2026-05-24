@@ -263,10 +263,10 @@ public actor PTYRegistry {
     // expected が残っているなら resume 失敗の sid を掃除する機会を逸している。
     // ここでは silent に消すが、調査用に stderr に残す。
     if let stale = expectedResumeSidById.removeValue(forKey: id) {
-      FileHandle.standardError.write(
-        Data(
-          "[PTYRegistry] remove: dropped expected resume sid=\(stale) without removeByPty for pty=\(id)\n"
-            .utf8))
+      StderrLog.write(
+        tag: "PTYRegistry",
+        "remove: dropped expected resume sid=\(stale) without removeByPty for pty=\(id)"
+      )
     }
   }
 }

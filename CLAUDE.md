@@ -162,18 +162,30 @@ macOS 26 Tahoe 以降専用（`WebPage` API は macOS 26 で追加された Swif
 
 ### 観察ログ (stderr) の書式
 
-dispatcher / store / hook ハンドラなどから `FileHandle.standardError.write` で出す **ad-hoc な観察ログ** は以下の SSOT に揃える:
+dispatcher / store / hook ハンドラなどから出す **ad-hoc な観察ログ** は `GozdCore` の `StderrLog.write(tag:_:)` helper を経由する。`FileHandle.standardError.write` を直接呼ばない。
 
-- **素埋め込み**（`"\(value)"` 直書き）を採用する。`String(reflecting:)` などで path / executable / 任意フィールドを quote 化しない。stderr log 全体の書式統一を維持するため、1 箇所だけ quote 化する変更は入れない
-- prefix は handler 関数名 (`[handlePtySpawn]`) または store 名 (`[ClaudeSessionStore]`) を使う。grep で経路を絞れるよう一貫させる
-- 改行 / 制御文字を含み得るフィールドは log に乗せる前に source 側で sanitize する（例: `PTYError.errnoText` の control-char gate）。log フォーマット側で escape しない
-- 仮に path quoting が必要になった場合は本セクションを改定して全箇所を統一する。一部箇所だけの差分は入れない
+```swift
+StderrLog.write(tag: "handlePtySpawn", "pty.spawn failed: \(error) executable=\(req.executable) cwd=\(req.dir)")
+```
 
-対象外:
+- helper が `[tag] message\n` の format と制御文字 escape (C0 / DEL を `\xNN` に変換) を必ず実行する。call site は素の string interpolation で値を埋め込めばよく、改行 / 制御文字混入の判断責任を負わない
+- tag は handler 関数名 (`handlePtySpawn`) または store / module 名 (`ClaudeSessionStore`)。bracket は helper が付ける
+- value の quote 化 (`String(reflecting:)` 等) はしない。書式統一を helper 側で SSOT 化しているため、1 箇所だけ装飾を変える差分も入れない
 
-- **trace 系統**: 専用の prefix フォーマットを持ち、デバッグトレース用途として別系統で運用する。handler 名 prefix 規約の対象外
+#### なぜ helper 集約か
+
+以前の規約は「素埋め込み + source 側 sanitize」を call site の双方の責務として記述していたが、両者は両立しない (素埋め込みの見た目を保つと sanitize 呼びが書けず、レビューで違反を検出できない)。helper に sanitize を集約することで、SSOT を「規約条文」から「実行コード」に移し、違反が構造的に発生しない構成にする。
+
+#### errnoText の制御文字 gate との関係
+
+`PTYError.errnoText` (`PTYManager.swift`) の control-char gate は本規約の対象外。errnoText は stderr 経由だけでなく、`PTYError.description` 経由で `RpcSchemeHandler` の 500 response body にも乗る (renderer まで届く identifier として使う)。helper 側の escape は stderr 経路の 1 行性を守るためのもので、renderer 側に届く文字列の identifier 品質まで保証しない。`errnoText` の gate は renderer 経路の identifier 品質を `unknown errno N` fallback で確保する別契約として残る。
+
+#### 対象外
+
+- **trace 系統**: 専用の prefix フォーマットを持ち、デバッグトレース用途として別系統で運用する
   - `[PTY-TRACE +elapsed pid=N tag]` (`PTYTrace.swift`): GozdCore 内の PTY ライフサイクルイベント。pid を含む
   - `[TEST-TRACE +elapsed test=NAME]` (`TestTrace.swift`): test ハーネス側のトレース。pid は含まない
+- **CLI のユーザー向け error 出力** (`GozdCLI/main.swift`): `[tag]` prefix を持たない user-facing message。helper 経路ではなく `FileHandle.standardError.write` を直接呼んで構わない
 - print/NSLog 経由のログは対象外（gozd では使わない方針）
 
 ## Swift

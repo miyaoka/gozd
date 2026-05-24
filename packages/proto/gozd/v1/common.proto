@@ -31,7 +31,6 @@ message UpstreamStatus {
 message Task {
   // UUID。Claude session とは独立した task 固有の identity。
   string id = 1;
-  string body = 2;
   string worktree_dir = 3;
   // GitHub PR / issue 参照。GitHub の PR / issue は同一の番号空間を共有するため、
   // 種別 + 番号の組で 1 件を表す。task 1 件あたり最大 1 つ。
@@ -47,6 +46,17 @@ message Task {
   // app close (renderer 強制終了) では detachSession 経路を通らないため据え置き。
   // サイドバー UI の "closed" / "resumable" 状態区別に使う。
   bool closed_by_user = 7;
+  // ユーザーが UI で明示的に編集 / rename した確定値。最優先で表示に使う。
+  // 空文字は「ユーザー指定なし」(= gh_title / terminal_title へフォールバック) を意味する。
+  string user_title = 8;
+  // OSC ターミナルタイトル経由で観測した live 値。user_title / gh_title が空のときの
+  // 最終フォールバック。Claude が transcript 起動直後に送る placeholder ("Claude Code")
+  // は表示側で除外する。
+  string terminal_title = 9;
+  // PR/issue picker 取得時の snapshot タイトル。user_title が空のときの第 2 優先表示で、
+  // OSC タイトル更新では触らない (gh ↔ terminal の独立性が SSOT)。
+  // 今後 Refresh 経路で gh から再取得して上書きすることもありうる。
+  string gh_title = 10;
 }
 
 // GitHub PR / issue 参照。

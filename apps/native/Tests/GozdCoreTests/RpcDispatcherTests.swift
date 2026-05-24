@@ -127,7 +127,7 @@ struct RpcDispatcherTests {
     try await claudeSessions.upsert(worktreePath: worktreeDir, sessionId: "dead-X")
     let tasks = TaskStore(configDir: configDir)
     _ = try await tasks.add(
-      dir: worktreeDir, body: "PR work", worktreeDir: worktreeDir,
+      dir: worktreeDir, userTitle: "", ghTitle: "PR work", worktreeDir: worktreeDir,
       ghRef: .forPr(99))
     try await tasks.attachSession(
       dir: worktreeDir, sessionId: "dead-X", worktreeDir: worktreeDir)
@@ -190,13 +190,13 @@ struct RpcDispatcherTests {
     try await claudeSessions.upsert(worktreePath: worktreeDir, sessionId: "live-Y")
     let tasks = TaskStore(configDir: configDir)
     _ = try await tasks.add(
-      dir: worktreeDir, body: "PR work", worktreeDir: worktreeDir,
+      dir: worktreeDir, userTitle: "", ghTitle: "PR work", worktreeDir: worktreeDir,
       ghRef: .forPr(99))
     try await tasks.attachSession(
       dir: worktreeDir, sessionId: "dead-X", worktreeDir: worktreeDir)
     // 新規 task を作って Y を attach (root wt 直接起動相当だが ghRef 無しで body 付き)
     _ = try await tasks.add(
-      dir: worktreeDir, body: "scratch", worktreeDir: worktreeDir, ghRef: nil)
+      dir: worktreeDir, userTitle: "scratch", ghTitle: "", worktreeDir: worktreeDir, ghRef: nil)
     try await tasks.attachSession(
       dir: worktreeDir, sessionId: "live-Y", worktreeDir: worktreeDir)
 
@@ -240,11 +240,11 @@ struct RpcDispatcherTests {
     let remainingTasks = try await tasks.list(dir: worktreeDir)
     #expect(remainingTasks.count == 2)
     let prTask = try #require(remainingTasks.first { $0.hasGhRef })
-    #expect(prTask.body == "PR work")
+    #expect(prTask.ghTitle == "PR work")
     #expect(prTask.ghRef.number == 99)
     #expect(prTask.sessionID == "")
     let scratchTask = try #require(remainingTasks.first { !$0.hasGhRef })
-    #expect(scratchTask.body == "scratch")
+    #expect(scratchTask.userTitle == "scratch")
     #expect(scratchTask.sessionID == "live-Y")
     #expect(scratchTask.closedByUser)
 
@@ -271,7 +271,7 @@ struct RpcDispatcherTests {
     try await claudeSessions.upsert(worktreePath: worktreeDir, sessionId: "dead-X")
     let tasks = TaskStore(configDir: configDir)
     let originalTask = try await tasks.add(
-      dir: worktreeDir, body: "PR work", worktreeDir: worktreeDir,
+      dir: worktreeDir, userTitle: "", ghTitle: "PR work", worktreeDir: worktreeDir,
       ghRef: .forPr(99))
     try await tasks.attachSession(
       dir: worktreeDir, sessionId: "dead-X", worktreeDir: worktreeDir)
@@ -311,7 +311,7 @@ struct RpcDispatcherTests {
     #expect(remainingTasks.count == 1)
     let reattached = try #require(remainingTasks.first)
     #expect(reattached.id == originalTask.id)
-    #expect(reattached.body == "PR work")
+    #expect(reattached.ghTitle == "PR work")
     #expect(reattached.ghRef.number == 99)
     #expect(reattached.sessionID == "live-Y")
 
@@ -338,7 +338,7 @@ struct RpcDispatcherTests {
     try await claudeSessions.upsert(worktreePath: worktreeDir, sessionId: "resume-X")
     let tasks = TaskStore(configDir: configDir)
     let originalTask = try await tasks.add(
-      dir: worktreeDir, body: "PR work", worktreeDir: worktreeDir,
+      dir: worktreeDir, userTitle: "", ghTitle: "PR work", worktreeDir: worktreeDir,
       ghRef: .forPr(42))
     try await tasks.attachSession(
       dir: worktreeDir, sessionId: "resume-X", worktreeDir: worktreeDir)

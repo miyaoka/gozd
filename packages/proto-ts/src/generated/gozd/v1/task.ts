@@ -17,23 +17,51 @@ export interface TaskList {
 
 export interface TaskAddRequest {
   dir: string;
-  body: string;
+  /** ユーザー明示の確定タイトル。PR/issue picker 経路では通常空、手動作成時のみ使う。 */
+  userTitle: string;
   worktreeDir: string;
   /** GitHub PR / issue 参照。手動作成時は未指定で OK。 */
-  ghRef?: GhRef | undefined;
+  ghRef?:
+    | GhRef
+    | undefined;
+  /**
+   * PR/issue picker からの snapshot タイトル。upsert 経路 (同 worktree + 同 ghRef) で
+   * 既存 task が見つかれば gh_title を上書き、user_title は触らない。
+   */
+  ghTitle: string;
 }
 
 export interface TaskAddResponse {
   task: Task | undefined;
 }
 
-export interface TaskUpdateRequest {
+/**
+ * OSC ターミナルタイトルの観測値を Task に書き込む経路。renderer の useSidebarData が
+ * terminal title 変化を観測して呼ぶ。user_title が空のときの表示フォールバックに使う。
+ */
+export interface TaskSetTerminalTitleRequest {
   dir: string;
   id: string;
-  body: string;
+  terminalTitle: string;
 }
 
-export interface TaskUpdateResponse {
+export interface TaskSetTerminalTitleResponse {
+  task: Task | undefined;
+}
+
+/**
+ * 編集 dialog からのユーザー明示タイトル設定。空文字は user_title をクリアし、
+ * 表示は terminal_title フォールバックに戻る (= reset)。dialog UI が
+ * preview ボタンで PR/issue title や terminal_title を input にコピーして
+ * 保存させるため、空文字保存は意図ある reset 操作として受理する。
+ */
+export interface TaskSetUserTitleRequest {
+  dir: string;
+  id: string;
+  userTitle: string;
+}
+
+export interface TaskSetUserTitleResponse {
   task: Task | undefined;
 }
 
@@ -109,7 +137,7 @@ export const TaskList: MessageFns<TaskList> = {
 };
 
 function createBaseTaskAddRequest(): TaskAddRequest {
-  return { dir: "", body: "", worktreeDir: "", ghRef: undefined };
+  return { dir: "", userTitle: "", worktreeDir: "", ghRef: undefined, ghTitle: "" };
 }
 
 export const TaskAddRequest: MessageFns<TaskAddRequest> = {
@@ -117,14 +145,17 @@ export const TaskAddRequest: MessageFns<TaskAddRequest> = {
     if (message.dir !== "") {
       writer.uint32(10).string(message.dir);
     }
-    if (message.body !== "") {
-      writer.uint32(18).string(message.body);
+    if (message.userTitle !== "") {
+      writer.uint32(18).string(message.userTitle);
     }
     if (message.worktreeDir !== "") {
       writer.uint32(26).string(message.worktreeDir);
     }
     if (message.ghRef !== undefined) {
       GhRef.encode(message.ghRef, writer.uint32(34).fork()).join();
+    }
+    if (message.ghTitle !== "") {
+      writer.uint32(42).string(message.ghTitle);
     }
     return writer;
   },
@@ -149,7 +180,7 @@ export const TaskAddRequest: MessageFns<TaskAddRequest> = {
             break;
           }
 
-          message.body = reader.string();
+          message.userTitle = reader.string();
           continue;
         }
         case 3: {
@@ -168,6 +199,14 @@ export const TaskAddRequest: MessageFns<TaskAddRequest> = {
           message.ghRef = GhRef.decode(reader, reader.uint32());
           continue;
         }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.ghTitle = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -180,7 +219,11 @@ export const TaskAddRequest: MessageFns<TaskAddRequest> = {
   fromJSON(object: any): TaskAddRequest {
     return {
       dir: isSet(object.dir) ? globalThis.String(object.dir) : "",
-      body: isSet(object.body) ? globalThis.String(object.body) : "",
+      userTitle: isSet(object.userTitle)
+        ? globalThis.String(object.userTitle)
+        : isSet(object.user_title)
+        ? globalThis.String(object.user_title)
+        : "",
       worktreeDir: isSet(object.worktreeDir)
         ? globalThis.String(object.worktreeDir)
         : isSet(object.worktree_dir)
@@ -191,6 +234,11 @@ export const TaskAddRequest: MessageFns<TaskAddRequest> = {
         : isSet(object.gh_ref)
         ? GhRef.fromJSON(object.gh_ref)
         : undefined,
+      ghTitle: isSet(object.ghTitle)
+        ? globalThis.String(object.ghTitle)
+        : isSet(object.gh_title)
+        ? globalThis.String(object.gh_title)
+        : "",
     };
   },
 
@@ -199,14 +247,17 @@ export const TaskAddRequest: MessageFns<TaskAddRequest> = {
     if (message.dir !== "") {
       obj.dir = message.dir;
     }
-    if (message.body !== "") {
-      obj.body = message.body;
+    if (message.userTitle !== "") {
+      obj.userTitle = message.userTitle;
     }
     if (message.worktreeDir !== "") {
       obj.worktreeDir = message.worktreeDir;
     }
     if (message.ghRef !== undefined) {
       obj.ghRef = GhRef.toJSON(message.ghRef);
+    }
+    if (message.ghTitle !== "") {
+      obj.ghTitle = message.ghTitle;
     }
     return obj;
   },
@@ -217,9 +268,10 @@ export const TaskAddRequest: MessageFns<TaskAddRequest> = {
   fromPartial(object: DeepPartial<TaskAddRequest>): TaskAddRequest {
     const message = createBaseTaskAddRequest();
     message.dir = object.dir ?? "";
-    message.body = object.body ?? "";
+    message.userTitle = object.userTitle ?? "";
     message.worktreeDir = object.worktreeDir ?? "";
     message.ghRef = (object.ghRef !== undefined && object.ghRef !== null) ? GhRef.fromPartial(object.ghRef) : undefined;
+    message.ghTitle = object.ghTitle ?? "";
     return message;
   },
 };
@@ -282,28 +334,28 @@ export const TaskAddResponse: MessageFns<TaskAddResponse> = {
   },
 };
 
-function createBaseTaskUpdateRequest(): TaskUpdateRequest {
-  return { dir: "", id: "", body: "" };
+function createBaseTaskSetTerminalTitleRequest(): TaskSetTerminalTitleRequest {
+  return { dir: "", id: "", terminalTitle: "" };
 }
 
-export const TaskUpdateRequest: MessageFns<TaskUpdateRequest> = {
-  encode(message: TaskUpdateRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const TaskSetTerminalTitleRequest: MessageFns<TaskSetTerminalTitleRequest> = {
+  encode(message: TaskSetTerminalTitleRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.dir !== "") {
       writer.uint32(10).string(message.dir);
     }
     if (message.id !== "") {
       writer.uint32(18).string(message.id);
     }
-    if (message.body !== "") {
-      writer.uint32(26).string(message.body);
+    if (message.terminalTitle !== "") {
+      writer.uint32(26).string(message.terminalTitle);
     }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): TaskUpdateRequest {
+  decode(input: BinaryReader | Uint8Array, length?: number): TaskSetTerminalTitleRequest {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseTaskUpdateRequest();
+    const message = createBaseTaskSetTerminalTitleRequest();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -328,7 +380,7 @@ export const TaskUpdateRequest: MessageFns<TaskUpdateRequest> = {
             break;
           }
 
-          message.body = reader.string();
+          message.terminalTitle = reader.string();
           continue;
         }
       }
@@ -340,15 +392,19 @@ export const TaskUpdateRequest: MessageFns<TaskUpdateRequest> = {
     return message;
   },
 
-  fromJSON(object: any): TaskUpdateRequest {
+  fromJSON(object: any): TaskSetTerminalTitleRequest {
     return {
       dir: isSet(object.dir) ? globalThis.String(object.dir) : "",
       id: isSet(object.id) ? globalThis.String(object.id) : "",
-      body: isSet(object.body) ? globalThis.String(object.body) : "",
+      terminalTitle: isSet(object.terminalTitle)
+        ? globalThis.String(object.terminalTitle)
+        : isSet(object.terminal_title)
+        ? globalThis.String(object.terminal_title)
+        : "",
     };
   },
 
-  toJSON(message: TaskUpdateRequest): unknown {
+  toJSON(message: TaskSetTerminalTitleRequest): unknown {
     const obj: any = {};
     if (message.dir !== "") {
       obj.dir = message.dir;
@@ -356,40 +412,40 @@ export const TaskUpdateRequest: MessageFns<TaskUpdateRequest> = {
     if (message.id !== "") {
       obj.id = message.id;
     }
-    if (message.body !== "") {
-      obj.body = message.body;
+    if (message.terminalTitle !== "") {
+      obj.terminalTitle = message.terminalTitle;
     }
     return obj;
   },
 
-  create(base?: DeepPartial<TaskUpdateRequest>): TaskUpdateRequest {
-    return TaskUpdateRequest.fromPartial(base ?? {});
+  create(base?: DeepPartial<TaskSetTerminalTitleRequest>): TaskSetTerminalTitleRequest {
+    return TaskSetTerminalTitleRequest.fromPartial(base ?? {});
   },
-  fromPartial(object: DeepPartial<TaskUpdateRequest>): TaskUpdateRequest {
-    const message = createBaseTaskUpdateRequest();
+  fromPartial(object: DeepPartial<TaskSetTerminalTitleRequest>): TaskSetTerminalTitleRequest {
+    const message = createBaseTaskSetTerminalTitleRequest();
     message.dir = object.dir ?? "";
     message.id = object.id ?? "";
-    message.body = object.body ?? "";
+    message.terminalTitle = object.terminalTitle ?? "";
     return message;
   },
 };
 
-function createBaseTaskUpdateResponse(): TaskUpdateResponse {
+function createBaseTaskSetTerminalTitleResponse(): TaskSetTerminalTitleResponse {
   return { task: undefined };
 }
 
-export const TaskUpdateResponse: MessageFns<TaskUpdateResponse> = {
-  encode(message: TaskUpdateResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const TaskSetTerminalTitleResponse: MessageFns<TaskSetTerminalTitleResponse> = {
+  encode(message: TaskSetTerminalTitleResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.task !== undefined) {
       Task.encode(message.task, writer.uint32(10).fork()).join();
     }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): TaskUpdateResponse {
+  decode(input: BinaryReader | Uint8Array, length?: number): TaskSetTerminalTitleResponse {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseTaskUpdateResponse();
+    const message = createBaseTaskSetTerminalTitleResponse();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -410,11 +466,11 @@ export const TaskUpdateResponse: MessageFns<TaskUpdateResponse> = {
     return message;
   },
 
-  fromJSON(object: any): TaskUpdateResponse {
+  fromJSON(object: any): TaskSetTerminalTitleResponse {
     return { task: isSet(object.task) ? Task.fromJSON(object.task) : undefined };
   },
 
-  toJSON(message: TaskUpdateResponse): unknown {
+  toJSON(message: TaskSetTerminalTitleResponse): unknown {
     const obj: any = {};
     if (message.task !== undefined) {
       obj.task = Task.toJSON(message.task);
@@ -422,11 +478,165 @@ export const TaskUpdateResponse: MessageFns<TaskUpdateResponse> = {
     return obj;
   },
 
-  create(base?: DeepPartial<TaskUpdateResponse>): TaskUpdateResponse {
-    return TaskUpdateResponse.fromPartial(base ?? {});
+  create(base?: DeepPartial<TaskSetTerminalTitleResponse>): TaskSetTerminalTitleResponse {
+    return TaskSetTerminalTitleResponse.fromPartial(base ?? {});
   },
-  fromPartial(object: DeepPartial<TaskUpdateResponse>): TaskUpdateResponse {
-    const message = createBaseTaskUpdateResponse();
+  fromPartial(object: DeepPartial<TaskSetTerminalTitleResponse>): TaskSetTerminalTitleResponse {
+    const message = createBaseTaskSetTerminalTitleResponse();
+    message.task = (object.task !== undefined && object.task !== null) ? Task.fromPartial(object.task) : undefined;
+    return message;
+  },
+};
+
+function createBaseTaskSetUserTitleRequest(): TaskSetUserTitleRequest {
+  return { dir: "", id: "", userTitle: "" };
+}
+
+export const TaskSetUserTitleRequest: MessageFns<TaskSetUserTitleRequest> = {
+  encode(message: TaskSetUserTitleRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    if (message.id !== "") {
+      writer.uint32(18).string(message.id);
+    }
+    if (message.userTitle !== "") {
+      writer.uint32(26).string(message.userTitle);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): TaskSetUserTitleRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTaskSetUserTitleRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.id = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.userTitle = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): TaskSetUserTitleRequest {
+    return {
+      dir: isSet(object.dir) ? globalThis.String(object.dir) : "",
+      id: isSet(object.id) ? globalThis.String(object.id) : "",
+      userTitle: isSet(object.userTitle)
+        ? globalThis.String(object.userTitle)
+        : isSet(object.user_title)
+        ? globalThis.String(object.user_title)
+        : "",
+    };
+  },
+
+  toJSON(message: TaskSetUserTitleRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    if (message.id !== "") {
+      obj.id = message.id;
+    }
+    if (message.userTitle !== "") {
+      obj.userTitle = message.userTitle;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<TaskSetUserTitleRequest>): TaskSetUserTitleRequest {
+    return TaskSetUserTitleRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<TaskSetUserTitleRequest>): TaskSetUserTitleRequest {
+    const message = createBaseTaskSetUserTitleRequest();
+    message.dir = object.dir ?? "";
+    message.id = object.id ?? "";
+    message.userTitle = object.userTitle ?? "";
+    return message;
+  },
+};
+
+function createBaseTaskSetUserTitleResponse(): TaskSetUserTitleResponse {
+  return { task: undefined };
+}
+
+export const TaskSetUserTitleResponse: MessageFns<TaskSetUserTitleResponse> = {
+  encode(message: TaskSetUserTitleResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.task !== undefined) {
+      Task.encode(message.task, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): TaskSetUserTitleResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTaskSetUserTitleResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.task = Task.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): TaskSetUserTitleResponse {
+    return { task: isSet(object.task) ? Task.fromJSON(object.task) : undefined };
+  },
+
+  toJSON(message: TaskSetUserTitleResponse): unknown {
+    const obj: any = {};
+    if (message.task !== undefined) {
+      obj.task = Task.toJSON(message.task);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<TaskSetUserTitleResponse>): TaskSetUserTitleResponse {
+    return TaskSetUserTitleResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<TaskSetUserTitleResponse>): TaskSetUserTitleResponse {
+    const message = createBaseTaskSetUserTitleResponse();
     message.task = (object.task !== undefined && object.task !== null) ? Task.fromPartial(object.task) : undefined;
     return message;
   },

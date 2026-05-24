@@ -74,7 +74,7 @@ export function registerPrCommand(): () => void {
             void (async () => {
               await reviveTaskForGhRef({
                 existingDir,
-                body: pr.title,
+                ghTitle: pr.title,
                 ghRef: ghRefForPr(pr.number),
                 errorLabel: "Failed to revive task for pull request",
               });
@@ -106,7 +106,7 @@ export function registerPrCommand(): () => void {
               return;
             }
             repoStore.appendWorktree(rootDir, result.value.worktree);
-            // PR タイトルを body に持つ task を作成し worktree に紐付ける。
+            // PR タイトルを userTitle に持つ task を作成し worktree に紐付ける。
             // Claude session 未起動状態 (sessionId 空) で永続化され、初期 leaf で
             // 素の claude を autostart して SessionStart hook で attach される。
             // wtByBranch hit ルートと同じく taskAdd 後の真値反映は requestRefresh
@@ -116,7 +116,8 @@ export function registerPrCommand(): () => void {
             const taskResult = await tryCatch(
               rpcTaskAdd({
                 dir: rootDir,
-                body: pr.title,
+                userTitle: "",
+                ghTitle: pr.title,
                 worktreeDir: result.value.dir,
                 ghRef: ghRefForPr(pr.number),
               }),

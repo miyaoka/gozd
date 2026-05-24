@@ -40,7 +40,8 @@ public struct Gozd_V1_TaskAddRequest: Sendable {
 
   public var dir: String = String()
 
-  public var body: String = String()
+  /// ユーザー明示の確定タイトル。PR/issue picker 経路では通常空、手動作成時のみ使う。
+  public var userTitle: String = String()
 
   public var worktreeDir: String = String()
 
@@ -53,6 +54,10 @@ public struct Gozd_V1_TaskAddRequest: Sendable {
   public var hasGhRef: Bool {self._ghRef != nil}
   /// Clears the value of `ghRef`. Subsequent reads from it will return its default value.
   public mutating func clearGhRef() {self._ghRef = nil}
+
+  /// PR/issue picker からの snapshot タイトル。upsert 経路 (同 worktree + 同 ghRef) で
+  /// 既存 task が見つかれば gh_title を上書き、user_title は触らない。
+  public var ghTitle: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -82,7 +87,9 @@ public struct Gozd_V1_TaskAddResponse: Sendable {
   fileprivate var _task: Gozd_V1_Task? = nil
 }
 
-public struct Gozd_V1_TaskUpdateRequest: Sendable {
+/// OSC ターミナルタイトルの観測値を Task に書き込む経路。renderer の useSidebarData が
+/// terminal title 変化を観測して呼ぶ。user_title が空のときの表示フォールバックに使う。
+public struct Gozd_V1_TaskSetTerminalTitleRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -91,14 +98,55 @@ public struct Gozd_V1_TaskUpdateRequest: Sendable {
 
   public var id: String = String()
 
-  public var body: String = String()
+  public var terminalTitle: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 }
 
-public struct Gozd_V1_TaskUpdateResponse: Sendable {
+public struct Gozd_V1_TaskSetTerminalTitleResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var task: Gozd_V1_Task {
+    get {_task ?? Gozd_V1_Task()}
+    set {_task = newValue}
+  }
+  /// Returns true if `task` has been explicitly set.
+  public var hasTask: Bool {self._task != nil}
+  /// Clears the value of `task`. Subsequent reads from it will return its default value.
+  public mutating func clearTask() {self._task = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _task: Gozd_V1_Task? = nil
+}
+
+/// 編集 dialog からのユーザー明示タイトル設定。空文字は user_title をクリアし、
+/// 表示は terminal_title フォールバックに戻る (= reset)。dialog UI が
+/// preview ボタンで PR/issue title や terminal_title を input にコピーして
+/// 保存させるため、空文字保存は意図ある reset 操作として受理する。
+public struct Gozd_V1_TaskSetUserTitleRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var dir: String = String()
+
+  public var id: String = String()
+
+  public var userTitle: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Gozd_V1_TaskSetUserTitleResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -182,7 +230,7 @@ extension Gozd_V1_TaskList: SwiftProtobuf.Message, SwiftProtobuf._MessageImpleme
 
 extension Gozd_V1_TaskAddRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".TaskAddRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}body\0\u{3}worktree_dir\0\u{3}gh_ref\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{3}user_title\0\u{3}worktree_dir\0\u{3}gh_ref\0\u{3}gh_title\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -191,9 +239,10 @@ extension Gozd_V1_TaskAddRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.dir) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.body) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.userTitle) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.worktreeDir) }()
       case 4: try { try decoder.decodeSingularMessageField(value: &self._ghRef) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.ghTitle) }()
       default: break
       }
     }
@@ -207,8 +256,8 @@ extension Gozd_V1_TaskAddRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     if !self.dir.isEmpty {
       try visitor.visitSingularStringField(value: self.dir, fieldNumber: 1)
     }
-    if !self.body.isEmpty {
-      try visitor.visitSingularStringField(value: self.body, fieldNumber: 2)
+    if !self.userTitle.isEmpty {
+      try visitor.visitSingularStringField(value: self.userTitle, fieldNumber: 2)
     }
     if !self.worktreeDir.isEmpty {
       try visitor.visitSingularStringField(value: self.worktreeDir, fieldNumber: 3)
@@ -216,14 +265,18 @@ extension Gozd_V1_TaskAddRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     try { if let v = self._ghRef {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
     } }()
+    if !self.ghTitle.isEmpty {
+      try visitor.visitSingularStringField(value: self.ghTitle, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Gozd_V1_TaskAddRequest, rhs: Gozd_V1_TaskAddRequest) -> Bool {
     if lhs.dir != rhs.dir {return false}
-    if lhs.body != rhs.body {return false}
+    if lhs.userTitle != rhs.userTitle {return false}
     if lhs.worktreeDir != rhs.worktreeDir {return false}
     if lhs._ghRef != rhs._ghRef {return false}
+    if lhs.ghTitle != rhs.ghTitle {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -263,9 +316,9 @@ extension Gozd_V1_TaskAddResponse: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 }
 
-extension Gozd_V1_TaskUpdateRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".TaskUpdateRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}id\0\u{1}body\0")
+extension Gozd_V1_TaskSetTerminalTitleRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".TaskSetTerminalTitleRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}id\0\u{3}terminal_title\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -275,7 +328,7 @@ extension Gozd_V1_TaskUpdateRequest: SwiftProtobuf.Message, SwiftProtobuf._Messa
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.dir) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.id) }()
-      case 3: try { try decoder.decodeSingularStringField(value: &self.body) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.terminalTitle) }()
       default: break
       }
     }
@@ -288,23 +341,23 @@ extension Gozd_V1_TaskUpdateRequest: SwiftProtobuf.Message, SwiftProtobuf._Messa
     if !self.id.isEmpty {
       try visitor.visitSingularStringField(value: self.id, fieldNumber: 2)
     }
-    if !self.body.isEmpty {
-      try visitor.visitSingularStringField(value: self.body, fieldNumber: 3)
+    if !self.terminalTitle.isEmpty {
+      try visitor.visitSingularStringField(value: self.terminalTitle, fieldNumber: 3)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Gozd_V1_TaskUpdateRequest, rhs: Gozd_V1_TaskUpdateRequest) -> Bool {
+  public static func ==(lhs: Gozd_V1_TaskSetTerminalTitleRequest, rhs: Gozd_V1_TaskSetTerminalTitleRequest) -> Bool {
     if lhs.dir != rhs.dir {return false}
     if lhs.id != rhs.id {return false}
-    if lhs.body != rhs.body {return false}
+    if lhs.terminalTitle != rhs.terminalTitle {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Gozd_V1_TaskUpdateResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".TaskUpdateResponse"
+extension Gozd_V1_TaskSetTerminalTitleResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".TaskSetTerminalTitleResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}task\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -330,7 +383,81 @@ extension Gozd_V1_TaskUpdateResponse: SwiftProtobuf.Message, SwiftProtobuf._Mess
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Gozd_V1_TaskUpdateResponse, rhs: Gozd_V1_TaskUpdateResponse) -> Bool {
+  public static func ==(lhs: Gozd_V1_TaskSetTerminalTitleResponse, rhs: Gozd_V1_TaskSetTerminalTitleResponse) -> Bool {
+    if lhs._task != rhs._task {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_TaskSetUserTitleRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".TaskSetUserTitleRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}id\0\u{3}user_title\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.dir) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.id) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.userTitle) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.dir.isEmpty {
+      try visitor.visitSingularStringField(value: self.dir, fieldNumber: 1)
+    }
+    if !self.id.isEmpty {
+      try visitor.visitSingularStringField(value: self.id, fieldNumber: 2)
+    }
+    if !self.userTitle.isEmpty {
+      try visitor.visitSingularStringField(value: self.userTitle, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_TaskSetUserTitleRequest, rhs: Gozd_V1_TaskSetUserTitleRequest) -> Bool {
+    if lhs.dir != rhs.dir {return false}
+    if lhs.id != rhs.id {return false}
+    if lhs.userTitle != rhs.userTitle {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_TaskSetUserTitleResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".TaskSetUserTitleResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}task\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._task) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._task {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_TaskSetUserTitleResponse, rhs: Gozd_V1_TaskSetUserTitleResponse) -> Bool {
     if lhs._task != rhs._task {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true

@@ -103,7 +103,8 @@ export function registerIssueCommand(): () => void {
             const taskResult = await tryCatch(
               rpcTaskAdd({
                 dir: rootDir,
-                body: issue.title,
+                userTitle: "",
+                ghTitle: issue.title,
                 worktreeDir: result.value.dir,
                 ghRef: ghRefForIssue(issue.number),
               }),

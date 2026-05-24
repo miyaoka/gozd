@@ -16,8 +16,10 @@ import {
   TaskAddResponse,
   TaskRemoveRequest,
   TaskRemoveResponse,
-  TaskUpdateRequest,
-  TaskUpdateResponse,
+  TaskSetTerminalTitleRequest,
+  TaskSetTerminalTitleResponse,
+  TaskSetUserTitleRequest,
+  TaskSetUserTitleResponse,
 } from "@gozd/proto";
 
 import { rpc } from "../../shared/rpc";
@@ -43,8 +45,13 @@ export const rpcGitWorktreeRemove = (req: GitWorktreeRemoveRequest) =>
 export const rpcTaskAdd = (req: TaskAddRequest) =>
   rpc("/task/add", req, TaskAddRequest, TaskAddResponse);
 
-export const rpcTaskUpdate = (req: TaskUpdateRequest) =>
-  rpc("/task/update", req, TaskUpdateRequest, TaskUpdateResponse);
+// OSC ターミナルタイトルの観測値書き込み。user_title が空の表示フォールバックに使う。
+export const rpcTaskSetTerminalTitle = (req: TaskSetTerminalTitleRequest) =>
+  rpc("/task/setTerminalTitle", req, TaskSetTerminalTitleRequest, TaskSetTerminalTitleResponse);
+
+// ダブルクリック / Rename メニュー由来のユーザー明示タイトル設定。空文字は server で reject。
+export const rpcTaskSetUserTitle = (req: TaskSetUserTitleRequest) =>
+  rpc("/task/setUserTitle", req, TaskSetUserTitleRequest, TaskSetUserTitleResponse);
 
 // ⋮ メニューからの明示削除。worktree 削除 cascade と並ぶ唯一のユーザー操作削除経路。
 export const rpcTaskRemove = (req: TaskRemoveRequest) =>

@@ -83,7 +83,6 @@ export interface UpstreamStatus {
 export interface Task {
   /** UUID。Claude session とは独立した task 固有の identity。 */
   id: string;
-  body: string;
   worktreeDir: string;
   /**
    * GitHub PR / issue 参照。GitHub の PR / issue は同一の番号空間を共有するため、
@@ -107,6 +106,23 @@ export interface Task {
    * サイドバー UI の "closed" / "resumable" 状態区別に使う。
    */
   closedByUser: boolean;
+  /**
+   * ユーザーが UI で明示的に編集 / rename した確定値。最優先で表示に使う。
+   * 空文字は「ユーザー指定なし」(= gh_title / terminal_title へフォールバック) を意味する。
+   */
+  userTitle: string;
+  /**
+   * OSC ターミナルタイトル経由で観測した live 値。user_title / gh_title が空のときの
+   * 最終フォールバック。Claude が transcript 起動直後に送る placeholder ("Claude Code")
+   * は表示側で除外する。
+   */
+  terminalTitle: string;
+  /**
+   * PR/issue picker 取得時の snapshot タイトル。user_title が空のときの第 2 優先表示で、
+   * OSC タイトル更新では触らない (gh ↔ terminal の独立性が SSOT)。
+   * 今後 Refresh 経路で gh から再取得して上書きすることもありうる。
+   */
+  ghTitle: string;
 }
 
 /** GitHub PR / issue 参照。 */
@@ -537,16 +553,23 @@ export const UpstreamStatus: MessageFns<UpstreamStatus> = {
 };
 
 function createBaseTask(): Task {
-  return { id: "", body: "", worktreeDir: "", ghRef: undefined, createdAt: "", sessionId: "", closedByUser: false };
+  return {
+    id: "",
+    worktreeDir: "",
+    ghRef: undefined,
+    createdAt: "",
+    sessionId: "",
+    closedByUser: false,
+    userTitle: "",
+    terminalTitle: "",
+    ghTitle: "",
+  };
 }
 
 export const Task: MessageFns<Task> = {
   encode(message: Task, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.id !== "") {
       writer.uint32(10).string(message.id);
-    }
-    if (message.body !== "") {
-      writer.uint32(18).string(message.body);
     }
     if (message.worktreeDir !== "") {
       writer.uint32(26).string(message.worktreeDir);
@@ -562,6 +585,15 @@ export const Task: MessageFns<Task> = {
     }
     if (message.closedByUser !== false) {
       writer.uint32(56).bool(message.closedByUser);
+    }
+    if (message.userTitle !== "") {
+      writer.uint32(66).string(message.userTitle);
+    }
+    if (message.terminalTitle !== "") {
+      writer.uint32(74).string(message.terminalTitle);
+    }
+    if (message.ghTitle !== "") {
+      writer.uint32(82).string(message.ghTitle);
     }
     return writer;
   },
@@ -579,14 +611,6 @@ export const Task: MessageFns<Task> = {
           }
 
           message.id = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.body = reader.string();
           continue;
         }
         case 3: {
@@ -629,6 +653,30 @@ export const Task: MessageFns<Task> = {
           message.closedByUser = reader.bool();
           continue;
         }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.userTitle = reader.string();
+          continue;
+        }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.terminalTitle = reader.string();
+          continue;
+        }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.ghTitle = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -641,7 +689,6 @@ export const Task: MessageFns<Task> = {
   fromJSON(object: any): Task {
     return {
       id: isSet(object.id) ? globalThis.String(object.id) : "",
-      body: isSet(object.body) ? globalThis.String(object.body) : "",
       worktreeDir: isSet(object.worktreeDir)
         ? globalThis.String(object.worktreeDir)
         : isSet(object.worktree_dir)
@@ -667,6 +714,21 @@ export const Task: MessageFns<Task> = {
         : isSet(object.closed_by_user)
         ? globalThis.Boolean(object.closed_by_user)
         : false,
+      userTitle: isSet(object.userTitle)
+        ? globalThis.String(object.userTitle)
+        : isSet(object.user_title)
+        ? globalThis.String(object.user_title)
+        : "",
+      terminalTitle: isSet(object.terminalTitle)
+        ? globalThis.String(object.terminalTitle)
+        : isSet(object.terminal_title)
+        ? globalThis.String(object.terminal_title)
+        : "",
+      ghTitle: isSet(object.ghTitle)
+        ? globalThis.String(object.ghTitle)
+        : isSet(object.gh_title)
+        ? globalThis.String(object.gh_title)
+        : "",
     };
   },
 
@@ -674,9 +736,6 @@ export const Task: MessageFns<Task> = {
     const obj: any = {};
     if (message.id !== "") {
       obj.id = message.id;
-    }
-    if (message.body !== "") {
-      obj.body = message.body;
     }
     if (message.worktreeDir !== "") {
       obj.worktreeDir = message.worktreeDir;
@@ -693,6 +752,15 @@ export const Task: MessageFns<Task> = {
     if (message.closedByUser !== false) {
       obj.closedByUser = message.closedByUser;
     }
+    if (message.userTitle !== "") {
+      obj.userTitle = message.userTitle;
+    }
+    if (message.terminalTitle !== "") {
+      obj.terminalTitle = message.terminalTitle;
+    }
+    if (message.ghTitle !== "") {
+      obj.ghTitle = message.ghTitle;
+    }
     return obj;
   },
 
@@ -702,12 +770,14 @@ export const Task: MessageFns<Task> = {
   fromPartial(object: DeepPartial<Task>): Task {
     const message = createBaseTask();
     message.id = object.id ?? "";
-    message.body = object.body ?? "";
     message.worktreeDir = object.worktreeDir ?? "";
     message.ghRef = (object.ghRef !== undefined && object.ghRef !== null) ? GhRef.fromPartial(object.ghRef) : undefined;
     message.createdAt = object.createdAt ?? "";
     message.sessionId = object.sessionId ?? "";
     message.closedByUser = object.closedByUser ?? false;
+    message.userTitle = object.userTitle ?? "";
+    message.terminalTitle = object.terminalTitle ?? "";
+    message.ghTitle = object.ghTitle ?? "";
     return message;
   },
 };

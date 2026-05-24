@@ -41,6 +41,7 @@ import { useWorktreeActions } from "./features/worktree";
 import ProjectConfigPanel from "./ProjectConfigPanel.vue";
 import { rpcTaskRemove } from "./rpc";
 import SidebarClock from "./SidebarClock.vue";
+import TaskEditDialog from "./TaskEditDialog.vue";
 import TaskMenu from "./TaskMenu.vue";
 import { useDialogs } from "./useDialogs";
 import { useSidebarData } from "./useSidebarData";
@@ -285,6 +286,9 @@ const activeRootWorktree = computed(() => {
     <!-- ⋮ メニュー（worktree / task） -->
     <WorktreeMenu @remove="(wt, rd) => handleWorktreeRemove(rd, wt)" />
     <TaskMenu @remove="(task, rd) => handleTaskRemove(rd, task)" />
+
+    <!-- task title 編集 dialog -->
+    <TaskEditDialog />
 
     <!-- 確認ダイアログ -->
     <dialog

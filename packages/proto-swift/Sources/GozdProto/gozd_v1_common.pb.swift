@@ -121,8 +121,6 @@ public struct Gozd_V1_Task: Sendable {
   /// UUID。Claude session とは独立した task 固有の identity。
   public var id: String = String()
 
-  public var body: String = String()
-
   public var worktreeDir: String = String()
 
   /// GitHub PR / issue 参照。GitHub の PR / issue は同一の番号空間を共有するため、
@@ -149,6 +147,20 @@ public struct Gozd_V1_Task: Sendable {
   /// app close (renderer 強制終了) では detachSession 経路を通らないため据え置き。
   /// サイドバー UI の "closed" / "resumable" 状態区別に使う。
   public var closedByUser: Bool = false
+
+  /// ユーザーが UI で明示的に編集 / rename した確定値。最優先で表示に使う。
+  /// 空文字は「ユーザー指定なし」(= gh_title / terminal_title へフォールバック) を意味する。
+  public var userTitle: String = String()
+
+  /// OSC ターミナルタイトル経由で観測した live 値。user_title / gh_title が空のときの
+  /// 最終フォールバック。Claude が transcript 起動直後に送る placeholder ("Claude Code")
+  /// は表示側で除外する。
+  public var terminalTitle: String = String()
+
+  /// PR/issue picker 取得時の snapshot タイトル。user_title が空のときの第 2 優先表示で、
+  /// OSC タイトル更新では触らない (gh ↔ terminal の独立性が SSOT)。
+  /// 今後 Refresh 経路で gh から再取得して上書きすることもありうる。
+  public var ghTitle: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -453,7 +465,7 @@ extension Gozd_V1_UpstreamStatus: SwiftProtobuf.Message, SwiftProtobuf._MessageI
 
 extension Gozd_V1_Task: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Task"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}body\0\u{3}worktree_dir\0\u{3}gh_ref\0\u{3}created_at\0\u{3}session_id\0\u{3}closed_by_user\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{4}\u{2}worktree_dir\0\u{3}gh_ref\0\u{3}created_at\0\u{3}session_id\0\u{3}closed_by_user\0\u{3}user_title\0\u{3}terminal_title\0\u{3}gh_title\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -462,12 +474,14 @@ extension Gozd_V1_Task: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementat
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.body) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.worktreeDir) }()
       case 4: try { try decoder.decodeSingularMessageField(value: &self._ghRef) }()
       case 5: try { try decoder.decodeSingularStringField(value: &self.createdAt) }()
       case 6: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
       case 7: try { try decoder.decodeSingularBoolField(value: &self.closedByUser) }()
+      case 8: try { try decoder.decodeSingularStringField(value: &self.userTitle) }()
+      case 9: try { try decoder.decodeSingularStringField(value: &self.terminalTitle) }()
+      case 10: try { try decoder.decodeSingularStringField(value: &self.ghTitle) }()
       default: break
       }
     }
@@ -480,9 +494,6 @@ extension Gozd_V1_Task: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementat
     // https://github.com/apple/swift-protobuf/issues/1182
     if !self.id.isEmpty {
       try visitor.visitSingularStringField(value: self.id, fieldNumber: 1)
-    }
-    if !self.body.isEmpty {
-      try visitor.visitSingularStringField(value: self.body, fieldNumber: 2)
     }
     if !self.worktreeDir.isEmpty {
       try visitor.visitSingularStringField(value: self.worktreeDir, fieldNumber: 3)
@@ -499,17 +510,28 @@ extension Gozd_V1_Task: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementat
     if self.closedByUser != false {
       try visitor.visitSingularBoolField(value: self.closedByUser, fieldNumber: 7)
     }
+    if !self.userTitle.isEmpty {
+      try visitor.visitSingularStringField(value: self.userTitle, fieldNumber: 8)
+    }
+    if !self.terminalTitle.isEmpty {
+      try visitor.visitSingularStringField(value: self.terminalTitle, fieldNumber: 9)
+    }
+    if !self.ghTitle.isEmpty {
+      try visitor.visitSingularStringField(value: self.ghTitle, fieldNumber: 10)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Gozd_V1_Task, rhs: Gozd_V1_Task) -> Bool {
     if lhs.id != rhs.id {return false}
-    if lhs.body != rhs.body {return false}
     if lhs.worktreeDir != rhs.worktreeDir {return false}
     if lhs._ghRef != rhs._ghRef {return false}
     if lhs.createdAt != rhs.createdAt {return false}
     if lhs.sessionID != rhs.sessionID {return false}
     if lhs.closedByUser != rhs.closedByUser {return false}
+    if lhs.userTitle != rhs.userTitle {return false}
+    if lhs.terminalTitle != rhs.terminalTitle {return false}
+    if lhs.ghTitle != rhs.ghTitle {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

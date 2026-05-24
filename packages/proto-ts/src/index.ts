@@ -153,8 +153,10 @@ export {
   TaskList,
   TaskRemoveRequest,
   TaskRemoveResponse,
-  TaskUpdateRequest,
-  TaskUpdateResponse,
+  TaskSetTerminalTitleRequest,
+  TaskSetTerminalTitleResponse,
+  TaskSetUserTitleRequest,
+  TaskSetUserTitleResponse,
 } from "./generated/gozd/v1/task";
 export {
   VoicevoxCheckEngineRequest,

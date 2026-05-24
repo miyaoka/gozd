@@ -44,12 +44,19 @@ export interface StringArraySetting extends SettingBase {
   placeholder?: string;
 }
 
+/** VOICEVOX のキャラ + スタイル選択 → 2 段 select（widget 自体が voicevox store に依存） */
+export interface VoicevoxSpeakerSetting extends SettingBase {
+  widget: "voicevoxSpeaker";
+  defaultValue: number;
+}
+
 export type SettingDefinition =
   | BooleanSetting
   | NumberSetting
   | EnumSetting
   | StringSetting
-  | StringArraySetting;
+  | StringArraySetting
+  | VoicevoxSpeakerSetting;
 
 /** 設定セクション（グループ化） */
 export interface SettingSection {

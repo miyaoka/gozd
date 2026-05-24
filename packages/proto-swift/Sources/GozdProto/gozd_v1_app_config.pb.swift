@@ -115,12 +115,22 @@ public struct Gozd_V1_VoicevoxConfig: Sendable {
 
   public var volumeScale: Double = 0
 
-  /// 0 ならデフォルト (renderer 側 fallback)
-  public var speakerID: UInt32 = 0
+  /// 未設定なら renderer 側 default にフォールバック。
+  /// VOICEVOX の正規 style ID 0 (四国めたん あまあま) と未設定を区別するため optional で wrap する。
+  public var speakerID: UInt32 {
+    get {_speakerID ?? 0}
+    set {_speakerID = newValue}
+  }
+  /// Returns true if `speakerID` has been explicitly set.
+  public var hasSpeakerID: Bool {self._speakerID != nil}
+  /// Clears the value of `speakerID`. Subsequent reads from it will return its default value.
+  public mutating func clearSpeakerID() {self._speakerID = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _speakerID: UInt32? = nil
 }
 
 public struct Gozd_V1_LoadAppConfigRequest: Sendable {
@@ -321,13 +331,17 @@ extension Gozd_V1_VoicevoxConfig: SwiftProtobuf.Message, SwiftProtobuf._MessageI
       case 1: try { try decoder.decodeSingularBoolField(value: &self.enabled) }()
       case 2: try { try decoder.decodeSingularDoubleField(value: &self.speedScale) }()
       case 3: try { try decoder.decodeSingularDoubleField(value: &self.volumeScale) }()
-      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.speakerID) }()
+      case 4: try { try decoder.decodeSingularUInt32Field(value: &self._speakerID) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if self.enabled != false {
       try visitor.visitSingularBoolField(value: self.enabled, fieldNumber: 1)
     }
@@ -337,9 +351,9 @@ extension Gozd_V1_VoicevoxConfig: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     if self.volumeScale.bitPattern != 0 {
       try visitor.visitSingularDoubleField(value: self.volumeScale, fieldNumber: 3)
     }
-    if self.speakerID != 0 {
-      try visitor.visitSingularUInt32Field(value: self.speakerID, fieldNumber: 4)
-    }
+    try { if let v = self._speakerID {
+      try visitor.visitSingularUInt32Field(value: v, fieldNumber: 4)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -347,7 +361,7 @@ extension Gozd_V1_VoicevoxConfig: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     if lhs.enabled != rhs.enabled {return false}
     if lhs.speedScale != rhs.speedScale {return false}
     if lhs.volumeScale != rhs.volumeScale {return false}
-    if lhs.speakerID != rhs.speakerID {return false}
+    if lhs._speakerID != rhs._speakerID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

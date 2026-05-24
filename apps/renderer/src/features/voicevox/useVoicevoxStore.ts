@@ -2,6 +2,7 @@ import type { VoicevoxSpeaker } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { ref, watch } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { rpcLoadAppConfig, rpcSaveAppConfig } from "../settings";
 import type { HookPayload } from "../terminal";
@@ -67,6 +68,7 @@ let speakGeneration = 0;
 let disposeHookListener: (() => void) | undefined;
 
 export const useVoicevoxStore = defineStore("voicevox", () => {
+  const notify = useNotificationStore();
   const enabled = ref(false);
   const speedScale = ref(DEFAULT_SPEED_SCALE);
   const volumeScale = ref(DEFAULT_VOLUME_SCALE);
@@ -76,11 +78,38 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
   /** 有効化処理中 */
   const activating = ref(false);
 
-  /** Engine から speakers を取得して保持する */
+  /** speakers の中に該当 style.id が存在するか */
+  function hasSpeakerStyle(id: number): boolean {
+    return speakers.value.some((s) => s.styles.some((st) => st.id === id));
+  }
+
+  /**
+   * 外部から speakerId を変更する公式入口。speakers ロード後は存在検証する。
+   * speakers ロード前 (config 復元中 / Engine 未起動) は無条件で受け入れる。
+   */
+  function setSpeakerId(id: number): void {
+    if (speakers.value.length > 0 && !hasSpeakerStyle(id)) {
+      notify.error(`VOICEVOX speaker id ${id} not found in current speakers list`);
+      return;
+    }
+    speakerId.value = id;
+  }
+
+  /** Engine から speakers を取得して保持し、永続化値の存在検証も行う */
   async function loadSpeakers(): Promise<void> {
     const result = await tryCatch(rpcVoicevoxListSpeakers());
-    if (!result.ok) return;
+    if (!result.ok) {
+      notify.error("Failed to load VOICEVOX speakers", result.error);
+      return;
+    }
     speakers.value = result.value.speakers;
+    // ロード完了後、永続化された speakerId が現存しなければ default に fallback
+    if (speakers.value.length > 0 && !hasSpeakerStyle(speakerId.value)) {
+      notify.info(
+        `VOICEVOX speaker id ${speakerId.value} not found; using default (${DEFAULT_SPEAKER_ID})`,
+      );
+      speakerId.value = DEFAULT_SPEAKER_ID;
+    }
   }
 
   /** RPC 経由で Engine の起動状態を確認する */
@@ -133,7 +162,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     if (cfg !== undefined) {
       if (cfg.speedScale > 0) speedScale.value = cfg.speedScale;
       if (cfg.volumeScale > 0) volumeScale.value = cfg.volumeScale;
-      if (cfg.speakerId > 0) speakerId.value = cfg.speakerId;
+      if (cfg.speakerId !== undefined) speakerId.value = cfg.speakerId;
       if (cfg.enabled) {
         enabled.value = true;
         // Engine が起動していなければバックグラウンドで起動だけ試みる（ポーリングしない）
@@ -253,6 +282,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     activate,
     deactivate,
     stopAudio,
+    setSpeakerId,
   };
 });
 

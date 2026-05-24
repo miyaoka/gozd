@@ -29,21 +29,35 @@ public enum VoicevoxOps {
     req.timeoutInterval = 5
     do {
       let (data, resp) = try await URLSession.shared.data(for: req)
-      guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+      guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        FileHandle.standardError.write(Data("[VoicevoxOps.listSpeakers] non-200 status: \(code)\n".utf8))
+        return nil
+      }
       guard let arr = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+        FileHandle.standardError.write(Data("[VoicevoxOps.listSpeakers] root is not array of object\n".utf8))
         return nil
       }
       return arr.compactMap { entry in
         guard let name = entry["name"] as? String,
           let styleArr = entry["styles"] as? [[String: Any]]
-        else { return nil }
+        else {
+          FileHandle.standardError.write(Data("[VoicevoxOps.listSpeakers] skipping malformed speaker entry: \(entry)\n".utf8))
+          return nil
+        }
         let styles: [Speaker.Style] = styleArr.compactMap { s in
-          guard let n = s["name"] as? String, let id = s["id"] as? Int else { return nil }
-          return Speaker.Style(name: n, id: UInt32(id))
+          guard let n = s["name"] as? String, let idRaw = s["id"] as? Int,
+            let id = UInt32(exactly: idRaw)
+          else {
+            FileHandle.standardError.write(Data("[VoicevoxOps.listSpeakers] skipping malformed style entry: \(s)\n".utf8))
+            return nil
+          }
+          return Speaker.Style(name: n, id: id)
         }
         return Speaker(name: name, styles: styles)
       }
     } catch {
+      FileHandle.standardError.write(Data("[VoicevoxOps.listSpeakers] request/decode failed: \(error)\n".utf8))
       return nil
     }
   }

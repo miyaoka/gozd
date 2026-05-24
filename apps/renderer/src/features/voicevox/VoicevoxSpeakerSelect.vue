@@ -22,12 +22,12 @@ function handleSpeakerChange(event: Event) {
   const speaker = voicevoxStore.speakers.find((s) => s.name === speakerName);
   const firstStyleId = speaker?.styles[0]?.id;
   if (firstStyleId !== undefined) {
-    voicevoxStore.speakerId = firstStyleId;
+    voicevoxStore.setSpeakerId(firstStyleId);
   }
 }
 
 function handleStyleChange(event: Event) {
-  voicevoxStore.speakerId = Number((event.target as HTMLSelectElement).value);
+  voicevoxStore.setSpeakerId(Number((event.target as HTMLSelectElement).value));
 }
 </script>
 

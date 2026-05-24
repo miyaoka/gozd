@@ -5,8 +5,7 @@
 </doc>
 
 <script setup lang="ts">
-import { useVoicevoxStore } from "../voicevox";
-import VoicevoxSpeakerSelect from "./VoicevoxSpeakerSelect.vue";
+import { useVoicevoxStore, VoicevoxSpeakerSelect } from "../voicevox";
 
 const voicevoxStore = useVoicevoxStore();
 

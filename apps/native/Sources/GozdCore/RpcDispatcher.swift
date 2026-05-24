@@ -1307,6 +1307,8 @@ public actor RpcDispatcher {
         }
         return s
       }
+    } else {
+      FileHandle.standardError.write(Data("[handleVoicevoxListSpeakers] listSpeakers returned nil; responding with empty list\n".utf8))
     }
     return try resp.jsonUTF8Data()
   }

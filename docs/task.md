@@ -48,7 +48,7 @@ ELSE terminalTitle 非空 (CLAUDE_PLACEHOLDER "Claude Code" 除外) → terminal
 ELSE undefined (呼び出し側で "New session" or "#N" にフォールバック)
 ```
 
-`ghRef` ありの task は最終表示の先頭に `#<number> ` プレフィックスを付ける。
+`ghRef` ありの task は先頭に PR/issue 番号が付く。
 
 #### 編集 dialog (`TaskEditDialog`)
 

@@ -7,6 +7,14 @@
 - material-icon-theme のアイコンを表示
 - git status に応じた色分け（modified=黄、added=緑、deleted=赤、renamed=青）と削除ファイルの打ち消し線
 
+## snapshot mode (snapshotHash プロパティが真値のとき)
+
+- `rpcFsReadDir` の代わりに `rpcGitLsTree(dir, hash, path)` で「そのコミット時点の tree」を 1 階層読む
+- 削除エントリ仮想表示 (`getDeletedEntries`) と git change マージは行わない
+  （snapshot の tree は git status と無関係 / 過去 commit のため削除概念がない）
+- fsChange / gitStatusChange の watch は no-op（snapshot は不変）
+- 子へ `snapshotHash` をそのまま継承する。同一サブツリー全体で mode が揃う
+
 ## ルートノード（worktree 自体を表す不可視ノード）
 
 - `path === ""` を worktree 自体を指す値として扱う（Swift `relDir` SSOT と整合）。`isRootPath()` で 1 か所判定
@@ -22,8 +30,8 @@
 
 ## 更新（イベント駆動）
 
-- filer event store の fsChange を watch して自分の path 該当時に再読み込み
-- filer event store の gitStatusChange を watch して展開中なら children を再構築
+- filer event store の fsChange を watch して自分の path 該当時に再読み込み (snapshot mode では skip)
+- filer event store の gitStatusChange を watch して展開中なら children を再構築 (snapshot mode では skip)
 - worktreeStore.revealVersion を watch して selectedRelPath が自分または配下なら展開＋スクロール
 - 親→子の命令呼び出し（defineExpose）は使わず、各ノードが自律的にイベントを処理する設計
 </doc>
@@ -47,9 +55,10 @@ import {
   pathForNativeRpc,
   sortEntries,
   toFileEntries,
+  toFileEntriesFromGitTree,
 } from "./filerUtils";
 import type { FileEntry } from "./filerUtils";
-import { rpcFsReadDir } from "./rpc";
+import { rpcFsReadDir, rpcGitLsTree } from "./rpc";
 import { getFileIconUrl, getFolderIconUrl } from "./useFileIcon";
 import { useFilerEventStore } from "./useFilerEventStore";
 
@@ -78,6 +87,11 @@ const props = defineProps<{
    */
   depth: number;
   selectedRelPath?: string;
+  /**
+   * snapshot mode のとき、そのコミットの hash。working tree モードでは undefined。
+   * 子に同じ値を継承する。
+   */
+  snapshotHash?: string;
 }>();
 
 const emit = defineEmits<{
@@ -160,6 +174,31 @@ async function loadChildren() {
     }
     return;
   }
+
+  // snapshot mode: git ls-tree でそのコミット時点の 1 階層を取得する。
+  // working tree モードの fs RPC とは経路が完全に分かれ、git status マージや
+  // 削除仮想エントリの合成は行わない (snapshot tree は git status と無関係)。
+  if (props.snapshotHash !== undefined) {
+    const result = await tryCatch(
+      rpcGitLsTree({
+        dir,
+        hash: props.snapshotHash,
+        path: isRoot.value ? "" : props.path,
+      }),
+    );
+    if (mySeq !== loadSeq) return;
+    if (!result.ok) {
+      const label = isRoot.value ? "(worktree root)" : props.path;
+      notify.error(`Failed to read snapshot tree: ${label}`, result.error);
+      children.value = [];
+      loading.value = false;
+      return;
+    }
+    children.value = sortEntries(toFileEntriesFromGitTree(result.value.entries));
+    loading.value = false;
+    return;
+  }
+
   const result = await tryCatch(rpcFsReadDir({ dir, path: pathForNativeRpc(props.path) }));
   // await 中に loadChildren が再度呼ばれた場合、この呼び出しの結果は破棄する
   if (mySeq !== loadSeq) return;
@@ -209,10 +248,12 @@ onMounted(() => {
 // fsChange を購読し、自分の path が変更対象なら再読み込み（折りたたみ中はキャッシュ破棄）。
 // 自分の path 配下のノードは独立に同じ store を watch しているため、再帰伝播は不要。
 // ルートノード（path === ""）は worktree 直下の fsChange（relDir === ""）にマッチする。
+// snapshot mode は不変な git object を表示しているので fs 変化を無視する。
 watch(
   () => filerEventStore.fsChangeEvent,
   (event) => {
     if (event === undefined) return;
+    if (props.snapshotHash !== undefined) return;
     if (!props.isDirectory) return;
     if (event.relDir !== props.path) return;
     if (expanded.value) {
@@ -226,9 +267,11 @@ watch(
 
 // gitStatusChange を購読し、展開中の children を再構築する（削除仮想エントリの追加/除去）。
 // computed の再計算だけでは entries の追加削除を反映できないため、明示的に再読み込みする。
+// snapshot mode では working tree の git status を tree に重ねないため購読しない。
 watch(
   () => filerEventStore.gitStatusChangeVersion,
   () => {
+    if (props.snapshotHash !== undefined) return;
     if (!props.isDirectory) return;
     if (expanded.value && children.value !== undefined) {
       void loadChildren();
@@ -335,6 +378,7 @@ function onChildSelect(childPath: string) {
         :is-ignored="child.isIgnored"
         :git-change="child.gitChange"
         :git-statuses="gitStatuses"
+        :snapshot-hash="snapshotHash"
         :depth="depth + 1"
         :selected-rel-path="selectedRelPath"
         @select="onChildSelect"

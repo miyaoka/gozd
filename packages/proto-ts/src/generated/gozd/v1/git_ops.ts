@@ -478,6 +478,33 @@ export interface GitLogLineResponse {
   commits: GitCommit[];
 }
 
+/**
+ * gitLsTree: 指定コミットの tree から 1 階層分のエントリを返す。
+ *
+ * filer の snapshot mode (git-graph でコミット選択中) が呼ぶ。`git ls-tree -z <hash> <path>/`
+ * に対応し、`path` 末尾 `/` を Swift 側で必ず付与する規約 (末尾 `/` を外すと「該当 path の
+ * エントリ 1 件」が返って 1 階層分の列挙にならないため)。`path` が空文字 ("") なら repo root の
+ * 1 階層分を返す。
+ *
+ * type は "file" / "directory" / "symlink" / "submodule" のいずれか (git mode → 文字列写像は
+ * Swift `GitOps.lsTree` の SSOT に置く)。FsReadDirEntry とフィールド名を揃え、renderer 側の
+ * FileEntry 構築経路を共通化する (snapshot mode で `is_ignored` は意味を持たないため省略)。
+ */
+export interface GitLsTreeRequest {
+  dir: string;
+  hash: string;
+  path: string;
+}
+
+export interface GitTreeEntry {
+  name: string;
+  type: string;
+}
+
+export interface GitLsTreeResponse {
+  entries: GitTreeEntry[];
+}
+
 function createBaseGitWorktreeListRequest(): GitWorktreeListRequest {
   return { dir: "" };
 }
@@ -3880,6 +3907,236 @@ export const GitLogLineResponse: MessageFns<GitLogLineResponse> = {
   fromPartial(object: DeepPartial<GitLogLineResponse>): GitLogLineResponse {
     const message = createBaseGitLogLineResponse();
     message.commits = object.commits?.map((e) => GitCommit.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseGitLsTreeRequest(): GitLsTreeRequest {
+  return { dir: "", hash: "", path: "" };
+}
+
+export const GitLsTreeRequest: MessageFns<GitLsTreeRequest> = {
+  encode(message: GitLsTreeRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    if (message.hash !== "") {
+      writer.uint32(18).string(message.hash);
+    }
+    if (message.path !== "") {
+      writer.uint32(26).string(message.path);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitLsTreeRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitLsTreeRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.hash = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.path = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitLsTreeRequest {
+    return {
+      dir: isSet(object.dir) ? globalThis.String(object.dir) : "",
+      hash: isSet(object.hash) ? globalThis.String(object.hash) : "",
+      path: isSet(object.path) ? globalThis.String(object.path) : "",
+    };
+  },
+
+  toJSON(message: GitLsTreeRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    if (message.hash !== "") {
+      obj.hash = message.hash;
+    }
+    if (message.path !== "") {
+      obj.path = message.path;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitLsTreeRequest>): GitLsTreeRequest {
+    return GitLsTreeRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitLsTreeRequest>): GitLsTreeRequest {
+    const message = createBaseGitLsTreeRequest();
+    message.dir = object.dir ?? "";
+    message.hash = object.hash ?? "";
+    message.path = object.path ?? "";
+    return message;
+  },
+};
+
+function createBaseGitTreeEntry(): GitTreeEntry {
+  return { name: "", type: "" };
+}
+
+export const GitTreeEntry: MessageFns<GitTreeEntry> = {
+  encode(message: GitTreeEntry, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.type !== "") {
+      writer.uint32(18).string(message.type);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitTreeEntry {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitTreeEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.type = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitTreeEntry {
+    return {
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      type: isSet(object.type) ? globalThis.String(object.type) : "",
+    };
+  },
+
+  toJSON(message: GitTreeEntry): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.type !== "") {
+      obj.type = message.type;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitTreeEntry>): GitTreeEntry {
+    return GitTreeEntry.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitTreeEntry>): GitTreeEntry {
+    const message = createBaseGitTreeEntry();
+    message.name = object.name ?? "";
+    message.type = object.type ?? "";
+    return message;
+  },
+};
+
+function createBaseGitLsTreeResponse(): GitLsTreeResponse {
+  return { entries: [] };
+}
+
+export const GitLsTreeResponse: MessageFns<GitLsTreeResponse> = {
+  encode(message: GitLsTreeResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.entries) {
+      GitTreeEntry.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitLsTreeResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitLsTreeResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.entries.push(GitTreeEntry.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitLsTreeResponse {
+    return {
+      entries: globalThis.Array.isArray(object?.entries)
+        ? object.entries.map((e: any) => GitTreeEntry.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: GitLsTreeResponse): unknown {
+    const obj: any = {};
+    if (message.entries?.length) {
+      obj.entries = message.entries.map((e) => GitTreeEntry.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitLsTreeResponse>): GitLsTreeResponse {
+    return GitLsTreeResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitLsTreeResponse>): GitLsTreeResponse {
+    const message = createBaseGitLsTreeResponse();
+    message.entries = object.entries?.map((e) => GitTreeEntry.fromPartial(e)) || [];
     return message;
   },
 };

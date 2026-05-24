@@ -339,6 +339,8 @@ public actor RpcDispatcher {
       return try await handleGitShowCommitFile(body)
     case "/git/commitFiles":
       return try await handleGitCommitFiles(body)
+    case "/git/lsTree":
+      return try await handleGitLsTree(body)
     case "/git/prList":
       return try await handleGitPrList(body)
     case "/git/issueList":
@@ -844,6 +846,19 @@ public actor RpcDispatcher {
       pb.newFilePath = c.newPath
       pb.type = c.type
       return pb
+    }
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleGitLsTree(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitLsTreeRequest(jsonUTF8Data: body)
+    let entries = try await GitOps.lsTree(dir: req.dir, hash: req.hash, path: req.path)
+    var resp = Gozd_V1_GitLsTreeResponse()
+    resp.entries = entries.map { entry in
+      var e = Gozd_V1_GitTreeEntry()
+      e.name = entry.name
+      e.type = entry.type
+      return e
     }
     return try resp.jsonUTF8Data()
   }

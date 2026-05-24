@@ -620,6 +620,29 @@ public enum GitOps {
     return parseDiffNameStatus(stdout)
   }
 
+  /// 指定コミットの tree から 1 階層分のエントリを返す。
+  ///
+  /// 契約: `path` が空文字なら repo root の 1 階層、それ以外は末尾 `/` を必ず付けて
+  /// `git ls-tree -z <hash> <path>/` を実行する。末尾 `/` を外すと git はそのエントリ 1 件
+  /// (tree 自身) を返すため、lazy expand の 1 階層列挙にならない。
+  ///
+  /// hash は空文字を reject する (snapshot mode は明示的なコミット指定が前提)。
+  /// validateRev に通すことで `-` 始まり等の option 注入を構造的に弾く。
+  public static func lsTree(dir: String, hash: String, path: String) async throws
+    -> [GitTreeEntryInfo]
+  {
+    if hash.isEmpty {
+      throw GitError.unexpectedOutput("git ls-tree: hash must be specified")
+    }
+    try validateRev(hash)
+    var args = ["ls-tree", "-z", hash]
+    if !path.isEmpty {
+      args.append(path.hasSuffix("/") ? path : path + "/")
+    }
+    let stdout = try await runGit(args: args, cwd: dir)
+    return parseLsTree(stdout)
+  }
+
   /// 単一行の blame 結果。`git blame --porcelain -L <line>,<line> [<rev>] -- <relPath>` を
   /// 1 行ぶんに絞ってヘッダ + メタ行のみを parse する。
   ///
@@ -855,6 +878,54 @@ private func ensureBlameableSize(dir: String, rev: String, relPath: String) asyn
   if bytes > BLAME_MAX_BLOB_BYTES {
     throw GitError.unexpectedOutput(
       "git blame: file too large (\(bytes) bytes > \(BLAME_MAX_BLOB_BYTES))")
+  }
+}
+
+/// `git ls-tree -z <hash> <path>/` の 1 エントリ。
+///
+/// type は git mode → 文字列の写像で、SSOT は `typeFromGitMode`:
+///   - 040000 → "directory"
+///   - 120000 → "symlink"
+///   - 160000 → "submodule"
+///   - 100644 / 100755 / その他 → "file"
+public struct GitTreeEntryInfo: Equatable, Sendable {
+  public let name: String
+  public let type: String
+  public init(name: String, type: String) {
+    self.name = name
+    self.type = type
+  }
+}
+
+/// `git ls-tree -z` の NUL 区切り出力を parse する。
+///
+/// 各レコード形式: `<mode> SP <type> SP <object> TAB <path>`。`path` 末尾 `/` 付きで
+/// 呼んだ場合 `<path>` は "<parent>/<basename>" になるため basename だけ抽出する。
+func parseLsTree(_ data: Data) -> [GitTreeEntryInfo] {
+  let text = String(decoding: data, as: UTF8.self)
+  var result: [GitTreeEntryInfo] = []
+  for record in text.split(separator: "\0", omittingEmptySubsequences: true) {
+    let tabSplit = record.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
+    guard tabSplit.count == 2 else { continue }
+    let header = tabSplit[0]
+    let fullPath = String(tabSplit[1])
+    let headerParts = header.split(
+      separator: " ", maxSplits: 2, omittingEmptySubsequences: false)
+    guard headerParts.count == 3 else { continue }
+    let mode = String(headerParts[0])
+    let basename = (fullPath as NSString).lastPathComponent
+    if basename.isEmpty { continue }
+    result.append(GitTreeEntryInfo(name: basename, type: typeFromGitMode(mode)))
+  }
+  return result.sorted { $0.name < $1.name }
+}
+
+private func typeFromGitMode(_ mode: String) -> String {
+  switch mode {
+  case "040000": return "directory"
+  case "120000": return "symlink"
+  case "160000": return "submodule"
+  default: return "file"
   }
 }
 

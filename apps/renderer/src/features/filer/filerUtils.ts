@@ -1,4 +1,4 @@
-import type { FsReadDirEntry } from "@gozd/proto";
+import type { FsReadDirEntry, GitTreeEntry } from "@gozd/proto";
 import type { GitChangeKind } from "../worktree";
 
 interface FileEntry {
@@ -52,6 +52,20 @@ function toFileEntries(entries: FsReadDirEntry[]): FileEntry[] {
     name: e.name,
     isDirectory: e.type === "directory",
     isIgnored: e.isIgnored,
+  }));
+}
+
+/**
+ * snapshot mode 用: `git ls-tree` の GitTreeEntry を FileEntry に変換する。
+ * type: "directory" のみ展開可能。"submodule" は別 repo の commit を指すため本 RPC では
+ * 1 階層降りられない (file 同様に terminal な葉として扱う)。"symlink" も同様に葉扱い。
+ * snapshot は git 管理下の固定 tree なので isIgnored は構造的に false 固定。
+ */
+function toFileEntriesFromGitTree(entries: GitTreeEntry[]): FileEntry[] {
+  return entries.map((e) => ({
+    name: e.name,
+    isDirectory: e.type === "directory",
+    isIgnored: false,
   }));
 }
 
@@ -115,5 +129,6 @@ export {
   pathForNativeRpc,
   sortEntries,
   toFileEntries,
+  toFileEntriesFromGitTree,
 };
 export type { FileEntry };

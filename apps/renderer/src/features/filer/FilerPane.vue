@@ -5,20 +5,32 @@
 
 - worktree の dir が設定されると、worktree 自体を表す不可視ルート FileTreeItem を 1 個描画する
 - ツリー全体（ルート直下を含む）の管理は FileTreeItem 側に再帰委譲する
-- dir 切替時は `:key="dir"` でルート FileTreeItem を再マウントする（旧 dir の in-flight loadChildren を構造的に破棄）
+- ルート FileTreeItem は `:key="\`${dir}:${snapshotHash ?? ''}\`"` で再マウントする
+  （dir 切替 / snapshot mode 切替の双方で in-flight loadChildren を構造的に破棄するため）
 - file クリックは `select` emit で親に委譲する（副作用は親側で扱う / ChangesPane と対称）
+
+## snapshot mode
+
+- git-graph で UNCOMMITTED_HASH 以外の commit が選択されているとき、filer は
+  「そのコミット時点の全 tree」を表示する snapshot mode に切り替わる
+- `snapshotHash` が真値のとき FileTreeItem は `rpcGitLsTree` を呼び、git status / fsChange
+  との連動を抑止する（過去コミットの tree に working tree の status を重ねるのは誤情報）
+- snapshot mode 中にファイルをクリックすると `selectedRelPath` が更新され、preview は
+  既存 CommitMode 経路 (`gitShowCommitFile`) で from/to を取得する
 
 ## gitStatus / fsChange の購読
 
 - `fsChange` push は `dir` フィルタを通して `filerEventStore.emitFsChange(relDir)` に流す
 - `gitStatuses` は `useGitStatusStore` の computed（`repoStore` 派生）で、初回 `loadGitStatus()` 完了 / `gitStatusChange` push の両経路で更新される。これを `watch` して `filerEventStore.emitGitStatusChange()` を発火することで、両経路を 1 本のトリガに揃える（初回マウント直後に削除仮想エントリが取りこぼされる race を解消）
+- snapshot mode 中はこれらの event を FileTreeItem が無視する（snapshot は不変）
 </doc>
 
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
-import { onUnmounted, watch } from "vue";
+import { computed, onUnmounted, watch } from "vue";
 import { onMessage } from "../../shared/rpc";
-import { useGitStatusStore, useWorktreeStore } from "../worktree";
+import { useGitGraphStore } from "../git-graph";
+import { UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../worktree";
 import FileTreeItem from "./FileTreeItem.vue";
 import type { FsChangePayload } from "./rpc";
 import { useFilerEventStore } from "./useFilerEventStore";
@@ -31,7 +43,25 @@ const worktreeStore = useWorktreeStore();
 const { dir, selectedRelPath } = storeToRefs(worktreeStore);
 const gitStatusStore = useGitStatusStore();
 const { gitStatuses } = storeToRefs(gitStatusStore);
+const gitGraphStore = useGitGraphStore();
+const { selectedHash } = storeToRefs(gitGraphStore);
 const filerEventStore = useFilerEventStore();
+
+// git-graph で UNCOMMITTED_HASH 以外の commit が選択されているとき、filer は
+// そのコミット時点の全 tree (snapshot) を表示する。compareHash は今回スコープ外で、
+// selectedHash 単独で判定する。
+const snapshotHash = computed(() =>
+  selectedHash.value === UNCOMMITTED_HASH ? undefined : selectedHash.value,
+);
+
+// snapshot mode 時は git status を tree に重ねない (過去コミットの tree に対し working tree
+// の status を重ねるのは誤情報。例: 「working で削除した path」が過去 commit には存在しているのに
+// 削除バッジが出てしまう)。空 map を渡して FileTreeItem 側の git change 計算を無効化する。
+const treeGitStatuses = computed(() => (snapshotHash.value === undefined ? gitStatuses.value : {}));
+
+// root FileTreeItem を再マウントするための key。dir と snapshotHash の組で識別し、どちらが
+// 変化しても in-flight loadChildren を構造的に破棄する。
+const rootKey = computed(() => `${dir.value ?? ""}:${snapshotHash.value ?? ""}`);
 
 function handleFsChange(eventDir: string, relDir: string) {
   // useFsWatchSync は全 worktree を watch するため、別 repo / 別 worktree の
@@ -75,12 +105,13 @@ onUnmounted(() => {
       </div>
       <FileTreeItem
         v-else
-        :key="dir"
+        :key="rootKey"
         name=""
         path=""
         :is-directory="true"
         :is-ignored="false"
-        :git-statuses="gitStatuses"
+        :git-statuses="treeGitStatuses"
+        :snapshot-hash="snapshotHash"
         :depth="-1"
         :selected-rel-path="selectedRelPath"
         @select="(path: string) => emit('select', path)"

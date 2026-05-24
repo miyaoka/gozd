@@ -246,7 +246,10 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     const launchResult = await tryCatch(rpcVoicevoxLaunch());
     if (!launchResult.ok || !launchResult.value.ok) {
       activating.value = false;
-      return "VOICEVOX is not installed.\nDownload from https://voicevox.hiroshiba.jp/";
+      // launch 失敗は (a) VOICEVOX 未インストール / (b) engine binary 欠落 / (c) spawn syscall 失敗
+      // の 3 種。詳細は native の stderr (VoicevoxOps.launch tag) に出る。
+      // 最頻ケースは (a) なのでインストール導線を残しつつ、原因を断定しない文言にする
+      return "VOICEVOX engine could not start.\nIf VOICEVOX isn't installed, download it from https://voicevox.hiroshiba.jp/";
     }
 
     // Engine の起動を待つ

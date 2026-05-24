@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os
 
 // VOICEVOX エンジン（HTTP localhost:50021）への薄いラッパー。
 //
@@ -9,12 +10,14 @@ import Foundation
 //    gozd は接続するだけ。
 //
 // 2. **launch は VOICEVOX.app 同梱の engine バイナリ `vv-engine/run` を直接 spawn する**。
-//    `open -a VOICEVOX` だと GUI 全体が起動して gozd の前面を奪う (VOICEVOX 自身が
-//    `BrowserWindow.show()` を呼ぶため `open -g` でも抑制不能)。VOICEVOX/voicevox_engine
-//    は独立 repo として headless 利用を正規ルートで提供しており、`.app` 同梱の
-//    `vv-engine/run` はその engine 本体。これを直接起動するのが公式想定に沿う。
-//    インストールパス解決は `NSWorkspace.shared.urlForApplication(withBundleIdentifier:)`
-//    で `jp.hiroshiba.voicevox` を引く (ハードコード `/Applications` 依存を避ける)。
+//    VOICEVOX/voicevox_engine は GUI repo と独立した別 repo として headless 利用を正規
+//    ルートで提供しており、`.app` 同梱の `vv-engine/run` はその engine 本体。GUI 経由
+//    を介さずこれを直接起動するのが公式設計に沿う。インストールパスは Launch Services
+//    (`NSWorkspace.shared.urlForApplication(withBundleIdentifier:)`) で `jp.hiroshiba.voicevox`
+//    から解決し、`/Applications` 配下に限らず `~/Applications` や別ボリュームインストール
+//    にも追従する。stdout / stderr は親 (gozd) を継承させ、engine の起動失敗ログを観察可能
+//    に保つ。spawn 後は `spawnedEngine` で `Process` を保持し、`terminationHandler` で
+//    即死を stderr に通知できるようにする。
 //
 // 3. **再生は呼び出し側（renderer）の責務**。speak は wav バイト列のみ返す。
 //    renderer の HTML Audio API で再生・停止制御する。
@@ -92,13 +95,22 @@ public enum VoicevoxOps {
     }
   }
 
-  /// VOICEVOX.app の bundle ID。`NSWorkspace` の Launch Services 経由で .app を解決する
-  static let bundleId = "jp.hiroshiba.voicevox"
-
-  /// .app 配下の engine binary までの相対パス
-  static let engineRelativePath = "Contents/Resources/vv-engine/run"
+  /// spawn した engine プロセスを保持して `terminationHandler` 経路を有効に保つ。
+  /// Process が ARC で deinit すると child 監視 channel が閉じるため、参照を残す必要がある。
+  /// `ProcessExec.runProcessCollectingOutput` と同じく `OSAllocatedUnfairLock<Process?>` で
+  /// 非 Sendable な Process 参照を actor 越しに安全に保持する。
+  private static let spawnedEngine = OSAllocatedUnfairLock<Process?>(initialState: nil)
 
   public static func launch() async -> Bool {
+    // 既に engine が応答していれば spawn しない (renderer 側の checkEngine と二重 guard。
+    // renderer→native RPC の往復で開く race 窓を縮める)
+    if await checkEngine() {
+      return true
+    }
+
+    let bundleId = "jp.hiroshiba.voicevox"
+    let engineRelativePath = "Contents/Resources/vv-engine/run"
+
     let appUrl = await MainActor.run {
       NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId)
     }
@@ -106,19 +118,35 @@ public enum VoicevoxOps {
       StderrLog.write(tag: "VoicevoxOps.launch", "VOICEVOX.app not found (bundleId=\(bundleId))")
       return false
     }
-    let engineUrl = appUrl.appendingPathComponent(engineRelativePath)
+    // symlink / mount alias を経由する場合に備えて実体パスへ解決
+    let resolvedAppUrl = appUrl.resolvingSymlinksInPath()
+    let engineUrl = resolvedAppUrl.appendingPathComponent(engineRelativePath)
     guard FileManager.default.isExecutableFile(atPath: engineUrl.path) else {
       StderrLog.write(
         tag: "VoicevoxOps.launch", "engine binary not executable at \(engineUrl.path)")
       return false
     }
+
     let process = Process()
     process.executableURL = engineUrl
-    // engine は HTTP サーバとして常駐するので stdout/stderr は捨てて pipe 詰まりを避ける
-    process.standardOutput = FileHandle.nullDevice
-    process.standardError = FileHandle.nullDevice
+    // stdout / stderr は親 (gozd) を継承させる。engine がモデルロード失敗 / dyld 解決失敗等
+    // で起動できないケースのログを gozd の stderr に流して観察可能性を保つ。継承経路なら
+    // Pipe を介さないため pipe 詰まりも構造的に起きない
+    process.terminationHandler = { proc in
+      // spawn 直後に即死した場合、起動成功扱いで return した後 renderer 側は 10 秒の
+      // waitForEngine タイムアウトを踏む。stderr に痕跡を残して原因切り分けを可能にする
+      StderrLog.write(
+        tag: "VoicevoxOps.engine",
+        "exited pid=\(proc.processIdentifier) status=\(proc.terminationStatus) reason=\(proc.terminationReason.rawValue)"
+      )
+    }
     do {
       try process.run()
+      spawnedEngine.withLock { $0 = process }
+      StderrLog.write(
+        tag: "VoicevoxOps.launch",
+        "spawned engine pid=\(process.processIdentifier) at \(engineUrl.path)"
+      )
       // detach: waitUntilExit は呼ばない。engine は親 (gozd) より長生きしてよい
       return true
     } catch {

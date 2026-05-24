@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# 観察ログ regulation (CLAUDE.md「観察ログ (stderr) の書式」) を構造的に強制する check。
-#
-# `FileHandle.standardError.write` の直接呼び出しは以下の許可リスト外で禁止:
+# `FileHandle.standardError.write` の直接呼び出しを許可リスト外で reject する。
+# 許可リスト:
 #   - apps/native/Sources/GozdCore/StderrLog.swift  (helper 本体)
 #   - apps/native/Sources/GozdCore/PTYTrace.swift   (trace 系統、独自 lock 経路)
-#   - apps/native/Sources/GozdCLI/                  (user-facing CLI error 出力、CLAUDE.md 対象外宣言)
+#   - apps/native/Sources/GozdCLI/                  (user-facing CLI error 出力)
 #
-# 規約を「helper 経由を SSOT」と宣言した代わりに、grep ベースで違反を CI で reject
-# する側の柱を立てる。issue ( #614 ) の「違反を構造的に検出できない」を構造で防ぐ。
+# 観察ログ書式の SSOT は `GozdCore.StderrLog.write(tag:_:)`。CLAUDE.md「観察ログ
+# (stderr) の書式」を参照。
 #
 # 使い方:
 #   - lefthook pre-commit: staged Swift ファイル群を引数で受け取る
@@ -15,9 +14,7 @@
 
 set -euo pipefail
 
-# cwd に依存せず repo root を script の場所から解決する。lefthook 経由でも、
-# manual に subdir / temp dir から呼ばれても同じ Sources を見るようにする
-# (cwd 依存だと find が空 list を返して silent pass する事故源になる)。
+# script location から repo root を解決し cwd に依存させない。
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 SOURCES_ROOT="$REPO_ROOT/apps/native/Sources"

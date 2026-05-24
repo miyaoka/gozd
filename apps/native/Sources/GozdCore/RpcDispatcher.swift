@@ -488,8 +488,6 @@ public actor RpcDispatcher {
       // 併記する。worktreePath は cwd と独立で、複数 worktree が並列に Claude を
       // 起動する gozd の primary use case で「どの worktree の spawn か」を識別する
       // ために必要（cwd はユーザーが任意に cd した path で worktree とは限らない）。
-      // stderr log の書式は CLAUDE.md「観察ログ (stderr) の書式」の SSOT に従い
-      // `StderrLog` helper を経由する (制御文字 escape は helper 側で実行)。
       StderrLog.write(
         tag: "handlePtySpawn",
         "pty.spawn failed: \(error) executable=\(req.executable) cwd=\(req.dir) worktreePath=\(req.worktreePath)"

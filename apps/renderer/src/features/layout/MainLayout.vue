@@ -338,8 +338,4 @@ watch(
   height: 100dvh;
   max-height: none;
 }
-
-._preview-popover::backdrop {
-  background-color: rgb(0 0 0 / 0.3);
-}
 </style>

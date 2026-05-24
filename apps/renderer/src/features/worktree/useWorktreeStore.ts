@@ -1,4 +1,3 @@
-import type { OpenTargetSelection } from "@gozd/proto";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 import { useRepoStore } from "../../shared/repo";
@@ -82,31 +81,18 @@ export const useWorktreeStore = defineStore("worktree", () => {
     { flush: "sync" },
   );
 
-  interface SetOpenOptions {
-    selection?: OpenTargetSelection;
-    fileServerBaseUrl?: string;
-  }
-
   /**
    * worktree 切替（同 repo 内）専用。新 dir は既に repoStore に登録済みであることが前提。
    * 新規 repo の追加は App.vue の gozdOpen ハンドラが行う。
    *
-   * `options.selection` 経由の reveal は、`selectRelPath` で `revealVersion` を進めることで
-   * FilerPane 側の `revealVersion` watch から発火させる（reveal 経路の SSOT）。
-   * ツリー未ロード時の保留は FilerPane 内の `pendingRevealPath` でカバーされる。
-   *
-   * `OpenTargetSelection.relPath` は proto 契約上 worktree 相対のため、
-   * 常に `selectRelPath` 経路に流す。
+   * **scope**: dir 切替のみ。「ファイル選択 + preview を開く」副作用は呼び出し側が
+   * `usePreviewStore.forceSelect` / `requestSelect` を明示的に呼ぶ契約に集約してある
+   * （[docs/preview.md](../../../../../docs/preview.md) の決定表を参照）。setOpen 自体には
+   * preview の開閉責務を持たせない。
    */
-  function setOpen(newDir: string, options: SetOpenOptions = {}) {
+  function setOpen(newDir: string) {
     repoStore.selectDir(newDir);
     selectionVersion.value++;
-    if (options.fileServerBaseUrl) {
-      fileServerBaseUrl.value = options.fileServerBaseUrl;
-    }
-    if (options.selection) {
-      selectRelPath(options.selection.relPath);
-    }
   }
 
   function selectRelPath(relPath: string, lineNumber?: number) {

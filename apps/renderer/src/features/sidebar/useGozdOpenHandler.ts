@@ -12,11 +12,20 @@ import { useAppStore } from "../../shared/app";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
+import { usePreviewStore } from "../preview";
 import { useWorktreeStore } from "../worktree";
 import { rpcGitWorktreeList } from "./rpc";
 
 interface GozdOpenPayload {
   dir: string;
+  /**
+   * native 側 `GozdApp.swift` の resolver は **ファイル指定のときだけ** selection を埋め、
+   * その場合 `kind: "file"` 固定で送る（dir 指定時は selection 未指定）。renderer は
+   * `kind` で分岐せず常に worktree 相対のファイルとして扱う契約。proto に field を残す
+   * のは将来 `dir` 種別を追加する余地のため。判定 / mapping を増やすときは本コメントと
+   * native 側 `GozdApp.swift` の selection 生成箇所（`"kind": "file"` リテラルを含むブロック）
+   * を同時に更新する。
+   */
   selection?: { kind: string; relPath: string; lineNumber: number };
   channel: string;
   repoName: string;
@@ -34,6 +43,7 @@ interface GozdOpenPayload {
 export function useGozdOpenHandler() {
   const repoStore = useRepoStore();
   const worktreeStore = useWorktreeStore();
+  const previewStore = usePreviewStore();
   const appStore = useAppStore();
   const notify = useNotificationStore();
 
@@ -62,7 +72,17 @@ export function useGozdOpenHandler() {
       repoStore.addRepo({ rootDir: dir, repoName, isGitRepo, worktrees });
     }
 
-    worktreeStore.setOpen(targetDir, { selection: sel });
+    worktreeStore.setOpen(targetDir);
+    // CLI 経路は「常に open」契約。同一 path の再 open でも閉じない（[docs/preview.md] の決定表参照）。
+    // setOpen → forceSelect の順で呼ぶことで「dir 切替で preview を一旦 close → 続けて新ファイルで再 open」
+    // のシーケンスが usePreviewStore 内部の dir watch（flush:'sync'）との組み合わせで成立する。
+    //
+    // proto3 scalar の `line_number` 未指定は `0` で表現されるため、1-based の有効値に正規化する。
+    // `0` は「未指定」として undefined に倒す。
+    if (sel) {
+      const lineNumber = sel.lineNumber > 0 ? sel.lineNumber : undefined;
+      previewStore.forceSelect({ kind: "worktreeRelative", relPath: sel.relPath }, lineNumber);
+    }
   }
 
   let dispose: (() => void) | undefined;

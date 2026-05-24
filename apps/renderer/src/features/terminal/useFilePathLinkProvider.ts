@@ -1,4 +1,5 @@
 import type { IBuffer, IBufferLine, ILink, ILinkProvider, Terminal } from "@xterm/xterm";
+import { usePreviewStore } from "../preview";
 import { pathTargetToString, useWorktreeStore } from "../worktree";
 import { findAbsolutePathMatches, resolveHomeDir } from "./findAbsolutePathMatches";
 import { findRelativePaths } from "./findRelativePaths";
@@ -14,6 +15,7 @@ import { findRelativePaths } from "./findRelativePaths";
  */
 export function createFilePathLinkProvider(terminal: Terminal): ILinkProvider {
   const worktreeStore = useWorktreeStore();
+  const previewStore = usePreviewStore();
 
   return {
     provideLinks(bufferLineNumber, callback) {
@@ -50,12 +52,12 @@ export function createFilePathLinkProvider(terminal: Terminal): ILinkProvider {
         homeDir,
         bufLine,
         bufferLineNumber,
-        worktreeStore,
+        previewStore,
         links,
       );
 
       // 相対パスの検出（現在行のテキストのみ）
-      findRelativePathLinks(text, bufLine, bufferLineNumber, worktreeStore, links);
+      findRelativePathLinks(text, bufLine, bufferLineNumber, previewStore, links);
 
       callback(links.length > 0 ? links : undefined);
     },
@@ -149,7 +151,7 @@ function findAbsolutePathLinks(
   homeDir: string,
   bufLine: IBufferLine,
   lineNumber: number,
-  worktreeStore: ReturnType<typeof useWorktreeStore>,
+  previewStore: ReturnType<typeof usePreviewStore>,
   links: ILink[],
 ): void {
   const currentLineEnd = currentLineOffset + currentLineLength;
@@ -169,7 +171,7 @@ function findAbsolutePathLinks(
       pathTargetToString(selection),
       (event) => {
         if (!event.shiftKey) return;
-        worktreeStore.selectFromTarget(selection, lineNum);
+        previewStore.requestSelect(selection, lineNum);
       },
       links,
     );
@@ -206,7 +208,7 @@ function findRelativePathLinks(
   text: string,
   bufLine: IBufferLine,
   lineNumber: number,
-  worktreeStore: ReturnType<typeof useWorktreeStore>,
+  previewStore: ReturnType<typeof usePreviewStore>,
   links: ILink[],
 ): void {
   for (const { path: relPath, startIdx, endIdx, lineNumber: lineNum } of findRelativePaths(text)) {
@@ -232,7 +234,7 @@ function findRelativePathLinks(
       text: relPath,
       activate: (event) => {
         if (!event.shiftKey) return;
-        worktreeStore.selectRelPath(relPath, lineNum);
+        previewStore.requestSelect({ kind: "worktreeRelative", relPath }, lineNum);
       },
     });
   }

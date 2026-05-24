@@ -76,11 +76,29 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 
 プレビューペインは右端に配置され、開閉可能。デフォルトは closed。
 
-- ファイル選択時に自動オープン
-- preview 表示中に同一ファイルを navigator (Filer / Changes) で再選択するとクローズする。summary 表示中の同一ファイル再選択は preview を閉じず summary を抜けて単一 file 表示に戻る。CLI の `gozd <file>` 等 navigator 外の open 経路はこの toggle 判定を通らず常に開く
-- worktree 切替 (dir 変化) で自動クローズ。新 worktree でファイル選択を伴う dir 切替 (`gozdOpen` で別 worktree のファイルを指定した経路等) では、続けて選択ファイルで auto-open されるため最終状態は新ファイルで表示継続になる
-- ヘッダーの close ボタンで閉じる
-- `preview.toggle` コマンドで切り替え
+「ファイル選択 → preview を開く / 閉じる」の意思決定は `usePreviewStore` の API に集約する。各 entry point は intent に応じて `requestSelect` / `forceSelect` を呼び分け、watch chain で暗黙に発火させない。
+
+### entry point × intent 決定表
+
+| entry point                                    | 呼ぶ API               | 同一 path 再選択時の挙動  |
+| ---------------------------------------------- | ---------------------- | ------------------------- |
+| Filer ファイル行クリック                       | `requestSelect`        | preview を close          |
+| Changes ファイル行クリック                     | `requestSelect`        | preview を close          |
+| Terminal 出力中のファイルパス shift+click      | `requestSelect`        | preview を close          |
+| CLI `gozd <file>` (gozdOpen push)              | `forceSelect`          | preview を維持（再 open） |
+| MarkdownPreview 内部リンク click               | `forceSelect`          | preview を維持（再 open） |
+| MarkdownPreview back / forward                 | `forceSelect`          | preview を維持（再 open） |
+| ChangesPane `View all` (summary 有効化)        | `open` (副作用 watch)  | -                         |
+| Preview 開閉ボタン / `preview.toggle` コマンド | `toggle`               | 開閉反転                  |
+| ESC キー                                       | `close`                | -                         |
+| Preview ヘッダの close ボタン                  | `close`                | -                         |
+| worktree 切替 (dir 変化)                       | `close` (副作用 watch) | -                         |
+
+`requestSelect` の例外: 同一 path 再選択時に Changes summary が表示中なら preview は閉じず summary を抜けて単一 file 表示に戻る（`onCloseSummary` と同じセマンティクス）。
+
+### その他の挙動
+
+- worktree 切替 (dir 変化) で自動クローズ。dir watch は `usePreviewStore` 内部に閉じ込めてあり、MainLayout や外部経路から発火を観測する必要はない。新 worktree でファイル選択を伴う dir 切替 (`gozdOpen` で別 worktree のファイルを指定した経路等) では、続けて `forceSelect` で再 open されるため最終状態は新ファイルで表示継続になる。dir watch は `flush: 'sync'` で `gozdOpen` handler の `setOpen → forceSelect` 連続呼びと順序が崩れないようにする
 - 外側クリックでは閉じない
 - ESC キーで閉じる。ただし他の popover (BlamePopover 等) や dialog (SettingsModal 等) が前面にあるときはそれらが優先され、すべて閉じた次の ESC で preview が閉じる
 - IME 変換中の ESC（変換キャンセル）では閉じない

@@ -191,20 +191,14 @@ useEventListener(document, "keydown", (e: KeyboardEvent) => {
   closePreview();
 });
 
-// worktree 切替 (dir 変化) で新 dir 上に選択ファイルが無ければ Preview を auto-close。
-// setOpen は selectDir → selectRelPath を同期で続けて呼ぶ経路があるため (gozdOpen 経由で
-// 別 worktree のファイルを selection 付きで指定するケース)、close 判定を flush: 'post' まで
-// 遅らせて selection 確定後の selectedDisplayPath を観測する。selection ありで切り替わった
-// 場合は close せず、後続の selectedDisplayPath watch の auto-open に委ねることで
-// 「close → 即 open」のちらつきを避ける。
+// worktree 切替 (dir 変化) で Preview を auto-close。
+// 新 worktree でファイル選択を伴う経路 (gozdOpen 経由等) では、後続の
+// selectedDisplayPath watch が auto-open で開き直すため、最終状態は新ファイルで表示継続になる。
 watch(
   () => worktreeStore.dir,
   () => {
-    if (worktreeStore.selectedDisplayPath === undefined) {
-      closePreview();
-    }
+    closePreview();
   },
-  { flush: "post" },
 );
 
 // ファイル選択時に Preview を自動オープン (path 軸で識別; selection object identity の発火は避ける)

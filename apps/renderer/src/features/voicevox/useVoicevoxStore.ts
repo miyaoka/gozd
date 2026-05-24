@@ -114,7 +114,6 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
   /**
    * 外部から speakerId を変更する公式入口。speakers ロード後は存在検証する。
    * speakers ロード前 (config 復元中 / Engine 未起動) は無条件で受け入れる。
-   * Reset to default も `setSpeakerId(DEFAULT_SPEAKER_ID)` で表現する (resetSpeakerId は持たない)。
    */
   function setSpeakerId(id: number): void {
     if (speakers.value.length > 0 && !hasSpeakerStyle(id)) {

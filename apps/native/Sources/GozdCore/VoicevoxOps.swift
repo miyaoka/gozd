@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 // VOICEVOX エンジン（HTTP localhost:50021）への薄いラッパー。
@@ -7,7 +8,13 @@ import Foundation
 // 1. **HTTP は URLSession で叩く**。エンジン本体（VOICEVOX.app）は別インストール、
 //    gozd は接続するだけ。
 //
-// 2. **launch は `open -a VOICEVOX`** に投げる（ユーザーが手動で起動済みでも no-op）。
+// 2. **launch は VOICEVOX.app 同梱の engine バイナリ `vv-engine/run` を直接 spawn する**。
+//    `open -a VOICEVOX` だと GUI 全体が起動して gozd の前面を奪う (VOICEVOX 自身が
+//    `BrowserWindow.show()` を呼ぶため `open -g` でも抑制不能)。VOICEVOX/voicevox_engine
+//    は独立 repo として headless 利用を正規ルートで提供しており、`.app` 同梱の
+//    `vv-engine/run` はその engine 本体。これを直接起動するのが公式想定に沿う。
+//    インストールパス解決は `NSWorkspace.shared.urlForApplication(withBundleIdentifier:)`
+//    で `jp.hiroshiba.voicevox` を引く (ハードコード `/Applications` 依存を避ける)。
 //
 // 3. **再生は呼び出し側（renderer）の責務**。speak は wav バイト列のみ返す。
 //    renderer の HTML Audio API で再生・停止制御する。
@@ -85,23 +92,37 @@ public enum VoicevoxOps {
     }
   }
 
+  /// VOICEVOX.app の bundle ID。`NSWorkspace` の Launch Services 経由で .app を解決する
+  static let bundleId = "jp.hiroshiba.voicevox"
+
+  /// .app 配下の engine binary までの相対パス
+  static let engineRelativePath = "Contents/Resources/vv-engine/run"
+
   public static func launch() async -> Bool {
+    let appUrl = await MainActor.run {
+      NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId)
+    }
+    guard let appUrl else {
+      StderrLog.write(tag: "VoicevoxOps.launch", "VOICEVOX.app not found (bundleId=\(bundleId))")
+      return false
+    }
+    let engineUrl = appUrl.appendingPathComponent(engineRelativePath)
+    guard FileManager.default.isExecutableFile(atPath: engineUrl.path) else {
+      StderrLog.write(
+        tag: "VoicevoxOps.launch", "engine binary not executable at \(engineUrl.path)")
+      return false
+    }
     let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-    process.arguments = ["-a", "VOICEVOX"]
-    process.environment = ProcessInfo.processInfo.environment
+    process.executableURL = engineUrl
+    // engine は HTTP サーバとして常駐するので stdout/stderr は捨てて pipe 詰まりを避ける
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
     do {
       try process.run()
-      process.waitUntilExit()
-      if process.terminationStatus != 0 {
-        StderrLog.write(
-          tag: "VoicevoxOps.launch",
-          "open -a VOICEVOX exited with status \(process.terminationStatus)"
-        )
-      }
-      return process.terminationStatus == 0
+      // detach: waitUntilExit は呼ばない。engine は親 (gozd) より長生きしてよい
+      return true
     } catch {
-      StderrLog.write(tag: "VoicevoxOps.launch", "failed to spawn open: \(error)")
+      StderrLog.write(tag: "VoicevoxOps.launch", "failed to spawn engine: \(error)")
       return false
     }
   }

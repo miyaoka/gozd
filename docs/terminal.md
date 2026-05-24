@@ -96,7 +96,6 @@ leafNode
 | `terminal.focusRight`      | 右の leaf にフォーカス移動              |
 | `terminal.focusUp`         | 上の leaf にフォーカス移動              |
 | `terminal.focusDown`       | 下の leaf にフォーカス移動              |
-| `terminal.togglePreview`   | プレビューペインの表示切替              |
 
 ## Worktree ごとのレイアウト保持
 

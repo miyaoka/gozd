@@ -78,7 +78,7 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 
 - ファイル選択時に自動オープン
 - ヘッダーの close ボタンで閉じる
-- `terminal.togglePreview` コマンドで切り替え
+- `preview.toggle` コマンドで切り替え
 - HTML Popover API の `popover="manual"` を使用するため、外側クリックや ESC では閉じない。操作経路は close ボタン / toggle コマンド / 中央カラム右端の開閉ボタンの 3 つに限定する
 
 ## データ取得

@@ -3,16 +3,27 @@
 
 ## 動作
 
-- ディレクトリは展開/折りたたみ可能で、初回展開時に RPC で子エントリを遅延読み込み
+- `kind === "directory"` は展開/折りたたみ可能で、初回展開時に RPC で子エントリを遅延読み込み
 - material-icon-theme のアイコンを表示
 - git status に応じた色分け（modified=黄、added=緑、deleted=赤、renamed=青）と削除ファイルの打ち消し線
+
+## click 経路（kind ごとの差）
+
+- `directory`: 展開 / 折りたたみ
+- `file`: `select` emit
+- `symlink`: working tree モード (`snapshotHash` undefined) では `select` emit で実 file に resolve。
+  snapshot mode では blob 内容が target path 文字列でしかないため click を no-op に倒す
+- `submodule`: 常に no-op。gitlink object (`160000`) は `gitShowCommitFile` で内容を取得できないため
+  preview に流すとエラーになる。視覚的にも opacity を落として「click できない」ことを示す
 
 ## snapshot mode (snapshotHash プロパティが真値のとき)
 
 - `rpcFsReadDir` の代わりに `rpcGitLsTree(dir, hash, path)` で「そのコミット時点の tree」を 1 階層読む
-- 削除エントリ仮想表示 (`getDeletedEntries`) と git change マージは行わない
-  （snapshot の tree は git status と無関係 / 過去 commit のため削除概念がない）
+- git change 計算 (`effectiveGitChange` / `textColorClass`) と削除エントリ仮想表示は行わない
+  （snapshot tree は git status と無関係 / 過去 commit のため削除概念がない）
 - fsChange / gitStatusChange の watch は no-op（snapshot は不変）
+- `snapshotHash` 変化を watch して children をクリアし再 load する。展開状態 (expanded) と
+  孫ノードの cache は保持され、mode 切替で再マウントしない（FilerPane の `:key` は `dir` のみ）
 - 子へ `snapshotHash` をそのまま継承する。同一サブツリー全体で mode が揃う
 
 ## ルートノード（worktree 自体を表す不可視ノード）
@@ -25,13 +36,14 @@
 ## レース対策
 
 - `loadChildren` は per-instance 世代カウンタで保護。await 後に「自分が最新の呼び出し」でなければ
-  結果を破棄する。同一 dir 内で `fsChange` / `gitStatusChange` が連発した時に古い `rpcFsReadDir`
-  レスポンスが新しい entries を踏み潰すのを防ぐ（FilerPane 側にあったルート専用ガードを SSOT 化）
+  結果を破棄する。同一 dir 内で `fsChange` / `gitStatusChange` / `snapshotHash 変化` が連発した時に
+  古い RPC レスポンスが新しい entries を踏み潰すのを防ぐ
 
 ## 更新（イベント駆動）
 
 - filer event store の fsChange を watch して自分の path 該当時に再読み込み (snapshot mode では skip)
 - filer event store の gitStatusChange を watch して展開中なら children を再構築 (snapshot mode では skip)
+- snapshotHash 変化を watch して展開中なら children を再 load (cache invalidate)
 - worktreeStore.revealVersion を watch して selectedRelPath が自分または配下なら展開＋スクロール
 - 親→子の命令呼び出し（defineExpose）は使わず、各ノードが自律的にイベントを処理する設計
 </doc>
@@ -57,7 +69,7 @@ import {
   toFileEntries,
   toFileEntriesFromGitTree,
 } from "./filerUtils";
-import type { FileEntry } from "./filerUtils";
+import type { FileEntry, FileEntryKind } from "./filerUtils";
 import { rpcFsReadDir, rpcGitLsTree } from "./rpc";
 import { getFileIconUrl, getFolderIconUrl } from "./useFileIcon";
 import { useFilerEventStore } from "./useFilerEventStore";
@@ -74,8 +86,9 @@ const props = defineProps<{
   name: string;
   /** worktree からの相対パス。worktree 直下（不可視ルート）は `""` */
   path: string;
-  isDirectory: boolean;
-  isIgnored: boolean;
+  kind: FileEntryKind;
+  /** working tree モード由来の gitignore フラグ。snapshot mode では undefined */
+  isIgnored?: boolean;
   /** ファイル自身の git 変更種別 */
   gitChange?: GitChangeKind;
   /** git status マップ全体（ディレクトリの変更種別推論に使用） */
@@ -103,6 +116,17 @@ const worktreeStore = useWorktreeStore();
 const filerEventStore = useFilerEventStore();
 
 const isRoot = computed(() => isRootPath(props.path));
+const isDirectory = computed(() => props.kind === "directory");
+const isSnapshot = computed(() => props.snapshotHash !== undefined);
+/**
+ * click で何も起きない葉。`gitShowCommitFile` で内容を取得できない (submodule) / snapshot
+ * 環境で意味のある内容を取れない (symlink in snapshot) ものを構造的に弾く。
+ */
+const isInertLeaf = computed(() => {
+  if (props.kind === "submodule") return true;
+  if (props.kind === "symlink" && isSnapshot.value) return true;
+  return false;
+});
 
 const buttonRef = useTemplateRef<HTMLButtonElement>("button");
 const expanded = ref(isRoot.value);
@@ -110,10 +134,9 @@ const children = ref<FileEntry[]>();
 const loading = ref(false);
 
 /**
- * loadChildren の呼び出し世代カウンタ。`fsChange` / `gitStatusChange` の連続発火で
- * `rpcFsReadDir` レスポンス順序が逆転して古い entries が新しい entries を踏み潰す race を防ぐ。
- * 旧 FilerPane の `loadRootSeq` / `gitStatusChangeSeq` が担っていたルート専用ガードを、
- * 全ノードの共通ガードとして FileTreeItem に内製化したもの。
+ * loadChildren の呼び出し世代カウンタ。`fsChange` / `gitStatusChange` / snapshotHash 変化の
+ * 連続発火で `rpcFsReadDir` / `rpcGitLsTree` レスポンス順序が逆転して古い entries が新しい
+ * entries を踏み潰す race を防ぐ。
  */
 let loadSeq = 0;
 
@@ -121,11 +144,16 @@ let loadSeq = 0;
 // Vue の computed は lazy 評価のため、root では実体が走らない。早期 return ガードは持たない
 // （v-if が唯一の防壁）。
 
-/** gitStatuses マップからリアルタイムに変更種別を算出する */
+/**
+ * gitStatuses マップからリアルタイムに変更種別を算出する。
+ * snapshot mode では概念上意味を持たないため undefined を返す (working tree の status を
+ * 過去 tree に重ねると phantom badge になる)。
+ */
 const effectiveGitChange = computed<GitChangeKind | undefined>(() => {
+  if (isSnapshot.value) return undefined;
   // 削除エントリ（打ち消し線）は親から渡された gitChange をそのまま使う
   if (props.gitChange === "deleted") return "deleted";
-  if (props.isDirectory) {
+  if (isDirectory.value) {
     return resolveDirectoryGitChange(props.path, props.gitStatuses);
   }
   return resolveFileGitChange(props.path, props.gitStatuses);
@@ -133,34 +161,34 @@ const effectiveGitChange = computed<GitChangeKind | undefined>(() => {
 
 const textColorClass = computed(() => {
   if (effectiveGitChange.value) return GIT_CHANGE_COLOR_MAP[effectiveGitChange.value];
-  if (props.isIgnored) return "text-zinc-500";
+  if (props.isIgnored === true) return "text-zinc-500";
   if (props.selectedRelPath === props.path) return "text-white";
   return "text-zinc-300";
 });
 
-/** 削除ファイルかどうか */
-const isDeleted = computed(() => props.gitChange === "deleted");
+/** 削除ファイルかどうか (snapshot mode では発生しない) */
+const isDeleted = computed(() => !isSnapshot.value && props.gitChange === "deleted");
 
 /** material-icon-theme のアイコン URL */
 const iconUrl = computed(() => {
-  if (props.isDirectory) {
+  if (isDirectory.value) {
     return getFolderIconUrl(props.name, expanded.value);
   }
   return getFileIconUrl(props.name);
 });
 
 async function toggle() {
-  if (!props.isDirectory) {
-    emit("select", props.path);
+  if (isDirectory.value) {
+    expanded.value = !expanded.value;
+    // 初回展開時のみ読み込む
+    if (expanded.value && children.value === undefined) {
+      await loadChildren();
+    }
     return;
   }
-
-  expanded.value = !expanded.value;
-
-  // 初回展開時のみ読み込む
-  if (expanded.value && children.value === undefined) {
-    await loadChildren();
-  }
+  // gitShowCommitFile 等で内容を取れない葉は preview にも流さない
+  if (isInertLeaf.value) return;
+  emit("select", props.path);
 }
 
 async function loadChildren() {
@@ -253,8 +281,8 @@ watch(
   () => filerEventStore.fsChangeEvent,
   (event) => {
     if (event === undefined) return;
-    if (props.snapshotHash !== undefined) return;
-    if (!props.isDirectory) return;
+    if (isSnapshot.value) return;
+    if (!isDirectory.value) return;
     if (event.relDir !== props.path) return;
     if (expanded.value) {
       void loadChildren();
@@ -271,12 +299,28 @@ watch(
 watch(
   () => filerEventStore.gitStatusChangeVersion,
   () => {
-    if (props.snapshotHash !== undefined) return;
-    if (!props.isDirectory) return;
+    if (isSnapshot.value) return;
+    if (!isDirectory.value) return;
     if (expanded.value && children.value !== undefined) {
       void loadChildren();
     } else {
       // 折りたたみ中なら次回展開時に再読み込みするためキャッシュを破棄
+      children.value = undefined;
+    }
+  },
+);
+
+// snapshotHash の変化 (mode 切替 / 別 commit への切替) で children cache を invalidate して
+// 再 load する。展開状態 (expanded) と孫ノードの instance はそのまま保持されるため、
+// 同じ dir で working ↔ snapshot を行き来しても展開してきた構造が消えない。
+// loadSeq により旧 mode の in-flight RPC は破棄される。
+watch(
+  () => props.snapshotHash,
+  () => {
+    if (!isDirectory.value) return;
+    if (expanded.value) {
+      void loadChildren();
+    } else {
       children.value = undefined;
     }
   },
@@ -297,7 +341,7 @@ async function handleReveal() {
   if (targetPath === undefined) return;
   // 自身がターゲットの場合、展開してスクロールインビュー
   if (targetPath === props.path) {
-    if (props.isDirectory && !expanded.value) {
+    if (isDirectory.value && !expanded.value) {
       expanded.value = true;
       if (children.value === undefined) {
         await loadChildren();
@@ -307,7 +351,7 @@ async function handleReveal() {
     return;
   }
   // ディレクトリでないか、ターゲットが自身の配下でない場合は何もしない
-  if (!props.isDirectory) return;
+  if (!isDirectory.value) return;
   if (!isDescendantOf(targetPath, props.path)) return;
   // 自身の配下に target がある場合、自分は展開するだけ（target そのものへの scroll は
   // 子の watch が処理する）。子は v-for で children を読み込むとマウントされ、
@@ -343,8 +387,10 @@ function onChildSelect(childPath: string) {
         selectedRelPath === path ? 'bg-zinc-700' : '',
         textColorClass,
         isDeleted ? 'line-through opacity-60' : '',
+        isInertLeaf ? 'cursor-not-allowed opacity-60' : '',
       ]"
       :style="{ paddingLeft: `${depth * 16 + 4}px` }"
+      :title="kind === 'submodule' ? 'submodule (not previewable)' : undefined"
       @click="toggle"
     >
       <!-- ディレクトリの展開/折りたたみアイコン -->
@@ -356,7 +402,12 @@ function onChildSelect(childPath: string) {
       <!-- ファイル用のスペーサー -->
       <span v-else class="size-4 shrink-0" />
 
-      <img :src="iconUrl" class="size-4 shrink-0" :class="isIgnored ? 'opacity-50' : ''" alt="" />
+      <img
+        :src="iconUrl"
+        class="size-4 shrink-0"
+        :class="isIgnored === true ? 'opacity-50' : ''"
+        alt=""
+      />
       <span class="truncate">{{ name }}</span>
     </button>
 
@@ -371,10 +422,10 @@ function onChildSelect(childPath: string) {
       </div>
       <FileTreeItem
         v-for="child in children"
-        :key="`${child.name}-${child.isDirectory}`"
+        :key="`${child.name}-${child.kind}`"
         :name="child.name"
         :path="joinPath(path, child.name)"
-        :is-directory="child.isDirectory"
+        :kind="child.kind"
         :is-ignored="child.isIgnored"
         :git-change="child.gitChange"
         :git-statuses="gitStatuses"

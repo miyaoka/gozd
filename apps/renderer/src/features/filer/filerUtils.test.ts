@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   dirName,
+  getDeletedEntries,
   isDescendantOf,
   isRootPath,
   joinPath,
   pathForNativeRpc,
   sortEntries,
   toFileEntries,
+  toFileEntriesFromGitTree,
   type FileEntry,
 } from "./filerUtils";
 
@@ -25,14 +27,22 @@ describe("dirName", () => {
 });
 
 describe("sortEntries", () => {
-  const file = (name: string): FileEntry => ({ name, isDirectory: false, isIgnored: false });
-  const dir = (name: string): FileEntry => ({ name, isDirectory: true, isIgnored: false });
+  const file = (name: string): FileEntry => ({ name, kind: "file", isIgnored: false });
+  const dir = (name: string): FileEntry => ({ name, kind: "directory", isIgnored: false });
+  const symlink = (name: string): FileEntry => ({ name, kind: "symlink", isIgnored: false });
+  const submodule = (name: string): FileEntry => ({ name, kind: "submodule" });
 
   test("ディレクトリがファイルより先に来る", () => {
     const entries = [file("a.txt"), dir("src")];
     const sorted = sortEntries(entries);
     expect(sorted[0]?.name).toBe("src");
     expect(sorted[1]?.name).toBe("a.txt");
+  });
+
+  test("symlink / submodule は file 同列扱い (directory より後)", () => {
+    const entries = [submodule("vendor"), symlink("link"), dir("src"), file("a.txt")];
+    const sorted = sortEntries(entries);
+    expect(sorted.map((e) => e.name)).toEqual(["src", "a.txt", "link", "vendor"]);
   });
 
   test("同種内では名前順にソートする", () => {
@@ -138,27 +148,81 @@ describe("toFileEntries", () => {
     expect(result[0]?.isIgnored).toBe(false);
   });
 
-  test("type === 'directory' は isDirectory: true になる", () => {
+  test("type === 'directory' は kind: 'directory' になる", () => {
     const result = toFileEntries([{ name: "src", type: "directory", isIgnored: false }]);
-    expect(result[0]?.isDirectory).toBe(true);
+    expect(result[0]?.kind).toBe("directory");
   });
 
-  test("type === 'file' は isDirectory: false になる", () => {
+  test("type === 'file' は kind: 'file' になる", () => {
     const result = toFileEntries([{ name: "a.txt", type: "file", isIgnored: false }]);
-    expect(result[0]?.isDirectory).toBe(false);
+    expect(result[0]?.kind).toBe("file");
   });
 
-  test("type === 'symlink' は isDirectory: false になる", () => {
+  test("type === 'symlink' は kind: 'symlink' になる", () => {
     const result = toFileEntries([{ name: "link", type: "symlink", isIgnored: false }]);
-    expect(result[0]?.isDirectory).toBe(false);
+    expect(result[0]?.kind).toBe("symlink");
   });
 
-  test("type === 'other' は isDirectory: false になる", () => {
+  test("type === 'other' は kind: 'file' に倒れる", () => {
     const result = toFileEntries([{ name: "fifo", type: "other", isIgnored: false }]);
-    expect(result[0]?.isDirectory).toBe(false);
+    expect(result[0]?.kind).toBe("file");
   });
 
   test("空配列を処理できる", () => {
     expect(toFileEntries([])).toEqual([]);
+  });
+});
+
+describe("toFileEntriesFromGitTree", () => {
+  test("type === 'directory' は kind: 'directory' になり isIgnored は undefined", () => {
+    const result = toFileEntriesFromGitTree([{ name: "src", type: "directory" }]);
+    expect(result[0]?.kind).toBe("directory");
+    expect(result[0]?.isIgnored).toBeUndefined();
+  });
+
+  test("type === 'file' は kind: 'file' になる", () => {
+    const result = toFileEntriesFromGitTree([{ name: "README.md", type: "file" }]);
+    expect(result[0]?.kind).toBe("file");
+  });
+
+  test("type === 'symlink' は kind: 'symlink' になる (snapshot tree でも保持)", () => {
+    const result = toFileEntriesFromGitTree([{ name: "link", type: "symlink" }]);
+    expect(result[0]?.kind).toBe("symlink");
+  });
+
+  test("type === 'submodule' は kind: 'submodule' になる", () => {
+    const result = toFileEntriesFromGitTree([{ name: "vendor", type: "submodule" }]);
+    expect(result[0]?.kind).toBe("submodule");
+  });
+
+  test("未知の type は kind: 'file' に倒れる (forward compat)", () => {
+    const result = toFileEntriesFromGitTree([{ name: "unknown", type: "weird" }]);
+    expect(result[0]?.kind).toBe("file");
+  });
+
+  test("空配列を処理できる", () => {
+    expect(toFileEntriesFromGitTree([])).toEqual([]);
+  });
+});
+
+describe("getDeletedEntries", () => {
+  test("直下の削除ファイルは kind: 'file' で生成される", () => {
+    const result = getDeletedEntries("", { "foo.ts": " D" });
+    expect(result).toEqual([{ name: "foo.ts", kind: "file", gitChange: "deleted" }]);
+  });
+
+  test("サブディレクトリ配下の削除は kind: 'directory' のディレクトリ名で集約される", () => {
+    const result = getDeletedEntries("", { "src/a.ts": " D", "src/b.ts": "D " });
+    expect(result).toEqual([{ name: "src", kind: "directory", gitChange: "deleted" }]);
+  });
+
+  test("worktree 配下の dirPath を指定すると prefix を除いた直下のみが返る", () => {
+    const result = getDeletedEntries("src", { "src/a.ts": " D", "other/b.ts": " D" });
+    expect(result).toEqual([{ name: "a.ts", kind: "file", gitChange: "deleted" }]);
+  });
+
+  test("D ステータスでないエントリは無視する", () => {
+    const result = getDeletedEntries("", { "foo.ts": " M", "bar.ts": "??" });
+    expect(result).toEqual([]);
   });
 });

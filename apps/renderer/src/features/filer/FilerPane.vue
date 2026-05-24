@@ -5,18 +5,28 @@
 
 - worktree の dir が設定されると、worktree 自体を表す不可視ルート FileTreeItem を 1 個描画する
 - ツリー全体（ルート直下を含む）の管理は FileTreeItem 側に再帰委譲する
-- ルート FileTreeItem は `:key="\`${dir}:${snapshotHash ?? ''}\`"` で再マウントする
-  （dir 切替 / snapshot mode 切替の双方で in-flight loadChildren を構造的に破棄するため）
+- ルート FileTreeItem は `:key="dir"` で識別する。snapshot mode の切替は子側の `snapshotHash`
+  watch で children を invalidate する経路に倒し、再マウントで展開状態を捨てない
 - file クリックは `select` emit で親に委譲する（副作用は親側で扱う / ChangesPane と対称）
 
 ## snapshot mode
 
 - git-graph で UNCOMMITTED_HASH 以外の commit が選択されているとき、filer は
   「そのコミット時点の全 tree」を表示する snapshot mode に切り替わる
-- `snapshotHash` が真値のとき FileTreeItem は `rpcGitLsTree` を呼び、git status / fsChange
-  との連動を抑止する（過去コミットの tree に working tree の status を重ねるのは誤情報）
+- `snapshotHash` は子に props として流すだけ。git status / fsChange との連動抑止や
+  色分け / 削除仮想エントリ抑止は FileTreeItem 側で `snapshotHash` を見て 1 か所で分岐する
 - snapshot mode 中にファイルをクリックすると `selectedRelPath` が更新され、preview は
   既存 CommitMode 経路 (`gitShowCommitFile`) で from/to を取得する
+- snapshot mode 切替時、選択中ファイルが snapshot tree に存在しないと Filer ハイライトが消え
+  Preview は CommitMode の `not_found` 規約で "File not found" を表示する（既存契約）
+
+## selection リセット
+
+- `useGitGraphStore` は worktree 間 singleton。GitGraphPane が unmount される経路
+  (non-git project 表示中など) では worktree 切替時に `gitGraphStore.resetSelection()` が
+  発火しない。FilerPane 側で `dir` 変化を watch して reset を発火し、別 repo に切り替えた
+  瞬間に旧 hash が flying して `rpcGitLsTree` に渡るのを構造的に防ぐ
+- GitGraphPane 側の reset と二重発火しても `resetSelection()` は idempotent
 
 ## gitStatus / fsChange の購読
 
@@ -54,14 +64,13 @@ const snapshotHash = computed(() =>
   selectedHash.value === UNCOMMITTED_HASH ? undefined : selectedHash.value,
 );
 
-// snapshot mode 時は git status を tree に重ねない (過去コミットの tree に対し working tree
-// の status を重ねるのは誤情報。例: 「working で削除した path」が過去 commit には存在しているのに
-// 削除バッジが出てしまう)。空 map を渡して FileTreeItem 側の git change 計算を無効化する。
-const treeGitStatuses = computed(() => (snapshotHash.value === undefined ? gitStatuses.value : {}));
-
-// root FileTreeItem を再マウントするための key。dir と snapshotHash の組で識別し、どちらが
-// 変化しても in-flight loadChildren を構造的に破棄する。
-const rootKey = computed(() => `${dir.value ?? ""}:${snapshotHash.value ?? ""}`);
+// dir 切替で git-graph の selection をリセットする。GitGraphPane が unmount される経路
+// (MainLayout の v-if で non-git project では mount されない) では GitGraphPane 側の
+// dir watch が走らず、別 repo に切り替えた瞬間に旧 hash で snapshotHash computed が成立して
+// しまう。FilerPane は常に mount されるためここで fallback として reset を発火する。
+watch(dir, () => {
+  gitGraphStore.resetSelection();
+});
 
 function handleFsChange(eventDir: string, relDir: string) {
   // useFsWatchSync は全 worktree を watch するため、別 repo / 別 worktree の
@@ -75,9 +84,6 @@ function handleFsChange(eventDir: string, relDir: string) {
 // gitStatuses は useGitStatusStore の computed で、初回 loadGitStatus() 完了と
 // gitStatusChange push の両方が同じ ref を更新する SSOT。ここを watch することで、
 // 両経路の更新を 1 本のトリガ（emitGitStatusChange）に揃える。
-// dir 切替時にも computed の値は変わるが、ルート FileTreeItem は `:key="dir"` で
-// 再マウントされるため、世代カウンタによる race ガード（FileTreeItem.loadChildren）と
-// 重複しても挙動は最終的に整合する。
 //
 // 暗黙契約: `useRepoStore.setWorktreeGitStatuses` が呼ばれるたびに worktree object と
 // gitStatuses の reference を新規生成すること。両 push / 初回 RPC ともに deserialize 由来の
@@ -105,12 +111,11 @@ onUnmounted(() => {
       </div>
       <FileTreeItem
         v-else
-        :key="rootKey"
+        :key="dir"
         name=""
         path=""
-        :is-directory="true"
-        :is-ignored="false"
-        :git-statuses="treeGitStatuses"
+        kind="directory"
+        :git-statuses="gitStatuses"
         :snapshot-hash="snapshotHash"
         :depth="-1"
         :selected-rel-path="selectedRelPath"

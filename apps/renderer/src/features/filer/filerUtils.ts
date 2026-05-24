@@ -1,12 +1,58 @@
 import type { FsReadDirEntry, GitTreeEntry } from "@gozd/proto";
 import type { GitChangeKind } from "../worktree";
 
+/**
+ * ファイラーノードの種類。`isDirectory: boolean` だけでは submodule / symlink が file 扱いに
+ * 潰れてしまい、snapshot mode で submodule をクリックして `gitShowCommitFile` を呼ぶような
+ * 経路差を構造的に区別できないため独立した SSOT として持つ。
+ *
+ * - `file` / `directory`: working / snapshot どちらでも表示・展開・選択の通常経路
+ * - `symlink`: working tree では実 file へ resolve できるため select 可。snapshot tree では
+ *   blob 内容が target path 文字列なので click を no-op に倒す (FileTreeItem 側で判定)
+ * - `submodule`: gitlink object (`160000`)。git show <hash>:<path> では内容を返せないため
+ *   常に no-op
+ */
+type FileEntryKind = "file" | "directory" | "symlink" | "submodule";
+
 interface FileEntry {
   name: string;
-  isDirectory: boolean;
-  isIgnored: boolean;
+  kind: FileEntryKind;
+  /**
+   * gitignore に該当するか。working tree mode 由来のみ意味があり、snapshot mode では
+   * 概念自体が存在しないため undefined になる。`isIgnored === true` のときだけ "ignored" の
+   * 視覚処理を入れる比較規約 (`=== true` 明示) を呼び出し側で守る。
+   */
+  isIgnored?: boolean;
   /** git の変更種別（undefined = 変更なし） */
   gitChange?: GitChangeKind;
+}
+
+/** FsReadDir 由来の type 文字列を FileEntryKind に写像する */
+function fsTypeToKind(type: string): FileEntryKind {
+  switch (type) {
+    case "directory":
+      return "directory";
+    case "symlink":
+      return "symlink";
+    case "file":
+      return "file";
+    default:
+      return "file";
+  }
+}
+
+/** git ls-tree 由来の type 文字列を FileEntryKind に写像する */
+function gitTreeTypeToKind(type: string): FileEntryKind {
+  switch (type) {
+    case "directory":
+      return "directory";
+    case "symlink":
+      return "symlink";
+    case "submodule":
+      return "submodule";
+    default:
+      return "file";
+  }
 }
 
 /**
@@ -38,10 +84,9 @@ function getDeletedEntries(dirPath: string, gitStatuses: Record<string, string>)
     }
   }
 
-  return Array.from(deletedNames, ([name, isDirectory]) => ({
+  return Array.from(deletedNames, ([name, isDir]) => ({
     name,
-    isDirectory,
-    isIgnored: false,
+    kind: isDir ? "directory" : "file",
     gitChange: "deleted",
   }));
 }
@@ -50,22 +95,19 @@ function getDeletedEntries(dirPath: string, gitStatuses: Record<string, string>)
 function toFileEntries(entries: FsReadDirEntry[]): FileEntry[] {
   return entries.map((e) => ({
     name: e.name,
-    isDirectory: e.type === "directory",
+    kind: fsTypeToKind(e.type),
     isIgnored: e.isIgnored,
   }));
 }
 
 /**
  * snapshot mode 用: `git ls-tree` の GitTreeEntry を FileEntry に変換する。
- * type: "directory" のみ展開可能。"submodule" は別 repo の commit を指すため本 RPC では
- * 1 階層降りられない (file 同様に terminal な葉として扱う)。"symlink" も同様に葉扱い。
- * snapshot は git 管理下の固定 tree なので isIgnored は構造的に false 固定。
+ * `isIgnored` は snapshot には概念が存在しないため undefined のまま (省略)。
  */
 function toFileEntriesFromGitTree(entries: GitTreeEntry[]): FileEntry[] {
   return entries.map((e) => ({
     name: e.name,
-    isDirectory: e.type === "directory",
-    isIgnored: false,
+    kind: gitTreeTypeToKind(e.type),
   }));
 }
 
@@ -113,9 +155,9 @@ function isDescendantOf(targetPath: string, ancestorPath: string): boolean {
 /** ディレクトリ優先 → 名前順 */
 function sortEntries(entries: FileEntry[]): FileEntry[] {
   return [...entries].sort((a, b) => {
-    if (a.isDirectory !== b.isDirectory) {
-      return a.isDirectory ? -1 : 1;
-    }
+    const aDir = a.kind === "directory";
+    const bDir = b.kind === "directory";
+    if (aDir !== bDir) return aDir ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
 }
@@ -131,4 +173,4 @@ export {
   toFileEntries,
   toFileEntriesFromGitTree,
 };
-export type { FileEntry };
+export type { FileEntry, FileEntryKind };

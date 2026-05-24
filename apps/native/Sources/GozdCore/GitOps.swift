@@ -626,21 +626,32 @@ public enum GitOps {
   /// `git ls-tree -z <hash> <path>/` を実行する。末尾 `/` を外すと git はそのエントリ 1 件
   /// (tree 自身) を返すため、lazy expand の 1 階層列挙にならない。
   ///
-  /// hash は空文字を reject する (snapshot mode は明示的なコミット指定が前提)。
-  /// validateRev に通すことで `-` 始まり等の option 注入を構造的に弾く。
+  /// hash は空文字 / all-zero hex (UNCOMMITTED_HASH) を reject する。snapshot mode は明示的な
+  /// commit 指定が前提で、UNCOMMITTED_HASH を送ると `git ls-tree` は `fatal: Not a valid object
+  /// name 0000...` を返すが、その文言から「呼び出し側が UNCOMMITTED_HASH を流した SSOT 違反」を
+  /// 即診断できないため入口で明示 reject する。validateRev に通すことで `-` 始まり等の option
+  /// 注入も構造的に弾く。
+  ///
+  /// path は `validateRelPath` で先頭 `-` (option 注入) / 絶対パス / `..` traversal を reject
+  /// する。renderer は worktree 相対 path を送る契約のため、ここで違反したら呼び出し側のバグ。
   public static func lsTree(dir: String, hash: String, path: String) async throws
     -> [GitTreeEntryInfo]
   {
     if hash.isEmpty {
       throw GitError.unexpectedOutput("git ls-tree: hash must be specified")
     }
+    if isAllZeroHex(hash) {
+      throw GitError.unexpectedOutput(
+        "git ls-tree: all-zero hash (UNCOMMITTED_HASH) is not a valid commit")
+    }
     try validateRev(hash)
+    try validateRelPath(path)
     var args = ["ls-tree", "-z", hash]
     if !path.isEmpty {
       args.append(path.hasSuffix("/") ? path : path + "/")
     }
     let stdout = try await runGit(args: args, cwd: dir)
-    return parseLsTree(stdout)
+    return try parseLsTree(stdout)
   }
 
   /// 単一行の blame 結果。`git blame --porcelain -L <line>,<line> [<rev>] -- <relPath>` を
@@ -826,6 +837,48 @@ func validateRev(_ rev: String) throws {
   // git 自身が revision parse で reject するので 2 重にチェックしない。
 }
 
+/// 全 0 hex (`0000000000...`) かどうか。renderer 側の `UNCOMMITTED_HASH` sentinel と一致する。
+/// `validateRev` は hex 文字列を通すため別途明示的に弾く必要がある (lsTree 等の
+/// 「コミット指定が必須」な RPC 入口での safety net)。
+func isAllZeroHex(_ s: String) -> Bool {
+  if s.isEmpty { return false }
+  for c in s {
+    if c != "0" { return false }
+  }
+  return true
+}
+
+/// path が worktree 相対パスとして git 引数に渡せるか検証する。
+///
+/// 役割: **option 注入と sandbox 逸脱を弾く safety net**。renderer は worktree 相対 path を
+/// 送る契約のため、ここで違反したら呼び出し側のバグ (新規 RPC consumer / refactor 由来) で、
+/// 表面化させて即診断できるようにする。
+///
+/// 許可: 空文字 / worktree 相対の通常 path。
+/// reject: `-` 始まり (option 注入) / `/` 始まり (絶対パス) / `..` を含む traversal /
+///   空白文字 / NUL byte / 改行を含むもの。
+func validateRelPath(_ path: String) throws {
+  if path.isEmpty { return }
+  if path.hasPrefix("-") {
+    throw GitError.unexpectedOutput("git path validation: leading '-' is not allowed: \(path)")
+  }
+  if path.hasPrefix("/") {
+    throw GitError.unexpectedOutput("git path validation: absolute path is not allowed: \(path)")
+  }
+  for component in path.split(separator: "/", omittingEmptySubsequences: false) {
+    if component == ".." {
+      throw GitError.unexpectedOutput(
+        "git path validation: '..' traversal is not allowed: \(path)")
+    }
+  }
+  for c in path {
+    if c == "\0" || c == "\n" || c == "\r" {
+      throw GitError.unexpectedOutput(
+        "git path validation: control character is not allowed: \(path)")
+    }
+  }
+}
+
 /// blame 実行前にファイルサイズが上限以下かを確認する。
 /// rev 指定時は `git cat-file -s <rev>:<relPath>`、working tree (rev="") なら fs stat。
 ///
@@ -901,26 +954,42 @@ public struct GitTreeEntryInfo: Equatable, Sendable {
 ///
 /// 各レコード形式: `<mode> SP <type> SP <object> TAB <path>`。`path` 末尾 `/` 付きで
 /// 呼んだ場合 `<path>` は "<parent>/<basename>" になるため basename だけ抽出する。
-func parseLsTree(_ data: Data) -> [GitTreeEntryInfo] {
+///
+/// 想定外フォーマットは silent skip せず `unexpectedOutput` で throw する。
+/// silent skip すると「N entries あるはずが N-1 件表示」という不整合が UI 上で観察不能になる
+/// (CLAUDE.md "fallback せずエラーにする" と整合)。git ls-tree -z の出力形式は git のバージョン
+/// 間で stable な契約のため、ここで throw した時点で git 側 / 入力 hash 側 / 想定外環境 のいずれか
+/// の異常が即診断できる。
+func parseLsTree(_ data: Data) throws -> [GitTreeEntryInfo] {
   let text = String(decoding: data, as: UTF8.self)
   var result: [GitTreeEntryInfo] = []
   for record in text.split(separator: "\0", omittingEmptySubsequences: true) {
     let tabSplit = record.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
-    guard tabSplit.count == 2 else { continue }
+    if tabSplit.count != 2 {
+      throw GitError.unexpectedOutput(
+        "git ls-tree: record missing TAB separator: \(String(record))")
+    }
     let header = tabSplit[0]
     let fullPath = String(tabSplit[1])
     let headerParts = header.split(
       separator: " ", maxSplits: 2, omittingEmptySubsequences: false)
-    guard headerParts.count == 3 else { continue }
+    if headerParts.count != 3 {
+      throw GitError.unexpectedOutput(
+        "git ls-tree: header expected 3 SP-delimited fields: \(String(header))")
+    }
     let mode = String(headerParts[0])
     let basename = (fullPath as NSString).lastPathComponent
-    if basename.isEmpty { continue }
+    if basename.isEmpty {
+      throw GitError.unexpectedOutput("git ls-tree: empty basename in record: \(String(record))")
+    }
     result.append(GitTreeEntryInfo(name: basename, type: typeFromGitMode(mode)))
   }
   return result.sorted { $0.name < $1.name }
 }
 
-private func typeFromGitMode(_ mode: String) -> String {
+/// git ls-tree の mode (`040000` / `120000` / ...) を FileEntry kind の文字列に写像する。
+/// `internal` は `@testable import GozdCore` で boundary テストから直接呼ぶため。
+func typeFromGitMode(_ mode: String) -> String {
   switch mode {
   case "040000": return "directory"
   case "120000": return "symlink"

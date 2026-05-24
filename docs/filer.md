@@ -83,6 +83,8 @@ git-graph で UNCOMMITTED_HASH 以外の commit が選択されている間、fi
 - データソースは `rpcGitLsTree(dir, hash, path)`。Swift 側は `git ls-tree -z <hash> <path>/` で 1 階層分を返す。末尾 `/` は Swift 側で必ず付与する規約（外すとエントリ 1 件に倒れて lazy expand が成立しない）
 - `FileEntry.kind` は `"file" | "directory" | "symlink" | "submodule"`。`git mode` (`040000` / `120000` / `160000` / その他) を SSOT 写像する
 - ルート FileTreeItem は `:key="dir"` のままで mode 切替では再マウントしない。子の `snapshotHash` watch が children を invalidate して再 load することで、展開状態 (`expanded`) と孫ノードの instance を保ったまま data だけ差し替える
+- mode 切替直後の `rpcGitLsTree` 完了前は children を先行 reset せず旧 mode の tree を表示し続ける設計。切替のたびに Loading フラッシュを見せると「今どこを見ているか」の continuity が壊れるため、データだけ後追いで差し替える経路に倒している (race は `loadSeq` でガード済み)。空フォルダ等で空 tree から空 tree への切替は視覚的に変化が出ないが、children 内のファイル / ディレクトリの kind や有無が変われば即座に反映される
+- `FileTreeItem` の子 `v-for :key` は `${child.name}-${child.kind}` で識別する。同名 path で kind が変わる稀なケース (file→directory への mv が commit に含まれて snapshot tree で別 kind になった等) では別 instance として再マウントされ、深いツリー展開状態は失われる。これは「kind 変化 = file ↔ directory の意味変化 = 展開可能性の変化」と捉えての意図的な分離
 - `fsChange` / `gitStatusChange` の watch は snapshot mode 中 no-op。snapshot は git object DB 上の固定 tree のため fs / status 変化と無関係
 - git status の色分けと削除ファイル仮想エントリは行わない（過去 commit に対し working tree の status を重ねるのは誤情報）
 - snapshot mode 中にファイルをクリックすると `selectedRelPath` が更新され、preview は既存 CommitMode 経路（`gitShowCommitFile`）で from/to を取得する（[preview.md](preview.md) のコミットモード）。filer 側に独自の snapshot ファイル取得経路は持たない

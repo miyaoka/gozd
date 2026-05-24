@@ -1150,6 +1150,16 @@ struct GitOpsValidateRelPathTests {
     try validateRelPath("src/")
   }
 
+  @Test("内部二重 `/` は素通り (git の path normalization に委ねる契約)")
+  func internalDoubleSlash() throws {
+    // validateRelPath の主目的は option 注入 / 絶対パス / `..` traversal 防御で、
+    // path normalization は git に委ねる契約。`"foo//"` / `"a//b"` のような空 component を
+    // 含む path は素通り (throw しない) ことを test で固定し、将来の reject 変更を regression
+    // で検出できるようにする。
+    try validateRelPath("foo//")
+    try validateRelPath("a//b")
+  }
+
   @Test("`-` 始まりは option 注入として reject")
   func leadingDash() {
     do {

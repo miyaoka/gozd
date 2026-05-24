@@ -24,7 +24,13 @@
 - fsChange / gitStatusChange の watch は no-op（snapshot は不変）
 - `snapshotHash` 変化を watch して children をクリアし再 load する。展開状態 (expanded) と
   孫ノードの cache は保持され、mode 切替で再マウントしない（FilerPane の `:key` は `dir` のみ）
+- mode 切替時は `rpcGitLsTree` 完了まで children を先行 reset せず、旧 mode の tree を表示し続ける。
+  Loading フラッシュを毎回見せると「今どこを見ているか」の continuity が壊れるため。race は
+  `loadSeq` でガードして古い RPC の結果が新しいものを踏み潰さないようにする
 - 子へ `snapshotHash` をそのまま継承する。同一サブツリー全体で mode が揃う
+- 子の `v-for :key` は `${child.name}-${child.kind}` で識別。同 path で kind が変わるケース
+  (file ↔ directory) は意味変化として別 instance に分けることで、展開可能性の変化を構造的に
+  扱う
 
 ## ルートノード（worktree 自体を表す不可視ノード）
 

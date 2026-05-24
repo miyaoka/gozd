@@ -168,19 +168,33 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
 
   /**
    * 指定回数ポーリングして Engine の起動を待つ。
-   * タイムアウト時は最終 attempt の RPC error (もしあれば) を持ち帰る (cause 用)。
-   * 「engine-not-responding」の通常タイムアウトでは lastError は undefined のままになり、
-   * 呼び出し側で合成 Error にフォールバックさせる。
+   * 失敗時の戻り値は checkEngineRunning と同じ discriminated union に揃え、最終 attempt の
+   * 状態を呼び出し側で明示分岐できるようにする (cause 合成のため)。
+   *   - 最終 attempt が "rpc-error" なら その error を `lastError` で持ち帰る
+   *   - 全 attempt が "engine-not-responding" だった通常タイムアウトは reason だけ返す
    */
-  async function waitForEngine(): Promise<{ ok: true } | { ok: false; lastError?: Error }> {
-    let lastError: Error | undefined;
+  async function waitForEngine(): Promise<
+    | { ok: true }
+    | { ok: false; reason: "rpc-error"; lastError: Error }
+    | { ok: false; reason: "engine-not-responding" }
+  > {
+    let lastFailure:
+      | { reason: "rpc-error"; error: Error }
+      | { reason: "engine-not-responding" }
+      | undefined;
     for (let i = 0; i < POLL_MAX_ATTEMPTS; i++) {
       const result = await checkEngineRunning();
       if (result.ok) return { ok: true };
-      if (result.reason === "rpc-error") lastError = result.error;
+      lastFailure =
+        result.reason === "rpc-error"
+          ? { reason: "rpc-error", error: result.error }
+          : { reason: "engine-not-responding" };
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
     }
-    return { ok: false, lastError };
+    if (lastFailure?.reason === "rpc-error") {
+      return { ok: false, reason: "rpc-error", lastError: lastFailure.error };
+    }
+    return { ok: false, reason: "engine-not-responding" };
   }
 
   /** RPC 経由で音声合成し、base64 WAV をデコードして再生する */
@@ -303,10 +317,11 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
       return true;
     }
     const timeoutSeconds = (POLL_INTERVAL_MS * POLL_MAX_ATTEMPTS) / 1000;
-    notify.error(
-      "VOICEVOX Engine startup timed out. Please start VOICEVOX manually.",
-      waited.lastError ?? new Error(`engine did not respond on /version after ${timeoutSeconds}s`),
-    );
+    const cause =
+      waited.reason === "rpc-error"
+        ? waited.lastError
+        : new Error(`engine did not respond on /version after ${timeoutSeconds}s`);
+    notify.error("VOICEVOX Engine startup timed out. Please start VOICEVOX manually.", cause);
     return false;
   }
 

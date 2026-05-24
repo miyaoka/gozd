@@ -150,25 +150,34 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
 
   /**
    * RPC 経由で Engine の起動状態を確認する。Engine 起動チェックの SSOT。
-   * 応答するなら `{ ok: true }`、応答しないなら `{ ok: false, error? }` を返す。
-   * RPC レイヤの error は cause として後段に流せるよう保持する。
+   * 3 状態を discriminated union で表現する:
+   *   - `{ ok: true }`: engine が /version に 200 応答
+   *   - `{ ok: false, reason: "rpc-error", error }`: RPC layer 自体が throw / network 失敗
+   *   - `{ ok: false, reason: "engine-not-responding" }`: RPC は成功したが engine が応答しない
    */
-  async function checkEngineRunning(): Promise<{ ok: boolean; error?: Error }> {
+  async function checkEngineRunning(): Promise<
+    | { ok: true }
+    | { ok: false; reason: "rpc-error"; error: Error }
+    | { ok: false; reason: "engine-not-responding" }
+  > {
     const result = await tryCatch(rpcVoicevoxCheckEngine());
-    if (!result.ok) return { ok: false, error: result.error };
-    return { ok: result.value.ok };
+    if (!result.ok) return { ok: false, reason: "rpc-error", error: result.error };
+    if (!result.value.ok) return { ok: false, reason: "engine-not-responding" };
+    return { ok: true };
   }
 
   /**
    * 指定回数ポーリングして Engine の起動を待つ。
    * タイムアウト時は最終 attempt の RPC error (もしあれば) を持ち帰る (cause 用)。
+   * 「engine-not-responding」の通常タイムアウトでは lastError は undefined のままになり、
+   * 呼び出し側で合成 Error にフォールバックさせる。
    */
   async function waitForEngine(): Promise<{ ok: true } | { ok: false; lastError?: Error }> {
     let lastError: Error | undefined;
     for (let i = 0; i < POLL_MAX_ATTEMPTS; i++) {
       const result = await checkEngineRunning();
       if (result.ok) return { ok: true };
-      if (result.error) lastError = result.error;
+      if (result.reason === "rpc-error") lastError = result.error;
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
     }
     return { ok: false, lastError };

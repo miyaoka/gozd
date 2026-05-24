@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import GozdCore
 import WebKit
 
 /// http(s) かつ非 dev origin への navigation を OS のデフォルトブラウザに渡す NavigationDecider。
@@ -32,16 +33,18 @@ struct ExternalLinkNavigationDecider: WebPage.NavigationDeciding {
       let scheme = viteURL.scheme?.lowercased(),
       let host = viteURL.host
     else {
-      FileHandle.standardError.write(
-        Data("[NavigationDecider] GOZD_DEV_VITE_URL is malformed: \(viteURLString)\n".utf8))
+      StderrLog.write(
+        tag: "NavigationDecider",
+        "GOZD_DEV_VITE_URL is malformed: \(viteURLString)"
+      )
       return nil
     }
     let path = viteURL.path
     if !path.isEmpty, path != "/" {
-      FileHandle.standardError.write(
-        Data(
-          "[NavigationDecider] GOZD_DEV_VITE_URL must be an origin (no path); got: \(viteURLString)\n"
-            .utf8))
+      StderrLog.write(
+        tag: "NavigationDecider",
+        "GOZD_DEV_VITE_URL must be an origin (no path); got: \(viteURLString)"
+      )
       return nil
     }
     return (scheme: scheme, host: host, port: viteURL.port)
@@ -85,10 +88,10 @@ struct ExternalLinkNavigationDecider: WebPage.NavigationDeciding {
     do {
       _ = try await NSWorkspace.shared.open(url, configuration: config)
     } catch {
-      FileHandle.standardError.write(
-        Data(
-          "[NavigationDecider] failed to open external URL: \(url.absoluteString): \(error)\n"
-            .utf8))
+      StderrLog.write(
+        tag: "NavigationDecider",
+        "failed to open external URL: \(url.absoluteString): \(error)"
+      )
     }
   }
 

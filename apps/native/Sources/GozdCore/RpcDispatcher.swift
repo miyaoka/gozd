@@ -113,15 +113,15 @@ public actor RpcDispatcher {
       //     生じる late hook を構造的に弾いた正常パス。skip と明記する。
       // (b) そもそも未登録 ptyId → spawn 経路の不整合、調査対象。error と明記する。
       if await pty.wasExplicitlyRemoved(hook.ptyID) {
-        FileHandle.standardError.write(
-          Data(
-            "[ClaudeSessionStore] late \(hook.event) for pty=\(hook.ptyID) session=\(hook.sessionID) after removeByPty; skipping\n"
-              .utf8))
+        StderrLog.write(
+          tag: "ClaudeSessionStore",
+          "late \(hook.event) for pty=\(hook.ptyID) session=\(hook.sessionID) after removeByPty; skipping"
+        )
       } else {
-        FileHandle.standardError.write(
-          Data(
-            "[ClaudeSessionStore] \(hook.event) for unknown pty=\(hook.ptyID); skipping\n"
-              .utf8))
+        StderrLog.write(
+          tag: "ClaudeSessionStore",
+          "\(hook.event) for unknown pty=\(hook.ptyID); skipping"
+        )
       }
       return
     }
@@ -146,8 +146,7 @@ public actor RpcDispatcher {
           do {
             try await tasks.detachSession(dir: worktreePath, sessionId: previous)
           } catch {
-            FileHandle.standardError.write(
-              Data("[TaskStore] detachSession (previous) failed: \(error)\n".utf8))
+            StderrLog.write(tag: "TaskStore", "detachSession (previous) failed: \(error)")
             onNotify(
               "error", "task-store", "Failed to detach previous session from task",
               String(describing: error), worktreePath)
@@ -170,10 +169,10 @@ public actor RpcDispatcher {
             try await claudeSessions.removeBySessionId(
               worktreePath: worktreePath, sessionId: expectedSid)
           } catch {
-            FileHandle.standardError.write(
-              Data(
-                "[ClaudeSessionStore] resume-failure cleanup (session-start fallback) failed: \(error)\n"
-                  .utf8))
+            StderrLog.write(
+              tag: "ClaudeSessionStore",
+              "resume-failure cleanup (session-start fallback) failed: \(error)"
+            )
             onNotify(
               "error", "claude-sessions",
               "Failed to clean up after resume failure (fallback)",
@@ -188,10 +187,10 @@ public actor RpcDispatcher {
             try await tasks.clearDeadSession(
               dir: worktreePath, sessionId: expectedSid, markClosedByUser: false)
           } catch {
-            FileHandle.standardError.write(
-              Data(
-                "[TaskStore] clearDeadSession (session-start fallback) failed: \(error)\n"
-                  .utf8))
+            StderrLog.write(
+              tag: "TaskStore",
+              "clearDeadSession (session-start fallback) failed: \(error)"
+            )
             onNotify(
               "error", "task-store",
               "Failed to clear dead session from task after resume failure (fallback)",
@@ -220,8 +219,7 @@ public actor RpcDispatcher {
           )
           await pty.setSessionId(for: hook.ptyID, sessionId: hook.sessionID)
         } catch {
-          FileHandle.standardError.write(
-            Data("[TaskStore] attachSession failed: \(error)\n".utf8))
+          StderrLog.write(tag: "TaskStore", "attachSession failed: \(error)")
           onNotify(
             "error", "task-store", "Failed to attach session to task",
             String(describing: error), worktreePath)
@@ -229,10 +227,10 @@ public actor RpcDispatcher {
             try await claudeSessions.removeBySessionId(
               worktreePath: worktreePath, sessionId: hook.sessionID)
           } catch {
-            FileHandle.standardError.write(
-              Data(
-                "[ClaudeSessionStore] attachSession rollback (upsert revert) failed: \(error)\n"
-                  .utf8))
+            StderrLog.write(
+              tag: "ClaudeSessionStore",
+              "attachSession rollback (upsert revert) failed: \(error)"
+            )
             onNotify(
               "error", "claude-sessions",
               "Failed to rollback claude-sessions after attachSession failure",
@@ -251,8 +249,7 @@ public actor RpcDispatcher {
         do {
           try await tasks.detachSession(dir: worktreePath, sessionId: hook.sessionID)
         } catch {
-          FileHandle.standardError.write(
-            Data("[TaskStore] detachSession failed: \(error)\n".utf8))
+          StderrLog.write(tag: "TaskStore", "detachSession failed: \(error)")
           onNotify(
             "error", "task-store", "Failed to detach session from task",
             String(describing: error), worktreePath)
@@ -273,8 +270,7 @@ public actor RpcDispatcher {
       // notify する。dir は worktreePath が解決済みなのでそのまま渡す。
       // message は TaskStore 側と同じく経路ごとに静的列挙して、トースト UI で
       // 運用者が経路を識別できるようにする。
-      FileHandle.standardError.write(
-        Data("[ClaudeSessionStore] \(hook.event) failed: \(error)\n".utf8))
+      StderrLog.write(tag: "ClaudeSessionStore", "\(hook.event) failed: \(error)")
       let message: String
       switch hook.event {
       case "session-start":
@@ -492,13 +488,9 @@ public actor RpcDispatcher {
       // 併記する。worktreePath は cwd と独立で、複数 worktree が並列に Claude を
       // 起動する gozd の primary use case で「どの worktree の spawn か」を識別する
       // ために必要（cwd はユーザーが任意に cd した path で worktree とは限らない）。
-      // stderr log の書式は CLAUDE.md「観察ログ (stderr) の書式」の SSOT に従い、
-      // 素埋め込みで書く（quote 化しない）。
-      FileHandle.standardError.write(
-        Data(
-          "[handlePtySpawn] pty.spawn failed: \(error) executable=\(req.executable) cwd=\(req.dir) worktreePath=\(req.worktreePath)\n"
-            .utf8
-        )
+      StderrLog.write(
+        tag: "handlePtySpawn",
+        "pty.spawn failed: \(error) executable=\(req.executable) cwd=\(req.dir) worktreePath=\(req.worktreePath)"
       )
       throw error
     }
@@ -625,10 +617,10 @@ public actor RpcDispatcher {
             let full = try await GitOps.gitStatusFull(dir: path)
             return (path, full)
           } catch {
-            FileHandle.standardError.write(
-              Data(
-                "[handleGitWorktreeList] gitStatusFull failed for \(path): \(error)\n"
-                  .utf8))
+            StderrLog.write(
+              tag: "handleGitWorktreeList",
+              "gitStatusFull failed for \(path): \(error)"
+            )
             return (path, nil)
           }
         }
@@ -791,10 +783,9 @@ public actor RpcDispatcher {
       }
     } catch {
       fr.notFound = true
-      FileHandle.standardError.write(
-        Data(
-          "[RpcDispatcher] git show \(hash):\(relPath) failed in \(dir): \(error)\n".utf8
-        )
+      StderrLog.write(
+        tag: "RpcDispatcher",
+        "git show \(hash):\(relPath) failed in \(dir): \(error)"
       )
     }
     return fr
@@ -1015,13 +1006,13 @@ public actor RpcDispatcher {
       resp.repo = repo
     case .unsetRemote:
       // remote 未設定 (新規 repo / fork なし)。UI には出ないが観察可能にする。
-      FileHandle.standardError.write(
-        Data("[handleGitGithubIdentity] remote.origin not set for dir=\(req.dir)\n".utf8))
+      StderrLog.write(
+        tag: "handleGitGithubIdentity", "remote.origin not set for dir=\(req.dir)")
     case .parserRejected:
       // 非 github.com host / 想定外 URL 形式。raw URL は credential 漏出防止のため
       // stderr にも載せない (固定文言 + dir のみで切り分け)。
-      FileHandle.standardError.write(
-        Data("[handleGitGithubIdentity] unsupported remote URL for dir=\(req.dir)\n".utf8))
+      StderrLog.write(
+        tag: "handleGitGithubIdentity", "unsupported remote URL for dir=\(req.dir)")
     }
     return try resp.jsonUTF8Data()
   }
@@ -1060,8 +1051,7 @@ public actor RpcDispatcher {
     do {
       try await tasks.removeByWorktree(dir: req.dir, worktreePath: req.path)
     } catch {
-      FileHandle.standardError.write(
-        Data("[TaskStore] removeByWorktree failed: \(error)\n".utf8))
+      StderrLog.write(tag: "TaskStore", "removeByWorktree failed: \(error)")
       onNotify(
         "error", "task-store", "Failed to clean up tasks after worktree removal",
         String(describing: error), req.dir)
@@ -1117,9 +1107,8 @@ public actor RpcDispatcher {
         try await claudeSessions.removeBySessionId(
           worktreePath: req.worktreePath, sessionId: expectedSid)
       } catch {
-        FileHandle.standardError.write(
-          Data(
-            "[ClaudeSessionStore] resume-failure cleanup failed: \(error)\n".utf8))
+        StderrLog.write(
+          tag: "ClaudeSessionStore", "resume-failure cleanup failed: \(error)")
         onNotify(
           "error", "claude-sessions",
           "Failed to clean up after resume failure",
@@ -1132,8 +1121,7 @@ public actor RpcDispatcher {
         try await tasks.clearDeadSession(
           dir: req.worktreePath, sessionId: expectedSid, markClosedByUser: true)
       } catch {
-        FileHandle.standardError.write(
-          Data("[TaskStore] clearDeadSession failed: \(error)\n".utf8))
+        StderrLog.write(tag: "TaskStore", "clearDeadSession failed: \(error)")
         onNotify(
           "error", "task-store",
           "Failed to clear dead session from task after resume failure",
@@ -1158,8 +1146,8 @@ public actor RpcDispatcher {
       do {
         try await tasks.detachSession(dir: req.worktreePath, sessionId: liveSid)
       } catch {
-        FileHandle.standardError.write(
-          Data("[TaskStore] detachSession (removeByPty) failed: \(error)\n".utf8))
+        StderrLog.write(
+          tag: "TaskStore", "detachSession (removeByPty) failed: \(error)")
         onNotify(
           "error", "task-store", "Failed to detach session on terminal close",
           String(describing: error), req.worktreePath)

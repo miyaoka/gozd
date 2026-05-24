@@ -227,19 +227,16 @@ public actor TaskStore {
       do {
         return try Gozd_V1_TaskList(jsonString: json)
       } catch {
-        FileHandle.standardError.write(
-          Data(
-            "[TaskStore] loadFile: parse failed at \(url.path): \(error)\n"
-              .utf8))
+        StderrLog.write(
+          tag: "TaskStore", "loadFile: parse failed at \(url.path): \(error)")
       }
     } else {
-      FileHandle.standardError.write(
-        Data("[TaskStore] loadFile: invalid UTF-8 at \(url.path)\n".utf8))
+      StderrLog.write(tag: "TaskStore", "loadFile: invalid UTF-8 at \(url.path)")
     }
     let empty = Gozd_V1_TaskList()
     try saveFile(empty, for: dir)
-    FileHandle.standardError.write(
-      Data("[TaskStore] loadFile: corrupted tasks.json reinitialized at \(url.path)\n".utf8))
+    StderrLog.write(
+      tag: "TaskStore", "loadFile: corrupted tasks.json reinitialized at \(url.path)")
     return empty
   }
 

@@ -430,9 +430,8 @@ public enum GitOps {
       do {
         try FileManager.default.removeItem(at: tmpDir)
       } catch {
-        FileHandle.standardError.write(
-          Data("[GitOps] failed to remove diff tmp dir \(tmpDir.path): \(error)\n".utf8)
-        )
+        StderrLog.write(
+          tag: "GitOps", "failed to remove diff tmp dir \(tmpDir.path): \(error)")
       }
     }
 
@@ -570,9 +569,8 @@ public enum GitOps {
         .trimmingCharacters(in: .whitespacesAndNewlines)
       return line.isEmpty ? nil : line
     } catch {
-      FileHandle.standardError.write(
-        Data("[GitOps] rev-parse \(hash):\(relPath) failed in \(dir): \(error)\n".utf8)
-      )
+      StderrLog.write(
+        tag: "GitOps", "rev-parse \(hash):\(relPath) failed in \(dir): \(error)")
       return nil
     }
   }
@@ -1191,8 +1189,7 @@ func parseUnifiedDiffHunks(_ text: String) -> [DiffHunkInfo] {
     }
     guard let header = parseHunkHeader(String(raw)) else {
       // `@@` で始まるが header 形式に合わない行は parser バグか git 出力の変化。
-      FileHandle.standardError.write(
-        Data("[GitOps] unparseable hunk header: \(raw)\n".utf8))
+      StderrLog.write(tag: "GitOps", "unparseable hunk header: \(raw)")
       i += 1
       continue
     }
@@ -1242,8 +1239,8 @@ func parseUnifiedDiffHunks(_ text: String) -> [DiffHunkInfo] {
       ))
   }
   if unexpectedSkips > 0 {
-    FileHandle.standardError.write(
-      Data("[GitOps] parseUnifiedDiffHunks: skipped \(unexpectedSkips) unexpected line(s)\n".utf8))
+    StderrLog.write(
+      tag: "GitOps", "parseUnifiedDiffHunks: skipped \(unexpectedSkips) unexpected line(s)")
   }
   return hunks
 }

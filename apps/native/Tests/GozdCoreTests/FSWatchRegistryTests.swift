@@ -20,12 +20,12 @@ struct FSWatchRegistryTests {
     )
 
     try await registry.watch(dir: tmpDir.path)
-    try await Task.sleep(for: .milliseconds(300))
+    await sleepThreaded(.milliseconds(300))
 
     let file = tmpDir.appendingPathComponent("hello.txt")
     try "hello".write(to: file, atomically: true, encoding: .utf8)
 
-    try await waitForEvent(
+    await waitForEvent(
       collector, matching: { $0.hasPrefix("fsChange:") })
     let events = collector.snapshot()
     #expect(events.contains { $0.hasPrefix("fsChange:") })
@@ -47,13 +47,13 @@ struct FSWatchRegistryTests {
     )
 
     try await registry.watch(dir: tmpDir.path)
-    try await Task.sleep(for: .milliseconds(300))
+    await sleepThreaded(.milliseconds(300))
 
     let branchFile = tmpDir.appendingPathComponent(".git/refs/heads/feature-x")
     try "0123456789abcdef0123456789abcdef01234567\n"
       .write(to: branchFile, atomically: true, encoding: .utf8)
 
-    try await waitForEvent(collector, matching: { $0 == "branchChange" })
+    await waitForEvent(collector, matching: { $0 == "branchChange" })
     let events = collector.snapshot()
     #expect(events.contains("branchChange"))
   }
@@ -97,12 +97,12 @@ struct FSWatchRegistryTests {
     )
 
     try await registry.watch(dir: worktreeRootResolved.path)
-    try await Task.sleep(for: .milliseconds(300))
+    await sleepThreaded(.milliseconds(300))
     collector.clear()
 
     try await runGitCmd(["commit", "-m", "add a"], cwd: worktreeRootResolved)
 
-    try await waitForEvent(collector, matching: { $0 == "gitStatusChange" })
+    await waitForEvent(collector, matching: { $0 == "gitStatusChange" })
     let events = collector.snapshot()
     #expect(events.contains("gitStatusChange"))
   }
@@ -131,13 +131,13 @@ struct FSWatchRegistryTests {
     )
 
     try await registry.watch(dir: tmpDir.path)
-    try await Task.sleep(for: .milliseconds(300))
+    await sleepThreaded(.milliseconds(300))
     collector.clear()
 
     try await runGitCmd(["branch", "-m", "renamed-feature"], cwd: tmpDir)
 
-    try await waitForEvent(collector, matching: { $0 == "branchChange" })
-    try await waitForEvent(collector, matching: { $0 == "gitStatusChange" })
+    await waitForEvent(collector, matching: { $0 == "branchChange" })
+    await waitForEvent(collector, matching: { $0 == "gitStatusChange" })
     let events = collector.snapshot()
     #expect(events.contains("branchChange"))
     #expect(events.contains("gitStatusChange"))
@@ -166,14 +166,14 @@ struct FSWatchRegistryTests {
     )
 
     try await registry.watch(dir: tmpDir.path)
-    try await Task.sleep(for: .milliseconds(300))
+    await sleepThreaded(.milliseconds(300))
     collector.clear()
 
     try await runGitCmd(["pack-refs", "--all"], cwd: tmpDir)
 
-    try await waitForEvent(collector, matching: { $0 == "branchChange" })
-    try await waitForEvent(collector, matching: { $0 == "gitStatusChange" })
-    try await waitForEvent(collector, matching: { $0 == "remoteRefsChange" })
+    await waitForEvent(collector, matching: { $0 == "branchChange" })
+    await waitForEvent(collector, matching: { $0 == "gitStatusChange" })
+    await waitForEvent(collector, matching: { $0 == "remoteRefsChange" })
     let events = collector.snapshot()
     #expect(events.contains("branchChange"))
     #expect(events.contains("gitStatusChange"))
@@ -227,7 +227,7 @@ struct FSWatchRegistryTests {
     // main + wt の両方を watch。primary は main worktree に固定されることを期待する。
     try await registry.watch(dir: mainRepo.path)
     try await registry.watch(dir: worktreeRootResolved.path)
-    try await Task.sleep(for: .milliseconds(300))
+    await sleepThreaded(.milliseconds(300))
 
     // ブランチには触らず `.git/worktrees/<name>/` だけを単独削除して
     // `worktreeChange` 単独経路を踏ませる（`bdc` 経由の `branchChange` 伴走 fetch で
@@ -236,7 +236,7 @@ struct FSWatchRegistryTests {
       .appendingPathComponent(worktreeRoot.lastPathComponent)
     try FileManager.default.removeItem(at: perWtGitDir)
 
-    try await waitForCount(worktreeChangeCount, atLeast: 1)
+    await waitForCount(worktreeChangeCount, atLeast: 1)
     #expect(worktreeChangeCount.value >= 1)
     // branchChange は伴走しない (本シナリオは worktreeChange 単独経路) こと。
     // 仮に伴走したら、本 test は「branchChange の伴走 fetch で隠蔽されていた死角」を
@@ -278,11 +278,11 @@ struct FSWatchRegistryTests {
 
     try await registry.watch(dir: mainRepo.path)
     try await registry.watch(dir: worktreeRoot.path)
-    try await Task.sleep(for: .milliseconds(300))
+    await sleepThreaded(.milliseconds(300))
 
     try await runGitCmd(["pack-refs", "--all"], cwd: mainRepo)
 
-    try await waitForCount(remoteRefsChangeCount, atLeast: 1)
+    await waitForCount(remoteRefsChangeCount, atLeast: 1)
     #expect(remoteRefsChangeCount.value >= 1)
   }
 
@@ -305,11 +305,11 @@ struct FSWatchRegistryTests {
     )
 
     try await registry.watch(dir: tmpDir.path)
-    try await Task.sleep(for: .milliseconds(300))
+    await sleepThreaded(.milliseconds(300))
 
     // 2 回目の watch（同 dir）— 旧設計の no-op ではなく再構築されることを担保する。
     try await registry.watch(dir: tmpDir.path)
-    try await Task.sleep(for: .milliseconds(300))
+    await sleepThreaded(.milliseconds(300))
     collector.clear()
 
     // 再構築後も branch ref の変更が dispatch される（= 新 entry が live で動いている）
@@ -317,7 +317,7 @@ struct FSWatchRegistryTests {
     try "0123456789abcdef0123456789abcdef01234567\n"
       .write(to: branchFile, atomically: true, encoding: .utf8)
 
-    try await waitForEvent(collector, matching: { $0 == "branchChange" })
+    await waitForEvent(collector, matching: { $0 == "branchChange" })
     #expect(collector.snapshot().contains("branchChange"))
   }
 
@@ -345,7 +345,7 @@ struct FSWatchRegistryTests {
 
     try await registry.watch(dir: dirA.path)
     try await registry.watch(dir: dirB.path)
-    try await Task.sleep(for: .milliseconds(300))
+    await sleepThreaded(.milliseconds(300))
 
     // 2 entry watched → unwatchAll で 2 を返す
     let count = await registry.unwatchAll()
@@ -360,7 +360,7 @@ struct FSWatchRegistryTests {
     try "x".write(to: fileA, atomically: true, encoding: .utf8)
     try "x".write(to: fileB, atomically: true, encoding: .utf8)
 
-    try await Task.sleep(for: .milliseconds(500))
+    await sleepThreaded(.milliseconds(500))
     #expect(collector.snapshot().isEmpty)
   }
 
@@ -392,7 +392,7 @@ struct FSWatchRegistryTests {
     )
 
     try await registry.watch(dir: tmpDir.path)
-    try await Task.sleep(for: .milliseconds(300))
+    await sleepThreaded(.milliseconds(300))
 
     // unwatch を actor 上で処理させた後に collector を clear する。
     // unwatch 前に clear すると、watch 開始直後の latent event が clear と unwatch の
@@ -404,7 +404,7 @@ struct FSWatchRegistryTests {
     let file = tmpDir.appendingPathComponent("after-unwatch.txt")
     try "x".write(to: file, atomically: true, encoding: .utf8)
 
-    try await Task.sleep(for: .milliseconds(500))
+    await sleepThreaded(.milliseconds(500))
     #expect(collector.snapshot().isEmpty)
   }
 }
@@ -689,40 +689,29 @@ private func initGitRepo(at dir: URL) async throws {
   try await runGitCmd(["init", "-q", "-b", "main"], cwd: dir)
 }
 
-private struct EventTimeout: Error, CustomStringConvertible {
-  let timeout: Duration
-  let observed: [String]
-  var description: String {
-    "waitForEvent timed out after \(timeout). Observed events: \(observed)"
-  }
-}
-
+// `waitUntil` ( WaitUntil.swift / dedicated NSThread 上の polling ) に乗せた wrapper。
+// Task.sleep ベースの手書き polling を撤去し、cooperative executor stall 経路から退避する
+// ( issue #630 )。timeout 時は `waitUntil` 経由で `Issue.record` に inline 出力されるため、
+// 旧 `EventTimeout` throw による「観測値を error message に乗せる」契約は `waitUntil` 側の
+// lastTicks 履歴 ( 直近 0.5s 分 ) に置き換わる。
 private func waitForEvent(
   _ collector: EventNameCollector,
   timeout: Duration = .seconds(2),
-  matching predicate: @escaping (String) -> Bool
-) async throws {
-  let deadline = ContinuousClock.now.advanced(by: timeout)
-  while ContinuousClock.now < deadline {
-    if collector.snapshot().contains(where: predicate) { return }
-    try await Task.sleep(for: .milliseconds(50))
+  matching predicate: @escaping @Sendable (String) -> Bool
+) async {
+  await waitUntil(timeout: timeout, description: "event matching predicate") {
+    collector.snapshot().contains(where: predicate)
   }
-  // タイムアウトを silent return せず throw する。「期待イベントが届かなかった」のか
-  // 「タイムアウトで打ち切った」のかを呼び出し側が区別できるようにする。
-  throw EventTimeout(timeout: timeout, observed: collector.snapshot())
 }
 
 private func waitForCount(
   _ counter: EventCounter,
   atLeast target: Int,
   timeout: Duration = .seconds(2)
-) async throws {
-  let deadline = ContinuousClock.now.advanced(by: timeout)
-  while ContinuousClock.now < deadline {
-    if counter.value >= target { return }
-    try await Task.sleep(for: .milliseconds(50))
+) async {
+  await waitUntil(timeout: timeout, description: "count >= \(target)") {
+    counter.value >= target
   }
-  throw EventTimeout(timeout: timeout, observed: ["count<\(counter.value)>"])
 }
 
 private final class EventCounter: @unchecked Sendable {

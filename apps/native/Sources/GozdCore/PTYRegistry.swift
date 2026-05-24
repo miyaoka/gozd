@@ -95,6 +95,11 @@ public actor PTYRegistry {
   // PTY exit 後も残しておいて問題ない。
   private var explicitlyRemovedPtyIds: Set<UInt32> = []
   private var nextId: UInt32 = 1
+  // ptys が空になるのを待つ Continuation 群。`awaitEmpty()` で append し、`remove(id:)`
+  // で count==0 到達時に全 resume する。actor isolation により append / drain は serialize
+  // される。test 側の手書き polling ( `registry.count() == 0` を Task.sleep で待つ ) を
+  // 構造的に消すための accessor。
+  private var awaitEmptyContinuations: [CheckedContinuation<Void, Never>] = []
 
   public init(
     onText: @escaping TextHandler,
@@ -116,7 +121,7 @@ public actor PTYRegistry {
     rows: UInt16,
     cols: UInt16,
     worktreePath: String = ""
-  ) throws -> UInt32 {
+  ) async throws -> UInt32 {
     // `nextId` は spawn 成功後に進める。spawn が throw した場合に id を消費せず
     // 次の試行で同じ id を再利用できる（PTY は生成されていないため id 衝突は無い）。
     // 先に進めると失敗時に id が穴開きで上昇し、ptys / worktreePathById マップに
@@ -146,6 +151,11 @@ public actor PTYRegistry {
         continuation.finish()
       }
     )
+    // 子が execve 段階に到達するまで待つ ( CPty.c の ready pipe barrier )。spawn が戻った
+    // 時点では fork 直後で tty が write 可能とは限らないため、ここで barrier を消費して
+    // 「caller は ready 確定 PTY を受け取る」契約に揃える。test 側の 100ms / 150ms 経験的
+    // sleep が **構造的に不要** になる ( = 削除ではなく race の構造的消滅 / issue #630 )。
+    await pty.awaitReady()
     nextId += 1
     ptys[id] = pty
     if !worktreePath.isEmpty {
@@ -196,6 +206,20 @@ public actor PTYRegistry {
 
   public func count() -> Int {
     ptys.count
+  }
+
+  /// ptys が空になるまで待つ。test 側の手書き polling ( `registry.count() == 0` を sleep
+  /// で待つ ) を構造的に消すための accessor。actor isolation で append / drain は serialize
+  /// されるため race フリー。
+  ///
+  /// - 既に `ptys.isEmpty == true` なら即 return ( spawn が一度も成功しなかった registry を
+  ///   含む )
+  /// - そうでなければ Continuation を保持し、`remove(id:)` 経由で count==0 到達時に resume
+  public func awaitEmpty() async {
+    if ptys.isEmpty { return }
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+      awaitEmptyContinuations.append(continuation)
+    }
   }
 
   /// hook 受信側が ptyId から worktreePath を逆引きするための accessor。
@@ -267,6 +291,15 @@ public actor PTYRegistry {
         tag: "PTYRegistry",
         "remove: dropped expected resume sid=\(stale) without removeByPty for pty=\(id)"
       )
+    }
+    // ptys が空になった時点で awaitEmpty 待ちの Continuation を全 resume する。
+    // awaitEmpty は accessor 一つで複数 caller が並列に待ち得るため、配列を flush する。
+    if ptys.isEmpty && !awaitEmptyContinuations.isEmpty {
+      let pending = awaitEmptyContinuations
+      awaitEmptyContinuations.removeAll()
+      for continuation in pending {
+        continuation.resume()
+      }
     }
   }
 }

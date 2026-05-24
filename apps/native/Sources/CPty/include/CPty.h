@@ -28,13 +28,24 @@
 //    ようにし、ttyclose → ttyflush で pending output が drop されるのを防ぐ）。
 //    drain 完了後に親が明示的に slave を close する責務を持つ。
 //
+// ready pipe ( 親←子 ) で execve barrier を立てる。子は login_tty / chdir 完了後、
+// execve 直前に 1 byte 書き、close する。親側は `out_ready_read_fd` を blocking read
+// すれば「子が execve 段階に到達した」ことを構造的に確認できる:
+//   - read が 1 byte ('R') を返した: 子は execve 直前まで進み、tty は ready
+//   - read が 0 byte (EOF) を返した: 子は execve 前に _exit ( login_tty / chdir 失敗 )
+//     したか、execve 自体が失敗した。kernel が _exit で write fd を閉じる経路
+// 親側 `awaitReady()` で 1 度だけ read + close する責務を持つ ( PTYManager.swift )。
+// 親→子 / probe byte echo ( /bin/cat 専用 ) / DispatchSourceRead first event ( kqueue
+// 経由で stall リスク残存 ) より構造的に堅い barrier。
+//
 // 戻り値:
-//   - 0: 成功。out_master / out_slave / out_pid に値が入る。
+//   - 0: 成功。out_master / out_slave / out_pid / out_ready_read_fd に値が入る。
 //   - -1: openpty 失敗（errno が set される）。
 //   - -2: fork 失敗（errno が set される）。
+//   - -3: ready pipe 作成失敗（errno が set される）。
 //
-// 親プロセスは戻り値で openpty / fork のどちらが失敗したかを区別できる。errno のみ
-// では EAGAIN を openpty / fork 双方が返し得るため、syscall を取り違える。
+// 親プロセスは戻り値で openpty / fork / pipe のどれが失敗したかを区別できる。errno
+// のみでは EAGAIN を openpty / fork / pipe いずれも返し得るため、syscall を取り違える。
 //
 // child 側で setup に失敗した場合は execve まで到達せず以下の exit code で抜ける。
 // 親は `PTYExitReason.exited(code: N)` から失敗段階を判別できる:
@@ -48,6 +59,7 @@ int gozd_pty_spawn(
     int *out_master,
     int *out_slave,
     pid_t *out_pid,
+    int *out_ready_read_fd,
     struct winsize *winsize_p,
     const char *executable,
     char *const argv[],

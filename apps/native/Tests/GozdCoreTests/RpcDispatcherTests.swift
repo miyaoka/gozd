@@ -101,11 +101,7 @@ struct RpcDispatcherTests {
     killReq.ptyID = spawnResp.ptyID
     _ = try await dispatcher.dispatch(path: "/pty/kill", body: killReq.jsonUTF8Data())
 
-    let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-    while ContinuousClock.now < deadline {
-      if exitFlag.isSet { break }
-      try await Task.sleep(for: .milliseconds(30))
-    }
+    await waitUntil(timeout: .seconds(2), description: "exitFlag is set") { exitFlag.isSet }
     #expect(exitFlag.isSet)
   }
 

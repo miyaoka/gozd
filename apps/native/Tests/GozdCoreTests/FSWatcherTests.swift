@@ -19,14 +19,16 @@ struct FSWatcherTests {
     try watcher.start()
     defer { watcher.stop() }
 
-    // FSEvents が ready になるまで僅かに待つ。
-    try await Task.sleep(for: .milliseconds(300))
+    // FSEvents が ready になるまで僅かに待つ ( cooperative executor を踏まない
+    // dedicated NSThread 経由 / issue #630 )。
+    await sleepThreaded(.milliseconds(300))
 
     let testFile = tmpDir.appendingPathComponent("hello.txt")
     try "hello".write(to: testFile, atomically: true, encoding: .utf8)
 
-    // 0.05s latency + small margin
-    try await waitForEvent(collector, matching: { $0.path.hasSuffix("hello.txt") })
+    await waitUntil(timeout: .seconds(2), description: "hello.txt event") {
+      collector.snapshot().contains { $0.path.hasSuffix("hello.txt") }
+    }
 
     let events = collector.snapshot()
     #expect(events.contains { $0.path.hasSuffix("hello.txt") })
@@ -49,11 +51,13 @@ struct FSWatcherTests {
     try watcher.start()
     defer { watcher.stop() }
 
-    try await Task.sleep(for: .milliseconds(300))
+    await sleepThreaded(.milliseconds(300))
 
     try FileManager.default.removeItem(at: testFile)
 
-    try await waitForEvent(collector, matching: { $0.path.hasSuffix("doomed.txt") })
+    await waitUntil(timeout: .seconds(2), description: "doomed.txt event") {
+      collector.snapshot().contains { $0.path.hasSuffix("doomed.txt") }
+    }
 
     let events = collector.snapshot()
     #expect(events.contains { $0.path.hasSuffix("doomed.txt") })
@@ -76,12 +80,14 @@ struct FSWatcherTests {
     try watcher.start()
     defer { watcher.stop() }
 
-    try await Task.sleep(for: .milliseconds(300))
+    await sleepThreaded(.milliseconds(300))
 
     let nestedFile = subDir.appendingPathComponent("nested.txt")
     try "nested".write(to: nestedFile, atomically: true, encoding: .utf8)
 
-    try await waitForEvent(collector, matching: { $0.path.hasSuffix("nested.txt") })
+    await waitUntil(timeout: .seconds(2), description: "nested.txt event") {
+      collector.snapshot().contains { $0.path.hasSuffix("nested.txt") }
+    }
 
     let events = collector.snapshot()
     #expect(events.contains { $0.path.hasSuffix("nested.txt") })
@@ -98,18 +104,6 @@ private func makeTempDir() throws -> URL {
   try FileManager.default.createDirectory(at: raw, withIntermediateDirectories: true)
   let resolved = URL(fileURLWithPath: raw.path).resolvingSymlinksInPath()
   return resolved
-}
-
-private func waitForEvent(
-  _ collector: EventCollector,
-  timeout: Duration = .seconds(2),
-  matching predicate: @escaping (FSWatcher.Event) -> Bool
-) async throws {
-  let deadline = ContinuousClock.now.advanced(by: timeout)
-  while ContinuousClock.now < deadline {
-    if collector.snapshot().contains(where: predicate) { return }
-    try await Task.sleep(for: .milliseconds(50))
-  }
 }
 
 // 並行アクセス可能な event collector。Swift 6.2 のデフォルト strict concurrency

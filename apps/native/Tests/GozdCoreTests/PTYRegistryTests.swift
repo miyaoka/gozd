@@ -69,19 +69,17 @@ struct PTYRegistryTests {
     )
     #expect(await registry.count() == 1)
 
-    try await Task.sleep(for: .milliseconds(100))
+    // spawn 自体が ready pipe barrier を消費しているため、kill 前の経験的 sleep は
+    // 構造的に不要 ( issue #630 )。
     await registry.kill(id: id)
 
     await waitUntil(timeout: .seconds(2)) {
       events.exitedIds().contains(id)
     }
-    // remove は exit handler 経由で `Task { await self.remove }` で発火するため、
-    // actor の serial execution に届くまで小さくポーリングする。
-    let deadline = ContinuousClock.now.advanced(by: .seconds(1))
-    while ContinuousClock.now < deadline {
-      if await registry.count() == 0 { break }
-      try await Task.sleep(for: .milliseconds(20))
-    }
+    // remove は exit handler 経由で `Task { await self.remove }` で発火する。
+    // actor 内の Continuation accessor で count==0 到達を構造的に待つ ( 手書き polling
+    // を撤去 / issue #630 )。
+    await registry.awaitEmpty()
     #expect(await registry.count() == 0)
   }
 

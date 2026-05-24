@@ -48,12 +48,53 @@ public final class PTYManager {
   private var state: PTYFinishState?
   private var readSource: DispatchSourceRead?
   private var exitSource: DispatchSourceProcess?
+  // ready pipe 親側 read fd ( CPty.c の execve barrier )。`awaitReady` が 1 度だけ
+  // blocking read + close する。spawn 失敗時 / awaitReady 後は -1 に倒す。`deinit`
+  // で未消費なら fd リークを防ぐため close する。
+  private var readyPipeFd: Int32 = -1
 
   public init() {}
 
   deinit {
     readSource?.cancel()
     exitSource?.cancel()
+    if readyPipeFd >= 0 {
+      close(readyPipeFd)
+    }
+  }
+
+  /// 子プロセスが execve 段階に到達するまで blocking read で待つ。CPty.c の ready pipe
+  /// ( 子が execve 直前に 1 byte 書き、_exit で kernel が close ) を 1 度だけ消費する。
+  ///
+  /// - read が 1 byte を返す: 子は login_tty + chdir 完了し execve 段階に到達。tty は
+  ///   ready で、`write` / `resize` / 子からの input 経路が機能する状態
+  /// - read が 0 byte ( EOF ) を返す: 子は execve 前に _exit ( login_tty / chdir 失敗 )。
+  ///   `onExit` 経路で exit code (124 / 125) が配送されるので test 側はそちらを観測
+  ///
+  /// Swift Concurrency の cooperative executor 上で blocking read を呼ぶと thread が
+  /// 拘束されるため、dedicated NSThread に hop して read + close + resume の 3 段で完結
+  /// させる。`DispatchSourceRead` も kqueue 経由で executor stall に巻き込まれ得る
+  /// ため不採用 ( issue #630 の analysis 参照 )。
+  ///
+  /// 二重呼び出しは safe ( 2 回目以降は `fd < 0` で即 return )。
+  public func awaitReady() async {
+    let fd = readyPipeFd
+    if fd < 0 { return }
+    readyPipeFd = -1
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+      let thread = Thread {
+        var buf: UInt8 = 0
+        while true {
+          let n = Darwin.read(fd, &buf, 1)
+          if n == -1 && errno == EINTR { continue }
+          break
+        }
+        Darwin.close(fd)
+        continuation.resume()
+      }
+      thread.name = "PTYAwaitReady"
+      thread.start()
+    }
   }
 
   /// 子プロセスを PTY に fork して spawn する。
@@ -112,20 +153,22 @@ public final class PTYManager {
     var masterFd: Int32 = -1
     var slaveFd: Int32 = -1
     var childPid: pid_t = -1
+    var readyReadFd: Int32 = -1
     let spawnRet = gozd_pty_spawn(
       &masterFd,
       &slaveFd,
       &childPid,
+      &readyReadFd,
       &ws,
       cExecutable,
       argv,
       envp,
       cCwd
     )
-    // gozd_pty_spawn 戻り値: 0=成功 / -1=openpty 失敗 / -2=fork 失敗。
-    // errno のみで判別すると EAGAIN を openpty / fork 双方が返し得るため取り違える。
-    // 戻り値で syscall を確実に区別する。
-    // 0/-1/-2 以外は C bridge 側のバグなので `fatalError` で即座に落とす。
+    // gozd_pty_spawn 戻り値: 0=成功 / -1=openpty 失敗 / -2=fork 失敗 / -3=pipe 失敗。
+    // errno のみで判別すると EAGAIN を openpty / fork / pipe 全てが返し得るため
+    // 取り違える。戻り値で syscall を確実に区別する。
+    // 0/-1/-2/-3 以外は C bridge 側のバグなので `fatalError` で即座に落とす。
     // 「想定外なら fallback enum で握り潰す」設計だと観察可能性を失う。
     if spawnRet != 0 {
       let err = errno
@@ -133,12 +176,14 @@ public final class PTYManager {
       switch spawnRet {
       case -1: throw PTYError.openptyFailed(errno: err)
       case -2: throw PTYError.forkFailed(errno: err)
+      case -3: throw PTYError.readyPipeFailed(errno: err)
       default:
         fatalError("gozd_pty_spawn returned unexpected code: \(spawnRet) (errno: \(err))")
       }
     }
 
     pid = childPid
+    readyPipeFd = readyReadFd
     ptyTrace(
       "spawn", pid: childPid,
       "gozd_pty_spawn master=\(masterFd) slave=\(slaveFd) executable=\(executable)")
@@ -337,6 +382,9 @@ public enum PTYError: Error, Equatable {
   case openptyFailed(errno: Int32)
   /// `fork(2)` の失敗（C bridge 戻り値 -2）。
   case forkFailed(errno: Int32)
+  /// ready pipe 作成 (`pipe(2)`) の失敗（C bridge 戻り値 -3）。execve barrier 用 pipe
+  /// が用意できないと awaitReady が hang するため、ここで spawn を諦める。
+  case readyPipeFailed(errno: Int32)
   /// spawn 前段の strdup などで OOM 検出した場合。spawn syscall 自体は呼ばれていないので
   /// `openptyFailed` / `forkFailed` を流用すると上位 log で失敗 syscall を取り違える。
   case preforkAllocFailed(errno: Int32)
@@ -352,6 +400,8 @@ extension PTYError: CustomStringConvertible {
       return "PTYError.openptyFailed(errno=\(errno) \(Self.errnoText(errno)))"
     case .forkFailed(let errno):
       return "PTYError.forkFailed(errno=\(errno) \(Self.errnoText(errno)))"
+    case .readyPipeFailed(let errno):
+      return "PTYError.readyPipeFailed(errno=\(errno) \(Self.errnoText(errno)))"
     case .preforkAllocFailed(let errno):
       return "PTYError.preforkAllocFailed(errno=\(errno) \(Self.errnoText(errno)))"
     }

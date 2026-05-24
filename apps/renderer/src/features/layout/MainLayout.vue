@@ -96,7 +96,7 @@ const centerTerminalRef = useTemplateRef<HTMLElement>("centerTerminal");
 
 const sidebarWidth = ref(260);
 const navigatorWidth = ref(256);
-const previewWidth = ref(480);
+const previewWidth = ref(1200);
 const previewOpen = ref(false);
 const gitGraphHeight = ref(128);
 

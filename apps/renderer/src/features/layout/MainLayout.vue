@@ -148,7 +148,9 @@ const getPreviewBeforeSize = () =>
 const getPreviewAfterSize = () =>
   previewPopoverRef.value?.getBoundingClientRect().width ?? previewWidth.value;
 
-// popover の DOM 参照を store に bind。bindPopover(undefined) は onUnmounted で呼ぶ。
+// popover の DOM 参照を store に bind。template ref が null に戻った時点
+// (= previewPopover element の unmount) に bindPopover(undefined) が呼ばれ
+// dangling 参照を切る。
 watch(
   previewPopoverRef,
   (el) => {

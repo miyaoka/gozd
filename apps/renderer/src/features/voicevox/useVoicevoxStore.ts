@@ -72,7 +72,11 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
   const enabled = ref(false);
   const speedScale = ref(DEFAULT_SPEED_SCALE);
   const volumeScale = ref(DEFAULT_VOLUME_SCALE);
-  const speakerId = ref<number>(DEFAULT_SPEAKER_ID);
+  /**
+   * ユーザーが明示的に選んだ speaker id。undefined はデフォルト追従 (proto3 optional の「未設定」)。
+   * 永続化値が現エンジンに存在しなくても touch しない (effectiveSpeakerId が memory 上 fallback する)。
+   */
+  const speakerId = ref<number | undefined>(undefined);
   /** Engine `/speakers` から取得したキャラ一覧。enable + Engine 起動済みでロードされる */
   const speakers = ref<VoicevoxSpeaker[]>([]);
   /** 有効化処理中 */
@@ -85,12 +89,25 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
 
   /**
    * speak 経路で実際に使う speaker id。
-   * speakers ロード前 / 該当 style が存在しない場合は DEFAULT_SPEAKER_ID にメモリ上 fallback する。
+   * undefined / speakers にない値 / speakers ロード前で値が無い場合は DEFAULT にメモリ上 fallback する。
    * 永続化される speakerId は touch しないため、Engine 構成が一時的に変わってもユーザー選択は破壊しない。
    */
   const effectiveSpeakerId = computed(() => {
-    if (speakers.value.length === 0) return speakerId.value;
-    return hasSpeakerStyle(speakerId.value) ? speakerId.value : DEFAULT_SPEAKER_ID;
+    const id = speakerId.value;
+    if (id === undefined) return DEFAULT_SPEAKER_ID;
+    if (speakers.value.length === 0) return id; // ロード前は信用して通す
+    return hasSpeakerStyle(id) ? id : DEFAULT_SPEAKER_ID;
+  });
+
+  /**
+   * 永続化された speakerId が現エンジンの speakers に存在しないか。
+   * UI が「保存値は壊れていないが現在は再生に使えない」状態をユーザーに伝えるための signal。
+   */
+  const speakerIdIsStale = computed(() => {
+    const id = speakerId.value;
+    if (id === undefined) return false;
+    if (speakers.value.length === 0) return false;
+    return !hasSpeakerStyle(id);
   });
 
   /**
@@ -105,6 +122,11 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     speakerId.value = id;
   }
 
+  /** 明示選択を解除しデフォルト追従に戻す。proto3 optional 上は「未設定」で永続化される */
+  function resetSpeakerId(): void {
+    speakerId.value = undefined;
+  }
+
   /**
    * Engine から speakers を取得する。永続化値が現存しない場合は notify.info で伝えるのみで、
    * speakerId.value は touch しない (実効値は effectiveSpeakerId computed が DEFAULT に倒す)。
@@ -116,9 +138,10 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
       return;
     }
     speakers.value = result.value.speakers;
-    if (speakers.value.length > 0 && !hasSpeakerStyle(speakerId.value)) {
+    const id = speakerId.value;
+    if (id !== undefined && speakers.value.length > 0 && !hasSpeakerStyle(id)) {
       notify.info(
-        `VOICEVOX speaker id ${speakerId.value} not found in current engine; using default (${DEFAULT_SPEAKER_ID}) for playback`,
+        `VOICEVOX speaker id ${id} not found in current engine; using default (${DEFAULT_SPEAKER_ID}) for playback`,
       );
     }
   }
@@ -256,6 +279,8 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     speakGeneration++;
     releaseAudio();
     enabled.value = false;
+    // Engine 停止と表示の整合を取るため speakers state も clear する
+    speakers.value = [];
   }
 
   // --- Hook 購読（HMR 再実行時に前回のリスナーを解除するため disposer は関数外に置く） ---
@@ -287,14 +312,17 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     playing,
     speedScale,
     volumeScale,
-    // speakerId は readonly。書き換えは setSpeakerId を経由させる (存在検証で SSOT を守るため)
+    // speakerId は readonly。書き換えは setSpeakerId / resetSpeakerId を経由させる (存在検証で SSOT を守るため)
     speakerId: readonly(speakerId),
+    effectiveSpeakerId,
+    speakerIdIsStale,
     speakers,
     activating,
     activate,
     deactivate,
     stopAudio,
     setSpeakerId,
+    resetSpeakerId,
   };
 });
 

@@ -15,7 +15,9 @@ defineProps<{
   setting: SettingDefinition;
 }>();
 
-const model = defineModel<unknown>({ required: true });
+// voicevoxSpeaker widget は store と直結するため v-model 経路を通らず、
+// SettingSection から undefined が渡される。required: true だと契約違反になるため緩める
+const model = defineModel<unknown>();
 </script>
 
 <template>

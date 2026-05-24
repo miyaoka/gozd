@@ -141,7 +141,12 @@ public enum VoicevoxOps {
     }
     json["speedScale"] = speedScale
     json["volumeScale"] = volumeScale
-    return try? JSONSerialization.data(withJSONObject: json)
+    do {
+      return try JSONSerialization.data(withJSONObject: json)
+    } catch {
+      FileHandle.standardError.write(Data("[VoicevoxOps.mutateAudioQuery] failed to encode mutated query: \(error)\n".utf8))
+      return nil
+    }
   }
 
   private static func synthesize(audioQuery: Data, speakerId: UInt32) async -> Data? {

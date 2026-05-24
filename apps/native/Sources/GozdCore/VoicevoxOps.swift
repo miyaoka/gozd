@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import os
 
 // VOICEVOX エンジン（HTTP localhost:50021）への薄いラッパー。
 //
@@ -7,7 +9,15 @@ import Foundation
 // 1. **HTTP は URLSession で叩く**。エンジン本体（VOICEVOX.app）は別インストール、
 //    gozd は接続するだけ。
 //
-// 2. **launch は `open -a VOICEVOX`** に投げる（ユーザーが手動で起動済みでも no-op）。
+// 2. **launch は VOICEVOX.app 同梱の engine バイナリ `vv-engine/run` を直接 spawn する**。
+//    VOICEVOX/voicevox_engine は GUI repo と独立した別 repo として headless 利用を正規
+//    ルートで提供しており、`.app` 同梱の `vv-engine/run` はその engine 本体。GUI 経由
+//    を介さずこれを直接起動するのが公式設計に沿う。インストールパスは Launch Services
+//    (`NSWorkspace.shared.urlForApplication(withBundleIdentifier:)`) で `jp.hiroshiba.voicevox`
+//    から解決し、`/Applications` 配下に限らず `~/Applications` や別ボリュームインストール
+//    にも追従する。stdout / stderr は親 (gozd) を継承させ、engine の起動失敗ログを観察可能
+//    に保つ。spawn 後は `spawnedEngine` で `Process` を保持し、`terminationHandler` で
+//    即死を stderr に通知できるようにする。
 //
 // 3. **再生は呼び出し側（renderer）の責務**。speak は wav バイト列のみ返す。
 //    renderer の HTML Audio API で再生・停止制御する。
@@ -85,23 +95,97 @@ public enum VoicevoxOps {
     }
   }
 
+  /// spawn した engine プロセスを保持して `terminationHandler` 経路を有効に保つ。
+  /// Process が ARC で deinit すると child 監視 channel が閉じるため、参照を残す必要がある。
+  /// `ProcessExec.runProcessCollectingOutput` と同じく `OSAllocatedUnfairLock<Process?>` で
+  /// 非 Sendable な Process 参照を actor 越しに安全に保持する。
+  private static let spawnedEngine = OSAllocatedUnfairLock<Process?>(initialState: nil)
+
   public static func launch() async -> Bool {
+    // 既に engine が応答していれば spawn しない (renderer 側の checkEngine と二重 guard。
+    // renderer→native RPC の往復で開く race 窓を縮める)
+    if await checkEngine() {
+      return true
+    }
+
+    let bundleId = "jp.hiroshiba.voicevox"
+
+    let appUrl = await MainActor.run {
+      NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId)
+    }
+    guard let appUrl else {
+      StderrLog.write(tag: "VoicevoxOps.launch", "VOICEVOX.app not found (bundleId=\(bundleId))")
+      return false
+    }
+    // symlink / mount alias を経由する場合に備えて実体パスへ解決
+    let resolvedAppUrl = appUrl.resolvingSymlinksInPath()
+    // slash 区切りの 1 本文字列を appendingPathComponent に渡すと挙動が macOS version 依存。
+    // segment 単位で連鎖させる (Apple Foundation 推奨)。
+    // VOICEVOX.app 内部レイアウトの SSOT として segment 配列を持ち、append を reduce で展開
+    let engineSegments = ["Contents", "Resources", "vv-engine", "run"]
+    let engineUrl = engineSegments.reduce(resolvedAppUrl) {
+      $0.appendingPathComponent($1)
+    }
+    guard FileManager.default.isExecutableFile(atPath: engineUrl.path) else {
+      StderrLog.write(
+        tag: "VoicevoxOps.launch", "engine binary not executable at \(engineUrl.path)")
+      return false
+    }
+
     let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-    process.arguments = ["-a", "VOICEVOX"]
-    process.environment = ProcessInfo.processInfo.environment
+    process.executableURL = engineUrl
+    // stdout / stderr は親 (gozd) を継承させる。engine がモデルロード失敗 / dyld 解決失敗等
+    // で起動できないケースのログを gozd の stderr に流して観察可能性を保つ。継承経路なら
+    // Pipe を介さないため pipe 詰まりも構造的に起きない
+    process.terminationHandler = { proc in
+      // spawn 直後に即死した場合、起動成功扱いで return した後 renderer 側は 10 秒の
+      // waitForEngine タイムアウトを踏む。stderr に痕跡を残して原因切り分けを可能にする。
+      // 「死んだ engine 参照」を残さないよう、自分が現在の保持対象なら nil に戻す
+      spawnedEngine.withLock { holder in
+        if holder === proc { holder = nil }
+      }
+      StderrLog.write(
+        tag: "VoicevoxOps.engine",
+        "exited pid=\(proc.processIdentifier) status=\(proc.terminationStatus) reason=\(proc.terminationReason.rawValue)"
+      )
+    }
+
+    // race protection: checkEngine と run() の間に開く async 窓を、spawnedEngine 占有で塞ぐ。
+    // 既に spawn 済みかつ生存している process があれば自分は走らせず true で抜ける。
+    // 並行 launch() のうち先に lock を取った方だけが run() に進む
+    let canSpawn = spawnedEngine.withLock { holder -> Bool in
+      if let existing = holder, existing.isRunning {
+        return false
+      }
+      holder = process
+      return true
+    }
+    guard canSpawn else {
+      // skip 時の true は「engine listen 済み」ではなく「別 caller が spawn 中なので
+      // 後続は polling で listen を待つ責任」を意味する。caller (renderer の doActivate)
+      // は launch ok=true の後に waitForEngine を回す前提なので、この戻り値で問題ない
+      StderrLog.write(
+        tag: "VoicevoxOps.launch",
+        "concurrent spawn in-flight; skipping (caller must poll /version)"
+      )
+      return true
+    }
+
     do {
       try process.run()
-      process.waitUntilExit()
-      if process.terminationStatus != 0 {
-        StderrLog.write(
-          tag: "VoicevoxOps.launch",
-          "open -a VOICEVOX exited with status \(process.terminationStatus)"
-        )
-      }
-      return process.terminationStatus == 0
+      StderrLog.write(
+        tag: "VoicevoxOps.launch",
+        "spawned engine pid=\(process.processIdentifier) at \(engineUrl.path)"
+      )
+      // detach: waitUntilExit は呼ばない。engine は親 (gozd) より長生きしてよい
+      return true
     } catch {
-      StderrLog.write(tag: "VoicevoxOps.launch", "failed to spawn open: \(error)")
+      // run() が throw した場合は予約した slot を戻す。terminationHandler は run() 失敗時に
+      // 呼ばれないため、ここで明示的に nil に戻す必要がある
+      spawnedEngine.withLock { holder in
+        if holder === process { holder = nil }
+      }
+      StderrLog.write(tag: "VoicevoxOps.launch", "failed to spawn engine: \(error)")
       return false
     }
   }

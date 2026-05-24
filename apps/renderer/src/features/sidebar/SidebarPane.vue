@@ -315,7 +315,7 @@ const activeRootWorktree = computed(() => {
     <ProjectConfigPanel v-if="activeRootWorktree" />
 
     <!-- VOICEVOX -->
-    <VoicevoxPanel @error="notify.error" />
+    <VoicevoxPanel />
   </div>
 </template>
 

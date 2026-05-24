@@ -1,7 +1,7 @@
 import type { VoicevoxSpeaker } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
-import { computed, readonly, ref, watch } from "vue";
+import { computed, readonly, ref, shallowRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { rpcLoadAppConfig, rpcSaveAppConfig } from "../settings";
@@ -64,6 +64,15 @@ function releaseAudio() {
 /** speak の世代カウンター。新しい speak 呼び出しや deactivate で進め、stale なリクエストを破棄する */
 let speakGeneration = 0;
 
+/**
+ * 進行中の activate Promise。再 entry されたら同じ Promise を返して in-flight dedup する。
+ * (sidebar の Enable ボタンと SettingsModal トグルからの連打で「進行中 = 失敗扱い」と
+ * 観察される不整合を防ぐ)
+ * `activating` computed の唯一の依存源として SSOT 化し、状態の二重管理を避ける。
+ * shallowRef を使うのは Promise を deep-proxy しないため (内部スロットを触ると壊れる)
+ */
+const activationInFlight = shallowRef<Promise<boolean> | undefined>(undefined);
+
 /** HMR 再実行時に前回のリスナーを解除するための disposer */
 let disposeHookListener: (() => void) | undefined;
 
@@ -80,8 +89,8 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
   const speakerId = ref<number>(DEFAULT_SPEAKER_ID);
   /** Engine `/speakers` から取得したキャラ一覧。enable + Engine 起動済みでロードされる */
   const speakers = ref<VoicevoxSpeaker[]>([]);
-  /** 有効化処理中 */
-  const activating = ref(false);
+  /** 有効化処理中。activationInFlight の存在から derive (SSOT) */
+  const activating = computed(() => activationInFlight.value !== undefined);
 
   /** speakers の中に該当 style.id が存在するか */
   function hasSpeakerStyle(id: number): boolean {
@@ -139,19 +148,58 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     // トースト通知をここで重複発火させない (SSOT)
   }
 
-  /** RPC 経由で Engine の起動状態を確認する */
-  async function checkEngineRunning(): Promise<boolean> {
+  /**
+   * RPC 経由で Engine の起動状態を確認する。Engine 起動チェックの SSOT。
+   * 3 状態を discriminated union で表現する:
+   *   - `{ ok: true }`: engine が /version に 200 応答
+   *   - `{ ok: false, reason: "rpc-error", error }`: RPC layer 自体が throw / network 失敗
+   *   - `{ ok: false, reason: "engine-not-responding" }`: RPC は成功したが engine が応答しない
+   */
+  async function checkEngineRunning(): Promise<
+    | { ok: true }
+    | { ok: false; reason: "rpc-error"; error: Error }
+    | { ok: false; reason: "engine-not-responding" }
+  > {
     const result = await tryCatch(rpcVoicevoxCheckEngine());
-    return result.ok && result.value.ok;
+    if (!result.ok) return { ok: false, reason: "rpc-error", error: result.error };
+    if (!result.value.ok) return { ok: false, reason: "engine-not-responding" };
+    return { ok: true };
   }
 
-  /** 指定回数ポーリングして Engine の起動を待つ */
-  async function waitForEngine(): Promise<boolean> {
+  /**
+   * 指定回数ポーリングして Engine の起動を待つ。
+   * 失敗時の戻り値は checkEngineRunning と同じ discriminated union に揃え、最終 attempt の
+   * 状態を呼び出し側で明示分岐できるようにする (cause 合成のため)。
+   *   - 最終 attempt が "rpc-error" なら その error を `lastError` で持ち帰る
+   *   - 全 attempt が "engine-not-responding" だった通常タイムアウトは reason だけ返す
+   */
+  async function waitForEngine(): Promise<
+    | { ok: true }
+    | { ok: false; reason: "rpc-error"; lastError: Error }
+    | { ok: false; reason: "engine-not-responding" }
+  > {
+    // 戻り値型の (ok: false を除く) suffix に揃え、最後の return が spread 1 回で済む形にする
+    let lastFailure:
+      | { reason: "rpc-error"; lastError: Error }
+      | { reason: "engine-not-responding" }
+      | undefined;
     for (let i = 0; i < POLL_MAX_ATTEMPTS; i++) {
-      if (await checkEngineRunning()) return true;
+      const result = await checkEngineRunning();
+      if (result.ok) return { ok: true };
+      // rpc-error は情報量が多い (RPC dispatcher 自体の障害示唆) ので、途中で観測したら
+      // 以降の engine-not-responding で上書きさせない。engine-not-responding は最終状態
+      // が掴めれば十分なので、rpc-error をまだ観測していない時だけ記録する
+      if (result.reason === "rpc-error") {
+        lastFailure = { reason: "rpc-error", lastError: result.error };
+      } else if (lastFailure?.reason !== "rpc-error") {
+        lastFailure = { reason: "engine-not-responding" };
+      }
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
     }
-    return false;
+    // POLL_MAX_ATTEMPTS=0 の (現状到達不能な) 境界用フォールバック
+    return lastFailure
+      ? { ok: false, ...lastFailure }
+      : { ok: false, reason: "engine-not-responding" };
   }
 
   /** RPC 経由で音声合成し、base64 WAV をデコードして再生する */
@@ -193,7 +241,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
       if (cfg.enabled) {
         enabled.value = true;
         // Engine が起動していなければバックグラウンドで起動だけ試みる（ポーリングしない）
-        if (await checkEngineRunning()) {
+        if ((await checkEngineRunning()).ok) {
           void loadSpeakers();
         } else {
           void tryCatch(rpcVoicevoxLaunch());
@@ -226,39 +274,60 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
 
   /**
    * VOICEVOX を有効化する。
-   * Engine が起動していなければアプリの起動を試み、
-   * 未インストールなら失敗メッセージを返す。
-   * @returns 失敗時のメッセージ。成功時は undefined
+   * Engine が起動していなければアプリの起動を試み、失敗時は store 内で notify.error を発火する
+   * (呼び出し側で表示責務を持たないように SSOT を store に集約する)。
+   * 進行中に再 entry された場合は同じ Promise を返す (in-flight dedup)。
+   * @returns 成功なら true、失敗 (未インストール / 起動タイムアウト 等) なら false
    */
-  async function activate(): Promise<string | undefined> {
-    if (activating.value) return undefined;
-    activating.value = true;
+  async function activate(): Promise<boolean> {
+    if (activationInFlight.value) return activationInFlight.value;
+    const work = doActivate();
+    activationInFlight.value = work;
+    try {
+      return await work;
+    } finally {
+      activationInFlight.value = undefined;
+    }
+  }
 
+  async function doActivate(): Promise<boolean> {
     // Engine が既に起動しているかチェック
-    if (await checkEngineRunning()) {
+    if ((await checkEngineRunning()).ok) {
       enabled.value = true;
       void loadSpeakers();
-      activating.value = false;
-      return undefined;
+      return true;
     }
 
     // アプリの起動を試みる
     const launchResult = await tryCatch(rpcVoicevoxLaunch());
     if (!launchResult.ok || !launchResult.value.ok) {
-      activating.value = false;
-      return "VOICEVOX is not installed.\nDownload from https://voicevox.hiroshiba.jp/";
+      // launch 失敗は (a) VOICEVOX 未インストール / (b) engine binary 欠落 / (c) spawn syscall 失敗
+      // の 3 種。詳細は native の stderr (VoicevoxOps.launch tag) に出る。
+      // 最頻ケースは (a) なのでインストール導線を残しつつ、原因を断定しない文言にする
+      const cause = !launchResult.ok
+        ? launchResult.error
+        : new Error("native VoicevoxLaunch returned ok=false");
+      notify.error(
+        "VOICEVOX engine could not start.\nIf VOICEVOX isn't installed, download it from https://voicevox.hiroshiba.jp/",
+        cause,
+      );
+      return false;
     }
 
     // Engine の起動を待つ
-    if (await waitForEngine()) {
+    const waited = await waitForEngine();
+    if (waited.ok) {
       enabled.value = true;
       void loadSpeakers();
-      activating.value = false;
-      return undefined;
+      return true;
     }
-
-    activating.value = false;
-    return "VOICEVOX Engine startup timed out. Please start VOICEVOX manually.";
+    const timeoutSeconds = (POLL_INTERVAL_MS * POLL_MAX_ATTEMPTS) / 1000;
+    const cause =
+      waited.reason === "rpc-error"
+        ? waited.lastError
+        : new Error(`engine did not respond on /version after ${timeoutSeconds}s`);
+    notify.error("VOICEVOX Engine startup timed out. Please start VOICEVOX manually.", cause);
+    return false;
   }
 
   /** 再生中の音声を停止する */

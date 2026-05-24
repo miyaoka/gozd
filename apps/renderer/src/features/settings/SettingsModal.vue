@@ -90,9 +90,9 @@ function handleGlobalChange(key: string, value: unknown) {
   // VOICEVOX store との同期（store の watch が configSave を発火）
   if (key === "voicevox.enabled") {
     if (value) {
-      void voicevoxStore.activate().then((errorMessage) => {
-        if (errorMessage !== undefined) {
-          // activate 失敗時はトグルを戻す
+      void voicevoxStore.activate().then((ok) => {
+        if (!ok) {
+          // activate 失敗時はトグルを戻す (notify.error は store 側で発火済み)
           globalValues.value[key] = false;
         }
       });

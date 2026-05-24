@@ -220,7 +220,7 @@ public actor PTYRegistry {
   /// - 呼び出し時点で `ptys.isEmpty == true` なら即 return
   /// - そうでなければ Continuation を append し、`remove(id:)` で count==0 到達時に resume
   ///
-  /// `spawn` の id 採番 / `ptys[id]` 登録は `await pty.awaitReady()` より **前** に
+  /// `spawn` の id 採番 / `ptys[id]` 登録は `await awaitReadyPipe(fd:)` より **前** に
   /// actor 排他区間で完了するため、in-flight spawn 中の registry も `!ptys.isEmpty` で
   /// 観測される ( = 即 return しない )。
   public func awaitEmpty() async {

@@ -95,10 +95,8 @@ public actor PTYRegistry {
   // PTY exit 後も残しておいて問題ない。
   private var explicitlyRemovedPtyIds: Set<UInt32> = []
   private var nextId: UInt32 = 1
-  // ptys が空になるのを待つ Continuation 群。`awaitEmpty()` で append し、`remove(id:)`
-  // で count==0 到達時に全 resume する。actor isolation により append / drain は serialize
-  // される。test 側の手書き polling ( `registry.count() == 0` を Task.sleep で待つ ) を
-  // 構造的に消すための accessor。
+  // `awaitEmpty()` の suspended continuation 群。`remove(id:)` で count==0 到達時に
+  // 全 resume する。actor isolation により append / drain は serialize される。
   private var awaitEmptyContinuations: [CheckedContinuation<Void, Never>] = []
 
   public init(
@@ -151,11 +149,10 @@ public actor PTYRegistry {
         continuation.finish()
       }
     )
-    // 子が execve 段階に到達するまで待つ ( CPty.c の ready pipe barrier )。spawn が戻った
-    // 時点では fork 直後で tty が write 可能とは限らないため、ここで barrier を消費して
-    // 「caller は ready 確定 PTY を受け取る」契約に揃える。test 側の 100ms / 150ms 経験的
-    // sleep が **構造的に不要** になる ( = 削除ではなく race の構造的消滅 / issue #630 )。
-    await pty.awaitReady()
+    // state mutation はすべて await の **前** で済ませる。`PTYRegistry` は actor だが、
+    // `await` ごとに re-entrancy が許される (SE-0306) ため、id 採番 → await suspend →
+    // 別 caller が同じ id を観測 → ptys[id] 上書き、という race を防ぐには nextId 進行と
+    // ptys / pidTracker / per-id state の登録を 1 つの actor 排他区間に閉じる必要がある。
     nextId += 1
     ptys[id] = pty
     if !worktreePath.isEmpty {
@@ -168,6 +165,12 @@ public actor PTYRegistry {
 
     let pidTracker = self.pidTracker
     let pidForCleanup = pty.pid
+
+    // ready pipe fd を actor 排他区間内で抽出する。`await awaitReadyPipe(fd:)` は fd
+    // (Int32, Sendable) のみを suspend 越しに保持するため、non-Sendable な `pty` を
+    // sending せずに ready barrier を消費できる ( CLAUDE.md「`@unchecked Sendable` を
+    // 付けない」規律 + Swift 6.2 sending diagnostic 回避 )。
+    let readyPipeFd = pty.takeReadyPipeFd()
 
     // consumer Task: AsyncStream の FIFO 順序保証で「全データ → flush → exit」が確定。
     // detached なので actor の isolation を待たずに即座に for-await を回せる。
@@ -189,6 +192,10 @@ public actor PTYRegistry {
       await self?.remove(id: id)
     }
     consumers[id] = task
+
+    // 子が execve 段階に到達するまで待つ。state mutation は全て完了済なので、ここで
+    // await して actor isolation を解放しても他 caller の spawn と id 採番が衝突しない。
+    await awaitReadyPipe(fd: readyPipeFd)
     return id
   }
 
@@ -208,13 +215,14 @@ public actor PTYRegistry {
     ptys.count
   }
 
-  /// ptys が空になるまで待つ。test 側の手書き polling ( `registry.count() == 0` を sleep
-  /// で待つ ) を構造的に消すための accessor。actor isolation で append / drain は serialize
-  /// されるため race フリー。
+  /// `ptys` が空になるまで待つ。
   ///
-  /// - 既に `ptys.isEmpty == true` なら即 return ( spawn が一度も成功しなかった registry を
-  ///   含む )
-  /// - そうでなければ Continuation を保持し、`remove(id:)` 経由で count==0 到達時に resume
+  /// - 呼び出し時点で `ptys.isEmpty == true` なら即 return
+  /// - そうでなければ Continuation を append し、`remove(id:)` で count==0 到達時に resume
+  ///
+  /// `spawn` の id 採番 / `ptys[id]` 登録は `await pty.awaitReady()` より **前** に
+  /// actor 排他区間で完了するため、in-flight spawn 中の registry も `!ptys.isEmpty` で
+  /// 観測される ( = 即 return しない )。
   public func awaitEmpty() async {
     if ptys.isEmpty { return }
     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in

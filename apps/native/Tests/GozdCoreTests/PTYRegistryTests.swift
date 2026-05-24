@@ -69,16 +69,13 @@ struct PTYRegistryTests {
     )
     #expect(await registry.count() == 1)
 
-    // spawn 自体が ready pipe barrier を消費しているため、kill 前の経験的 sleep は
-    // 構造的に不要 ( issue #630 )。
     await registry.kill(id: id)
 
     await waitUntil(timeout: .seconds(2)) {
       events.exitedIds().contains(id)
     }
     // remove は exit handler 経由で `Task { await self.remove }` で発火する。
-    // actor 内の Continuation accessor で count==0 到達を構造的に待つ ( 手書き polling
-    // を撤去 / issue #630 )。
+    // actor 内の Continuation accessor で count==0 到達を待つ。
     await registry.awaitEmpty()
     #expect(await registry.count() == 0)
   }
@@ -177,6 +174,62 @@ struct PTYRegistryTests {
     await registry.clearAssociations(for: id)
     let stillThere = await registry.consumeExpectedResumeSid(for: id)
     #expect(stillThere == "expected-sid-X")
+  }
+}
+
+// `PTYRegistry.spawn` は actor isolated method で内部に `await awaitReadyPipe(fd:)` を
+// 持つ。actor は `await` ごとに re-entrancy を許す (SE-0306) ため、id 採番 / `ptys[id]`
+// 登録 / `pidTracker` 加入は全て suspend point の **前** で完了する不変条件を持つ。
+// この suite はその不変条件が並列 spawn でも保たれることを直接 verify する。
+//
+// 親 suite `PTYRegistry` は `.serialized` で直列化されており、並列 spawn の race は
+// 構造的に踏めない。本 suite は default の parallel 実行に置き、`withThrowingTaskGroup`
+// で複数 spawn を同時発射した時の id 採番一意性を assert する。
+@Suite("PTYRegistry.ConcurrentSpawn")
+struct PTYRegistryConcurrentSpawnTests {
+  @Test("並列 spawn が一意な ptyId を採番し、並列 remove が actor 上で整合する")
+  func concurrentSpawnYieldsUniqueIds() async throws {
+    testTrace("started")
+    defer { testTrace("ended") }
+    let registry = PTYRegistry(
+      onText: { _, _ in },
+      onExit: { _, _ in }
+    )
+
+    let count = 8
+    let ids = try await withThrowingTaskGroup(of: UInt32.self) { group in
+      for _ in 0..<count {
+        group.addTask {
+          try await registry.spawn(
+            executable: "/bin/echo",
+            args: ["echo", "race"],
+            env: ProcessInfo.processInfo.environment,
+            cwd: "/tmp",
+            rows: 24,
+            cols: 80
+          )
+        }
+      }
+      var collected: [UInt32] = []
+      for try await id in group {
+        collected.append(id)
+      }
+      return collected
+    }
+
+    // 主観点: id 採番一意性 ( actor re-entrancy 経由の `ptys[id]` 上書き race の regression
+    // guard )。
+    #expect(ids.count == count)
+    #expect(
+      Set(ids).count == count,
+      "expected \(count) unique ids, got duplicates in \(ids.sorted())")
+
+    // 副観点: `/bin/echo` × 8 件は即時 _exit するため、8 つの consumer Task が並列に
+    // `remove(id:)` を actor に発射する。`awaitEmpty()` の Continuation flush が並列
+    // remove 経路でも `ptys.isEmpty` 確定後に 1 度だけ resume されることをここで合わせて
+    // 担保する ( single-pty の `cleanupOnKill` test では並列 remove を踏めない )。
+    await registry.awaitEmpty()
+    #expect(await registry.count() == 0)
   }
 }
 

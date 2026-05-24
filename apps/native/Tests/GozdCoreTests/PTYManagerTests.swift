@@ -57,8 +57,8 @@ struct PTYManagerTests {
       onExit: { exit.set($0) }
     )
 
-    // tty が ready になるのを待つ ( CPty.c の ready pipe barrier を PTYManager 経由で
-    // 消費 )。経験的 sleep に頼らず、子が execve 段階に到達したことを構造的に確認する。
+    // 子が execve 段階に到達するまで待つ ( CPty.c の ready pipe barrier を消費 )。
+    // 後段の write は ready 確定後にのみ意味を持つ。
     await pty.awaitReady()
 
     pty.write(Data("ping\n".utf8))

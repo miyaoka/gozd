@@ -71,30 +71,26 @@ public final class PTYManager {
   /// - read が 0 byte ( EOF ) を返す: 子は execve 前に _exit ( login_tty / chdir 失敗 )。
   ///   `onExit` 経路で exit code (124 / 125) が配送されるので test 側はそちらを観測
   ///
-  /// Swift Concurrency の cooperative executor 上で blocking read を呼ぶと thread が
-  /// 拘束されるため、dedicated NSThread に hop して read + close + resume の 3 段で完結
-  /// させる。`DispatchSourceRead` も kqueue 経由で executor stall に巻き込まれ得る
-  /// ため不採用 ( issue #630 の analysis 参照 )。
-  ///
   /// 二重呼び出しは safe ( 2 回目以降は `fd < 0` で即 return )。
+  ///
+  /// actor (`PTYRegistry`) から呼ぶときは class instance を await 越えに sending する
+  /// ことになるため、`takeReadyPipeFd()` で fd を抽出してから自由関数 `awaitReadyPipe`
+  /// に渡す経路を使う ( CLAUDE.md「`@unchecked Sendable` を付けない」規律 + Swift 6.2
+  /// sending diagnostic 回避 )。本 method は PTYManager を直接保持する非 actor caller
+  /// ( `PTYManagerTests` 等 ) 専用。
   public func awaitReady() async {
+    await awaitReadyPipe(fd: takeReadyPipeFd())
+  }
+
+  /// ready pipe fd の所有権を caller に移譲する。1 度だけ呼べる accessor。
+  /// `awaitReady` / `awaitReadyPipe` を経由する代わりに caller 自身で fd を消費する
+  /// 経路 (`PTYRegistry.spawn` から actor 排他区間内で抽出 → 自由関数で blocking
+  /// read) を作るために公開する。所有権が移った後の close 責務は caller 側にある
+  /// (`awaitReadyPipe` 内 close か、caller の独自経路)。
+  public func takeReadyPipeFd() -> Int32 {
     let fd = readyPipeFd
-    if fd < 0 { return }
     readyPipeFd = -1
-    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-      let thread = Thread {
-        var buf: UInt8 = 0
-        while true {
-          let n = Darwin.read(fd, &buf, 1)
-          if n == -1 && errno == EINTR { continue }
-          break
-        }
-        Darwin.close(fd)
-        continuation.resume()
-      }
-      thread.name = "PTYAwaitReady"
-      thread.start()
-    }
+    return fd
   }
 
   /// 子プロセスを PTY に fork して spawn する。
@@ -782,6 +778,33 @@ private func drainPTY(fd: Int32, pid: Int32 = 0, caller: String = "?", onData: (
   return result
 }
 
+
+/// ready pipe fd を消費して 1 byte ( or EOF ) を待つ自由関数。`PTYManager.awaitReady`
+/// と `PTYRegistry.spawn` の両方から呼ばれる SSOT。
+///
+/// blocking read は dedicated NSThread 上で実行し、Swift Concurrency cooperative
+/// executor / GCD pool / kqueue いずれの dispatch 経路にも乗せない。`Continuation` の
+/// resume は read + close 完了時の 1 回のみ。
+///
+/// `fd < 0` ( 未保持 / 既消費 ) なら即 return。fd は所有権が caller から渡された前提で、
+/// 本関数が close 責務を負う。
+func awaitReadyPipe(fd: Int32) async {
+  if fd < 0 { return }
+  await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+    let thread = Thread {
+      var buf: UInt8 = 0
+      while true {
+        let n = Darwin.read(fd, &buf, 1)
+        if n == -1 && errno == EINTR { continue }
+        break
+      }
+      Darwin.close(fd)
+      continuation.resume()
+    }
+    thread.name = "PTYAwaitReady"
+    thread.start()
+  }
+}
 
 private func freeCStrings(
   _ argEntries: [UnsafeMutablePointer<CChar>?],

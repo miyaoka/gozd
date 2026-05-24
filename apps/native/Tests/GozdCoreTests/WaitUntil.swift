@@ -42,9 +42,15 @@ import Testing
 // ( `mach_continuous_time` 基盤、suspend 中も進む ) と `Date` ( system clock、NTP 調整 ) を
 // 並列に記録する。稀な system clock 異常 ( NTP 巻き戻し / sleep wake 後の補正 ) の検知用。
 
+// `lastObserved` を指定すると timeout 時の `Issue.record` message に呼び出し結果を inline
+// する。Bool 履歴 ( `lastTicks` ) だけでは「条件が false」しか分からないため、collector
+// snapshot / counter 値 / state dump 等の補助情報を 1 行で残せる経路を用意する。
+// 評価は timeout 確定時の 1 度のみ ( polling 中には呼ばない )。
+
 func waitUntil(
   timeout: Duration,
   description: String = "condition",
+  lastObserved: (@Sendable () -> String)? = nil,
   _ condition: @escaping @Sendable () -> Bool,
   sourceLocation: SourceLocation = #_sourceLocation
 ) async {
@@ -92,11 +98,12 @@ func waitUntil(
   case .resolved:
     return
   case .timeout(let elapsed, let tickCount, let history):
+    let observedSuffix = lastObserved.map { " observed: \($0())" } ?? ""
     Issue.record(
       """
       waitUntil timed out after \(timeout) waiting for: \(description). \
       elapsed=\(elapsed) tickCount=\(tickCount). \
-      last ticks: [\(history)]
+      last ticks: [\(history)]\(observedSuffix)
       """,
       sourceLocation: sourceLocation)
   }

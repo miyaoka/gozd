@@ -19,8 +19,7 @@ struct FSWatcherTests {
     try watcher.start()
     defer { watcher.stop() }
 
-    // FSEvents が ready になるまで僅かに待つ ( cooperative executor を踏まない
-    // dedicated NSThread 経由 / issue #630 )。
+    // FSEvents が ready になるまで僅かに待つ。
     await sleepThreaded(.milliseconds(300))
 
     let testFile = tmpDir.appendingPathComponent("hello.txt")

@@ -689,17 +689,19 @@ private func initGitRepo(at dir: URL) async throws {
   try await runGitCmd(["init", "-q", "-b", "main"], cwd: dir)
 }
 
-// `waitUntil` ( WaitUntil.swift / dedicated NSThread 上の polling ) に乗せた wrapper。
-// Task.sleep ベースの手書き polling を撤去し、cooperative executor stall 経路から退避する
-// ( issue #630 )。timeout 時は `waitUntil` 経由で `Issue.record` に inline 出力されるため、
-// 旧 `EventTimeout` throw による「観測値を error message に乗せる」契約は `waitUntil` 側の
-// lastTicks 履歴 ( 直近 0.5s 分 ) に置き換わる。
+// `waitUntil` ( dedicated NSThread polling ) の wrapper。timeout 時には `lastObserved`
+// 経路で collector snapshot / counter 値を inline 出力し、tick 履歴 ( true/false 列 ) では
+// 表せない「何が来たか / 実値が幾つか」を Issue.record の message に残す。
 private func waitForEvent(
   _ collector: EventNameCollector,
   timeout: Duration = .seconds(2),
   matching predicate: @escaping @Sendable (String) -> Bool
 ) async {
-  await waitUntil(timeout: timeout, description: "event matching predicate") {
+  await waitUntil(
+    timeout: timeout,
+    description: "event matching predicate",
+    lastObserved: { collector.snapshot().description }
+  ) {
     collector.snapshot().contains(where: predicate)
   }
 }
@@ -709,7 +711,11 @@ private func waitForCount(
   atLeast target: Int,
   timeout: Duration = .seconds(2)
 ) async {
-  await waitUntil(timeout: timeout, description: "count >= \(target)") {
+  await waitUntil(
+    timeout: timeout,
+    description: "count >= \(target)",
+    lastObserved: { "count=\(counter.value)" }
+  ) {
     counter.value >= target
   }
 }

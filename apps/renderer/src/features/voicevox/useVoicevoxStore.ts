@@ -226,12 +226,12 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
 
   /**
    * VOICEVOX を有効化する。
-   * Engine が起動していなければアプリの起動を試み、
-   * 未インストールなら失敗メッセージを返す。
-   * @returns 失敗時のメッセージ。成功時は undefined
+   * Engine が起動していなければアプリの起動を試み、失敗時は store 内で notify.error を発火する
+   * (呼び出し側で表示責務を持たないように SSOT を store に集約する)。
+   * @returns 成功なら true、失敗 (未インストール / 起動タイムアウト 等) なら false
    */
-  async function activate(): Promise<string | undefined> {
-    if (activating.value) return undefined;
+  async function activate(): Promise<boolean> {
+    if (activating.value) return enabled.value;
     activating.value = true;
 
     // Engine が既に起動しているかチェック
@@ -239,7 +239,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
       enabled.value = true;
       void loadSpeakers();
       activating.value = false;
-      return undefined;
+      return true;
     }
 
     // アプリの起動を試みる
@@ -249,7 +249,10 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
       // launch 失敗は (a) VOICEVOX 未インストール / (b) engine binary 欠落 / (c) spawn syscall 失敗
       // の 3 種。詳細は native の stderr (VoicevoxOps.launch tag) に出る。
       // 最頻ケースは (a) なのでインストール導線を残しつつ、原因を断定しない文言にする
-      return "VOICEVOX engine could not start.\nIf VOICEVOX isn't installed, download it from https://voicevox.hiroshiba.jp/";
+      notify.error(
+        "VOICEVOX engine could not start.\nIf VOICEVOX isn't installed, download it from https://voicevox.hiroshiba.jp/",
+      );
+      return false;
     }
 
     // Engine の起動を待つ
@@ -257,11 +260,12 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
       enabled.value = true;
       void loadSpeakers();
       activating.value = false;
-      return undefined;
+      return true;
     }
 
     activating.value = false;
-    return "VOICEVOX Engine startup timed out. Please start VOICEVOX manually.";
+    notify.error("VOICEVOX Engine startup timed out. Please start VOICEVOX manually.");
+    return false;
   }
 
   /** 再生中の音声を停止する */

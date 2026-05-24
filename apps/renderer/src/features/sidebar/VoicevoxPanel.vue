@@ -8,17 +8,6 @@
 import { useVoicevoxStore, VoicevoxSpeakerSelect } from "../voicevox";
 
 const voicevoxStore = useVoicevoxStore();
-
-const emit = defineEmits<{
-  error: [message: string];
-}>();
-
-async function handleActivate() {
-  const errorMessage = await voicevoxStore.activate();
-  if (errorMessage) {
-    emit("error", errorMessage);
-  }
-}
 </script>
 
 <template>
@@ -77,7 +66,7 @@ async function handleActivate() {
       <button
         class="flex w-full items-center justify-center gap-2 text-xs text-zinc-500 hover:text-zinc-300"
         :disabled="voicevoxStore.activating"
-        @click="handleActivate"
+        @click="voicevoxStore.activate()"
       >
         <span
           class="size-4 shrink-0"

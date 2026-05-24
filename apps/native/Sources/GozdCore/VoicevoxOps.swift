@@ -134,15 +134,35 @@ public enum VoicevoxOps {
     // Pipe を介さないため pipe 詰まりも構造的に起きない
     process.terminationHandler = { proc in
       // spawn 直後に即死した場合、起動成功扱いで return した後 renderer 側は 10 秒の
-      // waitForEngine タイムアウトを踏む。stderr に痕跡を残して原因切り分けを可能にする
+      // waitForEngine タイムアウトを踏む。stderr に痕跡を残して原因切り分けを可能にする。
+      // 「死んだ engine 参照」を残さないよう、自分が現在の保持対象なら nil に戻す
+      spawnedEngine.withLock { holder in
+        if holder === proc { holder = nil }
+      }
       StderrLog.write(
         tag: "VoicevoxOps.engine",
         "exited pid=\(proc.processIdentifier) status=\(proc.terminationStatus) reason=\(proc.terminationReason.rawValue)"
       )
     }
+
+    // race protection: checkEngine と run() の間に開く async 窓を、spawnedEngine 占有で塞ぐ。
+    // 既に spawn 済みかつ生存している process があれば自分は走らせず true で抜ける。
+    // 並行 launch() のうち先に lock を取った方だけが run() に進む
+    let canSpawn = spawnedEngine.withLock { holder -> Bool in
+      if let existing = holder, existing.isRunning {
+        return false
+      }
+      holder = process
+      return true
+    }
+    guard canSpawn else {
+      StderrLog.write(
+        tag: "VoicevoxOps.launch", "concurrent spawn in-flight; skipping")
+      return true
+    }
+
     do {
       try process.run()
-      spawnedEngine.withLock { $0 = process }
       StderrLog.write(
         tag: "VoicevoxOps.launch",
         "spawned engine pid=\(process.processIdentifier) at \(engineUrl.path)"
@@ -150,6 +170,11 @@ public enum VoicevoxOps {
       // detach: waitUntilExit は呼ばない。engine は親 (gozd) より長生きしてよい
       return true
     } catch {
+      // run() が throw した場合は予約した slot を戻す。terminationHandler は run() 失敗時に
+      // 呼ばれないため、ここで明示的に nil に戻す必要がある
+      spawnedEngine.withLock { holder in
+        if holder === process { holder = nil }
+      }
       StderrLog.write(tag: "VoicevoxOps.launch", "failed to spawn engine: \(error)")
       return false
     }

@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 #
 # CI log の `[TEST-TRACE]` waitUntil tick 行を test 横断で時系列ソートし、
-# 「同時刻 stall window」を集計する。
+# 「同時刻 stall window」を集計する。「どの test の tick がどの時刻に発火したか」
+# 「stall window の幅 ( tick 間 gap が閾値を超える区間 ) はどれか」を 1 view で出す。
 #
-# issue ( #566 ) で観測した stall は SocketServer / PTYManager / PTYRegistry の
-# 並列 test が同一 window ( +0s〜+2.04s ) で `Task.sleep(50ms)` が全停止する pattern
-# だった。本スクリプトは「どの test の tick がどの時刻に発火したか」「stall window
-# の幅 ( tick 間 gap が閾値を超える区間 ) はどれか」を 1 view で出す。
-#
-# 対応 helper: `waitUntil` ( Task.sleep 経路 ) / `waitUntilDispatch` ( 旧版、観測無効と
-# 判明 ) / `waitUntilThreaded` ( polling loop 全体を GCD thread 上で完結 )。kind 列で区別。
+# 対応 helper: `waitUntil` ( dedicated NSThread polling、`mode=threaded` token 付き )。
+# perl regex は `waitUntilThreaded` / `waitUntilDispatch` / `waitUntil` ( mode token なし ) も
+# OR で拾い、kind 列を `waitUntil-threaded` / `waitUntilThreaded` / `waitUntilDispatch` /
+# `waitUntil` の 4 値に正規化する。
 #
 # 入力: CI log を stdin に流すか、第 1 引数に log file path を渡す。
 # 出力:
@@ -34,17 +32,19 @@ STALL_THRESHOLD="${STALL_THRESHOLD:-0.5}"
 input="${1:-/dev/stdin}"
 
 # tick 行を `elapsed<TAB>wall<TAB>test<TAB>kind<TAB>tick<TAB>result` に正規化する。
-# trace 行例 ( wall= は新版で付く。旧 trace との互換のためオプショナル ):
+# trace 行例 ( `mode=...` token は現行版 `waitUntil` で付く。旧 trace との互換のためオプショナル ):
+#   2026-05-24T09:00:00.0000000Z [TEST-TRACE +0.004 seconds test=writeRoundTrip()] waitUntil mode=threaded tick=1 elapsed=2.3875e-05 seconds wall=800792337.6 result=false
 #   2026-05-18T09:40:24.2295220Z [TEST-TRACE +0.004299333 seconds test=receivesMultipleLines()] waitUntil tick=1 elapsed=2.3875e-05 seconds wall=800792337.6 result=false
+# mode token がある行は kind 列に `<prefix>-<mode>` ( 例 `waitUntil-threaded` ) として畳み込む。
 extract() {
   perl -ne '
-    next unless /\[TEST-TRACE \+([0-9.eE+\-]+) seconds test=(\S+?)\] (waitUntilThreaded|waitUntilDispatch|waitUntil) tick=(\d+) elapsed=\S+ seconds (?:wall=(\S+) )?result=(true|false)/;
+    next unless /\[TEST-TRACE \+([0-9.eE+\-]+) seconds test=(\S+?)\] (waitUntilThreaded|waitUntilDispatch|waitUntil)(?: mode=(\S+))? tick=(\d+) elapsed=\S+ seconds (?:wall=(\S+) )?result=(true|false)/;
     my $elapsed = $1;
     my $name    = $2;
-    my $kind    = $3;
-    my $tick    = $4;
-    my $wall    = defined($5) ? $5 : "";
-    my $result  = $6;
+    my $kind    = defined($4) ? "$3-$4" : $3;
+    my $tick    = $5;
+    my $wall    = defined($6) ? $6 : "";
+    my $result  = $7;
     print join("\t", $elapsed, $wall, $name, $kind, $tick, $result), "\n";
   ' "$1" | sort -n -k1,1
 }

@@ -178,7 +178,8 @@ function onPreviewToggle(e: ToggleEvent) {
 // HTML popover が popover="auto" で持っていた ESC dismiss の性質を自前で代替する。
 // 他の popover (BlamePopover 等) や dialog (SettingsModal 等) が前面にあるときはそちらに ESC を譲り、
 // すべて閉じた次の ESC で preview を閉じる。preventDefault は macOS の NSBeep 抑止に必須。
-useEventListener(window, "keydown", (e: KeyboardEvent) => {
+useEventListener(document, "keydown", (e: KeyboardEvent) => {
+  if (e.defaultPrevented) return;
   if (isIMEActive(e) || e.key !== "Escape") return;
   if (!previewOpen.value) return;
   const otherPopoverOpen = Array.from(document.querySelectorAll<HTMLElement>(":popover-open")).some(

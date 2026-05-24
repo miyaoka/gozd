@@ -82,7 +82,6 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 - 外側クリックでは閉じない
 - ESC キーで閉じる。ただし他の popover (BlamePopover 等) や dialog (SettingsModal 等) が前面にあるときはそれらが優先され、すべて閉じた次の ESC で preview が閉じる
 - IME 変換中の ESC（変換キャンセル）では閉じない
-- input / textarea にフォーカスがある間は ESC で閉じない
 
 ## データ取得
 

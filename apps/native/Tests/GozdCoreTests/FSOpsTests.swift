@@ -95,36 +95,48 @@ struct FSOpsReadDirTests {
     }
   }
 
-  @Test(".git directory は走査結果から除外される (通常 repo)")
-  func excludesDotGitDirectory() async throws {
+  @Test(".git directory は除外、近傍名 (.git*, .gita 等) は残る (完全一致境界)")
+  func excludesDotGitDirectoryOnly() async throws {
     let dir = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
 
+    // 除外対象
     try FileManager.default.createDirectory(
       at: URL(fileURLWithPath: (dir as NSString).appendingPathComponent(".git")),
       withIntermediateDirectories: true)
-    let keep = (dir as NSString).appendingPathComponent("keep.txt")
-    try "x".write(to: URL(fileURLWithPath: keep), atomically: true, encoding: .utf8)
+    // .git* prefix で誤巻き込みされないか、部分一致で誤検出されないかの境界 fixture
+    for name in [".gitignore", ".gitkeep", ".gitattributes", ".gita", "git", "agit"] {
+      let p = (dir as NSString).appendingPathComponent(name)
+      try "x".write(to: URL(fileURLWithPath: p), atomically: true, encoding: .utf8)
+    }
 
     let entries = try await FSOps.readDir(dir: dir, path: ".")
-    #expect(!entries.contains { $0.name == ".git" })
-    #expect(entries.contains { $0.name == "keep.txt" })
+    let names = Set(entries.map { $0.name })
+    #expect(!names.contains(".git"))
+    for name in [".gitignore", ".gitkeep", ".gitattributes", ".gita", "git", "agit"] {
+      #expect(names.contains(name), "expected entry \(name) to remain")
+    }
   }
 
-  @Test(".git file (worktree の gitlink) も除外される")
-  func excludesDotGitFile() async throws {
+  @Test(".git file (worktree gitlink) は除外、近傍名は残る (完全一致境界)")
+  func excludesDotGitFileOnly() async throws {
     let dir = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
 
     let gitFile = (dir as NSString).appendingPathComponent(".git")
     try "gitdir: /tmp/somewhere/.git/worktrees/foo\n".write(
       to: URL(fileURLWithPath: gitFile), atomically: true, encoding: .utf8)
-    let keep = (dir as NSString).appendingPathComponent("keep.txt")
-    try "x".write(to: URL(fileURLWithPath: keep), atomically: true, encoding: .utf8)
+    for name in [".gitignore", ".gitkeep", ".gita"] {
+      let p = (dir as NSString).appendingPathComponent(name)
+      try "x".write(to: URL(fileURLWithPath: p), atomically: true, encoding: .utf8)
+    }
 
     let entries = try await FSOps.readDir(dir: dir, path: ".")
-    #expect(!entries.contains { $0.name == ".git" })
-    #expect(entries.contains { $0.name == "keep.txt" })
+    let names = Set(entries.map { $0.name })
+    #expect(!names.contains(".git"))
+    for name in [".gitignore", ".gitkeep", ".gita"] {
+      #expect(names.contains(name), "expected entry \(name) to remain")
+    }
   }
 
   @Test("git repo 内では .gitignore に一致する entry の isIgnored=true")
@@ -157,10 +169,26 @@ private func runGitForTest(args: [String], cwd: String) async throws {
   process.arguments = ["git"] + args
   process.currentDirectoryURL = URL(fileURLWithPath: cwd)
   process.environment = ProcessInfo.processInfo.environment
-  process.standardOutput = Pipe()
-  process.standardError = Pipe()
+  // stdout / stderr を捨てる。Pipe を作って読まないと OS の PIPE buffer 枯渇で deadlock するため
+  // nullDevice を割り当てる。
+  process.standardOutput = FileHandle.nullDevice
+  process.standardError = FileHandle.nullDevice
   try process.run()
   process.waitUntilExit()
+  if process.terminationStatus != 0 {
+    throw GitTestHelperError.nonZeroExit(
+      args: args, status: process.terminationStatus)
+  }
+}
+
+private enum GitTestHelperError: Error, CustomStringConvertible {
+  case nonZeroExit(args: [String], status: Int32)
+  var description: String {
+    switch self {
+    case .nonZeroExit(let args, let status):
+      return "git \(args.joined(separator: " ")) failed with exit code \(status)"
+    }
+  }
 }
 
 // MARK: - Helpers

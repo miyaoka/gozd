@@ -89,9 +89,9 @@ public enum FSOps {
       includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
       options: []
     )
-    // git 本体が `dir.c` で ".git" を gitignore とは独立にハードコード除外している
-    // ("we ignore the name \".git\" (even if it is not a directory). That likely will not change.")
-    // のに合わせ、worktree の `.git` gitlink ファイルも通常 repo の `.git` directory も等しく隠す。
+    // `.git` (directory / gitlink file 両方) はツリーから完全一致で除外する。
+    // 仕様契約は docs/filer.md「除外エントリ」を参照。
+    // gitignore 経路とは独立。checkIgnore に渡す前に落とし、無駄な git 呼び出しも省く。
     let entries = rawEntries.filter { $0.lastPathComponent != ".git" }
     let listed: [(URL, String)] = entries.map { entry in
       let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])

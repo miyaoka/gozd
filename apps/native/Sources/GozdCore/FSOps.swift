@@ -84,11 +84,15 @@ public enum FSOps {
   public static func readDir(dir: String, path: String) async throws -> [FSEntry] {
     let target = try resolveSafe(dir: dir, path: path)
     let url = URL(fileURLWithPath: target)
-    let entries = try FileManager.default.contentsOfDirectory(
+    let rawEntries = try FileManager.default.contentsOfDirectory(
       at: url,
       includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
       options: []
     )
+    // git 本体が `dir.c` で ".git" を gitignore とは独立にハードコード除外している
+    // ("we ignore the name \".git\" (even if it is not a directory). That likely will not change.")
+    // のに合わせ、worktree の `.git` gitlink ファイルも通常 repo の `.git` directory も等しく隠す。
+    let entries = rawEntries.filter { $0.lastPathComponent != ".git" }
     let listed: [(URL, String)] = entries.map { entry in
       let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
       let type: String

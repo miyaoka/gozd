@@ -95,6 +95,38 @@ struct FSOpsReadDirTests {
     }
   }
 
+  @Test(".git directory は走査結果から除外される (通常 repo)")
+  func excludesDotGitDirectory() async throws {
+    let dir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
+
+    try FileManager.default.createDirectory(
+      at: URL(fileURLWithPath: (dir as NSString).appendingPathComponent(".git")),
+      withIntermediateDirectories: true)
+    let keep = (dir as NSString).appendingPathComponent("keep.txt")
+    try "x".write(to: URL(fileURLWithPath: keep), atomically: true, encoding: .utf8)
+
+    let entries = try await FSOps.readDir(dir: dir, path: ".")
+    #expect(!entries.contains { $0.name == ".git" })
+    #expect(entries.contains { $0.name == "keep.txt" })
+  }
+
+  @Test(".git file (worktree の gitlink) も除外される")
+  func excludesDotGitFile() async throws {
+    let dir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
+
+    let gitFile = (dir as NSString).appendingPathComponent(".git")
+    try "gitdir: /tmp/somewhere/.git/worktrees/foo\n".write(
+      to: URL(fileURLWithPath: gitFile), atomically: true, encoding: .utf8)
+    let keep = (dir as NSString).appendingPathComponent("keep.txt")
+    try "x".write(to: URL(fileURLWithPath: keep), atomically: true, encoding: .utf8)
+
+    let entries = try await FSOps.readDir(dir: dir, path: ".")
+    #expect(!entries.contains { $0.name == ".git" })
+    #expect(entries.contains { $0.name == "keep.txt" })
+  }
+
   @Test("git repo 内では .gitignore に一致する entry の isIgnored=true")
   func gitIgnoreReflectedInReadDir() async throws {
     let dir = try makeTempDir()

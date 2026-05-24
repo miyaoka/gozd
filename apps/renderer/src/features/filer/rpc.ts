@@ -11,12 +11,19 @@ import {
   FsUnwatchResponse,
   FsWatchRequest,
   FsWatchResponse,
+  GitLsTreeRequest,
+  GitLsTreeResponse,
 } from "@gozd/proto";
 
 import { rpc } from "../../shared/rpc";
 
 export const rpcFsReadDir = (req: FsReadDirRequest) =>
   rpc("/fs/readDir", req, FsReadDirRequest, FsReadDirResponse);
+
+// snapshot mode (git-graph でコミット選択中) の filer が呼ぶ。
+// hash 必須。空文字は Swift 側で reject される。
+export const rpcGitLsTree = (req: GitLsTreeRequest) =>
+  rpc("/git/lsTree", req, GitLsTreeRequest, GitLsTreeResponse);
 
 export const rpcFsReadFile = (req: FsReadFileRequest) =>
   rpc("/fs/readFile", req, FsReadFileRequest, FsReadFileResponse);

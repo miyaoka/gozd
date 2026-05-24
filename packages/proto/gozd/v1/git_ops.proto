@@ -339,3 +339,28 @@ message GitLogLineResponse {
   repeated GitCommit commits = 1;
 }
 
+// gitLsTree: 指定コミットの tree から 1 階層分のエントリを返す。
+//
+// filer の snapshot mode (git-graph でコミット選択中) が呼ぶ。`git ls-tree -z <hash> <path>/`
+// に対応し、`path` 末尾 `/` を Swift 側で必ず付与する規約 (末尾 `/` を外すと「該当 path の
+// エントリ 1 件」が返って 1 階層分の列挙にならないため)。`path` が空文字 ("") なら repo root の
+// 1 階層分を返す。
+//
+// type は "file" / "directory" / "symlink" / "submodule" のいずれか (git mode → 文字列写像は
+// Swift `GitOps.lsTree` の SSOT に置く)。FsReadDirEntry とフィールド名を揃え、renderer 側の
+// FileEntry 構築経路を共通化する (snapshot mode で `is_ignored` は意味を持たないため省略)。
+message GitLsTreeRequest {
+  string dir = 1;
+  string hash = 2;
+  string path = 3;
+}
+
+message GitTreeEntry {
+  string name = 1;
+  string type = 2;
+}
+
+message GitLsTreeResponse {
+  repeated GitTreeEntry entries = 1;
+}
+

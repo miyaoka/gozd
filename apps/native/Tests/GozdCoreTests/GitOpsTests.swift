@@ -1005,7 +1005,372 @@ struct GitOpsBlameLineTests {
   }
 }
 
+@Suite("GitOps.parseLsTree")
+struct GitOpsParseLsTreeTests {
+  @Test("空入力は空配列")
+  func empty() throws {
+    let result = try parseLsTree(Data())
+    #expect(result.isEmpty)
+  }
+
+  @Test("blob は kind: 'file' になる")
+  func blobEntry() throws {
+    let raw = "100644 blob abcdef\tREADME.md\0"
+    let result = try parseLsTree(Data(raw.utf8))
+    #expect(result == [GitTreeEntryInfo(name: "README.md", type: "file")])
+  }
+
+  @Test("tree は kind: 'directory' になる")
+  func treeEntry() throws {
+    let raw = "040000 tree abcdef\tsrc\0"
+    let result = try parseLsTree(Data(raw.utf8))
+    #expect(result == [GitTreeEntryInfo(name: "src", type: "directory")])
+  }
+
+  @Test("mode 120000 は kind: 'symlink' になる")
+  func symlinkMode() throws {
+    let raw = "120000 blob abcdef\tlink\0"
+    let result = try parseLsTree(Data(raw.utf8))
+    #expect(result == [GitTreeEntryInfo(name: "link", type: "symlink")])
+  }
+
+  @Test("mode 160000 (gitlink) は kind: 'submodule' になる")
+  func submoduleMode() throws {
+    let raw = "160000 commit abcdef\tvendor\0"
+    let result = try parseLsTree(Data(raw.utf8))
+    #expect(result == [GitTreeEntryInfo(name: "vendor", type: "submodule")])
+  }
+
+  @Test("末尾 / 付き呼び出しで <parent>/<basename> 形式の path から basename だけ抽出する")
+  func basenameExtraction() throws {
+    let raw = "100644 blob abcdef\tdocs/intro.md\0"
+    let result = try parseLsTree(Data(raw.utf8))
+    #expect(result == [GitTreeEntryInfo(name: "intro.md", type: "file")])
+  }
+
+  @Test("複数 record は name 順にソートして返す")
+  func sortedByName() throws {
+    let raw = """
+      100644 blob aaaa\tz.md\0\
+      040000 tree bbbb\tapps\0\
+      100644 blob cccc\ta.md\0
+      """
+    let result = try parseLsTree(Data(raw.utf8))
+    #expect(result.map { $0.name } == ["a.md", "apps", "z.md"])
+  }
+
+  @Test("TAB 不在の record は unexpectedOutput で throw する (silent skip しない)")
+  func missingTab() {
+    let raw = "100644 blob abcdef README.md\0"
+    do {
+      _ = try parseLsTree(Data(raw.utf8))
+      Issue.record("expected throw, got success")
+    } catch GitError.unexpectedOutput(let msg) {
+      #expect(msg.contains("missing TAB"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("非 UTF-8 bytes は unexpectedOutput で throw する (lossy U+FFFD 置換を許さない)")
+  func nonUtf8Input() {
+    // 0xFF 0xFE は UTF-8 として不正。`String(decoding:as:)` は U+FFFD に置換するが、
+    // `String(bytes:encoding:)` は nil を返すので throw に倒す。
+    let data = Data([0xFF, 0xFE, 0x00])
+    do {
+      _ = try parseLsTree(data)
+      Issue.record("expected throw, got success")
+    } catch GitError.unexpectedOutput(let msg) {
+      #expect(msg.contains("non-UTF-8"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("header の SP 区切りフィールドが 3 でない record は throw する")
+  func malformedHeader() {
+    let raw = "100644 blob\tREADME.md\0"
+    do {
+      _ = try parseLsTree(Data(raw.utf8))
+      Issue.record("expected throw, got success")
+    } catch GitError.unexpectedOutput(let msg) {
+      #expect(msg.contains("3 SP-delimited"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+}
+
+@Suite("GitOps.typeFromGitMode")
+struct GitOpsTypeFromGitModeTests {
+  @Test("040000 は directory")
+  func directory() {
+    #expect(typeFromGitMode("040000") == "directory")
+  }
+
+  @Test("120000 は symlink")
+  func symlink() {
+    #expect(typeFromGitMode("120000") == "symlink")
+  }
+
+  @Test("160000 は submodule")
+  func submodule() {
+    #expect(typeFromGitMode("160000") == "submodule")
+  }
+
+  @Test("100644 / 100755 / unknown はすべて file に倒れる")
+  func file() {
+    #expect(typeFromGitMode("100644") == "file")
+    #expect(typeFromGitMode("100755") == "file")
+    #expect(typeFromGitMode("") == "file")
+    #expect(typeFromGitMode("999999") == "file")
+  }
+}
+
+@Suite("GitOps.isAllZeroHex")
+struct GitOpsIsAllZeroHexTests {
+  @Test("全て 0 の文字列は true")
+  func allZero() {
+    #expect(isAllZeroHex("0000000000000000000000000000000000000000"))
+    #expect(isAllZeroHex("0"))
+  }
+
+  @Test("非 0 文字を含むと false")
+  func notAllZero() {
+    #expect(!isAllZeroHex("0000000000000000000000000000000000000001"))
+    #expect(!isAllZeroHex("abc"))
+  }
+
+  @Test("空文字は false (UNCOMMITTED_HASH ではない)")
+  func emptyString() {
+    #expect(!isAllZeroHex(""))
+  }
+}
+
+@Suite("GitOps.validateRelPath")
+struct GitOpsValidateRelPathTests {
+  @Test("空文字は通過する (root 指定用)")
+  func emptyPath() throws {
+    try validateRelPath("")
+  }
+
+  @Test("通常の相対 path は通過する")
+  func normalPath() throws {
+    try validateRelPath("src/foo.ts")
+    try validateRelPath("docs")
+  }
+
+  @Test("末尾 / 付きの path も通過する (lsTree 規約)")
+  func trailingSlash() throws {
+    try validateRelPath("src/")
+  }
+
+  @Test("内部二重 `/` は素通り (git の path normalization に委ねる契約)")
+  func internalDoubleSlash() throws {
+    // validateRelPath の主目的は option 注入 / 絶対パス / `..` traversal 防御で、
+    // path normalization は git に委ねる契約。`"foo//"` / `"a//b"` のような空 component を
+    // 含む path は素通り (throw しない) ことを test で固定し、将来の reject 変更を regression
+    // で検出できるようにする。
+    try validateRelPath("foo//")
+    try validateRelPath("a//b")
+  }
+
+  @Test("`-` 始まりは option 注入として reject")
+  func leadingDash() {
+    do {
+      try validateRelPath("-rf")
+      Issue.record("expected throw")
+    } catch GitError.unexpectedOutput(let msg) {
+      #expect(msg.contains("leading '-'"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("`/` 始まりは絶対パスとして reject")
+  func absolutePath() {
+    do {
+      try validateRelPath("/etc/passwd")
+      Issue.record("expected throw")
+    } catch GitError.unexpectedOutput(let msg) {
+      #expect(msg.contains("absolute"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("path component に `..` を含むものは traversal として reject")
+  func parentTraversal() {
+    do {
+      try validateRelPath("../../etc/passwd")
+      Issue.record("expected throw")
+    } catch GitError.unexpectedOutput(let msg) {
+      #expect(msg.contains("traversal"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+    do {
+      try validateRelPath("foo/../bar")
+      Issue.record("expected throw")
+    } catch GitError.unexpectedOutput {
+      // ok
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("制御文字 (\\0 / \\n / \\r) を含むものは reject")
+  func controlCharacters() {
+    do {
+      try validateRelPath("foo\0bar")
+      Issue.record("expected throw")
+    } catch GitError.unexpectedOutput {
+      // ok
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+    do {
+      try validateRelPath("foo\nbar")
+      Issue.record("expected throw")
+    } catch GitError.unexpectedOutput {
+      // ok
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+}
+
+@Suite("GitOps.lsTree (integration)")
+struct GitOpsLsTreeTests {
+  @Test("空文字 hash は unexpectedOutput で reject")
+  func emptyHash() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    do {
+      _ = try await GitOps.lsTree(dir: dir.path, hash: "", path: "")
+      Issue.record("expected throw")
+    } catch GitError.unexpectedOutput(let msg) {
+      #expect(msg.contains("must be specified"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("UNCOMMITTED_HASH (all-zero hex) は明示 reject")
+  func allZeroHash() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    do {
+      _ = try await GitOps.lsTree(
+        dir: dir.path, hash: "0000000000000000000000000000000000000000", path: "")
+      Issue.record("expected throw")
+    } catch GitError.unexpectedOutput(let msg) {
+      #expect(msg.contains("all-zero"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("`-` 始まり path は reject")
+  func dashPath() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    do {
+      _ = try await GitOps.lsTree(
+        dir: dir.path, hash: "0123456789abcdef0123456789abcdef01234567", path: "-rf")
+      Issue.record("expected throw")
+    } catch GitError.unexpectedOutput(let msg) {
+      #expect(msg.contains("leading '-'"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("repo root の 1 階層を file / directory 込みで返す")
+  func rootListing() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    try "hello".write(
+      to: dir.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+    try FileManager.default.createDirectory(
+      at: dir.appendingPathComponent("src"), withIntermediateDirectories: false)
+    try "x".write(
+      to: dir.appendingPathComponent("src/a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "."], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
+
+    let hash = try await currentHeadHash(dir: dir.path)
+    let entries = try await GitOps.lsTree(dir: dir.path, hash: hash, path: "")
+
+    #expect(entries.contains { $0.name == "README.md" && $0.type == "file" })
+    #expect(entries.contains { $0.name == "src" && $0.type == "directory" })
+  }
+
+  @Test("path 指定で配下の 1 階層を返す (末尾 / は自動付与)")
+  func subdirListing() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    try FileManager.default.createDirectory(
+      at: dir.appendingPathComponent("docs"), withIntermediateDirectories: false)
+    try "intro".write(
+      to: dir.appendingPathComponent("docs/intro.md"), atomically: true, encoding: .utf8)
+    try "guide".write(
+      to: dir.appendingPathComponent("docs/guide.md"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "."], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
+
+    let hash = try await currentHeadHash(dir: dir.path)
+    let entries = try await GitOps.lsTree(dir: dir.path, hash: hash, path: "docs")
+    #expect(entries.map { $0.name } == ["guide.md", "intro.md"])
+    #expect(entries.allSatisfy { $0.type == "file" })
+  }
+
+  @Test("symlink (mode 120000) は kind: 'symlink' として返る")
+  func symlinkEntry() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    try "target".write(
+      to: dir.appendingPathComponent("target.txt"), atomically: true, encoding: .utf8)
+    try FileManager.default.createSymbolicLink(
+      at: dir.appendingPathComponent("link.txt"),
+      withDestinationURL: URL(fileURLWithPath: "target.txt"))
+    try await runTestGit(args: ["add", "."], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
+
+    let hash = try await currentHeadHash(dir: dir.path)
+    let entries = try await GitOps.lsTree(dir: dir.path, hash: hash, path: "")
+    #expect(entries.contains { $0.name == "link.txt" && $0.type == "symlink" })
+  }
+
+  @Test("存在しない hash は git の commandFailed で throw する (silent fallback しない)")
+  func nonExistentHash() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    do {
+      _ = try await GitOps.lsTree(
+        dir: dir.path, hash: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", path: "")
+      Issue.record("expected throw")
+    } catch GitError.commandFailed {
+      // ok: git 自身が `fatal: Not a valid object name` で reject する
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+}
+
 // MARK: - Helpers
+
+private func currentHeadHash(dir: String) async throws -> String {
+  let stdout = try await runGit(args: ["rev-parse", "HEAD"], cwd: dir)
+  return String(decoding: stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+}
 
 private func makeTempDir() throws -> URL {
   let raw = FileManager.default.temporaryDirectory

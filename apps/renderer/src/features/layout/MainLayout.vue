@@ -15,7 +15,7 @@
 </doc>
 
 <script setup lang="ts">
-import { useWindowSize } from "@vueuse/core";
+import { useEventListener, useWindowSize } from "@vueuse/core";
 import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
@@ -173,6 +173,16 @@ function closePreview() {
 function onPreviewToggle(e: ToggleEvent) {
   previewOpen.value = e.newState === "open";
 }
+
+// ESC で preview を閉じる。popover="manual" で OS の自動 dismiss が無いため自前で処理する。
+// 他の popover (BlamePopover 等) や dialog (SettingsModal 等) が開いている間はそちらに ESC を譲り、
+// 全てが閉じた次の ESC で preview を閉じる。
+useEventListener(window, "keydown", (e: KeyboardEvent) => {
+  if (e.isComposing || e.key !== "Escape") return;
+  if (!previewOpen.value) return;
+  if (document.querySelector(":popover-open:not(._preview-popover), dialog[open]")) return;
+  closePreview();
+});
 
 // ファイル選択時に Preview を自動オープン (path 軸で識別; selection object identity の発火は避ける)
 watch(

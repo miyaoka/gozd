@@ -7,12 +7,13 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 - ResizeHandle で上下の比率をリサイズ可能
 - git リポジトリでない場合は Filer のみ表示
 - FilerPane の reveal は worktreeStore.revealVersion を内部で購読しているため props 経由不要
-- ChangesPane の `select` emit を `worktreeStore.selectRelPath()` に接続
+- FilerPane / ChangesPane の `select` emit はどちらも `onFileSelect` に集約し、preview 表示中に同一 file を再選択された場合は `preview.toggle` で閉じる（`selectRelPath` 非呼び出しなので revealVersion は bump されず、gozdOpen 等「常に開く」経路には影響しない）
 </doc>
 
 <script setup lang="ts">
 import { useElementSize } from "@vueuse/core";
 import { ref, useTemplateRef, watch } from "vue";
+import { useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
 import { ChangesPane } from "../changes";
 import { FilerPane } from "../filer";
@@ -25,6 +26,8 @@ const CHANGES_MIN_HEIGHT = 60;
 
 const repoStore = useRepoStore();
 const worktreeStore = useWorktreeStore();
+const contextKeys = useContextKeys();
+const commandRegistry = useCommandRegistry();
 const filerWrapperRef = useTemplateRef<HTMLElement>("filerWrapper");
 const containerRef = useTemplateRef<HTMLElement>("container");
 const { height: containerHeight } = useElementSize(containerRef);
@@ -52,7 +55,14 @@ function getFilerHeight(): number {
   return filerWrapperRef.value?.offsetHeight ?? FILER_MIN_HEIGHT;
 }
 
-function onChangesSelect(relPath: string) {
+function onFileSelect(relPath: string) {
+  // preview 表示中に同一 file を再選択したら preview を閉じる (toggle 挙動)。
+  // selectRelPath を呼ばないので revealVersion も bump されず、
+  // gozdOpen 等「常に開く」経路の挙動には影響しない。
+  if (relPath === worktreeStore.selectedRelPath && contextKeys.get("previewVisible")) {
+    commandRegistry.execute("preview.toggle");
+    return;
+  }
   worktreeStore.selectRelPath(relPath);
 }
 </script>
@@ -71,7 +81,7 @@ function onChangesSelect(relPath: string) {
         </span>
       </div>
       <div class="min-h-0 flex-1 overflow-hidden">
-        <FilerPane />
+        <FilerPane @select="onFileSelect" />
       </div>
     </div>
 
@@ -85,7 +95,7 @@ function onChangesSelect(relPath: string) {
         :get-before-size="getFilerHeight"
       />
       <div class="shrink-0 overflow-hidden" :style="{ height: `${changesHeight}px` }">
-        <ChangesPane @select="onChangesSelect" />
+        <ChangesPane @select="onFileSelect" />
       </div>
     </template>
   </div>

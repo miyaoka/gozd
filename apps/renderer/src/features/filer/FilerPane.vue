@@ -6,6 +6,7 @@
 - worktree の dir が設定されると、worktree 自体を表す不可視ルート FileTreeItem を 1 個描画する
 - ツリー全体（ルート直下を含む）の管理は FileTreeItem 側に再帰委譲する
 - dir 切替時は `:key="dir"` でルート FileTreeItem を再マウントする（旧 dir の in-flight loadChildren を構造的に破棄）
+- file クリックは `select` emit で親 (NavigatorPane) に委譲する。preview toggle 等の副作用は親側で扱う（ChangesPane と対称）
 
 ## gitStatus / fsChange の購読
 
@@ -22,15 +23,15 @@ import FileTreeItem from "./FileTreeItem.vue";
 import type { FsChangePayload } from "./rpc";
 import { useFilerEventStore } from "./useFilerEventStore";
 
+const emit = defineEmits<{
+  select: [relPath: string];
+}>();
+
 const worktreeStore = useWorktreeStore();
 const { dir, selectedRelPath } = storeToRefs(worktreeStore);
 const gitStatusStore = useGitStatusStore();
 const { gitStatuses } = storeToRefs(gitStatusStore);
 const filerEventStore = useFilerEventStore();
-
-function onSelect(path: string) {
-  worktreeStore.selectRelPath(path);
-}
 
 function handleFsChange(eventDir: string, relDir: string) {
   // useFsWatchSync は全 worktree を watch するため、別 repo / 別 worktree の
@@ -82,7 +83,7 @@ onUnmounted(() => {
         :git-statuses="gitStatuses"
         :depth="-1"
         :selected-rel-path="selectedRelPath"
-        @select="onSelect"
+        @select="(path: string) => emit('select', path)"
       />
     </div>
   </div>

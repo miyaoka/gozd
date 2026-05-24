@@ -77,6 +77,7 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 プレビューペインは右端に配置され、開閉可能。デフォルトは closed。
 
 - ファイル選択時に自動オープン
+- preview 表示中に同一ファイルを navigator 経由 (Filer / Changes) で再選択するとクローズ（toggle 挙動）。`selectRelPath` を呼ばないため `revealVersion` は bump されず、`gozdOpen` 等「常に開く」経路には影響しない。toggle 判定は navigator 内 `onFileSelect` (`NavigatorPane.vue`) に集約
 - worktree 切替 (dir 変化) で自動クローズ。新 worktree でファイル選択を伴う dir 切替 (`gozdOpen` で別 worktree のファイルを指定した経路等) では、続けて選択ファイルで auto-open されるため最終状態は新ファイルで表示継続になる
 - ヘッダーの close ボタンで閉じる
 - `preview.toggle` コマンドで切り替え

@@ -109,12 +109,6 @@ function handleGlobalChange(key: string, value: unknown) {
     voicevoxStore.volumeScale = value;
     return;
   }
-  // speakerId は VoicevoxSpeakerWidget 内で setSpeakerId を直接呼ぶため、
-  // SettingField からの change event は発火しない。来た場合のみ store 経由で同期する。
-  if (key === "voicevox.speakerId" && typeof value === "number") {
-    voicevoxStore.setSpeakerId(value);
-    return;
-  }
 
   // リアクティブ ref との同期
   REACTIVE_SYNC[key]?.(value);

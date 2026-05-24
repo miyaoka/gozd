@@ -44,10 +44,12 @@ export interface StringArraySetting extends SettingBase {
   placeholder?: string;
 }
 
-/** VOICEVOX のキャラ + スタイル選択 → 2 段 select（widget 自体が voicevox store に依存） */
+/**
+ * VOICEVOX のキャラ + スタイル選択 → 2 段 select。
+ * widget 内部で voicevox store と直結するため defaultValue / dot-key 経由の値は持たない。
+ */
 export interface VoicevoxSpeakerSetting extends SettingBase {
   widget: "voicevoxSpeaker";
-  defaultValue: number;
 }
 
 export type SettingDefinition =

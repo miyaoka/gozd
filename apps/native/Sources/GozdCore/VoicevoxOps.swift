@@ -70,6 +70,11 @@ public enum VoicevoxOps {
       guard let http = resp as? HTTPURLResponse else { return false }
       return http.statusCode == 200
     } catch {
+      // Engine 未起動時の polling 用途で頻発するため、転送エラー (URLError) はログを出さない。
+      // それ以外の予期しない error のみ stderr に残す
+      if !(error is URLError) {
+        FileHandle.standardError.write(Data("[VoicevoxOps.checkEngine] unexpected error: \(error)\n".utf8))
+      }
       return false
     }
   }
@@ -82,8 +87,12 @@ public enum VoicevoxOps {
     do {
       try process.run()
       process.waitUntilExit()
+      if process.terminationStatus != 0 {
+        FileHandle.standardError.write(Data("[VoicevoxOps.launch] open -a VOICEVOX exited with status \(process.terminationStatus)\n".utf8))
+      }
       return process.terminationStatus == 0
     } catch {
+      FileHandle.standardError.write(Data("[VoicevoxOps.launch] failed to spawn open: \(error)\n".utf8))
       return false
     }
   }
@@ -111,9 +120,14 @@ public enum VoicevoxOps {
     req.timeoutInterval = 10
     do {
       let (data, resp) = try await URLSession.shared.data(for: req)
-      guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+      guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        FileHandle.standardError.write(Data("[VoicevoxOps.audioQuery] non-200 status: \(code) (speaker=\(speakerId))\n".utf8))
+        return nil
+      }
       return data
     } catch {
+      FileHandle.standardError.write(Data("[VoicevoxOps.audioQuery] request failed: \(error)\n".utf8))
       return nil
     }
   }
@@ -122,6 +136,7 @@ public enum VoicevoxOps {
     -> Data?
   {
     guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+      FileHandle.standardError.write(Data("[VoicevoxOps.mutateAudioQuery] failed to parse audio_query response as JSON object\n".utf8))
       return nil
     }
     json["speedScale"] = speedScale
@@ -139,9 +154,14 @@ public enum VoicevoxOps {
     req.timeoutInterval = 60
     do {
       let (data, resp) = try await URLSession.shared.data(for: req)
-      guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+      guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        FileHandle.standardError.write(Data("[VoicevoxOps.synthesize] non-200 status: \(code) (speaker=\(speakerId))\n".utf8))
+        return nil
+      }
       return data
     } catch {
+      FileHandle.standardError.write(Data("[VoicevoxOps.synthesize] request failed: \(error)\n".utf8))
       return nil
     }
   }

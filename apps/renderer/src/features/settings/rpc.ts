@@ -53,7 +53,7 @@ export function flattenAppConfig(c: AppConfig | undefined): Record<string, unkno
     "voicevox.enabled": c?.voicevox?.enabled ?? false,
     "voicevox.speedScale": c?.voicevox?.speedScale ?? 1.5,
     "voicevox.volumeScale": c?.voicevox?.volumeScale ?? 1.0,
-    "voicevox.speakerId": c?.voicevox?.speakerId ?? 3,
+    // voicevox.speakerId は VoicevoxSpeakerWidget が store と直結するため flatten 経路を通らない
   };
 }
 
@@ -94,9 +94,6 @@ function applyDotKey(config: AppConfig, key: string, value: unknown): void {
       break;
     case "voicevox.volumeScale":
       if (typeof value === "number") voicevox.volumeScale = value;
-      break;
-    case "voicevox.speakerId":
-      if (typeof value === "number") voicevox.speakerId = value;
       break;
   }
 }

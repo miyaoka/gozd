@@ -1,7 +1,7 @@
 import type { VoicevoxSpeaker } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
-import { ref, watch } from "vue";
+import { computed, readonly, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { rpcLoadAppConfig, rpcSaveAppConfig } from "../settings";
@@ -14,7 +14,7 @@ import {
 } from "./rpc";
 import { extractSpeechText } from "./speechText";
 
-/** ずんだもん（ノーマル） */
+/** ずんだもん（ノーマル）。voicevox 設定の唯一の SSOT */
 const DEFAULT_SPEAKER_ID = 3;
 const DEFAULT_SPEED_SCALE = 1.5;
 const DEFAULT_VOLUME_SCALE = 1.0;
@@ -84,6 +84,16 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
   }
 
   /**
+   * speak 経路で実際に使う speaker id。
+   * speakers ロード前 / 該当 style が存在しない場合は DEFAULT_SPEAKER_ID にメモリ上 fallback する。
+   * 永続化される speakerId は touch しないため、Engine 構成が一時的に変わってもユーザー選択は破壊しない。
+   */
+  const effectiveSpeakerId = computed(() => {
+    if (speakers.value.length === 0) return speakerId.value;
+    return hasSpeakerStyle(speakerId.value) ? speakerId.value : DEFAULT_SPEAKER_ID;
+  });
+
+  /**
    * 外部から speakerId を変更する公式入口。speakers ロード後は存在検証する。
    * speakers ロード前 (config 復元中 / Engine 未起動) は無条件で受け入れる。
    */
@@ -95,7 +105,10 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     speakerId.value = id;
   }
 
-  /** Engine から speakers を取得して保持し、永続化値の存在検証も行う */
+  /**
+   * Engine から speakers を取得する。永続化値が現存しない場合は notify.info で伝えるのみで、
+   * speakerId.value は touch しない (実効値は effectiveSpeakerId computed が DEFAULT に倒す)。
+   */
   async function loadSpeakers(): Promise<void> {
     const result = await tryCatch(rpcVoicevoxListSpeakers());
     if (!result.ok) {
@@ -103,12 +116,10 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
       return;
     }
     speakers.value = result.value.speakers;
-    // ロード完了後、永続化された speakerId が現存しなければ default に fallback
     if (speakers.value.length > 0 && !hasSpeakerStyle(speakerId.value)) {
       notify.info(
-        `VOICEVOX speaker id ${speakerId.value} not found; using default (${DEFAULT_SPEAKER_ID})`,
+        `VOICEVOX speaker id ${speakerId.value} not found in current engine; using default (${DEFAULT_SPEAKER_ID}) for playback`,
       );
-      speakerId.value = DEFAULT_SPEAKER_ID;
     }
   }
 
@@ -138,7 +149,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
           text,
           speedScale: speed,
           volumeScale: volume,
-          speakerId: speakerId.value,
+          speakerId: effectiveSpeakerId.value,
         }),
       );
       if (!result.ok || result.value.wav.length === 0) return;
@@ -276,7 +287,8 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     playing,
     speedScale,
     volumeScale,
-    speakerId,
+    // speakerId は readonly。書き換えは setSpeakerId を経由させる (存在検証で SSOT を守るため)
+    speakerId: readonly(speakerId),
     speakers,
     activating,
     activate,

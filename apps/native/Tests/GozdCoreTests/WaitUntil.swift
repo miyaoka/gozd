@@ -32,10 +32,8 @@ import Testing
 //   - 成功:  `waitUntil mode=threaded resolved tick=<n> elapsed=<dur>`
 //   - timeout: `waitUntil mode=threaded timeout tickCount=<n> elapsed=<dur> lastTicks=[...]`
 //
-// `mode=threaded` は本 helper が NSThread polling であることを示す識別子。
-// 過去 CI log には旧 `waitUntil` ( Task.sleep 経路 ) / `waitUntilThreaded` ( 別シンボル ) の
-// trace が含まれるため、`analyze-stall.sh` で世代を merge して解析するときに kind を
-// 区別するためのもの。世代別 trace 形式 (kind 列の挙動) は `analyze-stall.sh` 側に集約。
+// `mode=threaded` は polling 経路の識別子。`analyze-stall.sh` の kind 列で
+// `waitUntil-threaded` として折り畳まれる。kind 値の SSOT 一覧は `analyze-stall.sh` 側に置く。
 //
 // 直近 10 tick の polling 履歴を保持し、timeout 時に `Issue.record` の message に inline
 // する。50ms poll × 10 = 直近 0.5s 分の挙動が CI ログを遡らずに失敗メッセージから読める。

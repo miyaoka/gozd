@@ -286,7 +286,7 @@ watch(
     <!-- Preview popover: 開閉ボタンをアンカーにして左側に展開 -->
     <div
       ref="previewPopover"
-      popover="auto"
+      popover="manual"
       class="_preview-popover overflow-hidden border-0 border-l border-zinc-700 bg-zinc-900 p-0 [&:popover-open]:flex"
       :style="{ width: `${previewWidth}px` }"
       @toggle="onPreviewToggle"

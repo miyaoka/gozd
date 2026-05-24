@@ -145,10 +145,11 @@ const repoStore = useRepoStore();
 const { open: openEditDialog } = useTaskEditing();
 
 // ダブルクリックで編集 dialog を開く。click 経由の wt 選択は許容 (元の挙動)。
+// dialog には taskId だけ渡し、Sources 表示の最新化は dialog 側の store 参照に任せる。
 function onRowDblClick() {
   const owning = repoStore.findRepoOwning(props.task.worktreeDir);
   if (owning === undefined) return;
-  openEditDialog(props.task, owning.rootDir);
+  openEditDialog(props.task.id, owning.rootDir);
 }
 </script>
 

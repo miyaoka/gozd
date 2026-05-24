@@ -20,7 +20,7 @@ function handleEdit() {
   if (!context.value) return;
   const { task, rootDir } = context.value;
   close();
-  openEdit(task, rootDir);
+  openEdit(task.id, rootDir);
 }
 
 function handleRemove() {

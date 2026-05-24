@@ -49,7 +49,8 @@ export const rpcTaskAdd = (req: TaskAddRequest) =>
 export const rpcTaskSetTerminalTitle = (req: TaskSetTerminalTitleRequest) =>
   rpc("/task/setTerminalTitle", req, TaskSetTerminalTitleRequest, TaskSetTerminalTitleResponse);
 
-// ダブルクリック / Rename メニュー由来のユーザー明示タイトル設定。空文字は server で reject。
+// 編集 dialog からのユーザー明示タイトル設定。空文字は user_title をクリアし、
+// 表示は gh_title / terminal_title のフォールバックチェーンに戻る (= reset 経路)。
 export const rpcTaskSetUserTitle = (req: TaskSetUserTitleRequest) =>
   rpc("/task/setUserTitle", req, TaskSetUserTitleRequest, TaskSetUserTitleResponse);
 

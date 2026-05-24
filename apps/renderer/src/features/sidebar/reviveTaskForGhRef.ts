@@ -41,7 +41,6 @@ export async function reviveTaskForGhRef(params: {
   const result = await tryCatch(
     rpcTaskAdd({
       dir: rootDir,
-      userTitle: "",
       ghTitle,
       worktreeDir: existingDir,
       ghRef,

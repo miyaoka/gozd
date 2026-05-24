@@ -17,16 +17,15 @@ export interface TaskList {
 
 export interface TaskAddRequest {
   dir: string;
-  /** ユーザー明示の確定タイトル。PR/issue picker 経路では通常空、手動作成時のみ使う。 */
-  userTitle: string;
   worktreeDir: string;
   /** GitHub PR / issue 参照。手動作成時は未指定で OK。 */
   ghRef?:
     | GhRef
     | undefined;
   /**
-   * PR/issue picker からの snapshot タイトル。upsert 経路 (同 worktree + 同 ghRef) で
-   * 既存 task が見つかれば gh_title を上書き、user_title は触らない。
+   * PR/issue picker からの snapshot タイトル。新規 task の gh_title に入る。
+   * upsert (同 worktree + 同 ghRef) では既存 task の gh_title を上書きする。
+   * user_title はこの経路では一切扱わない (編集 dialog 専用)。
    */
   ghTitle: string;
 }
@@ -50,10 +49,9 @@ export interface TaskSetTerminalTitleResponse {
 }
 
 /**
- * 編集 dialog からのユーザー明示タイトル設定。空文字は user_title をクリアし、
- * 表示は terminal_title フォールバックに戻る (= reset)。dialog UI が
- * preview ボタンで PR/issue title や terminal_title を input にコピーして
- * 保存させるため、空文字保存は意図ある reset 操作として受理する。
+ * 編集 dialog からのユーザー明示タイトル設定。
+ * 空文字を渡すと user_title をクリアし、表示は gh_title / terminal_title の
+ * 自然なフォールバックチェーンに戻る (= reset 経路)。
  */
 export interface TaskSetUserTitleRequest {
   dir: string;
@@ -137,16 +135,13 @@ export const TaskList: MessageFns<TaskList> = {
 };
 
 function createBaseTaskAddRequest(): TaskAddRequest {
-  return { dir: "", userTitle: "", worktreeDir: "", ghRef: undefined, ghTitle: "" };
+  return { dir: "", worktreeDir: "", ghRef: undefined, ghTitle: "" };
 }
 
 export const TaskAddRequest: MessageFns<TaskAddRequest> = {
   encode(message: TaskAddRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.dir !== "") {
       writer.uint32(10).string(message.dir);
-    }
-    if (message.userTitle !== "") {
-      writer.uint32(18).string(message.userTitle);
     }
     if (message.worktreeDir !== "") {
       writer.uint32(26).string(message.worktreeDir);
@@ -173,14 +168,6 @@ export const TaskAddRequest: MessageFns<TaskAddRequest> = {
           }
 
           message.dir = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.userTitle = reader.string();
           continue;
         }
         case 3: {
@@ -219,11 +206,6 @@ export const TaskAddRequest: MessageFns<TaskAddRequest> = {
   fromJSON(object: any): TaskAddRequest {
     return {
       dir: isSet(object.dir) ? globalThis.String(object.dir) : "",
-      userTitle: isSet(object.userTitle)
-        ? globalThis.String(object.userTitle)
-        : isSet(object.user_title)
-        ? globalThis.String(object.user_title)
-        : "",
       worktreeDir: isSet(object.worktreeDir)
         ? globalThis.String(object.worktreeDir)
         : isSet(object.worktree_dir)
@@ -247,9 +229,6 @@ export const TaskAddRequest: MessageFns<TaskAddRequest> = {
     if (message.dir !== "") {
       obj.dir = message.dir;
     }
-    if (message.userTitle !== "") {
-      obj.userTitle = message.userTitle;
-    }
     if (message.worktreeDir !== "") {
       obj.worktreeDir = message.worktreeDir;
     }
@@ -268,7 +247,6 @@ export const TaskAddRequest: MessageFns<TaskAddRequest> = {
   fromPartial(object: DeepPartial<TaskAddRequest>): TaskAddRequest {
     const message = createBaseTaskAddRequest();
     message.dir = object.dir ?? "";
-    message.userTitle = object.userTitle ?? "";
     message.worktreeDir = object.worktreeDir ?? "";
     message.ghRef = (object.ghRef !== undefined && object.ghRef !== null) ? GhRef.fromPartial(object.ghRef) : undefined;
     message.ghTitle = object.ghTitle ?? "";

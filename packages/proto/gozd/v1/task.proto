@@ -20,13 +20,12 @@ message TaskList {
 
 message TaskAddRequest {
   string dir = 1;
-  // ユーザー明示の確定タイトル。PR/issue picker 経路では通常空、手動作成時のみ使う。
-  string user_title = 2;
   string worktree_dir = 3;
   // GitHub PR / issue 参照。手動作成時は未指定で OK。
   optional GhRef gh_ref = 4;
-  // PR/issue picker からの snapshot タイトル。upsert 経路 (同 worktree + 同 ghRef) で
-  // 既存 task が見つかれば gh_title を上書き、user_title は触らない。
+  // PR/issue picker からの snapshot タイトル。新規 task の gh_title に入る。
+  // upsert (同 worktree + 同 ghRef) では既存 task の gh_title を上書きする。
+  // user_title はこの経路では一切扱わない (編集 dialog 専用)。
   string gh_title = 5;
 }
 message TaskAddResponse {
@@ -44,10 +43,9 @@ message TaskSetTerminalTitleResponse {
   Task task = 1;
 }
 
-// 編集 dialog からのユーザー明示タイトル設定。空文字は user_title をクリアし、
-// 表示は terminal_title フォールバックに戻る (= reset)。dialog UI が
-// preview ボタンで PR/issue title や terminal_title を input にコピーして
-// 保存させるため、空文字保存は意図ある reset 操作として受理する。
+// 編集 dialog からのユーザー明示タイトル設定。
+// 空文字を渡すと user_title をクリアし、表示は gh_title / terminal_title の
+// 自然なフォールバックチェーンに戻る (= reset 経路)。
 message TaskSetUserTitleRequest {
   string dir = 1;
   string id = 2;

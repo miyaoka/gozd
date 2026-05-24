@@ -40,18 +40,22 @@ public actor TaskStore {
     return try loadFile(for: dir).tasks
   }
 
-  /// Task を作成または再活性化する。PR/issue picker や手動操作から呼ばれる。
+  /// Task を作成または再活性化する。PR/issue picker から呼ばれる経路 + Claude 直接起動の
+  /// SessionStart hook fallback (`attachSession` 内部) から呼ばれる経路がある。
   ///
   /// 動作:
   ///   - `ghRef` 指定があり、同 `worktreeDir` + 同 `ghRef` の既存 task が見つかれば
   ///     **upsert**: `gh_title` を最新の PR/issue タイトルで上書きし、
   ///     `closed_by_user=false` に倒して返す。`user_title` はユーザー編集の確定値
-  ///     なので触らない。createdAt / id / sessionID / terminalTitle も保持する。
-  ///   - それ以外は新規 task を UUID で作成。`userTitle` / `ghTitle` 両方を caller が
-  ///     指定する (PR/issue picker 経路では userTitle="" + ghTitle=picker title、
-  ///     手動経路では userTitle=入力値 + ghTitle="")。`createdAt` を省略すると現在時刻。
+  ///     なので触らない (本関数からはそもそも書き込み経路を持たない)。createdAt / id /
+  ///     sessionID / terminalTitle / userTitle は保持される。
+  ///   - それ以外は新規 task を UUID で作成。新規 task の user_title は空 (編集 dialog
+  ///     で `setUserTitle` 経由でしか設定されない契約)。`createdAt` を省略すると現在時刻。
+  ///
+  /// `user_title` 書き込み経路は意図的にこの関数から外している (`setUserTitle` 専用)。
+  /// silent drop を避けるための物理分離。
   public func add(
-    dir: String, userTitle: String, ghTitle: String, worktreeDir: String,
+    dir: String, ghTitle: String, worktreeDir: String,
     ghRef: Gozd_V1_GhRef?, createdAt: String? = nil
   ) throws -> Gozd_V1_Task {
     var list = try loadFile(for: dir)
@@ -67,7 +71,6 @@ public actor TaskStore {
     }
     var task = Gozd_V1_Task()
     task.id = UUID().uuidString
-    task.userTitle = userTitle
     task.ghTitle = ghTitle
     task.worktreeDir = worktreeDir
     if let ghRef { task.ghRef = ghRef }
@@ -91,10 +94,9 @@ public actor TaskStore {
     return list.tasks[idx]
   }
 
-  /// 編集 dialog からのユーザー明示タイトル設定。空文字を渡せば user_title をクリアし、
-  /// 表示は terminal_title フォールバックに戻る (= reset 経路)。dialog UI が preview
-  /// ボタンで「PR title をコピー」「terminal title をコピー」「空にして reset」を明示的に
-  /// 選ばせるため、空文字保存は意図ある操作として受理する。
+  /// 編集 dialog からのユーザー明示タイトル設定 (新規タイトル / クリア両用)。
+  /// 空文字を渡すと user_title をクリアし、表示は gh_title / terminal_title の
+  /// 自然なフォールバックチェーンに戻る (= reset 経路)。
   public func setUserTitle(dir: String, id: String, userTitle: String) throws -> Gozd_V1_Task {
     var list = try loadFile(for: dir)
     guard let idx = list.tasks.firstIndex(where: { $0.id == id }) else {

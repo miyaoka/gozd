@@ -116,7 +116,6 @@ export function registerPrCommand(): () => void {
             const taskResult = await tryCatch(
               rpcTaskAdd({
                 dir: rootDir,
-                userTitle: "",
                 ghTitle: pr.title,
                 worktreeDir: result.value.dir,
                 ghRef: ghRefForPr(pr.number),

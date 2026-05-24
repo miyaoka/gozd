@@ -1184,7 +1184,6 @@ public actor RpcDispatcher {
     let req = try Gozd_V1_TaskAddRequest(jsonUTF8Data: body)
     let task = try await tasks.add(
       dir: req.dir,
-      userTitle: req.userTitle,
       ghTitle: req.ghTitle,
       worktreeDir: req.worktreeDir,
       ghRef: req.hasGhRef ? req.ghRef : nil

@@ -50,14 +50,12 @@ function resolveDisplayTitle(task: Task): string | undefined {
 }
 
 /**
- * user_title を除いたフォールバック候補を返す。input placeholder で「Save 時の見え方」を
- * 予告するために使う。優先度: gh_title > terminal_title > "New session"。
+ * 編集 dialog の input placeholder 用: 「user_title を空にして Save したら表示される値」を
+ * 返す。`taskDisplayTitle` を SSOT として参照することで、placeholder の予告と
+ * サイドバーの実表示が必ず一致する (`#N ` prefix の有無 / "New session" フォールバック等)。
  */
-export function fallbackTitle(task: Task): string {
-  if (task.ghTitle !== "") return task.ghTitle;
-  const term = extractTerminalTitle(task.terminalTitle);
-  if (term !== undefined) return term;
-  return "New session";
+export function placeholderForEmptyUserTitle(task: Task): string {
+  return taskDisplayTitle({ ...task, userTitle: "" });
 }
 
 /**

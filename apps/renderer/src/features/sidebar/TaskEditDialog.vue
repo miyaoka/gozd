@@ -1,36 +1,36 @@
 <doc lang="md">
-task title 編集 dialog。`useTaskEditing` の context (task + rootDir) が定義されたら開く。
+task title 編集 dialog。`useTaskEditing` の context (`taskId` + `rootDir`) が定義されたら開く。
 
 ## 構成
 
-- title input: user_title の編集中バッファ。input を空にして Save すれば user_title を
-  クリアでき、表示は gh_title / terminal_title の自然なフォールバックに戻る
-- input placeholder: `fallbackTitle(task)` を動的バインドし、「Save 時に表示される値」を
-  予告する (Reset 専用ボタンを置かない代わり)
-- Sources セクション:
-  - PR/Issue row: `task.ghTitle` (永続値) を表示 + `Use` で input にコピー
-  - Terminal row: `task.terminalTitle` (live) を表示するだけ、ボタンなし
-    (コピーしても陳腐化するだけなので意味がない)
+- title input: user_title の編集中バッファ
+- input placeholder: `placeholderForEmptyUserTitle(task)` を動的バインド。Save 時に
+  表示される値 (`taskDisplayTitle({ ...task, userTitle: "" })` 相当) をそのまま予告
+- Sources セクション: `ghTitle` / `terminalTitle` の現在値を参考表示するだけ
+  (操作なし、選択可能テキストでコピペ可)
 
 ## 設計判断
 
-- user_title / gh_title / terminal_title は起源で分離されたフィールド。dialog では:
-  - user_title 編集 → input
-  - gh_title コピー → Use ボタン
-  - terminal_title は live 観測値の参考表示
-  - reset (user_title クリア) → input を空にして Save
-- 保存 RPC は `rpcTaskSetUserTitle` 1 経路 (空文字も valid)。dialog UI が
-  「コピー」「クリア」「自由入力」を draft 操作として吸収する
+- `useTaskEditing` からは taskId のみ受け取り、Task オブジェクトは `useRepoStore` から
+  computed で引き直す。dialog open 中の OSC タイトル更新や fetchRepo で Task identity が
+  差し替わっても Sources 表示が live で追従する
+- 保存 RPC は `rpcTaskSetUserTitle` 1 経路。空文字保存 = `user_title` クリア = フォール
+  バックチェーン復帰。input 操作 1 個に「コピー」「クリア」「自由入力」を集約する
+- whitespace-only 入力は save 時に `trim()` して空文字に正規化し、見た目空 / 実体非空の
+  解離を防ぐ
+- ghRef の表示ラベルは `ghRefLabel` (`@gozd/proto` ヘルパー) を使い、`kind === 1` の
+  ような magic number 比較を排除
 </doc>
 
 <script setup lang="ts">
+import { ghRefLabel } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { computed, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { rpcTaskSetUserTitle } from "./rpc";
 import { useTaskEditing } from "./useTaskEditing";
-import { fallbackTitle } from "./utils";
+import { placeholderForEmptyUserTitle } from "./utils";
 
 const { context, close } = useTaskEditing();
 const repoStore = useRepoStore();
@@ -40,14 +40,30 @@ const dialogRef = ref<HTMLDialogElement | undefined>(undefined);
 const inputRef = ref<HTMLInputElement | undefined>(undefined);
 const draft = ref("");
 
-const currentTask = computed(() => context.value?.task);
+// store から最新 Task を都度引き直す。open 中に Task identity が差し替わっても
+// Sources 行が live で更新される。Task が消えたら自動 close。
+const currentTask = computed(() => {
+  const ctx = context.value;
+  if (ctx === undefined) return undefined;
+  const repo = repoStore.repos[ctx.rootDir];
+  if (repo === undefined) return undefined;
+  for (const wt of repo.worktrees) {
+    const found = wt.tasks.find((t) => t.id === ctx.taskId);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+});
 const currentRootDir = computed(() => context.value?.rootDir);
 
-const ghRefLabel = computed<string>(() => {
+// open 中に Task が永続化から消えたら dialog を閉じる
+watch(currentTask, (task) => {
+  if (context.value !== undefined && task === undefined) close();
+});
+
+const ghRefLabelText = computed<string>(() => {
   const task = currentTask.value;
   if (task?.ghRef === undefined) return "";
-  // GhRefKind: 1=PR, 2=ISSUE
-  return task.ghRef.kind === 1 ? `PR #${task.ghRef.number}` : `Issue #${task.ghRef.number}`;
+  return ghRefLabel(task.ghRef);
 });
 
 const ghTitleValue = computed<string>(() => currentTask.value?.ghTitle ?? "");
@@ -66,12 +82,11 @@ const terminalTitleValueClass = computed<string>(() =>
   terminalTitleValue.value === "" ? "italic text-zinc-500" : "text-zinc-200",
 );
 
-// input placeholder: input を空にしたら表示される予告タイトル。
-// user_title が空の場合の表示優先度に従う (gh > terminal > "New session")。
+// input placeholder: input を空にしたら表示される予告タイトル (Save 結果と一致)
 const inputPlaceholder = computed<string>(() => {
   const task = currentTask.value;
   if (task === undefined) return "";
-  return fallbackTitle(task);
+  return placeholderForEmptyUserTitle(task);
 });
 
 watch(
@@ -82,7 +97,7 @@ watch(
       return;
     }
     // user_title の現在保存値を初期値にする。空ならそのまま空 → placeholder が予告
-    draft.value = next.task.userTitle;
+    draft.value = currentTask.value?.userTitle ?? "";
     dialogRef.value?.showModal();
     queueMicrotask(() => {
       inputRef.value?.focus();
@@ -96,7 +111,8 @@ async function save() {
   const task = currentTask.value;
   const rootDir = currentRootDir.value;
   if (task === undefined || rootDir === undefined) return;
-  const next = draft.value;
+  // whitespace-only は空文字 = reset として正規化。「見た目空 / 実体非空」の解離を防ぐ
+  const next = draft.value.trim();
   if (next === task.userTitle) {
     close();
     return;
@@ -150,8 +166,6 @@ function onDialogClick(event: MouseEvent) {
         />
       </div>
 
-      <!-- Sources: 各 source の現在値を参考表示するだけ。アクションは input に集約。
-           PR title を流用したいユーザーはテキスト選択 → コピペで対応。 -->
       <div class="space-y-2">
         <p class="text-xs text-zinc-400">Sources</p>
 
@@ -159,7 +173,7 @@ function onDialogClick(event: MouseEvent) {
           v-if="currentTask.ghRef !== undefined"
           class="grid grid-cols-[6rem_1fr] items-center gap-2"
         >
-          <span class="text-xs text-zinc-500">{{ ghRefLabel }}</span>
+          <span class="text-xs text-zinc-500">{{ ghRefLabelText }}</span>
           <span
             class="min-w-0 truncate text-xs select-text"
             :class="ghTitleValueClass"

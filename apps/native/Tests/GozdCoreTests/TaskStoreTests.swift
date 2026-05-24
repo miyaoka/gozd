@@ -15,7 +15,7 @@ struct TaskStoreTests {
     let store = TaskStore(configDir: env.configDir)
 
     let original = try await store.add(
-      dir: env.worktreeA, userTitle: "", ghTitle: "old title", worktreeDir: env.worktreeA,
+      dir: env.worktreeA, ghTitle: "old title", worktreeDir: env.worktreeA,
       ghRef: .forPr(7), createdAt: "2026-05-15T00:00:00Z"
     )
     try await store.attachSession(
@@ -25,7 +25,7 @@ struct TaskStoreTests {
 
     // PR picker から再選択 (タイトル変更を想定): upsert で closed 解除 + gh_title 上書き
     let revived = try await store.add(
-      dir: env.worktreeA, userTitle: "", ghTitle: "new title", worktreeDir: env.worktreeA,
+      dir: env.worktreeA, ghTitle: "new title", worktreeDir: env.worktreeA,
       ghRef: .forPr(7), createdAt: "2026-05-20T00:00:00Z"
     )
 
@@ -46,10 +46,10 @@ struct TaskStoreTests {
     let store = TaskStore(configDir: env.configDir)
 
     let first = try await store.add(
-      dir: env.worktreeA, userTitle: "scratch", ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil
+      dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil
     )
     let second = try await store.add(
-      dir: env.worktreeA, userTitle: "scratch", ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil
+      dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil
     )
 
     #expect(first.id != second.id)
@@ -64,10 +64,10 @@ struct TaskStoreTests {
     let store = TaskStore(configDir: env.configDir)
 
     let a = try await store.add(
-      dir: env.worktreeA, userTitle: "", ghTitle: "wt-a", worktreeDir: env.worktreeA, ghRef: .forPr(9)
+      dir: env.worktreeA, ghTitle: "wt-a", worktreeDir: env.worktreeA, ghRef: .forPr(9)
     )
     let b = try await store.add(
-      dir: env.worktreeA, userTitle: "", ghTitle: "wt-b", worktreeDir: env.worktreeB, ghRef: .forPr(9)
+      dir: env.worktreeA, ghTitle: "wt-b", worktreeDir: env.worktreeB, ghRef: .forPr(9)
     )
 
     #expect(a.id != b.id)
@@ -82,10 +82,10 @@ struct TaskStoreTests {
     let store = TaskStore(configDir: env.configDir)
 
     let task = try await store.add(
-      dir: env.worktreeA, userTitle: "scratch", ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil
+      dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil
     )
     _ = try await store.add(
-      dir: env.worktreeA, userTitle: "other", ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil
+      dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil
     )
 
     try await store.remove(dir: env.worktreeA, id: task.id)
@@ -102,7 +102,7 @@ struct TaskStoreTests {
     let store = TaskStore(configDir: env.configDir)
 
     _ = try await store.add(
-      dir: env.worktreeA, userTitle: "alive", ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil
+      dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil
     )
 
     try await store.remove(dir: env.worktreeA, id: "nonexistent")
@@ -120,7 +120,7 @@ struct TaskStoreTests {
     let store = TaskStore(configDir: env.configDir)
 
     let task = try await store.add(
-      dir: env.worktreeA, userTitle: "existing", ghTitle: "", worktreeDir: env.worktreeA,
+      dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA,
       ghRef: nil
     )
     try await store.attachSession(
@@ -143,11 +143,11 @@ struct TaskStoreTests {
     let store = TaskStore(configDir: env.configDir)
 
     let older = try await store.add(
-      dir: env.worktreeA, userTitle: "older", ghTitle: "", worktreeDir: env.worktreeA,
+      dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA,
       ghRef: nil, createdAt: "2026-05-15T00:00:00Z"
     )
     let newer = try await store.add(
-      dir: env.worktreeA, userTitle: "newer", ghTitle: "", worktreeDir: env.worktreeA,
+      dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA,
       ghRef: nil,
       createdAt: "2026-05-16T00:00:00Z"
     )
@@ -190,7 +190,7 @@ struct TaskStoreTests {
     let store = TaskStore(configDir: env.configDir)
 
     let original = try await store.add(
-      dir: env.worktreeA, userTitle: "", ghTitle: "PR #11", worktreeDir: env.worktreeA, ghRef: .forPr(11)
+      dir: env.worktreeA, ghTitle: "PR #11", worktreeDir: env.worktreeA, ghRef: .forPr(11)
     )
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "first", worktreeDir: env.worktreeA)
@@ -215,7 +215,7 @@ struct TaskStoreTests {
     let store = TaskStore(configDir: env.configDir)
 
     let original = try await store.add(
-      dir: env.worktreeA, userTitle: "", ghTitle: "PR #42", worktreeDir: env.worktreeA, ghRef: .forPr(42),
+      dir: env.worktreeA, ghTitle: "PR #42", worktreeDir: env.worktreeA, ghRef: .forPr(42),
       createdAt: "2026-05-15T00:00:00Z"
     )
     try await store.attachSession(
@@ -246,7 +246,7 @@ struct TaskStoreTests {
     let store = TaskStore(configDir: env.configDir)
 
     let foreign = try await store.add(
-      dir: env.worktreeA, userTitle: "for-b", ghTitle: "", worktreeDir: env.worktreeB,
+      dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeB,
       ghRef: nil
     )
 
@@ -269,8 +269,11 @@ struct TaskStoreTests {
     let store = TaskStore(configDir: env.configDir)
 
     let original = try await store.add(
-      dir: env.worktreeA, userTitle: "Refactor X", ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil
+      dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil
     )
+    // ユーザーが dialog で user_title を編集した状態を作り、detach 後も保持されることを検証
+    _ = try await store.setUserTitle(
+      dir: env.worktreeA, id: original.id, userTitle: "Refactor X")
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "live", worktreeDir: env.worktreeA)
 
@@ -291,7 +294,7 @@ struct TaskStoreTests {
     let store = TaskStore(configDir: env.configDir)
 
     _ = try await store.add(
-      dir: env.worktreeA, userTitle: "", ghTitle: "", worktreeDir: env.worktreeA, ghRef: .forPr(42)
+      dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA, ghRef: .forPr(42)
     )
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "pr-sid", worktreeDir: env.worktreeA)
@@ -313,7 +316,7 @@ struct TaskStoreTests {
     let store = TaskStore(configDir: env.configDir)
 
     _ = try await store.add(
-      dir: env.worktreeA, userTitle: "alive", ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil
+      dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil
     )
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "live", worktreeDir: env.worktreeA)
@@ -335,7 +338,7 @@ struct TaskStoreTests {
     let store = TaskStore(configDir: env.configDir)
 
     _ = try await store.add(
-      dir: env.worktreeA, userTitle: "", ghTitle: "PR #42", worktreeDir: env.worktreeA, ghRef: .forPr(42)
+      dir: env.worktreeA, ghTitle: "PR #42", worktreeDir: env.worktreeA, ghRef: .forPr(42)
     )
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "dead-sid", worktreeDir: env.worktreeA)
@@ -359,7 +362,7 @@ struct TaskStoreTests {
     let store = TaskStore(configDir: env.configDir)
 
     _ = try await store.add(
-      dir: env.worktreeA, userTitle: "", ghTitle: "PR #42", worktreeDir: env.worktreeA, ghRef: .forPr(42)
+      dir: env.worktreeA, ghTitle: "PR #42", worktreeDir: env.worktreeA, ghRef: .forPr(42)
     )
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "dead-sid", worktreeDir: env.worktreeA)
@@ -379,7 +382,7 @@ struct TaskStoreTests {
     let store = TaskStore(configDir: env.configDir)
 
     let original = try await store.add(
-      dir: env.worktreeA, userTitle: "scratch", ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil
+      dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil
     )
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "dead-sid", worktreeDir: env.worktreeA)
@@ -402,9 +405,12 @@ struct TaskStoreTests {
 
     // root wt で素 claude を起動 → /exit (closed_by_user=true で滞留)
     let original = try await store.add(
-      dir: env.worktreeA, userTitle: "scratch work", ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil,
+      dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil,
       createdAt: "2026-05-15T00:00:00Z"
     )
+    // ユーザーが dialog で立てた user_title が candidate ピックでも保持されることを検証
+    _ = try await store.setUserTitle(
+      dir: env.worktreeA, id: original.id, userTitle: "scratch work")
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "old-sid", worktreeDir: env.worktreeA)
     try await store.detachSession(dir: env.worktreeA, sessionId: "old-sid")
@@ -432,7 +438,7 @@ struct TaskStoreTests {
 
     // PR picker で PR #42 task を作成 → SessionStart で sid=X attach
     let original = try await store.add(
-      dir: env.worktreeA, userTitle: "", ghTitle: "PR #42 title", worktreeDir: env.worktreeA,
+      dir: env.worktreeA, ghTitle: "PR #42 title", worktreeDir: env.worktreeA,
       ghRef: .forPr(42), createdAt: "2026-05-15T00:00:00Z"
     )
     try await store.attachSession(
@@ -471,7 +477,7 @@ struct TaskStoreTests {
 
     // 古い closed task
     let older = try await store.add(
-      dir: env.worktreeA, userTitle: "older closed", ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil,
+      dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil,
       createdAt: "2026-05-10T00:00:00Z"
     )
     try await store.attachSession(
@@ -480,7 +486,7 @@ struct TaskStoreTests {
 
     // 新しい sessionID 空 task
     let newer = try await store.add(
-      dir: env.worktreeA, userTitle: "newer empty", ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil,
+      dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil,
       createdAt: "2026-05-20T00:00:00Z"
     )
 
@@ -507,11 +513,11 @@ struct TaskStoreTests {
     // 同 createdAt の sessionID 空 task を 2 つ作る (1 秒以内に複数 task を作る再現)
     let sameTime = "2026-05-15T00:00:00Z"
     let a = try await store.add(
-      dir: env.worktreeA, userTitle: "A", ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil,
+      dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil,
       createdAt: sameTime
     )
     let b = try await store.add(
-      dir: env.worktreeA, userTitle: "B", ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil,
+      dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil,
       createdAt: sameTime
     )
 
@@ -532,7 +538,7 @@ struct TaskStoreTests {
     let store = TaskStore(configDir: env.configDir)
 
     _ = try await store.add(
-      dir: env.worktreeA, userTitle: "", ghTitle: "alive", worktreeDir: env.worktreeA, ghRef: .forPr(1)
+      dir: env.worktreeA, ghTitle: "alive", worktreeDir: env.worktreeA, ghRef: .forPr(1)
     )
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "live", worktreeDir: env.worktreeA)
@@ -543,6 +549,119 @@ struct TaskStoreTests {
     let list = try await store.list(dir: env.worktreeA)
     #expect(list.count == 1)
     #expect(list.first?.sessionID == "live")
+  }
+
+  // MARK: - setUserTitle / setTerminalTitle (タイトル 3 レイヤ契約)
+
+  @Test("setUserTitle: 任意値で user_title が書き換わり、gh_title / terminal_title は保持")
+  func setUserTitleAssignsOnlyUserTitle() async throws {
+    let env = try await makeEnv()
+    defer { cleanup(env) }
+    let store = TaskStore(configDir: env.configDir)
+
+    let original = try await store.add(
+      dir: env.worktreeA, ghTitle: "PR title", worktreeDir: env.worktreeA, ghRef: .forPr(1)
+    )
+    _ = try await store.setTerminalTitle(
+      dir: env.worktreeA, id: original.id, terminalTitle: "claude (working)")
+
+    let updated = try await store.setUserTitle(
+      dir: env.worktreeA, id: original.id, userTitle: "my title")
+
+    #expect(updated.userTitle == "my title")
+    #expect(updated.ghTitle == "PR title")
+    #expect(updated.terminalTitle == "claude (working)")
+  }
+
+  @Test("setUserTitle: 空文字で user_title をクリアし、gh_title / terminal_title はそのまま")
+  func setUserTitleEmptyClearsUserTitleOnly() async throws {
+    let env = try await makeEnv()
+    defer { cleanup(env) }
+    let store = TaskStore(configDir: env.configDir)
+
+    let original = try await store.add(
+      dir: env.worktreeA, ghTitle: "PR title", worktreeDir: env.worktreeA, ghRef: .forPr(1)
+    )
+    _ = try await store.setUserTitle(
+      dir: env.worktreeA, id: original.id, userTitle: "edited")
+    _ = try await store.setTerminalTitle(
+      dir: env.worktreeA, id: original.id, terminalTitle: "term title")
+
+    let reset = try await store.setUserTitle(
+      dir: env.worktreeA, id: original.id, userTitle: "")
+
+    #expect(reset.userTitle == "")
+    #expect(reset.ghTitle == "PR title")
+    #expect(reset.terminalTitle == "term title")
+  }
+
+  @Test("setUserTitle: 存在しない id は notFound を throw")
+  func setUserTitleUnknownIdThrows() async throws {
+    let env = try await makeEnv()
+    defer { cleanup(env) }
+    let store = TaskStore(configDir: env.configDir)
+
+    await #expect(throws: TaskStoreError.notFound("missing")) {
+      _ = try await store.setUserTitle(
+        dir: env.worktreeA, id: "missing", userTitle: "x")
+    }
+  }
+
+  @Test("setTerminalTitle: terminal_title だけが書き換わり、user_title / gh_title は不変 (本 PR の構造的目的)")
+  func setTerminalTitleDoesNotTouchOtherTitles() async throws {
+    let env = try await makeEnv()
+    defer { cleanup(env) }
+    let store = TaskStore(configDir: env.configDir)
+
+    let original = try await store.add(
+      dir: env.worktreeA, ghTitle: "PR title", worktreeDir: env.worktreeA, ghRef: .forPr(1)
+    )
+    _ = try await store.setUserTitle(
+      dir: env.worktreeA, id: original.id, userTitle: "user title")
+
+    let updated = try await store.setTerminalTitle(
+      dir: env.worktreeA, id: original.id, terminalTitle: "new term title")
+
+    #expect(updated.terminalTitle == "new term title")
+    #expect(updated.userTitle == "user title")
+    #expect(updated.ghTitle == "PR title")
+  }
+
+  @Test("setTerminalTitle: 存在しない id は notFound を throw")
+  func setTerminalTitleUnknownIdThrows() async throws {
+    let env = try await makeEnv()
+    defer { cleanup(env) }
+    let store = TaskStore(configDir: env.configDir)
+
+    await #expect(throws: TaskStoreError.notFound("missing")) {
+      _ = try await store.setTerminalTitle(
+        dir: env.worktreeA, id: "missing", terminalTitle: "x")
+    }
+  }
+
+  @Test("add upsert: 既存 task の user_title は picker 再選択で書き換わらない (ユーザー編集の確定値は保持)")
+  func addUpsertPreservesExistingUserTitle() async throws {
+    let env = try await makeEnv()
+    defer { cleanup(env) }
+    let store = TaskStore(configDir: env.configDir)
+
+    let original = try await store.add(
+      dir: env.worktreeA, ghTitle: "original PR title", worktreeDir: env.worktreeA,
+      ghRef: .forPr(7), createdAt: "2026-05-15T00:00:00Z"
+    )
+    // ユーザーが dialog で user_title を編集した状態を作る
+    _ = try await store.setUserTitle(
+      dir: env.worktreeA, id: original.id, userTitle: "manual edit")
+
+    // PR picker から再選択 (upsert): gh_title だけが上書き、user_title は保持される
+    let revived = try await store.add(
+      dir: env.worktreeA, ghTitle: "renamed PR title", worktreeDir: env.worktreeA,
+      ghRef: .forPr(7), createdAt: "2026-05-20T00:00:00Z"
+    )
+
+    #expect(revived.id == original.id)
+    #expect(revived.ghTitle == "renamed PR title")
+    #expect(revived.userTitle == "manual edit")
   }
 }
 

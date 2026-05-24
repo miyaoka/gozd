@@ -40,9 +40,6 @@ public struct Gozd_V1_TaskAddRequest: Sendable {
 
   public var dir: String = String()
 
-  /// ユーザー明示の確定タイトル。PR/issue picker 経路では通常空、手動作成時のみ使う。
-  public var userTitle: String = String()
-
   public var worktreeDir: String = String()
 
   /// GitHub PR / issue 参照。手動作成時は未指定で OK。
@@ -55,8 +52,9 @@ public struct Gozd_V1_TaskAddRequest: Sendable {
   /// Clears the value of `ghRef`. Subsequent reads from it will return its default value.
   public mutating func clearGhRef() {self._ghRef = nil}
 
-  /// PR/issue picker からの snapshot タイトル。upsert 経路 (同 worktree + 同 ghRef) で
-  /// 既存 task が見つかれば gh_title を上書き、user_title は触らない。
+  /// PR/issue picker からの snapshot タイトル。新規 task の gh_title に入る。
+  /// upsert (同 worktree + 同 ghRef) では既存 task の gh_title を上書きする。
+  /// user_title はこの経路では一切扱わない (編集 dialog 専用)。
   public var ghTitle: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -126,10 +124,9 @@ public struct Gozd_V1_TaskSetTerminalTitleResponse: Sendable {
   fileprivate var _task: Gozd_V1_Task? = nil
 }
 
-/// 編集 dialog からのユーザー明示タイトル設定。空文字は user_title をクリアし、
-/// 表示は terminal_title フォールバックに戻る (= reset)。dialog UI が
-/// preview ボタンで PR/issue title や terminal_title を input にコピーして
-/// 保存させるため、空文字保存は意図ある reset 操作として受理する。
+/// 編集 dialog からのユーザー明示タイトル設定。
+/// 空文字を渡すと user_title をクリアし、表示は gh_title / terminal_title の
+/// 自然なフォールバックチェーンに戻る (= reset 経路)。
 public struct Gozd_V1_TaskSetUserTitleRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -230,7 +227,7 @@ extension Gozd_V1_TaskList: SwiftProtobuf.Message, SwiftProtobuf._MessageImpleme
 
 extension Gozd_V1_TaskAddRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".TaskAddRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{3}user_title\0\u{3}worktree_dir\0\u{3}gh_ref\0\u{3}gh_title\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{4}\u{2}worktree_dir\0\u{3}gh_ref\0\u{3}gh_title\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -239,7 +236,6 @@ extension Gozd_V1_TaskAddRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.dir) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.userTitle) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.worktreeDir) }()
       case 4: try { try decoder.decodeSingularMessageField(value: &self._ghRef) }()
       case 5: try { try decoder.decodeSingularStringField(value: &self.ghTitle) }()
@@ -256,9 +252,6 @@ extension Gozd_V1_TaskAddRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     if !self.dir.isEmpty {
       try visitor.visitSingularStringField(value: self.dir, fieldNumber: 1)
     }
-    if !self.userTitle.isEmpty {
-      try visitor.visitSingularStringField(value: self.userTitle, fieldNumber: 2)
-    }
     if !self.worktreeDir.isEmpty {
       try visitor.visitSingularStringField(value: self.worktreeDir, fieldNumber: 3)
     }
@@ -273,7 +266,6 @@ extension Gozd_V1_TaskAddRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
 
   public static func ==(lhs: Gozd_V1_TaskAddRequest, rhs: Gozd_V1_TaskAddRequest) -> Bool {
     if lhs.dir != rhs.dir {return false}
-    if lhs.userTitle != rhs.userTitle {return false}
     if lhs.worktreeDir != rhs.worktreeDir {return false}
     if lhs._ghRef != rhs._ghRef {return false}
     if lhs.ghTitle != rhs.ghTitle {return false}

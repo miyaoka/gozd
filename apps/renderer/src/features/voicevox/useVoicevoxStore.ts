@@ -1,7 +1,7 @@
 import type { VoicevoxSpeaker } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
-import { computed, readonly, ref, watch } from "vue";
+import { computed, readonly, ref, shallowRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { rpcLoadAppConfig, rpcSaveAppConfig } from "../settings";
@@ -68,8 +68,10 @@ let speakGeneration = 0;
  * 進行中の activate Promise。再 entry されたら同じ Promise を返して in-flight dedup する。
  * (sidebar の Enable ボタンと SettingsModal トグルからの連打で「進行中 = 失敗扱い」と
  * 観察される不整合を防ぐ)
+ * `activating` computed の唯一の依存源として SSOT 化し、状態の二重管理を避ける。
+ * shallowRef を使うのは Promise を deep-proxy しないため (内部スロットを触ると壊れる)
  */
-let activationInFlight: Promise<boolean> | undefined;
+const activationInFlight = shallowRef<Promise<boolean> | undefined>(undefined);
 
 /** HMR 再実行時に前回のリスナーを解除するための disposer */
 let disposeHookListener: (() => void) | undefined;
@@ -87,8 +89,8 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
   const speakerId = ref<number>(DEFAULT_SPEAKER_ID);
   /** Engine `/speakers` から取得したキャラ一覧。enable + Engine 起動済みでロードされる */
   const speakers = ref<VoicevoxSpeaker[]>([]);
-  /** 有効化処理中 */
-  const activating = ref(false);
+  /** 有効化処理中。activationInFlight の存在から derive (SSOT) */
+  const activating = computed(() => activationInFlight.value !== undefined);
 
   /** speakers の中に該当 style.id が存在するか */
   function hasSpeakerStyle(id: number): boolean {
@@ -146,10 +148,15 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     // トースト通知をここで重複発火させない (SSOT)
   }
 
-  /** RPC 経由で Engine の起動状態を確認する */
-  async function checkEngineRunning(): Promise<boolean> {
+  /**
+   * RPC 経由で Engine の起動状態を確認する。Engine 起動チェックの SSOT。
+   * 応答するなら `{ ok: true }`、応答しないなら `{ ok: false, error? }` を返す。
+   * RPC レイヤの error は cause として後段に流せるよう保持する。
+   */
+  async function checkEngineRunning(): Promise<{ ok: boolean; error?: Error }> {
     const result = await tryCatch(rpcVoicevoxCheckEngine());
-    return result.ok && result.value.ok;
+    if (!result.ok) return { ok: false, error: result.error };
+    return { ok: result.value.ok };
   }
 
   /**
@@ -159,9 +166,9 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
   async function waitForEngine(): Promise<{ ok: true } | { ok: false; lastError?: Error }> {
     let lastError: Error | undefined;
     for (let i = 0; i < POLL_MAX_ATTEMPTS; i++) {
-      const result = await tryCatch(rpcVoicevoxCheckEngine());
-      if (result.ok && result.value.ok) return { ok: true };
-      if (!result.ok) lastError = result.error;
+      const result = await checkEngineRunning();
+      if (result.ok) return { ok: true };
+      if (result.error) lastError = result.error;
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
     }
     return { ok: false, lastError };
@@ -206,7 +213,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
       if (cfg.enabled) {
         enabled.value = true;
         // Engine が起動していなければバックグラウンドで起動だけ試みる（ポーリングしない）
-        if (await checkEngineRunning()) {
+        if ((await checkEngineRunning()).ok) {
           void loadSpeakers();
         } else {
           void tryCatch(rpcVoicevoxLaunch());
@@ -245,20 +252,19 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
    * @returns 成功なら true、失敗 (未インストール / 起動タイムアウト 等) なら false
    */
   async function activate(): Promise<boolean> {
-    if (activationInFlight) return activationInFlight;
-    activating.value = true;
-    activationInFlight = doActivate();
+    if (activationInFlight.value) return activationInFlight.value;
+    const work = doActivate();
+    activationInFlight.value = work;
     try {
-      return await activationInFlight;
+      return await work;
     } finally {
-      activating.value = false;
-      activationInFlight = undefined;
+      activationInFlight.value = undefined;
     }
   }
 
   async function doActivate(): Promise<boolean> {
     // Engine が既に起動しているかチェック
-    if (await checkEngineRunning()) {
+    if ((await checkEngineRunning()).ok) {
       enabled.value = true;
       void loadSpeakers();
       return true;

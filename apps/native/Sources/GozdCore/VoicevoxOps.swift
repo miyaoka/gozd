@@ -156,8 +156,13 @@ public enum VoicevoxOps {
       return true
     }
     guard canSpawn else {
+      // skip 時の true は「engine listen 済み」ではなく「別 caller が spawn 中なので
+      // 後続は polling で listen を待つ責任」を意味する。caller (renderer の doActivate)
+      // は launch ok=true の後に waitForEngine を回す前提なので、この戻り値で問題ない
       StderrLog.write(
-        tag: "VoicevoxOps.launch", "concurrent spawn in-flight; skipping")
+        tag: "VoicevoxOps.launch",
+        "concurrent spawn in-flight; skipping (caller must poll /version)"
+      )
       return true
     }
 

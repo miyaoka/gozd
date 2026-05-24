@@ -84,11 +84,15 @@ public enum FSOps {
   public static func readDir(dir: String, path: String) async throws -> [FSEntry] {
     let target = try resolveSafe(dir: dir, path: path)
     let url = URL(fileURLWithPath: target)
-    let entries = try FileManager.default.contentsOfDirectory(
+    let rawEntries = try FileManager.default.contentsOfDirectory(
       at: url,
       includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
       options: []
     )
+    // `.git` (directory / gitlink file 両方) はツリーから完全一致で除外する。
+    // 仕様契約は docs/filer.md「除外エントリ」を参照。
+    // gitignore 経路とは独立。checkIgnore に渡す前に落とし、無駄な git 呼び出しも省く。
+    let entries = rawEntries.filter { $0.lastPathComponent != ".git" }
     let listed: [(URL, String)] = entries.map { entry in
       let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
       let type: String

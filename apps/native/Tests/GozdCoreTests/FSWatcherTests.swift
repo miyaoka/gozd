@@ -25,7 +25,11 @@ struct FSWatcherTests {
     let testFile = tmpDir.appendingPathComponent("hello.txt")
     try "hello".write(to: testFile, atomically: true, encoding: .utf8)
 
-    await waitUntil(timeout: .seconds(2), description: "hello.txt event") {
+    await waitUntil(
+      timeout: .seconds(2),
+      description: "hello.txt event",
+      lastObserved: { collector.snapshot().map(\.path).description }
+    ) {
       collector.snapshot().contains { $0.path.hasSuffix("hello.txt") }
     }
 
@@ -54,7 +58,11 @@ struct FSWatcherTests {
 
     try FileManager.default.removeItem(at: testFile)
 
-    await waitUntil(timeout: .seconds(2), description: "doomed.txt event") {
+    await waitUntil(
+      timeout: .seconds(2),
+      description: "doomed.txt event",
+      lastObserved: { collector.snapshot().map(\.path).description }
+    ) {
       collector.snapshot().contains { $0.path.hasSuffix("doomed.txt") }
     }
 
@@ -84,7 +92,11 @@ struct FSWatcherTests {
     let nestedFile = subDir.appendingPathComponent("nested.txt")
     try "nested".write(to: nestedFile, atomically: true, encoding: .utf8)
 
-    await waitUntil(timeout: .seconds(2), description: "nested.txt event") {
+    await waitUntil(
+      timeout: .seconds(2),
+      description: "nested.txt event",
+      lastObserved: { collector.snapshot().map(\.path).description }
+    ) {
       collector.snapshot().contains { $0.path.hasSuffix("nested.txt") }
     }
 

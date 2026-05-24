@@ -186,10 +186,14 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     for (let i = 0; i < POLL_MAX_ATTEMPTS; i++) {
       const result = await checkEngineRunning();
       if (result.ok) return { ok: true };
-      lastFailure =
-        result.reason === "rpc-error"
-          ? { reason: "rpc-error", lastError: result.error }
-          : { reason: "engine-not-responding" };
+      // rpc-error は情報量が多い (RPC dispatcher 自体の障害示唆) ので、途中で観測したら
+      // 以降の engine-not-responding で上書きさせない。engine-not-responding は最終状態
+      // が掴めれば十分なので、rpc-error をまだ観測していない時だけ記録する
+      if (result.reason === "rpc-error") {
+        lastFailure = { reason: "rpc-error", lastError: result.error };
+      } else if (lastFailure?.reason !== "rpc-error") {
+        lastFailure = { reason: "engine-not-responding" };
+      }
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
     }
     // POLL_MAX_ATTEMPTS=0 の (現状到達不能な) 境界用フォールバック

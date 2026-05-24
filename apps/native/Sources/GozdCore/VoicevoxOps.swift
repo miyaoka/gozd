@@ -109,7 +109,6 @@ public enum VoicevoxOps {
     }
 
     let bundleId = "jp.hiroshiba.voicevox"
-    let engineRelativePath = "Contents/Resources/vv-engine/run"
 
     let appUrl = await MainActor.run {
       NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId)
@@ -120,7 +119,13 @@ public enum VoicevoxOps {
     }
     // symlink / mount alias を経由する場合に備えて実体パスへ解決
     let resolvedAppUrl = appUrl.resolvingSymlinksInPath()
-    let engineUrl = resolvedAppUrl.appendingPathComponent(engineRelativePath)
+    // slash 区切りの 1 本文字列を appendingPathComponent に渡すと挙動が macOS version 依存。
+    // segment 単位で連鎖させる (Apple Foundation 推奨)
+    let engineUrl = resolvedAppUrl
+      .appendingPathComponent("Contents")
+      .appendingPathComponent("Resources")
+      .appendingPathComponent("vv-engine")
+      .appendingPathComponent("run")
     guard FileManager.default.isExecutableFile(atPath: engineUrl.path) else {
       StderrLog.write(
         tag: "VoicevoxOps.launch", "engine binary not executable at \(engineUrl.path)")

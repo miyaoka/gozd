@@ -15,6 +15,13 @@
 
 set -euo pipefail
 
+# cwd に依存せず repo root を script の場所から解決する。lefthook 経由でも、
+# manual に subdir / temp dir から呼ばれても同じ Sources を見るようにする
+# (cwd 依存だと find が空 list を返して silent pass する事故源になる)。
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+SOURCES_ROOT="$REPO_ROOT/apps/native/Sources"
+
 ALLOWED_PATTERN='apps/native/Sources/(GozdCore/(StderrLog|PTYTrace)\.swift|GozdCLI/)'
 PATTERN='FileHandle\.standardError\.write'
 
@@ -55,9 +62,13 @@ if [ "$#" -gt 0 ]; then
     check_file "$file"
   done
 else
+  if [ ! -d "$SOURCES_ROOT" ]; then
+    printf '\033[31m✘ Sources root not found: %s\033[0m\n' "$SOURCES_ROOT" >&2
+    exit 2
+  fi
   while IFS= read -r file; do
     check_file "$file"
-  done < <(find apps/native/Sources -name '*.swift')
+  done < <(find "$SOURCES_ROOT" -name '*.swift')
 fi
 
 exit "$found_violation"

@@ -133,12 +133,12 @@ struct StderrLogWriteTests {
     #expect(captured.hasSuffix("\n"))
   }
 
-  @Test("公開 API write は writeImpl と同じ format を出力する (smoke)")
-  func publicApiCallsThrough() {
-    // 公開 API がクラッシュせず正常 return することを確認する smoke test。
-    // 出力 byte は writeImpl 経路で format-correctness を verify 済みなので、
-    // 公開 API では FileHandle.standardError への write を実行する経路だけ
-    // 通しておく (実 stderr capture は並列 runner 混線で flaky)。
-    StderrLog.write(tag: "TestSuite", "smoke message")
-  }
+  // 公開 API `write(tag:_:)` 自身の smoke test は意図的に書かない。
+  //
+  // - `write(tag:_:)` は `writeImpl(tag:_:to: .standardError)` への 1 行委譲。
+  //   format / escape / lock の振る舞いは writeImpl 経路の test で完全に固定済み
+  // - 仮に smoke で `write` を呼ぶと実 stderr に test 用 tag (e.g. `[TestSuite]`)
+  //   が必ず混じり、観察ログ運用 (`grep '\[[A-Z]'` で経路を絞る) を test runner
+  //   出力が汚染する。違反検出器の前提と齟齬が出る
+  // - 委譲 1 行が壊れる risk は型 + writeImpl の test で十分閉じている
 }

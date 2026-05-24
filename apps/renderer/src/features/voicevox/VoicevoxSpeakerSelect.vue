@@ -4,15 +4,16 @@ VOICEVOX のキャラとスタイルを 2 段 select で選ぶコンポーネン
 
 ## stale speakerId
 
-保存された speakerId が現エンジンに存在しない場合、`effectiveSpeakerId` (再生用) はデフォルトに倒れるが、
-ユーザー選択 (`speakerId`) は保持される。この時 inline 警告と Use default ボタンを出す。
-Use default は `setSpeakerId(DEFAULT_SPEAKER_ID)` と等価で、reset 専用 API は持たない (SSOT)。
+保存された speakerId が現エンジンに存在しない場合、`effectiveSpeakerId` (再生用) はメモリ上 fallback
+されるが、ユーザー選択 (`speakerId`) は保持される。この時 inline 警告と Use default ボタンを出す。
+Use default は `setSpeakerId(effectiveSpeakerId)` を呼ぶ。effectiveSpeakerId は
+DEFAULT → speakers[0].styles[0].id の順で live fallback されるため、DEFAULT が engine に
+無い稀ケースでも常に有効な値が渡る。
 </doc>
 
 <script setup lang="ts">
 import { computed } from "vue";
 import { useVoicevoxStore } from "../voicevox";
-import { DEFAULT_SPEAKER_ID } from "./useVoicevoxStore";
 
 const voicevoxStore = useVoicevoxStore();
 
@@ -53,7 +54,7 @@ function handleStyleChange(event: Event) {
           <button
             type="button"
             class="ml-1 underline hover:text-amber-200"
-            @click="voicevoxStore.setSpeakerId(DEFAULT_SPEAKER_ID)"
+            @click="voicevoxStore.setSpeakerId(voicevoxStore.effectiveSpeakerId)"
           >
             Use default
           </button>

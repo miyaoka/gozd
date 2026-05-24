@@ -15,7 +15,7 @@ import {
 import { extractSpeechText } from "./speechText";
 
 /** ずんだもん（ノーマル）。voicevox 設定の唯一の SSOT */
-export const DEFAULT_SPEAKER_ID = 3;
+const DEFAULT_SPEAKER_ID = 3;
 const DEFAULT_SPEED_SCALE = 1.5;
 const DEFAULT_VOLUME_SCALE = 1.0;
 
@@ -90,13 +90,17 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
 
   /**
    * speak 経路で実際に使う speaker id。
-   * speakers ロード後に speakerId が存在しなければ DEFAULT にメモリ上 fallback する。
-   * 永続化される speakerId は touch しないため、Engine 構成が一時的に変わってもユーザー選択は破壊しない。
+   * speakers ロード後に speakerId が存在しなければ DEFAULT → speakers[0].styles[0].id の順で
+   * メモリ上 fallback する。永続化される speakerId は touch しないため、Engine 構成が
+   * 一時的に変わってもユーザー選択は破壊しない。
    */
   const effectiveSpeakerId = computed(() => {
     const id = speakerId.value;
     if (speakers.value.length === 0) return id; // ロード前は信用して通す
-    return hasSpeakerStyle(id) ? id : DEFAULT_SPEAKER_ID;
+    if (hasSpeakerStyle(id)) return id;
+    if (hasSpeakerStyle(DEFAULT_SPEAKER_ID)) return DEFAULT_SPEAKER_ID;
+    // DEFAULT も無いカスタムビルド等の稀ケース: 最初の利用可能な style に live fallback
+    return speakers.value[0]?.styles[0]?.id ?? id;
   });
 
   /**
@@ -121,8 +125,9 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
   }
 
   /**
-   * Engine から speakers を取得する。永続化値が現存しない場合は notify.info で伝えるのみで、
-   * speakerId.value は touch しない (実効値は effectiveSpeakerId computed が DEFAULT に倒す)。
+   * Engine から speakers を取得する。永続化値が現存しない状態は speakerIdIsStale computed
+   * → VoicevoxSpeakerSelect の inline 警告経由でユーザーに伝える (SSOT)。
+   * speakerId.value は touch しない (実効値は effectiveSpeakerId computed が memory 上 fallback する)。
    */
   async function loadSpeakers(): Promise<void> {
     const result = await tryCatch(rpcVoicevoxListSpeakers());

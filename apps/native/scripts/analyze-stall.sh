@@ -1,15 +1,11 @@
 #!/usr/bin/env bash
 #
 # CI log の `[TEST-TRACE]` waitUntil tick 行を test 横断で時系列ソートし、
-# 「同時刻 stall window」を集計する。
+# 「同時刻 stall window」を集計する。「どの test の tick がどの時刻に発火したか」
+# 「stall window の幅 ( tick 間 gap が閾値を超える区間 ) はどれか」を 1 view で出す。
 #
-# issue ( #566 ) で観測した stall は SocketServer / PTYManager / PTYRegistry の
-# 並列 test が同一 window ( +0s〜+2.04s ) で `Task.sleep(50ms)` が全停止する pattern
-# だった。本スクリプトは「どの test の tick がどの時刻に発火したか」「stall window
-# の幅 ( tick 間 gap が閾値を超える区間 ) はどれか」を 1 view で出す。
-#
-# 対応 helper: `waitUntil` ( Task.sleep 経路 ) / `waitUntilDispatch` ( 旧版、観測無効と
-# 判明 ) / `waitUntilThreaded` ( polling loop 全体を GCD thread 上で完結 )。kind 列で区別。
+# 対応 helper: `waitUntil` ( dedicated NSThread 上で polling loop を完結 )。perl regex は
+# `waitUntilDispatch` / `waitUntilThreaded` も OR で拾うため、旧版の CI log にも適用可能。
 #
 # 入力: CI log を stdin に流すか、第 1 引数に log file path を渡す。
 # 出力:

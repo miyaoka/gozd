@@ -30,11 +30,7 @@ struct PTYManagerTests {
       onExit: { exit.set($0) }
     )
 
-    // issue ( #566 ) 観測: 本 test は CI attempt 1 で tick=1 ( +0.124s ) → tick=2 ( +2.405s )
-    // と `Task.sleep(50ms)` が 2.28s stall した。polling loop 全体を GCD thread 上で完結
-    // させる `waitUntilThreaded` に切り替えて、cooperative executor 外で tick が動くかを
-    // 観測する。
-    await waitUntilThreaded(timeout: .seconds(3)) { exit.snapshot() != nil }
+    await waitUntil(timeout: .seconds(3)) { exit.snapshot() != nil }
 
     // pty (tty mode) は ONLCR で \n を \r\n に変換する。
     let text = String(decoding: data.snapshot(), as: UTF8.self)
@@ -66,12 +62,12 @@ struct PTYManagerTests {
 
     pty.write(Data("ping\n".utf8))
 
-    try await waitUntil(timeout: .seconds(2)) {
+    await waitUntil(timeout: .seconds(2)) {
       String(decoding: data.snapshot(), as: UTF8.self).contains("ping")
     }
 
     pty.kill()
-    try await waitUntil(timeout: .seconds(2)) { exit.snapshot() != nil }
+    await waitUntil(timeout: .seconds(2)) { exit.snapshot() != nil }
 
     if case .signaled(let sig, _) = exit.snapshot() {
       #expect(sig == SIGHUP)
@@ -100,7 +96,7 @@ struct PTYManagerTests {
     )
     pty.resize(rows: 40, cols: 120)
     pty.kill()
-    try await waitUntil(timeout: .seconds(2)) { exit.snapshot() != nil }
+    await waitUntil(timeout: .seconds(2)) { exit.snapshot() != nil }
     #expect(exit.snapshot() != nil)
   }
 
@@ -123,7 +119,7 @@ struct PTYManagerTests {
       onExit: { exit.set($0) }
     )
 
-    try await waitUntil(timeout: .seconds(3)) { exit.snapshot() != nil }
+    await waitUntil(timeout: .seconds(3)) { exit.snapshot() != nil }
 
     // /usr/bin/true は何も出力せず exit 0 で終わる。
     // tty mode で promptless なので、データは 0 byte または echo 由来の数 byte のみ。
@@ -149,7 +145,7 @@ struct PTYManagerTests {
       onExit: { exit.set($0) }
     )
 
-    try await waitUntil(timeout: .seconds(3)) { exit.snapshot() != nil }
+    await waitUntil(timeout: .seconds(3)) { exit.snapshot() != nil }
 
     // login_tty で slave fd は stdin/stdout/stderr すべてに dup2 されているため
     // stderr 出力も master 経由で観測できる。
@@ -185,7 +181,7 @@ struct PTYManagerTests {
       onExit: { exit.set($0) }
     )
 
-    try await waitUntil(timeout: .seconds(3)) { exit.snapshot() != nil }
+    await waitUntil(timeout: .seconds(3)) { exit.snapshot() != nil }
     #expect(exit.snapshot() == .exited(code: 124))
   }
 
@@ -210,7 +206,7 @@ struct PTYManagerTests {
       onExit: { exit.set($0) }
     )
 
-    try await waitUntil(timeout: .seconds(3)) { exit.snapshot() != nil }
+    await waitUntil(timeout: .seconds(3)) { exit.snapshot() != nil }
     #expect(exit.snapshot() == .exited(code: 126))
   }
 
@@ -233,7 +229,7 @@ struct PTYManagerTests {
       onExit: { exit.set($0) }
     )
 
-    try await waitUntil(timeout: .seconds(3)) { exit.snapshot() != nil }
+    await waitUntil(timeout: .seconds(3)) { exit.snapshot() != nil }
 
     // POSIX shell 慣例 / CPty.c の child で execve ENOENT → _exit(127)。
     #expect(exit.snapshot() == .exited(code: 127))
@@ -410,11 +406,8 @@ private func expectedErrnoText(_ code: Int32) -> String {
 
 // MARK: - Helpers
 
-// `waitUntil` / `waitUntilThreaded` は `WaitUntil.swift` の共有実装を使う
-// （issue #556 観測項目 3 / issue #566 観測項目）。
-// tick polling 履歴を持ち、timeout 時に Issue.record の message に inline する。
-// `receivesOutputAndExit` のみ `waitUntilThreaded` ( GCD thread で polling loop 完結 ) を使い、
-// 他 test は `waitUntil` ( Task.sleep 経路 ) のまま並走させて同 stall window で経路を比較する。
+// `waitUntil` は `WaitUntil.swift` の共有実装 ( dedicated NSThread 上で polling loop を完結 )。
+// tick polling 履歴を保持し、timeout 時に Issue.record の message に inline する。
 
 private final class DataCollector: @unchecked Sendable {
   private let lock = NSLock()

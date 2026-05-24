@@ -41,11 +41,7 @@ struct PTYRegistryTests {
     // test である本 test の副次 assertion に統合した（PR #597 review feedback）。
     #expect(id2 == id1 + 1)
 
-    // issue ( #566 ) 観測: 本 test は CI attempt 1 で tick=1 ( +1.161s ) → tick=2 ( +2.534s )
-    // と `Task.sleep(50ms)` が 1.37s stall した ( SocketServer / receivesOutputAndExit と
-    // 同じ stall window )。polling loop 全体を GCD thread 上で完結させる
-    // `waitUntilThreaded` に切り替えて経路を完全分離する。
-    await waitUntilThreaded(timeout: .seconds(3)) {
+    await waitUntil(timeout: .seconds(3)) {
       events.exitedIds().contains(id1) && events.exitedIds().contains(id2)
     }
 
@@ -76,7 +72,7 @@ struct PTYRegistryTests {
     try await Task.sleep(for: .milliseconds(100))
     await registry.kill(id: id)
 
-    try await waitUntil(timeout: .seconds(2)) {
+    await waitUntil(timeout: .seconds(2)) {
       events.exitedIds().contains(id)
     }
     // remove は exit handler 経由で `Task { await self.remove }` で発火するため、
@@ -188,10 +184,8 @@ struct PTYRegistryTests {
 
 // MARK: - Helpers
 
-// `waitUntil` / `waitUntilThreaded` は `WaitUntil.swift` の共有実装を使う
-// （issue #556 観測項目 3 / issue #566 観測項目）。
-// `spawnAndExitDispatch` のみ `waitUntilThreaded` ( GCD thread で polling loop 完結 ) を使い、
-// 他 test は `waitUntil` ( Task.sleep 経路 ) のまま並走させて同 stall window で経路を比較する。
+// `waitUntil` は `WaitUntil.swift` の共有実装 ( dedicated NSThread 上で polling loop を完結 )。
+// tick polling 履歴を保持し、timeout 時に Issue.record の message に inline する。
 
 private final class EventCollector: @unchecked Sendable {
   private let lock = NSLock()

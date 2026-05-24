@@ -75,14 +75,14 @@ struct ContentView: View {
           do {
             for try await _ in runtime.page.load(url) {}
           } catch {
-            print("page.load (vite) failed: \(error)")
+            StderrLog.write(tag: "GozdApp", "page.load (vite) failed: \(error)")
           }
         } else if BundleAssetSchemeHandler.bundledRoot != nil {
           let appURL = URL(string: "gozd-app://localhost/index.html")!
           do {
             for try await _ in runtime.page.load(URLRequest(url: appURL)) {}
           } catch {
-            print("page.load (bundled) failed: \(error)")
+            StderrLog.write(tag: "GozdApp", "page.load (bundled) failed: \(error)")
           }
         } else {
           let html = ptyHarnessHTML(socketPath: runtime.socketPath)
@@ -92,7 +92,7 @@ struct ContentView: View {
               baseURL: URL(string: "gozd-app://localhost/")!
             ) {}
           } catch {
-            print("page.load (harness) failed: \(error)")
+            StderrLog.write(tag: "GozdApp", "page.load (harness) failed: \(error)")
           }
         }
 
@@ -345,7 +345,7 @@ final class AppRuntime {
           }
         }
       }
-      print("[SocketServer] listening on \(socketPath)")
+      StderrLog.write(tag: "SocketServer", "listening on \(socketPath)")
     } catch {
       StderrLog.write(tag: "SocketServer", "start failed: \(error)")
       sendNotify(

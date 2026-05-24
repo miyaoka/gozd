@@ -176,6 +176,8 @@ StderrLog.write(tag: "handlePtySpawn", "pty.spawn failed: \(error) executable=\(
 
 以前の規約は「素埋め込み + source 側 sanitize」を call site の双方の責務として記述していたが、両者は両立しない (素埋め込みの見た目を保つと sanitize 呼びが書けず、レビューで違反を検出できない)。helper に sanitize を集約することで、SSOT を「規約条文」から「実行コード」に移し、違反が構造的に発生しない構成にする。
 
+加えて pre-commit hook (`apps/native/scripts/check-stderr-direct.sh`) で `FileHandle.standardError.write` の直接呼び出しを許可リスト (`StderrLog.swift` / `PTYTrace.swift` / `GozdCLI/`) 外で reject する。helper を作るだけでは「helper を経由しない新規違反」が再発し得るため、grep ベースの check で構造的に違反を防ぐ側の柱を立てる。
+
 #### errnoText の制御文字 gate との関係
 
 `PTYError.errnoText` (`PTYManager.swift`) の control-char gate は本規約の対象外。errnoText は stderr 経由だけでなく、`PTYError.description` 経由で `RpcSchemeHandler` の 500 response body にも乗る (renderer まで届く identifier として使う)。helper 側の escape は stderr 経路の 1 行性を守るためのもので、renderer 側に届く文字列の identifier 品質まで保証しない。`errnoText` の gate は renderer 経路の identifier 品質を `unknown errno N` fallback で確保する別契約として残る。

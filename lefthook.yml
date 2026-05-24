@@ -86,6 +86,13 @@ pre-commit:
       run: pnpm knip --fix --format
       stage_fixed: true
 
+    # 観察ログ regulation を構造的に強制する。`FileHandle.standardError.write` の
+    # 直接呼び出しを `StderrLog.write` 経由に絞り、grep ベースで違反を CI で reject する。
+    # 詳細は CLAUDE.md「観察ログ (stderr) の書式」を参照。
+    - name: check-stderr-direct
+      glob: "apps/native/Sources/**/*.swift"
+      run: bash apps/native/scripts/check-stderr-direct.sh {staged_files}
+
 # git pull / merge 後に lockfile の変更を検出し、pnpm install を促す
 post-merge:
   jobs:

@@ -191,6 +191,16 @@ useEventListener(document, "keydown", (e: KeyboardEvent) => {
   closePreview();
 });
 
+// worktree 切替 (dir 変化) で Preview を auto-close。
+// 新 worktree でファイル選択を伴う経路 (gozdOpen 経由等) では、後続の
+// selectedDisplayPath watch が auto-open で開き直すため、最終状態は新ファイルで表示継続になる。
+watch(
+  () => worktreeStore.dir,
+  () => {
+    closePreview();
+  },
+);
+
 // ファイル選択時に Preview を自動オープン (path 軸で識別; selection object identity の発火は避ける)
 watch(
   () => worktreeStore.selectedDisplayPath,

@@ -45,6 +45,11 @@ export interface VoicevoxConfig {
   enabled: boolean;
   speedScale: number;
   volumeScale: number;
+  /**
+   * 未設定なら renderer 側 default にフォールバック。
+   * VOICEVOX の正規 style ID 0 (四国めたん あまあま) と未設定を区別するため optional で wrap する。
+   */
+  speakerId?: number | undefined;
 }
 
 export interface LoadAppConfigRequest {
@@ -344,7 +349,7 @@ export const PreviewConfig: MessageFns<PreviewConfig> = {
 };
 
 function createBaseVoicevoxConfig(): VoicevoxConfig {
-  return { enabled: false, speedScale: 0, volumeScale: 0 };
+  return { enabled: false, speedScale: 0, volumeScale: 0, speakerId: undefined };
 }
 
 export const VoicevoxConfig: MessageFns<VoicevoxConfig> = {
@@ -357,6 +362,9 @@ export const VoicevoxConfig: MessageFns<VoicevoxConfig> = {
     }
     if (message.volumeScale !== 0) {
       writer.uint32(25).double(message.volumeScale);
+    }
+    if (message.speakerId !== undefined) {
+      writer.uint32(32).uint32(message.speakerId);
     }
     return writer;
   },
@@ -392,6 +400,14 @@ export const VoicevoxConfig: MessageFns<VoicevoxConfig> = {
           message.volumeScale = reader.double();
           continue;
         }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.speakerId = reader.uint32();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -414,6 +430,11 @@ export const VoicevoxConfig: MessageFns<VoicevoxConfig> = {
         : isSet(object.volume_scale)
         ? globalThis.Number(object.volume_scale)
         : 0,
+      speakerId: isSet(object.speakerId)
+        ? globalThis.Number(object.speakerId)
+        : isSet(object.speaker_id)
+        ? globalThis.Number(object.speaker_id)
+        : undefined,
     };
   },
 
@@ -428,6 +449,9 @@ export const VoicevoxConfig: MessageFns<VoicevoxConfig> = {
     if (message.volumeScale !== 0) {
       obj.volumeScale = message.volumeScale;
     }
+    if (message.speakerId !== undefined) {
+      obj.speakerId = Math.round(message.speakerId);
+    }
     return obj;
   },
 
@@ -439,6 +463,7 @@ export const VoicevoxConfig: MessageFns<VoicevoxConfig> = {
     message.enabled = object.enabled ?? false;
     message.speedScale = object.speedScale ?? 0;
     message.volumeScale = object.volumeScale ?? 0;
+    message.speakerId = object.speakerId ?? undefined;
     return message;
   },
 };

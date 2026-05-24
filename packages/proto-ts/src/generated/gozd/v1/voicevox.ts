@@ -35,6 +35,24 @@ export interface VoicevoxSpeakResponse {
   wav: Uint8Array;
 }
 
+/** Engine `/speakers` の薄いラッパー。キャラと style 一覧を返す。 */
+export interface VoicevoxListSpeakersRequest {
+}
+
+export interface VoicevoxListSpeakersResponse {
+  speakers: VoicevoxSpeaker[];
+}
+
+export interface VoicevoxSpeaker {
+  name: string;
+  styles: VoicevoxSpeakerStyle[];
+}
+
+export interface VoicevoxSpeakerStyle {
+  name: string;
+  id: number;
+}
+
 function createBaseVoicevoxLaunchRequest(): VoicevoxLaunchRequest {
   return {};
 }
@@ -411,6 +429,265 @@ export const VoicevoxSpeakResponse: MessageFns<VoicevoxSpeakResponse> = {
   fromPartial(object: DeepPartial<VoicevoxSpeakResponse>): VoicevoxSpeakResponse {
     const message = createBaseVoicevoxSpeakResponse();
     message.wav = object.wav ?? new Uint8Array(0);
+    return message;
+  },
+};
+
+function createBaseVoicevoxListSpeakersRequest(): VoicevoxListSpeakersRequest {
+  return {};
+}
+
+export const VoicevoxListSpeakersRequest: MessageFns<VoicevoxListSpeakersRequest> = {
+  encode(_: VoicevoxListSpeakersRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): VoicevoxListSpeakersRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseVoicevoxListSpeakersRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): VoicevoxListSpeakersRequest {
+    return {};
+  },
+
+  toJSON(_: VoicevoxListSpeakersRequest): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<VoicevoxListSpeakersRequest>): VoicevoxListSpeakersRequest {
+    return VoicevoxListSpeakersRequest.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<VoicevoxListSpeakersRequest>): VoicevoxListSpeakersRequest {
+    const message = createBaseVoicevoxListSpeakersRequest();
+    return message;
+  },
+};
+
+function createBaseVoicevoxListSpeakersResponse(): VoicevoxListSpeakersResponse {
+  return { speakers: [] };
+}
+
+export const VoicevoxListSpeakersResponse: MessageFns<VoicevoxListSpeakersResponse> = {
+  encode(message: VoicevoxListSpeakersResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.speakers) {
+      VoicevoxSpeaker.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): VoicevoxListSpeakersResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseVoicevoxListSpeakersResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.speakers.push(VoicevoxSpeaker.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): VoicevoxListSpeakersResponse {
+    return {
+      speakers: globalThis.Array.isArray(object?.speakers)
+        ? object.speakers.map((e: any) => VoicevoxSpeaker.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: VoicevoxListSpeakersResponse): unknown {
+    const obj: any = {};
+    if (message.speakers?.length) {
+      obj.speakers = message.speakers.map((e) => VoicevoxSpeaker.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<VoicevoxListSpeakersResponse>): VoicevoxListSpeakersResponse {
+    return VoicevoxListSpeakersResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<VoicevoxListSpeakersResponse>): VoicevoxListSpeakersResponse {
+    const message = createBaseVoicevoxListSpeakersResponse();
+    message.speakers = object.speakers?.map((e) => VoicevoxSpeaker.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseVoicevoxSpeaker(): VoicevoxSpeaker {
+  return { name: "", styles: [] };
+}
+
+export const VoicevoxSpeaker: MessageFns<VoicevoxSpeaker> = {
+  encode(message: VoicevoxSpeaker, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    for (const v of message.styles) {
+      VoicevoxSpeakerStyle.encode(v!, writer.uint32(18).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): VoicevoxSpeaker {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseVoicevoxSpeaker();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.styles.push(VoicevoxSpeakerStyle.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): VoicevoxSpeaker {
+    return {
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      styles: globalThis.Array.isArray(object?.styles)
+        ? object.styles.map((e: any) => VoicevoxSpeakerStyle.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: VoicevoxSpeaker): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.styles?.length) {
+      obj.styles = message.styles.map((e) => VoicevoxSpeakerStyle.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<VoicevoxSpeaker>): VoicevoxSpeaker {
+    return VoicevoxSpeaker.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<VoicevoxSpeaker>): VoicevoxSpeaker {
+    const message = createBaseVoicevoxSpeaker();
+    message.name = object.name ?? "";
+    message.styles = object.styles?.map((e) => VoicevoxSpeakerStyle.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseVoicevoxSpeakerStyle(): VoicevoxSpeakerStyle {
+  return { name: "", id: 0 };
+}
+
+export const VoicevoxSpeakerStyle: MessageFns<VoicevoxSpeakerStyle> = {
+  encode(message: VoicevoxSpeakerStyle, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.id !== 0) {
+      writer.uint32(16).uint32(message.id);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): VoicevoxSpeakerStyle {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseVoicevoxSpeakerStyle();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.id = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): VoicevoxSpeakerStyle {
+    return {
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      id: isSet(object.id) ? globalThis.Number(object.id) : 0,
+    };
+  },
+
+  toJSON(message: VoicevoxSpeakerStyle): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.id !== 0) {
+      obj.id = Math.round(message.id);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<VoicevoxSpeakerStyle>): VoicevoxSpeakerStyle {
+    return VoicevoxSpeakerStyle.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<VoicevoxSpeakerStyle>): VoicevoxSpeakerStyle {
+    const message = createBaseVoicevoxSpeakerStyle();
+    message.name = object.name ?? "";
+    message.id = object.id ?? 0;
     return message;
   },
 };

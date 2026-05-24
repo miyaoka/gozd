@@ -79,6 +79,11 @@ export const globalSettingsSections: readonly SettingSection[] = [
         max: 2.0,
         step: 0.1,
       },
+      "voicevox.speakerId": {
+        widget: "voicevoxSpeaker",
+        label: "Speaker",
+        description: "Character and style. Loaded from running VOICEVOX engine.",
+      },
     },
   },
 ];

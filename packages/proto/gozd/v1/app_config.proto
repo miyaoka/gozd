@@ -36,6 +36,9 @@ message VoicevoxConfig {
   bool enabled = 1;
   double speed_scale = 2;
   double volume_scale = 3;
+  // 未設定なら renderer 側 default にフォールバック。
+  // VOICEVOX の正規 style ID 0 (四国めたん あまあま) と未設定を区別するため optional で wrap する。
+  optional uint32 speaker_id = 4;
 }
 
 message LoadAppConfigRequest {}

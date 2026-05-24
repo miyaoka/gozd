@@ -5,7 +5,7 @@
 </doc>
 
 <script setup lang="ts">
-import { useVoicevoxStore } from "../voicevox";
+import { useVoicevoxStore, VoicevoxSpeakerSelect } from "../voicevox";
 
 const voicevoxStore = useVoicevoxStore();
 
@@ -34,6 +34,7 @@ async function handleActivate() {
           <span class="icon-[lucide--volume-2] size-4 shrink-0 animate-pulse" />
           <span>Playing...</span>
         </button>
+        <VoicevoxSpeakerSelect />
         <div class="flex items-center gap-2 text-xs text-zinc-500">
           <span class="icon-[lucide--gauge] size-4 shrink-0" title="Speed" />
           <input

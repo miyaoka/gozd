@@ -26,7 +26,7 @@ const emit = defineEmits<{
         v-for="(setting, key) in section.settings"
         :key="key"
         :setting="setting"
-        :model-value="values[key] ?? setting.defaultValue"
+        :model-value="values[key] ?? ('defaultValue' in setting ? setting.defaultValue : undefined)"
         @update:model-value="emit('change', key as string, $event)"
       />
     </div>

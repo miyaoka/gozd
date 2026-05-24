@@ -26,7 +26,7 @@ renderer（Vue / WebKit）と native（Swift）間の通信。`.proto` を SSOT 
 | `app_config.proto`     | ユーザー設定（terminal / preview / voicevox）                      |
 | `project_config.proto` | プロジェクト固有設定（worktreeSymlinks 等）                        |
 | `claude_session.proto` | Claude session の listByDir / removeByPty                          |
-| `voicevox.proto`       | VOICEVOX engine の launch / check / speak                          |
+| `voicevox.proto`       | VOICEVOX engine の launch / check / listSpeakers / speak           |
 | `shell_command.proto`  | `gozd` CLI の install / uninstall                                  |
 | `window.proto`         | window close / setTitleContext                                     |
 | `open_external.proto`  | `open` コマンド経由の外部 URL / app open                           |

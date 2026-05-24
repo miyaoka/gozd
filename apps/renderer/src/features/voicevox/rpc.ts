@@ -3,6 +3,8 @@ import {
   VoicevoxCheckEngineResponse,
   VoicevoxLaunchRequest,
   VoicevoxLaunchResponse,
+  VoicevoxListSpeakersRequest,
+  VoicevoxListSpeakersResponse,
   VoicevoxSpeakRequest,
   VoicevoxSpeakResponse,
 } from "@gozd/proto";
@@ -15,6 +17,10 @@ export const rpcVoicevoxLaunch = (req: VoicevoxLaunchRequest = VoicevoxLaunchReq
 export const rpcVoicevoxCheckEngine = (
   req: VoicevoxCheckEngineRequest = VoicevoxCheckEngineRequest.create(),
 ) => rpc("/voicevox/checkEngine", req, VoicevoxCheckEngineRequest, VoicevoxCheckEngineResponse);
+
+export const rpcVoicevoxListSpeakers = (
+  req: VoicevoxListSpeakersRequest = VoicevoxListSpeakersRequest.create(),
+) => rpc("/voicevox/listSpeakers", req, VoicevoxListSpeakersRequest, VoicevoxListSpeakersResponse);
 
 export const rpcVoicevoxSpeak = (req: VoicevoxSpeakRequest) =>
   rpc("/voicevox/speak", req, VoicevoxSpeakRequest, VoicevoxSpeakResponse);

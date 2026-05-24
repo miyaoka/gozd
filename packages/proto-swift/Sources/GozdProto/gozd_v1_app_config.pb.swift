@@ -115,9 +115,22 @@ public struct Gozd_V1_VoicevoxConfig: Sendable {
 
   public var volumeScale: Double = 0
 
+  /// 未設定なら renderer 側 default にフォールバック。
+  /// VOICEVOX の正規 style ID 0 (四国めたん あまあま) と未設定を区別するため optional で wrap する。
+  public var speakerID: UInt32 {
+    get {_speakerID ?? 0}
+    set {_speakerID = newValue}
+  }
+  /// Returns true if `speakerID` has been explicitly set.
+  public var hasSpeakerID: Bool {self._speakerID != nil}
+  /// Clears the value of `speakerID`. Subsequent reads from it will return its default value.
+  public mutating func clearSpeakerID() {self._speakerID = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _speakerID: UInt32? = nil
 }
 
 public struct Gozd_V1_LoadAppConfigRequest: Sendable {
@@ -307,7 +320,7 @@ extension Gozd_V1_PreviewConfig: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
 
 extension Gozd_V1_VoicevoxConfig: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".VoicevoxConfig"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}enabled\0\u{3}speed_scale\0\u{3}volume_scale\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}enabled\0\u{3}speed_scale\0\u{3}volume_scale\0\u{3}speaker_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -318,12 +331,17 @@ extension Gozd_V1_VoicevoxConfig: SwiftProtobuf.Message, SwiftProtobuf._MessageI
       case 1: try { try decoder.decodeSingularBoolField(value: &self.enabled) }()
       case 2: try { try decoder.decodeSingularDoubleField(value: &self.speedScale) }()
       case 3: try { try decoder.decodeSingularDoubleField(value: &self.volumeScale) }()
+      case 4: try { try decoder.decodeSingularUInt32Field(value: &self._speakerID) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if self.enabled != false {
       try visitor.visitSingularBoolField(value: self.enabled, fieldNumber: 1)
     }
@@ -333,6 +351,9 @@ extension Gozd_V1_VoicevoxConfig: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     if self.volumeScale.bitPattern != 0 {
       try visitor.visitSingularDoubleField(value: self.volumeScale, fieldNumber: 3)
     }
+    try { if let v = self._speakerID {
+      try visitor.visitSingularUInt32Field(value: v, fieldNumber: 4)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -340,6 +361,7 @@ extension Gozd_V1_VoicevoxConfig: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     if lhs.enabled != rhs.enabled {return false}
     if lhs.speedScale != rhs.speedScale {return false}
     if lhs.volumeScale != rhs.volumeScale {return false}
+    if lhs._speakerID != rhs._speakerID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

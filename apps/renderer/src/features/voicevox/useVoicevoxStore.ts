@@ -1,13 +1,20 @@
+import type { VoicevoxSpeaker } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
-import { ref, watch } from "vue";
+import { computed, readonly, ref, watch } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { rpcLoadAppConfig, rpcSaveAppConfig } from "../settings";
 import type { HookPayload } from "../terminal";
-import { rpcVoicevoxCheckEngine, rpcVoicevoxLaunch, rpcVoicevoxSpeak } from "./rpc";
+import {
+  rpcVoicevoxCheckEngine,
+  rpcVoicevoxLaunch,
+  rpcVoicevoxListSpeakers,
+  rpcVoicevoxSpeak,
+} from "./rpc";
 import { extractSpeechText } from "./speechText";
 
-/** ずんだもん（ノーマル） */
+/** ずんだもん（ノーマル）。voicevox 設定の唯一の SSOT */
 const DEFAULT_SPEAKER_ID = 3;
 const DEFAULT_SPEED_SCALE = 1.5;
 const DEFAULT_VOLUME_SCALE = 1.0;
@@ -61,11 +68,76 @@ let speakGeneration = 0;
 let disposeHookListener: (() => void) | undefined;
 
 export const useVoicevoxStore = defineStore("voicevox", () => {
+  const notify = useNotificationStore();
   const enabled = ref(false);
   const speedScale = ref(DEFAULT_SPEED_SCALE);
   const volumeScale = ref(DEFAULT_VOLUME_SCALE);
+  /**
+   * 現在の speaker id。初期値は DEFAULT。永続化値が現エンジンに存在しなくても touch しない
+   * (effectiveSpeakerId が memory 上 fallback する)。proto3 optional は load 経路で
+   * 「初期インストール (未保存)」と「ID 0 を正規値として保存」の区別にだけ使う。
+   */
+  const speakerId = ref<number>(DEFAULT_SPEAKER_ID);
+  /** Engine `/speakers` から取得したキャラ一覧。enable + Engine 起動済みでロードされる */
+  const speakers = ref<VoicevoxSpeaker[]>([]);
   /** 有効化処理中 */
   const activating = ref(false);
+
+  /** speakers の中に該当 style.id が存在するか */
+  function hasSpeakerStyle(id: number): boolean {
+    return speakers.value.some((s) => s.styles.some((st) => st.id === id));
+  }
+
+  /**
+   * speak 経路で実際に使う speaker id。
+   * speakers ロード後に speakerId が存在しなければ DEFAULT → speakers[0].styles[0].id の順で
+   * メモリ上 fallback する。永続化される speakerId は touch しないため、Engine 構成が
+   * 一時的に変わってもユーザー選択は破壊しない。
+   */
+  const effectiveSpeakerId = computed(() => {
+    const id = speakerId.value;
+    if (speakers.value.length === 0) return id; // ロード前は信用して通す
+    if (hasSpeakerStyle(id)) return id;
+    if (hasSpeakerStyle(DEFAULT_SPEAKER_ID)) return DEFAULT_SPEAKER_ID;
+    // DEFAULT も無いカスタムビルド等の稀ケース: 最初の利用可能な style に live fallback
+    return speakers.value[0]?.styles[0]?.id ?? id;
+  });
+
+  /**
+   * 永続化された speakerId が現エンジンの speakers に存在しないか。
+   * UI が「保存値は壊れていないが現在は再生に使えない」状態をユーザーに伝えるための signal。
+   */
+  const speakerIdIsStale = computed(
+    () => speakers.value.length > 0 && !hasSpeakerStyle(speakerId.value),
+  );
+
+  /**
+   * 外部から speakerId を変更する公式入口。speakers ロード後は存在検証する。
+   * speakers ロード前 (config 復元中 / Engine 未起動) は無条件で受け入れる。
+   */
+  function setSpeakerId(id: number): void {
+    if (speakers.value.length > 0 && !hasSpeakerStyle(id)) {
+      notify.error(`VOICEVOX speaker id ${id} not found in current speakers list`);
+      return;
+    }
+    speakerId.value = id;
+  }
+
+  /**
+   * Engine から speakers を取得する。永続化値が現存しない状態は speakerIdIsStale computed
+   * → VoicevoxSpeakerSelect の inline 警告経由でユーザーに伝える (SSOT)。
+   * speakerId.value は touch しない (実効値は effectiveSpeakerId computed が memory 上 fallback する)。
+   */
+  async function loadSpeakers(): Promise<void> {
+    const result = await tryCatch(rpcVoicevoxListSpeakers());
+    if (!result.ok) {
+      notify.error("Failed to load VOICEVOX speakers", result.error);
+      return;
+    }
+    speakers.value = result.value.speakers;
+    // stale 状態 (永続値 not in speakers) は speakerIdIsStale computed → UI 側の inline 警告で伝える。
+    // トースト通知をここで重複発火させない (SSOT)
+  }
 
   /** RPC 経由で Engine の起動状態を確認する */
   async function checkEngineRunning(): Promise<boolean> {
@@ -93,7 +165,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
           text,
           speedScale: speed,
           volumeScale: volume,
-          speakerId: DEFAULT_SPEAKER_ID,
+          speakerId: effectiveSpeakerId.value,
         }),
       );
       if (!result.ok || result.value.wav.length === 0) return;
@@ -117,10 +189,13 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     if (cfg !== undefined) {
       if (cfg.speedScale > 0) speedScale.value = cfg.speedScale;
       if (cfg.volumeScale > 0) volumeScale.value = cfg.volumeScale;
+      if (cfg.speakerId !== undefined) speakerId.value = cfg.speakerId;
       if (cfg.enabled) {
         enabled.value = true;
         // Engine が起動していなければバックグラウンドで起動だけ試みる（ポーリングしない）
-        if (!(await checkEngineRunning())) {
+        if (await checkEngineRunning()) {
+          void loadSpeakers();
+        } else {
           void tryCatch(rpcVoicevoxLaunch());
         }
       }
@@ -139,12 +214,13 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
       enabled: enabled.value,
       speedScale: speedScale.value,
       volumeScale: volumeScale.value,
+      speakerId: speakerId.value,
     };
     void tryCatch(rpcSaveAppConfig(config));
   }
 
   // 設定変更時に保存
-  watch([enabled, speedScale, volumeScale], () => {
+  watch([enabled, speedScale, volumeScale, speakerId], () => {
     void saveSettings();
   });
 
@@ -161,6 +237,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     // Engine が既に起動しているかチェック
     if (await checkEngineRunning()) {
       enabled.value = true;
+      void loadSpeakers();
       activating.value = false;
       return undefined;
     }
@@ -175,6 +252,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     // Engine の起動を待つ
     if (await waitForEngine()) {
       enabled.value = true;
+      void loadSpeakers();
       activating.value = false;
       return undefined;
     }
@@ -194,6 +272,8 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     speakGeneration++;
     releaseAudio();
     enabled.value = false;
+    // Engine 停止と表示の整合を取るため speakers state も clear する
+    speakers.value = [];
   }
 
   // --- Hook 購読（HMR 再実行時に前回のリスナーを解除するため disposer は関数外に置く） ---
@@ -220,7 +300,22 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
 
   initHookSubscription();
 
-  return { enabled, playing, speedScale, volumeScale, activating, activate, deactivate, stopAudio };
+  return {
+    enabled,
+    playing,
+    speedScale,
+    volumeScale,
+    // speakerId は readonly。書き換えは setSpeakerId 経由のみ (存在検証で SSOT を守るため)
+    speakerId: readonly(speakerId),
+    effectiveSpeakerId,
+    speakerIdIsStale,
+    speakers,
+    activating,
+    activate,
+    deactivate,
+    stopAudio,
+    setSpeakerId,
+  };
 });
 
 if (import.meta.hot) {

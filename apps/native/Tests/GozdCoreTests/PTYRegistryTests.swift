@@ -86,7 +86,7 @@ struct PTYRegistryTests {
   }
 
   @Test("未知の ptyId への write / resize / kill は no-op")
-  func unknownIdIsNoop() async throws {
+  func unknownIdIsNoop() async {
     testTrace("started")
     defer { testTrace("ended") }
     let events = EventCollector()

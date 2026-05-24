@@ -27,10 +27,15 @@ import Testing
 //
 // trace 出力 ( `[TEST-TRACE]` プレフィックス、`gozdTraceStart` を共有 ):
 //
-//   - entry: `waitUntil entered timeout=... desc=...`
-//   - tick:  `waitUntil tick=<n> elapsed=<dur> wall=<sec> result=<bool>`
-//   - 成功:  `waitUntil resolved tick=<n> elapsed=<dur>`
-//   - timeout: `waitUntil timeout tickCount=<n> elapsed=<dur> lastTicks=[...]`
+//   - entry: `waitUntil mode=threaded entered timeout=... desc=...`
+//   - tick:  `waitUntil mode=threaded tick=<n> elapsed=<dur> wall=<sec> result=<bool>`
+//   - 成功:  `waitUntil mode=threaded resolved tick=<n> elapsed=<dur>`
+//   - timeout: `waitUntil mode=threaded timeout tickCount=<n> elapsed=<dur> lastTicks=[...]`
+//
+// `mode=threaded` は本 helper が NSThread polling であることを示す識別子。
+// 過去 CI log には旧 `waitUntil` ( Task.sleep 経路 ) / `waitUntilThreaded` ( 別シンボル ) の
+// trace が含まれるため、`analyze-stall.sh` で世代を merge して解析するときに kind を
+// 区別するためのもの。世代別 trace 形式 (kind 列の挙動) は `analyze-stall.sh` 側に集約。
 //
 // 直近 10 tick の polling 履歴を保持し、timeout 時に `Issue.record` の message に inline
 // する。50ms poll × 10 = 直近 0.5s 分の挙動が CI ログを遡らずに失敗メッセージから読める。
@@ -45,7 +50,7 @@ func waitUntil(
   _ condition: @escaping @Sendable () -> Bool,
   sourceLocation: SourceLocation = #_sourceLocation
 ) async {
-  testTrace("waitUntil entered timeout=\(timeout) desc=\(description)")
+  testTrace("waitUntil mode=threaded entered timeout=\(timeout) desc=\(description)")
   let result: WaitResult = await withCheckedContinuation { continuation in
     let thread = Thread {
       let started = ContinuousClock.now
@@ -106,7 +111,7 @@ private func threadTrace(_ message: String) {
   guard gozdTraceEnabled else { return }
   let elapsed = ContinuousClock.now - gozdTraceStart
   let testName = Test.current?.name ?? "<threaded>"
-  gozdTraceLine("[TEST-TRACE +\(elapsed) test=\(testName)] waitUntil \(message)\n")
+  gozdTraceLine("[TEST-TRACE +\(elapsed) test=\(testName)] waitUntil mode=threaded \(message)\n")
 }
 
 private enum WaitResult {

@@ -31,25 +31,31 @@ public enum VoicevoxOps {
       let (data, resp) = try await URLSession.shared.data(for: req)
       guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
         let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
-        FileHandle.standardError.write(Data("[VoicevoxOps.listSpeakers] non-200 status: \(code)\n".utf8))
+        StderrLog.write(tag: "VoicevoxOps.listSpeakers", "non-200 status: \(code)")
         return nil
       }
       guard let arr = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-        FileHandle.standardError.write(Data("[VoicevoxOps.listSpeakers] root is not array of object\n".utf8))
+        StderrLog.write(tag: "VoicevoxOps.listSpeakers", "root is not array of object")
         return nil
       }
       return arr.compactMap { entry in
         guard let name = entry["name"] as? String,
           let styleArr = entry["styles"] as? [[String: Any]]
         else {
-          FileHandle.standardError.write(Data("[VoicevoxOps.listSpeakers] skipping malformed speaker entry: \(entry)\n".utf8))
+          StderrLog.write(
+            tag: "VoicevoxOps.listSpeakers",
+            "skipping malformed speaker entry: \(entry)"
+          )
           return nil
         }
         let styles: [Speaker.Style] = styleArr.compactMap { s in
           guard let n = s["name"] as? String, let idRaw = s["id"] as? Int,
             let id = UInt32(exactly: idRaw)
           else {
-            FileHandle.standardError.write(Data("[VoicevoxOps.listSpeakers] skipping malformed style entry: \(s)\n".utf8))
+            StderrLog.write(
+              tag: "VoicevoxOps.listSpeakers",
+              "skipping malformed style entry: \(s)"
+            )
             return nil
           }
           return Speaker.Style(name: n, id: id)
@@ -57,7 +63,7 @@ public enum VoicevoxOps {
         return Speaker(name: name, styles: styles)
       }
     } catch {
-      FileHandle.standardError.write(Data("[VoicevoxOps.listSpeakers] request/decode failed: \(error)\n".utf8))
+      StderrLog.write(tag: "VoicevoxOps.listSpeakers", "request/decode failed: \(error)")
       return nil
     }
   }
@@ -73,7 +79,7 @@ public enum VoicevoxOps {
       // Engine 未起動時の polling 用途で頻発するため、転送エラー (URLError) はログを出さない。
       // それ以外の予期しない error のみ stderr に残す
       if !(error is URLError) {
-        FileHandle.standardError.write(Data("[VoicevoxOps.checkEngine] unexpected error: \(error)\n".utf8))
+        StderrLog.write(tag: "VoicevoxOps.checkEngine", "unexpected error: \(error)")
       }
       return false
     }
@@ -88,11 +94,14 @@ public enum VoicevoxOps {
       try process.run()
       process.waitUntilExit()
       if process.terminationStatus != 0 {
-        FileHandle.standardError.write(Data("[VoicevoxOps.launch] open -a VOICEVOX exited with status \(process.terminationStatus)\n".utf8))
+        StderrLog.write(
+          tag: "VoicevoxOps.launch",
+          "open -a VOICEVOX exited with status \(process.terminationStatus)"
+        )
       }
       return process.terminationStatus == 0
     } catch {
-      FileHandle.standardError.write(Data("[VoicevoxOps.launch] failed to spawn open: \(error)\n".utf8))
+      StderrLog.write(tag: "VoicevoxOps.launch", "failed to spawn open: \(error)")
       return false
     }
   }
@@ -122,12 +131,15 @@ public enum VoicevoxOps {
       let (data, resp) = try await URLSession.shared.data(for: req)
       guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
         let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
-        FileHandle.standardError.write(Data("[VoicevoxOps.audioQuery] non-200 status: \(code) (speaker=\(speakerId))\n".utf8))
+        StderrLog.write(
+          tag: "VoicevoxOps.audioQuery",
+          "non-200 status: \(code) (speaker=\(speakerId))"
+        )
         return nil
       }
       return data
     } catch {
-      FileHandle.standardError.write(Data("[VoicevoxOps.audioQuery] request failed: \(error)\n".utf8))
+      StderrLog.write(tag: "VoicevoxOps.audioQuery", "request failed: \(error)")
       return nil
     }
   }
@@ -136,7 +148,10 @@ public enum VoicevoxOps {
     -> Data?
   {
     guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-      FileHandle.standardError.write(Data("[VoicevoxOps.mutateAudioQuery] failed to parse audio_query response as JSON object\n".utf8))
+      StderrLog.write(
+        tag: "VoicevoxOps.mutateAudioQuery",
+        "failed to parse audio_query response as JSON object"
+      )
       return nil
     }
     json["speedScale"] = speedScale
@@ -144,7 +159,10 @@ public enum VoicevoxOps {
     do {
       return try JSONSerialization.data(withJSONObject: json)
     } catch {
-      FileHandle.standardError.write(Data("[VoicevoxOps.mutateAudioQuery] failed to encode mutated query: \(error)\n".utf8))
+      StderrLog.write(
+        tag: "VoicevoxOps.mutateAudioQuery",
+        "failed to encode mutated query: \(error)"
+      )
       return nil
     }
   }
@@ -161,12 +179,15 @@ public enum VoicevoxOps {
       let (data, resp) = try await URLSession.shared.data(for: req)
       guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
         let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
-        FileHandle.standardError.write(Data("[VoicevoxOps.synthesize] non-200 status: \(code) (speaker=\(speakerId))\n".utf8))
+        StderrLog.write(
+          tag: "VoicevoxOps.synthesize",
+          "non-200 status: \(code) (speaker=\(speakerId))"
+        )
         return nil
       }
       return data
     } catch {
-      FileHandle.standardError.write(Data("[VoicevoxOps.synthesize] request failed: \(error)\n".utf8))
+      StderrLog.write(tag: "VoicevoxOps.synthesize", "request failed: \(error)")
       return nil
     }
   }

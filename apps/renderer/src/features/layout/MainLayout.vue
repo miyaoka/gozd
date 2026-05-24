@@ -30,7 +30,12 @@ import {
   registerIssueCommand,
   registerPrCommand,
 } from "../palette";
-import { BlamePopover, PreviewPane, registerMarkdownHistoryCommands } from "../preview";
+import {
+  BlamePopover,
+  PreviewPane,
+  registerMarkdownHistoryCommands,
+  usePreviewStore,
+} from "../preview";
 import { registerSettingsCommand, SettingsModal } from "../settings";
 import { registerShellCommandActions } from "../shell-command";
 import { SidebarPane } from "../sidebar";
@@ -43,6 +48,7 @@ import { rpcWindowClose } from "./rpc";
 const worktreeStore = useWorktreeStore();
 const repoStore = useRepoStore();
 const summaryStore = useChangesSummaryStore();
+const previewStore = usePreviewStore();
 const contextKeys = useContextKeys();
 const previewPopoverRef = useTemplateRef<HTMLElement>("previewPopover");
 
@@ -51,11 +57,7 @@ const { register } = useCommandRegistry();
 const disposePreviewToggle = register("preview.toggle", {
   label: "Preview: Toggle",
   handler: () => {
-    if (previewOpen.value) {
-      closePreview();
-    } else {
-      openPreview();
-    }
+    previewStore.toggle();
     return true;
   },
 });
@@ -97,7 +99,6 @@ const centerTerminalRef = useTemplateRef<HTMLElement>("centerTerminal");
 const sidebarWidth = ref(260);
 const navigatorWidth = ref(256);
 const previewWidth = ref(1200);
-const previewOpen = ref(false);
 const gitGraphHeight = ref(128);
 
 /** Preview 開閉ボタンの固定幅（px-1 × 2 + size-4 + border-l） */
@@ -147,32 +148,23 @@ const getPreviewBeforeSize = () =>
 const getPreviewAfterSize = () =>
   previewPopoverRef.value?.getBoundingClientRect().width ?? previewWidth.value;
 
-// previewVisible context key を実際の表示状態と同期
+// popover の DOM 参照を store に bind。bindPopover(undefined) は onUnmounted で呼ぶ。
 watch(
-  previewOpen,
+  previewPopoverRef,
+  (el) => {
+    previewStore.bindPopover(el ?? undefined);
+  },
+  { immediate: true },
+);
+
+// previewVisible context key を store の isOpen と同期
+watch(
+  () => previewStore.isOpen,
   (open) => {
     contextKeys.set("previewVisible", open);
   },
   { immediate: true },
 );
-
-/** :popover-open でガードして二重呼び出し例外を防止 */
-function openPreview() {
-  const el = previewPopoverRef.value;
-  if (!el || el.matches(":popover-open")) return;
-  el.showPopover();
-}
-
-function closePreview() {
-  const el = previewPopoverRef.value;
-  if (!el || !el.matches(":popover-open")) return;
-  el.hidePopover();
-}
-
-/** popover の toggle イベントで previewOpen ref と同期 */
-function onPreviewToggle(e: ToggleEvent) {
-  previewOpen.value = e.newState === "open";
-}
 
 // ESC で preview を閉じる。popover="manual" によって OS の auto dismiss が無いため、
 // HTML popover が popover="auto" で持っていた ESC dismiss の性質を自前で代替する。
@@ -181,14 +173,14 @@ function onPreviewToggle(e: ToggleEvent) {
 useEventListener(document, "keydown", (e: KeyboardEvent) => {
   if (e.defaultPrevented) return;
   if (isIMEActive(e) || e.key !== "Escape") return;
-  if (!previewOpen.value) return;
+  if (!previewStore.isOpen) return;
   const otherPopoverOpen = Array.from(document.querySelectorAll<HTMLElement>(":popover-open")).some(
     (el) => el !== previewPopoverRef.value,
   );
   if (otherPopoverOpen) return;
   if (document.querySelector("dialog[open]") !== null) return;
   e.preventDefault();
-  closePreview();
+  previewStore.close();
 });
 
 // worktree 切替 (dir 変化) で Preview を auto-close。
@@ -197,7 +189,7 @@ useEventListener(document, "keydown", (e: KeyboardEvent) => {
 watch(
   () => worktreeStore.dir,
   () => {
-    closePreview();
+    previewStore.close();
   },
 );
 
@@ -206,7 +198,7 @@ watch(
   () => worktreeStore.selectedDisplayPath,
   (path) => {
     if (path === undefined) return;
-    openPreview();
+    previewStore.open();
   },
 );
 
@@ -215,7 +207,7 @@ watch(
   () => worktreeStore.revealVersion,
   () => {
     if (worktreeStore.selectedDisplayPath === undefined) return;
-    openPreview();
+    previewStore.open();
   },
 );
 
@@ -223,7 +215,7 @@ watch(
 watch(
   () => summaryStore.enabled,
   (enabled) => {
-    if (enabled) openPreview();
+    if (enabled) previewStore.open();
   },
 );
 
@@ -300,7 +292,7 @@ watch(
         class="_preview-anchor flex shrink-0 items-center justify-center border-l border-zinc-700 px-1 text-zinc-500 hover:text-zinc-300"
         title="Toggle preview"
         aria-label="Toggle preview"
-        @click="previewOpen ? closePreview() : openPreview()"
+        @click="previewStore.toggle()"
       >
         <span class="icon-[lucide--panel-right-open] size-4" />
       </button>
@@ -316,7 +308,7 @@ watch(
       popover="manual"
       class="_preview-popover overflow-hidden border-0 border-l border-zinc-700 bg-zinc-900 p-0 [&:popover-open]:flex"
       :style="{ width: `${previewWidth}px` }"
-      @toggle="onPreviewToggle"
+      @toggle="previewStore.syncFromToggleEvent"
     >
       <!-- 左端リサイズハンドル -->
       <ResizeHandle
@@ -329,7 +321,7 @@ watch(
       />
 
       <div class="min-w-0 flex-1 overflow-hidden">
-        <PreviewPane @close="closePreview" />
+        <PreviewPane @close="previewStore.close()" />
       </div>
     </div>
 

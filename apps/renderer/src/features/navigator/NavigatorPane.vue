@@ -7,18 +7,19 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 - ResizeHandle で上下の比率をリサイズ可能
 - git リポジトリでない場合は Filer のみ表示
 - FilerPane の reveal は worktreeStore.revealVersion を内部で購読しているため props 経由不要
-- FilerPane / ChangesPane の `select` emit はどちらも `onFileSelect` に集約し、preview 表示中に同一 file を再選択された場合は `preview.toggle` で閉じる（`selectRelPath` 非呼び出しなので revealVersion は bump されず、gozdOpen 等「常に開く」経路には影響しない）
+- FilerPane / ChangesPane の `select` emit はどちらも `onFileSelect` に集約。action 決定は `decideSelectAction` (pure) に委譲し、`select` / `toggle-close` / `exit-summary` の 3 分岐で navigator 経由の選択挙動を表現する。CLI の `gozd <file>` 等 navigator 外の open 経路はこの判定を通らない
 </doc>
 
 <script setup lang="ts">
 import { useElementSize } from "@vueuse/core";
 import { ref, useTemplateRef, watch } from "vue";
-import { useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
-import { ChangesPane } from "../changes";
+import { ChangesPane, useChangesSummaryStore } from "../changes";
 import { FilerPane } from "../filer";
 import { ResizeHandle } from "../layout";
+import { usePreviewStore } from "../preview";
 import { useWorktreeStore } from "../worktree";
+import { decideSelectAction } from "./decideSelectAction";
 
 const HANDLE_HEIGHT = 8;
 const FILER_MIN_HEIGHT = 100;
@@ -26,8 +27,8 @@ const CHANGES_MIN_HEIGHT = 60;
 
 const repoStore = useRepoStore();
 const worktreeStore = useWorktreeStore();
-const contextKeys = useContextKeys();
-const commandRegistry = useCommandRegistry();
+const previewStore = usePreviewStore();
+const summaryStore = useChangesSummaryStore();
 const filerWrapperRef = useTemplateRef<HTMLElement>("filerWrapper");
 const containerRef = useTemplateRef<HTMLElement>("container");
 const { height: containerHeight } = useElementSize(containerRef);
@@ -56,14 +57,23 @@ function getFilerHeight(): number {
 }
 
 function onFileSelect(relPath: string) {
-  // preview 表示中に同一 file を再選択したら preview を閉じる (toggle 挙動)。
-  // selectRelPath を呼ばないので revealVersion も bump されず、
-  // gozdOpen 等「常に開く」経路の挙動には影響しない。
-  if (relPath === worktreeStore.selectedRelPath && contextKeys.get("previewVisible")) {
-    commandRegistry.execute("preview.toggle");
-    return;
+  const action = decideSelectAction({
+    relPath,
+    selectedRelPath: worktreeStore.selectedRelPath,
+    previewVisible: previewStore.isOpen,
+    summaryEnabled: summaryStore.enabled,
+  });
+  switch (action.kind) {
+    case "toggle-close":
+      previewStore.close();
+      return;
+    case "exit-summary":
+      summaryStore.disable();
+      return;
+    case "select":
+      worktreeStore.selectRelPath(relPath);
+      return;
   }
-  worktreeStore.selectRelPath(relPath);
 }
 </script>
 

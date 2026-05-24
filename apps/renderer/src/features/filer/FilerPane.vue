@@ -6,7 +6,7 @@
 - worktree の dir が設定されると、worktree 自体を表す不可視ルート FileTreeItem を 1 個描画する
 - ツリー全体（ルート直下を含む）の管理は FileTreeItem 側に再帰委譲する
 - dir 切替時は `:key="dir"` でルート FileTreeItem を再マウントする（旧 dir の in-flight loadChildren を構造的に破棄）
-- file クリックは `select` emit で親 (NavigatorPane) に委譲する。preview toggle 等の副作用は親側で扱う（ChangesPane と対称）
+- file クリックは `select` emit で親に委譲する（副作用は親側で扱う / ChangesPane と対称）
 
 ## gitStatus / fsChange の購読
 

@@ -178,8 +178,9 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
     | { ok: false; reason: "rpc-error"; lastError: Error }
     | { ok: false; reason: "engine-not-responding" }
   > {
+    // 戻り値型の (ok: false を除く) suffix に揃え、最後の return が spread 1 回で済む形にする
     let lastFailure:
-      | { reason: "rpc-error"; error: Error }
+      | { reason: "rpc-error"; lastError: Error }
       | { reason: "engine-not-responding" }
       | undefined;
     for (let i = 0; i < POLL_MAX_ATTEMPTS; i++) {
@@ -187,14 +188,14 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
       if (result.ok) return { ok: true };
       lastFailure =
         result.reason === "rpc-error"
-          ? { reason: "rpc-error", error: result.error }
+          ? { reason: "rpc-error", lastError: result.error }
           : { reason: "engine-not-responding" };
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
     }
-    if (lastFailure?.reason === "rpc-error") {
-      return { ok: false, reason: "rpc-error", lastError: lastFailure.error };
-    }
-    return { ok: false, reason: "engine-not-responding" };
+    // POLL_MAX_ATTEMPTS=0 の (現状到達不能な) 境界用フォールバック
+    return lastFailure
+      ? { ok: false, ...lastFailure }
+      : { ok: false, reason: "engine-not-responding" };
   }
 
   /** RPC 経由で音声合成し、base64 WAV をデコードして再生する */

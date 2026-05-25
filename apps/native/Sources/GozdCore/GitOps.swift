@@ -162,6 +162,20 @@ public enum GitOps {
       args: ["fetch", "--all", "--no-write-fetch-head"], cwd: dir)
   }
 
+  /// `git reset <hash>` 相当 (mixed mode 固定)。
+  /// hash は `validateRev` のホワイトリスト + all-zero hex reject (UNCOMMITTED_HASH 誤投入を
+  /// 入口で弾く) を通す。`-` 始まり等の option 注入対策も兼ねる。
+  public static func reset(dir: String, hash: String) async throws {
+    if hash.isEmpty {
+      throw GitError.unexpectedOutput("git reset: hash must be specified")
+    }
+    if isAllZeroHex(hash) {
+      throw GitError.unexpectedOutput("git reset: all-zero hash is not allowed")
+    }
+    try validateRev(hash)
+    _ = try await runGit(args: ["reset", hash], cwd: dir)
+  }
+
   public struct LogResult: Sendable {
     public let headCommits: [CommitInfo]
     public let defaultBranchCommits: [CommitInfo]

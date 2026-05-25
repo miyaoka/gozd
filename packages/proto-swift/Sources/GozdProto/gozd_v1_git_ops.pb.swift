@@ -732,6 +732,33 @@ public struct Gozd_V1_GitWorktreeRemoveResponse: Sendable {
   public init() {}
 }
 
+/// gitReset: `git reset <hash>` 相当 (mixed mode 固定)。HEAD と index を指定 commit に戻し、
+/// working tree は維持する。HEAD 移動は FSEvents 経由の gitStatusChange push で UI に
+/// 自動反映されるため、caller 側で明示的な再 fetch は不要。
+public struct Gozd_V1_GitResetRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var dir: String = String()
+
+  public var hash: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Gozd_V1_GitResetResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 /// gitBlameLine: 1 行の blame 結果を返す。`git blame --porcelain -L <line>,<line> [<rev>] -- <relPath>` 相当。
 ///
 /// rev の参照は 3 通り:
@@ -2140,6 +2167,60 @@ extension Gozd_V1_GitWorktreeRemoveResponse: SwiftProtobuf.Message, SwiftProtobu
   }
 
   public static func ==(lhs: Gozd_V1_GitWorktreeRemoveResponse, rhs: Gozd_V1_GitWorktreeRemoveResponse) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitResetRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitResetRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}hash\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.dir) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.hash) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.dir.isEmpty {
+      try visitor.visitSingularStringField(value: self.dir, fieldNumber: 1)
+    }
+    if !self.hash.isEmpty {
+      try visitor.visitSingularStringField(value: self.hash, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitResetRequest, rhs: Gozd_V1_GitResetRequest) -> Bool {
+    if lhs.dir != rhs.dir {return false}
+    if lhs.hash != rhs.hash {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitResetResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitResetResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitResetResponse, rhs: Gozd_V1_GitResetResponse) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -413,6 +413,19 @@ export interface GitWorktreeRemoveResponse {
 }
 
 /**
+ * gitReset: `git reset <hash>` 相当 (mixed mode 固定)。HEAD と index を指定 commit に戻し、
+ * working tree は維持する。HEAD 移動は FSEvents 経由の gitStatusChange push で UI に
+ * 自動反映されるため、caller 側で明示的な再 fetch は不要。
+ */
+export interface GitResetRequest {
+  dir: string;
+  hash: string;
+}
+
+export interface GitResetResponse {
+}
+
+/**
  * gitBlameLine: 1 行の blame 結果を返す。`git blame --porcelain -L <line>,<line> [<rev>] -- <relPath>` 相当。
  *
  * rev の参照は 3 通り:
@@ -3342,6 +3355,125 @@ export const GitWorktreeRemoveResponse: MessageFns<GitWorktreeRemoveResponse> = 
   },
   fromPartial(_: DeepPartial<GitWorktreeRemoveResponse>): GitWorktreeRemoveResponse {
     const message = createBaseGitWorktreeRemoveResponse();
+    return message;
+  },
+};
+
+function createBaseGitResetRequest(): GitResetRequest {
+  return { dir: "", hash: "" };
+}
+
+export const GitResetRequest: MessageFns<GitResetRequest> = {
+  encode(message: GitResetRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    if (message.hash !== "") {
+      writer.uint32(18).string(message.hash);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitResetRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitResetRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.hash = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitResetRequest {
+    return {
+      dir: isSet(object.dir) ? globalThis.String(object.dir) : "",
+      hash: isSet(object.hash) ? globalThis.String(object.hash) : "",
+    };
+  },
+
+  toJSON(message: GitResetRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    if (message.hash !== "") {
+      obj.hash = message.hash;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitResetRequest>): GitResetRequest {
+    return GitResetRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitResetRequest>): GitResetRequest {
+    const message = createBaseGitResetRequest();
+    message.dir = object.dir ?? "";
+    message.hash = object.hash ?? "";
+    return message;
+  },
+};
+
+function createBaseGitResetResponse(): GitResetResponse {
+  return {};
+}
+
+export const GitResetResponse: MessageFns<GitResetResponse> = {
+  encode(_: GitResetResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitResetResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitResetResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): GitResetResponse {
+    return {};
+  },
+
+  toJSON(_: GitResetResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitResetResponse>): GitResetResponse {
+    return GitResetResponse.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<GitResetResponse>): GitResetResponse {
+    const message = createBaseGitResetResponse();
     return message;
   },
 };

@@ -9,12 +9,13 @@ Git commit graph showing the current worktree branch and the default branch.
 - Graph layout reserves lane 0 for the Working Tree connector; commit lanes start from lane 1
 - CommitDetailPane is shown as a toggleable right pane inside the graph
 - Commits are stored in `useGitGraphStore` and shared with ChangesPane
+- Right-click on a commit row opens `CommitMenu` at the mouse position; the ⋮ button on hover opens it anchored to the button. Right-click waits one `pointerup` (capture, once) before `showPopover` to avoid the contextmenu light-dismiss issue (whatwg/html#10905)
 </doc>
 
 <script setup lang="ts">
 import type { GitCommit, GitPullRequest } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
-import { useElementSize, useIntervalFn } from "@vueuse/core";
+import { useElementSize, useEventListener, useIntervalFn } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
@@ -32,6 +33,7 @@ import {
   useWorktreeStore,
 } from "../worktree";
 import CommitDetailPane from "./CommitDetailPane.vue";
+import CommitMenu from "./CommitMenu.vue";
 import CommitSegmentList from "./CommitSegmentList";
 import type { DisplayRef } from "./displayRef";
 import { computeGraphLayout } from "./graphLayout";
@@ -42,6 +44,7 @@ import { mergeCommitStreams } from "./mergeCommitStreams";
 import type { SortMode } from "./mergeCommitStreams";
 import RefBadge from "./RefBadge.vue";
 import { rpcGitGithubIdentity, rpcGitLog } from "./rpc";
+import { useCommitMenu } from "./useCommitMenu";
 import { useGitGraphStore } from "./useGitGraphStore";
 
 const rootRef = useTemplateRef<HTMLElement>("root");
@@ -876,6 +879,37 @@ const isWorkingTreeActive = computed(
     gitGraphStore.selectedHash === UNCOMMITTED_HASH ||
     gitGraphStore.compareHash === UNCOMMITTED_HASH,
 );
+
+// commit 行の右クリック / ⋮ ボタンから開くコンテキストメニュー。
+// 右クリック経路は contextmenu の中で直接 showPopover すると同サイクルの mousedown が
+// light-dismiss を予約 → mouseup で消化されて即閉じる (whatwg/html#10905)。次の pointerup を
+// 1 回 capture once で待ってから open すれば mousedown サイクルを抜けるため dismiss されない。
+const commitMenu = useCommitMenu();
+
+function onRowContextMenu(commit: GitCommit, e: MouseEvent) {
+  e.preventDefault();
+  const dir = worktreeStore.dir;
+  if (dir === undefined) return;
+  const anchor = e.currentTarget as HTMLElement | null;
+  if (!anchor) return;
+  const x = e.clientX;
+  const y = e.clientY;
+  useEventListener(window, "pointerup", () => commitMenu.open(anchor, { commit, dir, x, y }), {
+    once: true,
+    capture: true,
+  });
+}
+
+function onMenuButtonClick(commit: GitCommit, e: MouseEvent) {
+  // ⋮ ボタンは click 経路 (= mouseup 後) なので pointerup 待ち不要。anchor 要素基準で開く
+  // (CSS Anchor Position で flip-fallback が効く)。
+  e.stopPropagation();
+  const dir = worktreeStore.dir;
+  if (dir === undefined) return;
+  const anchor = e.currentTarget as HTMLElement | null;
+  if (!anchor) return;
+  commitMenu.open(anchor, { commit, dir });
+}
 </script>
 
 <template>
@@ -883,6 +917,8 @@ const isWorkingTreeActive = computed(
     ref="root"
     class="flex size-full flex-col overflow-hidden bg-zinc-900 text-zinc-300 select-none"
   >
+    <CommitMenu />
+
     <div class="flex shrink-0 items-center gap-1.5 border-b border-zinc-700 px-3 py-1.5">
       <span class="icon-[lucide--git-commit-horizontal] size-4 text-zinc-400" />
       <span class="text-xs font-semibold text-zinc-400">Git Graph</span>
@@ -1035,10 +1071,11 @@ const isWorkingTreeActive = computed(
             <div
               v-for="node in layout.nodes"
               :key="node.commit.hash"
-              class="_graph-row relative flex items-center text-xs"
+              class="_graph-row group relative flex items-center text-xs"
               :class="rowHighlightClass(node.commit.hash)"
               :style="{ height: `${ROW_HEIGHT}px` }"
               @click="onRowClick(node.commit.hash, $event)"
+              @contextmenu="onRowContextMenu(node.commit, $event)"
             >
               <!-- Graph spacer -->
               <div class="shrink-0" :style="{ width: `${graphColumnWidth}px` }" />
@@ -1094,6 +1131,17 @@ const isWorkingTreeActive = computed(
               <div class="w-16 shrink-0 font-mono text-zinc-600">
                 {{ node.commit.shortHash }}
               </div>
+
+              <!-- Menu button (行に absolute、hover/focus-within で表示) -->
+              <button
+                type="button"
+                aria-label="Commit actions"
+                title="Commit actions"
+                class="absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded-sm bg-zinc-800 text-zinc-300 opacity-0 shadow-md ring-1 ring-zinc-700 transition-opacity duration-100 group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-zinc-700 hover:text-zinc-100"
+                @click="onMenuButtonClick(node.commit, $event)"
+              >
+                <span class="icon-[lucide--ellipsis-vertical] text-xs" />
+              </button>
             </div>
           </div>
         </div>

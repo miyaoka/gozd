@@ -279,6 +279,15 @@ message GitWorktreeRemoveRequest {
 }
 message GitWorktreeRemoveResponse {}
 
+// gitReset: `git reset <hash>` 相当 (mixed mode 固定)。HEAD と index を指定 commit に戻し、
+// working tree は維持する。HEAD 移動は FSEvents 経由の gitStatusChange push で UI に
+// 自動反映されるため、caller 側で明示的な再 fetch は不要。
+message GitResetRequest {
+  string dir = 1;
+  string hash = 2;
+}
+message GitResetResponse {}
+
 // gitBlameLine: 1 行の blame 結果を返す。`git blame --porcelain -L <line>,<line> [<rev>] -- <relPath>` 相当。
 //
 // rev の参照は 3 通り:

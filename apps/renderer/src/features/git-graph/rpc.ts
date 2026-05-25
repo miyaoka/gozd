@@ -5,6 +5,8 @@ import {
   GitGithubIdentityResponse,
   GitLogRequest,
   GitLogResponse,
+  GitResetRequest,
+  GitResetResponse,
 } from "@gozd/proto";
 
 import { rpc } from "../../shared/rpc";
@@ -17,3 +19,6 @@ export const rpcGitCommitFiles = (req: GitCommitFilesRequest) =>
 
 export const rpcGitGithubIdentity = (req: GitGithubIdentityRequest) =>
   rpc("/git/githubIdentity", req, GitGithubIdentityRequest, GitGithubIdentityResponse);
+
+export const rpcGitReset = (req: GitResetRequest) =>
+  rpc("/git/reset", req, GitResetRequest, GitResetResponse);

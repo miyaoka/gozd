@@ -111,6 +111,8 @@ export {
   GitLsTreeResponse,
   GitPrListRequest,
   GitPrListResponse,
+  GitResetRequest,
+  GitResetResponse,
   GitShowCommitFileRequest,
   GitShowCommitFileResponse,
   GitShowFileRequest,

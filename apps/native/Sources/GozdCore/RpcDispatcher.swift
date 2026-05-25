@@ -349,6 +349,8 @@ public actor RpcDispatcher {
       return try await handleGitViewer(body)
     case "/git/fetchRemotes":
       return try await handleGitFetchRemotes(body)
+    case "/git/reset":
+      return try await handleGitReset(body)
     case "/git/defaultBranch":
       return try await handleGitDefaultBranch(body)
     case "/git/githubIdentity":
@@ -963,6 +965,13 @@ public actor RpcDispatcher {
       resp.ok = false
       resp.errorDetail = "\(error)"
     }
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleGitReset(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitResetRequest(jsonUTF8Data: body)
+    try await GitOps.reset(dir: req.dir, hash: req.hash)
+    let resp = Gozd_V1_GitResetResponse()
     return try resp.jsonUTF8Data()
   }
 

@@ -56,10 +56,8 @@
 
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
-import { useEventListener } from "@vueuse/core";
 import { computed, onMounted, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { useFileContextMenu } from "../navigator";
 import {
   resolveDirectoryGitChange,
   resolveFileGitChange,
@@ -117,12 +115,24 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   select: [path: string];
+  /**
+   * 右クリック時に親に bubble する。NavigatorPane が popover singleton を open する責務を持つ。
+   * 子 FileTreeItem からの emit もここで素通しで bubble する (再帰的に root pane まで上がる)。
+   */
+  contextMenu: [
+    payload: {
+      anchorEl: HTMLElement;
+      relPath: string;
+      commitHash?: string;
+      x: number;
+      y: number;
+    },
+  ];
 }>();
 
 const notify = useNotificationStore();
 const worktreeStore = useWorktreeStore();
 const filerEventStore = useFilerEventStore();
-const { open: openContextMenu } = useFileContextMenu();
 
 const isRoot = computed(() => isRootPath(props.path));
 const isDirectory = computed(() => props.kind === "directory");
@@ -385,28 +395,25 @@ function onChildSelect(childPath: string) {
   emit("select", childPath);
 }
 
-// 右クリック経路は contextmenu の中で直接 showPopover すると、同サイクルの mousedown が
-// popover="auto" の light-dismiss を予約し、続く mouseup で消化されて即閉じる
-// (whatwg/html#10905)。次の pointerup を 1 回 capture once で待ってから open すれば
-// mousedown サイクルを抜けるため dismiss されない。
+/**
+ * 右クリック。inertLeaf (submodule / snapshot symlink) は menu を開かず OS 標準の右クリック
+ * menu に倒す (working tree に同名 file がある絶対パスを誤って copy 可能にする UI を構造的に
+ * 排除する)。それ以外は preventDefault + emit で navigator まで bubble する。
+ *
+ * 同サイクル open による light-dismiss 回避 / showPopover の defer は NavigatorPane が
+ * setTimeout(0) で処理する責務。本 component は payload を作って emit するだけ。
+ */
 function onContextMenu(event: MouseEvent) {
+  if (isInertLeaf.value) return;
   if (!(event.currentTarget instanceof HTMLElement)) return;
-  const anchor = event.currentTarget;
-  const x = event.clientX;
-  const y = event.clientY;
-  useEventListener(
-    window,
-    "pointerup",
-    () => {
-      openContextMenu(anchor, {
-        relPath: props.path,
-        commitHash: props.snapshotHash,
-        x,
-        y,
-      });
-    },
-    { once: true, capture: true },
-  );
+  event.preventDefault();
+  emit("contextMenu", {
+    anchorEl: event.currentTarget,
+    relPath: props.path,
+    commitHash: props.snapshotHash,
+    x: event.clientX,
+    y: event.clientY,
+  });
 }
 </script>
 
@@ -425,7 +432,7 @@ function onContextMenu(event: MouseEvent) {
       :style="{ paddingLeft: `${depth * 16 + 4}px` }"
       :title="kind === 'submodule' ? 'submodule (not previewable)' : undefined"
       @click="toggle"
-      @contextmenu.prevent="onContextMenu"
+      @contextmenu="onContextMenu"
     >
       <!-- ディレクトリの展開/折りたたみアイコン -->
       <span
@@ -467,6 +474,7 @@ function onContextMenu(event: MouseEvent) {
         :depth="depth + 1"
         :selected-rel-path="selectedRelPath"
         @select="onChildSelect"
+        @context-menu="(payload) => emit('contextMenu', payload)"
       />
     </template>
   </div>

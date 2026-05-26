@@ -35,6 +35,16 @@ import { useChangesSummaryStore } from "./useChangesSummaryStore";
 
 const emit = defineEmits<{
   select: [relPath: string];
+  /** 右クリック payload を NavigatorPane まで bubble する。本ペインは hash 解決のみ担当 */
+  contextMenu: [
+    payload: {
+      anchorEl: HTMLElement;
+      relPath: string;
+      commitHash?: string;
+      x: number;
+      y: number;
+    },
+  ];
 }>();
 
 const notify = useNotificationStore();
@@ -45,17 +55,17 @@ const gitGraphStore = useGitGraphStore();
 /**
  * 右クリックメニューに渡す commit hash。
  *
- * working tree 由来 (UNCOMMITTED_HASH 単独 / workingTreeOnly) のとき undefined を返し、
- * メニュー側で file path のみを copy する経路に倒す。range mode で WT 端を含むケースでは
- * selectedHash が UNCOMMITTED_HASH になるため compareHash 側を採用する。
+ * - working tree (UNCOMMITTED_HASH 単独): undefined。menu 側で path のみ copy
+ * - range mode (compareHash 非 null): undefined。複数 commit にまたがる diff を表示している
+ *   ので、単一 hash で代表すると user に誤解 (「この hash 時点のファイル」) を与える。
+ *   単一の代表 hash が必要なら git log per-file のような別経路を別 menu アクションとして
+ *   将来用意する想定
+ * - 単一 commit 選択: その hash。Filer の `snapshotHash` (= `selectedHash`) と同じ semantics
  */
 const contextMenuHash = computed<string | undefined>(() => {
-  if (gitGraphStore.workingTreeOnly) return undefined;
-  const sel = gitGraphStore.selectedHash;
-  if (sel !== UNCOMMITTED_HASH) return sel;
-  const cmp = gitGraphStore.compareHash;
-  if (cmp !== null && cmp !== UNCOMMITTED_HASH) return cmp;
-  return undefined;
+  if (gitGraphStore.isRangeMode) return undefined;
+  if (gitGraphStore.selectedHash === UNCOMMITTED_HASH) return undefined;
+  return gitGraphStore.selectedHash;
 });
 
 /**
@@ -141,6 +151,7 @@ function onClickViewAll() {
         :commit-hash="contextMenuHash"
         @select="emit('select', $event)"
         @toggle-folder="toggleFolder"
+        @context-menu="(payload) => emit('contextMenu', payload)"
       />
     </div>
   </div>

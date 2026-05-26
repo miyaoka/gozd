@@ -8,6 +8,12 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 - git リポジトリでない場合は Filer のみ表示
 - FilerPane の reveal は worktreeStore.revealVersion を内部で購読しているため props 経由不要
 - FilerPane / ChangesPane の `select` emit はどちらも user-initiated select として `previewStore.requestSelect` を呼ぶ。同一パス再選択でのトグル close / summary 抜けの意思決定は preview store 側に集約されている（[docs/preview.md](../../../../../docs/preview.md) の決定表を参照）
+
+## 右クリックメニュー
+
+FilerPane / ChangesPane (および配下の TreeItem) から `contextMenu` event が bubble してくる。本ペインで singleton popover `useFileContextMenu` を open することで、依存方向を navigator → 子の 1 方向に保つ (子側は navigator を直接 import しない)。
+
+open は `setTimeout(open, 0)` で 1 task 分遅延させる。`popover="auto"` を contextmenu 同サイクル内で開くと mousedown が light-dismiss を予約し、続く mouseup で即閉じる挙動 (whatwg/html#10905) を回避するため。setTimeout 経路は mouse / keyboard (Shift+F10) / programmatic dispatch のいずれにも非依存に動く。
 </doc>
 
 <script setup lang="ts">
@@ -19,6 +25,16 @@ import { FilerPane } from "../filer";
 import { ResizeHandle } from "../layout";
 import { usePreviewStore } from "../preview";
 import FileContextMenu from "./FileContextMenu.vue";
+import { useFileContextMenu } from "./useFileContextMenu";
+
+/** contextmenu event payload (FilerPane / ChangesPane から bubble してくる) */
+type FileContextMenuRequest = {
+  anchorEl: HTMLElement;
+  relPath: string;
+  commitHash?: string;
+  x: number;
+  y: number;
+};
 
 const HANDLE_HEIGHT = 8;
 const FILER_MIN_HEIGHT = 100;
@@ -56,6 +72,22 @@ function getFilerHeight(): number {
 function onFileSelect(relPath: string) {
   previewStore.requestSelect({ kind: "worktreeRelative", relPath });
 }
+
+const { open: openFileContextMenu } = useFileContextMenu();
+
+// contextmenu の発火サイクル (mousedown → contextmenu → mouseup) を 1 task 分抜けてから
+// showPopover を呼ぶ。同サイクル内 open は whatwg/html#10905 で続く mouseup が light-dismiss
+// として消化される。setTimeout(0) は入力種別 (マウス / キーボード / programmatic) 非依存。
+function onFileContextMenu(req: FileContextMenuRequest) {
+  setTimeout(() => {
+    openFileContextMenu(req.anchorEl, {
+      relPath: req.relPath,
+      commitHash: req.commitHash,
+      x: req.x,
+      y: req.y,
+    });
+  }, 0);
+}
 </script>
 
 <template>
@@ -72,7 +104,7 @@ function onFileSelect(relPath: string) {
         </span>
       </div>
       <div class="min-h-0 flex-1 overflow-hidden">
-        <FilerPane @select="onFileSelect" />
+        <FilerPane @select="onFileSelect" @context-menu="onFileContextMenu" />
       </div>
     </div>
 
@@ -86,7 +118,7 @@ function onFileSelect(relPath: string) {
         :get-before-size="getFilerHeight"
       />
       <div class="shrink-0 overflow-hidden" :style="{ height: `${changesHeight}px` }">
-        <ChangesPane @select="onFileSelect" />
+        <ChangesPane @select="onFileSelect" @context-menu="onFileContextMenu" />
       </div>
     </template>
 

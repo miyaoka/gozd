@@ -1,22 +1,24 @@
 /**
  * Filer / Changes のファイル行の右クリックメニュー (module singleton)。
  *
- * 親側 (FileTreeItem / ChangesTreeItem) から `open(anchorEl, { relPath, commitHash, x, y })` を
- * 呼び、NavigatorPane に置いた FileContextMenu.vue が context を購読して描画する。
+ * NavigatorPane が `open(anchorEl, { relPath, commitHash, x, y })` を呼び、FileContextMenu.vue が
+ * context を購読して描画する。FilerPane / ChangesPane (および配下の TreeItem) は navigator を
+ * 直接 import せず、`@contextMenu` event の bubble だけを担当する (依存方向を navigator → 子の
+ * 1 方向に保つため)。
  *
  * relPath は worktree 相対パス。メニュー側で active worktree dir と join して絶対パスに展開し、
- * その絶対パスを clipboard に書く。
+ * その絶対パスを clipboard に書く。commitHash は working tree のとき undefined、snapshot /
+ * commit 由来のとき hash 値。メニュー側はこの discriminator を見て copy 文字列の組み立てを切り
+ * 替える (working: 絶対パスのみ / commit 由来: `${hash}\n${絶対パス}`)。
  *
- * commitHash は working tree のとき undefined、snapshot / commit 由来のとき hash 値。
- * メニュー側はこの discriminator を見て copy 文字列の組み立てを切り替える。
+ * x / y は contextmenu イベント時のマウス座標。指定時はメニュー側で `position: fixed; left/top`
+ * を使い、undefined なら CSS Anchor Position で anchor 要素基準で出す (将来の menu 起動経路用)。
  *
- * x / y は右クリック時のマウス座標。指定時はメニュー側で `position: fixed; left/top` を使い、
- * undefined なら CSS Anchor Position で anchor 要素基準で出す (⋮ ボタン経由など)。
- *
- * 右クリック経路は呼び出し側で「contextmenu の preventDefault + 次の pointerup を 1 回
- * capture once で待つ」処理を行ってから open する責務がある (whatwg/html#10905 の
- * light-dismiss を回避するため。`popover="auto"` の dismiss が mousedown 時点で予約され
- * mouseup で消化される問題)。
+ * NavigatorPane は `setTimeout(open, 0)` で open を 1 task 分遅延させる責務を持つ。`popover="auto"`
+ * を contextmenu 同サイクル内で開くと mousedown が light-dismiss を予約し続く mouseup で即閉じる
+ * (whatwg/html#10905) ため、現在の mousedown task を抜けてから showPopover を発火させる。
+ * setTimeout 経路はマウス / キーボード (Shift+F10) / programmatic dispatch のいずれにも非依存に
+ * 動く (pointerup 待機経路はマウス右クリックに限定されるため採用しない)。
  */
 import { usePopover } from "../../shared/popover";
 
@@ -25,7 +27,7 @@ type FileContextMenuContext = {
   relPath: string;
   /** snapshot / commit 由来のとき commit hash。working tree なら undefined */
   commitHash?: string;
-  /** 右クリックで開いた場合のマウス座標。指定時は anchor() より優先 */
+  /** contextmenu イベント時のマウス座標。指定時は anchor() より優先 */
   x?: number;
   y?: number;
 };

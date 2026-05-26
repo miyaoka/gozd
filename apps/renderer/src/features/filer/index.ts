@@ -1,4 +1,5 @@
 export { default as FilerPane } from "./FilerPane.vue";
+export { joinPath } from "./filerUtils";
 export { relDirOf } from "./relDirOf";
 export { rpcFsReadFile, rpcFsReadFileAbsolute } from "./rpc";
 export type { FsChangePayload } from "./rpc";

@@ -47,6 +47,20 @@ import { useFilerEventStore } from "./useFilerEventStore";
 
 const emit = defineEmits<{
   select: [relPath: string];
+  /**
+   * ファイル / フォルダ行で contextmenu が発火した時、配下から bubble してくる payload。
+   * NavigatorPane が受けて singleton popover を open する (依存方向を 1 方向に保つため、
+   * FilerPane は navigator を直接 import しない)。
+   */
+  contextMenu: [
+    payload: {
+      anchorEl: HTMLElement;
+      relPath: string;
+      commitHash?: string;
+      x: number;
+      y: number;
+    },
+  ];
 }>();
 
 const worktreeStore = useWorktreeStore();
@@ -120,6 +134,7 @@ onUnmounted(() => {
         :depth="-1"
         :selected-rel-path="selectedRelPath"
         @select="(path: string) => emit('select', path)"
+        @context-menu="(payload) => emit('contextMenu', payload)"
       />
     </div>
   </div>

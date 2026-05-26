@@ -4,10 +4,8 @@ Recursive tree node for the changes pane. Renders folders (with collapse/expand)
 
 <script setup lang="ts">
 import type { GitFileChange } from "@gozd/proto";
-import { useEventListener } from "@vueuse/core";
 import { computed } from "vue";
 import { getFileIconUrl, getFolderIconUrl } from "../filer";
-import { useFileContextMenu } from "../navigator";
 import type { ChangesTreeNode } from "./changesTree";
 
 const props = defineProps<{
@@ -22,6 +20,19 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [relPath: string];
   toggleFolder: [fullPath: string];
+  /**
+   * 右クリック payload を NavigatorPane まで bubble する。file leaf のみ発火する
+   * (folder 行は OS 標準の右クリック menu に倒すため preventDefault せず no-op)。
+   */
+  contextMenu: [
+    payload: {
+      anchorEl: HTMLElement;
+      relPath: string;
+      commitHash?: string;
+      x: number;
+      y: number;
+    },
+  ];
 }>();
 
 const CHANGE_COLOR_MAP: Record<GitFileChange["type"], string> = {
@@ -67,32 +78,25 @@ function onChildToggle(fullPath: string) {
   emit("toggleFolder", fullPath);
 }
 
-const { open: openContextMenu } = useFileContextMenu();
-
-// 右クリック経路は contextmenu の中で直接 showPopover すると、同サイクルの mousedown が
-// popover="auto" の light-dismiss を予約し、続く mouseup で消化されて即閉じる
-// (whatwg/html#10905)。次の pointerup を 1 回 capture once で待ってから open すれば
-// mousedown サイクルを抜けるため dismiss されない。
+/**
+ * 右クリック。folder 行は preventDefault せず OS 標準の右クリック menu に倒す
+ * (folder に対する gozd メニュー action が無いため、user の OS-level menu 期待を奪わない)。
+ * file leaf のみ preventDefault + emit で navigator まで bubble する。
+ *
+ * 同サイクル open による light-dismiss 回避 / showPopover の defer は NavigatorPane が
+ * setTimeout(0) で処理する責務。本 component は payload を作って emit するだけ。
+ */
 function onContextMenu(event: MouseEvent) {
   if (props.node.kind !== "file") return;
   if (!(event.currentTarget instanceof HTMLElement)) return;
-  const node = props.node;
-  const anchor = event.currentTarget;
-  const x = event.clientX;
-  const y = event.clientY;
-  useEventListener(
-    window,
-    "pointerup",
-    () => {
-      openContextMenu(anchor, {
-        relPath: node.change.newFilePath,
-        commitHash: props.commitHash,
-        x,
-        y,
-      });
-    },
-    { once: true, capture: true },
-  );
+  event.preventDefault();
+  emit("contextMenu", {
+    anchorEl: event.currentTarget,
+    relPath: props.node.change.newFilePath,
+    commitHash: props.commitHash,
+    x: event.clientX,
+    y: event.clientY,
+  });
 }
 </script>
 
@@ -103,7 +107,7 @@ function onContextMenu(event: MouseEvent) {
       class="flex w-full cursor-pointer items-center gap-1 px-1 py-0.5 text-left text-xs select-none hover:bg-zinc-800/60"
       :style="{ paddingLeft: `${depth * 12 + 8}px` }"
       @click="onClick"
-      @contextmenu.prevent="onContextMenu"
+      @contextmenu="onContextMenu"
     >
       <template v-if="node.kind === 'folder'">
         <span
@@ -138,6 +142,7 @@ function onContextMenu(event: MouseEvent) {
         :commit-hash="commitHash"
         @select="onChildSelect"
         @toggle-folder="onChildToggle"
+        @context-menu="(payload) => emit('contextMenu', payload)"
       />
     </template>
   </div>

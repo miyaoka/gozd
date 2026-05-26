@@ -96,6 +96,9 @@ const pendingOpen = ref<PendingOpen | null>(null);
  *   pointerup を消化する → 続く mouseup は popover open 前の press cycle として扱われ
  *   light-dismiss の対象外になる。`{ capture: true }` を外したり、pointerdown / mousedown 経路に
  *   変えてはならない
+ * - `event.button === 2` のような button filter を入れてはならない。macOS WebKit は control+click
+ *   を button=0 として dispatch する (bugzilla 52174) ため、control+click 経由の native context
+ *   menu 経路で menu が開かなくなる
  * - keyboard 経路 (Shift+F10 / Apps key) と programmatic dispatch は pointerup が発火しないため
  *   menu は開かない。本 PR の責務外で、将来 keyboard ショートカット要件が発生したら別経路
  *   ([docs/keybinding.md](../../../../../docs/keybinding.md)) で menu を開く
@@ -106,12 +109,13 @@ const pendingOpen = ref<PendingOpen | null>(null);
 useEventListener(
   window,
   "pointerup",
-  (event) => {
-    // 右クリック (button=2) 由来の pointerup のみを処理する。window 全体に常設しているため、
-    // 別 pane の左クリックや middle click も pointerup を発火させるが、それらで pending を
-    // 消化すると「Filer 行を右クリック → 他所を左 click → 別場所で menu が開く」race が
-    // 起きる。button 判定で右クリック release だけに絞り込めば構造的に排除できる。
-    if (event.button !== 2) return;
+  () => {
+    // `event.button` で右クリック (=2) のみに絞らない理由: macOS WebKit は control + click を
+    // **button=0** として dispatch する (webkit bugzilla 52174, "RESOLVED INVALID" だが挙動は
+    // 残っている)。button 絞り込みを入れると macOS native の context menu 経路 (control+click)
+    // で menu が開かなくなる。pending ref そのものが「直前に contextmenu があった」flag を
+    // 兼ねるため、最初の pointerup で消化 + null 化する設計で十分。多ボタン同時押し race
+    // (右クリック保持中に別所で左 click) は edge case として受容する
     const pending = pendingOpen.value;
     if (!pending) return;
     pendingOpen.value = null;

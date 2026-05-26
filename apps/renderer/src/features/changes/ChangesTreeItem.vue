@@ -71,12 +71,16 @@ function onChildToggle(fullPath: string) {
 }
 
 /**
- * 右クリック。folder 行は preventDefault せず OS 標準の右クリック menu に倒す
- * (folder に対する gozd メニュー action が無いため、user の OS-level menu 期待を奪わない)。
- * file leaf のみ preventDefault + emit で navigator まで bubble する。
+ * 右クリック。
  *
- * 同サイクル open による light-dismiss 回避 / showPopover の defer は NavigatorPane が
- * setTimeout(0) で処理する責務。本 component は payload を作って emit するだけ。
+ * - file leaf: preventDefault + emit で navigator に bubble
+ * - folder 行: chain 圧縮された presentation のため実体 path が unique に決まらない
+ *   (`.github/workflows` 等の連結表記が 1 行)。Copy file path 経路に渡す path が曖昧に
+ *   なるので menu を出さず OS 標準 menu に倒す。Filer の directory 行 (実体 path を持つ)
+ *   とは対称ではない (Filer は menu 対象、Changes folder は対象外 — 責務の差)
+ *
+ * light-dismiss 回避 (pointerup 待機) は NavigatorPane が処理する責務。本 component は
+ * payload を作って emit するだけ。
  */
 function onContextMenu(event: MouseEvent) {
   if (props.node.kind !== "file") return;

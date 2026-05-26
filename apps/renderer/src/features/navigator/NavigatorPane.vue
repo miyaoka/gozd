@@ -11,11 +11,11 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 
 ## 右クリックメニュー
 
-FilerPane / ChangesPane (および配下の TreeItem) から `contextMenu` event を受けて singleton popover (`useFileContextMenu`) に橋渡しする。子側は navigator への直接依存を持たない (payload 型のみ type-only import) ため、依存方向は navigator → 子の 1 方向で閉じる。defer / snapshot / disconnect ガード等の内部仕様は `useFileContextMenu.ts` の docstring を SSOT として参照する。
+FilerPane / ChangesPane (および配下の TreeItem) から `contextMenu` event を受けて singleton popover (`useFileContextMenu`) に橋渡しする。子側は navigator への直接依存を持たない (payload 型のみ type-only import) ため、依存方向は navigator → 子の 1 方向で閉じる。pointerup once-capture による light-dismiss 回避 / dir / hash snapshot / disconnect ガード等の内部仕様は `useFileContextMenu.ts` の docstring を SSOT として参照する。
 </doc>
 
 <script setup lang="ts">
-import { useElementSize, useTimeoutFn } from "@vueuse/core";
+import { useElementSize, useEventListener } from "@vueuse/core";
 import { ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
@@ -71,44 +71,68 @@ const gitGraphStore = useGitGraphStore();
 const worktreeStore = useWorktreeStore();
 const notification = useNotificationStore();
 
+type PendingOpen = {
+  payload: FileContextMenuPayload;
+  dir: string;
+  hash: string | undefined;
+};
+
 /**
- * 右クリック → menu open までの 1 task 分の defer を effect scope 連動で行うキュー。
- *
- * `useTimeoutFn` の `start(req)` を呼ぶたびに前 pending を **無音で cancel** して再 schedule する
- * semantics。連打時は最後の右クリックだけが menu を開く挙動になり、popover singleton の openState
- * 上書き semantics (最後の値だけが意味を持つ) と整合する。cancel を log しないのは意図的:
+ * 右クリックで積まれる pending open。次の `pointerup` で処理して open する。
+ * 連打時は最後の右クリックが pending を上書き (popover singleton の openState 上書き
+ * semantics と整合 — 最後の値だけが意味を持つ)。cancel を log しないのは意図的:
  * user 連打のたびに console を汚すノイズになるため、観察可能性より signal-to-noise を優先する。
- * unmount / HMR では scope dispose で pending が自動 clear される。
  */
-const { start: deferOpenMenu } = useTimeoutFn(
-  (req: FileContextMenuPayload, dirSnapshot: string, hashSnapshot: string | undefined) => {
-    if (!req.anchorEl.isConnected) {
+const pendingOpen = ref<PendingOpen | null>(null);
+
+/**
+ * window 全体に常設する `pointerup` capture listener。pending が積まれていれば消化して open する。
+ *
+ * **不変条件 (実装変更時に必読)**:
+ * - `setTimeout(0)` / `requestAnimationFrame` / `queueMicrotask` 等の task / microtask defer は
+ *   WebKit (WebPage) の `popover="auto"` light-dismiss を **抜けない** (実機検証済)。続く mouseup が
+ *   popover に到達して即 dismiss される (whatwg/html#10905)
+ * - `pointerup` を `capture: true` で window に貼ると、popover が show される **前** に listener が
+ *   pointerup を消化する → 続く mouseup は popover open 前の press cycle として扱われ
+ *   light-dismiss の対象外になる。`{ capture: true }` を外したり、pointerdown / mousedown 経路に
+ *   変えてはならない
+ * - keyboard 経路 (Shift+F10 / Apps key) と programmatic dispatch は pointerup が発火しないため
+ *   menu は開かない。本 PR の責務外で、将来 keyboard ショートカット要件が発生したら別経路
+ *   ([docs/keybinding.md](../../../../../docs/keybinding.md)) で menu を開く
+ *
+ * `useEventListener` を setup 直下で呼ぶことで effect scope に紐付き、unmount / HMR で自動 cleanup
+ * される (handler 内で呼ぶと scope に登録されず leak する)。
+ */
+useEventListener(
+  window,
+  "pointerup",
+  () => {
+    const pending = pendingOpen.value;
+    if (!pending) return;
+    pendingOpen.value = null;
+    if (!pending.payload.anchorEl.isConnected) {
       notification.debug("[FileContextMenu] anchor disconnected before open, skipping", {
-        relPath: req.relPath,
+        relPath: pending.payload.relPath,
       });
       return;
     }
-    openFileContextMenu(req.anchorEl, {
-      dir: dirSnapshot,
-      relPath: req.relPath,
-      commitHash: hashSnapshot,
-      x: req.x,
-      y: req.y,
+    openFileContextMenu(pending.payload.anchorEl, {
+      dir: pending.dir,
+      relPath: pending.payload.relPath,
+      commitHash: pending.hash,
+      x: pending.payload.x,
+      y: pending.payload.y,
     });
   },
-  0,
-  { immediate: false },
+  { capture: true },
 );
 
 /**
- * 配下から bubble してくる contextmenu request を受けて popover singleton を open する。
+ * 配下から bubble してくる contextmenu request を pending に積む。
  *
- * - 同サイクル内の `showPopover` は `popover="auto"` の light-dismiss を続く mouseup が消化して
- *   即閉じるため (whatwg/html#10905)、`useTimeoutFn` で 1 task 分 defer する。入力種別
- *   (mouse / keyboard / programmatic) 非依存
- * - `dir` / `commitHash` は **本関数の同期実行時点** で snapshot する。defer 中に worktree
- *   切替 / commit 選択切替が起きても、その右クリック時点の値を popover context に焼き付ける
- *   ことで「古い relPath + 新 dir」「古い anchor + 新 hash」の race を構造的に排除する
+ * - `dir` / `commitHash` は **本関数の同期実行時点** で snapshot する。pointerup 待機中に
+ *   worktree 切替 / commit 選択切替が起きても、その右クリック時点の値を popover context に
+ *   焼き付けることで「古い relPath + 新 dir」「古い anchor + 新 hash」の race を構造的に排除する
  * - `dir` 未設定 (起動初期 / 全 repo 閉鎖直後) では menu を出さず debug log。FilerPane は
  *   `v-if="!dir"` で "waiting for open command..." を出してツリー自体を描画しないため、user
  *   操作経路ではこの分岐に到達しない (defensive)。観測対象が user 不可視の異常系なので
@@ -120,8 +144,11 @@ function onFileContextMenu(req: FileContextMenuPayload) {
     notification.debug("[FileContextMenu] no active worktree, skipping", { relPath: req.relPath });
     return;
   }
-  const hashSnapshot = gitGraphStore.contextMenuHash;
-  deferOpenMenu(req, dirSnapshot, hashSnapshot);
+  pendingOpen.value = {
+    payload: req,
+    dir: dirSnapshot,
+    hash: gitGraphStore.contextMenuHash,
+  };
 }
 </script>
 

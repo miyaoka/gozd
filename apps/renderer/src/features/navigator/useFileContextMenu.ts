@@ -7,9 +7,8 @@
  * 1 方向に保つため)。
  *
  * `dir` / `commitHash` は **右クリック時点で navigator が snapshot** して context に焼き付ける。
- * defer 中 / メニュー表示中に worktree や commit 選択が切り替わっても、その右クリックで参照した
- * 当時の値を一貫して使う (defer 後に singleton store を読み直すと「古い relPath + 新 dir」の
- * 不整合 race が起きるため)。
+ * 後で worktree や commit 選択が切り替わっても、その右クリックで参照した当時の値を一貫して使う
+ * (open 後に singleton store を読み直すと「古い relPath + 新 dir」の不整合 race が起きるため)。
  *
  * メニュー側は `joinAbsRel(dir, relPath)` で絶対 path に展開し、`commitHash === undefined` なら
  * 絶対 path のみ、定義されていれば `${hash}\n${絶対 path}` を clipboard に書く。
@@ -17,12 +16,19 @@
  * x / y は contextmenu イベント時のマウス座標。指定時はメニュー側で `position: fixed; left/top`
  * を使い、undefined なら CSS Anchor Position で anchor 要素基準で出す (将来の menu 起動経路用)。
  *
- * NavigatorPane は VueUse `useTimeoutFn` で 0ms の defer を効果 scope 連動で行う。同サイクル内
- * open は `popover="auto"` の light-dismiss を mouseup で消化されて即閉じる (whatwg/html#10905)
- * ため、現在の mousedown task を抜けてから showPopover を発火する。defer 経路はマウス /
- * keyboard (Shift+F10) / programmatic dispatch のいずれにも非依存。defer 中に anchor 元
- * component が unmount された (dir 切替・`:key="dir"` 再マウント) ケースは `anchorEl.isConnected`
- * で検出し、debug log を残して open を skip する。
+ * NavigatorPane は `pointerup` capture listener を setup 直下に常設し、子 pane から bubble する
+ * contextmenu event を `pending` ref に積んで次の pointerup で showPopover する。**`setTimeout(0)`
+ * / `requestAnimationFrame` 等の defer は WebKit (WebPage) の `popover="auto"` light-dismiss を
+ * 抜けない** (whatwg/html#10905、実機検証で確認)。続く mouseup が popover に到達して即 dismiss
+ * されるため、`pointerup` が popover の show 前に消化されることで mouseup の dismiss 対象外に
+ * 倒す。`{ capture: true }` を外したり pointerdown / mousedown 経路に変えてはならない。
+ *
+ * 副作用: keyboard 経路 (Shift+F10 / Apps key) と programmatic dispatch は pointerup が発火
+ * しないため menu を開かない。本 PR の責務外で、将来 keyboard ショートカット要件が発生したら
+ * keybinding システム ([docs/keybinding.md](../../../../docs/keybinding.md)) 経由で別途用意する。
+ *
+ * 開く直前に anchor 元 component が unmount された (dir 切替・`:key="dir"` 再マウント) ケースは
+ * `anchorEl.isConnected` で検出し、debug log を残して open を skip する。
  */
 import { usePopover } from "../../shared/popover";
 

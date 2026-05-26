@@ -1,9 +1,9 @@
 <doc lang="md">
 ファイル行の右クリックメニュー。Copy file path アクションを表示する。
 
-copy する path は `useWorktreeStore.dir` (active worktree の絶対パス) と context の `relPath` を
-join した絶対パス。Filer / Changes はどちらも active worktree のみを表示するため、worktree dir
-は menu 側で読み取って組み立てる (call 側で組み立てて context に渡す経路を持たない)。
+copy する path は context に焼き付けられた `dir` (右クリック時の snapshot) と `relPath` を
+`joinAbsRel` で結合した絶対パス。defer 中 / menu 表示中に worktree が切り替わっても、その
+右クリック時点の dir / commitHash を一貫して使う (singleton store を読み直さない)。
 
 - working tree のファイル (commitHash 未指定): 絶対パスのみを copy
 - snapshot / commit 由来 (commitHash 指定): `${commitHash}\n${絶対パス}` を copy
@@ -15,12 +15,11 @@ state は `useFileContextMenu` (module singleton) 経由で開閉する。
 import { tryCatch } from "@gozd/shared";
 import { computed } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { joinAbsRel, useWorktreeStore } from "../worktree";
+import { joinAbsRel } from "../worktree";
 import { useFileContextMenu } from "./useFileContextMenu";
 
 const { Popover, context, close } = useFileContextMenu();
 const notify = useNotificationStore();
-const worktreeStore = useWorktreeStore();
 
 // 右クリックでマウス座標 (context.x/y) が渡された場合はそれを優先。
 // ⋮ ボタン経路など座標未指定の場合は CSS Anchor Position で anchor 要素の bottom-left に出す。
@@ -39,12 +38,7 @@ const popoverStyle = computed(() => {
 
 async function handleCopyPath() {
   if (!context.value) return;
-  const { relPath, commitHash } = context.value;
-  const dir = worktreeStore.dir;
-  if (dir === undefined) {
-    notify.error("Failed to copy file path: no active worktree");
-    return;
-  }
+  const { dir, relPath, commitHash } = context.value;
   const absPath = joinAbsRel(dir, relPath);
   const text = commitHash === undefined ? absPath : `${commitHash}\n${absPath}`;
   close();

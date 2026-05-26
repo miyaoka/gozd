@@ -110,4 +110,20 @@ describe("joinAbsRel", () => {
   test("relPath が空のとき dir をそのまま返す (末尾 / を作らない)", () => {
     expect(joinAbsRel("/Users/foo/repo", "")).toBe("/Users/foo/repo");
   });
+
+  test("dir に末尾 / があっても二重 / を作らない", () => {
+    expect(joinAbsRel("/abs/dir/", "rel")).toBe("/abs/dir/rel");
+  });
+
+  test("dir に複数末尾 / があっても 1 個まで畳む", () => {
+    expect(joinAbsRel("/abs/dir///", "rel")).toBe("/abs/dir/rel");
+  });
+
+  test("dir が root / のとき strip 後も root として扱う", () => {
+    expect(joinAbsRel("/", "rel")).toBe("/rel");
+  });
+
+  test("dir が root / で relPath 空のとき / を返す", () => {
+    expect(joinAbsRel("/", "")).toBe("/");
+  });
 });

@@ -111,16 +111,17 @@ function normalizeAbsolute(absPath: string): string {
 export { normalizeAbsolute, normalizeRelative };
 
 /**
- * worktree の絶対 dir と worktree 相対 path を結合して絶対 path を返す純粋関数。
- * 「右クリックメニューの Copy file path」「外部表示用 path 組み立て」など、絶対 dir +
- * 相対 path → 絶対 path の用途で SSOT として使う。
+ * 絶対 dir と worktree 相対 path を結合して絶対 path を返す純粋関数。
  *
- * filer の `joinPath` (worktree 相対 + 子名) とは責務が別 (こちらは絶対 + 相対)。
- *
- * `relPath === ""` のとき dir をそのまま返す (末尾 `/` を作らない)。filer の root 行は
- * button を持たないため到達しない契約だが、defensive に処理する。
+ * 入力 invariants:
+ * - `dir` は絶対 path だが末尾 `/` の有無は不問 (Swift `URL.path` 経由で trailing slash が
+ *   付くケースに備え、内部で 1 個以上の末尾 `/` を strip する)
+ * - `dir === "/"` は root を表し、strip 後の "" を再度 "/" に戻す
+ * - `relPath` は worktree 相対 path (先頭 `/` 無し)。空文字なら dir そのものを返す
+ *   (末尾 `/` を作らない)
  */
 export function joinAbsRel(dir: string, relPath: string): string {
-  if (relPath === "") return dir;
-  return `${dir}/${relPath}`;
+  const trimmedDir = dir.replace(/\/+$/, "");
+  if (relPath === "") return trimmedDir === "" ? "/" : trimmedDir;
+  return `${trimmedDir}/${relPath}`;
 }

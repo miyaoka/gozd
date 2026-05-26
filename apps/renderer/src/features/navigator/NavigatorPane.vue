@@ -11,14 +11,16 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 
 ## 右クリックメニュー
 
-FilerPane / ChangesPane (および配下の TreeItem) から `contextMenu` event が bubble してくる。本ペインで singleton popover `useFileContextMenu` を open することで、依存方向を navigator → 子の 1 方向に保つ (子側は navigator を直接 import しない)。
+FilerPane / ChangesPane (および配下の TreeItem) から `contextMenu` event が bubble してくる。本ペインで singleton popover `useFileContextMenu` を open することで、依存方向を navigator → 子の 1 方向に保つ (子側は navigator を直接 import しない、または type-only import に限る)。
 
-open は `setTimeout(open, 0)` で 1 task 分遅延させる。`popover="auto"` を contextmenu 同サイクル内で開くと mousedown が light-dismiss を予約し、続く mouseup で即閉じる挙動 (whatwg/html#10905) を回避するため。setTimeout 経路は mouse / keyboard (Shift+F10) / programmatic dispatch のいずれにも非依存に動く。
+open は VueUse `useTimeoutFn(_, 0)` で 1 task 分遅延させる。`popover="auto"` を contextmenu 同サイクル内で開くと mousedown が light-dismiss を予約し、続く mouseup で即閉じる挙動 (whatwg/html#10905) を回避するため。defer 経路は mouse / keyboard (Shift+F10) / programmatic dispatch のいずれにも非依存。`useTimeoutFn` は effect scope 連動なので unmount / HMR で pending な open が走り残らず、`start` は前の pending を cancel するので連打時は最後の右クリックだけが menu を開く (popover singleton の semantics と整合)。
+
+`dir` / `commitHash` は **右クリック時に snapshot** して popover context に焼き付ける。defer 中 / menu 表示中に worktree や commit 選択が切り替わっても、その右クリックで参照した当時の値を一貫して使う (defer 後に store を読み直すと「古い relPath + 新 dir」の race を生むため)。defer 完了時に anchor 元 component が unmount されていた (`anchorEl.isConnected === false`) ケースは debug log を残して open を skip する。
 </doc>
 
 <script setup lang="ts">
-import { useElementSize } from "@vueuse/core";
-import { onScopeDispose, ref, useTemplateRef, watch } from "vue";
+import { useElementSize, useTimeoutFn } from "@vueuse/core";
+import { ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { ChangesPane } from "../changes";
@@ -26,6 +28,7 @@ import { FilerPane } from "../filer";
 import { useGitGraphStore } from "../git-graph";
 import { ResizeHandle } from "../layout";
 import { usePreviewStore } from "../preview";
+import { useWorktreeStore } from "../worktree";
 import FileContextMenu from "./FileContextMenu.vue";
 import { useFileContextMenu } from "./useFileContextMenu";
 import type { FileContextMenuPayload } from "./useFileContextMenu";
@@ -69,37 +72,18 @@ function onFileSelect(relPath: string) {
 
 const { open: openFileContextMenu } = useFileContextMenu();
 const gitGraphStore = useGitGraphStore();
+const worktreeStore = useWorktreeStore();
 const notification = useNotificationStore();
 
 /**
- * defer 中の timer 集合。setup scope dispose (unmount / HMR) で全部 clearTimeout する。
- * 生 setTimeout は global timer queue に逃げて component lifecycle と切り離されるため、
- * pending な open が unmount 後に走るのを構造的に防ぐ (CLAUDE.md 規約: listener / timer は
- * 必ず scope に紐付ける)。
- */
-const pendingOpenTimers = new Set<ReturnType<typeof setTimeout>>();
-onScopeDispose(() => {
-  for (const t of pendingOpenTimers) clearTimeout(t);
-  pendingOpenTimers.clear();
-});
-
-/**
- * 配下から bubble してくる contextmenu request を受けて popover singleton を open する。
+ * 右クリック → menu open までの 1 task 分の defer を effect scope 連動で行うキュー。
  *
- * - contextmenu の発火サイクル (mousedown → contextmenu → mouseup) を 1 task 分抜けてから
- *   showPopover を呼ぶ。同サイクル内 open は whatwg/html#10905 で続く mouseup が
- *   light-dismiss として消化される。setTimeout(0) は入力種別 (mouse / keyboard / programmatic)
- *   非依存
- * - commitHash は `useGitGraphStore.contextMenuHash` (SSOT) から解決する。range mode は
- *   undefined、UNCOMMITTED_HASH のときも undefined、それ以外で selectedHash。child pane に
- *   hash 解決を分散させないことで Filer / Changes 同 file の copy 結果非対称を防ぐ
- * - defer 中に anchor 元 component が unmount された (dir 切替・`:key="dir"` 再マウント) ケース
- *   では `anchorEl.isConnected` が false になる。silent drop せず debug log を残して open を
- *   スキップする (observability 規約)
+ * `useTimeoutFn` の `start(req)` を呼ぶたびに前 pending を cancel して再 schedule する semantics。
+ * 連打時は最後の右クリックだけが menu を開く挙動になり、popover singleton の openState
+ * 上書き semantics と整合する。unmount / HMR では scope dispose で pending が自動 clear される。
  */
-function onFileContextMenu(req: FileContextMenuPayload) {
-  const timer = setTimeout(() => {
-    pendingOpenTimers.delete(timer);
+const { start: deferOpenMenu } = useTimeoutFn(
+  (req: FileContextMenuPayload, dirSnapshot: string, hashSnapshot: string | undefined) => {
     if (!req.anchorEl.isConnected) {
       notification.debug("[FileContextMenu] anchor disconnected before open, skipping", {
         relPath: req.relPath,
@@ -107,13 +91,36 @@ function onFileContextMenu(req: FileContextMenuPayload) {
       return;
     }
     openFileContextMenu(req.anchorEl, {
+      dir: dirSnapshot,
       relPath: req.relPath,
-      commitHash: gitGraphStore.contextMenuHash,
+      commitHash: hashSnapshot,
       x: req.x,
       y: req.y,
     });
-  }, 0);
-  pendingOpenTimers.add(timer);
+  },
+  0,
+  { immediate: false },
+);
+
+/**
+ * 配下から bubble してくる contextmenu request を受けて popover singleton を open する。
+ *
+ * - 同サイクル内の `showPopover` は `popover="auto"` の light-dismiss を続く mouseup が消化して
+ *   即閉じるため (whatwg/html#10905)、`useTimeoutFn` で 1 task 分 defer する。入力種別
+ *   (mouse / keyboard / programmatic) 非依存
+ * - `dir` / `commitHash` は **本関数の同期実行時点** で snapshot する。defer 中に worktree
+ *   切替 / commit 選択切替が起きても、その右クリック時点の値を popover context に焼き付ける
+ *   ことで「古い relPath + 新 dir」「古い anchor + 新 hash」の race を構造的に排除する
+ * - dir 未設定 (起動初期 / 全 repo 閉鎖直後) では menu を出さず debug log
+ */
+function onFileContextMenu(req: FileContextMenuPayload) {
+  const dirSnapshot = worktreeStore.dir;
+  if (dirSnapshot === undefined) {
+    notification.debug("[FileContextMenu] no active worktree, skipping", { relPath: req.relPath });
+    return;
+  }
+  const hashSnapshot = gitGraphStore.contextMenuHash;
+  deferOpenMenu(req, dirSnapshot, hashSnapshot);
 }
 </script>
 

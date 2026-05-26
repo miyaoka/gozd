@@ -106,7 +106,12 @@ const pendingOpen = ref<PendingOpen | null>(null);
 useEventListener(
   window,
   "pointerup",
-  () => {
+  (event) => {
+    // 右クリック (button=2) 由来の pointerup のみを処理する。window 全体に常設しているため、
+    // 別 pane の左クリックや middle click も pointerup を発火させるが、それらで pending を
+    // 消化すると「Filer 行を右クリック → 他所を左 click → 別場所で menu が開く」race が
+    // 起きる。button 判定で右クリック release だけに絞り込めば構造的に排除できる。
+    if (event.button !== 2) return;
     const pending = pendingOpen.value;
     if (!pending) return;
     pendingOpen.value = null;

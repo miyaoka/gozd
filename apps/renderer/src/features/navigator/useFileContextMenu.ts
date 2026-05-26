@@ -29,6 +29,11 @@
  *
  * 開く直前に anchor 元 component が unmount された (dir 切替・`:key="dir"` 再マウント) ケースは
  * `anchorEl.isConnected` で検出し、debug log を残して open を skip する。
+ *
+ * 不変条件の重複: 上記 light-dismiss 不変条件 (defer 不可 / pointerup capture を変えない /
+ * keyboard 経路は責務外) は `NavigatorPane.vue` の `useEventListener` 呼び出し直上の docstring
+ * にも記載されている (実装変更時に直近で必ず読まれる位置に再掲することで回帰防止する設計)。
+ * 仕様を変える際は両者を必ず同時に更新する責務がある。
  */
 import { usePopover } from "../../shared/popover";
 

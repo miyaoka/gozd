@@ -390,13 +390,11 @@ function onChildSelect(childPath: string) {
 }
 
 /**
- * 右クリック。directory も含めて実体 path を持つ行は menu 対象にする。inert leaf のみ除外。
+ * 右クリック。directory / file どちらも実体 path を持つ行は menu 対象にする。inert leaf のみ除外。
  *
- * - directory: menu 対象 (実 filesystem path として絶対 path を copy する。Changes folder 行
- *   は presentation chain 圧縮で path が unique に決まらないため対象外という別責務)
+ * - directory / file: menu 対象 (実 filesystem path として絶対 path を copy する)
  * - inert leaf (submodule / snapshot symlink): 早期 return (snapshot 時点と working tree の
  *   実体が一致しないため、working tree の絶対 path を誤って copy 可能にする UI を排除)
- * - 上記以外: preventDefault + emit で navigator まで bubble する
  *
  * commitHash は navigator が `useGitGraphStore.contextMenuHash` で SSOT 解決するため payload
  * には乗せない (filer の `snapshotHash` は filer ツリー表示用なので copy 経路と分離する)。

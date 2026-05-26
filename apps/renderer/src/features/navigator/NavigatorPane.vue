@@ -99,11 +99,12 @@ const pendingOpen = ref<PendingOpen | null>(null);
  * - `event.button === 2` のような button filter を入れてはならない。macOS WebKit は control+click
  *   を button=0 として dispatch する (bugzilla 52174) ため、control+click 経由の native context
  *   menu 経路で menu が開かなくなる
- * - `pointerdown` で pending を reset する経路を追加してはならない。右クリック → contextmenu →
- *   同 mouse の pointerup → pending 消化 → open という物理順序で、`onFileContextMenu` で
- *   pending を積む **前** に右クリックの pointerdown が既に走り終わっている。pointerdown で
- *   reset すると pending を積んだ瞬間に消える経路はないものの、左 click 直後の pointerdown と
- *   交錯すると pending が即消えて menu が開かなくなる事故源になる
+ * - `pointerdown` で pending を reset する経路を追加してはならない。右クリック sequence
+ *   (pointerdown → contextmenu → pointerup) では右ボタン pointerdown が `onFileContextMenu`
+ *   の pending 積みより前に終わるため、pointerdown reset を入れても右クリック単体では
+ *   破綻しない。しかし pending が積まれた状態で **別経路の pointerdown** (例: 左 click) が
+ *   来ると pending を即消去してしまい、本来意図した次の pointerup での消化が起きなくなる。
+ *   状態遷移を pointerup のみで完結させる現設計を維持すること
  * - keyboard 経路 (Shift+F10 / Apps key) と programmatic dispatch は pointerup が発火しないため
  *   menu は開かない。本 PR の責務外で、将来 keyboard ショートカット要件が発生したら別経路
  *   ([docs/keybinding.md](../../../../../docs/keybinding.md)) で menu を開く

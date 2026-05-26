@@ -6,6 +6,11 @@ function ch(newFilePath: string): GitFileChange {
   return { oldFilePath: newFilePath, newFilePath, type: "M" };
 }
 
+/**
+ * `buildChangesTree` の責務別 spec。displayPath / error contracts など責務ごとに
+ * `describe` を nested で区切ることで、将来 `displaySegments` / `anchorPath` 等の境界
+ * テスト追加時に責務単位の grouping が維持できる構造にしている。
+ */
 describe("buildChangesTree", () => {
   /**
    * `displayPath` は chain 圧縮された folder 行の copy 対象 path として user に直接見える値。

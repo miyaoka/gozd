@@ -11,11 +11,7 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 
 ## 右クリックメニュー
 
-FilerPane / ChangesPane (および配下の TreeItem) から `contextMenu` event が bubble してくる。本ペインで singleton popover `useFileContextMenu` を open することで、依存方向を navigator → 子の 1 方向に保つ (子側は navigator を直接 import しない、または type-only import に限る)。
-
-open は VueUse `useTimeoutFn(_, 0)` で 1 task 分遅延させる。`popover="auto"` を contextmenu 同サイクル内で開くと mousedown が light-dismiss を予約し、続く mouseup で即閉じる挙動 (whatwg/html#10905) を回避するため。defer 経路は mouse / keyboard (Shift+F10) / programmatic dispatch のいずれにも非依存。`useTimeoutFn` は effect scope 連動なので unmount / HMR で pending な open が走り残らず、`start` は前の pending を cancel するので連打時は最後の右クリックだけが menu を開く (popover singleton の semantics と整合)。
-
-`dir` / `commitHash` は **右クリック時に snapshot** して popover context に焼き付ける。defer 中 / menu 表示中に worktree や commit 選択が切り替わっても、その右クリックで参照した当時の値を一貫して使う (defer 後に store を読み直すと「古い relPath + 新 dir」の race を生むため)。defer 完了時に anchor 元 component が unmount されていた (`anchorEl.isConnected === false`) ケースは debug log を残して open を skip する。
+FilerPane / ChangesPane (および配下の TreeItem) から `contextMenu` event を受けて singleton popover (`useFileContextMenu`) に橋渡しする。子側は navigator への直接依存を持たない (payload 型のみ type-only import) ため、依存方向は navigator → 子の 1 方向で閉じる。defer / snapshot / disconnect ガード等の内部仕様は `useFileContextMenu.ts` の docstring を SSOT として参照する。
 </doc>
 
 <script setup lang="ts">
@@ -78,9 +74,11 @@ const notification = useNotificationStore();
 /**
  * 右クリック → menu open までの 1 task 分の defer を effect scope 連動で行うキュー。
  *
- * `useTimeoutFn` の `start(req)` を呼ぶたびに前 pending を cancel して再 schedule する semantics。
- * 連打時は最後の右クリックだけが menu を開く挙動になり、popover singleton の openState
- * 上書き semantics と整合する。unmount / HMR では scope dispose で pending が自動 clear される。
+ * `useTimeoutFn` の `start(req)` を呼ぶたびに前 pending を **無音で cancel** して再 schedule する
+ * semantics。連打時は最後の右クリックだけが menu を開く挙動になり、popover singleton の openState
+ * 上書き semantics (最後の値だけが意味を持つ) と整合する。cancel を log しないのは意図的:
+ * user 連打のたびに console を汚すノイズになるため、観察可能性より signal-to-noise を優先する。
+ * unmount / HMR では scope dispose で pending が自動 clear される。
  */
 const { start: deferOpenMenu } = useTimeoutFn(
   (req: FileContextMenuPayload, dirSnapshot: string, hashSnapshot: string | undefined) => {
@@ -111,7 +109,10 @@ const { start: deferOpenMenu } = useTimeoutFn(
  * - `dir` / `commitHash` は **本関数の同期実行時点** で snapshot する。defer 中に worktree
  *   切替 / commit 選択切替が起きても、その右クリック時点の値を popover context に焼き付ける
  *   ことで「古い relPath + 新 dir」「古い anchor + 新 hash」の race を構造的に排除する
- * - dir 未設定 (起動初期 / 全 repo 閉鎖直後) では menu を出さず debug log
+ * - `dir` 未設定 (起動初期 / 全 repo 閉鎖直後) では menu を出さず debug log。FilerPane は
+ *   `v-if="!dir"` で "waiting for open command..." を出してツリー自体を描画しないため、user
+ *   操作経路ではこの分岐に到達しない (defensive)。観測対象が user 不可視の異常系なので
+ *   `info` toast ではなく `debug` のまま (toast にすると正常状態と区別しにくい)
  */
 function onFileContextMenu(req: FileContextMenuPayload) {
   const dirSnapshot = worktreeStore.dir;

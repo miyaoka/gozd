@@ -1,14 +1,7 @@
 <doc lang="md">
-ファイル行の右クリックメニュー。Copy file path アクションを表示する。
-
-copy する path は context に焼き付けられた `dir` (右クリック時の snapshot) と `relPath` を
-`joinAbsRel` で結合した絶対パス。defer 中 / menu 表示中に worktree が切り替わっても、その
-右クリック時点の dir / commitHash を一貫して使う (singleton store を読み直さない)。
-
-- working tree のファイル (commitHash 未指定): 絶対パスのみを copy
-- snapshot / commit 由来 (commitHash 指定): `${commitHash}\n${絶対パス}` を copy
-
-state は `useFileContextMenu` (module singleton) 経由で開閉する。
+ファイル行の右クリックメニュー。Copy file path アクションを描画して clipboard に書き込む。
+context の組み立てと snapshot semantics、defer / disconnect ガード等の内部仕様は
+`useFileContextMenu.ts` の docstring を SSOT として参照する。
 </doc>
 
 <script setup lang="ts">

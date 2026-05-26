@@ -23,8 +23,10 @@ summary 有効時は preview ペインに全変更の縦並び diff が表示さ
 
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import { useGitGraphStore } from "../git-graph";
+import { UNCOMMITTED_HASH } from "../worktree";
 import { buildChangesTree } from "./changesTree";
 import type { ChangesTreeNode } from "./changesTree";
 import ChangesTreeItem from "./ChangesTreeItem.vue";
@@ -38,6 +40,23 @@ const emit = defineEmits<{
 const notify = useNotificationStore();
 const changesStore = useChangesStore();
 const summaryStore = useChangesSummaryStore();
+const gitGraphStore = useGitGraphStore();
+
+/**
+ * 右クリックメニューに渡す commit hash。
+ *
+ * working tree 由来 (UNCOMMITTED_HASH 単独 / workingTreeOnly) のとき undefined を返し、
+ * メニュー側で file path のみを copy する経路に倒す。range mode で WT 端を含むケースでは
+ * selectedHash が UNCOMMITTED_HASH になるため compareHash 側を採用する。
+ */
+const contextMenuHash = computed<string | undefined>(() => {
+  if (gitGraphStore.workingTreeOnly) return undefined;
+  const sel = gitGraphStore.selectedHash;
+  if (sel !== UNCOMMITTED_HASH) return sel;
+  const cmp = gitGraphStore.compareHash;
+  if (cmp !== null && cmp !== UNCOMMITTED_HASH) return cmp;
+  return undefined;
+});
 
 /**
  * GitHub PR 風のディレクトリツリー（chain 圧縮済み）。
@@ -119,6 +138,7 @@ function onClickViewAll() {
         :node="node"
         :depth="0"
         :collapsed="collapsedFolders"
+        :commit-hash="contextMenuHash"
         @select="emit('select', $event)"
         @toggle-folder="toggleFolder"
       />

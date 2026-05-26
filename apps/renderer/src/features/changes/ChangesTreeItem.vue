@@ -4,8 +4,10 @@ Recursive tree node for the changes pane. Renders folders (with collapse/expand)
 
 <script setup lang="ts">
 import type { GitFileChange } from "@gozd/proto";
+import { useEventListener } from "@vueuse/core";
 import { computed } from "vue";
 import { getFileIconUrl, getFolderIconUrl } from "../filer";
+import { useFileContextMenu } from "../navigator";
 import type { ChangesTreeNode } from "./changesTree";
 
 const props = defineProps<{
@@ -13,6 +15,8 @@ const props = defineProps<{
   depth: number;
   /** 折りたたまれているフォルダの fullPath 集合 */
   collapsed: Set<string>;
+  /** 右クリックメニューに渡す commit hash。working tree 由来なら undefined */
+  commitHash?: string;
 }>();
 
 const emit = defineEmits<{
@@ -62,15 +66,44 @@ function onChildSelect(relPath: string) {
 function onChildToggle(fullPath: string) {
   emit("toggleFolder", fullPath);
 }
+
+const { open: openContextMenu } = useFileContextMenu();
+
+// 右クリック経路は contextmenu の中で直接 showPopover すると、同サイクルの mousedown が
+// popover="auto" の light-dismiss を予約し、続く mouseup で消化されて即閉じる
+// (whatwg/html#10905)。次の pointerup を 1 回 capture once で待ってから open すれば
+// mousedown サイクルを抜けるため dismiss されない。
+function onContextMenu(event: MouseEvent) {
+  if (props.node.kind !== "file") return;
+  if (!(event.currentTarget instanceof HTMLElement)) return;
+  const node = props.node;
+  const anchor = event.currentTarget;
+  const x = event.clientX;
+  const y = event.clientY;
+  useEventListener(
+    window,
+    "pointerup",
+    () => {
+      openContextMenu(anchor, {
+        relPath: node.change.newFilePath,
+        commitHash: props.commitHash,
+        x,
+        y,
+      });
+    },
+    { once: true, capture: true },
+  );
+}
 </script>
 
 <template>
   <div>
     <button
       type="button"
-      class="flex w-full cursor-pointer items-center gap-1 px-1 py-0.5 text-left text-xs hover:bg-zinc-800/60"
+      class="flex w-full cursor-pointer items-center gap-1 px-1 py-0.5 text-left text-xs select-none hover:bg-zinc-800/60"
       :style="{ paddingLeft: `${depth * 12 + 8}px` }"
       @click="onClick"
+      @contextmenu.prevent="onContextMenu"
     >
       <template v-if="node.kind === 'folder'">
         <span
@@ -102,6 +135,7 @@ function onChildToggle(fullPath: string) {
         :node="child"
         :depth="depth + 1"
         :collapsed="collapsed"
+        :commit-hash="commitHash"
         @select="onChildSelect"
         @toggle-folder="onChildToggle"
       />

@@ -56,8 +56,10 @@
 
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
+import { useEventListener } from "@vueuse/core";
 import { computed, onMounted, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import { useFileContextMenu } from "../navigator";
 import {
   resolveDirectoryGitChange,
   resolveFileGitChange,
@@ -120,6 +122,7 @@ const emit = defineEmits<{
 const notify = useNotificationStore();
 const worktreeStore = useWorktreeStore();
 const filerEventStore = useFilerEventStore();
+const { open: openContextMenu } = useFileContextMenu();
 
 const isRoot = computed(() => isRootPath(props.path));
 const isDirectory = computed(() => props.kind === "directory");
@@ -381,6 +384,30 @@ watch(
 function onChildSelect(childPath: string) {
   emit("select", childPath);
 }
+
+// 右クリック経路は contextmenu の中で直接 showPopover すると、同サイクルの mousedown が
+// popover="auto" の light-dismiss を予約し、続く mouseup で消化されて即閉じる
+// (whatwg/html#10905)。次の pointerup を 1 回 capture once で待ってから open すれば
+// mousedown サイクルを抜けるため dismiss されない。
+function onContextMenu(event: MouseEvent) {
+  if (!(event.currentTarget instanceof HTMLElement)) return;
+  const anchor = event.currentTarget;
+  const x = event.clientX;
+  const y = event.clientY;
+  useEventListener(
+    window,
+    "pointerup",
+    () => {
+      openContextMenu(anchor, {
+        relPath: props.path,
+        commitHash: props.snapshotHash,
+        x,
+        y,
+      });
+    },
+    { once: true, capture: true },
+  );
+}
 </script>
 
 <template>
@@ -388,7 +415,7 @@ function onChildSelect(childPath: string) {
     <button
       v-if="!isRoot"
       ref="button"
-      class="flex w-full items-center gap-1 rounded-sm px-1 py-0.5 text-left text-sm hover:bg-zinc-700"
+      class="flex w-full items-center gap-1 rounded-sm px-1 py-0.5 text-left text-sm select-none hover:bg-zinc-700"
       :class="[
         selectedRelPath === path ? 'bg-zinc-700' : '',
         textColorClass,
@@ -398,6 +425,7 @@ function onChildSelect(childPath: string) {
       :style="{ paddingLeft: `${depth * 16 + 4}px` }"
       :title="kind === 'submodule' ? 'submodule (not previewable)' : undefined"
       @click="toggle"
+      @contextmenu.prevent="onContextMenu"
     >
       <!-- ディレクトリの展開/折りたたみアイコン -->
       <span

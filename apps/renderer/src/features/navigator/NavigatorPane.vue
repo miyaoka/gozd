@@ -18,6 +18,7 @@ import { ChangesPane } from "../changes";
 import { FilerPane } from "../filer";
 import { ResizeHandle } from "../layout";
 import { usePreviewStore } from "../preview";
+import FileContextMenu from "./FileContextMenu.vue";
 
 const HANDLE_HEIGHT = 8;
 const FILER_MIN_HEIGHT = 100;
@@ -88,5 +89,8 @@ function onFileSelect(relPath: string) {
         <ChangesPane @select="onFileSelect" />
       </div>
     </template>
+
+    <!-- ファイル行の右クリックメニュー (Filer / Changes 共用) -->
+    <FileContextMenu />
   </div>
 </template>

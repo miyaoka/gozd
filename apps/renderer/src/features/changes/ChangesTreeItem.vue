@@ -55,7 +55,11 @@ const folderDisplayName = computed(() =>
   props.node.kind === "folder" ? props.node.displaySegments.join("/") : "",
 );
 
-function onClick() {
+function onClick(event: MouseEvent) {
+  // macOS の control+click は WebKit が button=0 + click event として dispatch するため、
+  // contextmenu と一緒に通常 click も発火する。control+click は context menu trigger の
+  // 意図なので toggle / select に倒さず contextmenu 経路に委譲する。
+  if (event.ctrlKey) return;
   if (props.node.kind === "folder") {
     emit("toggleFolder", props.node.anchorPath);
   } else {

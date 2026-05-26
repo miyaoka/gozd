@@ -190,7 +190,11 @@ const iconUrl = computed(() => {
   return getFileIconUrl(props.name);
 });
 
-async function toggle() {
+async function toggle(event: MouseEvent) {
+  // macOS の control+click は WebKit が button=0 + click event として dispatch するため、
+  // contextmenu と一緒に通常 click も発火する。control+click は context menu trigger の
+  // 意図なので、folder の展開 / file の select には倒さず contextmenu 経路に委譲する。
+  if (event.ctrlKey) return;
   if (isDirectory.value) {
     expanded.value = !expanded.value;
     // 初回展開時のみ読み込む

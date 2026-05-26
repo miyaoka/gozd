@@ -14,6 +14,12 @@ export type ChangesTreeNode =
        * ユーザーが畳んだ状態を保てる。
        */
       anchorPath: string;
+      /**
+       * chain 圧縮の **最深** folder の fullPath。user が UI 上で見ている folder 行は
+       * この path を指す (例: `.github/workflows` 表示なら `.github/workflows`)。
+       * 右クリック menu で「この folder の path を copy」する経路で使う。
+       */
+      displayPath: string;
       children: ChangesTreeNode[];
     }
   | {
@@ -115,6 +121,7 @@ function collapseFolder(raw: RawFolder): ChangesTreeNode {
     kind: "folder",
     displaySegments,
     anchorPath: raw.fullPath,
+    displayPath: current.fullPath,
     children: finalizeChildren(current),
   };
 }

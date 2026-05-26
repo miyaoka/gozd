@@ -1,6 +1,7 @@
 export { UNCOMMITTED_HASH } from "./constants";
 export { generateTimestamp } from "./generateTimestamp";
 export {
+  joinAbsRel,
   normalizeAbsolute,
   normalizePathTarget,
   normalizeRelative,

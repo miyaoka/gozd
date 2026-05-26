@@ -8,16 +8,26 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 - git リポジトリでない場合は Filer のみ表示
 - FilerPane の reveal は worktreeStore.revealVersion を内部で購読しているため props 経由不要
 - FilerPane / ChangesPane の `select` emit はどちらも user-initiated select として `previewStore.requestSelect` を呼ぶ。同一パス再選択でのトグル close / summary 抜けの意思決定は preview store 側に集約されている（[docs/preview.md](../../../../../docs/preview.md) の決定表を参照）
+
+## 右クリックメニュー
+
+FilerPane / ChangesPane (および配下の TreeItem) から `contextMenu` event を受けて singleton popover (`useFileContextMenu`) に橋渡しする。子側は navigator への直接依存を持たない (payload 型のみ type-only import) ため、依存方向は navigator → 子の 1 方向で閉じる。pointerup once-capture による light-dismiss 回避 / dir / hash snapshot / disconnect ガード等の内部仕様は `useFileContextMenu.ts` の docstring を SSOT として参照する。
 </doc>
 
 <script setup lang="ts">
-import { useElementSize } from "@vueuse/core";
+import { useElementSize, useEventListener } from "@vueuse/core";
 import { ref, useTemplateRef, watch } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { ChangesPane } from "../changes";
 import { FilerPane } from "../filer";
+import { useGitGraphStore } from "../git-graph";
 import { ResizeHandle } from "../layout";
 import { usePreviewStore } from "../preview";
+import { useWorktreeStore } from "../worktree";
+import FileContextMenu from "./FileContextMenu.vue";
+import { useFileContextMenu } from "./useFileContextMenu";
+import type { FileContextMenuPayload } from "./useFileContextMenu";
 
 const HANDLE_HEIGHT = 8;
 const FILER_MIN_HEIGHT = 100;
@@ -55,6 +65,106 @@ function getFilerHeight(): number {
 function onFileSelect(relPath: string) {
   previewStore.requestSelect({ kind: "worktreeRelative", relPath });
 }
+
+const { open: openFileContextMenu } = useFileContextMenu();
+const gitGraphStore = useGitGraphStore();
+const worktreeStore = useWorktreeStore();
+const notification = useNotificationStore();
+
+type PendingOpen = {
+  payload: FileContextMenuPayload;
+  dir: string;
+  hash: string | undefined;
+};
+
+/**
+ * 右クリックで積まれる pending open。次の `pointerup` で処理して open する。
+ * 連打時は最後の右クリックが pending を上書き (popover singleton の openState 上書き
+ * semantics と整合 — 最後の値だけが意味を持つ)。cancel を log しないのは意図的:
+ * user 連打のたびに console を汚すノイズになるため、観察可能性より signal-to-noise を優先する。
+ */
+const pendingOpen = ref<PendingOpen | null>(null);
+
+/**
+ * window 全体に常設する `pointerup` capture listener。pending が積まれていれば消化して open する。
+ *
+ * **不変条件 (実装変更時に必読)**:
+ * - `setTimeout(0)` / `requestAnimationFrame` / `queueMicrotask` 等の task / microtask defer は
+ *   WebKit (WebPage) の `popover="auto"` light-dismiss を **抜けない** (実機検証済)。続く mouseup が
+ *   popover に到達して即 dismiss される (whatwg/html#10905)
+ * - `pointerup` を `capture: true` で window に貼ると、popover が show される **前** に listener が
+ *   pointerup を消化する → 続く mouseup は popover open 前の press cycle として扱われ
+ *   light-dismiss の対象外になる。`{ capture: true }` を外したり、pointerdown / mousedown 経路に
+ *   変えてはならない
+ * - `event.button === 2` のような button filter を入れてはならない。macOS WebKit は control+click
+ *   を button=0 として dispatch する (bugzilla 52174) ため、control+click 経由の native context
+ *   menu 経路で menu が開かなくなる
+ * - `pointerdown` で pending を reset する経路を追加してはならない。右クリック sequence
+ *   (pointerdown → contextmenu → pointerup) では右ボタン pointerdown が `onFileContextMenu`
+ *   の pending 積みより前に終わるため、pointerdown reset を入れても右クリック単体では
+ *   破綻しない。しかし pending が積まれた状態で **別経路の pointerdown** (例: 左 click) が
+ *   来ると pending を即消去してしまい、本来意図した次の pointerup での消化が起きなくなる。
+ *   状態遷移を pointerup のみで完結させる現設計を維持すること
+ * - keyboard 経路 (Shift+F10 / Apps key) と programmatic dispatch は pointerup が発火しないため
+ *   menu は開かない。本 PR の責務外で、将来 keyboard ショートカット要件が発生したら別経路
+ *   ([docs/keybinding.md](../../../../../docs/keybinding.md)) で menu を開く
+ *
+ * `useEventListener` を setup 直下で呼ぶことで effect scope に紐付き、unmount / HMR で自動 cleanup
+ * される (handler 内で呼ぶと scope に登録されず leak する)。
+ */
+useEventListener(
+  window,
+  "pointerup",
+  () => {
+    // `event.button` で右クリック (=2) のみに絞らない理由: macOS WebKit は control + click を
+    // **button=0** として dispatch する (webkit bugzilla 52174, "RESOLVED INVALID" だが挙動は
+    // 残っている)。button 絞り込みを入れると macOS native の context menu 経路 (control+click)
+    // で menu が開かなくなる。pending ref そのものが「直前に contextmenu があった」flag を
+    // 兼ねるため、最初の pointerup で消化 + null 化する設計で十分。多ボタン同時押し race
+    // (右クリック保持中に別所で左 click) は edge case として受容する
+    const pending = pendingOpen.value;
+    if (!pending) return;
+    pendingOpen.value = null;
+    if (!pending.payload.anchorEl.isConnected) {
+      notification.debug("[FileContextMenu] anchor disconnected before open, skipping", {
+        relPath: pending.payload.relPath,
+      });
+      return;
+    }
+    openFileContextMenu(pending.payload.anchorEl, {
+      dir: pending.dir,
+      relPath: pending.payload.relPath,
+      commitHash: pending.hash,
+      x: pending.payload.x,
+      y: pending.payload.y,
+    });
+  },
+  { capture: true },
+);
+
+/**
+ * 配下から bubble してくる contextmenu request を pending に積む。
+ *
+ * - `dir` / `commitHash` は **本関数の同期実行時点** で snapshot する。pointerup 待機中に
+ *   worktree 切替 / commit 選択切替が起きても、その右クリック時点の値を popover context に
+ *   焼き付けることで「古い relPath + 新 dir」「古い anchor + 新 hash」の race を構造的に排除する
+ * - `dir` 未設定 (起動初期 / 全 repo 閉鎖直後) では menu を出さず debug log。FilerPane は
+ *   `v-if="!dir"` で "waiting for open command..." を出してツリー自体を描画しないため、user
+ *   操作経路ではこの分岐に到達しない (defensive)。観測対象が user 不可視の異常系なので
+ *   `info` toast ではなく `debug` のまま (toast にすると正常状態と区別しにくい)
+ */
+function onFileContextMenu(req: FileContextMenuPayload) {
+  const dirSnapshot = worktreeStore.dir;
+  if (dirSnapshot === undefined) {
+    notification.debug("[FileContextMenu] no active worktree, skipping", { relPath: req.relPath });
+    return;
+  }
+  pendingOpen.value = {
+    payload: req,
+    dir: dirSnapshot,
+    hash: gitGraphStore.contextMenuHash,
+  };
+}
 </script>
 
 <template>
@@ -71,7 +181,7 @@ function onFileSelect(relPath: string) {
         </span>
       </div>
       <div class="min-h-0 flex-1 overflow-hidden">
-        <FilerPane @select="onFileSelect" />
+        <FilerPane @select="onFileSelect" @context-menu="onFileContextMenu" />
       </div>
     </div>
 
@@ -85,8 +195,11 @@ function onFileSelect(relPath: string) {
         :get-before-size="getFilerHeight"
       />
       <div class="shrink-0 overflow-hidden" :style="{ height: `${changesHeight}px` }">
-        <ChangesPane @select="onFileSelect" />
+        <ChangesPane @select="onFileSelect" @context-menu="onFileContextMenu" />
       </div>
     </template>
+
+    <!-- ファイル行の右クリックメニュー (Filer / Changes 共用) -->
+    <FileContextMenu />
   </div>
 </template>

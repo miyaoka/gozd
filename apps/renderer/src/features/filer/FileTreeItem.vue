@@ -58,6 +58,7 @@
 import { tryCatch } from "@gozd/shared";
 import { computed, onMounted, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import type { FileContextMenuPayload } from "../navigator";
 import {
   resolveDirectoryGitChange,
   resolveFileGitChange,
@@ -115,6 +116,12 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   select: [path: string];
+  /**
+   * 右クリック時に親に bubble する。NavigatorPane が popover singleton を open する責務を持つ。
+   * 子 FileTreeItem からの emit もここで素通しで bubble する (再帰的に root pane まで上がる)。
+   * payload 型は navigator が SSOT として export (type-only import で依存方向は壊さない)。
+   */
+  contextMenu: [payload: FileContextMenuPayload];
 }>();
 
 const notify = useNotificationStore();
@@ -183,7 +190,13 @@ const iconUrl = computed(() => {
   return getFileIconUrl(props.name);
 });
 
-async function toggle() {
+async function toggle(event: MouseEvent) {
+  // macOS の control+click は WebKit が button=0 + click event として dispatch する
+  // (webkit bugzilla 52174)。contextmenu と一緒に通常 click も発火するため、control+click
+  // は context menu trigger の意図として toggle / select には倒さず contextmenu 経路に委譲。
+  // gozd は macOS 専用 (root CLAUDE.md) なので ctrlKey === control+click と等価。cross-platform
+  // 対応する場合は OS 判定 (navigator.platform / userAgent) で macOS 経路に絞る必要がある。
+  if (event.ctrlKey) return;
   if (isDirectory.value) {
     expanded.value = !expanded.value;
     // 初回展開時のみ読み込む
@@ -381,6 +394,31 @@ watch(
 function onChildSelect(childPath: string) {
   emit("select", childPath);
 }
+
+/**
+ * 右クリック。directory / file どちらも実体 path を持つ行は menu 対象にする。inert leaf のみ除外。
+ *
+ * - directory / file: menu 対象 (実 filesystem path として絶対 path を copy する)
+ * - inert leaf (submodule / snapshot symlink): 早期 return (snapshot 時点と working tree の
+ *   実体が一致しないため、working tree の絶対 path を誤って copy 可能にする UI を排除)
+ *
+ * commitHash は navigator が `useGitGraphStore.contextMenuHash` で SSOT 解決するため payload
+ * には乗せない (filer の `snapshotHash` は filer ツリー表示用なので copy 経路と分離する)。
+ *
+ * light-dismiss 回避 (pointerup 待機) は NavigatorPane が処理する責務。本 component は
+ * payload を作って emit するだけ。
+ */
+function onContextMenu(event: MouseEvent) {
+  if (isInertLeaf.value) return;
+  if (!(event.currentTarget instanceof HTMLElement)) return;
+  event.preventDefault();
+  emit("contextMenu", {
+    anchorEl: event.currentTarget,
+    relPath: props.path,
+    x: event.clientX,
+    y: event.clientY,
+  });
+}
 </script>
 
 <template>
@@ -388,7 +426,7 @@ function onChildSelect(childPath: string) {
     <button
       v-if="!isRoot"
       ref="button"
-      class="flex w-full items-center gap-1 rounded-sm px-1 py-0.5 text-left text-sm hover:bg-zinc-700"
+      class="flex w-full items-center gap-1 rounded-sm px-1 py-0.5 text-left text-sm select-none hover:bg-zinc-700"
       :class="[
         selectedRelPath === path ? 'bg-zinc-700' : '',
         textColorClass,
@@ -398,6 +436,7 @@ function onChildSelect(childPath: string) {
       :style="{ paddingLeft: `${depth * 16 + 4}px` }"
       :title="kind === 'submodule' ? 'submodule (not previewable)' : undefined"
       @click="toggle"
+      @contextmenu="onContextMenu"
     >
       <!-- ディレクトリの展開/折りたたみアイコン -->
       <span
@@ -439,6 +478,7 @@ function onChildSelect(childPath: string) {
         :depth="depth + 1"
         :selected-rel-path="selectedRelPath"
         @select="onChildSelect"
+        @context-menu="(payload) => emit('contextMenu', payload)"
       />
     </template>
   </div>

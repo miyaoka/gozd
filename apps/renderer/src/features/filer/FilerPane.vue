@@ -40,6 +40,7 @@ import { storeToRefs } from "pinia";
 import { computed, onUnmounted, watch } from "vue";
 import { onMessage } from "../../shared/rpc";
 import { useGitGraphStore } from "../git-graph";
+import type { FileContextMenuPayload } from "../navigator";
 import { UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../worktree";
 import FileTreeItem from "./FileTreeItem.vue";
 import type { FsChangePayload } from "./rpc";
@@ -47,6 +48,12 @@ import { useFilerEventStore } from "./useFilerEventStore";
 
 const emit = defineEmits<{
   select: [relPath: string];
+  /**
+   * ファイル行で contextmenu が発火した時、配下から bubble してくる payload。
+   * NavigatorPane が受けて singleton popover を open する。type-only import で navigator
+   * から payload 型を持ってくるが、ランタイム依存は無いので 1 方向 (navigator → 子) を保つ。
+   */
+  contextMenu: [payload: FileContextMenuPayload];
 }>();
 
 const worktreeStore = useWorktreeStore();
@@ -120,6 +127,7 @@ onUnmounted(() => {
         :depth="-1"
         :selected-rel-path="selectedRelPath"
         @select="(path: string) => emit('select', path)"
+        @context-menu="(payload) => emit('contextMenu', payload)"
       />
     </div>
   </div>

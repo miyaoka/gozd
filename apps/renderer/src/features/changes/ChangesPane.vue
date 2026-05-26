@@ -25,6 +25,7 @@ summary 有効時は preview ペインに全変更の縦並び diff が表示さ
 import { tryCatch } from "@gozd/shared";
 import { ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import type { FileContextMenuPayload } from "../navigator";
 import { buildChangesTree } from "./changesTree";
 import type { ChangesTreeNode } from "./changesTree";
 import ChangesTreeItem from "./ChangesTreeItem.vue";
@@ -33,6 +34,8 @@ import { useChangesSummaryStore } from "./useChangesSummaryStore";
 
 const emit = defineEmits<{
   select: [relPath: string];
+  /** 右クリック payload を NavigatorPane まで bubble する。hash 解決は navigator + store SSOT */
+  contextMenu: [payload: FileContextMenuPayload];
 }>();
 
 const notify = useNotificationStore();
@@ -121,6 +124,7 @@ function onClickViewAll() {
         :collapsed="collapsedFolders"
         @select="emit('select', $event)"
         @toggle-folder="toggleFolder"
+        @context-menu="(payload) => emit('contextMenu', payload)"
       />
     </div>
   </div>

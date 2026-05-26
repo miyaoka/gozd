@@ -109,3 +109,19 @@ function normalizeAbsolute(absPath: string): string {
 }
 
 export { normalizeAbsolute, normalizeRelative };
+
+/**
+ * 絶対 dir と worktree 相対 path を結合して絶対 path を返す純粋関数。
+ *
+ * 入力 invariants:
+ * - `dir` は絶対 path だが末尾 `/` の有無は不問 (Swift `URL.path` 経由で trailing slash が
+ *   付くケースに備え、内部で 1 個以上の末尾 `/` を strip する)
+ * - `dir === "/"` は root を表し、strip 後の "" を再度 "/" に戻す
+ * - `relPath` は worktree 相対 path (先頭 `/` 無し)。空文字なら dir そのものを返す
+ *   (末尾 `/` を作らない)
+ */
+export function joinAbsRel(dir: string, relPath: string): string {
+  const trimmedDir = dir.replace(/\/+$/, "");
+  if (relPath === "") return trimmedDir === "" ? "/" : trimmedDir;
+  return `${trimmedDir}/${relPath}`;
+}

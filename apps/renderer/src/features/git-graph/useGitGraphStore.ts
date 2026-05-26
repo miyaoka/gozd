@@ -142,6 +142,25 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
     return result;
   });
 
+  /**
+   * Filer / Changes の右クリックメニューで copy する commit hash の SSOT。
+   *
+   * - range mode (compareHash 非 null): undefined。複数 commit にまたがる diff / snapshot を
+   *   単一 hash で代表すると user に誤解 (「この hash 時点」) を与えるため
+   * - 単一 commit (UNCOMMITTED_HASH 以外): その hash
+   * - working tree (UNCOMMITTED_HASH 単独): undefined
+   *
+   * Filer の snapshot tree 表示用 hash (`FilerPane.snapshotHash` = `selectedHash` で range mode
+   * でも commit hash を生かす) とは別概念。tree 表示は selectedHash 1 つに倒して見せる必要が
+   * あるが、copy 経路の「現在 user が見ているデータ全体を 1 hash で代表する」semantics は
+   * range mode で成立しないため undefined に倒す。
+   */
+  const contextMenuHash = computed<string | undefined>(() => {
+    if (isRangeMode.value) return undefined;
+    if (selectedHash.value === UNCOMMITTED_HASH) return undefined;
+    return selectedHash.value;
+  });
+
   function select(hash: string) {
     selectedHash.value = hash;
     compareHash.value = null;
@@ -173,6 +192,7 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
     workingTreeOnly,
     rangeHashes,
     activeCommitHashes,
+    contextMenuHash,
     select,
     selectCompare,
     resetSelection,

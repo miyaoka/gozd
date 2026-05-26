@@ -40,6 +40,7 @@ import { storeToRefs } from "pinia";
 import { computed, onUnmounted, watch } from "vue";
 import { onMessage } from "../../shared/rpc";
 import { useGitGraphStore } from "../git-graph";
+import type { FileContextMenuPayload } from "../navigator";
 import { UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../worktree";
 import FileTreeItem from "./FileTreeItem.vue";
 import type { FsChangePayload } from "./rpc";
@@ -48,19 +49,11 @@ import { useFilerEventStore } from "./useFilerEventStore";
 const emit = defineEmits<{
   select: [relPath: string];
   /**
-   * ファイル / フォルダ行で contextmenu が発火した時、配下から bubble してくる payload。
-   * NavigatorPane が受けて singleton popover を open する (依存方向を 1 方向に保つため、
-   * FilerPane は navigator を直接 import しない)。
+   * ファイル行で contextmenu が発火した時、配下から bubble してくる payload。
+   * NavigatorPane が受けて singleton popover を open する。type-only import で navigator
+   * から payload 型を持ってくるが、ランタイム依存は無いので 1 方向 (navigator → 子) を保つ。
    */
-  contextMenu: [
-    payload: {
-      anchorEl: HTMLElement;
-      relPath: string;
-      commitHash?: string;
-      x: number;
-      y: number;
-    },
-  ];
+  contextMenu: [payload: FileContextMenuPayload];
 }>();
 
 const worktreeStore = useWorktreeStore();

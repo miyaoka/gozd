@@ -109,3 +109,18 @@ function normalizeAbsolute(absPath: string): string {
 }
 
 export { normalizeAbsolute, normalizeRelative };
+
+/**
+ * worktree の絶対 dir と worktree 相対 path を結合して絶対 path を返す純粋関数。
+ * 「右クリックメニューの Copy file path」「外部表示用 path 組み立て」など、絶対 dir +
+ * 相対 path → 絶対 path の用途で SSOT として使う。
+ *
+ * filer の `joinPath` (worktree 相対 + 子名) とは責務が別 (こちらは絶対 + 相対)。
+ *
+ * `relPath === ""` のとき dir をそのまま返す (末尾 `/` を作らない)。filer の root 行は
+ * button を持たないため到達しない契約だが、defensive に処理する。
+ */
+export function joinAbsRel(dir: string, relPath: string): string {
+  if (relPath === "") return dir;
+  return `${dir}/${relPath}`;
+}

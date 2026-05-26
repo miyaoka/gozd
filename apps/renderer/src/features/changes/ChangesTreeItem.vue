@@ -6,6 +6,7 @@ Recursive tree node for the changes pane. Renders folders (with collapse/expand)
 import type { GitFileChange } from "@gozd/proto";
 import { computed } from "vue";
 import { getFileIconUrl, getFolderIconUrl } from "../filer";
+import type { FileContextMenuPayload } from "../navigator";
 import type { ChangesTreeNode } from "./changesTree";
 
 const props = defineProps<{
@@ -13,8 +14,6 @@ const props = defineProps<{
   depth: number;
   /** 折りたたまれているフォルダの fullPath 集合 */
   collapsed: Set<string>;
-  /** 右クリックメニューに渡す commit hash。working tree 由来なら undefined */
-  commitHash?: string;
 }>();
 
 const emit = defineEmits<{
@@ -23,16 +22,9 @@ const emit = defineEmits<{
   /**
    * 右クリック payload を NavigatorPane まで bubble する。file leaf のみ発火する
    * (folder 行は OS 標準の右クリック menu に倒すため preventDefault せず no-op)。
+   * hash 解決は navigator が `useGitGraphStore.contextMenuHash` SSOT で行う。
    */
-  contextMenu: [
-    payload: {
-      anchorEl: HTMLElement;
-      relPath: string;
-      commitHash?: string;
-      x: number;
-      y: number;
-    },
-  ];
+  contextMenu: [payload: FileContextMenuPayload];
 }>();
 
 const CHANGE_COLOR_MAP: Record<GitFileChange["type"], string> = {
@@ -93,7 +85,6 @@ function onContextMenu(event: MouseEvent) {
   emit("contextMenu", {
     anchorEl: event.currentTarget,
     relPath: props.node.change.newFilePath,
-    commitHash: props.commitHash,
     x: event.clientX,
     y: event.clientY,
   });
@@ -139,7 +130,6 @@ function onContextMenu(event: MouseEvent) {
         :node="child"
         :depth="depth + 1"
         :collapsed="collapsed"
-        :commit-hash="commitHash"
         @select="onChildSelect"
         @toggle-folder="onChildToggle"
         @context-menu="(payload) => emit('contextMenu', payload)"

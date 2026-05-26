@@ -22,6 +22,26 @@
  */
 import { usePopover } from "../../shared/popover";
 
+/**
+ * 子 pane (FilerPane / ChangesPane / TreeItem) が contextmenu event で navigator まで bubble
+ * させる payload の SSOT。各 pane の emit 定義はこの型を `import type` で参照することで、
+ * 同 shape を重複定義する事故を防ぐ。type-only import なので runtime 依存は無く、
+ * 依存方向 (navigator → 子) は壊れない。
+ *
+ * commitHash は payload に乗せず NavigatorPane が `useGitGraphStore.contextMenuHash` で
+ * SSOT 解決する (Filer の snapshot tree 表示用 hash と copy 用 hash が別 semantics のため、
+ * 子 pane に hash 解決責務を分散させない)。
+ */
+export type FileContextMenuPayload = {
+  /** popover の anchor。CSS Anchor Position の anchor 元として使う */
+  anchorEl: HTMLElement;
+  /** worktree 相対パス */
+  relPath: string;
+  /** contextmenu イベント時のマウス座標 (`position: fixed; left/top` 用) */
+  x: number;
+  y: number;
+};
+
 type FileContextMenuContext = {
   /** worktree 相対パス */
   relPath: string;

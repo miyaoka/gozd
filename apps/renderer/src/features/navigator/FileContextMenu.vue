@@ -15,8 +15,7 @@ state は `useFileContextMenu` (module singleton) 経由で開閉する。
 import { tryCatch } from "@gozd/shared";
 import { computed } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { joinPath } from "../filer";
-import { useWorktreeStore } from "../worktree";
+import { joinAbsRel, useWorktreeStore } from "../worktree";
 import { useFileContextMenu } from "./useFileContextMenu";
 
 const { Popover, context, close } = useFileContextMenu();
@@ -46,9 +45,7 @@ async function handleCopyPath() {
     notify.error("Failed to copy file path: no active worktree");
     return;
   }
-  // filer の worktree-relative path 結合 SSOT を再利用。filer の root (relPath === "") は
-  // button を持たないため到達しない契約 (現状は relPath が常に非空で渡る)。
-  const absPath = joinPath(dir, relPath);
+  const absPath = joinAbsRel(dir, relPath);
   const text = commitHash === undefined ? absPath : `${commitHash}\n${absPath}`;
   close();
   // navigator.clipboard 参照時の同期 throw も拾うため async IIFE で Promise 化してから tryCatch に渡す

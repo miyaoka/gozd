@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  joinAbsRel,
   normalizeAbsolute,
   normalizeRelative,
   type PathTarget,
@@ -94,5 +95,19 @@ describe("pathTargetEquals", () => {
   test("異 kind は path が同名でも false", () => {
     expect(pathTargetEquals(rel("a.md"), abs("/a.md"))).toBe(false);
     expect(pathTargetEquals(abs("/a.md"), rel("a.md"))).toBe(false);
+  });
+});
+
+describe("joinAbsRel", () => {
+  test("dir + relPath を / で結合する", () => {
+    expect(joinAbsRel("/Users/foo/repo", "src/main.ts")).toBe("/Users/foo/repo/src/main.ts");
+  });
+
+  test("relPath が深いネストでも結合する", () => {
+    expect(joinAbsRel("/abs/dir", "a/b/c/d.ts")).toBe("/abs/dir/a/b/c/d.ts");
+  });
+
+  test("relPath が空のとき dir をそのまま返す (末尾 / を作らない)", () => {
+    expect(joinAbsRel("/Users/foo/repo", "")).toBe("/Users/foo/repo");
   });
 });

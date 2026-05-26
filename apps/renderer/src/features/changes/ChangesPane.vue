@@ -23,10 +23,9 @@ summary 有効時は preview ペインに全変更の縦並び diff が表示さ
 
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
-import { computed, ref, watch } from "vue";
+import { ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { useGitGraphStore } from "../git-graph";
-import { UNCOMMITTED_HASH } from "../worktree";
+import type { FileContextMenuPayload } from "../navigator";
 import { buildChangesTree } from "./changesTree";
 import type { ChangesTreeNode } from "./changesTree";
 import ChangesTreeItem from "./ChangesTreeItem.vue";
@@ -35,38 +34,13 @@ import { useChangesSummaryStore } from "./useChangesSummaryStore";
 
 const emit = defineEmits<{
   select: [relPath: string];
-  /** 右クリック payload を NavigatorPane まで bubble する。本ペインは hash 解決のみ担当 */
-  contextMenu: [
-    payload: {
-      anchorEl: HTMLElement;
-      relPath: string;
-      commitHash?: string;
-      x: number;
-      y: number;
-    },
-  ];
+  /** 右クリック payload を NavigatorPane まで bubble する。hash 解決は navigator + store SSOT */
+  contextMenu: [payload: FileContextMenuPayload];
 }>();
 
 const notify = useNotificationStore();
 const changesStore = useChangesStore();
 const summaryStore = useChangesSummaryStore();
-const gitGraphStore = useGitGraphStore();
-
-/**
- * 右クリックメニューに渡す commit hash。
- *
- * - working tree (UNCOMMITTED_HASH 単独): undefined。menu 側で path のみ copy
- * - range mode (compareHash 非 null): undefined。複数 commit にまたがる diff を表示している
- *   ので、単一 hash で代表すると user に誤解 (「この hash 時点のファイル」) を与える。
- *   単一の代表 hash が必要なら git log per-file のような別経路を別 menu アクションとして
- *   将来用意する想定
- * - 単一 commit 選択: その hash。Filer の `snapshotHash` (= `selectedHash`) と同じ semantics
- */
-const contextMenuHash = computed<string | undefined>(() => {
-  if (gitGraphStore.isRangeMode) return undefined;
-  if (gitGraphStore.selectedHash === UNCOMMITTED_HASH) return undefined;
-  return gitGraphStore.selectedHash;
-});
 
 /**
  * GitHub PR 風のディレクトリツリー（chain 圧縮済み）。
@@ -148,7 +122,6 @@ function onClickViewAll() {
         :node="node"
         :depth="0"
         :collapsed="collapsedFolders"
-        :commit-hash="contextMenuHash"
         @select="emit('select', $event)"
         @toggle-folder="toggleFolder"
         @context-menu="(payload) => emit('contextMenu', payload)"

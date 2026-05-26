@@ -18,23 +18,17 @@ open は `setTimeout(open, 0)` で 1 task 分遅延させる。`popover="auto"` 
 
 <script setup lang="ts">
 import { useElementSize } from "@vueuse/core";
-import { ref, useTemplateRef, watch } from "vue";
+import { onScopeDispose, ref, useTemplateRef, watch } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { ChangesPane } from "../changes";
 import { FilerPane } from "../filer";
+import { useGitGraphStore } from "../git-graph";
 import { ResizeHandle } from "../layout";
 import { usePreviewStore } from "../preview";
 import FileContextMenu from "./FileContextMenu.vue";
 import { useFileContextMenu } from "./useFileContextMenu";
-
-/** contextmenu event payload (FilerPane / ChangesPane から bubble してくる) */
-type FileContextMenuRequest = {
-  anchorEl: HTMLElement;
-  relPath: string;
-  commitHash?: string;
-  x: number;
-  y: number;
-};
+import type { FileContextMenuPayload } from "./useFileContextMenu";
 
 const HANDLE_HEIGHT = 8;
 const FILER_MIN_HEIGHT = 100;
@@ -74,19 +68,52 @@ function onFileSelect(relPath: string) {
 }
 
 const { open: openFileContextMenu } = useFileContextMenu();
+const gitGraphStore = useGitGraphStore();
+const notification = useNotificationStore();
 
-// contextmenu の発火サイクル (mousedown → contextmenu → mouseup) を 1 task 分抜けてから
-// showPopover を呼ぶ。同サイクル内 open は whatwg/html#10905 で続く mouseup が light-dismiss
-// として消化される。setTimeout(0) は入力種別 (マウス / キーボード / programmatic) 非依存。
-function onFileContextMenu(req: FileContextMenuRequest) {
-  setTimeout(() => {
+/**
+ * defer 中の timer 集合。setup scope dispose (unmount / HMR) で全部 clearTimeout する。
+ * 生 setTimeout は global timer queue に逃げて component lifecycle と切り離されるため、
+ * pending な open が unmount 後に走るのを構造的に防ぐ (CLAUDE.md 規約: listener / timer は
+ * 必ず scope に紐付ける)。
+ */
+const pendingOpenTimers = new Set<ReturnType<typeof setTimeout>>();
+onScopeDispose(() => {
+  for (const t of pendingOpenTimers) clearTimeout(t);
+  pendingOpenTimers.clear();
+});
+
+/**
+ * 配下から bubble してくる contextmenu request を受けて popover singleton を open する。
+ *
+ * - contextmenu の発火サイクル (mousedown → contextmenu → mouseup) を 1 task 分抜けてから
+ *   showPopover を呼ぶ。同サイクル内 open は whatwg/html#10905 で続く mouseup が
+ *   light-dismiss として消化される。setTimeout(0) は入力種別 (mouse / keyboard / programmatic)
+ *   非依存
+ * - commitHash は `useGitGraphStore.contextMenuHash` (SSOT) から解決する。range mode は
+ *   undefined、UNCOMMITTED_HASH のときも undefined、それ以外で selectedHash。child pane に
+ *   hash 解決を分散させないことで Filer / Changes 同 file の copy 結果非対称を防ぐ
+ * - defer 中に anchor 元 component が unmount された (dir 切替・`:key="dir"` 再マウント) ケース
+ *   では `anchorEl.isConnected` が false になる。silent drop せず debug log を残して open を
+ *   スキップする (observability 規約)
+ */
+function onFileContextMenu(req: FileContextMenuPayload) {
+  const timer = setTimeout(() => {
+    pendingOpenTimers.delete(timer);
+    if (!req.anchorEl.isConnected) {
+      notification.debug("[FileContextMenu] anchor disconnected before open, skipping", {
+        relPath: req.relPath,
+      });
+      return;
+    }
     openFileContextMenu(req.anchorEl, {
       relPath: req.relPath,
-      commitHash: req.commitHash,
+      commitHash: gitGraphStore.contextMenuHash,
       x: req.x,
       y: req.y,
     });
   }, 0);
+  pendingOpenTimers.add(timer);
 }
 </script>
 

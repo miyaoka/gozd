@@ -56,9 +56,11 @@ const folderDisplayName = computed(() =>
 );
 
 function onClick(event: MouseEvent) {
-  // macOS の control+click は WebKit が button=0 + click event として dispatch するため、
-  // contextmenu と一緒に通常 click も発火する。control+click は context menu trigger の
-  // 意図なので toggle / select に倒さず contextmenu 経路に委譲する。
+  // macOS の control+click は WebKit が button=0 + click event として dispatch する
+  // (webkit bugzilla 52174)。contextmenu と一緒に通常 click も発火するため、control+click
+  // は context menu trigger の意図として toggle / select には倒さず contextmenu 経路に委譲。
+  // gozd は macOS 専用 (root CLAUDE.md) なので ctrlKey === control+click と等価。cross-platform
+  // 対応する場合は OS 判定 (navigator.platform / userAgent) で macOS 経路に絞る必要がある。
   if (event.ctrlKey) return;
   if (props.node.kind === "folder") {
     emit("toggleFolder", props.node.anchorPath);

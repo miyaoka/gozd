@@ -5,9 +5,13 @@ import { useWorktreeStore } from "../worktree";
 /**
  * Changes summary view（全変更を縦並びで diff 表示するモード）の有効/無効。
  *
- * ChangesPane の View all ボタンが toggle し、PreviewPane が enabled を購読して
- * 単一ファイル表示と summary 表示を切り替える。selectPath で個別ファイルを選んだら
- * disable される (= 単一ファイル表示に戻る)。
+ * `usePreviewStore.openSummary` / `closeSummary` / `toggleSummary` 経由で操作するのが
+ * 通常経路で、enabled と popover 開閉のペア遷移はそちらが担う。本 store は state ref と
+ * 単義 op (enable / disable) を提供するだけで、popover 状態は知らない。
+ *
+ * `disable()` は「summary を抜けて単一ファイル表示にフォールバック (popover は維持)」の
+ * 意図でも使う。ファイル行クリックで `PreviewPane` の watch / `usePreviewStore.requestSelect`
+ * が呼ぶ。close 連動が必要な場合は必ず `usePreviewStore.closeSummary` を経由する。
  *
  * worktree 切替 (dir 変化) でも disable する: `useWorktreeStore` が dir 変化時に
  * `selection = undefined` で filer 選択を clear するのと対称に、summary state も
@@ -17,8 +21,8 @@ export const useChangesSummaryStore = defineStore("changes-summary", () => {
   const worktreeStore = useWorktreeStore();
   const enabled = ref(false);
 
-  function toggle() {
-    enabled.value = !enabled.value;
+  function enable() {
+    enabled.value = true;
   }
 
   function disable() {
@@ -36,7 +40,7 @@ export const useChangesSummaryStore = defineStore("changes-summary", () => {
     { flush: "sync" },
   );
 
-  return { enabled, toggle, disable };
+  return { enabled, enable, disable };
 });
 
 if (import.meta.hot) {

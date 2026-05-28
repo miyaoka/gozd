@@ -30,8 +30,12 @@ import {
  * - `forceSelect(target)`: 強制 open（gozdOpen / markdown link navigation）。同一 path でも
  *   閉じない。「ユーザーが見たいファイルを CLI で明示指定した」「md 内 link で遷移した」など、
  *   navigation 意味の経路で使う
- * - `open()` / `close()` / `toggle()`: state の直接操作。ESC / button / `preview.toggle` コマンド /
- *   summary 自動 open などで使う
+ * - `open()` / `close()` / `toggle()`: state の直接操作。ESC / button / `preview.toggle` コマンド
+ *   などで使う
+ * - `openSummary()` / `closeSummary()` / `toggleSummary()`: 「summary 表示モード」の意図単位 API。
+ *   `summaryStore.enabled` と popover 開閉をペアで遷移させる。`ChangesPane` の `View all` ボタン /
+ *   `PreviewPane` の summary `Close` ボタンが call site。ここで集約することで、summary on/off と
+ *   popover open/close の同期を call site ごとに重複実装させない
  *
  * ## 依存方向
  *
@@ -78,6 +82,30 @@ export const usePreviewStore = defineStore("preview", () => {
       close();
     } else {
       open();
+    }
+  }
+
+  // summary 表示モードの開閉ペア。`summaryStore.enabled` の状態と popover open/close を
+  // 1 つの API で同期させる。call site (ChangesPane View all / PreviewPane summary Close)
+  // で disable() + close() を個別に呼ぶと意図が分散するため、ここに集約する。
+  // `summaryStore.disable()` は requestSelect / ファイル選択経路でも単独で使う (summary を
+  // 抜けて単一ファイル表示にフォールバック、popover は維持) ので、disable 単独 API は残す。
+
+  function openSummary() {
+    summaryStore.enable();
+    open();
+  }
+
+  function closeSummary() {
+    summaryStore.disable();
+    close();
+  }
+
+  function toggleSummary() {
+    if (summaryStore.enabled) {
+      closeSummary();
+    } else {
+      openSummary();
     }
   }
 
@@ -153,6 +181,9 @@ export const usePreviewStore = defineStore("preview", () => {
     open,
     close,
     toggle,
+    openSummary,
+    closeSummary,
+    toggleSummary,
     requestSelect,
     forceSelect,
   };

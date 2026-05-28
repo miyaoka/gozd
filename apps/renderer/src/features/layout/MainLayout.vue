@@ -19,7 +19,6 @@ import { useEventListener, useWindowSize } from "@vueuse/core";
 import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
-import { useChangesSummaryStore } from "../changes";
 import { GitGraphPane } from "../git-graph";
 import { NavigatorPane } from "../navigator";
 import {
@@ -45,7 +44,6 @@ import ResizeHandle from "./ResizeHandle.vue";
 import { rpcWindowClose } from "./rpc";
 
 const repoStore = useRepoStore();
-const summaryStore = useChangesSummaryStore();
 const previewStore = usePreviewStore();
 const contextKeys = useContextKeys();
 const previewPopoverRef = useTemplateRef<HTMLElement>("previewPopover");
@@ -182,16 +180,6 @@ useEventListener(document, "keydown", (e: KeyboardEvent) => {
   e.preventDefault();
   previewStore.close();
 });
-
-// Changes summary が有効化されたら Preview popover を自動で開く
-// dir 切替時の auto-close は usePreviewStore 内部の watch に集約してある
-// （[docs/preview.md](../../../../../docs/preview.md) の決定表を参照）。
-watch(
-  () => summaryStore.enabled,
-  (enabled) => {
-    if (enabled) previewStore.open();
-  },
-);
 
 /** 中央カラム内 Terminal の DOM 実測高さ（flex-1 のため v-model 不可） */
 function getCenterTerminalHeight(): number {

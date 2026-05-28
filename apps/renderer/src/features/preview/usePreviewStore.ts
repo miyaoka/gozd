@@ -44,12 +44,13 @@ import {
  * 他 store からは参照しない契約とする。
  */
 export const usePreviewStore = defineStore("preview", () => {
-  // **登録順依存**: `useWorktreeStore` / `useChangesSummaryStore` の setup を本 store より前に
-  // 走らせるため、必ず本 store setup の冒頭で呼ぶ。両 store は dir 変化に対する flush:'sync'
-  // watch を内部に持ち、本 store の dir watch (close) より **先に** 発火する必要がある
-  // （selection clear / summary disable が完了した後で preview close が走る順序）。Vue 3 の
-  // sync watch は登録順に発火するため、`pinia.defineStore` の lazy setup でこれらを先に
-  // initialize させることで順序を構造的に固定する。
+  // **登録順依存**: `useWorktreeStore` の setup を本 store より前に走らせるため、必ず本 store
+  // setup の冒頭で呼ぶ。`useWorktreeStore` は dir 変化に対する flush:'sync' watch (selection
+  // clear) を内部に持ち、本 store の dir watch (close) より **先に** 発火する必要がある。
+  // Vue 3 の sync watch は登録順に発火するため、`pinia.defineStore` の lazy setup でこれを
+  // 先に initialize させることで順序を構造的に固定する。
+  // `useChangesSummaryStore` は dir watch を持たない (dir 切替時の summary disable は本 store
+  // の dir watch → close() invariant が担う)。
   const worktreeStore = useWorktreeStore();
   const summaryStore = useChangesSummaryStore();
 

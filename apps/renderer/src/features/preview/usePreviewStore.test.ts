@@ -329,4 +329,21 @@ describe("usePreviewStore.close invariant", () => {
     expect(summary.enabled).toBe(false);
     expect(preview.isOpen).toBe(true);
   });
+
+  test("dir 切替で popover が閉じる際 summary も同 tick で解除される", () => {
+    const preview = usePreviewStore();
+    const summary = useChangesSummaryStore();
+    const repoStore = useRepoStore();
+    const popover = createMockPopover();
+    preview.bindPopover(popover.el);
+
+    preview.openSummary();
+    expect(summary.enabled).toBe(true);
+    expect(preview.isOpen).toBe(true);
+
+    repoStore.selectDir("/other-repo");
+
+    expect(summary.enabled).toBe(false);
+    expect(preview.isOpen).toBe(false);
+  });
 });

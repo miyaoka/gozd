@@ -558,10 +558,6 @@ function fileName(filePath: string): string {
   return filePath.split("/").pop() ?? filePath;
 }
 
-function onCloseSummary() {
-  previewStore.close();
-}
-
 const headerIconUrl = computed(() => {
   const path = selectedDisplayPath.value;
   if (path === undefined) return undefined;
@@ -685,7 +681,7 @@ watch(
 </script>
 
 <template>
-  <ChangesSummaryView v-if="summaryStore.enabled" @close="onCloseSummary" />
+  <ChangesSummaryView v-if="summaryStore.enabled" @close="previewStore.close()" />
 
   <div v-else class="flex h-full flex-col overflow-hidden">
     <!-- ヘッダー（常に表示） -->

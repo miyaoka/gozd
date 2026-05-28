@@ -97,7 +97,7 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 
 `close()` は invariant として「popover 閉 ⇒ summary 解除」を担う。ESC / Preview ヘッダ close ボタン / dir 切替 / summary `Close` ボタンはすべてこの 1 つの経路に集約され、summary enabled=true + popover closed の整合性破綻状態は構造的に発生しない。
 
-`requestSelect` の例外: 同一 path 再選択時に Changes summary が表示中なら preview は閉じず summary を抜けて単一 file 表示に戻る（`onCloseSummary` と同じセマンティクス）。
+`requestSelect` の例外: 同一 path 再選択時に Changes summary が表示中なら `summaryStore.disable()` を単独で呼び、popover は閉じず単一 file 表示に戻る。これは `close()` invariant とは別経路で、PreviewPane のファイル選択 watch (`PreviewPane.vue` の `selectedDisplayPath` watch) と同じ「summary を抜けて単一 file 表示にフォールバック (popover 維持)」セマンティクスを共有する。
 
 ### その他の挙動
 

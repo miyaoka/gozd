@@ -26,6 +26,7 @@ import { tryCatch } from "@gozd/shared";
 import { ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import type { FileContextMenuPayload } from "../navigator";
+import { usePreviewStore } from "../preview";
 import { buildChangesTree } from "./changesTree";
 import type { ChangesTreeNode } from "./changesTree";
 import ChangesTreeItem from "./ChangesTreeItem.vue";
@@ -41,6 +42,7 @@ const emit = defineEmits<{
 const notify = useNotificationStore();
 const changesStore = useChangesStore();
 const summaryStore = useChangesSummaryStore();
+const previewStore = usePreviewStore();
 
 /**
  * GitHub PR 風のディレクトリツリー（chain 圧縮済み）。
@@ -78,7 +80,16 @@ function toggleFolder(fullPath: string) {
   collapsedFolders.value = next;
 }
 
+// summary が enabled な状態でのクリックは「View all を抜けて preview も閉じる」契約。
+// `summaryStore.disable()` は file 選択経路でも呼ばれる多義 API のため、preview close は
+// 呼び出し意図側 (この handler) でペアにする。enabled=false での enable 経路は
+// MainLayout 側の `enabled → open` watch が preview open を担う。
 function onClickViewAll() {
+  if (summaryStore.enabled) {
+    summaryStore.disable();
+    previewStore.close();
+    return;
+  }
   summaryStore.toggle();
 }
 </script>

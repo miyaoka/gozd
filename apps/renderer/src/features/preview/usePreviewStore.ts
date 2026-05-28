@@ -31,11 +31,10 @@ import {
  *   閉じない。「ユーザーが見たいファイルを CLI で明示指定した」「md 内 link で遷移した」など、
  *   navigation 意味の経路で使う
  * - `open()` / `close()` / `toggle()`: state の直接操作。ESC / button / `preview.toggle` コマンド
- *   などで使う
- * - `openSummary()` / `closeSummary()` / `toggleSummary()`: 「summary 表示モード」の意図単位 API。
- *   `summaryStore.enabled` と popover 開閉をペアで遷移させる。`ChangesPane` の `View all` ボタン /
- *   `PreviewPane` の summary `Close` ボタンが call site。ここで集約することで、summary on/off と
- *   popover open/close の同期を call site ごとに重複実装させない
+ *   などで使う。`close()` は「popover 閉 ⇒ summary 解除」の invariant を担う (close 経路は
+ *   ESC / Preview ヘッダ close ボタン / dir 切替 / closeSummary すべて同一意味)
+ * - `openSummary()` / `toggleSummary()`: summary 表示モードを open する意図単位 API。`close()` 側に
+ *   invariant を寄せたので summary を閉じる専用 API は持たない (close と区別する意味が無い)
  *
  * ## 依存方向
  *
@@ -70,6 +69,10 @@ export const usePreviewStore = defineStore("preview", () => {
   }
 
   function close() {
+    // invariant: popover が閉じている間は summary も常に off。ESC / Preview ヘッダ close
+    // ボタン / dir 切替経由でも適用される。これをやらないと summary enabled=true + popover
+    // closed の状態が残り、次に preview を toggle で開いた瞬間に summary view が復活する。
+    summaryStore.disable();
     if (!isOpen.value) return;
     const el = popoverEl.value;
     if (!el) return;
@@ -85,25 +88,19 @@ export const usePreviewStore = defineStore("preview", () => {
     }
   }
 
-  // summary 表示モードの開閉ペア。`summaryStore.enabled` の状態と popover open/close を
-  // 1 つの API で同期させる。call site (ChangesPane View all / PreviewPane summary Close)
-  // で disable() + close() を個別に呼ぶと意図が分散するため、ここに集約する。
-  // `summaryStore.disable()` は requestSelect / ファイル選択経路でも単独で使う (summary を
-  // 抜けて単一ファイル表示にフォールバック、popover は維持) ので、disable 単独 API は残す。
+  // summary 表示モードを open する意図単位 API。close 方向は close() の invariant が担うため
+  // 専用 API を分けない。`summaryStore.disable()` は requestSelect / ファイル選択経路で
+  // 単独で使う (summary を抜けて単一ファイル表示にフォールバック、popover は維持) ため
+  // summary store 側の API として残る。
 
   function openSummary() {
     summaryStore.enable();
     open();
   }
 
-  function closeSummary() {
-    summaryStore.disable();
-    close();
-  }
-
   function toggleSummary() {
     if (summaryStore.enabled) {
-      closeSummary();
+      close();
     } else {
       openSummary();
     }
@@ -182,7 +179,6 @@ export const usePreviewStore = defineStore("preview", () => {
     close,
     toggle,
     openSummary,
-    closeSummary,
     toggleSummary,
     requestSelect,
     forceSelect,

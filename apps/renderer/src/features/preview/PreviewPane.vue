@@ -559,7 +559,7 @@ function fileName(filePath: string): string {
 }
 
 function onCloseSummary() {
-  previewStore.closeSummary();
+  previewStore.close();
 }
 
 const headerIconUrl = computed(() => {

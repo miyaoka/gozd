@@ -142,19 +142,36 @@ watch(
   color: var(--color-zinc-400);
 }
 
+/*
+ * code / pre / th の背景は地色に依存する。デフォルトは暗地 (zinc-900 系) 前提の zinc-800
+ * だが、より明るい地 (チャット吹き出し等) に乗せると地より暗いブロックが浮く明度反転に
+ * なる。consumer が `--md-code-bg` を渡せばその地に応じた背景に切り替わる (SSOT)。
+ */
 ._markdown-body :deep(code) {
   padding: 0.15em 0.4em;
   border-radius: 3px;
-  background: var(--color-zinc-800);
+  background: var(--md-code-bg, var(--color-zinc-800));
   color: var(--color-zinc-200);
   font-size: 0.9em;
+}
+
+/*
+ * インラインコードの長いトークン (絶対パス / URL 等) は折り返してコンテナ幅に収める。
+ * 折り返さないと狭い吹き出しから背景がはみ出す。`box-decoration-break: clone` で
+ * 折り返し後も各行が padding + 角丸を保ち、背景が行をまたいで割れないようにする。
+ * `:not(pre) > code` でインラインのみ対象にし、pre 内コードは overflow-x スクロールを保つ。
+ */
+._markdown-body :deep(:not(pre) > code) {
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
 ._markdown-body :deep(pre) {
   margin: 0.75em 0;
   padding: 1em;
   border-radius: 6px;
-  background: var(--color-zinc-800);
+  background: var(--md-code-bg, var(--color-zinc-800));
   overflow-x: auto;
 }
 
@@ -178,7 +195,7 @@ watch(
 }
 
 ._markdown-body :deep(th) {
-  background: var(--color-zinc-800);
+  background: var(--md-code-bg, var(--color-zinc-800));
   font-weight: 600;
   color: var(--color-zinc-200);
 }

@@ -64,6 +64,17 @@ watch(
 
 <style scoped>
 /* Markdown レンダリングのスタイル */
+/*
+ * 本文テキストの折り返し規律。overflow-wrap は継承プロパティなので、ルートに一度
+ * 指定すれば p / li など全子孫に効く。区切り線 (───) や長い URL のように区切り文字を
+ * 含まない連続文字列は default の overflow-wrap: normal だと 1 単語として扱われ、狭い
+ * コンテナ (チャット吹き出し等) からはみ出すため anywhere で強制的に折り返す。
+ * インラインコードは :not(pre) > code で別途 anywhere を当てており競合しない。
+ */
+._markdown-body {
+  overflow-wrap: anywhere;
+}
+
 /* 先頭要素の上マージンを消す */
 ._markdown-body :deep(> :first-child) {
   margin-top: 0;

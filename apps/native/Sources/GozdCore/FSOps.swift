@@ -81,14 +81,31 @@ public enum FSOps {
       modifiedAt: ISO8601DateFormatter().string(from: modDate))
   }
 
-  public static func readDir(dir: String, path: String) async throws -> [FSEntry] {
+  public static func readDir(dir: String, path: String) async throws -> FSReadDirResult {
     let target = try resolveSafe(dir: dir, path: path)
     let url = URL(fileURLWithPath: target)
-    let rawEntries = try FileManager.default.contentsOfDirectory(
-      at: url,
-      includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
-      options: []
-    )
+    let rawEntries: [URL]
+    do {
+      rawEntries = try FileManager.default.contentsOfDirectory(
+        at: url,
+        includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+        options: []
+      )
+    } catch {
+      // 列挙に失敗。対象がディレクトリとして存在するか「失敗後」に再確認する。
+      // 不在 (ENOENT) / ディレクトリでなくなった (ENOTDIR: 削除後に同名ファイルへ置換) なら
+      // 削除済みノードとして notFound を返す。展開中ノードの削除・置換は watcher 経由で
+      // readDir を走らせるため、これらは期待状態であり 500 にしない (readFile の notFound と
+      // 同じ規律)。事前 fileExists ではなく失敗後 recheck にすることで、存在チェックと列挙の
+      // 隙に削除される TOCTOU race を避ける。存在するディレクトリでの失敗 (permission 等) は
+      // 真の読み取りエラーなので rethrow して 500 にする。
+      var isDir: ObjCBool = false
+      let exists = FileManager.default.fileExists(atPath: target, isDirectory: &isDir)
+      if !exists || !isDir.boolValue {
+        return FSReadDirResult(entries: [], notFound: true)
+      }
+      throw error
+    }
     // `.git` (directory / gitlink file 両方) はツリーから完全一致で除外する。
     // 仕様契約は docs/filer.md「除外エントリ」を参照。
     // gitignore 経路とは独立。checkIgnore に渡す前に落とし、無駄な git 呼び出しも省く。
@@ -110,13 +127,15 @@ public enum FSOps {
     let prefix = path.isEmpty ? "" : (path.hasSuffix("/") ? path : path + "/")
     let relPaths = listed.map { prefix + $0.0.lastPathComponent }
     let ignored = await GitOps.checkIgnore(dir: dir, relPaths: relPaths)
-    return listed
+    let fsEntries =
+      listed
       .map { (entry, type) -> FSEntry in
         let rel = prefix + entry.lastPathComponent
         return FSEntry(
           name: entry.lastPathComponent, type: type, isIgnored: ignored.contains(rel))
       }
       .sorted { $0.name < $1.name }
+    return FSReadDirResult(entries: fsEntries, notFound: false)
   }
 }
 
@@ -137,6 +156,16 @@ private func readFileAt(absolutePath: String) -> FileReadInfo {
     return FileReadInfo(content: "", isBinary: true, isDirectory: false, notFound: false)
   }
   return FileReadInfo(content: text, isBinary: false, isDirectory: false, notFound: false)
+}
+
+public struct FSReadDirResult: Sendable, Equatable {
+  public let entries: [FSEntry]
+  /// ディレクトリ不在（削除済み等）。読み取りエラーとは区別し、正常応答として返す。
+  public let notFound: Bool
+  public init(entries: [FSEntry], notFound: Bool) {
+    self.entries = entries
+    self.notFound = notFound
+  }
 }
 
 public struct FSEntry: Sendable, Equatable {

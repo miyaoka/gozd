@@ -53,6 +53,12 @@ export interface FsReadDirEntry {
 
 export interface FsReadDirResponse {
   entries: FsReadDirEntry[];
+  /**
+   * ディレクトリが存在しない（削除済み等）場合 true。読み取りエラー（permission 等）は
+   * throw して 500 にするが、不在は期待状態として正常応答で返す（FsReadFileResponse の
+   * not_found と同じ規律）。renderer は削除ノードとして扱い、エラートーストを出さない。
+   */
+  notFound: boolean;
 }
 
 /**
@@ -459,13 +465,16 @@ export const FsReadDirEntry: MessageFns<FsReadDirEntry> = {
 };
 
 function createBaseFsReadDirResponse(): FsReadDirResponse {
-  return { entries: [] };
+  return { entries: [], notFound: false };
 }
 
 export const FsReadDirResponse: MessageFns<FsReadDirResponse> = {
   encode(message: FsReadDirResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     for (const v of message.entries) {
       FsReadDirEntry.encode(v!, writer.uint32(10).fork()).join();
+    }
+    if (message.notFound !== false) {
+      writer.uint32(16).bool(message.notFound);
     }
     return writer;
   },
@@ -485,6 +494,14 @@ export const FsReadDirResponse: MessageFns<FsReadDirResponse> = {
           message.entries.push(FsReadDirEntry.decode(reader, reader.uint32()));
           continue;
         }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.notFound = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -499,6 +516,11 @@ export const FsReadDirResponse: MessageFns<FsReadDirResponse> = {
       entries: globalThis.Array.isArray(object?.entries)
         ? object.entries.map((e: any) => FsReadDirEntry.fromJSON(e))
         : [],
+      notFound: isSet(object.notFound)
+        ? globalThis.Boolean(object.notFound)
+        : isSet(object.not_found)
+        ? globalThis.Boolean(object.not_found)
+        : false,
     };
   },
 
@@ -506,6 +528,9 @@ export const FsReadDirResponse: MessageFns<FsReadDirResponse> = {
     const obj: any = {};
     if (message.entries?.length) {
       obj.entries = message.entries.map((e) => FsReadDirEntry.toJSON(e));
+    }
+    if (message.notFound !== false) {
+      obj.notFound = message.notFound;
     }
     return obj;
   },
@@ -516,6 +541,7 @@ export const FsReadDirResponse: MessageFns<FsReadDirResponse> = {
   fromPartial(object: DeepPartial<FsReadDirResponse>): FsReadDirResponse {
     const message = createBaseFsReadDirResponse();
     message.entries = object.entries?.map((e) => FsReadDirEntry.fromPartial(e)) || [];
+    message.notFound = object.notFound ?? false;
     return message;
   },
 };

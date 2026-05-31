@@ -444,9 +444,10 @@ public actor RpcDispatcher {
 
   private func handleFsReadDir(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_FsReadDirRequest(jsonUTF8Data: body)
-    let entries = try await FSOps.readDir(dir: req.dir, path: req.path)
+    let result = try await FSOps.readDir(dir: req.dir, path: req.path)
     var resp = Gozd_V1_FsReadDirResponse()
-    resp.entries = entries.map { entry in
+    resp.notFound = result.notFound
+    resp.entries = result.entries.map { entry in
       var e = Gozd_V1_FsReadDirEntry()
       e.name = entry.name
       e.type = entry.type

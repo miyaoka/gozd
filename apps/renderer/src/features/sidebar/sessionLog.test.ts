@@ -434,6 +434,15 @@ describe("formatSessionTime", () => {
     expect(result.time).not.toBe("");
   });
 
+  test("seconds: false は秒を落とす (秒ありより短い)", () => {
+    const ts = NOW.toISOString();
+    // 区切り文字はロケール依存なので exact 比較せず、秒の有無で長さが減ることを確認する。
+    const withSeconds = formatSessionTime(ts, { seconds: true }).time;
+    const withoutSeconds = formatSessionTime(ts, { seconds: false }).time;
+    expect(withoutSeconds).not.toBe("");
+    expect(withoutSeconds.length).toBeLessThan(withSeconds.length);
+  });
+
   test("同年別日は date を持ち、4 桁年を含まない (M/D)", () => {
     const result = formatSessionTime("2026-01-15T12:00:00.000Z");
     expect(result.date).not.toBe("");

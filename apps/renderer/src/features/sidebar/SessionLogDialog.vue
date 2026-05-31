@@ -449,7 +449,7 @@ function onDialogClick(event: MouseEvent) {
                    休止状態は塗り無しの中央寄せ素テキストにする (LINE のシステム通知に倣う)。
                    hover の塗りは操作 feedback のみで、休止状態の形は吹き出しと衝突させない。
                    アイコン / hue 装飾は持たず、主従は weight (tool 名 = primary)、状態色は
-                   error の red のみ。秒時刻は会話吹き出し側で足りるため出さない。 -->
+                   error の red のみ。時刻は会話吹き出し側で足りるため出さない。 -->
               <summary
                 class="mx-auto flex w-fit max-w-[70%] cursor-pointer list-none items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-zinc-500 select-none hover:bg-white/5 [&::-webkit-details-marker]:hidden"
               >

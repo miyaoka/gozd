@@ -46,6 +46,16 @@ interface RawLine {
   type?: string;
   timestamp?: string;
   message?: RawMessage;
+  // CLI / hook が注入したシステム由来レコード。ユーザー発話ではないので transcript に載せない。
+  isMeta?: boolean;
+}
+
+// CLI が user レコードに注入するラッパー (slash command 起動 / ローカルコマンド出力)。
+// これらはユーザーの生発話ではないため USER ブロック / 目次に出さない。
+const COMMAND_INJECTION_RE =
+  /^\s*<(command-message|command-name|command-args|local-command-stdout|local-command-stderr)>/;
+function isCommandInjectionText(text: string): boolean {
+  return COMMAND_INJECTION_RE.test(text);
 }
 
 /** transcript の 1 ブロック。discriminated union (kind で分岐) */
@@ -73,14 +83,19 @@ export interface ParsedSessionLog {
   skipped: number;
 }
 
-/** tool_result content (string | block[]) を表示用テキストに正規化する */
+/**
+ * tool_result content (string | block[]) を表示用テキストに正規化する。
+ *
+ * text / image 以外の block 種別は空文字で握り潰さず `[unsupported: <type>]` の
+ * 可視マーカーにする (silent drop 回避。未知スキーマが来ても観察可能にする)。
+ */
 function toolResultText(content: string | ContentBlock[]): string {
   if (typeof content === "string") return content;
   return content
     .map((block) => {
       if (block.type === "text") return block.text;
       if (block.type === "image") return "[image]";
-      return "";
+      return `[unsupported: ${block.type}]`;
     })
     .filter((s) => s !== "")
     .join("\n");
@@ -115,9 +130,20 @@ export function parseSessionLog(jsonl: string): ParsedSessionLog {
     const raw = parsed.value;
     const ts = raw.timestamp ?? "";
 
+    // CLI / hook 注入のシステムレコードはユーザー発話ではないので会話に載せない。
+    if (raw.isMeta === true) {
+      skipped++;
+      continue;
+    }
+
     if (raw.type === "user") {
       const content = raw.message?.content;
       if (typeof content === "string") {
+        // slash command 起動ラッパー等の注入 string は生発話ではないので除外する。
+        if (isCommandInjectionText(content)) {
+          skipped++;
+          continue;
+        }
         events.push({ kind: "user", text: content, ts });
         continue;
       }

@@ -272,3 +272,64 @@ export function parseSessionLog(jsonl: string): ParsedSessionLog {
 
   return { events, totalLines, malformed, skipped, emptyThinking };
 }
+
+/** 表示用に分解した timestamp。日付は今日なら空文字 (時刻のみで足りる)。 */
+export interface FormattedSessionTime {
+  date: string;
+  time: string;
+}
+
+// 時刻 / 日付の Intl formatter (SSOT)。生成コストの高い formatter をモジュールレベルで
+// 一度だけ作り、イベントごとの整形で使い回す。いずれも 24h 固定 (引数なしの toLocale* は
+// 環境次第で AM/PM になり tabular-nums 整列が崩れる)。
+// - 時刻: 秒ありは目次 (時刻の一意性に依存)、秒なしは吹き出し脇 (会話の時刻は分まで)
+// - 日付: 同年は M/D、別年は YYYY/M/D
+const TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
+const TIME_FORMATTER_NO_SECONDS = new Intl.DateTimeFormat(undefined, {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+const DATE_FORMATTER_SAME_YEAR = new Intl.DateTimeFormat(undefined, {
+  month: "numeric",
+  day: "numeric",
+});
+const DATE_FORMATTER_OTHER_YEAR = new Intl.DateTimeFormat(undefined, {
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+});
+
+/**
+ * ISO timestamp を表示用に日付 / 時刻へ分解する (SSOT)。空 / 不正なら両方空文字。
+ *
+ * 秒は `seconds` で出し分ける: 目次は時刻の一意性に依存するため秒まで出すが、吹き出し脇は
+ * 会話の時刻表示なので分までで足りる。日付は今日なら空文字、今年は M/D、別年は YYYY/M/D を
+ * 返し、resume で日 / 年をまたいだセッションのエントリを一意に区別できるようにする。
+ * 目次は日付 + 時刻を 1 行に連結し、吹き出し脇は 2 行に分けて使う。
+ */
+export function formatSessionTime(
+  ts: string,
+  { seconds = true }: { seconds?: boolean } = {},
+): FormattedSessionTime {
+  if (ts === "") return { date: "", time: "" };
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return { date: "", time: "" };
+
+  const now = new Date();
+  const time = (seconds ? TIME_FORMATTER : TIME_FORMATTER_NO_SECONDS).format(date);
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  if (sameDay) return { date: "", time };
+
+  const sameYear = date.getFullYear() === now.getFullYear();
+  const dateStr = (sameYear ? DATE_FORMATTER_SAME_YEAR : DATE_FORMATTER_OTHER_YEAR).format(date);
+  return { date: dateStr, time };
+}

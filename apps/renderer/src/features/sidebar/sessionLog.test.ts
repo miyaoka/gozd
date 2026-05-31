@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { parseSessionLog } from "./sessionLog";
+import { afterAll, describe, expect, setSystemTime, test } from "bun:test";
+import { formatSessionTime, parseSessionLog } from "./sessionLog";
 
 /** 1 レコードを JSONL 1 行にする。複数行は join して渡す。 */
 function jsonl(...records: unknown[]): string {
@@ -408,5 +408,53 @@ describe("parseSessionLog", () => {
     );
     const tool = log.events[0];
     expect(tool?.kind === "tool" && tool.result?.text).toBe("hi\n[image]\n[unsupported: tool_use]");
+  });
+});
+
+describe("formatSessionTime", () => {
+  // now を正午に固定し today / 別日分岐を決定的にする。ts は丸 1 日 / 年単位でずらすため、
+  // どの TZ でも同一インスタンスは同じカレンダー日、24h ずれは必ず別日になり境界フレークが出ない。
+  // 日付文字列の区切り順は toLocaleDateString のロケール依存なので exact 比較せず、
+  // 「別年は 4 桁年を含む / 同年別日は含まない」という構造で年区別を検証する。
+  const NOW = new Date("2026-05-31T12:00:00.000Z");
+  setSystemTime(NOW);
+  afterAll(() => setSystemTime());
+
+  test("空文字は date / time とも空", () => {
+    expect(formatSessionTime("")).toEqual({ date: "", time: "" });
+  });
+
+  test("不正な ISO は date / time とも空", () => {
+    expect(formatSessionTime("not-a-date")).toEqual({ date: "", time: "" });
+  });
+
+  test("今日は date 空で time のみ", () => {
+    const result = formatSessionTime(NOW.toISOString());
+    expect(result.date).toBe("");
+    expect(result.time).not.toBe("");
+  });
+
+  test("seconds: false は時・分の 2 セグメント、true は秒を含む 3 セグメント", () => {
+    const ts = NOW.toISOString();
+    // 区切り文字はロケール依存なので、数値セグメント数で「分まで出す / 秒を含む」を直接検証する
+    // (length 比較だと分まで落とす退行をすり抜けるため)。hour12: false なので AM/PM 由来の
+    // 余分なトークンは入らない。
+    const withSeconds = formatSessionTime(ts, { seconds: true }).time.match(/\d+/g) ?? [];
+    const withoutSeconds = formatSessionTime(ts, { seconds: false }).time.match(/\d+/g) ?? [];
+    expect(withoutSeconds).toHaveLength(2);
+    expect(withSeconds).toHaveLength(3);
+  });
+
+  test("同年別日は date を持ち、4 桁年を含まない (M/D)", () => {
+    const result = formatSessionTime("2026-01-15T12:00:00.000Z");
+    expect(result.date).not.toBe("");
+    expect(result.date).not.toContain("2026");
+    expect(result.time).not.toBe("");
+  });
+
+  test("別年は date に 4 桁年を含む (YYYY/M/D)", () => {
+    const result = formatSessionTime("2024-05-31T12:00:00.000Z");
+    expect(result.date).toContain("2024");
+    expect(result.time).not.toBe("");
   });
 });

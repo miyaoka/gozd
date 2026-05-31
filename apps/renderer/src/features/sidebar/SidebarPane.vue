@@ -40,6 +40,7 @@ import { RepoSection } from "./features/repo";
 import { useWorktreeActions } from "./features/worktree";
 import ProjectConfigPanel from "./ProjectConfigPanel.vue";
 import { rpcTaskRemove } from "./rpc";
+import SessionLogDialog from "./SessionLogDialog.vue";
 import SidebarClock from "./SidebarClock.vue";
 import TaskEditDialog from "./TaskEditDialog.vue";
 import TaskMenu from "./TaskMenu.vue";
@@ -289,6 +290,9 @@ const activeRootWorktree = computed(() => {
 
     <!-- task title 編集 dialog -->
     <TaskEditDialog />
+
+    <!-- セッションログ表示 dialog -->
+    <SessionLogDialog />
 
     <!-- 確認ダイアログ -->
     <dialog

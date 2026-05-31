@@ -208,4 +208,15 @@ WORKTREES
   ● New session         [⋮]   ← 全 title 空 + ghRef 無しのフォールバック
 ```
 
-セッションが attach 中の task には Claude ステータスのバッジ / 吹き出しが付く。session 未紐付け task (`sessionId == ""`) は静的表示。task 行も hover で右端に `[⋮]` ボタンが現れ、`Edit title` / `Remove task` が選択できる。task 行のダブルクリックでも編集 dialog が開く。
+セッションが attach 中の task には Claude ステータスのバッジ / 吹き出しが付く。session 未紐付け task (`sessionId == ""`) は静的表示。task 行も hover で右端に `[⋮]` ボタンが現れ、`Edit title` / `Show session log` / `Remove task` が選択できる。task 行のダブルクリックでも編集 dialog が開く。
+
+### セッションログ表示 (`Show session log`)
+
+`task.sessionId` が非空のときだけ ⋮ メニューに出る。選択すると `SessionLogDialog` が開き、Claude Code が `~/.claude/projects/<cwd エンコード>/<sessionId>.jsonl` に書き出したセッションログを整形トランスクリプトとして表示する。
+
+- **ファイル解決は glob**: cwd → ディレクトリ名のエンコード規則は Claude 側の内部仕様で将来変わりうるため再構成に依存せず、native (`ClaudeSessionLog.read`) が `~/.claude/projects/*/<sessionId>.jsonl` を glob 解決する。`sessionId` は `[0-9a-fA-F-]` のみ許可で検証し path traversal を塞ぐ。RPC は `/claudeSession/readLog` (生 JSONL を返し、parse は renderer 側 `parseSessionLog`)
+- **表示対象**: user / assistant / thinking / tool / image の会話イベント。`tool_use` と `tool_result` は `tool_use_id` でペア化して 1 ブロックにまとめる。attachment / system 等の非会話レコードは載せず件数だけ footer に集計する。image は base64 source を data URL にして `<img>` 描画する
+- **注入 user レコードの除外**: harness は `<command-message>` / `<command-name>` / `<task-notification>` / `<system-reminder>` 等を `type:"user"` + content=string (isMeta:null) で main loop に注入する。これらはユーザーの生発話ではないため、先頭ラッパータグで判定して USER ブロック / 目次に出さず skipped に計上する。`isMeta:true` の user レコードも同様に除外する
+- **サブエージェントのログも表示**: Task ツールで起動したサブエージェントの会話は `~/.claude/projects/<encoded>/<親sessionId>/subagents/agent-<agentId>.jsonl` に別ファイル (`isSidechain:true`) + 同名 `.meta.json` (`agentType` / `description`) で記録される。native (`ClaudeSessionLog.read`) は main を解決した projectDir からこのサブディレクトリを列挙し、main + subagents を entry 配列で返す。dialog はヘッダ下のセッションタブで切り替える (main は "Main"、subagent は meta.json の description をラベルに使う)
+- **assistant は markdown 描画**: preview feature から切り出した `MarkdownBody` (marked + DOMPurify) で描画する。user / thinking は素テキスト
+- **左に目次**: user / assistant のみを時刻見出しで並べ、クリックで該当イベントへスクロール。`IntersectionObserver` で現在地をハイライトする (純 CSS の scroll marker / `:target-current` は WebKit 未対応のため)。各イベント見出しは `position: sticky` で上部固定

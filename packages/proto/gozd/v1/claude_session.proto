@@ -47,3 +47,40 @@ message ClaudeSessionRemoveByPtyResponse {
   // 場合は空文字。
   string removed_session_id = 1;
 }
+
+// Claude Code が ~/.claude/projects/<cwd エンコード>/<session_id>.jsonl に書き出した
+// セッションログ (JSONL) を読む。サイドバー task メニューの「セッションログ表示」用。
+//
+// cwd → ディレクトリ名のエンコード規則 (`/` `.` → `-` 等) は Claude 側の内部仕様で
+// 将来変わりうるため、renderer から cwd を渡して native でパス再構成する設計は取らない。
+// session_id は UUID で一意なので、native 側が ~/.claude/projects/*/<session_id>.jsonl を
+// glob 解決する。これにより fork で別ファイルに分裂したセッションも自分の session_id を
+// ファイル名に持つ 1 ファイルとして確実に引ける。
+message ClaudeSessionLogRequest {
+  string session_id = 1;
+}
+
+// セッションログ 1 本分 (main または subagent)。parse は renderer 側が担う。
+message ClaudeSessionLogEntry {
+  // "main" (本体セッション) または "subagent" (Task ツールで起動したサブエージェント)。
+  string kind = 1;
+  // main は session_id、subagent は agent_id。
+  string id = 2;
+  // subagent のラベル (meta.json の description)。main は空文字。
+  string label = 3;
+  // subagent の agentType (meta.json)。main は空文字。
+  string agent_type = 4;
+  // jsonl の絶対パス。
+  string path = 5;
+  // jsonl の生内容 (改行区切り)。
+  string content = 6;
+}
+
+message ClaudeSessionLogResponse {
+  // main の jsonl が glob で見つかったか。未起動 / cleanup 済みセッションでは false。
+  bool found = 1;
+  // entries[0] が main、残りが subagents (見つかった順)。found=false なら空。
+  // subagent は ~/.claude/projects/<encoded>/<session_id>/subagents/agent-*.jsonl に
+  // isSidechain ログとして並ぶ。main の projectDir を起点に列挙する。
+  repeated ClaudeSessionLogEntry entries = 2;
+}

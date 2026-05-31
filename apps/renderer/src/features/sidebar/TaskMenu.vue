@@ -1,13 +1,18 @@
 <doc lang="md">
-task 行の ⋮ ポップオーバーメニュー。Edit title / Remove task アクションを表示する。
+task 行の ⋮ ポップオーバーメニュー。Edit title / Show session log / Remove task を表示する。
 state は `useTaskMenu` (module singleton) 経由で SidebarPane と共有する。
 Edit title は `useTaskEditing.open` 経由で TaskEditDialog を開く。
+Show session log は `task.sessionId` が非空のときだけ出し、`useSessionLogViewer.open` 経由で
+SessionLogDialog を開く (session 未起動の task では Claude ログが存在しないため非表示)。
 </doc>
 
 <script setup lang="ts">
 import type { Task } from "@gozd/proto";
+import { computed } from "vue";
+import { useSessionLogViewer } from "./useSessionLogViewer";
 import { useTaskEditing } from "./useTaskEditing";
 import { useTaskMenu } from "./useTaskMenu";
+import { taskDisplayTitle } from "./utils";
 
 const emit = defineEmits<{
   remove: [task: Task, rootDir: string];
@@ -15,12 +20,23 @@ const emit = defineEmits<{
 
 const { Popover, context, close } = useTaskMenu();
 const { open: openEdit } = useTaskEditing();
+const { open: openSessionLog } = useSessionLogViewer();
+
+// session 未起動 (sessionId 空) の task は Claude ログファイルが存在しないため非表示。
+const hasSessionLog = computed(() => context.value?.task.sessionId !== "");
 
 function handleEdit() {
   if (!context.value) return;
   const { task, rootDir } = context.value;
   close();
   openEdit(task.id, rootDir);
+}
+
+function handleShowSessionLog() {
+  if (!context.value) return;
+  const { task } = context.value;
+  close();
+  openSessionLog(task.sessionId, taskDisplayTitle(task));
 }
 
 function handleRemove() {
@@ -48,6 +64,14 @@ function handleRemove() {
       >
         <span class="icon-[lucide--pencil] text-xs" />
         Edit title
+      </button>
+      <button
+        v-if="hasSessionLog"
+        class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800"
+        @click="handleShowSessionLog"
+      >
+        <span class="icon-[lucide--scroll-text] text-xs" />
+        Show session log
       </button>
       <button
         class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-400 hover:bg-zinc-800"

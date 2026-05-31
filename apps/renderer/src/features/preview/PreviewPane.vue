@@ -49,6 +49,7 @@ import { previewFontFamily, previewFontSize } from "./previewConfig";
 import { rpcGitShowCommitFile, rpcGitShowFile } from "./rpc";
 import { useBlamePopover } from "./useBlamePopover";
 import { useMarkdownHistoryStore } from "./useMarkdownHistoryStore";
+import { usePreviewStore } from "./usePreviewStore";
 
 type PreviewMode = "current" | "diff" | "original";
 
@@ -94,6 +95,7 @@ const {
 } = storeToRefs(worktreeStore);
 const gitGraphStore = useGitGraphStore();
 const summaryStore = useChangesSummaryStore();
+const previewStore = usePreviewStore();
 const markdownHistory = useMarkdownHistoryStore();
 const notification = useNotificationStore();
 
@@ -556,17 +558,6 @@ function fileName(filePath: string): string {
   return filePath.split("/").pop() ?? filePath;
 }
 
-/**
- * summary の Close button: popover を閉じるだけでなく summary state も off にする。
- * これをしないと、次回 popover が開いた時 (file 選択 / preview-anchor click) に summary
- * が enabled のまま残っているため再び summary view が出る。Close は「summary を閉じて
- * popover も閉じる」意図のユーザー操作として一貫させる。
- */
-function onCloseSummary() {
-  summaryStore.disable();
-  emit("close");
-}
-
 const headerIconUrl = computed(() => {
   const path = selectedDisplayPath.value;
   if (path === undefined) return undefined;
@@ -690,7 +681,7 @@ watch(
 </script>
 
 <template>
-  <ChangesSummaryView v-if="summaryStore.enabled" @close="onCloseSummary" />
+  <ChangesSummaryView v-if="summaryStore.enabled" @close="previewStore.close()" />
 
   <div v-else class="flex h-full flex-col overflow-hidden">
     <!-- ヘッダー（常に表示） -->

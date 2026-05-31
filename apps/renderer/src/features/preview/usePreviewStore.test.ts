@@ -90,7 +90,7 @@ describe("usePreviewStore.requestSelect", () => {
     preview.bindPopover(popover.el);
 
     preview.requestSelect({ kind: "worktreeRelative", relPath: "a.ts" });
-    summary.toggle(); // summary 有効化
+    summary.enable();
     expect(summary.enabled).toBe(true);
 
     preview.requestSelect({ kind: "worktreeRelative", relPath: "a.ts" });
@@ -183,7 +183,7 @@ describe("usePreviewStore.forceSelect", () => {
     preview.bindPopover(popover.el);
 
     preview.forceSelect({ kind: "worktreeRelative", relPath: "a.ts" });
-    summary.toggle();
+    summary.enable();
 
     preview.forceSelect({ kind: "worktreeRelative", relPath: "a.ts" });
     expect(summary.enabled).toBe(true);
@@ -255,5 +255,95 @@ describe("usePreviewStore dir 未確立ガード", () => {
     expect(wt.selection).toBeUndefined();
     expect(preview.isOpen).toBe(false);
     expect(popover.showCount).toBe(0);
+  });
+});
+
+describe("usePreviewStore.toggleSummary", () => {
+  test("enabled=false から → summary 有効化 + popover open", () => {
+    const preview = usePreviewStore();
+    const summary = useChangesSummaryStore();
+    const popover = createMockPopover();
+    preview.bindPopover(popover.el);
+
+    preview.toggleSummary();
+
+    expect(summary.enabled).toBe(true);
+    expect(preview.isOpen).toBe(true);
+    expect(popover.showCount).toBe(1);
+  });
+
+  test("enabled=true から → summary 解除 + popover close", () => {
+    const preview = usePreviewStore();
+    const summary = useChangesSummaryStore();
+    const popover = createMockPopover();
+    preview.bindPopover(popover.el);
+
+    preview.toggleSummary(); // open
+    preview.toggleSummary(); // close
+
+    expect(summary.enabled).toBe(false);
+    expect(preview.isOpen).toBe(false);
+    expect(popover.hideCount).toBe(1);
+  });
+
+  test("file 選択経路 (summary.disable 単独) では popover を維持", () => {
+    const preview = usePreviewStore();
+    const summary = useChangesSummaryStore();
+    const popover = createMockPopover();
+    preview.bindPopover(popover.el);
+
+    preview.openSummary();
+    summary.disable();
+
+    expect(summary.enabled).toBe(false);
+    expect(preview.isOpen).toBe(true);
+    expect(popover.hideCount).toBe(0);
+  });
+});
+
+describe("usePreviewStore.close invariant", () => {
+  test("close は summary も解除する (popover closed ⇒ summary disabled)", () => {
+    const preview = usePreviewStore();
+    const summary = useChangesSummaryStore();
+    const popover = createMockPopover();
+    preview.bindPopover(popover.el);
+
+    preview.openSummary();
+    preview.close();
+
+    expect(summary.enabled).toBe(false);
+    expect(preview.isOpen).toBe(false);
+    expect(popover.hideCount).toBe(1);
+  });
+
+  test("summary 表示中の close 後に toggle で再 open しても summary view は復活しない", () => {
+    const preview = usePreviewStore();
+    const summary = useChangesSummaryStore();
+    const popover = createMockPopover();
+    preview.bindPopover(popover.el);
+
+    preview.openSummary();
+    preview.close();
+    preview.toggle();
+
+    expect(summary.enabled).toBe(false);
+    expect(preview.isOpen).toBe(true);
+  });
+
+  test("dir 切替で popover が閉じる際 summary も同 tick で解除される", () => {
+    const preview = usePreviewStore();
+    const summary = useChangesSummaryStore();
+    const repoStore = useRepoStore();
+    const popover = createMockPopover();
+    preview.bindPopover(popover.el);
+
+    preview.openSummary();
+    expect(summary.enabled).toBe(true);
+    expect(preview.isOpen).toBe(true);
+
+    repoStore.selectDir("/other-repo");
+
+    expect(summary.enabled).toBe(false);
+    expect(preview.isOpen).toBe(false);
   });
 });

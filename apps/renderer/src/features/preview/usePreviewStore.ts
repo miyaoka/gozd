@@ -30,8 +30,11 @@ import {
  * - `forceSelect(target)`: 強制 open（gozdOpen / markdown link navigation）。同一 path でも
  *   閉じない。「ユーザーが見たいファイルを CLI で明示指定した」「md 内 link で遷移した」など、
  *   navigation 意味の経路で使う
- * - `open()` / `close()` / `toggle()`: state の直接操作。ESC / button / `preview.toggle` コマンド /
- *   summary 自動 open などで使う
+ * - `open()` / `close()` / `toggle()`: state の直接操作。ESC / button / `preview.toggle` コマンド
+ *   などで使う。`close()` は「popover 閉 ⇒ summary 解除」の invariant を担う (close 経路は
+ *   ESC / Preview ヘッダ close ボタン / dir 切替 / closeSummary すべて同一意味)
+ * - `openSummary()` / `toggleSummary()`: summary 表示モードを open する意図単位 API。`close()` 側に
+ *   invariant を寄せたので summary を閉じる専用 API は持たない (close と区別する意味が無い)
  *
  * ## 依存方向
  *
@@ -41,12 +44,13 @@ import {
  * 他 store からは参照しない契約とする。
  */
 export const usePreviewStore = defineStore("preview", () => {
-  // **登録順依存**: `useWorktreeStore` / `useChangesSummaryStore` の setup を本 store より前に
-  // 走らせるため、必ず本 store setup の冒頭で呼ぶ。両 store は dir 変化に対する flush:'sync'
-  // watch を内部に持ち、本 store の dir watch (close) より **先に** 発火する必要がある
-  // （selection clear / summary disable が完了した後で preview close が走る順序）。Vue 3 の
-  // sync watch は登録順に発火するため、`pinia.defineStore` の lazy setup でこれらを先に
-  // initialize させることで順序を構造的に固定する。
+  // **登録順依存**: `useWorktreeStore` の setup を本 store より前に走らせるため、必ず本 store
+  // setup の冒頭で呼ぶ。`useWorktreeStore` は dir 変化に対する flush:'sync' watch (selection
+  // clear) を内部に持ち、本 store の dir watch (close) より **先に** 発火する必要がある。
+  // Vue 3 の sync watch は登録順に発火するため、`pinia.defineStore` の lazy setup でこれを
+  // 先に initialize させることで順序を構造的に固定する。
+  // `useChangesSummaryStore` は dir watch を持たない (dir 切替時の summary disable は本 store
+  // の dir watch → close() invariant が担う)。
   const worktreeStore = useWorktreeStore();
   const summaryStore = useChangesSummaryStore();
 
@@ -66,6 +70,10 @@ export const usePreviewStore = defineStore("preview", () => {
   }
 
   function close() {
+    // invariant: popover が閉じている間は summary も常に off。ESC / Preview ヘッダ close
+    // ボタン / dir 切替経由でも適用される。これをやらないと summary enabled=true + popover
+    // closed の状態が残り、次に preview を toggle で開いた瞬間に summary view が復活する。
+    summaryStore.disable();
     if (!isOpen.value) return;
     const el = popoverEl.value;
     if (!el) return;
@@ -78,6 +86,24 @@ export const usePreviewStore = defineStore("preview", () => {
       close();
     } else {
       open();
+    }
+  }
+
+  // summary 表示モードを open する意図単位 API。close 方向は close() の invariant が担うため
+  // 専用 API を分けない。`summaryStore.disable()` は requestSelect / ファイル選択経路で
+  // 単独で使う (summary を抜けて単一ファイル表示にフォールバック、popover は維持) ため
+  // summary store 側の API として残る。
+
+  function openSummary() {
+    summaryStore.enable();
+    open();
+  }
+
+  function toggleSummary() {
+    if (summaryStore.enabled) {
+      close();
+    } else {
+      openSummary();
     }
   }
 
@@ -153,6 +179,8 @@ export const usePreviewStore = defineStore("preview", () => {
     open,
     close,
     toggle,
+    openSummary,
+    toggleSummary,
     requestSelect,
     forceSelect,
   };

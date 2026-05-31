@@ -38,6 +38,7 @@ import { useNotificationStore } from "../../shared/notification";
 import { MarkdownBody } from "../preview";
 import { rpcClaudeSessionLog } from "./rpc";
 import { parseSessionLog, type ParsedSessionLog, type TranscriptEvent } from "./sessionLog";
+import SessionLogToolArg from "./SessionLogToolArg.vue";
 import { useSessionLogViewer } from "./useSessionLogViewer";
 
 const { context, close } = useSessionLogViewer();
@@ -81,16 +82,6 @@ const KIND_VISUAL: Record<EventKind, { label: string; labelClass: string; barCla
 const DEFAULT_COLLAPSED = new Set<EventKind>(["thinking", "tool"]);
 function defaultOpen(kind: EventKind): boolean {
   return !DEFAULT_COLLAPSED.has(kind);
-}
-
-/** tool summary に出す主要引数。代表キーを優先順で拾い、無ければ undefined。 */
-const TOOL_PRIMARY_KEYS = ["command", "file_path", "path", "pattern", "query", "url"];
-function toolArgPreview(input: Record<string, unknown>): string | undefined {
-  for (const key of TOOL_PRIMARY_KEYS) {
-    const value = input[key];
-    if (typeof value === "string" && value !== "") return value;
-  }
-  return undefined;
 }
 
 function formatInput(input: Record<string, unknown>): string {
@@ -284,7 +275,13 @@ function subagentLabel(entry: { id: string; label: string; agentType: string }):
   return entry.id.slice(0, 8);
 }
 
+// load の世代カウンタ。await を跨いだ stale な完了結果が新しいセッション表示を
+// 上書きするのを防ぐ。新規 load 開始 / dialog close のたびに increment し、await 後に
+// 自分の token が最新でなければ state を触らず捨てる。
+let loadToken = 0;
+
 async function load(sessionId: string) {
+  const token = ++loadToken;
   loading.value = true;
   errorMessage.value = undefined;
   notFound.value = false;
@@ -292,9 +289,12 @@ async function load(sessionId: string) {
   activeId.value = undefined;
 
   const result = await tryCatch(rpcClaudeSessionLog({ sessionId }));
+  // 別 load / close に追い越されていたら、この結果は stale なので破棄する。
+  if (token !== loadToken) return;
   loading.value = false;
   if (!result.ok) {
     errorMessage.value = result.error.message;
+    notify.error("Failed to read session log", result.error);
     return;
   }
   if (!result.value.found || result.value.entries.length === 0) {
@@ -324,6 +324,8 @@ function selectSession(id: string) {
 watch(context, (next) => {
   const dialog = dialogRef.value;
   if (next === undefined) {
+    // 進行中の load を無効化し、close 後に stale 結果が state を書き戻すのを防ぐ。
+    loadToken++;
     teardownObserver();
     if (dialog?.open === true) dialog.close();
     return;
@@ -461,12 +463,7 @@ function onDialogClick(event: MouseEvent) {
                 {{ KIND_VISUAL[ev.kind].label }}
               </span>
               <span v-if="ev.kind === 'tool'" class="font-mono text-zinc-400">· {{ ev.name }}</span>
-              <span
-                v-if="ev.kind === 'tool' && toolArgPreview(ev.input)"
-                class="min-w-0 truncate text-zinc-500"
-                :title="toolArgPreview(ev.input)"
-                >{{ toolArgPreview(ev.input) }}</span
-              >
+              <SessionLogToolArg v-if="ev.kind === 'tool'" :input="ev.input" />
               <span
                 v-if="ev.kind === 'tool' && ev.result?.isError"
                 class="rounded-sm bg-red-500/20 px-1 text-[10px] text-red-300"

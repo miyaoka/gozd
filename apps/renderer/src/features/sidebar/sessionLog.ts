@@ -196,6 +196,9 @@ export function parseSessionLog(jsonl: string): ParsedSessionLog {
             };
           } else if (block.type === "image") {
             events.push({ kind: "image", ts, src: imageSrc(block) });
+          } else {
+            // 未知 block type は無言で落とさず skipped に計上する (footer 観察可能性)。
+            skipped++;
           }
         }
         continue;
@@ -228,6 +231,9 @@ export function parseSessionLog(jsonl: string): ParsedSessionLog {
           events.push(tool);
         } else if (block.type === "image") {
           events.push({ kind: "image", ts, src: imageSrc(block) });
+        } else {
+          // 未知 block type は無言で落とさず skipped に計上する (footer 観察可能性)。
+          skipped++;
         }
       }
       continue;

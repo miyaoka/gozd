@@ -252,6 +252,31 @@ describe("parseSessionLog", () => {
     expect(log.events).toEqual([{ kind: "image", ts: TS, src: undefined }]);
   });
 
+  test("未知の content block は events に載せず skipped に計上 (user / assistant 両方)", () => {
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "assistant",
+          timestamp: TS,
+          message: {
+            role: "assistant",
+            content: [
+              { type: "text", text: "hi" },
+              { type: "redacted_thinking", data: "xxx" },
+            ],
+          },
+        },
+        {
+          type: "user",
+          timestamp: TS,
+          message: { role: "user", content: [{ type: "future_block_type", foo: 1 }] },
+        },
+      ),
+    );
+    expect(log.events).toEqual([{ kind: "assistant", text: "hi", ts: TS }]);
+    expect(log.skipped).toBe(2);
+  });
+
   test("空行は totalLines に数えない", () => {
     const log = parseSessionLog("\n\n");
     expect(log.totalLines).toBe(0);

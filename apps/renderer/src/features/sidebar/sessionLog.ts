@@ -272,3 +272,45 @@ export function parseSessionLog(jsonl: string): ParsedSessionLog {
 
   return { events, totalLines, malformed, skipped, emptyThinking };
 }
+
+/** 表示用に分解した timestamp。日付は今日なら空文字 (時刻のみで足りる)。 */
+export interface FormattedSessionTime {
+  date: string;
+  time: string;
+}
+
+/**
+ * ISO timestamp を表示用に日付 / 時刻へ分解する (SSOT)。空 / 不正なら両方空文字。
+ *
+ * 時刻はロケール非依存で 24h・秒まで固定する (引数なし toLocaleTimeString は環境次第で
+ * AM/PM になり tabular-nums 整列が崩れる)。日付は今日なら空文字、今年は M/D、別年は
+ * YYYY/M/D を返し、resume で日 / 年をまたいだセッションのエントリを一意に区別できる
+ * ようにする。目次は日付 + 時刻を 1 行に連結し、吹き出し脇は 2 行に分けて使う。
+ */
+export function formatSessionTime(ts: string): FormattedSessionTime {
+  if (ts === "") return { date: "", time: "" };
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return { date: "", time: "" };
+
+  const now = new Date();
+  const time = date.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  if (sameDay) return { date: "", time };
+
+  const sameYear = date.getFullYear() === now.getFullYear();
+  const dateStr = date.toLocaleDateString(
+    undefined,
+    sameYear
+      ? { month: "numeric", day: "numeric" }
+      : { year: "numeric", month: "numeric", day: "numeric" },
+  );
+  return { date: dateStr, time };
+}

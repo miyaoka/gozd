@@ -33,6 +33,9 @@ import {
  * - `open()` / `close()` / `toggle()`: state の直接操作。ESC / button / `preview.toggle` コマンド
  *   などで使う。`close()` は「popover 閉 ⇒ summary 解除」の invariant を担う (close 経路は
  *   ESC / Preview ヘッダ close ボタン / dir 切替 / closeSummary すべて同一意味)
+ * - `closeForMissingSelection()`: 表示中ファイルが実体としてどこにも存在しなくなった
+ *   (未追跡ファイルの削除等) ときに選択解除して close する。current / HEAD いずれにも無いと
+ *   PreviewPane が判定した経路から呼ぶ
  * - `openSummary()` / `toggleSummary()`: summary 表示モードを open する意図単位 API。`close()` 側に
  *   invariant を寄せたので summary を閉じる専用 API は持たない (close と区別する意味が無い)
  *
@@ -157,6 +160,22 @@ export const usePreviewStore = defineStore("preview", () => {
     open();
   }
 
+  /**
+   * 表示中ファイルが実体としてどこにも存在しなくなった (未追跡ファイルの削除等) ときに、
+   * 選択を解除して preview を閉じる。
+   *
+   * 「current (作業ツリー) にも HEAD にも無い」= 復元・閲覧できる内容が一切無い、の判定は
+   * PreviewPane が `fetchContent` の結果で行う (git status の push タイミングに依存せず両ソースを
+   * 直接読んで確定する)。git 追跡下の削除は HEAD に内容が残り Original を閲覧できるため、
+   * PreviewPane 側でこの呼び出しに到達しない。
+   *
+   * `close()` の invariant (popover 閉 ⇒ summary 解除) に乗せるため close() を経由する。
+   */
+  function closeForMissingSelection() {
+    worktreeStore.clearSelectedPath();
+    close();
+  }
+
   // dir 切替で preview を auto-close。新 worktree でファイル選択を伴う gozdOpen 経路では、
   // useGozdOpenHandler が dir 切替後に forceSelect を明示的に呼ぶため最終状態は新ファイル
   // で表示継続になる。
@@ -183,6 +202,7 @@ export const usePreviewStore = defineStore("preview", () => {
     toggleSummary,
     requestSelect,
     forceSelect,
+    closeForMissingSelection,
   };
 });
 

@@ -347,3 +347,22 @@ describe("usePreviewStore.close invariant", () => {
     expect(preview.isOpen).toBe(false);
   });
 });
+
+describe("usePreviewStore.closeForMissingSelection", () => {
+  test("選択解除 + close (popover 閉 ⇒ summary 解除の invariant に乗る)", () => {
+    const preview = usePreviewStore();
+    const wt = useWorktreeStore();
+    const popover = createMockPopover();
+    preview.bindPopover(popover.el);
+
+    preview.requestSelect({ kind: "worktreeRelative", relPath: "src/foo/baz.ts" });
+    expect(wt.selection).toBeDefined();
+    expect(preview.isOpen).toBe(true);
+
+    preview.closeForMissingSelection();
+
+    expect(wt.selection).toBeUndefined();
+    expect(preview.isOpen).toBe(false);
+    expect(popover.hideCount).toBe(1);
+  });
+});

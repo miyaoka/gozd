@@ -20,6 +20,8 @@
   範囲選択時は `commits` 配列の index で時系列順に整列し（クリック順非依存）、older 側を Original、newer 側を Current に固定する
 - fsChange メッセージで選択中ファイルをリアクティブに再取得（uncommitted モードのみ）
 - バージョンカウンターで非同期レースを防止
+- 表示中ファイルが削除され current が notFound になったとき、HEAD にも内容が無ければ（未追跡ファイルの削除等）
+  `usePreviewStore.closeForMissingSelection` で選択解除 + close する。追跡下削除は HEAD に残るため維持
 
 ## ヘッダの back / forward ボタン
 
@@ -285,6 +287,34 @@ async function fetchContent(sel: Selection, gitChange: GitChangeKind | undefined
   }
 
   const [currentResult, originalResult] = fetchResult.value;
+
+  // 表示中ファイルが消えたかの判定: current (作業ツリー) が notFound で HEAD にも内容が無いなら、
+  // 「実体がどこにも残っていない」= 未追跡ファイルの削除等。選択解除して preview を閉じる。
+  // 単一ファイル削除も親ディレクトリごとの削除も、同じ fsChange → 再 fetch → notFound 経路で拾う。
+  // summary view 表示中は単一ファイル選択の概念が無いため対象外 (summary を巻き込んで閉じない)。
+  if (
+    !summaryStore.enabled &&
+    sel.kind === "worktreeRelative" &&
+    (currentResult?.notFound ?? false)
+  ) {
+    // original 未取得 (untracked / clean tracked) なら HEAD 在否を直接確定する。git status の
+    // push が fsChange より遅れて selectedGitChange がまだ deleted に変わっていない race でも、
+    // HEAD に在れば追跡下なので閉じない (直後の gitStatusChange が Original 表示へ倒す)。
+    let originalMissing: boolean;
+    if (originalResult !== undefined) {
+      originalMissing = originalResult.notFound;
+    } else {
+      const head = await tryCatch(rpcGitShowFile({ dir, relPath: sel.relPath }));
+      if (version !== fetchVersion) return;
+      // RPC エラーは「不在」と断定しない (閉じずに notFound 表示へ倒す)
+      originalMissing = head.ok ? (head.value.result?.notFound ?? true) : false;
+    }
+    if (originalMissing) {
+      loading.value = false;
+      previewStore.closeForMissingSelection();
+      return;
+    }
+  }
 
   isDirectory.value = currentResult?.isDirectory ?? false;
   isNotFound.value = currentResult?.notFound ?? false;

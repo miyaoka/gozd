@@ -37,6 +37,98 @@ describe("parseSessionLog", () => {
     ]);
   });
 
+  // signature は判定に使わない (平文の有無のみで決める)。fixture の signature は
+  // 実ログ形状の再現であって判定には寄与しない。
+  test("平文が空文字の thinking は載せず emptyThinking に計上 (skipped とは別枠)", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "assistant",
+        timestamp: TS,
+        message: {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "", signature: "encrypted-blob" },
+            { type: "text", text: "やります" },
+          ],
+        },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "assistant", text: "やります", ts: TS }]);
+    expect(log.emptyThinking).toBe(1);
+    expect(log.skipped).toBe(0);
+  });
+
+  test("thinking フィールド欠落 (signature のみ) も emptyThinking に計上", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "assistant",
+        timestamp: TS,
+        message: {
+          role: "assistant",
+          content: [{ type: "thinking", signature: "encrypted-blob" }],
+        },
+      }),
+    );
+    expect(log.events).toEqual([]);
+    expect(log.emptyThinking).toBe(1);
+  });
+
+  test("空白のみの thinking は平文ありとみなし表示する (空判定は厳密一致)", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "assistant",
+        timestamp: TS,
+        message: {
+          role: "assistant",
+          content: [{ type: "thinking", thinking: "  \n" }],
+        },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "thinking", text: "  \n", ts: TS }]);
+    expect(log.emptyThinking).toBe(0);
+  });
+
+  test("空名 / 名前欠落の tool_use は可視マーカー (unnamed tool) に倒す", () => {
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "assistant",
+          timestamp: TS,
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_use", id: "t1", name: "", input: {} }],
+          },
+        },
+        {
+          type: "assistant",
+          timestamp: TS,
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_use", id: "t2", input: {} }],
+          },
+        },
+      ),
+    );
+    const [empty, missing] = log.events;
+    expect(empty?.kind === "tool" && empty.name).toBe("(unnamed tool)");
+    expect(missing?.kind === "tool" && missing.name).toBe("(unnamed tool)");
+  });
+
+  test("input 欠落の tool_use は空 object に倒す (下流の添字アクセス保護)", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "assistant",
+        timestamp: TS,
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "t1", name: "Bash" }],
+        },
+      }),
+    );
+    const tool = log.events[0];
+    expect(tool?.kind === "tool" && tool.input).toEqual({});
+  });
+
   test("tool_use と tool_result を tool_use_id でペア化する", () => {
     const log = parseSessionLog(
       jsonl(

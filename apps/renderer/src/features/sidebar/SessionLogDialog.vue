@@ -129,6 +129,7 @@ const footerSummary = computed<string>(() => {
   if (log === undefined) return "";
   const parts = [`${log.events.length} events`, `${log.totalLines} lines`];
   if (log.skipped > 0) parts.push(`${log.skipped} non-conversation hidden`);
+  if (log.emptyThinking > 0) parts.push(`${log.emptyThinking} empty thinking hidden`);
   if (log.malformed > 0) parts.push(`${log.malformed} malformed`);
   return parts.join(" · ");
 });
@@ -459,14 +460,21 @@ function onDialogClick(event: MouseEvent) {
             <summary
               class="sticky top-0 z-10 flex cursor-pointer items-center gap-2 rounded-md bg-zinc-900 px-2 py-1 text-xs select-none hover:bg-zinc-800"
             >
-              <span class="font-mono font-semibold" :class="KIND_VISUAL[ev.kind].labelClass">
+              <span
+                class="shrink-0 font-mono font-semibold whitespace-nowrap"
+                :class="KIND_VISUAL[ev.kind].labelClass"
+              >
                 {{ KIND_VISUAL[ev.kind].label }}
               </span>
-              <span v-if="ev.kind === 'tool'" class="font-mono text-zinc-400">· {{ ev.name }}</span>
+              <span
+                v-if="ev.kind === 'tool'"
+                class="shrink-0 font-mono whitespace-nowrap text-zinc-400"
+                >{{ ev.name }}</span
+              >
               <SessionLogToolArg v-if="ev.kind === 'tool'" :input="ev.input" />
               <span
                 v-if="ev.kind === 'tool' && ev.result?.isError"
-                class="rounded-sm bg-red-500/20 px-1 text-[10px] text-red-300"
+                class="shrink-0 rounded-sm bg-red-500/20 px-1 text-[10px] whitespace-nowrap text-red-300"
                 >error</span
               >
               <span class="ml-auto shrink-0 text-[10px] text-zinc-600 tabular-nums">{{

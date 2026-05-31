@@ -528,7 +528,7 @@ function onDialogClick(event: MouseEvent) {
                    一段明るい zinc-700 を渡し、preview と同じ「地 < code」の明度順を保つ。 -->
               <div
                 v-if="ev.kind === 'assistant'"
-                class="max-w-[75%] min-w-0 rounded-2xl rounded-tl-sm bg-zinc-800 px-3 py-1.5 text-sm text-zinc-100 [--md-code-bg:var(--color-zinc-700)]"
+                class="min-w-0 rounded-2xl rounded-tl-sm bg-zinc-800 px-3 py-1.5 text-sm text-zinc-100 [--md-code-bg:var(--color-zinc-700)]"
               >
                 <MarkdownBody
                   :content="ev.text"
@@ -542,7 +542,7 @@ function onDialogClick(event: MouseEvent) {
                    (zinc-900 地) で面が主張しすぎないよう緑は一段暗い green-800 に抑える。 -->
               <div
                 v-else-if="ev.kind === 'user'"
-                class="max-w-[75%] rounded-2xl rounded-tr-sm bg-green-800 px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-green-50"
+                class="min-w-0 rounded-2xl rounded-tr-sm bg-green-800 px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-green-50"
               >
                 {{ ev.text }}
               </div>

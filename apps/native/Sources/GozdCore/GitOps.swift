@@ -654,6 +654,27 @@ public enum GitOps {
     return try parseLsTree(stdout)
   }
 
+  /// active worktree の現在 branch を指定コミットへ `git reset --mixed <hash>` で移動する。
+  ///
+  /// `--mixed` は branch ref を <hash> に動かし index を <hash> に reset するが working tree の
+  /// ファイルは書き換えない。git-graph の commit 行の右クリックメニューから呼ぶ。
+  ///
+  /// hash は `lsTree` と同じ規律で検証する: 空文字 / all-zero hex (UNCOMMITTED_HASH) を reject し、
+  /// `validateRev` で `-` 始まり (option 注入) / 非 hex を弾く。working tree への reset は意味を
+  /// 持たないため renderer は commit 行以外でこの RPC を呼ばない契約だが、入口で構造的に守る。
+  public static func resetMixed(dir: String, hash: String) async throws {
+    if hash.isEmpty {
+      throw GitError.unexpectedOutput("git reset: hash must be specified")
+    }
+    if isAllZeroHex(hash) {
+      throw GitError.unexpectedOutput(
+        "git reset: all-zero hash (UNCOMMITTED_HASH) is not a valid commit")
+    }
+    try validateRev(hash)
+    // `--` で hash を pathspec から分離し、option / pathspec 誤解釈の余地を残さない。
+    _ = try await runGit(args: ["reset", "--mixed", hash, "--"], cwd: dir)
+  }
+
   /// 単一行の blame 結果。`git blame --porcelain -L <line>,<line> [<rev>] -- <relPath>` を
   /// 1 行ぶんに絞ってヘッダ + メタ行のみを parse する。
   ///

@@ -9,12 +9,19 @@ Git commit graph showing the current worktree branch and the default branch.
 - Graph layout reserves lane 0 for the Working Tree connector; commit lanes start from lane 1
 - CommitDetailPane is shown as a toggleable right pane inside the graph
 - Commits are stored in `useGitGraphStore` and shared with ChangesPane
+
+## 右クリックメニュー
+
+commit 行を右クリックすると `CommitContextMenu` (singleton popover) が開き、「Reset (mixed) to here」で
+その commit へ `git reset --mixed` を実行する。`dir` / `hash` は右クリック時点で snapshot し、`pointerup`
+once-capture で WebKit の light-dismiss を回避する。内部仕様は `useCommitContextMenu.ts` の docstring を
+SSOT として参照する。Working Tree 行はメニュー対象外。
 </doc>
 
 <script setup lang="ts">
 import type { GitCommit, GitPullRequest } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
-import { useElementSize, useIntervalFn } from "@vueuse/core";
+import { useElementSize, useEventListener, useIntervalFn } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
@@ -31,6 +38,7 @@ import {
   useGitStatusStore,
   useWorktreeStore,
 } from "../worktree";
+import CommitContextMenu from "./CommitContextMenu.vue";
 import CommitDetailPane from "./CommitDetailPane.vue";
 import CommitSegmentList from "./CommitSegmentList";
 import type { DisplayRef } from "./displayRef";
@@ -42,6 +50,7 @@ import { mergeCommitStreams } from "./mergeCommitStreams";
 import type { SortMode } from "./mergeCommitStreams";
 import RefBadge from "./RefBadge.vue";
 import { rpcGitGithubIdentity, rpcGitLog } from "./rpc";
+import { useCommitContextMenu } from "./useCommitContextMenu";
 import { useGitGraphStore } from "./useGitGraphStore";
 
 const rootRef = useTemplateRef<HTMLElement>("root");
@@ -794,11 +803,103 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 function onRowClick(hash: string, e: MouseEvent) {
+  // macOS WebKit は control+click を button=0 の click として dispatch する
+  // (webkit bugzilla 52174)。contextmenu と一緒に通常 click も発火するため、control+click は
+  // context menu trigger の意図として選択変更には倒さず contextmenu 経路に委譲する。
+  if (e.ctrlKey) return;
   if (e.shiftKey) {
     gitGraphStore.selectCompare(hash);
   } else {
     gitGraphStore.select(hash);
   }
+}
+
+// --- commit 行の右クリックメニュー (Reset mixed) ---
+
+const { open: openCommitContextMenu } = useCommitContextMenu();
+
+type PendingCommitMenu = {
+  anchorEl: HTMLElement;
+  dir: string;
+  hash: string;
+  x: number;
+  y: number;
+};
+
+/**
+ * 右クリックで積まれる pending open。次の `pointerup` で処理して open する。連打時は最後の
+ * 右クリックが pending を上書きする (popover singleton の openState 上書き semantics と整合)。
+ */
+const pendingCommitMenu = ref<PendingCommitMenu | null>(null);
+
+/**
+ * window 全体に常設する `pointerup` capture listener。pending が積まれていれば消化して open する。
+ *
+ * **不変条件 (実装変更時に必読、`useCommitContextMenu.ts` の docstring と同期して維持する)**:
+ * - `setTimeout(0)` / `requestAnimationFrame` / `queueMicrotask` 等の defer は WebKit (WebPage) の
+ *   `popover="auto"` light-dismiss を **抜けない** (実機検証済)。続く mouseup が popover に到達して
+ *   即 dismiss される (whatwg/html#10905)
+ * - `pointerup` を `capture: true` で window に貼ると、popover が show される **前** に listener が
+ *   pointerup を消化する → 続く mouseup は popover open 前の press cycle として扱われ
+ *   light-dismiss の対象外になる。`{ capture: true }` を外したり pointerdown / mousedown 経路に
+ *   変えてはならない
+ * - `event.button` filter を入れてはならない。macOS WebKit は control+click を button=0 として
+ *   dispatch する (webkit bugzilla 52174) ため、control+click 経由の native context menu 経路で
+ *   menu が開かなくなる。pending ref そのものが「直前に contextmenu があった」flag を兼ねる
+ * - `pointerdown` で pending を reset する経路を追加してはならない。右クリック sequence
+ *   (pointerdown → contextmenu → pointerup) では右ボタン pointerdown が `onCommitContextMenu` の
+ *   pending 積みより前に終わるため単体では破綻しないが、pending が積まれた状態で別経路の
+ *   pointerdown (例: 左 click) が来ると pending を即消去し、次の pointerup での消化が起きなく
+ *   なる。状態遷移を pointerup のみで完結させる現設計を維持する
+ * - keyboard 経路 (Shift+F10 / Apps key) と programmatic dispatch は pointerup が発火しないため
+ *   menu は開かない (本対応の責務外)
+ *
+ * `useEventListener` を setup 直下で呼ぶことで effect scope に紐付き、unmount / HMR で自動 cleanup
+ * される。
+ */
+useEventListener(
+  window,
+  "pointerup",
+  () => {
+    const pending = pendingCommitMenu.value;
+    if (!pending) return;
+    pendingCommitMenu.value = null;
+    if (!pending.anchorEl.isConnected) {
+      notify.debug("[CommitContextMenu] anchor disconnected before open, skipping", {
+        hash: pending.hash,
+      });
+      return;
+    }
+    openCommitContextMenu(pending.anchorEl, {
+      dir: pending.dir,
+      hash: pending.hash,
+      x: pending.x,
+      y: pending.y,
+    });
+  },
+  { capture: true },
+);
+
+/**
+ * commit 行の右クリックで pending を積む。`dir` / `hash` は本関数の同期実行時点で snapshot し、
+ * pointerup 待機中に worktree 切替 / commit 選択切替 / git log 再取得が起きても、その右クリック
+ * 時点の値を popover context に焼き付ける (Working Tree 行はメニュー対象外なので hash は必ず実 commit)。
+ */
+function onCommitContextMenu(hash: string, e: MouseEvent) {
+  if (!(e.currentTarget instanceof HTMLElement)) return;
+  e.preventDefault();
+  const dir = worktreeStore.dir;
+  if (dir === undefined) {
+    notify.debug("[CommitContextMenu] no active worktree, skipping", { hash });
+    return;
+  }
+  pendingCommitMenu.value = {
+    anchorEl: e.currentTarget,
+    dir,
+    hash,
+    x: e.clientX,
+    y: e.clientY,
+  };
 }
 
 /**
@@ -1039,6 +1140,7 @@ const isWorkingTreeActive = computed(
               :class="rowHighlightClass(node.commit.hash)"
               :style="{ height: `${ROW_HEIGHT}px` }"
               @click="onRowClick(node.commit.hash, $event)"
+              @contextmenu="onCommitContextMenu(node.commit.hash, $event)"
             >
               <!-- Graph spacer -->
               <div class="shrink-0" :style="{ width: `${graphColumnWidth}px` }" />
@@ -1116,5 +1218,8 @@ const isWorkingTreeActive = computed(
         </div>
       </template>
     </div>
+
+    <!-- commit 行の右クリックメニュー (Reset mixed) -->
+    <CommitContextMenu />
   </div>
 </template>

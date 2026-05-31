@@ -339,6 +339,23 @@ message GitLogLineResponse {
   repeated GitCommit commits = 1;
 }
 
+// gitResetMixed: active worktree の現在 branch を指定コミットへ `git reset --mixed <hash>` で移動する。
+//
+// git-graph の commit 行の右クリックメニュー「Reset (mixed) to here」から呼ぶ。
+// `--mixed` は branch ref を <hash> に移動し index を <hash> の状態に reset するが、
+// working tree のファイルは一切書き換えない (reflog で復元可能な soft な操作)。
+//
+// hash は `validateRev` に通して option 注入 (`-` 始まり) / 非 hex を reject し、
+// `isAllZeroHex` で UNCOMMITTED_HASH (working tree sentinel) を弾く。working tree への
+// reset は意味を持たないため、renderer は commit 行以外でこの RPC を呼ばない契約。
+// branch ref / index の変化は per-worktree FSWatch が拾い gitStatusChange / branchChange
+// push 経由で git-graph が自動再描画するため、response に追加データは載せない。
+message GitResetMixedRequest {
+  string dir = 1;
+  string hash = 2;
+}
+message GitResetMixedResponse {}
+
 // gitLsTree: 指定コミットの tree から 1 階層分のエントリを返す。
 //
 // filer の snapshot mode (git-graph でコミット選択中) が呼ぶ。`git ls-tree -z <hash> <path>/`

@@ -9,6 +9,10 @@
 // attachment / progress / system / permission-mode 等の非会話レコードは transcript には
 // 載せず、件数だけ ParsedSessionLog.skipped に集計して観察可能性を残す
 // (silent drop 禁止規律: 落とした事実を呼び出し元が UI で示せるようにする)。
+//
+// 平文の無い thinking (最新モデルの暗号化 signature のみ / フィールド欠落) も載せないが、
+// これは非会話レコードではなく会話イベントの一種なので skipped と混ぜず emptyThinking に
+// 別集計する。footer は両者を別ラベルで示し、件数の意味を 1:1 に保つ。
 
 import { tryCatch } from "@gozd/shared";
 
@@ -19,13 +23,17 @@ interface TextBlock {
 }
 interface ThinkingBlock {
   type: "thinking";
-  thinking: string;
+  // 信頼境界外の入力。最新モデルは平文を残さず空文字を書き、フィールド自体が欠落する
+  // ケースも型では排除できないため optional 扱いにする。
+  thinking?: string;
 }
 interface ToolUseBlock {
   type: "tool_use";
   id: string;
-  name: string;
-  input: Record<string, unknown>;
+  // 信頼境界外の入力。空文字・フィールド欠落は型で排除できないため optional 扱いにする。
+  name?: string;
+  // 欠落すると下流の SessionLogToolArg が input[key] で実行時エラーになるため optional 扱い。
+  input?: Record<string, unknown>;
 }
 interface ToolResultBlock {
   type: "tool_result";
@@ -112,6 +120,12 @@ export interface ParsedSessionLog {
   malformed: number;
   /** transcript に載せなかった非会話レコード数 (attachment / system 等) */
   skipped: number;
+  /**
+   * 平文が無く載せなかった thinking ブロック数。会話イベントだが表示できる中身が無い
+   * (最新モデルは暗号化 signature だけを書き thinking は空 / 欠落)。非会話レコードの
+   * skipped とは性質が異なるため別カウンタにし、footer で別ラベル表示する。
+   */
+  emptyThinking: number;
 }
 
 /**
@@ -147,6 +161,7 @@ export function parseSessionLog(jsonl: string): ParsedSessionLog {
   let totalLines = 0;
   let malformed = 0;
   let skipped = 0;
+  let emptyThinking = 0;
 
   const lines = jsonl.split("\n");
   for (const line of lines) {
@@ -218,19 +233,22 @@ export function parseSessionLog(jsonl: string): ParsedSessionLog {
           events.push({ kind: "assistant", text: block.text, ts });
         } else if (block.type === "thinking") {
           // 最新モデル (opus-4-8 / sonnet-4-6 等) は思考の平文を transcript に残さず
-          // 暗号化 signature だけを書く。この場合 thinking は空文字になる。表示できる
-          // 中身が無い thinking は空ブロックとして並べず skipped に計上する
-          // (件数は footer で観察可能なまま残す)。
-          if (block.thinking === "") {
-            skipped++;
+          // 暗号化 signature だけを書く。この場合 thinking は空文字 / フィールド欠落になる。
+          // 判定は signature の有無ではなく「表示できる平文があるか」で行う。平文が無ければ
+          // 空ブロックとして並べず emptyThinking に計上する (件数は footer で観察可能)。
+          if (block.thinking === undefined || block.thinking === "") {
+            emptyThinking++;
           } else {
             events.push({ kind: "thinking", text: block.thinking, ts });
           }
         } else if (block.type === "tool_use") {
           const tool: Extract<TranscriptEvent, { kind: "tool" }> = {
             kind: "tool",
-            name: block.name,
-            input: block.input,
+            // 見出しの中黒区切りを廃したため、空名だと TOOL ラベルだけになり種別が消える。
+            // 信頼境界外ログの空名 / 欠落は可視マーカーに倒して種別を必ず描画する。
+            name: block.name === undefined || block.name === "" ? "(unnamed tool)" : block.name,
+            // input 欠落は下流の添字アクセス (input[key]) を実行時エラーにするため空 object に倒す。
+            input: block.input ?? {},
             toolUseId: block.id,
             ts,
             result: undefined,
@@ -252,5 +270,5 @@ export function parseSessionLog(jsonl: string): ParsedSessionLog {
     skipped++;
   }
 
-  return { events, totalLines, malformed, skipped };
+  return { events, totalLines, malformed, skipped, emptyThinking };
 }

@@ -129,6 +129,7 @@ const footerSummary = computed<string>(() => {
   if (log === undefined) return "";
   const parts = [`${log.events.length} events`, `${log.totalLines} lines`];
   if (log.skipped > 0) parts.push(`${log.skipped} non-conversation hidden`);
+  if (log.emptyThinking > 0) parts.push(`${log.emptyThinking} empty thinking hidden`);
   if (log.malformed > 0) parts.push(`${log.malformed} malformed`);
   return parts.join(" · ");
 });

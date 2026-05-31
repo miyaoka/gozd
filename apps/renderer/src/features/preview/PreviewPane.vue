@@ -20,6 +20,8 @@
   範囲選択時は `commits` 配列の index で時系列順に整列し（クリック順非依存）、older 側を Original、newer 側を Current に固定する
 - fsChange メッセージで選択中ファイルをリアクティブに再取得（uncommitted モードのみ）
 - バージョンカウンターで非同期レースを防止
+- 表示中ファイルが削除され current が notFound になったとき、HEAD にも内容が無ければ（未追跡ファイルの削除等）
+  `usePreviewStore.closeForMissingSelection` で選択解除 + close する。追跡下削除は HEAD に残るため維持
 
 ## ヘッダの back / forward ボタン
 
@@ -47,6 +49,7 @@ import ImagePreview from "./ImagePreview.vue";
 import MarkdownPreview from "./MarkdownPreview.vue";
 import { previewFontFamily, previewFontSize } from "./previewConfig";
 import { rpcGitShowCommitFile, rpcGitShowFile } from "./rpc";
+import { shouldCloseForMissingFile } from "./shouldCloseForMissingFile";
 import { useBlamePopover } from "./useBlamePopover";
 import { useMarkdownHistoryStore } from "./useMarkdownHistoryStore";
 import { usePreviewStore } from "./usePreviewStore";
@@ -285,6 +288,47 @@ async function fetchContent(sel: Selection, gitChange: GitChangeKind | undefined
   }
 
   const [currentResult, originalResult] = fetchResult.value;
+
+  // 表示中ファイルが消えたかの判定: current (作業ツリー) が notFound で HEAD にも内容が無いなら、
+  // 「実体がどこにも残っていない」= 未追跡ファイルの削除等。選択解除して preview を閉じる。
+  // 単一ファイル削除も親ディレクトリごとの削除も、同じ fsChange → 再 fetch → notFound 経路で拾う
+  // (FSWatcher は FileEvents flag 付きで配下ファイル単位の削除イベントを出すため)。
+  //
+  // 閉じるかの論理判定 (summary / kind / current / HEAD) は shouldCloseForMissingFile に一本化する。
+  // ここでは HEAD 在否確定の RPC を「撃つ価値がある最小条件」= summary 非表示 かつ worktreeRelative
+  // かつ current notFound かつ未取得、のときだけ撃つ (無駄撃ち回避)。RPC ガードは純粋関数が閉じうる
+  // 前提のうち副作用回避に効くものだけを写し、最終判定は純粋関数に委ねる。それ以外は HEAD 在否を
+  // 見るまでもなく閉じないので originalMissing=false に倒す。
+  const currentNotFound = currentResult?.notFound ?? false;
+  let originalMissing: boolean;
+  if (originalResult !== undefined) {
+    originalMissing = originalResult.notFound;
+  } else if (!summaryStore.enabled && currentNotFound && sel.kind === "worktreeRelative") {
+    // original 未取得 (untracked / clean tracked) かつ current 消失。HEAD 在否を直接確定する。
+    // git status の push が fsChange より遅れて selectedGitChange がまだ deleted に変わっていない
+    // race でも、HEAD に在れば追跡下なので閉じない (直後の gitStatusChange が Original 表示へ倒す)。
+    const head = await tryCatch(rpcGitShowFile({ dir, relPath: sel.relPath }));
+    if (version !== fetchVersion) return;
+    // native は HEAD 不在も git 実行失敗も notFound=true に畳んで返す (fileReadResultFromGit)。
+    // よって HEAD 不在は head.ok===true && notFound===true で表現される。head.ok===false は
+    // transport/dispatch 層の失敗のみで、不在を確定できないため閉じない (notFound 表示へ倒す)。
+    originalMissing = head.ok ? (head.value.result?.notFound ?? false) : false;
+  } else {
+    // 閉じる候補でない (current 在 / 絶対パス) → HEAD を確定する必要がなく、不在ではない扱い
+    originalMissing = false;
+  }
+  if (
+    shouldCloseForMissingFile({
+      summaryEnabled: summaryStore.enabled,
+      selKind: sel.kind,
+      currentNotFound,
+      originalMissing,
+    })
+  ) {
+    loading.value = false;
+    previewStore.closeForMissingSelection();
+    return;
+  }
 
   isDirectory.value = currentResult?.isDirectory ?? false;
   isNotFound.value = currentResult?.notFound ?? false;

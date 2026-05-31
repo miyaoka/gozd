@@ -47,3 +47,24 @@ message ClaudeSessionRemoveByPtyResponse {
   // 場合は空文字。
   string removed_session_id = 1;
 }
+
+// Claude Code が ~/.claude/projects/<cwd エンコード>/<session_id>.jsonl に書き出した
+// セッションログ (JSONL) を読む。サイドバー task メニューの「セッションログ表示」用。
+//
+// cwd → ディレクトリ名のエンコード規則 (`/` `.` → `-` 等) は Claude 側の内部仕様で
+// 将来変わりうるため、renderer から cwd を渡して native でパス再構成する設計は取らない。
+// session_id は UUID で一意なので、native 側が ~/.claude/projects/*/<session_id>.jsonl を
+// glob 解決する。これにより fork で別ファイルに分裂したセッションも自分の session_id を
+// ファイル名に持つ 1 ファイルとして確実に引ける。
+message ClaudeSessionLogRequest {
+  string session_id = 1;
+}
+
+message ClaudeSessionLogResponse {
+  // glob で該当ファイルが見つかったか。未起動 / cleanup 済みセッションでは false。
+  bool found = 1;
+  // 解決した jsonl の絶対パス。found=false なら空文字。
+  string path = 2;
+  // jsonl の生内容 (改行区切り)。parse は renderer 側が担う。found=false なら空文字。
+  string content = 3;
+}

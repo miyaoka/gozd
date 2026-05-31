@@ -401,6 +401,8 @@ public actor RpcDispatcher {
       return try await handleClaudeSessionListByDir(body)
     case "/claudeSession/removeByPty":
       return try await handleClaudeSessionRemoveByPty(body)
+    case "/claudeSession/readLog":
+      return try handleClaudeSessionReadLog(body)
     default:
       throw RpcError.unknownPath(path)
     }
@@ -1091,6 +1093,16 @@ public actor RpcDispatcher {
     let sessions = try await claudeSessions.savedSessions(for: req.dir)
     var resp = Gozd_V1_ClaudeSessionListByDirResponse()
     resp.sessions = sessions
+    return try resp.jsonUTF8Data()
+  }
+
+  private func handleClaudeSessionReadLog(_ body: Data) throws -> Data {
+    let req = try Gozd_V1_ClaudeSessionLogRequest(jsonUTF8Data: body)
+    let result = ClaudeSessionLog.read(sessionId: req.sessionID)
+    var resp = Gozd_V1_ClaudeSessionLogResponse()
+    resp.found = result.found
+    resp.path = result.path
+    resp.content = result.content
     return try resp.jsonUTF8Data()
   }
 

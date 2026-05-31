@@ -14,27 +14,27 @@ renderer（Vue / WebKit）と native（Swift）間の通信。`.proto` を SSOT 
 
 `.proto` ファイルはドメインごとに分割。現状の構成:
 
-| ファイル               | 担当                                                               |
-| ---------------------- | ------------------------------------------------------------------ |
-| `pty.proto`            | PTY spawn / write / resize / kill / data / exit                    |
-| `fs.proto`             | fs readDir / readFile / watch / unwatch                            |
-| `fs_extra.proto`       | fs writeFile / readFileAbsolute / stat                             |
-| `git_ops.proto`        | git log / diff / show / commit / worktree / pr / issue / viewer 等 |
-| `git_status.proto`     | git status                                                         |
-| `task.proto`           | Task の add / update                                               |
-| `app_state.proto`      | window frame / sidebar repos / selected dir 等のグローバル状態     |
-| `app_config.proto`     | ユーザー設定（terminal / preview / voicevox）                      |
-| `project_config.proto` | プロジェクト固有設定（worktreeSymlinks 等）                        |
-| `claude_session.proto` | Claude session の listByDir / removeByPty                          |
-| `voicevox.proto`       | VOICEVOX engine の launch / check / listSpeakers / speak           |
-| `shell_command.proto`  | `gozd` CLI の install / uninstall                                  |
-| `window.proto`         | window close / setTitleContext                                     |
-| `open_external.proto`  | `open` コマンド経由の外部 URL / app open                           |
-| `open_target.proto`    | open dialog (pickAndOpen)                                          |
-| `echo.proto`           | デバッグ用 echo                                                    |
-| `events.proto`         | push event (FsChangeEvent / GitStatusChangeEvent 等)               |
-| `client_message.proto` | CLI / Claude hooks → native の `ClientMessage` oneof               |
-| `common.proto`         | 共有型（WorktreeEntry / Task / GhRef / GitFileChange 等）          |
+| ファイル               | 担当                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------- |
+| `pty.proto`            | PTY spawn / write / resize / kill / data / exit                                 |
+| `fs.proto`             | fs readDir / readFile / watch / unwatch                                         |
+| `fs_extra.proto`       | fs writeFile / readFileAbsolute / stat                                          |
+| `git_ops.proto`        | git log / diff / show / commit / worktree / pr / issue / viewer 等              |
+| `git_status.proto`     | git status                                                                      |
+| `task.proto`           | Task の add / update                                                            |
+| `app_state.proto`      | window frame / sidebar repos / selected dir 等のグローバル状態                  |
+| `app_config.proto`     | ユーザー設定（terminal / preview / voicevox）                                   |
+| `project_config.proto` | プロジェクト固有設定（worktreeSymlinks 等）                                     |
+| `claude_session.proto` | Claude session の listByDir / removeByPty / readLog (セッションログ JSONL 取得) |
+| `voicevox.proto`       | VOICEVOX engine の launch / check / listSpeakers / speak                        |
+| `shell_command.proto`  | `gozd` CLI の install / uninstall                                               |
+| `window.proto`         | window close / setTitleContext                                                  |
+| `open_external.proto`  | `open` コマンド経由の外部 URL / app open                                        |
+| `open_target.proto`    | open dialog (pickAndOpen)                                                       |
+| `echo.proto`           | デバッグ用 echo                                                                 |
+| `events.proto`         | push event (FsChangeEvent / GitStatusChangeEvent 等)                            |
+| `client_message.proto` | CLI / Claude hooks → native の `ClientMessage` oneof                            |
+| `common.proto`         | 共有型（WorktreeEntry / Task / GhRef / GitFileChange 等）                       |
 
 新しい RPC を足すときは該当の `.proto` に request / response / event を追加して生成物を更新し、両言語の公開 API (`@gozd/proto` / `GozdProto`) 経由で利用する。dispatcher 側の path 登録手順などの内部実装ガイドは、native 層モジュール内 README を参照する。
 

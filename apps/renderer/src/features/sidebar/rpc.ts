@@ -1,5 +1,7 @@
 // sidebar が使う RPC wrapper。worktree / task を集約する。
 import {
+  ClaudeSessionLogRequest,
+  ClaudeSessionLogResponse,
   CreateWorktreeRequest,
   CreateWorktreeResponse,
   GitDefaultBranchRequest,
@@ -57,6 +59,13 @@ export const rpcTaskSetUserTitle = (req: TaskSetUserTitleRequest) =>
 // ⋮ メニューからの明示削除。worktree 削除 cascade と並ぶ唯一のユーザー操作削除経路。
 export const rpcTaskRemove = (req: TaskRemoveRequest) =>
   rpc("/task/remove", req, TaskRemoveRequest, TaskRemoveResponse);
+
+// --- claude session log ---
+
+// task ⋮ メニューの「セッションログ表示」。session_id (UUID) を渡すと native が
+// ~/.claude/projects/*/<session_id>.jsonl を glob 解決して生 JSONL を返す。
+export const rpcClaudeSessionLog = (req: ClaudeSessionLogRequest) =>
+  rpc("/claudeSession/readLog", req, ClaudeSessionLogRequest, ClaudeSessionLogResponse);
 
 // --- app-state 永続化（sidebar repos / order / collapse の保存） ---
 

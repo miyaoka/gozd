@@ -50,6 +50,29 @@ export interface ClaudeSessionRemoveByPtyResponse {
   removedSessionId: string;
 }
 
+/**
+ * Claude Code が ~/.claude/projects/<cwd エンコード>/<session_id>.jsonl に書き出した
+ * セッションログ (JSONL) を読む。サイドバー task メニューの「セッションログ表示」用。
+ *
+ * cwd → ディレクトリ名のエンコード規則 (`/` `.` → `-` 等) は Claude 側の内部仕様で
+ * 将来変わりうるため、renderer から cwd を渡して native でパス再構成する設計は取らない。
+ * session_id は UUID で一意なので、native 側が ~/.claude/projects/* /<session_id>.jsonl を
+ * glob 解決する。これにより fork で別ファイルに分裂したセッションも自分の session_id を
+ * ファイル名に持つ 1 ファイルとして確実に引ける。
+ */
+export interface ClaudeSessionLogRequest {
+  sessionId: string;
+}
+
+export interface ClaudeSessionLogResponse {
+  /** glob で該当ファイルが見つかったか。未起動 / cleanup 済みセッションでは false。 */
+  found: boolean;
+  /** 解決した jsonl の絶対パス。found=false なら空文字。 */
+  path: string;
+  /** jsonl の生内容 (改行区切り)。parse は renderer 側が担う。found=false なら空文字。 */
+  content: string;
+}
+
 function createBaseClaudeSession(): ClaudeSession {
   return { worktreePath: "", sessionId: "", updatedAt: "" };
 }
@@ -480,6 +503,162 @@ export const ClaudeSessionRemoveByPtyResponse: MessageFns<ClaudeSessionRemoveByP
   fromPartial(object: DeepPartial<ClaudeSessionRemoveByPtyResponse>): ClaudeSessionRemoveByPtyResponse {
     const message = createBaseClaudeSessionRemoveByPtyResponse();
     message.removedSessionId = object.removedSessionId ?? "";
+    return message;
+  },
+};
+
+function createBaseClaudeSessionLogRequest(): ClaudeSessionLogRequest {
+  return { sessionId: "" };
+}
+
+export const ClaudeSessionLogRequest: MessageFns<ClaudeSessionLogRequest> = {
+  encode(message: ClaudeSessionLogRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.sessionId !== "") {
+      writer.uint32(10).string(message.sessionId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ClaudeSessionLogRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseClaudeSessionLogRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.sessionId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ClaudeSessionLogRequest {
+    return {
+      sessionId: isSet(object.sessionId)
+        ? globalThis.String(object.sessionId)
+        : isSet(object.session_id)
+        ? globalThis.String(object.session_id)
+        : "",
+    };
+  },
+
+  toJSON(message: ClaudeSessionLogRequest): unknown {
+    const obj: any = {};
+    if (message.sessionId !== "") {
+      obj.sessionId = message.sessionId;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ClaudeSessionLogRequest>): ClaudeSessionLogRequest {
+    return ClaudeSessionLogRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ClaudeSessionLogRequest>): ClaudeSessionLogRequest {
+    const message = createBaseClaudeSessionLogRequest();
+    message.sessionId = object.sessionId ?? "";
+    return message;
+  },
+};
+
+function createBaseClaudeSessionLogResponse(): ClaudeSessionLogResponse {
+  return { found: false, path: "", content: "" };
+}
+
+export const ClaudeSessionLogResponse: MessageFns<ClaudeSessionLogResponse> = {
+  encode(message: ClaudeSessionLogResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.found !== false) {
+      writer.uint32(8).bool(message.found);
+    }
+    if (message.path !== "") {
+      writer.uint32(18).string(message.path);
+    }
+    if (message.content !== "") {
+      writer.uint32(26).string(message.content);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ClaudeSessionLogResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseClaudeSessionLogResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.found = reader.bool();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.path = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.content = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ClaudeSessionLogResponse {
+    return {
+      found: isSet(object.found) ? globalThis.Boolean(object.found) : false,
+      path: isSet(object.path) ? globalThis.String(object.path) : "",
+      content: isSet(object.content) ? globalThis.String(object.content) : "",
+    };
+  },
+
+  toJSON(message: ClaudeSessionLogResponse): unknown {
+    const obj: any = {};
+    if (message.found !== false) {
+      obj.found = message.found;
+    }
+    if (message.path !== "") {
+      obj.path = message.path;
+    }
+    if (message.content !== "") {
+      obj.content = message.content;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ClaudeSessionLogResponse>): ClaudeSessionLogResponse {
+    return ClaudeSessionLogResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ClaudeSessionLogResponse>): ClaudeSessionLogResponse {
+    const message = createBaseClaudeSessionLogResponse();
+    message.found = object.found ?? false;
+    message.path = object.path ?? "";
+    message.content = object.content ?? "";
     return message;
   },
 };

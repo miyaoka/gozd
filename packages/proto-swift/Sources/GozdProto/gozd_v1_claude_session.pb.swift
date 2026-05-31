@@ -108,6 +108,45 @@ public struct Gozd_V1_ClaudeSessionRemoveByPtyResponse: Sendable {
   public init() {}
 }
 
+/// Claude Code が ~/.claude/projects/<cwd エンコード>/<session_id>.jsonl に書き出した
+/// セッションログ (JSONL) を読む。サイドバー task メニューの「セッションログ表示」用。
+///
+/// cwd → ディレクトリ名のエンコード規則 (`/` `.` → `-` 等) は Claude 側の内部仕様で
+/// 将来変わりうるため、renderer から cwd を渡して native でパス再構成する設計は取らない。
+/// session_id は UUID で一意なので、native 側が ~/.claude/projects/*/<session_id>.jsonl を
+/// glob 解決する。これにより fork で別ファイルに分裂したセッションも自分の session_id を
+/// ファイル名に持つ 1 ファイルとして確実に引ける。
+public struct Gozd_V1_ClaudeSessionLogRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var sessionID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Gozd_V1_ClaudeSessionLogResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// glob で該当ファイルが見つかったか。未起動 / cleanup 済みセッションでは false。
+  public var found: Bool = false
+
+  /// 解決した jsonl の絶対パス。found=false なら空文字。
+  public var path: String = String()
+
+  /// jsonl の生内容 (改行区切り)。parse は renderer 側が担う。found=false なら空文字。
+  public var content: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate let _protobuf_package = "gozd.v1"
@@ -302,6 +341,76 @@ extension Gozd_V1_ClaudeSessionRemoveByPtyResponse: SwiftProtobuf.Message, Swift
 
   public static func ==(lhs: Gozd_V1_ClaudeSessionRemoveByPtyResponse, rhs: Gozd_V1_ClaudeSessionRemoveByPtyResponse) -> Bool {
     if lhs.removedSessionID != rhs.removedSessionID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_ClaudeSessionLogRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ClaudeSessionLogRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.sessionID.isEmpty {
+      try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_ClaudeSessionLogRequest, rhs: Gozd_V1_ClaudeSessionLogRequest) -> Bool {
+    if lhs.sessionID != rhs.sessionID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_ClaudeSessionLogResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ClaudeSessionLogResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}found\0\u{1}path\0\u{1}content\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBoolField(value: &self.found) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.path) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.content) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.found != false {
+      try visitor.visitSingularBoolField(value: self.found, fieldNumber: 1)
+    }
+    if !self.path.isEmpty {
+      try visitor.visitSingularStringField(value: self.path, fieldNumber: 2)
+    }
+    if !self.content.isEmpty {
+      try visitor.visitSingularStringField(value: self.content, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_ClaudeSessionLogResponse, rhs: Gozd_V1_ClaudeSessionLogResponse) -> Bool {
+    if lhs.found != rhs.found {return false}
+    if lhs.path != rhs.path {return false}
+    if lhs.content != rhs.content {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

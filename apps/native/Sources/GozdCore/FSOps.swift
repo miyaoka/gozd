@@ -91,11 +91,20 @@ public enum FSOps {
         includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
         options: []
       )
-    } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
-      // ディレクトリが削除済み (ENOENT)。展開中のノードを削除すると watcher 経由で
-      // readDir が走るため、不在は期待状態として throw せず notFound を返す
-      // (readFile の notFound と同じ規律)。permission 等の他エラーは throw して 500 にする。
-      return FSReadDirResult(entries: [], notFound: true)
+    } catch {
+      // 列挙に失敗。対象がディレクトリとして存在するか「失敗後」に再確認する。
+      // 不在 (ENOENT) / ディレクトリでなくなった (ENOTDIR: 削除後に同名ファイルへ置換) なら
+      // 削除済みノードとして notFound を返す。展開中ノードの削除・置換は watcher 経由で
+      // readDir を走らせるため、これらは期待状態であり 500 にしない (readFile の notFound と
+      // 同じ規律)。事前 fileExists ではなく失敗後 recheck にすることで、存在チェックと列挙の
+      // 隙に削除される TOCTOU race を避ける。存在するディレクトリでの失敗 (permission 等) は
+      // 真の読み取りエラーなので rethrow して 500 にする。
+      var isDir: ObjCBool = false
+      let exists = FileManager.default.fileExists(atPath: target, isDirectory: &isDir)
+      if !exists || !isDir.boolValue {
+        return FSReadDirResult(entries: [], notFound: true)
+      }
+      throw error
     }
     // `.git` (directory / gitlink file 両方) はツリーから完全一致で除外する。
     // 仕様契約は docs/filer.md「除外エントリ」を参照。

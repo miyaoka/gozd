@@ -91,6 +91,40 @@ struct FSOpsReadDirTests {
     #expect(result.entries.isEmpty)
   }
 
+  @Test("ディレクトリが同名ファイルに置換された場合も notFound を返す")
+  func notFoundForDirReplacedByFile() async throws {
+    let dir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
+
+    // 展開中ディレクトリが削除後に同名ファイルへ置き換わったケース（ENOTDIR）
+    let replaced = (dir as NSString).appendingPathComponent("sub")
+    try "x".write(to: URL(fileURLWithPath: replaced), atomically: true, encoding: .utf8)
+
+    let result = try await FSOps.readDir(dir: dir, path: "sub")
+    #expect(result.notFound == true)
+    #expect(result.entries.isEmpty)
+  }
+
+  @Test("読み取り権限の無いディレクトリは notFound ではなく throw する")
+  func throwsForUnreadableDir() async throws {
+    let dir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
+
+    let locked = (dir as NSString).appendingPathComponent("locked")
+    try FileManager.default.createDirectory(
+      at: URL(fileURLWithPath: locked), withIntermediateDirectories: true)
+    // 読み取り不可にする。defer で戻して removeItem が成功するようにする。
+    try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked) }
+
+    do {
+      _ = try await FSOps.readDir(dir: dir, path: "locked")
+      Issue.record("expected readDir to throw for unreadable directory")
+    } catch {
+      // permission denied は真の読み取りエラーとして throw されるのが期待挙動
+    }
+  }
+
   @Test("dir 範囲外は拒否される")
   func rejectsTraversal() async throws {
     let dir = try makeTempDir()

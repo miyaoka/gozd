@@ -250,15 +250,18 @@ async function loadChildren() {
   // await 中に loadChildren が再度呼ばれた場合、この呼び出しの結果は破棄する
   if (mySeq !== loadSeq) return;
   if (!result.ok) {
-    // 削除ディレクトリの場合、readDir は失敗するので削除エントリのみ表示
-    const deletedEntries = getDeletedEntries(props.path, props.gitStatuses);
-    if (deletedEntries.length > 0) {
-      children.value = sortEntries(deletedEntries);
-    } else {
-      const label = isRoot.value ? "(worktree root)" : props.path;
-      notify.error(`Failed to read directory: ${label}`, result.error);
-      children.value = [];
-    }
+    // permission 等の真の読み取りエラー。ディレクトリ不在は native が notFound で返すため
+    // ここには来ない（エラートーストは出さない経路と分離）。
+    const label = isRoot.value ? "(worktree root)" : props.path;
+    notify.error(`Failed to read directory: ${label}`, result.error);
+    children.value = [];
+    loading.value = false;
+    return;
+  }
+  if (result.value.notFound) {
+    // ディレクトリが削除された。git 追跡下の削除エントリがあれば打ち消し線で表示し、
+    // untracked なら空にする。削除は期待挙動なのでエラートーストは出さない。
+    children.value = sortEntries(getDeletedEntries(props.path, props.gitStatuses));
     loading.value = false;
     return;
   }

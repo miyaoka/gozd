@@ -64,7 +64,7 @@ struct FSOpsReadDirTests {
     try FileManager.default.createDirectory(at: subDirURL, withIntermediateDirectories: true)
     try FileManager.default.createSymbolicLink(at: symlinkURL, withDestinationURL: fileURL)
 
-    let entries = try await FSOps.readDir(dir: dir, path: ".")
+    let entries = try await FSOps.readDir(dir: dir, path: ".").entries
     #expect(entries.count == 3)
     #expect(entries.contains(FSEntry(name: "a.txt", type: "file")))
     #expect(entries.contains(FSEntry(name: "sub", type: "directory")))
@@ -76,8 +76,19 @@ struct FSOpsReadDirTests {
     let dir = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
 
-    let entries = try await FSOps.readDir(dir: dir, path: ".")
+    let entries = try await FSOps.readDir(dir: dir, path: ".").entries
     #expect(entries.isEmpty)
+  }
+
+  @Test("存在しないディレクトリは throw せず notFound を返す")
+  func notFoundForMissingDir() async throws {
+    let dir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
+
+    // dir 配下の存在しないサブディレクトリ（削除済みノード相当）を読む
+    let result = try await FSOps.readDir(dir: dir, path: "gone")
+    #expect(result.notFound == true)
+    #expect(result.entries.isEmpty)
   }
 
   @Test("dir 範囲外は拒否される")
@@ -110,7 +121,7 @@ struct FSOpsReadDirTests {
       try "x".write(to: URL(fileURLWithPath: p), atomically: true, encoding: .utf8)
     }
 
-    let entries = try await FSOps.readDir(dir: dir, path: ".")
+    let entries = try await FSOps.readDir(dir: dir, path: ".").entries
     let names = Set(entries.map { $0.name })
     #expect(!names.contains(".git"))
     for name in [".gitignore", ".gitkeep", ".gitattributes", ".gita", "git", "agit"] {
@@ -131,7 +142,7 @@ struct FSOpsReadDirTests {
       try "x".write(to: URL(fileURLWithPath: p), atomically: true, encoding: .utf8)
     }
 
-    let entries = try await FSOps.readDir(dir: dir, path: ".")
+    let entries = try await FSOps.readDir(dir: dir, path: ".").entries
     let names = Set(entries.map { $0.name })
     #expect(!names.contains(".git"))
     for name in [".gitignore", ".gitkeep", ".gita"] {
@@ -155,7 +166,7 @@ struct FSOpsReadDirTests {
     let kept = (dir as NSString).appendingPathComponent("kept.txt")
     try "x".write(to: URL(fileURLWithPath: kept), atomically: true, encoding: .utf8)
 
-    let entries = try await FSOps.readDir(dir: dir, path: ".")
+    let entries = try await FSOps.readDir(dir: dir, path: ".").entries
     let nm = entries.first { $0.name == "node_modules" }
     let keptEntry = entries.first { $0.name == "kept.txt" }
     #expect(nm?.isIgnored == true)

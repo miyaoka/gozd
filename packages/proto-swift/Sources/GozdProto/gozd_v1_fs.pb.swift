@@ -102,6 +102,11 @@ public struct Gozd_V1_FsReadDirResponse: Sendable {
 
   public var entries: [Gozd_V1_FsReadDirEntry] = []
 
+  /// ディレクトリが存在しない（削除済み等）場合 true。読み取りエラー（permission 等）は
+  /// throw して 500 にするが、不在は期待状態として正常応答で返す（FsReadFileResponse の
+  /// not_found と同じ規律）。renderer は削除ノードとして扱い、エラートーストを出さない。
+  public var notFound: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -342,7 +347,7 @@ extension Gozd_V1_FsReadDirEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageI
 
 extension Gozd_V1_FsReadDirResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FsReadDirResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}entries\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}entries\0\u{3}not_found\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -351,6 +356,7 @@ extension Gozd_V1_FsReadDirResponse: SwiftProtobuf.Message, SwiftProtobuf._Messa
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeRepeatedMessageField(value: &self.entries) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.notFound) }()
       default: break
       }
     }
@@ -360,11 +366,15 @@ extension Gozd_V1_FsReadDirResponse: SwiftProtobuf.Message, SwiftProtobuf._Messa
     if !self.entries.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.entries, fieldNumber: 1)
     }
+    if self.notFound != false {
+      try visitor.visitSingularBoolField(value: self.notFound, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Gozd_V1_FsReadDirResponse, rhs: Gozd_V1_FsReadDirResponse) -> Bool {
     if lhs.entries != rhs.entries {return false}
+    if lhs.notFound != rhs.notFound {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

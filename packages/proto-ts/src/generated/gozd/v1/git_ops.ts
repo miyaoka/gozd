@@ -479,6 +479,27 @@ export interface GitLogLineResponse {
 }
 
 /**
+ * gitResetMixed: active worktree の現在 branch を指定コミットへ `git reset --mixed <hash>` で移動する。
+ *
+ * git-graph の commit 行の右クリックメニュー「Reset (mixed) to here」から呼ぶ。
+ * `--mixed` は branch ref を <hash> に移動し index を <hash> の状態に reset するが、
+ * working tree のファイルは一切書き換えない (reflog で復元可能な soft な操作)。
+ *
+ * hash は `validateRev` に通して option 注入 (`-` 始まり) / 非 hex を reject し、
+ * `isAllZeroHex` で UNCOMMITTED_HASH (working tree sentinel) を弾く。working tree への
+ * reset は意味を持たないため、renderer は commit 行以外でこの RPC を呼ばない契約。
+ * branch ref / index の変化は per-worktree FSWatch が拾い gitStatusChange / branchChange
+ * push 経由で git-graph が自動再描画するため、response に追加データは載せない。
+ */
+export interface GitResetMixedRequest {
+  dir: string;
+  hash: string;
+}
+
+export interface GitResetMixedResponse {
+}
+
+/**
  * gitLsTree: 指定コミットの tree から 1 階層分のエントリを返す。
  *
  * filer の snapshot mode (git-graph でコミット選択中) が呼ぶ。`git ls-tree -z <hash> <path>/`
@@ -3907,6 +3928,125 @@ export const GitLogLineResponse: MessageFns<GitLogLineResponse> = {
   fromPartial(object: DeepPartial<GitLogLineResponse>): GitLogLineResponse {
     const message = createBaseGitLogLineResponse();
     message.commits = object.commits?.map((e) => GitCommit.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseGitResetMixedRequest(): GitResetMixedRequest {
+  return { dir: "", hash: "" };
+}
+
+export const GitResetMixedRequest: MessageFns<GitResetMixedRequest> = {
+  encode(message: GitResetMixedRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    if (message.hash !== "") {
+      writer.uint32(18).string(message.hash);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitResetMixedRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitResetMixedRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.hash = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitResetMixedRequest {
+    return {
+      dir: isSet(object.dir) ? globalThis.String(object.dir) : "",
+      hash: isSet(object.hash) ? globalThis.String(object.hash) : "",
+    };
+  },
+
+  toJSON(message: GitResetMixedRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    if (message.hash !== "") {
+      obj.hash = message.hash;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitResetMixedRequest>): GitResetMixedRequest {
+    return GitResetMixedRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitResetMixedRequest>): GitResetMixedRequest {
+    const message = createBaseGitResetMixedRequest();
+    message.dir = object.dir ?? "";
+    message.hash = object.hash ?? "";
+    return message;
+  },
+};
+
+function createBaseGitResetMixedResponse(): GitResetMixedResponse {
+  return {};
+}
+
+export const GitResetMixedResponse: MessageFns<GitResetMixedResponse> = {
+  encode(_: GitResetMixedResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitResetMixedResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitResetMixedResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): GitResetMixedResponse {
+    return {};
+  },
+
+  toJSON(_: GitResetMixedResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitResetMixedResponse>): GitResetMixedResponse {
+    return GitResetMixedResponse.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<GitResetMixedResponse>): GitResetMixedResponse {
+    const message = createBaseGitResetMixedResponse();
     return message;
   },
 };

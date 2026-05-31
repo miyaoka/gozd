@@ -341,6 +341,8 @@ public actor RpcDispatcher {
       return try await handleGitCommitFiles(body)
     case "/git/lsTree":
       return try await handleGitLsTree(body)
+    case "/git/resetMixed":
+      return try await handleGitResetMixed(body)
     case "/git/prList":
       return try await handleGitPrList(body)
     case "/git/issueList":
@@ -863,6 +865,12 @@ public actor RpcDispatcher {
       return e
     }
     return try resp.jsonUTF8Data()
+  }
+
+  private func handleGitResetMixed(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitResetMixedRequest(jsonUTF8Data: body)
+    try await GitOps.resetMixed(dir: req.dir, hash: req.hash)
+    return try Gozd_V1_GitResetMixedResponse().jsonUTF8Data()
   }
 
   private func handleGitPrList(_ body: Data) async throws -> Data {

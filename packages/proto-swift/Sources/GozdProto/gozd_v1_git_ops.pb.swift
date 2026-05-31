@@ -855,6 +855,41 @@ public struct Gozd_V1_GitLogLineResponse: Sendable {
   public init() {}
 }
 
+/// gitResetMixed: active worktree の現在 branch を指定コミットへ `git reset --mixed <hash>` で移動する。
+///
+/// git-graph の commit 行の右クリックメニュー「Reset (mixed) to here」から呼ぶ。
+/// `--mixed` は branch ref を <hash> に移動し index を <hash> の状態に reset するが、
+/// working tree のファイルは一切書き換えない (reflog で復元可能な soft な操作)。
+///
+/// hash は `validateRev` に通して option 注入 (`-` 始まり) / 非 hex を reject し、
+/// `isAllZeroHex` で UNCOMMITTED_HASH (working tree sentinel) を弾く。working tree への
+/// reset は意味を持たないため、renderer は commit 行以外でこの RPC を呼ばない契約。
+/// branch ref / index の変化は per-worktree FSWatch が拾い gitStatusChange / branchChange
+/// push 経由で git-graph が自動再描画するため、response に追加データは載せない。
+public struct Gozd_V1_GitResetMixedRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var dir: String = String()
+
+  public var hash: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Gozd_V1_GitResetMixedResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 /// gitLsTree: 指定コミットの tree から 1 階層分のエントリを返す。
 ///
 /// filer の snapshot mode (git-graph でコミット選択中) が呼ぶ。`git ls-tree -z <hash> <path>/`
@@ -2364,6 +2399,60 @@ extension Gozd_V1_GitLogLineResponse: SwiftProtobuf.Message, SwiftProtobuf._Mess
 
   public static func ==(lhs: Gozd_V1_GitLogLineResponse, rhs: Gozd_V1_GitLogLineResponse) -> Bool {
     if lhs.commits != rhs.commits {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitResetMixedRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitResetMixedRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}hash\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.dir) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.hash) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.dir.isEmpty {
+      try visitor.visitSingularStringField(value: self.dir, fieldNumber: 1)
+    }
+    if !self.hash.isEmpty {
+      try visitor.visitSingularStringField(value: self.hash, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitResetMixedRequest, rhs: Gozd_V1_GitResetMixedRequest) -> Bool {
+    if lhs.dir != rhs.dir {return false}
+    if lhs.hash != rhs.hash {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitResetMixedResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitResetMixedResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitResetMixedResponse, rhs: Gozd_V1_GitResetMixedResponse) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -1365,11 +1365,124 @@ struct GitOpsLsTreeTests {
   }
 }
 
+@Suite("GitOps.resetMixed (integration)")
+struct GitOpsResetMixedTests {
+  @Test("空文字 hash は unexpectedOutput で reject")
+  func emptyHash() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    do {
+      try await GitOps.resetMixed(dir: dir.path, hash: "")
+      Issue.record("expected throw")
+    } catch GitError.unexpectedOutput(let msg) {
+      #expect(msg.contains("must be specified"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("UNCOMMITTED_HASH (all-zero hex) は明示 reject")
+  func allZeroHash() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    do {
+      try await GitOps.resetMixed(
+        dir: dir.path, hash: "0000000000000000000000000000000000000000")
+      Issue.record("expected throw")
+    } catch GitError.unexpectedOutput(let msg) {
+      #expect(msg.contains("all-zero"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("`-` 始まり hash は validateRev が option 注入として reject")
+  func dashHash() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    do {
+      try await GitOps.resetMixed(dir: dir.path, hash: "--hard")
+      Issue.record("expected throw")
+    } catch GitError.unexpectedOutput(let msg) {
+      #expect(msg.contains("leading '-'"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("存在しない hash は git の commandFailed で throw する (silent fallback しない)")
+  func nonExistentHash() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    // reset 対象がある状態を作る (空 repo だと別経路の fatal になり得るため)
+    try "seed".write(
+      to: dir.appendingPathComponent("seed.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "."], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "seed"], cwd: dir.path)
+
+    do {
+      try await GitOps.resetMixed(
+        dir: dir.path, hash: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+      Issue.record("expected throw")
+    } catch GitError.commandFailed {
+      // ok: git 自身が `fatal: ... unknown revision` で reject する
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("branch ref を移動し index を reset するが working tree は保持する")
+  func movesBranchResetsIndexPreservesWorkingTree() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    // c1: a.txt = "v1" のみ
+    let aURL = dir.appendingPathComponent("a.txt")
+    try "v1".write(to: aURL, atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "."], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c1"], cwd: dir.path)
+    let c1 = try await currentHeadHash(dir: dir.path)
+
+    // c2: a.txt を "v2" に書き換え、b.txt = "new" を追加
+    try "v2".write(to: aURL, atomically: true, encoding: .utf8)
+    try "new".write(
+      to: dir.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "."], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c2"], cwd: dir.path)
+
+    try await GitOps.resetMixed(dir: dir.path, hash: c1)
+
+    // branch ref が c1 へ移動した
+    #expect(try await currentHeadHash(dir: dir.path) == c1)
+
+    // working tree は c2 の状態のまま保持される (--mixed は working tree を触らない)
+    #expect(try String(contentsOf: aURL, encoding: .utf8) == "v2")
+    #expect(
+      try String(
+        contentsOf: dir.appendingPathComponent("b.txt"), encoding: .utf8) == "new")
+
+    // index は c1 へ reset される: a.txt は staged ではなく working tree 変更 ( M)、
+    // c1 に存在しない b.txt は untracked (??) に落ちる
+    let status = try await porcelainStatus(dir: dir.path)
+    #expect(status.contains(" M a.txt"))
+    #expect(status.contains("?? b.txt"))
+  }
+}
+
 // MARK: - Helpers
 
 private func currentHeadHash(dir: String) async throws -> String {
   let stdout = try await runGit(args: ["rev-parse", "HEAD"], cwd: dir)
   return String(decoding: stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+private func porcelainStatus(dir: String) async throws -> String {
+  let stdout = try await runGit(args: ["status", "--porcelain"], cwd: dir)
+  return String(decoding: stdout, as: UTF8.self)
 }
 
 private func makeTempDir() throws -> URL {

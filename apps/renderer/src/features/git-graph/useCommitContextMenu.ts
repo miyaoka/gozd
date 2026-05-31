@@ -20,7 +20,11 @@
  * されるため、`pointerup` が popover の show 前に消化されることで mouseup の dismiss 対象外に
  * 倒す。`{ capture: true }` を外したり pointerdown / mousedown 経路に変えてはならない。macOS の
  * control+click は button=0 として dispatch される (webkit bugzilla 52174) ため、pointerup 側に
- * `event.button` filter を入れてはならない。
+ * `event.button` filter を入れてはならない。`pointerdown` で pending を reset する経路も追加して
+ * はならない: 右クリック sequence (pointerdown → contextmenu → pointerup) では右ボタン pointerdown
+ * が pending 積みより前に終わるため単体では破綻しないが、pending が積まれた状態で別経路の
+ * pointerdown (例: 左 click) が来ると pending を即消去し、次の pointerup での消化が起きなくなる。
+ * 状態遷移を pointerup のみで完結させる現設計を維持する。
  *
  * 副作用: keyboard 経路 (Shift+F10 / Apps key) と programmatic dispatch は pointerup が発火
  * しないため menu を開かない。将来 keyboard ショートカット要件が出たら keybinding システム

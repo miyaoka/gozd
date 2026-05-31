@@ -846,6 +846,11 @@ const pendingCommitMenu = ref<PendingCommitMenu | null>(null);
  * - `event.button` filter を入れてはならない。macOS WebKit は control+click を button=0 として
  *   dispatch する (webkit bugzilla 52174) ため、control+click 経由の native context menu 経路で
  *   menu が開かなくなる。pending ref そのものが「直前に contextmenu があった」flag を兼ねる
+ * - `pointerdown` で pending を reset する経路を追加してはならない。右クリック sequence
+ *   (pointerdown → contextmenu → pointerup) では右ボタン pointerdown が `onCommitContextMenu` の
+ *   pending 積みより前に終わるため単体では破綻しないが、pending が積まれた状態で別経路の
+ *   pointerdown (例: 左 click) が来ると pending を即消去し、次の pointerup での消化が起きなく
+ *   なる。状態遷移を pointerup のみで完結させる現設計を維持する
  * - keyboard 経路 (Shift+F10 / Apps key) と programmatic dispatch は pointerup が発火しないため
  *   menu は開かない (本対応の責務外)
  *

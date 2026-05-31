@@ -295,14 +295,15 @@ async function fetchContent(sel: Selection, gitChange: GitChangeKind | undefined
   // (FSWatcher は FileEvents flag 付きで配下ファイル単位の削除イベントを出すため)。
   //
   // 閉じるかの論理判定 (summary / kind / current / HEAD) は shouldCloseForMissingFile に一本化する。
-  // ここでは HEAD 在否確定の RPC を「撃つ価値がある最小条件」= worktreeRelative かつ current notFound
-  // かつ未取得、のときだけ撃つ (無駄撃ち回避)。それ以外は HEAD 在否を見るまでもなく閉じないので
-  // originalMissing=false 相当に倒し、最終判定は純粋関数に委ねる。
+  // ここでは HEAD 在否確定の RPC を「撃つ価値がある最小条件」= summary 非表示 かつ worktreeRelative
+  // かつ current notFound かつ未取得、のときだけ撃つ (無駄撃ち回避)。RPC ガードは純粋関数が閉じうる
+  // 前提のうち副作用回避に効くものだけを写し、最終判定は純粋関数に委ねる。それ以外は HEAD 在否を
+  // 見るまでもなく閉じないので originalMissing=false に倒す。
   const currentNotFound = currentResult?.notFound ?? false;
   let originalMissing: boolean;
   if (originalResult !== undefined) {
     originalMissing = originalResult.notFound;
-  } else if (currentNotFound && sel.kind === "worktreeRelative") {
+  } else if (!summaryStore.enabled && currentNotFound && sel.kind === "worktreeRelative") {
     // original 未取得 (untracked / clean tracked) かつ current 消失。HEAD 在否を直接確定する。
     // git status の push が fsChange より遅れて selectedGitChange がまだ deleted に変わっていない
     // race でも、HEAD に在れば追跡下なので閉じない (直後の gitStatusChange が Original 表示へ倒す)。

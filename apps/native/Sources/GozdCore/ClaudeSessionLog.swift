@@ -51,7 +51,12 @@ public enum ClaudeSessionLog {
     for projectDir in projectDirs {
       let mainFile = projectDir.appendingPathComponent(mainFileName, isDirectory: false)
       guard fm.fileExists(atPath: mainFile.path) else { continue }
-      guard let mainContent = readText(at: mainFile) else { return .notFound }
+      guard let mainContent = readText(at: mainFile) else {
+        // ファイルは在るが読めない (UTF-8 decode 失敗等)。空 content で found=true を返すと
+        // parse 側が空セッションと誤認するため notFound に倒す。落とした事実は観察可能にする。
+        StderrLog.write(tag: "ClaudeSessionLog", "main jsonl decode failed: \(mainFile.path)")
+        return .notFound
+      }
 
       var entries: [ClaudeSessionLogEntry] = [
         ClaudeSessionLogEntry(
@@ -84,7 +89,12 @@ public enum ClaudeSessionLog {
       .sorted { $0.lastPathComponent < $1.lastPathComponent }
 
     return jsonlFiles.compactMap { file -> ClaudeSessionLogEntry? in
-      guard let content = readText(at: file) else { return nil }
+      guard let content = readText(at: file) else {
+        // main と非対称に当該 subagent だけ落とす (他 subagent は見せる) が、落とした
+        // 事実は silent にせず観察可能にする。
+        StderrLog.write(tag: "ClaudeSessionLog", "subagent jsonl decode failed: \(file.path)")
+        return nil
+      }
       // "agent-<agentId>.jsonl" → "<agentId>"
       let agentId = file.deletingPathExtension().lastPathComponent
         .replacingOccurrences(of: "agent-", with: "")
@@ -102,9 +112,13 @@ public enum ClaudeSessionLog {
   /// agent-<id>.jsonl に対応する agent-<id>.meta.json から agentType / description を読む。
   private static func readMeta(forAgentFile file: URL) -> (agentType: String, description: String) {
     let metaURL = file.deletingPathExtension().appendingPathExtension("meta.json")
+    // meta.json 不在は正常系 (古い subagent / 未生成) なので無言で空ラベルに倒す。
+    guard FileManager.default.fileExists(atPath: metaURL.path) else { return ("", "") }
+    // ファイルは在るのに読めない / parse 失敗は異常なので観察ログを残す。
     guard let data = try? Data(contentsOf: metaURL),
       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     else {
+      StderrLog.write(tag: "ClaudeSessionLog", "subagent meta decode failed: \(metaURL.path)")
       return ("", "")
     }
     let agentType = (obj["agentType"] as? String) ?? ""

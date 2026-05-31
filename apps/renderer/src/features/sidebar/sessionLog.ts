@@ -44,11 +44,21 @@ interface ImageBlock {
 }
 type ContentBlock = TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock | ImageBlock;
 
-/** image block を表示用 data URL にする。base64 source 以外は undefined。 */
+// ログファイルは外部プロセス (Claude Code) が書く信頼境界外の入力。media_type を
+// 既知の画像 MIME ホワイトリストで検証し、外れたら undefined (placeholder) に倒す。
+// 未知 / 破損 MIME を無検証で data URL に通さず、挙動を決定的にする。
+const ALLOWED_IMAGE_MEDIA_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+/** image block を表示用 data URL にする。既知 MIME の base64 source 以外は undefined。 */
 function imageSrc(block: ImageBlock): string | undefined {
   const source = block.source;
   if (source === undefined) return undefined;
-  if (source.type === "base64" && source.media_type !== undefined && source.data !== undefined) {
+  if (
+    source.type === "base64" &&
+    source.media_type !== undefined &&
+    source.data !== undefined &&
+    ALLOWED_IMAGE_MEDIA_TYPES.has(source.media_type)
+  ) {
     return `data:${source.media_type};base64,${source.data}`;
   }
   return undefined;

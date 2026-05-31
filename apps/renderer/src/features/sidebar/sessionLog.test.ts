@@ -219,6 +219,25 @@ describe("parseSessionLog", () => {
     expect(log.events).toEqual([{ kind: "image", ts: TS, src: "data:image/png;base64,AAAA" }]);
   });
 
+  test("ホワイトリスト外 media_type の base64 image は src=undefined", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: "image/svg+xml", data: "PHN2" },
+            },
+          ],
+        },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "image", ts: TS, src: undefined }]);
+  });
+
   test("base64 でない image block は src=undefined", () => {
     const log = parseSessionLog(
       jsonl({

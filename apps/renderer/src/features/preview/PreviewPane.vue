@@ -49,6 +49,7 @@ import ImagePreview from "./ImagePreview.vue";
 import MarkdownPreview from "./MarkdownPreview.vue";
 import { previewFontFamily, previewFontSize } from "./previewConfig";
 import { rpcGitShowCommitFile, rpcGitShowFile } from "./rpc";
+import { shouldCloseForMissingFile } from "./shouldCloseForMissingFile";
 import { useBlamePopover } from "./useBlamePopover";
 import { useMarkdownHistoryStore } from "./useMarkdownHistoryStore";
 import { usePreviewStore } from "./usePreviewStore";
@@ -290,13 +291,12 @@ async function fetchContent(sel: Selection, gitChange: GitChangeKind | undefined
 
   // 表示中ファイルが消えたかの判定: current (作業ツリー) が notFound で HEAD にも内容が無いなら、
   // 「実体がどこにも残っていない」= 未追跡ファイルの削除等。選択解除して preview を閉じる。
-  // 単一ファイル削除も親ディレクトリごとの削除も、同じ fsChange → 再 fetch → notFound 経路で拾う。
-  // summary view 表示中は単一ファイル選択の概念が無いため対象外 (summary を巻き込んで閉じない)。
-  if (
-    !summaryStore.enabled &&
-    sel.kind === "worktreeRelative" &&
-    (currentResult?.notFound ?? false)
-  ) {
+  // 単一ファイル削除も親ディレクトリごとの削除も、同じ fsChange → 再 fetch → notFound 経路で拾う
+  // (FSWatcher は FileEvents flag 付きで配下ファイル単位の削除イベントを出すため)。
+  // この if は HEAD 在否確定の RPC を無駄に撃たないための安価な前段ガード。閉じるかの最終判定は
+  // shouldCloseForMissingFile に集約する (SSOT)。
+  const currentNotFound = currentResult?.notFound ?? false;
+  if (!summaryStore.enabled && sel.kind === "worktreeRelative" && currentNotFound) {
     // original 未取得 (untracked / clean tracked) なら HEAD 在否を直接確定する。git status の
     // push が fsChange より遅れて selectedGitChange がまだ deleted に変わっていない race でも、
     // HEAD に在れば追跡下なので閉じない (直後の gitStatusChange が Original 表示へ倒す)。
@@ -306,10 +306,19 @@ async function fetchContent(sel: Selection, gitChange: GitChangeKind | undefined
     } else {
       const head = await tryCatch(rpcGitShowFile({ dir, relPath: sel.relPath }));
       if (version !== fetchVersion) return;
-      // RPC エラーは「不在」と断定しない (閉じずに notFound 表示へ倒す)
-      originalMissing = head.ok ? (head.value.result?.notFound ?? true) : false;
+      // native は HEAD 不在も git 実行失敗も notFound=true に畳んで返す (fileReadResultFromGit)。
+      // よって HEAD 不在は head.ok===true && notFound===true で表現される。head.ok===false は
+      // transport/dispatch 層の失敗のみで、不在を確定できないため閉じない (notFound 表示へ倒す)。
+      originalMissing = head.ok ? (head.value.result?.notFound ?? false) : false;
     }
-    if (originalMissing) {
+    if (
+      shouldCloseForMissingFile({
+        summaryEnabled: summaryStore.enabled,
+        selKind: sel.kind,
+        currentNotFound,
+        originalMissing,
+      })
+    ) {
       loading.value = false;
       previewStore.closeForMissingSelection();
       return;

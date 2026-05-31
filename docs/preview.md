@@ -108,7 +108,9 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 - IME 変換中の ESC（変換キャンセル）では閉じない
 - 表示中ファイルが削除されると自動クローズ。`fsChange` 再 fetch で current (作業ツリー) が notFound になったとき、PreviewPane は HEAD (`gitShowFile`) の在否も確認し、**current / HEAD いずれにも無い** (= 未追跡ファイルの削除等で実体がどこにも残っていない) と確定した場合のみ `closeForMissingSelection()` を呼んで選択解除 + close する。単一ファイル削除・ディレクトリごとの削除のどちらも同じ経路で拾う
   - git 追跡下の削除ファイルは HEAD に内容が残り Original を閲覧できる (削除レビュー用途) ため閉じない。`fsChange` が `gitStatusChange` より先に届き `selectedGitChange` がまだ `deleted` に変わっていない race でも、HEAD 在否を直接読むことで誤クローズしない (git status の push 順に依存しない)
-  - `gitShowFile` が RPC エラーを返した場合は「不在」と断定せず閉じない (notFound 表示に倒す)
+  - native (`fileReadResultFromGit`) は HEAD 不在も git 実行失敗も `notFound=true` に畳んで返すため、HEAD 不在は `gitShowFile` 応答の `notFound=true` で表現される。`gitShowFile` が transport/dispatch 層で失敗した (RPC 自体が reject した) ときのみ不在を確定できず閉じない (notFound 表示に倒す)
+  - 単一ファイル削除も親ディレクトリごとの削除も同じ経路で拾えるのは、FSWatcher が `kFSEventStreamCreateFlagFileEvents` 付きで配下ファイル単位の削除イベントを出し、その relDir が選択ファイルの親 relDir と一致するため（`apps/native/Sources/GozdCore/FSWatcher.swift`）
+  - close 判定の SSOT は純粋関数 `shouldCloseForMissingFile`（summary 表示中 / 絶対パス / current 在 のいずれかなら閉じない、を集約）。PreviewPane 側の if は HEAD 在否確定 RPC を無駄撃ちしないための前段ガード
 
 ## データ取得
 

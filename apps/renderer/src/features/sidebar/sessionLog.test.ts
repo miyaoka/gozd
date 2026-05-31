@@ -127,6 +127,44 @@ describe("parseSessionLog", () => {
     expect(log.skipped).toBe(1);
   });
 
+  test("task-notification / system-reminder 注入 string は載せず skipped に計上", () => {
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "user",
+          timestamp: TS,
+          message: {
+            role: "user",
+            content: "<task-notification>\n<task-id>abc</task-id>\n<result>done</result>",
+          },
+        },
+        {
+          type: "user",
+          timestamp: TS,
+          message: { role: "user", content: "<system-reminder>be careful</system-reminder>" },
+        },
+      ),
+    );
+    expect(log.events).toEqual([]);
+    expect(log.skipped).toBe(2);
+  });
+
+  test("先頭が注入タグでない通常発話は残す (タグが後ろに付くケース)", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content: "これを直して\n<system-reminder>noise</system-reminder>",
+        },
+      }),
+    );
+    expect(log.events).toEqual([
+      { kind: "user", text: "これを直して\n<system-reminder>noise</system-reminder>", ts: TS },
+    ]);
+  });
+
   test("親 tool_use が無い tool_result は捨てて skipped に計上", () => {
     const log = parseSessionLog(
       jsonl({
@@ -163,6 +201,36 @@ describe("parseSessionLog", () => {
     expect(log.events).toEqual([{ kind: "user", text: "ok", ts: TS }]);
     expect(log.malformed).toBe(1);
     expect(log.totalLines).toBe(2);
+  });
+
+  test("base64 image block を data URL の image イベントにする", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+          ],
+        },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "image", ts: TS, src: "data:image/png;base64,AAAA" }]);
+  });
+
+  test("base64 でない image block は src=undefined", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content: [{ type: "image", source: { type: "url", url: "https://x/y.png" } }],
+        },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "image", ts: TS, src: undefined }]);
   });
 
   test("空行は totalLines に数えない", () => {

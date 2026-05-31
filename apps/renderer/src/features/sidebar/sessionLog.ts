@@ -35,8 +35,24 @@ interface ToolResultBlock {
 }
 interface ImageBlock {
   type: "image";
+  // Anthropic Messages API の image source。base64 のみ data URL 化できる。
+  source?: {
+    type?: string;
+    media_type?: string;
+    data?: string;
+  };
 }
 type ContentBlock = TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock | ImageBlock;
+
+/** image block を表示用 data URL にする。base64 source 以外は undefined。 */
+function imageSrc(block: ImageBlock): string | undefined {
+  const source = block.source;
+  if (source === undefined) return undefined;
+  if (source.type === "base64" && source.media_type !== undefined && source.data !== undefined) {
+    return `data:${source.media_type};base64,${source.data}`;
+  }
+  return undefined;
+}
 
 interface RawMessage {
   role?: string;
@@ -50,12 +66,17 @@ interface RawLine {
   isMeta?: boolean;
 }
 
-// CLI が user レコードに注入するラッパー (slash command 起動 / ローカルコマンド出力)。
-// これらはユーザーの生発話ではないため USER ブロック / 目次に出さない。
-const COMMAND_INJECTION_RE =
-  /^\s*<(command-message|command-name|command-args|local-command-stdout|local-command-stderr)>/;
-function isCommandInjectionText(text: string): boolean {
-  return COMMAND_INJECTION_RE.test(text);
+// harness / CLI が user role で注入するラッパーで始まる string。これらはユーザーの
+// 生発話ではない (slash command 起動 / ローカルコマンド出力 / バックグラウンドタスク
+// 完了通知 / システムリマインダ) ため USER ブロック / 目次に出さない。
+//
+// `type:"user"` + content=string + isMeta:null の形で main loop に注入されるため、
+// isMeta フラグでは区別できず、先頭ラッパータグで判定する。実ユーザー発話はこれらの
+// タグで始まらない (リマインダ等は発話の後ろに付くため先頭一致しない)。
+const INJECTED_USER_WRAPPER_RE =
+  /^\s*<(command-message|command-name|command-args|local-command-stdout|local-command-stderr|task-notification|system-reminder)>/;
+function isInjectedUserText(text: string): boolean {
+  return INJECTED_USER_WRAPPER_RE.test(text);
 }
 
 /** transcript の 1 ブロック。discriminated union (kind で分岐) */
@@ -71,7 +92,7 @@ export type TranscriptEvent =
       ts: string;
       result: { text: string; isError: boolean } | undefined;
     }
-  | { kind: "image"; ts: string };
+  | { kind: "image"; ts: string; src: string | undefined };
 
 export interface ParsedSessionLog {
   events: TranscriptEvent[];
@@ -139,8 +160,8 @@ export function parseSessionLog(jsonl: string): ParsedSessionLog {
     if (raw.type === "user") {
       const content = raw.message?.content;
       if (typeof content === "string") {
-        // slash command 起動ラッパー等の注入 string は生発話ではないので除外する。
-        if (isCommandInjectionText(content)) {
+        // slash command / task-notification 等の注入 string は生発話ではないので除外する。
+        if (isInjectedUserText(content)) {
           skipped++;
           continue;
         }
@@ -164,7 +185,7 @@ export function parseSessionLog(jsonl: string): ParsedSessionLog {
               isError: block.is_error === true,
             };
           } else if (block.type === "image") {
-            events.push({ kind: "image", ts });
+            events.push({ kind: "image", ts, src: imageSrc(block) });
           }
         }
         continue;
@@ -195,6 +216,8 @@ export function parseSessionLog(jsonl: string): ParsedSessionLog {
           };
           toolById.set(block.id, tool);
           events.push(tool);
+        } else if (block.type === "image") {
+          events.push({ kind: "image", ts, src: imageSrc(block) });
         }
       }
       continue;

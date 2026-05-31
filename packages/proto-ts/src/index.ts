@@ -29,6 +29,7 @@ export {
   ClaudeSessionList,
   ClaudeSessionListByDirRequest,
   ClaudeSessionListByDirResponse,
+  ClaudeSessionLogEntry,
   ClaudeSessionLogRequest,
   ClaudeSessionLogResponse,
   ClaudeSessionRemoveByPtyRequest,

@@ -64,13 +64,31 @@ export interface ClaudeSessionLogRequest {
   sessionId: string;
 }
 
-export interface ClaudeSessionLogResponse {
-  /** glob で該当ファイルが見つかったか。未起動 / cleanup 済みセッションでは false。 */
-  found: boolean;
-  /** 解決した jsonl の絶対パス。found=false なら空文字。 */
+/** セッションログ 1 本分 (main または subagent)。parse は renderer 側が担う。 */
+export interface ClaudeSessionLogEntry {
+  /** "main" (本体セッション) または "subagent" (Task ツールで起動したサブエージェント)。 */
+  kind: string;
+  /** main は session_id、subagent は agent_id。 */
+  id: string;
+  /** subagent のラベル (meta.json の description)。main は空文字。 */
+  label: string;
+  /** subagent の agentType (meta.json)。main は空文字。 */
+  agentType: string;
+  /** jsonl の絶対パス。 */
   path: string;
-  /** jsonl の生内容 (改行区切り)。parse は renderer 側が担う。found=false なら空文字。 */
+  /** jsonl の生内容 (改行区切り)。 */
   content: string;
+}
+
+export interface ClaudeSessionLogResponse {
+  /** main の jsonl が glob で見つかったか。未起動 / cleanup 済みセッションでは false。 */
+  found: boolean;
+  /**
+   * entries[0] が main、残りが subagents (見つかった順)。found=false なら空。
+   * subagent は ~/.claude/projects/<encoded>/<session_id>/subagents/agent-*.jsonl に
+   * isSidechain ログとして並ぶ。main の projectDir を起点に列挙する。
+   */
+  entries: ClaudeSessionLogEntry[];
 }
 
 function createBaseClaudeSession(): ClaudeSession {
@@ -571,8 +589,152 @@ export const ClaudeSessionLogRequest: MessageFns<ClaudeSessionLogRequest> = {
   },
 };
 
+function createBaseClaudeSessionLogEntry(): ClaudeSessionLogEntry {
+  return { kind: "", id: "", label: "", agentType: "", path: "", content: "" };
+}
+
+export const ClaudeSessionLogEntry: MessageFns<ClaudeSessionLogEntry> = {
+  encode(message: ClaudeSessionLogEntry, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.kind !== "") {
+      writer.uint32(10).string(message.kind);
+    }
+    if (message.id !== "") {
+      writer.uint32(18).string(message.id);
+    }
+    if (message.label !== "") {
+      writer.uint32(26).string(message.label);
+    }
+    if (message.agentType !== "") {
+      writer.uint32(34).string(message.agentType);
+    }
+    if (message.path !== "") {
+      writer.uint32(42).string(message.path);
+    }
+    if (message.content !== "") {
+      writer.uint32(50).string(message.content);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ClaudeSessionLogEntry {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseClaudeSessionLogEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.kind = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.id = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.label = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.agentType = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.path = reader.string();
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.content = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ClaudeSessionLogEntry {
+    return {
+      kind: isSet(object.kind) ? globalThis.String(object.kind) : "",
+      id: isSet(object.id) ? globalThis.String(object.id) : "",
+      label: isSet(object.label) ? globalThis.String(object.label) : "",
+      agentType: isSet(object.agentType)
+        ? globalThis.String(object.agentType)
+        : isSet(object.agent_type)
+        ? globalThis.String(object.agent_type)
+        : "",
+      path: isSet(object.path) ? globalThis.String(object.path) : "",
+      content: isSet(object.content) ? globalThis.String(object.content) : "",
+    };
+  },
+
+  toJSON(message: ClaudeSessionLogEntry): unknown {
+    const obj: any = {};
+    if (message.kind !== "") {
+      obj.kind = message.kind;
+    }
+    if (message.id !== "") {
+      obj.id = message.id;
+    }
+    if (message.label !== "") {
+      obj.label = message.label;
+    }
+    if (message.agentType !== "") {
+      obj.agentType = message.agentType;
+    }
+    if (message.path !== "") {
+      obj.path = message.path;
+    }
+    if (message.content !== "") {
+      obj.content = message.content;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ClaudeSessionLogEntry>): ClaudeSessionLogEntry {
+    return ClaudeSessionLogEntry.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ClaudeSessionLogEntry>): ClaudeSessionLogEntry {
+    const message = createBaseClaudeSessionLogEntry();
+    message.kind = object.kind ?? "";
+    message.id = object.id ?? "";
+    message.label = object.label ?? "";
+    message.agentType = object.agentType ?? "";
+    message.path = object.path ?? "";
+    message.content = object.content ?? "";
+    return message;
+  },
+};
+
 function createBaseClaudeSessionLogResponse(): ClaudeSessionLogResponse {
-  return { found: false, path: "", content: "" };
+  return { found: false, entries: [] };
 }
 
 export const ClaudeSessionLogResponse: MessageFns<ClaudeSessionLogResponse> = {
@@ -580,11 +742,8 @@ export const ClaudeSessionLogResponse: MessageFns<ClaudeSessionLogResponse> = {
     if (message.found !== false) {
       writer.uint32(8).bool(message.found);
     }
-    if (message.path !== "") {
-      writer.uint32(18).string(message.path);
-    }
-    if (message.content !== "") {
-      writer.uint32(26).string(message.content);
+    for (const v of message.entries) {
+      ClaudeSessionLogEntry.encode(v!, writer.uint32(18).fork()).join();
     }
     return writer;
   },
@@ -609,15 +768,7 @@ export const ClaudeSessionLogResponse: MessageFns<ClaudeSessionLogResponse> = {
             break;
           }
 
-          message.path = reader.string();
-          continue;
-        }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.content = reader.string();
+          message.entries.push(ClaudeSessionLogEntry.decode(reader, reader.uint32()));
           continue;
         }
       }
@@ -632,8 +783,9 @@ export const ClaudeSessionLogResponse: MessageFns<ClaudeSessionLogResponse> = {
   fromJSON(object: any): ClaudeSessionLogResponse {
     return {
       found: isSet(object.found) ? globalThis.Boolean(object.found) : false,
-      path: isSet(object.path) ? globalThis.String(object.path) : "",
-      content: isSet(object.content) ? globalThis.String(object.content) : "",
+      entries: globalThis.Array.isArray(object?.entries)
+        ? object.entries.map((e: any) => ClaudeSessionLogEntry.fromJSON(e))
+        : [],
     };
   },
 
@@ -642,11 +794,8 @@ export const ClaudeSessionLogResponse: MessageFns<ClaudeSessionLogResponse> = {
     if (message.found !== false) {
       obj.found = message.found;
     }
-    if (message.path !== "") {
-      obj.path = message.path;
-    }
-    if (message.content !== "") {
-      obj.content = message.content;
+    if (message.entries?.length) {
+      obj.entries = message.entries.map((e) => ClaudeSessionLogEntry.toJSON(e));
     }
     return obj;
   },
@@ -657,8 +806,7 @@ export const ClaudeSessionLogResponse: MessageFns<ClaudeSessionLogResponse> = {
   fromPartial(object: DeepPartial<ClaudeSessionLogResponse>): ClaudeSessionLogResponse {
     const message = createBaseClaudeSessionLogResponse();
     message.found = object.found ?? false;
-    message.path = object.path ?? "";
-    message.content = object.content ?? "";
+    message.entries = object.entries?.map((e) => ClaudeSessionLogEntry.fromPartial(e)) || [];
     return message;
   },
 };

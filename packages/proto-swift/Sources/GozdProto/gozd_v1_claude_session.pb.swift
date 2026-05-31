@@ -128,19 +128,47 @@ public struct Gozd_V1_ClaudeSessionLogRequest: Sendable {
   public init() {}
 }
 
+/// セッションログ 1 本分 (main または subagent)。parse は renderer 側が担う。
+public struct Gozd_V1_ClaudeSessionLogEntry: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// "main" (本体セッション) または "subagent" (Task ツールで起動したサブエージェント)。
+  public var kind: String = String()
+
+  /// main は session_id、subagent は agent_id。
+  public var id: String = String()
+
+  /// subagent のラベル (meta.json の description)。main は空文字。
+  public var label: String = String()
+
+  /// subagent の agentType (meta.json)。main は空文字。
+  public var agentType: String = String()
+
+  /// jsonl の絶対パス。
+  public var path: String = String()
+
+  /// jsonl の生内容 (改行区切り)。
+  public var content: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 public struct Gozd_V1_ClaudeSessionLogResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  /// glob で該当ファイルが見つかったか。未起動 / cleanup 済みセッションでは false。
+  /// main の jsonl が glob で見つかったか。未起動 / cleanup 済みセッションでは false。
   public var found: Bool = false
 
-  /// 解決した jsonl の絶対パス。found=false なら空文字。
-  public var path: String = String()
-
-  /// jsonl の生内容 (改行区切り)。parse は renderer 側が担う。found=false なら空文字。
-  public var content: String = String()
+  /// entries[0] が main、残りが subagents (見つかった順)。found=false なら空。
+  /// subagent は ~/.claude/projects/<encoded>/<session_id>/subagents/agent-*.jsonl に
+  /// isSidechain ログとして並ぶ。main の projectDir を起点に列挙する。
+  public var entries: [Gozd_V1_ClaudeSessionLogEntry] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -376,9 +404,64 @@ extension Gozd_V1_ClaudeSessionLogRequest: SwiftProtobuf.Message, SwiftProtobuf.
   }
 }
 
+extension Gozd_V1_ClaudeSessionLogEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ClaudeSessionLogEntry"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}kind\0\u{1}id\0\u{1}label\0\u{3}agent_type\0\u{1}path\0\u{1}content\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.kind) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.id) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.label) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.agentType) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.path) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self.content) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.kind.isEmpty {
+      try visitor.visitSingularStringField(value: self.kind, fieldNumber: 1)
+    }
+    if !self.id.isEmpty {
+      try visitor.visitSingularStringField(value: self.id, fieldNumber: 2)
+    }
+    if !self.label.isEmpty {
+      try visitor.visitSingularStringField(value: self.label, fieldNumber: 3)
+    }
+    if !self.agentType.isEmpty {
+      try visitor.visitSingularStringField(value: self.agentType, fieldNumber: 4)
+    }
+    if !self.path.isEmpty {
+      try visitor.visitSingularStringField(value: self.path, fieldNumber: 5)
+    }
+    if !self.content.isEmpty {
+      try visitor.visitSingularStringField(value: self.content, fieldNumber: 6)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_ClaudeSessionLogEntry, rhs: Gozd_V1_ClaudeSessionLogEntry) -> Bool {
+    if lhs.kind != rhs.kind {return false}
+    if lhs.id != rhs.id {return false}
+    if lhs.label != rhs.label {return false}
+    if lhs.agentType != rhs.agentType {return false}
+    if lhs.path != rhs.path {return false}
+    if lhs.content != rhs.content {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 extension Gozd_V1_ClaudeSessionLogResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ClaudeSessionLogResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}found\0\u{1}path\0\u{1}content\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}found\0\u{1}entries\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -387,8 +470,7 @@ extension Gozd_V1_ClaudeSessionLogResponse: SwiftProtobuf.Message, SwiftProtobuf
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularBoolField(value: &self.found) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.path) }()
-      case 3: try { try decoder.decodeSingularStringField(value: &self.content) }()
+      case 2: try { try decoder.decodeRepeatedMessageField(value: &self.entries) }()
       default: break
       }
     }
@@ -398,19 +480,15 @@ extension Gozd_V1_ClaudeSessionLogResponse: SwiftProtobuf.Message, SwiftProtobuf
     if self.found != false {
       try visitor.visitSingularBoolField(value: self.found, fieldNumber: 1)
     }
-    if !self.path.isEmpty {
-      try visitor.visitSingularStringField(value: self.path, fieldNumber: 2)
-    }
-    if !self.content.isEmpty {
-      try visitor.visitSingularStringField(value: self.content, fieldNumber: 3)
+    if !self.entries.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.entries, fieldNumber: 2)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Gozd_V1_ClaudeSessionLogResponse, rhs: Gozd_V1_ClaudeSessionLogResponse) -> Bool {
     if lhs.found != rhs.found {return false}
-    if lhs.path != rhs.path {return false}
-    if lhs.content != rhs.content {return false}
+    if lhs.entries != rhs.entries {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

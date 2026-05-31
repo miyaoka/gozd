@@ -434,13 +434,15 @@ describe("formatSessionTime", () => {
     expect(result.time).not.toBe("");
   });
 
-  test("seconds: false は秒を落とす (秒ありより短い)", () => {
+  test("seconds: false は時・分の 2 セグメント、true は秒を含む 3 セグメント", () => {
     const ts = NOW.toISOString();
-    // 区切り文字はロケール依存なので exact 比較せず、秒の有無で長さが減ることを確認する。
-    const withSeconds = formatSessionTime(ts, { seconds: true }).time;
-    const withoutSeconds = formatSessionTime(ts, { seconds: false }).time;
-    expect(withoutSeconds).not.toBe("");
-    expect(withoutSeconds.length).toBeLessThan(withSeconds.length);
+    // 区切り文字はロケール依存なので、数値セグメント数で「分まで出す / 秒を含む」を直接検証する
+    // (length 比較だと分まで落とす退行をすり抜けるため)。hour12: false なので AM/PM 由来の
+    // 余分なトークンは入らない。
+    const withSeconds = formatSessionTime(ts, { seconds: true }).time.match(/\d+/g) ?? [];
+    const withoutSeconds = formatSessionTime(ts, { seconds: false }).time.match(/\d+/g) ?? [];
+    expect(withoutSeconds).toHaveLength(2);
+    expect(withSeconds).toHaveLength(3);
   });
 
   test("同年別日は date を持ち、4 桁年を含まない (M/D)", () => {

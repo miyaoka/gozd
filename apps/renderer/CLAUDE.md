@@ -1,3 +1,7 @@
+## 検証コマンド
+
+- package 単位の検証は `pnpm run test` / `pnpm run typecheck`
+
 ## エラーハンドリング
 
 - 例外処理では必ず `useNotificationStore` の `error(message, cause?)` / `info(message, cause?)` でトースト通知する。`console.error` で握りつぶさない

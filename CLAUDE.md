@@ -119,7 +119,7 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 - `pnpm dev` — renderer（Vite HMR）と native（Swift app）を `pnpm --parallel --filter @gozd/renderer --filter @gozd/native dev` で同時起動
 - `pnpm build` — 全パッケージをビルド（stable 環境の `.app` を生成）
 
-全体チェックはルートの `pnpm typecheck:all` / `lint:all` / `test:all` を使う。各 workspace の同名スクリプトを一括実行する。
+全チェックはルートの `pnpm run test:all` / `pnpm run typecheck:all` で行う。pnpm 11 は `pnpm run` 実行時に node_modules を自動インストールするため、事前の手動 install は不要。
 
 - import の整理（未使用 import の削除、並び替え）は commit 時に lint が自動実行する。手動で整理しない
 

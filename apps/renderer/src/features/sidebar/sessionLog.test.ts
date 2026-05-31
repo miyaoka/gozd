@@ -37,6 +37,24 @@ describe("parseSessionLog", () => {
     ]);
   });
 
+  test("平文が空の thinking (暗号化 signature のみ) は載せず skipped に計上", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "assistant",
+        timestamp: TS,
+        message: {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "", signature: "encrypted-blob" },
+            { type: "text", text: "やります" },
+          ],
+        },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "assistant", text: "やります", ts: TS }]);
+    expect(log.skipped).toBe(1);
+  });
+
   test("tool_use と tool_result を tool_use_id でペア化する", () => {
     const log = parseSessionLog(
       jsonl(

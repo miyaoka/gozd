@@ -217,7 +217,15 @@ export function parseSessionLog(jsonl: string): ParsedSessionLog {
         if (block.type === "text") {
           events.push({ kind: "assistant", text: block.text, ts });
         } else if (block.type === "thinking") {
-          events.push({ kind: "thinking", text: block.thinking, ts });
+          // 最新モデル (opus-4-8 / sonnet-4-6 等) は思考の平文を transcript に残さず
+          // 暗号化 signature だけを書く。この場合 thinking は空文字になる。表示できる
+          // 中身が無い thinking は空ブロックとして並べず skipped に計上する
+          // (件数は footer で観察可能なまま残す)。
+          if (block.thinking === "") {
+            skipped++;
+          } else {
+            events.push({ kind: "thinking", text: block.thinking, ts });
+          }
         } else if (block.type === "tool_use") {
           const tool: Extract<TranscriptEvent, { kind: "tool" }> = {
             kind: "tool",

@@ -75,6 +75,9 @@ SessionStart hook で呼ばれる。以下の優先順位で attach 先を決め
 - 同 `worktreeDir` の `sessionId == ""` candidate から pick (createdAt 最大値、tie-break は id 辞書順で最大値) し、新 sid を attach。`closedByUser=true` でも `sessionId` が空なら candidate に含め、pick 時に false へ戻す (resume 失敗で sid を空に戻された task 等)。**`closedByUser=true` でも `sessionId` を保持する (= resume 可能な) task は candidate にしない**。新しい session_id は必ず別 task になる (session ≒ task の 1:1。`/clear` で session_id が変わったら別 task。既存 task の sid を別 session が奪う hijack はしない)。累積した closed task はユーザーが ⋮ メニュー or worktree 削除 cascade で消す
 - 該当無 → 新規 task を UUID id で作成し sessionId を入れる (Claude 直接起動経路)
 
+> [!NOTE]
+> **不変条件**: `sessionId` は Claude が session ごとに振る UUID で worktree 内で一意。`attachSession` priority 1 / `detachSession` / `clearDeadSession` はいずれも `firstIndex(sessionID ==)` で 1 件のみに作用するが、closed task が累積しても各 task は異なる `sessionId` を持つため引き当ては曖昧にならない。新規 sid は priority 1 で既存と衝突せず (一致すれば継続扱いの no-op)、priority 2 / 新規作成でも live session の一意な sid が入るので、同一 `sessionId` を持つ task が 2 つ並ぶことはない。
+
 ### detachSession のロジック (Swift `TaskStore.detachSession`)
 
 SessionEnd hook / terminal close で呼ばれる。

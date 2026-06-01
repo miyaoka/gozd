@@ -74,6 +74,11 @@ message ClaudeSessionLogEntry {
   string path = 5;
   // jsonl の生内容 (改行区切り)。
   string content = 6;
+  // この subagent を spawn した main 側 Agent tool_use の id (meta.json の toolUseId)。
+  // main の Agent tool_use と subagent を結ぶキー。main entry は空文字。
+  // SendMessage による resume は別キー (main tool_use の input.to == この entry の id) で
+  // 結ぶため、この field には現れない (resume では新規 subagent が作られないため)。
+  string parent_tool_use_id = 7;
 }
 
 message ClaudeSessionLogResponse {

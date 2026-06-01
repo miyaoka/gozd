@@ -1110,6 +1110,7 @@ public actor RpcDispatcher {
       e.agentType = entry.agentType
       e.path = entry.path
       e.content = entry.content
+      e.parentToolUseID = entry.parentToolUseId
       return e
     }
     return try resp.jsonUTF8Data()

@@ -18,6 +18,8 @@ public struct ClaudeSessionLogEntry: Sendable, Equatable {
   public let agentType: String  // subagent の meta.json agentType。main は空
   public let path: String
   public let content: String
+  // subagent を spawn した main 側 Agent tool_use の id (meta.json の toolUseId)。main は空。
+  public let parentToolUseId: String
 }
 
 public struct ClaudeSessionLogResult: Sendable, Equatable {
@@ -61,7 +63,7 @@ public enum ClaudeSessionLog {
       var entries: [ClaudeSessionLogEntry] = [
         ClaudeSessionLogEntry(
           kind: "main", id: sessionId, label: "", agentType: "",
-          path: mainFile.path, content: mainContent)
+          path: mainFile.path, content: mainContent, parentToolUseId: "")
       ]
       // subagents: <projectDir>/<sessionId>/subagents/agent-*.jsonl
       let subagentsDir = projectDir
@@ -105,25 +107,30 @@ public enum ClaudeSessionLog {
         label: meta.description,
         agentType: meta.agentType,
         path: file.path,
-        content: content)
+        content: content,
+        parentToolUseId: meta.toolUseId)
     }
   }
 
-  /// agent-<id>.jsonl に対応する agent-<id>.meta.json から agentType / description を読む。
-  private static func readMeta(forAgentFile file: URL) -> (agentType: String, description: String) {
+  /// agent-<id>.jsonl に対応する agent-<id>.meta.json から agentType / description /
+  /// toolUseId (この subagent を spawn した main 側 Agent tool_use の id) を読む。
+  private static func readMeta(forAgentFile file: URL) -> (
+    agentType: String, description: String, toolUseId: String
+  ) {
     let metaURL = file.deletingPathExtension().appendingPathExtension("meta.json")
     // meta.json 不在は正常系 (古い subagent / 未生成) なので無言で空ラベルに倒す。
-    guard FileManager.default.fileExists(atPath: metaURL.path) else { return ("", "") }
+    guard FileManager.default.fileExists(atPath: metaURL.path) else { return ("", "", "") }
     // ファイルは在るのに読めない / parse 失敗は異常なので観察ログを残す。
     guard let data = try? Data(contentsOf: metaURL),
       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     else {
       StderrLog.write(tag: "ClaudeSessionLog", "subagent meta decode failed: \(metaURL.path)")
-      return ("", "")
+      return ("", "", "")
     }
     let agentType = (obj["agentType"] as? String) ?? ""
     let description = (obj["description"] as? String) ?? ""
-    return (agentType, description)
+    let toolUseId = (obj["toolUseId"] as? String) ?? ""
+    return (agentType, description, toolUseId)
   }
 
   /// UTF-8 file を文字列で読む。読めなければ nil。

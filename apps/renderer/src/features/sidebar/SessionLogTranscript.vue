@@ -31,17 +31,16 @@ footer。目次クリックで該当イベントへスクロールし、`Interse
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { MarkdownBody } from "../preview";
-import { formatSessionTime, type ParsedSessionLog, type TranscriptEvent } from "./sessionLog";
+import {
+  formatSessionTime,
+  nearestEventIndexByTs,
+  type ParsedSessionLog,
+  type SubagentLink,
+  type TranscriptEvent,
+} from "./sessionLog";
 import SessionLogSubagentButton from "./SessionLogSubagentButton.vue";
 import SessionLogTimestamp from "./SessionLogTimestamp.vue";
 import SessionLogToolArg from "./SessionLogToolArg.vue";
-
-// main ペインの tool 呼び出し (Agent / SendMessage) を起動/宛先 subagent に結ぶリンク。
-// key は main tool event の toolUseId。subagent ペインでは渡さない (undefined)。
-export interface SubagentLink {
-  agentId: string;
-  label: string;
-}
 
 const props = defineProps<{
   parsed: ParsedSessionLog;
@@ -132,40 +131,37 @@ function scrollToEvent(index: number) {
 // --- 時刻ジャンプ (subagent ペイン) ---
 //
 // main の Agent / SendMessage を ts 付きでクリックされたら、この subagent ログの中で
-// その ts に最も近いイベントへスクロールする。resume の注入 user メッセージは
-// SendMessage 発火の数十ms後に subagent ログへ書かれるため、最近傍 ts で確実に当たる。
-function eventIndexNearestTs(ts: string): number | undefined {
-  const target = Date.parse(ts);
-  if (Number.isNaN(target)) return undefined;
-  let best: number | undefined;
-  let bestDiff = Infinity;
-  props.parsed.events.forEach((ev, index) => {
-    const t = Date.parse(ev.ts);
-    if (Number.isNaN(t)) return;
-    const diff = Math.abs(t - target);
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      best = index;
-    }
-  });
-  return best;
-}
-
-// scrollTo が来たら最近傍イベントへ寄せる。MarkdownBody の async 描画で上方の高さが
-// 後から確定しスクロール位置がずれるため、確定後に 1 度だけ補正する必要がある。
-// pendingScrollTs に保持し、markdown rendered の coalesce tick で補正してクリアする。
+// その ts に最も近いイベントへスクロールする (`nearestEventIndexByTs`)。resume の注入 user
+// メッセージは SendMessage 発火の数十ms後に subagent ログへ書かれるため最近傍 ts で当たる。
+//
+// assistant の markdown は MarkdownBody が async (marked.parse) で描画するため、ジャンプ先の
+// 上方に markdown があると高さが後から確定しスクロール位置がずれる。そこで markdown を含む
+// ペインのみ、rendered の coalesce tick で 1 度だけ補正する。補正待ちを pendingScrollTs に
+// 保持する。markdown を含まないペインは初回スクロールで高さが確定済みなので補正不要 ―
+// その場合 pendingScrollTs を宙に残さないよう初回適用直後にクリアする (rendered が永遠に
+// 発火しないため、補正経路だけに掃除を任せられない)。
 let pendingScrollTs: string | undefined;
+const hasMarkdownEvent = (): boolean => props.parsed.events.some((ev) => ev.kind === "assistant");
+
 function applyScroll(ts: string) {
-  const index = eventIndexNearestTs(ts);
+  const index = nearestEventIndexByTs(props.parsed.events, ts);
   if (index !== undefined) scrollToEvent(index);
 }
+
+// scrollTo (または初回 mount の既存 target) を最近傍イベントへ寄せる共通処理。
+async function scrollToTarget(ts: string) {
+  pendingScrollTs = ts;
+  await nextTick();
+  applyScroll(ts);
+  // markdown が無ければ rendered 補正が来ないため、ここで掃除して invariant を閉じる。
+  if (!hasMarkdownEvent()) pendingScrollTs = undefined;
+}
+
 watch(
   () => props.scrollTo,
-  async (next) => {
+  (next) => {
     if (next === undefined) return;
-    pendingScrollTs = next.ts;
-    await nextTick();
-    applyScroll(next.ts);
+    void scrollToTarget(next.ts);
   },
 );
 
@@ -259,16 +255,12 @@ watch(
   },
 );
 
-onMounted(async () => {
+onMounted(() => {
   setupObserver();
   // 別 subagent へ切替時は :key でこのコンポーネントが作り直されるため、初回 mount 時に
   // scrollTo が既に設定されている。watch は immediate でないのでここで初回ジャンプを担う。
   const target = props.scrollTo;
-  if (target !== undefined) {
-    pendingScrollTs = target.ts;
-    await nextTick();
-    applyScroll(target.ts);
-  }
+  if (target !== undefined) void scrollToTarget(target.ts);
 });
 
 // assistant の markdown は MarkdownBody が async (marked.parse) で描画するため、

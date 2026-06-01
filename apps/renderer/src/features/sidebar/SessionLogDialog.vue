@@ -24,8 +24,13 @@ import { tryCatch } from "@gozd/shared";
 import { computed, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { rpcClaudeSessionLog } from "./rpc";
-import { parseSessionLog, type ParsedSessionLog } from "./sessionLog";
-import SessionLogTranscript, { type SubagentLink } from "./SessionLogTranscript.vue";
+import {
+  buildSubagentLinks,
+  parseSessionLog,
+  type ParsedSessionLog,
+  type SubagentLink,
+} from "./sessionLog";
+import SessionLogTranscript from "./SessionLogTranscript.vue";
 import { useSessionLogViewer } from "./useSessionLogViewer";
 
 const { context, close } = useSessionLogViewer();
@@ -44,6 +49,8 @@ interface SessionTab {
   label: string; // タブ表示名
   // subagent を spawn した main の Agent tool_use id (meta.json の toolUseId)。main は空文字。
   parentToolUseId: string;
+  // subagent の名前 (meta.json の name)。SendMessage の to が name のとき紐付けに使う。main は空。
+  name: string;
   parsed: ParsedSessionLog;
 }
 const sessions = ref<SessionTab[]>([]);
@@ -59,37 +66,20 @@ const activeSub = computed<SessionTab | undefined>(() =>
   subagents.value.find((s) => s.id === activeSubId.value),
 );
 
-// main の Agent / SendMessage 呼び出しを subagent に結ぶ。key は main の tool event の
-// toolUseId、value は紐づく subagent の {agentId,label}。
-// - Agent (新規 spawn): main tool_use.id === subagent meta.toolUseId (= parentToolUseId)
-// - SendMessage (resume): main tool_use.input.to === subagent agent_id (= id)
-// 両者を 1 つの map に畳み、main ペインは tool event の toolUseId 1 本で引ける。
+// main の Agent / SendMessage 呼び出しを subagent に結ぶ map (key=main tool event の toolUseId)。
+// 畳み込みロジックは sessionLog の純関数 buildSubagentLinks に委ねる (テスト可能性 + SSOT)。
 const mainSubagentLinks = computed<Map<string, SubagentLink>>(() => {
-  const links = new Map<string, SubagentLink>();
   const main = mainSession.value;
-  if (main === undefined) return links;
-
-  const byParentToolUse = new Map<string, SessionTab>();
-  const byAgentId = new Map<string, SessionTab>();
-  for (const sub of subagents.value) {
-    if (sub.parentToolUseId !== "") byParentToolUse.set(sub.parentToolUseId, sub);
-    byAgentId.set(sub.id, sub);
-  }
-
-  for (const ev of main.parsed.events) {
-    if (ev.kind !== "tool") continue;
-    if (ev.name === "Agent") {
-      const sub = byParentToolUse.get(ev.toolUseId);
-      if (sub !== undefined) links.set(ev.toolUseId, { agentId: sub.id, label: sub.label });
-    } else if (ev.name === "SendMessage") {
-      const to = ev.input.to;
-      if (typeof to === "string") {
-        const sub = byAgentId.get(to);
-        if (sub !== undefined) links.set(ev.toolUseId, { agentId: sub.id, label: sub.label });
-      }
-    }
-  }
-  return links;
+  if (main === undefined) return new Map<string, SubagentLink>();
+  return buildSubagentLinks(
+    main.parsed.events,
+    subagents.value.map((s) => ({
+      id: s.id,
+      label: s.label,
+      name: s.name,
+      parentToolUseId: s.parentToolUseId,
+    })),
+  );
 });
 
 // クリックされた tool 呼び出しの ts。subagent ペインをこの ts へジャンプさせる。
@@ -144,6 +134,7 @@ async function load(sessionId: string) {
     id: entry.id,
     label: entry.kind === "main" ? "Main" : subagentLabel(entry),
     parentToolUseId: entry.parentToolUseId,
+    name: entry.name,
     parsed: parseSessionLog(entry.content),
   }));
   // subagent があれば先頭を右ペインに初期表示する。

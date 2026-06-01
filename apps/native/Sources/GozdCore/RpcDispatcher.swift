@@ -1111,6 +1111,7 @@ public actor RpcDispatcher {
       e.path = entry.path
       e.content = entry.content
       e.parentToolUseID = entry.parentToolUseId
+      e.name = entry.name
       return e
     }
     return try resp.jsonUTF8Data()

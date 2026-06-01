@@ -20,6 +20,8 @@ public struct ClaudeSessionLogEntry: Sendable, Equatable {
   public let content: String
   // subagent を spawn した main 側 Agent tool_use の id (meta.json の toolUseId)。main は空。
   public let parentToolUseId: String
+  // subagent の名前 (meta.json の name)。名前なし起動 / main は空。
+  public let name: String
 }
 
 public struct ClaudeSessionLogResult: Sendable, Equatable {
@@ -63,7 +65,7 @@ public enum ClaudeSessionLog {
       var entries: [ClaudeSessionLogEntry] = [
         ClaudeSessionLogEntry(
           kind: "main", id: sessionId, label: "", agentType: "",
-          path: mainFile.path, content: mainContent, parentToolUseId: "")
+          path: mainFile.path, content: mainContent, parentToolUseId: "", name: "")
       ]
       // subagents: <projectDir>/<sessionId>/subagents/agent-*.jsonl
       let subagentsDir = projectDir
@@ -108,29 +110,37 @@ public enum ClaudeSessionLog {
         agentType: meta.agentType,
         path: file.path,
         content: content,
-        parentToolUseId: meta.toolUseId)
+        parentToolUseId: meta.toolUseId,
+        name: meta.name)
     }
   }
 
   /// agent-<id>.jsonl に対応する agent-<id>.meta.json から agentType / description /
-  /// toolUseId (この subagent を spawn した main 側 Agent tool_use の id) を読む。
+  /// toolUseId (この subagent を spawn した main 側 Agent tool_use の id) / name を読む。
   private static func readMeta(forAgentFile file: URL) -> (
-    agentType: String, description: String, toolUseId: String
+    agentType: String, description: String, toolUseId: String, name: String
   ) {
     let metaURL = file.deletingPathExtension().appendingPathExtension("meta.json")
     // meta.json 不在は正常系 (古い subagent / 未生成) なので無言で空ラベルに倒す。
-    guard FileManager.default.fileExists(atPath: metaURL.path) else { return ("", "", "") }
+    guard FileManager.default.fileExists(atPath: metaURL.path) else { return ("", "", "", "") }
     // ファイルは在るのに読めない / parse 失敗は異常なので観察ログを残す。
     guard let data = try? Data(contentsOf: metaURL),
       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     else {
       StderrLog.write(tag: "ClaudeSessionLog", "subagent meta decode failed: \(metaURL.path)")
-      return ("", "", "")
+      return ("", "", "", "")
     }
     let agentType = (obj["agentType"] as? String) ?? ""
     let description = (obj["description"] as? String) ?? ""
     let toolUseId = (obj["toolUseId"] as? String) ?? ""
-    return (agentType, description, toolUseId)
+    let name = (obj["name"] as? String) ?? ""
+    // subagent は必ず Agent tool で spawn されるため meta.json には toolUseId があるはず。
+    // 欠落は meta スキーマ drift の兆候。main の Agent 行と紐付けできず silent に外れるため、
+    // 握り潰さず観察ログを残す (meta が parse できた = この分岐に来た場合のみ判定可能)。
+    if toolUseId == "" {
+      StderrLog.write(tag: "ClaudeSessionLog", "subagent meta missing toolUseId: \(metaURL.path)")
+    }
+    return (agentType, description, toolUseId, name)
   }
 
   /// UTF-8 file を文字列で読む。読めなければ nil。

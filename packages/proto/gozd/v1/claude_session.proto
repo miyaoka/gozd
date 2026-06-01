@@ -76,9 +76,13 @@ message ClaudeSessionLogEntry {
   string content = 6;
   // この subagent を spawn した main 側 Agent tool_use の id (meta.json の toolUseId)。
   // main の Agent tool_use と subagent を結ぶキー。main entry は空文字。
-  // SendMessage による resume は別キー (main tool_use の input.to == この entry の id) で
-  // 結ぶため、この field には現れない (resume では新規 subagent が作られないため)。
+  // SendMessage による resume は別キー (main tool_use の input.to == この entry の id or name)
+  // で結ぶため、この field には現れない (resume では新規 subagent が作られないため)。
   string parent_tool_use_id = 7;
+  // subagent の名前 (meta.json の name)。SendMessage の input.to は agent_id だけでなく
+  // agent name のこともあるため、id と name の双方で resume を紐付けられるよう露出する。
+  // 名前付きで起動していない subagent / main は空文字。
+  string name = 8;
 }
 
 message ClaudeSessionLogResponse {

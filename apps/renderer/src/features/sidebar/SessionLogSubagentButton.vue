@@ -5,7 +5,7 @@ summary 上に置かれるため、click は details トグルへ伝播させず
 </doc>
 
 <script setup lang="ts">
-import type { SubagentLink } from "./SessionLogTranscript.vue";
+import type { SubagentLink } from "./sessionLog";
 
 const props = defineProps<{
   // 紐づく subagent。無ければボタン自体を出さない。

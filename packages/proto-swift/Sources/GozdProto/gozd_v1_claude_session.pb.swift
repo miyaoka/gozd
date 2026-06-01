@@ -154,9 +154,14 @@ public struct Gozd_V1_ClaudeSessionLogEntry: Sendable {
 
   /// この subagent を spawn した main 側 Agent tool_use の id (meta.json の toolUseId)。
   /// main の Agent tool_use と subagent を結ぶキー。main entry は空文字。
-  /// SendMessage による resume は別キー (main tool_use の input.to == この entry の id) で
-  /// 結ぶため、この field には現れない (resume では新規 subagent が作られないため)。
+  /// SendMessage による resume は別キー (main tool_use の input.to == この entry の id or name)
+  /// で結ぶため、この field には現れない (resume では新規 subagent が作られないため)。
   public var parentToolUseID: String = String()
+
+  /// subagent の名前 (meta.json の name)。SendMessage の input.to は agent_id だけでなく
+  /// agent name のこともあるため、id と name の双方で resume を紐付けられるよう露出する。
+  /// 名前付きで起動していない subagent / main は空文字。
+  public var name: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -412,7 +417,7 @@ extension Gozd_V1_ClaudeSessionLogRequest: SwiftProtobuf.Message, SwiftProtobuf.
 
 extension Gozd_V1_ClaudeSessionLogEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ClaudeSessionLogEntry"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}kind\0\u{1}id\0\u{1}label\0\u{3}agent_type\0\u{1}path\0\u{1}content\0\u{3}parent_tool_use_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}kind\0\u{1}id\0\u{1}label\0\u{3}agent_type\0\u{1}path\0\u{1}content\0\u{3}parent_tool_use_id\0\u{1}name\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -427,6 +432,7 @@ extension Gozd_V1_ClaudeSessionLogEntry: SwiftProtobuf.Message, SwiftProtobuf._M
       case 5: try { try decoder.decodeSingularStringField(value: &self.path) }()
       case 6: try { try decoder.decodeSingularStringField(value: &self.content) }()
       case 7: try { try decoder.decodeSingularStringField(value: &self.parentToolUseID) }()
+      case 8: try { try decoder.decodeSingularStringField(value: &self.name) }()
       default: break
       }
     }
@@ -454,6 +460,9 @@ extension Gozd_V1_ClaudeSessionLogEntry: SwiftProtobuf.Message, SwiftProtobuf._M
     if !self.parentToolUseID.isEmpty {
       try visitor.visitSingularStringField(value: self.parentToolUseID, fieldNumber: 7)
     }
+    if !self.name.isEmpty {
+      try visitor.visitSingularStringField(value: self.name, fieldNumber: 8)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -465,6 +474,7 @@ extension Gozd_V1_ClaudeSessionLogEntry: SwiftProtobuf.Message, SwiftProtobuf._M
     if lhs.path != rhs.path {return false}
     if lhs.content != rhs.content {return false}
     if lhs.parentToolUseID != rhs.parentToolUseID {return false}
+    if lhs.name != rhs.name {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

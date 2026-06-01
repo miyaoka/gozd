@@ -303,7 +303,9 @@ export interface SubagentDescriptor {
  * - Agent (新規 spawn): main の `tool_use.id` === subagent の `parentToolUseId` (meta.toolUseId)
  * - SendMessage (resume): main の `tool_use.input.to` === subagent の `id` または `name`
  *   (Claude Code の SendMessage は to に agent_id / agent name のどちらも取りうるため両引き)。
- *   id を優先し name にフォールバックする。name 衝突時は後勝ち (id 一致なら一意なので優先で回避)
+ *   id を優先し name にフォールバックする。ただし同名 subagent が複数あると name では一意に
+ *   決められないため、その name はリンクを張らない (誤った subagent へ飛ばすより無表示が安全)。
+ *   id は一意なので衝突しない。
  *
  * toolUseId が空 (id 欠落 tool_use) の event は紐付け対象外。
  */
@@ -315,11 +317,24 @@ export function buildSubagentLinks(
   const byParentToolUse = new Map<string, SubagentDescriptor>();
   const byAgentId = new Map<string, SubagentDescriptor>();
   const byName = new Map<string, SubagentDescriptor>();
+  // 複数 subagent が同じ name を持つ場合、その name では一意に引けないので除外対象にする。
+  const ambiguousNames = new Set<string>();
   for (const sub of subagents) {
     if (sub.parentToolUseId !== "") byParentToolUse.set(sub.parentToolUseId, sub);
     byAgentId.set(sub.id, sub);
-    if (sub.name !== "") byName.set(sub.name, sub);
+    if (sub.name !== "") {
+      if (byName.has(sub.name)) ambiguousNames.add(sub.name);
+      else byName.set(sub.name, sub);
+    }
   }
+
+  // id 引きを優先し、引けない時だけ name にフォールバック。曖昧な name は引かない。
+  const resolveTo = (to: string): SubagentDescriptor | undefined => {
+    const byId = byAgentId.get(to);
+    if (byId !== undefined) return byId;
+    if (ambiguousNames.has(to)) return undefined;
+    return byName.get(to);
+  };
 
   for (const ev of mainEvents) {
     if (ev.kind !== "tool" || ev.toolUseId === "") continue;
@@ -329,7 +344,7 @@ export function buildSubagentLinks(
     } else if (ev.name === "SendMessage") {
       const to = ev.input.to;
       if (typeof to === "string") {
-        const sub = byAgentId.get(to) ?? byName.get(to);
+        const sub = resolveTo(to);
         if (sub !== undefined) links.set(ev.toolUseId, { agentId: sub.id, label: sub.label });
       }
     }

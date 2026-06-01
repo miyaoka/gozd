@@ -514,6 +514,25 @@ describe("buildSubagentLinks", () => {
     expect(links.get("toolu_S")?.agentId).toBe("agent1");
   });
 
+  test("同名 subagent が複数 + to が name のときはリンクを張らない (一意に決められない)", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("SendMessage", "toolu_S", { to: "reviewer" })],
+      [sub({ id: "agent1", name: "reviewer" }), sub({ id: "agent2", name: "reviewer" })],
+    );
+    expect(links.has("toolu_S")).toBe(false);
+  });
+
+  test("同名 subagent が複数でも to が id なら一意に引ける", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("SendMessage", "toolu_S", { to: "agent2" })],
+      [
+        sub({ id: "agent1", label: "first", name: "reviewer" }),
+        sub({ id: "agent2", label: "second", name: "reviewer" }),
+      ],
+    );
+    expect(links.get("toolu_S")).toEqual({ agentId: "agent2", label: "second" });
+  });
+
   test("parentToolUseId 空の subagent は Agent 紐付け対象から外す", () => {
     const links = buildSubagentLinks(
       [toolEvent("Agent", "toolu_A")],

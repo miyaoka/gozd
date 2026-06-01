@@ -82,9 +82,17 @@ function defaultOpen(kind: EventKind): boolean {
   return !DEFAULT_COLLAPSED.has(kind);
 }
 
-function formatInput(input: Record<string, unknown>): string {
-  return JSON.stringify(input, null, 2);
-}
+// tool input の整形済み JSON (event index → 文字列)。scroll-spy の activeIndex 更新で
+// コンポーネント全体が再描画されるため、テンプレートで毎回 JSON.stringify すると大きな入力
+// ほどスクロールが重くなる。parsed 切替時にだけ計算する computed に逃がし、テンプレートは
+// Map 参照に留めて再描画ホットパスから整形コストを外す。
+const formattedInputs = computed<Map<number, string>>(() => {
+  const map = new Map<number, string>();
+  props.parsed.events.forEach((ev, index) => {
+    if (ev.kind === "tool") map.set(index, JSON.stringify(ev.input, null, 2));
+  });
+  return map;
+});
 
 /**
  * 目次用の 1 行 timestamp。日付があれば時刻の前に連結する (吹き出し脇は
@@ -365,7 +373,7 @@ onBeforeUnmount(teardownObserver);
             <div v-else class="mx-auto mt-1 max-w-[85%] space-y-2 rounded-md bg-white/5 px-3 py-2">
               <pre
                 class="overflow-x-auto rounded-sm bg-zinc-800 p-2 text-xs text-zinc-300"
-              ><code>{{ formatInput(ev.input) }}</code></pre>
+              ><code>{{ formattedInputs.get(i) }}</code></pre>
               <div v-if="ev.result">
                 <p class="mb-1 text-[10px] text-zinc-500">
                   {{ ev.result.isError ? "Error output" : "Output" }}

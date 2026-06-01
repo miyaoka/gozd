@@ -29,7 +29,9 @@ interface ThinkingBlock {
 }
 interface ToolUseBlock {
   type: "tool_use";
-  id: string;
+  // 信頼境界外の入力。欠落は型で排除できないため optional 扱いにする。tool_result との
+  // ペアリングキー兼 subagent 紐付けキーなので、欠落時は空文字に倒さず未ペア扱いにする。
+  id?: string;
   // 信頼境界外の入力。空文字・フィールド欠落は型で排除できないため optional 扱いにする。
   name?: string;
   // 欠落すると下流の SessionLogToolArg が input[key] で実行時エラーになるため optional 扱い。
@@ -242,6 +244,10 @@ export function parseSessionLog(jsonl: string): ParsedSessionLog {
             events.push({ kind: "thinking", text: block.thinking, ts });
           }
         } else if (block.type === "tool_use") {
+          // id 欠落は信頼境界外ログの病的ケース。空文字 sentinel に倒すと別の id 欠落
+          // tool_use と Map キーが衝突し tool_result ペアリングを取り違うため、未ペア
+          // (toolById に登録しない / subagent 紐付けキーも空) として扱う。
+          const toolUseId = block.id ?? "";
           const tool: Extract<TranscriptEvent, { kind: "tool" }> = {
             kind: "tool",
             // 見出しの中黒区切りを廃したため、空名だと TOOL ラベルだけになり種別が消える。
@@ -249,11 +255,12 @@ export function parseSessionLog(jsonl: string): ParsedSessionLog {
             name: block.name === undefined || block.name === "" ? "(unnamed tool)" : block.name,
             // input 欠落は下流の添字アクセス (input[key]) を実行時エラーにするため空 object に倒す。
             input: block.input ?? {},
-            toolUseId: block.id,
+            toolUseId,
             ts,
             result: undefined,
           };
-          toolById.set(block.id, tool);
+          // id がある時だけ result 充填用に登録する。空 id を登録すると衝突源になる。
+          if (toolUseId !== "") toolById.set(toolUseId, tool);
           events.push(tool);
         } else if (block.type === "image") {
           events.push({ kind: "image", ts, src: imageSrc(block) });
@@ -271,6 +278,100 @@ export function parseSessionLog(jsonl: string): ParsedSessionLog {
   }
 
   return { events, totalLines, malformed, skipped, emptyThinking };
+}
+
+// --- subagent 紐付け / 時刻ジャンプ (SessionLogDialog / SessionLogTranscript が使う純関数) ---
+
+/** main の Agent / SendMessage 行を起動/宛先 subagent に結ぶリンク。 */
+export interface SubagentLink {
+  agentId: string;
+  label: string;
+}
+
+/** buildSubagentLinks が参照する subagent の最小情報 (SessionTab の射影)。 */
+export interface SubagentDescriptor {
+  id: string; // agent_id
+  label: string; // 表示ラベル
+  name: string; // meta.json の name (SendMessage の to が name のことがある)
+  parentToolUseId: string; // spawn した main 側 Agent tool_use id
+}
+
+/**
+ * main の tool 呼び出し (Agent / SendMessage) を起動/宛先 subagent に結ぶ map を作る。
+ * key は main tool event の toolUseId、value は紐づく subagent の {agentId,label}。
+ *
+ * - Agent (新規 spawn): main の `tool_use.id` === subagent の `parentToolUseId` (meta.toolUseId)
+ * - SendMessage (resume): main の `tool_use.input.to` === subagent の `id` または `name`
+ *   (Claude Code の SendMessage は to に agent_id / agent name のどちらも取りうるため両引き)。
+ *   id を優先し name にフォールバックする。ただし同名 subagent が複数あると name では一意に
+ *   決められないため、その name はリンクを張らない (誤った subagent へ飛ばすより無表示が安全)。
+ *   id は一意なので衝突しない。
+ *
+ * toolUseId が空 (id 欠落 tool_use) の event は紐付け対象外。
+ */
+export function buildSubagentLinks(
+  mainEvents: TranscriptEvent[],
+  subagents: SubagentDescriptor[],
+): Map<string, SubagentLink> {
+  const links = new Map<string, SubagentLink>();
+  const byParentToolUse = new Map<string, SubagentDescriptor>();
+  const byAgentId = new Map<string, SubagentDescriptor>();
+  const byName = new Map<string, SubagentDescriptor>();
+  // 複数 subagent が同じ name を持つ場合、その name では一意に引けないので除外対象にする。
+  const ambiguousNames = new Set<string>();
+  for (const sub of subagents) {
+    if (sub.parentToolUseId !== "") byParentToolUse.set(sub.parentToolUseId, sub);
+    byAgentId.set(sub.id, sub);
+    if (sub.name !== "") {
+      if (byName.has(sub.name)) ambiguousNames.add(sub.name);
+      else byName.set(sub.name, sub);
+    }
+  }
+
+  // id 引きを優先し、引けない時だけ name にフォールバック。曖昧な name は引かない。
+  const resolveTo = (to: string): SubagentDescriptor | undefined => {
+    const byId = byAgentId.get(to);
+    if (byId !== undefined) return byId;
+    if (ambiguousNames.has(to)) return undefined;
+    return byName.get(to);
+  };
+
+  for (const ev of mainEvents) {
+    if (ev.kind !== "tool" || ev.toolUseId === "") continue;
+    if (ev.name === "Agent") {
+      const sub = byParentToolUse.get(ev.toolUseId);
+      if (sub !== undefined) links.set(ev.toolUseId, { agentId: sub.id, label: sub.label });
+    } else if (ev.name === "SendMessage") {
+      const to = ev.input.to;
+      if (typeof to === "string") {
+        const sub = resolveTo(to);
+        if (sub !== undefined) links.set(ev.toolUseId, { agentId: sub.id, label: sub.label });
+      }
+    }
+  }
+  return links;
+}
+
+/**
+ * events の中で `ts` に最も近いイベントの index を返す。空文字 / parse 不能な ts のイベントは
+ * スキップする。対象が無い (空 events / 全 ts 不正 / `ts` 自体が不正) なら undefined。
+ * 同値 diff のタイは最小 index (最も早い) を選ぶ。
+ */
+export function nearestEventIndexByTs(events: TranscriptEvent[], ts: string): number | undefined {
+  const target = Date.parse(ts);
+  if (Number.isNaN(target)) return undefined;
+  let best: number | undefined;
+  let bestDiff = Infinity;
+  events.forEach((ev, index) => {
+    const t = Date.parse(ev.ts);
+    if (Number.isNaN(t)) return;
+    const diff = Math.abs(t - target);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = index;
+    }
+  });
+  return best;
 }
 
 /** 表示用に分解した timestamp。日付は今日なら空文字 (時刻のみで足りる)。 */

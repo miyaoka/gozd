@@ -1,5 +1,12 @@
 import { afterAll, describe, expect, setSystemTime, test } from "bun:test";
-import { formatSessionTime, parseSessionLog } from "./sessionLog";
+import {
+  buildSubagentLinks,
+  formatSessionTime,
+  nearestEventIndexByTs,
+  parseSessionLog,
+  type SubagentDescriptor,
+  type TranscriptEvent,
+} from "./sessionLog";
 
 /** 1 レコードを JSONL 1 行にする。複数行は join して渡す。 */
 function jsonl(...records: unknown[]): string {
@@ -456,5 +463,129 @@ describe("formatSessionTime", () => {
     const result = formatSessionTime("2024-05-31T12:00:00.000Z");
     expect(result.date).toContain("2024");
     expect(result.time).not.toBe("");
+  });
+});
+
+describe("buildSubagentLinks", () => {
+  // tool event を 1 つ作る helper。toolUseId / name / input を指定する。
+  function toolEvent(
+    name: string,
+    toolUseId: string,
+    input: Record<string, unknown> = {},
+  ): TranscriptEvent {
+    return { kind: "tool", name, input, toolUseId, ts: TS, result: undefined };
+  }
+  function sub(over: Partial<SubagentDescriptor>): SubagentDescriptor {
+    return { id: "", label: "", name: "", parentToolUseId: "", ...over };
+  }
+
+  test("Agent は tool_use.id == subagent.parentToolUseId で結ぶ", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("Agent", "toolu_A")],
+      [sub({ id: "agent1", label: "reviewer", parentToolUseId: "toolu_A" })],
+    );
+    expect(links.get("toolu_A")).toEqual({ agentId: "agent1", label: "reviewer" });
+  });
+
+  test("SendMessage は input.to == agent_id で結ぶ", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("SendMessage", "toolu_S", { to: "agent1" })],
+      [sub({ id: "agent1", label: "reviewer" })],
+    );
+    expect(links.get("toolu_S")).toEqual({ agentId: "agent1", label: "reviewer" });
+  });
+
+  test("SendMessage は input.to が agent name でも結ぶ (id 不一致時の name フォールバック)", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("SendMessage", "toolu_S", { to: "reviewer" })],
+      [sub({ id: "agent1", label: "PR review", name: "reviewer" })],
+    );
+    expect(links.get("toolu_S")).toEqual({ agentId: "agent1", label: "PR review" });
+  });
+
+  test("id を name より優先する", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("SendMessage", "toolu_S", { to: "agent1" })],
+      [
+        sub({ id: "agent1", label: "by-id" }),
+        sub({ id: "agent2", label: "by-name", name: "agent1" }),
+      ],
+    );
+    expect(links.get("toolu_S")?.agentId).toBe("agent1");
+  });
+
+  test("同名 subagent が複数 + to が name のときはリンクを張らない (一意に決められない)", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("SendMessage", "toolu_S", { to: "reviewer" })],
+      [sub({ id: "agent1", name: "reviewer" }), sub({ id: "agent2", name: "reviewer" })],
+    );
+    expect(links.has("toolu_S")).toBe(false);
+  });
+
+  test("同名 subagent が複数でも to が id なら一意に引ける", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("SendMessage", "toolu_S", { to: "agent2" })],
+      [
+        sub({ id: "agent1", label: "first", name: "reviewer" }),
+        sub({ id: "agent2", label: "second", name: "reviewer" }),
+      ],
+    );
+    expect(links.get("toolu_S")).toEqual({ agentId: "agent2", label: "second" });
+  });
+
+  test("parentToolUseId 空の subagent は Agent 紐付け対象から外す", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("Agent", "toolu_A")],
+      [sub({ id: "agent1", parentToolUseId: "" })],
+    );
+    expect(links.has("toolu_A")).toBe(false);
+  });
+
+  test("toolUseId 空の tool event は紐付け対象外", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("Agent", "")],
+      [sub({ id: "agent1", parentToolUseId: "" })],
+    );
+    expect(links.size).toBe(0);
+  });
+
+  test("引き当たらない to / 無関係 tool は map に入らない", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("SendMessage", "toolu_S", { to: "missing" }), toolEvent("Read", "toolu_R")],
+      [sub({ id: "agent1", name: "reviewer" })],
+    );
+    expect(links.size).toBe(0);
+  });
+});
+
+describe("nearestEventIndexByTs", () => {
+  function userAt(ts: string): TranscriptEvent {
+    return { kind: "user", text: "x", ts };
+  }
+
+  test("最も近い ts の index を返す", () => {
+    const events = [
+      userAt("2026-06-01T09:00:00.000Z"),
+      userAt("2026-06-01T09:06:07.000Z"),
+      userAt("2026-06-01T10:00:00.000Z"),
+    ];
+    // SendMessage 発火 (06:06.966) の直後に注入された 06:07 のイベントへ寄せる。
+    expect(nearestEventIndexByTs(events, "2026-06-01T09:06:06.966Z")).toBe(1);
+  });
+
+  test("ts 不正 / 空文字なら undefined", () => {
+    expect(nearestEventIndexByTs([userAt(TS)], "")).toBeUndefined();
+    expect(nearestEventIndexByTs([userAt(TS)], "not-a-date")).toBeUndefined();
+  });
+
+  test("空 events / 全 ts 不正なら undefined", () => {
+    expect(nearestEventIndexByTs([], TS)).toBeUndefined();
+    expect(nearestEventIndexByTs([userAt(""), userAt("bad")], TS)).toBeUndefined();
+  });
+
+  test("同値 diff のタイは最小 index を選ぶ", () => {
+    const events = [userAt("2026-06-01T09:00:00.000Z"), userAt("2026-06-01T09:00:02.000Z")];
+    // target はちょうど中間。両者 1000ms 差で、strict < により先(最小 index)を選ぶ。
+    expect(nearestEventIndexByTs(events, "2026-06-01T09:00:01.000Z")).toBe(0);
   });
 });

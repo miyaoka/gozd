@@ -78,6 +78,19 @@ export interface ClaudeSessionLogEntry {
   path: string;
   /** jsonl の生内容 (改行区切り)。 */
   content: string;
+  /**
+   * この subagent を spawn した main 側 Agent tool_use の id (meta.json の toolUseId)。
+   * main の Agent tool_use と subagent を結ぶキー。main entry は空文字。
+   * SendMessage による resume は別キー (main tool_use の input.to == この entry の id or name)
+   * で結ぶため、この field には現れない (resume では新規 subagent が作られないため)。
+   */
+  parentToolUseId: string;
+  /**
+   * subagent の名前 (meta.json の name)。SendMessage の input.to は agent_id だけでなく
+   * agent name のこともあるため、id と name の双方で resume を紐付けられるよう露出する。
+   * 名前付きで起動していない subagent / main は空文字。
+   */
+  name: string;
 }
 
 export interface ClaudeSessionLogResponse {
@@ -590,7 +603,7 @@ export const ClaudeSessionLogRequest: MessageFns<ClaudeSessionLogRequest> = {
 };
 
 function createBaseClaudeSessionLogEntry(): ClaudeSessionLogEntry {
-  return { kind: "", id: "", label: "", agentType: "", path: "", content: "" };
+  return { kind: "", id: "", label: "", agentType: "", path: "", content: "", parentToolUseId: "", name: "" };
 }
 
 export const ClaudeSessionLogEntry: MessageFns<ClaudeSessionLogEntry> = {
@@ -612,6 +625,12 @@ export const ClaudeSessionLogEntry: MessageFns<ClaudeSessionLogEntry> = {
     }
     if (message.content !== "") {
       writer.uint32(50).string(message.content);
+    }
+    if (message.parentToolUseId !== "") {
+      writer.uint32(58).string(message.parentToolUseId);
+    }
+    if (message.name !== "") {
+      writer.uint32(66).string(message.name);
     }
     return writer;
   },
@@ -671,6 +690,22 @@ export const ClaudeSessionLogEntry: MessageFns<ClaudeSessionLogEntry> = {
           message.content = reader.string();
           continue;
         }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.parentToolUseId = reader.string();
+          continue;
+        }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -692,6 +727,12 @@ export const ClaudeSessionLogEntry: MessageFns<ClaudeSessionLogEntry> = {
         : "",
       path: isSet(object.path) ? globalThis.String(object.path) : "",
       content: isSet(object.content) ? globalThis.String(object.content) : "",
+      parentToolUseId: isSet(object.parentToolUseId)
+        ? globalThis.String(object.parentToolUseId)
+        : isSet(object.parent_tool_use_id)
+        ? globalThis.String(object.parent_tool_use_id)
+        : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
     };
   },
 
@@ -715,6 +756,12 @@ export const ClaudeSessionLogEntry: MessageFns<ClaudeSessionLogEntry> = {
     if (message.content !== "") {
       obj.content = message.content;
     }
+    if (message.parentToolUseId !== "") {
+      obj.parentToolUseId = message.parentToolUseId;
+    }
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
     return obj;
   },
 
@@ -729,6 +776,8 @@ export const ClaudeSessionLogEntry: MessageFns<ClaudeSessionLogEntry> = {
     message.agentType = object.agentType ?? "";
     message.path = object.path ?? "";
     message.content = object.content ?? "";
+    message.parentToolUseId = object.parentToolUseId ?? "";
+    message.name = object.name ?? "";
     return message;
   },
 };

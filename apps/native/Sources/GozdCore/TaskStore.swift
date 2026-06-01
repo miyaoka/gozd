@@ -122,14 +122,16 @@ public actor TaskStore {
   ///   1. 既に sessionID が一致する task → 同一セッションの継続 (resume) が確定して
   ///      いる経路。`closed_by_user` が true なら false に倒して「生きている」状態に
   ///      戻す。
-  ///   2. 同一 worktreeDir で attach 可能な candidate に新 sid を上書き attach。
-  ///      candidate は「`sessionID == ""`」または「`closedByUser == true`」の task。
-  ///      pick は createdAt 最大値 (= 最新)、tie-break は id 辞書順で最大値。
-  ///      同時に `closed_by_user` を false に倒す。
-  ///      closed な ghRef task に素 claude が偶発取り憑くシナリオも許容する (同 worktree
-  ///      で素 claude を起動した = そのコンテキストで作業継続する意図と解釈する)。
-  ///      この拡張で「ghRef 無し closed task が同 worktree に累積する」問題を構造的に
-  ///      解消する。
+  ///   2. 同一 worktreeDir の `sessionID == ""` candidate に新 sid を attach。
+  ///      candidate は sessionID 空の task のみ (PR/issue picker 由来の未起動 task、
+  ///      resume 失敗で sid を空に戻された task)。pick は createdAt 最大値 (= 最新)、
+  ///      tie-break は id 辞書順で最大値。closed_by_user=true でも sessionID が空なら
+  ///      candidate に含め、pick 時に false へ倒す。
+  ///      **closed だが sessionID を保持する (= resume 可能な) task は candidate にしない。**
+  ///      新しい session_id は必ず別 task になる (session ≒ task の 1:1。`/clear` で
+  ///      session_id が変わったら新 task。既存 task の sid を別 session が奪う hijack は
+  ///      しない)。累積した closed task はユーザーが ⋮ メニュー or worktree 削除 cascade
+  ///      で消す。
   ///   3. 該当無し → 新規 task を作成し sessionID を入れる (Claude 直接起動経路)。
   public func attachSession(dir: String, sessionId: String, worktreeDir: String) throws {
     var list = try loadFile(for: dir)
@@ -141,8 +143,7 @@ public actor TaskStore {
       return
     }
     let candidates = list.tasks.enumerated().filter {
-      $0.element.worktreeDir == worktreeDir
-        && ($0.element.sessionID.isEmpty || $0.element.closedByUser)
+      $0.element.worktreeDir == worktreeDir && $0.element.sessionID.isEmpty
     }
     // 1次キー: createdAt の最大値を pick (= 最新)。
     // 2次キー: id (UUID) の最大値を pick (辞書順で末尾)。createdAt は ISO 8601 秒粒度

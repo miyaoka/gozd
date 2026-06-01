@@ -397,18 +397,17 @@ struct TaskStoreTests {
     #expect(kept.closedByUser)
   }
 
-  @Test("attachSession: candidate に closedByUser=true な task を含める (素 claude 再起動で closed task を蘇生)")
-  func attachSessionRevivesClosedCandidate() async throws {
+  @Test("attachSession: closed (sid 保持) task は奪わず、新 sid は別 task を作る (hijack なし)")
+  func attachSessionDoesNotHijackClosedTask() async throws {
     let env = try await makeEnv()
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
-    // root wt で素 claude を起動 → /exit (closed_by_user=true で滞留)
+    // 素 claude を起動 → /exit (sessionID 保持 + closed_by_user=true で滞留 = resume 可能)
     let original = try await store.add(
       dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil,
       createdAt: "2026-05-15T00:00:00Z"
     )
-    // ユーザーが dialog で立てた user_title が candidate ピックでも保持されることを検証
     _ = try await store.setUserTitle(
       dir: env.worktreeA, id: original.id, userTitle: "scratch work")
     try await store.attachSession(
@@ -417,21 +416,25 @@ struct TaskStoreTests {
     #expect(try await store.list(dir: env.worktreeA).first?.closedByUser == true)
 
     // 同 worktree で再度素 claude を起動 → SessionStart hook が新 sid で着弾。
-    // candidate に closedByUser=true を含めたことで、新規 task が増えず元 task に転移する。
+    // closed task は sessionID を保持する (resume 可能) ため candidate にせず、新 task を作る。
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "new-sid", worktreeDir: env.worktreeA)
 
     let list = try await store.list(dir: env.worktreeA)
-    #expect(list.count == 1)
-    let revived = try #require(list.first)
-    #expect(revived.id == original.id)
-    #expect(revived.sessionID == "new-sid")
-    #expect(!revived.closedByUser)
-    #expect(revived.userTitle == "scratch work")
+    #expect(list.count == 2)
+    // 旧 task は closed (sid=old-sid) のまま resume 可能で残る
+    let kept = try #require(list.first { $0.id == original.id })
+    #expect(kept.sessionID == "old-sid")
+    #expect(kept.closedByUser)
+    #expect(kept.userTitle == "scratch work")
+    // 新 session_id は別 task になる
+    let fresh = try #require(list.first { $0.id != original.id })
+    #expect(fresh.sessionID == "new-sid")
+    #expect(!fresh.closedByUser)
   }
 
-  @Test("attachSession: ghRef 有り closed task に素 claude (新 sid) が attach した時、body / ghRef は触らず sessionID と closedByUser だけ書き換える (設計判断: ghRef 有無で attach 動作を分岐せず、同 worktree のアクセス継続性を優先)")
-  func attachSessionRevivesGhRefClosedTaskWithoutOverwritingIdentity() async throws {
+  @Test("attachSession: ghRef 有り closed task も奪わず、素 claude (新 sid) は別 task を作る (gh 情報を持つ resume 可能 task を保護)")
+  func attachSessionDoesNotHijackGhRefClosedTask() async throws {
     let env = try await makeEnv()
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
@@ -447,61 +450,60 @@ struct TaskStoreTests {
     try await store.detachSession(dir: env.worktreeA, sessionId: "X")
 
     // 同 worktree で PR picker を経由せず素 claude を起動 → SessionStart hook で sid=Y 着弾。
-    // priority 2 の candidate (sessionID 空 OR closedByUser=true) で当該 ghRef closed task
-    // が pick される。
+    // closed ghRef task は sessionID を保持する (resume 可能) ため奪わず、別 task を作る。
+    // これで PR #42 の resume 経路 (gh 情報込み) が温存される。
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "Y", worktreeDir: env.worktreeA)
 
     let list = try await store.list(dir: env.worktreeA)
-    #expect(list.count == 1)
-    let pickedTask = try #require(list.first)
-    // 同一 task identity を維持 (id / createdAt / body / ghRef)
-    #expect(pickedTask.id == original.id)
-    #expect(pickedTask.createdAt == original.createdAt)
-    #expect(pickedTask.ghTitle == "PR #42 title")
-    #expect(pickedTask.userTitle == "")
-    #expect(pickedTask.hasGhRef)
-    #expect(pickedTask.ghRef.number == 42)
-    // sessionID と closedByUser だけが書き換わる
-    #expect(pickedTask.sessionID == "Y")
-    #expect(!pickedTask.closedByUser)
-    // ※ サイドバー UI 上は「PR #42 title」と表示されるが、Claude セッション Y は PR 文脈を
-    // 持たない可能性がある。ghRef 有無で attach を分岐させない設計判断によるトレードオフ。
+    #expect(list.count == 2)
+    // PR #42 task は closed (sid=X, ghRef 保持) のまま残る
+    let prTask = try #require(list.first { $0.id == original.id })
+    #expect(prTask.sessionID == "X")
+    #expect(prTask.closedByUser)
+    #expect(prTask.hasGhRef)
+    #expect(prTask.ghRef.number == 42)
+    #expect(prTask.ghTitle == "PR #42 title")
+    // 素 claude の新 session は ghRef を持たない別 task になる
+    let fresh = try #require(list.first { $0.id != original.id })
+    #expect(fresh.sessionID == "Y")
+    #expect(!fresh.hasGhRef)
+    #expect(!fresh.closedByUser)
   }
 
-  @Test("attachSession: sessionID 空 task と closed task が並ぶ場合、createdAt 最新を pick")
-  func attachSessionPicksLatestAmongMixedCandidates() async throws {
+  @Test("attachSession: closed (sid 保持) task は createdAt が新しくても candidate 外、sessionID 空 task が pick される")
+  func attachSessionExcludesClosedTaskWithSid() async throws {
     let env = try await makeEnv()
     defer { cleanup(env) }
     let store = TaskStore(configDir: env.configDir)
 
-    // 古い closed task
-    let older = try await store.add(
+    // sessionID 空 task (古い) = 未起動 placeholder 相当
+    let empty = try await store.add(
       dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil,
       createdAt: "2026-05-10T00:00:00Z"
     )
-    try await store.attachSession(
-      dir: env.worktreeA, sessionId: "old-sid", worktreeDir: env.worktreeA)
-    try await store.detachSession(dir: env.worktreeA, sessionId: "old-sid")
 
-    // 新しい sessionID 空 task
-    let newer = try await store.add(
+    // closed task (新しい) — sid を保持 = resume 可能
+    let closed = try await store.add(
       dir: env.worktreeA, ghTitle: "", worktreeDir: env.worktreeA, ghRef: nil,
       createdAt: "2026-05-20T00:00:00Z"
     )
+    try await store.attachSession(
+      dir: env.worktreeA, sessionId: "closed-sid", worktreeDir: env.worktreeA)
+    try await store.detachSession(dir: env.worktreeA, sessionId: "closed-sid")
 
     try await store.attachSession(
       dir: env.worktreeA, sessionId: "fresh", worktreeDir: env.worktreeA)
 
     let list = try await store.list(dir: env.worktreeA)
-    let olderResult = try #require(list.first { $0.id == older.id })
-    let newerResult = try #require(list.first { $0.id == newer.id })
-    // newer (createdAt 最新) がピックされる
-    #expect(newerResult.sessionID == "fresh")
-    #expect(!newerResult.closedByUser)
-    // older は触られない
-    #expect(olderResult.sessionID == "old-sid")
-    #expect(olderResult.closedByUser)
+    // closed が createdAt 最新でも、sid 保持で candidate 外。sessionID 空の empty が pick される
+    let emptyResult = try #require(list.first { $0.id == empty.id })
+    #expect(emptyResult.sessionID == "fresh")
+    #expect(!emptyResult.closedByUser)
+    // closed は触られない
+    let closedResult = try #require(list.first { $0.id == closed.id })
+    #expect(closedResult.sessionID == "closed-sid")
+    #expect(closedResult.closedByUser)
   }
 
   @Test("attachSession: createdAt 同値の candidate は id 辞書順で最大の方を pick (決定論的 tie-break)")

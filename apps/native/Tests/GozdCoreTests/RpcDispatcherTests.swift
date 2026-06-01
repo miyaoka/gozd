@@ -317,7 +317,7 @@ struct RpcDispatcherTests {
     _ = try await dispatcher.dispatch(path: "/pty/kill", body: killReq.jsonUTF8Data())
   }
 
-  @Test("session-start 2 回目: previous 経路で detachSession 後、新 sid は元 task に上書き attach する (closed candidate 拡張)")
+  @Test("session-start 2 回目 (/clear): previous 経路で旧 task を closed 化し、新 sid は別 task になる (hijack なし)")
   func sessionStartSecondHitAfterResume() async throws {
     let configDir = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: configDir)) }
@@ -369,10 +369,10 @@ struct RpcDispatcherTests {
     // 期待 sid は 1 回目で消費済みなので mismatch ブロックは fire しない。
     // `previous != hook.sessionID` 経路で旧 X が claude-sessions から削除され、
     // `detachSession(X)` が走り元 task は `closedByUser=true + sessionID=resume-X 保持`
-    // 状態になる。続く attachSession(new-Y) は candidate に `closedByUser=true` を含む
-    // ため (本 PR の拡張)、元 task に new-Y を上書き attach する。/clear 経路では旧 sid の
-    // resume 経路を失う代わりに、同 worktree での task 累積を構造的に防ぐ。これは
-    // 「closed task と新 task の同居を許さない」設計判断のトレードオフ。
+    // 状態になる。続く attachSession(new-Y) は candidate を sessionID 空 task のみに絞るため
+    // (元 task は sid=resume-X 保持 = candidate 外)、元 task を奪わず別 task を新規作成する。
+    // /clear で session_id が変わったら別 task = session ≒ task の 1:1。旧 session は
+    // closed task として resume 可能なまま残り、ユーザーが ⋮ で消すまで滞留する。
     var hook2 = Gozd_V1_HookMessage()
     hook2.event = "session-start"
     hook2.ptyID = spawnResp.ptyID
@@ -387,14 +387,17 @@ struct RpcDispatcherTests {
     #expect(sessions.count == 1)
     #expect(sessions.first?.sessionID == "new-Y")
 
-    // tasks: 元 task が sid=new-Y で上書き attach され、closedByUser=false に倒される
+    // tasks: 元 task は奪われず closed (sid=resume-X, ghRef 保持) のまま残り、
+    // /clear の新 sid=new-Y は別 task になる
     let remainingTasks = try await tasks.list(dir: worktreeDir)
-    #expect(remainingTasks.count == 1)
-    let kept = try #require(remainingTasks.first)
-    #expect(kept.id == originalTask.id)
-    #expect(kept.sessionID == "new-Y")
-    #expect(kept.ghRef.number == 42)
-    #expect(!kept.closedByUser)
+    #expect(remainingTasks.count == 2)
+    let original = try #require(remainingTasks.first { $0.id == originalTask.id })
+    #expect(original.sessionID == "resume-X")
+    #expect(original.ghRef.number == 42)
+    #expect(original.closedByUser)
+    let fresh = try #require(remainingTasks.first { $0.id != originalTask.id })
+    #expect(fresh.sessionID == "new-Y")
+    #expect(!fresh.closedByUser)
 
     var killReq = Gozd_V1_PtyKillRequest()
     killReq.ptyID = spawnResp.ptyID

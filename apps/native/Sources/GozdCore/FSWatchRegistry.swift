@@ -219,6 +219,16 @@ public actor FSWatchRegistry {
   /// 逆引きを増やすだけ、`unwatch` は全 userDir 参照を巻き取って 1 度で解放」。
   /// renderer 側で 1 worktree に対して複数 userDir で watch を投げる前提は無いため、
   /// この簡略セマンティクスで十分（参照カウントは持たない）。
+  ///
+  /// **注記（複数購読者の前提）**: この registry は冪等で、renderer 側の複数の独立した
+  /// 購読者が `/fs/watch` を叩ける（`useFsWatchSync` の worktree app-scope watch と、
+  /// `SessionLogDialog` の session log dir watch = `~/.claude/projects/<encoded>/`）。
+  /// ただし**異なる解決済み dir** を watch する限り別 entry になり衝突しない。両者が
+  /// 同一 resolved dir を watch した場合のみ、参照カウント不在のため「片方の unwatch が
+  /// もう片方の watch も解放する」破れが起きる。現状、session log dir と worktree dir は
+  /// 常に別パスで、この衝突は構造的に発生しない（衝突させるには Claude の内部 projects dir
+  /// 自体を gozd の worktree として開く必要があり非現実的）。将来、任意 dir を watch する
+  /// 購読者がさらに増えて同一 dir の共有が現実的になったら、参照カウントを導入する。
   public func unwatch(dir userDir: String) {
     let resolvedKey = resolvedKeyByOriginalDir.removeValue(forKey: userDir)
       ?? FSWatchRegistry.realpath(userDir)

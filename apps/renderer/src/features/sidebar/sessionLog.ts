@@ -12,8 +12,8 @@
 //
 // attachment は原則 skipped だが、`queued_command` (エージェント作業中にユーザーが打ち
 // queue に積んだ発話) だけは例外で、本文が `type:"user"` に昇格せず attachment.prompt にしか
-// 残らないことがあるため USER ブロックに載せる。中身が注入ラッパー (task-notification 等) の
-// queue は string content と同じ判定で弾く。
+// 残らないことがあるため USER ブロックに載せる。採否は上流が分類済みの attachment.commandMode
+// を SSOT にし、生発話 ("prompt") のみ拾う。注入通知 ("task-notification" 等) は除外する。
 //
 // 平文の無い thinking (最新モデルの暗号化 signature のみ / フィールド欠落) も載せないが、
 // これは非会話レコードではなく会話イベントの一種なので skipped と混ぜず emptyThinking に
@@ -88,6 +88,9 @@ interface RawAttachment {
   type?: string;
   // queued_command が積んだ発話本文。信頼境界外の入力なので optional。
   prompt?: string;
+  // queue 種別の SSOT。"prompt" = ユーザーの生発話 / "task-notification" = 注入通知。
+  // 上流 (Claude Code) が分類済みのため本文パターンで再導出せずこのフィールドで採否を決める。
+  commandMode?: string;
 }
 interface RawLine {
   type?: string;
@@ -105,22 +108,22 @@ interface RawLine {
 // `type:"user"` + content=string + isMeta:null の形で main loop に注入されるため、
 // isMeta フラグでは区別できず、先頭ラッパータグで判定する。実ユーザー発話はこれらの
 // タグで始まらない (リマインダ等は発話の後ろに付くため先頭一致しない)。
-//
-// command-* (slash command 起動) は除外対象ではなく slashCommandText が先に拾って表示する
-// ので、ここに残すのは command-name を欠いた病的な command ブロックの保険のみ。
 const INJECTED_USER_WRAPPER_RE =
-  /^\s*<(command-message|command-name|command-args|local-command-stdout|local-command-stderr|task-notification|system-reminder)>/;
+  /^\s*<(local-command-stdout|local-command-stderr|task-notification|system-reminder)>/;
 function isInjectedUserText(text: string): boolean {
   return INJECTED_USER_WRAPPER_RE.test(text);
 }
 
-// slash command 起動は `type:"user"` の string content として
-// `<command-name>/foo</command-name>` の形で記録される。これはユーザーが打った操作なので
-// コマンド名 (+ 引数) を取り出して USER ブロックに載せる。
+// slash command 起動は `type:"user"` の string content として記録され、先頭が
+// `<command-name>/foo</command-name>` か `<command-message>foo</command-message>` で始まる。
+// この先頭判定でだけ command block とみなす。本文中にたまたま <command-name> を含む生発話
+// (このログ機能自体を議論する発話など) を slash command と誤認して切り詰めるのを防ぐため、
+// 抽出側 (COMMAND_NAME_RE) ではなく先頭アンカーを持つこの RE で採否を決める。
+const COMMAND_BLOCK_LEAD_RE = /^\s*<(command-name|command-message)>/;
 const COMMAND_NAME_RE = /<command-name>([\s\S]*?)<\/command-name>/;
 const COMMAND_ARGS_RE = /<command-args>([\s\S]*?)<\/command-args>/;
 
-/** slash command 起動 string から表示用テキスト (`/foo` または `/foo args`) を取り出す。command-name が無ければ undefined。 */
+/** command block string から表示用テキスト (`/foo` または `/foo args`) を取り出す。command-name が無い病的ブロックは undefined。 */
 function slashCommandText(text: string): string | undefined {
   const nameMatch = COMMAND_NAME_RE.exec(text);
   if (nameMatch === null) return undefined;
@@ -132,16 +135,16 @@ function slashCommandText(text: string): string | undefined {
 }
 
 /**
- * user role の生 string (type:"user" の string content / queued_command の prompt) を表示用
- * テキストに正規化する。表示すべきでない注入ラッパーは undefined を返す (呼び出し側で skipped)。
+ * `type:"user"` の string content を表示用テキストに正規化する。表示すべきでないものは
+ * undefined を返す (呼び出し側で skipped)。
  *
- * - slash command 起動 (<command-name>) はユーザーの操作なのでコマンド名を出す
- * - ローカルコマンド出力 / task-notification / system-reminder 等は発話ではないので除外
- * - それ以外は生発話としてそのまま出す
+ * - 先頭が command block → slash command 起動。コマンド名 (+ 引数) を出す。command-name を
+ *   欠いた病的ブロックは undefined
+ * - 先頭が注入ラッパー (ローカルコマンド出力 / task-notification / system-reminder) → 除外
+ * - それ以外は生発話としてそのまま出す (本文中の <command-name> 等は加工しない)
  */
 function userTextOf(text: string): string | undefined {
-  const command = slashCommandText(text);
-  if (command !== undefined) return command;
+  if (COMMAND_BLOCK_LEAD_RE.test(text)) return slashCommandText(text);
   if (isInjectedUserText(text)) return undefined;
   return text;
 }
@@ -321,13 +324,14 @@ export function parseSessionLog(jsonl: string): ParsedSessionLog {
     }
 
     // queued_command (ユーザーが作業中に queue に積んだ発話) は type:"user" に昇格せず
-    // attachment.prompt にしか本文が残らないことがあるため、生発話なら USER ブロックに載せる。
-    // 注入された task-notification 等の queue は userTextOf が undefined に倒して弾く。
+    // attachment.prompt にしか本文が残らないことがあるため USER ブロックに載せる。採否は
+    // 上流が分類済みの commandMode を SSOT にし、生発話 ("prompt") のみ拾う。注入通知
+    // ("task-notification" 等) は除外する。prompt は生発話なので本文を加工せずそのまま出す
+    // (本文が <span> や <command-name> 始まりの正当な発話を切り詰めない)。
     if (raw.type === "attachment" && raw.attachment?.type === "queued_command") {
-      const prompt = raw.attachment.prompt;
-      const text = prompt === undefined ? undefined : userTextOf(prompt);
-      if (text !== undefined) {
-        events.push({ kind: "user", text, ts });
+      const { commandMode, prompt } = raw.attachment;
+      if (commandMode === "prompt" && prompt !== undefined && prompt !== "") {
+        events.push({ kind: "user", text: prompt, ts });
         continue;
       }
       skipped++;

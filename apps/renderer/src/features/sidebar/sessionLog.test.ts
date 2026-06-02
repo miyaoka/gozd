@@ -255,6 +255,17 @@ describe("parseSessionLog", () => {
     expect(log.skipped).toBe(1);
   });
 
+  // command 抽出は先頭アンカー (COMMAND_BLOCK_LEAD_RE) で採否を決めるため、本文中に
+  // <command-name> を含む生発話 (このログ機能自体を議論する発話など) は切り詰めず verbatim。
+  test("本文中に <command-name> を含む通常発話は切り詰めず verbatim で残す", () => {
+    const content = "この <command-name>/foo</command-name> の扱いを直して";
+    const log = parseSessionLog(
+      jsonl({ type: "user", timestamp: TS, message: { role: "user", content } }),
+    );
+    expect(log.events).toEqual([{ kind: "user", text: content, ts: TS }]);
+    expect(log.skipped).toBe(0);
+  });
+
   test("task-notification / system-reminder 注入 string は載せず skipped に計上", () => {
     const log = parseSessionLog(
       jsonl(
@@ -319,7 +330,7 @@ describe("parseSessionLog", () => {
     expect(log.skipped).toBe(2);
   });
 
-  test("queued_command attachment の生発話は user イベントにする", () => {
+  test("queued_command は commandMode:prompt の生発話を user イベントにする", () => {
     const log = parseSessionLog(
       jsonl({
         type: "attachment",
@@ -335,13 +346,14 @@ describe("parseSessionLog", () => {
     expect(log.skipped).toBe(0);
   });
 
-  test("queued_command が注入ラッパー (task-notification) なら載せず skipped に計上", () => {
+  test("queued_command の commandMode:task-notification は載せず skipped に計上", () => {
     const log = parseSessionLog(
       jsonl({
         type: "attachment",
         timestamp: TS,
         attachment: {
           type: "queued_command",
+          commandMode: "task-notification",
           prompt: "<task-notification>\n<task-id>abc</task-id>\n</task-notification>",
         },
       }),
@@ -350,15 +362,23 @@ describe("parseSessionLog", () => {
     expect(log.skipped).toBe(1);
   });
 
-  test("queued_command が slash command ならコマンド名を user イベントにする", () => {
+  // commandMode を採否の SSOT にするため、本文がタグ始まりの正当な生発話 (<span> や
+  // <command-name> を含む議論) を切り詰めず verbatim で出す。
+  test("queued_command の commandMode:prompt はタグ始まりの本文も verbatim で出す", () => {
     const log = parseSessionLog(
       jsonl({
         type: "attachment",
         timestamp: TS,
-        attachment: { type: "queued_command", prompt: "<command-name>/create-pr</command-name>" },
+        attachment: {
+          type: "queued_command",
+          commandMode: "prompt",
+          prompt: '<span class="x">Setting up...</span> を消して',
+        },
       }),
     );
-    expect(log.events).toEqual([{ kind: "user", text: "/create-pr", ts: TS }]);
+    expect(log.events).toEqual([
+      { kind: "user", text: '<span class="x">Setting up...</span> を消して', ts: TS },
+    ]);
     expect(log.skipped).toBe(0);
   });
 

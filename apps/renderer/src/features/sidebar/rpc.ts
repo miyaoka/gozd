@@ -4,6 +4,10 @@ import {
   ClaudeSessionLogResponse,
   CreateWorktreeRequest,
   CreateWorktreeResponse,
+  FsUnwatchRequest,
+  FsUnwatchResponse,
+  FsWatchRequest,
+  FsWatchResponse,
   GitDefaultBranchRequest,
   GitDefaultBranchResponse,
   GitWorktreeListRequest,
@@ -66,6 +70,19 @@ export const rpcTaskRemove = (req: TaskRemoveRequest) =>
 // ~/.claude/projects/*/<session_id>.jsonl を glob 解決して生 JSONL を返す。
 export const rpcClaudeSessionLog = (req: ClaudeSessionLogRequest) =>
   rpc("/claudeSession/readLog", req, ClaudeSessionLogRequest, ClaudeSessionLogResponse);
+
+// --- fs watch (session log ライブ更新) ---
+
+// セッションログ dialog が開いている間、ログの親 dir (~/.claude/projects/<encoded>/) を
+// watch して fsChange push を受け、リアルタイム再読込するために使う。filer の rpcFsWatch は
+// useFsWatchSync 専用 (worktree app-scope) で barrel 非公開のため、sidebar から同じ汎用
+// エンドポイントを叩くラッパーをここに持つ。native の FSWatchRegistry は冪等で、worktree watch
+// と別 dir の watch が共存しても衝突しない。
+export const rpcFsWatch = (req: FsWatchRequest) =>
+  rpc("/fs/watch", req, FsWatchRequest, FsWatchResponse);
+
+export const rpcFsUnwatch = (req: FsUnwatchRequest) =>
+  rpc("/fs/unwatch", req, FsUnwatchRequest, FsUnwatchResponse);
 
 // --- app-state 永続化（sidebar repos / order / collapse の保存） ---
 

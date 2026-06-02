@@ -25,9 +25,20 @@ footer。目次クリックで該当イベントへスクロールし、`Interse
 - `parsed` が差し替わる (別 subagent を選び直す等) たびに observer を貼り直す
 - `sessionKey` は v-for の :key 先頭に混ぜ、別セッションへ切り替わった際に `<details>` を
   確実に作り直す (index 単独だと Vue が要素を再利用し open 状態が別 kind に誤継承される)
+
+## ボトム追従 (ライブ更新)
+
+`parsed` がライブ更新で差し替わるたび、更新前にボトム付近 (`BOTTOM_THRESHOLD` 以内) にいた
+場合だけボトムへ追従する (ターミナル / ログビューア標準の sticky bottom)。スクロールバック中は
+追従せず、本文下部に sticky 配置の「New updates」ボタンを出してクリックで最新へ飛ばす。初回
+mount もボトム表示。markdown は async 描画で高さが後から確定するため、追従要求は
+`pendingBottomScroll` に積み `onMarkdownRendered` で再適用する。subagent の時刻ジャンプ
+(`scrollTo`) が同時に立った場合は明示操作を優先しボトム追従を捨てる。ボタンは sticky 配置で
+スクロールポート下端に固定し、flex のサイズ計算に干渉させない (ラッパー追加による横幅膨張を回避)。
 </doc>
 
 <script setup lang="ts">
+import { useEventListener } from "@vueuse/core";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { MarkdownBody } from "../preview";
@@ -134,6 +145,43 @@ const tocEntries = computed<TocEntry[]>(() => {
 function scrollToEvent(index: number) {
   const el = contentRef.value?.querySelector(`[data-ev="${index}"]`);
   if (el instanceof HTMLElement) el.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// --- ボトム追従 (ライブ更新) ---
+//
+// セッション進行中はログがライブ更新される (`SessionLogDialog` の fsChange refresh で
+// `parsed` が差し替わる)。ターミナル / ログビューア標準の「sticky bottom」に倣い、ユーザーが
+// ボトム付近にいる間だけ更新でボトムへ追従し、スクロールバックして読んでいる最中は追従しない。
+// 追従が外れている状態で更新が来たら本文下部に「New updates」ボタンを出し、クリックで最新へ飛ぶ。
+//
+// markdown は MarkdownBody が async で描画するため、`parsed` 差し替え直後は本文高さが未確定。
+// 追従要求は `pendingBottomScroll` に積み、描画完了 (`onMarkdownRendered`) 後に再適用する。
+const BOTTOM_THRESHOLD = 80; // この px 以内をボトム扱いにする (追従判定の許容幅)。
+const showNewUpdates = ref(false);
+let pendingBottomScroll = false;
+
+function computeAtBottom(): boolean {
+  const el = contentRef.value;
+  if (el === undefined) return true;
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_THRESHOLD;
+}
+
+function scrollToBottom() {
+  const el = contentRef.value;
+  if (el === undefined) return;
+  el.scrollTop = el.scrollHeight;
+  showNewUpdates.value = false;
+}
+
+// ユーザーがボトムへ戻ったら通知ボタンを消す。離れたら追従しないだけ。
+useEventListener(contentRef, "scroll", () => {
+  if (computeAtBottom()) showNewUpdates.value = false;
+});
+
+// 「New updates」ボタン。最新へ飛び、以降の更新を追従状態に戻す。
+function jumpToLatest() {
+  pendingBottomScroll = true;
+  scrollToBottom();
 }
 
 // --- 時刻ジャンプ (subagent ペイン) ---
@@ -257,9 +305,20 @@ function setupObserver() {
 watch(
   () => props.parsed,
   async () => {
+    // flush 'pre' なので DOM patch 前。ここで読む scroll 位置は「更新前にボトムにいたか」。
+    const wasAtBottom = computeAtBottom();
     activeIndex.value = undefined;
     await nextTick();
     setupObserver();
+    // ボトムにいたら追従、離れていたら通知ボタンを出して位置を保つ。離れている間は
+    // 保留中の追従要求もクリアし、後から markdown 描画が来てもボトムへ引き戻さない。
+    if (wasAtBottom) {
+      pendingBottomScroll = true;
+      scrollToBottom();
+    } else {
+      pendingBottomScroll = false;
+      showNewUpdates.value = true;
+    }
   },
 );
 
@@ -268,7 +327,13 @@ onMounted(() => {
   // 別 subagent へ切替時は :key でこのコンポーネントが作り直されるため、初回 mount 時に
   // scrollTo が既に設定されている。watch は immediate でないのでここで初回ジャンプを担う。
   const target = props.scrollTo;
-  if (target !== undefined) void scrollToTarget(target.ts);
+  if (target !== undefined) {
+    void scrollToTarget(target.ts);
+    return;
+  }
+  // 初回は最新ログを見せるためボトムへ。markdown 描画後に onMarkdownRendered が再補正する。
+  pendingBottomScroll = true;
+  void nextTick().then(scrollToBottom);
 });
 
 // assistant の markdown は MarkdownBody が async (marked.parse) で描画するため、
@@ -284,12 +349,17 @@ function onMarkdownRendered() {
     resetupQueued = false;
     resetupRaf = undefined;
     setupObserver();
-    // markdown 描画で上方の高さが確定した後、保留中の時刻ジャンプを 1 度だけ補正する。
-    // 補正後はクリアし、以降の手動スクロールを上書きしない。
+    // markdown 描画で上方/下方の高さが確定した後、保留中のスクロールを 1 度だけ補正する。
+    // 補正後はクリアし、以降の手動スクロールを上書きしない。時刻ジャンプ (明示操作) を
+    // ボトム追従より優先し、両方立っていても ts ジャンプ側を採る。
     if (pendingScrollTs !== undefined) {
       const ts = pendingScrollTs;
       pendingScrollTs = undefined;
+      pendingBottomScroll = false;
       applyScroll(ts);
+    } else if (pendingBottomScroll) {
+      pendingBottomScroll = false;
+      scrollToBottom();
     }
   });
 }
@@ -438,6 +508,23 @@ onBeforeUnmount(teardownObserver);
             <SessionLogTimestamp :ts="ev.ts" :align="ev.kind === 'assistant' ? 'left' : 'right'" />
           </div>
         </template>
+
+        <!-- 追従が外れている間に更新が来たら下部に通知ボタン。クリックで最新へ飛ぶ。
+             sticky でスクロールポート下端に固定し、flex のサイズ計算には干渉させない。
+             wrapper は pointer-events-none で下の本文クリックを通し、ボタンだけ拾う。 -->
+        <div
+          v-if="showNewUpdates"
+          class="pointer-events-none sticky bottom-3 z-10 flex justify-center"
+        >
+          <button
+            type="button"
+            class="pointer-events-auto flex items-center gap-1 rounded-full border border-zinc-600 bg-zinc-800 px-3 py-1 text-xs text-zinc-100 shadow-lg hover:bg-zinc-700"
+            @click="jumpToLatest"
+          >
+            <span class="icon-[lucide--arrow-down] size-3.5" />
+            New updates
+          </button>
+        </div>
       </div>
     </div>
 

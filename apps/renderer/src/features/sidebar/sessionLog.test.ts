@@ -211,7 +211,7 @@ describe("parseSessionLog", () => {
     expect(log.skipped).toBe(1);
   });
 
-  test("slash command 注入 string は載せず skipped に計上", () => {
+  test("slash command 起動はコマンド名を user イベントにする", () => {
     const log = parseSessionLog(
       jsonl({
         type: "user",
@@ -221,6 +221,34 @@ describe("parseSessionLog", () => {
           content:
             "<command-message>review-pr</command-message>\n<command-name>/review-pr</command-name>",
         },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "user", text: "/review-pr", ts: TS }]);
+    expect(log.skipped).toBe(0);
+  });
+
+  test("slash command の引数はコマンド名の後ろに連結する", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content:
+            "<command-name>/effort</command-name>\n            <command-message>effort</command-message>\n            <command-args>auto</command-args>",
+        },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "user", text: "/effort auto", ts: TS }]);
+    expect(log.skipped).toBe(0);
+  });
+
+  test("command-name を欠いた病的な command ブロックは載せず skipped に計上", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: { role: "user", content: "<command-message>broken</command-message>" },
       }),
     );
     expect(log.events).toEqual([]);
@@ -289,6 +317,49 @@ describe("parseSessionLog", () => {
     );
     expect(log.events).toEqual([]);
     expect(log.skipped).toBe(2);
+  });
+
+  test("queued_command attachment の生発話は user イベントにする", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "attachment",
+        timestamp: TS,
+        attachment: {
+          type: "queued_command",
+          prompt: "これ要らないなら消しとけ",
+          commandMode: "prompt",
+        },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "user", text: "これ要らないなら消しとけ", ts: TS }]);
+    expect(log.skipped).toBe(0);
+  });
+
+  test("queued_command が注入ラッパー (task-notification) なら載せず skipped に計上", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "attachment",
+        timestamp: TS,
+        attachment: {
+          type: "queued_command",
+          prompt: "<task-notification>\n<task-id>abc</task-id>\n</task-notification>",
+        },
+      }),
+    );
+    expect(log.events).toEqual([]);
+    expect(log.skipped).toBe(1);
+  });
+
+  test("queued_command が slash command ならコマンド名を user イベントにする", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "attachment",
+        timestamp: TS,
+        attachment: { type: "queued_command", prompt: "<command-name>/create-pr</command-name>" },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "user", text: "/create-pr", ts: TS }]);
+    expect(log.skipped).toBe(0);
   });
 
   test("parse 失敗行は malformed に計上し他行は継続処理", () => {

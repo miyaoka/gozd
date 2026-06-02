@@ -6,9 +6,14 @@
 // ペア化し、1 つの tool イベントにまとめる。
 //
 // 表示対象は会話イベント (user / assistant / thinking / tool / image) に限定する。
-// attachment / progress / system / permission-mode 等の非会話レコードは transcript には
-// 載せず、件数だけ ParsedSessionLog.skipped に集計して観察可能性を残す
-// (silent drop 禁止規律: 落とした事実を呼び出し元が UI で示せるようにする)。
+// progress / system / permission-mode 等の非会話レコードは transcript には載せず、件数だけ
+// ParsedSessionLog.skipped に集計して観察可能性を残す (silent drop 禁止規律: 落とした事実を
+// 呼び出し元が UI で示せるようにする)。
+//
+// attachment は原則 skipped だが、`queued_command` (エージェント作業中にユーザーが打ち
+// queue に積んだ発話) だけは例外で、本文が `type:"user"` に昇格せず attachment.prompt にしか
+// 残らないことがあるため USER ブロックに載せる。中身が注入ラッパー (task-notification 等) の
+// queue は string content と同じ判定で弾く。
 //
 // 平文の無い thinking (最新モデルの暗号化 signature のみ / フィールド欠落) も載せないが、
 // これは非会話レコードではなく会話イベントの一種なので skipped と混ぜず emptyThinking に
@@ -78,25 +83,67 @@ interface RawMessage {
   role?: string;
   content?: string | ContentBlock[];
 }
+// `type:"attachment"` レコードの中身。queued_command のみ会話に載せるため prompt を読む。
+interface RawAttachment {
+  type?: string;
+  // queued_command が積んだ発話本文。信頼境界外の入力なので optional。
+  prompt?: string;
+}
 interface RawLine {
   type?: string;
   timestamp?: string;
   message?: RawMessage;
+  attachment?: RawAttachment;
   // CLI / hook が注入したシステム由来レコード。ユーザー発話ではないので transcript に載せない。
   isMeta?: boolean;
 }
 
 // harness / CLI が user role で注入するラッパーで始まる string。これらはユーザーの
-// 生発話ではない (slash command 起動 / ローカルコマンド出力 / バックグラウンドタスク
-// 完了通知 / システムリマインダ) ため USER ブロック / 目次に出さない。
+// 生発話ではない (ローカルコマンド出力 / バックグラウンドタスク完了通知 / システム
+// リマインダ) ため USER ブロック / 目次に出さない。
 //
 // `type:"user"` + content=string + isMeta:null の形で main loop に注入されるため、
 // isMeta フラグでは区別できず、先頭ラッパータグで判定する。実ユーザー発話はこれらの
 // タグで始まらない (リマインダ等は発話の後ろに付くため先頭一致しない)。
+//
+// command-* (slash command 起動) は除外対象ではなく slashCommandText が先に拾って表示する
+// ので、ここに残すのは command-name を欠いた病的な command ブロックの保険のみ。
 const INJECTED_USER_WRAPPER_RE =
   /^\s*<(command-message|command-name|command-args|local-command-stdout|local-command-stderr|task-notification|system-reminder)>/;
 function isInjectedUserText(text: string): boolean {
   return INJECTED_USER_WRAPPER_RE.test(text);
+}
+
+// slash command 起動は `type:"user"` の string content として
+// `<command-name>/foo</command-name>` の形で記録される。これはユーザーが打った操作なので
+// コマンド名 (+ 引数) を取り出して USER ブロックに載せる。
+const COMMAND_NAME_RE = /<command-name>([\s\S]*?)<\/command-name>/;
+const COMMAND_ARGS_RE = /<command-args>([\s\S]*?)<\/command-args>/;
+
+/** slash command 起動 string から表示用テキスト (`/foo` または `/foo args`) を取り出す。command-name が無ければ undefined。 */
+function slashCommandText(text: string): string | undefined {
+  const nameMatch = COMMAND_NAME_RE.exec(text);
+  if (nameMatch === null) return undefined;
+  const name = nameMatch[1].trim();
+  if (name === "") return undefined;
+  const argsMatch = COMMAND_ARGS_RE.exec(text);
+  const args = argsMatch === null ? "" : argsMatch[1].trim();
+  return args === "" ? name : `${name} ${args}`;
+}
+
+/**
+ * user role の生 string (type:"user" の string content / queued_command の prompt) を表示用
+ * テキストに正規化する。表示すべきでない注入ラッパーは undefined を返す (呼び出し側で skipped)。
+ *
+ * - slash command 起動 (<command-name>) はユーザーの操作なのでコマンド名を出す
+ * - ローカルコマンド出力 / task-notification / system-reminder 等は発話ではないので除外
+ * - それ以外は生発話としてそのまま出す
+ */
+function userTextOf(text: string): string | undefined {
+  const command = slashCommandText(text);
+  if (command !== undefined) return command;
+  if (isInjectedUserText(text)) return undefined;
+  return text;
 }
 
 /** transcript の 1 ブロック。discriminated union (kind で分岐) */
@@ -187,12 +234,13 @@ export function parseSessionLog(jsonl: string): ParsedSessionLog {
     if (raw.type === "user") {
       const content = raw.message?.content;
       if (typeof content === "string") {
-        // slash command / task-notification 等の注入 string は生発話ではないので除外する。
-        if (isInjectedUserText(content)) {
+        // slash command はコマンド名を出し、task-notification 等の注入 string は除外する。
+        const text = userTextOf(content);
+        if (text === undefined) {
           skipped++;
           continue;
         }
-        events.push({ kind: "user", text: content, ts });
+        events.push({ kind: "user", text, ts });
         continue;
       }
       if (Array.isArray(content)) {
@@ -272,7 +320,21 @@ export function parseSessionLog(jsonl: string): ParsedSessionLog {
       continue;
     }
 
-    // user / assistant 以外 (attachment / system / progress / permission-mode 等) は
+    // queued_command (ユーザーが作業中に queue に積んだ発話) は type:"user" に昇格せず
+    // attachment.prompt にしか本文が残らないことがあるため、生発話なら USER ブロックに載せる。
+    // 注入された task-notification 等の queue は userTextOf が undefined に倒して弾く。
+    if (raw.type === "attachment" && raw.attachment?.type === "queued_command") {
+      const prompt = raw.attachment.prompt;
+      const text = prompt === undefined ? undefined : userTextOf(prompt);
+      if (text !== undefined) {
+        events.push({ kind: "user", text, ts });
+        continue;
+      }
+      skipped++;
+      continue;
+    }
+
+    // 上記以外 (その他 attachment / system / progress / permission-mode 等) は
     // 会話 transcript には載せない。
     skipped++;
   }

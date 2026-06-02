@@ -211,7 +211,7 @@ describe("parseSessionLog", () => {
     expect(log.skipped).toBe(1);
   });
 
-  test("slash command 注入 string は載せず skipped に計上", () => {
+  test("slash command 起動はコマンド名を user イベントにする", () => {
     const log = parseSessionLog(
       jsonl({
         type: "user",
@@ -223,8 +223,47 @@ describe("parseSessionLog", () => {
         },
       }),
     );
+    expect(log.events).toEqual([{ kind: "user", text: "/review-pr", ts: TS }]);
+    expect(log.skipped).toBe(0);
+  });
+
+  test("slash command の引数はコマンド名の後ろに連結する", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content:
+            "<command-name>/effort</command-name>\n            <command-message>effort</command-message>\n            <command-args>auto</command-args>",
+        },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "user", text: "/effort auto", ts: TS }]);
+    expect(log.skipped).toBe(0);
+  });
+
+  test("command-name を欠いた病的な command ブロックは載せず skipped に計上", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: { role: "user", content: "<command-message>broken</command-message>" },
+      }),
+    );
     expect(log.events).toEqual([]);
     expect(log.skipped).toBe(1);
+  });
+
+  // command 抽出は先頭アンカー (COMMAND_BLOCK_LEAD_RE) で採否を決めるため、本文中に
+  // <command-name> を含む生発話 (このログ機能自体を議論する発話など) は切り詰めず verbatim。
+  test("本文中に <command-name> を含む通常発話は切り詰めず verbatim で残す", () => {
+    const content = "この <command-name>/foo</command-name> の扱いを直して";
+    const log = parseSessionLog(
+      jsonl({ type: "user", timestamp: TS, message: { role: "user", content } }),
+    );
+    expect(log.events).toEqual([{ kind: "user", text: content, ts: TS }]);
+    expect(log.skipped).toBe(0);
   });
 
   test("task-notification / system-reminder 注入 string は載せず skipped に計上", () => {
@@ -289,6 +328,58 @@ describe("parseSessionLog", () => {
     );
     expect(log.events).toEqual([]);
     expect(log.skipped).toBe(2);
+  });
+
+  test("queued_command は commandMode:prompt の生発話を user イベントにする", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "attachment",
+        timestamp: TS,
+        attachment: {
+          type: "queued_command",
+          prompt: "これ要らないなら消しとけ",
+          commandMode: "prompt",
+        },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "user", text: "これ要らないなら消しとけ", ts: TS }]);
+    expect(log.skipped).toBe(0);
+  });
+
+  test("queued_command の commandMode:task-notification は載せず skipped に計上", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "attachment",
+        timestamp: TS,
+        attachment: {
+          type: "queued_command",
+          commandMode: "task-notification",
+          prompt: "<task-notification>\n<task-id>abc</task-id>\n</task-notification>",
+        },
+      }),
+    );
+    expect(log.events).toEqual([]);
+    expect(log.skipped).toBe(1);
+  });
+
+  // commandMode を採否の SSOT にするため、本文がタグ始まりの正当な生発話 (<span> や
+  // <command-name> を含む議論) を切り詰めず verbatim で出す。
+  test("queued_command の commandMode:prompt はタグ始まりの本文も verbatim で出す", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "attachment",
+        timestamp: TS,
+        attachment: {
+          type: "queued_command",
+          commandMode: "prompt",
+          prompt: '<span class="x">Setting up...</span> を消して',
+        },
+      }),
+    );
+    expect(log.events).toEqual([
+      { kind: "user", text: '<span class="x">Setting up...</span> を消して', ts: TS },
+    ]);
+    expect(log.skipped).toBe(0);
   });
 
   test("parse 失敗行は malformed に計上し他行は継続処理", () => {

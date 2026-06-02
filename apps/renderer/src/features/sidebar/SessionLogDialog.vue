@@ -37,6 +37,7 @@ import { rpcClaudeSessionLog, rpcFsUnwatch, rpcFsWatch } from "./rpc";
 import {
   buildSubagentLinks,
   parseSessionLog,
+  sessionLogDirOf,
   type ParsedSessionLog,
   type SubagentLink,
 } from "./sessionLog";
@@ -163,7 +164,7 @@ async function load(sessionId: string) {
   // subagent があれば先頭を右ペインに初期表示する。
   activeSubId.value = subagents.value[0]?.id;
   // ログファイルの親 dir を watch してライブ更新する。
-  void setWatchDir(logDirOf(result.value.entries));
+  void setWatchDir(sessionLogDirOf(result.value.entries));
 }
 
 // --- ライブ更新 (ファイル監視 → サイレント refresh) ---
@@ -172,15 +173,7 @@ async function load(sessionId: string) {
 // app-scope watch には乗らない。dialog が開いている間だけログの親 dir を watch し、fsChange を
 // 受けたら再読込する。再読込は loading フラグを立てず sessions を差し替えるだけにして、
 // transcript の remount とスクロール状態のリセットを避ける (:key は同一 sessionId で安定)。
-
-// entries の main jsonl の親 dir。`<projectDir>/<sessionId>.jsonl` → `<projectDir>`。
-function logDirOf(entries: { kind: string; path: string }[]): string | undefined {
-  const mainPath = entries.find((e) => e.kind === "main")?.path ?? entries[0]?.path;
-  if (mainPath === undefined || mainPath === "") return undefined;
-  const slash = mainPath.lastIndexOf("/");
-  if (slash <= 0) return undefined;
-  return mainPath.slice(0, slash);
-}
+// watch dir の解決 (sessionLogDirOf) は sessionLog.ts の純関数に委ね、境界をテストする。
 
 // 現在 native 側で watch 中のログ dir。open 中の 1 セッション分のみ保持する。
 let currentWatchDir: string | undefined;
@@ -204,8 +197,13 @@ async function setWatchDir(next: string | undefined) {
 // fsChange を debounce して 1 回の refresh に畳む。jsonl は 1 応答中に多数の追記が走るため、
 // 連続 event を coalesce してリロード回数を抑える。
 let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+function cancelRefresh() {
+  if (refreshTimer === undefined) return;
+  clearTimeout(refreshTimer);
+  refreshTimer = undefined;
+}
 function scheduleRefresh() {
-  if (refreshTimer !== undefined) clearTimeout(refreshTimer);
+  cancelRefresh();
   refreshTimer = setTimeout(() => {
     refreshTimer = undefined;
     void refresh();
@@ -244,7 +242,7 @@ const stopFsChange = onMessage<FsChangePayload>("fsChange", ({ dir, relDir }) =>
 
 onUnmounted(() => {
   stopFsChange();
-  if (refreshTimer !== undefined) clearTimeout(refreshTimer);
+  cancelRefresh();
   void setWatchDir(undefined);
 });
 
@@ -265,7 +263,9 @@ watch(context, (next) => {
   if (next === undefined) {
     // 進行中の load を無効化し、close 後に stale 結果が state を書き戻すのを防ぐ。
     loadToken++;
-    // ライブ更新の watch を解除する (open 中のセッション分のみ保持しているため)。
+    // ライブ更新の後始末を unmount と対称に揃える: 保留中の refresh timer を消し、
+    // watch を解除する (open 中のセッション分のみ保持しているため)。
+    cancelRefresh();
     void setWatchDir(undefined);
     if (dialog?.open === true) dialog.close();
     return;

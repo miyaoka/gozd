@@ -478,10 +478,14 @@ public actor FSWatchRegistry {
 
       if matchedGitDir { continue }
 
-      // 作業ツリー側の変更 → fsChange + gitStatusChange
+      // 作業ツリー側の変更 → fsChange (+ git dir があれば gitStatusChange)。
+      // commonGitDir == nil は非 git dir の watch (例: session log dialog が監視する
+      // ~/.claude/projects/<encoded>/)。git status の概念自体が無く、gitStatusChange を
+      // 立てると handleEvents が `git status` を exit 128 で throw させ、ファイル変更の
+      // たびに stderr へ `gitStatusFull failed` を吐いて観察ログを汚す。fsChange のみ立てる。
       guard path == dir || path.hasPrefix(dirWithSlash) else { continue }
       hasFsChange = true
-      hasGitStatusChange = true
+      if commonGitDir != nil { hasGitStatusChange = true }
       let relDir = relativeDir(path: path, dir: dir, dirWithSlash: dirWithSlash)
       fsRelDirs.insert(relDir)
     }

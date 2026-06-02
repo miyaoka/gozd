@@ -608,14 +608,19 @@ struct ClassifyTests {
     #expect(!result.hasWorktreeChange)
   }
 
-  @Test("git dir nil（非 repo）: 作業ツリー配下のファイルは fsChange + gitStatusChange")
+  @Test("git dir nil（非 repo）: 作業ツリー配下のファイルは fsChange のみ（gitStatusChange は立てない）")
   func nonRepoFallsToWorkTreeBranch() {
+    // commonGitDir == nil は非 git dir の watch (session log dialog が監視する
+    // ~/.claude/projects/<encoded>/ 等)。git status の概念が無いため gitStatusChange を
+    // 立てない。立てると handleEvents が `git status` を exit 128 で throw させ、ファイル
+    // 変更のたびに stderr へ `gitStatusFull failed` を吐いて観察ログを汚す。
     let dir = pathOf("somewhere")
     let result = FSWatchRegistry.classify(
       dir: dir, perWorktreeGitDir: nil, commonGitDir: nil,
       events: [ev(pathOf("somewhere", "note.txt"))])
     #expect(result.hasFsChange)
-    #expect(result.hasGitStatusChange)
+    #expect(!result.hasGitStatusChange)
+    #expect(result.fsRelDirs == [""])
   }
 
   @Test("packed-refs 変更で branchChange + gitStatusChange + remoteRefsChange が立つ")

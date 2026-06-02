@@ -173,9 +173,29 @@ function scrollToBottom() {
   showNewUpdates.value = false;
 }
 
-// ユーザーがボトムへ戻ったら通知ボタンを消す。離れたら追従しないだけ。
+// スクロールで追従状態を更新する。ボトムへ戻ったら通知ボタンを消し、ユーザーが上方向へ
+// スクロールしたら保留中の追従要求 (pendingBottomScroll) を捨てる。
+//
+// 打ち切りを computeAtBottom() ではなく「scrollTop が減ったか」で判定するのが要点。scroll
+// イベントは scrollTop 代入に対し非同期発火する (WebKit 仕様) ため、追従中に後続 markdown が
+// 描画されて scrollHeight が伸びた後に programmatic scrollToBottom の遅延イベントが届くと、
+// computeAtBottom() だけでは「底でない」と誤判定し、ユーザー無操作のまま追従を打ち切ってしまう
+// (= 複数ブロック描画で最後まで追従できない元の症状の再発)。programmatic な追従は scrollTop を
+// 増やす (or 据え置く) だけで減らさないので、「減った = ユーザーが上方向へスクロールした」を
+// 打ち切り条件にすれば遅延イベントで誤クリアしない。位置の方向で見るため wheel / scrollbar /
+// keyboard どの入力源でも効き、フラグのタイミング依存も無い (isTrusted は programmatic でも
+// true なので使えない)。
+let lastScrollTop = 0;
 useEventListener(contentRef, "scroll", () => {
-  if (computeAtBottom()) showNewUpdates.value = false;
+  const el = contentRef.value;
+  if (el === undefined) return;
+  const top = el.scrollTop;
+  if (computeAtBottom()) {
+    showNewUpdates.value = false;
+  } else if (top < lastScrollTop) {
+    pendingBottomScroll = false;
+  }
+  lastScrollTop = top;
 });
 
 // 「New updates」ボタン。最新へ飛び、以降の更新を追従状態に戻す。
@@ -358,7 +378,11 @@ function onMarkdownRendered() {
       pendingBottomScroll = false;
       applyScroll(ts);
     } else if (pendingBottomScroll) {
-      pendingBottomScroll = false;
+      // ここでは pendingBottomScroll をクリアしない: 1 回の更新で複数 markdown ブロックが
+      // 追記されると各 rendered が時間差で個別 rAF を起こす。最初の rAF 時点では後続ブロックが
+      // 未描画で scrollHeight が最終高に達していないため、保持して各 rendered ごとに底へ追従し
+      // 続ける。離脱の検知は scroll listener が担い、ユーザーがボトムから離れた時点で
+      // pendingBottomScroll を false にする。これで描画連鎖の途中で離脱しても引き戻さない。
       scrollToBottom();
     }
   });

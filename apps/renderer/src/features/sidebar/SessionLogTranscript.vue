@@ -123,9 +123,12 @@ const observableIndices = computed<Set<number>>(() => {
   return set;
 });
 
+// 即時スクロール (behavior: "auto")。scrub ドラッグや main→sub 同期は pointermove / scroll の
+// 高頻度で連続発火するため、smooth だと前のアニメーションが中断され続けてカクつく。即時にして
+// カーソル / スクロールへ crisp に追従させる (呼び出しは scrollTo 駆動のジャンプのみ)。
 function scrollToEvent(index: number) {
   const el = contentRef.value?.querySelector(`[data-ev="${index}"]`);
-  if (el instanceof HTMLElement) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (el instanceof HTMLElement) el.scrollIntoView({ behavior: "auto", block: "start" });
 }
 
 // --- プログラム的スクロールの抑制 (横断タイムラインの playhead を「ユーザースクロール時だけ」動かす) ---
@@ -135,7 +138,11 @@ function scrollToEvent(index: number) {
 // scroll イベントでは区別できないため、プログラム的スクロールの直前に programmaticScroll を立て、
 // その間は current-ts を emit しない。解除はタイマーでなくユーザー入力 (wheel / pointerdown /
 // keydown / touchstart) で行う (スムーススクロールの所要時間に依存しない)。
-let programmaticScroll = false;
+//
+// 初期値は true。初回 mount のボトムスクロール / 初回 scrollTo は programmatic だが、その確定
+// (nextTick 後) より IntersectionObserver の初回コールバックが先に走りうる。false 始まりだと
+// その隙に「ユーザー無操作の current-ts」を emit してしまうため、ユーザー入力があるまで抑制側に倒す。
+let programmaticScroll = true;
 
 // --- ボトム追従 (ライブ更新) ---
 //

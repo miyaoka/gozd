@@ -553,6 +553,161 @@ export function nearestEventIndexByTs(events: TranscriptEvent[], ts: string): nu
   return best;
 }
 
+/** セッションの生存期間 (最初〜最後の有効 ts の epoch ms)。 */
+export interface SessionTimeRange {
+  startMs: number;
+  endMs: number;
+}
+
+/**
+ * events の最初〜最後の有効 ts を epoch ms で返す (横断タイムラインの生存期間バー算出)。
+ *
+ * tool イベントは result が後から充填される構造で ts が厳密な昇順とは限らないため、
+ * 順序に依存せず全件の min / max を取る。有効 ts (Date.parse 可能) が 1 つも無ければ
+ * undefined を返し、呼び出し側はそのセッションを時間軸に置けない (placeholder 扱い) と判断する。
+ */
+export function sessionTimeRange(events: TranscriptEvent[]): SessionTimeRange | undefined {
+  let startMs: number | undefined;
+  let endMs: number | undefined;
+  for (const ev of events) {
+    const t = Date.parse(ev.ts);
+    if (Number.isNaN(t)) continue;
+    if (startMs === undefined || t < startMs) startMs = t;
+    if (endMs === undefined || t > endMs) endMs = t;
+  }
+  if (startMs === undefined || endMs === undefined) return undefined;
+  return { startMs, endMs };
+}
+
+// --- 横断タイムラインのトラック組み立て (SessionLogDialog / SessionLogTimeline が使う純関数) ---
+
+/** 横断タイムラインの 1 行。session 行 (main / subagent) と workflow グループ見出し行 (isHeader)。 */
+export interface TimelineTrack {
+  id: string;
+  label: string;
+  isMain: boolean;
+  // workflow グループの見出し行。workflow 名を 1 回だけ出し、バーは持たず選択もできない。
+  isHeader: boolean;
+  // グループ配下の agent 行。ラベルを indent してグループ帰属を示す。
+  indent: boolean;
+  // gutter のアイコン種別。main / グループ配下 agent は無し。
+  iconKind?: "workflow" | "subagent";
+  startMs: number | undefined;
+  endMs: number | undefined;
+}
+
+/** buildTimelineTracks に渡す 1 セッションの最小情報 (生存期間は events から算出)。 */
+export interface TimelineSession {
+  id: string;
+  label: string;
+  events: TranscriptEvent[];
+}
+
+/** workflow グループ 1 つ (見出し名 + run id + 配下 agent)。 */
+export interface TimelineWorkflowGroup {
+  name: string;
+  runId: string;
+  agents: TimelineSession[];
+}
+
+// 開始時刻 (epoch ms) の比較。ts 不在 (undefined) は時系列に置けないため末尾へ寄せる。
+function compareMaybeMs(a: number | undefined, b: number | undefined): number {
+  if (a === undefined && b === undefined) return 0;
+  if (a === undefined) return 1;
+  if (b === undefined) return -1;
+  return a - b;
+}
+
+function toSessionTrack(
+  s: TimelineSession,
+  opts: { isMain?: boolean; iconKind?: TimelineTrack["iconKind"]; indent?: boolean },
+): TimelineTrack {
+  const range = sessionTimeRange(s.events);
+  return {
+    id: s.id,
+    label: s.label,
+    isMain: opts.isMain ?? false,
+    isHeader: false,
+    indent: opts.indent ?? false,
+    iconKind: opts.iconKind,
+    startMs: range?.startMs,
+    endMs: range?.endMs,
+  };
+}
+
+/**
+ * 横断タイムラインのトラック列を組み立てる。main を anchor として先頭固定し、subagent は
+ * 並べ替え単位 (plain subagent 1 件 / workflow グループ 1 塊) ごとに最古開始時刻で古い順に並べる。
+ * workflow は見出し行 (isHeader) + 配下 agent (内部も古い順) を 1 単位として contiguous に保つ。
+ * 生存期間 ts を持たない (sessionTimeRange undefined) 単位 / agent は末尾へ寄せる (sort は安定)。
+ */
+export function buildTimelineTracks(input: {
+  main: TimelineSession | undefined;
+  plainSubagents: TimelineSession[];
+  workflowGroups: TimelineWorkflowGroup[];
+}): TimelineTrack[] {
+  const tracks: TimelineTrack[] = [];
+  if (input.main !== undefined) tracks.push(toSessionTrack(input.main, { isMain: true }));
+
+  interface Unit {
+    earliest: number | undefined;
+    tracks: TimelineTrack[];
+  }
+  const units: Unit[] = [];
+  // plain subagent: 1 トラック = 1 単位。
+  for (const s of input.plainSubagents) {
+    const track = toSessionTrack(s, { iconKind: "subagent" });
+    units.push({ earliest: track.startMs, tracks: [track] });
+  }
+  // workflow グループ: 見出し行 + 配下 agent (古い順) を 1 単位にまとめる。
+  for (const group of input.workflowGroups) {
+    const agentTracks = group.agents
+      .map((s) => toSessionTrack(s, { indent: true }))
+      .sort((a, b) => compareMaybeMs(a.startMs, b.startMs));
+    const starts = agentTracks.map((t) => t.startMs).filter((m): m is number => m !== undefined);
+    const header: TimelineTrack = {
+      id: group.runId,
+      label: group.name,
+      isMain: false,
+      isHeader: true,
+      indent: false,
+      iconKind: "workflow",
+      startMs: undefined,
+      endMs: undefined,
+    };
+    units.push({
+      earliest: starts.length > 0 ? Math.min(...starts) : undefined,
+      tracks: [header, ...agentTracks],
+    });
+  }
+
+  units.sort((a, b) => compareMaybeMs(a.earliest, b.earliest));
+  for (const unit of units) tracks.push(...unit.tracks);
+  return tracks;
+}
+
+/** 全トラックを覆う共通時間軸 (有効 ts を持つトラックの min start / max end)。無ければ undefined。 */
+export function timelineAxisRange(tracks: TimelineTrack[]): SessionTimeRange | undefined {
+  let startMs: number | undefined;
+  let endMs: number | undefined;
+  for (const t of tracks) {
+    if (t.startMs === undefined || t.endMs === undefined) continue;
+    if (startMs === undefined || t.startMs < startMs) startMs = t.startMs;
+    if (endMs === undefined || t.endMs > endMs) endMs = t.endMs;
+  }
+  if (startMs === undefined || endMs === undefined) return undefined;
+  return { startMs, endMs };
+}
+
+/** タイムライン最下段 (= 最新) の subagent トラック id。末尾から最初の非 header・非 main を返す。 */
+export function newestSubagentTrackId(tracks: TimelineTrack[]): string | undefined {
+  for (let i = tracks.length - 1; i >= 0; i--) {
+    const track = tracks[i];
+    if (!track.isHeader && !track.isMain) return track.id;
+  }
+  return undefined;
+}
+
 /** 表示用に分解した timestamp。日付は今日なら空文字 (時刻のみで足りる)。 */
 export interface FormattedSessionTime {
   date: string;

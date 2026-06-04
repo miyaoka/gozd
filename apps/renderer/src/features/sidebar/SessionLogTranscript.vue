@@ -18,6 +18,8 @@ tool は LINE に対応物が無いため、中央寄せの控えめなシステ
 
 - 吹き出し (user / assistant / image) は常時表示、システム行 (thinking / tool) のみ
   `<details>` のネイティブ開閉に委ね、Vue 側に per-event の ref を持たない
+- rewind 分岐は `branch` イベントとして中央寄せのセレクタ行で出す。番号は古い順 (最新が最大)、
+  選択中の枝をハイライトし、他をクリックで `select-branch` を emit して親に枝の切り替えを委ねる
 - scroll-spy は `IntersectionObserver`。純 CSS の scroll marker / `:target-current` は
   WebKit (Safari 26 / macOS 26) 未対応のため使えない。チャット行の最外要素に `data-ev`
   を残し、user / assistant 行を index で観測して topmost の ts を `current-ts` に出す
@@ -73,6 +75,9 @@ const emit = defineEmits<{
   // topmost に見えている会話イベントの ts。親 (SessionLogDialog) が横断タイムラインの
   // playhead 位置に使う。スクロールに追従して発火する。
   (e: "current-ts", ts: string): void;
+  // rewind 分岐セレクタのクリック。親がそのタブの branch 選択を更新して transcript を
+  // 該当バージョンへ再構築する。ts は選択枝先頭の時刻で、切替後にその分岐点へ寄せるのに使う。
+  (e: "select-branch", payload: { branchKey: string; childUuid: string; ts: string }): void;
 }>();
 
 const notify = useNotificationStore();
@@ -221,6 +226,13 @@ function jumpToLatest() {
 // その場合 pendingScrollTs を宙に残さないよう初回適用直後にクリアする (rendered が永遠に
 // 発火しないため、補正経路だけに掃除を任せられない)。
 let pendingScrollTs: string | undefined;
+
+// 次の parsed watch で 1 度だけボトム追従を抑止するフラグ。明示スクロール (時刻ジャンプ /
+// rewind 枝切替) は parsed を差し替えるが分岐点 / seek 位置を保ちたい。pendingScrollTs を
+// 抑止判定に使うと markdown 補正用に残った値が後続のライブ refresh のボトム追従まで誤抑止する
+// (rendered 不発火で残るケース)。抑止は scrollTo watch が立てて parsed watch が 1 回で消す
+// 専用フラグに分離し、pendingScrollTs (補正用) の生存と切り離す。
+let bottomFollowSkipOnce = false;
 const hasMarkdownEvent = (): boolean => props.parsed.events.some((ev) => ev.kind === "assistant");
 
 function applyScroll(ts: string) {
@@ -244,6 +256,9 @@ watch(
   () => props.scrollTo,
   (next) => {
     if (next === undefined) return;
+    // 同 tick で起きる parsed 差し替え (枝切替) のボトム追従を 1 回だけ抑止する。この watch は
+    // parsed watch より先に登録されるため、同期でフラグを立てれば後続の parsed watch が見られる。
+    bottomFollowSkipOnce = true;
     void scrollToTarget(next.ts);
   },
 );
@@ -340,6 +355,13 @@ watch(
     const wasAtBottom = computeAtBottom();
     await nextTick();
     setupObserver();
+    // 明示スクロール (時刻ジャンプ / rewind 枝切替) 由来の parsed 差し替えならボトム追従しない。
+    // 枝切替はこの watch を走らせるが、ライブ追記と違い分岐点 / seek 位置へ寄せたい。scrollTo
+    // watch (この watch より先に登録) が同期で立てたフラグを 1 回で消費して回避する。
+    if (bottomFollowSkipOnce) {
+      bottomFollowSkipOnce = false;
+      return;
+    }
     // ボトムにいたら追従、離れていたら通知ボタンを出して位置を保つ。離れている間は
     // 保留中の追従要求もクリアし、後から markdown 描画が来てもボトムへ引き戻さない。
     if (wasAtBottom) {
@@ -425,9 +447,42 @@ onBeforeUnmount(teardownObserver);
     <!-- トランスクリプト本文 (LINE 風チャット)。現在地は横断タイムラインの playhead が示す -->
     <div v-else ref="contentRef" class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
       <template v-for="(ev, i) in parsed.events" :key="`${sessionKey}:${i}`">
+        <!-- rewind 分岐セレクタ: ここで会話が枝分かれした。番号は古い順 (最新が最大)。
+               選択中の枝をハイライトし、他をクリックでその枝へ切り替える。捨て枝が
+               存在することの可視化と、過去バージョンの閲覧を兼ねる。 -->
+        <div
+          v-if="ev.kind === 'branch'"
+          :data-ev="i"
+          class="mx-auto flex w-fit max-w-[85%] scroll-mt-2 flex-wrap items-center justify-center gap-1.5 py-1 text-[11px] text-zinc-500"
+        >
+          <span class="icon-[lucide--git-branch] size-3.5 shrink-0" />
+          <button
+            v-for="opt in ev.options"
+            :key="opt.childUuid"
+            type="button"
+            class="flex max-w-[200px] items-center gap-1 rounded-full border px-2 py-0.5"
+            :class="
+              opt.childUuid === ev.selectedChildUuid
+                ? 'border-green-700 bg-green-800 text-green-50'
+                : 'border-zinc-700 text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
+            "
+            :title="opt.lead"
+            @click="
+              emit('select-branch', {
+                branchKey: ev.branchKey,
+                childUuid: opt.childUuid,
+                ts: opt.ts,
+              })
+            "
+          >
+            <span class="shrink-0 tabular-nums">#{{ opt.index }}</span>
+            <span v-if="opt.lead !== ''" class="min-w-0 truncate">{{ opt.lead }}</span>
+          </button>
+        </div>
+
         <!-- thinking / tool: 中央寄せの控えめなシステム行 (デフォルト閉じ) -->
         <details
-          v-if="ev.kind === 'thinking' || ev.kind === 'tool'"
+          v-else-if="ev.kind === 'thinking' || ev.kind === 'tool'"
           :data-ev="i"
           :open="defaultOpen(ev.kind)"
           class="scroll-mt-2"

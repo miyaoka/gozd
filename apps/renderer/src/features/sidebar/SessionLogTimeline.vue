@@ -1,11 +1,10 @@
 <doc lang="md">
 main と subagent の生存期間を 1 本の共通時間軸に並べる横断タイムライン (Chrome DevTools 風)。
 
-`SessionLogDialog` のヘッダ下に全幅で出し、旧来のペインごとの縦目次 / subagent タブバーを
-置き換える。1 トラック = 1 行で、session 行 (main + 各 subagent) の各バーは `sessionTimeRange`
-が出す生存期間 (最初〜最後の ts)。バーをクリックするとその時間位置へ seek する (親が右ペインを
-選択し最近傍イベントへスクロールする)。main ペインのスクロール位置は全トラックを貫く 1 本の
-playhead で示す。
+`SessionLogDialog` のヘッダ下に全幅で出す。1 トラック = 1 行で、session 行 (main + 各 subagent) の
+各バーは `sessionTimeRange` が出す生存期間 (最初〜最後の ts)。バーをクリックするとその時間位置へ
+seek する (親が右ペインを選択し最近傍イベントへスクロールする)。main ペインのスクロール位置は
+全トラックを貫く 1 本の playhead で示す。
 
 workflow agent はグループの見出し行 (`isHeader`) で workflow 名を 1 回だけ出し、配下の agent 行は
 indent して agent 名をラベル全幅で見せる (各行に workflow 名を prefix すると幅を食って agent 名が
@@ -41,24 +40,7 @@ indent して agent 名をラベル全幅で見せる (各行に workflow 名を
 <script setup lang="ts">
 import { useEventListener } from "@vueuse/core";
 import { computed, ref, watch } from "vue";
-import { formatSessionTime } from "./sessionLog";
-
-// 1 トラック = 1 行。session 行 (main / subagent) のほか、workflow グループの見出し行
-// (isHeader) も 1 トラックとして並ぶ。startMs/endMs は sessionTimeRange の結果 (ts 不在 /
-// 見出し行は undefined)。
-export interface TimelineTrack {
-  id: string;
-  label: string;
-  isMain: boolean;
-  // workflow グループの見出し行。workflow 名を 1 回だけ出し、バーは持たず選択もできない。
-  isHeader: boolean;
-  // グループ配下の agent 行。ラベルを indent してグループ帰属を示す。
-  indent: boolean;
-  // gutter のアイコン種別。main / グループ配下 agent は無し。
-  iconKind?: "workflow" | "subagent";
-  startMs: number | undefined;
-  endMs: number | undefined;
-}
+import { formatSessionTime, type TimelineTrack } from "./sessionLog";
 
 const props = defineProps<{
   tracks: TimelineTrack[];

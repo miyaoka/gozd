@@ -1,14 +1,18 @@
 import { afterAll, describe, expect, setSystemTime, test } from "bun:test";
 import {
   buildSubagentLinks,
+  buildTimelineTracks,
   formatSessionTime,
   groupByWorkflow,
   nearestEventIndexByTs,
+  newestSubagentTrackId,
   parseSessionLog,
   sessionLogDirOf,
   sessionTimeRange,
   subagentTabLabel,
+  timelineAxisRange,
   type SubagentDescriptor,
+  type TimelineSession,
   type TranscriptEvent,
   type WorkflowGroupItem,
 } from "./sessionLog";
@@ -887,5 +891,124 @@ describe("sessionLogDirOf", () => {
 
   test("ルート直下 (slash が先頭) は undefined", () => {
     expect(sessionLogDirOf([{ kind: "main", path: "/foo.jsonl" }])).toBeUndefined();
+  });
+});
+
+describe("buildTimelineTracks", () => {
+  // 指定 ts のイベント列を持つ TimelineSession。ts を省くと events 空 (生存期間なし)。
+  function sessionAt(id: string, label: string, ...tsList: string[]): TimelineSession {
+    return { id, label, events: tsList.map((ts) => ({ kind: "user", text: "x", ts })) };
+  }
+  const T = (hhmm: string) => `2026-06-01T${hhmm}:00.000Z`;
+  const ids = (tracks: { id: string }[]) => tracks.map((t) => t.id);
+
+  test("main を先頭固定し subagent を生存期間開始の古い順に並べる", () => {
+    const tracks = buildTimelineTracks({
+      main: sessionAt("main", "Main", T("09:00"), T("11:00")),
+      plainSubagents: [sessionAt("late", "B", T("10:00")), sessionAt("early", "A", T("09:30"))],
+      workflowGroups: [],
+    });
+    expect(ids(tracks)).toEqual(["main", "early", "late"]);
+    expect(tracks[0].isMain).toBe(true);
+    expect(tracks[0].startMs).toBe(Date.parse(T("09:00")));
+  });
+
+  test("ts を持たない subagent は末尾へ寄せる", () => {
+    const tracks = buildTimelineTracks({
+      main: undefined,
+      plainSubagents: [sessionAt("noTs", "N"), sessionAt("withTs", "W", T("09:00"))],
+      workflowGroups: [],
+    });
+    expect(ids(tracks)).toEqual(["withTs", "noTs"]);
+  });
+
+  test("workflow は見出し行 + 配下 agent (古い順) を 1 単位として contiguous に並べる", () => {
+    const tracks = buildTimelineTracks({
+      main: sessionAt("main", "Main", T("09:00")),
+      plainSubagents: [],
+      workflowGroups: [
+        {
+          name: "wf",
+          runId: "wf_1",
+          agents: [sessionAt("g2", "g2", T("09:30")), sessionAt("g1", "g1", T("09:10"))],
+        },
+      ],
+    });
+    expect(ids(tracks)).toEqual(["main", "wf_1", "g1", "g2"]);
+    const header = tracks[1];
+    expect(header.isHeader).toBe(true);
+    expect(header.label).toBe("wf");
+    expect(header.startMs).toBeUndefined();
+    expect(tracks[2].indent).toBe(true);
+  });
+
+  test("plain と workflow を単位の最古開始時刻で混在ソートする", () => {
+    const tracks = buildTimelineTracks({
+      main: undefined,
+      // plain は 10:00 開始、workflow は最古 agent が 09:00 開始 → workflow 単位が先。
+      plainSubagents: [sessionAt("plain", "P", T("10:00"))],
+      workflowGroups: [{ name: "wf", runId: "wf_1", agents: [sessionAt("a", "a", T("09:00"))] }],
+    });
+    expect(ids(tracks)).toEqual(["wf_1", "a", "plain"]);
+  });
+
+  test("全 agent が ts 不在の workflow 単位は末尾へ寄せる", () => {
+    const tracks = buildTimelineTracks({
+      main: undefined,
+      plainSubagents: [sessionAt("plain", "P", T("09:00"))],
+      workflowGroups: [{ name: "wf", runId: "wf_1", agents: [sessionAt("a", "a")] }],
+    });
+    expect(ids(tracks)).toEqual(["plain", "wf_1", "a"]);
+  });
+});
+
+describe("timelineAxisRange", () => {
+  const track = (startMs: number | undefined, endMs: number | undefined) => ({
+    id: "x",
+    label: "x",
+    isMain: false,
+    isHeader: false,
+    indent: false,
+    startMs,
+    endMs,
+  });
+
+  test("有効 ts を持つトラックの min start / max end を返す", () => {
+    expect(timelineAxisRange([track(30, 50), track(10, 40), track(undefined, undefined)])).toEqual({
+      startMs: 10,
+      endMs: 50,
+    });
+  });
+
+  test("有効 ts を持つトラックが無ければ undefined", () => {
+    expect(timelineAxisRange([])).toBeUndefined();
+    expect(timelineAxisRange([track(undefined, undefined)])).toBeUndefined();
+  });
+});
+
+describe("newestSubagentTrackId", () => {
+  const track = (id: string, opts: { isMain?: boolean; isHeader?: boolean } = {}) => ({
+    id,
+    label: id,
+    isMain: opts.isMain ?? false,
+    isHeader: opts.isHeader ?? false,
+    indent: false,
+    startMs: undefined,
+    endMs: undefined,
+  });
+
+  test("末尾から最初の非 header・非 main トラック id を返す", () => {
+    const tracks = [
+      track("main", { isMain: true }),
+      track("wf_1", { isHeader: true }),
+      track("a"),
+      track("b"),
+    ];
+    expect(newestSubagentTrackId(tracks)).toBe("b");
+  });
+
+  test("subagent が無ければ undefined", () => {
+    expect(newestSubagentTrackId([track("main", { isMain: true })])).toBeUndefined();
+    expect(newestSubagentTrackId([])).toBeUndefined();
   });
 });

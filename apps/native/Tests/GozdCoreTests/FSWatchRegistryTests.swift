@@ -119,8 +119,7 @@ struct FSWatchRegistryTests {
 
     // `.gitignore` で `*.log` を除外し、commit して clean working tree を確立する。
     // ルート直下の ignore ファイルを使い、サブディレクトリ作成由来の余計な fsChange を
-    // 混入させない（fsChange を a.log / b.log の 2 書き込みに 1:1 対応させ、`fsChange >= 2`
-    // が「2 回目 batch も届いた」ことの厳密な証拠になるようにする）。
+    // 混入させない。2 回目 batch の到達は fsChange のベースライン超過で判定する（後述）。
     try "*.log\n".write(
       to: repo.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
     try await runGitCmd(["add", ".gitignore"], cwd: repo)
@@ -143,21 +142,26 @@ struct FSWatchRegistryTests {
     try "a".write(
       to: repo.appendingPathComponent("a.log"), atomically: true, encoding: .utf8)
     await waitForEvent(collector, matching: { $0 == "gitStatusChange" })
+    // 1 回目 write が生んだ fsChange 件数のベースライン。atomically な write は temp 作成 +
+    // rename で 1 write あたり複数 fsChange を積み得るため、固定値（>= 2）ではなくこの
+    // ベースラインからの増加で「2 回目 batch が新たに処理された」ことを判定する。
+    let fsBaseline = collector.snapshot().filter { $0 == "fsChange" }.count
 
-    // 2 回目: status は同一なので gitStatusChange は dedup される。fsChange は両 batch で
-    // 立つため、fsChange が 2 回到達したことで「2 回目 batch も handleEvents を踏んだ
-    // （= 何も起きなかったのではなく gitStatusChange だけ抑止された）」ことを担保する。
+    // 2 回目: status は同一なので gitStatusChange は dedup される。b.log の batch が新たな
+    // fsChange を生んだ（= 2 回目 batch も handleEvents を踏んだ）ことをベースライン超過で
+    // 担保する。これにより「a.log だけで fsChange 条件が満たされ b.log を検証せず通る」
+    // 偽陽性を防ぐ。
     try "b".write(
       to: repo.appendingPathComponent("b.log"), atomically: true, encoding: .utf8)
     await waitUntil(
       timeout: .seconds(2),
-      description: "fsChange count >= 2",
+      description: "fsChange increases past baseline",
       lastObserved: { collector.snapshot().description },
-      { collector.snapshot().filter { $0 == "fsChange" }.count >= 2 })
+      { collector.snapshot().filter { $0 == "fsChange" }.count > fsBaseline })
 
     let events = collector.snapshot()
     #expect(events.filter { $0 == "gitStatusChange" }.count == 1)
-    #expect(events.filter { $0 == "fsChange" }.count >= 2)
+    #expect(events.filter { $0 == "fsChange" }.count > fsBaseline)
   }
 
   @Test("`git branch -m` で current branch を改名すると branchChange と gitStatusChange が両方 dispatch される")

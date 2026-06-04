@@ -107,6 +107,77 @@ struct FSWatchRegistryTests {
     #expect(events.contains("gitStatusChange"))
   }
 
+  @Test("gitignore 対象ファイルの連続書き込みは StatusFull が不変なので gitStatusChange を 1 回しか push しない")
+  func dedupsGitStatusChangeForUnchangedStatus() async throws {
+    // typecheck / ビルドが gitignore 対象（`.tsbuildinfo` / `dist` / `node_modules`）を
+    // 連続書き込みするケースの regression guard。これらは作業ツリー event として
+    // gitStatusChange に分類されるが git status 出力には現れず StatusFull が不変になる。
+    // dedup が無いと renderer 側の参照差し替えで changes / filer ビューが再描画され続ける。
+    let repo = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: repo) }
+    try await initGitRepo(at: repo)
+
+    // `.gitignore` で `*.log` を除外し、commit して clean working tree を確立する。
+    try "*.log\n".write(
+      to: repo.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
+    try await runGitCmd(["add", ".gitignore"], cwd: repo)
+    try await runGitCmd(["commit", "-m", "seed"], cwd: repo)
+
+    // a.log / b.log を別サブディレクトリに置き、fsChange payload の relDir（dir-a / dir-b）で
+    // 由来を区別できるようにする。サブディレクトリは watch 開始前に作り、作成由来の fsChange を
+    // 発火させない。書き込みは atomically: false にして temp 作成 + rename を避ける（temp が
+    // 一時的に untracked ファイルとして git status を汚す経路と、1 write が複数 batch に割れる
+    // 経路の両方を断つ）。
+    let dirA = repo.appendingPathComponent("dir-a")
+    let dirB = repo.appendingPathComponent("dir-b")
+    try FileManager.default.createDirectory(at: dirA, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: dirB, withIntermediateDirectories: true)
+
+    let collector = EventNameCollector()
+    let registry = FSWatchRegistry(
+      onFsChange: { _, relDir in collector.append("fs:\(relDir)") },
+      // status の中身で clean（statuses 空）/ dirty を区別する。dedup は内容一致（clean ==
+      // clean）のときだけ起きるので、この区別が dedup の検証軸になる。
+      onGitStatusChange: { _, status in
+        collector.append(status.statuses.isEmpty ? "git:clean" : "git:dirty")
+      },
+      onBranchChange: { _ in collector.append("branchChange") },
+      onRemoteRefsChange: { _ in collector.append("remoteRefsChange") },
+      onWorktreeChange: { _ in collector.append("worktreeChange") }
+    )
+
+    try await registry.watch(dir: repo.path)
+    await sleepThreaded(.milliseconds(300))
+    collector.clear()
+
+    // 1 回目: cache 空なので clean status が push される（git:clean #1、cache = clean）。
+    try "a".write(
+      to: dirA.appendingPathComponent("a.log"), atomically: false, encoding: .utf8)
+    await waitForEvent(collector, matching: { $0 == "git:clean" })
+
+    // 2 回目: ignore 対象なので status は clean のまま = 内容一致で dedup され push されない。
+    // b.log の batch が dispatch されたことを relDir == "dir-b" の fsChange で待ち、次の c.txt を
+    // b.log とは別 batch に確実に分離する（同一 batch に coalesce すると b.log の clean status が
+    // 単独で評価されず dedup を検証できない）。
+    try "b".write(
+      to: dirB.appendingPathComponent("b.log"), atomically: false, encoding: .utf8)
+    await waitForEvent(collector, matching: { $0 == "fs:dir-b" })
+
+    // 3 回目: ignore されない c.txt を作る。status が dirty（?? c.txt）に変わるので dedup されず
+    // git:dirty が push される。serial for-await により c.txt の handleEvents は b.log の
+    // handleEvents が gitStatusFull の await 込みで完全に return した後に走る。よって git:dirty
+    // 到達時点で b.log の dedup 判定は確定済みで、settle 無しに観測できる。
+    try "c".write(
+      to: repo.appendingPathComponent("c.txt"), atomically: false, encoding: .utf8)
+    await waitForEvent(collector, matching: { $0 == "git:dirty" })
+
+    // b.log が dedup されていれば git:clean は a.log の 1 回のみ。dedup が壊れていれば b.log が
+    // 2 回目の git:clean を push して 2 になる。
+    let events = collector.snapshot()
+    #expect(events.filter { $0 == "git:clean" }.count == 1)
+    #expect(events.contains("git:dirty"))
+  }
+
   @Test("`git branch -m` で current branch を改名すると branchChange と gitStatusChange が両方 dispatch される")
   func dispatchesBranchChangeAndStatusOnRename() async throws {
     // ユーザー報告の主因シナリオ: rename で commit OID は不変だが、HEAD が指す

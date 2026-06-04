@@ -99,6 +99,23 @@ public actor FSWatchRegistry {
   /// 再計算する (handleEvents での O(N) 走査を O(1) lookup に置き換える)。
   /// 選出理由は `recomputePrimary` の docstring を参照。
   private var primaryByCommonGitDir: [String: String] = [:]
+  /// resolved dir → 直近に push 済みの `StatusFull`。同一内容の `gitStatusChange` 連射を
+  /// 止めるための dedup キャッシュ。
+  ///
+  /// 作業ツリー側のファイル変更は gitignore 対象（`.tsbuildinfo` / `node_modules` /
+  /// `dist` 等のビルド成果物）であっても `classify` で `gitStatusChange` に分類される
+  /// （git dir 外の変更は untracked / 差分の可能性があるため一律立てる）。だが
+  /// `git status` の出力は ignore ファイルを除外するので `StatusFull` は前回と同一になる。
+  /// typecheck / ビルド中はこの「内容不変の push」が連射され、renderer 側 `setWorktreeGitStatuses`
+  /// の参照差し替えを通じて changes / filer ビューが再描画され続ける。直近 push 値と一致する
+  /// 間は push をスキップしてこれを止める。初期値が無いため最初の status は必ず push される。
+  ///
+  /// キーは realpath 解決済み dir なので再 watch でキー自体は変わらない。entry の
+  /// ライフサイクル状態として扱い、`_unwatch` / `watch` の再構築で破棄する。これにより
+  /// torn-down 前の値が次の watch サイクルの最初の push を握り潰すのを防ぐ。再 watch 時は
+  /// `fsWatchReady` 経由で renderer が再 fetch して baseline を張り直すため、最初の status を
+  /// 無条件 push して native の cache と renderer を再同期させる。
+  private var lastPushedStatusByDir: [String: GitOps.StatusFull] = [:]
   /// watch ごとに増える世代番号。unwatch 後に積まれていた stale event の dispatch を
   /// 抑止するため、event 配送前後に entries[dir]?.generation と一致するか check する。
   private var nextGeneration: UInt64 = 0
@@ -143,6 +160,9 @@ public actor FSWatchRegistry {
       existing.continuation.finish()
       existing.task.cancel()
       entries.removeValue(forKey: dir)
+      // 再構築では git dir 解決値が変わっている可能性があるため、dedup キャッシュを破棄して
+      // 次の status を無条件 push させる（旧解決値ベースの stale 値で握り潰さない）。
+      lastPushedStatusByDir.removeValue(forKey: dir)
       // entries 更新と同期して primary cache を再選出する。下流の `try await GitOps.gitDirs`
       // で actor reentrancy が起き、sibling watcher の `handleEvents` が走った場合に、
       // 削除済みの自分が cache 上で primary のままだと sibling は非 primary 判定で push を
@@ -253,6 +273,9 @@ public actor FSWatchRegistry {
     entry.watcher.stop()
     entry.continuation.finish()
     entry.task.cancel()
+    // dedup キャッシュも掃除する。再 watch 後の最初の status を無条件 push させ、
+    // dir 削除後の別 repo 再配置などで stale 値が次の push を握り潰すのを防ぐ。
+    lastPushedStatusByDir.removeValue(forKey: dir)
     // 同一 resolved dir を指していた他の userDir 逆引きも掃除する。
     // 同一 resolved に複数 userDir（symlink パスと非 symlink パスなど）で watch が
     // 重ねられた状態で、片方しか unwatch されないと逆引きエントリが leak するため。
@@ -364,6 +387,13 @@ public actor FSWatchRegistry {
     }
 
     if result.hasGitStatusChange {
+      // 同一 dir の handleEvents は driving Task の serial for-await で直列化される
+      // (1 dir = 1 Task = 1 ループ、`await handleEvents` の return まで次の events を取らない)。
+      // よって gitStatusFull の await 中に同一 dir の別 batch が割り込み、古い実体を読んだ
+      // batch が後着して新しい push を上書きする reorder は構造的に起きない。actor reentrancy
+      // で割り込めるのは別 dir(別 Task)の処理のみ。再 watch を跨ぐ古い batch は下の
+      // isActive(generation) が弾く。この不変条件が成立するため status 読み取りの後着破棄
+      // guard は不要 (将来 handleEvents を並行起動する設計にしない限り再導入しない)。
       let status: GitOps.StatusFull
       do {
         status = try await GitOps.gitStatusFull(dir: dir)
@@ -376,6 +406,12 @@ public actor FSWatchRegistry {
       }
       // gitStatusFull の await 中に unwatch されている可能性があるため再 check
       guard isActive(dir: dir, generation: generation) else { return }
+      // 内容が直近 push と同一なら push しない。gitignore 対象（ビルド成果物 /
+      // node_modules 等）の書き込みは作業ツリー event として gitStatusChange を立てるが
+      // git status 出力には現れず StatusFull は不変になる。typecheck / ビルド中の連射を
+      // ここで止める（理由は lastPushedStatusByDir の docstring 参照）。
+      if lastPushedStatusByDir[dir] == status { return }
+      lastPushedStatusByDir[dir] = status
       onGitStatusChange(originalDir, status)
     }
   }

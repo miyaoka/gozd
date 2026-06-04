@@ -377,6 +377,80 @@ export interface SubagentDescriptor {
   label: string; // 表示ラベル
   name: string; // meta.json の name (SendMessage の to が name のことがある)
   parentToolUseId: string; // spawn した main 側 Agent tool_use id
+  // workflow agent が属する workflow run の id (wf_xxx)。非 workflow subagent は空文字。
+  // main の Workflow tool_use を workflow agent 群に結ぶグループキー。
+  workflowRunId: string;
+  // workflow の表示名。Workflow 行のリンクラベルに使う。非 workflow subagent は空文字。
+  workflowName: string;
+}
+
+// main の Workflow tool_result テキストに含まれる `Run ID: wf_xxx`。これが main の Workflow
+// tool_use を workflow agent 群 (workflowRunId) に結ぶ唯一の正規キー。先頭アンカーは張らない
+// (結果テキストの途中行に出るため)。wf id は `wf_` プレフィックス + 英数字 / ハイフン
+// (許容文字クラスは正規表現本体の `[A-Za-z0-9-]` が SSOT。特定の桁数 / 基数は仮定しない)。
+const WORKFLOW_RUN_ID_RE = /Run ID:\s*(wf_[A-Za-z0-9-]+)/;
+
+/** groupByWorkflow が要求する最小情報。SessionTab / SubagentDescriptor 双方の射影。 */
+export interface WorkflowGroupItem {
+  id: string;
+  workflowRunId: string;
+  workflowName: string;
+}
+
+/** workflowRunId でまとめた 1 グループ。`agents` は入力の出現順を保つ (先頭がアンカー)。 */
+export interface WorkflowGroup<T extends WorkflowGroupItem> {
+  runId: string;
+  name: string; // workflowName 優先、空なら runId
+  agents: T[];
+}
+
+/**
+ * workflow agent (`workflowRunId !== ""`) を workflowRunId ごとにグループ化する (出現順保持)。
+ * 非 workflow subagent (`workflowRunId === ""`) は除外する。
+ *
+ * タブバーのグループ表示と Workflow 行リンクの両方がこの 1 関数を SSOT に使い、
+ * 「グループ先頭 agent = リンク先 agent」の一貫性を構造的に保証する (グループ化条件を
+ * 2 箇所に複製すると先頭の取り方が無言で乖離するため)。
+ */
+export function groupByWorkflow<T extends WorkflowGroupItem>(items: T[]): WorkflowGroup<T>[] {
+  const groups = new Map<string, WorkflowGroup<T>>();
+  for (const item of items) {
+    if (item.workflowRunId === "") continue;
+    const existing = groups.get(item.workflowRunId);
+    if (existing === undefined) {
+      groups.set(item.workflowRunId, {
+        runId: item.workflowRunId,
+        // 見出し名は workflowName 優先。空なら runId をそのまま見出しに使う。
+        name: item.workflowName !== "" ? item.workflowName : item.workflowRunId,
+        agents: [item],
+      });
+    } else {
+      existing.agents.push(item);
+    }
+  }
+  return [...groups.values()];
+}
+
+/**
+ * subagent タブのラベル。phaseTitle / label を独立に評価し、両方あれば `phaseTitle · label`、
+ * 片方だけならそれ単独で出す (workflow agent は phaseTitle、Task subagent は label が埋まる)。
+ * どちらも空なら agentType、それも空なら agentId 先頭に倒す。
+ *
+ * phaseTitle と label は別ソース (workflowProgress の異なるフィールド) 由来で片方だけ埋まる
+ * 状態を信頼境界外データとして排除できないため、AND 連結ではなく段階的に拾って情報落ちを防ぐ。
+ */
+export function subagentTabLabel(entry: {
+  id: string;
+  label: string;
+  agentType: string;
+  phaseTitle: string;
+}): string {
+  const parts: string[] = [];
+  if (entry.phaseTitle !== "") parts.push(entry.phaseTitle);
+  if (entry.label !== "") parts.push(entry.label);
+  if (parts.length > 0) return parts.join(" · ");
+  if (entry.agentType !== "") return entry.agentType;
+  return entry.id.slice(0, 8);
 }
 
 /**
@@ -389,6 +463,9 @@ export interface SubagentDescriptor {
  *   id を優先し name にフォールバックする。ただし同名 subagent が複数あると name では一意に
  *   決められないため、その name はリンクを張らない (誤った subagent へ飛ばすより無表示が安全)。
  *   id は一意なので衝突しない。
+ * - Workflow (workflow 起動): main の Workflow tool_result テキストの `Run ID: wf_xxx` ===
+ *   workflow agent 群の `workflowRunId`。1 Workflow = N agent なので先頭 agent に結ぶ
+ *   (右ペインで開いた後はタブバーのグループから他 agent へ辿れる)。ラベルは `<名> (件数)`。
  *
  * toolUseId が空 (id 欠落 tool_use) の event は紐付け対象外。
  */
@@ -410,6 +487,9 @@ export function buildSubagentLinks(
       else byName.set(sub.name, sub);
     }
   }
+  // workflowRunId → グループ。タブバー表示と同じ groupByWorkflow を SSOT に使い、
+  // 「グループ先頭 agent = Workflow 行リンク先」の一貫性を保つ。
+  const byWorkflowRunId = new Map(groupByWorkflow(subagents).map((g) => [g.runId, g]));
 
   // id 引きを優先し、引けない時だけ name にフォールバック。曖昧な name は引かない。
   const resolveTo = (to: string): SubagentDescriptor | undefined => {
@@ -417,6 +497,19 @@ export function buildSubagentLinks(
     if (byId !== undefined) return byId;
     if (ambiguousNames.has(to)) return undefined;
     return byName.get(to);
+  };
+
+  // Workflow 行: result テキストの `Run ID: wf_xxx` で agent 群を引き、先頭 agent に結ぶ。
+  // 結果未記録 / runId 抽出失敗 / 該当 agent ゼロ件はリンクを張らない (無表示が安全)。
+  const resolveWorkflow = (resultText: string | undefined): SubagentLink | undefined => {
+    if (resultText === undefined) return undefined;
+    const match = WORKFLOW_RUN_ID_RE.exec(resultText);
+    if (match === null) return undefined;
+    const group = byWorkflowRunId.get(match[1]);
+    if (group === undefined) return undefined;
+    const [first] = group.agents;
+    if (first === undefined) return undefined;
+    return { agentId: first.id, label: `${group.name} (${group.agents.length})` };
   };
 
   for (const ev of mainEvents) {
@@ -430,6 +523,9 @@ export function buildSubagentLinks(
         const sub = resolveTo(to);
         if (sub !== undefined) links.set(ev.toolUseId, { agentId: sub.id, label: sub.label });
       }
+    } else if (ev.name === "Workflow") {
+      const link = resolveWorkflow(ev.result?.text);
+      if (link !== undefined) links.set(ev.toolUseId, link);
     }
   }
   return links;

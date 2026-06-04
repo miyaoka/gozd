@@ -2,11 +2,14 @@ import { afterAll, describe, expect, setSystemTime, test } from "bun:test";
 import {
   buildSubagentLinks,
   formatSessionTime,
+  groupByWorkflow,
   nearestEventIndexByTs,
   parseSessionLog,
   sessionLogDirOf,
+  subagentTabLabel,
   type SubagentDescriptor,
   type TranscriptEvent,
+  type WorkflowGroupItem,
 } from "./sessionLog";
 
 /** 1 レコードを JSONL 1 行にする。複数行は join して渡す。 */
@@ -559,16 +562,32 @@ describe("formatSessionTime", () => {
 });
 
 describe("buildSubagentLinks", () => {
-  // tool event を 1 つ作る helper。toolUseId / name / input を指定する。
+  // tool event を 1 つ作る helper。toolUseId / name / input / result を指定する。
   function toolEvent(
     name: string,
     toolUseId: string,
     input: Record<string, unknown> = {},
+    resultText?: string,
   ): TranscriptEvent {
-    return { kind: "tool", name, input, toolUseId, ts: TS, result: undefined };
+    return {
+      kind: "tool",
+      name,
+      input,
+      toolUseId,
+      ts: TS,
+      result: resultText === undefined ? undefined : { text: resultText, isError: false },
+    };
   }
   function sub(over: Partial<SubagentDescriptor>): SubagentDescriptor {
-    return { id: "", label: "", name: "", parentToolUseId: "", ...over };
+    return {
+      id: "",
+      label: "",
+      name: "",
+      parentToolUseId: "",
+      workflowRunId: "",
+      workflowName: "",
+      ...over,
+    };
   }
 
   test("Agent は tool_use.id == subagent.parentToolUseId で結ぶ", () => {
@@ -647,6 +666,127 @@ describe("buildSubagentLinks", () => {
       [sub({ id: "agent1", name: "reviewer" })],
     );
     expect(links.size).toBe(0);
+  });
+
+  test("Workflow は result の Run ID で workflow agent 群の先頭に結ぶ (ラベルは名 + 件数)", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("Workflow", "toolu_W", {}, "Workflow launched.\nRun ID: wf_abc123\n…")],
+      [
+        sub({ id: "ag1", workflowRunId: "wf_abc123", workflowName: "diagnose" }),
+        sub({ id: "ag2", workflowRunId: "wf_abc123", workflowName: "diagnose" }),
+      ],
+    );
+    expect(links.get("toolu_W")).toEqual({ agentId: "ag1", label: "diagnose (2)" });
+  });
+
+  test("Workflow の workflowName が空なら runId をラベル名に使う", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("Workflow", "toolu_W", {}, "Run ID: wf_xyz")],
+      [sub({ id: "ag1", workflowRunId: "wf_xyz" })],
+    );
+    expect(links.get("toolu_W")).toEqual({ agentId: "ag1", label: "wf_xyz (1)" });
+  });
+
+  test("Workflow の result が未記録ならリンクを張らない", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("Workflow", "toolu_W")],
+      [sub({ id: "ag1", workflowRunId: "wf_abc123" })],
+    );
+    expect(links.has("toolu_W")).toBe(false);
+  });
+
+  test("Workflow の result に Run ID が無ければリンクを張らない", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("Workflow", "toolu_W", {}, "Workflow launched but no run id here")],
+      [sub({ id: "ag1", workflowRunId: "wf_abc123" })],
+    );
+    expect(links.has("toolu_W")).toBe(false);
+  });
+
+  test("Workflow の Run ID に対応する agent が無ければリンクを張らない", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("Workflow", "toolu_W", {}, "Run ID: wf_other")],
+      [sub({ id: "ag1", workflowRunId: "wf_abc123" })],
+    );
+    expect(links.has("toolu_W")).toBe(false);
+  });
+});
+
+describe("subagentTabLabel", () => {
+  function entry(over: Partial<Parameters<typeof subagentTabLabel>[0]>) {
+    return { id: "", label: "", agentType: "", phaseTitle: "", ...over };
+  }
+
+  test("phaseTitle と label が両方あれば `phaseTitle · label`", () => {
+    expect(subagentTabLabel(entry({ phaseTitle: "Verify", label: "reactivity" }))).toBe(
+      "Verify · reactivity",
+    );
+  });
+
+  test("phaseTitle 単独でも phaseTitle を出す (label 空で取りこぼさない)", () => {
+    expect(subagentTabLabel(entry({ phaseTitle: "Verify", agentType: "Explore" }))).toBe("Verify");
+  });
+
+  test("label 単独なら label", () => {
+    expect(subagentTabLabel(entry({ label: "reviewer", agentType: "Explore" }))).toBe("reviewer");
+  });
+
+  test("phaseTitle / label 空なら agentType", () => {
+    expect(subagentTabLabel(entry({ agentType: "Explore" }))).toBe("Explore");
+  });
+
+  test("すべて空なら agentId 先頭 8 文字", () => {
+    expect(subagentTabLabel(entry({ id: "abcdef0123456789" }))).toBe("abcdef01");
+  });
+});
+
+describe("groupByWorkflow", () => {
+  function item(over: Partial<WorkflowGroupItem>): WorkflowGroupItem {
+    return { id: "", workflowRunId: "", workflowName: "", ...over };
+  }
+
+  test("workflowRunId ごとに出現順でグループ化する", () => {
+    const groups = groupByWorkflow([
+      item({ id: "a1", workflowRunId: "wf_1", workflowName: "diagnose" }),
+      item({ id: "a2", workflowRunId: "wf_1", workflowName: "diagnose" }),
+      item({ id: "b1", workflowRunId: "wf_2", workflowName: "audit" }),
+    ]);
+    expect(groups).toEqual([
+      {
+        runId: "wf_1",
+        name: "diagnose",
+        agents: [
+          item({ id: "a1", workflowRunId: "wf_1", workflowName: "diagnose" }),
+          item({ id: "a2", workflowRunId: "wf_1", workflowName: "diagnose" }),
+        ],
+      },
+      {
+        runId: "wf_2",
+        name: "audit",
+        agents: [item({ id: "b1", workflowRunId: "wf_2", workflowName: "audit" })],
+      },
+    ]);
+  });
+
+  test("workflowRunId 空の item (非 workflow subagent) は除外する", () => {
+    const groups = groupByWorkflow([
+      item({ id: "plain", workflowRunId: "" }),
+      item({ id: "a1", workflowRunId: "wf_1", workflowName: "diagnose" }),
+    ]);
+    expect(groups.map((g) => g.runId)).toEqual(["wf_1"]);
+  });
+
+  test("workflowName 空なら見出し名に runId を使う", () => {
+    const groups = groupByWorkflow([item({ id: "a1", workflowRunId: "wf_1", workflowName: "" })]);
+    expect(groups[0].name).toBe("wf_1");
+  });
+
+  test("先頭 agent が一貫する (buildSubagentLinks のリンク先と同一の出現順先頭)", () => {
+    const groups = groupByWorkflow([
+      item({ id: "first", workflowRunId: "wf_1" }),
+      item({ id: "second", workflowRunId: "wf_1" }),
+    ]);
+    expect(groups[0].agents[0].id).toBe("first");
   });
 });
 

@@ -11,10 +11,15 @@ Main セッションを左ペインに常時表示し、subagent があれば選
 subagent が複数あるときはヘッダ下に subagent タブを出し、右ペインに出す 1 つを選ぶ。
 subagent が無ければ Main のみを全幅表示し、タブも右ペインも出さない。
 
+タブバーは Task ツール subagent (`workflowRunId` 空) をフラットなチップ列で、Workflow ツール
+agent を `workflowRunId` ごとにグループ化して workflow 名見出し付きで並べる。3 階層
+(main → workflow → agent) を 2 ペインに畳むため、main の `Workflow` 行リンクは「グループ
+先頭 agent を開く」入口に徹し、残りはグループのチップから辿らせる。
+
 ## 動作
 
-- open 時に `rpcClaudeSessionLog` で native から main + subagents の生 JSONL を取得し、
-  各 entry を `parseSessionLog` で transcript 化して保持する。`entries[0]` が main、
+- open 時に `rpcClaudeSessionLog` で native から main + subagents (Task + Workflow) の生 JSONL を
+  取得し、各 entry を `parseSessionLog` で transcript 化して保持する。`entries[0]` が main、
   残りが subagents。subagent タブを選ぶと右ペインの transcript が切り替わる
 - 取得失敗 / 未発見 / 空ログはそれぞれ明示メッセージを出す (fallback で握り潰さない)
 
@@ -36,8 +41,10 @@ import type { FsChangePayload } from "../filer";
 import { rpcClaudeSessionLog, rpcFsUnwatch, rpcFsWatch } from "./rpc";
 import {
   buildSubagentLinks,
+  groupByWorkflow,
   parseSessionLog,
   sessionLogDirOf,
+  subagentTabLabel,
   type ParsedSessionLog,
   type SubagentLink,
 } from "./sessionLog";
@@ -62,6 +69,10 @@ interface SessionTab {
   parentToolUseId: string;
   // subagent の名前 (meta.json の name)。SendMessage の to が name のとき紐付けに使う。main は空。
   name: string;
+  // workflow agent が属する workflow run の id。非 workflow subagent / main は空文字。
+  workflowRunId: string;
+  // workflow の表示名 (グループ見出し)。非 workflow subagent / main は空文字。
+  workflowName: string;
   parsed: ParsedSessionLog;
 }
 const sessions = ref<SessionTab[]>([]);
@@ -70,6 +81,13 @@ const mainSession = computed<SessionTab | undefined>(() =>
   sessions.value.find((s) => s.kind === "main"),
 );
 const subagents = computed<SessionTab[]>(() => sessions.value.filter((s) => s.kind !== "main"));
+// Task ツール subagent (workflowRunId 空) は従来通りフラットなチップ列で出す。
+const plainSubagents = computed<SessionTab[]>(() =>
+  subagents.value.filter((s) => s.workflowRunId === ""),
+);
+// workflow agent は workflowRunId でグループ化する (出現順保持)。グループ化と先頭 agent の
+// 一貫性は sessionLog の純関数 groupByWorkflow に委ねる (buildSubagentLinks と SSOT 共有)。
+const workflowGroups = computed(() => groupByWorkflow(subagents.value));
 
 // 右ペインに出す subagent。subagent が 1 つでもあれば先頭を初期選択する。
 const activeSubId = ref<string | undefined>(undefined);
@@ -89,6 +107,8 @@ const mainSubagentLinks = computed<Map<string, SubagentLink>>(() => {
       label: s.label,
       name: s.name,
       parentToolUseId: s.parentToolUseId,
+      workflowRunId: s.workflowRunId,
+      workflowName: s.workflowName,
     })),
   );
 });
@@ -104,13 +124,6 @@ function openSubagent(payload: { agentId: string; ts: string }) {
   scrollTarget.value = { ts: payload.ts, nonce: ++scrollNonce };
 }
 
-/** subagent タブのラベル。meta.json の description / agentType を優先、無ければ agentId。 */
-function subagentLabel(entry: { id: string; label: string; agentType: string }): string {
-  if (entry.label !== "") return entry.label;
-  if (entry.agentType !== "") return entry.agentType;
-  return entry.id.slice(0, 8);
-}
-
 // load の世代カウンタ。await を跨いだ stale な完了結果が新しいセッション表示を
 // 上書きするのを防ぐ。新規 load 開始 / refresh / dialog close のたびに increment し、
 // await 後に自分の token が最新でなければ state を触らず捨てる。
@@ -124,14 +137,19 @@ function toSessionTab(entry: {
   agentType: string;
   parentToolUseId: string;
   name: string;
+  workflowRunId: string;
+  workflowName: string;
+  phaseTitle: string;
   content: string;
 }): SessionTab {
   return {
     kind: entry.kind,
     id: entry.id,
-    label: entry.kind === "main" ? "Main" : subagentLabel(entry),
+    label: entry.kind === "main" ? "Main" : subagentTabLabel(entry),
     parentToolUseId: entry.parentToolUseId,
     name: entry.name,
+    workflowRunId: entry.workflowRunId,
+    workflowName: entry.workflowName,
     parsed: parseSessionLog(entry.content),
   };
 }
@@ -316,28 +334,63 @@ function onDialogClick(event: MouseEvent) {
         </button>
       </div>
 
-      <!-- subagent タブ。右ペインに出す 1 つを選ぶ。subagent が無ければ出さない。 -->
+      <!-- subagent タブ。右ペインに出す 1 つを選ぶ。subagent が無ければ出さない。
+           Task ツール subagent はフラットなチップ列、Workflow agent は workflow ごとに
+           グループ化して見出し付きで並べる。 -->
       <div
         v-if="subagents.length > 0"
-        class="flex shrink-0 flex-wrap items-center gap-1 border-b border-zinc-800 px-3 py-2"
+        class="flex shrink-0 flex-col gap-1.5 border-b border-zinc-800 px-3 py-2"
       >
-        <span class="mr-1 text-[10px] tracking-wide text-zinc-500 uppercase">Subagents</span>
-        <button
-          v-for="s in subagents"
-          :key="s.id"
-          type="button"
-          class="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs transition-colors"
-          :class="
-            activeSubId === s.id
-              ? 'bg-zinc-700 text-zinc-100'
-              : 'bg-zinc-800/60 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
-          "
-          :title="s.id"
-          @click="selectSubagent(s.id)"
+        <!-- Task ツール subagent (フラット) -->
+        <div v-if="plainSubagents.length > 0" class="flex flex-wrap items-center gap-1">
+          <span class="mr-1 text-[10px] tracking-wide text-zinc-500 uppercase">Subagents</span>
+          <button
+            v-for="s in plainSubagents"
+            :key="s.id"
+            type="button"
+            class="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs transition-colors"
+            :class="
+              activeSubId === s.id
+                ? 'bg-zinc-700 text-zinc-100'
+                : 'bg-zinc-800/60 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+            "
+            :title="s.id"
+            @click="selectSubagent(s.id)"
+          >
+            <span class="icon-[lucide--git-fork] size-3 shrink-0" />
+            <span class="max-w-40 truncate">{{ s.label }}</span>
+          </button>
+        </div>
+
+        <!-- Workflow agent (workflow ごとにグループ化) -->
+        <div
+          v-for="group in workflowGroups"
+          :key="group.runId"
+          class="flex flex-wrap items-center gap-1"
         >
-          <span class="icon-[lucide--git-fork] size-3 shrink-0" />
-          <span class="max-w-40 truncate">{{ s.label }}</span>
-        </button>
+          <span
+            class="mr-1 flex items-center gap-1 text-[10px] tracking-wide text-zinc-500 uppercase"
+            :title="group.runId"
+          >
+            <span class="icon-[lucide--workflow] size-3 shrink-0" />
+            <span class="max-w-44 truncate">{{ group.name }}</span>
+          </span>
+          <button
+            v-for="s in group.agents"
+            :key="s.id"
+            type="button"
+            class="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs transition-colors"
+            :class="
+              activeSubId === s.id
+                ? 'bg-zinc-700 text-zinc-100'
+                : 'bg-zinc-800/60 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+            "
+            :title="s.id"
+            @click="selectSubagent(s.id)"
+          >
+            <span class="max-w-40 truncate">{{ s.label }}</span>
+          </button>
+        </div>
       </div>
 
       <!-- 本文: 状態メッセージ or [左 Main + 右 subagent] の 2 ペイン -->

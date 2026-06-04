@@ -134,7 +134,8 @@ public struct Gozd_V1_ClaudeSessionLogEntry: Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  /// "main" (本体セッション) または "subagent" (Task ツールで起動したサブエージェント)。
+  /// "main" (本体セッション) または "subagent" (Task / Workflow ツールで起動したサブエージェント)。
+  /// workflow agent かどうかは workflow_run_id の有無で判別する。
   public var kind: String = String()
 
   /// main は session_id、subagent は agent_id。
@@ -163,6 +164,19 @@ public struct Gozd_V1_ClaudeSessionLogEntry: Sendable {
   /// 名前付きで起動していない subagent / main は空文字。
   public var name: String = String()
 
+  /// この subagent が属する workflow run の id (wf_xxx)。Workflow ツールが spawn した
+  /// workflow agent のみ非空。Task ツール subagent / main は空文字。main の Workflow
+  /// tool_use と結ぶグループキー (main の Workflow tool_result の "Run ID: wf_xxx" と一致)。
+  public var workflowRunID: String = String()
+
+  /// workflow の表示名 (<sessionId>/workflows/<wf_id>.json の workflowName)。
+  /// タブバーのグループ見出しに使う。非 workflow subagent / main は空文字。
+  public var workflowName: String = String()
+
+  /// workflow agent の phase 名 (workflowProgress の phaseTitle)。タブのラベルに使う。
+  /// 非 workflow subagent / main は空文字。
+  public var phaseTitle: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -177,8 +191,9 @@ public struct Gozd_V1_ClaudeSessionLogResponse: Sendable {
   public var found: Bool = false
 
   /// entries[0] が main、残りが subagents (見つかった順)。found=false なら空。
-  /// subagent は ~/.claude/projects/<encoded>/<session_id>/subagents/agent-*.jsonl に
-  /// isSidechain ログとして並ぶ。main の projectDir を起点に列挙する。
+  /// Task ツール subagent は ~/.claude/projects/<encoded>/<session_id>/subagents/agent-*.jsonl、
+  /// Workflow agent は同 subagents/workflows/<wf_id>/agent-*.jsonl に isSidechain ログとして
+  /// 並ぶ。main の projectDir を起点に両方を列挙する。
   public var entries: [Gozd_V1_ClaudeSessionLogEntry] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -417,7 +432,7 @@ extension Gozd_V1_ClaudeSessionLogRequest: SwiftProtobuf.Message, SwiftProtobuf.
 
 extension Gozd_V1_ClaudeSessionLogEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ClaudeSessionLogEntry"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}kind\0\u{1}id\0\u{1}label\0\u{3}agent_type\0\u{1}path\0\u{1}content\0\u{3}parent_tool_use_id\0\u{1}name\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}kind\0\u{1}id\0\u{1}label\0\u{3}agent_type\0\u{1}path\0\u{1}content\0\u{3}parent_tool_use_id\0\u{1}name\0\u{3}workflow_run_id\0\u{3}workflow_name\0\u{3}phase_title\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -433,6 +448,9 @@ extension Gozd_V1_ClaudeSessionLogEntry: SwiftProtobuf.Message, SwiftProtobuf._M
       case 6: try { try decoder.decodeSingularStringField(value: &self.content) }()
       case 7: try { try decoder.decodeSingularStringField(value: &self.parentToolUseID) }()
       case 8: try { try decoder.decodeSingularStringField(value: &self.name) }()
+      case 9: try { try decoder.decodeSingularStringField(value: &self.workflowRunID) }()
+      case 10: try { try decoder.decodeSingularStringField(value: &self.workflowName) }()
+      case 11: try { try decoder.decodeSingularStringField(value: &self.phaseTitle) }()
       default: break
       }
     }
@@ -463,6 +481,15 @@ extension Gozd_V1_ClaudeSessionLogEntry: SwiftProtobuf.Message, SwiftProtobuf._M
     if !self.name.isEmpty {
       try visitor.visitSingularStringField(value: self.name, fieldNumber: 8)
     }
+    if !self.workflowRunID.isEmpty {
+      try visitor.visitSingularStringField(value: self.workflowRunID, fieldNumber: 9)
+    }
+    if !self.workflowName.isEmpty {
+      try visitor.visitSingularStringField(value: self.workflowName, fieldNumber: 10)
+    }
+    if !self.phaseTitle.isEmpty {
+      try visitor.visitSingularStringField(value: self.phaseTitle, fieldNumber: 11)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -475,6 +502,9 @@ extension Gozd_V1_ClaudeSessionLogEntry: SwiftProtobuf.Message, SwiftProtobuf._M
     if lhs.content != rhs.content {return false}
     if lhs.parentToolUseID != rhs.parentToolUseID {return false}
     if lhs.name != rhs.name {return false}
+    if lhs.workflowRunID != rhs.workflowRunID {return false}
+    if lhs.workflowName != rhs.workflowName {return false}
+    if lhs.phaseTitle != rhs.phaseTitle {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

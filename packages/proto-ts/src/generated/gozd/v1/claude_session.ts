@@ -66,7 +66,10 @@ export interface ClaudeSessionLogRequest {
 
 /** セッションログ 1 本分 (main または subagent)。parse は renderer 側が担う。 */
 export interface ClaudeSessionLogEntry {
-  /** "main" (本体セッション) または "subagent" (Task ツールで起動したサブエージェント)。 */
+  /**
+   * "main" (本体セッション) または "subagent" (Task / Workflow ツールで起動したサブエージェント)。
+   * workflow agent かどうかは workflow_run_id の有無で判別する。
+   */
   kind: string;
   /** main は session_id、subagent は agent_id。 */
   id: string;
@@ -91,6 +94,22 @@ export interface ClaudeSessionLogEntry {
    * 名前付きで起動していない subagent / main は空文字。
    */
   name: string;
+  /**
+   * この subagent が属する workflow run の id (wf_xxx)。Workflow ツールが spawn した
+   * workflow agent のみ非空。Task ツール subagent / main は空文字。main の Workflow
+   * tool_use と結ぶグループキー (main の Workflow tool_result の "Run ID: wf_xxx" と一致)。
+   */
+  workflowRunId: string;
+  /**
+   * workflow の表示名 (<sessionId>/workflows/<wf_id>.json の workflowName)。
+   * タブバーのグループ見出しに使う。非 workflow subagent / main は空文字。
+   */
+  workflowName: string;
+  /**
+   * workflow agent の phase 名 (workflowProgress の phaseTitle)。タブのラベルに使う。
+   * 非 workflow subagent / main は空文字。
+   */
+  phaseTitle: string;
 }
 
 export interface ClaudeSessionLogResponse {
@@ -98,8 +117,9 @@ export interface ClaudeSessionLogResponse {
   found: boolean;
   /**
    * entries[0] が main、残りが subagents (見つかった順)。found=false なら空。
-   * subagent は ~/.claude/projects/<encoded>/<session_id>/subagents/agent-*.jsonl に
-   * isSidechain ログとして並ぶ。main の projectDir を起点に列挙する。
+   * Task ツール subagent は ~/.claude/projects/<encoded>/<session_id>/subagents/agent-*.jsonl、
+   * Workflow agent は同 subagents/workflows/<wf_id>/agent-*.jsonl に isSidechain ログとして
+   * 並ぶ。main の projectDir を起点に両方を列挙する。
    */
   entries: ClaudeSessionLogEntry[];
 }
@@ -603,7 +623,19 @@ export const ClaudeSessionLogRequest: MessageFns<ClaudeSessionLogRequest> = {
 };
 
 function createBaseClaudeSessionLogEntry(): ClaudeSessionLogEntry {
-  return { kind: "", id: "", label: "", agentType: "", path: "", content: "", parentToolUseId: "", name: "" };
+  return {
+    kind: "",
+    id: "",
+    label: "",
+    agentType: "",
+    path: "",
+    content: "",
+    parentToolUseId: "",
+    name: "",
+    workflowRunId: "",
+    workflowName: "",
+    phaseTitle: "",
+  };
 }
 
 export const ClaudeSessionLogEntry: MessageFns<ClaudeSessionLogEntry> = {
@@ -631,6 +663,15 @@ export const ClaudeSessionLogEntry: MessageFns<ClaudeSessionLogEntry> = {
     }
     if (message.name !== "") {
       writer.uint32(66).string(message.name);
+    }
+    if (message.workflowRunId !== "") {
+      writer.uint32(74).string(message.workflowRunId);
+    }
+    if (message.workflowName !== "") {
+      writer.uint32(82).string(message.workflowName);
+    }
+    if (message.phaseTitle !== "") {
+      writer.uint32(90).string(message.phaseTitle);
     }
     return writer;
   },
@@ -706,6 +747,30 @@ export const ClaudeSessionLogEntry: MessageFns<ClaudeSessionLogEntry> = {
           message.name = reader.string();
           continue;
         }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.workflowRunId = reader.string();
+          continue;
+        }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.workflowName = reader.string();
+          continue;
+        }
+        case 11: {
+          if (tag !== 90) {
+            break;
+          }
+
+          message.phaseTitle = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -733,6 +798,21 @@ export const ClaudeSessionLogEntry: MessageFns<ClaudeSessionLogEntry> = {
         ? globalThis.String(object.parent_tool_use_id)
         : "",
       name: isSet(object.name) ? globalThis.String(object.name) : "",
+      workflowRunId: isSet(object.workflowRunId)
+        ? globalThis.String(object.workflowRunId)
+        : isSet(object.workflow_run_id)
+        ? globalThis.String(object.workflow_run_id)
+        : "",
+      workflowName: isSet(object.workflowName)
+        ? globalThis.String(object.workflowName)
+        : isSet(object.workflow_name)
+        ? globalThis.String(object.workflow_name)
+        : "",
+      phaseTitle: isSet(object.phaseTitle)
+        ? globalThis.String(object.phaseTitle)
+        : isSet(object.phase_title)
+        ? globalThis.String(object.phase_title)
+        : "",
     };
   },
 
@@ -762,6 +842,15 @@ export const ClaudeSessionLogEntry: MessageFns<ClaudeSessionLogEntry> = {
     if (message.name !== "") {
       obj.name = message.name;
     }
+    if (message.workflowRunId !== "") {
+      obj.workflowRunId = message.workflowRunId;
+    }
+    if (message.workflowName !== "") {
+      obj.workflowName = message.workflowName;
+    }
+    if (message.phaseTitle !== "") {
+      obj.phaseTitle = message.phaseTitle;
+    }
     return obj;
   },
 
@@ -778,6 +867,9 @@ export const ClaudeSessionLogEntry: MessageFns<ClaudeSessionLogEntry> = {
     message.content = object.content ?? "";
     message.parentToolUseId = object.parentToolUseId ?? "";
     message.name = object.name ?? "";
+    message.workflowRunId = object.workflowRunId ?? "";
+    message.workflowName = object.workflowName ?? "";
+    message.phaseTitle = object.phaseTitle ?? "";
     return message;
   },
 };

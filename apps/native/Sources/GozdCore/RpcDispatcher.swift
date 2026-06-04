@@ -1112,6 +1112,9 @@ public actor RpcDispatcher {
       e.content = entry.content
       e.parentToolUseID = entry.parentToolUseId
       e.name = entry.name
+      e.workflowRunID = entry.workflowRunId
+      e.workflowName = entry.workflowName
+      e.phaseTitle = entry.phaseTitle
       return e
     }
     return try resp.jsonUTF8Data()

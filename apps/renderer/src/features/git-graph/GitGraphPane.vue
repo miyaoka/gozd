@@ -6,7 +6,7 @@ Git commit graph showing the current worktree branch and the default branch.
 - Working Tree row: sticky header outside scroll area, with status icons and dot on lane 0
 - Connector line: dashed SVG path from lane 0 top to HEAD lane (straight if same lane, Bézier curve otherwise)
 - Scrollable commit list: HTML rows for commit data + SVG overlay for graph lines and dots
-- HEAD is pinned to the leftmost lane (lane 0) so it aligns under the Working Tree dot and the connector stays vertical. Diverged branches ordered above HEAD are pushed to lanes ≥ 1. The pinning only applies when HEAD is a graph tip not already at the top; see `graphLayout.ts` for the condition
+- HEAD is pinned to the leftmost lane (lane 0) so it aligns under the Working Tree dot. When HEAD is not the topmost commit, lane 0 is reserved as an empty channel above HEAD so the connector descends without crossing other lanes; commits above HEAD (diverged branches, or HEAD's own children in a detached-HEAD view) are pushed to lanes ≥ 1 and HEAD's children merge back into lane 0 at HEAD's row. See `graphLayout.ts` for the lane assignment
 - CommitDetailPane is shown as a toggleable right pane inside the graph
 - Commits are stored in `useGitGraphStore` and shared with ChangesPane
 

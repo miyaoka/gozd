@@ -67,7 +67,8 @@ interface LaneState {
 }
 
 /**
- * @param headHash HEAD コミットの hash。指定すると HEAD を最左 lane (lane 0) に固定する
+ * @param headHash HEAD コミットの hash。指定すると HEAD を最左 lane (lane 0) に固定する。
+ *   HEAD が表示順で先頭でないときは lane 0 を空きチャンネルとして予約し、子があれば lane 0 へ合流させる
  */
 export function computeGraphLayout(
   commits: GitCommit[],
@@ -79,15 +80,12 @@ export function computeGraphLayout(
   }
 
   // HEAD を最左 lane に固定するための予約判定。
-  // - row 0 が HEAD の通常ケース (headRow === 0) は貪欲割り当てで既に最左なので予約不要
-  // - HEAD がグラフ内に子 (HEAD を parent に持つ commit) を持つ場合、lane を強制すると
-  //   子からの接続線が壊れる。この場合は通常レイアウトに倒す
-  // 上記以外 (HEAD が tip かつ表示順で先頭でない = 分岐により他枝が上に並ぶ) のときだけ、
-  // HEAD 到達前は lane 0 を空けて予約し、HEAD 行で lane 0 に固定する。
+  // HEAD が表示順で先頭 (headRow === 0) なら貪欲割り当てで既に最左なので予約不要。
+  // それ以外 (HEAD より上に他コミットが並ぶ) のときは、HEAD 到達前の行で lane 0 を
+  // 空けて予約し、HEAD 行で lane 0 に固定する。HEAD がグラフ内に子を持つ (= 非 tip) 場合も、
+  // 子の各レーンを HEAD 行で lane 0 へ合流させることで lane を壊さず固定できる。
   const headRow = headHash === undefined ? -1 : (commitIndexMap.get(headHash) ?? -1);
-  const headIsTip =
-    headHash !== undefined && headRow >= 0 && !commits.some((c) => c.parents.includes(headHash));
-  const reserveHeadLane = headRow > 0 && headIsTip;
+  const reserveHeadLane = headRow > 0;
 
   const activeLanes: (LaneState | undefined)[] = [];
   let nextColor = 0;
@@ -114,13 +112,14 @@ export function computeGraphLayout(
     // HEAD 到達前は lane 0 を予約 (空き探索の下限を 1 に上げる) し、HEAD に確保しておく
     const minLane = reserveHeadLane && row < headRow ? 1 : 0;
 
-    if (matchingLanes.length > 0) {
+    if (reserveHeadLane && row === headRow) {
+      // 予約しておいた最左 lane に HEAD を固定する。HEAD に子がある (matchingLanes あり) 場合も
+      // ここを優先し、子の各レーンを下の合流処理で lane 0 へ寄せる。色は最初の子レーンを継ぐ
+      lane = 0;
+      color = matchingLanes.length > 0 ? activeLanes[matchingLanes[0]]!.color : nextColor++;
+    } else if (matchingLanes.length > 0) {
       lane = matchingLanes[0];
       color = activeLanes[lane]!.color;
-    } else if (reserveHeadLane && row === headRow) {
-      // 予約しておいた最左 lane に HEAD を固定する
-      lane = 0;
-      color = nextColor++;
     } else {
       lane = findEmptyLane(activeLanes, minLane);
       color = nextColor++;
@@ -144,8 +143,9 @@ export function computeGraphLayout(
           });
           // originLane をクリア（最初の1セグメントだけ斜め）
           state.originLane = undefined;
-        } else if (matchingLanes.length > 1 && matchingLanes.includes(i) && i !== lane) {
+        } else if (matchingLanes.includes(i) && i !== lane) {
           // 合流: このレーンからメインレーンへの斜め線
+          // (HEAD 固定では lane=0 が matchingLanes に含まれないため、子レーンすべてが対象)
           lines.push({
             x1: i,
             y1: row - 1,
@@ -169,10 +169,10 @@ export function computeGraphLayout(
     }
 
     // --- Phase 2: 合流レーンを解放 ---
-    if (matchingLanes.length > 1) {
-      for (let k = 1; k < matchingLanes.length; k++) {
-        activeLanes[matchingLanes[k]] = undefined;
-      }
+    // この行のレーン (lane) 以外の matching を解放する。通常は matchingLanes[0] === lane なので
+    // [1..] を解放。HEAD 固定では lane=0 が matchingLanes に含まれないため全 matching を解放する。
+    for (const ml of matchingLanes) {
+      if (ml !== lane) activeLanes[ml] = undefined;
     }
 
     // --- Phase 3: このコミットのレーン状態を更新 ---

@@ -107,6 +107,59 @@ struct FSWatchRegistryTests {
     #expect(events.contains("gitStatusChange"))
   }
 
+  @Test("gitignore 対象ファイルの連続書き込みは StatusFull が不変なので gitStatusChange を 1 回しか push しない")
+  func dedupsGitStatusChangeForUnchangedStatus() async throws {
+    // typecheck / ビルドが gitignore 対象（`.tsbuildinfo` / `dist` / `node_modules`）を
+    // 連続書き込みするケースの regression guard。これらは作業ツリー event として
+    // gitStatusChange に分類されるが git status 出力には現れず StatusFull が不変になる。
+    // dedup が無いと renderer 側の参照差し替えで changes / filer ビューが再描画され続ける。
+    let repo = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: repo) }
+    try await initGitRepo(at: repo)
+
+    // `.gitignore` で `ignored/` 配下を除外し、commit して clean working tree を確立する。
+    try "ignored/\n".write(
+      to: repo.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
+    try await runGitCmd(["add", ".gitignore"], cwd: repo)
+    try await runGitCmd(["commit", "-m", "seed"], cwd: repo)
+
+    let collector = EventNameCollector()
+    let registry = FSWatchRegistry(
+      onFsChange: { _, _ in collector.append("fsChange") },
+      onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
+      onBranchChange: { _ in collector.append("branchChange") },
+      onRemoteRefsChange: { _ in collector.append("remoteRefsChange") },
+      onWorktreeChange: { _ in collector.append("worktreeChange") }
+    )
+
+    try await registry.watch(dir: repo.path)
+    await sleepThreaded(.milliseconds(300))
+    collector.clear()
+
+    let ignoredDir = repo.appendingPathComponent("ignored")
+    try FileManager.default.createDirectory(at: ignoredDir, withIntermediateDirectories: true)
+
+    // 1 回目: cache 空なので clean status が push される。
+    try "a".write(
+      to: ignoredDir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    await waitForEvent(collector, matching: { $0 == "gitStatusChange" })
+
+    // 2 回目: status は同一なので gitStatusChange は dedup される。fsChange は両 batch で
+    // 立つため、fsChange が 2 回到達したことで「2 回目 batch も handleEvents を踏んだ
+    // （= 何も起きなかったのではなく gitStatusChange だけ抑止された）」ことを担保する。
+    try "b".write(
+      to: ignoredDir.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+    await waitUntil(
+      timeout: .seconds(2),
+      description: "fsChange count >= 2",
+      lastObserved: { collector.snapshot().description },
+      { collector.snapshot().filter { $0 == "fsChange" }.count >= 2 })
+
+    let events = collector.snapshot()
+    #expect(events.filter { $0 == "gitStatusChange" }.count == 1)
+    #expect(events.filter { $0 == "fsChange" }.count >= 2)
+  }
+
   @Test("`git branch -m` で current branch を改名すると branchChange と gitStatusChange が両方 dispatch される")
   func dispatchesBranchChangeAndStatusOnRename() async throws {
     // ユーザー報告の主因シナリオ: rename で commit OID は不変だが、HEAD が指す

@@ -250,14 +250,21 @@ interface LogNode {
 const LEAD_MAX = 80;
 
 /**
- * 会話を進めるノードか。user(非meta) / assistant のみ。attachment / system / 注入 user は
- * 透過ノード (会話を進めず、rewind 分岐の主体にもならない)。rewind は実ユーザー発話 / 応答の
- * 分岐としてのみ起きるため、この 2 種だけを木の節点とする。
+ * 会話を進めるノードか。assistant と「表示対象の user」のみ。attachment / system / isMeta user /
+ * 注入 user (system-reminder 等で始まる string) は透過ノード (会話を進めず、rewind 分岐の主体に
+ * もならない)。
+ *
+ * 節点判定はフェーズ 3 の表示判定 (userTextOf) と同一基準にする。基準がずれると、表示されない
+ * 注入 user が木の節点になり、同一会話的親に実発話と並んだとき偽の分岐点を生む (選んでも本文は
+ * 空、lead も空)。string content は userTextOf で表示可否を判定し、array content (tool_result /
+ * image / text) は会話イベントとして必ず節点にする。
  */
 function isConvNode(raw: RawLine): boolean {
   if (raw.type === "assistant") return true;
-  if (raw.type === "user") return raw.isMeta !== true;
-  return false;
+  if (raw.type !== "user" || raw.isMeta === true) return false;
+  const content = raw.message?.content;
+  if (typeof content === "string") return userTextOf(content) !== undefined;
+  return true;
 }
 
 /** 会話ノードの先頭テキスト (分岐選択肢の識別ラベル)。空なら "" 。LEAD_MAX で切る。 */

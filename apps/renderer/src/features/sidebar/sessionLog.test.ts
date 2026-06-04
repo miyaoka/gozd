@@ -525,6 +525,152 @@ describe("parseSessionLog", () => {
     ]);
   });
 
+  test("rewind: 分岐の親が透過ノード (system) でも会話的親 (直前の assistant) を branchKey にする", () => {
+    // 実ログ形: user → assistant → system → system → user×2。turn 境界の system を跨いで
+    // 会話的親 a1 を branchKey に解決できることを踏む。
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "user",
+          uuid: "u1",
+          parentUuid: null,
+          timestamp: TS,
+          message: { role: "user", content: "?" },
+        },
+        {
+          type: "assistant",
+          uuid: "a1",
+          parentUuid: "u1",
+          timestamp: TS,
+          message: { role: "assistant", content: [{ type: "text", text: "どうぞ" }] },
+        },
+        { type: "system", uuid: "s1", parentUuid: "a1", timestamp: TS },
+        { type: "system", uuid: "s2", parentUuid: "s1", timestamp: TS },
+        {
+          type: "user",
+          uuid: "b1",
+          parentUuid: "s2",
+          timestamp: TS,
+          message: { role: "user", content: "週末の天気は？" },
+        },
+        {
+          type: "user",
+          uuid: "b2",
+          parentUuid: "s2",
+          timestamp: TS,
+          message: { role: "user", content: "昨日の天気は？" },
+        },
+      ),
+    );
+    expect(log.events).toEqual([
+      { kind: "user", text: "?", ts: TS },
+      { kind: "assistant", text: "どうぞ", ts: TS },
+      {
+        kind: "branch",
+        ts: TS,
+        branchKey: "a1",
+        selectedChildUuid: "b2",
+        options: [
+          { childUuid: "b1", index: 1, lead: "週末の天気は？", ts: TS },
+          { childUuid: "b2", index: 2, lead: "昨日の天気は？", ts: TS },
+        ],
+      },
+      { kind: "user", text: "昨日の天気は？", ts: TS },
+    ]);
+  });
+
+  // ネスト分岐: 最新枝 (b2) の配下でさらに rewind して 2 段目の分岐が生じる。
+  const nestedLog = () =>
+    jsonl(
+      {
+        type: "user",
+        uuid: "u1",
+        parentUuid: null,
+        timestamp: TS,
+        message: { role: "user", content: "?" },
+      },
+      {
+        type: "assistant",
+        uuid: "a1",
+        parentUuid: "u1",
+        timestamp: TS,
+        message: { role: "assistant", content: [{ type: "text", text: "どうぞ" }] },
+      },
+      {
+        type: "user",
+        uuid: "b1",
+        parentUuid: "a1",
+        timestamp: TS,
+        message: { role: "user", content: "外側の旧枝" },
+      },
+      {
+        type: "user",
+        uuid: "b2",
+        parentUuid: "a1",
+        timestamp: TS,
+        message: { role: "user", content: "外側の新枝" },
+      },
+      {
+        type: "assistant",
+        uuid: "a2",
+        parentUuid: "b2",
+        timestamp: TS,
+        message: { role: "assistant", content: [{ type: "text", text: "了解" }] },
+      },
+      {
+        type: "user",
+        uuid: "c1",
+        parentUuid: "a2",
+        timestamp: TS,
+        message: { role: "user", content: "内側の旧枝" },
+      },
+      {
+        type: "user",
+        uuid: "c2",
+        parentUuid: "a2",
+        timestamp: TS,
+        message: { role: "user", content: "内側の新枝" },
+      },
+    );
+
+  test("rewind: ネスト分岐はデフォルトで両段とも最新枝を辿り branch を 2 つ出す", () => {
+    const log = parseSessionLog(nestedLog());
+    const branches = log.events.filter((e) => e.kind === "branch");
+    expect(branches).toEqual([
+      {
+        kind: "branch",
+        ts: TS,
+        branchKey: "a1",
+        selectedChildUuid: "b2",
+        options: [
+          { childUuid: "b1", index: 1, lead: "外側の旧枝", ts: TS },
+          { childUuid: "b2", index: 2, lead: "外側の新枝", ts: TS },
+        ],
+      },
+      {
+        kind: "branch",
+        ts: TS,
+        branchKey: "a2",
+        selectedChildUuid: "c2",
+        options: [
+          { childUuid: "c1", index: 1, lead: "内側の旧枝", ts: TS },
+          { childUuid: "c2", index: 2, lead: "内側の新枝", ts: TS },
+        ],
+      },
+    ]);
+    const userTexts = log.events.filter((e) => e.kind === "user").map((e) => e.text);
+    expect(userTexts).toEqual(["?", "外側の新枝", "内側の新枝"]);
+  });
+
+  test("rewind: 外側で旧枝を選ぶと内側の分岐は経路から外れ消える (分岐はノード単位で独立)", () => {
+    const log = parseSessionLog(nestedLog(), new Map([["a1", "b1"]]));
+    const branches = log.events.filter((e) => e.kind === "branch");
+    // 外側 a1 のみ。b1 配下に分岐は無いので内側 branch は出ない。
+    expect(branches.map((b) => (b.kind === "branch" ? b.branchKey : ""))).toEqual(["a1"]);
+    const userTexts = log.events.filter((e) => e.kind === "user").map((e) => e.text);
+    expect(userTexts).toEqual(["?", "外側の旧枝"]);
+  });
+
   test("base64 image block を data URL の image イベントにする", () => {
     const log = parseSessionLog(
       jsonl({

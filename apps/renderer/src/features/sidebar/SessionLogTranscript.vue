@@ -226,6 +226,13 @@ function jumpToLatest() {
 // その場合 pendingScrollTs を宙に残さないよう初回適用直後にクリアする (rendered が永遠に
 // 発火しないため、補正経路だけに掃除を任せられない)。
 let pendingScrollTs: string | undefined;
+
+// 次の parsed watch で 1 度だけボトム追従を抑止するフラグ。明示スクロール (時刻ジャンプ /
+// rewind 枝切替) は parsed を差し替えるが分岐点 / seek 位置を保ちたい。pendingScrollTs を
+// 抑止判定に使うと markdown 補正用に残った値が後続のライブ refresh のボトム追従まで誤抑止する
+// (rendered 不発火で残るケース)。抑止は scrollTo watch が立てて parsed watch が 1 回で消す
+// 専用フラグに分離し、pendingScrollTs (補正用) の生存と切り離す。
+let bottomFollowSkipOnce = false;
 const hasMarkdownEvent = (): boolean => props.parsed.events.some((ev) => ev.kind === "assistant");
 
 function applyScroll(ts: string) {
@@ -249,6 +256,9 @@ watch(
   () => props.scrollTo,
   (next) => {
     if (next === undefined) return;
+    // 同 tick で起きる parsed 差し替え (枝切替) のボトム追従を 1 回だけ抑止する。この watch は
+    // parsed watch より先に登録されるため、同期でフラグを立てれば後続の parsed watch が見られる。
+    bottomFollowSkipOnce = true;
     void scrollToTarget(next.ts);
   },
 );
@@ -345,10 +355,13 @@ watch(
     const wasAtBottom = computeAtBottom();
     await nextTick();
     setupObserver();
-    // 明示スクロール (時刻ジャンプ / rewind 枝切替) が保留中ならボトム追従しない。枝切替は
-    // parsed を差し替えるためこの watch が走るが、ライブ追記と違い分岐点へ寄せたい。scrollTo
-    // watch (この watch より先に登録) が pendingScrollTs を同期セットするため、ここで見て回避する。
-    if (pendingScrollTs !== undefined) return;
+    // 明示スクロール (時刻ジャンプ / rewind 枝切替) 由来の parsed 差し替えならボトム追従しない。
+    // 枝切替はこの watch を走らせるが、ライブ追記と違い分岐点 / seek 位置へ寄せたい。scrollTo
+    // watch (この watch より先に登録) が同期で立てたフラグを 1 回で消費して回避する。
+    if (bottomFollowSkipOnce) {
+      bottomFollowSkipOnce = false;
+      return;
+    }
     // ボトムにいたら追従、離れていたら通知ボタンを出して位置を保つ。離れている間は
     // 保留中の追従要求もクリアし、後から markdown 描画が来てもボトムへ引き戻さない。
     if (wasAtBottom) {

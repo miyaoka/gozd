@@ -18,6 +18,13 @@
 // 平文の無い thinking (最新モデルの暗号化 signature のみ / フィールド欠落) も載せないが、
 // これは非会話レコードではなく会話イベントの一種なので skipped と混ぜず emptyThinking に
 // 別集計する。footer は両者を別ラベルで示し、件数の意味を 1:1 に保つ。
+//
+// rewind 対応: Claude Code の JSONL は append-only で、rewind しても旧レコードを消さず過去の
+// uuid を parentUuid に指して新レコードを追記する。このため uuid/parentUuid は木 (DAG) を成し、
+// 行を逐次読むと捨てられた枝も混ざる。parseSessionLog は会話ノード (user 非meta / assistant) で
+// 木を組み、各分岐点で「選択中 (未選択なら最新) の子」へ下る 1 本道だけをイベント化する。
+// 分岐点 (会話子が 2 つ以上) では選択枝の先頭に branch イベントを挿し、UI でセレクタを出す。
+// rewind は会話木の任意のノードで独立に起きるため、分岐は session 単位ではなくノード単位で扱う。
 
 import { tryCatch } from "@gozd/shared";
 
@@ -99,6 +106,13 @@ interface RawLine {
   attachment?: RawAttachment;
   // CLI / hook が注入したシステム由来レコード。ユーザー発話ではないので transcript に載せない。
   isMeta?: boolean;
+  // レコードの一意 id と親 id。Claude Code は append-only に書き、rewind 時は過去の uuid を
+  // parentUuid に指して新レコードを追記する (旧枝は消さない)。このため uuid/parentUuid の木に
+  // 分岐が生じ、「現在の会話」は tip から遡る 1 本道になる。rewind 検出の唯一の情報源。
+  // 古いログ / 注入レコードは uuid を持たない (型で排除できないため optional)。parentUuid は
+  // ルートで null になりうる。
+  uuid?: string;
+  parentUuid?: string | null;
 }
 
 // harness / CLI が user role で注入するラッパーで始まる string。これらはユーザーの
@@ -149,6 +163,18 @@ function userTextOf(text: string): string | undefined {
   return text;
 }
 
+/** rewind 分岐の 1 選択肢。`index` は古い順 1 始まり (最新が最大番号)。 */
+interface BranchOption {
+  // この枝の先頭会話ノードの uuid。selection マップのキー兼選択値。
+  childUuid: string;
+  // 表示番号。出現順 (= 古い順) に 1, 2, 3 …。最新枝が最大番号。
+  index: number;
+  // 枝を識別するための先頭テキスト (この枝の最初のプロンプト / 応答の冒頭)。
+  lead: string;
+  // この枝の先頭会話ノードの timestamp。
+  ts: string;
+}
+
 /** transcript の 1 ブロック。discriminated union (kind で分岐) */
 export type TranscriptEvent =
   | { kind: "user"; text: string; ts: string }
@@ -162,11 +188,22 @@ export type TranscriptEvent =
       ts: string;
       result: { text: string; isError: boolean } | undefined;
     }
-  | { kind: "image"; ts: string; src: string | undefined };
+  | { kind: "image"; ts: string; src: string | undefined }
+  // rewind 分岐点。選択中の枝の先頭会話ノードの直前に挿入する。UI はここにセレクタを出し、
+  // 別の枝を選ぶと selection が更新され transcript が再構築される。
+  | {
+      kind: "branch";
+      ts: string;
+      // 分岐点の会話ノード uuid (この枝群の共通の親)。selection マップのキー。
+      branchKey: string;
+      // 現在描画中の枝の childUuid。
+      selectedChildUuid: string;
+      options: BranchOption[];
+    };
 
 export interface ParsedSessionLog {
   events: TranscriptEvent[];
-  /** 読んだ JSONL 行数 */
+  /** 表示した (live な) JSONL 行数。rewind で選ばれなかった枝の行は含まない */
   totalLines: number;
   /** JSON parse に失敗した行数 (末尾の追記途中行など) */
   malformed: number;
@@ -198,14 +235,125 @@ function toolResultText(content: string | ContentBlock[]): string {
     .join("\n");
 }
 
+/** branchKey (分岐点の会話ノード uuid) → 選択した childUuid。未指定の分岐点は最新枝を採る。 */
+export type BranchSelection = Map<string, string>;
+
+/** parse 済みの 1 行 (会話木の構築に使う最小情報)。 */
+interface LogNode {
+  raw: RawLine;
+  uuid: string; // raw.uuid ?? "" (uuid 無し = 木に参加しない古いログ / 注入レコード)
+  parentUuid: string; // raw.parentUuid ?? ""
+  isConv: boolean; // 会話を進めるノード (user 非meta / assistant) か
+}
+
+// 分岐選択肢の lead テキストの最大長。これを超えたら省略記号で切る。
+const LEAD_MAX = 80;
+
+/**
+ * 会話を進めるノードか。user(非meta) / assistant のみ。attachment / system / 注入 user は
+ * 透過ノード (会話を進めず、rewind 分岐の主体にもならない)。rewind は実ユーザー発話 / 応答の
+ * 分岐としてのみ起きるため、この 2 種だけを木の節点とする。
+ */
+function isConvNode(raw: RawLine): boolean {
+  if (raw.type === "assistant") return true;
+  if (raw.type === "user") return raw.isMeta !== true;
+  return false;
+}
+
+/** 会話ノードの先頭テキスト (分岐選択肢の識別ラベル)。空なら "" 。LEAD_MAX で切る。 */
+function nodeLeadText(raw: RawLine): string {
+  const content = raw.message?.content;
+  let text = "";
+  if (typeof content === "string") {
+    text = (raw.type === "user" ? userTextOf(content) : content) ?? "";
+  } else if (Array.isArray(content)) {
+    for (const block of content) {
+      if (block.type === "text") {
+        text = block.text;
+        break;
+      }
+    }
+  }
+  text = text.trim();
+  return text.length > LEAD_MAX ? `${text.slice(0, LEAD_MAX)}…` : text;
+}
+
+/** カーソルパス算出の結果。live な会話 uuid 集合と、各枝先頭に挿す branch イベント。 */
+interface LiveBranchResult {
+  // 表示する会話ノードの uuid 集合 (root から各分岐点で選択した子へ下る 1 本道)。
+  liveConv: Set<string>;
+  // 選択中の枝の先頭 childUuid → その直前に挿入する branch イベント。
+  branchAtChild: Map<string, Extract<TranscriptEvent, { kind: "branch" }>>;
+}
+
+/**
+ * 会話木を辿り、表示する 1 本道 (カーソルパス) を決める。
+ *
+ * rewind は会話木の任意のノードで独立に起きる。各分岐点で「選択中の子」を辿り、未選択なら
+ * 最新 (出現順で最後 = append-only で最後に追記された枝) を採る。これを root から leaf まで
+ * 繰り返した経路が表示対象。分岐点 (会話子が 2 つ以上) では枝先頭に branch イベントを挿す。
+ *
+ * - byUuid: uuid → LogNode (uuid を持つノードのみ)。透過ノードの会話的親を辿るのに使う。
+ * - convChildren: convParent uuid ("" = ROOT) → 会話子 LogNode[] (出現順)。
+ */
+function computeLiveBranch(
+  byUuid: Map<string, LogNode>,
+  convChildren: Map<string, LogNode[]>,
+  selection: BranchSelection | undefined,
+): LiveBranchResult {
+  const liveConv = new Set<string>();
+  const branchAtChild = new Map<string, Extract<TranscriptEvent, { kind: "branch" }>>();
+  // 信頼境界外データの循環参照で無限ループしないためのガード。
+  const visited = new Set<string>();
+
+  let parent = "";
+  while (true) {
+    const kids = convChildren.get(parent);
+    if (kids === undefined || kids.length === 0) break;
+    // 選択: selection 指定が kids にあればそれ、無ければ最新 (出現順で最後)。
+    let selected = kids[kids.length - 1];
+    const sel = selection?.get(parent);
+    if (sel !== undefined) {
+      const found = kids.find((k) => k.uuid === sel);
+      if (found !== undefined) selected = found;
+    }
+    if (visited.has(selected.uuid)) break;
+    visited.add(selected.uuid);
+    liveConv.add(selected.uuid);
+
+    // 会話子が 2 つ以上ならここが分岐点。選択枝の先頭に branch セレクタを挿す。
+    if (kids.length >= 2) {
+      branchAtChild.set(selected.uuid, {
+        kind: "branch",
+        ts: selected.raw.timestamp ?? "",
+        branchKey: parent,
+        selectedChildUuid: selected.uuid,
+        options: kids.map((k, i) => ({
+          childUuid: k.uuid,
+          index: i + 1, // 古い順 1 始まり (最新が最大番号)
+          lead: nodeLeadText(k.raw),
+          ts: k.raw.timestamp ?? "",
+        })),
+      });
+    }
+    parent = selected.uuid;
+  }
+
+  return { liveConv, branchAtChild };
+}
+
 /**
  * 生 JSONL を transcript に変換する。
  *
  * tool_use は出現位置 (assistant ブロック直後) に tool イベントを置き、後続の user 行に
  * 現れる tool_result を tool_use_id で引き当てて同じイベントに result を充填する。これで
  * 「コマンド + 実行結果」が 1 ブロックに畳まれ、時系列上の位置も保たれる。
+ *
+ * rewind 対応: uuid/parentUuid の会話木を辿り、各分岐点で選択中 (未選択なら最新) の枝だけを
+ * 表示する。`selection` で分岐点ごとに別の枝を選べる。uuid を持たないレコード (古いログ /
+ * 注入) は木に参加せず常に表示するため、rewind が無いログの挙動は不変。
  */
-export function parseSessionLog(jsonl: string): ParsedSessionLog {
+export function parseSessionLog(jsonl: string, selection?: BranchSelection): ParsedSessionLog {
   const events: TranscriptEvent[] = [];
   // tool_use_id → 生成済み tool イベント。後続の tool_result を充填する。
   const toolById = new Map<string, Extract<TranscriptEvent, { kind: "tool" }>>();
@@ -215,17 +363,72 @@ export function parseSessionLog(jsonl: string): ParsedSessionLog {
   let skipped = 0;
   let emptyThinking = 0;
 
-  const lines = jsonl.split("\n");
-  for (const line of lines) {
+  // --- フェーズ 1: 全行を parse して LogNode に正規化する (会話木の素材) ---
+  const nodes: LogNode[] = [];
+  const byUuid = new Map<string, LogNode>();
+  for (const line of jsonl.split("\n")) {
     if (line.trim() === "") continue;
-    totalLines++;
-
     const parsed = tryCatch(() => JSON.parse(line) as RawLine);
     if (!parsed.ok) {
       malformed++;
       continue;
     }
     const raw = parsed.value;
+    const node: LogNode = {
+      raw,
+      uuid: raw.uuid ?? "",
+      parentUuid: typeof raw.parentUuid === "string" ? raw.parentUuid : "",
+      isConv: isConvNode(raw),
+    };
+    if (node.uuid !== "") byUuid.set(node.uuid, node);
+    nodes.push(node);
+  }
+
+  // --- フェーズ 2: 会話木を構築し、表示するカーソルパスを決める ---
+  // 透過ノード (attachment / system 等) を遡って最初に出会う会話ノード uuid。無ければ "" (ROOT)。
+  const convAncestor = (node: LogNode): string => {
+    let cur = node.parentUuid;
+    const guard = new Set<string>(); // 循環参照ガード (信頼境界外データ)
+    while (cur !== "" && !guard.has(cur)) {
+      guard.add(cur);
+      const p = byUuid.get(cur);
+      // 親不在 (fork コピー / 途中欠落) はそこで遡上を打ち切り ROOT 扱いにする。
+      if (p === undefined) return "";
+      if (p.isConv) return cur;
+      cur = p.parentUuid;
+    }
+    return "";
+  };
+  // convParent uuid ("" = ROOT) → 会話子 LogNode[] (出現順)。分岐は uuid ベースでのみ起きるため
+  // uuid を持つ会話ノードだけを節点にする (uuid 無し会話ノードは木外 = 常に表示)。
+  const convChildren = new Map<string, LogNode[]>();
+  for (const node of nodes) {
+    if (!node.isConv || node.uuid === "") continue;
+    const cp = convAncestor(node);
+    const arr = convChildren.get(cp);
+    if (arr === undefined) convChildren.set(cp, [node]);
+    else arr.push(node);
+  }
+  const { liveConv, branchAtChild } = computeLiveBranch(byUuid, convChildren, selection);
+
+  // 表示対象 (live) か。uuid 無しは木外で常に表示。会話ノードは liveConv 帰属で、透過ノードは
+  // 会話的親が live かで決める (捨て枝に付随する attachment 等を除外する)。
+  const isLive = (node: LogNode): boolean => {
+    if (node.uuid === "") return true;
+    if (node.isConv) return liveConv.has(node.uuid);
+    const cp = convAncestor(node);
+    return cp === "" || liveConv.has(cp);
+  };
+
+  // --- フェーズ 3: カーソルパス上の行だけをイベント化する ---
+  for (const node of nodes) {
+    if (!isLive(node)) continue;
+    totalLines++;
+    // この行が分岐の選択枝の先頭なら、直前に branch セレクタを挿す。
+    const branch = branchAtChild.get(node.uuid);
+    if (branch !== undefined) events.push(branch);
+
+    const raw = node.raw;
     const ts = raw.timestamp ?? "";
 
     // CLI / hook 注入のシステムレコードはユーザー発話ではないので会話に載せない。

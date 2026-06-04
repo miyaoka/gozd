@@ -399,7 +399,130 @@ describe("parseSessionLog", () => {
     const log = parseSessionLog(`${valid}\n{ broken json`);
     expect(log.events).toEqual([{ kind: "user", text: "ok", ts: TS }]);
     expect(log.malformed).toBe(1);
-    expect(log.totalLines).toBe(2);
+    // totalLines は表示した (live な) 行数。parse 不能行は uuid 不明で枝に帰属できないため
+    // malformed に計上して totalLines からは外す (= live 1 行のみ)。
+    expect(log.totalLines).toBe(1);
+  });
+
+  // rewind 分岐: assistant 応答 (a1) を親に user プロンプトが 2 つ (旧 b1 / 新 b2) 生える。
+  // append-only なので b2 が最新。デフォルトは最新枝 (b2) を表示し、その直前に branch を挿す。
+  const rewindLog = () =>
+    jsonl(
+      {
+        type: "user",
+        uuid: "u1",
+        parentUuid: null,
+        timestamp: TS,
+        message: { role: "user", content: "?" },
+      },
+      {
+        type: "assistant",
+        uuid: "a1",
+        parentUuid: "u1",
+        timestamp: TS,
+        message: { role: "assistant", content: [{ type: "text", text: "どうぞ" }] },
+      },
+      // 旧枝 (rewind で捨てられた)
+      {
+        type: "user",
+        uuid: "b1",
+        parentUuid: "a1",
+        timestamp: TS,
+        message: { role: "user", content: "週末の天気は？" },
+      },
+      {
+        type: "assistant",
+        uuid: "c1",
+        parentUuid: "b1",
+        timestamp: TS,
+        message: { role: "assistant", content: [{ type: "text", text: "週末は雨" }] },
+      },
+      // 新枝 (最新)
+      {
+        type: "user",
+        uuid: "b2",
+        parentUuid: "a1",
+        timestamp: TS,
+        message: { role: "user", content: "昨日の天気は？" },
+      },
+      {
+        type: "assistant",
+        uuid: "c2",
+        parentUuid: "b2",
+        timestamp: TS,
+        message: { role: "assistant", content: [{ type: "text", text: "昨日は晴れ" }] },
+      },
+    );
+
+  test("rewind: デフォルトは最新枝を表示し直前に branch セレクタを挿す (捨て枝は出さない)", () => {
+    const log = parseSessionLog(rewindLog());
+    expect(log.events).toEqual([
+      { kind: "user", text: "?", ts: TS },
+      { kind: "assistant", text: "どうぞ", ts: TS },
+      {
+        kind: "branch",
+        ts: TS,
+        branchKey: "a1",
+        selectedChildUuid: "b2",
+        options: [
+          { childUuid: "b1", index: 1, lead: "週末の天気は？", ts: TS },
+          { childUuid: "b2", index: 2, lead: "昨日の天気は？", ts: TS },
+        ],
+      },
+      { kind: "user", text: "昨日の天気は？", ts: TS },
+      { kind: "assistant", text: "昨日は晴れ", ts: TS },
+    ]);
+  });
+
+  test("rewind: selection で旧枝を選ぶとその枝に差し替わる", () => {
+    const log = parseSessionLog(rewindLog(), new Map([["a1", "b1"]]));
+    expect(log.events).toEqual([
+      { kind: "user", text: "?", ts: TS },
+      { kind: "assistant", text: "どうぞ", ts: TS },
+      {
+        kind: "branch",
+        ts: TS,
+        branchKey: "a1",
+        selectedChildUuid: "b1",
+        options: [
+          { childUuid: "b1", index: 1, lead: "週末の天気は？", ts: TS },
+          { childUuid: "b2", index: 2, lead: "昨日の天気は？", ts: TS },
+        ],
+      },
+      { kind: "user", text: "週末の天気は？", ts: TS },
+      { kind: "assistant", text: "週末は雨", ts: TS },
+    ]);
+  });
+
+  test("rewind: 存在しない childUuid 指定は最新枝にフォールバック", () => {
+    const log = parseSessionLog(rewindLog(), new Map([["a1", "nonexistent"]]));
+    const userTexts = log.events.filter((e) => e.kind === "user").map((e) => e.text);
+    expect(userTexts).toEqual(["?", "昨日の天気は？"]);
+  });
+
+  test("rewind 無し (uuid の 1 本道) は全件表示で branch を挿さない", () => {
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "user",
+          uuid: "u1",
+          parentUuid: null,
+          timestamp: TS,
+          message: { role: "user", content: "やあ" },
+        },
+        {
+          type: "assistant",
+          uuid: "a1",
+          parentUuid: "u1",
+          timestamp: TS,
+          message: { role: "assistant", content: [{ type: "text", text: "こんにちは" }] },
+        },
+      ),
+    );
+    expect(log.events).toEqual([
+      { kind: "user", text: "やあ", ts: TS },
+      { kind: "assistant", text: "こんにちは", ts: TS },
+    ]);
   });
 
   test("base64 image block を data URL の image イベントにする", () => {

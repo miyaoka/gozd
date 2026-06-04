@@ -27,6 +27,10 @@ subagent が居て軸を引けるときだけタイムラインを出す。subag
   取得し、各 entry を `parseSessionLog` で transcript 化して保持する。`entries[0]` が main、
   残りが subagents。subagent タブを選ぶと右ペインの transcript が切り替わる
 - 取得失敗 / 未発見 / 空ログはそれぞれ明示メッセージを出す (fallback で握り潰さない)
+- rewind があるセッションはデフォルトで最新枝だけを表示する。分岐点に出る branch セレクタを
+  クリックすると `branchSelections` (tabId → branchKey → childUuid) を更新し、`parsedSessions`
+  computed がそのバージョンへ再 parse する。選択はライブ refresh を跨いで保持し、別セッション
+  load でクリアする
 
 ## ライブ更新
 
@@ -45,6 +49,7 @@ import { onMessage } from "../../shared/rpc";
 import type { FsChangePayload } from "../filer";
 import { rpcClaudeSessionLog, rpcFsUnwatch, rpcFsWatch } from "./rpc";
 import {
+  type BranchSelection,
   buildSubagentLinks,
   buildTimelineTracks,
   groupByWorkflow,
@@ -84,16 +89,54 @@ interface SessionTab {
   workflowRunId: string;
   // workflow の表示名 (グループ見出し)。非 workflow subagent / main は空文字。
   workflowName: string;
+  // 生 JSONL。parse は branchSelections 依存の computed (parsedSessions) で行う。
+  content: string;
+}
+// parse 済みタブ。content + そのタブの branch 選択から parsed を導出した派生型。
+interface ParsedSessionTab extends SessionTab {
   parsed: ParsedSessionLog;
 }
 const sessions = ref<SessionTab[]>([]);
-// entries[0] が main。subagents はそれ以降。
-const mainSession = computed<SessionTab | undefined>(() =>
-  sessions.value.find((s) => s.kind === "main"),
+
+// rewind 分岐の選択状態。tabId (session_id / agent_id) → そのタブの BranchSelection
+// (branchKey → 選択 childUuid)。未選択の分岐点は parseSessionLog 側が最新枝にフォールバックする。
+// ライブ refresh を跨いで保持し (キーが安定なら選択が残る)、別セッション load でクリアする。
+const branchSelections = ref<Map<string, BranchSelection>>(new Map());
+
+// content + branch 選択から各タブを parse する。selection 変更で該当バージョンへ再構築される。
+const parsedSessions = computed<ParsedSessionTab[]>(() =>
+  sessions.value.map((s) => ({
+    ...s,
+    parsed: parseSessionLog(s.content, branchSelections.value.get(s.id)),
+  })),
 );
-const subagents = computed<SessionTab[]>(() => sessions.value.filter((s) => s.kind !== "main"));
+
+// 分岐セレクタのクリック: そのタブの branchKey を指定 childUuid に切り替える (枝の差し替え)。
+// reactivity のため Map は複製して差し替える。併せて該当ペインを選択枝の先頭 (ts) へ寄せる:
+// 枝切替は parsed を差し替えるため Transcript の parsed watch が走るが、scrollTarget を立てて
+// おくとボトム追従を抑止して分岐点位置を保てる。scrollTarget は scrollNonce で必ず変化させ、
+// 同 ts への連続切替でも子の watch を発火させる。
+function selectBranch(tabId: string, branchKey: string, childUuid: string, ts: string) {
+  const next = new Map(branchSelections.value);
+  const inner = new Map(next.get(tabId) ?? []);
+  inner.set(branchKey, childUuid);
+  next.set(tabId, inner);
+  branchSelections.value = next;
+
+  const target = { ts, nonce: ++scrollNonce };
+  if (tabId === mainSession.value?.id) mainScrollTarget.value = target;
+  else subScrollTarget.value = target;
+}
+
+// entries[0] が main。subagents はそれ以降。
+const mainSession = computed<ParsedSessionTab | undefined>(() =>
+  parsedSessions.value.find((s) => s.kind === "main"),
+);
+const subagents = computed<ParsedSessionTab[]>(() =>
+  parsedSessions.value.filter((s) => s.kind !== "main"),
+);
 // Task ツール subagent (workflowRunId 空)。横断タイムラインで main の次に並べる。
-const plainSubagents = computed<SessionTab[]>(() =>
+const plainSubagents = computed<ParsedSessionTab[]>(() =>
   subagents.value.filter((s) => s.workflowRunId === ""),
 );
 // workflow agent は workflowRunId でグループ化する (出現順保持)。タイムラインのトラック順
@@ -103,7 +146,7 @@ const workflowGroups = computed(() => groupByWorkflow(subagents.value));
 
 // 右ペインに出す subagent。subagent が 1 つでもあれば先頭を初期選択する。
 const activeSubId = ref<string | undefined>(undefined);
-const activeSub = computed<SessionTab | undefined>(() =>
+const activeSub = computed<ParsedSessionTab | undefined>(() =>
   subagents.value.find((s) => s.id === activeSubId.value),
 );
 
@@ -156,7 +199,7 @@ const playheadMs = computed<number | undefined>(() => {
 
 // 1 セッション → 1 session トラック。生存期間は sessionTimeRange (純関数) が events の
 // min/max ts から算出。
-function toTimelineSession(s: SessionTab): TimelineSession {
+function toTimelineSession(s: ParsedSessionTab): TimelineSession {
   return { id: s.id, label: s.label, events: s.parsed.events };
 }
 
@@ -236,7 +279,7 @@ function toSessionTab(entry: {
     name: entry.name,
     workflowRunId: entry.workflowRunId,
     workflowName: entry.workflowName,
-    parsed: parseSessionLog(entry.content),
+    content: entry.content,
   };
 }
 
@@ -246,6 +289,8 @@ async function load(sessionId: string) {
   errorMessage.value = undefined;
   notFound.value = false;
   sessions.value = [];
+  // 別セッションの分岐選択は引き継がない (tabId が変わるため意味を持たない)。
+  branchSelections.value = new Map();
   activeSubId.value = undefined;
   subScrollTarget.value = undefined;
   mainScrollTarget.value = undefined;
@@ -454,6 +499,9 @@ function onDialogClick(event: MouseEvent) {
           class="min-w-0 flex-1"
           @open-subagent="openSubagent"
           @current-ts="onMainCurrentTs"
+          @select-branch="
+            selectBranch(mainSession.id, $event.branchKey, $event.childUuid, $event.ts)
+          "
         />
 
         <!-- 右: 選択中の subagent (あれば横並び)。scrollTo で呼び出し時刻へ同期する。 -->
@@ -466,6 +514,7 @@ function onDialogClick(event: MouseEvent) {
           :session-key="activeSub.id"
           :scroll-to="subScrollTarget"
           class="min-w-0 flex-1 border-l border-zinc-800"
+          @select-branch="selectBranch(activeSub.id, $event.branchKey, $event.childUuid, $event.ts)"
         />
       </div>
     </div>

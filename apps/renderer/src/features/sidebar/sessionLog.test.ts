@@ -6,6 +6,7 @@ import {
   nearestEventIndexByTs,
   parseSessionLog,
   sessionLogDirOf,
+  sessionTimeRange,
   subagentTabLabel,
   type SubagentDescriptor,
   type TranscriptEvent,
@@ -819,6 +820,43 @@ describe("nearestEventIndexByTs", () => {
     const events = [userAt("2026-06-01T09:00:00.000Z"), userAt("2026-06-01T09:00:02.000Z")];
     // target はちょうど中間。両者 1000ms 差で、strict < により先(最小 index)を選ぶ。
     expect(nearestEventIndexByTs(events, "2026-06-01T09:00:01.000Z")).toBe(0);
+  });
+});
+
+describe("sessionTimeRange", () => {
+  function userAt(ts: string): TranscriptEvent {
+    return { kind: "user", text: "x", ts };
+  }
+
+  test("順不同の ts から min start / max end を取る", () => {
+    // tool イベントは result 充填の都合で ts が厳密な昇順とは限らない。順序に依存せず
+    // 全件の min/max を取ることを確認する。
+    const events = [
+      userAt("2026-06-01T10:00:00.000Z"),
+      userAt("2026-06-01T09:00:00.000Z"),
+      userAt("2026-06-01T09:30:00.000Z"),
+    ];
+    expect(sessionTimeRange(events)).toEqual({
+      startMs: Date.parse("2026-06-01T09:00:00.000Z"),
+      endMs: Date.parse("2026-06-01T10:00:00.000Z"),
+    });
+  });
+
+  test("ts 不正 / 空文字のイベントは除外する", () => {
+    const events = [userAt(""), userAt(TS), userAt("not-a-date")];
+    expect(sessionTimeRange(events)).toEqual({ startMs: Date.parse(TS), endMs: Date.parse(TS) });
+  });
+
+  test("単一イベントは start === end", () => {
+    expect(sessionTimeRange([userAt(TS)])).toEqual({
+      startMs: Date.parse(TS),
+      endMs: Date.parse(TS),
+    });
+  });
+
+  test("空 events / 全 ts 不正なら undefined", () => {
+    expect(sessionTimeRange([])).toBeUndefined();
+    expect(sessionTimeRange([userAt(""), userAt("bad")])).toBeUndefined();
   });
 });
 

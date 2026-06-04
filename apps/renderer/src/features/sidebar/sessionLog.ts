@@ -553,6 +553,32 @@ export function nearestEventIndexByTs(events: TranscriptEvent[], ts: string): nu
   return best;
 }
 
+/** セッションの生存期間 (最初〜最後の有効 ts の epoch ms)。 */
+export interface SessionTimeRange {
+  startMs: number;
+  endMs: number;
+}
+
+/**
+ * events の最初〜最後の有効 ts を epoch ms で返す (横断タイムラインの生存期間バー算出)。
+ *
+ * tool イベントは result が後から充填される構造で ts が厳密な昇順とは限らないため、
+ * 順序に依存せず全件の min / max を取る。有効 ts (Date.parse 可能) が 1 つも無ければ
+ * undefined を返し、呼び出し側はそのセッションを時間軸に置けない (placeholder 扱い) と判断する。
+ */
+export function sessionTimeRange(events: TranscriptEvent[]): SessionTimeRange | undefined {
+  let startMs: number | undefined;
+  let endMs: number | undefined;
+  for (const ev of events) {
+    const t = Date.parse(ev.ts);
+    if (Number.isNaN(t)) continue;
+    if (startMs === undefined || t < startMs) startMs = t;
+    if (endMs === undefined || t > endMs) endMs = t;
+  }
+  if (startMs === undefined || endMs === undefined) return undefined;
+  return { startMs, endMs };
+}
+
 /** 表示用に分解した timestamp。日付は今日なら空文字 (時刻のみで足りる)。 */
 export interface FormattedSessionTime {
   date: string;

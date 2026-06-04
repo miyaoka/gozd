@@ -525,9 +525,10 @@ describe("parseSessionLog", () => {
     ]);
   });
 
-  test("rewind: 分岐の親が透過ノード (system) でも会話的親 (直前の assistant) を branchKey にする", () => {
-    // 実ログ形: user → assistant → system → system → user×2。turn 境界の system を跨いで
-    // 会話的親 a1 を branchKey に解決できることを踏む。
+  test("rewind: 分岐点と prompt の間に透過ノード (system) があっても 2 prompt の共有親で検出する", () => {
+    // 実ログ形: user → assistant → system → system → user×2。rewind は同一 parentUuid で fork
+    // するため 2 つの prompt は直接の親 s2 を共有する。branchKey はその共有親 s2 になり、間の
+    // system は表示されず (skipped)、prompt 検出には影響しない。
     const log = parseSessionLog(
       jsonl(
         {
@@ -568,7 +569,7 @@ describe("parseSessionLog", () => {
       {
         kind: "branch",
         ts: TS,
-        branchKey: "a1",
+        branchKey: "s2",
         selectedChildUuid: "b2",
         options: [
           { childUuid: "b1", index: 1, lead: "週末の天気は？", ts: TS },
@@ -576,6 +577,92 @@ describe("parseSessionLog", () => {
         ],
       },
       { kind: "user", text: "昨日の天気は？", ts: TS },
+    ]);
+  });
+
+  test("並列 tool 呼び出しは分岐にならず全 tool を表示する (偽分岐の回帰防止)", () => {
+    // 実ログ形: 1 ターンで 2 tool を呼ぶと tool_use t1 が「次の tool_use t2」と「自身の
+    // tool_result r1」の 2 子を持つ。これは rewind ではない。子 2 つを分岐とみなすと本流
+    // (t2 以降) を捨て枝として落とすため、tool_use / tool_result は分岐候補から外す。
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "user",
+          uuid: "u1",
+          parentUuid: null,
+          timestamp: TS,
+          message: { role: "user", content: "調べて" },
+        },
+        {
+          type: "assistant",
+          uuid: "a1",
+          parentUuid: "u1",
+          timestamp: TS,
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "ls" } }],
+          },
+        },
+        {
+          type: "assistant",
+          uuid: "a2",
+          parentUuid: "a1",
+          timestamp: TS,
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_use", id: "t2", name: "Read", input: { file: "x" } }],
+          },
+        },
+        {
+          type: "user",
+          uuid: "r1",
+          parentUuid: "a1",
+          timestamp: TS,
+          message: {
+            role: "user",
+            content: [{ type: "tool_result", tool_use_id: "t1", content: "out1" }],
+          },
+        },
+        {
+          type: "user",
+          uuid: "r2",
+          parentUuid: "a2",
+          timestamp: TS,
+          message: {
+            role: "user",
+            content: [{ type: "tool_result", tool_use_id: "t2", content: "out2" }],
+          },
+        },
+        {
+          type: "assistant",
+          uuid: "a3",
+          parentUuid: "r2",
+          timestamp: TS,
+          message: { role: "assistant", content: [{ type: "text", text: "終わり" }] },
+        },
+      ),
+    );
+    // 分岐は発生しない。両 tool が結果付きで表示され、本流の text も残る。
+    expect(log.events.some((e) => e.kind === "branch")).toBe(false);
+    expect(log.events).toEqual([
+      { kind: "user", text: "調べて", ts: TS },
+      {
+        kind: "tool",
+        name: "Bash",
+        input: { command: "ls" },
+        toolUseId: "t1",
+        ts: TS,
+        result: { text: "out1", isError: false },
+      },
+      {
+        kind: "tool",
+        name: "Read",
+        input: { file: "x" },
+        toolUseId: "t2",
+        ts: TS,
+        result: { text: "out2", isError: false },
+      },
+      { kind: "assistant", text: "終わり", ts: TS },
     ]);
   });
 

@@ -525,10 +525,9 @@ describe("parseSessionLog", () => {
     ]);
   });
 
-  test("rewind: 分岐点と prompt の間に透過ノード (system) があっても 2 prompt の共有親で検出する", () => {
-    // 実ログ形: user → assistant → system → system → user×2。rewind は同一 parentUuid で fork
-    // するため 2 つの prompt は直接の親 s2 を共有する。branchKey はその共有親 s2 になり、間の
-    // system は表示されず (skipped)、prompt 検出には影響しない。
+  test("rewind: 分岐の親が透過ノード (system) でも会話的親 (直前の assistant) を branchKey にする", () => {
+    // 実ログ形: user → assistant → system → system → user×2。turn 境界の system を透過して
+    // 会話的親 a1 を branchKey に解決できることを踏む。間の system は表示されず (skipped)。
     const log = parseSessionLog(
       jsonl(
         {
@@ -569,7 +568,7 @@ describe("parseSessionLog", () => {
       {
         kind: "branch",
         ts: TS,
-        branchKey: "s2",
+        branchKey: "a1",
         selectedChildUuid: "b2",
         options: [
           { childUuid: "b1", index: 1, lead: "週末の天気は？", ts: TS },
@@ -578,6 +577,64 @@ describe("parseSessionLog", () => {
       },
       { kind: "user", text: "昨日の天気は？", ts: TS },
     ]);
+  });
+
+  test("rewind: 2 つの prompt の直接親が異なっても (attachment vs system) 会話的親で 1 分岐に束ねる", () => {
+    // 実ログ形 (05b08da3): assistant 応答後に rewind した 2 つの prompt が、一方は attachment、
+    // 他方は system を直接親に持ち、直接 parentUuid は異なる。会話的親 a1 で束ねないと分岐が
+    // 検出されず両 prompt が表示される (= 旧枝混入。本 PR が直す症状の再発)。
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "user",
+          uuid: "u1",
+          parentUuid: null,
+          timestamp: TS,
+          message: { role: "user", content: "?" },
+        },
+        {
+          type: "assistant",
+          uuid: "a1",
+          parentUuid: "u1",
+          timestamp: TS,
+          message: { role: "assistant", content: [{ type: "text", text: "どうぞ" }] },
+        },
+        // 旧枝: prompt b1 の直接親は attachment
+        { type: "attachment", uuid: "att1", parentUuid: "a1", timestamp: TS },
+        {
+          type: "user",
+          uuid: "b1",
+          parentUuid: "att1",
+          timestamp: TS,
+          message: { role: "user", content: "旧" },
+        },
+        // 新枝: prompt b2 の直接親は system
+        { type: "system", uuid: "sys1", parentUuid: "a1", timestamp: TS },
+        {
+          type: "user",
+          uuid: "b2",
+          parentUuid: "sys1",
+          timestamp: TS,
+          message: { role: "user", content: "新" },
+        },
+      ),
+    );
+    const branches = log.events.filter((e) => e.kind === "branch");
+    expect(branches).toEqual([
+      {
+        kind: "branch",
+        ts: TS,
+        branchKey: "a1",
+        selectedChildUuid: "b2",
+        options: [
+          { childUuid: "b1", index: 1, lead: "旧", ts: TS },
+          { childUuid: "b2", index: 2, lead: "新", ts: TS },
+        ],
+      },
+    ]);
+    // 旧枝 b1 は表示されず、新枝 b2 のみ。
+    const userTexts = log.events.filter((e) => e.kind === "user").map((e) => e.text);
+    expect(userTexts).toEqual(["?", "新"]);
   });
 
   test("並列 tool 呼び出しは分岐にならず全 tool を表示する (偽分岐の回帰防止)", () => {

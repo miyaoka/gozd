@@ -341,12 +341,44 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
   }
 
   // --- フェーズ 2: rewind 木を構築し、捨て枝 (非選択候補のサブツリー) を刈る ---
-  // parentUuid → 子 LogNode[] (出現順)。uuid を持つレコードのみ木に参加する。
+  // uuid → LogNode と parentUuid → 子 LogNode[] (出現順)。前者は会話的親の遡上、後者は
+  // サブツリー prune に使う。uuid を持つレコードのみ木に参加する。
+  const byUuid = new Map<string, LogNode>();
   const childrenByParent = new Map<string, LogNode[]>();
   for (const node of nodes) {
     if (node.uuid === "") continue;
+    byUuid.set(node.uuid, node);
     const arr = childrenByParent.get(node.parentUuid);
     if (arr === undefined) childrenByParent.set(node.parentUuid, [node]);
+    else arr.push(node);
+  }
+
+  // 分岐候補ノードの「会話的親」= parentUuid を遡り最初に出会う分岐候補ノードの uuid。無ければ ""。
+  // attachment / system / tool_use / tool_result 等の非候補ノードを透過する。rewind 候補は同一の
+  // 直接親を共有するとは限らない (枝ごとに異なる透過ノードが分岐点と prompt の間に挟まりうる。実ログ
+  // で確認済み: 一方の prompt の親が attachment、他方が system で、共通祖先が会話的親の assistant)。
+  // 会話的親で揃えて初めて同一分岐点として検出できる。
+  const convAncestor = (node: LogNode): string => {
+    let cur = node.parentUuid;
+    const guard = new Set<string>(); // 循環参照ガード (信頼境界外データ)
+    while (cur !== "" && !guard.has(cur)) {
+      guard.add(cur);
+      const p = byUuid.get(cur);
+      if (p === undefined) return ""; // 親不在 (fork コピー / 欠落) は ROOT 扱いで遡上打ち切り
+      if (isBranchCandidate(p.raw)) return cur;
+      cur = p.parentUuid;
+    }
+    return "";
+  };
+
+  // 会話的親 uuid ("" = ROOT) → 分岐候補の子 LogNode[] (出現順)。同一会話的親に候補が 2 つ以上
+  // 並ぶ箇所が rewind 分岐。tool_use / tool_result は候補でないため並列 tool の DAG は分岐にならない。
+  const convChildren = new Map<string, LogNode[]>();
+  for (const node of nodes) {
+    if (node.uuid === "" || !isBranchCandidate(node.raw)) continue;
+    const key = convAncestor(node);
+    const arr = convChildren.get(key);
+    if (arr === undefined) convChildren.set(key, [node]);
     else arr.push(node);
   }
 
@@ -365,15 +397,14 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     }
   };
 
-  // 分岐点を検出する。同一親に分岐候補が 2 つ以上並ぶ箇所が rewind 分岐。非選択候補のサブツリーを
+  // 分岐点を検出する。同一会話的親に分岐候補が 2 つ以上並ぶ箇所が rewind 分岐。非選択候補のサブツリーを
   // 刈り、選択枝の先頭に branch イベントを用意する。処理順は結果に影響しない (各分岐点は独立に
   // 自分の非選択候補だけを刈り、pruned は冪等な集合のため)。
-  for (const [parent, kids] of childrenByParent) {
-    const candidates = kids.filter((k) => isBranchCandidate(k.raw));
+  for (const [ancestor, candidates] of convChildren) {
     if (candidates.length < 2) continue;
     // 選択: selection 指定が候補にあればそれ、無ければ最新 (出現順で最後)。
     let selected = candidates[candidates.length - 1];
-    const sel = selection?.get(parent);
+    const sel = selection?.get(ancestor);
     if (sel !== undefined) {
       const found = candidates.find((c) => c.uuid === sel);
       if (found !== undefined) selected = found;
@@ -384,7 +415,7 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     branchAtChild.set(selected.uuid, {
       kind: "branch",
       ts: selected.raw.timestamp ?? "",
-      branchKey: parent,
+      branchKey: ancestor,
       selectedChildUuid: selected.uuid,
       options: candidates.map((c, i) => ({
         childUuid: c.uuid,

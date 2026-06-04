@@ -210,7 +210,8 @@ public enum ClaudeSessionLog {
         // agentType は workflowProgress 優先、空なら agent の meta.json をフォールバック。
         let progressAgentType = progress?.agentType ?? ""
         let agentType =
-          progressAgentType.isEmpty ? readMeta(forAgentFile: file).agentType : progressAgentType
+          progressAgentType.isEmpty
+          ? readAgentTypeFromMeta(forAgentFile: file) : progressAgentType
         entries.append(
           ClaudeSessionLogEntry(
             kind: "subagent",
@@ -255,6 +256,23 @@ public enum ClaudeSessionLog {
       }
     }
     return (workflowName, agentMeta)
+  }
+
+  /// agent-<id>.meta.json から agentType だけ読む (workflow agent の fallback 用)。
+  /// workflow agent の meta.json は agentType しか持たず toolUseId を構造的に欠くため、
+  /// toolUseId 必須チェックを持つ readMeta を流用すると正常な workflow agent で偽陽性の
+  /// "subagent meta missing toolUseId" ログが量産される。agentType だけ読む経路を分けて回避する。
+  /// 不在は正常系で無言、parse 失敗のみ観察ログを残す (silent drop 禁止規律)。
+  private static func readAgentTypeFromMeta(forAgentFile file: URL) -> String {
+    let metaURL = file.deletingPathExtension().appendingPathExtension("meta.json")
+    guard FileManager.default.fileExists(atPath: metaURL.path) else { return "" }
+    guard let data = try? Data(contentsOf: metaURL),
+      let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else {
+      StderrLog.write(tag: "ClaudeSessionLog", "workflow agent meta decode failed: \(metaURL.path)")
+      return ""
+    }
+    return (obj["agentType"] as? String) ?? ""
   }
 
   /// agent-<id>.jsonl に対応する agent-<id>.meta.json から agentType / description /

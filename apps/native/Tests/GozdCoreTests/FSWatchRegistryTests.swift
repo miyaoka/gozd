@@ -117,8 +117,11 @@ struct FSWatchRegistryTests {
     defer { try? FileManager.default.removeItem(at: repo) }
     try await initGitRepo(at: repo)
 
-    // `.gitignore` で `ignored/` 配下を除外し、commit して clean working tree を確立する。
-    try "ignored/\n".write(
+    // `.gitignore` で `*.log` を除外し、commit して clean working tree を確立する。
+    // ルート直下の ignore ファイルを使い、サブディレクトリ作成由来の余計な fsChange を
+    // 混入させない（fsChange を a.log / b.log の 2 書き込みに 1:1 対応させ、`fsChange >= 2`
+    // が「2 回目 batch も届いた」ことの厳密な証拠になるようにする）。
+    try "*.log\n".write(
       to: repo.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
     try await runGitCmd(["add", ".gitignore"], cwd: repo)
     try await runGitCmd(["commit", "-m", "seed"], cwd: repo)
@@ -136,19 +139,16 @@ struct FSWatchRegistryTests {
     await sleepThreaded(.milliseconds(300))
     collector.clear()
 
-    let ignoredDir = repo.appendingPathComponent("ignored")
-    try FileManager.default.createDirectory(at: ignoredDir, withIntermediateDirectories: true)
-
     // 1 回目: cache 空なので clean status が push される。
     try "a".write(
-      to: ignoredDir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+      to: repo.appendingPathComponent("a.log"), atomically: true, encoding: .utf8)
     await waitForEvent(collector, matching: { $0 == "gitStatusChange" })
 
     // 2 回目: status は同一なので gitStatusChange は dedup される。fsChange は両 batch で
     // 立つため、fsChange が 2 回到達したことで「2 回目 batch も handleEvents を踏んだ
     // （= 何も起きなかったのではなく gitStatusChange だけ抑止された）」ことを担保する。
     try "b".write(
-      to: ignoredDir.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+      to: repo.appendingPathComponent("b.log"), atomically: true, encoding: .utf8)
     await waitUntil(
       timeout: .seconds(2),
       description: "fsChange count >= 2",

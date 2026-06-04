@@ -6,7 +6,7 @@ Git commit graph showing the current worktree branch and the default branch.
 - Working Tree row: sticky header outside scroll area, with status icons and dot on lane 0
 - Connector line: dashed SVG path from lane 0 top to HEAD lane (straight if same lane, Bézier curve otherwise)
 - Scrollable commit list: HTML rows for commit data + SVG overlay for graph lines and dots
-- Graph layout reserves lane 0 for the Working Tree connector; commit lanes start from lane 1
+- HEAD is pinned to the leftmost lane (lane 0) so it aligns under the Working Tree dot. When HEAD is not the topmost commit, lane 0 is reserved as an empty channel above HEAD so the connector descends without crossing other lanes; commits above HEAD (diverged branches, or HEAD's own children in a detached-HEAD view) are pushed to lanes ≥ 1 and HEAD's children merge back into lane 0 at HEAD's row. See `graphLayout.ts` for the lane assignment
 - CommitDetailPane is shown as a toggleable right pane inside the graph
 - Commits are stored in `useGitGraphStore` and shared with ChangesPane
 
@@ -126,19 +126,16 @@ function findHeadCommit(rawCommits: GitCommit[]): GitCommit | undefined {
   return rawCommits.find((c) => c.refs.includes("HEAD"));
 }
 
-/** Working Tree 接続用に左端 1 レーンを確保 */
-const RESERVED_LANES = 1;
-
 function recomputeLayout() {
   layout.value = computeGraphLayout(commits.value, {
-    reservedLanes: RESERVED_LANES,
+    headHash: findHeadCommit(commits.value)?.hash,
   });
 }
 
 /** HEAD ノードのレーン番号。接続線の描画に使用 */
 const headLane = computed(() => {
   const node = layout.value.nodes.find((n) => n.commit.refs.includes("HEAD"));
-  return node?.lane ?? RESERVED_LANES;
+  return node?.lane ?? 0;
 });
 
 // 以下 3 つの「前回値」は **active worktree dir に対する不変条件** として保持する。

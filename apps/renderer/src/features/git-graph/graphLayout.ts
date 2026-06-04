@@ -67,13 +67,25 @@ interface LaneState {
 }
 
 /**
- * @param reservedLanes 左端に確保する空きレーン数。全ノード・ラインの lane が右にシフトされる
+ * @param headHash HEAD コミットの hash。指定すると HEAD を最左 lane (lane 0) に固定する。
+ *   HEAD が表示順で先頭でないときは lane 0 を空きチャンネルとして予約し、子があれば lane 0 へ合流させる
  */
-export function computeGraphLayout(commits: GitCommit[], { reservedLanes = 0 } = {}): GraphLayout {
+export function computeGraphLayout(
+  commits: GitCommit[],
+  { headHash }: { headHash?: string } = {},
+): GraphLayout {
   const commitIndexMap = new Map<string, number>();
   for (let i = 0; i < commits.length; i++) {
     commitIndexMap.set(commits[i].hash, i);
   }
+
+  // HEAD を最左 lane に固定するための予約判定。
+  // HEAD が表示順で先頭 (headRow === 0) なら貪欲割り当てで既に最左なので予約不要。
+  // それ以外 (HEAD より上に他コミットが並ぶ) のときは、HEAD 到達前の行で lane 0 を
+  // 空けて予約し、HEAD 行で lane 0 に固定する。HEAD がグラフ内に子を持つ (= 非 tip) 場合も、
+  // 子の各レーンを HEAD 行で lane 0 へ合流させることで lane を壊さず固定できる。
+  const headRow = headHash === undefined ? -1 : (commitIndexMap.get(headHash) ?? -1);
+  const reserveHeadLane = headRow > 0;
 
   const activeLanes: (LaneState | undefined)[] = [];
   let nextColor = 0;
@@ -97,11 +109,19 @@ export function computeGraphLayout(commits: GitCommit[], { reservedLanes = 0 } =
     let lane: number;
     let color: number;
 
-    if (matchingLanes.length > 0) {
+    // HEAD 到達前は lane 0 を予約 (空き探索の下限を 1 に上げる) し、HEAD に確保しておく
+    const minLane = reserveHeadLane && row < headRow ? 1 : 0;
+
+    if (reserveHeadLane && row === headRow) {
+      // 予約しておいた最左 lane に HEAD を固定する。HEAD に子がある (matchingLanes あり) 場合も
+      // ここを優先し、子の各レーンを下の合流処理で lane 0 へ寄せる。色は最初の子レーンを継ぐ
+      lane = 0;
+      color = matchingLanes.length > 0 ? activeLanes[matchingLanes[0]]!.color : nextColor++;
+    } else if (matchingLanes.length > 0) {
       lane = matchingLanes[0];
       color = activeLanes[lane]!.color;
     } else {
-      lane = findEmptyLane(activeLanes);
+      lane = findEmptyLane(activeLanes, minLane);
       color = nextColor++;
     }
 
@@ -123,8 +143,9 @@ export function computeGraphLayout(commits: GitCommit[], { reservedLanes = 0 } =
           });
           // originLane をクリア（最初の1セグメントだけ斜め）
           state.originLane = undefined;
-        } else if (matchingLanes.length > 1 && matchingLanes.includes(i) && i !== lane) {
+        } else if (matchingLanes.includes(i) && i !== lane) {
           // 合流: このレーンからメインレーンへの斜め線
+          // (HEAD 固定では lane=0 が matchingLanes に含まれないため、子レーンすべてが対象)
           lines.push({
             x1: i,
             y1: row - 1,
@@ -148,10 +169,10 @@ export function computeGraphLayout(commits: GitCommit[], { reservedLanes = 0 } =
     }
 
     // --- Phase 2: 合流レーンを解放 ---
-    if (matchingLanes.length > 1) {
-      for (let k = 1; k < matchingLanes.length; k++) {
-        activeLanes[matchingLanes[k]] = undefined;
-      }
+    // この行のレーン (lane) 以外の matching を解放する。通常は matchingLanes[0] === lane なので
+    // [1..] を解放。HEAD 固定では lane=0 が matchingLanes に含まれないため全 matching を解放する。
+    for (const ml of matchingLanes) {
+      if (ml !== lane) activeLanes[ml] = undefined;
     }
 
     // --- Phase 3: このコミットのレーン状態を更新 ---
@@ -169,7 +190,7 @@ export function computeGraphLayout(commits: GitCommit[], { reservedLanes = 0 } =
 
       const existingLane = activeLanes.findIndex((l) => l?.hash === parentHash);
       if (existingLane === -1) {
-        const mergeLane = findEmptyLane(activeLanes);
+        const mergeLane = findEmptyLane(activeLanes, minLane);
         const mergeColor = nextColor++;
         // originLane を設定して、次の行で斜めセグメントを生成
         activeLanes[mergeLane] = { hash: parentHash, color: mergeColor, originLane: lane };
@@ -177,24 +198,20 @@ export function computeGraphLayout(commits: GitCommit[], { reservedLanes = 0 } =
     }
 
     maxLanes = Math.max(maxLanes, countActive(activeLanes));
-    nodes.push({ commit, lane: lane + reservedLanes, color });
+    nodes.push({ commit, lane, color });
   }
 
-  if (reservedLanes > 0) {
-    for (const seg of lines) {
-      seg.x1 += reservedLanes;
-      seg.x2 += reservedLanes;
-    }
-  }
-
-  return { nodes, lines, maxLanes: Math.max(maxLanes, 1) + reservedLanes };
+  return { nodes, lines, maxLanes: Math.max(maxLanes, 1) };
 }
 
-function findEmptyLane(lanes: (LaneState | undefined)[]): number {
-  for (let i = 0; i < lanes.length; i++) {
+/**
+ * @param minLane 探索を開始する最小 lane。HEAD 予約中は 1 を渡して lane 0 を温存する
+ */
+function findEmptyLane(lanes: (LaneState | undefined)[], minLane = 0): number {
+  for (let i = minLane; i < lanes.length; i++) {
     if (lanes[i] === undefined) return i;
   }
-  return lanes.length;
+  return Math.max(lanes.length, minLane);
 }
 
 function countActive(lanes: (LaneState | undefined)[]): number {

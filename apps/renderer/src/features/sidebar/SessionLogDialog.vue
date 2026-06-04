@@ -41,8 +41,10 @@ import type { FsChangePayload } from "../filer";
 import { rpcClaudeSessionLog, rpcFsUnwatch, rpcFsWatch } from "./rpc";
 import {
   buildSubagentLinks,
+  groupByWorkflow,
   parseSessionLog,
   sessionLogDirOf,
+  subagentTabLabel,
   type ParsedSessionLog,
   type SubagentLink,
 } from "./sessionLog";
@@ -83,30 +85,9 @@ const subagents = computed<SessionTab[]>(() => sessions.value.filter((s) => s.ki
 const plainSubagents = computed<SessionTab[]>(() =>
   subagents.value.filter((s) => s.workflowRunId === ""),
 );
-// workflow agent は workflowRunId でグループ化する (出現順を保持)。
-interface WorkflowGroup {
-  runId: string;
-  name: string;
-  agents: SessionTab[];
-}
-const workflowGroups = computed<WorkflowGroup[]>(() => {
-  const groups = new Map<string, WorkflowGroup>();
-  for (const s of subagents.value) {
-    if (s.workflowRunId === "") continue;
-    const existing = groups.get(s.workflowRunId);
-    if (existing === undefined) {
-      // 見出し名は workflowName 優先。空なら runId をそのまま見出しに使う。
-      groups.set(s.workflowRunId, {
-        runId: s.workflowRunId,
-        name: s.workflowName !== "" ? s.workflowName : s.workflowRunId,
-        agents: [s],
-      });
-    } else {
-      existing.agents.push(s);
-    }
-  }
-  return [...groups.values()];
-});
+// workflow agent は workflowRunId でグループ化する (出現順保持)。グループ化と先頭 agent の
+// 一貫性は sessionLog の純関数 groupByWorkflow に委ねる (buildSubagentLinks と SSOT 共有)。
+const workflowGroups = computed(() => groupByWorkflow(subagents.value));
 
 // 右ペインに出す subagent。subagent が 1 つでもあれば先頭を初期選択する。
 const activeSubId = ref<string | undefined>(undefined);
@@ -143,22 +124,6 @@ function openSubagent(payload: { agentId: string; ts: string }) {
   scrollTarget.value = { ts: payload.ts, nonce: ++scrollNonce };
 }
 
-/**
- * subagent タブのラベル。workflow agent は `phaseTitle · label` で phase 文脈を出す。
- * それ以外は meta.json の description / agentType を優先、無ければ agentId 先頭。
- */
-function subagentLabel(entry: {
-  id: string;
-  label: string;
-  agentType: string;
-  phaseTitle: string;
-}): string {
-  if (entry.phaseTitle !== "" && entry.label !== "") return `${entry.phaseTitle} · ${entry.label}`;
-  if (entry.label !== "") return entry.label;
-  if (entry.agentType !== "") return entry.agentType;
-  return entry.id.slice(0, 8);
-}
-
 // load の世代カウンタ。await を跨いだ stale な完了結果が新しいセッション表示を
 // 上書きするのを防ぐ。新規 load 開始 / refresh / dialog close のたびに increment し、
 // await 後に自分の token が最新でなければ state を触らず捨てる。
@@ -180,7 +145,7 @@ function toSessionTab(entry: {
   return {
     kind: entry.kind,
     id: entry.id,
-    label: entry.kind === "main" ? "Main" : subagentLabel(entry),
+    label: entry.kind === "main" ? "Main" : subagentTabLabel(entry),
     parentToolUseId: entry.parentToolUseId,
     name: entry.name,
     workflowRunId: entry.workflowRunId,

@@ -199,6 +199,14 @@ public enum ClaudeSessionLog {
         let agentId = file.deletingPathExtension().lastPathComponent
           .replacingOccurrences(of: "agent-", with: "")
         let progress = agentMeta[agentId]
+        // wf json は読めて workflowProgress も解析できた (agentMeta 非空) のに、この agentId
+        // だけ載っていない = JOIN ミス。journal / progress の追記タイミング差等で起こりうる
+        // 信頼境界外データの兆候なので silent にせず観察ログを残す (ラベル無しで agent 自体は表示)。
+        if progress == nil && !agentMeta.isEmpty {
+          StderrLog.write(
+            tag: "ClaudeSessionLog",
+            "workflow agent missing in progress: wfId=\(wfId) agentId=\(agentId)")
+        }
         // agentType は workflowProgress 優先、空なら agent の meta.json をフォールバック。
         let progressAgentType = progress?.agentType ?? ""
         let agentType =

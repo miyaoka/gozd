@@ -386,8 +386,72 @@ export interface SubagentDescriptor {
 
 // main の Workflow tool_result テキストに含まれる `Run ID: wf_xxx`。これが main の Workflow
 // tool_use を workflow agent 群 (workflowRunId) に結ぶ唯一の正規キー。先頭アンカーは張らない
-// (結果テキストの途中行に出るため)。wf_ id は `wf_` + 16進/ハイフン構成。
+// (結果テキストの途中行に出るため)。wf id は `wf_` プレフィックス + 英数字 / ハイフン
+// (許容文字クラスは正規表現本体の `[A-Za-z0-9-]` が SSOT。特定の桁数 / 基数は仮定しない)。
 const WORKFLOW_RUN_ID_RE = /Run ID:\s*(wf_[A-Za-z0-9-]+)/;
+
+/** groupByWorkflow が要求する最小情報。SessionTab / SubagentDescriptor 双方の射影。 */
+export interface WorkflowGroupItem {
+  id: string;
+  workflowRunId: string;
+  workflowName: string;
+}
+
+/** workflowRunId でまとめた 1 グループ。`agents` は入力の出現順を保つ (先頭がアンカー)。 */
+export interface WorkflowGroup<T extends WorkflowGroupItem> {
+  runId: string;
+  name: string; // workflowName 優先、空なら runId
+  agents: T[];
+}
+
+/**
+ * workflow agent (`workflowRunId !== ""`) を workflowRunId ごとにグループ化する (出現順保持)。
+ * 非 workflow subagent (`workflowRunId === ""`) は除外する。
+ *
+ * タブバーのグループ表示と Workflow 行リンクの両方がこの 1 関数を SSOT に使い、
+ * 「グループ先頭 agent = リンク先 agent」の一貫性を構造的に保証する (グループ化条件を
+ * 2 箇所に複製すると先頭の取り方が無言で乖離するため)。
+ */
+export function groupByWorkflow<T extends WorkflowGroupItem>(items: T[]): WorkflowGroup<T>[] {
+  const groups = new Map<string, WorkflowGroup<T>>();
+  for (const item of items) {
+    if (item.workflowRunId === "") continue;
+    const existing = groups.get(item.workflowRunId);
+    if (existing === undefined) {
+      groups.set(item.workflowRunId, {
+        runId: item.workflowRunId,
+        // 見出し名は workflowName 優先。空なら runId をそのまま見出しに使う。
+        name: item.workflowName !== "" ? item.workflowName : item.workflowRunId,
+        agents: [item],
+      });
+    } else {
+      existing.agents.push(item);
+    }
+  }
+  return [...groups.values()];
+}
+
+/**
+ * subagent タブのラベル。phaseTitle / label を独立に評価し、両方あれば `phaseTitle · label`、
+ * 片方だけならそれ単独で出す (workflow agent は phaseTitle、Task subagent は label が埋まる)。
+ * どちらも空なら agentType、それも空なら agentId 先頭に倒す。
+ *
+ * phaseTitle と label は別ソース (workflowProgress の異なるフィールド) 由来で片方だけ埋まる
+ * 状態を信頼境界外データとして排除できないため、AND 連結ではなく段階的に拾って情報落ちを防ぐ。
+ */
+export function subagentTabLabel(entry: {
+  id: string;
+  label: string;
+  agentType: string;
+  phaseTitle: string;
+}): string {
+  const parts: string[] = [];
+  if (entry.phaseTitle !== "") parts.push(entry.phaseTitle);
+  if (entry.label !== "") parts.push(entry.label);
+  if (parts.length > 0) return parts.join(" · ");
+  if (entry.agentType !== "") return entry.agentType;
+  return entry.id.slice(0, 8);
+}
 
 /**
  * main の tool 呼び出し (Agent / SendMessage) を起動/宛先 subagent に結ぶ map を作る。
@@ -413,8 +477,6 @@ export function buildSubagentLinks(
   const byParentToolUse = new Map<string, SubagentDescriptor>();
   const byAgentId = new Map<string, SubagentDescriptor>();
   const byName = new Map<string, SubagentDescriptor>();
-  // workflowRunId → その workflow の agent 群 (出現順)。Workflow 行リンク用。
-  const byWorkflowRunId = new Map<string, SubagentDescriptor[]>();
   // 複数 subagent が同じ name を持つ場合、その name では一意に引けないので除外対象にする。
   const ambiguousNames = new Set<string>();
   for (const sub of subagents) {
@@ -424,12 +486,10 @@ export function buildSubagentLinks(
       if (byName.has(sub.name)) ambiguousNames.add(sub.name);
       else byName.set(sub.name, sub);
     }
-    if (sub.workflowRunId !== "") {
-      const group = byWorkflowRunId.get(sub.workflowRunId);
-      if (group === undefined) byWorkflowRunId.set(sub.workflowRunId, [sub]);
-      else group.push(sub);
-    }
   }
+  // workflowRunId → グループ。タブバー表示と同じ groupByWorkflow を SSOT に使い、
+  // 「グループ先頭 agent = Workflow 行リンク先」の一貫性を保つ。
+  const byWorkflowRunId = new Map(groupByWorkflow(subagents).map((g) => [g.runId, g]));
 
   // id 引きを優先し、引けない時だけ name にフォールバック。曖昧な name は引かない。
   const resolveTo = (to: string): SubagentDescriptor | undefined => {
@@ -446,11 +506,10 @@ export function buildSubagentLinks(
     const match = WORKFLOW_RUN_ID_RE.exec(resultText);
     if (match === null) return undefined;
     const group = byWorkflowRunId.get(match[1]);
-    const [first] = group ?? [];
+    if (group === undefined) return undefined;
+    const [first] = group.agents;
     if (first === undefined) return undefined;
-    const name = first.workflowName !== "" ? first.workflowName : match[1];
-    const groupCount = group?.length ?? 0;
-    return { agentId: first.id, label: `${name} (${groupCount})` };
+    return { agentId: first.id, label: `${group.name} (${group.agents.length})` };
   };
 
   for (const ev of mainEvents) {

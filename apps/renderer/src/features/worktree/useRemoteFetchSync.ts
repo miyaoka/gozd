@@ -1,9 +1,9 @@
 /**
- * active repo の `git fetch --all` を背景で回す app-scope な watcher。
+ * 登録 repo の `git fetch --all` を背景で回す app-scope な watcher。
  *
  * 設計方針:
  *
- * - **scope は active repo の rootDir 単位**。同 repo 内の worktree は `refs/remotes/*` を
+ * - **scope は repo の rootDir 単位**。同 repo 内の worktree は `refs/remotes/*` を
  *   common git dir で共有するため、1 fetch で全 worktree の ahead/behind が更新される。
  *   worktree 単位 fan-out は network コストと credential 消費が無駄に倍化する
  * - **`git fetch --all`** を使う。upstream が origin 以外 (fork PR workflow で
@@ -15,8 +15,12 @@
  * - **成功時は 180s lock、失敗時は 30s 短 backoff**。起動直後の SSH agent unlock 前
  *   ヒット等の transient 失敗が「次の 180 秒間 fetch しない」状態を作らないため、
  *   失敗は短い backoff にする
- * - **repo 切替時の発射は初回のみ**。`lastFetchedAt` 未設定の repo を初めて開いた
- *   ときだけ即時 fetch する。A↔B 往復のたびに fetch を炊くと credential 消費が無駄
+ * - **初回 fetch は登録されている全 repo を対象にする**。起動時に hydrate された repo も、
+ *   後から開かれた repo も、それぞれ `nextFetchAllowedAt` 未設定のあいだ 1 回だけ即時
+ *   fetch する。定期 interval / focus 復帰の発射は active repo に絞るが (定期 fan-out は
+ *   rate limit 累積発火を招くため抑制する規律)、初回は polling ではなく repo 単位 1 回
+ *   なので全 repo に広げても累積発火しない。A↔B 往復のたびに fetch を炊かないのは lock
+ *   で保証する
  * - **in-flight ロック**で同 repo 並列発射を抑止。RPC 遅延時に重複 fetch を防ぐ
  * - **失敗は `useNotificationStore.info` で通知**。プロジェクト規約「console.error で
  *   握り潰さない」に従う。連射抑制は 30s backoff で効くため、トースト爆発はしない
@@ -89,15 +93,17 @@ export function useRemoteFetchSync() {
     void fetchOnceIfDue(rootDir);
   }
 
-  // active repo 切替時の発射は「その repo を初めて見たとき」だけにする。
-  // 既に一度 fetch している repo に戻ったときは閾値判定に任せ、A↔B 往復で都度
-  // fetch を炊かない。これにより VSCode 互換の interval 主導動作になる。
+  // 登録されている全 repo を対象に「初めて見た repo」を fetch する。起動時に hydrate
+  // された repo 群も、後から開かれた repo も、それぞれ初回 1 回だけ即時 fetch が走る。
+  // 既に一度 fetch した repo は `nextFetchAllowedAt` が立つため再発射しない (A↔B 往復で
+  // 都度 fetch を炊かない)。以降は interval 主導の閾値判定に任せる。
   watch(
-    () => repoStore.selectedRootDir,
-    (rootDir) => {
-      if (rootDir === undefined) return;
-      if (nextFetchAllowedAt.has(rootDir)) return;
-      void fetchOnceIfDue(rootDir);
+    () => Object.keys(repoStore.repos),
+    (rootDirs) => {
+      for (const rootDir of rootDirs) {
+        if (nextFetchAllowedAt.has(rootDir)) continue;
+        void fetchOnceIfDue(rootDir);
+      }
     },
     { immediate: true },
   );

@@ -281,6 +281,7 @@ useEventListener(window, "pointerup", () => {
               <span
                 v-if="track.models.length > 0"
                 class="ml-auto shrink-0 text-[10px] text-zinc-500 tabular-nums"
+                :title="trackModelLabel(track)"
               >
                 {{ trackModelLabel(track) }}
               </span>

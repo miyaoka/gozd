@@ -187,7 +187,15 @@ PR/issue picker や session 未紐付け task クリックで `claude` を autos
 `resumable` と `closed` のクリック挙動は同じ (`claude --resume <sessionId>`)。UI 上の意味的区別だけを行う。live PTY ありの状態 (idle / working / asking / done) は `CLAUDE_STATE_ICON` 由来のアイコンが優先される。
 
 > [!IMPORTANT]
-> resumable / closed task の click は `task.sessionId` (tasks.json) を resume 対象の SSOT とする。未訪問 worktree の click は `useTerminalStore` の `visit` 経路を通るが、ここで `claude-sessions.json` (session-end hook で削除される別ライフサイクルのストア) に当該 sessionId が無くても resume は実行する。`claude-sessions.json` は「複数 leaf の自動復元」用の補助リストであり、明示 click の可否判定には使わない。saved リストで gate すると closed session (= `claude-sessions.json` から消えているが tasks.json には残る通常状態) の初回 click が空ターミナルに倒れる。resume が真に不能なら native 側 dead session 清掃が hook 経路で処理する。
+> resumable / closed task の click は `task.sessionId` (tasks.json) を resume 対象の SSOT とする。未訪問 worktree の click は `useTerminalStore` の `visit` 経路を通るが、ここで `claude-sessions.json` (session-end hook で削除される別ライフサイクルのストア) に当該 sessionId が無くても resume は実行する。`claude-sessions.json` は「複数 leaf の自動復元」用の補助リストであり、明示 click の可否判定には使わない。saved リストで gate すると closed session (= `claude-sessions.json` から消えているが tasks.json には残る通常状態) の初回 click が空ターミナルに倒れる。
+
+resume 可否の検証は renderer では行わず、native 側の dead session 清掃 (hook 経路) に一元化する。transcript が消えた dead な sessionId を resume しようとした場合の挙動は決定的に次へ倒れる:
+
+- `claude --resume <dead-sid>` が失敗 → zsh fallback で素の `claude` が起動し SessionStart hook が着弾
+- native が `consumeExpectedResumeSid` で「期待した resume sid ≠ 実際の新 sid」を検知し `clearDeadSession` で task の sessionId を空化 → サイドバー表示が `not-started` に倒れる
+- この経路で renderer のトーストは出ない。観察可能性は native の stderr ログと task の状態遷移 (`closed` → `not-started`) が担う
+
+つまり dead session の click は「resume 失敗を UI で通知する」のではなく「素の claude 起動にサイレントにフォールバックし、task を `not-started` に戻す」のが期待挙動。resume 可否を click 時点で事前判定する責務は renderer に置かない。
 
 ## RPC
 

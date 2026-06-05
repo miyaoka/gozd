@@ -8,6 +8,7 @@ import type { ClaudeStatus } from "./claudeStatus";
 import { isHookEvent, createClaudeStatusManager } from "./claudeStatus";
 import { createPtySessionManager } from "./ptySession";
 import type { PaneEntry } from "./ptySession";
+import { buildResumeSessionIds } from "./resumeSessionIds";
 import type { HookPayload, PtyExitPayload, PtyTextPayload } from "./rpc";
 import {
   rpcClaudeSessionListByDir,
@@ -384,12 +385,10 @@ export const useTerminalStore = defineStore("terminal", () => {
     // 先頭 (= initial focused leaf) に置く (重複は除外)。これは訪問済み経路の
     // requestResumeSession が saved リストを参照せず直接 resume するのと同じ流儀。
     // resume が真に不能なら native 側の dead session 清掃が hook 経路で処理する。
+    // 列組み立ては境界条件 (preferred の有無 / saved 重複) を持つので純関数に分離。
     const preferred = preferredResumeByDir.value[dir];
     if (preferred !== undefined) delete preferredResumeByDir.value[dir];
-    const resumeSessionIds =
-      preferred === undefined
-        ? savedSessionIds
-        : [preferred, ...savedSessionIds.filter((id) => id !== preferred)];
+    const resumeSessionIds = buildResumeSessionIds(preferred, savedSessionIds);
 
     // ensureLayout で初期 leaf を作る（既存の単一 leaf 起動と同じ）
     const initialLayout = layout.ensureLayout(dir);

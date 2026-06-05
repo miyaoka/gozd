@@ -113,6 +113,36 @@ describe("findAbsolutePathMatches", () => {
     expect(matches[0]?.totalEnd).toBe("/Users/me/elsewhere/d.ts:42".length);
   });
 
+  test("`#` で終端する（shell コメント / fragment がパスに混入しない）", () => {
+    const matches = findAbsolutePathMatches(
+      "/Users/me/elsewhere/b8i8z99z7.txt# comment",
+      dirPrefix,
+      homeDir,
+    );
+    expect(matches[0]?.selection).toEqual({
+      kind: "absolute",
+      absPath: "/Users/me/elsewhere/b8i8z99z7.txt",
+    });
+  });
+
+  test.each([
+    ["|", "cat /Users/me/elsewhere/a.txt|grep x"],
+    ["&", "run /Users/me/elsewhere/a.txt&"],
+    ["`", "echo /Users/me/elsewhere/a.txt`x`"],
+    ["$", "/Users/me/elsewhere/a.txt$VAR"],
+    ["<", "/Users/me/elsewhere/a.txt<in"],
+    ["!", "/Users/me/elsewhere/a.txt!cmd"],
+    ["*", "/Users/me/elsewhere/a.txt*glob"],
+    ["?", "/Users/me/elsewhere/a.txt?q"],
+    ["\\", "/Users/me/elsewhere/a.txt\\esc"],
+  ])("シェルメタ文字 `%s` で終端する", (_sep, text) => {
+    const matches = findAbsolutePathMatches(text, dirPrefix, homeDir);
+    expect(matches[0]?.selection).toEqual({
+      kind: "absolute",
+      absPath: "/Users/me/elsewhere/a.txt",
+    });
+  });
+
   test("dir 名に空白を含んでも prefix 内で切れない", () => {
     const dir = "/tmp/My Project/repo/";
     const matches = findAbsolutePathMatches("build at /tmp/My Project/repo/src/x.ts done", dir, "");

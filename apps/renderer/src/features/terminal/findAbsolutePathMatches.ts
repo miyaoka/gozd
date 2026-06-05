@@ -1,8 +1,15 @@
 import { pathTargetToString, type PathTarget } from "../worktree";
 import { parseLineNumberSuffix } from "./parseLineNumberSuffix";
 
-/** パスの末尾区切り文字 */
-const PATH_TERMINATORS = /[\s()}\]>'",:;]/;
+/**
+ * パスの末尾区切り文字。シェルで unquoted なパスに現れない文字を区切りとする
+ * (VS Code terminalLinkParsing の ExcludedPathCharacters 準拠)。
+ * リダイレクト(`<` `>`) / パイプ(`|`) / コマンド区切り(`;` `&`) / サブシェル(`(` `)`) /
+ * コマンド置換(`` ` `` `$`) / glob(`*` `?`) / 履歴展開(`!`) / エスケープ(`\`) /
+ * 引用符(`'` `"`) / 行番号区切り(`:`) / コメント・fragment(`#`) / log 出力の囲み(`}` `]` `,`)。
+ * gozd は存在検証しない分、VS Code より保守的に区切る。
+ */
+export const PATH_TERMINATORS = /[\s<>()}\]'"|&`$,:;#!*?\\]/;
 
 /** パスの直後に `:行番号` が続くかを検出する正規表現 */
 const LINE_NUMBER_SUFFIX = /^:(\d+)/;

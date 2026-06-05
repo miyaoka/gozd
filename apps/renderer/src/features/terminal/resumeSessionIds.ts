@@ -1,7 +1,7 @@
 /**
  * worktree 初回 visit 時に復元する Claude セッションの sessionId 列を組み立てる。
  *
- * - `savedSessionIds`: `claude-sessions.json` 由来の自動復元対象 (複数 leaf 復元用)
+ * - `savedSessionIds`: tasks.json 由来の resumable 集合 (sessionId 有 + !closedByUser、複数 leaf 復元用)
  * - `preferred`: サイドバーで resumable / closed task を click したケースの
  *   `task.sessionId` (= resume 対象の SSOT)。`undefined` なら自動復元のみ
  *

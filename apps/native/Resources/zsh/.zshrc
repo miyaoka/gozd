@@ -44,7 +44,7 @@ _gozd_resume_claude() {
   # 閉じてもらわなくても済むよう素の `claude` を続けて起動し、新 SessionStart 経由で
   # task を再 attach する (native 側 RpcDispatcher.applyClaudeSessionHook が
   # 「expected と異なる sid の SessionStart」を resume 失敗 + fallback と判定し
-  # dead sid を `claude-sessions.json` / `tasks.json` から掃除する)。
+  # dead sid を `tasks.json` から掃除する)。
   claude --resume "$_id"
   local _exit=$?
   # fallback の発火範囲は exit code の denylist で決める。
@@ -52,8 +52,8 @@ _gozd_resume_claude() {
   # ユーザー操作で claude を終わらせたケースなので、fallback すると resume 成功した
   # セッションを抜けた直後に勝手に新 session が立ち上がる (transcript が Claude 側の
   # ファイルに残っているのに gozd 側からは旧 sid が dead 扱いされる + 副次的に
-  # 2 度目 SessionStart の previous != hook.sessionID 経路で旧 sid が
-  # claude-sessions.json から削除される) という UX 破壊を生む。
+  # 2 度目 SessionStart の previous != hook.sessionID 経路で旧 sid の task が
+  # detach される) という UX 破壊を生む。
   # 発火: それ以外の全ての非 0。transcript 不在 (resume 起動失敗) の他、claude 自身
   # の runtime error (auth / network / API rate limit 等で会話中に非 0 終了したケース)
   # も含む。後者では新規 session が立ち上がるが、「resume できる前提が壊れたら新

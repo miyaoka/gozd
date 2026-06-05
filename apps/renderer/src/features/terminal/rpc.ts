@@ -1,7 +1,5 @@
 // terminal feature が使う RPC wrapper と push event payload 型。
 import {
-  ClaudeSessionListByDirRequest,
-  ClaudeSessionListByDirResponse,
   ClaudeSessionRemoveByPtyRequest,
   ClaudeSessionRemoveByPtyResponse,
   OpenExternalRequest,
@@ -14,6 +12,8 @@ import {
   PtySpawnResponse,
   PtyWriteRequest,
   PtyWriteResponse,
+  ResumableSessionListRequest,
+  ResumableSessionListResponse,
 } from "@gozd/proto";
 
 import { rpc } from "../../shared/rpc";
@@ -23,13 +23,10 @@ import { rpc } from "../../shared/rpc";
 export const rpcPtySpawn = (req: PtySpawnRequest) =>
   rpc("/pty/spawn", req, PtySpawnRequest, PtySpawnResponse);
 
-export const rpcClaudeSessionListByDir = (req: ClaudeSessionListByDirRequest) =>
-  rpc(
-    "/claudeSession/listByDir",
-    req,
-    ClaudeSessionListByDirRequest,
-    ClaudeSessionListByDirResponse,
-  );
+// dir で resume 可能な Claude セッションの session_id 一覧を取得する。SSOT は
+// tasks.json (task.session_id)。visit() が未訪問 worktree の初回オープン時に呼ぶ。
+export const rpcResumableSessionList = (req: ResumableSessionListRequest) =>
+  rpc("/task/resumableSessions", req, ResumableSessionListRequest, ResumableSessionListResponse);
 
 export const rpcClaudeSessionRemoveByPty = (req: ClaudeSessionRemoveByPtyRequest) =>
   rpc(

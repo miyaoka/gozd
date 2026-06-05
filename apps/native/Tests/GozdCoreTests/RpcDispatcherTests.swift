@@ -105,7 +105,7 @@ struct RpcDispatcherTests {
     #expect(exitFlag.isSet)
   }
 
-  @Test("/claudeSession/removeByPty: expected resume sid 残留時に claude-sessions / tasks を片付ける (resume 失敗検出)")
+  @Test("/claudeSession/removeByPty: expected resume sid 残留時に task の dead session を片付ける (resume 失敗検出)")
   func removeByPtyResumeFailureCleanup() async throws {
     let configDir = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: configDir)) }
@@ -118,9 +118,7 @@ struct RpcDispatcherTests {
       onPtyExit: { _, _ in }
     )
 
-    // 既存の永続化を仕込む。dead sid X が claude-sessions.json / tasks.json に居る状態。
-    let claudeSessions = ClaudeSessionStore(configDir: configDir)
-    try await claudeSessions.upsert(worktreePath: worktreeDir, sessionId: "dead-X")
+    // 既存の永続化を仕込む。dead sid X が tasks.json に居る状態。
     let tasks = TaskStore(configDir: configDir)
     _ = try await tasks.add(
       dir: worktreeDir, ghTitle: "PR work", worktreeDir: worktreeDir,
@@ -150,9 +148,6 @@ struct RpcDispatcherTests {
     _ = try await dispatcher.dispatch(
       path: "/claudeSession/removeByPty", body: removeReq.jsonUTF8Data())
 
-    // claude-sessions.json の dead-X は削除されている
-    let remainingSessions = try await claudeSessions.savedSessions(for: worktreeDir)
-    #expect(remainingSessions.isEmpty)
     // tasks.json の task は ghRef があるので残る + sessionId は空にクリアされる
     let remainingTasks = try await tasks.list(dir: worktreeDir)
     #expect(remainingTasks.count == 1)
@@ -178,12 +173,9 @@ struct RpcDispatcherTests {
     )
 
     // dead-X (resume 失敗の対象) と live-Y (resume 失敗後に zsh fallback で素 claude が
-    // 発行する想定の新 sid) を両方の永続化に仕込む。session-start hook で live-Y を
-    // 着弾させた時点で expected (dead-X) は消費 + cleanup されるが、その後の
-    // removeByPty で残った live-Y を正しく片付けられることを確認する。
-    let claudeSessions = ClaudeSessionStore(configDir: configDir)
-    try await claudeSessions.upsert(worktreePath: worktreeDir, sessionId: "dead-X")
-    try await claudeSessions.upsert(worktreePath: worktreeDir, sessionId: "live-Y")
+    // 発行する想定の新 sid) を task に仕込む。session-start hook で live-Y を着弾させた
+    // 時点で expected (dead-X) は消費 + cleanup されるが、その後の removeByPty で残った
+    // live-Y を正しく片付けられることを確認する。
     let tasks = TaskStore(configDir: configDir)
     _ = try await tasks.add(
       dir: worktreeDir, ghTitle: "PR work", worktreeDir: worktreeDir,
@@ -227,9 +219,6 @@ struct RpcDispatcherTests {
     _ = try await dispatcher.dispatch(
       path: "/claudeSession/removeByPty", body: removeReq.jsonUTF8Data())
 
-    // claude-sessions.json は X と Y 両方とも消える
-    let remainingSessions = try await claudeSessions.savedSessions(for: worktreeDir)
-    #expect(remainingSessions.isEmpty)
     // tasks: PR task (ghRef あり) は sid クリアで残る、scratch task (ghRef 無し) も
     // 削除されず closed_by_user=true + sessionID 保持で残る (新仕様: terminal close で
     // task は削除しない。削除はユーザーの ⋮ メニュー or worktree 削除 cascade のみ)
@@ -263,9 +252,7 @@ struct RpcDispatcherTests {
       onPtyExit: { _, _ in }
     )
 
-    // 既存の永続化を仕込む。dead sid X が claude-sessions.json と PR task に残っている状態。
-    let claudeSessions = ClaudeSessionStore(configDir: configDir)
-    try await claudeSessions.upsert(worktreePath: worktreeDir, sessionId: "dead-X")
+    // 既存の永続化を仕込む。dead sid X が PR task に残っている状態。
     let tasks = TaskStore(configDir: configDir)
     let originalTask = try await tasks.add(
       dir: worktreeDir, ghTitle: "PR work", worktreeDir: worktreeDir,
@@ -298,11 +285,6 @@ struct RpcDispatcherTests {
     msg.body = .hook(hook)
     try await dispatcher.handleSocketMessage(try msg.jsonUTF8Data())
 
-    // claude-sessions: dead-X は消え、live-Y のみ残る
-    let sessions = try await claudeSessions.savedSessions(for: worktreeDir)
-    #expect(sessions.count == 1)
-    #expect(sessions.first?.sessionID == "live-Y")
-
     // tasks: 同一 task (originalTask.id) に sid=live-Y が再 attach されている (orphan 新規 task 作成なし)
     let remainingTasks = try await tasks.list(dir: worktreeDir)
     #expect(remainingTasks.count == 1)
@@ -330,9 +312,7 @@ struct RpcDispatcherTests {
       onPtyExit: { _, _ in }
     )
 
-    // 既存: resume 元 task が claude-sessions と tasks に存在
-    let claudeSessions = ClaudeSessionStore(configDir: configDir)
-    try await claudeSessions.upsert(worktreePath: worktreeDir, sessionId: "resume-X")
+    // 既存: resume 元 task が tasks に存在
     let tasks = TaskStore(configDir: configDir)
     let originalTask = try await tasks.add(
       dir: worktreeDir, ghTitle: "PR work", worktreeDir: worktreeDir,
@@ -367,9 +347,9 @@ struct RpcDispatcherTests {
 
     // 2 回目 SessionStart (例: ユーザーが /clear → 新 sid)
     // 期待 sid は 1 回目で消費済みなので mismatch ブロックは fire しない。
-    // `previous != hook.sessionID` 経路で旧 X が claude-sessions から削除され、
-    // `detachSession(X)` が走り元 task は `closedByUser=true + sessionID=resume-X 保持`
-    // 状態になる。続く attachSession(new-Y) は candidate を sessionID 空 task のみに絞るため
+    // `previous != hook.sessionID` 経路で `detachSession(X)` が走り、元 task は
+    // `closedByUser=true + sessionID=resume-X 保持` 状態になる。
+    // 続く attachSession(new-Y) は candidate を sessionID 空 task のみに絞るため
     // (元 task は sid=resume-X 保持 = candidate 外)、元 task を奪わず別 task を新規作成する。
     // /clear で session_id が変わったら別 task = session ≒ task の 1:1。旧 session は
     // closed task として resume 可能なまま残り、ユーザーが ⋮ で消すまで滞留する。
@@ -381,11 +361,6 @@ struct RpcDispatcherTests {
     var msg2 = Gozd_V1_ClientMessage()
     msg2.body = .hook(hook2)
     try await dispatcher.handleSocketMessage(try msg2.jsonUTF8Data())
-
-    // claude-sessions: X は previous 経路で消え、Y のみ残る
-    let sessions = try await claudeSessions.savedSessions(for: worktreeDir)
-    #expect(sessions.count == 1)
-    #expect(sessions.first?.sessionID == "new-Y")
 
     // tasks: 元 task は奪われず closed (sid=resume-X, ghRef 保持) のまま残り、
     // /clear の新 sid=new-Y は別 task になる

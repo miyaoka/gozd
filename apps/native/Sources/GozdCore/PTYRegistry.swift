@@ -82,8 +82,8 @@ public actor PTYRegistry {
   // ptyId → spawn 時の env[GOZD_RESUME_CLAUDE_SESSION] (resume 期待 sid)。
   // SessionStart hook (source=resume) が同じ sid で着弾したらクリアする。
   // unregisterPane 時点でも残っているなら resume 失敗 (claude --resume が transcript
-  // 不在で error 終了したケース) と判定し、claude-sessions.json と task から該当 sid を
-  // 掃除する。proactive な transcript 存在チェックを廃止した代わりの reactive 検出経路。
+  // 不在で error 終了したケース) と判定し、task から該当 sid を掃除する。proactive な
+  // transcript 存在チェックを廃止した代わりの reactive 検出経路。
   private var expectedResumeSidById: [UInt32: String] = [:]
   // 削除 RPC で clearAssociations された ptyId 集合。late session-start hook が
   // 到達したとき、「明示削除後の late hook」と「そもそも未登録 PTY」を区別して
@@ -247,7 +247,7 @@ public actor PTYRegistry {
     sessionIdById[id] = sessionId
   }
 
-  /// 削除 RPC が sessionId を ClaudeSessionStore から消した後、マッピングをクリアする。
+  /// 削除 RPC が task の sessionId を片付けた後、マッピングをクリアする。
   public func clearSessionId(for id: UInt32) {
     sessionIdById.removeValue(forKey: id)
   }
@@ -256,7 +256,7 @@ public actor PTYRegistry {
   /// caller (applyClaudeSessionHook) は返り値を hook.sessionID と比較し:
   ///   - 一致: resume 成功 (no-op 後段で attachSession が冪等処理)
   ///   - 不一致: resume 失敗 + zsh fallback で素の `claude` が起動した → 旧 expected を
-  ///     dead sid として claudeSessions / tasks から掃除する
+  ///     dead sid として tasks から掃除する
   /// SessionStart 着弾時に「必ず消費」することで、後段 removeByPty 経路の
   /// `consumeExpectedResumeSid` 残存判定が「SessionStart 一度も不達」と意味的に等価になる。
   public func consumeExpectedResumeSid(for id: UInt32) -> String? {

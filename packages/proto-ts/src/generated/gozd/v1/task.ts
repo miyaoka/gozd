@@ -76,6 +76,22 @@ export interface TaskRemoveRequest {
 export interface TaskRemoveResponse {
 }
 
+/**
+ * 指定 worktree dir で resume 可能な Claude セッションの session_id 一覧。renderer の
+ * visit() が未訪問 worktree の初回オープン時に呼び、保存済みセッションを leaf に復元する。
+ * task.session_id が SSOT。`session_id != "" && !closed_by_user` の task を集める
+ * (app close で中断され closed_by_user=false のまま残ったもの。session-end / 明示 close で
+ * closed_by_user=true になったものは除外)。dead session (transcript 不在) が混じり得るが、
+ * その場合 `claude --resume` がエラー終了し resume 失敗検出経路が当該 task を片付ける。
+ */
+export interface ResumableSessionListRequest {
+  dir: string;
+}
+
+export interface ResumableSessionListResponse {
+  sessionIds: string[];
+}
+
 function createBaseTaskList(): TaskList {
   return { tasks: [] };
 }
@@ -735,6 +751,128 @@ export const TaskRemoveResponse: MessageFns<TaskRemoveResponse> = {
   },
   fromPartial(_: DeepPartial<TaskRemoveResponse>): TaskRemoveResponse {
     const message = createBaseTaskRemoveResponse();
+    return message;
+  },
+};
+
+function createBaseResumableSessionListRequest(): ResumableSessionListRequest {
+  return { dir: "" };
+}
+
+export const ResumableSessionListRequest: MessageFns<ResumableSessionListRequest> = {
+  encode(message: ResumableSessionListRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ResumableSessionListRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseResumableSessionListRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ResumableSessionListRequest {
+    return { dir: isSet(object.dir) ? globalThis.String(object.dir) : "" };
+  },
+
+  toJSON(message: ResumableSessionListRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ResumableSessionListRequest>): ResumableSessionListRequest {
+    return ResumableSessionListRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ResumableSessionListRequest>): ResumableSessionListRequest {
+    const message = createBaseResumableSessionListRequest();
+    message.dir = object.dir ?? "";
+    return message;
+  },
+};
+
+function createBaseResumableSessionListResponse(): ResumableSessionListResponse {
+  return { sessionIds: [] };
+}
+
+export const ResumableSessionListResponse: MessageFns<ResumableSessionListResponse> = {
+  encode(message: ResumableSessionListResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.sessionIds) {
+      writer.uint32(10).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ResumableSessionListResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseResumableSessionListResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.sessionIds.push(reader.string());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ResumableSessionListResponse {
+    return {
+      sessionIds: globalThis.Array.isArray(object?.sessionIds)
+        ? object.sessionIds.map((e: any) => globalThis.String(e))
+        : globalThis.Array.isArray(object?.session_ids)
+        ? object.session_ids.map((e: any) => globalThis.String(e))
+        : [],
+    };
+  },
+
+  toJSON(message: ResumableSessionListResponse): unknown {
+    const obj: any = {};
+    if (message.sessionIds?.length) {
+      obj.sessionIds = message.sessionIds;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ResumableSessionListResponse>): ResumableSessionListResponse {
+    return ResumableSessionListResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ResumableSessionListResponse>): ResumableSessionListResponse {
+    const message = createBaseResumableSessionListResponse();
+    message.sessionIds = object.sessionIds?.map((e) => e) || [];
     return message;
   },
 };

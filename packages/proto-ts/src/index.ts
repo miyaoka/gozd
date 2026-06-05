@@ -25,10 +25,6 @@ export {
   WindowFrame,
 } from "./generated/gozd/v1/app_state";
 export {
-  ClaudeSession,
-  ClaudeSessionList,
-  ClaudeSessionListByDirRequest,
-  ClaudeSessionListByDirResponse,
   ClaudeSessionLogEntry,
   ClaudeSessionLogRequest,
   ClaudeSessionLogResponse,
@@ -156,6 +152,8 @@ export {
   ShellCommandUninstallResponse,
 } from "./generated/gozd/v1/shell_command";
 export {
+  ResumableSessionListRequest,
+  ResumableSessionListResponse,
   TaskAddRequest,
   TaskAddResponse,
   TaskList,

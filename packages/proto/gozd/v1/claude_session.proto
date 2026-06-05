@@ -2,34 +2,11 @@ syntax = "proto3";
 
 package gozd.v1;
 
-// Claude Code セッションの永続化（worktree 単位の resume 復元用）。
+// Claude Code セッション関連の RPC 型。
 //
-// ファイル: ~/.config/gozd/projects/<projectKey>/claude-sessions.json
-// 1 worktree が複数 PTY で複数 Claude を走らせ得るので、配列で持つ。
-// session-end hook 受信時に session_id をキーに削除する。
-// クラッシュ等で session-end が来ず残った dead entry は、resume 試行時に
-// `claude --resume` がエラー終了するのを検知して削除する。proactive な存在
-// チェックはしない (Claude 側の transcript 仕様への依存を避けるため)。
-
-message ClaudeSession {
-  string worktree_path = 1;
-  string session_id = 2;
-  // ISO8601。デバッグ用途
-  string updated_at = 4;
-}
-
-message ClaudeSessionList {
-  repeated ClaudeSession sessions = 1;
-}
-
-// 指定 dir に紐づく Claude セッション一覧を返す。renderer が worktree オープン時に呼ぶ。
-message ClaudeSessionListByDirRequest {
-  string dir = 1;
-}
-
-message ClaudeSessionListByDirResponse {
-  repeated ClaudeSession sessions = 1;
-}
+// セッションの永続化自体は task.proto の Task.session_id が SSOT (worktree 単位の
+// resume 復元は ResumableSessionList で task.json から引く)。このファイルには PTY 単位の
+// session 掃除 (RemoveByPty) と セッションログ表示 (ClaudeSessionLog) の RPC 型のみ置く。
 
 // 指定 PTY に紐づく Claude セッションを永続化から削除する。renderer の
 // unregisterPane（terminal.closePane / resetLayout / worktree 削除）から呼ぶ。

@@ -32,7 +32,7 @@ public enum StderrLog {
   /// `[tag] message` を stderr に 1 行書く。
   ///
   /// - Parameters:
-  ///   - tag: handler 関数名 (`handlePtySpawn`) または store / module 名 (`ClaudeSessionStore`)。
+  ///   - tag: handler 関数名 (`handlePtySpawn`) または store / module 名 (`TaskStore`)。
   ///     bracket は helper が付ける。call site では中身のみ渡す。
   ///   - message: 任意の string。制御文字は helper が escape する。call site で sanitize
   ///     する必要は無い。

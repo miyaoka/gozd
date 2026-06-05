@@ -34,7 +34,6 @@ public actor RpcDispatcher {
   private let appConfig: AppConfigStore
   private let projectConfig: ProjectConfigStore
   private let tasks: TaskStore
-  private let claudeSessions: ClaudeSessionStore
   private let onHook: HookHandler
   private let onOpen: OpenHandler
   private let onNotify: NotifyHandler
@@ -67,7 +66,6 @@ public actor RpcDispatcher {
     self.appConfig = AppConfigStore(configDir: configDir)
     self.projectConfig = ProjectConfigStore(configDir: configDir)
     self.tasks = TaskStore(configDir: configDir)
-    self.claudeSessions = ClaudeSessionStore(configDir: configDir)
     self.onHook = onHook
     self.onOpen = onOpen
     self.onNotify = onNotify
@@ -114,178 +112,109 @@ public actor RpcDispatcher {
       // (b) そもそも未登録 ptyId → spawn 経路の不整合、調査対象。error と明記する。
       if await pty.wasExplicitlyRemoved(hook.ptyID) {
         StderrLog.write(
-          tag: "ClaudeSessionStore",
+          tag: "applyClaudeSessionHook",
           "late \(hook.event) for pty=\(hook.ptyID) session=\(hook.sessionID) after removeByPty; skipping"
         )
       } else {
         StderrLog.write(
-          tag: "ClaudeSessionStore",
+          tag: "applyClaudeSessionHook",
           "\(hook.event) for unknown pty=\(hook.ptyID); skipping"
         )
       }
       return
     }
-    do {
-      switch hook.event {
-      case "session-start":
-        // 同 ptyId で前回観測した sessionId と異なるなら、PTY 内で `/clear` や
-        // `--resume` でセッションが切り替わったケース。Claude は旧セッションの
-        // session-end を発火しないため、ここで明示的に掃除する。worktree 全削除
-        // ではなく ptyId スコープに限るので、別 PTY（別 leaf）の生きたセッションは
-        // 触らない。複数 leaf で並列に Claude を走らせるユースケースを壊さない。
-        // 直近 sessionId は PTYRegistry に保持し、unregisterPane 経由の削除 RPC
-        // （/claudeSession/removeByPty）からも同じマッピングを参照する。
-        if let previous = await pty.sessionId(for: hook.ptyID),
-          previous != hook.sessionID
-        {
-          try await claudeSessions.removeBySessionId(
-            worktreePath: worktreePath, sessionId: previous)
-          // 旧 session を持っていた Task から sessionID を切り離す。task 本体は
-          // 残し (gh_ref があれば永続)、新 session 開始経路 (attachSession)
-          // と矛盾しないよう「sessionID 空 + 同 worktree」候補を増やす。
-          do {
-            try await tasks.detachSession(dir: worktreePath, sessionId: previous)
-          } catch {
-            StderrLog.write(tag: "TaskStore", "detachSession (previous) failed: \(error)")
-            onNotify(
-              "error", "task-store", "Failed to detach previous session from task",
-              String(describing: error), worktreePath)
-          }
-        }
-        // expected resume sid を必ず消費する。これで removeByPty 経路の
-        // 「expected 残存 = SessionStart 不達 = resume 失敗」判定が意味的に閉じる。
-        // 返り値が hook.sessionID と一致 → resume 成功 (no-op、attachSession が冪等処理)。
-        // 不一致かつ非空 → `claude --resume X` が失敗して zsh が素の `claude` に
-        // fallback したケース。dead expected を claudeSessions と tasks から掃除して、
-        // 後段 attachSession(Y) が「sessionID 空の最新 task」を再 attach できる候補に
-        // するため道を空ける (clearDeadSession で X 持ち task の sessionID が空に
-        // 書き戻されることで attachSession の候補ピックアップに乗る。元 task の id に
-        // 固定指定しているわけではないので、同 worktree に他 sessionID 空 task があれば
-        // createdAt 最新の方が拾われる)。pane close を待たずに新 sid で復活させるため、
-        // upsert(Y) / attachSession(Y) の前段で必ず実行する。
-        let expectedSid = (await pty.consumeExpectedResumeSid(for: hook.ptyID)) ?? ""
-        if !expectedSid.isEmpty && expectedSid != hook.sessionID {
-          do {
-            try await claudeSessions.removeBySessionId(
-              worktreePath: worktreePath, sessionId: expectedSid)
-          } catch {
-            StderrLog.write(
-              tag: "ClaudeSessionStore",
-              "resume-failure cleanup (session-start fallback) failed: \(error)"
-            )
-            onNotify(
-              "error", "claude-sessions",
-              "Failed to clean up after resume failure (fallback)",
-              String(describing: error), worktreePath)
-          }
-          do {
-            // session-start fallback 経路: `closed_by_user` は据え置き
-            // (markClosedByUser=false)。直後の `attachSession(hook.sessionID)` が
-            // sessionID 空の同 worktree task を candidate ピックで自動転移する。
-            // ここで closed_by_user=true を立ててもピック対象から外れることは無いが、
-            // ユーザーは pane を閉じていないので semantic 的にも false 据え置きが正しい。
-            try await tasks.clearDeadSession(
-              dir: worktreePath, sessionId: expectedSid, markClosedByUser: false)
-          } catch {
-            StderrLog.write(
-              tag: "TaskStore",
-              "clearDeadSession (session-start fallback) failed: \(error)"
-            )
-            onNotify(
-              "error", "task-store",
-              "Failed to clear dead session from task after resume failure (fallback)",
-              String(describing: error), worktreePath)
-          }
-        }
-        // 永続化を先に成功させてから PTYRegistry のマッピングを更新する。
-        // 逆順だと upsert が throw した場合 PTYRegistry だけ新 sessionId に進み、
-        // 次回 cleanup の根拠（永続化と同期した sessionId）を失う。
-        try await claudeSessions.upsert(
-          worktreePath: worktreePath,
-          sessionId: hook.sessionID
-        )
-        // SessionStart hook: 該当 worktree で sessionID 空の最新 task に attach。
-        // 無ければ新規 task を作る (PR/issue picker を経ない Claude 直接起動経路)。
-        // attachSession が throw した場合は直前の upsert(Y) を rollback して中間状態
-        // (「claude-sessions に Y は存在 / 対応 task は紐付け無し」の孤児 Y) を残さない。
-        // rollback しないと UI 上「task に session が付かないまま claude-sessions だけ
-        // 増えていく」観察不能な leak を生む。pty.setSessionId も skip して PTYRegistry
-        // と永続化の sid を取り違えないようにする。
+    // session の永続化は task.session_id (TaskStore) が SSOT。各 tasks 呼び出しは
+    // 個別 do/catch で notify に倒すため、この関数は throw せず素の switch で書く。
+    switch hook.event {
+    case "session-start":
+      // 同 ptyId で前回観測した sessionId と異なるなら、PTY 内で `/clear` や
+      // `--resume` でセッションが切り替わったケース。Claude は旧セッションの
+      // session-end を発火しないため、旧 session を持っていた Task から sessionID を
+      // 切り離す (task 本体は残し、新 session 開始経路 attachSession の「sessionID 空 +
+      // 同 worktree」候補に回す)。ptyId スコープに限るので別 leaf の生きたセッションは
+      // 触らない。直近 sessionId は PTYRegistry に保持し、unregisterPane 経由の削除 RPC
+      // （/claudeSession/removeByPty）からも同じマッピングを参照する。
+      if let previous = await pty.sessionId(for: hook.ptyID),
+        previous != hook.sessionID
+      {
         do {
-          try await tasks.attachSession(
-            dir: worktreePath,
-            sessionId: hook.sessionID,
-            worktreeDir: worktreePath
+          try await tasks.detachSession(dir: worktreePath, sessionId: previous)
+        } catch {
+          StderrLog.write(tag: "TaskStore", "detachSession (previous) failed: \(error)")
+          onNotify(
+            "error", "task-store", "Failed to detach previous session from task",
+            String(describing: error), worktreePath)
+        }
+      }
+      // expected resume sid を必ず消費する。これで removeByPty 経路の
+      // 「expected 残存 = SessionStart 不達 = resume 失敗」判定が意味的に閉じる。
+      // 返り値が hook.sessionID と一致 → resume 成功 (no-op、attachSession が冪等処理)。
+      // 不一致かつ非空 → `claude --resume X` が失敗して zsh が素の `claude` に
+      // fallback したケース。dead expected を tasks から掃除して、後段 attachSession(Y)
+      // が「sessionID 空の最新 task」を再 attach できる候補にするため道を空ける
+      // (clearDeadSession で X 持ち task の sessionID が空に書き戻されることで
+      // attachSession の候補ピックアップに乗る。元 task の id に固定指定しているわけ
+      // ではないので、同 worktree に他 sessionID 空 task があれば createdAt 最新の方が
+      // 拾われる)。pane close を待たずに新 sid で復活させるため attachSession(Y) の前段で実行。
+      let expectedSid = (await pty.consumeExpectedResumeSid(for: hook.ptyID)) ?? ""
+      if !expectedSid.isEmpty && expectedSid != hook.sessionID {
+        do {
+          // session-start fallback 経路: `closed_by_user` は据え置き
+          // (markClosedByUser=false)。直後の `attachSession(hook.sessionID)` が
+          // sessionID 空の同 worktree task を candidate ピックで自動転移する。
+          // ここで closed_by_user=true を立ててもピック対象から外れることは無いが、
+          // ユーザーは pane を閉じていないので semantic 的にも false 据え置きが正しい。
+          try await tasks.clearDeadSession(
+            dir: worktreePath, sessionId: expectedSid, markClosedByUser: false)
+        } catch {
+          StderrLog.write(
+            tag: "TaskStore",
+            "clearDeadSession (session-start fallback) failed: \(error)"
           )
-          await pty.setSessionId(for: hook.ptyID, sessionId: hook.sessionID)
-        } catch {
-          StderrLog.write(tag: "TaskStore", "attachSession failed: \(error)")
           onNotify(
-            "error", "task-store", "Failed to attach session to task",
-            String(describing: error), worktreePath)
-          do {
-            try await claudeSessions.removeBySessionId(
-              worktreePath: worktreePath, sessionId: hook.sessionID)
-          } catch {
-            StderrLog.write(
-              tag: "ClaudeSessionStore",
-              "attachSession rollback (upsert revert) failed: \(error)"
-            )
-            onNotify(
-              "error", "claude-sessions",
-              "Failed to rollback claude-sessions after attachSession failure",
-              String(describing: error), worktreePath)
-          }
-        }
-      case "session-end":
-        // 永続化削除を先に成功させてから PTYRegistry のマッピングを消す。
-        // 逆順だと removeBySessionId が throw した場合 PTYRegistry からは消えるが
-        // 永続化には残り続け、次回 cleanup（removeByPty）で sessionId 解決ができない。
-        try await claudeSessions.removeBySessionId(
-          worktreePath: worktreePath, sessionId: hook.sessionID)
-        // SessionEnd: task.sessionID は保持して `claude --resume` の起点に使う。
-        // task 本体は削除せず、`closed_by_user=true` を立ててサイドバー表示を
-        // `closed` 状態に切り替える。明示的削除はユーザーの ⋮ メニューで行う。
-        do {
-          try await tasks.detachSession(dir: worktreePath, sessionId: hook.sessionID)
-        } catch {
-          StderrLog.write(tag: "TaskStore", "detachSession failed: \(error)")
-          onNotify(
-            "error", "task-store", "Failed to detach session from task",
+            "error", "task-store",
+            "Failed to clear dead session from task after resume failure (fallback)",
             String(describing: error), worktreePath)
         }
-        await pty.clearSessionId(for: hook.ptyID)
-      default:
-        // 呼び出し元 handleSocketMessage が hook.event を session-start /
-        // session-end に絞り込んでから呼ぶため到達しない。外側 catch の switch と
-        // 対称に観察可能化する (silent break で将来フィルタが緩んだとき no-op に
-        // ならないように)。
-        preconditionFailure(
-          "applyClaudeSessionHook reached with unexpected event: \(hook.event)")
       }
-    } catch {
-      // claudeSessions.upsert / removeBySessionId / pty.setSessionId / pty.sessionId
-      // などの外側 throw を拾う catch。session-start / session-end の永続化失敗は
-      // 後段 fetch でも復旧経路が無いため、TaskStore 失敗と対称に renderer へ
-      // notify する。dir は worktreePath が解決済みなのでそのまま渡す。
-      // message は TaskStore 側と同じく経路ごとに静的列挙して、トースト UI で
-      // 運用者が経路を識別できるようにする。
-      StderrLog.write(tag: "ClaudeSessionStore", "\(hook.event) failed: \(error)")
-      let message: String
-      switch hook.event {
-      case "session-start":
-        message = "Failed to persist new Claude session"
-      case "session-end":
-        message = "Failed to remove ended Claude session"
-      default:
-        // applyClaudeSessionHook は呼び出し元 (handleSocketMessage) で hook.event を
-        // session-start / session-end に絞り込んでから呼ばれるため、ここには到達しない。
-        // Swift の String switch は default が必須なので明示的に観察可能化する。
-        preconditionFailure(
-          "applyClaudeSessionHook reached with unexpected event: \(hook.event)")
+      // SessionStart hook: 該当 worktree で sessionID 空の最新 task に attach。無ければ
+      // 新規 task を作る (PR/issue picker を経ない Claude 直接起動経路)。永続化
+      // (attachSession) を先に成功させてから PTYRegistry のマッピングを更新する。逆順
+      // だと attachSession が throw した場合 PTYRegistry だけ新 sessionId に進み、次回
+      // cleanup (removeByPty) の根拠 (永続化と同期した sessionId) を失う。
+      do {
+        try await tasks.attachSession(
+          dir: worktreePath,
+          sessionId: hook.sessionID,
+          worktreeDir: worktreePath
+        )
+        await pty.setSessionId(for: hook.ptyID, sessionId: hook.sessionID)
+      } catch {
+        StderrLog.write(tag: "TaskStore", "attachSession failed: \(error)")
+        onNotify(
+          "error", "task-store", "Failed to attach session to task",
+          String(describing: error), worktreePath)
       }
-      onNotify(
-        "error", "claude-sessions", message, String(describing: error), worktreePath)
+    case "session-end":
+      // SessionEnd: task.sessionID は保持して `claude --resume` の起点に使う。
+      // task 本体は削除せず、`closed_by_user=true` を立ててサイドバー表示を
+      // `closed` 状態に切り替える。明示的削除はユーザーの ⋮ メニューで行う。
+      // 永続化 (detachSession) を先に成功させてから PTYRegistry のマッピングを消す。
+      do {
+        try await tasks.detachSession(dir: worktreePath, sessionId: hook.sessionID)
+      } catch {
+        StderrLog.write(tag: "TaskStore", "detachSession failed: \(error)")
+        onNotify(
+          "error", "task-store", "Failed to detach session from task",
+          String(describing: error), worktreePath)
+      }
+      await pty.clearSessionId(for: hook.ptyID)
+    default:
+      // 呼び出し元 handleSocketMessage が hook.event を session-start /
+      // session-end に絞り込んでから呼ぶため到達しない。silent break で将来フィルタが
+      // 緩んだとき no-op にならないよう preconditionFailure で観察可能化する。
+      preconditionFailure(
+        "applyClaudeSessionHook reached with unexpected event: \(hook.event)")
     }
   }
 
@@ -397,8 +326,8 @@ public actor RpcDispatcher {
       return try handleWindowClose(body)
     case "/window/setTitleContext":
       return try await handleWindowSetTitleContext(body)
-    case "/claudeSession/listByDir":
-      return try await handleClaudeSessionListByDir(body)
+    case "/task/resumableSessions":
+      return try await handleResumableSessionList(body)
     case "/claudeSession/removeByPty":
       return try await handleClaudeSessionRemoveByPty(body)
     case "/claudeSession/readLog":
@@ -1066,18 +995,11 @@ public actor RpcDispatcher {
   private func handleWorktreeRemove(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitWorktreeRemoveRequest(jsonUTF8Data: body)
     try await WorktreeOps.removeWorktree(dir: req.dir, path: req.path, force: req.force)
-    // worktree が消えたら紐づく Claude セッション残骸も掃除する。
-    // projectKey 解決は req.dir（main repo dir、削除されない側）から行う。
-    // req.path は物理削除された後なので、これを anchor にすると
-    // projectKey が変わって別ファイルを参照してしまう。
-    try await claudeSessions.removeByWorktreePath(
-      projectAnchorDir: req.dir, worktreePath: req.path
-    )
     // worktree 物理削除に Task の片付けも連動させる。task は worktreeDir に紐づく
-    // 永続オブジェクトなので、claudeSessions だけ消して tasks を放置すると
-    // `tasks.json` に孤児 Task が残り、サイドバーにゾンビ行が出る
-    // (handleClaudeSessionRemoveByPty と対称)。失敗は notify でユーザーに伝え、
-    // claudeSessions 側の成功を巻き戻さない。
+    // 永続オブジェクトなので、放置すると `tasks.json` に孤児 Task が残り、サイドバーに
+    // ゾンビ行が出る (handleClaudeSessionRemoveByPty と対称)。projectKey 解決は req.dir
+    // (main repo dir、削除されない側) から行う。req.path は物理削除済みなので anchor に
+    // すると projectKey が変わって別ファイルを参照する。失敗は notify でユーザーに伝える。
     do {
       try await tasks.removeByWorktree(dir: req.dir, worktreePath: req.path)
     } catch {
@@ -1089,11 +1011,15 @@ public actor RpcDispatcher {
     return try Gozd_V1_GitWorktreeRemoveResponse().jsonUTF8Data()
   }
 
-  private func handleClaudeSessionListByDir(_ body: Data) async throws -> Data {
-    let req = try Gozd_V1_ClaudeSessionListByDirRequest(jsonUTF8Data: body)
-    let sessions = try await claudeSessions.savedSessions(for: req.dir)
-    var resp = Gozd_V1_ClaudeSessionListByDirResponse()
-    resp.sessions = sessions
+  // 指定 dir で resume 可能な Claude セッションの session_id 一覧を返す。renderer の
+  // visit() が未訪問 worktree の初回オープン時に呼ぶ。導出ロジック (filter 条件) は
+  // TaskStore.resumableSessionIds が SSOT として持つ。dead session が混じり得るが
+  // `claude --resume` のエラー終了を resume 失敗検出経路 (handleClaudeSessionRemoveByPty)
+  // が片付ける (pure read)。
+  private func handleResumableSessionList(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_ResumableSessionListRequest(jsonUTF8Data: body)
+    var resp = Gozd_V1_ResumableSessionListResponse()
+    resp.sessionIds = try await tasks.resumableSessionIds(dir: req.dir)
     return try resp.jsonUTF8Data()
   }
 
@@ -1122,11 +1048,10 @@ public actor RpcDispatcher {
 
   private func handleClaudeSessionRemoveByPty(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_ClaudeSessionRemoveByPtyRequest(jsonUTF8Data: body)
-    // sessionId / worktreePath 紐付けを **必ず** クリアする。removeBySessionId が
-    // throw して早期 return しても late session-start hook を弾く必要があるため、
-    // do-catch + 後置クリアで順序を保証する。
-    // これにより「Claude 起動直後の closePane」で発生しうる upsert race を構造的に防ぐ。
-    var removeError: Error?
+    // sessionId / worktreePath 紐付けは最後に **必ず** クリアする (後置の
+    // clearAssociations)。tasks 側の cleanup が throw しても late session-start hook を
+    // 弾く必要があるため、各 tasks 呼び出しは個別 do/catch に閉じて throw を伝播させない。
+    // これにより「Claude 起動直後の closePane」で発生しうる race を構造的に防ぐ。
     var removedSessionId = ""
 
     // expected resume sid は SessionStart 経路 (applyClaudeSessionHook) で一度
@@ -1151,22 +1076,9 @@ public actor RpcDispatcher {
       // SessionStart hook が一度も着弾しないまま pane が閉じられた。
       // `claude --resume <sid>` が transcript 不在等で error 終了し、zsh fallback の
       // 素 `claude` も SessionStart 不達のまま終わった (起動エラー / ユーザーが即 /exit)
-      // 等のケース。stale な sid を片付ける。
-      // - claude-sessions.json: 該当 sid のエントリ削除
-      // - tasks.json: clearDeadSession で sid を空に書き換え + closed_by_user=true。
-      //   task 本体は残り、次のクリックで `--resume` ではなく素の claude 起動に流す。
-      //   ユーザーの明示削除 (⋮ メニュー) を待つまで closed 状態で滞留する。
-      do {
-        try await claudeSessions.removeBySessionId(
-          worktreePath: req.worktreePath, sessionId: expectedSid)
-      } catch {
-        StderrLog.write(
-          tag: "ClaudeSessionStore", "resume-failure cleanup failed: \(error)")
-        onNotify(
-          "error", "claude-sessions",
-          "Failed to clean up after resume failure",
-          String(describing: error), req.worktreePath)
-      }
+      // 等のケース。clearDeadSession で task の sessionID を空に書き換え + closed_by_user=true。
+      // task 本体は残り、次のクリックで `--resume` ではなく素の claude 起動に流す。
+      // ユーザーの明示削除 (⋮ メニュー) を待つまで closed 状態で滞留する。
       do {
         // removeByPty 経路 (terminal close + resume 失敗): pane が閉じているので
         // 直後の attachSession は走らない。ユーザーが pane を閉じた事実をシグナル化
@@ -1188,14 +1100,7 @@ public actor RpcDispatcher {
     // ユーザーの ⋮ メニュー or worktree 削除 cascade を待つ。
     if !liveSid.isEmpty {
       removedSessionId = liveSid
-      do {
-        try await claudeSessions.removeBySessionId(
-          worktreePath: req.worktreePath, sessionId: liveSid)
-      } catch {
-        removeError = error
-      }
-      // claudeSessions 側のエラーを優先するため tasks 側は throw しないが、失敗を
-      // 放置すると stale な sessionID が残るので notify する。
+      // detachSession 失敗を放置すると stale な sessionID が残るので notify する。
       do {
         try await tasks.detachSession(dir: req.worktreePath, sessionId: liveSid)
       } catch {
@@ -1216,9 +1121,6 @@ public actor RpcDispatcher {
     // renderer 側は sessionId 空をトリガに refetch を skip する契約。
 
     await pty.clearAssociations(for: req.ptyID)
-    if let error = removeError {
-      throw error
-    }
     var resp = Gozd_V1_ClaudeSessionRemoveByPtyResponse()
     resp.removedSessionID = removedSessionId
     return try resp.jsonUTF8Data()

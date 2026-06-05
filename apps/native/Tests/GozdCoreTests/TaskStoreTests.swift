@@ -73,6 +73,40 @@ struct TaskStoreTests {
     #expect(a.id != b.id)
   }
 
+  // MARK: - resumableSessionIds
+
+  @Test("resumableSessionIds: sessionId 非空 + !closedByUser + worktreeDir 一致の task だけ返す")
+  func resumableSessionIdsFiltersByAllBoundaries() async throws {
+    let env = try await makeEnv()
+    defer { cleanup(env) }
+    let store = TaskStore(configDir: env.configDir)
+
+    // task1 (A, sid 有, !closed) → resume 対象
+    _ = try await store.add(
+      dir: env.worktreeA, ghTitle: "a1", worktreeDir: env.worktreeA, ghRef: .forPr(1))
+    try await store.attachSession(
+      dir: env.worktreeA, sessionId: "sid-a1", worktreeDir: env.worktreeA)
+    // task2 (A, sid 有, closed) → 除外 (closedByUser)
+    _ = try await store.add(
+      dir: env.worktreeA, ghTitle: "a2", worktreeDir: env.worktreeA, ghRef: .forPr(2))
+    try await store.attachSession(
+      dir: env.worktreeA, sessionId: "sid-a2", worktreeDir: env.worktreeA)
+    try await store.detachSession(dir: env.worktreeA, sessionId: "sid-a2")
+    // task3 (A, sid 空) → 除外 (sessionId 空)
+    _ = try await store.add(
+      dir: env.worktreeA, ghTitle: "a3", worktreeDir: env.worktreeA, ghRef: .forPr(3))
+    // task4 (B, sid 有, !closed) → 除外 (worktreeDir 不一致。list は projectKey 単位で
+    // 全 worktree の task を返すため、worktreeDir 絞り込みが効かないと別 worktree の
+    // session を resume してしまう)
+    _ = try await store.add(
+      dir: env.worktreeA, ghTitle: "b1", worktreeDir: env.worktreeB, ghRef: .forPr(4))
+    try await store.attachSession(
+      dir: env.worktreeA, sessionId: "sid-b1", worktreeDir: env.worktreeB)
+
+    let resumable = try await store.resumableSessionIds(dir: env.worktreeA)
+    #expect(resumable == ["sid-a1"])
+  }
+
   // MARK: - remove
 
   @Test("remove: 指定 id の task を削除")

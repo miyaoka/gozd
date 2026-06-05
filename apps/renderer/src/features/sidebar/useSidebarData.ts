@@ -277,7 +277,7 @@ export function useSidebarData() {
     // `useFsWatchSync` の watch 起動完了通知。往復中の取りこぼし救済として 1 回だけ
     // worktree list を取り直す。
     cleanups.push(onMessage<FsWatchReadyPayload>("fsWatchReady", ({ dir }) => fetchOwnerOf(dir)));
-    // 永続化ストア (TaskStore / ClaudeSessionStore) の失敗 notify を該当 repo の
+    // 永続化ストア (TaskStore) の失敗 notify を該当 repo の
     // 真値再取得トリガとして使う。session hook (session-start / session-end /
     // removeByWorktree / removeByPty 等) の Swift 側 I/O が失敗したとき refetch で
     // 能動的に整合を取る。永続化と renderer state が乖離する可能性がある以上、

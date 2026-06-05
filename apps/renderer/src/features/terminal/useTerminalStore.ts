@@ -8,12 +8,13 @@ import type { ClaudeStatus } from "./claudeStatus";
 import { isHookEvent, createClaudeStatusManager } from "./claudeStatus";
 import { createPtySessionManager } from "./ptySession";
 import type { PaneEntry } from "./ptySession";
+import { buildResumeSessionIds } from "./resumeSessionIds";
 import type { HookPayload, PtyExitPayload, PtyTextPayload } from "./rpc";
 import {
-  rpcClaudeSessionListByDir,
   rpcClaudeSessionRemoveByPty,
   rpcPtyKill,
   rpcPtySpawn,
+  rpcResumableSessionList,
 } from "./rpc";
 import { createTerminalLayout } from "./terminalLayout";
 import type { TerminalLayoutState } from "./terminalLayout";
@@ -102,7 +103,7 @@ export const useTerminalStore = defineStore("terminal", () => {
   /**
    * 未訪問 worktree に対する「visit で最初の leaf に乗せたい sessionId」のヒント。
    * サイドバーで resumable な Task 行をクリックしたとき、setOpen 起点の自動 visit が
-   * fetched.sessions の先頭順で leaf を割り当てて意図がずれるのを防ぐ。visit 内で
+   * savedSessionIds の先頭順で leaf を割り当てて意図がずれるのを防ぐ。visit 内で
    * 1 回だけ消費し、対象 dir の前置きとして使う。
    */
   const preferredResumeByDir = ref<Record<string, string>>({});
@@ -201,8 +202,8 @@ export const useTerminalStore = defineStore("terminal", () => {
         // resume 永続化はユーザーの明示的な pane 削除（terminal.closePane /
         // resetLayout / worktree 削除を経由する全ケース。後者には sidebar 経由の
         // 削除 / fetchRepo が stale 検知で発火する終端も含む）でのみ消す。
-        // アプリ終了時は renderer ごと死ぬためこの経路を通らず、claude-sessions.json
-        // はそのまま残り次回 resume できる。
+        // アプリ終了時は renderer ごと死ぬためこの経路を通らず、task.sessionId は
+        // そのまま残り次回 resume できる。
         // ptyId は paneRegistry が保持しているので hook 到達順に依存せず確実に渡せる。
         const entry = paneRegistry.value[leafId];
         const ptyId = entry?.session?.ptyId;
@@ -211,7 +212,7 @@ export const useTerminalStore = defineStore("terminal", () => {
           // 削除 RPC を先行させ、await してから killPty を呼ぶ。
           // killPty を先に投げると native の consumers task が `remove(id:)` で
           // sessionIdById を消した後に削除 RPC が到達して sessionId nil ですり抜け、
-          // claude-sessions.json にエントリが残る race の窓が空く。
+          // task の sessionId が detach されず残る race の窓が空く。
           // killPty / state 削除も IIFE 内に置く: ptySession.killPty(leafId) は
           // 内部で paneRegistry[leafId].session を引くため、await 前に paneRegistry
           // を消してしまうと no-op になり PTY に SIGHUP が飛ばなくなる。
@@ -360,7 +361,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     const gen = (visitGenByDir.get(dir) ?? 0) + 1;
     visitGenByDir.set(dir, gen);
 
-    const fetched = await tryCatch(rpcClaudeSessionListByDir({ dir }));
+    const fetched = await tryCatch(rpcResumableSessionList({ dir }));
     if (visitGenByDir.get(dir) !== gen) return;
     if (!fetched.ok) {
       // fetch 失敗時は visitedDirs を汚さず、ユーザーに通知して終了。
@@ -371,52 +372,44 @@ export const useTerminalStore = defineStore("terminal", () => {
     }
 
     visitedDirs.value.push(dir);
-    let sessions = fetched.value.sessions;
+    const savedSessionIds = fetched.value.sessionIds;
 
-    // サイドバーで resumable Task をクリックして visit を誘発したケース。
-    // 該当 sessionId を必ず先頭 (= initial focused leaf) に乗せる。
+    // 復元する sessionId 列を組み立てる。preferred はサイドバーで resumable / closed
+    // Task をクリックして visit を誘発したケースの sessionId (= task.sessionId)。
+    //
+    // savedSessionIds は rpcResumableSessionList が返す resumable 集合 (tasks.json の
+    // sessionId 有 + !closedByUser、= app close で中断され残ったもの)。ユーザーが明示
+    // クリックした closed task (closedByUser=true) はこの集合に含まれないため、preferred
+    // が saved に無いのは異常ではなく通常ケース。保存リストでの検証はせず、明示クリックを
+    // 尊重して preferred を常に先頭 (= initial focused leaf) に置く (重複は除外)。これは
+    // 訪問済み経路の requestResumeSession が saved を参照せず直接 resume するのと同じ流儀。
+    // resume が真に不能なら native 側の dead session 清掃が hook 経路で処理する。
+    // 列組み立ては境界条件 (preferred の有無 / saved 重複) を持つので純関数に分離。
     const preferred = preferredResumeByDir.value[dir];
-    if (preferred !== undefined) {
-      delete preferredResumeByDir.value[dir];
-      const idx = sessions.findIndex((s) => s.sessionId === preferred);
-      if (idx > 0) {
-        const reordered = [...sessions];
-        const [pick] = reordered.splice(idx, 1);
-        if (pick !== undefined) reordered.unshift(pick);
-        sessions = reordered;
-      } else if (idx < 0) {
-        // click と visit の間に session listing から該当 sessionId が消えた。
-        // 期待した session の resume はできないので、ユーザーに知らせる
-        // (silent に先頭 session を起動すると click の意図がすり替わる)。
-        // 本文は短く、診断情報 (sessionId / dir) は cause に逃がして展開表示で見せる。
-        notify.error(
-          "Selected resumable session is no longer available",
-          new Error(`sessionId=${preferred} dir=${dir}`),
-        );
-      }
-    }
+    if (preferred !== undefined) delete preferredResumeByDir.value[dir];
+    const resumeSessionIds = buildResumeSessionIds(preferred, savedSessionIds);
 
     // ensureLayout で初期 leaf を作る（既存の単一 leaf 起動と同じ）
     const initialLayout = layout.ensureLayout(dir);
     const initialLeafId = initialLayout.focusedLeafId;
-    const [firstSession, ...remainingSessions] = sessions;
-    if (firstSession !== undefined) {
-      pendingResumeByLeafId.value[initialLeafId] = firstSession.sessionId;
+    const [firstSessionId, ...remainingSessionIds] = resumeSessionIds;
+    if (firstSessionId !== undefined) {
+      pendingResumeByLeafId.value[initialLeafId] = firstSessionId;
     }
     // 2 つ目以降のセッションは split で leaf を増やす
-    for (const session of remainingSessions) {
+    for (const sessionId of remainingSessionIds) {
       const newLeafId = layout.splitPane(dir, "horizontal");
       if (newLeafId !== undefined) {
-        pendingResumeByLeafId.value[newLeafId] = session.sessionId;
+        pendingResumeByLeafId.value[newLeafId] = sessionId;
       }
     }
     // session 未紐付け task クリックで visit を誘発したケース。saved session の resume
     // とは排他ではなく共存させる (訪問済み経路の requestNewClaudeSession と同じ流儀):
-    // - firstSession 無し → 初期 leaf を直接 autostart に
-    // - firstSession あり → 追加 leaf を split して autostart + focus
+    // - firstSessionId 無し → 初期 leaf を直接 autostart に
+    // - firstSessionId あり → 追加 leaf を split して autostart + focus
     if (preferredAutostartByDir.value[dir]) {
       delete preferredAutostartByDir.value[dir];
-      if (firstSession === undefined) {
+      if (firstSessionId === undefined) {
         pendingAutostartByLeafId.value[initialLeafId] = true;
       } else {
         const autostartLeafId = layout.splitPane(dir, "horizontal");

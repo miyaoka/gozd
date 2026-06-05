@@ -63,3 +63,17 @@ message TaskRemoveRequest {
   string id = 2;
 }
 message TaskRemoveResponse {}
+
+// 指定 worktree dir で resume 可能な Claude セッションの session_id 一覧。renderer の
+// visit() が未訪問 worktree の初回オープン時に呼び、保存済みセッションを leaf に復元する。
+// task.session_id が SSOT。`session_id != "" && !closed_by_user` の task を集める
+// (app close で中断され closed_by_user=false のまま残ったもの。session-end / 明示 close で
+// closed_by_user=true になったものは除外)。dead session (transcript 不在) が混じり得るが、
+// その場合 `claude --resume` がエラー終了し resume 失敗検出経路が当該 task を片付ける。
+message ResumableSessionListRequest {
+  string dir = 1;
+}
+
+message ResumableSessionListResponse {
+  repeated string session_ids = 1;
+}

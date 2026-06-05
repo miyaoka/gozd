@@ -12,7 +12,7 @@ indent して agent 名をラベル全幅で見せる (各行に workflow 名を
 
 ## レイアウト
 
-- gutter 列 (agent 名) + プロット列の 2 カラムを 1 つのスクロールコンテナに入れる。プロット列は
+- gutter 列 (agent 名 + 右寄せ model) + プロット列の 2 カラムを 1 つのスクロールコンテナに入れる。プロット列は
   軸ヘッダ + バー行 + playhead を **1 つの relative content box** に収めるので、縦スクロールバーで
   幅が縮んでも全要素が同じ座標系で一致する (軸とバーがズレない。要素や座標系を分けないのが要点)
 - gutter 列は先頭に軸ヘッダ高さ分の spacer を置き、バー行と縦に揃える
@@ -35,6 +35,8 @@ indent して agent 名をラベル全幅で見せる (各行に workflow 名を
 - 生存期間 ts を持たないセッション (信頼境界外ログの病的ケース) は時間軸に置けないため、
   左端の破線 placeholder バーに倒して選択だけは可能にする (silent drop 回避)
 - main は常に左ペインに出る anchor なので恒常ハイライト、選択中 subagent は別の強調色にする
+- gutter ラベル右端にその agent が使った model を出す (`message.model` 実測値)。workflow グループ
+  見出し行は agent ではないため model を持たず何も出さない
 </doc>
 
 <script setup lang="ts">

@@ -94,6 +94,9 @@ function imageSrc(block: ImageBlock): string | undefined {
 interface RawMessage {
   role?: string;
   content?: string | ContentBlock[];
+  // assistant レコードが実際に使った model 名 (例 "claude-opus-4-8")。信頼境界外の入力で
+  // null / 空 / システム生成の "<synthetic>" がありうるため optional かつ null 許容にする。
+  model?: string | null;
 }
 // `type:"attachment"` レコードの中身。queued_command のみ会話に載せるため prompt を読む。
 interface RawAttachment {
@@ -208,6 +211,14 @@ export type TranscriptEvent =
 
 export interface ParsedSessionLog {
   events: TranscriptEvent[];
+  /**
+   * この agent (main または subagent 1 つ) が実際に使った model 名を出現順ユニークで持つ。
+   * assistant レコードの message.model が SSOT。null / 空 / "<synthetic>" は除く。通常 1 件だが
+   * セッション中の /model 切り替えで複数になりうるため配列で保持する。effort は JSONL に書き
+   * 出されず agent 定義 frontmatter 側にしか無いため、セッションファイル自己完結の方針として
+   * model のみ採る。
+   */
+  models: string[];
   /** 表示した (live な) JSONL 行数。rewind で選ばれなかった枝の行は含まない */
   totalLines: number;
   /** JSON parse に失敗した行数 (末尾の追記途中行など) */
@@ -322,6 +333,9 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
   let malformed = 0;
   let skipped = 0;
   let emptyThinking = 0;
+  // 実 model 名を出現順ユニークで集める。seen は重複判定、models は順序保持。
+  const models: string[] = [];
+  const seenModels = new Set<string>();
 
   // --- フェーズ 1: 全行を parse して LogNode に正規化する (rewind 木の素材) ---
   const nodes: LogNode[] = [];
@@ -486,6 +500,19 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     }
 
     if (raw.type === "assistant") {
+      // 実際に使われた model を記録する。content の形 (array / synthetic string) に依らず
+      // message.model はレコード単位に付くため、ブロック走査の前にここで採る。null / 空 /
+      // システム生成の "<synthetic>" は実モデルではないため除外する。
+      const model = raw.message?.model;
+      if (
+        typeof model === "string" &&
+        model !== "" &&
+        model !== "<synthetic>" &&
+        !seenModels.has(model)
+      ) {
+        seenModels.add(model);
+        models.push(model);
+      }
       const content = raw.message?.content;
       if (!Array.isArray(content)) {
         skipped++;
@@ -553,7 +580,26 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     skipped++;
   }
 
-  return { events, totalLines, malformed, skipped, emptyThinking };
+  return { events, models, totalLines, malformed, skipped, emptyThinking };
+}
+
+// model ID の family 部分 → 表示名。バージョンは正規表現で抽出するため family のみ table 化する。
+const MODEL_FAMILY_LABELS: Record<string, string> = {
+  opus: "Opus",
+  sonnet: "Sonnet",
+  haiku: "Haiku",
+};
+
+/**
+ * model ID を短い表示名にする。`claude-opus-4-8` → `Opus 4.8`、
+ * `claude-haiku-4-5-20251001` → `Haiku 4.5` (日付サフィックスは捨てる)。
+ * 既知パターンに合わない値は生のまま返し、未知 model を握り潰さず可視化する。
+ */
+export function formatModelLabel(model: string): string {
+  const match = /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)/.exec(model);
+  if (match === null) return model;
+  const [, family = "", major = "", minor = ""] = match;
+  return `${MODEL_FAMILY_LABELS[family]} ${major}.${minor}`;
 }
 
 // --- ログファイルのパス解決 (SessionLogDialog のライブ更新 watch が使う) ---

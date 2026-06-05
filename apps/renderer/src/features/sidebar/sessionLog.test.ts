@@ -2,6 +2,7 @@ import { afterAll, describe, expect, setSystemTime, test } from "bun:test";
 import {
   buildSubagentLinks,
   buildTimelineTracks,
+  formatModelLabel,
   formatSessionTime,
   groupByWorkflow,
   nearestEventIndexByTs,
@@ -1423,5 +1424,58 @@ describe("newestSubagentTrackId", () => {
   test("subagent が無ければ undefined", () => {
     expect(newestSubagentTrackId([track("main", { isMain: true })])).toBeUndefined();
     expect(newestSubagentTrackId([])).toBeUndefined();
+  });
+});
+
+describe("parseSessionLog model 収集", () => {
+  function assistant(model: unknown): Record<string, unknown> {
+    return {
+      type: "assistant",
+      timestamp: TS,
+      message: { role: "assistant", model, content: [{ type: "text", text: "ok" }] },
+    };
+  }
+
+  test("assistant の message.model を採る", () => {
+    const log = parseSessionLog(jsonl(assistant("claude-opus-4-8")));
+    expect(log.models).toEqual(["claude-opus-4-8"]);
+  });
+
+  test("複数 model は出現順ユニーク (/model 切り替え)", () => {
+    const log = parseSessionLog(
+      jsonl(
+        assistant("claude-opus-4-8"),
+        assistant("claude-haiku-4-5-20251001"),
+        assistant("claude-opus-4-8"),
+      ),
+    );
+    expect(log.models).toEqual(["claude-opus-4-8", "claude-haiku-4-5-20251001"]);
+  });
+
+  test("null / 空 / <synthetic> は実モデルでないため除外", () => {
+    const log = parseSessionLog(
+      jsonl(assistant(null), assistant(""), assistant("<synthetic>"), assistant("claude-opus-4-8")),
+    );
+    expect(log.models).toEqual(["claude-opus-4-8"]);
+  });
+
+  test("assistant が無ければ空配列", () => {
+    const log = parseSessionLog(
+      jsonl({ type: "user", timestamp: TS, message: { role: "user", content: "hi" } }),
+    );
+    expect(log.models).toEqual([]);
+  });
+});
+
+describe("formatModelLabel", () => {
+  test("既知 model を family + version に整形 (日付サフィックスは捨てる)", () => {
+    expect(formatModelLabel("claude-opus-4-8")).toBe("Opus 4.8");
+    expect(formatModelLabel("claude-sonnet-4-6")).toBe("Sonnet 4.6");
+    expect(formatModelLabel("claude-haiku-4-5-20251001")).toBe("Haiku 4.5");
+  });
+
+  test("既知パターンに合わない値は生のまま返す", () => {
+    expect(formatModelLabel("gpt-4o")).toBe("gpt-4o");
+    expect(formatModelLabel("claude-unknown")).toBe("claude-unknown");
   });
 });

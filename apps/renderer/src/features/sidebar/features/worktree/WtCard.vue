@@ -139,14 +139,15 @@ function onHeaderClick() {
         </span>
         <span
           v-if="wt.upstream && (wt.upstream.ahead > 0 || wt.upstream.behind > 0)"
-          class="flex items-center gap-1 text-[10px] text-zinc-400 tabular-nums"
+          class="flex items-center gap-1 text-[10px] tabular-nums"
           :title="`ahead ${wt.upstream.ahead} / behind ${wt.upstream.behind} vs upstream`"
         >
-          <span v-if="wt.upstream.ahead > 0" class="flex items-center gap-0.5">
+          <!-- ahead = local 進行 (緑) / behind = remote 進行 (赤)。filer の git status 色規約に揃える -->
+          <span v-if="wt.upstream.ahead > 0" class="flex items-center gap-0.5 text-green-400">
             <span class="icon-[lucide--arrow-up] size-3" />
             <span>{{ wt.upstream.ahead }}</span>
           </span>
-          <span v-if="wt.upstream.behind > 0" class="flex items-center gap-0.5">
+          <span v-if="wt.upstream.behind > 0" class="flex items-center gap-0.5 text-red-400">
             <span class="icon-[lucide--arrow-down] size-3" />
             <span>{{ wt.upstream.behind }}</span>
           </span>

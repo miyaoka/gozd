@@ -1012,18 +1012,14 @@ public actor RpcDispatcher {
   }
 
   // 指定 dir で resume 可能な Claude セッションの session_id 一覧を返す。renderer の
-  // visit() が未訪問 worktree の初回オープン時に呼ぶ。task.session_id が SSOT で、
-  // `sessionID != "" && !closedByUser` の task を集める (app close で中断され
-  // closedByUser=false のまま残ったもの。session-end / 明示 close で closedByUser=true
-  // になったものは除外)。dead session が混じり得るが `claude --resume` のエラー終了を
-  // resume 失敗検出経路 (handleClaudeSessionRemoveByPty) が片付ける (pure read)。
+  // visit() が未訪問 worktree の初回オープン時に呼ぶ。導出ロジック (filter 条件) は
+  // TaskStore.resumableSessionIds が SSOT として持つ。dead session が混じり得るが
+  // `claude --resume` のエラー終了を resume 失敗検出経路 (handleClaudeSessionRemoveByPty)
+  // が片付ける (pure read)。
   private func handleResumableSessionList(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_ResumableSessionListRequest(jsonUTF8Data: body)
-    let sessionIds = try await tasks.list(dir: req.dir)
-      .filter { $0.worktreeDir == req.dir && !$0.sessionID.isEmpty && !$0.closedByUser }
-      .map { $0.sessionID }
     var resp = Gozd_V1_ResumableSessionListResponse()
-    resp.sessionIds = sessionIds
+    resp.sessionIds = try await tasks.resumableSessionIds(dir: req.dir)
     return try resp.jsonUTF8Data()
   }
 

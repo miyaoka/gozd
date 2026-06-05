@@ -40,6 +40,18 @@ public actor TaskStore {
     return try loadFile(for: dir).tasks
   }
 
+  /// 指定 worktree dir で resume 可能な Claude セッションの session_id 一覧を返す。
+  /// renderer の visit() が未訪問 worktree の初回オープン時に呼ぶ自動復元集合。
+  /// `worktreeDir == dir && sessionID 非空 && !closedByUser` を満たす task を集める
+  /// (app close で中断され closedByUser=false のまま残ったもの)。
+  /// `list` は projectKey 単位で全 worktree の task を返すため worktreeDir 一致で絞る
+  /// (絞り漏れると別 worktree の session を resume してしまう)。
+  public func resumableSessionIds(dir: String) throws -> [String] {
+    return try list(dir: dir)
+      .filter { $0.worktreeDir == dir && !$0.sessionID.isEmpty && !$0.closedByUser }
+      .map { $0.sessionID }
+  }
+
   /// Task を作成または再活性化する。PR/issue picker から呼ばれる経路 + Claude 直接起動の
   /// SessionStart hook fallback (`attachSession` 内部) から呼ばれる経路がある。
   ///

@@ -42,6 +42,30 @@ const SUCCESS_INTERVAL_MS = 180_000;
 /** 失敗時の短 backoff (ms)。起動直後の SSH unlock 待ち / 一時的 offline からの回復を捕捉する */
 const FAILURE_BACKOFF_MS = 30_000;
 
+/**
+ * 1 repo が「いま fetch すべき対象か」を決める唯一の述語。発射経路 (repos key watch /
+ * focus 復帰 / interval) がどこでも同じ判定を共有するため純粋関数に切り出す。
+ *
+ * - **focus 喪失中は対象外**: 背景 fetch は focus 中だけ回す。focus が無いと false を返し
+ *   `nextFetchAllowedAt` に何も記録しないため、focus 復帰時に同経路が再判定して取りこぼしを救う
+ * - **backoff / lock 中は対象外**: `allowedAt` が未来なら抑制期間中
+ * - **非 git project は対象外**: fetch する remote が無い
+ *
+ * in-flight 抑止は Set の副作用なので呼び出し側で別途 guard する (純粋判定には含めない)。
+ */
+export function isRepoFetchDue(args: {
+  repo: { isGitRepo: boolean } | undefined;
+  focused: boolean;
+  allowedAt: number | undefined;
+  now: number;
+}): boolean {
+  const { repo, focused, allowedAt, now } = args;
+  if (!focused) return false;
+  if (allowedAt !== undefined && now < allowedAt) return false;
+  if (repo === undefined || !repo.isGitRepo) return false;
+  return true;
+}
+
 export function useRemoteFetchSync() {
   const repoStore = useRepoStore();
   const notify = useNotificationStore();
@@ -57,13 +81,14 @@ export function useRemoteFetchSync() {
    * 成功なら 180s、失敗なら 30s 後まで再試行を抑制する。
    */
   async function fetchOnceIfDue(rootDir: string) {
-    if (!focused.value) return;
     if (inFlight.has(rootDir)) return;
-    const allowedAt = nextFetchAllowedAt.get(rootDir);
-    if (allowedAt !== undefined && Date.now() < allowedAt) return;
-    // git 管理外の project は fetch 対象外
-    const repo = repoStore.repos[rootDir];
-    if (repo === undefined || !repo.isGitRepo) return;
+    const due = isRepoFetchDue({
+      repo: repoStore.repos[rootDir],
+      focused: focused.value,
+      allowedAt: nextFetchAllowedAt.get(rootDir),
+      now: Date.now(),
+    });
+    if (!due) return;
 
     inFlight.add(rootDir);
     const result = await tryCatch(rpcGitFetchRemotes({ dir: rootDir }));
@@ -93,31 +118,37 @@ export function useRemoteFetchSync() {
     void fetchOnceIfDue(rootDir);
   }
 
+  // 「初回 fetch は登録全 repo」の所有をこの 1 関数に集約する。`nextFetchAllowedAt` 未設定
+  // の repo (= まだ一度も fetch 成功していない) 全件に発射する。focus 喪失中は fetchOnceIfDue
+  // 側で skip され lock も立たないため、focus 復帰経路から再度この関数を呼べば取りこぼした
+  // repo を確実にリカバリできる。発射経路 (repos key watch / focus 復帰) で scope が分裂しない。
+  function fetchPendingRepos() {
+    for (const rootDir of Object.keys(repoStore.repos)) {
+      if (nextFetchAllowedAt.has(rootDir)) continue;
+      void fetchOnceIfDue(rootDir);
+    }
+  }
+
   // 登録されている全 repo を対象に「初めて見た repo」を fetch する。起動時に hydrate
   // された repo 群も、後から開かれた repo も、それぞれ初回 1 回だけ即時 fetch が走る。
   // 既に一度 fetch した repo は `nextFetchAllowedAt` が立つため再発射しない (A↔B 往復で
   // 都度 fetch を炊かない)。以降は interval 主導の閾値判定に任せる。
-  watch(
-    () => Object.keys(repoStore.repos),
-    (rootDirs) => {
-      for (const rootDir of rootDirs) {
-        if (nextFetchAllowedAt.has(rootDir)) continue;
-        void fetchOnceIfDue(rootDir);
-      }
-    },
-    { immediate: true },
-  );
+  watch(() => Object.keys(repoStore.repos), fetchPendingRepos, { immediate: true });
 
-  // focus 復帰 (blur → focus) で active repo の deadline を消して即発射する。
-  // blur 中も時計は進むため、deadline ベースで判定すると「focus は戻ったが残り 179s」
-  // のケースで behind 反映が最悪 3 分待たされる。focus 遷移自体をトリガにすれば
-  // ユーザーが UI に戻ってきたタイミングで必ず最新化される。
+  // focus 復帰 (blur → focus) で 2 つを行う。
+  // - active repo の deadline を消して即発射: blur 中も時計は進むため deadline ベース判定だと
+  //   「focus は戻ったが残り 179s」で behind 反映が最悪 3 分待たされる。focus 遷移自体を
+  //   トリガにすればユーザーが UI に戻ったタイミングで必ず最新化される。
+  // - 未 fetch repo の初回 fetch をリカバリ: focus 無し起動だと repos key watch 発火時に
+  //   全 repo が skip され lock も立たない。focus 復帰でここを通すことで取りこぼしを救う。
   watch(focused, (isFocused, wasFocused) => {
     if (!isFocused || wasFocused === true) return;
     const rootDir = repoStore.selectedRootDir;
-    if (rootDir === undefined) return;
-    nextFetchAllowedAt.delete(rootDir);
-    void fetchOnceIfDue(rootDir);
+    if (rootDir !== undefined) {
+      nextFetchAllowedAt.delete(rootDir);
+      void fetchOnceIfDue(rootDir);
+    }
+    fetchPendingRepos();
   });
 
   // 180s インターバル: focus 中は閾値判定に従って fetch、focus 喪失中は早期 return。

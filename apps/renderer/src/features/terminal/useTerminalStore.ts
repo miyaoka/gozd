@@ -371,52 +371,47 @@ export const useTerminalStore = defineStore("terminal", () => {
     }
 
     visitedDirs.value.push(dir);
-    let sessions = fetched.value.sessions;
+    const savedSessionIds = fetched.value.sessions.map((s) => s.sessionId);
 
-    // サイドバーで resumable Task をクリックして visit を誘発したケース。
-    // 該当 sessionId を必ず先頭 (= initial focused leaf) に乗せる。
+    // 復元する sessionId 列を組み立てる。preferred はサイドバーで resumable Task を
+    // クリックして visit を誘発したケースの sessionId (= task.sessionId)。
+    //
+    // task.sessionId と claude-sessions.json は別ライフサイクル: session 終了
+    // (session-end hook) で claude-sessions.json からは消えるが、task.sessionId は
+    // closedByUser=true を立てて保持される。よって preferred が saved リストに無い
+    // のは「消えた」異常ではなく closed session の通常ケースで、resume は可能。
+    // 保存リストでの検証はせず、明示クリックを SSOT として尊重し preferred を常に
+    // 先頭 (= initial focused leaf) に置く (重複は除外)。これは訪問済み経路の
+    // requestResumeSession が saved リストを参照せず直接 resume するのと同じ流儀。
+    // resume が真に不能なら native 側の dead session 清掃が hook 経路で処理する。
     const preferred = preferredResumeByDir.value[dir];
-    if (preferred !== undefined) {
-      delete preferredResumeByDir.value[dir];
-      const idx = sessions.findIndex((s) => s.sessionId === preferred);
-      if (idx > 0) {
-        const reordered = [...sessions];
-        const [pick] = reordered.splice(idx, 1);
-        if (pick !== undefined) reordered.unshift(pick);
-        sessions = reordered;
-      } else if (idx < 0) {
-        // click と visit の間に session listing から該当 sessionId が消えた。
-        // 期待した session の resume はできないので、ユーザーに知らせる
-        // (silent に先頭 session を起動すると click の意図がすり替わる)。
-        // 本文は短く、診断情報 (sessionId / dir) は cause に逃がして展開表示で見せる。
-        notify.error(
-          "Selected resumable session is no longer available",
-          new Error(`sessionId=${preferred} dir=${dir}`),
-        );
-      }
-    }
+    if (preferred !== undefined) delete preferredResumeByDir.value[dir];
+    const resumeSessionIds =
+      preferred === undefined
+        ? savedSessionIds
+        : [preferred, ...savedSessionIds.filter((id) => id !== preferred)];
 
     // ensureLayout で初期 leaf を作る（既存の単一 leaf 起動と同じ）
     const initialLayout = layout.ensureLayout(dir);
     const initialLeafId = initialLayout.focusedLeafId;
-    const [firstSession, ...remainingSessions] = sessions;
-    if (firstSession !== undefined) {
-      pendingResumeByLeafId.value[initialLeafId] = firstSession.sessionId;
+    const [firstSessionId, ...remainingSessionIds] = resumeSessionIds;
+    if (firstSessionId !== undefined) {
+      pendingResumeByLeafId.value[initialLeafId] = firstSessionId;
     }
     // 2 つ目以降のセッションは split で leaf を増やす
-    for (const session of remainingSessions) {
+    for (const sessionId of remainingSessionIds) {
       const newLeafId = layout.splitPane(dir, "horizontal");
       if (newLeafId !== undefined) {
-        pendingResumeByLeafId.value[newLeafId] = session.sessionId;
+        pendingResumeByLeafId.value[newLeafId] = sessionId;
       }
     }
     // session 未紐付け task クリックで visit を誘発したケース。saved session の resume
     // とは排他ではなく共存させる (訪問済み経路の requestNewClaudeSession と同じ流儀):
-    // - firstSession 無し → 初期 leaf を直接 autostart に
-    // - firstSession あり → 追加 leaf を split して autostart + focus
+    // - firstSessionId 無し → 初期 leaf を直接 autostart に
+    // - firstSessionId あり → 追加 leaf を split して autostart + focus
     if (preferredAutostartByDir.value[dir]) {
       delete preferredAutostartByDir.value[dir];
-      if (firstSession === undefined) {
+      if (firstSessionId === undefined) {
         pendingAutostartByLeafId.value[initialLeafId] = true;
       } else {
         const autostartLeafId = layout.splitPane(dir, "horizontal");

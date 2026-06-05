@@ -135,6 +135,8 @@ describe("findAbsolutePathMatches", () => {
     ["*", "/Users/me/elsewhere/a.txt*glob"],
     ["?", "/Users/me/elsewhere/a.txt?q"],
     ["\\", "/Users/me/elsewhere/a.txt\\esc"],
+    ["{", "/Users/me/elsewhere/a.txt{x"],
+    ["[", "/Users/me/elsewhere/a.txt[x"],
   ])("シェルメタ文字 `%s` で終端する", (_sep, text) => {
     const matches = findAbsolutePathMatches(text, dirPrefix, homeDir);
     expect(matches[0]?.selection).toEqual({

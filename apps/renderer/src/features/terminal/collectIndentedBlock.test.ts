@@ -53,4 +53,21 @@ describe("collectIndentedBlock", () => {
     const [joined] = collectIndentedBlock(buf, 0);
     expect(joined).toBe("/Users/me/a.txt");
   });
+
+  test("非パス行の下のインデント絶対パスは継続扱いせず汚染しない", () => {
+    const buf = mockBuffer([
+      { text: "#!/usr/bin/env bash and more" }, // 非インデント・非パス行
+      { text: "  /Users/me/proj/src/x.ts" }, // インデント・単独絶対パス（ここにホバー）
+    ]);
+    const [joined, offset] = collectIndentedBlock(buf, 1);
+    // 上の非パス行を連結せず、現在行のみを返す（先頭インデントは保持）
+    expect(joined).toBe("  /Users/me/proj/src/x.ts");
+    expect(offset).toBe(0);
+  });
+
+  test("インデント絶対パス(`~/`)も上の非パス行と連結しない", () => {
+    const buf = mockBuffer([{ text: "echo done" }, { text: "  ~/proj/src/x.ts" }]);
+    const [joined] = collectIndentedBlock(buf, 1);
+    expect(joined).toBe("  ~/proj/src/x.ts");
+  });
 });

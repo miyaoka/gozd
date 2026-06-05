@@ -55,11 +55,19 @@ export function collectIndentedBlock(buf: IBuffer, lineIdx: number): [string, nu
 }
 
 /**
- * インデント継続行がパスの折り返しか判定する。
- * 先頭がインデント（スペース）で、trim 後の先頭文字が区切り文字でない（パス文字始まり）時のみ継続。
+ * インデント継続行がパスの折り返しか判定する。継続とみなす条件:
+ * - 先頭がインデント（スペース）
+ * - trim 後の先頭文字が区切り文字でない（`# comment` のような別トークンを除外）
+ * - trim 後が絶対パス root（`/` `~`）で始まらない。`/...` `~/...` は上の行の継続ではなく
+ *   単独の絶対パスなので、非パス行（shebang / コメント等）の下に来ても連結しない。
+ *   これを許すと上方向ループが非パス行で止まり、その行が下方向で raw 連結されて
+ *   boundary が壊れ、パスリンクが消える。
  */
 function continuesPath(lineText: string): boolean {
   if (lineText.length === 0 || lineText[0] !== " ") return false;
   const trimmed = lineText.trimStart();
-  return trimmed.length > 0 && !PATH_TERMINATORS.test(trimmed[0]);
+  if (trimmed.length === 0) return false;
+  const head = trimmed[0];
+  if (head === "/" || head === "~") return false;
+  return !PATH_TERMINATORS.test(head);
 }

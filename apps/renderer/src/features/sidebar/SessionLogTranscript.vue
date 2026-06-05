@@ -7,7 +7,7 @@
 
 ## レイアウト
 
-上部にヘッダ (どの agent のログかを示す agent 名 + dim な id) を置き、トランスクリプト本文
+上部にヘッダ (どの agent のログかを示す agent 名 + 使用 model バッジ + dim な id) を置き、トランスクリプト本文
 1 カラム + 下に footer。本文は LINE のトーク画面に倣ったチャット表示で、
 user (貼り付け画像含む) を自分として右寄せ、assistant を左寄せの吹き出しにする。話者は
 左右寄せ + 緑/zinc の塗り分けで識別できるため、アバターや話者アイコンは置かない。thinking /
@@ -44,6 +44,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useNotificationStore } from "../../shared/notification";
 import { MarkdownBody } from "../preview";
 import {
+  formatModelLabel,
   nearestEventIndexByTs,
   type ParsedSessionLog,
   type SubagentLink,
@@ -105,6 +106,10 @@ const formattedInputs = computed<Map<number, string>>(() => {
   });
   return map;
 });
+
+// この agent が実際に使った model の表示名。複数混在 (/model 切り替え) は中黒で連ねる。
+// effort は JSONL に残らずセッションファイル自己完結の対象外のため model のみ出す。
+const modelLabel = computed<string>(() => props.parsed.models.map(formatModelLabel).join(" · "));
 
 const footerSummary = computed<string>(() => {
   const log = props.parsed;
@@ -429,6 +434,13 @@ onBeforeUnmount(teardownObserver);
     <div class="flex shrink-0 items-baseline gap-2 border-b border-zinc-800 px-4 py-1.5">
       <span class="min-w-0 truncate text-xs font-medium text-zinc-200" :title="title">
         {{ title }}
+      </span>
+      <span
+        v-if="modelLabel !== ''"
+        class="max-w-[40%] shrink-0 self-center truncate rounded-sm bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-300"
+        :title="modelLabel"
+      >
+        {{ modelLabel }}
       </span>
       <span
         v-if="subtitle !== undefined && subtitle !== ''"

@@ -12,7 +12,7 @@ indent して agent 名をラベル全幅で見せる (各行に workflow 名を
 
 ## レイアウト
 
-- gutter 列 (agent 名) + プロット列の 2 カラムを 1 つのスクロールコンテナに入れる。プロット列は
+- gutter 列 (agent 名 + 右寄せ model) + プロット列の 2 カラムを 1 つのスクロールコンテナに入れる。プロット列は
   軸ヘッダ + バー行 + playhead を **1 つの relative content box** に収めるので、縦スクロールバーで
   幅が縮んでも全要素が同じ座標系で一致する (軸とバーがズレない。要素や座標系を分けないのが要点)
 - gutter 列は先頭に軸ヘッダ高さ分の spacer を置き、バー行と縦に揃える
@@ -35,12 +35,14 @@ indent して agent 名をラベル全幅で見せる (各行に workflow 名を
 - 生存期間 ts を持たないセッション (信頼境界外ログの病的ケース) は時間軸に置けないため、
   左端の破線 placeholder バーに倒して選択だけは可能にする (silent drop 回避)
 - main は常に左ペインに出る anchor なので恒常ハイライト、選択中 subagent は別の強調色にする
+- gutter ラベル右端にその agent が使った model を出す (`message.model` 実測値)。workflow グループ
+  見出し行は agent ではないため model を持たず何も出さない
 </doc>
 
 <script setup lang="ts">
 import { useEventListener } from "@vueuse/core";
 import { computed, ref, watch } from "vue";
-import { formatSessionTime, type TimelineTrack } from "./sessionLog";
+import { formatModelLabel, formatSessionTime, type TimelineTrack } from "./sessionLog";
 
 const props = defineProps<{
   tracks: TimelineTrack[];
@@ -152,6 +154,11 @@ function isActive(track: TimelineTrack): boolean {
   return track.id === props.activeSubId;
 }
 
+// gutter ラベルに添える model 表示名。複数混在 (/model 切り替え) は中黒で連ねる。
+function trackModelLabel(track: TimelineTrack): string {
+  return track.models.map(formatModelLabel).join(" · ");
+}
+
 // バー描画行のクリック: x 位置を軸内の ms に変換して該当 subagent を seek する。
 function onTrackClick(event: MouseEvent, track: TimelineTrack) {
   const el = event.currentTarget;
@@ -232,7 +239,7 @@ useEventListener(window, "pointerup", () => {
       <div class="flex">
         <!-- gutter 列 (agent 名)。先頭に軸ヘッダ高さ分の spacer を置きバー行と縦に揃える。
              spacer は sticky で固定し、軸行と一緒に縦スクロールから外す (背景で下の行を隠す)。 -->
-        <div class="w-40 shrink-0">
+        <div class="w-80 shrink-0">
           <div class="sticky top-0 z-10 h-6 bg-zinc-900" />
           <template v-for="track in tracks" :key="track.id">
             <!-- workflow グループ見出し (バー無し / 非選択)。workflow 名を 1 回だけ出す。 -->
@@ -271,6 +278,13 @@ useEventListener(window, "pointerup", () => {
                 :class="ICON_CLASS[track.iconKind]"
               />
               <span class="truncate">{{ track.label }}</span>
+              <span
+                v-if="track.models.length > 0"
+                class="ml-auto max-w-[50%] shrink-0 truncate text-[10px] text-zinc-500 tabular-nums"
+                :title="trackModelLabel(track)"
+              >
+                {{ trackModelLabel(track) }}
+              </span>
             </button>
           </template>
         </div>

@@ -200,7 +200,7 @@ const playheadMs = computed<number | undefined>(() => {
 // 1 セッション → 1 session トラック。生存期間は sessionTimeRange (純関数) が events の
 // min/max ts から算出。
 function toTimelineSession(s: ParsedSessionTab): TimelineSession {
-  return { id: s.id, label: s.label, events: s.parsed.events };
+  return { id: s.id, label: s.label, events: s.parsed.events, models: s.parsed.models };
 }
 
 // 横断タイムラインのトラック。並べ替え (main 先頭固定 / subagent 古い順 / workflow contiguous) と

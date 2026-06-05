@@ -20,16 +20,25 @@ export const PATH_TERMINATORS = /[\s<>(){}[\]'"|&`$,:;#!*?\\]/;
 /** パスの直後に `:行番号` が続くかを検出する正規表現 */
 const LINE_NUMBER_SUFFIX = /^:(\d+)/;
 
-/** path 内に出現しない区切り側の文字。word char 否定で書くことで、
- *  `[`、`{`、`<`、`(`、`'`、`"` のような括弧/引用符類が boundary として認められる。
- *  PATH_TERMINATORS（パス末尾の切れ目）とは責務が違う: あちらは「path 内に登場しない」が中心、
- *  こちらは「直前にあれば token 境界が立つ」が中心。 */
-const WORD_CHAR = /[A-Za-z0-9_]/;
+/**
+ * 識別子（連続トークン）を構成する文字。prefix の直前にこの文字があれば、prefix は
+ * より大きなトークンの途中（URL の `…com/Users`、別ユーザー名 `me_other` 等）なので
+ * boundary を立てない。逆に `[` `{` `<` `(` `'` `"` `=` のような非識別子文字が直前なら boundary 成立。
+ *
+ * PATH_TERMINATORS（パス末尾を区切る文字）とは論理的に独立した別軸であり、1 つの集合に畳めない:
+ * - PATH_TERMINATORS: 「この文字はパスを終わらせるか」
+ * - IDENTIFIER_CHAR : 「この文字の直後にパスが始まってよいか（＝識別子の途中でないか）」
+ *
+ * 同じ文字でも両者で扱いが違う。例: `=` はパスを終わらせない（IDENTIFIER_CHAR でもない）が、
+ * `f=/Users/…` のようにパスの直前には立てる。`.` も同様。両者を統合すると `f=/path` 形式が
+ * 拾えなくなる（直前の `=` が「終端文字でない＝boundary でない」に倒れるため）。
+ */
+const IDENTIFIER_CHAR = /[A-Za-z0-9_]/;
 
 /** prefix が単語境界の直後で始まっているか（URL の path 部分のような連続 token 内では拾わない） */
 function hasBoundaryBefore(text: string, idx: number): boolean {
   if (idx === 0) return true;
-  return !WORD_CHAR.test(text[idx - 1]);
+  return !IDENTIFIER_CHAR.test(text[idx - 1]);
 }
 
 /** boundary が立っている prefix の出現位置を search start から探す */

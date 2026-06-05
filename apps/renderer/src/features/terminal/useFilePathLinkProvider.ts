@@ -1,6 +1,7 @@
-import type { IBuffer, IBufferLine, ILink, ILinkProvider, Terminal } from "@xterm/xterm";
+import type { IBufferLine, ILink, ILinkProvider, Terminal } from "@xterm/xterm";
 import { usePreviewStore } from "../preview";
 import { pathTargetToString, useWorktreeStore } from "../worktree";
+import { collectIndentedBlock } from "./collectIndentedBlock";
 import { findAbsolutePathMatches, resolveHomeDir } from "./findAbsolutePathMatches";
 import { findRelativePaths } from "./findRelativePaths";
 
@@ -38,8 +39,7 @@ export function createFilePathLinkProvider(terminal: Terminal): ILinkProvider {
 
       // 現在行 + インデント付き継続行を結合したテキストでパスを検索する。
       // dirPrefix が長く1行に収まらない場合に備え、上方向にも辿る。
-      const [joinedText, topLineIdx] = collectIndentedBlock(buf, bufferLineNumber - 1);
-      const currentLineOffset = getLineOffset(buf, topLineIdx, bufferLineNumber - 1);
+      const [joinedText, currentLineOffset] = collectIndentedBlock(buf, bufferLineNumber - 1);
 
       const links: ILink[] = [];
 
@@ -62,80 +62,6 @@ export function createFilePathLinkProvider(terminal: Terminal): ILinkProvider {
       callback(links.length > 0 ? links : undefined);
     },
   };
-}
-
-/**
- * 継続行ブロックを収集する。
- * ターミナルのハードラップ（isWrapped）とインデント付き継続行の両方を辿り、
- * 現在行から上方向にブロック先頭を見つけ、下方向に続く限り結合する。
- * 返り値: [結合テキスト, 先頭行の0-basedインデックス]
- */
-function collectIndentedBlock(buf: IBuffer, lineIdx: number): [string, number] {
-  // 上方向: ハードラップまたはインデント行なら上に辿る
-  let topIdx = lineIdx;
-  while (topIdx > 0) {
-    const line = buf.getLine(topIdx);
-    if (!line) break;
-    // ハードラップ（isWrapped）なら前の行の続き
-    if (line.isWrapped) {
-      topIdx--;
-      continue;
-    }
-    const lineText = line.translateToString(true);
-    if (lineText.length === 0 || lineText[0] !== " ") break;
-    topIdx--;
-  }
-
-  // topIdx から下方向に結合
-  const parts: string[] = [];
-  let idx = topIdx;
-  const topLine = buf.getLine(idx);
-  if (topLine) {
-    parts.push(topLine.translateToString(true));
-    idx++;
-    let nextLine = buf.getLine(idx);
-    while (nextLine) {
-      // ハードラップなら折り返しの続き（そのまま結合）
-      if (nextLine.isWrapped) {
-        parts.push(nextLine.translateToString(true));
-        idx++;
-        nextLine = buf.getLine(idx);
-        continue;
-      }
-      // インデント付き継続行
-      const nextText = nextLine.translateToString(true);
-      if (nextText.length === 0 || nextText[0] !== " ") break;
-      parts.push(nextText.trimStart());
-      idx++;
-      nextLine = buf.getLine(idx);
-    }
-  }
-
-  return [parts.join(""), topIdx];
-}
-
-/**
- * 結合テキスト中での、特定行の開始オフセットを算出する。
- * topLineIdx から targetLineIdx までの各行のテキスト長を合算する。
- * ハードラップ行はそのままの長さ、インデント継続行は trimStart 後の長さを使う。
- */
-function getLineOffset(buf: IBuffer, topLineIdx: number, targetLineIdx: number): number {
-  let offset = 0;
-  for (let i = topLineIdx; i < targetLineIdx; i++) {
-    const line = buf.getLine(i);
-    if (!line) break;
-    const text = line.translateToString(true);
-    if (i === topLineIdx) {
-      offset += text.length;
-    } else if (line.isWrapped) {
-      // ハードラップ行はそのまま結合されるので全長を加算
-      offset += text.length;
-    } else {
-      // インデント継続行は trimStart して結合されるので、その長さを加算
-      offset += text.trimStart().length;
-    }
-  }
-  return offset;
 }
 
 /**

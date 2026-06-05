@@ -848,6 +848,9 @@ export interface TimelineTrack {
   indent: boolean;
   // gutter のアイコン種別。main / グループ配下 agent は無し。
   iconKind?: "workflow" | "subagent";
+  // この agent が使った model 名 (出現順ユニーク)。gutter ラベルに添える。
+  // workflow グループ見出し行 (isHeader) は agent ではないため常に空。
+  models: string[];
   startMs: number | undefined;
   endMs: number | undefined;
 }
@@ -857,6 +860,8 @@ export interface TimelineSession {
   id: string;
   label: string;
   events: TranscriptEvent[];
+  // この agent が使った model 名 (ParsedSessionLog.models をそのまま渡す)。
+  models: string[];
 }
 
 /** workflow グループ 1 つ (見出し名 + run id + 配下 agent)。 */
@@ -886,6 +891,7 @@ function toSessionTrack(
     isHeader: false,
     indent: opts.indent ?? false,
     iconKind: opts.iconKind,
+    models: s.models,
     startMs: range?.startMs,
     endMs: range?.endMs,
   };
@@ -928,6 +934,7 @@ export function buildTimelineTracks(input: {
       isHeader: true,
       indent: false,
       iconKind: "workflow",
+      models: [],
       startMs: undefined,
       endMs: undefined,
     };

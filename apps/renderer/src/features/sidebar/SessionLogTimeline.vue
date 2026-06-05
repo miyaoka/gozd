@@ -40,7 +40,7 @@ indent して agent 名をラベル全幅で見せる (各行に workflow 名を
 <script setup lang="ts">
 import { useEventListener } from "@vueuse/core";
 import { computed, ref, watch } from "vue";
-import { formatSessionTime, type TimelineTrack } from "./sessionLog";
+import { formatModelLabel, formatSessionTime, type TimelineTrack } from "./sessionLog";
 
 const props = defineProps<{
   tracks: TimelineTrack[];
@@ -152,6 +152,11 @@ function isActive(track: TimelineTrack): boolean {
   return track.id === props.activeSubId;
 }
 
+// gutter ラベルに添える model 表示名。複数混在 (/model 切り替え) は中黒で連ねる。
+function trackModelLabel(track: TimelineTrack): string {
+  return track.models.map(formatModelLabel).join(" · ");
+}
+
 // バー描画行のクリック: x 位置を軸内の ms に変換して該当 subagent を seek する。
 function onTrackClick(event: MouseEvent, track: TimelineTrack) {
   const el = event.currentTarget;
@@ -232,7 +237,7 @@ useEventListener(window, "pointerup", () => {
       <div class="flex">
         <!-- gutter 列 (agent 名)。先頭に軸ヘッダ高さ分の spacer を置きバー行と縦に揃える。
              spacer は sticky で固定し、軸行と一緒に縦スクロールから外す (背景で下の行を隠す)。 -->
-        <div class="w-40 shrink-0">
+        <div class="w-80 shrink-0">
           <div class="sticky top-0 z-10 h-6 bg-zinc-900" />
           <template v-for="track in tracks" :key="track.id">
             <!-- workflow グループ見出し (バー無し / 非選択)。workflow 名を 1 回だけ出す。 -->
@@ -271,6 +276,12 @@ useEventListener(window, "pointerup", () => {
                 :class="ICON_CLASS[track.iconKind]"
               />
               <span class="truncate">{{ track.label }}</span>
+              <span
+                v-if="track.models.length > 0"
+                class="ml-auto shrink-0 text-[10px] text-zinc-500 tabular-nums"
+              >
+                {{ trackModelLabel(track) }}
+              </span>
             </button>
           </template>
         </div>

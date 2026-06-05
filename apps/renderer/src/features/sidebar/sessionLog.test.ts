@@ -1311,7 +1311,7 @@ describe("sessionLogDirOf", () => {
 describe("buildTimelineTracks", () => {
   // 指定 ts のイベント列を持つ TimelineSession。ts を省くと events 空 (生存期間なし)。
   function sessionAt(id: string, label: string, ...tsList: string[]): TimelineSession {
-    return { id, label, events: tsList.map((ts) => ({ kind: "user", text: "x", ts })) };
+    return { id, label, models: [], events: tsList.map((ts) => ({ kind: "user", text: "x", ts })) };
   }
   const T = (hhmm: string) => `2026-06-01T${hhmm}:00.000Z`;
   const ids = (tracks: { id: string }[]) => tracks.map((t) => t.id);
@@ -1383,6 +1383,7 @@ describe("timelineAxisRange", () => {
     isMain: false,
     isHeader: false,
     indent: false,
+    models: [],
     startMs,
     endMs,
   });
@@ -1407,6 +1408,7 @@ describe("newestSubagentTrackId", () => {
     isMain: opts.isMain ?? false,
     isHeader: opts.isHeader ?? false,
     indent: false,
+    models: [],
     startMs: undefined,
     endMs: undefined,
   });

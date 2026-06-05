@@ -280,7 +280,7 @@ useEventListener(window, "pointerup", () => {
               <span class="truncate">{{ track.label }}</span>
               <span
                 v-if="track.models.length > 0"
-                class="ml-auto shrink-0 text-[10px] text-zinc-500 tabular-nums"
+                class="ml-auto max-w-[50%] shrink-0 truncate text-[10px] text-zinc-500 tabular-nums"
                 :title="trackModelLabel(track)"
               >
                 {{ trackModelLabel(track) }}

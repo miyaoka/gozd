@@ -437,7 +437,7 @@ onBeforeUnmount(teardownObserver);
       </span>
       <span
         v-if="modelLabel !== ''"
-        class="shrink-0 self-center rounded-sm bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-300"
+        class="max-w-[40%] shrink-0 self-center truncate rounded-sm bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-300"
         :title="modelLabel"
       >
         {{ modelLabel }}

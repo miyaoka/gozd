@@ -1,3 +1,10 @@
+## デザイントークン / UI 規律
+
+- 色は **semantic token** だけを使う。生 Tailwind palette (`zinc-*` / `blue-*` / `red-*` / `white` / `black` / etc.) は禁止
+- Token 一覧と OKLCH 物理値の SSOT は [`src/assets/main.css`](src/assets/main.css) の `@theme` ブロック
+- UI を書く / 直すときの一覧規律は project-local skill [`/.claude/skills/gozd-ui/SKILL.md`](../../.claude/skills/gozd-ui/SKILL.md) を参照 (Claude Code 自動適用)
+- 不足 token は raw に逃げず、`@theme` に variable を追加する
+
 ## 検証コマンド
 
 - package 単位の検証は `pnpm run test` / `pnpm run typecheck`

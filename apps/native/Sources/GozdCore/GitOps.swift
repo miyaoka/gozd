@@ -163,94 +163,130 @@ public enum GitOps {
   }
 
   public struct LogResult: Sendable {
-    public let headCommits: [CommitInfo]
-    public let defaultBranchCommits: [CommitInfo]
+    public let commits: [CommitInfo]
     public let defaultBranch: String
-    /// HEAD の upstream を始点とする log。upstream 未設定 / default branch と一致 /
-    /// currentBranchOnly / git log 失敗 のときは空配列。
-    public let upstreamCommits: [CommitInfo]
-    /// 解決された upstream ref 名 (例: `origin/foo`)。未設定なら空文字。
-    public let upstreamRef: String
   }
 
-  /// HEAD と default branch（origin/HEAD）と HEAD の upstream の log を返す。
+  public enum LogSortMode: Sendable {
+    case topo
+    case date
+  }
+
+  /// HEAD / `origin/<default>` / `@{upstream}` を始点に **1 回の `git log --stdin`** で walk する。
+  ///
+  /// 設計の根拠 (VSCode の Source Control Graph 実装 `extensions/git/src/git.ts:1444-1509` 参照):
+  /// - N ref を Set で dedup して stdin に投入。git 自身が walk 中に commit を OID 単位で
+  ///   dedup するので、renderer 側で merge / dedup する必要が無い
+  /// - sort_mode に応じて `--topo-order` / `--date-order` を git に渡し、並び順の決定も git に任せる
+  /// - 3 本並列 spawn だった旧 `logBoth` を 1 本に集約することで wall-clock を `max → 1` に削減
+  ///
+  /// 副次効果:
+  /// `git commit --amend` / 未 push の rebase / reset 等で `origin/<branch>` が HEAD から
+  /// 到達不可になっても、`@{upstream}` を始点 ref として渡すため orphan tip と祖先連鎖が
+  /// visible commit set に含まれ、graph 上に `origin/<branch>` の badge が残る。
   ///
   /// エラー方針:
-  /// - `commandFailed`（origin 未設定 / unborn branch 等のドメイン失敗）は空文字列 / 空配列に倒す
-  /// - `launchFailed`（shell spawn 失敗 / hang）は rethrow して上位の `notify.error` まで通す
-  /// - `commandNotFound`（git CLI 未インストール）も rethrow（`catch` していないので自動的に
-  ///   propagate する。renderer 側で「インストールしてください」UI を出す前提）
-  ///
-  /// `try?` で 3 種を区別せず潰すと、git-graph が「空」「gozd が git を解決できていない」
-  /// 「ユーザーが git をインストールしていない」を見分けられなくなる。
-  ///
-  /// upstream 系統を第 3 ストリームとして fetch する理由:
-  /// HEAD の git log は HEAD 系統の祖先しか walk しない。`origin/foo` が指す commit が
-  /// amend / reset / rebase 等で HEAD から到達不可になると、その commit が visible commit set
-  /// に含まれず `git log --decorate` の `%D` にも `origin/foo` が現れない。第 3 ストリームで
-  /// upstream tip を始点に追加 walk することで、orphan 化した upstream ref も graph に
-  /// badge として現れるようにする。
-  public static func logBoth(
-    dir: String, maxCount: UInt32, firstParentOnly: Bool, currentBranchOnly: Bool
-  ) async throws
-    -> LogResult
-  {
-    async let headTask = log(
-      dir: dir, ref: "HEAD", maxCount: maxCount, firstParentOnly: firstParentOnly)
-    async let upstreamRefTask = upstreamRefName(dir: dir)
-    let defaultBranch: String
-    do {
-      defaultBranch = try await defaultBranchName(dir: dir)
-    } catch GitError.commandFailed {
-      defaultBranch = ""
-    }
-    let upstreamRef = await upstreamRefTask
-    let head = try await headTask
-    var defaultCommits: [CommitInfo] = []
-    // currentBranchOnly では default branch 系統の log fetch を skip する。`defaultBranch` 文字列は
-    // `symbolic-ref` だけは引き続き解決して返す (renderer の RefBadge `isDefault` 表示に使う)。
-    if !defaultBranch.isEmpty && !currentBranchOnly {
+  /// - `commandFailed` (origin 未設定 / unborn branch / upstream 未設定 等のドメイン失敗):
+  ///   defaultBranch / upstreamRef を空文字列に倒し、利用可能な ref だけで walk する
+  /// - `launchFailed` (shell spawn 失敗 / hang): rethrow して上位の `notify.error` まで通す
+  /// - `commandNotFound` (git CLI 未インストール): rethrow
+  public static func log(
+    dir: String, maxCount: UInt32, firstParentOnly: Bool, currentBranchOnly: Bool,
+    sortMode: LogSortMode
+  ) async throws -> LogResult {
+    // defaultBranch / upstreamRef 解決を並列起動 (どちらも単発 rev-parse / symbolic-ref で短い)。
+    // 並列化のメリットは小さいが本体 git log の発火タイミングを 1 回に集約するため、
+    // ref 解決経路をクリティカルパスから外しておく。
+    async let defaultBranchTask: String = {
       do {
-        defaultCommits = try await log(
-          dir: dir, ref: "origin/\(defaultBranch)", maxCount: maxCount,
-          firstParentOnly: firstParentOnly)
+        return try await defaultBranchName(dir: dir)
       } catch GitError.commandFailed {
-        defaultCommits = []
+        return ""
       }
-    }
-    // upstream 系統。default branch と同一なら重複 fetch を避けて skip する。
-    // upstreamRef は ref 名のまま返し、commits だけ空にする (renderer の表示分岐用)。
-    var upstreamCommits: [CommitInfo] = []
-    if !upstreamRef.isEmpty && !currentBranchOnly
-      && upstreamRef != "origin/\(defaultBranch)"
-    {
+    }()
+    async let upstreamRefTask: String = {
       do {
-        upstreamCommits = try await log(
-          dir: dir, ref: upstreamRef, maxCount: maxCount,
-          firstParentOnly: firstParentOnly)
+        return try await upstreamRefName(dir: dir)
       } catch GitError.commandFailed {
-        upstreamCommits = []
+        return ""
       }
+    }()
+    let defaultBranch = try await defaultBranchTask
+    let upstreamRef = try await upstreamRefTask
+
+    // 始点 ref を Set dedup で集める。currentBranchOnly では HEAD のみ。
+    // git 自身が walk 中に commit を OID 単位で dedup するので、ref 名重複
+    // (例: fork workflow で `upstream/main` と `origin/main` が同 commit を指す等) や
+    // 「upstream が origin/<default> と同じ ref」を Swift 側で skip する必要は無い。
+    // Set 投入だけで足りる。
+    var refs: Set<String> = ["HEAD"]
+    if !currentBranchOnly {
+      if !defaultBranch.isEmpty { refs.insert("origin/\(defaultBranch)") }
+      if !upstreamRef.isEmpty { refs.insert(upstreamRef) }
     }
-    return LogResult(
-      headCommits: head, defaultBranchCommits: defaultCommits, defaultBranch: defaultBranch,
-      upstreamCommits: upstreamCommits, upstreamRef: upstreamRef)
+
+    let commits = try await runLogStdin(
+      dir: dir, refs: Array(refs), maxCount: maxCount,
+      firstParentOnly: firstParentOnly, sortMode: sortMode)
+    return LogResult(commits: commits, defaultBranch: defaultBranch)
   }
 
-  /// HEAD の upstream ref 名を返す (例: `origin/foo`)。
-  /// upstream 未設定 / detached HEAD / git 解決失敗 では空文字列を返す。
-  /// `commandFailed` 以外 (launchFailed / commandNotFound) は呼び出し側に伝播せず、
-  /// graph 描画を止めないよう空文字列に倒す。これは upstream 解決が graph 表示の
-  /// 必須経路ではなく、HEAD の log 自体は別系統で取れるため。
-  public static func upstreamRefName(dir: String) async -> String {
-    do {
-      let stdout = try await runGit(
-        args: ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], cwd: dir)
-      return String(decoding: stdout, as: UTF8.self).trimmingCharacters(
-        in: .whitespacesAndNewlines)
-    } catch {
-      return ""
+  /// `git log --stdin` で複数 ref を始点に走る単発 helper。
+  ///
+  /// stdin に ref 名を改行区切りで流し込む。git は各 ref を walk 始点とし、commit を OID で
+  /// dedup しつつ 1 つのストリームに統合する。CLI 引数長制限の回避目的と、ref 集合を
+  /// atomic に渡せる利点が `--stdin` を選ぶ理由 (VSCode `git.ts:1490-1497` の理由と同じ)。
+  private static func runLogStdin(
+    dir: String, refs: [String], maxCount: UInt32, firstParentOnly: Bool, sortMode: LogSortMode
+  ) async throws -> [CommitInfo] {
+    if refs.isEmpty { return [] }
+    // %x1f = unit separator (US), %x1e = record separator (RS)
+    let format = "%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e"
+    // `--decorate=short` でユーザーの `log.decorate=full` 設定を上書きする。
+    // full にすると %D が `refs/heads/main` / `refs/remotes/origin/main` 形式になり、
+    // renderer の `r.startsWith("origin/")` / current branch 抽出が崩れる。
+    var args = ["log", "--format=\(format)", "--decorate=short"]
+    switch sortMode {
+    case .topo: args.append("--topo-order")
+    case .date: args.append("--date-order")
     }
+    if maxCount > 0 { args.append("--max-count=\(maxCount)") }
+    if firstParentOnly { args.append("--first-parent") }
+    args.append("--stdin")
+    let stdinBytes = (refs.joined(separator: "\n") + "\n").data(using: .utf8) ?? Data()
+    let stdout = try await runGitWithStdin(args: args, cwd: dir, stdin: stdinBytes)
+    let text = String(decoding: stdout, as: UTF8.self)
+    var commits: [CommitInfo] = []
+    for record in text.split(separator: "\u{1e}", omittingEmptySubsequences: true) {
+      let trimmed = record.trimmingCharacters(in: .whitespacesAndNewlines)
+      if trimmed.isEmpty { continue }
+      let parts = trimmed.split(separator: "\u{1f}", omittingEmptySubsequences: false).map(
+        String.init)
+      // 8 fields: hash, shortHash, parents, author, date, subject, body, refs
+      guard parts.count == 8 else { continue }
+      let parents =
+        parts[2].isEmpty
+        ? [] : parts[2].split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+      let date = Int64(parts[4]) ?? 0
+      let parsedRefs = parseRefs(parts[7])
+      commits.append(
+        CommitInfo(
+          hash: parts[0], shortHash: parts[1], parents: parents, author: parts[3], date: date,
+          message: parts[5], body: parts[6], refs: parsedRefs))
+    }
+    return commits
+  }
+
+  /// HEAD の upstream ref 名を返す (例: `origin/foo` / `upstream/main`)。
+  /// upstream 未設定 / detached HEAD では `commandFailed` を throw する。呼び出し側で
+  /// `commandFailed` を空文字列に倒すかは judgment に委ねる (`log` は倒す)。
+  /// `launchFailed` / `commandNotFound` は本関数からは握り潰さず rethrow し、上位の
+  /// notify.error 経路に通す (silent drop 禁止規律)。
+  public static func upstreamRefName(dir: String) async throws -> String {
+    let stdout = try await runGit(
+      args: ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], cwd: dir)
+    return String(decoding: stdout, as: UTF8.self).trimmingCharacters(
+      in: .whitespacesAndNewlines)
   }
 
   public struct StatusFull: Equatable, Sendable {
@@ -378,42 +414,6 @@ public enum GitOps {
       in: .whitespacesAndNewlines)
     if text.hasPrefix("origin/") { return String(text.dropFirst("origin/".count)) }
     return text
-  }
-
-  /// `git log <ref>` を unit-separator 区切りでパースしてコミット一覧を返す。
-  public static func log(
-    dir: String, ref: String = "HEAD", maxCount: UInt32, firstParentOnly: Bool
-  ) async throws -> [CommitInfo] {
-    // %x1f = unit separator (US), %x1e = record separator (RS)
-    let format = "%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e"
-    // `--decorate=short` でユーザーの `log.decorate=full` 設定を上書きする。
-    // full にすると %D が `refs/heads/main` / `refs/remotes/origin/main` 形式になり、
-    // renderer の `r.startsWith("origin/")` / current branch 抽出が崩れる。
-    var args = ["log", "--format=\(format)", "--decorate=short"]
-    if maxCount > 0 { args.append("--max-count=\(maxCount)") }
-    if firstParentOnly { args.append("--first-parent") }
-    args.append(ref)
-    let stdout = try await runGit(args: args, cwd: dir)
-    let text = String(decoding: stdout, as: UTF8.self)
-    var commits: [CommitInfo] = []
-    for record in text.split(separator: "\u{1e}", omittingEmptySubsequences: true) {
-      let trimmed = record.trimmingCharacters(in: .whitespacesAndNewlines)
-      if trimmed.isEmpty { continue }
-      let parts = trimmed.split(separator: "\u{1f}", omittingEmptySubsequences: false).map(
-        String.init)
-      // 8 fields: hash, shortHash, parents, author, date, subject, body, refs
-      guard parts.count == 8 else { continue }
-      let parents =
-        parts[2].isEmpty
-        ? [] : parts[2].split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-      let date = Int64(parts[4]) ?? 0
-      let refs = parseRefs(parts[7])
-      commits.append(
-        CommitInfo(
-          hash: parts[0], shortHash: parts[1], parents: parents, author: parts[3], date: date,
-          message: parts[5], body: parts[6], refs: refs))
-    }
-    return commits
   }
 
   /// `git log --format=%D` の出力をパースする。

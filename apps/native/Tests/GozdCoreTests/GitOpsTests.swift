@@ -1473,6 +1473,138 @@ struct GitOpsResetMixedTests {
   }
 }
 
+@Suite("GitOps.upstreamRefName")
+struct GitOpsUpstreamRefNameTests {
+  @Test("upstream 未設定 (push 前) は commandFailed を throw")
+  func notConfigured() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    // initial commit を作る (HEAD を確立しないと `@{upstream}` は別エラーになる)
+    try "seed".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
+
+    do {
+      _ = try await GitOps.upstreamRefName(dir: dir.path)
+      Issue.record("expected commandFailed, got success")
+    } catch GitError.commandFailed {
+      // 期待挙動
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("upstream 設定済みなら ref 名 (例: origin/main) を返す")
+  func configured() async throws {
+    let (local, _) = try await makeLocalUpstreamRepoPair()
+    defer {
+      try? FileManager.default.removeItem(at: local)
+    }
+    let result = try await GitOps.upstreamRefName(dir: local.path)
+    #expect(result == "origin/main")
+  }
+}
+
+@Suite("GitOps.log (--stdin で N ref を 1 walk)")
+struct GitOpsLogTests {
+  @Test("origin / upstream 不在の repo では HEAD のみで commits を返す")
+  func headOnly() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "a".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c1"], cwd: dir.path)
+    try "b".write(
+      to: dir.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "b.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c2"], cwd: dir.path)
+
+    let result = try await GitOps.log(
+      dir: dir.path, maxCount: 50, firstParentOnly: false, currentBranchOnly: false,
+      sortMode: .topo)
+    #expect(result.defaultBranch == "")
+    #expect(result.commits.count == 2)
+    #expect(result.commits.first?.message == "c2")
+  }
+
+  @Test("amend 後の orphan upstream tip が commits に含まれる")
+  func amendOrphanTipVisible() async throws {
+    let (local, _) = try await makeLocalUpstreamRepoPair()
+    defer {
+      try? FileManager.default.removeItem(at: local)
+    }
+    // local で 1 commit 追加 → push → amend (push しない)
+    try "feat".write(
+      to: local.appendingPathComponent("feat.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "feat.txt"], cwd: local.path)
+    try await runTestGit(args: ["commit", "-m", "feat"], cwd: local.path)
+    try await runTestGit(args: ["push", "-u", "origin", "main"], cwd: local.path)
+    let preAmendHash = try await currentHeadHash(dir: local.path)
+    try await runTestGit(args: ["commit", "--amend", "-m", "feat (amended)"], cwd: local.path)
+    let postAmendHash = try await currentHeadHash(dir: local.path)
+    #expect(preAmendHash != postAmendHash)
+
+    let result = try await GitOps.log(
+      dir: local.path, maxCount: 50, firstParentOnly: false, currentBranchOnly: false,
+      sortMode: .topo)
+    let hashes = Set(result.commits.map(\.hash))
+    // amend 後の新 HEAD commit
+    #expect(hashes.contains(postAmendHash))
+    // origin/main が指す amend 前の orphan tip (HEAD 系統から到達不可) も含まれる
+    #expect(hashes.contains(preAmendHash))
+  }
+
+  @Test("currentBranchOnly=true では origin/<default> も upstream も walk しない")
+  func currentBranchOnlySkipsSideStreams() async throws {
+    let (local, _) = try await makeLocalUpstreamRepoPair()
+    defer {
+      try? FileManager.default.removeItem(at: local)
+    }
+    // 別ブランチに切り替え (HEAD と origin/main が分岐)
+    try await runTestGit(args: ["checkout", "-b", "feature"], cwd: local.path)
+    try "feat".write(
+      to: local.appendingPathComponent("feat.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "feat.txt"], cwd: local.path)
+    try await runTestGit(args: ["commit", "-m", "feat"], cwd: local.path)
+    // main から bumpcommit を 1 つ追加 (origin/main が HEAD から到達不可な独立 commit を持つ)
+    try await runTestGit(args: ["checkout", "main"], cwd: local.path)
+    try "bump".write(
+      to: local.appendingPathComponent("bump.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "bump.txt"], cwd: local.path)
+    try await runTestGit(args: ["commit", "-m", "bump"], cwd: local.path)
+    try await runTestGit(args: ["push", "origin", "main"], cwd: local.path)
+    try await runTestGit(args: ["checkout", "feature"], cwd: local.path)
+
+    let withSides = try await GitOps.log(
+      dir: local.path, maxCount: 50, firstParentOnly: false, currentBranchOnly: false,
+      sortMode: .topo)
+    let onlyHead = try await GitOps.log(
+      dir: local.path, maxCount: 50, firstParentOnly: false, currentBranchOnly: true,
+      sortMode: .topo)
+    // currentBranchOnly=true は HEAD walk のみなので "bump" commit (origin/main 由来) は出ない
+    #expect(withSides.commits.contains(where: { $0.message == "bump" }))
+    #expect(!onlyHead.commits.contains(where: { $0.message == "bump" }))
+    // defaultBranch 文字列は currentBranchOnly でも引き続き返る (RefBadge isDefault 用)
+    #expect(onlyHead.defaultBranch == "main")
+  }
+
+  @Test("git で 1 度に dedup されるため、 fork workflow 風に upstream==origin/<default> でも commit が重複しない")
+  func gitDedupesAcrossRefs() async throws {
+    let (local, _) = try await makeLocalUpstreamRepoPair()
+    defer {
+      try? FileManager.default.removeItem(at: local)
+    }
+    let result = try await GitOps.log(
+      dir: local.path, maxCount: 50, firstParentOnly: false, currentBranchOnly: false,
+      sortMode: .topo)
+    let hashes = result.commits.map(\.hash)
+    let unique = Set(hashes)
+    #expect(hashes.count == unique.count)
+  }
+}
+
 // MARK: - Helpers
 
 private func currentHeadHash(dir: String) async throws -> String {
@@ -1499,6 +1631,27 @@ private func makeGitRepo() async throws -> URL {
   try await runTestGit(args: ["config", "user.name", "Test"], cwd: dir.path)
   try await runTestGit(args: ["config", "user.email", "test@example.com"], cwd: dir.path)
   return dir
+}
+
+/// origin remote + upstream tracking が確立した local repo と、その origin として使う
+/// bare repo の URL を返す。caller は両方を removeItem で掃除する責任を持つ。
+/// initial commit が main ブランチに 1 つあり、`origin/HEAD = main`、`@{upstream} = origin/main` に
+/// なっている状態。`/usr/bin/env git` 側の `init.defaultBranch` がユーザー環境で `master` 等に
+/// 設定されているケースを `init -b main` で固定する。
+private func makeLocalUpstreamRepoPair() async throws -> (local: URL, origin: URL) {
+  let origin = try makeTempDir()
+  try await runTestGit(args: ["init", "-q", "--bare", "-b", "main"], cwd: origin.path)
+  let local = try await makeGitRepo()
+  try "seed".write(
+    to: local.appendingPathComponent("seed.txt"), atomically: true, encoding: .utf8)
+  try await runTestGit(args: ["add", "seed.txt"], cwd: local.path)
+  try await runTestGit(args: ["commit", "-m", "seed"], cwd: local.path)
+  try await runTestGit(args: ["remote", "add", "origin", origin.path], cwd: local.path)
+  try await runTestGit(args: ["push", "-u", "origin", "main"], cwd: local.path)
+  // origin/HEAD → main を確定 (bare 直 push だけだと一部の git バージョンで未設定が残るため)。
+  try await runTestGit(
+    args: ["remote", "set-head", "origin", "main"], cwd: local.path)
+  return (local, origin)
 }
 
 /// テスト helper: GitOps と同じ `/usr/bin/env git` 経由で任意の git コマンドを実行する。

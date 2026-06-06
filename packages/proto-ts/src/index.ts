@@ -129,6 +129,7 @@ export {
   GitWorktreeListResponse,
   GitWorktreeRemoveRequest,
   GitWorktreeRemoveResponse,
+  SortMode,
 } from "./generated/gozd/v1/git_ops";
 export { GitStatusRequest, GitStatusResponse } from "./generated/gozd/v1/git_status";
 export { OpenExternalRequest, OpenExternalResponse } from "./generated/gozd/v1/open_external";

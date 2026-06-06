@@ -20,7 +20,7 @@ SSOT として参照する。Working Tree 行はメニュー対象外。
 </doc>
 
 <script setup lang="ts">
-import type { GitCommit } from "@gozd/proto";
+import { SortMode, type GitCommit } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { useElementSize, useEventListener, useIntervalFn } from "@vueuse/core";
 import { storeToRefs } from "pinia";
@@ -47,8 +47,6 @@ import { computeGraphLayout } from "./graphLayout";
 import type { GraphLayout } from "./graphLayout";
 import type { CommitMessageSegment } from "./linkifyCommitMessage";
 import { buildRepoBaseUrl, linkifyCommitMessage } from "./linkifyCommitMessage";
-import { mergeCommitStreams } from "./mergeCommitStreams";
-import type { SortMode } from "./mergeCommitStreams";
 import RefBadge from "./RefBadge.vue";
 import { rpcGitGithubIdentity, rpcGitLog } from "./rpc";
 import { useCommitContextMenu } from "./useCommitContextMenu";
@@ -66,11 +64,13 @@ const repoStore = useRepoStore();
 const { gitStatuses } = storeToRefs(gitStatusStore);
 const { prByBranch } = storeToRefs(prListStore);
 
+type SortKey = "topo" | "date";
+
 const { commits } = storeToRefs(gitGraphStore);
 const defaultBranch = ref<string | undefined>();
 const layout = ref<GraphLayout>({ nodes: [], lines: [], maxLanes: 1 });
 const firstParentOnly = ref(false);
-const sortMode = ref<SortMode>("date");
+const sortMode = ref<SortKey>("date");
 const currentBranchOnly = ref(false);
 
 /** 変更ファイル数 */
@@ -89,9 +89,10 @@ const currentBranch = computed(() => gitGraphStore.currentBranch);
  * 別コミットに分かれていれば out-of-sync としてここで検出する。
  *
  * 検出範囲は `commits.value` に出現する ref に限定される。`currentBranchOnly` が ON のとき
- * `defaultBranchCommits` 由来の commit が消えるため、HEAD 系統から到達しない ref ペアの
- * out-of-sync は検出できない。これは toggle の意味（「current branch だけ表示」=「他系統を
- * 隠す」）の直接の帰結であり、副作用ではない。
+ * native 側の `git log` 始点 ref が HEAD のみに絞られ origin/<default> 系の commit が
+ * 消えるため、HEAD 系統から到達しない ref ペアの out-of-sync は検出できない。これは
+ * toggle の意味（「current branch だけ表示」=「他系統を隠す」）の直接の帰結であり、
+ * 副作用ではない。
  */
 const outOfSyncBranches = computed(() => {
   const localCommits = new Map<string, string>();
@@ -225,19 +226,14 @@ async function runLoadLog(): Promise<boolean> {
     maxCount: 200,
     firstParentOnly: firstParentOnly.value,
     currentBranchOnly: currentBranchOnly.value,
+    sortMode: sortMode.value === "topo" ? SortMode.SORT_MODE_TOPO : SortMode.SORT_MODE_DATE,
   });
   if (gen !== loadLogGen) return false;
 
-  const merged = mergeCommitStreams({
-    headCommits: result.headCommits,
-    defaultBranchCommits: result.defaultBranchCommits,
-    upstreamCommits: result.upstreamCommits,
-    sortMode: sortMode.value,
-  });
-
-  commits.value = merged;
+  const loaded = result.commits;
+  commits.value = loaded;
   defaultBranch.value = result.defaultBranch === "" ? undefined : result.defaultBranch;
-  const headCommit = findHeadCommit(merged);
+  const headCommit = findHeadCommit(loaded);
   lastHead = headCommit?.hash ?? "";
   // `lastBranchHead` も loadLog の結果に合わせて更新する。これをやらないと worktree
   // 切替後の最初の gitStatusChange push で branchHeadChanged が偽陽性で立ち、
@@ -248,7 +244,7 @@ async function runLoadLog(): Promise<boolean> {
   // 選択中・比較中のコミットが一覧から消えた場合はクリア
   const { selectedHash, compareHash } = gitGraphStore;
   const isStale = (hash: string | null): boolean =>
-    hash !== null && hash !== UNCOMMITTED_HASH && !merged.some((c) => c.hash === hash);
+    hash !== null && hash !== UNCOMMITTED_HASH && !loaded.some((c) => c.hash === hash);
 
   if (isStale(selectedHash) || isStale(compareHash)) {
     gitGraphStore.resetSelection();

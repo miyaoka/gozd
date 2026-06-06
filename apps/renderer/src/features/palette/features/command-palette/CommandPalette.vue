@@ -176,6 +176,6 @@ onUnmounted(disposeShow);
 }
 
 ._command-palette-dialog::backdrop {
-  background: rgb(0 0 0 / 30%);
+  background: var(--color-overlay-soft);
 }
 </style>

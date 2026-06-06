@@ -160,7 +160,7 @@ function onDialogClick(event: MouseEvent) {
           type="text"
           aria-label="Task title"
           :placeholder="inputPlaceholder"
-          class="w-full rounded-sm border border-border-strong bg-surface-1 px-2 py-1 text-sm text-foreground-strong placeholder:text-foreground-subtle placeholder:italic focus:ring-2 focus:ring-ring focus:outline-none"
+          class="w-full rounded-sm border border-border-strong bg-surface-2 px-2 py-1 text-sm text-foreground-strong placeholder:text-foreground-subtle placeholder:italic focus:ring-2 focus:ring-ring focus:outline-none"
           @keydown.enter.prevent="save"
           @keydown.escape.prevent="cancel"
         />

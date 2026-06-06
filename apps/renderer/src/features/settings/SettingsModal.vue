@@ -212,6 +212,6 @@ watch(isOpen, (open) => {
 }
 
 ._settings-dialog::backdrop {
-  background-color: rgb(0 0 0 / 0.3);
+  background-color: var(--color-overlay-soft);
 }
 </style>

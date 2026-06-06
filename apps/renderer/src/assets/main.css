@@ -73,6 +73,9 @@
 
   /* --- Overlays --- */
   --color-overlay: oklch(0 0 0 / 0.5); /* dialog backdrop 等 (旧 bg-black/50) */
+  --color-overlay-soft: oklch(
+    0 0 0 / 0.3
+  ); /* popover / custom dialog backdrop (旧 rgb(0 0 0 / 0.3)) */
 
   /* --- Scrollbar (overlay style) --- */
   /* SessionLogTimeline の bar 等、ユーザー操作可能な水平/垂直棒と必ず色が異なる

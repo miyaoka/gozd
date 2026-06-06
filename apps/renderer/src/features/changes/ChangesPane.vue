@@ -110,17 +110,27 @@ function onClickViewAll() {
       <button
         v-if="prDiffToggle.canEnable"
         type="button"
-        class="ml-auto flex items-center gap-1 px-2 py-0.5 text-xs transition-colors"
+        class="ml-auto flex items-center gap-1 px-2 py-0.5 text-xs transition-colors disabled:cursor-progress disabled:opacity-60"
         :class="prDiffToggle.isOn ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300'"
         :title="
-          prDiffToggle.isOn
-            ? 'Showing PR diff (base..working tree, includes untracked)'
-            : 'Show PR diff (base..working tree, includes untracked)'
+          prDiffToggle.enabling
+            ? 'Resolving PR diff base...'
+            : prDiffToggle.isOn
+              ? 'Showing PR diff (base..working tree, includes untracked)'
+              : 'Show PR diff (base..working tree, includes untracked)'
         "
+        :disabled="prDiffToggle.enabling"
+        :aria-busy="prDiffToggle.enabling"
         aria-label="Toggle PR diff"
         @click="prDiffToggle.toggle"
       >
-        <span class="icon-[lucide--git-pull-request] size-3.5" />
+        <span
+          :class="
+            prDiffToggle.enabling
+              ? 'icon-[lucide--loader-circle] size-3.5 animate-spin'
+              : 'icon-[lucide--git-pull-request] size-3.5'
+          "
+        />
         PR #{{ prDiffToggle.pr?.number }}
       </button>
       <button

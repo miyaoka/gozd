@@ -112,6 +112,9 @@ function findAbsolutePathLinks(
  * - currentLineOffset: 結合テキスト中で現在行が始まる string 位置
  * - currentLineLength: 現在行の string 長
  * - 返り値の linkStart / linkEnd: 現在行を起点 (0-based) とした string 範囲
+ *
+ * export は test 可能性のためであり、feature 内部の他モジュールから再利用する想定はない。
+ * 外部 feature からの利用は terminal feature の barrel (`index.ts`) に載せないことで防ぐ。
  */
 export function clipMatchToCurrentLine(
   match: AbsolutePathMatch,

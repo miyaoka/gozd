@@ -313,6 +313,14 @@ describe("findAbsolutePathMatches", () => {
       const matches = findAbsolutePathMatches("see ///", dirPrefix, homeDir);
       expect(matches).toEqual([]);
     });
+
+    test("`/// foo.txt` のように連続 slash の後に PATH_TERMINATORS (空白) で停止する場合、先頭 `///` 部分は拾わない", () => {
+      // findPathEnd は 空白で停止するため text.slice(0, 3) = "///" が hasNonSlashChar で skip。
+      // 後続 "foo.txt" は generic 経路の単独セグメントとしては起点にならない (boundary は ` ` 直後の
+      // `f` 始まりだが、generic 経路は `/` 始まりの absolute 検出のため、ここに該当しない)。
+      const matches = findAbsolutePathMatches("/// foo.txt", dirPrefix, homeDir);
+      expect(matches).toEqual([]);
+    });
   });
 
   describe("境界条件", () => {

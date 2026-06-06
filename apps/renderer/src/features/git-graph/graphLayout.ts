@@ -208,8 +208,9 @@ export function computeGraphLayout(
       // 採ると、その borrowed lane の originLane = lane(merge 行) が次行 (HEAD 行) まで持ち越され、
       // Phase 1 で「merge 行 lane → borrowed lane」の分岐セグメントを nextColor++ で 1 本生成
       // してしまう。HEAD は別経路で lane 0 を固定するため borrowed lane は誰にも消費されず
-      // 余計な線として残る。HEAD 予約 lane 0 に直行させれば、次行で「merge 行 lane → 0」の
-      // 合流線が HEAD_COLOR で正しく描かれる
+      // 余計な線として残る。HEAD 予約 lane 0 に直行させれば、次行の Phase 1 で
+      // activeLanes[0].originLane = merge 行 lane が「分岐」ブロック (lockedFirst=true) を踏み、
+      // x1=merge 行 lane → x2=0 の斜めセグメントが HEAD_COLOR で正しく描かれる
       const isHeadBranch = parentHash === headHash && reserveHeadLane;
       const mergeLane = isHeadBranch ? 0 : findEmptyLane(activeLanes, minLane);
       const mergeColor = isHeadBranch ? HEAD_COLOR : nextColor++;

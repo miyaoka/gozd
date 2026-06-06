@@ -137,8 +137,12 @@ describe("computeGraphLayout の HEAD 最左固定", () => {
     expect(lanes.get("other")).toBeGreaterThan(0);
     expect(colors.get("other")).not.toBe(HEAD_COLOR);
 
-    // other と m は別レーン (m / prev / other / h0 が並走する瞬間がある)
+    // other は m とも別レーン / 別色 (m: lane 1 / color 1、other: lane 2 / color 2)
+    expect(lanes.get("other")).not.toBe(lanes.get("m"));
     expect(colors.get("other")).not.toBe(colors.get("m"));
+
+    // h0 行で h0 / prev / other の 3 本が同時 active になる
+    expect(layout.maxLanes).toBe(3);
   });
 
   test("HEAD 自身が merge コミットの tip でも最左 lane に固定する", () => {

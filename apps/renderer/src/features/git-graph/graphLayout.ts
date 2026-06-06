@@ -201,12 +201,17 @@ export function computeGraphLayout(
       if (!commitIndexMap.has(parentHash)) continue;
 
       const existingLane = activeLanes.findIndex((l) => l?.hash === parentHash);
-      if (existingLane === -1) {
-        const mergeLane = findEmptyLane(activeLanes, minLane);
-        const mergeColor = nextColor++;
-        // originLane を設定して、次の行で斜めセグメントを生成
-        activeLanes[mergeLane] = { hash: parentHash, color: mergeColor, originLane: lane };
-      }
+      if (existingLane !== -1) continue;
+
+      // 2nd parent が HEAD 自身のとき (例: main の "Merge pull request #N from .../HEAD-branch")
+      // は予約済み lane 0 / HEAD_COLOR に直接乗せる。findEmptyLane(minLane=1) で新レーンを
+      // 採ってしまうと、次行で HEAD が lane 0 に固定された後も解放前の借りレーンから lane 0
+      // ではなく借りレーンへの斜めセグメントが残り、別色 (nextColor) の余分な線が描かれる
+      const isHeadBranch = parentHash === headHash && reserveHeadLane;
+      const mergeLane = isHeadBranch ? 0 : findEmptyLane(activeLanes, minLane);
+      const mergeColor = isHeadBranch ? HEAD_COLOR : nextColor++;
+      // originLane を設定して、次の行で斜めセグメントを生成
+      activeLanes[mergeLane] = { hash: parentHash, color: mergeColor, originLane: lane };
     }
 
     maxLanes = Math.max(maxLanes, countActive(activeLanes));

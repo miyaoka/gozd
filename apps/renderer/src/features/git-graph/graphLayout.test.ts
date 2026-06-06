@@ -81,6 +81,43 @@ describe("computeGraphLayout の HEAD 最左固定", () => {
     expect(lanes.get("base")).toBe(0);
   });
 
+  test("HEAD 到達前の merge コミットの 2nd parent が HEAD 自身でも借りレーンを作らない", () => {
+    // GitHub flow 最頻ケース: main 側の "Merge pull request #N from .../HEAD-branch"。
+    //   m (origin/main, parents=[prev, h0]) — prev 系統と HEAD を merge
+    //   h0 (HEAD)
+    //   prev → base
+    //   h0  → base
+    // 借りレーンを作ると lane 1 → 借りレーンへの余分な斜めセグメントが残り、
+    // 紫等の別色 (nextColor) の線が描画される。HEAD 予約 lane 0 に直接乗せて防ぐ。
+    const commits = [
+      commit("m", ["prev", "h0"]),
+      commit("h0", ["base"], ["HEAD"]),
+      commit("prev", ["base"]),
+      commit("base", []),
+    ];
+    const layout = computeGraphLayout(commits, { headHash: "h0" });
+    const lanes = laneByHash(layout);
+    const colors = colorByHash(layout);
+
+    // HEAD は予約済み lane 0 に置かれる
+    expect(lanes.get("h0")).toBe(0);
+    expect(colors.get("h0")).toBe(HEAD_COLOR);
+
+    // merge 自身は lane 0 を奪わず lane 1 以降
+    expect(lanes.get("m")).toBeGreaterThan(0);
+
+    // 余分な借りレーンが作られていないこと: m + prev + HEAD = 同時 3 本までだが、
+    // HEAD 予約直行なら借りレーン分の +1 が増えない (lane 0=HEAD, lane 1=m/prev)
+    expect(layout.maxLanes).toBeLessThanOrEqual(2);
+
+    // 紫 (color=2) など HEAD_COLOR / m 色 以外のセグメントが含まれていない
+    const usedColors = new Set(layout.lines.map((s) => s.color));
+    const mColor = colors.get("m");
+    for (const c of usedColors) {
+      expect([HEAD_COLOR, mColor]).toContain(c);
+    }
+  });
+
   test("HEAD 自身が merge コミットの tip でも最左 lane に固定する", () => {
     //   o0 → o1 ┐
     //   m(HEAD)─┼─ a ┐

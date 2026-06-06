@@ -118,14 +118,11 @@ function onHeaderClick() {
     class="rounded-lg transition-colors data-[active=true]:bg-primary/30 data-[active=true]:hover:bg-primary/40"
   >
     <div class="group/wt relative">
-      <div
-        role="button"
-        tabindex="0"
+      <button
+        type="button"
         :data-active="headerActive"
         class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-foreground-muted transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset"
         @click="onHeaderClick"
-        @keydown.enter.prevent="onHeaderClick"
-        @keydown.space.prevent="onHeaderClick"
       >
         <span class="grid size-5 shrink-0 place-items-center" aria-hidden="true">
           <span class="size-3.5" :class="branchIcon" />
@@ -152,7 +149,7 @@ function onHeaderClick() {
             <span>{{ wt.upstream.behind }}</span>
           </span>
         </span>
-      </div>
+      </button>
       <button
         v-if="canRemove"
         type="button"

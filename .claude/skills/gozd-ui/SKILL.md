@@ -67,18 +67,18 @@ primary と info は同じ青系だが意味階層が異なる。同一 toolbar 
 一括りにしない**: filter (検索結果を絞る強い action) と view-mode (補助的な表示切替) で
 強度を分ける。
 
-| UI pattern              | intent   | 用法             | 例                                                                            |
-| ----------------------- | -------- | ---------------- | ----------------------------------------------------------------------------- |
-| filter toggle (強い)    | primary  | solid static     | assignee:me / reviewer:me                                                     |
-| view-mode toggle (補助) | info     | text-only        | split / unified / preview / wordwrap                                          |
-| sub-toggle icon         | info     | text-only        | blame / history switch                                                        |
-| mode tab indicator      | primary  | indicator stripe | preview pane mode tab                                                         |
-| current state badge     | primary  | solid static     | current branch                                                                |
-| static info badge       | info     | subtle chip      | tag / ref / branch (in PR row)                                                |
-| file status icon        | (status) | faint chip       | added (success) / modified (warning) / deleted (destructive) / renamed (info) |
-| selected list item      | primary  | selected row     | active task row / active worktree card                                        |
-| toggle switch track     | primary  | solid chrome     | BooleanWidget on state                                                        |
-| drag handle indicator   | primary  | solid chrome     | ResizeHandle active / hover                                                   |
+| UI pattern                | intent   | 用法             | 例                                                                            |
+| ------------------------- | -------- | ---------------- | ----------------------------------------------------------------------------- |
+| filter toggle (強い)      | primary  | solid static     | assignee:me / reviewer:me                                                     |
+| view-mode toggle (補助)   | info     | text-only        | split / unified / preview / wordwrap                                          |
+| sub-toggle icon           | info     | text-only        | blame / history switch                                                        |
+| mode tab indicator        | primary  | indicator stripe | preview pane mode tab                                                         |
+| current state badge       | primary  | solid static     | current branch                                                                |
+| static info badge         | info     | subtle chip      | tag / ref / branch (in PR row)                                                |
+| file status icon          | (status) | faint chip       | added (success) / modified (warning) / deleted (destructive) / renamed (info) |
+| selected list item        | primary  | selected row     | active task row / active worktree card                                        |
+| toggle switch (on/off)    | primary  | solid chrome     | BooleanWidget on=primary, off=`bg-border-strong`                              |
+| drag handle (active/rest) | primary  | solid chrome     | ResizeHandle active=primary, rest=`bg-border-strong`                          |
 
 **同一要素内で hover による intent 切り替えは禁止**。`text-info hover:text-primary` のような
 hover で intent 階層が動的に変わる pattern は、SKILL の階層分け規律 (要素の階層 = 静的)
@@ -102,20 +102,20 @@ intent (`primary` / `destructive` / `success` / `warning` / `warning-strong` / `
 は表に書かれた値からのみ選ぶ (詳細は下節 「opacity 修飾子は固定セットから選ぶ」)。表外の
 値 (bg `/20` / `/25` / `/50` 等) は SSOT 違反として禁止。
 
-| 用法                                                            | bg                                    | border               | text                       | hover 軸     |
-| --------------------------------------------------------------- | ------------------------------------- | -------------------- | -------------------------- | ------------ |
-| **solid button** (click 可能、hover あり)                       | `bg-<intent>`                         | —                    | `text-<intent>-foreground` | hover 表参照 |
-| **solid static** (current branch / static badge / toggle chip)  | `bg-<intent>`                         | —                    | `text-<intent>-foreground` | hover なし   |
-| **translucent solid** (chat bubble)                             | `bg-<intent>/40`                      | —                    | `text-<intent>-foreground` | hover 表参照 |
-| **bordered translucent** (強調塗りコンテナ / 選択強調)          | `bg-<intent>/40`                      | `border-<intent>/60` | `text-<intent>-foreground` | hover なし   |
-| **outlined banner** (toast / banner)                            | `bg-<intent>/15`                      | `border-<intent>/60` | neutral (継承)             | hover なし   |
-| **subtle chip** (badge / tag / inline alert)                    | `bg-<intent>/15`                      | —                    | `text-<intent>`            | hover 表参照 |
-| **faint chip** (file status row / icon chip)                    | `bg-<intent>/10`                      | —                    | `text-<intent>`            | hover 表参照 |
-| **line tint** (diff 行 / 弱い背景強調)                          | `bg-<intent>/10`                      | —                    | neutral (継承)             | hover なし   |
-| **selected row** (active list item)                             | `bg-<intent>/30 hover:bg-<intent>/40` | —                    | neutral (継承)             | hover 表参照 |
-| **indicator stripe** (active tab 下線 / underline)              | —                                     | `border-<intent>`    | `text-<intent>`            | hover なし   |
-| **text-only** (link / icon / inline)                            | —                                     | —                    | `text-<intent>`            | hover なし   |
-| **solid chrome** (toggle switch track / drag handle、text 無し) | `bg-<intent>`                         | —                    | — (text 不在要素)          | hover なし   |
+| 用法                                                                       | bg                                          | border               | text                       | hover 軸     |
+| -------------------------------------------------------------------------- | ------------------------------------------- | -------------------- | -------------------------- | ------------ |
+| **solid button** (click 可能、hover あり)                                  | `bg-<intent>`                               | —                    | `text-<intent>-foreground` | hover 表参照 |
+| **solid static** (current branch / static badge / toggle chip)             | `bg-<intent>`                               | —                    | `text-<intent>-foreground` | hover なし   |
+| **translucent solid** (chat bubble)                                        | `bg-<intent>/40`                            | —                    | `text-<intent>-foreground` | hover 表参照 |
+| **bordered translucent** (強調塗りコンテナ / 選択強調)                     | `bg-<intent>/40`                            | `border-<intent>/60` | `text-<intent>-foreground` | hover なし   |
+| **outlined banner** (toast / banner)                                       | `bg-<intent>/15`                            | `border-<intent>/60` | neutral (継承)             | hover なし   |
+| **subtle chip** (badge / tag / inline alert)                               | `bg-<intent>/15`                            | —                    | `text-<intent>`            | hover 表参照 |
+| **faint chip** (file status row / icon chip)                               | `bg-<intent>/10`                            | —                    | `text-<intent>`            | hover 表参照 |
+| **line tint** (diff 行 / 弱い背景強調)                                     | `bg-<intent>/10`                            | —                    | neutral (継承)             | hover なし   |
+| **selected row** (active list item)                                        | `bg-<intent>/30 hover:bg-<intent>/40`       | —                    | neutral (継承)             | hover 表参照 |
+| **indicator stripe** (active tab 下線 / underline)                         | —                                           | `border-<intent>`    | `text-<intent>`            | hover なし   |
+| **text-only** (link / icon / inline)                                       | —                                           | —                    | `text-<intent>`            | hover なし   |
+| **solid chrome** (toggle switch / drag handle、text 不在 + on/off 2 state) | on: `bg-<intent>` / off: `bg-border-strong` | —                    | —                          | hover なし   |
 
 text 列の **neutral (継承)** は「intent text を当てない (中身が `text-foreground` 系の通常
 コンテンツを wrap する container)」。明示するなら `text-foreground` / `text-foreground-strong`
@@ -219,6 +219,14 @@ intent の alpha 値は **上記表の各行に書かれた値からのみ** 選
 列挙は表が変わるたびにずれるため意図的に避ける。text 側の強度減衰 (`text-success/70` 等) は
 連続値で OK (情報の主役は色相 + 強度減衰)。raw 色との組み合わせ (`bg-red-500/20` 等) は禁止
 (intent token を使う)。
+
+### Click 可能要素は `<button>` を使う (semantic HTML)
+
+click handler を持つ要素は `<button type="button">` を使う。`<div role="button" tabindex="0">`
+
+- `@keydown.enter` / `@keydown.space` の手動実装は ARIA shim で、`<button>` で書けば semantic /
+  keyboard / accessibility がすべて OS / browser 提供で自動機能する。`<button>` は default で
+  type="submit" のため form 内で `type="button"` 明示が必要 (submit 暴発防止)。
 
 ### Focus 可能要素の focus 表現は ring 必須
 

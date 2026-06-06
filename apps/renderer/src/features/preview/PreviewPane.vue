@@ -503,19 +503,33 @@ async function fetchPrDiffContent(filePath: string) {
   // - R (renamed): base には `oldFilePath`、working tree には `newFilePath` で存在
   // - M (modified): 同パスで両方存在
   // この path 選択を欠くと「存在しないパスへの `git show <base>:<path>`」を発射して stderr noise
-  // を出し、R では from/to の取り違えで rename が added 扱いに倒れる。change が lookup できない
-  // 場合 (Filer 経由で git status 外のファイル選択) はフォールバックで filePath を両方に使う。
+  // を出し、R では from/to の取り違えで rename が added 扱いに倒れる。
+  //
+  // lookup 失敗 (= fileChanges に該当 change が無い) 経路はそのまま fetch すると per-type 分岐が
+  // 失われて bogus stderr が再発するため、空表示にして watcher 再発火に委ねる。`fileChanges` は
+  // 上位 watcher の deps に含まれているため、`prDiffFiles` 取得完了 / 選択 path が含まれる
+  // 変化 で再発火する。本経路は (a) PR diff fetch がまだ確定していない race window
+  // (b) PR diff に含まれないファイルを Filer から選択した状況、いずれも結果として空表示が妥当。
   const change = changesStore.fileChanges.find((c) => c.newFilePath === filePath);
-  const type = change?.type;
-  const fromPath = change?.oldFilePath || filePath;
-  const toPath = change?.newFilePath || filePath;
-  const skipFrom = type === "A" || type === "U";
-  const skipTo = type === "D";
+  if (change === undefined) {
+    currentContent.value = undefined;
+    originalContent.value = undefined;
+    isBinary.value = false;
+    isOriginalBinary.value = false;
+    isNotFound.value = false;
+    commitGitChange.value = undefined;
+    loading.value = false;
+    return;
+  }
 
+  const skipFrom = change.type === "A" || change.type === "U";
+  const skipTo = change.type === "D";
   const fromPromise = skipFrom
     ? Promise.resolve(undefined)
-    : rpcGitReadBlob({ dir, hash: baseOid, relPath: fromPath });
-  const toPromise = skipTo ? Promise.resolve(undefined) : rpcFsReadFile({ dir, path: toPath });
+    : rpcGitReadBlob({ dir, hash: baseOid, relPath: change.oldFilePath });
+  const toPromise = skipTo
+    ? Promise.resolve(undefined)
+    : rpcFsReadFile({ dir, path: change.newFilePath });
 
   const fetchResult = await tryCatch(Promise.all([fromPromise, toPromise]));
 
@@ -536,14 +550,14 @@ async function fetchPrDiffContent(filePath: string) {
   if (fromNotFound && toNotFound) {
     commitGitChange.value = undefined;
   } else if (fromNotFound) {
-    commitGitChange.value = type === "R" ? "renamed" : "added";
+    commitGitChange.value = change.type === "R" ? "renamed" : "added";
   } else if (toNotFound) {
     commitGitChange.value = "deleted";
   } else {
     // 内容比較は renderer 側でなく Swift 側 unchanged を使うのが SSOT だが、
     // PR diff モードは to が working tree (blob OID 無し) なので unchanged 判定は持たない。
     // `modified` / `renamed` 固定にし、実体が同一なら DiffPreview 側で空 diff として描画される。
-    commitGitChange.value = type === "R" ? "renamed" : "modified";
+    commitGitChange.value = change.type === "R" ? "renamed" : "modified";
   }
 
   if (commitGitChange.value === "deleted") {
@@ -597,6 +611,11 @@ watch(
       gitGraphStore.compareHash,
       prDiffToggle.isOn,
       prDiffToggle.lockedBaseOid,
+      // PR diff モードの fetchPrDiffContent は `changesStore.fileChanges` から change object を
+      // lookup して per-type の path 選択を行う。fileChanges が確定するまで lookup 失敗で
+      // フォールバックに倒れ bogus な git show を発射してしまう race を防ぐため、
+      // fileChanges を deps に入れて確定タイミングで再発火させる。
+      changesStore.fileChanges,
     ] as const,
   async ([path, _kind, gitChange, selectedHash, compareHash, isPrDiff]) => {
     previewEnabled.value = true;
@@ -848,6 +867,7 @@ watch(
     () => gitGraphStore.compareHash,
     () => prDiffToggle.isOn,
     () => prDiffToggle.lockedBaseOid,
+    () => changesStore.fileChanges,
     activeMode,
     // summary view 切替で CodePreview / DiffPreview が unmount され anchor が detached
     // になるため、popover も同時に閉じる必要がある。

@@ -413,15 +413,15 @@ async function fetchPrDiff(dir: string, version: number) {
     return;
   }
   const change = props.change;
-  const fromPath = change.oldFilePath || change.newFilePath;
-  const toPath = change.newFilePath || change.oldFilePath;
   const skipFrom = change.type === "A" || change.type === "U";
   const skipTo = change.type === "D";
 
   const fromPromise = skipFrom
     ? Promise.resolve(undefined)
-    : rpcGitReadBlob({ dir, hash: baseOid, relPath: fromPath });
-  const toPromise = skipTo ? Promise.resolve(undefined) : rpcFsReadFile({ dir, path: toPath });
+    : rpcGitReadBlob({ dir, hash: baseOid, relPath: change.oldFilePath });
+  const toPromise = skipTo
+    ? Promise.resolve(undefined)
+    : rpcFsReadFile({ dir, path: change.newFilePath });
 
   const fetchResult = await tryCatch(Promise.all([fromPromise, toPromise]));
 

@@ -220,14 +220,25 @@ async function runLoadLog(): Promise<boolean> {
   const gen = ++loadLogGen;
   const dir = worktreeStore.dir;
   if (dir === undefined) return false;
-  const result = await rpcGitLog({
-    dir,
-    maxCount: 200,
-    firstParentOnly: firstParentOnly.value,
-    currentBranchOnly: currentBranchOnly.value,
-    sortMode: sortMode.value,
-  });
+  // rpcGitLog は native の `commandFailed` / `launchFailed` / `commandNotFound` を
+  // RPC error として throw し得る (git CLI 不在 / 子プロセスの異常終了 / 入力検証失敗等)。
+  // silent 化するとユーザー側で graph が空のまま気づけなくなるため、loadPrList と同じ
+  // tryCatch + notify.error pattern でハンドルする。
+  const rpcResult = await tryCatch(
+    rpcGitLog({
+      dir,
+      maxCount: 200,
+      firstParentOnly: firstParentOnly.value,
+      currentBranchOnly: currentBranchOnly.value,
+      sortMode: sortMode.value,
+    }),
+  );
   if (gen !== loadLogGen) return false;
+  if (!rpcResult.ok) {
+    notify.error("Failed to load git graph", rpcResult.error);
+    return false;
+  }
+  const result = rpcResult.value;
 
   const loaded = result.commits;
   commits.value = loaded;

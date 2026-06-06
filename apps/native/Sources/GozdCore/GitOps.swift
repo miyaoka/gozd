@@ -166,8 +166,9 @@ public enum GitOps {
     public let commits: [CommitInfo]
     public let defaultBranch: String
     /// HEAD が指す branch 名 (例: `main`)。`git symbolic-ref --short HEAD` の結果。
-    /// detached HEAD / unborn branch では空文字。porcelain v2 `# branch.head` と SSOT を
-    /// 揃え、renderer 側で `gitStatusChange` の `branchHead` と同一源泉から比較できるようにする。
+    /// detached HEAD では空文字 (commandFailed を catch して fallback)。unborn branch
+    /// (commit 無し) では branch 名がそのまま返る (porcelain v2 `# branch.head` も同じ)。
+    /// renderer 側で `gitStatusChange` の `branchHead` と同一源泉から比較できるようにする。
     public let branchHead: String
   }
 
@@ -229,23 +230,34 @@ public enum GitOps {
       do {
         return try await branchHeadName(dir: dir)
       } catch GitError.commandFailed {
-        // detached HEAD / unborn branch は porcelain v2 と同じく空文字に倒す。
+        // detached HEAD は symbolic-ref が exit 128 で throw する正常パス。
+        // (unborn branch はこちらに来ない: symbolic-ref --short HEAD は unborn でも
+        // branch 名を exit 0 で返すため、上の do 枝に乗る。)
         // 異常系 (権限障害等) との区別のため stderr に観察ログを 1 行残す。
         StderrLog.write(
-          tag: "GitOps", "log: branchHeadName fallback to \"\" (detached HEAD or unborn branch?) dir=\(dir)")
+          tag: "GitOps", "log: branchHeadName fallback to \"\" (detached HEAD?) dir=\(dir)")
         return ""
       }
     }()
+    // HEAD の commit OID 解決性を事前確認。unborn branch (`git init` 直後、commit 無し) では
+    // HEAD が commit を指していないため、`git log --stdin` で `HEAD` を始点にすると
+    // exit 128 + `fatal: bad default revision 'HEAD'` で throw する。strict 契約 (runGitWithStdin
+    // の treatNonZeroExitAsSuccess=false) を維持しつつ unborn を正常系として扱うために、
+    // 始点 refs から HEAD を除外する。
+    async let headExistsTask: Bool = headOidExists(dir: dir)
+
     let defaultBranch = try await defaultBranchTask
     let upstreamRef = try await upstreamRefTask
     let branchHead = try await branchHeadTask
+    let headExists = await headExistsTask
 
     // 始点 ref を Set dedup で集める。currentBranchOnly では HEAD のみ。
     // git 自身が walk 中に commit を OID 単位で dedup するので、ref 名重複
     // (例: fork workflow で `upstream/main` と `origin/main` が同 commit を指す等) や
     // 「upstream が origin/<default> と同じ ref」を Swift 側で skip する必要は無い。
     // Set 投入だけで足りる。
-    var refs: Set<String> = ["HEAD"]
+    var refs: Set<String> = []
+    if headExists { refs.insert("HEAD") }
     if !currentBranchOnly {
       if !defaultBranch.isEmpty { refs.insert("origin/\(defaultBranch)") }
       if !upstreamRef.isEmpty { refs.insert(upstreamRef) }
@@ -257,11 +269,31 @@ public enum GitOps {
     return LogResult(commits: commits, defaultBranch: defaultBranch, branchHead: branchHead)
   }
 
+  /// HEAD が commit OID を解決できるかを返す。`git rev-parse --verify --quiet HEAD` を使い、
+  /// exit 0 なら true (通常 branch / detached HEAD) 、exit ≠ 0 なら false (unborn branch)。
+  /// stdout / stderr / launchFailed / commandNotFound は graph 表示を止めないよう
+  /// false に倒す (HEAD 不在として扱えば runLogStdin が refs 空で安全に [] を返す)。
+  public static func headOidExists(dir: String) async -> Bool {
+    do {
+      _ = try await runGit(args: ["rev-parse", "--verify", "--quiet", "HEAD"], cwd: dir)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   /// HEAD が指す branch 名を返す (例: `main` / `feature/foo`)。
-  /// detached HEAD / unborn branch では `commandFailed` を throw する。呼び出し側で
-  /// `commandFailed` を空文字列に倒すかは judgment に委ねる (`log` は倒す)。
   /// porcelain v2 の `# branch.head` と同一の semantics を `git symbolic-ref --short HEAD`
   /// で取得し、SSOT を `gitStatusChange` push payload と一致させる。
+  ///
+  /// 挙動の場合分け:
+  /// - 通常の branch (HEAD が refs/heads/<name> を指す): branch 名を exit 0 で返す
+  /// - unborn branch (`git init -b main` 直後、commit 無し): symbolic-ref は branch 名
+  ///   (`main`) を exit 0 で返す。porcelain v2 の `# branch.head` も同じく branch 名を返すため
+  ///   SSOT が揃う
+  /// - detached HEAD: symbolic-ref は exit 128 で `commandFailed` を throw する
+  ///
+  /// 呼び出し側で `commandFailed` を空文字列に倒すかは judgment に委ねる (`log` は倒す)。
   /// `launchFailed` / `commandNotFound` は本関数からは握り潰さず rethrow し、上位の
   /// notify.error 経路に通す (silent drop 禁止規律)。
   public static func branchHeadName(dir: String) async throws -> String {

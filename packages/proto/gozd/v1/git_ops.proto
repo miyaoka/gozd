@@ -54,11 +54,12 @@ message GitLogResponse {
   // 解決失敗時 / origin 未設定時は空文字。
   string default_branch = 2;
   // HEAD が指す branch 名 (例: `main` / `feature/foo`)。`git symbolic-ref --short HEAD`
-  // の結果。detached HEAD / unborn branch では空文字。`git status --porcelain=v2 --branch` の
-  // `# branch.head` と同一の semantics で、`gitStatusChange` push payload の `branchHead`
-  // と SSOT を一致させる目的で同一 RPC に含める。renderer の change detection trigger 比較で
-  // log の `%D` decoration 経路と porcelain v2 経路が混在しないよう、graph データ取得時点で
-  // 同一 snapshot として配信する。
+  // の結果。detached HEAD では空文字 (native の log() が commandFailed を catch して fallback)。
+  // unborn branch (commit 無し) では symbolic-ref が branch 名を exit 0 で返すため、ここにも
+  // branch 名が入る。`git status --porcelain=v2 --branch` の `# branch.head` と同一の
+  // semantics で、`gitStatusChange` push payload の `branchHead` と SSOT を一致させる目的で
+  // 同一 RPC に含める。renderer の change detection trigger 比較で log の `%D` decoration 経路と
+  // porcelain v2 経路が混在しないよう、graph データ取得時点で同一 snapshot として配信する。
   string branch_head = 3;
 }
 

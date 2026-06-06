@@ -1634,6 +1634,89 @@ struct GitOpsUpstreamRefNameTests {
   }
 }
 
+@Suite("GitOps.branchHeadName")
+struct GitOpsBranchHeadNameTests {
+  @Test("通常 branch は branch 名を返す")
+  func normalBranch() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "a".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c1"], cwd: dir.path)
+    try await runTestGit(args: ["branch", "-m", "feature/foo"], cwd: dir.path)
+
+    let result = try await GitOps.branchHeadName(dir: dir.path)
+    #expect(result == "feature/foo")
+  }
+
+  @Test("unborn branch (commit 無し) でも branch 名を返す (porcelain v2 と同 SSOT)")
+  func unbornBranch() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    // makeGitRepo は init -q -b main 直後で commit が無い unborn 状態
+    let result = try await GitOps.branchHeadName(dir: dir.path)
+    #expect(result == "main")
+  }
+
+  @Test("detached HEAD では commandFailed を throw")
+  func detachedHead() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "a".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c1"], cwd: dir.path)
+    let head = try await currentHeadHash(dir: dir.path)
+    try await runTestGit(args: ["checkout", "--detach", head], cwd: dir.path)
+
+    do {
+      _ = try await GitOps.branchHeadName(dir: dir.path)
+      Issue.record("expected commandFailed for detached HEAD")
+    } catch GitError.commandFailed {
+      // 期待挙動
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+}
+
+@Suite("GitOps.headOidExists")
+struct GitOpsHeadOidExistsTests {
+  @Test("通常 branch (commit あり) では true")
+  func normalBranch() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "a".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c1"], cwd: dir.path)
+
+    let result = await GitOps.headOidExists(dir: dir.path)
+    #expect(result == true)
+  }
+
+  @Test("unborn branch では false (HEAD が commit を指していない)")
+  func unbornBranch() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    // makeGitRepo は init -q -b main 直後で commit が無い unborn 状態
+    let result = await GitOps.headOidExists(dir: dir.path)
+    #expect(result == false)
+  }
+
+  @Test("git repo でない dir では false (graph 表示を止めない fallback)")
+  func notARepo() async throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "gozd-head-oid-\(UUID().uuidString.prefix(8))")
+    try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tmp) }
+
+    let result = await GitOps.headOidExists(dir: tmp.path)
+    #expect(result == false)
+  }
+}
+
 @Suite("GitOps.log (--stdin で N ref を 1 walk)")
 struct GitOpsLogTests {
   @Test("origin / upstream 不在の repo では HEAD のみで commits を返す")
@@ -1753,6 +1836,23 @@ struct GitOpsLogTests {
     #expect(hashes.contains(orphanTip))
     #expect(hashes.contains(orphanC1))
     #expect(hashes.contains(orphanC2))
+  }
+
+  @Test("unborn branch では throw せず空 commits + branchHead=main を返す")
+  func unbornBranchYieldsEmptyCommitsWithoutThrow() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    // makeGitRepo は init -q -b main 直後で commit が無い unborn 状態。HEAD は commit を
+    // 指していないため、HEAD を始点 ref に入れると `git log --stdin` が exit 128 で throw する。
+    // log() は headOidExists で事前検証し、unborn の HEAD を refs から除外することで
+    // strict 契約を壊さず unborn を正常系として扱う (新規 worktree 開封時の graph 初期化失敗を回避)。
+    let result = try await GitOps.log(
+      dir: dir.path, maxCount: 50, firstParentOnly: false, currentBranchOnly: false,
+      sortMode: .topo)
+    #expect(result.commits.isEmpty)
+    #expect(result.defaultBranch == "")
+    // unborn でも `git symbolic-ref --short HEAD` は branch 名 (main) を返す
+    #expect(result.branchHead == "main")
   }
 
   @Test("LogResult.branchHead は git symbolic-ref --short HEAD と一致する (porcelain v2 SSOT)")

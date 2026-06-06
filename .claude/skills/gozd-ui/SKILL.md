@@ -36,6 +36,11 @@ Token 一覧は SSOT として `apps/renderer/src/assets/main.css` の `@theme` 
 | focus ring                                            | `ring-ring`              |
 | dialog backdrop                                       | `bg-overlay`             |
 
+同一 token を複数 utility prefix で異なる用途に使うことは許容する (例:
+`--color-foreground-strong` は `text-foreground-strong` で「強調 / heading」、
+`bg-foreground-strong` で「chrome indicator」)。「token = 用途 1 つ」ではなく
+「token = OKLCH 物理値、用途は utility prefix × token の組で決まる」と考える。
+
 #### Intent vs Accent の使い分け
 
 要素が **特定 intent を意味する** (active 状態が primary を表す / エラーが destructive
@@ -68,18 +73,19 @@ primary と info は同じ青系だが意味階層が異なる。同一 toolbar 
 一括りにしない**: filter (検索結果を絞る強い action) と view-mode (補助的な表示切替) で
 強度を分ける。
 
-| UI pattern                | intent   | 用法             | 例                                                                                    |
-| ------------------------- | -------- | ---------------- | ------------------------------------------------------------------------------------- |
-| filter toggle (強い)      | primary  | solid static     | assignee:me / reviewer:me                                                             |
-| view-mode toggle (補助)   | info     | text-only        | split / unified / preview / wordwrap                                                  |
-| sub-toggle icon           | info     | text-only        | blame / history switch                                                                |
-| mode tab indicator        | primary  | indicator stripe | preview pane mode tab                                                                 |
-| current state badge       | primary  | solid static     | current branch                                                                        |
-| static info badge         | info     | subtle chip      | tag / ref / branch (in PR row)                                                        |
-| file status icon          | (status) | faint chip       | added (success) / modified (warning) / deleted (destructive) / renamed (info)         |
-| selected list item        | primary  | selected row     | active task row / active worktree card                                                |
-| toggle switch (on/off)    | primary  | solid chrome     | BooleanWidget track on=primary, off=`bg-border-strong` / thumb=`bg-foreground-strong` |
-| drag handle (active/rest) | primary  | solid chrome     | ResizeHandle active=primary, rest=`bg-border-strong` (thumb 不在)                     |
+| UI pattern                                            | intent    | 用法             | 例                                                                                             |
+| ----------------------------------------------------- | --------- | ---------------- | ---------------------------------------------------------------------------------------------- |
+| filter toggle (強い)                                  | primary   | solid static     | assignee:me / reviewer:me                                                                      |
+| view-mode toggle (補助)                               | info      | text-only        | split / unified / preview / wordwrap                                                           |
+| sub-toggle icon                                       | info      | text-only        | blame / history switch                                                                         |
+| mode tab indicator                                    | primary   | indicator stripe | preview pane mode tab                                                                          |
+| current state badge                                   | primary   | solid static     | current branch                                                                                 |
+| static info badge                                     | info      | subtle chip      | tag / ref / branch (in PR row)                                                                 |
+| file status icon                                      | (status)  | faint chip       | added (success) / modified (warning) / deleted (destructive) / renamed (info)                  |
+| selected list item                                    | primary   | selected row     | active task row / active worktree card                                                         |
+| toggle switch (on/off)                                | primary   | solid chrome     | BooleanWidget track on=primary, off=`bg-border-strong` / thumb=`bg-foreground-strong`          |
+| 主要 drag handle (layout 幅・高さ変更)                | primary   | solid chrome     | ResizeHandle active=primary, rest=`bg-border-strong` (thumb 不在)                              |
+| 補助 drag handle (display tweak / max-height 調整 等) | (neutral) | —                | SessionLogTimeline active=`bg-foreground-muted`, rest=`bg-surface-2`, hover=`bg-border-strong` |
 
 **同一要素内で hover による intent 切り替えは禁止**。`text-info hover:text-primary` のような
 hover で intent 階層が動的に変わる pattern は、SKILL の階層分け規律 (要素の階層 = 静的)
@@ -220,6 +226,12 @@ intent の alpha 値は **上記表の各行に書かれた値からのみ** 選
 列挙は表が変わるたびにずれるため意図的に避ける。text 側の強度減衰 (`text-success/70` 等) は
 連続値で OK (情報の主役は色相 + 強度減衰)。raw 色との組み合わせ (`bg-red-500/20` 等) は禁止
 (intent token を使う)。
+
+**Surface / Foreground / Border 系 token に alpha 修飾を付けるのは禁止**
+(`bg-surface-2/50` / `bg-foreground/80` 等)。透明度が必要な「弱い背景」「hover overlay」
+「selected 背景」用途は intent ペア用法 (subtle chip / faint cell 等) または `bg-accent` /
+`bg-accent-strong` で表現する。どうしても表現できない場合は `@theme` に soft variant
+token (`--color-surface-2-soft` 等) を追加してから使う。
 
 ### Click 可能要素は `<button>` を使う (semantic HTML)
 

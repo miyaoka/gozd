@@ -68,7 +68,7 @@ interface LaneState {
 
 /** HEAD レーン専用に予約する色インデックス。lane 0 = current branch の線を常にこの色で示し、
  *  Working Tree 行のドット/接続線と色を揃える。他レーンは 1 以降を採番して衝突を避ける。 */
-const HEAD_COLOR = 0;
+export const HEAD_COLOR = 0;
 
 /**
  * @param headHash HEAD コミットの hash。指定すると HEAD を最左 lane (lane 0) に固定し、
@@ -201,12 +201,21 @@ export function computeGraphLayout(
       if (!commitIndexMap.has(parentHash)) continue;
 
       const existingLane = activeLanes.findIndex((l) => l?.hash === parentHash);
-      if (existingLane === -1) {
-        const mergeLane = findEmptyLane(activeLanes, minLane);
-        const mergeColor = nextColor++;
-        // originLane を設定して、次の行で斜めセグメントを生成
-        activeLanes[mergeLane] = { hash: parentHash, color: mergeColor, originLane: lane };
-      }
+      if (existingLane !== -1) continue;
+
+      // 2nd parent が HEAD 自身のとき (例: main の "Merge pull request #N from .../HEAD-branch")
+      // は予約済み lane 0 / HEAD_COLOR に直接乗せる。findEmptyLane(minLane=1) で借りレーンを
+      // 採ると、その borrowed lane の originLane = lane(merge 行) が次行 (HEAD 行) まで持ち越され、
+      // Phase 1 で「merge 行 lane → borrowed lane」の分岐セグメントを nextColor++ で 1 本生成
+      // してしまう。HEAD は別経路で lane 0 を固定するため borrowed lane は誰にも消費されず
+      // 余計な線として残る。HEAD 予約 lane 0 に直行させれば、次行の Phase 1 で
+      // activeLanes[0].originLane = merge 行 lane が「分岐」ブロック (lockedFirst=true) を踏み、
+      // x1=merge 行 lane → x2=0 の斜めセグメントが HEAD_COLOR で 1 本だけ描かれる
+      const isHeadBranch = parentHash === headHash && reserveHeadLane;
+      const mergeLane = isHeadBranch ? 0 : findEmptyLane(activeLanes, minLane);
+      const mergeColor = isHeadBranch ? HEAD_COLOR : nextColor++;
+      // originLane を設定して、次の行で斜めセグメントを生成
+      activeLanes[mergeLane] = { hash: parentHash, color: mergeColor, originLane: lane };
     }
 
     maxLanes = Math.max(maxLanes, countActive(activeLanes));

@@ -900,7 +900,7 @@ function rowHighlightClass(hash: string): string {
   if (isSelectedRow(hash)) {
     return "bg-primary/30 hover:bg-primary/40";
   }
-  return "hover:bg-surface-1/60";
+  return "hover:bg-accent";
 }
 
 /**
@@ -1054,7 +1054,7 @@ const isWorkingTreeActive = computed(
       >
         <!-- Working Tree 固定行: スクロール領域の外に配置 -->
         <div
-          class="_graph-row relative flex shrink-0 items-center border-b border-border/50 text-xs"
+          class="_graph-row relative flex shrink-0 items-center border-b border-divider text-xs"
           :class="rowHighlightClass(UNCOMMITTED_HASH)"
           :style="{ height: `${ROW_HEIGHT}px` }"
           @click="onRowClick(UNCOMMITTED_HASH, $event)"

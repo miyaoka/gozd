@@ -72,7 +72,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="border-t border-border/50 px-4 py-3">
+  <div class="border-t border-divider px-4 py-3">
     <details ref="detailsRef" @toggle="handleToggle">
       <summary
         class="flex cursor-pointer list-none items-center gap-2 text-xs text-foreground-subtle hover:text-foreground [&::-webkit-details-marker]:hidden"

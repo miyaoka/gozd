@@ -177,7 +177,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           :class="[
             i === selectedIndex
               ? 'bg-surface-2 text-foreground-strong'
-              : 'text-foreground hover:bg-surface-2/50',
+              : 'text-foreground hover:bg-accent',
           ]"
           @click="
             () => {

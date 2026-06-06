@@ -77,17 +77,17 @@ const STATE_VISUAL: Record<
   },
   resumable: {
     icon: "icon-[lucide--square-play]",
-    color: "text-foreground-subtle/60",
+    color: "text-foreground-subtle opacity-60",
     ariaLabel: "Resumable",
   },
   closed: {
     icon: "icon-[lucide--eye-closed]",
-    color: "text-foreground-subtle/60",
+    color: "text-foreground-subtle opacity-60",
     ariaLabel: "Closed by user",
   },
   "not-started": {
     icon: "icon-[lucide--circle-dashed]",
-    color: "text-foreground-subtle/60",
+    color: "text-foreground-subtle opacity-60",
     ariaLabel: "Not started",
   },
 };

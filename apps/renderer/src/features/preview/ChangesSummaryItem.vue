@@ -563,7 +563,7 @@ onUnmounted(unsubscribeFsChange);
     <!-- ヘッダー: アイコン + パス + バッジ + collapse トグル -->
     <button
       type="button"
-      class="flex w-full items-center gap-2 bg-surface-1/40 px-3 py-1.5 text-left transition-colors hover:bg-surface-1/80"
+      class="flex w-full items-center gap-2 bg-surface-1 px-3 py-1.5 text-left transition-colors hover:bg-accent"
       :title="collapsed ? 'Expand' : 'Collapse'"
       :aria-label="collapsed ? 'Expand' : 'Collapse'"
       @click="collapsed = !collapsed"

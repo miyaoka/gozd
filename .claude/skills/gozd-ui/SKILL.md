@@ -24,6 +24,7 @@ Token 一覧は SSOT として `apps/renderer/src/assets/main.css` の `@theme` 
 | 持ち上がった panel / chip / hover 塗 | `bg-surface-2`           |
 | 本文                                 | `text-foreground`        |
 | 強調 / heading                       | `text-foreground-strong` |
+| chrome thumb / knob (内部 indicator) | `bg-foreground-strong`   |
 | secondary text                       | `text-foreground-muted`  |
 | placeholder / tertiary               | `text-foreground-subtle` |
 | 既定の 1px 区切り                    | `border-border`          |
@@ -67,18 +68,18 @@ primary と info は同じ青系だが意味階層が異なる。同一 toolbar 
 一括りにしない**: filter (検索結果を絞る強い action) と view-mode (補助的な表示切替) で
 強度を分ける。
 
-| UI pattern                | intent   | 用法             | 例                                                                            |
-| ------------------------- | -------- | ---------------- | ----------------------------------------------------------------------------- |
-| filter toggle (強い)      | primary  | solid static     | assignee:me / reviewer:me                                                     |
-| view-mode toggle (補助)   | info     | text-only        | split / unified / preview / wordwrap                                          |
-| sub-toggle icon           | info     | text-only        | blame / history switch                                                        |
-| mode tab indicator        | primary  | indicator stripe | preview pane mode tab                                                         |
-| current state badge       | primary  | solid static     | current branch                                                                |
-| static info badge         | info     | subtle chip      | tag / ref / branch (in PR row)                                                |
-| file status icon          | (status) | faint chip       | added (success) / modified (warning) / deleted (destructive) / renamed (info) |
-| selected list item        | primary  | selected row     | active task row / active worktree card                                        |
-| toggle switch (on/off)    | primary  | solid chrome     | BooleanWidget on=primary, off=`bg-border-strong`                              |
-| drag handle (active/rest) | primary  | solid chrome     | ResizeHandle active=primary, rest=`bg-border-strong`                          |
+| UI pattern                | intent   | 用法             | 例                                                                                    |
+| ------------------------- | -------- | ---------------- | ------------------------------------------------------------------------------------- |
+| filter toggle (強い)      | primary  | solid static     | assignee:me / reviewer:me                                                             |
+| view-mode toggle (補助)   | info     | text-only        | split / unified / preview / wordwrap                                                  |
+| sub-toggle icon           | info     | text-only        | blame / history switch                                                                |
+| mode tab indicator        | primary  | indicator stripe | preview pane mode tab                                                                 |
+| current state badge       | primary  | solid static     | current branch                                                                        |
+| static info badge         | info     | subtle chip      | tag / ref / branch (in PR row)                                                        |
+| file status icon          | (status) | faint chip       | added (success) / modified (warning) / deleted (destructive) / renamed (info)         |
+| selected list item        | primary  | selected row     | active task row / active worktree card                                                |
+| toggle switch (on/off)    | primary  | solid chrome     | BooleanWidget track on=primary, off=`bg-border-strong` / thumb=`bg-foreground-strong` |
+| drag handle (active/rest) | primary  | solid chrome     | ResizeHandle active=primary, rest=`bg-border-strong` (thumb 不在)                     |
 
 **同一要素内で hover による intent 切り替えは禁止**。`text-info hover:text-primary` のような
 hover で intent 階層が動的に変わる pattern は、SKILL の階層分け規律 (要素の階層 = 静的)
@@ -224,9 +225,19 @@ intent の alpha 値は **上記表の各行に書かれた値からのみ** 選
 
 click handler を持つ要素は `<button type="button">` を使う。`<div role="button" tabindex="0">`
 
-- `@keydown.enter` / `@keydown.space` の手動実装は ARIA shim で、`<button>` で書けば semantic /
-  keyboard / accessibility がすべて OS / browser 提供で自動機能する。`<button>` は default で
-  type="submit" のため form 内で `type="button"` 明示が必要 (submit 暴発防止)。
+- 手動 `@keydown.enter` / `@keydown.space` の ARIA shim pattern は禁止 — `<button>` で書けば
+  semantic / keyboard / accessibility がすべて OS / browser 提供で自動機能する。`<button>` は
+  default で type="submit" のため form 内で `type="button"` 明示が必要 (submit 暴発防止)。
+
+### Keyboard navigation container は ARIA role を持つ
+
+`<div tabindex="0">` + `@keydown` (矢印キー等) で keyboard navigation する custom container は
+**WAI-ARIA role を必ず付与** する。role 無しの `<div tabindex="0">` は screen reader で widget
+種別が判別できない silent semantic 違反。
+
+- 矢印キーで item 間を navigate する custom widget (git graph / 自前 tree 等): `role="application"` + `aria-label="<widget 名>"`
+- list の選択 navigation: `role="listbox"` + 各 item に `role="option"`
+- grid の 2D navigation: `role="grid"` + 各 row に `role="row"` + 各 cell に `role="gridcell"`
 
 ### Focus 可能要素の focus 表現は ring 必須
 

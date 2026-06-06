@@ -190,7 +190,7 @@ function handleKeydown(e: KeyboardEvent) {
             class="flex cursor-pointer items-center justify-between px-3 py-1.5 text-sm"
             :class="
               i === selectedIndex
-                ? 'bg-surface-2 text-foreground-strong'
+                ? 'bg-accent-strong text-foreground-strong'
                 : 'text-foreground hover:bg-accent'
             "
             @click="

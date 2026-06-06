@@ -195,7 +195,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           style="grid-template-columns: 70px 1fr 220px 120px 90px"
           :class="[
             i === selectedIndex
-              ? 'bg-surface-2 text-foreground-strong'
+              ? 'bg-accent-strong text-foreground-strong'
               : 'text-foreground hover:bg-accent',
             pr.isDraft && 'opacity-50',
           ]"

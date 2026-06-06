@@ -162,9 +162,11 @@ describe("findAbsolutePathMatches", () => {
     expect(matches[0]?.selection).toEqual({ kind: "worktreeRelative", relPath: "src/z.ts" });
   });
 
-  test("home prefix の境界をまたぐ別ユーザー名は誤検出しない", () => {
+  test("home prefix の境界をまたぐ別ユーザー名は home 経路で拾わず、generic `/` 経路で absolute として検出される", () => {
     const matches = findAbsolutePathMatches("/Users/me_other/x.ts", dirPrefix, homeDir);
-    expect(matches).toEqual([]);
+    expect(matches.map((m) => m.selection)).toEqual([
+      { kind: "absolute", absPath: "/Users/me_other/x.ts" },
+    ]);
   });
 
   test("テキスト中の複数の絶対パスを順に検出する", () => {
@@ -176,9 +178,67 @@ describe("findAbsolutePathMatches", () => {
     ]);
   });
 
-  test("homeDir が空なら `~/` も homePrefix も検出しない", () => {
+  test("homeDir が空なら `~/` も homePrefix も拾わないが、generic `/` 経路で絶対パスは検出される", () => {
     const matches = findAbsolutePathMatches("~/foo.ts and /Users/me/bar.ts", "/tmp/proj/", "");
-    expect(matches).toEqual([]);
+    expect(matches.map((m) => m.selection)).toEqual([
+      { kind: "absolute", absPath: "/Users/me/bar.ts" },
+    ]);
+  });
+
+  describe("generic `/` 経路（worktree / home 外の絶対パス）", () => {
+    test("`/tmp/...` を absolute として検出する", () => {
+      const matches = findAbsolutePathMatches("see /tmp/pr704-body.md now", dirPrefix, homeDir);
+      expect(matches.map((m) => m.selection)).toEqual([
+        { kind: "absolute", absPath: "/tmp/pr704-body.md" },
+      ]);
+    });
+
+    test("`/var/folders/...` のような macOS TMPDIR も検出する", () => {
+      const matches = findAbsolutePathMatches(
+        "wrote /var/folders/abc/xyz/T/tmp.log",
+        dirPrefix,
+        homeDir,
+      );
+      expect(matches[0]?.selection).toEqual({
+        kind: "absolute",
+        absPath: "/var/folders/abc/xyz/T/tmp.log",
+      });
+    });
+
+    test("`/usr/local/bin/foo` のようなシステムパスも検出する", () => {
+      const matches = findAbsolutePathMatches("path: /usr/local/bin/foo", dirPrefix, homeDir);
+      expect(matches[0]?.selection).toEqual({
+        kind: "absolute",
+        absPath: "/usr/local/bin/foo",
+      });
+    });
+
+    test("URL の path 部分の `/` は boundary check で弾かれる", () => {
+      const matches = findAbsolutePathMatches(
+        "see https://example.com/path/to/foo for details",
+        dirPrefix,
+        homeDir,
+      );
+      expect(matches).toEqual([]);
+    });
+
+    test("`/tmp/foo.md` の直後に行番号 `:42` が続いた場合も検出する", () => {
+      const matches = findAbsolutePathMatches("open /tmp/foo.md:42", dirPrefix, homeDir);
+      expect(matches[0]?.selection).toEqual({ kind: "absolute", absPath: "/tmp/foo.md" });
+      expect(matches[0]?.lineNumber).toBe(42);
+    });
+
+    test("dirPrefix 配下のパスは generic より優先され worktreeRelative になる", () => {
+      const matches = findAbsolutePathMatches(
+        "/Users/me/proj/src/a.ts and /tmp/x.ts",
+        dirPrefix,
+        homeDir,
+      );
+      expect(matches.map((m) => m.selection)).toEqual([
+        { kind: "worktreeRelative", relPath: "src/a.ts" },
+        { kind: "absolute", absPath: "/tmp/x.ts" },
+      ]);
+    });
   });
 
   describe("境界条件", () => {

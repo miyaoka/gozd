@@ -8,7 +8,7 @@ import { findRelativePaths } from "./findRelativePaths";
 /**
  * ターミナル出力中のファイルパスを検出し、クリックでファイラー/プレビューに反映する LinkProvider を作成する。
  * - active worktree 内のパス → 相対パスで selectPath（Preview で内容表示、FilerPane で reveal）
- * - worktree 外の絶対パス（`/Users/<user>/...` / `~/...`）→ 絶対パスで selectPath
+ * - 任意の絶対パス（`/Users/<user>/...` / `/tmp/...` / `/var/folders/...` / `~/...` 等）→ 絶対パスで selectPath
  *   - Preview は fsReadFileAbsolute で内容表示する
  *   - FilerPane のツリーは active worktree 配下しか持たないため reveal 対象外
  *     （ツリー上で選択ハイライトされない契約）

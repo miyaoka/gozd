@@ -51,6 +51,30 @@ function indexOfWithBoundary(text: string, prefix: string, start: number): numbe
   return -1;
 }
 
+/**
+ * generic `/` 経路（dir/home/tilde にマッチしないシステムパス用フォールバック）の boundary 判定。
+ *
+ * `hasBoundaryBefore` は IDENTIFIER_CHAR の直後だけを弾く。しかし `~` `:` `/` は IDENTIFIER_CHAR
+ * ではないため、generic `/` 経路だけで使うとそれぞれ以下の誤検出を起こす:
+ * - `~/foo.ts` の `/`: tilde 経路の責務なのに generic でも `/foo.ts` を拾ってしまう
+ * - `https://example.com/path` の最初の `/`: URL scheme の `:` 直後で boundary 成立し `//example.com/...` を拾う
+ * - `//abs/path` のような連続 slash: 構造的に意味を持たない先頭の `/` を拾う
+ *
+ * dir/home prefix のような「具体的シグナル」と違い、`/` 単独は構造的に弱いので、これらを呼び出し
+ * 側で明示的に除外する。
+ */
+function indexOfGenericSlash(text: string, start: number): number {
+  let idx = text.indexOf("/", start);
+  while (idx !== -1) {
+    if (hasBoundaryBefore(text, idx)) {
+      const prev = idx > 0 ? text[idx - 1] : "";
+      if (prev !== "~" && prev !== ":" && prev !== "/") return idx;
+    }
+    idx = text.indexOf("/", idx + 1);
+  }
+  return -1;
+}
+
 export interface AbsolutePathMatch {
   /** マッチ全体の開始位置（行番号サフィックスも含む） */
   idx: number;
@@ -83,16 +107,23 @@ export function resolveHomeDir(dirPrefix: string): string {
 
 /**
  * テキストから絶対パスマッチを収集する純粋関数。
- * dirPrefix / homePrefix / `~/` の 3 つを indexOf で並列に探し、最も手前のマッチを採用する。
+ * dirPrefix / homePrefix / `~/` / generic `/` の 4 つを indexOf で並列に探し、最も手前の
+ * マッチを採用する。generic `/` は worktree 内 / home 内に収まらないパス（`/tmp/...`
+ * `/var/folders/...` `/usr/local/...` 等）を拾うためのフォールバック経路。
  *
  * dirPrefix は homePrefix を内包しうる（dirPrefix が `/Users/<user>/` 配下なら、文字列として
- * 部分一致する）。同 idx 衝突時は prefixLen の長い方を採用することで「dir-prefix 相対化を
- * 優先する」規律を明示する（Array.prototype.sort の stability に依存しない）。
+ * 部分一致する）。同 idx 衝突時は prefixLen の長い方を採用することで「より具体的な prefix を
+ * 優先する」規律を明示する（dir > home > generic `/`、Array.prototype.sort の stability に依存しない）。
  *
  * dirPrefix が `/tmp/...` のように homeDir 外のケースもあるため、dirPrefix も独立に検索する。
  *
  * prefix 部分は走査対象から除外する（`idx + prefixLen` から findPathEnd を開始）。worktree
- * dir 名に空白や括弧などが入っていてもパスが prefix 途中で切れない。
+ * dir 名に空白や括弧などが入っていてもパスが prefix 途中で切れない。generic `/` 経路は
+ * prefixLen=0 なので `/` 自体も走査対象に含まれる（findPathEnd の PATH_TERMINATORS に `/` は
+ * 含まれないため `/tmp/foo.txt` 全体が拾われる）。
+ *
+ * boundary check（hasBoundaryBefore）は generic `/` 経路にも適用されるため、URL の path 部分
+ * （`https://example.com/Users/...` の `/` は直前が `m` で識別子文字）は構造的に弾かれる。
  */
 export function findAbsolutePathMatches(
   text: string,
@@ -122,10 +153,14 @@ export function findAbsolutePathMatches(
         candidates.push({ idx: tildeIdx, prefixLen: 2, expandTilde: true });
       }
     }
+    const slashIdx = indexOfGenericSlash(text, searchStart);
+    if (slashIdx !== -1) {
+      candidates.push({ idx: slashIdx, prefixLen: 0, expandTilde: false });
+    }
 
     if (candidates.length === 0) break;
 
-    // idx 昇順、同 idx なら prefixLen 降順（dir > home > tilde）
+    // idx 昇順、同 idx なら prefixLen 降順（dir > home > tilde > generic `/`）
     candidates.sort((a, b) => a.idx - b.idx || b.prefixLen - a.prefixLen);
     const { idx, prefixLen, expandTilde } = candidates[0];
 

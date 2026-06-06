@@ -376,12 +376,6 @@ public struct Gozd_V1_GitShowCommitFileRequest: Sendable {
 
   public var compareHash: String = String()
 
-  /// true のとき older end (compare_hash 非空なら compare_hash、空なら hash) を base として扱い、
-  /// from を `<older>` 自身の内容で取る (`<older>^` を起点としない)。PR diff (base..head) semantic で使う。
-  /// GitCommitFilesRequest.older_is_base と同期させて呼ぶことで、ファイル一覧と per-file diff の
-  /// from 解釈を揃える。
-  public var olderIsBase: Bool = false
-
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -451,12 +445,6 @@ public struct Gozd_V1_GitCommitFilesRequest: Sendable {
   /// Swift 側で `git diff <older>^` (第二引数省略 = working tree 比較) に切り替える。
   public var includeWorkingTree: Bool = false
 
-  /// true のとき older 自身を base として扱い、`git diff <older>` で from を取る
-  /// (older コミット自体の diff は含めない)。PR diff (base..head) semantic で使う。
-  /// false (default) は既存の commit 範囲表示で、`git diff <older>^` で older 自身の
-  /// 変更も含める。
-  public var olderIsBase: Bool = false
-
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -468,6 +456,112 @@ public struct Gozd_V1_GitCommitFilesResponse: Sendable {
   // methods supported on all messages.
 
   public var changes: [Gozd_V1_GitFileChange] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// gitPrDiffFiles: PR base..working tree の変更ファイル一覧 (untracked を含む)
+///
+/// base_hash 自身は含まず、`git diff <base_hash>` (右辺省略 = working tree) で実行する。
+/// `--diff-filter=AMDR` で除外される untracked file (`??`) は Swift 側で
+/// `git status --porcelain=v1` から拾って type=U として merge する。
+/// 「PR をいま push したら base に何が入るか」(commit + uncommitted + untracked) を 1 RPC で返す SSOT。
+public struct Gozd_V1_GitPrDiffFilesRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var dir: String = String()
+
+  /// PR base の commit OID。GitHub GraphQL `baseRefOid` をそのまま渡す。
+  /// ref 名ではなく OID なので fork PR / base force-push / rename を跨いで安定。
+  public var baseHash: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Gozd_V1_GitPrDiffFilesResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var changes: [Gozd_V1_GitFileChange] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// gitReadBlob: 単一 rev + path の blob 内容を 1 つ返す
+///
+/// gitShowFile (HEAD 固定) / gitShowCommitFile (2 endpoint 比較 + unchanged 判定) と独立した、
+/// 単一 rev / path に対する blob 取得 RPC。PR diff モードで base 側 blob を 1 個だけ取りたい用途。
+/// 失敗 (path がその rev に存在しない / rev が invalid 等) は result.not_found=true に倒す。
+public struct Gozd_V1_GitReadBlobRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var dir: String = String()
+
+  public var hash: String = String()
+
+  public var relPath: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Gozd_V1_GitReadBlobResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var result: Gozd_V1_FileReadResult {
+    get {_result ?? Gozd_V1_FileReadResult()}
+    set {_result = newValue}
+  }
+  /// Returns true if `result` has been explicitly set.
+  public var hasResult: Bool {self._result != nil}
+  /// Clears the value of `result`. Subsequent reads from it will return its default value.
+  public mutating func clearResult() {self._result = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _result: Gozd_V1_FileReadResult? = nil
+}
+
+/// gitRevReachable: 指定 rev (commit OID) が local repo に reachable か
+///
+/// `git cat-file -e <hash>` 相当。reachable=false なら呼び出し側は git fetch を要求する。
+/// PR diff の base reachable 判定で fetch を必要最小限に絞るために使う。
+public struct Gozd_V1_GitRevReachableRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var dir: String = String()
+
+  public var hash: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Gozd_V1_GitRevReachableResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var reachable: Bool = false
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1467,7 +1561,7 @@ extension Gozd_V1_GitShowFileResponse: SwiftProtobuf.Message, SwiftProtobuf._Mes
 
 extension Gozd_V1_GitShowCommitFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GitShowCommitFileRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{3}rel_path\0\u{1}hash\0\u{3}compare_hash\0\u{3}older_is_base\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{3}rel_path\0\u{1}hash\0\u{3}compare_hash\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1479,7 +1573,6 @@ extension Gozd_V1_GitShowCommitFileRequest: SwiftProtobuf.Message, SwiftProtobuf
       case 2: try { try decoder.decodeSingularStringField(value: &self.relPath) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.hash) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self.compareHash) }()
-      case 5: try { try decoder.decodeSingularBoolField(value: &self.olderIsBase) }()
       default: break
       }
     }
@@ -1498,9 +1591,6 @@ extension Gozd_V1_GitShowCommitFileRequest: SwiftProtobuf.Message, SwiftProtobuf
     if !self.compareHash.isEmpty {
       try visitor.visitSingularStringField(value: self.compareHash, fieldNumber: 4)
     }
-    if self.olderIsBase != false {
-      try visitor.visitSingularBoolField(value: self.olderIsBase, fieldNumber: 5)
-    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1509,7 +1599,6 @@ extension Gozd_V1_GitShowCommitFileRequest: SwiftProtobuf.Message, SwiftProtobuf
     if lhs.relPath != rhs.relPath {return false}
     if lhs.hash != rhs.hash {return false}
     if lhs.compareHash != rhs.compareHash {return false}
-    if lhs.olderIsBase != rhs.olderIsBase {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -1561,7 +1650,7 @@ extension Gozd_V1_GitShowCommitFileResponse: SwiftProtobuf.Message, SwiftProtobu
 
 extension Gozd_V1_GitCommitFilesRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GitCommitFilesRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}hash\0\u{3}compare_hash\0\u{3}range_hashes\0\u{3}include_working_tree\0\u{3}older_is_base\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}hash\0\u{3}compare_hash\0\u{3}range_hashes\0\u{3}include_working_tree\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1574,7 +1663,6 @@ extension Gozd_V1_GitCommitFilesRequest: SwiftProtobuf.Message, SwiftProtobuf._M
       case 3: try { try decoder.decodeSingularStringField(value: &self.compareHash) }()
       case 4: try { try decoder.decodeRepeatedStringField(value: &self.rangeHashes) }()
       case 5: try { try decoder.decodeSingularBoolField(value: &self.includeWorkingTree) }()
-      case 6: try { try decoder.decodeSingularBoolField(value: &self.olderIsBase) }()
       default: break
       }
     }
@@ -1596,9 +1684,6 @@ extension Gozd_V1_GitCommitFilesRequest: SwiftProtobuf.Message, SwiftProtobuf._M
     if self.includeWorkingTree != false {
       try visitor.visitSingularBoolField(value: self.includeWorkingTree, fieldNumber: 5)
     }
-    if self.olderIsBase != false {
-      try visitor.visitSingularBoolField(value: self.olderIsBase, fieldNumber: 6)
-    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1608,7 +1693,6 @@ extension Gozd_V1_GitCommitFilesRequest: SwiftProtobuf.Message, SwiftProtobuf._M
     if lhs.compareHash != rhs.compareHash {return false}
     if lhs.rangeHashes != rhs.rangeHashes {return false}
     if lhs.includeWorkingTree != rhs.includeWorkingTree {return false}
-    if lhs.olderIsBase != rhs.olderIsBase {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -1639,6 +1723,210 @@ extension Gozd_V1_GitCommitFilesResponse: SwiftProtobuf.Message, SwiftProtobuf._
 
   public static func ==(lhs: Gozd_V1_GitCommitFilesResponse, rhs: Gozd_V1_GitCommitFilesResponse) -> Bool {
     if lhs.changes != rhs.changes {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitPrDiffFilesRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitPrDiffFilesRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{3}base_hash\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.dir) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.baseHash) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.dir.isEmpty {
+      try visitor.visitSingularStringField(value: self.dir, fieldNumber: 1)
+    }
+    if !self.baseHash.isEmpty {
+      try visitor.visitSingularStringField(value: self.baseHash, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitPrDiffFilesRequest, rhs: Gozd_V1_GitPrDiffFilesRequest) -> Bool {
+    if lhs.dir != rhs.dir {return false}
+    if lhs.baseHash != rhs.baseHash {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitPrDiffFilesResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitPrDiffFilesResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}changes\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.changes) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.changes.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.changes, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitPrDiffFilesResponse, rhs: Gozd_V1_GitPrDiffFilesResponse) -> Bool {
+    if lhs.changes != rhs.changes {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitReadBlobRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitReadBlobRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}hash\0\u{3}rel_path\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.dir) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.hash) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.relPath) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.dir.isEmpty {
+      try visitor.visitSingularStringField(value: self.dir, fieldNumber: 1)
+    }
+    if !self.hash.isEmpty {
+      try visitor.visitSingularStringField(value: self.hash, fieldNumber: 2)
+    }
+    if !self.relPath.isEmpty {
+      try visitor.visitSingularStringField(value: self.relPath, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitReadBlobRequest, rhs: Gozd_V1_GitReadBlobRequest) -> Bool {
+    if lhs.dir != rhs.dir {return false}
+    if lhs.hash != rhs.hash {return false}
+    if lhs.relPath != rhs.relPath {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitReadBlobResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitReadBlobResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}result\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._result) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._result {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitReadBlobResponse, rhs: Gozd_V1_GitReadBlobResponse) -> Bool {
+    if lhs._result != rhs._result {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitRevReachableRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitRevReachableRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}hash\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.dir) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.hash) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.dir.isEmpty {
+      try visitor.visitSingularStringField(value: self.dir, fieldNumber: 1)
+    }
+    if !self.hash.isEmpty {
+      try visitor.visitSingularStringField(value: self.hash, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitRevReachableRequest, rhs: Gozd_V1_GitRevReachableRequest) -> Bool {
+    if lhs.dir != rhs.dir {return false}
+    if lhs.hash != rhs.hash {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitRevReachableResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitRevReachableResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}reachable\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBoolField(value: &self.reachable) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.reachable != false {
+      try visitor.visitSingularBoolField(value: self.reachable, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitRevReachableResponse, rhs: Gozd_V1_GitRevReachableResponse) -> Bool {
+    if lhs.reachable != rhs.reachable {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

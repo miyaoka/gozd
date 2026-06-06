@@ -593,25 +593,15 @@ public enum GitOps {
   ///   working tree との比較に切り替える。
   ///
   /// 共通 diff オプション: `--name-status -z --find-renames --diff-filter=AMDR`。
-  ///
-  /// `olderIsBase=true` のとき older 自身を base として扱い `git diff <older>` を起点にする
-  /// (older コミット自体の diff は含めない)。PR diff (base..head) semantic で使う。
-  /// `false` (default) は既存の commit 範囲表示で `git diff <older>^` を起点にして older 自身の
-  /// 変更も含める。
   public static func commitFiles(
     dir: String, hash: String, compareHash: String?, rangeHashes: [String] = [],
-    includeWorkingTree: Bool = false, olderIsBase: Bool = false
+    includeWorkingTree: Bool = false
   ) async throws -> [FileChangeInfo] {
     let diffOptions = ["--name-status", "-z", "--find-renames", "--diff-filter=AMDR"]
 
     if let newer = rangeHashes.first, let older = rangeHashes.last {
-      let from: String
-      if olderIsBase {
-        from = older
-      } else {
-        let isOlderRoot = try await isRootCommit(dir: dir, hash: older)
-        from = isOlderRoot ? emptyTreeHash : "\(older)^"
-      }
+      let isOlderRoot = try await isRootCommit(dir: dir, hash: older)
+      let from = isOlderRoot ? emptyTreeHash : "\(older)^"
       let diffArgs: [String] =
         includeWorkingTree
         ? ["diff"] + diffOptions + [from]
@@ -628,6 +618,55 @@ public enum GitOps {
     let stdout = try await runGit(
       args: ["diff"] + diffOptions + ["\(hash)^", hash], cwd: dir)
     return parseDiffNameStatus(stdout)
+  }
+
+  /// PR diff: `baseHash` から working tree までの name-status 差分 + untracked file (`?? `) を merge。
+  ///
+  /// 「PR をいま push したら base に何が入るか」(commit + uncommitted + untracked) を 1 経路で返す
+  /// 専用 entry point。`commitFiles` の range 経路 + olderIsBase=true で代用していた構造を解体し、
+  /// proto の `rangeHashes` (first-parent walk 結果) wire 契約と切り離す。
+  ///
+  /// 実装:
+  /// - `git diff --name-status -z --find-renames --diff-filter=AMDR <baseHash>` で base..working
+  /// - `git status --porcelain=v1 -z --untracked-files=all` から `?? <path>` だけ抽出して type=U で append
+  /// - dedup は newPath key で行う (porcelain と diff の path 表記は同一形式)
+  public static func prDiffFiles(dir: String, baseHash: String) async throws -> [FileChangeInfo] {
+    try validateRev(baseHash)
+    let diffOptions = ["--name-status", "-z", "--find-renames", "--diff-filter=AMDR"]
+    let diffOut = try await runGit(args: ["diff"] + diffOptions + [baseHash], cwd: dir)
+    var changes = parseDiffNameStatus(diffOut)
+
+    // status の untracked を merge。`git status --porcelain=v1 -z` は NUL 区切り、各エントリは
+    // "XY <path>" 形式。NUL 区切りなので改行を含む path も安全。
+    let statusOut = try await runGit(
+      args: ["status", "--porcelain=v1", "-z", "--untracked-files=all"], cwd: dir)
+    let text = String(decoding: statusOut, as: UTF8.self)
+    let seen = Set(changes.map { $0.newPath })
+    for entry in text.split(separator: "\0", omittingEmptySubsequences: true) {
+      // "XY path" の 3 文字目以降が path (XY + space + path)
+      guard entry.count >= 4 else { continue }
+      let xy = entry.prefix(2)
+      guard xy == "??" else { continue }
+      let path = String(entry.dropFirst(3))
+      if seen.contains(path) { continue }
+      changes.append(FileChangeInfo(oldPath: path, newPath: path, type: "U"))
+    }
+    return changes
+  }
+
+  /// 指定 rev (commit OID) が local repo に reachable か。`git cat-file -e <hash>` 相当。
+  ///
+  /// PR diff toggle ON 時に base OID が未 fetch かを判定し、fetch 要求 (`useRemoteFetchSync`
+  /// 経由) を必要最小限に絞るために使う。reachable=false でも throw せず bool で返す契約に
+  /// することで、呼び出し側は「git failure」と「reachable でないだけ」を構造的に区別できる。
+  public static func revReachable(dir: String, hash: String) async -> Bool {
+    do {
+      try validateRev(hash)
+      _ = try await runGit(args: ["cat-file", "-e", hash], cwd: dir)
+      return true
+    } catch {
+      return false
+    }
   }
 
   /// 指定コミットの tree から 1 階層分のエントリを返す。

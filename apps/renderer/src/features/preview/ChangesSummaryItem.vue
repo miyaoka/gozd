@@ -38,7 +38,7 @@ import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { onMessage } from "../../shared/rpc";
 import { getFileIconUrl, relDirOf, rpcFsReadFile } from "../filer";
 import type { FsChangePayload } from "../filer";
-import { useGitGraphStore, usePrDiffToggleStore } from "../git-graph";
+import { rpcGitReadBlob, useGitGraphStore, usePrDiffToggleStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import type { GitChangeKind } from "../worktree";
 import DiffPreview from "./DiffPreview.vue";
@@ -173,7 +173,12 @@ const currentRev = computed<string | undefined>(() => {
 });
 
 const originalRev = computed<string | undefined>(() => {
-  if (prDiffToggle.isOn) return prDiffToggle.baseOid;
+  if (prDiffToggle.isOn) {
+    // PR で追加されたファイルは base に存在しないため originalRev は undefined。
+    // `blameEnabled` 側で button 描画を構造的に抑止する。
+    if (kind.value === "added") return undefined;
+    return prDiffToggle.lockedBaseOid;
+  }
   if (!isCommitMode.value) return "HEAD";
   const ep = endpoints.value;
   if (ep === null) return undefined;
@@ -186,10 +191,15 @@ const originalRev = computed<string | undefined>(() => {
  * blame 対象 path が異なるため、両側のうち path が存在 (= 空文字でない) すれば button を出す。
  * `GitFileChange` の path は git diff 由来で worktree 相対が proto 契約のため、
  * 空文字判定だけで blameable 判定が成立する。
+ *
+ * PR diff で added file は base 側 blame が失敗するため両側まとめて抑止する
+ * (DiffPreview の blameEnabled 単一 prop の API 制約上、side ごとに gate できない最小コスト解)。
  */
-const blameEnabled = computed(
-  () => props.change.oldFilePath !== "" || props.change.newFilePath !== "",
-);
+const blameEnabled = computed(() => {
+  if (props.change.oldFilePath === "" && props.change.newFilePath === "") return false;
+  if (prDiffToggle.isOn && kind.value === "added") return false;
+  return true;
+});
 
 function modeLabelForRev(rev: string): string {
   if (rev === "") return "Working Tree";
@@ -324,7 +334,6 @@ async function fetchCommit(dir: string, version: number) {
             relPath: path,
             hash: older,
             compareHash: "",
-            olderIsBase: false,
           }),
           rpcFsReadFile({ dir, path }),
         ]);
@@ -343,7 +352,6 @@ async function fetchCommit(dir: string, version: number) {
         relPath: path,
         hash: newer,
         compareHash: older ?? "",
-        olderIsBase: false,
       });
       return { from: showResult.from, to: showResult.to, unchanged: showResult.unchanged };
     })(),
@@ -389,7 +397,7 @@ async function fetchCommit(dir: string, version: number) {
  * from = `pr.baseRefOid` の blob (olderIsBase=true で `<baseOid>` 自身)、to = working tree fs 内容。
  */
 async function fetchPrDiff(dir: string, version: number) {
-  const baseOid = prDiffToggle.baseOid;
+  const baseOid = prDiffToggle.lockedBaseOid;
   if (baseOid === undefined) {
     error.value = "PR base not resolved";
     loading.value = false;
@@ -399,13 +407,9 @@ async function fetchPrDiff(dir: string, version: number) {
 
   const fetchResult = await tryCatch(
     Promise.all([
-      rpcGitShowCommitFile({
-        dir,
-        relPath: path,
-        hash: baseOid,
-        compareHash: "",
-        olderIsBase: true,
-      }),
+      // PR diff per-file の from は専用 RPC `gitReadBlob` で base OID の単一 blob を取る。
+      // `gitShowCommitFile` を流用すると to 側で不要な `treeFileOID` が走り stderr noise を生む。
+      rpcGitReadBlob({ dir, hash: baseOid, relPath: path }),
       rpcFsReadFile({ dir, path }),
     ]),
   );
@@ -419,8 +423,8 @@ async function fetchPrDiff(dir: string, version: number) {
     return;
   }
 
-  const [showResult, fsResult] = fetchResult.value;
-  const from = showResult.from;
+  const [blobResult, fsResult] = fetchResult.value;
+  const from = blobResult.result;
   const fromNotFound = from?.notFound ?? true;
   const toNotFound = fsResult.notFound;
 
@@ -493,7 +497,7 @@ watch(
       gitGraphStore.commits,
       // PR diff toggle 切替 / base OID 変化で fetch ソースが切り替わる
       prDiffToggle.isOn,
-      prDiffToggle.baseOid,
+      prDiffToggle.lockedBaseOid,
     ] as const,
   async ([visible]) => {
     // ビューポートに入るまで fetch しない (N=100 の summary で同時起動を抑制)。

@@ -30,17 +30,13 @@
  * FSWatchRegistry が gitStatusFull を再実行して `gitStatusChange` push を発射する。
  * renderer 側は `useGitStatusSync` が repoStore に書き戻し、WtCard の ahead/behind が更新される。
  */
-import { tryCatch } from "@gozd/shared";
 import { useWindowFocus } from "@vueuse/core";
 import { onUnmounted, watch } from "vue";
-import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
-import { rpcGitFetchRemotes } from "./rpc";
-
-/** 成功時の lock 期間 (ms)。VSCode の `git.autofetchPeriod` 既定値 180s と同じ */
-const SUCCESS_INTERVAL_MS = 180_000;
-/** 失敗時の短 backoff (ms)。起動直後の SSH unlock 待ち / 一時的 offline からの回復を捕捉する */
-const FAILURE_BACKOFF_MS = 30_000;
+import {
+  REMOTE_FETCH_SUCCESS_INTERVAL_MS as SUCCESS_INTERVAL_MS,
+  useRemoteFetchStore,
+} from "./useRemoteFetchStore";
 
 /**
  * 1 repo が「いま fetch すべき対象か」を決める唯一の述語。発射経路 (repos key watch /
@@ -68,47 +64,23 @@ export function isRepoFetchDue(args: {
 
 export function useRemoteFetchSync() {
   const repoStore = useRepoStore();
-  const notify = useNotificationStore();
   const focused = useWindowFocus();
-
-  /** rootDir → 「この時刻まで次の fetch を抑制」する deadline (ms epoch) */
-  const nextFetchAllowedAt = new Map<string, number>();
-  /** rootDir → 現在 in-flight な fetch の有無 */
-  const inFlight = new Set<string>();
+  const fetchStore = useRemoteFetchStore();
 
   /**
-   * 1 repo を fetch する。focus 喪失 / backoff 期間中 / in-flight なら no-op。
-   * 成功なら 180s、失敗なら 30s 後まで再試行を抑制する。
+   * 背景 polling 用の 1 repo fetch。focus 喪失 / backoff 期間中 / in-flight なら no-op。
+   * 成功 / 失敗の deadline 更新は `useRemoteFetchStore.runFetch` 内で行う。
    */
   async function fetchOnceIfDue(rootDir: string) {
-    if (inFlight.has(rootDir)) return;
+    if (fetchStore.hasInFlight(rootDir)) return;
     const due = isRepoFetchDue({
       repo: repoStore.repos[rootDir],
       focused: focused.value,
-      allowedAt: nextFetchAllowedAt.get(rootDir),
+      allowedAt: fetchStore.getAllowedAt(rootDir),
       now: Date.now(),
     });
     if (!due) return;
-
-    inFlight.add(rootDir);
-    const result = await tryCatch(rpcGitFetchRemotes({ dir: rootDir }));
-    inFlight.delete(rootDir);
-
-    const now = Date.now();
-    if (!result.ok) {
-      // RPC 層の失敗 (transport error 等)。短 backoff してリトライ可能にする
-      notify.info(`Background git fetch failed for ${rootDir}`, result.error);
-      nextFetchAllowedAt.set(rootDir, now + FAILURE_BACKOFF_MS);
-      return;
-    }
-    if (!result.value.ok) {
-      // RPC は成功したが git fetch が失敗 (offline / 認証失敗 / remote 未設定)。
-      // errorDetail を cause として通知し、短 backoff で次サイクルに任せる
-      notify.info(`Background git fetch failed for ${rootDir}`, result.value.errorDetail);
-      nextFetchAllowedAt.set(rootDir, now + FAILURE_BACKOFF_MS);
-      return;
-    }
-    nextFetchAllowedAt.set(rootDir, now + SUCCESS_INTERVAL_MS);
+    await fetchStore.runFetch(rootDir);
   }
 
   /** active repo を fetch (閾値判定込み) */
@@ -118,20 +90,20 @@ export function useRemoteFetchSync() {
     void fetchOnceIfDue(rootDir);
   }
 
-  // 「初回 fetch は登録全 repo」の所有をこの 1 関数に集約する。`nextFetchAllowedAt` 未設定
+  // 「初回 fetch は登録全 repo」の所有をこの 1 関数に集約する。`allowedAt` 未設定
   // の repo (= まだ一度も fetch 成功していない) 全件に発射する。focus 喪失中は fetchOnceIfDue
   // 側で skip され lock も立たないため、focus 復帰経路から再度この関数を呼べば取りこぼした
   // repo を確実にリカバリできる。発射経路 (repos key watch / focus 復帰) で scope が分裂しない。
   function fetchPendingRepos() {
     for (const rootDir of Object.keys(repoStore.repos)) {
-      if (nextFetchAllowedAt.has(rootDir)) continue;
+      if (fetchStore.getAllowedAt(rootDir) !== undefined) continue;
       void fetchOnceIfDue(rootDir);
     }
   }
 
   // 登録されている全 repo を対象に「初めて見た repo」を fetch する。起動時に hydrate
   // された repo 群も、後から開かれた repo も、それぞれ初回 1 回だけ即時 fetch が走る。
-  // 既に一度 fetch した repo は `nextFetchAllowedAt` が立つため再発射しない (A↔B 往復で
+  // 既に一度 fetch した repo は `allowedAt` が立つため再発射しない (A↔B 往復で
   // 都度 fetch を炊かない)。以降は interval 主導の閾値判定に任せる。
   watch(() => Object.keys(repoStore.repos), fetchPendingRepos, { immediate: true });
 
@@ -145,7 +117,7 @@ export function useRemoteFetchSync() {
     if (!isFocused || wasFocused === true) return;
     const rootDir = repoStore.selectedRootDir;
     if (rootDir !== undefined) {
-      nextFetchAllowedAt.delete(rootDir);
+      fetchStore.clearAllowedAt(rootDir);
       void fetchOnceIfDue(rootDir);
     }
     fetchPendingRepos();

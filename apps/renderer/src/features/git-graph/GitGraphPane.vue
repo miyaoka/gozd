@@ -78,14 +78,9 @@ const uncommittedChangeCount = computed(() => Object.keys(gitStatuses.value).len
 /** 変更をアイコン付きカウントに変換 */
 const statusIcons = computed(() => computeStatusIcons(gitStatuses.value));
 
-/** コミットリスト全体から HEAD が指すカレントブランチ名を取得 */
-const currentBranch = computed(() => {
-  for (const commit of commits.value) {
-    const branch = findCurrentBranch(commit.refs);
-    if (branch) return branch;
-  }
-  return undefined;
-});
+/** HEAD が指すカレントブランチ名。SSOT は `useGitGraphStore.currentBranch`
+ * (= repoStore active worktree の `WorktreeEntry.branch`)。 */
+const currentBranch = computed(() => gitGraphStore.currentBranch);
 
 /**
  * ローカルとリモートが異なるコミットに存在するブランチ名の Set。

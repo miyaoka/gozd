@@ -1,7 +1,8 @@
 import type { GitCommit } from "@gozd/proto";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
-import { UNCOMMITTED_HASH } from "../worktree";
+import { useRepoStore } from "../../shared/repo";
+import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import { buildRangeHashes } from "./rangeHashes";
 
 /** Working Tree 用の仮想コミット。CommitDetailPane で "Uncommitted Changes" 表示に使用 */
@@ -17,6 +18,9 @@ const uncommittedCommit: GitCommit = {
 };
 
 export const useGitGraphStore = defineStore("gitGraph", () => {
+  const repoStore = useRepoStore();
+  const worktreeStore = useWorktreeStore();
+
   /** 選択中のコミットハッシュ。未選択時は UNCOMMITTED_HASH にフォールバック */
   const selectedHash = ref<string>(UNCOMMITTED_HASH);
   /** shift+クリックで指定した比較対象のコミットハッシュ。null は単一選択モード */
@@ -40,24 +44,23 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
   const headHash = computed(() => commits.value.find((c) => c.refs.includes("HEAD"))?.hash);
 
   /**
-   * HEAD が指すローカルブランチ名。`git log --format=%D` は `HEAD -> branch` を
-   * `["HEAD", "branch", ...]` の順に並べるため、HEAD の直後の非 origin/非 tag エントリを返す。
-   * detached HEAD / loadLog 完了前 / branch 未解決時は undefined。
+   * active worktree が指すローカルブランチ名。`git worktree list --porcelain` 由来の
+   * `WorktreeEntry.branch` (repoStore SSOT) を読む。detached HEAD / 不在 dir / 未取得時は undefined。
    *
-   * PR list の引き当て (head branch 名 → PR) や、PR diff toggle が「現在 branch の PR」を
-   * 解決するための SSOT。
+   * 旧実装は `git log --format=%D` の `HEAD -> branch` 順序に依存していたが、これは git の
+   * 文字列出力フォーマット規約に依存する脆さがあり、`WorktreeEntry.branch` の SSOT (`git worktree
+   * list` から直接取れる) と重複していた。SSOT を repoStore に統一する。
+   *
+   * branch rename は worktree list の refetch (branchChange push 経由) で追従する。rename 直後の
+   * 短い window で stale 値になるが、PR diff toggle の auto-off 経路がそれを救う設計。
    */
   const currentBranch = computed<string | undefined>(() => {
-    for (const commit of commits.value) {
-      const headIdx = commit.refs.indexOf("HEAD");
-      if (headIdx === -1) continue;
-      const next = commit.refs[headIdx + 1];
-      if (next !== undefined && !next.startsWith("origin/") && !next.startsWith("tag:")) {
-        return next;
-      }
-      return undefined;
-    }
-    return undefined;
+    const dir = worktreeStore.dir;
+    if (dir === undefined) return undefined;
+    const repo = repoStore.findRepoOwning(dir);
+    const wt = repo?.worktrees.find((w) => w.path === dir);
+    if (wt === undefined || wt.branch === "") return undefined;
+    return wt.branch;
   });
 
   /** range 選択モードか */
@@ -199,16 +202,6 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
     compareHash.value = null;
   }
 
-  /**
-   * `selectionVersion` を上げずに selection を書き換える。PR diff toggle のような
-   * 「ユーザー操作ではない override 経路」が使う。`selectionVersion` watch でユーザー
-   * 起点の選択変更だけを検出する契約を保つために、内部書き込みは version を上げない。
-   */
-  function setSelectionSilently(hash: string, compare: string | null) {
-    selectedHash.value = hash;
-    compareHash.value = compare;
-  }
-
   return {
     selectedHash,
     compareHash,
@@ -228,7 +221,6 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
     select,
     selectCompare,
     resetSelection,
-    setSelectionSilently,
   };
 });
 

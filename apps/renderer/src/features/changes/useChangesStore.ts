@@ -3,12 +3,18 @@ import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { rpcGitCommitFiles, useGitGraphStore, usePrDiffToggleStore } from "../git-graph";
+import {
+  rpcGitCommitFiles,
+  rpcGitPrDiffFiles,
+  rpcGitRevReachable,
+  useGitGraphStore,
+  usePrDiffToggleStore,
+} from "../git-graph";
 import {
   UNCOMMITTED_HASH,
   resolveGitChangeKind,
-  rpcGitFetchRemotes,
   useGitStatusStore,
+  useRemoteFetchStore,
   useWorktreeStore,
 } from "../worktree";
 import type { GitChangeKind } from "../worktree";
@@ -33,222 +39,234 @@ function gitStatusToFileChanges(statuses: Record<string, string>): GitFileChange
 }
 
 /**
- * 変更ファイル一覧 (uncommitted / commit / range) の SSOT。
+ * Changes パネルが取得すべきファイル一覧の「ソース」を表す discriminated union。
+ *
+ * 既存実装で if 列に積まれていた分岐 (prDiff / workingTree / range / commit) を 1 個の
+ * source.kind に統一する SSOT。`fileChanges` computed も watcher も全てこの値だけを見て
+ * 分岐する。新モード追加は `kind` の追加 1 か所で済む。
+ */
+type ChangesSource =
+  | { kind: "none" }
+  | { kind: "prDiff"; dir: string; baseOid: string }
+  | { kind: "workingTree"; dir: string }
+  | {
+      kind: "range";
+      dir: string;
+      hash: string;
+      compareHash: string;
+      rangeHashes: string[];
+      includeWorkingTree: boolean;
+    }
+  | { kind: "commit"; dir: string; hash: string };
+
+/**
+ * 変更ファイル一覧 (uncommitted / commit / range / pr-diff) の SSOT。
  *
  * ChangesPane の樹状ビューと ChangesSummaryView の縦並び diff ビューが同じソースを参照する。
  * RPC fetch を store に閉じ込めることで、2 つのビューが同時に画面に出ても fetch を二重発火しない。
  *
- * 選択モード判定 (uncommitted / range / single commit) / `workingTreeOnly` / `rangeHashes` の
- * derived 値はすべて `useGitGraphStore` 側で同期 computed として算出されており、当 store は
- * それらを **読むだけ** で git-graph 側の state を書き換えない (cross-store write の禁止)。
+ * 選択モード判定は `source` computed に集約され、`fileChanges` / watcher 共に `source.kind` を
+ * 唯一の分岐軸として動く。git-graph 側 state は読むだけで書かない (cross-store write の禁止)。
  */
 export const useChangesStore = defineStore("changes", () => {
   const worktreeStore = useWorktreeStore();
   const gitGraphStore = useGitGraphStore();
   const gitStatusStore = useGitStatusStore();
   const prDiffToggle = usePrDiffToggleStore();
+  const fetchStore = useRemoteFetchStore();
   const notification = useNotificationStore();
 
-  /** コミット選択時に取得した変更ファイル一覧 */
-  const commitFiles = ref<GitFileChange[]>([]);
-  /** PR diff モード (base..working tree) 時の変更ファイル一覧 */
-  const prDiffFiles = ref<GitFileChange[]>([]);
+  /** fetch 結果。`source.kind` ごとに該当する場合のみ参照される */
+  const fetchedFiles = ref<GitFileChange[]>([]);
   const loading = ref(false);
-  /** in-flight リクエストの無効化用シーケンス番号 */
+  /** in-flight リクエストの無効化用シーケンス番号。source / dir が変わるたび increment */
   let requestSeq = 0;
-
-  const isUncommittedMode = computed(() => gitGraphStore.selectedHash === UNCOMMITTED_HASH);
 
   /** untracked ファイル (git status `?? `) を `U` として GitFileChange に写像する。
    *
-   * PR diff モードでは `--diff-filter=AMDR` で除外される untracked file を別途 merge して、
-   * 「いま push したら base に入るもの (commit 済み + add 済み + untracked)」を網羅する。
-   * Claude が新規ファイルを書いて未 add の状態を pre-push review する gozd の primary use case と整合。 */
+   * PR diff モード / range mode + Working Tree 端では `--diff-filter=AMDR` で除外される
+   * untracked file を merge して、「いま push したら base に入るもの (commit 済み + add 済み +
+   * untracked)」を網羅する。Claude が新規ファイルを書いて未 add の状態を pre-push review する
+   * gozd の primary use case と整合。 */
   const untrackedFiles = computed<GitFileChange[]>(() =>
     Object.entries(gitStatusStore.gitStatuses)
       .filter(([_, code]) => resolveGitChangeKind(code) === "untracked")
       .map(([path]) => ({ oldFilePath: path, newFilePath: path, type: "U" as const })),
   );
 
-  const fileChanges = computed<GitFileChange[]>(() => {
+  /**
+   * 現在の Changes パネルが取得すべきソース。優先順位:
+   *
+   * - PR diff toggle ON かつ base OID 解決済み → `prDiff`
+   * - graph 側 selection が Working Tree のみ (range mode でない) または `workingTreeOnly` → `workingTree`
+   *   (status から直接取得、fetch 不要)
+   * - range mode → `range`
+   * - 単一 commit 選択 → `commit`
+   * - それ以外 (dir 不在 / 起動中) → `none`
+   *
+   * dir / headHash 等が解決できない不整合は `none` に倒して空表示にする (silent fallback ではなく
+   * 明示的に「未確定」とすることで watcher 側の早期 return 経路が一意になる)。
+   */
+  const source = computed<ChangesSource>(() => {
+    const dir = worktreeStore.dir;
+    if (dir === undefined) return { kind: "none" };
+
+    // PR diff モード時の表示 OID は `lockedBaseOid` (= enable 時 snapshot)。
+    // live `baseOid` を使うと「base 変更 → 表示が即変化 → auto-off watcher が遅れて発火」の
+    // race で 1 tick だけ「auto-off 前の base 変更を反映した diff」が表示される事故が起きる。
     if (prDiffToggle.isOn) {
-      // PR diff 表示用の commitFiles 結果に untracked を append する。重複は path key で排除する
-      // (`prDiffFiles` の path も `untrackedFiles` の path もどちらも worktree 相対の同一表記)。
-      const seen = new Set(prDiffFiles.value.map((c) => c.newFilePath));
-      const extras = untrackedFiles.value.filter((c) => !seen.has(c.newFilePath));
-      return [...prDiffFiles.value, ...extras];
+      const baseOid = prDiffToggle.lockedBaseOid;
+      if (baseOid === undefined) return { kind: "none" };
+      return { kind: "prDiff", dir, baseOid };
     }
-    if ((isUncommittedMode.value && !gitGraphStore.isRangeMode) || gitGraphStore.workingTreeOnly) {
-      return gitStatusToFileChanges(gitStatusStore.gitStatuses);
+
+    const hash = gitGraphStore.selectedHash;
+    const compareHash = gitGraphStore.compareHash;
+    const isUncommittedSingle = hash === UNCOMMITTED_HASH && compareHash === null;
+
+    if (isUncommittedSingle || gitGraphStore.workingTreeOnly) {
+      return { kind: "workingTree", dir };
     }
-    return commitFiles.value;
+
+    if (compareHash !== null) {
+      const rangeHashes = gitGraphStore.rangeHashes ?? [];
+      // rangeHashes 空: 解決失敗 (commits ロード途中など) → 未確定
+      if (rangeHashes.length === 0) return { kind: "none" };
+      // Working Tree 端を含むのに HEAD が見つからない: walk 起点が決まらない → 未確定
+      if (gitGraphStore.includesWorkingTree && gitGraphStore.headHash === undefined) {
+        return { kind: "none" };
+      }
+      return {
+        kind: "range",
+        dir,
+        hash,
+        compareHash,
+        rangeHashes,
+        includeWorkingTree: gitGraphStore.includesWorkingTree,
+      };
+    }
+
+    return { kind: "commit", dir, hash };
   });
 
-  // コミット選択 / commits 配列が変わったら変更ファイルを取得
+  const fileChanges = computed<GitFileChange[]>(() => {
+    const src = source.value;
+    if (src.kind === "none") return [];
+    if (src.kind === "workingTree") return gitStatusToFileChanges(gitStatusStore.gitStatuses);
+    // gitPrDiffFiles が Swift 側で untracked merge 済み。renderer 側追加処理は不要。
+    if (src.kind === "prDiff") return fetchedFiles.value;
+    if (src.kind === "range" && src.includeWorkingTree) {
+      // range mode で Working Tree 端を含むときは untracked を append する
+      // (--diff-filter=AMDR で除外されるため)。PR diff と同じ untracked 含む semantic に揃える。
+      const seen = new Set(fetchedFiles.value.map((c) => c.newFilePath));
+      const extras = untrackedFiles.value.filter((c) => !seen.has(c.newFilePath));
+      return [...fetchedFiles.value, ...extras];
+    }
+    // range (WT 端なし) / commit はそのまま fetched を返す
+    return fetchedFiles.value;
+  });
+
+  /**
+   * source が変わったら fetch (workingTree / none は fetch 不要なので skip)。
+   *
+   * 経路ごとの RPC 呼び分け:
+   * - prDiff: `rpcGitPrDiffFiles` (Swift 側で git diff + untracked merge を完結)。
+   *   base OID 未 reachable なら `useRemoteFetchStore.requestImmediateFetch` 経由で fetch を要求。
+   * - range / commit: `rpcGitCommitFiles` (既存)
+   *
+   * fetch 経路は `useRemoteFetchStore` の SSOT を共有することで、背景 polling と on-demand 要求の
+   * 二重発射を防ぐ。
+   */
   watch(
-    () =>
-      [
-        gitGraphStore.selectedHash,
-        gitGraphStore.compareHash,
-        gitGraphStore.commits,
-        gitGraphStore.rangeHashes,
-        gitGraphStore.workingTreeOnly,
-        gitGraphStore.includesWorkingTree,
-        gitGraphStore.headHash,
-      ] as const,
-    async ([
-      hash,
-      compareHash,
-      ,
-      rangeHashesValue,
-      workingTreeOnlyValue,
-      includesWorkingTreeValue,
-      headHashValue,
-    ]) => {
+    source,
+    async (src) => {
       const seq = ++requestSeq;
 
-      if (hash === UNCOMMITTED_HASH && compareHash === null) {
-        commitFiles.value = [];
-        loading.value = false;
-        return;
-      }
-      const dir = worktreeStore.dir;
-      if (dir === undefined) {
-        commitFiles.value = [];
+      if (src.kind === "none" || src.kind === "workingTree") {
+        fetchedFiles.value = [];
         loading.value = false;
         return;
       }
 
-      // 範囲モード
-      if (compareHash !== null) {
-        if (workingTreeOnlyValue) {
-          commitFiles.value = [];
+      loading.value = true;
+
+      if (src.kind === "prDiff") {
+        // base OID が local に reachable かを先に確認。未 fetch なら fetch を要求して reachable
+        // 化を待つ。reachable 判定 → fetch 要求 → 再判定 のチェーンは「fetch 失敗以外の理由で
+        // 失敗するときは fetch を炊かない」(rate limit / lock 競合 / dir 不正等への耐性) を担保する。
+        const reachable = await tryCatch(rpcGitRevReachable({ dir: src.dir, hash: src.baseOid }));
+        if (seq !== requestSeq) return;
+        if (!reachable.ok) {
+          notification.error("Failed to probe PR diff base reachability", reachable.error);
+          fetchedFiles.value = [];
           loading.value = false;
           return;
         }
+        if (!reachable.value.reachable) {
+          const fetched = await fetchStore.requestImmediateFetch(src.dir);
+          if (seq !== requestSeq) return;
+          if (!fetched) {
+            // 失敗の通知は `useRemoteFetchStore.runFetch` 内で `notify.info` 経由で出ているので
+            // ここでは重ねない。fileChanges は空にして UI に反映。
+            fetchedFiles.value = [];
+            loading.value = false;
+            return;
+          }
+        }
 
-        // Working Tree 端を含むのに HEAD が見つからない: walk 起点が決まらないので空に倒す
-        if (includesWorkingTreeValue && headHashValue === undefined) {
-          commitFiles.value = [];
+        const result = await tryCatch(rpcGitPrDiffFiles({ dir: src.dir, baseHash: src.baseOid }));
+        if (seq !== requestSeq) return;
+        if (!result.ok) {
+          notification.error("Failed to load PR diff", result.error);
+          fetchedFiles.value = [];
           loading.value = false;
           return;
         }
+        fetchedFiles.value = result.value.changes;
+        loading.value = false;
+        return;
+      }
 
-        const rangeHashes = rangeHashesValue ?? [];
-        // rangeHashes 空: range 解決失敗 (commits ロード途中など)。単一 commit 経路に落とさず空で確定
-        if (rangeHashes.length === 0) {
-          commitFiles.value = [];
-          loading.value = false;
-          return;
-        }
-
-        loading.value = true;
+      if (src.kind === "range") {
         const result = await tryCatch(
           rpcGitCommitFiles({
-            dir,
-            hash,
-            compareHash,
-            rangeHashes,
-            includeWorkingTree: includesWorkingTreeValue,
-            olderIsBase: false,
+            dir: src.dir,
+            hash: src.hash,
+            compareHash: src.compareHash,
+            rangeHashes: src.rangeHashes,
+            includeWorkingTree: src.includeWorkingTree,
           }),
         );
         if (seq !== requestSeq) return;
         if (!result.ok) {
           notification.error("Failed to load changed files for range", result.error);
-          commitFiles.value = [];
+          fetchedFiles.value = [];
           loading.value = false;
           return;
         }
-        commitFiles.value = result.value.changes;
+        fetchedFiles.value = result.value.changes;
         loading.value = false;
         return;
       }
 
-      // 単一 commit
-      loading.value = true;
+      // commit
       const result = await tryCatch(
         rpcGitCommitFiles({
-          dir,
-          hash,
+          dir: src.dir,
+          hash: src.hash,
           compareHash: "",
           rangeHashes: [],
           includeWorkingTree: false,
-          olderIsBase: false,
         }),
       );
       if (seq !== requestSeq) return;
       if (!result.ok) {
         notification.error("Failed to load changed files for commit", result.error);
-        commitFiles.value = [];
+        fetchedFiles.value = [];
         loading.value = false;
         return;
       }
-      commitFiles.value = result.value.changes;
-      loading.value = false;
-    },
-    { immediate: true },
-  );
-
-  /** PR diff モードの fetch。toggle / base OID / HEAD が変化したら base..working tree を取り直す。
-   *
-   * gitGraphStore の selection 経路 (commitFiles watcher) と独立して動く。toggle ON 中も
-   * 通常の commitFiles watcher は変化を検知しなければ動かない (selection は graph 側のまま)。
-   *
-   * `pr.baseRefOid` が local に reachable でない場合は 1 度だけ `git fetch --all` を自動で発射し、
-   * その後 retry する。fetch 失敗時はエラー通知 + prDiffFiles を空に倒す。 */
-  let prDiffSeq = 0;
-  watch(
-    () =>
-      [prDiffToggle.isOn, prDiffToggle.baseOid, gitGraphStore.headHash, worktreeStore.dir] as const,
-    async ([isOn, baseOid, headHash, dir]) => {
-      const seq = ++prDiffSeq;
-
-      if (!isOn || baseOid === undefined || headHash === undefined || dir === undefined) {
-        prDiffFiles.value = [];
-        return;
-      }
-
-      loading.value = true;
-      const fetchCommitFiles = () =>
-        rpcGitCommitFiles({
-          dir,
-          hash: UNCOMMITTED_HASH,
-          compareHash: baseOid,
-          // Swift 側は rangeHashes の先頭 (newer) と末尾 (older) しか見ない。
-          // PR diff では newer=HEAD, older=baseOid を渡し、olderIsBase + includeWorkingTree で
-          // `git diff <baseOid>` (= base..working tree) を実行させる。
-          rangeHashes: [headHash, baseOid],
-          includeWorkingTree: true,
-          olderIsBase: true,
-        });
-      let result = await tryCatch(fetchCommitFiles());
-      if (seq !== prDiffSeq) return;
-
-      if (!result.ok) {
-        // base OID が local に reachable でない可能性 (未 fetch / fork PR で別 remote)。
-        // git fetch を 1 度だけ自動発射して retry する。fetch が失敗したら諦めてエラー表示。
-        const fetchResult = await tryCatch(rpcGitFetchRemotes({ dir }));
-        if (seq !== prDiffSeq) return;
-        if (!fetchResult.ok || !fetchResult.value.ok) {
-          notification.error(
-            "Failed to fetch remotes for PR diff base",
-            fetchResult.ok ? undefined : fetchResult.error,
-          );
-          prDiffFiles.value = [];
-          loading.value = false;
-          return;
-        }
-        result = await tryCatch(fetchCommitFiles());
-        if (seq !== prDiffSeq) return;
-        if (!result.ok) {
-          notification.error("Failed to load PR diff", result.error);
-          prDiffFiles.value = [];
-          loading.value = false;
-          return;
-        }
-      }
-      prDiffFiles.value = result.value.changes;
+      fetchedFiles.value = result.value.changes;
       loading.value = false;
     },
     { immediate: true },

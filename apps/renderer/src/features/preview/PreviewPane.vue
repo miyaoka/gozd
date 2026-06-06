@@ -39,7 +39,7 @@ import { onMessage } from "../../shared/rpc";
 import { useChangesSummaryStore } from "../changes";
 import { getFileIconUrl, relDirOf, rpcFsReadFile, rpcFsReadFileAbsolute } from "../filer";
 import type { FsChangePayload } from "../filer";
-import { useGitGraphStore, usePrDiffToggleStore } from "../git-graph";
+import { rpcGitReadBlob, useGitGraphStore, usePrDiffToggleStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import type { GitChangeKind, Selection } from "../worktree";
 import ChangesSummaryView from "./ChangesSummaryView.vue";
@@ -224,7 +224,7 @@ const orderedRange = computed<OrderedRange | null>(() => {
  */
 const originalHashLabel = computed<string | undefined>(() => {
   if (prDiffToggle.isOn) {
-    const oid = prDiffToggle.baseOid;
+    const oid = prDiffToggle.lockedBaseOid;
     return oid === undefined ? undefined : oid.slice(0, SHORT_HASH_LEN);
   }
   const range = orderedRange.value;
@@ -402,7 +402,6 @@ async function fetchCommitContent(filePath: string) {
             relPath: filePath,
             hash: older,
             compareHash: "",
-            olderIsBase: false,
           }),
           rpcFsReadFile({ dir, path: filePath }),
         ]);
@@ -422,7 +421,6 @@ async function fetchCommitContent(filePath: string) {
         relPath: filePath,
         hash: newer,
         compareHash: older ?? "",
-        olderIsBase: false,
       });
       return { from: showResult.from, to: showResult.to, unchanged: showResult.unchanged };
     })(),
@@ -492,7 +490,7 @@ async function fetchPrDiffContent(filePath: string) {
     loading.value = false;
     return;
   }
-  const baseOid = prDiffToggle.baseOid;
+  const baseOid = prDiffToggle.lockedBaseOid;
   if (baseOid === undefined) {
     loading.value = false;
     return;
@@ -500,15 +498,9 @@ async function fetchPrDiffContent(filePath: string) {
 
   const fetchResult = await tryCatch(
     Promise.all([
-      // olderIsBase=true で from を `<baseOid>` 自身に倒す (通常の `<hash>^` ではない)。
-      // to は Swift 側で baseOid blob を返すが、後段で fs 結果に上書きするので未使用。
-      rpcGitShowCommitFile({
-        dir,
-        relPath: filePath,
-        hash: baseOid,
-        compareHash: "",
-        olderIsBase: true,
-      }),
+      // PR diff per-file の from は専用 RPC `gitReadBlob` で base OID の単一 blob を取る。
+      // `gitShowCommitFile` を流用すると to 側で不要な `treeFileOID` が走り stderr noise を生む。
+      rpcGitReadBlob({ dir, hash: baseOid, relPath: filePath }),
       rpcFsReadFile({ dir, path: filePath }),
     ]),
   );
@@ -522,8 +514,8 @@ async function fetchPrDiffContent(filePath: string) {
     return;
   }
 
-  const [showResult, fsResult] = fetchResult.value;
-  const from = showResult.from;
+  const [blobResult, fsResult] = fetchResult.value;
+  const from = blobResult.result;
   const fromNotFound = from?.notFound ?? true;
   const toNotFound = fsResult.notFound;
 
@@ -590,7 +582,7 @@ watch(
       gitGraphStore.selectedHash,
       gitGraphStore.compareHash,
       prDiffToggle.isOn,
-      prDiffToggle.baseOid,
+      prDiffToggle.lockedBaseOid,
     ] as const,
   async ([path, _kind, gitChange, selectedHash, compareHash, isPrDiff]) => {
     previewEnabled.value = true;
@@ -743,13 +735,18 @@ const currentRev = computed<string | undefined>(() => {
 
 /**
  * Original 側 (older^) を blame する際の rev。
- * - PR diff モード: `pr.baseRefOid` 自身 (^ なし) を起点に blame する
+ * - PR diff モード: `pr.baseRefOid` 自身 (^ なし) を起点に blame する。ただし PR で追加されたファイル
+ *   (effectiveKind === "added") は base に存在しないため undefined を返し、blame button 経路で
+ *   silent dead button にならないよう `blameEnabled` 側で構造的に抑止する。
  * - uncommitted モード: "HEAD"
  * - commit モード: `<older>^`。range.older は orderedRange が null でない限り
  *   必ず string で来る (型保証)。fetchCommitContent の fromHash と一致。
  */
 const originalRev = computed<string | undefined>(() => {
-  if (prDiffToggle.isOn) return prDiffToggle.baseOid;
+  if (prDiffToggle.isOn) {
+    if (effectiveGitChange.value === "added") return undefined;
+    return prDiffToggle.lockedBaseOid;
+  }
   if (!isCommitMode.value) return "HEAD";
   const range = orderedRange.value;
   if (range === null) return undefined;
@@ -760,9 +757,19 @@ const originalRev = computed<string | undefined>(() => {
   return `${range.older}^`;
 });
 
-/** blame 不可なファイル (絶対パスの外部 open) を弾く判定。button 描画自体を gate する。
- *  worktreeRelative selection でのみ blame が成立する (worktree 外は git 履歴を持たない) */
-const blameEnabled = computed(() => selection.value?.kind === "worktreeRelative");
+/** blame 不可なファイル (絶対パスの外部 open / PR diff の added file) を弾く判定。
+ *  button 描画自体を gate して silent dead button (DiffPreview docstring 規約) を作らない。
+ *
+ *  - worktreeRelative 以外 (absolute path) は git 履歴なしで blame 不成立
+ *  - PR diff で added file は old 側 blame が `git blame <baseOid> -- <path>` で path 不在エラーに
+ *    なるため、両側まとめて抑止する (現状の DiffPreview 単一 prop の API 制約上、side ごとに
+ *    gate できないため最小コスト解。新側 blame も失うが、added file の PR view では trade-off で許容)
+ */
+const blameEnabled = computed(() => {
+  if (selection.value?.kind !== "worktreeRelative") return false;
+  if (prDiffToggle.isOn && effectiveGitChange.value === "added") return false;
+  return true;
+});
 
 const blamePopover = useBlamePopover();
 
@@ -826,7 +833,7 @@ watch(
     () => gitGraphStore.selectedHash,
     () => gitGraphStore.compareHash,
     () => prDiffToggle.isOn,
-    () => prDiffToggle.baseOid,
+    () => prDiffToggle.lockedBaseOid,
     activeMode,
     // summary view 切替で CodePreview / DiffPreview が unmount され anchor が detached
     // になるため、popover も同時に閉じる必要がある。

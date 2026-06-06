@@ -268,6 +268,12 @@ public actor RpcDispatcher {
       return try await handleGitShowCommitFile(body)
     case "/git/commitFiles":
       return try await handleGitCommitFiles(body)
+    case "/git/prDiffFiles":
+      return try await handleGitPrDiffFiles(body)
+    case "/git/readBlob":
+      return try await handleGitReadBlob(body)
+    case "/git/revReachable":
+      return try await handleGitRevReachable(body)
     case "/git/lsTree":
       return try await handleGitLsTree(body)
     case "/git/resetMixed":
@@ -682,11 +688,11 @@ public actor RpcDispatcher {
     // root commit は <hash>^ が解決失敗 → notFound=true となり追加扱いに自然解決する。
     // 範囲選択 (compareHash 非空) では GitOps.commitFiles の <older>^ vs <newer> に揃え、
     // older 端自身の変更も diff に含める。root commit は `^` 解決失敗 → notFound に倒れる。
-    // older_is_base=true のときは PR diff semantic で `<older>` 自身を from にする
-    // (GitCommitFilesRequest.older_is_base と対応)。
     // Working Tree 端の扱いは renderer 側で分岐し、wire には常に実 git hash のみ流れる契約。
+    // PR diff モード (base..working) は handleGitPrDiffFiles / handleGitReadBlob を使うため
+    // この RPC は流れない。
     let olderEnd = req.compareHash.isEmpty ? req.hash : req.compareHash
-    let fromHash = req.olderIsBase ? olderEnd : "\(olderEnd)^"
+    let fromHash = "\(olderEnd)^"
     // content と OID を並行取得。両端の blob OID が一致すれば
     // 「コミット範囲で変更なし」として renderer に伝える（Filer 経由の非変更ファイル選択を救済）。
     async let fromContent = fileReadResultFromGit(
@@ -776,7 +782,7 @@ public actor RpcDispatcher {
     let compare = req.compareHash.isEmpty ? nil : req.compareHash
     let changes = try await GitOps.commitFiles(
       dir: req.dir, hash: req.hash, compareHash: compare, rangeHashes: req.rangeHashes,
-      includeWorkingTree: req.includeWorkingTree, olderIsBase: req.olderIsBase)
+      includeWorkingTree: req.includeWorkingTree)
     var resp = Gozd_V1_GitCommitFilesResponse()
     resp.changes = changes.map { c in
       var pb = Gozd_V1_GitFileChange()
@@ -785,6 +791,40 @@ public actor RpcDispatcher {
       pb.type = c.type
       return pb
     }
+    return try resp.jsonUTF8Data()
+  }
+
+  /// PR diff (base..working tree + untracked) のファイル一覧。GitOps.prDiffFiles に委譲。
+  private func handleGitPrDiffFiles(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitPrDiffFilesRequest(jsonUTF8Data: body)
+    let changes = try await GitOps.prDiffFiles(dir: req.dir, baseHash: req.baseHash)
+    var resp = Gozd_V1_GitPrDiffFilesResponse()
+    resp.changes = changes.map { c in
+      var pb = Gozd_V1_GitFileChange()
+      pb.oldFilePath = c.oldPath
+      pb.newFilePath = c.newPath
+      pb.type = c.type
+      return pb
+    }
+    return try resp.jsonUTF8Data()
+  }
+
+  /// 単一 rev + path の blob 内容。PR diff の base 側 blob 取得など、`gitShowCommitFile` の
+  /// 2 endpoint 比較が不要な経路用。失敗 (path 不在 / rev invalid) は notFound=true に倒す。
+  /// fileReadResultFromGit のロジックを reuse する。
+  private func handleGitReadBlob(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitReadBlobRequest(jsonUTF8Data: body)
+    var resp = Gozd_V1_GitReadBlobResponse()
+    resp.result = await fileReadResultFromGit(dir: req.dir, hash: req.hash, relPath: req.relPath)
+    return try resp.jsonUTF8Data()
+  }
+
+  /// rev (commit OID) が local repo に reachable か。`git cat-file -e <hash>` 相当。
+  /// fetch 要求の事前判定に使う。
+  private func handleGitRevReachable(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitRevReachableRequest(jsonUTF8Data: body)
+    var resp = Gozd_V1_GitRevReachableResponse()
+    resp.reachable = await GitOps.revReachable(dir: req.dir, hash: req.hash)
     return try resp.jsonUTF8Data()
   }
 

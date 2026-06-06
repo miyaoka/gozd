@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { findAbsolutePathMatches } from "./findAbsolutePathMatches";
 import { findRelativePaths } from "./findRelativePaths";
+import { clipMatchToCurrentLine } from "./useFilePathLinkProvider";
 
 describe("findRelativePaths", () => {
   test("基本的な相対パスを検出する", () => {
@@ -292,6 +293,26 @@ describe("findAbsolutePathMatches", () => {
       const matches = findAbsolutePathMatches("run --path=/tmp/foo", dirPrefix, homeDir);
       expect(matches[0]?.selection).toEqual({ kind: "absolute", absPath: "/tmp/foo" });
     });
+
+    test("`///` 単独は `/` 以外の path 文字を持たないので拾わない (VSCode `Char+` 要求と等価)", () => {
+      const matches = findAbsolutePathMatches("///", dirPrefix, homeDir);
+      expect(matches).toEqual([]);
+    });
+
+    test("`////` のような複数連続 slash 単独も拾わない", () => {
+      const matches = findAbsolutePathMatches("////", dirPrefix, homeDir);
+      expect(matches).toEqual([]);
+    });
+
+    test("`/foo///bar` のような path 文字を含む連続 slash は拾う (`Char+` 要求を満たす)", () => {
+      const matches = findAbsolutePathMatches("/foo///bar", dirPrefix, homeDir);
+      expect(matches[0]?.selection).toEqual({ kind: "absolute", absPath: "/foo///bar" });
+    });
+
+    test("`see ///` のように行末が連続 slash で終わるケースも拾わない", () => {
+      const matches = findAbsolutePathMatches("see ///", dirPrefix, homeDir);
+      expect(matches).toEqual([]);
+    });
   });
 
   describe("境界条件", () => {
@@ -384,5 +405,85 @@ describe("findAbsolutePathMatches", () => {
         absPath: "/Users/me/elsewhere/foo.ts",
       });
     });
+  });
+});
+
+describe("clipMatchToCurrentLine", () => {
+  const dirPrefix = "/Users/me/proj/";
+  const homeDir = "/Users/me";
+
+  // collectIndentedBlock が現在行 ("very long") と継続行 ("/tmp/foo.md") を結合し、
+  // 現在行起点で string 範囲を再射影する経路を境界で検証する。
+  // joinedText = "very long /tmp/foo.md continuation", currentLineOffset/Length は現在行を指す。
+
+  test("match が現在行範囲内に完全に含まれるとき、現在行起点の linkStart/linkEnd を返す", () => {
+    const joinedText = "see /tmp/foo.md now";
+    const [match] = findAbsolutePathMatches(joinedText, dirPrefix, homeDir);
+    const clipped = clipMatchToCurrentLine(match, 0, joinedText.length);
+    expect(clipped).toEqual({ linkStart: 4, linkEnd: 15 });
+  });
+
+  test("match が現在行範囲の前 (継続行側) に完全にあるとき null を返す", () => {
+    // 現在行: 結合テキストの後半 "continuation" のみ。前半 "/tmp/foo.md" は現在行範囲外。
+    const joinedText = "/tmp/foo.md continuation";
+    const [match] = findAbsolutePathMatches(joinedText, dirPrefix, homeDir);
+    const currentLineOffset = "/tmp/foo.md ".length; // 12
+    const currentLineLength = "continuation".length;
+    const clipped = clipMatchToCurrentLine(match, currentLineOffset, currentLineLength);
+    expect(clipped).toBeNull();
+  });
+
+  test("match が現在行範囲の後にあるとき null を返す", () => {
+    // 現在行: 結合テキストの前半 "see " のみ。後半 "/tmp/foo.md" は現在行範囲外。
+    const joinedText = "see /tmp/foo.md";
+    const [match] = findAbsolutePathMatches(joinedText, dirPrefix, homeDir);
+    const currentLineOffset = 0;
+    const currentLineLength = "see ".length; // 4
+    const clipped = clipMatchToCurrentLine(match, currentLineOffset, currentLineLength);
+    expect(clipped).toBeNull();
+  });
+
+  test("match が現在行範囲を跨いで開始 (継続行起点) するとき、現在行内に収まる部分だけを返す", () => {
+    // joinedText = "/tmp/foo.md tail", 現在行が "tail" のみ (currentLineOffset=12)。
+    // match.idx=0 (継続行), match.totalEnd=11 で、現在行範囲 [12,16) と重ならず null。
+    // 跨ぐケースを作るには match を継続行から現在行へ伸ばす必要がある。
+    // joinedText = "/tmp/foo-and-bar.md" を現在行 "-and-bar.md" (offset=8) で受ける。
+    const joinedText = "/tmp/foo-and-bar.md";
+    const [match] = findAbsolutePathMatches(joinedText, dirPrefix, homeDir);
+    expect(match.idx).toBe(0);
+    expect(match.totalEnd).toBe(joinedText.length);
+    const currentLineOffset = "/tmp/foo".length; // 8、現在行が "-and-bar.md" の 11 文字
+    const currentLineLength = "-and-bar.md".length; // 11
+    const clipped = clipMatchToCurrentLine(match, currentLineOffset, currentLineLength);
+    expect(clipped).toEqual({ linkStart: 0, linkEnd: 11 });
+  });
+
+  test("match が現在行範囲を跨いで終了 (現在行から継続行へ伸びる) するとき、現在行内に収まる部分だけを返す", () => {
+    // joinedText = "/tmp/foo.md", 現在行が "/tmp" のみ (offset=0, length=4)。
+    // match.idx=0, match.totalEnd=11 で、現在行 [0,4) に切り取られる。
+    const joinedText = "/tmp/foo.md";
+    const [match] = findAbsolutePathMatches(joinedText, dirPrefix, homeDir);
+    const currentLineOffset = 0;
+    const currentLineLength = 4;
+    const clipped = clipMatchToCurrentLine(match, currentLineOffset, currentLineLength);
+    expect(clipped).toEqual({ linkStart: 0, linkEnd: 4 });
+  });
+
+  test("currentLineEnd 境界 ちょうど (match.idx === currentLineEnd) で null を返す", () => {
+    const joinedText = "ab /tmp/foo.md";
+    const [match] = findAbsolutePathMatches(joinedText, dirPrefix, homeDir);
+    expect(match.idx).toBe(3);
+    // 現在行 [0,3) で match.idx=3 → 範囲外
+    const clipped = clipMatchToCurrentLine(match, 0, 3);
+    expect(clipped).toBeNull();
+  });
+
+  test("currentLineOffset 境界 (match.totalEnd === currentLineOffset) で null を返す", () => {
+    const joinedText = "/tmp/foo.md xy";
+    const [match] = findAbsolutePathMatches(joinedText, dirPrefix, homeDir);
+    expect(match.totalEnd).toBe(11);
+    // 現在行 [11,14) で match.totalEnd=11 → 範囲外
+    const clipped = clipMatchToCurrentLine(match, 11, 3);
+    expect(clipped).toBeNull();
   });
 });

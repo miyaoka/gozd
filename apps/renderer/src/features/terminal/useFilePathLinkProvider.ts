@@ -2,7 +2,11 @@ import type { IBufferLine, ILink, ILinkProvider, Terminal } from "@xterm/xterm";
 import { usePreviewStore } from "../preview";
 import { pathTargetToString, useWorktreeStore } from "../worktree";
 import { collectIndentedBlock } from "./collectIndentedBlock";
-import { findAbsolutePathMatches, resolveHomeDir } from "./findAbsolutePathMatches";
+import {
+  type AbsolutePathMatch,
+  findAbsolutePathMatches,
+  resolveHomeDir,
+} from "./findAbsolutePathMatches";
 import { findRelativePaths } from "./findRelativePaths";
 
 /**
@@ -80,28 +84,46 @@ function findAbsolutePathLinks(
   previewStore: ReturnType<typeof usePreviewStore>,
   links: ILink[],
 ): void {
-  const currentLineEnd = currentLineOffset + currentLineLength;
   const matches = findAbsolutePathMatches(joinedText, dirPrefix, homeDir);
 
-  for (const { idx, totalEnd, selection, lineNumber: lineNum } of matches) {
-    if (idx >= currentLineEnd || totalEnd <= currentLineOffset) continue;
-
-    const linkStart = Math.max(idx, currentLineOffset) - currentLineOffset;
-    const linkEnd = Math.min(totalEnd, currentLineEnd) - currentLineOffset;
+  for (const match of matches) {
+    const clipped = clipMatchToCurrentLine(match, currentLineOffset, currentLineLength);
+    if (!clipped) continue;
 
     pushLink(
       bufLine,
       lineNumber,
-      linkStart,
-      linkEnd,
-      pathTargetToString(selection),
+      clipped.linkStart,
+      clipped.linkEnd,
+      pathTargetToString(match.selection),
       (event) => {
         if (!event.shiftKey) return;
-        previewStore.requestSelect(selection, lineNum);
+        previewStore.requestSelect(match.selection, match.lineNumber);
       },
       links,
     );
   }
+}
+
+/**
+ * 結合テキスト中の絶対パス match を「現在行の string 範囲」に切り取る。
+ * 現在行範囲と一切重ならない match は null を返す。範囲跨ぎは現在行内に収まる部分だけを返す。
+ *
+ * - currentLineOffset: 結合テキスト中で現在行が始まる string 位置
+ * - currentLineLength: 現在行の string 長
+ * - 返り値の linkStart / linkEnd: 現在行を起点 (0-based) とした string 範囲
+ */
+export function clipMatchToCurrentLine(
+  match: AbsolutePathMatch,
+  currentLineOffset: number,
+  currentLineLength: number,
+): { linkStart: number; linkEnd: number } | null {
+  const currentLineEnd = currentLineOffset + currentLineLength;
+  if (match.idx >= currentLineEnd || match.totalEnd <= currentLineOffset) return null;
+  return {
+    linkStart: Math.max(match.idx, currentLineOffset) - currentLineOffset,
+    linkEnd: Math.min(match.totalEnd, currentLineEnd) - currentLineOffset,
+  };
 }
 
 /** リンクを作成して links に追加する */

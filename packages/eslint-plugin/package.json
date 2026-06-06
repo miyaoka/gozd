@@ -20,7 +20,8 @@
     "eslint": "catalog:",
     "oxfmt": "catalog:",
     "oxlint": "catalog:",
-    "oxlint-tsgolint": "catalog:"
+    "oxlint-tsgolint": "catalog:",
+    "vue-eslint-parser": "catalog:"
   },
   "peerDependencies": {
     "eslint": ">=9"

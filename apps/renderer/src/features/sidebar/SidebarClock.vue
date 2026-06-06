@@ -46,7 +46,7 @@ const hourAngle = computed(() => (now.value.getHours() % 12) * 30 + now.value.ge
 </script>
 
 <template>
-  <div class="flex items-center gap-1.5 text-zinc-400">
+  <div class="flex items-center gap-1.5 text-foreground-muted">
     <svg viewBox="-10 -10 20 20" class="size-4 shrink-0" role="img" aria-label="Analog clock">
       <circle cx="0" cy="0" r="9" fill="none" stroke="currentColor" stroke-width="2" />
       <line

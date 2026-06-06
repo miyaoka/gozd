@@ -230,7 +230,7 @@ useEventListener(window, "pointerup", () => {
 </script>
 
 <template>
-  <div class="flex shrink-0 flex-col gap-1 border-b border-zinc-800 px-3 py-2">
+  <div class="flex shrink-0 flex-col gap-1 border-b border-divider px-3 py-2">
     <!-- gutter 列 + プロット列を 1 つのスクロールコンテナに入れ、座標系を「プロット列の content box」
          に統一する (軸ヘッダ・バー・playhead が必ず一致)。workflow で行が増えたら縦スクロールし、
          上限は下端ハンドルでリサイズ可能。overflow-x は明示 hidden (overflow-y:auto による x の auto
@@ -240,12 +240,12 @@ useEventListener(window, "pointerup", () => {
         <!-- gutter 列 (agent 名)。先頭に軸ヘッダ高さ分の spacer を置きバー行と縦に揃える。
              spacer は sticky で固定し、軸行と一緒に縦スクロールから外す (背景で下の行を隠す)。 -->
         <div class="w-80 shrink-0">
-          <div class="sticky top-0 z-10 h-6 bg-zinc-900" />
+          <div class="sticky top-0 z-10 h-6 bg-background" />
           <template v-for="track in tracks" :key="track.id">
             <!-- workflow グループ見出し (バー無し / 非選択)。workflow 名を 1 回だけ出す。 -->
             <div
               v-if="track.isHeader"
-              class="flex h-6 w-full items-center gap-1 px-1 text-[11px] font-medium text-zinc-400"
+              class="flex h-6 w-full items-center gap-1 px-1 text-[11px] font-medium text-foreground-muted"
               :title="track.id"
             >
               <span
@@ -264,10 +264,10 @@ useEventListener(window, "pointerup", () => {
               :class="[
                 track.indent ? 'pl-4' : '',
                 isActive(track)
-                  ? 'bg-white/10 font-medium text-zinc-100'
+                  ? 'bg-accent-strong font-medium text-foreground-strong'
                   : track.isMain
-                    ? 'font-semibold text-zinc-200 hover:bg-white/5'
-                    : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200',
+                    ? 'font-semibold text-foreground-strong hover:bg-accent'
+                    : 'text-foreground-muted hover:bg-accent hover:text-foreground-strong',
               ]"
               :title="track.id"
               @click="onLabelClick(track)"
@@ -280,7 +280,7 @@ useEventListener(window, "pointerup", () => {
               <span class="truncate">{{ track.label }}</span>
               <span
                 v-if="track.models.length > 0"
-                class="ml-auto max-w-[50%] shrink-0 truncate text-[10px] text-zinc-500 tabular-nums"
+                class="ml-auto max-w-[50%] shrink-0 truncate text-[10px] text-foreground-subtle tabular-nums"
                 :title="trackModelLabel(track)"
               >
                 {{ trackModelLabel(track) }}
@@ -295,7 +295,7 @@ useEventListener(window, "pointerup", () => {
           <!-- 軸ヘッダ (時刻表示 + シーク領域)。クリックでその位置へ、左右ドラッグで連続シークする。
                sticky で縦スクロールから外し、固定する (agent 行だけがスクロールする)。 -->
           <div
-            class="sticky top-0 z-10 flex h-6 cursor-ew-resize touch-none items-center justify-between bg-zinc-900 text-[10px] text-zinc-500 tabular-nums select-none"
+            class="sticky top-0 z-10 flex h-6 cursor-ew-resize touch-none items-center justify-between bg-background text-[10px] text-foreground-subtle tabular-nums select-none"
             @pointerdown="onScrubDown"
           >
             <span class="pointer-events-none">{{ startLabel }}</span>
@@ -313,12 +313,12 @@ useEventListener(window, "pointerup", () => {
                 class="absolute top-1/2 h-2 min-w-[3px] -translate-y-1/2 rounded-sm transition-colors"
                 :class="
                   barStyle(track).placeholder
-                    ? 'border border-dashed border-zinc-600'
+                    ? 'border border-dashed border-border-strong'
                     : isActive(track)
-                      ? 'bg-zinc-300'
+                      ? 'bg-foreground'
                       : track.isMain
-                        ? 'bg-zinc-500'
-                        : 'bg-zinc-600'
+                        ? 'bg-border-strong'
+                        : 'bg-border-strong'
                 "
                 :style="{ left: barStyle(track).left, width: barStyle(track).width }"
                 :title="barStyle(track).placeholder ? 'no timestamps' : undefined"
@@ -331,7 +331,7 @@ useEventListener(window, "pointerup", () => {
           <div
             v-if="playheadPct !== undefined"
             class="pointer-events-none absolute inset-y-0 z-20 w-px"
-            :class="scrubbing ? 'bg-zinc-200' : 'bg-zinc-300/70'"
+            :class="scrubbing ? 'bg-foreground-strong' : 'bg-foreground/70'"
             :style="{ left: `${playheadPct}%` }"
           />
         </div>
@@ -345,7 +345,7 @@ useEventListener(window, "pointerup", () => {
     >
       <div
         class="h-0.5 w-8 rounded-full transition-colors"
-        :class="dragging ? 'bg-zinc-400' : 'bg-zinc-700 group-hover:bg-zinc-500'"
+        :class="dragging ? 'bg-foreground-muted' : 'bg-surface-2 group-hover:bg-border-strong'"
       />
     </div>
   </div>

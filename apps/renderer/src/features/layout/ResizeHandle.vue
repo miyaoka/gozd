@@ -48,7 +48,7 @@ const { isDragging } = useResize(handleRef, beforeSize, afterSize, {
       class="pointer-events-none transition-colors duration-150"
       :class="[
         direction === 'horizontal' ? 'h-full w-px' : 'h-px w-full',
-        isDragging || isHovered ? 'bg-blue-500' : 'bg-zinc-700',
+        isDragging || isHovered ? 'bg-primary' : 'bg-surface-2',
       ]"
     />
   </div>

@@ -29,7 +29,7 @@ export default defineComponent({
               href: seg.href,
               target: "_blank",
               rel: "noopener noreferrer",
-              class: "text-blue-400 hover:underline",
+              class: "text-info hover:underline",
               title: `Open ${seg.value} on GitHub`,
               // 行クリック (commit 選択) の伝播を止めて、リンクだけを発火させる
               onClick: (e: MouseEvent) => e.stopPropagation(),

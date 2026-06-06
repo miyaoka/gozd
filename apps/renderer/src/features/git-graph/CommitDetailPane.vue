@@ -54,31 +54,35 @@ function formatDetailDate(timestamp: number): string {
 
 <template>
   <div
-    class="flex size-full flex-col overflow-y-auto bg-zinc-900 text-xs text-zinc-300 select-text"
+    class="flex size-full flex-col overflow-y-auto bg-background text-xs text-foreground select-text"
   >
     <!-- No selection -->
-    <div v-if="commits.length === 0" class="p-3 text-zinc-500">Select a commit to view details</div>
+    <div v-if="commits.length === 0" class="p-3 text-foreground-subtle">
+      Select a commit to view details
+    </div>
 
     <!-- Commit list -->
     <div
       v-for="(commit, i) in commits"
       :key="commit.hash"
       class="flex flex-col gap-3 p-3"
-      :class="i > 0 ? 'border-t border-zinc-700' : ''"
+      :class="i > 0 ? 'border-t border-border' : ''"
     >
       <!-- Uncommitted -->
-      <div v-if="isUncommitted(commit.hash)" class="text-zinc-400 italic">Uncommitted Changes</div>
+      <div v-if="isUncommitted(commit.hash)" class="text-foreground-muted italic">
+        Uncommitted Changes
+      </div>
 
       <!-- Normal commit -->
       <template v-else>
         <!-- Subject -->
-        <div class="text-sm font-semibold text-zinc-200">
+        <div class="text-sm font-semibold text-foreground-strong">
           <CommitSegmentList :segments="subjectSegmentsList[i]" />
         </div>
 
         <!-- Body: `<pre>` 配下でも `CommitSegmentList` は render function 実装のため
              template 改行由来の whitespace text node 混入が構造的に起きない。 -->
-        <pre v-if="commit.body" class="whitespace-pre-wrap text-zinc-400"><CommitSegmentList
+        <pre v-if="commit.body" class="whitespace-pre-wrap text-foreground-muted"><CommitSegmentList
           :segments="bodySegmentsList[i]"
         /></pre>
 
@@ -86,22 +90,28 @@ function formatDetailDate(timestamp: number): string {
         <div class="flex flex-col gap-1.5">
           <!-- Author & Date -->
           <div class="flex items-center gap-2">
-            <span class="icon-[lucide--user] size-3.5 shrink-0 text-zinc-500" />
-            <span class="text-zinc-200">{{ commit.author }}</span>
-            <span class="text-zinc-500">{{ formatDetailDate(commit.date) }}</span>
+            <span class="icon-[lucide--user] size-3.5 shrink-0 text-foreground-subtle" />
+            <span class="text-foreground-strong">{{ commit.author }}</span>
+            <span class="text-foreground-subtle">{{ formatDetailDate(commit.date) }}</span>
           </div>
 
           <!-- Hash -->
           <div class="flex items-center gap-2">
-            <span class="icon-[lucide--hash] size-3.5 shrink-0 text-zinc-500" />
-            <span class="font-mono text-zinc-400">{{ commit.hash }}</span>
+            <span class="icon-[lucide--hash] size-3.5 shrink-0 text-foreground-subtle" />
+            <span class="font-mono text-foreground-muted">{{ commit.hash }}</span>
           </div>
 
           <!-- Parents -->
           <div v-if="commit.parents.length > 0" class="flex items-start gap-2">
-            <span class="icon-[lucide--git-commit-horizontal] size-3.5 shrink-0 text-zinc-500" />
+            <span
+              class="icon-[lucide--git-commit-horizontal] size-3.5 shrink-0 text-foreground-subtle"
+            />
             <div class="flex flex-col gap-0.5">
-              <span v-for="parent in commit.parents" :key="parent" class="font-mono text-zinc-400">
+              <span
+                v-for="parent in commit.parents"
+                :key="parent"
+                class="font-mono text-foreground-muted"
+              >
                 {{ parent.slice(0, 7) }}
               </span>
             </div>
@@ -109,12 +119,12 @@ function formatDetailDate(timestamp: number): string {
 
           <!-- Refs -->
           <div v-if="commit.refs.length > 0" class="flex items-start gap-2">
-            <span class="icon-[lucide--tag] size-3.5 shrink-0 text-zinc-500" />
+            <span class="icon-[lucide--tag] size-3.5 shrink-0 text-foreground-subtle" />
             <div class="flex flex-wrap gap-1">
               <span
                 v-for="r in commit.refs"
                 :key="r"
-                class="rounded-sm bg-zinc-800 px-1 py-0.5 text-[10px] text-zinc-300"
+                class="rounded-sm bg-surface-1 px-1 py-0.5 text-[10px] text-foreground"
               >
                 {{ r }}
               </span>

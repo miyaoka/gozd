@@ -123,15 +123,17 @@ onUnmounted(disposeShow);
     @keydown="handleKeydown"
     @close="contextKeys.set('commandPaletteVisible', false)"
   >
-    <div class="w-[480px] overflow-hidden rounded-lg border border-zinc-600 bg-zinc-800 shadow-2xl">
-      <div class="border-b border-zinc-700 p-2">
+    <div
+      class="w-[480px] overflow-hidden rounded-lg border border-border-strong bg-surface-1 shadow-2xl"
+    >
+      <div class="border-b border-border p-2">
         <input
           ref="input"
           v-model="query"
           type="text"
           placeholder="Type a command..."
           aria-label="Search commands"
-          class="w-full bg-transparent px-2 py-1 text-sm text-zinc-200 outline-none placeholder:text-zinc-500"
+          class="w-full bg-transparent px-2 py-1 text-sm text-foreground-strong outline-none placeholder:text-foreground-subtle"
         />
       </div>
       <ul v-if="filteredCommands.length > 0" ref="list" class="max-h-[300px] overflow-y-auto py-1">
@@ -140,7 +142,9 @@ onUnmounted(disposeShow);
           :key="cmd.id"
           class="flex cursor-pointer items-center justify-between px-3 py-1.5 text-sm"
           :class="
-            i === selectedIndex ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-300 hover:bg-zinc-700/50'
+            i === selectedIndex
+              ? 'bg-surface-2 text-foreground-strong'
+              : 'text-foreground hover:bg-surface-2/50'
           "
           @click="
             () => {
@@ -152,13 +156,15 @@ onUnmounted(disposeShow);
           <span>{{ cmd.label }}</span>
           <kbd
             v-if="keyBindingMap.get(cmd.id)"
-            class="ml-4 shrink-0 rounded-sm bg-zinc-900 px-1.5 py-0.5 font-mono text-xs text-zinc-400"
+            class="ml-4 shrink-0 rounded-sm bg-background px-1.5 py-0.5 font-mono text-xs text-foreground-muted"
           >
             {{ formatKeyBinding(keyBindingMap.get(cmd.id)!) }}
           </kbd>
         </li>
       </ul>
-      <div v-else class="px-3 py-4 text-center text-sm text-zinc-500">No matching commands</div>
+      <div v-else class="px-3 py-4 text-center text-sm text-foreground-subtle">
+        No matching commands
+      </div>
     </div>
   </dialog>
 </template>

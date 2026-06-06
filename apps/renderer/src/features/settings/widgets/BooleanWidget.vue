@@ -19,11 +19,11 @@ const model = defineModel<boolean>({ required: true });
     :aria-checked="model"
     :aria-label="props.setting.label"
     class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors"
-    :class="model ? 'bg-blue-500' : 'bg-zinc-600'"
+    :class="model ? 'bg-primary' : 'bg-border-strong'"
     @click="model = !model"
   >
     <span
-      class="pointer-events-none inline-block size-4 rounded-full bg-white shadow-sm transition-transform"
+      class="pointer-events-none inline-block size-4 rounded-full bg-foreground-strong shadow-sm transition-transform"
       :class="model ? 'translate-x-[18px]' : 'translate-x-0.5'"
       :style="{ marginTop: '2px' }"
     />

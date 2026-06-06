@@ -158,7 +158,7 @@ function onContainerClick(e: MouseEvent) {
   <pre
     v-else
     ref="containerRef"
-    class="_line-numbered p-4 text-sm/tight text-zinc-300"
+    class="_line-numbered p-4 text-sm/tight text-foreground"
     :class="wordWrap ? '_word-wrap break-all whitespace-pre-wrap' : ''"
     :style="{ '--line-no-width': lineNoWidth }"
     @click="onContainerClick"

@@ -433,28 +433,28 @@ function onDialogClick(event: MouseEvent) {
 <template>
   <dialog
     ref="dialogRef"
-    class="m-auto bg-transparent p-0 backdrop:bg-black/50"
+    class="m-auto bg-transparent p-0 backdrop:bg-overlay"
     @click="onDialogClick"
     @close="close"
   >
     <div
       v-if="context"
-      class="flex h-[85vh] w-[1320px] max-w-[92vw] flex-col rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-100 shadow-xl"
+      class="flex h-[85vh] w-[1320px] max-w-[92vw] flex-col rounded-lg border border-border bg-background text-foreground-strong shadow-xl"
     >
       <!-- ヘッダ -->
-      <div class="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
+      <div class="flex items-center justify-between border-b border-divider px-4 py-3">
         <div class="min-w-0">
           <h2 class="truncate text-sm font-semibold" :title="context.title">
             {{ context.title }}
           </h2>
-          <p class="truncate text-[10px] text-zinc-500" :title="context.sessionId">
+          <p class="truncate text-[10px] text-foreground-subtle" :title="context.sessionId">
             {{ context.sessionId }}
           </p>
         </div>
         <button
           type="button"
           aria-label="Close"
-          class="grid size-7 shrink-0 place-items-center rounded-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+          class="grid size-7 shrink-0 place-items-center rounded-sm text-foreground-muted hover:bg-surface-1 hover:text-foreground-strong"
           @click="requestClose"
         >
           <span class="icon-[lucide--x] text-base" />
@@ -477,11 +477,11 @@ function onDialogClick(event: MouseEvent) {
       <!-- 本文: 状態メッセージ or [左 Main + 右 subagent] の 2 ペイン -->
       <div class="flex min-h-0 flex-1">
         <!-- 状態メッセージ (loading / error / notFound) は全幅 -->
-        <p v-if="loading" class="px-4 py-3 text-sm text-zinc-400">Loading session log…</p>
-        <p v-else-if="errorMessage" class="px-4 py-3 text-sm text-red-400">
+        <p v-if="loading" class="px-4 py-3 text-sm text-foreground-muted">Loading session log…</p>
+        <p v-else-if="errorMessage" class="px-4 py-3 text-sm text-destructive">
           Failed to read session log: {{ errorMessage }}
         </p>
-        <p v-else-if="notFound" class="px-4 py-3 text-sm text-zinc-400">
+        <p v-else-if="notFound" class="px-4 py-3 text-sm text-foreground-muted">
           No log file found for this session (not started yet, or cleaned up).
         </p>
 
@@ -513,7 +513,7 @@ function onDialogClick(event: MouseEvent) {
           :subtitle="activeSub.id"
           :session-key="activeSub.id"
           :scroll-to="subScrollTarget"
-          class="min-w-0 flex-1 border-l border-zinc-800"
+          class="min-w-0 flex-1 border-l border-divider"
           @select-branch="selectBranch(activeSub.id, $event.branchKey, $event.childUuid, $event.ts)"
         />
       </div>

@@ -201,7 +201,9 @@ watch(
 </script>
 
 <template>
-  <div class="_main-layout flex h-screen flex-col overflow-hidden bg-zinc-900 text-white">
+  <div
+    class="_main-layout flex h-screen flex-col overflow-hidden bg-background text-foreground-strong"
+  >
     <!-- native titleBar は Liquid Glass の半透明 surface として WebView の上に乗る。
          WebView は `ignoresSafeArea(.container, edges: .top)` で titlebar の下まで延びるため、
          renderer 側で `env(safe-area-inset-top)` 分の padding を取って in-app コンテンツが
@@ -251,7 +253,7 @@ watch(
       <!-- Preview 開閉ボタン（Preview popover のアンカー） -->
       <button
         type="button"
-        class="_preview-anchor flex shrink-0 items-center justify-center border-l border-zinc-700 px-1 text-zinc-500 hover:text-zinc-300"
+        class="_preview-anchor flex shrink-0 items-center justify-center border-l border-border px-1 text-foreground-subtle hover:text-foreground"
         title="Toggle preview"
         aria-label="Toggle preview"
         @click="previewStore.toggle()"
@@ -268,7 +270,7 @@ watch(
     <div
       ref="previewPopover"
       popover="manual"
-      class="_preview-popover overflow-hidden border-0 border-l border-zinc-700 bg-zinc-900 p-0 [&:popover-open]:flex"
+      class="_preview-popover overflow-hidden border-0 border-l border-border bg-background p-0 [&:popover-open]:flex"
       :style="{ width: `${previewWidth}px` }"
     >
       <!-- 左端リサイズハンドル -->

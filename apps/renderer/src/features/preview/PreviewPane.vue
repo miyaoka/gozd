@@ -888,11 +888,11 @@ watch(
 
   <div v-else class="flex h-full flex-col overflow-hidden">
     <!-- ヘッダー（常に表示） -->
-    <div class="flex items-center gap-2 border-b border-zinc-700 px-3 py-2">
+    <div class="flex items-center gap-2 border-b border-border px-3 py-2">
       <!-- markdown preview 内部リンク履歴ナビ。履歴の有無でレイアウトが揺れないよう常時表示 -->
       <button
         type="button"
-        class="shrink-0 text-zinc-500 hover:text-zinc-300 disabled:cursor-default disabled:opacity-40 disabled:hover:text-zinc-500"
+        class="shrink-0 text-foreground-subtle hover:text-foreground disabled:cursor-default disabled:opacity-40 disabled:hover:text-foreground-subtle"
         :disabled="!markdownHistory.canGoBack"
         title="Go back"
         aria-label="Go back"
@@ -902,7 +902,7 @@ watch(
       </button>
       <button
         type="button"
-        class="shrink-0 text-zinc-500 hover:text-zinc-300 disabled:cursor-default disabled:opacity-40 disabled:hover:text-zinc-500"
+        class="shrink-0 text-foreground-subtle hover:text-foreground disabled:cursor-default disabled:opacity-40 disabled:hover:text-foreground-subtle"
         :disabled="!markdownHistory.canGoForward"
         title="Go forward"
         aria-label="Go forward"
@@ -912,14 +912,14 @@ watch(
       </button>
       <template v-if="selectedDisplayPath">
         <img :src="headerIconUrl" class="size-4 shrink-0" alt="" />
-        <span class="truncate text-sm text-zinc-300" :title="selectedDisplayPath">{{
+        <span class="truncate text-sm text-foreground" :title="selectedDisplayPath">{{
           fileName(selectedDisplayPath)
         }}</span>
       </template>
-      <span v-else class="text-sm text-zinc-500">Preview</span>
+      <span v-else class="text-sm text-foreground-subtle">Preview</span>
       <button
         type="button"
-        class="ml-auto shrink-0 text-zinc-500 hover:text-zinc-300"
+        class="ml-auto shrink-0 text-foreground-subtle hover:text-foreground"
         title="Close preview"
         aria-label="Close preview"
         @click="emit('close')"
@@ -931,7 +931,7 @@ watch(
     <!-- 未選択 -->
     <div
       v-if="!selectedDisplayPath"
-      class="flex flex-1 items-center justify-center text-sm text-zinc-500"
+      class="flex flex-1 items-center justify-center text-sm text-foreground-subtle"
     >
       Select a file to preview
     </div>
@@ -939,7 +939,7 @@ watch(
     <!-- 選択中 -->
     <template v-else>
       <!-- ツールバー -->
-      <div class="flex items-center border-b border-zinc-700">
+      <div class="flex items-center border-b border-border">
         <!-- モード切替タブ -->
         <button
           v-for="mode in availableModes"
@@ -947,8 +947,8 @@ watch(
           class="flex items-center gap-1 px-3 py-1.5 text-xs transition-colors"
           :class="
             activeMode === mode
-              ? 'border-b-2 border-blue-400 text-blue-400'
-              : 'text-zinc-500 hover:text-zinc-300'
+              ? 'border-b-2 border-primary text-info'
+              : 'text-foreground-subtle hover:text-foreground'
           "
           @click="activeMode = mode"
         >
@@ -961,7 +961,7 @@ watch(
           <button
             v-if="showPreviewCheckbox"
             class="flex items-center gap-1 px-3 py-1.5 text-xs transition-colors"
-            :class="previewEnabled ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300'"
+            :class="previewEnabled ? 'text-info' : 'text-foreground-subtle hover:text-foreground'"
             @click="previewEnabled = !previewEnabled"
           >
             <span class="icon-[lucide--eye] size-3.5" />
@@ -971,7 +971,7 @@ watch(
           <!-- Wrap トグル -->
           <button
             class="flex items-center gap-1 px-3 py-1.5 text-xs transition-colors"
-            :class="wordWrap ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300'"
+            :class="wordWrap ? 'text-info' : 'text-foreground-subtle hover:text-foreground'"
             @click="wordWrap = !wordWrap"
           >
             <span class="icon-[lucide--wrap-text] size-3.5" />
@@ -988,13 +988,13 @@ watch(
           fontSize: previewFontSize > 0 ? `${previewFontSize}px` : undefined,
         }"
       >
-        <div v-if="loading" class="p-4 text-sm text-zinc-500">Loading...</div>
+        <div v-if="loading" class="p-4 text-sm text-foreground-subtle">Loading...</div>
 
-        <div v-else-if="isDirectory" class="p-4 text-sm text-zinc-500">Directory</div>
+        <div v-else-if="isDirectory" class="p-4 text-sm text-foreground-subtle">Directory</div>
 
-        <div v-else-if="isNotFound" class="p-4 text-sm text-zinc-500">File not found</div>
+        <div v-else-if="isNotFound" class="p-4 text-sm text-foreground-subtle">File not found</div>
 
-        <div v-else-if="error" class="p-4 text-sm text-red-400">{{ error }}</div>
+        <div v-else-if="error" class="p-4 text-sm text-destructive">{{ error }}</div>
 
         <!-- diff モード -->
         <DiffPreview
@@ -1015,13 +1015,13 @@ watch(
         <!-- worktree 外の絶対パス image / svg は file server 経由で読めないため未対応を明示する -->
         <div
           v-else-if="(fileType === 'image' || fileType === 'svg') && isExternalPath"
-          class="p-4 text-sm text-zinc-500"
+          class="p-4 text-sm text-foreground-subtle"
         >
           Image preview is not available for paths outside the worktree
         </div>
 
         <!-- バイナリ（画像以外） -->
-        <div v-else-if="displayIsBinary" class="p-4 text-sm text-zinc-500">
+        <div v-else-if="displayIsBinary" class="p-4 text-sm text-foreground-subtle">
           Binary file — preview not available
         </div>
 

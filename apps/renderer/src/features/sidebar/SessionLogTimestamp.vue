@@ -24,7 +24,7 @@ const ALIGN_CLASS: Record<"left" | "right", string> = {
 
 <template>
   <span
-    class="shrink-0 pb-0.5 text-[10px] leading-tight text-zinc-600 tabular-nums"
+    class="shrink-0 pb-0.5 text-[10px] leading-tight text-foreground-subtle tabular-nums"
     :class="ALIGN_CLASS[align]"
   >
     <span v-if="parts.date" class="block">{{ parts.date }}</span>

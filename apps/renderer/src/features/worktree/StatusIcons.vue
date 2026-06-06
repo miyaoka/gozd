@@ -21,6 +21,6 @@ defineProps<{
     :title="`${entry.kind}: ${entry.count}`"
   >
     <span :class="[entry.icon, entry.color, iconSize ?? 'size-3.5']" />
-    <span class="text-[10px] text-zinc-400">{{ entry.count }}</span>
+    <span class="text-[10px] text-foreground-muted">{{ entry.count }}</span>
   </span>
 </template>

@@ -150,23 +150,25 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
     @keydown="handleKeydown"
     @close="contextKeys.set('prPickerVisible', false)"
   >
-    <div class="w-[960px] overflow-hidden rounded-lg border border-zinc-600 bg-zinc-800 shadow-2xl">
-      <div class="flex items-center gap-2 border-b border-zinc-700 p-2">
+    <div
+      class="w-[960px] overflow-hidden rounded-lg border border-border-strong bg-surface-1 shadow-2xl"
+    >
+      <div class="flex items-center gap-2 border-b border-border p-2">
         <input
           ref="input"
           v-model="query"
           type="text"
           placeholder="Select a pull request..."
           aria-label="Filter pull requests"
-          class="min-w-0 flex-1 bg-transparent px-2 py-1 text-sm text-zinc-200 outline-none placeholder:text-zinc-500"
+          class="min-w-0 flex-1 bg-transparent px-2 py-1 text-sm text-foreground-strong outline-none placeholder:text-foreground-subtle"
         />
         <label
           v-if="viewer !== ''"
-          class="shrink-0 cursor-pointer rounded-sm px-2 py-0.5 text-xs select-none has-focus-visible:ring-2 has-focus-visible:ring-blue-400"
+          class="shrink-0 cursor-pointer rounded-sm px-2 py-0.5 text-xs select-none has-focus-visible:ring-2 has-focus-visible:ring-ring"
           :class="
             filterAssignee
-              ? 'bg-blue-600 text-white'
-              : 'bg-zinc-700 text-zinc-400 hover:text-zinc-200'
+              ? 'bg-primary text-foreground-strong'
+              : 'bg-surface-2 text-foreground-muted hover:text-foreground-strong'
           "
         >
           <input v-model="filterAssignee" type="checkbox" class="sr-only" />
@@ -174,11 +176,11 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
         </label>
         <label
           v-if="viewer !== ''"
-          class="shrink-0 cursor-pointer rounded-sm px-2 py-0.5 text-xs select-none has-focus-visible:ring-2 has-focus-visible:ring-blue-400"
+          class="shrink-0 cursor-pointer rounded-sm px-2 py-0.5 text-xs select-none has-focus-visible:ring-2 has-focus-visible:ring-ring"
           :class="
             filterReviewer
-              ? 'bg-blue-600 text-white'
-              : 'bg-zinc-700 text-zinc-400 hover:text-zinc-200'
+              ? 'bg-primary text-foreground-strong'
+              : 'bg-surface-2 text-foreground-muted hover:text-foreground-strong'
           "
         >
           <input v-model="filterReviewer" type="checkbox" class="sr-only" />
@@ -193,8 +195,8 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           style="grid-template-columns: 70px 1fr 220px 120px 90px"
           :class="[
             i === selectedIndex
-              ? 'bg-zinc-700 text-zinc-100'
-              : 'text-zinc-300 hover:bg-zinc-700/50',
+              ? 'bg-surface-2 text-foreground-strong'
+              : 'text-foreground hover:bg-surface-2/50',
             pr.isDraft && 'opacity-50',
           ]"
           @click="
@@ -207,7 +209,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           <PrPickerRow :pr="pr" />
         </div>
       </div>
-      <div v-else class="px-3 py-4 text-center text-sm text-zinc-500">
+      <div v-else class="px-3 py-4 text-center text-sm text-foreground-subtle">
         No matching pull requests
       </div>
     </div>

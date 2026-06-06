@@ -115,14 +115,14 @@ function onHeaderClick() {
 <template>
   <article
     :data-active="active"
-    class="rounded-lg transition-colors data-[active=true]:bg-blue-500/10"
+    class="rounded-lg transition-colors data-[active=true]:bg-primary/10"
   >
     <div class="group/wt relative">
       <div
         role="button"
         tabindex="0"
         :data-active="headerActive"
-        class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-zinc-400 transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-hidden focus-visible:ring-inset"
+        class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-foreground-muted transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset"
         @click="onHeaderClick"
         @keydown.enter.prevent="onHeaderClick"
         @keydown.space.prevent="onHeaderClick"
@@ -143,11 +143,11 @@ function onHeaderClick() {
           :title="`ahead ${wt.upstream.ahead} / behind ${wt.upstream.behind} vs upstream`"
         >
           <!-- ahead = local 進行 (緑) / behind = remote 進行 (赤)。filer の git status 色規約に揃える -->
-          <span v-if="wt.upstream.ahead > 0" class="flex items-center gap-0.5 text-green-400">
+          <span v-if="wt.upstream.ahead > 0" class="flex items-center gap-0.5 text-success">
             <span class="icon-[lucide--arrow-up] size-3" />
             <span>{{ wt.upstream.ahead }}</span>
           </span>
-          <span v-if="wt.upstream.behind > 0" class="flex items-center gap-0.5 text-red-400">
+          <span v-if="wt.upstream.behind > 0" class="flex items-center gap-0.5 text-destructive">
             <span class="icon-[lucide--arrow-down] size-3" />
             <span>{{ wt.upstream.behind }}</span>
           </span>
@@ -157,7 +157,7 @@ function onHeaderClick() {
         v-if="canRemove"
         type="button"
         aria-label="Open menu"
-        class="absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded-sm bg-zinc-800 text-zinc-300 opacity-0 shadow-md ring-1 ring-zinc-700 transition-opacity duration-100 group-focus-within/wt:opacity-100 group-hover/wt:opacity-100 hover:bg-zinc-700 hover:text-zinc-100"
+        class="absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded-sm bg-surface-1 text-foreground opacity-0 shadow-md ring-1 ring-border transition-opacity duration-100 group-focus-within/wt:opacity-100 group-hover/wt:opacity-100 hover:bg-surface-2 hover:text-foreground-strong"
         @click="onMenuClick"
       >
         <span class="icon-[lucide--ellipsis-vertical] text-xs" />

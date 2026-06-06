@@ -1,6 +1,80 @@
 @import "tailwindcss";
 @plugin "@iconify/tailwind4";
 
+/* ---------------------------------------------------------------------------
+ * Semantic design tokens
+ *
+ * gozd は dark 固定 (light theme 計画なし) のため :root だけに値を置く。light
+ * 追加時は同名 var を `.light` (もしくは class scope) に並列定義すれば各 utility
+ * は同じ identifier で切り替わる。
+ *
+ * 命名規約 (shadcn 由来):
+ *  - 「surface ＋ 文字色」を `<name>` + `<name>-foreground` 対で持つ
+ *  - 生 zinc / blue / red 等 (`bg-zinc-800` 等) は使わない。常に semantic 名で書く
+ *  - 不足したら raw に逃げず、ここに変数を増やす
+ *
+ * 物理値は Tailwind v4 の OKLCH 既定値に揃える (zinc-900 / 800 / 700 / 600 /
+ * 500 / 400 / 300 / 200 / 100 と blue/red/green/yellow の 400 / 500 系)
+ * ------------------------------------------------------------------------- */
+@theme {
+  /* --- Surfaces (elevation: background → surface-1 → surface-2) --- */
+  --color-background: oklch(0.21 0.006 285.885); /* page */
+  --color-surface-1: oklch(0.274 0.006 286.033); /* card / panel */
+  --color-surface-2: oklch(0.37 0.013 285.805); /* elevated panel / chip / hover-filled */
+
+  /* --- Foreground (text on dark surface) --- */
+  --color-foreground: oklch(0.871 0.006 286.286); /* default body text (旧 zinc-300) */
+  --color-foreground-strong: oklch(
+    0.967 0.001 286.375
+  ); /* 強調 / heading (旧 zinc-100/200/white) */
+  --color-foreground-muted: oklch(0.705 0.015 286.067); /* secondary text (旧 zinc-400) */
+  --color-foreground-subtle: oklch(0.552 0.016 285.938); /* tertiary / placeholder (旧 zinc-500) */
+
+  /* --- Borders / dividers --- */
+  --color-border: oklch(0.37 0.013 285.805); /* default 1px 区切り (旧 zinc-700) */
+  --color-border-strong: oklch(0.442 0.017 285.786); /* 強調 outline / focus 兄弟 (旧 zinc-600) */
+  --color-divider: oklch(0.274 0.006 286.033); /* 同色面の弱い区切り (旧 zinc-800) */
+  --color-divider-strong: oklch(0.442 0.017 285.786); /* 階層境界を明示する厚め divider */
+
+  /* --- Accent (hover / selection の overlay) --- */
+  /* dark surface に対する「明るい overlay」。bg-white/5 系の役割を担う。 */
+  --color-accent: oklch(0.32 0 0); /* mid-light surface (hover background, 旧 bg-white/5) */
+  --color-accent-strong: oklch(0.4 0 0); /* selected / pressed (旧 bg-white/10) */
+  --color-accent-foreground: oklch(0.967 0.001 286.375);
+
+  /* --- Brand / primary action --- */
+  --color-primary: oklch(0.623 0.214 259.815); /* (旧 blue-500) */
+  --color-primary-foreground: oklch(0.97 0.014 254.604); /* (旧 blue-50) */
+
+  /* --- Status colors (intent based) --- */
+  --color-destructive: oklch(0.704 0.191 22.216); /* (旧 red-400) */
+  --color-destructive-foreground: oklch(0.971 0.013 17.38); /* (旧 red-50) */
+
+  --color-success: oklch(0.792 0.209 151.711); /* (旧 green-400) */
+  --color-success-foreground: oklch(0.982 0.018 155.826); /* (旧 green-50) */
+
+  --color-warning: oklch(0.852 0.199 91.936); /* (旧 yellow-400) — 進行中 / 一般的な注意 */
+  --color-warning-strong: oklch(
+    0.75 0.183 55.934
+  ); /* (旧 orange-400 / amber-500) — 強い注意 / 要対応 */
+  --color-warning-foreground: oklch(0.987 0.026 102.212); /* (旧 yellow-50) */
+
+  --color-info: oklch(0.707 0.165 254.624); /* (旧 blue-400) — info badge / link */
+
+  /* --- Focus ring --- */
+  --color-ring: oklch(0.623 0.214 259.815); /* primary に揃える */
+
+  /* --- Overlays --- */
+  --color-overlay: oklch(0 0 0 / 0.5); /* dialog backdrop 等 (旧 bg-black/50) */
+
+  /* --- Scrollbar (overlay style) --- */
+  /* SessionLogTimeline の bar 等、ユーザー操作可能な水平/垂直棒と必ず色が異なる
+     ように低い chroma + 半透明で固定する。border-strong (zinc-600 同等) を流用
+     すると「バー = スクロールバー」の錯視が起きる (実際 SessionLog で発生) */
+  --color-scrollbar-thumb: oklch(0.5 0 0 / 0.35);
+  --color-scrollbar-thumb-hover: oklch(0.55 0 0 / 0.55);
+}
+
 button {
   cursor: pointer;
 }
@@ -24,10 +98,10 @@ dialog {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: theme(--color-zinc-600);
+  background: var(--color-scrollbar-thumb);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: theme(--color-zinc-500);
+  background: var(--color-scrollbar-thumb-hover);
 }

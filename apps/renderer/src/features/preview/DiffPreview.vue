@@ -403,15 +403,15 @@ const lineNoWidth = computed(() => {
 });
 
 const LINE_BG_CLASSES: Record<DiffLineKindName, string> = {
-  added: "bg-green-400/10",
-  removed: "bg-red-400/10",
+  added: "bg-success/10",
+  removed: "bg-destructive/10",
   unchanged: "",
 };
 
 const LINE_FALLBACK_CLASSES: Record<DiffLineKindName, string> = {
-  added: "text-green-400 bg-green-400/10",
-  removed: "text-red-400 bg-red-400/10",
-  unchanged: "text-zinc-300",
+  added: "text-success bg-success/10",
+  removed: "text-destructive bg-destructive/10",
+  unchanged: "text-foreground",
 };
 
 const originalTokens = ref<ThemedToken[][]>();
@@ -629,13 +629,15 @@ function splitRightBg(row: DiffSplitRowItem): string {
     <!-- ビューモードトグル (externalViewMode 指定時は親側で 1 本に統合) -->
     <div
       v-if="state.kind === 'success' && externalViewMode === undefined"
-      class="flex items-center border-b border-zinc-700 px-2 py-1"
+      class="flex items-center border-b border-border px-2 py-1"
     >
       <div class="flex items-center gap-0.5">
         <button
           type="button"
           class="flex items-center gap-1 px-2 py-0.5 text-xs transition-colors"
-          :class="viewMode === 'split' ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300'"
+          :class="
+            viewMode === 'split' ? 'text-info' : 'text-foreground-subtle hover:text-foreground'
+          "
           title="Split view"
           aria-label="Split view"
           @click="internalViewMode = 'split'"
@@ -646,7 +648,9 @@ function splitRightBg(row: DiffSplitRowItem): string {
         <button
           type="button"
           class="flex items-center gap-1 px-2 py-0.5 text-xs transition-colors"
-          :class="viewMode === 'unified' ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300'"
+          :class="
+            viewMode === 'unified' ? 'text-info' : 'text-foreground-subtle hover:text-foreground'
+          "
           title="Unified view"
           aria-label="Unified view"
           @click="internalViewMode = 'unified'"
@@ -658,9 +662,9 @@ function splitRightBg(row: DiffSplitRowItem): string {
     </div>
 
     <div class="flex-1 overflow-auto p-4 text-sm/tight" :style="{ '--line-no-width': lineNoWidth }">
-      <div v-if="state.kind === 'loading'" class="text-zinc-500">Computing diff...</div>
+      <div v-if="state.kind === 'loading'" class="text-foreground-subtle">Computing diff...</div>
 
-      <div v-else-if="state.kind === 'error'" class="text-red-400">
+      <div v-else-if="state.kind === 'error'" class="text-destructive">
         Failed to compute diff: {{ state.message }}
       </div>
 

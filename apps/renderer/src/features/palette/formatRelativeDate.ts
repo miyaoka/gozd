@@ -16,22 +16,22 @@ export function formatRelativeDate(isoDate: string): DateDisplay {
   const minutes = Math.floor(diff / 60_000);
 
   if (minutes < MINUTES_PER_HOUR) {
-    return { text: `${minutes}m ago`, color: "text-green-400" };
+    return { text: `${minutes}m ago`, color: "text-success" };
   }
   const hours = Math.floor(minutes / MINUTES_PER_HOUR);
   if (hours < HOURS_PER_DAY) {
-    return { text: `${hours}hr ago`, color: "text-yellow-400" };
+    return { text: `${hours}hr ago`, color: "text-warning" };
   }
   const days = Math.floor(hours / HOURS_PER_DAY);
   if (days < DAYS_PER_WEEK) {
-    return { text: `${days}d ago`, color: "text-orange-400" };
+    return { text: `${days}d ago`, color: "text-warning-strong" };
   }
   if (days < DAYS_PER_MONTH) {
     const weeks = Math.floor(days / DAYS_PER_WEEK);
-    return { text: `${weeks}w ago`, color: "text-zinc-400" };
+    return { text: `${weeks}w ago`, color: "text-foreground-muted" };
   }
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
-  return { text: `${y}/${m}/${d}`, color: "text-zinc-500" };
+  return { text: `${y}/${m}/${d}`, color: "text-foreground-subtle" };
 }

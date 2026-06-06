@@ -68,15 +68,15 @@ onUnmounted(() => {
 <template>
   <div class="flex h-full flex-col overflow-hidden">
     <!-- ヘッダー -->
-    <div class="flex items-center gap-2 border-b border-zinc-700 px-3 py-2">
-      <span class="icon-[lucide--file-diff] size-4 shrink-0 text-zinc-400" />
-      <span class="text-sm text-zinc-300">Changes summary</span>
-      <span v-if="changesStore.fileChanges.length > 0" class="text-xs text-zinc-500">
+    <div class="flex items-center gap-2 border-b border-border px-3 py-2">
+      <span class="icon-[lucide--file-diff] size-4 shrink-0 text-foreground-muted" />
+      <span class="text-sm text-foreground">Changes summary</span>
+      <span v-if="changesStore.fileChanges.length > 0" class="text-xs text-foreground-subtle">
         ({{ changesStore.fileChanges.length }} files)
       </span>
       <button
         type="button"
-        class="ml-auto shrink-0 text-zinc-500 hover:text-zinc-300"
+        class="ml-auto shrink-0 text-foreground-subtle hover:text-foreground"
         title="Close preview"
         aria-label="Close preview"
         @click="emit('close')"
@@ -86,11 +86,11 @@ onUnmounted(() => {
     </div>
 
     <!-- ツールバー: view mode と wrap を全 item に伝搬 -->
-    <div class="flex items-center border-b border-zinc-700">
+    <div class="flex items-center border-b border-border">
       <button
         type="button"
         class="flex items-center gap-1 px-3 py-1.5 text-xs transition-colors"
-        :class="viewMode === 'split' ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300'"
+        :class="viewMode === 'split' ? 'text-info' : 'text-foreground-subtle hover:text-foreground'"
         title="Split view"
         aria-label="Split view"
         @click="viewMode = 'split'"
@@ -101,7 +101,9 @@ onUnmounted(() => {
       <button
         type="button"
         class="flex items-center gap-1 px-3 py-1.5 text-xs transition-colors"
-        :class="viewMode === 'unified' ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300'"
+        :class="
+          viewMode === 'unified' ? 'text-info' : 'text-foreground-subtle hover:text-foreground'
+        "
         title="Unified view"
         aria-label="Unified view"
         @click="viewMode = 'unified'"
@@ -113,7 +115,7 @@ onUnmounted(() => {
       <button
         type="button"
         class="ml-auto flex items-center gap-1 px-3 py-1.5 text-xs transition-colors"
-        :class="wordWrap ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300'"
+        :class="wordWrap ? 'text-info' : 'text-foreground-subtle hover:text-foreground'"
         @click="wordWrap = !wordWrap"
       >
         <span class="icon-[lucide--wrap-text] size-3.5" />
@@ -123,8 +125,13 @@ onUnmounted(() => {
 
     <!-- 本体 -->
     <div class="flex-1 overflow-y-auto">
-      <div v-if="changesStore.loading" class="p-4 text-sm text-zinc-500">Loading changes...</div>
-      <div v-else-if="changesStore.fileChanges.length === 0" class="p-4 text-sm text-zinc-500">
+      <div v-if="changesStore.loading" class="p-4 text-sm text-foreground-subtle">
+        Loading changes...
+      </div>
+      <div
+        v-else-if="changesStore.fileChanges.length === 0"
+        class="p-4 text-sm text-foreground-subtle"
+      >
         No changes
       </div>
       <template v-else>

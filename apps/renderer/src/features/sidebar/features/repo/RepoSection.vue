@@ -87,8 +87,8 @@ function onHeaderClick() {
 <template>
   <section ref="section" class="flex flex-col gap-2 rounded-lg p-2">
     <header
-      class="group/repo flex items-center gap-2 rounded-lg text-zinc-200"
-      :class="editMode ? '' : 'cursor-pointer hover:bg-white/5'"
+      class="group/repo flex items-center gap-2 rounded-lg text-foreground-strong"
+      :class="editMode ? '' : 'cursor-pointer hover:bg-accent'"
       :role="editMode ? undefined : 'button'"
       :aria-label="editMode ? undefined : visiblyCollapsed ? 'Expand' : 'Collapse'"
       :aria-expanded="editMode ? undefined : !visiblyCollapsed"
@@ -113,7 +113,7 @@ function onHeaderClick() {
         type="button"
         aria-label="Remove repository from window"
         title="Remove from window"
-        class="grid size-6 place-items-center rounded-sm text-red-400 hover:bg-red-500/20 hover:text-red-300"
+        class="grid size-6 place-items-center rounded-sm text-destructive hover:bg-destructive/20 hover:text-destructive"
         @click.stop="emit('removeRepo', rootDir)"
       >
         <span class="icon-[lucide--x] text-sm" />
@@ -135,7 +135,7 @@ function onHeaderClick() {
       />
       <button
         type="button"
-        class="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-zinc-700 px-2 py-1.5 text-xs text-zinc-500 transition-colors hover:border-zinc-600 hover:bg-white/5 hover:text-zinc-300 disabled:opacity-50"
+        class="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border px-2 py-1.5 text-xs text-foreground-subtle transition-colors hover:border-border-strong hover:bg-accent hover:text-foreground disabled:opacity-50"
         :disabled="isCreating"
         @click="emit('addWorktree', rootDir)"
       >

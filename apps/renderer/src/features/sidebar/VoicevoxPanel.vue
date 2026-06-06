@@ -11,12 +11,12 @@ const voicevoxStore = useVoicevoxStore();
 </script>
 
 <template>
-  <div class="border-t border-zinc-700/50 px-4 py-3">
+  <div class="border-t border-border/50 px-4 py-3">
     <template v-if="voicevoxStore.enabled">
       <div class="flex flex-col gap-2">
         <button
           v-if="voicevoxStore.playing"
-          class="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"
+          class="flex items-center gap-1 text-xs text-info hover:text-primary"
           title="Stop playback"
           @click="voicevoxStore.stopAudio()"
         >
@@ -24,12 +24,12 @@ const voicevoxStore = useVoicevoxStore();
           <span>Playing...</span>
         </button>
         <VoicevoxSpeakerSelect />
-        <div class="flex items-center gap-2 text-xs text-zinc-500">
+        <div class="flex items-center gap-2 text-xs text-foreground-subtle">
           <span class="icon-[lucide--gauge] size-4 shrink-0" title="Speed" />
           <input
             type="range"
             aria-label="VOICEVOX speed"
-            class="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-zinc-700 accent-blue-500"
+            class="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-surface-2 accent-primary"
             :min="0.5"
             :max="3.0"
             :step="0.1"
@@ -38,12 +38,12 @@ const voicevoxStore = useVoicevoxStore();
           />
           <span class="w-8 text-right tabular-nums">{{ voicevoxStore.speedScale.toFixed(1) }}</span>
         </div>
-        <div class="flex items-center gap-2 text-xs text-zinc-500">
+        <div class="flex items-center gap-2 text-xs text-foreground-subtle">
           <span class="icon-[lucide--volume-2] size-4 shrink-0" title="Volume" />
           <input
             type="range"
             aria-label="VOICEVOX volume"
-            class="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-zinc-700 accent-blue-500"
+            class="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-surface-2 accent-primary"
             :min="0.0"
             :max="2.0"
             :step="0.1"
@@ -55,7 +55,7 @@ const voicevoxStore = useVoicevoxStore();
           }}</span>
         </div>
         <button
-          class="mt-1 text-xs text-yellow-500 hover:text-yellow-400"
+          class="mt-1 text-xs text-warning hover:text-warning"
           @click="voicevoxStore.deactivate()"
         >
           VOICEVOX enabled
@@ -64,7 +64,7 @@ const voicevoxStore = useVoicevoxStore();
     </template>
     <template v-else>
       <button
-        class="flex w-full items-center justify-center gap-2 text-xs text-zinc-500 hover:text-zinc-300"
+        class="flex w-full items-center justify-center gap-2 text-xs text-foreground-subtle hover:text-foreground"
         :disabled="voicevoxStore.activating"
         @click="voicevoxStore.activate()"
       >

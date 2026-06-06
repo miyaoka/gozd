@@ -28,11 +28,11 @@ const emit = defineEmits<{
 }>();
 
 const CHANGE_COLOR_MAP: Record<GitFileChange["type"], string> = {
-  M: "text-yellow-400",
-  A: "text-green-400",
-  D: "text-red-400",
-  R: "text-blue-400",
-  U: "text-green-400",
+  M: "text-warning",
+  A: "text-success",
+  D: "text-destructive",
+  R: "text-info",
+  U: "text-success",
 };
 
 const isExpanded = computed(
@@ -106,18 +106,18 @@ function onContextMenu(event: MouseEvent) {
   <div>
     <button
       type="button"
-      class="flex w-full cursor-pointer items-center gap-1 px-1 py-0.5 text-left text-xs select-none hover:bg-zinc-800/60"
+      class="flex w-full cursor-pointer items-center gap-1 px-1 py-0.5 text-left text-xs select-none hover:bg-surface-1/60"
       :style="{ paddingLeft: `${depth * 12 + 8}px` }"
       @click="onClick"
       @contextmenu="onContextMenu"
     >
       <template v-if="node.kind === 'folder'">
         <span
-          class="size-3.5 shrink-0 text-zinc-500"
+          class="size-3.5 shrink-0 text-foreground-subtle"
           :class="isExpanded ? 'icon-[lucide--chevron-down]' : 'icon-[lucide--chevron-right]'"
         />
         <img :src="iconUrl" class="size-4 shrink-0" alt="" />
-        <span class="truncate text-zinc-300">{{ folderDisplayName }}</span>
+        <span class="truncate text-foreground">{{ folderDisplayName }}</span>
       </template>
       <template v-else>
         <span class="size-3.5 shrink-0" />

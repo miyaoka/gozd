@@ -270,14 +270,24 @@ public enum GitOps {
   }
 
   /// HEAD が commit OID を解決できるかを返す。`git rev-parse --verify --quiet HEAD` を使い、
-  /// exit 0 なら true (通常 branch / detached HEAD) 、exit ≠ 0 なら false (unborn branch)。
-  /// stdout / stderr / launchFailed / commandNotFound は graph 表示を止めないよう
-  /// false に倒す (HEAD 不在として扱えば runLogStdin が refs 空で安全に [] を返す)。
+  /// exit 0 なら true (通常 branch / detached HEAD)、exit ≠ 0 なら false (unborn branch 等)。
+  ///
+  /// エラー方針 (`silent drop 禁止規律` に沿った粒度):
+  /// - `commandFailed` + stderr 空: `--quiet` で unborn HEAD を silently 弾いた正常パス。silent に false
+  /// - 上記以外 (`commandFailed` で stderr 非空 / `launchFailed` / `commandNotFound` /
+  ///   `unexpectedOutput`): 異常系の可能性があるため `StderrLog` に 1 行残してから false に倒す。
+  ///   実害は HEAD log 経路 (`runLogStdin`) や他 ref 経路で同 root cause が表面化するため
+  ///   ここでは fail-soft で graph 表示を止めない方針を踏襲し、観察可能性のみ確保する。
   public static func headOidExists(dir: String) async -> Bool {
     do {
       _ = try await runGit(args: ["rev-parse", "--verify", "--quiet", "HEAD"], cwd: dir)
       return true
+    } catch let GitError.commandFailed(_, stderr) where stderr.isEmpty {
+      // unborn HEAD: `--quiet` で stderr 空、exit ≠ 0。正常系として silent に倒す。
+      return false
     } catch {
+      StderrLog.write(
+        tag: "GitOps", "headOidExists: fallback to false (\(error)) dir=\(dir)")
       return false
     }
   }

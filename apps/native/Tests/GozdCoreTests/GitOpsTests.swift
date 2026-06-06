@@ -1707,9 +1707,7 @@ struct GitOpsHeadOidExistsTests {
 
   @Test("git repo でない dir では false (graph 表示を止めない fallback)")
   func notARepo() async throws {
-    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
-      "gozd-head-oid-\(UUID().uuidString.prefix(8))")
-    try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+    let tmp = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: tmp) }
 
     let result = await GitOps.headOidExists(dir: tmp.path)

@@ -153,7 +153,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           type="text"
           placeholder="Select an issue..."
           aria-label="Filter issues"
-          class="min-w-0 flex-1 bg-transparent px-2 py-1 text-sm text-foreground-strong outline-none placeholder:text-foreground-subtle"
+          class="min-w-0 flex-1 rounded-sm bg-transparent px-2 py-1 text-sm text-foreground-strong placeholder:text-foreground-subtle focus:ring-2 focus:ring-ring focus:outline-none"
         />
         <label
           v-if="viewer !== ''"

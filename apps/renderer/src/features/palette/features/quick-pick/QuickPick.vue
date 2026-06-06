@@ -171,7 +171,7 @@ function handleKeydown(e: KeyboardEvent) {
           type="text"
           :placeholder="currentOptions?.placeholder ?? 'Select an item...'"
           aria-label="Filter items"
-          class="w-full bg-transparent px-2 py-1 text-sm text-foreground-strong outline-none placeholder:text-foreground-subtle"
+          class="w-full rounded-sm bg-transparent px-2 py-1 text-sm text-foreground-strong placeholder:text-foreground-subtle focus:ring-2 focus:ring-ring focus:outline-none"
         />
       </div>
       <ul v-if="filteredItems.length > 0" ref="list" class="max-h-[300px] overflow-y-auto py-1">

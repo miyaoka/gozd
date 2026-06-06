@@ -12,15 +12,22 @@ message GitWorktreeListResponse {
   repeated WorktreeEntry worktrees = 1;
 }
 
-// gitLog: HEAD と default branch（origin/HEAD の指す先）の log を返し、
-// renderer 側で merge する設計。default_branch は git log で決まらないので
+// gitLog: HEAD と default branch（origin/HEAD の指す先）と HEAD の upstream の
+// log を返し、renderer 側で merge する設計。default_branch は git log で決まらないので
 // `git symbolic-ref refs/remotes/origin/HEAD` から server 側で求める。
+//
+// `upstream_commits` は HEAD の upstream (例: `origin/foo`) を始点とする log。amend /
+// reset / force-push 前の rebase 等で **upstream tip が HEAD から到達不可になった
+// 状態** でも、upstream ref の現在位置 commit を visible commit set に含めるための
+// 第 3 ストリーム。upstream が default branch と一致するケース / upstream 未設定の
+// ケースでは空配列を返す。
 message GitLogRequest {
   string dir = 1;
   uint32 max_count = 2;
   bool first_parent_only = 3;
-  // true のとき `origin/<default>` の log 取得を完全に skip し、`default_branch_commits` を
-  // 空配列で返す。`default_branch` 文字列は `git symbolic-ref` だけは引き続き解決して返す
+  // true のとき `origin/<default>` と upstream の log 取得を完全に skip し、
+  // `default_branch_commits` / `upstream_commits` を空配列で返す。`default_branch`
+  // 文字列は `git symbolic-ref` だけは引き続き解決して返す
   // (RefBadge の `isDefault` 表示に使う)。
   bool current_branch_only = 4;
 }
@@ -28,6 +35,13 @@ message GitLogResponse {
   repeated GitCommit head_commits = 1;
   repeated GitCommit default_branch_commits = 2;
   string default_branch = 3;
+  // HEAD の upstream (例: `origin/foo`) を始点とする log。upstream 未設定 /
+  // default branch と一致 / current_branch_only=true / git log 失敗 のときは空配列。
+  repeated GitCommit upstream_commits = 4;
+  // 解決された upstream の ref 名 (例: `origin/foo`)。未設定なら空文字。
+  // upstream_commits が空でも upstream_ref が解決できれば文字列だけは返す
+  // (将来 renderer 側で表示分岐に使う想定)。
+  string upstream_ref = 5;
 }
 
 // gitDiffHunks: 2 つのテキスト間の hunk 単位差分を計算する。

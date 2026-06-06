@@ -167,6 +167,83 @@ describe("mergeCommitStreams sortMode=topo", () => {
     expect(b1Idx).toBe(b2Idx + 1);
   });
 
+  test("upstreamCommits の orphan tip を visible set に追加する (amend 後ケース)", () => {
+    // amend 前: HEAD == origin/foo == X (parent P)
+    // amend 後:
+    //   HEAD = X' (parent P, refs: HEAD)
+    //   origin/foo = X (parent P, refs: origin/foo) ← orphan tip
+    // upstreamCommits は git log origin/foo の出力で [X, P, ...]
+    const p = commit({ hash: "P", parents: [], date: 1 });
+    const xPrime = commit({ hash: "X_prime", parents: ["P"], date: 3, refs: ["HEAD"] });
+    const xOrphan = commit({ hash: "X", parents: ["P"], date: 2, refs: ["origin/foo"] });
+
+    const result = mergeCommitStreams({
+      headCommits: [xPrime, p],
+      defaultBranchCommits: [],
+      upstreamCommits: [xOrphan, p],
+    });
+
+    const h = hashes(result);
+    // X (orphan tip) が visible に含まれる
+    expect(h).toContain("X");
+    // X' と X はどちらも P より前に出る
+    expect(h.indexOf("X_prime")).toBeLessThan(h.indexOf("P"));
+    expect(h.indexOf("X")).toBeLessThan(h.indexOf("P"));
+    // P は重複しない
+    expect(h.filter((x) => x === "P")).toHaveLength(1);
+  });
+
+  test("upstream が完全に独立した履歴のときは無視する", () => {
+    // upstream に HEAD set と共有 commit が一切ない場合は捨てる
+    const headBase = commit({ hash: "head_base", parents: [], date: 1 });
+    const headTip = commit({ hash: "head_tip", parents: ["head_base"], date: 5 });
+    const farBase = commit({ hash: "far_base", parents: [], date: 1 });
+    const farTip = commit({
+      hash: "far_tip",
+      parents: ["far_base"],
+      date: 3,
+      refs: ["origin/foo"],
+    });
+
+    const result = mergeCommitStreams({
+      headCommits: [headTip, headBase],
+      defaultBranchCommits: [],
+      upstreamCommits: [farTip, farBase],
+    });
+
+    expect(hashes(result)).toEqual(["head_tip", "head_base"]);
+  });
+
+  test("upstream が default branch と共存しても重複しない", () => {
+    // base から HEAD と origin/main が分岐、さらに HEAD の upstream origin/foo (orphan) も存在
+    const base = commit({ hash: "base", parents: [], date: 1 });
+    const headTip = commit({ hash: "head", parents: ["base"], date: 5 });
+    const defaultTip = commit({ hash: "def", parents: ["base"], date: 4 });
+    const orphan = commit({ hash: "orphan", parents: ["base"], date: 3, refs: ["origin/foo"] });
+
+    const result = mergeCommitStreams({
+      headCommits: [headTip, base],
+      defaultBranchCommits: [defaultTip, base],
+      upstreamCommits: [orphan, base],
+    });
+
+    const h = hashes(result);
+    expect(h).toContain("head");
+    expect(h).toContain("def");
+    expect(h).toContain("orphan");
+    expect(h.filter((x) => x === "base")).toHaveLength(1);
+  });
+
+  test("upstreamCommits 未指定でも従来挙動を保つ", () => {
+    const a = commit({ hash: "a", parents: ["b"], date: 2 });
+    const b = commit({ hash: "b", parents: [], date: 1 });
+    const result = mergeCommitStreams({
+      headCommits: [a, b],
+      defaultBranchCommits: [],
+    });
+    expect(hashes(result)).toEqual(["a", "b"]);
+  });
+
   test("date モードは日付で混在する", () => {
     const base = commit({ hash: "base", parents: [], date: 1 });
     const a1 = commit({ hash: "a1", parents: ["base"], date: 2 });

@@ -621,6 +621,8 @@ public actor RpcDispatcher {
     resp.headCommits = result.headCommits.map(toProto)
     resp.defaultBranchCommits = result.defaultBranchCommits.map(toProto)
     resp.defaultBranch = result.defaultBranch
+    resp.upstreamCommits = result.upstreamCommits.map(toProto)
+    resp.upstreamRef = result.upstreamRef
     return try resp.jsonUTF8Data()
   }
 

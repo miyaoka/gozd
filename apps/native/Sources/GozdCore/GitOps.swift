@@ -166,9 +166,14 @@ public enum GitOps {
     public let headCommits: [CommitInfo]
     public let defaultBranchCommits: [CommitInfo]
     public let defaultBranch: String
+    /// HEAD の upstream を始点とする log。upstream 未設定 / default branch と一致 /
+    /// currentBranchOnly / git log 失敗 のときは空配列。
+    public let upstreamCommits: [CommitInfo]
+    /// 解決された upstream ref 名 (例: `origin/foo`)。未設定なら空文字。
+    public let upstreamRef: String
   }
 
-  /// HEAD と default branch（origin/HEAD）の log を返す。
+  /// HEAD と default branch（origin/HEAD）と HEAD の upstream の log を返す。
   ///
   /// エラー方針:
   /// - `commandFailed`（origin 未設定 / unborn branch 等のドメイン失敗）は空文字列 / 空配列に倒す
@@ -178,6 +183,13 @@ public enum GitOps {
   ///
   /// `try?` で 3 種を区別せず潰すと、git-graph が「空」「gozd が git を解決できていない」
   /// 「ユーザーが git をインストールしていない」を見分けられなくなる。
+  ///
+  /// upstream 系統を第 3 ストリームとして fetch する理由:
+  /// HEAD の git log は HEAD 系統の祖先しか walk しない。`origin/foo` が指す commit が
+  /// amend / reset / rebase 等で HEAD から到達不可になると、その commit が visible commit set
+  /// に含まれず `git log --decorate` の `%D` にも `origin/foo` が現れない。第 3 ストリームで
+  /// upstream tip を始点に追加 walk することで、orphan 化した upstream ref も graph に
+  /// badge として現れるようにする。
   public static func logBoth(
     dir: String, maxCount: UInt32, firstParentOnly: Bool, currentBranchOnly: Bool
   ) async throws
@@ -185,12 +197,14 @@ public enum GitOps {
   {
     async let headTask = log(
       dir: dir, ref: "HEAD", maxCount: maxCount, firstParentOnly: firstParentOnly)
+    async let upstreamRefTask = upstreamRefName(dir: dir)
     let defaultBranch: String
     do {
       defaultBranch = try await defaultBranchName(dir: dir)
     } catch GitError.commandFailed {
       defaultBranch = ""
     }
+    let upstreamRef = await upstreamRefTask
     let head = try await headTask
     var defaultCommits: [CommitInfo] = []
     // currentBranchOnly では default branch 系統の log fetch を skip する。`defaultBranch` 文字列は
@@ -204,8 +218,39 @@ public enum GitOps {
         defaultCommits = []
       }
     }
+    // upstream 系統。default branch と同一なら重複 fetch を避けて skip する。
+    // upstreamRef は ref 名のまま返し、commits だけ空にする (renderer の表示分岐用)。
+    var upstreamCommits: [CommitInfo] = []
+    if !upstreamRef.isEmpty && !currentBranchOnly
+      && upstreamRef != "origin/\(defaultBranch)"
+    {
+      do {
+        upstreamCommits = try await log(
+          dir: dir, ref: upstreamRef, maxCount: maxCount,
+          firstParentOnly: firstParentOnly)
+      } catch GitError.commandFailed {
+        upstreamCommits = []
+      }
+    }
     return LogResult(
-      headCommits: head, defaultBranchCommits: defaultCommits, defaultBranch: defaultBranch)
+      headCommits: head, defaultBranchCommits: defaultCommits, defaultBranch: defaultBranch,
+      upstreamCommits: upstreamCommits, upstreamRef: upstreamRef)
+  }
+
+  /// HEAD の upstream ref 名を返す (例: `origin/foo`)。
+  /// upstream 未設定 / detached HEAD / git 解決失敗 では空文字列を返す。
+  /// `commandFailed` 以外 (launchFailed / commandNotFound) は呼び出し側に伝播せず、
+  /// graph 描画を止めないよう空文字列に倒す。これは upstream 解決が graph 表示の
+  /// 必須経路ではなく、HEAD の log 自体は別系統で取れるため。
+  public static func upstreamRefName(dir: String) async -> String {
+    do {
+      let stdout = try await runGit(
+        args: ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], cwd: dir)
+      return String(decoding: stdout, as: UTF8.self).trimmingCharacters(
+        in: .whitespacesAndNewlines)
+    } catch {
+      return ""
+    }
   }
 
   public struct StatusFull: Equatable, Sendable {

@@ -8,45 +8,59 @@ import type { GitCommit } from "@gozd/proto";
 export type SortMode = "date" | "topo";
 
 /**
- * HEAD 系統とデフォルトブランチ系統のコミットストリームをマージする。
+ * HEAD 系統と、それ以外の補助ストリーム（default branch / upstream 等）の commit を
+ * union し、逆トポロジカルソートで並べる。
  *
- * - headCommits の hash set を作り、defaultBranchCommits が到達可能か判定する
- * - 繋がる場合のみ defaultBranchCommits の差分を追加する
- * - union した visible commits を逆トポロジカルソート（Kahn のアルゴリズム）で並べる
+ * 補助ストリームの扱い:
+ * - 各補助ストリームが HEAD 系統と共有 commit を 1 つ以上持てば「繋がる」とみなし、
+ *   差分を visible commit set に追加する。これにより上流が HEAD から ahead していても
+ *   tip commit を visible 化できる。
+ * - 共有 commit を 1 つも持たない補助ストリームは無視する（HEAD と完全に独立した履歴は
+ *   graph に出さない）。
+ *
+ * upstream ストリームの典型ケース:
+ * amend 後、`origin/foo` の指す commit (orphan tip) は HEAD から到達不可だが、その親は
+ * HEAD 系統に含まれる。`headHashSet.has(parent)` で connected=true となり、orphan tip
+ * 1 commit だけが追加される。これが「amend 後も remote ref を graph に出す」の根幹。
  */
 export function mergeCommitStreams({
   headCommits,
   defaultBranchCommits,
+  upstreamCommits = [],
   sortMode = "date",
 }: {
   headCommits: GitCommit[];
   defaultBranchCommits: GitCommit[];
+  upstreamCommits?: GitCommit[];
   sortMode?: SortMode;
 }): GitCommit[] {
-  if (defaultBranchCommits.length === 0) return topoSort(headCommits, sortMode);
-
   const headHashSet = new Set(headCommits.map((c) => c.hash));
+  const collected = new Map<string, GitCommit>();
 
-  // defaultBranchCommits 全体を走査し、head 側にないコミットを収集する。
-  // date-order ではマージにより共有コミットが途中に混在するため、
-  // 最初の共有コミットで打ち切ると必要な祖先を落とす。
-  const defaultOnly: GitCommit[] = [];
-  let connected = false;
-  for (const commit of defaultBranchCommits) {
-    if (headHashSet.has(commit.hash)) {
-      connected = true;
-    } else {
-      defaultOnly.push(commit);
+  for (const sideStream of [defaultBranchCommits, upstreamCommits]) {
+    if (sideStream.length === 0) continue;
+    // sideStream 全体を走査し、head 側にないコミットを収集する。
+    // date-order ではマージにより共有コミットが途中に混在するため、最初の共有コミットで
+    // 打ち切ると必要な祖先を落とす。
+    const sideOnly: GitCommit[] = [];
+    let connected = false;
+    for (const commit of sideStream) {
+      if (headHashSet.has(commit.hash)) {
+        connected = true;
+      } else {
+        sideOnly.push(commit);
+      }
+    }
+    if (!connected) continue;
+    for (const commit of sideOnly) {
+      if (!collected.has(commit.hash)) {
+        collected.set(commit.hash, commit);
+      }
     }
   }
 
-  // 繋がらない場合は headCommits のみ
-  if (!connected) return topoSort(headCommits, sortMode);
-
-  // union: headCommits + defaultBranchCommits のうち headCommits にないもの
-  const unionCommits = [...headCommits, ...defaultOnly];
-
-  return topoSort(unionCommits, sortMode);
+  if (collected.size === 0) return topoSort(headCommits, sortMode);
+  return topoSort([...headCommits, ...collected.values()], sortMode);
 }
 
 /**

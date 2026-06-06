@@ -146,9 +146,15 @@ public struct Gozd_V1_GitWorktreeListResponse: Sendable {
   public init() {}
 }
 
-/// gitLog: HEAD と default branch（origin/HEAD の指す先）の log を返し、
-/// renderer 側で merge する設計。default_branch は git log で決まらないので
+/// gitLog: HEAD と default branch（origin/HEAD の指す先）と HEAD の upstream の
+/// log を返し、renderer 側で merge する設計。default_branch は git log で決まらないので
 /// `git symbolic-ref refs/remotes/origin/HEAD` から server 側で求める。
+///
+/// `upstream_commits` は HEAD の upstream (例: `origin/foo`) を始点とする log。amend /
+/// reset / force-push 前の rebase 等で **upstream tip が HEAD から到達不可になった
+/// 状態** でも、upstream ref の現在位置 commit を visible commit set に含めるための
+/// 第 3 ストリーム。upstream が default branch と一致するケース / upstream 未設定の
+/// ケースでは空配列を返す。
 public struct Gozd_V1_GitLogRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -160,8 +166,9 @@ public struct Gozd_V1_GitLogRequest: Sendable {
 
   public var firstParentOnly: Bool = false
 
-  /// true のとき `origin/<default>` の log 取得を完全に skip し、`default_branch_commits` を
-  /// 空配列で返す。`default_branch` 文字列は `git symbolic-ref` だけは引き続き解決して返す
+  /// true のとき `origin/<default>` と upstream の log 取得を完全に skip し、
+  /// `default_branch_commits` / `upstream_commits` を空配列で返す。`default_branch`
+  /// 文字列は `git symbolic-ref` だけは引き続き解決して返す
   /// (RefBadge の `isDefault` 表示に使う)。
   public var currentBranchOnly: Bool = false
 
@@ -180,6 +187,15 @@ public struct Gozd_V1_GitLogResponse: Sendable {
   public var defaultBranchCommits: [Gozd_V1_GitCommit] = []
 
   public var defaultBranch: String = String()
+
+  /// HEAD の upstream (例: `origin/foo`) を始点とする log。upstream 未設定 /
+  /// default branch と一致 / current_branch_only=true / git log 失敗 のときは空配列。
+  public var upstreamCommits: [Gozd_V1_GitCommit] = []
+
+  /// 解決された upstream の ref 名 (例: `origin/foo`)。未設定なら空文字。
+  /// upstream_commits が空でも upstream_ref が解決できれば文字列だけは返す
+  /// (将来 renderer 側で表示分岐に使う想定)。
+  public var upstreamRef: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1168,7 +1184,7 @@ extension Gozd_V1_GitLogRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
 
 extension Gozd_V1_GitLogResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GitLogResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}head_commits\0\u{3}default_branch_commits\0\u{3}default_branch\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}head_commits\0\u{3}default_branch_commits\0\u{3}default_branch\0\u{3}upstream_commits\0\u{3}upstream_ref\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1179,6 +1195,8 @@ extension Gozd_V1_GitLogResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageI
       case 1: try { try decoder.decodeRepeatedMessageField(value: &self.headCommits) }()
       case 2: try { try decoder.decodeRepeatedMessageField(value: &self.defaultBranchCommits) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.defaultBranch) }()
+      case 4: try { try decoder.decodeRepeatedMessageField(value: &self.upstreamCommits) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.upstreamRef) }()
       default: break
       }
     }
@@ -1194,6 +1212,12 @@ extension Gozd_V1_GitLogResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     if !self.defaultBranch.isEmpty {
       try visitor.visitSingularStringField(value: self.defaultBranch, fieldNumber: 3)
     }
+    if !self.upstreamCommits.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.upstreamCommits, fieldNumber: 4)
+    }
+    if !self.upstreamRef.isEmpty {
+      try visitor.visitSingularStringField(value: self.upstreamRef, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1201,6 +1225,8 @@ extension Gozd_V1_GitLogResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     if lhs.headCommits != rhs.headCommits {return false}
     if lhs.defaultBranchCommits != rhs.defaultBranchCommits {return false}
     if lhs.defaultBranch != rhs.defaultBranch {return false}
+    if lhs.upstreamCommits != rhs.upstreamCommits {return false}
+    if lhs.upstreamRef != rhs.upstreamRef {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

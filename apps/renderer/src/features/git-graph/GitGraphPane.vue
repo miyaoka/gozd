@@ -231,6 +231,7 @@ async function runLoadLog(): Promise<boolean> {
   const merged = mergeCommitStreams({
     headCommits: result.headCommits,
     defaultBranchCommits: result.defaultBranchCommits,
+    upstreamCommits: result.upstreamCommits,
     sortMode: sortMode.value,
   });
 

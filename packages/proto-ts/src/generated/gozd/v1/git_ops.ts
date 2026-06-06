@@ -126,17 +126,24 @@ export interface GitWorktreeListResponse {
 }
 
 /**
- * gitLog: HEAD と default branch（origin/HEAD の指す先）の log を返し、
- * renderer 側で merge する設計。default_branch は git log で決まらないので
+ * gitLog: HEAD と default branch（origin/HEAD の指す先）と HEAD の upstream の
+ * log を返し、renderer 側で merge する設計。default_branch は git log で決まらないので
  * `git symbolic-ref refs/remotes/origin/HEAD` から server 側で求める。
+ *
+ * `upstream_commits` は HEAD の upstream (例: `origin/foo`) を始点とする log。amend /
+ * reset / force-push 前の rebase 等で **upstream tip が HEAD から到達不可になった
+ * 状態** でも、upstream ref の現在位置 commit を visible commit set に含めるための
+ * 第 3 ストリーム。upstream が default branch と一致するケース / upstream 未設定の
+ * ケースでは空配列を返す。
  */
 export interface GitLogRequest {
   dir: string;
   maxCount: number;
   firstParentOnly: boolean;
   /**
-   * true のとき `origin/<default>` の log 取得を完全に skip し、`default_branch_commits` を
-   * 空配列で返す。`default_branch` 文字列は `git symbolic-ref` だけは引き続き解決して返す
+   * true のとき `origin/<default>` と upstream の log 取得を完全に skip し、
+   * `default_branch_commits` / `upstream_commits` を空配列で返す。`default_branch`
+   * 文字列は `git symbolic-ref` だけは引き続き解決して返す
    * (RefBadge の `isDefault` 表示に使う)。
    */
   currentBranchOnly: boolean;
@@ -146,6 +153,17 @@ export interface GitLogResponse {
   headCommits: GitCommit[];
   defaultBranchCommits: GitCommit[];
   defaultBranch: string;
+  /**
+   * HEAD の upstream (例: `origin/foo`) を始点とする log。upstream 未設定 /
+   * default branch と一致 / current_branch_only=true / git log 失敗 のときは空配列。
+   */
+  upstreamCommits: GitCommit[];
+  /**
+   * 解決された upstream の ref 名 (例: `origin/foo`)。未設定なら空文字。
+   * upstream_commits が空でも upstream_ref が解決できれば文字列だけは返す
+   * (将来 renderer 側で表示分岐に使う想定)。
+   */
+  upstreamRef: string;
 }
 
 /**
@@ -821,7 +839,7 @@ export const GitLogRequest: MessageFns<GitLogRequest> = {
 };
 
 function createBaseGitLogResponse(): GitLogResponse {
-  return { headCommits: [], defaultBranchCommits: [], defaultBranch: "" };
+  return { headCommits: [], defaultBranchCommits: [], defaultBranch: "", upstreamCommits: [], upstreamRef: "" };
 }
 
 export const GitLogResponse: MessageFns<GitLogResponse> = {
@@ -834,6 +852,12 @@ export const GitLogResponse: MessageFns<GitLogResponse> = {
     }
     if (message.defaultBranch !== "") {
       writer.uint32(26).string(message.defaultBranch);
+    }
+    for (const v of message.upstreamCommits) {
+      GitCommit.encode(v!, writer.uint32(34).fork()).join();
+    }
+    if (message.upstreamRef !== "") {
+      writer.uint32(42).string(message.upstreamRef);
     }
     return writer;
   },
@@ -869,6 +893,22 @@ export const GitLogResponse: MessageFns<GitLogResponse> = {
           message.defaultBranch = reader.string();
           continue;
         }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.upstreamCommits.push(GitCommit.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.upstreamRef = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -895,6 +935,16 @@ export const GitLogResponse: MessageFns<GitLogResponse> = {
         : isSet(object.default_branch)
         ? globalThis.String(object.default_branch)
         : "",
+      upstreamCommits: globalThis.Array.isArray(object?.upstreamCommits)
+        ? object.upstreamCommits.map((e: any) => GitCommit.fromJSON(e))
+        : globalThis.Array.isArray(object?.upstream_commits)
+        ? object.upstream_commits.map((e: any) => GitCommit.fromJSON(e))
+        : [],
+      upstreamRef: isSet(object.upstreamRef)
+        ? globalThis.String(object.upstreamRef)
+        : isSet(object.upstream_ref)
+        ? globalThis.String(object.upstream_ref)
+        : "",
     };
   },
 
@@ -909,6 +959,12 @@ export const GitLogResponse: MessageFns<GitLogResponse> = {
     if (message.defaultBranch !== "") {
       obj.defaultBranch = message.defaultBranch;
     }
+    if (message.upstreamCommits?.length) {
+      obj.upstreamCommits = message.upstreamCommits.map((e) => GitCommit.toJSON(e));
+    }
+    if (message.upstreamRef !== "") {
+      obj.upstreamRef = message.upstreamRef;
+    }
     return obj;
   },
 
@@ -920,6 +976,8 @@ export const GitLogResponse: MessageFns<GitLogResponse> = {
     message.headCommits = object.headCommits?.map((e) => GitCommit.fromPartial(e)) || [];
     message.defaultBranchCommits = object.defaultBranchCommits?.map((e) => GitCommit.fromPartial(e)) || [];
     message.defaultBranch = object.defaultBranch ?? "";
+    message.upstreamCommits = object.upstreamCommits?.map((e) => GitCommit.fromPartial(e)) || [];
+    message.upstreamRef = object.upstreamRef ?? "";
     return message;
   },
 };

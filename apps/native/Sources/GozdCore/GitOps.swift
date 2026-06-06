@@ -634,6 +634,16 @@ public enum GitOps {
   /// - `git diff --name-status -z --find-renames --diff-filter=AMDR <baseHash>` で base..working
   ///   (右辺省略 = working tree)。rename は `--find-renames` が `R` として解決する。
   public static func prDiffFiles(dir: String, baseHash: String) async throws -> [FileChangeInfo] {
+    // baseHash は GitHub の `baseRefOid` (実在 commit OID) が契約。`validateRev` は empty を許す
+    // 設計のため、commit OID 必須の `lsTree` / `resetMixed` と同じ二段ガードで empty / all-zero を
+    // 入口で reject する (empty を素通りさせると `git diff` が rev なしの別 semantic で走るため)。
+    if baseHash.isEmpty {
+      throw GitError.unexpectedOutput("git diff: base hash must be specified")
+    }
+    if isAllZeroHex(baseHash) {
+      throw GitError.unexpectedOutput(
+        "git diff: all-zero hash (UNCOMMITTED_HASH) is not a valid PR base")
+    }
     try validateRev(baseHash)
     let diffOptions = ["--name-status", "-z", "--find-renames", "--diff-filter=AMDR"]
     let diffOut = try await runGit(args: ["diff"] + diffOptions + [baseHash], cwd: dir)

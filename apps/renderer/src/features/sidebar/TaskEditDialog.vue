@@ -196,7 +196,7 @@ function onDialogClick(event: MouseEvent) {
       <div class="flex justify-end gap-2 pt-2">
         <button
           type="button"
-          class="rounded-sm px-3 py-1.5 text-sm text-foreground-muted hover:bg-surface-1"
+          class="rounded-sm px-3 py-1.5 text-sm text-foreground-muted hover:bg-accent"
           @click="cancel"
         >
           Cancel

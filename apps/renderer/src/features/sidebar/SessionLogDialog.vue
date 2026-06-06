@@ -454,7 +454,7 @@ function onDialogClick(event: MouseEvent) {
         <button
           type="button"
           aria-label="Close"
-          class="grid size-7 shrink-0 place-items-center rounded-sm text-foreground-muted hover:bg-surface-1 hover:text-foreground-strong"
+          class="grid size-7 shrink-0 place-items-center rounded-sm text-foreground-muted hover:bg-accent hover:text-foreground-strong"
           @click="requestClose"
         >
           <span class="icon-[lucide--x] text-base" />

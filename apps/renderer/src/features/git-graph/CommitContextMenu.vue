@@ -51,7 +51,7 @@ async function handleResetMixed() {
   >
     <button
       v-if="context"
-      class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-1"
+      class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-accent"
       @click="handleResetMixed"
     >
       <span class="icon-[lucide--undo-2] text-xs" />

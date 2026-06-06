@@ -240,7 +240,7 @@ const activeRootWorktree = computed(() => {
           :class="
             editMode
               ? 'bg-primary text-primary-foreground hover:bg-primary/80'
-              : 'text-foreground-muted hover:bg-surface-1 hover:text-foreground-strong'
+              : 'text-foreground-muted hover:bg-accent hover:text-foreground-strong'
           "
           @click="toggleEditMode"
         >
@@ -275,7 +275,7 @@ const activeRootWorktree = computed(() => {
       <button
         v-if="editMode"
         type="button"
-        class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground-muted hover:bg-surface-1 hover:text-foreground-strong"
+        class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground-muted hover:bg-accent hover:text-foreground-strong"
         title="Add directory"
         @click="onAddDir"
       >
@@ -306,7 +306,7 @@ const activeRootWorktree = computed(() => {
         <p class="text-sm">{{ confirmMessage }}</p>
         <div class="flex justify-end gap-2">
           <button
-            class="rounded-sm px-3 py-1.5 text-sm text-foreground-muted hover:bg-surface-1"
+            class="rounded-sm px-3 py-1.5 text-sm text-foreground-muted hover:bg-accent"
             @click="closeConfirm"
           >
             Cancel

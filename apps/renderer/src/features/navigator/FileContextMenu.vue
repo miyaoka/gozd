@@ -50,7 +50,7 @@ async function handleCopyPath() {
   >
     <button
       v-if="context"
-      class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-1"
+      class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-accent"
       @click="handleCopyPath"
     >
       <span class="icon-[lucide--copy] text-xs" />

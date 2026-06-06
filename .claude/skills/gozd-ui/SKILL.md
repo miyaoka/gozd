@@ -17,24 +17,24 @@ Token 一覧は SSOT として `apps/renderer/src/assets/main.css` の `@theme` 
 
 #### Surface / Foreground / Border (intent なし、用途別)
 
-| 用途                                                  | Token (Tailwind utility) |
-| ----------------------------------------------------- | ------------------------ |
-| ページ背景                                            | `bg-background`          |
-| カード / panel                                        | `bg-surface-1`           |
-| 持ち上がった panel / chip / hover 塗                  | `bg-surface-2`           |
-| 本文                                                  | `text-foreground`        |
-| 強調 / heading                                        | `text-foreground-strong` |
-| chrome indicator (handle / thumb / knob 等の内部要素) | `bg-foreground-strong`   |
-| secondary text                                        | `text-foreground-muted`  |
-| placeholder / tertiary                                | `text-foreground-subtle` |
-| 既定の 1px 区切り                                     | `border-border`          |
-| 強調 outline                                          | `border-border-strong`   |
-| 同色面の弱い divider                                  | `border-divider`         |
-| 階層境界を明示する厚め divider                        | `border-divider-strong`  |
-| hover 背景                                            | `hover:bg-accent`        |
-| selected / pressed 背景                               | `bg-accent-strong`       |
-| focus ring                                            | `ring-ring`              |
-| dialog backdrop                                       | `bg-overlay`             |
+| 用途                                                   | Token (Tailwind utility) |
+| ------------------------------------------------------ | ------------------------ |
+| ページ背景                                             | `bg-background`          |
+| カード / panel                                         | `bg-surface-1`           |
+| 持ち上がった panel / chip / hover 塗 / form input 背景 | `bg-surface-2`           |
+| 本文                                                   | `text-foreground`        |
+| 強調 / heading                                         | `text-foreground-strong` |
+| chrome indicator (handle / thumb / knob 等の内部要素)  | `bg-foreground-strong`   |
+| secondary text                                         | `text-foreground-muted`  |
+| placeholder / tertiary                                 | `text-foreground-subtle` |
+| 既定の 1px 区切り                                      | `border-border`          |
+| 強調 outline                                           | `border-border-strong`   |
+| 同色面の弱い divider                                   | `border-divider`         |
+| 階層境界を明示する厚め divider                         | `border-divider-strong`  |
+| hover 背景                                             | `hover:bg-accent`        |
+| selected / pressed 背景                                | `bg-accent-strong`       |
+| focus ring                                             | `ring-ring`              |
+| dialog backdrop                                        | `bg-overlay`             |
 
 同一 token を複数 utility prefix で異なる用途に使うことは許容する (例:
 `--color-foreground-strong` は `text-foreground-strong` で「強調 / heading」、

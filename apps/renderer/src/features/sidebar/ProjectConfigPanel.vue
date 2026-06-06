@@ -95,7 +95,7 @@ onMounted(() => {
         />
         <div class="mt-1 flex justify-end gap-1">
           <button
-            class="rounded-sm px-2 py-1 text-xs text-foreground-muted hover:bg-surface-1"
+            class="rounded-sm px-2 py-1 text-xs text-foreground-muted hover:bg-accent"
             @click="cancel"
           >
             Cancel

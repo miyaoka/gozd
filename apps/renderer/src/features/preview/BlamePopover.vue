@@ -146,7 +146,7 @@ function isHistoryDisabled(): boolean {
             <div class="mt-3 flex items-center gap-2">
               <button
                 type="button"
-                class="rounded-sm border border-border px-2 py-1 text-xs text-foreground hover:bg-surface-1 disabled:cursor-not-allowed disabled:opacity-40"
+                class="rounded-sm border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
                 :disabled="isHistoryDisabled()"
                 :title="isHistoryDisabled() ? HISTORY_DISABLED_TITLE : ''"
                 @click="setViewMode('history')"
@@ -156,7 +156,7 @@ function isHistoryDisabled(): boolean {
               </button>
               <button
                 type="button"
-                class="rounded-sm border border-border px-2 py-1 text-xs text-foreground hover:bg-surface-1"
+                class="rounded-sm border border-border px-2 py-1 text-xs text-foreground hover:bg-accent"
                 @click="onCommitClick(blameState.commit.hash)"
               >
                 <span class="mr-1 icon-[lucide--git-commit-horizontal] size-3" />
@@ -188,7 +188,7 @@ function isHistoryDisabled(): boolean {
           <li v-for="c in historyState.commits" :key="c.hash">
             <button
               type="button"
-              class="flex w-full items-start gap-2 px-3 py-2 text-left text-xs hover:bg-surface-1"
+              class="flex w-full items-start gap-2 px-3 py-2 text-left text-xs hover:bg-accent"
               @click="onCommitClick(c.hash)"
             >
               <span

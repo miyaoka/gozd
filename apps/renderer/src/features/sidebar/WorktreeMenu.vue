@@ -33,7 +33,7 @@ function handleRemove() {
   >
     <button
       v-if="context"
-      class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-destructive hover:bg-surface-1"
+      class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-destructive hover:bg-accent"
       @click="handleRemove"
     >
       <span class="icon-[lucide--unlink] text-xs" />

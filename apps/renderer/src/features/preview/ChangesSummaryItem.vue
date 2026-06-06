@@ -394,7 +394,16 @@ async function fetchCommit(dir: string, version: number) {
 
 /**
  * PR diff モード時のファイル fetch。base..working tree per-file diff。
- * from = `pr.baseRefOid` の blob (olderIsBase=true で `<baseOid>` 自身)、to = working tree fs 内容。
+ *
+ * type ごとに正しい path を選ぶ:
+ * - A / U (added / untracked): base にそのパスは存在しない。base fetch を skip し、to のみ fsRead で取る
+ * - D (deleted): working tree にそのパスは存在しない。fs read を skip し、from のみ base から取る
+ * - R (renamed): base には `oldFilePath`、working tree には `newFilePath` で存在する。from は oldFilePath、to は newFilePath で取る
+ * - M (modified): 同パスで両方存在
+ *
+ * これにより「存在しないパスに対する `git show <base>:<path>` 呼び出し」を構造的に発射しない
+ * (= bogus 失敗による stderr noise が消える)、かつ R で from/to の path を取り違えない (= rename
+ * が added 扱いに倒れないで正しく rename として表示される)。
  */
 async function fetchPrDiff(dir: string, version: number) {
   const baseOid = prDiffToggle.lockedBaseOid;
@@ -403,16 +412,18 @@ async function fetchPrDiff(dir: string, version: number) {
     loading.value = false;
     return;
   }
-  const path = props.change.newFilePath || props.change.oldFilePath;
+  const change = props.change;
+  const fromPath = change.oldFilePath || change.newFilePath;
+  const toPath = change.newFilePath || change.oldFilePath;
+  const skipFrom = change.type === "A" || change.type === "U";
+  const skipTo = change.type === "D";
 
-  const fetchResult = await tryCatch(
-    Promise.all([
-      // PR diff per-file の from は専用 RPC `gitReadBlob` で base OID の単一 blob を取る。
-      // `gitShowCommitFile` を流用すると to 側で不要な `treeFileOID` が走り stderr noise を生む。
-      rpcGitReadBlob({ dir, hash: baseOid, relPath: path }),
-      rpcFsReadFile({ dir, path }),
-    ]),
-  );
+  const fromPromise = skipFrom
+    ? Promise.resolve(undefined)
+    : rpcGitReadBlob({ dir, hash: baseOid, relPath: fromPath });
+  const toPromise = skipTo ? Promise.resolve(undefined) : rpcFsReadFile({ dir, path: toPath });
+
+  const fetchResult = await tryCatch(Promise.all([fromPromise, toPromise]));
 
   if (version !== fetchVersion) return;
 
@@ -424,24 +435,24 @@ async function fetchPrDiff(dir: string, version: number) {
   }
 
   const [blobResult, fsResult] = fetchResult.value;
-  const from = blobResult.result;
-  const fromNotFound = from?.notFound ?? true;
-  const toNotFound = fsResult.notFound;
+  const from = blobResult?.result;
+  const fromNotFound = skipFrom || (from?.notFound ?? true);
+  const toNotFound = skipTo || (fsResult?.notFound ?? true);
 
   if (fromNotFound && toNotFound) {
     effectiveKind.value = undefined;
   } else if (fromNotFound) {
-    effectiveKind.value = "added";
+    effectiveKind.value = change.type === "R" ? "renamed" : "added";
   } else if (toNotFound) {
     effectiveKind.value = "deleted";
   } else {
-    effectiveKind.value = "modified";
+    effectiveKind.value = change.type === "R" ? "renamed" : "modified";
   }
 
   original.value = fromNotFound ? "" : (from?.content ?? "");
   isOriginalBinary.value = from?.isBinary ?? false;
-  current.value = toNotFound ? "" : fsResult.content;
-  isBinary.value = fsResult.isBinary;
+  current.value = toNotFound ? "" : (fsResult?.content ?? "");
+  isBinary.value = fsResult?.isBinary ?? false;
   loading.value = false;
 }
 

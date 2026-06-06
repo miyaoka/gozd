@@ -36,7 +36,7 @@ import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
-import { useChangesSummaryStore } from "../changes";
+import { useChangesStore, useChangesSummaryStore } from "../changes";
 import { getFileIconUrl, relDirOf, rpcFsReadFile, rpcFsReadFileAbsolute } from "../filer";
 import type { FsChangePayload } from "../filer";
 import { rpcGitReadBlob, useGitGraphStore, usePrDiffToggleStore } from "../git-graph";
@@ -99,6 +99,7 @@ const {
 const gitGraphStore = useGitGraphStore();
 const prDiffToggle = usePrDiffToggleStore();
 const summaryStore = useChangesSummaryStore();
+const changesStore = useChangesStore();
 const previewStore = usePreviewStore();
 const markdownHistory = useMarkdownHistoryStore();
 const notification = useNotificationStore();
@@ -496,14 +497,27 @@ async function fetchPrDiffContent(filePath: string) {
     return;
   }
 
-  const fetchResult = await tryCatch(
-    Promise.all([
-      // PR diff per-file の from は専用 RPC `gitReadBlob` で base OID の単一 blob を取る。
-      // `gitShowCommitFile` を流用すると to 側で不要な `treeFileOID` が走り stderr noise を生む。
-      rpcGitReadBlob({ dir, hash: baseOid, relPath: filePath }),
-      rpcFsReadFile({ dir, path: filePath }),
-    ]),
-  );
+  // `useChangesStore.fileChanges` から該当 GitFileChange を引いて type ごとに正しい path を選ぶ:
+  // - A / U (added / untracked): base にそのパスは存在しない → base fetch を skip
+  // - D (deleted): working tree にそのパスは存在しない → fs read を skip
+  // - R (renamed): base には `oldFilePath`、working tree には `newFilePath` で存在
+  // - M (modified): 同パスで両方存在
+  // この path 選択を欠くと「存在しないパスへの `git show <base>:<path>`」を発射して stderr noise
+  // を出し、R では from/to の取り違えで rename が added 扱いに倒れる。change が lookup できない
+  // 場合 (Filer 経由で git status 外のファイル選択) はフォールバックで filePath を両方に使う。
+  const change = changesStore.fileChanges.find((c) => c.newFilePath === filePath);
+  const type = change?.type;
+  const fromPath = change?.oldFilePath || filePath;
+  const toPath = change?.newFilePath || filePath;
+  const skipFrom = type === "A" || type === "U";
+  const skipTo = type === "D";
+
+  const fromPromise = skipFrom
+    ? Promise.resolve(undefined)
+    : rpcGitReadBlob({ dir, hash: baseOid, relPath: fromPath });
+  const toPromise = skipTo ? Promise.resolve(undefined) : rpcFsReadFile({ dir, path: toPath });
+
+  const fetchResult = await tryCatch(Promise.all([fromPromise, toPromise]));
 
   if (version !== fetchVersion) return;
 
@@ -515,26 +529,26 @@ async function fetchPrDiffContent(filePath: string) {
   }
 
   const [blobResult, fsResult] = fetchResult.value;
-  const from = blobResult.result;
-  const fromNotFound = from?.notFound ?? true;
-  const toNotFound = fsResult.notFound;
+  const from = blobResult?.result;
+  const fromNotFound = skipFrom || (from?.notFound ?? true);
+  const toNotFound = skipTo || (fsResult?.notFound ?? true);
 
   if (fromNotFound && toNotFound) {
     commitGitChange.value = undefined;
   } else if (fromNotFound) {
-    commitGitChange.value = "added";
+    commitGitChange.value = type === "R" ? "renamed" : "added";
   } else if (toNotFound) {
     commitGitChange.value = "deleted";
   } else {
     // 内容比較は renderer 側でなく Swift 側 unchanged を使うのが SSOT だが、
     // PR diff モードは to が working tree (blob OID 無し) なので unchanged 判定は持たない。
-    // `modified` 固定にし、実体が同一なら DiffPreview 側で空 diff として描画される。
-    commitGitChange.value = "modified";
+    // `modified` / `renamed` 固定にし、実体が同一なら DiffPreview 側で空 diff として描画される。
+    commitGitChange.value = type === "R" ? "renamed" : "modified";
   }
 
   if (commitGitChange.value === "deleted") {
     activeMode.value = "original";
-  } else if (commitGitChange.value === "modified") {
+  } else if (commitGitChange.value === "modified" || commitGitChange.value === "renamed") {
     activeMode.value = "diff";
   } else {
     activeMode.value = "current";
@@ -542,8 +556,8 @@ async function fetchPrDiffContent(filePath: string) {
 
   originalContent.value = fromNotFound ? undefined : from?.content;
   isOriginalBinary.value = from?.isBinary ?? false;
-  currentContent.value = toNotFound ? undefined : fsResult.content;
-  isBinary.value = fsResult.isBinary;
+  currentContent.value = toNotFound ? undefined : fsResult?.content;
+  isBinary.value = fsResult?.isBinary ?? false;
   isNotFound.value = fromNotFound && toNotFound;
 
   loading.value = false;

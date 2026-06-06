@@ -85,17 +85,20 @@
   /* git graph の各 lane (branch) に振る固定色 8 色。VSCode の syntax highlight 色を
      borrow (OKLCH 変換)。HEAD lane 0 は --color-graph-lane-1 (teal) を予約色として
      固定 (graphLayout.ts 参照)、他 lane は 1..7 を順番に循環 */
-  /* 各 lane の OKLCH 明度は隣接 lane で 0.05 以上差をつける (色覚異常 (protanopia /
-     deuteranopia) で hue 差が弱まっても明度差で区別を保つ)。明度を昇順 / 降順で
-     交互に配置し、隣接ペア全てで 0.05+ を確保 */
+  /* 明度配分は **全 28 ペア (8C2) を「hue 差 60 度以上 or 明度差 0.05 以上」で識別可能** に
+     する規律。git graph は循環 (`index % 8 + 1`) で割り当てるため、番号順隣接だけでなく
+     任意 2 lane が同時描画されうる。明度差だけで全 28 ペアを 0.05+ 確保するのは 8 値で
+     物理的に困難 (最大 0.14 間隔)、hue 差での識別を併用する */
   --color-graph-lane-1: oklch(0.74 0.1 175); /* teal */
-  --color-graph-lane-2: oklch(0.65 0.13 247); /* blue (0.74 と差 0.09) */
-  --color-graph-lane-3: oklch(0.72 0.13 327); /* purple (0.65 と差 0.07) */
-  --color-graph-lane-4: oklch(0.62 0.1 51); /* orange (0.72 と差 0.10) */
-  --color-graph-lane-5: oklch(0.8 0.13 105); /* yellow (0.62 と差 0.18) */
-  --color-graph-lane-6: oklch(0.55 0.16 22); /* red (0.8 と差 0.25) */
-  --color-graph-lane-7: oklch(0.68 0.12 137); /* green (0.55 と差 0.13) */
-  --color-graph-lane-8: oklch(0.86 0.07 224); /* light blue (0.68 と差 0.18) */
+  --color-graph-lane-2: oklch(0.65 0.13 247); /* blue */
+  --color-graph-lane-3: oklch(0.72 0.13 327); /* purple */
+  --color-graph-lane-4: oklch(0.62 0.1 51); /* orange */
+  --color-graph-lane-5: oklch(0.8 0.13 105); /* yellow */
+  --color-graph-lane-6: oklch(0.55 0.16 22); /* red */
+  --color-graph-lane-7: oklch(
+    0.6 0.12 137
+  ); /* green (blue 0.65 と差 0.05 確保で blue/green 混同回避) */
+  --color-graph-lane-8: oklch(0.86 0.07 224); /* light blue */
 }
 
 button {

@@ -1045,7 +1045,7 @@ const isWorkingTreeActive = computed(
       <!-- Graph list -->
       <div
         ref="graphListRef"
-        class="flex min-w-0 flex-1 flex-col outline-none"
+        class="flex min-w-0 flex-1 flex-col focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset"
         tabindex="0"
         @keydown="onKeydown"
       >

@@ -23,9 +23,8 @@ const model = defineModel<boolean>({ required: true });
     @click="model = !model"
   >
     <span
-      class="pointer-events-none inline-block size-4 rounded-full bg-foreground-strong shadow-sm transition-transform"
+      class="pointer-events-none mt-0.5 inline-block size-4 rounded-full bg-foreground-strong shadow-sm transition-transform"
       :class="model ? 'translate-x-[18px]' : 'translate-x-0.5'"
-      :style="{ marginTop: '2px' }"
     />
   </button>
 </template>

@@ -206,11 +206,12 @@ export const useChangesStore = defineStore("changes", () => {
           const fetched = await fetchStore.requestImmediateFetch(src.dir);
           if (seq !== requestSeq) return;
           if (!fetched) {
-            // toggle ON gate (`usePrDiffToggleStore.canEnable`) が成立する時点で「dir は git
-            // worktree として repoStore に hydrate 済み + 現在 branch に open PR + baseRefOid 解決済み」
-            // の不変条件は満たされている。よって本経路の false は次のいずれかを意味する:
+            // toggle ON click 時点で `canEnable === true` だったため `lockedBaseOid` snapshot は
+            // 安定 (snapshot なので消えない)。一方 `findRepoOwning(src.dir)` は本 watcher 発火時の
+            // live evaluation で、toggle ON から requestImmediateFetch 到達までに worktree が
+            // 削除される race を踏みうる。よって本経路の false は次のいずれかを意味する:
             //   - `runFetch` 内の git fetch RPC 失敗 (network / 認証 / remote 未設定)
-            //   - worktree が toggle ON 後に削除される race (`findRepoOwning` undefined)
+            //   - 上記 race による `findRepoOwning` undefined (= worktree 削除)
             // いずれも下層 (`useRemoteFetchStore`) で notify.info が出ているため、本経路で
             // 追加通知は出さない。fileChanges は空に倒し、source watcher が次の reactive 変化
             // (toggle OFF / worktree 切替) で正常状態に戻すのに委ねる。

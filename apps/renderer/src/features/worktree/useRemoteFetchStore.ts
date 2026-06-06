@@ -136,19 +136,14 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
    * runFetch failure) いずれも本関数または `runFetch` 内で `notify.info` が出るため、
    * 呼び出し側は false 戻り値に対して追加通知を出さない契約。
    *
-   * precondition violation (`findRepoOwning` undefined / 非 git repo) は本来発生しないが
-   * (caller 側で「dir が git worktree であること」を gate する責務がある)、race (例: caller の
-   * gate 評価後に worktree が削除される) で踏みうるため、silent drop せず notify.info で
-   * 観察可能化する。
+   * 不正 path (`findRepoOwning` undefined / 非 git repo) は `notify.info` で skip し false を返す。
+   * silent drop しないことで、(a) race (caller の gate 評価後に worktree が削除される) (b) 任意
+   * path を gate なしで呼ぶ caller、のいずれも観察可能になる。
    */
   async function requestImmediateFetch(dir: string): Promise<boolean> {
     const repo = repoStore.findRepoOwning(dir);
-    if (repo === undefined) {
-      notify.info(`Background fetch skipped: ${dir} is not a tracked git worktree`);
-      return false;
-    }
-    if (!repo.isGitRepo) {
-      notify.info(`Background fetch skipped: ${dir} is not a git repository`);
+    if (repo === undefined || !repo.isGitRepo) {
+      notify.info("git fetch skipped: target worktree is no longer tracked");
       return false;
     }
     return await runFetch(repo.rootDir);

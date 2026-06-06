@@ -1589,9 +1589,10 @@ struct GitOpsUpstreamRefNameTests {
 
   @Test("upstream 設定済みなら ref 名 (例: origin/main) を返す")
   func configured() async throws {
-    let (local, _) = try await makeLocalUpstreamRepoPair()
+    let (local, origin) = try await makeLocalUpstreamRepoPair()
     defer {
       try? FileManager.default.removeItem(at: local)
+      try? FileManager.default.removeItem(at: origin)
     }
     let result = try await GitOps.upstreamRefName(dir: local.path)
     #expect(result == "origin/main")
@@ -1740,9 +1741,10 @@ struct GitOpsLogTests {
 
   @Test("amend 後の orphan upstream tip が commits に含まれる")
   func amendOrphanTipVisible() async throws {
-    let (local, _) = try await makeLocalUpstreamRepoPair()
+    let (local, origin) = try await makeLocalUpstreamRepoPair()
     defer {
       try? FileManager.default.removeItem(at: local)
+      try? FileManager.default.removeItem(at: origin)
     }
     // local で 1 commit 追加 → push → amend (push しない)
     try "feat".write(
@@ -1767,9 +1769,10 @@ struct GitOpsLogTests {
 
   @Test("currentBranchOnly=true では origin/<default> も upstream も walk しない")
   func currentBranchOnlySkipsSideStreams() async throws {
-    let (local, _) = try await makeLocalUpstreamRepoPair()
+    let (local, origin) = try await makeLocalUpstreamRepoPair()
     defer {
       try? FileManager.default.removeItem(at: local)
+      try? FileManager.default.removeItem(at: origin)
     }
     // 別ブランチに切り替え (HEAD と origin/main が分岐)
     try await runTestGit(args: ["checkout", "-b", "feature"], cwd: local.path)
@@ -1801,9 +1804,10 @@ struct GitOpsLogTests {
 
   @Test("未 push の rebase 後、orphan 連鎖 (複数 commit) が全件 visible に含まれる")
   func rebaseOrphanChainVisible() async throws {
-    let (local, _) = try await makeLocalUpstreamRepoPair()
+    let (local, origin) = try await makeLocalUpstreamRepoPair()
     defer {
       try? FileManager.default.removeItem(at: local)
+      try? FileManager.default.removeItem(at: origin)
     }
     // 3 commit 積んで push → 1 commit に squash (= 残り 2 commit が orphan 化)
     for i in 1...3 {
@@ -1888,9 +1892,10 @@ struct GitOpsLogTests {
 
   @Test("git で 1 度に dedup されるため、 fork workflow 風に upstream==origin/<default> でも commit が重複しない")
   func gitDedupesAcrossRefs() async throws {
-    let (local, _) = try await makeLocalUpstreamRepoPair()
+    let (local, origin) = try await makeLocalUpstreamRepoPair()
     defer {
       try? FileManager.default.removeItem(at: local)
+      try? FileManager.default.removeItem(at: origin)
     }
     let result = try await GitOps.log(
       dir: local.path, maxCount: 50, firstParentOnly: false, currentBranchOnly: false,

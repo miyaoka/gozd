@@ -356,11 +356,20 @@ public enum GitOps {
       let parts = trimmed.split(separator: "\u{1f}", omittingEmptySubsequences: false).map(
         String.init)
       // 8 fields: hash, shortHash, parents, author, date, subject, body, refs
-      guard parts.count == 8 else { continue }
+      // `result.commits` が renderer の履歴 SSOT になるため、想定外フォーマットは
+      // silent skip / epoch 0 倒しせず `unexpectedOutput` で throw して観察可能化する
+      // (本 PR の「silent drop 禁止 / strict 契約」と整合)。
+      guard parts.count == 8 else {
+        throw GitError.unexpectedOutput(
+          "git log record: expected 8 US-separated fields, got \(parts.count)")
+      }
       let parents =
         parts[2].isEmpty
         ? [] : parts[2].split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-      let date = Int64(parts[4]) ?? 0
+      guard let date = Int64(parts[4]) else {
+        throw GitError.unexpectedOutput(
+          "git log record: author date field is not Int64: \(parts[4])")
+      }
       let parsedRefs = parseRefs(parts[7])
       commits.append(
         CommitInfo(

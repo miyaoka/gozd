@@ -210,7 +210,7 @@ export function computeGraphLayout(
       // してしまう。HEAD は別経路で lane 0 を固定するため borrowed lane は誰にも消費されず
       // 余計な線として残る。HEAD 予約 lane 0 に直行させれば、次行の Phase 1 で
       // activeLanes[0].originLane = merge 行 lane が「分岐」ブロック (lockedFirst=true) を踏み、
-      // x1=merge 行 lane → x2=0 の斜めセグメントが HEAD_COLOR で正しく描かれる
+      // x1=merge 行 lane → x2=0 の斜めセグメントが HEAD_COLOR で 1 本だけ描かれる
       const isHeadBranch = parentHash === headHash && reserveHeadLane;
       const mergeLane = isHeadBranch ? 0 : findEmptyLane(activeLanes, minLane);
       const mergeColor = isHeadBranch ? HEAD_COLOR : nextColor++;

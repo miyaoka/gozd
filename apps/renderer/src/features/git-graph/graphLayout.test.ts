@@ -137,7 +137,7 @@ describe("computeGraphLayout の HEAD 最左固定", () => {
     expect(lanes.get("other")).toBeGreaterThan(0);
     expect(colors.get("other")).not.toBe(HEAD_COLOR);
 
-    // other は m とも別レーン / 別色 (m: lane 1 / color 1、other: lane 2 / color 2)
+    // other は m と独立: lane も color も異なる
     expect(lanes.get("other")).not.toBe(lanes.get("m"));
     expect(colors.get("other")).not.toBe(colors.get("m"));
 

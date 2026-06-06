@@ -239,6 +239,46 @@ describe("findAbsolutePathMatches", () => {
         { kind: "absolute", absPath: "/tmp/x.ts" },
       ]);
     });
+
+    test("`/etc` のような単一セグメントも absolute として返す（実在検証は契約外）", () => {
+      const matches = findAbsolutePathMatches("cd /etc", dirPrefix, homeDir);
+      expect(matches[0]?.selection).toEqual({ kind: "absolute", absPath: "/etc" });
+    });
+
+    test("root `/` 単独は path として構造的に意味を持たないので拾わない (VSCode 整合)", () => {
+      const matches = findAbsolutePathMatches("cd /", dirPrefix, homeDir);
+      expect(matches).toEqual([]);
+    });
+
+    test("`/` の後に PATH_TERMINATORS が直接続くケース (`/ `) も拾わない", () => {
+      const matches = findAbsolutePathMatches("/ then text", dirPrefix, homeDir);
+      expect(matches).toEqual([]);
+    });
+
+    test("単一セグメント `/etc` の後に `/` 単独が続いても、先頭の単一セグメントだけ拾い後続の `/` 単独は拾わない", () => {
+      const matches = findAbsolutePathMatches("see /etc and /", dirPrefix, homeDir);
+      expect(matches.map((m) => m.selection)).toEqual([{ kind: "absolute", absPath: "/etc" }]);
+    });
+
+    test("`~/foo.ts` の `/foo.ts` 部分は generic 経路では拾わない（tilde 経路の責務）", () => {
+      const matches = findAbsolutePathMatches("~/foo.ts", dirPrefix, homeDir);
+      expect(matches.map((m) => m.selection)).toEqual([
+        { kind: "absolute", absPath: "/Users/me/foo.ts" },
+      ]);
+    });
+
+    test("`x://abs/path` のような scheme 形式は `:` 直後の `/` も連続 `/` も起点にせず、結果として拾わない", () => {
+      // 先頭 `x` は IDENTIFIER_CHAR で hasBoundaryBefore が false（URL scheme `x:` の一部）。
+      // `:` 直後の `/` は除外規律 prev === ":" で skip、続く `/` も prev === "/" で skip。
+      // `abs/path` の `/` は IDENTIFIER_CHAR 直後で boundary 不成立。
+      const matches = findAbsolutePathMatches("x://abs/path", dirPrefix, homeDir);
+      expect(matches).toEqual([]);
+    });
+
+    test("`--path=/foo` のような cli option 形式は `=` 直後の `/` で boundary 成立し拾う", () => {
+      const matches = findAbsolutePathMatches("run --path=/tmp/foo", dirPrefix, homeDir);
+      expect(matches[0]?.selection).toEqual({ kind: "absolute", absPath: "/tmp/foo" });
+    });
   });
 
   describe("境界条件", () => {

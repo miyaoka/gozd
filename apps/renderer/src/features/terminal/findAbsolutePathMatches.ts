@@ -54,14 +54,26 @@ function indexOfWithBoundary(text: string, prefix: string, start: number): numbe
 /**
  * generic `/` 経路（dir/home/tilde にマッチしないシステムパス用フォールバック）の boundary 判定。
  *
- * `hasBoundaryBefore` は IDENTIFIER_CHAR の直後だけを弾く。しかし `~` `:` `/` は IDENTIFIER_CHAR
- * ではないため、generic `/` 経路だけで使うとそれぞれ以下の誤検出を起こす:
- * - `~/foo.ts` の `/`: tilde 経路の責務なのに generic でも `/foo.ts` を拾ってしまう
- * - `https://example.com/path` の最初の `/`: URL scheme の `:` 直後で boundary 成立し `//example.com/...` を拾う
- * - `//abs/path` のような連続 slash: 構造的に意味を持たない先頭の `/` を拾う
+ * dir/home/tilde prefix のような「具体的シグナル」と違い、`/` 単独は構造的に弱いシグナルなので、
+ * `hasBoundaryBefore`（IDENTIFIER_CHAR 直後を除外）に加えて、**直前文字によって path 先頭の `/` が
+ * 構造的に無意味化されるケース**を追加除外する。除外集合は以下の原理で導出される:
  *
- * dir/home prefix のような「具体的シグナル」と違い、`/` 単独は構造的に弱いので、これらを呼び出し
- * 側で明示的に除外する。
+ * - 直前 `~`: 続く `/` は tilde 展開経路（`~/...`）の責務であり、generic で重複して拾うべきでない
+ * - 直前 `:`: 続く `/` は URI scheme（`http:` `file:` `git:` 等の `:/...` `://...`）の構造の一部であり、
+ *   path 先頭ではない
+ * - 直前 `/`: 続く `/` は連続 slash（`//...`）の 2 文字目で、path 先頭の `/` としては既に手前で
+ *   評価済み or URI scheme の `://` の一部
+ *
+ * 他の非 IDENTIFIER_CHAR 直前文字（`[` `{` `<` `(` `'` `"` `=` `.` 等）は、path 先頭の `/` を
+ * 無意味化しない（cli option `--path=/foo`、引用符 `'/path'`、log 括弧 `[/path]` 等で path として
+ * 意味を持つ）ため除外しない。新規偽陽性が見つかった場合は、上記原理（path 先頭シグナルとして
+ * 無意味化されるか）に照らして判断する。
+ *
+ * 実在検証はしない契約。単一セグメント `/etc` `/tmp` 等は `absolute` として返す（クリック時の
+ * Preview 側で実在しない / ディレクトリの場合はエラーとして notification される）。一方、root
+ * `/` 単独や `/<terminator>` のような「`/` の後に path 文字が 1 つも続かない」ケースは path
+ * として構造的に意味を持たないため、findAbsolutePathMatches 側で push 直前に弾く（VSCode の
+ * unixLocalLinkClause が `(/+ Char+)+` で最低 1 セグメントを構造要求するのと等価）。
  */
 function indexOfGenericSlash(text: string, start: number): number {
   let idx = text.indexOf("/", start);
@@ -179,12 +191,19 @@ export function findAbsolutePathMatches(
       ? { kind: "worktreeRelative", relPath: fullPath.slice(dirPrefix.length) }
       : { kind: "absolute", absPath: fullPath };
 
+    // generic `/` 経路 (prefixLen === 0) は構造的シグナルが弱いため、最低 1 セグメント
+    // (`/foo`) を要求する。`/` 単独や `/ <terminator>` は path として意味を持たないので push
+    // しない。これは VSCode の unixLocalLinkClause `(/+ Char+)+` が最低 1 セグメントを構造的に
+    // 要求するのと等価な規律。VSCode は最後に stat で実在検証して短い偽パスを弾けるが、gozd
+    // には検証層が無いため、検出側で path 構造として無意味なケースだけは明示的に除外する。
+    const isGenericSingleSlash = prefixLen === 0 && pathEnd - idx < 2;
+
     const display = pathTargetToString(selection);
-    if (display.length > 0) {
+    if (display.length > 0 && !isGenericSingleSlash) {
       matches.push({ idx, totalEnd, selection, lineNumber });
     }
 
-    searchStart = totalEnd;
+    searchStart = isGenericSingleSlash ? idx + 1 : totalEnd;
   }
 
   return matches;

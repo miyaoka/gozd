@@ -4,7 +4,7 @@ Git commit graph showing the current worktree branch and the default branch.
 ## Structure
 
 - Working Tree row: sticky header outside scroll area, with status icons and dot on lane 0
-- Connector line: dashed SVG path from lane 0 top to HEAD lane (straight if same lane, Bézier curve otherwise)
+- Connector line: dashed SVG path straight down lane 0 from the top to the HEAD row (HEAD is always on lane 0, so no curve is needed)
 - Scrollable commit list: HTML rows for commit data + SVG overlay for graph lines and dots
 - HEAD is pinned to the leftmost lane (lane 0) so it aligns under the Working Tree dot. When HEAD is not the topmost commit, lane 0 is reserved as an empty channel above HEAD so the connector descends without crossing other lanes; commits above HEAD (diverged branches, or HEAD's own children in a detached-HEAD view) are pushed to lanes ≥ 1 and HEAD's children merge back into lane 0 at HEAD's row. See `graphLayout.ts` for the lane assignment
 - HEAD also gets a reserved fixed color (`HEAD_COLOR`) in `graphLayout.ts`, so lane 0 (the current branch line) is always the same color regardless of draw order; other lanes are numbered from 1 to avoid the clash. The Working Tree dot/connector read the HEAD node's color (`headColor`) so they match HEAD instead of being hardcoded
@@ -521,29 +521,14 @@ function rowY(row: number): number {
 
 /**
  * Working Tree 固定行 → HEAD コミットへの接続ダッシュ線パス。
- * lane 0 を垂直に降りて、HEAD の1行上からベジェ曲線で HEAD レーンへ合流する。
- * HEAD が row 0 の場合は直接接続する。
+ * HEAD は表示集合内では常に lane 0 に固定されるため、lane 0 上端から HEAD 行まで降りる垂直直線になる。
  */
 const connectorPath = computed(() => {
   const head = headNode.value;
   if (head === undefined) return "";
 
   const x0 = laneX(0);
-  const xHead = laneX(head.node.lane);
-  const headIndex = head.index;
-  const headY = rowY(headIndex);
-
-  // HEAD が lane 0 にいる場合: 垂直直線のみ
-  if (x0 === xHead) {
-    return `M${x0},0L${x0},${headY}`;
-  }
-
-  // lane 0 を垂直に降りて、HEAD の1行上からベジェ曲線で合流。
-  // HEAD が row 0 の場合は turnY = 0 となり、垂直部分なしで直接カーブする。
-  const turnY = headIndex > 0 ? rowY(headIndex - 1) : 0;
-  const span = headY - turnY;
-  const d = span * 0.8;
-  return `M${x0},0L${x0},${turnY}C${x0},${turnY + d} ${xHead},${headY - d} ${xHead},${headY}`;
+  return `M${x0},0L${x0},${rowY(head.index)}`;
 });
 
 /** ブランチの色パレット */
@@ -723,10 +708,10 @@ function selectedIndex(): number {
 
 /** 選択を Uncommitted Changes に戻し、HEAD コミット付近にスクロール */
 function scrollHeadIntoView() {
-  const index = layout.value.nodes.findIndex((n) => n.commit.refs.includes("HEAD"));
-  if (index === -1) return;
+  const head = headNode.value;
+  if (head === undefined) return;
   gitGraphStore.resetSelection();
-  scrollToCenter(index);
+  scrollToCenter(head.index);
 }
 
 /** 指定行をビューポート中央にスクロール */

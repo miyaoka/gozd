@@ -141,6 +141,17 @@ describe("computeGraphLayout の HEAD 最左固定", () => {
     expect(colors.get("c0")).toBe(HEAD_COLOR);
   });
 
+  test("非 tip な HEAD でも固定色 (HEAD_COLOR) を割り当て、子は別色・親系統は同色になる", () => {
+    // c0 が c1 (HEAD) を parent に持つ非 tip 構成。isHead && matchingLanes あり経路を踏む。
+    // 子 c0 は lane 1 へ追いやられ別色、HEAD は色 0、HEAD の first parent c2 は lane 0 の色 0 を継ぐ。
+    const commits = [commit("c0", ["c1"]), commit("c1", ["c2"], ["HEAD"]), commit("c2", [])];
+    const colors = colorByHash(computeGraphLayout(commits, { headHash: "c1" }));
+    expect(colors.get("c1")).toBe(HEAD_COLOR);
+    expect(colors.get("c0")).not.toBe(HEAD_COLOR);
+    // HEAD の親系統は lane 0 = current branch の線なので HEAD と同色
+    expect(colors.get("c2")).toBe(HEAD_COLOR);
+  });
+
   test("HEAD 不在なら色 0 を予約せず先頭コミットが色 0 を取る", () => {
     const commits = [commit("c0", ["c1"]), commit("c1", [])];
     const colors = colorByHash(computeGraphLayout(commits, { headHash: "missing" }));

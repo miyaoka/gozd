@@ -35,32 +35,49 @@ Token 一覧は SSOT として `apps/renderer/src/assets/main.css` の `@theme` 
 | focus ring                           | `ring-ring`              |
 | dialog backdrop                      | `bg-overlay`             |
 
+#### Intent vs Accent の使い分け
+
+要素が **特定 intent を意味する** (active 状態が primary を表す / エラーが destructive
+を表す 等) なら intent system を使う。intent を持たない **汎用 hover / selection
+overlay** (一覧の generic item / menu hover) は accent system (`bg-accent` /
+`bg-accent-strong`) を使う。「active な list item」でも「primary という意味を持つ active」
+なら intent 系 selected row、「単に選択された汎用 item」なら `bg-accent-strong`。
+
 #### Intent ペア (primary / destructive / success / warning / warning-strong / info)
 
 intent (`primary` / `destructive` / `success` / `warning` / `warning-strong` / `info`)
-を当てるときは **必ず以下 5 つの用法のどれか** で書く。`bg-<intent>` と `text-<intent>` を
+を当てるときは **必ず以下 9 つの用法のどれか** で書く。`bg-<intent>` と `text-<intent>` を
 **同 token で直接 pair しない** (両方とも palette 由来の同色になり contrast を割る)。
-alpha 値は以下の **固定セット** (`/10` / `/15` / `/30` / `/40`) からのみ選ぶ。他 (`/20` / `/25` /
-`/50` 等) は SSOT 違反として禁止。
+alpha 値は以下の **固定セット** (bg = `/10` / `/15` / `/30` / `/40`、border = `/60`)
+からのみ選ぶ。他 (`/20` / `/25` / `/50` 等) は SSOT 違反として禁止。
 
-| 用法                                                  | bg                                    | border                      | text                       | 例                                                                   |
-| ----------------------------------------------------- | ------------------------------------- | --------------------------- | -------------------------- | -------------------------------------------------------------------- |
-| **solid 強調** (button / current branch)              | `bg-<intent>`                         | —                           | `text-<intent>-foreground` | `bg-primary text-primary-foreground`                                 |
-| **subtle chip** (badge / tag / inline alert)          | `bg-<intent>/15`                      | —                           | `text-<intent>`            | `bg-success/15 text-success`                                         |
-| **faint cell** (file status row / diff 行 / 弱い選択) | `bg-<intent>/10`                      | —                           | `text-<intent>` (省略可)   | `bg-success/10` (diff added 行)                                      |
-| **selected row** (active list item / 強い選択)        | `bg-<intent>/30 hover:bg-<intent>/40` | —                           | `text-<intent>` (省略可)   | `data-[active=true]:bg-primary/30 hover:bg-primary/40`               |
-| **translucent solid** (chat bubble / 強調コンテナ)    | `bg-<intent>/40`                      | `border-<intent>/60` (任意) | `text-<intent>-foreground` | `border-success/60 bg-success/40 text-success-foreground` (吹き出し) |
-| **text-only** (link / icon / inline)                  | (面なし)                              | —                           | `text-<intent>`            | `text-info` / `text-destructive`                                     |
+| 用法                                                   | bg                                    | border               | text                       |
+| ------------------------------------------------------ | ------------------------------------- | -------------------- | -------------------------- |
+| **solid** (button)                                     | `bg-<intent>`                         | —                    | `text-<intent>-foreground` |
+| **translucent solid** (chat bubble)                    | `bg-<intent>/40`                      | —                    | `text-<intent>-foreground` |
+| **bordered translucent** (強調塗りコンテナ / 選択強調) | `bg-<intent>/40`                      | `border-<intent>/60` | `text-<intent>-foreground` |
+| **outlined banner** (toast / banner; 中身は neutral)   | `bg-<intent>/15`                      | `border-<intent>/60` | —                          |
+| **subtle chip** (badge / tag / inline alert)           | `bg-<intent>/15`                      | —                    | `text-<intent>`            |
+| **faint chip** (file status row / icon chip)           | `bg-<intent>/10`                      | —                    | `text-<intent>`            |
+| **line tint** (diff 行 / 弱い背景強調; 中身は neutral) | `bg-<intent>/10`                      | —                    | —                          |
+| **selected row** (active list item; 中身は neutral)    | `bg-<intent>/30 hover:bg-<intent>/40` | —                    | —                          |
+| **text-only** (link / icon / inline)                   | —                                     | —                    | `text-<intent>`            |
+
+text 列が `text-<intent>` / `text-<intent>-foreground` の用法は **その要素が intent を
+text として運ぶ** (chip / button / chat bubble)。text 列が `—` の用法は **container** で、
+中身は通常コンテンツ (`text-foreground` 系) を wrap し、intent は chrome (bg / border /
+icon) で示す。
 
 `<intent>-foreground` を持つのは `primary` / `destructive` / `success` / `warning`。
-`info` / `warning-strong` は text-only / subtle chip / faint cell / selected row のみで使う
-(solid / translucent solid 用 foreground 未定義)。warning は light yellow (OKLCH 0.852)
-なので foreground は dark (`text-warning-foreground` = dark zinc) で正しく contrast が
-取れる。他 intent は中間明度で light foreground (white-ish)。
+`info` / `warning-strong` は solid / translucent solid / bordered translucent 用の
+foreground 未定義のため、それら 3 用法では使えない (text-only / chip 系 / line tint /
+selected row のみで使う)。warning は light yellow (OKLCH 0.852) なので foreground は
+dark (`text-warning-foreground` = dark zinc) で正しく contrast が取れる。他 intent
+(primary / destructive / success) は中間明度で light foreground (white-ish)。
 
-hover state は **必ず base と異なる token / alpha** を当てる (`hover:bg-warning-strong` の
-ように base と同 token は dead branch)。`hover:bg-<intent>/80` 等で alpha 差を作るか、
-`hover:bg-<intent>-strong` 系で 1 段階強める。selected row では `/30` → `/40` のペアが正規。
+hover state は **必ず base と異なる token / alpha** を当てる (`hover:bg-warning-strong`
+のように base と同 token は dead branch)。selected row は `/30` → `/40` のペアが正規 (上表)。
+solid / chip 系の hover は `hover:bg-<intent>/80` 等 alpha 差で 1 段階強める。
 
 ### ✗ NG
 

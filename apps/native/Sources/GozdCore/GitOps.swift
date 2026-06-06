@@ -162,6 +162,17 @@ public enum GitOps {
       args: ["fetch", "--all", "--no-write-fetch-head"], cwd: dir)
   }
 
+  /// `git log --format=<format>` の format string SSOT。`runLogStdin` / `logLine` 等の
+  /// commit metadata 取得経路はすべてこの定数を使う。`parseLogRecords` が期待する 8 fields /
+  /// US separator / RS terminator 構成と一対一で対応する。format を変えるなら
+  /// `parseLogRecords` も同時に触ること (parse 側の field 数 / 各 field の意味と直結)。
+  ///
+  /// fields ( US `\u{1f}` 区切り、最後の `\u{1e}` で record 終端 ):
+  /// `%H` hash / `%h` shortHash / `%P` parents / `%an` author /
+  /// `%at` author date (unix epoch) / `%s` subject / `%b` body / `%D` refs
+  internal static let logFormat: String =
+    "%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e"
+
   public struct LogResult: Sendable {
     public let commits: [CommitInfo]
     public let defaultBranch: String
@@ -348,12 +359,11 @@ public enum GitOps {
           "runLogStdin: ref name contains control characters (CR/LF/NUL): refusing to inject")
       }
     }
-    // %x1f = unit separator (US), %x1e = record separator (RS)
-    let format = "%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e"
+    // format / parse の SSOT は `logFormat` + `parseLogRecords`。
     // `--decorate=short` でユーザーの `log.decorate=full` 設定を上書きする。
     // full にすると %D が `refs/heads/main` / `refs/remotes/origin/main` 形式になり、
     // renderer の `r.startsWith("origin/")` / current branch 抽出が崩れる。
-    var args = ["log", "--format=\(format)", "--decorate=short"]
+    var args = ["log", "--format=\(GitOps.logFormat)", "--decorate=short"]
     switch sortMode {
     case .topo: args.append("--topo-order")
     case .date: args.append("--date-order")
@@ -369,14 +379,11 @@ public enum GitOps {
     return try parseLogRecords(text)
   }
 
-  /// `git log --format=<format>` の生 stdout を CommitInfo 配列にパースする pure 関数。
+  /// `git log --format=<logFormat>` の生 stdout を CommitInfo 配列にパースする pure 関数。
   ///
-  /// `runLogStdin` の parse 部を切り出した seam。fixture を直接渡せるため、parts.count != 8 /
-  /// Int64 parse 失敗 / 空入力 / trailing whitespace 等の境界を unit-test で踏める。
-  /// `runLogStdin` が固定する format
-  /// `%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e`
-  /// (8 US-separated fields per record, RS-terminated) と一対一で対応する。format を変えるなら
-  /// 同時に本関数も触ること。
+  /// `logFormat` 定数と一対一で対応する。format を変えるなら同時に本関数も触ること。
+  /// `runLogStdin` / `logLine` 等の commit metadata 取得経路はすべてこの parser を経由する
+  /// SSOT で、parse の strict 契約 (8 fields / Int64 author date) を共通化する。
   ///
   /// throws:
   /// - `unexpectedOutput`: record の field 数が 8 でない (US 混入や git format 変更)、または
@@ -999,8 +1006,9 @@ public enum GitOps {
 
   /// 単一行の変更履歴。`git log -L<line>,<line>:<relPath> --no-patch <rev>` 相当。
   ///
-  /// `--no-patch` で diff 本体を抑制し、custom `--format` で commit metadata のみ取り出す。
-  /// 既存 `log` と同じ %x1f / %x1e 区切りに揃えて parse ロジックを共有する。
+  /// `--no-patch` で diff 本体を抑制し、`logFormat` 定数で commit metadata のみ取り出す。
+  /// parse は `parseLogRecords` SSOT を経由するため、`runLogStdin` と同じ strict 契約
+  /// (8 fields 不一致 / Int64 author date 失敗 → `unexpectedOutput` throw) を共有する。
   ///
   /// path に `:` を含む場合は `-L<n>,<n>:<path>` の syntax が壊れるため reject。
   /// rev は `validateRev` で `-` 始まり等の option 注入を弾き、加えて **空文字も reject** する。
@@ -1021,10 +1029,9 @@ public enum GitOps {
       // path に `:` を含むと正しく parse されない。仕様上の制約のため明示 reject。
       throw GitError.unexpectedOutput("git log -L: path contains ':', which is unsupported")
     }
-    let format = "%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e"
     var args = [
       "log",
-      "--format=\(format)",
+      "--format=\(GitOps.logFormat)",
       "--decorate=short",
       "--no-patch",
       "-L", "\(line),\(line):\(relPath)",
@@ -1033,24 +1040,7 @@ public enum GitOps {
     args.append(rev)
     let stdout = try await runGit(args: args, cwd: dir)
     let text = String(decoding: stdout, as: UTF8.self)
-    var commits: [CommitInfo] = []
-    for record in text.split(separator: "\u{1e}", omittingEmptySubsequences: true) {
-      let trimmed = record.trimmingCharacters(in: .whitespacesAndNewlines)
-      if trimmed.isEmpty { continue }
-      let parts = trimmed.split(separator: "\u{1f}", omittingEmptySubsequences: false).map(
-        String.init)
-      guard parts.count == 8 else { continue }
-      let parents =
-        parts[2].isEmpty
-        ? [] : parts[2].split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-      let date = Int64(parts[4]) ?? 0
-      let refs = parseRefs(parts[7])
-      commits.append(
-        CommitInfo(
-          hash: parts[0], shortHash: parts[1], parents: parents, author: parts[3], date: date,
-          message: parts[5], body: parts[6], refs: refs))
-    }
-    return commits
+    return try parseLogRecords(text)
   }
 }
 

@@ -462,12 +462,13 @@ public struct Gozd_V1_GitCommitFilesResponse: Sendable {
   public init() {}
 }
 
-/// gitPrDiffFiles: PR base..working tree の変更ファイル一覧 (untracked を含む)
+/// gitPrDiffFiles: PR base..working tree の tracked 変更ファイル一覧
 ///
 /// base_hash 自身は含まず、`git diff <base_hash>` (右辺省略 = working tree) で実行する。
-/// `--diff-filter=AMDR` で除外される untracked file (`??`) は Swift 側で
-/// `git status --porcelain=v1` から拾って type=U として merge する。
-/// 「PR をいま push したら base に何が入るか」(commit + uncommitted + untracked) を 1 RPC で返す SSOT。
+/// `--diff-filter=AMDR` で除外される untracked file (`??`) は本 RPC では返さない。
+/// 「PR をいま push したら base に何が入るか」のうち untracked 分の merge は renderer 側
+/// (`useChangesStore.fileChanges`) が `gitStatusStore` 由来の untracked を append して行う。
+/// untracked を `U` として写す責務を 1 か所 (renderer) に閉じ、range + working-tree 端の経路と揃える。
 public struct Gozd_V1_GitPrDiffFilesRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for

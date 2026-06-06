@@ -94,6 +94,15 @@ export const useChangesStore = defineStore("changes", () => {
       .map(([path]) => ({ oldFilePath: path, newFilePath: path, type: "U" as const })),
   );
 
+  /** `git diff --diff-filter=AMDR` 由来の tracked 変更に untracked を append する untracked merge の
+   * SSOT。PR diff モードと range mode + Working Tree 端が共有する。dedup は newFilePath key で行う
+   * (Swift 側 diff の path 表記と gitStatus の path 表記は同一形式)。 */
+  function mergeUntracked(tracked: GitFileChange[]): GitFileChange[] {
+    const seen = new Set(tracked.map((c) => c.newFilePath));
+    const extras = untrackedFiles.value.filter((c) => !seen.has(c.newFilePath));
+    return [...tracked, ...extras];
+  }
+
   /**
    * 現在の Changes パネルが取得すべきソース。優先順位:
    *
@@ -153,15 +162,10 @@ export const useChangesStore = defineStore("changes", () => {
     const src = source.value;
     if (src.kind === "none") return [];
     if (src.kind === "workingTree") return gitStatusToFileChanges(gitStatusStore.gitStatuses);
-    // gitPrDiffFiles が Swift 側で untracked merge 済み。renderer 側追加処理は不要。
-    if (src.kind === "prDiff") return fetchedFiles.value;
-    if (src.kind === "range" && src.includeWorkingTree) {
-      // range mode で Working Tree 端を含むときは untracked を append する
-      // (--diff-filter=AMDR で除外されるため)。PR diff と同じ untracked 含む semantic に揃える。
-      const seen = new Set(fetchedFiles.value.map((c) => c.newFilePath));
-      const extras = untrackedFiles.value.filter((c) => !seen.has(c.newFilePath));
-      return [...fetchedFiles.value, ...extras];
-    }
+    // PR diff / range mode + Working Tree 端は --diff-filter=AMDR で untracked が除外されるため、
+    // untracked merge の SSOT (`mergeUntracked`) を通して「base に入る untracked」を append する。
+    if (src.kind === "prDiff") return mergeUntracked(fetchedFiles.value);
+    if (src.kind === "range" && src.includeWorkingTree) return mergeUntracked(fetchedFiles.value);
     // range (WT 端なし) / commit はそのまま fetched を返す
     return fetchedFiles.value;
   });
@@ -170,8 +174,9 @@ export const useChangesStore = defineStore("changes", () => {
    * source が変わったら fetch (workingTree / none は fetch 不要なので skip)。
    *
    * 経路ごとの RPC 呼び分け:
-   * - prDiff: `rpcGitPrDiffFiles` (Swift 側で git diff + untracked merge を完結)。
-   *   base OID 未 reachable なら `useRemoteFetchStore.requestImmediateFetch` 経由で fetch を要求。
+   * - prDiff: `rpcGitPrDiffFiles` (Swift 側は tracked AMDR diff のみ。untracked は `fileChanges`
+   *   computed が `mergeUntracked` で append する)。base OID 未 reachable なら
+   *   `useRemoteFetchStore.requestImmediateFetch` 経由で fetch を要求。
    * - range / commit: `rpcGitCommitFiles` (既存)
    *
    * fetch 経路は `useRemoteFetchStore` の SSOT を共有することで、背景 polling と on-demand 要求の

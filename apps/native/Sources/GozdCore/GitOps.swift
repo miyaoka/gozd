@@ -620,33 +620,24 @@ public enum GitOps {
     return parseDiffNameStatus(stdout)
   }
 
-  /// PR diff: `baseHash` から working tree までの name-status 差分 + untracked file (`?? `) を merge。
+  /// PR diff: `baseHash` から working tree までの tracked file の name-status 差分を返す。
   ///
-  /// 「PR をいま push したら base に何が入るか」(commit + uncommitted + untracked) を 1 経路で返す
+  /// 「PR をいま push したら base に何が入るか」のうち **commit 済み + uncommitted (tracked)** を担う
   /// 専用 entry point。`commitFiles` の range 経路 + olderIsBase=true で代用していた構造を解体し、
   /// proto の `rangeHashes` (first-parent walk 結果) wire 契約と切り離す。
   ///
+  /// untracked file の merge は本関数では行わない。renderer 側 (`useChangesStore.fileChanges`) が
+  /// `gitStatusStore` 由来の untracked を append する SSOT に一本化したため、untracked を `U` として
+  /// 写す責務は renderer の 1 か所に閉じる (range + working-tree 端の経路と同一層に揃える)。
+  ///
   /// 実装:
   /// - `git diff --name-status -z --find-renames --diff-filter=AMDR <baseHash>` で base..working
-  /// - `gitStatus()` (porcelain=v1 -z --untracked-files=all を `parsePorcelainV1` で正規化) から
-  ///   `?? ` (untracked) のみ抽出して type=U で append。porcelain parsing は 1 SSOT
-  ///   (`parsePorcelainV1`) に集約し、本関数では path → XY map に対する filter のみ行う。
-  ///   rename entry の 2 NUL 構造などの parser 細部は SSOT 側に閉じる
-  /// - dedup は newPath key で行う (porcelain と diff の path 表記は同一形式)
+  ///   (右辺省略 = working tree)。rename は `--find-renames` が `R` として解決する。
   public static func prDiffFiles(dir: String, baseHash: String) async throws -> [FileChangeInfo] {
     try validateRev(baseHash)
     let diffOptions = ["--name-status", "-z", "--find-renames", "--diff-filter=AMDR"]
     let diffOut = try await runGit(args: ["diff"] + diffOptions + [baseHash], cwd: dir)
-    var changes = parseDiffNameStatus(diffOut)
-
-    let statuses = try await gitStatus(dir: dir)
-    let seen = Set(changes.map { $0.newPath })
-    for (path, xy) in statuses {
-      guard xy == "??" else { continue }
-      if seen.contains(path) { continue }
-      changes.append(FileChangeInfo(oldPath: path, newPath: path, type: "U"))
-    }
-    return changes
+    return parseDiffNameStatus(diffOut)
   }
 
   /// 指定 rev (commit OID) が local repo に reachable か。`git cat-file -e <hash>` 相当。

@@ -51,18 +51,23 @@ intent (`primary` / `destructive` / `success` / `warning` / `warning-strong` / `
 alpha 値は以下の **固定セット** (bg = `/10` / `/15` / `/30` / `/40`、border = `/60`)
 からのみ選ぶ。他 (`/20` / `/25` / `/50` 等) は SSOT 違反として禁止。
 
-| 用法                                                   | bg                                    | border               | text                       |
-| ------------------------------------------------------ | ------------------------------------- | -------------------- | -------------------------- |
-| **solid** (button)                                     | `bg-<intent>`                         | —                    | `text-<intent>-foreground` |
-| **translucent solid** (chat bubble)                    | `bg-<intent>/40`                      | —                    | `text-<intent>-foreground` |
-| **bordered translucent** (強調塗りコンテナ / 選択強調) | `bg-<intent>/40`                      | `border-<intent>/60` | `text-<intent>-foreground` |
-| **outlined banner** (toast / banner; 中身は neutral)   | `bg-<intent>/15`                      | `border-<intent>/60` | —                          |
-| **subtle chip** (badge / tag / inline alert)           | `bg-<intent>/15`                      | —                    | `text-<intent>`            |
-| **faint chip** (file status row / icon chip)           | `bg-<intent>/10`                      | —                    | `text-<intent>`            |
-| **line tint** (diff 行 / 弱い背景強調; 中身は neutral) | `bg-<intent>/10`                      | —                    | —                          |
-| **selected row** (active list item; 中身は neutral)    | `bg-<intent>/30 hover:bg-<intent>/40` | —                    | —                          |
-| **indicator stripe** (active tab 下線 / underline)     | —                                     | `border-<intent>`    | `text-<intent>`            |
-| **text-only** (link / icon / inline)                   | —                                     | —                    | `text-<intent>`            |
+| 用法                                                           | bg                                    | border               | text                       |
+| -------------------------------------------------------------- | ------------------------------------- | -------------------- | -------------------------- |
+| **solid button** (click 可能、hover あり)                      | `bg-<intent>`                         | —                    | `text-<intent>-foreground` |
+| **solid static** (current branch / static badge / toggle chip) | `bg-<intent>`                         | —                    | `text-<intent>-foreground` |
+| **translucent solid** (chat bubble)                            | `bg-<intent>/40`                      | —                    | `text-<intent>-foreground` |
+| **bordered translucent** (強調塗りコンテナ / 選択強調)         | `bg-<intent>/40`                      | `border-<intent>/60` | `text-<intent>-foreground` |
+| **outlined banner** (toast / banner; 中身は neutral)           | `bg-<intent>/15`                      | `border-<intent>/60` | —                          |
+| **subtle chip** (badge / tag / inline alert)                   | `bg-<intent>/15`                      | —                    | `text-<intent>`            |
+| **faint chip** (file status row / icon chip)                   | `bg-<intent>/10`                      | —                    | `text-<intent>`            |
+| **line tint** (diff 行 / 弱い背景強調; 中身は neutral)         | `bg-<intent>/10`                      | —                    | —                          |
+| **selected row** (active list item; 中身は neutral)            | `bg-<intent>/30 hover:bg-<intent>/40` | —                    | —                          |
+| **indicator stripe** (active tab 下線 / underline)             | —                                     | `border-<intent>`    | `text-<intent>`            |
+| **text-only** (link / icon / inline)                           | —                                     | —                    | `text-<intent>`            |
+
+`solid button` と `solid static` は bg / text 列が同値だが hover 列の有無で別用法。click
+可能で hover フィードバックが要る要素は `solid button`、static badge / 状態 toggle で
+hover による視覚変化が無い要素は `solid static` (hover 表に項目を持たない)。
 
 text 列が `text-<intent>` / `text-<intent>-foreground` の用法は **その要素が intent を
 text として運ぶ** (chip / button / chat bubble)。text 列が `—` の用法は **container** で、
@@ -81,16 +86,22 @@ hover state は **必ず base と異なる token / alpha** を当てる (`hover:
 
 | base 用法         | base bg          | hover bg               |
 | ----------------- | ---------------- | ---------------------- |
-| solid             | `bg-<intent>`    | `hover:bg-<intent>/80` |
+| solid button      | `bg-<intent>`    | `hover:bg-<intent>/80` |
 | translucent solid | `bg-<intent>/40` | `hover:bg-<intent>/80` |
 | selected row      | `bg-<intent>/30` | `hover:bg-<intent>/40` |
 | subtle chip       | `bg-<intent>/15` | `hover:bg-<intent>/30` |
 | faint chip        | `bg-<intent>/10` | `hover:bg-<intent>/15` |
 
 hover 値は base alpha の **1 段階上** が原則 (base alpha 固定セット `/10` → `/15` → `/30` →
-`/40` の 1 段移動)。`solid` / `translucent solid` のみ alpha なし base から `/80` 透過に
-切り替える例外。`hover:bg-<intent>/80` を base alpha が小さい chip 系で使うと 5 倍以上の
-濃度跳躍になり視覚過剰のため禁止。
+`/40` の 1 段移動)。`solid button` / `translucent solid` のみ alpha なし base から `/80`
+透過に切り替える例外。`hover:bg-<intent>/80` を base alpha が小さい chip 系で使うと 5 倍
+以上の濃度跳躍になり視覚過剰のため禁止。`solid static` / 上表に無い用法 (outlined banner /
+line tint / indicator stripe / text-only) は hover 効果なし (規律上 hover を付けない)。
+
+同じ alpha 値 (`/30` / `/40`) が複数行 (subtle chip の hover bg と selected row の base bg、
+selected row の hover bg と translucent solid の base bg) に出現するが、これは許容: alpha
+だけで用法判定はせず、要素種別 (chip / row / button) × 状態軸 (base / hover) の組で意味判定
+する。chip と list row は空間的に重ならないため視覚的衝突は起きない。
 
 ### ✗ NG
 

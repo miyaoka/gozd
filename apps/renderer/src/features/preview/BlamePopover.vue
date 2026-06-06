@@ -71,8 +71,7 @@ function isHistoryDisabled(): boolean {
     popover="auto"
     class="m-0 w-104 max-w-[90vw] rounded-lg border border-zinc-700 bg-zinc-900 text-sm text-zinc-200 shadow-xl"
     :style="{
-      top: 'anchor(bottom)',
-      left: 'anchor(left)',
+      positionArea: 'block-end span-inline-end',
     }"
     @toggle="onToggle"
   >
@@ -208,6 +207,9 @@ function isHistoryDisabled(): boolean {
 <style scoped>
 [popover] {
   position: fixed;
-  position-try-fallbacks: flip-block, flip-inline;
+  position-try-fallbacks:
+    flip-block,
+    flip-inline,
+    flip-block flip-inline;
 }
 </style>

@@ -26,9 +26,8 @@ function handleRemove() {
     class="m-0 min-w-36 rounded-lg border border-zinc-700 bg-zinc-900 py-1 text-sm text-zinc-200 shadow-lg"
     :style="{
       position: 'fixed',
-      top: 'anchor(bottom)',
-      left: 'anchor(left)',
-      positionTryFallbacks: 'flip-block, flip-inline',
+      positionArea: 'block-end span-inline-end',
+      positionTryFallbacks: 'flip-block, flip-inline, flip-block flip-inline',
     }"
   >
     <button

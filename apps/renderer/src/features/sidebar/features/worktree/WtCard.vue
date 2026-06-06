@@ -157,7 +157,7 @@ function onHeaderClick() {
         v-if="canRemove"
         type="button"
         aria-label="Open menu"
-        class="absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded-sm bg-zinc-800 text-zinc-300 opacity-0 shadow-md ring-1 ring-zinc-700 transition-opacity duration-100 group-focus-within/wt:opacity-100 group-hover/wt:opacity-100 hover:bg-zinc-700 hover:text-zinc-100"
+        class="absolute inset-y-0 right-1 my-auto grid size-5 place-items-center rounded-sm bg-zinc-800 text-zinc-300 opacity-0 shadow-md ring-1 ring-zinc-700 transition-opacity duration-100 group-focus-within/wt:opacity-100 group-hover/wt:opacity-100 hover:bg-zinc-700 hover:text-zinc-100"
         @click="onMenuClick"
       >
         <span class="icon-[lucide--ellipsis-vertical] text-xs" />

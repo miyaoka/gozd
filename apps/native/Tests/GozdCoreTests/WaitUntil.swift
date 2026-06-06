@@ -5,7 +5,35 @@ import Testing
 
 // `condition()` が true になるまで小さくポーリングで待つ test 共有 helper。
 //
-// 実装契約:
+// ## 用途規律 (issue #710 系譜)
+//
+// **使用可: SUT 側に async barrier (AsyncStream / actor accessor / continuation) を生やせない
+// OS event の到達待ち**
+//   - FSEvents kqueue 経路 (FSWatcher / FSWatchRegistry の event propagation 待ち)
+//   - socket file の出現待ち (SocketServer の listener bind 確認)
+//   - `sleepThreaded` と組み合わせた negative test (event が **来ないこと** の verify)
+//
+// **使用不可: SUT 側に AsyncStream / callback accessor を持てる event 観察**
+//   - PTY exit 観察 (`PTYManager.spawn` の onExit callback / `PTYRegistry` の onExit callback)
+//     → test 側 AsyncStream.makeStream() を callback に直結する (PTYEventBridge / PTYRegistryEventBridge
+//     パターン、PTYManagerTests / PTYRegistryTests / RpcDispatcherTests 参照)
+//   - hook message / socket message 観察
+//     → 同じく test 側 AsyncStream.makeStream() で callback bridge
+//   - actor accessor で待てる状態到達 (`PTYRegistry.awaitEmpty()` 等の SUT API)
+//
+// 使用不可カテゴリに本 helper を当てると、`callback → NSLock + Bool snapshot → 50ms tick polling →
+// 経験則 timeout (2-3 秒)` という確率的 bridge が test に混入し、CI runner 負荷分布の長尾で
+// flake する (issue #710: 2.13 秒で 2 秒 timeout を割った flake)。
+//
+// **規律確認のチェックリスト**:
+//   - その event は SUT 側で同期 callback / yield / actor accessor 経由で観測できないか?
+//   - できるなら AsyncStream.makeStream() + `for await` に置き換える (polling 0 段、timeout 0 段)
+//   - permanent suspend (production bug) は suite-level `.timeLimit(.minutes(1))` trait が breaker
+//
+// 既存 callsite は kqueue / FSEvents 経路に限定して残っており、各 callsite で本規律のどの
+// カテゴリに該当するかを 1 行で justify するコメントを付ける。
+//
+// ## 実装契約:
 //
 // - polling loop ( condition 評価 / trace 出力 / `Thread.sleep(forTimeInterval:)` ) は
 //   `Thread { ... }.start()` で立てた **dedicated NSThread** 上で完結する。Swift Concurrency

@@ -5,19 +5,19 @@ import Testing
 
 // `.serialized` で直列実行する（issue #556 観測項目 4）。
 // PTYManagerTests と同様、複数 PTY の並列 spawn を構造的に消すことで再発時の
-// trace 解析（pid と test の対応復元）を容易にする。
-// PTY を spawn する suite を跨いだ並列実行も避けるため、両 suite を揃って直列化する。
-@Suite("PTYRegistry", .serialized)
+// trace 解析（pid と test の対応復元）を容易にする。test 自体の決定性は AsyncStream-based
+// barrier で確保するため CPU 競合を理由とした直列化ではないが、trace 解析容易性のために維持する。
+//
+// `.timeLimit(.minutes(1))` は production 側 bug (AsyncStream.exit が永久に来ない deadlock
+// 等) で test が永久 hang するのを test framework 経由の fail に倒す breaker (issue #710 系譜)。
+@Suite("PTYRegistry", .serialized, .timeLimit(.minutes(1)))
 struct PTYRegistryTests {
   @Test("spawn は連番の ptyId を返し、onText / onExit が ID 付きで配送される")
   func spawnAndExitDispatch() async throws {
     testTrace("started")
     defer { testTrace("ended") }
-    let events = EventCollector()
-    let registry = PTYRegistry(
-      onText: { id, text in events.appendText(id: id, text: text) },
-      onExit: { id, reason in events.appendExit(id: id, reason: reason) }
-    )
+    let bridge = PTYRegistryEventBridge()
+    let registry = PTYRegistry(onText: bridge.onText, onExit: bridge.onExit)
 
     let id1 = try await registry.spawn(
       executable: "/bin/echo",
@@ -41,23 +41,19 @@ struct PTYRegistryTests {
     // test である本 test の副次 assertion に統合した（PR #597 review feedback）。
     #expect(id2 == id1 + 1)
 
-    await waitUntil(timeout: .seconds(3)) {
-      events.exitedIds().contains(id1) && events.exitedIds().contains(id2)
-    }
-
-    #expect(events.textFor(id: id1).contains("hello"))
-    #expect(events.textFor(id: id2).contains("world"))
+    // 両 PTY の exit event 到達まで決定的に待つ。AsyncStream FIFO が production の
+    // text/exit 順序を保つため polling 不要。
+    let (texts, _) = await bridge.consumeUntilExitedIds([id1, id2])
+    #expect((texts[id1] ?? "").contains("hello"))
+    #expect((texts[id2] ?? "").contains("world"))
   }
 
   @Test("kill 後に PTY が registry から自動削除される")
   func cleanupOnKill() async throws {
     testTrace("started")
     defer { testTrace("ended") }
-    let events = EventCollector()
-    let registry = PTYRegistry(
-      onText: { id, text in events.appendText(id: id, text: text) },
-      onExit: { id, reason in events.appendExit(id: id, reason: reason) }
-    )
+    let bridge = PTYRegistryEventBridge()
+    let registry = PTYRegistry(onText: bridge.onText, onExit: bridge.onExit)
 
     let id = try await registry.spawn(
       executable: "/bin/cat",
@@ -71,9 +67,8 @@ struct PTYRegistryTests {
 
     await registry.kill(id: id)
 
-    await waitUntil(timeout: .seconds(2)) {
-      events.exitedIds().contains(id)
-    }
+    // exit event 到達まで決定的に待つ。
+    _ = await bridge.consumeUntilExitedIds([id])
     // remove は exit handler 経由で `Task { await self.remove }` で発火する。
     // actor 内の Continuation accessor で count==0 到達を待つ。
     await registry.awaitEmpty()
@@ -84,11 +79,8 @@ struct PTYRegistryTests {
   func unknownIdIsNoop() async {
     testTrace("started")
     defer { testTrace("ended") }
-    let events = EventCollector()
-    let registry = PTYRegistry(
-      onText: { id, text in events.appendText(id: id, text: text) },
-      onExit: { id, reason in events.appendExit(id: id, reason: reason) }
-    )
+    let bridge = PTYRegistryEventBridge()
+    let registry = PTYRegistry(onText: bridge.onText, onExit: bridge.onExit)
 
     await registry.write(id: 9999, data: Data("ping\n".utf8))
     await registry.resize(id: 9999, rows: 50, cols: 100)
@@ -103,11 +95,8 @@ struct PTYRegistryTests {
   func expectedResumeSidPopulatedFromEnv() async throws {
     testTrace("started")
     defer { testTrace("ended") }
-    let events = EventCollector()
-    let registry = PTYRegistry(
-      onText: { id, text in events.appendText(id: id, text: text) },
-      onExit: { id, reason in events.appendExit(id: id, reason: reason) }
-    )
+    let bridge = PTYRegistryEventBridge()
+    let registry = PTYRegistry(onText: bridge.onText, onExit: bridge.onExit)
 
     var env = ProcessInfo.processInfo.environment
     env["GOZD_RESUME_CLAUDE_SESSION"] = "expected-sid-X"
@@ -128,11 +117,8 @@ struct PTYRegistryTests {
   func consumeExpectedSidAlwaysConsumes() async throws {
     testTrace("started")
     defer { testTrace("ended") }
-    let events = EventCollector()
-    let registry = PTYRegistry(
-      onText: { id, text in events.appendText(id: id, text: text) },
-      onExit: { id, reason in events.appendExit(id: id, reason: reason) }
-    )
+    let bridge = PTYRegistryEventBridge()
+    let registry = PTYRegistry(onText: bridge.onText, onExit: bridge.onExit)
 
     var env = ProcessInfo.processInfo.environment
     env["GOZD_RESUME_CLAUDE_SESSION"] = "expected-sid-X"
@@ -156,11 +142,8 @@ struct PTYRegistryTests {
   func clearAssociationsLeavesExpectedSid() async throws {
     testTrace("started")
     defer { testTrace("ended") }
-    let events = EventCollector()
-    let registry = PTYRegistry(
-      onText: { id, text in events.appendText(id: id, text: text) },
-      onExit: { id, reason in events.appendExit(id: id, reason: reason) }
-    )
+    let bridge = PTYRegistryEventBridge()
+    let registry = PTYRegistry(onText: bridge.onText, onExit: bridge.onExit)
 
     var env = ProcessInfo.processInfo.environment
     env["GOZD_RESUME_CLAUDE_SESSION"] = "expected-sid-X"
@@ -182,10 +165,11 @@ struct PTYRegistryTests {
 // 登録 / `pidTracker` 加入は全て suspend point の **前** で完了する不変条件を持つ。
 // この suite はその不変条件が並列 spawn でも保たれることを直接 verify する。
 //
-// 親 suite `PTYRegistry` は `.serialized` で直列化されており、並列 spawn の race は
-// 構造的に踏めない。本 suite は default の parallel 実行に置き、`withThrowingTaskGroup`
-// で複数 spawn を同時発射した時の id 採番一意性を assert する。
-@Suite("PTYRegistry.ConcurrentSpawn")
+// **suite 自体は `.serialized`**: 並列 spawn race を発火させる責務は test 内 `withThrowingTaskGroup`
+// で 8 件を同時発射することが担っており、suite を並列実行に置く意義は無い (issue #710 系譜:
+// suite 間並列を消して trace 解析容易性を上げる)。
+// `.timeLimit(.minutes(1))` は production 側 deadlock 検出用 breaker。
+@Suite("PTYRegistry.ConcurrentSpawn", .serialized, .timeLimit(.minutes(1)))
 struct PTYRegistryConcurrentSpawnTests {
   @Test("並列 spawn が一意な ptyId を採番し、並列 remove が actor 上で整合する")
   func concurrentSpawnYieldsUniqueIds() async throws {
@@ -235,41 +219,61 @@ struct PTYRegistryConcurrentSpawnTests {
 
 // MARK: - Helpers
 
-// `waitUntil` は `WaitUntil.swift` の共有実装 ( dedicated NSThread 上で polling loop を完結 )。
-// tick polling 履歴を保持し、timeout 時に Issue.record の message に inline する。
-
 // PTY spawn の cwd 引数に渡す「確定的に存在する dir」。`NSTemporaryDirectory()` は
 // macOS の per-user TMPDIR (`/var/folders/...`) を返し、グローバル `/tmp` と異なり
 // マルチユーザー環境 / サンドボックスでも衝突しない ( CLAUDE.md 規約「`/tmp` を
 // ハードコードしない、`NSTemporaryDirectory()` を使う」)。
 private let testCwd = NSTemporaryDirectory()
 
-private final class EventCollector: @unchecked Sendable {
-  private let lock = NSLock()
-  private var textMap: [UInt32: String] = [:]
-  private var exits: [UInt32: PTYExitReason] = [:]
+private enum PTYRegistryTestEvent: Sendable {
+  case text(UInt32, String)
+  case exit(UInt32, PTYExitReason)
+}
 
-  func appendText(id: UInt32, text: String) {
-    lock.lock()
-    defer { lock.unlock() }
-    textMap[id, default: ""].append(text)
+/// PTYRegistry の `onText` / `onExit` callback を AsyncStream に直結する test 用 bridge。
+///
+/// 設計目的:
+///   - 過去設計 (EventCollector + NSLock + waitUntil polling) は production callback を
+///     mutable snapshot に変換し、50ms tick で polling する確率的経路 (issue #710 系譜)
+///   - 本 bridge は production callback を AsyncStream に直結し、`consumeUntilExitedIds`
+///     で「N 件の id が exit するまで」を決定的に待つ。polling 0 段、timeout 0 段
+///   - 永久 suspend は suite trait `.timeLimit(.minutes(1))` が breaker として吸収する
+///
+/// **単一 consumer 契約**: `stream` は 1 度だけ iterate すること (`consumeUntilExitedIds`
+/// 1 回 または `for await` 1 回)。AsyncStream は single-consumer 契約のため 2 度目の
+/// iteration は未定義動作 (Apple Doc: "iterating an `AsyncStream` more than once results
+/// in undefined behavior")。複数 phase の event 観察には別 bridge インスタンスを使う。
+private final class PTYRegistryEventBridge: Sendable {
+  let onText: @Sendable (UInt32, String) -> Void
+  let onExit: @Sendable (UInt32, PTYExitReason) -> Void
+  let stream: AsyncStream<PTYRegistryTestEvent>
+
+  init() {
+    let (stream, continuation) = AsyncStream<PTYRegistryTestEvent>.makeStream()
+    self.stream = stream
+    self.onText = { continuation.yield(.text($0, $1)) }
+    self.onExit = { continuation.yield(.exit($0, $1)) }
+    // continuation.finish() はここでは呼ばない (複数 PTY の exit を順に受ける)。
+    // consumeUntilExitedIds が break で iteration を終了する。
   }
 
-  func appendExit(id: UInt32, reason: PTYExitReason) {
-    lock.lock()
-    defer { lock.unlock() }
-    exits[id] = reason
-  }
-
-  func textFor(id: UInt32) -> String {
-    lock.lock()
-    defer { lock.unlock() }
-    return textMap[id] ?? ""
-  }
-
-  func exitedIds() -> Set<UInt32> {
-    lock.lock()
-    defer { lock.unlock() }
-    return Set(exits.keys)
+  /// 指定された id 全てが exit するまで event を accumulate する。
+  /// 戻り値は (id → 累積 text, id → exit reason)。
+  func consumeUntilExitedIds(_ targetIds: [UInt32])
+    async -> (texts: [UInt32: String], exits: [UInt32: PTYExitReason])
+  {
+    let targetSet = Set(targetIds)
+    var texts: [UInt32: String] = [:]
+    var exits: [UInt32: PTYExitReason] = [:]
+    for await event in stream {
+      switch event {
+      case .text(let id, let text):
+        texts[id, default: ""].append(text)
+      case .exit(let id, let reason):
+        exits[id] = reason
+      }
+      if targetSet.isSubset(of: Set(exits.keys)) { break }
+    }
+    return (texts, exits)
   }
 }

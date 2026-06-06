@@ -5,18 +5,21 @@ import Testing
 
 // `.serialized` で直列実行する（issue #556 観測項目 4）。並列実行下では複数の PTY が
 // 同時刻に spawn され、CI trace 上で pid 多重化が起きる。`resizeIsSafe` のような
-// timeout 系 flake が再発した時、「どの pid を見ていたのか」をテスト失敗時刻と
-// 一致する spawn pid から目で突き合わせるしか手段が無くなる。
-// 本 suite は ローカル swift test 実測で 1 秒未満、CI macos-26 でも秒オーダー内に収まる
-// ことを想定。直列化による性能劣化は許容範囲。
-@Suite("PTYManager", .serialized)
+// flake が再発した時、「どの pid を見ていたのか」をテスト失敗時刻と一致する spawn pid から
+// 目で突き合わせるしか手段が無くなる。test 自体の決定性は AsyncStream-based barrier で
+// 確保するため CPU 競合を理由とした直列化ではないが、trace 解析容易性のために維持する。
+//
+// `.timeLimit(.minutes(1))` は production 側 bug (AsyncStream.exit が永久に来ない deadlock
+// 等) で test が永久 hang するのを test framework 経由の fail に倒す breaker。個別 test に
+// 経験則 timeout (`.seconds(2)` / `.seconds(3)`) を撒くのは percentile based 確率設計で
+// flake = 0 要件と矛盾するため、suite 単位 1 段に集約する (issue #710 系譜)。
+@Suite("PTYManager", .serialized, .timeLimit(.minutes(1)))
 struct PTYManagerTests {
   @Test("子プロセスの stdout を受け取り、正常終了 (.exited(0)) を検知する")
   func receivesOutputAndExit() async throws {
     testTrace("started")
     defer { testTrace("ended") }
-    let data = DataCollector()
-    let exit = ExitCollector()
+    let bridge = PTYEventBridge()
     let pty = PTYManager()
 
     try pty.spawn(
@@ -26,24 +29,22 @@ struct PTYManagerTests {
       cwd: testCwd,
       rows: 24,
       cols: 80,
-      onData: { data.append($0) },
-      onExit: { exit.set($0) }
+      onData: bridge.onData,
+      onExit: bridge.onExit
     )
 
-    await waitUntil(timeout: .seconds(3)) { exit.snapshot() != nil }
-
+    let (data, reason) = await bridge.consumeUntilExit()
     // pty (tty mode) は ONLCR で \n を \r\n に変換する。
-    let text = String(decoding: data.snapshot(), as: UTF8.self)
+    let text = String(decoding: data, as: UTF8.self)
     #expect(text.contains("hello"))
-    #expect(exit.snapshot() == .exited(code: 0))
+    #expect(reason == .exited(code: 0))
   }
 
   @Test("write した内容を子プロセス経由で読み戻せる（cat エコー）")
   func writeRoundTrip() async throws {
     testTrace("started")
     defer { testTrace("ended") }
-    let data = DataCollector()
-    let exit = ExitCollector()
+    let bridge = PTYEventBridge()
     let pty = PTYManager()
 
     try pty.spawn(
@@ -53,8 +54,8 @@ struct PTYManagerTests {
       cwd: testCwd,
       rows: 24,
       cols: 80,
-      onData: { data.append($0) },
-      onExit: { exit.set($0) }
+      onData: bridge.onData,
+      onExit: bridge.onExit
     )
 
     // 子が execve 段階に到達するまで待つ ( CPty.c の ready pipe barrier を消費 )。
@@ -63,17 +64,28 @@ struct PTYManagerTests {
 
     pty.write(Data("ping\n".utf8))
 
-    await waitUntil(timeout: .seconds(2)) {
-      String(decoding: data.snapshot(), as: UTF8.self).contains("ping")
+    // data event を順に観察し、"ping" 到達で kill → exit event 到達でループ終了。
+    // polling は介在せず production の AsyncStream FIFO が決定的に駆動する。
+    var data = Data()
+    var reason: PTYExitReason?
+    var killed = false
+    for await event in bridge.stream {
+      switch event {
+      case .data(let chunk):
+        data.append(chunk)
+        if !killed && String(decoding: data, as: UTF8.self).contains("ping") {
+          pty.kill()
+          killed = true
+        }
+      case .exit(let r):
+        reason = r
+      }
     }
 
-    pty.kill()
-    await waitUntil(timeout: .seconds(2)) { exit.snapshot() != nil }
-
-    if case .signaled(let sig, _) = exit.snapshot() {
+    if case .signaled(let sig, _) = reason {
       #expect(sig == SIGHUP)
     } else {
-      Issue.record("expected SIGHUP signaled exit, got \(String(describing: exit.snapshot()))")
+      Issue.record("expected SIGHUP signaled exit, got \(String(describing: reason))")
     }
   }
 
@@ -83,8 +95,7 @@ struct PTYManagerTests {
     defer { testTrace("ended") }
     let pty = PTYManager()
     pty.resize(rows: 30, cols: 100)  // fd 未確立: no-op
-    let data = DataCollector()
-    let exit = ExitCollector()
+    let bridge = PTYEventBridge()
     try pty.spawn(
       executable: "/bin/cat",
       args: ["cat"],
@@ -92,21 +103,20 @@ struct PTYManagerTests {
       cwd: testCwd,
       rows: 24,
       cols: 80,
-      onData: { data.append($0) },
-      onExit: { exit.set($0) }
+      onData: bridge.onData,
+      onExit: bridge.onExit
     )
     pty.resize(rows: 40, cols: 120)
     pty.kill()
-    await waitUntil(timeout: .seconds(2)) { exit.snapshot() != nil }
-    #expect(exit.snapshot() != nil)
+    let (_, reason) = await bridge.consumeUntilExit()
+    #expect(reason != nil)
   }
 
   @Test("0 byte 出力で正常終了する child (/usr/bin/true) でも onExit が発火する")
   func zeroByteOutput() async throws {
     testTrace("started")
     defer { testTrace("ended") }
-    let data = DataCollector()
-    let exit = ExitCollector()
+    let bridge = PTYEventBridge()
     let pty = PTYManager()
 
     try pty.spawn(
@@ -116,23 +126,21 @@ struct PTYManagerTests {
       cwd: testCwd,
       rows: 24,
       cols: 80,
-      onData: { data.append($0) },
-      onExit: { exit.set($0) }
+      onData: bridge.onData,
+      onExit: bridge.onExit
     )
 
-    await waitUntil(timeout: .seconds(3)) { exit.snapshot() != nil }
-
+    let (_, reason) = await bridge.consumeUntilExit()
     // /usr/bin/true は何も出力せず exit 0 で終わる。
     // tty mode で promptless なので、データは 0 byte または echo 由来の数 byte のみ。
-    #expect(exit.snapshot() == .exited(code: 0))
+    #expect(reason == .exited(code: 0))
   }
 
   @Test("stderr のみに書く child の出力も master fd から読める")
   func stderrIsCapturedThroughSlave() async throws {
     testTrace("started")
     defer { testTrace("ended") }
-    let data = DataCollector()
-    let exit = ExitCollector()
+    let bridge = PTYEventBridge()
     let pty = PTYManager()
 
     try pty.spawn(
@@ -142,25 +150,23 @@ struct PTYManagerTests {
       cwd: testCwd,
       rows: 24,
       cols: 80,
-      onData: { data.append($0) },
-      onExit: { exit.set($0) }
+      onData: bridge.onData,
+      onExit: bridge.onExit
     )
 
-    await waitUntil(timeout: .seconds(3)) { exit.snapshot() != nil }
-
+    let (data, reason) = await bridge.consumeUntilExit()
     // login_tty で slave fd は stdin/stdout/stderr すべてに dup2 されているため
     // stderr 出力も master 経由で観測できる。
-    let text = String(decoding: data.snapshot(), as: UTF8.self)
+    let text = String(decoding: data, as: UTF8.self)
     #expect(text.contains("stderr-marker"))
-    #expect(exit.snapshot() == .exited(code: 0))
+    #expect(reason == .exited(code: 0))
   }
 
   @Test("存在しない cwd を指定すると exited(code: 124) を返す (chdir 失敗)")
   func chdirFailureReportedAsExit124() async throws {
     testTrace("started")
     defer { testTrace("ended") }
-    let data = DataCollector()
-    let exit = ExitCollector()
+    let bridge = PTYEventBridge()
     let pty = PTYManager()
 
     // 実行時に確実に存在しないパスを動的生成。固定文字列ハードコードだと
@@ -178,20 +184,19 @@ struct PTYManagerTests {
       cwd: nonexistentCwd,
       rows: 24,
       cols: 80,
-      onData: { data.append($0) },
-      onExit: { exit.set($0) }
+      onData: bridge.onData,
+      onExit: bridge.onExit
     )
 
-    await waitUntil(timeout: .seconds(3)) { exit.snapshot() != nil }
-    #expect(exit.snapshot() == .exited(code: 124))
+    let (_, reason) = await bridge.consumeUntilExit()
+    #expect(reason == .exited(code: 124))
   }
 
   @Test("ディレクトリを executable に指定すると exited(code: 126) を返す (execve EACCES)")
   func execveEACCESReportedAsExit126() async throws {
     testTrace("started")
     defer { testTrace("ended") }
-    let data = DataCollector()
-    let exit = ExitCollector()
+    let bridge = PTYEventBridge()
     let pty = PTYManager()
 
     // ディレクトリパスは execute bit が付いていても execve は EACCES を返す
@@ -205,20 +210,19 @@ struct PTYManagerTests {
       cwd: testCwd,
       rows: 24,
       cols: 80,
-      onData: { data.append($0) },
-      onExit: { exit.set($0) }
+      onData: bridge.onData,
+      onExit: bridge.onExit
     )
 
-    await waitUntil(timeout: .seconds(3)) { exit.snapshot() != nil }
-    #expect(exit.snapshot() == .exited(code: 126))
+    let (_, reason) = await bridge.consumeUntilExit()
+    #expect(reason == .exited(code: 126))
   }
 
   @Test("実行できないパス (/path/does/not/exist) は exited(code: 127) を返す")
   func execveENOENTReportedAsExit127() async throws {
     testTrace("started")
     defer { testTrace("ended") }
-    let data = DataCollector()
-    let exit = ExitCollector()
+    let bridge = PTYEventBridge()
     let pty = PTYManager()
 
     try pty.spawn(
@@ -228,14 +232,13 @@ struct PTYManagerTests {
       cwd: testCwd,
       rows: 24,
       cols: 80,
-      onData: { data.append($0) },
-      onExit: { exit.set($0) }
+      onData: bridge.onData,
+      onExit: bridge.onExit
     )
 
-    await waitUntil(timeout: .seconds(3)) { exit.snapshot() != nil }
-
+    let (_, reason) = await bridge.consumeUntilExit()
     // POSIX shell 慣例 / CPty.c の child で execve ENOENT → _exit(127)。
-    #expect(exit.snapshot() == .exited(code: 127))
+    #expect(reason == .exited(code: 127))
   }
 
   @Test("PTYError の description は `PTYError.<case>(errno=<n> <strerror>)` 形式で完全一致する")
@@ -409,45 +412,64 @@ private func expectedErrnoText(_ code: Int32) -> String {
 
 // MARK: - Helpers
 
-// `waitUntil` は `WaitUntil.swift` の共有実装 ( dedicated NSThread 上で polling loop を完結 )。
-// tick polling 履歴を保持し、timeout 時に Issue.record の message に inline する。
-
 // PTY spawn の cwd 引数に渡す「確定的に存在する dir」。`NSTemporaryDirectory()` は
 // macOS の per-user TMPDIR (`/var/folders/...`) を返し、グローバル `/tmp` と異なり
 // マルチユーザー環境 / サンドボックスでも衝突しない ( CLAUDE.md 規約「`/tmp` を
 // ハードコードしない、`NSTemporaryDirectory()` を使う」)。
 private let testCwd = NSTemporaryDirectory()
 
-private final class DataCollector: @unchecked Sendable {
-  private let lock = NSLock()
-  private var data = Data()
-
-  func append(_ chunk: Data) {
-    lock.lock()
-    defer { lock.unlock() }
-    data.append(chunk)
-  }
-
-  func snapshot() -> Data {
-    lock.lock()
-    defer { lock.unlock() }
-    return data
-  }
+private enum PTYTestEvent: Sendable {
+  case data(Data)
+  case exit(PTYExitReason)
 }
 
-private final class ExitCollector: @unchecked Sendable {
-  private let lock = NSLock()
-  private var reason: PTYExitReason?
+/// PTYManager.spawn の `onData` / `onExit` callback を AsyncStream に直結する test 用 bridge。
+///
+/// 設計目的:
+///   - 過去設計 (DataCollector / ExitCollector + NSLock + waitUntil polling) は
+///     production callback を mutable snapshot に変換し、50ms tick で polling する経路。
+///     issue #710 で 2.13s flake が観測された確率的設計
+///   - 本 bridge は production callback を AsyncStream に直結し、`for await` で順序保証
+///     付きに observe する。polling 0 段、timeout 0 段で決定的に駆動される
+///   - 永久 suspend (production 側 bug) は suite trait `.timeLimit(.minutes(1))` が breaker
+///     として吸収する。個別 test に経験則 timeout を撒かない (flake = 0 設計)
+///
+/// 公開 closure (`onData` / `onExit`) は `@Sendable` で `spawn` に直接渡せる。
+/// continuation を init 内で生成して closure に capture することで `@unchecked Sendable`
+/// を回避する (CLAUDE.md 規約)。
+///
+/// **単一 consumer 契約**: `stream` は 1 度だけ iterate すること (`for await` または
+/// `consumeUntilExit()` 1 回)。AsyncStream は single-consumer 契約のため 2 度目の iteration
+/// は未定義動作 (Apple Doc: "iterating an `AsyncStream` more than once results in undefined
+/// behavior")。本 bridge を使う test は spawn → 1 度 consume → assertion の単線フロー
+/// 専用で、複数 phase の event 観察には別 bridge インスタンスを使う。
+private final class PTYEventBridge: Sendable {
+  let onData: @Sendable (Data) -> Void
+  let onExit: @Sendable (PTYExitReason) -> Void
+  let stream: AsyncStream<PTYTestEvent>
 
-  func set(_ value: PTYExitReason) {
-    lock.lock()
-    defer { lock.unlock() }
-    reason = value
+  init() {
+    let (stream, continuation) = AsyncStream<PTYTestEvent>.makeStream()
+    self.stream = stream
+    self.onData = { continuation.yield(.data($0)) }
+    self.onExit = { reason in
+      continuation.yield(.exit(reason))
+      // exit 受信時に AsyncStream を finish。これにより `for await` が決定的に終了する。
+      continuation.finish()
+    }
   }
 
-  func snapshot() -> PTYExitReason? {
-    lock.lock()
-    defer { lock.unlock() }
-    return reason
+  /// data event を accumulate しつつ exit event 到達でループ終了する短縮 helper。
+  /// 中間 interaction (kill / write) を伴わない簡単な test 用。
+  func consumeUntilExit() async -> (Data, PTYExitReason?) {
+    var data = Data()
+    var reason: PTYExitReason?
+    for await event in stream {
+      switch event {
+      case .data(let chunk): data.append(chunk)
+      case .exit(let r): reason = r
+      }
+    }
+    return (data, reason)
   }
 }

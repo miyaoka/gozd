@@ -1504,6 +1504,42 @@ struct GitOpsUpstreamRefNameTests {
     let result = try await GitOps.upstreamRefName(dir: local.path)
     #expect(result == "origin/main")
   }
+
+  @Test("detached HEAD では commandFailed を throw")
+  func detachedHead() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "a".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c1"], cwd: dir.path)
+    let head = try await currentHeadHash(dir: dir.path)
+    try await runTestGit(args: ["checkout", "--detach", head], cwd: dir.path)
+
+    do {
+      _ = try await GitOps.upstreamRefName(dir: dir.path)
+      Issue.record("expected commandFailed, got success")
+    } catch GitError.commandFailed {
+      // 期待挙動
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("unborn branch (initial commit 前) では commandFailed を throw")
+  func unbornBranch() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    // makeGitRepo は init -q -b main しかしないので、commit 前は unborn branch 状態
+    do {
+      _ = try await GitOps.upstreamRefName(dir: dir.path)
+      Issue.record("expected commandFailed, got success")
+    } catch GitError.commandFailed {
+      // 期待挙動
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
 }
 
 @Suite("GitOps.log (--stdin で N ref を 1 walk)")
@@ -1590,6 +1626,43 @@ struct GitOpsLogTests {
     #expect(onlyHead.defaultBranch == "main")
   }
 
+  @Test("未 push の rebase 後、orphan 連鎖 (複数 commit) が全件 visible に含まれる")
+  func rebaseOrphanChainVisible() async throws {
+    let (local, _) = try await makeLocalUpstreamRepoPair()
+    defer {
+      try? FileManager.default.removeItem(at: local)
+    }
+    // 3 commit 積んで push → 1 commit に squash (= 残り 2 commit が orphan 化)
+    for i in 1...3 {
+      try "v\(i)".write(
+        to: local.appendingPathComponent("f\(i).txt"), atomically: true, encoding: .utf8)
+      try await runTestGit(args: ["add", "f\(i).txt"], cwd: local.path)
+      try await runTestGit(args: ["commit", "-m", "c\(i)"], cwd: local.path)
+    }
+    try await runTestGit(args: ["push", "-u", "origin", "main"], cwd: local.path)
+    // push 後の orphan 化対象 (c1 / c2) の hash を控える
+    let orphanC1 = try await commitHashAt(dir: local.path, rev: "HEAD~2")
+    let orphanC2 = try await commitHashAt(dir: local.path, rev: "HEAD~1")
+    // 3 commit を `reset --soft HEAD~3` + 1 commit に squash する (interactive rebase 等価)。
+    // origin/main は push 直後の HEAD (= c3) を指したまま固定される。
+    try await runTestGit(args: ["reset", "--soft", "HEAD~3"], cwd: local.path)
+    try await runTestGit(args: ["commit", "-m", "squashed"], cwd: local.path)
+    let newHead = try await currentHeadHash(dir: local.path)
+
+    let result = try await GitOps.log(
+      dir: local.path, maxCount: 100, firstParentOnly: false, currentBranchOnly: false,
+      sortMode: .topo)
+    let hashes = Set(result.commits.map(\.hash))
+    // 新 HEAD は visible
+    #expect(hashes.contains(newHead))
+    // origin/main が指す c3 (== HEAD 系統から到達不可な orphan tip) と、その親 c2 / c1 まで
+    // 「orphan 連鎖」全件が visible commit set に含まれる
+    let orphanTip = try await commitHashAt(dir: local.path, rev: "origin/main")
+    #expect(hashes.contains(orphanTip))
+    #expect(hashes.contains(orphanC1))
+    #expect(hashes.contains(orphanC2))
+  }
+
   @Test("git で 1 度に dedup されるため、 fork workflow 風に upstream==origin/<default> でも commit が重複しない")
   func gitDedupesAcrossRefs() async throws {
     let (local, _) = try await makeLocalUpstreamRepoPair()
@@ -1606,6 +1679,11 @@ struct GitOpsLogTests {
 }
 
 // MARK: - Helpers
+
+private func commitHashAt(dir: String, rev: String) async throws -> String {
+  let stdout = try await runGit(args: ["rev-parse", rev], cwd: dir)
+  return String(decoding: stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+}
 
 private func currentHeadHash(dir: String) async throws -> String {
   let stdout = try await runGit(args: ["rev-parse", "HEAD"], cwd: dir)

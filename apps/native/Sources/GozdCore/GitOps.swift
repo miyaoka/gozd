@@ -201,6 +201,11 @@ public enum GitOps {
       do {
         return try await defaultBranchName(dir: dir)
       } catch GitError.commandFailed {
+        // origin 未設定 / `origin/HEAD` 不在の正常パス。fallback して側 stream を 1 つ落とす。
+        // 「設定壊れで symbolic-ref 自体が壊れた」異常系もここに混ざるため、観察可能性として
+        // stderr に 1 行残す (silent drop 禁止規律。`upstreamRefTask` 側と同じ粒度)。
+        StderrLog.write(
+          tag: "GitOps", "log: defaultBranchName fallback to \"\" (origin/HEAD not configured?) dir=\(dir)")
         return ""
       }
     }()
@@ -208,6 +213,11 @@ public enum GitOps {
       do {
         return try await upstreamRefName(dir: dir)
       } catch GitError.commandFailed {
+        // upstream 未設定 / detached HEAD / unborn branch の正常パス。fallback して
+        // 側 stream を 1 つ落とす。stderr に 1 行残し「設定壊れ」「ファイル権限障害」等の
+        // 異常系と区別可能にする。
+        StderrLog.write(
+          tag: "GitOps", "log: upstreamRefName fallback to \"\" (@{upstream} not configured?) dir=\(dir)")
         return ""
       }
     }()
@@ -240,6 +250,16 @@ public enum GitOps {
     dir: String, refs: [String], maxCount: UInt32, firstParentOnly: Bool, sortMode: LogSortMode
   ) async throws -> [CommitInfo] {
     if refs.isEmpty { return [] }
+    // ref 名の入力検証。`\n` を区切り子として stdin に流すため、ref 名内に CR / LF / NUL が
+    // 混入していると別 ref として注入される。git の `check-ref-format` 規約上これらは
+    // ref 名に許可されないので現実には起き難いが、`symbolic-ref` / `rev-parse` の出力経路を
+    // 信頼せず、ここで一律弾く (silent drop 禁止規律と入力境界の一貫性のため)。
+    for ref in refs {
+      if ref.contains("\n") || ref.contains("\r") || ref.contains("\u{0}") {
+        throw GitError.unexpectedOutput(
+          "runLogStdin: ref name contains control characters (CR/LF/NUL): refusing to inject")
+      }
+    }
     // %x1f = unit separator (US), %x1e = record separator (RS)
     let format = "%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e"
     // `--decorate=short` でユーザーの `log.decorate=full` 設定を上書きする。
@@ -254,6 +274,8 @@ public enum GitOps {
     if firstParentOnly { args.append("--first-parent") }
     args.append("--stdin")
     let stdinBytes = (refs.joined(separator: "\n") + "\n").data(using: .utf8) ?? Data()
+    // `treatNonZeroExitAsSuccess` は default false。git log が SIGPIPE / SIGTERM 等で
+    // 「exit ≠ 0 + stderr 空」終了したケースを silent success として通さない。
     let stdout = try await runGitWithStdin(args: args, cwd: dir, stdin: stdinBytes)
     let text = String(decoding: stdout, as: UTF8.self)
     var commits: [CommitInfo] = []
@@ -327,8 +349,12 @@ public enum GitOps {
       .map { $0.data(using: .utf8) ?? Data() }
       .reduce(Data()) { acc, next in acc + next + Data([0x00]) }
     do {
+      // check-ignore は無視パスがあれば exit 0、無ければ exit 1 を返す仕様。
+      // exit 1 で stderr が空なら「無視されたパス無し」として stdout を受け取るため
+      // `treatNonZeroExitAsSuccess: true` で opt-in する (このフラグは check-ignore 専用)。
       let stdout = try await runGitWithStdin(
-        args: ["check-ignore", "--stdin", "-z"], cwd: dir, stdin: stdinBytes)
+        args: ["check-ignore", "--stdin", "-z"], cwd: dir, stdin: stdinBytes,
+        treatNonZeroExitAsSuccess: true)
       return parseNulSeparatedPaths(stdout)
     } catch {
       // not a git repo / no .gitignore 等は exit code != 0。無視されたパス無しとして扱う。
@@ -1201,18 +1227,33 @@ private func resolveGitPath() async throws -> String {
 /// stdin にデータを渡して git を起動する。`runGit` と同じ戻り値契約。
 /// `launchFailed` を検知した場合、CommandResolver のキャッシュが stale な可能性が
 /// あるため 1 回だけ invalidate + 再 resolve して retry する。
-func runGitWithStdin(args: [String], cwd: String, stdin: Data) async throws -> Data {
+///
+/// `treatNonZeroExitAsSuccess`:
+/// - `false` (default, **厳格**): exit code ≠ 0 は常に `commandFailed` で throw する。
+///   `git log --stdin` / `git check-ref-format --stdin` 等、exit code が普通の成否シグナルである
+///   コマンド用。`git log` 子プロセスが SIGPIPE / SIGTERM で「exit ≠ 0 + stderr 空」終了したケースが
+///   silent に空 stdout として通過するのを防ぐ。
+/// - `true` (**緩和**): `git check-ignore` 専用 opt-in。check-ignore は無視パスがあれば exit 0、
+///   無ければ exit 1 を返す仕様で、stderr が空であれば exit 1 を「結果なし」として stdout を
+///   そのまま返す。check-ignore 以外で使ってはならない (silent drop 禁止規律違反になる)。
+func runGitWithStdin(
+  args: [String], cwd: String, stdin: Data, treatNonZeroExitAsSuccess: Bool = false
+) async throws -> Data {
   do {
     return try await runGitWithStdinOnce(
-      gitPath: try await resolveGitPath(), args: args, cwd: cwd, stdin: stdin)
+      gitPath: try await resolveGitPath(), args: args, cwd: cwd, stdin: stdin,
+      treatNonZeroExitAsSuccess: treatNonZeroExitAsSuccess)
   } catch GitError.launchFailed {
     await CommandResolver.shared.invalidate("git")
     return try await runGitWithStdinOnce(
-      gitPath: try await resolveGitPath(), args: args, cwd: cwd, stdin: stdin)
+      gitPath: try await resolveGitPath(), args: args, cwd: cwd, stdin: stdin,
+      treatNonZeroExitAsSuccess: treatNonZeroExitAsSuccess)
   }
 }
 
-private func runGitWithStdinOnce(gitPath: String, args: [String], cwd: String, stdin: Data)
+private func runGitWithStdinOnce(
+  gitPath: String, args: [String], cwd: String, stdin: Data, treatNonZeroExitAsSuccess: Bool
+)
   async throws -> Data
 {
   let process = Process()
@@ -1243,10 +1284,14 @@ private func runGitWithStdinOnce(gitPath: String, args: [String], cwd: String, s
     }
   )
 
-  // git check-ignore は無視パスがあれば exit 0、無ければ exit 1。1 を「結果なし」
-  // として扱うため、stderr が空なら成功扱いで stdout を返す。
-  // exit code != 0 かつ stderr に出力があれば従来どおりエラー化する。
-  if process.terminationStatus == 0 || stderrData.isEmpty {
+  // exit code 0 → 常に success。
+  // exit code ≠ 0 → caller が `treatNonZeroExitAsSuccess=true` を選んでいる場合のみ、
+  // かつ stderr が空のときに「結果なし」として stdout を返す (check-ignore opt-in)。
+  // それ以外はすべて throw。
+  if process.terminationStatus == 0 {
+    return stdoutData
+  }
+  if treatNonZeroExitAsSuccess && stderrData.isEmpty {
     return stdoutData
   }
   throw GitError.commandFailed(

@@ -64,13 +64,12 @@ const repoStore = useRepoStore();
 const { gitStatuses } = storeToRefs(gitStatusStore);
 const { prByBranch } = storeToRefs(prListStore);
 
-type SortKey = "topo" | "date";
-
 const { commits } = storeToRefs(gitGraphStore);
 const defaultBranch = ref<string | undefined>();
 const layout = ref<GraphLayout>({ nodes: [], lines: [], maxLanes: 1 });
 const firstParentOnly = ref(false);
-const sortMode = ref<SortKey>("date");
+// SSOT: proto の SortMode enum をそのまま UI 状態として持ち、RPC 呼び出しで変換不要にする。
+const sortMode = ref<SortMode>(SortMode.SORT_MODE_DATE);
 const currentBranchOnly = ref(false);
 
 /** 変更ファイル数 */
@@ -226,7 +225,7 @@ async function runLoadLog(): Promise<boolean> {
     maxCount: 200,
     firstParentOnly: firstParentOnly.value,
     currentBranchOnly: currentBranchOnly.value,
-    sortMode: sortMode.value === "topo" ? SortMode.SORT_MODE_TOPO : SortMode.SORT_MODE_DATE,
+    sortMode: sortMode.value,
   });
   if (gen !== loadLogGen) return false;
 
@@ -995,12 +994,17 @@ const isWorkingTreeActive = computed(
       <button
         class="rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="
-          sortMode === 'topo' ? 'bg-blue-800 text-blue-200' : 'text-zinc-500 hover:text-zinc-300'
+          sortMode === SortMode.SORT_MODE_TOPO
+            ? 'bg-blue-800 text-blue-200'
+            : 'text-zinc-500 hover:text-zinc-300'
         "
-        :aria-pressed="sortMode === 'topo'"
-        @click="sortMode = sortMode === 'date' ? 'topo' : 'date'"
+        :aria-pressed="sortMode === SortMode.SORT_MODE_TOPO"
+        @click="
+          sortMode =
+            sortMode === SortMode.SORT_MODE_DATE ? SortMode.SORT_MODE_TOPO : SortMode.SORT_MODE_DATE
+        "
       >
-        {{ sortMode === "date" ? "Date Order" : "Topo Order" }}
+        {{ sortMode === SortMode.SORT_MODE_DATE ? "Date Order" : "Topo Order" }}
       </button>
       <button
         class="rounded-sm px-1.5 py-0.5 text-[10px] text-zinc-500 hover:text-zinc-300"

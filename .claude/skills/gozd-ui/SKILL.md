@@ -17,24 +17,24 @@ Token 一覧は SSOT として `apps/renderer/src/assets/main.css` の `@theme` 
 
 #### Surface / Foreground / Border (intent なし、用途別)
 
-| 用途                                 | Token (Tailwind utility) |
-| ------------------------------------ | ------------------------ |
-| ページ背景                           | `bg-background`          |
-| カード / panel                       | `bg-surface-1`           |
-| 持ち上がった panel / chip / hover 塗 | `bg-surface-2`           |
-| 本文                                 | `text-foreground`        |
-| 強調 / heading                       | `text-foreground-strong` |
-| chrome thumb / knob (内部 indicator) | `bg-foreground-strong`   |
-| secondary text                       | `text-foreground-muted`  |
-| placeholder / tertiary               | `text-foreground-subtle` |
-| 既定の 1px 区切り                    | `border-border`          |
-| 強調 outline                         | `border-border-strong`   |
-| 同色面の弱い divider                 | `border-divider`         |
-| 階層境界を明示する厚め divider       | `border-divider-strong`  |
-| hover 背景                           | `hover:bg-accent`        |
-| selected / pressed 背景              | `bg-accent-strong`       |
-| focus ring                           | `ring-ring`              |
-| dialog backdrop                      | `bg-overlay`             |
+| 用途                                                  | Token (Tailwind utility) |
+| ----------------------------------------------------- | ------------------------ |
+| ページ背景                                            | `bg-background`          |
+| カード / panel                                        | `bg-surface-1`           |
+| 持ち上がった panel / chip / hover 塗                  | `bg-surface-2`           |
+| 本文                                                  | `text-foreground`        |
+| 強調 / heading                                        | `text-foreground-strong` |
+| chrome indicator (handle / thumb / knob 等の内部要素) | `bg-foreground-strong`   |
+| secondary text                                        | `text-foreground-muted`  |
+| placeholder / tertiary                                | `text-foreground-subtle` |
+| 既定の 1px 区切り                                     | `border-border`          |
+| 強調 outline                                          | `border-border-strong`   |
+| 同色面の弱い divider                                  | `border-divider`         |
+| 階層境界を明示する厚め divider                        | `border-divider-strong`  |
+| hover 背景                                            | `hover:bg-accent`        |
+| selected / pressed 背景                               | `bg-accent-strong`       |
+| focus ring                                            | `ring-ring`              |
+| dialog backdrop                                       | `bg-overlay`             |
 
 #### Intent vs Accent の使い分け
 
@@ -235,9 +235,12 @@ click handler を持つ要素は `<button type="button">` を使う。`<div role
 **WAI-ARIA role を必ず付与** する。role 無しの `<div tabindex="0">` は screen reader で widget
 種別が判別できない silent semantic 違反。
 
-- 矢印キーで item 間を navigate する custom widget (git graph / 自前 tree 等): `role="application"` + `aria-label="<widget 名>"`
-- list の選択 navigation: `role="listbox"` + 各 item に `role="option"`
-- grid の 2D navigation: `role="grid"` + 各 row に `role="row"` + 各 cell に `role="gridcell"`
+WAI-ARIA Authoring Practices で表現できる正規 widget role を優先する:
+
+- **list の選択 navigation** (commit list / file list / option list): `role="listbox"` + 各 item に `role="option"` + selected item に `aria-selected="true"`
+- **tree の navigation** (file tree / nested folder): `role="tree"` + 各 node に `role="treeitem"`
+- **grid の 2D navigation** (table 等): `role="grid"` + 各 row に `role="row"` + 各 cell に `role="gridcell"`
+- 上記 ARIA role で表現できない完全 custom widget (game / canvas drawing 等) のみ最後の手段として `role="application"` を使う (screen reader の browse mode を強制 off にする副作用あり、正規 widget role で表現できる場面では使わない)
 
 ### Focus 可能要素の focus 表現は ring 必須
 

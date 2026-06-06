@@ -1047,8 +1047,8 @@ const isWorkingTreeActive = computed(
         ref="graphListRef"
         class="flex min-w-0 flex-1 flex-col focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset"
         tabindex="0"
-        role="application"
-        aria-label="Git commit graph (arrow keys to navigate)"
+        role="listbox"
+        aria-label="Git commit list (arrow keys to navigate)"
         @keydown="onKeydown"
       >
         <!-- Working Tree 固定行: スクロール領域の外に配置 -->
@@ -1143,6 +1143,8 @@ const isWorkingTreeActive = computed(
             <div
               v-for="node in layout.nodes"
               :key="node.commit.hash"
+              role="option"
+              :aria-selected="isSelectedRow(node.commit.hash)"
               class="_graph-row relative flex items-center text-xs"
               :class="rowHighlightClass(node.commit.hash)"
               :style="{ height: `${ROW_HEIGHT}px` }"

@@ -143,6 +143,99 @@ struct GitOpsParseRefsTests {
   }
 }
 
+@Suite("GitOps.parseLogRecords")
+struct GitOpsParseLogRecordsTests {
+  /// runLogStdin の format に一致する 1 record を組み立てる。
+  /// `%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e`
+  private func record(
+    hash: String = "0123456789abcdef0123456789abcdef01234567",
+    short: String = "0123456",
+    parents: String = "",
+    author: String = "Test",
+    date: String = "1700000000",
+    subject: String = "subj",
+    body: String = "body",
+    refs: String = ""
+  ) -> String {
+    let us = "\u{1f}"
+    let rs = "\u{1e}"
+    return [hash, short, parents, author, date, subject, body, refs].joined(separator: us) + rs
+  }
+
+  @Test("空入力は空配列")
+  func emptyInput() throws {
+    #expect(try GitOps.parseLogRecords("").isEmpty)
+  }
+
+  @Test("trailing whitespace のみは空配列")
+  func whitespaceOnly() throws {
+    #expect(try GitOps.parseLogRecords("\n  \n").isEmpty)
+  }
+
+  @Test("正常な 1 record をパースして CommitInfo 1 件を返す")
+  func singleValidRecord() throws {
+    let text = record(
+      hash: "aaaa", short: "aaaa", parents: "bbbb cccc", author: "Alice",
+      date: "1700000000", subject: "init", body: "body text", refs: "HEAD -> main")
+    let commits = try GitOps.parseLogRecords(text)
+    #expect(commits.count == 1)
+    #expect(commits[0].hash == "aaaa")
+    #expect(commits[0].parents == ["bbbb", "cccc"])
+    #expect(commits[0].author == "Alice")
+    #expect(commits[0].date == 1_700_000_000)
+    #expect(commits[0].message == "init")
+    #expect(commits[0].body == "body text")
+    #expect(commits[0].refs == ["HEAD", "main"])
+  }
+
+  @Test("複数 record は出現順に CommitInfo を返す")
+  func multipleRecords() throws {
+    let text = record(hash: "aa", short: "aa", date: "100") + record(hash: "bb", short: "bb", date: "200")
+    let commits = try GitOps.parseLogRecords(text)
+    #expect(commits.map(\.hash) == ["aa", "bb"])
+  }
+
+  @Test("field 数 != 8 は unexpectedOutput を throw (silent skip しない)")
+  func wrongFieldCountThrows() throws {
+    // body field に US (`\u{1f}`) を混入させて parts 数を 9 に増やす
+    let us = "\u{1f}"
+    let rs = "\u{1e}"
+    let bad = ["h", "h", "", "a", "100", "subj", "bo\(us)dy", ""].joined(separator: us) + rs
+    do {
+      _ = try GitOps.parseLogRecords(bad)
+      Issue.record("expected unexpectedOutput, got success")
+    } catch GitError.unexpectedOutput(let msg) {
+      #expect(msg.contains("8 US-separated fields"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("author date が Int64 として parse できない record は unexpectedOutput を throw (epoch 0 倒ししない)")
+  func badAuthorDateThrows() throws {
+    let text = record(date: "not-a-number")
+    do {
+      _ = try GitOps.parseLogRecords(text)
+      Issue.record("expected unexpectedOutput, got success")
+    } catch GitError.unexpectedOutput(let msg) {
+      #expect(msg.contains("author date"))
+      #expect(msg.contains("not-a-number"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("parents が空文字なら空配列、複数 OID なら space 分割")
+  func parentsParsing() throws {
+    let none = record(parents: "")
+    let one = record(parents: "p1")
+    let two = record(parents: "p1 p2")
+    #expect(try GitOps.parseLogRecords(none)[0].parents == [])
+    #expect(try GitOps.parseLogRecords(one)[0].parents == ["p1"])
+    #expect(try GitOps.parseLogRecords(two)[0].parents == ["p1", "p2"])
+  }
+}
+
 @Suite("GitOps.runGit large output")
 struct GitOpsRunGitLargeOutputTests {
   /// pipe buffer (macOS は最大 ~64KB) を超える stdout で `runGit` が deadlock しないことを保証する。

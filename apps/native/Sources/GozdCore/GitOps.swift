@@ -278,9 +278,17 @@ public enum GitOps {
   ///   `unexpectedOutput`): 異常系の可能性があるため `StderrLog` に 1 行残してから false に倒す。
   ///   実害は HEAD log 経路 (`runLogStdin`) や他 ref 経路で同 root cause が表面化するため
   ///   ここでは fail-soft で graph 表示を止めない方針を踏襲し、観察可能性のみ確保する。
+  ///
+  /// 契約: 引数列の `--quiet` が unborn HEAD で「exit ≠ 0 + stderr 空」を保証する。
+  /// このフラグを除くと git は unborn でも stderr に `fatal: Needed a single revision` を
+  /// 書き出し、上の where 句 (`stderr.isEmpty`) が成立しなくなって catch-all に倒れる。
+  /// 結果として「正常パスである unborn」が毎 loadLog で `StderrLog` 1 行を出す noise になる。
+  /// 振る舞いとしては fail-soft なので壊滅しないが、catch 分岐の意味が壊れるため必須フラグ。
   public static func headOidExists(dir: String) async -> Bool {
     do {
-      _ = try await runGit(args: ["rev-parse", "--verify", "--quiet", "HEAD"], cwd: dir)
+      _ = try await runGit(
+        // `--quiet`: 上の `stderr.isEmpty` 分岐契約を成立させるため必須 (docstring 参照)。
+        args: ["rev-parse", "--verify", "--quiet", "HEAD"], cwd: dir)
       return true
     } catch let GitError.commandFailed(_, stderr) where stderr.isEmpty {
       // unborn HEAD: `--quiet` で stderr 空、exit ≠ 0。正常系として silent に倒す。
@@ -317,6 +325,15 @@ public enum GitOps {
   /// stdin に ref 名を改行区切りで流し込む。git は各 ref を walk 始点とし、commit を OID で
   /// dedup しつつ 1 つのストリームに統合する。CLI 引数長制限の回避目的と、ref 集合を
   /// atomic に渡せる利点が `--stdin` を選ぶ理由 (VSCode `git.ts:1490-1497` の理由と同じ)。
+  ///
+  /// fail mode:
+  /// format string は US (`\u{1f}` / `%x1f`) を field separator、RS (`\u{1e}` / `%x1e`) を
+  /// record separator に使う。commit metadata 値 (`%an` / `%s` / `%b`) に US (`\u{1f}`) が
+  /// 含まれた record が混ざると `parseLogRecords` の field 数チェックで `unexpectedOutput`
+  /// として throw され、graph 全体が `notify.error("Failed to load git graph", ...)` に倒れる。
+  /// US は ASCII 制御文字で通常テキストでは出ないが、commit message に意図的 / 偶発的に
+  /// 混入する病的ケースで graph 描画が止まる trade-off。`result.commits` の SSOT 性
+  /// (partial success による silent な commit 欠落の禁止) を優先し strict 契約に倒している。
   private static func runLogStdin(
     dir: String, refs: [String], maxCount: UInt32, firstParentOnly: Bool, sortMode: LogSortMode
   ) async throws -> [CommitInfo] {
@@ -349,6 +366,22 @@ public enum GitOps {
     // 「exit ≠ 0 + stderr 空」終了したケースを silent success として通さない。
     let stdout = try await runGitWithStdin(args: args, cwd: dir, stdin: stdinBytes)
     let text = String(decoding: stdout, as: UTF8.self)
+    return try parseLogRecords(text)
+  }
+
+  /// `git log --format=<format>` の生 stdout を CommitInfo 配列にパースする pure 関数。
+  ///
+  /// `runLogStdin` の parse 部を切り出した seam。fixture を直接渡せるため、parts.count != 8 /
+  /// Int64 parse 失敗 / 空入力 / trailing whitespace 等の境界を unit-test で踏める。
+  /// `runLogStdin` が固定する format
+  /// `%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e`
+  /// (8 US-separated fields per record, RS-terminated) と一対一で対応する。format を変えるなら
+  /// 同時に本関数も触ること。
+  ///
+  /// throws:
+  /// - `unexpectedOutput`: record の field 数が 8 でない (US 混入や git format 変更)、または
+  ///   author date が Int64 として parse できない。silent skip / epoch 0 倒しにせず観察可能化する。
+  internal static func parseLogRecords(_ text: String) throws -> [CommitInfo] {
     var commits: [CommitInfo] = []
     for record in text.split(separator: "\u{1e}", omittingEmptySubsequences: true) {
       let trimmed = record.trimmingCharacters(in: .whitespacesAndNewlines)

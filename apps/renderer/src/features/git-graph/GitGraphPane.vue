@@ -20,7 +20,7 @@ SSOT として参照する。Working Tree 行はメニュー対象外。
 </doc>
 
 <script setup lang="ts">
-import type { GitCommit } from "@gozd/proto";
+import { SortMode, type GitCommit } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { useElementSize, useEventListener, useIntervalFn } from "@vueuse/core";
 import { storeToRefs } from "pinia";
@@ -47,8 +47,6 @@ import { computeGraphLayout } from "./graphLayout";
 import type { GraphLayout } from "./graphLayout";
 import type { CommitMessageSegment } from "./linkifyCommitMessage";
 import { buildRepoBaseUrl, linkifyCommitMessage } from "./linkifyCommitMessage";
-import { mergeCommitStreams } from "./mergeCommitStreams";
-import type { SortMode } from "./mergeCommitStreams";
 import RefBadge from "./RefBadge.vue";
 import { rpcGitGithubIdentity, rpcGitLog } from "./rpc";
 import { useCommitContextMenu } from "./useCommitContextMenu";
@@ -70,7 +68,8 @@ const { commits } = storeToRefs(gitGraphStore);
 const defaultBranch = ref<string | undefined>();
 const layout = ref<GraphLayout>({ nodes: [], lines: [], maxLanes: 1 });
 const firstParentOnly = ref(false);
-const sortMode = ref<SortMode>("date");
+// SSOT: proto の SortMode enum をそのまま UI 状態として持ち、RPC 呼び出しで変換不要にする。
+const sortMode = ref<SortMode>(SortMode.SORT_MODE_DATE);
 const currentBranchOnly = ref(false);
 
 /** 変更ファイル数 */
@@ -89,9 +88,10 @@ const currentBranch = computed(() => gitGraphStore.currentBranch);
  * 別コミットに分かれていれば out-of-sync としてここで検出する。
  *
  * 検出範囲は `commits.value` に出現する ref に限定される。`currentBranchOnly` が ON のとき
- * `defaultBranchCommits` 由来の commit が消えるため、HEAD 系統から到達しない ref ペアの
- * out-of-sync は検出できない。これは toggle の意味（「current branch だけ表示」=「他系統を
- * 隠す」）の直接の帰結であり、副作用ではない。
+ * native 側の `git log` 始点 ref が HEAD のみに絞られ origin/<default> 系の commit が
+ * 消えるため、HEAD 系統から到達しない ref ペアの out-of-sync は検出できない。これは
+ * toggle の意味（「current branch だけ表示」=「他系統を隠す」）の直接の帰結であり、
+ * 副作用ではない。
  */
 const outOfSyncBranches = computed(() => {
   const localCommits = new Map<string, string>();
@@ -220,34 +220,57 @@ async function runLoadLog(): Promise<boolean> {
   const gen = ++loadLogGen;
   const dir = worktreeStore.dir;
   if (dir === undefined) return false;
-  const result = await rpcGitLog({
-    dir,
-    maxCount: 200,
-    firstParentOnly: firstParentOnly.value,
-    currentBranchOnly: currentBranchOnly.value,
-  });
+  // rpcGitLog は native の `commandFailed` / `launchFailed` / `commandNotFound` を
+  // RPC error として throw し得る (git CLI 不在 / 子プロセスの異常終了 / 入力検証失敗等)。
+  // silent 化するとユーザー側で graph が空のまま気づけなくなるため、loadPrList と同じ
+  // tryCatch + notify.error pattern でハンドルする。
+  const rpcResult = await tryCatch(
+    rpcGitLog({
+      dir,
+      maxCount: 200,
+      firstParentOnly: firstParentOnly.value,
+      currentBranchOnly: currentBranchOnly.value,
+      sortMode: sortMode.value,
+    }),
+  );
   if (gen !== loadLogGen) return false;
+  if (!rpcResult.ok) {
+    // 失敗時は graph state を空に倒す。前回 worktree 成功時の commits / defaultBranch /
+    // layout / selection が残ると、ユーザーが見ている commit は旧 repo のもの・右クリック
+    // メニューの dir snapshot は現 worktree という不整合が起き、reset --mixed 等で別 repo
+    // に対する破壊操作が走る事故源になる。fail-soft で空状態に揃え、notify.error で観察可能化。
+    notify.error("Failed to load git graph", rpcResult.error);
+    commits.value = [];
+    defaultBranch.value = undefined;
+    lastHead = "";
+    lastBranchHead = "";
+    lastUpstream = "";
+    gitGraphStore.resetSelection();
+    recomputeLayout();
+    return false;
+  }
+  const result = rpcResult.value;
 
-  const merged = mergeCommitStreams({
-    headCommits: result.headCommits,
-    defaultBranchCommits: result.defaultBranchCommits,
-    sortMode: sortMode.value,
-  });
-
-  commits.value = merged;
+  const loaded = result.commits;
+  commits.value = loaded;
   defaultBranch.value = result.defaultBranch === "" ? undefined : result.defaultBranch;
-  const headCommit = findHeadCommit(merged);
+  const headCommit = findHeadCommit(loaded);
   lastHead = headCommit?.hash ?? "";
   // `lastBranchHead` も loadLog の結果に合わせて更新する。これをやらないと worktree
   // 切替後の最初の gitStatusChange push で branchHeadChanged が偽陽性で立ち、
   // 冗長な 2 度目の loadLog が走る（lastHead との非対称を防ぐ）。
-  lastBranchHead = headCommit !== undefined ? (findCurrentBranch(headCommit.refs) ?? "") : "";
+  //
+  // SSOT: `result.branchHead` は native の `git symbolic-ref --short HEAD` 由来で、
+  // `gitStatusChange` push の `branchHead` (porcelain v2 `# branch.head` 由来) と
+  // 完全に同一 semantics。log の `%D` decoration を別系統で解釈すると SSOT がズレるため、
+  // `result.branchHead` を直接受け取る。
+  lastBranchHead = result.branchHead;
   recomputeLayout();
 
   // 選択中・比較中のコミットが一覧から消えた場合はクリア
   const { selectedHash, compareHash } = gitGraphStore;
   const isStale = (hash: string | null): boolean =>
-    hash !== null && hash !== UNCOMMITTED_HASH && !merged.some((c) => c.hash === hash);
+    hash !== null && hash !== UNCOMMITTED_HASH && !loaded.some((c) => c.hash === hash);
 
   if (isStale(selectedHash) || isStale(compareHash)) {
     gitGraphStore.resetSelection();
@@ -566,21 +589,6 @@ function isMergeCommit(commit: GitCommit): boolean {
 /** HEAD を含むかどうか */
 function hasHead(refs: string[]): boolean {
   return refs.includes("HEAD");
-}
-
-/**
- * refs 配列から HEAD が指すカレントブランチ名を取得する。
- * git log の %D は "HEAD -> branch" をパース後 ["HEAD", "branch", ...] の順になるため、
- * HEAD の直後の非 origin/非 tag エントリがカレントブランチ。
- */
-function findCurrentBranch(refs: string[]): string | undefined {
-  const headIdx = refs.indexOf("HEAD");
-  if (headIdx === -1) return undefined;
-  const next = refs[headIdx + 1];
-  if (next && !next.startsWith("origin/") && !next.startsWith("tag:")) {
-    return next;
-  }
-  return undefined;
 }
 
 /**
@@ -998,12 +1006,17 @@ const isWorkingTreeActive = computed(
       <button
         class="rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="
-          sortMode === 'topo' ? 'bg-blue-800 text-blue-200' : 'text-zinc-500 hover:text-zinc-300'
+          sortMode === SortMode.SORT_MODE_TOPO
+            ? 'bg-blue-800 text-blue-200'
+            : 'text-zinc-500 hover:text-zinc-300'
         "
-        :aria-pressed="sortMode === 'topo'"
-        @click="sortMode = sortMode === 'date' ? 'topo' : 'date'"
+        :aria-pressed="sortMode === SortMode.SORT_MODE_TOPO"
+        @click="
+          sortMode =
+            sortMode === SortMode.SORT_MODE_DATE ? SortMode.SORT_MODE_TOPO : SortMode.SORT_MODE_DATE
+        "
       >
-        {{ sortMode === "date" ? "Date Order" : "Topo Order" }}
+        {{ sortMode === SortMode.SORT_MODE_DATE ? "Date Order" : "Topo Order" }}
       </button>
       <button
         class="rounded-sm px-1.5 py-0.5 text-[10px] text-zinc-500 hover:text-zinc-300"

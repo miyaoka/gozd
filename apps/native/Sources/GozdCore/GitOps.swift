@@ -162,50 +162,273 @@ public enum GitOps {
       args: ["fetch", "--all", "--no-write-fetch-head"], cwd: dir)
   }
 
+  /// `git log --format=<format>` の format string SSOT。`runLogStdin` / `logLine` 等の
+  /// commit metadata 取得経路はすべてこの定数を使う。`parseLogRecords` が期待する 8 fields /
+  /// US separator / RS terminator 構成と一対一で対応する。format を変えるなら
+  /// `parseLogRecords` も同時に触ること (parse 側の field 数 / 各 field の意味と直結)。
+  ///
+  /// fields ( US `\u{1f}` 区切り、最後の `\u{1e}` で record 終端 ):
+  /// `%H` hash / `%h` shortHash / `%P` parents / `%an` author /
+  /// `%at` author date (unix epoch) / `%s` subject / `%b` body / `%D` refs
+  internal static let logFormat: String =
+    "%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e"
+
   public struct LogResult: Sendable {
-    public let headCommits: [CommitInfo]
-    public let defaultBranchCommits: [CommitInfo]
+    public let commits: [CommitInfo]
     public let defaultBranch: String
+    /// HEAD が指す branch 名 (例: `main`)。`git symbolic-ref --short HEAD` の結果。
+    /// detached HEAD では空文字 (commandFailed を catch して fallback)。unborn branch
+    /// (commit 無し) では branch 名がそのまま返る (porcelain v2 `# branch.head` も同じ)。
+    /// renderer 側で `gitStatusChange` の `branchHead` と同一源泉から比較できるようにする。
+    public let branchHead: String
   }
 
-  /// HEAD と default branch（origin/HEAD）の log を返す。
+  public enum LogSortMode: Sendable {
+    case topo
+    case date
+  }
+
+  /// HEAD / `origin/<default>` / `@{upstream}` を始点に **1 回の `git log --stdin`** で walk する。
+  ///
+  /// 設計の根拠 (VSCode の Source Control Graph 実装 `extensions/git/src/git.ts:1444-1509` 参照):
+  /// - N ref を Set で dedup して stdin に投入。git 自身が walk 中に commit を OID 単位で
+  ///   dedup するので、renderer 側で merge / dedup する必要が無い
+  /// - sort_mode に応じて `--topo-order` / `--date-order` を git に渡し、並び順の決定も git に任せる
+  /// - 3 本並列 spawn だった旧 `logBoth` を 1 本に集約することで wall-clock を `max → 1` に削減
+  ///
+  /// 副次効果:
+  /// `git commit --amend` / 未 push の rebase / reset 等で `origin/<branch>` が HEAD から
+  /// 到達不可になっても、`@{upstream}` を始点 ref として渡すため orphan tip と祖先連鎖が
+  /// visible commit set に含まれ、graph 上に `origin/<branch>` の badge が残る。
   ///
   /// エラー方針:
-  /// - `commandFailed`（origin 未設定 / unborn branch 等のドメイン失敗）は空文字列 / 空配列に倒す
-  /// - `launchFailed`（shell spawn 失敗 / hang）は rethrow して上位の `notify.error` まで通す
-  /// - `commandNotFound`（git CLI 未インストール）も rethrow（`catch` していないので自動的に
-  ///   propagate する。renderer 側で「インストールしてください」UI を出す前提）
-  ///
-  /// `try?` で 3 種を区別せず潰すと、git-graph が「空」「gozd が git を解決できていない」
-  /// 「ユーザーが git をインストールしていない」を見分けられなくなる。
-  public static func logBoth(
-    dir: String, maxCount: UInt32, firstParentOnly: Bool, currentBranchOnly: Bool
-  ) async throws
-    -> LogResult
-  {
-    async let headTask = log(
-      dir: dir, ref: "HEAD", maxCount: maxCount, firstParentOnly: firstParentOnly)
-    let defaultBranch: String
-    do {
-      defaultBranch = try await defaultBranchName(dir: dir)
-    } catch GitError.commandFailed {
-      defaultBranch = ""
-    }
-    let head = try await headTask
-    var defaultCommits: [CommitInfo] = []
-    // currentBranchOnly では default branch 系統の log fetch を skip する。`defaultBranch` 文字列は
-    // `symbolic-ref` だけは引き続き解決して返す (renderer の RefBadge `isDefault` 表示に使う)。
-    if !defaultBranch.isEmpty && !currentBranchOnly {
+  /// - `commandFailed` (origin 未設定 / unborn branch / upstream 未設定 等のドメイン失敗):
+  ///   defaultBranch / upstreamRef を空文字列に倒し、利用可能な ref だけで walk する
+  /// - `launchFailed` (shell spawn 失敗 / hang): rethrow して上位の `notify.error` まで通す
+  /// - `commandNotFound` (git CLI 未インストール): rethrow
+  public static func log(
+    dir: String, maxCount: UInt32, firstParentOnly: Bool, currentBranchOnly: Bool,
+    sortMode: LogSortMode
+  ) async throws -> LogResult {
+    // defaultBranch / upstreamRef 解決を並列起動 (どちらも単発 rev-parse / symbolic-ref で短い)。
+    // 並列化のメリットは小さいが本体 git log の発火タイミングを 1 回に集約するため、
+    // ref 解決経路をクリティカルパスから外しておく。
+    async let defaultBranchTask: String = {
       do {
-        defaultCommits = try await log(
-          dir: dir, ref: "origin/\(defaultBranch)", maxCount: maxCount,
-          firstParentOnly: firstParentOnly)
+        return try await defaultBranchName(dir: dir)
       } catch GitError.commandFailed {
-        defaultCommits = []
+        // origin 未設定 / `origin/HEAD` 不在の正常パス。fallback して側 stream を 1 つ落とす。
+        // 「設定壊れで symbolic-ref 自体が壊れた」異常系もここに混ざるため、観察可能性として
+        // stderr に 1 行残す (silent drop 禁止規律。`upstreamRefTask` 側と同じ粒度)。
+        StderrLog.write(
+          tag: "GitOps", "log: defaultBranchName fallback to \"\" (origin/HEAD not configured?) dir=\(dir)")
+        return ""
+      }
+    }()
+    async let upstreamRefTask: String = {
+      do {
+        return try await upstreamRefName(dir: dir)
+      } catch GitError.commandFailed {
+        // upstream 未設定 / detached HEAD / unborn branch の正常パス。fallback して
+        // 側 stream を 1 つ落とす。stderr に 1 行残し「設定壊れ」「ファイル権限障害」等の
+        // 異常系と区別可能にする。
+        StderrLog.write(
+          tag: "GitOps", "log: upstreamRefName fallback to \"\" (@{upstream} not configured?) dir=\(dir)")
+        return ""
+      }
+    }()
+    async let branchHeadTask: String = {
+      do {
+        return try await branchHeadName(dir: dir)
+      } catch GitError.commandFailed {
+        // detached HEAD は symbolic-ref が exit 128 で throw する正常パス。
+        // (unborn branch はこちらに来ない: symbolic-ref --short HEAD は unborn でも
+        // branch 名を exit 0 で返すため、上の do 枝に乗る。)
+        // 異常系 (権限障害等) との区別のため stderr に観察ログを 1 行残す。
+        StderrLog.write(
+          tag: "GitOps", "log: branchHeadName fallback to \"\" (detached HEAD?) dir=\(dir)")
+        return ""
+      }
+    }()
+    // HEAD の commit OID 解決性を事前確認。unborn branch (`git init` 直後、commit 無し) では
+    // HEAD が commit を指していないため、`git log --stdin` で `HEAD` を始点にすると
+    // exit 128 + `fatal: bad default revision 'HEAD'` で throw する。strict 契約 (runGitWithStdin
+    // の treatNonZeroExitAsSuccess=false) を維持しつつ unborn を正常系として扱うために、
+    // 始点 refs から HEAD を除外する。
+    async let headExistsTask: Bool = headOidExists(dir: dir)
+
+    let defaultBranch = try await defaultBranchTask
+    let upstreamRef = try await upstreamRefTask
+    let branchHead = try await branchHeadTask
+    let headExists = await headExistsTask
+
+    // 始点 ref を Set dedup で集める。currentBranchOnly では HEAD のみ。
+    // git 自身が walk 中に commit を OID 単位で dedup するので、ref 名重複
+    // (例: fork workflow で `upstream/main` と `origin/main` が同 commit を指す等) や
+    // 「upstream が origin/<default> と同じ ref」を Swift 側で skip する必要は無い。
+    // Set 投入だけで足りる。
+    var refs: Set<String> = []
+    if headExists { refs.insert("HEAD") }
+    if !currentBranchOnly {
+      if !defaultBranch.isEmpty { refs.insert("origin/\(defaultBranch)") }
+      if !upstreamRef.isEmpty { refs.insert(upstreamRef) }
+    }
+
+    let commits = try await runLogStdin(
+      dir: dir, refs: Array(refs), maxCount: maxCount,
+      firstParentOnly: firstParentOnly, sortMode: sortMode)
+    return LogResult(commits: commits, defaultBranch: defaultBranch, branchHead: branchHead)
+  }
+
+  /// HEAD が commit OID を解決できるかを返す。`git rev-parse --verify --quiet HEAD` を使い、
+  /// exit 0 なら true (通常 branch / detached HEAD)、exit ≠ 0 なら false (unborn branch 等)。
+  ///
+  /// エラー方針 (`silent drop 禁止規律` に沿った粒度):
+  /// - `commandFailed` + stderr 空: `--quiet` で unborn HEAD を silently 弾いた正常パス。silent に false
+  /// - 上記以外 (`commandFailed` で stderr 非空 / `launchFailed` / `commandNotFound` /
+  ///   `unexpectedOutput`): 異常系の可能性があるため `StderrLog` に 1 行残してから false に倒す。
+  ///   実害は HEAD log 経路 (`runLogStdin`) や他 ref 経路で同 root cause が表面化するため
+  ///   ここでは fail-soft で graph 表示を止めない方針を踏襲し、観察可能性のみ確保する。
+  ///
+  /// 契約: 引数列の `--quiet` が unborn HEAD で「exit ≠ 0 + stderr 空」を保証する。
+  /// このフラグを除くと git は unborn でも stderr に `fatal: Needed a single revision` を
+  /// 書き出し、上の where 句 (`stderr.isEmpty`) が成立しなくなって catch-all に倒れる。
+  /// 結果として「正常パスである unborn」が毎 loadLog で `StderrLog` 1 行を出す noise になる。
+  /// 振る舞いとしては fail-soft なので壊滅しないが、catch 分岐の意味が壊れるため必須フラグ。
+  public static func headOidExists(dir: String) async -> Bool {
+    do {
+      _ = try await runGit(
+        // `--quiet`: 上の `stderr.isEmpty` 分岐契約を成立させるため必須 (docstring 参照)。
+        args: ["rev-parse", "--verify", "--quiet", "HEAD"], cwd: dir)
+      return true
+    } catch let GitError.commandFailed(_, stderr) where stderr.isEmpty {
+      // unborn HEAD: `--quiet` で stderr 空、exit ≠ 0。正常系として silent に倒す。
+      return false
+    } catch {
+      StderrLog.write(
+        tag: "GitOps", "headOidExists: fallback to false (\(error)) dir=\(dir)")
+      return false
+    }
+  }
+
+  /// HEAD が指す branch 名を返す (例: `main` / `feature/foo`)。
+  /// porcelain v2 の `# branch.head` と同一の semantics を `git symbolic-ref --short HEAD`
+  /// で取得し、SSOT を `gitStatusChange` push payload と一致させる。
+  ///
+  /// 挙動の場合分け:
+  /// - 通常の branch (HEAD が refs/heads/<name> を指す): branch 名を exit 0 で返す
+  /// - unborn branch (`git init -b main` 直後、commit 無し): symbolic-ref は branch 名
+  ///   (`main`) を exit 0 で返す。porcelain v2 の `# branch.head` も同じく branch 名を返すため
+  ///   SSOT が揃う
+  /// - detached HEAD: symbolic-ref は exit 128 で `commandFailed` を throw する
+  ///
+  /// 呼び出し側で `commandFailed` を空文字列に倒すかは judgment に委ねる (`log` は倒す)。
+  /// `launchFailed` / `commandNotFound` は本関数からは握り潰さず rethrow し、上位の
+  /// notify.error 経路に通す (silent drop 禁止規律)。
+  public static func branchHeadName(dir: String) async throws -> String {
+    let stdout = try await runGit(args: ["symbolic-ref", "--short", "HEAD"], cwd: dir)
+    return String(decoding: stdout, as: UTF8.self).trimmingCharacters(
+      in: .whitespacesAndNewlines)
+  }
+
+  /// `git log --stdin` で複数 ref を始点に走る単発 helper。
+  ///
+  /// stdin に ref 名を改行区切りで流し込む。git は各 ref を walk 始点とし、commit を OID で
+  /// dedup しつつ 1 つのストリームに統合する。CLI 引数長制限の回避目的と、ref 集合を
+  /// atomic に渡せる利点が `--stdin` を選ぶ理由 (VSCode `git.ts:1490-1497` の理由と同じ)。
+  ///
+  /// fail mode:
+  /// format string は US (`\u{1f}` / `%x1f`) を field separator、RS (`\u{1e}` / `%x1e`) を
+  /// record separator に使う。commit metadata 値 (`%an` / `%s` / `%b`) に US (`\u{1f}`) が
+  /// 含まれた record が混ざると `parseLogRecords` の field 数チェックで `unexpectedOutput`
+  /// として throw され、graph 全体が `notify.error("Failed to load git graph", ...)` に倒れる。
+  /// US は ASCII 制御文字で通常テキストでは出ないが、commit message に意図的 / 偶発的に
+  /// 混入する病的ケースで graph 描画が止まる trade-off。`result.commits` の SSOT 性
+  /// (partial success による silent な commit 欠落の禁止) を優先し strict 契約に倒している。
+  private static func runLogStdin(
+    dir: String, refs: [String], maxCount: UInt32, firstParentOnly: Bool, sortMode: LogSortMode
+  ) async throws -> [CommitInfo] {
+    if refs.isEmpty { return [] }
+    // ref 名の入力検証。`\n` を区切り子として stdin に流すため、ref 名内に CR / LF / NUL が
+    // 混入していると別 ref として注入される。git の `check-ref-format` 規約上これらは
+    // ref 名に許可されないので現実には起き難いが、`symbolic-ref` / `rev-parse` の出力経路を
+    // 信頼せず、ここで一律弾く (silent drop 禁止規律と入力境界の一貫性のため)。
+    for ref in refs {
+      if ref.contains("\n") || ref.contains("\r") || ref.contains("\u{0}") {
+        throw GitError.unexpectedOutput(
+          "runLogStdin: ref name contains control characters (CR/LF/NUL): refusing to inject")
       }
     }
-    return LogResult(
-      headCommits: head, defaultBranchCommits: defaultCommits, defaultBranch: defaultBranch)
+    // format / parse の SSOT は `logFormat` + `parseLogRecords`。
+    // `--decorate=short` でユーザーの `log.decorate=full` 設定を上書きする。
+    // full にすると %D が `refs/heads/main` / `refs/remotes/origin/main` 形式になり、
+    // renderer の `r.startsWith("origin/")` / current branch 抽出が崩れる。
+    var args = ["log", "--format=\(GitOps.logFormat)", "--decorate=short"]
+    switch sortMode {
+    case .topo: args.append("--topo-order")
+    case .date: args.append("--date-order")
+    }
+    if maxCount > 0 { args.append("--max-count=\(maxCount)") }
+    if firstParentOnly { args.append("--first-parent") }
+    args.append("--stdin")
+    let stdinBytes = (refs.joined(separator: "\n") + "\n").data(using: .utf8) ?? Data()
+    // `treatNonZeroExitAsSuccess` は default false。git log が SIGPIPE / SIGTERM 等で
+    // 「exit ≠ 0 + stderr 空」終了したケースを silent success として通さない。
+    let stdout = try await runGitWithStdin(args: args, cwd: dir, stdin: stdinBytes)
+    let text = String(decoding: stdout, as: UTF8.self)
+    return try parseLogRecords(text)
+  }
+
+  /// `git log --format=<logFormat>` の生 stdout を CommitInfo 配列にパースする pure 関数。
+  ///
+  /// `logFormat` 定数と一対一で対応する。format を変えるなら同時に本関数も触ること。
+  /// `runLogStdin` / `logLine` 等の commit metadata 取得経路はすべてこの parser を経由する
+  /// SSOT で、parse の strict 契約 (8 fields / Int64 author date) を共通化する。
+  ///
+  /// throws:
+  /// - `unexpectedOutput`: record の field 数が 8 でない (US 混入や git format 変更)、または
+  ///   author date が Int64 として parse できない。silent skip / epoch 0 倒しにせず観察可能化する。
+  internal static func parseLogRecords(_ text: String) throws -> [CommitInfo] {
+    var commits: [CommitInfo] = []
+    for record in text.split(separator: "\u{1e}", omittingEmptySubsequences: true) {
+      let trimmed = record.trimmingCharacters(in: .whitespacesAndNewlines)
+      if trimmed.isEmpty { continue }
+      let parts = trimmed.split(separator: "\u{1f}", omittingEmptySubsequences: false).map(
+        String.init)
+      // 8 fields: hash, shortHash, parents, author, date, subject, body, refs
+      // `result.commits` が renderer の履歴 SSOT になるため、想定外フォーマットは
+      // silent skip / epoch 0 倒しせず `unexpectedOutput` で throw して観察可能化する
+      // (本 PR の「silent drop 禁止 / strict 契約」と整合)。
+      guard parts.count == 8 else {
+        throw GitError.unexpectedOutput(
+          "git log record: expected 8 US-separated fields, got \(parts.count)")
+      }
+      let parents =
+        parts[2].isEmpty
+        ? [] : parts[2].split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+      guard let date = Int64(parts[4]) else {
+        throw GitError.unexpectedOutput(
+          "git log record: author date field is not Int64: \(parts[4])")
+      }
+      let parsedRefs = parseRefs(parts[7])
+      commits.append(
+        CommitInfo(
+          hash: parts[0], shortHash: parts[1], parents: parents, author: parts[3], date: date,
+          message: parts[5], body: parts[6], refs: parsedRefs))
+    }
+    return commits
+  }
+
+  /// HEAD の upstream ref 名を返す (例: `origin/foo` / `upstream/main`)。
+  /// upstream 未設定 / detached HEAD では `commandFailed` を throw する。呼び出し側で
+  /// `commandFailed` を空文字列に倒すかは judgment に委ねる (`log` は倒す)。
+  /// `launchFailed` / `commandNotFound` は本関数からは握り潰さず rethrow し、上位の
+  /// notify.error 経路に通す (silent drop 禁止規律)。
+  public static func upstreamRefName(dir: String) async throws -> String {
+    let stdout = try await runGit(
+      args: ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], cwd: dir)
+    return String(decoding: stdout, as: UTF8.self).trimmingCharacters(
+      in: .whitespacesAndNewlines)
   }
 
   public struct StatusFull: Equatable, Sendable {
@@ -246,8 +469,12 @@ public enum GitOps {
       .map { $0.data(using: .utf8) ?? Data() }
       .reduce(Data()) { acc, next in acc + next + Data([0x00]) }
     do {
+      // check-ignore は無視パスがあれば exit 0、無ければ exit 1 を返す仕様。
+      // exit 1 で stderr が空なら「無視されたパス無し」として stdout を受け取るため
+      // `treatNonZeroExitAsSuccess: true` で opt-in する (このフラグは check-ignore 専用)。
       let stdout = try await runGitWithStdin(
-        args: ["check-ignore", "--stdin", "-z"], cwd: dir, stdin: stdinBytes)
+        args: ["check-ignore", "--stdin", "-z"], cwd: dir, stdin: stdinBytes,
+        treatNonZeroExitAsSuccess: true)
       return parseNulSeparatedPaths(stdout)
     } catch {
       // not a git repo / no .gitignore 等は exit code != 0。無視されたパス無しとして扱う。
@@ -333,42 +560,6 @@ public enum GitOps {
       in: .whitespacesAndNewlines)
     if text.hasPrefix("origin/") { return String(text.dropFirst("origin/".count)) }
     return text
-  }
-
-  /// `git log <ref>` を unit-separator 区切りでパースしてコミット一覧を返す。
-  public static func log(
-    dir: String, ref: String = "HEAD", maxCount: UInt32, firstParentOnly: Bool
-  ) async throws -> [CommitInfo] {
-    // %x1f = unit separator (US), %x1e = record separator (RS)
-    let format = "%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e"
-    // `--decorate=short` でユーザーの `log.decorate=full` 設定を上書きする。
-    // full にすると %D が `refs/heads/main` / `refs/remotes/origin/main` 形式になり、
-    // renderer の `r.startsWith("origin/")` / current branch 抽出が崩れる。
-    var args = ["log", "--format=\(format)", "--decorate=short"]
-    if maxCount > 0 { args.append("--max-count=\(maxCount)") }
-    if firstParentOnly { args.append("--first-parent") }
-    args.append(ref)
-    let stdout = try await runGit(args: args, cwd: dir)
-    let text = String(decoding: stdout, as: UTF8.self)
-    var commits: [CommitInfo] = []
-    for record in text.split(separator: "\u{1e}", omittingEmptySubsequences: true) {
-      let trimmed = record.trimmingCharacters(in: .whitespacesAndNewlines)
-      if trimmed.isEmpty { continue }
-      let parts = trimmed.split(separator: "\u{1f}", omittingEmptySubsequences: false).map(
-        String.init)
-      // 8 fields: hash, shortHash, parents, author, date, subject, body, refs
-      guard parts.count == 8 else { continue }
-      let parents =
-        parts[2].isEmpty
-        ? [] : parts[2].split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-      let date = Int64(parts[4]) ?? 0
-      let refs = parseRefs(parts[7])
-      commits.append(
-        CommitInfo(
-          hash: parts[0], shortHash: parts[1], parents: parents, author: parts[3], date: date,
-          message: parts[5], body: parts[6], refs: refs))
-    }
-    return commits
   }
 
   /// `git log --format=%D` の出力をパースする。
@@ -855,8 +1046,9 @@ public enum GitOps {
 
   /// 単一行の変更履歴。`git log -L<line>,<line>:<relPath> --no-patch <rev>` 相当。
   ///
-  /// `--no-patch` で diff 本体を抑制し、custom `--format` で commit metadata のみ取り出す。
-  /// 既存 `log` と同じ %x1f / %x1e 区切りに揃えて parse ロジックを共有する。
+  /// `--no-patch` で diff 本体を抑制し、`logFormat` 定数で commit metadata のみ取り出す。
+  /// parse は `parseLogRecords` SSOT を経由するため、`runLogStdin` と同じ strict 契約
+  /// (8 fields 不一致 / Int64 author date 失敗 → `unexpectedOutput` throw) を共有する。
   ///
   /// path に `:` を含む場合は `-L<n>,<n>:<path>` の syntax が壊れるため reject。
   /// rev は `validateRev` で `-` 始まり等の option 注入を弾き、加えて **空文字も reject** する。
@@ -877,10 +1069,9 @@ public enum GitOps {
       // path に `:` を含むと正しく parse されない。仕様上の制約のため明示 reject。
       throw GitError.unexpectedOutput("git log -L: path contains ':', which is unsupported")
     }
-    let format = "%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e"
     var args = [
       "log",
-      "--format=\(format)",
+      "--format=\(GitOps.logFormat)",
       "--decorate=short",
       "--no-patch",
       "-L", "\(line),\(line):\(relPath)",
@@ -889,24 +1080,7 @@ public enum GitOps {
     args.append(rev)
     let stdout = try await runGit(args: args, cwd: dir)
     let text = String(decoding: stdout, as: UTF8.self)
-    var commits: [CommitInfo] = []
-    for record in text.split(separator: "\u{1e}", omittingEmptySubsequences: true) {
-      let trimmed = record.trimmingCharacters(in: .whitespacesAndNewlines)
-      if trimmed.isEmpty { continue }
-      let parts = trimmed.split(separator: "\u{1f}", omittingEmptySubsequences: false).map(
-        String.init)
-      guard parts.count == 8 else { continue }
-      let parents =
-        parts[2].isEmpty
-        ? [] : parts[2].split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-      let date = Int64(parts[4]) ?? 0
-      let refs = parseRefs(parts[7])
-      commits.append(
-        CommitInfo(
-          hash: parts[0], shortHash: parts[1], parents: parents, author: parts[3], date: date,
-          message: parts[5], body: parts[6], refs: refs))
-    }
-    return commits
+    return try parseLogRecords(text)
   }
 }
 
@@ -1196,18 +1370,35 @@ private func resolveGitPath() async throws -> String {
 /// stdin にデータを渡して git を起動する。`runGit` と同じ戻り値契約。
 /// `launchFailed` を検知した場合、CommandResolver のキャッシュが stale な可能性が
 /// あるため 1 回だけ invalidate + 再 resolve して retry する。
-func runGitWithStdin(args: [String], cwd: String, stdin: Data) async throws -> Data {
+///
+/// `treatNonZeroExitAsSuccess`:
+/// - `false` (default, **厳格**): exit code ≠ 0 は常に `commandFailed` で throw する。
+///   `git log --stdin` / `git check-ref-format --stdin` 等、exit code が普通の成否シグナルである
+///   コマンド用。`git log` 子プロセスが SIGPIPE / SIGTERM で「exit ≠ 0 + stderr 空」終了したケースが
+///   silent に空 stdout として通過するのを防ぐ。
+/// - `true` (**緩和**): `git check-ignore` 専用 opt-in。check-ignore は無視パスがあれば exit 0、
+///   無ければ exit 1 を返す仕様で、**exit code がちょうど 1 かつ stderr が空** のときだけ
+///   「結果なし」として stdout を返す。exit code 2 以上 / signal 終了 (SIGPIPE 等で exit 128+N)
+///   は stderr が空でも throw して、シグナル経由の異常終了を success に倒さない。
+///   check-ignore 以外で使ってはならない (silent drop 禁止規律違反になる)。
+func runGitWithStdin(
+  args: [String], cwd: String, stdin: Data, treatNonZeroExitAsSuccess: Bool = false
+) async throws -> Data {
   do {
     return try await runGitWithStdinOnce(
-      gitPath: try await resolveGitPath(), args: args, cwd: cwd, stdin: stdin)
+      gitPath: try await resolveGitPath(), args: args, cwd: cwd, stdin: stdin,
+      treatNonZeroExitAsSuccess: treatNonZeroExitAsSuccess)
   } catch GitError.launchFailed {
     await CommandResolver.shared.invalidate("git")
     return try await runGitWithStdinOnce(
-      gitPath: try await resolveGitPath(), args: args, cwd: cwd, stdin: stdin)
+      gitPath: try await resolveGitPath(), args: args, cwd: cwd, stdin: stdin,
+      treatNonZeroExitAsSuccess: treatNonZeroExitAsSuccess)
   }
 }
 
-private func runGitWithStdinOnce(gitPath: String, args: [String], cwd: String, stdin: Data)
+private func runGitWithStdinOnce(
+  gitPath: String, args: [String], cwd: String, stdin: Data, treatNonZeroExitAsSuccess: Bool
+)
   async throws -> Data
 {
   let process = Process()
@@ -1238,10 +1429,16 @@ private func runGitWithStdinOnce(gitPath: String, args: [String], cwd: String, s
     }
   )
 
-  // git check-ignore は無視パスがあれば exit 0、無ければ exit 1。1 を「結果なし」
-  // として扱うため、stderr が空なら成功扱いで stdout を返す。
-  // exit code != 0 かつ stderr に出力があれば従来どおりエラー化する。
-  if process.terminationStatus == 0 || stderrData.isEmpty {
+  // exit code 0 → 常に success。
+  // exit code 1 → caller が `treatNonZeroExitAsSuccess=true` を選んでいる場合のみ、
+  // かつ stderr が空のときに「結果なし」として stdout を返す (check-ignore opt-in)。
+  // check-ignore の契約は「無視 path 無し = exit 1」のみ。exit 2 以上 (`fatal: ...`) や
+  // signal 終了 (SIGPIPE → exit 141 等) は stderr が空でも throw する。
+  // それ以外はすべて throw。
+  if process.terminationStatus == 0 {
+    return stdoutData
+  }
+  if treatNonZeroExitAsSuccess && process.terminationStatus == 1 && stderrData.isEmpty {
     return stdoutData
   }
   throw GitError.commandFailed(

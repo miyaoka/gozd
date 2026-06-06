@@ -143,6 +143,99 @@ struct GitOpsParseRefsTests {
   }
 }
 
+@Suite("GitOps.parseLogRecords")
+struct GitOpsParseLogRecordsTests {
+  /// runLogStdin の format に一致する 1 record を組み立てる。
+  /// `%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e`
+  private func record(
+    hash: String = "0123456789abcdef0123456789abcdef01234567",
+    short: String = "0123456",
+    parents: String = "",
+    author: String = "Test",
+    date: String = "1700000000",
+    subject: String = "subj",
+    body: String = "body",
+    refs: String = ""
+  ) -> String {
+    let us = "\u{1f}"
+    let rs = "\u{1e}"
+    return [hash, short, parents, author, date, subject, body, refs].joined(separator: us) + rs
+  }
+
+  @Test("空入力は空配列")
+  func emptyInput() throws {
+    #expect(try GitOps.parseLogRecords("").isEmpty)
+  }
+
+  @Test("trailing whitespace のみは空配列")
+  func whitespaceOnly() throws {
+    #expect(try GitOps.parseLogRecords("\n  \n").isEmpty)
+  }
+
+  @Test("正常な 1 record をパースして CommitInfo 1 件を返す")
+  func singleValidRecord() throws {
+    let text = record(
+      hash: "aaaa", short: "aaaa", parents: "bbbb cccc", author: "Alice",
+      date: "1700000000", subject: "init", body: "body text", refs: "HEAD -> main")
+    let commits = try GitOps.parseLogRecords(text)
+    #expect(commits.count == 1)
+    #expect(commits[0].hash == "aaaa")
+    #expect(commits[0].parents == ["bbbb", "cccc"])
+    #expect(commits[0].author == "Alice")
+    #expect(commits[0].date == 1_700_000_000)
+    #expect(commits[0].message == "init")
+    #expect(commits[0].body == "body text")
+    #expect(commits[0].refs == ["HEAD", "main"])
+  }
+
+  @Test("複数 record は出現順に CommitInfo を返す")
+  func multipleRecords() throws {
+    let text = record(hash: "aa", short: "aa", date: "100") + record(hash: "bb", short: "bb", date: "200")
+    let commits = try GitOps.parseLogRecords(text)
+    #expect(commits.map(\.hash) == ["aa", "bb"])
+  }
+
+  @Test("field 数 != 8 は unexpectedOutput を throw (silent skip しない)")
+  func wrongFieldCountThrows() throws {
+    // body field に US (`\u{1f}`) を混入させて parts 数を 9 に増やす
+    let us = "\u{1f}"
+    let rs = "\u{1e}"
+    let bad = ["h", "h", "", "a", "100", "subj", "bo\(us)dy", ""].joined(separator: us) + rs
+    do {
+      _ = try GitOps.parseLogRecords(bad)
+      Issue.record("expected unexpectedOutput, got success")
+    } catch GitError.unexpectedOutput(let msg) {
+      #expect(msg.contains("8 US-separated fields"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("author date が Int64 として parse できない record は unexpectedOutput を throw (epoch 0 倒ししない)")
+  func badAuthorDateThrows() throws {
+    let text = record(date: "not-a-number")
+    do {
+      _ = try GitOps.parseLogRecords(text)
+      Issue.record("expected unexpectedOutput, got success")
+    } catch GitError.unexpectedOutput(let msg) {
+      #expect(msg.contains("author date"))
+      #expect(msg.contains("not-a-number"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("parents が空文字なら空配列、複数 OID なら space 分割")
+  func parentsParsing() throws {
+    let none = record(parents: "")
+    let one = record(parents: "p1")
+    let two = record(parents: "p1 p2")
+    #expect(try GitOps.parseLogRecords(none)[0].parents == [])
+    #expect(try GitOps.parseLogRecords(one)[0].parents == ["p1"])
+    #expect(try GitOps.parseLogRecords(two)[0].parents == ["p1", "p2"])
+  }
+}
+
 @Suite("GitOps.runGit large output")
 struct GitOpsRunGitLargeOutputTests {
   /// pipe buffer (macOS は最大 ~64KB) を超える stdout で `runGit` が deadlock しないことを保証する。
@@ -199,6 +292,120 @@ struct GitOpsRunGitLargeOutputTests {
     // ignored entry が NUL 区切りで返る。10000 件すべて返ることまで検証する。
     let nulCount = result.reduce(0) { $0 + ($1 == 0x00 ? 1 : 0) }
     #expect(nulCount == 10_000)
+  }
+}
+
+@Suite("GitOps.runGitWithStdin treatNonZeroExitAsSuccess contract")
+struct GitOpsRunGitWithStdinContractTests {
+  /// 「無視されたパスなし」を作る共通 setup。
+  /// .gitignore を作らない git repo で `check-ignore` を呼ぶと exit 1 + stderr 空になる。
+  private func setupNoIgnoreRepo() async throws -> URL {
+    let dir = try await makeGitRepo()
+    // .gitignore を作らない (置けば match して exit 0 になってしまう)
+    return dir
+  }
+
+  @Test("treatNonZeroExitAsSuccess=true: exit 1 + stderr 空 を success として空 stdout を返す")
+  func optInAcceptsNonZeroWhenStderrEmpty() async throws {
+    let dir = try await setupNoIgnoreRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let stdinBytes = Data("foo.txt\u{0}".utf8)
+    let result = try await runGitWithStdin(
+      args: ["check-ignore", "--stdin", "-z"], cwd: dir.path, stdin: stdinBytes,
+      treatNonZeroExitAsSuccess: true)
+    // 無視 path なし → exit 1、stderr 空、stdout も空
+    #expect(result.isEmpty)
+  }
+
+  @Test("treatNonZeroExitAsSuccess=false (default): exit 1 + stderr 空 でも commandFailed を throw")
+  func defaultThrowsOnNonZeroEvenWhenStderrEmpty() async throws {
+    let dir = try await setupNoIgnoreRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let stdinBytes = Data("foo.txt\u{0}".utf8)
+    do {
+      _ = try await runGitWithStdin(
+        args: ["check-ignore", "--stdin", "-z"], cwd: dir.path, stdin: stdinBytes)
+      Issue.record("expected commandFailed for exit 1 with default strict semantics, got success")
+    } catch GitError.commandFailed {
+      // 期待挙動: exit ≠ 0 は default で常に throw
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("treatNonZeroExitAsSuccess の値に関わらず、stderr 非空のときは throw")
+  func nonEmptyStderrAlwaysThrows() async throws {
+    // git 管理外 dir で `check-ignore --stdin -z` を呼ぶと、git は exit 128 + stderr に
+    // "fatal: not a git repository" を出す。treatNonZeroExitAsSuccess の値に関わらず
+    // throw されることを示す (緩和は「stderr 空」が必須条件のため)。
+    let dir = try makeTempDirURL()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let stdinBytes = Data("foo.txt\u{0}".utf8)
+    for flag in [false, true] {
+      do {
+        _ = try await runGitWithStdin(
+          args: ["check-ignore", "--stdin", "-z"], cwd: dir.path, stdin: stdinBytes,
+          treatNonZeroExitAsSuccess: flag)
+        Issue.record(
+          "expected commandFailed for stderr-non-empty case (treatNonZeroExitAsSuccess=\(flag))")
+      } catch GitError.commandFailed {
+        // 期待挙動
+      } catch {
+        Issue.record("unexpected error (treatNonZeroExitAsSuccess=\(flag)): \(error)")
+      }
+    }
+  }
+
+  private func makeTempDirURL() throws -> URL {
+    let raw = FileManager.default.temporaryDirectory
+      .appendingPathComponent("gozd-runStdin-contract-\(UUID().uuidString.prefix(8))")
+    try FileManager.default.createDirectory(at: raw, withIntermediateDirectories: true)
+    return URL(fileURLWithPath: raw.path).resolvingSymlinksInPath()
+  }
+
+  @Test("treatNonZeroExitAsSuccess=true でも exit code が 1 以外なら throw (check-ignore の契約は exit 1 限定)")
+  func optInLimitedToExitCode1() async throws {
+    // git 管理外 dir で check-ignore --stdin -z を呼ぶと exit 128 + stderr に
+    // "fatal: not a git repository" を出すが、敢えて opt-in=true で呼んでも
+    // exit code が 1 でない (= 128) ためフラグの緩和分岐に乗らず throw されることを示す。
+    // ( stderr 非空 ケースは別 test でカバー済み。ここでは exit code 単独の境界を踏む。 )
+    let dir = try makeTempDirURL()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let stdinBytes = Data("foo.txt\u{0}".utf8)
+    do {
+      _ = try await runGitWithStdin(
+        args: ["check-ignore", "--stdin", "-z"], cwd: dir.path, stdin: stdinBytes,
+        treatNonZeroExitAsSuccess: true)
+      Issue.record("expected commandFailed for exit code != 1 even with opt-in")
+    } catch let GitError.commandFailed(exitCode, _) {
+      // 期待挙動: exit code 128 で throw、opt-in 緩和は exit code 1 限定
+      #expect(exitCode != 1)
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("GitOps.log 経路 (treatNonZeroExitAsSuccess=false) で git log が壊れた ref を渡されたら commandFailed throw")
+  func logPathThrowsOnBadRef() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    // initial commit を作って HEAD を確立する。
+    try "a".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c1"], cwd: dir.path)
+    // 直接 `runGitWithStdin` で git log を壊れた ref で呼ぶ (runLogStdin は private なので
+    // ここで同じ args パスを再現する)。runLogStdin と同じ default-strict 経路で throw することを示す。
+    let stdinBytes = Data("refs/heads/does-not-exist\n".utf8)
+    do {
+      _ = try await runGitWithStdin(
+        args: ["log", "--format=%H", "--stdin"], cwd: dir.path, stdin: stdinBytes)
+      Issue.record("expected commandFailed for bad revision via runLogStdin-equivalent path")
+    } catch GitError.commandFailed {
+      // 期待挙動: git log の "fatal: bad revision" が stderr に出るため throw
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
   }
 }
 
@@ -1473,7 +1680,353 @@ struct GitOpsResetMixedTests {
   }
 }
 
+@Suite("GitOps.upstreamRefName")
+struct GitOpsUpstreamRefNameTests {
+  @Test("upstream 未設定 (push 前) は commandFailed を throw")
+  func notConfigured() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    // initial commit を作る (HEAD を確立しないと `@{upstream}` は別エラーになる)
+    try "seed".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
+
+    do {
+      _ = try await GitOps.upstreamRefName(dir: dir.path)
+      Issue.record("expected commandFailed, got success")
+    } catch GitError.commandFailed {
+      // 期待挙動
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("upstream 設定済みなら ref 名 (例: origin/main) を返す")
+  func configured() async throws {
+    let (local, origin) = try await makeLocalUpstreamRepoPair()
+    defer {
+      try? FileManager.default.removeItem(at: local)
+      try? FileManager.default.removeItem(at: origin)
+    }
+    let result = try await GitOps.upstreamRefName(dir: local.path)
+    #expect(result == "origin/main")
+  }
+
+  @Test("detached HEAD では commandFailed を throw")
+  func detachedHead() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "a".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c1"], cwd: dir.path)
+    let head = try await currentHeadHash(dir: dir.path)
+    try await runTestGit(args: ["checkout", "--detach", head], cwd: dir.path)
+
+    do {
+      _ = try await GitOps.upstreamRefName(dir: dir.path)
+      Issue.record("expected commandFailed, got success")
+    } catch GitError.commandFailed {
+      // 期待挙動
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("unborn branch (initial commit 前) では commandFailed を throw")
+  func unbornBranch() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    // makeGitRepo は init -q -b main しかしないので、commit 前は unborn branch 状態
+    do {
+      _ = try await GitOps.upstreamRefName(dir: dir.path)
+      Issue.record("expected commandFailed, got success")
+    } catch GitError.commandFailed {
+      // 期待挙動
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+}
+
+@Suite("GitOps.branchHeadName")
+struct GitOpsBranchHeadNameTests {
+  @Test("通常 branch は branch 名を返す")
+  func normalBranch() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "a".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c1"], cwd: dir.path)
+    try await runTestGit(args: ["branch", "-m", "feature/foo"], cwd: dir.path)
+
+    let result = try await GitOps.branchHeadName(dir: dir.path)
+    #expect(result == "feature/foo")
+  }
+
+  @Test("unborn branch (commit 無し) でも branch 名を返す (porcelain v2 と同 SSOT)")
+  func unbornBranch() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    // makeGitRepo は init -q -b main 直後で commit が無い unborn 状態
+    let result = try await GitOps.branchHeadName(dir: dir.path)
+    #expect(result == "main")
+  }
+
+  @Test("detached HEAD では commandFailed を throw")
+  func detachedHead() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "a".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c1"], cwd: dir.path)
+    let head = try await currentHeadHash(dir: dir.path)
+    try await runTestGit(args: ["checkout", "--detach", head], cwd: dir.path)
+
+    do {
+      _ = try await GitOps.branchHeadName(dir: dir.path)
+      Issue.record("expected commandFailed for detached HEAD")
+    } catch GitError.commandFailed {
+      // 期待挙動
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+}
+
+@Suite("GitOps.headOidExists")
+struct GitOpsHeadOidExistsTests {
+  @Test("通常 branch (commit あり) では true")
+  func normalBranch() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "a".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c1"], cwd: dir.path)
+
+    let result = await GitOps.headOidExists(dir: dir.path)
+    #expect(result == true)
+  }
+
+  @Test("unborn branch では false (HEAD が commit を指していない)")
+  func unbornBranch() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    // makeGitRepo は init -q -b main 直後で commit が無い unborn 状態
+    let result = await GitOps.headOidExists(dir: dir.path)
+    #expect(result == false)
+  }
+
+  @Test("git repo でない dir では false (graph 表示を止めない fallback)")
+  func notARepo() async throws {
+    let tmp = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: tmp) }
+
+    let result = await GitOps.headOidExists(dir: tmp.path)
+    #expect(result == false)
+  }
+}
+
+@Suite("GitOps.log (--stdin で N ref を 1 walk)")
+struct GitOpsLogTests {
+  @Test("origin / upstream 不在の repo では HEAD のみで commits を返す")
+  func headOnly() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "a".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c1"], cwd: dir.path)
+    try "b".write(
+      to: dir.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "b.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c2"], cwd: dir.path)
+
+    let result = try await GitOps.log(
+      dir: dir.path, maxCount: 50, firstParentOnly: false, currentBranchOnly: false,
+      sortMode: .topo)
+    #expect(result.defaultBranch == "")
+    #expect(result.commits.count == 2)
+    #expect(result.commits.first?.message == "c2")
+  }
+
+  @Test("amend 後の orphan upstream tip が commits に含まれる")
+  func amendOrphanTipVisible() async throws {
+    let (local, origin) = try await makeLocalUpstreamRepoPair()
+    defer {
+      try? FileManager.default.removeItem(at: local)
+      try? FileManager.default.removeItem(at: origin)
+    }
+    // local で 1 commit 追加 → push → amend (push しない)
+    try "feat".write(
+      to: local.appendingPathComponent("feat.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "feat.txt"], cwd: local.path)
+    try await runTestGit(args: ["commit", "-m", "feat"], cwd: local.path)
+    try await runTestGit(args: ["push", "-u", "origin", "main"], cwd: local.path)
+    let preAmendHash = try await currentHeadHash(dir: local.path)
+    try await runTestGit(args: ["commit", "--amend", "-m", "feat (amended)"], cwd: local.path)
+    let postAmendHash = try await currentHeadHash(dir: local.path)
+    #expect(preAmendHash != postAmendHash)
+
+    let result = try await GitOps.log(
+      dir: local.path, maxCount: 50, firstParentOnly: false, currentBranchOnly: false,
+      sortMode: .topo)
+    let hashes = Set(result.commits.map(\.hash))
+    // amend 後の新 HEAD commit
+    #expect(hashes.contains(postAmendHash))
+    // origin/main が指す amend 前の orphan tip (HEAD 系統から到達不可) も含まれる
+    #expect(hashes.contains(preAmendHash))
+  }
+
+  @Test("currentBranchOnly=true では origin/<default> も upstream も walk しない")
+  func currentBranchOnlySkipsSideStreams() async throws {
+    let (local, origin) = try await makeLocalUpstreamRepoPair()
+    defer {
+      try? FileManager.default.removeItem(at: local)
+      try? FileManager.default.removeItem(at: origin)
+    }
+    // 別ブランチに切り替え (HEAD と origin/main が分岐)
+    try await runTestGit(args: ["checkout", "-b", "feature"], cwd: local.path)
+    try "feat".write(
+      to: local.appendingPathComponent("feat.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "feat.txt"], cwd: local.path)
+    try await runTestGit(args: ["commit", "-m", "feat"], cwd: local.path)
+    // main から bumpcommit を 1 つ追加 (origin/main が HEAD から到達不可な独立 commit を持つ)
+    try await runTestGit(args: ["checkout", "main"], cwd: local.path)
+    try "bump".write(
+      to: local.appendingPathComponent("bump.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "bump.txt"], cwd: local.path)
+    try await runTestGit(args: ["commit", "-m", "bump"], cwd: local.path)
+    try await runTestGit(args: ["push", "origin", "main"], cwd: local.path)
+    try await runTestGit(args: ["checkout", "feature"], cwd: local.path)
+
+    let withSides = try await GitOps.log(
+      dir: local.path, maxCount: 50, firstParentOnly: false, currentBranchOnly: false,
+      sortMode: .topo)
+    let onlyHead = try await GitOps.log(
+      dir: local.path, maxCount: 50, firstParentOnly: false, currentBranchOnly: true,
+      sortMode: .topo)
+    // currentBranchOnly=true は HEAD walk のみなので "bump" commit (origin/main 由来) は出ない
+    #expect(withSides.commits.contains(where: { $0.message == "bump" }))
+    #expect(!onlyHead.commits.contains(where: { $0.message == "bump" }))
+    // defaultBranch 文字列は currentBranchOnly でも引き続き返る (RefBadge isDefault 用)
+    #expect(onlyHead.defaultBranch == "main")
+  }
+
+  @Test("未 push の rebase 後、orphan 連鎖 (複数 commit) が全件 visible に含まれる")
+  func rebaseOrphanChainVisible() async throws {
+    let (local, origin) = try await makeLocalUpstreamRepoPair()
+    defer {
+      try? FileManager.default.removeItem(at: local)
+      try? FileManager.default.removeItem(at: origin)
+    }
+    // 3 commit 積んで push → 1 commit に squash (= 残り 2 commit が orphan 化)
+    for i in 1...3 {
+      try "v\(i)".write(
+        to: local.appendingPathComponent("f\(i).txt"), atomically: true, encoding: .utf8)
+      try await runTestGit(args: ["add", "f\(i).txt"], cwd: local.path)
+      try await runTestGit(args: ["commit", "-m", "c\(i)"], cwd: local.path)
+    }
+    try await runTestGit(args: ["push", "-u", "origin", "main"], cwd: local.path)
+    // push 後の orphan 化対象 (c1 / c2) の hash を控える
+    let orphanC1 = try await commitHashAt(dir: local.path, rev: "HEAD~2")
+    let orphanC2 = try await commitHashAt(dir: local.path, rev: "HEAD~1")
+    // 3 commit を `reset --soft HEAD~3` + 1 commit に squash する (interactive rebase 等価)。
+    // origin/main は push 直後の HEAD (= c3) を指したまま固定される。
+    try await runTestGit(args: ["reset", "--soft", "HEAD~3"], cwd: local.path)
+    try await runTestGit(args: ["commit", "-m", "squashed"], cwd: local.path)
+    let newHead = try await currentHeadHash(dir: local.path)
+
+    let result = try await GitOps.log(
+      dir: local.path, maxCount: 100, firstParentOnly: false, currentBranchOnly: false,
+      sortMode: .topo)
+    let hashes = Set(result.commits.map(\.hash))
+    // 新 HEAD は visible
+    #expect(hashes.contains(newHead))
+    // origin/main が指す c3 (== HEAD 系統から到達不可な orphan tip) と、その親 c2 / c1 まで
+    // 「orphan 連鎖」全件が visible commit set に含まれる
+    let orphanTip = try await commitHashAt(dir: local.path, rev: "origin/main")
+    #expect(hashes.contains(orphanTip))
+    #expect(hashes.contains(orphanC1))
+    #expect(hashes.contains(orphanC2))
+  }
+
+  @Test("unborn branch では throw せず空 commits + branchHead=main を返す")
+  func unbornBranchYieldsEmptyCommitsWithoutThrow() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    // makeGitRepo は init -q -b main 直後で commit が無い unborn 状態。HEAD は commit を
+    // 指していないため、HEAD を始点 ref に入れると `git log --stdin` が exit 128 で throw する。
+    // log() は headOidExists で事前検証し、unborn の HEAD を refs から除外することで
+    // strict 契約を壊さず unborn を正常系として扱う (新規 worktree 開封時の graph 初期化失敗を回避)。
+    let result = try await GitOps.log(
+      dir: dir.path, maxCount: 50, firstParentOnly: false, currentBranchOnly: false,
+      sortMode: .topo)
+    #expect(result.commits.isEmpty)
+    #expect(result.defaultBranch == "")
+    // unborn でも `git symbolic-ref --short HEAD` は branch 名 (main) を返す
+    #expect(result.branchHead == "main")
+  }
+
+  @Test("LogResult.branchHead は git symbolic-ref --short HEAD と一致する (porcelain v2 SSOT)")
+  func branchHeadInResult() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "a".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c1"], cwd: dir.path)
+    try await runTestGit(args: ["branch", "-m", "feature/foo"], cwd: dir.path)
+
+    let result = try await GitOps.log(
+      dir: dir.path, maxCount: 50, firstParentOnly: false, currentBranchOnly: false,
+      sortMode: .topo)
+    #expect(result.branchHead == "feature/foo")
+  }
+
+  @Test("LogResult.branchHead は detached HEAD で空文字に倒れる")
+  func branchHeadEmptyOnDetachedHead() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "a".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c1"], cwd: dir.path)
+    let head = try await currentHeadHash(dir: dir.path)
+    try await runTestGit(args: ["checkout", "--detach", head], cwd: dir.path)
+
+    let result = try await GitOps.log(
+      dir: dir.path, maxCount: 50, firstParentOnly: false, currentBranchOnly: false,
+      sortMode: .topo)
+    #expect(result.branchHead == "")
+  }
+
+  @Test("git で 1 度に dedup されるため、 fork workflow 風に upstream==origin/<default> でも commit が重複しない")
+  func gitDedupesAcrossRefs() async throws {
+    let (local, origin) = try await makeLocalUpstreamRepoPair()
+    defer {
+      try? FileManager.default.removeItem(at: local)
+      try? FileManager.default.removeItem(at: origin)
+    }
+    let result = try await GitOps.log(
+      dir: local.path, maxCount: 50, firstParentOnly: false, currentBranchOnly: false,
+      sortMode: .topo)
+    let hashes = result.commits.map(\.hash)
+    let unique = Set(hashes)
+    #expect(hashes.count == unique.count)
+  }
+}
+
 // MARK: - Helpers
+
+private func commitHashAt(dir: String, rev: String) async throws -> String {
+  let stdout = try await runGit(args: ["rev-parse", rev], cwd: dir)
+  return String(decoding: stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+}
 
 private func currentHeadHash(dir: String) async throws -> String {
   let stdout = try await runGit(args: ["rev-parse", "HEAD"], cwd: dir)
@@ -1499,6 +2052,27 @@ private func makeGitRepo() async throws -> URL {
   try await runTestGit(args: ["config", "user.name", "Test"], cwd: dir.path)
   try await runTestGit(args: ["config", "user.email", "test@example.com"], cwd: dir.path)
   return dir
+}
+
+/// origin remote + upstream tracking が確立した local repo と、その origin として使う
+/// bare repo の URL を返す。caller は両方を removeItem で掃除する責任を持つ。
+/// initial commit が main ブランチに 1 つあり、`origin/HEAD = main`、`@{upstream} = origin/main` に
+/// なっている状態。`/usr/bin/env git` 側の `init.defaultBranch` がユーザー環境で `master` 等に
+/// 設定されているケースを `init -b main` で固定する。
+private func makeLocalUpstreamRepoPair() async throws -> (local: URL, origin: URL) {
+  let origin = try makeTempDir()
+  try await runTestGit(args: ["init", "-q", "--bare", "-b", "main"], cwd: origin.path)
+  let local = try await makeGitRepo()
+  try "seed".write(
+    to: local.appendingPathComponent("seed.txt"), atomically: true, encoding: .utf8)
+  try await runTestGit(args: ["add", "seed.txt"], cwd: local.path)
+  try await runTestGit(args: ["commit", "-m", "seed"], cwd: local.path)
+  try await runTestGit(args: ["remote", "add", "origin", origin.path], cwd: local.path)
+  try await runTestGit(args: ["push", "-u", "origin", "main"], cwd: local.path)
+  // origin/HEAD → main を確定 (bare 直 push だけだと一部の git バージョンで未設定が残るため)。
+  try await runTestGit(
+    args: ["remote", "set-head", "origin", "main"], cwd: local.path)
+  return (local, origin)
 }
 
 /// テスト helper: GitOps と同じ `/usr/bin/env git` 経由で任意の git コマンドを実行する。

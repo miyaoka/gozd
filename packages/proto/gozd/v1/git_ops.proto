@@ -12,22 +12,55 @@ message GitWorktreeListResponse {
   repeated WorktreeEntry worktrees = 1;
 }
 
-// gitLog: HEAD と default branch（origin/HEAD の指す先）の log を返し、
-// renderer 側で merge する設計。default_branch は git log で決まらないので
-// `git symbolic-ref refs/remotes/origin/HEAD` から server 側で求める。
+// SortMode: git log の commit 並び順。
+// - SORT_MODE_TOPO: `--topo-order` で第 1 親系統を連続させる
+// - SORT_MODE_DATE: `--date-order` で commit date 降順を厳守
+enum SortMode {
+  SORT_MODE_TOPO = 0;
+  SORT_MODE_DATE = 1;
+}
+
+// gitLog: HEAD / `origin/<default>` / `@{upstream}` の各 ref を始点に
+// 1 回の `git log --stdin --decorate=short` で walk する。
+//
+// 設計の根拠 (VSCode の Source Control Graph 実装 `extensions/git/src/git.ts` 参照):
+// - native 側で N ref を Set で dedup → stdin で git に渡す
+// - git 自身が walk 中に commit を dedup するため、renderer 側で merge / dedup する
+//   ロジックは不要。topo / date order の決定も git に任せる
+// - 副次効果として `git commit --amend` / 未 push の rebase 等で
+//   `origin/<branch>` が HEAD から到達不可になっても、`@{upstream}` を始点 ref として
+//   渡すため orphan tip / 祖先連鎖が visible commit set に含まれ、graph 上に
+//   `origin/<branch>` の badge が残る
+//
+// `default_branch` 文字列は git log で決まらないので
+// `git symbolic-ref refs/remotes/origin/HEAD` から server 側で求める
+// (RefBadge の `isDefault` 表示に使う)。
 message GitLogRequest {
   string dir = 1;
   uint32 max_count = 2;
   bool first_parent_only = 3;
-  // true のとき `origin/<default>` の log 取得を完全に skip し、`default_branch_commits` を
-  // 空配列で返す。`default_branch` 文字列は `git symbolic-ref` だけは引き続き解決して返す
-  // (RefBadge の `isDefault` 表示に使う)。
+  // true のとき `origin/<default>` と `@{upstream}` を始点 ref から除外し、
+  // HEAD だけを始点にする。`default_branch` 文字列は `git symbolic-ref` で
+  // 引き続き解決して返す。
   bool current_branch_only = 4;
+  // 並び順。未指定 (= SORT_MODE_TOPO) は `--topo-order`。
+  SortMode sort_mode = 5;
 }
 message GitLogResponse {
-  repeated GitCommit head_commits = 1;
-  repeated GitCommit default_branch_commits = 2;
-  string default_branch = 3;
+  // 全 ref を始点に 1 本の `git log --stdin` で walk した結果。child → parent 順、
+  // sort_mode に従って tie-break される。
+  repeated GitCommit commits = 1;
+  // `git symbolic-ref refs/remotes/origin/HEAD` の結果 (例: `main`)。
+  // 解決失敗時 / origin 未設定時は空文字。
+  string default_branch = 2;
+  // HEAD が指す branch 名 (例: `main` / `feature/foo`)。`git symbolic-ref --short HEAD`
+  // の結果。detached HEAD では空文字 (native の log() が commandFailed を catch して fallback)。
+  // unborn branch (commit 無し) では symbolic-ref が branch 名を exit 0 で返すため、ここにも
+  // branch 名が入る。`git status --porcelain=v2 --branch` の `# branch.head` と同一の
+  // semantics で、`gitStatusChange` push payload の `branchHead` と SSOT を一致させる目的で
+  // 同一 RPC に含める。renderer の change detection trigger 比較で log の `%D` decoration 経路と
+  // porcelain v2 経路が混在しないよう、graph データ取得時点で同一 snapshot として配信する。
+  string branch_head = 3;
 }
 
 // gitDiffHunks: 2 つのテキスト間の hunk 単位差分を計算する。

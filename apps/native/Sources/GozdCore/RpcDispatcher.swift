@@ -604,9 +604,10 @@ public actor RpcDispatcher {
 
   private func handleGitLog(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitLogRequest(jsonUTF8Data: body)
-    let result = try await GitOps.logBoth(
+    let sortMode: GitOps.LogSortMode = req.sortMode == .date ? .date : .topo
+    let result = try await GitOps.log(
       dir: req.dir, maxCount: req.maxCount, firstParentOnly: req.firstParentOnly,
-      currentBranchOnly: req.currentBranchOnly)
+      currentBranchOnly: req.currentBranchOnly, sortMode: sortMode)
     func toProto(_ c: CommitInfo) -> Gozd_V1_GitCommit {
       var pb = Gozd_V1_GitCommit()
       pb.hash = c.hash
@@ -620,9 +621,9 @@ public actor RpcDispatcher {
       return pb
     }
     var resp = Gozd_V1_GitLogResponse()
-    resp.headCommits = result.headCommits.map(toProto)
-    resp.defaultBranchCommits = result.defaultBranchCommits.map(toProto)
+    resp.commits = result.commits.map(toProto)
     resp.defaultBranch = result.defaultBranch
+    resp.branchHead = result.branchHead
     return try resp.jsonUTF8Data()
   }
 

@@ -10,6 +10,44 @@ import { FileReadResult, GitCommit, GitFileChange, GitIssue, GitPullRequest, Wor
 
 export const protobufPackage = "gozd.v1";
 
+/**
+ * SortMode: git log の commit 並び順。
+ * - SORT_MODE_TOPO: `--topo-order` で第 1 親系統を連続させる
+ * - SORT_MODE_DATE: `--date-order` で commit date 降順を厳守
+ */
+export enum SortMode {
+  SORT_MODE_TOPO = 0,
+  SORT_MODE_DATE = 1,
+  UNRECOGNIZED = -1,
+}
+
+export function sortModeFromJSON(object: any): SortMode {
+  switch (object) {
+    case 0:
+    case "SORT_MODE_TOPO":
+      return SortMode.SORT_MODE_TOPO;
+    case 1:
+    case "SORT_MODE_DATE":
+      return SortMode.SORT_MODE_DATE;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return SortMode.UNRECOGNIZED;
+  }
+}
+
+export function sortModeToJSON(object: SortMode): string {
+  switch (object) {
+    case SortMode.SORT_MODE_TOPO:
+      return "SORT_MODE_TOPO";
+    case SortMode.SORT_MODE_DATE:
+      return "SORT_MODE_DATE";
+    case SortMode.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
 export enum DiffLineKind {
   DIFF_LINE_KIND_CONTEXT = 0,
   DIFF_LINE_KIND_ADDED = 1,
@@ -126,26 +164,57 @@ export interface GitWorktreeListResponse {
 }
 
 /**
- * gitLog: HEAD と default branch（origin/HEAD の指す先）の log を返し、
- * renderer 側で merge する設計。default_branch は git log で決まらないので
- * `git symbolic-ref refs/remotes/origin/HEAD` から server 側で求める。
+ * gitLog: HEAD / `origin/<default>` / `@{upstream}` の各 ref を始点に
+ * 1 回の `git log --stdin --decorate=short` で walk する。
+ *
+ * 設計の根拠 (VSCode の Source Control Graph 実装 `extensions/git/src/git.ts` 参照):
+ * - native 側で N ref を Set で dedup → stdin で git に渡す
+ * - git 自身が walk 中に commit を dedup するため、renderer 側で merge / dedup する
+ *   ロジックは不要。topo / date order の決定も git に任せる
+ * - 副次効果として `git commit --amend` / 未 push の rebase 等で
+ *   `origin/<branch>` が HEAD から到達不可になっても、`@{upstream}` を始点 ref として
+ *   渡すため orphan tip / 祖先連鎖が visible commit set に含まれ、graph 上に
+ *   `origin/<branch>` の badge が残る
+ *
+ * `default_branch` 文字列は git log で決まらないので
+ * `git symbolic-ref refs/remotes/origin/HEAD` から server 側で求める
+ * (RefBadge の `isDefault` 表示に使う)。
  */
 export interface GitLogRequest {
   dir: string;
   maxCount: number;
   firstParentOnly: boolean;
   /**
-   * true のとき `origin/<default>` の log 取得を完全に skip し、`default_branch_commits` を
-   * 空配列で返す。`default_branch` 文字列は `git symbolic-ref` だけは引き続き解決して返す
-   * (RefBadge の `isDefault` 表示に使う)。
+   * true のとき `origin/<default>` と `@{upstream}` を始点 ref から除外し、
+   * HEAD だけを始点にする。`default_branch` 文字列は `git symbolic-ref` で
+   * 引き続き解決して返す。
    */
   currentBranchOnly: boolean;
+  /** 並び順。未指定 (= SORT_MODE_TOPO) は `--topo-order`。 */
+  sortMode: SortMode;
 }
 
 export interface GitLogResponse {
-  headCommits: GitCommit[];
-  defaultBranchCommits: GitCommit[];
+  /**
+   * 全 ref を始点に 1 本の `git log --stdin` で walk した結果。child → parent 順、
+   * sort_mode に従って tie-break される。
+   */
+  commits: GitCommit[];
+  /**
+   * `git symbolic-ref refs/remotes/origin/HEAD` の結果 (例: `main`)。
+   * 解決失敗時 / origin 未設定時は空文字。
+   */
   defaultBranch: string;
+  /**
+   * HEAD が指す branch 名 (例: `main` / `feature/foo`)。`git symbolic-ref --short HEAD`
+   * の結果。detached HEAD では空文字 (native の log() が commandFailed を catch して fallback)。
+   * unborn branch (commit 無し) では symbolic-ref が branch 名を exit 0 で返すため、ここにも
+   * branch 名が入る。`git status --porcelain=v2 --branch` の `# branch.head` と同一の
+   * semantics で、`gitStatusChange` push payload の `branchHead` と SSOT を一致させる目的で
+   * 同一 RPC に含める。renderer の change detection trigger 比較で log の `%D` decoration 経路と
+   * porcelain v2 経路が混在しないよう、graph データ取得時点で同一 snapshot として配信する。
+   */
+  branchHead: string;
 }
 
 /**
@@ -732,7 +801,7 @@ export const GitWorktreeListResponse: MessageFns<GitWorktreeListResponse> = {
 };
 
 function createBaseGitLogRequest(): GitLogRequest {
-  return { dir: "", maxCount: 0, firstParentOnly: false, currentBranchOnly: false };
+  return { dir: "", maxCount: 0, firstParentOnly: false, currentBranchOnly: false, sortMode: 0 };
 }
 
 export const GitLogRequest: MessageFns<GitLogRequest> = {
@@ -748,6 +817,9 @@ export const GitLogRequest: MessageFns<GitLogRequest> = {
     }
     if (message.currentBranchOnly !== false) {
       writer.uint32(32).bool(message.currentBranchOnly);
+    }
+    if (message.sortMode !== 0) {
+      writer.uint32(40).int32(message.sortMode);
     }
     return writer;
   },
@@ -791,6 +863,14 @@ export const GitLogRequest: MessageFns<GitLogRequest> = {
           message.currentBranchOnly = reader.bool();
           continue;
         }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.sortMode = reader.int32() as any;
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -818,6 +898,11 @@ export const GitLogRequest: MessageFns<GitLogRequest> = {
         : isSet(object.current_branch_only)
         ? globalThis.Boolean(object.current_branch_only)
         : false,
+      sortMode: isSet(object.sortMode)
+        ? sortModeFromJSON(object.sortMode)
+        : isSet(object.sort_mode)
+        ? sortModeFromJSON(object.sort_mode)
+        : 0,
     };
   },
 
@@ -835,6 +920,9 @@ export const GitLogRequest: MessageFns<GitLogRequest> = {
     if (message.currentBranchOnly !== false) {
       obj.currentBranchOnly = message.currentBranchOnly;
     }
+    if (message.sortMode !== 0) {
+      obj.sortMode = sortModeToJSON(message.sortMode);
+    }
     return obj;
   },
 
@@ -847,24 +935,25 @@ export const GitLogRequest: MessageFns<GitLogRequest> = {
     message.maxCount = object.maxCount ?? 0;
     message.firstParentOnly = object.firstParentOnly ?? false;
     message.currentBranchOnly = object.currentBranchOnly ?? false;
+    message.sortMode = object.sortMode ?? 0;
     return message;
   },
 };
 
 function createBaseGitLogResponse(): GitLogResponse {
-  return { headCommits: [], defaultBranchCommits: [], defaultBranch: "" };
+  return { commits: [], defaultBranch: "", branchHead: "" };
 }
 
 export const GitLogResponse: MessageFns<GitLogResponse> = {
   encode(message: GitLogResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    for (const v of message.headCommits) {
+    for (const v of message.commits) {
       GitCommit.encode(v!, writer.uint32(10).fork()).join();
     }
-    for (const v of message.defaultBranchCommits) {
-      GitCommit.encode(v!, writer.uint32(18).fork()).join();
-    }
     if (message.defaultBranch !== "") {
-      writer.uint32(26).string(message.defaultBranch);
+      writer.uint32(18).string(message.defaultBranch);
+    }
+    if (message.branchHead !== "") {
+      writer.uint32(26).string(message.branchHead);
     }
     return writer;
   },
@@ -881,7 +970,7 @@ export const GitLogResponse: MessageFns<GitLogResponse> = {
             break;
           }
 
-          message.headCommits.push(GitCommit.decode(reader, reader.uint32()));
+          message.commits.push(GitCommit.decode(reader, reader.uint32()));
           continue;
         }
         case 2: {
@@ -889,7 +978,7 @@ export const GitLogResponse: MessageFns<GitLogResponse> = {
             break;
           }
 
-          message.defaultBranchCommits.push(GitCommit.decode(reader, reader.uint32()));
+          message.defaultBranch = reader.string();
           continue;
         }
         case 3: {
@@ -897,7 +986,7 @@ export const GitLogResponse: MessageFns<GitLogResponse> = {
             break;
           }
 
-          message.defaultBranch = reader.string();
+          message.branchHead = reader.string();
           continue;
         }
       }
@@ -911,34 +1000,30 @@ export const GitLogResponse: MessageFns<GitLogResponse> = {
 
   fromJSON(object: any): GitLogResponse {
     return {
-      headCommits: globalThis.Array.isArray(object?.headCommits)
-        ? object.headCommits.map((e: any) => GitCommit.fromJSON(e))
-        : globalThis.Array.isArray(object?.head_commits)
-        ? object.head_commits.map((e: any) => GitCommit.fromJSON(e))
-        : [],
-      defaultBranchCommits: globalThis.Array.isArray(object?.defaultBranchCommits)
-        ? object.defaultBranchCommits.map((e: any) => GitCommit.fromJSON(e))
-        : globalThis.Array.isArray(object?.default_branch_commits)
-        ? object.default_branch_commits.map((e: any) => GitCommit.fromJSON(e))
-        : [],
+      commits: globalThis.Array.isArray(object?.commits) ? object.commits.map((e: any) => GitCommit.fromJSON(e)) : [],
       defaultBranch: isSet(object.defaultBranch)
         ? globalThis.String(object.defaultBranch)
         : isSet(object.default_branch)
         ? globalThis.String(object.default_branch)
+        : "",
+      branchHead: isSet(object.branchHead)
+        ? globalThis.String(object.branchHead)
+        : isSet(object.branch_head)
+        ? globalThis.String(object.branch_head)
         : "",
     };
   },
 
   toJSON(message: GitLogResponse): unknown {
     const obj: any = {};
-    if (message.headCommits?.length) {
-      obj.headCommits = message.headCommits.map((e) => GitCommit.toJSON(e));
-    }
-    if (message.defaultBranchCommits?.length) {
-      obj.defaultBranchCommits = message.defaultBranchCommits.map((e) => GitCommit.toJSON(e));
+    if (message.commits?.length) {
+      obj.commits = message.commits.map((e) => GitCommit.toJSON(e));
     }
     if (message.defaultBranch !== "") {
       obj.defaultBranch = message.defaultBranch;
+    }
+    if (message.branchHead !== "") {
+      obj.branchHead = message.branchHead;
     }
     return obj;
   },
@@ -948,9 +1033,9 @@ export const GitLogResponse: MessageFns<GitLogResponse> = {
   },
   fromPartial(object: DeepPartial<GitLogResponse>): GitLogResponse {
     const message = createBaseGitLogResponse();
-    message.headCommits = object.headCommits?.map((e) => GitCommit.fromPartial(e)) || [];
-    message.defaultBranchCommits = object.defaultBranchCommits?.map((e) => GitCommit.fromPartial(e)) || [];
+    message.commits = object.commits?.map((e) => GitCommit.fromPartial(e)) || [];
     message.defaultBranch = object.defaultBranch ?? "";
+    message.branchHead = object.branchHead ?? "";
     return message;
   },
 };

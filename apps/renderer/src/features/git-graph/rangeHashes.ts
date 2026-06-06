@@ -4,8 +4,8 @@ import type { GitCommit } from "@gozd/proto";
  * 範囲選択時の対象 commit hash 列を組み立てる。
  *
  * 仕様: newer (上端) から `commit.parents[0]` を辿り、older の表示位置に到達したら停止する。
- * 「先端ブランチの first-parent walk」を表現し、別枝の独立コミット (mergeCommitStreams が
- * date 順で挿入する origin/HEAD 系の commit など) は対象に含まれない。
+ * 「先端ブランチの first-parent walk」を表現し、別枝の独立コミット
+ * (date 順で混在する origin/HEAD 系の commit など) は対象に含まれない。
  *
  * 終了条件:
  *   - 次の commit が older の表示位置を超えた (older 自身は first-parent 線上にあれば含む)

@@ -472,10 +472,11 @@ async function fetchCommitContent(filePath: string) {
 }
 
 /**
- * PR diff モード時のファイル内容取得。base..working tree の per-file diff。
+ * PR diff モード時のファイル内容取得。`merge-base(HEAD, baseRefOid)`..working tree の per-file diff。
  *
- * from = `pr.baseRefOid` の blob (gitShowCommitFile + olderIsBase=true で `<baseOid>` 自身を取る)。
- * to = working tree の fs 内容。olderIsBase semantic は GitCommitFilesRequest 側と同期させる。
+ * from = `prDiffToggle.lockedBaseOid` (= merge-base OID) の blob を `rpcGitReadBlob` で取得。
+ * to = working tree の fs 内容。起点 OID の決定は `usePrDiffToggleStore.enable()` で済んでおり、
+ * `lockedBaseOid` (= `lockedBase.diffBaseOid`) はそのままここで起点として使える。
  */
 async function fetchPrDiffContent(filePath: string) {
   loading.value = true;
@@ -768,9 +769,10 @@ const currentRev = computed<string | undefined>(() => {
 
 /**
  * Original 側 (older^) を blame する際の rev。
- * - PR diff モード: `pr.baseRefOid` 自身 (^ なし) を起点に blame する。ただし PR で追加されたファイル
- *   (effectiveKind === "added") は base に存在しないため undefined を返し、blame button 経路で
- *   silent dead button にならないよう `blameEnabled` 側で構造的に抑止する。
+ * - PR diff モード: `lockedBaseOid` (= `merge-base(HEAD, baseRefOid)`) を起点に blame する。
+ *   ただし PR で追加されたファイル (effectiveKind === "added") は merge-base に存在しないため
+ *   undefined を返し、blame button 経路で silent dead button にならないよう `blameEnabled` 側で
+ *   構造的に抑止する。
  * - uncommitted モード: "HEAD"
  * - commit モード: `<older>^`。range.older は orderedRange が null でない限り
  *   必ず string で来る (型保証)。fetchCommitContent の fromHash と一致。

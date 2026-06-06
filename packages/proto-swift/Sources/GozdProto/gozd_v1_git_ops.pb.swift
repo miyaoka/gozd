@@ -464,7 +464,13 @@ public struct Gozd_V1_GitCommitFilesResponse: Sendable {
 
 /// gitPrDiffFiles: PR base..working tree の tracked 変更ファイル一覧
 ///
-/// base_hash 自身は含まず、`git diff <base_hash>` (右辺省略 = working tree) で実行する。
+/// base_hash は **`merge-base(HEAD, baseRefOid)` の OID** を渡す契約 (= GitHub の Files
+/// changed タブと同じ 3-dot semantics の左端)。renderer が `usePrDiffToggleStore.enable()`
+/// で `gitMergeBase` を呼び事前に解決した値を流す。`baseRefOid` を直接渡してはいけない:
+/// base ブランチが PR 分岐後に前進していると、その前進分が逆向きに差分として混入する
+/// (= 「自分のブランチに含まれていない main の変更」が PR diff に紛れ込む bug)。
+///
+/// 内部では `git diff <base_hash>` (右辺省略 = working tree) を実行する。
 /// `--diff-filter=AMDR` で除外される untracked file (`??`) は本 RPC では返さない。
 /// 「PR をいま push したら base に何が入るか」のうち untracked 分の merge は renderer 側
 /// (`useChangesStore.fileChanges`) が `gitStatusStore` 由来の untracked を append して行う。
@@ -476,8 +482,9 @@ public struct Gozd_V1_GitPrDiffFilesRequest: Sendable {
 
   public var dir: String = String()
 
-  /// PR base の commit OID。GitHub GraphQL `baseRefOid` をそのまま渡す。
-  /// ref 名ではなく OID なので fork PR / base force-push / rename を跨いで安定。
+  /// diff の起点となる commit OID。renderer は `gitMergeBase(HEAD, baseRefOid)` の結果を
+  /// 渡す契約 (= GitHub の Files changed と同じ 3-dot semantics)。`baseRefOid` を直接
+  /// 渡すと「PR 分岐後に base が前進した分」が逆向きに差分として紛れ込む。
   public var baseHash: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -491,6 +498,46 @@ public struct Gozd_V1_GitPrDiffFilesResponse: Sendable {
   // methods supported on all messages.
 
   public var changes: [Gozd_V1_GitFileChange] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// gitMergeBase: 2 commit の最低共通祖先を返す。`git merge-base <hash1> <hash2>` 相当。
+///
+/// PR diff モードの起点解決に使う。GitHub の Files changed タブが採る 3-dot semantics
+/// (`<base>...<head>`) は **「merge-base(base, head) から head までの差分」** を表すが、
+/// 3-dot **構文** は両辺が commit であることを要求するため working tree を含められない。
+/// 代わりに renderer 側で `gitMergeBase` を先に呼び、得た merge-base OID を
+/// `gitPrDiffFiles.base_hash` に渡して `git diff <merge-base>` (右辺省略 = working tree) を
+/// 実行することで、3-dot semantics と working tree 含有を両立する。
+///
+/// 失敗 (history が unrelated / hash 不在等) は `merge_base_oid` を空文字で返す。
+/// 空文字判定は呼び出し側 (`usePrDiffToggleStore.enable()`) で行い、ユーザーへトースト通知する。
+public struct Gozd_V1_GitMergeBaseRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var dir: String = String()
+
+  public var hash1: String = String()
+
+  public var hash2: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Gozd_V1_GitMergeBaseResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// merge-base が解決できた場合のみ非空。unrelated histories / hash 不在等は空文字。
+  public var mergeBaseOid: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1789,6 +1836,76 @@ extension Gozd_V1_GitPrDiffFilesResponse: SwiftProtobuf.Message, SwiftProtobuf._
 
   public static func ==(lhs: Gozd_V1_GitPrDiffFilesResponse, rhs: Gozd_V1_GitPrDiffFilesResponse) -> Bool {
     if lhs.changes != rhs.changes {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitMergeBaseRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitMergeBaseRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}hash1\0\u{1}hash2\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.dir) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.hash1) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.hash2) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.dir.isEmpty {
+      try visitor.visitSingularStringField(value: self.dir, fieldNumber: 1)
+    }
+    if !self.hash1.isEmpty {
+      try visitor.visitSingularStringField(value: self.hash1, fieldNumber: 2)
+    }
+    if !self.hash2.isEmpty {
+      try visitor.visitSingularStringField(value: self.hash2, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitMergeBaseRequest, rhs: Gozd_V1_GitMergeBaseRequest) -> Bool {
+    if lhs.dir != rhs.dir {return false}
+    if lhs.hash1 != rhs.hash1 {return false}
+    if lhs.hash2 != rhs.hash2 {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Gozd_V1_GitMergeBaseResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GitMergeBaseResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}merge_base_oid\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.mergeBaseOid) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.mergeBaseOid.isEmpty {
+      try visitor.visitSingularStringField(value: self.mergeBaseOid, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Gozd_V1_GitMergeBaseResponse, rhs: Gozd_V1_GitMergeBaseResponse) -> Bool {
+    if lhs.mergeBaseOid != rhs.mergeBaseOid {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -16,7 +16,7 @@ const voicevoxStore = useVoicevoxStore();
       <div class="flex flex-col gap-2">
         <button
           v-if="voicevoxStore.playing"
-          class="flex items-center gap-1 text-xs text-info hover:text-primary"
+          class="flex items-center gap-1 text-xs text-info hover:underline"
           title="Stop playback"
           @click="voicevoxStore.stopAudio()"
         >

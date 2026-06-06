@@ -48,18 +48,23 @@ overlay** (一覧の generic item / menu hover) は accent system (`bg-accent` /
 intent を 1 つ選ぶときは以下の意味マップに従う。同一 UI で primary / info / success が
 乱立しないよう、active 状態は **要素の階層** (主要 vs 補助) で intent を分ける:
 
-| intent         | 意味                                   | 例                                                                    |
-| -------------- | -------------------------------------- | --------------------------------------------------------------------- |
-| primary        | 主要 action / 主要 active state        | submit button / mode tab indicator / current branch / active task row |
-| info           | 補助 active state / 中立的な情報リンク | sub-toggle (preview / wordwrap) / inline link / info badge            |
-| success        | 完了 / 成功 / 整合状態                 | added file / synced ref / user message bubble                         |
-| destructive    | 削除 / エラー / 危険                   | delete button / error toast / removed file                            |
-| warning        | 進行中 / 一般的な注意                  | Claude `working` state / `〜時間前` (recent stale)                    |
-| warning-strong | 要対応 / 強い注意                      | Claude `asking` state / `〜日前` (older stale) / subagent badge       |
+| intent         | 意味                                   | 例                                                                                                              |
+| -------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| primary        | 主要 action / 主要 active state        | submit button / mode tab indicator / current branch / active task row                                           |
+| info           | 補助 active state / 中立的な情報リンク | sub-toggle (preview / wordwrap) / inline link / info badge / ref / branch / 識別子 text / renamed / copied file |
+| success        | 完了 / 成功 / 整合状態                 | added file / untracked file / synced ref / user message bubble                                                  |
+| destructive    | 削除 / エラー / 危険                   | delete button / error toast / removed file                                                                      |
+| warning        | 進行中 / 一般的な注意                  | Claude `working` state / `〜時間前` (recent stale) / modified file                                              |
+| warning-strong | 要対応 / 強い注意                      | Claude `asking` state / `〜日前` (older stale) / subagent badge                                                 |
 
 primary と info は同じ青系だが意味階層が異なる。同一 toolbar 内で「mode tab = primary、
 補助 toggle = info」のように要素の階層で分ける。「目立たせたいから primary」「ちょっと
 目立たせたいから info」のような曖昧基準は使わない。
+
+**同一要素内で hover による intent 切り替えは禁止**。`text-info hover:text-primary` のような
+hover で intent 階層が動的に変わる pattern は、SKILL の階層分け規律 (要素の階層 = 静的)
+と矛盾する。link の hover 強調は intent を変えず、`hover:underline` / `hover:opacity-80` 等
+の装飾で表現する。
 
 #### Intent ペア (primary / destructive / success / warning / warning-strong / info)
 

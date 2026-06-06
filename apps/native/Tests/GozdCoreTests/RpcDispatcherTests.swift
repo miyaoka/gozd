@@ -4,7 +4,15 @@ import Testing
 
 @testable import GozdCore
 
-@Suite("RpcDispatcher")
+// `.serialized`: 並列実行下の trace 解析容易性 (issue #556 観測項目 4、PTYManager /
+// PTYRegistry suite と整合)。test 自体の決定性は AsyncStream-based barrier で確保するため
+// 並列 CPU 競合を理由とした追加では無いが、PTY を spawn する suite を揃って直列化する。
+// `.timeLimit(.minutes(1))`: production 側 bug (AsyncStream.exit が永久に来ない deadlock 等)
+// で test が永久 hang するのを test framework 経由の fail に倒す breaker。個別 test に
+// 経験則 timeout (`.seconds(2)` / `.seconds(3)`) を撒くのは percentile based 確率設計で
+// flake = 0 要件と矛盾するため、suite 単位 1 段に集約する。.minutes(1) は Swift Testing
+// の最小粒度。
+@Suite("RpcDispatcher", .serialized, .timeLimit(.minutes(1)))
 struct RpcDispatcherTests {
   @Test("/echo は EchoRequest を受けて EchoResponse を返す")
   func echo() async throws {
@@ -78,11 +86,21 @@ struct RpcDispatcherTests {
     let dir = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
 
-    let exitFlag = ExitFlag()
+    // production 側 PTYRegistry consumer Task が AsyncStream.exit event を受けて
+    // onPtyExit callback を発火する。test 側はその callback を AsyncStream に直結し、
+    // `for await` で順序保証付きに observe する。`waitUntil` polling は介在しない:
+    //   - 過去設計: callback → NSLock + Bool ExitFlag → 50ms tick polling → 2s timeout
+    //     (issue #710 で 2.13s 観測の flake 経路)
+    //   - 本設計: callback → AsyncStream.yield → for await で suspend (timeout 不要)
+    // 永久 suspend は suite trait `.timeLimit(.minutes(1))` が breaker として吸収する。
+    let (exitEvents, exitContinuation) = AsyncStream<(UInt32, PTYExitReason)>.makeStream()
     let dispatcher = RpcDispatcher(
       configDir: dir,
       onPtyText: { _, _ in },
-      onPtyExit: { _, _ in exitFlag.signal() }
+      onPtyExit: { id, reason in
+        exitContinuation.yield((id, reason))
+        exitContinuation.finish()
+      }
     )
 
     var spawnReq = Gozd_V1_PtySpawnRequest()
@@ -101,8 +119,15 @@ struct RpcDispatcherTests {
     killReq.ptyID = spawnResp.ptyID
     _ = try await dispatcher.dispatch(path: "/pty/kill", body: killReq.jsonUTF8Data())
 
-    await waitUntil(timeout: .seconds(2), description: "exitFlag is set") { exitFlag.isSet }
-    #expect(exitFlag.isSet)
+    var iterator = exitEvents.makeAsyncIterator()
+    let observed = await iterator.next()
+    let (exitedId, reason) = try #require(observed)
+    #expect(exitedId == spawnResp.ptyID)
+    if case .signaled(let signal, _) = reason {
+      #expect(signal == SIGHUP)
+    } else {
+      Issue.record("expected SIGHUP signaled exit, got \(reason)")
+    }
   }
 
   @Test("/claudeSession/removeByPty: expected resume sid 残留時に task の dead session を片付ける (resume 失敗検出)")
@@ -516,21 +541,25 @@ struct RpcDispatcherTests {
     let dir = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
 
-    let captured = HookCapture()
+    let (hookStream, hookContinuation) = AsyncStream<Gozd_V1_HookMessage>.makeStream()
     let dispatcher = RpcDispatcher(
       configDir: dir,
       onPtyText: { _, _ in },
       onPtyExit: { _, _ in },
-      onHook: { hook in captured.set(hook) },
+      onHook: { hook in
+        hookContinuation.yield(hook)
+        hookContinuation.finish()
+      },
       onOpen: { _ in }
     )
 
     let line = Data(#"{"hook":{"event":"session-start","ptyId":42}}"#.utf8)
     try await dispatcher.handleSocketMessage(line)
 
-    let h = captured.value
-    #expect(h?.event == "session-start")
-    #expect(h?.ptyID == 42)
+    var iterator = hookStream.makeAsyncIterator()
+    let h = try #require(await iterator.next())
+    #expect(h.event == "session-start")
+    #expect(h.ptyID == 42)
   }
 
   @Test("handleSocketMessage は OpenMessage を decode して onOpen に渡す")
@@ -538,19 +567,24 @@ struct RpcDispatcherTests {
     let dir = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
 
-    let captured = OpenCapture()
+    let (openStream, openContinuation) = AsyncStream<String>.makeStream()
     let dispatcher = RpcDispatcher(
       configDir: dir,
       onPtyText: { _, _ in },
       onPtyExit: { _, _ in },
       onHook: { _ in },
-      onOpen: { path in captured.set(path) }
+      onOpen: { path in
+        openContinuation.yield(path)
+        openContinuation.finish()
+      }
     )
 
     let line = Data(#"{"open":{"targetPath":"/Users/me/repo"}}"#.utf8)
     try await dispatcher.handleSocketMessage(line)
 
-    #expect(captured.value == "/Users/me/repo")
+    var iterator = openStream.makeAsyncIterator()
+    let captured = try #require(await iterator.next())
+    #expect(captured == "/Users/me/repo")
   }
 
   @Test("handleSocketMessage は oneof 未指定で SocketDecodeError.emptyOneof を throw")
@@ -745,47 +779,3 @@ private func makeTempDir() throws -> String {
   return URL(fileURLWithPath: raw.path).resolvingSymlinksInPath().path
 }
 
-private final class ExitFlag: @unchecked Sendable {
-  private let lock = NSLock()
-  private var flag = false
-  func signal() {
-    lock.lock()
-    defer { lock.unlock() }
-    flag = true
-  }
-  var isSet: Bool {
-    lock.lock()
-    defer { lock.unlock() }
-    return flag
-  }
-}
-
-private final class HookCapture: @unchecked Sendable {
-  private let lock = NSLock()
-  private var stored: Gozd_V1_HookMessage?
-  func set(_ h: Gozd_V1_HookMessage) {
-    lock.lock()
-    defer { lock.unlock() }
-    stored = h
-  }
-  var value: Gozd_V1_HookMessage? {
-    lock.lock()
-    defer { lock.unlock() }
-    return stored
-  }
-}
-
-private final class OpenCapture: @unchecked Sendable {
-  private let lock = NSLock()
-  private var stored: String?
-  func set(_ s: String) {
-    lock.lock()
-    defer { lock.unlock() }
-    stored = s
-  }
-  var value: String? {
-    lock.lock()
-    defer { lock.unlock() }
-    return stored
-  }
-}

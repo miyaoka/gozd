@@ -25,6 +25,8 @@ struct FSWatcherTests {
     let testFile = tmpDir.appendingPathComponent("hello.txt")
     try "hello".write(to: testFile, atomically: true, encoding: .utf8)
 
+    // FSEvents kqueue 経路で SUT 側に callback accessor が無い (event は handler への
+    // push 配信のみ)。WaitUntil.swift 規律「使用可: OS event の到達待ち」に該当。
     await waitUntil(
       timeout: .seconds(2),
       description: "hello.txt event",
@@ -58,6 +60,8 @@ struct FSWatcherTests {
 
     try FileManager.default.removeItem(at: testFile)
 
+    // FSEvents kqueue 経路で SUT 側に callback accessor が無い。
+    // WaitUntil.swift 規律「使用可: OS event の到達待ち」に該当。
     await waitUntil(
       timeout: .seconds(2),
       description: "doomed.txt event",
@@ -92,6 +96,8 @@ struct FSWatcherTests {
     let nestedFile = subDir.appendingPathComponent("nested.txt")
     try "nested".write(to: nestedFile, atomically: true, encoding: .utf8)
 
+    // FSEvents kqueue 経路で SUT 側に callback accessor が無い。
+    // WaitUntil.swift 規律「使用可: OS event の到達待ち」に該当。
     await waitUntil(
       timeout: .seconds(2),
       description: "nested.txt event",

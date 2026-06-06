@@ -621,6 +621,7 @@ public actor RpcDispatcher {
     var resp = Gozd_V1_GitLogResponse()
     resp.commits = result.commits.map(toProto)
     resp.defaultBranch = result.defaultBranch
+    resp.branchHead = result.branchHead
     return try resp.jsonUTF8Data()
   }
 

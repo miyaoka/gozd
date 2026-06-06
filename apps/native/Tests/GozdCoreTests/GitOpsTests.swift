@@ -202,6 +202,98 @@ struct GitOpsRunGitLargeOutputTests {
   }
 }
 
+@Suite("GitOps.runGitWithStdin treatNonZeroExitAsSuccess contract")
+struct GitOpsRunGitWithStdinContractTests {
+  /// 「無視されたパスなし」を作る共通 setup。
+  /// .gitignore を作らない git repo で `check-ignore` を呼ぶと exit 1 + stderr 空になる。
+  private func setupNoIgnoreRepo() async throws -> URL {
+    let dir = try await makeGitRepo()
+    // .gitignore を作らない (置けば match して exit 0 になってしまう)
+    return dir
+  }
+
+  @Test("treatNonZeroExitAsSuccess=true: exit 1 + stderr 空 を success として空 stdout を返す")
+  func optInAcceptsNonZeroWhenStderrEmpty() async throws {
+    let dir = try await setupNoIgnoreRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let stdinBytes = Data("foo.txt\u{0}".utf8)
+    let result = try await runGitWithStdin(
+      args: ["check-ignore", "--stdin", "-z"], cwd: dir.path, stdin: stdinBytes,
+      treatNonZeroExitAsSuccess: true)
+    // 無視 path なし → exit 1、stderr 空、stdout も空
+    #expect(result.isEmpty)
+  }
+
+  @Test("treatNonZeroExitAsSuccess=false (default): exit 1 + stderr 空 でも commandFailed を throw")
+  func defaultThrowsOnNonZeroEvenWhenStderrEmpty() async throws {
+    let dir = try await setupNoIgnoreRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let stdinBytes = Data("foo.txt\u{0}".utf8)
+    do {
+      _ = try await runGitWithStdin(
+        args: ["check-ignore", "--stdin", "-z"], cwd: dir.path, stdin: stdinBytes)
+      Issue.record("expected commandFailed for exit 1 with default strict semantics, got success")
+    } catch GitError.commandFailed {
+      // 期待挙動: exit ≠ 0 は default で常に throw
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
+  @Test("treatNonZeroExitAsSuccess の値に関わらず、stderr 非空のときは throw")
+  func nonEmptyStderrAlwaysThrows() async throws {
+    // git 管理外 dir で `check-ignore --stdin -z` を呼ぶと、git は exit 128 + stderr に
+    // "fatal: not a git repository" を出す。treatNonZeroExitAsSuccess の値に関わらず
+    // throw されることを示す (緩和は「stderr 空」が必須条件のため)。
+    let dir = try makeTempDirURL()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let stdinBytes = Data("foo.txt\u{0}".utf8)
+    for flag in [false, true] {
+      do {
+        _ = try await runGitWithStdin(
+          args: ["check-ignore", "--stdin", "-z"], cwd: dir.path, stdin: stdinBytes,
+          treatNonZeroExitAsSuccess: flag)
+        Issue.record(
+          "expected commandFailed for stderr-non-empty case (treatNonZeroExitAsSuccess=\(flag))")
+      } catch GitError.commandFailed {
+        // 期待挙動
+      } catch {
+        Issue.record("unexpected error (treatNonZeroExitAsSuccess=\(flag)): \(error)")
+      }
+    }
+  }
+
+  private func makeTempDirURL() throws -> URL {
+    let raw = FileManager.default.temporaryDirectory
+      .appendingPathComponent("gozd-runStdin-contract-\(UUID().uuidString.prefix(8))")
+    try FileManager.default.createDirectory(at: raw, withIntermediateDirectories: true)
+    return URL(fileURLWithPath: raw.path).resolvingSymlinksInPath()
+  }
+
+  @Test("GitOps.log 経路 (treatNonZeroExitAsSuccess=false) で git log が壊れた ref を渡されたら commandFailed throw")
+  func logPathThrowsOnBadRef() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    // initial commit を作って HEAD を確立する。
+    try "a".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c1"], cwd: dir.path)
+    // 直接 `runGitWithStdin` で git log を壊れた ref で呼ぶ (runLogStdin は private なので
+    // ここで同じ args パスを再現する)。runLogStdin と同じ default-strict 経路で throw することを示す。
+    let stdinBytes = Data("refs/heads/does-not-exist\n".utf8)
+    do {
+      _ = try await runGitWithStdin(
+        args: ["log", "--format=%H", "--stdin"], cwd: dir.path, stdin: stdinBytes)
+      Issue.record("expected commandFailed for bad revision via runLogStdin-equivalent path")
+    } catch GitError.commandFailed {
+      // 期待挙動: git log の "fatal: bad revision" が stderr に出るため throw
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+}
+
 @Suite("GitOps.buildNonInteractiveEnv")
 struct BuildNonInteractiveEnvTests {
   @Test("GIT_TERMINAL_PROMPT は常に 0 に固定される")
@@ -1661,6 +1753,39 @@ struct GitOpsLogTests {
     #expect(hashes.contains(orphanTip))
     #expect(hashes.contains(orphanC1))
     #expect(hashes.contains(orphanC2))
+  }
+
+  @Test("LogResult.branchHead は git symbolic-ref --short HEAD と一致する (porcelain v2 SSOT)")
+  func branchHeadInResult() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "a".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c1"], cwd: dir.path)
+    try await runTestGit(args: ["branch", "-m", "feature/foo"], cwd: dir.path)
+
+    let result = try await GitOps.log(
+      dir: dir.path, maxCount: 50, firstParentOnly: false, currentBranchOnly: false,
+      sortMode: .topo)
+    #expect(result.branchHead == "feature/foo")
+  }
+
+  @Test("LogResult.branchHead は detached HEAD で空文字に倒れる")
+  func branchHeadEmptyOnDetachedHead() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "a".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c1"], cwd: dir.path)
+    let head = try await currentHeadHash(dir: dir.path)
+    try await runTestGit(args: ["checkout", "--detach", head], cwd: dir.path)
+
+    let result = try await GitOps.log(
+      dir: dir.path, maxCount: 50, firstParentOnly: false, currentBranchOnly: false,
+      sortMode: .topo)
+    #expect(result.branchHead == "")
   }
 
   @Test("git で 1 度に dedup されるため、 fork workflow 風に upstream==origin/<default> でも commit が重複しない")

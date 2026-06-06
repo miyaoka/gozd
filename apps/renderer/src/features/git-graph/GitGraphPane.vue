@@ -237,7 +237,12 @@ async function runLoadLog(): Promise<boolean> {
   // `lastBranchHead` も loadLog の結果に合わせて更新する。これをやらないと worktree
   // 切替後の最初の gitStatusChange push で branchHeadChanged が偽陽性で立ち、
   // 冗長な 2 度目の loadLog が走る（lastHead との非対称を防ぐ）。
-  lastBranchHead = headCommit !== undefined ? (findCurrentBranch(headCommit.refs) ?? "") : "";
+  //
+  // SSOT: `result.branchHead` は native の `git symbolic-ref --short HEAD` 由来で、
+  // `gitStatusChange` push の `branchHead` (porcelain v2 `# branch.head` 由来) と
+  // 完全に同一 semantics。log の `%D` decoration を別系統で解釈すると SSOT がズレるため、
+  // `result.branchHead` を直接受け取る。
+  lastBranchHead = result.branchHead;
   recomputeLayout();
 
   // 選択中・比較中のコミットが一覧から消えた場合はクリア
@@ -562,21 +567,6 @@ function isMergeCommit(commit: GitCommit): boolean {
 /** HEAD を含むかどうか */
 function hasHead(refs: string[]): boolean {
   return refs.includes("HEAD");
-}
-
-/**
- * refs 配列から HEAD が指すカレントブランチ名を取得する。
- * git log の %D は "HEAD -> branch" をパース後 ["HEAD", "branch", ...] の順になるため、
- * HEAD の直後の非 origin/非 tag エントリがカレントブランチ。
- */
-function findCurrentBranch(refs: string[]): string | undefined {
-  const headIdx = refs.indexOf("HEAD");
-  if (headIdx === -1) return undefined;
-  const next = refs[headIdx + 1];
-  if (next && !next.startsWith("origin/") && !next.startsWith("tag:")) {
-    return next;
-  }
-  return undefined;
 }
 
 /**

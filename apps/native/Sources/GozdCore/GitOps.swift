@@ -165,6 +165,10 @@ public enum GitOps {
   public struct LogResult: Sendable {
     public let commits: [CommitInfo]
     public let defaultBranch: String
+    /// HEAD が指す branch 名 (例: `main`)。`git symbolic-ref --short HEAD` の結果。
+    /// detached HEAD / unborn branch では空文字。porcelain v2 `# branch.head` と SSOT を
+    /// 揃え、renderer 側で `gitStatusChange` の `branchHead` と同一源泉から比較できるようにする。
+    public let branchHead: String
   }
 
   public enum LogSortMode: Sendable {
@@ -221,8 +225,20 @@ public enum GitOps {
         return ""
       }
     }()
+    async let branchHeadTask: String = {
+      do {
+        return try await branchHeadName(dir: dir)
+      } catch GitError.commandFailed {
+        // detached HEAD / unborn branch は porcelain v2 と同じく空文字に倒す。
+        // 異常系 (権限障害等) との区別のため stderr に観察ログを 1 行残す。
+        StderrLog.write(
+          tag: "GitOps", "log: branchHeadName fallback to \"\" (detached HEAD or unborn branch?) dir=\(dir)")
+        return ""
+      }
+    }()
     let defaultBranch = try await defaultBranchTask
     let upstreamRef = try await upstreamRefTask
+    let branchHead = try await branchHeadTask
 
     // 始点 ref を Set dedup で集める。currentBranchOnly では HEAD のみ。
     // git 自身が walk 中に commit を OID 単位で dedup するので、ref 名重複
@@ -238,7 +254,20 @@ public enum GitOps {
     let commits = try await runLogStdin(
       dir: dir, refs: Array(refs), maxCount: maxCount,
       firstParentOnly: firstParentOnly, sortMode: sortMode)
-    return LogResult(commits: commits, defaultBranch: defaultBranch)
+    return LogResult(commits: commits, defaultBranch: defaultBranch, branchHead: branchHead)
+  }
+
+  /// HEAD が指す branch 名を返す (例: `main` / `feature/foo`)。
+  /// detached HEAD / unborn branch では `commandFailed` を throw する。呼び出し側で
+  /// `commandFailed` を空文字列に倒すかは judgment に委ねる (`log` は倒す)。
+  /// porcelain v2 の `# branch.head` と同一の semantics を `git symbolic-ref --short HEAD`
+  /// で取得し、SSOT を `gitStatusChange` push payload と一致させる。
+  /// `launchFailed` / `commandNotFound` は本関数からは握り潰さず rethrow し、上位の
+  /// notify.error 経路に通す (silent drop 禁止規律)。
+  public static func branchHeadName(dir: String) async throws -> String {
+    let stdout = try await runGit(args: ["symbolic-ref", "--short", "HEAD"], cwd: dir)
+    return String(decoding: stdout, as: UTF8.self).trimmingCharacters(
+      in: .whitespacesAndNewlines)
   }
 
   /// `git log --stdin` で複数 ref を始点に走る単発 helper。

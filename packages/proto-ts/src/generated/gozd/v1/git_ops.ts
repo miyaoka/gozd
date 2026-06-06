@@ -205,6 +205,15 @@ export interface GitLogResponse {
    * 解決失敗時 / origin 未設定時は空文字。
    */
   defaultBranch: string;
+  /**
+   * HEAD が指す branch 名 (例: `main` / `feature/foo`)。`git symbolic-ref --short HEAD`
+   * の結果。detached HEAD / unborn branch では空文字。`git status --porcelain=v2 --branch` の
+   * `# branch.head` と同一の semantics で、`gitStatusChange` push payload の `branchHead`
+   * と SSOT を一致させる目的で同一 RPC に含める。renderer の change detection trigger 比較で
+   * log の `%D` decoration 経路と porcelain v2 経路が混在しないよう、graph データ取得時点で
+   * 同一 snapshot として配信する。
+   */
+  branchHead: string;
 }
 
 /**
@@ -900,7 +909,7 @@ export const GitLogRequest: MessageFns<GitLogRequest> = {
 };
 
 function createBaseGitLogResponse(): GitLogResponse {
-  return { commits: [], defaultBranch: "" };
+  return { commits: [], defaultBranch: "", branchHead: "" };
 }
 
 export const GitLogResponse: MessageFns<GitLogResponse> = {
@@ -910,6 +919,9 @@ export const GitLogResponse: MessageFns<GitLogResponse> = {
     }
     if (message.defaultBranch !== "") {
       writer.uint32(18).string(message.defaultBranch);
+    }
+    if (message.branchHead !== "") {
+      writer.uint32(26).string(message.branchHead);
     }
     return writer;
   },
@@ -937,6 +949,14 @@ export const GitLogResponse: MessageFns<GitLogResponse> = {
           message.defaultBranch = reader.string();
           continue;
         }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.branchHead = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -954,6 +974,11 @@ export const GitLogResponse: MessageFns<GitLogResponse> = {
         : isSet(object.default_branch)
         ? globalThis.String(object.default_branch)
         : "",
+      branchHead: isSet(object.branchHead)
+        ? globalThis.String(object.branchHead)
+        : isSet(object.branch_head)
+        ? globalThis.String(object.branch_head)
+        : "",
     };
   },
 
@@ -965,6 +990,9 @@ export const GitLogResponse: MessageFns<GitLogResponse> = {
     if (message.defaultBranch !== "") {
       obj.defaultBranch = message.defaultBranch;
     }
+    if (message.branchHead !== "") {
+      obj.branchHead = message.branchHead;
+    }
     return obj;
   },
 
@@ -975,6 +1003,7 @@ export const GitLogResponse: MessageFns<GitLogResponse> = {
     const message = createBaseGitLogResponse();
     message.commits = object.commits?.map((e) => GitCommit.fromPartial(e)) || [];
     message.defaultBranch = object.defaultBranch ?? "";
+    message.branchHead = object.branchHead ?? "";
     return message;
   },
 };

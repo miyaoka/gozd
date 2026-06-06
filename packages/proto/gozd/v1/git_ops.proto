@@ -53,6 +53,13 @@ message GitLogResponse {
   // `git symbolic-ref refs/remotes/origin/HEAD` の結果 (例: `main`)。
   // 解決失敗時 / origin 未設定時は空文字。
   string default_branch = 2;
+  // HEAD が指す branch 名 (例: `main` / `feature/foo`)。`git symbolic-ref --short HEAD`
+  // の結果。detached HEAD / unborn branch では空文字。`git status --porcelain=v2 --branch` の
+  // `# branch.head` と同一の semantics で、`gitStatusChange` push payload の `branchHead`
+  // と SSOT を一致させる目的で同一 RPC に含める。renderer の change detection trigger 比較で
+  // log の `%D` decoration 経路と porcelain v2 経路が混在しないよう、graph データ取得時点で
+  // 同一 snapshot として配信する。
+  string branch_head = 3;
 }
 
 // gitDiffHunks: 2 つのテキスト間の hunk 単位差分を計算する。

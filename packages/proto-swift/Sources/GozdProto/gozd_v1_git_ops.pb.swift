@@ -235,6 +235,14 @@ public struct Gozd_V1_GitLogResponse: Sendable {
   /// 解決失敗時 / origin 未設定時は空文字。
   public var defaultBranch: String = String()
 
+  /// HEAD が指す branch 名 (例: `main` / `feature/foo`)。`git symbolic-ref --short HEAD`
+  /// の結果。detached HEAD / unborn branch では空文字。`git status --porcelain=v2 --branch` の
+  /// `# branch.head` と同一の semantics で、`gitStatusChange` push payload の `branchHead`
+  /// と SSOT を一致させる目的で同一 RPC に含める。renderer の change detection trigger 比較で
+  /// log の `%D` decoration 経路と porcelain v2 経路が混在しないよう、graph データ取得時点で
+  /// 同一 snapshot として配信する。
+  public var branchHead: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1231,7 +1239,7 @@ extension Gozd_V1_GitLogRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
 
 extension Gozd_V1_GitLogResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GitLogResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}commits\0\u{3}default_branch\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}commits\0\u{3}default_branch\0\u{3}branch_head\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1241,6 +1249,7 @@ extension Gozd_V1_GitLogResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageI
       switch fieldNumber {
       case 1: try { try decoder.decodeRepeatedMessageField(value: &self.commits) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.defaultBranch) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.branchHead) }()
       default: break
       }
     }
@@ -1253,12 +1262,16 @@ extension Gozd_V1_GitLogResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     if !self.defaultBranch.isEmpty {
       try visitor.visitSingularStringField(value: self.defaultBranch, fieldNumber: 2)
     }
+    if !self.branchHead.isEmpty {
+      try visitor.visitSingularStringField(value: self.branchHead, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Gozd_V1_GitLogResponse, rhs: Gozd_V1_GitLogResponse) -> Bool {
     if lhs.commits != rhs.commits {return false}
     if lhs.defaultBranch != rhs.defaultBranch {return false}
+    if lhs.branchHead != rhs.branchHead {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

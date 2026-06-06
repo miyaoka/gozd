@@ -21,7 +21,9 @@
  *   rate limit 累積発火を招くため抑制する規律)、初回は polling ではなく repo 単位 1 回
  *   なので全 repo に広げても累積発火しない。A↔B 往復のたびに fetch を炊かないのは lock
  *   で保証する
- * - **in-flight ロック**で同 repo 並列発射を抑止。RPC 遅延時に重複 fetch を防ぐ
+ * - **in-flight ロック / backoff / 非 git project 判定**は `useRemoteFetchStore.fetchIfDue` に
+ *   閉じる。本 composable は polling lifecycle (focus / interval / repo key watch) のみ担当し、
+ *   gate 判定は store 側 1 箇所に集約する
  * - **失敗は `useNotificationStore.info` で通知**。プロジェクト規約「console.error で
  *   握り潰さない」に従う。連射抑制は 30s backoff で効くため、トースト爆発はしない
  *   (offline 等の継続的失敗でも 30s に 1 件)
@@ -38,66 +40,26 @@ import {
   useRemoteFetchStore,
 } from "./useRemoteFetchStore";
 
-/**
- * 1 repo が「いま fetch すべき対象か」を決める唯一の述語。発射経路 (repos key watch /
- * focus 復帰 / interval) がどこでも同じ判定を共有するため純粋関数に切り出す。
- *
- * - **focus 喪失中は対象外**: 背景 fetch は focus 中だけ回す。focus が無いと false を返し
- *   `nextFetchAllowedAt` に何も記録しないため、focus 復帰時に同経路が再判定して取りこぼしを救う
- * - **backoff / lock 中は対象外**: `allowedAt` が未来なら抑制期間中
- * - **非 git project は対象外**: fetch する remote が無い
- *
- * in-flight 抑止は Set の副作用なので呼び出し側で別途 guard する (純粋判定には含めない)。
- */
-export function isRepoFetchDue(args: {
-  repo: { isGitRepo: boolean } | undefined;
-  focused: boolean;
-  allowedAt: number | undefined;
-  now: number;
-}): boolean {
-  const { repo, focused, allowedAt, now } = args;
-  if (!focused) return false;
-  if (allowedAt !== undefined && now < allowedAt) return false;
-  if (repo === undefined || !repo.isGitRepo) return false;
-  return true;
-}
-
 export function useRemoteFetchSync() {
   const repoStore = useRepoStore();
   const focused = useWindowFocus();
   const fetchStore = useRemoteFetchStore();
 
-  /**
-   * 背景 polling 用の 1 repo fetch。focus 喪失 / backoff 期間中 / in-flight なら no-op。
-   * 成功 / 失敗の deadline 更新は `useRemoteFetchStore.runFetch` 内で行う。
-   */
-  async function fetchOnceIfDue(rootDir: string) {
-    if (fetchStore.hasInFlight(rootDir)) return;
-    const due = isRepoFetchDue({
-      repo: repoStore.repos[rootDir],
-      focused: focused.value,
-      allowedAt: fetchStore.getAllowedAt(rootDir),
-      now: Date.now(),
-    });
-    if (!due) return;
-    await fetchStore.runFetch(rootDir);
-  }
-
-  /** active repo を fetch (閾値判定込み) */
+  /** active repo を fetch (gate 判定込み、due でなければ no-op) */
   function fetchActive() {
     const rootDir = repoStore.selectedRootDir;
     if (rootDir === undefined) return;
-    void fetchOnceIfDue(rootDir);
+    void fetchStore.fetchIfDue(rootDir, { focused: focused.value });
   }
 
-  // 「初回 fetch は登録全 repo」の所有をこの 1 関数に集約する。`allowedAt` 未設定
-  // の repo (= まだ一度も fetch 成功していない) 全件に発射する。focus 喪失中は fetchOnceIfDue
-  // 側で skip され lock も立たないため、focus 復帰経路から再度この関数を呼べば取りこぼした
-  // repo を確実にリカバリできる。発射経路 (repos key watch / focus 復帰) で scope が分裂しない。
-  function fetchPendingRepos() {
+  // 「初回 fetch は登録全 repo」の所有をこの 1 関数に集約する。focus 喪失中は store 側
+  // `fetchIfDue` が due 判定で skip され lock も立たないため、focus 復帰経路から再度
+  // この関数を呼べば取りこぼした repo を確実にリカバリできる。
+  // 初回判定は「allowedAt 未設定 = 未 fetch」をユーザー側で読まず、`fetchIfDue` 内の
+  // backoff チェックに含まれる (allowedAt undefined は backoff 期間外と判定される)。
+  function fetchAllRepos() {
     for (const rootDir of Object.keys(repoStore.repos)) {
-      if (fetchStore.getAllowedAt(rootDir) !== undefined) continue;
-      void fetchOnceIfDue(rootDir);
+      void fetchStore.fetchIfDue(rootDir, { focused: focused.value });
     }
   }
 
@@ -105,7 +67,7 @@ export function useRemoteFetchSync() {
   // された repo 群も、後から開かれた repo も、それぞれ初回 1 回だけ即時 fetch が走る。
   // 既に一度 fetch した repo は `allowedAt` が立つため再発射しない (A↔B 往復で
   // 都度 fetch を炊かない)。以降は interval 主導の閾値判定に任せる。
-  watch(() => Object.keys(repoStore.repos), fetchPendingRepos, { immediate: true });
+  watch(() => Object.keys(repoStore.repos), fetchAllRepos, { immediate: true });
 
   // focus 復帰 (blur → focus) で 2 つを行う。
   // - active repo の deadline を消して即発射: blur 中も時計は進むため deadline ベース判定だと
@@ -118,9 +80,9 @@ export function useRemoteFetchSync() {
     const rootDir = repoStore.selectedRootDir;
     if (rootDir !== undefined) {
       fetchStore.clearAllowedAt(rootDir);
-      void fetchOnceIfDue(rootDir);
+      void fetchStore.fetchIfDue(rootDir, { focused: true });
     }
-    fetchPendingRepos();
+    fetchAllRepos();
   });
 
   // 180s インターバル: focus 中は閾値判定に従って fetch、focus 喪失中は早期 return。

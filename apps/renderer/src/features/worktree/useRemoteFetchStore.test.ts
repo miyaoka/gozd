@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isRepoFetchDue } from "./useRemoteFetchSync";
+import { isRepoFetchDue } from "./useRemoteFetchStore";
 
 const GIT_REPO = { isGitRepo: true };
 const NON_GIT = { isGitRepo: false };

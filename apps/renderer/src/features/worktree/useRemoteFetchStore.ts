@@ -10,36 +10,53 @@ export const REMOTE_FETCH_SUCCESS_INTERVAL_MS = 180_000;
 const REMOTE_FETCH_FAILURE_BACKOFF_MS = 30_000;
 
 /**
- * `requestImmediateFetch` の戻り値。bool で skip と failure を畳むと呼び出し側が
- * 「fetch を打たなかった (= 別経路で recovery 可能)」と「fetch を打って失敗 (= 通知済み)」
- * を区別できず silent drop が起こる。明示 union で区別する。
+ * 1 repo が「いま fetch すべき対象か」を決める唯一の述語。
+ *
+ * - **focus 喪失中は対象外**: 背景 fetch は focus 中だけ回す。focus が無いと false を返し
+ *   `nextFetchAllowedAt` に何も記録しないため、focus 復帰時に同経路が再判定して取りこぼしを救う
+ * - **backoff / lock 中は対象外**: `allowedAt` が未来なら抑制期間中
+ * - **非 git project は対象外**: fetch する remote が無い
+ *
+ * in-flight 抑止は Set の副作用なので呼び出し側で別途 guard する (純粋判定には含めない)。
+ * 純粋関数として `useRemoteFetchStore` から export し、`fetchIfDue` 内部と test の両方が
+ * 同じ判定ロジックを共有する。
  */
-export type ImmediateFetchResult =
-  | { kind: "succeeded" }
-  | { kind: "failed" }
-  | { kind: "skipped"; reason: "non-git-project" | "unknown-path" };
+export function isRepoFetchDue(args: {
+  repo: { isGitRepo: boolean } | undefined;
+  focused: boolean;
+  allowedAt: number | undefined;
+  now: number;
+}): boolean {
+  const { repo, focused, allowedAt, now } = args;
+  if (!focused) return false;
+  if (allowedAt !== undefined && now < allowedAt) return false;
+  if (repo === undefined || !repo.isGitRepo) return false;
+  return true;
+}
 
 /**
- * `git fetch --all` の発射 SSOT。背景 polling (`useRemoteFetchSync`) と on-demand 要求
- * (`requestImmediateFetch`) の両方がこのストアの状態を共有することで、二重発射と
- * fetch 経路の分散を構造的に防ぐ。
+ * `git fetch --all` の発射 SSOT。背景 polling (`useRemoteFetchSync`) と on-demand 要求の
+ * 両方がこのストアの状態 (in-flight Map / backoff deadline Map) を共有することで、
+ * 二重発射と fetch 経路の分散を構造的に防ぐ。
  *
  * 既存規律:
  * - in-flight ロックで同 rootDir 並列発射を抑止 (`inFlight` Map で dedup)
  * - 成功時は 180s、失敗時は 30s の backoff
  * - 失敗は `notify.info` で通知 (CLAUDE.md `console.error で握り潰さない`)
  *
- * ## API 経路
+ * ## public API は 2 経路のみ
  *
- * - `runFetch(rootDir)`: backoff を一切読まず即発射する low-level。**呼び出し側が backoff /
- *   gate を判定する責務** を持つ。背景 polling は `useRemoteFetchSync.fetchOnceIfDue` 内で
- *   `isRepoFetchDue` を通してから呼ぶ。直接呼ぶと連射の原因になる
- * - `requestImmediateFetch(dir)`: on-demand 経路。backoff を bypass し即時 fetch を要求する。
- *   `dir` は repo 配下の任意 path (worktree path / rootDir どちらも可) で、内部で
- *   `findRepoOwning(dir)?.rootDir` に正規化する。呼び出し側が rootDir 変換責務を持たない
+ * - `fetchIfDue(rootDir, { focused, now? })`: 背景 polling 経路。`isRepoFetchDue` + in-flight を
+ *   gate 込みで判定し、due なら fetch を発射する。due でなければ no-op。背景 polling が直接
+ *   `isRepoFetchDue` を読まなくて済むよう、gate と発射を 1 関数に閉じる
+ * - `requestImmediateFetch(dir)`: on-demand 経路。background polling の backoff を bypass し
+ *   即時 fetch を要求する。`dir` は worktree path / rootDir どちらも可で内部正規化する
  *
- * ロック衝突 (背景 polling 中に on-demand 要求 / 同 dir 並列 on-demand) は同じ in-flight
- * Promise を返して dedup する (重複 RPC にはならない)。
+ * 内部 `runFetch` は public に出さない。直接呼びで backoff を bypass 連射する経路を
+ * 型レベルで塞ぐため、外部からアクセス不可能な closure に閉じる。
+ *
+ * `clearAllowedAt(rootDir)` は focus 復帰時の即時 fetch をリカバリするため `useRemoteFetchSync`
+ * から呼ばれる専用 API。背景 polling lifecycle 固有の concern なのでここに残す。
  */
 export const useRemoteFetchStore = defineStore("remoteFetch", () => {
   const repoStore = useRepoStore();
@@ -50,14 +67,6 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
   /** rootDir → 現在 in-flight な fetch の Promise (dedup 用) */
   const inFlight = new Map<string, Promise<boolean>>();
 
-  function setAllowedAt(rootDir: string, value: number) {
-    nextFetchAllowedAt.set(rootDir, value);
-  }
-
-  function getAllowedAt(rootDir: string): number | undefined {
-    return nextFetchAllowedAt.get(rootDir);
-  }
-
   function clearAllowedAt(rootDir: string) {
     nextFetchAllowedAt.delete(rootDir);
   }
@@ -66,9 +75,8 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
    * fetch 1 回を実行し成功/失敗の bool を返す。inFlight にあれば同じ Promise を返して dedup。
    * 失敗は notify.info で通知し、bool false を返す。
    *
-   * **呼び出し側 (背景 polling / on-demand) が backoff を gate する責務**。本関数は backoff を
-   * 一切読まないため、直接呼ぶと連射する。背景 polling は `useRemoteFetchSync.fetchOnceIfDue`
-   * 内で `isRepoFetchDue` を通してから呼ぶ。on-demand は `requestImmediateFetch` 経由で呼ぶ。
+   * non-public: backoff を一切読まないため直接呼びは連射の原因。`fetchIfDue` (gate 込み) と
+   * `requestImmediateFetch` (gate bypass 意図) の 2 経路から呼び分ける。
    */
   function runFetch(rootDir: string): Promise<boolean> {
     const existing = inFlight.get(rootDir);
@@ -97,33 +105,59 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
   }
 
   /**
+   * 背景 polling 用の gate 込み発射経路。in-flight / backoff / focus / git repo の判定を
+   * すべて store 内に閉じる。due でなければ no-op (false を返す)。
+   *
+   * 呼び出し側 (`useRemoteFetchSync`) は `focused` のみを渡せば良く、polling 経路ごとに
+   * isRepoFetchDue を直接読む責務を持たない。
+   */
+  async function fetchIfDue(
+    rootDir: string,
+    opts: { focused: boolean; now?: number },
+  ): Promise<boolean> {
+    if (inFlight.has(rootDir)) return false;
+    const due = isRepoFetchDue({
+      repo: repoStore.repos[rootDir],
+      focused: opts.focused,
+      allowedAt: nextFetchAllowedAt.get(rootDir),
+      now: opts.now ?? Date.now(),
+    });
+    if (!due) return false;
+    return await runFetch(rootDir);
+  }
+
+  /**
    * on-demand fetch。background polling の backoff を bypass し、即時 fetch を要求する。
    *
    * `dir` は repo 配下の任意 path (worktree path / rootDir どちらも可)。内部で
    * `findRepoOwning(dir)?.rootDir` に正規化するため呼び出し側は変換不要。
    *
-   * 戻り値は `succeeded` / `failed` / `skipped` の 3 値 union:
-   * - skip 系 (`non-git-project` / `unknown-path`) は通知を出さない (呼び出し側が文脈付きの
-   *   トーストを出すべき経路)
-   * - `failed` は `runFetch` 内で `notify.info` が既に出ているので呼び出し側は重ねない
-   * - `succeeded` は通常通り処理を続ける
+   * 戻り値は succeeded=true / failed=false の bool。失敗経路 (precondition violation /
+   * runFetch failure) いずれも本関数または `runFetch` 内で `notify.info` が出るため、
+   * 呼び出し側は false 戻り値に対して追加通知を出さない契約。
+   *
+   * precondition violation (`findRepoOwning` undefined / 非 git repo) は本来発生しないが
+   * (caller 側で「dir が git worktree であること」を gate する責務がある)、race (例: caller の
+   * gate 評価後に worktree が削除される) で踏みうるため、silent drop せず notify.info で
+   * 観察可能化する。
    */
-  async function requestImmediateFetch(dir: string): Promise<ImmediateFetchResult> {
+  async function requestImmediateFetch(dir: string): Promise<boolean> {
     const repo = repoStore.findRepoOwning(dir);
-    if (repo === undefined) return { kind: "skipped", reason: "unknown-path" };
-    if (!repo.isGitRepo) return { kind: "skipped", reason: "non-git-project" };
-    const ok = await runFetch(repo.rootDir);
-    return ok ? { kind: "succeeded" } : { kind: "failed" };
+    if (repo === undefined) {
+      notify.info(`Background fetch skipped: ${dir} is not a tracked git worktree`);
+      return false;
+    }
+    if (!repo.isGitRepo) {
+      notify.info(`Background fetch skipped: ${dir} is not a git repository`);
+      return false;
+    }
+    return await runFetch(repo.rootDir);
   }
 
   return {
-    runFetch,
+    fetchIfDue,
     requestImmediateFetch,
-    setAllowedAt,
-    getAllowedAt,
     clearAllowedAt,
-    /** background polling 側の in-flight ロック判定用 */
-    hasInFlight: (rootDir: string) => inFlight.has(rootDir),
   };
 });
 

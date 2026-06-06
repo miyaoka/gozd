@@ -205,19 +205,15 @@ export const useChangesStore = defineStore("changes", () => {
         if (!reachable.value.reachable) {
           const fetched = await fetchStore.requestImmediateFetch(src.dir);
           if (seq !== requestSeq) return;
-          if (fetched.kind === "skipped") {
-            // skipped 経路 (non-git-project / unknown-path) は runFetch を踏まないため、
-            // useRemoteFetchStore 側で notify が出ていない。呼び出し側 (この PR diff 経路) が
-            // 文脈付き notification を出す責務を持つ契約 (useRemoteFetchStore docstring 参照)。
-            notification.error(
-              `Cannot fetch PR diff base: ${fetched.reason === "non-git-project" ? "not a git repository" : "unknown worktree path"}`,
-            );
-            fetchedFiles.value = [];
-            loading.value = false;
-            return;
-          }
-          if (fetched.kind === "failed") {
-            // failed 経路は runFetch 内で既に notify.info が出ているので重ねない。
+          if (!fetched) {
+            // toggle ON gate (`usePrDiffToggleStore.canEnable`) が成立する時点で「dir は git
+            // worktree として repoStore に hydrate 済み + 現在 branch に open PR + baseRefOid 解決済み」
+            // の不変条件は満たされている。よって本経路の false は次のいずれかを意味する:
+            //   - `runFetch` 内の git fetch RPC 失敗 (network / 認証 / remote 未設定)
+            //   - worktree が toggle ON 後に削除される race (`findRepoOwning` undefined)
+            // いずれも下層 (`useRemoteFetchStore`) で notify.info が出ているため、本経路で
+            // 追加通知は出さない。fileChanges は空に倒し、source watcher が次の reactive 変化
+            // (toggle OFF / worktree 切替) で正常状態に戻すのに委ねる。
             fetchedFiles.value = [];
             loading.value = false;
             return;

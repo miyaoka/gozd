@@ -113,7 +113,7 @@ function onHeaderClick() {
         type="button"
         aria-label="Remove repository from window"
         title="Remove from window"
-        class="grid size-6 place-items-center rounded-sm text-destructive hover:bg-destructive/20 hover:text-destructive"
+        class="grid size-6 place-items-center rounded-sm text-destructive hover:bg-destructive/15 hover:text-destructive"
         @click.stop="emit('removeRepo', rootDir)"
       >
         <span class="icon-[lucide--x] text-sm" />

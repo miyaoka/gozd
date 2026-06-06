@@ -48,7 +48,7 @@ const iconMap = {
 } as const;
 
 const colorMap = {
-  error: "border-destructive/60 bg-destructive/20",
+  error: "border-destructive/60 bg-destructive/15",
   info: "border-border bg-background",
 } as const;
 

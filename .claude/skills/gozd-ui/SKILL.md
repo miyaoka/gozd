@@ -38,23 +38,29 @@ Token 一覧は SSOT として `apps/renderer/src/assets/main.css` の `@theme` 
 #### Intent ペア (primary / destructive / success / warning / warning-strong / info)
 
 intent (`primary` / `destructive` / `success` / `warning` / `warning-strong` / `info`)
-を当てるときは **必ず以下 3 つの用法のどれか** で書く。`bg-<intent>` と `text-<intent>` を
+を当てるときは **必ず以下 5 つの用法のどれか** で書く。`bg-<intent>` と `text-<intent>` を
 **同 token で直接 pair しない** (両方とも palette 由来の同色になり contrast を割る)。
+alpha 値は以下の **固定セット** (`/10` / `/15` / `/30` / `/40`) からのみ選ぶ。他 (`/20` / `/25` /
+`/50` 等) は SSOT 違反として禁止。
 
-| 用法                                                   | bg               | text                       | 例                                   |
-| ------------------------------------------------------ | ---------------- | -------------------------- | ------------------------------------ |
-| **solid 強調** (button / current branch / solid badge) | `bg-<intent>`    | `text-<intent>-foreground` | `bg-primary text-primary-foreground` |
-| **subtle chip** (badge / tag / faint alert)            | `bg-<intent>/15` | `text-<intent>`            | `bg-success/15 text-success`         |
-| **text-only** (link / icon / inline)                   | (面なし)         | `text-<intent>`            | `text-info` / `text-destructive`     |
+| 用法                                                  | bg                                             | text                       | 例                                                 |
+| ----------------------------------------------------- | ---------------------------------------------- | -------------------------- | -------------------------------------------------- |
+| **solid 強調** (button / current branch)              | `bg-<intent>`                                  | `text-<intent>-foreground` | `bg-primary text-primary-foreground`               |
+| **subtle chip** (badge / tag / inline alert)          | `bg-<intent>/15`                               | `text-<intent>`            | `bg-success/15 text-success`                       |
+| **faint cell** (file status row / diff 行 / 弱い選択) | `bg-<intent>/10`                               | `text-<intent>` (省略可)   | `bg-success/10` (diff added 行)                    |
+| **selected row** (active list item / 強い選択)        | `bg-<intent>/30` (`hover:bg-<intent>/40` 任意) | `text-<intent>` (省略可)   | `data-[active=true]:bg-primary/30`                 |
+| **translucent solid** (chat bubble / 強調コンテナ)    | `bg-<intent>/40`                               | `text-<intent>-foreground` | `bg-success/40 text-success-foreground` (吹き出し) |
+| **text-only** (link / icon / inline)                  | (面なし)                                       | `text-<intent>`            | `text-info` / `text-destructive`                   |
 
 `<intent>-foreground` を持つのは `primary` / `destructive` / `success` / `warning`。
-`info` / `warning-strong` は text-only もしくは subtle chip のみで使う (solid 用 foreground
-未定義)。warning は light yellow (OKLCH 0.852) なので foreground は dark (`text-warning-foreground`
-= dark zinc) で正しく contrast が取れる。他 intent は中間明度で light foreground (white-ish)。
+`info` / `warning-strong` は text-only / subtle chip / faint cell / selected row のみで使う
+(solid / translucent solid 用 foreground 未定義)。warning は light yellow (OKLCH 0.852)
+なので foreground は dark (`text-warning-foreground` = dark zinc) で正しく contrast が
+取れる。他 intent は中間明度で light foreground (white-ish)。
 
 hover state は **必ず base と異なる token / alpha** を当てる (`hover:bg-warning-strong` の
 ように base と同 token は dead branch)。`hover:bg-<intent>/80` 等で alpha 差を作るか、
-`hover:bg-<intent>-strong` 系で 1 段階強める。
+`hover:bg-<intent>-strong` 系で 1 段階強める。selected row では `/30` → `/40` のペアが正規。
 
 ### ✗ NG
 
@@ -76,9 +82,11 @@ hover state は **必ず base と異なる token / alpha** を当てる (`hover:
 
 `text-warning` (yellow) は「進行中 / 軽い注意」、`text-warning-strong` (orange) は「要対応」。Claude state の `working` (warning) と `asking` (warning-strong)、relative date の `〜時間前` (warning) と `〜日前` (warning-strong) のように、強度の差が意味を持つ場面では区別を維持する。
 
-### opacity 修飾子は維持してよい
+### opacity 修飾子は固定セットから選ぶ
 
-`bg-destructive/10` / `text-success/70` のような Tailwind の opacity 短縮は token と組み合わせて使ってよい。raw 色との組み合わせ (`bg-red-500/20`) だけが禁止。
+intent bg 用は上記表の固定セット (`/10` / `/15` / `/30` / `/40`) からのみ選ぶ。text 側の
+強度減衰 (`text-success/70` 等) は連続値で OK (情報の主役は色相 + 強度減衰)。raw 色との
+組み合わせ (`bg-red-500/20` 等) は禁止 (intent token を使う)。
 
 ## 2. `class` は layout 専用
 

@@ -50,6 +50,10 @@
  *   したい場合は palette 名を断片で書く (`color-zinc-` の説明 + 別行で shade) か、
  *   token 名 (`surface-2` 等) で例示する。`noInlineConfig: true` 設定のため
  *   `eslint-disable` 系で局所的に黙らせる手段は使えない。
+ * - vue-eslint-parser は `<script>` block 不在の Vue SFC (`<template>` + `<style>` のみ)
+ *   でも Program node を空 Module として常に組み立てるため、Program 経路の
+ *   source-text scan は **全ての Vue SFC で発火する** (`<style>` only SFC の raw
+ *   palette CSS var も検出範囲)。test fixture でこの contract を保証している。
  *
  * ## 採用判断
  *

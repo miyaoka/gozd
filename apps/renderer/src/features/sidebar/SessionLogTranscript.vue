@@ -513,7 +513,7 @@ onBeforeUnmount(teardownObserver);
               <span class="shrink-0 font-mono font-medium text-foreground">{{ ev.name }}</span>
               <span
                 v-if="ev.result?.isError"
-                class="shrink-0 rounded-sm bg-destructive/20 px-1 whitespace-nowrap text-destructive"
+                class="shrink-0 rounded-sm bg-destructive/15 px-1 whitespace-nowrap text-destructive"
                 >error</span
               >
               <SessionLogToolArg :input="ev.input" />

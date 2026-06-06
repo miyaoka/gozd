@@ -275,6 +275,19 @@ describe("findAbsolutePathMatches", () => {
       expect(matches).toEqual([]);
     });
 
+    test("行頭 `//abs/path` は VSCode の `(\\/+ Char+)+` 整合で先頭 `/` を起点に全体を 1 path として拾う", () => {
+      // VSCode unixLocalLinkClause は連続 slash を path separator として許容する。
+      // 行頭 `/` は直前文字なし (prev="") で除外集合に該当せず boundary 成立、findPathEnd は
+      // PATH_TERMINATORS に `/` を含まないので `//abs/path` 全体を 1 マッチで消費する。
+      const matches = findAbsolutePathMatches("//abs/path", dirPrefix, homeDir);
+      expect(matches[0]?.selection).toEqual({ kind: "absolute", absPath: "//abs/path" });
+    });
+
+    test("空白直後の `//abs/path` も同様に拾う（先頭が ` ` で boundary 成立）", () => {
+      const matches = findAbsolutePathMatches("see //abs/path now", dirPrefix, homeDir);
+      expect(matches[0]?.selection).toEqual({ kind: "absolute", absPath: "//abs/path" });
+    });
+
     test("`--path=/foo` のような cli option 形式は `=` 直後の `/` で boundary 成立し拾う", () => {
       const matches = findAbsolutePathMatches("run --path=/tmp/foo", dirPrefix, homeDir);
       expect(matches[0]?.selection).toEqual({ kind: "absolute", absPath: "/tmp/foo" });

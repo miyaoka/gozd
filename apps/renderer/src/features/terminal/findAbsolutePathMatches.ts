@@ -61,8 +61,11 @@ function indexOfWithBoundary(text: string, prefix: string, start: number): numbe
  * - 直前 `~`: 続く `/` は tilde 展開経路（`~/...`）の責務であり、generic で重複して拾うべきでない
  * - 直前 `:`: 続く `/` は URI scheme（`http:` `file:` `git:` 等の `:/...` `://...`）の構造の一部であり、
  *   path 先頭ではない
- * - 直前 `/`: 続く `/` は連続 slash（`//...`）の 2 文字目で、path 先頭の `/` としては既に手前で
- *   評価済み or URI scheme の `://` の一部
+ * - 直前 `/`: 既に手前の `/` が path 先頭として評価された後の連続 slash（path の続きであって新規 path
+ *   の起点ではない）。例: 行頭 `//abs/path` は **先頭 `/`** を起点として findPathEnd が全体を 1 path
+ *   として消費する（VSCode の unixLocalLinkClause が `(\/+ Char+)+` で連続 slash を path separator
+ *   として許容するのと等価）。一方 `://` の 2 文字目 `/` は直前 `:` の規律で先に skip 済みなので、
+ *   この経路はあくまで「path として既に評価中の `/` の続き」だけを skip するためにある
  *
  * 他の非 IDENTIFIER_CHAR 直前文字（`[` `{` `<` `(` `'` `"` `=` `.` 等）は、path 先頭の `/` を
  * 無意味化しない（cli option `--path=/foo`、引用符 `'/path'`、log 括弧 `[/path]` 等で path として
@@ -177,6 +180,18 @@ export function findAbsolutePathMatches(
     const { idx, prefixLen, expandTilde } = candidates[0];
 
     const pathEnd = findPathEnd(text, idx + prefixLen);
+
+    // generic `/` 経路 (prefixLen === 0) は構造的シグナルが弱いため、最低 1 セグメント
+    // (`/foo`) を要求する。`/` 単独や `/ <terminator>` は path として意味を持たないので、
+    // selection / line number suffix の評価より前に早期 skip する。これは VSCode の
+    // unixLocalLinkClause `(\/+ Char+)+` が最低 1 セグメントを構造的に要求するのと等価。
+    // VSCode は最後に stat で実在検証して短い偽パスを弾けるが、gozd には検証層が無いため、
+    // 検出側で path 構造として無意味なケースだけは明示的に除外する。
+    if (prefixLen === 0 && pathEnd - idx < 2) {
+      searchStart = idx + 1;
+      continue;
+    }
+
     const fullPath = expandTilde
       ? `${homeDir}/${text.slice(idx + prefixLen, pathEnd)}`
       : text.slice(idx, pathEnd);
@@ -191,19 +206,12 @@ export function findAbsolutePathMatches(
       ? { kind: "worktreeRelative", relPath: fullPath.slice(dirPrefix.length) }
       : { kind: "absolute", absPath: fullPath };
 
-    // generic `/` 経路 (prefixLen === 0) は構造的シグナルが弱いため、最低 1 セグメント
-    // (`/foo`) を要求する。`/` 単独や `/ <terminator>` は path として意味を持たないので push
-    // しない。これは VSCode の unixLocalLinkClause `(/+ Char+)+` が最低 1 セグメントを構造的に
-    // 要求するのと等価な規律。VSCode は最後に stat で実在検証して短い偽パスを弾けるが、gozd
-    // には検証層が無いため、検出側で path 構造として無意味なケースだけは明示的に除外する。
-    const isGenericSingleSlash = prefixLen === 0 && pathEnd - idx < 2;
-
     const display = pathTargetToString(selection);
-    if (display.length > 0 && !isGenericSingleSlash) {
+    if (display.length > 0) {
       matches.push({ idx, totalEnd, selection, lineNumber });
     }
 
-    searchStart = isGenericSingleSlash ? idx + 1 : totalEnd;
+    searchStart = totalEnd;
   }
 
   return matches;

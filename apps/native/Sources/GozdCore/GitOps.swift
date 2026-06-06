@@ -628,7 +628,10 @@ public enum GitOps {
   ///
   /// 実装:
   /// - `git diff --name-status -z --find-renames --diff-filter=AMDR <baseHash>` で base..working
-  /// - `git status --porcelain=v1 -z --untracked-files=all` から `?? <path>` だけ抽出して type=U で append
+  /// - `gitStatus()` (porcelain=v1 -z --untracked-files=all を `parsePorcelainV1` で正規化) から
+  ///   `?? ` (untracked) のみ抽出して type=U で append。porcelain parsing は 1 SSOT
+  ///   (`parsePorcelainV1`) に集約し、本関数では path → XY map に対する filter のみ行う。
+  ///   rename entry の 2 NUL 構造などの parser 細部は SSOT 側に閉じる
   /// - dedup は newPath key で行う (porcelain と diff の path 表記は同一形式)
   public static func prDiffFiles(dir: String, baseHash: String) async throws -> [FileChangeInfo] {
     try validateRev(baseHash)
@@ -636,18 +639,10 @@ public enum GitOps {
     let diffOut = try await runGit(args: ["diff"] + diffOptions + [baseHash], cwd: dir)
     var changes = parseDiffNameStatus(diffOut)
 
-    // status の untracked を merge。`git status --porcelain=v1 -z` は NUL 区切り、各エントリは
-    // "XY <path>" 形式。NUL 区切りなので改行を含む path も安全。
-    let statusOut = try await runGit(
-      args: ["status", "--porcelain=v1", "-z", "--untracked-files=all"], cwd: dir)
-    let text = String(decoding: statusOut, as: UTF8.self)
+    let statuses = try await gitStatus(dir: dir)
     let seen = Set(changes.map { $0.newPath })
-    for entry in text.split(separator: "\0", omittingEmptySubsequences: true) {
-      // "XY path" の 3 文字目以降が path (XY + space + path)
-      guard entry.count >= 4 else { continue }
-      let xy = entry.prefix(2)
+    for (path, xy) in statuses {
       guard xy == "??" else { continue }
-      let path = String(entry.dropFirst(3))
       if seen.contains(path) { continue }
       changes.append(FileChangeInfo(oldPath: path, newPath: path, type: "U"))
     }
@@ -659,9 +654,18 @@ public enum GitOps {
   /// PR diff toggle ON 時に base OID が未 fetch かを判定し、fetch 要求 (`useRemoteFetchSync`
   /// 経由) を必要最小限に絞るために使う。reachable=false でも throw せず bool で返す契約に
   /// することで、呼び出し側は「git failure」と「reachable でないだけ」を構造的に区別できる。
+  ///
+  /// `validateRev` 失敗 (`-` 始まり等の option 注入 / 非 hex) は false に倒すが、これは
+  /// 「reachable でない」とは別レイヤの input bug なので stderr に観察可能ログを残す
+  /// (CLAUDE.md `silent drop は禁止` 規律)。
   public static func revReachable(dir: String, hash: String) async -> Bool {
     do {
       try validateRev(hash)
+    } catch {
+      StderrLog.write(tag: "GitOps", "revReachable: invalid rev '\(hash)': \(error)")
+      return false
+    }
+    do {
       _ = try await runGit(args: ["cat-file", "-e", hash], cwd: dir)
       return true
     } catch {

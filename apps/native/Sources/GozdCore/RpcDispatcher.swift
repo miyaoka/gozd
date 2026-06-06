@@ -812,8 +812,13 @@ public actor RpcDispatcher {
   /// 単一 rev + path の blob 内容。PR diff の base 側 blob 取得など、`gitShowCommitFile` の
   /// 2 endpoint 比較が不要な経路用。失敗 (path 不在 / rev invalid) は notFound=true に倒す。
   /// fileReadResultFromGit のロジックを reuse する。
+  ///
+  /// rev は `git show <rev>:<path>` に渡るため、`-X<option>` 等の option 注入を弾く
+  /// `validateRev` を入口で通す。renderer 信頼境界内とはいえ防御の一貫性のため
+  /// (`gitShowCommitFile` / `revReachable` 等の他経路も validateRev を通している)。
   private func handleGitReadBlob(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitReadBlobRequest(jsonUTF8Data: body)
+    try validateRev(req.hash)
     var resp = Gozd_V1_GitReadBlobResponse()
     resp.result = await fileReadResultFromGit(dir: req.dir, hash: req.hash, relPath: req.relPath)
     return try resp.jsonUTF8Data()

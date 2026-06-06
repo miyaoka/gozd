@@ -205,9 +205,19 @@ export const useChangesStore = defineStore("changes", () => {
         if (!reachable.value.reachable) {
           const fetched = await fetchStore.requestImmediateFetch(src.dir);
           if (seq !== requestSeq) return;
-          if (!fetched) {
-            // 失敗の通知は `useRemoteFetchStore.runFetch` 内で `notify.info` 経由で出ているので
-            // ここでは重ねない。fileChanges は空にして UI に反映。
+          if (fetched.kind === "skipped") {
+            // skipped 経路 (non-git-project / unknown-path) は runFetch を踏まないため、
+            // useRemoteFetchStore 側で notify が出ていない。呼び出し側 (この PR diff 経路) が
+            // 文脈付き notification を出す責務を持つ契約 (useRemoteFetchStore docstring 参照)。
+            notification.error(
+              `Cannot fetch PR diff base: ${fetched.reason === "non-git-project" ? "not a git repository" : "unknown worktree path"}`,
+            );
+            fetchedFiles.value = [];
+            loading.value = false;
+            return;
+          }
+          if (fetched.kind === "failed") {
+            // failed 経路は runFetch 内で既に notify.info が出ているので重ねない。
             fetchedFiles.value = [];
             loading.value = false;
             return;

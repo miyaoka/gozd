@@ -45,14 +45,15 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
 
   /**
    * active worktree が指すローカルブランチ名。`git worktree list --porcelain` 由来の
-   * `WorktreeEntry.branch` (repoStore SSOT) を読む。detached HEAD / 不在 dir / 未取得時は undefined。
+   * `WorktreeEntry.branch` (repoStore SSOT) を読む。
    *
-   * 旧実装は `git log --format=%D` の `HEAD -> branch` 順序に依存していたが、これは git の
-   * 文字列出力フォーマット規約に依存する脆さがあり、`WorktreeEntry.branch` の SSOT (`git worktree
-   * list` から直接取れる) と重複していた。SSOT を repoStore に統一する。
+   * 戻り値:
+   * - 通常: branch 名 (例: `feat/foo`)
+   * - detached HEAD / dir 不在 / 未取得時: undefined
    *
-   * branch rename は worktree list の refetch (branchChange push 経由) で追従する。rename 直後の
-   * 短い window で stale 値になるが、PR diff toggle の auto-off 経路がそれを救う設計。
+   * branch rename は `branchChange` push 起点の worktree list 再 fetch で追従する。rename 直後の
+   * 短い window で stale な値を返しうる (next refetch まで)。PR diff toggle の auto-off 経路が
+   * stale 由来の PR 引き当て失敗を救う設計。
    */
   const currentBranch = computed<string | undefined>(() => {
     const dir = worktreeStore.dir;

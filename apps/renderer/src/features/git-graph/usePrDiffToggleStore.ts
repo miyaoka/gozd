@@ -41,8 +41,15 @@ export const usePrDiffToggleStore = defineStore("prDiffToggle", () => {
 
   /** 現在 branch (HEAD が指すブランチ) の PR。無ければ undefined。
    *
-   * `currentBranch` が undefined (loadLog 完了前 / detached HEAD) の間は PR を引けないので
-   * toggle UI 自体を出さないことが望ましい (`canEnable` 経由)。 */
+   * `currentBranch` が undefined になる経路は以下で、いずれも PR を引けないため `pr` は
+   * undefined → `canEnable=false` → toggle UI 自体が出ない:
+   * - worktree list 未取得 (起動直後 / worktree 切替直後の極短時間)
+   * - detached HEAD (`git checkout <hash>` 等で branch から外れた状態)
+   * - 削除済み worktree dir
+   *
+   * branch rename 直後の stale window では `currentBranch` は古い branch 名を返すため `pr` が
+   * 一時的に取れる/取れないが揺れることがあるが、`branchChange` push 起点の worktree 再 fetch
+   * で正常化する。 */
   const pr = computed<GitPullRequest | undefined>(() => {
     const branch = gitGraphStore.currentBranch;
     if (branch === undefined) return undefined;

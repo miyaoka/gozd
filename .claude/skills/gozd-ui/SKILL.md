@@ -15,29 +15,46 @@ Token 一覧は SSOT として `apps/renderer/src/assets/main.css` の `@theme` 
 
 ### 用途別 token (intent-based)
 
-| 用途                                 | Token (Tailwind utility)                 |
-| ------------------------------------ | ---------------------------------------- |
-| ページ背景                           | `bg-background`                          |
-| カード / panel                       | `bg-surface-1`                           |
-| 持ち上がった panel / chip / hover 塗 | `bg-surface-2`                           |
-| 本文                                 | `text-foreground`                        |
-| 強調 / heading                       | `text-foreground-strong`                 |
-| secondary text                       | `text-foreground-muted`                  |
-| placeholder / tertiary               | `text-foreground-subtle`                 |
-| 既定の 1px 区切り                    | `border-border`                          |
-| 強調 outline                         | `border-border-strong`                   |
-| 同色面の弱い divider                 | `border-divider`                         |
-| 階層境界を明示する厚め divider       | `border-divider-strong`                  |
-| hover 背景                           | `bg-accent` / `hover:bg-accent`          |
-| selected / pressed 背景              | `bg-accent-strong`                       |
-| primary action (button / link)       | `bg-primary` / `text-primary`            |
-| info badge / link                    | `text-info`                              |
-| 削除 / エラー                        | `text-destructive` / `bg-destructive/10` |
-| 成功                                 | `text-success` / `bg-success/10`         |
-| 進行中 / 軽い注意 (yellow 系)        | `text-warning` / `bg-warning/10`         |
-| 要対応 / 強い注意 (orange 系)        | `text-warning-strong`                    |
-| focus ring                           | `ring-ring`                              |
-| dialog backdrop                      | `bg-overlay`                             |
+#### Surface / Foreground / Border (intent なし、用途別)
+
+| 用途                                 | Token (Tailwind utility) |
+| ------------------------------------ | ------------------------ |
+| ページ背景                           | `bg-background`          |
+| カード / panel                       | `bg-surface-1`           |
+| 持ち上がった panel / chip / hover 塗 | `bg-surface-2`           |
+| 本文                                 | `text-foreground`        |
+| 強調 / heading                       | `text-foreground-strong` |
+| secondary text                       | `text-foreground-muted`  |
+| placeholder / tertiary               | `text-foreground-subtle` |
+| 既定の 1px 区切り                    | `border-border`          |
+| 強調 outline                         | `border-border-strong`   |
+| 同色面の弱い divider                 | `border-divider`         |
+| 階層境界を明示する厚め divider       | `border-divider-strong`  |
+| hover 背景                           | `hover:bg-accent`        |
+| selected / pressed 背景              | `bg-accent-strong`       |
+| focus ring                           | `ring-ring`              |
+| dialog backdrop                      | `bg-overlay`             |
+
+#### Intent ペア (primary / destructive / success / warning / warning-strong / info)
+
+intent (`primary` / `destructive` / `success` / `warning` / `warning-strong` / `info`)
+を当てるときは **必ず以下 3 つの用法のどれか** で書く。`bg-<intent>` と `text-<intent>` を
+**同 token で直接 pair しない** (両方とも palette 由来の同色になり contrast を割る)。
+
+| 用法                                                   | bg               | text                       | 例                                   |
+| ------------------------------------------------------ | ---------------- | -------------------------- | ------------------------------------ |
+| **solid 強調** (button / current branch / solid badge) | `bg-<intent>`    | `text-<intent>-foreground` | `bg-primary text-primary-foreground` |
+| **subtle chip** (badge / tag / faint alert)            | `bg-<intent>/15` | `text-<intent>`            | `bg-success/15 text-success`         |
+| **text-only** (link / icon / inline)                   | (面なし)         | `text-<intent>`            | `text-info` / `text-destructive`     |
+
+`<intent>-foreground` を持つのは `primary` / `destructive` / `success` / `warning`。
+`info` / `warning-strong` は text-only もしくは subtle chip のみで使う (solid 用 foreground
+未定義)。warning は light yellow (OKLCH 0.852) なので foreground は dark (`text-warning-foreground`
+= dark zinc) で正しく contrast が取れる。他 intent は中間明度で light foreground (white-ish)。
+
+hover state は **必ず base と異なる token / alpha** を当てる (`hover:bg-warning-strong` の
+ように base と同 token は dead branch)。`hover:bg-<intent>/80` 等で alpha 差を作るか、
+`hover:bg-<intent>-strong` 系で 1 段階強める。
 
 ### ✗ NG
 

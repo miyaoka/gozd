@@ -83,9 +83,11 @@ tsTester.run("no-raw-tailwind-palette (TS) — CSS var 形", rule, {
     `const css = "background-color: var(--color-surface-1);";`,
     // utility prefix 経由の semantic token (CSS var ではない)
     `const cls = "bg-surface-1";`,
-    // 動的補間で palette 名そのものが置換される場合は raw source に palette が
-    // 静的に現れないため検知不可
+    // 動的補間: palette / shade いずれが動的でも、`)` が静的に来ないため CSS_VAR_RE
+    // (完成形 `)` 必須) にマッチしない。class utility 形の動的補間と同じ「静的解析の
+    // 構造的限界」として揃える
     "const css = `var(--color-${palette}-700)`;",
+    "const css = `var(--color-zinc-${shade})`;",
   ],
   invalid: [
     {
@@ -115,13 +117,6 @@ tsTester.run("no-raw-tailwind-palette (TS) — CSS var 形", rule, {
       // shade なし (`white` / `black`)
       code: `const css = "background: var(--color-white);";`,
       errors: [{ messageId: "rawPaletteCssVar", data: { match: "var(--color-white)" } }],
-    },
-    {
-      // 動的補間で palette は静的、shade だけ動的: Program source-text scan が
-      // raw source 上で `var(--color-zinc-` を検知する (class utility 形と比べて
-      // CSS var 形の方が検知に inclusive)
-      code: "const css = `var(--color-zinc-${shade})`;",
-      errors: [{ messageId: "rawPaletteCssVar", data: { match: "var(--color-zinc)" } }],
     },
   ],
 });

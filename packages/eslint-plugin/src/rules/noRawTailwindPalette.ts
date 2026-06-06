@@ -36,12 +36,20 @@
  *
  * - 動的補間で utility を構築する (例: `` `bg-${color}-700` `` / `` `bg-zinc-${level}` ``)
  *   形は cooked text が境界で分割されるため検知不可。これは静的解析の構造的限界。
- * - 動的補間で CSS var を構築する (例: `` `var(--color-${palette}-700)` ``) も同じく
- *   検知不可。
+ * - 動的補間で CSS var を構築する (例: `` `var(--color-zinc-${shade})` `` /
+ *   `` `var(--color-${palette}-700)` ``) も同じく検知不可。CSS_VAR_RE は閉じ括弧 `)`
+ *   を必須にしているため、補間で `)` が静的に来ない形は match しない。
  * - `zinc-800` 単独 (utility prefix なし) は data string とみなして検知しない。
- * - main.css の `@theme` ブロック内コメント (`/* (旧 zinc-300) *​/` 等) には raw
- *   palette 名が含まれるが、rule は class utility 形 / CSS var 形でしか検知しない
- *   ため、コメントは素通りする。
+ * - main.css の `@theme` ブロック内コメント (旧 palette 名注釈 `(旧 zinc-300)` 等)
+ *   には raw palette 名が含まれるが、rule は class utility 形 / CSS var 形でしか
+ *   検知しないため、コメントは素通りする。
+ * - Program 経路 (CSS var 検知) は `context.sourceCode.text` 全体を regex 走査する。
+ *   コードファイルのコメント本文 / Vue `<doc>` ブロック / Markdown fenced code 内の
+ *   例示テキストに完成形 `var(--color-<palette>-<shade>)` を書くと検知される
+ *   (false positive 経路)。Token catalog / migration guide で raw palette を例示
+ *   したい場合は palette 名を断片で書く (`color-zinc-` の説明 + 別行で shade) か、
+ *   token 名 (`surface-2` 等) で例示する。`noInlineConfig: true` 設定のため
+ *   `eslint-disable` 系で局所的に黙らせる手段は使えない。
  *
  * ## 採用判断
  *
@@ -105,12 +113,15 @@ const PALETTE = new Set([
   "black",
 ]);
 
-// `var(--color-<palette>(-<shade>)?)` を完成形で検知する。`var()` の中 / 外
-// どちらの形 (`var(--color-zinc-700)` / `var(--color-zinc-700, fallback)`) でも
-// 機能するように `)` までは要求しない。
+// `var(--color-<palette>(-<shade>)?)` の **完成形** だけを検知する。閉じ括弧 `)` を
+// 必須にすることで、動的補間 (`var(--color-zinc-${shade})`) で `)` が静的に来ない
+// 形は検知対象外になる。これは class utility 形の動的補間 (`bg-zinc-${level}`) を
+// 検知しない規約 (cooked text 境界の限界) と同じ非対称を解消するための設計判断。
+// fallback 付き (`var(--md-code-bg, var(--color-zinc-800))`) は内側の `var(--color-zinc-800)`
+// が完成形なので問題なく検知される。
 const PALETTE_ARRAY = [...PALETTE].join("|");
 const CSS_VAR_RE = new RegExp(
-  String.raw`var\(\s*--color-(${PALETTE_ARRAY})(?:-\d+)?\b`,
+  String.raw`var\(\s*--color-(?:${PALETTE_ARRAY})(?:-\d+)?\s*\)`,
   "g",
 );
 
@@ -207,7 +218,7 @@ const rule: Rule.RuleModule = {
         context.report({
           node: node as Rule.Node,
           messageId: "rawPaletteCssVar",
-          data: { match: match[0] + ")" },
+          data: { match: match[0] },
         });
       }
     }

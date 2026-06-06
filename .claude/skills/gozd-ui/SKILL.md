@@ -43,6 +43,24 @@ overlay** (一覧の generic item / menu hover) は accent system (`bg-accent` /
 `bg-accent-strong`) を使う。「active な list item」でも「primary という意味を持つ active」
 なら intent 系 selected row、「単に選択された汎用 item」なら `bg-accent-strong`。
 
+#### Intent 選択の判定軸 (意味別の使い分け)
+
+intent を 1 つ選ぶときは以下の意味マップに従う。同一 UI で primary / info / success が
+乱立しないよう、active 状態は **要素の階層** (主要 vs 補助) で intent を分ける:
+
+| intent         | 意味                                   | 例                                                                    |
+| -------------- | -------------------------------------- | --------------------------------------------------------------------- |
+| primary        | 主要 action / 主要 active state        | submit button / mode tab indicator / current branch / active task row |
+| info           | 補助 active state / 中立的な情報リンク | sub-toggle (preview / wordwrap) / inline link / info badge            |
+| success        | 完了 / 成功 / 整合状態                 | added file / synced ref / user message bubble                         |
+| destructive    | 削除 / エラー / 危険                   | delete button / error toast / removed file                            |
+| warning        | 進行中 / 一般的な注意                  | Claude `working` state / `〜時間前` (recent stale)                    |
+| warning-strong | 要対応 / 強い注意                      | Claude `asking` state / `〜日前` (older stale) / subagent badge       |
+
+primary と info は同じ青系だが意味階層が異なる。同一 toolbar 内で「mode tab = primary、
+補助 toggle = info」のように要素の階層で分ける。「目立たせたいから primary」「ちょっと
+目立たせたいから info」のような曖昧基準は使わない。
+
 #### Intent ペア (primary / destructive / success / warning / warning-strong / info)
 
 intent (`primary` / `destructive` / `success` / `warning` / `warning-strong` / `info`)
@@ -96,11 +114,10 @@ hover state は **必ず base と異なる token / alpha** を当てる (`hover:
 | subtle chip       | `bg-<intent>/15` | `hover:bg-<intent>/30` |
 | faint chip        | `bg-<intent>/10` | `hover:bg-<intent>/15` |
 
-hover 値は base alpha の **1 段階上** が原則 (base alpha 固定セット `/10` → `/15` → `/30` →
-`/40` の 1 段移動)。`solid button` / `translucent solid` のみ alpha なし base から `/80`
-透過に切り替える例外。`hover:bg-<intent>/80` を base alpha が小さい chip 系で使うと 5 倍
-以上の濃度跳躍になり視覚過剰のため禁止。`solid static` / 上表に無い用法 (outlined banner /
-line tint / indicator stripe / text-only) は hover 効果なし (規律上 hover を付けない)。
+hover 値は **上の hover 表に書かれた値だけ** を使う。`hover:bg-<intent>/80` を base alpha
+が小さい chip 系で使うと 5 倍以上の濃度跳躍になり視覚過剰、`/45` / `/35` のような中間値も
+SSOT 違反。表に含まれない用法 (`solid static` / `bordered translucent` / `outlined banner` /
+`line tint` / `indicator stripe` / `text-only`) は **hover 効果なし** (規律上 hover を付けない)。
 
 同じ alpha 値 (`/30` / `/40`) が複数行 (subtle chip の hover bg と selected row の base bg、
 selected row の hover bg と translucent solid の base bg) に出現するが、これは許容: alpha

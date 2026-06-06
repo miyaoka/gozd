@@ -1,7 +1,8 @@
 import type { GitCommit } from "@gozd/proto";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
-import { UNCOMMITTED_HASH } from "../worktree";
+import { useRepoStore } from "../../shared/repo";
+import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import { buildRangeHashes } from "./rangeHashes";
 
 /** Working Tree 用の仮想コミット。CommitDetailPane で "Uncommitted Changes" 表示に使用 */
@@ -17,6 +18,9 @@ const uncommittedCommit: GitCommit = {
 };
 
 export const useGitGraphStore = defineStore("gitGraph", () => {
+  const repoStore = useRepoStore();
+  const worktreeStore = useWorktreeStore();
+
   /** 選択中のコミットハッシュ。未選択時は UNCOMMITTED_HASH にフォールバック */
   const selectedHash = ref<string>(UNCOMMITTED_HASH);
   /** shift+クリックで指定した比較対象のコミットハッシュ。null は単一選択モード */
@@ -38,6 +42,27 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
 
   /** HEAD ref を持つ commit の hash。loadLog 完了前は undefined */
   const headHash = computed(() => commits.value.find((c) => c.refs.includes("HEAD"))?.hash);
+
+  /**
+   * active worktree が指すローカルブランチ名。`git worktree list --porcelain` 由来の
+   * `WorktreeEntry.branch` (repoStore SSOT) を読む。
+   *
+   * 戻り値:
+   * - 通常: branch 名 (例: `feat/foo`)
+   * - detached HEAD / dir 不在 / 未取得時: undefined
+   *
+   * branch rename は `branchChange` push 起点の worktree list 再 fetch で追従する。rename 直後の
+   * 短い window で stale な値を返しうる (next refetch まで)。PR diff toggle の auto-off 経路が
+   * stale 由来の PR 引き当て失敗を救う設計。
+   */
+  const currentBranch = computed<string | undefined>(() => {
+    const dir = worktreeStore.dir;
+    if (dir === undefined) return undefined;
+    const repo = repoStore.findRepoOwning(dir);
+    const wt = repo?.worktrees.find((w) => w.path === dir);
+    if (wt === undefined || wt.branch === "") return undefined;
+    return wt.branch;
+  });
 
   /** range 選択モードか */
   const isRangeMode = computed(() => compareHash.value !== null);
@@ -186,6 +211,7 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
     selectedCommits,
     hashToIndex,
     headHash,
+    currentBranch,
     isRangeMode,
     includesWorkingTree,
     otherEndpointHash,

@@ -154,6 +154,49 @@ message GitCommitFilesResponse {
   repeated GitFileChange changes = 1;
 }
 
+// gitPrDiffFiles: PR base..working tree の tracked 変更ファイル一覧
+//
+// base_hash 自身は含まず、`git diff <base_hash>` (右辺省略 = working tree) で実行する。
+// `--diff-filter=AMDR` で除外される untracked file (`??`) は本 RPC では返さない。
+// 「PR をいま push したら base に何が入るか」のうち untracked 分の merge は renderer 側
+// (`useChangesStore.fileChanges`) が `gitStatusStore` 由来の untracked を append して行う。
+// untracked を `U` として写す責務を 1 か所 (renderer) に閉じ、range + working-tree 端の経路と揃える。
+message GitPrDiffFilesRequest {
+  string dir = 1;
+  // PR base の commit OID。GitHub GraphQL `baseRefOid` をそのまま渡す。
+  // ref 名ではなく OID なので fork PR / base force-push / rename を跨いで安定。
+  string base_hash = 2;
+}
+message GitPrDiffFilesResponse {
+  repeated GitFileChange changes = 1;
+}
+
+// gitReadBlob: 単一 rev + path の blob 内容を 1 つ返す
+//
+// gitShowFile (HEAD 固定) / gitShowCommitFile (2 endpoint 比較 + unchanged 判定) と独立した、
+// 単一 rev / path に対する blob 取得 RPC。PR diff モードで base 側 blob を 1 個だけ取りたい用途。
+// 失敗 (path がその rev に存在しない / rev が invalid 等) は result.not_found=true に倒す。
+message GitReadBlobRequest {
+  string dir = 1;
+  string hash = 2;
+  string rel_path = 3;
+}
+message GitReadBlobResponse {
+  FileReadResult result = 1;
+}
+
+// gitRevReachable: 指定 rev (commit OID) が local repo に reachable か
+//
+// `git cat-file -e <hash>` 相当。reachable=false なら呼び出し側は git fetch を要求する。
+// PR diff の base reachable 判定で fetch を必要最小限に絞るために使う。
+message GitRevReachableRequest {
+  string dir = 1;
+  string hash = 2;
+}
+message GitRevReachableResponse {
+  bool reachable = 1;
+}
+
 // gh 経路の失敗種別。`ok=false` のとき renderer 側で文言を区別するために使う。
 // `OK` は ok=true 時のデフォルト値で、`ok=false` 時にこのフィールドが OK のまま来ることは
 // ない（必ず以下のいずれかに分類される）。

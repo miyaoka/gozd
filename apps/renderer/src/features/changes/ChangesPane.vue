@@ -15,6 +15,13 @@ Changed files tree. Shows HEAD vs working directory by default, or a selected co
 ファイル一覧の決定ロジックと RPC fetch は `useChangesStore` が SSOT。
 ChangesPane は store の `fileChanges` をツリーに整形して描画するだけ。
 
+## PR diff toggle
+
+現在ブランチに open PR があるとき、ヘッダーに PR diff toggle が表示される。ON にすると
+`pr.baseRefOid` から working tree までの diff (base..working、untracked 含む) に切り替わる。
+graph 側の選択 state には触らない (toggle ON 中も graph 選択は維持) が、ユーザーが graph で
+commit を選択した瞬間に toggle は自動 OFF になる。SSOT は `usePrDiffToggleStore`。
+
 ## View all
 
 ヘッダーの View all ボタンは `usePreviewStore.toggleSummary` を呼び、
@@ -26,6 +33,7 @@ summary 有効時は preview ペインに全変更の縦並び diff が表示さ
 import { tryCatch } from "@gozd/shared";
 import { ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import { usePrDiffToggleStore } from "../git-graph";
 import type { FileContextMenuPayload } from "../navigator";
 import { usePreviewStore } from "../preview";
 import { buildChangesTree } from "./changesTree";
@@ -44,6 +52,7 @@ const notify = useNotificationStore();
 const changesStore = useChangesStore();
 const summaryStore = useChangesSummaryStore();
 const previewStore = usePreviewStore();
+const prDiffToggle = usePrDiffToggleStore();
 
 /**
  * GitHub PR 風のディレクトリツリー（chain 圧縮済み）。
@@ -97,9 +106,28 @@ function onClickViewAll() {
         >({{ changesStore.fileChanges.length }})</span
       >
       <button
+        v-if="prDiffToggle.canEnable"
         type="button"
         class="ml-auto flex items-center gap-1 px-2 py-0.5 text-xs transition-colors"
-        :class="summaryStore.enabled ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300'"
+        :class="prDiffToggle.isOn ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300'"
+        :title="
+          prDiffToggle.isOn
+            ? 'Showing PR diff (base..working tree, includes untracked)'
+            : 'Show PR diff (base..working tree, includes untracked)'
+        "
+        aria-label="Toggle PR diff"
+        @click="prDiffToggle.toggle"
+      >
+        <span class="icon-[lucide--git-pull-request] size-3.5" />
+        PR #{{ prDiffToggle.pr?.number }}
+      </button>
+      <button
+        type="button"
+        class="flex items-center gap-1 px-2 py-0.5 text-xs transition-colors"
+        :class="[
+          summaryStore.enabled ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300',
+          prDiffToggle.canEnable ? '' : 'ml-auto',
+        ]"
         :disabled="changesStore.fileChanges.length === 0"
         title="Show all diffs in preview"
         aria-label="Toggle changes summary"

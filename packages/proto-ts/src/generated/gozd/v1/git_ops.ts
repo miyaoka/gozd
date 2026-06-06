@@ -289,6 +289,60 @@ export interface GitCommitFilesResponse {
   changes: GitFileChange[];
 }
 
+/**
+ * gitPrDiffFiles: PR base..working tree の tracked 変更ファイル一覧
+ *
+ * base_hash 自身は含まず、`git diff <base_hash>` (右辺省略 = working tree) で実行する。
+ * `--diff-filter=AMDR` で除外される untracked file (`??`) は本 RPC では返さない。
+ * 「PR をいま push したら base に何が入るか」のうち untracked 分の merge は renderer 側
+ * (`useChangesStore.fileChanges`) が `gitStatusStore` 由来の untracked を append して行う。
+ * untracked を `U` として写す責務を 1 か所 (renderer) に閉じ、range + working-tree 端の経路と揃える。
+ */
+export interface GitPrDiffFilesRequest {
+  dir: string;
+  /**
+   * PR base の commit OID。GitHub GraphQL `baseRefOid` をそのまま渡す。
+   * ref 名ではなく OID なので fork PR / base force-push / rename を跨いで安定。
+   */
+  baseHash: string;
+}
+
+export interface GitPrDiffFilesResponse {
+  changes: GitFileChange[];
+}
+
+/**
+ * gitReadBlob: 単一 rev + path の blob 内容を 1 つ返す
+ *
+ * gitShowFile (HEAD 固定) / gitShowCommitFile (2 endpoint 比較 + unchanged 判定) と独立した、
+ * 単一 rev / path に対する blob 取得 RPC。PR diff モードで base 側 blob を 1 個だけ取りたい用途。
+ * 失敗 (path がその rev に存在しない / rev が invalid 等) は result.not_found=true に倒す。
+ */
+export interface GitReadBlobRequest {
+  dir: string;
+  hash: string;
+  relPath: string;
+}
+
+export interface GitReadBlobResponse {
+  result: FileReadResult | undefined;
+}
+
+/**
+ * gitRevReachable: 指定 rev (commit OID) が local repo に reachable か
+ *
+ * `git cat-file -e <hash>` 相当。reachable=false なら呼び出し側は git fetch を要求する。
+ * PR diff の base reachable 判定で fetch を必要最小限に絞るために使う。
+ */
+export interface GitRevReachableRequest {
+  dir: string;
+  hash: string;
+}
+
+export interface GitRevReachableResponse {
+  reachable: boolean;
+}
+
 /** gitPrList: gh pr list */
 export interface GitPrListRequest {
   dir: string;
@@ -2124,6 +2178,438 @@ export const GitCommitFilesResponse: MessageFns<GitCommitFilesResponse> = {
   fromPartial(object: DeepPartial<GitCommitFilesResponse>): GitCommitFilesResponse {
     const message = createBaseGitCommitFilesResponse();
     message.changes = object.changes?.map((e) => GitFileChange.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseGitPrDiffFilesRequest(): GitPrDiffFilesRequest {
+  return { dir: "", baseHash: "" };
+}
+
+export const GitPrDiffFilesRequest: MessageFns<GitPrDiffFilesRequest> = {
+  encode(message: GitPrDiffFilesRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    if (message.baseHash !== "") {
+      writer.uint32(18).string(message.baseHash);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitPrDiffFilesRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitPrDiffFilesRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.baseHash = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitPrDiffFilesRequest {
+    return {
+      dir: isSet(object.dir) ? globalThis.String(object.dir) : "",
+      baseHash: isSet(object.baseHash)
+        ? globalThis.String(object.baseHash)
+        : isSet(object.base_hash)
+        ? globalThis.String(object.base_hash)
+        : "",
+    };
+  },
+
+  toJSON(message: GitPrDiffFilesRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    if (message.baseHash !== "") {
+      obj.baseHash = message.baseHash;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitPrDiffFilesRequest>): GitPrDiffFilesRequest {
+    return GitPrDiffFilesRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitPrDiffFilesRequest>): GitPrDiffFilesRequest {
+    const message = createBaseGitPrDiffFilesRequest();
+    message.dir = object.dir ?? "";
+    message.baseHash = object.baseHash ?? "";
+    return message;
+  },
+};
+
+function createBaseGitPrDiffFilesResponse(): GitPrDiffFilesResponse {
+  return { changes: [] };
+}
+
+export const GitPrDiffFilesResponse: MessageFns<GitPrDiffFilesResponse> = {
+  encode(message: GitPrDiffFilesResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.changes) {
+      GitFileChange.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitPrDiffFilesResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitPrDiffFilesResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.changes.push(GitFileChange.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitPrDiffFilesResponse {
+    return {
+      changes: globalThis.Array.isArray(object?.changes)
+        ? object.changes.map((e: any) => GitFileChange.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: GitPrDiffFilesResponse): unknown {
+    const obj: any = {};
+    if (message.changes?.length) {
+      obj.changes = message.changes.map((e) => GitFileChange.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitPrDiffFilesResponse>): GitPrDiffFilesResponse {
+    return GitPrDiffFilesResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitPrDiffFilesResponse>): GitPrDiffFilesResponse {
+    const message = createBaseGitPrDiffFilesResponse();
+    message.changes = object.changes?.map((e) => GitFileChange.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseGitReadBlobRequest(): GitReadBlobRequest {
+  return { dir: "", hash: "", relPath: "" };
+}
+
+export const GitReadBlobRequest: MessageFns<GitReadBlobRequest> = {
+  encode(message: GitReadBlobRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    if (message.hash !== "") {
+      writer.uint32(18).string(message.hash);
+    }
+    if (message.relPath !== "") {
+      writer.uint32(26).string(message.relPath);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitReadBlobRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitReadBlobRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.hash = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.relPath = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitReadBlobRequest {
+    return {
+      dir: isSet(object.dir) ? globalThis.String(object.dir) : "",
+      hash: isSet(object.hash) ? globalThis.String(object.hash) : "",
+      relPath: isSet(object.relPath)
+        ? globalThis.String(object.relPath)
+        : isSet(object.rel_path)
+        ? globalThis.String(object.rel_path)
+        : "",
+    };
+  },
+
+  toJSON(message: GitReadBlobRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    if (message.hash !== "") {
+      obj.hash = message.hash;
+    }
+    if (message.relPath !== "") {
+      obj.relPath = message.relPath;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitReadBlobRequest>): GitReadBlobRequest {
+    return GitReadBlobRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitReadBlobRequest>): GitReadBlobRequest {
+    const message = createBaseGitReadBlobRequest();
+    message.dir = object.dir ?? "";
+    message.hash = object.hash ?? "";
+    message.relPath = object.relPath ?? "";
+    return message;
+  },
+};
+
+function createBaseGitReadBlobResponse(): GitReadBlobResponse {
+  return { result: undefined };
+}
+
+export const GitReadBlobResponse: MessageFns<GitReadBlobResponse> = {
+  encode(message: GitReadBlobResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.result !== undefined) {
+      FileReadResult.encode(message.result, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitReadBlobResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitReadBlobResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.result = FileReadResult.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitReadBlobResponse {
+    return { result: isSet(object.result) ? FileReadResult.fromJSON(object.result) : undefined };
+  },
+
+  toJSON(message: GitReadBlobResponse): unknown {
+    const obj: any = {};
+    if (message.result !== undefined) {
+      obj.result = FileReadResult.toJSON(message.result);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitReadBlobResponse>): GitReadBlobResponse {
+    return GitReadBlobResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitReadBlobResponse>): GitReadBlobResponse {
+    const message = createBaseGitReadBlobResponse();
+    message.result = (object.result !== undefined && object.result !== null)
+      ? FileReadResult.fromPartial(object.result)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseGitRevReachableRequest(): GitRevReachableRequest {
+  return { dir: "", hash: "" };
+}
+
+export const GitRevReachableRequest: MessageFns<GitRevReachableRequest> = {
+  encode(message: GitRevReachableRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    if (message.hash !== "") {
+      writer.uint32(18).string(message.hash);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitRevReachableRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitRevReachableRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.hash = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitRevReachableRequest {
+    return {
+      dir: isSet(object.dir) ? globalThis.String(object.dir) : "",
+      hash: isSet(object.hash) ? globalThis.String(object.hash) : "",
+    };
+  },
+
+  toJSON(message: GitRevReachableRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    if (message.hash !== "") {
+      obj.hash = message.hash;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitRevReachableRequest>): GitRevReachableRequest {
+    return GitRevReachableRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitRevReachableRequest>): GitRevReachableRequest {
+    const message = createBaseGitRevReachableRequest();
+    message.dir = object.dir ?? "";
+    message.hash = object.hash ?? "";
+    return message;
+  },
+};
+
+function createBaseGitRevReachableResponse(): GitRevReachableResponse {
+  return { reachable: false };
+}
+
+export const GitRevReachableResponse: MessageFns<GitRevReachableResponse> = {
+  encode(message: GitRevReachableResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.reachable !== false) {
+      writer.uint32(8).bool(message.reachable);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitRevReachableResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitRevReachableResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.reachable = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitRevReachableResponse {
+    return { reachable: isSet(object.reachable) ? globalThis.Boolean(object.reachable) : false };
+  },
+
+  toJSON(message: GitRevReachableResponse): unknown {
+    const obj: any = {};
+    if (message.reachable !== false) {
+      obj.reachable = message.reachable;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitRevReachableResponse>): GitRevReachableResponse {
+    return GitRevReachableResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitRevReachableResponse>): GitRevReachableResponse {
+    const message = createBaseGitRevReachableResponse();
+    message.reachable = object.reachable ?? false;
     return message;
   },
 };

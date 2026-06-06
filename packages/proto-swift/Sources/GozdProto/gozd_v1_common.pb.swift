@@ -292,6 +292,11 @@ public struct Gozd_V1_GitPullRequest: Sendable {
 
   public var authorAvatarURL: String = String()
 
+  /// base branch の commit OID (immutable identifier)。base ref 名と異なり、
+  /// fork PR / base force-push / base rename にまたがって安定して base 端を識別できる。
+  /// PR diff 表示モードで「base..working tree」の base 端に使う SSOT。
+  public var baseRefOid: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -759,7 +764,7 @@ extension Gozd_V1_GitCommit: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
 
 extension Gozd_V1_GitPullRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GitPullRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}number\0\u{1}title\0\u{1}url\0\u{1}state\0\u{1}author\0\u{3}head_ref\0\u{3}base_ref\0\u{3}is_draft\0\u{1}assignees\0\u{1}reviewers\0\u{3}updated_at\0\u{3}author_avatar_url\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}number\0\u{1}title\0\u{1}url\0\u{1}state\0\u{1}author\0\u{3}head_ref\0\u{3}base_ref\0\u{3}is_draft\0\u{1}assignees\0\u{1}reviewers\0\u{3}updated_at\0\u{3}author_avatar_url\0\u{3}base_ref_oid\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -779,6 +784,7 @@ extension Gozd_V1_GitPullRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
       case 10: try { try decoder.decodeRepeatedStringField(value: &self.reviewers) }()
       case 11: try { try decoder.decodeSingularStringField(value: &self.updatedAt) }()
       case 12: try { try decoder.decodeSingularStringField(value: &self.authorAvatarURL) }()
+      case 13: try { try decoder.decodeSingularStringField(value: &self.baseRefOid) }()
       default: break
       }
     }
@@ -821,6 +827,9 @@ extension Gozd_V1_GitPullRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     if !self.authorAvatarURL.isEmpty {
       try visitor.visitSingularStringField(value: self.authorAvatarURL, fieldNumber: 12)
     }
+    if !self.baseRefOid.isEmpty {
+      try visitor.visitSingularStringField(value: self.baseRefOid, fieldNumber: 13)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -837,6 +846,7 @@ extension Gozd_V1_GitPullRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     if lhs.reviewers != rhs.reviewers {return false}
     if lhs.updatedAt != rhs.updatedAt {return false}
     if lhs.authorAvatarURL != rhs.authorAvatarURL {return false}
+    if lhs.baseRefOid != rhs.baseRefOid {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

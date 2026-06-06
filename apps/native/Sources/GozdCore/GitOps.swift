@@ -620,6 +620,60 @@ public enum GitOps {
     return parseDiffNameStatus(stdout)
   }
 
+  /// PR diff: `baseHash` から working tree までの tracked file の name-status 差分を返す。
+  ///
+  /// 「PR をいま push したら base に何が入るか」のうち **commit 済み + uncommitted (tracked)** を担う
+  /// 専用 entry point。`commitFiles` の range 経路 + olderIsBase=true で代用していた構造を解体し、
+  /// proto の `rangeHashes` (first-parent walk 結果) wire 契約と切り離す。
+  ///
+  /// untracked file の merge は本関数では行わない。renderer 側 (`useChangesStore.fileChanges`) が
+  /// `gitStatusStore` 由来の untracked を append する SSOT に一本化したため、untracked を `U` として
+  /// 写す責務は renderer の 1 か所に閉じる (range + working-tree 端の経路と同一層に揃える)。
+  ///
+  /// 実装:
+  /// - `git diff --name-status -z --find-renames --diff-filter=AMDR <baseHash>` で base..working
+  ///   (右辺省略 = working tree)。rename は `--find-renames` が `R` として解決する。
+  public static func prDiffFiles(dir: String, baseHash: String) async throws -> [FileChangeInfo] {
+    // baseHash は GitHub の `baseRefOid` (実在 commit OID) が契約。`validateRev` は empty を許す
+    // 設計のため、commit OID 必須の `lsTree` / `resetMixed` と同じ二段ガードで empty / all-zero を
+    // 入口で reject する (empty を素通りさせると `git diff` が rev なしの別 semantic で走るため)。
+    if baseHash.isEmpty {
+      throw GitError.unexpectedOutput("git diff: base hash must be specified")
+    }
+    if isAllZeroHex(baseHash) {
+      throw GitError.unexpectedOutput(
+        "git diff: all-zero hash (UNCOMMITTED_HASH) is not a valid PR base")
+    }
+    try validateRev(baseHash)
+    let diffOptions = ["--name-status", "-z", "--find-renames", "--diff-filter=AMDR"]
+    let diffOut = try await runGit(args: ["diff"] + diffOptions + [baseHash], cwd: dir)
+    return parseDiffNameStatus(diffOut)
+  }
+
+  /// 指定 rev (commit OID) が local repo に reachable か。`git cat-file -e <hash>` 相当。
+  ///
+  /// PR diff toggle ON 時に base OID が未 fetch かを判定し、fetch 要求 (`useRemoteFetchSync`
+  /// 経由) を必要最小限に絞るために使う。reachable=false でも throw せず bool で返す契約に
+  /// することで、呼び出し側は「git failure」と「reachable でないだけ」を構造的に区別できる。
+  ///
+  /// `validateRev` 失敗 (`-` 始まり等の option 注入 / 非 hex) は false に倒すが、これは
+  /// 「reachable でない」とは別レイヤの input bug なので stderr に観察可能ログを残す
+  /// (CLAUDE.md `silent drop は禁止` 規律)。
+  public static func revReachable(dir: String, hash: String) async -> Bool {
+    do {
+      try validateRev(hash)
+    } catch {
+      StderrLog.write(tag: "GitOps", "revReachable: invalid rev '\(hash)': \(error)")
+      return false
+    }
+    do {
+      _ = try await runGit(args: ["cat-file", "-e", hash], cwd: dir)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   /// 指定コミットの tree から 1 階層分のエントリを返す。
   ///
   /// 契約: `path` が空文字なら repo root の 1 階層、それ以外は末尾 `/` を必ず付けて

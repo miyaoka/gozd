@@ -38,7 +38,7 @@ import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { onMessage } from "../../shared/rpc";
 import { getFileIconUrl, relDirOf, rpcFsReadFile } from "../filer";
 import type { FsChangePayload } from "../filer";
-import { useGitGraphStore } from "../git-graph";
+import { rpcGitReadBlob, useGitGraphStore, usePrDiffToggleStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import type { GitChangeKind } from "../worktree";
 import DiffPreview from "./DiffPreview.vue";
@@ -63,6 +63,7 @@ const emit = defineEmits<{
 
 const worktreeStore = useWorktreeStore();
 const gitGraphStore = useGitGraphStore();
+const prDiffToggle = usePrDiffToggleStore();
 
 const rootRef = useTemplateRef<HTMLElement>("rootRef");
 /**
@@ -164,6 +165,7 @@ const endpoints = computed<Endpoints | null>(() => {
 });
 
 const currentRev = computed<string | undefined>(() => {
+  if (prDiffToggle.isOn) return "";
   if (!isCommitMode.value) return "";
   const ep = endpoints.value;
   if (ep === null) return undefined;
@@ -171,6 +173,12 @@ const currentRev = computed<string | undefined>(() => {
 });
 
 const originalRev = computed<string | undefined>(() => {
+  if (prDiffToggle.isOn) {
+    // PR で追加されたファイルは base に存在しないため originalRev は undefined。
+    // `blameEnabled` 側で button 描画を構造的に抑止する。
+    if (kind.value === "added") return undefined;
+    return prDiffToggle.lockedBaseOid;
+  }
   if (!isCommitMode.value) return "HEAD";
   const ep = endpoints.value;
   if (ep === null) return undefined;
@@ -183,10 +191,15 @@ const originalRev = computed<string | undefined>(() => {
  * blame 対象 path が異なるため、両側のうち path が存在 (= 空文字でない) すれば button を出す。
  * `GitFileChange` の path は git diff 由来で worktree 相対が proto 契約のため、
  * 空文字判定だけで blameable 判定が成立する。
+ *
+ * PR diff で added file は base 側 blame が失敗するため両側まとめて抑止する
+ * (DiffPreview の blameEnabled 単一 prop の API 制約上、side ごとに gate できない最小コスト解)。
  */
-const blameEnabled = computed(
-  () => props.change.oldFilePath !== "" || props.change.newFilePath !== "",
-);
+const blameEnabled = computed(() => {
+  if (props.change.oldFilePath === "" && props.change.newFilePath === "") return false;
+  if (prDiffToggle.isOn && kind.value === "added") return false;
+  return true;
+});
 
 function modeLabelForRev(rev: string): string {
   if (rev === "") return "Working Tree";
@@ -316,7 +329,12 @@ async function fetchCommit(dir: string, version: number) {
           throw new Error("commit mode with working tree newer requires an older endpoint");
         }
         const [showResult, fsResult] = await Promise.all([
-          rpcGitShowCommitFile({ dir, relPath: path, hash: older, compareHash: "" }),
+          rpcGitShowCommitFile({
+            dir,
+            relPath: path,
+            hash: older,
+            compareHash: "",
+          }),
           rpcFsReadFile({ dir, path }),
         ]);
         return {
@@ -375,11 +393,75 @@ async function fetchCommit(dir: string, version: number) {
 }
 
 /**
- * uncommitted / commit のどちらかを発射する dispatch。state リセット込み。
+ * PR diff モード時のファイル fetch。base..working tree per-file diff。
+ *
+ * type ごとに正しい path を選ぶ:
+ * - A / U (added / untracked): base にそのパスは存在しない。base fetch を skip し、to のみ fsRead で取る
+ * - D (deleted): working tree にそのパスは存在しない。fs read を skip し、from のみ base から取る
+ * - R (renamed): base には `oldFilePath`、working tree には `newFilePath` で存在する。from は oldFilePath、to は newFilePath で取る
+ * - M (modified): 同パスで両方存在
+ *
+ * これにより「存在しないパスに対する `git show <base>:<path>` 呼び出し」を構造的に発射しない
+ * (= bogus 失敗による stderr noise が消える)、かつ R で from/to の path を取り違えない (= rename
+ * が added 扱いに倒れないで正しく rename として表示される)。
+ */
+async function fetchPrDiff(dir: string, version: number) {
+  const baseOid = prDiffToggle.lockedBaseOid;
+  if (baseOid === undefined) {
+    error.value = "PR base not resolved";
+    loading.value = false;
+    return;
+  }
+  const change = props.change;
+  const skipFrom = change.type === "A" || change.type === "U";
+  const skipTo = change.type === "D";
+
+  const fromPromise = skipFrom
+    ? Promise.resolve(undefined)
+    : rpcGitReadBlob({ dir, hash: baseOid, relPath: change.oldFilePath });
+  const toPromise = skipTo
+    ? Promise.resolve(undefined)
+    : rpcFsReadFile({ dir, path: change.newFilePath });
+
+  const fetchResult = await tryCatch(Promise.all([fromPromise, toPromise]));
+
+  if (version !== fetchVersion) return;
+
+  if (!fetchResult.ok) {
+    error.value = fetchResult.error.message;
+    emit("fetchFailed", fetchResult.error);
+    loading.value = false;
+    return;
+  }
+
+  const [blobResult, fsResult] = fetchResult.value;
+  const from = blobResult?.result;
+  const fromNotFound = skipFrom || (from?.notFound ?? true);
+  const toNotFound = skipTo || (fsResult?.notFound ?? true);
+
+  if (fromNotFound && toNotFound) {
+    effectiveKind.value = undefined;
+  } else if (fromNotFound) {
+    effectiveKind.value = change.type === "R" ? "renamed" : "added";
+  } else if (toNotFound) {
+    effectiveKind.value = "deleted";
+  } else {
+    effectiveKind.value = change.type === "R" ? "renamed" : "modified";
+  }
+
+  original.value = fromNotFound ? "" : (from?.content ?? "");
+  isOriginalBinary.value = from?.isBinary ?? false;
+  current.value = toNotFound ? "" : (fsResult?.content ?? "");
+  isBinary.value = fsResult?.isBinary ?? false;
+  loading.value = false;
+}
+
+/**
+ * pr-diff / uncommitted / commit のどれかを発射する dispatch。state リセット込み。
  *
  * `reset=true` (デフォルト) は state を初期化してから fetch。watch trigger 経由の
  * 通常呼び出しで使う。fsChange 経由の hot reload では `reset=false` を使い、
- * 表示中の diff を loading 状態にしないまま fetch 完了で差し替える (uncommitted のみ)。
+ * 表示中の diff を loading 状態にしないまま fetch 完了で差し替える (uncommitted / pr-diff のみ)。
  */
 async function runFetch(reset = true) {
   if (reset) {
@@ -399,6 +481,10 @@ async function runFetch(reset = true) {
     return;
   }
 
+  if (prDiffToggle.isOn) {
+    await fetchPrDiff(dir, version);
+    return;
+  }
   const isCommitMode =
     gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null;
   if (isCommitMode) {
@@ -420,6 +506,9 @@ watch(
       // `Commit not found in loaded git log` で error 確定したケースを救済する。
       // useChangesStore の watch と同じ依存集合に揃える (commits 再ロード後の stale error 防止)
       gitGraphStore.commits,
+      // PR diff toggle 切替 / base OID 変化で fetch ソースが切り替わる
+      prDiffToggle.isOn,
+      prDiffToggle.lockedBaseOid,
     ] as const,
   async ([visible]) => {
     // ビューポートに入るまで fetch しない (N=100 の summary で同時起動を抑制)。
@@ -445,12 +534,20 @@ watch(
  */
 const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ dir: eventDir, relDir }) => {
   if (!hasBeenVisible.value) return;
-  if (gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null) {
-    return;
-  }
   if (eventDir !== worktreeStore.dir) return;
   const path = props.change.newFilePath || props.change.oldFilePath;
   if (relDir !== relDirOf(path)) return;
+
+  // PR diff モード: to が working tree なので fs change で再 fetch する。
+  if (prDiffToggle.isOn) {
+    blamePopover.closeIfActive(eventDir, path);
+    void runFetch(false);
+    return;
+  }
+  // commit モードでは表示内容は git オブジェクト由来で fs 変更とは独立
+  if (gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null) {
+    return;
+  }
   // fetch 前に popover を閉じる。runFetch で original / current が更新されると DiffPreview
   // が base items を再構築し button DOM が置換されるため、popover anchor が detached に
   // なる。content 入れ替えと同フレームで close することで「位置が壊れた popover が画面に

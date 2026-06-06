@@ -268,6 +268,12 @@ public actor RpcDispatcher {
       return try await handleGitShowCommitFile(body)
     case "/git/commitFiles":
       return try await handleGitCommitFiles(body)
+    case "/git/prDiffFiles":
+      return try await handleGitPrDiffFiles(body)
+    case "/git/readBlob":
+      return try await handleGitReadBlob(body)
+    case "/git/revReachable":
+      return try await handleGitRevReachable(body)
     case "/git/lsTree":
       return try await handleGitLsTree(body)
     case "/git/resetMixed":
@@ -683,6 +689,8 @@ public actor RpcDispatcher {
     // 範囲選択 (compareHash 非空) では GitOps.commitFiles の <older>^ vs <newer> に揃え、
     // older 端自身の変更も diff に含める。root commit は `^` 解決失敗 → notFound に倒れる。
     // Working Tree 端の扱いは renderer 側で分岐し、wire には常に実 git hash のみ流れる契約。
+    // PR diff モード (base..working) は handleGitPrDiffFiles / handleGitReadBlob を使うため
+    // この RPC は流れない。
     let olderEnd = req.compareHash.isEmpty ? req.hash : req.compareHash
     let fromHash = "\(olderEnd)^"
     // content と OID を並行取得。両端の blob OID が一致すれば
@@ -786,6 +794,45 @@ public actor RpcDispatcher {
     return try resp.jsonUTF8Data()
   }
 
+  /// PR diff (base..working tree + untracked) のファイル一覧。GitOps.prDiffFiles に委譲。
+  private func handleGitPrDiffFiles(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitPrDiffFilesRequest(jsonUTF8Data: body)
+    let changes = try await GitOps.prDiffFiles(dir: req.dir, baseHash: req.baseHash)
+    var resp = Gozd_V1_GitPrDiffFilesResponse()
+    resp.changes = changes.map { c in
+      var pb = Gozd_V1_GitFileChange()
+      pb.oldFilePath = c.oldPath
+      pb.newFilePath = c.newPath
+      pb.type = c.type
+      return pb
+    }
+    return try resp.jsonUTF8Data()
+  }
+
+  /// 単一 rev + path の blob 内容。PR diff の base 側 blob 取得など、`gitShowCommitFile` の
+  /// 2 endpoint 比較が不要な経路用。失敗 (path 不在 / rev invalid) は notFound=true に倒す。
+  /// fileReadResultFromGit のロジックを reuse する。
+  ///
+  /// rev は `git show <rev>:<path>` に渡るため、`-X<option>` 等の option 注入を弾く
+  /// `validateRev` を入口で通す。renderer 信頼境界内とはいえ防御の一貫性のため
+  /// (`gitShowCommitFile` / `revReachable` 等の他経路も validateRev を通している)。
+  private func handleGitReadBlob(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitReadBlobRequest(jsonUTF8Data: body)
+    try validateRev(req.hash)
+    var resp = Gozd_V1_GitReadBlobResponse()
+    resp.result = await fileReadResultFromGit(dir: req.dir, hash: req.hash, relPath: req.relPath)
+    return try resp.jsonUTF8Data()
+  }
+
+  /// rev (commit OID) が local repo に reachable か。`git cat-file -e <hash>` 相当。
+  /// fetch 要求の事前判定に使う。
+  private func handleGitRevReachable(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitRevReachableRequest(jsonUTF8Data: body)
+    var resp = Gozd_V1_GitRevReachableResponse()
+    resp.reachable = await GitOps.revReachable(dir: req.dir, hash: req.hash)
+    return try resp.jsonUTF8Data()
+  }
+
   private func handleGitLsTree(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitLsTreeRequest(jsonUTF8Data: body)
     let entries = try await GitOps.lsTree(dir: req.dir, hash: req.hash, path: req.path)
@@ -825,6 +872,7 @@ public actor RpcDispatcher {
         pb.reviewers = p.reviewers
         pb.updatedAt = p.updatedAt
         pb.authorAvatarURL = p.authorAvatarUrl
+        pb.baseRefOid = p.baseRefOid
         return pb
       }
     case .failure(let err):

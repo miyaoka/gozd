@@ -33,6 +33,7 @@ public enum GitHubOps {
             isDraft
             headRefName
             baseRefName
+            baseRefOid
             author { login avatarUrl(size: \(avatarSize)) }
             updatedAt
             headRepository { owner { login } }
@@ -138,7 +139,8 @@ public enum GitHubOps {
         assignees: assignees,
         reviewers: reviewers,
         updatedAt: item["updatedAt"] as? String ?? "",
-        authorAvatarUrl: avatar
+        authorAvatarUrl: avatar,
+        baseRefOid: item["baseRefOid"] as? String ?? ""
       )
     }
     return .success(infos)
@@ -396,6 +398,7 @@ public struct PullRequestInfo: Sendable, Equatable {
   public let reviewers: [String]
   public let updatedAt: String
   public let authorAvatarUrl: String
+  public let baseRefOid: String
 }
 
 public struct IssueInfo: Sendable, Equatable {

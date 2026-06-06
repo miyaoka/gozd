@@ -36,10 +36,10 @@ import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
-import { useChangesSummaryStore } from "../changes";
+import { useChangesStore, useChangesSummaryStore } from "../changes";
 import { getFileIconUrl, relDirOf, rpcFsReadFile, rpcFsReadFileAbsolute } from "../filer";
 import type { FsChangePayload } from "../filer";
-import { useGitGraphStore } from "../git-graph";
+import { rpcGitReadBlob, useGitGraphStore, usePrDiffToggleStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import type { GitChangeKind, Selection } from "../worktree";
 import ChangesSummaryView from "./ChangesSummaryView.vue";
@@ -97,7 +97,9 @@ const {
   revealVersion,
 } = storeToRefs(worktreeStore);
 const gitGraphStore = useGitGraphStore();
+const prDiffToggle = usePrDiffToggleStore();
 const summaryStore = useChangesSummaryStore();
+const changesStore = useChangesStore();
 const previewStore = usePreviewStore();
 const markdownHistory = useMarkdownHistoryStore();
 const notification = useNotificationStore();
@@ -123,8 +125,9 @@ const wordWrap = ref(true);
 /** コミットモード時の変更種別（from/to の取得結果から導出） */
 const commitGitChange = ref<GitChangeKind>();
 
-/** 実効的な変更種別（uncommitted モードでは git status、commit モードでは取得結果から導出） */
+/** 実効的な変更種別（uncommitted モードでは git status、commit / PR diff モードでは取得結果から導出） */
 const effectiveGitChange = computed(() => {
+  if (prDiffToggle.isOn) return commitGitChange.value;
   if (gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null) {
     return commitGitChange.value;
   }
@@ -212,7 +215,8 @@ const orderedRange = computed<OrderedRange | null>(() => {
 
 /**
  * Original タブが指している hash の表記。
- * Swift 側 handleGitShowCommitFile の fromHash (= `<olderEnd>^`) と一致させる:
+ * Swift 側 handleGitShowCommitFile の fromHash と一致させる:
+ * - PR diff モード: PR base OID (^ なし)
  * - uncommitted モード (newer=Working Tree, older=undefined): HEAD
  * - 単一コミット: <hash>^
  * - 範囲選択: <older>^
@@ -220,6 +224,10 @@ const orderedRange = computed<OrderedRange | null>(() => {
  *   実際には参照していない HEAD などの虚偽情報をラベルに出さない。
  */
 const originalHashLabel = computed<string | undefined>(() => {
+  if (prDiffToggle.isOn) {
+    const oid = prDiffToggle.lockedBaseOid;
+    return oid === undefined ? undefined : oid.slice(0, SHORT_HASH_LEN);
+  }
   const range = orderedRange.value;
   if (range === null) return undefined;
   const { newer, older } = range;
@@ -390,7 +398,12 @@ async function fetchCommitContent(filePath: string) {
           throw new Error("commit mode with working tree newer requires an older endpoint");
         }
         const [showResult, fsResult] = await Promise.all([
-          rpcGitShowCommitFile({ dir, relPath: filePath, hash: older, compareHash: "" }),
+          rpcGitShowCommitFile({
+            dir,
+            relPath: filePath,
+            hash: older,
+            compareHash: "",
+          }),
           rpcFsReadFile({ dir, path: filePath }),
         ]);
         return {
@@ -459,6 +472,112 @@ async function fetchCommitContent(filePath: string) {
 }
 
 /**
+ * PR diff モード時のファイル内容取得。base..working tree の per-file diff。
+ *
+ * from = `pr.baseRefOid` の blob (gitShowCommitFile + olderIsBase=true で `<baseOid>` 自身を取る)。
+ * to = working tree の fs 内容。olderIsBase semantic は GitCommitFilesRequest 側と同期させる。
+ */
+async function fetchPrDiffContent(filePath: string) {
+  loading.value = true;
+  error.value = undefined;
+  isDirectory.value = false;
+  isNotFound.value = false;
+
+  const version = ++fetchVersion;
+  fetchVersionRef.value = version;
+
+  const dir = worktreeStore.dir;
+  if (dir === undefined) {
+    loading.value = false;
+    return;
+  }
+  const baseOid = prDiffToggle.lockedBaseOid;
+  if (baseOid === undefined) {
+    loading.value = false;
+    return;
+  }
+
+  // `useChangesStore.fileChanges` から該当 GitFileChange を引いて type ごとに正しい path を選ぶ:
+  // - A / U (added / untracked): base にそのパスは存在しない → base fetch を skip
+  // - D (deleted): working tree にそのパスは存在しない → fs read を skip
+  // - R (renamed): base には `oldFilePath`、working tree には `newFilePath` で存在
+  // - M (modified): 同パスで両方存在
+  // この path 選択を欠くと「存在しないパスへの `git show <base>:<path>`」を発射して stderr noise
+  // を出し、R では from/to の取り違えで rename が added 扱いに倒れる。
+  //
+  // lookup 失敗 (= fileChanges に該当 change が無い) 経路はそのまま fetch すると per-type 分岐が
+  // 失われて bogus stderr が再発するため、空表示にして watcher 再発火に委ねる。`fileChanges` は
+  // 上位 watcher の deps に含まれているため、`prDiffFiles` 取得完了 / 選択 path が含まれる
+  // 変化 で再発火する。本経路は (a) PR diff fetch がまだ確定していない race window
+  // (b) PR diff に含まれないファイルを Filer から選択した状況、いずれも結果として空表示が妥当。
+  const change = changesStore.fileChanges.find((c) => c.newFilePath === filePath);
+  if (change === undefined) {
+    currentContent.value = undefined;
+    originalContent.value = undefined;
+    isBinary.value = false;
+    isOriginalBinary.value = false;
+    isNotFound.value = false;
+    commitGitChange.value = undefined;
+    loading.value = false;
+    return;
+  }
+
+  const skipFrom = change.type === "A" || change.type === "U";
+  const skipTo = change.type === "D";
+  const fromPromise = skipFrom
+    ? Promise.resolve(undefined)
+    : rpcGitReadBlob({ dir, hash: baseOid, relPath: change.oldFilePath });
+  const toPromise = skipTo
+    ? Promise.resolve(undefined)
+    : rpcFsReadFile({ dir, path: change.newFilePath });
+
+  const fetchResult = await tryCatch(Promise.all([fromPromise, toPromise]));
+
+  if (version !== fetchVersion) return;
+
+  if (!fetchResult.ok) {
+    error.value = fetchResult.error.message;
+    notification.error("Failed to read PR diff file", fetchResult.error);
+    loading.value = false;
+    return;
+  }
+
+  const [blobResult, fsResult] = fetchResult.value;
+  const from = blobResult?.result;
+  const fromNotFound = skipFrom || (from?.notFound ?? true);
+  const toNotFound = skipTo || (fsResult?.notFound ?? true);
+
+  if (fromNotFound && toNotFound) {
+    commitGitChange.value = undefined;
+  } else if (fromNotFound) {
+    commitGitChange.value = change.type === "R" ? "renamed" : "added";
+  } else if (toNotFound) {
+    commitGitChange.value = "deleted";
+  } else {
+    // 内容比較は renderer 側でなく Swift 側 unchanged を使うのが SSOT だが、
+    // PR diff モードは to が working tree (blob OID 無し) なので unchanged 判定は持たない。
+    // `modified` / `renamed` 固定にし、実体が同一なら DiffPreview 側で空 diff として描画される。
+    commitGitChange.value = change.type === "R" ? "renamed" : "modified";
+  }
+
+  if (commitGitChange.value === "deleted") {
+    activeMode.value = "original";
+  } else if (commitGitChange.value === "modified" || commitGitChange.value === "renamed") {
+    activeMode.value = "diff";
+  } else {
+    activeMode.value = "current";
+  }
+
+  originalContent.value = fromNotFound ? undefined : from?.content;
+  isOriginalBinary.value = from?.isBinary ?? false;
+  currentContent.value = toNotFound ? undefined : fsResult?.content;
+  isBinary.value = fsResult?.isBinary ?? false;
+  isNotFound.value = fromNotFound && toNotFound;
+
+  loading.value = false;
+}
+
+/**
  * 個別ファイル選択時のみ summary モードを抜ける。
  * git-graph の commit 切替 (selectedHash / compareHash の変化) では summary は維持する。
  * `revealVersion` は select*Path() 専用のバージョンカウンタなので、これを trigger に使うことで
@@ -490,8 +609,15 @@ watch(
       selectedGitChange.value,
       gitGraphStore.selectedHash,
       gitGraphStore.compareHash,
+      prDiffToggle.isOn,
+      prDiffToggle.lockedBaseOid,
+      // PR diff モードの fetchPrDiffContent は `changesStore.fileChanges` から change object を
+      // lookup して per-type の path 選択を行う。fileChanges が確定するまで lookup 失敗で
+      // フォールバックに倒れ bogus な git show を発射してしまう race を防ぐため、
+      // fileChanges を deps に入れて確定タイミングで再発火させる。
+      changesStore.fileChanges,
     ] as const,
-  async ([path, _kind, gitChange, selectedHash, compareHash]) => {
+  async ([path, _kind, gitChange, selectedHash, compareHash, isPrDiff]) => {
     previewEnabled.value = true;
     commitGitChange.value = undefined;
 
@@ -507,6 +633,11 @@ watch(
       return;
     }
 
+    // PR diff モードは graph selection より優先。worktreeRelative のみ対象 (絶対パスは git 履歴なし)。
+    if (isPrDiff && sel.kind === "worktreeRelative") {
+      await fetchPrDiffContent(sel.relPath);
+      return;
+    }
     const isCommitMode = selectedHash !== UNCOMMITTED_HASH || compareHash !== null;
     // 絶対パス（worktree 外）は git 履歴を持たないため、commit mode 中でも fsReadFileAbsolute
     // 経路に倒す。
@@ -524,17 +655,21 @@ watch(
 const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ dir: eventDir, relDir }) => {
   const sel = selection.value;
   if (sel === undefined) return;
-  // コミットモードではファイル変更通知を無視（表示内容は git オブジェクトから取得済み）
+  // useFsWatchSync は全 worktree を watch するため、active dir 以外の event は無視する。
+  if (eventDir !== worktreeStore.dir) return;
+  if (sel.kind !== "worktreeRelative") return;
+  if (relDir !== relDirOf(sel.relPath)) return;
+
+  // PR diff モードでは to が working tree のため、fs change で再取得する必要がある。
+  if (prDiffToggle.isOn) {
+    blamePopover.closeIfActive(eventDir, sel.relPath);
+    void fetchPrDiffContent(sel.relPath);
+    return;
+  }
+  // commit モードではファイル変更通知を無視（表示内容は git オブジェクトから取得済み）
   if (gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null) {
     return;
   }
-  // useFsWatchSync は全 worktree を watch するため、active dir 以外の event は無視する。
-  if (eventDir !== worktreeStore.dir) return;
-  // worktree 外の絶対パスは fsChange event の dir 軸 (active worktree) の責務外。
-  // active worktree 内の任意のファイル変更で外部 absPath を毎回再 fetch しないよう early return。
-  // 外部 absPath の hot reload が必要になったら per-file watch の専用経路を別途設計する。
-  if (sel.kind !== "worktreeRelative") return;
-  if (relDir !== relDirOf(sel.relPath)) return;
   // fetchContent で currentContent / originalContent が更新されると CodePreview / DiffPreview
   // が再ハイライト・再描画し、line-no button DOM が置換される。blame popover が同 file に
   // 対して開いていれば anchorEl が detached になるため、再 fetch 前に閉じる。
@@ -618,11 +753,13 @@ const isCommitMode = computed(
 
 /**
  * Current 側 (newer / working tree) を blame する際の rev。
+ * - PR diff モード: "" = working tree
  * - uncommitted モード: "" = working tree
  * - commit モード: newer hash (Working Tree なら "")
  * orderedRange が null (不整合) なら undefined を返し、blame button は描画自体抑止する。
  */
 const currentRev = computed<string | undefined>(() => {
+  if (prDiffToggle.isOn) return "";
   if (!isCommitMode.value) return "";
   const range = orderedRange.value;
   if (range === null) return undefined;
@@ -631,11 +768,18 @@ const currentRev = computed<string | undefined>(() => {
 
 /**
  * Original 側 (older^) を blame する際の rev。
+ * - PR diff モード: `pr.baseRefOid` 自身 (^ なし) を起点に blame する。ただし PR で追加されたファイル
+ *   (effectiveKind === "added") は base に存在しないため undefined を返し、blame button 経路で
+ *   silent dead button にならないよう `blameEnabled` 側で構造的に抑止する。
  * - uncommitted モード: "HEAD"
  * - commit モード: `<older>^`。range.older は orderedRange が null でない限り
  *   必ず string で来る (型保証)。fetchCommitContent の fromHash と一致。
  */
 const originalRev = computed<string | undefined>(() => {
+  if (prDiffToggle.isOn) {
+    if (effectiveGitChange.value === "added") return undefined;
+    return prDiffToggle.lockedBaseOid;
+  }
   if (!isCommitMode.value) return "HEAD";
   const range = orderedRange.value;
   if (range === null) return undefined;
@@ -646,9 +790,19 @@ const originalRev = computed<string | undefined>(() => {
   return `${range.older}^`;
 });
 
-/** blame 不可なファイル (絶対パスの外部 open) を弾く判定。button 描画自体を gate する。
- *  worktreeRelative selection でのみ blame が成立する (worktree 外は git 履歴を持たない) */
-const blameEnabled = computed(() => selection.value?.kind === "worktreeRelative");
+/** blame 不可なファイル (絶対パスの外部 open / PR diff の added file) を弾く判定。
+ *  button 描画自体を gate して silent dead button (DiffPreview docstring 規約) を作らない。
+ *
+ *  - worktreeRelative 以外 (absolute path) は git 履歴なしで blame 不成立
+ *  - PR diff で added file は old 側 blame が `git blame <baseOid> -- <path>` で path 不在エラーに
+ *    なるため、両側まとめて抑止する (現状の DiffPreview 単一 prop の API 制約上、side ごとに
+ *    gate できないため最小コスト解。新側 blame も失うが、added file の PR view では trade-off で許容)
+ */
+const blameEnabled = computed(() => {
+  if (selection.value?.kind !== "worktreeRelative") return false;
+  if (prDiffToggle.isOn && effectiveGitChange.value === "added") return false;
+  return true;
+});
 
 const blamePopover = useBlamePopover();
 
@@ -711,6 +865,9 @@ watch(
     selectedGitChange,
     () => gitGraphStore.selectedHash,
     () => gitGraphStore.compareHash,
+    () => prDiffToggle.isOn,
+    () => prDiffToggle.lockedBaseOid,
+    () => changesStore.fileChanges,
     activeMode,
     // summary view 切替で CodePreview / DiffPreview が unmount され anchor が detached
     // になるため、popover も同時に閉じる必要がある。

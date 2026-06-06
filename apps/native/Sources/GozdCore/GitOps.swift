@@ -620,21 +620,28 @@ public enum GitOps {
     return parseDiffNameStatus(stdout)
   }
 
-  /// PR diff: `baseHash` から working tree までの tracked file の name-status 差分を返す。
+  /// PR diff (3-dot semantics): `baseHash` から working tree までの tracked file の name-status 差分を返す。
   ///
   /// 「PR をいま push したら base に何が入るか」のうち **commit 済み + uncommitted (tracked)** を担う
-  /// 専用 entry point。`commitFiles` の range 経路 + olderIsBase=true で代用していた構造を解体し、
-  /// proto の `rangeHashes` (first-parent walk 結果) wire 契約と切り離す。
+  /// 専用 entry point。
+  ///
+  /// `baseHash` は renderer が `gitMergeBase(HEAD, baseRefOid)` で事前解決した **merge-base OID**
+  /// であることが契約 (= GitHub の Files changed と同じ意味論)。`baseRefOid` を直接渡すと、
+  /// PR 分岐後に base ブランチが前進した分が逆向きに差分として混入する (= 「自分のブランチに
+  /// 含まれていない main の変更」が PR diff に紛れ込む bug)。本関数自身は与えられた baseHash で
+  /// `git diff <baseHash>` を実行するだけで merge-base 計算は内包せず、renderer 側の SSOT
+  /// (`usePrDiffToggleStore.lockedBase.diffBaseOid`) が per-file 取得経路 (`gitReadBlob`) とも
+  /// 起点を共有できるようにする。
   ///
   /// untracked file の merge は本関数では行わない。renderer 側 (`useChangesStore.fileChanges`) が
   /// `gitStatusStore` 由来の untracked を append する SSOT に一本化したため、untracked を `U` として
   /// 写す責務は renderer の 1 か所に閉じる (range + working-tree 端の経路と同一層に揃える)。
   ///
   /// 実装:
-  /// - `git diff --name-status -z --find-renames --diff-filter=AMDR <baseHash>` で base..working
+  /// - `git diff --name-status -z --find-renames --diff-filter=AMDR <baseHash>` で merge-base..working
   ///   (右辺省略 = working tree)。rename は `--find-renames` が `R` として解決する。
   public static func prDiffFiles(dir: String, baseHash: String) async throws -> [FileChangeInfo] {
-    // baseHash は GitHub の `baseRefOid` (実在 commit OID) が契約。`validateRev` は empty を許す
+    // baseHash は merge-base OID (renderer 側で解決済み) が契約。`validateRev` は empty を許す
     // 設計のため、commit OID 必須の `lsTree` / `resetMixed` と同じ二段ガードで empty / all-zero を
     // 入口で reject する (empty を素通りさせると `git diff` が rev なしの別 semantic で走るため)。
     if baseHash.isEmpty {
@@ -648,6 +655,39 @@ public enum GitOps {
     let diffOptions = ["--name-status", "-z", "--find-renames", "--diff-filter=AMDR"]
     let diffOut = try await runGit(args: ["diff"] + diffOptions + [baseHash], cwd: dir)
     return parseDiffNameStatus(diffOut)
+  }
+
+  /// `git merge-base <hash1> <hash2>` 相当。2 commit の最低共通祖先 (merge-base) を返す。
+  ///
+  /// PR diff モードの起点解決に使う。GitHub の Files changed タブが採る 3-dot semantics
+  /// (`<base>...<head>`) は **「merge-base(base, head) から head までの差分」** を表すが、
+  /// 3-dot **構文** は両辺が commit であることを要求するため working tree を含められない。
+  /// 代わりに本 RPC で merge-base OID を取り、それを `git diff <merge-base>` (右辺省略
+  /// = working tree) の起点に据えることで、3-dot semantics と working tree 含有を両立する。
+  ///
+  /// 失敗 (history が unrelated / hash 不在等で `git merge-base` が exit 1) は **空文字** で返す。
+  /// throw して error 経路に倒すこともできるが、unrelated histories は fork PR / 全削除 rebase 等の
+  /// 正常入力でも起きうるため、空文字を「解決失敗」の wire 値として 1 か所に集約し呼び出し側
+  /// (`usePrDiffToggleStore.enable()`) で notify.error + 状態据え置きで扱う。
+  /// `validateRev` 失敗 (`-` 始まり等の option 注入 / 非 hex) も同 wire 値に倒す + stderr に
+  /// 観察可能ログを残す (CLAUDE.md `silent drop は禁止` 規律、`revReachable` と同型)。
+  public static func mergeBase(dir: String, hash1: String, hash2: String) async -> String {
+    do {
+      try validateRev(hash1)
+      try validateRev(hash2)
+    } catch {
+      StderrLog.write(
+        tag: "GitOps",
+        "mergeBase: invalid rev: hash1='\(hash1)' hash2='\(hash2)': \(error)")
+      return ""
+    }
+    do {
+      let stdout = try await runGit(args: ["merge-base", hash1, hash2], cwd: dir)
+      return String(decoding: stdout, as: UTF8.self).trimmingCharacters(
+        in: .whitespacesAndNewlines)
+    } catch {
+      return ""
+    }
   }
 
   /// 指定 rev (commit OID) が local repo に reachable か。`git cat-file -e <hash>` 相当。

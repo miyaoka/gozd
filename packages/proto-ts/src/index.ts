@@ -108,6 +108,8 @@ export {
   GitLogResponse,
   GitLsTreeRequest,
   GitLsTreeResponse,
+  GitMergeBaseRequest,
+  GitMergeBaseResponse,
   GitPrDiffFilesRequest,
   GitPrDiffFilesResponse,
   GitPrListRequest,

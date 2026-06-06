@@ -6,7 +6,6 @@ import { useNotificationStore } from "../../shared/notification";
 import {
   rpcGitCommitFiles,
   rpcGitPrDiffFiles,
-  rpcGitRevReachable,
   useGitGraphStore,
   usePrDiffToggleStore,
 } from "../git-graph";
@@ -14,7 +13,6 @@ import {
   UNCOMMITTED_HASH,
   resolveGitChangeKind,
   useGitStatusStore,
-  useRemoteFetchStore,
   useWorktreeStore,
 } from "../worktree";
 import type { GitChangeKind } from "../worktree";
@@ -73,7 +71,6 @@ export const useChangesStore = defineStore("changes", () => {
   const gitGraphStore = useGitGraphStore();
   const gitStatusStore = useGitStatusStore();
   const prDiffToggle = usePrDiffToggleStore();
-  const fetchStore = useRemoteFetchStore();
   const notification = useNotificationStore();
 
   /** fetch 結果。`source.kind` ごとに該当する場合のみ参照される */
@@ -120,9 +117,11 @@ export const useChangesStore = defineStore("changes", () => {
     const dir = worktreeStore.dir;
     if (dir === undefined) return { kind: "none" };
 
-    // PR diff モード時の表示 OID は `lockedBaseOid` (= enable 時 snapshot)。
+    // PR diff モード時の表示 OID は `lockedBaseOid` (= enable 時 snapshot された merge-base OID)。
     // live `baseOid` を使うと「base 変更 → 表示が即変化 → auto-off watcher が遅れて発火」の
     // race で 1 tick だけ「auto-off 前の base 変更を反映した diff」が表示される事故が起きる。
+    // reachable 判定 / fetch / merge-base 計算は `usePrDiffToggleStore.enable()` 側で済んでいる
+    // ため、本 store はその起点 OID をそのまま `rpcGitPrDiffFiles` の baseHash に渡すだけで良い。
     if (prDiffToggle.isOn) {
       const baseOid = prDiffToggle.lockedBaseOid;
       if (baseOid === undefined) return { kind: "none" };
@@ -175,12 +174,9 @@ export const useChangesStore = defineStore("changes", () => {
    *
    * 経路ごとの RPC 呼び分け:
    * - prDiff: `rpcGitPrDiffFiles` (Swift 側は tracked AMDR diff のみ。untracked は `fileChanges`
-   *   computed が `mergeUntracked` で append する)。base OID 未 reachable なら
-   *   `useRemoteFetchStore.requestImmediateFetch` 経由で fetch を要求。
+   *   computed が `mergeUntracked` で append する)。base reachable 判定 / fetch / merge-base 計算は
+   *   `usePrDiffToggleStore.enable()` が事前に済ませており、`source.baseOid` は merge-base OID。
    * - range / commit: `rpcGitCommitFiles` (既存)
-   *
-   * fetch 経路は `useRemoteFetchStore` の SSOT を共有することで、背景 polling と on-demand 要求の
-   * 二重発射を防ぐ。
    */
   watch(
     source,
@@ -196,36 +192,6 @@ export const useChangesStore = defineStore("changes", () => {
       loading.value = true;
 
       if (src.kind === "prDiff") {
-        // base OID が local に reachable かを先に確認。未 fetch なら fetch を要求して reachable
-        // 化を待つ。reachable 判定 → fetch 要求 → 再判定 のチェーンは「fetch 失敗以外の理由で
-        // 失敗するときは fetch を炊かない」(rate limit / lock 競合 / dir 不正等への耐性) を担保する。
-        const reachable = await tryCatch(rpcGitRevReachable({ dir: src.dir, hash: src.baseOid }));
-        if (seq !== requestSeq) return;
-        if (!reachable.ok) {
-          notification.error("Failed to probe PR diff base reachability", reachable.error);
-          fetchedFiles.value = [];
-          loading.value = false;
-          return;
-        }
-        if (!reachable.value.reachable) {
-          const fetched = await fetchStore.requestImmediateFetch(src.dir);
-          if (seq !== requestSeq) return;
-          if (!fetched) {
-            // toggle ON click 時点で `canEnable === true` だったため `lockedBaseOid` snapshot は
-            // 安定 (snapshot なので消えない)。一方 `findRepoOwning(src.dir)` は本 watcher 発火時の
-            // live evaluation で、toggle ON から requestImmediateFetch 到達までに worktree が
-            // 削除される race を踏みうる。よって本経路の false は次のいずれかを意味する:
-            //   - `runFetch` 内の git fetch RPC 失敗 (network / 認証 / remote 未設定)
-            //   - 上記 race による `findRepoOwning` undefined (= worktree 削除)
-            // いずれも下層 (`useRemoteFetchStore`) で notify.info が出ているため、本経路で
-            // 追加通知は出さない。fileChanges は空に倒し、source watcher が次の reactive 変化
-            // (toggle OFF / worktree 切替) で正常状態に戻すのに委ねる。
-            fetchedFiles.value = [];
-            loading.value = false;
-            return;
-          }
-        }
-
         const result = await tryCatch(rpcGitPrDiffFiles({ dir: src.dir, baseHash: src.baseOid }));
         if (seq !== requestSeq) return;
         if (!result.ok) {

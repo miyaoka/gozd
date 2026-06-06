@@ -274,6 +274,8 @@ public actor RpcDispatcher {
       return try await handleGitReadBlob(body)
     case "/git/revReachable":
       return try await handleGitRevReachable(body)
+    case "/git/mergeBase":
+      return try await handleGitMergeBase(body)
     case "/git/lsTree":
       return try await handleGitLsTree(body)
     case "/git/resetMixed":
@@ -794,7 +796,11 @@ public actor RpcDispatcher {
     return try resp.jsonUTF8Data()
   }
 
-  /// PR diff (base..working tree + untracked) のファイル一覧。GitOps.prDiffFiles に委譲。
+  /// PR diff (3-dot semantics) のファイル一覧。GitOps.prDiffFiles に委譲。
+  ///
+  /// `req.baseHash` は renderer が `gitMergeBase(HEAD, baseRefOid)` で事前解決した
+  /// **merge-base OID** であることが契約 (= GitHub の Files changed と同じ意味論)。
+  /// `baseRefOid` を直接渡すと「PR 分岐後に base が前進した分」が逆向きに差分として混入する。
   private func handleGitPrDiffFiles(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitPrDiffFilesRequest(jsonUTF8Data: body)
     let changes = try await GitOps.prDiffFiles(dir: req.dir, baseHash: req.baseHash)
@@ -830,6 +836,17 @@ public actor RpcDispatcher {
     let req = try Gozd_V1_GitRevReachableRequest(jsonUTF8Data: body)
     var resp = Gozd_V1_GitRevReachableResponse()
     resp.reachable = await GitOps.revReachable(dir: req.dir, hash: req.hash)
+    return try resp.jsonUTF8Data()
+  }
+
+  /// `git merge-base <hash1> <hash2>` の結果 (= 最低共通祖先 OID) を返す。
+  /// PR diff モードで GitHub の Files changed と同じ 3-dot semantics の左端を解決するのに使う。
+  /// 失敗 (unrelated histories / hash 不在) は GitOps.mergeBase が空文字を返すので、本 handler は
+  /// それをそのまま wire 値として通す (呼び出し側 `usePrDiffToggleStore.enable()` で空文字判定)。
+  private func handleGitMergeBase(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitMergeBaseRequest(jsonUTF8Data: body)
+    var resp = Gozd_V1_GitMergeBaseResponse()
+    resp.mergeBaseOid = await GitOps.mergeBase(dir: req.dir, hash1: req.hash1, hash2: req.hash2)
     return try resp.jsonUTF8Data()
   }
 

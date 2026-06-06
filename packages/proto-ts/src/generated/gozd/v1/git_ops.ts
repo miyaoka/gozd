@@ -292,7 +292,13 @@ export interface GitCommitFilesResponse {
 /**
  * gitPrDiffFiles: PR base..working tree の tracked 変更ファイル一覧
  *
- * base_hash 自身は含まず、`git diff <base_hash>` (右辺省略 = working tree) で実行する。
+ * base_hash は **`merge-base(HEAD, baseRefOid)` の OID** を渡す契約 (= GitHub の Files
+ * changed タブと同じ 3-dot semantics の左端)。renderer が `usePrDiffToggleStore.enable()`
+ * で `gitMergeBase` を呼び事前に解決した値を流す。`baseRefOid` を直接渡してはいけない:
+ * base ブランチが PR 分岐後に前進していると、その前進分が逆向きに差分として混入する
+ * (= 「自分のブランチに含まれていない main の変更」が PR diff に紛れ込む bug)。
+ *
+ * 内部では `git diff <base_hash>` (右辺省略 = working tree) を実行する。
  * `--diff-filter=AMDR` で除外される untracked file (`??`) は本 RPC では返さない。
  * 「PR をいま push したら base に何が入るか」のうち untracked 分の merge は renderer 側
  * (`useChangesStore.fileChanges`) が `gitStatusStore` 由来の untracked を append して行う。
@@ -301,14 +307,39 @@ export interface GitCommitFilesResponse {
 export interface GitPrDiffFilesRequest {
   dir: string;
   /**
-   * PR base の commit OID。GitHub GraphQL `baseRefOid` をそのまま渡す。
-   * ref 名ではなく OID なので fork PR / base force-push / rename を跨いで安定。
+   * diff の起点となる commit OID。renderer は `gitMergeBase(HEAD, baseRefOid)` の結果を
+   * 渡す契約 (= GitHub の Files changed と同じ 3-dot semantics)。`baseRefOid` を直接
+   * 渡すと「PR 分岐後に base が前進した分」が逆向きに差分として紛れ込む。
    */
   baseHash: string;
 }
 
 export interface GitPrDiffFilesResponse {
   changes: GitFileChange[];
+}
+
+/**
+ * gitMergeBase: 2 commit の最低共通祖先を返す。`git merge-base <hash1> <hash2>` 相当。
+ *
+ * PR diff モードの起点解決に使う。GitHub の Files changed タブが採る 3-dot semantics
+ * (`<base>...<head>`) は **「merge-base(base, head) から head までの差分」** を表すが、
+ * 3-dot **構文** は両辺が commit であることを要求するため working tree を含められない。
+ * 代わりに renderer 側で `gitMergeBase` を先に呼び、得た merge-base OID を
+ * `gitPrDiffFiles.base_hash` に渡して `git diff <merge-base>` (右辺省略 = working tree) を
+ * 実行することで、3-dot semantics と working tree 含有を両立する。
+ *
+ * 失敗 (history が unrelated / hash 不在等) は `merge_base_oid` を空文字で返す。
+ * 空文字判定は呼び出し側 (`usePrDiffToggleStore.enable()`) で行い、ユーザーへトースト通知する。
+ */
+export interface GitMergeBaseRequest {
+  dir: string;
+  hash1: string;
+  hash2: string;
+}
+
+export interface GitMergeBaseResponse {
+  /** merge-base が解決できた場合のみ非空。unrelated histories / hash 不在等は空文字。 */
+  mergeBaseOid: string;
 }
 
 /**
@@ -2320,6 +2351,162 @@ export const GitPrDiffFilesResponse: MessageFns<GitPrDiffFilesResponse> = {
   fromPartial(object: DeepPartial<GitPrDiffFilesResponse>): GitPrDiffFilesResponse {
     const message = createBaseGitPrDiffFilesResponse();
     message.changes = object.changes?.map((e) => GitFileChange.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseGitMergeBaseRequest(): GitMergeBaseRequest {
+  return { dir: "", hash1: "", hash2: "" };
+}
+
+export const GitMergeBaseRequest: MessageFns<GitMergeBaseRequest> = {
+  encode(message: GitMergeBaseRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.dir !== "") {
+      writer.uint32(10).string(message.dir);
+    }
+    if (message.hash1 !== "") {
+      writer.uint32(18).string(message.hash1);
+    }
+    if (message.hash2 !== "") {
+      writer.uint32(26).string(message.hash2);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitMergeBaseRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitMergeBaseRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.dir = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.hash1 = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.hash2 = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitMergeBaseRequest {
+    return {
+      dir: isSet(object.dir) ? globalThis.String(object.dir) : "",
+      hash1: isSet(object.hash1) ? globalThis.String(object.hash1) : "",
+      hash2: isSet(object.hash2) ? globalThis.String(object.hash2) : "",
+    };
+  },
+
+  toJSON(message: GitMergeBaseRequest): unknown {
+    const obj: any = {};
+    if (message.dir !== "") {
+      obj.dir = message.dir;
+    }
+    if (message.hash1 !== "") {
+      obj.hash1 = message.hash1;
+    }
+    if (message.hash2 !== "") {
+      obj.hash2 = message.hash2;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitMergeBaseRequest>): GitMergeBaseRequest {
+    return GitMergeBaseRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitMergeBaseRequest>): GitMergeBaseRequest {
+    const message = createBaseGitMergeBaseRequest();
+    message.dir = object.dir ?? "";
+    message.hash1 = object.hash1 ?? "";
+    message.hash2 = object.hash2 ?? "";
+    return message;
+  },
+};
+
+function createBaseGitMergeBaseResponse(): GitMergeBaseResponse {
+  return { mergeBaseOid: "" };
+}
+
+export const GitMergeBaseResponse: MessageFns<GitMergeBaseResponse> = {
+  encode(message: GitMergeBaseResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.mergeBaseOid !== "") {
+      writer.uint32(10).string(message.mergeBaseOid);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GitMergeBaseResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGitMergeBaseResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.mergeBaseOid = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GitMergeBaseResponse {
+    return {
+      mergeBaseOid: isSet(object.mergeBaseOid)
+        ? globalThis.String(object.mergeBaseOid)
+        : isSet(object.merge_base_oid)
+        ? globalThis.String(object.merge_base_oid)
+        : "",
+    };
+  },
+
+  toJSON(message: GitMergeBaseResponse): unknown {
+    const obj: any = {};
+    if (message.mergeBaseOid !== "") {
+      obj.mergeBaseOid = message.mergeBaseOid;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GitMergeBaseResponse>): GitMergeBaseResponse {
+    return GitMergeBaseResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GitMergeBaseResponse>): GitMergeBaseResponse {
+    const message = createBaseGitMergeBaseResponse();
+    message.mergeBaseOid = object.mergeBaseOid ?? "";
     return message;
   },
 };

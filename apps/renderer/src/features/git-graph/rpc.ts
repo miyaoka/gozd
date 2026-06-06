@@ -5,6 +5,8 @@ import {
   GitGithubIdentityResponse,
   GitLogRequest,
   GitLogResponse,
+  GitMergeBaseRequest,
+  GitMergeBaseResponse,
   GitPrDiffFilesRequest,
   GitPrDiffFilesResponse,
   GitReadBlobRequest,
@@ -31,6 +33,9 @@ export const rpcGitReadBlob = (req: GitReadBlobRequest) =>
 
 export const rpcGitRevReachable = (req: GitRevReachableRequest) =>
   rpc("/git/revReachable", req, GitRevReachableRequest, GitRevReachableResponse);
+
+export const rpcGitMergeBase = (req: GitMergeBaseRequest) =>
+  rpc("/git/mergeBase", req, GitMergeBaseRequest, GitMergeBaseResponse);
 
 export const rpcGitGithubIdentity = (req: GitGithubIdentityRequest) =>
   rpc("/git/githubIdentity", req, GitGithubIdentityRequest, GitGithubIdentityResponse);

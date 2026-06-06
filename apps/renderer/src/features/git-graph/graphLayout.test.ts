@@ -12,6 +12,14 @@ function laneByHash(layout: ReturnType<typeof computeGraphLayout>): Map<string, 
   return new Map(layout.nodes.map((n) => [n.commit.hash, n.lane]));
 }
 
+/** hash → color の引きやすいマップに変換する */
+function colorByHash(layout: ReturnType<typeof computeGraphLayout>): Map<string, number> {
+  return new Map(layout.nodes.map((n) => [n.commit.hash, n.color]));
+}
+
+/** HEAD 専用に予約する色インデックス (graphLayout.ts の HEAD_COLOR と一致) */
+const HEAD_COLOR = 0;
+
 describe("computeGraphLayout の HEAD 最左固定", () => {
   test("HEAD が表示順の先頭なら最左 lane (0) に置く", () => {
     const commits = [commit("c0", ["c1"], ["HEAD"]), commit("c1", ["c2"]), commit("c2", [])];
@@ -107,6 +115,36 @@ describe("computeGraphLayout の HEAD 最左固定", () => {
     expect(lanes.get("a")).toBeGreaterThan(0);
     expect(lanes.get("b")).toBeGreaterThan(0);
     expect(lanes.get("c")).toBe(0);
+  });
+
+  test("HEAD には固定色 (HEAD_COLOR) を割り当て、上に並ぶ他枝には別色を割り当てる", () => {
+    // バグ再現形: HEAD が tip で、上に divergent な origin 枝が並ぶ。
+    // 先着順採番だと origin が色 0 を取り HEAD が色 1 になり、Working Tree (常に色 0) と
+    // 食い違う。HEAD_COLOR 予約により HEAD=0 / origin≠0 になることを確認する。
+    const commits = [
+      commit("o0", ["o1"]),
+      commit("o1", ["base"]),
+      commit("h0", ["base"], ["HEAD"]),
+      commit("base", []),
+    ];
+    const colors = colorByHash(computeGraphLayout(commits, { headHash: "h0" }));
+    expect(colors.get("h0")).toBe(HEAD_COLOR);
+    expect(colors.get("o0")).not.toBe(HEAD_COLOR);
+    expect(colors.get("o1")).not.toBe(HEAD_COLOR);
+    // 共通祖先は HEAD 系統 (lane 0) に合流するので HEAD と同色になる
+    expect(colors.get("base")).toBe(HEAD_COLOR);
+  });
+
+  test("HEAD が表示先頭でも固定色 (HEAD_COLOR) を割り当てる", () => {
+    const commits = [commit("c0", ["c1"], ["HEAD"]), commit("c1", ["c2"]), commit("c2", [])];
+    const colors = colorByHash(computeGraphLayout(commits, { headHash: "c0" }));
+    expect(colors.get("c0")).toBe(HEAD_COLOR);
+  });
+
+  test("HEAD 不在なら色 0 を予約せず先頭コミットが色 0 を取る", () => {
+    const commits = [commit("c0", ["c1"]), commit("c1", [])];
+    const colors = colorByHash(computeGraphLayout(commits, { headHash: "missing" }));
+    expect(colors.get("c0")).toBe(0);
   });
 
   test("headHash が表示集合に存在しない (maxCount 打ち切り等) 場合は従来レイアウト", () => {

@@ -7,6 +7,7 @@ Git commit graph showing the current worktree branch and the default branch.
 - Connector line: dashed SVG path from lane 0 top to HEAD lane (straight if same lane, Bézier curve otherwise)
 - Scrollable commit list: HTML rows for commit data + SVG overlay for graph lines and dots
 - HEAD is pinned to the leftmost lane (lane 0) so it aligns under the Working Tree dot. When HEAD is not the topmost commit, lane 0 is reserved as an empty channel above HEAD so the connector descends without crossing other lanes; commits above HEAD (diverged branches, or HEAD's own children in a detached-HEAD view) are pushed to lanes ≥ 1 and HEAD's children merge back into lane 0 at HEAD's row. See `graphLayout.ts` for the lane assignment
+- HEAD also gets a reserved fixed color (`HEAD_COLOR`) in `graphLayout.ts`, so lane 0 (the current branch line) is always the same color regardless of draw order; other lanes are numbered from 1 to avoid the clash. The Working Tree dot/connector read the HEAD node's color (`headColor`) so they match HEAD instead of being hardcoded
 - CommitDetailPane is shown as a toggleable right pane inside the graph
 - Commits are stored in `useGitGraphStore` and shared with ChangesPane
 
@@ -132,11 +133,23 @@ function recomputeLayout() {
   });
 }
 
-/** HEAD ノードのレーン番号。接続線の描画に使用 */
-const headLane = computed(() => {
-  const node = layout.value.nodes.find((n) => n.commit.refs.includes("HEAD"));
-  return node?.lane ?? 0;
+/**
+ * refs に "HEAD" を持つ表示中ノードとその行番号。
+ * Working Tree 行の接続線・色、HEAD レーン番号の単一導出元 (SSOT)。
+ */
+const headNode = computed(() => {
+  const index = layout.value.nodes.findIndex((n) => n.commit.refs.includes("HEAD"));
+  if (index === -1) return undefined;
+  return { node: layout.value.nodes[index], index };
 });
+
+/**
+ * HEAD ノードの色インデックス。Working Tree のドット/接続線を HEAD レーンと同色に揃える。
+ * HEAD は lane 0 上で HEAD コミットの真上に乗る存在なので、HEAD が tip で
+ * teal 以外の色になっても Working Tree 側を追従させて色の食い違いを防ぐ。
+ * HEAD 不在時は colorFor(0) = teal にフォールバックする。
+ */
+const headColor = computed(() => headNode.value?.node.color ?? 0);
 
 // 以下 3 つの「前回値」は **active worktree dir に対する不変条件** として保持する。
 // 全 worktree watch / 全 worktree push 設計では、別 worktree の
@@ -512,11 +525,12 @@ function rowY(row: number): number {
  * HEAD が row 0 の場合は直接接続する。
  */
 const connectorPath = computed(() => {
-  const x0 = laneX(0);
-  const xHead = laneX(headLane.value);
-  const headIndex = layout.value.nodes.findIndex((n) => n.commit.refs.includes("HEAD"));
-  if (headIndex === -1) return "";
+  const head = headNode.value;
+  if (head === undefined) return "";
 
+  const x0 = laneX(0);
+  const xHead = laneX(head.node.lane);
+  const headIndex = head.index;
   const headY = rowY(headIndex);
 
   // HEAD が lane 0 にいる場合: 垂直直線のみ
@@ -1058,8 +1072,8 @@ const isWorkingTreeActive = computed(
               :cx="laneX(0)"
               :cy="ROW_HEIGHT / 2"
               :r="isWorkingTreeActive ? DOT_RADIUS + 1 : DOT_RADIUS"
-              :fill="isWorkingTreeActive ? '#4ec9b0' : '#1c1c1c'"
-              stroke="#4ec9b0"
+              :fill="isWorkingTreeActive ? colorFor(headColor) : '#1c1c1c'"
+              :stroke="colorFor(headColor)"
               stroke-width="2"
             />
             <line
@@ -1067,7 +1081,7 @@ const isWorkingTreeActive = computed(
               :y1="ROW_HEIGHT / 2 + DOT_RADIUS"
               :x2="laneX(0)"
               :y2="ROW_HEIGHT"
-              stroke="#4ec9b0"
+              :stroke="colorFor(headColor)"
               stroke-width="2"
               stroke-dasharray="4 2"
             />
@@ -1102,7 +1116,7 @@ const isWorkingTreeActive = computed(
                 v-if="connectorPath"
                 :d="connectorPath"
                 fill="none"
-                stroke="#4ec9b0"
+                :stroke="colorFor(headColor)"
                 stroke-width="2"
                 stroke-dasharray="4 2"
               />

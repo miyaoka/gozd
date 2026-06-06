@@ -66,9 +66,15 @@ interface LaneState {
   originLane?: number;
 }
 
+/** HEAD レーン専用に予約する色インデックス。lane 0 = current branch の線を常にこの色で示し、
+ *  Working Tree 行のドット/接続線と色を揃える。他レーンは 1 以降を採番して衝突を避ける。 */
+const HEAD_COLOR = 0;
+
 /**
- * @param headHash HEAD コミットの hash。指定すると HEAD を最左 lane (lane 0) に固定する。
- *   HEAD が表示順で先頭でないときは lane 0 を空きチャンネルとして予約し、子があれば lane 0 へ合流させる
+ * @param headHash HEAD コミットの hash。指定すると HEAD を最左 lane (lane 0) に固定し、
+ *   色も HEAD_COLOR (0) に固定する。HEAD が表示順で先頭でないときは lane 0 を空きチャンネルとして
+ *   予約し、子があれば lane 0 へ合流させる。HEAD が表示集合に存在する間は他レーンの採番を 1 から
+ *   始めて HEAD_COLOR の衝突を避ける
  */
 export function computeGraphLayout(
   commits: GitCommit[],
@@ -88,7 +94,9 @@ export function computeGraphLayout(
   const reserveHeadLane = headRow > 0;
 
   const activeLanes: (LaneState | undefined)[] = [];
-  let nextColor = 0;
+  // HEAD が表示集合内にあるなら色 0 は HEAD 専用に予約し、他レーンは 1 から採番する。
+  // HEAD 不在 (headRow < 0) なら予約不要なので従来どおり 0 から採番する。
+  let nextColor = headRow >= 0 ? 1 : 0;
   let maxLanes = 0;
 
   const nodes: GraphNode[] = [];
@@ -109,14 +117,18 @@ export function computeGraphLayout(
     let lane: number;
     let color: number;
 
+    const isHead = row === headRow;
     // HEAD 到達前は lane 0 を予約 (空き探索の下限を 1 に上げる) し、HEAD に確保しておく
     const minLane = reserveHeadLane && row < headRow ? 1 : 0;
 
-    if (reserveHeadLane && row === headRow) {
-      // 予約しておいた最左 lane に HEAD を固定する。HEAD に子がある (matchingLanes あり) 場合も
-      // ここを優先し、子の各レーンを下の合流処理で lane 0 へ寄せる。色は最初の子レーンを継ぐ
-      lane = 0;
-      color = matchingLanes.length > 0 ? activeLanes[matchingLanes[0]]!.color : nextColor++;
+    if (isHead) {
+      // HEAD は常に最左 lane (lane 0) と固定色 (HEAD_COLOR) に置く。
+      // 予約中 (headRow > 0) は確保済みの lane 0、HEAD が表示先頭 (headRow === 0) なら
+      // 貪欲割り当てでも lane 0 になる。子がある (matchingLanes あり) 場合も lane 0 を優先し、
+      // 子の各レーンを下の合流処理で lane 0 へ寄せる。色は子に追従せず HEAD_COLOR に固定して
+      // lane 0 = current branch の線を常に同色にし、Working Tree 行と揃える
+      lane = reserveHeadLane ? 0 : findEmptyLane(activeLanes, minLane);
+      color = HEAD_COLOR;
     } else if (matchingLanes.length > 0) {
       lane = matchingLanes[0];
       color = activeLanes[lane]!.color;

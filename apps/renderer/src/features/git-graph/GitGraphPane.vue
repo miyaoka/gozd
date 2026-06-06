@@ -546,20 +546,12 @@ const connectorPath = computed(() => {
   return `M${x0},0L${x0},${rowY(head.index)}`;
 });
 
-/** ブランチの色パレット */
-const COLORS = [
-  "#4ec9b0", // teal
-  "#569cd6", // blue
-  "#c586c0", // purple
-  "#ce9178", // orange
-  "#dcdcaa", // yellow
-  "#d16969", // red
-  "#608b4e", // green
-  "#9cdcfe", // light blue
-];
+/** ブランチの色パレット。値は `main.css` の `--color-graph-lane-1..8` token を参照する
+ * (raw hex を SVG に直書きせず @theme SSOT に集約する規律) */
+const LANE_COUNT = 8;
 
 function colorFor(index: number): string {
-  return COLORS[index % COLORS.length];
+  return `var(--color-graph-lane-${(index % LANE_COUNT) + 1})`;
 }
 
 /**
@@ -1074,7 +1066,7 @@ const isWorkingTreeActive = computed(
               :cx="laneX(0)"
               :cy="ROW_HEIGHT / 2"
               :r="isWorkingTreeActive ? DOT_RADIUS + 1 : DOT_RADIUS"
-              :fill="isWorkingTreeActive ? colorFor(headColor) : '#1c1c1c'"
+              :fill="isWorkingTreeActive ? colorFor(headColor) : 'var(--color-background)'"
               :stroke="colorFor(headColor)"
               stroke-width="2"
             />

@@ -4,6 +4,7 @@ xterm.js ベースのターミナルエミュレータ。
 
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
+import { useEventListener } from "@vueuse/core";
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -210,13 +211,10 @@ onMounted(async () => {
 
   fitAddon.fit();
 
-  // xterm の focus/blur イベントを親に通知（focus の責務は TerminalLeaf が持つ）
-  terminal.textarea?.addEventListener("focus", () => {
-    emit("focus");
-  });
-  terminal.textarea?.addEventListener("blur", () => {
-    emit("blur");
-  });
+  // xterm の focus/blur イベントを親に通知（focus の責務は TerminalLeaf が持つ）。
+  // useEventListener は unmount / HMR で effect scope が破棄されると自動解除する。
+  useEventListener(terminal.textarea, "focus", () => emit("focus"));
+  useEventListener(terminal.textarea, "blur", () => emit("blur"));
 
   // mount 時点で props.focused が立っていれば初回 focus を当てる。
   // 以降の false→true 遷移は上位の watch で拾うが、初期値は

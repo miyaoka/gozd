@@ -301,7 +301,7 @@ const activeRootWorktree = computed(() => {
       @click="$event.target === confirmRef && closeConfirm()"
     >
       <div
-        class="space-y-4 rounded-lg border border-border bg-background p-4 text-foreground-strong"
+        class="flex flex-col gap-4 rounded-lg border border-border bg-background p-4 text-foreground-strong"
       >
         <p class="text-sm">{{ confirmMessage }}</p>
         <div class="flex justify-end gap-2">

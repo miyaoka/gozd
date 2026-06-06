@@ -1,4 +1,5 @@
 import { tryCatch } from "@gozd/shared";
+import { useNotificationStore } from "../../shared/notification";
 import { terminalScrollback } from "./terminalConfig";
 
 /** PTY セッション。store が所有し、コンポーネントの mount/unmount を跨いで維持される */
@@ -141,7 +142,7 @@ export function createPtySessionManager(deps: PtySessionManagerDeps) {
     spawningLeafIds.delete(leafId);
 
     if (!result.ok) {
-      console.warn("[terminal] ptySpawn failed:", result.error);
+      useNotificationStore().error("PTY spawn failed", result.error);
       return;
     }
 

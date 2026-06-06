@@ -147,11 +147,11 @@ function onDialogClick(event: MouseEvent) {
   >
     <div
       v-if="currentTask"
-      class="w-[460px] space-y-4 rounded-lg border border-border bg-background p-4 text-foreground-strong shadow-xl"
+      class="flex w-[460px] flex-col gap-4 rounded-lg border border-border bg-background p-4 text-foreground-strong shadow-xl"
     >
       <h2 class="text-sm font-semibold">Edit task title</h2>
 
-      <div class="space-y-1">
+      <div class="flex flex-col gap-1">
         <label class="text-xs text-foreground-muted" for="task-title-input">Title</label>
         <input
           id="task-title-input"
@@ -166,7 +166,7 @@ function onDialogClick(event: MouseEvent) {
         />
       </div>
 
-      <div class="space-y-2">
+      <div class="flex flex-col gap-2">
         <p class="text-xs text-foreground-muted">Sources</p>
 
         <div

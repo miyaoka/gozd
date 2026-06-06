@@ -80,6 +80,19 @@
      すると「バー = スクロールバー」の錯視が起きる (実際 SessionLog で発生) */
   --color-scrollbar-thumb: oklch(0.5 0 0 / 0.35);
   --color-scrollbar-thumb-hover: oklch(0.55 0 0 / 0.55);
+
+  /* --- Git graph lane colors --- */
+  /* git graph の各 lane (branch) に振る固定色 8 色。VSCode の syntax highlight 色を
+     borrow (OKLCH 変換)。HEAD lane 0 は --color-graph-lane-1 (teal) を予約色として
+     固定 (graphLayout.ts 参照)、他 lane は 1..7 を順番に循環 */
+  --color-graph-lane-1: oklch(0.74 0.1 175); /* teal */
+  --color-graph-lane-2: oklch(0.65 0.13 247); /* blue */
+  --color-graph-lane-3: oklch(0.66 0.13 327); /* purple */
+  --color-graph-lane-4: oklch(0.69 0.1 51); /* orange */
+  --color-graph-lane-5: oklch(0.86 0.08 105); /* yellow */
+  --color-graph-lane-6: oklch(0.62 0.16 22); /* red */
+  --color-graph-lane-7: oklch(0.57 0.11 137); /* green */
+  --color-graph-lane-8: oklch(0.86 0.07 224); /* light blue */
 }
 
 button {

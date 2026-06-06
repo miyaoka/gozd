@@ -1,5 +1,6 @@
 import type { VoicevoxSpeaker } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
+import { useEventListener } from "@vueuse/core";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, readonly, ref, shallowRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
@@ -36,15 +37,16 @@ let currentObjectUrl: string | undefined;
  */
 const playing = ref(false);
 
-/** currentAudio に再生状態の同期リスナーを登録する */
+/** currentAudio に再生状態の同期リスナーを登録する。store 内 effect scope に
+ * useEventListener で繋ぐことで HMR 時に古い listener を自動解除する */
 function attachPlayingListeners(audio: HTMLAudioElement) {
-  audio.addEventListener("play", () => {
+  useEventListener(audio, "play", () => {
     playing.value = true;
   });
-  audio.addEventListener("ended", () => {
+  useEventListener(audio, "ended", () => {
     playing.value = false;
   });
-  audio.addEventListener("pause", () => {
+  useEventListener(audio, "pause", () => {
     playing.value = false;
   });
 }
@@ -224,7 +226,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
       currentObjectUrl = url;
       currentAudio = new Audio(url);
       attachPlayingListeners(currentAudio);
-      currentAudio.addEventListener("ended", releaseAudio);
+      useEventListener(currentAudio, "ended", releaseAudio);
       void currentAudio.play();
     };
     await tryCatch(synthesize());

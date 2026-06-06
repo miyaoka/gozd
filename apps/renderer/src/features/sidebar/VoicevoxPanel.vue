@@ -55,7 +55,7 @@ const voicevoxStore = useVoicevoxStore();
           }}</span>
         </div>
         <button
-          class="mt-1 text-xs text-warning hover:text-warning"
+          class="mt-1 text-xs text-warning hover:underline"
           @click="voicevoxStore.deactivate()"
         >
           VOICEVOX enabled

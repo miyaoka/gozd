@@ -457,7 +457,11 @@ onBeforeUnmount(teardownObserver);
     </p>
 
     <!-- トランスクリプト本文 (LINE 風チャット)。現在地は横断タイムラインの playhead が示す -->
-    <div v-else ref="contentRef" class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+    <div
+      v-else
+      ref="contentRef"
+      class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-3"
+    >
       <template v-for="(ev, i) in parsed.events" :key="`${sessionKey}:${i}`">
         <!-- rewind 分岐セレクタ: ここで会話が枝分かれした。番号は古い順 (最新が最大)。
                選択中の枝をハイライトし、他をクリックでその枝へ切り替える。捨て枝が
@@ -534,7 +538,10 @@ onBeforeUnmount(teardownObserver);
             {{ ev.text }}
           </div>
           <!-- tool: input 全体 + 実行結果 -->
-          <div v-else class="mx-auto mt-1 max-w-[85%] space-y-2 rounded-md bg-accent px-3 py-2">
+          <div
+            v-else
+            class="mx-auto mt-1 flex max-w-[85%] flex-col gap-2 rounded-md bg-accent px-3 py-2"
+          >
             <pre
               class="overflow-x-auto rounded-sm bg-surface-1 p-2 text-xs text-foreground"
             ><code>{{ formattedInputs.get(i) }}</code></pre>

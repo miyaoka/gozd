@@ -66,27 +66,36 @@ hover で intent 階層が動的に変わる pattern は、SKILL の階層分け
 と矛盾する。link の hover 強調は intent を変えず、`hover:underline` / `hover:opacity-80` 等
 の装飾で表現する。
 
+intent semantic map (本節 = intent 軸 = 「どの intent を選ぶか」の判定)、Intent ペア用法表
+(下節 = 実装軸 = 「選んだ intent をどう class で表現するか」のテンプレート)、hover 表 (下節
+= state 軸) の 3 表は **直交する SSOT 平面**。同じ UI 要素例 (current branch / added file 等)
+が複数表に登場するのは「intent 判定 → 用法判定 → hover 判定」のパス順を辿れるよう参照
+冗長性を持たせている。同要素の例を更新する時は intent / 用法 / hover の 3 軸すべてで整合
+を取る。
+
 #### Intent ペア (primary / destructive / success / warning / warning-strong / info)
 
 intent (`primary` / `destructive` / `success` / `warning` / `warning-strong` / `info`)
-を当てるときは **必ず以下の用法表のどれか** で書く。`bg-<intent>` と `text-<intent>` を
-**同 token で直接 pair しない** (両方とも palette 由来の同色になり contrast を割る)。
-alpha 値は表に書かれた値からのみ選ぶ (詳細は下節 「opacity 修飾子は固定セットから選ぶ」)。
-表外の値 (bg `/20` / `/25` / `/50` 等) は SSOT 違反として禁止。
+を当てるときは **必ず以下の用法表のどれか** で書く。`bg-<intent>` (alpha なし) と
+`text-<intent>` を **alpha なしで pair しない** (両方とも 100% 不透明の同色になり contrast
+を割る)。alpha 違い (`bg-<intent>/15 text-<intent>` の subtle chip 等) は背景が alpha で
+薄まり text 側との contrast が成立するため、表に明示された正規 pair として使う。alpha 値
+は表に書かれた値からのみ選ぶ (詳細は下節 「opacity 修飾子は固定セットから選ぶ」)。表外の
+値 (bg `/20` / `/25` / `/50` 等) は SSOT 違反として禁止。
 
-| 用法                                                           | bg                                    | border               | text                       |
-| -------------------------------------------------------------- | ------------------------------------- | -------------------- | -------------------------- |
-| **solid button** (click 可能、hover あり)                      | `bg-<intent>`                         | —                    | `text-<intent>-foreground` |
-| **solid static** (current branch / static badge / toggle chip) | `bg-<intent>`                         | —                    | `text-<intent>-foreground` |
-| **translucent solid** (chat bubble)                            | `bg-<intent>/40`                      | —                    | `text-<intent>-foreground` |
-| **bordered translucent** (強調塗りコンテナ / 選択強調)         | `bg-<intent>/40`                      | `border-<intent>/60` | `text-<intent>-foreground` |
-| **outlined banner** (toast / banner)                           | `bg-<intent>/15`                      | `border-<intent>/60` | neutral (継承)             |
-| **subtle chip** (badge / tag / inline alert)                   | `bg-<intent>/15`                      | —                    | `text-<intent>`            |
-| **faint chip** (file status row / icon chip)                   | `bg-<intent>/10`                      | —                    | `text-<intent>`            |
-| **line tint** (diff 行 / 弱い背景強調)                         | `bg-<intent>/10`                      | —                    | neutral (継承)             |
-| **selected row** (active list item)                            | `bg-<intent>/30 hover:bg-<intent>/40` | —                    | neutral (継承)             |
-| **indicator stripe** (active tab 下線 / underline)             | —                                     | `border-<intent>`    | `text-<intent>`            |
-| **text-only** (link / icon / inline)                           | —                                     | —                    | `text-<intent>`            |
+| 用法                                                           | bg                                    | border               | text                       | hover 軸     |
+| -------------------------------------------------------------- | ------------------------------------- | -------------------- | -------------------------- | ------------ |
+| **solid button** (click 可能、hover あり)                      | `bg-<intent>`                         | —                    | `text-<intent>-foreground` | hover 表参照 |
+| **solid static** (current branch / static badge / toggle chip) | `bg-<intent>`                         | —                    | `text-<intent>-foreground` | hover なし   |
+| **translucent solid** (chat bubble)                            | `bg-<intent>/40`                      | —                    | `text-<intent>-foreground` | hover 表参照 |
+| **bordered translucent** (強調塗りコンテナ / 選択強調)         | `bg-<intent>/40`                      | `border-<intent>/60` | `text-<intent>-foreground` | hover なし   |
+| **outlined banner** (toast / banner)                           | `bg-<intent>/15`                      | `border-<intent>/60` | neutral (継承)             | hover なし   |
+| **subtle chip** (badge / tag / inline alert)                   | `bg-<intent>/15`                      | —                    | `text-<intent>`            | hover 表参照 |
+| **faint chip** (file status row / icon chip)                   | `bg-<intent>/10`                      | —                    | `text-<intent>`            | hover 表参照 |
+| **line tint** (diff 行 / 弱い背景強調)                         | `bg-<intent>/10`                      | —                    | neutral (継承)             | hover なし   |
+| **selected row** (active list item)                            | `bg-<intent>/30 hover:bg-<intent>/40` | —                    | neutral (継承)             | hover 表参照 |
+| **indicator stripe** (active tab 下線 / underline)             | —                                     | `border-<intent>`    | `text-<intent>`            | hover なし   |
+| **text-only** (link / icon / inline)                           | —                                     | —                    | `text-<intent>`            | hover なし   |
 
 text 列の **neutral (継承)** は「intent text を当てない (中身が `text-foreground` 系の通常
 コンテンツを wrap する container)」。明示するなら `text-foreground` / `text-foreground-strong`
@@ -121,8 +130,8 @@ hover state は **必ず base と異なる token / alpha** を当てる (`hover:
 
 hover 値は **上の hover 表に書かれた値だけ** を使う。`hover:bg-<intent>/80` を base alpha
 が小さい chip 系で使うと 5 倍以上の濃度跳躍になり視覚過剰、`/45` / `/35` のような中間値も
-SSOT 違反。表に含まれない用法 (`solid static` / `bordered translucent` / `outlined banner` /
-`line tint` / `indicator stripe` / `text-only`) は **hover 効果なし** (規律上 hover を付けない)。
+SSOT 違反。用法表の「hover 軸」列が「hover なし」の用法は **hover 効果を付けない** (規律
+上の禁止)。両表 (用法表 hover 軸列 / hover 表) の整合は用法表側の「hover 軸」列が SSOT。
 
 同じ alpha 値 (`/30` / `/40`) が複数行 (subtle chip の hover bg と selected row の base bg、
 selected row の hover bg と translucent solid の base bg) に出現するが、これは許容: alpha

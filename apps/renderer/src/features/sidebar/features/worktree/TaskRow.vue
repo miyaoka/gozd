@@ -174,7 +174,7 @@ function onRowDblClick() {
     <button
       type="button"
       aria-label="Open task menu"
-      class="absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded-sm bg-surface-1 text-foreground opacity-0 shadow-md ring-1 ring-border transition-opacity duration-100 group-focus-within/task:opacity-100 group-hover/task:opacity-100 hover:bg-surface-2 hover:text-foreground-strong"
+      class="absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded-sm bg-surface-1 text-foreground opacity-0 shadow-md ring-1 ring-border transition-opacity duration-100 group-focus-within/task:opacity-100 group-hover/task:opacity-100 hover:bg-accent hover:text-foreground-strong"
       @click="onMenuClick"
     >
       <span class="icon-[lucide--ellipsis-vertical] text-xs" />

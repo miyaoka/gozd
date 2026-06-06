@@ -619,7 +619,7 @@ onBeforeUnmount(teardownObserver);
       >
         <button
           type="button"
-          class="pointer-events-auto flex items-center gap-1 rounded-full border border-border-strong bg-surface-1 px-3 py-1 text-xs text-foreground-strong shadow-lg hover:bg-surface-2"
+          class="pointer-events-auto flex items-center gap-1 rounded-full border border-border-strong bg-surface-1 px-3 py-1 text-xs text-foreground-strong shadow-lg hover:bg-accent"
           @click="jumpToLatest"
         >
           <span class="icon-[lucide--arrow-down] size-3.5" />

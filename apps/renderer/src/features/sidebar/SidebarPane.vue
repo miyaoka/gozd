@@ -211,8 +211,8 @@ const activeRootWorktree = computed(() => {
           aria-label="Active worktree"
           title="Active worktree"
           :aria-pressed="terminalStore.viewMode === 'wt'"
-          class="grid size-7 place-items-center rounded-sm text-foreground-muted hover:bg-surface-1 hover:text-foreground-strong"
-          :class="terminalStore.viewMode === 'wt' && 'bg-surface-2 text-foreground-strong'"
+          class="grid size-7 place-items-center rounded-sm text-foreground-muted hover:bg-accent hover:text-foreground-strong"
+          :class="terminalStore.viewMode === 'wt' && 'bg-accent-strong text-foreground-strong'"
           @click="terminalStore.viewMode = 'wt'"
         >
           <span class="icon-[lucide--monitor] text-base" />
@@ -223,8 +223,8 @@ const activeRootWorktree = computed(() => {
           title="Claude terminals"
           :aria-pressed="terminalStore.viewMode === 'claude'"
           :disabled="terminalStore.claudeActiveLeafIds.length === 0"
-          class="grid size-7 place-items-center rounded-sm text-foreground-muted hover:bg-surface-1 hover:text-foreground-strong disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-foreground-muted"
-          :class="terminalStore.viewMode === 'claude' && 'bg-surface-2 text-foreground-strong'"
+          class="grid size-7 place-items-center rounded-sm text-foreground-muted hover:bg-accent hover:text-foreground-strong disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-foreground-muted"
+          :class="terminalStore.viewMode === 'claude' && 'bg-accent-strong text-foreground-strong'"
           @click="terminalStore.viewMode = 'claude'"
         >
           <span class="icon-[lucide--bot] text-base" />

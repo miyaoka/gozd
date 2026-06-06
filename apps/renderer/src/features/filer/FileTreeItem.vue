@@ -429,9 +429,9 @@ function onContextMenu(event: MouseEvent) {
     <button
       v-if="!isRoot"
       ref="button"
-      class="flex w-full items-center gap-1 rounded-sm px-1 py-0.5 text-left text-sm select-none hover:bg-surface-2"
+      class="flex w-full items-center gap-1 rounded-sm px-1 py-0.5 text-left text-sm select-none hover:bg-accent"
       :class="[
-        selectedRelPath === path ? 'bg-surface-2' : '',
+        selectedRelPath === path ? 'bg-accent-strong' : '',
         textColorClass,
         isDeleted ? 'line-through opacity-60' : '',
         isInertLeaf ? 'cursor-not-allowed opacity-60' : '',

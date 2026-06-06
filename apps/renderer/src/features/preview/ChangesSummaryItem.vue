@@ -38,7 +38,7 @@ import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { onMessage } from "../../shared/rpc";
 import { getFileIconUrl, relDirOf, rpcFsReadFile } from "../filer";
 import type { FsChangePayload } from "../filer";
-import { useGitGraphStore } from "../git-graph";
+import { useGitGraphStore, usePrDiffToggleStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import type { GitChangeKind } from "../worktree";
 import DiffPreview from "./DiffPreview.vue";
@@ -63,6 +63,7 @@ const emit = defineEmits<{
 
 const worktreeStore = useWorktreeStore();
 const gitGraphStore = useGitGraphStore();
+const prDiffToggle = usePrDiffToggleStore();
 
 const rootRef = useTemplateRef<HTMLElement>("rootRef");
 /**
@@ -164,6 +165,7 @@ const endpoints = computed<Endpoints | null>(() => {
 });
 
 const currentRev = computed<string | undefined>(() => {
+  if (prDiffToggle.isOn) return "";
   if (!isCommitMode.value) return "";
   const ep = endpoints.value;
   if (ep === null) return undefined;
@@ -171,6 +173,7 @@ const currentRev = computed<string | undefined>(() => {
 });
 
 const originalRev = computed<string | undefined>(() => {
+  if (prDiffToggle.isOn) return prDiffToggle.baseOid;
   if (!isCommitMode.value) return "HEAD";
   const ep = endpoints.value;
   if (ep === null) return undefined;
@@ -316,7 +319,13 @@ async function fetchCommit(dir: string, version: number) {
           throw new Error("commit mode with working tree newer requires an older endpoint");
         }
         const [showResult, fsResult] = await Promise.all([
-          rpcGitShowCommitFile({ dir, relPath: path, hash: older, compareHash: "" }),
+          rpcGitShowCommitFile({
+            dir,
+            relPath: path,
+            hash: older,
+            compareHash: "",
+            olderIsBase: false,
+          }),
           rpcFsReadFile({ dir, path }),
         ]);
         return {
@@ -334,6 +343,7 @@ async function fetchCommit(dir: string, version: number) {
         relPath: path,
         hash: newer,
         compareHash: older ?? "",
+        olderIsBase: false,
       });
       return { from: showResult.from, to: showResult.to, unchanged: showResult.unchanged };
     })(),
@@ -375,11 +385,68 @@ async function fetchCommit(dir: string, version: number) {
 }
 
 /**
- * uncommitted / commit のどちらかを発射する dispatch。state リセット込み。
+ * PR diff モード時のファイル fetch。base..working tree per-file diff。
+ * from = `pr.baseRefOid` の blob (olderIsBase=true で `<baseOid>` 自身)、to = working tree fs 内容。
+ */
+async function fetchPrDiff(dir: string, version: number) {
+  const baseOid = prDiffToggle.baseOid;
+  if (baseOid === undefined) {
+    error.value = "PR base not resolved";
+    loading.value = false;
+    return;
+  }
+  const path = props.change.newFilePath || props.change.oldFilePath;
+
+  const fetchResult = await tryCatch(
+    Promise.all([
+      rpcGitShowCommitFile({
+        dir,
+        relPath: path,
+        hash: baseOid,
+        compareHash: "",
+        olderIsBase: true,
+      }),
+      rpcFsReadFile({ dir, path }),
+    ]),
+  );
+
+  if (version !== fetchVersion) return;
+
+  if (!fetchResult.ok) {
+    error.value = fetchResult.error.message;
+    emit("fetchFailed", fetchResult.error);
+    loading.value = false;
+    return;
+  }
+
+  const [showResult, fsResult] = fetchResult.value;
+  const from = showResult.from;
+  const fromNotFound = from?.notFound ?? true;
+  const toNotFound = fsResult.notFound;
+
+  if (fromNotFound && toNotFound) {
+    effectiveKind.value = undefined;
+  } else if (fromNotFound) {
+    effectiveKind.value = "added";
+  } else if (toNotFound) {
+    effectiveKind.value = "deleted";
+  } else {
+    effectiveKind.value = "modified";
+  }
+
+  original.value = fromNotFound ? "" : (from?.content ?? "");
+  isOriginalBinary.value = from?.isBinary ?? false;
+  current.value = toNotFound ? "" : fsResult.content;
+  isBinary.value = fsResult.isBinary;
+  loading.value = false;
+}
+
+/**
+ * pr-diff / uncommitted / commit のどれかを発射する dispatch。state リセット込み。
  *
  * `reset=true` (デフォルト) は state を初期化してから fetch。watch trigger 経由の
  * 通常呼び出しで使う。fsChange 経由の hot reload では `reset=false` を使い、
- * 表示中の diff を loading 状態にしないまま fetch 完了で差し替える (uncommitted のみ)。
+ * 表示中の diff を loading 状態にしないまま fetch 完了で差し替える (uncommitted / pr-diff のみ)。
  */
 async function runFetch(reset = true) {
   if (reset) {
@@ -399,6 +466,10 @@ async function runFetch(reset = true) {
     return;
   }
 
+  if (prDiffToggle.isOn) {
+    await fetchPrDiff(dir, version);
+    return;
+  }
   const isCommitMode =
     gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null;
   if (isCommitMode) {
@@ -420,6 +491,9 @@ watch(
       // `Commit not found in loaded git log` で error 確定したケースを救済する。
       // useChangesStore の watch と同じ依存集合に揃える (commits 再ロード後の stale error 防止)
       gitGraphStore.commits,
+      // PR diff toggle 切替 / base OID 変化で fetch ソースが切り替わる
+      prDiffToggle.isOn,
+      prDiffToggle.baseOid,
     ] as const,
   async ([visible]) => {
     // ビューポートに入るまで fetch しない (N=100 の summary で同時起動を抑制)。
@@ -445,12 +519,20 @@ watch(
  */
 const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ dir: eventDir, relDir }) => {
   if (!hasBeenVisible.value) return;
-  if (gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null) {
-    return;
-  }
   if (eventDir !== worktreeStore.dir) return;
   const path = props.change.newFilePath || props.change.oldFilePath;
   if (relDir !== relDirOf(path)) return;
+
+  // PR diff モード: to が working tree なので fs change で再 fetch する。
+  if (prDiffToggle.isOn) {
+    blamePopover.closeIfActive(eventDir, path);
+    void runFetch(false);
+    return;
+  }
+  // commit モードでは表示内容は git オブジェクト由来で fs 変更とは独立
+  if (gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null) {
+    return;
+  }
   // fetch 前に popover を閉じる。runFetch で original / current が更新されると DiffPreview
   // が base items を再構築し button DOM が置換されるため、popover anchor が detached に
   // なる。content 入れ替えと同フレームで close することで「位置が壊れた popover が画面に

@@ -39,6 +39,27 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
   /** HEAD ref を持つ commit の hash。loadLog 完了前は undefined */
   const headHash = computed(() => commits.value.find((c) => c.refs.includes("HEAD"))?.hash);
 
+  /**
+   * HEAD が指すローカルブランチ名。`git log --format=%D` は `HEAD -> branch` を
+   * `["HEAD", "branch", ...]` の順に並べるため、HEAD の直後の非 origin/非 tag エントリを返す。
+   * detached HEAD / loadLog 完了前 / branch 未解決時は undefined。
+   *
+   * PR list の引き当て (head branch 名 → PR) や、PR diff toggle が「現在 branch の PR」を
+   * 解決するための SSOT。
+   */
+  const currentBranch = computed<string | undefined>(() => {
+    for (const commit of commits.value) {
+      const headIdx = commit.refs.indexOf("HEAD");
+      if (headIdx === -1) continue;
+      const next = commit.refs[headIdx + 1];
+      if (next !== undefined && !next.startsWith("origin/") && !next.startsWith("tag:")) {
+        return next;
+      }
+      return undefined;
+    }
+    return undefined;
+  });
+
   /** range 選択モードか */
   const isRangeMode = computed(() => compareHash.value !== null);
 
@@ -178,6 +199,16 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
     compareHash.value = null;
   }
 
+  /**
+   * `selectionVersion` を上げずに selection を書き換える。PR diff toggle のような
+   * 「ユーザー操作ではない override 経路」が使う。`selectionVersion` watch でユーザー
+   * 起点の選択変更だけを検出する契約を保つために、内部書き込みは version を上げない。
+   */
+  function setSelectionSilently(hash: string, compare: string | null) {
+    selectedHash.value = hash;
+    compareHash.value = compare;
+  }
+
   return {
     selectedHash,
     compareHash,
@@ -186,6 +217,7 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
     selectedCommits,
     hashToIndex,
     headHash,
+    currentBranch,
     isRangeMode,
     includesWorkingTree,
     otherEndpointHash,
@@ -196,6 +228,7 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
     select,
     selectCompare,
     resetSelection,
+    setSelectionSilently,
   };
 });
 

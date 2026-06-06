@@ -682,9 +682,11 @@ public actor RpcDispatcher {
     // root commit は <hash>^ が解決失敗 → notFound=true となり追加扱いに自然解決する。
     // 範囲選択 (compareHash 非空) では GitOps.commitFiles の <older>^ vs <newer> に揃え、
     // older 端自身の変更も diff に含める。root commit は `^` 解決失敗 → notFound に倒れる。
+    // older_is_base=true のときは PR diff semantic で `<older>` 自身を from にする
+    // (GitCommitFilesRequest.older_is_base と対応)。
     // Working Tree 端の扱いは renderer 側で分岐し、wire には常に実 git hash のみ流れる契約。
     let olderEnd = req.compareHash.isEmpty ? req.hash : req.compareHash
-    let fromHash = "\(olderEnd)^"
+    let fromHash = req.olderIsBase ? olderEnd : "\(olderEnd)^"
     // content と OID を並行取得。両端の blob OID が一致すれば
     // 「コミット範囲で変更なし」として renderer に伝える（Filer 経由の非変更ファイル選択を救済）。
     async let fromContent = fileReadResultFromGit(
@@ -774,7 +776,7 @@ public actor RpcDispatcher {
     let compare = req.compareHash.isEmpty ? nil : req.compareHash
     let changes = try await GitOps.commitFiles(
       dir: req.dir, hash: req.hash, compareHash: compare, rangeHashes: req.rangeHashes,
-      includeWorkingTree: req.includeWorkingTree)
+      includeWorkingTree: req.includeWorkingTree, olderIsBase: req.olderIsBase)
     var resp = Gozd_V1_GitCommitFilesResponse()
     resp.changes = changes.map { c in
       var pb = Gozd_V1_GitFileChange()
@@ -825,6 +827,7 @@ public actor RpcDispatcher {
         pb.reviewers = p.reviewers
         pb.updatedAt = p.updatedAt
         pb.authorAvatarURL = p.authorAvatarUrl
+        pb.baseRefOid = p.baseRefOid
         return pb
       }
     case .failure(let err):

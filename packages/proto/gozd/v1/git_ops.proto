@@ -120,6 +120,11 @@ message GitShowCommitFileRequest {
   string rel_path = 2;
   string hash = 3;
   string compare_hash = 4;
+  // true のとき older end (compare_hash 非空なら compare_hash、空なら hash) を base として扱い、
+  // from を `<older>` 自身の内容で取る (`<older>^` を起点としない)。PR diff (base..head) semantic で使う。
+  // GitCommitFilesRequest.older_is_base と同期させて呼ぶことで、ファイル一覧と per-file diff の
+  // from 解釈を揃える。
+  bool older_is_base = 5;
 }
 message GitShowCommitFileResponse {
   FileReadResult from = 1;
@@ -149,6 +154,11 @@ message GitCommitFilesRequest {
   // 範囲選択の片端が Working Tree（UNCOMMITTED_HASH）の場合 true。
   // Swift 側で `git diff <older>^` (第二引数省略 = working tree 比較) に切り替える。
   bool include_working_tree = 5;
+  // true のとき older 自身を base として扱い、`git diff <older>` で from を取る
+  // (older コミット自体の diff は含めない)。PR diff (base..head) semantic で使う。
+  // false (default) は既存の commit 範囲表示で、`git diff <older>^` で older 自身の
+  // 変更も含める。
+  bool older_is_base = 6;
 }
 message GitCommitFilesResponse {
   repeated GitFileChange changes = 1;

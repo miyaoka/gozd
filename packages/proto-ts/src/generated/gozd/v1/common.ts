@@ -178,6 +178,12 @@ export interface GitPullRequest {
   /** ISO 8601 */
   updatedAt: string;
   authorAvatarUrl: string;
+  /**
+   * base branch の commit OID (immutable identifier)。base ref 名と異なり、
+   * fork PR / base force-push / base rename にまたがって安定して base 端を識別できる。
+   * PR diff 表示モードで「base..working tree」の base 端に使う SSOT。
+   */
+  baseRefOid: string;
 }
 
 export interface GitIssue {
@@ -1344,6 +1350,7 @@ function createBaseGitPullRequest(): GitPullRequest {
     reviewers: [],
     updatedAt: "",
     authorAvatarUrl: "",
+    baseRefOid: "",
   };
 }
 
@@ -1384,6 +1391,9 @@ export const GitPullRequest: MessageFns<GitPullRequest> = {
     }
     if (message.authorAvatarUrl !== "") {
       writer.uint32(98).string(message.authorAvatarUrl);
+    }
+    if (message.baseRefOid !== "") {
+      writer.uint32(106).string(message.baseRefOid);
     }
     return writer;
   },
@@ -1491,6 +1501,14 @@ export const GitPullRequest: MessageFns<GitPullRequest> = {
           message.authorAvatarUrl = reader.string();
           continue;
         }
+        case 13: {
+          if (tag !== 106) {
+            break;
+          }
+
+          message.baseRefOid = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1538,6 +1556,11 @@ export const GitPullRequest: MessageFns<GitPullRequest> = {
         : isSet(object.author_avatar_url)
         ? globalThis.String(object.author_avatar_url)
         : "",
+      baseRefOid: isSet(object.baseRefOid)
+        ? globalThis.String(object.baseRefOid)
+        : isSet(object.base_ref_oid)
+        ? globalThis.String(object.base_ref_oid)
+        : "",
     };
   },
 
@@ -1579,6 +1602,9 @@ export const GitPullRequest: MessageFns<GitPullRequest> = {
     if (message.authorAvatarUrl !== "") {
       obj.authorAvatarUrl = message.authorAvatarUrl;
     }
+    if (message.baseRefOid !== "") {
+      obj.baseRefOid = message.baseRefOid;
+    }
     return obj;
   },
 
@@ -1599,6 +1625,7 @@ export const GitPullRequest: MessageFns<GitPullRequest> = {
     message.reviewers = object.reviewers?.map((e) => e) || [];
     message.updatedAt = object.updatedAt ?? "";
     message.authorAvatarUrl = object.authorAvatarUrl ?? "";
+    message.baseRefOid = object.baseRefOid ?? "";
     return message;
   },
 };

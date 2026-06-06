@@ -118,6 +118,10 @@ message GitPullRequest {
   // ISO 8601
   string updated_at = 11;
   string author_avatar_url = 12;
+  // base branch の commit OID (immutable identifier)。base ref 名と異なり、
+  // fork PR / base force-push / base rename にまたがって安定して base 端を識別できる。
+  // PR diff 表示モードで「base..working tree」の base 端に使う SSOT。
+  string base_ref_oid = 13;
 }
 
 message GitIssue {

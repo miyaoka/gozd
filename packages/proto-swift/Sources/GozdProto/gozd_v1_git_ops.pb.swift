@@ -376,6 +376,12 @@ public struct Gozd_V1_GitShowCommitFileRequest: Sendable {
 
   public var compareHash: String = String()
 
+  /// true のとき older end (compare_hash 非空なら compare_hash、空なら hash) を base として扱い、
+  /// from を `<older>` 自身の内容で取る (`<older>^` を起点としない)。PR diff (base..head) semantic で使う。
+  /// GitCommitFilesRequest.older_is_base と同期させて呼ぶことで、ファイル一覧と per-file diff の
+  /// from 解釈を揃える。
+  public var olderIsBase: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -444,6 +450,12 @@ public struct Gozd_V1_GitCommitFilesRequest: Sendable {
   /// 範囲選択の片端が Working Tree（UNCOMMITTED_HASH）の場合 true。
   /// Swift 側で `git diff <older>^` (第二引数省略 = working tree 比較) に切り替える。
   public var includeWorkingTree: Bool = false
+
+  /// true のとき older 自身を base として扱い、`git diff <older>` で from を取る
+  /// (older コミット自体の diff は含めない)。PR diff (base..head) semantic で使う。
+  /// false (default) は既存の commit 範囲表示で、`git diff <older>^` で older 自身の
+  /// 変更も含める。
+  public var olderIsBase: Bool = false
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1455,7 +1467,7 @@ extension Gozd_V1_GitShowFileResponse: SwiftProtobuf.Message, SwiftProtobuf._Mes
 
 extension Gozd_V1_GitShowCommitFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GitShowCommitFileRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{3}rel_path\0\u{1}hash\0\u{3}compare_hash\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{3}rel_path\0\u{1}hash\0\u{3}compare_hash\0\u{3}older_is_base\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1467,6 +1479,7 @@ extension Gozd_V1_GitShowCommitFileRequest: SwiftProtobuf.Message, SwiftProtobuf
       case 2: try { try decoder.decodeSingularStringField(value: &self.relPath) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.hash) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self.compareHash) }()
+      case 5: try { try decoder.decodeSingularBoolField(value: &self.olderIsBase) }()
       default: break
       }
     }
@@ -1485,6 +1498,9 @@ extension Gozd_V1_GitShowCommitFileRequest: SwiftProtobuf.Message, SwiftProtobuf
     if !self.compareHash.isEmpty {
       try visitor.visitSingularStringField(value: self.compareHash, fieldNumber: 4)
     }
+    if self.olderIsBase != false {
+      try visitor.visitSingularBoolField(value: self.olderIsBase, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1493,6 +1509,7 @@ extension Gozd_V1_GitShowCommitFileRequest: SwiftProtobuf.Message, SwiftProtobuf
     if lhs.relPath != rhs.relPath {return false}
     if lhs.hash != rhs.hash {return false}
     if lhs.compareHash != rhs.compareHash {return false}
+    if lhs.olderIsBase != rhs.olderIsBase {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -1544,7 +1561,7 @@ extension Gozd_V1_GitShowCommitFileResponse: SwiftProtobuf.Message, SwiftProtobu
 
 extension Gozd_V1_GitCommitFilesRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GitCommitFilesRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}hash\0\u{3}compare_hash\0\u{3}range_hashes\0\u{3}include_working_tree\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dir\0\u{1}hash\0\u{3}compare_hash\0\u{3}range_hashes\0\u{3}include_working_tree\0\u{3}older_is_base\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1557,6 +1574,7 @@ extension Gozd_V1_GitCommitFilesRequest: SwiftProtobuf.Message, SwiftProtobuf._M
       case 3: try { try decoder.decodeSingularStringField(value: &self.compareHash) }()
       case 4: try { try decoder.decodeRepeatedStringField(value: &self.rangeHashes) }()
       case 5: try { try decoder.decodeSingularBoolField(value: &self.includeWorkingTree) }()
+      case 6: try { try decoder.decodeSingularBoolField(value: &self.olderIsBase) }()
       default: break
       }
     }
@@ -1578,6 +1596,9 @@ extension Gozd_V1_GitCommitFilesRequest: SwiftProtobuf.Message, SwiftProtobuf._M
     if self.includeWorkingTree != false {
       try visitor.visitSingularBoolField(value: self.includeWorkingTree, fieldNumber: 5)
     }
+    if self.olderIsBase != false {
+      try visitor.visitSingularBoolField(value: self.olderIsBase, fieldNumber: 6)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1587,6 +1608,7 @@ extension Gozd_V1_GitCommitFilesRequest: SwiftProtobuf.Message, SwiftProtobuf._M
     if lhs.compareHash != rhs.compareHash {return false}
     if lhs.rangeHashes != rhs.rangeHashes {return false}
     if lhs.includeWorkingTree != rhs.includeWorkingTree {return false}
+    if lhs.olderIsBase != rhs.olderIsBase {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

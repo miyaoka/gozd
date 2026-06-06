@@ -9,6 +9,7 @@ export {
   pathTargetToString,
 } from "./pathUtils";
 export type { PathTarget } from "./pathUtils";
+export { rpcGitFetchRemotes } from "./rpc";
 export type { GitStatusChangePayload } from "./rpc";
 export { default as StatusIcons } from "./StatusIcons.vue";
 export { useWorktreeStore } from "./useWorktreeStore";

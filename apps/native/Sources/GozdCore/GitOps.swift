@@ -593,15 +593,25 @@ public enum GitOps {
   ///   working tree との比較に切り替える。
   ///
   /// 共通 diff オプション: `--name-status -z --find-renames --diff-filter=AMDR`。
+  ///
+  /// `olderIsBase=true` のとき older 自身を base として扱い `git diff <older>` を起点にする
+  /// (older コミット自体の diff は含めない)。PR diff (base..head) semantic で使う。
+  /// `false` (default) は既存の commit 範囲表示で `git diff <older>^` を起点にして older 自身の
+  /// 変更も含める。
   public static func commitFiles(
     dir: String, hash: String, compareHash: String?, rangeHashes: [String] = [],
-    includeWorkingTree: Bool = false
+    includeWorkingTree: Bool = false, olderIsBase: Bool = false
   ) async throws -> [FileChangeInfo] {
     let diffOptions = ["--name-status", "-z", "--find-renames", "--diff-filter=AMDR"]
 
     if let newer = rangeHashes.first, let older = rangeHashes.last {
-      let isOlderRoot = try await isRootCommit(dir: dir, hash: older)
-      let from = isOlderRoot ? emptyTreeHash : "\(older)^"
+      let from: String
+      if olderIsBase {
+        from = older
+      } else {
+        let isOlderRoot = try await isRootCommit(dir: dir, hash: older)
+        from = isOlderRoot ? emptyTreeHash : "\(older)^"
+      }
       let diffArgs: [String] =
         includeWorkingTree
         ? ["diff"] + diffOptions + [from]

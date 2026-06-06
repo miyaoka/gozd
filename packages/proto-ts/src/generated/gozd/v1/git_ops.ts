@@ -243,6 +243,13 @@ export interface GitShowCommitFileRequest {
   relPath: string;
   hash: string;
   compareHash: string;
+  /**
+   * true のとき older end (compare_hash 非空なら compare_hash、空なら hash) を base として扱い、
+   * from を `<older>` 自身の内容で取る (`<older>^` を起点としない)。PR diff (base..head) semantic で使う。
+   * GitCommitFilesRequest.older_is_base と同期させて呼ぶことで、ファイル一覧と per-file diff の
+   * from 解釈を揃える。
+   */
+  olderIsBase: boolean;
 }
 
 export interface GitShowCommitFileResponse {
@@ -283,6 +290,13 @@ export interface GitCommitFilesRequest {
    * Swift 側で `git diff <older>^` (第二引数省略 = working tree 比較) に切り替える。
    */
   includeWorkingTree: boolean;
+  /**
+   * true のとき older 自身を base として扱い、`git diff <older>` で from を取る
+   * (older コミット自体の diff は含めない)。PR diff (base..head) semantic で使う。
+   * false (default) は既存の commit 範囲表示で、`git diff <older>^` で older 自身の
+   * 変更も含める。
+   */
+  olderIsBase: boolean;
 }
 
 export interface GitCommitFilesResponse {
@@ -1721,7 +1735,7 @@ export const GitShowFileResponse: MessageFns<GitShowFileResponse> = {
 };
 
 function createBaseGitShowCommitFileRequest(): GitShowCommitFileRequest {
-  return { dir: "", relPath: "", hash: "", compareHash: "" };
+  return { dir: "", relPath: "", hash: "", compareHash: "", olderIsBase: false };
 }
 
 export const GitShowCommitFileRequest: MessageFns<GitShowCommitFileRequest> = {
@@ -1737,6 +1751,9 @@ export const GitShowCommitFileRequest: MessageFns<GitShowCommitFileRequest> = {
     }
     if (message.compareHash !== "") {
       writer.uint32(34).string(message.compareHash);
+    }
+    if (message.olderIsBase !== false) {
+      writer.uint32(40).bool(message.olderIsBase);
     }
     return writer;
   },
@@ -1780,6 +1797,14 @@ export const GitShowCommitFileRequest: MessageFns<GitShowCommitFileRequest> = {
           message.compareHash = reader.string();
           continue;
         }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.olderIsBase = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1803,6 +1828,11 @@ export const GitShowCommitFileRequest: MessageFns<GitShowCommitFileRequest> = {
         : isSet(object.compare_hash)
         ? globalThis.String(object.compare_hash)
         : "",
+      olderIsBase: isSet(object.olderIsBase)
+        ? globalThis.Boolean(object.olderIsBase)
+        : isSet(object.older_is_base)
+        ? globalThis.Boolean(object.older_is_base)
+        : false,
     };
   },
 
@@ -1820,6 +1850,9 @@ export const GitShowCommitFileRequest: MessageFns<GitShowCommitFileRequest> = {
     if (message.compareHash !== "") {
       obj.compareHash = message.compareHash;
     }
+    if (message.olderIsBase !== false) {
+      obj.olderIsBase = message.olderIsBase;
+    }
     return obj;
   },
 
@@ -1832,6 +1865,7 @@ export const GitShowCommitFileRequest: MessageFns<GitShowCommitFileRequest> = {
     message.relPath = object.relPath ?? "";
     message.hash = object.hash ?? "";
     message.compareHash = object.compareHash ?? "";
+    message.olderIsBase = object.olderIsBase ?? false;
     return message;
   },
 };
@@ -1931,7 +1965,7 @@ export const GitShowCommitFileResponse: MessageFns<GitShowCommitFileResponse> = 
 };
 
 function createBaseGitCommitFilesRequest(): GitCommitFilesRequest {
-  return { dir: "", hash: "", compareHash: "", rangeHashes: [], includeWorkingTree: false };
+  return { dir: "", hash: "", compareHash: "", rangeHashes: [], includeWorkingTree: false, olderIsBase: false };
 }
 
 export const GitCommitFilesRequest: MessageFns<GitCommitFilesRequest> = {
@@ -1950,6 +1984,9 @@ export const GitCommitFilesRequest: MessageFns<GitCommitFilesRequest> = {
     }
     if (message.includeWorkingTree !== false) {
       writer.uint32(40).bool(message.includeWorkingTree);
+    }
+    if (message.olderIsBase !== false) {
+      writer.uint32(48).bool(message.olderIsBase);
     }
     return writer;
   },
@@ -2001,6 +2038,14 @@ export const GitCommitFilesRequest: MessageFns<GitCommitFilesRequest> = {
           message.includeWorkingTree = reader.bool();
           continue;
         }
+        case 6: {
+          if (tag !== 48) {
+            break;
+          }
+
+          message.olderIsBase = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2029,6 +2074,11 @@ export const GitCommitFilesRequest: MessageFns<GitCommitFilesRequest> = {
         : isSet(object.include_working_tree)
         ? globalThis.Boolean(object.include_working_tree)
         : false,
+      olderIsBase: isSet(object.olderIsBase)
+        ? globalThis.Boolean(object.olderIsBase)
+        : isSet(object.older_is_base)
+        ? globalThis.Boolean(object.older_is_base)
+        : false,
     };
   },
 
@@ -2049,6 +2099,9 @@ export const GitCommitFilesRequest: MessageFns<GitCommitFilesRequest> = {
     if (message.includeWorkingTree !== false) {
       obj.includeWorkingTree = message.includeWorkingTree;
     }
+    if (message.olderIsBase !== false) {
+      obj.olderIsBase = message.olderIsBase;
+    }
     return obj;
   },
 
@@ -2062,6 +2115,7 @@ export const GitCommitFilesRequest: MessageFns<GitCommitFilesRequest> = {
     message.compareHash = object.compareHash ?? "";
     message.rangeHashes = object.rangeHashes?.map((e) => e) || [];
     message.includeWorkingTree = object.includeWorkingTree ?? false;
+    message.olderIsBase = object.olderIsBase ?? false;
     return message;
   },
 };

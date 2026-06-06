@@ -19,7 +19,7 @@ SSOT として参照する。Working Tree 行はメニュー対象外。
 </doc>
 
 <script setup lang="ts">
-import type { GitCommit, GitPullRequest } from "@gozd/proto";
+import type { GitCommit } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { useElementSize, useEventListener, useIntervalFn } from "@vueuse/core";
 import { storeToRefs } from "pinia";
@@ -52,15 +52,18 @@ import RefBadge from "./RefBadge.vue";
 import { rpcGitGithubIdentity, rpcGitLog } from "./rpc";
 import { useCommitContextMenu } from "./useCommitContextMenu";
 import { useGitGraphStore } from "./useGitGraphStore";
+import { usePrListStore } from "./usePrListStore";
 
 const rootRef = useTemplateRef<HTMLElement>("root");
 const { width: rootWidth } = useElementSize(rootRef);
 const worktreeStore = useWorktreeStore();
 const gitStatusStore = useGitStatusStore();
 const gitGraphStore = useGitGraphStore();
+const prListStore = usePrListStore();
 const notify = useNotificationStore();
 const repoStore = useRepoStore();
 const { gitStatuses } = storeToRefs(gitStatusStore);
+const { prByBranch } = storeToRefs(prListStore);
 
 const { commits } = storeToRefs(gitGraphStore);
 const defaultBranch = ref<string | undefined>();
@@ -366,14 +369,12 @@ const disposeFsWatchReady = onMessage<FsWatchReadyPayload>("fsWatchReady", ({ di
 });
 onUnmounted(disposeFsWatchReady);
 
-// --- PR 情報（非同期で後追い取得） ---
+// --- PR 情報（非同期で後追い取得。SSOT は `usePrListStore`） ---
 
-/** ブランチ名 → PR のマップ */
-const prByBranch = ref(new Map<string, GitPullRequest>());
 /** loadPrList の世代管理。並行実行で古いレスポンスが後着して上書きするのを防ぐ */
 let loadPrGen = 0;
 
-/** PR 一覧を取得して prByBranch を更新する。
+/** PR 一覧を取得して prListStore を更新する。
  * 失敗時は前回値を保持しつつ notify.error でユーザーに告知する。silent 化すると
  * バッジが古い値のまま表示され続け、rate limit / 未認証 等の発生に気づけない。
  * 同一エラーの連続発生は notification store 側で重ね合わせ (回数 badge) として処理する。 */
@@ -395,11 +396,7 @@ async function loadPrList() {
     );
     return;
   }
-  const map = new Map<string, GitPullRequest>();
-  for (const pr of res.prs) {
-    map.set(pr.headRef, pr);
-  }
-  prByBranch.value = map;
+  prListStore.setPrs(res.prs);
 }
 
 // --- GitHub repo identity (コミットメッセージ `#N` リンク化の SSOT) ---
@@ -475,7 +472,7 @@ watch(
   () => {
     pausePrPolling();
     repoIdentity.value = { owner: "", repo: "" };
-    prByBranch.value = new Map();
+    prListStore.clear();
     void loadPrList();
     void loadRepoIdentity();
     resumePrPolling();

@@ -363,6 +363,28 @@ struct GitOpsRunGitWithStdinContractTests {
     return URL(fileURLWithPath: raw.path).resolvingSymlinksInPath()
   }
 
+  @Test("treatNonZeroExitAsSuccess=true でも exit code が 1 以外なら throw (check-ignore の契約は exit 1 限定)")
+  func optInLimitedToExitCode1() async throws {
+    // git 管理外 dir で check-ignore --stdin -z を呼ぶと exit 128 + stderr に
+    // "fatal: not a git repository" を出すが、敢えて opt-in=true で呼んでも
+    // exit code が 1 でない (= 128) ためフラグの緩和分岐に乗らず throw されることを示す。
+    // ( stderr 非空 ケースは別 test でカバー済み。ここでは exit code 単独の境界を踏む。 )
+    let dir = try makeTempDirURL()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let stdinBytes = Data("foo.txt\u{0}".utf8)
+    do {
+      _ = try await runGitWithStdin(
+        args: ["check-ignore", "--stdin", "-z"], cwd: dir.path, stdin: stdinBytes,
+        treatNonZeroExitAsSuccess: true)
+      Issue.record("expected commandFailed for exit code != 1 even with opt-in")
+    } catch let GitError.commandFailed(exitCode, _) {
+      // 期待挙動: exit code 128 で throw、opt-in 緩和は exit code 1 限定
+      #expect(exitCode != 1)
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+
   @Test("GitOps.log 経路 (treatNonZeroExitAsSuccess=false) で git log が壊れた ref を渡されたら commandFailed throw")
   func logPathThrowsOnBadRef() async throws {
     let dir = try await makeGitRepo()

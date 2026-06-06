@@ -235,7 +235,18 @@ async function runLoadLog(): Promise<boolean> {
   );
   if (gen !== loadLogGen) return false;
   if (!rpcResult.ok) {
+    // 失敗時は graph state を空に倒す。前回 worktree 成功時の commits / defaultBranch /
+    // layout / selection が残ると、ユーザーが見ている commit は旧 repo のもの・右クリック
+    // メニューの dir snapshot は現 worktree という不整合が起き、reset --mixed 等で別 repo
+    // に対する破壊操作が走る事故源になる。fail-soft で空状態に揃え、notify.error で観察可能化。
     notify.error("Failed to load git graph", rpcResult.error);
+    commits.value = [];
+    defaultBranch.value = undefined;
+    lastHead = "";
+    lastBranchHead = "";
+    lastUpstream = "";
+    gitGraphStore.resetSelection();
+    recomputeLayout();
     return false;
   }
   const result = rpcResult.value;

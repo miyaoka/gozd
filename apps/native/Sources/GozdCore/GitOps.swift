@@ -1337,8 +1337,10 @@ private func resolveGitPath() async throws -> String {
 ///   コマンド用。`git log` 子プロセスが SIGPIPE / SIGTERM で「exit ≠ 0 + stderr 空」終了したケースが
 ///   silent に空 stdout として通過するのを防ぐ。
 /// - `true` (**緩和**): `git check-ignore` 専用 opt-in。check-ignore は無視パスがあれば exit 0、
-///   無ければ exit 1 を返す仕様で、stderr が空であれば exit 1 を「結果なし」として stdout を
-///   そのまま返す。check-ignore 以外で使ってはならない (silent drop 禁止規律違反になる)。
+///   無ければ exit 1 を返す仕様で、**exit code がちょうど 1 かつ stderr が空** のときだけ
+///   「結果なし」として stdout を返す。exit code 2 以上 / signal 終了 (SIGPIPE 等で exit 128+N)
+///   は stderr が空でも throw して、シグナル経由の異常終了を success に倒さない。
+///   check-ignore 以外で使ってはならない (silent drop 禁止規律違反になる)。
 func runGitWithStdin(
   args: [String], cwd: String, stdin: Data, treatNonZeroExitAsSuccess: Bool = false
 ) async throws -> Data {
@@ -1388,13 +1390,15 @@ private func runGitWithStdinOnce(
   )
 
   // exit code 0 → 常に success。
-  // exit code ≠ 0 → caller が `treatNonZeroExitAsSuccess=true` を選んでいる場合のみ、
+  // exit code 1 → caller が `treatNonZeroExitAsSuccess=true` を選んでいる場合のみ、
   // かつ stderr が空のときに「結果なし」として stdout を返す (check-ignore opt-in)。
+  // check-ignore の契約は「無視 path 無し = exit 1」のみ。exit 2 以上 (`fatal: ...`) や
+  // signal 終了 (SIGPIPE → exit 141 等) は stderr が空でも throw する。
   // それ以外はすべて throw。
   if process.terminationStatus == 0 {
     return stdoutData
   }
-  if treatNonZeroExitAsSuccess && stderrData.isEmpty {
+  if treatNonZeroExitAsSuccess && process.terminationStatus == 1 && stderrData.isEmpty {
     return stdoutData
   }
   throw GitError.commandFailed(

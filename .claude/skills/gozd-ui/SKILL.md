@@ -79,12 +79,18 @@ success) は中間明度で light foreground (white-ish)。
 hover state は **必ず base と異なる token / alpha** を当てる (`hover:bg-warning-strong`
 のように base と同 token は dead branch)。hover 用 alpha も **固定値** で運用する:
 
-| base 用法              | base bg              | hover bg               |
-| ---------------------- | -------------------- | ---------------------- |
-| solid                  | `bg-<intent>`        | `hover:bg-<intent>/80` |
-| translucent solid      | `bg-<intent>/40`     | `hover:bg-<intent>/80` |
-| selected row           | `bg-<intent>/30`     | `hover:bg-<intent>/40` |
-| chip 系 (subtle/faint) | `bg-<intent>/15` etc | `hover:bg-<intent>/80` |
+| base 用法         | base bg          | hover bg               |
+| ----------------- | ---------------- | ---------------------- |
+| solid             | `bg-<intent>`    | `hover:bg-<intent>/80` |
+| translucent solid | `bg-<intent>/40` | `hover:bg-<intent>/80` |
+| selected row      | `bg-<intent>/30` | `hover:bg-<intent>/40` |
+| subtle chip       | `bg-<intent>/15` | `hover:bg-<intent>/30` |
+| faint chip        | `bg-<intent>/10` | `hover:bg-<intent>/15` |
+
+hover 値は base alpha の **1 段階上** が原則 (base alpha 固定セット `/10` → `/15` → `/30` →
+`/40` の 1 段移動)。`solid` / `translucent solid` のみ alpha なし base から `/80` 透過に
+切り替える例外。`hover:bg-<intent>/80` を base alpha が小さい chip 系で使うと 5 倍以上の
+濃度跳躍になり視覚過剰のため禁止。
 
 ### ✗ NG
 

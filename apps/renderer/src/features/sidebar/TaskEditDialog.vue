@@ -203,7 +203,7 @@ function onDialogClick(event: MouseEvent) {
         </button>
         <button
           type="button"
-          class="rounded-sm bg-primary px-3 py-1.5 text-sm text-foreground-strong hover:bg-primary"
+          class="rounded-sm bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/80"
           @click="save"
         >
           Save

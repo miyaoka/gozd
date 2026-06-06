@@ -239,7 +239,7 @@ const activeRootWorktree = computed(() => {
           class="grid size-7 place-items-center rounded-sm transition-colors"
           :class="
             editMode
-              ? 'bg-primary text-foreground-strong hover:bg-primary'
+              ? 'bg-primary text-primary-foreground hover:bg-primary/80'
               : 'text-foreground-muted hover:bg-surface-1 hover:text-foreground-strong'
           "
           @click="toggleEditMode"
@@ -312,7 +312,7 @@ const activeRootWorktree = computed(() => {
             Cancel
           </button>
           <button
-            class="rounded-sm bg-destructive px-3 py-1.5 text-sm text-foreground-strong hover:bg-destructive"
+            class="rounded-sm bg-destructive px-3 py-1.5 text-sm text-destructive-foreground hover:bg-destructive/80"
             @click="executeConfirm"
           >
             OK

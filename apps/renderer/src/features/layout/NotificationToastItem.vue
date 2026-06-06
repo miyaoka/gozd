@@ -120,7 +120,7 @@ async function copyDetail() {
         <span class="icon-[lucide--x] size-4" />
       </button>
     </div>
-    <div v-if="hasCause && expanded" class="border-t border-accent p-3">
+    <div v-if="hasCause && expanded" class="border-t border-divider p-3">
       <div class="mb-2 flex justify-end">
         <button
           type="button"

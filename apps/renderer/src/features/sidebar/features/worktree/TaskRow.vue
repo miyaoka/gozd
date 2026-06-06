@@ -158,7 +158,7 @@ function onRowDblClick() {
     <button
       type="button"
       :data-active="active"
-      class="flex w-full items-center gap-2 rounded-lg p-2 text-left transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset data-[active=true]:bg-primary/30"
+      class="flex w-full items-center gap-2 rounded-lg p-2 text-left transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset data-[active=true]:bg-primary/30 data-[active=true]:hover:bg-primary/40"
       @click="emit('select', task)"
       @dblclick="onRowDblClick"
     >

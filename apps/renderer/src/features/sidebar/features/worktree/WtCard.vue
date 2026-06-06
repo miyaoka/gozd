@@ -115,7 +115,7 @@ function onHeaderClick() {
 <template>
   <article
     :data-active="active"
-    class="rounded-lg transition-colors data-[active=true]:bg-primary/10"
+    class="rounded-lg transition-colors data-[active=true]:bg-primary/30 data-[active=true]:hover:bg-primary/40"
   >
     <div class="group/wt relative">
       <div

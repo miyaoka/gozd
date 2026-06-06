@@ -43,14 +43,14 @@ intent (`primary` / `destructive` / `success` / `warning` / `warning-strong` / `
 alpha 値は以下の **固定セット** (`/10` / `/15` / `/30` / `/40`) からのみ選ぶ。他 (`/20` / `/25` /
 `/50` 等) は SSOT 違反として禁止。
 
-| 用法                                                  | bg                                             | text                       | 例                                                 |
-| ----------------------------------------------------- | ---------------------------------------------- | -------------------------- | -------------------------------------------------- |
-| **solid 強調** (button / current branch)              | `bg-<intent>`                                  | `text-<intent>-foreground` | `bg-primary text-primary-foreground`               |
-| **subtle chip** (badge / tag / inline alert)          | `bg-<intent>/15`                               | `text-<intent>`            | `bg-success/15 text-success`                       |
-| **faint cell** (file status row / diff 行 / 弱い選択) | `bg-<intent>/10`                               | `text-<intent>` (省略可)   | `bg-success/10` (diff added 行)                    |
-| **selected row** (active list item / 強い選択)        | `bg-<intent>/30` (`hover:bg-<intent>/40` 任意) | `text-<intent>` (省略可)   | `data-[active=true]:bg-primary/30`                 |
-| **translucent solid** (chat bubble / 強調コンテナ)    | `bg-<intent>/40`                               | `text-<intent>-foreground` | `bg-success/40 text-success-foreground` (吹き出し) |
-| **text-only** (link / icon / inline)                  | (面なし)                                       | `text-<intent>`            | `text-info` / `text-destructive`                   |
+| 用法                                                  | bg                                    | border                      | text                       | 例                                                                   |
+| ----------------------------------------------------- | ------------------------------------- | --------------------------- | -------------------------- | -------------------------------------------------------------------- |
+| **solid 強調** (button / current branch)              | `bg-<intent>`                         | —                           | `text-<intent>-foreground` | `bg-primary text-primary-foreground`                                 |
+| **subtle chip** (badge / tag / inline alert)          | `bg-<intent>/15`                      | —                           | `text-<intent>`            | `bg-success/15 text-success`                                         |
+| **faint cell** (file status row / diff 行 / 弱い選択) | `bg-<intent>/10`                      | —                           | `text-<intent>` (省略可)   | `bg-success/10` (diff added 行)                                      |
+| **selected row** (active list item / 強い選択)        | `bg-<intent>/30 hover:bg-<intent>/40` | —                           | `text-<intent>` (省略可)   | `data-[active=true]:bg-primary/30 hover:bg-primary/40`               |
+| **translucent solid** (chat bubble / 強調コンテナ)    | `bg-<intent>/40`                      | `border-<intent>/60` (任意) | `text-<intent>-foreground` | `border-success/60 bg-success/40 text-success-foreground` (吹き出し) |
+| **text-only** (link / icon / inline)                  | (面なし)                              | —                           | `text-<intent>`            | `text-info` / `text-destructive`                                     |
 
 `<intent>-foreground` を持つのは `primary` / `destructive` / `success` / `warning`。
 `info` / `warning-strong` は text-only / subtle chip / faint cell / selected row のみで使う
@@ -84,9 +84,10 @@ hover state は **必ず base と異なる token / alpha** を当てる (`hover:
 
 ### opacity 修飾子は固定セットから選ぶ
 
-intent bg 用は上記表の固定セット (`/10` / `/15` / `/30` / `/40`) からのみ選ぶ。text 側の
-強度減衰 (`text-success/70` 等) は連続値で OK (情報の主役は色相 + 強度減衰)。raw 色との
-組み合わせ (`bg-red-500/20` 等) は禁止 (intent token を使う)。
+intent bg 用は上記表の固定セット (`/10` / `/15` / `/30` / `/40`) からのみ選ぶ。intent
+border は `/60` の **1 値のみ** (translucent solid の輪郭強調用)。text 側の強度減衰
+(`text-success/70` 等) は連続値で OK (情報の主役は色相 + 強度減衰)。raw 色との組み合わせ
+(`bg-red-500/20` 等) は禁止 (intent token を使う)。
 
 ## 2. `class` は layout 専用
 

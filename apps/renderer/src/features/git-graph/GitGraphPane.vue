@@ -1049,6 +1049,7 @@ const isWorkingTreeActive = computed(
         tabindex="0"
         role="listbox"
         aria-label="Git commit list (arrow keys to navigate)"
+        aria-multiselectable="true"
         @keydown="onKeydown"
       >
         <!-- Working Tree 固定行: スクロール領域の外に配置 -->

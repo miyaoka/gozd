@@ -223,11 +223,12 @@ intent の alpha 値は **上記表の各行に書かれた値からのみ** 選
 
 ### Click 可能要素は `<button>` を使う (semantic HTML)
 
-click handler を持つ要素は `<button type="button">` を使う。`<div role="button" tabindex="0">`
-
-- 手動 `@keydown.enter` / `@keydown.space` の ARIA shim pattern は禁止 — `<button>` で書けば
-  semantic / keyboard / accessibility がすべて OS / browser 提供で自動機能する。`<button>` は
-  default で type="submit" のため form 内で `type="button"` 明示が必要 (submit 暴発防止)。
+click handler を持つ要素は必ず `<button type="button">` を使う。`<div>` に
+`role="button"` と `tabindex="0"` と手動 keydown handler (`@keydown.enter` /
+`@keydown.space`) を付ける ARIA shim pattern は禁止。`<button>` で書けば semantic /
+keyboard navigation / accessibility がすべて OS と browser の提供で自動的に成立する。
+`<button>` の default type は submit のため form 内で使う場合は `type="button"` を
+明示して submit 暴発を防ぐ。
 
 ### Keyboard navigation container は ARIA role を持つ
 
@@ -237,7 +238,7 @@ click handler を持つ要素は `<button type="button">` を使う。`<div role
 
 WAI-ARIA Authoring Practices で表現できる正規 widget role を優先する:
 
-- **list の選択 navigation** (commit list / file list / option list): `role="listbox"` + 各 item に `role="option"` + selected item に `aria-selected="true"`
+- **list の選択 navigation** (commit list / file list / option list): `role="listbox"` + 各 item に `role="option"` + selected item に `aria-selected="true"`。複数選択 (range / multi) を許す場合は listbox に `aria-multiselectable="true"` を追加
 - **tree の navigation** (file tree / nested folder): `role="tree"` + 各 node に `role="treeitem"`
 - **grid の 2D navigation** (table 等): `role="grid"` + 各 row に `role="row"` + 各 cell に `role="gridcell"`
 - 上記 ARIA role で表現できない完全 custom widget (game / canvas drawing 等) のみ最後の手段として `role="application"` を使う (screen reader の browse mode を強制 off にする副作用あり、正規 widget role で表現できる場面では使わない)

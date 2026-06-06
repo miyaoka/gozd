@@ -8,7 +8,7 @@ import rule from "./noRawTailwindPalette";
 RuleTester.describe = describe;
 RuleTester.it = test;
 
-// === Plain TS / JS — string literal と template element を見る ===
+// === Plain TS / JS ===
 const tsTester = new RuleTester({
   languageOptions: {
     parser: tsParser,
@@ -17,62 +17,116 @@ const tsTester = new RuleTester({
   },
 });
 
-tsTester.run("no-raw-tailwind-palette (TS)", rule, {
+tsTester.run("no-raw-tailwind-palette (TS) — class utility 形", rule, {
   valid: [
-    // semantic token は通る
+    // semantic token
     `const cls = "bg-background text-foreground-muted";`,
-    // palette 名単独 (utility prefix なし) は対象外 — data string
+    // utility prefix なしの palette 名 (data string)
     `const name = "zinc-800";`,
-    // 似た utility 名で palette が含まれないものは通る
-    `const cls = "bg-accent-strong";`,
-    // template literal 内 cooked が semantic
+    // semantic token で palette と紛らわしい (foreground / accent-strong)
+    `const cls = "bg-accent-strong text-foreground-strong";`,
+    // template literal 内 cooked text が semantic
     "const cls = `bg-background ${state}`;",
-    // utility prefix ではない palette 名 → 対象外
+    // 文中の palette 名 (utility prefix 不在)
     `const greeting = "hello, slate-500";`,
+    // 動的補間で utility を構築するパターンは静的解析の限界として検知しない
+    // (cooked text が "bg-zinc-" / "-700" に分割され、どちらも単独では utility 形にならない)
+    "const cls = `bg-zinc-${level}`;",
+    "const cls = `${prefix}-zinc-700`;",
+    "const cls = `bg-${color}-700`;",
   ],
   invalid: [
     {
       code: `const cls = "bg-zinc-800";`,
-      errors: [{ messageId: "rawPalette", data: { match: "bg-zinc-800" } }],
+      errors: [{ messageId: "rawPaletteClass", data: { match: "bg-zinc-800" } }],
     },
     {
       // variant prefix + opacity 修飾子
       code: `const cls = "hover:bg-zinc-700/50";`,
-      errors: [{ messageId: "rawPalette", data: { match: "bg-zinc-700/50" } }],
+      errors: [{ messageId: "rawPaletteClass", data: { match: "bg-zinc-700/50" } }],
     },
     {
-      // important + variant
+      // important + 多段 variant
       code: `const cls = "!dark:hover:text-blue-400";`,
-      errors: [{ messageId: "rawPalette", data: { match: "text-blue-400" } }],
+      errors: [{ messageId: "rawPaletteClass", data: { match: "text-blue-400" } }],
     },
     {
       // 同一 string に複数違反
       code: `const cls = "bg-zinc-900 text-red-400 border-white";`,
       errors: [
-        { messageId: "rawPalette", data: { match: "bg-zinc-900" } },
-        { messageId: "rawPalette", data: { match: "text-red-400" } },
-        { messageId: "rawPalette", data: { match: "border-white" } },
+        { messageId: "rawPaletteClass", data: { match: "bg-zinc-900" } },
+        { messageId: "rawPaletteClass", data: { match: "text-red-400" } },
+        { messageId: "rawPaletteClass", data: { match: "border-white" } },
       ],
     },
     {
       // template literal の cooked text 部分
       code: "const cls = `bg-zinc-800 ${other}`;",
-      errors: [{ messageId: "rawPalette", data: { match: "bg-zinc-800" } }],
+      errors: [{ messageId: "rawPaletteClass", data: { match: "bg-zinc-800" } }],
     },
     {
       // object key
       code: `const cls = { "bg-zinc-800": isActive };`,
-      errors: [{ messageId: "rawPalette", data: { match: "bg-zinc-800" } }],
+      errors: [{ messageId: "rawPaletteClass", data: { match: "bg-zinc-800" } }],
     },
     {
       // array element
       code: `const cls = ["bg-zinc-800", "text-foreground"];`,
-      errors: [{ messageId: "rawPalette", data: { match: "bg-zinc-800" } }],
+      errors: [{ messageId: "rawPaletteClass", data: { match: "bg-zinc-800" } }],
     },
   ],
 });
 
-// === Vue SFC — <template> の class 属性 (VLiteral) も見る ===
+tsTester.run("no-raw-tailwind-palette (TS) — CSS var 形", rule, {
+  valid: [
+    // semantic token CSS variable
+    `const css = "background-color: var(--color-surface-1);";`,
+    // utility prefix 経由の semantic token (CSS var ではない)
+    `const cls = "bg-surface-1";`,
+    // 動的補間で palette 名そのものが置換される場合は raw source に palette が
+    // 静的に現れないため検知不可
+    "const css = `var(--color-${palette}-700)`;",
+  ],
+  invalid: [
+    {
+      // CSS variable reference for raw palette
+      code: `const css = "color: var(--color-zinc-700);";`,
+      errors: [{ messageId: "rawPaletteCssVar", data: { match: "var(--color-zinc-700)" } }],
+    },
+    {
+      // arbitrary value 内 CSS var (Tailwind arbitrary class)
+      code: `const cls = "[--md-code-bg:var(--color-zinc-700)]";`,
+      errors: [{ messageId: "rawPaletteCssVar", data: { match: "var(--color-zinc-700)" } }],
+    },
+    {
+      // 同一 string に複数違反
+      code: `const css = "color: var(--color-blue-400); bg: var(--color-zinc-900);";`,
+      errors: [
+        { messageId: "rawPaletteCssVar", data: { match: "var(--color-blue-400)" } },
+        { messageId: "rawPaletteCssVar", data: { match: "var(--color-zinc-900)" } },
+      ],
+    },
+    {
+      // fallback 付き (`var(--x, fallback)`)
+      code: `const css = "background: var(--md-code-bg, var(--color-zinc-800));";`,
+      errors: [{ messageId: "rawPaletteCssVar", data: { match: "var(--color-zinc-800)" } }],
+    },
+    {
+      // shade なし (`white` / `black`)
+      code: `const css = "background: var(--color-white);";`,
+      errors: [{ messageId: "rawPaletteCssVar", data: { match: "var(--color-white)" } }],
+    },
+    {
+      // 動的補間で palette は静的、shade だけ動的: Program source-text scan が
+      // raw source 上で `var(--color-zinc-` を検知する (class utility 形と比べて
+      // CSS var 形の方が検知に inclusive)
+      code: "const css = `var(--color-zinc-${shade})`;",
+      errors: [{ messageId: "rawPaletteCssVar", data: { match: "var(--color-zinc)" } }],
+    },
+  ],
+});
+
+// === Vue SFC ===
 const vueTester = new RuleTester({
   languageOptions: {
     parser: vueParser,
@@ -84,42 +138,71 @@ const vueTester = new RuleTester({
   },
 });
 
-vueTester.run("no-raw-tailwind-palette (Vue)", rule, {
+vueTester.run("no-raw-tailwind-palette (Vue) — class utility 形", rule, {
   valid: [
-    // semantic token + 通常 layout 系は通る
     `<template><div class="flex items-center bg-background text-foreground"></div></template>`,
-    // bound class でも semantic は通る
     `<template><div :class="active ? 'bg-accent-strong' : 'bg-surface-1'"></div></template>`,
-    // accent-strong / foreground-muted などは palette 名を含まないので通る
     `<template><span class="text-foreground-muted hover:text-foreground"></span></template>`,
   ],
   invalid: [
     {
-      // static class
       code: `<template><div class="bg-zinc-900"></div></template>`,
-      errors: [{ messageId: "rawPalette", data: { match: "bg-zinc-900" } }],
+      errors: [{ messageId: "rawPaletteClass", data: { match: "bg-zinc-900" } }],
     },
     {
-      // hover variant
       code: `<template><button class="hover:bg-zinc-800"></button></template>`,
-      errors: [{ messageId: "rawPalette", data: { match: "bg-zinc-800" } }],
+      errors: [{ messageId: "rawPaletteClass", data: { match: "bg-zinc-800" } }],
     },
     {
-      // :class string literal
       code: `<template><div :class="'bg-zinc-700/50'"></div></template>`,
-      errors: [{ messageId: "rawPalette", data: { match: "bg-zinc-700/50" } }],
+      errors: [{ messageId: "rawPaletteClass", data: { match: "bg-zinc-700/50" } }],
     },
     {
-      // :class object form (key)
       code: `<template><div :class="{ 'bg-zinc-800': active }"></div></template>`,
-      errors: [{ messageId: "rawPalette", data: { match: "bg-zinc-800" } }],
+      errors: [{ messageId: "rawPaletteClass", data: { match: "bg-zinc-800" } }],
     },
     {
-      // 複数違反 (static class 内)
       code: `<template><div class="bg-zinc-900 text-blue-400"></div></template>`,
       errors: [
-        { messageId: "rawPalette", data: { match: "bg-zinc-900" } },
-        { messageId: "rawPalette", data: { match: "text-blue-400" } },
+        { messageId: "rawPaletteClass", data: { match: "bg-zinc-900" } },
+        { messageId: "rawPaletteClass", data: { match: "text-blue-400" } },
+      ],
+    },
+  ],
+});
+
+vueTester.run("no-raw-tailwind-palette (Vue) — CSS var 形 (<style> ブロック含む)", rule, {
+  valid: [
+    // <style> 内 semantic token
+    `<template><div /></template><style scoped>
+.x { background: var(--color-surface-1); color: var(--color-foreground); }
+</style>`,
+    // template の arbitrary value で semantic token を渡す
+    `<template><div class="[--md-code-bg:var(--color-surface-2)]" /></template>`,
+  ],
+  invalid: [
+    {
+      // <style> scoped 内 raw palette CSS var
+      code: `<template><div /></template><style scoped>
+.x { color: var(--color-zinc-700); }
+</style>`,
+      errors: [{ messageId: "rawPaletteCssVar", data: { match: "var(--color-zinc-700)" } }],
+    },
+    {
+      // template arbitrary value 内 raw palette CSS var
+      code: `<template><div class="[--md-code-bg:var(--color-zinc-700)]" /></template>`,
+      // 1 件: source-text scan が捕捉する (template 内文字列は arbitrary value で
+      // utility 形検知の対象外、CSS var 検知の対象)
+      errors: [{ messageId: "rawPaletteCssVar", data: { match: "var(--color-zinc-700)" } }],
+    },
+    {
+      // <style> 内に複数の raw palette CSS var
+      code: `<template><div /></template><style scoped>
+.x { color: var(--color-zinc-300); background: var(--color-blue-400); }
+</style>`,
+      errors: [
+        { messageId: "rawPaletteCssVar", data: { match: "var(--color-zinc-300)" } },
+        { messageId: "rawPaletteCssVar", data: { match: "var(--color-blue-400)" } },
       ],
     },
   ],

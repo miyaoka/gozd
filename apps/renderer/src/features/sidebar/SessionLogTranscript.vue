@@ -552,20 +552,20 @@ onBeforeUnmount(teardownObserver);
         </details>
 
         <!-- user / image (自分, 右寄せ) と assistant (相手, 左寄せ) の吹き出し。
-               話者は左右寄せ + 緑/zinc の塗り分けで識別でき、アバターは置かない。 -->
+               話者は左右寄せ + success / surface の塗り分けで識別でき、アバターは置かない。 -->
         <div
           v-else
           :data-ev="i"
           class="flex scroll-mt-2 items-end gap-1.5"
           :class="ev.kind === 'assistant' ? 'flex-row' : 'flex-row-reverse'"
         >
-          <!-- assistant: markdown 吹き出し (相手色 zinc-800)。
-                 MarkdownBody はコードブロック背景を暗地前提の zinc-800 で固定するため、
+          <!-- assistant: markdown 吹き出し (相手色 surface-1)。
+                 MarkdownBody はコードブロック背景を暗地前提の surface-1 で固定するため、
                  塗りを被せると地より暗いブロックが浮く明度反転になる。`--md-code-bg` で地より
-                 一段明るい zinc-700 を渡し、preview と同じ「地 < code」の明度順を保つ。 -->
+                 一段明るい surface-2 を渡し、preview と同じ「地 < code」の明度順を保つ。 -->
           <div
             v-if="ev.kind === 'assistant'"
-            class="min-w-0 rounded-2xl rounded-tl-sm bg-surface-1 px-3 py-1.5 text-sm text-foreground-strong [--md-code-bg:var(--color-zinc-700)]"
+            class="min-w-0 rounded-2xl rounded-tl-sm bg-surface-1 px-3 py-1.5 text-sm text-foreground-strong [--md-code-bg:var(--color-surface-2)]"
           >
             <MarkdownBody
               :content="ev.text"
@@ -574,9 +574,9 @@ onBeforeUnmount(teardownObserver);
             />
           </div>
 
-          <!-- user: 素テキスト吹き出し (自分色)。LINE の自分発話に倣い緑塗り。
-                 緑は唯一のアクセントとし、相手 (無彩) と hue で 1 つだけ差をつける。暗 UI
-                 (zinc-900 地) で面が主張しすぎないよう緑は一段暗い green-800 に抑える。 -->
+          <!-- user: 素テキスト吹き出し (自分色)。LINE の自分発話に倣い success 系塗り。
+                 success は唯一のアクセントとし、相手 (無彩 surface) と hue で 1 つだけ差をつける。
+                 暗 UI (background 地) で面が主張しすぎないよう success は alpha で薄めて使う。 -->
           <div
             v-else-if="ev.kind === 'user'"
             class="min-w-0 rounded-2xl rounded-tr-sm bg-success/40 px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-success-foreground"

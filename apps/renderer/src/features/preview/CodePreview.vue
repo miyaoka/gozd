@@ -192,24 +192,24 @@ function onContainerClick(e: MouseEvent) {
   border: none;
   text-align: right;
   font: inherit;
-  color: var(--color-zinc-600);
+  color: var(--color-border-strong);
   user-select: none;
   cursor: pointer;
 }
 
 ._line-numbered ._line ._line-no-btn:hover,
 ._highlighted-code :deep(.line ._line-no-btn:hover) {
-  color: var(--color-blue-400);
+  color: var(--color-info);
   text-decoration: underline;
 }
 
 /* keyboard focus 可視化。silent dead button 禁止規約の延長で、Tab 到達した button が
-   視認できることを担保する。outline は Tailwind の blue-400 と整合させる */
+   視認できることを担保する。outline は info token と整合させる */
 ._line-numbered ._line ._line-no-btn:focus-visible,
 ._highlighted-code :deep(.line ._line-no-btn:focus-visible) {
-  outline: 2px solid var(--color-blue-400);
+  outline: 2px solid var(--color-info);
   outline-offset: -2px;
-  color: var(--color-blue-400);
+  color: var(--color-info);
 }
 
 /* blame OFF: `<span class="_line-no-static">`。focusable を奪うため span に倒す。
@@ -220,7 +220,7 @@ function onContainerClick(e: MouseEvent) {
   width: var(--line-no-width, 3ch);
   margin-right: 1.5ch;
   text-align: right;
-  color: var(--color-zinc-600);
+  color: var(--color-border-strong);
   user-select: none;
 }
 
@@ -265,6 +265,6 @@ function onContainerClick(e: MouseEvent) {
 /* アクティブ行のハイライト（scrollToLine が直接クラスを付与） */
 ._line-numbered ._line._active-line,
 ._highlighted-code :deep(.line._active-line) {
-  background-color: color-mix(in oklch, var(--color-yellow-500) 15%, transparent);
+  background-color: color-mix(in oklch, var(--color-warning) 15%, transparent);
 }
 </style>

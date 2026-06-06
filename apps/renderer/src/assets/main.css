@@ -57,7 +57,10 @@
   --color-warning-strong: oklch(
     0.75 0.183 55.934
   ); /* (旧 orange-400 / amber-500) — 強い注意 / 要対応 */
-  --color-warning-foreground: oklch(0.987 0.026 102.212); /* (旧 yellow-50) */
+  /* warning は light yellow (OKLCH 0.852) なので foreground は dark を当てる
+     (success/destructive/info/primary はいずれも 0.62〜0.79 の中間明度で light
+     foreground でも contrast が取れるが、warning だけは dark でないと読めない) */
+  --color-warning-foreground: oklch(0.21 0.006 285.885); /* dark (= background 同等) */
 
   --color-info: oklch(0.707 0.165 254.624); /* (旧 blue-400) — info badge / link */
 

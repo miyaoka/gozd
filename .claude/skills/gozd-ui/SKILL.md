@@ -1,7 +1,6 @@
 ---
 name: gozd-ui
 description: gozd の renderer (Vue + Tailwind v4) で UI を書く / 直すときの規律。semantic token しか使わせない (生 zinc / blue / red 等は禁止)、shadcn 由来の Critical Rules を Vue 文脈に翻訳した一式。Vue SFC / Tailwind class / `apps/renderer/src/assets/main.css` の token を触る作業すべてに自動適用される。
-user-invocable: false
 ---
 
 # gozd-ui — Vue + Tailwind v4 design rules

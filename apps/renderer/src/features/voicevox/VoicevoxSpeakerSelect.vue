@@ -45,7 +45,7 @@ function handleStyleChange(event: Event) {
     <template v-if="voicevoxStore.speakers.length > 0">
       <div
         v-if="voicevoxStore.speakerIdIsStale"
-        class="flex items-start gap-2 rounded-sm bg-warning-strong/30 px-2 py-1 text-xs text-warning-strong"
+        class="flex items-start gap-2 rounded-sm bg-warning-strong/15 px-2 py-1 text-xs text-warning-strong"
       >
         <span class="icon-[lucide--triangle-alert] size-4 shrink-0" />
         <div class="flex-1">

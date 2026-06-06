@@ -808,7 +808,7 @@ function splitRightBg(row: DiffSplitRowItem): string {
   width: var(--line-no-width, 3ch);
   flex-shrink: 0;
   text-align: right;
-  color: var(--color-zinc-600);
+  color: var(--color-border-strong);
   user-select: none;
 }
 
@@ -821,15 +821,15 @@ function splitRightBg(row: DiffSplitRowItem): string {
 }
 
 ._line-no-btn:hover {
-  color: var(--color-blue-400);
+  color: var(--color-info);
   text-decoration: underline;
 }
 
 /* keyboard focus 可視化。silent dead button 禁止規約の延長 */
 ._line-no-btn:focus-visible {
-  outline: 2px solid var(--color-blue-400);
+  outline: 2px solid var(--color-info);
   outline-offset: -2px;
-  color: var(--color-blue-400);
+  color: var(--color-info);
 }
 
 ._line-no + ._line-text {
@@ -852,8 +852,8 @@ function splitRightBg(row: DiffSplitRowItem): string {
   gap: 0.5ch;
   padding: 0.25rem 0.5rem;
   margin: 0.25rem 0;
-  background-color: var(--color-zinc-800);
-  color: var(--color-zinc-500);
+  background-color: var(--color-surface-1);
+  color: var(--color-foreground-subtle);
   font-size: 0.75rem;
   user-select: none;
   width: 100%;
@@ -862,8 +862,8 @@ function splitRightBg(row: DiffSplitRowItem): string {
 }
 
 ._hunk-bar:hover {
-  background-color: var(--color-zinc-700);
-  color: var(--color-zinc-300);
+  background-color: var(--color-surface-2);
+  color: var(--color-foreground);
 }
 
 ._hunk-bar-icon {
@@ -893,13 +893,13 @@ function splitRightBg(row: DiffSplitRowItem): string {
 }
 
 ._split-divider {
-  border-left: 1px solid var(--color-zinc-700);
+  border-left: 1px solid var(--color-surface-2);
   padding-left: 0.5ch;
 }
 
 /* 片側のみの remove / add 行で反対セルを灰色で埋める */
 ._split-filler {
-  background-color: var(--color-zinc-800);
+  background-color: var(--color-surface-1);
 }
 
 ._hunk-bar-span {

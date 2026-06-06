@@ -317,7 +317,7 @@ useEventListener(window, "pointerup", () => {
                     : isActive(track)
                       ? 'bg-foreground'
                       : track.isMain
-                        ? 'bg-border-strong'
+                        ? 'bg-foreground-muted'
                         : 'bg-border-strong'
                 "
                 :style="{ left: barStyle(track).left, width: barStyle(track).width }"

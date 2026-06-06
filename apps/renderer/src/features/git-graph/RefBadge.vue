@@ -22,15 +22,19 @@ const pr = computed(() => {
   return props.prByBranch.get(branchName);
 });
 
+// 同 token を bg / text に重ねると OKLCH 明度差が消えて contrast を割るため、
+// 「subtle 色チップ」は `bg-<intent>/15` (faint tint) + `text-<intent>` (鮮やか) で
+// 暗地に乗せる方の明度差で読ませる。solid な強調 (current branch 等) は
+// `bg-<intent>` + `text-<intent>-foreground` の正規ペア。
 const REF_TYPE_CLASS: Record<DisplayRef["type"], string> = {
-  synced: "bg-success/40 text-success",
-  local: "bg-success/40 text-success",
-  remote: "bg-success/40 text-success opacity-50",
-  tag: "bg-primary/60 text-primary",
+  synced: "bg-success/15 text-success",
+  local: "bg-success/15 text-success",
+  remote: "bg-success/15 text-success opacity-50",
+  tag: "bg-primary/15 text-primary",
 };
 
-const CURRENT_LOCAL_CLASS = "bg-warning text-background";
-const CURRENT_REMOTE_CLASS = "bg-warning text-background opacity-50";
+const CURRENT_LOCAL_CLASS = "bg-warning text-warning-foreground";
+const CURRENT_REMOTE_CLASS = "bg-warning text-warning-foreground opacity-50";
 const DEFAULT_CLASS = "ring-1 ring-inset ring-current";
 </script>
 
@@ -46,7 +50,7 @@ const DEFAULT_CLASS = "ring-1 ring-inset ring-current";
     target="_blank"
     rel="noopener noreferrer"
     class="flex shrink-0 items-center gap-0.5 rounded-sm px-1 py-0.5 text-[10px] leading-none font-medium no-underline"
-    :class="pr.isDraft ? 'bg-surface-2 text-foreground' : 'bg-primary/60 text-primary'"
+    :class="pr.isDraft ? 'bg-surface-2 text-foreground' : 'bg-primary text-primary-foreground'"
     :title="`PR #${pr.number}${pr.isDraft ? ' (draft)' : ''}`"
     @click.stop
   >

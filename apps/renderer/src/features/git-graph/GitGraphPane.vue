@@ -990,7 +990,7 @@ const isWorkingTreeActive = computed(
         class="rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="
           firstParentOnly
-            ? 'bg-primary/60 text-primary'
+            ? 'bg-primary text-primary-foreground'
             : 'text-foreground-subtle hover:text-foreground'
         "
         :aria-pressed="firstParentOnly"
@@ -1002,7 +1002,7 @@ const isWorkingTreeActive = computed(
         class="rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="
           currentBranchOnly
-            ? 'bg-primary/60 text-primary'
+            ? 'bg-primary text-primary-foreground'
             : 'text-foreground-subtle hover:text-foreground'
         "
         :aria-pressed="currentBranchOnly"
@@ -1015,7 +1015,7 @@ const isWorkingTreeActive = computed(
         class="rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="
           sortMode === SortMode.SORT_MODE_TOPO
-            ? 'bg-primary/60 text-primary'
+            ? 'bg-primary text-primary-foreground'
             : 'text-foreground-subtle hover:text-foreground'
         "
         :aria-pressed="sortMode === SortMode.SORT_MODE_TOPO"
@@ -1035,7 +1035,9 @@ const isWorkingTreeActive = computed(
       <button
         class="ml-auto rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="
-          detailOpen ? 'bg-primary/60 text-primary' : 'text-foreground-subtle hover:text-foreground'
+          detailOpen
+            ? 'bg-primary text-primary-foreground'
+            : 'text-foreground-subtle hover:text-foreground'
         "
         :aria-pressed="detailOpen"
         title="Toggle commit detail"

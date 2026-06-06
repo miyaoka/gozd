@@ -87,7 +87,7 @@ onMounted(() => {
         <textarea
           ref="textarea"
           :value="symlinksText"
-          class="w-full resize-none rounded-sm border border-border-strong bg-surface-1 p-2 text-sm text-foreground-strong focus:border-primary focus:outline-none"
+          class="w-full resize-none rounded-sm border border-border-strong bg-surface-1 p-2 text-sm text-foreground-strong focus:ring-2 focus:ring-ring focus:outline-none"
           rows="4"
           placeholder=".claude&#10;.env.local"
           @input="handleInput(($event.target as HTMLTextAreaElement).value)"

@@ -26,7 +26,7 @@ const text = computed({
 <template>
   <textarea
     v-model="text"
-    class="w-full resize-none rounded-sm border border-border-strong bg-surface-2 p-2 text-sm text-foreground-strong focus:border-primary focus:outline-none"
+    class="w-full resize-none rounded-sm border border-border-strong bg-surface-2 p-2 text-sm text-foreground-strong focus:ring-2 focus:ring-ring focus:outline-none"
     rows="4"
     :placeholder="props.setting.placeholder"
   />

@@ -17,7 +17,7 @@ const model = defineModel<string>({ required: true });
     type="text"
     :value="model"
     :placeholder="props.setting.placeholder"
-    class="w-56 rounded-sm border border-border-strong bg-surface-2 px-2 py-1 text-sm text-foreground-strong focus:border-primary focus:outline-none"
+    class="w-56 rounded-sm border border-border-strong bg-surface-2 px-2 py-1 text-sm text-foreground-strong focus:ring-2 focus:ring-ring focus:outline-none"
     @change="model = ($event.target as HTMLInputElement).value"
   />
 </template>

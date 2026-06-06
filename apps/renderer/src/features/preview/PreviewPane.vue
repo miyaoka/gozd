@@ -947,7 +947,7 @@ watch(
           class="flex items-center gap-1 px-3 py-1.5 text-xs transition-colors"
           :class="
             activeMode === mode
-              ? 'border-b-2 border-primary text-info'
+              ? 'border-b-2 border-primary text-primary'
               : 'text-foreground-subtle hover:text-foreground'
           "
           @click="activeMode = mode"

@@ -124,7 +124,7 @@ async function copyDetail() {
       <div class="mb-2 flex justify-end">
         <button
           type="button"
-          class="flex cursor-pointer items-center gap-1 rounded-sm border border-accent-strong px-2 py-0.5 text-xs text-foreground-strong hover:bg-accent-strong"
+          class="flex cursor-pointer items-center gap-1 rounded-sm border border-border-strong px-2 py-0.5 text-xs text-foreground-strong hover:bg-accent-strong"
           @click="copyDetail"
         >
           <span :class="[copyIconMap[copyState], 'size-3']" />

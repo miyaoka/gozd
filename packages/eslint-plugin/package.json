@@ -21,7 +21,7 @@
     "oxfmt": "catalog:",
     "oxlint": "catalog:",
     "oxlint-tsgolint": "catalog:",
-    "vue-eslint-parser": "^10.3.0"
+    "vue-eslint-parser": "10.4.0"
   },
   "peerDependencies": {
     "eslint": ">=9"

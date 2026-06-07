@@ -218,7 +218,7 @@ const hasSub = computed(() => subMessages.value.length > 0);
     v-if="hasSub"
     class="pointer-events-none absolute right-3 bottom-1 z-10 flex w-56 max-w-[35%] flex-col gap-1 rounded-md bg-background/70 p-2 text-xs/tight"
   >
-    <details :open="subOpen" class="contents" @toggle="onSubToggle">
+    <details :open="subOpen" @toggle="onSubToggle">
       <summary
         v-if="subLabel"
         class="pointer-events-auto cursor-pointer truncate px-1 text-xs font-semibold text-foreground-low hover:text-foreground [&::-webkit-details-marker]:hidden [&::marker]:hidden"
@@ -226,25 +226,30 @@ const hasSub = computed(() => subMessages.value.length > 0);
       >
         {{ subLabel }}
       </summary>
-      <div
-        v-for="msg in subMessages"
-        :key="`${msg.kind}-${msg.ts}`"
-        class="flex min-w-0"
-        :class="msg.kind === 'user' ? 'justify-end' : ''"
-      >
-        <button
-          type="button"
-          class="pointer-events-auto block max-w-[85%] cursor-pointer rounded-lg px-2 py-1 text-left hover:brightness-110"
-          :class="
-            msg.kind === 'user'
-              ? 'bg-chat-outgoing text-chat-outgoing-text'
-              : 'bg-chat-incoming text-chat-incoming-text'
-          "
-          :title="msg.text"
-          @click="openPreview($event, msg)"
+      <!-- bubble 用の内側コンテナ。details に直接 flex / gap を当てると WebKit で
+           generated content の gap 計算が崩れる挙動があるため、details はネイティブの
+           open/close と summary 表示制御だけに使い、レイアウトは中の div に閉じる。 -->
+      <div class="flex flex-col gap-1 pt-1">
+        <div
+          v-for="msg in subMessages"
+          :key="`${msg.kind}-${msg.ts}`"
+          class="flex min-w-0"
+          :class="msg.kind === 'user' ? 'justify-end' : ''"
         >
-          <span class="line-clamp-2">{{ msg.text }}</span>
-        </button>
+          <button
+            type="button"
+            class="pointer-events-auto block max-w-[85%] cursor-pointer rounded-lg px-2 py-1 text-left hover:brightness-110"
+            :class="
+              msg.kind === 'user'
+                ? 'bg-chat-outgoing text-chat-outgoing-text'
+                : 'bg-chat-incoming text-chat-incoming-text'
+            "
+            :title="msg.text"
+            @click="openPreview($event, msg)"
+          >
+            <span class="line-clamp-2">{{ msg.text }}</span>
+          </button>
+        </div>
       </div>
     </details>
   </div>

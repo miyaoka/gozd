@@ -475,7 +475,7 @@ onBeforeUnmount(teardownObserver);
             class="flex max-w-[200px] items-center gap-1 rounded-full border px-2 py-0.5"
             :class="
               opt.childUuid === ev.selectedChildUuid
-                ? 'border-success bg-success/15 text-success-text'
+                ? 'border-success bg-success-subtle text-success-text'
                 : 'border-border text-foreground-low hover:bg-element-hover hover:text-foreground'
             "
             :title="opt.lead"
@@ -513,7 +513,7 @@ onBeforeUnmount(teardownObserver);
               <span class="shrink-0 font-mono font-medium text-foreground">{{ ev.name }}</span>
               <span
                 v-if="ev.result?.isError"
-                class="shrink-0 rounded-sm bg-destructive/20 px-1 whitespace-nowrap text-destructive-text"
+                class="shrink-0 rounded-sm bg-destructive-subtle px-1 whitespace-nowrap text-destructive-text"
                 >error</span
               >
               <SessionLogToolArg :input="ev.input" />
@@ -580,10 +580,10 @@ onBeforeUnmount(teardownObserver);
           <!-- user: 素テキスト吹き出し (自分色)。LINE の自分発話に倣い緑塗り。
                  success intent を唯一のアクセントとし、相手 (無彩) と hue で 1 つだけ差をつける。
                  暗 UI (background) で面が主張しすぎないよう success solid ではなく subtle
-                 chip pattern (`bg-success/15 text-success-text`) で抑える。 -->
+                 chip pattern (`bg-success-subtle text-success-text`) で抑える。 -->
           <div
             v-else-if="ev.kind === 'user'"
-            class="min-w-0 rounded-2xl rounded-tr-sm bg-success/15 px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-success-text"
+            class="min-w-0 rounded-2xl rounded-tr-sm bg-success-subtle px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-success-text"
           >
             {{ ev.text }}
           </div>

@@ -22,15 +22,18 @@ const pr = computed(() => {
   return props.prByBranch.get(branchName);
 });
 
+// remote は alpha で local を弱体化するのではなく、neutral chip (bg-element + foreground-low)
+// に切り替えて「known but not actionable」を構造的に示す。alpha hack は任意 bg 上で
+// contrast が崩れる (Improta 3 大禁忌)。
 const REF_TYPE_CLASS: Record<DisplayRef["type"], string> = {
-  synced: "bg-success/15 text-success-text",
-  local: "bg-success/15 text-success-text",
-  remote: "bg-success/15 text-success-text opacity-50",
-  tag: "bg-primary/15 text-primary-text",
+  synced: "bg-success-subtle text-success-text",
+  local: "bg-success-subtle text-success-text",
+  remote: "bg-element text-foreground-low",
+  tag: "bg-primary-subtle text-primary-text",
 };
 
 const CURRENT_LOCAL_CLASS = "bg-warning text-warning-foreground";
-const CURRENT_REMOTE_CLASS = "bg-warning text-warning-foreground opacity-50";
+const CURRENT_REMOTE_CLASS = "bg-warning-subtle text-warning-text";
 const DEFAULT_CLASS = "ring-1 ring-inset ring-current";
 </script>
 
@@ -46,7 +49,7 @@ const DEFAULT_CLASS = "ring-1 ring-inset ring-current";
     target="_blank"
     rel="noopener noreferrer"
     class="flex shrink-0 items-center gap-0.5 rounded-sm px-1 py-0.5 text-[10px] leading-none font-medium no-underline"
-    :class="pr.isDraft ? 'bg-element text-foreground' : 'bg-primary/15 text-primary-text'"
+    :class="pr.isDraft ? 'bg-element text-foreground' : 'bg-primary-subtle text-primary-text'"
     :title="`PR #${pr.number}${pr.isDraft ? ' (draft)' : ''}`"
     @click.stop
   >

@@ -909,9 +909,9 @@ function onCommitContextMenu(hash: string, e: MouseEvent) {
  */
 function rowHighlightClass(hash: string): string {
   if (isSelectedRow(hash)) {
-    return "bg-primary/30 hover:bg-primary/40";
+    return "bg-primary-subtle hover:bg-primary-subtle-hover";
   }
-  return "hover:bg-panel/60";
+  return "hover:bg-element-hover";
 }
 
 /**
@@ -993,7 +993,7 @@ const isWorkingTreeActive = computed(
         class="rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="
           firstParentOnly
-            ? 'bg-primary/15 text-primary-text'
+            ? 'bg-primary-subtle text-primary-text'
             : 'text-foreground-low hover:text-foreground'
         "
         :aria-pressed="firstParentOnly"
@@ -1005,7 +1005,7 @@ const isWorkingTreeActive = computed(
         class="rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="
           currentBranchOnly
-            ? 'bg-primary/15 text-primary-text'
+            ? 'bg-primary-subtle text-primary-text'
             : 'text-foreground-low hover:text-foreground'
         "
         :aria-pressed="currentBranchOnly"
@@ -1018,7 +1018,7 @@ const isWorkingTreeActive = computed(
         class="rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="
           sortMode === SortMode.SORT_MODE_TOPO
-            ? 'bg-primary/15 text-primary-text'
+            ? 'bg-primary-subtle text-primary-text'
             : 'text-foreground-low hover:text-foreground'
         "
         :aria-pressed="sortMode === SortMode.SORT_MODE_TOPO"
@@ -1039,7 +1039,7 @@ const isWorkingTreeActive = computed(
         class="ml-auto rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="
           detailOpen
-            ? 'bg-primary/15 text-primary-text'
+            ? 'bg-primary-subtle text-primary-text'
             : 'text-foreground-low hover:text-foreground'
         "
         :aria-pressed="detailOpen"
@@ -1062,7 +1062,7 @@ const isWorkingTreeActive = computed(
       >
         <!-- Working Tree 固定行: スクロール領域の外に配置 -->
         <div
-          class="_graph-row relative flex shrink-0 items-center border-b border-border/50 text-xs"
+          class="_graph-row relative flex shrink-0 items-center border-b border-border-subtle text-xs"
           :class="rowHighlightClass(UNCOMMITTED_HASH)"
           :style="{ height: `${ROW_HEIGHT}px` }"
           @click="onRowClick(UNCOMMITTED_HASH, $event)"

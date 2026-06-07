@@ -107,11 +107,11 @@ const TYPE_TO_KIND: Record<GitFileChange["type"], GitChangeKind> = {
 const kind = computed<GitChangeKind>(() => effectiveKind.value ?? TYPE_TO_KIND[props.change.type]);
 
 const BADGE_CLASSES: Record<GitChangeKind, string> = {
-  modified: "text-warning-text bg-warning/10",
-  added: "text-success-text bg-success/10",
-  deleted: "text-destructive-text bg-destructive/10",
-  untracked: "text-success-text bg-success/10",
-  renamed: "text-primary-text bg-primary/10",
+  modified: "text-warning-text bg-warning-subtle",
+  added: "text-success-text bg-success-subtle",
+  deleted: "text-destructive-text bg-destructive-subtle",
+  untracked: "text-success-text bg-success-subtle",
+  renamed: "text-primary-text bg-primary-subtle",
 };
 
 const BADGE_LABEL: Record<GitChangeKind, string> = {
@@ -563,7 +563,7 @@ onUnmounted(unsubscribeFsChange);
     <!-- ヘッダー: アイコン + パス + バッジ + collapse トグル -->
     <button
       type="button"
-      class="flex w-full items-center gap-2 bg-panel/40 px-3 py-1.5 text-left transition-colors hover:bg-panel/80"
+      class="flex w-full items-center gap-2 bg-panel px-3 py-1.5 text-left transition-colors hover:bg-element-hover"
       :title="collapsed ? 'Expand' : 'Collapse'"
       :aria-label="collapsed ? 'Expand' : 'Collapse'"
       @click="collapsed = !collapsed"

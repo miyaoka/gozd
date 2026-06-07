@@ -1075,6 +1075,8 @@ function blockEdit(event: Event) {
   display: grid;
   grid-template-rows: subgrid;
   grid-template-columns: 1fr;
+  /* `grid-row: 1 / -1` は subgrid 親 row track を継承するための定型。両半身に同じ範囲を当てても
+     `_split-section` が 2 列 grid で左右が別 column に置かれるので row は衝突しない。 */
   grid-row: 1 / -1;
 }
 

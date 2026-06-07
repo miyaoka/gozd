@@ -48,13 +48,13 @@ const iconMap = {
 } as const;
 
 const colorMap = {
-  error: "border-red-800 bg-red-950",
-  info: "border-zinc-700 bg-zinc-900",
+  error: "border-destructive bg-destructive",
+  info: "border-border bg-background",
 } as const;
 
 const iconColorMap = {
-  error: "text-red-400",
-  info: "text-blue-400",
+  error: "text-destructive-text",
+  info: "text-primary-text",
 } as const;
 
 const hasCause = computed(() => props.cause !== undefined);
@@ -83,7 +83,7 @@ async function copyDetail() {
 <template>
   <div
     :class="[
-      'pointer-events-auto flex w-md max-w-md flex-col rounded-lg border text-sm text-white shadow-lg',
+      'pointer-events-auto flex w-md max-w-md flex-col rounded-lg border text-sm text-foreground shadow-lg',
       colorMap[type],
     ]"
   >
@@ -105,7 +105,7 @@ async function copyDetail() {
           <span
             v-if="hasCause"
             :class="[
-              'icon-[lucide--chevron-down] size-3 shrink-0 text-zinc-400 transition-transform',
+              'icon-[lucide--chevron-down] size-3 shrink-0 text-foreground-low transition-transform',
               expanded ? 'rotate-180' : '',
             ]"
           />
@@ -113,18 +113,18 @@ async function copyDetail() {
       </button>
       <button
         type="button"
-        class="shrink-0 cursor-pointer text-zinc-400 hover:text-zinc-200"
+        class="shrink-0 cursor-pointer text-foreground-low hover:text-foreground"
         aria-label="Dismiss"
         @click="$emit('dismiss')"
       >
         <span class="icon-[lucide--x] size-4" />
       </button>
     </div>
-    <div v-if="hasCause && expanded" class="border-t border-white/10 p-3">
+    <div v-if="hasCause && expanded" class="border-t border-foreground/10 p-3">
       <div class="mb-2 flex justify-end">
         <button
           type="button"
-          class="flex cursor-pointer items-center gap-1 rounded-sm border border-white/15 px-2 py-0.5 text-xs text-zinc-200 hover:bg-white/10"
+          class="flex cursor-pointer items-center gap-1 rounded-sm border border-foreground/15 px-2 py-0.5 text-xs text-foreground hover:bg-element-hover"
           @click="copyDetail"
         >
           <span :class="[copyIconMap[copyState], 'size-3']" />
@@ -132,7 +132,7 @@ async function copyDetail() {
         </button>
       </div>
       <pre
-        class="max-h-64 overflow-auto font-mono text-xs break-all whitespace-pre-wrap text-zinc-200"
+        class="max-h-64 overflow-auto font-mono text-xs break-all whitespace-pre-wrap text-foreground"
         >{{ detail }}</pre
       >
     </div>

@@ -15,9 +15,9 @@ const dateDisplay = computed(() => formatRelativeDate(props.issue.updatedAt));
 </script>
 
 <template>
-  <span class="truncate text-green-400">#{{ issue.number }}</span>
+  <span class="truncate text-success-text">#{{ issue.number }}</span>
   <span class="truncate">{{ issue.title }}</span>
-  <span class="flex items-center gap-1 truncate text-zinc-400">
+  <span class="flex items-center gap-1 truncate text-foreground-low">
     <img
       v-if="issue.authorAvatarUrl !== ''"
       :src="issue.authorAvatarUrl"

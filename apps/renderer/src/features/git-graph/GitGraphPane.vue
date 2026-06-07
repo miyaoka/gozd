@@ -546,20 +546,23 @@ const connectorPath = computed(() => {
   return `M${x0},0L${x0},${rowY(head.index)}`;
 });
 
-/** ブランチの色パレット */
-const COLORS = [
-  "#4ec9b0", // teal
-  "#569cd6", // blue
-  "#c586c0", // purple
-  "#ce9178", // orange
-  "#dcdcaa", // yellow
-  "#d16969", // red
-  "#608b4e", // green
-  "#9cdcfe", // light blue
+/** ブランチの色パレット (固定 8 色、graph 内 cyclic palette)。git graph 専用で
+ * 他 feature とは共有しないため module-local の literal 値で持つ。番号順隣接
+ * だけでなく任意 2 lane が同時描画されうるため、全 28 ペア (8C2) を
+ * 「hue 差 60 度以上 or 明度差 0.05 以上」で識別可能に固定する */
+const LANE_COLORS = [
+  "oklch(0.74 0.1 175)" /* teal */,
+  "oklch(0.65 0.13 247)" /* blue */,
+  "oklch(0.72 0.13 327)" /* purple */,
+  "oklch(0.62 0.1 51)" /* orange */,
+  "oklch(0.8 0.13 105)" /* yellow */,
+  "oklch(0.55 0.16 22)" /* red */,
+  "oklch(0.6 0.12 137)" /* green */,
+  "oklch(0.86 0.07 224)" /* light blue */,
 ];
 
 function colorFor(index: number): string {
-  return COLORS[index % COLORS.length];
+  return LANE_COLORS[index % LANE_COLORS.length];
 }
 
 /**
@@ -906,9 +909,9 @@ function onCommitContextMenu(hash: string, e: MouseEvent) {
  */
 function rowHighlightClass(hash: string): string {
   if (isSelectedRow(hash)) {
-    return "bg-blue-900/30 hover:bg-blue-900/40";
+    return "bg-primary/30 hover:bg-primary/40";
   }
-  return "hover:bg-zinc-800/60";
+  return "hover:bg-panel/60";
 }
 
 /**
@@ -978,15 +981,21 @@ const isWorkingTreeActive = computed(
 <template>
   <div
     ref="root"
-    class="flex size-full flex-col overflow-hidden bg-zinc-900 text-zinc-300 select-none"
+    class="flex size-full flex-col overflow-hidden bg-background text-foreground select-none"
   >
-    <div class="flex shrink-0 items-center gap-1.5 border-b border-zinc-700 px-3 py-1.5">
-      <span class="icon-[lucide--git-commit-horizontal] size-4 text-zinc-400" />
-      <span class="text-xs font-semibold text-zinc-400">Git Graph</span>
-      <span v-if="commits.length > 0" class="text-xs text-zinc-500">({{ commits.length }})</span>
+    <div class="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1.5">
+      <span class="icon-[lucide--git-commit-horizontal] size-4 text-foreground-low" />
+      <span class="text-xs font-semibold text-foreground-low">Git Graph</span>
+      <span v-if="commits.length > 0" class="text-xs text-foreground-low"
+        >({{ commits.length }})</span
+      >
       <button
         class="rounded-sm px-1.5 py-0.5 text-[10px]"
-        :class="firstParentOnly ? 'bg-blue-800 text-blue-200' : 'text-zinc-500 hover:text-zinc-300'"
+        :class="
+          firstParentOnly
+            ? 'bg-primary/15 text-primary-text'
+            : 'text-foreground-low hover:text-foreground'
+        "
         :aria-pressed="firstParentOnly"
         @click="firstParentOnly = !firstParentOnly"
       >
@@ -995,7 +1004,9 @@ const isWorkingTreeActive = computed(
       <button
         class="rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="
-          currentBranchOnly ? 'bg-blue-800 text-blue-200' : 'text-zinc-500 hover:text-zinc-300'
+          currentBranchOnly
+            ? 'bg-primary/15 text-primary-text'
+            : 'text-foreground-low hover:text-foreground'
         "
         :aria-pressed="currentBranchOnly"
         title="Hide default branch and show current branch only"
@@ -1007,8 +1018,8 @@ const isWorkingTreeActive = computed(
         class="rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="
           sortMode === SortMode.SORT_MODE_TOPO
-            ? 'bg-blue-800 text-blue-200'
-            : 'text-zinc-500 hover:text-zinc-300'
+            ? 'bg-primary/15 text-primary-text'
+            : 'text-foreground-low hover:text-foreground'
         "
         :aria-pressed="sortMode === SortMode.SORT_MODE_TOPO"
         @click="
@@ -1019,14 +1030,18 @@ const isWorkingTreeActive = computed(
         {{ sortMode === SortMode.SORT_MODE_DATE ? "Date Order" : "Topo Order" }}
       </button>
       <button
-        class="rounded-sm px-1.5 py-0.5 text-[10px] text-zinc-500 hover:text-zinc-300"
+        class="rounded-sm px-1.5 py-0.5 text-[10px] text-foreground-low hover:text-foreground"
         @click="scrollHeadIntoView"
       >
         Scroll to HEAD
       </button>
       <button
         class="ml-auto rounded-sm px-1.5 py-0.5 text-[10px]"
-        :class="detailOpen ? 'bg-blue-800 text-blue-200' : 'text-zinc-500 hover:text-zinc-300'"
+        :class="
+          detailOpen
+            ? 'bg-primary/15 text-primary-text'
+            : 'text-foreground-low hover:text-foreground'
+        "
         :aria-pressed="detailOpen"
         title="Toggle commit detail"
         aria-label="Toggle commit detail"
@@ -1047,7 +1062,7 @@ const isWorkingTreeActive = computed(
       >
         <!-- Working Tree 固定行: スクロール領域の外に配置 -->
         <div
-          class="_graph-row relative flex shrink-0 items-center border-b border-zinc-700/50 text-xs"
+          class="_graph-row relative flex shrink-0 items-center border-b border-border/50 text-xs"
           :class="rowHighlightClass(UNCOMMITTED_HASH)"
           :style="{ height: `${ROW_HEIGHT}px` }"
           @click="onRowClick(UNCOMMITTED_HASH, $event)"
@@ -1062,9 +1077,10 @@ const isWorkingTreeActive = computed(
               :cx="laneX(0)"
               :cy="ROW_HEIGHT / 2"
               :r="isWorkingTreeActive ? DOT_RADIUS + 1 : DOT_RADIUS"
-              :fill="isWorkingTreeActive ? colorFor(headColor) : '#1c1c1c'"
+              :fill="isWorkingTreeActive ? colorFor(headColor) : 'currentColor'"
               :stroke="colorFor(headColor)"
               stroke-width="2"
+              class="text-background"
             />
             <line
               :x1="laneX(0)"
@@ -1084,7 +1100,7 @@ const isWorkingTreeActive = computed(
           <div class="flex min-w-0 flex-1 items-center gap-1 truncate pr-2">
             <span
               v-if="uncommittedChangeCount === 0"
-              class="truncate font-semibold text-zinc-400 italic"
+              class="truncate font-semibold text-foreground-low italic"
             >
               Working Tree (Clean)
             </span>
@@ -1129,7 +1145,7 @@ const isWorkingTreeActive = computed(
                 :fill="isActiveDot(node.commit.hash) ? colorFor(node.color) : 'currentColor'"
                 :stroke="colorFor(node.color)"
                 :stroke-width="isActiveDot(node.commit.hash) ? 2 : 1.5"
-                class="text-zinc-900"
+                class="text-background"
               />
             </svg>
 
@@ -1149,7 +1165,7 @@ const isWorkingTreeActive = computed(
               <!-- HEAD marker: グラフ列の右端に absolute 配置。レイアウトに影響しない -->
               <span
                 v-if="hasHead(node.commit.refs)"
-                class="absolute text-yellow-500"
+                class="absolute text-warning-text"
                 :style="{
                   left: `${graphColumnWidth}px`,
                   transform: 'translateX(calc(-100% - 4px))',
@@ -1163,7 +1179,7 @@ const isWorkingTreeActive = computed(
               <div class="flex min-w-0 flex-1 items-center gap-1 truncate pr-2">
                 <span
                   v-if="isMergeCommit(node.commit)"
-                  class="icon-[lucide--git-merge] size-3.5 shrink-0 text-zinc-500"
+                  class="icon-[lucide--git-merge] size-3.5 shrink-0 text-foreground-low"
                 />
                 <RefBadge
                   v-for="displayRef in computeDisplayRefs(
@@ -1184,17 +1200,17 @@ const isWorkingTreeActive = computed(
               </div>
 
               <!-- Date -->
-              <div class="w-28 shrink-0 text-zinc-500">
+              <div class="w-28 shrink-0 text-foreground-low">
                 {{ formatDate(node.commit.date) }}
               </div>
 
               <!-- Author -->
-              <div class="w-28 shrink-0 truncate text-zinc-500">
+              <div class="w-28 shrink-0 truncate text-foreground-low">
                 {{ node.commit.author }}
               </div>
 
               <!-- Commit hash -->
-              <div class="w-16 shrink-0 font-mono text-zinc-600">
+              <div class="w-16 shrink-0 font-mono text-foreground-low">
                 {{ node.commit.shortHash }}
               </div>
             </div>
@@ -1212,7 +1228,7 @@ const isWorkingTreeActive = computed(
           :get-before-size="getGraphListSize"
         />
         <div
-          class="shrink-0 overflow-hidden border-l border-zinc-700"
+          class="shrink-0 overflow-hidden border-l border-border"
           :style="{ width: `${detailWidth}px` }"
         >
           <CommitDetailPane :commits="gitGraphStore.selectedCommits" :base-url="issueLinkBaseUrl" />

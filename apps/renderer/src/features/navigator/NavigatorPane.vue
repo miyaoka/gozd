@@ -170,12 +170,12 @@ function onFileContextMenu(req: FileContextMenuPayload) {
 <template>
   <div
     ref="container"
-    class="flex size-full flex-col overflow-hidden border-l border-zinc-700 bg-zinc-900 text-zinc-300"
+    class="flex size-full flex-col overflow-hidden border-l border-border bg-background text-foreground"
   >
     <!-- Filer -->
     <div ref="filerWrapper" class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div class="flex shrink-0 items-center border-b border-zinc-700">
-        <span class="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-zinc-200">
+      <div class="flex shrink-0 items-center border-b border-border">
+        <span class="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-foreground">
           <span class="icon-[lucide--folder-tree] size-3.5" />
           Files
         </span>

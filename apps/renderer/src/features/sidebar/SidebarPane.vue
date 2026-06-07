@@ -204,15 +204,15 @@ const activeRootWorktree = computed(() => {
 <template>
   <div class="flex size-full flex-col">
     <!-- トップツールバー: view mode トグル + 編集モード -->
-    <div class="flex items-center justify-between border-b border-zinc-800 px-2 py-1">
+    <div class="flex items-center justify-between border-b border-border-subtle px-2 py-1">
       <div class="flex gap-0.5">
         <button
           type="button"
           aria-label="Active worktree"
           title="Active worktree"
           :aria-pressed="terminalStore.viewMode === 'wt'"
-          class="grid size-7 place-items-center rounded-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
-          :class="terminalStore.viewMode === 'wt' && 'bg-zinc-700 text-zinc-100'"
+          class="grid size-7 place-items-center rounded-sm text-foreground-low hover:bg-panel hover:text-foreground"
+          :class="terminalStore.viewMode === 'wt' && 'bg-element text-foreground'"
           @click="terminalStore.viewMode = 'wt'"
         >
           <span class="icon-[lucide--monitor] text-base" />
@@ -223,8 +223,8 @@ const activeRootWorktree = computed(() => {
           title="Claude terminals"
           :aria-pressed="terminalStore.viewMode === 'claude'"
           :disabled="terminalStore.claudeActiveLeafIds.length === 0"
-          class="grid size-7 place-items-center rounded-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-zinc-400"
-          :class="terminalStore.viewMode === 'claude' && 'bg-zinc-700 text-zinc-100'"
+          class="grid size-7 place-items-center rounded-sm text-foreground-low hover:bg-panel hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-foreground-low"
+          :class="terminalStore.viewMode === 'claude' && 'bg-element text-foreground'"
           @click="terminalStore.viewMode = 'claude'"
         >
           <span class="icon-[lucide--bot] text-base" />
@@ -239,8 +239,8 @@ const activeRootWorktree = computed(() => {
           class="grid size-7 place-items-center rounded-sm transition-colors"
           :class="
             editMode
-              ? 'bg-blue-600 text-white hover:bg-blue-500'
-              : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100'
+              ? 'bg-primary text-foreground hover:bg-primary'
+              : 'text-foreground-low hover:bg-panel hover:text-foreground'
           "
           @click="toggleEditMode"
         >
@@ -275,7 +275,7 @@ const activeRootWorktree = computed(() => {
       <button
         v-if="editMode"
         type="button"
-        class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+        class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground-low hover:bg-panel hover:text-foreground"
         title="Add directory"
         @click="onAddDir"
       >
@@ -297,20 +297,20 @@ const activeRootWorktree = computed(() => {
     <!-- 確認ダイアログ -->
     <dialog
       ref="confirmRef"
-      class="backdrop:bg-black/50"
+      class="backdrop:bg-overlay"
       @click="$event.target === confirmRef && closeConfirm()"
     >
-      <div class="space-y-4 rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-white">
+      <div class="space-y-4 rounded-lg border border-border bg-background p-4 text-foreground">
         <p class="text-sm">{{ confirmMessage }}</p>
         <div class="flex justify-end gap-2">
           <button
-            class="rounded-sm px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800"
+            class="rounded-sm px-3 py-1.5 text-sm text-foreground-low hover:bg-panel"
             @click="closeConfirm"
           >
             Cancel
           </button>
           <button
-            class="rounded-sm bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500"
+            class="rounded-sm bg-destructive px-3 py-1.5 text-sm text-foreground hover:bg-destructive"
             @click="executeConfirm"
           >
             OK

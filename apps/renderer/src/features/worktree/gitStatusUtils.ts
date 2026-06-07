@@ -105,13 +105,13 @@ function resolveStatusIconKind(status: string): GitStatusIconKind {
 
 /** ステータスアイコン定義 */
 const STATUS_ICON_CONFIG: Record<GitStatusIconKind, { icon: string; color: string }> = {
-  added: { icon: "icon-[lucide--file-plus]", color: "text-green-400" },
-  modified: { icon: "icon-[lucide--file-diff]", color: "text-yellow-400" },
-  deleted: { icon: "icon-[lucide--file-x]", color: "text-red-400" },
-  renamed: { icon: "icon-[lucide--file-input]", color: "text-blue-400" },
-  copied: { icon: "icon-[lucide--files]", color: "text-blue-400" },
-  untracked: { icon: "icon-[lucide--file-question-mark]", color: "text-green-400" },
-  conflict: { icon: "icon-[lucide--file-exclamation-point]", color: "text-red-400" },
+  added: { icon: "icon-[lucide--file-plus]", color: "text-success-text" },
+  modified: { icon: "icon-[lucide--file-diff]", color: "text-warning-text" },
+  deleted: { icon: "icon-[lucide--file-x]", color: "text-destructive-text" },
+  renamed: { icon: "icon-[lucide--file-input]", color: "text-primary-text" },
+  copied: { icon: "icon-[lucide--files]", color: "text-primary-text" },
+  untracked: { icon: "icon-[lucide--file-question-mark]", color: "text-success-text" },
+  conflict: { icon: "icon-[lucide--file-exclamation-point]", color: "text-destructive-text" },
 };
 
 /** アイコンの表示順 */

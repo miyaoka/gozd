@@ -403,15 +403,15 @@ const lineNoWidth = computed(() => {
 });
 
 const LINE_BG_CLASSES: Record<DiffLineKindName, string> = {
-  added: "bg-green-400/10",
-  removed: "bg-red-400/10",
+  added: "bg-success/10",
+  removed: "bg-destructive/10",
   unchanged: "",
 };
 
 const LINE_FALLBACK_CLASSES: Record<DiffLineKindName, string> = {
-  added: "text-green-400 bg-green-400/10",
-  removed: "text-red-400 bg-red-400/10",
-  unchanged: "text-zinc-300",
+  added: "text-success-text bg-success/10",
+  removed: "text-destructive-text bg-destructive/10",
+  unchanged: "text-foreground",
 };
 
 const originalTokens = ref<ThemedToken[][]>();
@@ -629,13 +629,15 @@ function splitRightBg(row: DiffSplitRowItem): string {
     <!-- ビューモードトグル (externalViewMode 指定時は親側で 1 本に統合) -->
     <div
       v-if="state.kind === 'success' && externalViewMode === undefined"
-      class="flex items-center border-b border-zinc-700 px-2 py-1"
+      class="flex items-center border-b border-border px-2 py-1"
     >
       <div class="flex items-center gap-0.5">
         <button
           type="button"
           class="flex items-center gap-1 px-2 py-0.5 text-xs transition-colors"
-          :class="viewMode === 'split' ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300'"
+          :class="
+            viewMode === 'split' ? 'text-primary-text' : 'text-foreground-low hover:text-foreground'
+          "
           title="Split view"
           aria-label="Split view"
           @click="internalViewMode = 'split'"
@@ -646,7 +648,11 @@ function splitRightBg(row: DiffSplitRowItem): string {
         <button
           type="button"
           class="flex items-center gap-1 px-2 py-0.5 text-xs transition-colors"
-          :class="viewMode === 'unified' ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300'"
+          :class="
+            viewMode === 'unified'
+              ? 'text-primary-text'
+              : 'text-foreground-low hover:text-foreground'
+          "
           title="Unified view"
           aria-label="Unified view"
           @click="internalViewMode = 'unified'"
@@ -658,9 +664,9 @@ function splitRightBg(row: DiffSplitRowItem): string {
     </div>
 
     <div class="flex-1 overflow-auto p-4 text-sm/tight" :style="{ '--line-no-width': lineNoWidth }">
-      <div v-if="state.kind === 'loading'" class="text-zinc-500">Computing diff...</div>
+      <div v-if="state.kind === 'loading'" class="text-foreground-low">Computing diff...</div>
 
-      <div v-else-if="state.kind === 'error'" class="text-red-400">
+      <div v-else-if="state.kind === 'error'" class="text-destructive-text">
         Failed to compute diff: {{ state.message }}
       </div>
 
@@ -804,7 +810,7 @@ function splitRightBg(row: DiffSplitRowItem): string {
   width: var(--line-no-width, 3ch);
   flex-shrink: 0;
   text-align: right;
-  color: var(--color-zinc-600);
+  color: var(--color-element-hover);
   user-select: none;
 }
 
@@ -817,15 +823,15 @@ function splitRightBg(row: DiffSplitRowItem): string {
 }
 
 ._line-no-btn:hover {
-  color: var(--color-blue-400);
+  color: var(--color-primary);
   text-decoration: underline;
 }
 
 /* keyboard focus 可視化。silent dead button 禁止規約の延長 */
 ._line-no-btn:focus-visible {
-  outline: 2px solid var(--color-blue-400);
+  outline: 2px solid var(--color-primary);
   outline-offset: -2px;
-  color: var(--color-blue-400);
+  color: var(--color-primary);
 }
 
 ._line-no + ._line-text {
@@ -848,8 +854,8 @@ function splitRightBg(row: DiffSplitRowItem): string {
   gap: 0.5ch;
   padding: 0.25rem 0.5rem;
   margin: 0.25rem 0;
-  background-color: var(--color-zinc-800);
-  color: var(--color-zinc-500);
+  background-color: var(--color-panel);
+  color: var(--color-foreground-low);
   font-size: 0.75rem;
   user-select: none;
   width: 100%;
@@ -858,8 +864,8 @@ function splitRightBg(row: DiffSplitRowItem): string {
 }
 
 ._hunk-bar:hover {
-  background-color: var(--color-zinc-700);
-  color: var(--color-zinc-300);
+  background-color: var(--color-element);
+  color: var(--color-foreground);
 }
 
 ._hunk-bar-icon {
@@ -889,13 +895,13 @@ function splitRightBg(row: DiffSplitRowItem): string {
 }
 
 ._split-divider {
-  border-left: 1px solid var(--color-zinc-700);
+  border-left: 1px solid var(--color-element);
   padding-left: 0.5ch;
 }
 
 /* 片側のみの remove / add 行で反対セルを灰色で埋める */
 ._split-filler {
-  background-color: var(--color-zinc-800);
+  background-color: var(--color-panel);
 }
 
 ._hunk-bar-span {

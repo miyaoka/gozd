@@ -1,33 +1,126 @@
 @import "tailwindcss";
 @plugin "@iconify/tailwind4";
 
-button {
-  cursor: pointer;
+/* Tier 1 primitives: @gozd/design-tokens package が build (prepare) で生成する
+ * dist/tokens.generated.css。Adobe Leonardo の contrast-driven algorithm で
+ * gray + intent hues × 12-step OKLCH を出力。再生成 / brand 変更は
+ * packages/design-tokens/src/generateTokens.ts を編集して pnpm install */
+@import "@gozd/design-tokens/tokens.css";
+
+/* ---------------------------------------------------------------------------
+ * gozd design tokens — Tier 2 / Tier 3
+ *
+ * Tier 1 (primitives, :root) は `@gozd/design-tokens` package で生成し、上の
+ * @import で取り込む。本 file は consumer 側として:
+ *   - Tier 2 (semantic aliases, @theme inline): role 名 utility を生成
+ *   - Tier 3 (element defaults, @layer base): UA stylesheet 打ち消し / scrollbar
+ *
+ * @theme inline modifier は utility 値に var(--primitive) を直接展開するため、
+ * 将来 light theme で primitive 側を override したとき自動 propagate する。
+ *
+ * gozd は dark-only。light 追加時は @custom-variant light を有効化し、
+ * `@gozd/design-tokens` 側で `.light` scope の primitives を別途生成する。
+ *
+ * 機械的制約 (constraint over determinism):
+ *   - 生 Tailwind palette (bg-zinc-800 / var(--color-zinc-N) 等) → `gozd/no-raw-tailwind-palette`
+ *   - primitive 直参照 (var(--gray-3) 等) → 同 rule で error
+ *   - 命名は role-based。numbered semantic alias は禁止 (panel / element 等)
+ * ------------------------------------------------------------------------- */
+
+@theme inline {
+  /* surfaces (1-5 step roles) */
+  --color-background: var(--gray-1);
+  --color-panel: var(--gray-2);
+  --color-element: var(--gray-3);
+  --color-element-hover: var(--gray-4);
+  --color-element-active: var(--gray-5);
+
+  /* borders (6-8 step roles) */
+  --color-border-subtle: var(--gray-6);
+  --color-border: var(--gray-7);
+  --color-border-strong: var(--gray-8);
+
+  /* text (11-12 step roles) */
+  --color-foreground: var(--gray-12);
+  --color-foreground-low: var(--gray-11);
+
+  /* focus ring (intent step 8) */
+  --color-ring: var(--blue-8);
+
+  /* overlay: black alpha (dark UI 用 backdrop。gray alpha は白 overlay = bg を
+     lighten するため、dialog backdrop には逆向きで使えない) */
+  --color-overlay: oklch(0 0 0 / 0.5);
+
+  /* intent: primary (blue) */
+  --color-primary: var(--blue-9);
+  --color-primary-hover: var(--blue-10);
+  --color-primary-text: var(--blue-11);
+  --color-primary-foreground: var(--gray-12);
+
+  /* intent: destructive (red) */
+  --color-destructive: var(--red-9);
+  --color-destructive-hover: var(--red-10);
+  --color-destructive-text: var(--red-11);
+  --color-destructive-foreground: var(--gray-12);
+
+  /* intent: success (green) */
+  --color-success: var(--green-9);
+  --color-success-hover: var(--green-10);
+  --color-success-text: var(--green-11);
+  --color-success-foreground: var(--gray-12);
+
+  /* intent: warning (amber、solid は light yellow → foreground は dark) */
+  --color-warning: var(--amber-9);
+  --color-warning-hover: var(--amber-10);
+  --color-warning-text: var(--amber-11);
+  --color-warning-foreground: var(--gray-1);
+
+  /* intent: warning-strong (orange、solid は mid-bright → foreground は dark) */
+  --color-warning-strong: var(--orange-9);
+  --color-warning-strong-hover: var(--orange-10);
+  --color-warning-strong-text: var(--orange-11);
+  --color-warning-strong-foreground: var(--gray-1);
+
+  /* intent: info (text-only、solid なし。primary と同 hue の text step を借用) */
+  --color-info: var(--blue-11);
+
+  /* scrollbar (UA pseudo-element 専用、utility 化対象なし) */
+  --color-scrollbar-thumb: var(--gray-a6);
+  --color-scrollbar-thumb-hover: var(--gray-a8);
 }
 
-/* `<dialog>` の UA stylesheet（background-color: canvas / border: solid / padding: 1em）を一括打ち消す。dialog の見た目はすべて内側のラッパーで描画する規約のため、UA 装飾は要素単位で剥がす。margin: auto は Tailwind v4 preflight が消す (tailwindlabs/tailwindcss issue 16372) ので合わせて復元する */
-dialog {
-  margin: auto;
-  padding: 0;
-  border: none;
-  background: transparent;
-}
+@layer base {
+  body {
+    @apply bg-background text-foreground;
+  }
 
-/* 細いオーバーレイスクロールバー */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
+  button {
+    cursor: pointer;
+  }
 
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+  /* `<dialog>` の UA stylesheet 打ち消し。中身のラッパーで見た目を作る規約。
+     Tailwind v4 preflight が margin を消す (tailwindlabs#16372) ため auto 復元 */
+  dialog {
+    margin: auto;
+    padding: 0;
+    border: none;
+    background: transparent;
+  }
 
-::-webkit-scrollbar-thumb {
-  background: theme(--color-zinc-600);
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: theme(--color-zinc-500);
+  /* overlay scrollbar (全要素適用、SessionLogTimeline の操作 bar と区別する
+     ため低 chroma + 白 alpha で固定) */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-scrollbar-thumb);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-scrollbar-thumb-hover);
+  }
 }

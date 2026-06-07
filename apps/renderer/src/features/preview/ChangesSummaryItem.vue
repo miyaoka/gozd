@@ -107,11 +107,11 @@ const TYPE_TO_KIND: Record<GitFileChange["type"], GitChangeKind> = {
 const kind = computed<GitChangeKind>(() => effectiveKind.value ?? TYPE_TO_KIND[props.change.type]);
 
 const BADGE_CLASSES: Record<GitChangeKind, string> = {
-  modified: "text-yellow-400 bg-yellow-400/10",
-  added: "text-green-400 bg-green-400/10",
-  deleted: "text-red-400 bg-red-400/10",
-  untracked: "text-green-400 bg-green-400/10",
-  renamed: "text-blue-400 bg-blue-400/10",
+  modified: "text-warning-text bg-warning/10",
+  added: "text-success-text bg-success/10",
+  deleted: "text-destructive-text bg-destructive/10",
+  untracked: "text-success-text bg-success/10",
+  renamed: "text-primary-text bg-primary/10",
 };
 
 const BADGE_LABEL: Record<GitChangeKind, string> = {
@@ -559,22 +559,22 @@ onUnmounted(unsubscribeFsChange);
 </script>
 
 <template>
-  <div ref="rootRef" class="border-b border-zinc-700 last:border-b-0">
+  <div ref="rootRef" class="border-b border-border last:border-b-0">
     <!-- ヘッダー: アイコン + パス + バッジ + collapse トグル -->
     <button
       type="button"
-      class="flex w-full items-center gap-2 bg-zinc-800/40 px-3 py-1.5 text-left transition-colors hover:bg-zinc-800/80"
+      class="flex w-full items-center gap-2 bg-panel/40 px-3 py-1.5 text-left transition-colors hover:bg-panel/80"
       :title="collapsed ? 'Expand' : 'Collapse'"
       :aria-label="collapsed ? 'Expand' : 'Collapse'"
       @click="collapsed = !collapsed"
     >
       <span
-        class="size-3.5 shrink-0 text-zinc-500"
+        class="size-3.5 shrink-0 text-foreground-low"
         :class="collapsed ? 'icon-[lucide--chevron-right]' : 'icon-[lucide--chevron-down]'"
       />
       <img :src="iconUrl" class="size-4 shrink-0" alt="" />
-      <span class="truncate text-xs text-zinc-300">{{ displayPath }}</span>
-      <span v-if="props.change.type === 'R'" class="truncate text-xs text-zinc-500">
+      <span class="truncate text-xs text-foreground">{{ displayPath }}</span>
+      <span v-if="props.change.type === 'R'" class="truncate text-xs text-foreground-low">
         ← {{ props.change.oldFilePath }}
       </span>
       <span
@@ -587,9 +587,9 @@ onUnmounted(unsubscribeFsChange);
 
     <!-- 中身 -->
     <div v-if="!collapsed">
-      <div v-if="loading" class="px-3 py-2 text-xs text-zinc-500">Loading...</div>
-      <div v-else-if="error" class="px-3 py-2 text-xs text-red-400">{{ error }}</div>
-      <div v-else-if="isBinary || isOriginalBinary" class="px-3 py-2 text-xs text-zinc-500">
+      <div v-if="loading" class="px-3 py-2 text-xs text-foreground-low">Loading...</div>
+      <div v-else-if="error" class="px-3 py-2 text-xs text-destructive-text">{{ error }}</div>
+      <div v-else-if="isBinary || isOriginalBinary" class="px-3 py-2 text-xs text-foreground-low">
         Binary file — diff not available
       </div>
       <DiffPreview
@@ -602,7 +602,7 @@ onUnmounted(unsubscribeFsChange);
         :blame-enabled="blameEnabled"
         @line-number-click="onLineNumberClick"
       />
-      <div v-else class="px-3 py-2 text-xs text-zinc-500">No diff</div>
+      <div v-else class="px-3 py-2 text-xs text-foreground-low">No diff</div>
     </div>
   </div>
 </template>

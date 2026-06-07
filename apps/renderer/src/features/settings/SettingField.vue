@@ -23,8 +23,8 @@ const model = defineModel<unknown>();
 <template>
   <div class="flex items-start justify-between gap-4 py-2">
     <div class="min-w-0 flex-1">
-      <div class="text-sm text-zinc-200">{{ setting.label }}</div>
-      <div v-if="setting.description" class="mt-0.5 text-xs text-zinc-500">
+      <div class="text-sm text-foreground">{{ setting.label }}</div>
+      <div v-if="setting.description" class="mt-0.5 text-xs text-foreground-low">
         {{ setting.description }}
       </div>
     </div>

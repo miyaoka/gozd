@@ -45,7 +45,7 @@ function handleStyleChange(event: Event) {
     <template v-if="voicevoxStore.speakers.length > 0">
       <div
         v-if="voicevoxStore.speakerIdIsStale"
-        class="flex items-start gap-2 rounded-sm bg-amber-950/40 px-2 py-1 text-xs text-amber-300"
+        class="flex items-start gap-2 rounded-sm bg-warning/40 px-2 py-1 text-xs text-warning-text"
       >
         <span class="icon-[lucide--triangle-alert] size-4 shrink-0" />
         <div class="flex-1">
@@ -53,18 +53,18 @@ function handleStyleChange(event: Event) {
           default.
           <button
             type="button"
-            class="ml-1 underline hover:text-amber-200"
+            class="ml-1 underline hover:text-warning-text"
             @click="voicevoxStore.setSpeakerId(voicevoxStore.effectiveSpeakerId)"
           >
             Use default
           </button>
         </div>
       </div>
-      <div class="flex items-center gap-2 text-xs text-zinc-500">
+      <div class="flex items-center gap-2 text-xs text-foreground-low">
         <span class="icon-[lucide--user] size-4 shrink-0" title="Character" />
         <select
           aria-label="VOICEVOX character"
-          class="min-w-0 flex-1 rounded-sm bg-zinc-800 px-1 py-0.5 text-zinc-300"
+          class="min-w-0 flex-1 rounded-sm bg-panel px-1 py-0.5 text-foreground"
           :value="currentSpeaker?.name ?? ''"
           @change="handleSpeakerChange"
         >
@@ -77,11 +77,11 @@ function handleStyleChange(event: Event) {
           </option>
         </select>
       </div>
-      <div class="flex items-center gap-2 text-xs text-zinc-500">
+      <div class="flex items-center gap-2 text-xs text-foreground-low">
         <span class="icon-[lucide--palette] size-4 shrink-0" title="Style" />
         <select
           aria-label="VOICEVOX style"
-          class="min-w-0 flex-1 rounded-sm bg-zinc-800 px-1 py-0.5 text-zinc-300 disabled:opacity-50"
+          class="min-w-0 flex-1 rounded-sm bg-panel px-1 py-0.5 text-foreground disabled:opacity-50"
           :disabled="currentStyles.length <= 1"
           :value="voicevoxStore.effectiveSpeakerId"
           @change="handleStyleChange"
@@ -92,6 +92,6 @@ function handleStyleChange(event: Event) {
         </select>
       </div>
     </template>
-    <div v-else class="text-xs text-zinc-500 italic">Enable VOICEVOX to load characters</div>
+    <div v-else class="text-xs text-foreground-low italic">Enable VOICEVOX to load characters</div>
   </div>
 </template>

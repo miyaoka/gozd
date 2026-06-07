@@ -82,11 +82,11 @@ import { getFileIconUrl, getFolderIconUrl } from "./useFileIcon";
 import { useFilerEventStore } from "./useFilerEventStore";
 
 const GIT_CHANGE_COLOR_MAP: Record<GitChangeKind, string> = {
-  modified: "text-yellow-400",
-  added: "text-green-400",
-  deleted: "text-red-400",
-  untracked: "text-green-400",
-  renamed: "text-blue-400",
+  modified: "text-warning-text",
+  added: "text-success-text",
+  deleted: "text-destructive-text",
+  untracked: "text-success-text",
+  renamed: "text-primary-text",
 };
 
 const props = defineProps<{
@@ -174,9 +174,9 @@ const effectiveGitChange = computed<GitChangeKind | undefined>(() => {
 
 const textColorClass = computed(() => {
   if (effectiveGitChange.value) return GIT_CHANGE_COLOR_MAP[effectiveGitChange.value];
-  if (props.isIgnored === true) return "text-zinc-500";
-  if (props.selectedRelPath === props.path) return "text-white";
-  return "text-zinc-300";
+  if (props.isIgnored === true) return "text-foreground-low";
+  if (props.selectedRelPath === props.path) return "text-foreground";
+  return "text-foreground";
 });
 
 /** 削除ファイルかどうか (snapshot mode では発生しない) */
@@ -429,9 +429,9 @@ function onContextMenu(event: MouseEvent) {
     <button
       v-if="!isRoot"
       ref="button"
-      class="flex w-full items-center gap-1 rounded-sm px-1 py-0.5 text-left text-sm select-none hover:bg-zinc-700"
+      class="flex w-full items-center gap-1 rounded-sm px-1 py-0.5 text-left text-sm select-none hover:bg-element"
       :class="[
-        selectedRelPath === path ? 'bg-zinc-700' : '',
+        selectedRelPath === path ? 'bg-element' : '',
         textColorClass,
         isDeleted ? 'line-through opacity-60' : '',
         isInertLeaf ? 'cursor-not-allowed opacity-60' : '',
@@ -463,7 +463,7 @@ function onContextMenu(event: MouseEvent) {
     <template v-if="isDirectory && expanded">
       <div
         v-if="loading && !children"
-        class="py-1 text-xs text-zinc-500"
+        class="py-1 text-xs text-foreground-low"
         :style="{ paddingLeft: `${(depth + 1) * 16 + 4}px` }"
       >
         Loading...

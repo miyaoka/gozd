@@ -15,10 +15,10 @@ const dateDisplay = computed(() => formatRelativeDate(props.pr.updatedAt));
 </script>
 
 <template>
-  <span class="truncate text-green-400">#{{ pr.number }}</span>
+  <span class="truncate text-success-text">#{{ pr.number }}</span>
   <span class="truncate">{{ pr.title }}</span>
-  <span class="truncate text-cyan-400">{{ pr.headRef }}</span>
-  <span class="flex items-center gap-1 truncate text-zinc-400">
+  <span class="truncate text-primary-text">{{ pr.headRef }}</span>
+  <span class="flex items-center gap-1 truncate text-foreground-low">
     <img
       v-if="pr.authorAvatarUrl !== ''"
       :src="pr.authorAvatarUrl"

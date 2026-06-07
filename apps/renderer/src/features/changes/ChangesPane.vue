@@ -99,19 +99,21 @@ function onClickViewAll() {
 
 <template>
   <div
-    class="flex size-full flex-col overflow-hidden border-l border-zinc-700 bg-zinc-900 text-zinc-300"
+    class="flex size-full flex-col overflow-hidden border-l border-border bg-background text-foreground"
   >
-    <div class="flex shrink-0 items-center gap-1.5 border-b border-zinc-700 px-3 py-1.5">
-      <span class="icon-[lucide--git-branch] size-4 text-zinc-400" />
-      <span class="text-xs font-semibold text-zinc-400">Changes</span>
-      <span v-if="changesStore.fileChanges.length > 0" class="text-xs text-zinc-500"
+    <div class="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1.5">
+      <span class="icon-[lucide--git-branch] size-4 text-foreground-low" />
+      <span class="text-xs font-semibold text-foreground-low">Changes</span>
+      <span v-if="changesStore.fileChanges.length > 0" class="text-xs text-foreground-low"
         >({{ changesStore.fileChanges.length }})</span
       >
       <button
         v-if="prDiffToggle.canEnable"
         type="button"
         class="ml-auto flex items-center gap-1 px-2 py-0.5 text-xs transition-colors disabled:cursor-progress disabled:opacity-60"
-        :class="prDiffToggle.isOn ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300'"
+        :class="
+          prDiffToggle.isOn ? 'text-primary-text' : 'text-foreground-low hover:text-foreground'
+        "
         :title="
           prDiffToggle.enabling
             ? 'Resolving PR diff base...'
@@ -137,7 +139,7 @@ function onClickViewAll() {
         type="button"
         class="flex items-center gap-1 px-2 py-0.5 text-xs transition-colors"
         :class="[
-          summaryStore.enabled ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300',
+          summaryStore.enabled ? 'text-primary-text' : 'text-foreground-low hover:text-foreground',
           prDiffToggle.canEnable ? '' : 'ml-auto',
         ]"
         :disabled="changesStore.fileChanges.length === 0"
@@ -151,11 +153,11 @@ function onClickViewAll() {
     </div>
 
     <div v-if="changesStore.loading" class="flex-1 overflow-y-auto p-2">
-      <div class="text-xs text-zinc-500">Loading...</div>
+      <div class="text-xs text-foreground-low">Loading...</div>
     </div>
 
     <div v-else-if="tree.length === 0" class="flex-1 overflow-y-auto p-2">
-      <div class="text-xs text-zinc-500">No changes</div>
+      <div class="text-xs text-foreground-low">No changes</div>
     </div>
 
     <div v-else class="flex-1 overflow-y-auto py-1">

@@ -13,9 +13,9 @@ import type { QuickPickItem } from "../palette";
 import { previewFontFamily, previewFontSize } from "../preview";
 import { rpcLoadAppConfig, rpcSaveAppConfig } from "../settings";
 import {
-  DEFAULT_THEME,
   currentTheme,
   currentThemeName,
+  getDefaultTheme,
   terminalFontFamily,
   terminalFontSize,
 } from "./terminalConfig";
@@ -35,7 +35,7 @@ let generation = 0;
 export async function applyTerminalTheme(themeName: string): Promise<void> {
   const gen = ++generation;
   if (themeName === "") {
-    currentTheme.value = DEFAULT_THEME;
+    currentTheme.value = getDefaultTheme();
     currentThemeName.value = undefined;
     return;
   }
@@ -108,6 +108,10 @@ async function saveTerminalTheme(themeName: string): Promise<void> {
 export function registerThemeCommand(): () => void {
   const registry = useCommandRegistry();
   const { show } = useQuickPick();
+
+  /* design token から default theme を seed (CSS は app mount 時点で確実に load 済み)。
+   * 保存済み theme があれば restoreSavedConfig が上書きする */
+  currentTheme.value = getDefaultTheme();
 
   // 起動時に保存済み設定を復元
   void restoreSavedConfig();

@@ -1,3 +1,13 @@
+## デザイントークン / UI 規律
+
+- 色は **semantic token** だけを使う。生 Tailwind palette (`zinc-*` / `blue-*` / `red-*` 等) と primitive 直参照 (`var(--gray-3)` / `var(--blue-9)` 等) は ESLint で error
+- Token system: 3-tier
+  - Tier 1 (primitives): `@gozd/design-tokens` package が Adobe Leonardo で生成 → `dist/tokens.generated.css` を `main.css` が `@import`
+  - Tier 2 (semantic aliases): `main.css` の `@theme inline` で role 名定義
+  - Tier 3 (element defaults): `main.css` の `@layer base` で UA 上書き / scrollbar
+- Tier 1 primitives は **手書き禁止**。brand を変えるときは [`packages/design-tokens/src/generateTokens.ts`](../../packages/design-tokens/src/generateTokens.ts) の `BRAND` を編集し `pnpm install` (prepare で自動再生成)
+- UI を書く / 直すときの規律一覧は project-local skill [`/.claude/skills/gozd-ui/SKILL.md`](../../.claude/skills/gozd-ui/SKILL.md) を参照 (Claude Code 自動適用)
+
 ## 検証コマンド
 
 - package 単位の検証は `pnpm run test` / `pnpm run typecheck`

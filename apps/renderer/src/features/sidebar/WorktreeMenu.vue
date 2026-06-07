@@ -23,7 +23,7 @@ function handleRemove() {
 
 <template>
   <Popover
-    class="m-0 min-w-36 rounded-lg border border-zinc-700 bg-zinc-900 py-1 text-sm text-zinc-200 shadow-lg"
+    class="m-0 min-w-36 rounded-lg border border-border bg-background py-1 text-sm text-foreground shadow-lg"
     :style="{
       position: 'fixed',
       positionArea: 'block-end span-inline-end',
@@ -32,7 +32,7 @@ function handleRemove() {
   >
     <button
       v-if="context"
-      class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-400 hover:bg-zinc-800"
+      class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-destructive-text hover:bg-panel"
       @click="handleRemove"
     >
       <span class="icon-[lucide--unlink] text-xs" />

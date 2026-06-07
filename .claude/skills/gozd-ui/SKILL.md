@@ -181,9 +181,9 @@ click handler を持つ要素は必ず `<button type="button">`。`<div>` に `r
 
 container は `focus-visible:` を使うと「キーボード focus のみ visual indicator を出し、マウスクリック後の focus は出さない」となり、頻繁に click される list row 等で persistent outline が消えて UX が綺麗。
 
-## Inline style の SSOT 例外
+## Inline binding (`:style` / SVG `:fill` `:stroke`) の SSOT 例外
 
-`:style` を使ってよいのは以下のみ。それ以外の自前 UI 色 / 固定値 (`w-4` / `h-2` / `left-N` 等) を inline style で渡すのは禁止 (Tailwind utility を使う)。
+`:style` や SVG element 上の attribute binding (`:fill` / `:stroke`) で色や数値を inline に渡してよいのは以下のみ。それ以外の自前 UI 色 / 固定値 (`w-4` / `h-2` / `left-N` 等) を inline に渡すのは禁止 (Tailwind utility を使う)。
 
 **(a) 外部 theme 由来の動的色**: `@theme` で表現できない外部 system が返す hex (Shiki syntax highlight の `token.color` / iTerm2-Color-Schemes terminal theme の `currentTheme.background` 等)。
 
@@ -194,7 +194,7 @@ container は `focus-visible:` を使うと「キーボード focus のみ visua
 - spacing: `gap` / `padding` / `padding-left` / `margin`
 - grid: `grid-area` / `grid-template-rows` / `grid-template-columns`
 
-**(c) 動的計算色 (内部生成)**: id / 名前 hash から動的に生成される色 (例: TerminalPane の `hashToColor` で repo 名 → HSL pastel 色)、または有限固定 palette を runtime index で引く色 (例: `graphColors.ts` の `laneTextColor()` で lane index → 8 色 OKLCH literal)。`@theme` に固定 token として持てない per-identifier / per-index 動的値のため、inline style (`:style`) または SVG attribute binding (`:fill` / `:stroke`) に渡すのは許容。
+**(c) 動的計算色 (内部生成)**: id / 名前 hash から動的に生成される色 (例: TerminalPane の `hashToColor` で repo 名 → HSL pastel 色)、または有限固定 palette を runtime index で引く色 (例: `graphColors.ts` の `laneTextColor()` で lane index → 8 色 OKLCH literal)。`@theme` に固定 token として持てない per-identifier / per-index 動的値のため、`:style` または SVG element 上の `:fill` / `:stroke` に渡すのは許容。
 
 ## `class` は layout 専用
 

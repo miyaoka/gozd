@@ -261,7 +261,7 @@ export const useChangesStore = defineStore("changes", () => {
    * 派生先を store の同期 computed に閉じる。
    *
    * `buildChangesTree` は不正 path (空 segment / 重複 / file⇔folder 衝突) で throw する契約。失敗時は
-   * Result を経由して空配列に倒し、純粋な値だけ返す。トースト通知は同一 store 内の `watch(treeResult)`
+   * Result を経由して空配列に倒し、純粋な値だけ返す。トースト通知は同一 store 内の `watch(treeResult.ok)`
    * で副作用として 1 回だけ発射する (computed が副作用を持たない Vue 規律と整合)。
    */
   const treeResult = computed(() => tryCatch(() => buildChangesTree(fileChanges.value)));
@@ -271,22 +271,35 @@ export const useChangesStore = defineStore("changes", () => {
 
   /**
    * ChangesPane のツリー描画と同順にフラット化したファイル一覧 (depth-first、folder 先 + localeCompare、
-   * chain 圧縮込み)。ChangesSummaryView が縦並び diff の表示順として購読する。
+   * chain 圧縮込み)。ChangesSummaryView が縦並び diff の表示順として購読する。また Pane / Summary 両者で
+   * 件数表示・空判定・View all の disabled 制御もこの 1 つの computed を購読軸に揃える。
    *
    * ChangesPane の `collapsedFolders` は描画上の折りたたみ状態であって `tree` 自体には影響しないため、
    * Summary は collapsed 状態に依存せず全件を展開した順序になる (View all の意味論と整合)。
    *
-   * tree 構築失敗時は元の `fileChanges` 順にフォールバックする (空表示にせず、Summary がそのまま動く)。
+   * tree 構築失敗時は `[]` にフォールバックする。`fileChanges` を返すと「描画は空 ([]) なのに件数表示は
+   * 元の N 件」「View all は disabled にならない」など view 内 / view 間で件数と表示が分裂するため、
+   * 失敗時は描画ソースと件数判定ソースを構造的に揃える ([] にしておけば Pane: "No changes" + tree 空、
+   * Summary: "No changes" で両者一致)。失敗自体の観察可能性は `watch(treeResult.ok)` 側のトーストで担保。
    */
   const orderedFileChanges = computed<GitFileChange[]>(() =>
-    treeResult.value.ok ? flattenChangesTree(treeResult.value.value) : fileChanges.value,
+    treeResult.value.ok ? flattenChangesTree(treeResult.value.value) : [],
   );
 
-  watch(treeResult, (result) => {
-    if (!result.ok) notification.error("Failed to build changes tree", result.error);
-  });
+  // 監視 source は `treeResult.value.ok` (boolean) に限定する。computed の memo により同一 fileChanges
+  // 入力に対して Result identity も維持されるが、source を `ok` flag に絞ることで「失敗状態への遷移」
+  // 1 回だけ発火する契約が型レベルで明示される (成功 → 成功の同 identity 再評価で誤発火しない保険)。
+  watch(
+    () => treeResult.value.ok,
+    (ok) => {
+      if (ok) return;
+      const result = treeResult.value;
+      if (result.ok) return;
+      notification.error("Failed to build changes tree", result.error);
+    },
+  );
 
-  return { fileChanges, loading, tree, orderedFileChanges };
+  return { loading, tree, orderedFileChanges };
 });
 
 if (import.meta.hot) {

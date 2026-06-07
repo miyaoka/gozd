@@ -12,8 +12,10 @@ Changed files tree. Shows HEAD vs working directory by default, or a selected co
 
 ## Data source
 
-ファイル一覧の決定ロジックと RPC fetch は `useChangesStore` が SSOT。
-ChangesPane は store の `fileChanges` をツリーに整形して描画するだけ。
+ファイル一覧の決定ロジックと RPC fetch は `useChangesStore` が SSOT。ChangesPane は store の
+`tree` (描画用) と `orderedFileChanges` (件数表示・空判定・View all ボタンの disabled 制御) を
+購読するだけで、自身で tree 構築・ソート・件数判定を行わない。tree 構築失敗時は両者とも空に倒れ、
+view 内で「件数あり / 描画は No changes」のような不整合は出ない。
 
 ## PR diff toggle
 
@@ -76,8 +78,8 @@ function onClickViewAll() {
     <div class="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1.5">
       <span class="icon-[lucide--git-branch] size-4 text-foreground-low" />
       <span class="text-xs font-semibold text-foreground-low">Changes</span>
-      <span v-if="changesStore.fileChanges.length > 0" class="text-xs text-foreground-low"
-        >({{ changesStore.fileChanges.length }})</span
+      <span v-if="changesStore.orderedFileChanges.length > 0" class="text-xs text-foreground-low"
+        >({{ changesStore.orderedFileChanges.length }})</span
       >
       <button
         v-if="prDiffToggle.canEnable"
@@ -114,7 +116,7 @@ function onClickViewAll() {
           summaryStore.enabled ? 'text-primary-text' : 'text-foreground-low hover:text-foreground',
           prDiffToggle.canEnable ? '' : 'ml-auto',
         ]"
-        :disabled="changesStore.fileChanges.length === 0"
+        :disabled="changesStore.orderedFileChanges.length === 0"
         title="Show all diffs in preview"
         aria-label="Toggle changes summary"
         @click="onClickViewAll"
@@ -128,7 +130,10 @@ function onClickViewAll() {
       <div class="text-xs text-foreground-low">Loading...</div>
     </div>
 
-    <div v-else-if="changesStore.tree.length === 0" class="flex-1 overflow-y-auto p-2">
+    <div
+      v-else-if="changesStore.orderedFileChanges.length === 0"
+      class="flex-1 overflow-y-auto p-2"
+    >
       <div class="text-xs text-foreground-low">No changes</div>
     </div>
 

@@ -506,12 +506,13 @@ async function fetchPrDiffContent(filePath: string) {
   // この path 選択を欠くと「存在しないパスへの `git show <base>:<path>`」を発射して stderr noise
   // を出し、R では from/to の取り違えで rename が added 扱いに倒れる。
   //
-  // lookup 失敗 (= fileChanges に該当 change が無い) 経路はそのまま fetch すると per-type 分岐が
-  // 失われて bogus stderr が再発するため、空表示にして watcher 再発火に委ねる。`fileChanges` は
-  // 上位 watcher の deps に含まれているため、`prDiffFiles` 取得完了 / 選択 path が含まれる
+  // lookup 失敗 (= orderedFileChanges に該当 change が無い) 経路はそのまま fetch すると per-type 分岐
+  // が失われて bogus stderr が再発するため、空表示にして watcher 再発火に委ねる。`orderedFileChanges`
+  // は上位 watcher の deps に含まれているため、`prDiffFiles` 取得完了 / 選択 path が含まれる
   // 変化 で再発火する。本経路は (a) PR diff fetch がまだ確定していない race window
   // (b) PR diff に含まれないファイルを Filer から選択した状況、いずれも結果として空表示が妥当。
-  const change = changesStore.fileChanges.find((c) => c.newFilePath === filePath);
+  // (順序非依存の lookup 用途。store の `fileChanges` 直接購読を避けて SSOT 経路に揃える)
+  const change = changesStore.orderedFileChanges.find((c) => c.newFilePath === filePath);
   if (change === undefined) {
     currentContent.value = undefined;
     originalContent.value = undefined;
@@ -612,11 +613,12 @@ watch(
       gitGraphStore.compareHash,
       prDiffToggle.isOn,
       prDiffToggle.lockedBaseOid,
-      // PR diff モードの fetchPrDiffContent は `changesStore.fileChanges` から change object を
-      // lookup して per-type の path 選択を行う。fileChanges が確定するまで lookup 失敗で
+      // PR diff モードの fetchPrDiffContent は `changesStore.orderedFileChanges` から change object
+      // を lookup して per-type の path 選択を行う。orderedFileChanges が確定するまで lookup 失敗で
       // フォールバックに倒れ bogus な git show を発射してしまう race を防ぐため、
-      // fileChanges を deps に入れて確定タイミングで再発火させる。
-      changesStore.fileChanges,
+      // orderedFileChanges を deps に入れて確定タイミングで再発火させる (件数表示 / 空判定と同様
+      // store の SSOT computed に揃える)。
+      changesStore.orderedFileChanges,
     ] as const,
   async ([path, _kind, gitChange, selectedHash, compareHash, isPrDiff]) => {
     previewEnabled.value = true;
@@ -869,7 +871,7 @@ watch(
     () => gitGraphStore.compareHash,
     () => prDiffToggle.isOn,
     () => prDiffToggle.lockedBaseOid,
-    () => changesStore.fileChanges,
+    () => changesStore.orderedFileChanges,
     activeMode,
     // summary view 切替で CodePreview / DiffPreview が unmount され anchor が detached
     // になるため、popover も同時に閉じる必要がある。

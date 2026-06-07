@@ -148,6 +148,7 @@ final class AppRuntime {
         "statuses": status.statuses,
         "head": status.head,
         "branchHead": status.branchHead,
+        "latestMtime": Int(status.latestMtime),
       ]
       // upstream 未設定なら upstream フィールドごと不在にする。renderer 側は
       // `upstream === undefined` を「ahead/behind を読まない」契約として扱う。

@@ -1,6 +1,6 @@
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { rpcGitStatus } from "./rpc";
@@ -32,6 +32,25 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
     return wt?.gitStatuses ?? {};
   });
 
+  /** per-worktree の「変更ファイル mtime 最大値 (Unix 秒)」。
+   * `WorktreeEntry` 型に侵襲したくない (test fixture / 他経路への影響を避ける) ため、
+   * repoStore とは独立した Map で保持する。push / RPC レスポンスの両経路で
+   * `setWorkingTreeMtime` を呼び、active dir の値を `workingTreeMtime` computed で公開する。 */
+  const workingTreeMtimeByDir = ref(new Map<string, number>());
+
+  /** active dir の変更ファイル mtime 最大値 (Unix 秒)。未取得 / clean のときは 0。 */
+  const workingTreeMtime = computed<number>(() => {
+    const dir = repoStore.selectedDir;
+    if (dir === undefined) return 0;
+    return workingTreeMtimeByDir.value.get(dir) ?? 0;
+  });
+
+  function setWorkingTreeMtime(dir: string, mtime: number) {
+    const next = new Map(workingTreeMtimeByDir.value);
+    next.set(dir, mtime);
+    workingTreeMtimeByDir.value = next;
+  }
+
   /**
    * active dir の git status を rpcGitStatus で取得し直して repoStore を更新する。
    * dir 切替時 / Claude state 遷移時 / Filer の初期読み込みで呼ばれる。
@@ -52,13 +71,14 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
         statuses: result.value.entries,
         upstream: result.value.upstream,
       });
+      setWorkingTreeMtime(dir, result.value.latestMtime);
     } else {
       const notify = useNotificationStore();
       notify.error("Failed to get git status", result.error);
     }
   }
 
-  return { gitStatuses, loadGitStatus };
+  return { gitStatuses, workingTreeMtime, loadGitStatus, setWorkingTreeMtime };
 });
 
 if (import.meta.hot) {

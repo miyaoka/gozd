@@ -19,4 +19,7 @@ message GitStatusResponse {
   map<string, string> entries = 1;
   // upstream に対する差分。未設定なら不在。
   optional UpstreamStatus upstream = 2;
+  // 変更ファイルの最終更新時刻 (Unix 秒)。`entries` の各パスを stat した最大値。
+  // clean (差分なし) / stat 全失敗のときは 0。削除済みパスは stat 失敗で自動除外。
+  int64 latest_mtime = 3;
 }

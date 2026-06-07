@@ -76,19 +76,19 @@ native は `WebPage.callJavaScript("window.__gozdReceive(type, payload)", ...)` 
 
 主な push type:
 
-| type               | 発火元                                           | 用途                                                                    |
-| ------------------ | ------------------------------------------------ | ----------------------------------------------------------------------- |
-| `ptyText`          | native (`PTYRegistry`)                           | PTY 出力                                                                |
-| `ptyExit`          | native (`PTYRegistry`)                           | PTY 終了                                                                |
-| `fsChange`         | native (`FSWatchRegistry`)                       | watch dir 配下のファイル変更                                            |
-| `gitStatusChange`  | native (`FSWatchRegistry` の git 経路)           | git status 変化 + HEAD ハッシュ + branch head + ahead/behind + upstream |
-| `branchChange`     | native (primary worktree のみ dedup)             | ローカルブランチ参照の変化 (`refs/heads/*`)                             |
-| `remoteRefsChange` | native (primary worktree のみ dedup)             | リモート tracking 参照の変化 (`refs/remotes/*`、push / fetch 後)        |
-| `worktreeChange`   | native (primary worktree のみ dedup)             | `worktrees/*` 配下の変化                                                |
-| `fsWatchReady`     | renderer 内部 (`useFsWatchSync.dispatchMessage`) | `rpcFsWatch` 成功直後の dir 単位 re-sync シグナル                       |
-| `gozdOpen`         | native                                           | CLI / launch request からの open リクエスト                             |
-| `hook`             | native (`SocketServer` → `HookMessage`)          | Claude Code Hook イベント                                               |
-| `notify`           | native                                           | native 側のバックグラウンドエラー / 情報通知                            |
+| type               | 発火元                                           | 用途                                                                                                |
+| ------------------ | ------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `ptyText`          | native (`PTYRegistry`)                           | PTY 出力                                                                                            |
+| `ptyExit`          | native (`PTYRegistry`)                           | PTY 終了                                                                                            |
+| `fsChange`         | native (`FSWatchRegistry`)                       | watch dir 配下のファイル変更                                                                        |
+| `gitStatusChange`  | native (`FSWatchRegistry` の git 経路)           | git status 変化 + HEAD ハッシュ + branch head + ahead/behind + upstream + 変更ファイル mtime 最大値 |
+| `branchChange`     | native (primary worktree のみ dedup)             | ローカルブランチ参照の変化 (`refs/heads/*`)                                                         |
+| `remoteRefsChange` | native (primary worktree のみ dedup)             | リモート tracking 参照の変化 (`refs/remotes/*`、push / fetch 後)                                    |
+| `worktreeChange`   | native (primary worktree のみ dedup)             | `worktrees/*` 配下の変化                                                                            |
+| `fsWatchReady`     | renderer 内部 (`useFsWatchSync.dispatchMessage`) | `rpcFsWatch` 成功直後の dir 単位 re-sync シグナル                                                   |
+| `gozdOpen`         | native                                           | CLI / launch request からの open リクエスト                                                         |
+| `hook`             | native (`SocketServer` → `HookMessage`)          | Claude Code Hook イベント                                                                           |
+| `notify`           | native                                           | native 側のバックグラウンドエラー / 情報通知                                                        |
 
 すべての push payload は `dir`（または発火元 dir）を必須で持つ。詳細は [architecture.md](architecture.md#ssot-push-の-dir-filter-規律) を参照。
 

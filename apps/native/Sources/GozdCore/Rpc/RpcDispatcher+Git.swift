@@ -11,6 +11,7 @@ extension RpcDispatcher {
     let status = try await GitOps.gitStatusFull(dir: req.dir)
     var resp = Gozd_V1_GitStatusResponse()
     resp.entries = status.statuses
+    resp.latestMtime = status.latestMtime
     if status.hasUpstream {
       var upstream = Gozd_V1_UpstreamStatus()
       upstream.ahead = status.ahead

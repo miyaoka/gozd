@@ -126,7 +126,14 @@ const newestSub = computed<{ label: string; events: TranscriptEvent[] } | undefi
   return newest;
 });
 const subEvents = computed<TranscriptEvent[]>(() => newestSub.value?.events ?? []);
-const subLabel = computed<string | undefined>(() => newestSub.value?.label);
+// subLabel は <summary> の折り畳みハンドルを兼ねるため、subagentTabLabel が空文字
+// を返すケース (ロード途中 / meta.json 解析失敗) でも "Subagent" にフォールバック
+// して summary を必ず出す。summary を欠落させると UA デフォルト "Details" 表示に
+// なり、クリックハンドルもユーザーにとって意味不明な文字列になる。
+const subLabel = computed<string>(() => {
+  const label = newestSub.value?.label;
+  return label !== undefined && label !== "" ? label : "Subagent";
+});
 
 // 1 overlay 分の bubble シーケンス。各 kind から最大 2 件取り、ts 昇順でマージする。
 // LINE 同様の時系列読みになる (上から下が時間の経過方向)。
@@ -220,7 +227,6 @@ const hasSub = computed(() => subMessages.value.length > 0);
   >
     <details :open="subOpen" @toggle="onSubToggle">
       <summary
-        v-if="subLabel"
         class="pointer-events-auto cursor-pointer truncate px-1 text-xs font-semibold text-foreground-low hover:text-foreground [&::-webkit-details-marker]:hidden [&::marker]:hidden"
         :title="subLabel"
       >

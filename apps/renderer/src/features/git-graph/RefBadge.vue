@@ -1,15 +1,35 @@
 <doc lang="md">
 Branch ref badge with optional PR link. Displays a PR number badge (left) and branch label (right).
+
+## カラー設計
+
+graph line と同じ lane 色で描画して「ブランチ ref と graph line が同じ色」を視覚的に
+担保する。`laneColorIndex` は親 GitGraphPane が `node.color` (graphLayout のレーン色 index)
+として渡す。
+
+- `local` / `synced`: lane hue full saturation の text + lane hue subtle bg (subtle chip pattern を
+  per-lane 展開)
+- `remote`: 同じ lane hue を低明度 / 低 chroma に倒した text (`laneRemoteTextColor`)。bg は local と
+  共通の `laneSubtleBgColor` で「同じ branch の remote 側 = 一段 dim」を表現
+- `tag`: branch とは別概念なので primary-subtle (lane 色に乗らない)
+- `isCurrent`: HEAD branch tip を warning solid で強調 (lane 色より上に立つ攻撃的ハイライト)
+
+8 lane × 3 variant (text local / text remote / bg) を Tier 2 token に展開すると alias 表が
+肥大化するため、`graphColors.ts` の動的計算色を inline `:style` で渡す
+([gozd-ui SKILL の inline style 例外 (c) 動的計算色 (内部生成)](../../../../.claude/skills/gozd-ui/SKILL.md))。
 </doc>
 
 <script setup lang="ts">
 import type { GitPullRequest } from "@gozd/proto";
 import { computed } from "vue";
 import type { DisplayRef } from "./displayRef";
+import { laneRemoteTextColor, laneSubtleBgColor, laneTextColor } from "./graphColors";
 
 const props = defineProps<{
   displayRef: DisplayRef;
   prByBranch: Map<string, GitPullRequest>;
+  /** この commit が乗っている graph lane の color index。graph line と ref text の hue を揃える */
+  laneColorIndex: number;
 }>();
 
 /** DisplayRef からブランチ名を抽出し、対応する PR を返す */
@@ -22,21 +42,40 @@ const pr = computed(() => {
   return props.prByBranch.get(branchName);
 });
 
-// actionable 軸で色を分ける:
-//   synced     = neutral chip。両方にあるので追加 action 不要 = 最も「not actionable」
-//   local      = success-subtle。push 候補 (remote にまだない)
-//   remote     = success-subtle。fetch 候補 (local にまだない)。local と同色だが
-//                label 先頭の `origin/` prefix と link-2-off icon で区別される
-//   tag        = primary-subtle。branch とは別概念 (hue で分離)
-const REF_TYPE_CLASS: Record<DisplayRef["type"], string> = {
-  synced: "bg-element text-foreground-low",
-  local: "bg-success-subtle text-success-text",
-  remote: "bg-success-subtle text-success-text",
-  tag: "bg-primary-subtle text-primary-text",
-};
+/**
+ * branch (local / remote / synced) は lane 色を inline style で適用する。
+ * tag は branch ではないため lane 色に乗らず、primary-subtle (Tier 2 token) を使う。
+ */
+const isBranch = computed(() => props.displayRef.type !== "tag" && !props.displayRef.isCurrent);
 
-const CURRENT_LOCAL_CLASS = "bg-warning text-warning-foreground";
-const CURRENT_REMOTE_CLASS = "bg-warning-subtle text-warning-text";
+const branchStyle = computed<Record<string, string> | undefined>(() => {
+  if (!isBranch.value) return undefined;
+  const text =
+    props.displayRef.type === "remote"
+      ? laneRemoteTextColor(props.laneColorIndex)
+      : laneTextColor(props.laneColorIndex);
+  return {
+    backgroundColor: laneSubtleBgColor(props.laneColorIndex),
+    color: text,
+  };
+});
+
+/**
+ * tag は branch とは別 hue (primary-subtle) を Tier 2 token で当てる。
+ * isCurrent は warning solid (HEAD tip 強調)、isCurrent && remote は warning-subtle で「remote HEAD pointer」。
+ */
+const fallbackClass = computed(() => {
+  if (props.displayRef.isCurrent) {
+    return props.displayRef.type === "remote"
+      ? "bg-warning-subtle text-warning-text"
+      : "bg-warning text-warning-foreground";
+  }
+  if (props.displayRef.type === "tag") {
+    return "bg-primary-subtle text-primary-text";
+  }
+  return "";
+});
+
 const DEFAULT_CLASS = "ring-1 ring-inset ring-current";
 </script>
 
@@ -59,17 +98,11 @@ const DEFAULT_CLASS = "ring-1 ring-inset ring-current";
     <span class="icon-[lucide--git-pull-request] size-3" />
     #{{ pr.number }}
   </a>
-  <!-- Branch label -->
+  <!-- Branch / tag label -->
   <span
     class="flex shrink-0 items-center gap-0.5 rounded-sm px-1 py-0.5 text-[10px] leading-none font-medium"
-    :class="[
-      displayRef.isCurrent
-        ? displayRef.type === 'remote'
-          ? CURRENT_REMOTE_CLASS
-          : CURRENT_LOCAL_CLASS
-        : REF_TYPE_CLASS[displayRef.type],
-      displayRef.isDefault && DEFAULT_CLASS,
-    ]"
+    :class="[fallbackClass, displayRef.isDefault && DEFAULT_CLASS]"
+    :style="branchStyle"
   >
     <span v-if="displayRef.isSynced" class="icon-[lucide--link] size-3" />
     <span v-else-if="displayRef.isOutOfSync" class="icon-[lucide--link-2-off] size-3" />

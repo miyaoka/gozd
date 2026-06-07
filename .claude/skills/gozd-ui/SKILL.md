@@ -146,7 +146,7 @@ chip と banner の使い分け: 本文が短く intent 色で塗っても可読
 | -------------- | -------------------------------------- | ---------------------------------------------------------------------------------- |
 | primary        | 主要 action / 主要 active state        | submit button / mode tab indicator / current branch / active task row              |
 | info           | 補助 active state / 中立的な情報リンク | sub-toggle (preview / wordwrap) / inline link / info badge / ref / branch / 識別子 |
-| success        | 完了 / 成功 / 同期可能                 | added file / untracked file / local ref / remote ref / user message bubble         |
+| success        | 完了 / 成功                            | added file / untracked file / user message bubble                                  |
 | destructive    | 削除 / エラー / 危険                   | delete button / error toast / removed file                                         |
 | warning        | 進行中 / 一般的な注意                  | Claude `working` / `〜時間前` (recent stale) / modified file                       |
 | warning-strong | 要対応 / 強い注意                      | Claude `asking` / `〜日前` (older stale) / subagent badge                          |

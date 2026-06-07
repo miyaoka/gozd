@@ -14,15 +14,29 @@ watch で取得した hunks を `hunksToViewItems` (unified) と `hunksToSplitRo
 両方に展開し、`baseItems` / `baseSplitItems` として state.success に保持する。
 view mode の切り替えで再 fetch は走らない。
 
+### section 分割と選択スコープ
+
+`renderRows` / `splitRenderRows` を hunk-bar 境界で section (連続する非 hunk-bar 行 1 群)
+に分割し、各 section を `contenteditable=true` の editing host にする。hunk-bar は
+section の外に sibling として置くため Cmd+A の scope に入らず、unchanged lines のラベルは
+clipboard に乗らない。行番号は `::before { content: attr(data-line-no) }` の generated
+content なので構造的に clipboard 対象外。
+
 ### unified
 
-`{ type: "line" | "hunk-bar" }` の列を 1 列レイアウト (old 行番号 / new 行番号 / テキスト) で描画。
+各 section が `_unified-section` 1 つの contenteditable コンテナ。section 内で各行を
+`display: block` の `_diff-line` として並べ、line-no を `inline-block`、本文を `inline`
+の hanging indent (`padding-left` + 負 `text-indent`) で配置する。flex / grid を経由しないので
+子要素の blockification が起きず、contenteditable コピー時に「1 行 = 1 改行」になる。
 
 ### split (default)
 
-`{ type: "split-row" | "hunk-bar" }` の列を 4 列レイアウト (old 行番号 / old テキスト / new 行番号 / new テキスト)
-で描画。modified hunk 内では連続する removed run と added run を貪欲ペアリングし、
-余った片側は反対セルを空 (灰色背景) にして残す。
+各 section が `_split-section` の `1fr 1fr` grid で 2 半身 (left / right) を並べ、
+半身それぞれが独立した contenteditable host (sibling)。Cmd+A の scope は focus が居る
+半身 1 つだけに閉じる。半身内は per-row の `_split-row` を `display: block` +
+hanging indent で並べる。modified hunk 内では連続する removed run と added run を貪欲
+ペアリングし、片側だけが存在する行は反対側の `_split-row` を空 (`_split-filler` で
+灰色背景) にして残す。
 
 ### hunk-bar
 
@@ -555,6 +569,60 @@ function buildRenderedSplitRow(
   return { ...row, oldTokens, newTokens };
 }
 
+/**
+ * Cmd+A scope を「開かれている可視チャンク 1 つ」に閉じ込めるため、`renderRows` /
+ * `splitRenderRows` を hunk-bar 境界で section に分割する。section が contenteditable
+ * の editing host になり、hunk-bar 自体は contenteditable の **外** に sibling として
+ * 置く構造に template 側を組む。
+ *
+ * 配列要素は `DiffBarItem` か `{ type: "section"; lines: ... }` のどちらかで、
+ * 並び順が DOM 描画順と一致する。hunk-bar の前後関係 / 末尾 trailing は flat 配列に
+ * そのまま現れるため、template の v-for 1 段で素直に描ける。
+ */
+type RenderedUnifiedLine = DiffLineItem & { tokens?: ThemedToken[] };
+type RenderedSplitLine = DiffSplitRowItem & {
+  oldTokens?: ThemedToken[];
+  newTokens?: ThemedToken[];
+};
+type UnifiedItem = DiffBarItem | { type: "section"; lines: RenderedUnifiedLine[] };
+type SplitItem = DiffBarItem | { type: "section"; lines: RenderedSplitLine[] };
+
+const unifiedItems = computed<UnifiedItem[]>(() => {
+  const out: UnifiedItem[] = [];
+  let current: RenderedUnifiedLine[] = [];
+  for (const row of renderRows.value) {
+    if (row.type === "hunk-bar") {
+      if (current.length > 0) {
+        out.push({ type: "section", lines: current });
+        current = [];
+      }
+      out.push(row);
+    } else {
+      current.push(row);
+    }
+  }
+  if (current.length > 0) out.push({ type: "section", lines: current });
+  return out;
+});
+
+const splitItems = computed<SplitItem[]>(() => {
+  const out: SplitItem[] = [];
+  let current: RenderedSplitLine[] = [];
+  for (const row of splitRenderRows.value) {
+    if (row.type === "hunk-bar") {
+      if (current.length > 0) {
+        out.push({ type: "section", lines: current });
+        current = [];
+      }
+      out.push(row);
+    } else {
+      current.push(row);
+    }
+  }
+  if (current.length > 0) out.push({ type: "section", lines: current });
+  return out;
+});
+
 const tokensReady = computed(
   () => originalTokens.value !== undefined && currentTokens.value !== undefined,
 );
@@ -676,225 +744,227 @@ function blockEdit(event: Event) {
     </div>
 
     <!--
-      diff 本体 scroll コンテナ。Cmd+A scope の host は **leaf 1 段のみ** という規律で、
-      モードによって host を切り替える:
-        - unified: この scroll コンテナ自体が host (内側に halves は無い)
-        - split: host は左右半身 (sibling); scroll コンテナは host にしない (nesting 回避)
-      これで nested contenteditable の不安定領域を踏まない。
+      diff 本体 scroll コンテナ。contenteditable は **section (= hunk-bar で挟まれた可視チャンク) 単位**
+      の host で、scroll コンテナ自体は host にしない。hunk-bar は section の **外** に sibling として
+      置くため、Cmd+A は focus が居る section だけに閉じ、hunk-bar / 他 section は scope に入らない。
     -->
-    <div
-      class="flex-1 overflow-auto p-4 text-sm/tight"
-      :class="viewMode === 'unified' ? 'outline-none' : ''"
-      :contenteditable="viewMode === 'unified' ? 'true' : 'false'"
-      spellcheck="false"
-      autocorrect="off"
-      autocapitalize="off"
-      :aria-readonly="viewMode === 'unified' ? 'true' : undefined"
-      :style="{ '--line-no-width': lineNoWidth }"
-      @beforeinput="blockEdit"
-      @dragover.prevent
-      @drop.prevent
-    >
+    <div class="flex-1 overflow-auto p-4 text-sm/tight" :style="{ '--line-no-width': lineNoWidth }">
       <div v-if="state.kind === 'loading'" class="text-foreground-low">Computing diff...</div>
 
       <div v-else-if="state.kind === 'error'" class="text-destructive-text">
         Failed to compute diff: {{ state.message }}
       </div>
 
-      <!-- unified view -->
+      <!-- unified view: section ごとに contenteditable 1 つ。hunk-bar は sibling。 -->
       <template v-else-if="viewMode === 'unified'">
-        <template v-for="(row, i) in renderRows" :key="i">
+        <template v-for="(item, i) in unifiedItems" :key="i">
           <button
-            v-if="row.type === 'hunk-bar'"
+            v-if="item.type === 'hunk-bar'"
             type="button"
             class="_hunk-bar"
-            :title="`Click to expand ${row.lines} unchanged line${row.lines === 1 ? '' : 's'}`"
-            @click="toggleBar(row)"
+            :title="`Click to expand ${item.lines} unchanged line${item.lines === 1 ? '' : 's'}`"
+            @click="toggleBar(item)"
           >
             <span class="_hunk-bar-icon icon-[lucide--more-horizontal] size-3.5" />
-            <span>{{ barLabel(row) }}</span>
+            <span>{{ barLabel(item) }}</span>
           </button>
 
           <div
             v-else
-            class="_diff-line"
-            :class="tokensReady ? LINE_BG_CLASSES[row.kind] : LINE_FALLBACK_CLASSES[row.kind]"
+            class="_unified-section outline-none"
+            contenteditable="true"
+            spellcheck="false"
+            autocorrect="off"
+            autocapitalize="off"
+            aria-readonly="true"
+            @beforeinput="blockEdit"
+            @dragover.prevent
+            @drop.prevent
           >
-            <button
-              v-if="row.oldLineNo !== undefined && blameEnabled"
-              type="button"
-              class="_line-no _line-no-btn"
-              :data-line-no="row.oldLineNo"
-              :aria-label="`Old line ${row.oldLineNo}`"
-              @click="onLineClick('old', row.oldLineNo, $event)"
-            />
-            <span v-else class="_line-no" :data-line-no="row.oldLineNo ?? ''" aria-hidden="true" />
-            <button
-              v-if="row.newLineNo !== undefined && blameEnabled"
-              type="button"
-              class="_line-no _line-no-btn"
-              :data-line-no="row.newLineNo"
-              :aria-label="`New line ${row.newLineNo}`"
-              @click="onLineClick('new', row.newLineNo, $event)"
-            />
-            <span v-else class="_line-no" :data-line-no="row.newLineNo ?? ''" aria-hidden="true" />
-            <span class="_line-text" :class="wordWrap ? '_word-wrap' : ''">
-              <template v-if="row.tokens">
-                <span
-                  v-for="(token, j) in row.tokens"
-                  :key="j"
-                  :style="token.color ? { color: token.color } : undefined"
-                  >{{ token.content }}</span
-                >
-              </template>
-              <template v-else>{{ row.text }}</template>
-            </span>
-          </div>
-        </template>
-      </template>
-
-      <!--
-        split view: 左右の半身を **個別の `contenteditable`** にして、Cmd+A の selection
-        scope を片側だけに閉じ込める。contenteditable をネストすると UA は最内 editing host
-        を scope に取るので、DiffPreview 外側 (PreviewPane / ChangesSummaryView) の
-        contenteditable とも干渉しない。
-        各半身は 2-col サブグリッド (line-no / text)。1 行が単一行高なので左右の行は自然に揃う。
-        hunk-bar は左右各半身に描画する。同じ row 参照で `toggleBar` を呼ぶため、片方クリックで両方一括展開。
-      -->
-      <div v-else class="_split-grid">
-        <div
-          class="_split-half _split-half-left outline-none"
-          contenteditable="true"
-          spellcheck="false"
-          autocorrect="off"
-          autocapitalize="off"
-          aria-readonly="true"
-          @beforeinput="blockEdit"
-          @dragover.prevent
-          @drop.prevent
-        >
-          <template v-for="(row, i) in splitRenderRows" :key="`L${i}`">
-            <button
-              v-if="row.type === 'hunk-bar'"
-              type="button"
-              class="_hunk-bar _hunk-bar-span"
-              :title="`Click to expand ${row.lines} unchanged line${row.lines === 1 ? '' : 's'}`"
-              @click="toggleBar(row)"
+            <div
+              v-for="(row, j) in item.lines"
+              :key="j"
+              class="_diff-line"
+              :class="tokensReady ? LINE_BG_CLASSES[row.kind] : LINE_FALLBACK_CLASSES[row.kind]"
             >
-              <span class="_hunk-bar-icon icon-[lucide--more-horizontal] size-3.5" />
-              <span>{{ barLabel(row) }}</span>
-            </button>
-
-            <template v-else>
               <button
                 v-if="row.oldLineNo !== undefined && blameEnabled"
                 type="button"
-                class="_line-no _split-cell _line-no-btn"
-                :class="splitLeftBg(row)"
+                class="_line-no _line-no-btn"
                 :data-line-no="row.oldLineNo"
                 :aria-label="`Old line ${row.oldLineNo}`"
                 @click="onLineClick('old', row.oldLineNo, $event)"
               />
               <span
                 v-else
-                class="_line-no _split-cell"
-                :class="splitLeftBg(row)"
+                class="_line-no"
                 :data-line-no="row.oldLineNo ?? ''"
                 aria-hidden="true"
               />
-              <span
-                class="_line-text _split-cell _split-text"
-                :class="[splitLeftBg(row), wordWrap ? '_word-wrap' : '']"
-              >
-                <template v-if="row.oldText !== undefined">
-                  <template v-if="row.oldTokens">
-                    <span
-                      v-for="(token, j) in row.oldTokens"
-                      :key="j"
-                      :style="token.color ? { color: token.color } : undefined"
-                      >{{ token.content }}</span
-                    >
-                  </template>
-                  <template v-else>{{ row.oldText }}</template>
-                </template>
-              </span>
-            </template>
-          </template>
-        </div>
-
-        <div
-          class="_split-half _split-half-right outline-none"
-          contenteditable="true"
-          spellcheck="false"
-          autocorrect="off"
-          autocapitalize="off"
-          aria-readonly="true"
-          @beforeinput="blockEdit"
-          @dragover.prevent
-          @drop.prevent
-        >
-          <template v-for="(row, i) in splitRenderRows" :key="`R${i}`">
-            <button
-              v-if="row.type === 'hunk-bar'"
-              type="button"
-              class="_hunk-bar _hunk-bar-span"
-              :title="`Click to expand ${row.lines} unchanged line${row.lines === 1 ? '' : 's'}`"
-              @click="toggleBar(row)"
-            >
-              <span class="_hunk-bar-icon icon-[lucide--more-horizontal] size-3.5" />
-              <span>{{ barLabel(row) }}</span>
-            </button>
-
-            <template v-else>
               <button
                 v-if="row.newLineNo !== undefined && blameEnabled"
                 type="button"
-                class="_line-no _split-cell _line-no-btn"
-                :class="splitRightBg(row)"
+                class="_line-no _line-no-btn"
                 :data-line-no="row.newLineNo"
                 :aria-label="`New line ${row.newLineNo}`"
                 @click="onLineClick('new', row.newLineNo, $event)"
               />
               <span
                 v-else
-                class="_line-no _split-cell"
-                :class="splitRightBg(row)"
+                class="_line-no"
                 :data-line-no="row.newLineNo ?? ''"
                 aria-hidden="true"
               />
-              <span
-                class="_line-text _split-cell _split-text"
-                :class="[splitRightBg(row), wordWrap ? '_word-wrap' : '']"
-              >
-                <template v-if="row.newText !== undefined">
-                  <template v-if="row.newTokens">
-                    <span
-                      v-for="(token, j) in row.newTokens"
-                      :key="j"
-                      :style="token.color ? { color: token.color } : undefined"
-                      >{{ token.content }}</span
-                    >
-                  </template>
-                  <template v-else>{{ row.newText }}</template>
+              <span class="_line-text" :class="wordWrap ? '_word-wrap' : ''">
+                <template v-if="row.tokens">
+                  <span
+                    v-for="(token, k) in row.tokens"
+                    :key="k"
+                    :style="token.color ? { color: token.color } : undefined"
+                    >{{ token.content }}</span
+                  >
                 </template>
+                <template v-else>{{ row.text }}</template>
               </span>
-            </template>
-          </template>
-        </div>
-      </div>
+            </div>
+          </div>
+        </template>
+      </template>
+
+      <!--
+        split view: section ごとに「左半身 contenteditable」+「右半身 contenteditable」の sibling 構成。
+        hunk-bar は section の外に sibling として置くので scope に入らない。
+        section 内の左右半身は単一行高で自然に行揃え (1 行 = 1 grid row)。
+      -->
+      <template v-else>
+        <template v-for="(item, i) in splitItems" :key="i">
+          <button
+            v-if="item.type === 'hunk-bar'"
+            type="button"
+            class="_hunk-bar"
+            :title="`Click to expand ${item.lines} unchanged line${item.lines === 1 ? '' : 's'}`"
+            @click="toggleBar(item)"
+          >
+            <span class="_hunk-bar-icon icon-[lucide--more-horizontal] size-3.5" />
+            <span>{{ barLabel(item) }}</span>
+          </button>
+
+          <div v-else class="_split-section">
+            <div
+              class="_split-half _split-half-left outline-none"
+              contenteditable="true"
+              spellcheck="false"
+              autocorrect="off"
+              autocapitalize="off"
+              aria-readonly="true"
+              @beforeinput="blockEdit"
+              @dragover.prevent
+              @drop.prevent
+            >
+              <div
+                v-for="(row, j) in item.lines"
+                :key="`L${j}`"
+                class="_split-row"
+                :class="splitLeftBg(row)"
+              >
+                <button
+                  v-if="row.oldLineNo !== undefined && blameEnabled"
+                  type="button"
+                  class="_line-no _line-no-btn"
+                  :data-line-no="row.oldLineNo"
+                  :aria-label="`Old line ${row.oldLineNo}`"
+                  @click="onLineClick('old', row.oldLineNo, $event)"
+                />
+                <span
+                  v-else
+                  class="_line-no"
+                  :data-line-no="row.oldLineNo ?? ''"
+                  aria-hidden="true"
+                />
+                <span class="_line-text" :class="wordWrap ? '_word-wrap' : ''">
+                  <template v-if="row.oldText !== undefined">
+                    <template v-if="row.oldTokens">
+                      <span
+                        v-for="(token, k) in row.oldTokens"
+                        :key="k"
+                        :style="token.color ? { color: token.color } : undefined"
+                        >{{ token.content }}</span
+                      >
+                    </template>
+                    <template v-else>{{ row.oldText }}</template>
+                  </template>
+                </span>
+              </div>
+            </div>
+
+            <div
+              class="_split-half _split-half-right outline-none"
+              contenteditable="true"
+              spellcheck="false"
+              autocorrect="off"
+              autocapitalize="off"
+              aria-readonly="true"
+              @beforeinput="blockEdit"
+              @dragover.prevent
+              @drop.prevent
+            >
+              <div
+                v-for="(row, j) in item.lines"
+                :key="`R${j}`"
+                class="_split-row"
+                :class="splitRightBg(row)"
+              >
+                <button
+                  v-if="row.newLineNo !== undefined && blameEnabled"
+                  type="button"
+                  class="_line-no _line-no-btn"
+                  :data-line-no="row.newLineNo"
+                  :aria-label="`New line ${row.newLineNo}`"
+                  @click="onLineClick('new', row.newLineNo, $event)"
+                />
+                <span
+                  v-else
+                  class="_line-no"
+                  :data-line-no="row.newLineNo ?? ''"
+                  aria-hidden="true"
+                />
+                <span class="_line-text" :class="wordWrap ? '_word-wrap' : ''">
+                  <template v-if="row.newText !== undefined">
+                    <template v-if="row.newTokens">
+                      <span
+                        v-for="(token, k) in row.newTokens"
+                        :key="k"
+                        :style="token.color ? { color: token.color } : undefined"
+                        >{{ token.content }}</span
+                      >
+                    </template>
+                    <template v-else>{{ row.newText }}</template>
+                  </template>
+                </span>
+              </div>
+            </div>
+          </div>
+        </template>
+      </template>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* 1 diff 行を 1 block に揃えて clipboard の `\n` を 1 行につき 1 個にする。
+   `display: flex` で子要素を blockification すると、contenteditable コピー時に各子の block
+   境界でも `\n` が入り、行間に空行が混じる現象になる。block + inline-block + 負 text-indent
+   の hanging indent パターンに倒すことで、word-wrap モードでも折返し行が line-no 幅で
+   indent 揃えされる挙動を保ったまま、clipboard を 1 行 = 1 改行に正規化する。 */
 ._diff-line {
-  display: flex;
+  display: block;
+  padding-left: calc((var(--line-no-width, 3ch) + 1.5ch) * 2);
+  text-indent: calc(-1 * (var(--line-no-width, 3ch) + 1.5ch) * 2);
 }
 
 ._line-no {
   display: inline-block;
   width: var(--line-no-width, 3ch);
-  flex-shrink: 0;
   text-align: right;
   color: var(--color-element-hover);
   user-select: none;
@@ -929,13 +999,14 @@ function blockEdit(event: Event) {
   color: var(--color-primary);
 }
 
-._line-no + ._line-text {
-  margin-left: 1.5ch;
+/* line-no と _line-text の間隔は `_diff-line` の padding-left + text-indent で吸収するため
+   個別の margin-left は不要。line-no 間の右余白は `_line-no` の `margin-right` で持つ。 */
+._line-no {
+  margin-right: 1.5ch;
 }
 
 ._line-text {
   white-space: pre;
-  min-width: 0;
 }
 
 ._line-text._word-wrap {
@@ -967,28 +1038,30 @@ function blockEdit(event: Event) {
   flex-shrink: 0;
 }
 
-/* split view: 左右の半身を contenteditable 別個に持つ 2-column 外側 grid。
-   各半身は内部に 2-col サブグリッド (line-no / text) を持ち、行高は単一行 line-height で
-   両半身ともに同期する。row alignment は明示的な subgrid 等を使わずに自然成立する。 */
-._split-grid {
+/* split view: section ごとに左右の半身を 1fr / 1fr で並べる外側 grid。
+   各半身は単純な block コンテナで、内側は `_split-row` 1 つを 1 block として行を並べる。
+   旧構造の半身内 2-col サブグリッドはやめた: grid 子の blockification で contenteditable
+   コピー時に行間に余計な `\n` が混じる現象を避けるため。代わりに `_split-row` 1 つに
+   hanging indent (padding-left + 負 text-indent) を当てて、word-wrap 時の折返し行が
+   line-no 幅で揃う挙動を保つ。
+   hunk-bar は section の外、scroll コンテナ直下の sibling に置くため、どの contenteditable
+   subtree にも入らず Cmd+A scope から構造的に除外される。
+   split は section ごとに左右半身それぞれが独立した contenteditable=true の editing host。
+   `user-select: none` は selectAll 経路で仕様保証が無いため scope 制御には使わない。 */
+._split-section {
   display: grid;
   grid-template-columns: 1fr 1fr;
 }
 
 ._split-half {
-  display: grid;
-  grid-template-columns: var(--line-no-width, 3ch) minmax(0, 1fr);
-  column-gap: 1.5ch;
-  align-items: stretch;
+  display: block;
 }
 
-/*
-  split は左右半身それぞれが独立した contenteditable=true の editing host。
-  scroll コンテナ側を contenteditable=false にしてあるので、halves は **sibling の host** で
-  あって nested ではない。Cmd+A は focus が居る半身の host scope を取るため、片側だけが
-  clipboard に乗る。
-  `user-select: none` は selectAll 経路で仕様保証が無いため、scope 制御には使わない。
-*/
+._split-row {
+  display: block;
+  padding-left: calc(var(--line-no-width, 3ch) + 1.5ch);
+  text-indent: calc(-1 * (var(--line-no-width, 3ch) + 1.5ch));
+}
 
 /* 旧 `_split-divider` (個別セルの左 border) を半身境界の border-left に統合。
    セル単位で divider を持つよりも構造が SSOT に揃う。 */
@@ -997,24 +1070,13 @@ function blockEdit(event: Event) {
   padding-left: 0.5ch;
 }
 
-._split-cell {
-  display: block;
-  padding: 0 0.25ch;
-}
-
-._split-text {
-  padding-left: 0.5ch;
-  padding-right: 0.5ch;
-}
-
-/* 片側のみの remove / add 行で反対セルを灰色で埋める */
+/* 片側のみの remove / add 行で反対行を灰色で埋める。`_split-filler` は `_split-row` に
+   class として乗るので行全体が灰色になる (旧構造は cell 単位だったが、per-row block 化で
+   row 単位の塗りに統合)。 */
 ._split-filler {
   background-color: var(--color-panel);
 }
 
-/* hunk-bar は半身内 (split) / scroll container 直下 (unified) どちらでも
-   そのコンテナの 1 列目から最後までを span する。 */
-._hunk-bar-span {
-  grid-column: 1 / -1;
-}
+/* hunk-bar / section は scroll コンテナ直下に sibling として置かれる block 要素。
+   grid container 内に居ないので grid-column span 等の追加 CSS は不要。 */
 </style>

@@ -11,13 +11,23 @@ main / sub を独立した 2 つの overlay に分け、terminal の右上に ma
 物理的距離で分離する設計。
 
 各 overlay の内側は user / assistant それぞれ最終 2 発言 (合計 4 件まで) を ts 昇順で
-混ぜて並べる。user は右寄せ + `bg-success-subtle` + `rounded-tr-sm`、assistant は左寄せ
-
-- `bg-panel` + `rounded-tl-sm` の LINE 風吹き出し。
+混ぜて並べる。user は右寄せ + `bg-chat-outgoing` (LINE 緑) + 黒文字、assistant は
+左寄せ + `bg-chat-incoming` (暗グレー) + 白文字の LINE ダーク風吹き出し。角丸は対称
+(話者方向を示す尖り角は付けない)。
 
 「kind ごとに 2 件確保 → ts でマージ」順で並べるため、assistant が連続応答するケース
-でも user の最近 2 件が落ちず、対話の流れが追える。各 bubble は 1 行 truncate。bubble
-が 0 件の overlay は非表示にし、両 overlay とも空なら何も描画しない。
+でも user の最近 2 件が落ちず、対話の流れが追える。各 bubble は span ラップした
+`line-clamp-2` で 2 行省略する (WebKit の button native renderer が
+`-webkit-box-orient: vertical` を無視するため、button 直下では line-clamp が効かず
+中間 span に逃がしている)。bubble が 0 件の overlay は非表示にし、両 overlay とも空なら
+何も描画しない。
+
+## sub の subagent ラベル
+
+sub overlay の先頭に `subagentTabLabel` 由来の subagent ラベル (Task / workflow agent)
+を出し、どの subagent の発話なのかを明示する。ラベルは `<details><summary>` で
+括られており、native の open/close で bubble 群を折りたためる。状態は Vue 側に持たず
+`<details>` の `open` 属性が SSOT。
 
 ## 全文 preview
 
@@ -91,18 +101,21 @@ const mainEvents = computed<TranscriptEvent[]>(() => {
   return main === undefined ? [] : parsedEvents(main.content);
 });
 
-// 最後に発話があった subagent 1 つの events。「発話」は kind 問わず events 末尾の ts を
-// 見る (tool だけ走っている subagent も走った時刻として最新性に寄与する)。
-const subEvents = computed<TranscriptEvent[]>(() => {
+// 最後に発話があった subagent 1 つの events + 表示ラベル (subagentTabLabel が組み立てた
+// agent 名 / workflow 見出し)。「発話」は kind 問わず events 末尾の ts を見る (tool だけ
+// 走っている subagent も走った時刻として最新性に寄与する)。events と label を 1 つの
+// computed にまとめておくと sub overlay の見出しと本文が同じ subagent から派生する不変条件を
+// 構造的に担保できる。
+const newestSub = computed<{ label: string; events: TranscriptEvent[] } | undefined>(() => {
   const subs = sessions.value
     .filter((s) => s.kind !== "main")
-    .map((s) => parsedEvents(s.content))
-    .filter((events) => events.length > 0);
-  if (subs.length === 0) return [];
+    .map((s) => ({ label: s.label, events: parsedEvents(s.content) }))
+    .filter((x) => x.events.length > 0);
+  if (subs.length === 0) return undefined;
   let newest = subs[0];
-  let newestMs = lastTs(newest);
+  let newestMs = lastTs(newest.events);
   for (let i = 1; i < subs.length; i++) {
-    const ms = lastTs(subs[i]);
+    const ms = lastTs(subs[i].events);
     if (ms > newestMs) {
       newestMs = ms;
       newest = subs[i];
@@ -110,6 +123,8 @@ const subEvents = computed<TranscriptEvent[]>(() => {
   }
   return newest;
 });
+const subEvents = computed<TranscriptEvent[]>(() => newestSub.value?.events ?? []);
+const subLabel = computed<string | undefined>(() => newestSub.value?.label);
 
 // 1 overlay 分の bubble シーケンス。各 kind から最大 2 件取り、ts 昇順でマージする。
 // LINE 同様の時系列読みになる (上から下が時間の経過方向)。
@@ -163,7 +178,7 @@ const hasSub = computed(() => subMessages.value.length > 0);
   <!-- main: 右上。user / assistant 各最大 2 件を時系列順に LINE 風吹き出しで並べる -->
   <div
     v-if="hasMain"
-    class="pointer-events-none absolute top-1 right-3 z-10 flex w-56 max-w-[35%] flex-col gap-1 p-2 text-xs/tight"
+    class="pointer-events-none absolute top-1 right-3 z-10 flex w-56 max-w-[35%] flex-col gap-1 rounded-md bg-background/70 p-2 text-xs/tight"
   >
     <div
       v-for="msg in mainMessages"
@@ -187,31 +202,42 @@ const hasSub = computed(() => subMessages.value.length > 0);
     </div>
   </div>
 
-  <!-- sub: 右下。main と同じ LINE 風シーケンス。物理的距離で main との混在を回避する -->
+  <!-- sub: 右下。main と同じ LINE 風シーケンス。物理的距離で main との混在を回避する。
+       最上段に subagent ラベル (subagentTabLabel が組み立てた agent 名 / workflow 見出し)
+       を出し、どの subagent の発話なのかを明示する。 -->
   <div
     v-if="hasSub"
-    class="pointer-events-none absolute right-3 bottom-1 z-10 flex w-56 max-w-[35%] flex-col gap-1 p-2 text-xs/tight"
+    class="pointer-events-none absolute right-3 bottom-1 z-10 flex w-56 max-w-[35%] flex-col gap-1 rounded-md bg-background/70 p-2 text-xs/tight"
   >
-    <div
-      v-for="msg in subMessages"
-      :key="`${msg.kind}-${msg.ts}`"
-      class="flex min-w-0"
-      :class="msg.kind === 'user' ? 'justify-end' : ''"
-    >
-      <button
-        type="button"
-        class="pointer-events-auto block max-w-[85%] cursor-pointer rounded-lg px-2 py-1 text-left hover:brightness-110"
-        :class="
-          msg.kind === 'user'
-            ? 'bg-chat-outgoing text-chat-outgoing-text'
-            : 'bg-chat-incoming text-chat-incoming-text'
-        "
-        :title="msg.text"
-        @click="openPreview($event, msg.text, msg.kind)"
+    <details open class="contents">
+      <summary
+        v-if="subLabel"
+        class="pointer-events-auto cursor-pointer truncate px-1 text-xs font-semibold text-foreground-low hover:text-foreground [&::-webkit-details-marker]:hidden [&::marker]:hidden"
+        :title="subLabel"
       >
-        <span class="line-clamp-2">{{ msg.text }}</span>
-      </button>
-    </div>
+        {{ subLabel }}
+      </summary>
+      <div
+        v-for="msg in subMessages"
+        :key="`${msg.kind}-${msg.ts}`"
+        class="flex min-w-0"
+        :class="msg.kind === 'user' ? 'justify-end' : ''"
+      >
+        <button
+          type="button"
+          class="pointer-events-auto block max-w-[85%] cursor-pointer rounded-lg px-2 py-1 text-left hover:brightness-110"
+          :class="
+            msg.kind === 'user'
+              ? 'bg-chat-outgoing text-chat-outgoing-text'
+              : 'bg-chat-incoming text-chat-incoming-text'
+          "
+          :title="msg.text"
+          @click="openPreview($event, msg.text, msg.kind)"
+        >
+          <span class="line-clamp-2">{{ msg.text }}</span>
+        </button>
+      </div>
+    </details>
   </div>
 
   <!-- 全文 preview popover。anchor は被クリックの bubble、`positionTryFallbacks` で

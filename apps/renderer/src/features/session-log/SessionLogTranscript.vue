@@ -8,11 +8,14 @@
 ## レイアウト
 
 上部にヘッダ (どの agent のログかを示す agent 名 + 使用 model バッジ + dim な id) を置き、トランスクリプト本文
-1 カラム + 下に footer。本文は LINE のトーク画面に倣ったチャット表示で、
-user (貼り付け画像含む) を自分として右寄せ、assistant を左寄せの吹き出しにする。話者は
-左右寄せ + 緑/zinc の塗り分けで識別できるため、アバターや話者アイコンは置かない。thinking /
-tool は LINE に対応物が無いため、中央寄せの控えめなシステム行に畳む。現在地のナビゲーションは
-ペイン内に持たず、親の横断タイムラインに集約する (`scrollTo` で時刻位置へジャンプを受ける)。
+1 カラム + 下に footer。本文は LINE ダークモードに倣ったチャット表示で、user (貼り付け
+画像含む) を自分として右寄せ、assistant を左寄せの吹き出しにする。配色は chat-\* semantic
+token を介して TerminalSessionPreview と SSOT 共有する (user=`bg-chat-outgoing` + 黒文字 /
+assistant=`bg-chat-incoming` + 白文字 / inline code=`var(--color-chat-code)` の紫)。話者は
+左右寄せ + chat-outgoing/chat-incoming の塗り分けで識別できるため、アバターや話者アイコン
+は置かない。thinking / tool は LINE に対応物が無いため、中央寄せの控えめなシステム行に
+畳む。現在地のナビゲーションはペイン内に持たず、親の横断タイムラインに集約する
+(`scrollTo` で時刻位置へジャンプを受ける)。
 
 ## 設計判断
 

@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # `FileHandle.standardError.write` の直接呼び出しを許可リスト外で reject する。
 # 許可リスト:
-#   - apps/native/Sources/GozdCore/StderrLog.swift  (helper 本体)
-#   - apps/native/Sources/GozdCore/PTYTrace.swift   (trace 系統、独自 lock 経路)
-#   - apps/native/Sources/GozdCLI/                  (user-facing CLI error 出力)
+#   - apps/native/Sources/GozdCore/**/StderrLog.swift  (helper 本体)
+#   - apps/native/Sources/GozdCore/**/PTYTrace.swift   (trace 系統、独自 lock 経路)
+#   - apps/native/Sources/GozdCLI/                     (user-facing CLI error 出力)
+#
+# サブディレクトリ階層を持つレイアウト (`GozdCore/Pty/PTYTrace.swift` 等) でも許可規則が
+# 壊れないよう、許可ファイル名の前段に任意のサブディレクトリを許す `(.*/)?` を入れる。
 #
 # 観察ログ書式の SSOT は `GozdCore.StderrLog.write(tag:_:)`。CLAUDE.md「観察ログ
 # (stderr) の書式」を参照。
@@ -19,7 +22,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 SOURCES_ROOT="$REPO_ROOT/apps/native/Sources"
 
-ALLOWED_PATTERN='apps/native/Sources/(GozdCore/(StderrLog|PTYTrace)\.swift|GozdCLI/)'
+ALLOWED_PATTERN='apps/native/Sources/(GozdCore/(.*/)?(StderrLog|PTYTrace)\.swift|GozdCLI/)'
 PATTERN='FileHandle\.standardError\.write'
 
 found_violation=0

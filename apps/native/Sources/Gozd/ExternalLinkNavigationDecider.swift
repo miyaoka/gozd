@@ -23,7 +23,7 @@ struct ExternalLinkNavigationDecider: WebPage.NavigationDeciding {
 
   /// `$GOZD_DEV_VITE_URL` を origin として解釈する。path が `/` または空でない値が指定されたら
   /// 想定外として nil に倒し起動時 stderr に残す。`isInternalDevURL` は host:port 一致のみを
-  /// 見るため、`http://localhost:5173/anything` のような path 付き設定が紛れると path の異なる
+  /// 見るため、`http://localhost:16873/anything` のような path 付き設定が紛れると path の異なる
   /// external URL も internal allow に倒れる事故が起きる。それを起動時に弾く検証ポイント。
   private static func parseInternalDevOrigin() -> (scheme: String, host: String, port: Int?)? {
     guard let viteURLString = ProcessInfo.processInfo.environment["GOZD_DEV_VITE_URL"],
@@ -69,7 +69,7 @@ struct ExternalLinkNavigationDecider: WebPage.NavigationDeciding {
     // のがユーザー期待挙動であり、それ以外の経路 (form submit / window.open / meta refresh
     // 等) でも外部 host への遷移は構造的に外部送りで揃える。
     //
-    // 起動時の `page.load(http://localhost:5173/)` は dev origin allow 経路で透過する。
+    // 起動時の `page.load(http://localhost:16873/)` は dev origin allow 経路で透過する。
     if isHTTP {
       if isInternalDevURL(url) {
         return .allow

@@ -143,18 +143,45 @@ interface PreviewMessage {
   ts: string;
 }
 const MESSAGES_PER_KIND = 2;
+
+// ts が空文字 / parse 失敗の TranscriptEvent (parseSessionLog は ts="" を許容する) を
+// comparator に渡すと NaN を返して sort が unstable になる。invalid ts は 0 に倒し、
+// 後段の seq tiebreaker で「events 出現順 (user は user 内で、assistant は assistant 内で)」
+// + 「kind 同 ts なら user → assistant」の決定的順序に解決する。
+function safeTsMs(ts: string): number {
+  const ms = Date.parse(ts);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
 function collectMessages(events: TranscriptEvent[]): PreviewMessage[] {
-  const users = lastNMessagesOf(events, "user", MESSAGES_PER_KIND).map((m) => ({
+  // `lastNMessagesOf` は逆走査で末尾から n 件を集めるため戻り配列は「新しい順」。
+  // seq に採番する前に reverse して events 出現順 (古い順) に揃える。これで ts NaN
+  // 群が並ぶケース (session 異常で複数 event が ts="" のとき) でも LINE overlay 上で
+  // 古いものが上、新しいものが下になり、「上 → 下が時間進行」を保てる。
+  // 同 ts 衝突時の kind tiebreaker は user → assistant の順 (同 tick 内で
+  // user の prompt と assistant の応答が並ぶ通常パターンに揃える)。
+  const usersOldestFirst = lastNMessagesOf(events, "user", MESSAGES_PER_KIND).reverse();
+  const assistantsOldestFirst = lastNMessagesOf(events, "assistant", MESSAGES_PER_KIND).reverse();
+  const users = usersOldestFirst.map((m, i) => ({
     kind: "user" as const,
     text: m.text,
     ts: m.ts,
+    seq: i * 2,
   }));
-  const assistants = lastNMessagesOf(events, "assistant", MESSAGES_PER_KIND).map((m) => ({
+  const assistants = assistantsOldestFirst.map((m, i) => ({
     kind: "assistant" as const,
     text: m.text,
     ts: m.ts,
+    seq: i * 2 + 1,
   }));
-  return [...users, ...assistants].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
+  return [...users, ...assistants]
+    .sort((a, b) => {
+      const ta = safeTsMs(a.ts);
+      const tb = safeTsMs(b.ts);
+      if (ta !== tb) return ta - tb;
+      return a.seq - b.seq;
+    })
+    .map(({ kind, text, ts }) => ({ kind, text, ts }));
 }
 const mainMessages = computed<PreviewMessage[]>(() => collectMessages(mainEvents.value));
 const subMessages = computed<PreviewMessage[]>(() => collectMessages(subEvents.value));

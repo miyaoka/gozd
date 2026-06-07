@@ -37,16 +37,22 @@ TS（renderer）と Swift（native）で RPC 型を共有するため、`package
 
 生成物は git に commit しない。`packages/proto-ts/src/generated/` と `packages/proto-swift/Sources/GozdProto/*.pb.swift` は `.gitignore` で除外し、`packages/proto/` の `prepare` script (`buf generate`) が両言語の出力を一括生成する。`buf.gen.yaml` の `clean: true` により 1 回の `buf generate` で ts / swift 出力が揃うため、生成 hook は `packages/proto/` 1 箇所だけに置く（proto-ts / proto-swift 側には置かない）。手動再生成は `pnpm --filter @gozd/proto-schema build`。`buf.gen.yaml` では BSR のリモートプラグイン (`buf.build/community/stephenh-ts-proto` / `buf.build/apple/swift`) をバージョン pin して指定する（具体バージョンは `buf.gen.yaml` を参照）。
 
-生成 trigger は以下の入口で確実に発火する:
+生成 trigger は以下の経路で発火する。**自動発火するのは `node_modules` が outdated な状態で pnpm が install を起動するときだけ**であり、`.proto` だけを編集して `pnpm dev` 等を再実行しても自動再生成はされない。
 
-| 入口                                               | 経路                                                                                                                                              |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm install`（fresh clone / CI）                 | workspace の `prepare` lifecycle で `packages/proto` の `prepare` が発火                                                                          |
-| `pnpm dev` / `pnpm build`                          | pnpm 11 が `pnpm run` 実行前に自動 install → `prepare` 発火                                                                                       |
-| `pnpm -r build` / `pnpm --filter @gozd/native ...` | 同上。pnpm script 経由なら auto-install で `prepare` が走り、`apps/native/scripts/build-{,dev-}app.sh` 側で個別に `buf generate` を呼ぶ必要は無い |
-| 手動再生成（`.proto` 編集後）                      | `pnpm --filter @gozd/proto-schema build`                                                                                                          |
+| 入口                                                            | 自動発火する条件                                                | 発火する仕組み                                                  |
+| --------------------------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------- |
+| `pnpm install`                                                  | 常に                                                            | workspace 全体の `prepare` lifecycle で `packages/proto` が発火 |
+| `pnpm run` 系 (`pnpm dev` / `pnpm build` / `pnpm --filter ...`) | `node_modules` が outdated なときのみ (pnpm 11 の auto-install) | auto-install が起動 → `prepare` 発火                            |
 
-`swift build` / Xcode で `apps/native` を直接開く経路は pnpm を経由しないため、初回のみ手動で `pnpm install` するか `pnpm --filter @gozd/proto-schema build` を 1 回叩いて生成物を作る。
+`node_modules` が up-to-date な状態で `.proto` だけを編集した場合は、pnpm 11 の `verifyDepsBeforeRun` は outdated 判定の対象にしないため、**手動で再生成する必要がある**:
+
+```bash
+pnpm --filter @gozd/proto-schema build
+```
+
+これは「生成物は git に置かない」「auto-install と prepare で初回担保」「`.proto` 編集時の再生成は明示的なコマンドで」という運用を SSOT として固定する判断。build script (`apps/native/scripts/build-{,dev-}app.sh`) に `buf generate` を組み込む選択肢もあるが、pnpm script 経由の auto-install と二重 trigger になり、依存しない変更でも毎回 generate が走るため採用していない。
+
+`swift build` / Xcode で `apps/native` を直接開く経路は pnpm を経由しないため、初回のみ `pnpm install` か `pnpm --filter @gozd/proto-schema build` を 1 回叩いて生成物を作る。
 
 トランスポートは Connect / gRPC を使わず、`gozd-rpc://` URLSchemeHandler + Unix Socket（NDJSON）で自前実装する。Protobuf の `oneof` を discriminated union として使うのが目的。
 

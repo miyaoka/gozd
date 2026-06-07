@@ -75,6 +75,13 @@ watch(
   overflow-wrap: anywhere;
 }
 
+/* contenteditable host として focus を取る経路 (MarkdownPreview 経由) で、keyboard focus
+   時だけ outline を出す。click focus は UA 既定 (outline なし) のまま。 */
+._markdown-body:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
 /* 先頭要素の上マージンを消す */
 ._markdown-body :deep(> :first-child) {
   margin-top: 0;

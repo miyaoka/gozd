@@ -157,7 +157,7 @@ function onContainerClick(e: MouseEvent) {
   <div
     v-if="highlightedHtml"
     ref="containerRef"
-    class="_highlighted-code text-sm/tight outline-none"
+    class="_highlighted-code text-sm/tight"
     :class="wordWrap ? '_word-wrap' : ''"
     contenteditable="true"
     spellcheck="false"
@@ -177,7 +177,7 @@ function onContainerClick(e: MouseEvent) {
   <pre
     v-else
     ref="containerRef"
-    class="_line-numbered p-4 text-sm/tight text-foreground outline-none"
+    class="_line-numbered p-4 text-sm/tight text-foreground"
     :class="wordWrap ? '_word-wrap break-all whitespace-pre-wrap' : ''"
     contenteditable="true"
     spellcheck="false"
@@ -211,6 +211,15 @@ function onContainerClick(e: MouseEvent) {
 </template>
 
 <style scoped>
+/* contenteditable host の focus 表示。`outline: none` で全部消すと keyboard 経路の
+   focus 視認が失われるため、`:focus-visible` で keyboard focus 時だけ outline を出し、
+   mouse click 経路の outline は UA 既定に従って表示しない (`:focus-visible` 非マッチ)。 */
+._highlighted-code:focus-visible,
+._line-numbered:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
 /* blame ON: `<button data-line-no-btn>` (Shiki / fallback どちらも同形)
  *
  * 行番号は DOM テキストではなく `::before` の `content: attr(...)` でレンダリングする。

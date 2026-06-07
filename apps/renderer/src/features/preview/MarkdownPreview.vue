@@ -84,7 +84,7 @@ function blockEdit(event: Event) {
 
 <template>
   <MarkdownBody
-    class="p-6 text-sm/relaxed outline-none"
+    class="p-6 text-sm/relaxed"
     contenteditable="true"
     spellcheck="false"
     autocorrect="off"

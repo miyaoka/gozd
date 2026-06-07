@@ -696,12 +696,14 @@ function splitRightBg(row: DiffSplitRowItem): string {
 }
 
 /**
- * 自分自身を `contenteditable="true"` にして Cmd+A の選択スコープを diff 本体に閉じる。
- * ChangesSummaryView 配下では DiffPreview が多数並ぶため、上位 contenteditable の subtree
- * 全体ではなく **個々の diff** にスコープを閉じたい (ファイル単位で Cmd+A → 1 ファイルだけ
- * 選択)。contenteditable をネストすると最内の編集可能要素が UA の selection scope を
- * 取るため、上位の PreviewPane / ChangesSummaryView 側 contenteditable と矛盾せず動く。
- * 編集ブロックの規律は PreviewPane.vue の `blockEdit` と同形。
+ * contenteditable host の編集経路を構造的にブロックする。`beforeinput` で
+ * `event.preventDefault()` すれば typing / paste / IME / undo-redo / drop の DOM mutation を
+ * 1 経路で止められる (input 系全部の上位 hook)。
+ *
+ * テンプレート側では各 contenteditable host に `@beforeinput="blockEdit"` に加えて
+ * `@dragover.prevent @drop.prevent` も付けている。`beforeinput` だけでも drop の DOM mutation
+ * は弾けるが、`dragover` を preventDefault しないと UA がドロップ可能 cursor / drop indicator を
+ * 一瞬表示してチラ見せが起きる経路があり、UX 上の保険として両方つける契約。
  */
 function blockEdit(event: Event) {
   event.preventDefault();
@@ -775,7 +777,7 @@ function blockEdit(event: Event) {
 
           <div
             v-else
-            class="_unified-section outline-none"
+            class="_unified-section"
             contenteditable="true"
             spellcheck="false"
             autocorrect="off"
@@ -864,7 +866,7 @@ function blockEdit(event: Event) {
             :style="{ gridTemplateRows: `repeat(${item.lines.length}, auto)` }"
           >
             <div
-              class="_split-half _split-half-left outline-none"
+              class="_split-half _split-half-left"
               contenteditable="true"
               spellcheck="false"
               autocorrect="off"
@@ -912,7 +914,7 @@ function blockEdit(event: Event) {
             </div>
 
             <div
-              class="_split-half _split-half-right outline-none"
+              class="_split-half _split-half-right"
               contenteditable="true"
               spellcheck="false"
               autocorrect="off"
@@ -1076,8 +1078,14 @@ function blockEdit(event: Event) {
   grid-row: 1 / -1;
 }
 
-._split-half-left {
-  grid-column: 1;
+/* contenteditable host (`_unified-section` / `_split-half`) の focus 表示。
+   `outline: none` で全部消すと keyboard 経路の focus 視認が失われるため、
+   `:focus-visible` で keyboard focus のときだけ outline を出し、mouse click 経路は
+   UA 既定で outline なし (`:focus-visible` 非マッチ)。 */
+._unified-section:focus-visible,
+._split-half:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
 }
 
 ._split-row {

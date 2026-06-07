@@ -10,7 +10,7 @@ renderer（Vue / WebKit）と native（Swift）間の通信。`.proto` を SSOT 
 | `packages/proto-ts`    | ts-proto による生成物。`@gozd/proto` として renderer が import                 |
 | `packages/proto-swift` | swift-protobuf による生成物。`GozdProto` SPM パッケージとして native が import |
 
-生成物は git に commit する。`buf.gen.yaml` では BSR のリモートプラグイン `buf.build/community/stephenh-ts-proto`（ts-proto）と `buf.build/apple/swift`（swift-protobuf）をバージョン pin して利用する（具体バージョンは `buf.gen.yaml` を参照）。
+生成物は git に commit せず、`pnpm install` 時に `@gozd/proto` の `prepare` script (`cd ../proto && buf generate`) で再生成する（詳細は [architecture.md](architecture.md) の「型共有: `.proto` SSOT」を参照）。手動再生成は `pnpm --filter @gozd/proto build`。`buf.gen.yaml` では BSR のリモートプラグイン `buf.build/community/stephenh-ts-proto`（ts-proto）と `buf.build/apple/swift`（swift-protobuf）をバージョン pin して利用する（具体バージョンは `buf.gen.yaml` を参照）。
 
 `.proto` ファイルはドメインごとに分割。現状の構成:
 

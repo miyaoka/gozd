@@ -7,14 +7,13 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "generate": "cd ../proto && buf generate",
+    "build": "cd ../proto && buf generate",
+    "prepare": "cd ../proto && buf generate",
     "typecheck": "tsgo --noEmit",
     "lint": "oxlint --type-aware",
     "fix": "oxlint --type-aware --fix && oxfmt ."
   },
-  "dependencies": {
-    "@bufbuild/protobuf": "2.12.0"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/bun": "catalog:",
     "@types/node": "catalog:",

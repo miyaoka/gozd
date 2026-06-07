@@ -35,7 +35,7 @@ TS（renderer）と Swift（native）で RPC 型を共有するため、`package
 - ts-proto → `packages/proto-ts/src/generated/`（`@gozd/proto` として renderer が import）
 - swift-protobuf → `packages/proto-swift/Sources/GozdProto/`（`GozdProto` を native が import）
 
-生成物は git に commit する。`buf.gen.yaml` では BSR のリモートプラグイン (`buf.build/community/stephenh-ts-proto` / `buf.build/apple/swift`) をバージョン pin して指定する（具体バージョンは `buf.gen.yaml` を参照）。
+生成物は git に commit しない。`packages/proto-ts/src/generated/` と `packages/proto-swift/Sources/GozdProto/*.pb.swift` は `.gitignore` で除外し、`pnpm install` 時に `@gozd/proto` の `prepare` script (`cd ../proto && buf generate`) が両言語の出力を一括生成する。`buf.gen.yaml` の `clean: true` で旧出力をフラットに置き換えるため、1 回の `buf generate` で ts / swift の両方が揃う。手動再生成は `pnpm --filter @gozd/proto build`（または `pnpm -r build`）で行う。`buf.gen.yaml` では BSR のリモートプラグイン (`buf.build/community/stephenh-ts-proto` / `buf.build/apple/swift`) をバージョン pin して指定する（具体バージョンは `buf.gen.yaml` を参照）。
 
 トランスポートは Connect / gRPC を使わず、`gozd-rpc://` URLSchemeHandler + Unix Socket（NDJSON）で自前実装する。Protobuf の `oneof` を discriminated union として使うのが目的。
 
@@ -249,7 +249,7 @@ Claude セッションの sessionId は専用ストアを持たず `tasks.json` 
 
 ### 新しい永続化データを追加するパターン
 
-- `packages/proto/gozd/v1/*.proto` に request スキーマ（params / response）を追加し、`buf generate` で TS / Swift 生成物を更新する
+- `packages/proto/gozd/v1/*.proto` に request スキーマ（params / response）を追加し、`pnpm --filter @gozd/proto build`（= `cd packages/proto && buf generate`）で TS / Swift 生成物を更新する
 - `apps/native/Sources/GozdCore/` にファイル I/O モジュールを作成する（`AppStateStore.swift`, `TaskStore.swift` が参考実装）
 - `apps/native/Sources/GozdCore/RpcDispatcher.swift` の handler に request 処理を登録する
 - renderer 側は feature ごとの `rpc.ts` に `rpcXxx()` 関数を追加し、`shared/rpc` の `rpc(path, req, RequestType, ResponseType)` でラップする（例: `apps/renderer/src/features/filer/rpc.ts` の `rpcFsReadDir`）

@@ -71,7 +71,7 @@ const ghTitleDisplay = computed<string>(() =>
   ghTitleValue.value === "" ? "(empty)" : ghTitleValue.value,
 );
 const ghTitleValueClass = computed<string>(() =>
-  ghTitleValue.value === "" ? "italic text-zinc-500" : "text-zinc-200",
+  ghTitleValue.value === "" ? "italic text-foreground-low" : "text-foreground",
 );
 
 const terminalTitleValue = computed<string>(() => currentTask.value?.terminalTitle ?? "");
@@ -79,7 +79,7 @@ const terminalTitleDisplay = computed<string>(() =>
   terminalTitleValue.value === "" ? "(empty)" : terminalTitleValue.value,
 );
 const terminalTitleValueClass = computed<string>(() =>
-  terminalTitleValue.value === "" ? "italic text-zinc-500" : "text-zinc-200",
+  terminalTitleValue.value === "" ? "italic text-foreground-low" : "text-foreground",
 );
 
 // input placeholder: input を空にしたら表示される予告タイトル (Save 結果と一致)
@@ -141,18 +141,18 @@ function onDialogClick(event: MouseEvent) {
 <template>
   <dialog
     ref="dialogRef"
-    class="m-auto bg-transparent p-0 backdrop:bg-black/50"
+    class="m-auto bg-transparent p-0 backdrop:bg-overlay"
     @click="onDialogClick"
     @close="close"
   >
     <div
       v-if="currentTask"
-      class="w-[460px] space-y-4 rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-zinc-100 shadow-xl"
+      class="w-[460px] space-y-4 rounded-lg border border-border bg-background p-4 text-foreground shadow-xl"
     >
       <h2 class="text-sm font-semibold">Edit task title</h2>
 
       <div class="space-y-1">
-        <label class="text-xs text-zinc-400" for="task-title-input">Title</label>
+        <label class="text-xs text-foreground-low" for="task-title-input">Title</label>
         <input
           id="task-title-input"
           ref="inputRef"
@@ -160,20 +160,20 @@ function onDialogClick(event: MouseEvent) {
           type="text"
           aria-label="Task title"
           :placeholder="inputPlaceholder"
-          class="w-full rounded-sm bg-zinc-800 px-2 py-1 text-sm text-zinc-100 ring-1 ring-zinc-700 outline-none placeholder:text-zinc-500 placeholder:italic focus:ring-blue-500"
+          class="w-full rounded-sm bg-panel px-2 py-1 text-sm text-foreground ring-1 ring-border outline-none placeholder:text-foreground-low placeholder:italic focus:ring-ring"
           @keydown.enter.prevent="save"
           @keydown.escape.prevent="cancel"
         />
       </div>
 
       <div class="space-y-2">
-        <p class="text-xs text-zinc-400">Sources</p>
+        <p class="text-xs text-foreground-low">Sources</p>
 
         <div
           v-if="currentTask.ghRef !== undefined"
           class="grid grid-cols-[6rem_1fr] items-center gap-2"
         >
-          <span class="text-xs text-zinc-500">{{ ghRefLabelText }}</span>
+          <span class="text-xs text-foreground-low">{{ ghRefLabelText }}</span>
           <span
             class="min-w-0 truncate text-xs select-text"
             :class="ghTitleValueClass"
@@ -183,7 +183,7 @@ function onDialogClick(event: MouseEvent) {
         </div>
 
         <div class="grid grid-cols-[6rem_1fr] items-center gap-2">
-          <span class="text-xs text-zinc-500">Terminal</span>
+          <span class="text-xs text-foreground-low">Terminal</span>
           <span
             class="min-w-0 truncate text-xs select-text"
             :class="terminalTitleValueClass"
@@ -196,14 +196,14 @@ function onDialogClick(event: MouseEvent) {
       <div class="flex justify-end gap-2 pt-2">
         <button
           type="button"
-          class="rounded-sm px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800"
+          class="rounded-sm px-3 py-1.5 text-sm text-foreground-low hover:bg-panel"
           @click="cancel"
         >
           Cancel
         </button>
         <button
           type="button"
-          class="rounded-sm bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-500"
+          class="rounded-sm bg-primary px-3 py-1.5 text-sm text-foreground hover:bg-primary"
           @click="save"
         >
           Save

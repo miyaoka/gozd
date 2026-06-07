@@ -145,14 +145,14 @@ watch(isOpen, (open) => {
 <template>
   <Dialog class="_settings-dialog" @close="modalIsOpen = false">
     <div
-      class="flex max-h-[480px] w-[640px] flex-col overflow-hidden rounded-lg border border-zinc-600 bg-zinc-800 shadow-2xl"
+      class="flex max-h-[480px] w-[640px] flex-col overflow-hidden rounded-lg border border-border-strong bg-panel shadow-2xl"
     >
       <!-- ヘッダー -->
-      <div class="flex shrink-0 items-center justify-between border-b border-zinc-700 px-4 py-3">
-        <h2 class="text-sm font-medium text-zinc-200">Settings</h2>
+      <div class="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+        <h2 class="text-sm font-medium text-foreground">Settings</h2>
         <button
           type="button"
-          class="text-zinc-500 hover:text-zinc-300"
+          class="text-foreground-low hover:text-foreground"
           aria-label="Close settings"
           @click="modalIsOpen = false"
         >
@@ -163,7 +163,7 @@ watch(isOpen, (open) => {
       <!-- 本体 -->
       <div class="flex min-h-0 flex-1">
         <!-- 左タブ -->
-        <nav class="flex w-28 shrink-0 flex-col border-r border-zinc-700 py-2">
+        <nav class="flex w-28 shrink-0 flex-col border-r border-border py-2">
           <button
             v-for="tab in TABS"
             :key="tab.id"
@@ -171,8 +171,8 @@ watch(isOpen, (open) => {
             class="px-4 py-1.5 text-left text-sm"
             :class="
               activeTab === tab.id
-                ? 'bg-zinc-700/50 text-zinc-200'
-                : 'text-zinc-500 hover:text-zinc-300'
+                ? 'bg-element/50 text-foreground'
+                : 'text-foreground-low hover:text-foreground'
             "
             @click="activeTab = tab.id"
           >

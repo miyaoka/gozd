@@ -431,20 +431,20 @@ onBeforeUnmount(teardownObserver);
 <template>
   <div class="flex min-h-0 flex-col">
     <!-- ペインヘッダ: どの agent のログかを示す (agent 名 + dim な id) -->
-    <div class="flex shrink-0 items-baseline gap-2 border-b border-zinc-800 px-4 py-1.5">
-      <span class="min-w-0 truncate text-xs font-medium text-zinc-200" :title="title">
+    <div class="flex shrink-0 items-baseline gap-2 border-b border-border-subtle px-4 py-1.5">
+      <span class="min-w-0 truncate text-xs font-medium text-foreground" :title="title">
         {{ title }}
       </span>
       <span
         v-if="modelLabel !== ''"
-        class="max-w-[40%] shrink-0 self-center truncate rounded-sm bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-300"
+        class="max-w-[40%] shrink-0 self-center truncate rounded-sm bg-panel px-1.5 py-0.5 text-[10px] font-medium text-foreground"
         :title="modelLabel"
       >
         {{ modelLabel }}
       </span>
       <span
         v-if="subtitle !== undefined && subtitle !== ''"
-        class="min-w-0 truncate text-[10px] text-zinc-500 tabular-nums"
+        class="min-w-0 truncate text-[10px] text-foreground-low tabular-nums"
         :title="subtitle"
       >
         {{ subtitle }}
@@ -452,7 +452,7 @@ onBeforeUnmount(teardownObserver);
     </div>
 
     <!-- 本文: 空ログメッセージ or トランスクリプト -->
-    <p v-if="parsed.events.length === 0" class="px-4 py-3 text-sm text-zinc-400">
+    <p v-if="parsed.events.length === 0" class="px-4 py-3 text-sm text-foreground-low">
       Session log has no conversation events.
     </p>
 
@@ -465,7 +465,7 @@ onBeforeUnmount(teardownObserver);
         <div
           v-if="ev.kind === 'branch'"
           :data-ev="i"
-          class="mx-auto flex w-fit max-w-[85%] scroll-mt-2 flex-wrap items-center justify-center gap-1.5 py-1 text-[11px] text-zinc-500"
+          class="mx-auto flex w-fit max-w-[85%] scroll-mt-2 flex-wrap items-center justify-center gap-1.5 py-1 text-[11px] text-foreground-low"
         >
           <span class="icon-[lucide--git-branch] size-3.5 shrink-0" />
           <button
@@ -475,8 +475,8 @@ onBeforeUnmount(teardownObserver);
             class="flex max-w-[200px] items-center gap-1 rounded-full border px-2 py-0.5"
             :class="
               opt.childUuid === ev.selectedChildUuid
-                ? 'border-green-700 bg-green-800 text-green-50'
-                : 'border-zinc-700 text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
+                ? 'border-success bg-success/15 text-success-text'
+                : 'border-border text-foreground-low hover:bg-element-hover hover:text-foreground'
             "
             :title="opt.lead"
             @click="
@@ -505,15 +505,15 @@ onBeforeUnmount(teardownObserver);
                  アイコン / hue 装飾は持たず、主従は weight (tool 名 = primary)、状態色は
                  error の red のみ。時刻は会話吹き出し側で足りるため出さない。 -->
           <summary
-            class="mx-auto flex w-fit max-w-[70%] cursor-pointer list-none items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-zinc-500 select-none hover:bg-white/5 [&::-webkit-details-marker]:hidden"
+            class="mx-auto flex w-fit max-w-[70%] cursor-pointer list-none items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-foreground-low select-none hover:bg-element-hover [&::-webkit-details-marker]:hidden"
           >
             <span v-if="ev.kind === 'thinking'">thinking</span>
             <template v-else>
               <!-- tool 名 = primary (weight)。error は引数 truncate に押し出されないよう名直後。 -->
-              <span class="shrink-0 font-mono font-medium text-zinc-300">{{ ev.name }}</span>
+              <span class="shrink-0 font-mono font-medium text-foreground">{{ ev.name }}</span>
               <span
                 v-if="ev.result?.isError"
-                class="shrink-0 rounded-sm bg-red-500/20 px-1 whitespace-nowrap text-red-300"
+                class="shrink-0 rounded-sm bg-destructive/20 px-1 whitespace-nowrap text-destructive-text"
                 >error</span
               >
               <SessionLogToolArg :input="ev.input" />
@@ -529,25 +529,28 @@ onBeforeUnmount(teardownObserver);
           <!-- thinking 平文 -->
           <div
             v-if="ev.kind === 'thinking'"
-            class="mx-auto mt-1 max-w-[85%] rounded-md bg-white/5 px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-zinc-400"
+            class="mx-auto mt-1 max-w-[85%] rounded-md bg-element-hover px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-foreground-low"
           >
             {{ ev.text }}
           </div>
           <!-- tool: input 全体 + 実行結果 -->
-          <div v-else class="mx-auto mt-1 max-w-[85%] space-y-2 rounded-md bg-white/5 px-3 py-2">
+          <div
+            v-else
+            class="mx-auto mt-1 max-w-[85%] space-y-2 rounded-md bg-element-hover px-3 py-2"
+          >
             <pre
-              class="overflow-x-auto rounded-sm bg-zinc-800 p-2 text-xs text-zinc-300"
+              class="overflow-x-auto rounded-sm bg-panel p-2 text-xs text-foreground"
             ><code>{{ formattedInputs.get(i) }}</code></pre>
             <div v-if="ev.result">
-              <p class="mb-1 text-[10px] text-zinc-500">
+              <p class="mb-1 text-[10px] text-foreground-low">
                 {{ ev.result.isError ? "Error output" : "Output" }}
               </p>
               <pre
-                class="max-h-72 overflow-auto rounded-sm bg-zinc-800 p-2 text-xs"
-                :class="ev.result.isError ? 'text-red-300' : 'text-zinc-300'"
+                class="max-h-72 overflow-auto rounded-sm bg-panel p-2 text-xs"
+                :class="ev.result.isError ? 'text-destructive-text' : 'text-foreground'"
               ><code>{{ ev.result.text }}</code></pre>
             </div>
-            <p v-else class="text-[10px] text-zinc-500 italic">(no result recorded)</p>
+            <p v-else class="text-[10px] text-foreground-low italic">(no result recorded)</p>
           </div>
         </details>
 
@@ -565,7 +568,7 @@ onBeforeUnmount(teardownObserver);
                  一段明るい zinc-700 を渡し、preview と同じ「地 < code」の明度順を保つ。 -->
           <div
             v-if="ev.kind === 'assistant'"
-            class="min-w-0 rounded-2xl rounded-tl-sm bg-zinc-800 px-3 py-1.5 text-sm text-zinc-100 [--md-code-bg:var(--color-zinc-700)]"
+            class="min-w-0 rounded-2xl rounded-tl-sm bg-panel px-3 py-1.5 text-sm text-foreground [--md-code-bg:var(--color-element)]"
           >
             <MarkdownBody
               :content="ev.text"
@@ -579,7 +582,7 @@ onBeforeUnmount(teardownObserver);
                  (zinc-900 地) で面が主張しすぎないよう緑は一段暗い green-800 に抑える。 -->
           <div
             v-else-if="ev.kind === 'user'"
-            class="min-w-0 rounded-2xl rounded-tr-sm bg-green-800 px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-green-50"
+            class="min-w-0 rounded-2xl rounded-tr-sm bg-success/15 px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-success-text"
           >
             {{ ev.text }}
           </div>
@@ -589,11 +592,11 @@ onBeforeUnmount(teardownObserver);
             v-else-if="ev.kind === 'image' && ev.src"
             :src="ev.src"
             alt="session log image"
-            class="max-h-96 max-w-[75%] rounded-2xl border border-zinc-700"
+            class="max-h-96 max-w-[75%] rounded-2xl border border-border"
           />
           <span
             v-else-if="ev.kind === 'image'"
-            class="max-w-[75%] rounded-2xl bg-zinc-800 px-3 py-2 text-sm text-zinc-500 italic"
+            class="max-w-[75%] rounded-2xl bg-panel px-3 py-2 text-sm text-foreground-low italic"
             >(image content unavailable)</span
           >
 
@@ -612,7 +615,7 @@ onBeforeUnmount(teardownObserver);
       >
         <button
           type="button"
-          class="pointer-events-auto flex items-center gap-1 rounded-full border border-zinc-600 bg-zinc-800 px-3 py-1 text-xs text-zinc-100 shadow-lg hover:bg-zinc-700"
+          class="pointer-events-auto flex items-center gap-1 rounded-full border border-border-strong bg-panel px-3 py-1 text-xs text-foreground shadow-lg hover:bg-element"
           @click="jumpToLatest"
         >
           <span class="icon-[lucide--arrow-down] size-3.5" />
@@ -622,7 +625,9 @@ onBeforeUnmount(teardownObserver);
     </div>
 
     <!-- フッタ (このペインの統計) -->
-    <div class="shrink-0 border-t border-zinc-800 px-4 py-2 text-[10px] text-zinc-500 tabular-nums">
+    <div
+      class="shrink-0 border-t border-border-subtle px-4 py-2 text-[10px] text-foreground-low tabular-nums"
+    >
       {{ footerSummary }}
     </div>
   </div>

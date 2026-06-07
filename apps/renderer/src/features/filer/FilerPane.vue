@@ -113,7 +113,7 @@ onUnmounted(() => {
   <div class="flex size-full flex-col">
     <!-- ツリー本体 -->
     <div class="flex-1 overflow-y-auto p-1">
-      <div v-if="!dir" class="px-2 py-4 text-center text-sm text-zinc-500">
+      <div v-if="!dir" class="px-2 py-4 text-center text-sm text-foreground-low">
         waiting for open command...
       </div>
       <FileTreeItem

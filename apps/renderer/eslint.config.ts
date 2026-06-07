@@ -155,6 +155,11 @@ export default defineConfigWithVueTs(
       // 親から子の内部メソッドを命令的に呼ぶ設計を禁止
       // props または composable パターンを使う（issue #291）
       "gozd/no-define-expose": "error",
+
+      // 生 Tailwind palette (bg-zinc-800 等) を禁止する。色は semantic token (`@theme` 定義) で書く
+      // - SSOT: `src/assets/main.css` の @theme ブロック
+      // - 規約: `.claude/skills/gozd-ui/SKILL.md`
+      "gozd/no-raw-tailwind-palette": "error",
     },
   },
 

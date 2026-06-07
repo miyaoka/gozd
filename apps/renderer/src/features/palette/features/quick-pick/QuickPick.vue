@@ -161,15 +161,17 @@ function handleKeydown(e: KeyboardEvent) {
 
 <template>
   <Dialog class="_quick-pick-dialog" @close="cancel" @keydown="handleKeydown">
-    <div class="w-[480px] overflow-hidden rounded-lg border border-zinc-600 bg-zinc-800 shadow-2xl">
-      <div class="border-b border-zinc-700 p-2">
+    <div
+      class="w-[480px] overflow-hidden rounded-lg border border-border-strong bg-panel shadow-2xl"
+    >
+      <div class="border-b border-border p-2">
         <input
           ref="input"
           v-model="query"
           type="text"
           :placeholder="currentOptions?.placeholder ?? 'Select an item...'"
           aria-label="Filter items"
-          class="w-full bg-transparent px-2 py-1 text-sm text-zinc-200 outline-none placeholder:text-zinc-500"
+          class="w-full bg-transparent px-2 py-1 text-sm text-foreground outline-none placeholder:text-foreground-low"
         />
       </div>
       <ul v-if="filteredItems.length > 0" ref="list" class="max-h-[300px] overflow-y-auto py-1">
@@ -177,7 +179,7 @@ function handleKeydown(e: KeyboardEvent) {
           <!-- セパレータ行 -->
           <li
             v-if="item.separator"
-            class="border-t border-zinc-700 px-3 pt-2 pb-1 text-xs font-semibold tracking-wide text-zinc-500"
+            class="border-t border-border px-3 pt-2 pb-1 text-xs font-semibold tracking-wide text-foreground-low"
             :class="{ 'mt-1': i > 0 }"
           >
             {{ item.label }}
@@ -188,8 +190,8 @@ function handleKeydown(e: KeyboardEvent) {
             class="flex cursor-pointer items-center justify-between px-3 py-1.5 text-sm"
             :class="
               i === selectedIndex
-                ? 'bg-zinc-700 text-zinc-100'
-                : 'text-zinc-300 hover:bg-zinc-700/50'
+                ? 'bg-element text-foreground'
+                : 'text-foreground hover:bg-element/50'
             "
             @click="
               () => {
@@ -199,13 +201,13 @@ function handleKeydown(e: KeyboardEvent) {
             "
           >
             <span>{{ item.label }}</span>
-            <span v-if="item.description" class="ml-4 shrink-0 text-xs text-zinc-500">
+            <span v-if="item.description" class="ml-4 shrink-0 text-xs text-foreground-low">
               {{ item.description }}
             </span>
           </li>
         </template>
       </ul>
-      <div v-else class="px-3 py-4 text-center text-sm text-zinc-500">No matching items</div>
+      <div v-else class="px-3 py-4 text-center text-sm text-foreground-low">No matching items</div>
     </div>
   </Dialog>
 </template>

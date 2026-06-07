@@ -28,7 +28,7 @@ function onClick() {
   <button
     v-if="link"
     type="button"
-    class="flex shrink-0 items-center gap-1 rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-medium text-amber-950 transition-colors hover:bg-amber-400"
+    class="flex shrink-0 items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-warning-text transition-colors hover:bg-warning/15"
     :title="`Open subagent: ${link.label}`"
     @click.stop.prevent="onClick"
   >

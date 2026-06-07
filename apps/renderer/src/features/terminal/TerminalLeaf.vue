@@ -99,15 +99,15 @@ function handleTerminalBlur() {
       :style="{ backgroundColor: currentTheme.background }"
       :class="
         isFocused
-          ? 'outline-2 -outline-offset-4 outline-green-300/70'
-          : '-outline-offset-2 outline-zinc-700'
+          ? 'outline-2 -outline-offset-4 outline-success/70'
+          : '-outline-offset-2 outline-border'
       "
     >
       <!-- CWD + タイトル（左上、ボーダー線上） -->
       <div
         class="pointer-events-none absolute top-0 left-3 z-10 -translate-y-1/2 px-1 text-xs"
         :style="{ backgroundColor: currentTheme.background }"
-        :class="isInsideWorktree ? 'text-zinc-400' : 'text-red-300'"
+        :class="isInsideWorktree ? 'text-foreground-low' : 'text-destructive-text'"
         :title="cwd"
       >
         {{ title ? `${cwdLabel} ${title}` : cwdLabel }}
@@ -118,10 +118,10 @@ function handleTerminalBlur() {
         class="pointer-events-none absolute top-0 right-3 z-10 flex -translate-y-1/2 items-center gap-1 px-1 text-xs leading-none font-semibold"
         :style="{ backgroundColor: currentTheme.background }"
         :class="{
-          'text-zinc-500': claudeState === 'idle',
-          'text-yellow-300': claudeState === 'working',
-          'text-orange-300': claudeState === 'asking',
-          'text-green-300': claudeState === 'done',
+          'text-foreground-low': claudeState === 'idle',
+          'text-warning-text': claudeState === 'working',
+          'text-warning-strong-text': claudeState === 'asking',
+          'text-success-text': claudeState === 'done',
         }"
       >
         <span

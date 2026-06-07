@@ -21,7 +21,7 @@ const options = computed(() =>
 <template>
   <select
     :value="model"
-    class="rounded-sm border border-zinc-600 bg-zinc-700 px-2 py-1 text-sm text-zinc-200 focus:border-blue-500 focus:outline-none"
+    class="rounded-sm border border-border-strong bg-element px-2 py-1 text-sm text-foreground focus:border-primary focus:outline-none"
     @change="model = ($event.target as HTMLSelectElement).value"
   >
     <option v-for="option in options" :key="option" :value="option">

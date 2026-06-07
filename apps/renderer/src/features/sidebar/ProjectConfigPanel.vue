@@ -72,10 +72,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="border-t border-zinc-700/50 px-4 py-3">
+  <div class="border-t border-border/50 px-4 py-3">
     <details ref="detailsRef" @toggle="handleToggle">
       <summary
-        class="flex cursor-pointer list-none items-center gap-2 text-xs text-zinc-500 hover:text-zinc-300 [&::-webkit-details-marker]:hidden"
+        class="flex cursor-pointer list-none items-center gap-2 text-xs text-foreground-low hover:text-foreground [&::-webkit-details-marker]:hidden"
       >
         <span
           class="icon-[lucide--chevron-right] size-4 shrink-0 transition-transform [[open]>&]:rotate-90"
@@ -87,7 +87,7 @@ onMounted(() => {
         <textarea
           ref="textarea"
           :value="symlinksText"
-          class="w-full resize-none rounded-sm border border-zinc-600 bg-zinc-800 p-2 text-sm text-zinc-200 focus:border-blue-500 focus:outline-none"
+          class="w-full resize-none rounded-sm border border-border-strong bg-panel p-2 text-sm text-foreground focus:border-primary focus:outline-none"
           rows="4"
           placeholder=".claude&#10;.env.local"
           @input="handleInput(($event.target as HTMLTextAreaElement).value)"
@@ -95,13 +95,13 @@ onMounted(() => {
         />
         <div class="mt-1 flex justify-end gap-1">
           <button
-            class="rounded-sm px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
+            class="rounded-sm px-2 py-1 text-xs text-foreground-low hover:bg-panel"
             @click="cancel"
           >
             Cancel
           </button>
           <button
-            class="rounded-sm bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500 disabled:opacity-40 disabled:hover:bg-blue-600"
+            class="rounded-sm bg-primary px-2 py-1 text-xs text-foreground hover:bg-primary disabled:opacity-40 disabled:hover:bg-primary"
             :disabled="!isDirty || isSaving"
             @click="save"
           >

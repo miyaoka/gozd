@@ -45,16 +45,16 @@ async function handleResetMixed() {
 
 <template>
   <Popover
-    class="m-0 min-w-44 rounded-lg border border-zinc-700 bg-zinc-900 py-1 text-sm text-zinc-200 shadow-lg"
+    class="m-0 min-w-44 rounded-lg border border-border bg-background py-1 text-sm text-foreground shadow-lg"
     :style="popoverStyle"
   >
     <button
       v-if="context"
-      class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800"
+      class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel"
       @click="handleResetMixed"
     >
       <span class="icon-[lucide--undo-2] text-xs" />
-      Reset (mixed) to <span class="font-mono text-zinc-400">{{ shortHash }}</span>
+      Reset (mixed) to <span class="font-mono text-foreground-low">{{ shortHash }}</span>
     </button>
   </Popover>
 </template>

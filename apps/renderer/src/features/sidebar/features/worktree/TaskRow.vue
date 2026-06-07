@@ -56,38 +56,38 @@ const STATE_VISUAL: Record<
 > = {
   asking: {
     ...CLAUDE_STATE_ICON.asking,
-    color: "text-orange-400",
+    color: "text-warning-strong-text",
     animate: "animate-pulse",
     ariaLabel: "Awaiting permission",
   },
   working: {
     ...CLAUDE_STATE_ICON.working,
-    color: "text-yellow-400",
+    color: "text-warning-text",
     ariaLabel: "Working",
   },
   done: {
     ...CLAUDE_STATE_ICON.done,
-    color: "text-green-400",
+    color: "text-success-text",
     ariaLabel: "Done",
   },
   idle: {
     ...CLAUDE_STATE_ICON.idle,
-    color: "text-zinc-500",
+    color: "text-foreground-low",
     ariaLabel: "Idle",
   },
   resumable: {
     icon: "icon-[lucide--square-play]",
-    color: "text-zinc-500/60",
+    color: "text-foreground-low/60",
     ariaLabel: "Resumable",
   },
   closed: {
     icon: "icon-[lucide--eye-closed]",
-    color: "text-zinc-500/60",
+    color: "text-foreground-low/60",
     ariaLabel: "Closed by user",
   },
   "not-started": {
     icon: "icon-[lucide--circle-dashed]",
-    color: "text-zinc-500/60",
+    color: "text-foreground-low/60",
     ariaLabel: "Not started",
   },
 };
@@ -130,8 +130,8 @@ const bubbleText = computed<string | undefined>(() => {
 
 const bubbleColorClass = computed(() => {
   const status = props.status;
-  if (status?.state === "done") return "text-green-400/70";
-  if (status?.state === "asking") return "text-orange-400/70";
+  if (status?.state === "done") return "text-success-text/70";
+  if (status?.state === "asking") return "text-warning-strong-text/70";
   return "";
 });
 
@@ -158,7 +158,7 @@ function onRowDblClick() {
     <button
       type="button"
       :data-active="active"
-      class="flex w-full items-center gap-2 rounded-lg p-2 text-left transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-hidden focus-visible:ring-inset data-[active=true]:bg-blue-500/30"
+      class="flex w-full items-center gap-2 rounded-lg p-2 text-left transition-colors hover:bg-element-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset data-[active=true]:bg-primary/30"
       @click="emit('select', task)"
       @dblclick="onRowDblClick"
     >
@@ -174,7 +174,7 @@ function onRowDblClick() {
     <button
       type="button"
       aria-label="Open task menu"
-      class="absolute inset-y-0 right-1 my-auto grid size-5 place-items-center rounded-sm bg-zinc-800 text-zinc-300 opacity-0 shadow-md ring-1 ring-zinc-700 transition-opacity duration-100 group-focus-within/task:opacity-100 group-hover/task:opacity-100 hover:bg-zinc-700 hover:text-zinc-100"
+      class="absolute inset-y-0 right-1 my-auto grid size-5 place-items-center rounded-sm bg-panel text-foreground opacity-0 shadow-md ring-1 ring-border transition-opacity duration-100 group-focus-within/task:opacity-100 group-hover/task:opacity-100 hover:bg-element hover:text-foreground"
       @click="onMenuClick"
     >
       <span class="icon-[lucide--ellipsis-vertical] text-xs" />

@@ -85,8 +85,8 @@ watch(
   font-weight: 700;
   margin: 1.5em 0 0.5em;
   padding-bottom: 0.3em;
-  border-bottom: 1px solid var(--color-zinc-700);
-  color: var(--color-zinc-100);
+  border-bottom: 1px solid var(--color-element);
+  color: var(--color-foreground);
 }
 
 ._markdown-body :deep(h2) {
@@ -94,15 +94,15 @@ watch(
   font-weight: 600;
   margin: 1.25em 0 0.5em;
   padding-bottom: 0.3em;
-  border-bottom: 1px solid var(--color-zinc-700);
-  color: var(--color-zinc-100);
+  border-bottom: 1px solid var(--color-element);
+  color: var(--color-foreground);
 }
 
 ._markdown-body :deep(h3) {
   font-size: 1.15em;
   font-weight: 600;
   margin: 1em 0 0.5em;
-  color: var(--color-zinc-200);
+  color: var(--color-foreground);
 }
 
 ._markdown-body :deep(h4),
@@ -110,28 +110,28 @@ watch(
 ._markdown-body :deep(h6) {
   font-weight: 600;
   margin: 1em 0 0.5em;
-  color: var(--color-zinc-300);
+  color: var(--color-foreground);
 }
 
 ._markdown-body :deep(p) {
   margin: 0.75em 0;
-  color: var(--color-zinc-300);
+  color: var(--color-foreground);
 }
 
 ._markdown-body :deep(a) {
-  color: var(--color-blue-400);
+  color: var(--color-primary);
   text-decoration: underline;
 }
 
 ._markdown-body :deep(strong) {
-  color: var(--color-zinc-100);
+  color: var(--color-foreground);
 }
 
 ._markdown-body :deep(ul),
 ._markdown-body :deep(ol) {
   margin: 0.5em 0;
   padding-left: 1.5em;
-  color: var(--color-zinc-300);
+  color: var(--color-foreground);
 }
 
 ._markdown-body :deep(ul) {
@@ -149,8 +149,8 @@ watch(
 ._markdown-body :deep(blockquote) {
   margin: 0.75em 0;
   padding: 0.5em 1em;
-  border-left: 3px solid var(--color-zinc-600);
-  color: var(--color-zinc-400);
+  border-left: 3px solid var(--color-element-hover);
+  color: var(--color-foreground-low);
 }
 
 /*
@@ -161,8 +161,8 @@ watch(
 ._markdown-body :deep(code) {
   padding: 0.15em 0.4em;
   border-radius: 3px;
-  background: var(--md-code-bg, var(--color-zinc-800));
-  color: var(--color-zinc-200);
+  background: var(--md-code-bg, var(--color-panel));
+  color: var(--color-foreground);
   font-size: 0.9em;
 }
 
@@ -182,7 +182,7 @@ watch(
   margin: 0.75em 0;
   padding: 1em;
   border-radius: 6px;
-  background: var(--md-code-bg, var(--color-zinc-800));
+  background: var(--md-code-bg, var(--color-panel));
   overflow-x: auto;
   /*
    * ルートの overflow-wrap: anywhere の継承を断つ。コードブロックは折り返さず
@@ -208,20 +208,20 @@ watch(
 ._markdown-body :deep(th),
 ._markdown-body :deep(td) {
   padding: 0.5em 0.75em;
-  border: 1px solid var(--color-zinc-700);
-  color: var(--color-zinc-300);
+  border: 1px solid var(--color-element);
+  color: var(--color-foreground);
 }
 
 ._markdown-body :deep(th) {
-  background: var(--md-code-bg, var(--color-zinc-800));
+  background: var(--md-code-bg, var(--color-panel));
   font-weight: 600;
-  color: var(--color-zinc-200);
+  color: var(--color-foreground);
 }
 
 ._markdown-body :deep(hr) {
   margin: 1.5em 0;
   border: none;
-  border-top: 1px solid var(--color-zinc-700);
+  border-top: 1px solid var(--color-element);
 }
 
 ._markdown-body :deep(img) {

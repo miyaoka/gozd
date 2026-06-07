@@ -158,7 +158,7 @@ function onContainerClick(e: MouseEvent) {
   <pre
     v-else
     ref="containerRef"
-    class="_line-numbered p-4 text-sm/tight text-zinc-300"
+    class="_line-numbered p-4 text-sm/tight text-foreground"
     :class="wordWrap ? '_word-wrap break-all whitespace-pre-wrap' : ''"
     :style="{ '--line-no-width': lineNoWidth }"
     @click="onContainerClick"
@@ -192,14 +192,14 @@ function onContainerClick(e: MouseEvent) {
   border: none;
   text-align: right;
   font: inherit;
-  color: var(--color-zinc-600);
+  color: var(--color-element-hover);
   user-select: none;
   cursor: pointer;
 }
 
 ._line-numbered ._line ._line-no-btn:hover,
 ._highlighted-code :deep(.line ._line-no-btn:hover) {
-  color: var(--color-blue-400);
+  color: var(--color-primary);
   text-decoration: underline;
 }
 
@@ -207,9 +207,9 @@ function onContainerClick(e: MouseEvent) {
    視認できることを担保する。outline は Tailwind の blue-400 と整合させる */
 ._line-numbered ._line ._line-no-btn:focus-visible,
 ._highlighted-code :deep(.line ._line-no-btn:focus-visible) {
-  outline: 2px solid var(--color-blue-400);
+  outline: 2px solid var(--color-primary);
   outline-offset: -2px;
-  color: var(--color-blue-400);
+  color: var(--color-primary);
 }
 
 /* blame OFF: `<span class="_line-no-static">`。focusable を奪うため span に倒す。
@@ -220,7 +220,7 @@ function onContainerClick(e: MouseEvent) {
   width: var(--line-no-width, 3ch);
   margin-right: 1.5ch;
   text-align: right;
-  color: var(--color-zinc-600);
+  color: var(--color-element-hover);
   user-select: none;
 }
 
@@ -265,6 +265,6 @@ function onContainerClick(e: MouseEvent) {
 /* アクティブ行のハイライト（scrollToLine が直接クラスを付与） */
 ._line-numbered ._line._active-line,
 ._highlighted-code :deep(.line._active-line) {
-  background-color: color-mix(in oklch, var(--color-yellow-500) 15%, transparent);
+  background-color: color-mix(in oklch, var(--color-warning) 15%, transparent);
 }
 </style>

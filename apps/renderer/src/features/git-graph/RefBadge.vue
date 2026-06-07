@@ -23,14 +23,14 @@ const pr = computed(() => {
 });
 
 const REF_TYPE_CLASS: Record<DisplayRef["type"], string> = {
-  synced: "bg-green-800 text-green-200",
-  local: "bg-green-800 text-green-200",
-  remote: "bg-green-800 text-green-200 opacity-50",
-  tag: "bg-blue-800 text-blue-200",
+  synced: "bg-success/15 text-success-text",
+  local: "bg-success/15 text-success-text",
+  remote: "bg-success/15 text-success-text opacity-50",
+  tag: "bg-primary/15 text-primary-text",
 };
 
-const CURRENT_LOCAL_CLASS = "bg-yellow-500 text-black";
-const CURRENT_REMOTE_CLASS = "bg-yellow-500 text-black opacity-50";
+const CURRENT_LOCAL_CLASS = "bg-warning text-background";
+const CURRENT_REMOTE_CLASS = "bg-warning text-background opacity-50";
 const DEFAULT_CLASS = "ring-1 ring-inset ring-current";
 </script>
 
@@ -46,7 +46,7 @@ const DEFAULT_CLASS = "ring-1 ring-inset ring-current";
     target="_blank"
     rel="noopener noreferrer"
     class="flex shrink-0 items-center gap-0.5 rounded-sm px-1 py-0.5 text-[10px] leading-none font-medium no-underline"
-    :class="pr.isDraft ? 'bg-zinc-700 text-zinc-300' : 'bg-purple-800 text-purple-200'"
+    :class="pr.isDraft ? 'bg-element text-foreground' : 'bg-primary/15 text-primary-text'"
     :title="`PR #${pr.number}${pr.isDraft ? ' (draft)' : ''}`"
     @click.stop
   >

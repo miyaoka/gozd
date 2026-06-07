@@ -16,7 +16,7 @@ const preview = computed(() => toolArgPreview(props.input));
 </script>
 
 <template>
-  <span v-if="preview" class="min-w-0 truncate text-zinc-500" :title="preview.full">{{
+  <span v-if="preview" class="min-w-0 truncate text-foreground-low" :title="preview.full">{{
     preview.label
   }}</span>
 </template>

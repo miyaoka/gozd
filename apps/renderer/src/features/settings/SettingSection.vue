@@ -18,10 +18,10 @@ const emit = defineEmits<{
 
 <template>
   <div class="mb-4">
-    <h3 class="mb-2 text-xs font-medium tracking-wider text-zinc-500 uppercase">
+    <h3 class="mb-2 text-xs font-medium tracking-wider text-foreground-low uppercase">
       {{ section.title }}
     </h3>
-    <div class="divide-y divide-zinc-700/50">
+    <div class="divide-y divide-border/50">
       <SettingField
         v-for="(setting, key) in section.settings"
         :key="key"

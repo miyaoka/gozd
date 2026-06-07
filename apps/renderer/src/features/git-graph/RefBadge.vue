@@ -3,20 +3,23 @@ Branch ref badge with optional PR link. Displays a PR number badge (left) and br
 
 ## カラー設計
 
-graph line と同じ lane 色で描画して「ブランチ ref と graph line が同じ色」を視覚的に
+graph line と同じ lane 色で描画して「ブランチ ref と graph line が同じ hue」を視覚的に
 担保する。`laneColorIndex` は親 GitGraphPane が `node.color` (graphLayout のレーン色 index)
-として渡す。
+として渡す。各 ref は **自分が乗っている commit の lane** に従って色が決まる。
 
-- `local` / `synced`: lane hue full saturation の text + lane hue subtle bg (subtle chip pattern を
-  per-lane 展開)
-- `remote`: 同じ lane hue を低明度 / 低 chroma に倒した text (`laneRemoteTextColor`)。bg は local と
-  共通の `laneSubtleBgColor` で「同じ branch の remote 側 = 一段 dim」を表現
+- `local` (out-of-sync でない) / `synced`: lane hue full saturation の text + lane hue subtle bg
+  (subtle chip pattern を per-lane 展開)
+- `remote` (out-of-sync でない) / synced 状態の remote 同 commit: 同じ lane hue を低 L / 低 C に
+  倒した text (`laneRemoteTextColor`)。bg は同 commit の local と共通の `laneSubtleBgColor`
+- `local` / `remote` が **out-of-sync** (異なる commit に乗る) 場合: 各 ref がそれぞれの
+  commit lane に従うため、同 branch 名でも異なる hue で描かれる。これは graph line との視覚一致を
+  優先した意図的 trade-off (branch 同一性は label テキスト + icon `link-2-off` で表現)
 - `tag`: branch とは別概念なので primary-subtle (lane 色に乗らない)
 - `isCurrent`: HEAD branch tip を warning solid で強調 (lane 色より上に立つ攻撃的ハイライト)
 
 8 lane × 3 variant (text local / text remote / bg) を Tier 2 token に展開すると alias 表が
 肥大化するため、`graphColors.ts` の動的計算色を inline `:style` で渡す
-([gozd-ui SKILL の inline style 例外 (c) 動的計算色 (内部生成)](../../../../.claude/skills/gozd-ui/SKILL.md))。
+([gozd-ui SKILL の inline style 例外 (c) 動的計算色 (有限固定 palette / per-identifier 動的値)](../../../../../.claude/skills/gozd-ui/SKILL.md))。
 </doc>
 
 <script setup lang="ts">

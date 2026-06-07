@@ -99,13 +99,13 @@ primitive utility (`bg-gray-3` 等) は Tailwind が utility 化していない 
 
 ### Intent 利用パターン
 
-| パターン      | 構成                                                         | 用途                                                                                              |
-| ------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| solid button  | `bg-<intent>` + `text-<intent>-foreground`                   | CTA / 主要 action (submit、destructive confirm)                                                   |
-| subtle chip   | `bg-<intent>-subtle` + `text-<intent>-text`                  | ref badge、icon-only state chip、diff line bg、user message bubble                                |
-| subtle banner | `bg-<intent>-subtle` + `border-<intent>` + `text-foreground` | error toast 本文、長文を含む intent 通知 (本文 neutral text + intent 色は border / icon に逃がす) |
-| active row    | `bg-<intent>-subtle` (+ `hover:bg-<intent>-subtle-hover`)    | 選択中の row / commit                                                                             |
-| text-only     | `text-<intent>-text`                                         | 状態文言、icon-only badge                                                                         |
+| パターン      | 構成                                                         | 用途                                                                                                             |
+| ------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| solid button  | `bg-<intent>` + `text-<intent>-foreground`                   | CTA / 主要 action (submit、destructive confirm)                                                                  |
+| subtle chip   | `bg-<intent>-subtle` + `text-<intent>-text`                  | tag ref、icon-only state chip、diff line bg、user message bubble (branch ref は lane 色 = `graphColors.ts` 経由) |
+| subtle banner | `bg-<intent>-subtle` + `border-<intent>` + `text-foreground` | error toast 本文、長文を含む intent 通知 (本文 neutral text + intent 色は border / icon に逃がす)                |
+| active row    | `bg-<intent>-subtle` (+ `hover:bg-<intent>-subtle-hover`)    | 選択中の row / commit                                                                                            |
+| text-only     | `text-<intent>-text`                                         | 状態文言、icon-only badge                                                                                        |
 
 chip と banner の使い分け: 本文が短く intent 色で塗っても可読性が落ちないなら chip。本文に長文や cause 詳細を載せて neutral 高 contrast text が必要なら banner。
 
@@ -142,14 +142,14 @@ chip と banner の使い分け: 本文が短く intent 色で塗っても可読
 
 ## Intent 選択の判定軸
 
-| intent         | 意味                                   | 例                                                                                 |
-| -------------- | -------------------------------------- | ---------------------------------------------------------------------------------- |
-| primary        | 主要 action / 主要 active state        | submit button / mode tab indicator / current branch / active task row              |
-| info           | 補助 active state / 中立的な情報リンク | sub-toggle (preview / wordwrap) / inline link / info badge / ref / branch / 識別子 |
-| success        | 完了 / 成功                            | added file / untracked file / user message bubble                                  |
-| destructive    | 削除 / エラー / 危険                   | delete button / error toast / removed file                                         |
-| warning        | 進行中 / 一般的な注意                  | Claude `working` / `〜時間前` (recent stale) / modified file                       |
-| warning-strong | 要対応 / 強い注意                      | Claude `asking` / `〜日前` (older stale) / subagent badge                          |
+| intent         | 意味                                   | 例                                                                                                    |
+| -------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| primary        | 主要 action / 主要 active state        | submit button / mode tab indicator / current branch / active task row                                 |
+| info           | 補助 active state / 中立的な情報リンク | sub-toggle (preview / wordwrap) / inline link / info badge (branch ref は lane 色 = `graphColors.ts`) |
+| success        | 完了 / 成功                            | added file / untracked file / user message bubble                                                     |
+| destructive    | 削除 / エラー / 危険                   | delete button / error toast / removed file                                                            |
+| warning        | 進行中 / 一般的な注意                  | Claude `working` / `〜時間前` (recent stale) / modified file                                          |
+| warning-strong | 要対応 / 強い注意                      | Claude `asking` / `〜日前` (older stale) / subagent badge                                             |
 
 primary と info は同じ青系だが意味階層が異なる。同一 toolbar 内で「mode tab = primary、補助 toggle = info」のように要素の階層で分ける。「目立たせたいから primary」「ちょっと目立たせたいから info」のような曖昧基準は使わない。
 
@@ -194,7 +194,10 @@ container は `focus-visible:` を使うと「キーボード focus のみ visua
 - spacing: `gap` / `padding` / `padding-left` / `margin`
 - grid: `grid-area` / `grid-template-rows` / `grid-template-columns`
 
-**(c) 動的計算色 (内部生成)**: id / 名前 hash から動的に生成される色 (例: TerminalPane の `hashToColor` で repo 名 → HSL pastel 色)。`@theme` に固定 token として持てない per-identifier 動的値のため inline style に渡すのは許容。
+**(c) 動的計算色 (内部生成)**: 次の 2 パターンを許容。
+
+- **id / 名前 hash 由来**: 例: TerminalPane の `hashToColor` で repo 名 → HSL pastel 色。per-identifier 動的値で `@theme` に固定 token として持てない
+- **有限固定 palette × variant 展開**: 例: `graphColors.ts` の 8 lane × 3 variant (text / remote-text / subtle-bg) を `laneTextColor()` / `laneRemoteTextColor()` / `laneSubtleBgColor()` で取得。Tier 2 alias に展開すると alias 表が肥大化 (24 token) するため、機能 module 内に helper を持って inline style 経由で渡す
 
 ## `class` は layout 専用
 

@@ -471,12 +471,20 @@ export const useTerminalStore = defineStore("terminal", () => {
     // 起動中で session-start hook 未到達) なら、その leaf を focus するに留めて
     // 新 pane を増やさない。pendingResumeByLeafId は session-start で消化されるまで
     // 残るため、ここでの逆引きが double-spawn の唯一の防壁になる。
-    // ヒットした leaf の PTY が死んでいる (claude --resume 失敗で zsh が exit した等) 場合は
-    // pending が在庫として残った残骸として扱い、entry を消して通常 spawn 経路に流す。
+    // 残骸判定の軸は 2 つ。これ以外 (= leaf あり + session 未確立 / leaf あり + PTY 生存) は
+    // in-flight として focus に倒す。session === undefined の spawn 中状態を「dead」と
+    // 読むと spawn await 中の連打が double-spawn に逆戻りするため、判定軸を慎重に分ける。
+    //   - leaf 自体が paneRegistry から消えた
+    //   - spawn 完了済み (session あり) で PTY が死亡 (claude --resume 失敗で zsh exit 等)
     for (const [pendingLeafId, pendingSid] of Object.entries(pendingResumeByLeafId.value)) {
       if (pendingSid !== sessionId) continue;
-      const pendingPtyId = paneRegistry.value[pendingLeafId]?.session?.ptyId;
-      if (pendingPtyId === undefined || !ptySession.isPtyAlive(pendingPtyId)) {
+      const pane = paneRegistry.value[pendingLeafId];
+      if (pane === undefined) {
+        delete pendingResumeByLeafId.value[pendingLeafId];
+        continue;
+      }
+      const pendingPtyId = pane.session?.ptyId;
+      if (pendingPtyId !== undefined && !ptySession.isPtyAlive(pendingPtyId)) {
         delete pendingResumeByLeafId.value[pendingLeafId];
         continue;
       }

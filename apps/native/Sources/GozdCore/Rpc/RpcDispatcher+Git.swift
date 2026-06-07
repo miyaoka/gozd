@@ -67,6 +67,7 @@ extension RpcDispatcher {
       entry.isMain = wt.isMain
       let full = fullByPath[wt.path]
       entry.gitStatuses = full?.statuses ?? [:]
+      entry.latestMtime = full?.latestMtime ?? 0
       if let full, full.hasUpstream {
         var upstream = Gozd_V1_UpstreamStatus()
         upstream.ahead = full.ahead

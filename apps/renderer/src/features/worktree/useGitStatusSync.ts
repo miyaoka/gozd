@@ -53,8 +53,8 @@ export function useGitStatusSync() {
       repoStore.setWorktreeGitStatuses(payload.dir, {
         statuses: payload.statuses,
         upstream: payload.upstream,
+        latestMtime: payload.latestMtime,
       });
-      gitStatusStore.setWorkingTreeMtime(payload.dir, payload.latestMtime);
     });
   });
   onUnmounted(() => {

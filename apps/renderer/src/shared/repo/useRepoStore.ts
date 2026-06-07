@@ -237,6 +237,9 @@ export const useRepoStore = defineStore("repo", () => {
     statuses: Record<string, string>;
     /** upstream 未設定なら undefined。`hasUpstream` のような boolean を併持しない */
     upstream: UpstreamStatus | undefined;
+    /** 変更ファイルの mtime 最大値 (Unix 秒)。clean / 未取得時は 0。
+     * `statuses` / `upstream` と原子的に同一 patch で書く契約 (SSOT)。 */
+    latestMtime: number;
   }
 
   /**
@@ -263,6 +266,7 @@ export const useRepoStore = defineStore("repo", () => {
       ...next[idx],
       gitStatuses: patch.statuses,
       upstream: patch.upstream,
+      latestMtime: patch.latestMtime,
     };
     repos.value[repo.rootDir] = { ...repo, worktrees: next };
   }

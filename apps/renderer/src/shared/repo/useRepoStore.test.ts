@@ -11,6 +11,7 @@ function wt(path: string, branch: string, isMain = false): WorktreeEntry {
     gitStatuses: {},
     tasks: [],
     upstream: undefined,
+    latestMtime: 0,
   };
 }
 

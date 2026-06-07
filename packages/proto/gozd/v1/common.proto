@@ -17,6 +17,10 @@ message WorktreeEntry {
   // optional により「未設定」をフィールド不在で表現し、ahead/behind を見るには
   // upstream 自体の存在をチェックする契約を型レベルで強制する。
   optional UpstreamStatus upstream = 7;
+  // 変更ファイルの最終更新時刻 (Unix 秒)。`git_statuses` の各パスを stat した最大値。
+  // clean (差分なし) / stat 全失敗のときは 0。削除済みパスは stat 失敗で自動除外される。
+  // `git_statuses` / `upstream` と同じ 1 セットとして書き込まれる契約 (SSOT)。
+  int64 latest_mtime = 8;
 }
 
 // upstream（追跡リモートブランチ）との差分。`git status --porcelain=v2 --branch` の

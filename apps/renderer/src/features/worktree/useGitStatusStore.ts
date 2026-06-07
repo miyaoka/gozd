@@ -1,6 +1,6 @@
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { rpcGitStatus } from "./rpc";
@@ -8,9 +8,9 @@ import { rpcGitStatus } from "./rpc";
 /**
  * active worktree の git status を提供する読み取り専用 store。
  *
- * 真の source は `repoStore.repos[rootDir].worktrees[i].gitStatuses`。
- * この store は active dir に対応する worktree.gitStatuses を派生 computed として
- * 公開し、書き込みは `repoStore.setWorktreeGitStatuses(dir, statuses)` に集約する。
+ * 真の source は `repoStore.repos[rootDir].worktrees[i]`。
+ * この store は active dir に対応する worktree のフィールドを派生 computed として
+ * 公開し、書き込みは `repoStore.setWorktreeGitStatuses(dir, patch)` に集約する。
  *
  * 設計理由:
  *
@@ -19,6 +19,8 @@ import { rpcGitStatus } from "./rpc";
  *   という SSOT 違反が起きる
  * - ファイル変更 push に対し、Swift 側に worktree list を全件再 RPC させる経路を
  *   挟まずに、push payload を直接 repoStore に書いて全リーダーへ伝搬させる
+ * - `statuses` / `upstream` / `latestMtime` は同一の `gitStatusFull` 出力から派生する
+ *   1 セットなので、`setWorktreeGitStatuses` の 1 patch で原子的に書く
  */
 export const useGitStatusStore = defineStore("gitStatus", () => {
   const repoStore = useRepoStore();
@@ -32,24 +34,14 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
     return wt?.gitStatuses ?? {};
   });
 
-  /** per-worktree の「変更ファイル mtime 最大値 (Unix 秒)」。
-   * `WorktreeEntry` 型に侵襲したくない (test fixture / 他経路への影響を避ける) ため、
-   * repoStore とは独立した Map で保持する。push / RPC レスポンスの両経路で
-   * `setWorkingTreeMtime` を呼び、active dir の値を `workingTreeMtime` computed で公開する。 */
-  const workingTreeMtimeByDir = ref(new Map<string, number>());
-
   /** active dir の変更ファイル mtime 最大値 (Unix 秒)。未取得 / clean のときは 0。 */
   const workingTreeMtime = computed<number>(() => {
     const dir = repoStore.selectedDir;
     if (dir === undefined) return 0;
-    return workingTreeMtimeByDir.value.get(dir) ?? 0;
+    const repo = repoStore.findRepoOwning(dir);
+    const wt = repo?.worktrees.find((w) => w.path === dir);
+    return wt?.latestMtime ?? 0;
   });
-
-  function setWorkingTreeMtime(dir: string, mtime: number) {
-    const next = new Map(workingTreeMtimeByDir.value);
-    next.set(dir, mtime);
-    workingTreeMtimeByDir.value = next;
-  }
 
   /**
    * active dir の git status を rpcGitStatus で取得し直して repoStore を更新する。
@@ -70,15 +62,15 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
       repoStore.setWorktreeGitStatuses(dir, {
         statuses: result.value.entries,
         upstream: result.value.upstream,
+        latestMtime: result.value.latestMtime,
       });
-      setWorkingTreeMtime(dir, result.value.latestMtime);
     } else {
       const notify = useNotificationStore();
       notify.error("Failed to get git status", result.error);
     }
   }
 
-  return { gitStatuses, workingTreeMtime, loadGitStatus, setWorkingTreeMtime };
+  return { gitStatuses, workingTreeMtime, loadGitStatus };
 });
 
 if (import.meta.hot) {

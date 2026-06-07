@@ -94,9 +94,14 @@ export const useTerminalStore = defineStore("terminal", () => {
   const lastRemovedLeafId = shallowRef<string>();
 
   /**
-   * leafId → 次回 spawn 時に env として注入する Claude session ID。
-   * worktree の初回 visit 時に保存済みセッションを復元するために、leafId と sessionId を
-   * 紐付けておく。spawnPty が env を組み立てるタイミングで一度だけ消費する。
+   * leafId → resume 起動中の Claude sessionId。2 用途のヒントを兼ねる:
+   *   - 起動 env 注入: spawnPty が env 組み立て時に snapshot で読み、GOZD_RESUME_CLAUDE_SESSION
+   *     として 1 回だけ乗せる
+   *   - 連打 dedup: requestResumeSession が sessionId 逆引きで「同 sid の resume が in-flight」
+   *     を判定し、新 pane を作らず既存 leaf を focus に倒す
+   * lifecycle: requestResumeSession で set。session-start hook 到達時に onSessionAttached
+   * から削除 (起動成功経路)。spawn 失敗時に requestPtySpawn の catch で削除 (起動失敗経路)。
+   * unregisterPane でも leaf 終端の cleanup として削除。
    */
   const pendingResumeByLeafId = ref<Record<string, string>>({});
 
@@ -143,9 +148,8 @@ export const useTerminalStore = defineStore("terminal", () => {
     },
     requestPtySpawn: async ({ leafId, dir, cols, rows }) => {
       const env = getDefaultSpawnEnv();
-      // 復元対象セッションがあれば env に乗せる。spawn 失敗で resume ID が
-      // 永久消失しないよう、map からの削除は spawn 成功後にのみ行う。
-      // zsh init が GOZD_RESUME_CLAUDE_SESSION を見て `claude --resume <id>` を起動する。
+      // 起動 env 注入: spawn 開始時に snapshot を取る。zsh init が
+      // GOZD_RESUME_CLAUDE_SESSION を見て `claude --resume <id>` を 1 回だけ起動する。
       const resumeId = pendingResumeByLeafId.value[leafId];
       if (resumeId !== undefined) {
         env.GOZD_RESUME_CLAUDE_SESSION = resumeId;
@@ -154,22 +158,36 @@ export const useTerminalStore = defineStore("terminal", () => {
       if (autostart) {
         env.GOZD_AUTOSTART_CLAUDE = "1";
       }
-      const res = await rpcPtySpawn({
-        dir,
-        executable: DEFAULT_SHELL,
-        args: DEFAULT_SHELL_ARGS,
-        env,
-        rows,
-        cols,
-        worktreePath: dir,
-      });
+      const res = await tryCatch(
+        rpcPtySpawn({
+          dir,
+          executable: DEFAULT_SHELL,
+          args: DEFAULT_SHELL_ARGS,
+          env,
+          rows,
+          cols,
+          worktreePath: dir,
+        }),
+      );
+      if (!res.ok) {
+        // spawn 失敗時は pending ヒントを掃除する。残すと requestResumeSession の dedup loop
+        // が「起動できなかった leaf」を ヒットさせて存在しない pane に focus 試行する事故を
+        // 起こす。env は snapshot 済みなので削除しても再 spawn 時の挙動は変わらない。
+        if (resumeId !== undefined) {
+          delete pendingResumeByLeafId.value[leafId];
+        }
+        if (autostart) {
+          delete pendingAutostartByLeafId.value[leafId];
+        }
+        throw res.error;
+      }
       // pendingResumeByLeafId は spawn 成功時点では削除しない。session-start hook の
       // 到達まで保持して、その間の重複クリックを requestResumeSession で focus に倒す。
       // (削除は claudeStatus の onSessionAttached コールバックで行う)
       if (autostart) {
         delete pendingAutostartByLeafId.value[leafId];
       }
-      return res.ptyId;
+      return res.value.ptyId;
     },
     sendPtyKill: ({ id }) => {
       void rpcPtyKill({ ptyId: id });
@@ -193,11 +211,10 @@ export const useTerminalStore = defineStore("terminal", () => {
       // session-start で sessionId が live mapping に乗ったので、対応 leaf の
       // resume pending ヒントを掃除する。これ以降は claude.getPtyIdBySessionId が
       // 引けるため requestResumeSession 側の dedup は live PTY check で完結する。
-      for (const [leafId, entry] of Object.entries(paneRegistry.value)) {
-        if (entry.session?.ptyId === ptyId) {
-          delete pendingResumeByLeafId.value[leafId];
-          break;
-        }
+      // ptyId → leafId 逆引きは leafIdByPtyId computed (SSOT) を経由する。
+      const leafId = leafIdByPtyId.value.get(ptyId);
+      if (leafId !== undefined) {
+        delete pendingResumeByLeafId.value[leafId];
       }
     },
   });
@@ -442,23 +459,29 @@ export const useTerminalStore = defineStore("terminal", () => {
   function requestResumeSession(dir: string, sessionId: string) {
     // click → onSelectTask 内で `getPtyIdBySessionId === undefined` を確認済み。
     // ここに来てなお live になっているのは「click と本関数呼び出しの間に session-start
-    // hook が走った」ごく狭い race のみ。観察用に debug ログを残し、focus は上位の
-    // 経路 (focusPane) に任せて return する。
-    if (claude.getPtyIdBySessionId(sessionId) !== undefined) {
-      console.debug(
-        `[useTerminalStore] requestResumeSession: ${sessionId} became live between click and request; deferring focus to caller`,
-      );
+    // hook が走った」ごく狭い race。caller (SidebarPane.onSelectTask) は live PTY check の
+    // 後で requestResumeSession に入る経路では focus を呼ばないため、ここで focus に倒す。
+    const livePtyId = claude.getPtyIdBySessionId(sessionId);
+    if (livePtyId !== undefined) {
+      const liveLeafId = leafIdByPtyId.value.get(livePtyId);
+      if (liveLeafId !== undefined) layout.focusPane(liveLeafId);
       return;
     }
     // 連打ガード: 同一 sessionId の resume が in-flight (spawn 中 / claude --resume
     // 起動中で session-start hook 未到達) なら、その leaf を focus するに留めて
     // 新 pane を増やさない。pendingResumeByLeafId は session-start で消化されるまで
     // 残るため、ここでの逆引きが double-spawn の唯一の防壁になる。
+    // ヒットした leaf の PTY が死んでいる (claude --resume 失敗で zsh が exit した等) 場合は
+    // pending が在庫として残った残骸として扱い、entry を消して通常 spawn 経路に流す。
     for (const [pendingLeafId, pendingSid] of Object.entries(pendingResumeByLeafId.value)) {
-      if (pendingSid === sessionId) {
-        layout.focusPane(pendingLeafId);
-        return;
+      if (pendingSid !== sessionId) continue;
+      const pendingPtyId = paneRegistry.value[pendingLeafId]?.session?.ptyId;
+      if (pendingPtyId === undefined || !ptySession.isPtyAlive(pendingPtyId)) {
+        delete pendingResumeByLeafId.value[pendingLeafId];
+        continue;
       }
+      layout.focusPane(pendingLeafId);
+      return;
     }
     if (!visitedDirs.value.includes(dir)) {
       preferredResumeByDir.value[dir] = sessionId;

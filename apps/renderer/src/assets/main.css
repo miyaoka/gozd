@@ -40,44 +40,59 @@
   --color-border: var(--gray-7);
   --color-border-strong: var(--gray-8);
 
-  /* text (11-12 step roles) */
+  /* text (9 / 11 / 12 step roles)。3-tier hierarchy:
+       foreground       — 主要 text (高 contrast)
+       foreground-low   — secondary text / placeholder
+       foreground-muted — de-emphasized / inactive state (Primer "NEVER use opacity for disabled" 規律) */
   --color-foreground: var(--gray-12);
   --color-foreground-low: var(--gray-11);
+  --color-foreground-muted: var(--gray-9);
 
   /* focus ring (intent step 8) */
   --color-ring: var(--blue-8);
 
-  /* overlay: black alpha (dark UI 用 backdrop。gray alpha は白 overlay = bg を
-     lighten するため、dialog backdrop には逆向きで使えない) */
+  /* overlay: black alpha (dialog backdrop で前景を意図的に見せる UX 要件。
+     Radix Tooltip / Material modal / Spectrum overlay と同じ業界標準パターン) */
   --color-overlay: oklch(0 0 0 / 0.5);
+
+  /* intent: 各 intent は 5 token を持つ (subtle = step 3、subtle bg / chip / active row)
+     solid (step 9) は CTA / badge、subtle (step 3) は dim な intent 面、text (step 11) は
+     neutral 上の低コントラスト文字、foreground は solid bg 上の文字。
+     subtle-hover は step 4 (active row の hover、primary のみ提供)。 */
 
   /* intent: primary (blue) */
   --color-primary: var(--blue-9);
   --color-primary-hover: var(--blue-10);
+  --color-primary-subtle: var(--blue-3);
+  --color-primary-subtle-hover: var(--blue-4);
   --color-primary-text: var(--blue-11);
   --color-primary-foreground: var(--gray-12);
 
   /* intent: destructive (red) */
   --color-destructive: var(--red-9);
   --color-destructive-hover: var(--red-10);
+  --color-destructive-subtle: var(--red-3);
   --color-destructive-text: var(--red-11);
   --color-destructive-foreground: var(--gray-12);
 
   /* intent: success (green) */
   --color-success: var(--green-9);
   --color-success-hover: var(--green-10);
+  --color-success-subtle: var(--green-3);
   --color-success-text: var(--green-11);
   --color-success-foreground: var(--gray-12);
 
   /* intent: warning (amber、solid は light yellow → foreground は dark) */
   --color-warning: var(--amber-9);
   --color-warning-hover: var(--amber-10);
+  --color-warning-subtle: var(--amber-3);
   --color-warning-text: var(--amber-11);
   --color-warning-foreground: var(--gray-1);
 
   /* intent: warning-strong (orange、solid は mid-bright → foreground は dark) */
   --color-warning-strong: var(--orange-9);
   --color-warning-strong-hover: var(--orange-10);
+  --color-warning-strong-subtle: var(--orange-3);
   --color-warning-strong-text: var(--orange-11);
   --color-warning-strong-foreground: var(--gray-1);
 

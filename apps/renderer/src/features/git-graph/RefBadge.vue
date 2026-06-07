@@ -3,19 +3,28 @@ Branch ref badge with optional PR link. Displays a PR number badge (left) and br
 
 ## カラー設計
 
-graph line と同じ lane 色で描画して「ブランチ ref と graph line が同じ hue」を視覚的に
-担保する。`laneColorIndex` は親 GitGraphPane が `node.color` (graphLayout のレーン色 index)
-として渡す。各 ref は **自分が乗っている commit の lane** に従って色が決まる。
+ref の hue は **branch 名単位で固定** する (`displayRef.laneColorIndex` = GitGraphPane の
+`branchLaneByName` 由来)。同じ branch 名なら local / synced / remote すべて同 hue になり、
+out-of-sync で local と remote が別 commit に乗っていても色が割れない。lane 0 (teal) は
+HEAD branch に予約。
 
-- `local` (out-of-sync でない) / `synced`: lane hue full saturation の text + lane hue subtle bg
-  (subtle chip pattern を per-lane 展開)
-- `remote` (out-of-sync でない) / synced 状態の remote 同 commit: 同じ lane hue を低 L / 低 C に
-  倒した text (`laneRemoteTextColor`)。bg は同 commit の local と共通の `laneSubtleBgColor`
-- `local` / `remote` が **out-of-sync** (異なる commit に乗る) 場合: 各 ref がそれぞれの
-  commit lane に従うため、同 branch 名でも異なる hue で描かれる。これは graph line との視覚一致を
-  優先した意図的 trade-off (branch 同一性は label テキスト + icon `link-2-off` で表現)
+実体上の DisplayRef type は `local | synced | remote | tag` の 4 値:
+
+- `local`: branch 名に local ref のみ、remote ref 無し
+- `synced`: 同一 commit 上に local と origin/同名が両方ある (computeDisplayRefs で merge され
+  DisplayRef は 1 個に統合される)
+- `remote`: branch 名に origin/\* のみ、local ref 無し (pure remote)
+- `tag`: tag ref
+
+色マッピング:
+
+- `local` / `synced`: lane hue full saturation の text + lane hue subtle bg
+  (`laneTextColor` + `laneSubtleBgColor`)
+- `remote`: 同じ lane hue を低 L / 低 C に倒した text (`laneRemoteTextColor`) + bg は local と
+  共通 (`laneSubtleBgColor`)。「同じ branch の remote 側 = 一段 dim」を表現
 - `tag`: branch とは別概念なので primary-subtle (lane 色に乗らない)
-- `isCurrent`: HEAD branch tip を warning solid で強調 (lane 色より上に立つ攻撃的ハイライト)
+- `isCurrent`: HEAD branch tip を warning solid で強調 (lane 色より上に立つ攻撃的ハイライト)。
+  `isCurrent && remote` は warning-subtle で「remote HEAD pointer」
 
 8 lane × 3 variant (text local / text remote / bg) を Tier 2 token に展開すると alias 表が
 肥大化するため、`graphColors.ts` の動的計算色を inline `:style` で渡す
@@ -31,8 +40,6 @@ import { laneRemoteTextColor, laneSubtleBgColor, laneTextColor } from "./graphCo
 const props = defineProps<{
   displayRef: DisplayRef;
   prByBranch: Map<string, GitPullRequest>;
-  /** この commit が乗っている graph lane の color index。graph line と ref text の hue を揃える */
-  laneColorIndex: number;
 }>();
 
 /** DisplayRef からブランチ名を抽出し、対応する PR を返す */
@@ -48,17 +55,16 @@ const pr = computed(() => {
 /**
  * branch (local / remote / synced) は lane 色を inline style で適用する。
  * tag は branch ではないため lane 色に乗らず、primary-subtle (Tier 2 token) を使う。
+ * isCurrent は warning 系で上書きされるためここも fallback class 側に流す。
  */
 const isBranch = computed(() => props.displayRef.type !== "tag" && !props.displayRef.isCurrent);
 
 const branchStyle = computed<Record<string, string> | undefined>(() => {
   if (!isBranch.value) return undefined;
-  const text =
-    props.displayRef.type === "remote"
-      ? laneRemoteTextColor(props.laneColorIndex)
-      : laneTextColor(props.laneColorIndex);
+  const idx = props.displayRef.laneColorIndex;
+  const text = props.displayRef.type === "remote" ? laneRemoteTextColor(idx) : laneTextColor(idx);
   return {
-    backgroundColor: laneSubtleBgColor(props.laneColorIndex),
+    backgroundColor: laneSubtleBgColor(idx),
     color: text,
   };
 });

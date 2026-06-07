@@ -152,7 +152,8 @@ function onContainerClick(e: MouseEvent) {
 </script>
 
 <template>
-  <!-- ハイライト済み HTML。contenteditable で Cmd+A scope をこの leaf に閉じ込める。 -->
+  <!-- ハイライト済み HTML。contenteditable で Cmd+A scope をこの leaf に閉じ込める。
+       SR には "edit, read only" ではなく region として案内する (aria-readonly は textbox role 専用)。 -->
   <div
     v-if="highlightedHtml"
     ref="containerRef"
@@ -162,7 +163,8 @@ function onContainerClick(e: MouseEvent) {
     spellcheck="false"
     autocorrect="off"
     autocapitalize="off"
-    aria-readonly="true"
+    role="region"
+    aria-label="File contents"
     :style="{ '--line-no-width': lineNoWidth }"
     v-html="highlightedHtml"
     @click="onContainerClick"
@@ -181,7 +183,8 @@ function onContainerClick(e: MouseEvent) {
     spellcheck="false"
     autocorrect="off"
     autocapitalize="off"
-    aria-readonly="true"
+    role="region"
+    aria-label="File contents"
     :style="{ '--line-no-width': lineNoWidth }"
     @click="onContainerClick"
     @beforeinput="blockEdit"

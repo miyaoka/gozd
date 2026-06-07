@@ -33,10 +33,14 @@ content なので構造的に clipboard 対象外。
 
 各 section が `_split-section` の `1fr 1fr` grid で 2 半身 (left / right) を並べ、
 半身それぞれが独立した contenteditable host (sibling)。Cmd+A の scope は focus が居る
-半身 1 つだけに閉じる。半身内は per-row の `_split-row` を `display: block` +
-hanging indent で並べる。modified hunk 内では連続する removed run と added run を貪欲
-ペアリングし、片側だけが存在する行は反対側の `_split-row` を空 (`_split-filler` で
-灰色背景) にして残す。
+半身 1 つだけに閉じる。半身内は per-row の `_split-row` を 1 つ 1 block として並べ、
+hanging indent (`padding-left` + 負 `text-indent`) で line-no と本文を配置する。
+行揃えは CSS subgrid で実現する: `_split-section` に `grid-template-rows: repeat(N, auto)`
+を style binding で渡し、両半身が `grid-template-rows: subgrid` で同じ row track を
+継承する。これで word-wrap で左右の折返し行数が違っても、行ごとに高い方に track が伸びて
+左 row j と右 row j が同じ親 track に置かれ、左右の行が縦に揃う。
+modified hunk 内では連続する removed run と added run を貪欲ペアリングし、片側だけが
+存在する行は反対側の `_split-row` を空 (`_split-filler` で灰色背景) にして残す。
 
 ### hunk-bar
 
@@ -706,10 +710,10 @@ function blockEdit(event: Event) {
 
 <template>
   <div class="flex h-full flex-col">
-    <!-- ビューモードトグル (externalViewMode 指定時は親側で 1 本に統合)。本体テキスト以外なので select-none。 -->
+    <!-- ビューモードトグル (externalViewMode 指定時は親側で 1 本に統合) -->
     <div
       v-if="state.kind === 'success' && externalViewMode === undefined"
-      class="flex items-center border-b border-border px-2 py-1 select-none"
+      class="flex items-center border-b border-border px-2 py-1"
     >
       <div class="flex items-center gap-0.5">
         <button
@@ -776,7 +780,8 @@ function blockEdit(event: Event) {
             spellcheck="false"
             autocorrect="off"
             autocapitalize="off"
-            aria-readonly="true"
+            role="region"
+            aria-label="Diff section"
             @beforeinput="blockEdit"
             @dragover.prevent
             @drop.prevent
@@ -834,7 +839,11 @@ function blockEdit(event: Event) {
       <!--
         split view: section ごとに「左半身 contenteditable」+「右半身 contenteditable」の sibling 構成。
         hunk-bar は section の外に sibling として置くので scope に入らない。
-        section 内の左右半身は単一行高で自然に行揃え (1 行 = 1 grid row)。
+        section 内の左右行揃えは CSS subgrid で実現する。`_split-section` に
+        `grid-template-rows: repeat(N, auto)` を style binding で渡し、両半身が
+        `grid-template-rows: subgrid` で同じ N 個の row track を共有する。これで
+        word-wrap で左右の折返し行数が違っても、行ごとに高い方に track が伸びて
+        左 row j と右 row j が同じ親 track に置かれる。
       -->
       <template v-else>
         <template v-for="(item, i) in splitItems" :key="i">
@@ -849,14 +858,19 @@ function blockEdit(event: Event) {
             <span>{{ barLabel(item) }}</span>
           </button>
 
-          <div v-else class="_split-section">
+          <div
+            v-else
+            class="_split-section"
+            :style="{ gridTemplateRows: `repeat(${item.lines.length}, auto)` }"
+          >
             <div
               class="_split-half _split-half-left outline-none"
               contenteditable="true"
               spellcheck="false"
               autocorrect="off"
               autocapitalize="off"
-              aria-readonly="true"
+              role="region"
+              aria-label="Old contents"
               @beforeinput="blockEdit"
               @dragover.prevent
               @drop.prevent
@@ -903,7 +917,8 @@ function blockEdit(event: Event) {
               spellcheck="false"
               autocorrect="off"
               autocapitalize="off"
-              aria-readonly="true"
+              role="region"
+              aria-label="New contents"
               @beforeinput="blockEdit"
               @dragover.prevent
               @drop.prevent
@@ -965,6 +980,7 @@ function blockEdit(event: Event) {
 ._line-no {
   display: inline-block;
   width: var(--line-no-width, 3ch);
+  margin-right: 1.5ch;
   text-align: right;
   color: var(--color-element-hover);
   user-select: none;
@@ -997,12 +1013,6 @@ function blockEdit(event: Event) {
   outline: 2px solid var(--color-primary);
   outline-offset: -2px;
   color: var(--color-primary);
-}
-
-/* line-no と _line-text の間隔は `_diff-line` の padding-left + text-indent で吸収するため
-   個別の margin-left は不要。line-no 間の右余白は `_line-no` の `margin-right` で持つ。 */
-._line-no {
-  margin-right: 1.5ch;
 }
 
 ._line-text {
@@ -1039,11 +1049,16 @@ function blockEdit(event: Event) {
 }
 
 /* split view: section ごとに左右の半身を 1fr / 1fr で並べる外側 grid。
-   各半身は単純な block コンテナで、内側は `_split-row` 1 つを 1 block として行を並べる。
-   旧構造の半身内 2-col サブグリッドはやめた: grid 子の blockification で contenteditable
-   コピー時に行間に余計な `\n` が混じる現象を避けるため。代わりに `_split-row` 1 つに
-   hanging indent (padding-left + 負 text-indent) を当てて、word-wrap 時の折返し行が
-   line-no 幅で揃う挙動を保つ。
+   各半身は CSS subgrid で親の row track を継承し、内側の `_split-row` を 1 block 1 track
+   ずつ並べる。`_split-section` には `grid-template-rows: repeat(N, auto)` を style binding
+   で N = 行数として渡し、両半身が同じ N 個の row track を共有する。これで word-wrap で
+   左右の折返し行数が違っても、行ごとに高い方の高さに track が伸びて左 row j と右 row j が
+   同じ親 track に置かれ、左右の行が縦に揃う。
+   `_split-row` 1 つに hanging indent (padding-left + 負 text-indent) を当てて、word-wrap 時の
+   折返し行も line-no 幅で揃う挙動を保つ。半身内側を 2-col サブグリッドにする旧案は grid 子の
+   blockification で contenteditable コピー時に行間に余計な `\n` が混じるため不採用。各 row は
+   半身配下のただ 1 つの直接子 (grid item) なので、blockification は 1 行 1 個に収まり clipboard
+   は「1 行 = 1 改行」を保つ。
    hunk-bar は section の外、scroll コンテナ直下の sibling に置くため、どの contenteditable
    subtree にも入らず Cmd+A scope から構造的に除外される。
    split は section ごとに左右半身それぞれが独立した contenteditable=true の editing host。
@@ -1051,10 +1066,18 @@ function blockEdit(event: Event) {
 ._split-section {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  /* grid-template-rows は section ごとに style binding で `repeat(N, auto)` を渡す (= 上記コメント参照) */
 }
 
 ._split-half {
-  display: block;
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-template-columns: 1fr;
+  grid-row: 1 / -1;
+}
+
+._split-half-left {
+  grid-column: 1;
 }
 
 ._split-row {
@@ -1066,6 +1089,7 @@ function blockEdit(event: Event) {
 /* 旧 `_split-divider` (個別セルの左 border) を半身境界の border-left に統合。
    セル単位で divider を持つよりも構造が SSOT に揃う。 */
 ._split-half-right {
+  grid-column: 2;
   border-left: 1px solid var(--color-element);
   padding-left: 0.5ch;
 }

@@ -73,8 +73,8 @@ onUnmounted(() => {
 
 <template>
   <div class="flex h-full flex-col overflow-hidden">
-    <!-- ヘッダー。本体テキスト以外なので select-none で Cmd+A / drag 選択から構造的に除外。 -->
-    <div class="flex items-center gap-2 border-b border-border px-3 py-2 select-none">
+    <!-- ヘッダー -->
+    <div class="flex items-center gap-2 border-b border-border px-3 py-2">
       <span class="icon-[lucide--file-diff] size-4 shrink-0 text-foreground-low" />
       <span class="text-sm text-foreground">Changes summary</span>
       <span v-if="changesStore.orderedFileChanges.length > 0" class="text-xs text-foreground-low">
@@ -91,8 +91,8 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <!-- ツールバー: view mode と wrap を全 item に伝搬。select-none で選択対象から除外。 -->
-    <div class="flex items-center border-b border-border select-none">
+    <!-- ツールバー: view mode と wrap を全 item に伝搬 -->
+    <div class="flex items-center border-b border-border">
       <button
         type="button"
         class="flex items-center gap-1 px-3 py-1.5 text-xs transition-colors"

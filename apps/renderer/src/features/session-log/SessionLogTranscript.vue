@@ -565,10 +565,11 @@ onBeforeUnmount(teardownObserver);
           class="flex scroll-mt-2 items-end gap-1.5"
           :class="ev.kind === 'assistant' ? 'flex-row' : 'flex-row-reverse'"
         >
-          <!-- assistant: markdown 吹き出し (相手色 = chat-incoming = 白)。
-                 LINE 風の白地に黒文字で、`--color-foreground` / `--color-foreground-low` を
-                 chat-text 系で local override し、MarkdownBody 内の :deep セレクタが当てる
-                 文字色をまとめて黒に倒す。inline code は背景なし + 紫 (scoped :deep(code))。 -->
+          <!-- assistant: markdown 吹き出し (相手色 = chat-incoming = 暗グレー)。
+                 LINE ダーク風の暗背景に明文字で、`--color-foreground` / `--color-foreground-low`
+                 を chat-incoming-text 系で local override し、MarkdownBody 内の :deep セレクタ
+                 が当てる文字色を明側へ寄せる。inline code は背景なし + 明 violet (scoped
+                 :deep(code) で chat-code を当てる)。 -->
           <div
             v-if="ev.kind === 'assistant'"
             class="_transcript-assistant min-w-0 rounded-2xl bg-chat-incoming px-3 py-1.5 text-sm text-chat-incoming-text [--color-foreground-low:var(--color-chat-incoming-text-low)] [--color-foreground:var(--color-chat-incoming-text)] [--md-code-bg:transparent]"
@@ -580,7 +581,7 @@ onBeforeUnmount(teardownObserver);
             />
           </div>
 
-          <!-- user: 素テキスト吹き出し (自分色 = chat-outgoing = LINE 黄緑、文字は chat-text = 黒)。 -->
+          <!-- user: 素テキスト吹き出し (自分色 = chat-outgoing = LINE 緑、文字は chat-outgoing-text = 黒)。 -->
           <div
             v-else-if="ev.kind === 'user'"
             class="min-w-0 rounded-2xl bg-chat-outgoing px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-chat-outgoing-text"

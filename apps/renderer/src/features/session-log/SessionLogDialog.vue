@@ -23,9 +23,11 @@ subagent が居て軸を引けるときだけタイムラインを出す。subag
 
 ## 動作
 
-- open 時に `rpcClaudeSessionLog` で native から main + subagents (Task + Workflow) の生 JSONL を
-  取得し、各 entry を `parseSessionLog` で transcript 化して保持する。`entries[0]` が main、
-  残りが subagents。subagent タブを選ぶと右ペインの transcript が切り替わる
+- load / debounce refresh / rpcFsWatch / rpcFsUnwatch は `useSessionLogLive(sessionId)` に
+  委譲する。dialog は `context.sessionId` を入力に composable から `sessions` / `loading` /
+  `errorMessage` / `notFound` を受け、表示・分岐選択・スクロール同期に専念する
+- 各 entry を `parseSessionLog` で transcript 化する (`entries[0]` が main、残りが subagents)。
+  subagent タブを選ぶと右ペインの transcript が切り替わる
 - 取得失敗 / 未発見 / 空ログはそれぞれ明示メッセージを出す (fallback で握り潰さない)
 - rewind があるセッションはデフォルトで最新枝だけを表示する。分岐点に出る branch セレクタを
   クリックすると `branchSelections` (tabId → branchKey → childUuid) を更新し、`parsedSessions`
@@ -34,11 +36,13 @@ subagent が居て軸を引けるときだけタイムラインを出す。subag
 
 ## ライブ更新
 
-open 中はログの親 dir (`~/.claude/projects/<encoded>/`) を `rpcFsWatch` で監視し、`fsChange`
-push を受けたら debounce して再読込する。再読込は `loading` を立てず `sessions` を差し替える
-だけのサイレント更新で、`SessionLogTranscript` の remount とスクロール状態リセットを避ける。
-close / unmount で `rpcFsUnwatch` する。worktree 外のログなので filer の app-scope watch には
-乗らず、dialog 自身が watch ライフサイクルを所有する。
+`useSessionLogLive` が `context.sessionId` の変化を watch して、対応するログの親 dir
+(`~/.claude/projects/<encoded>/`) を `rpcFsWatch` で監視し、`fsChange` push を受けたら
+debounce して再読込する。再読込は `loading` を立てず `sessions` を差し替えるだけの
+サイレント更新で、`SessionLogTranscript` の remount とスクロール状態リセットを避ける。
+context が undefined になった / dialog がアンマウントされた時点で composable が
+`rpcFsUnwatch` を発射する。worktree 外のログなので filer の app-scope watch には乗らず、
+composable が watch ライフサイクルを所有する。
 </doc>
 
 <script setup lang="ts">
@@ -65,10 +69,10 @@ const { context, close } = useSessionLogViewer();
 
 const dialogRef = ref<HTMLDialogElement | undefined>(undefined);
 
-// 生 SessionTab[] とロード状態は useSessionLogLive に閉じる。`rpcFsWatch` を含む
-// ライフサイクル全部 (load / debounce refresh / unwatch) は context.sessionId の
-// 変化に追随して composable 側で回る。dialog はその表示・分岐選択・スクロール同期に
-// 専念する。
+// dialog の `context.sessionId` を入力とし、生 SessionTab[] とロード状態を
+// `useSessionLogLive` に出させる。load / debounce refresh / rpcFsWatch / rpcFsUnwatch
+// のライフサイクル全部は composable 側に閉じ、dialog は表示・分岐選択・スクロール同期に
+// 専念する。dialog 自身は rpcClaudeSessionLog / rpcFsWatch / rpcFsUnwatch を直接触らない。
 const sessionId = computed(() => context.value?.sessionId);
 const { sessions, loading, errorMessage, notFound } = useSessionLogLive(sessionId);
 

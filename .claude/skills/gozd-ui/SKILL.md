@@ -144,11 +144,11 @@ chip と banner の使い分け: 本文が短く intent 色で塗っても可読
 
 | intent         | 意味                                   | 例                                                                                   |
 | -------------- | -------------------------------------- | ------------------------------------------------------------------------------------ |
-| primary        | 主要 action / 主要 active state        | submit button / mode tab indicator / current branch / active task row                |
+| primary        | 主要 action / 主要 active state        | submit button / mode tab indicator / active task row                                 |
 | info           | 補助 active state / 中立的な情報リンク | sub-toggle (preview / wordwrap) / inline link / info badge / tag ref / 識別子        |
-| success        | 完了 / 成功 / 整合状態                 | added file / untracked file / branch ref (local/synced/remote) / user message bubble |
+| success        | 完了 / 成功 / 既存 ref                 | added file / untracked file / branch ref (local/synced/remote) / user message bubble |
 | destructive    | 削除 / エラー / 危険                   | delete button / error toast / removed file                                           |
-| warning        | 進行中 / 一般的な注意                  | Claude `working` / `〜時間前` (recent stale) / modified file                         |
+| warning        | 進行中 / 一般的な注意 / HEAD 強調      | Claude `working` / `〜時間前` (recent stale) / modified file / current branch (HEAD) |
 | warning-strong | 要対応 / 強い注意                      | Claude `asking` / `〜日前` (older stale) / subagent badge                            |
 
 primary と info は同じ青系だが意味階層が異なる。同一 toolbar 内で「mode tab = primary、補助 toggle = info」のように要素の階層で分ける。「目立たせたいから primary」「ちょっと目立たせたいから info」のような曖昧基準は使わない。
@@ -194,7 +194,7 @@ container は `focus-visible:` を使うと「キーボード focus のみ visua
 - spacing: `gap` / `padding` / `padding-left` / `margin`
 - grid: `grid-area` / `grid-template-rows` / `grid-template-columns`
 
-**(c) 動的計算色 (内部生成)**: id / 名前 hash から動的に生成される色 (例: TerminalPane の `hashToColor` で repo 名 → HSL pastel 色)、または有限固定 palette を runtime index で引く色 (例: `graphColors.ts` の `laneTextColor()` で lane index → 8 色 OKLCH literal)。`@theme` に固定 token として持てない per-identifier / per-index 動的値のため inline style に渡すのは許容。
+**(c) 動的計算色 (内部生成)**: id / 名前 hash から動的に生成される色 (例: TerminalPane の `hashToColor` で repo 名 → HSL pastel 色)、または有限固定 palette を runtime index で引く色 (例: `graphColors.ts` の `laneTextColor()` で lane index → 8 色 OKLCH literal)。`@theme` に固定 token として持てない per-identifier / per-index 動的値のため、inline style (`:style`) または SVG attribute binding (`:fill` / `:stroke`) に渡すのは許容。
 
 ## `class` は layout 専用
 

@@ -547,9 +547,8 @@ const connectorPath = computed(() => {
   return `M${x0},0L${x0},${rowY(head.index)}`;
 });
 
-/** lane 色パレットは `graphColors.ts` 経由で RefBadge と共有する。RefBadge が
- * graph line と同じ hue で描画されるよう、ここの draw color と RefBadge の text color が
- * 同じ `laneTextColor()` から派生する SSOT 構造になる。 */
+/** graph line / dot の draw color。RefBadge は別経路 (current / default / other の 3 カテゴリで
+ * Tier 2 token に固定) なので、ここの lane 色とは独立。 */
 const colorFor = laneTextColor;
 
 /**

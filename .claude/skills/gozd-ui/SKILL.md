@@ -146,14 +146,14 @@ chip と banner の使い分け: 本文が短く intent 色で塗っても可読
 | -------------- | -------------------------------------- | ---------------------------------------------------------------------------------- |
 | primary        | 主要 action / 主要 active state        | submit button / mode tab indicator / current branch / active task row              |
 | info           | 補助 active state / 中立的な情報リンク | sub-toggle (preview / wordwrap) / inline link / info badge / ref / branch / 識別子 |
-| success        | 完了 / 成功 / 整合状態                 | added file / untracked file / synced ref / user message bubble                     |
+| success        | 完了 / 成功 / 同期可能                 | added file / untracked file / local ref / remote ref / user message bubble         |
 | destructive    | 削除 / エラー / 危険                   | delete button / error toast / removed file                                         |
 | warning        | 進行中 / 一般的な注意                  | Claude `working` / `〜時間前` (recent stale) / modified file                       |
 | warning-strong | 要対応 / 強い注意                      | Claude `asking` / `〜日前` (older stale) / subagent badge                          |
 
 primary と info は同じ青系だが意味階層が異なる。同一 toolbar 内で「mode tab = primary、補助 toggle = info」のように要素の階層で分ける。「目立たせたいから primary」「ちょっと目立たせたいから info」のような曖昧基準は使わない。
 
-**同一要素内で hover による intent 切り替えは禁止** (`text-info hover:text-primary` 等)。link の hover 強調は intent を変えず、`hover:underline` / `hover:opacity-80` で表現する。
+**同一要素内で hover による intent 切り替えは禁止** (`text-info hover:text-primary` 等)。link の hover 強調は intent を変えず、`hover:underline` で表現する (`hover:opacity-N` は本 doc の Alpha 規律に反するので使わない)。
 
 ## Click handler は `<button type="button">`
 

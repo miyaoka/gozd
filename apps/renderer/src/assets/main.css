@@ -75,25 +75,24 @@
   --color-destructive-text: var(--red-11);
   --color-destructive-foreground: var(--gray-12);
 
-  /* intent: success (green) */
+  /* intent: success (green)。-hover は未利用 (solid success button が無い) */
   --color-success: var(--green-9);
-  --color-success-hover: var(--green-10);
   --color-success-subtle: var(--green-3);
   --color-success-text: var(--green-11);
   --color-success-foreground: var(--gray-12);
 
-  /* intent: warning (amber、solid は light yellow → foreground は dark) */
+  /* intent: warning (amber、solid は light yellow → foreground は dark)。-hover は未利用 */
   --color-warning: var(--amber-9);
-  --color-warning-hover: var(--amber-10);
   --color-warning-subtle: var(--amber-3);
   --color-warning-text: var(--amber-11);
   --color-warning-foreground: var(--gray-1);
 
-  /* intent: warning-strong (orange、solid は mid-bright → foreground は dark)
-     -subtle は未利用 (subtle bg として warning と区別する用途が出ていない)。
-     必要になった時点で `--color-warning-strong-subtle: var(--orange-3)` を追加する */
+  /* intent: warning-strong (orange、solid は mid-bright → foreground は dark)。
+     -hover / -subtle は未利用 (solid warning-strong button や subtle bg として
+     warning と区別する用途が出ていない)。必要になった時点で
+     `--color-warning-strong-hover: var(--orange-10)` /
+     `--color-warning-strong-subtle: var(--orange-3)` を追加する */
   --color-warning-strong: var(--orange-9);
-  --color-warning-strong-hover: var(--orange-10);
   --color-warning-strong-text: var(--orange-11);
   --color-warning-strong-foreground: var(--gray-1);
 

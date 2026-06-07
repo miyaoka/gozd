@@ -357,11 +357,11 @@ struct FSWatchRegistryTests {
     #expect(remoteRefsChangeCount.value >= 1)
   }
 
-  @Test("同一 dir を再 watch すると古い entry を破棄して再構築する（idempotent re-entry 契約）")
-  func watchRebuildsExistingEntry() async throws {
-    // P 指摘の根本対応テスト: 旧 entry no-op 返しでは perWorktreeGitDir / commonGitDir の
-    // 解決値が永続的に古いまま残るバグがあった。再構築で新しい gitDirs 解決が反映され、
-    // かつイベント受信が継続することを確認する。
+  @Test("同一 dir を再 watch すると entry を保持して refCount を増やす（冪等 + 参照カウント契約）")
+  func watchSharesExistingEntryWithRefCount() async throws {
+    // dialog + preview / 複数 leaf 等が同じ session log dir を並行 watch する経路の
+    // 根本契約: 2 回目の watch は entry を再構築せず refCount を 1 増やすだけ。
+    // 1 回目の unwatch では entry が生存し event 受信が継続、2 回目の unwatch で実 unwatch。
     let tmpDir = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: tmpDir) }
     try await initGitRepo(at: tmpDir)
@@ -376,20 +376,63 @@ struct FSWatchRegistryTests {
     )
 
     try await registry.watch(dir: tmpDir.path)
-    await sleepThreaded(.milliseconds(300))
-
-    // 2 回目の watch（同 dir）— 旧設計の no-op ではなく再構築されることを担保する。
     try await registry.watch(dir: tmpDir.path)
     await sleepThreaded(.milliseconds(300))
     collector.clear()
 
-    // 再構築後も branch ref の変更が dispatch される（= 新 entry が live で動いている）
-    let branchFile = tmpDir.appendingPathComponent(".git/refs/heads/feature-rebuilt")
-    try "0123456789abcdef0123456789abcdef01234567\n"
-      .write(to: branchFile, atomically: true, encoding: .utf8)
+    // 1 回目の unwatch: refCount は 2 → 1。entry はまだ生存しているはず。
+    await registry.unwatch(dir: tmpDir.path)
+    #expect(await registry.isWatching(dir: tmpDir.path) == true)
 
+    // event 受信が継続することを確認 (entry が生存していれば branch ref 変更が dispatch される)。
+    let branchFileLive = tmpDir.appendingPathComponent(".git/refs/heads/feature-shared")
+    try "0123456789abcdef0123456789abcdef01234567\n"
+      .write(to: branchFileLive, atomically: true, encoding: .utf8)
     await waitForEvent(collector, matching: { $0 == "branchChange" })
     #expect(collector.snapshot().contains("branchChange"))
+    collector.clear()
+
+    // 2 回目の unwatch: refCount は 1 → 0。entry が解放され、以降 event は届かない。
+    await registry.unwatch(dir: tmpDir.path)
+    #expect(await registry.isWatching(dir: tmpDir.path) == false)
+
+    let branchFileDead = tmpDir.appendingPathComponent(".git/refs/heads/feature-after-unwatch")
+    try "fedcba9876543210fedcba9876543210fedcba98\n"
+      .write(to: branchFileDead, atomically: true, encoding: .utf8)
+    await sleepThreaded(.milliseconds(500))
+    #expect(collector.snapshot().isEmpty)
+  }
+
+  @Test("多重 watch 中の unwatchAll は refCount を bypass して全 entry を強制解放する")
+  func unwatchAllBypassesRefCount() async throws {
+    // refCount semantics 導入後の app teardown 経路を守る regression test。
+    // 2 回 watch で refCount = 2 の状態でも unwatchAll は 1 回で entry を破棄する。
+    let tmpDir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+    let collector = EventNameCollector()
+    let registry = FSWatchRegistry(
+      onFsChange: { _, _ in collector.append("fsChange") },
+      onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
+      onBranchChange: { _ in collector.append("branchChange") },
+      onRemoteRefsChange: { _ in collector.append("remoteRefsChange") },
+      onWorktreeChange: { _ in collector.append("worktreeChange") }
+    )
+
+    try await registry.watch(dir: tmpDir.path)
+    try await registry.watch(dir: tmpDir.path)
+    await sleepThreaded(.milliseconds(300))
+
+    let count = await registry.unwatchAll()
+    #expect(count == 1)
+    #expect(await registry.isWatching(dir: tmpDir.path) == false)
+    collector.clear()
+
+    // 強制解放後に file 作成しても dispatch されない。
+    let file = tmpDir.appendingPathComponent("after-unwatch-all.txt")
+    try "x".write(to: file, atomically: true, encoding: .utf8)
+    await sleepThreaded(.milliseconds(500))
+    #expect(collector.snapshot().isEmpty)
   }
 
   @Test("unwatchAll は全 entry を破棄して破棄件数を返し、以降イベントが届かない")

@@ -3,9 +3,11 @@
 - 色は **semantic token** だけを使う。生 Tailwind palette (`zinc-*` / `blue-*` / `red-*` 等) と primitive 直参照 (`var(--gray-3)` / `var(--blue-9)` 等) は ESLint で error
 - Token system: 3-tier
   - Tier 1 (primitives): `@gozd/design-tokens` package が Adobe Leonardo で生成 → `dist/tokens.generated.css` を `main.css` が `@import`
+  - Tier 1 brand-fixed (例外): theme 追従しない固定 brand 色 (LINE 配色等) は `main.css` の `:root` に手書きで定義し、命名規約 `--<scope>-<role>-primitive` で識別する
   - Tier 2 (semantic aliases): `main.css` の `@theme inline` で role 名定義
   - Tier 3 (element defaults): `main.css` の `@layer base` で UA 上書き / scrollbar
 - Tier 1 primitives は **手書き禁止**。brand を変えるときは [`packages/design-tokens/src/generateTokens.ts`](../../packages/design-tokens/src/generateTokens.ts) の `BRAND` を編集し `pnpm install` (prepare で自動再生成)
+- Tier 1 brand-fixed primitives (`--<scope>-<role>-primitive`) は **例外的に `main.css` の `:root` への手書きを許可** する。theme 追従しない固定色は Adobe Leonardo 生成パイプラインに乗らないため。例: chat-\* (LINE ダークモード配色)
 - UI を書く / 直すときの規律一覧は project-local skill [`/.claude/skills/gozd-ui/SKILL.md`](../../.claude/skills/gozd-ui/SKILL.md) を参照 (Claude Code 自動適用)
 
 ## 検証コマンド

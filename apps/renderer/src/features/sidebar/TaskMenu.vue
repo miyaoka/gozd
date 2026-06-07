@@ -9,7 +9,7 @@ SessionLogDialog を開く (session 未起動の task では Claude ログが存
 <script setup lang="ts">
 import type { Task } from "@gozd/proto";
 import { computed } from "vue";
-import { useSessionLogViewer } from "./useSessionLogViewer";
+import { useSessionLogViewer } from "../session-log";
 import { useTaskEditing } from "./useTaskEditing";
 import { useTaskMenu } from "./useTaskMenu";
 import { taskDisplayTitle } from "./utils";

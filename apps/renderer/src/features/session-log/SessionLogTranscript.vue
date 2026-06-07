@@ -8,11 +8,14 @@
 ## レイアウト
 
 上部にヘッダ (どの agent のログかを示す agent 名 + 使用 model バッジ + dim な id) を置き、トランスクリプト本文
-1 カラム + 下に footer。本文は LINE のトーク画面に倣ったチャット表示で、
-user (貼り付け画像含む) を自分として右寄せ、assistant を左寄せの吹き出しにする。話者は
-左右寄せ + 緑/zinc の塗り分けで識別できるため、アバターや話者アイコンは置かない。thinking /
-tool は LINE に対応物が無いため、中央寄せの控えめなシステム行に畳む。現在地のナビゲーションは
-ペイン内に持たず、親の横断タイムラインに集約する (`scrollTo` で時刻位置へジャンプを受ける)。
+1 カラム + 下に footer。本文は LINE ダークモードに倣ったチャット表示で、user (貼り付け
+画像含む) を自分として右寄せ、assistant を左寄せの吹き出しにする。配色は chat-\* semantic
+token を介して TerminalSessionPreview と SSOT 共有する (user=`bg-chat-outgoing` + 黒文字 /
+assistant=`bg-chat-incoming` + 白文字 / inline code=`var(--color-chat-code)` の紫)。話者は
+左右寄せ + chat-outgoing/chat-incoming の塗り分けで識別できるため、アバターや話者アイコン
+は置かない。thinking / tool は LINE に対応物が無いため、中央寄せの控えめなシステム行に
+畳む。現在地のナビゲーションはペイン内に持たず、親の横断タイムラインに集約する
+(`scrollTo` で時刻位置へジャンプを受ける)。
 
 ## 設計判断
 
@@ -562,13 +565,14 @@ onBeforeUnmount(teardownObserver);
           class="flex scroll-mt-2 items-end gap-1.5"
           :class="ev.kind === 'assistant' ? 'flex-row' : 'flex-row-reverse'"
         >
-          <!-- assistant: markdown 吹き出し (相手色 = panel)。
-                 MarkdownBody はコードブロック背景を暗地前提の panel surface で固定するため、
-                 塗りを被せると地より暗いブロックが浮く明度反転になる。`--md-code-bg` で地より
-                 一段明るい element surface を渡し、preview と同じ「地 < code」の明度順を保つ。 -->
+          <!-- assistant: markdown 吹き出し (相手色 = chat-incoming = 暗グレー)。
+                 LINE ダーク風の暗背景に明文字で、`--color-foreground` / `--color-foreground-low`
+                 を chat-incoming-text 系で local override し、MarkdownBody 内の :deep セレクタ
+                 が当てる文字色を明側へ寄せる。inline code は背景なし + 明 violet (scoped
+                 :deep(code) で chat-code を当てる)。 -->
           <div
             v-if="ev.kind === 'assistant'"
-            class="min-w-0 rounded-2xl rounded-tl-sm bg-panel px-3 py-1.5 text-sm text-foreground [--md-code-bg:var(--color-element)]"
+            class="_transcript-assistant min-w-0 rounded-2xl bg-chat-incoming px-3 py-1.5 text-sm text-chat-incoming-text [--color-foreground-low:var(--color-chat-incoming-text-low)] [--color-foreground:var(--color-chat-incoming-text)] [--md-code-bg:transparent]"
           >
             <MarkdownBody
               :content="ev.text"
@@ -577,13 +581,10 @@ onBeforeUnmount(teardownObserver);
             />
           </div>
 
-          <!-- user: 素テキスト吹き出し (自分色)。LINE の自分発話に倣い緑塗り。
-                 success intent を唯一のアクセントとし、相手 (無彩) と hue で 1 つだけ差をつける。
-                 暗 UI (background) で面が主張しすぎないよう success solid ではなく subtle
-                 chip pattern (`bg-success-subtle text-success-text`) で抑える。 -->
+          <!-- user: 素テキスト吹き出し (自分色 = chat-outgoing = LINE 緑、文字は chat-outgoing-text = 黒)。 -->
           <div
             v-else-if="ev.kind === 'user'"
-            class="min-w-0 rounded-2xl rounded-tr-sm bg-success-subtle px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-success-text"
+            class="min-w-0 rounded-2xl bg-chat-outgoing px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-chat-outgoing-text"
           >
             {{ ev.text }}
           </div>
@@ -633,3 +634,12 @@ onBeforeUnmount(teardownObserver);
     </div>
   </div>
 </template>
+
+<style scoped>
+/* MarkdownBody は :deep(code) で固定色 (var(--color-foreground)) を当てるため、
+   wrapper 側の text-* utility では inline code 色を上書きできない。assistant 吹き出し
+   scope に :deep(code) を足して specificity を持ち上げ、chat-code (紫) で塗る。 */
+._transcript-assistant :deep(code) {
+  color: var(--color-chat-code);
+}
+</style>

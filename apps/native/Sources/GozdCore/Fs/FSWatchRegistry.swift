@@ -69,6 +69,11 @@ public actor FSWatchRegistry {
     /// `git rev-parse --git-common-dir` の realpath。dir が git repo でない時のみ nil。
     /// 通常 clone では `perWorktreeGitDir` と一致する。
     let commonGitDir: String?
+    /// 同一 resolved dir に対する `watch` 呼び出し回数。`unwatch` で 0 になった時点で
+    /// 実 FSWatcher を停止する。dialog + preview / 複数 leaf 等、同じ session log dir を
+    /// 異なる購読者が並行 watch するケースで「片方の unwatch がもう片方の watch も解放する」
+    /// 破れを構造的に防ぐ。renderer 側は 1 購読 = 1 watch / 1 unwatch のペアを守る前提。
+    var refCount: Int
   }
 
   // 分岐網羅テスト容易性のため internal で公開する。dispatch は actor 内で完結するため
@@ -134,42 +139,34 @@ public actor FSWatchRegistry {
     self.onWorktreeChange = onWorktreeChange
   }
 
-  /// dir の監視を開始する。既に watch されていれば古い entry を破棄して再構築する。
+  /// dir の監視を開始する。同一 resolved dir に対する `watch` 呼び出しは冪等で
+  /// refCount を 1 増やすだけ。最初の購読者で実際の FSWatcher を構築する。
   /// 入力 dir は realpath 解決してキーに使う（FSEvents は realpath を返すため、
   /// `/var/...` と `/private/var/...` のような symlink の差を吸収する）。
   ///
-  /// 既存 entry を no-op で返さない理由: worktree の `.git` ファイル target の変更や
-  /// `git worktree repair` 等で `perWorktreeGitDir` / `commonGitDir` の解決値が
-  /// 変わっている可能性がある。古い解決値を保持し続けると `classify` の分類が永続的
-  /// に間違う（HEAD / refs/heads / packed-refs のパスが旧 git dir を指したまま）。
-  /// 再構築のコストは `gitDirs` 1 回と FSEventStream 1 個の再生成で、unwatch を
-  /// 経由する RPC 呼び出しが必要だった旧設計より整合性のリスクが低い。
+  /// **参照カウント**: dialog + preview / 複数 leaf など、同一 session log dir を
+  /// 複数の購読者が並行 watch するケースに対応する。renderer 側は 1 購読 = 1 watch /
+  /// 1 unwatch のペアを守る前提で、refCount が 0 になった時点でのみ実 unwatch する。
+  ///
+  /// **再構築の責任分離**: `git worktree repair` 等で git dir 解決値が変わったケースの
+  /// 対応は呼び出し側の責務とする (明示的に `unwatch` してから `watch` を呼ぶ)。
+  /// この registry は冪等な参照カウントだけを保証し、解決値の再評価は触らない。
+  /// 旧設計では `watch` 内で `entries[dir]` を強制再構築していたが、それは
+  /// 「同一 dir に複数購読者」前提と両立できないため切り離した。
+  ///
+  /// **死契約の明示**: 現状の呼び出し側 (`useFsWatchSync` / `useSessionLogLive`) には
+  /// `git worktree repair` を検知して unwatch + watch を発射する hook は存在しない。
+  /// repair 後は旧 git dir 解決値で `classify` し続け、`classify` の分岐が永続的に
+  /// 間違う可能性がある。実用上の頻度が低いため YAGNI と判断し、git dir 解決値の動的
+  /// 変化はアプリ再起動でリセットする運用契約とする (検知 hook が必要になった時点で
+  /// 呼び出し側に実装する)。
   public func watch(dir userDir: String) async throws {
     let dir = FSWatchRegistry.realpath(userDir)
-    var oldCommonGitDir: String?
-    if let existing = entries[dir] {
-      // 既存 entry を破棄して再構築する: `gitDirs` の解決値が `git worktree repair` 等で
-      // 変わっている可能性に備える（旧 no-op 設計だと古い perWorktreeGitDir / commonGitDir
-      // が永続的に残って `classify` の分類が間違い続ける）。
-      // `_unwatch` は呼ばない。`_unwatch` は同一 resolved dir を指す全 reverse lookup を
-      // 一括 invalidate するが、再構築では同じ resolved dir を引き続き使うので別 userDir
-      // 経由の逆引きは温存したい。FSWatcher の破棄だけ inline で行い、reverse lookup は
-      // 末尾の `resolvedKeyByOriginalDir[userDir] = dir` で当該 userDir のみ最新化する。
-      oldCommonGitDir = existing.commonGitDir
-      existing.watcher.stop()
-      existing.continuation.finish()
-      existing.task.cancel()
-      entries.removeValue(forKey: dir)
-      // 再構築では git dir 解決値が変わっている可能性があるため、dedup キャッシュを破棄して
-      // 次の status を無条件 push させる（旧解決値ベースの stale 値で握り潰さない）。
-      lastPushedStatusByDir.removeValue(forKey: dir)
-      // entries 更新と同期して primary cache を再選出する。下流の `try await GitOps.gitDirs`
-      // で actor reentrancy が起き、sibling watcher の `handleEvents` が走った場合に、
-      // 削除済みの自分が cache 上で primary のままだと sibling は非 primary 判定で push を
-      // 落とす。await 突入前に sibling の中から最新の primary を確定させて取りこぼしを防ぐ。
-      if let oldCommonGitDir {
-        recomputePrimary(forCommonGitDir: oldCommonGitDir)
-      }
+    if var existing = entries[dir] {
+      existing.refCount += 1
+      entries[dir] = existing
+      resolvedKeyByOriginalDir[userDir] = dir
+      return
     }
 
     nextGeneration += 1
@@ -217,13 +214,9 @@ public actor FSWatchRegistry {
       generation: generation, watcher: watcher, task: task, continuation: continuation,
       originalDir: userDir,
       perWorktreeGitDir: perWorktreeGitDir,
-      commonGitDir: commonGitDir)
+      commonGitDir: commonGitDir,
+      refCount: 1)
     resolvedKeyByOriginalDir[userDir] = dir
-    // 旧 entry の commonGitDir が新しい値と異なる場合、旧グループ側も primary を再計算する。
-    // 等しい場合は新値の recompute が両方を兼ねる。
-    if let oldCommonGitDir, oldCommonGitDir != commonGitDir {
-      recomputePrimary(forCommonGitDir: oldCommonGitDir)
-    }
     if let commonGitDir {
       recomputePrimary(forCommonGitDir: commonGitDir)
     }
@@ -233,31 +226,36 @@ public actor FSWatchRegistry {
   /// 削除済みパスでは `realpath(3)` がフォールバックで入力 path を返すため、
   /// watch 時に保存した逆引きを優先してキーを引く（leak 防止）。
   ///
-  /// **セマンティクス**: 同一 resolved dir に複数 userDir で watch が重ねられて
-  /// いた場合、いずれか 1 つの userDir で unwatch を呼ぶと entry 自体が解放され、
-  /// 残りの全 userDir 逆引きも一括で invalidate される。つまり「`watch` は冪等で
-  /// 逆引きを増やすだけ、`unwatch` は全 userDir 参照を巻き取って 1 度で解放」。
-  /// renderer 側で 1 worktree に対して複数 userDir で watch を投げる前提は無いため、
-  /// この簡略セマンティクスで十分（参照カウントは持たない）。
-  ///
-  /// **注記（複数購読者の前提）**: この registry は冪等で、renderer 側の複数の独立した
-  /// 購読者が `/fs/watch` を叩ける（`useFsWatchSync` の worktree app-scope watch と、
-  /// `SessionLogDialog` の session log dir watch = `~/.claude/projects/<encoded>/`）。
-  /// ただし**異なる解決済み dir** を watch する限り別 entry になり衝突しない。両者が
-  /// 同一 resolved dir を watch した場合のみ、参照カウント不在のため「片方の unwatch が
-  /// もう片方の watch も解放する」破れが起きる。現状、session log dir と worktree dir は
-  /// 常に別パスで、この衝突は構造的に発生しない（衝突させるには Claude の内部 projects dir
-  /// 自体を gozd の worktree として開く必要があり非現実的）。将来、任意 dir を watch する
-  /// 購読者がさらに増えて同一 dir の共有が現実的になったら、参照カウントを導入する。
+  /// **セマンティクス**: refCount を 1 減らし、0 になった時点で実 FSWatcher を停止する。
+  /// dialog + preview / 複数 leaf 等が同じ session log dir を並行 watch しているとき、
+  /// 1 購読者の unwatch では entry を解放せず、最後の購読者の unwatch でのみ実 unwatch
+  /// する。renderer 側は 1 mount = 1 watch / 1 unmount = 1 unwatch のペアを守る前提。
   public func unwatch(dir userDir: String) {
-    let resolvedKey = resolvedKeyByOriginalDir.removeValue(forKey: userDir)
-      ?? FSWatchRegistry.realpath(userDir)
-    _unwatch(realpathDir: resolvedKey)
+    let resolvedKey = resolvedKeyByOriginalDir[userDir] ?? FSWatchRegistry.realpath(userDir)
+    guard var entry = entries[resolvedKey] else {
+      resolvedKeyByOriginalDir.removeValue(forKey: userDir)
+      return
+    }
+    entry.refCount -= 1
+    if entry.refCount <= 0 {
+      _unwatch(realpathDir: resolvedKey)
+      return
+    }
+    entries[resolvedKey] = entry
+    // 逆引き (resolvedKeyByOriginalDir) は entry の lifecycle に揃え、最終購読者の
+    // unwatch (refCount == 0) で `_unwatch` がまとめて消す。ここで早期削除すると、
+    // 次回 unwatch 時に `realpath(userDir)` フォールバックに頼ることになり、dir が
+    // 削除済み環境で resolved key が一致せず entry leak の race を開く。
   }
 
   /// 保持している全 entry の監視を一括停止する。renderer の `onUnmounted` から
   /// 1 度の RPC で呼び出され、FSEventStream slot を残骸として残さないための
   /// 構造的 cleanup 経路。返り値は実際に破棄した entry 数（観察可能性用）。
+  ///
+  /// **refCount bypass**: 個別 `unwatch` と異なり、refCount に関わらず全 entry を強制
+  /// 解放する。app teardown / 全 watch 一括 reset の専用経路として使うこと。dialog +
+  /// preview 等が refCount で並行 watch している最中に呼ぶと、他購読者が抱えていた
+  /// `currentWatchDir` が stale 化し、次の `unwatch` 呼び出しは entry 不在で no-op になる。
   public func unwatchAll() -> Int {
     let dirs = Array(entries.keys)
     for dir in dirs {

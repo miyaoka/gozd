@@ -23,9 +23,11 @@ subagent が居て軸を引けるときだけタイムラインを出す。subag
 
 ## 動作
 
-- open 時に `rpcClaudeSessionLog` で native から main + subagents (Task + Workflow) の生 JSONL を
-  取得し、各 entry を `parseSessionLog` で transcript 化して保持する。`entries[0]` が main、
-  残りが subagents。subagent タブを選ぶと右ペインの transcript が切り替わる
+- load / debounce refresh / rpcFsWatch / rpcFsUnwatch は `useSessionLogLive(sessionId)` に
+  委譲する。dialog は `context.sessionId` を入力に composable から `sessions` / `loading` /
+  `errorMessage` / `notFound` を受け、表示・分岐選択・スクロール同期に専念する
+- 各 entry を `parseSessionLog` で transcript 化する (`entries[0]` が main、残りが subagents)。
+  subagent タブを選ぶと右ペインの transcript が切り替わる
 - 取得失敗 / 未発見 / 空ログはそれぞれ明示メッセージを出す (fallback で握り潰さない)
 - rewind があるセッションはデフォルトで最新枝だけを表示する。分岐点に出る branch セレクタを
   クリックすると `branchSelections` (tabId → branchKey → childUuid) を更新し、`parsedSessions`
@@ -34,20 +36,17 @@ subagent が居て軸を引けるときだけタイムラインを出す。subag
 
 ## ライブ更新
 
-open 中はログの親 dir (`~/.claude/projects/<encoded>/`) を `rpcFsWatch` で監視し、`fsChange`
-push を受けたら debounce して再読込する。再読込は `loading` を立てず `sessions` を差し替える
-だけのサイレント更新で、`SessionLogTranscript` の remount とスクロール状態リセットを避ける。
-close / unmount で `rpcFsUnwatch` する。worktree 外のログなので filer の app-scope watch には
-乗らず、dialog 自身が watch ライフサイクルを所有する。
+`useSessionLogLive` が `context.sessionId` の変化を watch して、対応するログの親 dir
+(`~/.claude/projects/<encoded>/`) を `rpcFsWatch` で監視し、`fsChange` push を受けたら
+debounce して再読込する。再読込は `loading` を立てず `sessions` を差し替えるだけの
+サイレント更新で、`SessionLogTranscript` の remount とスクロール状態リセットを避ける。
+context が undefined になった / dialog がアンマウントされた時点で composable が
+`rpcFsUnwatch` を発射する。worktree 外のログなので filer の app-scope watch には乗らず、
+composable が watch ライフサイクルを所有する。
 </doc>
 
 <script setup lang="ts">
-import { tryCatch } from "@gozd/shared";
-import { computed, onUnmounted, ref, watch } from "vue";
-import { useNotificationStore } from "../../shared/notification";
-import { onMessage } from "../../shared/rpc";
-import type { FsChangePayload } from "../filer";
-import { rpcClaudeSessionLog, rpcFsUnwatch, rpcFsWatch } from "./rpc";
+import { computed, ref, watch } from "vue";
 import {
   type BranchSelection,
   buildSubagentLinks,
@@ -55,8 +54,6 @@ import {
   groupByWorkflow,
   newestSubagentTrackId,
   parseSessionLog,
-  sessionLogDirOf,
-  subagentTabLabel,
   timelineAxisRange,
   type ParsedSessionLog,
   type SubagentLink,
@@ -65,38 +62,24 @@ import {
 } from "./sessionLog";
 import SessionLogTimeline from "./SessionLogTimeline.vue";
 import SessionLogTranscript from "./SessionLogTranscript.vue";
+import { useSessionLogLive, type SessionTab } from "./useSessionLogLive";
 import { useSessionLogViewer } from "./useSessionLogViewer";
 
 const { context, close } = useSessionLogViewer();
-const notify = useNotificationStore();
 
 const dialogRef = ref<HTMLDialogElement | undefined>(undefined);
-const loading = ref(false);
-const errorMessage = ref<string | undefined>(undefined);
-const notFound = ref(false);
 
-// main + subagents を 1 タブ = 1 セッションとして保持する。main は左ペインに常時表示し、
-// subagent は activeSubId で選んだ 1 つを右ペインに出す。
-interface SessionTab {
-  kind: string; // "main" | "subagent"
-  id: string; // main は session_id、subagent は agent_id
-  label: string; // タブ表示名
-  // subagent を spawn した main の Agent tool_use id (meta.json の toolUseId)。main は空文字。
-  parentToolUseId: string;
-  // subagent の名前 (meta.json の name)。SendMessage の to が name のとき紐付けに使う。main は空。
-  name: string;
-  // workflow agent が属する workflow run の id。非 workflow subagent / main は空文字。
-  workflowRunId: string;
-  // workflow の表示名 (グループ見出し)。非 workflow subagent / main は空文字。
-  workflowName: string;
-  // 生 JSONL。parse は branchSelections 依存の computed (parsedSessions) で行う。
-  content: string;
-}
+// dialog の `context.sessionId` を入力とし、生 SessionTab[] とロード状態を
+// `useSessionLogLive` に出させる。load / debounce refresh / rpcFsWatch / rpcFsUnwatch
+// のライフサイクル全部は composable 側に閉じ、dialog は表示・分岐選択・スクロール同期に
+// 専念する。dialog 自身は rpcClaudeSessionLog / rpcFsWatch / rpcFsUnwatch を直接触らない。
+const sessionId = computed(() => context.value?.sessionId);
+const { sessions, loading, errorMessage, notFound } = useSessionLogLive(sessionId);
+
 // parse 済みタブ。content + そのタブの branch 選択から parsed を導出した派生型。
 interface ParsedSessionTab extends SessionTab {
   parsed: ParsedSessionLog;
 }
-const sessions = ref<SessionTab[]>([]);
 
 // rewind 分岐の選択状態。tabId (session_id / agent_id) → そのタブの BranchSelection
 // (branchKey → 選択 childUuid)。未選択の分岐点は parseSessionLog 側が最新枝にフォールバックする。
@@ -253,171 +236,45 @@ function onTimelineScrub(ms: number) {
   subScrollTarget.value = { ts, nonce };
 }
 
-// load の世代カウンタ。await を跨いだ stale な完了結果が新しいセッション表示を
-// 上書きするのを防ぐ。新規 load 開始 / refresh / dialog close のたびに increment し、
-// await 後に自分の token が最新でなければ state を触らず捨てる。
-let loadToken = 0;
-
-// 1 entry → 1 SessionTab。初回 load とライブ refresh の両方で使う (SSOT)。
-function toSessionTab(entry: {
-  kind: string;
-  id: string;
-  label: string;
-  agentType: string;
-  parentToolUseId: string;
-  name: string;
-  workflowRunId: string;
-  workflowName: string;
-  phaseTitle: string;
-  content: string;
-}): SessionTab {
-  return {
-    kind: entry.kind,
-    id: entry.id,
-    label: entry.kind === "main" ? "Main" : subagentTabLabel(entry),
-    parentToolUseId: entry.parentToolUseId,
-    name: entry.name,
-    workflowRunId: entry.workflowRunId,
-    workflowName: entry.workflowName,
-    content: entry.content,
-  };
-}
-
-async function load(sessionId: string) {
-  const token = ++loadToken;
-  loading.value = true;
-  errorMessage.value = undefined;
-  notFound.value = false;
-  sessions.value = [];
-  // 別セッションの分岐選択は引き継がない (tabId が変わるため意味を持たない)。
-  branchSelections.value = new Map();
-  activeSubId.value = undefined;
-  subScrollTarget.value = undefined;
-  mainScrollTarget.value = undefined;
-  mainCurrentTs.value = "";
-
-  const result = await tryCatch(rpcClaudeSessionLog({ sessionId }));
-  // 別 load / close に追い越されていたら、この結果は stale なので破棄する。
-  if (token !== loadToken) return;
-  loading.value = false;
-  if (!result.ok) {
-    errorMessage.value = result.error.message;
-    notify.error("Failed to read session log", result.error);
-    return;
-  }
-  if (!result.value.found || result.value.entries.length === 0) {
-    notFound.value = true;
-    return;
-  }
-
-  // entries[0] が main、残りが subagents。各 entry を 1 タブに parse する。
-  sessions.value = result.value.entries.map(toSessionTab);
-  // subagent があればタイムライン最下段 (= 最新) を右ペインに初期表示する。
-  activeSubId.value = newestSubagentId.value;
-  // ログファイルの親 dir を watch してライブ更新する。
-  void setWatchDir(sessionLogDirOf(result.value.entries));
-}
-
-// --- ライブ更新 (ファイル監視 → サイレント refresh) ---
-//
-// Claude が書き込む jsonl は worktree の外 (~/.claude/projects/<encoded>/) にあり filer の
-// app-scope watch には乗らない。dialog が開いている間だけログの親 dir を watch し、fsChange を
-// 受けたら再読込する。再読込は loading フラグを立てず sessions を差し替えるだけにして、
-// transcript の remount とスクロール状態のリセットを避ける (:key は同一 sessionId で安定)。
-// watch dir の解決 (sessionLogDirOf) は sessionLog.ts の純関数に委ね、境界をテストする。
-
-// 現在 native 側で watch 中のログ dir。open 中の 1 セッション分のみ保持する。
-let currentWatchDir: string | undefined;
-
-// watch 対象 dir を差し替える。前の dir を unwatch し、新しい dir を watch する。
-// next === undefined は close 経路で、現在の watch を解除するだけ。
-async function setWatchDir(next: string | undefined) {
-  if (next === currentWatchDir) return;
-  const prev = currentWatchDir;
-  currentWatchDir = next;
-  if (prev !== undefined) {
-    const r = await tryCatch(rpcFsUnwatch({ dir: prev }));
-    if (!r.ok) notify.error("Failed to stop watching session log", r.error);
-  }
-  if (next !== undefined) {
-    const r = await tryCatch(rpcFsWatch({ dir: next }));
-    if (!r.ok) notify.error("Failed to watch session log", r.error);
-  }
-}
-
-// fsChange を debounce して 1 回の refresh に畳む。jsonl は 1 応答中に多数の追記が走るため、
-// 連続 event を coalesce してリロード回数を抑える。
-let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-function cancelRefresh() {
-  if (refreshTimer === undefined) return;
-  clearTimeout(refreshTimer);
-  refreshTimer = undefined;
-}
-function scheduleRefresh() {
-  cancelRefresh();
-  refreshTimer = setTimeout(() => {
-    refreshTimer = undefined;
-    void refresh();
-  }, 250);
-}
-
-// 既存表示を保ったまま jsonl を読み直し parsed を差し替える。読み取り失敗 / 消失時は
-// 既存表示を維持する (書き込み途中の一過性エラーで画面を消さない)。
-async function refresh() {
-  const ctx = context.value;
-  if (ctx === undefined) return;
-  const token = ++loadToken;
-  const result = await tryCatch(rpcClaudeSessionLog({ sessionId: ctx.sessionId }));
-  if (token !== loadToken) return;
-  if (!result.ok) {
-    notify.error("Failed to refresh session log", result.error);
-    return;
-  }
-  if (!result.value.found || result.value.entries.length === 0) return;
-  sessions.value = result.value.entries.map(toSessionTab);
-  // 選択中の subagent が消えていたら最新 (最下段) へ寄せる (computed は sessions.value から
-  // 再評価される)。生存している間はユーザーの選択を保ち、ライブ更新で勝手に切り替えない。
-  if (activeSubId.value !== undefined && !subagents.value.some((s) => s.id === activeSubId.value)) {
-    activeSubId.value = newestSubagentId.value;
-  }
-}
-
-// fsChange の購読は component scope で 1 度だけ張る。dialog が閉じている間は no-op。
-const stopFsChange = onMessage<FsChangePayload>("fsChange", ({ dir, relDir }) => {
-  if (context.value === undefined || dir !== currentWatchDir) return;
-  // 親 dir には他セッションの jsonl も同居する。当該セッションの main (relDir === "") か
-  // subagents (relDir が "<sessionId>/...") の変更だけ拾い、無関係な再読込を減らす。
-  const sid = context.value.sessionId;
-  if (relDir !== "" && !relDir.startsWith(sid)) return;
-  scheduleRefresh();
-});
-
-onUnmounted(() => {
-  stopFsChange();
-  cancelRefresh();
-  void setWatchDir(undefined);
-});
-
 // close 経路を片方向に統一する。ユーザー操作 (X / backdrop / ESC) はすべて native
 // `dialog.close()` を起点にし、それが発火する `@close` だけが context を undefined にする
-// 単一の state 同期点。context が SSOT で、この watch が open/close を駆動する。watch 側の
-// `dialog.close()` は外部から `close()` だけ呼ばれた (native close を伴わない) ケースの
-// 保険で、既に閉じていれば呼ばない。
+// 単一の state 同期点。context が SSOT で、この watch が open/close を駆動する。
+// load / fsWatch は useSessionLogLive が sessionId 変化に追随して自分で回す。
 watch(context, (next) => {
   const dialog = dialogRef.value;
   if (next === undefined) {
-    // 進行中の load を無効化し、close 後に stale 結果が state を書き戻すのを防ぐ。
-    loadToken++;
-    // ライブ更新の後始末を unmount と対称に揃える: 保留中の refresh timer を消し、
-    // watch を解除する (open 中のセッション分のみ保持しているため)。
-    cancelRefresh();
-    void setWatchDir(undefined);
     if (dialog?.open === true) dialog.close();
     return;
   }
   // 既に open な <dialog> への showModal は InvalidStateError を投げるためガードする。
   if (dialog !== undefined && !dialog.open) dialog.showModal();
-  void load(next.sessionId);
+});
+
+// 別セッションに切り替わったら dialog 固有 state (分岐選択 / スクロール位置 / 選択
+// subagent) をリセットする。useSessionLogLive 側でも sessions は空になるが、こちらは
+// dialog 内部の派生状態なので明示的にクリアする。
+watch(
+  () => context.value?.sessionId,
+  () => {
+    branchSelections.value = new Map();
+    activeSubId.value = undefined;
+    subScrollTarget.value = undefined;
+    mainScrollTarget.value = undefined;
+    mainCurrentTs.value = "";
+  },
+);
+
+// sessions が差し替わるたびに activeSubId の存続を確認する。初回 load 直後 (undefined →
+// 最新枝) と、ライブ refresh で選択中 subagent が消えたとき (新たな最新枝) の 2 経路を
+// 同じ規律で処理する。生存している間はユーザーの選択を保ち、勝手に切り替えない。
+watch(sessions, () => {
+  if (activeSubId.value === undefined) {
+    activeSubId.value = newestSubagentId.value;
+    return;
+  }
+  if (!subagents.value.some((s) => s.id === activeSubId.value)) {
+    activeSubId.value = newestSubagentId.value;
+  }
 });
 
 // X / backdrop は native close を起こすだけ。state 同期は @close → close() に集約する。

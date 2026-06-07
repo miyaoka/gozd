@@ -7,6 +7,27 @@
  * packages/design-tokens/src/generateTokens.ts を編集して pnpm install */
 @import "@gozd/design-tokens/tokens.css";
 
+/* Tier 1 (brand-fixed primitives): theme 追従しない固定 brand 色を独立 layer に隔離する。
+ *
+ * 主 Tier 1 は `@gozd/design-tokens` package が Adobe Leonardo で theme 追従可能な形
+ * (gray / intent × 12-step) として生成するが、LINE のブランド配色のように
+ * 「dark/light theme に追従させたくない固定色」はその生成パイプラインに合わない。
+ * design-tokens package に brand 固定 slot を増やす案もあるが、本 layer に集約する方が
+ * 「theme 追従するか否か」の境界を一目で読める。
+ *
+ * 命名規約: `--<scope>-<role>-primitive`。Tier 2 (@theme inline) の semantic alias から
+ * `var(--<scope>-<role>-primitive)` で参照される SSOT。
+ */
+:root {
+  /* chat (Claude session preview / dialog transcript で共有する LINE ダーク配色) */
+  --chat-incoming-primitive: #121212;
+  --chat-incoming-text-primitive: #f2f2f2;
+  --chat-incoming-text-low-primitive: #a0a0a0;
+  --chat-outgoing-primitive: oklch(0.78 0.2 135);
+  --chat-outgoing-text-primitive: #000000;
+  --chat-code-primitive: #c4b5fd;
+}
+
 /* ---------------------------------------------------------------------------
  * gozd design tokens — Tier 2 / Tier 3
  *
@@ -102,6 +123,15 @@
   /* scrollbar (UA pseudo-element 専用、utility 化対象なし) */
   --color-scrollbar-thumb: var(--gray-a6);
   --color-scrollbar-thumb-hover: var(--gray-a8);
+
+  /* chat (Tier 2 semantic alias): brand 固定 primitive (`:root` 配下) を `var()` で
+     参照する。値の直書きは Tier 1 に集約し、Tier 2 は role 名のマッピングだけ持つ。 */
+  --color-chat-incoming: var(--chat-incoming-primitive);
+  --color-chat-incoming-text: var(--chat-incoming-text-primitive);
+  --color-chat-incoming-text-low: var(--chat-incoming-text-low-primitive);
+  --color-chat-outgoing: var(--chat-outgoing-primitive);
+  --color-chat-outgoing-text: var(--chat-outgoing-text-primitive);
+  --color-chat-code: var(--chat-code-primitive);
 }
 
 @layer base {

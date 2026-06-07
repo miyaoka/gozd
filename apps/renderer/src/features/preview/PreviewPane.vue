@@ -939,7 +939,7 @@ watch(
 
     <!-- 選択中 -->
     <template v-else>
-      <!-- ツールバー -->
+      <!-- ツールバー (モード切替タブ / Preview / Wrap) -->
       <div class="flex items-center border-b border-border">
         <!-- モード切替タブ -->
         <button
@@ -983,7 +983,11 @@ watch(
         </div>
       </div>
 
-      <!-- コンテンツ -->
+      <!--
+        コンテンツ。Cmd+A scope は各 leaf (CodePreview / MarkdownPreview / DiffPreview) 側の
+        contenteditable で完結させる。PreviewPane 側はラッパとしてのみ振る舞い、contenteditable
+        を持たないことで nested editing host の不安定領域を踏まない。
+      -->
       <div
         class="flex-1 overflow-auto"
         :style="{

@@ -175,12 +175,16 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
 - 入力契約: `original` / `current` は UTF-8 として解釈可能なテキスト。バイナリは PreviewPane の `isBinary` 判定で弾く前提。万一 NUL バイトがすり抜けた場合は Swift 側で `Binary files ... differ` を検出して `unexpectedOutput` (exit 0 で正常終了したが stdout フォーマットが想定外、を意味する case) で観察可能化する
 - Shiki の `codeToTokens()` で original / current それぞれのトークン配列を取得し、diff の各行に対応するトークンの色を適用
   - unified: removed 行 → original のトークン、added / unchanged 行 → current のトークン
-  - split: 左セル → original のトークン、右セル → current のトークン
+  - split: 左側 → original のトークン、右側 → current のトークン
   - diff の色分けは背景色のみ。テキスト色はトークンに委ねる
   - 言語未対応時はフォールバック表示（追加=緑、削除=赤）
 - unified と split の両方の表示形式を取得時に事前展開して保持。view mode 切替で再 fetch は走らない
-- split view では modified hunk 内で連続する removed run と added run を貪欲ペアリングし、余った片側は反対セルを空 (灰色背景) にして残す
-- 行番号セル (old / new いずれも) は親から `blameEnabled` を受けたときだけ `<button>` として描画し、クリックで `lineNumberClick({ side, line, anchorEl })` を emit する。`side` は old → Original 側 rev、new → Current 側 rev で BlamePopover を起動するために使う ([BlamePopover セクション](#blamepopover) 参照)。`blameEnabled=false` のときは button ではなく `<span class="_line-no">` として描画し、focusable も hover / pointer cursor も持たない (silent dead button を作らない契約)。CodePreview と同じ規約
+- split view では modified hunk 内で連続する removed run と added run を貪欲ペアリングし、余った片側は反対側の行を空 (`_split-filler` で灰色背景) にして残す
+- レンダリング構造は **section ベース**。`renderRows` / `splitRenderRows` を hunk-bar 境界で section 化し、各 section を `contenteditable=true` の editing host にする。hunk-bar は section の外に sibling として置くため、Cmd+A の scope に入らず unchanged lines のラベルは clipboard に乗らない。split では section 内の左右半身がそれぞれ独立した host で、Cmd+A は focus が居る半身 1 つだけに閉じる
+- Cmd+A の scope 制御は **focus が leaf 内に居るときの挙動** に限定される。focus がトグル / タブ / ヘッダボタン等の leaf 外要素に乗っているときの Cmd+A は WebKit が document scope に倒し、preview popover 外を含む document 全体のテキスト領域 (`user-select: none` で明示的に除外していないもの) が選択される。これは「Cmd+A を JS で intercept しない」「`user-select: none` を scope 制御に使わない」(WebKit の selectAll は user-select を honor しない) 方針から構造的に残る帰結。leaf 外 focus 時に preview 内に閉じたい場合はユーザーが leaf を 1 回クリックして focus を移す前提
+- 各 diff 行は `display: block` + hanging indent (`padding-left` + 負 `text-indent`) で描画する。flex / grid 子の blockification が contenteditable コピー時に余計な `\n` を撒く問題を避けるため、行内は inline-block の line-no と inline の本文だけで構成する。これにより clipboard が「1 行 = 1 改行」になり、word-wrap モードでも折返し行が line-no 幅で indent 揃えされる
+- split の左右行揃えは CSS subgrid で実現する。`_split-section` に `grid-template-rows: repeat(N, auto)` を style binding で渡し、両半身が `grid-template-rows: subgrid` で同じ N 個の row track を共有する。word-wrap で左右の折返し行数が違っても、行ごとに高い方に track が伸びて左 row j と右 row j が同じ親 track に置かれる
+- 行番号 (old / new いずれも) は親から `blameEnabled` を受けたときだけ `<button>` として描画し、クリックで `lineNumberClick({ side, line, anchorEl })` を emit する。`side` は old → Original 側 rev、new → Current 側 rev で BlamePopover を起動するために使う ([BlamePopover セクション](#blamepopover) 参照)。`blameEnabled=false` のときは button ではなく `<span class="_line-no">` として描画し、focusable も hover / pointer cursor も持たない (silent dead button を作らない契約)。表示は CSS `::before` + `attr(data-line-no)` で行うため、行番号テキスト自体は DOM に存在せず clipboard 対象外。CodePreview と同じ規約
 
 ### BlamePopover
 

@@ -71,8 +71,38 @@ function onLinkClick(e: MouseEvent) {
   }
   markdownHistory.navigate(resolved.selection, resolved.lineNumber);
 }
+
+/**
+ * contenteditable host の編集経路を構造的にブロックする。`beforeinput` で
+ * `event.preventDefault()` すれば typing / paste / IME / undo-redo / drop の DOM mutation を
+ * 1 経路で止められる (input 系全部の上位 hook)。
+ *
+ * テンプレート側では各 contenteditable host に `@beforeinput="blockEdit"` に加えて
+ * `@dragover.prevent @drop.prevent` も付けている。`beforeinput` だけでも drop の DOM mutation
+ * は弾けるが、`dragover` を preventDefault しないと UA がドロップ可能 cursor / drop indicator を
+ * 一瞬表示してチラ見せが起きる経路があり、UX 上の保険として両方つける契約。
+ *
+ * Cmd+A / Cmd+C は `beforeinput` を発火させない (input ではない)。コピーは UA 既定が動き、
+ * Cmd+A はスコープが contenteditable subtree に閉じる。これらに別途 handler は不要。
+ */
+function blockEdit(event: Event) {
+  event.preventDefault();
+}
 </script>
 
 <template>
-  <MarkdownBody class="p-6 text-sm/relaxed" :content="content" @link-click="onLinkClick" />
+  <MarkdownBody
+    class="p-6 text-sm/relaxed"
+    contenteditable="true"
+    spellcheck="false"
+    autocorrect="off"
+    autocapitalize="off"
+    role="region"
+    aria-label="Markdown contents"
+    :content="content"
+    @link-click="onLinkClick"
+    @beforeinput="blockEdit"
+    @dragover.prevent
+    @drop.prevent
+  />
 </template>

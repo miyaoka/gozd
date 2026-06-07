@@ -131,7 +131,8 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <!-- 本体 -->
+    <!-- 本体。Cmd+A scope は各 ChangesSummaryItem 内の DiffPreview leaf 側で完結。
+         ここはラッパとしてのみ振る舞い、nesting を避ける。 -->
     <div class="flex-1 overflow-y-auto">
       <div v-if="changesStore.loading" class="p-4 text-sm text-foreground-low">
         Loading changes...

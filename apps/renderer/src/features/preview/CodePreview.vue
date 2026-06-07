@@ -124,6 +124,23 @@ watch(
  * CSS でも cursor:pointer / hover styling を抑制して「クリックしても何も起きない
  * ボタン」を作らない契約 (silent dead button 禁止)。
  */
+/**
+ * contenteditable host の編集経路を構造的にブロックする。`beforeinput` で
+ * `event.preventDefault()` すれば typing / paste / IME / undo-redo / drop の DOM mutation を
+ * 1 経路で止められる (input 系全部の上位 hook)。
+ *
+ * テンプレート側では各 contenteditable host に `@beforeinput="blockEdit"` に加えて
+ * `@dragover.prevent @drop.prevent` も付けている。`beforeinput` だけでも drop の DOM mutation
+ * は弾けるが、`dragover` を preventDefault しないと UA がドロップ可能 cursor / drop indicator を
+ * 一瞬表示してチラ見せが起きる経路があり、UX 上の保険として両方つける契約。
+ *
+ * Cmd+A / Cmd+C は `beforeinput` を発火させない (input ではない)。コピーは UA 既定が動き、
+ * Cmd+A はスコープが contenteditable subtree に閉じる。これらに別途 handler は不要。
+ */
+function blockEdit(e: Event) {
+  e.preventDefault();
+}
+
 function onContainerClick(e: MouseEvent) {
   if (!props.blameEnabled) return;
   const target = e.target;
@@ -143,25 +160,44 @@ function onContainerClick(e: MouseEvent) {
 </script>
 
 <template>
-  <!-- ハイライト済み HTML -->
+  <!-- ハイライト済み HTML。contenteditable で Cmd+A scope をこの leaf に閉じ込める。
+       SR には "edit, read only" ではなく region として案内する (aria-readonly は textbox role 専用)。 -->
   <div
     v-if="highlightedHtml"
     ref="containerRef"
     class="_highlighted-code text-sm/tight"
     :class="wordWrap ? '_word-wrap' : ''"
+    contenteditable="true"
+    spellcheck="false"
+    autocorrect="off"
+    autocapitalize="off"
+    role="region"
+    aria-label="File contents"
     :style="{ '--line-no-width': lineNoWidth }"
     v-html="highlightedHtml"
     @click="onContainerClick"
+    @beforeinput="blockEdit"
+    @dragover.prevent
+    @drop.prevent
   />
 
-  <!-- フォールバック: プレーンテキスト -->
+  <!-- フォールバック: プレーンテキスト。同様に contenteditable で scope 化。 -->
   <pre
     v-else
     ref="containerRef"
     class="_line-numbered p-4 text-sm/tight text-foreground"
     :class="wordWrap ? '_word-wrap break-all whitespace-pre-wrap' : ''"
+    contenteditable="true"
+    spellcheck="false"
+    autocorrect="off"
+    autocapitalize="off"
+    role="region"
+    aria-label="File contents"
     :style="{ '--line-no-width': lineNoWidth }"
     @click="onContainerClick"
+    @beforeinput="blockEdit"
+    @dragover.prevent
+    @drop.prevent
   ><code><span
         v-for="(line, i) in content.split('\n')"
         :key="i"
@@ -172,16 +208,34 @@ function onContainerClick(e: MouseEvent) {
           type="button"
           class="_line-no-btn"
           :data-line-no-btn="i + 1"
-        >{{ i + 1 }}</button><span
+          :aria-label="`Line ${i + 1}`"
+        /><span
           v-else
           class="_line-no-static"
+          :data-line-no-static="i + 1"
           aria-hidden="true"
-        >{{ i + 1 }}</span>{{ line }}
+        />{{ line }}
 </span></code></pre>
 </template>
 
 <style scoped>
-/* blame ON: `<button data-line-no-btn>` (Shiki / fallback どちらも同形) */
+/* contenteditable host の focus 表示。`outline: none` で全部消すと keyboard 経路の
+   focus 視認が失われるため、`:focus-visible` で keyboard focus 時だけ outline を出し、
+   mouse click 経路の outline は UA 既定に従って表示しない (`:focus-visible` 非マッチ)。 */
+._highlighted-code:focus-visible,
+._line-numbered:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+/* blame ON: `<button data-line-no-btn>` (Shiki / fallback どちらも同形)
+ *
+ * 行番号は DOM テキストではなく `::before` の `content: attr(...)` でレンダリングする。
+ * 擬似要素 content は構造的にクリップボード対象外なので、`user-select: none` 任せで
+ * Cmd+A や範囲跨ぎコピーに行番号が混入するリスクを根本から消す。あわせて空行スパンに
+ * user-select: none なテキストが居なくなり、Shiki 経路で「改行だけの行」のコピーが
+ * 隣接の \n テキストノードごと取りこぼされる挙動も解消する。
+ */
 ._line-numbered ._line ._line-no-btn,
 ._highlighted-code :deep(.line ._line-no-btn) {
   display: inline-block;
@@ -195,6 +249,11 @@ function onContainerClick(e: MouseEvent) {
   color: var(--color-element-hover);
   user-select: none;
   cursor: pointer;
+}
+
+._line-numbered ._line ._line-no-btn::before,
+._highlighted-code :deep(.line ._line-no-btn::before) {
+  content: attr(data-line-no-btn);
 }
 
 ._line-numbered ._line ._line-no-btn:hover,
@@ -213,7 +272,8 @@ function onContainerClick(e: MouseEvent) {
 }
 
 /* blame OFF: `<span class="_line-no-static">`。focusable を奪うため span に倒す。
-   silent dead button 禁止規約: keyboard 経路 (Tab + Enter) でも何も起きないことを構造で保証する */
+   silent dead button 禁止規約: keyboard 経路 (Tab + Enter) でも何も起きないことを構造で保証する。
+   行番号レンダリングは button 経路と同じく `::before` + `attr()` 経由。 */
 ._line-numbered ._line ._line-no-static,
 ._highlighted-code :deep(.line ._line-no-static) {
   display: inline-block;
@@ -222,6 +282,11 @@ function onContainerClick(e: MouseEvent) {
   text-align: right;
   color: var(--color-element-hover);
   user-select: none;
+}
+
+._line-numbered ._line ._line-no-static::before,
+._highlighted-code :deep(.line ._line-no-static::before) {
+  content: attr(data-line-no-static);
 }
 
 /* 折り返し時: 行番号を absolute で固定し、折り返し行が行番号の右側に揃うよう padding で確保 */

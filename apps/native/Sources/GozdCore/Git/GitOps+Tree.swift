@@ -128,9 +128,9 @@ extension GitOps {
   /// (`usePrDiffToggleStore.lockedBase.diffBaseOid`) が per-file 取得経路 (`gitReadBlob`) とも
   /// 起点を共有できるようにする。
   ///
-  /// untracked file の merge は本関数では行わない。renderer 側 (`useChangesStore.fileChanges`) が
-  /// `gitStatusStore` 由来の untracked を append する SSOT に一本化したため、untracked を `U` として
-  /// 写す責務は renderer の 1 か所に閉じる (range + working-tree 端の経路と同一層に揃える)。
+  /// untracked file の merge は本関数では行わない。renderer 側 (`useChangesStore` 内部の untracked
+  /// merge 経路) が `gitStatusStore` 由来の untracked を append する SSOT に一本化したため、untracked
+  /// を `U` として写す責務は renderer の 1 か所に閉じる (range + working-tree 端の経路と同一層に揃える)。
   ///
   /// 実装:
   /// - `git diff --name-status -z --find-renames --diff-filter=AMDR <baseHash>` で merge-base..working

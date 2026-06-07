@@ -198,7 +198,7 @@ message GitCommitFilesResponse {
 // 内部では `git diff <base_hash>` (右辺省略 = working tree) を実行する。
 // `--diff-filter=AMDR` で除外される untracked file (`??`) は本 RPC では返さない。
 // 「PR をいま push したら base に何が入るか」のうち untracked 分の merge は renderer 側
-// (`useChangesStore.fileChanges`) が `gitStatusStore` 由来の untracked を append して行う。
+// (`useChangesStore` 内部の untracked merge 経路) が `gitStatusStore` 由来の untracked を append して行う。
 // untracked を `U` として写す責務を 1 か所 (renderer) に閉じ、range + working-tree 端の経路と揃える。
 message GitPrDiffFilesRequest {
   string dir = 1;

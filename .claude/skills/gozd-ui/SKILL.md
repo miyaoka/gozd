@@ -25,6 +25,7 @@ Tier 3 (element defaults, @layer base)    ← renderer main.css
 SSOT:
 
 - Tier 1 primitives: `@gozd/design-tokens` package が prepare 時に `dist/tokens.generated.css` を生成。**手書き禁止**。brand を変えたいときは `packages/design-tokens/src/generateTokens.ts` の `BRAND` を編集して `pnpm install` (prepare で自動再生成)
+- Tier 1 brand-fixed (例外): theme 追従しない固定 brand 色 (LINE 配色等) は `main.css` の `:root` に手書きで定義する。命名規約 `--<scope>-<role>-primitive` で識別。Adobe Leonardo 生成パイプラインは theme 追従が前提なので、固定 brand 色はその射程外として隔離する。例: `chat-incoming-primitive` 等
 - Tier 2/3: `apps/renderer/src/assets/main.css` (`@theme inline` semantic alias + `@layer base` element default)
 
 semantic alias / element default は `@theme inline` / `@layer base` 内。不足したら raw に逃げず token を追加する。

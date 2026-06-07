@@ -3,39 +3,26 @@ Branch ref badge with optional PR link. Displays a PR number badge (left) and br
 
 ## カラー設計
 
-ref の hue は **branch 名単位で固定** する (`displayRef.laneColorIndex` = GitGraphPane の
-`branchLaneByName` 由来)。同じ branch 名なら local / synced / remote すべて同 hue になり、
-out-of-sync で local と remote が別 commit に乗っていても色が割れない。lane 0 (teal) は
-HEAD branch に予約。
+ref を **current / default / other** の 3 カテゴリで固定色に振り分ける (original PR #170e6b33 と
+同じ構造、Tier 2 semantic token に翻訳しただけ):
 
-実体上の DisplayRef type は `local | synced | remote | tag` の 4 値:
+- `isCurrent` (HEAD branch、最優先): warning solid (`bg-warning text-warning-foreground`)。
+  type に関わらず override
+- `isDefault` (default branch、isCurrent でない): type 色に `ring-1 ring-inset ring-current` を
+  decoration として add
+- 上記いずれでもない (type 別): branch は `bg-success-subtle text-success-text`、tag は
+  `bg-primary-subtle text-primary-text`
 
-- `local`: branch 名に local ref のみ、remote ref 無し
-- `synced`: 同一 commit 上に local と origin/同名が両方ある (computeDisplayRefs で merge され
-  DisplayRef は 1 個に統合される)
-- `remote`: branch 名に origin/\* のみ、local ref 無し (pure remote)
-- `tag`: tag ref
+local / remote は **同じ hue で明度差** で区別する:
 
-色マッピング:
-
-- `local` / `synced`: lane hue full saturation の text + lane hue subtle bg
-  (`laneTextColor` + `laneSubtleBgColor`)
-- `remote`: 同じ lane hue を低 L / 低 C に倒した text (`laneRemoteTextColor`) + bg は local と
-  共通 (`laneSubtleBgColor`)。「同じ branch の remote 側 = 一段 dim」を表現
-- `tag`: branch とは別概念なので primary-subtle (lane 色に乗らない)
-- `isCurrent`: HEAD branch tip を warning solid で強調 (lane 色より上に立つ攻撃的ハイライト)。
-  `isCurrent && remote` は warning-subtle で「remote HEAD pointer」
-
-8 lane × 3 variant (text local / text remote / bg) を Tier 2 token に展開すると alias 表が
-肥大化するため、`graphColors.ts` の動的計算色を inline `:style` で渡す
-([gozd-ui SKILL の inline style 例外 (c) 動的計算色 (有限固定 palette / per-identifier 動的値)](../../../../../.claude/skills/gozd-ui/SKILL.md))。
+- local / synced: 上記 token を full
+- remote: 同じ token + `opacity-50` で dim (data-state dim は SKILL Alpha 表の allow-list 用途)
 </doc>
 
 <script setup lang="ts">
 import type { GitPullRequest } from "@gozd/proto";
 import { computed } from "vue";
 import type { DisplayRef } from "./displayRef";
-import { laneRemoteTextColor, laneSubtleBgColor, laneTextColor } from "./graphColors";
 
 const props = defineProps<{
   displayRef: DisplayRef;
@@ -53,38 +40,21 @@ const pr = computed(() => {
 });
 
 /**
- * branch (local / remote / synced) は lane 色を inline style で適用する。
- * tag は branch ではないため lane 色に乗らず、primary-subtle (Tier 2 token) を使う。
- * isCurrent は warning 系で上書きされるためここも fallback class 側に流す。
+ * type 別の base class。current / default の override / decoration はテンプレ側で合成する。
+ * remote は同 hue + opacity-50 で dim (data state、SKILL Alpha allow-list)。
  */
-const isBranch = computed(() => props.displayRef.type !== "tag" && !props.displayRef.isCurrent);
+const REF_TYPE_CLASS: Record<DisplayRef["type"], string> = {
+  synced: "bg-success-subtle text-success-text",
+  local: "bg-success-subtle text-success-text",
+  remote: "bg-success-subtle text-success-text opacity-50",
+  tag: "bg-primary-subtle text-primary-text",
+};
 
-const branchStyle = computed<Record<string, string> | undefined>(() => {
-  if (!isBranch.value) return undefined;
-  const idx = props.displayRef.laneColorIndex;
-  const text = props.displayRef.type === "remote" ? laneRemoteTextColor(idx) : laneTextColor(idx);
-  return {
-    backgroundColor: laneSubtleBgColor(idx),
-    color: text,
-  };
-});
+/** HEAD branch tip。type を override して warning solid に。remote 版は dim */
+const CURRENT_LOCAL_CLASS = "bg-warning text-warning-foreground";
+const CURRENT_REMOTE_CLASS = "bg-warning text-warning-foreground opacity-50";
 
-/**
- * tag は branch とは別 hue (primary-subtle) を Tier 2 token で当てる。
- * isCurrent は warning solid (HEAD tip 強調)、isCurrent && remote は warning-subtle で「remote HEAD pointer」。
- */
-const fallbackClass = computed(() => {
-  if (props.displayRef.isCurrent) {
-    return props.displayRef.type === "remote"
-      ? "bg-warning-subtle text-warning-text"
-      : "bg-warning text-warning-foreground";
-  }
-  if (props.displayRef.type === "tag") {
-    return "bg-primary-subtle text-primary-text";
-  }
-  return "";
-});
-
+/** default branch decoration。type 色の上に ring を重ねる */
 const DEFAULT_CLASS = "ring-1 ring-inset ring-current";
 </script>
 
@@ -110,8 +80,14 @@ const DEFAULT_CLASS = "ring-1 ring-inset ring-current";
   <!-- Branch / tag label -->
   <span
     class="flex shrink-0 items-center gap-0.5 rounded-sm px-1 py-0.5 text-[10px] leading-none font-medium"
-    :class="[fallbackClass, displayRef.isDefault && DEFAULT_CLASS]"
-    :style="branchStyle"
+    :class="[
+      displayRef.isCurrent
+        ? displayRef.type === 'remote'
+          ? CURRENT_REMOTE_CLASS
+          : CURRENT_LOCAL_CLASS
+        : REF_TYPE_CLASS[displayRef.type],
+      displayRef.isDefault && DEFAULT_CLASS,
+    ]"
   >
     <span v-if="displayRef.isSynced" class="icon-[lucide--link] size-3" />
     <span v-else-if="displayRef.isOutOfSync" class="icon-[lucide--link-2-off] size-3" />

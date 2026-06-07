@@ -475,39 +475,6 @@ const commitMessageSegmentsByHash = computed(() => {
   return map;
 });
 
-/**
- * branch 名 → lane color index の map。RefBadge の色を「branch 名単位で固定」するために使う:
- * local と remote of 同名 branch が別 commit に乗っていても (out-of-sync) hue が揃う。
- *
- * 優先順は **local > remote**。local ref があればそれが乗っている commit の lane を採用し、
- * remote は同名 local が無いときだけ自分の lane を登録する。これにより「ローカル基準で色を決める」
- * SSOT が成立する (gozd の使用文脈で local が常に actionable、remote は参照)。
- *
- * HEAD branch は computeGraphLayout で lane 0 (teal) に予約されているため、自動的に teal を引く。
- */
-const branchLaneByName = computed<Map<string, number>>(() => {
-  const map = new Map<string, number>();
-  // 第 1 pass: local refs (origin/ 接頭辞なし、tag: 接頭辞なし) を優先登録
-  for (const node of layout.value.nodes) {
-    for (const ref of node.commit.refs) {
-      if (ref === "HEAD" || ref === "origin/HEAD") continue;
-      if (ref.startsWith("origin/") || ref.startsWith("tag:")) continue;
-      map.set(ref, node.color);
-    }
-  }
-  // 第 2 pass: remote refs を local 不在のときだけ補填
-  for (const node of layout.value.nodes) {
-    for (const ref of node.commit.refs) {
-      if (!ref.startsWith("origin/") || ref === "origin/HEAD") continue;
-      const branchName = ref.slice("origin/".length);
-      if (!map.has(branchName)) {
-        map.set(branchName, node.color);
-      }
-    }
-  }
-  return map;
-});
-
 // active worktree の PR 一覧を 60 秒間隔で取得する。
 // gozd の primary use case は「Claude / ユーザーが worktree で `gh pr create` する」ことであり、
 // 既 push branch での `gh pr create` / `gh pr edit` / `gh pr comment` / `gh pr review` 等は
@@ -619,18 +586,12 @@ function hasHead(refs: string[]): boolean {
  * - HEAD / origin/HEAD は除外（HEAD は → マーカーで別途表示）
  * - origin/xxx とローカル xxx が一致する場合は統合して synced タイプにする
  * - HEAD が指すブランチは current、defaultBranch と一致するブランチは default タイプにする
- * - 各 DisplayRef に `laneColorIndex` を載せる。branch 名単位で固定された色 (`branchLaneByName`) を引く
- *   ことで、out-of-sync で local / remote が別 commit に乗っていても同 branch なら同 hue になる。
- *   tag は branch とは独立なので fallback として現 commit の lane (引数 `nodeColor`) を載せる
- *   (実描画では Tier 2 token が使われ laneColorIndex は無視される)
  */
 function computeDisplayRefs(
   refs: string[],
-  currentBranchName: string | undefined,
-  defaultBranchName: string | undefined,
-  outOfSyncSet: Set<string> | undefined,
-  branchLaneByName: Map<string, number>,
-  nodeColor: number,
+  currentBranchName?: string,
+  defaultBranchName?: string,
+  outOfSyncSet?: Set<string>,
 ): DisplayRef[] {
   const filtered = refs.filter((r) => r !== "HEAD" && r !== "origin/HEAD");
   const locals = new Set(filtered.filter((r) => !r.startsWith("origin/") && !r.startsWith("tag:")));
@@ -649,15 +610,7 @@ function computeDisplayRefs(
     const isCurrent = local === currentBranchName;
     const isDefault = local === defaultBranchName;
     const isOutOfSync = !isSynced && (outOfSyncSet?.has(local) ?? false);
-    result.push({
-      label: local,
-      type,
-      isSynced,
-      isOutOfSync,
-      isCurrent,
-      isDefault,
-      laneColorIndex: branchLaneByName.get(local) ?? nodeColor,
-    });
+    result.push({ label: local, type, isSynced, isOutOfSync, isCurrent, isDefault });
   }
 
   // origin のみ（ローカルに対応がない）
@@ -672,7 +625,6 @@ function computeDisplayRefs(
       isOutOfSync,
       isCurrent,
       isDefault,
-      laneColorIndex: branchLaneByName.get(remote) ?? nodeColor,
     });
   }
 
@@ -685,7 +637,6 @@ function computeDisplayRefs(
       isOutOfSync: false,
       isCurrent: false,
       isDefault: false,
-      laneColorIndex: nodeColor,
     });
   }
 
@@ -1223,8 +1174,6 @@ const isWorkingTreeActive = computed(
                     currentBranch,
                     defaultBranch,
                     outOfSyncBranches,
-                    branchLaneByName,
-                    node.color,
                   )"
                   :key="`${displayRef.type}:${displayRef.label}`"
                   :display-ref="displayRef"

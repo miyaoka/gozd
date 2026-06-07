@@ -71,8 +71,29 @@ function onLinkClick(e: MouseEvent) {
   }
   markdownHistory.navigate(resolved.selection, resolved.lineNumber);
 }
+
+/**
+ * Cmd+A scope を markdown preview leaf に閉じ込めるため、ここを contenteditable=true の
+ * editing host にする。`beforeinput` で全編集経路を弾いて読み取り専用化する。
+ * PreviewPane 側はラッパとして contenteditable を持たないので、この leaf は単独 host。
+ */
+function blockEdit(event: Event) {
+  event.preventDefault();
+}
 </script>
 
 <template>
-  <MarkdownBody class="p-6 text-sm/relaxed" :content="content" @link-click="onLinkClick" />
+  <MarkdownBody
+    class="p-6 text-sm/relaxed outline-none"
+    contenteditable="true"
+    spellcheck="false"
+    autocorrect="off"
+    autocapitalize="off"
+    aria-readonly="true"
+    :content="content"
+    @link-click="onLinkClick"
+    @beforeinput="blockEdit"
+    @dragover.prevent
+    @drop.prevent
+  />
 </template>

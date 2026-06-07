@@ -888,8 +888,9 @@ watch(
   <ChangesSummaryView v-if="summaryStore.enabled" @close="previewStore.close()" />
 
   <div v-else class="flex h-full flex-col overflow-hidden">
-    <!-- ヘッダー（常に表示） -->
-    <div class="flex items-center gap-2 border-b border-border px-3 py-2">
+    <!-- ヘッダー（常に表示）。Cmd+A の document scope や drag 選択でこの UI 帯が
+         拾われないよう `select-none` を当てて構造的に除外する。 -->
+    <div class="flex items-center gap-2 border-b border-border px-3 py-2 select-none">
       <!-- markdown preview 内部リンク履歴ナビ。履歴の有無でレイアウトが揺れないよう常時表示 -->
       <button
         type="button"
@@ -939,8 +940,8 @@ watch(
 
     <!-- 選択中 -->
     <template v-else>
-      <!-- ツールバー -->
-      <div class="flex items-center border-b border-border">
+      <!-- ツールバー (モード切替タブ / Preview / Wrap)。本体テキスト以外の UI なので select-none。 -->
+      <div class="flex items-center border-b border-border select-none">
         <!-- モード切替タブ -->
         <button
           v-for="mode in availableModes"
@@ -983,7 +984,11 @@ watch(
         </div>
       </div>
 
-      <!-- コンテンツ -->
+      <!--
+        コンテンツ。Cmd+A scope は各 leaf (CodePreview / MarkdownPreview / DiffPreview) 側の
+        contenteditable で完結させる。PreviewPane 側はラッパとしてのみ振る舞い、contenteditable
+        を持たないことで nested editing host の不安定領域を踏まない。
+      -->
       <div
         class="flex-1 overflow-auto"
         :style="{

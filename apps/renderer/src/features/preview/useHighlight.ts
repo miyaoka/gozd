@@ -91,10 +91,15 @@ async function highlight(
   const lineNumberTransformer: ShikiTransformer = {
     line(node, line) {
       node.properties["data-line"] = line;
-      // クリックターゲット用の line-no 要素を行頭に挿入する。
-      // CSS `::before { content: attr(data-line) }` だと疑似要素のためクリック識別が
-      // 取れず、行全体の click + 位置判定をすると text node 上のクリックと識別できない。
-      // 実 DOM 要素にしてイベント delegation を効かせる方針。
+      // 行頭の line-no 要素はテキスト子を持たせず、表示は CSS `::before` +
+      // `content: attr(data-line-no-btn)` (静的経路は `data-line-no-static`) で行う。
+      // 行番号を DOM テキストにしないことで以下を両立する:
+      //   - クリップボードに行番号が混入しない (`::before` の content は構造的にコピー対象外)。
+      //     `user-select: none` だけだと WebKit が Cmd+A / 範囲跨ぎ等で取りこぼすことがあり、
+      //     構造で保証するほうが堅い
+      //   - Shiki 既定の「行間 \n テキストノード」をそのまま使っても、空行スパンの中に
+      //     user-select: none なテキストが居ない状態になるので、空行の改行が選択範囲から
+      //     落ちにくくなる (改行が消える本来のバグへの対処)
       if (blameEnabled) {
         node.children.unshift({
           type: "element",
@@ -103,8 +108,9 @@ async function highlight(
             type: "button",
             class: "_line-no-btn",
             "data-line-no-btn": line,
+            "aria-label": `Line ${line}`,
           },
-          children: [{ type: "text", value: String(line) }],
+          children: [],
         });
       } else {
         node.children.unshift({
@@ -112,9 +118,10 @@ async function highlight(
           tagName: "span",
           properties: {
             class: "_line-no-static",
+            "data-line-no-static": line,
             "aria-hidden": "true",
           },
-          children: [{ type: "text", value: String(line) }],
+          children: [],
         });
       }
     },

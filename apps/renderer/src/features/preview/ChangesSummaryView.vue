@@ -73,8 +73,8 @@ onUnmounted(() => {
 
 <template>
   <div class="flex h-full flex-col overflow-hidden">
-    <!-- ヘッダー -->
-    <div class="flex items-center gap-2 border-b border-border px-3 py-2">
+    <!-- ヘッダー。本体テキスト以外なので select-none で Cmd+A / drag 選択から構造的に除外。 -->
+    <div class="flex items-center gap-2 border-b border-border px-3 py-2 select-none">
       <span class="icon-[lucide--file-diff] size-4 shrink-0 text-foreground-low" />
       <span class="text-sm text-foreground">Changes summary</span>
       <span v-if="changesStore.orderedFileChanges.length > 0" class="text-xs text-foreground-low">
@@ -91,8 +91,8 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <!-- ツールバー: view mode と wrap を全 item に伝搬 -->
-    <div class="flex items-center border-b border-border">
+    <!-- ツールバー: view mode と wrap を全 item に伝搬。select-none で選択対象から除外。 -->
+    <div class="flex items-center border-b border-border select-none">
       <button
         type="button"
         class="flex items-center gap-1 px-3 py-1.5 text-xs transition-colors"
@@ -131,7 +131,8 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <!-- 本体 -->
+    <!-- 本体。Cmd+A scope は各 ChangesSummaryItem 内の DiffPreview leaf 側で完結。
+         ここはラッパとしてのみ振る舞い、nesting を避ける。 -->
     <div class="flex-1 overflow-y-auto">
       <div v-if="changesStore.loading" class="p-4 text-sm text-foreground-low">
         Loading changes...

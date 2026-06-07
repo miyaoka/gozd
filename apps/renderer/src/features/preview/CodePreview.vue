@@ -124,6 +124,15 @@ watch(
  * CSS でも cursor:pointer / hover styling を抑制して「クリックしても何も起きない
  * ボタン」を作らない契約 (silent dead button 禁止)。
  */
+/**
+ * Cmd+A scope を code preview leaf に閉じ込めるため、ここを contenteditable=true の
+ * editing host にする。`beforeinput` で全編集経路を弾いて読み取り専用化する。
+ * PreviewPane 側はラッパとして contenteditable を持たないので、この leaf は単独 host。
+ */
+function blockEdit(e: Event) {
+  e.preventDefault();
+}
+
 function onContainerClick(e: MouseEvent) {
   if (!props.blameEnabled) return;
   const target = e.target;
@@ -143,25 +152,41 @@ function onContainerClick(e: MouseEvent) {
 </script>
 
 <template>
-  <!-- ハイライト済み HTML -->
+  <!-- ハイライト済み HTML。contenteditable で Cmd+A scope をこの leaf に閉じ込める。 -->
   <div
     v-if="highlightedHtml"
     ref="containerRef"
-    class="_highlighted-code text-sm/tight"
+    class="_highlighted-code text-sm/tight outline-none"
     :class="wordWrap ? '_word-wrap' : ''"
+    contenteditable="true"
+    spellcheck="false"
+    autocorrect="off"
+    autocapitalize="off"
+    aria-readonly="true"
     :style="{ '--line-no-width': lineNoWidth }"
     v-html="highlightedHtml"
     @click="onContainerClick"
+    @beforeinput="blockEdit"
+    @dragover.prevent
+    @drop.prevent
   />
 
-  <!-- フォールバック: プレーンテキスト -->
+  <!-- フォールバック: プレーンテキスト。同様に contenteditable で scope 化。 -->
   <pre
     v-else
     ref="containerRef"
-    class="_line-numbered p-4 text-sm/tight text-foreground"
+    class="_line-numbered p-4 text-sm/tight text-foreground outline-none"
     :class="wordWrap ? '_word-wrap break-all whitespace-pre-wrap' : ''"
+    contenteditable="true"
+    spellcheck="false"
+    autocorrect="off"
+    autocapitalize="off"
+    aria-readonly="true"
     :style="{ '--line-no-width': lineNoWidth }"
     @click="onContainerClick"
+    @beforeinput="blockEdit"
+    @dragover.prevent
+    @drop.prevent
   ><code><span
         v-for="(line, i) in content.split('\n')"
         :key="i"
@@ -172,16 +197,25 @@ function onContainerClick(e: MouseEvent) {
           type="button"
           class="_line-no-btn"
           :data-line-no-btn="i + 1"
-        >{{ i + 1 }}</button><span
+          :aria-label="`Line ${i + 1}`"
+        /><span
           v-else
           class="_line-no-static"
+          :data-line-no-static="i + 1"
           aria-hidden="true"
-        >{{ i + 1 }}</span>{{ line }}
+        />{{ line }}
 </span></code></pre>
 </template>
 
 <style scoped>
-/* blame ON: `<button data-line-no-btn>` (Shiki / fallback どちらも同形) */
+/* blame ON: `<button data-line-no-btn>` (Shiki / fallback どちらも同形)
+ *
+ * 行番号は DOM テキストではなく `::before` の `content: attr(...)` でレンダリングする。
+ * 擬似要素 content は構造的にクリップボード対象外なので、`user-select: none` 任せで
+ * Cmd+A や範囲跨ぎコピーに行番号が混入するリスクを根本から消す。あわせて空行スパンに
+ * user-select: none なテキストが居なくなり、Shiki 経路で「改行だけの行」のコピーが
+ * 隣接の \n テキストノードごと取りこぼされる挙動も解消する。
+ */
 ._line-numbered ._line ._line-no-btn,
 ._highlighted-code :deep(.line ._line-no-btn) {
   display: inline-block;
@@ -195,6 +229,11 @@ function onContainerClick(e: MouseEvent) {
   color: var(--color-element-hover);
   user-select: none;
   cursor: pointer;
+}
+
+._line-numbered ._line ._line-no-btn::before,
+._highlighted-code :deep(.line ._line-no-btn::before) {
+  content: attr(data-line-no-btn);
 }
 
 ._line-numbered ._line ._line-no-btn:hover,
@@ -213,7 +252,8 @@ function onContainerClick(e: MouseEvent) {
 }
 
 /* blame OFF: `<span class="_line-no-static">`。focusable を奪うため span に倒す。
-   silent dead button 禁止規約: keyboard 経路 (Tab + Enter) でも何も起きないことを構造で保証する */
+   silent dead button 禁止規約: keyboard 経路 (Tab + Enter) でも何も起きないことを構造で保証する。
+   行番号レンダリングは button 経路と同じく `::before` + `attr()` 経由。 */
 ._line-numbered ._line ._line-no-static,
 ._highlighted-code :deep(.line ._line-no-static) {
   display: inline-block;
@@ -222,6 +262,11 @@ function onContainerClick(e: MouseEvent) {
   text-align: right;
   color: var(--color-element-hover);
   user-select: none;
+}
+
+._line-numbered ._line ._line-no-static::before,
+._highlighted-code :deep(.line ._line-no-static::before) {
+  content: attr(data-line-no-static);
 }
 
 /* 折り返し時: 行番号を absolute で固定し、折り返し行が行番号の右側に揃うよう padding で確保 */

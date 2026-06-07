@@ -24,9 +24,8 @@ const popoverStyle = computed(() => {
   }
   return {
     position: "fixed",
-    top: "anchor(bottom)",
-    left: "anchor(left)",
-    positionTryFallbacks: "flip-block, flip-inline",
+    positionArea: "block-end span-inline-end",
+    positionTryFallbacks: "flip-block, flip-inline, flip-block flip-inline",
   };
 });
 

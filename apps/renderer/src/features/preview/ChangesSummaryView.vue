@@ -3,7 +3,13 @@
 
 ## 動作
 
-- `useChangesStore` の `fileChanges` を購読し、各ファイルを `ChangesSummaryItem` で描画
+- `useChangesStore.orderedFileChanges` を購読し、各ファイルを `ChangesSummaryItem` で描画。
+  件数表示・空判定も同じ computed を SSOT として揃え、ChangesPane と挙動を一致させる
+- 並び順は ChangesPane のツリー描画順 (フォルダ先 → ファイル、各群 localeCompare、chain 圧縮込みの
+  深さ優先) と一致する。SSOT は `useChangesStore` の `tree` / `orderedFileChanges` computed であり、
+  本コンポーネントは購読するだけで sort も tree 構築も行わない
+- ChangesPane の折りたたみ状態 (`collapsedFolders`) には依存しない。collapsed は描画上の UI 状態で
+  あって `tree` 自体には影響しないため、View all は常に全件を展開した順序で並ぶ (View all の意味論)
 - ヘッダーで split / unified の global 切替と word wrap トグルを提供
 - ファイル単位の split/unified トグルは externalViewMode prop で非表示にし、ここに統合する
 - ファイル fetch 失敗は `fetch-failed` emit を debounce で集約し、N 件の失敗を 1 つの
@@ -71,8 +77,8 @@ onUnmounted(() => {
     <div class="flex items-center gap-2 border-b border-border px-3 py-2">
       <span class="icon-[lucide--file-diff] size-4 shrink-0 text-foreground-low" />
       <span class="text-sm text-foreground">Changes summary</span>
-      <span v-if="changesStore.fileChanges.length > 0" class="text-xs text-foreground-low">
-        ({{ changesStore.fileChanges.length }} files)
+      <span v-if="changesStore.orderedFileChanges.length > 0" class="text-xs text-foreground-low">
+        ({{ changesStore.orderedFileChanges.length }} files)
       </span>
       <button
         type="button"
@@ -131,14 +137,14 @@ onUnmounted(() => {
         Loading changes...
       </div>
       <div
-        v-else-if="changesStore.fileChanges.length === 0"
+        v-else-if="changesStore.orderedFileChanges.length === 0"
         class="p-4 text-sm text-foreground-low"
       >
         No changes
       </div>
       <template v-else>
         <ChangesSummaryItem
-          v-for="change in changesStore.fileChanges"
+          v-for="change in changesStore.orderedFileChanges"
           :key="`${change.oldFilePath}->${change.newFilePath}`"
           :change="change"
           :view-mode="viewMode"

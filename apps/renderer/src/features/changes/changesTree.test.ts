@@ -1,6 +1,6 @@
 import type { GitFileChange } from "@gozd/proto";
 import { describe, expect, test } from "bun:test";
-import { buildChangesTree } from "./changesTree";
+import { buildChangesTree, flattenChangesTree } from "./changesTree";
 
 function ch(newFilePath: string): GitFileChange {
   return { oldFilePath: newFilePath, newFilePath, type: "M" };
@@ -80,5 +80,78 @@ describe("buildChangesTree", () => {
     test("空 path は throw", () => {
       expect(() => buildChangesTree([ch("")])).toThrow(/Invalid file path/);
     });
+  });
+});
+
+/**
+ * `flattenChangesTree` は `useChangesStore.orderedFileChanges` 経由で ChangesSummaryView
+ * (View all) の縦並び順を決める。「ChangesPane のツリー描画順と一致する」が PR の意図
+ * そのものなので、走査順 (folder 先 + 各群を localeCompare、chain 圧縮内も含む depth-first) を
+ * spec として固定する。collapsed 状態は `ChangesTreeNode[]` の構造外なので入力にすら現れず、
+ * 走査結果は常に全件展開順になる契約を併せて担保する。
+ */
+describe("flattenChangesTree", () => {
+  function paths(changes: GitFileChange[]): string[] {
+    return changes.map((c) => c.newFilePath);
+  }
+
+  test("空配列は空配列を返す", () => {
+    expect(flattenChangesTree([])).toEqual([]);
+  });
+
+  test("root 直下の単独 file はそのまま 1 件", () => {
+    const tree = buildChangesTree([ch("README.md")]);
+    expect(paths(flattenChangesTree(tree))).toEqual(["README.md"]);
+  });
+
+  test("同レベルでは folder が先、各群は localeCompare で昇順", () => {
+    const tree = buildChangesTree([
+      ch("zfile.ts"),
+      ch("afile.ts"),
+      ch("src/a.ts"),
+      ch("docs/c.md"),
+    ]);
+    expect(paths(flattenChangesTree(tree))).toEqual([
+      "docs/c.md",
+      "src/a.ts",
+      "afile.ts",
+      "zfile.ts",
+    ]);
+  });
+
+  test("chain 圧縮されたフォルダ配下も同じ depth-first 順", () => {
+    const tree = buildChangesTree([
+      ch(".github/workflows/release.yml"),
+      ch(".github/workflows/ci.yml"),
+    ]);
+    expect(paths(flattenChangesTree(tree))).toEqual([
+      ".github/workflows/ci.yml",
+      ".github/workflows/release.yml",
+    ]);
+  });
+
+  test("nested folder は depth-first で深い側を先に消化してから兄弟へ", () => {
+    const tree = buildChangesTree([
+      ch("src/b/inner.ts"),
+      ch("src/a.ts"),
+      ch("src/c.ts"),
+      ch("README.md"),
+    ]);
+    // src 配下: folder b → file a.ts → file c.ts (folder 先 + 各群 localeCompare)
+    // root: folder src → file README.md
+    expect(paths(flattenChangesTree(tree))).toEqual([
+      "src/b/inner.ts",
+      "src/a.ts",
+      "src/c.ts",
+      "README.md",
+    ]);
+  });
+
+  test("入力 `ChangesTreeNode[]` 自体に collapsed 情報が無いため、走査は常に全件を返す", () => {
+    const tree = buildChangesTree([ch("src/a.ts"), ch("src/sub/b.ts"), ch("docs/c.md")]);
+    // ChangesPane で `src` が collapsed されていても tree 構造自体は変わらないため
+    // (collapsedFolders は描画状態であって ChangesTreeNode に持たせていない)、
+    // flatten 結果は全件・ツリー描画順で固定。
+    expect(paths(flattenChangesTree(tree))).toEqual(["docs/c.md", "src/sub/b.ts", "src/a.ts"]);
   });
 });

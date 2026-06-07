@@ -12,8 +12,10 @@ Changed files tree. Shows HEAD vs working directory by default, or a selected co
 
 ## Data source
 
-ファイル一覧の決定ロジックと RPC fetch は `useChangesStore` が SSOT。
-ChangesPane は store の `fileChanges` をツリーに整形して描画するだけ。
+ファイル一覧の決定ロジックと RPC fetch は `useChangesStore` が SSOT。ChangesPane は store の
+`tree` (描画用) と `orderedFileChanges` (件数表示・空判定・View all ボタンの disabled 制御) を
+購読するだけで、自身で tree 構築・ソート・件数判定を行わない。tree 構築失敗時は両者とも空に倒れ、
+view 内で「件数あり / 描画は No changes」のような不整合は出ない。
 
 ## PR diff toggle
 
@@ -32,14 +34,10 @@ summary 有効時は preview ペインに全変更の縦並び diff が表示さ
 </doc>
 
 <script setup lang="ts">
-import { tryCatch } from "@gozd/shared";
-import { ref, watch } from "vue";
-import { useNotificationStore } from "../../shared/notification";
+import { ref } from "vue";
 import { usePrDiffToggleStore } from "../git-graph";
 import type { FileContextMenuPayload } from "../navigator";
 import { usePreviewStore } from "../preview";
-import { buildChangesTree } from "./changesTree";
-import type { ChangesTreeNode } from "./changesTree";
 import ChangesTreeItem from "./ChangesTreeItem.vue";
 import { useChangesStore } from "./useChangesStore";
 import { useChangesSummaryStore } from "./useChangesSummaryStore";
@@ -50,34 +48,10 @@ const emit = defineEmits<{
   contextMenu: [payload: FileContextMenuPayload];
 }>();
 
-const notify = useNotificationStore();
 const changesStore = useChangesStore();
 const summaryStore = useChangesSummaryStore();
 const previewStore = usePreviewStore();
 const prDiffToggle = usePrDiffToggleStore();
-
-/**
- * GitHub PR 風のディレクトリツリー（chain 圧縮済み）。
- *
- * `buildChangesTree` は不正 path（空 segment / 重複 / file⇔folder 衝突）で throw する。
- * computed は pure / 同期である必要があるため、ツリー構築と失敗時のトースト通知は
- * 副作用を持てる `watch` 側に閉じ込め、テンプレートには素の `ref<T[]>` を渡す。
- */
-const tree = ref<ChangesTreeNode[]>([]);
-
-watch(
-  () => changesStore.fileChanges,
-  (changes) => {
-    const result = tryCatch(() => buildChangesTree(changes));
-    if (result.ok) {
-      tree.value = result.value;
-      return;
-    }
-    tree.value = [];
-    notify.error("Failed to build changes tree", result.error);
-  },
-  { immediate: true },
-);
 
 /** 折りたたみ中フォルダの fullPath 集合（デフォルトは全展開） */
 const collapsedFolders = ref<Set<string>>(new Set());
@@ -104,8 +78,8 @@ function onClickViewAll() {
     <div class="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1.5">
       <span class="icon-[lucide--git-branch] size-4 text-foreground-low" />
       <span class="text-xs font-semibold text-foreground-low">Changes</span>
-      <span v-if="changesStore.fileChanges.length > 0" class="text-xs text-foreground-low"
-        >({{ changesStore.fileChanges.length }})</span
+      <span v-if="changesStore.orderedFileChanges.length > 0" class="text-xs text-foreground-low"
+        >({{ changesStore.orderedFileChanges.length }})</span
       >
       <button
         v-if="prDiffToggle.canEnable"
@@ -142,7 +116,7 @@ function onClickViewAll() {
           summaryStore.enabled ? 'text-primary-text' : 'text-foreground-low hover:text-foreground',
           prDiffToggle.canEnable ? '' : 'ml-auto',
         ]"
-        :disabled="changesStore.fileChanges.length === 0"
+        :disabled="changesStore.orderedFileChanges.length === 0"
         title="Show all diffs in preview"
         aria-label="Toggle changes summary"
         @click="onClickViewAll"
@@ -156,13 +130,16 @@ function onClickViewAll() {
       <div class="text-xs text-foreground-low">Loading...</div>
     </div>
 
-    <div v-else-if="tree.length === 0" class="flex-1 overflow-y-auto p-2">
+    <div
+      v-else-if="changesStore.orderedFileChanges.length === 0"
+      class="flex-1 overflow-y-auto p-2"
+    >
       <div class="text-xs text-foreground-low">No changes</div>
     </div>
 
     <div v-else class="flex-1 overflow-y-auto py-1">
       <ChangesTreeItem
-        v-for="node in tree"
+        v-for="node in changesStore.tree"
         :key="node.kind === 'folder' ? `d:${node.anchorPath}` : `f:${node.change.newFilePath}`"
         :node="node"
         :depth="0"

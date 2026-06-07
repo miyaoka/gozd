@@ -97,10 +97,15 @@ interface ClaudeStatusManagerDeps {
   panes: PaneAccessor;
   /** ptyId が生存中かどうか */
   isPtyAlive: (ptyId: number) => boolean;
+  /**
+   * session-start hook で sessionId ↔ ptyId が確立した瞬間に呼ばれる。
+   * resume の連打ガード (pendingResumeByLeafId) を session-start で消化するために使う。
+   */
+  onSessionAttached?: (ptyId: number, sessionId: string) => void;
 }
 
 export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
-  const { claudeStatusByPtyId, panes, isPtyAlive } = deps;
+  const { claudeStatusByPtyId, panes, isPtyAlive, onSessionAttached } = deps;
 
   /** ptyId → PermissionRequest の debounce タイマー */
   const askTimers = new Map<number, ReturnType<typeof setTimeout>>();
@@ -151,6 +156,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
           }
           sessionIdByPtyId.value[ptyId] = sessionId;
           ptyIdBySessionId.value[sessionId] = ptyId;
+          onSessionAttached?.(ptyId, sessionId);
         }
         claudeStatusByPtyId.value[ptyId] = { state: "idle", lastActivityAt: Date.now() };
         break;

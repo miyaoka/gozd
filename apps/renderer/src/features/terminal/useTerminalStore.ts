@@ -163,9 +163,9 @@ export const useTerminalStore = defineStore("terminal", () => {
         cols,
         worktreePath: dir,
       });
-      if (resumeId !== undefined) {
-        delete pendingResumeByLeafId.value[leafId];
-      }
+      // pendingResumeByLeafId は spawn 成功時点では削除しない。session-start hook の
+      // 到達まで保持して、その間の重複クリックを requestResumeSession で focus に倒す。
+      // (削除は claudeStatus の onSessionAttached コールバックで行う)
       if (autostart) {
         delete pendingAutostartByLeafId.value[leafId];
       }
@@ -189,6 +189,17 @@ export const useTerminalStore = defineStore("terminal", () => {
       },
     },
     isPtyAlive: ptySession.isPtyAlive,
+    onSessionAttached: (ptyId) => {
+      // session-start で sessionId が live mapping に乗ったので、対応 leaf の
+      // resume pending ヒントを掃除する。これ以降は claude.getPtyIdBySessionId が
+      // 引けるため requestResumeSession 側の dedup は live PTY check で完結する。
+      for (const [leafId, entry] of Object.entries(paneRegistry.value)) {
+        if (entry.session?.ptyId === ptyId) {
+          delete pendingResumeByLeafId.value[leafId];
+          break;
+        }
+      }
+    },
   });
 
   const layout = createTerminalLayout({
@@ -438,6 +449,16 @@ export const useTerminalStore = defineStore("terminal", () => {
         `[useTerminalStore] requestResumeSession: ${sessionId} became live between click and request; deferring focus to caller`,
       );
       return;
+    }
+    // 連打ガード: 同一 sessionId の resume が in-flight (spawn 中 / claude --resume
+    // 起動中で session-start hook 未到達) なら、その leaf を focus するに留めて
+    // 新 pane を増やさない。pendingResumeByLeafId は session-start で消化されるまで
+    // 残るため、ここでの逆引きが double-spawn の唯一の防壁になる。
+    for (const [pendingLeafId, pendingSid] of Object.entries(pendingResumeByLeafId.value)) {
+      if (pendingSid === sessionId) {
+        layout.focusPane(pendingLeafId);
+        return;
+      }
     }
     if (!visitedDirs.value.includes(dir)) {
       preferredResumeByDir.value[dir] = sessionId;

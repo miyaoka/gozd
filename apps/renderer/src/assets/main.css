@@ -89,10 +89,11 @@
   --color-warning-text: var(--amber-11);
   --color-warning-foreground: var(--gray-1);
 
-  /* intent: warning-strong (orange、solid は mid-bright → foreground は dark) */
+  /* intent: warning-strong (orange、solid は mid-bright → foreground は dark)
+     -subtle は未利用 (subtle bg として warning と区別する用途が出ていない)。
+     必要になった時点で `--color-warning-strong-subtle: var(--orange-3)` を追加する */
   --color-warning-strong: var(--orange-9);
   --color-warning-strong-hover: var(--orange-10);
-  --color-warning-strong-subtle: var(--orange-3);
   --color-warning-strong-text: var(--orange-11);
   --color-warning-strong-foreground: var(--gray-1);
 

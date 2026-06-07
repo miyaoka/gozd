@@ -73,11 +73,12 @@ primitive utility (`bg-gray-3` 等) は Tailwind が utility 化していない 
 | -------------------------------------------------------------------- | ----------------------- |
 | 本文 / heading (high contrast)                                       | `text-foreground`       |
 | secondary text / placeholder                                         | `text-foreground-low`   |
-| de-emphasized state / inactive item                                  | `text-foreground-muted` |
+| de-emphasized state / inactive item / disabled                       | `text-foreground-muted` |
 | 強調は font-weight / size で表現する (旧 `foreground-strong` は廃止) | —                       |
-| dark UI 上の chrome indicator                                        | `bg-foreground`         |
+| dark UI 上の chrome indicator (強)                                   | `bg-foreground`         |
+| dark UI 上の chrome indicator (弱、非アクティブ playhead 等)         | `bg-foreground-low`     |
 
-`text-foreground-muted` は Primer "NEVER use opacity for disabled" 規律に従う dim text 用 solid token。alpha modifier (`text-*/60` 等) で代用しない。
+`text-foreground-muted` は Primer "NEVER use opacity for disabled" 規律に従う dim text / disabled 用 solid token。alpha modifier (`text-*/60`、`disabled:opacity-N` 等) で代用しない。disabled 状態の bg は `bg-element`、border は `border-border-subtle` を併用する。
 
 ### Intent (primary / destructive / success / warning / warning-strong / info)
 
@@ -92,16 +93,21 @@ primitive utility (`bg-gray-3` 等) は Tailwind が utility 化していない 
 | `<intent>-text`         | low-contrast text on neutral / subtle bg (step 11) | `text-primary-text`, `text-destructive-text` |
 | `<intent>-foreground`   | text on `<intent>` solid bg                        | `text-primary-foreground` (on `bg-primary`)  |
 
+`-subtle-hover` は active row の hover で必要になった `primary` のみ提供。他 intent は use case が出た時点で追加する (YAGNI)。`warning-strong-subtle` も同様に未利用のため未定義 (subtle banner として warning と区別する用途が無い)。
+
 `info` は text-only (solid なし、blue step 11 を借用)。warning / warning-strong は light yellow / mid-orange のため `*-foreground` は dark (gray-1)。
 
 ### Intent 利用パターン
 
-| パターン     | 構成                                                      | 用途                                                      |
-| ------------ | --------------------------------------------------------- | --------------------------------------------------------- |
-| solid button | `bg-<intent>` + `text-<intent>-foreground`                | CTA / 主要 action (submit、destructive confirm)           |
-| subtle chip  | `bg-<intent>-subtle` + `text-<intent>-text`               | error toast、ref badge、diff line bg、user message bubble |
-| active row   | `bg-<intent>-subtle` (+ `hover:bg-<intent>-subtle-hover`) | 選択中の row / commit                                     |
-| text-only    | `text-<intent>-text`                                      | 状態文言、icon-only badge                                 |
+| パターン      | 構成                                                         | 用途                                                                                              |
+| ------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| solid button  | `bg-<intent>` + `text-<intent>-foreground`                   | CTA / 主要 action (submit、destructive confirm)                                                   |
+| subtle chip   | `bg-<intent>-subtle` + `text-<intent>-text`                  | ref badge、icon-only state chip、diff line bg、user message bubble                                |
+| subtle banner | `bg-<intent>-subtle` + `border-<intent>` + `text-foreground` | error toast 本文、長文を含む intent 通知 (本文 neutral text + intent 色は border / icon に逃がす) |
+| active row    | `bg-<intent>-subtle` (+ `hover:bg-<intent>-subtle-hover`)    | 選択中の row / commit                                                                             |
+| text-only     | `text-<intent>-text`                                         | 状態文言、icon-only badge                                                                         |
+
+chip と banner の使い分け: 本文が短く intent 色で塗っても可読性が落ちないなら chip。本文に長文や cause 詳細を載せて neutral 高 contrast text が必要なら banner。
 
 > [!CAUTION]
 > 「subtle chip = `bg-<intent>/15 text-<intent>-text`」は alpha hack で **廃止**。任意 bg 上で contrast が崩れる ([Improta 3 大禁忌](https://designtokens.substack.com/p/transparency-in-color-tokens) の 1 つ)。`<intent>-subtle` (= step 3 solid) を使う ([Radix canonical pattern](https://www.radix-ui.com/colors/docs/overview/aliasing) と一致)。
@@ -117,18 +123,22 @@ primitive utility (`bg-gray-3` 等) は Tailwind が utility 化していない 
 
 業界 (Radix / shadcn v4 / Material 3 / Primer / Spectrum) は alpha token を完全廃止せず、用途を限定して使う:
 
-| 用途                                          | alpha OK?   | 規律                                                                                                        |
-| --------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------- |
-| dialog / popover backdrop                     | ✅ 使う     | `bg-overlay` (黒 alpha 0.5)。下のコンテンツを意図的に見せる UX 要件                                         |
-| scrollbar thumb (任意 bg に乗る要素)          | ✅ 使う     | `--color-scrollbar-thumb` が `--gray-a6` 経由で alpha 持つ                                                  |
-| shadow (`box-shadow`)                         | ✅ 使う     | 物理シミュレーション。solid 不可                                                                            |
-| subtle bg "chip" / banner / row               | ❌ 使うな   | `bg-<intent>-subtle` (step 3 solid) を使う                                                                  |
-| disabled / de-emphasized text                 | ❌ 使うな   | `text-foreground-muted` (gray-9 solid) を使う (Primer "NEVER" 規律)                                         |
-| interactive state (hover / active / selected) | ❌ 使うな   | `bg-element-hover` / `bg-element-active` / `bg-<intent>-subtle` を使う                                      |
-| border / divider                              | ❌ 使うな   | `border-border-subtle` (step 6 solid) で統一 (SSOT 純度優先)                                                |
-| 複雑な前景の上に半透明 layer を重ねる         | ❌ 絶対禁止 | 下のレイヤーが透ける ([Improta 3 大禁忌](https://designtokens.substack.com/p/transparency-in-color-tokens)) |
+| 用途                                                            | alpha OK?      | 規律                                                                                                                                                                                 |
+| --------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| dialog / popover backdrop                                       | ✅ 使う        | `bg-overlay` (黒 alpha 0.5)。下のコンテンツを意図的に見せる UX 要件                                                                                                                  |
+| scrollbar thumb (任意 bg に乗る要素)                            | ✅ 使う        | `--color-scrollbar-thumb` が `--gray-a6` 経由で alpha 持つ                                                                                                                           |
+| shadow (`box-shadow`)                                           | ✅ 使う        | 物理シミュレーション。solid 不可                                                                                                                                                     |
+| reveal-on-hover / -focus transition (`opacity-0 → 100`)         | ✅ 使う        | menu icon 等を hover で出す表現。`group-hover/*:opacity-100` の per-element transition で solid 代替不能                                                                             |
+| コンテンツ全体の dim (focus 外 pane / 非 actionable data state) | ✅ 使う (限定) | TerminalLeaf の非 focused leaf、PrPickerDialog の `isDraft` row 等、子孫 element の色を個別 token で書き換えるのが現実的でないケース。data state (interactive state ではない) に限る |
+| subtle bg "chip" / banner / row                                 | ❌ 使うな      | `bg-<intent>-subtle` (step 3 solid) を使う                                                                                                                                           |
+| disabled / de-emphasized text                                   | ❌ 使うな      | `text-foreground-muted` (gray-9 solid) を使う (Primer "NEVER" 規律)                                                                                                                  |
+| interactive state (hover / active / selected)                   | ❌ 使うな      | `bg-element-hover` / `bg-element-active` / `bg-<intent>-subtle` を使う                                                                                                               |
+| border / divider                                                | ❌ 使うな      | `border-border-subtle` (step 6 solid) で統一 (SSOT 純度優先)                                                                                                                         |
+| 複雑な前景の上に半透明 layer を重ねる                           | ❌ 絶対禁止    | 下のレイヤーが透ける ([Improta 3 大禁忌](https://designtokens.substack.com/p/transparency-in-color-tokens))                                                                          |
 
 `bg-<intent>/N` (`bg-destructive/15` 等) の opacity modifier 利用は **すべて anti-pattern**。「色を弱める」目的なら **必ず solid な低 step token** (`<intent>-subtle` / `foreground-muted` / `border-subtle`) を使う。
+
+「コンテンツ全体の dim」例外は **interactive state ではなく data state** に限る (Improta 第 1 禁忌「interactive state を opacity で表現すると子要素まで伝播」を回避するため)。focus 外 pane や draft データのような「状態の dim 化」は許容、`hover:opacity-50` のような対話的 opacity 切り替えは禁止。
 
 ## Intent 選択の判定軸
 

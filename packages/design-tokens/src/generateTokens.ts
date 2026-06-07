@@ -21,14 +21,16 @@
  * ## Leonardo の使い方 — colorKeys に複数 anchor を渡す
  *
  * Leonardo の `Color({ colorKeys })` は anchor 配列の間を補間する。anchor が
- * 1 つだけだと内部で `[white, brand, black]` 構成になり、chroma-js OKLCH mode の
- * 補間が brand の chroma を全 step にほぼ保つ (低 step で subtle にならず、
- * 場合によっては overshoot)。
+ * 1 つだけだと内部で `[white, brand, black]` 構成になり、chroma curve を
+ * designer 側で制御できない。chroma-js OKLCH mode の補間が brand の chroma を
+ * 全 step にほぼ保つため、低 step で subtle にならない (gamut の隅にある hue
+ * では overshoot も起きる)。
  *
- * 公式 README (`packages/contrast-colors/README.md`) の全例が 2 anchor を渡し、
- * 補間 spine を designer が制御する設計。Radix Dark 流の「低 step で chroma を
- * 絞る」curve を得るには、各 intent に **dark anchor + brand anchor + light anchor**
- * の 3 点を渡して chroma を物理的に下げる。
+ * 公式 README (`packages/contrast-colors/README.md`) の `Color` 例は 2 anchor を
+ * 渡し、補間 spine を designer が制御する設計を canonical pattern としている
+ * (BackgroundColor のような無彩色 scale は単一 anchor で十分)。Radix Dark 流の
+ * 「低 step で chroma を絞る」curve を得るには、各 intent に **dark anchor +
+ * brand anchor + light anchor** の 3 点を渡して chroma を物理的に下げる。
  *
  * dark / light anchor は brand hex から hue だけ取り、L と C を固定値で構築:
  *   - dark : oklch(0.18, 0.04, hue) — step 1-5 の chroma を絞る
@@ -66,9 +68,16 @@ const DARK_ANCHOR_C = 0.04;
 const LIGHT_ANCHOR_L = 0.93;
 const LIGHT_ANCHOR_C = 0.03;
 
-/* Leonardo の chroma-js module 拡張が型推論を unknown に倒すため明示 cast */
+/* Leonardo 内蔵の chroma-js.d.ts shim が `@types/chroma-js` を shadow するため
+ * chroma の instance method (.oklch()) と factory (chroma.oklch(L, C, H)) が
+ * 型推論で unknown に倒れる。両 API を 1 箇所に集約して unknown cast を 1 度だけ書く。 */
+const chromaApi = chroma as unknown as {
+  (input: string): { oklch: () => [number, number, number] };
+  oklch: (l: number, c: number, h: number) => { hex: () => string };
+};
+
 function oklchOf(hex: string): [number, number, number] {
-  return (chroma(hex) as unknown as { oklch: () => [number, number, number] }).oklch();
+  return chromaApi(hex).oklch();
 }
 
 function toOklch(hex: string): string {
@@ -82,18 +91,12 @@ function toOklch(hex: string): string {
 
 /* brand hex の hue を保ったまま L/C を差し替えた anchor hex を生成。
  * これを Leonardo の colorKeys に追加して chroma curve を制御する。
- *
- * Leonardo 内蔵の chroma-js.d.ts shim が `@types/chroma-js` を shadow するため
- * `chroma.oklch(...)` の型が消える。`oklchOf` と同じ unknown cast で逃がす。
  * Leonardo の colorKeys は CssColor (RgbHexColor = `#${string}` の template literal)
  * を受けるが、chroma の .hex() は string を返すので narrow cast する。 */
 function buildAnchor(brandHex: string, l: number, c: number): `#${string}` {
   const [, , h] = oklchOf(brandHex);
   const hue = Number.isNaN(h) ? 0 : h;
-  const chromaCast = chroma as unknown as {
-    oklch: (l: number, c: number, h: number) => { hex: () => string };
-  };
-  return chromaCast.oklch(l, c, hue).hex() as `#${string}`;
+  return chromaApi.oklch(l, c, hue).hex() as `#${string}`;
 }
 
 /* white overlay on bg で色 T を再現する alpha を計算

@@ -1095,9 +1095,10 @@ function blockEdit(event: Event) {
 }
 
 /* 旧 `_split-divider` (個別セルの左 border) を半身境界の border-left に統合。
-   セル単位で divider を持つよりも構造が SSOT に揃う。 */
+   セル単位で divider を持つよりも構造が SSOT に揃う。
+   grid-column は DOM 順で auto-place されるため明示不要 (`_split-section` の
+   `grid-template-columns: 1fr 1fr` と 2 つ並ぶ半身で 1 列目 / 2 列目に置かれる)。 */
 ._split-half-right {
-  grid-column: 2;
   border-left: 1px solid var(--color-element);
   padding-left: 0.5ch;
 }

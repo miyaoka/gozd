@@ -38,7 +38,7 @@ CSS anchor positioning (`positionArea` + `positionTryFallbacks`) で画面端に
 </doc>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { usePopover } from "../../shared/popover";
 import { MarkdownBody } from "../preview";
 import { parseSessionLog, useSessionLogLive, type TranscriptEvent } from "../session-log";
@@ -51,13 +51,10 @@ interface Props {
 const props = defineProps<Props>();
 const terminalStore = useTerminalStore();
 
-// leafId → ptyId → sessionId の辿り。getClaudeState の戻り値を依存に取り込むことで
-// session-start / session-end 経由の状態変化 (claudeStatusByPtyId は reactive Ref)
-// に追随して再評価される。生 Map (sessionIdByPtyId) 単独だと reactivity に乗らない
-// ため、claudeState の有無を proxy として参照する。
+// leafId → ptyId → sessionId の辿り。`sessionIdByPtyId` は reactive Map なので
+// `getSessionIdByPtyId` の結果がそのまま reactivity に乗る。session-start で entry が
+// 立った時点で computed が再評価され、session-end での delete でも追随する。
 const sessionId = computed<string | undefined>(() => {
-  const state = terminalStore.getClaudeState(props.leafId);
-  if (state === undefined) return undefined;
   const ptyId = terminalStore.getPtyId(props.leafId);
   if (ptyId === undefined) return undefined;
   return terminalStore.getSessionIdByPtyId(ptyId);
@@ -71,9 +68,14 @@ function parsedEvents(content: string): TranscriptEvent[] {
   return parseSessionLog(content).events;
 }
 
-function lastTs(events: TranscriptEvent[]): number {
+// 最後に「会話発話」(kind === user | assistant) があった ts。tool だけ走り続けている
+// subagent (大規模 grep / spawn) はここの最新性に寄与させない。tool ts まで含めると
+// 実際に対話している subagent が押し出されて preview の主役が反転するため。
+function lastConversationTs(events: TranscriptEvent[]): number {
   for (let i = events.length - 1; i >= 0; i--) {
-    const ms = Date.parse(events[i].ts);
+    const e = events[i];
+    if (e.kind !== "user" && e.kind !== "assistant") continue;
+    const ms = Date.parse(e.ts);
     if (!Number.isNaN(ms)) return ms;
   }
   return 0;
@@ -102,8 +104,8 @@ const mainEvents = computed<TranscriptEvent[]>(() => {
 });
 
 // 最後に発話があった subagent 1 つの events + 表示ラベル (subagentTabLabel が組み立てた
-// agent 名 / workflow 見出し)。「発話」は kind 問わず events 末尾の ts を見る (tool だけ
-// 走っている subagent も走った時刻として最新性に寄与する)。events と label を 1 つの
+// agent 名 / workflow 見出し)。「発話」は会話イベント (user / assistant) の最終 ts で判定し、
+// tool 単独走行の subagent はここでの最新性に寄与させない。events と label を 1 つの
 // computed にまとめておくと sub overlay の見出しと本文が同じ subagent から派生する不変条件を
 // 構造的に担保できる。
 const newestSub = computed<{ label: string; events: TranscriptEvent[] } | undefined>(() => {
@@ -113,9 +115,9 @@ const newestSub = computed<{ label: string; events: TranscriptEvent[] } | undefi
     .filter((x) => x.events.length > 0);
   if (subs.length === 0) return undefined;
   let newest = subs[0];
-  let newestMs = lastTs(newest.events);
+  let newestMs = lastConversationTs(newest.events);
   for (let i = 1; i < subs.length; i++) {
-    const ms = lastTs(subs[i].events);
+    const ms = lastConversationTs(subs[i].events);
     if (ms > newestMs) {
       newestMs = ms;
       newest = subs[i];
@@ -151,21 +153,28 @@ const mainMessages = computed<PreviewMessage[]>(() => collectMessages(mainEvents
 const subMessages = computed<PreviewMessage[]>(() => collectMessages(subEvents.value));
 
 // クリックで全文を出す popover。kind は吹き出し色を合わせるための discriminator。
+// PreviewMessage を context にそのまま渡し、popover 側は kind / text しか参照しない
+// (ts は無視される)。型を分けず 1 つにまとめて conversion を消す。
 // per-instance: コンポーネント unmount で effect scope が自動破棄されるため stop 不要。
-interface PreviewContext {
-  text: string;
-  kind: "user" | "assistant";
-}
 const {
   Popover: PreviewPopover,
   context: previewContext,
   open: openPreviewPopover,
-} = usePopover<PreviewContext>();
+} = usePopover<PreviewMessage>();
 
-function openPreview(event: MouseEvent, text: string, kind: "user" | "assistant") {
+function openPreview(event: MouseEvent, msg: PreviewMessage) {
   const anchor = event.currentTarget;
   if (!(anchor instanceof HTMLElement)) return;
-  openPreviewPopover(anchor, { text, kind });
+  openPreviewPopover(anchor, msg);
+}
+
+// sub overlay の折り畳み状態。`<details>` の `open` 属性を SSOT にすると subagent
+// 切替で <details> が unmount → mount される度に静的 `open` で展開状態に戻ってしまうため、
+// Vue 側 ref を SSOT にして `<details :open="subOpen">` でバインドし、`@toggle` で同期する。
+const subOpen = ref(true);
+function onSubToggle(event: Event) {
+  if (!(event.target instanceof HTMLDetailsElement)) return;
+  subOpen.value = event.target.open;
 }
 
 // 各 overlay は bubble が 1 件でもあれば出す。session が無いときは events が空なので
@@ -195,7 +204,7 @@ const hasSub = computed(() => subMessages.value.length > 0);
             : 'bg-chat-incoming text-chat-incoming-text'
         "
         :title="msg.text"
-        @click="openPreview($event, msg.text, msg.kind)"
+        @click="openPreview($event, msg)"
       >
         <span class="line-clamp-2">{{ msg.text }}</span>
       </button>
@@ -209,7 +218,7 @@ const hasSub = computed(() => subMessages.value.length > 0);
     v-if="hasSub"
     class="pointer-events-none absolute right-3 bottom-1 z-10 flex w-56 max-w-[35%] flex-col gap-1 rounded-md bg-background/70 p-2 text-xs/tight"
   >
-    <details open class="contents">
+    <details :open="subOpen" class="contents" @toggle="onSubToggle">
       <summary
         v-if="subLabel"
         class="pointer-events-auto cursor-pointer truncate px-1 text-xs font-semibold text-foreground-low hover:text-foreground [&::-webkit-details-marker]:hidden [&::marker]:hidden"
@@ -232,7 +241,7 @@ const hasSub = computed(() => subMessages.value.length > 0);
               : 'bg-chat-incoming text-chat-incoming-text'
           "
           :title="msg.text"
-          @click="openPreview($event, msg.text, msg.kind)"
+          @click="openPreview($event, msg)"
         >
           <span class="line-clamp-2">{{ msg.text }}</span>
         </button>

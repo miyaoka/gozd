@@ -47,7 +47,6 @@ interface UseSessionLogLiveReturn {
   loading: Ref<boolean>;
   errorMessage: Ref<string | undefined>;
   notFound: Ref<boolean>;
-  refresh: () => Promise<void>;
 }
 
 export function useSessionLogLive(
@@ -197,5 +196,5 @@ export function useSessionLogLive(
     void setWatchDir(undefined);
   });
 
-  return { sessions, loading, errorMessage, notFound, refresh };
+  return { sessions, loading, errorMessage, notFound };
 }

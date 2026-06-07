@@ -197,10 +197,11 @@ export const useTerminalStore = defineStore("terminal", () => {
     onSpawnError: ({ dir, error }) => {
       // spawn 失敗をユーザーに通知する。resume 連打 dedup の catch path 経由で
       // pendingResumeByLeafId を消すと requestPtySpawn が throw するため、無反応で終わらない
-      // よう必ず通知に倒す。
+      // よう必ず通知に倒す。dir は外側 Error の message に載せ、元 error は cause に
+      // 包んで stack / 詳細を残す (cause 展開で worktree も診断できる)。
       notify.error(
         "Failed to spawn terminal",
-        error instanceof Error ? error : new Error(`${error}; dir=${dir}`),
+        new Error(`spawn failed; dir=${dir}`, { cause: error }),
       );
     },
   });

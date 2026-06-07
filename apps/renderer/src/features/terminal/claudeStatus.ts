@@ -1,4 +1,4 @@
-import type { Ref } from "vue";
+import { ref, type Ref } from "vue";
 
 /**
  * Claude Code の状態。
@@ -108,9 +108,14 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
   const ptyTailBuffers = new Map<number, string>();
   /** sessionId ↔ ptyId のマッピング。session-start hook で確立、session-end / cleanup で破棄。
    *  WtCard / SidebarPane が `task.sessionId` 経由でこの map を引いて、task 行から live PTY や
-   *  ClaudeStatus を解決するために使う。 */
-  const ptyIdBySessionId = new Map<string, number>();
-  const sessionIdByPtyId = new Map<number, string>();
+   *  ClaudeStatus を解決するために使う。
+   *
+   *  ref<Record> で保持し、key の add/delete を reactivity に乗せる。これにより
+   *  `getSessionIdByPtyId(ptyId)` 等を computed から呼ぶだけで session-start / session-end
+   *  に追随して再評価される。プロジェクト規約 (issue #501) で `reactive` は禁止なので
+   *  Map ではなく Object を使う。 */
+  const ptyIdBySessionId = ref<Record<string, number>>({});
+  const sessionIdByPtyId = ref<Record<number, string>>({});
 
   /** pending ask タイマーをキャンセルする */
   function cancelAskTimer(ptyId: number) {
@@ -140,12 +145,12 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
           // 同 ptyId に旧 sessionId が紐付いていた場合は先に解除する。
           // /clear や /resume で session が切り替わった時、旧 mapping が残ると
           // 別 task のステータスを引いてしまう。
-          const previousSessionId = sessionIdByPtyId.get(ptyId);
+          const previousSessionId = sessionIdByPtyId.value[ptyId];
           if (previousSessionId !== undefined && previousSessionId !== sessionId) {
-            ptyIdBySessionId.delete(previousSessionId);
+            delete ptyIdBySessionId.value[previousSessionId];
           }
-          sessionIdByPtyId.set(ptyId, sessionId);
-          ptyIdBySessionId.set(sessionId, ptyId);
+          sessionIdByPtyId.value[ptyId] = sessionId;
+          ptyIdBySessionId.value[sessionId] = ptyId;
         }
         claudeStatusByPtyId.value[ptyId] = { state: "idle", lastActivityAt: Date.now() };
         break;
@@ -153,7 +158,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
       case "session-end": {
         cancelAskTimer(ptyId);
         const endingSessionId = typeof payload.session_id === "string" ? payload.session_id : "";
-        const currentSessionId = sessionIdByPtyId.get(ptyId);
+        const currentSessionId = sessionIdByPtyId.value[ptyId];
         // session-start 側と対称な防御: /clear や /resume で session が切り替わった
         // あとに旧 session の session-end が遅延到達した場合、現在 mapping を
         // 誤って消すのを防ぐ。
@@ -166,12 +171,12 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
               "falling back to current mapping",
           );
         } else if (endingSessionId !== currentSessionId) {
-          ptyIdBySessionId.delete(endingSessionId);
+          delete ptyIdBySessionId.value[endingSessionId];
           break;
         }
         if (currentSessionId !== undefined) {
-          ptyIdBySessionId.delete(currentSessionId);
-          sessionIdByPtyId.delete(ptyId);
+          delete ptyIdBySessionId.value[currentSessionId];
+          delete sessionIdByPtyId.value[ptyId];
         }
         delete claudeStatusByPtyId.value[ptyId];
         break;
@@ -350,29 +355,29 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
   function cleanupPty(ptyId: number) {
     cancelAskTimer(ptyId);
     ptyTailBuffers.delete(ptyId);
-    const previousSessionId = sessionIdByPtyId.get(ptyId);
+    const previousSessionId = sessionIdByPtyId.value[ptyId];
     if (previousSessionId !== undefined) {
-      ptyIdBySessionId.delete(previousSessionId);
-      sessionIdByPtyId.delete(ptyId);
+      delete ptyIdBySessionId.value[previousSessionId];
+      delete sessionIdByPtyId.value[ptyId];
     }
     delete claudeStatusByPtyId.value[ptyId];
   }
 
   /** task.id (= sessionId) から ClaudeStatus を引く。session 確立前 / pty 終了後は undefined */
   function getStatusBySessionId(sessionId: string): ClaudeStatus | undefined {
-    const ptyId = ptyIdBySessionId.get(sessionId);
+    const ptyId = ptyIdBySessionId.value[sessionId];
     if (ptyId === undefined) return undefined;
     return claudeStatusByPtyId.value[ptyId];
   }
 
   /** task.id (= sessionId) から live PTY の ptyId を引く。未起動 / 終了済みは undefined */
   function getPtyIdBySessionId(sessionId: string): number | undefined {
-    return ptyIdBySessionId.get(sessionId);
+    return ptyIdBySessionId.value[sessionId];
   }
 
   /** ptyId から sessionId (= task.id) を引く。OSC title sync で leaf → task 解決に使う */
   function getSessionIdByPtyId(ptyId: number): string | undefined {
-    return sessionIdByPtyId.get(ptyId);
+    return sessionIdByPtyId.value[ptyId];
   }
 
   return {

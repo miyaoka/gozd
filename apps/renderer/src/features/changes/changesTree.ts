@@ -40,6 +40,28 @@ type RawFile = {
   change: GitFileChange;
 };
 
+/**
+ * ツリーを depth-first に走査して、ChangesPane の描画順と同じ並びの GitFileChange 配列を返す。
+ *
+ * ChangesSummaryView (View all) が「ツリーで見える順に縦積み」したいときに使う。ソート規律
+ * (フォルダ先 + 各群を localeCompare、chain 圧縮込み) は `buildChangesTree` に閉じているため、
+ * 本関数はそれを再現せずツリー自体を走査することで SSOT を保つ。
+ */
+export function flattenChangesTree(tree: readonly ChangesTreeNode[]): GitFileChange[] {
+  const out: GitFileChange[] = [];
+  const visit = (nodes: readonly ChangesTreeNode[]) => {
+    for (const node of nodes) {
+      if (node.kind === "folder") {
+        visit(node.children);
+      } else {
+        out.push(node.change);
+      }
+    }
+  };
+  visit(tree);
+  return out;
+}
+
 /** GitFileChange[] から表示用ツリーを組み立てる。子が単一フォルダのみのフォルダは親と連結する。 */
 export function buildChangesTree(changes: readonly GitFileChange[]): ChangesTreeNode[] {
   const root: RawFolder = { kind: "folder", name: "", fullPath: "", childMap: new Map() };

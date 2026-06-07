@@ -57,19 +57,54 @@ public struct ClaudeSessionLogEntry: Sendable, Equatable {
 public struct ClaudeSessionLogResult: Sendable, Equatable {
   public let found: Bool
   public let entries: [ClaudeSessionLogEntry]
+  // renderer が fsWatch を張る dir (必ず実在する path)。
+  //   - found:                              main jsonl の親 dir (~/.claude/projects/<encoded>/)
+  //   - !found && expected projectDir 存在:  expected projectDir
+  //   - !found && expected projectDir 不存在: ~/.claude/projects/ (projects 親)
+  public let watchDir: String
+  // watchDir が projects 親フォールバックかどうか。renderer 側で fsChange filter を
+  // 切り替えるための flag (true ならどんな relDir でも refresh をスケジュールする)。
+  public let watchDirIsParentFallback: Bool
 
-  public static let notFound = ClaudeSessionLogResult(found: false, entries: [])
+  public init(
+    found: Bool, entries: [ClaudeSessionLogEntry], watchDir: String,
+    watchDirIsParentFallback: Bool
+  ) {
+    self.found = found
+    self.entries = entries
+    self.watchDir = watchDir
+    self.watchDirIsParentFallback = watchDirIsParentFallback
+  }
 }
 
 public enum ClaudeSessionLog {
-  /// session_id から main jsonl + subagents を解決して読む。見つからなければ notFound を返す。
-  public static func read(sessionId: String) -> ClaudeSessionLogResult {
-    guard isSafeSessionId(sessionId) else { return .notFound }
-
+  /// session_id から main jsonl + subagents を解決して読む。
+  ///
+  /// JSONL は SessionStart 時点では作られず、最初の UserPromptSubmit で初めて書かれる。
+  /// `worktreePath` が渡されていれば、JSONL の有無に関わらず cwd encoding (`/` `.` → `-`)
+  /// から expected projectDir (~/.claude/projects/<encoded>/) を組み立てて watchDir に
+  /// 返す。これにより renderer は新規セッション直後でも specific dir を fsWatch でき、
+  /// 後の JSONL 生成 / 追記を漏れなく拾える。
+  public static func read(sessionId: String, worktreePath: String) -> ClaudeSessionLogResult {
     let fm = FileManager.default
     let projectsDir = fm.homeDirectoryForCurrentUser
       .appendingPathComponent(".claude", isDirectory: true)
       .appendingPathComponent("projects", isDirectory: true)
+    let projectsDirPath = projectsDir.path
+
+    // !found 時に返すフォールバック watchDir を先に確定する。expected projectDir が **存在
+    // していれば** それを返し (specific watch / relDir filter が機能する)、まだ作られて
+    // いなければ projects 親 dir に倒す (FSWatchRegistry が watch 対象の cwd で git CLI を
+    // spawn するため存在しない dir では launchFailed になる。実在する projects 親で受ける)。
+    let (fallbackWatchDir, fallbackIsParent) = expectedOrParentWatchDir(
+      worktreePath: worktreePath, projectsDir: projectsDir, projectsDirPath: projectsDirPath,
+      fm: fm)
+
+    guard isSafeSessionId(sessionId) else {
+      return ClaudeSessionLogResult(
+        found: false, entries: [], watchDir: fallbackWatchDir,
+        watchDirIsParentFallback: fallbackIsParent)
+    }
 
     let mainFileName = "\(sessionId).jsonl"
     guard
@@ -79,7 +114,9 @@ public enum ClaudeSessionLog {
         options: [.skipsHiddenFiles]
       )
     else {
-      return .notFound
+      return ClaudeSessionLogResult(
+        found: false, entries: [], watchDir: fallbackWatchDir,
+        watchDirIsParentFallback: fallbackIsParent)
     }
 
     for projectDir in projectDirs {
@@ -89,7 +126,9 @@ public enum ClaudeSessionLog {
         // ファイルは在るが読めない (UTF-8 decode 失敗等)。空 content で found=true を返すと
         // parse 側が空セッションと誤認するため notFound に倒す。落とした事実は観察可能にする。
         StderrLog.write(tag: "ClaudeSessionLog", "main jsonl decode failed: \(mainFile.path)")
-        return .notFound
+        return ClaudeSessionLogResult(
+          found: false, entries: [], watchDir: fallbackWatchDir,
+          watchDirIsParentFallback: fallbackIsParent)
       }
 
       var entries: [ClaudeSessionLogEntry] = [
@@ -107,9 +146,51 @@ public enum ClaudeSessionLog {
         contentsOf: readWorkflowSubagents(
           in: subagentsDir.appendingPathComponent("workflows", isDirectory: true),
           metaDir: sessionDir.appendingPathComponent("workflows", isDirectory: true)))
-      return ClaudeSessionLogResult(found: true, entries: entries)
+      return ClaudeSessionLogResult(
+        found: true, entries: entries, watchDir: projectDir.path,
+        watchDirIsParentFallback: false)
     }
-    return .notFound
+    return ClaudeSessionLogResult(
+      found: false, entries: [], watchDir: fallbackWatchDir,
+      watchDirIsParentFallback: fallbackIsParent)
+  }
+
+  /// !found 時の watchDir を決める。expected projectDir (cwd encoding) が実在すればそれ、
+  /// 不在なら projects 親に倒す。返値の Bool は projects 親フォールバックなら true。
+  private static func expectedOrParentWatchDir(
+    worktreePath: String, projectsDir: URL, projectsDirPath: String, fm: FileManager
+  ) -> (String, Bool) {
+    guard
+      let expected = encodedProjectDir(
+        worktreePath: worktreePath, projectsDir: projectsDir)
+    else {
+      return (projectsDirPath, true)
+    }
+    var isDir: ObjCBool = false
+    if fm.fileExists(atPath: expected, isDirectory: &isDir), isDir.boolValue {
+      return (expected, false)
+    }
+    return (projectsDirPath, true)
+  }
+
+  /// Claude Code が `cwd` から ~/.claude/projects/<encoded>/ を組み立てる際のエンコード規則。
+  /// 実機観察: `/` と `.` を `-` に置換 (例: `/Users/foo/.local/bar` →
+  /// `-Users-foo--local-bar`)。Claude 側の内部仕様で将来変わりうるが、変わったときは
+  /// found に転じた refresh 経路で actual projectDir に張り替わるので、レンダリングの
+  /// 正しさはこの規則の安定性に強くは依存しない (preview 表示が一過性に遅れる程度)。
+  /// 空文字 / absolute でないパスは undefined を返してフォールバック (projects 親) に倒す。
+  private static func encodedProjectDir(worktreePath: String, projectsDir: URL) -> String? {
+    guard !worktreePath.isEmpty, worktreePath.hasPrefix("/") else { return nil }
+    var encoded = ""
+    encoded.reserveCapacity(worktreePath.count)
+    for ch in worktreePath {
+      if ch == "/" || ch == "." {
+        encoded.append("-")
+      } else {
+        encoded.append(ch)
+      }
+    }
+    return projectsDir.appendingPathComponent(encoded, isDirectory: true).path
   }
 
   /// subagents ディレクトリ配下の agent-*.jsonl を agentId 昇順 (決定的) で読む。

@@ -132,9 +132,12 @@ extension RpcDispatcher {
 
   func handleClaudeSessionReadLog(_ body: Data) throws -> Data {
     let req = try Gozd_V1_ClaudeSessionLogRequest(jsonUTF8Data: body)
-    let result = ClaudeSessionLog.read(sessionId: req.sessionID)
+    let result = ClaudeSessionLog.read(
+      sessionId: req.sessionID, worktreePath: req.worktreePath)
     var resp = Gozd_V1_ClaudeSessionLogResponse()
     resp.found = result.found
+    resp.watchDir = result.watchDir
+    resp.watchDirIsParentFallback = result.watchDirIsParentFallback
     resp.entries = result.entries.map { entry in
       var e = Gozd_V1_ClaudeSessionLogEntry()
       e.kind = entry.kind

@@ -36,13 +36,15 @@ subagent が居て軸を引けるときだけタイムラインを出す。subag
 
 ## ライブ更新
 
-`useSessionLogLive` が `context.sessionId` の変化を watch して、対応するログの親 dir
-(`~/.claude/projects/<encoded>/`) を `rpcFsWatch` で監視し、`fsChange` push を受けたら
-debounce して再読込する。再読込は `loading` を立てず `sessions` を差し替えるだけの
-サイレント更新で、`SessionLogTranscript` の remount とスクロール状態リセットを避ける。
-context が undefined になった / dialog がアンマウントされた時点で composable が
-`rpcFsUnwatch` を発射する。worktree 外のログなので filer の app-scope watch には乗らず、
-composable が watch ライフサイクルを所有する。
+`useSessionLogLive` が `context.sessionId` / `context.worktreePath` の変化を watch して、
+対応するログの親 dir (`~/.claude/projects/<encoded>/`) を `rpcFsWatch` で監視し、
+`fsChange` push を受けたら debounce して再読込する。worktreePath は dialog を開いた task の
+`worktreeDir` 由来で、composable が JSONL 未生成な race (SessionStart 後・初回プロンプト前)
+でも specific projectDir を最初から watch するための cwd ベース入力。再読込は `loading`
+を立てず `sessions` を差し替えるだけのサイレント更新で、`SessionLogTranscript` の remount
+とスクロール状態リセットを避ける。context が undefined になった / dialog がアンマウントされた
+時点で composable が `rpcFsUnwatch` を発射する。worktree 外のログなので filer の
+app-scope watch には乗らず、composable が watch ライフサイクルを所有する。
 </doc>
 
 <script setup lang="ts">
@@ -74,7 +76,8 @@ const dialogRef = ref<HTMLDialogElement | undefined>(undefined);
 // のライフサイクル全部は composable 側に閉じ、dialog は表示・分岐選択・スクロール同期に
 // 専念する。dialog 自身は rpcClaudeSessionLog / rpcFsWatch / rpcFsUnwatch を直接触らない。
 const sessionId = computed(() => context.value?.sessionId);
-const { sessions, loading, errorMessage, notFound } = useSessionLogLive(sessionId);
+const worktreePath = computed(() => context.value?.worktreePath);
+const { sessions, loading, errorMessage, notFound } = useSessionLogLive(sessionId, worktreePath);
 
 // parse 済みタブ。content + そのタブの branch 選択から parsed を導出した派生型。
 interface ParsedSessionTab extends SessionTab {

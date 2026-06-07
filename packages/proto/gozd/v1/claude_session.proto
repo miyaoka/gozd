@@ -35,6 +35,15 @@ message ClaudeSessionRemoveByPtyResponse {
 // ファイル名に持つ 1 ファイルとして確実に引ける。
 message ClaudeSessionLogRequest {
   string session_id = 1;
+  // PTY が起動された worktree dir。Claude Code が JSONL を置く ~/.claude/projects/<encoded>/
+  // の <encoded> は cwd の `/` と `.` を `-` に置換した形式で、PTY 起動時の cwd で一意に
+  // 決まる。session_id は SessionStart で確定するが、JSONL 本体は最初の UserPromptSubmit
+  // までは作られないため、JSONL の有無に関わらず fsWatch 対象 dir を確定するために必要。
+  //
+  // 空文字も許容する: 旧 client / dialog 経由など worktree が手元に無い経路。その場合
+  // native は found=true なら main jsonl の親 dir、!found なら projects 親 dir を
+  // watch_dir に倒すフォールバック挙動を取る。
+  string worktree_path = 2;
 }
 
 // セッションログ 1 本分 (main または subagent)。parse は renderer 側が担う。
@@ -81,4 +90,19 @@ message ClaudeSessionLogResponse {
   // Workflow agent は同 subagents/workflows/<wf_id>/agent-*.jsonl に isSidechain ログとして
   // 並ぶ。main の projectDir を起点に両方を列挙する。
   repeated ClaudeSessionLogEntry entries = 2;
+  // ライブ更新で renderer 側が fsWatch を張る親 dir。常に値あり (空文字でない)。
+  //   - found=true:                            main jsonl の親 dir (~/.claude/projects/<encoded>/)
+  //   - !found && expected projectDir 存在:    expected projectDir (cwd encoding 由来)
+  //   - !found && expected projectDir 不存在:  ~/.claude/projects/ (projects 親) フォールバック。
+  //     後者は watch_dir_is_parent_fallback=true を立てて renderer に通知する。
+  // 存在しない dir を watch しようとすると FSWatchRegistry が git CLI を spawn する経路で
+  // `launchFailed` を投げるため、必ず存在する dir に倒す必要がある。
+  string watch_dir = 3;
+  // watch_dir が projects 親フォールバック (= 当該セッションの projectDir がまだ作られて
+  // いない) かどうか。renderer 側 fsChange filter の判定に使う:
+  //   - false: relDir filter が機能 (""=main / "<sid>..."=subagents で精密に拾える)
+  //   - true:  relDir filter は機能しない (relDir は "<encoded>")。fsChange 来たら
+  //            無条件で refresh をスケジュールし、projectDir が作られた瞬間に specific
+  //            projectDir watch に張り替える。
+  bool watch_dir_is_parent_fallback = 4;
 }

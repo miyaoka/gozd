@@ -511,7 +511,6 @@ async function fetchPrDiffContent(filePath: string) {
   // は上位 watcher の deps に含まれているため、`prDiffFiles` 取得完了 / 選択 path が含まれる
   // 変化 で再発火する。本経路は (a) PR diff fetch がまだ確定していない race window
   // (b) PR diff に含まれないファイルを Filer から選択した状況、いずれも結果として空表示が妥当。
-  // (順序非依存の lookup 用途。store の `fileChanges` 直接購読を避けて SSOT 経路に揃える)
   const change = changesStore.orderedFileChanges.find((c) => c.newFilePath === filePath);
   if (change === undefined) {
     currentContent.value = undefined;

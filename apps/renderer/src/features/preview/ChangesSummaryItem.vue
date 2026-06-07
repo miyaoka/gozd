@@ -237,7 +237,7 @@ function onLineNumberClick(payload: {
 
 /**
  * 自分が blame popover の owner だった場合は unmount 時に必ず close する。
- * summary view で fileChanges が更新されて item が v-for re-key で消えると、
+ * summary view で orderedFileChanges が更新されて item が v-for re-key で消えると、
  * popover の anchorEl は detached element を指し続けるため、明示的に close する
  * 必要がある。closeIfActive は他 owner の context を巻き込まない設計。
  * dir も渡して同名ファイル別 worktree の取り違えを防ぐ。

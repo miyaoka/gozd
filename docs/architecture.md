@@ -41,7 +41,7 @@ TS（renderer）と Swift（native）で RPC 型を共有するため、`package
 
 | 入口                                                            | 自動発火する条件                                                | 発火する仕組み                                                  |
 | --------------------------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------- |
-| `pnpm install`                                                  | 常に                                                            | workspace 全体の `prepare` lifecycle で `packages/proto` が発火 |
+| `pnpm install`                                                  | デフォルト設定下では常に                                        | workspace 全体の `prepare` lifecycle で `packages/proto` が発火 |
 | `pnpm run` 系 (`pnpm dev` / `pnpm build` / `pnpm --filter ...`) | `node_modules` が outdated なときのみ (pnpm 11 の auto-install) | auto-install が起動 → `prepare` 発火                            |
 
 `node_modules` が up-to-date な状態で `.proto` だけを編集した場合は、pnpm 11 の `verifyDepsBeforeRun` は outdated 判定の対象にしないため、**手動で再生成する必要がある**:
@@ -50,7 +50,7 @@ TS（renderer）と Swift（native）で RPC 型を共有するため、`package
 pnpm --filter @gozd/proto-schema build
 ```
 
-これは「生成物は git に置かない」「auto-install と prepare で初回担保」「`.proto` 編集時の再生成は明示的なコマンドで」という運用を SSOT として固定する判断。build script (`apps/native/scripts/build-{,dev-}app.sh`) に `buf generate` を組み込む選択肢もあるが、pnpm script 経由の auto-install と二重 trigger になり、依存しない変更でも毎回 generate が走るため採用していない。
+`.proto` 編集時の再生成は手動コマンドで行う運用契約とする。
 
 `swift build` / Xcode で `apps/native` を直接開く経路は pnpm を経由しないため、初回のみ `pnpm install` か `pnpm --filter @gozd/proto-schema build` を 1 回叩いて生成物を作る。
 

@@ -23,6 +23,9 @@ message GitStatusChangeEvent {
   bool has_upstream = 4;
   uint32 ahead = 5;
   uint32 behind = 6;
+  // 変更ファイルの最終更新時刻 (Unix 秒)。`statuses` の各パスを stat した最大値。
+  // clean / stat 全失敗のときは 0。
+  int64 latest_mtime = 7;
 }
 
 // branchChange: ブランチ ref の変更（作成・削除・リネーム）

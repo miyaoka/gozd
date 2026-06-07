@@ -3,9 +3,10 @@ Git commit graph showing the current worktree branch and the default branch.
 
 ## Structure
 
-- Working Tree row: sticky header outside scroll area, with status icons and dot on lane 0
+- Working Tree row: sticky header **inside** the scroll area (`position: sticky; top: 0`). Placed inside the scroll container so its row width matches commit rows after the scrollbar gutter — placing it outside would shift columns by the scrollbar width and break vertical alignment with commit rows
 - Connector line: dashed SVG path straight down lane 0 from the top to the HEAD row (HEAD is always on lane 0, so no curve is needed)
 - Scrollable commit list: HTML rows for commit data + SVG overlay for graph lines and dots
+- Column alignment: Working Tree row and commit rows share `grid-template-columns: var(--graph-cols)` defined once at the graph list root. Empty cells in the Working Tree row (author / hash) are left as empty grid tracks — no spacer divs. The Date cell on the Working Tree row shows the max mtime of changed files (`workingTreeMtime` computed from `useGitStatusStore`); blank when clean / not yet loaded
 - HEAD is pinned to the leftmost lane (lane 0) so it aligns under the Working Tree dot. When HEAD is not the topmost commit, lane 0 is reserved as an empty channel above HEAD so the connector descends without crossing other lanes; commits above HEAD (diverged branches, or HEAD's own children in a detached-HEAD view) are pushed to lanes ≥ 1 and HEAD's children merge back into lane 0 at HEAD's row. See `graphLayout.ts` for the lane assignment
 - HEAD also gets a reserved fixed color (`HEAD_COLOR`) in `graphLayout.ts`, so lane 0 (the current branch line) is always the same color regardless of draw order; other lanes are numbered from 1 to avoid the clash. The Working Tree dot/connector read the HEAD node's color (`headColor`) so they match HEAD instead of being hardcoded
 - CommitDetailPane is shown as a toggleable right pane inside the graph
@@ -62,7 +63,7 @@ const gitGraphStore = useGitGraphStore();
 const prListStore = usePrListStore();
 const notify = useNotificationStore();
 const repoStore = useRepoStore();
-const { gitStatuses } = storeToRefs(gitStatusStore);
+const { gitStatuses, workingTreeMtime } = storeToRefs(gitStatusStore);
 const { prByBranch } = storeToRefs(prListStore);
 
 const { commits } = storeToRefs(gitGraphStore);
@@ -1040,62 +1041,78 @@ const isWorkingTreeActive = computed(
     <!-- Graph list + Detail pane (horizontal split) -->
     <div class="flex min-h-0 flex-1">
       <!-- Graph list -->
+      <!-- `--graph-cols` を SSOT として持ち、Working Tree 行 / commit 行の双方が
+           grid-template-columns: var(--graph-cols) で同じ列幅を引く。sticky 行と
+           scroll 配下の commit 行は別 DOM container にあるため subgrid では繋げない。
+           description 列は minmax(0, 1fr) — 素の 1fr だと min-content を要求して truncate と両立しない。 -->
       <div
         ref="graphListRef"
         class="flex min-w-0 flex-1 flex-col outline-none"
+        :style="{
+          '--graph-cols': `${graphColumnWidth}px minmax(0, 1fr) 7rem 7rem 4rem`,
+        }"
         tabindex="0"
         @keydown="onKeydown"
       >
-        <!-- Working Tree 固定行: スクロール領域の外に配置 -->
-        <div
-          class="_graph-row relative flex shrink-0 items-center border-b border-border-subtle text-xs"
-          :class="rowHighlightClass(UNCOMMITTED_HASH)"
-          :style="{ height: `${ROW_HEIGHT}px` }"
-          @click="onRowClick(UNCOMMITTED_HASH, $event)"
-        >
-          <!-- Working Tree 行の SVG: lane 0 にドット、下端へダッシュ線 -->
-          <svg
-            class="pointer-events-none absolute top-0 left-0"
-            :width="graphColumnWidth"
-            :height="ROW_HEIGHT"
-          >
-            <circle
-              :cx="laneX(0)"
-              :cy="ROW_HEIGHT / 2"
-              :r="isWorkingTreeActive ? DOT_RADIUS + 1 : DOT_RADIUS"
-              :fill="isWorkingTreeActive ? colorFor(headColor) : 'currentColor'"
-              :stroke="colorFor(headColor)"
-              stroke-width="2"
-              class="text-background"
-            />
-            <line
-              :x1="laneX(0)"
-              :y1="ROW_HEIGHT / 2 + DOT_RADIUS"
-              :x2="laneX(0)"
-              :y2="ROW_HEIGHT"
-              :stroke="colorFor(headColor)"
-              stroke-width="2"
-              stroke-dasharray="4 2"
-            />
-          </svg>
-
-          <!-- Graph spacer -->
-          <div class="shrink-0" :style="{ width: `${graphColumnWidth}px` }" />
-
-          <!-- Description -->
-          <div class="flex min-w-0 flex-1 items-center gap-1 truncate pr-2">
-            <span
-              v-if="uncommittedChangeCount === 0"
-              class="truncate font-semibold text-foreground-low italic"
-            >
-              Working Tree (Clean)
-            </span>
-            <StatusIcons v-else :entries="statusIcons" icon-size="size-4" />
-          </div>
-        </div>
-
-        <!-- スクロール可能なコミットリスト -->
+        <!-- スクロール可能なコミットリスト。Working Tree 行はこの中に sticky で置く
+             (scroll container の外に置くと scrollbar 幅ぶん commit 行と column がズレるため)。 -->
         <div ref="scrollContainer" class="min-h-0 flex-1 overflow-auto">
+          <!-- Working Tree 固定行: scroll container 内で sticky 配置。
+               commit 行と同じ親 = 同じ effective 幅になり、grid template が構造的に揃う。 -->
+          <div
+            class="_graph-row sticky top-0 z-10 grid items-center border-b border-border-subtle bg-background text-xs"
+            :class="rowHighlightClass(UNCOMMITTED_HASH)"
+            :style="{
+              gridTemplateColumns: 'var(--graph-cols)',
+              height: `${ROW_HEIGHT}px`,
+            }"
+            @click="onRowClick(UNCOMMITTED_HASH, $event)"
+          >
+            <!-- Working Tree 行の SVG: lane 0 にドット、下端へダッシュ線。grid 上に absolute で重ねる -->
+            <svg
+              class="pointer-events-none absolute top-0 left-0"
+              :width="graphColumnWidth"
+              :height="ROW_HEIGHT"
+            >
+              <circle
+                :cx="laneX(0)"
+                :cy="ROW_HEIGHT / 2"
+                :r="isWorkingTreeActive ? DOT_RADIUS + 1 : DOT_RADIUS"
+                :fill="isWorkingTreeActive ? colorFor(headColor) : 'currentColor'"
+                :stroke="colorFor(headColor)"
+                stroke-width="2"
+                class="text-background"
+              />
+              <line
+                :x1="laneX(0)"
+                :y1="ROW_HEIGHT / 2 + DOT_RADIUS"
+                :x2="laneX(0)"
+                :y2="ROW_HEIGHT"
+                :stroke="colorFor(headColor)"
+                stroke-width="2"
+                stroke-dasharray="4 2"
+              />
+            </svg>
+
+            <!-- col 1 (graph): SVG が absolute で覆うので空セル -->
+            <div />
+
+            <!-- col 2 (description) -->
+            <div class="flex min-w-0 items-center gap-1 truncate pr-2">
+              <span class="truncate font-semibold text-foreground-low">Working Tree</span>
+              <span v-if="uncommittedChangeCount === 0" class="text-foreground-low italic">
+                (Clean)
+              </span>
+              <StatusIcons v-else :entries="statusIcons" icon-size="size-4" />
+            </div>
+
+            <!-- col 3 (date): 変更ファイルの mtime 最大値。clean / 未取得時は空表示。 -->
+            <div class="text-foreground-low">
+              {{ workingTreeMtime > 0 ? formatDate(workingTreeMtime) : "" }}
+            </div>
+            <!-- col 4 (author) / col 5 (hash) は空セル。grid template が幅を確保する。 -->
+          </div>
+
           <div class="relative" :style="{ minHeight: `${svgHeight}px` }">
             <!-- Graph SVG overlay -->
             <svg
@@ -1135,18 +1152,21 @@ const isWorkingTreeActive = computed(
               />
             </svg>
 
-            <!-- Commit table rows -->
+            <!-- Commit table rows: Working Tree 行と同じ grid template を引いて columns を揃える。 -->
             <div
               v-for="node in layout.nodes"
               :key="node.commit.hash"
-              class="_graph-row relative flex items-center text-xs"
+              class="_graph-row relative grid items-center text-xs"
               :class="rowHighlightClass(node.commit.hash)"
-              :style="{ height: `${ROW_HEIGHT}px` }"
+              :style="{
+                gridTemplateColumns: 'var(--graph-cols)',
+                height: `${ROW_HEIGHT}px`,
+              }"
               @click="onRowClick(node.commit.hash, $event)"
               @contextmenu="onCommitContextMenu(node.commit.hash, $event)"
             >
-              <!-- Graph spacer -->
-              <div class="shrink-0" :style="{ width: `${graphColumnWidth}px` }" />
+              <!-- col 1 (graph): SVG が absolute で覆うので空セル -->
+              <div />
 
               <!-- HEAD marker: グラフ列の右端に absolute 配置。レイアウトに影響しない -->
               <span
@@ -1161,8 +1181,8 @@ const isWorkingTreeActive = computed(
                 →
               </span>
 
-              <!-- Description -->
-              <div class="flex min-w-0 flex-1 items-center gap-1 truncate pr-2">
+              <!-- col 2 (description) -->
+              <div class="flex min-w-0 items-center gap-1 truncate pr-2">
                 <span
                   v-if="isMergeCommit(node.commit)"
                   class="icon-[lucide--git-merge] size-3.5 shrink-0 text-foreground-low"
@@ -1185,18 +1205,18 @@ const isWorkingTreeActive = computed(
                 </span>
               </div>
 
-              <!-- Date -->
-              <div class="w-28 shrink-0 text-foreground-low">
+              <!-- col 3 (date) -->
+              <div class="text-foreground-low">
                 {{ formatDate(node.commit.date) }}
               </div>
 
-              <!-- Author -->
-              <div class="w-28 shrink-0 truncate text-foreground-low">
+              <!-- col 4 (author) -->
+              <div class="truncate text-foreground-low">
                 {{ node.commit.author }}
               </div>
 
-              <!-- Commit hash -->
-              <div class="w-16 shrink-0 font-mono text-foreground-low">
+              <!-- col 5 (hash) -->
+              <div class="font-mono text-foreground-low">
                 {{ node.commit.shortHash }}
               </div>
             </div>

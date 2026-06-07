@@ -15,6 +15,12 @@ extension GitOps {
     public let hasUpstream: Bool
     public let ahead: UInt32
     public let behind: UInt32
+    /// 変更ファイルの最終更新時刻 (Unix 秒)。`statuses` の各パスを stat した最大値。
+    /// 差分なし / 全 path で stat 失敗のときは 0。削除済みパスは stat 失敗で自動除外。
+    /// FSWatchRegistry の dedup 用 Equatable には mtime も含める (synthesized) — 既存差分
+    /// ファイルの再保存でも UI 側の date 列を更新するため。同一秒内の連続保存は mtime が
+    /// 秒粒度で丸められて同値になるので、自然に push 頻度が秒に絞られる。
+    public let latestMtime: Int64
   }
 
   /// `git status --porcelain=v1 -z --untracked-files=all` 相当。
@@ -37,7 +43,12 @@ extension GitOps {
   public static func gitStatusFull(dir: String) async throws -> StatusFull {
     let stdout = try await runGit(
       args: ["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"], cwd: dir)
-    return parsePorcelainV2WithBranch(stdout)
+    let parsed = parsePorcelainV2WithBranch(stdout)
+    let latestMtime = latestMtimeOf(dir: dir, relPaths: Array(parsed.statuses.keys))
+    return StatusFull(
+      statuses: parsed.statuses, head: parsed.head, branchHead: parsed.branchHead,
+      hasUpstream: parsed.hasUpstream, ahead: parsed.ahead, behind: parsed.behind,
+      latestMtime: latestMtime)
   }
 
   /// 与えられた相対パス群のうち gitignore で無視されているものを Set で返す。
@@ -180,7 +191,27 @@ private func parsePorcelainV2WithBranch(_ data: Data) -> GitOps.StatusFull {
 
   return GitOps.StatusFull(
     statuses: statuses, head: head, branchHead: branchHead,
-    hasUpstream: hasUpstream, ahead: ahead, behind: behind)
+    hasUpstream: hasUpstream, ahead: ahead, behind: behind,
+    latestMtime: 0)
+}
+
+/// `relPaths` を `dir` 基準で stat し、modification time の最大値 (Unix 秒) を返す。
+/// 全 path で stat 失敗 / 入力空のとき 0。削除済みパス (` D` / `D ` / `DD`) は stat 失敗で
+/// 自然に除外されるため呼び出し側で事前 filter する必要はない。
+private func latestMtimeOf(dir: String, relPaths: [String]) -> Int64 {
+  if relPaths.isEmpty { return 0 }
+  let fm = FileManager.default
+  let base = URL(fileURLWithPath: dir)
+  var maxTs: Int64 = 0
+  for rel in relPaths {
+    let full = base.appendingPathComponent(rel).path
+    guard let attrs = try? fm.attributesOfItem(atPath: full),
+      let mtime = attrs[.modificationDate] as? Date
+    else { continue }
+    let ts = Int64(mtime.timeIntervalSince1970)
+    if ts > maxTs { maxTs = ts }
+  }
+  return maxTs
 }
 
 /// `git status --porcelain=v1 -z` の出力をパースする。

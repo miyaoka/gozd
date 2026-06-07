@@ -25,4 +25,6 @@ export interface GitStatusChangePayload {
   branchHead: string;
   /** upstream 未設定なら不在。`undefined` なら ahead/behind を読まない契約。 */
   upstream?: UpstreamStatus;
+  /** 変更ファイルの最終更新時刻 (Unix 秒)。clean / stat 全失敗のときは 0。 */
+  latestMtime: number;
 }

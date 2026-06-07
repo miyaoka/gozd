@@ -153,6 +153,13 @@ public actor FSWatchRegistry {
   /// この registry は冪等な参照カウントだけを保証し、解決値の再評価は触らない。
   /// 旧設計では `watch` 内で `entries[dir]` を強制再構築していたが、それは
   /// 「同一 dir に複数購読者」前提と両立できないため切り離した。
+  ///
+  /// **死契約の明示**: 現状の呼び出し側 (`useFsWatchSync` / `useSessionLogLive`) には
+  /// `git worktree repair` を検知して unwatch + watch を発射する hook は存在しない。
+  /// repair 後は旧 git dir 解決値で `classify` し続け、`classify` の分岐が永続的に
+  /// 間違う可能性がある。実用上の頻度が低いため YAGNI と判断し、git dir 解決値の動的
+  /// 変化はアプリ再起動でリセットする運用契約とする (検知 hook が必要になった時点で
+  /// 呼び出し側に実装する)。
   public func watch(dir userDir: String) async throws {
     let dir = FSWatchRegistry.realpath(userDir)
     if var existing = entries[dir] {
@@ -235,16 +242,20 @@ public actor FSWatchRegistry {
       return
     }
     entries[resolvedKey] = entry
-    // 当該 userDir 経由の購読は降りたので逆引きを掃除する (他の userDir 経由の購読が
-    // 残っているなら entry 自体は生存)。
-    if resolvedKeyByOriginalDir[userDir] == resolvedKey {
-      resolvedKeyByOriginalDir.removeValue(forKey: userDir)
-    }
+    // 逆引き (resolvedKeyByOriginalDir) は entry の lifecycle に揃え、最終購読者の
+    // unwatch (refCount == 0) で `_unwatch` がまとめて消す。ここで早期削除すると、
+    // 次回 unwatch 時に `realpath(userDir)` フォールバックに頼ることになり、dir が
+    // 削除済み環境で resolved key が一致せず entry leak の race を開く。
   }
 
   /// 保持している全 entry の監視を一括停止する。renderer の `onUnmounted` から
   /// 1 度の RPC で呼び出され、FSEventStream slot を残骸として残さないための
   /// 構造的 cleanup 経路。返り値は実際に破棄した entry 数（観察可能性用）。
+  ///
+  /// **refCount bypass**: 個別 `unwatch` と異なり、refCount に関わらず全 entry を強制
+  /// 解放する。app teardown / 全 watch 一括 reset の専用経路として使うこと。dialog +
+  /// preview 等が refCount で並行 watch している最中に呼ぶと、他購読者が抱えていた
+  /// `currentWatchDir` が stale 化し、次の `unwatch` 呼び出しは entry 不在で no-op になる。
   public func unwatchAll() -> Int {
     let dirs = Array(entries.keys)
     for dir in dirs {

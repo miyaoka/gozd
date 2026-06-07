@@ -546,13 +546,23 @@ const connectorPath = computed(() => {
   return `M${x0},0L${x0},${rowY(head.index)}`;
 });
 
-/** ブランチの色パレット (Tier 2 alias `--color-graph-lane-{1..8}` を循環参照)。
- * SVG stroke / fill は inline style 経由でしか CSS var を渡せないため、
- * lane index → CSS var reference を返す */
-const LANE_COUNT = 8;
+/** ブランチの色パレット (固定 8 色、graph 内 cyclic palette)。git graph 専用で
+ * 他 feature とは共有しないため module-local の literal 値で持つ。番号順隣接
+ * だけでなく任意 2 lane が同時描画されうるため、全 28 ペア (8C2) を
+ * 「hue 差 60 度以上 or 明度差 0.05 以上」で識別可能に固定する */
+const LANE_COLORS = [
+  "oklch(0.74 0.1 175)" /* teal */,
+  "oklch(0.65 0.13 247)" /* blue */,
+  "oklch(0.72 0.13 327)" /* purple */,
+  "oklch(0.62 0.1 51)" /* orange */,
+  "oklch(0.8 0.13 105)" /* yellow */,
+  "oklch(0.55 0.16 22)" /* red */,
+  "oklch(0.6 0.12 137)" /* green */,
+  "oklch(0.86 0.07 224)" /* light blue */,
+];
 
 function colorFor(index: number): string {
-  return `var(--color-graph-lane-${(index % LANE_COUNT) + 1})`;
+  return LANE_COLORS[index % LANE_COLORS.length];
 }
 
 /**
@@ -1067,9 +1077,10 @@ const isWorkingTreeActive = computed(
               :cx="laneX(0)"
               :cy="ROW_HEIGHT / 2"
               :r="isWorkingTreeActive ? DOT_RADIUS + 1 : DOT_RADIUS"
-              :fill="isWorkingTreeActive ? colorFor(headColor) : 'var(--color-background)'"
+              :fill="isWorkingTreeActive ? colorFor(headColor) : 'currentColor'"
               :stroke="colorFor(headColor)"
               stroke-width="2"
+              class="text-background"
             />
             <line
               :x1="laneX(0)"

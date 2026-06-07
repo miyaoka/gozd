@@ -83,19 +83,6 @@
 
   /* intent: info (text-only、solid なし。primary と同 hue の text step を借用) */
   --color-info: var(--blue-11);
-
-  /* graph lane: indexed cyclic palette (役割は index、role ではない)
-     git graph で `index % 8 + 1` で割り当てる。番号順隣接だけでなく任意 2 lane
-     が同時描画されうるため、全 28 ペアを「hue 差 60 度以上 or 明度差 0.05 以上」
-     で識別可能に固定する */
-  --color-graph-lane-1: oklch(0.74 0.1 175); /* teal */
-  --color-graph-lane-2: oklch(0.65 0.13 247); /* blue */
-  --color-graph-lane-3: oklch(0.72 0.13 327); /* purple */
-  --color-graph-lane-4: oklch(0.62 0.1 51); /* orange */
-  --color-graph-lane-5: oklch(0.8 0.13 105); /* yellow */
-  --color-graph-lane-6: oklch(0.55 0.16 22); /* red */
-  --color-graph-lane-7: oklch(0.6 0.12 137); /* green */
-  --color-graph-lane-8: oklch(0.86 0.07 224); /* light blue */
 }
 
 @layer base {

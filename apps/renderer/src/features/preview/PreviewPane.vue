@@ -498,7 +498,7 @@ async function fetchPrDiffContent(filePath: string) {
     return;
   }
 
-  // `useChangesStore.fileChanges` から該当 GitFileChange を引いて type ごとに正しい path を選ぶ:
+  // `useChangesStore.orderedFileChanges` から該当 GitFileChange を引いて type ごとに正しい path を選ぶ:
   // - A / U (added / untracked): base にそのパスは存在しない → base fetch を skip
   // - D (deleted): working tree にそのパスは存在しない → fs read を skip
   // - R (renamed): base には `oldFilePath`、working tree には `newFilePath` で存在

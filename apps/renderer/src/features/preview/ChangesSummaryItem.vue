@@ -522,7 +522,7 @@ watch(
 /**
  * uncommitted モードでファイル中身が変わったら再 fetch する。
  *
- * `useChangesStore.fileChanges` は git status (状態種別) の変化しか拾わないので、
+ * `useChangesStore.orderedFileChanges` は git status (状態種別) の変化しか拾わないので、
  * 例えば M → M (中身は別) のケースでは props.change の identity が変わらず watch が走らない。
  * PreviewPane の単一ファイル view と同じ fsChange 購読規律 (docs/preview.md のリアクティブ更新)
  * を summary item にも適用して、画面の diff と実ファイルの整合を保つ。

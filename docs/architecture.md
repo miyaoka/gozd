@@ -35,7 +35,24 @@ TS（renderer）と Swift（native）で RPC 型を共有するため、`package
 - ts-proto → `packages/proto-ts/src/generated/`（`@gozd/proto` として renderer が import）
 - swift-protobuf → `packages/proto-swift/Sources/GozdProto/`（`GozdProto` を native が import）
 
-生成物は git に commit する。`buf.gen.yaml` では BSR のリモートプラグイン (`buf.build/community/stephenh-ts-proto` / `buf.build/apple/swift`) をバージョン pin して指定する（具体バージョンは `buf.gen.yaml` を参照）。
+生成物は git に commit しない。`packages/proto-ts/src/generated/` と `packages/proto-swift/Sources/GozdProto/*.pb.swift` は `.gitignore` で除外し、`packages/proto/` の `prepare` script (`buf generate`) が両言語の出力を一括生成する。`buf.gen.yaml` の `clean: true` により 1 回の `buf generate` で ts / swift 出力が揃うため、生成 hook は `packages/proto/` 1 箇所だけに置く（proto-ts / proto-swift 側には置かない）。手動再生成は `pnpm --filter @gozd/proto-schema build`。`buf.gen.yaml` では BSR のリモートプラグイン (`buf.build/community/stephenh-ts-proto` / `buf.build/apple/swift`) をバージョン pin して指定する（具体バージョンは `buf.gen.yaml` を参照）。
+
+生成 trigger は以下の経路で発火する。**自動発火するのは `node_modules` が outdated な状態で pnpm が install を起動するときだけ**であり、`.proto` だけを編集して `pnpm dev` 等を再実行しても自動再生成はされない。
+
+| 入口                                                            | 自動発火する条件                                                | 発火する仕組み                                                  |
+| --------------------------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------- |
+| `pnpm install`                                                  | デフォルト設定下では常に                                        | workspace 全体の `prepare` lifecycle で `packages/proto` が発火 |
+| `pnpm run` 系 (`pnpm dev` / `pnpm build` / `pnpm --filter ...`) | `node_modules` が outdated なときのみ (pnpm 11 の auto-install) | auto-install が起動 → `prepare` 発火                            |
+
+`node_modules` が up-to-date な状態で `.proto` だけを編集した場合は、pnpm 11 の `verifyDepsBeforeRun` は outdated 判定の対象にしないため、**手動で再生成する必要がある**:
+
+```bash
+pnpm --filter @gozd/proto-schema build
+```
+
+`.proto` 編集時の再生成は手動コマンドで行う運用契約とする。
+
+`swift build` / Xcode で `apps/native` を直接開く経路は pnpm を経由しないため、初回のみ `pnpm install` か `pnpm --filter @gozd/proto-schema build` を 1 回叩いて生成物を作る。
 
 トランスポートは Connect / gRPC を使わず、`gozd-rpc://` URLSchemeHandler + Unix Socket（NDJSON）で自前実装する。Protobuf の `oneof` を discriminated union として使うのが目的。
 
@@ -249,7 +266,7 @@ Claude セッションの sessionId は専用ストアを持たず `tasks.json` 
 
 ### 新しい永続化データを追加するパターン
 
-- `packages/proto/gozd/v1/*.proto` に request スキーマ（params / response）を追加し、`buf generate` で TS / Swift 生成物を更新する
+- `packages/proto/gozd/v1/*.proto` に request スキーマ（params / response）を追加し、`pnpm --filter @gozd/proto-schema build`（= `cd packages/proto && buf generate`）で TS / Swift 生成物を更新する
 - `apps/native/Sources/GozdCore/` にファイル I/O モジュールを作成する（`AppStateStore.swift`, `TaskStore.swift` が参考実装）
 - `apps/native/Sources/GozdCore/RpcDispatcher.swift` の handler に request 処理を登録する
 - renderer 側は feature ごとの `rpc.ts` に `rpcXxx()` 関数を追加し、`shared/rpc` の `rpc(path, req, RequestType, ResponseType)` でラップする（例: `apps/renderer/src/features/filer/rpc.ts` の `rpcFsReadDir`）

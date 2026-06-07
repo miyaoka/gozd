@@ -122,6 +122,13 @@ jobs:
           filter: blob:none
           show-progress: false
 
+      # GozdProto モジュールの `*.pb.swift` は git に commit せず `packages/proto`
+      # の prepare で生成する（docs/architecture.md「型共有: `.proto` SSOT」参照）。
+      # `pnpm install --frozen-lockfile` 経由で workspace の prepare が走り、
+      # `Sources/GozdProto/*.pb.swift` が揃った状態で `swift test` を実行できる。
+      - name: Setup environment
+        uses: ./.github/actions/setup-environment
+
       - name: swift test
         working-directory: apps/native
         # GOZD_PTY_TRACE: PTY ライフサイクル / テスト境界 trace を CI ログに残す

@@ -7,7 +7,6 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "generate": "cd ../proto && buf generate",
     "typecheck": "tsgo --noEmit",
     "lint": "oxlint --type-aware",
     "fix": "oxlint --type-aware --fix && oxfmt ."

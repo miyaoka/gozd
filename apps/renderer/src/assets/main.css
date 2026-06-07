@@ -102,6 +102,20 @@
   /* scrollbar (UA pseudo-element 専用、utility 化対象なし) */
   --color-scrollbar-thumb: var(--gray-a6);
   --color-scrollbar-thumb-hover: var(--gray-a8);
+
+  /* chat: terminal の右上 / 右下 session preview overlay 専用。LINE 風の固定配色で
+     dark/light theme を追従させない (吹き出し本体は常に白 + 黄緑、文字は常に黒)。
+     主屋の semantic token とは別文脈なので primitive 経由ではなく固定色で定義する。
+     - chat-incoming: assistant 吹き出し背景
+     - chat-outgoing: user 吹き出し背景
+     - chat-text: 吹き出し本文 / popover 内本文の文字色
+     - chat-text-low: popover 内 blockquote 等の低コントラスト文字
+     - chat-code: popover 内 inline code の文字色 */
+  --color-chat-incoming: #ffffff;
+  --color-chat-outgoing: oklch(0.87 0.2 130);
+  --color-chat-text: #000000;
+  --color-chat-text-low: #404040;
+  --color-chat-code: #7c3aed;
 }
 
 @layer base {

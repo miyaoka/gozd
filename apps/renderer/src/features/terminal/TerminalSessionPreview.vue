@@ -6,14 +6,18 @@
 
 ## 表示
 
-固定幅で main / sub 各 2 行ずつの LINE 風吹き出しレイアウト:
+main / sub を独立した 2 つの overlay に分け、terminal の右上に main、右下に sub を
+配置する。1 つの overlay に縦積みすると main と sub の境界が読み取りにくいため、
+物理的距離で分離する設計。
 
-- **Main**: 最終 user 発言 (上 / 右寄せ) / 最終 assistant 発言 (下 / 左寄せ)
-- **Sub**: 最後に発話のあった subagent 1 つの最終 user (上 / 右寄せ) / 最終 assistant (下 / 左寄せ)
+各 overlay の内側は user / assistant それぞれ最終 2 発言 (合計 4 件まで) を ts 昇順で
+混ぜて並べる。user は右寄せ + `bg-success-subtle` + `rounded-tr-sm`、assistant は左寄せ
 
-吹き出しの非対称な角丸 (`rounded-tl-sm` / `rounded-tr-sm`) と色 (panel / success-subtle) は
-SessionLogTranscript と共有して dialog 全体の視覚規律に揃える。各メッセージは 1 行 truncate。
-session 未起動 / subagent 不在ならその段を出さない。
+- `bg-panel` + `rounded-tl-sm` の LINE 風吹き出し。
+
+「kind ごとに 2 件確保 → ts でマージ」順で並べるため、assistant が連続応答するケース
+でも user の最近 2 件が落ちず、対話の流れが追える。各 bubble は 1 行 truncate。bubble
+が 0 件の overlay は非表示にし、両 overlay とも空なら何も描画しない。
 
 ## 全文 preview
 
@@ -65,17 +69,20 @@ function lastTs(events: TranscriptEvent[]): number {
   return 0;
 }
 
-// kind を逆走査で 1 件取り、最終発話の text + ts を返す。空文字を出さないため text が
-// 空のものは飛ばして次を探す (tool_result / 注入された空 user 等の取りこぼし対策)。
-function lastMessageOf(
+// kind を逆走査で n 件まで集め、最終発話の text + ts を新しい順で返す。空文字は出さない
+// (tool_result / 注入された空 user 等の取りこぼし対策)。呼び出し側で他 kind と merge して
+// ts 昇順に並べ替える前提なので、ここでの並び順自体は最終表示に影響しない。
+function lastNMessagesOf(
   events: TranscriptEvent[],
   kind: "user" | "assistant",
-): { text: string; ts: string } | undefined {
-  for (let i = events.length - 1; i >= 0; i--) {
+  n: number,
+): Array<{ text: string; ts: string }> {
+  const out: Array<{ text: string; ts: string }> = [];
+  for (let i = events.length - 1; i >= 0 && out.length < n; i--) {
     const e = events[i];
-    if (e.kind === kind && e.text !== "") return { text: e.text, ts: e.ts };
+    if (e.kind === kind && e.text !== "") out.push({ text: e.text, ts: e.ts });
   }
-  return undefined;
+  return out;
 }
 
 // bubble 表示用に 1 行目だけを抽出する。markdown コードフェンス / リスト / 複数段落を含む
@@ -87,50 +94,55 @@ function firstLine(text: string): string {
   return idx === -1 ? text : text.slice(0, idx);
 }
 
-interface PreviewMessage {
-  kind: "user" | "assistant";
-  text: string;
-  ts: string;
-}
-
-// user / assistant の最終発話を集めて古い順 (ts 昇順) で返す。両方無ければ空配列。
-// 古い順にすると LINE と同じ時系列読みになる (上から下が時間の経過方向)。
-function collectPair(events: TranscriptEvent[]): PreviewMessage[] {
-  const user = lastMessageOf(events, "user");
-  const assistant = lastMessageOf(events, "assistant");
-  const arr: PreviewMessage[] = [];
-  if (user !== undefined) arr.push({ kind: "user", text: user.text, ts: user.ts });
-  if (assistant !== undefined)
-    arr.push({ kind: "assistant", text: assistant.text, ts: assistant.ts });
-  arr.sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
-  return arr;
-}
-
-const mainPair = computed<PreviewMessage[]>(() => {
+// main session の events。サブで二度評価されるのを避けるため computed に切る。
+const mainEvents = computed<TranscriptEvent[]>(() => {
   const main = sessions.value.find((s) => s.kind === "main");
-  if (main === undefined) return [];
-  return collectPair(parsedEvents(main.content));
+  return main === undefined ? [] : parsedEvents(main.content);
 });
 
-// 最後に発話があった subagent 1 つを選ぶ。「発話」は kind 問わず events 末尾の ts を見る
-// (tool だけ走っている subagent も走った時刻として最新性に寄与する)。
-const subPair = computed<PreviewMessage[]>(() => {
+// 最後に発話があった subagent 1 つの events。「発話」は kind 問わず events 末尾の ts を
+// 見る (tool だけ走っている subagent も走った時刻として最新性に寄与する)。
+const subEvents = computed<TranscriptEvent[]>(() => {
   const subs = sessions.value
     .filter((s) => s.kind !== "main")
-    .map((s) => ({ tab: s, events: parsedEvents(s.content) }))
-    .filter((x) => x.events.length > 0);
+    .map((s) => parsedEvents(s.content))
+    .filter((events) => events.length > 0);
   if (subs.length === 0) return [];
   let newest = subs[0];
-  let newestMs = lastTs(newest.events);
+  let newestMs = lastTs(newest);
   for (let i = 1; i < subs.length; i++) {
-    const ms = lastTs(subs[i].events);
+    const ms = lastTs(subs[i]);
     if (ms > newestMs) {
       newestMs = ms;
       newest = subs[i];
     }
   }
-  return collectPair(newest.events);
+  return newest;
 });
+
+// 1 overlay 分の bubble シーケンス。各 kind から最大 2 件取り、ts 昇順でマージする。
+// LINE 同様の時系列読みになる (上から下が時間の経過方向)。
+interface PreviewMessage {
+  kind: "user" | "assistant";
+  text: string;
+  ts: string;
+}
+const MESSAGES_PER_KIND = 2;
+function collectMessages(events: TranscriptEvent[]): PreviewMessage[] {
+  const users = lastNMessagesOf(events, "user", MESSAGES_PER_KIND).map((m) => ({
+    kind: "user" as const,
+    text: m.text,
+    ts: m.ts,
+  }));
+  const assistants = lastNMessagesOf(events, "assistant", MESSAGES_PER_KIND).map((m) => ({
+    kind: "assistant" as const,
+    text: m.text,
+    ts: m.ts,
+  }));
+  return [...users, ...assistants].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
+}
+const mainMessages = computed<PreviewMessage[]>(() => collectMessages(mainEvents.value));
+const subMessages = computed<PreviewMessage[]>(() => collectMessages(subEvents.value));
 
 // クリックで全文を出す popover。kind は吹き出し色を合わせるための discriminator。
 // per-instance: コンポーネント unmount で effect scope が自動破棄されるため stop 不要。
@@ -150,63 +162,64 @@ function openPreview(event: MouseEvent, text: string, kind: "user" | "assistant"
   openPreviewPopover(anchor, { text, kind });
 }
 
-// preview の表示自体は session が無いか、main / sub どちらの行も空のときは出さない。
-const hasContent = computed(() => {
-  if (sessionId.value === undefined) return false;
-  return mainPair.value.length > 0 || subPair.value.length > 0;
-});
+// 各 overlay は bubble が 1 件でもあれば出す。session が無いときは events が空なので
+// collectMessages も空配列を返し、副次的にカバーされる。
+const hasMain = computed(() => mainMessages.value.length > 0);
+const hasSub = computed(() => subMessages.value.length > 0);
 </script>
 
 <template>
+  <!-- main: 右上。user / assistant 各最大 2 件を時系列順に LINE 風吹き出しで並べる -->
   <div
-    v-if="hasContent"
-    class="pointer-events-none absolute top-1 right-3 z-10 flex w-88 max-w-[50%] flex-col gap-1 rounded-md bg-background/70 p-2 text-xs/tight"
+    v-if="hasMain"
+    class="pointer-events-none absolute top-1 right-3 z-10 flex w-[18rem] max-w-[40%] flex-col gap-0.5 p-2 text-xs/tight"
   >
-    <div v-if="mainPair.length > 0" class="flex flex-col gap-0.5">
-      <span class="text-[10px] font-semibold text-foreground-low">main</span>
-      <div
-        v-for="msg in mainPair"
-        :key="msg.kind"
-        class="flex"
-        :class="msg.kind === 'user' ? 'justify-end' : ''"
+    <div
+      v-for="msg in mainMessages"
+      :key="`${msg.kind}-${msg.ts}`"
+      class="flex"
+      :class="msg.kind === 'user' ? 'justify-end' : ''"
+    >
+      <button
+        type="button"
+        class="pointer-events-auto max-w-[85%] cursor-pointer truncate rounded-lg px-2 py-0.5 text-left hover:brightness-110"
+        :class="
+          msg.kind === 'user'
+            ? 'rounded-tr-sm bg-chat-outgoing text-chat-text'
+            : 'rounded-tl-sm bg-chat-incoming text-chat-text'
+        "
+        :title="msg.text"
+        @click="openPreview($event, msg.text, msg.kind)"
       >
-        <button
-          type="button"
-          class="pointer-events-auto max-w-[85%] cursor-pointer truncate rounded-lg px-2 py-0.5 text-left hover:brightness-110"
-          :class="
-            msg.kind === 'user'
-              ? 'rounded-tr-sm bg-success-subtle text-success-text'
-              : 'rounded-tl-sm bg-panel text-foreground'
-          "
-          :title="msg.text"
-          @click="openPreview($event, msg.text, msg.kind)"
-        >
-          {{ firstLine(msg.text) }}
-        </button>
-      </div>
+        {{ firstLine(msg.text) }}
+      </button>
     </div>
-    <div v-if="subPair.length > 0" class="flex flex-col gap-0.5">
-      <span class="text-[10px] font-semibold text-foreground-low">sub</span>
-      <div
-        v-for="msg in subPair"
-        :key="msg.kind"
-        class="flex"
-        :class="msg.kind === 'user' ? 'justify-end' : ''"
+  </div>
+
+  <!-- sub: 右下。main と同じ LINE 風シーケンス。物理的距離で main との混在を回避する -->
+  <div
+    v-if="hasSub"
+    class="pointer-events-none absolute right-3 bottom-1 z-10 flex w-[18rem] max-w-[40%] flex-col gap-0.5 p-2 text-xs/tight"
+  >
+    <div
+      v-for="msg in subMessages"
+      :key="`${msg.kind}-${msg.ts}`"
+      class="flex"
+      :class="msg.kind === 'user' ? 'justify-end' : ''"
+    >
+      <button
+        type="button"
+        class="pointer-events-auto max-w-[85%] cursor-pointer truncate rounded-lg px-2 py-0.5 text-left hover:brightness-110"
+        :class="
+          msg.kind === 'user'
+            ? 'rounded-tr-sm bg-chat-outgoing text-chat-text'
+            : 'rounded-tl-sm bg-chat-incoming text-chat-text'
+        "
+        :title="msg.text"
+        @click="openPreview($event, msg.text, msg.kind)"
       >
-        <button
-          type="button"
-          class="pointer-events-auto max-w-[85%] cursor-pointer truncate rounded-lg px-2 py-0.5 text-left hover:brightness-110"
-          :class="
-            msg.kind === 'user'
-              ? 'rounded-tr-sm bg-success-subtle text-success-text'
-              : 'rounded-tl-sm bg-panel text-foreground'
-          "
-          :title="msg.text"
-          @click="openPreview($event, msg.text, msg.kind)"
-        >
-          {{ firstLine(msg.text) }}
-        </button>
-      </div>
+        {{ firstLine(msg.text) }}
+      </button>
     </div>
   </div>
 
@@ -225,16 +238,26 @@ const hasContent = computed(() => {
     <template v-if="previewContext">
       <div
         v-if="previewContext.kind === 'assistant'"
-        class="rounded-md bg-panel px-3 py-2 text-foreground [--md-code-bg:var(--color-element)]"
+        class="_preview-assistant rounded-md bg-chat-incoming px-3 py-2 text-chat-text [--color-foreground-low:var(--color-chat-text-low)] [--color-foreground:var(--color-chat-text)] [--md-code-bg:transparent]"
       >
         <MarkdownBody :content="previewContext.text" />
       </div>
       <div
         v-else
-        class="rounded-md bg-success-subtle px-3 py-2 wrap-break-word whitespace-pre-wrap text-success-text"
+        class="rounded-md bg-chat-outgoing px-3 py-2 wrap-break-word whitespace-pre-wrap text-chat-text"
       >
         {{ previewContext.text }}
       </div>
     </template>
   </PreviewPopover>
 </template>
+
+<style scoped>
+/* MarkdownBody は `_markdown-body :deep(code) { color: var(--color-foreground); ... }` で
+   inline code を一様に染めるため、本文 (`p` / `h*` 等) を黒文字にしたまま code だけ紫に
+   するには CSS 変数 override では足りない。`_preview-assistant` scope に :deep(code) を
+   足して specificity を MarkdownBody 側と同等以上に持ち上げる。 */
+._preview-assistant :deep(code) {
+  color: var(--color-chat-code);
+}
+</style>

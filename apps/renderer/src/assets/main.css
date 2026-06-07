@@ -103,19 +103,21 @@
   --color-scrollbar-thumb: var(--gray-a6);
   --color-scrollbar-thumb-hover: var(--gray-a8);
 
-  /* chat: terminal の右上 / 右下 session preview overlay 専用。LINE 風の固定配色で
-     dark/light theme を追従させない (吹き出し本体は常に白 + 黄緑、文字は常に黒)。
-     主屋の semantic token とは別文脈なので primitive 経由ではなく固定色で定義する。
-     - chat-incoming: assistant 吹き出し背景
-     - chat-outgoing: user 吹き出し背景
-     - chat-text: 吹き出し本文 / popover 内本文の文字色
-     - chat-text-low: popover 内 blockquote 等の低コントラスト文字
-     - chat-code: popover 内 inline code の文字色 */
-  --color-chat-incoming: #ffffff;
-  --color-chat-outgoing: oklch(0.87 0.2 130);
-  --color-chat-text: #000000;
-  --color-chat-text-low: #404040;
-  --color-chat-code: #7c3aed;
+  /* chat: terminal の preview overlay と SessionLogDialog の transcript で共有する
+     LINE ダークモード配色。主屋の dark theme primitive とは独立に固定する (吹き出しは
+     LINE のブランド色を守りたく、theme の brand hue 変更で追従されたくないため)。
+     - chat-incoming: assistant 吹き出し背景 (暗グレー)
+     - chat-incoming-text: assistant 吹き出し本文 (白系)
+     - chat-incoming-text-low: assistant 吹き出し内 blockquote 等の低コントラスト文字
+     - chat-outgoing: user 吹き出し背景 (LINE 緑、ダーク用に少し落とす)
+     - chat-outgoing-text: user 吹き出し本文 (黒)
+     - chat-code: assistant markdown 内 inline code の文字色 (ダーク背景でも読める violet) */
+  --color-chat-incoming: #121212;
+  --color-chat-incoming-text: #f2f2f2;
+  --color-chat-incoming-text-low: #a0a0a0;
+  --color-chat-outgoing: oklch(0.78 0.2 135);
+  --color-chat-outgoing-text: #000000;
+  --color-chat-code: #c4b5fd;
 }
 
 @layer base {

@@ -185,8 +185,8 @@ const hasSub = computed(() => subMessages.value.length > 0);
         class="pointer-events-auto max-w-[85%] cursor-pointer truncate rounded-lg px-2 py-0.5 text-left hover:brightness-110"
         :class="
           msg.kind === 'user'
-            ? 'rounded-tr-sm bg-chat-outgoing text-chat-text'
-            : 'rounded-tl-sm bg-chat-incoming text-chat-text'
+            ? 'bg-chat-outgoing text-chat-outgoing-text'
+            : 'bg-chat-incoming text-chat-incoming-text'
         "
         :title="msg.text"
         @click="openPreview($event, msg.text, msg.kind)"
@@ -212,8 +212,8 @@ const hasSub = computed(() => subMessages.value.length > 0);
         class="pointer-events-auto max-w-[85%] cursor-pointer truncate rounded-lg px-2 py-0.5 text-left hover:brightness-110"
         :class="
           msg.kind === 'user'
-            ? 'rounded-tr-sm bg-chat-outgoing text-chat-text'
-            : 'rounded-tl-sm bg-chat-incoming text-chat-text'
+            ? 'bg-chat-outgoing text-chat-outgoing-text'
+            : 'bg-chat-incoming text-chat-incoming-text'
         "
         :title="msg.text"
         @click="openPreview($event, msg.text, msg.kind)"
@@ -238,13 +238,13 @@ const hasSub = computed(() => subMessages.value.length > 0);
     <template v-if="previewContext">
       <div
         v-if="previewContext.kind === 'assistant'"
-        class="_preview-assistant rounded-md bg-chat-incoming px-3 py-2 text-chat-text [--color-foreground-low:var(--color-chat-text-low)] [--color-foreground:var(--color-chat-text)] [--md-code-bg:transparent]"
+        class="_preview-assistant rounded-md bg-chat-incoming px-3 py-2 text-chat-incoming-text [--color-foreground-low:var(--color-chat-incoming-text-low)] [--color-foreground:var(--color-chat-incoming-text)] [--md-code-bg:transparent]"
       >
         <MarkdownBody :content="previewContext.text" />
       </div>
       <div
         v-else
-        class="rounded-md bg-chat-outgoing px-3 py-2 wrap-break-word whitespace-pre-wrap text-chat-text"
+        class="rounded-md bg-chat-outgoing px-3 py-2 wrap-break-word whitespace-pre-wrap text-chat-outgoing-text"
       >
         {{ previewContext.text }}
       </div>

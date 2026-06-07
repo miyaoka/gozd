@@ -222,7 +222,7 @@ WORKTREES
   ● New session         [⋮]   ← 全 title 空 + ghRef 無しのフォールバック
 ```
 
-セッションが attach 中の task には Claude ステータスのバッジ / 吹き出しが付く。session 未紐付け task (`sessionId == ""`) は静的表示。task 行も hover で右端に `[⋮]` ボタンが現れ、`Edit title` / `Show session log` / `Remove task` が選択できる。task 行のダブルクリックでも編集 dialog が開く。
+セッションが attach 中の task には Claude ステータスのバッジ / 吹き出しが付く。session 未紐付け task (`sessionId == ""`) は静的表示。task 行も hover で右端に `[⋮]` ボタンが現れ、`Edit title` / `Show session log` / `Remove task` が選択できる。タイトル編集は `[⋮]` の `Edit title` 一本に集約しており、行のクリックは常に task 選択 (wt active 化 + 対応 leaf focus / resume 起動) として解釈される。
 
 ### セッションログ表示 (`Show session log`)
 

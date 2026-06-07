@@ -1,0 +1,9 @@
+{
+  "name": "@gozd/proto-schema",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "buf generate",
+    "prepare": "buf generate"
+  }
+}

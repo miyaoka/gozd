@@ -3,7 +3,7 @@ import type { KnipConfig } from "knip";
 const config: KnipConfig = {
   // eslint: lefthook.yml で pnpm exec eslint として使用（renderer の devDep）
   // typecheck: pnpm -r で呼ぶワークスペースの scripts 名
-  // buf: mise 経由で実行（packages/proto-ts の generate スクリプト）
+  // buf: mise 経由で実行（packages/proto の prepare / build スクリプト）
   // swift: apps/native の scripts で Xcode 同梱の Swift toolchain を呼ぶ
   // open: macOS 標準コマンド（pnpm run bootstrap で .app を起動）
   ignoreBinaries: ["eslint", "typecheck", "buf", "swift", "open"],
@@ -21,7 +21,16 @@ const config: KnipConfig = {
       ],
     },
     "packages/eslint-plugin": {},
-    "packages/proto-ts": {},
+    "packages/proto": {
+      // buf は mise 経由で実行（packages/proto/prepare で `buf generate`）
+      ignoreBinaries: ["buf"],
+    },
+    "packages/proto-ts": {
+      // @bufbuild/protobuf は src/generated/ の生成物だけが参照する runtime dep。
+      // 生成物は knip 解析対象外 (ignore 指定) なので、手書きコードから見ると
+      // unused に誤検出される。明示的に保護する。
+      ignoreDependencies: ["@bufbuild/protobuf"],
+    },
     "packages/shared": {},
     "packages/shiki-lang-map": {},
     "packages/themes": {},

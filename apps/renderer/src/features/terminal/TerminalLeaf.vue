@@ -99,7 +99,7 @@ function handleTerminalBlur() {
       :style="{ backgroundColor: currentTheme.background }"
       :class="
         isFocused
-          ? 'outline-2 -outline-offset-4 outline-success/70'
+          ? 'outline-2 -outline-offset-4 outline-success'
           : '-outline-offset-2 outline-border'
       "
     >

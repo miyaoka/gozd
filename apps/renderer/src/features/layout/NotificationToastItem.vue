@@ -48,7 +48,7 @@ const iconMap = {
 } as const;
 
 const colorMap = {
-  error: "border-destructive bg-destructive",
+  error: "border-destructive bg-destructive-subtle",
   info: "border-border bg-background",
 } as const;
 
@@ -120,11 +120,11 @@ async function copyDetail() {
         <span class="icon-[lucide--x] size-4" />
       </button>
     </div>
-    <div v-if="hasCause && expanded" class="border-t border-foreground/10 p-3">
+    <div v-if="hasCause && expanded" class="border-t border-border-subtle p-3">
       <div class="mb-2 flex justify-end">
         <button
           type="button"
-          class="flex cursor-pointer items-center gap-1 rounded-sm border border-foreground/15 px-2 py-0.5 text-xs text-foreground hover:bg-element-hover"
+          class="flex cursor-pointer items-center gap-1 rounded-sm border border-border-subtle px-2 py-0.5 text-xs text-foreground hover:bg-element-hover"
           @click="copyDetail"
         >
           <span :class="[copyIconMap[copyState], 'size-3']" />

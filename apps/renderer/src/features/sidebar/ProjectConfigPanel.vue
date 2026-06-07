@@ -72,7 +72,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="border-t border-border/50 px-4 py-3">
+  <div class="border-t border-border-subtle px-4 py-3">
     <details ref="detailsRef" @toggle="handleToggle">
       <summary
         class="flex cursor-pointer list-none items-center gap-2 text-xs text-foreground-low hover:text-foreground [&::-webkit-details-marker]:hidden"
@@ -101,7 +101,7 @@ onMounted(() => {
             Cancel
           </button>
           <button
-            class="rounded-sm bg-primary px-2 py-1 text-xs text-foreground hover:bg-primary disabled:opacity-40 disabled:hover:bg-primary"
+            class="rounded-sm bg-primary px-2 py-1 text-xs text-foreground hover:bg-primary-hover disabled:bg-element disabled:text-foreground-muted disabled:hover:bg-element"
             :disabled="!isDirty || isSaving"
             @click="save"
           >

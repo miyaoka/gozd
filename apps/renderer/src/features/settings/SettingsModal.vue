@@ -171,7 +171,7 @@ watch(isOpen, (open) => {
             class="px-4 py-1.5 text-left text-sm"
             :class="
               activeTab === tab.id
-                ? 'bg-element/50 text-foreground'
+                ? 'bg-element-active text-foreground'
                 : 'text-foreground-low hover:text-foreground'
             "
             @click="activeTab = tab.id"

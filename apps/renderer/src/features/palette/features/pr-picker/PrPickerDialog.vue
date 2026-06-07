@@ -196,7 +196,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           :class="[
             i === selectedIndex
               ? 'bg-element text-foreground'
-              : 'text-foreground hover:bg-element/50',
+              : 'text-foreground hover:bg-element-hover',
             pr.isDraft && 'opacity-50',
           ]"
           @click="

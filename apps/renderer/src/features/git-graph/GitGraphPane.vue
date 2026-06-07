@@ -43,6 +43,7 @@ import CommitContextMenu from "./CommitContextMenu.vue";
 import CommitDetailPane from "./CommitDetailPane.vue";
 import CommitSegmentList from "./CommitSegmentList";
 import type { DisplayRef } from "./displayRef";
+import { laneTextColor } from "./graphColors";
 import { computeGraphLayout } from "./graphLayout";
 import type { GraphLayout } from "./graphLayout";
 import type { CommitMessageSegment } from "./linkifyCommitMessage";
@@ -546,24 +547,9 @@ const connectorPath = computed(() => {
   return `M${x0},0L${x0},${rowY(head.index)}`;
 });
 
-/** ブランチの色パレット (固定 8 色、graph 内 cyclic palette)。git graph 専用で
- * 他 feature とは共有しないため module-local の literal 値で持つ。番号順隣接
- * だけでなく任意 2 lane が同時描画されうるため、全 28 ペア (8C2) を
- * 「hue 差 60 度以上 or 明度差 0.05 以上」で識別可能に固定する */
-const LANE_COLORS = [
-  "oklch(0.74 0.1 175)" /* teal */,
-  "oklch(0.65 0.13 247)" /* blue */,
-  "oklch(0.72 0.13 327)" /* purple */,
-  "oklch(0.62 0.1 51)" /* orange */,
-  "oklch(0.8 0.13 105)" /* yellow */,
-  "oklch(0.55 0.16 22)" /* red */,
-  "oklch(0.6 0.12 137)" /* green */,
-  "oklch(0.86 0.07 224)" /* light blue */,
-];
-
-function colorFor(index: number): string {
-  return LANE_COLORS[index % LANE_COLORS.length];
-}
+/** graph line / dot の draw color。RefBadge は別経路 (current / default / other の 3 カテゴリで
+ * Tier 2 token に固定) なので、ここの lane 色とは独立。 */
+const colorFor = laneTextColor;
 
 /**
  * ラインセグメントの SVG パスを生成する。
@@ -909,9 +895,9 @@ function onCommitContextMenu(hash: string, e: MouseEvent) {
  */
 function rowHighlightClass(hash: string): string {
   if (isSelectedRow(hash)) {
-    return "bg-primary/30 hover:bg-primary/40";
+    return "bg-primary-subtle hover:bg-primary-subtle-hover";
   }
-  return "hover:bg-panel/60";
+  return "hover:bg-element-hover";
 }
 
 /**
@@ -993,7 +979,7 @@ const isWorkingTreeActive = computed(
         class="rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="
           firstParentOnly
-            ? 'bg-primary/15 text-primary-text'
+            ? 'bg-primary-subtle text-primary-text'
             : 'text-foreground-low hover:text-foreground'
         "
         :aria-pressed="firstParentOnly"
@@ -1005,7 +991,7 @@ const isWorkingTreeActive = computed(
         class="rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="
           currentBranchOnly
-            ? 'bg-primary/15 text-primary-text'
+            ? 'bg-primary-subtle text-primary-text'
             : 'text-foreground-low hover:text-foreground'
         "
         :aria-pressed="currentBranchOnly"
@@ -1018,7 +1004,7 @@ const isWorkingTreeActive = computed(
         class="rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="
           sortMode === SortMode.SORT_MODE_TOPO
-            ? 'bg-primary/15 text-primary-text'
+            ? 'bg-primary-subtle text-primary-text'
             : 'text-foreground-low hover:text-foreground'
         "
         :aria-pressed="sortMode === SortMode.SORT_MODE_TOPO"
@@ -1039,7 +1025,7 @@ const isWorkingTreeActive = computed(
         class="ml-auto rounded-sm px-1.5 py-0.5 text-[10px]"
         :class="
           detailOpen
-            ? 'bg-primary/15 text-primary-text'
+            ? 'bg-primary-subtle text-primary-text'
             : 'text-foreground-low hover:text-foreground'
         "
         :aria-pressed="detailOpen"
@@ -1062,7 +1048,7 @@ const isWorkingTreeActive = computed(
       >
         <!-- Working Tree 固定行: スクロール領域の外に配置 -->
         <div
-          class="_graph-row relative flex shrink-0 items-center border-b border-border/50 text-xs"
+          class="_graph-row relative flex shrink-0 items-center border-b border-border-subtle text-xs"
           :class="rowHighlightClass(UNCOMMITTED_HASH)"
           :style="{ height: `${ROW_HEIGHT}px` }"
           @click="onRowClick(UNCOMMITTED_HASH, $event)"

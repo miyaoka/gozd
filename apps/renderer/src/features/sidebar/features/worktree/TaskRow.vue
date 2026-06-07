@@ -77,17 +77,17 @@ const STATE_VISUAL: Record<
   },
   resumable: {
     icon: "icon-[lucide--square-play]",
-    color: "text-foreground-low/60",
+    color: "text-foreground-muted",
     ariaLabel: "Resumable",
   },
   closed: {
     icon: "icon-[lucide--eye-closed]",
-    color: "text-foreground-low/60",
+    color: "text-foreground-muted",
     ariaLabel: "Closed by user",
   },
   "not-started": {
     icon: "icon-[lucide--circle-dashed]",
-    color: "text-foreground-low/60",
+    color: "text-foreground-muted",
     ariaLabel: "Not started",
   },
 };
@@ -130,8 +130,8 @@ const bubbleText = computed<string | undefined>(() => {
 
 const bubbleColorClass = computed(() => {
   const status = props.status;
-  if (status?.state === "done") return "text-success-text/70";
-  if (status?.state === "asking") return "text-warning-strong-text/70";
+  if (status?.state === "done") return "text-success-text";
+  if (status?.state === "asking") return "text-warning-strong-text";
   return "";
 });
 
@@ -158,7 +158,7 @@ function onRowDblClick() {
     <button
       type="button"
       :data-active="active"
-      class="flex w-full items-center gap-2 rounded-lg p-2 text-left transition-colors hover:bg-element-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset data-[active=true]:bg-primary/30"
+      class="flex w-full items-center gap-2 rounded-lg p-2 text-left transition-colors hover:bg-element-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset data-[active=true]:bg-primary-subtle"
       @click="emit('select', task)"
       @dblclick="onRowDblClick"
     >
@@ -169,7 +169,7 @@ function onRowDblClick() {
         :aria-label="visual.ariaLabel"
       />
       <span class="line-clamp-2 flex-1 text-sm break-all" :title="title">{{ title }}</span>
-      <span class="text-[10px] tabular-nums opacity-70">{{ relativeTime }}</span>
+      <span class="text-[10px] text-foreground-muted tabular-nums">{{ relativeTime }}</span>
     </button>
     <button
       type="button"

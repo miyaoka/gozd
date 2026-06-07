@@ -331,7 +331,7 @@ useEventListener(window, "pointerup", () => {
           <div
             v-if="playheadPct !== undefined"
             class="pointer-events-none absolute inset-y-0 z-20 w-px"
-            :class="scrubbing ? 'bg-foreground' : 'bg-foreground/70'"
+            :class="scrubbing ? 'bg-foreground' : 'bg-foreground-low'"
             :style="{ left: `${playheadPct}%` }"
           />
         </div>

@@ -421,14 +421,14 @@ const lineNoWidth = computed(() => {
 });
 
 const LINE_BG_CLASSES: Record<DiffLineKindName, string> = {
-  added: "bg-success/10",
-  removed: "bg-destructive/10",
+  added: "bg-success-subtle",
+  removed: "bg-destructive-subtle",
   unchanged: "",
 };
 
 const LINE_FALLBACK_CLASSES: Record<DiffLineKindName, string> = {
-  added: "text-success-text bg-success/10",
-  removed: "text-destructive-text bg-destructive/10",
+  added: "text-success-text bg-success-subtle",
+  removed: "text-destructive-text bg-destructive-subtle",
   unchanged: "text-foreground",
 };
 

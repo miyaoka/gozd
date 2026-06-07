@@ -223,7 +223,7 @@ const activeRootWorktree = computed(() => {
           title="Claude terminals"
           :aria-pressed="terminalStore.viewMode === 'claude'"
           :disabled="terminalStore.claudeActiveLeafIds.length === 0"
-          class="grid size-7 place-items-center rounded-sm text-foreground-low hover:bg-panel hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-foreground-low"
+          class="grid size-7 place-items-center rounded-sm text-foreground-low hover:bg-panel hover:text-foreground disabled:cursor-not-allowed disabled:text-foreground-muted disabled:hover:bg-transparent disabled:hover:text-foreground-muted"
           :class="terminalStore.viewMode === 'claude' && 'bg-element text-foreground'"
           @click="terminalStore.viewMode = 'claude'"
         >
@@ -239,7 +239,7 @@ const activeRootWorktree = computed(() => {
           class="grid size-7 place-items-center rounded-sm transition-colors"
           :class="
             editMode
-              ? 'bg-primary text-foreground hover:bg-primary'
+              ? 'bg-primary text-foreground hover:bg-primary-hover'
               : 'text-foreground-low hover:bg-panel hover:text-foreground'
           "
           @click="toggleEditMode"
@@ -310,7 +310,7 @@ const activeRootWorktree = computed(() => {
             Cancel
           </button>
           <button
-            class="rounded-sm bg-destructive px-3 py-1.5 text-sm text-foreground hover:bg-destructive"
+            class="rounded-sm bg-destructive px-3 py-1.5 text-sm text-foreground hover:bg-destructive-hover"
             @click="executeConfirm"
           >
             OK

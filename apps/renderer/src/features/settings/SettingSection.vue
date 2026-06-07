@@ -21,7 +21,7 @@ const emit = defineEmits<{
     <h3 class="mb-2 text-xs font-medium tracking-wider text-foreground-low uppercase">
       {{ section.title }}
     </h3>
-    <div class="divide-y divide-border/50">
+    <div class="divide-y divide-border-subtle">
       <SettingField
         v-for="(setting, key) in section.settings"
         :key="key"

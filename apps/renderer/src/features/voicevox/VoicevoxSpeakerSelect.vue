@@ -45,7 +45,7 @@ function handleStyleChange(event: Event) {
     <template v-if="voicevoxStore.speakers.length > 0">
       <div
         v-if="voicevoxStore.speakerIdIsStale"
-        class="flex items-start gap-2 rounded-sm bg-warning/40 px-2 py-1 text-xs text-warning-text"
+        class="flex items-start gap-2 rounded-sm bg-warning-subtle px-2 py-1 text-xs text-warning-text"
       >
         <span class="icon-[lucide--triangle-alert] size-4 shrink-0" />
         <div class="flex-1">
@@ -81,7 +81,7 @@ function handleStyleChange(event: Event) {
         <span class="icon-[lucide--palette] size-4 shrink-0" title="Style" />
         <select
           aria-label="VOICEVOX style"
-          class="min-w-0 flex-1 rounded-sm bg-panel px-1 py-0.5 text-foreground disabled:opacity-50"
+          class="min-w-0 flex-1 rounded-sm bg-panel px-1 py-0.5 text-foreground disabled:cursor-not-allowed disabled:text-foreground-muted"
           :disabled="currentStyles.length <= 1"
           :value="voicevoxStore.effectiveSpeakerId"
           @change="handleStyleChange"

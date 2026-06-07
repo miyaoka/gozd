@@ -11,7 +11,7 @@ const voicevoxStore = useVoicevoxStore();
 </script>
 
 <template>
-  <div class="border-t border-border/50 px-4 py-3">
+  <div class="border-t border-border-subtle px-4 py-3">
     <template v-if="voicevoxStore.enabled">
       <div class="flex flex-col gap-2">
         <button

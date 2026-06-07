@@ -9,14 +9,35 @@
  *
  * Radix step → role 写像に揃えた WCAG2 contrast ratios:
  *   1     bg 自身
- *   2-5   bg / component bg (rest/hover/active)
+ *   2-5   bg / component bg (rest/hover/active)        ← subtle chip / active row
  *   6-8   border (subtle/interactive/strong)
- *   9-10  solid bg (rest/hover)
+ *   9-10  solid bg (rest/hover)                         ← CTA / badge 本体
  *   11    low-contrast text (WCAG2 8.0+)
  *   12    high-contrast text (WCAG2 14.0+)
  *
  * 再生成: pnpm install (prepare で自動) または pnpm --filter @gozd/design-tokens
  *         build。brand identity を変えたいときは BRAND を編集して再生成。
+ *
+ * ## Leonardo の使い方 — colorKeys に複数 anchor を渡す
+ *
+ * Leonardo の `Color({ colorKeys })` は anchor 配列の間を補間する。anchor が
+ * 1 つだけだと内部で `[white, brand, black]` 構成になり、chroma curve を
+ * designer 側で制御できない。chroma-js OKLCH mode の補間が brand の chroma を
+ * 全 step にほぼ保つため、低 step で subtle にならない (gamut の隅にある hue
+ * では overshoot も起きる)。
+ *
+ * 公式 README (`packages/contrast-colors/README.md`) の `Color` 例は 2 anchor を
+ * 渡し、補間 spine を designer が制御する設計を canonical pattern としている
+ * (BackgroundColor のような無彩色 scale は単一 anchor で十分)。Radix Dark 流の
+ * 「低 step で chroma を絞る」curve を得るには、各 intent に **dark anchor +
+ * brand anchor + light anchor** の 3 点を渡して chroma を物理的に下げる。
+ *
+ * dark / light anchor は brand hex から hue だけ取り、L と C を固定値で構築:
+ *   - dark : oklch(0.18, 0.04, hue) — step 1-5 の chroma を絞る
+ *   - light: oklch(0.93, 0.03, hue) — step 11-12 の chroma を絞る
+ *
+ * これで Leonardo は `[white, light, brand, dark, black]` の 5 点を spline 補間し、
+ * 両端で chroma が tapered する Radix-style scale を出力する。
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -40,9 +61,23 @@ const STEP_RATIOS_INTENT = [1.05, 1.15, 1.3, 1.5, 1.8, 2.2, 2.8, 3.5, 4.5, 5.5, 
 /* BackgroundColor scale 上で bg が位置する % (dark UI のため低い値) */
 const DARK_LIGHTNESS = 11;
 
-/* Leonardo の chroma-js module 拡張が型推論を unknown に倒すため明示 cast */
+/* intent ごとの chroma 絞り anchor の OKLCH パラメタ。
+ * brand hex から hue を取り、L / C を固定値で構築する。 */
+const DARK_ANCHOR_L = 0.18;
+const DARK_ANCHOR_C = 0.04;
+const LIGHT_ANCHOR_L = 0.93;
+const LIGHT_ANCHOR_C = 0.03;
+
+/* Leonardo 内蔵の chroma-js.d.ts shim が `@types/chroma-js` を shadow するため
+ * chroma の instance method (.oklch()) と factory (chroma.oklch(L, C, H)) が
+ * 型推論で unknown に倒れる。両 API を 1 箇所に集約して unknown cast を 1 度だけ書く。 */
+const chromaApi = chroma as unknown as {
+  (input: string): { oklch: () => [number, number, number] };
+  oklch: (l: number, c: number, h: number) => { hex: () => string };
+};
+
 function oklchOf(hex: string): [number, number, number] {
-  return (chroma(hex) as unknown as { oklch: () => [number, number, number] }).oklch();
+  return chromaApi(hex).oklch();
 }
 
 function toOklch(hex: string): string {
@@ -52,6 +87,16 @@ function toOklch(hex: string): string {
   /* chroma=0 (pure gray) は NaN hue を 0 に正規化 */
   const hr = Number.isNaN(h) ? "0" : (Math.round(h * 10) / 10).toString();
   return `oklch(${lr} ${cr} ${hr})`;
+}
+
+/* brand hex の hue を保ったまま L/C を差し替えた anchor hex を生成。
+ * これを Leonardo の colorKeys に追加して chroma curve を制御する。
+ * Leonardo の colorKeys は CssColor (RgbHexColor = `#${string}` の template literal)
+ * を受けるが、chroma の .hex() は string を返すので narrow cast する。 */
+function buildAnchor(brandHex: string, l: number, c: number): `#${string}` {
+  const [, , h] = oklchOf(brandHex);
+  const hue = Number.isNaN(h) ? 0 : h;
+  return chromaApi.oklch(l, c, hue).hex() as `#${string}`;
 }
 
 /* white overlay on bg で色 T を再現する alpha を計算
@@ -64,6 +109,8 @@ function alphaForGray(target: string, bg: string): string {
   return `oklch(1 0 0 / ${Math.round(a * 1000) / 1000})`;
 }
 
+/* gray は無彩色なので chroma curve 制御不要。単一 brand anchor で十分
+ * (補間 chroma が全 step で 0 のままになる)。 */
 const gray = new BackgroundColor({
   name: "gray",
   colorKeys: [BRAND.gray],
@@ -71,11 +118,18 @@ const gray = new BackgroundColor({
   ratios: STEP_RATIOS_BG,
 });
 
+/* intent は dark/brand/light の 3 anchor を渡して chroma 両端 tapering を強制する。
+ * 単一 anchor だと chroma が全 step で brand 並みに維持され、低 step が subtle に
+ * ならない (PR #718 の元コードがこれで blue-3 が C=0.183 と他 intent の 1.4 倍出た)。 */
 const intents = (["blue", "red", "green", "amber", "orange"] as const).map(
   (name) =>
     new Color({
       name,
-      colorKeys: [BRAND[name]],
+      colorKeys: [
+        buildAnchor(BRAND[name], DARK_ANCHOR_L, DARK_ANCHOR_C),
+        BRAND[name],
+        buildAnchor(BRAND[name], LIGHT_ANCHOR_L, LIGHT_ANCHOR_C),
+      ],
       colorSpace: "OKLCH",
       ratios: STEP_RATIOS_INTENT,
     }),

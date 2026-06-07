@@ -85,15 +85,6 @@ function lastNMessagesOf(
   return out;
 }
 
-// bubble 表示用に 1 行目だけを抽出する。markdown コードフェンス / リスト / 複数段落を含む
-// 投稿でも overlay の縦領域が膨らまないよう、文字列レベルで構造を切る (CSS の truncate
-// だけでは改行を持つ multi-line textnode を畳めない)。popover 側は openPreview に全文を
-// 渡すので、ここで切り詰めた値とは独立して動く。
-function firstLine(text: string): string {
-  const idx = text.indexOf("\n");
-  return idx === -1 ? text : text.slice(0, idx);
-}
-
 // main session の events。サブで二度評価されるのを避けるため computed に切る。
 const mainEvents = computed<TranscriptEvent[]>(() => {
   const main = sessions.value.find((s) => s.kind === "main");
@@ -172,17 +163,17 @@ const hasSub = computed(() => subMessages.value.length > 0);
   <!-- main: 右上。user / assistant 各最大 2 件を時系列順に LINE 風吹き出しで並べる -->
   <div
     v-if="hasMain"
-    class="pointer-events-none absolute top-1 right-3 z-10 flex w-[18rem] max-w-[40%] flex-col gap-0.5 p-2 text-xs/tight"
+    class="pointer-events-none absolute top-1 right-3 z-10 flex w-56 max-w-[35%] flex-col gap-1 p-2 text-xs/tight"
   >
     <div
       v-for="msg in mainMessages"
       :key="`${msg.kind}-${msg.ts}`"
-      class="flex"
+      class="flex min-w-0"
       :class="msg.kind === 'user' ? 'justify-end' : ''"
     >
       <button
         type="button"
-        class="pointer-events-auto max-w-[85%] cursor-pointer truncate rounded-lg px-2 py-0.5 text-left hover:brightness-110"
+        class="pointer-events-auto block max-w-[85%] cursor-pointer rounded-lg px-2 py-1 text-left hover:brightness-110"
         :class="
           msg.kind === 'user'
             ? 'bg-chat-outgoing text-chat-outgoing-text'
@@ -191,7 +182,7 @@ const hasSub = computed(() => subMessages.value.length > 0);
         :title="msg.text"
         @click="openPreview($event, msg.text, msg.kind)"
       >
-        {{ firstLine(msg.text) }}
+        <span class="line-clamp-2">{{ msg.text }}</span>
       </button>
     </div>
   </div>
@@ -199,17 +190,17 @@ const hasSub = computed(() => subMessages.value.length > 0);
   <!-- sub: 右下。main と同じ LINE 風シーケンス。物理的距離で main との混在を回避する -->
   <div
     v-if="hasSub"
-    class="pointer-events-none absolute right-3 bottom-1 z-10 flex w-[18rem] max-w-[40%] flex-col gap-0.5 p-2 text-xs/tight"
+    class="pointer-events-none absolute right-3 bottom-1 z-10 flex w-56 max-w-[35%] flex-col gap-1 p-2 text-xs/tight"
   >
     <div
       v-for="msg in subMessages"
       :key="`${msg.kind}-${msg.ts}`"
-      class="flex"
+      class="flex min-w-0"
       :class="msg.kind === 'user' ? 'justify-end' : ''"
     >
       <button
         type="button"
-        class="pointer-events-auto max-w-[85%] cursor-pointer truncate rounded-lg px-2 py-0.5 text-left hover:brightness-110"
+        class="pointer-events-auto block max-w-[85%] cursor-pointer rounded-lg px-2 py-1 text-left hover:brightness-110"
         :class="
           msg.kind === 'user'
             ? 'bg-chat-outgoing text-chat-outgoing-text'
@@ -218,7 +209,7 @@ const hasSub = computed(() => subMessages.value.length > 0);
         :title="msg.text"
         @click="openPreview($event, msg.text, msg.kind)"
       >
-        {{ firstLine(msg.text) }}
+        <span class="line-clamp-2">{{ msg.text }}</span>
       </button>
     </div>
   </div>

@@ -46,6 +46,9 @@ type RawFile = {
  * ChangesSummaryView (View all) が「ツリーで見える順に縦積み」したいときに使う。ソート規律
  * (フォルダ先 + 各群を localeCompare、chain 圧縮込み) は `buildChangesTree` に閉じているため、
  * 本関数はそれを再現せずツリー自体を走査することで SSOT を保つ。
+ *
+ * 入力は `ChangesTreeNode[]` (= 構造) のみ。ChangesPane の `collapsedFolders` のような描画状態は
+ * 受け取らないため、結果は collapsed 状態に依存せず常に全件展開された順序になる。
  */
 export function flattenChangesTree(tree: readonly ChangesTreeNode[]): GitFileChange[] {
   const out: GitFileChange[] = [];

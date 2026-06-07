@@ -16,6 +16,8 @@ import {
   useWorktreeStore,
 } from "../worktree";
 import type { GitChangeKind } from "../worktree";
+import { buildChangesTree, flattenChangesTree } from "./changesTree";
+import type { ChangesTreeNode } from "./changesTree";
 
 const TYPE_MAP: Record<GitChangeKind, GitFileChange["type"]> = {
   modified: "M",
@@ -250,7 +252,41 @@ export const useChangesStore = defineStore("changes", () => {
     { immediate: true },
   );
 
-  return { fileChanges, loading };
+  /**
+   * GitHub PR 風の chain 圧縮済みディレクトリツリー。`fileChanges` の派生 SSOT。
+   *
+   * ChangesPane (tree view) と ChangesSummaryView (縦並び view) の両方が購読する。tree 構築を
+   * 個々の view 側で行うと、`fileChanges` 1 更新あたり `buildChangesTree` が view 数ぶん独立に走り、
+   * 不正 path で throw する経路に到達した場合の `notification.error` も view ごとに二重発火するため、
+   * 派生先を store の同期 computed に閉じる。
+   *
+   * `buildChangesTree` は不正 path (空 segment / 重複 / file⇔folder 衝突) で throw する契約。失敗時は
+   * Result を経由して空配列に倒し、純粋な値だけ返す。トースト通知は同一 store 内の `watch(treeResult)`
+   * で副作用として 1 回だけ発射する (computed が副作用を持たない Vue 規律と整合)。
+   */
+  const treeResult = computed(() => tryCatch(() => buildChangesTree(fileChanges.value)));
+  const tree = computed<ChangesTreeNode[]>(() =>
+    treeResult.value.ok ? treeResult.value.value : [],
+  );
+
+  /**
+   * ChangesPane のツリー描画と同順にフラット化したファイル一覧 (depth-first、folder 先 + localeCompare、
+   * chain 圧縮込み)。ChangesSummaryView が縦並び diff の表示順として購読する。
+   *
+   * ChangesPane の `collapsedFolders` は描画上の折りたたみ状態であって `tree` 自体には影響しないため、
+   * Summary は collapsed 状態に依存せず全件を展開した順序になる (View all の意味論と整合)。
+   *
+   * tree 構築失敗時は元の `fileChanges` 順にフォールバックする (空表示にせず、Summary がそのまま動く)。
+   */
+  const orderedFileChanges = computed<GitFileChange[]>(() =>
+    treeResult.value.ok ? flattenChangesTree(treeResult.value.value) : fileChanges.value,
+  );
+
+  watch(treeResult, (result) => {
+    if (!result.ok) notification.error("Failed to build changes tree", result.error);
+  });
+
+  return { fileChanges, loading, tree, orderedFileChanges };
 });
 
 if (import.meta.hot) {

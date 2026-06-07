@@ -27,6 +27,7 @@ import { useWorktreeStore } from "../worktree";
 import type { ClaudeState } from "./claudeStatus";
 import { CLAUDE_STATE_ICON } from "./claudeStatus";
 import { currentTheme } from "./terminalConfig";
+import TerminalSessionPreview from "./TerminalSessionPreview.vue";
 import { useTerminalStore } from "./useTerminalStore";
 import XtermTerminal from "./XtermTerminal.vue";
 
@@ -130,6 +131,8 @@ function handleTerminalBlur() {
         />
         <span>{{ CLAUDE_STATE_LABEL[claudeState] }}</span>
       </div>
+      <!-- セッションログ preview（main / sub の最新 user / assistant 発言を右上に固定表示） -->
+      <TerminalSessionPreview :leaf-id="leafId" />
       <div
         class="size-full overflow-hidden p-2 transition-opacity"
         :class="isFocused ? 'opacity-100' : 'opacity-50'"

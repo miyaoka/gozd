@@ -101,7 +101,9 @@ function isHistoryDisabled(): boolean {
             viewMode === 'history'
               ? 'text-primary-text'
               : 'text-foreground-low hover:text-foreground',
-            isHistoryDisabled() ? 'cursor-not-allowed opacity-40' : '',
+            isHistoryDisabled()
+              ? 'cursor-not-allowed text-foreground-muted hover:text-foreground-muted'
+              : '',
           ]"
           :disabled="isHistoryDisabled()"
           :title="isHistoryDisabled() ? HISTORY_DISABLED_TITLE : ''"
@@ -150,7 +152,7 @@ function isHistoryDisabled(): boolean {
             <div class="mt-3 flex items-center gap-2">
               <button
                 type="button"
-                class="rounded-sm border border-border px-2 py-1 text-xs text-foreground hover:bg-panel disabled:cursor-not-allowed disabled:opacity-40"
+                class="rounded-sm border border-border px-2 py-1 text-xs text-foreground hover:bg-panel disabled:cursor-not-allowed disabled:border-border-subtle disabled:text-foreground-muted disabled:hover:bg-transparent"
                 :disabled="isHistoryDisabled()"
                 :title="isHistoryDisabled() ? HISTORY_DISABLED_TITLE : ''"
                 @click="setViewMode('history')"

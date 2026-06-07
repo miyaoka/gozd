@@ -433,8 +433,8 @@ function onContextMenu(event: MouseEvent) {
       :class="[
         selectedRelPath === path ? 'bg-element' : '',
         textColorClass,
-        isDeleted ? 'line-through opacity-60' : '',
-        isInertLeaf ? 'cursor-not-allowed opacity-60' : '',
+        isDeleted ? 'text-foreground-muted line-through' : '',
+        isInertLeaf ? 'cursor-not-allowed text-foreground-muted' : '',
       ]"
       :style="{ paddingLeft: `${depth * 16 + 4}px` }"
       :title="kind === 'submodule' ? 'submodule (not previewable)' : undefined"
@@ -453,7 +453,7 @@ function onContextMenu(event: MouseEvent) {
       <img
         :src="iconUrl"
         class="size-4 shrink-0"
-        :class="isIgnored === true ? 'opacity-50' : ''"
+        :class="isIgnored === true ? 'grayscale' : ''"
         alt=""
       />
       <span class="truncate">{{ name }}</span>

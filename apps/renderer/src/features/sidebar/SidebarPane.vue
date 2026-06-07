@@ -223,7 +223,7 @@ const activeRootWorktree = computed(() => {
           title="Claude terminals"
           :aria-pressed="terminalStore.viewMode === 'claude'"
           :disabled="terminalStore.claudeActiveLeafIds.length === 0"
-          class="grid size-7 place-items-center rounded-sm text-foreground-low hover:bg-panel hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-foreground-low"
+          class="grid size-7 place-items-center rounded-sm text-foreground-low hover:bg-panel hover:text-foreground disabled:cursor-not-allowed disabled:text-foreground-muted disabled:hover:bg-transparent disabled:hover:text-foreground-muted"
           :class="terminalStore.viewMode === 'claude' && 'bg-element text-foreground'"
           @click="terminalStore.viewMode = 'claude'"
         >

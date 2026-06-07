@@ -81,7 +81,7 @@ function handleStyleChange(event: Event) {
         <span class="icon-[lucide--palette] size-4 shrink-0" title="Style" />
         <select
           aria-label="VOICEVOX style"
-          class="min-w-0 flex-1 rounded-sm bg-panel px-1 py-0.5 text-foreground disabled:opacity-50"
+          class="min-w-0 flex-1 rounded-sm bg-panel px-1 py-0.5 text-foreground disabled:cursor-not-allowed disabled:text-foreground-muted"
           :disabled="currentStyles.length <= 1"
           :value="voicevoxStore.effectiveSpeakerId"
           @change="handleStyleChange"

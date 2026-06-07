@@ -84,7 +84,7 @@ function onClickViewAll() {
       <button
         v-if="prDiffToggle.canEnable"
         type="button"
-        class="ml-auto flex items-center gap-1 px-2 py-0.5 text-xs transition-colors disabled:cursor-progress disabled:opacity-60"
+        class="ml-auto flex items-center gap-1 px-2 py-0.5 text-xs transition-colors disabled:cursor-progress disabled:text-foreground-muted"
         :class="
           prDiffToggle.isOn ? 'text-primary-text' : 'text-foreground-low hover:text-foreground'
         "

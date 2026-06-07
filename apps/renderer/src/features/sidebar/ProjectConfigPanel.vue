@@ -101,7 +101,7 @@ onMounted(() => {
             Cancel
           </button>
           <button
-            class="rounded-sm bg-primary px-2 py-1 text-xs text-foreground hover:bg-primary disabled:opacity-40 disabled:hover:bg-primary"
+            class="rounded-sm bg-primary px-2 py-1 text-xs text-foreground hover:bg-primary disabled:bg-element disabled:text-foreground-muted disabled:hover:bg-element"
             :disabled="!isDirty || isSaving"
             @click="save"
           >

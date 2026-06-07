@@ -135,7 +135,7 @@ function onHeaderClick() {
       />
       <button
         type="button"
-        class="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border px-2 py-1.5 text-xs text-foreground-low transition-colors hover:border-border-strong hover:bg-element-hover hover:text-foreground disabled:opacity-50"
+        class="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border px-2 py-1.5 text-xs text-foreground-low transition-colors hover:border-border-strong hover:bg-element-hover hover:text-foreground disabled:cursor-not-allowed disabled:text-foreground-muted disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-foreground-muted"
         :disabled="isCreating"
         @click="emit('addWorktree', rootDir)"
       >

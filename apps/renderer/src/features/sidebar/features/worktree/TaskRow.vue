@@ -169,7 +169,7 @@ function onRowDblClick() {
         :aria-label="visual.ariaLabel"
       />
       <span class="line-clamp-2 flex-1 text-sm break-all" :title="title">{{ title }}</span>
-      <span class="text-[10px] tabular-nums opacity-70">{{ relativeTime }}</span>
+      <span class="text-[10px] text-foreground-muted tabular-nums">{{ relativeTime }}</span>
     </button>
     <button
       type="button"

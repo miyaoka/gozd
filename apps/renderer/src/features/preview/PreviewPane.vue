@@ -27,7 +27,7 @@
 
 Markdown preview の内部リンク履歴 (`useMarkdownHistoryStore`) を操作する矢印ボタン。
 履歴の有無で header の幅が揺れないよう常時描画し、`canGoBack` / `canGoForward` が false の側は
-`disabled` 属性 + `disabled:opacity-40` で見た目だけ落とす。
+`disabled` 属性 + `disabled:text-foreground-muted` で見た目だけ落とす (Primer "NEVER use opacity for disabled" 規律に従い solid token を使う)。
 </doc>
 
 <script setup lang="ts">
@@ -893,7 +893,7 @@ watch(
       <!-- markdown preview 内部リンク履歴ナビ。履歴の有無でレイアウトが揺れないよう常時表示 -->
       <button
         type="button"
-        class="shrink-0 text-foreground-low hover:text-foreground disabled:cursor-default disabled:opacity-40 disabled:hover:text-foreground-low"
+        class="shrink-0 text-foreground-low hover:text-foreground disabled:cursor-default disabled:text-foreground-muted disabled:hover:text-foreground-muted"
         :disabled="!markdownHistory.canGoBack"
         title="Go back"
         aria-label="Go back"
@@ -903,7 +903,7 @@ watch(
       </button>
       <button
         type="button"
-        class="shrink-0 text-foreground-low hover:text-foreground disabled:cursor-default disabled:opacity-40 disabled:hover:text-foreground-low"
+        class="shrink-0 text-foreground-low hover:text-foreground disabled:cursor-default disabled:text-foreground-muted disabled:hover:text-foreground-muted"
         :disabled="!markdownHistory.canGoForward"
         title="Go forward"
         aria-label="Go forward"

@@ -22,13 +22,16 @@ const pr = computed(() => {
   return props.prByBranch.get(branchName);
 });
 
-// remote は alpha で local を弱体化するのではなく、neutral chip (bg-element + foreground-low)
-// に切り替えて「known but not actionable」を構造的に示す。alpha hack は任意 bg 上で
-// contrast が崩れる (Improta 3 大禁忌)。
+// actionable 軸で色を分ける:
+//   synced     = neutral chip。両方にあるので追加 action 不要 = 最も「not actionable」
+//   local      = success-subtle。push 候補 (remote にまだない)
+//   remote     = success-subtle。fetch 候補 (local にまだない)。local と同色だが
+//                label 先頭の `origin/` prefix と link-2-off icon で区別される
+//   tag        = primary-subtle。branch とは別概念 (hue で分離)
 const REF_TYPE_CLASS: Record<DisplayRef["type"], string> = {
-  synced: "bg-success-subtle text-success-text",
+  synced: "bg-element text-foreground-low",
   local: "bg-success-subtle text-success-text",
-  remote: "bg-element text-foreground-low",
+  remote: "bg-success-subtle text-success-text",
   tag: "bg-primary-subtle text-primary-text",
 };
 

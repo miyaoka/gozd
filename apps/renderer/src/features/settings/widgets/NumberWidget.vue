@@ -17,7 +17,7 @@ const model = defineModel<number>({ required: true });
     <input
       type="range"
       :aria-label="props.setting.label"
-      class="h-1 w-40 cursor-pointer appearance-none rounded-full bg-element accent-blue-500"
+      class="h-1 w-40 cursor-pointer appearance-none rounded-full bg-element accent-primary"
       :min="props.setting.min"
       :max="props.setting.max"
       :step="props.setting.step"

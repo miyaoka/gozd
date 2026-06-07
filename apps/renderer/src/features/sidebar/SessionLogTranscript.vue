@@ -562,10 +562,10 @@ onBeforeUnmount(teardownObserver);
           class="flex scroll-mt-2 items-end gap-1.5"
           :class="ev.kind === 'assistant' ? 'flex-row' : 'flex-row-reverse'"
         >
-          <!-- assistant: markdown 吹き出し (相手色 zinc-800)。
-                 MarkdownBody はコードブロック背景を暗地前提の zinc-800 で固定するため、
+          <!-- assistant: markdown 吹き出し (相手色 = panel)。
+                 MarkdownBody はコードブロック背景を暗地前提の panel surface で固定するため、
                  塗りを被せると地より暗いブロックが浮く明度反転になる。`--md-code-bg` で地より
-                 一段明るい zinc-700 を渡し、preview と同じ「地 < code」の明度順を保つ。 -->
+                 一段明るい element surface を渡し、preview と同じ「地 < code」の明度順を保つ。 -->
           <div
             v-if="ev.kind === 'assistant'"
             class="min-w-0 rounded-2xl rounded-tl-sm bg-panel px-3 py-1.5 text-sm text-foreground [--md-code-bg:var(--color-element)]"
@@ -578,8 +578,9 @@ onBeforeUnmount(teardownObserver);
           </div>
 
           <!-- user: 素テキスト吹き出し (自分色)。LINE の自分発話に倣い緑塗り。
-                 緑は唯一のアクセントとし、相手 (無彩) と hue で 1 つだけ差をつける。暗 UI
-                 (zinc-900 地) で面が主張しすぎないよう緑は一段暗い green-800 に抑える。 -->
+                 success intent を唯一のアクセントとし、相手 (無彩) と hue で 1 つだけ差をつける。
+                 暗 UI (background) で面が主張しすぎないよう success solid ではなく subtle
+                 chip pattern (`bg-success/15 text-success-text`) で抑える。 -->
           <div
             v-else-if="ev.kind === 'user'"
             class="min-w-0 rounded-2xl rounded-tr-sm bg-success/15 px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-success-text"

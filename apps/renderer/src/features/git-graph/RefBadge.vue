@@ -29,8 +29,8 @@ const REF_TYPE_CLASS: Record<DisplayRef["type"], string> = {
   tag: "bg-primary/15 text-primary-text",
 };
 
-const CURRENT_LOCAL_CLASS = "bg-warning text-background";
-const CURRENT_REMOTE_CLASS = "bg-warning text-background opacity-50";
+const CURRENT_LOCAL_CLASS = "bg-warning text-warning-foreground";
+const CURRENT_REMOTE_CLASS = "bg-warning text-warning-foreground opacity-50";
 const DEFAULT_CLASS = "ring-1 ring-inset ring-current";
 </script>
 

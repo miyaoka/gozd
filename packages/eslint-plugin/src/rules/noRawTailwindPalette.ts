@@ -48,7 +48,8 @@ const UTILITY_PREFIX = new Set([
   "accent",
 ]);
 
-/* Tailwind 標準 palette 名 */
+/* Tailwind 標準 palette 名 (shade 番号を伴う chromatic / grayscale 全 hue) +
+ * 単独で utility になる shade なし palette (white / black) */
 const PALETTE = new Set([
   "zinc",
   "neutral",
@@ -72,12 +73,17 @@ const PALETTE = new Set([
   "fuchsia",
   "pink",
   "rose",
+  "white",
+  "black",
 ]);
 
 /** utility class 形を 1 個 parse して violation token を返す。なければ undefined */
 function detectClassViolation(token: string): string | undefined {
-  /* variant prefix + bang を剥がす: (variant:)*(!?)<base>(/alpha)? */
-  const stripped = token.replace(/^(?:[a-z-]+:)*!?/, "");
+  /* variant prefix + bang を剥がす。variant は Tailwind v4 の bracket variant
+   * (`data-[state=open]:` / `peer-[…]:` / `aria-[…]:` / `[&_li]:` 等) を含む
+   * 任意 prefix + `:`。bracket は内側に任意文字 ( `[a-z-]+:` だけだと `[` で
+   * 落ちる ) を含むため、`[^:]+:` で 1 階層ずつ消費する */
+  const stripped = token.replace(/^(?:[^:]+:)*!?/, "");
   const slashAt = stripped.indexOf("/");
   const base = slashAt === -1 ? stripped : stripped.slice(0, slashAt);
   const alpha = slashAt === -1 ? "" : stripped.slice(slashAt);
@@ -99,8 +105,10 @@ function detectClassViolation(token: string): string | undefined {
 const CSS_VAR_RE = /var\(--color-([a-z]+)(?:-(\d+))?\)/g;
 
 /** sourceText 全体から primitive CSS var (`var(--<palette>-<step>)` / `var(--<palette>-a<step>)`)
- * を抽出。primitive を semantic layer 経由せず直接参照すると AI が 3-tier を bypass する */
-const PRIMITIVE_VAR_RE = /var\(--(gray|blue|red|green|amber|orange|graph-lane)-a?(\d+)\)/g;
+ * を抽出。primitive を semantic layer 経由せず直接参照すると AI が 3-tier を bypass する。
+ * Tier 1 primitives (@gozd/design-tokens) のみ列挙する。Tier 2 alias 名 (graph-lane 等)
+ * は混ぜない */
+const PRIMITIVE_VAR_RE = /var\(--(gray|blue|red|green|amber|orange)-a?(\d+)\)/g;
 
 const rule: Rule.RuleModule = {
   meta: {
@@ -134,10 +142,9 @@ const rule: Rule.RuleModule = {
       }
     }
 
-    /* selector key の型は arbitrary string を許さないため Rule.RuleListener を経由
-     * しない form で組み立てる。`VAttribute > VLiteral` は vue-eslint-parser が
-     * 解釈する standard ESLint selector */
-    const listener: Rule.RuleListener = {
+    /* script AST (Literal / TemplateElement / Program) を walk する listener。
+     * Vue SFC でも script block / sourceText scan はこの listener が処理する */
+    const scriptListener: Rule.RuleListener = {
       Literal(node: Literal) {
         if (typeof node.value !== "string") return;
         checkString(node.value, node);
@@ -147,7 +154,10 @@ const rule: Rule.RuleModule = {
         if (typeof cooked !== "string") return;
         checkString(cooked, node);
       },
-      /* Program 1 回だけ走らせて sourceText 全体を scan (CSS var 形検出) */
+      /* Program 1 回だけ走らせて sourceText 全体を scan (CSS var 形検出)。
+       * Vue SFC では `<script>` 不在でも vue-eslint-parser が空 Module を Program
+       * として常に組み立てるため、`<style>` 内 / template arbitrary value 内の
+       * CSS var もここで拾える */
       Program(node) {
         const text = context.sourceCode.text;
         let m: RegExpExecArray | null;
@@ -173,14 +183,45 @@ const rule: Rule.RuleModule = {
         }
       },
     };
-    /* Vue template VLiteral selector を別 key として後付け。Rule.RuleListener の
-     * index signature が AST node 型に制約されているため unknown 経由で cast */
-    (listener as unknown as Record<string, (node: VueAST.VLiteral) => void>)[
-      "VAttribute > VLiteral"
-    ] = (node) => {
-      checkString(node.value, node);
+
+    /* Vue SFC の template body AST は script AST と別系統で、
+     * `parserServices.defineTemplateBodyVisitor` を通してのみ walk できる。
+     * 通常 listener に `"VAttribute > VLiteral"` を書いても発火しない (公式 docs:
+     * vuejs/vue-eslint-parser README) */
+    type ParserServicesWithVue = {
+      defineTemplateBodyVisitor?: (
+        templateVisitor: Record<string, (node: Rule.Node | VueAST.VLiteral) => void>,
+        scriptVisitor: Rule.RuleListener,
+      ) => Rule.RuleListener;
     };
-    return listener;
+    const parserServices = context.sourceCode.parserServices as ParserServicesWithVue | undefined;
+    if (parserServices?.defineTemplateBodyVisitor !== undefined) {
+      return parserServices.defineTemplateBodyVisitor(
+        {
+          /* plain attribute value (class="..." の右辺) */
+          "VAttribute > VLiteral"(node) {
+            checkString((node as VueAST.VLiteral).value, node);
+          },
+          /* `:class` / `:style` binding 内の JS string literal は VExpressionContainer
+           * 配下の Literal として template body AST にぶら下がる。script visitor の
+           * Literal は <script> 内しか拾わないため、template visitor 側でも個別に発火 */
+          Literal(node) {
+            const lit = node as Literal;
+            if (typeof lit.value !== "string") return;
+            checkString(lit.value, lit);
+          },
+          /* template literal (`` `bg-${x}` ``) の cooked 部分 */
+          TemplateElement(node) {
+            const te = node as TemplateElement;
+            const cooked = te.value.cooked;
+            if (typeof cooked !== "string") return;
+            checkString(cooked, te);
+          },
+        },
+        scriptListener,
+      );
+    }
+    return scriptListener;
   },
 };
 

@@ -546,20 +546,13 @@ const connectorPath = computed(() => {
   return `M${x0},0L${x0},${rowY(head.index)}`;
 });
 
-/** ブランチの色パレット */
-const COLORS = [
-  "#4ec9b0", // teal
-  "#569cd6", // blue
-  "#c586c0", // purple
-  "#ce9178", // orange
-  "#dcdcaa", // yellow
-  "#d16969", // red
-  "#608b4e", // green
-  "#9cdcfe", // light blue
-];
+/** ブランチの色パレット (Tier 2 alias `--color-graph-lane-{1..8}` を循環参照)。
+ * SVG stroke / fill は inline style 経由でしか CSS var を渡せないため、
+ * lane index → CSS var reference を返す */
+const LANE_COUNT = 8;
 
 function colorFor(index: number): string {
-  return COLORS[index % COLORS.length];
+  return `var(--color-graph-lane-${(index % LANE_COUNT) + 1})`;
 }
 
 /**
@@ -1074,7 +1067,7 @@ const isWorkingTreeActive = computed(
               :cx="laneX(0)"
               :cy="ROW_HEIGHT / 2"
               :r="isWorkingTreeActive ? DOT_RADIUS + 1 : DOT_RADIUS"
-              :fill="isWorkingTreeActive ? colorFor(headColor) : '#1c1c1c'"
+              :fill="isWorkingTreeActive ? colorFor(headColor) : 'var(--color-background)'"
               :stroke="colorFor(headColor)"
               stroke-width="2"
             />

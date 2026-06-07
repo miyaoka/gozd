@@ -29,7 +29,7 @@ const voicevoxStore = useVoicevoxStore();
           <input
             type="range"
             aria-label="VOICEVOX speed"
-            class="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-element accent-blue-500"
+            class="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-element accent-primary"
             :min="0.5"
             :max="3.0"
             :step="0.1"
@@ -43,7 +43,7 @@ const voicevoxStore = useVoicevoxStore();
           <input
             type="range"
             aria-label="VOICEVOX volume"
-            class="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-element accent-blue-500"
+            class="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-element accent-primary"
             :min="0.0"
             :max="2.0"
             :step="0.1"

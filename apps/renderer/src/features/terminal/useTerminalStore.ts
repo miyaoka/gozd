@@ -194,6 +194,15 @@ export const useTerminalStore = defineStore("terminal", () => {
     },
     onDataReceived: (ptyId, data) => claude.detectInterrupt(ptyId, data),
     onPtyCleanup: (ptyId) => claude.cleanupPty(ptyId),
+    onSpawnError: ({ dir, error }) => {
+      // spawn 失敗をユーザーに通知する。resume 連打 dedup の catch path 経由で
+      // pendingResumeByLeafId を消すと requestPtySpawn が throw するため、無反応で終わらない
+      // よう必ず通知に倒す。
+      notify.error(
+        "Failed to spawn terminal",
+        error instanceof Error ? error : new Error(`${error}; dir=${dir}`),
+      );
+    },
   });
 
   const claude = createClaudeStatusManager({

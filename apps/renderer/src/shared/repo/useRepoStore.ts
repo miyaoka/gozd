@@ -179,13 +179,16 @@ export const useRepoStore = defineStore("repo", () => {
         const beforeGen = gitStatusesGenSnapshot.get(wt.path);
         const currentGen = gitStatusGenByDir.get(wt.path);
         if (beforeGen !== undefined && currentGen !== undefined && currentGen !== beforeGen) {
-          // fetch 中に push / 単発更新が走っていた → 現値を保持
+          // fetch 中に push / 単発更新が走っていた → 現値を保持。
+          // `gitStatusFull` 出力の atomic snapshot 契約 (statuses / upstream / latestMtime
+          // を 1 セットで扱う) に合わせ、3 フィールドをまとめて fresher 由来に倒す。
           const fresher = current.worktrees.find((w) => w.path === wt.path);
           if (fresher !== undefined) {
             return {
               ...wt,
               gitStatuses: fresher.gitStatuses,
               upstream: fresher.upstream,
+              latestMtime: fresher.latestMtime,
             };
           }
         }

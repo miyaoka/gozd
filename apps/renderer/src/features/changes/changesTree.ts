@@ -10,7 +10,7 @@ export type ChangesTreeNode =
       displaySegments: string[];
       /**
        * 折りたたみ・key 用の anchor。chain 圧縮の **最浅** segment の fullPath を使う。
-       * fileChanges の増減で chain 境界が伸縮しても anchor が動かないため、
+       * 入力 changes の増減で chain 境界が伸縮しても anchor が動かないため、
        * ユーザーが畳んだ状態を保てる。
        */
       anchorPath: string;

@@ -83,6 +83,10 @@
 
   /* intent: info (text-only、solid なし。primary と同 hue の text step を借用) */
   --color-info: var(--blue-11);
+
+  /* scrollbar (UA pseudo-element 専用、utility 化対象なし) */
+  --color-scrollbar-thumb: var(--gray-a6);
+  --color-scrollbar-thumb-hover: var(--gray-a8);
 }
 
 @layer base {
@@ -113,10 +117,10 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: var(--gray-a6);
+    background: var(--color-scrollbar-thumb);
     border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: var(--gray-a8);
+    background: var(--color-scrollbar-thumb-hover);
   }
 }

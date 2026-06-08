@@ -34,7 +34,7 @@ sub overlay の先頭に `subagentTabLabel` 由来の subagent ラベル (Task /
 各 bubble クリックで HTML Popover API ベースの全文ポップオーバーを開く。Popover は
 `shared/popover` の `usePopover` を per-instance で使い、anchor は被クリック bubble。
 CSS anchor positioning (`positionArea` + `positionTryFallbacks`) で画面端に押し出された
-ときは反対側へ flip する。
+ときは反対側へ flip する。同じ bubble を再クリックすると閉じる (トグル)。
 </doc>
 
 <script setup lang="ts">
@@ -193,13 +193,13 @@ const subMessages = computed<PreviewMessage[]>(() => collectMessages(subEvents.v
 const {
   Popover: PreviewPopover,
   context: previewContext,
-  open: openPreviewPopover,
+  toggle: togglePreviewPopover,
 } = usePopover<PreviewMessage>();
 
-function openPreview(event: MouseEvent, msg: PreviewMessage) {
+function togglePreview(event: MouseEvent, msg: PreviewMessage) {
   const anchor = event.currentTarget;
   if (!(anchor instanceof HTMLElement)) return;
-  openPreviewPopover(anchor, msg);
+  togglePreviewPopover(anchor, msg);
 }
 
 // sub overlay の折り畳み状態。`<details>` の `open` 属性を SSOT にすると subagent
@@ -238,7 +238,7 @@ const hasSub = computed(() => subMessages.value.length > 0);
             : 'bg-chat-incoming text-chat-incoming-text'
         "
         :title="msg.text"
-        @click="openPreview($event, msg)"
+        @click="togglePreview($event, msg)"
       >
         <span class="line-clamp-2">{{ msg.text }}</span>
       </button>
@@ -278,7 +278,7 @@ const hasSub = computed(() => subMessages.value.length > 0);
                 : 'bg-chat-incoming text-chat-incoming-text'
             "
             :title="msg.text"
-            @click="openPreview($event, msg)"
+            @click="togglePreview($event, msg)"
           >
             <span class="line-clamp-2">{{ msg.text }}</span>
           </button>

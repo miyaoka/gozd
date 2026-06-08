@@ -62,6 +62,13 @@ interface UsePopoverResult<T> {
   context: ComputedRef<T | undefined>;
   /** anchorEl の直下に popover を開き、context を template に渡す */
   open: (anchorEl: HTMLElement, context: T) => void;
+  /**
+   * 同じ anchorEl で open 中なら閉じ、そうでなければ open する。click で開いた anchor を
+   * 再 click したときの「トグル close」用。light-dismiss が click より先に走るケースでも、
+   * @toggle "closed" は task-queued なので、click ハンドラ実行時点では `openState` が
+   * まだ直前 anchor を保持している → 同期的に同 anchor 判定できる。
+   */
+  toggle: (anchorEl: HTMLElement, context: T) => void;
   /** popover を閉じる。@toggle 経由で openState も clear される */
   close: () => void;
   /** effectScope を破棄して watch を止める。module singleton 利用時の HMR dispose に使う */
@@ -83,6 +90,22 @@ export function usePopover<T>(): UsePopoverResult<T> {
 
   function open(anchorEl: HTMLElement, value: T): void {
     openState.value = { anchorEl, context: value };
+  }
+
+  function toggle(anchorEl: HTMLElement, value: T): void {
+    // 同 anchor の再 click 経路: mousedown で light-dismiss が popover を閉じ、続く click が
+    // この関数を呼ぶが、@toggle "closed" は task-queued のため openState はまだ直前 anchor を
+    // 保持している。ここで openState を undefined に倒すと、後続の queued @toggle "closed" は
+    // `:popover-open` が false の分岐で `openState.value = undefined` を再代入する no-op になり、
+    // 結果として popover は閉じたまま残る。close 後に show を続けないため `suppressNextCloseEmit`
+    // は立てない (立てると onToggle 側で 1 回 skip が消費され、本来の next close が誤検出される)。
+    // hidePopover() は light-dismiss 済みなら no-op、未 dismiss なら冪等に閉じる保険。
+    if (openState.value?.anchorEl === anchorEl) {
+      openState.value = undefined;
+      popoverRef.value?.hidePopover();
+      return;
+    }
+    open(anchorEl, value);
   }
 
   function close(): void {
@@ -138,5 +161,5 @@ export function usePopover<T>(): UsePopoverResult<T> {
     },
   });
 
-  return { Popover, context, open, close, stop };
+  return { Popover, context, open, toggle, close, stop };
 }

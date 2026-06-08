@@ -79,7 +79,7 @@ struct ClaudeSessionLogTests {
     #expect(result.watchDir == projects.path)
   }
 
-  @Test("projects 親 dir が存在しなくても watchDir を返す (renderer 側で error 化)")
+  @Test("projects 親 dir が存在しなければ watchDir 空文字 (renderer 側で error 化)")
   func read_projectsDirMissing() throws {
     let fm = FileManager.default
     let missing = fm.temporaryDirectory
@@ -89,7 +89,7 @@ struct ClaudeSessionLogTests {
       sessionId: "11111111-2222-3333-4444-555555555555", projectsDir: missing)
     #expect(result.found == false)
     #expect(result.entries.isEmpty)
-    #expect(result.watchDir == missing.path)
+    #expect(result.watchDir == "")
   }
 }
 

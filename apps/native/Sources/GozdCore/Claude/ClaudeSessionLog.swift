@@ -57,11 +57,13 @@ public struct ClaudeSessionLogEntry: Sendable, Equatable {
 public struct ClaudeSessionLogResult: Sendable, Equatable {
   public let found: Bool
   public let entries: [ClaudeSessionLogEntry]
-  // renderer が fsWatch を張る dir (必ず実在する path)。
-  //   - found:  main jsonl の親 dir (~/.claude/projects/<encoded>/)
-  //   - !found: ~/.claude/projects/ (projects 親)。当該 sessionId の JSONL が後で書かれた
-  //             ら fsChange 経由で renderer が再 load し、found に転じたら specific dir
-  //             に張り替える。
+  // renderer が fsWatch を張る dir。非空なら実在を保証する。
+  //   - found:                       main jsonl の親 dir (~/.claude/projects/<encoded>/)
+  //   - !found && projectsDir 実在:  ~/.claude/projects/ (projects 親)。当該 sessionId の
+  //                                  JSONL が後で書かれたら fsChange 経由で renderer が
+  //                                  再 load し、found に転じたら specific dir に張り替える
+  //   - !found && projectsDir 不在:  空文字。Claude 未起動環境などで renderer 側で error
+  //                                  化する (silent fallback を持たない)
   public let watchDir: String
 
   public init(found: Bool, entries: [ClaudeSessionLogEntry], watchDir: String) {
@@ -86,8 +88,16 @@ public enum ClaudeSessionLog {
   /// 開発者の実 `~/.claude/projects/` ではなく fixture dir に閉じ込める。production は
   /// 引数なしの `read(sessionId:)` から呼ばれ `homeDirectoryForCurrentUser` 配下を指す。
   static func read(sessionId: String, projectsDir: URL) -> ClaudeSessionLogResult {
-    let projectsDirPath = projectsDir.path
     let fm = FileManager.default
+
+    // projectsDir 不在 (Claude 未起動環境など) では watchDir を空文字に倒す。renderer 側で
+    // notify.error 化され、silent に「watch なし」状態にならない (CLAUDE.md「fallback せずに
+    // エラーにする」)。proto の「非空 watch_dir は実在を保証」契約をここで担保する。
+    var isDir: ObjCBool = false
+    guard fm.fileExists(atPath: projectsDir.path, isDirectory: &isDir), isDir.boolValue else {
+      return ClaudeSessionLogResult(found: false, entries: [], watchDir: "")
+    }
+    let projectsDirPath = projectsDir.path
 
     guard isSafeSessionId(sessionId) else {
       return ClaudeSessionLogResult(found: false, entries: [], watchDir: projectsDirPath)

@@ -80,9 +80,10 @@ message ClaudeSessionLogResponse {
   // Workflow agent は同 subagents/workflows/<wf_id>/agent-*.jsonl に isSidechain ログとして
   // 並ぶ。main の projectDir を起点に両方を列挙する。
   repeated ClaudeSessionLogEntry entries = 2;
-  // ライブ更新で renderer 側が fsWatch を張る親 dir (必ず実在する path)。
-  //   - found=true:  main jsonl の親 dir (~/.claude/projects/<encoded>/)
-  //   - found=false: ~/.claude/projects/ (projects 親)
+  // ライブ更新で renderer 側が fsWatch を張る親 dir。非空なら実在を保証する。
+  //   - found=true:                     main jsonl の親 dir (~/.claude/projects/<encoded>/)
+  //   - found=false && projects 親実在: ~/.claude/projects/ (projects 親)
+  //   - found=false && projects 親不在: 空文字 (Claude 未起動環境など、renderer で error 化)
   // 新規セッションの JSONL は最初の UserPromptSubmit まで作られない。!found 時は projects
   // 親を返し、renderer は当該 sessionId の JSONL 出現を fsChange で検知して再 load する。
   // 次の load 結果で found に転じたら main jsonl 親 dir に張り替える。fsChange の

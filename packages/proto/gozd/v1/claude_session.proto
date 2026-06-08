@@ -26,13 +26,12 @@ message ClaudeSessionRemoveByPtyResponse {
 }
 
 // Claude Code が ~/.claude/projects/<cwd エンコード>/<session_id>.jsonl に書き出した
-// セッションログ (JSONL) を読む。サイドバー task メニューの「セッションログ表示」用。
+// セッションログ (JSONL) を読む。サイドバー task メニューの「セッションログ表示」と
+// ターミナル右上の preview overlay (TerminalSessionPreview) の両方で使う。
 //
-// cwd → ディレクトリ名のエンコード規則 (`/` `.` → `-` 等) は Claude 側の内部仕様で
-// 将来変わりうるため、renderer から cwd を渡して native でパス再構成する設計は取らない。
-// session_id は UUID で一意なので、native 側が ~/.claude/projects/*/<session_id>.jsonl を
-// glob 解決する。これにより fork で別ファイルに分裂したセッションも自分の session_id を
-// ファイル名に持つ 1 ファイルとして確実に引ける。
+// session_id (UUID) は jsonl 名に必ず現れるため、native 側が
+// ~/.claude/projects/*/<session_id>.jsonl を解決する。Claude の dir encoding 規則
+// (`/` `.` → `-`) は内部仕様で将来変わりうるため、gozd 側で再構成しない。
 message ClaudeSessionLogRequest {
   string session_id = 1;
 }
@@ -81,4 +80,13 @@ message ClaudeSessionLogResponse {
   // Workflow agent は同 subagents/workflows/<wf_id>/agent-*.jsonl に isSidechain ログとして
   // 並ぶ。main の projectDir を起点に両方を列挙する。
   repeated ClaudeSessionLogEntry entries = 2;
+  // ライブ更新で renderer 側が fsWatch を張る親 dir。非空なら実在を保証する。
+  //   - found=true:                     main jsonl の親 dir (~/.claude/projects/<encoded>/)
+  //   - found=false && projects 親実在: ~/.claude/projects/ (projects 親)
+  //   - found=false && projects 親不在: 空文字 (Claude 未起動環境など、renderer で error 化)
+  // 新規セッションの JSONL は最初の UserPromptSubmit まで作られない。!found 時は projects
+  // 親を返し、renderer は当該 sessionId の JSONL 出現を fsChange で検知して再 load する。
+  // 次の load 結果で found に転じたら main jsonl 親 dir に張り替える。fsChange の
+  // cross-session ノイズは debounce で coalesce する (refresh の per-call cost は constant)。
+  string watch_dir = 3;
 }

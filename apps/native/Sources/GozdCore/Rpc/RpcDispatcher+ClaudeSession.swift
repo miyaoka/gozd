@@ -135,6 +135,7 @@ extension RpcDispatcher {
     let result = ClaudeSessionLog.read(sessionId: req.sessionID)
     var resp = Gozd_V1_ClaudeSessionLogResponse()
     resp.found = result.found
+    resp.watchDir = result.watchDir
     resp.entries = result.entries.map { entry in
       var e = Gozd_V1_ClaudeSessionLogEntry()
       e.kind = entry.kind

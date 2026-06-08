@@ -8,7 +8,6 @@ import {
   nearestEventIndexByTs,
   newestSubagentTrackId,
   parseSessionLog,
-  sessionLogDirOf,
   sessionTimeRange,
   subagentTabLabel,
   timelineAxisRange,
@@ -1275,36 +1274,6 @@ describe("sessionTimeRange", () => {
   test("空 events / 全 ts 不正なら undefined", () => {
     expect(sessionTimeRange([])).toBeUndefined();
     expect(sessionTimeRange([userAt(""), userAt("bad")])).toBeUndefined();
-  });
-});
-
-describe("sessionLogDirOf", () => {
-  test("main jsonl の親 dir を返す", () => {
-    const entries = [
-      { kind: "main", path: "/Users/a/.claude/projects/enc/sid.jsonl" },
-      { kind: "subagent", path: "/Users/a/.claude/projects/enc/sid/subagents/agent-x.jsonl" },
-    ];
-    expect(sessionLogDirOf(entries)).toBe("/Users/a/.claude/projects/enc");
-  });
-
-  test("main が無ければ先頭 entry の path を使う", () => {
-    expect(sessionLogDirOf([{ kind: "subagent", path: "/a/b/agent-x.jsonl" }])).toBe("/a/b");
-  });
-
-  test("空配列は undefined", () => {
-    expect(sessionLogDirOf([])).toBeUndefined();
-  });
-
-  test("path が空文字なら undefined", () => {
-    expect(sessionLogDirOf([{ kind: "main", path: "" }])).toBeUndefined();
-  });
-
-  test("スラッシュを含まない path は undefined", () => {
-    expect(sessionLogDirOf([{ kind: "main", path: "foo.jsonl" }])).toBeUndefined();
-  });
-
-  test("ルート直下 (slash が先頭) は undefined", () => {
-    expect(sessionLogDirOf([{ kind: "main", path: "/foo.jsonl" }])).toBeUndefined();
   });
 });
 

@@ -3,9 +3,9 @@ import Foundation
 // Claude Code が ~/.claude/projects/<cwd エンコード>/<session_id>.jsonl に書き出す
 // セッションログ (JSONL) の解決・読み取り。
 //
+// 解決方式: session_id (UUID) を ~/.claude/projects/*/<session_id>.jsonl で解決する。
 // cwd → ディレクトリ名のエンコード規則は Claude 側の内部仕様で将来変わりうるため
-// 再構成に依存しない。session_id (UUID) は一意なので ~/.claude/projects/*/<session_id>.jsonl
-// を glob 解決する。fork で別ファイルに分裂したセッションも自分の session_id を
+// gozd 側で再構成しない。fork で別ファイルに分裂したセッションも自分の session_id を
 // ファイル名に持つため、この解決で確実に 1 ファイルへ辿れる。
 //
 // Task ツールで起動したサブエージェントの会話は
@@ -57,19 +57,51 @@ public struct ClaudeSessionLogEntry: Sendable, Equatable {
 public struct ClaudeSessionLogResult: Sendable, Equatable {
   public let found: Bool
   public let entries: [ClaudeSessionLogEntry]
+  // renderer が fsWatch を張る dir。非空なら実在を保証する。
+  //   - found:                       main jsonl の親 dir (~/.claude/projects/<encoded>/)
+  //   - !found && projectsDir 実在:  ~/.claude/projects/ (projects 親)。当該 sessionId の
+  //                                  JSONL が後で書かれたら fsChange 経由で renderer が
+  //                                  再 load し、found に転じたら specific dir に張り替える
+  //   - !found && projectsDir 不在:  空文字。Claude 未起動環境などで renderer 側で error
+  //                                  化する (silent fallback を持たない)
+  public let watchDir: String
 
-  public static let notFound = ClaudeSessionLogResult(found: false, entries: [])
+  public init(found: Bool, entries: [ClaudeSessionLogEntry], watchDir: String) {
+    self.found = found
+    self.entries = entries
+    self.watchDir = watchDir
+  }
 }
 
 public enum ClaudeSessionLog {
-  /// session_id から main jsonl + subagents を解決して読む。見つからなければ notFound を返す。
+  /// session_id から main jsonl + subagents を解決して読む。
+  ///
+  /// JSONL は SessionStart 時点では未生成で、最初の UserPromptSubmit で初めて書かれる。
+  /// !found 時は ~/.claude/projects/ (projects 親) を watchDir として返し、renderer は
+  /// そこに fsWatch を張って当該 sessionId の JSONL 出現を検知する。renderer 側で再 load
+  /// が走り、found に転じたら main jsonl の親 dir に張り替える。
   public static func read(sessionId: String) -> ClaudeSessionLogResult {
-    guard isSafeSessionId(sessionId) else { return .notFound }
+    return read(sessionId: sessionId, projectsDir: defaultProjectsDir())
+  }
 
+  /// テスト用 overload。`projectsDir` を inject することで、`fileExists` などの fs 副作用を
+  /// 開発者の実 `~/.claude/projects/` ではなく fixture dir に閉じ込める。production は
+  /// 引数なしの `read(sessionId:)` から呼ばれ `homeDirectoryForCurrentUser` 配下を指す。
+  static func read(sessionId: String, projectsDir: URL) -> ClaudeSessionLogResult {
     let fm = FileManager.default
-    let projectsDir = fm.homeDirectoryForCurrentUser
-      .appendingPathComponent(".claude", isDirectory: true)
-      .appendingPathComponent("projects", isDirectory: true)
+
+    // projectsDir 不在 (Claude 未起動環境など) では watchDir を空文字に倒す。renderer 側で
+    // notify.error 化され、silent に「watch なし」状態にならない (CLAUDE.md「fallback せずに
+    // エラーにする」)。proto の「非空 watch_dir は実在を保証」契約をここで担保する。
+    var isDir: ObjCBool = false
+    guard fm.fileExists(atPath: projectsDir.path, isDirectory: &isDir), isDir.boolValue else {
+      return ClaudeSessionLogResult(found: false, entries: [], watchDir: "")
+    }
+    let projectsDirPath = projectsDir.path
+
+    guard isSafeSessionId(sessionId) else {
+      return ClaudeSessionLogResult(found: false, entries: [], watchDir: projectsDirPath)
+    }
 
     let mainFileName = "\(sessionId).jsonl"
     guard
@@ -79,7 +111,7 @@ public enum ClaudeSessionLog {
         options: [.skipsHiddenFiles]
       )
     else {
-      return .notFound
+      return ClaudeSessionLogResult(found: false, entries: [], watchDir: projectsDirPath)
     }
 
     for projectDir in projectDirs {
@@ -89,7 +121,7 @@ public enum ClaudeSessionLog {
         // ファイルは在るが読めない (UTF-8 decode 失敗等)。空 content で found=true を返すと
         // parse 側が空セッションと誤認するため notFound に倒す。落とした事実は観察可能にする。
         StderrLog.write(tag: "ClaudeSessionLog", "main jsonl decode failed: \(mainFile.path)")
-        return .notFound
+        return ClaudeSessionLogResult(found: false, entries: [], watchDir: projectsDirPath)
       }
 
       var entries: [ClaudeSessionLogEntry] = [
@@ -107,9 +139,17 @@ public enum ClaudeSessionLog {
         contentsOf: readWorkflowSubagents(
           in: subagentsDir.appendingPathComponent("workflows", isDirectory: true),
           metaDir: sessionDir.appendingPathComponent("workflows", isDirectory: true)))
-      return ClaudeSessionLogResult(found: true, entries: entries)
+      return ClaudeSessionLogResult(
+        found: true, entries: entries, watchDir: projectDir.path)
     }
-    return .notFound
+    return ClaudeSessionLogResult(found: false, entries: [], watchDir: projectsDirPath)
+  }
+
+  /// production の本番 projectsDir。`~/.claude/projects/`。
+  private static func defaultProjectsDir() -> URL {
+    return FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent(".claude", isDirectory: true)
+      .appendingPathComponent("projects", isDirectory: true)
   }
 
   /// subagents ディレクトリ配下の agent-*.jsonl を agentId 昇順 (決定的) で読む。

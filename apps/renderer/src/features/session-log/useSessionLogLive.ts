@@ -3,7 +3,7 @@
  *
  * 責務は raw `SessionTab[]` の供給のみ:
  *   - 初回 / `sessionId` 変更時の `rpcClaudeSessionLog` 取得
- *   - 親 dir (`~/.claude/projects/<encoded>/`) の `rpcFsWatch` ライフサイクル
+ *   - native が返す `watch_dir` への `rpcFsWatch` ライフサイクル
  *   - `fsChange` push を debounce してサイレント refresh
  *
  * parse (`parseSessionLog`) や branch 選択、subagent 並び替えは呼び出し側 (dialog /
@@ -11,6 +11,32 @@
  * 違いはここに乗らない。
  *
  * stale 結果の上書きを防ぐ `loadToken` パターンは SessionLogDialog から踏襲。
+ *
+ * ## watch_dir の張り替えフロー
+ *
+ * Claude Code の JSONL は SessionStart 時点では作られず、最初の UserPromptSubmit で初めて
+ * 書かれる。watch 対象 dir の解決は native (`ClaudeSessionLog.read`) 側の SSOT に閉じる:
+ *
+ *   - found=true:  main jsonl の親 dir (~/.claude/projects/<encoded>/)
+ *   - found=false: ~/.claude/projects/ (projects 親)
+ *
+ * !found 時は projects 親を watch するため、当該 sessionId の JSONL が後で書かれた瞬間
+ * (= ~/.claude/projects/<encoded>/<sid>.jsonl の作成) に fsChange が届く。その fsChange で
+ * refresh をスケジュールし、次の load で found に転じたら specific projectDir に張り替える。
+ *
+ * ## fsChange filter 方針
+ *
+ * `dir === currentWatchDir` 一致のみで relDir は見ない:
+ *
+ *   - projects 親 watch 中: relDir は `<encoded>` で sessionId を含まないため relDir
+ *     filter では弾けない。当該 sessionId の出現を検知するには relDir 無視が必須
+ *   - specific projectDir watch 中: 同 cwd で複数 session が同居するとき他 session の
+ *     write でも refresh が走るが、refresh は debounce 250ms で coalesce される。
+ *     per-call cost は constant (1 RPC + per-projectDir fileExists walk) で実用 CPU 域内
+ *
+ * FSEvents は recursive watcher として containing path を 1 つ watch するのが業界推奨の
+ * 設計 (Apple 公式、fswatch 公式)。debounce での coalesce は VSCode / chokidar / Vite で
+ * 採用されている標準パターン。
  */
 import { tryCatch } from "@gozd/shared";
 import { onUnmounted, ref, watch, type Ref } from "vue";
@@ -18,7 +44,7 @@ import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { rpcFsUnwatch, rpcFsWatch, type FsChangePayload } from "../filer";
 import { rpcClaudeSessionLog } from "./rpc";
-import { sessionLogDirOf, subagentTabLabel } from "./sessionLog";
+import { subagentTabLabel } from "./sessionLog";
 
 // main + subagents の単位。生 JSONL を保持し、parse は呼び出し側で行う。
 export interface SessionTab {
@@ -120,6 +146,20 @@ export function useSessionLogLive(
     }, debounceMs);
   }
 
+  // native の watch_dir 契約は「常に非空の path を返す」。空文字は contract 違反なので
+  // silent に「watch 解除」に倒さず error 化する (CLAUDE.md「fallback せずエラーにする」)。
+  function applyWatchDir(watchDir: string) {
+    if (watchDir === "") {
+      notify.error(
+        "Failed to resolve session log watch dir",
+        new Error("native returned empty watch_dir (contract violation)"),
+      );
+      void setWatchDir(undefined);
+      return;
+    }
+    void setWatchDir(watchDir);
+  }
+
   async function load(sid: string) {
     const token = ++loadToken;
     loading.value = true;
@@ -135,13 +175,12 @@ export function useSessionLogLive(
       notify.error("Failed to read session log", result.error);
       return;
     }
+    applyWatchDir(result.value.watchDir);
     if (!result.value.found || result.value.entries.length === 0) {
       notFound.value = true;
       return;
     }
-
     sessions.value = result.value.entries.map(toSessionTab);
-    void setWatchDir(sessionLogDirOf(result.value.entries));
   }
 
   // 既存表示を保ったまま jsonl を読み直す。loading は立てず sessions の差し替えだけ。
@@ -156,17 +195,22 @@ export function useSessionLogLive(
       notify.error("Failed to refresh session log", result.error);
       return;
     }
+    // projects 親 fallback → JSONL 出現を fsChange で検知して呼ばれた経路でも、sessions
+    // が空のままで watch_dir だけ specific projectDir に張り替わるケースに対応する。
+    // entries の有無に関わらず watchDir 反映を行う。
+    applyWatchDir(result.value.watchDir);
     if (!result.value.found || result.value.entries.length === 0) return;
     sessions.value = result.value.entries.map(toSessionTab);
+    notFound.value = false;
   }
 
-  const stopFsChange = onMessage<FsChangePayload>("fsChange", ({ dir, relDir }) => {
+  const stopFsChange = onMessage<FsChangePayload>("fsChange", ({ dir }) => {
     const sid = sessionId.value;
     if (sid === undefined || sid === null || sid === "") return;
     if (dir !== currentWatchDir) return;
-    // 親 dir には他セッションの jsonl も同居する。当該セッションの main (relDir === "")
-    // か subagents (relDir が "<sessionId>/...") の変更だけ拾い、無関係な再読込を減らす。
-    if (relDir !== "" && !relDir.startsWith(sid)) return;
+    // relDir filter は持たない: projects 親 watch 中は relDir に sessionId が含まれず
+    // 弾けないし、specific dir watch 中の他セッション cross-talk は debounce 250ms で
+    // 十分 coalesce される。filter optimization は YAGNI。
     scheduleRefresh();
   });
 

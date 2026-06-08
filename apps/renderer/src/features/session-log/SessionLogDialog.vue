@@ -23,10 +23,9 @@ subagent が居て軸を引けるときだけタイムラインを出す。subag
 
 ## 動作
 
-- load / debounce refresh / rpcFsWatch / rpcFsUnwatch は
-  `useSessionLogLive(sessionId, worktreePath)` に委譲する。dialog は `context.sessionId` /
-  `context.worktreePath` を入力に composable から `sessions` / `loading` / `errorMessage` /
-  `notFound` を受け、表示・分岐選択・スクロール同期に専念する
+- load / debounce refresh / rpcFsWatch / rpcFsUnwatch は `useSessionLogLive(sessionId)` に
+  委譲する。dialog は `context.sessionId` を入力に composable から `sessions` / `loading` /
+  `errorMessage` / `notFound` を受け、表示・分岐選択・スクロール同期に専念する
 - 各 entry を `parseSessionLog` で transcript 化する (`entries[0]` が main、残りが subagents)。
   subagent タブを選ぶと右ペインの transcript が切り替わる
 - 取得失敗 / 未発見 / 空ログはそれぞれ明示メッセージを出す (fallback で握り潰さない)
@@ -37,15 +36,13 @@ subagent が居て軸を引けるときだけタイムラインを出す。subag
 
 ## ライブ更新
 
-`useSessionLogLive` が `context.sessionId` / `context.worktreePath` の変化を watch して、
-specific projectDir (`~/.claude/projects/<encoded>/`) を `rpcFsWatch` で監視し、`fsChange`
-push を受けたら debounce して再読込する。worktreePath は dialog を開いた task の
-`worktreeDir` 由来で、native 側が cwd encoding (`/` `.` → `-`) で projectDir を確定し、
-不在なら idempotent mkdir で作る。再読込は `loading` を立てず `sessions` を差し替える
-だけのサイレント更新で、`SessionLogTranscript` の remount とスクロール状態リセットを避ける。
-context が undefined になった / dialog がアンマウントされた時点で composable が
-`rpcFsUnwatch` を発射する。worktree 外のログなので filer の app-scope watch には乗らず、
-composable が watch ライフサイクルを所有する。
+`useSessionLogLive` が `context.sessionId` の変化を watch して、native が返す `watch_dir`
+(found 時は main jsonl の親 dir、未生成時は `~/.claude/projects/` 親) を `rpcFsWatch` で
+監視し、`fsChange` push を受けたら debounce して再読込する。再読込は `loading` を立てず
+`sessions` を差し替えるだけのサイレント更新で、`SessionLogTranscript` の remount と
+スクロール状態リセットを避ける。context が undefined になった / dialog がアンマウント
+された時点で composable が `rpcFsUnwatch` を発射する。worktree 外のログなので filer の
+app-scope watch には乗らず、composable が watch ライフサイクルを所有する。
 </doc>
 
 <script setup lang="ts">
@@ -77,8 +74,7 @@ const dialogRef = ref<HTMLDialogElement | undefined>(undefined);
 // のライフサイクル全部は composable 側に閉じ、dialog は表示・分岐選択・スクロール同期に
 // 専念する。dialog 自身は rpcClaudeSessionLog / rpcFsWatch / rpcFsUnwatch を直接触らない。
 const sessionId = computed(() => context.value?.sessionId);
-const worktreePath = computed(() => context.value?.worktreePath);
-const { sessions, loading, errorMessage, notFound } = useSessionLogLive(sessionId, worktreePath);
+const { sessions, loading, errorMessage, notFound } = useSessionLogLive(sessionId);
 
 // parse 済みタブ。content + そのタブの branch 選択から parsed を導出した派生型。
 interface ParsedSessionTab extends SessionTab {

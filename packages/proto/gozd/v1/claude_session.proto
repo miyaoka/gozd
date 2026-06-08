@@ -29,25 +29,11 @@ message ClaudeSessionRemoveByPtyResponse {
 // セッションログ (JSONL) を読む。サイドバー task メニューの「セッションログ表示」と
 // ターミナル右上の preview overlay (TerminalSessionPreview) の両方で使う。
 //
-// **解決方式**: worktree_path (PTY 起動時の cwd) を SSOT とし、Claude の dir encoding
-// 規則 (`/` `.` → `-`) で `~/.claude/projects/<encoded>/` を決定的に組み立てる。
-// 過去版は session_id だけを受け取り全 projectDir を glob で walk する設計だったが、
-// (1) JSONL は SessionStart 時点で未生成なので glob が空ヒットする race、
-// (2) projects 親や全 projectDir を読むと cross-session ノイズが入る、の 2 つを構造的に
-// 解消するため worktree_path 必須に切り替えた。
-//
-// **trade-off**: PTY 起動後に Claude を `cd` で別 cwd に移し fork したセッションは追えない
-// (worktree_path が固定のため)。gozd の運用では PTY は 1 worktree に紐づき cd しない前提
-// なので影響しない。
-//
-// **encoding 規則の安定性**: Claude 側の内部仕様で将来変わる可能性はあるが、変わったら
-// preview / dialog が空表示として顕在化する。これは silent fallback で隠すよりも検出
-// 可能性が高い (`learned(yagni)` 規律と整合)。
+// session_id (UUID) は jsonl 名に必ず現れるため、native 側が
+// ~/.claude/projects/*/<session_id>.jsonl を解決する。Claude の dir encoding 規則
+// (`/` `.` → `-`) は内部仕様で将来変わりうるため、gozd 側で再構成しない。
 message ClaudeSessionLogRequest {
   string session_id = 1;
-  // PTY が起動された worktree dir。`~/.claude/projects/<encoded>/` の SSOT となる cwd。
-  // 空文字は contract violation (renderer 側で error 化される)。
-  string worktree_path = 2;
 }
 
 // セッションログ 1 本分 (main または subagent)。parse は renderer 側が担う。
@@ -94,10 +80,12 @@ message ClaudeSessionLogResponse {
   // Workflow agent は同 subagents/workflows/<wf_id>/agent-*.jsonl に isSidechain ログとして
   // 並ぶ。main の projectDir を起点に両方を列挙する。
   repeated ClaudeSessionLogEntry entries = 2;
-  // ライブ更新で renderer 側が fsWatch を張る specific projectDir
-  // (~/.claude/projects/<encoded>/)。!found 時も同じ specific dir で、未生成なら native 側
-  // で idempotent に mkdir した上で返す。projects 親への fallback は持たない (親には
-  // 他セッションの jsonl も同居するため、fsChange の cross-session ノイズが構造的に発生
-  // し refresh が走り続けるため)。
+  // ライブ更新で renderer 側が fsWatch を張る親 dir (必ず実在する path)。
+  //   - found=true:  main jsonl の親 dir (~/.claude/projects/<encoded>/)
+  //   - found=false: ~/.claude/projects/ (projects 親)
+  // 新規セッションの JSONL は最初の UserPromptSubmit まで作られない。!found 時は projects
+  // 親を返し、renderer は当該 sessionId の JSONL 出現を fsChange で検知して再 load する。
+  // 次の load 結果で found に転じたら main jsonl 親 dir に張り替える。fsChange の
+  // cross-session ノイズは debounce で coalesce する (refresh の per-call cost は constant)。
   string watch_dir = 3;
 }

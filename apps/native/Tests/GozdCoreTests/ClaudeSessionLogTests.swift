@@ -6,152 +6,106 @@ import Testing
 @Suite("ClaudeSessionLog")
 struct ClaudeSessionLogTests {
 
-  // MARK: - encodedProjectDir (純関数)
+  // MARK: - watch_dir 契約
 
-  @Test("空文字 worktreePath は nil")
-  func encodedProjectDir_empty() {
-    let projects = URL(fileURLWithPath: "/Users/x/.claude/projects", isDirectory: true)
-    #expect(ClaudeSessionLog.encodedProjectDir(worktreePath: "", projectsDir: projects) == nil)
-  }
-
-  @Test("absolute でないパスは nil")
-  func encodedProjectDir_relative() {
-    let projects = URL(fileURLWithPath: "/Users/x/.claude/projects", isDirectory: true)
-    #expect(
-      ClaudeSessionLog.encodedProjectDir(
-        worktreePath: "Users/foo/bar", projectsDir: projects) == nil)
-  }
-
-  @Test("単純な absolute パスは `/` → `-`")
-  func encodedProjectDir_basic() {
-    let projects = URL(fileURLWithPath: "/Users/x/.claude/projects", isDirectory: true)
-    let result = ClaudeSessionLog.encodedProjectDir(
-      worktreePath: "/Users/foo/bar", projectsDir: projects)
-    #expect(result == "/Users/x/.claude/projects/-Users-foo-bar")
-  }
-
-  @Test("`.` も `-` に置換 (連続区切りは `--`)")
-  func encodedProjectDir_dotReplacement() {
-    let projects = URL(fileURLWithPath: "/Users/x/.claude/projects", isDirectory: true)
-    let result = ClaudeSessionLog.encodedProjectDir(
-      worktreePath: "/Users/foo/.local/bar", projectsDir: projects)
-    #expect(result == "/Users/x/.claude/projects/-Users-foo--local-bar")
-  }
-
-  @Test("実機 fixture と一致する gozd worktree path encoding")
-  func encodedProjectDir_realisticFixture() {
-    let projects = URL(fileURLWithPath: "/Users/miyaoka/.claude/projects", isDirectory: true)
-    let result = ClaudeSessionLog.encodedProjectDir(
-      worktreePath: "/Users/miyaoka/.local/share/gozd/worktrees/dotfiles-8db986b0bb06-20260608_040258",
-      projectsDir: projects)
-    #expect(
-      result
-        == "/Users/miyaoka/.claude/projects/-Users-miyaoka--local-share-gozd-worktrees-dotfiles-8db986b0bb06-20260608_040258"
-    )
-  }
-
-  // MARK: - resolveSpecificWatchDir (副作用境界 3 分岐)
-
-  @Test("expected dir が既存ならそのパスを返す (mkdir しない)")
-  func resolveSpecificWatchDir_existing() throws {
+  @Test("空 projects dir では found=false / watchDir = projects 親")
+  func read_emptyProjectsDir() throws {
     let fm = FileManager.default
     let projects = try makeTempProjectsDir()
     defer { try? fm.removeItem(at: projects) }
 
-    let worktree = "/Users/foo/existing"
-    let expected = projects.appendingPathComponent("-Users-foo-existing", isDirectory: true)
-    try fm.createDirectory(at: expected, withIntermediateDirectories: true)
-
-    let result = ClaudeSessionLog.resolveSpecificWatchDir(
-      worktreePath: worktree, projectsDir: projects, fm: fm)
-    #expect(result == expected.path)
-    #expect(fm.fileExists(atPath: expected.path))
-  }
-
-  @Test("expected dir が不在なら mkdir で作って返す")
-  func resolveSpecificWatchDir_createsWhenMissing() throws {
-    let fm = FileManager.default
-    let projects = try makeTempProjectsDir()
-    defer { try? fm.removeItem(at: projects) }
-
-    let worktree = "/Users/foo/new"
-    let expected = projects.appendingPathComponent("-Users-foo-new", isDirectory: true)
-    #expect(!fm.fileExists(atPath: expected.path))
-
-    let result = ClaudeSessionLog.resolveSpecificWatchDir(
-      worktreePath: worktree, projectsDir: projects, fm: fm)
-    #expect(result == expected.path)
-    var isDir: ObjCBool = false
-    #expect(fm.fileExists(atPath: expected.path, isDirectory: &isDir))
-    #expect(isDir.boolValue)
-  }
-
-  @Test("worktreePath 空なら空文字を返す (mkdir もしない)")
-  func resolveSpecificWatchDir_emptyWorktree() throws {
-    let fm = FileManager.default
-    let projects = try makeTempProjectsDir()
-    defer { try? fm.removeItem(at: projects) }
-
-    let result = ClaudeSessionLog.resolveSpecificWatchDir(
-      worktreePath: "", projectsDir: projects, fm: fm)
-    #expect(result == "")
-  }
-
-  @Test("expected path にファイルが居ると mkdir 失敗で空文字")
-  func resolveSpecificWatchDir_mkdirFails() throws {
-    let fm = FileManager.default
-    let projects = try makeTempProjectsDir()
-    defer { try? fm.removeItem(at: projects) }
-
-    let worktree = "/Users/foo/collision"
-    let collidingPath = projects.appendingPathComponent(
-      "-Users-foo-collision", isDirectory: false)
-    // dir 名で予約された path に file を置いて createDirectory を失敗させる
-    try Data("blocker".utf8).write(to: collidingPath)
-
-    let result = ClaudeSessionLog.resolveSpecificWatchDir(
-      worktreePath: worktree, projectsDir: projects, fm: fm)
-    #expect(result == "")
-  }
-
-  // MARK: - read (worktreePath SSOT の結合)
-
-  @Test("worktreePath 空は found=false / watchDir 空 / entries 空")
-  func read_emptyWorktreePath() {
     let result = ClaudeSessionLog.read(
-      sessionId: "11111111-2222-3333-4444-555555555555", worktreePath: "")
+      sessionId: "11111111-2222-3333-4444-555555555555", projectsDir: projects)
     #expect(result.found == false)
     #expect(result.entries.isEmpty)
-    #expect(result.watchDir == "")
+    #expect(result.watchDir == projects.path)
   }
 
-  @Test("unsafe sessionId は watchDir 算出後に found=false で返る")
+  @Test("該当 jsonl を含む projectDir が見つかれば found=true / watchDir = その親")
+  func read_findsExistingJsonl() throws {
+    let fm = FileManager.default
+    let projects = try makeTempProjectsDir()
+    defer { try? fm.removeItem(at: projects) }
+
+    // fixture: <projects>/-Users-foo-bar/<sid>.jsonl にダミー main を書く
+    let sid = "11111111-2222-3333-4444-555555555555"
+    let projectDir = projects.appendingPathComponent("-Users-foo-bar", isDirectory: true)
+    try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
+    let jsonl = projectDir.appendingPathComponent("\(sid).jsonl", isDirectory: false)
+    try Data("{\"type\":\"user\"}\n".utf8).write(to: jsonl)
+
+    // FileManager.contentsOfDirectory は symlink 解決済み (/private/var/...) で URL を返す。
+    // 一方 URL.resolvingSymlinksInPath() は macOS の `/var` → `/private/var` 解決を行わない
+    // (path components の symlink のみ)。両辺を NSString.resolvingSymlinksInPath 経由で
+    // canonical path に正規化して比較する。
+    let result = ClaudeSessionLog.read(sessionId: sid, projectsDir: projects)
+    #expect(result.found == true)
+    #expect(canonical(result.watchDir) == canonical(projectDir.path))
+    #expect(result.entries.count == 1)
+    #expect(result.entries[0].kind == "main")
+    #expect(result.entries[0].id == sid)
+    #expect(canonical(result.entries[0].path) == canonical(jsonl.path))
+  }
+
+  @Test("無関係な projectDir しか無ければ found=false / watchDir = projects 親")
+  func read_jsonlNotFound() throws {
+    let fm = FileManager.default
+    let projects = try makeTempProjectsDir()
+    defer { try? fm.removeItem(at: projects) }
+
+    // 別 sessionId の jsonl だけ存在する fixture
+    let otherProjectDir = projects.appendingPathComponent("-Users-foo-other", isDirectory: true)
+    try fm.createDirectory(at: otherProjectDir, withIntermediateDirectories: true)
+    try Data("{}".utf8).write(
+      to: otherProjectDir.appendingPathComponent(
+        "99999999-9999-9999-9999-999999999999.jsonl", isDirectory: false))
+
+    let result = ClaudeSessionLog.read(
+      sessionId: "11111111-2222-3333-4444-555555555555", projectsDir: projects)
+    #expect(result.found == false)
+    #expect(result.entries.isEmpty)
+    #expect(result.watchDir == projects.path)
+  }
+
+  @Test("unsafe sessionId は watchDir = projects 親 / entries 空")
   func read_unsafeSessionId() throws {
-    // 副作用 (mkdir) が ~/.claude/projects/ 配下に走らないよう、絶対作られない
-    // 親 dir を指す worktreePath で resolveSpecificWatchDir を組み立てさせる…のは
-    // 不可能なので、homeDirectoryForCurrentUser 固定の本経路では検証せず、
-    // 「unsafe sessionId は found=false / entries 空」だけを assert する。
-    let result = ClaudeSessionLog.read(
-      sessionId: "../etc/passwd", worktreePath: "/Users/test/safe-worktree")
+    let fm = FileManager.default
+    let projects = try makeTempProjectsDir()
+    defer { try? fm.removeItem(at: projects) }
+
+    let result = ClaudeSessionLog.read(sessionId: "../etc/passwd", projectsDir: projects)
     #expect(result.found == false)
     #expect(result.entries.isEmpty)
-    // 副作用 cleanup: read の resolveSpecificWatchDir で実 home 配下に mkdir された
-    // 可能性がある。空 dir を取り除く (idempotent)。
-    let projects = FileManager.default.homeDirectoryForCurrentUser
-      .appendingPathComponent(".claude", isDirectory: true)
-      .appendingPathComponent("projects", isDirectory: true)
-    let created = projects.appendingPathComponent(
-      "-Users-test-safe-worktree", isDirectory: true)
-    try? FileManager.default.removeItem(at: created)
+    #expect(result.watchDir == projects.path)
+  }
+
+  @Test("projects 親 dir が存在しなくても watchDir を返す (renderer 側で error 化)")
+  func read_projectsDirMissing() throws {
+    let fm = FileManager.default
+    let missing = fm.temporaryDirectory
+      .appendingPathComponent("gozd-claude-session-log-missing-\(UUID().uuidString.prefix(8))")
+
+    let result = ClaudeSessionLog.read(
+      sessionId: "11111111-2222-3333-4444-555555555555", projectsDir: missing)
+    #expect(result.found == false)
+    #expect(result.entries.isEmpty)
+    #expect(result.watchDir == missing.path)
   }
 }
 
 // MARK: - Helpers
 
-/// テスト用の projects 親 dir。各テスト終了時に呼び出し側が cleanup する。
+/// テスト用の projects 親 dir。各テストが defer で cleanup する。
 private func makeTempProjectsDir() throws -> URL {
   let url = FileManager.default.temporaryDirectory
     .appendingPathComponent("gozd-claude-session-log-\(UUID().uuidString.prefix(8))")
   try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
   return URL(fileURLWithPath: url.path).resolvingSymlinksInPath()
+}
+
+/// macOS で `/var` が `/private/var` の symlink である事実を考慮した path 正規化。
+/// NSString.resolvingSymlinksInPath は URL の同名メソッドと異なり、各 prefix component
+/// の symlink を解決するため `/var/...` を `/private/var/...` に展開する。
+private func canonical(_ path: String) -> String {
+  return (path as NSString).resolvingSymlinksInPath
 }

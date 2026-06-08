@@ -3,10 +3,11 @@ import Foundation
 // Claude Code が ~/.claude/projects/<cwd エンコード>/<session_id>.jsonl に書き出す
 // セッションログ (JSONL) の解決・読み取り。
 //
-// cwd → ディレクトリ名のエンコード規則は Claude 側の内部仕様で将来変わりうるため
-// 再構成に依存しない。session_id (UUID) は一意なので ~/.claude/projects/*/<session_id>.jsonl
-// を glob 解決する。fork で別ファイルに分裂したセッションも自分の session_id を
-// ファイル名に持つため、この解決で確実に 1 ファイルへ辿れる。
+// 解決方式: worktree_path (PTY 起動時の cwd) から `~/.claude/projects/<encoded>/` を
+// 決定的に組み立てる。encoded は cwd の `/` `.` を `-` に置換した形 (実機観察)。
+// session_id だけを受け取って全 projectDir を glob walk する旧設計は廃止した:
+// JSONL が SessionStart 時点では未生成な race と、cross-session の fsChange ノイズを
+// 構造的に解消するため。fork で cwd を別場所に移したセッションは追えない trade-off。
 //
 // Task ツールで起動したサブエージェントの会話は
 // <projectDir>/<session_id>/subagents/agent-<agentId>.jsonl に別ファイル (isSidechain) で
@@ -139,7 +140,10 @@ public enum ClaudeSessionLog {
   /// mkdir は idempotent。Claude Code 側も同じ dir に書き込むため、gozd が先に作っても
   /// 衝突しない。FSWatchRegistry は watch 対象 cwd で git CLI を spawn する経路を持つため、
   /// 不在 dir を渡すと launchFailed になる。事前 mkdir で構造的に回避する。
-  private static func resolveSpecificWatchDir(
+  ///
+  /// internal 公開は test 用 (副作用境界 3 分岐 = 既存 / mkdir 成功 / mkdir 失敗 を直接
+  /// 検証するため。本番経路は `read()` 内からのみ呼ばれる)。
+  static func resolveSpecificWatchDir(
     worktreePath: String, projectsDir: URL, fm: FileManager
   ) -> String {
     guard let dirPath = encodedProjectDir(worktreePath: worktreePath, projectsDir: projectsDir)
@@ -165,9 +169,11 @@ public enum ClaudeSessionLog {
   /// Claude Code が `cwd` から ~/.claude/projects/<encoded>/ を組み立てる際のエンコード規則。
   /// 実機観察: `/` と `.` を `-` に置換 (例: `/Users/foo/.local/bar` →
   /// `-Users-foo--local-bar`)。Claude 側の内部仕様で将来変わりうるが、変わったら表示が
-  /// 出ない不具合として顕在化するので、parent fallback で silent に degrade させるよりも
-  /// 検出可能性が高い。空文字 / absolute でないパスは nil を返す。
-  private static func encodedProjectDir(worktreePath: String, projectsDir: URL) -> String? {
+  /// 出ない不具合として顕在化するので、silent fallback で degrade させるよりも検出
+  /// 可能性が高い。空文字 / absolute でないパスは nil を返す。
+  ///
+  /// internal 公開は test 用 (encoding 規則の境界値を直接 assert するため)。
+  static func encodedProjectDir(worktreePath: String, projectsDir: URL) -> String? {
     guard !worktreePath.isEmpty, worktreePath.hasPrefix("/") else { return nil }
     var encoded = ""
     encoded.reserveCapacity(worktreePath.count)

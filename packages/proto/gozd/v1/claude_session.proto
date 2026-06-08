@@ -26,22 +26,27 @@ message ClaudeSessionRemoveByPtyResponse {
 }
 
 // Claude Code が ~/.claude/projects/<cwd エンコード>/<session_id>.jsonl に書き出した
-// セッションログ (JSONL) を読む。サイドバー task メニューの「セッションログ表示」用。
+// セッションログ (JSONL) を読む。サイドバー task メニューの「セッションログ表示」と
+// ターミナル右上の preview overlay (TerminalSessionPreview) の両方で使う。
 //
-// cwd → ディレクトリ名のエンコード規則 (`/` `.` → `-` 等) は Claude 側の内部仕様で
-// 将来変わりうるため、renderer から cwd を渡して native でパス再構成する設計は取らない。
-// session_id は UUID で一意なので、native 側が ~/.claude/projects/*/<session_id>.jsonl を
-// glob 解決する。これにより fork で別ファイルに分裂したセッションも自分の session_id を
-// ファイル名に持つ 1 ファイルとして確実に引ける。
+// **解決方式**: worktree_path (PTY 起動時の cwd) を SSOT とし、Claude の dir encoding
+// 規則 (`/` `.` → `-`) で `~/.claude/projects/<encoded>/` を決定的に組み立てる。
+// 過去版は session_id だけを受け取り全 projectDir を glob で walk する設計だったが、
+// (1) JSONL は SessionStart 時点で未生成なので glob が空ヒットする race、
+// (2) projects 親や全 projectDir を読むと cross-session ノイズが入る、の 2 つを構造的に
+// 解消するため worktree_path 必須に切り替えた。
+//
+// **trade-off**: PTY 起動後に Claude を `cd` で別 cwd に移し fork したセッションは追えない
+// (worktree_path が固定のため)。gozd の運用では PTY は 1 worktree に紐づき cd しない前提
+// なので影響しない。
+//
+// **encoding 規則の安定性**: Claude 側の内部仕様で将来変わる可能性はあるが、変わったら
+// preview / dialog が空表示として顕在化する。これは silent fallback で隠すよりも検出
+// 可能性が高い (`learned(yagni)` 規律と整合)。
 message ClaudeSessionLogRequest {
   string session_id = 1;
-  // PTY が起動された worktree dir。Claude Code が JSONL を置く ~/.claude/projects/<encoded>/
-  // の <encoded> は cwd の `/` `.` を `-` に置換した形式で、PTY 起動時の cwd で一意に決まる。
-  // session_id は SessionStart で確定するが、JSONL 本体は最初の UserPromptSubmit までは
-  // 作られないため、JSONL の有無に関わらず specific な watch_dir を確定するために必要。
-  // native は worktree_path から expected projectDir を組み立て、不在ならその dir を作って
-  // (idempotent mkdir) fsWatch 対象として確実に存在させる。これにより親 dir 共有による
-  // cross-session の fsChange ノイズを構造的に排除する。
+  // PTY が起動された worktree dir。`~/.claude/projects/<encoded>/` の SSOT となる cwd。
+  // 空文字は contract violation (renderer 側で error 化される)。
   string worktree_path = 2;
 }
 

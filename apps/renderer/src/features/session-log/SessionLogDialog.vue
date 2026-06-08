@@ -23,9 +23,10 @@ subagent が居て軸を引けるときだけタイムラインを出す。subag
 
 ## 動作
 
-- load / debounce refresh / rpcFsWatch / rpcFsUnwatch は `useSessionLogLive(sessionId)` に
-  委譲する。dialog は `context.sessionId` を入力に composable から `sessions` / `loading` /
-  `errorMessage` / `notFound` を受け、表示・分岐選択・スクロール同期に専念する
+- load / debounce refresh / rpcFsWatch / rpcFsUnwatch は
+  `useSessionLogLive(sessionId, worktreePath)` に委譲する。dialog は `context.sessionId` /
+  `context.worktreePath` を入力に composable から `sessions` / `loading` / `errorMessage` /
+  `notFound` を受け、表示・分岐選択・スクロール同期に専念する
 - 各 entry を `parseSessionLog` で transcript 化する (`entries[0]` が main、残りが subagents)。
   subagent タブを選ぶと右ペインの transcript が切り替わる
 - 取得失敗 / 未発見 / 空ログはそれぞれ明示メッセージを出す (fallback で握り潰さない)

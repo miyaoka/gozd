@@ -602,23 +602,6 @@ export function formatModelLabel(model: string): string {
   return `${MODEL_FAMILY_LABELS[family]} ${major}.${minor}`;
 }
 
-// --- ログファイルのパス解決 (SessionLogDialog のライブ更新 watch が使う) ---
-
-/**
- * entry 配列の main jsonl が置かれた親 dir を返す。`<projectDir>/<sessionId>.jsonl` →
- * `<projectDir>`。ライブ更新でこの親 dir を watch する。macOS 専用 (区切りは "/")。
- * 次の境界では undefined を返す (watch を張らない):
- *   - main が無く先頭 entry も path 空
- *   - "/" を含まない / ルート直下 (`foo.jsonl` や `/foo.jsonl`、slash <= 0)
- */
-export function sessionLogDirOf(entries: { kind: string; path: string }[]): string | undefined {
-  const mainPath = entries.find((e) => e.kind === "main")?.path ?? entries[0]?.path;
-  if (mainPath === undefined || mainPath === "") return undefined;
-  const slash = mainPath.lastIndexOf("/");
-  if (slash <= 0) return undefined;
-  return mainPath.slice(0, slash);
-}
-
 // --- subagent 紐付け / 時刻ジャンプ (SessionLogDialog / SessionLogTranscript が使う純関数) ---
 
 /** main の Agent / SendMessage 行を起動/宛先 subagent に結ぶリンク。 */

@@ -3,7 +3,7 @@
  *
  * 責務は raw `SessionTab[]` の供給のみ:
  *   - 初回 / `sessionId` 変更時の `rpcClaudeSessionLog` 取得
- *   - 親 dir (`~/.claude/projects/<encoded>/`) の `rpcFsWatch` ライフサイクル
+ *   - native が返す `watch_dir` への `rpcFsWatch` ライフサイクル
  *   - `fsChange` push を debounce してサイレント refresh
  *
  * parse (`parseSessionLog`) や branch 選択、subagent 並び替えは呼び出し側 (dialog /
@@ -12,17 +12,29 @@
  *
  * stale 結果の上書きを防ぐ `loadToken` パターンは SessionLogDialog から踏襲。
  *
- * ## worktreePath を渡す理由
+ * ## watch_dir の張り替えフロー
  *
- * Claude Code の JSONL は SessionStart hook 時点では作られず、最初の UserPromptSubmit
- * で初めて書かれる。sessionId だけだと「JSONL が無い → どの projectDir を watch すれば
- * よいか不明 → fsChange が拾えない → preview が永遠に空」になる race が起きる。
+ * Claude Code の JSONL は SessionStart 時点では作られず、最初の UserPromptSubmit で初めて
+ * 書かれる。watch dir の解決は native (`ClaudeSessionLog.read`) 側の SSOT に閉じる:
  *
- * `~/.claude/projects/<encoded>/` の `<encoded>` は cwd の `/` `.` を `-` に置換した形式
- * で PTY 起動時の cwd で一意に決まる。worktreePath を渡せば native 側が JSONL の有無に
- * 関わらず specific projectDir を `watch_dir` として返せるので、最初から正しい dir を
- * watch できる。worktreePath が手元に無い経路 (legacy) は空文字で渡され、native は
- * projects 親 dir フォールバックに倒す。
+ *   - found=true:  main jsonl の親 dir (~/.claude/projects/<encoded>/) を返す
+ *   - found=false: ~/.claude/projects/ (projects 親) を返す
+ *
+ * !found 時は projects 親を watch するため、相手 sessionId の JSONL が後から書かれた
+ * 瞬間 (= ~/.claude/projects/<encoded>/ subtree に file が作られる) に fsChange が届く。
+ * その fsChange で refresh をスケジュールし、次の load で found に転じたら specific
+ * projectDir に張り替える。Claude の dir encoding 規則 (`/` `.` → `-`) は内部仕様で
+ * 将来変わりうるため、gozd 側でこれを複製しない (常時 parent → found で張り替えの単純化)。
+ *
+ * ## fsChange filter 方針
+ *
+ * filter は `dir === currentWatchDir` 一致のみで、relDir は見ない:
+ *
+ *   - projects 親 watch 中: relDir は `<encoded>` で sessionId を含まないため relDir
+ *     filter では弾けない。当該 sessionId の出現を検知するには relDir 無視が必須
+ *   - specific projectDir watch 中: 同 cwd で複数 session が同居するとき他 session の
+ *     write でも refresh が走るが、refresh は 1 RPC + ts キーの差し替えで debounce
+ *     250ms に coalesce されるため実用上問題ない。filter optimization は YAGNI
  */
 import { tryCatch } from "@gozd/shared";
 import { onUnmounted, ref, watch, type Ref } from "vue";
@@ -63,7 +75,6 @@ interface UseSessionLogLiveReturn {
 
 export function useSessionLogLive(
   sessionId: Ref<string | null | undefined>,
-  worktreePath: Ref<string | null | undefined>,
   options: UseSessionLogLiveOptions = {},
 ): UseSessionLogLiveReturn {
   const debounceMs = options.debounceMs ?? 250;
@@ -79,12 +90,6 @@ export function useSessionLogLive(
   // 自分の token が最新でなければ state を触らず捨てる。
   let loadToken = 0;
   let currentWatchDir: string | undefined;
-  // currentWatchDir が projects 親フォールバックかどうか。true の間は fsChange の
-  // relDir filter (== "" || startsWith(sid)) が機能しない (relDir は "<encoded>" になる)
-  // ため、任意の fsChange を refresh trigger として受け入れる。projectDir が作られた
-  // タイミングで refresh が走り、setWatchDir で specific projectDir に張り替えると同時に
-  // この flag は false に戻る。
-  let currentWatchIsParentFallback = false;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
   function toSessionTab(entry: {
@@ -111,23 +116,18 @@ export function useSessionLogLive(
     };
   }
 
-  async function setWatchDir(next: string | undefined, isParentFallback: boolean) {
-    if (next === currentWatchDir && isParentFallback === currentWatchIsParentFallback) return;
+  async function setWatchDir(next: string | undefined) {
+    if (next === currentWatchDir) return;
     const prev = currentWatchDir;
     currentWatchDir = next;
-    currentWatchIsParentFallback = isParentFallback;
-    if (prev !== undefined && prev !== next) {
+    if (prev !== undefined) {
       const r = await tryCatch(rpcFsUnwatch({ dir: prev }));
       if (!r.ok) notify.error("Failed to stop watching session log", r.error);
     }
-    if (next !== undefined && next !== prev) {
+    if (next !== undefined) {
       const r = await tryCatch(rpcFsWatch({ dir: next }));
       if (!r.ok) notify.error("Failed to watch session log", r.error);
     }
-  }
-
-  function normalizeStr(s: string | null | undefined): string {
-    return s === undefined || s === null ? "" : s;
   }
 
   function orUndefined(s: string): string | undefined {
@@ -155,9 +155,7 @@ export function useSessionLogLive(
     notFound.value = false;
     sessions.value = [];
 
-    const result = await tryCatch(
-      rpcClaudeSessionLog({ sessionId: sid, worktreePath: normalizeStr(worktreePath.value) }),
-    );
+    const result = await tryCatch(rpcClaudeSessionLog({ sessionId: sid }));
     if (token !== loadToken) return;
     loading.value = false;
     if (!result.ok) {
@@ -165,18 +163,17 @@ export function useSessionLogLive(
       notify.error("Failed to read session log", result.error);
       return;
     }
-    // notFound でも native は worktreePath 由来の expected projectDir を watchDir として
-    // 返す (新規セッションで JSONL が未生成な race)。JSONL が後で書かれた瞬間に fsChange
-    // が届き、refresh で sessions が埋まる。worktreePath 空の経路では projects 親への
-    // フォールバックで、少なくとも何も watch しないより救える窓を広く保つ。
+    // !found でも native は projects 親 (~/.claude/projects/) を watchDir に返す。
+    // 当該 sessionId の JSONL 出現を fsChange で検知して再 load し、specific projectDir
+    // 側に張り替えるための SSOT push 経路。
     if (!result.value.found || result.value.entries.length === 0) {
       notFound.value = true;
-      void setWatchDir(orUndefined(result.value.watchDir), result.value.watchDirIsParentFallback);
+      void setWatchDir(orUndefined(result.value.watchDir));
       return;
     }
 
     sessions.value = result.value.entries.map(toSessionTab);
-    void setWatchDir(orUndefined(result.value.watchDir), result.value.watchDirIsParentFallback);
+    void setWatchDir(orUndefined(result.value.watchDir));
   }
 
   // 既存表示を保ったまま jsonl を読み直す。loading は立てず sessions の差し替えだけ。
@@ -185,36 +182,28 @@ export function useSessionLogLive(
     const sid = sessionId.value;
     if (sid === undefined || sid === null || sid === "") return;
     const token = ++loadToken;
-    const result = await tryCatch(
-      rpcClaudeSessionLog({ sessionId: sid, worktreePath: normalizeStr(worktreePath.value) }),
-    );
+    const result = await tryCatch(rpcClaudeSessionLog({ sessionId: sid }));
     if (token !== loadToken) return;
     if (!result.ok) {
       notify.error("Failed to refresh session log", result.error);
       return;
     }
-    // projects 親 fallback → projectDir 出現を fsChange で検知して refresh された場合、
-    // sessions がまだ空でも setWatchDir で specific dir 側に張り替えるためここで return
-    // しない。entries が空でも watchDir は更新する。
-    void setWatchDir(orUndefined(result.value.watchDir), result.value.watchDirIsParentFallback);
+    // projects 親 fallback → JSONL 出現を fsChange で検知して呼ばれた経路では sessions
+    // が空のままでも watchDir は specific projectDir に張り替える必要がある。entries の
+    // 有無に関わらず setWatchDir を呼んで張り替え機会を逃さない。
+    void setWatchDir(orUndefined(result.value.watchDir));
     if (!result.value.found || result.value.entries.length === 0) return;
     sessions.value = result.value.entries.map(toSessionTab);
     notFound.value = false;
   }
 
-  const stopFsChange = onMessage<FsChangePayload>("fsChange", ({ dir, relDir }) => {
+  const stopFsChange = onMessage<FsChangePayload>("fsChange", ({ dir }) => {
     const sid = sessionId.value;
     if (sid === undefined || sid === null || sid === "") return;
     if (dir !== currentWatchDir) return;
-    // projects 親 fallback の間は relDir が `<encoded>` になり、sid filter で reject
-    // されてしまうため filter をスキップする。projectDir が作られた瞬間の write を
-    // 拾って refresh をスケジュールし、その refresh で specific projectDir watch に
-    // 張り替わる (= currentWatchIsParentFallback = false に戻る)。
-    if (!currentWatchIsParentFallback) {
-      // 親 dir には他セッションの jsonl も同居する。当該セッションの main (relDir === "")
-      // か subagents (relDir が "<sessionId>/...") の変更だけ拾い、無関係な再読込を減らす。
-      if (relDir !== "" && !relDir.startsWith(sid)) return;
-    }
+    // relDir filter は持たない: projects 親 watch 中は relDir に sessionId が含まれず
+    // 弾けないし、specific dir watch 中の他セッション cross-talk は debounce で十分
+    // coalesce される。filter optimization は YAGNI。
     scheduleRefresh();
   });
 
@@ -229,7 +218,7 @@ export function useSessionLogLive(
         loading.value = false;
         errorMessage.value = undefined;
         notFound.value = false;
-        void setWatchDir(undefined, false);
+        void setWatchDir(undefined);
         return;
       }
       void load(next);
@@ -241,7 +230,7 @@ export function useSessionLogLive(
     stopFsChange();
     cancelRefresh();
     loadToken++;
-    void setWatchDir(undefined, false);
+    void setWatchDir(undefined);
   });
 
   return { sessions, loading, errorMessage, notFound };

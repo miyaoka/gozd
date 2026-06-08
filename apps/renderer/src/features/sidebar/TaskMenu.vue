@@ -36,7 +36,7 @@ function handleShowSessionLog() {
   if (!context.value) return;
   const { task } = context.value;
   close();
-  openSessionLog(task.sessionId, taskDisplayTitle(task), task.worktreeDir);
+  openSessionLog(task.sessionId, taskDisplayTitle(task));
 }
 
 function handleRemove() {

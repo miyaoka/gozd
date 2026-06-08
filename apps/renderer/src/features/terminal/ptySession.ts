@@ -49,10 +49,12 @@ interface PtySessionManagerDeps {
   onDataReceived?: (ptyId: number, data: string) => void;
   /** PTY 終了時のコールバック（Claude 状態クリーンアップ等に使う） */
   onPtyCleanup?: (ptyId: number) => void;
+  /** PTY spawn 失敗時のコールバック（notify 等に使う）。leafId / dir を載せて UI 通知の手掛かりにする */
+  onSpawnError?: (params: { leafId: string; dir: string; error: unknown }) => void;
 }
 
 export function createPtySessionManager(deps: PtySessionManagerDeps) {
-  const { panes, requestPtySpawn, sendPtyKill, onDataReceived, onPtyCleanup } = deps;
+  const { panes, requestPtySpawn, sendPtyKill, onDataReceived, onPtyCleanup, onSpawnError } = deps;
 
   /** leafId → xterm.write コールバック。attach 中のみ存在 */
   const terminalWriters = new Map<string, (data: string) => void>();
@@ -141,7 +143,7 @@ export function createPtySessionManager(deps: PtySessionManagerDeps) {
     spawningLeafIds.delete(leafId);
 
     if (!result.ok) {
-      console.warn("[terminal] ptySpawn failed:", result.error);
+      onSpawnError?.({ leafId, dir: entry.dir, error: result.error });
       return;
     }
 

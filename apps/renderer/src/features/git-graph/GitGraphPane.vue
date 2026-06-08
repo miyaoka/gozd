@@ -517,10 +517,17 @@ const LANE_WIDTH = 16;
 const ROW_HEIGHT = 24;
 const DOT_RADIUS = 4;
 const GRAPH_PADDING_X = 12;
+/** col 1 (graph 列) の右側に確保する HEAD marker `→` 用余白 (px)。
+ * marker は col 2 (description 列) の左外側に absolute 配置されるため、SVG が描く
+ * lane / dot と marker の x 帯が物理的に重ならない width をここで予約する。
+ * 内訳: marker glyph ~14 + col 2 との margin 4 + 安全余白 2 = 20。
+ * これを GRAPH_PADDING_X (12) のままにすると `maxLanes === 1` で
+ * marker と lane 0 dot の x 帯が衝突する。 */
+const HEAD_MARKER_RIGHT_PADDING = 20;
 
-/** Graph 列の幅 */
+/** Graph 列の幅。右側は HEAD marker 分の余白を確保する。 */
 const graphColumnWidth = computed(
-  () => GRAPH_PADDING_X + layout.value.maxLanes * LANE_WIDTH + GRAPH_PADDING_X,
+  () => GRAPH_PADDING_X + layout.value.maxLanes * LANE_WIDTH + HEAD_MARKER_RIGHT_PADDING,
 );
 
 /** グラフ全体の SVG 高さ */
@@ -1152,11 +1159,15 @@ const isWorkingTreeActive = computed(
               />
             </svg>
 
-            <!-- Commit table rows: Working Tree 行と同じ grid template を引いて columns を揃える。 -->
+            <!-- Commit table rows: Working Tree 行と同じ grid template を引いて columns を揃える。
+                 row には `position` を付けない (非 positioned = stacking layer 3)。兄弟の overlay
+                 SVG は positioned absolute (layer 6) なので、CSS の painting order により z-index
+                 を一切使わずに SVG が row 背景の上に描かれる。`relative` を足すと row が layer 6
+                 に上がり、tree order で後発の row 背景が先発の SVG を塗りつぶす不具合が再発する。 -->
             <div
               v-for="node in layout.nodes"
               :key="node.commit.hash"
-              class="_graph-row relative grid items-center text-xs"
+              class="_graph-row grid items-center text-xs"
               :class="rowHighlightClass(node.commit.hash)"
               :style="{
                 gridTemplateColumns: 'var(--graph-cols)',
@@ -1165,24 +1176,28 @@ const isWorkingTreeActive = computed(
               @click="onRowClick(node.commit.hash, $event)"
               @contextmenu="onCommitContextMenu(node.commit.hash, $event)"
             >
-              <!-- col 1 (graph): SVG が absolute で覆うので空セル -->
+              <!-- col 1 (graph): SVG が absolute で覆うので空セル。
+                   右側に HEAD_MARKER_RIGHT_PADDING ぶんの余白を持ち、marker は col 2 から
+                   この余白領域に飛び出して配置される (= 旧視覚位置: graph 列の右端)。 -->
               <div />
 
-              <!-- HEAD marker: グラフ列の右端に absolute 配置。レイアウトに影響しない -->
-              <span
-                v-if="hasHead(node.commit.refs)"
-                class="absolute text-warning-text"
-                :style="{
-                  left: `${graphColumnWidth}px`,
-                  transform: 'translateX(calc(-100% - 4px))',
-                }"
-                title="HEAD"
-              >
-                →
-              </span>
-
-              <!-- col 2 (description) -->
-              <div class="flex min-w-0 items-center gap-1 truncate pr-2">
+              <!-- col 2 (description)。
+                   `relative` を持つが background クラスは持たないので、SVG 覆い問題は起きない
+                   (row のように `relative` + 背景の組合せで初めて SVG を覆う)。
+                   HEAD marker は本要素を containing block として left 外側に absolute 配置し、
+                   col 1 右端の予約余白 (HEAD_MARKER_RIGHT_PADDING) に視覚的に乗せる。 -->
+              <div class="relative flex min-w-0 items-center gap-1 truncate pr-2">
+                <!-- HEAD marker: col 2 の左外側に absolute 配置。
+                     `right-full` で marker の右端を col 2 の左端に合わせ、`mr-1` (4px) で
+                     col 2 との隙間を作る。col 1 の右余白 (HEAD_MARKER_RIGHT_PADDING = 20px) 内に
+                     収まるため SVG が描く lane / dot と x 帯が重ならない。 -->
+                <span
+                  v-if="hasHead(node.commit.refs)"
+                  class="absolute right-full mr-1 text-warning-text"
+                  title="HEAD"
+                >
+                  →
+                </span>
                 <span
                   v-if="isMergeCommit(node.commit)"
                   class="icon-[lucide--git-merge] size-3.5 shrink-0 text-foreground-low"

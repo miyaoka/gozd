@@ -96,14 +96,16 @@ export function usePopover<T>(): UsePopoverResult<T> {
     // 同 anchor の再 click 経路: mousedown で light-dismiss が popover を閉じ、続く click が
     // この関数を呼ぶが、@toggle "closed" は task-queued のため openState はまだ直前 anchor を
     // 保持している。ここで openState を undefined に倒すと、後続の queued @toggle "closed" は
-    // 既に undefined を再代入する no-op になり、結果として popover は閉じたまま残る。
+    // `:popover-open` が false の分岐で `openState.value = undefined` を再代入する no-op になり、
+    // 結果として popover は閉じたまま残る。close 後に show を続けないため `suppressNextCloseEmit`
+    // は立てない (立てると onToggle 側で 1 回 skip が消費され、本来の next close が誤検出される)。
     // hidePopover() は light-dismiss 済みなら no-op、未 dismiss なら冪等に閉じる保険。
     if (openState.value?.anchorEl === anchorEl) {
       openState.value = undefined;
       popoverRef.value?.hidePopover();
       return;
     }
-    openState.value = { anchorEl, context: value };
+    open(anchorEl, value);
   }
 
   function close(): void {

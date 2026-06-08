@@ -60,7 +60,12 @@ const sessionId = computed<string | undefined>(() => {
   return terminalStore.getSessionIdByPtyId(ptyId);
 });
 
-const { sessions } = useSessionLogLive(sessionId);
+// PTY を起動した worktree dir。Claude が ~/.claude/projects/<encoded>/ を組み立てる
+// 際の cwd ベース。SessionStart 直後で JSONL が未生成な間も specific projectDir を
+// fsWatch するため、useSessionLogLive に渡す。
+const worktreePath = computed<string | undefined>(() => terminalStore.getPaneDir(props.leafId));
+
+const { sessions } = useSessionLogLive(sessionId, worktreePath);
 
 // JSONL を都度 parse する。preview は最新の user / assistant 1 件しか使わないため
 // branchSelection は不要 (parseSessionLog は未指定で最新枝にフォールバックする)。

@@ -35,6 +35,14 @@ message ClaudeSessionRemoveByPtyResponse {
 // ファイル名に持つ 1 ファイルとして確実に引ける。
 message ClaudeSessionLogRequest {
   string session_id = 1;
+  // PTY が起動された worktree dir。Claude Code が JSONL を置く ~/.claude/projects/<encoded>/
+  // の <encoded> は cwd の `/` `.` を `-` に置換した形式で、PTY 起動時の cwd で一意に決まる。
+  // session_id は SessionStart で確定するが、JSONL 本体は最初の UserPromptSubmit までは
+  // 作られないため、JSONL の有無に関わらず specific な watch_dir を確定するために必要。
+  // native は worktree_path から expected projectDir を組み立て、不在ならその dir を作って
+  // (idempotent mkdir) fsWatch 対象として確実に存在させる。これにより親 dir 共有による
+  // cross-session の fsChange ノイズを構造的に排除する。
+  string worktree_path = 2;
 }
 
 // セッションログ 1 本分 (main または subagent)。parse は renderer 側が担う。
@@ -81,13 +89,10 @@ message ClaudeSessionLogResponse {
   // Workflow agent は同 subagents/workflows/<wf_id>/agent-*.jsonl に isSidechain ログとして
   // 並ぶ。main の projectDir を起点に両方を列挙する。
   repeated ClaudeSessionLogEntry entries = 2;
-  // ライブ更新で renderer 側が fsWatch を張る dir。常に実在する path を返す。
-  //   - found=true:  main jsonl の親 dir (~/.claude/projects/<encoded>/)
-  //   - found=false: ~/.claude/projects/ (projects 親)
-  // JSONL が SessionStart 時点では作られず最初の UserPromptSubmit までは not-found に
-  // なるため、起動直後でも fsChange を受け取れる必要がある。!found では projects 親を
-  // 返し、renderer は当該 sessionId の JSONL 出現を fsChange で検知して再 load → 次の
-  // 結果で specific projectDir に張り替える。Claude の dir encoding 規則 (`/` `.` → `-`)
-  // を gozd 側で複製しない (内部仕様で将来変わるリスクを取らない)。
+  // ライブ更新で renderer 側が fsWatch を張る specific projectDir
+  // (~/.claude/projects/<encoded>/)。!found 時も同じ specific dir で、未生成なら native 側
+  // で idempotent に mkdir した上で返す。projects 親への fallback は持たない (親には
+  // 他セッションの jsonl も同居するため、fsChange の cross-session ノイズが構造的に発生
+  // し refresh が走り続けるため)。
   string watch_dir = 3;
 }

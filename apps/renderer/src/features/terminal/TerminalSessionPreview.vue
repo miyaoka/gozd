@@ -36,12 +36,23 @@ sub overlay の先頭に `subagentTabLabel` 由来の subagent ラベル (Task /
 CSS anchor positioning (`positionArea` + `positionTryFallbacks`) で画面端に押し出された
 ときは反対側へ flip する。同じ bubble を再クリックすると閉じる (トグル)。
 
-DOM 構造は「外側 popover element = 透明な縦 padding 枠」+「内側 box = スクロール面 +
-border + shadow + 角丸」の二段。外側は `bg-transparent border-none px-0 py-3` のみで
-装飾を持たず、内側の user / assistant box が `max-h-[60vh] overflow-auto` で自身を
-スクロール容器化する。外側にも装飾を当てると「グレー枠の中に黒 box が浮く二重背景」に
-なって popover 性が読み取れず、scroll 面も外側に寄って内側 box が伸び続けるため、
-責務を「位置決め (外) / 見た目 + スクロール (内)」で分けている。
+DOM 構造は三段:
+
+- 外側 popover element (`bg-transparent border-none overflow-visible px-0 py-3` のみ)
+  位置決めと縦 padding だけを担う透明枠。UA default の `[popover] { overflow: auto }` は
+  `overflow-visible` で明示的に打ち消す (打ち消さないと内側 box の `shadow-xl` が外側
+  border-box で clip され shadow がほぼ見えなくなる)
+- 中間 wrapper (`max-h-[60vh] overflow-auto rounded-md border border-border-strong shadow-xl`)
+  kind に依らず共通の「スクロール面 + 角丸 + border + shadow」を担う。`overflow-auto` +
+  `border-radius` は CSS Backgrounds Module Level 3 仕様で子の painting を clip するため、
+  内側 box の bg は角丸内に物理的に収まる
+- 内側 box (kind 別)
+  user は `bg-chat-outgoing` + `wrap-break-word whitespace-pre-wrap`、
+  assistant は `bg-chat-incoming` + MarkdownBody 用 CSS var 上書き
+
+「位置決め (外) / 見た目 + スクロール (中間) / 配色 (内)」と責務を分けることで、外側に
+装飾が混入して bubble overlay と区別できなくなる二重背景や、scroll 面が外側に寄って内側
+box が伸び続ける挙動を構造的に排除する。
 </doc>
 
 <script setup lang="ts">
@@ -299,7 +310,7 @@ const hasSub = computed(() => subMessages.value.length > 0);
        assistant 側のみ MarkdownBody で描画 (SessionLogTranscript と同じ規律: user 投稿は
        素のテキストとして書かれる前提で markdown 解釈しない)。 -->
   <PreviewPopover
-    class="m-0 w-3xl max-w-[80vw] border-none bg-transparent px-0 py-3 text-base"
+    class="m-0 w-3xl max-w-[80vw] overflow-visible border-none bg-transparent px-0 py-3 text-base"
     :style="{
       position: 'fixed',
       positionArea: 'block-end span-inline-start',
@@ -307,17 +318,19 @@ const hasSub = computed(() => subMessages.value.length > 0);
     }"
   >
     <template v-if="previewContext">
-      <div
-        v-if="previewContext.kind === 'assistant'"
-        class="_preview-assistant max-h-[60vh] overflow-auto rounded-md border border-border-strong bg-chat-incoming px-3 py-2 text-chat-incoming-text shadow-xl [--color-foreground-low:var(--color-chat-incoming-text-low)] [--color-foreground:var(--color-chat-incoming-text)] [--md-code-bg:transparent]"
-      >
-        <MarkdownBody :content="previewContext.text" />
-      </div>
-      <div
-        v-else
-        class="max-h-[60vh] overflow-auto rounded-md border border-border-strong bg-chat-outgoing px-3 py-2 wrap-break-word whitespace-pre-wrap text-chat-outgoing-text shadow-xl"
-      >
-        {{ previewContext.text }}
+      <div class="max-h-[60vh] overflow-auto rounded-md border border-border-strong shadow-xl">
+        <div
+          v-if="previewContext.kind === 'assistant'"
+          class="_preview-assistant bg-chat-incoming px-3 py-2 text-chat-incoming-text [--color-foreground-low:var(--color-chat-incoming-text-low)] [--color-foreground:var(--color-chat-incoming-text)] [--md-code-bg:transparent]"
+        >
+          <MarkdownBody :content="previewContext.text" />
+        </div>
+        <div
+          v-else
+          class="bg-chat-outgoing px-3 py-2 wrap-break-word whitespace-pre-wrap text-chat-outgoing-text"
+        >
+          {{ previewContext.text }}
+        </div>
       </div>
     </template>
   </PreviewPopover>

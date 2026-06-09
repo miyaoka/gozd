@@ -11,7 +11,7 @@
 //    `gozd-rpc://localhost` は cross-origin になるが、native 側 `RpcSchemeHandler`
 //    が Origin allowlist に基づき `Access-Control-Allow-Origin` を明示 echo するため
 //    WebKit の標準 CORS check を pass する。詳細は
-//    [docs/spike/2026-06-09-gozd-rpc-cors.md](../../../../../docs/spike/2026-06-09-gozd-rpc-cors.md)
+//    [docs/architecture.md の「CORS 運用規律」セクション](../../../../../docs/architecture.md)
 //
 // 3. **エラーは throw**。HTTP 4xx/5xx は ok=false で fetch は throw しないため、
 //    明示的に判定してエラーを投げる。renderer 側は try/catch + tryCatch で扱う

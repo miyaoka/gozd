@@ -13,9 +13,9 @@ import WebKit
 //
 // WKWebView (`macOS 26 WebPage` + `URLSchemeHandler`) は custom scheme の fetch でも標準 CORS
 // check を適用し、response の `Access-Control-Allow-Origin` ヘッダで cross-origin fetch の許可を
-// 判定する (`docs/spike/2026-06-09-gozd-rpc-cors.md` の S1 / S2 / S3 で実証)。
-// dev (Vite) origin と build (gozd-app) origin はどちらも `gozd-rpc://localhost` から見て
-// cross-origin になるため、ヘッダ無しでは renderer 側 `fetch()` が TypeError で reject する。
+// 判定する。dev (Vite) origin と build (gozd-app) origin はどちらも `gozd-rpc://localhost` から
+// 見て cross-origin になるため、ヘッダ無しでは renderer 側 `fetch()` が TypeError で reject する。
+// 詳細は `docs/architecture.md` の「CORS 運用規律」セクション参照。
 //
 // 採用した防御: **Origin allowlist + 明示 echo**。request の `Origin` ヘッダが `allowedOrigins`
 // (`http://localhost:16873` / `gozd-app://localhost`) に含まれる場合のみ `Access-Control-Allow-Origin`

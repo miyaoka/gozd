@@ -148,7 +148,9 @@ native → renderer の push は `WebPage.callJavaScript("window.__gozdReceive(t
 
 ### CORS 運用規律 (`gozd-rpc://` / `gozd-file://`)
 
-WKWebView (`macOS 26 WebPage` + `URLSchemeHandler`) は custom scheme の fetch でも標準 CORS check を適用する。response の `Access-Control-Allow-Origin` ヘッダが request の `Origin` を許可するかで fetch promise の resolve / reject が決まる。
+WKWebView (`macOS 26 WebPage` + `URLSchemeHandler`) は custom scheme の fetch でも標準 CORS check を適用する。WebKit は request を native handler まで送り、**response 受信後**に `Access-Control-Allow-Origin` ヘッダを評価する。ヘッダが request の `Origin` を許可するなら fetch promise が resolve、許可しない (ヘッダ無し含む) なら TypeError で reject する。WebKit Bug 199064 / 201180 から推測される「scheme allowlist 未登録で send 前に reject」は macOS 26 公開 API 経路では成立しない (Bug 205198 の CORS 許可マーキング private SPI なしに標準 CORS check が走る)。
+
+一方 `<img>` / `<video>` / `<audio>` 等は **passive content** として CORS check 対象外で読み込まれる。`fetch()` / `canvas.getImageData()` だけが CORS check 対象。この仕様差を活かして「画像表示は通す、bytes の機械的回収は止める」を両立できる。
 
 renderer の origin は dev (`http://localhost:$GOZD_DEV_VITE_PORT`) / build (`gozd-app://localhost`) の 2 つだけ存在し、`gozd-rpc://localhost` / `gozd-file://localhost` から見ると scheme が異なるため**常に cross-origin** になる。
 

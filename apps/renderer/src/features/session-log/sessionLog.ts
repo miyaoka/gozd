@@ -140,8 +140,13 @@ function isInjectedUserText(text: string): boolean {
  * Claude Code SDK が会話ターン整合のために合成する assistant メッセージか。`model:"<synthetic>"`
  * が discriminator。例: assistant の実応答後に SDK が `[{type:"text", text:"No response requested."}]`
  * + `model:"<synthetic>"` の assistant レコードを同じ親に追記する。これは実応答ではないため
- * transcript / rewind 兄弟検出のどちらにも乗せない。`models` 集計でも同じ discriminator で除外
- * している (SSOT)。
+ * transcript / rewind 兄弟検出のどちらにも乗せない。
+ *
+ * 既存の `isMeta:true` user filter (`raw.isMeta === true` → `isBranchCandidate` で false 返却 +
+ * 後段の render loop で skipped) と対称な役割を担う。両 filter とも (a) `isBranchCandidate` で
+ * branch 候補から外し、(b) render loop 先頭で transcript への push を skipped に倒す、の 2 役割を
+ * 兼ねる。`isMeta` (既存) は CLI/hook 注入の user レコードを、`isSyntheticAssistant` (本ヘルパー)
+ * は SDK 合成 assistant レコードをそれぞれ受け持つ。
  */
 function isSyntheticAssistant(raw: RawLine): boolean {
   return raw.type === "assistant" && raw.message?.model === "<synthetic>";
@@ -521,15 +526,11 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
         continue;
       }
       // 実際に使われた model を記録する。content の形 (array / synthetic string) に依らず
-      // message.model はレコード単位に付くため、ブロック走査の前にここで採る。null / 空 /
-      // システム生成の "<synthetic>" は実モデルではないため除外する。
+      // message.model はレコード単位に付くため、ブロック走査の前にここで採る。null / 空 を
+      // 除外する。`<synthetic>` 除外は上の `isSyntheticAssistant` 早期 return で 1 箇所 SSOT 化
+      // 済みのため、ここではチェックしない (この経路に synthetic は到達しない)。
       const model = raw.message?.model;
-      if (
-        typeof model === "string" &&
-        model !== "" &&
-        model !== "<synthetic>" &&
-        !seenModels.has(model)
-      ) {
+      if (typeof model === "string" && model !== "" && !seenModels.has(model)) {
         seenModels.add(model);
         models.push(model);
       }

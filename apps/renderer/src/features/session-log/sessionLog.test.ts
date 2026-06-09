@@ -601,9 +601,15 @@ describe("parseSessionLog", () => {
   // positive (synthetic) と contrast (実モデル) を pair で並べる。両 test は同じ topology で
   // model フィールドだけが違う。positive が本 PR の core invariant (偽 chooser 消滅) を assert し、
   // contrast は `isBranchCandidate` の synthetic 早期 return が外された場合に得られる挙動を
-  // negative control として固定する。contrast の expect 値は「現状の正しい挙動の spec」ではなく
-  // 「本 PR で消したい症状」を退行検出のためにロックしているもので、将来 resume 注入 user prompt
-  // 自体の扱いを変える等 core を深める変更を入れる際は、contrast の expect を更新する前提。
+  // ロックして退行検出を担保する。
+  //
+  // contrast の expect 値は「現状の正しい挙動の spec」ではなく「本 PR で消したい症状を退行検出
+  // のためにロックしているもの」。将来 resume 注入 user prompt 自体の扱いを変える等 core を深める
+  // 変更を入れる際は、contrast の expect を更新する前提。
+  //
+  // 両 test は events だけでなく skipped / emptyThinking / models も assert することで、synthetic
+  // 弾きが外れた退行時に「skipped が 2 → 1 に減る」「models[] への重複登録の有無」等の二次的な
+  // 副作用も検出する。
   describe("rewind: resume mid-AskUserQuestion synthetic exclusion (regression guard pair)", () => {
     test("positive: model:<synthetic> の r2 は branch 候補から外れ偽 chooser が消える", () => {
       const log = parseSessionLog(resumeMidAskFixture("<synthetic>"));
@@ -625,9 +631,9 @@ describe("parseSessionLog", () => {
       expect(log.models).toEqual(["claude-opus-4-7"]);
     });
 
-    // negative control: `isBranchCandidate` の synthetic 早期 return line を外すと positive の
-    // expect 結果がこの contrast 形 (偽 branch chooser 出現) に変わる。core 変更の退行検出担保。
-    test("contrast (negative control): r2 が実モデルだと同じ topology で偽 chooser が浮上する", () => {
+    // contrast: `isBranchCandidate` の synthetic 早期 return line を外すと positive の expect
+    // 結果がこの contrast 形 (偽 branch chooser 出現) に変わる。退行検出担保。
+    test("contrast: r2 が実モデルだと同じ topology で偽 chooser が浮上する", () => {
       const log = parseSessionLog(resumeMidAskFixture("claude-opus-4-7"));
       expect(log.events).toEqual([
         { kind: "user", text: "投稿予定の総評本文をレビュー", ts: TS },
@@ -643,6 +649,11 @@ describe("parseSessionLog", () => {
         },
         { kind: "assistant", text: "No response requested.", ts: TS },
       ]);
+      // r1 (isMeta) のみ skipped。r2 は synthetic 弾きが効かないため events に乗り skipped されない。
+      // 分岐確定により a1 / a2 サブツリーは prune される (a0 は分岐より上なので emptyThinking に残る)。
+      expect(log.skipped).toBe(1);
+      expect(log.emptyThinking).toBe(1);
+      expect(log.models).toEqual(["claude-opus-4-7"]);
     });
   });
 

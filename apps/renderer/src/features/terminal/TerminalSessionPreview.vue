@@ -35,6 +35,13 @@ sub overlay の先頭に `subagentTabLabel` 由来の subagent ラベル (Task /
 `shared/popover` の `usePopover` を per-instance で使い、anchor は被クリック bubble。
 CSS anchor positioning (`positionArea` + `positionTryFallbacks`) で画面端に押し出された
 ときは反対側へ flip する。同じ bubble を再クリックすると閉じる (トグル)。
+
+DOM 構造は「外側 popover element = 透明な縦 padding 枠」+「内側 box = スクロール面 +
+border + shadow + 角丸」の二段。外側は `bg-transparent border-none px-0 py-3` のみで
+装飾を持たず、内側の user / assistant box が `max-h-[60vh] overflow-auto` で自身を
+スクロール容器化する。外側にも装飾を当てると「グレー枠の中に黒 box が浮く二重背景」に
+なって popover 性が読み取れず、scroll 面も外側に寄って内側 box が伸び続けるため、
+責務を「位置決め (外) / 見た目 + スクロール (内)」で分けている。
 </doc>
 
 <script setup lang="ts">
@@ -292,7 +299,7 @@ const hasSub = computed(() => subMessages.value.length > 0);
        assistant 側のみ MarkdownBody で描画 (SessionLogTranscript と同じ規律: user 投稿は
        素のテキストとして書かれる前提で markdown 解釈しない)。 -->
   <PreviewPopover
-    class="m-0 max-h-[60vh] w-lg max-w-[80vw] overflow-auto rounded-lg border border-border bg-background p-3 text-base shadow-lg"
+    class="m-0 w-3xl max-w-[80vw] border-none bg-transparent px-0 py-3 text-base"
     :style="{
       position: 'fixed',
       positionArea: 'block-end span-inline-start',
@@ -302,13 +309,13 @@ const hasSub = computed(() => subMessages.value.length > 0);
     <template v-if="previewContext">
       <div
         v-if="previewContext.kind === 'assistant'"
-        class="_preview-assistant rounded-md bg-chat-incoming px-3 py-2 text-chat-incoming-text [--color-foreground-low:var(--color-chat-incoming-text-low)] [--color-foreground:var(--color-chat-incoming-text)] [--md-code-bg:transparent]"
+        class="_preview-assistant max-h-[60vh] overflow-auto rounded-md border border-border-strong bg-chat-incoming px-3 py-2 text-chat-incoming-text shadow-xl [--color-foreground-low:var(--color-chat-incoming-text-low)] [--color-foreground:var(--color-chat-incoming-text)] [--md-code-bg:transparent]"
       >
         <MarkdownBody :content="previewContext.text" />
       </div>
       <div
         v-else
-        class="rounded-md bg-chat-outgoing px-3 py-2 wrap-break-word whitespace-pre-wrap text-chat-outgoing-text"
+        class="max-h-[60vh] overflow-auto rounded-md border border-border-strong bg-chat-outgoing px-3 py-2 wrap-break-word whitespace-pre-wrap text-chat-outgoing-text shadow-xl"
       >
         {{ previewContext.text }}
       </div>

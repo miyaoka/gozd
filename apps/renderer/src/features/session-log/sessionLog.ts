@@ -199,6 +199,20 @@ interface BranchOption {
   ts: string;
 }
 
+/** AskUserQuestion の 1 件の質問 (選択肢 + 充填済み回答)。 */
+interface AskOption {
+  label: string;
+  description: string;
+}
+interface AskQuestion {
+  question: string;
+  header: string;
+  multiSelect: boolean;
+  options: AskOption[];
+  /** tool_result から parse した回答。resume 中断 / 未充填は undefined。 */
+  answer: string | undefined;
+}
+
 /** transcript の 1 ブロック。discriminated union (kind で分岐) */
 export type TranscriptEvent =
   | { kind: "user"; text: string; ts: string }
@@ -211,6 +225,17 @@ export type TranscriptEvent =
       toolUseId: string;
       ts: string;
       result: { text: string; isError: boolean } | undefined;
+    }
+  // AskUserQuestion 専用イベント。assistant の質問 (+選択肢) と user の回答を 1 つの構造に
+  // 畳む。実体は tool_use + tool_result だが、UI 上は会話 (Q→A) として扱いたいため通常の
+  // tool イベントとは区別する。1 つの AskUserQuestion は複数 question を取れるので
+  // questions[] に並べ、それぞれに answer を紐づける。resume 等で result が来ないケースは
+  // 各 answer が undefined のまま残る。
+  | {
+      kind: "ask";
+      ts: string;
+      toolUseId: string;
+      questions: AskQuestion[];
     }
   | { kind: "image"; ts: string; src: string | undefined }
   // rewind 分岐点。選択中の枝の先頭会話ノードの直前に挿入する。UI はここにセレクタを出し、
@@ -247,6 +272,60 @@ export interface ParsedSessionLog {
    * skipped とは性質が異なるため別カウンタにし、footer で別ラベル表示する。
    */
   emptyThinking: number;
+}
+
+// --- AskUserQuestion 専用 helper ---
+
+/**
+ * AskUserQuestion tool 名。SSOT。判定はこのリテラル一致のみ (大小文字違いや別名は持たない)。
+ */
+const ASK_TOOL_NAME = "AskUserQuestion";
+
+/**
+ * AskUserQuestion の tool_result.content テキストから "Q"="A" ペアを引き抜く。
+ *
+ * 実ログの形:
+ *   `Your questions have been answered: "Q1"="A1", "Q2"="A2". You can now continue …`
+ *
+ * 信頼境界外の出力なので形が崩れた場合 (regex 不一致) は空 Map に倒し、UI 側で
+ * `answer === undefined` のまま描画させる (silent drop ではなく可視化)。
+ */
+const ASK_RESULT_PAIR_RE = /"([^"]+)"="([^"]*)"/g;
+function parseAskAnswers(resultText: string): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const m of resultText.matchAll(ASK_RESULT_PAIR_RE)) {
+    map.set(m[1], m[2]);
+  }
+  return map;
+}
+
+/**
+ * tool_use.input から AskUserQuestion 用の questions[] を取り出す。信頼境界外なので
+ * 各フィールド欠落 / 型違いを許容して空文字 / 空配列 / false に倒す。
+ */
+function normalizeAskQuestions(input: Record<string, unknown>): AskQuestion[] {
+  const raw = input.questions;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((q): AskQuestion => {
+    const obj = (typeof q === "object" && q !== null ? q : {}) as Record<string, unknown>;
+    const rawOptions = obj.options;
+    const options: AskOption[] = Array.isArray(rawOptions)
+      ? rawOptions.map((opt) => {
+          const o = (typeof opt === "object" && opt !== null ? opt : {}) as Record<string, unknown>;
+          return {
+            label: typeof o.label === "string" ? o.label : "",
+            description: typeof o.description === "string" ? o.description : "",
+          };
+        })
+      : [];
+    return {
+      question: typeof obj.question === "string" ? obj.question : "",
+      header: typeof obj.header === "string" ? obj.header : "",
+      multiSelect: obj.multiSelect === true,
+      options,
+      answer: undefined,
+    };
+  });
 }
 
 /**
@@ -345,6 +424,10 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
   const events: TranscriptEvent[] = [];
   // tool_use_id → 生成済み tool イベント。後続の tool_result を充填する。
   const toolById = new Map<string, Extract<TranscriptEvent, { kind: "tool" }>>();
+  // tool_use_id → 生成済み ask イベント。後続の tool_result を answer 充填に使う。
+  // toolById と key 空間を分けると AskUserQuestion / それ以外で経路が混ざらず、tool_result の
+  // 引き当てが「どちらの table にいるか」で一意に決まる。
+  const askById = new Map<string, Extract<TranscriptEvent, { kind: "ask" }>>();
 
   let totalLines = 0;
   let malformed = 0;
@@ -492,6 +575,18 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
           if (block.type === "text") {
             events.push({ kind: "user", text: block.text, ts });
           } else if (block.type === "tool_result") {
+            // AskUserQuestion の応答なら ask イベントの answer を充填する。引き当ては
+            // askById 優先 → toolById fallback の順 (同 tool_use_id が両方に居ることは無いが、
+            // ask 経路を先に試すことで「ask に登録されているのに tool として処理する」誤りを防ぐ)。
+            const ask = askById.get(block.tool_use_id);
+            if (ask !== undefined) {
+              const answers = parseAskAnswers(toolResultText(block.content));
+              for (const q of ask.questions) {
+                const a = answers.get(q.question);
+                if (a !== undefined) q.answer = a;
+              }
+              continue;
+            }
             const tool = toolById.get(block.tool_use_id);
             // 親 tool_use を読む前に tool_result が来ることは通常ないが、fork コピーや
             // 途中欠落で引き当てに失敗したら捨てずに skipped に計上する。
@@ -557,6 +652,21 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
           // tool_use と Map キーが衝突し tool_result ペアリングを取り違うため、未ペア
           // (toolById に登録しない / subagent 紐付けキーも空) として扱う。
           const toolUseId = block.id ?? "";
+          // AskUserQuestion は通常の tool ではなく「assistant の質問 + user の回答」という
+          // 会話構造として扱う (`kind: "ask"`)。input から質問列を取り出し、後続の
+          // tool_result で answer を充填する。questions[] が空でも ask として描画する
+          // (空質問の AskUserQuestion はそもそも来ないが、信頼境界外の防衛として握り潰さず可視化)。
+          if (block.name === ASK_TOOL_NAME) {
+            const ask: Extract<TranscriptEvent, { kind: "ask" }> = {
+              kind: "ask",
+              ts,
+              toolUseId,
+              questions: normalizeAskQuestions(block.input ?? {}),
+            };
+            if (toolUseId !== "") askById.set(toolUseId, ask);
+            events.push(ask);
+            continue;
+          }
           const tool: Extract<TranscriptEvent, { kind: "tool" }> = {
             kind: "tool",
             // 見出しの中黒区切りを廃したため、空名だと TOOL ラベルだけになり種別が消える。
@@ -602,6 +712,35 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
   }
 
   return { events, models, totalLines, malformed, skipped, emptyThinking };
+}
+
+/**
+ * ask イベントを「質問 = assistant 発言」「回答 = user 発言」のフラットな会話列に展開する
+ * (terminal preview など、選択肢を出したくない consumer 向け)。answer が undefined の question
+ * (resume 中断 / parse 失敗) は user メッセージを出さず、質問だけを残す。
+ *
+ * dialog 側 (SessionLogTranscript) は ask イベント本体を受け取って選択肢込みで描画するため、
+ * この helper は使わない。consumer ごとに描画方針が違うので、parser 側の TranscriptEvent は
+ * リッチな ask のまま残しつつ「会話列だけ欲しい」consumer 用に薄い変換を提供する形にする。
+ */
+export function flattenAskToMessages(
+  events: TranscriptEvent[],
+): Array<{ kind: "user" | "assistant"; text: string; ts: string }> {
+  const out: Array<{ kind: "user" | "assistant"; text: string; ts: string }> = [];
+  for (const ev of events) {
+    if (ev.kind === "user" || ev.kind === "assistant") {
+      out.push({ kind: ev.kind, text: ev.text, ts: ev.ts });
+      continue;
+    }
+    if (ev.kind === "ask") {
+      for (const q of ev.questions) {
+        if (q.question !== "") out.push({ kind: "assistant", text: q.question, ts: ev.ts });
+        if (q.answer !== undefined && q.answer !== "")
+          out.push({ kind: "user", text: q.answer, ts: ev.ts });
+      }
+    }
+  }
+  return out;
 }
 
 // model ID の family 部分 → 表示名。バージョンは正規表現で抽出するため family のみ table 化する。

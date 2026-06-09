@@ -613,16 +613,17 @@ describe("parseSessionLog", () => {
   describe("rewind: resume mid-AskUserQuestion synthetic exclusion (regression guard pair)", () => {
     test("positive: model:<synthetic> の r2 は branch 候補から外れ偽 chooser が消える", () => {
       const log = parseSessionLog(resumeMidAskFixture("<synthetic>"));
+      // AskUserQuestion は tool ではなく ask イベントとして emit される。input.questions が
+      // 空 (この fixture では `input: {}`) のときも ask を作り、questions:[] のまま残す
+      // (resume 中断 + 質問配列空 = 最も degenerate な ask シナリオの表現)。
       expect(log.events).toEqual([
         { kind: "user", text: "投稿予定の総評本文をレビュー", ts: TS },
         { kind: "assistant", text: "主要箇所の検証が完了しました。", ts: TS },
         {
-          kind: "tool",
-          name: "AskUserQuestion",
-          input: {},
-          toolUseId: "tu1",
+          kind: "ask",
           ts: TS,
-          result: undefined,
+          toolUseId: "tu1",
+          questions: [],
         },
       ]);
       // r1 (isMeta) + r2 (synthetic) が skipped に計上される。a0 の空 thinking は emptyThinking 側。
@@ -655,6 +656,197 @@ describe("parseSessionLog", () => {
       expect(log.emptyThinking).toBe(1);
       expect(log.models).toEqual(["claude-opus-4-7"]);
     });
+  });
+
+  describe("AskUserQuestion を ask イベントに畳む", () => {
+    // AskUserQuestion は assistant の質問 + user の回答を 1 つの会話ブロックに畳んで扱う。
+    // tool_use の input.questions[] から質問列と選択肢を抜き、後続の tool_result.content
+    // テキスト ("Q"="A" 形式) から answer を充填する。result が来ない (resume 中断) ケースは
+    // answer=undefined のまま残す。
+    test("通常の Q/A: input から質問列を構築し result text から answer を充填", () => {
+      const log = parseSessionLog(
+        jsonl(
+          {
+            type: "assistant",
+            timestamp: TS,
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: "tu1",
+                  name: "AskUserQuestion",
+                  input: {
+                    questions: [
+                      {
+                        question: "日本の首都はどこ?",
+                        header: "日本クイズ",
+                        multiSelect: false,
+                        options: [
+                          { label: "京都", description: "古都" },
+                          { label: "東京", description: "現首都" },
+                        ],
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+          {
+            type: "user",
+            timestamp: TS,
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "tool_result",
+                  tool_use_id: "tu1",
+                  content:
+                    'Your questions have been answered: "日本の首都はどこ?"="東京". You can now continue with these answers in mind.',
+                },
+              ],
+            },
+          },
+        ),
+      );
+      expect(log.events).toEqual([
+        {
+          kind: "ask",
+          ts: TS,
+          toolUseId: "tu1",
+          questions: [
+            {
+              question: "日本の首都はどこ?",
+              header: "日本クイズ",
+              multiSelect: false,
+              options: [
+                { label: "京都", description: "古都" },
+                { label: "東京", description: "現首都" },
+              ],
+              answer: "東京",
+            },
+          ],
+        },
+      ]);
+    });
+
+    test("複数 question: 各 answer を question 文字列で引き当てる", () => {
+      const log = parseSessionLog(
+        jsonl(
+          {
+            type: "assistant",
+            timestamp: TS,
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: "tu1",
+                  name: "AskUserQuestion",
+                  input: {
+                    questions: [
+                      { question: "Q1", header: "", multiSelect: false, options: [] },
+                      { question: "Q2", header: "", multiSelect: false, options: [] },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+          {
+            type: "user",
+            timestamp: TS,
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "tool_result",
+                  tool_use_id: "tu1",
+                  content: 'Your questions have been answered: "Q1"="A1", "Q2"="A2".',
+                },
+              ],
+            },
+          },
+        ),
+      );
+      const ev = log.events[0];
+      expect(ev?.kind).toBe("ask");
+      if (ev?.kind === "ask") {
+        expect(ev.questions.map((q) => q.answer)).toEqual(["A1", "A2"]);
+      }
+    });
+
+    test("result が無い (resume 中断) と answer は undefined のまま", () => {
+      const log = parseSessionLog(
+        jsonl({
+          type: "assistant",
+          timestamp: TS,
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: "tu1",
+                name: "AskUserQuestion",
+                input: {
+                  questions: [
+                    {
+                      question: "このまま投稿しますか?",
+                      header: "次のステップ",
+                      multiSelect: false,
+                      options: [{ label: "このまま投稿", description: "修正なし" }],
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        }),
+      );
+      const ev = log.events[0];
+      expect(ev?.kind).toBe("ask");
+      if (ev?.kind === "ask") {
+        expect(ev.questions[0]?.answer).toBeUndefined();
+        expect(ev.questions[0]?.options).toEqual([
+          { label: "このまま投稿", description: "修正なし" },
+        ]);
+      }
+    });
+  });
+
+  test("flattenAskToMessages: ask を質問=assistant / 回答=user に展開し、未回答は質問だけ残す", async () => {
+    const { flattenAskToMessages } = await import("./sessionLog");
+    const events: TranscriptEvent[] = [
+      { kind: "user", text: "始めて", ts: TS },
+      {
+        kind: "ask",
+        ts: TS,
+        toolUseId: "tu1",
+        questions: [
+          {
+            question: "Q1",
+            header: "",
+            multiSelect: false,
+            options: [],
+            answer: "A1",
+          },
+          {
+            question: "Q2",
+            header: "",
+            multiSelect: false,
+            options: [],
+            answer: undefined,
+          },
+        ],
+      },
+    ];
+    expect(flattenAskToMessages(events)).toEqual([
+      { kind: "user", text: "始めて", ts: TS },
+      { kind: "assistant", text: "Q1", ts: TS },
+      { kind: "user", text: "A1", ts: TS },
+      { kind: "assistant", text: "Q2", ts: TS },
+    ]);
   });
 
   test("rewind: デフォルトは最新枝を表示し直前に branch セレクタを挿す (捨て枝は出さない)", () => {

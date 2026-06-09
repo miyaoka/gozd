@@ -11,7 +11,10 @@ main / sub を独立した 2 つの overlay に分け、terminal の右上に ma
 物理的距離で分離する設計。
 
 各 overlay の内側は user / assistant それぞれ最終 2 発言 (合計 4 件まで) を ts 昇順で
-混ぜて並べる。user は右寄せ + `bg-chat-outgoing` (LINE 緑) + 黒文字、assistant は
+混ぜて並べる。AskUserQuestion (`kind:"ask"` イベント) は `flattenAskToMessages` で
+「質問 = assistant 発言」「回答 = user 発言」に展開してから lastN に流す。preview は質問と
+回答のテキストだけ見せたいので選択肢は捨てる (選択肢込みで描画するのは dialog 側)。回答
+未充填 (resume 中断) の question は質問だけ残り、回答側は欠落する。user は右寄せ + `bg-chat-outgoing` (LINE 緑) + 黒文字、assistant は
 左寄せ + `bg-chat-incoming` (暗グレー) + 白文字の LINE ダーク風吹き出し。角丸は対称
 (話者方向を示す尖り角は付けない)。
 
@@ -72,7 +75,7 @@ box が伸び続ける挙動を構造的に排除する。
 import { computed, ref } from "vue";
 import { usePopover } from "../../shared/popover";
 import { MarkdownBody } from "../preview";
-import { parseSessionLog, useSessionLogLive, type TranscriptEvent } from "../session-log";
+import { flattenAskToMessages, parseSessionLog, useSessionLogLive } from "../session-log";
 import { useTerminalStore } from "./useTerminalStore";
 
 interface Props {
@@ -95,17 +98,21 @@ const { sessions } = useSessionLogLive(sessionId);
 
 // JSONL を都度 parse する。preview は最新の user / assistant 1 件しか使わないため
 // branchSelection は不要 (parseSessionLog は未指定で最新枝にフォールバックする)。
-function parsedEvents(content: string): TranscriptEvent[] {
-  return parseSessionLog(content).events;
+//
+// `flattenAskToMessages` で AskUserQuestion (kind: "ask") を「質問 = assistant 発言」
+// 「回答 = user 発言」に展開する。preview は質問と回答だけ見せたいので選択肢は捨てる
+// (dialog 側は ask イベント本体を扱い選択肢込みで描画する)。
+type PreviewEvent = { kind: "user" | "assistant"; text: string; ts: string };
+function parsedEvents(content: string): PreviewEvent[] {
+  return flattenAskToMessages(parseSessionLog(content).events);
 }
 
 // 最後に「会話発話」(kind === user | assistant) があった ts。tool だけ走り続けている
 // subagent (大規模 grep / spawn) はここの最新性に寄与させない。tool ts まで含めると
 // 実際に対話している subagent が押し出されて preview の主役が反転するため。
-function lastConversationTs(events: TranscriptEvent[]): number {
+function lastConversationTs(events: PreviewEvent[]): number {
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i];
-    if (e.kind !== "user" && e.kind !== "assistant") continue;
     const ms = Date.parse(e.ts);
     if (!Number.isNaN(ms)) return ms;
   }
@@ -116,7 +123,7 @@ function lastConversationTs(events: TranscriptEvent[]): number {
 // (tool_result / 注入された空 user 等の取りこぼし対策)。呼び出し側で他 kind と merge して
 // ts 昇順に並べ替える前提なので、ここでの並び順自体は最終表示に影響しない。
 function lastNMessagesOf(
-  events: TranscriptEvent[],
+  events: PreviewEvent[],
   kind: "user" | "assistant",
   n: number,
 ): Array<{ text: string; ts: string }> {
@@ -129,7 +136,7 @@ function lastNMessagesOf(
 }
 
 // main session の events。サブで二度評価されるのを避けるため computed に切る。
-const mainEvents = computed<TranscriptEvent[]>(() => {
+const mainEvents = computed<PreviewEvent[]>(() => {
   const main = sessions.value.find((s) => s.kind === "main");
   return main === undefined ? [] : parsedEvents(main.content);
 });
@@ -139,7 +146,7 @@ const mainEvents = computed<TranscriptEvent[]>(() => {
 // tool 単独走行の subagent はここでの最新性に寄与させない。events と label を 1 つの
 // computed にまとめておくと sub overlay の見出しと本文が同じ subagent から派生する不変条件を
 // 構造的に担保できる。
-const newestSub = computed<{ label: string; events: TranscriptEvent[] } | undefined>(() => {
+const newestSub = computed<{ label: string; events: PreviewEvent[] } | undefined>(() => {
   const subs = sessions.value
     .filter((s) => s.kind !== "main")
     .map((s) => ({ label: s.label, events: parsedEvents(s.content) }))
@@ -156,7 +163,7 @@ const newestSub = computed<{ label: string; events: TranscriptEvent[] } | undefi
   }
   return newest;
 });
-const subEvents = computed<TranscriptEvent[]>(() => newestSub.value?.events ?? []);
+const subEvents = computed<PreviewEvent[]>(() => newestSub.value?.events ?? []);
 // subLabel は <summary> の折り畳みハンドルを兼ねるため、subagentTabLabel が空文字
 // を返すケース (ロード途中 / meta.json 解析失敗) でも "Subagent" にフォールバック
 // して summary を必ず出す。summary を欠落させると UA デフォルト "Details" 表示に
@@ -175,7 +182,7 @@ interface PreviewMessage {
 }
 const MESSAGES_PER_KIND = 2;
 
-// ts が空文字 / parse 失敗の TranscriptEvent (parseSessionLog は ts="" を許容する) を
+// ts が空文字 / parse 失敗の PreviewEvent (parseSessionLog は ts="" を許容する) を
 // comparator に渡すと NaN を返して sort が unstable になる。invalid ts は 0 に倒し、
 // 後段の seq tiebreaker で「events 出現順 (user は user 内で、assistant は assistant 内で)」
 // + 「kind 同 ts なら user → assistant」の決定的順序に解決する。
@@ -184,7 +191,7 @@ function safeTsMs(ts: string): number {
   return Number.isFinite(ms) ? ms : 0;
 }
 
-function collectMessages(events: TranscriptEvent[]): PreviewMessage[] {
+function collectMessages(events: PreviewEvent[]): PreviewMessage[] {
   // `lastNMessagesOf` は逆走査で末尾から n 件を集めるため戻り配列は「新しい順」。
   // seq に採番する前に reverse して events 出現順 (古い順) に揃える。これで ts NaN
   // 群が並ぶケース (session 異常で複数 event が ts="" のとき) でも LINE overlay 上で

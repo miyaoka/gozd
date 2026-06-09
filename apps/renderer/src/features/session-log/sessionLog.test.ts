@@ -853,6 +853,40 @@ describe("parseSessionLog", () => {
       }
     });
 
+    // parser invariant: 「未充填」概念を `q.answer === undefined` の 1 条件に閉じる
+    // (consumer の if 分岐 SSOT 化)。Claude Code 仕様上空文字 answer は通常発生しないが、
+    // 信頼境界外データとして来た場合に dialog の `v-if="q.answer !== undefined"` が
+    // 空緑バブルを出す症状を parser 側で消す。
+    test("空文字 answer は未充填扱いで undefined に倒される (SSOT)", () => {
+      const log = parseSessionLog(
+        jsonl(
+          {
+            type: "assistant",
+            timestamp: TS,
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: "tu1",
+                  name: "AskUserQuestion",
+                  input: {
+                    questions: [{ question: "Q1", header: "", multiSelect: false, options: [] }],
+                  },
+                },
+              ],
+            },
+          },
+          askResultLine("tu1", { Q1: "" }),
+        ),
+      );
+      const ev = log.events[0];
+      expect(ev?.kind).toBe("ask");
+      if (ev?.kind === "ask") {
+        expect(ev.questions[0]?.answer).toBeUndefined();
+      }
+    });
+
     // tool_result が来たが構造化 `answers` フィールドが欠落しているケース (信頼境界外
     // で起こり得る部分破損)。text 経路 fallback は持たないため `answer === undefined`
     // のままで描画側が「(no response)」を出す。silent drop ではなく可視化される。
@@ -927,18 +961,11 @@ describe("parseSessionLog", () => {
       ).toEqual([{ kind: "user", text: "A", ts: TS }]);
     });
 
-    test("空 answer は回答メッセージを出さない", () => {
-      expect(
-        expandAskMessages([
-          {
-            kind: "ask",
-            ts: TS,
-            toolUseId: "tu1",
-            questions: [{ question: "Q", header: "", multiSelect: false, options: [], answer: "" }],
-          },
-        ]),
-      ).toEqual([{ kind: "assistant", text: "Q", ts: TS }]);
-    });
+    // 「空文字 answer は未充填扱い」は parser 側で `answer = undefined` に正規化する
+    // invariant で SSOT 化済み (parseSessionLog 「空文字 answer は未充填扱いで undefined に
+    // 倒される」test 参照)。consumer (expandAskMessages / dialog) は `q.answer === undefined`
+    // の 1 条件だけで未充填判定するため、`expandAskMessages` 側に空文字 answer の独立
+    // 仕様 test は持たない (parser invariant を信頼できなくなる二重定義になる)。
 
     test("空入力は空出力", () => {
       expect(expandAskMessages([])).toEqual([]);

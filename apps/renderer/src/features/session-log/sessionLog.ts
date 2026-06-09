@@ -582,7 +582,13 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
               if (answers !== undefined) {
                 for (const q of ask.questions) {
                   const a = answers[q.question];
-                  if (typeof a === "string") q.answer = a;
+                  // 「未充填」の SSOT は `q.answer === undefined` の 1 条件に閉じる。空文字
+                  // answer も「未充填」と同義として undefined に倒し、consumer (dialog の
+                  // 「(no response)」分岐 / expandAskMessages の質問のみ出力) は undefined
+                  // チェック 1 つだけで一貫した分岐ができる。Claude Code 仕様上空文字 answer
+                  // は通常発生しないが、信頼境界外データとして来た場合の扱いを parser に
+                  // 1 箇所だけ書く (consumer 側の if に `!== ""` を毎度書かない)。
+                  if (typeof a === "string" && a !== "") q.answer = a;
                 }
               }
               continue;
@@ -724,9 +730,10 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
  * consumer ごとに違うため、parser 側はここで「ask の inline 展開」だけに責務を絞る
  * (下流の表示制約を上流に持ち込まない)。
  *
- * 空 question (`question === ""`) と空 / 未充填 answer (`answer === undefined` または `""`)
- * は対応するメッセージを出さない (表示できる本文が無いものを bubble に倒さない方針)。
- * resume 中断で answer 未充填の question は質問だけが残る。
+ * 空 question (`question === ""`) はメッセージを出さず、回答は `answer === undefined`
+ * の 1 条件で「未充填」を判定する (parser 側で空文字 answer を undefined に正規化済み)。
+ * 表示できる本文が無いものを bubble に倒さない方針。resume 中断で answer 未充填の
+ * question は質問だけが残る。
  *
  * dialog (`SessionLogTranscript`) は ask イベント本体を選択肢込みで描画するためこの helper は
  * 使わない。preview など「会話 (user / assistant) だけ見せたい」consumer は、この展開後に
@@ -741,8 +748,7 @@ export function expandAskMessages(events: TranscriptEvent[]): TranscriptEvent[] 
     }
     for (const q of ev.questions) {
       if (q.question !== "") out.push({ kind: "assistant", text: q.question, ts: ev.ts });
-      if (q.answer !== undefined && q.answer !== "")
-        out.push({ kind: "user", text: q.answer, ts: ev.ts });
+      if (q.answer !== undefined) out.push({ kind: "user", text: q.answer, ts: ev.ts });
     }
   }
   return out;

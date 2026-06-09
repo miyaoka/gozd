@@ -22,6 +22,16 @@ import WebKit
 //
 // MIME は path の拡張子から `UTType` で sniff する。判定不能は `application/octet-stream` で
 // 出すと WebKit が broken-image にしてくれる (silent drop 防止の観点で response は必ず返す)。
+//
+// セキュリティ:
+//   - `Access-Control-Allow-Origin` は意図して付けない。WKWebView の CORS は同 origin の
+//     `<img>` 表示には不要 (passive content)、cross-origin の `fetch()` / `canvas getImageData()`
+//     は CORS で構造的にブロックされる。`*` で all origin を許可すると tainted canvas / cross-origin
+//     fetch の防御層を打ち消し、renderer 内 XSS 経路で任意 path bytes 回収が成立する
+//   - `/git` 経路は `validateRelPath` で option 注入 (`-`/`--option`) / NUL / 改行 / `..` を弾く。
+//     `GitValidate.swift` の「新規 op を生やす時の checklist」契約に整合させる
+//   - `/fs` 経路は `FSOps.readFileBytes` 内の `resolveSafe` が dir 配下に閉じる traversal guard
+//     を担い、追加で `validateRelPath` を safety net として呼ぶ
 
 struct FileServerSchemeHandler: URLSchemeHandler {
   func reply(for request: URLRequest) -> AsyncThrowingStream<URLSchemeTaskResult, any Error> {
@@ -45,9 +55,6 @@ struct FileServerSchemeHandler: URLSchemeHandler {
             headerFields: [
               "Content-Type": mime,
               "Content-Length": "\(data.count)",
-              // `<img>` から fetch される custom scheme は null origin。CORS preflight は走らないが
-              // 念のため明示しておく (gozd-rpc:// と同じ規律)。
-              "Access-Control-Allow-Origin": "*",
             ]
           )!
           continuation.yield(.response(resp))
@@ -79,6 +86,10 @@ struct FileServerSchemeHandler: URLSchemeHandler {
   }
 
   private func fetchBytes(kind: String, dir: String, relPath: String) async throws -> Data {
+    // safety net: option 注入 / NUL / 改行 / .. traversal を入口で reject する。
+    // `/fs` は FSOps.resolveSafe が traversal を直接 reject するが、option 注入経路 (`-` 始まり) は
+    // `/fs` でも実害は無いものの、checklist 契約として両経路で同じ guard を通す。
+    try validateRelPath(relPath)
     switch kind {
     case "fs":
       return try FSOps.readFileBytes(dir: dir, path: relPath)

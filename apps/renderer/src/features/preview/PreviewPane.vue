@@ -86,6 +86,9 @@ const emit = defineEmits<{
   close: [];
 }>();
 
+/** `gozd-file://` URLSchemeHandler の root URL (固定文字列)。dir / path はクエリで運ぶ契約 */
+const FILE_SERVER_BASE_URL = "gozd-file://localhost/";
+
 const worktreeStore = useWorktreeStore();
 const {
   selection,
@@ -93,7 +96,6 @@ const {
   selectedDisplayPath,
   selectedLineNumber,
   selectedGitChange,
-  fileServerBaseUrl,
   revealVersion,
 } = storeToRefs(worktreeStore);
 const gitGraphStore = useGitGraphStore();
@@ -706,11 +708,9 @@ function buildFileServerUrl(
   relPath: string,
   version: number,
   gitOriginal = false,
-): string | undefined {
-  const base = fileServerBaseUrl.value;
-  if (!base) return undefined;
+): string {
   const kind = gitOriginal ? "git" : "fs";
-  const url = new URL(kind, base);
+  const url = new URL(kind, FILE_SERVER_BASE_URL);
   url.searchParams.set("dir", dir);
   url.searchParams.set("path", relPath);
   url.searchParams.set("v", String(version));
@@ -1024,7 +1024,11 @@ watch(
         />
 
         <!-- 画像プレビュー（バイナリ画像 + SVG preview モード） -->
-        <ImagePreview v-else-if="imageUrl" :src="imageUrl" />
+        <ImagePreview
+          v-else-if="imageUrl"
+          :src="imageUrl"
+          @error="error = 'Failed to load image'"
+        />
 
         <!-- worktree 外の絶対パス image / svg は file server 経由で読めないため未対応を明示する -->
         <div

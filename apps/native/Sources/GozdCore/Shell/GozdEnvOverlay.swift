@@ -31,7 +31,7 @@ public struct GozdEnvOverlay: Sendable {
   /// gozd Swift app が dev モード判定のために持つ内部フラグ等は子に漏らさない。
   private static let strippedKeys: Set<String> = [
     "GOZD_DEV_PROJECT_ROOT",
-    "GOZD_DEV_VITE_URL",
+    "GOZD_DEV_VITE_PORT",
     "ZDOTDIR",  // overlay 側で gozd dir に上書きするため、誤った状態が混ざらないよう除去
   ]
 

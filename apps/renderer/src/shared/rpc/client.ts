@@ -6,9 +6,12 @@
 //    `fromJSON` で encode / decode する。binary は使わない（ブラウザ側で
 //    base64 / Uint8Array が煩雑になるため、性能ボトルネックが見えるまで JSON）
 //
-// 2. **gozd-rpc://localhost プレフィックス固定**。WebPage の origin が
-//    http (Vite dev) でも gozd-app (本番) でも `Access-Control-Allow-Origin: *`
-//    で同じく動くことを spike `170dfa1` で確認済み
+// 2. **gozd-rpc://localhost プレフィックス固定**。renderer 側の origin (Vite dev
+//    `http://localhost:<port>` / build `gozd-app://localhost`) から見ると
+//    `gozd-rpc://localhost` は cross-origin になるが、native 側 `RpcSchemeHandler`
+//    が Origin allowlist に基づき `Access-Control-Allow-Origin` を明示 echo するため
+//    WebKit の標準 CORS check を pass する。詳細は
+//    [docs/spike/2026-06-09-gozd-rpc-cors.md](../../../../../docs/spike/2026-06-09-gozd-rpc-cors.md)
 //
 // 3. **エラーは throw**。HTTP 4xx/5xx は ok=false で fetch は throw しないため、
 //    明示的に判定してエラーを投げる。renderer 側は try/catch + tryCatch で扱う

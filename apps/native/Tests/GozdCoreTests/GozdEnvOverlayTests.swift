@@ -81,14 +81,14 @@ struct GozdEnvOverlayTests {
   @Test("stripped keys（GOZD_DEV_PROJECT_ROOT 等）は子に継承されない")
   func stripsInternalDevFlags() {
     setenv("GOZD_DEV_PROJECT_ROOT", "/should/not/leak", 1)
-    setenv("GOZD_DEV_VITE_URL", "http://leaked", 1)
+    setenv("GOZD_DEV_VITE_PORT", "16873", 1)
     defer {
       unsetenv("GOZD_DEV_PROJECT_ROOT")
-      unsetenv("GOZD_DEV_VITE_URL")
+      unsetenv("GOZD_DEV_VITE_PORT")
     }
 
     let env = makeOverlay().merged(into: [:], ptyId: 1)
     #expect(env["GOZD_DEV_PROJECT_ROOT"] == nil)
-    #expect(env["GOZD_DEV_VITE_URL"] == nil)
+    #expect(env["GOZD_DEV_VITE_PORT"] == nil)
   }
 }

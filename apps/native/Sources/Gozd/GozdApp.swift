@@ -66,14 +66,15 @@ struct ContentView: View {
       }
       .task {
         // ロード経路は 3 つ:
-        //   1. dev: $GOZD_DEV_VITE_URL があれば Vite dev server をロード（HMR）
+        //   1. dev: $GOZD_DEV_VITE_PORT があれば Vite dev server (http://localhost:<port>) をロード（HMR）
         //   2. build: gozd-app:// 経由で .app 内 Resources/app/views/main/index.html をロード。
         //      file:// + URLRequest だと WebPage（macOS 26 新 API）に
         //      `loadFileURL(_:allowingReadAccessTo:)` 相当が無く、subresource が
         //      sandbox に阻まれる。WWDC25 公式パターンの URLSchemeHandler 経由にする。
         //   3. fallback: PTY 検証用の埋め込み HTML harness（swift run 直叩き等）
-        if let viteURL = ProcessInfo.processInfo.environment["GOZD_DEV_VITE_URL"],
-          let url = URL(string: viteURL)
+        if let portString = ProcessInfo.processInfo.environment["GOZD_DEV_VITE_PORT"],
+          !portString.isEmpty,
+          let url = URL(string: "http://localhost:\(portString)/")
         {
           do {
             for try await _ in runtime.page.load(url) {}

@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "GOZD_DEV_VITE_URL=http://localhost:16873 GOZD_DEV_PROJECT_ROOT=\"$(cd ../.. && pwd)\" bash scripts/build-dev-app.sh",
+    "dev": "GOZD_DEV_PROJECT_ROOT=\"$(cd ../.. && pwd)\" bash scripts/build-dev-app.sh",
     "build": "bash scripts/build-app.sh",
     "test": "swift test"
   }

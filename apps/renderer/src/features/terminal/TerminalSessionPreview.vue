@@ -36,6 +36,13 @@ sub overlay の先頭に `subagentTabLabel` 由来の subagent ラベル (Task /
 CSS anchor positioning (`positionArea` + `positionTryFallbacks`) で画面端に押し出された
 ときは反対側へ flip する。同じ bubble を再クリックすると閉じる (トグル)。
 
+開く向きのデフォルトは由来 overlay によって反転させる。main 由来 (画面上側 bubble) は
+`block-end` で anchor の下に、sub 由来 (画面下側 bubble) は `block-start` で anchor の
+上に開く。下側 bubble の真下は画面端に近く即 flip 前提のレイアウトになるため、初期向きを
+上にしておくことで「open 直後に flip して位置が跳ねる」視覚的なちらつきを構造的に消す。
+flip 規則 (`positionTryFallbacks`) は両 origin で共通のため、開いた後の縁ぶつかり時の
+逆転挙動は維持される。
+
 DOM 構造は三段:
 
 - 外側 popover element (`bg-transparent border-none overflow-visible px-0 py-3` のみ)
@@ -210,20 +217,26 @@ function collectMessages(events: TranscriptEvent[]): PreviewMessage[] {
 const mainMessages = computed<PreviewMessage[]>(() => collectMessages(mainEvents.value));
 const subMessages = computed<PreviewMessage[]>(() => collectMessages(subEvents.value));
 
-// クリックで全文を出す popover。kind は吹き出し色を合わせるための discriminator。
-// PreviewMessage を context にそのまま渡し、popover 側は kind / text しか参照しない
-// (ts は無視される)。型を分けず 1 つにまとめて conversion を消す。
+// クリックで全文を出す popover。kind は吹き出し色を合わせるための discriminator、
+// origin は anchor が main / sub overlay どちらに属するかを popover の開く向きに反映するための
+// discriminator (main は anchor の下に、sub は anchor の上に開く)。
+// PreviewMessage に origin を載せて context として渡し、popover 側は kind / text / origin
+// のみ参照する (ts は無視される)。型を分けず 1 つにまとめて conversion を消す。
 // per-instance: コンポーネント unmount で effect scope が自動破棄されるため stop 不要。
+interface PreviewContext {
+  msg: PreviewMessage;
+  origin: "main" | "sub";
+}
 const {
   Popover: PreviewPopover,
   context: previewContext,
   toggle: togglePreviewPopover,
-} = usePopover<PreviewMessage>();
+} = usePopover<PreviewContext>();
 
-function togglePreview(event: MouseEvent, msg: PreviewMessage) {
+function togglePreview(event: MouseEvent, msg: PreviewMessage, origin: "main" | "sub") {
   const anchor = event.currentTarget;
   if (!(anchor instanceof HTMLElement)) return;
-  togglePreviewPopover(anchor, msg);
+  togglePreviewPopover(anchor, { msg, origin });
 }
 
 // sub overlay の折り畳み状態。`<details>` の `open` 属性を SSOT にすると subagent
@@ -262,7 +275,7 @@ const hasSub = computed(() => subMessages.value.length > 0);
             : 'bg-chat-incoming text-chat-incoming-text'
         "
         :title="msg.text"
-        @click="togglePreview($event, msg)"
+        @click="togglePreview($event, msg, 'main')"
       >
         <span class="line-clamp-2">{{ msg.text }}</span>
       </button>
@@ -302,7 +315,7 @@ const hasSub = computed(() => subMessages.value.length > 0);
                 : 'bg-chat-incoming text-chat-incoming-text'
             "
             :title="msg.text"
-            @click="togglePreview($event, msg)"
+            @click="togglePreview($event, msg, 'sub')"
           >
             <span class="line-clamp-2">{{ msg.text }}</span>
           </button>
@@ -319,23 +332,26 @@ const hasSub = computed(() => subMessages.value.length > 0);
     class="m-0 w-3xl max-w-[80vw] overflow-visible border-none bg-transparent px-0 py-3 text-base"
     :style="{
       position: 'fixed',
-      positionArea: 'block-end span-inline-start',
+      positionArea:
+        previewContext?.origin === 'sub'
+          ? 'block-start span-inline-start'
+          : 'block-end span-inline-start',
       positionTryFallbacks: 'flip-block, flip-inline, flip-block flip-inline',
     }"
   >
     <template v-if="previewContext">
       <div
         class="max-h-[60vh] overflow-auto rounded-md border border-border-strong shadow-xl"
-        :class="previewContext.kind === 'assistant' ? 'bg-chat-incoming' : 'bg-chat-outgoing'"
+        :class="previewContext.msg.kind === 'assistant' ? 'bg-chat-incoming' : 'bg-chat-outgoing'"
       >
         <div
-          v-if="previewContext.kind === 'assistant'"
+          v-if="previewContext.msg.kind === 'assistant'"
           class="_preview-assistant px-3 py-2 text-chat-incoming-text [--color-foreground-low:var(--color-chat-incoming-text-low)] [--color-foreground:var(--color-chat-incoming-text)] [--md-code-bg:transparent]"
         >
-          <MarkdownBody :content="previewContext.text" />
+          <MarkdownBody :content="previewContext.msg.text" />
         </div>
         <div v-else class="px-3 py-2 wrap-break-word whitespace-pre-wrap text-chat-outgoing-text">
-          {{ previewContext.text }}
+          {{ previewContext.msg.text }}
         </div>
       </div>
     </template>

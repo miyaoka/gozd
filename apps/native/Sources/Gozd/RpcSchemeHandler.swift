@@ -8,6 +8,12 @@ import WebKit
 // renderer 側は `Error("RPC ${path} failed: ${status} ${text}")` で再 raise するため、500 body
 // の品質 (= `Error.description`) が UI 通知の識別性を直接決める。dispatcher から throw する
 // Error 型は `CustomStringConvertible` で人間可読な identifier を提供する契約。
+//
+// セキュリティ: `Access-Control-Allow-Origin` は意図して付けない。`gozd-rpc://` は renderer の
+// 同 origin (`gozd-app://localhost` / dev `http://localhost:16873`) からのみ fetch される RPC 専用で、
+// cross-origin の正当な利用者は存在しない。`*` で all origin を許可すると、`/fs/readFileAbsolute`
+// 経由で `.ssh/config` / `.aws/credentials` / `.env*` 等のテキスト機密ファイルを XSS から
+// `fetch()` で回収可能になる (FileServerSchemeHandler 冒頭の defense-in-depth 規律と同 SSOT)。
 
 struct RpcSchemeHandler: URLSchemeHandler {
   let dispatcher: RpcDispatcher
@@ -29,7 +35,6 @@ struct RpcSchemeHandler: URLSchemeHandler {
             httpVersion: "HTTP/1.1",
             headerFields: [
               "Content-Type": "application/json",
-              "Access-Control-Allow-Origin": "*",
             ]
           )!
           continuation.yield(.response(httpResp))
@@ -63,7 +68,6 @@ struct RpcSchemeHandler: URLSchemeHandler {
       httpVersion: "HTTP/1.1",
       headerFields: [
         "Content-Type": "text/plain; charset=utf-8",
-        "Access-Control-Allow-Origin": "*",
       ]
     )!
     continuation.yield(.response(httpResp))

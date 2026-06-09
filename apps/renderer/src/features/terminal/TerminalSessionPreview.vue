@@ -11,9 +11,11 @@ main / sub を独立した 2 つの overlay に分け、terminal の右上に ma
 物理的距離で分離する設計。
 
 各 overlay の内側は user / assistant それぞれ最終 2 発言 (合計 4 件まで) を ts 昇順で
-混ぜて並べる。AskUserQuestion (`kind:"ask"` イベント) は `flattenAskToMessages` で
-「質問 = assistant 発言」「回答 = user 発言」に展開してから lastN に流す。preview は質問と
-回答のテキストだけ見せたいので選択肢は捨てる (選択肢込みで描画するのは dialog 側)。回答
+混ぜて並べる。AskUserQuestion (`kind:"ask"` イベント) は `expandAskMessages` で
+「質問 = assistant 発言」「回答 = user 発言」に inline 展開してから user / assistant のみを
+filter で残す (preview は会話テキストだけ見せたいので thinking / tool / image / branch
+ごと捨てる)。選択肢は parser 側で本来落とさないため、ここでは ask 展開の副作用ではなく
+filter の責務として捨てている (parser 側に preview 表示制約を持ち込まないため)。回答
 未充填 (resume 中断) の question は質問だけ残り、回答側は欠落する。user は右寄せ + `bg-chat-outgoing` (LINE 緑) + 黒文字、assistant は
 左寄せ + `bg-chat-incoming` (暗グレー) + 白文字の LINE ダーク風吹き出し。角丸は対称
 (話者方向を示す尖り角は付けない)。
@@ -75,7 +77,7 @@ box が伸び続ける挙動を構造的に排除する。
 import { computed, ref } from "vue";
 import { usePopover } from "../../shared/popover";
 import { MarkdownBody } from "../preview";
-import { flattenAskToMessages, parseSessionLog, useSessionLogLive } from "../session-log";
+import { expandAskMessages, parseSessionLog, useSessionLogLive } from "../session-log";
 import { useTerminalStore } from "./useTerminalStore";
 
 interface Props {
@@ -99,12 +101,19 @@ const { sessions } = useSessionLogLive(sessionId);
 // JSONL を都度 parse する。preview は最新の user / assistant 1 件しか使わないため
 // branchSelection は不要 (parseSessionLog は未指定で最新枝にフォールバックする)。
 //
-// `flattenAskToMessages` で AskUserQuestion (kind: "ask") を「質問 = assistant 発言」
-// 「回答 = user 発言」に展開する。preview は質問と回答だけ見せたいので選択肢は捨てる
-// (dialog 側は ask イベント本体を扱い選択肢込みで描画する)。
+// `expandAskMessages` で AskUserQuestion (kind: "ask") を「質問 = assistant 発言」
+// 「回答 = user 発言」に inline 展開する。展開後の events 列から user / assistant 以外
+// (thinking / tool / image / branch) を捨てるのは preview 側の責務 (どの kind を見せるかは
+// 表示制約。parser 側は ask 展開のみに閉じる)。
 type PreviewEvent = { kind: "user" | "assistant"; text: string; ts: string };
 function parsedEvents(content: string): PreviewEvent[] {
-  return flattenAskToMessages(parseSessionLog(content).events);
+  const out: PreviewEvent[] = [];
+  for (const ev of expandAskMessages(parseSessionLog(content).events)) {
+    if (ev.kind === "user" || ev.kind === "assistant") {
+      out.push({ kind: ev.kind, text: ev.text, ts: ev.ts });
+    }
+  }
+  return out;
 }
 
 // 最後に「会話発話」(kind === user | assistant) があった ts。tool だけ走り続けている

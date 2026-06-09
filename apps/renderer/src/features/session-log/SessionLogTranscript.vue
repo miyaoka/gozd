@@ -26,8 +26,8 @@ assistant=`bg-chat-incoming` + 白文字 / inline code=`var(--color-chat-code)` 
 - AskUserQuestion (`ask` イベント) は「assistant の質問 + 選択肢 + user の回答」を 1 つの
   会話ブロックに畳む。質問は assistant 吹き出し (左)、選択肢を chip 列で並べ (選択された
   option のみ success 色でハイライト)、回答を user 吹き出し (右) に出す。複数 question を
-  持つケースは Q→options→A のセットを縦に並べる。回答未充填 (resume 中断 / parse 失敗) は
-  user 吹き出しの代わりに dim な「(no response)」を出す。scroll-spy の観測対象に含める
+  持つケースは Q→options→A のセットを縦に並べる。回答未充填 (resume 中断 / `toolUseResult.answers`
+  欠落) は user 吹き出しの代わりに dim な「(no response)」を出す。scroll-spy の観測対象に含める
   (user / assistant と同じ会話扱い)
 - scroll-spy は `IntersectionObserver`。純 CSS の scroll marker / `:target-current` は
   WebKit (Safari 26 / macOS 26) 未対応のため使えない。チャット行の最外要素に `data-ev`
@@ -547,7 +547,7 @@ onBeforeUnmount(teardownObserver);
             </ul>
 
             <!-- 回答 (user 右寄せ吹き出し)。未充填 (resume 中断) は dim placeholder。 -->
-            <div class="flex items-end gap-1.5" :class="'flex-row-reverse'">
+            <div class="flex flex-row-reverse items-end gap-1.5">
               <div
                 v-if="q.answer !== undefined"
                 class="min-w-0 rounded-2xl bg-chat-outgoing px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-chat-outgoing-text"

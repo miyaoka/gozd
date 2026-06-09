@@ -107,11 +107,22 @@ interface RawAttachment {
   // 上流 (Claude Code) が分類済みのため本文パターンで再導出せずこのフィールドで採否を決める。
   commandMode?: string;
 }
+// AskUserQuestion 応答の raw line top-level に乗る構造化フィールド。Claude Code が
+// 組み立てた `question 文字列 → answer 文字列` の Map を `answers` に持つ。
+// tool_result.content の自然言語テキスト (`"Q"="A"` 形式) はこの Map と等価情報の表現で、
+// 文字列内部に `"` を含むケースで regex 復元が壊れる。`answers` を直接読めば LLM 出力の
+// 任意 char 集合に依存せず構造的に取れるので、AskUserQuestion の answer 充填はこれを SSOT に使う。
+interface RawToolUseResult {
+  answers?: Record<string, string>;
+}
 interface RawLine {
   type?: string;
   timestamp?: string;
   message?: RawMessage;
   attachment?: RawAttachment;
+  // tool_result block の親 line に同居する構造化結果。AskUserQuestion 応答時のみ
+  // `answers` が埋まる (他 tool では未使用)。型は AskUserQuestion 用途に絞って薄く宣言する。
+  toolUseResult?: RawToolUseResult;
   // CLI / hook が注入したシステム由来レコード。ユーザー発話ではないので transcript に載せない。
   isMeta?: boolean;
   // レコードの一意 id と親 id。Claude Code は append-only に書き、rewind 時は過去の uuid を
@@ -280,24 +291,6 @@ export interface ParsedSessionLog {
  * AskUserQuestion tool 名。SSOT。判定はこのリテラル一致のみ (大小文字違いや別名は持たない)。
  */
 const ASK_TOOL_NAME = "AskUserQuestion";
-
-/**
- * AskUserQuestion の tool_result.content テキストから "Q"="A" ペアを引き抜く。
- *
- * 実ログの形:
- *   `Your questions have been answered: "Q1"="A1", "Q2"="A2". You can now continue …`
- *
- * 信頼境界外の出力なので形が崩れた場合 (regex 不一致) は空 Map に倒し、UI 側で
- * `answer === undefined` のまま描画させる (silent drop ではなく可視化)。
- */
-const ASK_RESULT_PAIR_RE = /"([^"]+)"="([^"]*)"/g;
-function parseAskAnswers(resultText: string): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const m of resultText.matchAll(ASK_RESULT_PAIR_RE)) {
-    map.set(m[1], m[2]);
-  }
-  return map;
-}
 
 /**
  * tool_use.input から AskUserQuestion 用の questions[] を取り出す。信頼境界外なので
@@ -580,10 +573,17 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
             // ask 経路を先に試すことで「ask に登録されているのに tool として処理する」誤りを防ぐ)。
             const ask = askById.get(block.tool_use_id);
             if (ask !== undefined) {
-              const answers = parseAskAnswers(toolResultText(block.content));
-              for (const q of ask.questions) {
-                const a = answers.get(q.question);
-                if (a !== undefined) q.answer = a;
+              // 充填ソースは raw line top-level の `toolUseResult.answers` を SSOT に使う。
+              // tool_result.content の自然言語テキスト (`"Q"="A"` 形式) は等価情報だが、
+              // 質問 / 回答テキストが `"` を含む信頼境界外データのため regex 復元が壊れる
+              // (例: `"What is "foo"?"="bar"` → `[?, bar]` 誤抽出)。`answers` は Claude Code
+              // が組み立てた構造化 Map なので任意 char 集合に依存しない。
+              const answers = raw.toolUseResult?.answers;
+              if (answers !== undefined) {
+                for (const q of ask.questions) {
+                  const a = answers[q.question];
+                  if (typeof a === "string") q.answer = a;
+                }
               }
               continue;
             }
@@ -715,29 +715,34 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
 }
 
 /**
- * ask イベントを「質問 = assistant 発言」「回答 = user 発言」のフラットな会話列に展開する
- * (terminal preview など、選択肢を出したくない consumer 向け)。answer が undefined の question
- * (resume 中断 / parse 失敗) は user メッセージを出さず、質問だけを残す。
+ * ask イベントを通常の assistant (質問) / user (回答) メッセージに展開して inline する。
+ * 他 kind (user / assistant / thinking / tool / image / branch) はそのまま透過する。
  *
- * dialog 側 (SessionLogTranscript) は ask イベント本体を受け取って選択肢込みで描画するため、
- * この helper は使わない。consumer ごとに描画方針が違うので、parser 側の TranscriptEvent は
- * リッチな ask のまま残しつつ「会話列だけ欲しい」consumer 用に薄い変換を提供する形にする。
+ * 1 ask = 「assistant の質問群 + user の回答群」という意味を保ったまま、他の会話イベント
+ * と同じ並びの TranscriptEvent[] に揃えるための変換。preview / dialog どちらの consumer も
+ * 「ask を会話扱いしたい」点は共通しているが、選択肢を出すか・どの kind を見せるかは
+ * consumer ごとに違うため、parser 側はここで「ask の inline 展開」だけに責務を絞る
+ * (下流の表示制約を上流に持ち込まない)。
+ *
+ * 空 question (`question === ""`) と空 / 未充填 answer (`answer === undefined` または `""`)
+ * は対応するメッセージを出さない (表示できる本文が無いものを bubble に倒さない方針)。
+ * resume 中断で answer 未充填の question は質問だけが残る。
+ *
+ * dialog (`SessionLogTranscript`) は ask イベント本体を選択肢込みで描画するためこの helper は
+ * 使わない。preview など「会話 (user / assistant) だけ見せたい」consumer は、この展開後に
+ * 自前で `kind` filter をかける。
  */
-export function flattenAskToMessages(
-  events: TranscriptEvent[],
-): Array<{ kind: "user" | "assistant"; text: string; ts: string }> {
-  const out: Array<{ kind: "user" | "assistant"; text: string; ts: string }> = [];
+export function expandAskMessages(events: TranscriptEvent[]): TranscriptEvent[] {
+  const out: TranscriptEvent[] = [];
   for (const ev of events) {
-    if (ev.kind === "user" || ev.kind === "assistant") {
-      out.push({ kind: ev.kind, text: ev.text, ts: ev.ts });
+    if (ev.kind !== "ask") {
+      out.push(ev);
       continue;
     }
-    if (ev.kind === "ask") {
-      for (const q of ev.questions) {
-        if (q.question !== "") out.push({ kind: "assistant", text: q.question, ts: ev.ts });
-        if (q.answer !== undefined && q.answer !== "")
-          out.push({ kind: "user", text: q.answer, ts: ev.ts });
-      }
+    for (const q of ev.questions) {
+      if (q.question !== "") out.push({ kind: "assistant", text: q.question, ts: ev.ts });
+      if (q.answer !== undefined && q.answer !== "")
+        out.push({ kind: "user", text: q.answer, ts: ev.ts });
     }
   }
   return out;

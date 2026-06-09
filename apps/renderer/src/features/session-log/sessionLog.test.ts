@@ -2,6 +2,7 @@ import { afterAll, describe, expect, setSystemTime, test } from "bun:test";
 import {
   buildSubagentLinks,
   buildTimelineTracks,
+  expandAskMessages,
   formatModelLabel,
   formatSessionTime,
   groupByWorkflow,
@@ -660,10 +661,39 @@ describe("parseSessionLog", () => {
 
   describe("AskUserQuestion を ask イベントに畳む", () => {
     // AskUserQuestion は assistant の質問 + user の回答を 1 つの会話ブロックに畳んで扱う。
-    // tool_use の input.questions[] から質問列と選択肢を抜き、後続の tool_result.content
-    // テキスト ("Q"="A" 形式) から answer を充填する。result が来ない (resume 中断) ケースは
-    // answer=undefined のまま残す。
-    test("通常の Q/A: input から質問列を構築し result text から answer を充填", () => {
+    // tool_use の input.questions[] から質問列と選択肢を抜き、後続の tool_result が来た line
+    // の raw top-level `toolUseResult.answers` (構造化 Map) から answer を充填する。result が
+    // 来ない (resume 中断) ケースは answer=undefined のまま残す。
+    //
+    // 充填ソースに `toolUseResult.answers` を使う理由: 同 line に同居する tool_result.content
+    // の自然言語テキスト ("Q"="A" 形式) は質問・回答が `"` を含むと regex 復元が壊れる。
+    // `answers` は Claude Code が組み立てた構造化 Map なので、信頼境界外データの任意 char
+    // 集合に依存せず正しく取れる。
+
+    /**
+     * AskUserQuestion 応答 line の最小 fixture。message.content には tool_result block を、
+     * top-level `toolUseResult.answers` には Q→A Map を載せる (実 jsonl の構造と一致)。
+     */
+    const askResultLine = (
+      toolUseId: string,
+      answers: Record<string, string> | undefined,
+    ): unknown => ({
+      type: "user",
+      timestamp: TS,
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: toolUseId,
+            content: "Your questions have been answered: ... (text 経路は読まない)",
+          },
+        ],
+      },
+      ...(answers !== undefined ? { toolUseResult: { answers } } : {}),
+    });
+
+    test("通常の Q/A: input から質問列を構築し toolUseResult.answers から answer を充填", () => {
       const log = parseSessionLog(
         jsonl(
           {
@@ -693,21 +723,7 @@ describe("parseSessionLog", () => {
               ],
             },
           },
-          {
-            type: "user",
-            timestamp: TS,
-            message: {
-              role: "user",
-              content: [
-                {
-                  type: "tool_result",
-                  tool_use_id: "tu1",
-                  content:
-                    'Your questions have been answered: "日本の首都はどこ?"="東京". You can now continue with these answers in mind.',
-                },
-              ],
-            },
-          },
+          askResultLine("tu1", { "日本の首都はどこ?": "東京" }),
         ),
       );
       expect(log.events).toEqual([
@@ -754,26 +770,49 @@ describe("parseSessionLog", () => {
               ],
             },
           },
-          {
-            type: "user",
-            timestamp: TS,
-            message: {
-              role: "user",
-              content: [
-                {
-                  type: "tool_result",
-                  tool_use_id: "tu1",
-                  content: 'Your questions have been answered: "Q1"="A1", "Q2"="A2".',
-                },
-              ],
-            },
-          },
+          askResultLine("tu1", { Q1: "A1", Q2: "A2" }),
         ),
       );
       const ev = log.events[0];
       expect(ev?.kind).toBe("ask");
       if (ev?.kind === "ask") {
         expect(ev.questions.map((q) => q.answer)).toEqual(["A1", "A2"]);
+      }
+    });
+
+    // 上流の構造化 Map を SSOT に使うため、質問・回答内部の `"` が信頼境界外データとして
+    // 来ても壊れないこと。content text 経路を regex で復元すると `What is "foo"?` のような
+    // 形で `?` だけが抽出される等の破綻ケースがあったが、`toolUseResult.answers` 経路に
+    // 倒したことで任意 char 集合に依存しない。
+    test('質問 / 回答に `"` を含んでも構造化 answers Map で正しく取れる', () => {
+      const tricky = 'What is "foo"?';
+      const trickyAnswer = 'answer with "quote"';
+      const log = parseSessionLog(
+        jsonl(
+          {
+            type: "assistant",
+            timestamp: TS,
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: "tu1",
+                  name: "AskUserQuestion",
+                  input: {
+                    questions: [{ question: tricky, header: "", multiSelect: false, options: [] }],
+                  },
+                },
+              ],
+            },
+          },
+          askResultLine("tu1", { [tricky]: trickyAnswer }),
+        ),
+      );
+      const ev = log.events[0];
+      expect(ev?.kind).toBe("ask");
+      if (ev?.kind === "ask") {
+        expect(ev.questions[0]?.answer).toBe(trickyAnswer);
       }
     });
 
@@ -813,40 +852,106 @@ describe("parseSessionLog", () => {
         ]);
       }
     });
+
+    // tool_result が来たが構造化 `answers` フィールドが欠落しているケース (信頼境界外
+    // で起こり得る部分破損)。text 経路 fallback は持たないため `answer === undefined`
+    // のままで描画側が「(no response)」を出す。silent drop ではなく可視化される。
+    test("toolUseResult.answers が欠落していると answer は undefined のまま", () => {
+      const log = parseSessionLog(
+        jsonl(
+          {
+            type: "assistant",
+            timestamp: TS,
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: "tu1",
+                  name: "AskUserQuestion",
+                  input: {
+                    questions: [{ question: "Q1", header: "", multiSelect: false, options: [] }],
+                  },
+                },
+              ],
+            },
+          },
+          askResultLine("tu1", undefined),
+        ),
+      );
+      const ev = log.events[0];
+      expect(ev?.kind).toBe("ask");
+      if (ev?.kind === "ask") {
+        expect(ev.questions[0]?.answer).toBeUndefined();
+      }
+    });
   });
 
-  test("flattenAskToMessages: ask を質問=assistant / 回答=user に展開し、未回答は質問だけ残す", async () => {
-    const { flattenAskToMessages } = await import("./sessionLog");
-    const events: TranscriptEvent[] = [
-      { kind: "user", text: "始めて", ts: TS },
-      {
-        kind: "ask",
-        ts: TS,
-        toolUseId: "tu1",
-        questions: [
+  describe("expandAskMessages", () => {
+    test("ask を assistant (質問) と user (回答) に inline 展開し、他 kind は透過", () => {
+      const events: TranscriptEvent[] = [
+        { kind: "user", text: "始めて", ts: TS },
+        { kind: "thinking", text: "考え中", ts: TS },
+        {
+          kind: "ask",
+          ts: TS,
+          toolUseId: "tu1",
+          questions: [
+            { question: "Q1", header: "", multiSelect: false, options: [], answer: "A1" },
+            { question: "Q2", header: "", multiSelect: false, options: [], answer: undefined },
+          ],
+        },
+        { kind: "assistant", text: "おわり", ts: TS },
+      ];
+      // ask は (Q1 → A1) + (Q2 のみ, A2 は undefined で欠落)、thinking / assistant は素通し。
+      expect(expandAskMessages(events)).toEqual([
+        { kind: "user", text: "始めて", ts: TS },
+        { kind: "thinking", text: "考え中", ts: TS },
+        { kind: "assistant", text: "Q1", ts: TS },
+        { kind: "user", text: "A1", ts: TS },
+        { kind: "assistant", text: "Q2", ts: TS },
+        { kind: "assistant", text: "おわり", ts: TS },
+      ]);
+    });
+
+    test("空 question は質問メッセージを出さない (表示できる本文無しは bubble に倒さない)", () => {
+      expect(
+        expandAskMessages([
           {
-            question: "Q1",
-            header: "",
-            multiSelect: false,
-            options: [],
-            answer: "A1",
+            kind: "ask",
+            ts: TS,
+            toolUseId: "tu1",
+            questions: [{ question: "", header: "", multiSelect: false, options: [], answer: "A" }],
           },
+        ]),
+      ).toEqual([{ kind: "user", text: "A", ts: TS }]);
+    });
+
+    test("空 answer は回答メッセージを出さない", () => {
+      expect(
+        expandAskMessages([
           {
-            question: "Q2",
-            header: "",
-            multiSelect: false,
-            options: [],
-            answer: undefined,
+            kind: "ask",
+            ts: TS,
+            toolUseId: "tu1",
+            questions: [{ question: "Q", header: "", multiSelect: false, options: [], answer: "" }],
           },
-        ],
-      },
-    ];
-    expect(flattenAskToMessages(events)).toEqual([
-      { kind: "user", text: "始めて", ts: TS },
-      { kind: "assistant", text: "Q1", ts: TS },
-      { kind: "user", text: "A1", ts: TS },
-      { kind: "assistant", text: "Q2", ts: TS },
-    ]);
+        ]),
+      ).toEqual([{ kind: "assistant", text: "Q", ts: TS }]);
+    });
+
+    test("空入力は空出力", () => {
+      expect(expandAskMessages([])).toEqual([]);
+    });
+
+    test("ask 不在の入力はそのまま透過する", () => {
+      const events: TranscriptEvent[] = [
+        { kind: "user", text: "u", ts: TS },
+        { kind: "assistant", text: "a", ts: TS },
+        { kind: "thinking", text: "t", ts: TS },
+      ];
+      expect(expandAskMessages(events)).toEqual(events);
+    });
   });
 
   test("rewind: デフォルトは最新枝を表示し直前に branch セレクタを挿す (捨て枝は出さない)", () => {

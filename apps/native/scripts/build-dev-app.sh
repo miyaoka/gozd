@@ -13,6 +13,12 @@
 # 出力: apps/native/.build/app/Gozd-Dev.app
 set -euo pipefail
 
+# dev port は env `GOZD_DEV_VITE_PORT` (root `pnpm dev` script が SSOT として設定) を必須にする。
+# サブパッケージ単体 (`pnpm --filter @gozd/native dev` 等) で env を渡さずに起動された場合、
+# Swift app は dev origin allowlist が空のまま立ち上がり全 RPC fetch がブロックされて
+# silent broken になる。それを fail-fast で顕在化させる (`fallback せずエラーにする` 規約)。
+: "${GOZD_DEV_VITE_PORT:?GOZD_DEV_VITE_PORT must be set by root 'pnpm dev' script}"
+
 NATIVE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="Gozd-Dev.app"
 APP_DIR="$NATIVE_DIR/.build/app/$APP_NAME"

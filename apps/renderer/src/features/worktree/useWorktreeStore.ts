@@ -18,7 +18,6 @@ export type Selection = PathTarget & { lineNumber?: number };
 
 export const useWorktreeStore = defineStore("worktree", () => {
   const repoStore = useRepoStore();
-  const fileServerBaseUrl = ref<string>();
 
   const selection = ref<Selection>();
 
@@ -134,7 +133,6 @@ export const useWorktreeStore = defineStore("worktree", () => {
 
   return {
     dir,
-    fileServerBaseUrl,
     selection,
     selectedRelPath,
     selectedDisplayPath,

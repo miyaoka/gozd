@@ -61,7 +61,10 @@ func isAllZeroHex(_ s: String) -> Bool {
 /// 許可: 空文字 / worktree 相対の通常 path。
 /// reject: `-` 始まり (option 注入) / `/` 始まり (絶対パス) / `..` を含む traversal /
 ///   空白文字 / NUL byte / 改行を含むもの。
-func validateRelPath(_ path: String) throws {
+///
+/// `public` 公開する範囲: `FileServerSchemeHandler` が Gozd target から checklist として呼ぶ。
+/// その他 op は GozdCore 内で internal アクセスのまま使う。
+public func validateRelPath(_ path: String) throws {
   if path.isEmpty { return }
   if path.hasPrefix("-") {
     throw GitError.unexpectedOutput("git path validation: leading '-' is not allowed: \(path)")

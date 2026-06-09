@@ -13,41 +13,27 @@ import WebKit
 /// 判定は **scheme による 3 分岐** で完結する: `<a href>` / `window.open` / `<form action>` /
 /// meta refresh / `.reload` など `navigationType` や `action.target` の値には依存しない。
 struct ExternalLinkNavigationDecider: WebPage.NavigationDeciding {
-  /// dev mode の Vite dev server origin ($GOZD_DEV_VITE_URL を分解したもの)。
-  /// 同一 scheme + host + port への自己 navigation は内部とみなして allow する。
-  let internalDevOrigin: (scheme: String, host: String, port: Int?)?
+  /// dev mode の Vite dev server port ($GOZD_DEV_VITE_PORT)。dev URL は `http://localhost:<port>`
+  /// 固定契約なので scheme + host は不要、port だけ env から取る。同一 host:port への自己
+  /// navigation は内部とみなして allow する。
+  let internalDevPort: Int?
 
   init() {
-    self.internalDevOrigin = Self.parseInternalDevOrigin()
+    self.internalDevPort = Self.parseInternalDevPort()
   }
 
-  /// `$GOZD_DEV_VITE_URL` を origin として解釈する。path が `/` または空でない値が指定されたら
-  /// 想定外として nil に倒し起動時 stderr に残す。`isInternalDevURL` は host:port 一致のみを
-  /// 見るため、`http://localhost:16873/anything` のような path 付き設定が紛れると path の異なる
-  /// external URL も internal allow に倒れる事故が起きる。それを起動時に弾く検証ポイント。
-  private static func parseInternalDevOrigin() -> (scheme: String, host: String, port: Int?)? {
-    guard let viteURLString = ProcessInfo.processInfo.environment["GOZD_DEV_VITE_URL"],
-      !viteURLString.isEmpty
+  private static func parseInternalDevPort() -> Int? {
+    guard let portString = ProcessInfo.processInfo.environment["GOZD_DEV_VITE_PORT"],
+      !portString.isEmpty
     else { return nil }
-    guard let viteURL = URL(string: viteURLString),
-      let scheme = viteURL.scheme?.lowercased(),
-      let host = viteURL.host
-    else {
+    guard let port = Int(portString) else {
       StderrLog.write(
         tag: "NavigationDecider",
-        "GOZD_DEV_VITE_URL is malformed: \(viteURLString)"
+        "GOZD_DEV_VITE_PORT is malformed: \(portString)"
       )
       return nil
     }
-    let path = viteURL.path
-    if !path.isEmpty, path != "/" {
-      StderrLog.write(
-        tag: "NavigationDecider",
-        "GOZD_DEV_VITE_URL must be an origin (no path); got: \(viteURLString)"
-      )
-      return nil
-    }
-    return (scheme: scheme, host: host, port: viteURL.port)
+    return port
   }
 
   func decidePolicy(
@@ -69,7 +55,7 @@ struct ExternalLinkNavigationDecider: WebPage.NavigationDeciding {
     // のがユーザー期待挙動であり、それ以外の経路 (form submit / window.open / meta refresh
     // 等) でも外部 host への遷移は構造的に外部送りで揃える。
     //
-    // 起動時の `page.load(http://localhost:16873/)` は dev origin allow 経路で透過する。
+    // 起動時の `page.load(http://localhost:$GOZD_DEV_VITE_PORT)` は dev origin allow 経路で透過する。
     if isHTTP {
       if isInternalDevURL(url) {
         return .allow
@@ -96,9 +82,9 @@ struct ExternalLinkNavigationDecider: WebPage.NavigationDeciding {
   }
 
   private func isInternalDevURL(_ url: URL) -> Bool {
-    guard let origin = internalDevOrigin else { return false }
-    return url.scheme?.lowercased() == origin.scheme
-      && url.host == origin.host
-      && url.port == origin.port
+    guard let port = internalDevPort else { return false }
+    return url.scheme?.lowercased() == "http"
+      && url.host == "localhost"
+      && url.port == port
   }
 }

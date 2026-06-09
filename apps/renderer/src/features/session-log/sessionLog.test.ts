@@ -296,6 +296,25 @@ describe("parseSessionLog", () => {
     expect(log.skipped).toBe(2);
   });
 
+  test("SDK 合成 assistant (model:<synthetic>) は transcript に載せず skipped に計上", () => {
+    // 観測形: 実 assistant 応答後に SDK が `model:"<synthetic>"` + `[{type:"text",text:"No response requested."}]`
+    // を同じ親に追記する。これは実応答ではないので skipped に倒す。
+    const log = parseSessionLog(
+      jsonl({
+        type: "assistant",
+        timestamp: TS,
+        message: {
+          role: "assistant",
+          model: "<synthetic>",
+          content: [{ type: "text", text: "No response requested." }],
+        },
+      }),
+    );
+    expect(log.events).toEqual([]);
+    expect(log.skipped).toBe(1);
+    expect(log.models).toEqual([]);
+  });
+
   test("先頭が注入タグでない通常発話は残す (タグが後ろに付くケース)", () => {
     const log = parseSessionLog(
       jsonl({
@@ -453,6 +472,138 @@ describe("parseSessionLog", () => {
         message: { role: "assistant", content: [{ type: "text", text: "昨日は晴れ" }] },
       },
     );
+
+  // 観測症状: 実 assistant 応答 (b1) と SDK 合成 assistant (b2: model:<synthetic>) が同じ親 uuid に
+  // 並ぶ。append-only 木の上では兄弟になるが、合成 assistant は rewind ではないため branch chooser
+  // を出してはいけない (ターミナル上では分岐していないのに UI 上だけ分岐表示される症状)。
+  test("rewind: SDK 合成 assistant は分岐候補から除外する", () => {
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "user",
+          uuid: "u1",
+          parentUuid: null,
+          timestamp: TS,
+          message: { role: "user", content: "主要箇所の検証お願い" },
+        },
+        {
+          type: "assistant",
+          uuid: "b1",
+          parentUuid: "u1",
+          timestamp: TS,
+          message: {
+            role: "assistant",
+            model: "claude-opus-4-7",
+            content: [{ type: "text", text: "主要箇所の検証が完了しました。" }],
+          },
+        },
+        {
+          type: "assistant",
+          uuid: "b2",
+          parentUuid: "u1",
+          timestamp: TS,
+          message: {
+            role: "assistant",
+            model: "<synthetic>",
+            content: [{ type: "text", text: "No response requested." }],
+          },
+        },
+      ),
+    );
+    expect(log.events).toEqual([
+      { kind: "user", text: "主要箇所の検証お願い", ts: TS },
+      { kind: "assistant", text: "主要箇所の検証が完了しました。", ts: TS },
+    ]);
+  });
+
+  // 実観測形 (studio-front jsonl): AskUserQuestion 投げた直後にセッションが切れ、`claude --continue`
+  // 相当で resume されたケース。SDK は (a) `Continue from where you left off.` を新規 user prompt
+  // として挿入し、(b) 直前ターンが tool_use 待ちで実応答できないため synthetic assistant
+  // `No response requested.` を 1 件挿入する。append-only 木上では:
+  //
+  //   anchor (u1)
+  //     ├─ assistant(text "主要箇所の検証…")
+  //     │    └─ assistant(tool_use AskUserQuestion)   ← 停止
+  //     └─ user("Continue from where you left off.")
+  //          └─ assistant(<synthetic> "No response requested.")
+  //
+  // text 持ち assistant と synthetic assistant は親 uuid が異なるが、`convAncestor` 経由で
+  // 同じ会話的親 (u1) に集約されるため放置すると兄弟 branch として浮上する。synthetic を候補から
+  // 外したうえで、user "Continue..." 側のチェーンも (synthetic だけしか中身が無いため) 実質的に
+  // 空になり、real text 1 本だけが残ることを確認する。
+  test("rewind: 実観測形 (resume mid-AskUserQuestion) で synthetic が branch を生やさない", () => {
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "user",
+          uuid: "u1",
+          parentUuid: null,
+          timestamp: TS,
+          message: { role: "user", content: "投稿予定の総評本文をレビュー" },
+        },
+        // real branch: 実 text → tool_use:AskUserQuestion で停止
+        {
+          type: "assistant",
+          uuid: "a1",
+          parentUuid: "u1",
+          timestamp: TS,
+          message: {
+            role: "assistant",
+            model: "claude-opus-4-7",
+            content: [{ type: "text", text: "主要箇所の検証が完了しました。" }],
+          },
+        },
+        {
+          type: "assistant",
+          uuid: "a2",
+          parentUuid: "a1",
+          timestamp: TS,
+          message: {
+            role: "assistant",
+            model: "claude-opus-4-7",
+            content: [{ type: "tool_use", id: "tu1", name: "AskUserQuestion", input: {} }],
+          },
+        },
+        // resume branch: bridge-session 等の非候補メタは省略。user resume prompt + synthetic
+        {
+          type: "user",
+          uuid: "r1",
+          parentUuid: "u1",
+          timestamp: TS,
+          message: { role: "user", content: "Continue from where you left off." },
+        },
+        {
+          type: "assistant",
+          uuid: "r2",
+          parentUuid: "r1",
+          timestamp: TS,
+          message: {
+            role: "assistant",
+            model: "<synthetic>",
+            content: [{ type: "text", text: "No response requested." }],
+          },
+        },
+      ),
+    );
+    // 期待: synthetic を弾いた結果、resume チェーン (r1 user "Continue...") は branch 候補だが、
+    // real チェーン (a1) と兄弟になり 2 候補で branch chooser が出る。real が #1 (古い)、resume が
+    // #2 (新しい = 最新枝としてデフォルト選択)。lead text が "Continue..." / "主要箇所..." であり、
+    // "No response requested." が選択肢ラベルとして浮上しないことが核心。
+    expect(log.events).toEqual([
+      { kind: "user", text: "投稿予定の総評本文をレビュー", ts: TS },
+      {
+        kind: "branch",
+        ts: TS,
+        branchKey: "u1",
+        selectedChildUuid: "r1",
+        options: [
+          { childUuid: "a1", index: 1, lead: "主要箇所の検証が完了しました。", ts: TS },
+          { childUuid: "r1", index: 2, lead: "Continue from where you left off.", ts: TS },
+        ],
+      },
+      { kind: "user", text: "Continue from where you left off.", ts: TS },
+    ]);
+  });
 
   test("rewind: デフォルトは最新枝を表示し直前に branch セレクタを挿す (捨て枝は出さない)", () => {
     const log = parseSessionLog(rewindLog());

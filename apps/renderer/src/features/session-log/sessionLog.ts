@@ -136,6 +136,17 @@ function isInjectedUserText(text: string): boolean {
   return INJECTED_USER_WRAPPER_RE.test(text);
 }
 
+/**
+ * Claude Code SDK が会話ターン整合のために合成する assistant メッセージか。`model:"<synthetic>"`
+ * が discriminator。例: assistant の実応答後に SDK が `[{type:"text", text:"No response requested."}]`
+ * + `model:"<synthetic>"` の assistant レコードを同じ親に追記する。これは実応答ではないため
+ * transcript / rewind 兄弟検出のどちらにも乗せない。`models` 集計でも同じ discriminator で除外
+ * している (SSOT)。
+ */
+function isSyntheticAssistant(raw: RawLine): boolean {
+  return raw.type === "assistant" && raw.message?.model === "<synthetic>";
+}
+
 // slash command 起動は `type:"user"` の string content として記録され、先頭が
 // `<command-name>/foo</command-name>` か `<command-message>foo</command-message>` で始まる。
 // この先頭判定でだけ command block とみなす。本文中にたまたま <command-name> を含む生発話
@@ -276,6 +287,7 @@ const LEAD_MAX = 80;
  * 外れるため、tool の連鎖は分岐にならない。真の rewind は実発話 / 応答が同一親に複数並ぶ場合のみ。
  */
 function isBranchCandidate(raw: RawLine): boolean {
+  if (isSyntheticAssistant(raw)) return false;
   const content = raw.message?.content;
   if (raw.type === "user") {
     if (raw.isMeta === true) return false;
@@ -500,6 +512,14 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     }
 
     if (raw.type === "assistant") {
+      // SDK 合成 assistant (model:"<synthetic>") は実応答ではなく整合性のための注入。
+      // 例: `[{type:"text", text:"No response requested."}]` が同じ親 uuid に追記される。
+      // transcript に載せると assistant バブルとして描画され、real 応答と兄弟で並ぶと branch
+      // chooser まで生えるため、レコードごと skipped に倒す (block 走査自体を回避)。
+      if (isSyntheticAssistant(raw)) {
+        skipped++;
+        continue;
+      }
       // 実際に使われた model を記録する。content の形 (array / synthetic string) に依らず
       // message.model はレコード単位に付くため、ブロック走査の前にここで採る。null / 空 /
       // システム生成の "<synthetic>" は実モデルではないため除外する。

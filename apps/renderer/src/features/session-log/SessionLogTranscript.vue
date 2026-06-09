@@ -23,6 +23,12 @@ assistant=`bg-chat-incoming` + 白文字 / inline code=`var(--color-chat-code)` 
   `<details>` のネイティブ開閉に委ね、Vue 側に per-event の ref を持たない
 - rewind 分岐は `branch` イベントとして中央寄せのセレクタ行で出す。番号は古い順 (最新が最大)、
   選択中の枝をハイライトし、他をクリックで `select-branch` を emit して親に枝の切り替えを委ねる
+- AskUserQuestion (`ask` イベント) は「assistant の質問 + 選択肢 + user の回答」を 1 つの
+  会話ブロックに畳む。質問は assistant 吹き出し (左)、選択肢を chip 列で並べ (選択された
+  option のみ success 色でハイライト)、回答を user 吹き出し (右) に出す。複数 question を
+  持つケースは Q→options→A のセットを縦に並べる。回答未充填 (resume 中断 / `toolUseResult.answers`
+  欠落) は user 吹き出しの代わりに dim な「(no response)」を出す。scroll-spy の観測対象に含める
+  (user / assistant と同じ会話扱い)
 - scroll-spy は `IntersectionObserver`。純 CSS の scroll marker / `:target-current` は
   WebKit (Safari 26 / macOS 26) 未対応のため使えない。チャット行の最外要素に `data-ev`
   を残し、user / assistant 行を index で観測して topmost の ts を `current-ts` に出す
@@ -126,12 +132,13 @@ const footerSummary = computed<string>(() => {
 // 本文のスクロールコンテナ。時刻ジャンプ時に該当イベント要素を引いてスクロールする。
 const contentRef = ref<HTMLElement | undefined>(undefined);
 
-// playhead 用に観測する会話イベント (user / assistant) の index 集合。scroll-spy は
-// この集合の topmost 可視 index を現在地とみなし、その ts を親へ emit する。
+// playhead 用に観測する会話イベント (user / assistant / ask) の index 集合。scroll-spy は
+// この集合の topmost 可視 index を現在地とみなし、その ts を親へ emit する。ask は
+// 「assistant の質問 + user の回答」を 1 ブロックに畳んだ会話イベントなので含める。
 const observableIndices = computed<Set<number>>(() => {
   const set = new Set<number>();
   props.parsed.events.forEach((ev, index) => {
-    if (ev.kind === "user" || ev.kind === "assistant") set.add(index);
+    if (ev.kind === "user" || ev.kind === "assistant" || ev.kind === "ask") set.add(index);
   });
   return set;
 });
@@ -493,6 +500,69 @@ onBeforeUnmount(teardownObserver);
             <span class="shrink-0 tabular-nums">#{{ opt.index }}</span>
             <span v-if="opt.lead !== ''" class="min-w-0 truncate">{{ opt.lead }}</span>
           </button>
+        </div>
+
+        <!-- ask (AskUserQuestion): assistant の質問 + user の回答を 1 ブロックに畳む。
+               複数 question を取りうるので、それぞれを (質問吹き出し + 選択肢 chip 列 +
+               回答吹き出し) のセットで縦に並べる。回答未充填 (resume 中断) は user 吹き出しの
+               代わりに dim な「(no response)」を出す。選択肢を出すのは dialog だけで、
+               terminal preview 側は flattenAskToMessages で text のみ抽出する。 -->
+        <div v-else-if="ev.kind === 'ask'" :data-ev="i" class="scroll-mt-2 space-y-3">
+          <div v-for="(q, qi) in ev.questions" :key="qi" class="space-y-1.5">
+            <!-- 質問本体 (assistant 左寄せ吹き出し) -->
+            <div class="flex items-end gap-1.5">
+              <div
+                class="min-w-0 rounded-2xl bg-chat-incoming px-3 py-1.5 text-sm wrap-break-word whitespace-pre-wrap text-chat-incoming-text"
+              >
+                <!-- header があれば質問の上にバッジで出す (元データの "次のステップ" 等) -->
+                <p
+                  v-if="q.header !== ''"
+                  class="mb-1 text-[10px] font-medium text-chat-incoming-text-low"
+                >
+                  {{ q.header }}
+                </p>
+                {{ q.question }}
+              </div>
+              <SessionLogTimestamp :ts="ev.ts" align="left" />
+            </div>
+
+            <!-- 選択肢 (assistant 側に寄せる)。multiSelect は見出しに小さく明示。
+                   選択された option を success 色でハイライトし、それ以外は dim に倒す。 -->
+            <ul v-if="q.options.length > 0" class="ml-2 space-y-1">
+              <li
+                v-for="(opt, oi) in q.options"
+                :key="oi"
+                class="flex max-w-[85%] flex-col gap-0.5 rounded-md border px-2 py-1 text-xs"
+                :class="
+                  q.answer !== undefined && opt.label === q.answer
+                    ? 'border-success bg-success-subtle text-success-text'
+                    : 'border-border-subtle bg-panel text-foreground-low'
+                "
+              >
+                <span class="font-medium">{{ opt.label }}</span>
+                <span v-if="opt.description !== ''" class="text-foreground-low">
+                  {{ opt.description }}
+                </span>
+              </li>
+            </ul>
+
+            <!-- 回答 (user 右寄せ吹き出し)。未充填 (resume 中断) は dim placeholder。 -->
+            <div class="flex flex-row-reverse items-end gap-1.5">
+              <div
+                v-if="q.answer !== undefined"
+                class="min-w-0 rounded-2xl bg-chat-outgoing px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-chat-outgoing-text"
+              >
+                {{ q.answer }}
+              </div>
+              <span
+                v-else
+                class="rounded-2xl bg-panel px-3 py-1.5 text-xs text-foreground-low italic"
+              >
+                (no response)
+              </span>
+              <SessionLogTimestamp :ts="ev.ts" align="right" />
+            </div>
+          </div>
         </div>
 
         <!-- thinking / tool: 中央寄せの控えめなシステム行 (デフォルト閉じ) -->

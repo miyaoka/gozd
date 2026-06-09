@@ -2,6 +2,7 @@ import { afterAll, describe, expect, setSystemTime, test } from "bun:test";
 import {
   buildSubagentLinks,
   buildTimelineTracks,
+  expandAskMessages,
   formatModelLabel,
   formatSessionTime,
   groupByWorkflow,
@@ -613,16 +614,17 @@ describe("parseSessionLog", () => {
   describe("rewind: resume mid-AskUserQuestion synthetic exclusion (regression guard pair)", () => {
     test("positive: model:<synthetic> の r2 は branch 候補から外れ偽 chooser が消える", () => {
       const log = parseSessionLog(resumeMidAskFixture("<synthetic>"));
+      // AskUserQuestion は tool ではなく ask イベントとして emit される。input.questions が
+      // 空 (この fixture では `input: {}`) のときも ask を作り、questions:[] のまま残す
+      // (resume 中断 + 質問配列空 = 最も degenerate な ask シナリオの表現)。
       expect(log.events).toEqual([
         { kind: "user", text: "投稿予定の総評本文をレビュー", ts: TS },
         { kind: "assistant", text: "主要箇所の検証が完了しました。", ts: TS },
         {
-          kind: "tool",
-          name: "AskUserQuestion",
-          input: {},
-          toolUseId: "tu1",
+          kind: "ask",
           ts: TS,
-          result: undefined,
+          toolUseId: "tu1",
+          questions: [],
         },
       ]);
       // r1 (isMeta) + r2 (synthetic) が skipped に計上される。a0 の空 thinking は emptyThinking 側。
@@ -654,6 +656,328 @@ describe("parseSessionLog", () => {
       expect(log.skipped).toBe(1);
       expect(log.emptyThinking).toBe(1);
       expect(log.models).toEqual(["claude-opus-4-7"]);
+    });
+  });
+
+  describe("AskUserQuestion を ask イベントに畳む", () => {
+    // AskUserQuestion は assistant の質問 + user の回答を 1 つの会話ブロックに畳んで扱う。
+    // tool_use の input.questions[] から質問列と選択肢を抜き、後続の tool_result が来た line
+    // の raw top-level `toolUseResult.answers` (構造化 Map) から answer を充填する。result が
+    // 来ない (resume 中断) ケースは answer=undefined のまま残す。
+    //
+    // 充填ソースに `toolUseResult.answers` を使う理由: 同 line に同居する tool_result.content
+    // の自然言語テキスト ("Q"="A" 形式) は質問・回答が `"` を含むと regex 復元が壊れる。
+    // `answers` は Claude Code が組み立てた構造化 Map なので、信頼境界外データの任意 char
+    // 集合に依存せず正しく取れる。
+
+    /**
+     * AskUserQuestion 応答 line の最小 fixture。message.content には tool_result block を、
+     * top-level `toolUseResult.answers` には Q→A Map を載せる (実 jsonl の構造と一致)。
+     */
+    const askResultLine = (
+      toolUseId: string,
+      answers: Record<string, string> | undefined,
+    ): unknown => ({
+      type: "user",
+      timestamp: TS,
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: toolUseId,
+            content: "Your questions have been answered: ... (text 経路は読まない)",
+          },
+        ],
+      },
+      ...(answers !== undefined ? { toolUseResult: { answers } } : {}),
+    });
+
+    test("通常の Q/A: input から質問列を構築し toolUseResult.answers から answer を充填", () => {
+      const log = parseSessionLog(
+        jsonl(
+          {
+            type: "assistant",
+            timestamp: TS,
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: "tu1",
+                  name: "AskUserQuestion",
+                  input: {
+                    questions: [
+                      {
+                        question: "日本の首都はどこ?",
+                        header: "日本クイズ",
+                        multiSelect: false,
+                        options: [
+                          { label: "京都", description: "古都" },
+                          { label: "東京", description: "現首都" },
+                        ],
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+          askResultLine("tu1", { "日本の首都はどこ?": "東京" }),
+        ),
+      );
+      expect(log.events).toEqual([
+        {
+          kind: "ask",
+          ts: TS,
+          toolUseId: "tu1",
+          questions: [
+            {
+              question: "日本の首都はどこ?",
+              header: "日本クイズ",
+              multiSelect: false,
+              options: [
+                { label: "京都", description: "古都" },
+                { label: "東京", description: "現首都" },
+              ],
+              answer: "東京",
+            },
+          ],
+        },
+      ]);
+    });
+
+    test("複数 question: 各 answer を question 文字列で引き当てる", () => {
+      const log = parseSessionLog(
+        jsonl(
+          {
+            type: "assistant",
+            timestamp: TS,
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: "tu1",
+                  name: "AskUserQuestion",
+                  input: {
+                    questions: [
+                      { question: "Q1", header: "", multiSelect: false, options: [] },
+                      { question: "Q2", header: "", multiSelect: false, options: [] },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+          askResultLine("tu1", { Q1: "A1", Q2: "A2" }),
+        ),
+      );
+      const ev = log.events[0];
+      expect(ev?.kind).toBe("ask");
+      if (ev?.kind === "ask") {
+        expect(ev.questions.map((q) => q.answer)).toEqual(["A1", "A2"]);
+      }
+    });
+
+    // 上流の構造化 Map を SSOT に使うため、質問・回答内部の `"` が信頼境界外データとして
+    // 来ても壊れないこと。content text 経路を regex で復元すると `What is "foo"?` のような
+    // 形で `?` だけが抽出される等の破綻ケースがあったが、`toolUseResult.answers` 経路に
+    // 倒したことで任意 char 集合に依存しない。
+    test('質問 / 回答に `"` を含んでも構造化 answers Map で正しく取れる', () => {
+      const tricky = 'What is "foo"?';
+      const trickyAnswer = 'answer with "quote"';
+      const log = parseSessionLog(
+        jsonl(
+          {
+            type: "assistant",
+            timestamp: TS,
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: "tu1",
+                  name: "AskUserQuestion",
+                  input: {
+                    questions: [{ question: tricky, header: "", multiSelect: false, options: [] }],
+                  },
+                },
+              ],
+            },
+          },
+          askResultLine("tu1", { [tricky]: trickyAnswer }),
+        ),
+      );
+      const ev = log.events[0];
+      expect(ev?.kind).toBe("ask");
+      if (ev?.kind === "ask") {
+        expect(ev.questions[0]?.answer).toBe(trickyAnswer);
+      }
+    });
+
+    test("result が無い (resume 中断) と answer は undefined のまま", () => {
+      const log = parseSessionLog(
+        jsonl({
+          type: "assistant",
+          timestamp: TS,
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: "tu1",
+                name: "AskUserQuestion",
+                input: {
+                  questions: [
+                    {
+                      question: "このまま投稿しますか?",
+                      header: "次のステップ",
+                      multiSelect: false,
+                      options: [{ label: "このまま投稿", description: "修正なし" }],
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        }),
+      );
+      const ev = log.events[0];
+      expect(ev?.kind).toBe("ask");
+      if (ev?.kind === "ask") {
+        expect(ev.questions[0]?.answer).toBeUndefined();
+        expect(ev.questions[0]?.options).toEqual([
+          { label: "このまま投稿", description: "修正なし" },
+        ]);
+      }
+    });
+
+    // parser invariant: 「未充填」概念を `q.answer === undefined` の 1 条件に閉じる
+    // (consumer の if 分岐 SSOT 化)。Claude Code 仕様上空文字 answer は通常発生しないが、
+    // 信頼境界外データとして来た場合に dialog の `v-if="q.answer !== undefined"` が
+    // 空緑バブルを出す症状を parser 側で消す。
+    test("空文字 answer は未充填扱いで undefined に倒される (SSOT)", () => {
+      const log = parseSessionLog(
+        jsonl(
+          {
+            type: "assistant",
+            timestamp: TS,
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: "tu1",
+                  name: "AskUserQuestion",
+                  input: {
+                    questions: [{ question: "Q1", header: "", multiSelect: false, options: [] }],
+                  },
+                },
+              ],
+            },
+          },
+          askResultLine("tu1", { Q1: "" }),
+        ),
+      );
+      const ev = log.events[0];
+      expect(ev?.kind).toBe("ask");
+      if (ev?.kind === "ask") {
+        expect(ev.questions[0]?.answer).toBeUndefined();
+      }
+    });
+
+    // tool_result が来たが構造化 `answers` フィールドが欠落しているケース (信頼境界外
+    // で起こり得る部分破損)。text 経路 fallback は持たないため `answer === undefined`
+    // のままで描画側が「(no response)」を出す。silent drop ではなく可視化される。
+    test("toolUseResult.answers が欠落していると answer は undefined のまま", () => {
+      const log = parseSessionLog(
+        jsonl(
+          {
+            type: "assistant",
+            timestamp: TS,
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: "tu1",
+                  name: "AskUserQuestion",
+                  input: {
+                    questions: [{ question: "Q1", header: "", multiSelect: false, options: [] }],
+                  },
+                },
+              ],
+            },
+          },
+          askResultLine("tu1", undefined),
+        ),
+      );
+      const ev = log.events[0];
+      expect(ev?.kind).toBe("ask");
+      if (ev?.kind === "ask") {
+        expect(ev.questions[0]?.answer).toBeUndefined();
+      }
+    });
+  });
+
+  describe("expandAskMessages", () => {
+    test("ask を assistant (質問) と user (回答) に inline 展開し、他 kind は透過", () => {
+      const events: TranscriptEvent[] = [
+        { kind: "user", text: "始めて", ts: TS },
+        { kind: "thinking", text: "考え中", ts: TS },
+        {
+          kind: "ask",
+          ts: TS,
+          toolUseId: "tu1",
+          questions: [
+            { question: "Q1", header: "", multiSelect: false, options: [], answer: "A1" },
+            { question: "Q2", header: "", multiSelect: false, options: [], answer: undefined },
+          ],
+        },
+        { kind: "assistant", text: "おわり", ts: TS },
+      ];
+      // ask は (Q1 → A1) + (Q2 のみ, A2 は undefined で欠落)、thinking / assistant は素通し。
+      expect(expandAskMessages(events)).toEqual([
+        { kind: "user", text: "始めて", ts: TS },
+        { kind: "thinking", text: "考え中", ts: TS },
+        { kind: "assistant", text: "Q1", ts: TS },
+        { kind: "user", text: "A1", ts: TS },
+        { kind: "assistant", text: "Q2", ts: TS },
+        { kind: "assistant", text: "おわり", ts: TS },
+      ]);
+    });
+
+    test("空 question は質問メッセージを出さない (表示できる本文無しは bubble に倒さない)", () => {
+      expect(
+        expandAskMessages([
+          {
+            kind: "ask",
+            ts: TS,
+            toolUseId: "tu1",
+            questions: [{ question: "", header: "", multiSelect: false, options: [], answer: "A" }],
+          },
+        ]),
+      ).toEqual([{ kind: "user", text: "A", ts: TS }]);
+    });
+
+    // 「空文字 answer は未充填扱い」は parser 側で `answer = undefined` に正規化する
+    // invariant で SSOT 化済み (parseSessionLog 「空文字 answer は未充填扱いで undefined に
+    // 倒される」test 参照)。consumer (expandAskMessages / dialog) は `q.answer === undefined`
+    // の 1 条件だけで未充填判定するため、`expandAskMessages` 側に空文字 answer の独立
+    // 仕様 test は持たない (parser invariant を信頼できなくなる二重定義になる)。
+
+    test("空入力は空出力", () => {
+      expect(expandAskMessages([])).toEqual([]);
+    });
+
+    test("ask 不在の入力はそのまま透過する", () => {
+      const events: TranscriptEvent[] = [
+        { kind: "user", text: "u", ts: TS },
+        { kind: "assistant", text: "a", ts: TS },
+        { kind: "thinking", text: "t", ts: TS },
+      ];
+      expect(expandAskMessages(events)).toEqual(events);
     });
   });
 

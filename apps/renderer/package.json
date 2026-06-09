@@ -43,7 +43,7 @@
     "@types/bun": "catalog:",
     "@vitejs/plugin-vue": "6.0.7",
     "@vue/eslint-config-prettier": "10.2.0",
-    "@vue/eslint-config-typescript": "14.7.0",
+    "@vue/eslint-config-typescript": "14.8.0",
     "eslint": "catalog:",
     "eslint-plugin-better-tailwindcss": "4.5.0",
     "eslint-plugin-import-x": "catalog:",

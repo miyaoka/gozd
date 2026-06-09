@@ -692,21 +692,27 @@ const displayIsBinary = computed(() => {
 });
 
 /**
- * ファイルサーバー経由の URL を構築。worktree 相対パスのみが対象 (file server は
- * worktree 配下を提供する経路)。絶対パス選択中は呼び出さない。
+ * `gozd-file://` URLSchemeHandler の URL を構築。worktree 相対パスのみが対象
+ * (file server は worktree 配下を提供する経路)。絶対パス選択中は呼び出さない。
+ *
+ * 形式: `gozd-file://localhost/{fs|git}?dir=<absDir>&path=<relPath>&v=<version>`
+ *   - `/fs`  : 作業ツリーの実ファイル
+ *   - `/git` : `git show HEAD:<path>` の出力 (Original タブの画像)
+ *
+ * `?v=` は fsChange 等で同一 URL を再読み込みさせるためのキャッシュバスト。
  */
 function buildFileServerUrl(
+  dir: string,
   relPath: string,
   version: number,
   gitOriginal = false,
 ): string | undefined {
-  if (!fileServerBaseUrl.value) return undefined;
-  const base = fileServerBaseUrl.value.endsWith("/")
-    ? fileServerBaseUrl.value
-    : `${fileServerBaseUrl.value}/`;
-  const prefix = gitOriginal ? "git/" : "fs/";
-  const encodedPath = relPath.split("/").map(encodeURIComponent).join("/");
-  const url = new URL(`${prefix}${encodedPath}`, base);
+  const base = fileServerBaseUrl.value;
+  if (!base) return undefined;
+  const kind = gitOriginal ? "git" : "fs";
+  const url = new URL(kind, base);
+  url.searchParams.set("dir", dir);
+  url.searchParams.set("path", relPath);
   url.searchParams.set("v", String(version));
   return url.href;
 }
@@ -719,9 +725,10 @@ const imageUrl = computed(() => {
   // 絶対パス（worktree 外）は file server 経路で扱えない。画像/SVG は
   // fsReadFileAbsolute 経由の binary 表示にフォールバックする。
   const relPath = selectedRelPath.value;
-  if (relPath === undefined) return undefined;
+  const dir = worktreeStore.dir;
+  if (relPath === undefined || dir === undefined) return undefined;
   const isOriginal = activeMode.value === "original";
-  return buildFileServerUrl(relPath, fetchVersionRef.value, isOriginal);
+  return buildFileServerUrl(dir, relPath, fetchVersionRef.value, isOriginal);
 });
 
 /** preview チェックボックスを表示するか（diff モードでは非表示） */

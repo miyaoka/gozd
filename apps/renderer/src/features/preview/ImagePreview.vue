@@ -5,7 +5,7 @@
 
 <script setup lang="ts">
 defineProps<{
-  /** 画像の data: URL */
+  /** `<img>` の src。`gozd-file://` URLSchemeHandler 経由の URL を想定 */
   src: string;
 }>();
 </script>

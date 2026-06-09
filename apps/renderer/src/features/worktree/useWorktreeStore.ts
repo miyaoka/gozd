@@ -18,7 +18,9 @@ export type Selection = PathTarget & { lineNumber?: number };
 
 export const useWorktreeStore = defineStore("worktree", () => {
   const repoStore = useRepoStore();
-  const fileServerBaseUrl = ref<string>();
+  // gozd-file:// URLSchemeHandler の root。preview の image / SVG `<img src>` 経路で使う。
+  // dir / path はクエリで運ぶ契約のため base URL 自体は固定。
+  const fileServerBaseUrl = ref("gozd-file://localhost/");
 
   const selection = ref<Selection>();
 

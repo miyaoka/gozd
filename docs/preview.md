@@ -123,10 +123,11 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 | `gitShowFile`        | `HEAD` 時点のファイル内容（Uncommitted モードの Original / Diff 用） |
 | `gitShowCommitFile`  | コミット間のファイル内容（from/to を一括取得。コミットモードで使用） |
 
-- 画像 / SVG: WKWebView が `file://` をブロックするため、desktop 側のファイルサーバー経由で配信
-  - `/fs/{relPath}` — 現在のファイル
-  - `/git/{relPath}` — HEAD 時点のファイル
-  - `?v=<version>` パラメータで画像キャッシュバスト
+- 画像 / SVG: WKWebView が `file://` をブロックするため、native の `gozd-file://` URLSchemeHandler 経由で raw bytes を配信
+  - `gozd-file://localhost/fs?dir=<absDir>&path=<relPath>&v=<n>` — 作業ツリーの実ファイル (`FSOps.readFileBytes`、`resolveSafe` で path traversal 防止)
+  - `gozd-file://localhost/git?dir=<absDir>&path=<relPath>&v=<n>` — `git show HEAD:<path>` の出力 (Original タブ)
+  - `?v=<n>` パラメータは `fsChange` 等の再 fetch トリガーで同一 URL を再読み込みさせるためのキャッシュバスト
+  - proto を bytes 化せずに `<img>` 直配信に倒した理由: テキスト系は従来通り `gozd-rpc://` + UTF-8 string で扱い、画像 / SVG だけ別 scheme に分ける方が proto 全体への破壊変更を避けられる
 - 絶対パスの場合は git 操作（`gitShowFile`）を呼ばない
 - バイナリ判定: NUL バイト（`0x00`）の有無で判定（git と同じ方式）
 - 最大サイズ: 1MB を超えるファイルはバイナリ扱い

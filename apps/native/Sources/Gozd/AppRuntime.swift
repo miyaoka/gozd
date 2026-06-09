@@ -233,6 +233,9 @@ final class AppRuntime {
     var config = WebPage.Configuration()
     config.urlSchemeHandlers[URLScheme("gozd-rpc")!] = RpcSchemeHandler(dispatcher: createdDispatcher)
     config.urlSchemeHandlers[URLScheme("gozd-app")!] = BundleAssetSchemeHandler()
+    // preview の image / SVG `<img src>` 経路。proto を bytes 対応に破壊変更せず、
+    // raw bytes は WebKit に直接食わせる方針。詳細は FileServerSchemeHandler.swift 冒頭参照。
+    config.urlSchemeHandlers[URLScheme("gozd-file")!] = FileServerSchemeHandler()
     // 外部リンク (`<a target="_blank">` / `window.open`) を OS のブラウザに渡す。
     // 未設定だと主フレームを置換しようとして renderer の UI 全体が消える。
     let page = WebPage(configuration: config, navigationDecider: ExternalLinkNavigationDecider())

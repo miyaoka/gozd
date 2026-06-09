@@ -18,8 +18,9 @@ import WebKit
 // 詳細は `docs/architecture.md` の「CORS 運用規律」セクション参照。
 //
 // 採用した防御: **Origin allowlist + 明示 echo**。request の `Origin` ヘッダが `allowedOrigins`
-// (`http://localhost:16873` / `gozd-app://localhost`) に含まれる場合のみ `Access-Control-Allow-Origin`
-// に echo back し `Vary: Origin` を併送する。それ以外 (空文字 / 攻撃 origin) はヘッダを返さず
+// (build: `gozd-app://localhost` 固定 / dev: `http://localhost:$GOZD_DEV_VITE_PORT` を env から派生)
+// に含まれる場合のみ `Access-Control-Allow-Origin` に echo back し `Vary: Origin` を併送する。
+// それ以外 (空文字 / 攻撃 origin) はヘッダを返さず
 // WebKit に reject させる。`*` (全許可) を残すと renderer 内 XSS が成立したときに任意 origin から
 // `/fs/readFileAbsolute` 等で機密テキスト (`.ssh/config` / `.aws/credentials` / `.env*` 等) を
 // `fetch()` で回収できる経路が成立するため、それを構造的に塞ぐ規律。

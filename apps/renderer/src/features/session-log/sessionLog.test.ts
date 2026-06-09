@@ -296,6 +296,25 @@ describe("parseSessionLog", () => {
     expect(log.skipped).toBe(2);
   });
 
+  test("SDK 合成 assistant (model:<synthetic>) は transcript に載せず skipped に計上", () => {
+    // 観測形: 実 assistant 応答後に SDK が `model:"<synthetic>"` + `[{type:"text",text:"No response requested."}]`
+    // を同じ親に追記する。これは実応答ではないので skipped に倒す。
+    const log = parseSessionLog(
+      jsonl({
+        type: "assistant",
+        timestamp: TS,
+        message: {
+          role: "assistant",
+          model: "<synthetic>",
+          content: [{ type: "text", text: "No response requested." }],
+        },
+      }),
+    );
+    expect(log.events).toEqual([]);
+    expect(log.skipped).toBe(1);
+    expect(log.models).toEqual([]);
+  });
+
   test("先頭が注入タグでない通常発話は残す (タグが後ろに付くケース)", () => {
     const log = parseSessionLog(
       jsonl({
@@ -453,6 +472,190 @@ describe("parseSessionLog", () => {
         message: { role: "assistant", content: [{ type: "text", text: "昨日は晴れ" }] },
       },
     );
+
+  // 観測症状: 実 assistant 応答 (b1) と SDK 合成 assistant (b2: model:<synthetic>) が同じ親 uuid に
+  // 並ぶ。append-only 木の上では兄弟になるが、合成 assistant は rewind ではないため branch chooser
+  // を出してはいけない (ターミナル上では分岐していないのに UI 上だけ分岐表示される症状)。
+  test("rewind: SDK 合成 assistant は分岐候補から除外する", () => {
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "user",
+          uuid: "u1",
+          parentUuid: null,
+          timestamp: TS,
+          message: { role: "user", content: "主要箇所の検証お願い" },
+        },
+        {
+          type: "assistant",
+          uuid: "b1",
+          parentUuid: "u1",
+          timestamp: TS,
+          message: {
+            role: "assistant",
+            model: "claude-opus-4-7",
+            content: [{ type: "text", text: "主要箇所の検証が完了しました。" }],
+          },
+        },
+        {
+          type: "assistant",
+          uuid: "b2",
+          parentUuid: "u1",
+          timestamp: TS,
+          message: {
+            role: "assistant",
+            model: "<synthetic>",
+            content: [{ type: "text", text: "No response requested." }],
+          },
+        },
+      ),
+    );
+    expect(log.events).toEqual([
+      { kind: "user", text: "主要箇所の検証お願い", ts: TS },
+      { kind: "assistant", text: "主要箇所の検証が完了しました。", ts: TS },
+    ]);
+  });
+
+  // 実観測形 (studio-front jsonl) を再現する fixture builder。AskUserQuestion 投げた直後にセッション
+  // が切れ `claude --continue` 相当で resume されたケース。木の形:
+  //
+  //   u1 (user 生発話, candidate)
+  //     ├─ a0 (assistant thinking; 最新モデルは signature のみで平文は空 → NOT candidate)
+  //     │   └─ a1 (assistant text "主要箇所…", candidate)
+  //     │       └─ a2 (assistant tool_use:AskUserQuestion, NOT candidate; ここで停止)
+  //     └─ r1 (user "Continue from where you left off.", isMeta:true → NOT candidate)
+  //         └─ r2 (assistant text "No response requested.", model = r2Model)
+  //
+  // 症状の消失は「r1 を弾く isMeta filter (既存) と r2 を弾く synthetic filter (本 PR で追加)」の AND
+  // で初めて成立する。どちらが欠けても a1 と r2 (または r1) が `convAncestor` で u1 兄弟になり偽
+  // branch chooser が浮上する。model フィールドだけ差し替えれば「synthetic filter on/off」を切り替え
+  // られる作りにし、positive / contrast の 2 test で同 topology を比較する。
+  const resumeMidAskFixture = (r2Model: string) =>
+    jsonl(
+      {
+        type: "user",
+        uuid: "u1",
+        parentUuid: null,
+        timestamp: TS,
+        message: { role: "user", content: "投稿予定の総評本文をレビュー" },
+      },
+      // real chain
+      {
+        type: "assistant",
+        uuid: "a0",
+        parentUuid: "u1",
+        timestamp: TS,
+        message: {
+          role: "assistant",
+          model: "claude-opus-4-7",
+          content: [{ type: "thinking", thinking: "", signature: "redacted" }],
+        },
+      },
+      {
+        type: "assistant",
+        uuid: "a1",
+        parentUuid: "a0",
+        timestamp: TS,
+        message: {
+          role: "assistant",
+          model: "claude-opus-4-7",
+          content: [{ type: "text", text: "主要箇所の検証が完了しました。" }],
+        },
+      },
+      {
+        type: "assistant",
+        uuid: "a2",
+        parentUuid: "a1",
+        timestamp: TS,
+        message: {
+          role: "assistant",
+          model: "claude-opus-4-7",
+          content: [{ type: "tool_use", id: "tu1", name: "AskUserQuestion", input: {} }],
+        },
+      },
+      // resume chain: r1 は SDK 注入 (isMeta:true)、r2 が問題の synthetic
+      {
+        type: "user",
+        uuid: "r1",
+        parentUuid: "u1",
+        isMeta: true,
+        timestamp: TS,
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "Continue from where you left off." }],
+        },
+      },
+      {
+        type: "assistant",
+        uuid: "r2",
+        parentUuid: "r1",
+        timestamp: TS,
+        message: {
+          role: "assistant",
+          model: r2Model,
+          content: [{ type: "text", text: "No response requested." }],
+        },
+      },
+    );
+
+  // positive (synthetic) と contrast (実モデル) を pair で並べる。両 test は同じ topology で
+  // model フィールドだけが違う。positive が本 PR の core invariant (偽 chooser 消滅) を assert し、
+  // contrast は `isBranchCandidate` の synthetic 早期 return が外された場合に得られる挙動を
+  // ロックして退行検出を担保する。
+  //
+  // contrast の expect 値は「現状の正しい挙動の spec」ではなく「本 PR で消したい症状を退行検出
+  // のためにロックしているもの」。将来 resume 注入 user prompt 自体の扱いを変える等 core を深める
+  // 変更を入れる際は、contrast の expect を更新する前提。
+  //
+  // 両 test は events だけでなく skipped / emptyThinking / models も assert することで、synthetic
+  // 弾きが外れた退行時に「skipped が 2 → 1 に減る」「models[] への重複登録の有無」等の二次的な
+  // 副作用も検出する。
+  describe("rewind: resume mid-AskUserQuestion synthetic exclusion (regression guard pair)", () => {
+    test("positive: model:<synthetic> の r2 は branch 候補から外れ偽 chooser が消える", () => {
+      const log = parseSessionLog(resumeMidAskFixture("<synthetic>"));
+      expect(log.events).toEqual([
+        { kind: "user", text: "投稿予定の総評本文をレビュー", ts: TS },
+        { kind: "assistant", text: "主要箇所の検証が完了しました。", ts: TS },
+        {
+          kind: "tool",
+          name: "AskUserQuestion",
+          input: {},
+          toolUseId: "tu1",
+          ts: TS,
+          result: undefined,
+        },
+      ]);
+      // r1 (isMeta) + r2 (synthetic) が skipped に計上される。a0 の空 thinking は emptyThinking 側。
+      expect(log.skipped).toBe(2);
+      expect(log.emptyThinking).toBe(1);
+      expect(log.models).toEqual(["claude-opus-4-7"]);
+    });
+
+    // contrast: `isBranchCandidate` の synthetic 早期 return line を外すと positive の expect
+    // 結果がこの contrast 形 (偽 branch chooser 出現) に変わる。退行検出担保。
+    test("contrast: r2 が実モデルだと同じ topology で偽 chooser が浮上する", () => {
+      const log = parseSessionLog(resumeMidAskFixture("claude-opus-4-7"));
+      expect(log.events).toEqual([
+        { kind: "user", text: "投稿予定の総評本文をレビュー", ts: TS },
+        {
+          kind: "branch",
+          ts: TS,
+          branchKey: "u1",
+          selectedChildUuid: "r2",
+          options: [
+            { childUuid: "a1", index: 1, lead: "主要箇所の検証が完了しました。", ts: TS },
+            { childUuid: "r2", index: 2, lead: "No response requested.", ts: TS },
+          ],
+        },
+        { kind: "assistant", text: "No response requested.", ts: TS },
+      ]);
+      // r1 (isMeta) のみ skipped。r2 は synthetic 弾きが効かないため events に乗り skipped されない。
+      // 分岐確定により a1 / a2 サブツリーは prune される (a0 は分岐より上なので emptyThinking に残る)。
+      expect(log.skipped).toBe(1);
+      expect(log.emptyThinking).toBe(1);
+      expect(log.models).toEqual(["claude-opus-4-7"]);
+    });
+  });
 
   test("rewind: デフォルトは最新枝を表示し直前に branch セレクタを挿す (捨て枝は出さない)", () => {
     const log = parseSessionLog(rewindLog());

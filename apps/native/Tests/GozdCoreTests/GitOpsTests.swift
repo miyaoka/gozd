@@ -494,6 +494,40 @@ struct GitOpsStatusFullTests {
     #expect(status.branchHead == "renamed-feature")
   }
 
+  @Test("renamed ファイルの旧パスが renameOldPaths に入る")
+  func renameOldPathsIsPopulated() async throws {
+    // preview の diff が HEAD 側の比較元を旧パスで引くための SSOT。
+    // 旧パスを破棄すると renderer は `git show HEAD:<新パス>` で notFound になり
+    // 「move + 編集」の diff が全行追加として表示される。
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "content".write(
+      to: dir.appendingPathComponent("old.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "old.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
+    try await runTestGit(args: ["mv", "old.txt", "new.txt"], cwd: dir.path)
+
+    let status = try await GitOps.gitStatusFull(dir: dir.path)
+    #expect(status.statuses["new.txt"]?.first == "R")
+    #expect(status.renameOldPaths["new.txt"] == "old.txt")
+  }
+
+  @Test("rename が無ければ renameOldPaths は空")
+  func renameOldPathsEmptyWithoutRename() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "v1".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
+    try "v2".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+
+    let status = try await GitOps.gitStatusFull(dir: dir.path)
+    #expect(status.statuses["a.txt"] == ".M")
+    #expect(status.renameOldPaths.isEmpty)
+  }
+
   @Test("detached HEAD では branchHead は空文字")
   func branchHeadEmptyOnDetached() async throws {
     let dir = try await makeGitRepo()

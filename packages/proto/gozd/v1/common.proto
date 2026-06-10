@@ -12,6 +12,9 @@ message WorktreeEntry {
   bool is_main = 4;
   // ファイル相対パス → porcelain v1 XY コード
   map<string, string> git_statuses = 5;
+  // rename / copy エントリの 新パス → 旧パス。`git_statuses` のキーは新パスのみ持つため、
+  // 旧パス (HEAD 側の比較元) はこの map で運ぶ。rename が無ければ空。
+  map<string, string> rename_old_paths = 9;
   repeated Task tasks = 6;
   // upstream（追跡リモートブランチ）に対する差分。upstream 未設定なら不在。
   // optional により「未設定」をフィールド不在で表現し、ahead/behind を見るには

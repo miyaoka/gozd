@@ -7,6 +7,9 @@ import Foundation
 extension GitOps {
   public struct StatusFull: Equatable, Sendable {
     public let statuses: [String: String]
+    /// rename / copy エントリの 新パス → 旧パス。`statuses` のキーは新パスのみ持つため、
+    /// HEAD 側の比較元 (旧パス) はこの map で運ぶ。rename が無ければ空。
+    public let renameOldPaths: [String: String]
     public let head: String
     /// `git status --porcelain=v2 --branch` の `# branch.head` の値。HEAD が指す
     /// ブランチ名（例: `main`）。detached HEAD の場合は空文字。
@@ -46,7 +49,8 @@ extension GitOps {
     let parsed = parsePorcelainV2WithBranch(stdout)
     let latestMtime = latestMtimeOf(dir: dir, relPaths: Array(parsed.statuses.keys))
     return StatusFull(
-      statuses: parsed.statuses, head: parsed.head, branchHead: parsed.branchHead,
+      statuses: parsed.statuses, renameOldPaths: parsed.renameOldPaths,
+      head: parsed.head, branchHead: parsed.branchHead,
       hasUpstream: parsed.hasUpstream, ahead: parsed.ahead, behind: parsed.behind,
       latestMtime: latestMtime)
   }
@@ -104,9 +108,11 @@ private func parseNulSeparatedPaths(_ data: Data) -> Set<String> {
 /// - 続いて各ファイルエントリ（`1 XY ...` / `2 XY ...` / `u ...` / `? path`）
 ///
 /// 各エントリは XY を抽出して path にマップする。porcelain v1 と XY の形式は同じ。
-/// `2`（rename）は古い path を後続の NUL 区切りで読み飛ばす。
+/// `2`（rename）は後続の NUL 区切りで届く orig_path を `renameOldPaths` に保持する
+/// (新パス → 旧パス)。preview の diff が HEAD 側の比較元を旧パスで引くために必要。
 private func parsePorcelainV2WithBranch(_ data: Data) -> GitOps.StatusFull {
   var statuses: [String: String] = [:]
+  var renameOldPaths: [String: String] = [:]
   var head = ""
   var branchHead = ""
   var hasUpstream = false
@@ -161,13 +167,19 @@ private func parsePorcelainV2WithBranch(_ data: Data) -> GitOps.StatusFull {
       // 続いて NUL 区切りで <orig_path>。
       let fields = line.split(
         separator: " ", maxSplits: 9, omittingEmptySubsequences: false)
+      var newPath: String?
       if fields.count >= 10 {
         let xy = String(fields[1])
         let path = String(fields[9])
         statuses[path] = xy
+        newPath = path
       }
-      // orig_path を読み飛ばす
+      // orig_path を読み取り、新パス → 旧パスとして保持する
       if let origNul = data[index...].firstIndex(of: 0x00) {
+        let origPath = String(decoding: data[index..<origNul], as: UTF8.self)
+        if let newPath, !origPath.isEmpty {
+          renameOldPaths[newPath] = origPath
+        }
         index = data.index(after: origNul)
       }
     } else if line.hasPrefix("u ") {
@@ -190,7 +202,8 @@ private func parsePorcelainV2WithBranch(_ data: Data) -> GitOps.StatusFull {
   }
 
   return GitOps.StatusFull(
-    statuses: statuses, head: head, branchHead: branchHead,
+    statuses: statuses, renameOldPaths: renameOldPaths,
+    head: head, branchHead: branchHead,
     hasUpstream: hasUpstream, ahead: ahead, behind: behind,
     latestMtime: 0)
 }

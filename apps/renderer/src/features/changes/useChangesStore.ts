@@ -27,11 +27,16 @@ const TYPE_MAP: Record<GitChangeKind, GitFileChange["type"]> = {
   renamed: "R",
 };
 
-function gitStatusToFileChanges(statuses: Record<string, string>): GitFileChange[] {
+function gitStatusToFileChanges(
+  statuses: Record<string, string>,
+  renameOldPaths: Record<string, string>,
+): GitFileChange[] {
   return Object.entries(statuses).map(([filePath, statusCode]) => {
     const kind = resolveGitChangeKind(statusCode);
     return {
-      oldFilePath: filePath,
+      // rename は statuses のキー (新パス) と HEAD 側のパスが異なる。旧パスを欠くと
+      // summary view が `git show HEAD:<新パス>` を引いて全行追加の diff に倒れる。
+      oldFilePath: renameOldPaths[filePath] ?? filePath,
       newFilePath: filePath,
       type: TYPE_MAP[kind],
     };
@@ -162,7 +167,9 @@ export const useChangesStore = defineStore("changes", () => {
   const fileChanges = computed<GitFileChange[]>(() => {
     const src = source.value;
     if (src.kind === "none") return [];
-    if (src.kind === "workingTree") return gitStatusToFileChanges(gitStatusStore.gitStatuses);
+    if (src.kind === "workingTree") {
+      return gitStatusToFileChanges(gitStatusStore.gitStatuses, gitStatusStore.renameOldPaths);
+    }
     // PR diff / range mode + Working Tree 端は --diff-filter=AMDR で untracked が除外されるため、
     // untracked merge の SSOT (`mergeUntracked`) を通して「base に入る untracked」を append する。
     if (src.kind === "prDiff") return mergeUntracked(fetchedFiles.value);

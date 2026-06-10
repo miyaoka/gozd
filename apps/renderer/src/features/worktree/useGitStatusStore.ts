@@ -34,6 +34,15 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
     return wt?.gitStatuses ?? {};
   });
 
+  /** active dir の rename 新パス → 旧パス map。`gitStatuses` と同一 snapshot から派生する。 */
+  const renameOldPaths = computed<Record<string, string>>(() => {
+    const dir = repoStore.selectedDir;
+    if (dir === undefined) return {};
+    const repo = repoStore.findRepoOwning(dir);
+    const wt = repo?.worktrees.find((w) => w.path === dir);
+    return wt?.renameOldPaths ?? {};
+  });
+
   /** active dir の変更ファイル mtime 最大値 (Unix 秒)。未取得 / clean のときは 0。 */
   const workingTreeMtime = computed<number>(() => {
     const dir = repoStore.selectedDir;
@@ -61,6 +70,7 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
     if (result.ok) {
       repoStore.setWorktreeGitStatuses(dir, {
         statuses: result.value.entries,
+        renameOldPaths: result.value.renameOldPaths,
         upstream: result.value.upstream,
         latestMtime: result.value.latestMtime,
       });
@@ -70,7 +80,7 @@ export const useGitStatusStore = defineStore("gitStatus", () => {
     }
   }
 
-  return { gitStatuses, workingTreeMtime, loadGitStatus };
+  return { gitStatuses, renameOldPaths, workingTreeMtime, loadGitStatus };
 });
 
 if (import.meta.hot) {

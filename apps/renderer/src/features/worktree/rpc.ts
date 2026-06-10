@@ -18,6 +18,9 @@ export const rpcGitFetchRemotes = (req: GitFetchRemotesRequest) =>
 export interface GitStatusChangePayload {
   dir: string;
   statuses: Record<string, string>;
+  /** rename / copy エントリの 新パス → 旧パス。`statuses` のキーは新パスのみ持つため、
+   * HEAD 側の比較元 (旧パス) はこの map で運ぶ。rename が無ければ空。 */
+  renameOldPaths: Record<string, string>;
   head: string;
   /** HEAD が指す branch 名（`git status --porcelain=v2 --branch` の `# branch.head`）。
    * `git branch -m` は OID を変えないため、rename はこの値の変化で検知する。

@@ -22,4 +22,7 @@ message GitStatusResponse {
   // 変更ファイルの最終更新時刻 (Unix 秒)。`entries` の各パスを stat した最大値。
   // clean (差分なし) / stat 全失敗のときは 0。削除済みパスは stat 失敗で自動除外。
   int64 latest_mtime = 3;
+  // rename / copy エントリの 新パス → 旧パス。`entries` のキーは新パスのみ持つため、
+  // 旧パス (HEAD 側の比較元) はこの map で運ぶ。rename が無ければ空。
+  map<string, string> rename_old_paths = 4;
 }

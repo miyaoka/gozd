@@ -129,6 +129,7 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
   - `?v=<n>` パラメータは `fsChange` 等の再 fetch トリガーで同一 URL を再読み込みさせるためのキャッシュバスト
   - proto を bytes 化せずに `<img>` 直配信に倒した理由: テキスト系は従来通り `gozd-rpc://` + UTF-8 string で扱い、画像 / SVG だけ別 scheme に分ける方が proto 全体への破壊変更を避けられる
 - 絶対パスの場合は git 操作（`gitShowFile`）を呼ばない
+- rename (move) されたファイルの Original / Diff: `gitStatuses` のキーは新パスのみ持つため、status と同一 snapshot で届く `renameOldPaths`（新パス → 旧パス、`useGitStatusStore` が SSOT）で HEAD 側のパスを解決してから `gitShowFile` / `gozd-file://localhost/git` を引く。旧パス解決を欠くと HEAD 側が notFound になり「全行追加」の diff に倒れる。uncommitted モードの HEAD 側 blame（`rev === "HEAD"`）も同じ map で旧パスに揃える
 - バイナリ判定: NUL バイト（`0x00`）の有無で判定（git と同じ方式）
 - 最大サイズ: 1MB を超えるファイルはバイナリ扱い
 

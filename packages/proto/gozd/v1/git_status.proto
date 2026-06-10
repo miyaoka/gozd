@@ -4,7 +4,7 @@ package gozd.v1;
 
 import "gozd/v1/common.proto";
 
-// `git status --porcelain=v1 -z` 相当のファイル状態を取得する。
+// `git status --porcelain=v2 -z` 相当のファイル状態を取得する。
 //
 // issue #310 の方針: 全 RPC は明示的に `dir` を受け取り、
 // サーバー側で `currentDir` を持たないステートレス API として動作する。
@@ -14,8 +14,9 @@ message GitStatusRequest {
 }
 
 message GitStatusResponse {
-  // ファイル相対パス → porcelain v1 の XY ステータスコード（例: " M", "??", "M ", "R "）。
+  // ファイル相対パス → porcelain v2 の XY ステータスコード（例: ".M", "??", "M.", "R."）。
   // 値は常に長さ 2 の文字列。1 文字目 = index 状態、2 文字目 = working tree 状態。
+  // 未変更側は "."（v1 の " " と異なる）。
   map<string, string> entries = 1;
   // upstream に対する差分。未設定なら不在。
   optional UpstreamStatus upstream = 2;

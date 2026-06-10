@@ -10,7 +10,7 @@ message WorktreeEntry {
   string head = 2;
   string branch = 3;
   bool is_main = 4;
-  // ファイル相対パス → porcelain v1 XY コード
+  // ファイル相対パス → porcelain v2 XY コード（未変更側は "."。例: ".M", "A.", "R.", "??"）
   map<string, string> git_statuses = 5;
   // rename / copy エントリの 新パス → 旧パス。`git_statuses` のキーは新パスのみ持つため、
   // 旧パス (HEAD 側の比較元) はこの map で運ぶ。rename が無ければ空。

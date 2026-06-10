@@ -1,6 +1,6 @@
 import Foundation
 
-// status / check-ignore 系の RPC op。`git status --porcelain=v1 / v2` と `git check-ignore`
+// status / check-ignore 系の RPC op。`git status --porcelain=v2` と `git check-ignore`
 // の生 stdout は entry 数 / オプションに左右されるため、parser を本ファイル内に置いて
 // 「生 git output → 構造化データ」の写像を 1 か所に閉じる。
 
@@ -24,15 +24,6 @@ extension GitOps {
     /// ファイルの再保存でも UI 側の date 列を更新するため。同一秒内の連続保存は mtime が
     /// 秒粒度で丸められて同値になるので、自然に push 頻度が秒に絞られる。
     public let latestMtime: Int64
-  }
-
-  /// `git status --porcelain=v1 -z --untracked-files=all` 相当。
-  /// `--untracked-files=all` は untracked ディレクトリ配下のファイルも個別に列挙させる
-  /// ため必須（外すと git が `dir/` のように親ディレクトリ 1 エントリに畳む）。
-  public static func gitStatus(dir: String) async throws -> [String: String] {
-    let stdout = try await runGit(
-      args: ["status", "--porcelain=v1", "-z", "--untracked-files=all"], cwd: dir)
-    return parsePorcelainV1(stdout)
   }
 
   /// status + HEAD + upstream + ahead/behind を 1 セットで取得する。
@@ -107,7 +98,8 @@ private func parseNulSeparatedPaths(_ data: Data) -> Set<String> {
 /// - `# branch.ab +<ahead> -<behind>` — ahead/behind（upstream あれば）
 /// - 続いて各ファイルエントリ（`1 XY ...` / `2 XY ...` / `u ...` / `? path`）
 ///
-/// 各エントリは XY を抽出して path にマップする。porcelain v1 と XY の形式は同じ。
+/// 各エントリは XY（porcelain v2 形式、未変更側は `.`。例: `.M` / `A.` / `R.`）を抽出して
+/// path にマップする。
 /// `2`（rename）は後続の NUL 区切りで届く orig_path を `renameOldPaths` に保持する
 /// (新パス → 旧パス)。preview の diff が HEAD 側の比較元を旧パスで引くために必要。
 private func parsePorcelainV2WithBranch(_ data: Data) -> GitOps.StatusFull {
@@ -227,37 +219,3 @@ private func latestMtimeOf(dir: String, relPaths: [String]) -> Int64 {
   return maxTs
 }
 
-/// `git status --porcelain=v1 -z` の出力をパースする。
-///
-/// 形式:
-/// - 通常エントリ: `XY SP path NUL`
-/// - rename / copy: `XY SP newpath NUL oldpath NUL`（`X` または `Y` が `R` / `C`）
-private func parsePorcelainV1(_ data: Data) -> [String: String] {
-  var result: [String: String] = [:]
-  var index = data.startIndex
-
-  while index < data.endIndex {
-    guard let nul = data[index...].firstIndex(of: 0x00) else { break }
-    let entry = data[index..<nul]
-    index = data.index(after: nul)
-
-    // 最小サイズ: "XY <SP> <1 char path>" = 4 bytes
-    guard entry.count >= 4 else { continue }
-    let xyBytes = entry.prefix(2)
-    let xy = String(decoding: xyBytes, as: UTF8.self)
-    let path = String(decoding: entry.dropFirst(3), as: UTF8.self)
-    result[path] = xy
-
-    // rename / copy エントリの場合は old path を 1 つ余分に NUL 区切りで読み飛ばす。
-    let firstChar = xyBytes.first
-    let secondChar = xyBytes.dropFirst().first
-    let isRenameOrCopy =
-      firstChar == UInt8(ascii: "R") || firstChar == UInt8(ascii: "C")
-      || secondChar == UInt8(ascii: "R") || secondChar == UInt8(ascii: "C")
-    if isRenameOrCopy, let oldNul = data[index...].firstIndex(of: 0x00) {
-      index = data.index(after: oldNul)
-    }
-  }
-
-  return result
-}

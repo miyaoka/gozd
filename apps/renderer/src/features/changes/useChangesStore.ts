@@ -27,7 +27,7 @@ const TYPE_MAP: Record<GitChangeKind, GitFileChange["type"]> = {
   renamed: "R",
 };
 
-function gitStatusToFileChanges(
+export function gitStatusToFileChanges(
   statuses: Record<string, string>,
   renameOldPaths: Record<string, string>,
 ): GitFileChange[] {

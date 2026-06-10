@@ -725,6 +725,14 @@ function buildFileServerUrl(
   return url.href;
 }
 
+/**
+ * commit mode (single 単体 or 範囲) かを集約判定。
+ * `orderedRange` の null 経路の分岐と、uncommitted 専用データ (`renameOldPaths`) の適用 gate に使う。
+ */
+const isCommitMode = computed(
+  () => gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null,
+);
+
 /** 画像として表示する URL */
 const imageUrl = computed(() => {
   if (!previewEnabled.value) return undefined;
@@ -738,7 +746,11 @@ const imageUrl = computed(() => {
   const isOriginal = activeMode.value === "original";
   // Original タブは `git show HEAD:<path>` 配信。rename されたファイルは HEAD 側に
   // 新パスが存在しないため旧パスで引く (テキスト経路の fetchContent と同じ規律)。
-  const serverPath = isOriginal ? (gitStatusStore.renameOldPaths[relPath] ?? relPath) : relPath;
+  // `renameOldPaths` は現在の working tree の git status 由来 (= uncommitted 専用) のため、
+  // commit / PR diff モードでは適用しない (fetchContent の mode 分離と同じ非対称を作らない)。
+  const isUncommitted = !isCommitMode.value && !prDiffToggle.isOn;
+  const serverPath =
+    isOriginal && isUncommitted ? (gitStatusStore.renameOldPaths[relPath] ?? relPath) : relPath;
   return buildFileServerUrl(dir, serverPath, fetchVersionRef.value, isOriginal);
 });
 
@@ -762,14 +774,6 @@ const headerIconUrl = computed(() => {
   if (path === undefined) return undefined;
   return getFileIconUrl(fileName(path));
 });
-
-/**
- * commit mode (single 単体 or 範囲) かを集約判定。
- * `orderedRange` の null 経路を分けるのに使う。
- */
-const isCommitMode = computed(
-  () => gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null,
-);
 
 /**
  * Current 側 (newer / working tree) を blame する際の rev。

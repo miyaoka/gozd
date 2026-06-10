@@ -52,6 +52,7 @@ export function useGitStatusSync() {
     cleanup = onMessage<GitStatusChangePayload>("gitStatusChange", (payload) => {
       repoStore.setWorktreeGitStatuses(payload.dir, {
         statuses: payload.statuses,
+        renameOldPaths: payload.renameOldPaths,
         upstream: payload.upstream,
         latestMtime: payload.latestMtime,
       });

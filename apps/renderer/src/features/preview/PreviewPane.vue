@@ -15,7 +15,9 @@
 
 ## データ取得
 
-- Uncommitted モード: ファイル選択・git status 変化時に current（ファイルシステム）/ original（HEAD）を並列取得
+- Uncommitted モード: ファイル選択・git status 変化時に current（ファイルシステム）/ original（HEAD）を並列取得。
+  rename (move) されたファイルは HEAD 側に新パスが存在しないため、original / 画像 Original タブ /
+  HEAD 側 blame は `useGitStatusStore.renameOldPaths`（新パス → 旧パス）で旧パスに解決してから引く
 - コミットモード: git-graph の選択コミットに応じて gitShowCommitFile RPC で from/to を一括取得。
   範囲選択時は `commits` 配列の index で時系列順に整列し（クリック順非依存）、older 側を Original、newer 側を Current に固定する
 - fsChange メッセージで選択中ファイルをリアクティブに再取得（uncommitted モードのみ）
@@ -40,7 +42,7 @@ import { useChangesStore, useChangesSummaryStore } from "../changes";
 import { getFileIconUrl, relDirOf, rpcFsReadFile, rpcFsReadFileAbsolute } from "../filer";
 import type { FsChangePayload } from "../filer";
 import { rpcGitReadBlob, useGitGraphStore, usePrDiffToggleStore } from "../git-graph";
-import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
+import { UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../worktree";
 import type { GitChangeKind, Selection } from "../worktree";
 import ChangesSummaryView from "./ChangesSummaryView.vue";
 import CodePreview from "./CodePreview.vue";
@@ -90,6 +92,7 @@ const emit = defineEmits<{
 const FILE_SERVER_BASE_URL = "gozd-file://localhost/";
 
 const worktreeStore = useWorktreeStore();
+const gitStatusStore = useGitStatusStore();
 const {
   selection,
   selectedRelPath,
@@ -281,9 +284,14 @@ async function fetchContent(sel: Selection, gitChange: GitChangeKind | undefined
           isDirectory: r.isDirectory,
           notFound: r.notFound,
         }));
+  // rename (move) されたファイルは HEAD 側に新パスが存在しない。比較元は旧パスで引く。
+  // 旧パス map は git status と同一 snapshot から来る SSOT (`gitStatusStore.renameOldPaths`)。
   const originalPromise =
     sel.kind === "worktreeRelative" && (hasDiff || isDeleted)
-      ? rpcGitShowFile({ dir, relPath: sel.relPath }).then((r) => r.result)
+      ? rpcGitShowFile({
+          dir,
+          relPath: gitStatusStore.renameOldPaths[sel.relPath] ?? sel.relPath,
+        }).then((r) => r.result)
       : Promise.resolve(undefined);
   const fetchResult = await tryCatch(Promise.all([currentPromise, originalPromise]));
 
@@ -717,6 +725,14 @@ function buildFileServerUrl(
   return url.href;
 }
 
+/**
+ * commit mode (single 単体 or 範囲) かを集約判定。
+ * `orderedRange` の null 経路の分岐と、uncommitted 専用データ (`renameOldPaths`) の適用 gate に使う。
+ */
+const isCommitMode = computed(
+  () => gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null,
+);
+
 /** 画像として表示する URL */
 const imageUrl = computed(() => {
   if (!previewEnabled.value) return undefined;
@@ -728,7 +744,14 @@ const imageUrl = computed(() => {
   const dir = worktreeStore.dir;
   if (relPath === undefined || dir === undefined) return undefined;
   const isOriginal = activeMode.value === "original";
-  return buildFileServerUrl(dir, relPath, fetchVersionRef.value, isOriginal);
+  // Original タブは `git show HEAD:<path>` 配信。rename されたファイルは HEAD 側に
+  // 新パスが存在しないため旧パスで引く (テキスト経路の fetchContent と同じ規律)。
+  // `renameOldPaths` は現在の working tree の git status 由来 (= uncommitted 専用) のため、
+  // commit / PR diff モードでは適用しない (fetchContent の mode 分離と同じ非対称を作らない)。
+  const isUncommitted = !isCommitMode.value && !prDiffToggle.isOn;
+  const serverPath =
+    isOriginal && isUncommitted ? (gitStatusStore.renameOldPaths[relPath] ?? relPath) : relPath;
+  return buildFileServerUrl(dir, serverPath, fetchVersionRef.value, isOriginal);
 });
 
 /** preview チェックボックスを表示するか（diff モードでは非表示） */
@@ -751,14 +774,6 @@ const headerIconUrl = computed(() => {
   if (path === undefined) return undefined;
   return getFileIconUrl(fileName(path));
 });
-
-/**
- * commit mode (single 単体 or 範囲) かを集約判定。
- * `orderedRange` の null 経路を分けるのに使う。
- */
-const isCommitMode = computed(
-  () => gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null,
-);
 
 /**
  * Current 側 (newer / working tree) を blame する際の rev。
@@ -828,9 +843,12 @@ function openBlame(rev: string, line: number, anchorEl: HTMLElement): void {
   // 絶対パス選択中 (worktree 外) は relPath が undefined になり blame を成立できない。
   // `blameEnabled` で button 描画自体を gate しているため通常は到達しないが、二重防御として early return。
   if (dir === undefined || relPath === undefined) return;
+  // uncommitted モードの HEAD 側 blame は rename されたファイルだと新パスが HEAD に存在しない。
+  // ChangesSummaryItem の side 別 path 選択と同じ規律で旧パスに揃える。
+  const blamePath = rev === "HEAD" ? (gitStatusStore.renameOldPaths[relPath] ?? relPath) : relPath;
   blamePopover.open(anchorEl, {
     dir,
-    relPath,
+    relPath: blamePath,
     rev,
     line,
     modeLabel: modeLabelForRev(rev),

@@ -3,15 +3,15 @@ import Testing
 
 @testable import GozdCore
 
-@Suite("GitOps.gitStatus")
+@Suite("GitOps.gitStatusFull statuses")
 struct GitOpsGitStatusTests {
-  @Test("空の repo では entries が空")
+  @Test("空の repo では statuses が空")
   func emptyRepo() async throws {
     let dir = try await makeGitRepo()
     defer { try? FileManager.default.removeItem(at: dir) }
 
-    let entries = try await GitOps.gitStatus(dir: dir.path)
-    #expect(entries.isEmpty)
+    let status = try await GitOps.gitStatusFull(dir: dir.path)
+    #expect(status.statuses.isEmpty)
   }
 
   @Test("untracked ファイルは ?? として現れる")
@@ -22,11 +22,11 @@ struct GitOpsGitStatusTests {
     try "hello".write(
       to: dir.appendingPathComponent("new.txt"), atomically: true, encoding: .utf8)
 
-    let entries = try await GitOps.gitStatus(dir: dir.path)
-    #expect(entries["new.txt"] == "??")
+    let status = try await GitOps.gitStatusFull(dir: dir.path)
+    #expect(status.statuses["new.txt"] == "??")
   }
 
-  @Test("コミット済みファイルへの変更は \" M\" として現れる")
+  @Test("コミット済みファイルへの変更は \".M\" として現れる")
   func modifiedFile() async throws {
     let dir = try await makeGitRepo()
     defer { try? FileManager.default.removeItem(at: dir) }
@@ -38,11 +38,11 @@ struct GitOpsGitStatusTests {
 
     try "v2".write(to: file, atomically: true, encoding: .utf8)
 
-    let entries = try await GitOps.gitStatus(dir: dir.path)
-    #expect(entries["a.txt"] == " M")
+    let status = try await GitOps.gitStatusFull(dir: dir.path)
+    #expect(status.statuses["a.txt"] == ".M")
   }
 
-  @Test("staged 新規ファイルは \"A \" として現れる")
+  @Test("staged 新規ファイルは \"A.\" として現れる")
   func stagedNewFile() async throws {
     let dir = try await makeGitRepo()
     defer { try? FileManager.default.removeItem(at: dir) }
@@ -57,11 +57,11 @@ struct GitOpsGitStatusTests {
       to: dir.appendingPathComponent("staged.txt"), atomically: true, encoding: .utf8)
     try await runTestGit(args: ["add", "staged.txt"], cwd: dir.path)
 
-    let entries = try await GitOps.gitStatus(dir: dir.path)
-    #expect(entries["staged.txt"] == "A ")
+    let status = try await GitOps.gitStatusFull(dir: dir.path)
+    #expect(status.statuses["staged.txt"] == "A.")
   }
 
-  @Test("renamed ファイルは R で始まり new path を返す（old path は破棄）")
+  @Test("renamed ファイルは R で始まり statuses のキーは new path になる")
   func renamedFile() async throws {
     let dir = try await makeGitRepo()
     defer { try? FileManager.default.removeItem(at: dir) }
@@ -72,9 +72,9 @@ struct GitOpsGitStatusTests {
     try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
     try await runTestGit(args: ["mv", "old.txt", "new.txt"], cwd: dir.path)
 
-    let entries = try await GitOps.gitStatus(dir: dir.path)
-    #expect(entries["new.txt"]?.first == "R")
-    #expect(entries["old.txt"] == nil)
+    let status = try await GitOps.gitStatusFull(dir: dir.path)
+    #expect(status.statuses["new.txt"]?.first == "R")
+    #expect(status.statuses["old.txt"] == nil)
   }
 
   @Test("git repo でない dir はエラー（exitCode != 0）")
@@ -83,7 +83,7 @@ struct GitOpsGitStatusTests {
     defer { try? FileManager.default.removeItem(at: tmp) }
 
     do {
-      _ = try await GitOps.gitStatus(dir: tmp.path)
+      _ = try await GitOps.gitStatusFull(dir: tmp.path)
       Issue.record("expected error, got success")
     } catch let GitError.commandFailed(exitCode, stderr) {
       #expect(exitCode != 0)
@@ -492,6 +492,40 @@ struct GitOpsStatusFullTests {
 
     let status = try await GitOps.gitStatusFull(dir: dir.path)
     #expect(status.branchHead == "renamed-feature")
+  }
+
+  @Test("renamed ファイルの旧パスが renameOldPaths に入る")
+  func renameOldPathsIsPopulated() async throws {
+    // preview の diff が HEAD 側の比較元を旧パスで引くための SSOT。
+    // 旧パスを破棄すると renderer は `git show HEAD:<新パス>` で notFound になり
+    // 「move + 編集」の diff が全行追加として表示される。
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "content".write(
+      to: dir.appendingPathComponent("old.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "old.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
+    try await runTestGit(args: ["mv", "old.txt", "new.txt"], cwd: dir.path)
+
+    let status = try await GitOps.gitStatusFull(dir: dir.path)
+    #expect(status.statuses["new.txt"]?.first == "R")
+    #expect(status.renameOldPaths["new.txt"] == "old.txt")
+  }
+
+  @Test("rename が無ければ renameOldPaths は空")
+  func renameOldPathsEmptyWithoutRename() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "v1".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
+    try "v2".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+
+    let status = try await GitOps.gitStatusFull(dir: dir.path)
+    #expect(status.statuses["a.txt"] == ".M")
+    #expect(status.renameOldPaths.isEmpty)
   }
 
   @Test("detached HEAD では branchHead は空文字")

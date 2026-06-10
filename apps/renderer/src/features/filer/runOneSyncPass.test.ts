@@ -10,6 +10,7 @@ function wt(path: string, branch: string, isMain = false): WorktreeEntry {
     branch,
     isMain,
     gitStatuses: {},
+    renameOldPaths: {},
     tasks: [],
     upstream: undefined,
     latestMtime: 0,

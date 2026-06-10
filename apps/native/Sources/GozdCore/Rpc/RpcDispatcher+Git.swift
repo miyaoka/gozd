@@ -11,6 +11,7 @@ extension RpcDispatcher {
     let status = try await GitOps.gitStatusFull(dir: req.dir)
     var resp = Gozd_V1_GitStatusResponse()
     resp.entries = status.statuses
+    resp.renameOldPaths = status.renameOldPaths
     resp.latestMtime = status.latestMtime
     if status.hasUpstream {
       var upstream = Gozd_V1_UpstreamStatus()
@@ -67,6 +68,7 @@ extension RpcDispatcher {
       entry.isMain = wt.isMain
       let full = fullByPath[wt.path]
       entry.gitStatuses = full?.statuses ?? [:]
+      entry.renameOldPaths = full?.renameOldPaths ?? [:]
       entry.latestMtime = full?.latestMtime ?? 0
       if let full, full.hasUpstream {
         var upstream = Gozd_V1_UpstreamStatus()

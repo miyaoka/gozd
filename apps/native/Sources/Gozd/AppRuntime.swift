@@ -146,6 +146,7 @@ final class AppRuntime {
       var payload: [String: Any] = [
         "dir": dir,
         "statuses": status.statuses,
+        "renameOldPaths": status.renameOldPaths,
         "head": status.head,
         "branchHead": status.branchHead,
         "latestMtime": Int(status.latestMtime),

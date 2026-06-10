@@ -180,13 +180,14 @@ export const useRepoStore = defineStore("repo", () => {
         const currentGen = gitStatusGenByDir.get(wt.path);
         if (beforeGen !== undefined && currentGen !== undefined && currentGen !== beforeGen) {
           // fetch 中に push / 単発更新が走っていた → 現値を保持。
-          // `gitStatusFull` 出力の atomic snapshot 契約 (statuses / upstream / latestMtime
-          // を 1 セットで扱う) に合わせ、3 フィールドをまとめて fresher 由来に倒す。
+          // `gitStatusFull` 出力の atomic snapshot 契約 (statuses / renameOldPaths /
+          // upstream / latestMtime を 1 セットで扱う) に合わせ、まとめて fresher 由来に倒す。
           const fresher = current.worktrees.find((w) => w.path === wt.path);
           if (fresher !== undefined) {
             return {
               ...wt,
               gitStatuses: fresher.gitStatuses,
+              renameOldPaths: fresher.renameOldPaths,
               upstream: fresher.upstream,
               latestMtime: fresher.latestMtime,
             };
@@ -238,6 +239,8 @@ export const useRepoStore = defineStore("repo", () => {
 
   interface WorktreeStatusPatch {
     statuses: Record<string, string>;
+    /** rename / copy エントリの 新パス → 旧パス。`statuses` と原子的に同一 patch で書く契約 (SSOT)。 */
+    renameOldPaths: Record<string, string>;
     /** upstream 未設定なら undefined。`hasUpstream` のような boolean を併持しない */
     upstream: UpstreamStatus | undefined;
     /** 変更ファイルの mtime 最大値 (Unix 秒)。clean / 未取得時は 0。
@@ -268,6 +271,7 @@ export const useRepoStore = defineStore("repo", () => {
     next[idx] = {
       ...next[idx],
       gitStatuses: patch.statuses,
+      renameOldPaths: patch.renameOldPaths,
       upstream: patch.upstream,
       latestMtime: patch.latestMtime,
     };

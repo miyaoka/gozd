@@ -10,7 +10,7 @@ import { darkThemeNames, lightThemeNames, loadTheme } from "@gozd/themes";
 import { useCommandRegistry } from "../../shared/command";
 import { useQuickPick } from "../palette";
 import type { QuickPickItem } from "../palette";
-import { previewFontFamily, previewFontSize } from "../preview";
+import { previewCodeFontFamily, previewFontFamily, previewFontSize } from "../preview";
 import { rpcLoadAppConfig, rpcSaveAppConfig } from "../settings";
 import {
   currentTheme,
@@ -84,6 +84,9 @@ async function restoreSavedConfig(): Promise<void> {
     }
     if (config.preview.fontSize > 0) {
       previewFontSize.value = config.preview.fontSize;
+    }
+    if (config.preview.codeFontFamily !== "") {
+      previewCodeFontFamily.value = config.preview.codeFontFamily;
     }
   }
 }

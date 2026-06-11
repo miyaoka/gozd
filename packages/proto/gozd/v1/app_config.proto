@@ -28,8 +28,12 @@ message TerminalConfig {
 }
 
 message PreviewConfig {
+  // 散文 (markdown 本文等) 用。空文字列なら app デフォルト (sans)
   string font_family = 1;
   uint32 font_size = 2;
+  // コード (code preview / diff / markdown コードブロック) 用。
+  // 空文字列なら monospace スタック (--font-mono) に fallback
+  string code_font_family = 3;
 }
 
 message VoicevoxConfig {

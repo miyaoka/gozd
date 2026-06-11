@@ -12,7 +12,7 @@
 import { tryCatch } from "@gozd/shared";
 import { ref, watch } from "vue";
 import { useDialog } from "../palette";
-import { previewFontFamily, previewFontSize } from "../preview";
+import { previewCodeFontFamily, previewFontFamily, previewFontSize } from "../preview";
 import { applyTerminalTheme, terminalFontFamily, terminalFontSize } from "../terminal";
 import { useVoicevoxStore } from "../voicevox";
 import { useWorktreeStore } from "../worktree";
@@ -80,6 +80,9 @@ const REACTIVE_SYNC: Record<string, (value: unknown) => void> = {
   },
   "preview.fontSize": (v) => {
     previewFontSize.value = typeof v === "number" ? v : 0;
+  },
+  "preview.codeFontFamily": (v) => {
+    previewCodeFontFamily.value = typeof v === "string" ? v : "";
   },
 };
 

@@ -49,7 +49,7 @@ import CodePreview from "./CodePreview.vue";
 import DiffPreview from "./DiffPreview.vue";
 import ImagePreview from "./ImagePreview.vue";
 import MarkdownPreview from "./MarkdownPreview.vue";
-import { previewFontFamily, previewFontSize } from "./previewConfig";
+import { previewCodeFontFamily, previewFontFamily, previewFontSize } from "./previewConfig";
 import { rpcGitShowCommitFile, rpcGitShowFile } from "./rpc";
 import { shouldCloseForMissingFile } from "./shouldCloseForMissingFile";
 import { useBlamePopover } from "./useBlamePopover";
@@ -1018,6 +1018,7 @@ watch(
         :style="{
           fontFamily: previewFontFamily || undefined,
           fontSize: previewFontSize > 0 ? `${previewFontSize}px` : undefined,
+          '--preview-code-font-family': previewCodeFontFamily || undefined,
         }"
       >
         <div v-if="loading" class="p-4 text-sm text-foreground-low">Loading...</div>

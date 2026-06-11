@@ -22,6 +22,7 @@ import { onUnmounted, ref } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useChangesStore } from "../changes";
 import ChangesSummaryItem from "./ChangesSummaryItem.vue";
+import { previewCodeFontFamily } from "./previewConfig";
 
 const emit = defineEmits<{
   close: [];
@@ -72,7 +73,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden">
+  <!-- PreviewPane の font wrapper を経由しない兄弟分岐のため、配下の DiffPreview が参照する
+       code font 変数をここでも提供する (未設定時は変数を出さず var() fallback に倒す) -->
+  <div
+    class="flex h-full flex-col overflow-hidden"
+    :style="{ '--preview-code-font-family': previewCodeFontFamily || undefined }"
+  >
     <!-- ヘッダー -->
     <div class="flex items-center gap-2 border-b border-border px-3 py-2">
       <span class="icon-[lucide--file-diff] size-4 shrink-0 text-foreground-low" />

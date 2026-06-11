@@ -755,7 +755,7 @@ function blockEdit(event: Event) {
       置くため、Cmd+A は focus が居る section だけに閉じ、hunk-bar / 他 section は scope に入らない。
     -->
     <div
-      class="flex-1 overflow-auto p-4 font-mono text-sm/tight"
+      class="_diff-scroll flex-1 overflow-auto p-4 text-sm/tight"
       :style="{ '--line-no-width': lineNoWidth }"
     >
       <div v-if="state.kind === 'loading'" class="text-foreground-low">Computing diff...</div>
@@ -971,6 +971,13 @@ function blockEdit(event: Event) {
 </template>
 
 <style scoped>
+/* diff 本文は clipboard 制御のため pre/code を使わない div 描画 (下記 `_diff-line` コメント参照) で、
+   main.css @layer base の `pre, code` コードフォント規則が届かない。同じ var 連鎖を
+   ここで参照し、コードフォントの解決 (設定値 → --font-mono fallback) を pre/code 面と揃える。 */
+._diff-scroll {
+  font-family: var(--preview-code-font-family, var(--font-mono));
+}
+
 /* 1 diff 行を 1 block に揃えて clipboard の `\n` を 1 行につき 1 個にする。
    `display: flex` で子要素を blockification すると、contenteditable コピー時に各子の block
    境界でも `\n` が入り、行間に空行が混じる現象になる。block + inline-block + 負 text-indent
@@ -991,10 +998,11 @@ function blockEdit(event: Event) {
   user-select: none;
   /* contenteditable host の UA スタイル `word-wrap: break-word` (継承プロパティ) が
      この box まで届くため、数字が幅 Nch を僅かでも超えると桁の途中で折り返される。
-     scroll コンテナの font-mono で通常は桁 advance = ch だが、fallback font が
-     proportional に解決される環境では桁 glyph が ch ("0" の幅) を超えうる。
-     nowrap で折り返しを構造的に禁止し、tabular-nums で全桁の advance を
-     "0" と同幅に揃えて「N 桁 = Nch」の幅契約をフォント非依存で成立させる。 */
+     コードフォント (`_diff-scroll`) は通常 monospace で桁 advance = ch だが、
+     設定 (preview.codeFontFamily) や fallback font が proportional に解決される環境では
+     桁 glyph が ch ("0" の幅) を超えうる。nowrap で折り返しを構造的に禁止し、
+     tabular-nums で全桁の advance を "0" と同幅に揃えて「N 桁 = Nch」の幅契約を
+     フォント非依存で成立させる。 */
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }

@@ -13,6 +13,9 @@ import { useSessionLogViewer } from "../session-log";
 import { useTaskEditing } from "./useTaskEditing";
 import { useTaskMenu } from "./useTaskMenu";
 import { taskDisplayTitle } from "./utils";
+import IconLucidePencil from "~icons/lucide/pencil";
+import IconLucideScrollText from "~icons/lucide/scroll-text";
+import IconLucideTrash2 from "~icons/lucide/trash-2";
 
 const emit = defineEmits<{
   remove: [task: Task, rootDir: string];
@@ -61,7 +64,7 @@ function handleRemove() {
         class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel"
         @click="handleEdit"
       >
-        <span class="icon-[lucide--pencil] text-xs" />
+        <IconLucidePencil class="text-xs" />
         Edit title
       </button>
       <button
@@ -69,14 +72,14 @@ function handleRemove() {
         class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel"
         @click="handleShowSessionLog"
       >
-        <span class="icon-[lucide--scroll-text] text-xs" />
+        <IconLucideScrollText class="text-xs" />
         Show session log
       </button>
       <button
         class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-destructive-text hover:bg-panel"
         @click="handleRemove"
       >
-        <span class="icon-[lucide--trash-2] text-xs" />
+        <IconLucideTrash2 class="text-xs" />
         Remove task
       </button>
     </template>

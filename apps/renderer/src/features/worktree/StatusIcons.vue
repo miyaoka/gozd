@@ -20,7 +20,7 @@ defineProps<{
     class="flex shrink-0 items-center gap-0.5"
     :title="`${entry.kind}: ${entry.count}`"
   >
-    <span :class="[entry.icon, entry.color, iconSize ?? 'size-3.5']" />
+    <component :is="entry.icon" :class="[entry.color, iconSize ?? 'size-3.5']" />
     <span class="text-[10px] text-foreground-low">{{ entry.count }}</span>
   </span>
 </template>

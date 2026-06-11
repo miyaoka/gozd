@@ -8,6 +8,9 @@
     "jsxImportSource": "vue",
     "skipLibCheck": true,
     "outDir": "dist",
-    "types": ["vite/client", "bun"]
+    "types": ["vite/client", "bun", "unplugin-icons/types/vue"],
+    // ~icons/* は bun test 用に iconStub.ts へマップする (Bun は tsconfig paths を
+    // runtime 解決に使う)。Vite は paths を読まず unplugin-icons が解決する
+    "paths": { "~icons/*": ["./iconStub.ts"] }
   }
 }

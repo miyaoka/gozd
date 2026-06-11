@@ -13,6 +13,10 @@ import { computed } from "vue";
 import { UNCOMMITTED_HASH } from "../worktree";
 import CommitSegmentList from "./CommitSegmentList";
 import { linkifyCommitMessage } from "./linkifyCommitMessage";
+import IconLucideGitCommitHorizontal from "~icons/lucide/git-commit-horizontal";
+import IconLucideHash from "~icons/lucide/hash";
+import IconLucideTag from "~icons/lucide/tag";
+import IconLucideUser from "~icons/lucide/user";
 
 interface Props {
   /** 表示対象のコミット配列 */
@@ -90,22 +94,20 @@ function formatDetailDate(timestamp: number): string {
         <div class="flex flex-col gap-1.5">
           <!-- Author & Date -->
           <div class="flex items-center gap-2">
-            <span class="icon-[lucide--user] size-3.5 shrink-0 text-foreground-low" />
+            <IconLucideUser class="size-3.5 shrink-0 text-foreground-low" />
             <span class="text-foreground">{{ commit.author }}</span>
             <span class="text-foreground-low">{{ formatDetailDate(commit.date) }}</span>
           </div>
 
           <!-- Hash -->
           <div class="flex items-center gap-2">
-            <span class="icon-[lucide--hash] size-3.5 shrink-0 text-foreground-low" />
+            <IconLucideHash class="size-3.5 shrink-0 text-foreground-low" />
             <span class="font-mono text-foreground-low">{{ commit.hash }}</span>
           </div>
 
           <!-- Parents -->
           <div v-if="commit.parents.length > 0" class="flex items-start gap-2">
-            <span
-              class="icon-[lucide--git-commit-horizontal] size-3.5 shrink-0 text-foreground-low"
-            />
+            <IconLucideGitCommitHorizontal class="size-3.5 shrink-0 text-foreground-low" />
             <div class="flex flex-col gap-0.5">
               <span
                 v-for="parent in commit.parents"
@@ -119,7 +121,7 @@ function formatDetailDate(timestamp: number): string {
 
           <!-- Refs -->
           <div v-if="commit.refs.length > 0" class="flex items-start gap-2">
-            <span class="icon-[lucide--tag] size-3.5 shrink-0 text-foreground-low" />
+            <IconLucideTag class="size-3.5 shrink-0 text-foreground-low" />
             <div class="flex flex-wrap gap-1">
               <span
                 v-for="r in commit.refs"

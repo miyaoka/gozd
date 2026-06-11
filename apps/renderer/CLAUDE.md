@@ -10,6 +10,24 @@
 - Tier 1 brand-fixed primitives (`--<scope>-<role>-primitive`) は **例外的に `main.css` の `:root` への手書きを許可** する。theme 追従しない固定色は Adobe Leonardo 生成パイプラインに乗らないため。例: chat-\* (LINE ダークモード配色)
 - UI を書く / 直すときの規律一覧は project-local skill [`/.claude/skills/gozd-ui/SKILL.md`](../../.claude/skills/gozd-ui/SKILL.md) を参照 (Claude Code 自動適用)
 
+## アイコン
+
+- icon は unplugin-icons の **per-icon component import** で書く。`icon-[lucide--x]` 形式の Tailwind class は使えない（ESLint の `gozd/no-iconify-class` が error にする）
+- import パスは `~icons/lucide/<kebab-name>`、ローカル名は `IconLucide<PascalName>` で揃える
+
+  ```vue
+  <script setup lang="ts">
+  import IconLucideX from "~icons/lucide/x";
+  </script>
+  <template>
+    <IconLucideX class="size-4 text-foreground-low" />
+  </template>
+  ```
+
+- auto-import (unplugin-vue-components) は使わない。明示 import により typo を compile error にする
+- size / color は従来通り Tailwind class で指定する。svg は `currentColor` + 1em 基準 (`vite.config.ts` の `Icons({ scale: 1 })`)
+- 状態でアイコンを切り替えるマッピングは component を値に持つテーブル (`Record<K, FunctionalComponent<SVGAttributes>>`) で定義し、`<component :is>` で描画する (`CLAUDE_STATE_ICON` / `STATUS_ICON_CONFIG` 参照)
+
 ## 検証コマンド
 
 - package 単位の検証は `pnpm run test` / `pnpm run typecheck`

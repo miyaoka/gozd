@@ -1,4 +1,8 @@
-import { ref, type Ref } from "vue";
+import { ref, type FunctionalComponent, type Ref, type SVGAttributes } from "vue";
+import IconLucideCircleCheck from "~icons/lucide/circle-check";
+import IconLucideCircleEllipsis from "~icons/lucide/circle-ellipsis";
+import IconLucideLoader from "~icons/lucide/loader";
+import IconLucideMessageCircleWarning from "~icons/lucide/message-circle-warning";
 
 /**
  * Claude Code の状態。
@@ -17,11 +21,14 @@ export type ClaudeState = "idle" | "working" | "asking" | "done";
  * 微妙に異なるため各コンポーネント側で持つ。形 (icon) と動き (animate) のみ
  * ここで一元管理して、TerminalLeaf と TaskRow で同じ状態が同じ形に揃うことを保証する。
  */
-export const CLAUDE_STATE_ICON: Record<ClaudeState, { icon: string; animate?: string }> = {
-  idle: { icon: "icon-[lucide--circle-ellipsis]" },
-  working: { icon: "icon-[lucide--loader]", animate: "animate-spin" },
-  asking: { icon: "icon-[lucide--message-circle-warning]" },
-  done: { icon: "icon-[lucide--circle-check]" },
+export const CLAUDE_STATE_ICON: Record<
+  ClaudeState,
+  { icon: FunctionalComponent<SVGAttributes>; animate?: string }
+> = {
+  idle: { icon: IconLucideCircleEllipsis },
+  working: { icon: IconLucideLoader, animate: "animate-spin" },
+  asking: { icon: IconLucideMessageCircleWarning },
+  done: { icon: IconLucideCircleCheck },
 };
 
 /**

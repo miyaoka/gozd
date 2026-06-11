@@ -30,8 +30,7 @@ indent して agent 名をラベル全幅で見せる (各行に workflow 名を
 
 ## 設計判断
 
-- アイコンは `iconKind` → リテラルクラスのマッピングで引く。`@iconify/tailwind4` は
-  ソースを静的スキャンするため `icon-[${name}]` の動的生成は検出されない
+- アイコンは `iconKind` → icon component のマッピングで引き、`<component :is>` で描画する
 - 生存期間 ts を持たないセッション (信頼境界外ログの病的ケース) は時間軸に置けないため、
   左端の破線 placeholder バーに倒して選択だけは可能にする (silent drop 回避)
 - main は常に左ペインに出る anchor なので恒常ハイライト、選択中 subagent は別の強調色にする
@@ -41,8 +40,10 @@ indent して agent 名をラベル全幅で見せる (各行に workflow 名を
 
 <script setup lang="ts">
 import { useEventListener } from "@vueuse/core";
-import { computed, ref, watch } from "vue";
+import { computed, ref, watch, type FunctionalComponent, type SVGAttributes } from "vue";
 import { formatModelLabel, formatSessionTime, type TimelineTrack } from "./sessionLog";
+import IconLucideGitFork from "~icons/lucide/git-fork";
+import IconLucideWorkflow from "~icons/lucide/workflow";
 
 const props = defineProps<{
   tracks: TimelineTrack[];
@@ -63,10 +64,13 @@ const emit = defineEmits<{
   (e: "scrub", ms: number): void;
 }>();
 
-// iconKind → リテラルクラス (静的スキャン対応のためテーブルで持つ)。
-const ICON_CLASS: Record<NonNullable<TimelineTrack["iconKind"]>, string> = {
-  workflow: "icon-[lucide--workflow]",
-  subagent: "icon-[lucide--git-fork]",
+// iconKind → icon component のマッピング。
+const TRACK_ICON: Record<
+  NonNullable<TimelineTrack["iconKind"]>,
+  FunctionalComponent<SVGAttributes>
+> = {
+  workflow: IconLucideWorkflow,
+  subagent: IconLucideGitFork,
 };
 
 const spanMs = computed<number>(() => props.axisEndMs - props.axisStartMs);
@@ -248,10 +252,10 @@ useEventListener(window, "pointerup", () => {
               class="flex h-6 w-full items-center gap-1 px-1 text-[11px] font-medium text-foreground-low"
               :title="track.id"
             >
-              <span
+              <component
+                :is="TRACK_ICON[track.iconKind]"
                 v-if="track.iconKind"
                 class="size-3 shrink-0"
-                :class="ICON_CLASS[track.iconKind]"
               />
               <span class="truncate">{{ track.label }}</span>
             </div>
@@ -272,10 +276,10 @@ useEventListener(window, "pointerup", () => {
               :title="track.id"
               @click="onLabelClick(track)"
             >
-              <span
+              <component
+                :is="TRACK_ICON[track.iconKind]"
                 v-if="track.iconKind"
                 class="size-3 shrink-0"
-                :class="ICON_CLASS[track.iconKind]"
               />
               <span class="truncate">{{ track.label }}</span>
               <span

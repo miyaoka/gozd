@@ -160,6 +160,10 @@ export default defineConfigWithVueTs(
       // - SSOT: `src/assets/main.css` の @theme ブロック
       // - 規約: `.claude/skills/gozd-ui/SKILL.md`
       "gozd/no-raw-tailwind-palette": "error",
+
+      // iconify の Tailwind icon class (icon-[lucide--x] 等) を禁止する。
+      // icon は unplugin-icons の per-icon component import (`~icons/lucide/x`) で書く（issue #715）
+      "gozd/no-iconify-class": "error",
     },
   },
 

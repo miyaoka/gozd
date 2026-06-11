@@ -80,6 +80,8 @@ import type { FileEntry, FileEntryKind } from "./filerUtils";
 import { rpcFsReadDir, rpcGitLsTree } from "./rpc";
 import { getFileIconUrl, getFolderIconUrl } from "./useFileIcon";
 import { useFilerEventStore } from "./useFilerEventStore";
+import IconLucideChevronDown from "~icons/lucide/chevron-down";
+import IconLucideChevronRight from "~icons/lucide/chevron-right";
 
 const GIT_CHANGE_COLOR_MAP: Record<GitChangeKind, string> = {
   modified: "text-warning-text",
@@ -442,10 +444,10 @@ function onContextMenu(event: MouseEvent) {
       @contextmenu="onContextMenu"
     >
       <!-- ディレクトリの展開/折りたたみアイコン -->
-      <span
+      <component
+        :is="expanded ? IconLucideChevronDown : IconLucideChevronRight"
         v-if="isDirectory"
         class="size-4 shrink-0"
-        :class="expanded ? 'icon-[lucide--chevron-down]' : 'icon-[lucide--chevron-right]'"
       />
       <!-- ファイル用のスペーサー -->
       <span v-else class="size-4 shrink-0" />

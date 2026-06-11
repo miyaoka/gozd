@@ -32,13 +32,17 @@ status 不在（resumable / closed）時は `task.createdAt` にフォールバ�
 
 <script setup lang="ts">
 import type { Task } from "@gozd/proto";
-import { computed } from "vue";
+import { computed, type FunctionalComponent, type SVGAttributes } from "vue";
 import { CLAUDE_STATE_ICON } from "../../../terminal";
 import type { ClaudeStatus } from "../../../terminal";
 import { extractAskingText, extractFirstSentence } from "../../../voicevox";
 import { resolveTaskBaseTime } from "../../taskBaseTime";
 import { useRelativeTime } from "../../useRelativeTime";
 import { taskDisplayTitle } from "../../utils";
+import IconLucideCircleDashed from "~icons/lucide/circle-dashed";
+import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
+import IconLucideEyeClosed from "~icons/lucide/eye-closed";
+import IconLucideSquarePlay from "~icons/lucide/square-play";
 
 type StateKind = "asking" | "working" | "done" | "idle" | "resumable" | "closed" | "not-started";
 
@@ -50,7 +54,7 @@ type StateKind = "asking" | "working" | "done" | "idle" | "resumable" | "closed"
  */
 const STATE_VISUAL: Record<
   StateKind,
-  { icon: string; color: string; animate?: string; ariaLabel: string }
+  { icon: FunctionalComponent<SVGAttributes>; color: string; animate?: string; ariaLabel: string }
 > = {
   asking: {
     ...CLAUDE_STATE_ICON.asking,
@@ -74,17 +78,17 @@ const STATE_VISUAL: Record<
     ariaLabel: "Idle",
   },
   resumable: {
-    icon: "icon-[lucide--square-play]",
+    icon: IconLucideSquarePlay,
     color: "text-foreground-muted",
     ariaLabel: "Resumable",
   },
   closed: {
-    icon: "icon-[lucide--eye-closed]",
+    icon: IconLucideEyeClosed,
     color: "text-foreground-muted",
     ariaLabel: "Closed by user",
   },
   "not-started": {
-    icon: "icon-[lucide--circle-dashed]",
+    icon: IconLucideCircleDashed,
     color: "text-foreground-muted",
     ariaLabel: "Not started",
   },
@@ -148,9 +152,10 @@ function onMenuClick(event: MouseEvent) {
       class="flex w-full items-center gap-2 rounded-lg p-2 text-left transition-colors hover:bg-element-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset data-[active=true]:bg-primary-subtle"
       @click="emit('select', task)"
     >
-      <span
+      <component
+        :is="visual.icon"
         class="size-5 shrink-0"
-        :class="[visual.icon, visual.color, visual.animate]"
+        :class="[visual.color, visual.animate]"
         role="img"
         :aria-label="visual.ariaLabel"
       />
@@ -163,7 +168,7 @@ function onMenuClick(event: MouseEvent) {
       class="absolute inset-y-0 right-1 my-auto grid size-5 place-items-center rounded-sm bg-panel text-foreground opacity-0 shadow-md ring-1 ring-border transition-opacity duration-100 group-focus-within/task:opacity-100 group-hover/task:opacity-100 hover:bg-element hover:text-foreground"
       @click="onMenuClick"
     >
-      <span class="icon-[lucide--ellipsis-vertical] text-xs" />
+      <IconLucideEllipsisVertical class="text-xs" />
     </button>
   </div>
   <p

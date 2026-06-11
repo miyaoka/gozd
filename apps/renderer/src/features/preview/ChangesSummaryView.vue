@@ -23,6 +23,11 @@ import { useNotificationStore } from "../../shared/notification";
 import { useChangesStore } from "../changes";
 import ChangesSummaryItem from "./ChangesSummaryItem.vue";
 import { previewCodeFontFamily } from "./previewConfig";
+import IconLucideAlignJustify from "~icons/lucide/align-justify";
+import IconLucideColumns2 from "~icons/lucide/columns-2";
+import IconLucideFileDiff from "~icons/lucide/file-diff";
+import IconLucideWrapText from "~icons/lucide/wrap-text";
+import IconLucideX from "~icons/lucide/x";
 
 const emit = defineEmits<{
   close: [];
@@ -81,7 +86,7 @@ onUnmounted(() => {
   >
     <!-- ヘッダー -->
     <div class="flex items-center gap-2 border-b border-border px-3 py-2">
-      <span class="icon-[lucide--file-diff] size-4 shrink-0 text-foreground-low" />
+      <IconLucideFileDiff class="size-4 shrink-0 text-foreground-low" />
       <span class="text-sm text-foreground">Changes summary</span>
       <span v-if="changesStore.orderedFileChanges.length > 0" class="text-xs text-foreground-low">
         ({{ changesStore.orderedFileChanges.length }} files)
@@ -93,7 +98,7 @@ onUnmounted(() => {
         aria-label="Close preview"
         @click="emit('close')"
       >
-        <span class="icon-[lucide--x] size-4" />
+        <IconLucideX class="size-4" />
       </button>
     </div>
 
@@ -109,7 +114,7 @@ onUnmounted(() => {
         aria-label="Split view"
         @click="viewMode = 'split'"
       >
-        <span class="icon-[lucide--columns-2] size-3.5" />
+        <IconLucideColumns2 class="size-3.5" />
         Split
       </button>
       <button
@@ -122,7 +127,7 @@ onUnmounted(() => {
         aria-label="Unified view"
         @click="viewMode = 'unified'"
       >
-        <span class="icon-[lucide--align-justify] size-3.5" />
+        <IconLucideAlignJustify class="size-3.5" />
         Unified
       </button>
 
@@ -132,7 +137,7 @@ onUnmounted(() => {
         :class="wordWrap ? 'text-primary-text' : 'text-foreground-low hover:text-foreground'"
         @click="wordWrap = !wordWrap"
       >
-        <span class="icon-[lucide--wrap-text] size-3.5" />
+        <IconLucideWrapText class="size-3.5" />
         Wrap
       </button>
     </div>

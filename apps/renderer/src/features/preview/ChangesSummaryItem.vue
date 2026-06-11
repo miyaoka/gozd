@@ -44,6 +44,8 @@ import type { GitChangeKind } from "../worktree";
 import DiffPreview from "./DiffPreview.vue";
 import { rpcGitShowCommitFile, rpcGitShowFile } from "./rpc";
 import { useBlamePopover } from "./useBlamePopover";
+import IconLucideChevronDown from "~icons/lucide/chevron-down";
+import IconLucideChevronRight from "~icons/lucide/chevron-right";
 
 const props = defineProps<{
   change: GitFileChange;
@@ -568,9 +570,9 @@ onUnmounted(unsubscribeFsChange);
       :aria-label="collapsed ? 'Expand' : 'Collapse'"
       @click="collapsed = !collapsed"
     >
-      <span
+      <component
+        :is="collapsed ? IconLucideChevronRight : IconLucideChevronDown"
         class="size-3.5 shrink-0 text-foreground-low"
-        :class="collapsed ? 'icon-[lucide--chevron-right]' : 'icon-[lucide--chevron-down]'"
       />
       <img :src="iconUrl" class="size-4 shrink-0" alt="" />
       <span class="truncate text-xs text-foreground">{{ displayPath }}</span>

@@ -42,6 +42,7 @@ import { registerThemeCommand, TerminalPane } from "../terminal";
 import NotificationToast from "./NotificationToast.vue";
 import ResizeHandle from "./ResizeHandle.vue";
 import { rpcWindowClose } from "./rpc";
+import IconLucidePanelRightOpen from "~icons/lucide/panel-right-open";
 
 const repoStore = useRepoStore();
 const previewStore = usePreviewStore();
@@ -256,7 +257,7 @@ watch(
         aria-label="Toggle preview"
         @click="previewStore.toggle()"
       >
-        <span class="icon-[lucide--panel-right-open] size-4" />
+        <IconLucidePanelRightOpen class="size-4" />
       </button>
 
       <div class="shrink-0 overflow-hidden" :style="{ width: `${navigatorWidth}px` }">

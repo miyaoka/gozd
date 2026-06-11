@@ -10,6 +10,7 @@ import { computed } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { joinAbsRel } from "../worktree";
 import { useFileContextMenu } from "./useFileContextMenu";
+import IconLucideCopy from "~icons/lucide/copy";
 
 const { Popover, context, close } = useFileContextMenu();
 const notify = useNotificationStore();
@@ -52,7 +53,7 @@ async function handleCopyPath() {
       class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel"
       @click="handleCopyPath"
     >
-      <span class="icon-[lucide--copy] text-xs" />
+      <IconLucideCopy class="text-xs" />
       Copy file path
     </button>
   </Popover>

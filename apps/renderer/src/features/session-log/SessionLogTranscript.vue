@@ -62,6 +62,8 @@ import {
 import SessionLogSubagentButton from "./SessionLogSubagentButton.vue";
 import SessionLogTimestamp from "./SessionLogTimestamp.vue";
 import SessionLogToolArg from "./SessionLogToolArg.vue";
+import IconLucideArrowDown from "~icons/lucide/arrow-down";
+import IconLucideGitBranch from "~icons/lucide/git-branch";
 
 const props = defineProps<{
   parsed: ParsedSessionLog;
@@ -477,7 +479,7 @@ onBeforeUnmount(teardownObserver);
           :data-ev="i"
           class="mx-auto flex w-fit max-w-[85%] scroll-mt-2 flex-wrap items-center justify-center gap-1.5 py-1 text-[11px] text-foreground-low"
         >
-          <span class="icon-[lucide--git-branch] size-3.5 shrink-0" />
+          <IconLucideGitBranch class="size-3.5 shrink-0" />
           <button
             v-for="opt in ev.options"
             :key="opt.childUuid"
@@ -690,7 +692,7 @@ onBeforeUnmount(teardownObserver);
           class="pointer-events-auto flex items-center gap-1 rounded-full border border-border-strong bg-panel px-3 py-1 text-xs text-foreground shadow-lg hover:bg-element"
           @click="jumpToLatest"
         >
-          <span class="icon-[lucide--arrow-down] size-3.5" />
+          <IconLucideArrowDown class="size-3.5" />
           New updates
         </button>
       </div>

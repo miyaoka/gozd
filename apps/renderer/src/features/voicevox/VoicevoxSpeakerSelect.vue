@@ -14,6 +14,9 @@ DEFAULT → speakers[0].styles[0].id の順で live fallback されるため、D
 <script setup lang="ts">
 import { computed } from "vue";
 import { useVoicevoxStore } from "../voicevox";
+import IconLucidePalette from "~icons/lucide/palette";
+import IconLucideTriangleAlert from "~icons/lucide/triangle-alert";
+import IconLucideUser from "~icons/lucide/user";
 
 const voicevoxStore = useVoicevoxStore();
 
@@ -47,7 +50,7 @@ function handleStyleChange(event: Event) {
         v-if="voicevoxStore.speakerIdIsStale"
         class="flex items-start gap-2 rounded-sm bg-warning-subtle px-2 py-1 text-xs text-warning-text"
       >
-        <span class="icon-[lucide--triangle-alert] size-4 shrink-0" />
+        <IconLucideTriangleAlert class="size-4 shrink-0" />
         <div class="flex-1">
           Saved speaker (id {{ voicevoxStore.speakerId }}) is not in current engine; playing with
           default.
@@ -61,7 +64,7 @@ function handleStyleChange(event: Event) {
         </div>
       </div>
       <div class="flex items-center gap-2 text-xs text-foreground-low">
-        <span class="icon-[lucide--user] size-4 shrink-0" title="Character" />
+        <IconLucideUser class="size-4 shrink-0" title="Character" />
         <select
           aria-label="VOICEVOX character"
           class="min-w-0 flex-1 rounded-sm bg-panel px-1 py-0.5 text-foreground"
@@ -78,7 +81,7 @@ function handleStyleChange(event: Event) {
         </select>
       </div>
       <div class="flex items-center gap-2 text-xs text-foreground-low">
-        <span class="icon-[lucide--palette] size-4 shrink-0" title="Style" />
+        <IconLucidePalette class="size-4 shrink-0" title="Style" />
         <select
           aria-label="VOICEVOX style"
           class="min-w-0 flex-1 rounded-sm bg-panel px-1 py-0.5 text-foreground disabled:cursor-not-allowed disabled:text-foreground-muted"

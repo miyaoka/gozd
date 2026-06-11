@@ -26,6 +26,11 @@ import type { Task, WorktreeEntry } from "@gozd/proto";
 import { computed, useTemplateRef } from "vue";
 import { useRepoStore } from "../../../../shared/repo";
 import { WtCard } from "../worktree";
+import IconLucideFolder from "~icons/lucide/folder";
+import IconLucideFolderOpen from "~icons/lucide/folder-open";
+import IconLucideLoaderCircle from "~icons/lucide/loader-circle";
+import IconLucidePlus from "~icons/lucide/plus";
+import IconLucideX from "~icons/lucide/x";
 
 const props = defineProps<{
   rootDir: string;
@@ -100,9 +105,9 @@ function onHeaderClick() {
         :class="editMode && 'cursor-grab active:cursor-grabbing'"
         :title="rootDir"
       >
-        <span
+        <component
+          :is="visiblyCollapsed ? IconLucideFolder : IconLucideFolderOpen"
           class="size-5 shrink-0"
-          :class="visiblyCollapsed ? 'icon-[lucide--folder]' : 'icon-[lucide--folder-open]'"
         />
         <span class="min-w-0 flex-1 truncate text-sm font-semibold">
           {{ repoName }}
@@ -116,7 +121,7 @@ function onHeaderClick() {
         class="grid size-6 place-items-center rounded-sm text-destructive-text hover:bg-destructive-subtle hover:text-destructive-text"
         @click.stop="emit('removeRepo', rootDir)"
       >
-        <span class="icon-[lucide--x] text-sm" />
+        <IconLucideX class="text-sm" />
       </button>
     </header>
 
@@ -139,9 +144,10 @@ function onHeaderClick() {
         :disabled="isCreating"
         @click="emit('addWorktree', rootDir)"
       >
-        <span
+        <component
+          :is="isCreating ? IconLucideLoaderCircle : IconLucidePlus"
           class="size-3.5"
-          :class="isCreating ? 'icon-[lucide--loader-circle] animate-spin' : 'icon-[lucide--plus]'"
+          :class="isCreating ? 'animate-spin' : ''"
         />
         <span>New worktree</span>
       </button>

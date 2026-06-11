@@ -15,6 +15,8 @@ import { nextTick, ref, watch } from "vue";
 import { formatAbsoluteTime, formatRelativeTime } from "../../shared/time";
 import { useGitGraphStore } from "../git-graph";
 import { useBlamePopover } from "./useBlamePopover";
+import IconLucideGitCommitHorizontal from "~icons/lucide/git-commit-horizontal";
+import IconLucideHistory from "~icons/lucide/history";
 
 /**
  * Popover API の `showPopover({ source })` 引数。lib.dom.d.ts に未取り込みなので
@@ -79,7 +81,7 @@ function isHistoryDisabled(): boolean {
     <div
       class="flex items-center gap-2 border-b border-border px-3 py-2 text-xs text-foreground-low"
     >
-      <span class="icon-[lucide--git-commit-horizontal] size-3.5" />
+      <IconLucideGitCommitHorizontal class="size-3.5" />
       <span>{{ context?.modeLabel ?? "" }}</span>
       <span class="text-foreground-low">·</span>
       <span>Line {{ context?.line ?? "" }}</span>
@@ -157,7 +159,7 @@ function isHistoryDisabled(): boolean {
                 :title="isHistoryDisabled() ? HISTORY_DISABLED_TITLE : ''"
                 @click="setViewMode('history')"
               >
-                <span class="mr-1 icon-[lucide--history] size-3" />
+                <IconLucideHistory class="mr-1 size-3" />
                 View line history
               </button>
               <button
@@ -165,7 +167,7 @@ function isHistoryDisabled(): boolean {
                 class="rounded-sm border border-border px-2 py-1 text-xs text-foreground hover:bg-panel"
                 @click="onCommitClick(blameState.commit.hash)"
               >
-                <span class="mr-1 icon-[lucide--git-commit-horizontal] size-3" />
+                <IconLucideGitCommitHorizontal class="mr-1 size-3" />
                 Select in graph
               </button>
             </div>

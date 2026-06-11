@@ -64,6 +64,7 @@ import SessionLogTimeline from "./SessionLogTimeline.vue";
 import SessionLogTranscript from "./SessionLogTranscript.vue";
 import { useSessionLogLive, type SessionTab } from "./useSessionLogLive";
 import { useSessionLogViewer } from "./useSessionLogViewer";
+import IconLucideX from "~icons/lucide/x";
 
 const { context, close } = useSessionLogViewer();
 
@@ -314,7 +315,7 @@ function onDialogClick(event: MouseEvent) {
           class="grid size-7 shrink-0 place-items-center rounded-sm text-foreground-low hover:bg-panel hover:text-foreground"
           @click="requestClose"
         >
-          <span class="icon-[lucide--x] text-base" />
+          <IconLucideX class="text-base" />
         </button>
       </div>
 

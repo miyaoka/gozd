@@ -16,7 +16,9 @@ const config: KnipConfig = {
     ".": {},
     "apps/renderer": {
       ignoreDependencies: [
-        // @iconify/tailwind4 が動的に require する（packageExtensions で補完済み）
+        // unplugin-icons が `~icons/lucide/*` virtual module の icon data source として
+        // 動的に読み込む。コード上の import は virtual path で package 名に解決されない
+        // ため、knip からは unused に見える
         "@iconify-json/lucide",
       ],
     },

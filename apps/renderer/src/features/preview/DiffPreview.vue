@@ -986,6 +986,14 @@ function blockEdit(event: Event) {
   text-align: right;
   color: var(--color-element-hover);
   user-select: none;
+  /* contenteditable host の UA スタイル `word-wrap: break-word` (継承プロパティ) が
+     この box まで届くため、数字が幅 Nch を僅かでも超えると桁の途中で折り返される。
+     diff 本文は monospace 指定なし (preview font 設定に従う) で描画されるので、
+     proportional font では桁 glyph の advance が ch ("0" の幅) を超えうる。
+     nowrap で折り返しを構造的に禁止し、tabular-nums で全桁の advance を
+     "0" と同幅に揃えて「N 桁 = Nch」の幅契約をフォント非依存で成立させる。 */
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 行番号は DOM テキストとして持たず `data-line-no` の値を `::before` で描画する。

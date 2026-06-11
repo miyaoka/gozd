@@ -12,7 +12,7 @@
 
 ## アイコン
 
-- icon は unplugin-icons の **per-icon component import** で書く。旧 `@iconify/tailwind4` の Tailwind class (`icon-[lucide--x]`) は廃止済みで、ESLint の `gozd/no-iconify-class` が error にする (issue #715)
+- icon は unplugin-icons の **per-icon component import** で書く。`icon-[lucide--x]` 形式の Tailwind class は使えない（ESLint の `gozd/no-iconify-class` が error にする）
 - import パスは `~icons/lucide/<kebab-name>`、ローカル名は `IconLucide<PascalName>` で揃える
 
   ```vue

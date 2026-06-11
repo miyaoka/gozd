@@ -19,8 +19,8 @@ import { defineConfig } from "vite";
 export default defineConfig(() => {
   const portEnv = process.env.GOZD_DEV_VITE_PORT;
   return {
-    // Icons の scale: 1 は旧 @iconify/tailwind4 の 1em 基準と揃えるため
-    // (unplugin-icons default は 1.2em で、font-size でサイズ指定している箇所がずれる)
+    // Icons の scale: 1 は icon svg を 1em 基準にする (default は 1.2em)。
+    // font-size でサイズ指定している icon (text-xs 等) は 1em 基準が前提
     plugins: [docBlockPlugin(), tailwindcss(), vue(), Icons({ compiler: "vue3", scale: 1 })],
     base: "./",
     server: {

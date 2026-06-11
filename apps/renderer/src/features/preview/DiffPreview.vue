@@ -754,7 +754,10 @@ function blockEdit(event: Event) {
       の host で、scroll コンテナ自体は host にしない。hunk-bar は section の **外** に sibling として
       置くため、Cmd+A は focus が居る section だけに閉じ、hunk-bar / 他 section は scope に入らない。
     -->
-    <div class="flex-1 overflow-auto p-4 text-sm/tight" :style="{ '--line-no-width': lineNoWidth }">
+    <div
+      class="flex-1 overflow-auto p-4 font-mono text-sm/tight"
+      :style="{ '--line-no-width': lineNoWidth }"
+    >
       <div v-if="state.kind === 'loading'" class="text-foreground-low">Computing diff...</div>
 
       <div v-else-if="state.kind === 'error'" class="text-destructive-text">
@@ -988,8 +991,8 @@ function blockEdit(event: Event) {
   user-select: none;
   /* contenteditable host の UA スタイル `word-wrap: break-word` (継承プロパティ) が
      この box まで届くため、数字が幅 Nch を僅かでも超えると桁の途中で折り返される。
-     diff 本文は monospace 指定なし (preview font 設定に従う) で描画されるので、
-     proportional font では桁 glyph の advance が ch ("0" の幅) を超えうる。
+     scroll コンテナの font-mono で通常は桁 advance = ch だが、fallback font が
+     proportional に解決される環境では桁 glyph が ch ("0" の幅) を超えうる。
      nowrap で折り返しを構造的に禁止し、tabular-nums で全桁の advance を
      "0" と同幅に揃えて「N 桁 = Nch」の幅契約をフォント非依存で成立させる。 */
   white-space: nowrap;

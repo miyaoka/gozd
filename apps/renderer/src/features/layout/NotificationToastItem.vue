@@ -12,8 +12,15 @@
 
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
-import { computed, ref } from "vue";
+import { computed, ref, type FunctionalComponent, type SVGAttributes } from "vue";
 import { formatCauseChain } from "./formatCause";
+import IconLucideCheck from "~icons/lucide/check";
+import IconLucideChevronDown from "~icons/lucide/chevron-down";
+import IconLucideCircleX from "~icons/lucide/circle-x";
+import IconLucideCopy from "~icons/lucide/copy";
+import IconLucideInfo from "~icons/lucide/info";
+import IconLucideTriangleAlert from "~icons/lucide/triangle-alert";
+import IconLucideX from "~icons/lucide/x";
 
 const props = defineProps<{
   type: "error" | "info";
@@ -36,15 +43,15 @@ const copyLabelMap: Record<CopyState, string> = {
   failed: "Failed",
 };
 
-const copyIconMap: Record<CopyState, string> = {
-  idle: "icon-[lucide--copy]",
-  copied: "icon-[lucide--check]",
-  failed: "icon-[lucide--triangle-alert]",
+const copyIconMap: Record<CopyState, FunctionalComponent<SVGAttributes>> = {
+  idle: IconLucideCopy,
+  copied: IconLucideCheck,
+  failed: IconLucideTriangleAlert,
 };
 
 const iconMap = {
-  error: "icon-[lucide--circle-x]",
-  info: "icon-[lucide--info]",
+  error: IconLucideCircleX,
+  info: IconLucideInfo,
 } as const;
 
 const colorMap = {
@@ -88,7 +95,7 @@ async function copyDetail() {
     ]"
   >
     <div class="flex items-start gap-2 p-3">
-      <span :class="['mt-0.5 size-4 shrink-0', iconMap[type], iconColorMap[type]]" />
+      <component :is="iconMap[type]" :class="['mt-0.5 size-4 shrink-0', iconColorMap[type]]" />
       <button
         type="button"
         :class="[
@@ -102,12 +109,10 @@ async function copyDetail() {
       >
         <span class="flex items-center gap-1">
           <span>{{ message }}</span>
-          <span
+          <IconLucideChevronDown
             v-if="hasCause"
-            :class="[
-              'icon-[lucide--chevron-down] size-3 shrink-0 text-foreground-low transition-transform',
-              expanded ? 'rotate-180' : '',
-            ]"
+            class="size-3 shrink-0 text-foreground-low transition-transform"
+            :class="expanded ? 'rotate-180' : ''"
           />
         </span>
       </button>
@@ -117,7 +122,7 @@ async function copyDetail() {
         aria-label="Dismiss"
         @click="$emit('dismiss')"
       >
-        <span class="icon-[lucide--x] size-4" />
+        <IconLucideX class="size-4" />
       </button>
     </div>
     <div v-if="hasCause && expanded" class="border-t border-border-subtle p-3">
@@ -127,7 +132,7 @@ async function copyDetail() {
           class="flex cursor-pointer items-center gap-1 rounded-sm border border-border-subtle px-2 py-0.5 text-xs text-foreground hover:bg-element-hover"
           @click="copyDetail"
         >
-          <span :class="[copyIconMap[copyState], 'size-3']" />
+          <component :is="copyIconMap[copyState]" class="size-3" />
           {{ copyLabelMap[copyState] }}
         </button>
       </div>

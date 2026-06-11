@@ -125,9 +125,10 @@ function handleTerminalBlur() {
           'text-success-text': claudeState === 'done',
         }"
       >
-        <span
+        <component
+          :is="CLAUDE_STATE_ICON[claudeState].icon"
           class="size-3.5"
-          :class="[CLAUDE_STATE_ICON[claudeState].icon, CLAUDE_STATE_ICON[claudeState].animate]"
+          :class="CLAUDE_STATE_ICON[claudeState].animate"
         />
         <span>{{ CLAUDE_STATE_LABEL[claudeState] }}</span>
       </div>

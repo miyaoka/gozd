@@ -6,6 +6,7 @@ Issue picker の1行分。Issue 番号・タイトル・author・更新日時を
 import type { GitIssue } from "@gozd/proto";
 import { computed } from "vue";
 import { formatRelativeDate } from "../../formatRelativeDate";
+import IconLucideUser from "~icons/lucide/user";
 
 const props = defineProps<{
   issue: GitIssue;
@@ -24,7 +25,7 @@ const dateDisplay = computed(() => formatRelativeDate(props.issue.updatedAt));
       :alt="issue.author"
       class="size-5 shrink-0 rounded-full"
     />
-    <span v-else class="icon-[lucide--user] size-5 shrink-0" />
+    <IconLucideUser v-else class="size-5 shrink-0" />
     <span class="truncate">{{ issue.author }}</span>
   </span>
   <span class="truncate text-right" :class="dateDisplay.color">{{ dateDisplay.text }}</span>

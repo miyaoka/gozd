@@ -11,6 +11,7 @@ import { computed } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { rpcGitResetMixed } from "./rpc";
 import { useCommitContextMenu } from "./useCommitContextMenu";
+import IconLucideUndo2 from "~icons/lucide/undo-2";
 
 const { Popover, context, close } = useCommitContextMenu();
 const notify = useNotificationStore();
@@ -53,7 +54,7 @@ async function handleResetMixed() {
       class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel"
       @click="handleResetMixed"
     >
-      <span class="icon-[lucide--undo-2] text-xs" />
+      <IconLucideUndo2 class="text-xs" />
       Reset (mixed) to <span class="font-mono text-foreground-low">{{ shortHash }}</span>
     </button>
   </Popover>

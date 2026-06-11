@@ -82,6 +82,9 @@ import { computed, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { rpcGitDiffExpandLines, rpcGitDiffHunks } from "./rpc";
 import { type ThemedToken, highlightTokens } from "./useHighlight";
+import IconLucideAlignJustify from "~icons/lucide/align-justify";
+import IconLucideColumns2 from "~icons/lucide/columns-2";
+import IconLucideMoreHorizontal from "~icons/lucide/more-horizontal";
 
 const props = withDefaults(
   defineProps<{
@@ -728,7 +731,7 @@ function blockEdit(event: Event) {
           aria-label="Split view"
           @click="internalViewMode = 'split'"
         >
-          <span class="icon-[lucide--columns-2] size-3.5" />
+          <IconLucideColumns2 class="size-3.5" />
           Split
         </button>
         <button
@@ -743,7 +746,7 @@ function blockEdit(event: Event) {
           aria-label="Unified view"
           @click="internalViewMode = 'unified'"
         >
-          <span class="icon-[lucide--align-justify] size-3.5" />
+          <IconLucideAlignJustify class="size-3.5" />
           Unified
         </button>
       </div>
@@ -774,7 +777,7 @@ function blockEdit(event: Event) {
             :title="`Click to expand ${item.lines} unchanged line${item.lines === 1 ? '' : 's'}`"
             @click="toggleBar(item)"
           >
-            <span class="_hunk-bar-icon icon-[lucide--more-horizontal] size-3.5" />
+            <IconLucideMoreHorizontal class="_hunk-bar-icon size-3.5" />
             <span>{{ barLabel(item) }}</span>
           </button>
 
@@ -859,7 +862,7 @@ function blockEdit(event: Event) {
             :title="`Click to expand ${item.lines} unchanged line${item.lines === 1 ? '' : 's'}`"
             @click="toggleBar(item)"
           >
-            <span class="_hunk-bar-icon icon-[lucide--more-horizontal] size-3.5" />
+            <IconLucideMoreHorizontal class="_hunk-bar-icon size-3.5" />
             <span>{{ barLabel(item) }}</span>
           </button>
 

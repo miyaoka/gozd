@@ -1,6 +1,7 @@
 import { docBlockPlugin } from "@miyaoka/vite-plugin-doc-block";
 import tailwindcss from "@tailwindcss/vite";
 import vue from "@vitejs/plugin-vue";
+import Icons from "unplugin-icons/vite";
 import { defineConfig } from "vite";
 
 // dev server port は env `GOZD_DEV_VITE_PORT` (root の `pnpm dev` script で設定) を SSOT として
@@ -18,7 +19,9 @@ import { defineConfig } from "vite";
 export default defineConfig(() => {
   const portEnv = process.env.GOZD_DEV_VITE_PORT;
   return {
-    plugins: [docBlockPlugin(), tailwindcss(), vue()],
+    // Icons の scale: 1 は旧 @iconify/tailwind4 の 1em 基準と揃えるため
+    // (unplugin-icons default は 1.2em で、font-size でサイズ指定している箇所がずれる)
+    plugins: [docBlockPlugin(), tailwindcss(), vue(), Icons({ compiler: "vue3", scale: 1 })],
     base: "./",
     server: {
       port: portEnv !== undefined && portEnv !== "" ? Number(portEnv) : undefined,

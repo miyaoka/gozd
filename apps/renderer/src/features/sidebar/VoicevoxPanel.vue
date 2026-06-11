@@ -6,6 +6,10 @@
 
 <script setup lang="ts">
 import { useVoicevoxStore, VoicevoxSpeakerSelect } from "../voicevox";
+import IconLucideGauge from "~icons/lucide/gauge";
+import IconLucideLoader from "~icons/lucide/loader";
+import IconLucideVolume2 from "~icons/lucide/volume-2";
+import IconLucideVolumeX from "~icons/lucide/volume-x";
 
 const voicevoxStore = useVoicevoxStore();
 </script>
@@ -20,12 +24,12 @@ const voicevoxStore = useVoicevoxStore();
           title="Stop playback"
           @click="voicevoxStore.stopAudio()"
         >
-          <span class="icon-[lucide--volume-2] size-4 shrink-0 animate-pulse" />
+          <IconLucideVolume2 class="size-4 shrink-0 animate-pulse" />
           <span>Playing...</span>
         </button>
         <VoicevoxSpeakerSelect />
         <div class="flex items-center gap-2 text-xs text-foreground-low">
-          <span class="icon-[lucide--gauge] size-4 shrink-0" title="Speed" />
+          <IconLucideGauge class="size-4 shrink-0" title="Speed" />
           <input
             type="range"
             aria-label="VOICEVOX speed"
@@ -39,7 +43,7 @@ const voicevoxStore = useVoicevoxStore();
           <span class="w-8 text-right tabular-nums">{{ voicevoxStore.speedScale.toFixed(1) }}</span>
         </div>
         <div class="flex items-center gap-2 text-xs text-foreground-low">
-          <span class="icon-[lucide--volume-2] size-4 shrink-0" title="Volume" />
+          <IconLucideVolume2 class="size-4 shrink-0" title="Volume" />
           <input
             type="range"
             aria-label="VOICEVOX volume"
@@ -68,13 +72,10 @@ const voicevoxStore = useVoicevoxStore();
         :disabled="voicevoxStore.activating"
         @click="voicevoxStore.activate()"
       >
-        <span
+        <component
+          :is="voicevoxStore.activating ? IconLucideLoader : IconLucideVolumeX"
           class="size-4 shrink-0"
-          :class="
-            voicevoxStore.activating
-              ? 'icon-[lucide--loader] animate-spin'
-              : 'icon-[lucide--volume-x]'
-          "
+          :class="voicevoxStore.activating ? 'animate-spin' : ''"
         />
         <span>{{ voicevoxStore.activating ? "Starting VOICEVOX..." : "Enable VOICEVOX" }}</span>
       </button>

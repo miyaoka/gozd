@@ -50,6 +50,11 @@ import { useTaskMenu } from "./useTaskMenu";
 import { useWorktreeMenu } from "./useWorktreeMenu";
 import VoicevoxPanel from "./VoicevoxPanel.vue";
 import WorktreeMenu from "./WorktreeMenu.vue";
+import IconLucideBot from "~icons/lucide/bot";
+import IconLucideCheck from "~icons/lucide/check";
+import IconLucideMonitor from "~icons/lucide/monitor";
+import IconLucidePencil from "~icons/lucide/pencil";
+import IconLucidePlus from "~icons/lucide/plus";
 
 const repoStore = useRepoStore();
 const worktreeStore = useWorktreeStore();
@@ -215,7 +220,7 @@ const activeRootWorktree = computed(() => {
           :class="terminalStore.viewMode === 'wt' && 'bg-element text-foreground'"
           @click="terminalStore.viewMode = 'wt'"
         >
-          <span class="icon-[lucide--monitor] text-base" />
+          <IconLucideMonitor class="text-base" />
         </button>
         <button
           type="button"
@@ -227,7 +232,7 @@ const activeRootWorktree = computed(() => {
           :class="terminalStore.viewMode === 'claude' && 'bg-element text-foreground'"
           @click="terminalStore.viewMode = 'claude'"
         >
-          <span class="icon-[lucide--bot] text-base" />
+          <IconLucideBot class="text-base" />
         </button>
       </div>
       <div class="flex items-center gap-2">
@@ -244,10 +249,7 @@ const activeRootWorktree = computed(() => {
           "
           @click="toggleEditMode"
         >
-          <span
-            class="text-base"
-            :class="editMode ? 'icon-[lucide--check]' : 'icon-[lucide--pencil]'"
-          />
+          <component :is="editMode ? IconLucideCheck : IconLucidePencil" class="text-base" />
         </button>
       </div>
     </div>
@@ -279,7 +281,7 @@ const activeRootWorktree = computed(() => {
         title="Add directory"
         @click="onAddDir"
       >
-        <span class="icon-[lucide--plus] size-4 shrink-0" />
+        <IconLucidePlus class="size-4 shrink-0" />
         <span>Add directory</span>
       </button>
     </div>

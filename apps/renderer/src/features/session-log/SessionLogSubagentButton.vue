@@ -6,6 +6,7 @@ summary 上に置かれるため、click は details トグルへ伝播させず
 
 <script setup lang="ts">
 import type { SubagentLink } from "./sessionLog";
+import IconLucideGitFork from "~icons/lucide/git-fork";
 
 const props = defineProps<{
   // 紐づく subagent。無ければボタン自体を出さない。
@@ -32,7 +33,7 @@ function onClick() {
     :title="`Open subagent: ${link.label}`"
     @click.stop.prevent="onClick"
   >
-    <span class="icon-[lucide--git-fork] size-3 shrink-0" />
+    <IconLucideGitFork class="size-3 shrink-0" />
     <span class="max-w-32 truncate">{{ link.label }}</span>
   </button>
 </template>

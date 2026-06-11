@@ -8,6 +8,8 @@ import { tryCatch } from "@gozd/shared";
 import { onMounted, ref, useTemplateRef } from "vue";
 import { rpcProjectConfigLoad, rpcProjectConfigSave } from "../settings";
 import { useWorktreeStore } from "../worktree";
+import IconLucideChevronRight from "~icons/lucide/chevron-right";
+import IconLucideLink from "~icons/lucide/link";
 
 const worktreeStore = useWorktreeStore();
 
@@ -77,10 +79,8 @@ onMounted(() => {
       <summary
         class="flex cursor-pointer list-none items-center gap-2 text-xs text-foreground-low hover:text-foreground [&::-webkit-details-marker]:hidden"
       >
-        <span
-          class="icon-[lucide--chevron-right] size-4 shrink-0 transition-transform [[open]>&]:rotate-90"
-        />
-        <span class="icon-[lucide--link] size-3.5 shrink-0" />
+        <IconLucideChevronRight class="size-4 shrink-0 transition-transform [[open]>&]:rotate-90" />
+        <IconLucideLink class="size-3.5 shrink-0" />
         <span>Worktree symlinks</span>
       </summary>
       <div class="mx-2 mt-1 mb-2">

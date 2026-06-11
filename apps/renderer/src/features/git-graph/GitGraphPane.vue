@@ -54,6 +54,9 @@ import { rpcGitGithubIdentity, rpcGitLog } from "./rpc";
 import { useCommitContextMenu } from "./useCommitContextMenu";
 import { useGitGraphStore } from "./useGitGraphStore";
 import { usePrListStore } from "./usePrListStore";
+import IconLucideGitCommitHorizontal from "~icons/lucide/git-commit-horizontal";
+import IconLucideGitMerge from "~icons/lucide/git-merge";
+import IconLucidePanelRight from "~icons/lucide/panel-right";
 
 const rootRef = useTemplateRef<HTMLElement>("root");
 const { width: rootWidth } = useElementSize(rootRef);
@@ -978,7 +981,7 @@ const isWorkingTreeActive = computed(
     class="flex size-full flex-col overflow-hidden bg-background text-foreground select-none"
   >
     <div class="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1.5">
-      <span class="icon-[lucide--git-commit-horizontal] size-4 text-foreground-low" />
+      <IconLucideGitCommitHorizontal class="size-4 text-foreground-low" />
       <span class="text-xs font-semibold text-foreground-low">Git Graph</span>
       <span v-if="commits.length > 0" class="text-xs text-foreground-low"
         >({{ commits.length }})</span
@@ -1041,7 +1044,7 @@ const isWorkingTreeActive = computed(
         aria-label="Toggle commit detail"
         @click="detailOpen = !detailOpen"
       >
-        <span class="icon-[lucide--panel-right] size-3.5" />
+        <IconLucidePanelRight class="size-3.5" />
       </button>
     </div>
 
@@ -1190,9 +1193,9 @@ const isWorkingTreeActive = computed(
 
               <!-- col 2 (description) -->
               <div class="flex min-w-0 items-center gap-1 truncate pr-2">
-                <span
+                <IconLucideGitMerge
                   v-if="isMergeCommit(node.commit)"
-                  class="icon-[lucide--git-merge] size-3.5 shrink-0 text-foreground-low"
+                  class="size-3.5 shrink-0 text-foreground-low"
                 />
                 <RefBadge
                   v-for="displayRef in computeDisplayRefs(

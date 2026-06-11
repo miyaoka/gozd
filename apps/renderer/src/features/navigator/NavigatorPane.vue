@@ -28,6 +28,7 @@ import { useWorktreeStore } from "../worktree";
 import FileContextMenu from "./FileContextMenu.vue";
 import { useFileContextMenu } from "./useFileContextMenu";
 import type { FileContextMenuPayload } from "./useFileContextMenu";
+import IconLucideFolderTree from "~icons/lucide/folder-tree";
 
 const HANDLE_HEIGHT = 8;
 const FILER_MIN_HEIGHT = 100;
@@ -176,7 +177,7 @@ function onFileContextMenu(req: FileContextMenuPayload) {
     <div ref="filerWrapper" class="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div class="flex shrink-0 items-center border-b border-border">
         <span class="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-foreground">
-          <span class="icon-[lucide--folder-tree] size-3.5" />
+          <IconLucideFolderTree class="size-3.5" />
           Files
         </span>
       </div>

@@ -1,3 +1,12 @@
+import type { FunctionalComponent, SVGAttributes } from "vue";
+import IconLucideFileDiff from "~icons/lucide/file-diff";
+import IconLucideFileExclamationPoint from "~icons/lucide/file-exclamation-point";
+import IconLucideFileInput from "~icons/lucide/file-input";
+import IconLucideFilePlus from "~icons/lucide/file-plus";
+import IconLucideFileQuestionMark from "~icons/lucide/file-question-mark";
+import IconLucideFileX from "~icons/lucide/file-x";
+import IconLucideFiles from "~icons/lucide/files";
+
 /**
  * git status --porcelain=v2 のステータスコード（XY の2文字）から変更種別を判定する。
  * X（index）と Y（worktree）のうち、より目立つ方を優先する。
@@ -104,14 +113,17 @@ function resolveStatusIconKind(status: string): GitStatusIconKind {
 }
 
 /** ステータスアイコン定義 */
-const STATUS_ICON_CONFIG: Record<GitStatusIconKind, { icon: string; color: string }> = {
-  added: { icon: "icon-[lucide--file-plus]", color: "text-success-text" },
-  modified: { icon: "icon-[lucide--file-diff]", color: "text-warning-text" },
-  deleted: { icon: "icon-[lucide--file-x]", color: "text-destructive-text" },
-  renamed: { icon: "icon-[lucide--file-input]", color: "text-primary-text" },
-  copied: { icon: "icon-[lucide--files]", color: "text-primary-text" },
-  untracked: { icon: "icon-[lucide--file-question-mark]", color: "text-success-text" },
-  conflict: { icon: "icon-[lucide--file-exclamation-point]", color: "text-destructive-text" },
+const STATUS_ICON_CONFIG: Record<
+  GitStatusIconKind,
+  { icon: FunctionalComponent<SVGAttributes>; color: string }
+> = {
+  added: { icon: IconLucideFilePlus, color: "text-success-text" },
+  modified: { icon: IconLucideFileDiff, color: "text-warning-text" },
+  deleted: { icon: IconLucideFileX, color: "text-destructive-text" },
+  renamed: { icon: IconLucideFileInput, color: "text-primary-text" },
+  copied: { icon: IconLucideFiles, color: "text-primary-text" },
+  untracked: { icon: IconLucideFileQuestionMark, color: "text-success-text" },
+  conflict: { icon: IconLucideFileExclamationPoint, color: "text-destructive-text" },
 };
 
 /** アイコンの表示順 */
@@ -127,7 +139,7 @@ const STATUS_ICON_ORDER: GitStatusIconKind[] = [
 
 interface StatusIconEntry {
   kind: GitStatusIconKind;
-  icon: string;
+  icon: FunctionalComponent<SVGAttributes>;
   color: string;
   count: number;
 }

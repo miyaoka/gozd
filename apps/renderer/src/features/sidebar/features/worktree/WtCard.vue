@@ -29,6 +29,11 @@ import { useTerminalStore } from "../../../terminal";
 import { computeStatusIcons, StatusIcons } from "../../../worktree";
 import { branchLabel as resolveBranchLabel, hasChanges } from "../../utils";
 import TaskRow from "./TaskRow.vue";
+import IconLucideArrowDown from "~icons/lucide/arrow-down";
+import IconLucideArrowUp from "~icons/lucide/arrow-up";
+import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
+import IconLucideGitBranch from "~icons/lucide/git-branch";
+import IconLucideHouse from "~icons/lucide/house";
 
 const props = defineProps<{
   wt: WorktreeEntry;
@@ -46,9 +51,7 @@ const emit = defineEmits<{
 
 const terminalStore = useTerminalStore();
 
-const branchIcon = computed(() =>
-  props.wt.isMain ? "icon-[lucide--house]" : "icon-[lucide--git-branch]",
-);
+const branchIcon = computed(() => (props.wt.isMain ? IconLucideHouse : IconLucideGitBranch));
 const branchLabel = computed(() => resolveBranchLabel(props.wt.branch));
 
 const statusIcons = computed(() => {
@@ -128,7 +131,7 @@ function onHeaderClick() {
         @keydown.space.prevent="onHeaderClick"
       >
         <span class="grid size-5 shrink-0 place-items-center" aria-hidden="true">
-          <span class="size-3.5" :class="branchIcon" />
+          <component :is="branchIcon" class="size-3.5" />
         </span>
         <span class="flex-1 truncate text-left text-xs font-medium">{{ branchLabel }}</span>
         <span
@@ -144,14 +147,14 @@ function onHeaderClick() {
         >
           <!-- ahead = local 進行 (緑) / behind = remote 進行 (赤)。filer の git status 色規約に揃える -->
           <span v-if="wt.upstream.ahead > 0" class="flex items-center gap-0.5 text-success-text">
-            <span class="icon-[lucide--arrow-up] size-3" />
+            <IconLucideArrowUp class="size-3" />
             <span>{{ wt.upstream.ahead }}</span>
           </span>
           <span
             v-if="wt.upstream.behind > 0"
             class="flex items-center gap-0.5 text-destructive-text"
           >
-            <span class="icon-[lucide--arrow-down] size-3" />
+            <IconLucideArrowDown class="size-3" />
             <span>{{ wt.upstream.behind }}</span>
           </span>
         </span>
@@ -163,7 +166,7 @@ function onHeaderClick() {
         class="absolute inset-y-0 right-1 my-auto grid size-5 place-items-center rounded-sm bg-panel text-foreground opacity-0 shadow-md ring-1 ring-border transition-opacity duration-100 group-focus-within/wt:opacity-100 group-hover/wt:opacity-100 hover:bg-element hover:text-foreground"
         @click="onMenuClick"
       >
-        <span class="icon-[lucide--ellipsis-vertical] text-xs" />
+        <IconLucideEllipsisVertical class="text-xs" />
       </button>
     </div>
 

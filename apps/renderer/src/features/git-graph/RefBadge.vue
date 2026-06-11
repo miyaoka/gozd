@@ -23,6 +23,9 @@ local / remote は **同じ hue で明度差** で区別する:
 import type { GitPullRequest } from "@gozd/proto";
 import { computed } from "vue";
 import type { DisplayRef } from "./displayRef";
+import IconLucideGitPullRequest from "~icons/lucide/git-pull-request";
+import IconLucideLink from "~icons/lucide/link";
+import IconLucideLink2Off from "~icons/lucide/link-2-off";
 
 const props = defineProps<{
   displayRef: DisplayRef;
@@ -74,7 +77,7 @@ const DEFAULT_CLASS = "ring-1 ring-inset ring-current";
     :title="`PR #${pr.number}${pr.isDraft ? ' (draft)' : ''}`"
     @click.stop
   >
-    <span class="icon-[lucide--git-pull-request] size-3" />
+    <IconLucideGitPullRequest class="size-3" />
     #{{ pr.number }}
   </a>
   <!-- Branch / tag label -->
@@ -89,8 +92,8 @@ const DEFAULT_CLASS = "ring-1 ring-inset ring-current";
       displayRef.isDefault && DEFAULT_CLASS,
     ]"
   >
-    <span v-if="displayRef.isSynced" class="icon-[lucide--link] size-3" />
-    <span v-else-if="displayRef.isOutOfSync" class="icon-[lucide--link-2-off] size-3" />
+    <IconLucideLink v-if="displayRef.isSynced" class="size-3" />
+    <IconLucideLink2Off v-else-if="displayRef.isOutOfSync" class="size-3" />
     {{ displayRef.label }}
   </span>
 </template>

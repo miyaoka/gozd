@@ -8,6 +8,8 @@ import { computed } from "vue";
 import { getFileIconUrl, getFolderIconUrl } from "../filer";
 import type { FileContextMenuPayload } from "../navigator";
 import type { ChangesTreeNode } from "./changesTree";
+import IconLucideChevronDown from "~icons/lucide/chevron-down";
+import IconLucideChevronRight from "~icons/lucide/chevron-right";
 
 const props = defineProps<{
   node: ChangesTreeNode;
@@ -112,9 +114,9 @@ function onContextMenu(event: MouseEvent) {
       @contextmenu="onContextMenu"
     >
       <template v-if="node.kind === 'folder'">
-        <span
+        <component
+          :is="isExpanded ? IconLucideChevronDown : IconLucideChevronRight"
           class="size-3.5 shrink-0 text-foreground-low"
-          :class="isExpanded ? 'icon-[lucide--chevron-down]' : 'icon-[lucide--chevron-right]'"
         />
         <img :src="iconUrl" class="size-4 shrink-0" alt="" />
         <span class="truncate text-foreground">{{ folderDisplayName }}</span>

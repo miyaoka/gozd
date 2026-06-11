@@ -28,6 +28,7 @@ import {
 } from "./rpc";
 import SettingSection from "./SettingSection.vue";
 import { useSettingsModal } from "./useSettingsModal";
+import IconLucideX from "~icons/lucide/x";
 
 type TabId = "global" | "project";
 
@@ -159,7 +160,7 @@ watch(isOpen, (open) => {
           aria-label="Close settings"
           @click="modalIsOpen = false"
         >
-          <span class="icon-[lucide--x] size-4" />
+          <IconLucideX class="size-4" />
         </button>
       </div>
 

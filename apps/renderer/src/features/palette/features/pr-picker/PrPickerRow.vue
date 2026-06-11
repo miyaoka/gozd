@@ -6,6 +6,7 @@ PR picker の1行分。PR 番号・タイトル・ブランチ・author・更新
 import type { GitPullRequest } from "@gozd/proto";
 import { computed } from "vue";
 import { formatRelativeDate } from "../../formatRelativeDate";
+import IconLucideUser from "~icons/lucide/user";
 
 const props = defineProps<{
   pr: GitPullRequest;
@@ -25,7 +26,7 @@ const dateDisplay = computed(() => formatRelativeDate(props.pr.updatedAt));
       :alt="pr.author"
       class="size-5 shrink-0 rounded-full"
     />
-    <span v-else class="icon-[lucide--user] size-5 shrink-0" />
+    <IconLucideUser v-else class="size-5 shrink-0" />
     <span class="truncate">{{ pr.author }}</span>
   </span>
   <span class="truncate text-right" :class="dateDisplay.color">{{ dateDisplay.text }}</span>

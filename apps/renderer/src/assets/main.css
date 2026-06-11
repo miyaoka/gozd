@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@plugin "@iconify/tailwind4";
 
 /* Tier 1 primitives: @gozd/design-tokens package が build (prepare) で生成する
  * dist/tokens.generated.css。Adobe Leonardo の contrast-driven algorithm で

@@ -36,6 +36,7 @@ Markdown preview の内部リンク履歴 (`useMarkdownHistoryStore`) を操作�
 import { tryCatch } from "@gozd/shared";
 import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref, watch } from "vue";
+import type { FunctionalComponent, SVGAttributes } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { useChangesStore, useChangesSummaryStore } from "../changes";
@@ -55,6 +56,14 @@ import { shouldCloseForMissingFile } from "./shouldCloseForMissingFile";
 import { useBlamePopover } from "./useBlamePopover";
 import { useMarkdownHistoryStore } from "./useMarkdownHistoryStore";
 import { usePreviewStore } from "./usePreviewStore";
+import IconLucideArrowLeft from "~icons/lucide/arrow-left";
+import IconLucideArrowRight from "~icons/lucide/arrow-right";
+import IconLucideEye from "~icons/lucide/eye";
+import IconLucideFileClock from "~icons/lucide/file-clock";
+import IconLucideFileDiff from "~icons/lucide/file-diff";
+import IconLucideFileText from "~icons/lucide/file-text";
+import IconLucideWrapText from "~icons/lucide/wrap-text";
+import IconLucideX from "~icons/lucide/x";
 
 type PreviewMode = "current" | "diff" | "original";
 
@@ -179,10 +188,10 @@ function defaultMode(gitChange: GitChangeKind | undefined): PreviewMode {
   return "current";
 }
 
-const MODE_ICONS: Record<PreviewMode, string> = {
-  current: "icon-[lucide--file-text]",
-  diff: "icon-[lucide--file-diff]",
-  original: "icon-[lucide--file-clock]",
+const MODE_ICONS: Record<PreviewMode, FunctionalComponent<SVGAttributes>> = {
+  current: IconLucideFileText,
+  diff: IconLucideFileDiff,
+  original: IconLucideFileClock,
 };
 
 const SHORT_HASH_LEN = 7;
@@ -924,7 +933,7 @@ watch(
         aria-label="Go back"
         @click="markdownHistory.goBack()"
       >
-        <span class="icon-[lucide--arrow-left] size-4" />
+        <IconLucideArrowLeft class="size-4" />
       </button>
       <button
         type="button"
@@ -934,7 +943,7 @@ watch(
         aria-label="Go forward"
         @click="markdownHistory.goForward()"
       >
-        <span class="icon-[lucide--arrow-right] size-4" />
+        <IconLucideArrowRight class="size-4" />
       </button>
       <template v-if="selectedDisplayPath">
         <img :src="headerIconUrl" class="size-4 shrink-0" alt="" />
@@ -950,7 +959,7 @@ watch(
         aria-label="Close preview"
         @click="emit('close')"
       >
-        <span class="icon-[lucide--x] size-4" />
+        <IconLucideX class="size-4" />
       </button>
     </div>
 
@@ -978,7 +987,7 @@ watch(
           "
           @click="activeMode = mode"
         >
-          <span class="size-3.5" :class="MODE_ICONS[mode]" />
+          <component :is="MODE_ICONS[mode]" class="size-3.5" />
           {{ modeLabel(mode) }}
         </button>
 
@@ -992,7 +1001,7 @@ watch(
             "
             @click="previewEnabled = !previewEnabled"
           >
-            <span class="icon-[lucide--eye] size-3.5" />
+            <IconLucideEye class="size-3.5" />
             Preview
           </button>
 
@@ -1002,7 +1011,7 @@ watch(
             :class="wordWrap ? 'text-primary-text' : 'text-foreground-low hover:text-foreground'"
             @click="wordWrap = !wordWrap"
           >
-            <span class="icon-[lucide--wrap-text] size-3.5" />
+            <IconLucideWrapText class="size-3.5" />
             Wrap
           </button>
         </div>

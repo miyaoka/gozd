@@ -41,6 +41,10 @@ import { usePreviewStore } from "../preview";
 import ChangesTreeItem from "./ChangesTreeItem.vue";
 import { useChangesStore } from "./useChangesStore";
 import { useChangesSummaryStore } from "./useChangesSummaryStore";
+import IconLucideFileDiff from "~icons/lucide/file-diff";
+import IconLucideGitBranch from "~icons/lucide/git-branch";
+import IconLucideGitPullRequest from "~icons/lucide/git-pull-request";
+import IconLucideLoaderCircle from "~icons/lucide/loader-circle";
 
 const emit = defineEmits<{
   select: [relPath: string];
@@ -76,7 +80,7 @@ function onClickViewAll() {
     class="flex size-full flex-col overflow-hidden border-l border-border bg-background text-foreground"
   >
     <div class="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1.5">
-      <span class="icon-[lucide--git-branch] size-4 text-foreground-low" />
+      <IconLucideGitBranch class="size-4 text-foreground-low" />
       <span class="text-xs font-semibold text-foreground-low">Changes</span>
       <span v-if="changesStore.orderedFileChanges.length > 0" class="text-xs text-foreground-low"
         >({{ changesStore.orderedFileChanges.length }})</span
@@ -100,13 +104,8 @@ function onClickViewAll() {
         aria-label="Toggle PR diff"
         @click="prDiffToggle.toggle"
       >
-        <span
-          :class="
-            prDiffToggle.enabling
-              ? 'icon-[lucide--loader-circle] size-3.5 animate-spin'
-              : 'icon-[lucide--git-pull-request] size-3.5'
-          "
-        />
+        <IconLucideLoaderCircle v-if="prDiffToggle.enabling" class="size-3.5 animate-spin" />
+        <IconLucideGitPullRequest v-else class="size-3.5" />
         PR #{{ prDiffToggle.pr?.number }}
       </button>
       <button
@@ -121,7 +120,7 @@ function onClickViewAll() {
         aria-label="Toggle changes summary"
         @click="onClickViewAll"
       >
-        <span class="icon-[lucide--file-diff] size-3.5" />
+        <IconLucideFileDiff class="size-3.5" />
         View all
       </button>
     </div>

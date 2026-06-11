@@ -38,6 +38,13 @@ jobs:
             diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only lint
             full_command: pnpm run lint:all
 
+          # fix（oxlint --fix / eslint --fix + oxfmt）を実行し、working tree に
+          # 差分が出たら fail する。フォーマット崩れ・自動修正可能な lint 違反が
+          # commit されていないことを保証する
+          - name: fix
+            diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only fix && git diff --exit-code
+            full_command: pnpm run fix:all && git diff --exit-code
+
           # @gozd/native は SwiftUI / WebKit / FSEvents 等 macOS 専用 API に依存し
           # Linux runner では `swift test` が走らない。別 job（swift-test）で実行する。
           - name: test

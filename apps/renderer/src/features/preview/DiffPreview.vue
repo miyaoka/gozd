@@ -754,7 +754,10 @@ function blockEdit(event: Event) {
       の host で、scroll コンテナ自体は host にしない。hunk-bar は section の **外** に sibling として
       置くため、Cmd+A は focus が居る section だけに閉じ、hunk-bar / 他 section は scope に入らない。
     -->
-    <div class="flex-1 overflow-auto p-4 text-sm/tight" :style="{ '--line-no-width': lineNoWidth }">
+    <div
+      class="_diff-scroll flex-1 overflow-auto p-4 text-sm/tight"
+      :style="{ '--line-no-width': lineNoWidth }"
+    >
       <div v-if="state.kind === 'loading'" class="text-foreground-low">Computing diff...</div>
 
       <div v-else-if="state.kind === 'error'" class="text-destructive-text">
@@ -968,6 +971,13 @@ function blockEdit(event: Event) {
 </template>
 
 <style scoped>
+/* diff 本文は clipboard 制御のため pre/code を使わない div 描画 (下記 `_diff-line` コメント参照) で、
+   main.css @layer base の `pre, code` コードフォント規則が届かない。同じ var 連鎖を
+   ここで参照し、コードフォントの解決 (設定値 → --font-mono fallback) を pre/code 面と揃える。 */
+._diff-scroll {
+  font-family: var(--preview-code-font-family, var(--font-mono));
+}
+
 /* 1 diff 行を 1 block に揃えて clipboard の `\n` を 1 行につき 1 個にする。
    `display: flex` で子要素を blockification すると、contenteditable コピー時に各子の block
    境界でも `\n` が入り、行間に空行が混じる現象になる。block + inline-block + 負 text-indent
@@ -986,6 +996,15 @@ function blockEdit(event: Event) {
   text-align: right;
   color: var(--color-element-hover);
   user-select: none;
+  /* contenteditable host の UA スタイル `word-wrap: break-word` (継承プロパティ) が
+     この box まで届くため、数字が幅 Nch を僅かでも超えると桁の途中で折り返される。
+     コードフォント (`_diff-scroll`) は通常 monospace で桁 advance = ch だが、
+     設定 (preview.codeFontFamily) や fallback font が proportional に解決される環境では
+     桁 glyph が ch ("0" の幅) を超えうる。nowrap で折り返しを構造的に禁止し、
+     tabular-nums で全桁の advance を "0" と同幅に揃えて「N 桁 = Nch」の幅契約を
+     フォント非依存で成立させる。 */
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 行番号は DOM テキストとして持たず `data-line-no` の値を `::before` で描画する。
@@ -1001,7 +1020,15 @@ function blockEdit(event: Event) {
   padding: 0;
   background: transparent;
   border: none;
-  font: inherit;
+  /* button の UA 既定 font (OS UI font) の打ち消しは shorthand `font: inherit` ではなく
+     longhand で行う。`font` shorthand は reset-only sub-property の `font-variant-numeric`
+     を初期値 normal に戻すため、同 specificity 後勝ちで `_line-no` の tabular-nums
+     (寸法契約の SSOT) を潰してしまう。 */
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  font-style: inherit;
+  line-height: inherit;
   cursor: pointer;
 }
 

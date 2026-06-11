@@ -41,6 +41,15 @@ export const globalSettingsSections: readonly SettingSection[] = [
       "preview.fontFamily": {
         widget: "string",
         label: "Font Family",
+        description: "Font for prose text (Markdown preview). Code uses Code Font Family",
+        defaultValue: "",
+        placeholder: "system-ui, sans-serif",
+      },
+      "preview.codeFontFamily": {
+        widget: "string",
+        label: "Code Font Family",
+        description:
+          "Font for code (code preview, diff, Markdown code blocks). Empty uses the default monospace",
         defaultValue: "",
         placeholder: "Menlo, monospace",
       },

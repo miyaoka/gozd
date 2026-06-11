@@ -152,6 +152,16 @@
     cursor: pointer;
   }
 
+  /* コードフォントの SSOT (VSCode の editor.fontFamily 相当)。
+     preview.codeFontFamily 設定を PreviewPane / ChangesSummaryView が
+     `--preview-code-font-family` として提供し、未設定 (変数なし) なら --font-mono に fallback する。
+     preflight も pre/code を mono にするが、設定で上書き可能にするため同 layer 後勝ちで差し替える。
+     pre/code を経由しないコード面 (DiffPreview の div 描画) は同じ var 連鎖を scoped CSS で参照する。 */
+  pre,
+  code {
+    font-family: var(--preview-code-font-family, var(--font-mono));
+  }
+
   /* `<dialog>` の UA stylesheet 打ち消し。中身のラッパーで見た目を作る規約。
      Tailwind v4 preflight が margin を消す (tailwindlabs#16372) ため auto 復元 */
   dialog {

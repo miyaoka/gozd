@@ -8,3 +8,5 @@ import { ref } from "vue";
 
 export const previewFontFamily = ref("");
 export const previewFontSize = ref(0);
+/** コード (code preview / diff / markdown コードブロック) 用。空文字列なら monospace スタックに fallback */
+export const previewCodeFontFamily = ref("");

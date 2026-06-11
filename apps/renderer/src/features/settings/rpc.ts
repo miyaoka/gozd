@@ -50,6 +50,7 @@ export function flattenAppConfig(c: AppConfig | undefined): Record<string, unkno
     "terminal.fontSize": c?.terminal?.fontSize ?? 14,
     "preview.fontFamily": c?.preview?.fontFamily ?? "",
     "preview.fontSize": c?.preview?.fontSize ?? 14,
+    "preview.codeFontFamily": c?.preview?.codeFontFamily ?? "",
     "voicevox.enabled": c?.voicevox?.enabled ?? false,
     "voicevox.speedScale": c?.voicevox?.speedScale ?? 1.5,
     "voicevox.volumeScale": c?.voicevox?.volumeScale ?? 1.0,
@@ -60,7 +61,7 @@ export function flattenAppConfig(c: AppConfig | undefined): Record<string, unkno
 /** dot-key の patch を AppConfig に適用する。未知のキーは無視。 */
 function applyDotKey(config: AppConfig, key: string, value: unknown): void {
   const terminal = config.terminal ?? { theme: "", fontFamily: "", fontSize: 0 };
-  const preview = config.preview ?? { fontFamily: "", fontSize: 0 };
+  const preview = config.preview ?? { fontFamily: "", fontSize: 0, codeFontFamily: "" };
   const voicevox = config.voicevox ?? {
     enabled: false,
     speedScale: 0,
@@ -85,6 +86,9 @@ function applyDotKey(config: AppConfig, key: string, value: unknown): void {
       break;
     case "preview.fontSize":
       if (typeof value === "number") preview.fontSize = value;
+      break;
+    case "preview.codeFontFamily":
+      if (typeof value === "string") preview.codeFontFamily = value;
       break;
     case "voicevox.enabled":
       if (typeof value === "boolean") voicevox.enabled = value;

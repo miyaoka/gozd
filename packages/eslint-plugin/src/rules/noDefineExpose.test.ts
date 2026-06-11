@@ -54,10 +54,7 @@ tester.run("no-define-expose", rule, {
 // TypeScript parser 経由で generic 型引数付きの呼び出しを検出することを確認する。
 // Vue SFC では `defineExpose<{ focus(): void }>({ focus })` 形が頻出する。
 tsTester.run("no-define-expose (TypeScript)", rule, {
-  valid: [
-    "const x: number = 1;",
-    "type T = { foo: string }; const x: T = { foo: 'a' };",
-  ],
+  valid: ["const x: number = 1;", "type T = { foo: string }; const x: T = { foo: 'a' };"],
   invalid: [
     {
       code: "defineExpose<{ focus(): void }>({ focus: () => {} });",

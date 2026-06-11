@@ -38,7 +38,7 @@ const rule: Rule.RuleModule = {
     },
     messages: {
       iconifyClass:
-        "Iconify Tailwind class `{{match}}` is forbidden. Import the icon component instead: `import IconLucideX from \"~icons/lucide/x\"` and render `<IconLucideX class=\"...\" />`.",
+        'Iconify Tailwind class `{{match}}` is forbidden. Import the icon component instead: `import IconLucideX from "~icons/lucide/x"` and render `<IconLucideX class="..." />`.',
     },
     schema: [],
   },

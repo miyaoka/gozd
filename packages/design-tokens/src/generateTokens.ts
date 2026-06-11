@@ -148,10 +148,7 @@ const theme = new Theme({
 });
 
 type ContrastGroup = { name: string; values: { value: string }[] };
-const [bgEntry, ...groups] = theme.contrastColors as [
-  { background: string },
-  ...ContrastGroup[],
-];
+const [bgEntry, ...groups] = theme.contrastColors as [{ background: string }, ...ContrastGroup[]];
 
 /* gray scale: step 1 = bg 自身、steps 2..12 = ratios の各点 */
 const grayGroup = groups.find((g) => g.name === "gray");

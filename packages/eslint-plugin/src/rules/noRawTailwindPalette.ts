@@ -25,7 +25,10 @@ import type { Rule } from "eslint";
 import type { AST as VueAST } from "vue-eslint-parser";
 
 type Literal = Rule.Node & { type: "Literal" };
-type TemplateElement = Rule.Node & { type: "TemplateElement"; value: { cooked?: string | null; raw: string } };
+type TemplateElement = Rule.Node & {
+  type: "TemplateElement";
+  value: { cooked?: string | null; raw: string };
+};
 
 /* Tailwind 標準 color utility prefix (color を取る utility のみ)。
  * margin / padding 等の non-color utility は対象外 */

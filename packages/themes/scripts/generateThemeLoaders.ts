@@ -27,7 +27,10 @@ interface ThemeEntry {
 
 const LUMINANCE_THRESHOLD = 0.5;
 
-const files = fs.readdirSync(VENDOR_DIR).filter((f) => f.endsWith(".json")).sort();
+const files = fs
+  .readdirSync(VENDOR_DIR)
+  .filter((f) => f.endsWith(".json"))
+  .sort();
 
 const themes: ThemeEntry[] = files.map((file) => {
   const json = JSON.parse(fs.readFileSync(path.join(VENDOR_DIR, file), "utf-8")) as {

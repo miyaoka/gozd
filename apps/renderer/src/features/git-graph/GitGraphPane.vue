@@ -518,9 +518,9 @@ const ROW_HEIGHT = 24;
 const DOT_RADIUS = 4;
 const GRAPH_PADDING_X = 12;
 /** col 1 (graph 列) の右側に確保する HEAD marker `→` 用余白 (px)。
- * marker は col 2 (description 列) の左外側に absolute 配置されるため、SVG が描く
+ * marker は col 1 内に in-flow 右寄せ配置されるため、SVG が描く
  * lane / dot と marker の x 帯が物理的に重ならない width をここで予約する。
- * 内訳: marker glyph ~14 + col 2 との margin 4 + 安全余白 2 = 20。
+ * 内訳: marker glyph ~14 + col 2 との padding 4 + 安全余白 2 = 20。
  * これを GRAPH_PADDING_X (12) のままにすると `maxLanes === 1` で
  * marker と lane 0 dot の x 帯が衝突する。 */
 const HEAD_MARKER_RIGHT_PADDING = 20;
@@ -1176,28 +1176,20 @@ const isWorkingTreeActive = computed(
               @click="onRowClick(node.commit.hash, $event)"
               @contextmenu="onCommitContextMenu(node.commit.hash, $event)"
             >
-              <!-- col 1 (graph): SVG が absolute で覆うので空セル。
-                   右側に HEAD_MARKER_RIGHT_PADDING ぶんの余白を持ち、marker は col 2 から
-                   この余白領域に飛び出して配置される (= 旧視覚位置: graph 列の右端)。 -->
-              <div />
-
-              <!-- col 2 (description)。
-                   `relative` を持つが background クラスは持たないので、SVG 覆い問題は起きない
-                   (row のように `relative` + 背景の組合せで初めて SVG を覆う)。
-                   HEAD marker は本要素を containing block として left 外側に absolute 配置し、
-                   col 1 右端の予約余白 (HEAD_MARKER_RIGHT_PADDING) に視覚的に乗せる。 -->
-              <div class="relative flex min-w-0 items-center gap-1 truncate pr-2">
-                <!-- HEAD marker: col 2 の左外側に absolute 配置。
-                     `right-full` で marker の右端を col 2 の左端に合わせ、`mr-1` (4px) で
-                     col 2 との隙間を作る。col 1 の右余白 (HEAD_MARKER_RIGHT_PADDING = 20px) 内に
-                     収まるため SVG が描く lane / dot と x 帯が重ならない。 -->
-                <span
-                  v-if="hasHead(node.commit.refs)"
-                  class="absolute right-full mr-1 text-warning-text"
-                  title="HEAD"
-                >
+              <!-- col 1 (graph): SVG が absolute で覆うセル。右端の
+                   HEAD_MARKER_RIGHT_PADDING 余白に HEAD marker を in-flow 右寄せで置く。
+                   col 2 内の absolute 配置 (`right-full`) にすると col 2 の `truncate`
+                   (overflow: hidden) が containing block ごとクリップして marker が消える。
+                   非 positioned content (layer 4) なので row 背景 / SVG の painting order に
+                   影響せず、余白内なので SVG の lane / dot とも x 帯が重ならない。 -->
+              <div class="flex items-center justify-end pr-1">
+                <span v-if="hasHead(node.commit.refs)" class="text-warning-text" title="HEAD">
                   →
                 </span>
+              </div>
+
+              <!-- col 2 (description) -->
+              <div class="flex min-w-0 items-center gap-1 truncate pr-2">
                 <span
                   v-if="isMergeCommit(node.commit)"
                   class="icon-[lucide--git-merge] size-3.5 shrink-0 text-foreground-low"

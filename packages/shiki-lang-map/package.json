@@ -9,12 +9,9 @@
   "scripts": {
     "prepare": "bun src/generateExtensionLangMap.ts",
     "typecheck": "tsgo --noEmit",
-    "lint": "oxlint --type-aware src/",
-    "fix": "oxlint --type-aware --fix src/ && oxfmt src/",
+    "lint": "oxlint --type-aware",
+    "fix": "oxlint --type-aware --fix && oxfmt .",
     "test": "bun test"
-  },
-  "peerDependencies": {
-    "shiki": "^4.0.0"
   },
   "devDependencies": {
     "@types/bun": "catalog:",
@@ -25,5 +22,8 @@
     "oxlint": "catalog:",
     "oxlint-tsgolint": "catalog:",
     "shiki": "4.2.0"
+  },
+  "peerDependencies": {
+    "shiki": "^4.0.0"
   }
 }

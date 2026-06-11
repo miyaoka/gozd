@@ -10,8 +10,8 @@
     "build": "bun src/generateTokens.ts",
     "prepare": "bun src/generateTokens.ts",
     "typecheck": "tsgo --noEmit",
-    "lint": "oxlint --type-aware src/",
-    "fix": "oxlint --type-aware --fix src/ && oxfmt src/"
+    "lint": "oxlint --type-aware",
+    "fix": "oxlint --type-aware --fix && oxfmt ."
   },
   "devDependencies": {
     "@adobe/leonardo-contrast-colors": "1.1.0",

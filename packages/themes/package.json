@@ -9,8 +9,8 @@
   "scripts": {
     "prepare": "bun scripts/generateThemeLoaders.ts",
     "typecheck": "tsgo --noEmit",
-    "lint": "oxlint --type-aware src/",
-    "fix": "oxlint --type-aware --fix src/ && oxfmt src/"
+    "lint": "oxlint --type-aware",
+    "fix": "oxlint --type-aware --fix && oxfmt '!vendor/**'"
   },
   "devDependencies": {
     "@types/bun": "catalog:",

@@ -1009,7 +1009,15 @@ function blockEdit(event: Event) {
   padding: 0;
   background: transparent;
   border: none;
-  font: inherit;
+  /* button の UA 既定 font (OS UI font) の打ち消しは shorthand `font: inherit` ではなく
+     longhand で行う。`font` shorthand は reset-only sub-property の `font-variant-numeric`
+     を初期値 normal に戻すため、同 specificity 後勝ちで `_line-no` の tabular-nums
+     (寸法契約の SSOT) を潰してしまう。 */
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  font-style: inherit;
+  line-height: inherit;
   cursor: pointer;
 }
 

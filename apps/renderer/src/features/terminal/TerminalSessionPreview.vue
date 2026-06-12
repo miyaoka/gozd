@@ -81,6 +81,8 @@ import { computed, ref } from "vue";
 import { usePopover } from "../../shared/popover";
 import { MarkdownBody } from "../preview";
 import { expandAskMessages, parseSessionLog, useSessionLogLive } from "../session-log";
+import type { PreviewEvent, PreviewMessage } from "./terminalSessionPreviewMessages";
+import { collectMessages } from "./terminalSessionPreviewMessages";
 import { useTerminalStore } from "./useTerminalStore";
 
 interface Props {
@@ -101,14 +103,13 @@ const sessionId = computed<string | undefined>(() => {
 
 const { sessions } = useSessionLogLive(sessionId);
 
-// JSONL を都度 parse する。preview は最新の user / assistant 1 件しか使わないため
+// JSONL を都度 parse する。preview は最新の会話発話だけを run 単位で見せるため
 // branchSelection は不要 (parseSessionLog は未指定で最新枝にフォールバックする)。
 //
 // `expandAskMessages` で AskUserQuestion (kind: "ask") を「質問 = assistant 発言」
 // 「回答 = user 発言」に inline 展開する。展開後の events 列から user / assistant 以外
 // (thinking / tool / image / branch) を捨てるのは preview 側の責務 (どの kind を見せるかは
 // 表示制約。parser 側は ask 展開のみに閉じる)。
-type PreviewEvent = { kind: "user" | "assistant"; text: string; ts: string };
 function parsedEvents(content: string): PreviewEvent[] {
   const out: PreviewEvent[] = [];
   for (const ev of expandAskMessages(parseSessionLog(content).events)) {
@@ -129,12 +130,6 @@ function lastConversationTs(events: PreviewEvent[]): number {
     if (!Number.isNaN(ms)) return ms;
   }
   return 0;
-}
-
-// 連続する同 kind の発話を 1 つの run (応答の塊) として束ねた表示単位。
-interface PreviewRun {
-  kind: "user" | "assistant";
-  messages: PreviewEvent[];
 }
 
 // main session の events。サブで二度評価されるのを避けるため computed に切る。
@@ -175,53 +170,8 @@ const subLabel = computed<string>(() => {
   return label !== undefined && label !== "" ? label : "Subagent";
 });
 
-// 1 overlay 分の bubble シーケンス。run 単位で表示対象を選び、events の出現順で並べる。
-// LINE 同様の時系列読みになる (上から下が時間の経過方向)。
-interface PreviewMessage {
-  kind: "user" | "assistant";
-  text: string;
-  ts: string;
-}
-// 各 kind とも最新 3 run (= 3 応答分) を表示対象にする
-const RUNS_PER_KIND = 3;
-// 最新の assistant run だけ末尾 3 件まで展開する (進行中の連続応答の流れを見せる)。
-// それ以外の run は最後の 1 件で代表させる
-const LATEST_ASSISTANT_RUN_MESSAGES = 3;
-
-function collectMessages(events: PreviewEvent[]): PreviewMessage[] {
-  // 空文字は run 構成前に除外する (tool_result / 注入された空 user 等の取りこぼし対策)。
-  // 空文字を挟んだ同 kind 連続が分断されて run 数の数え方がぶれないよう、filter を先に置く
-  const spoken = events.filter((e) => e.text !== "");
-  const runs: PreviewRun[] = [];
-  for (const e of spoken) {
-    const last = runs[runs.length - 1];
-    if (last !== undefined && last.kind === e.kind) {
-      last.messages.push(e);
-      continue;
-    }
-    runs.push({ kind: e.kind, messages: [e] });
-  }
-
-  // 各 kind の最新 RUNS_PER_KIND run だけ残す
-  const kept = new Set<PreviewRun>();
-  for (const kind of ["user", "assistant"] as const) {
-    const ofKind = runs.filter((r) => r.kind === kind);
-    for (const run of ofKind.slice(-RUNS_PER_KIND)) kept.add(run);
-  }
-
-  // runs は events 出現順なので、選んだ message をそのまま flatten すれば表示順になる。
-  // ts="" / parse 不能 ts の event が混ざっても順序が崩れない (ts での sort はしない)
-  const lastAssistantRun = runs.findLast((r) => r.kind === "assistant");
-  const out: PreviewMessage[] = [];
-  for (const run of runs) {
-    if (!kept.has(run)) continue;
-    const take = run === lastAssistantRun ? LATEST_ASSISTANT_RUN_MESSAGES : 1;
-    for (const m of run.messages.slice(-take)) {
-      out.push({ kind: m.kind, text: m.text, ts: m.ts });
-    }
-  }
-  return out;
-}
+// bubble 選択は run 単位の純粋関数 `collectMessages` (terminalSessionPreviewMessages.ts) に
+// 委譲する。選択規則の詳細はそちらのコメントとテストを参照。
 const mainMessages = computed<PreviewMessage[]>(() => collectMessages(mainEvents.value));
 const subMessages = computed<PreviewMessage[]>(() => collectMessages(subEvents.value));
 

@@ -14,16 +14,50 @@ struct GozdApp: App {
 
   var body: some Scene {
     Window(Self.windowTitle, id: "main") {
-      ContentView()
-        .preferredColorScheme(.dark)
+      rootView
     }
   }
 
-  /// dev / stable をウィンドウタイトルで区別する。判定軸は socketPath / channel と
-  /// 同じ `GOZD_DEV_PROJECT_ROOT` の有無に揃える（軸が複数あると drift する）。
+  /// dev タイトルバーの識別色。「insiders ビルド = 緑」の業界慣習 (VS Code Insiders) に
+  /// 合わせた、彩度・明度を抑えた緑 (hue 140°)。renderer の success token (緑) と色相が
+  /// 近いが、titlebar という UI 外周での識別色なので意味の衝突は許容する判断。
+  private static let devTitlebarTint = Color(
+    hue: 140.0 / 360.0, saturation: 0.35, brightness: 0.40)
+
+  /// dev 起動時のみタイトルバー (window toolbar) の背景を識別色に塗る。stable は素のまま。
+  ///
+  /// Liquid Glass の公式ガイドは toolbar への custom background を非推奨とするが、
+  /// 代替の公式パターン「`toolbarBackgroundVisibility(.hidden)` で背景を消して
+  /// コンテンツに描かせる」(Destination Video) は gozd では成立しない。WebKit `WebPage` は
+  /// macOS で titlebar 高を `env(safe-area-inset-top)` としてコンテンツへ伝えず (実測 0)、
+  /// renderer が reservation を取れないため、title 行がコンテンツに重なって崩壊する。
+  /// dev channel 限定の識別色として、ガイド非推奨を許容して塗る判断を取った。
+  @ViewBuilder
+  private var rootView: some View {
+    let base = ContentView().preferredColorScheme(.dark)
+    if Self.isDev {
+      // .visible を明示して tint の常時表示を確定させる。`toolbarBackground(色)` 単独だと
+      // 「システムが必要と判断したときのみ」適用で、表示がシステム裁量に依存する。
+      // toolbarColorScheme は tint 上の title 文字色契約をこの分岐内で固定するため
+      // （preferredColorScheme 経由の暗黙依存に頼らない）。
+      base
+        .toolbarBackground(Self.devTitlebarTint, for: .windowToolbar)
+        .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
+        .toolbarColorScheme(.dark, for: .windowToolbar)
+    } else {
+      base
+    }
+  }
+
+  /// dev / stable の判定。判定軸は socketPath / channel と同じ
+  /// `GOZD_DEV_PROJECT_ROOT` の有無に揃える（軸が複数あると drift する）。
+  static var isDev: Bool {
+    (ProcessInfo.processInfo.environment["GOZD_DEV_PROJECT_ROOT"] ?? "").isEmpty == false
+  }
+
+  /// dev / stable をウィンドウタイトルで区別する。
   static var windowTitle: String {
-    let isDev = (ProcessInfo.processInfo.environment["GOZD_DEV_PROJECT_ROOT"] ?? "").isEmpty == false
-    return isDev ? "gozd (dev)" : "gozd"
+    isDev ? "gozd (dev)" : "gozd"
   }
 }
 
@@ -54,9 +88,15 @@ struct ContentView: View {
   @State private var titleContext = TitleContext.shared
 
   var body: some View {
+    // top safe area の扱いは channel で分岐する。
+    // - stable: titlebar 下まで WebView を延ばす。Liquid Glass titlebar が WebView の
+    //   背景輝度をサンプルし、コンテンツと同調した dark になる（従来挙動）。respect に
+    //   変えると glass が下の `.background(Color.black)` を拾い、titlebar だけ黒く浮く
+    // - dev: `.toolbarBackground` 塗りで titlebar 高が不透明な top inset になるため
+    //   respect する。無視すると WebView 上端が不透明 titlebar の真下に隠れて壊れる
     WebView(runtime.page)
       .webViewContentBackground(.hidden)
-      .ignoresSafeArea(.container, edges: .top)
+      .ignoresSafeArea(.container, edges: GozdApp.isDev ? [] : .top)
       .background(Color.black)
       .toolbar {
         ToolbarItem(placement: .principal) {

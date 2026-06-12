@@ -189,4 +189,75 @@
   :where(.overflow-auto, .overflow-y-auto, .overflow-scroll, .overflow-y-scroll) {
     scrollbar-gutter: stable;
   }
+
+  /* ゲームジュース: ボタン押下の物理感。押した瞬間にわずかに沈む。
+     transition は付けない (離した瞬間に即復帰する方がゲーム的に歯切れが良い) */
+  button:active:not(:disabled) {
+    transform: scale(0.95);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * arcade FX (ゲームジュース層の共有クラス)
+ *
+ * ArcadeLayer (オーバーレイ) 以外のコンポーネントから使うグロー系演出。
+ * 色は semantic token (Tier 2) のみ参照する。
+ * ------------------------------------------------------------------------- */
+
+/* 状態アイコンのネオングロー (TaskRow / TerminalLeaf の Claude state) */
+._fx-glow-success {
+  filter: drop-shadow(0 0 4px var(--color-success));
+}
+
+._fx-glow-warning {
+  filter: drop-shadow(0 0 4px var(--color-warning));
+}
+
+._fx-glow-alert {
+  filter: drop-shadow(0 0 5px var(--color-warning-strong));
+}
+
+/* active worktree カードの脈動グロー */
+._fx-active-glow {
+  animation: _fx-active-glow-pulse 2.6s ease-in-out infinite;
+}
+
+/* HUD 風セクションヘッダ。右に流れて消えるグラデーション下線を引く */
+._fx-hud-header {
+  position: relative;
+}
+
+._fx-hud-header::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 20%;
+  bottom: -3px;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    color-mix(in oklch, var(--color-primary) 65%, transparent),
+    transparent
+  );
+}
+
+/* HUD パネル (sidebar の repo セクション等)。薄い面 + 枠で「ゲームのパネル」感を出す */
+._fx-panel {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border-subtle);
+  box-shadow: 0 2px 8px oklch(0 0 0 / 0.35);
+}
+
+@keyframes _fx-active-glow-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 6px color-mix(in oklch, var(--color-primary) 30%, transparent),
+      inset 0 0 8px color-mix(in oklch, var(--color-primary) 12%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 14px color-mix(in oklch, var(--color-primary) 55%, transparent),
+      inset 0 0 12px color-mix(in oklch, var(--color-primary) 20%, transparent);
+  }
 }

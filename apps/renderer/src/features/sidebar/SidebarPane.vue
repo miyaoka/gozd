@@ -33,6 +33,7 @@ import { tryCatch } from "@gozd/shared";
 import { computed, ref } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
+import { useArcadeStore } from "../arcade";
 import { rpcPickAndOpen } from "../layout";
 import { SessionLogDialog } from "../session-log";
 import { useTerminalStore } from "../terminal";
@@ -55,11 +56,14 @@ import IconLucideCheck from "~icons/lucide/check";
 import IconLucideMonitor from "~icons/lucide/monitor";
 import IconLucidePencil from "~icons/lucide/pencil";
 import IconLucidePlus from "~icons/lucide/plus";
+import IconLucideVolume2 from "~icons/lucide/volume-2";
+import IconLucideVolumeOff from "~icons/lucide/volume-off";
 
 const repoStore = useRepoStore();
 const worktreeStore = useWorktreeStore();
 const terminalStore = useTerminalStore();
 const notify = useNotificationStore();
+const { sfxEnabled, toggleSfx } = useArcadeStore();
 
 // useSidebarData の onMounted で全 repo の fetch / FsWatch / title sync が起動する。
 // 戻り値は現状外側で使わないので呼び捨てる。
@@ -237,6 +241,15 @@ const activeRootWorktree = computed(() => {
       </div>
       <div class="flex items-center gap-2">
         <SidebarClock />
+        <button
+          type="button"
+          :aria-label="sfxEnabled ? 'Mute sound effects' : 'Enable sound effects'"
+          :title="sfxEnabled ? 'Mute sound effects' : 'Enable sound effects'"
+          class="grid size-7 place-items-center rounded-sm text-foreground-low transition-colors hover:bg-panel hover:text-foreground"
+          @click="toggleSfx"
+        >
+          <component :is="sfxEnabled ? IconLucideVolume2 : IconLucideVolumeOff" class="text-base" />
+        </button>
         <button
           type="button"
           :aria-label="editMode ? 'Exit edit mode' : 'Edit repositories'"

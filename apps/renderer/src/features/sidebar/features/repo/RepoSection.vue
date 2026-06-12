@@ -90,9 +90,9 @@ function onHeaderClick() {
 </script>
 
 <template>
-  <section ref="section" class="flex flex-col gap-2 rounded-lg p-2">
+  <section ref="section" class="_fx-panel mx-1 mb-2 flex flex-col gap-2 rounded-lg p-2">
     <header
-      class="group/repo flex items-center gap-2 rounded-lg text-foreground"
+      class="_fx-hud-header group/repo flex items-center gap-2 rounded-lg text-foreground"
       :class="editMode ? '' : 'cursor-pointer hover:bg-element-hover'"
       :role="editMode ? undefined : 'button'"
       :aria-label="editMode ? undefined : visiblyCollapsed ? 'Expand' : 'Collapse'"
@@ -109,7 +109,7 @@ function onHeaderClick() {
           :is="visiblyCollapsed ? IconLucideFolder : IconLucideFolderOpen"
           class="size-5 shrink-0"
         />
-        <span class="min-w-0 flex-1 truncate text-sm font-semibold">
+        <span class="min-w-0 flex-1 truncate text-sm font-semibold tracking-wide">
           {{ repoName }}
         </span>
       </div>

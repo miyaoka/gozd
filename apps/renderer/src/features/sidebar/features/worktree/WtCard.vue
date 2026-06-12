@@ -119,6 +119,7 @@ function onHeaderClick() {
   <article
     :data-active="active"
     class="rounded-lg transition-colors data-[active=true]:bg-primary-subtle"
+    :class="active && '_fx-active-glow'"
   >
     <div class="group/wt relative">
       <div

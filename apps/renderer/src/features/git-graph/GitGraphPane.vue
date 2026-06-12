@@ -3,7 +3,7 @@ Git commit graph showing the current worktree branch and the default branch.
 
 ## Structure
 
-- Working Tree row: sticky header **inside** the scroll area (`position: sticky; top: 0`). Placed inside the scroll container so its row width matches commit rows after the scrollbar gutter — placing it outside would shift columns by the scrollbar width and break vertical alignment with commit rows
+- Working Tree row: sticky header **inside** the scroll area (`position: sticky; top: 0`). Placed inside the scroll container so it shares the same effective width as commit rows regardless of scrollbar presence, keeping columns vertically aligned
 - Connector line: dashed SVG path straight down lane 0 from the top to the HEAD row (HEAD is always on lane 0, so no curve is needed)
 - Scrollable commit list: HTML rows for commit data + SVG overlay for graph lines and dots
 - Column alignment: Working Tree row and commit rows share `grid-template-columns: var(--graph-cols)` defined once at the graph list root. Empty cells in the Working Tree row (author / hash) are left as empty grid tracks — no spacer divs. The Date cell on the Working Tree row shows the max mtime of changed files (`workingTreeMtime` computed from `useGitStatusStore`); blank when clean / not yet loaded
@@ -1064,8 +1064,9 @@ const isWorkingTreeActive = computed(
         tabindex="0"
         @keydown="onKeydown"
       >
-        <!-- スクロール可能なコミットリスト。Working Tree 行はこの中に sticky で置く
-             (scroll container の外に置くと scrollbar 幅ぶん commit 行と column がズレるため)。 -->
+        <!-- スクロール可能なコミットリスト。Working Tree 行はこの中に sticky で置き、
+             commit 行と同じ effective 幅を共有させて column を揃える (scrollbar の
+             有無・幅に依存しない)。 -->
         <div ref="scrollContainer" class="min-h-0 flex-1 overflow-auto">
           <!-- Working Tree 固定行: scroll container 内で sticky 配置。
                commit 行と同じ親 = 同じ effective 幅になり、grid template が構造的に揃う。 -->

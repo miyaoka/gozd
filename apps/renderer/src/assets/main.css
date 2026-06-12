@@ -33,7 +33,7 @@
  * Tier 1 (primitives, :root) は `@gozd/design-tokens` package で生成し、上の
  * @import で取り込む。本 file は consumer 側として:
  *   - Tier 2 (semantic aliases, @theme inline): role 名 utility を生成
- *   - Tier 3 (element defaults, @layer base): UA stylesheet 打ち消し
+ *   - Tier 3 (element defaults, @layer base): UA stylesheet 打ち消し / scrollbar
  *
  * @theme inline modifier は utility 値に var(--primitive) を直接展開するため、
  * 将来 light theme で primitive 側を override したとき自動 propagate する。
@@ -170,5 +170,23 @@
     padding: 0;
     border: none;
     background: transparent;
+  }
+
+  /* scrollbar デフォルト (CSS Scrollbars Level 1 / Overflow Level 3 標準プロパティのみ。
+     ::-webkit-scrollbar は要素を classic scrollbar に強制するため使わない)。
+     overlay scrollbar (macOS 既定) では thin は細い overlay、gutter は no-op。
+     classic scrollbar (OS 設定「常に表示」/「自動」+ 非タッチマウス) では thin が
+     消費幅を抑え、stable が幅を常時予約してスクロールバー出現時のガタつきを防ぐ */
+  * {
+    scrollbar-width: thin;
+  }
+
+  /* stable は classic 環境で overflow: hidden の box にも gutter を予約する仕様のため、
+     `*` 一括にせず縦スクロール utility に限定する (角丸クリップ用 overflow-hidden に
+     空の縦帯が出るのを防ぐ)。scrollbar-gutter は縦 scrollbar の inline-end gutter に
+     のみ作用するため横スクロール utility は対象外。:where() で詳細度ゼロに保ち、
+     要素側の個別指定で上書き可能にする */
+  :where(.overflow-auto, .overflow-y-auto, .overflow-scroll, .overflow-y-scroll) {
+    scrollbar-gutter: stable;
   }
 }

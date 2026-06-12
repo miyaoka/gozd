@@ -16,7 +16,6 @@ MainLayout はこのコンポーネントを配置するだけでよい。
 import { useElementSize, useEventListener } from "@vueuse/core";
 import { computed, onUnmounted, useTemplateRef, watch } from "vue";
 import { useContextKeys } from "../../shared/command";
-import { useRepoStore } from "../../shared/repo";
 import { useWorktreeStore } from "../worktree";
 import { registerTerminalCommands } from "./registerTerminalCommands";
 import SplitResizeHandle from "./SplitResizeHandle.vue";
@@ -39,7 +38,6 @@ interface Props {
 const { minWidth } = defineProps<Props>();
 
 const worktreeStore = useWorktreeStore();
-const repoStore = useRepoStore();
 const terminalStore = useTerminalStore();
 const contextKeys = useContextKeys();
 const containerRef = useTemplateRef<HTMLElement>("container");
@@ -83,35 +81,6 @@ watch(
   },
   { immediate: true },
 );
-
-// --- ターミナル背景 ---
-
-/** 文字列から簡易ハッシュ値を生成する（djb2） */
-function hashString(str: string): number {
-  let hash = 5381;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash * 33) ^ str.charCodeAt(i);
-  }
-  return hash >>> 0;
-}
-
-/** ハッシュ値からパステル HSL 色を生成。hueOffset で類似色をずらす */
-function hashToColor(hash: number, hueOffset = 0): string {
-  const hue = ((hash % 360) + hueOffset) % 360;
-  const saturation = 20 + ((hash >>> 12) % 15);
-  const lightness = 60 + ((hash >>> 24) % 25);
-  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-}
-
-const HUE_OFFSET = 30;
-
-const paneBackground = computed(() => {
-  const name = repoStore.selectedRepoName ?? "gozd";
-  const hash = hashString(name);
-  const color1 = hashToColor(hash);
-  const color2 = hashToColor(hash, HUE_OFFSET);
-  return `linear-gradient(0deg, ${color1} 0%, ${color2} 100%)`;
-});
 
 // --- ターミナル Grid レイアウト ---
 // 全 worktree の全 leaf をフラットに1つの CSS Grid で管理する。
@@ -213,11 +182,10 @@ function handleRectStyle(rect: PixelRect): Record<string, string> {
 <template>
   <div
     ref="container"
-    class="relative grid min-w-0 flex-1 overflow-hidden p-2"
+    class="relative grid min-w-0 flex-1 overflow-hidden bg-background p-2"
     :style="{
       minWidth: `${minWidth}px`,
       gap: `${TILE_GAP}px`,
-      background: paneBackground,
       ...gridStyle,
     }"
   >

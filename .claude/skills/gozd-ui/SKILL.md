@@ -195,7 +195,7 @@ container は `focus-visible:` を使うと「キーボード focus のみ visua
 - spacing: `gap` / `padding` / `padding-left` / `margin`
 - grid: `grid-area` / `grid-template-rows` / `grid-template-columns`
 
-**(c) 動的計算色 (内部生成)**: id / 名前 hash から動的に生成される色 (例: TerminalPane の `hashToColor` で repo 名 → HSL pastel 色)、または有限固定 palette を runtime index で引く色 (例: `graphColors.ts` の `laneTextColor()` で lane index → 8 色 OKLCH literal)。`@theme` に固定 token として持てない per-identifier / per-index 動的値のため、`:style` または SVG element 上の `:fill` / `:stroke` に渡すのは許容。
+**(c) 動的計算色 (内部生成)**: id / 名前 hash から動的に生成される色、または有限固定 palette を runtime index で引く色 (例: `graphColors.ts` の `laneTextColor()` で lane index → 8 色 OKLCH literal)。`@theme` に固定 token として持てない per-identifier / per-index 動的値のため、`:style` または SVG element 上の `:fill` / `:stroke` に渡すのは許容。
 
 ## `class` は layout 専用
 

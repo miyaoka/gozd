@@ -12,8 +12,9 @@ main / sub を独立した 2 つの overlay に分け、terminal の右上に ma
 
 各 overlay の内側は「応答 (run)」単位で表示する。連続する同 kind の発言を 1 つの run と
 して束ね、user / assistant それぞれ最新 3 run を表示対象にする。各 run は最後の発言
-1 件で代表させ、最新の assistant run だけ末尾 3 件まで展開する (進行中の連続応答の流れを
-見せるため)。AskUserQuestion (`kind:"ask"` イベント) は `expandAskMessages` で
+1 件で代表させ、assistant が応答中 (ログ末尾の run が assistant) のときだけ、その run を
+末尾 3 件まで展開する (進行中の連続応答の流れを見せるため。user が最新なら応答は完結して
+いるので全 run を畳む)。AskUserQuestion (`kind:"ask"` イベント) は `expandAskMessages` で
 「質問 = assistant 発言」「回答 = user 発言」に inline 展開してから user / assistant のみを
 filter で残す (preview は会話テキストだけ見せたいので thinking / tool / image / branch
 ごと捨てる)。選択肢は parser 側で本来落とさないため、ここでは ask 展開の副作用ではなく
@@ -30,12 +31,29 @@ run 単位で kind ごとに件数を確保するため、assistant が連続応
 中間 span に逃がしている)。bubble が 0 件の overlay は非表示にし、両 overlay とも空なら
 何も描画しない。
 
-## sub の subagent ラベル
+## 折りたたみと高さ上限
 
-sub overlay の先頭に `subagentTabLabel` 由来の subagent ラベル (Task / workflow agent)
-を出し、どの subagent の発話なのかを明示する。ラベルは `<details><summary>` で
-括られており、native の open/close で bubble 群を折りたためる。状態は Vue 側に持たず
-`<details>` の `open` 属性が SSOT。
+main / sub とも `<details><summary>` で bubble 群を折りたためる。summary は main が
+固定ラベル "Main"、sub が `subagentTabLabel` 由来の subagent ラベル (Task / workflow
+agent。空文字フォールバックは "Subagent")。開閉状態は Vue 側 ref
+(`mainOpen` / `subOpen`) が SSOT。`open` 属性そのものを SSOT にすると v-if / subagent
+切替の unmount → mount で静的 `open` に戻ってしまうため、`:open` バインド + `@toggle`
+同期にしている。
+
+スクロール面は summary の外に出さず、details 内の wrapper div に閉じる (summary は
+スクロールせず、bubble と被らない)。details 自体にはスタイルを当てず、native の
+open/close と summary 表示制御だけに使う。wrapper の高さ上限は `max-h-[calc(50cqh-2rem)]`。
+% は details (block / auto 高) を跨いで伝播しないため、TerminalLeaf の relative コンテナを
+`container-type: size` にして cqh で leaf 高さを直接参照する。50cqh から 2rem を引くのは
+summary 高 (約 1.5rem) + 上下 inset 分の予算で、各 overlay 全体 (summary + wrapper) が
+leaf の 50% に収まる。main + sub が両方最大高でも合算が leaf を超えず、重ならない。
+wrapper の `flex-col-reverse` は
+単一子 (bubble 列) の並びには影響せず、scroll の初期位置と anchor を末尾 (最新発言)
+側に倒すための指定。wrapper は `pointer-events-auto` の通常の scroll container として
+振る舞い、bubble の隙間でも wheel は overlay のスクロールになる (`pointer-events-none`
+でヒットテストだけ透過させると、wheel の標準動作「target から最も近い scrollable
+ancestor をスクロール」がターミナルに向いてしまう)。root の余白 (padding) だけは
+従来どおり `pointer-events-none` でターミナルへ透過する。
 
 ## 全文 preview
 
@@ -59,11 +77,7 @@ DOM 構造は三段:
   border-box で clip され shadow がほぼ見えなくなる)
 - 中間 wrapper (`max-h-[60vh] overflow-auto rounded-md border border-border-strong shadow-xl`
   - kind 別 `bg-chat-incoming` / `bg-chat-outgoing`)
-    共通の「スクロール面 + 角丸 + border + shadow」と kind 別の bg を担う。bg を wrapper に
-    持たせるのは `apps/renderer/src/assets/main.css` の `::-webkit-scrollbar-track { background: transparent }`
-    と組み合わせるため。scrollbar gutter は WebKit の content-box 内側に描画されレイアウトを
-    消費するため、内側子要素に bg を持たせると gutter 帯だけ親の bg (透明) が透ける。scroll
-    container 自身に bg を持たせれば gutter ごと kind 色で塗られる。`overflow-auto` +
+    共通の「スクロール面 + 角丸 + border + shadow」と kind 別の bg を担う。`overflow-auto` +
     `border-radius` は CSS Backgrounds Module Level 3 §5.3 (Corner Clipping) で子の painting を
     clip するため、bg は角丸内に収まる
 - 内側 box (kind 別、bg は持たない)
@@ -197,9 +211,15 @@ function togglePreview(event: MouseEvent, msg: PreviewMessage, origin: "main" | 
   togglePreviewPopover(anchor, { msg, origin });
 }
 
-// sub overlay の折り畳み状態。`<details>` の `open` 属性を SSOT にすると subagent
-// 切替で <details> が unmount → mount される度に静的 `open` で展開状態に戻ってしまうため、
-// Vue 側 ref を SSOT にして `<details :open="subOpen">` でバインドし、`@toggle` で同期する。
+// 各 overlay の折り畳み状態。`<details>` の `open` 属性を SSOT にすると v-if /
+// subagent 切替で <details> が unmount → mount される度に静的 `open` で展開状態に
+// 戻ってしまうため、Vue 側 ref を SSOT にして `<details :open>` でバインドし、
+// `@toggle` で同期する。
+const mainOpen = ref(true);
+function onMainToggle(event: Event) {
+  if (!(event.target instanceof HTMLDetailsElement)) return;
+  mainOpen.value = event.target.open;
+}
 const subOpen = ref(true);
 function onSubToggle(event: Event) {
   if (!(event.target instanceof HTMLDetailsElement)) return;
@@ -217,67 +237,92 @@ const hasSub = computed(() => subMessages.value.length > 0);
        key に index を含めるのは、最新 assistant run の連続発言が同一 ts を持ち得るため -->
   <div
     v-if="hasMain"
-    class="pointer-events-none absolute top-1 right-3 z-10 flex w-56 max-w-[35%] flex-col gap-1 rounded-md bg-background/70 p-2 text-xs/tight"
+    class="pointer-events-none absolute top-1 right-3 z-10 w-56 max-w-[35%] overflow-hidden rounded-md bg-background/70 text-xs/tight"
   >
-    <div
-      v-for="(msg, i) in mainMessages"
-      :key="`${i}-${msg.kind}-${msg.ts}`"
-      class="flex min-w-0"
-      :class="msg.kind === 'user' ? 'justify-end' : ''"
-    >
-      <button
-        type="button"
-        class="pointer-events-auto block max-w-[85%] cursor-pointer rounded-lg px-2 py-1 text-left hover:brightness-110"
-        :class="
-          msg.kind === 'user'
-            ? 'bg-chat-outgoing text-chat-outgoing-text'
-            : 'bg-chat-incoming text-chat-incoming-text'
-        "
-        :title="msg.text"
-        @click="togglePreview($event, msg, 'main')"
+    <details :open="mainOpen" @toggle="onMainToggle">
+      <summary
+        class="pointer-events-auto cursor-pointer truncate bg-element-hover px-2 py-1 text-xs font-semibold text-foreground-low hover:bg-element-active [&::-webkit-details-marker]:hidden [&::marker]:hidden"
       >
-        <span class="line-clamp-2">{{ msg.text }}</span>
-      </button>
-    </div>
+        Main
+      </summary>
+      <!-- スクロール面は summary の外に出さず details 内の wrapper に閉じる (summary と
+           被らない)。高さ上限は % が details (block / auto 高) を跨いで伝播しないため、
+           leaf (TerminalLeaf の container-type: size) を参照する cqh で直接指定する。
+           flex-col-reverse は単一子 (bubble 列) の並びには影響せず、scroll 初期位置 /
+           anchor を末尾 (最新発言) に倒すための指定。wrapper は pointer-events-auto の
+           通常の scroll container (bubble の隙間でも wheel が overlay のスクロールに
+           なる)。root の余白だけが pointer-events-none でターミナルへ透過する -->
+      <div
+        class="pointer-events-auto flex max-h-[calc(50cqh-2rem)] flex-col-reverse overflow-y-auto p-2"
+      >
+        <div class="flex flex-col gap-1">
+          <div
+            v-for="(msg, i) in mainMessages"
+            :key="`${i}-${msg.kind}-${msg.ts}`"
+            class="flex min-w-0"
+            :class="msg.kind === 'user' ? 'justify-end' : ''"
+          >
+            <button
+              type="button"
+              class="block max-w-[85%] cursor-pointer rounded-lg px-2 py-1 text-left hover:brightness-110"
+              :class="
+                msg.kind === 'user'
+                  ? 'bg-chat-outgoing text-chat-outgoing-text'
+                  : 'bg-chat-incoming text-chat-incoming-text'
+              "
+              :title="msg.text"
+              @click="togglePreview($event, msg, 'main')"
+            >
+              <span class="line-clamp-2">{{ msg.text }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </details>
   </div>
 
-  <!-- sub: 右下。main と同じ LINE 風シーケンス。物理的距離で main との混在を回避する。
-       最上段に subagent ラベル (subagentTabLabel が組み立てた agent 名 / workflow 見出し)
-       を出し、どの subagent の発話なのかを明示する。 -->
+  <!-- sub: 右下。main と同じ LINE 風シーケンス + 同じ max-h スクロール / 折りたたみ構造。
+       物理的距離で main との混在を回避する。summary は subagentTabLabel が組み立てた
+       agent 名 / workflow 見出しで、どの subagent の発話なのかを明示する。 -->
   <div
     v-if="hasSub"
-    class="pointer-events-none absolute right-3 bottom-1 z-10 flex w-56 max-w-[35%] flex-col gap-1 rounded-md bg-background/70 p-2 text-xs/tight"
+    class="pointer-events-none absolute right-3 bottom-1 z-10 w-56 max-w-[35%] overflow-hidden rounded-md bg-background/70 text-xs/tight"
   >
     <details :open="subOpen" @toggle="onSubToggle">
       <summary
-        class="pointer-events-auto cursor-pointer truncate px-1 text-xs font-semibold text-foreground-low hover:text-foreground [&::-webkit-details-marker]:hidden [&::marker]:hidden"
+        class="pointer-events-auto cursor-pointer truncate bg-element-hover px-2 py-1 text-xs font-semibold text-foreground-low hover:bg-element-active [&::-webkit-details-marker]:hidden [&::marker]:hidden"
         :title="subLabel"
       >
         {{ subLabel }}
       </summary>
       <!-- bubble 用の内側コンテナ。details に直接 flex / gap を当てると WebKit で
            generated content の gap 計算が崩れる挙動があるため、details はネイティブの
-           open/close と summary 表示制御だけに使い、レイアウトは中の div に閉じる。 -->
-      <div class="flex flex-col gap-1 pt-1">
-        <div
-          v-for="(msg, i) in subMessages"
-          :key="`${i}-${msg.kind}-${msg.ts}`"
-          class="flex min-w-0"
-          :class="msg.kind === 'user' ? 'justify-end' : ''"
-        >
-          <button
-            type="button"
-            class="pointer-events-auto block max-w-[85%] cursor-pointer rounded-lg px-2 py-1 text-left hover:brightness-110"
-            :class="
-              msg.kind === 'user'
-                ? 'bg-chat-outgoing text-chat-outgoing-text'
-                : 'bg-chat-incoming text-chat-incoming-text'
-            "
-            :title="msg.text"
-            @click="togglePreview($event, msg, 'sub')"
+           open/close と summary 表示制御だけに使い、レイアウト / スクロールは中の div に
+           閉じる。wrapper の構造は main と同じ。 -->
+      <div
+        class="pointer-events-auto flex max-h-[calc(50cqh-2rem)] flex-col-reverse overflow-y-auto p-2"
+      >
+        <div class="flex flex-col gap-1">
+          <div
+            v-for="(msg, i) in subMessages"
+            :key="`${i}-${msg.kind}-${msg.ts}`"
+            class="flex min-w-0"
+            :class="msg.kind === 'user' ? 'justify-end' : ''"
           >
-            <span class="line-clamp-2">{{ msg.text }}</span>
-          </button>
+            <button
+              type="button"
+              class="block max-w-[85%] cursor-pointer rounded-lg px-2 py-1 text-left hover:brightness-110"
+              :class="
+                msg.kind === 'user'
+                  ? 'bg-chat-outgoing text-chat-outgoing-text'
+                  : 'bg-chat-incoming text-chat-incoming-text'
+              "
+              :title="msg.text"
+              @click="togglePreview($event, msg, 'sub')"
+            >
+              <span class="line-clamp-2">{{ msg.text }}</span>
+            </button>
+          </div>
         </div>
       </div>
     </details>

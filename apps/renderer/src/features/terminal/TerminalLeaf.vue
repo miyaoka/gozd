@@ -95,8 +95,11 @@ function handleTerminalBlur() {
 
 <template>
   <div class="min-h-0 min-w-0" :data-leaf-id="leafId">
+    <!-- container-type: size は TerminalSessionPreview のスクロール面 (max-h-[40cqh]) が
+         leaf 高さを参照するための query container 指定。size-full で寸法が親から確定して
+         いるため size containment による高さ collapse は起きない -->
     <div
-      class="relative size-full rounded-lg p-1 outline"
+      class="@container-size relative size-full rounded-lg p-1 outline"
       :style="{ backgroundColor: currentTheme.background }"
       :class="
         isFocused

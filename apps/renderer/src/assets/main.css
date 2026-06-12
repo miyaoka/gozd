@@ -33,7 +33,7 @@
  * Tier 1 (primitives, :root) は `@gozd/design-tokens` package で生成し、上の
  * @import で取り込む。本 file は consumer 側として:
  *   - Tier 2 (semantic aliases, @theme inline): role 名 utility を生成
- *   - Tier 3 (element defaults, @layer base): UA stylesheet 打ち消し / scrollbar
+ *   - Tier 3 (element defaults, @layer base): UA stylesheet 打ち消し
  *
  * @theme inline modifier は utility 値に var(--primitive) を直接展開するため、
  * 将来 light theme で primitive 側を override したとき自動 propagate する。
@@ -119,10 +119,6 @@
   /* intent: info (text-only、solid なし。primary と同 hue の text step を借用) */
   --color-info: var(--blue-11);
 
-  /* scrollbar (UA pseudo-element 専用、utility 化対象なし) */
-  --color-scrollbar-thumb: var(--gray-a6);
-  --color-scrollbar-thumb-hover: var(--gray-a8);
-
   /* chat (Tier 2 semantic alias): brand 固定 primitive (`:root` 配下) を `var()` で
      参照する。値の直書きは Tier 1 に集約し、Tier 2 は role 名のマッピングだけ持つ。 */
   --color-chat-incoming: var(--chat-incoming-primitive);
@@ -143,9 +139,8 @@
     overscroll-behavior: none;
   }
 
-  /* gozd は dark 固定 UI。UA に dark を宣言し、native scrollbar (scrollbar-width 指定で
-     ::-webkit-scrollbar が無効になる要素) や form control を dark バリアントで描画させる。
-     未宣言だと UA はライトページ扱いで暗背景に黒 thumb を出す */
+  /* gozd は dark 固定 UI。UA に dark を宣言し、native scrollbar や form control を
+     dark バリアントで描画させる。未宣言だと UA はライトページ扱いで暗背景に黒 thumb を出す */
   html {
     color-scheme: dark;
   }
@@ -175,22 +170,5 @@
     padding: 0;
     border: none;
     background: transparent;
-  }
-
-  /* overlay scrollbar (全要素適用、SessionLogTimeline の操作 bar と区別する
-     ため低 chroma + 白 alpha で固定) */
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: var(--color-scrollbar-thumb);
-    border-radius: 3px;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: var(--color-scrollbar-thumb-hover);
   }
 }

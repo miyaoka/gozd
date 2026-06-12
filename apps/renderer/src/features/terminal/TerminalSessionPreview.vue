@@ -44,8 +44,10 @@ agent。空文字フォールバックは "Subagent")。開閉状態は Vue 側 
 スクロールせず、bubble と被らない)。details 自体にはスタイルを当てず、native の
 open/close と summary 表示制御だけに使う。wrapper の高さ上限は `max-h-[40cqh]`
 (leaf 高さの 40%)。% は details (block / auto 高) を跨いで伝播しないため、TerminalLeaf
-の relative コンテナを `container-type: size` にして cqh で leaf 高さを直接参照する
-(main + sub 同時表示でも summary 込みで重ならない)。wrapper の `flex-col-reverse` は
+の relative コンテナを `container-type: size` にして cqh で leaf 高さを直接参照する。
+main + sub 同時表示時は合算 80cqh + summary / padding の固定分のため、縦分割で leaf が
+低いとき (概算 440px 未満) は両 overlay が重なりうる (視覚的な被りのみで、両者とも
+操作は可能)。wrapper の `flex-col-reverse` は
 単一子 (bubble 列) の並びには影響せず、scroll の初期位置と anchor を末尾 (最新発言)
 側に倒すための指定。wrapper は `pointer-events-auto` の通常の scroll container として
 振る舞い、bubble の隙間でも wheel は overlay のスクロールになる (`pointer-events-none`
@@ -75,11 +77,7 @@ DOM 構造は三段:
   border-box で clip され shadow がほぼ見えなくなる)
 - 中間 wrapper (`max-h-[60vh] overflow-auto rounded-md border border-border-strong shadow-xl`
   - kind 別 `bg-chat-incoming` / `bg-chat-outgoing`)
-    共通の「スクロール面 + 角丸 + border + shadow」と kind 別の bg を担う。bg を wrapper に
-    持たせるのは `apps/renderer/src/assets/main.css` の `::-webkit-scrollbar-track { background: transparent }`
-    と組み合わせるため。scrollbar gutter は WebKit の content-box 内側に描画されレイアウトを
-    消費するため、内側子要素に bg を持たせると gutter 帯だけ親の bg (透明) が透ける。scroll
-    container 自身に bg を持たせれば gutter ごと kind 色で塗られる。`overflow-auto` +
+    共通の「スクロール面 + 角丸 + border + shadow」と kind 別の bg を担う。`overflow-auto` +
     `border-radius` は CSS Backgrounds Module Level 3 §5.3 (Corner Clipping) で子の painting を
     clip するため、bg は角丸内に収まる
 - 内側 box (kind 別、bg は持たない)
@@ -254,15 +252,7 @@ const hasSub = computed(() => subMessages.value.length > 0);
            anchor を末尾 (最新発言) に倒すための指定。wrapper は pointer-events-auto の
            通常の scroll container (bubble の隙間でも wheel が overlay のスクロールに
            なる)。root の余白だけが pointer-events-none でターミナルへ透過する -->
-      <!-- scrollbar-width (CSS Scrollbars Level 1) はグローバルの ::-webkit-scrollbar
-           スタイルをこの要素だけ無効化する標準 override。legacy カスタムスクロールバーは
-           要素を classic scrollbar (レイアウト幅を消費) に強制するため、外して macOS
-           ネイティブの overlay scrollbar (幅消費ゼロ) に戻すことで出現時のガタつきを
-           構造的に消す。scrollbar-gutter は OS 設定「スクロールバーを常に表示」(classic
-           強制) のユーザー向けの幅予約 -->
-      <div
-        class="pointer-events-auto flex max-h-[40cqh] scrollbar-thin scrollbar-gutter-stable flex-col-reverse overflow-y-auto p-2"
-      >
+      <div class="pointer-events-auto flex max-h-[40cqh] flex-col-reverse overflow-y-auto p-2">
         <div class="flex flex-col gap-1">
           <div
             v-for="(msg, i) in mainMessages"
@@ -307,9 +297,7 @@ const hasSub = computed(() => subMessages.value.length > 0);
            generated content の gap 計算が崩れる挙動があるため、details はネイティブの
            open/close と summary 表示制御だけに使い、レイアウト / スクロールは中の div に
            閉じる。wrapper の構造は main と同じ。 -->
-      <div
-        class="pointer-events-auto flex max-h-[40cqh] scrollbar-thin scrollbar-gutter-stable flex-col-reverse overflow-y-auto p-2"
-      >
+      <div class="pointer-events-auto flex max-h-[40cqh] flex-col-reverse overflow-y-auto p-2">
         <div class="flex flex-col gap-1">
           <div
             v-for="(msg, i) in subMessages"

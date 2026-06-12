@@ -143,6 +143,13 @@
     overscroll-behavior: none;
   }
 
+  /* gozd は dark 固定 UI。UA に dark を宣言し、native scrollbar (scrollbar-width 指定で
+     ::-webkit-scrollbar が無効になる要素) や form control を dark バリアントで描画させる。
+     未宣言だと UA はライトページ扱いで暗背景に黒 thumb を出す */
+  html {
+    color-scheme: dark;
+  }
+
   body {
     @apply bg-background text-foreground;
   }

@@ -42,12 +42,12 @@ agent。空文字フォールバックは "Subagent")。開閉状態は Vue 側 
 
 スクロール面は summary の外に出さず、details 内の wrapper div に閉じる (summary は
 スクロールせず、bubble と被らない)。details 自体にはスタイルを当てず、native の
-open/close と summary 表示制御だけに使う。wrapper の高さ上限は `max-h-[40cqh]`
-(leaf 高さの 40%)。% は details (block / auto 高) を跨いで伝播しないため、TerminalLeaf
-の relative コンテナを `container-type: size` にして cqh で leaf 高さを直接参照する。
-main + sub 同時表示時は合算 80cqh + summary / padding の固定分のため、縦分割で leaf が
-低いとき (概算 440px 未満) は両 overlay が重なりうる (視覚的な被りのみで、両者とも
-操作は可能)。wrapper の `flex-col-reverse` は
+open/close と summary 表示制御だけに使う。wrapper の高さ上限は `max-h-[calc(50cqh-2rem)]`。
+% は details (block / auto 高) を跨いで伝播しないため、TerminalLeaf の relative コンテナを
+`container-type: size` にして cqh で leaf 高さを直接参照する。50cqh から 2rem を引くのは
+summary 高 (約 1.5rem) + 上下 inset 分の予算で、各 overlay 全体 (summary + wrapper) が
+leaf の 50% に収まる。main + sub が両方最大高でも合算が leaf を超えず、重ならない。
+wrapper の `flex-col-reverse` は
 単一子 (bubble 列) の並びには影響せず、scroll の初期位置と anchor を末尾 (最新発言)
 側に倒すための指定。wrapper は `pointer-events-auto` の通常の scroll container として
 振る舞い、bubble の隙間でも wheel は overlay のスクロールになる (`pointer-events-none`
@@ -252,7 +252,9 @@ const hasSub = computed(() => subMessages.value.length > 0);
            anchor を末尾 (最新発言) に倒すための指定。wrapper は pointer-events-auto の
            通常の scroll container (bubble の隙間でも wheel が overlay のスクロールに
            なる)。root の余白だけが pointer-events-none でターミナルへ透過する -->
-      <div class="pointer-events-auto flex max-h-[40cqh] flex-col-reverse overflow-y-auto p-2">
+      <div
+        class="pointer-events-auto flex max-h-[calc(50cqh-2rem)] flex-col-reverse overflow-y-auto p-2"
+      >
         <div class="flex flex-col gap-1">
           <div
             v-for="(msg, i) in mainMessages"
@@ -297,7 +299,9 @@ const hasSub = computed(() => subMessages.value.length > 0);
            generated content の gap 計算が崩れる挙動があるため、details はネイティブの
            open/close と summary 表示制御だけに使い、レイアウト / スクロールは中の div に
            閉じる。wrapper の構造は main と同じ。 -->
-      <div class="pointer-events-auto flex max-h-[40cqh] flex-col-reverse overflow-y-auto p-2">
+      <div
+        class="pointer-events-auto flex max-h-[calc(50cqh-2rem)] flex-col-reverse overflow-y-auto p-2"
+      >
         <div class="flex flex-col gap-1">
           <div
             v-for="(msg, i) in subMessages"

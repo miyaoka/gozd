@@ -21,7 +21,7 @@ function texts(input: PreviewEvent[]): string[] {
 }
 
 describe("collectMessages", () => {
-  test("代表例: 各 run は最終発言で代表し、最新 assistant run だけ末尾 3 件展開する", () => {
+  test("代表例: 各 run は最終発言で代表し、応答中の assistant run だけ末尾 3 件展開する", () => {
     const input = events(
       "u1",
       "a",
@@ -45,9 +45,14 @@ describe("collectMessages", () => {
     expect(texts([])).toEqual([]);
   });
 
-  test("最後が user run でも、途中にある最新 assistant run が展開される", () => {
+  test("最後が user run のとき、assistant run は展開せず 1 件代表に畳む", () => {
     const input = events("u1", "a", "a1-1", "a1-2", "u2");
-    expect(texts(input)).toEqual(["u1", "a", "a1-1", "a1-2", "u2"]);
+    expect(texts(input)).toEqual(["u1", "a1-2", "u2"]);
+  });
+
+  test("user が最新なら、直前の連続 assistant 応答も代表 1 件になる", () => {
+    const input = events("u1", "a1", "u2", "a2-1", "a2-2", "a2-3", "u3");
+    expect(texts(input)).toEqual(["u1", "a1", "u2", "a2-3", "u3"]);
   });
 
   test("空文字 event を挟んだ同 kind 連続は 1 run に束ねられる (run 分断しない)", () => {

@@ -25,8 +25,9 @@ interface PreviewRun {
 
 // 各 kind とも最新 3 run (= 3 応答分) を表示対象にする
 const RUNS_PER_KIND = 3;
-// 最新の assistant run だけ末尾 3 件まで展開する (進行中の連続応答の流れを見せる)。
-// それ以外の run は最後の 1 件で代表させる
+// assistant が応答中 (= ログ末尾の run が assistant) のときだけ、その run を末尾 3 件まで
+// 展開する (進行中の連続応答の流れを見せる)。user が最新なら応答は完結しているので
+// 全 run を最後の 1 件で代表させる
 const LATEST_ASSISTANT_RUN_MESSAGES = 3;
 
 export function collectMessages(events: PreviewEvent[]): PreviewMessage[] {
@@ -52,11 +53,12 @@ export function collectMessages(events: PreviewEvent[]): PreviewMessage[] {
 
   // runs は events 出現順なので、選んだ message をそのまま flatten すれば表示順になる。
   // ts="" / parse 不能 ts の event が混ざっても順序が崩れない (ts での sort はしない)
-  const lastAssistantRun = runs.findLast((r) => r.kind === "assistant");
+  const latestRun = runs[runs.length - 1];
+  const expandedRun = latestRun?.kind === "assistant" ? latestRun : undefined;
   const out: PreviewMessage[] = [];
   for (const run of runs) {
     if (!kept.has(run)) continue;
-    const take = run === lastAssistantRun ? LATEST_ASSISTANT_RUN_MESSAGES : 1;
+    const take = run === expandedRun ? LATEST_ASSISTANT_RUN_MESSAGES : 1;
     for (const m of run.messages.slice(-take)) {
       out.push({ kind: m.kind, text: m.text, ts: m.ts });
     }

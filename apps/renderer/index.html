@@ -2,10 +2,10 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <!-- viewport-fit=cover で WebKit が safe-area-inset-* を CSS env() に流す宣言を行う。
-         SwiftUI Window の Liquid Glass titlebar 高を WebView 内の
-         env(safe-area-inset-top) として読めるようにするための要件。 -->
-    <meta name="viewport" content="width=device-width, viewport-fit=cover" />
+    <!-- viewport-fit=cover は載せない。WebKit WebPage (macOS) は titlebar 高を
+         env(safe-area-inset-top) へ流さない (宣言しても常に 0、実測済み) ため、
+         renderer から titlebar 領域の reservation を取る構成は成立しない。 -->
+    <meta name="viewport" content="width=device-width" />
     <title>gozd</title>
   </head>
 

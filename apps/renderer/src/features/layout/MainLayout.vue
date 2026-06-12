@@ -202,12 +202,7 @@ watch(
 </script>
 
 <template>
-  <div class="_main-layout flex h-screen flex-col overflow-hidden bg-background text-foreground">
-    <!-- native titleBar は Liquid Glass の半透明 surface として WebView の上に乗る。
-         WebView は `ignoresSafeArea(.container, edges: .top)` で titlebar の下まで延びるため、
-         renderer 側で `env(safe-area-inset-top)` 分の padding を取って in-app コンテンツが
-         titlebar の真下に隠れないように reservation する。 -->
-
+  <div class="flex h-screen flex-col overflow-hidden bg-background text-foreground">
     <!-- 横3カラム: Sidebar | Center(Terminal + GitGraph) | Navigator -->
     <div class="flex min-h-0 flex-1 overflow-hidden">
       <div class="shrink-0 overflow-hidden" :style="{ width: `${sidebarWidth}px` }">
@@ -298,12 +293,6 @@ watch(
 </template>
 
 <style>
-._main-layout {
-  /* WebView は native titlebar (Liquid Glass) の下まで延びる。
-     titlebar 高さ分の reservation を取って in-app コンテンツが隠れないようにする。 */
-  padding-top: env(safe-area-inset-top);
-}
-
 ._preview-anchor {
   anchor-name: --preview-anchor;
 }

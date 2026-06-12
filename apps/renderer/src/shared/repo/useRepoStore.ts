@@ -116,7 +116,6 @@ export const useRepoStore = defineStore("repo", () => {
     return repos.value[dir];
   });
 
-  const selectedRepoName = computed(() => selectedRepo.value?.repoName);
   const selectedIsGitRepo = computed(() => selectedRepo.value?.isGitRepo ?? false);
   const selectedRootDir = computed(() => selectedRepo.value?.rootDir);
 
@@ -394,7 +393,6 @@ export const useRepoStore = defineStore("repo", () => {
     dirOrder,
     selectedDir,
     selectedRepo,
-    selectedRepoName,
     selectedIsGitRepo,
     selectedRootDir,
     fsWatchTargetDirs,

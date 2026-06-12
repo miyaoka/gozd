@@ -162,6 +162,7 @@ function onMenuClick(event: MouseEvent) {
       <span class="line-clamp-2 flex-1 text-sm break-all" :title="title">{{ title }}</span>
       <span class="text-[10px] text-foreground-muted tabular-nums">{{ relativeTime }}</span>
     </button>
+    <span v-if="stateKind === 'working'" class="_fx-progress-line" aria-hidden="true"></span>
     <button
       type="button"
       aria-label="Open task menu"

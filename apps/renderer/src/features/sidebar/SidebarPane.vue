@@ -211,9 +211,9 @@ const activeRootWorktree = computed(() => {
 </script>
 
 <template>
-  <div class="flex size-full flex-col">
+  <div class="_fx-sidebar-bg flex size-full flex-col">
     <!-- トップツールバー: view mode トグル + 編集モード -->
-    <div class="flex items-center justify-between border-b border-border-subtle px-2 py-1">
+    <div class="_fx-toolbar flex items-center justify-between px-2 py-1">
       <div class="flex gap-0.5">
         <button
           type="button"

@@ -1,6 +1,6 @@
 // Canvas 2D パーティクルエンジン。Vue 非依存の素の TS。
 //
-// rAF ループは「パーティクルが生きている間 + ambient 有効中」だけ回し、
+// rAF ループはパーティクルが生きている間だけ回し、
 // 完全に空になったら止める (idle 時の GPU/CPU 消費ゼロ)。
 //
 // 色は id/index で引く有限固定 palette (gozd-ui SKILL の inline binding 例外 (c))。
@@ -39,14 +39,6 @@ const CELEBRATE_PALETTE = [
 /** 警告バースト (アンバー系) */
 const ALERT_PALETTE = ["oklch(0.82 0.16 70)", "oklch(0.74 0.18 45)"];
 
-/** ambient で漂う塵 (淡いシアン) */
-const EMBER_PALETTE = ["oklch(0.8 0.08 230)", "oklch(0.75 0.06 200)", "oklch(0.85 0.04 270)"];
-
-/** ambient パーティクルの同時存在上限 */
-const EMBER_CAP = 50;
-/** ambient の発生間隔 (秒) */
-const EMBER_SPAWN_INTERVAL = 0.25;
-
 const TWO_PI = Math.PI * 2;
 
 function pick<T>(arr: T[]): T {
@@ -65,8 +57,6 @@ export interface ParticleEngine {
   celebrate: () => void;
   /** 警告バースト。画面右上から注意色の火花 */
   alertBurst: () => void;
-  /** ambient (漂う塵) の有効/無効 */
-  setAmbient: (on: boolean) => void;
   destroy: () => void;
 }
 
@@ -78,8 +68,6 @@ export function createParticleEngine(canvas: HTMLCanvasElement): ParticleEngine 
   let particles: Particle[] = [];
   let rafId: number | undefined;
   let lastTime = 0;
-  let ambient = false;
-  let emberTimer = 0;
   let destroyed = false;
 
   function syncSize() {
@@ -94,24 +82,6 @@ export function createParticleEngine(canvas: HTMLCanvasElement): ParticleEngine 
 
   function emit(p: Omit<Particle, "rotation" | "spin"> & Partial<Particle>) {
     particles.push({ rotation: rand(0, TWO_PI), spin: rand(-6, 6), ...p });
-  }
-
-  function spawnEmber() {
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
-    emit({
-      x: rand(0, w),
-      y: rand(h * 0.3, h + 10),
-      vx: rand(-6, 6),
-      vy: rand(-18, -6),
-      life: rand(5, 9),
-      maxLife: 8,
-      size: rand(1, 2.4),
-      color: pick(EMBER_PALETTE),
-      gravity: 0,
-      drag: 1,
-      shape: "dot",
-    });
   }
 
   function burst(x: number, y: number, count: number, palette: string[], speed: number) {
@@ -141,15 +111,6 @@ export function createParticleEngine(canvas: HTMLCanvasElement): ParticleEngine 
     lastTime = now;
     syncSize();
 
-    if (ambient) {
-      emberTimer += dt;
-      while (emberTimer > EMBER_SPAWN_INTERVAL) {
-        emberTimer -= EMBER_SPAWN_INTERVAL;
-        const emberCount = particles.filter((p) => p.gravity === 0).length;
-        if (emberCount < EMBER_CAP) spawnEmber();
-      }
-    }
-
     const dpr = window.devicePixelRatio;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
@@ -166,7 +127,7 @@ export function createParticleEngine(canvas: HTMLCanvasElement): ParticleEngine 
       p.rotation += p.spin * dt;
 
       const t = p.life / p.maxLife;
-      // フェードイン/アウト両対応の山形 alpha (ambient の塵がポップしないように)
+      // 出現直後と消滅間際を滑らかにする山形 alpha
       const alpha = Math.min(1, t * 4) * Math.min(1, (1 - t) * 6 + 0.4);
       ctx.fillStyle = p.color;
       if (p.shape === "rect") {
@@ -204,7 +165,7 @@ export function createParticleEngine(canvas: HTMLCanvasElement): ParticleEngine 
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = "source-over";
 
-    if (particles.length > 0 || ambient) schedule();
+    if (particles.length > 0) schedule();
   }
 
   function schedule() {
@@ -234,10 +195,6 @@ export function createParticleEngine(canvas: HTMLCanvasElement): ParticleEngine 
       const w = canvas.clientWidth;
       burst(rand(w * 0.4, w * 0.6), 40, 24, ALERT_PALETTE, 260);
       schedule();
-    },
-    setAmbient(on) {
-      ambient = on;
-      if (on) schedule();
     },
     destroy() {
       destroyed = true;

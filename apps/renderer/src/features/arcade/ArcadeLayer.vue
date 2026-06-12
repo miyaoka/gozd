@@ -1,6 +1,6 @@
 <doc lang="md">
 ゲームジュース層の全画面オーバーレイ。UI 最前面 (pointer-events: none) に
-パーティクル canvas / スキャンライン / ビネット / オーロラ / イベントフラッシュを重ねる。
+パーティクル canvas / ビネット / オーロラ / ネオンフレーム / イベントフラッシュを重ねる。
 
 ## 重ね順と操作透過
 
@@ -112,7 +112,6 @@ onMounted(() => {
   const canvas = canvasRef.value;
   if (canvas === null) return;
   engine = createParticleEngine(canvas);
-  engine?.setAmbient(true);
 });
 
 onUnmounted(() => {
@@ -125,8 +124,6 @@ onUnmounted(() => {
   <div class="pointer-events-none fixed inset-0" aria-hidden="true">
     <!-- ゆっくり漂う環境光 (additive blend で暗部だけ持ち上げる) -->
     <div class="_fx-aurora absolute inset-0"></div>
-    <!-- CRT 風スキャンライン (ごく薄く) -->
-    <div class="_fx-scanlines absolute inset-0"></div>
     <!-- 周辺減光で中央に視線を集める -->
     <div class="_fx-vignette absolute inset-0"></div>
     <!-- 常時表示のネオンフレーム (ウィンドウ全体を HUD で縁取る) -->
@@ -139,16 +136,6 @@ onUnmounted(() => {
 </template>
 
 <style>
-._fx-scanlines {
-  background: repeating-linear-gradient(
-    to bottom,
-    oklch(1 0 0 / 0.025) 0,
-    oklch(1 0 0 / 0.025) 1px,
-    transparent 1px,
-    transparent 3px
-  );
-}
-
 ._fx-vignette {
   background: radial-gradient(ellipse 120% 100% at 50% 45%, transparent 60%, oklch(0 0 0 / 0.3));
 }

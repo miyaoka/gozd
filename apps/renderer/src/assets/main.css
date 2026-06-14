@@ -25,6 +25,15 @@
   --chat-outgoing-primitive: oklch(0.78 0.2 135);
   --chat-outgoing-text-primitive: #000000;
   --chat-code-primitive: #c4b5fd;
+
+  /* arcade FX 装飾色 (ゲームジュース層の環境光メッシュ / オーロラ)。
+     Adobe Leonardo は gray + intent hues (blue/red/green/amber/orange) のみ生成し、
+     ここで使う violet / cyan / 中間 blue は intent に存在しない。演出専用の固定色で
+     theme 追従パイプラインに乗らないため brand-fixed primitive として隔離する (chat-* と同じ扱い)。
+     アルファは利用側で color-mix で適用し、primitive は不透明値を持つ。 */
+  --fx-aurora-blue-primitive: oklch(0.45 0.1 250);
+  --fx-mesh-violet-primitive: oklch(0.4 0.11 320);
+  --fx-mesh-cyan-primitive: oklch(0.32 0.06 200);
 }
 
 /* ---------------------------------------------------------------------------
@@ -127,6 +136,11 @@
   --color-chat-outgoing: var(--chat-outgoing-primitive);
   --color-chat-outgoing-text: var(--chat-outgoing-text-primitive);
   --color-chat-code: var(--chat-code-primitive);
+
+  /* arcade FX 装飾色 (brand-fixed primitive を参照する semantic alias) */
+  --color-fx-aurora-blue: var(--fx-aurora-blue-primitive);
+  --color-fx-mesh-violet: var(--fx-mesh-violet-primitive);
+  --color-fx-mesh-cyan: var(--fx-mesh-cyan-primitive);
 }
 
 @layer base {
@@ -189,4 +203,249 @@
   :where(.overflow-auto, .overflow-y-auto, .overflow-scroll, .overflow-y-scroll) {
     scrollbar-gutter: stable;
   }
+
+  /* ゲームジュース: ボタン押下の物理感。押した瞬間にわずかに沈む。
+     transition は付けない (離した瞬間に即復帰する方がゲーム的に歯切れが良い) */
+  button:active:not(:disabled) {
+    transform: scale(0.95);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * arcade FX (ゲームジュース層の共有クラス)
+ *
+ * ArcadeLayer (オーバーレイ) 以外のコンポーネントから使うグロー系演出。
+ * 色は semantic token (Tier 2) のみ参照する。
+ * ------------------------------------------------------------------------- */
+
+/* 状態アイコンのネオングロー (TaskRow / TerminalLeaf の Claude state) */
+._fx-glow-success {
+  filter: drop-shadow(0 0 4px var(--color-success));
+}
+
+._fx-glow-warning {
+  filter: drop-shadow(0 0 4px var(--color-warning));
+}
+
+._fx-glow-alert {
+  filter: drop-shadow(0 0 5px var(--color-warning-strong));
+}
+
+/* HUD 風セクションヘッダ。右に流れて消えるグラデーション下線を引く */
+._fx-hud-header {
+  position: relative;
+}
+
+._fx-hud-header::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 20%;
+  bottom: -3px;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    color-mix(in oklch, var(--color-primary) 65%, transparent),
+    transparent
+  );
+}
+
+/* ガラスのトップバー (sidebar toolbar)。パネルと同じ素材感で枠は下端のみ */
+._fx-toolbar {
+  background: color-mix(in srgb, var(--color-panel) 45%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  backdrop-filter: blur(12px) saturate(1.4);
+  border-bottom: 1px solid oklch(1 0 0 / 0.08);
+}
+
+/* フロストガラスパネル (モダンゲームメニューの定番)。
+   半透明面 + backdrop blur + 上端の光 + 深い影で奥行きを作る。
+   下に _fx-sidebar-bg の色彩メッシュが透けることで初めて「ガラス」に見える */
+._fx-panel {
+  background: color-mix(in srgb, var(--color-panel) 52%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.5);
+  backdrop-filter: blur(14px) saturate(1.5);
+  border: 1px solid oklch(1 0 0 / 0.08);
+  border-top-color: oklch(1 0 0 / 0.16);
+  box-shadow: 0 8px 24px oklch(0 0 0 / 0.4);
+}
+
+/* セクションバナー: 左から流れて消えるアクセントグラデーション */
+._fx-banner {
+  background: linear-gradient(
+    100deg,
+    color-mix(in oklch, var(--color-primary) 16%, transparent),
+    transparent 60%
+  );
+}
+
+/* hover でカードを斜めに走るシャインスイープ */
+._fx-shine {
+  position: relative;
+  overflow: hidden;
+}
+
+._fx-shine::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -75%;
+  width: 50%;
+  background: linear-gradient(105deg, transparent, oklch(1 0 0 / 0.09), transparent);
+  transform: skewX(-20deg);
+  transition: left 0.45s ease;
+  pointer-events: none;
+}
+
+._fx-shine:hover::after {
+  left: 125%;
+}
+
+/* 選択中カード: 左エッジの発光バー + 薄い primary 縁取り + ブルーム。
+   モダンゲームの「選択中スロット」表現 (回転枠のような装飾過多は避ける) */
+._fx-quest-active {
+  position: relative;
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  box-shadow:
+    0 0 22px color-mix(in oklch, var(--color-primary) 30%, transparent),
+    inset 0 0 0 1px color-mix(in oklch, var(--color-primary) 35%, transparent);
+}
+
+._fx-quest-active::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 14%;
+  bottom: 14%;
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(to bottom, transparent, var(--color-primary), transparent);
+  box-shadow: 0 0 10px var(--color-primary);
+  animation: fx-edge-pulse 2.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes fx-edge-pulse {
+  0%,
+  100% {
+    opacity: 0.65;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Claude 状態オーラ (worktree カード)。
+   box-shadow を ::after 擬似要素に逃がし、選択中表現 (_fx-quest-active 本体の
+   box-shadow) と同一プロパティを奪い合わないようにする。これで「選択中 かつ
+   working/asking/done」のカードでも、選択枠のブルーム + inset 縁取りと状態オーラが
+   別レイヤーとして両立する (単一要素の box-shadow に両者を載せると後勝ちで一方が消える)。 */
+._fx-aura-working,
+._fx-aura-asking,
+._fx-aura-done {
+  position: relative;
+}
+
+._fx-aura-working::after,
+._fx-aura-asking::after,
+._fx-aura-done::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+._fx-aura-working::after {
+  animation: fx-aura-breathe 2.2s ease-in-out infinite;
+}
+
+@keyframes fx-aura-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 8px color-mix(in oklch, var(--color-warning) 25%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 16px color-mix(in oklch, var(--color-warning) 50%, transparent);
+  }
+}
+
+._fx-aura-asking::after {
+  animation: fx-aura-blink 1.1s ease-in-out infinite;
+}
+
+@keyframes fx-aura-blink {
+  0%,
+  100% {
+    box-shadow: 0 0 18px color-mix(in oklch, var(--color-warning-strong) 60%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 6px color-mix(in oklch, var(--color-warning-strong) 20%, transparent);
+  }
+}
+
+._fx-aura-done::after {
+  box-shadow: 0 0 14px color-mix(in oklch, var(--color-success) 40%, transparent);
+}
+
+/* working 中の task 行下端を走るスキャンライン (indeterminate progress) */
+._fx-progress-line {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: 1px;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+._fx-progress-line::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30%;
+  border-radius: 1px;
+  background: linear-gradient(to right, transparent, var(--color-warning), transparent);
+  animation: fx-scan 1.2s linear infinite;
+}
+
+@keyframes fx-scan {
+  from {
+    left: -30%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+/* HUD のデジタル読み出し (時計等)。primary で淡く発光させる */
+._fx-hud-readout {
+  color: var(--color-primary-text);
+  text-shadow: 0 0 6px color-mix(in oklch, var(--color-primary) 60%, transparent);
+}
+
+/* サイドバー背景: 色彩メッシュ (ガラスパネルの下に透ける光源)。
+   右上に primary、左下に紫の大きなソフトグラデーションを置き、
+   その上のフロストガラスが「何かをぼかしている」状態を作る */
+._fx-sidebar-bg {
+  background:
+    radial-gradient(
+      140% 80% at 110% -10%,
+      color-mix(in oklch, var(--color-primary) 28%, transparent),
+      transparent 55%
+    ),
+    radial-gradient(
+      120% 70% at -20% 115%,
+      color-mix(in oklch, var(--color-fx-mesh-violet) 45%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      80% 50% at 50% 50%,
+      color-mix(in oklch, var(--color-fx-mesh-cyan) 25%, transparent),
+      transparent 70%
+    ),
+    var(--color-background);
 }

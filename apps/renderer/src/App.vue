@@ -5,6 +5,7 @@
 </doc>
 
 <script setup lang="ts">
+import { ArcadeLayer } from "./features/arcade";
 import { useFsWatchSync } from "./features/filer";
 import {
   MainLayout,
@@ -29,4 +30,5 @@ useTitleContextSync();
 
 <template>
   <MainLayout />
+  <ArcadeLayer />
 </template>

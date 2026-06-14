@@ -23,6 +23,20 @@ let nextId = 0;
 const notifications = ref<Notification[]>([]);
 const timers = new Map<number, ReturnType<typeof setTimeout>>();
 
+/**
+ * 最後に発火した通知イベント。`add()` のたびに (重複抑制で toast を追加しなかった場合も)
+ * 更新される。purpose は「toast の表示有無」ではなく「通知の発生そのもの」を観測したい
+ * 購読者向け (例: arcade の error 演出)。`notifications` の length / 配列内容は重複抑制で
+ * 動かないことがあるため、発生イベントはこの専用シグナルで配る。seq で同一 type の連続発火も
+ * 区別できるようにする。
+ */
+interface NotifyEvent {
+  type: Notification["type"];
+  seq: number;
+}
+let eventSeq = 0;
+const lastEvent = ref<NotifyEvent | undefined>(undefined);
+
 const CONSOLE_BY_TYPE = {
   error: console.error,
   info: console.info,
@@ -34,6 +48,9 @@ const CONSOLE_BY_TYPE = {
  */
 function add(type: Notification["type"], message: string, cause?: unknown) {
   CONSOLE_BY_TYPE[type](message, ...(cause !== undefined ? [cause] : []));
+
+  // 発生イベントは toast の表示有無と独立に毎回配る (重複抑制で toast を足さない場合も含む)
+  lastEvent.value = { type, seq: ++eventSeq };
 
   const duplicate = notifications.value.find((n) => n.type === type && n.message === message);
   if (duplicate) {
@@ -72,6 +89,7 @@ function debug(message: string, payload?: unknown) {
 export function useNotificationStore() {
   return {
     notifications,
+    lastEvent,
     error: (message: string, cause?: unknown) => add("error", message, cause),
     info: (message: string, cause?: unknown) => add("info", message, cause),
     debug,

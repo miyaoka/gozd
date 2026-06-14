@@ -30,9 +30,11 @@ import { move } from "@dnd-kit/helpers";
 import { DragDropProvider } from "@dnd-kit/vue";
 import type { Task, WorktreeEntry } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
+import { storeToRefs } from "pinia";
 import { computed, ref } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
+import { useArcadeStore } from "../arcade";
 import { rpcPickAndOpen } from "../layout";
 import { SessionLogDialog } from "../session-log";
 import { useTerminalStore } from "../terminal";
@@ -55,11 +57,16 @@ import IconLucideCheck from "~icons/lucide/check";
 import IconLucideMonitor from "~icons/lucide/monitor";
 import IconLucidePencil from "~icons/lucide/pencil";
 import IconLucidePlus from "~icons/lucide/plus";
+import IconLucideVolume2 from "~icons/lucide/volume-2";
+import IconLucideVolumeOff from "~icons/lucide/volume-off";
 
 const repoStore = useRepoStore();
 const worktreeStore = useWorktreeStore();
 const terminalStore = useTerminalStore();
 const notify = useNotificationStore();
+const arcadeStore = useArcadeStore();
+const { sfxEnabled } = storeToRefs(arcadeStore);
+const { toggleSfx } = arcadeStore;
 
 // useSidebarData の onMounted で全 repo の fetch / FsWatch / title sync が起動する。
 // 戻り値は現状外側で使わないので呼び捨てる。
@@ -207,9 +214,9 @@ const activeRootWorktree = computed(() => {
 </script>
 
 <template>
-  <div class="flex size-full flex-col">
+  <div class="_fx-sidebar-bg flex size-full flex-col">
     <!-- トップツールバー: view mode トグル + 編集モード -->
-    <div class="flex items-center justify-between border-b border-border-subtle px-2 py-1">
+    <div class="_fx-toolbar flex items-center justify-between px-2 py-1">
       <div class="flex gap-0.5">
         <button
           type="button"
@@ -237,6 +244,16 @@ const activeRootWorktree = computed(() => {
       </div>
       <div class="flex items-center gap-2">
         <SidebarClock />
+        <button
+          type="button"
+          :aria-pressed="sfxEnabled"
+          aria-label="Sound effects"
+          :title="sfxEnabled ? 'Mute sound effects' : 'Enable sound effects'"
+          class="grid size-7 place-items-center rounded-sm text-foreground-low transition-colors hover:bg-panel hover:text-foreground"
+          @click="toggleSfx"
+        >
+          <component :is="sfxEnabled ? IconLucideVolume2 : IconLucideVolumeOff" class="text-base" />
+        </button>
         <button
           type="button"
           :aria-label="editMode ? 'Exit edit mode' : 'Edit repositories'"

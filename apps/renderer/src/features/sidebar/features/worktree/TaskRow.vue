@@ -58,18 +58,18 @@ const STATE_VISUAL: Record<
 > = {
   asking: {
     ...CLAUDE_STATE_ICON.asking,
-    color: "text-warning-strong-text",
+    color: "text-warning-strong-text _fx-glow-alert",
     animate: "animate-pulse",
     ariaLabel: "Awaiting permission",
   },
   working: {
     ...CLAUDE_STATE_ICON.working,
-    color: "text-warning-text",
+    color: "text-warning-text _fx-glow-warning",
     ariaLabel: "Working",
   },
   done: {
     ...CLAUDE_STATE_ICON.done,
-    color: "text-success-text",
+    color: "text-success-text _fx-glow-success",
     ariaLabel: "Done",
   },
   idle: {
@@ -162,6 +162,7 @@ function onMenuClick(event: MouseEvent) {
       <span class="line-clamp-2 flex-1 text-sm break-all" :title="title">{{ title }}</span>
       <span class="text-[10px] text-foreground-muted tabular-nums">{{ relativeTime }}</span>
     </button>
+    <span v-if="stateKind === 'working'" class="_fx-progress-line" aria-hidden="true"></span>
     <button
       type="button"
       aria-label="Open task menu"

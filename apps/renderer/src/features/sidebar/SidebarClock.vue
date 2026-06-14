@@ -70,6 +70,8 @@ const hourAngle = computed(() => (now.value.getHours() % 12) * 30 + now.value.ge
         :transform="`rotate(${minuteAngle})`"
       />
     </svg>
-    <span class="font-sans text-xs tabular-nums" aria-label="Current time">{{ display }}</span>
+    <span class="_fx-hud-readout font-mono text-xs tabular-nums" aria-label="Current time">{{
+      display
+    }}</span>
   </div>
 </template>

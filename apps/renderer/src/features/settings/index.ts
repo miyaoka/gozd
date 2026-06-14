@@ -2,7 +2,7 @@ export {
   rpcLoadAppConfig,
   rpcProjectConfigLoad,
   rpcProjectConfigSave,
-  rpcSaveAppConfig,
+  updateAppConfig,
 } from "./rpc";
 export { default as SettingsModal } from "./SettingsModal.vue";
 export { registerSettingsCommand } from "./useSettingsModal";

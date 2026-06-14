@@ -26,8 +26,8 @@ import type { Task, WorktreeEntry } from "@gozd/proto";
 import { computed, useTemplateRef } from "vue";
 import { useRepoStore } from "../../../../shared/repo";
 import { WtCard } from "../worktree";
-import IconLucideFolder from "~icons/lucide/folder";
-import IconLucideFolderOpen from "~icons/lucide/folder-open";
+import RepoEmblem from "./RepoEmblem.vue";
+import IconLucideChevronDown from "~icons/lucide/chevron-down";
 import IconLucideLoaderCircle from "~icons/lucide/loader-circle";
 import IconLucidePlus from "~icons/lucide/plus";
 import IconLucideX from "~icons/lucide/x";
@@ -90,10 +90,10 @@ function onHeaderClick() {
 </script>
 
 <template>
-  <section ref="section" class="flex flex-col gap-2 rounded-lg p-2">
+  <section ref="section" class="_fx-panel mx-1 mb-2 flex flex-col gap-2 rounded-lg p-2">
     <header
-      class="group/repo flex items-center gap-2 rounded-lg text-foreground"
-      :class="editMode ? '' : 'cursor-pointer hover:bg-element-hover'"
+      class="_fx-hud-header _fx-banner _fx-shine group/repo flex items-center gap-2 rounded-md px-1.5 py-1 text-foreground"
+      :class="editMode ? '' : 'cursor-pointer'"
       :role="editMode ? undefined : 'button'"
       :aria-label="editMode ? undefined : visiblyCollapsed ? 'Expand' : 'Collapse'"
       :aria-expanded="editMode ? undefined : !visiblyCollapsed"
@@ -105,13 +105,14 @@ function onHeaderClick() {
         :class="editMode && 'cursor-grab active:cursor-grabbing'"
         :title="rootDir"
       >
-        <component
-          :is="visiblyCollapsed ? IconLucideFolder : IconLucideFolderOpen"
-          class="size-5 shrink-0"
-        />
-        <span class="min-w-0 flex-1 truncate text-sm font-semibold">
+        <RepoEmblem :name="repoName" />
+        <span class="min-w-0 flex-1 truncate text-sm font-semibold tracking-wide">
           {{ repoName }}
         </span>
+        <IconLucideChevronDown
+          class="size-3.5 shrink-0 text-foreground-muted transition-transform"
+          :class="visiblyCollapsed && '-rotate-90'"
+        />
       </div>
       <button
         v-if="editMode"
@@ -140,7 +141,7 @@ function onHeaderClick() {
       />
       <button
         type="button"
-        class="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border px-2 py-1.5 text-xs text-foreground-low transition-colors hover:border-border-strong hover:bg-element-hover hover:text-foreground disabled:cursor-not-allowed disabled:text-foreground-muted disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-foreground-muted"
+        class="_fx-shine flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border px-2 py-1.5 text-xs tracking-widest text-foreground-low uppercase transition-colors hover:border-primary hover:bg-primary-subtle hover:text-primary-text disabled:cursor-not-allowed disabled:text-foreground-muted disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-foreground-muted"
         :disabled="isCreating"
         @click="emit('addWorktree', rootDir)"
       >

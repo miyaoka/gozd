@@ -277,7 +277,9 @@ zsh 起動
 
 Claude セッションの sessionId は専用ストアを持たず `tasks.json` の `task.session_id` を SSOT とする。worktree の resume 復元（`rpcResumableSessionList`）も tasks.json から `sessionId != "" && !closedByUser` を引いて導出する（[workspace.md](workspace.md)）。
 
-`AppStateStore` / `AppConfigStore` / `ProjectConfigStore` の load は `JSONDecodingOptions.ignoreUnknownFields = true` を有効にして forward/backward compat を確保する。save は raw dict と shallow merge して未知の top-level キーを落とさない。
+`AppStateStore` / `AppConfigStore` / `ProjectConfigStore` の load は `JSONDecodingOptions.ignoreUnknownFields = true` を有効にし、将来バージョンが増やしたフィールドを含む JSON を旧 binary が読んでも parse 失敗させない。
+
+save の未知 top-level キーの扱いはストアで分かれる。`AppStateStore` のみ、既存ファイルを raw dict として読み新 state と shallow merge して未知 top-level キーを保持する（`knownTopLevelKeys` を merge 前に落とすことで、proto3 JSON が空 repeated / default scalar を省略する性質による「最後の repo を消したのに古い `sidebarRepos` が残る」事故を防ぐ）。dev/stable や複数バージョン同時起動で、別バージョンが書いた top-level キーを上書き save で落とさない要件があるため。一方 `AppConfigStore` / `ProjectConfigStore` は proto message を `jsonString()` で丸ごと書き、未知 top-level キーは保持しない。
 
 `TaskStore` (`tasks.json`) の load は parse 失敗時に **空オブジェクトで上書き save** する。永続データに後方互換を作らない (CLAUDE.md 規約) ため、proto schema 進化で旧 JSON が parse 失敗した場合は新規初期化が期待挙動。加えて取得経路上、これは主データ (例: `git worktree list`) を JOIN する立場にあり、load 経路から throw が伝播すると主データ取得経路を巻き込むため、空オブジェクトに倒す。stderr に reinitialized ログを残して観察可能性を確保する。
 

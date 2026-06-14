@@ -13,8 +13,8 @@ catalogs:
       specifier: 1.3.14
       version: 1.3.14
     '@types/node':
-      specifier: 24.13.1
-      version: 24.13.1
+      specifier: 24.13.2
+      version: 24.13.2
     '@typescript-eslint/parser':
       specifier: 8.60.1
       version: 8.60.1
@@ -58,7 +58,7 @@ importers:
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
-        version: 24.13.1
+        version: 24.13.2
       concurrently:
         specifier: 10.0.3
         version: 10.0.3
@@ -214,7 +214,7 @@ importers:
         version: 3.1.2
       '@types/node':
         specifier: 'catalog:'
-        version: 24.13.1
+        version: 24.13.2
       '@typescript/native-preview':
         specifier: 'catalog:'
         version: 7.0.0-dev.20260610.1
@@ -238,7 +238,7 @@ importers:
         version: 1.3.14
       '@types/node':
         specifier: 'catalog:'
-        version: 24.13.1
+        version: 24.13.2
       '@typescript-eslint/parser':
         specifier: 'catalog:'
         version: 8.60.1(eslint@10.4.1(jiti@2.7.0))(typescript@6.0.3)
@@ -274,7 +274,7 @@ importers:
         version: 1.3.14
       '@types/node':
         specifier: 'catalog:'
-        version: 24.13.1
+        version: 24.13.2
       '@typescript/native-preview':
         specifier: 'catalog:'
         version: 7.0.0-dev.20260610.1
@@ -295,7 +295,7 @@ importers:
         version: 1.3.14
       '@types/node':
         specifier: 'catalog:'
-        version: 24.13.1
+        version: 24.13.2
       '@typescript/native-preview':
         specifier: 'catalog:'
         version: 7.0.0-dev.20260610.1
@@ -316,7 +316,7 @@ importers:
         version: 1.3.14
       '@types/node':
         specifier: 'catalog:'
-        version: 24.13.1
+        version: 24.13.2
       '@typescript/native-preview':
         specifier: 'catalog:'
         version: 7.0.0-dev.20260610.1
@@ -343,7 +343,7 @@ importers:
         version: 1.3.14
       '@types/node':
         specifier: 'catalog:'
-        version: 24.13.1
+        version: 24.13.2
       '@typescript/native-preview':
         specifier: 'catalog:'
         version: 7.0.0-dev.20260610.1
@@ -1289,8 +1289,8 @@ packages:
   '@types/mdast@4.0.4':
     resolution: {integrity: sha512-kGaNbPh1k7AFzgpud/gMdvIm5xuECykRR+JnWKQno9TAXVa6WIVCGTPvYGekIDL4uwCZQSYbUxNBSb1aUo79oA==}
 
-  '@types/node@24.13.1':
-    resolution: {integrity: sha512-RSpUJGmvsJ1ZeBehQZFhIdpsz+bIpES0nIQXko4Ybq+N+kX6XvOq3Jo+iJ82FWLdblFq85AsMikd3m35jgezYg==}
+  '@types/node@24.13.2':
+    resolution: {integrity: sha512-fRa09kZTgu8o71KFcDjUFuc7F+dEbZYZmkI0mg5YBTRs0yMKjYHsq/c0urDKeDb+D5qVgXOdFcuu+DZPKOITwA==}
 
   '@types/node@25.9.1':
     resolution: {integrity: sha512-xfrlY7UD5rMJk3ZVJP8BNzS28J36YJg+xp+LPXV1TdWxr8uMH5A860QNxYDGQe/ylDSgjxE52Q9VnO7p75tJxg==}
@@ -3510,7 +3510,7 @@ snapshots:
     dependencies:
       '@types/unist': 3.0.3
 
-  '@types/node@24.13.1':
+  '@types/node@24.13.2':
     dependencies:
       undici-types: 7.18.2
 

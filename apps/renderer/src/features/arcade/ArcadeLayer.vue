@@ -169,7 +169,7 @@ onUnmounted(() => {
   );
   top: -20%;
   left: -10%;
-  animation: _fx-drift-a 26s ease-in-out infinite alternate;
+  animation: fx-drift-a 26s ease-in-out infinite alternate;
 }
 
 ._fx-aurora::after {
@@ -180,10 +180,10 @@ onUnmounted(() => {
   );
   bottom: -25%;
   right: -10%;
-  animation: _fx-drift-b 34s ease-in-out infinite alternate;
+  animation: fx-drift-b 34s ease-in-out infinite alternate;
 }
 
-@keyframes _fx-drift-a {
+@keyframes fx-drift-a {
   from {
     transform: translate(0, 0) scale(1);
   }
@@ -192,7 +192,7 @@ onUnmounted(() => {
   }
 }
 
-@keyframes _fx-drift-b {
+@keyframes fx-drift-b {
   from {
     transform: translate(0, 0) scale(1.2);
   }
@@ -203,7 +203,7 @@ onUnmounted(() => {
 
 /* イベント発生時に画面端を発光させるフラッシュ。色は data-kind で切り替える */
 ._fx-flash {
-  animation: _fx-flash-fade 0.7s ease-out forwards;
+  animation: fx-flash-fade 0.7s ease-out forwards;
 }
 
 ._fx-flash[data-kind="success"] {
@@ -218,7 +218,7 @@ onUnmounted(() => {
   box-shadow: inset 0 0 120px 10px var(--color-destructive);
 }
 
-@keyframes _fx-flash-fade {
+@keyframes fx-flash-fade {
   from {
     opacity: 0.8;
   }

@@ -246,7 +246,8 @@ const activeRootWorktree = computed(() => {
         <SidebarClock />
         <button
           type="button"
-          :aria-label="sfxEnabled ? 'Mute sound effects' : 'Enable sound effects'"
+          :aria-pressed="sfxEnabled"
+          aria-label="Sound effects"
           :title="sfxEnabled ? 'Mute sound effects' : 'Enable sound effects'"
           class="grid size-7 place-items-center rounded-sm text-foreground-low transition-colors hover:bg-panel hover:text-foreground"
           @click="toggleSfx"

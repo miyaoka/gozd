@@ -322,11 +322,11 @@
   border-radius: 2px;
   background: linear-gradient(to bottom, transparent, var(--color-primary), transparent);
   box-shadow: 0 0 10px var(--color-primary);
-  animation: _fx-edge-pulse 2.4s ease-in-out infinite;
+  animation: fx-edge-pulse 2.4s ease-in-out infinite;
   pointer-events: none;
 }
 
-@keyframes _fx-edge-pulse {
+@keyframes fx-edge-pulse {
   0%,
   100% {
     opacity: 0.65;
@@ -358,10 +358,10 @@
 }
 
 ._fx-aura-working::after {
-  animation: _fx-aura-breathe 2.2s ease-in-out infinite;
+  animation: fx-aura-breathe 2.2s ease-in-out infinite;
 }
 
-@keyframes _fx-aura-breathe {
+@keyframes fx-aura-breathe {
   0%,
   100% {
     box-shadow: 0 0 8px color-mix(in oklch, var(--color-warning) 25%, transparent);
@@ -372,10 +372,10 @@
 }
 
 ._fx-aura-asking::after {
-  animation: _fx-aura-blink 1.1s ease-in-out infinite;
+  animation: fx-aura-blink 1.1s ease-in-out infinite;
 }
 
-@keyframes _fx-aura-blink {
+@keyframes fx-aura-blink {
   0%,
   100% {
     box-shadow: 0 0 18px color-mix(in oklch, var(--color-warning-strong) 60%, transparent);
@@ -409,10 +409,10 @@
   width: 30%;
   border-radius: 1px;
   background: linear-gradient(to right, transparent, var(--color-warning), transparent);
-  animation: _fx-scan 1.2s linear infinite;
+  animation: fx-scan 1.2s linear infinite;
 }
 
-@keyframes _fx-scan {
+@keyframes fx-scan {
   from {
     left: -30%;
   }

@@ -1,4 +1,4 @@
-import type { VoicevoxSpeaker } from "@gozd/proto";
+import { AppConfig, type VoicevoxSpeaker } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, readonly, ref, shallowRef, watch } from "vue";
@@ -253,12 +253,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
   async function saveSettings() {
     const loadResult = await tryCatch(rpcLoadAppConfig());
     if (!loadResult.ok) return;
-    const config = loadResult.value.config ?? {
-      terminal: undefined,
-      preview: undefined,
-      voicevox: undefined,
-      arcade: undefined,
-    };
+    const config = loadResult.value.config ?? AppConfig.create();
     config.voicevox = {
       enabled: enabled.value,
       speedScale: speedScale.value,

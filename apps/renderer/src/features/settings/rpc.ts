@@ -105,12 +105,7 @@ function applyDotKey(config: AppConfig, key: string, value: unknown): void {
 /** flat な patch を load → mutate → save の RMW で AppConfig に書き込む */
 export async function patchAppConfig(patch: Record<string, unknown>): Promise<void> {
   const loaded = await rpcLoadAppConfig();
-  const config: AppConfig = loaded.config ?? {
-    terminal: undefined,
-    preview: undefined,
-    voicevox: undefined,
-    arcade: undefined,
-  };
+  const config: AppConfig = loaded.config ?? AppConfig.create();
   for (const [key, value] of Object.entries(patch)) {
     applyDotKey(config, key, value);
   }

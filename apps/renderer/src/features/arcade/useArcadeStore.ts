@@ -5,6 +5,7 @@
 // gozd の「renderer 永続化は native RPC 経由」規約 (architecture.md) に従い localStorage は使わない。
 // 保存形は VOICEVOX 設定と同じ read-modify-write (自セクションのみ更新し他を壊さない)。
 
+import { AppConfig } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { ref, watch } from "vue";
@@ -27,12 +28,7 @@ export const useArcadeStore = defineStore("arcade", () => {
   async function save() {
     const loadResult = await tryCatch(rpcLoadAppConfig());
     if (!loadResult.ok) return;
-    const config = loadResult.value.config ?? {
-      terminal: undefined,
-      preview: undefined,
-      voicevox: undefined,
-      arcade: undefined,
-    };
+    const config = loadResult.value.config ?? AppConfig.create();
     config.arcade = { sfxEnabled: sfxEnabled.value };
     void tryCatch(rpcSaveAppConfig(config));
   }

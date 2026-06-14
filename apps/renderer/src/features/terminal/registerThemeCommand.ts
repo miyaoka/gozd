@@ -4,7 +4,7 @@
  * テーマ名のフォーカスでリアルタイムプレビュー、Enter で確定保存、Escape でロールバックする。
  */
 
-import type { AppConfig } from "@gozd/proto";
+import { AppConfig } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { darkThemeNames, lightThemeNames, loadTheme } from "@gozd/themes";
 import { useCommandRegistry } from "../../shared/command";
@@ -95,12 +95,7 @@ async function restoreSavedConfig(): Promise<void> {
 async function saveTerminalTheme(themeName: string): Promise<void> {
   const loadResult = await tryCatch(rpcLoadAppConfig());
   if (!loadResult.ok) return;
-  const config: AppConfig = loadResult.value.config ?? {
-    terminal: undefined,
-    preview: undefined,
-    voicevox: undefined,
-    arcade: undefined,
-  };
+  const config: AppConfig = loadResult.value.config ?? AppConfig.create();
   config.terminal = {
     theme: themeName,
     fontFamily: config.terminal?.fontFamily ?? "",

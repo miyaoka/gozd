@@ -16,6 +16,7 @@ message AppConfig {
   TerminalConfig terminal = 1;
   PreviewConfig preview = 2;
   VoicevoxConfig voicevox = 3;
+  ArcadeConfig arcade = 4;
 }
 
 message TerminalConfig {
@@ -43,6 +44,12 @@ message VoicevoxConfig {
   // 未設定なら renderer 側 default にフォールバック。
   // VOICEVOX の正規 style ID 0 (四国めたん あまあま) と未設定を区別するため optional で wrap する。
   optional uint32 speaker_id = 4;
+}
+
+message ArcadeConfig {
+  // ゲームジュース層の効果音 ON/OFF。未設定 (初インストール) と明示 false (ユーザーが
+  // ミュート) を区別するため optional で wrap する。未設定なら renderer 側 default (ON) に倒す。
+  optional bool sfx_enabled = 1;
 }
 
 message LoadAppConfigRequest {}

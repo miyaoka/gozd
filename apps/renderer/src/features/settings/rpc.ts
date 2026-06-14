@@ -109,6 +109,7 @@ export async function patchAppConfig(patch: Record<string, unknown>): Promise<vo
     terminal: undefined,
     preview: undefined,
     voicevox: undefined,
+    arcade: undefined,
   };
   for (const [key, value] of Object.entries(patch)) {
     applyDotKey(config, key, value);

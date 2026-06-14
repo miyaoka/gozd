@@ -30,6 +30,7 @@ import { move } from "@dnd-kit/helpers";
 import { DragDropProvider } from "@dnd-kit/vue";
 import type { Task, WorktreeEntry } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
+import { storeToRefs } from "pinia";
 import { computed, ref } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
@@ -63,7 +64,9 @@ const repoStore = useRepoStore();
 const worktreeStore = useWorktreeStore();
 const terminalStore = useTerminalStore();
 const notify = useNotificationStore();
-const { sfxEnabled, toggleSfx } = useArcadeStore();
+const arcadeStore = useArcadeStore();
+const { sfxEnabled } = storeToRefs(arcadeStore);
+const { toggleSfx } = arcadeStore;
 
 // useSidebarData の onMounted で全 repo の fetch / FsWatch / title sync が起動する。
 // 戻り値は現状外側で使わないので呼び捨てる。

@@ -39,8 +39,8 @@ interface ToneSpec {
 }
 
 function tone(spec: ToneSpec): void {
-  const { sfxEnabled } = useArcadeStore();
-  if (!sfxEnabled.value) return;
+  // 発音判定はその瞬間の値だけ要るので reactive 参照は不要 (リアルタイム監視しない)
+  if (!useArcadeStore().sfxEnabled) return;
   if (audioCtx === undefined || masterGain === undefined) return;
   if (audioCtx.state !== "running") return;
 

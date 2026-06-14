@@ -257,6 +257,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
       terminal: undefined,
       preview: undefined,
       voicevox: undefined,
+      arcade: undefined,
     };
     config.voicevox = {
       enabled: enabled.value,

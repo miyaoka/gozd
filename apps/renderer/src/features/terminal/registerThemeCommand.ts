@@ -99,6 +99,7 @@ async function saveTerminalTheme(themeName: string): Promise<void> {
     terminal: undefined,
     preview: undefined,
     voicevox: undefined,
+    arcade: undefined,
   };
   config.terminal = {
     theme: themeName,

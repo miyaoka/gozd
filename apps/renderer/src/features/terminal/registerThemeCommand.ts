@@ -4,14 +4,14 @@
  * テーマ名のフォーカスでリアルタイムプレビュー、Enter で確定保存、Escape でロールバックする。
  */
 
-import { AppConfig } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { darkThemeNames, lightThemeNames, loadTheme } from "@gozd/themes";
 import { useCommandRegistry } from "../../shared/command";
+import { useNotificationStore } from "../../shared/notification";
 import { useQuickPick } from "../palette";
 import type { QuickPickItem } from "../palette";
 import { previewCodeFontFamily, previewFontFamily, previewFontSize } from "../preview";
-import { rpcLoadAppConfig, rpcSaveAppConfig } from "../settings";
+import { rpcLoadAppConfig, updateAppConfig } from "../settings";
 import {
   currentTheme,
   currentThemeName,
@@ -52,7 +52,10 @@ async function restoreSavedConfig(): Promise<void> {
   const gen = ++generation;
   const result = await tryCatch(rpcLoadAppConfig());
   if (gen !== generation) return;
-  if (!result.ok) return;
+  if (!result.ok) {
+    useNotificationStore().error("Failed to load theme settings", result.error);
+    return;
+  }
   const config = result.value.config;
   if (config === undefined) return;
 
@@ -91,17 +94,18 @@ async function restoreSavedConfig(): Promise<void> {
   }
 }
 
-/** terminal.theme を更新する。proto3 message のため load → mutate → save の RMW で行う */
+/** terminal.theme を更新する。直列化キュー (updateAppConfig) 経由で他セクションと競合させない */
 async function saveTerminalTheme(themeName: string): Promise<void> {
-  const loadResult = await tryCatch(rpcLoadAppConfig());
-  if (!loadResult.ok) return;
-  const config: AppConfig = loadResult.value.config ?? AppConfig.create();
-  config.terminal = {
-    theme: themeName,
-    fontFamily: config.terminal?.fontFamily ?? "",
-    fontSize: config.terminal?.fontSize ?? 0,
-  };
-  await rpcSaveAppConfig(config);
+  const result = await tryCatch(
+    updateAppConfig((config) => {
+      config.terminal = {
+        theme: themeName,
+        fontFamily: config.terminal?.fontFamily ?? "",
+        fontSize: config.terminal?.fontSize ?? 0,
+      };
+    }),
+  );
+  if (!result.ok) useNotificationStore().error("Failed to save theme", result.error);
 }
 
 export function registerThemeCommand(): () => void {

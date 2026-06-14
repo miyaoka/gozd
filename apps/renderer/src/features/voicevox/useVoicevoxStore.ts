@@ -1,10 +1,10 @@
-import { AppConfig, type VoicevoxSpeaker } from "@gozd/proto";
+import type { VoicevoxSpeaker } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, readonly, ref, shallowRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
-import { rpcLoadAppConfig, rpcSaveAppConfig } from "../settings";
+import { rpcLoadAppConfig, updateAppConfig } from "../settings";
 import type { HookPayload } from "../terminal";
 import {
   rpcVoicevoxCheckEngine,
@@ -232,7 +232,10 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
 
   // 起動時に設定を読み込み、enabled なら Engine の起動も試みる
   void tryCatch(rpcLoadAppConfig()).then(async (result) => {
-    if (!result.ok) return;
+    if (!result.ok) {
+      notify.error("Failed to load VOICEVOX settings", result.error);
+      return;
+    }
     const cfg = result.value.config?.voicevox;
     if (cfg !== undefined) {
       if (cfg.speedScale > 0) speedScale.value = cfg.speedScale;
@@ -251,16 +254,17 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
   });
 
   async function saveSettings() {
-    const loadResult = await tryCatch(rpcLoadAppConfig());
-    if (!loadResult.ok) return;
-    const config = loadResult.value.config ?? AppConfig.create();
-    config.voicevox = {
-      enabled: enabled.value,
-      speedScale: speedScale.value,
-      volumeScale: volumeScale.value,
-      speakerId: speakerId.value,
-    };
-    void tryCatch(rpcSaveAppConfig(config));
+    const result = await tryCatch(
+      updateAppConfig((config) => {
+        config.voicevox = {
+          enabled: enabled.value,
+          speedScale: speedScale.value,
+          volumeScale: volumeScale.value,
+          speakerId: speakerId.value,
+        };
+      }),
+    );
+    if (!result.ok) notify.error("Failed to save VOICEVOX settings", result.error);
   }
 
   // 設定変更時に保存

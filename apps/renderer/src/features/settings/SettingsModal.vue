@@ -11,6 +11,7 @@
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
 import { ref, watch } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { useDialog } from "../palette";
 import { previewCodeFontFamily, previewFontFamily, previewFontSize } from "../preview";
 import { applyTerminalTheme, terminalFontFamily, terminalFontSize } from "../terminal";
@@ -41,6 +42,7 @@ const { Dialog, isOpen, show, close } = useDialog();
 const { isOpen: modalIsOpen } = useSettingsModal();
 const voicevoxStore = useVoicevoxStore();
 const worktreeStore = useWorktreeStore();
+const notify = useNotificationStore();
 
 const activeTab = ref<TabId>("global");
 const loading = ref(true);
@@ -57,9 +59,15 @@ async function openWithSettings() {
   ]);
   if (globalResult.ok) {
     globalValues.value = flattenAppConfig(globalResult.value.config);
+  } else {
+    notify.error("Failed to load settings", globalResult.error);
   }
-  if (projectResult !== undefined && projectResult.ok) {
-    projectValues.value = flattenProjectConfig(projectResult.value.config);
+  if (projectResult !== undefined) {
+    if (projectResult.ok) {
+      projectValues.value = flattenProjectConfig(projectResult.value.config);
+    } else {
+      notify.error("Failed to load project settings", projectResult.error);
+    }
   }
   loading.value = false;
   show();
@@ -88,7 +96,7 @@ const REACTIVE_SYNC: Record<string, (value: unknown) => void> = {
 };
 
 /** グローバル設定の値変更ハンドラー */
-function handleGlobalChange(key: string, value: unknown) {
+async function handleGlobalChange(key: string, value: unknown) {
   globalValues.value[key] = value;
 
   // VOICEVOX store との同期（store の watch が configSave を発火）
@@ -118,15 +126,17 @@ function handleGlobalChange(key: string, value: unknown) {
   REACTIVE_SYNC[key]?.(value);
 
   // 変更されたキーのみ patch 保存（他 UI で更新された値を巻き戻さない）
-  void tryCatch(patchAppConfig({ [key]: value }));
+  const result = await tryCatch(patchAppConfig({ [key]: value }));
+  if (!result.ok) notify.error("Failed to save settings", result.error);
 }
 
 /** プロジェクト設定の値変更ハンドラー */
-function handleProjectChange(key: string, value: unknown) {
+async function handleProjectChange(key: string, value: unknown) {
   projectValues.value[key] = value;
   const dir = worktreeStore.dir;
   if (dir === undefined) return;
-  void tryCatch(patchProjectConfig(dir, { [key]: value }));
+  const result = await tryCatch(patchProjectConfig(dir, { [key]: value }));
+  if (!result.ok) notify.error("Failed to save project settings", result.error);
 }
 
 // modalIsOpen と dialog の isOpen を同期

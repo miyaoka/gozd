@@ -15,7 +15,14 @@
 - hook push: done → 花火 + ファンファーレ / needs-input → アラート音 + アンバーフラッシュ /
   running → エンゲージ音 / tool-done → チック音 / session-start → 起動音 /
   stop-failure → エラー音 + レッドフラッシュ
-- 通知 store: error toast の新規追加でエラー音 + レッドフラッシュ
+- 通知 store: error の発生 (lastEvent) でエラー音 + レッドフラッシュ
+
+## パフォーマンス
+
+- canvas パーティクルはイベント発火時のみ rAF を回し、空になれば停止する (idle 時の rAF ゼロ)
+- 一方 aurora / ネオンフレーム / 各種グローは CSS 合成による**常時演出**。GPU レイヤーは
+  保持され続けるため、canvas のような完全停止はせず idle 時も合成負荷が残る。
+  aurora は `will-change: transform` で常時 drift するため、無負荷ではない点に注意
 </doc>
 
 <script setup lang="ts">
@@ -91,22 +98,14 @@ const disposeHook = onMessage<ArcadeHookPayload>("hook", (payload) => {
 });
 onUnmounted(disposeHook);
 
-// error toast の新規追加でエラー演出。id は単調増加なので最後尾の増分だけ見る
-const { notifications } = useNotificationStore();
-let lastSeenNotificationId = -1;
-watch(
-  () => notifications.value.length,
-  () => {
-    for (const n of notifications.value) {
-      if (n.id <= lastSeenNotificationId) continue;
-      lastSeenNotificationId = n.id;
-      if (n.type === "error") {
-        sfx.error();
-        flash("error");
-      }
-    }
-  },
-);
+// 通知の発生イベントを購読し、error ならエラー演出。notification store の lastEvent は
+// toast の重複抑制と独立に毎回更新されるため、同一メッセージの error 再発生も取りこぼさない。
+const { lastEvent } = useNotificationStore();
+watch(lastEvent, (event) => {
+  if (event?.type !== "error") return;
+  sfx.error();
+  flash("error");
+});
 
 onMounted(() => {
   const canvas = canvasRef.value;
@@ -163,14 +162,22 @@ onUnmounted(() => {
 }
 
 ._fx-aurora::before {
-  background: radial-gradient(circle, oklch(0.45 0.1 250 / 0.16), transparent 70%);
+  background: radial-gradient(
+    circle,
+    color-mix(in oklch, var(--color-fx-aurora-blue) 16%, transparent),
+    transparent 70%
+  );
   top: -20%;
   left: -10%;
   animation: _fx-drift-a 26s ease-in-out infinite alternate;
 }
 
 ._fx-aurora::after {
-  background: radial-gradient(circle, oklch(0.4 0.1 320 / 0.12), transparent 70%);
+  background: radial-gradient(
+    circle,
+    color-mix(in oklch, var(--color-fx-mesh-violet) 12%, transparent),
+    transparent 70%
+  );
   bottom: -25%;
   right: -10%;
   animation: _fx-drift-b 34s ease-in-out infinite alternate;

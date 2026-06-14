@@ -25,6 +25,15 @@
   --chat-outgoing-primitive: oklch(0.78 0.2 135);
   --chat-outgoing-text-primitive: #000000;
   --chat-code-primitive: #c4b5fd;
+
+  /* arcade FX 装飾色 (ゲームジュース層の環境光メッシュ / オーロラ)。
+     Adobe Leonardo は gray + intent hues (blue/red/green/amber/orange) のみ生成し、
+     ここで使う violet / cyan / 中間 blue は intent に存在しない。演出専用の固定色で
+     theme 追従パイプラインに乗らないため brand-fixed primitive として隔離する (chat-* と同じ扱い)。
+     アルファは利用側で color-mix で適用し、primitive は不透明値を持つ。 */
+  --fx-aurora-blue-primitive: oklch(0.45 0.1 250);
+  --fx-mesh-violet-primitive: oklch(0.4 0.11 320);
+  --fx-mesh-cyan-primitive: oklch(0.32 0.06 200);
 }
 
 /* ---------------------------------------------------------------------------
@@ -127,6 +136,11 @@
   --color-chat-outgoing: var(--chat-outgoing-primitive);
   --color-chat-outgoing-text: var(--chat-outgoing-text-primitive);
   --color-chat-code: var(--chat-code-primitive);
+
+  /* arcade FX 装飾色 (brand-fixed primitive を参照する semantic alias) */
+  --color-fx-aurora-blue: var(--fx-aurora-blue-primitive);
+  --color-fx-mesh-violet: var(--fx-mesh-violet-primitive);
+  --color-fx-mesh-cyan: var(--fx-mesh-cyan-primitive);
 }
 
 @layer base {
@@ -322,8 +336,28 @@
   }
 }
 
-/* Claude 状態オーラ (worktree カード)。quest-active より後に定義して box-shadow を勝たせる */
-._fx-aura-working {
+/* Claude 状態オーラ (worktree カード)。
+   box-shadow を ::after 擬似要素に逃がし、選択中表現 (_fx-quest-active 本体の
+   box-shadow) と同一プロパティを奪い合わないようにする。これで「選択中 かつ
+   working/asking/done」のカードでも、選択枠のブルーム + inset 縁取りと状態オーラが
+   別レイヤーとして両立する (単一要素の box-shadow に両者を載せると後勝ちで一方が消える)。 */
+._fx-aura-working,
+._fx-aura-asking,
+._fx-aura-done {
+  position: relative;
+}
+
+._fx-aura-working::after,
+._fx-aura-asking::after,
+._fx-aura-done::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+._fx-aura-working::after {
   animation: _fx-aura-breathe 2.2s ease-in-out infinite;
 }
 
@@ -337,7 +371,7 @@
   }
 }
 
-._fx-aura-asking {
+._fx-aura-asking::after {
   animation: _fx-aura-blink 1.1s ease-in-out infinite;
 }
 
@@ -351,7 +385,7 @@
   }
 }
 
-._fx-aura-done {
+._fx-aura-done::after {
   box-shadow: 0 0 14px color-mix(in oklch, var(--color-success) 40%, transparent);
 }
 
@@ -403,7 +437,15 @@
       color-mix(in oklch, var(--color-primary) 28%, transparent),
       transparent 55%
     ),
-    radial-gradient(120% 70% at -20% 115%, oklch(0.4 0.11 320 / 0.45), transparent 60%),
-    radial-gradient(80% 50% at 50% 50%, oklch(0.32 0.06 200 / 0.25), transparent 70%),
+    radial-gradient(
+      120% 70% at -20% 115%,
+      color-mix(in oklch, var(--color-fx-mesh-violet) 45%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      80% 50% at 50% 50%,
+      color-mix(in oklch, var(--color-fx-mesh-cyan) 25%, transparent),
+      transparent 70%
+    ),
     var(--color-background);
 }

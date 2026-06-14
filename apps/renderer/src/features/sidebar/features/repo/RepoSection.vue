@@ -109,13 +109,6 @@ function onHeaderClick() {
         <span class="min-w-0 flex-1 truncate text-sm font-semibold tracking-wide">
           {{ repoName }}
         </span>
-        <span
-          v-if="isGitRepo"
-          class="rounded-full bg-primary-subtle px-1.5 text-[10px] font-bold text-primary-text tabular-nums"
-          :title="`${worktrees.length} worktrees`"
-        >
-          {{ worktrees.length }}
-        </span>
         <IconLucideChevronDown
           class="size-3.5 shrink-0 text-foreground-muted transition-transform"
           :class="visiblyCollapsed && '-rotate-90'"

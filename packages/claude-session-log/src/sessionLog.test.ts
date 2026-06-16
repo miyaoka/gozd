@@ -1155,6 +1155,58 @@ describe("parseSessionLog", () => {
     ]);
   });
 
+  test("rewind: teammate 枝の lead は 3 分岐で出し分ける (summary / 全ブロック除外は空 / 非タグ生発話は raw)", () => {
+    const log = parseSessionLog(
+      jsonl(
+        { type: "user", uuid: "u1", parentUuid: null, timestamp: TS, message: { role: "user", content: "?" } },
+        {
+          type: "assistant",
+          uuid: "a1",
+          parentUuid: "u1",
+          timestamp: TS,
+          message: { role: "assistant", content: [{ type: "text", text: "どうぞ" }] },
+        },
+        // 枝1: 通常の teammate-message (summary あり) → lead は summary
+        {
+          type: "user",
+          uuid: "b1",
+          parentUuid: "a1",
+          timestamp: TS,
+          message: {
+            role: "user",
+            content: '<teammate-message teammate_id="x" summary="完了">\n承認可。\n</teammate-message>',
+          },
+        },
+        // 枝2: idle_notification 単独 (全ブロック除外) → lead は空文字 (raw を漏らさない)
+        {
+          type: "user",
+          uuid: "b2",
+          parentUuid: "a1",
+          timestamp: TS,
+          message: {
+            role: "user",
+            content: '<teammate-message teammate_id="y">\n{"type":"idle_notification"}\n</teammate-message>',
+          },
+        },
+        // 枝3 (最新): <teammate-message 文字列を含むだけの生発話 (ペア未マッチ) → lead は raw
+        {
+          type: "user",
+          uuid: "b3",
+          parentUuid: "a1",
+          timestamp: TS,
+          message: { role: "user", content: "この <teammate-message を相談したい" },
+        },
+      ),
+    );
+    const branch = log.events.find((e) => e.kind === "branch");
+    if (branch?.kind !== "branch") throw new Error("branch event not found");
+    expect(branch.options).toEqual([
+      { childUuid: "b1", index: 1, lead: "完了", ts: TS },
+      { childUuid: "b2", index: 2, lead: "", ts: TS },
+      { childUuid: "b3", index: 3, lead: "この <teammate-message を相談したい", ts: TS },
+    ]);
+  });
+
   test("rewind: selection で旧枝を選ぶとその枝に差し替わる", () => {
     const log = parseSessionLog(rewindLog(), new Map([["a1", "b1"]]));
     expect(log.events).toEqual([

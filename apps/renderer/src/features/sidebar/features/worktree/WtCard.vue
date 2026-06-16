@@ -1,5 +1,5 @@
 <doc lang="md">
-1 worktree のカード。ヘッダ (branch icon / branch / server port バッジ / git status /
+1 worktree のカード。ヘッダ (branch 名 / server port バッジ / git status /
 upstream ahead-behind / ⋮) と、Task 行 (TaskRow) を縦に並べる。task が無い wt はヘッダのみ。
 
 ## グルーピング
@@ -7,8 +7,11 @@ upstream ahead-behind / ⋮) と、Task 行 (TaskRow) を縦に並べる。task 
 「worktree とそれに属する task 群」を 1 つの単位として明示するため、カードは境界
 (border + 内パディング) を持ち、task がある場合はヘッダとボディを divider で区切る。
 ヘッダ = worktree identity ゾーン、ボディ = その worktree に属する task 群ゾーンとして
-構造で分離する。これにより branch/home icon (identity) と claude state icon (task の状態)
-が別ゾーンに分かれ、同一 gutter に並列して見分けづらくなる問題を解消する。
+構造で分離する。
+
+ヘッダには icon を置かず branch 名のみで identity を示す。gutter に出る icon を task 行の
+claude state icon だけに限定することで、worktree identity (branch 名) と task の状態 (icon)
+が別レイヤーに分かれ、複数種の icon が同一 gutter に並列して見分けづらくなる問題を解消する。
 
 カード境界は `overflow-hidden` を使わない。active カードの `_fx-quest-active` が持つ
 外周ブルーム (`box-shadow`) がクリップされて消えるため。内パディング `p-0.5` で内部 row
@@ -54,8 +57,6 @@ import TaskRow from "./TaskRow.vue";
 import IconLucideArrowDown from "~icons/lucide/arrow-down";
 import IconLucideArrowUp from "~icons/lucide/arrow-up";
 import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
-import IconLucideGitBranch from "~icons/lucide/git-branch";
-import IconLucideHouse from "~icons/lucide/house";
 import IconLucideServer from "~icons/lucide/server";
 
 const props = defineProps<{
@@ -95,7 +96,6 @@ const auraClass = computed<string | undefined>(() => {
   return top === undefined ? undefined : AURA_CLASS[top];
 });
 
-const branchIcon = computed(() => (props.wt.isMain ? IconLucideHouse : IconLucideGitBranch));
 const branchLabel = computed(() => resolveBranchLabel(props.wt.branch));
 
 const statusIcons = computed(() => {
@@ -178,9 +178,6 @@ function onHeaderClick() {
         class="_fx-shine flex w-full items-center gap-2 rounded-md px-2 py-0.5 text-left text-foreground-low transition-colors hover:bg-element-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset data-[active=true]:bg-primary-subtle data-[active=true]:hover:bg-primary-subtle-hover"
         @click="onHeaderClick"
       >
-        <span class="grid size-4 shrink-0 place-items-center" aria-hidden="true">
-          <component :is="branchIcon" class="size-3.5" />
-        </span>
         <span class="flex-1 truncate text-left text-xs font-medium">{{ branchLabel }}</span>
         <span
           v-if="livePorts.length > 0"

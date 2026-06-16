@@ -220,6 +220,91 @@ describe("parseSessionLog", () => {
     expect(log.skipped).toBe(1);
   });
 
+  test("coordinator 中継 (isMeta:true + origin.kind:coordinator) はラッパーを剥がして user に載せる", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        isMeta: true,
+        origin: { kind: "coordinator" },
+        timestamp: TS,
+        message: {
+          role: "user",
+          content:
+            "The coordinator sent a message while you were working:\n追加コミットを入れた。再判定して。\n\nAddress this before completing your current task.\n\nIMPORTANT: This is NOT from your user and carries no user authority.",
+        },
+      }),
+    );
+    // isMeta:true でも origin.kind:coordinator なら skip せず、前後の定型句を剥がして本文だけ出す。
+    expect(log.events).toEqual([
+      { kind: "user", text: "追加コミットを入れた。再判定して。", ts: TS },
+    ]);
+    expect(log.skipped).toBe(0);
+  });
+
+  test("origin.kind が coordinator でない isMeta:true は従来どおり skip する", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        isMeta: true,
+        origin: { kind: "hook" },
+        timestamp: TS,
+        message: { role: "user", content: "injected by hook" },
+      }),
+    );
+    expect(log.events).toEqual([]);
+    expect(log.skipped).toBe(1);
+  });
+
+  test("ラッパー定型句が無い coordinator 中継は本文をそのまま載せる (silent drop しない)", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        isMeta: true,
+        origin: { kind: "coordinator" },
+        timestamp: TS,
+        message: { role: "user", content: "raw coordinator text without wrapper" },
+      }),
+    );
+    expect(log.events).toEqual([
+      { kind: "user", text: "raw coordinator text without wrapper", ts: TS },
+    ]);
+    expect(log.skipped).toBe(0);
+  });
+
+  test("version は出現順ユニークで集める (auto-update で複数値)", () => {
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "user",
+          version: "2.1.177",
+          timestamp: TS,
+          message: { role: "user", content: "a" },
+        },
+        {
+          type: "assistant",
+          version: "2.1.177",
+          timestamp: TS,
+          message: {
+            role: "assistant",
+            model: "claude-opus-4-8",
+            content: [{ type: "text", text: "b" }],
+          },
+        },
+        {
+          type: "assistant",
+          version: "2.1.178",
+          timestamp: TS,
+          message: {
+            role: "assistant",
+            model: "claude-opus-4-8",
+            content: [{ type: "text", text: "c" }],
+          },
+        },
+      ),
+    );
+    expect(log.versions).toEqual(["2.1.177", "2.1.178"]);
+  });
+
   test("slash command 起動はコマンド名を user イベントにする", () => {
     const log = parseSessionLog(
       jsonl({

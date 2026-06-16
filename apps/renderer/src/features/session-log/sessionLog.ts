@@ -132,6 +132,13 @@ interface RawLine {
   // ルートで null になりうる。
   uuid?: string;
   parentUuid?: string | null;
+  // coordinator (親エージェント) が SendMessage で subagent に中継した発話の出所。Claude Code が
+  // 中継時に `origin.kind:"coordinator"` を付ける。中継は `isMeta:true` と併記されるため、これが
+  // 無いと CLI/hook 注入レコードと区別できず会話から落ちる。中継発話を救済する判別キー。
+  origin?: { kind?: string };
+  // このレコードを書いた Claude Code のバージョン (例 "2.1.178")。行ごとに付くため、セッション中の
+  // auto-update で複数値になりうる。UI のバージョン表示に出現順ユニークで集める。
+  version?: string;
 }
 
 // harness / CLI が user role で注入するラッパーで始まる string。これらはユーザーの
@@ -145,6 +152,36 @@ const INJECTED_USER_WRAPPER_RE =
   /^\s*<(local-command-stdout|local-command-stderr|task-notification|system-reminder)>/;
 function isInjectedUserText(text: string): boolean {
   return INJECTED_USER_WRAPPER_RE.test(text);
+}
+
+/**
+ * coordinator (親エージェント) が SendMessage で subagent に中継した発話か。Claude Code は中継を
+ * `isMeta:true` で記録するが、これは CLI/hook 注入レコードと同じフラグで会話から落ちてしまう。
+ * 中継には `origin.kind:"coordinator"` が併記される (2.1.178 で導入。それ以前は isMeta なしの生
+ * 発話として記録され区別不要だった) ため、これを判別キーにして isMeta filter から救済する。
+ * subagent にとっては応答対象の会話ターンなので、生発話と同じく USER ブロック / branch 候補に載せる。
+ */
+function isCoordinatorMessage(raw: RawLine): boolean {
+  return raw.type === "user" && raw.origin?.kind === "coordinator";
+}
+
+// 中継ラッパーの前後の定型句。本文はこの 2 つに挟まれる。Claude Code が中継 string を
+// `<LEAD><本文><TRAIL>…注意書き` の形で組み立てる。
+const COORDINATOR_LEAD = "The coordinator sent a message while you were working:\n";
+const COORDINATOR_TRAIL = "\n\nAddress this before completing your current task.";
+
+/**
+ * coordinator 中継 string からラッパーを剥がし本文だけ取り出す。旧 (生発話) 形式と同じ「中継本文
+ * だけを表示」に揃えるための正規化。前後の定型句が一致しない (将来 Claude Code が書式を変えた等)
+ * 場合は raw をそのまま返し、内容を絶対に落とさない (silent drop 回避)。
+ */
+function coordinatorInnerText(content: string): string {
+  let text = content;
+  if (text.startsWith(COORDINATOR_LEAD)) text = text.slice(COORDINATOR_LEAD.length);
+  const trail = text.indexOf(COORDINATOR_TRAIL);
+  if (trail !== -1) text = text.slice(0, trail);
+  const trimmed = text.trim();
+  return trimmed === "" ? content : trimmed;
 }
 
 /**
@@ -271,6 +308,11 @@ export interface ParsedSessionLog {
    * model のみ採る。
    */
   models: string[];
+  /**
+   * このセッションを書いた Claude Code のバージョンを出現順ユニークで持つ。行ごとの `version` が
+   * SSOT。auto-update でセッション途中に上がると複数値になりうるため配列で保持する。
+   */
+  versions: string[];
   /** 表示した (live な) JSONL 行数。rewind で選ばれなかった枝の行は含まない */
   totalLines: number;
   /** JSON parse に失敗した行数 (末尾の追記途中行など) */
@@ -367,7 +409,8 @@ function isBranchCandidate(raw: RawLine): boolean {
   if (isSyntheticAssistant(raw)) return false;
   const content = raw.message?.content;
   if (raw.type === "user") {
-    if (raw.isMeta === true) return false;
+    // coordinator 中継は isMeta:true だが subagent にとっては会話ターンなので候補に含める。
+    if (raw.isMeta === true && !isCoordinatorMessage(raw)) return false;
     if (typeof content === "string") return userTextOf(content) !== undefined;
     if (Array.isArray(content)) return content.some((b) => b.type === "text" || b.type === "image");
     return false;
@@ -387,7 +430,13 @@ function nodeLeadText(raw: RawLine): string {
   const content = raw.message?.content;
   let text = "";
   if (typeof content === "string") {
-    text = (raw.type === "user" ? userTextOf(content) : content) ?? "";
+    if (raw.type === "user") {
+      // coordinator 中継はラッパーを剥がした本文を lead にする。
+      text =
+        (isCoordinatorMessage(raw) ? coordinatorInnerText(content) : userTextOf(content)) ?? "";
+    } else {
+      text = content;
+    }
   } else if (Array.isArray(content)) {
     for (const block of content) {
       if (block.type === "text") {
@@ -429,6 +478,10 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
   // 実 model 名を出現順ユニークで集める。seen は重複判定、models は順序保持。
   const models: string[] = [];
   const seenModels = new Set<string>();
+  // Claude Code のバージョンを出現順ユニークで集める。auto-update でセッション途中に変わると
+  // 複数値になりうるため配列で保持する。seen は重複判定、versions は順序保持。
+  const versions: string[] = [];
+  const seenVersions = new Set<string>();
 
   // --- フェーズ 1: 全行を parse して LogNode に正規化する (rewind 木の素材) ---
   const nodes: LogNode[] = [];
@@ -545,8 +598,16 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     const raw = node.raw;
     const ts = raw.timestamp ?? "";
 
-    // CLI / hook 注入のシステムレコードはユーザー発話ではないので会話に載せない。
-    if (raw.isMeta === true) {
+    // Claude Code のバージョンを記録する。レコード種別に依らず行ごとに付くため、ここで採る。
+    if (typeof raw.version === "string" && raw.version !== "" && !seenVersions.has(raw.version)) {
+      seenVersions.add(raw.version);
+      versions.push(raw.version);
+    }
+
+    // CLI / hook 注入のシステムレコードはユーザー発話ではないので会話に載せない。ただし
+    // coordinator (親) が SendMessage で中継した発話 (isMeta:true + origin.kind:"coordinator") は
+    // subagent にとって会話ターンなので除外しない。
+    if (raw.isMeta === true && !isCoordinatorMessage(raw)) {
       skipped++;
       continue;
     }
@@ -554,8 +615,11 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     if (raw.type === "user") {
       const content = raw.message?.content;
       if (typeof content === "string") {
-        // slash command はコマンド名を出し、task-notification 等の注入 string は除外する。
-        const text = userTextOf(content);
+        // coordinator 中継はラッパーを剥がして本文を出す。それ以外は slash command をコマンド名に
+        // し、task-notification 等の注入 string を除外する。
+        const text = isCoordinatorMessage(raw)
+          ? coordinatorInnerText(content)
+          : userTextOf(content);
         if (text === undefined) {
           skipped++;
           continue;
@@ -717,7 +781,7 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     skipped++;
   }
 
-  return { events, models, totalLines, malformed, skipped, emptyThinking };
+  return { events, models, versions, totalLines, malformed, skipped, emptyThinking };
 }
 
 /**

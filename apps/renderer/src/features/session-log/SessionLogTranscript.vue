@@ -7,7 +7,7 @@
 
 ## レイアウト
 
-上部にヘッダ (どの agent のログかを示す agent 名 + 使用 model バッジ + dim な id) を置き、トランスクリプト本文
+上部にヘッダ (どの agent のログかを示す agent 名 + 使用 model バッジ + Claude Code バージョン + dim な id) を置き、トランスクリプト本文
 1 カラム + 下に footer。本文は LINE ダークモードに倣ったチャット表示で、user (貼り付け
 画像含む) を自分として右寄せ、assistant を左寄せの吹き出しにする。配色は chat-\* semantic
 token を介して TerminalSessionPreview と SSOT 共有する (user=`bg-chat-outgoing` + 黒文字 /
@@ -121,6 +121,13 @@ const formattedInputs = computed<Map<number, string>>(() => {
 // この agent が実際に使った model の表示名。複数混在 (/model 切り替え) は中黒で連ねる。
 // effort は JSONL に残らずセッションファイル自己完結の対象外のため model のみ出す。
 const modelLabel = computed<string>(() => props.parsed.models.map(formatModelLabel).join(" · "));
+
+// このセッションを書いた Claude Code のバージョン。auto-update でセッション途中に上がると複数
+// 混在しうるため中黒で連ねる。session log の挙動差 (中継の記録形式変更等) はバージョンに紐づくため、
+// どのバージョンが書いたログかをペインヘッダで可視化する。
+const versionLabel = computed<string>(() =>
+  props.parsed.versions.length === 0 ? "" : `v${props.parsed.versions.join(" · ")}`,
+);
 
 const footerSummary = computed<string>(() => {
   const log = props.parsed;
@@ -453,6 +460,13 @@ onBeforeUnmount(teardownObserver);
         :title="modelLabel"
       >
         {{ modelLabel }}
+      </span>
+      <span
+        v-if="versionLabel !== ''"
+        class="shrink-0 self-center truncate text-[10px] text-foreground-low tabular-nums"
+        :title="versionLabel"
+      >
+        {{ versionLabel }}
       </span>
       <span
         v-if="subtitle !== undefined && subtitle !== ''"

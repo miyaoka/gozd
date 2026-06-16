@@ -147,6 +147,7 @@ const mainSubagentLinks = computed<Map<string, SubagentLink>>(() => {
       id: s.id,
       label: s.label,
       name: s.name,
+      agentType: s.agentType,
       parentToolUseId: s.parentToolUseId,
       workflowRunId: s.workflowRunId,
       workflowName: s.workflowName,

@@ -88,6 +88,7 @@ describe("buildSubagentLinks", () => {
       id: "",
       label: "",
       name: "",
+      agentType: "",
       parentToolUseId: "",
       workflowRunId: "",
       workflowName: "",
@@ -117,6 +118,37 @@ describe("buildSubagentLinks", () => {
       [sub({ id: "agent1", label: "PR review", name: "reviewer" })],
     );
     expect(links.get("toolu_S")).toEqual({ agentId: "agent1", label: "PR review" });
+  });
+
+  test("SendMessage は input.to が agentType (team teammate の role 名) でも結ぶ", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("SendMessage", "toolu_S", { to: "ssot-reviewer" })],
+      // teammate は meta が agentType のみで name/id (hex) は to と一致しない。
+      [sub({ id: "aabbcc", label: "ssot-reviewer", name: "", agentType: "ssot-reviewer" })],
+    );
+    expect(links.get("toolu_S")).toEqual({ agentId: "aabbcc", label: "ssot-reviewer" });
+  });
+
+  test("同 agentType の subagent が複数 + to が agentType のときはリンクを張らない (一意に決められない)", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("SendMessage", "toolu_S", { to: "ssot-reviewer" })],
+      [
+        sub({ id: "a1", agentType: "ssot-reviewer" }),
+        sub({ id: "a2", agentType: "ssot-reviewer" }),
+      ],
+    );
+    expect(links.has("toolu_S")).toBe(false);
+  });
+
+  test("name を agentType より優先する", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("SendMessage", "toolu_S", { to: "reviewer" })],
+      [
+        sub({ id: "a1", label: "by-name", name: "reviewer", agentType: "other" }),
+        sub({ id: "a2", label: "by-agentType", name: "", agentType: "reviewer" }),
+      ],
+    );
+    expect(links.get("toolu_S")).toEqual({ agentId: "a1", label: "by-name" });
   });
 
   test("id を name より優先する", () => {

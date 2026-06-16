@@ -55,6 +55,9 @@ export interface SessionTab {
   parentToolUseId: string;
   // subagent の名前 (meta.json の name)。SendMessage の to が name のとき紐付けに使う。main は空。
   name: string;
+  // subagent の agentType (meta.json の agentType)。team teammate は SendMessage の to が
+  // この role 名 (例 "ssot-reviewer") のことがあり、name/id で引けないため紐付けに使う。main は空。
+  agentType: string;
   // workflow agent が属する workflow run の id。非 workflow subagent / main は空。
   workflowRunId: string;
   // workflow の表示名 (グループ見出し)。非 workflow subagent / main は空。
@@ -112,6 +115,7 @@ export function useSessionLogLive(
       label: entry.kind === "main" ? "Main" : subagentTabLabel(entry),
       parentToolUseId: entry.parentToolUseId,
       name: entry.name,
+      agentType: entry.agentType,
       workflowRunId: entry.workflowRunId,
       workflowName: entry.workflowName,
       content: entry.content,

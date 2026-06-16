@@ -502,9 +502,13 @@ function nodeLeadText(raw: RawLine): string {
     if (raw.type !== "user") {
       text = content;
     } else if (isTeammateMessageText(content)) {
-      // teammate-message はラッパーを剥がし、summary があれば summary、無ければ本文を lead に。
-      const [first] = parseTeammateBlocks(content).blocks;
-      text = first === undefined ? content : first.summary !== "" ? first.summary : first.text;
+      // teammate-message はラッパーを剥がし summary 優先 / 無ければ本文を lead に。本体の 3 分岐と
+      // 対称化する: ペア未マッチ (非タグ生発話) は raw が正しい lead、全ブロック除外 (本体は skip)
+      // は lead も空に倒し raw を漏らさない。
+      const { matchedCount, blocks } = parseTeammateBlocks(content);
+      const [first] = blocks;
+      if (first !== undefined) text = first.summary !== "" ? first.summary : first.text;
+      else text = matchedCount === 0 ? content : "";
     } else if (isCoordinatorMessage(raw)) {
       // coordinator 中継はラッパーを剥がした本文を lead にする。
       text = coordinatorInnerText(content);

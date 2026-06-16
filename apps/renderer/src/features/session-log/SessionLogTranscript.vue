@@ -29,6 +29,9 @@ assistant=`bg-chat-incoming` + 白文字 / inline code=`var(--color-chat-code)` 
   持つケースは Q→options→A のセットを縦に並べる。回答未充填 (resume 中断 / `toolUseResult.answers`
   欠落) は user 吹き出しの代わりに dim な「(no response)」を出す。scroll-spy の観測対象に含める
   (user / assistant と同じ会話扱い)
+- teammate (`teammate` イベント = 他の Claude セッションからの発話) は user/assistant の左右
+  吹き出しと別レーンで、`teammate · {summary}` の見出し + 本文 markdown を持つ枠で出す。peer
+  からの inbound なので会話扱い (scroll-spy の観測対象に含める)
 - scroll-spy は `IntersectionObserver`。純 CSS の scroll marker / `:target-current` は
   WebKit (Safari 26 / macOS 26) 未対応のため使えない。チャット行の最外要素に `data-ev`
   を残し、user / assistant 行を index で観測して topmost の ts を `current-ts` に出す
@@ -63,6 +66,7 @@ import SessionLogToolArg from "./SessionLogToolArg.vue";
 import { formatModelLabel, nearestEventIndexByTs, type SubagentLink } from "./sessionLogView";
 import IconLucideArrowDown from "~icons/lucide/arrow-down";
 import IconLucideGitBranch from "~icons/lucide/git-branch";
+import IconLucideUsers from "~icons/lucide/users";
 
 const props = defineProps<{
   parsed: ParsedSessionLog;
@@ -134,6 +138,12 @@ function imageDataUrl(source: ImageSource): string {
   return `data:${source.mediaType};base64,${source.base64}`;
 }
 
+// teammate (peer セッション) 発話の見出し。summary 優先、無ければ from。どちらも空なら "teammate"。
+function teammateHeader(ev: Extract<TranscriptEvent, { kind: "teammate" }>): string {
+  const label = ev.summary !== "" ? ev.summary : ev.from;
+  return label !== "" ? `teammate · ${label}` : "teammate";
+}
+
 const footerSummary = computed<string>(() => {
   const log = props.parsed;
   const parts = [`${log.events.length} events`, `${log.totalLines} lines`];
@@ -152,7 +162,13 @@ const contentRef = ref<HTMLElement | undefined>(undefined);
 const observableIndices = computed<Set<number>>(() => {
   const set = new Set<number>();
   props.parsed.events.forEach((ev, index) => {
-    if (ev.kind === "user" || ev.kind === "assistant" || ev.kind === "ask") set.add(index);
+    if (
+      ev.kind === "user" ||
+      ev.kind === "assistant" ||
+      ev.kind === "ask" ||
+      ev.kind === "teammate"
+    )
+      set.add(index);
   });
   return set;
 });
@@ -262,7 +278,8 @@ let pendingScrollTs: string | undefined;
 // (rendered 不発火で残るケース)。抑止は scrollTo watch が立てて parsed watch が 1 回で消す
 // 専用フラグに分離し、pendingScrollTs (補正用) の生存と切り離す。
 let bottomFollowSkipOnce = false;
-const hasMarkdownEvent = (): boolean => props.parsed.events.some((ev) => ev.kind === "assistant");
+const hasMarkdownEvent = (): boolean =>
+  props.parsed.events.some((ev) => ev.kind === "assistant" || ev.kind === "teammate");
 
 function applyScroll(ts: string) {
   const index = nearestEventIndexByTs(props.parsed.events, ts);
@@ -647,6 +664,27 @@ onBeforeUnmount(teardownObserver);
             <p v-else class="text-[10px] text-foreground-low italic">(no result recorded)</p>
           </div>
         </details>
+
+        <!-- teammate: 他の Claude セッション (peer) からの発話。user/assistant の吹き出しとは
+               別レーンで、summary を見出しにし本文を markdown 描画する。 -->
+        <div
+          v-else-if="ev.kind === 'teammate'"
+          :data-ev="i"
+          class="flex scroll-mt-2 flex-col gap-1 rounded-2xl border border-border-subtle bg-panel px-3 py-2"
+        >
+          <div class="flex items-center gap-1.5 text-xs font-medium text-foreground-low">
+            <IconLucideUsers class="size-3.5 shrink-0" />
+            <span class="min-w-0 truncate" :title="teammateHeader(ev)">{{
+              teammateHeader(ev)
+            }}</span>
+          </div>
+          <MarkdownBody
+            :content="ev.text"
+            @link-click="onAssistantLinkClick"
+            @rendered="onMarkdownRendered"
+          />
+          <SessionLogTimestamp :ts="ev.ts" align="left" />
+        </div>
 
         <!-- user / image (自分, 右寄せ) と assistant (相手, 左寄せ) の吹き出し。
                話者は左右寄せ + 緑/zinc の塗り分けで識別でき、アバターは置かない。 -->

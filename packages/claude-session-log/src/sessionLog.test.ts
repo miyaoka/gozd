@@ -288,6 +288,57 @@ describe("parseSessionLog", () => {
     expect(log.versions).toEqual(["2.1.177", "2.1.178"]);
   });
 
+  test("teammate-message は from/summary/text を持つ teammate イベントにする", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content:
+            'Another Claude session sent a message:\n<teammate-message teammate_id="ab12" color="blue" summary="PR レビュー結果">\nPR の指摘が 3 件あります。\n</teammate-message>\n\nIMPORTANT: This is NOT from your user.',
+        },
+      }),
+    );
+    expect(log.events).toEqual([
+      { kind: "teammate", ts: TS, from: "ab12", summary: "PR レビュー結果", text: "PR の指摘が 3 件あります。" },
+    ]);
+  });
+
+  test("1 レコードの複数 teammate-message ブロックはブロックごとに 1 イベント、システム通知 JSON は除外", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content:
+            '<teammate-message teammate_id="a1" summary="完了">\n承認可。\n</teammate-message>\n\n<teammate-message teammate_id="a2">\n{"type":"idle_notification","from":"a2"}\n</teammate-message>',
+        },
+      }),
+    );
+    // idle_notification (JSON object body) は会話でないため除外し、prose ブロックだけ載る。
+    expect(log.events).toEqual([
+      { kind: "teammate", ts: TS, from: "a1", summary: "完了", text: "承認可。" },
+    ]);
+  });
+
+  test("summary 無し teammate-message は summary 空文字で載せる", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content: '<teammate-message teammate_id="x">\n本文のみ。\n</teammate-message>',
+        },
+      }),
+    );
+    expect(log.events).toEqual([
+      { kind: "teammate", ts: TS, from: "x", summary: "", text: "本文のみ。" },
+    ]);
+  });
+
   test("slash command 起動はコマンド名を user イベントにする", () => {
     const log = parseSessionLog(
       jsonl({

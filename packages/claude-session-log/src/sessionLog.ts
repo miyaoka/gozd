@@ -193,6 +193,53 @@ function coordinatorInnerText(content: string): string {
   return trimmed === "" ? content : trimmed;
 }
 
+// team 機能で peer Claude セッションが送り合う <teammate-message> ラッパー。`isMeta:null` の user
+// string として記録されるため isMeta filter では落ちず、ラッパー (前置き / 開閉タグ / 末尾の
+// IMPORTANT 注意書き) が生のまま本文に混ざる。1 つの user レコードに複数ブロックが入りうる。
+const TEAMMATE_BLOCK_RE = /<teammate-message([^>]*)>\n?([\s\S]*?)\n?<\/teammate-message>/g;
+const TEAMMATE_ID_RE = /teammate_id="([^"]*)"/;
+const TEAMMATE_SUMMARY_RE = /summary="([^"]*)"/;
+
+/** teammate-message ラッパーを含む user string か。タグの有無だけで判定する。 */
+function isTeammateMessageText(content: string): boolean {
+  return content.includes("<teammate-message");
+}
+
+/** trim 後の text が JSON object か。idle_notification 等のシステム通知ブロックを会話から除く判定に使う。 */
+function isJsonObjectText(text: string): boolean {
+  const t = text.trim();
+  if (!t.startsWith("{")) return false;
+  const r = tryCatch(() => JSON.parse(t) as unknown);
+  return r.ok && typeof r.value === "object" && r.value !== null;
+}
+
+/** 1 つの <teammate-message> ブロックの構造データ (表示は consumer に委ねる)。 */
+interface TeammateBlock {
+  from: string;
+  summary: string;
+  text: string;
+}
+
+/**
+ * teammate-message string から各ブロックを構造データとして取り出す。前置き ("Another Claude
+ * session sent a message:") / 末尾の IMPORTANT 注意書きは本文外なので自然に落ちる。本文が空 /
+ * システム通知 JSON (idle_notification 等) のブロックは会話でないため除外する。
+ */
+function parseTeammateBlocks(content: string): TeammateBlock[] {
+  const blocks: TeammateBlock[] = [];
+  for (const m of content.matchAll(TEAMMATE_BLOCK_RE)) {
+    const [, attrs = "", rawBody = ""] = m;
+    const text = rawBody.trim();
+    if (text === "" || isJsonObjectText(text)) continue;
+    blocks.push({
+      from: TEAMMATE_ID_RE.exec(attrs)?.[1] ?? "",
+      summary: TEAMMATE_SUMMARY_RE.exec(attrs)?.[1] ?? "",
+      text,
+    });
+  }
+  return blocks;
+}
+
 /**
  * Claude Code SDK が会話ターン整合のために合成する assistant メッセージか。`model:"<synthetic>"`
  * が discriminator。例: assistant の実応答後に SDK が `[{type:"text", text:"No response requested."}]`
@@ -295,6 +342,11 @@ export type TranscriptEvent =
       questions: AskQuestion[];
     }
   | { kind: "image"; ts: string; source: ImageSource | undefined }
+  // team 機能で他の Claude セッション (peer) が <teammate-message> で送ってきた発話。`from` は
+  // teammate_id、`summary` は peer 自身が付けた 1 行要約 (空のことがある)、`text` は本文。1 つの
+  // user レコードに複数ブロックが入りうるため、ブロックごとに 1 イベント。見出しの組み方や
+  // 色付けは表示ターゲット依存なので consumer (view) に委ね、parse は構造データだけ載せる。
+  | { kind: "teammate"; ts: string; from: string; summary: string; text: string }
   // rewind 分岐点。選択中の枝の先頭会話ノードの直前に挿入する。UI はここにセレクタを出し、
   // 別の枝を選ぶと selection が更新され transcript が再構築される。
   | {
@@ -439,12 +491,17 @@ function nodeLeadText(raw: RawLine): string {
   const content = raw.message?.content;
   let text = "";
   if (typeof content === "string") {
-    if (raw.type === "user") {
-      // coordinator 中継はラッパーを剥がした本文を lead にする。
-      text =
-        (isCoordinatorMessage(raw) ? coordinatorInnerText(content) : userTextOf(content)) ?? "";
-    } else {
+    if (raw.type !== "user") {
       text = content;
+    } else if (isTeammateMessageText(content)) {
+      // teammate-message はラッパーを剥がし、summary があれば summary、無ければ本文を lead に。
+      const [first] = parseTeammateBlocks(content);
+      text = first === undefined ? content : first.summary !== "" ? first.summary : first.text;
+    } else if (isCoordinatorMessage(raw)) {
+      // coordinator 中継はラッパーを剥がした本文を lead にする。
+      text = coordinatorInnerText(content);
+    } else {
+      text = userTextOf(content) ?? "";
     }
   } else if (Array.isArray(content)) {
     for (const block of content) {
@@ -623,6 +680,20 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     if (raw.type === "user") {
       const content = raw.message?.content;
       if (typeof content === "string") {
+        // teammate-message (peer セッションからの発話) はブロックごとに teammate イベントへ。
+        // タグはあるが抽出ゼロ件 (全ブロック空 / システム通知 JSON) のときは silent drop せず
+        // raw を user に出す。
+        if (isTeammateMessageText(content)) {
+          const blocks = parseTeammateBlocks(content);
+          if (blocks.length === 0) {
+            events.push({ kind: "user", text: content, ts });
+          } else {
+            for (const b of blocks) {
+              events.push({ kind: "teammate", ts, from: b.from, summary: b.summary, text: b.text });
+            }
+          }
+          continue;
+        }
         // coordinator 中継はラッパーを剥がして本文を出す。それ以外は slash command をコマンド名に
         // し、task-notification 等の注入 string を除外する。
         const text = isCoordinatorMessage(raw)

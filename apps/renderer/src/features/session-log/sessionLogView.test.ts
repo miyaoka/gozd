@@ -104,6 +104,26 @@ describe("buildSubagentLinks", () => {
     expect(links.get("toolu_A")).toEqual({ agentId: "agent1", label: "reviewer" });
   });
 
+  test("Agent は parentToolUseId で引けないとき input.name (team teammate の role 名) で結ぶ", () => {
+    const links = buildSubagentLinks(
+      // teammate spawn: meta が toolUseId 無し、input.name が role 名 = agentType。
+      [toolEvent("Agent", "toolu_A", { name: "ssot-reviewer", subagent_type: "reviewer" })],
+      [sub({ id: "aabbcc", label: "ssot-reviewer", name: "", agentType: "ssot-reviewer" })],
+    );
+    expect(links.get("toolu_A")).toEqual({ agentId: "aabbcc", label: "ssot-reviewer" });
+  });
+
+  test("Agent は parentToolUseId 一致を input.name フォールバックより優先する", () => {
+    const links = buildSubagentLinks(
+      [toolEvent("Agent", "toolu_A", { name: "ssot-reviewer" })],
+      [
+        sub({ id: "byTool", label: "by-tool", parentToolUseId: "toolu_A" }),
+        sub({ id: "byName", label: "by-name", agentType: "ssot-reviewer" }),
+      ],
+    );
+    expect(links.get("toolu_A")).toEqual({ agentId: "byTool", label: "by-tool" });
+  });
+
   test("SendMessage は input.to == agent_id で結ぶ", () => {
     const links = buildSubagentLinks(
       [toolEvent("SendMessage", "toolu_S", { to: "agent1" })],

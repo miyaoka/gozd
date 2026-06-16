@@ -120,7 +120,9 @@ export function subagentTabLabel(entry: {
  * main の tool 呼び出し (Agent / SendMessage) を起動/宛先 subagent に結ぶ map を作る。
  * key は main tool event の toolUseId、value は紐づく subagent の {agentId,label}。
  *
- * - Agent (新規 spawn): main の `tool_use.id` === subagent の `parentToolUseId` (meta.toolUseId)
+ * - Agent (新規 spawn): main の `tool_use.id` === subagent の `parentToolUseId` (meta.toolUseId)。
+ *   team teammate は meta が toolUseId を持たないため、引けないときは spawn 時の `input.name`
+ *   (role 名 = agentType) を resolveTo に通してフォールバックする
  * - SendMessage (resume): main の `tool_use.input.to` === subagent の `id` / `name` / `agentType`
  *   (Claude Code の SendMessage は to に agent_id / agent name / role 名 のいずれも取りうる。team
  *   teammate は role 名 = agentType で宛先指定するため、name/id で引けない)。id → name → agentType
@@ -190,7 +192,11 @@ export function buildSubagentLinks(
   for (const ev of mainEvents) {
     if (ev.kind !== "tool" || ev.toolUseId === "") continue;
     if (ev.name === "Agent") {
-      const sub = byParentToolUse.get(ev.toolUseId);
+      // 通常 subagent は tool_use.id == meta.toolUseId で引く。team teammate は meta が
+      // toolUseId を持たない代わりに spawn 時の input.name が role 名 (= agentType) なので、
+      // parentToolUseId で引けないときは input.name を resolveTo に通してフォールバックする。
+      let sub = byParentToolUse.get(ev.toolUseId);
+      if (sub === undefined && typeof ev.input.name === "string") sub = resolveTo(ev.input.name);
       if (sub !== undefined) links.set(ev.toolUseId, { agentId: sub.id, label: sub.label });
     } else if (ev.name === "SendMessage") {
       const to = ev.input.to;

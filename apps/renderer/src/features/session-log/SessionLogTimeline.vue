@@ -41,7 +41,7 @@ indent して agent 名をラベル全幅で見せる (各行に workflow 名を
 <script setup lang="ts">
 import { useEventListener } from "@vueuse/core";
 import { computed, ref, watch, type FunctionalComponent, type SVGAttributes } from "vue";
-import { formatModelLabel, formatSessionTime, type TimelineTrack } from "./sessionLog";
+import { formatModelLabel, formatSessionTime, type TimelineTrack } from "./sessionLogView";
 import IconLucideGitFork from "~icons/lucide/git-fork";
 import IconLucideWorkflow from "~icons/lucide/workflow";
 

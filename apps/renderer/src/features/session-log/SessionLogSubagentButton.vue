@@ -5,7 +5,7 @@ summary 上に置かれるため、click は details トグルへ伝播させず
 </doc>
 
 <script setup lang="ts">
-import type { SubagentLink } from "./sessionLog";
+import type { SubagentLink } from "./sessionLogView";
 import IconLucideGitFork from "~icons/lucide/git-fork";
 
 const props = defineProps<{

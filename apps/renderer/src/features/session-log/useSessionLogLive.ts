@@ -44,7 +44,7 @@ import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { rpcFsUnwatch, rpcFsWatch, type FsChangePayload } from "../filer";
 import { rpcClaudeSessionLog } from "./rpc";
-import { subagentTabLabel } from "./sessionLog";
+import { subagentTabLabel } from "./sessionLogView";
 
 // main + subagents の単位。生 JSONL を保持し、parse は呼び出し側で行う。
 export interface SessionTab {

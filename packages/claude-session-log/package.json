@@ -1,0 +1,26 @@
+{
+  "name": "@gozd/claude-session-log",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "lint": "oxlint --type-aware",
+    "fix": "oxlint --type-aware --fix && oxfmt .",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@gozd/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "@types/node": "catalog:",
+    "@typescript/native-preview": "catalog:",
+    "oxfmt": "catalog:",
+    "oxlint": "catalog:",
+    "oxlint-tsgolint": "catalog:"
+  }
+}

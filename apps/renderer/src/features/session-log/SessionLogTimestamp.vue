@@ -7,7 +7,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { formatSessionTime } from "./sessionLog";
+import { formatSessionTime } from "./sessionLogView";
 
 const props = defineProps<{ ts: string; align: "left" | "right" }>();
 

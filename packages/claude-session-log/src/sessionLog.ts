@@ -224,10 +224,18 @@ interface TeammateBlock {
  * teammate-message string から各ブロックを構造データとして取り出す。前置き ("Another Claude
  * session sent a message:") / 末尾の IMPORTANT 注意書きは本文外なので自然に落ちる。本文が空 /
  * システム通知 JSON (idle_notification 等) のブロックは会話でないため除外する。
+ *
+ * `matchedCount` (正規表現で `<...>...</...>` ペアが取れた総数) と `blocks` (会話として採用した
+ * ブロック) を区別して返す。呼び出し側は両者で raw fallback の発火条件を分ける必要がある:
+ *   - matchedCount === 0: タグ文字列はあるがペアが取れない (誤検出 / 壊れた書式) → raw を出す
+ *   - matchedCount > 0 かつ blocks 空: ペアは取れたが全ブロック除外 (idle_notification 等) →
+ *     会話でないので skip。ここで raw を出すと「隠すべき通知」を前置き・脚注ごと丸出しにする
  */
-function parseTeammateBlocks(content: string): TeammateBlock[] {
+function parseTeammateBlocks(content: string): { matchedCount: number; blocks: TeammateBlock[] } {
   const blocks: TeammateBlock[] = [];
+  let matchedCount = 0;
   for (const m of content.matchAll(TEAMMATE_BLOCK_RE)) {
+    matchedCount++;
     const [, attrs = "", rawBody = ""] = m;
     const text = rawBody.trim();
     if (text === "" || isJsonObjectText(text)) continue;
@@ -237,7 +245,7 @@ function parseTeammateBlocks(content: string): TeammateBlock[] {
       text,
     });
   }
-  return blocks;
+  return { matchedCount, blocks };
 }
 
 /**
@@ -495,7 +503,7 @@ function nodeLeadText(raw: RawLine): string {
       text = content;
     } else if (isTeammateMessageText(content)) {
       // teammate-message はラッパーを剥がし、summary があれば summary、無ければ本文を lead に。
-      const [first] = parseTeammateBlocks(content);
+      const [first] = parseTeammateBlocks(content).blocks;
       text = first === undefined ? content : first.summary !== "" ? first.summary : first.text;
     } else if (isCoordinatorMessage(raw)) {
       // coordinator 中継はラッパーを剥がした本文を lead にする。
@@ -681,12 +689,16 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
       const content = raw.message?.content;
       if (typeof content === "string") {
         // teammate-message (peer セッションからの発話) はブロックごとに teammate イベントへ。
-        // タグはあるが抽出ゼロ件 (全ブロック空 / システム通知 JSON) のときは silent drop せず
-        // raw を user に出す。
+        // raw fallback の条件は matchedCount で分ける: ペアが 1 つも取れない (誤検出 / 壊れた
+        // 書式) ときだけ raw を user に出し silent drop を避ける。ペアは取れたが全ブロックが
+        // システム通知 JSON 等で除外された場合は会話でないので skip する (raw を出すと隠すべき
+        // 通知を前置き・脚注ごと丸出しにしてしまう)。
         if (isTeammateMessageText(content)) {
-          const blocks = parseTeammateBlocks(content);
-          if (blocks.length === 0) {
+          const { matchedCount, blocks } = parseTeammateBlocks(content);
+          if (matchedCount === 0) {
             events.push({ kind: "user", text: content, ts });
+          } else if (blocks.length === 0) {
+            skipped++;
           } else {
             for (const b of blocks) {
               events.push({ kind: "teammate", ts, from: b.from, summary: b.summary, text: b.text });

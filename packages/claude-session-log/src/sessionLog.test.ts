@@ -323,6 +323,41 @@ describe("parseSessionLog", () => {
     ]);
   });
 
+  test("唯一のブロックがシステム通知 JSON の teammate-message は raw を出さず skipped に倒す", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content:
+            'Another Claude session sent a message:\n<teammate-message teammate_id="a2">\n{"type":"idle_notification","from":"a2"}\n</teammate-message>\n\nIMPORTANT: This is NOT from your user.',
+        },
+      }),
+    );
+    // ペアは取れたが全ブロック除外 → 前置き・脚注ごと raw 表示せず skip (隠すべき通知)。
+    expect(log.events).toEqual([]);
+    expect(log.skipped).toBe(1);
+  });
+
+  test("teammate-message タグ文字列を含むだけの生発話はペア未マッチで raw user に倒す", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content: "この <teammate-message タグの parse について相談したい",
+        },
+      }),
+    );
+    // 開閉ペアが取れない (matchedCount 0) → silent drop せず生発話として user に出す。
+    expect(log.events).toEqual([
+      { kind: "user", text: "この <teammate-message タグの parse について相談したい", ts: TS },
+    ]);
+    expect(log.skipped).toBe(0);
+  });
+
   test("summary 無し teammate-message は summary 空文字で載せる", () => {
     const log = parseSessionLog(
       jsonl({

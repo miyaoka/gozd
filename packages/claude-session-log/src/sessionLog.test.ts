@@ -301,7 +301,13 @@ describe("parseSessionLog", () => {
       }),
     );
     expect(log.events).toEqual([
-      { kind: "teammate", ts: TS, from: "ab12", summary: "PR レビュー結果", text: "PR の指摘が 3 件あります。" },
+      {
+        kind: "teammate",
+        ts: TS,
+        from: "ab12",
+        summary: "PR レビュー結果",
+        text: "PR の指摘が 3 件あります。",
+      },
     ]);
   });
 
@@ -1158,7 +1164,13 @@ describe("parseSessionLog", () => {
   test("rewind: teammate 枝の lead は 3 分岐で出し分ける (summary / 全ブロック除外は空 / 非タグ生発話は raw)", () => {
     const log = parseSessionLog(
       jsonl(
-        { type: "user", uuid: "u1", parentUuid: null, timestamp: TS, message: { role: "user", content: "?" } },
+        {
+          type: "user",
+          uuid: "u1",
+          parentUuid: null,
+          timestamp: TS,
+          message: { role: "user", content: "?" },
+        },
         {
           type: "assistant",
           uuid: "a1",
@@ -1174,7 +1186,8 @@ describe("parseSessionLog", () => {
           timestamp: TS,
           message: {
             role: "user",
-            content: '<teammate-message teammate_id="x" summary="完了">\n承認可。\n</teammate-message>',
+            content:
+              '<teammate-message teammate_id="x" summary="完了">\n承認可。\n</teammate-message>',
           },
         },
         // 枝2: idle_notification 単独 (全ブロック除外) → lead は空文字 (raw を漏らさない)
@@ -1185,7 +1198,8 @@ describe("parseSessionLog", () => {
           timestamp: TS,
           message: {
             role: "user",
-            content: '<teammate-message teammate_id="y">\n{"type":"idle_notification"}\n</teammate-message>',
+            content:
+              '<teammate-message teammate_id="y">\n{"type":"idle_notification"}\n</teammate-message>',
           },
         },
         // 枝3 (最新): <teammate-message 文字列を含むだけの生発話 (ペア未マッチ) → lead は raw

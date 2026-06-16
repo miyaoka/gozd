@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package gozd.v1;
+
+// 実行中サーバー (TCP LISTEN プロセス) の検出結果 (issue #768)。
+//
+// PortScanner が数秒間隔で全プロセスの LISTEN ソケットを走査し、各プロセスの ppid
+// チェーンを辿って worktree に帰属させる。結果は `serverPortsChange` push で全 snapshot
+// として renderer に配送する (差分ではなく毎回全件; renderer 側は latest-wins で置換)。
+//
+// push payload は AppRuntime 側で手組み dict として送るため、本メッセージは wire shape の
+// SSOT ドキュメント。renderer 側は対応する TS interface を手書きする (events.proto と同流儀)。
+
+// サーバープロセスの帰属種別。
+enum ServerAttribution {
+  // 未設定 (proto3 デフォルト)。実際の push では使わない。
+  SERVER_ATTRIBUTION_UNSPECIFIED = 0;
+  // 生きている gozd PTY の子孫プロセス。worktree_path / pty_id が有効。
+  SERVER_ATTRIBUTION_LIVE = 1;
+  // かつて gozd PTY 配下だったが PTY は消滅済み (ターミナル / worktree を閉じた後も
+  // port を掴んで生き残ったプロセス)。worktree_path は最後に観測した帰属先。
+  SERVER_ATTRIBUTION_ORPHANED = 2;
+  // gozd 外のプロセス。port 競合相手が gozd 管理外のケースを可視化する。
+  SERVER_ATTRIBUTION_EXTERNAL = 3;
+}
+
+// 1 つの LISTEN プロセス。同一 pid が複数 port を持つ場合は ports に集約する。
+message ServerEntry {
+  int32 pid = 1;
+  // プロセス名 (libproc の comm)。例: "node" / "vite"。
+  string name = 2;
+  // このプロセスが LISTEN している TCP port 群 (昇順)。
+  repeated uint32 ports = 3;
+  ServerAttribution attribution = 4;
+  // live / orphaned のとき帰属先 worktree の絶対パス。external は空。
+  string worktree_path = 5;
+  // live のとき帰属先 PTY id。それ以外は 0。
+  uint32 pty_id = 6;
+}
+
+// serverPortsChange push payload。検出した全サーバーの snapshot。
+message ServerPortsChangeEvent {
+  repeated ServerEntry servers = 1;
+}
+
+// serverList: renderer mount 時の pull。PortScanner が保持する直近 snapshot を返す。
+// 変化時は push (serverPortsChange) で更新されるため、これは初回 hydrate 専用。
+message ServerListRequest {}
+message ServerListResponse {
+  repeated ServerEntry servers = 1;
+}

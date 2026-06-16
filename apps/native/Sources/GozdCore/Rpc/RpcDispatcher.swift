@@ -33,6 +33,9 @@ public actor RpcDispatcher {
   /// 特定不能 / 経路に紐付かない通知では空文字を渡す。
   /// GozdApp 側の sendNotify と同じシグネチャ。
   public typealias NotifyHandler = @Sendable (String, String, String, String, String) -> Void
+  /// PortScanner が検出したサーバー snapshot を renderer に push する callback。
+  /// 変化があった scan でのみ呼ばれる (PortScanner 側で差分判定済み)。
+  public typealias ServerPortsHandler = @Sendable ([DetectedServer]) -> Void
 
   // stored properties は extension からも参照されるため module-internal (no modifier)。
   // encapsulation 境界は GozdCore module 自体。type 単位の private は extension 分割と両立しない。
@@ -42,6 +45,7 @@ public actor RpcDispatcher {
   let appConfig: AppConfigStore
   let projectConfig: ProjectConfigStore
   let tasks: TaskStore
+  let portScanner: PortScanner
   let onHook: HookHandler
   let onOpen: OpenHandler
   let onNotify: NotifyHandler
@@ -58,11 +62,14 @@ public actor RpcDispatcher {
     onRemoteRefsChange: @escaping FSWatchRegistry.RemoteRefsChangeHandler = { _ in },
     onWorktreeChange: @escaping FSWatchRegistry.WorktreeChangeHandler = { _ in },
     onNotify: @escaping NotifyHandler = { _, _, _, _, _ in },
+    onServerPortsChange: @escaping ServerPortsHandler = { _ in },
     envOverlay: GozdEnvOverlay? = nil,
     pidTracker: PidTracker? = nil
   ) {
-    self.pty = PTYRegistry(
+    let ptyRegistry = PTYRegistry(
       onText: onPtyText, onExit: onPtyExit, envOverlay: envOverlay, pidTracker: pidTracker)
+    self.pty = ptyRegistry
+    self.portScanner = PortScanner(registry: ptyRegistry, onSnapshot: onServerPortsChange)
     self.fsWatch = FSWatchRegistry(
       onFsChange: onFsChange,
       onGitStatusChange: onGitStatusChange,
@@ -77,6 +84,15 @@ public actor RpcDispatcher {
     self.onHook = onHook
     self.onOpen = onOpen
     self.onNotify = onNotify
+  }
+
+  // MARK: - Background services
+
+  /// バックグラウンド常駐サービスを起動する。AppRuntime が page.load 配線後に 1 度呼ぶ。
+  /// 現状は PortScanner のポーリング開始のみ。init で自動起動しないのは、テスト等で
+  /// dispatcher を構築しただけのときに 3 秒周期の scan を走らせないため。
+  public func startServices() async {
+    await portScanner.start()
   }
 
   // MARK: - Inbound (SocketServer NDJSON line)
@@ -143,6 +159,9 @@ public actor RpcDispatcher {
     case "/open/pickAndOpen": return try await handlePickAndOpen(body)
     case "/window/close": return try handleWindowClose(body)
     case "/window/setTitleContext": return try await handleWindowSetTitleContext(body)
+    case "/window/setServerPanelOpen": return try await handleWindowSetServerPanelOpen(body)
+
+    case "/server/list": return try await handleServerList(body)
     // git (local)
     case "/git/status": return try await handleGitStatus(body)
     case "/git/worktreeList": return try await handleGitWorktreeList(body)

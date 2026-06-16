@@ -15,3 +15,11 @@ message WindowSetTitleContextRequest {
   string worktree_name = 2;
 }
 message WindowSetTitleContextResponse {}
+
+// サーバー一覧パネルの開閉状態を native titlebar のトグルボタンにミラーする。
+// パネルの開閉状態は renderer が SSOT として所有し、変化のたびに push して
+// native の ToolbarItem の active 表示 (塗り) を同期する。TitleContext と同流儀。
+message WindowSetServerPanelOpenRequest {
+  bool open = 1;
+}
+message WindowSetServerPanelOpenResponse {}

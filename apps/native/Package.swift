@@ -30,11 +30,15 @@ let package = Package(
       name: "GozdCore",
       dependencies: [
         "CPty",
+        "CProc",
         .product(name: "GozdProto", package: "GozdProto"),
       ]
     ),
     .target(
       name: "CPty"
+    ),
+    .target(
+      name: "CProc"
     ),
     .testTarget(
       name: "GozdCoreTests",

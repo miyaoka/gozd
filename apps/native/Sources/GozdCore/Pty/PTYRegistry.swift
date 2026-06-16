@@ -235,6 +235,17 @@ public actor PTYRegistry {
     return worktreePathById[id]
   }
 
+  /// 現在生きている各 PTY の直接の子プロセス pid → (ptyId, worktreePath)。
+  /// PortScanner が LISTEN プロセスの ppid チェーンを辿り、祖先がこの集合に入れば
+  /// 当該 worktree に帰属させるために使う。worktreePath 未登録の PTY は空文字。
+  public func childPidMap() -> [pid_t: (ptyId: UInt32, worktreePath: String)] {
+    var result: [pid_t: (ptyId: UInt32, worktreePath: String)] = [:]
+    for (id, pty) in ptys {
+      result[pty.pid] = (id, worktreePathById[id] ?? "")
+    }
+    return result
+  }
+
   /// 削除 RPC / hook ハンドラが ptyId から直近 sessionId を逆引きするための accessor。
   /// 未観測なら nil。
   public func sessionId(for id: UInt32) -> String? {

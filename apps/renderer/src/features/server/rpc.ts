@@ -42,8 +42,8 @@ export interface ServerPortsChangePayload {
   }[];
 }
 
-// proto enum → feature 内部表現。UNSPECIFIED / UNRECOGNIZED は "external" に倒す
-// (push では使われない値であり、表示上は「帰属不明 = gozd 外扱い」が最も無害)。
+// proto enum → feature 内部表現。enum 全値を網羅する全域マッピングなので呼び出し側の
+// fallback は不要。UNSPECIFIED / UNRECOGNIZED は「帰属不明 = gozd 外扱い」が最も無害。
 const PROTO_ATTRIBUTION: Record<ServerAttribution, ServerAttributionKind> = {
   [ServerAttribution.SERVER_ATTRIBUTION_LIVE]: "live",
   [ServerAttribution.SERVER_ATTRIBUTION_ORPHANED]: "orphaned",
@@ -52,7 +52,8 @@ const PROTO_ATTRIBUTION: Record<ServerAttribution, ServerAttributionKind> = {
   [ServerAttribution.UNRECOGNIZED]: "external",
 };
 
-// 文字列 (push) → feature 内部表現。未知文字列は "external" に倒す。
+// 文字列 (push) → feature 内部表現。任意文字列が来うる部分マッピングなので参照側で
+// `?? "external"` の fallback が機能的に必要 (PROTO_ATTRIBUTION との非対称はこのため)。
 const STRING_ATTRIBUTION: Record<string, ServerAttributionKind> = {
   live: "live",
   orphaned: "orphaned",
@@ -64,7 +65,7 @@ function fromProtoEntry(entry: ServerEntry): ServerInfo {
     pid: entry.pid,
     name: entry.name,
     ports: entry.ports,
-    attribution: PROTO_ATTRIBUTION[entry.attribution] ?? "external",
+    attribution: PROTO_ATTRIBUTION[entry.attribution],
     worktreePath: entry.worktreePath,
     ptyId: entry.ptyId,
   };

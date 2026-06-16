@@ -69,12 +69,12 @@ public actor PortScanner {
     guard pollTask == nil else { return }
     let interval = intervalNanos
     pollTask = Task { [weak self] in
-      // 初回 scan を 1 周期ずらす。起動直後は WebPage 未 ready で push が落ちるため、
-      // page.load 完了を待ってから最初の snapshot を出す。
+      // 初回は即座に scan する。起動直後の push が renderer mount 前で取りこぼされても、
+      // mount 時の `/server/list` pull (currentSnapshot) が hydrate するため遅延は不要。
       while !Task.isCancelled {
-        try? await Task.sleep(nanoseconds: interval)
         guard let self else { return }
         await self.scanOnce()
+        try? await Task.sleep(nanoseconds: interval)
       }
     }
   }

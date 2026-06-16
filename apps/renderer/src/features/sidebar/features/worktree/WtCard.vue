@@ -164,7 +164,7 @@ function onHeaderClick() {
         <span
           v-if="livePorts.length > 0"
           class="flex items-center gap-0.5 text-[10px] text-success-text tabular-nums"
-          :title="`LISTEN 中の port: ${livePorts.join(', ')}`"
+          :title="`Listening ports: ${livePorts.join(', ')}`"
         >
           <IconLucideServer class="size-3" />
           <span>{{ livePorts.join(" ") }}</span>

@@ -198,5 +198,4 @@ export {
   ServerEntry,
   ServerListRequest,
   ServerListResponse,
-  ServerPortsChangeEvent,
 } from "./generated/gozd/v1/server";

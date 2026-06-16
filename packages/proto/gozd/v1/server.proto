@@ -38,13 +38,11 @@ message ServerEntry {
   uint32 pty_id = 6;
 }
 
-// serverPortsChange push payload。検出した全サーバーの snapshot。
-message ServerPortsChangeEvent {
-  repeated ServerEntry servers = 1;
-}
-
 // serverList: renderer mount 時の pull。PortScanner が保持する直近 snapshot を返す。
 // 変化時は push (serverPortsChange) で更新されるため、これは初回 hydrate 専用。
+//
+// serverPortsChange push の wire shape も ServerEntry が表現する (push は AppRuntime が
+// 手組み dict で送り、renderer は手書き interface ServerPortsChangePayload で受ける)。
 message ServerListRequest {}
 message ServerListResponse {
   repeated ServerEntry servers = 1;

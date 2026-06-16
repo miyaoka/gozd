@@ -6,14 +6,16 @@ native titlebar のトグルボタン → `toggleServerPanel` push → `useServe
 port 昇順で並べ、同一 port が複数プロセスに跨るときは衝突候補として警告色で示す。
 
 行クリックで該当サーバーの worktree を active にし、live なら端末ペインへフォーカスする。
-gozd 外 (external) は worktree を持たないのでクリック不可。
+gozd 外 (external) と、帰属先 worktree が既に削除済みの orphaned はクリック不可
+(`findRepoOwning` で解決できる行だけ開ける)。
 
 ドック型 (背景を覆わない) にしているのは、ターミナルを見ながら port の主を調べる用途のため。
 ESC か閉じるボタンで閉じる。
 </doc>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from "vue";
+import { useEventListener } from "@vueuse/core";
+import { computed } from "vue";
 import { useRepoStore } from "../../shared/repo";
 import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
@@ -38,18 +40,28 @@ interface ServerRow {
   ptyId: number;
   repoName: string;
   worktreeName: string;
+  /** 行クリックで worktree を開けるか。worktree が解決できる場合のみ true。 */
+  openable: boolean;
   conflict: boolean;
 }
 
-/** worktree path → 表示用の repo 名 / worktree 名。未解決なら basename にフォールバック。 */
-function resolveNames(worktreePath: string): { repoName: string; worktreeName: string } {
-  if (worktreePath === "") return { repoName: "", worktreeName: "" };
+/**
+ * worktree path → 表示用の repo 名 / worktree 名 + 開けるか。`findRepoOwning` で worktree が
+ * 解決できない (external で空 / orphaned で worktree 削除済み) 場合は openable=false にし、
+ * 存在しない dir を `setOpen` する壊れた選択状態を防ぐ。
+ */
+function resolveNames(worktreePath: string): {
+  repoName: string;
+  worktreeName: string;
+  openable: boolean;
+} {
+  if (worktreePath === "") return { repoName: "", worktreeName: "", openable: false };
   const repo = repoStore.findRepoOwning(worktreePath);
   const wt = repo?.worktrees.find((w) => w.path === worktreePath);
   const branch = wt?.branch ?? "";
   const worktreeName =
     branch !== "" ? branch.replace(/^refs\/heads\//, "") : basename(worktreePath);
-  return { repoName: repo?.repoName ?? "", worktreeName };
+  return { repoName: repo?.repoName ?? "", worktreeName, openable: wt !== undefined };
 }
 
 function basename(path: string): string {
@@ -60,8 +72,8 @@ function basename(path: string): string {
 
 const ATTRIBUTION_LABEL: Record<ServerAttributionKind, string> = {
   live: "live",
-  orphaned: "閉じた端末",
-  external: "gozd 外",
+  orphaned: "closed",
+  external: "external",
 };
 
 const ATTRIBUTION_CLASS: Record<ServerAttributionKind, string> = {
@@ -85,6 +97,7 @@ const rows = computed<ServerRow[]>(() => {
       ptyId: server.ptyId,
       repoName: names.repoName,
       worktreeName: names.worktreeName,
+      openable: names.openable,
       conflict: false,
     }));
   });
@@ -97,8 +110,8 @@ const rows = computed<ServerRow[]>(() => {
 });
 
 function onRowClick(row: ServerRow): void {
-  // external は帰属 worktree を持たないので開けない。
-  if (row.worktreePath === "") return;
+  // worktree が解決できない行 (external / 削除済み orphaned) は開けない。
+  if (!row.openable) return;
   terminalStore.viewMode = "wt";
   worktreeStore.setOpen(row.worktreePath);
   // live なら該当端末ペインへフォーカスする (ptyId は帰属先 PTY)。
@@ -110,14 +123,12 @@ function onRowClick(row: ServerRow): void {
 }
 
 // ドック型で背景を覆わないため OS の auto dismiss が無い。ESC を自前で受けて閉じる。
-function onKeydown(e: KeyboardEvent): void {
+useEventListener(window, "keydown", (e: KeyboardEvent) => {
   if (e.code === "Escape" && serverStore.isOpen) {
     e.preventDefault();
     serverStore.close();
   }
-}
-onMounted(() => window.addEventListener("keydown", onKeydown));
-onUnmounted(() => window.removeEventListener("keydown", onKeydown));
+});
 </script>
 
 <template>
@@ -127,7 +138,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
   >
     <header class="flex items-center gap-2 border-b border-border px-3 py-2">
       <IconLucideServer class="size-4 text-foreground-low" />
-      <h2 class="flex-1 text-sm font-medium text-foreground">実行中サーバー</h2>
+      <h2 class="flex-1 text-sm font-medium text-foreground">Running servers</h2>
       <button
         type="button"
         aria-label="Close"
@@ -139,7 +150,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
     </header>
 
     <div v-if="rows.length === 0" class="px-3 py-8 text-center text-xs text-foreground-low">
-      LISTEN 中の TCP サーバーは検出されていません
+      No listening TCP servers detected
     </div>
 
     <div v-else class="min-h-0 flex-1 overflow-y-auto">
@@ -148,15 +159,15 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
         class="sticky top-0 grid grid-cols-[64px_1fr_1.4fr_72px] gap-2 border-b border-border bg-panel px-3 py-1.5 text-[10px] font-medium tracking-wide text-foreground-low uppercase"
       >
         <span>Port</span>
-        <span>プロセス</span>
+        <span>Process</span>
         <span>repo / worktree</span>
-        <span class="text-right">種別</span>
+        <span class="text-right">Kind</span>
       </div>
       <button
         v-for="row in rows"
         :key="row.key"
         type="button"
-        :disabled="row.worktreePath === ''"
+        :disabled="!row.openable"
         class="grid w-full grid-cols-[64px_1fr_1.4fr_72px] items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors not-disabled:cursor-pointer not-disabled:hover:bg-element-hover disabled:cursor-default"
         @click="onRowClick(row)"
       >
@@ -164,7 +175,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
           <IconLucideTriangleAlert
             v-if="row.conflict"
             class="size-3 shrink-0 text-warning-text"
-            :title="`port ${row.port} は複数プロセスが使用中`"
+            :title="`Port ${row.port} is used by multiple processes`"
           />
           {{ row.port }}
         </span>

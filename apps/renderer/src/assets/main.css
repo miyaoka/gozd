@@ -314,7 +314,7 @@
 /* Claude 状態オーラ (worktree カード)。
    box-shadow を ::after 擬似要素に逃がし、選択中表現 (_fx-quest-active 本体の
    box-shadow) と同一プロパティを奪い合わないようにする。これで「選択中 かつ
-   working/asking/done」のカードでも、選択枠のブルーム + inset 縁取りと状態オーラが
+   working/asking/done」のカードでも、選択枠のブルームと状態オーラが
    別レイヤーとして両立する (単一要素の box-shadow に両者を載せると後勝ちで一方が消える)。 */
 ._fx-aura-working,
 ._fx-aura-asking,

@@ -8,11 +8,11 @@ upstream ahead-behind / ⋮) と、Task 行 (TaskRow) を縦に並べる。task 
 (border + 内パディング) を持ち、task がある場合はヘッダとボディを divider で区切る。
 ヘッダ = worktree identity ゾーン、ボディ = その worktree に属する task 群ゾーンとして
 構造で分離する。これにより branch/home icon (identity) と claude state icon (task の状態)
-が別ゾーンに分かれ、同一 glutter に並列して見分けづらくなる問題を解消する。
+が別ゾーンに分かれ、同一 gutter に並列して見分けづらくなる問題を解消する。
 
-カード境界は `overflow-hidden` を使わない。`_fx-quest-active` の選択エッジ glow
-(`::before`、left:-1px に張り出す) がクリップされて消えるため。内パディング `p-1` で
-内部 row を角丸にし、row の hover 背景がカードの角丸境界とぶつからないようにする。
+カード境界は `overflow-hidden` を使わない。active カードの `_fx-quest-active` が持つ
+外周ブルーム (`box-shadow`) がクリップされて消えるため。内パディング `p-0.5` で内部 row
+を角丸にし、row の hover 背景がカードの角丸境界とぶつからないようにする。
 
 server port バッジは、その worktree の端末で LISTEN 中の dev server の port を表示する
 (issue #768、live のみ)。詳細は [docs/server.md](../../../../../../../docs/server.md)。

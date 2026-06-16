@@ -62,7 +62,7 @@ interface ToolResultBlock {
 }
 interface ImageBlock {
   type: "image";
-  // Anthropic Messages API の image source。base64 のみ data URL 化できる。
+  // Anthropic Messages API の image source。base64 のみ下流で利用できる。
   source?: {
     type?: string;
     media_type?: string;
@@ -72,12 +72,21 @@ interface ImageBlock {
 type ContentBlock = TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock | ImageBlock;
 
 // ログファイルは外部プロセス (Claude Code) が書く信頼境界外の入力。media_type を
-// 既知の画像 MIME ホワイトリストで検証し、外れたら undefined (placeholder) に倒す。
-// 未知 / 破損 MIME を無検証で data URL に通さず、挙動を決定的にする。
+// 既知の画像 MIME ホワイトリストで検証し、外れたら undefined に倒す。未知 / 破損 MIME を
+// 無検証で下流に通さず、挙動を決定的にする。
 const ALLOWED_IMAGE_MEDIA_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
-/** image block を表示用 data URL にする。既知 MIME の base64 source 以外は undefined。 */
-function imageSrc(block: ImageBlock): string | undefined {
+/**
+ * 検証済みの画像ソース (既知 MIME + base64 データ)。`data:` URL 等の表示ターゲット固有の
+ * 組み立ては consumer (view) の責務なので、parse はここまで (検証済みの生データ) を載せる。
+ */
+export interface ImageSource {
+  mediaType: string;
+  base64: string;
+}
+
+/** image block を検証済み ImageSource にする。既知 MIME の base64 source 以外は undefined。 */
+function imageSource(block: ImageBlock): ImageSource | undefined {
   const source = block.source;
   if (source === undefined) return undefined;
   if (
@@ -86,7 +95,7 @@ function imageSrc(block: ImageBlock): string | undefined {
     source.data !== undefined &&
     ALLOWED_IMAGE_MEDIA_TYPES.has(source.media_type)
   ) {
-    return `data:${source.media_type};base64,${source.data}`;
+    return { mediaType: source.media_type, base64: source.data };
   }
   return undefined;
 }
@@ -132,6 +141,13 @@ interface RawLine {
   // ルートで null になりうる。
   uuid?: string;
   parentUuid?: string | null;
+  // coordinator (親エージェント) が SendMessage で subagent に中継した発話の出所。Claude Code が
+  // 中継時に `origin.kind:"coordinator"` を付ける。中継は `isMeta:true` と併記されるため、これが
+  // 無いと CLI/hook 注入レコードと区別できず会話から落ちる。中継発話を救済する判別キー。
+  origin?: { kind?: string };
+  // このレコードを書いた Claude Code のバージョン (例 "2.1.178")。行ごとに付くため、セッション中の
+  // auto-update で複数値になりうる。UI のバージョン表示に出現順ユニークで集める。
+  version?: string;
 }
 
 // harness / CLI が user role で注入するラッパーで始まる string。これらはユーザーの
@@ -145,6 +161,91 @@ const INJECTED_USER_WRAPPER_RE =
   /^\s*<(local-command-stdout|local-command-stderr|task-notification|system-reminder)>/;
 function isInjectedUserText(text: string): boolean {
   return INJECTED_USER_WRAPPER_RE.test(text);
+}
+
+/**
+ * coordinator (親エージェント) が SendMessage で subagent に中継した発話か。Claude Code は中継を
+ * `isMeta:true` で記録するが、これは CLI/hook 注入レコードと同じフラグで会話から落ちてしまう。
+ * 中継には `origin.kind:"coordinator"` が併記される (2.1.178 で導入。それ以前は isMeta なしの生
+ * 発話として記録され区別不要だった) ため、これを判別キーにして isMeta filter から救済する。
+ * subagent にとっては応答対象の会話ターンなので、生発話と同じく USER ブロック / branch 候補に載せる。
+ */
+function isCoordinatorMessage(raw: RawLine): boolean {
+  return raw.type === "user" && raw.origin?.kind === "coordinator";
+}
+
+// 中継ラッパーの前後の定型句。本文はこの 2 つに挟まれる。Claude Code が中継 string を
+// `<LEAD><本文><TRAIL>…注意書き` の形で組み立てる。
+const COORDINATOR_LEAD = "The coordinator sent a message while you were working:\n";
+const COORDINATOR_TRAIL = "\n\nAddress this before completing your current task.";
+
+/**
+ * coordinator 中継 string からラッパーを剥がし本文だけ取り出す。旧 (生発話) 形式と同じ「中継本文
+ * だけを表示」に揃えるための正規化。前後の定型句が一致しない (将来 Claude Code が書式を変えた等)
+ * 場合は raw をそのまま返し、内容を絶対に落とさない (silent drop 回避)。
+ */
+function coordinatorInnerText(content: string): string {
+  let text = content;
+  if (text.startsWith(COORDINATOR_LEAD)) text = text.slice(COORDINATOR_LEAD.length);
+  const trail = text.indexOf(COORDINATOR_TRAIL);
+  if (trail !== -1) text = text.slice(0, trail);
+  const trimmed = text.trim();
+  return trimmed === "" ? content : trimmed;
+}
+
+// team 機能で peer Claude セッションが送り合う <teammate-message> ラッパー。`isMeta:null` の user
+// string として記録されるため isMeta filter では落ちず、ラッパー (前置き / 開閉タグ / 末尾の
+// IMPORTANT 注意書き) が生のまま本文に混ざる。1 つの user レコードに複数ブロックが入りうる。
+const TEAMMATE_BLOCK_RE = /<teammate-message([^>]*)>\n?([\s\S]*?)\n?<\/teammate-message>/g;
+const TEAMMATE_ID_RE = /teammate_id="([^"]*)"/;
+const TEAMMATE_SUMMARY_RE = /summary="([^"]*)"/;
+
+/** teammate-message ラッパーを含む user string か。タグの有無だけで判定する。 */
+function isTeammateMessageText(content: string): boolean {
+  return content.includes("<teammate-message");
+}
+
+/** trim 後の text が JSON object か。idle_notification 等のシステム通知ブロックを会話から除く判定に使う。 */
+function isJsonObjectText(text: string): boolean {
+  const t = text.trim();
+  if (!t.startsWith("{")) return false;
+  const r = tryCatch(() => JSON.parse(t) as unknown);
+  return r.ok && typeof r.value === "object" && r.value !== null;
+}
+
+/** 1 つの <teammate-message> ブロックの構造データ (表示は consumer に委ねる)。 */
+interface TeammateBlock {
+  from: string;
+  summary: string;
+  text: string;
+}
+
+/**
+ * teammate-message string から各ブロックを構造データとして取り出す。前置き ("Another Claude
+ * session sent a message:") / 末尾の IMPORTANT 注意書きは本文外なので自然に落ちる。本文が空 /
+ * システム通知 JSON (idle_notification 等) のブロックは会話でないため除外する。
+ *
+ * `matchedCount` (正規表現で `<...>...</...>` ペアが取れた総数) と `blocks` (会話として採用した
+ * ブロック) を区別して返す。呼び出し側は両者で raw fallback の発火条件を分ける必要がある:
+ *   - matchedCount === 0: タグ文字列はあるがペアが取れない (誤検出 / 壊れた書式) → raw を出す
+ *   - matchedCount > 0 かつ blocks 空: ペアは取れたが全ブロック除外 (idle_notification 等) →
+ *     会話でないので skip。ここで raw を出すと「隠すべき通知」を前置き・脚注ごと丸出しにする
+ */
+function parseTeammateBlocks(content: string): { matchedCount: number; blocks: TeammateBlock[] } {
+  const blocks: TeammateBlock[] = [];
+  let matchedCount = 0;
+  for (const m of content.matchAll(TEAMMATE_BLOCK_RE)) {
+    matchedCount++;
+    const [, attrs = "", rawBody = ""] = m;
+    const text = rawBody.trim();
+    if (text === "" || isJsonObjectText(text)) continue;
+    blocks.push({
+      from: TEAMMATE_ID_RE.exec(attrs)?.[1] ?? "",
+      summary: TEAMMATE_SUMMARY_RE.exec(attrs)?.[1] ?? "",
+      text,
+    });
+  }
+  return { matchedCount, blocks };
 }
 
 /**
@@ -248,7 +349,12 @@ export type TranscriptEvent =
       toolUseId: string;
       questions: AskQuestion[];
     }
-  | { kind: "image"; ts: string; src: string | undefined }
+  | { kind: "image"; ts: string; source: ImageSource | undefined }
+  // team 機能で他の Claude セッション (peer) が <teammate-message> で送ってきた発話。`from` は
+  // teammate_id、`summary` は peer 自身が付けた 1 行要約 (空のことがある)、`text` は本文。1 つの
+  // user レコードに複数ブロックが入りうるため、ブロックごとに 1 イベント。見出しの組み方や
+  // 色付けは表示ターゲット依存なので consumer (view) に委ね、parse は構造データだけ載せる。
+  | { kind: "teammate"; ts: string; from: string; summary: string; text: string }
   // rewind 分岐点。選択中の枝の先頭会話ノードの直前に挿入する。UI はここにセレクタを出し、
   // 別の枝を選ぶと selection が更新され transcript が再構築される。
   | {
@@ -271,6 +377,11 @@ export interface ParsedSessionLog {
    * model のみ採る。
    */
   models: string[];
+  /**
+   * このセッションを書いた Claude Code のバージョンを出現順ユニークで持つ。行ごとの `version` が
+   * SSOT。auto-update でセッション途中に上がると複数値になりうるため配列で保持する。
+   */
+  versions: string[];
   /** 表示した (live な) JSONL 行数。rewind で選ばれなかった枝の行は含まない */
   totalLines: number;
   /** JSON parse に失敗した行数 (末尾の追記途中行など) */
@@ -349,9 +460,6 @@ interface LogNode {
   parentUuid: string; // raw.parentUuid ?? ""
 }
 
-// 分岐選択肢の lead テキストの最大長。これを超えたら省略記号で切る。
-const LEAD_MAX = 80;
-
 /**
  * rewind 分岐の候補ノードか。「同一親に 2 つ以上並ぶと rewind 分岐」とみなせるのは、実発話 user
  * (text / image を持つ。tool_result / 注入 / meta を除く) と、text / thinking を持つ assistant
@@ -367,7 +475,8 @@ function isBranchCandidate(raw: RawLine): boolean {
   if (isSyntheticAssistant(raw)) return false;
   const content = raw.message?.content;
   if (raw.type === "user") {
-    if (raw.isMeta === true) return false;
+    // coordinator 中継は isMeta:true だが subagent にとっては会話ターンなので候補に含める。
+    if (raw.isMeta === true && !isCoordinatorMessage(raw)) return false;
     if (typeof content === "string") return userTextOf(content) !== undefined;
     if (Array.isArray(content)) return content.some((b) => b.type === "text" || b.type === "image");
     return false;
@@ -382,12 +491,30 @@ function isBranchCandidate(raw: RawLine): boolean {
   return false;
 }
 
-/** 分岐候補ノードの先頭テキスト (選択肢の識別ラベル)。空なら "" 。LEAD_MAX で切る。 */
+/**
+ * 分岐候補ノードの先頭テキスト (選択肢の識別ラベル)。空なら ""。表示上の切り詰めは consumer の
+ * 責務 (view が CSS truncate + title で全文 hover を出す) なので、ここでは全文を返す。
+ */
 function nodeLeadText(raw: RawLine): string {
   const content = raw.message?.content;
   let text = "";
   if (typeof content === "string") {
-    text = (raw.type === "user" ? userTextOf(content) : content) ?? "";
+    if (raw.type !== "user") {
+      text = content;
+    } else if (isTeammateMessageText(content)) {
+      // teammate-message はラッパーを剥がし summary 優先 / 無ければ本文を lead に。本体の 3 分岐と
+      // 対称化する: ペア未マッチ (非タグ生発話) は raw が正しい lead、全ブロック除外 (本体は skip)
+      // は lead も空に倒し raw を漏らさない。
+      const { matchedCount, blocks } = parseTeammateBlocks(content);
+      const [first] = blocks;
+      if (first !== undefined) text = first.summary !== "" ? first.summary : first.text;
+      else text = matchedCount === 0 ? content : "";
+    } else if (isCoordinatorMessage(raw)) {
+      // coordinator 中継はラッパーを剥がした本文を lead にする。
+      text = coordinatorInnerText(content);
+    } else {
+      text = userTextOf(content) ?? "";
+    }
   } else if (Array.isArray(content)) {
     for (const block of content) {
       if (block.type === "text") {
@@ -396,8 +523,7 @@ function nodeLeadText(raw: RawLine): string {
       }
     }
   }
-  text = text.trim();
-  return text.length > LEAD_MAX ? `${text.slice(0, LEAD_MAX)}…` : text;
+  return text.trim();
 }
 
 /**
@@ -429,6 +555,10 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
   // 実 model 名を出現順ユニークで集める。seen は重複判定、models は順序保持。
   const models: string[] = [];
   const seenModels = new Set<string>();
+  // Claude Code のバージョンを出現順ユニークで集める。auto-update でセッション途中に変わると
+  // 複数値になりうるため配列で保持する。seen は重複判定、versions は順序保持。
+  const versions: string[] = [];
+  const seenVersions = new Set<string>();
 
   // --- フェーズ 1: 全行を parse して LogNode に正規化する (rewind 木の素材) ---
   const nodes: LogNode[] = [];
@@ -545,8 +675,16 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     const raw = node.raw;
     const ts = raw.timestamp ?? "";
 
-    // CLI / hook 注入のシステムレコードはユーザー発話ではないので会話に載せない。
-    if (raw.isMeta === true) {
+    // Claude Code のバージョンを記録する。レコード種別に依らず行ごとに付くため、ここで採る。
+    if (typeof raw.version === "string" && raw.version !== "" && !seenVersions.has(raw.version)) {
+      seenVersions.add(raw.version);
+      versions.push(raw.version);
+    }
+
+    // CLI / hook 注入のシステムレコードはユーザー発話ではないので会話に載せない。ただし
+    // coordinator (親) が SendMessage で中継した発話 (isMeta:true + origin.kind:"coordinator") は
+    // subagent にとって会話ターンなので除外しない。
+    if (raw.isMeta === true && !isCoordinatorMessage(raw)) {
       skipped++;
       continue;
     }
@@ -554,8 +692,29 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     if (raw.type === "user") {
       const content = raw.message?.content;
       if (typeof content === "string") {
-        // slash command はコマンド名を出し、task-notification 等の注入 string は除外する。
-        const text = userTextOf(content);
+        // teammate-message (peer セッションからの発話) はブロックごとに teammate イベントへ。
+        // raw fallback の条件は matchedCount で分ける: ペアが 1 つも取れない (誤検出 / 壊れた
+        // 書式) ときだけ raw を user に出し silent drop を避ける。ペアは取れたが全ブロックが
+        // システム通知 JSON 等で除外された場合は会話でないので skip する (raw を出すと隠すべき
+        // 通知を前置き・脚注ごと丸出しにしてしまう)。
+        if (isTeammateMessageText(content)) {
+          const { matchedCount, blocks } = parseTeammateBlocks(content);
+          if (matchedCount === 0) {
+            events.push({ kind: "user", text: content, ts });
+          } else if (blocks.length === 0) {
+            skipped++;
+          } else {
+            for (const b of blocks) {
+              events.push({ kind: "teammate", ts, from: b.from, summary: b.summary, text: b.text });
+            }
+          }
+          continue;
+        }
+        // coordinator 中継はラッパーを剥がして本文を出す。それ以外は slash command をコマンド名に
+        // し、task-notification 等の注入 string を除外する。
+        const text = isCoordinatorMessage(raw)
+          ? coordinatorInnerText(content)
+          : userTextOf(content);
         if (text === undefined) {
           skipped++;
           continue;
@@ -605,7 +764,7 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
               isError: block.is_error === true,
             };
           } else if (block.type === "image") {
-            events.push({ kind: "image", ts, src: imageSrc(block) });
+            events.push({ kind: "image", ts, source: imageSource(block) });
           } else {
             // 未知 block type は無言で落とさず skipped に計上する (footer 観察可能性)。
             skipped++;
@@ -688,7 +847,7 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
           if (toolUseId !== "") toolById.set(toolUseId, tool);
           events.push(tool);
         } else if (block.type === "image") {
-          events.push({ kind: "image", ts, src: imageSrc(block) });
+          events.push({ kind: "image", ts, source: imageSource(block) });
         } else {
           // 未知 block type は無言で落とさず skipped に計上する (footer 観察可能性)。
           skipped++;
@@ -717,7 +876,7 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     skipped++;
   }
 
-  return { events, models, totalLines, malformed, skipped, emptyThinking };
+  return { events, models, versions, totalLines, malformed, skipped, emptyThinking };
 }
 
 /**
@@ -752,436 +911,4 @@ export function expandAskMessages(events: TranscriptEvent[]): TranscriptEvent[] 
     }
   }
   return out;
-}
-
-// model ID の family 部分 → 表示名。バージョンは正規表現で抽出するため family のみ table 化する。
-const MODEL_FAMILY_LABELS: Record<string, string> = {
-  opus: "Opus",
-  sonnet: "Sonnet",
-  haiku: "Haiku",
-};
-
-/**
- * model ID を短い表示名にする。`claude-opus-4-8` → `Opus 4.8`、
- * `claude-haiku-4-5-20251001` → `Haiku 4.5` (日付サフィックスは捨てる)。
- * 既知パターンに合わない値は生のまま返し、未知 model を握り潰さず可視化する。
- */
-export function formatModelLabel(model: string): string {
-  const match = /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)/.exec(model);
-  if (match === null) return model;
-  const [, family = "", major = "", minor = ""] = match;
-  return `${MODEL_FAMILY_LABELS[family]} ${major}.${minor}`;
-}
-
-// --- subagent 紐付け / 時刻ジャンプ (SessionLogDialog / SessionLogTranscript が使う純関数) ---
-
-/** main の Agent / SendMessage 行を起動/宛先 subagent に結ぶリンク。 */
-export interface SubagentLink {
-  agentId: string;
-  label: string;
-}
-
-/** buildSubagentLinks が参照する subagent の最小情報 (SessionTab の射影)。 */
-export interface SubagentDescriptor {
-  id: string; // agent_id
-  label: string; // 表示ラベル
-  name: string; // meta.json の name (SendMessage の to が name のことがある)
-  parentToolUseId: string; // spawn した main 側 Agent tool_use id
-  // workflow agent が属する workflow run の id (wf_xxx)。非 workflow subagent は空文字。
-  // main の Workflow tool_use を workflow agent 群に結ぶグループキー。
-  workflowRunId: string;
-  // workflow の表示名。Workflow 行のリンクラベルに使う。非 workflow subagent は空文字。
-  workflowName: string;
-}
-
-// main の Workflow tool_result テキストに含まれる `Run ID: wf_xxx`。これが main の Workflow
-// tool_use を workflow agent 群 (workflowRunId) に結ぶ唯一の正規キー。先頭アンカーは張らない
-// (結果テキストの途中行に出るため)。wf id は `wf_` プレフィックス + 英数字 / ハイフン
-// (許容文字クラスは正規表現本体の `[A-Za-z0-9-]` が SSOT。特定の桁数 / 基数は仮定しない)。
-const WORKFLOW_RUN_ID_RE = /Run ID:\s*(wf_[A-Za-z0-9-]+)/;
-
-/** groupByWorkflow が要求する最小情報。SessionTab / SubagentDescriptor 双方の射影。 */
-export interface WorkflowGroupItem {
-  id: string;
-  workflowRunId: string;
-  workflowName: string;
-}
-
-/** workflowRunId でまとめた 1 グループ。`agents` は入力の出現順を保つ (先頭がアンカー)。 */
-export interface WorkflowGroup<T extends WorkflowGroupItem> {
-  runId: string;
-  name: string; // workflowName 優先、空なら runId
-  agents: T[];
-}
-
-/**
- * workflow agent (`workflowRunId !== ""`) を workflowRunId ごとにグループ化する (出現順保持)。
- * 非 workflow subagent (`workflowRunId === ""`) は除外する。
- *
- * タブバーのグループ表示と Workflow 行リンクの両方がこの 1 関数を SSOT に使い、
- * 「グループ先頭 agent = リンク先 agent」の一貫性を構造的に保証する (グループ化条件を
- * 2 箇所に複製すると先頭の取り方が無言で乖離するため)。
- */
-export function groupByWorkflow<T extends WorkflowGroupItem>(items: T[]): WorkflowGroup<T>[] {
-  const groups = new Map<string, WorkflowGroup<T>>();
-  for (const item of items) {
-    if (item.workflowRunId === "") continue;
-    const existing = groups.get(item.workflowRunId);
-    if (existing === undefined) {
-      groups.set(item.workflowRunId, {
-        runId: item.workflowRunId,
-        // 見出し名は workflowName 優先。空なら runId をそのまま見出しに使う。
-        name: item.workflowName !== "" ? item.workflowName : item.workflowRunId,
-        agents: [item],
-      });
-    } else {
-      existing.agents.push(item);
-    }
-  }
-  return [...groups.values()];
-}
-
-/**
- * subagent タブのラベル。phaseTitle / label を独立に評価し、両方あれば `phaseTitle · label`、
- * 片方だけならそれ単独で出す (workflow agent は phaseTitle、Task subagent は label が埋まる)。
- * どちらも空なら agentType、それも空なら agentId 先頭に倒す。
- *
- * phaseTitle と label は別ソース (workflowProgress の異なるフィールド) 由来で片方だけ埋まる
- * 状態を信頼境界外データとして排除できないため、AND 連結ではなく段階的に拾って情報落ちを防ぐ。
- */
-export function subagentTabLabel(entry: {
-  id: string;
-  label: string;
-  agentType: string;
-  phaseTitle: string;
-}): string {
-  const parts: string[] = [];
-  if (entry.phaseTitle !== "") parts.push(entry.phaseTitle);
-  if (entry.label !== "") parts.push(entry.label);
-  if (parts.length > 0) return parts.join(" · ");
-  if (entry.agentType !== "") return entry.agentType;
-  return entry.id.slice(0, 8);
-}
-
-/**
- * main の tool 呼び出し (Agent / SendMessage) を起動/宛先 subagent に結ぶ map を作る。
- * key は main tool event の toolUseId、value は紐づく subagent の {agentId,label}。
- *
- * - Agent (新規 spawn): main の `tool_use.id` === subagent の `parentToolUseId` (meta.toolUseId)
- * - SendMessage (resume): main の `tool_use.input.to` === subagent の `id` または `name`
- *   (Claude Code の SendMessage は to に agent_id / agent name のどちらも取りうるため両引き)。
- *   id を優先し name にフォールバックする。ただし同名 subagent が複数あると name では一意に
- *   決められないため、その name はリンクを張らない (誤った subagent へ飛ばすより無表示が安全)。
- *   id は一意なので衝突しない。
- * - Workflow (workflow 起動): main の Workflow tool_result テキストの `Run ID: wf_xxx` ===
- *   workflow agent 群の `workflowRunId`。1 Workflow = N agent なので先頭 agent に結ぶ
- *   (右ペインで開いた後はタブバーのグループから他 agent へ辿れる)。ラベルは `<名> (件数)`。
- *
- * toolUseId が空 (id 欠落 tool_use) の event は紐付け対象外。
- */
-export function buildSubagentLinks(
-  mainEvents: TranscriptEvent[],
-  subagents: SubagentDescriptor[],
-): Map<string, SubagentLink> {
-  const links = new Map<string, SubagentLink>();
-  const byParentToolUse = new Map<string, SubagentDescriptor>();
-  const byAgentId = new Map<string, SubagentDescriptor>();
-  const byName = new Map<string, SubagentDescriptor>();
-  // 複数 subagent が同じ name を持つ場合、その name では一意に引けないので除外対象にする。
-  const ambiguousNames = new Set<string>();
-  for (const sub of subagents) {
-    if (sub.parentToolUseId !== "") byParentToolUse.set(sub.parentToolUseId, sub);
-    byAgentId.set(sub.id, sub);
-    if (sub.name !== "") {
-      if (byName.has(sub.name)) ambiguousNames.add(sub.name);
-      else byName.set(sub.name, sub);
-    }
-  }
-  // workflowRunId → グループ。タブバー表示と同じ groupByWorkflow を SSOT に使い、
-  // 「グループ先頭 agent = Workflow 行リンク先」の一貫性を保つ。
-  const byWorkflowRunId = new Map(groupByWorkflow(subagents).map((g) => [g.runId, g]));
-
-  // id 引きを優先し、引けない時だけ name にフォールバック。曖昧な name は引かない。
-  const resolveTo = (to: string): SubagentDescriptor | undefined => {
-    const byId = byAgentId.get(to);
-    if (byId !== undefined) return byId;
-    if (ambiguousNames.has(to)) return undefined;
-    return byName.get(to);
-  };
-
-  // Workflow 行: result テキストの `Run ID: wf_xxx` で agent 群を引き、先頭 agent に結ぶ。
-  // 結果未記録 / runId 抽出失敗 / 該当 agent ゼロ件はリンクを張らない (無表示が安全)。
-  const resolveWorkflow = (resultText: string | undefined): SubagentLink | undefined => {
-    if (resultText === undefined) return undefined;
-    const match = WORKFLOW_RUN_ID_RE.exec(resultText);
-    if (match === null) return undefined;
-    const group = byWorkflowRunId.get(match[1]);
-    if (group === undefined) return undefined;
-    const [first] = group.agents;
-    if (first === undefined) return undefined;
-    return { agentId: first.id, label: `${group.name} (${group.agents.length})` };
-  };
-
-  for (const ev of mainEvents) {
-    if (ev.kind !== "tool" || ev.toolUseId === "") continue;
-    if (ev.name === "Agent") {
-      const sub = byParentToolUse.get(ev.toolUseId);
-      if (sub !== undefined) links.set(ev.toolUseId, { agentId: sub.id, label: sub.label });
-    } else if (ev.name === "SendMessage") {
-      const to = ev.input.to;
-      if (typeof to === "string") {
-        const sub = resolveTo(to);
-        if (sub !== undefined) links.set(ev.toolUseId, { agentId: sub.id, label: sub.label });
-      }
-    } else if (ev.name === "Workflow") {
-      const link = resolveWorkflow(ev.result?.text);
-      if (link !== undefined) links.set(ev.toolUseId, link);
-    }
-  }
-  return links;
-}
-
-/**
- * events の中で `ts` に最も近いイベントの index を返す。空文字 / parse 不能な ts のイベントは
- * スキップする。対象が無い (空 events / 全 ts 不正 / `ts` 自体が不正) なら undefined。
- * 同値 diff のタイは最小 index (最も早い) を選ぶ。
- */
-export function nearestEventIndexByTs(events: TranscriptEvent[], ts: string): number | undefined {
-  const target = Date.parse(ts);
-  if (Number.isNaN(target)) return undefined;
-  let best: number | undefined;
-  let bestDiff = Infinity;
-  events.forEach((ev, index) => {
-    const t = Date.parse(ev.ts);
-    if (Number.isNaN(t)) return;
-    const diff = Math.abs(t - target);
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      best = index;
-    }
-  });
-  return best;
-}
-
-/** セッションの生存期間 (最初〜最後の有効 ts の epoch ms)。 */
-export interface SessionTimeRange {
-  startMs: number;
-  endMs: number;
-}
-
-/**
- * events の最初〜最後の有効 ts を epoch ms で返す (横断タイムラインの生存期間バー算出)。
- *
- * tool イベントは result が後から充填される構造で ts が厳密な昇順とは限らないため、
- * 順序に依存せず全件の min / max を取る。有効 ts (Date.parse 可能) が 1 つも無ければ
- * undefined を返し、呼び出し側はそのセッションを時間軸に置けない (placeholder 扱い) と判断する。
- */
-export function sessionTimeRange(events: TranscriptEvent[]): SessionTimeRange | undefined {
-  let startMs: number | undefined;
-  let endMs: number | undefined;
-  for (const ev of events) {
-    const t = Date.parse(ev.ts);
-    if (Number.isNaN(t)) continue;
-    if (startMs === undefined || t < startMs) startMs = t;
-    if (endMs === undefined || t > endMs) endMs = t;
-  }
-  if (startMs === undefined || endMs === undefined) return undefined;
-  return { startMs, endMs };
-}
-
-// --- 横断タイムラインのトラック組み立て (SessionLogDialog / SessionLogTimeline が使う純関数) ---
-
-/** 横断タイムラインの 1 行。session 行 (main / subagent) と workflow グループ見出し行 (isHeader)。 */
-export interface TimelineTrack {
-  id: string;
-  label: string;
-  isMain: boolean;
-  // workflow グループの見出し行。workflow 名を 1 回だけ出し、バーは持たず選択もできない。
-  isHeader: boolean;
-  // グループ配下の agent 行。ラベルを indent してグループ帰属を示す。
-  indent: boolean;
-  // gutter のアイコン種別。main / グループ配下 agent は無し。
-  iconKind?: "workflow" | "subagent";
-  // この agent が使った model 名 (出現順ユニーク)。gutter ラベルに添える。
-  // workflow グループ見出し行 (isHeader) は agent ではないため常に空。
-  models: string[];
-  startMs: number | undefined;
-  endMs: number | undefined;
-}
-
-/** buildTimelineTracks に渡す 1 セッションの最小情報 (生存期間は events から算出)。 */
-export interface TimelineSession {
-  id: string;
-  label: string;
-  events: TranscriptEvent[];
-  // この agent が使った model 名 (ParsedSessionLog.models をそのまま渡す)。
-  models: string[];
-}
-
-/** workflow グループ 1 つ (見出し名 + run id + 配下 agent)。 */
-export interface TimelineWorkflowGroup {
-  name: string;
-  runId: string;
-  agents: TimelineSession[];
-}
-
-// 開始時刻 (epoch ms) の比較。ts 不在 (undefined) は時系列に置けないため末尾へ寄せる。
-function compareMaybeMs(a: number | undefined, b: number | undefined): number {
-  if (a === undefined && b === undefined) return 0;
-  if (a === undefined) return 1;
-  if (b === undefined) return -1;
-  return a - b;
-}
-
-function toSessionTrack(
-  s: TimelineSession,
-  opts: { isMain?: boolean; iconKind?: TimelineTrack["iconKind"]; indent?: boolean },
-): TimelineTrack {
-  const range = sessionTimeRange(s.events);
-  return {
-    id: s.id,
-    label: s.label,
-    isMain: opts.isMain ?? false,
-    isHeader: false,
-    indent: opts.indent ?? false,
-    iconKind: opts.iconKind,
-    models: s.models,
-    startMs: range?.startMs,
-    endMs: range?.endMs,
-  };
-}
-
-/**
- * 横断タイムラインのトラック列を組み立てる。main を anchor として先頭固定し、subagent は
- * 並べ替え単位 (plain subagent 1 件 / workflow グループ 1 塊) ごとに最古開始時刻で古い順に並べる。
- * workflow は見出し行 (isHeader) + 配下 agent (内部も古い順) を 1 単位として contiguous に保つ。
- * 生存期間 ts を持たない (sessionTimeRange undefined) 単位 / agent は末尾へ寄せる (sort は安定)。
- */
-export function buildTimelineTracks(input: {
-  main: TimelineSession | undefined;
-  plainSubagents: TimelineSession[];
-  workflowGroups: TimelineWorkflowGroup[];
-}): TimelineTrack[] {
-  const tracks: TimelineTrack[] = [];
-  if (input.main !== undefined) tracks.push(toSessionTrack(input.main, { isMain: true }));
-
-  interface Unit {
-    earliest: number | undefined;
-    tracks: TimelineTrack[];
-  }
-  const units: Unit[] = [];
-  // plain subagent: 1 トラック = 1 単位。
-  for (const s of input.plainSubagents) {
-    const track = toSessionTrack(s, { iconKind: "subagent" });
-    units.push({ earliest: track.startMs, tracks: [track] });
-  }
-  // workflow グループ: 見出し行 + 配下 agent (古い順) を 1 単位にまとめる。
-  for (const group of input.workflowGroups) {
-    const agentTracks = group.agents
-      .map((s) => toSessionTrack(s, { indent: true }))
-      .sort((a, b) => compareMaybeMs(a.startMs, b.startMs));
-    const starts = agentTracks.map((t) => t.startMs).filter((m): m is number => m !== undefined);
-    const header: TimelineTrack = {
-      id: group.runId,
-      label: group.name,
-      isMain: false,
-      isHeader: true,
-      indent: false,
-      iconKind: "workflow",
-      models: [],
-      startMs: undefined,
-      endMs: undefined,
-    };
-    units.push({
-      earliest: starts.length > 0 ? Math.min(...starts) : undefined,
-      tracks: [header, ...agentTracks],
-    });
-  }
-
-  units.sort((a, b) => compareMaybeMs(a.earliest, b.earliest));
-  for (const unit of units) tracks.push(...unit.tracks);
-  return tracks;
-}
-
-/** 全トラックを覆う共通時間軸 (有効 ts を持つトラックの min start / max end)。無ければ undefined。 */
-export function timelineAxisRange(tracks: TimelineTrack[]): SessionTimeRange | undefined {
-  let startMs: number | undefined;
-  let endMs: number | undefined;
-  for (const t of tracks) {
-    if (t.startMs === undefined || t.endMs === undefined) continue;
-    if (startMs === undefined || t.startMs < startMs) startMs = t.startMs;
-    if (endMs === undefined || t.endMs > endMs) endMs = t.endMs;
-  }
-  if (startMs === undefined || endMs === undefined) return undefined;
-  return { startMs, endMs };
-}
-
-/** タイムライン最下段 (= 最新) の subagent トラック id。末尾から最初の非 header・非 main を返す。 */
-export function newestSubagentTrackId(tracks: TimelineTrack[]): string | undefined {
-  for (let i = tracks.length - 1; i >= 0; i--) {
-    const track = tracks[i];
-    if (!track.isHeader && !track.isMain) return track.id;
-  }
-  return undefined;
-}
-
-/** 表示用に分解した timestamp。日付は今日なら空文字 (時刻のみで足りる)。 */
-export interface FormattedSessionTime {
-  date: string;
-  time: string;
-}
-
-// 時刻 / 日付の Intl formatter (SSOT)。生成コストの高い formatter をモジュールレベルで
-// 一度だけ作り、イベントごとの整形で使い回す。いずれも 24h 固定 (引数なしの toLocale* は
-// 環境次第で AM/PM になり tabular-nums 整列が崩れる)。
-// - 時刻: 秒ありは目次 (時刻の一意性に依存)、秒なしは吹き出し脇 (会話の時刻は分まで)
-// - 日付: 同年は M/D、別年は YYYY/M/D
-const TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  hour12: false,
-});
-const TIME_FORMATTER_NO_SECONDS = new Intl.DateTimeFormat(undefined, {
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
-const DATE_FORMATTER_SAME_YEAR = new Intl.DateTimeFormat(undefined, {
-  month: "numeric",
-  day: "numeric",
-});
-const DATE_FORMATTER_OTHER_YEAR = new Intl.DateTimeFormat(undefined, {
-  year: "numeric",
-  month: "numeric",
-  day: "numeric",
-});
-
-/**
- * ISO timestamp を表示用に日付 / 時刻へ分解する (SSOT)。空 / 不正なら両方空文字。
- *
- * 秒は `seconds` で出し分ける: 目次は時刻の一意性に依存するため秒まで出すが、吹き出し脇は
- * 会話の時刻表示なので分までで足りる。日付は今日なら空文字、今年は M/D、別年は YYYY/M/D を
- * 返し、resume で日 / 年をまたいだセッションのエントリを一意に区別できるようにする。
- * 目次は日付 + 時刻を 1 行に連結し、吹き出し脇は 2 行に分けて使う。
- */
-export function formatSessionTime(
-  ts: string,
-  { seconds = true }: { seconds?: boolean } = {},
-): FormattedSessionTime {
-  if (ts === "") return { date: "", time: "" };
-  const date = new Date(ts);
-  if (Number.isNaN(date.getTime())) return { date: "", time: "" };
-
-  const now = new Date();
-  const time = (seconds ? TIME_FORMATTER : TIME_FORMATTER_NO_SECONDS).format(date);
-  const sameDay =
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate();
-  if (sameDay) return { date: "", time };
-
-  const sameYear = date.getFullYear() === now.getFullYear();
-  const dateStr = (sameYear ? DATE_FORMATTER_SAME_YEAR : DATE_FORMATTER_OTHER_YEAR).format(date);
-  return { date: dateStr, time };
 }

@@ -129,6 +129,10 @@ function parsedEvents(content: string): PreviewEvent[] {
   for (const ev of expandAskMessages(parseSessionLog(content).events)) {
     if (ev.kind === "user" || ev.kind === "assistant") {
       out.push({ kind: ev.kind, text: ev.text, ts: ev.ts });
+    } else if (ev.kind === "teammate") {
+      // peer セッションからの受信発話は、この agent への inbound 入力として user 扱いで見せる
+      // (subagent の spawn prompt も teammate でラップされるため、これを落とすと preview から消える)。
+      out.push({ kind: "user", text: ev.text, ts: ev.ts });
     }
   }
   return out;

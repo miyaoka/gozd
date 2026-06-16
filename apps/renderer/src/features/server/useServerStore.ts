@@ -1,6 +1,7 @@
+import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
-import { tryCatch } from "@gozd/shared";
+import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import {
   rpcServerList,
@@ -31,6 +32,7 @@ let disposeServerPorts: (() => void) | undefined;
 let disposeTogglePanel: (() => void) | undefined;
 
 export const useServerStore = defineStore("server", () => {
+  const notify = useNotificationStore();
   const servers = ref<ServerInfo[]>([]);
   const isOpen = ref(false);
   // push を一度でも受けたか。in-flight の hydrate (pull) 結果が後着で push の新しい
@@ -41,7 +43,12 @@ export const useServerStore = defineStore("server", () => {
   void hydrate();
   async function hydrate() {
     const result = await tryCatch(rpcServerList());
-    if (result.ok && !receivedPush) servers.value = result.value;
+    // 失敗は無通知で捨てない。空表示のままだと「サーバーが無い」と区別できないため通知する。
+    if (!result.ok) {
+      notify.error("Failed to load running servers", result.error);
+      return;
+    }
+    if (!receivedPush) servers.value = result.value;
   }
 
   // 全件 snapshot push。差分ではなく毎回全件なので latest-wins で置換する。
@@ -61,8 +68,10 @@ export const useServerStore = defineStore("server", () => {
   // renderer だけ HMR リロードした場合に native 側 (前回値が残る) とズレるのを防ぐ。
   watch(
     isOpen,
-    (open) => {
-      void tryCatch(rpcWindowSetServerPanelOpen(open));
+    async (open) => {
+      const result = await tryCatch(rpcWindowSetServerPanelOpen(open));
+      // 失敗すると titlebar ボタンの active 表示が renderer の開閉状態とズレるため通知する。
+      if (!result.ok) notify.error("Failed to sync server panel state", result.error);
     },
     { immediate: true },
   );

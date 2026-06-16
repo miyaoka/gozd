@@ -90,8 +90,11 @@ public actor PortScanner {
   }
 
   private func scanOnce() async {
-    let listens = Self.listListenPorts()
-    let procs = Self.listProcs()
+    // proc / listen の列挙が失敗したスキャンは丸ごと skip する。proc 失敗時は ppid
+    // チェーンが辿れず全サーバーが誤帰属するうえ生存 pid フィルタが orphaned 記憶を
+    // 全消去し、listen 失敗時は「0 件」誤 snapshot で全バッジが消える。どちらも次の
+    // 成功スキャンまで前回 snapshot を維持する (空辞書 = 正当な 0 件は push する)。
+    guard let procs = Self.listProcs(), let listens = Self.listListenPorts() else { return }
     let childMap = await registry.childPidMap()
 
     var servers: [DetectedServer] = []
@@ -156,13 +159,15 @@ public actor PortScanner {
   }
 
   /// 全プロセスの pid → (ppid, name)。probe で件数を得てから 1 度だけ確保する。
-  private static func listProcs() -> [Int32: ProcInfo] {
+  /// libproc 失敗時は nil を返す。空辞書 (= 列挙失敗) を成功扱いすると、呼び出し側の
+  /// orphaned 記憶の掃除 (生存 pid フィルタ) が全消去になり orphaned 判定が復元不能になる。
+  private static func listProcs() -> [Int32: ProcInfo]? {
     let needed = gozd_list_procs(nil, 0)
     guard needed > 0 else {
       if needed < 0 {
         StderrLog.write(tag: "PortScanner", "gozd_list_procs probe failed")
       }
-      return [:]
+      return nil
     }
     // 走査中の増加に備えて余裕を持たせる。
     let capacity = Int(needed) + 128
@@ -170,7 +175,7 @@ public actor PortScanner {
     let written = gozd_list_procs(&buffer, Int32(capacity))
     guard written >= 0 else {
       StderrLog.write(tag: "PortScanner", "gozd_list_procs failed")
-      return [:]
+      return nil
     }
     let count = min(Int(written), capacity)
     var result: [Int32: ProcInfo] = [:]
@@ -182,14 +187,16 @@ public actor PortScanner {
     return result
   }
 
-  /// 全 TCP LISTEN ソケットの pid → port 集合。
-  private static func listListenPorts() -> [Int32: Set<UInt16>] {
+  /// 全 TCP LISTEN ソケットの pid → port 集合。listProcs と対称に、libproc 失敗時は
+  /// nil を返す。空辞書 (= 列挙失敗) を成功扱いすると「LISTEN サーバー 0 件」の誤 snapshot
+  /// が push され、一時的に全バッジが消える。`written == 0` は正当な「0 件」なので空辞書を返す。
+  private static func listListenPorts() -> [Int32: Set<UInt16>]? {
     var buffer = [GozdListenEntry](
       repeating: GozdListenEntry(), count: listenBufferCapacity)
     let written = gozd_list_listen_ports(&buffer, Int32(listenBufferCapacity))
     guard written >= 0 else {
       StderrLog.write(tag: "PortScanner", "gozd_list_listen_ports failed")
-      return [:]
+      return nil
     }
     if Int(written) > listenBufferCapacity {
       StderrLog.write(

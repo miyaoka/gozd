@@ -191,6 +191,27 @@ final class AppRuntime {
         )
       }
     }
+    // PortScanner が検出したサーバー snapshot を renderer に push する。
+    // 全件 snapshot (差分ではなく毎回全件)。renderer 側は latest-wins で置換する。
+    // wire shape は server.proto の ServerEntry を手組み dict で写す (events 系と同流儀)。
+    let onServerPortsChange: RpcDispatcher.ServerPortsHandler = { servers in
+      let payload: [String: Any] = [
+        "servers": servers.map { server in
+          [
+            "pid": Int(server.pid),
+            "name": server.name,
+            "ports": server.ports.map { Int($0) },
+            "attribution": server.attribution.rawValue,
+            "worktreePath": server.worktreePath,
+            "ptyId": Int(server.ptyId),
+          ] as [String: Any]
+        }
+      ]
+      Task { @MainActor in
+        await pushToRenderer(
+          page: holder.page, type: "serverPortsChange", payload: payload)
+      }
+    }
     // 内部の非同期エラーを renderer に notify push する。
     // - "error" / "info" の type
     // - source は通知元モジュール名（"socket" / "claude-hooks" / "task-store" 等）
@@ -226,10 +247,14 @@ final class AppRuntime {
       onRemoteRefsChange: onRemoteRefsChange,
       onWorktreeChange: onWorktreeChange,
       onNotify: sendNotify,
+      onServerPortsChange: onServerPortsChange,
       envOverlay: envOverlay,
       pidTracker: pidTracker
     )
     self.dispatcher = createdDispatcher
+
+    // バックグラウンド常駐サービス (PortScanner) を起動する。dispatcher 構築後に 1 度だけ。
+    Task { await createdDispatcher.startServices() }
 
     var config = WebPage.Configuration()
     config.urlSchemeHandlers[URLScheme("gozd-rpc")!] = RpcSchemeHandler(dispatcher: createdDispatcher)

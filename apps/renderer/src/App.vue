@@ -13,6 +13,7 @@ import {
   useNotifySubscription,
   useTitleContextSync,
 } from "./features/layout";
+import { ServerListPanel } from "./features/server";
 import { useGozdOpenHandler, useRepoContextKey } from "./features/sidebar";
 import { useGitStatusSync, useRemoteFetchSync } from "./features/worktree";
 import { useKeyBindings } from "./shared/command";
@@ -30,5 +31,6 @@ useTitleContextSync();
 
 <template>
   <MainLayout />
+  <ServerListPanel />
   <ArcadeLayer />
 </template>

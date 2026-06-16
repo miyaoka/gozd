@@ -235,6 +235,23 @@ public actor PTYRegistry {
     return worktreePathById[id]
   }
 
+  /// 現在生きている各 PTY の直接の子プロセス pid → (ptyId, worktreePath)。
+  /// PortScanner が LISTEN プロセスの ppid チェーンを辿り、祖先がこの集合に入れば
+  /// 当該 worktree に帰属させるために使う。
+  ///
+  /// worktreePath が未登録の PTY は **除外** する。空 path を返すと下流で
+  /// `attribution = live` かつ `worktreePath = ""` という ServerEntry 契約違反
+  /// (live/orphaned は worktree_path 有効) が生じる。除外することで、その PTY 配下の
+  /// サーバーは祖先にヒットせず `external` に倒れ、契約が保たれる。
+  public func childPidMap() -> [pid_t: (ptyId: UInt32, worktreePath: String)] {
+    var result: [pid_t: (ptyId: UInt32, worktreePath: String)] = [:]
+    for (id, pty) in ptys {
+      guard let worktreePath = worktreePathById[id], !worktreePath.isEmpty else { continue }
+      result[pty.pid] = (id, worktreePath)
+    }
+    return result
+  }
+
   /// 削除 RPC / hook ハンドラが ptyId から直近 sessionId を逆引きするための accessor。
   /// 未観測なら nil。
   public func sessionId(for id: UInt32) -> String? {

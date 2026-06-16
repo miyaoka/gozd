@@ -86,6 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct ContentView: View {
   @State private var runtime = AppRuntime()
   @State private var titleContext = TitleContext.shared
+  @State private var serverPanel = ServerPanelContext.shared
 
   var body: some View {
     // top safe area の扱いは channel で分岐する。
@@ -103,6 +104,21 @@ struct ContentView: View {
           Text(titleContext.text.isEmpty ? GozdApp.windowTitle : titleContext.text)
         }
         .sharedBackgroundVisibility(.hidden)
+        // サーバー一覧パネルのトグル (issue #768)。開閉状態は renderer が SSOT として
+        // 所有し、ServerPanelContext.isOpen にミラーされる。クリックで renderer に
+        // toggleServerPanel を push して panel を開閉させる。
+        ToolbarItem(placement: .primaryAction) {
+          Button {
+            let page = runtime.page
+            Task { @MainActor in
+              await pushToRenderer(page: page, type: "toggleServerPanel", payload: [:])
+            }
+          } label: {
+            Image(systemName: "network")
+              .foregroundStyle(serverPanel.isOpen ? Color.accentColor : Color.primary)
+          }
+          .help("Running servers")
+        }
       }
       .task {
         // ロード経路は 3 つ:

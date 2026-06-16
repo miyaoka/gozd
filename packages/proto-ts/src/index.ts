@@ -188,6 +188,14 @@ export {
 export {
   WindowCloseRequest,
   WindowCloseResponse,
+  WindowSetServerPanelOpenRequest,
+  WindowSetServerPanelOpenResponse,
   WindowSetTitleContextRequest,
   WindowSetTitleContextResponse,
 } from "./generated/gozd/v1/window";
+export {
+  ServerAttribution,
+  ServerEntry,
+  ServerListRequest,
+  ServerListResponse,
+} from "./generated/gozd/v1/server";

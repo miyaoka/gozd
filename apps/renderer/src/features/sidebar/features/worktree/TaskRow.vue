@@ -149,12 +149,12 @@ function onMenuClick(event: MouseEvent) {
     <button
       type="button"
       :data-active="active"
-      class="flex w-full items-center gap-2 rounded-lg p-2 text-left transition-colors hover:bg-element-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset data-[active=true]:bg-primary-subtle"
+      class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-element-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset data-[active=true]:bg-primary-subtle data-[active=true]:hover:bg-primary-subtle-hover"
       @click="emit('select', task)"
     >
       <component
         :is="visual.icon"
-        class="size-5 shrink-0"
+        class="size-4 shrink-0"
         :class="[visual.color, visual.animate]"
         role="img"
         :aria-label="visual.ariaLabel"

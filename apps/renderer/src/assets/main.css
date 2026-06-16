@@ -302,44 +302,19 @@
   left: 125%;
 }
 
-/* 選択中カード: 左エッジの発光バー + 薄い primary 縁取り + ブルーム。
-   モダンゲームの「選択中スロット」表現 (回転枠のような装飾過多は避ける) */
+/* 選択中カード: アウトライン表現 (border-primary は utility 側で付与) + 外周ブルーム。
+   カード内部は塗らない。塗り (青 fill) は focus 行の capsule (bg-primary-subtle) だけが持ち、
+   「カードが選択中」と「どの行に focus があるか」を fill ｘ outline で階層分離する。
+   カード自体を青く塗ると focus 行の青 capsule と青ｘ青で潰れるため塗りは持たせない。 */
 ._fx-quest-active {
   position: relative;
-  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
-  box-shadow:
-    0 0 22px color-mix(in oklch, var(--color-primary) 30%, transparent),
-    inset 0 0 0 1px color-mix(in oklch, var(--color-primary) 35%, transparent);
-}
-
-._fx-quest-active::before {
-  content: "";
-  position: absolute;
-  left: -1px;
-  top: 14%;
-  bottom: 14%;
-  width: 3px;
-  border-radius: 2px;
-  background: linear-gradient(to bottom, transparent, var(--color-primary), transparent);
-  box-shadow: 0 0 10px var(--color-primary);
-  animation: fx-edge-pulse 2.4s ease-in-out infinite;
-  pointer-events: none;
-}
-
-@keyframes fx-edge-pulse {
-  0%,
-  100% {
-    opacity: 0.65;
-  }
-  50% {
-    opacity: 1;
-  }
+  box-shadow: 0 0 16px color-mix(in oklch, var(--color-primary) 22%, transparent);
 }
 
 /* Claude 状態オーラ (worktree カード)。
    box-shadow を ::after 擬似要素に逃がし、選択中表現 (_fx-quest-active 本体の
    box-shadow) と同一プロパティを奪い合わないようにする。これで「選択中 かつ
-   working/asking/done」のカードでも、選択枠のブルーム + inset 縁取りと状態オーラが
+   working/asking/done」のカードでも、選択枠のブルームと状態オーラが
    別レイヤーとして両立する (単一要素の box-shadow に両者を載せると後勝ちで一方が消える)。 */
 ._fx-aura-working,
 ._fx-aura-asking,

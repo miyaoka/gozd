@@ -297,8 +297,8 @@ final class AppRuntime {
     // 起動時に握り潰した Claude hooks settings 書き込みエラーをここで通知する。
     // init 時点は page.load 前で receiver (window.__gozdReceive) も未登録のため、この
     // 即時 push は pushToRenderer 側で drop される (bootstrap 窓の receiver not ready)。
-    // settings write 失敗は稀なパスで、ここでは stderr ログ (ClaudeHooks tag) が観察経路を
-    // 担保している。renderer まで確実に届ける必要が出たら deferred-delivery を別途設ける。
+    // 観察経路は書き込み失敗時の stderr ログ (ClaudeHooks tag) が担保しており、renderer への
+    // 配送はこの通知の要件ではない (settings write 失敗は稀かつ、失敗そのものは stderr で足りる)。
     if let err = claudeSettingsWriteError {
       sendNotify(
         "error", "claude-hooks", "Failed to write Claude hooks settings",

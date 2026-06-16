@@ -126,7 +126,7 @@ function onHeaderClick() {
       </button>
     </header>
 
-    <div v-if="isGitRepo && !visiblyCollapsed" class="flex flex-col">
+    <div v-if="isGitRepo && !visiblyCollapsed" class="flex flex-col gap-2">
       <WtCard
         v-for="wt in orderedWorktrees"
         :key="wt.path"
@@ -141,7 +141,7 @@ function onHeaderClick() {
       />
       <button
         type="button"
-        class="_fx-shine flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border px-2 py-1.5 text-xs tracking-widest text-foreground-low uppercase transition-colors hover:border-primary hover:bg-primary-subtle hover:text-primary-text disabled:cursor-not-allowed disabled:text-foreground-muted disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-foreground-muted"
+        class="_fx-shine flex w-full items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs text-foreground-low transition-colors hover:bg-element-hover hover:text-foreground disabled:cursor-not-allowed disabled:text-foreground-muted disabled:hover:bg-transparent disabled:hover:text-foreground-muted"
         :disabled="isCreating"
         @click="emit('addWorktree', rootDir)"
       >

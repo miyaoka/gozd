@@ -2,6 +2,18 @@
 1 worktree のカード。ヘッダ (branch icon / branch / server port バッジ / git status /
 upstream ahead-behind / ⋮) と、Task 行 (TaskRow) を縦に並べる。task が無い wt はヘッダのみ。
 
+## グルーピング
+
+「worktree とそれに属する task 群」を 1 つの単位として明示するため、カードは境界
+(border + 内パディング) を持ち、task がある場合はヘッダとボディを divider で区切る。
+ヘッダ = worktree identity ゾーン、ボディ = その worktree に属する task 群ゾーンとして
+構造で分離する。これにより branch/home icon (identity) と claude state icon (task の状態)
+が別ゾーンに分かれ、同一 glutter に並列して見分けづらくなる問題を解消する。
+
+カード境界は `overflow-hidden` を使わない。`_fx-quest-active` の選択エッジ glow
+(`::before`、left:-1px に張り出す) がクリップされて消えるため。内パディング `p-1` で
+内部 row を角丸にし、row の hover 背景がカードの角丸境界とぶつからないようにする。
+
 server port バッジは、その worktree の端末で LISTEN 中の dev server の port を表示する
 (issue #768、live のみ)。詳細は [docs/server.md](../../../../../../../docs/server.md)。
 
@@ -11,9 +23,15 @@ Task は PR/issue picker や手動操作で永続的に作られ、Claude sessio
 
 ## ハイライト
 
-active wt の場合、wt ヘッダには常に capsule fill。さらに focused PTY が task に
-紐づいているなら該当 task 行にも capsule。wt と task の両方が同時にハイライト
-されることで「どの wt のどの task に focus があるか」が一目で識別できる。
+選択表現を 2 レベルで階層分離する。fill (青 capsule) は常にカード内 1 行だけ。
+
+- **カード = アウトライン**: active worktree は border-primary + 外周グロー
+  (`_fx-quest-active`) で示す。内部は塗らない。
+- **行 = fill**: focus がある 1 行だけ `bg-primary-subtle` の capsule。focused PTY が
+  task なら該当 task 行、task に focus が無い (wt の素のターミナル) なら header。
+
+カード自体を青く塗ると focus 行の青 capsule と青ｘ青で潰れて「どの行か」が読めなく
+なるため、塗りは行だけが持つ。所属 (active worktree であること) は card の outline が担う。
 
 ## 並び順
 
@@ -124,8 +142,14 @@ const focusedTaskId = computed(() => {
   return found?.task.id;
 });
 
-/** focus が wt 内にあるなら header に capsule (task focus 時も同時にハイライト) */
-const headerActive = computed(() => props.active);
+/**
+ * header の capsule (青 fill) は「wt が active かつ task に focus が無い」ときだけ。
+ * task に focus があるときは該当 task 行を fill するので、header まで fill すると
+ * 同一カード内に青 fill が 2 つ並んで「どの行が focus か」が潰れる。fill は常に
+ * 1 行だけ、という不変条件を保つ。active worktree であること自体は card の
+ * border-primary + glow が示すため、header fill が消えても所属は分かる。
+ */
+const headerActive = computed(() => props.active && focusedTaskId.value === undefined);
 
 /** main worktree (= リポジトリ root) は git worktree remove 不可。現状メニュー項目は Remove のみ。 */
 const canRemove = computed(() => !props.wt.isMain);
@@ -144,20 +168,17 @@ function onHeaderClick() {
 <template>
   <article
     :data-active="active"
-    class="rounded-lg transition-colors data-[active=true]:bg-primary-subtle"
-    :class="[active && '_fx-quest-active', auraClass]"
+    class="rounded-lg border p-0.5 transition-colors"
+    :class="[active ? '_fx-quest-active border-primary' : 'border-border-subtle', auraClass]"
   >
     <div class="group/wt relative">
-      <div
-        role="button"
-        tabindex="0"
+      <button
+        type="button"
         :data-active="headerActive"
-        class="_fx-shine flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-foreground-low transition-colors hover:bg-element-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset"
+        class="_fx-shine flex w-full items-center gap-2 rounded-md px-2 py-0.5 text-left text-foreground-low transition-colors hover:bg-element-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset data-[active=true]:bg-primary-subtle data-[active=true]:hover:bg-primary-subtle-hover"
         @click="onHeaderClick"
-        @keydown.enter.prevent="onHeaderClick"
-        @keydown.space.prevent="onHeaderClick"
       >
-        <span class="grid size-5 shrink-0 place-items-center" aria-hidden="true">
+        <span class="grid size-4 shrink-0 place-items-center" aria-hidden="true">
           <component :is="branchIcon" class="size-3.5" />
         </span>
         <span class="flex-1 truncate text-left text-xs font-medium">{{ branchLabel }}</span>
@@ -193,7 +214,7 @@ function onHeaderClick() {
             <span>{{ wt.upstream.behind }}</span>
           </span>
         </span>
-      </div>
+      </button>
       <button
         v-if="canRemove"
         type="button"
@@ -205,7 +226,7 @@ function onHeaderClick() {
       </button>
     </div>
 
-    <div v-if="tasksWithStatus.length > 0">
+    <div v-if="tasksWithStatus.length > 0" class="mt-0.5 border-t border-border-subtle pt-0.5">
       <TaskRow
         v-for="entry in tasksWithStatus"
         :key="entry.task.id"

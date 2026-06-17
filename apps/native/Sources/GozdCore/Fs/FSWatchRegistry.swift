@@ -124,6 +124,15 @@ public actor FSWatchRegistry {
   /// 再計算する (handleEvents での O(N) 走査を O(1) lookup に置き換える)。
   /// 選出理由は `recomputePrimary` の docstring を参照。
   private var primaryByCommonGitDir: [String: String] = [:]
+  /// commonGitDir → 直近に観測した local/remote ref digest。`branchChange` / `remoteRefsChange`
+  /// は path 分類では「ref store が動いた候補」までしか分からない。reftable backend は
+  /// local / remote / HEAD を 1 テーブルに同居させ commit でも共有テーブルを書き換えるため、
+  /// path だけで remoteRefsChange を立てると commit のたびに renderer の `gh pr list` を撃って
+  /// GitHub rate limit を累積発火させる。候補が立った primary watcher で `GitOps.refDigest` を
+  /// 読み、前回値と差があるカテゴリ (heads / remotes) だけを dispatch するための内容比較キャッシュ。
+  /// 初回 (key 不在) は無条件発火で renderer と baseline を合わせる。primary が消えた commonGitDir
+  /// は `recomputePrimary` が key を落とし、再 watch 時に baseline を張り直す。
+  private var lastRefDigestByCommonGitDir: [String: GitOps.RefDigest] = [:]
   /// resolved dir → 直近に push 済みの `StatusFull`。同一内容の `gitStatusChange` 連射を
   /// 止めるための dedup キャッシュ。
   ///
@@ -339,6 +348,10 @@ public actor FSWatchRegistry {
       }
     }
     primaryByCommonGitDir.removeValue(forKey: commonGitDir)
+    // primary が消えたら ref digest の baseline も破棄する。primary 不在の間は誰も digest を
+    // 更新しないので、stale 値が次の primary 確立後の初回判定を誤らせるのを防ぐ (再 watch 時は
+    // key 不在 → 無条件発火で baseline を張り直す)。
+    lastRefDigestByCommonGitDir.removeValue(forKey: commonGitDir)
   }
 
   /// 1 バッチの events を分類して push event として配送する。
@@ -394,14 +407,46 @@ public actor FSWatchRegistry {
         "primary missing for commonGitDir=\(commonGitDir); dropping branchChange=\(result.hasBranchChange) remoteRefsChange=\(result.hasRemoteRefsChange) worktreeChange=\(result.hasWorktreeChange) from dir=\(dir); entries=\(siblings)"
       )
     }
-    if result.hasBranchChange && isPrimaryForCommonDir {
-      onBranchChange(originalDir)
-    }
-    if result.hasRemoteRefsChange && isPrimaryForCommonDir {
-      onRemoteRefsChange(originalDir)
-    }
     if result.hasWorktreeChange && isPrimaryForCommonDir {
       onWorktreeChange(originalDir)
+    }
+    // branchChange / remoteRefsChange は path 分類では「ref store が動いた候補」までしか
+    // 分からない。reftable backend は local / remote / HEAD を 1 テーブルに同居させ、commit でも
+    // 共有テーブルを書き換えるため、path だけで remoteRefsChange を立てると commit のたびに
+    // renderer の `gh pr list` を撃って GitHub rate limit を累積発火させる。候補が立った primary
+    // watcher で `git for-each-ref` の内容ダイジェストを読み、heads / remotes のうち実際に変化した
+    // カテゴリだけ dispatch する (ref backend 非依存の判定。`lastRefDigestByCommonGitDir` 参照)。
+    if (result.hasBranchChange || result.hasRemoteRefsChange) && isPrimaryForCommonDir,
+      let commonGitDir = entry.commonGitDir
+    {
+      var digest: GitOps.RefDigest? = nil
+      do {
+        digest = try await GitOps.refDigest(dir: dir)
+      } catch {
+        StderrLog.write(tag: "FSWatchRegistry", "refDigest failed for \(dir): \(error)")
+      }
+      // refDigest の await 中に unwatch されている可能性があるため再 check
+      guard isActive(dir: dir, generation: generation) else { return }
+      if let digest {
+        let prev = lastRefDigestByCommonGitDir[commonGitDir]
+        lastRefDigestByCommonGitDir[commonGitDir] = digest
+        // 初回 (prev == nil) は baseline が無いので無条件発火し renderer と整合を取る。
+        if result.hasBranchChange && prev?.heads != digest.heads {
+          onBranchChange(originalDir)
+        }
+        if result.hasRemoteRefsChange && prev?.remotes != digest.remotes {
+          onRemoteRefsChange(originalDir)
+        }
+      } else {
+        // digest 取得失敗時: branchChange だけ撃ち、remoteRefsChange は撃たない。
+        // remoteRefsChange を fallback で撃つと、reftable で for-each-ref が恒常的に失敗する状況で
+        // commit のたびに `gh pr list` を連射し rate limit を累積発火させる元の問題に逆戻りする。
+        // remoteRefsChange の即時 consumer (`loadPrList` = gh / `loadLog` = local) は、loadPrList が
+        // 60s polling、loadLog が fallback で撃つ branchChange 経由で回収されるため、ここで省いても
+        // 永続的にはずれない (取りこぼしは観察ログ + 回収経路ありで silent drop 規律を満たす)。
+        // branchChange は local のみ (loadLog / worktree list refetch、安価) なので撃って取りこぼしを防ぐ。
+        if result.hasBranchChange { onBranchChange(originalDir) }
+      }
     }
 
     if result.hasGitStatusChange {

@@ -214,6 +214,57 @@ struct FSWatchRegistryTests {
     #expect(events.contains("gitStatusChange"))
   }
 
+  @Test("commit は heads digest を動かすので branchChange + gitStatusChange を撃つが、remotes 不変なので remoteRefsChange は撃たない (digest gating)")
+  func commitFiresBranchNotRemoteByDigest() async throws {
+    // reftable backend で commit が共有テーブルを書き換えても remote は動いていない。path 分類だけだと
+    // remoteRefsChange を撃って `gh pr list` を連射するため、native 側で `git for-each-ref` の
+    // 内容ダイジェストを取り、実際に動いたカテゴリ (heads / remotes) だけ dispatch する。本テストは
+    // files backend だが gating は backend 非依存に効く。remote を持たない repo では remotes digest が
+    // 常に空文字で、commit (heads 変化) では remoteRefsChange が立たないことを固定する。
+    let tmpDir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+    try await initGitRepo(at: tmpDir)
+    let seed = tmpDir.appendingPathComponent("seed.txt")
+    try "seed".write(to: seed, atomically: true, encoding: .utf8)
+    try await runGitCmd(["add", "seed.txt"], cwd: tmpDir)
+    try await runGitCmd(["commit", "-m", "seed"], cwd: tmpDir)
+
+    let collector = EventNameCollector()
+    let registry = FSWatchRegistry(
+      onFsChange: { _, _ in collector.append("fsChange") },
+      onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
+      onBranchChange: { _ in collector.append("branchChange") },
+      onRemoteRefsChange: { _ in collector.append("remoteRefsChange") },
+      onWorktreeChange: { _ in collector.append("worktreeChange") }
+    )
+
+    try await registry.watch(dir: tmpDir.path)
+    await sleepThreaded(.milliseconds(300))
+
+    // digest baseline を確立する。branch 作成で branchChange 候補を 1 度踏ませ、その handleEvents で
+    // refDigest が読まれ commonGitDir 単位に保存される。これをやらないと次の commit が「初回 digest
+    // 計算 (prev == nil)」になり、初回無条件発火で remotes も撃たれて gating を検証できない。
+    try await runGitCmd(["branch", "digest-baseline"], cwd: tmpDir)
+    await waitForEvent(collector, matching: { $0 == "branchChange" })
+    await sleepThreaded(.milliseconds(200))
+    collector.clear()
+
+    // 本命: 通常 commit。refs/heads/<current> の OID が進む (heads digest 変化) が remotes は不変。
+    let file = tmpDir.appendingPathComponent("a.txt")
+    try "hello".write(to: file, atomically: true, encoding: .utf8)
+    try await runGitCmd(["add", "a.txt"], cwd: tmpDir)
+    try await runGitCmd(["commit", "-m", "add a"], cwd: tmpDir)
+
+    await waitForEvent(collector, matching: { $0 == "branchChange" })
+    // branchChange と同 handleEvents バッチで remotes digest 判定も済む。後続バッチで remote を
+    // 動かす操作は無いので、settle 後に remoteRefsChange 不在を確定できる。
+    await sleepThreaded(.milliseconds(200))
+    let events = collector.snapshot()
+    #expect(events.contains("branchChange"))
+    #expect(events.contains("gitStatusChange"))
+    #expect(!events.contains("remoteRefsChange"))
+  }
+
   @Test("`git pack-refs --all` で packed-refs が更新されると branchChange + gitStatusChange + remoteRefsChange が dispatch される")
   func dispatchesOnPackRefs() async throws {
     // pack 後はファイル名から local / remote のどちらが pack されたか判別不能なため、

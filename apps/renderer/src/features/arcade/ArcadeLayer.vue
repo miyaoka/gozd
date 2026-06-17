@@ -1,6 +1,6 @@
 <doc lang="md">
 ゲームジュース層の全画面オーバーレイ。UI 最前面 (pointer-events: none) に
-パーティクル canvas / ビネット / オーロラ / ネオンフレーム / イベントフラッシュを重ねる。
+パーティクル canvas / ビネット / オーロラ / イベントフラッシュを重ねる。
 
 ## 重ね順と操作透過
 
@@ -20,7 +20,7 @@
 ## パフォーマンス
 
 - canvas パーティクルはイベント発火時のみ rAF を回し、空になれば停止する (idle 時の rAF ゼロ)
-- 一方 aurora / ネオンフレーム / 各種グローは CSS 合成による**常時演出**。GPU レイヤーは
+- 一方 aurora / 各種グローは CSS 合成による**常時演出**。GPU レイヤーは
   保持され続けるため、canvas のような完全停止はせず idle 時も合成負荷が残る。
   aurora は `will-change: transform` で常時 drift するため、無負荷ではない点に注意
 </doc>
@@ -125,8 +125,6 @@ onUnmounted(() => {
     <div class="_fx-aurora absolute inset-0"></div>
     <!-- 周辺減光で中央に視線を集める -->
     <div class="_fx-vignette absolute inset-0"></div>
-    <!-- 常時表示のネオンフレーム (ウィンドウ全体を HUD で縁取る) -->
-    <div class="_fx-frame absolute inset-0"></div>
     <!-- パーティクル -->
     <canvas ref="fxCanvas" class="absolute inset-0 size-full"></canvas>
     <!-- イベントフラッシュ (画面端の発光) -->
@@ -137,12 +135,6 @@ onUnmounted(() => {
 <style>
 ._fx-vignette {
   background: radial-gradient(ellipse 120% 100% at 50% 45%, transparent 60%, oklch(0 0 0 / 0.3));
-}
-
-._fx-frame {
-  box-shadow:
-    inset 0 0 70px color-mix(in oklch, var(--color-primary) 9%, transparent),
-    inset 0 0 3px color-mix(in oklch, var(--color-primary) 40%, transparent);
 }
 
 ._fx-aurora {

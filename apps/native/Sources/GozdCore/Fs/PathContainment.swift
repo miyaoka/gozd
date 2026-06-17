@@ -15,9 +15,14 @@ import System
 //   dir/file 判定に起因する「削除直後だけ containment が誤って外れる」バグが構造的に消える
 //
 // symlink に関する契約: lexical 解決なので base 配下に実在する escaping symlink は辿れてしまう
-// (Apple ドキュメント明記の trade-off)。gozd の脅威モデルは renderer XSS による path 文字列
-// 注入であり、攻撃者は worktree / bundle 内に symlink を仕込めない (これらの経路に write 権限が
-// 無い)。したがって lexical containment がこのレイヤの正しい防壁。
+// (Apple ドキュメント明記の trade-off)。これで防御レベルは下がらない:
+//   - bundle (`gozd-app://` の `.app` 内) は読み取り専用で symlink を仕込めない
+//   - worktree (`gozd-rpc://` / `gozd-file://`) は user / Claude が自由に書ける作業ディレクトリ
+//     で symlink を仕込めるが、機密ファイル読み取りの主防壁はここの containment ではない。
+//     dir 制約なしで任意絶対パスを読む `/fs/readFileAbsolute` (preview が worktree 外ファイルを
+//     表示する正規経路) が既に存在し、XSS 経由の bytes 回収を止めるのは `gozd-rpc://` の
+//     CORS Origin allowlist (RpcSchemeHandler)。よって resolveSafe の symlink follow の有無は
+//     防御の主軸でなく、lexical containment は「base 配下に閉じる」役割として必要十分。
 public func resolveContained(base: String, subpath: String) -> String? {
   guard let resolved = FilePath(base).lexicallyResolving(FilePath(subpath)) else {
     return nil

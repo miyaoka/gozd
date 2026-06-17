@@ -157,7 +157,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
         />
         <label
           v-if="viewer !== ''"
-          class="shrink-0 cursor-pointer rounded-sm px-2 py-0.5 text-xs select-none has-focus-visible:ring-2 has-focus-visible:ring-ring"
+          class="shrink-0 cursor-pointer rounded-sm px-2 py-0.5 text-xs has-focus-visible:ring-2 has-focus-visible:ring-ring"
           :class="
             filterAssignee
               ? 'bg-primary text-foreground'

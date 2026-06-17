@@ -299,7 +299,7 @@ useEventListener(window, "pointerup", () => {
           <!-- 軸ヘッダ (時刻表示 + シーク領域)。クリックでその位置へ、左右ドラッグで連続シークする。
                sticky で縦スクロールから外し、固定する (agent 行だけがスクロールする)。 -->
           <div
-            class="sticky top-0 z-10 flex h-6 cursor-ew-resize touch-none items-center justify-between bg-background text-[10px] text-foreground-low tabular-nums select-none"
+            class="sticky top-0 z-10 flex h-6 cursor-ew-resize touch-none items-center justify-between bg-background text-[10px] text-foreground-low tabular-nums"
             @pointerdown="onScrubDown"
           >
             <span class="pointer-events-none">{{ startLabel }}</span>

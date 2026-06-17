@@ -73,6 +73,12 @@ watch(
  */
 ._markdown-body {
   overflow-wrap: anywhere;
+  /* markdown 本文はコピー対象コンテンツ。MarkdownPreview では contenteditable host として
+     base 層の [contenteditable] 規則でも text になるが、session-log / terminal preview では
+     contenteditable 無しで使われるため、host 自身に明示して全経路で選択可を担保する。
+     WebKit (WKWebView) は -webkit- プレフィックス無しの user-select を無視するため両方書く。 */
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* contenteditable host として focus を取る経路 (MarkdownPreview 経由) で、keyboard focus

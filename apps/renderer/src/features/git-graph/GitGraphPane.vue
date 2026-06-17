@@ -976,10 +976,7 @@ const isWorkingTreeActive = computed(
 </script>
 
 <template>
-  <div
-    ref="root"
-    class="flex size-full flex-col overflow-hidden bg-background text-foreground select-none"
-  >
+  <div ref="root" class="flex size-full flex-col overflow-hidden bg-background text-foreground">
     <div class="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1.5">
       <IconLucideGitCommitHorizontal class="size-4 text-foreground-low" />
       <span class="text-xs font-semibold text-foreground-low">Git Graph</span>

@@ -108,7 +108,7 @@ function onContextMenu(event: MouseEvent) {
   <div>
     <button
       type="button"
-      class="flex w-full cursor-pointer items-center gap-1 px-1 py-0.5 text-left text-xs select-none hover:bg-element-hover"
+      class="flex w-full cursor-pointer items-center gap-1 px-1 py-0.5 text-left text-xs hover:bg-element-hover"
       :style="{ paddingLeft: `${depth * 12 + 8}px` }"
       @click="onClick"
       @contextmenu="onContextMenu"

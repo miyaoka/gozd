@@ -431,7 +431,7 @@ function onContextMenu(event: MouseEvent) {
     <button
       v-if="!isRoot"
       ref="button"
-      class="flex w-full items-center gap-1 rounded-sm px-1 py-0.5 text-left text-sm select-none hover:bg-element"
+      class="flex w-full items-center gap-1 rounded-sm px-1 py-0.5 text-left text-sm hover:bg-element"
       :class="[
         selectedRelPath === path ? 'bg-element' : '',
         textColorClass,

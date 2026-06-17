@@ -438,14 +438,19 @@ public actor FSWatchRegistry {
           onRemoteRefsChange(originalDir)
         }
       } else {
-        // digest 取得失敗時: branchChange だけ撃ち、remoteRefsChange は撃たない。
-        // remoteRefsChange を fallback で撃つと、reftable で for-each-ref が恒常的に失敗する状況で
-        // commit のたびに `gh pr list` を連射し rate limit を累積発火させる元の問題に逆戻りする。
-        // remoteRefsChange の即時 consumer (`loadPrList` = gh / `loadLog` = local) は、loadPrList が
-        // 60s polling、loadLog が fallback で撃つ branchChange 経由で回収されるため、ここで省いても
-        // 永続的にはずれない (取りこぼしは観察ログ + 回収経路ありで silent drop 規律を満たす)。
-        // branchChange は local のみ (loadLog / worktree list refetch、安価) なので撃って取りこぼしを防ぐ。
-        if result.hasBranchChange { onBranchChange(originalDir) }
+        // digest 取得失敗時の fallback。2 つの判断を下す:
+        //
+        // 1. branchChange は候補種別に関係なく無条件で撃つ:
+        //    - 外側 guard は `hasBranchChange || hasRemoteRefsChange` 候補なので、remote-only
+        //      batch (`refs/remotes` だけが動いた fetch) もここに入る
+        //    - `if hasBranchChange` で gate すると remote-only 候補で false になり loadLog を落とす。
+        //      current 以外の branch の remote ref 変化は gitStatusChange の `branch.ab` (current 分
+        //      のみ) では検知できず、branchChange だけが loadLog の回収経路
+        //    - branchChange の consumer は loadLog + worktree list refetch の local のみで安価
+        //
+        // 2. remoteRefsChange は撃たない (gh spam 回避。詳細は上の success path コメント /
+        //    GitOps+Refs.swift 参照)。gh consumer の `loadPrList` は 60s polling で回収される
+        onBranchChange(originalDir)
       }
     }
 

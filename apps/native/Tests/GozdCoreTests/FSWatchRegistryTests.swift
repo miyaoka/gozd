@@ -952,6 +952,7 @@ struct ClassifyTests {
       events: [ev(pathOf("repo", ".git", "worktrees", "foo", "reftable", "tables.list"))])
     #expect(result.hasWorktreeChange)
     #expect(!result.hasBranchChange)
+    #expect(!result.hasRemoteRefsChange)
     #expect(!result.hasGitStatusChange)
     #expect(!result.hasFsChange)
   }

@@ -517,7 +517,10 @@ public actor FSWatchRegistry {
   ///        （files backend。local / remote 両方を含み得るため、すべてを発火させる）
   ///      - `reftable/...` を `branchChange` + `gitStatusChange` + `remoteRefsChange`
   ///        （reftable backend。local / remote / HEAD が同居し種別判別不能なため packed-refs と
-  ///        同じく全発火。これが無いと reftable repo で branch 変化が silent drop される）
+  ///        同じく全発火。これが無いと reftable repo で branch 変化が silent drop される。
+  ///        加えて root (`perWtSameAsCommon`) では `worktreeChange` も立てる。reftable は HEAD
+  ///        スタブが動かず、root の `git switch existing-branch` を branch label に反映する唯一の
+  ///        signal がこの共有テーブル変化のため、files backend の HEAD 規則と対称化する）
   ///      - `worktrees/...` を `worktreeChange`
   ///   3. 作業ツリー配下（git dir 配下に該当しない場合）→ `fsChange` + `gitStatusChange`
   ///
@@ -627,6 +630,20 @@ public actor FSWatchRegistry {
           hasBranchChange = true
           hasGitStatusChange = true
           hasRemoteRefsChange = true
+          // root (perWtSameAsCommon) の `git switch existing-branch` を branch label に反映するため
+          // worktreeChange も立て、files backend の HEAD 規則 (上参照) と対称化する:
+          // - reftable では HEAD スタブ (`ref: refs/heads/.invalid`) が動かず、root の branch 切替の
+          //   唯一の signal がこの共有テーブル変化。files backend の `.git/HEAD` 変化に相当する
+          // - 既存 branch 切替は refs/heads の OID/集合を動かさないため branchChange は handleEvents
+          //   の heads-digest gating で抑止される。worktreeChange は digest gating の対象外で primary
+          //   が無条件 dispatch するため、branch label 更新 (worktree list refetch) の正規経路になる
+          // - commit でもここは worktreeChange を立てる過剰発火があるが、refetch 先は local の
+          //   `git worktree list --porcelain` で安価 (gh spam の元 remoteRefsChange とは別系統)
+          // - secondary 自身は上の per-wt reftable 規則 (gitStatusChange のみ) で排他処理され
+          //   ここには来ないため二重発火しない
+          if perWtSameAsCommon {
+            hasWorktreeChange = true
+          }
         }
       }
 

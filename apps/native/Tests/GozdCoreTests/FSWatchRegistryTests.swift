@@ -265,6 +265,51 @@ struct FSWatchRegistryTests {
     #expect(!events.contains("remoteRefsChange"))
   }
 
+  @Test("root の既存 branch 切替 (.git/HEAD 変化) は worktreeChange を撃つが branchChange は撃たない (digest gating と worktreeChange dispatch の分離)")
+  func headSwitchFiresWorktreeNotBranch() async throws {
+    // branch label (WtCard) は worktree list (`git worktree list --porcelain`) 由来で、その更新経路は
+    // worktreeChange であり branchChange ではない。この分離が回帰すると reftable の root branch 切替で
+    // branch label が stale になる (commitFiresBranchNotRemoteByDigest と対の回帰ガード)。
+    // 相互作用の本質: reftable では HEAD スタブが動かず共有テーブル変化が hasBranchChange を立てるが、
+    // 既存 branch 切替は heads digest 不変なので handleEvents の digest gating が branchChange を抑止し、
+    // worktreeChange (digest 非経由、handleEvents 410-412行) だけが branch label を更新する。
+    // 本テストは files backend だが同じ分離契約を踏む: root の `git switch existing-branch` は
+    // `.git/HEAD` の symbolic ref 先だけを動かし (refs/heads は不変)、HEAD 規則が worktreeChange を
+    // 立て branchChange は立てない。reftable backend を使わないため CI の git バージョンに依存しない。
+    let tmpDir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+    try await initGitRepo(at: tmpDir)
+    let seed = tmpDir.appendingPathComponent("seed.txt")
+    try "seed".write(to: seed, atomically: true, encoding: .utf8)
+    try await runGitCmd(["add", "seed.txt"], cwd: tmpDir)
+    try await runGitCmd(["commit", "-m", "seed"], cwd: tmpDir)
+    // 切替先の既存 branch を用意する (作成のみ。HEAD は元のまま動かさない)。
+    try await runGitCmd(["branch", "other"], cwd: tmpDir)
+
+    let collector = EventNameCollector()
+    let registry = FSWatchRegistry(
+      onFsChange: { _, _ in collector.append("fsChange") },
+      onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
+      onBranchChange: { _ in collector.append("branchChange") },
+      onRemoteRefsChange: { _ in collector.append("remoteRefsChange") },
+      onWorktreeChange: { _ in collector.append("worktreeChange") }
+    )
+
+    try await registry.watch(dir: tmpDir.path)
+    await sleepThreaded(.milliseconds(300))
+    collector.clear()
+
+    // 既存 branch への切替: refs/heads は動かず `.git/HEAD` の symbolic ref 先だけが変わる。
+    try await runGitCmd(["switch", "other"], cwd: tmpDir)
+
+    await waitForEvent(collector, matching: { $0 == "worktreeChange" })
+    // worktreeChange の settle 窓で branchChange 不在を確定する。
+    await sleepThreaded(.milliseconds(200))
+    let events = collector.snapshot()
+    #expect(events.contains("worktreeChange"))
+    #expect(!events.contains("branchChange"))
+  }
+
   @Test("`git pack-refs --all` で packed-refs が更新されると branchChange + gitStatusChange + remoteRefsChange が dispatch される")
   func dispatchesOnPackRefs() async throws {
     // pack 後はファイル名から local / remote のどちらが pack されたか判別不能なため、
@@ -852,12 +897,19 @@ struct ClassifyTests {
 
   // MARK: - reftable backend (Git 2.51+、3.0 で default 化)
 
-  @Test("reftable backend root: .git/reftable/tables.list 変化は branch + remote + status（packed-refs と等価）")
+  @Test("reftable backend root: .git/reftable/tables.list 変化は branch + remote + status + worktree（packed-refs + HEAD と等価）")
   func reftableRootSharedStore() {
     // reftable では HEAD スタブが `ref: refs/heads/.invalid` 固定で動かず、branch 切替・作成・
     // 削除・rename・fetch がすべて共有テーブル `.git/reftable/` の書き換えに funnel される。
-    // local / remote / HEAD を種別判別できないため packed-refs と同じく全発火させる。これが
-    // 無いと無分類で silent drop され、reftable repo で branch 表示が永久に更新されない。
+    // local / remote / HEAD を種別判別できないため packed-refs と同じく branch / remote / status を
+    // 全発火させる。これが無いと無分類で silent drop され、reftable repo で branch 表示が永久に
+    // 更新されない。
+    // 加えて root では worktreeChange も立てる: files backend では root の `git switch` が `.git/HEAD`
+    // を動かして HEAD 規則が worktreeChange を立てるが、reftable では HEAD が動かずこの共有テーブルが
+    // 唯一の signal。さらに既存 branch 切替は heads digest 不変なので handleEvents の digest gating が
+    // branchChange を抑止する。worktreeChange は digest gating 対象外で primary が無条件 dispatch する
+    // ため、これが branch label 更新 (worktree list refetch) の正規経路になる。これが無いと reftable
+    // root の既存 branch 切替で branchChange (gated) も worktreeChange も飛ばず branch label が stale。
     let dir = pathOf("repo")
     let gitDir = pathOf("repo", ".git")
     let result = FSWatchRegistry.classify(
@@ -866,6 +918,7 @@ struct ClassifyTests {
     #expect(result.hasBranchChange)
     #expect(result.hasRemoteRefsChange)
     #expect(result.hasGitStatusChange)
+    #expect(result.hasWorktreeChange)
     #expect(!result.hasFsChange)
   }
 

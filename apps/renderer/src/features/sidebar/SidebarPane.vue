@@ -306,7 +306,7 @@ const activeRootWorktree = computed(() => {
       </div>
     </div>
 
-    <div ref="scrollContainer" class="flex flex-1 flex-col overflow-y-auto py-4">
+    <div ref="scrollContainer" class="_thin-scrollbar flex flex-1 flex-col overflow-y-scroll py-4">
       <DragDropProvider @drag-end="onDragEnd">
         <RepoSection
           v-for="(rootDir, i) in repoStore.dirOrder"

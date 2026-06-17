@@ -193,6 +193,29 @@
     scrollbar-width: thin;
   }
 
+  /* サイドバー専用のカスタム細幅 scrollbar。標準の thin より細い固定 6px を出すため
+     scrollbar-width を auto に戻して ::-webkit-scrollbar を再有効化する
+     (thin/none 指定時は webkit 擬似要素が無視される)。占有幅は overflow-y: scroll の
+     実トラックが常時担い、gutter は要素側で auto に倒す (_thin-scrollbar utility) */
+  ._thin-scrollbar {
+    scrollbar-width: auto;
+    scrollbar-gutter: auto;
+  }
+
+  ._thin-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ._thin-scrollbar::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: color-mix(in oklch, var(--color-foreground) 25%, transparent);
+  }
+
+  ._thin-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
   /* stable は classic 環境で overflow: hidden の box にも gutter を予約する仕様のため、
      `*` 一括にせず縦スクロール utility に限定する (角丸クリップ用 overflow-hidden に
      空の縦帯が出るのを防ぐ)。scrollbar-gutter は縦 scrollbar の inline-end gutter に

@@ -7,10 +7,9 @@ import Foundation
 // 1. **path は dir からの相対パス**として扱う。絶対パスや `..` を経由した
 //    dir 範囲外アクセスは拒否する（path traversal 対策）。
 //
-// 2. **判定は realpath ベース**: `URL.resolvingSymlinksInPath()` で symlink を
-//    解決した実パスで `dir` 配下にあるかを判定する。文字列 prefix 判定だけだと
-//    `/foo/bar` が `/foo/barbaz` の prefix になる罠を踏むので
-//    `targetPath == dirPath || targetPath.hasPrefix(dirPath + "/")` で照合。
+// 2. **判定は `resolveContained` (FilePath.lexicallyResolving) に委譲**: path
+//    containment の SSOT は `PathContainment.swift`。Apple 公式 API で絶対パス注入 /
+//    `..` 脱出 / prefix 罠を構造的に防ぐ。FS 非依存なので削除済み dir でも決定的に動く。
 //
 // 3. **戻り値は素の Swift 型**（`Data` / `[FSEntry]`）。proto 型変換は RPC 境界
 //    （URLSchemeHandler）に閉じ込める。GitOps と同じ流儀。
@@ -193,13 +192,8 @@ public enum FSError: Error, Equatable {
 // MARK: - private helpers
 
 private func resolveSafe(dir: String, path: String) throws -> String {
-  let dirURL = URL(fileURLWithPath: dir).resolvingSymlinksInPath()
-  let targetURL = URL(fileURLWithPath: path, relativeTo: dirURL).resolvingSymlinksInPath()
-  let dirPath = dirURL.path
-  let targetPath = targetURL.path
-  // /foo が /foobar の prefix になる罠を避けるため separator まで照合する。
-  if targetPath == dirPath || targetPath.hasPrefix(dirPath + "/") {
-    return targetPath
+  guard let resolved = resolveContained(base: dir, subpath: path) else {
+    throw FSError.outsideDir(requestedPath: path)
   }
-  throw FSError.outsideDir(requestedPath: path)
+  return resolved
 }

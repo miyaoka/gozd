@@ -91,6 +91,20 @@ struct FSOpsReadDirTests {
     #expect(result.entries.isEmpty)
   }
 
+  @Test("dir (worktree root) 自体が削除済みでも path=\".\" は outsideDir でなく notFound")
+  func notFoundForDeletedRootDir() async throws {
+    // worktree 削除後、その root を dir に readDir(path: ".") する経路の回帰。
+    // 旧実装 (`URL(fileURLWithPath:path, relativeTo:)`) は不在 dir で相対 path "." を親へ
+    // 解決して outsideDir を誤発火していた。`resolveContained` (FS 非依存の lexical 解決) が
+    // これを構造的に防ぐ。
+    let dir = try makeTempDir()
+    try FileManager.default.removeItem(at: URL(fileURLWithPath: dir))
+
+    let result = try await FSOps.readDir(dir: dir, path: ".")
+    #expect(result.notFound == true)
+    #expect(result.entries.isEmpty)
+  }
+
   @Test("ディレクトリが同名ファイルに置換された場合も notFound を返す")
   func notFoundForDirReplacedByFile() async throws {
     let dir = try makeTempDir()

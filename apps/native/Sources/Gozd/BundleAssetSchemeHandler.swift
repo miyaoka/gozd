@@ -1,4 +1,5 @@
 import Foundation
+import GozdCore
 import UniformTypeIdentifiers
 import WebKit
 
@@ -8,9 +9,9 @@ import WebKit
 // 直ロードでは subresource (`/assets/*.js` 等) が WKWebView sandbox に弾かれる。
 // WWDC25「Meet WebKit for SwiftUI」公式パターンに従い custom scheme で serve する。
 //
-// path traversal 防止: `..` を含むパスを `standardized` で正規化し、symlink を解決した
-// 実体パスが `bundledRoot` 配下にあることを必ず確認する。`gozd-app://` は renderer から
-// fetch 可能なため、XSS 経由で bundle 外を読まれないよう構造的に防ぐ。
+// path traversal 防止: `resolveContained` (FilePath.lexicallyResolving) で relPath を
+// `bundledRoot` 配下へ閉じ込める。`gozd-app://` は renderer から fetch 可能なため、
+// XSS 経由で bundle 外を読まれないよう構造的に防ぐ (containment の SSOT は PathContainment.swift)。
 
 struct BundleAssetSchemeHandler: URLSchemeHandler {
   /// `.app` 内 renderer 配置ルート。Bundle が無い (swift run 直叩き等) と nil。
@@ -31,19 +32,13 @@ struct BundleAssetSchemeHandler: URLSchemeHandler {
         }
         let relPath = url.path.hasPrefix("/") ? String(url.path.dropFirst()) : url.path
         let normalized = relPath.isEmpty ? "index.html" : relPath
-        // path traversal 防止: `..` を含むパスを standardized で正規化し、symlink を
-        // 解決した実体パスが bundledRoot 配下にあることを確認する。`gozd-app://` は
-        // renderer から fetch 可能なため、XSS 経由で bundle 外を読まれないようにする。
-        let candidate = root.appendingPathComponent(normalized).standardized
-        let resolvedFile = candidate.resolvingSymlinksInPath()
-        let resolvedRoot = root.resolvingSymlinksInPath()
-        let rootPath = resolvedRoot.path
-        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
-        guard resolvedFile.path == rootPath || resolvedFile.path.hasPrefix(prefix) else {
+        // path traversal 防止: relPath を bundledRoot 配下へ閉じ込める。bundle 外へ
+        // 抜ける (`..` / 絶対パス) なら nil → fileDoesNotExist。
+        guard let containedPath = resolveContained(base: root.path, subpath: normalized) else {
           continuation.finish(throwing: URLError(.fileDoesNotExist))
           return
         }
-        let fileURL = candidate
+        let fileURL = URL(fileURLWithPath: containedPath)
         do {
           let data = try Data(contentsOf: fileURL)
           let mime =

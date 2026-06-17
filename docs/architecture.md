@@ -77,7 +77,7 @@ Gozd.app/Contents/
 `pnpm dev` は `apps/native/scripts/build-dev-app.sh` で **dev 専用 `.app`**（dock icon が dev カラー、タイトルが `gozd (dev)`）を生成し、renderer は Vite dev server (`http://localhost:<port>`、port は root `package.json` の `dev` script で `GOZD_DEV_VITE_PORT` env として設定し Vite / Swift 両方が SSOT として受け取る) から読み込む。Vite default の 5173 ではなく gozd 固有ポートを使い、かつ `vite.config.ts` で `strictPort: true` を指定する。理由は別 worktree からの二重 `pnpm dev` / 別 Vite アプリと衝突したときに fallback で別ポートを掴むと、Swift `.app` は env から受け取った port 固定なので先発の Vite に繋がって「別 worktree のはずなのに先発の内容が表示される」サイレント事故になるため。`pnpm build` は `build-app.sh` で stable 版 `.app` を生成し、renderer はバンドル内 `views/main/index.html` を `gozd-app://` URLSchemeHandler 経由でロードする。
 
 > [!NOTE]
-> `WebPage` には `loadFileURL(_:allowingReadAccessTo:)` 相当が無いため、ローカル HTML / asset は `gozd-app://localhost/...` URLSchemeHandler で配信する（WWDC25「Meet WebKit for SwiftUI」公式パターン）。`gozd-app://` の resolver は `.standardized` + `resolvingSymlinksInPath` した実体パスが bundle root 配下にあることを検証して path traversal を防ぐ。
+> `WebPage` には `loadFileURL(_:allowingReadAccessTo:)` 相当が無いため、ローカル HTML / asset は `gozd-app://localhost/...` URLSchemeHandler で配信する（WWDC25「Meet WebKit for SwiftUI」公式パターン）。`gozd-app://` の resolver は `resolveContained`（`FilePath.lexicallyResolving`）で relPath を bundle root 配下へ閉じ込めて path traversal を防ぐ。path containment の SSOT は `GozdCore/Fs/PathContainment.swift`（`gozd-rpc://` の `FSOps.resolveSafe` も同じ helper を使う）。
 
 ### `bin/gozd` シェルラッパーの動作
 

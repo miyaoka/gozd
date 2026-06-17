@@ -31,7 +31,7 @@ import { DragDropProvider } from "@dnd-kit/vue";
 import type { Task, WorktreeEntry } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { storeToRefs } from "pinia";
-import { computed, ref } from "vue";
+import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { useArcadeStore } from "../arcade";
@@ -202,6 +202,36 @@ function onDragEnd(event: DragEndEvent) {
   repoStore.dirOrder = move(repoStore.dirOrder, event);
 }
 
+// --- アクティブ worktree のサイドバー追従 ---
+//
+// アクティブターミナル（= worktreeStore.dir）が変わったら、その wt がサイドバーで
+// 見えるようにする。サイドバー操作で切り替えた場合は既に可視なので副作用なし
+// （scrollIntoView block:nearest は範囲内なら no-op、属する repo は開いている）。
+// ターミナルペイン側でのフォーカス移動など、サイドバー外の経路で dir が変わった
+// ときに効く。
+const scrollContainer = useTemplateRef<HTMLElement>("scrollContainer");
+
+watch(
+  () => worktreeStore.dir,
+  async (dir) => {
+    if (dir === undefined) return;
+    // 編集モード中は全 section が強制 collapse され WtCard が描画されないため、
+    // スクロール先が存在しない。追従はスキップする。
+    if (editMode.value) return;
+    // 畳まれた repo の中にいると WtCard が v-if で出ていないので、まず開く。
+    const owner = repoStore.findRepoOwning(dir);
+    if (owner !== undefined) repoStore.expand(owner.rootDir);
+    // expand による WtCard の出現を待ってからスクロール先を引く。
+    await nextTick();
+    const container = scrollContainer.value;
+    if (container === null) return;
+    // path は `/` 等を含むので CSS.escape で属性セレクタ用にエスケープする。
+    const el = container.querySelector(`[data-wt-path=${CSS.escape(dir)}]`);
+    // block:nearest = 範囲内なら動かさず、範囲外のときだけ最小限スクロールする。
+    el?.scrollIntoView({ block: "nearest" });
+  },
+);
+
 // --- ProjectConfigPanel: active な root worktree がある時だけ表示 ---
 
 const activeRootWorktree = computed(() => {
@@ -271,7 +301,7 @@ const activeRootWorktree = computed(() => {
       </div>
     </div>
 
-    <div class="flex flex-1 flex-col overflow-y-auto py-4">
+    <div ref="scrollContainer" class="flex flex-1 flex-col overflow-y-auto py-4">
       <DragDropProvider @drag-end="onDragEnd">
         <RepoSection
           v-for="(rootDir, i) in repoStore.dirOrder"

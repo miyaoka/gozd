@@ -270,6 +270,14 @@
   box-shadow: 0 8px 24px oklch(0 0 0 / 0.4);
 }
 
+._fx-panel[data-active="true"] {
+  border-color: color-mix(in oklch, var(--color-primary) 70%, transparent);
+  border-top-color: color-mix(in oklch, var(--color-primary) 70%, transparent);
+  box-shadow:
+    0 16px 40px oklch(0 0 0 / 0.6),
+    0 6px 16px oklch(0 0 0 / 0.45);
+}
+
 /* セクションバナー: 左から流れて消えるアクセントグラデーション */
 ._fx-banner {
   background: linear-gradient(
@@ -406,21 +414,5 @@
    右上に primary、左下に紫の大きなソフトグラデーションを置き、
    その上のフロストガラスが「何かをぼかしている」状態を作る */
 ._fx-sidebar-bg {
-  background:
-    radial-gradient(
-      140% 80% at 110% -10%,
-      color-mix(in oklch, var(--color-primary) 28%, transparent),
-      transparent 55%
-    ),
-    radial-gradient(
-      120% 70% at -20% 115%,
-      color-mix(in oklch, var(--color-fx-mesh-violet) 45%, transparent),
-      transparent 60%
-    ),
-    radial-gradient(
-      80% 50% at 50% 50%,
-      color-mix(in oklch, var(--color-fx-mesh-cyan) 25%, transparent),
-      transparent 70%
-    ),
-    var(--color-background);
+  background: var(--color-background);
 }

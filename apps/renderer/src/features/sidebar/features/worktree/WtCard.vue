@@ -168,6 +168,7 @@ function onHeaderClick() {
 <template>
   <article
     :data-active="active"
+    :data-wt-path="wt.path"
     class="rounded-lg border p-0.5 transition-colors"
     :class="[active ? '_fx-quest-active border-primary' : 'border-border-subtle', auraClass]"
   >

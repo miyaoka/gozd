@@ -326,6 +326,19 @@ export const useRepoStore = defineStore("repo", () => {
     collapsedRoots.value = next;
   }
 
+  /**
+   * 折りたたみを開く（冪等）。アクティブ worktree 切り替え時に、その wt が属する repo が
+   * 畳まれていても WtCard を可視化してスクロール先を作るために使う。toggle と分離するのは
+   * 「既に開いている repo を閉じてしまう」副作用を構造的に排除するため（呼び出し側の意図は
+   * 常に "開く" であって "トグル" ではない）。
+   */
+  function expand(rootDir: string) {
+    if (!collapsedRoots.value.has(rootDir)) return;
+    const next = new Set(collapsedRoots.value);
+    next.delete(rootDir);
+    collapsedRoots.value = next;
+  }
+
   // --- 永続化サポート（I/O は feature 側で実施） ---
 
   /**
@@ -408,6 +421,7 @@ export const useRepoStore = defineStore("repo", () => {
     removeRepo,
     isCollapsed,
     toggleCollapsed,
+    expand,
     buildAppStateSnapshot,
     hydrateFromAppState,
     setAutoFallbackNotifier,

@@ -209,7 +209,10 @@ function onDragEnd(event: DragEndEvent) {
 // （scrollIntoView block:nearest は範囲内なら no-op、属する repo は開いている）。
 // ターミナルペイン側でのフォーカス移動など、サイドバー外の経路で dir が変わった
 // ときに効く。immediate で起動直後 / フルリロード後（hydrate 済みの selectedDir）も
-// 初回表示で追従させる。nextTick を挟むので mount 後の DOM に対して走る。
+// 初回表示で追従させる。flush:post で常に DOM 更新後にコールバックを走らせ、immediate
+// 初回でも scrollContainer / WtCard が mount 済みになることを Vue 内部のスケジューリングに
+// 依存せず保証する。コールバック内の nextTick は expand（store 変更→再レンダー）と scroll
+// の間で別途必要なため残す。
 const scrollContainer = useTemplateRef<HTMLElement>("scrollContainer");
 
 watch(
@@ -231,7 +234,7 @@ watch(
     // block:nearest = 範囲内なら動かさず、範囲外のときだけ最小限スクロールする。
     el?.scrollIntoView({ block: "nearest" });
   },
-  { immediate: true },
+  { immediate: true, flush: "post" },
 );
 
 // --- ProjectConfigPanel: active な root worktree がある時だけ表示 ---

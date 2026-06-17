@@ -105,6 +105,12 @@ public actor FSWatchRegistry {
     let hasBranchChange: Bool
     let hasRemoteRefsChange: Bool
     let hasWorktreeChange: Bool
+    /// HEAD (current branch) が動いた可能性のある候補。`.git/HEAD` (files の main worktree) /
+    /// 共有 `reftable/*` (reftable) など、checkout 先が変わりうる ref store event で立つ。
+    /// 実際に動いたかは primary watcher が `RefDigest.head` を内容比較して判定し、変化していれば
+    /// worktreeChange を発火する (branch 切替で変化、branch 上の commit では不変)。`worktrees/*`
+    /// 構造変化由来の `hasWorktreeChange` (worktree 追加削除 / secondary 切替) とは別経路。
+    let hasHeadChange: Bool
   }
 
   private let onFsChange: FsChangeHandler
@@ -129,9 +135,11 @@ public actor FSWatchRegistry {
   /// local / remote / HEAD を 1 テーブルに同居させ commit でも共有テーブルを書き換えるため、
   /// path だけで remoteRefsChange を立てると commit のたびに renderer の `gh pr list` を撃って
   /// GitHub rate limit を累積発火させる。候補が立った primary watcher で `GitOps.refDigest` を
-  /// 読み、前回値と差があるカテゴリ (heads / remotes) だけを dispatch するための内容比較キャッシュ。
-  /// 初回 (key 不在) は無条件発火で renderer と baseline を合わせる。primary が消えた commonGitDir
-  /// は `recomputePrimary` が key を落とし、再 watch 時に baseline を張り直す。
+  /// 読み、前回値と差があるカテゴリ (heads / remotes / head) だけを dispatch するための内容比較
+  /// キャッシュ。head は現在 branch (symbolic-ref 先) で、変化したら worktreeChange を発火し
+  /// reftable でも branch 切替を backend 非依存に捕捉する。初回 (key 不在) は無条件発火で renderer
+  /// と baseline を合わせる。primary が消えた commonGitDir は `recomputePrimary` が key を落とし、
+  /// 再 watch 時に baseline を張り直す。
   private var lastRefDigestByCommonGitDir: [String: GitOps.RefDigest] = [:]
   /// resolved dir → 直近に push 済みの `StatusFull`。同一内容の `gitStatusChange` 連射を
   /// 止めるための dedup キャッシュ。
@@ -393,7 +401,8 @@ public actor FSWatchRegistry {
     // のため stderr にログする。dispatch 自体は contract どおり走らない。
     // entries の dir 一覧と各 entry が main worktree (`perWorktreeGitDir == commonGitDir`)
     // かどうかを併記して、startup race か bare repo か永続未確立かを log から切り分け可能にする。
-    if (result.hasBranchChange || result.hasRemoteRefsChange || result.hasWorktreeChange)
+    if (result.hasBranchChange || result.hasRemoteRefsChange || result.hasWorktreeChange
+      || result.hasHeadChange)
       && !isPrimaryForCommonDir,
       let commonGitDir = entry.commonGitDir,
       primaryByCommonGitDir[commonGitDir] == nil
@@ -404,19 +413,24 @@ public actor FSWatchRegistry {
         .sorted()
       StderrLog.write(
         tag: "FSWatchRegistry",
-        "primary missing for commonGitDir=\(commonGitDir); dropping branchChange=\(result.hasBranchChange) remoteRefsChange=\(result.hasRemoteRefsChange) worktreeChange=\(result.hasWorktreeChange) from dir=\(dir); entries=\(siblings)"
+        "primary missing for commonGitDir=\(commonGitDir); dropping branchChange=\(result.hasBranchChange) remoteRefsChange=\(result.hasRemoteRefsChange) worktreeChange=\(result.hasWorktreeChange) headChange=\(result.hasHeadChange) from dir=\(dir); entries=\(siblings)"
       )
     }
+    // 構造変化由来の worktreeChange: `worktrees/*` の追加 / 削除、および secondary worktree 自身の
+    // branch 切替 (root watcher が `worktrees/<name>/` 配下の変化として拾う)。これは worktree list
+    // の構成変化を表す path 信号で、内容 digest を経由せず即 dispatch する。main worktree の branch
+    // 切替は下の digest gating の head カテゴリが担う (別経路)。
     if result.hasWorktreeChange && isPrimaryForCommonDir {
       onWorktreeChange(originalDir)
     }
-    // branchChange / remoteRefsChange は path 分類では「ref store が動いた候補」までしか
-    // 分からない。reftable backend は local / remote / HEAD を 1 テーブルに同居させ、commit でも
-    // 共有テーブルを書き換えるため、path だけで remoteRefsChange を立てると commit のたびに
-    // renderer の `gh pr list` を撃って GitHub rate limit を累積発火させる。候補が立った primary
-    // watcher で `git for-each-ref` の内容ダイジェストを読み、heads / remotes のうち実際に変化した
-    // カテゴリだけ dispatch する (ref backend 非依存の判定。`lastRefDigestByCommonGitDir` 参照)。
-    if (result.hasBranchChange || result.hasRemoteRefsChange) && isPrimaryForCommonDir,
+    // branchChange / remoteRefsChange / worktreeChange(head) は path 分類では「ref store が動いた
+    // 候補」までしか分からない。reftable backend は local / remote / HEAD を 1 テーブルに同居させ、
+    // commit でも共有テーブルを書き換え、かつ `.git/HEAD` はスタブで動かないため、path だけでは
+    // 「remote が動いたか」「branch が切り替わったか」を判別できない。候補が立った primary watcher で
+    // `GitOps.refDigest` (for-each-ref + symbolic-ref) を読み、heads / remotes / head のうち実際に
+    // 変化したカテゴリだけ dispatch する (ref backend 非依存の判定。`lastRefDigestByCommonGitDir` 参照)。
+    if (result.hasBranchChange || result.hasRemoteRefsChange || result.hasHeadChange)
+      && isPrimaryForCommonDir,
       let commonGitDir = entry.commonGitDir
     {
       var digest: GitOps.RefDigest? = nil
@@ -437,20 +451,31 @@ public actor FSWatchRegistry {
         if result.hasRemoteRefsChange && prev?.remotes != digest.remotes {
           onRemoteRefsChange(originalDir)
         }
+        // head (symbolic-ref 先) が変われば branch 切替。main worktree の checkout 先が変わると
+        // worktree list の branch 出力が変わるため worktreeChange で list refetch させる。commit は
+        // head を変えない (heads の OID だけ進む) ので誤発火しない。reftable では `.git/HEAD` が
+        // 動かないため、これが branch 切替を捕捉する唯一の backend 非依存経路。
+        if result.hasHeadChange && prev?.head != digest.head {
+          onWorktreeChange(originalDir)
+        }
       } else {
-        // digest 取得失敗時の fallback。2 つの判断を下す:
+        // digest 取得失敗時の fallback。candidate ごとに local-cheap signal を撃って取りこぼしを
+        // 防ぎ、gh spam の元 remoteRefsChange だけは撃たない:
         //
-        // 1. branchChange は候補種別に関係なく無条件で撃つ:
-        //    - 外側 guard は `hasBranchChange || hasRemoteRefsChange` 候補なので、remote-only
-        //      batch (`refs/remotes` だけが動いた fetch) もここに入る
+        // 1. branchChange は候補種別に関係なく撃つ:
+        //    - 外側 guard は `hasBranchChange || hasRemoteRefsChange || hasHeadChange` 候補なので、
+        //      remote-only batch (`refs/remotes` だけが動いた fetch) もここに入る
         //    - `if hasBranchChange` で gate すると remote-only 候補で false になり loadLog を落とす。
         //      current 以外の branch の remote ref 変化は gitStatusChange の `branch.ab` (current 分
         //      のみ) では検知できず、branchChange だけが loadLog の回収経路
         //    - branchChange の consumer は loadLog + worktree list refetch の local のみで安価
-        //
-        // 2. remoteRefsChange は撃たない (gh spam 回避。詳細は上の success path コメント /
+        // 2. hasHeadChange 候補は worktreeChange を撃って branch label (worktree list) を回収する
+        // 3. remoteRefsChange は撃たない (gh spam 回避。詳細は上の success path コメント /
         //    GitOps+Refs.swift 参照)。gh consumer の `loadPrList` は 60s polling で回収される
         onBranchChange(originalDir)
+        if result.hasHeadChange {
+          onWorktreeChange(originalDir)
+        }
       }
     }
 
@@ -507,26 +532,28 @@ public actor FSWatchRegistry {
   /// 分離理由: dispatch 前後に actor 上で世代 check を挟むため、副作用を持たない形にする。
   ///
   /// 判定優先順位（files / reftable 両 backend をトリガーに含む。詳細は型冒頭コメント参照）:
+  ///   分類は path から「ref store が動いた候補」を立てるだけで、`branchChange` /
+  ///   `remoteRefsChange` / head 由来の `worktreeChange` の最終発火は dispatch 側が `RefDigest`
+  ///   (heads / remotes / head) の内容比較で決める。candidate は次のとおり:
   ///   1. per-worktree git dir 配下 →
   ///      - `index` を `gitStatusChange`
   ///      - `HEAD` を `gitStatusChange`（files backend。+ main worktree / 通常 clone では
-  ///        `worktreeChange` も。branch 切替で worktree list の branch 出力が変わるため list を
-  ///        refetch させる。reftable では HEAD スタブは動かない）
+  ///        head 候補も。branch 切替で symbolic-ref 先が変わると digest の head が動き worktreeChange
+  ///        を発火。reftable では HEAD スタブは動かない）
   ///      - `reftable/...` を `gitStatusChange`（reftable backend。その worktree のチェックアウト
   ///        先 ref が変わった signal）
   ///   2. common git dir 配下 →
-  ///      - `refs/heads/...` を `branchChange`（files backend）
-  ///      - `refs/remotes/...` を `gitStatusChange` + `remoteRefsChange`（files backend。
+  ///      - `refs/heads/...` を `branchChange` 候補（files backend）
+  ///      - `refs/remotes/...` を `gitStatusChange` + `remoteRefsChange` 候補（files backend。
   ///        per-worktree の ahead/behind 更新と repo スコープの ref トポロジ変化を分離発火）
-  ///      - `packed-refs` を `branchChange` + `gitStatusChange` + `remoteRefsChange`
-  ///        （files backend。local / remote 両方を含み得るため、すべてを発火させる）
-  ///      - `reftable/...` を `branchChange` + `gitStatusChange` + `remoteRefsChange`
-  ///        （reftable backend。local / remote / HEAD が同居し種別判別不能なため packed-refs と
-  ///        同じく全発火。これが無いと reftable repo で branch 変化が silent drop される。
-  ///        加えて root (`perWtSameAsCommon`) では `worktreeChange` も立てる。reftable は HEAD
-  ///        スタブが動かず、root の `git switch existing-branch` を branch label に反映する唯一の
-  ///        signal がこの共有テーブル変化のため、files backend の HEAD 規則と対称化する）
-  ///      - `worktrees/...` を `worktreeChange`
+  ///      - `packed-refs` を `branchChange` + `gitStatusChange` + `remoteRefsChange` 候補
+  ///        （files backend。local / remote 両方を含み得るため、すべてを候補に立てる）
+  ///      - `reftable/...` を `branchChange` + `gitStatusChange` + `remoteRefsChange` 候補、root
+  ///        (`perWtSameAsCommon`) では head 候補も（reftable backend。local / remote / HEAD が同居し
+  ///        種別判別不能なため全候補を立て、実際に動いたカテゴリは digest 比較で確定。reftable は
+  ///        HEAD スタブが動かず、main worktree の branch 切替を捕捉する唯一の経路がこの head 候補）
+  ///      - `worktrees/...` を `worktreeChange`（worktree 追加削除 + secondary worktree の branch
+  ///        切替。worktree list の構造変化を表す path 信号で、digest を経由せず即発火する）
   ///   3. 作業ツリー配下（git dir 配下に該当しない場合）→ `fsChange` + `gitStatusChange`
   ///
   /// 意図的に未対応の ref 種別:
@@ -554,6 +581,7 @@ public actor FSWatchRegistry {
     var hasBranchChange = false
     var hasRemoteRefsChange = false
     var hasWorktreeChange = false
+    var hasHeadChange = false
 
     // 通常 clone では perWorktreeGitDir == commonGitDir なので、両ルールを同じ path に
     // 適用して `HEAD` と `refs/heads/` を両方拾う必要がある。
@@ -572,20 +600,20 @@ public actor FSWatchRegistry {
         matchedGitDir = true
         if rel == "HEAD" {
           hasGitStatusChange = true
-          // perWtSameAsCommon (= main worktree / 通常 clone) のときだけ worktreeChange も立てる。
-          // `.git/HEAD` の symbolic ref 先 (チェックアウト中の branch) が変わると
-          // `git worktree list --porcelain` の per-worktree branch 出力が変わるため、worktree
-          // list を refetch させてサイドバー (WtCard) の branch label を更新する。これがないと
-          // main worktree (root) の branch 切替 (`git switch` 等) は `.git/HEAD` だけが動いて
-          // gitStatusChange しか飛ばず、branch label が worktree list 由来のまま stale になる。
-          // secondary worktree は `.git/worktrees/<name>/HEAD` の変化を root watcher が下の
-          // common 規則 (`worktrees/...` → worktreeChange) で拾うため即反映され、root だけ
-          // 取りこぼす非対称が生じていた。
-          // worktree clone の secondary 自身の watcher (perWtSameAsCommon == false) では立てない:
-          // root watcher が既に worktreeChange を出すので二重発火になり、かつ非 primary なので
-          // どのみち primary gate で suppress される無駄打ちを避ける。
+          // perWtSameAsCommon (= main worktree / 通常 clone) のときだけ headChange 候補を立てる。
+          // `.git/HEAD` の symbolic ref 先 (チェックアウト中の branch) が変わると digest の head が
+          // 変化し、primary watcher が worktreeChange を発火して `git worktree list --porcelain` を
+          // refetch させ、サイドバー (WtCard) の branch label を更新する。これがないと main worktree
+          // (root) の branch 切替 (`git switch` 等) は gitStatusChange しか飛ばず branch label が stale。
+          // worktreeChange を path で直接立てず head digest 経由にするのは、commit でも `.git/HEAD` が
+          // touch される (mtime) ケースで誤発火しないよう「symbolic-ref 先が実際に変わったか」を内容で
+          // 判定するため。secondary worktree は `.git/worktrees/<name>/HEAD` の変化を root watcher が
+          // 下の common 規則 (`worktrees/...` → worktreeChange) で拾う (head digest は main worktree の
+          // HEAD しか表さないため、secondary の切替は構造変化 worktreeChange で別途救済する)。
+          // secondary 自身の watcher (perWtSameAsCommon == false) では立てない: 非 primary で digest を
+          // 読まず、root watcher が構造変化 worktreeChange を出すため。
           if perWtSameAsCommon {
-            hasWorktreeChange = true
+            hasHeadChange = true
           }
         } else if rel == "index" {
           hasGitStatusChange = true
@@ -627,27 +655,22 @@ public actor FSWatchRegistry {
           // reftable backend (Git 2.51+、3.0 で default 化) の共有 ref ストア。local branch /
           // remote-tracking / HEAD が 1 つのバイナリテーブル群 (`reftable/tables.list` +
           // `*.ref`) に同居し、ファイル名から種別を判別できない (packed-refs と同じ事情)。
-          // そのため branch / remote / status をすべて発火させる。これで reftable repo でも
-          // branch 切替・作成・削除・rename・fetch がすべて worktree list / git-graph / status の
-          // 再取得をトリガーし、files backend の refs/heads・refs/remotes・packed-refs・HEAD
-          // 規則と機能的に等価になる。reftable では `HEAD` スタブが動かないため、この規則が
-          // 無いと branch 変化が無分類で silent drop され表示が永久に更新されない。
+          // そのため branch (heads) / remote / status の候補を立て、root (perWtSameAsCommon) では
+          // head 候補も立てる。これで reftable repo でも branch 切替・作成・削除・rename・fetch が
+          // すべて worktree list / git-graph / status の再取得をトリガーし、files backend の
+          // refs/heads・refs/remotes・packed-refs・HEAD 規則と機能的に等価になる。reftable では
+          // `HEAD` スタブが動かないため、この規則が無いと branch 変化が無分類で silent drop される。
+          // 実際に heads / remotes / head のどれが動いたかは primary watcher が `RefDigest` を内容
+          // 比較して判定する (commit は heads のみ、push/fetch は remotes のみ、branch 切替は head の
+          // み動く)。head 候補は files の `.git/HEAD` 規則と対称で、main worktree の branch 切替を
+          // backend 非依存に捕捉する。secondary 自身の per-wt `reftable/*` は上の per-wt 規則
+          // (gitStatusChange のみ) で処理され、その branch 切替は root watcher の `worktrees/*` 構造
+          // 規則が worktreeChange として拾う。
           hasBranchChange = true
           hasGitStatusChange = true
           hasRemoteRefsChange = true
-          // root (perWtSameAsCommon) の `git switch existing-branch` を branch label に反映するため
-          // worktreeChange も立て、files backend の HEAD 規則 (上参照) と対称化する:
-          // - reftable では HEAD スタブ (`ref: refs/heads/.invalid`) が動かず、root の branch 切替の
-          //   唯一の signal がこの共有テーブル変化。files backend の `.git/HEAD` 変化に相当する
-          // - 既存 branch 切替は refs/heads の OID/集合を動かさないため branchChange は handleEvents
-          //   の heads-digest gating で抑止される。worktreeChange は digest gating の対象外で primary
-          //   が無条件 dispatch するため、branch label 更新 (worktree list refetch) の正規経路になる
-          // - commit でもここは worktreeChange を立てる過剰発火があるが、refetch 先は local の
-          //   `git worktree list --porcelain` で安価 (gh spam の元 remoteRefsChange とは別系統)
-          // - secondary 自身は上の per-wt reftable 規則 (gitStatusChange のみ) で排他処理され
-          //   ここには来ないため二重発火しない
           if perWtSameAsCommon {
-            hasWorktreeChange = true
+            hasHeadChange = true
           }
         }
       }
@@ -672,7 +695,8 @@ public actor FSWatchRegistry {
       hasGitStatusChange: hasGitStatusChange,
       hasBranchChange: hasBranchChange,
       hasRemoteRefsChange: hasRemoteRefsChange,
-      hasWorktreeChange: hasWorktreeChange
+      hasWorktreeChange: hasWorktreeChange,
+      hasHeadChange: hasHeadChange
     )
   }
 

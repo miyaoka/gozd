@@ -504,8 +504,15 @@ onBeforeUnmount(teardownObserver);
       Session log has no conversation events.
     </p>
 
-    <!-- トランスクリプト本文 (LINE 風チャット)。現在地は横断タイムラインの playhead が示す -->
-    <div v-else ref="contentRef" class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+    <!-- トランスクリプト本文 (LINE 風チャット)。現在地は横断タイムラインの playhead が示す。
+         会話本文はコピー対象コンテンツなので select-text で選択可にする (assistant の markdown は
+         MarkdownBody 側で text、user / ask / tool I/O の plain text はここで担保)。
+         折りたたみ操作の summary だけは内側で select-none を保ち、操作と選択を分離する。 -->
+    <div
+      v-else
+      ref="contentRef"
+      class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3 select-text"
+    >
       <template v-for="(ev, i) in parsed.events" :key="`${sessionKey}:${i}`">
         <!-- rewind 分岐セレクタ: ここで会話が枝分かれした。番号は古い順 (最新が最大)。
                選択中の枝をハイライトし、他をクリックでその枝へ切り替える。捨て枝が

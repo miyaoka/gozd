@@ -348,8 +348,10 @@ const hasSub = computed(() => subMessages.value.length > 0);
     }"
   >
     <template v-if="previewContext">
+      <!-- 全文 popover はメッセージを読む / コピーする面なので select-text で選択可にする
+           (compact な吹き出しプレビューは click-to-expand の chrome なのでデフォルト none のまま)。 -->
       <div
-        class="max-h-[60vh] overflow-auto rounded-md border border-border-strong shadow-xl"
+        class="max-h-[60vh] overflow-auto rounded-md border border-border-strong shadow-xl select-text"
         :class="previewContext.msg.kind === 'assistant' ? 'bg-chat-incoming' : 'bg-chat-outgoing'"
       >
         <div

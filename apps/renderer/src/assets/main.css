@@ -161,6 +161,32 @@
     @apply bg-background text-foreground;
   }
 
+  /* native アプリ志向の UI 規律: chrome (ボタン / ラベル / ツリー / タブ等) のテキストは
+     ドラッグ選択させないのをデフォルトにし、コピー対象のコンテンツ (コード / diff /
+     markdown / 会話本文 / コミットメッセージ等) だけが user-select: text で opt-in する。
+     要素ごとに select-none を貼る denylist は、新規 chrome を足すたびに貼り忘れて選択可能
+     テキストが混入する構造欠陥を持つため、default-deny + allowlist に倒す (SSOT)。
+     WebKit (WKWebView) は子の明示 user-select: text で祖先の none を上書きできる。
+     selectAll(Cmd+A) は user-select: none と仕様保証が無いため、contenteditable host 側は
+     下の規則で明示 text にし、contenteditable の暗黙の選択可挙動には依存しない。
+     WebKit は -webkit- プレフィックス無しの user-select を無視する。Tailwind の select-* は
+     両方出すが、ここは生 CSS なので -webkit-user-select を必ず併記する (これが無いと
+     default-none 自体が効かない)。 */
+  body {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* form control と編集 host は入力 / 選択が前提。preview の contenteditable host
+     (CodePreview / DiffPreview の各 section / MarkdownPreview) もこの属性 marker で
+     一括 opt-in する (個別注釈不要、SSOT)。 */
+  input,
+  textarea,
+  [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
   button {
     cursor: pointer;
   }

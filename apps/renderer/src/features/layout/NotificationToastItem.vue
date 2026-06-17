@@ -108,9 +108,12 @@ async function copyDetail() {
         @click="toggle"
       >
         <span class="flex items-center gap-1">
-          <!-- エラー本文はコピー対象。cause が無い通知は Copy ボタンが出ないため、
-               本文がコピー不能にならないよう select-text で選択可にする。 -->
-          <span class="select-text">{{ message }}</span>
+          <!-- エラー本文はコピー対象。cause がある通知は本 button が toggle するため
+               select-text を同居させず、Copy ボタン (message + detail) をコピー導線にする。
+               cause が無い通知は button が disabled で click しないので、Copy ボタンも出ない
+               本文を select-text で選択可にしても toggle が暴発しない (select-text と click を
+               同一要素に同居させない)。 -->
+          <span :class="hasCause ? '' : 'select-text'">{{ message }}</span>
           <IconLucideChevronDown
             v-if="hasCause"
             class="size-3 shrink-0 text-foreground-low transition-transform"

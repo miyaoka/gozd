@@ -543,8 +543,11 @@ struct ClassifyTests {
     }.path
   }
 
-  @Test("worktree 配置: per-worktree git dir 配下の HEAD は gitStatusChange のみ")
+  @Test("worktree 配置: secondary 自身の per-worktree HEAD は gitStatusChange のみ（worktreeChange は root watcher が担う）")
   func worktreePerWorktreeHead() {
+    // perWtSameAsCommon == false の secondary watcher。自身の HEAD 変化で worktreeChange を
+    // 立てると root watcher (common 規則 `worktrees/...`) と二重発火するため立てない。
+    // root の HEAD 変化 (perWtSameAsCommon == true) のみ worktreeChange を立てる契約の対称側。
     let dir = pathOf("wt", "foo")
     let perWt = pathOf("parent", ".git", "worktrees", "foo")
     let common = pathOf("parent", ".git")
@@ -705,7 +708,42 @@ struct ClassifyTests {
       ])
     #expect(result.hasGitStatusChange)
     #expect(result.hasBranchChange)
+    // HEAD は perWtSameAsCommon (= root / main worktree) なので worktreeChange も立つ。
+    #expect(result.hasWorktreeChange)
     // 通常 clone でも .git 配下は作業ツリー判定に乗せない
+    #expect(!result.hasFsChange)
+  }
+
+  @Test("root 切替の主因: 通常 clone の .git/HEAD 単独変化は gitStatusChange + worktreeChange（branchChange は伴わない）")
+  func normalCloneHeadOnlyFiresWorktreeChange() {
+    // `git switch existing-branch` を root (main worktree) で実行した状況。`.git/HEAD` の
+    // symbolic ref 先だけが変わり refs/heads は動かない。HEAD で worktreeChange を立てないと
+    // worktree list が refetch されず、サイドバーの branch label が古いまま残る。secondary
+    // worktree (`.git/worktrees/<name>/HEAD`) は root watcher が common 規則で worktreeChange を
+    // 出すため即反映され、root だけ取りこぼす非対称を塞ぐ regression guard。
+    let dir = pathOf("repo")
+    let gitDir = pathOf("repo", ".git")
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: gitDir, commonGitDir: gitDir,
+      events: [ev(pathOf("repo", ".git", "HEAD"))])
+    #expect(result.hasGitStatusChange)
+    #expect(result.hasWorktreeChange)
+    #expect(!result.hasBranchChange)
+    #expect(!result.hasFsChange)
+  }
+
+  @Test("通常 clone: .git/index 単独変化は gitStatusChange のみ（worktreeChange は立たない）")
+  func normalCloneIndexOnly() {
+    // index は staging の変化であって branch 切替ではないため worktree list refetch は不要。
+    // HEAD と index の分岐を取り違えない契約を固定する。
+    let dir = pathOf("repo")
+    let gitDir = pathOf("repo", ".git")
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: gitDir, commonGitDir: gitDir,
+      events: [ev(pathOf("repo", ".git", "index"))])
+    #expect(result.hasGitStatusChange)
+    #expect(!result.hasWorktreeChange)
+    #expect(!result.hasBranchChange)
     #expect(!result.hasFsChange)
   }
 
@@ -759,6 +797,59 @@ struct ClassifyTests {
       events: [ev(pathOf("elsewhere", "x.txt"))])
     #expect(!result.hasFsChange)
     #expect(!result.hasGitStatusChange)
+  }
+
+  // MARK: - reftable backend (Git 2.51+、3.0 で default 化)
+
+  @Test("reftable backend root: .git/reftable/tables.list 変化は branch + remote + status（packed-refs と等価）")
+  func reftableRootSharedStore() {
+    // reftable では HEAD スタブが `ref: refs/heads/.invalid` 固定で動かず、branch 切替・作成・
+    // 削除・rename・fetch がすべて共有テーブル `.git/reftable/` の書き換えに funnel される。
+    // local / remote / HEAD を種別判別できないため packed-refs と同じく全発火させる。これが
+    // 無いと無分類で silent drop され、reftable repo で branch 表示が永久に更新されない。
+    let dir = pathOf("repo")
+    let gitDir = pathOf("repo", ".git")
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: gitDir, commonGitDir: gitDir,
+      events: [ev(pathOf("repo", ".git", "reftable", "tables.list"))])
+    #expect(result.hasBranchChange)
+    #expect(result.hasRemoteRefsChange)
+    #expect(result.hasGitStatusChange)
+    #expect(!result.hasFsChange)
+  }
+
+  @Test("reftable backend secondary 自身: per-wt reftable 変化は gitStatusChange のみ（worktreeChange は root watcher が担う）")
+  func reftableSecondaryOwnStore() {
+    // secondary の per-worktree refs は `.git/worktrees/<name>/reftable/` に置かれる。自身の
+    // watcher (perWtSameAsCommon == false) では、そのチェックアウト先変化を status 再取得に
+    // 倒す。branch label の list 再取得は root watcher が下の common `worktrees/` 規則で拾う。
+    let dir = pathOf("wt", "foo")
+    let perWt = pathOf("parent", ".git", "worktrees", "foo")
+    let common = pathOf("parent", ".git")
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: perWt, commonGitDir: common,
+      events: [ev(pathOf("parent", ".git", "worktrees", "foo", "reftable", "tables.list"))])
+    #expect(result.hasGitStatusChange)
+    #expect(!result.hasBranchChange)
+    #expect(!result.hasRemoteRefsChange)
+    #expect(!result.hasWorktreeChange)
+    #expect(!result.hasFsChange)
+  }
+
+  @Test("reftable backend: root watcher から見た secondary の per-wt reftable 変化は worktreeChange")
+  func reftableSecondarySeenByRoot() {
+    // root watcher (perWtSameAsCommon == true) は common 規則で `.git/worktrees/<name>/...` を
+    // 拾う。reftable / HEAD どちらの per-wt ref store 変化でも `worktrees/` prefix で
+    // worktreeChange を立て、worktree list を refetch して secondary の branch label を更新する。
+    let dir = pathOf("repo")
+    let gitDir = pathOf("repo", ".git")
+    let result = FSWatchRegistry.classify(
+      dir: dir, perWorktreeGitDir: gitDir, commonGitDir: gitDir,
+      events: [ev(pathOf("repo", ".git", "worktrees", "foo", "reftable", "tables.list"))])
+    #expect(result.hasWorktreeChange)
+    #expect(!result.hasBranchChange)
+    #expect(!result.hasGitStatusChange)
+    #expect(!result.hasFsChange)
   }
 }
 

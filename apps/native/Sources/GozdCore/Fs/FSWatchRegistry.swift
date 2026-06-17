@@ -8,19 +8,39 @@ import Foundation
 // 1. **dir をキーにした 1 watcher 1 dir**。worktree ごとに renderer から
 //    `/fs/watch` で登録され、worktree を閉じる時に `/fs/unwatch` で解除する。
 //
-// 2. **イベント分類**:
-//    - per-worktree git dir 配下の `HEAD` / `index` → `gitStatusChange`
-//    - common git dir 配下の `refs/heads/...` → `branchChange`
+// 2. **イベント分類**（ref backend 非依存）:
+//    分類は files backend (loose `refs/` + `packed-refs`) と reftable backend
+//    (Git 2.51+、3.0 で default 化。ref をバイナリテーブル `reftable/` に格納) の両方を
+//    トリガーとして扱う。どちらの backend でも真値は porcelain (`git worktree list
+//    --porcelain` / `git status --porcelain=v2 --branch`) で読み直すため、ここでの分類は
+//    「どの porcelain を再取得すべきか」を決める signal でしかない。backend の物理 layout に
+//    白名簿を焼き込むと、reftable のように layout が変わった瞬間に無分類 silent drop で
+//    表示が永久に更新されなくなる（過去 root の `git switch` 反映バグの真因）ため、両 layout を
+//    明示的にトリガーに含める。
+//    - per-worktree git dir 配下の `index` → `gitStatusChange`
+//    - per-worktree git dir 配下の `HEAD` → `gitStatusChange`
+//      （files backend のみ。+ main worktree / 通常 clone では `worktreeChange` も。HEAD の
+//      参照先 branch が変わると worktree list の per-wt branch 出力が変わるため list を refetch
+//      させる。reftable では HEAD はスタブ固定で動かず、下の `reftable/` 規則が担う）
+//    - per-worktree git dir 配下の `reftable/...` → `gitStatusChange`
+//      （reftable backend。その worktree のチェックアウト先 ref が変わった signal）
+//    - common git dir 配下の `refs/heads/...` → `branchChange`（files backend）
 //    - common git dir 配下の `refs/remotes/...` → `gitStatusChange` + `remoteRefsChange`
-//      （`git push` / `git fetch` 成功時にローカルの remote-tracking ref が書き換わる。
-//      `gitStatusChange` で per-worktree の ahead/behind を更新しつつ、`remoteRefsChange`
-//      で repo スコープの ref トポロジ変化を git-graph に通知する。current branch 以外の
-//      remote ref が動いたとき、`gitStatusChange` の `# branch.ab` だけでは検知できない
-//      ため、git log を再取得する別経路を分けて持つ）
+//      （files backend。`git push` / `git fetch` 成功時にローカルの remote-tracking ref が
+//      書き換わる。`gitStatusChange` で per-worktree の ahead/behind を更新しつつ、
+//      `remoteRefsChange` で repo スコープの ref トポロジ変化を git-graph に通知する。current
+//      branch 以外の remote ref が動いたとき、`gitStatusChange` の `# branch.ab` だけでは
+//      検知できないため、git log を再取得する別経路を分けて持つ）
 //    - common git dir 配下の `packed-refs` → `branchChange` + `gitStatusChange` + `remoteRefsChange`
-//      （pack 後はローカル ref と remote-tracking ref のどちらが書き換わったか
+//      （files backend。pack 後はローカル ref と remote-tracking ref のどちらが書き換わったか
 //      ファイル名だけでは判別できないため、両方を発火させる）
+//    - common git dir 配下の `reftable/...` → `branchChange` + `gitStatusChange` + `remoteRefsChange`
+//      （reftable backend。local / remote / HEAD がバイナリテーブルに同居し種別判別不能なため
+//      packed-refs と同じく全発火。files backend の refs/heads・refs/remotes・packed-refs・HEAD
+//      規則と機能的に等価な reftable 経路）
 //    - common git dir 配下の `worktrees/...` → `worktreeChange`
+//      （secondary worktree の per-wt git dir 配下の変化 — `HEAD` / `reftable/` 含む — を
+//      root watcher がここで拾い、worktree list を refetch して secondary の branch label を更新する）
 //    - 作業ツリー側（git dir 配下以外） → `fsChange` + `gitStatusChange`
 //      （未追跡ファイルや作業ツリー差分も status に影響するため）
 //
@@ -436,14 +456,23 @@ public actor FSWatchRegistry {
   /// 1 バッチの events を分類した結果を返す pure helper。dispatch は呼び出し側が行う。
   /// 分離理由: dispatch 前後に actor 上で世代 check を挟むため、副作用を持たない形にする。
   ///
-  /// 判定優先順位:
-  ///   1. per-worktree git dir 配下 → `HEAD` / `index` のみ `gitStatusChange`
+  /// 判定優先順位（files / reftable 両 backend をトリガーに含む。詳細は型冒頭コメント参照）:
+  ///   1. per-worktree git dir 配下 →
+  ///      - `index` を `gitStatusChange`
+  ///      - `HEAD` を `gitStatusChange`（files backend。+ main worktree / 通常 clone では
+  ///        `worktreeChange` も。branch 切替で worktree list の branch 出力が変わるため list を
+  ///        refetch させる。reftable では HEAD スタブは動かない）
+  ///      - `reftable/...` を `gitStatusChange`（reftable backend。その worktree のチェックアウト
+  ///        先 ref が変わった signal）
   ///   2. common git dir 配下 →
-  ///      - `refs/heads/...` を `branchChange`
-  ///      - `refs/remotes/...` を `gitStatusChange` + `remoteRefsChange`
-  ///        （per-worktree の ahead/behind 更新と repo スコープの ref トポロジ変化を分離発火）
+  ///      - `refs/heads/...` を `branchChange`（files backend）
+  ///      - `refs/remotes/...` を `gitStatusChange` + `remoteRefsChange`（files backend。
+  ///        per-worktree の ahead/behind 更新と repo スコープの ref トポロジ変化を分離発火）
   ///      - `packed-refs` を `branchChange` + `gitStatusChange` + `remoteRefsChange`
-  ///        （local / remote 両方を含み得るため、すべてを発火させる）
+  ///        （files backend。local / remote 両方を含み得るため、すべてを発火させる）
+  ///      - `reftable/...` を `branchChange` + `gitStatusChange` + `remoteRefsChange`
+  ///        （reftable backend。local / remote / HEAD が同居し種別判別不能なため packed-refs と
+  ///        同じく全発火。これが無いと reftable repo で branch 変化が silent drop される）
   ///      - `worktrees/...` を `worktreeChange`
   ///   3. 作業ツリー配下（git dir 配下に該当しない場合）→ `fsChange` + `gitStatusChange`
   ///
@@ -488,7 +517,31 @@ public actor FSWatchRegistry {
       let underPerWt = relativeUnder(path: path, root: perWorktreeGitDir)
       if let rel = underPerWt {
         matchedGitDir = true
-        if rel == "HEAD" || rel == "index" {
+        if rel == "HEAD" {
+          hasGitStatusChange = true
+          // perWtSameAsCommon (= main worktree / 通常 clone) のときだけ worktreeChange も立てる。
+          // `.git/HEAD` の symbolic ref 先 (チェックアウト中の branch) が変わると
+          // `git worktree list --porcelain` の per-worktree branch 出力が変わるため、worktree
+          // list を refetch させてサイドバー (WtCard) の branch label を更新する。これがないと
+          // main worktree (root) の branch 切替 (`git switch` 等) は `.git/HEAD` だけが動いて
+          // gitStatusChange しか飛ばず、branch label が worktree list 由来のまま stale になる。
+          // secondary worktree は `.git/worktrees/<name>/HEAD` の変化を root watcher が下の
+          // common 規則 (`worktrees/...` → worktreeChange) で拾うため即反映され、root だけ
+          // 取りこぼす非対称が生じていた。
+          // worktree clone の secondary 自身の watcher (perWtSameAsCommon == false) では立てない:
+          // root watcher が既に worktreeChange を出すので二重発火になり、かつ非 primary なので
+          // どのみち primary gate で suppress される無駄打ちを避ける。
+          if perWtSameAsCommon {
+            hasWorktreeChange = true
+          }
+        } else if rel == "index" {
+          hasGitStatusChange = true
+        } else if rel.hasPrefix("reftable/") {
+          // reftable backend (Git 2.51+、3.0 で default 化): per-worktree の HEAD/refs は
+          // バイナリテーブル `reftable/` に格納され、`HEAD` スタブは `ref: refs/heads/.invalid`
+          // の固定値で動かない。この worktree のチェックアウト先が変わると
+          // `reftable/tables.list` + 新テーブルが書かれるため status を取り直す。root
+          // (perWtSameAsCommon) の共有 branch/remote 変化は下の common 規則が reftable/ を拾う。
           hasGitStatusChange = true
         }
         // それ以外（logs/, objects/, ORIG_HEAD 等）は無視
@@ -514,6 +567,18 @@ public actor FSWatchRegistry {
           // pack 後は loose ref がまとめられるが、ファイル名からは local ref と
           // remote-tracking ref のどちらが書き換わったか判別できない。
           // 全 subscriber に通知する（worktree 一覧再取得 + ahead/behind 再取得 + git log 再 load）。
+          hasBranchChange = true
+          hasGitStatusChange = true
+          hasRemoteRefsChange = true
+        } else if rel.hasPrefix("reftable/") {
+          // reftable backend (Git 2.51+、3.0 で default 化) の共有 ref ストア。local branch /
+          // remote-tracking / HEAD が 1 つのバイナリテーブル群 (`reftable/tables.list` +
+          // `*.ref`) に同居し、ファイル名から種別を判別できない (packed-refs と同じ事情)。
+          // そのため branch / remote / status をすべて発火させる。これで reftable repo でも
+          // branch 切替・作成・削除・rename・fetch がすべて worktree list / git-graph / status の
+          // 再取得をトリガーし、files backend の refs/heads・refs/remotes・packed-refs・HEAD
+          // 規則と機能的に等価になる。reftable では `HEAD` スタブが動かないため、この規則が
+          // 無いと branch 変化が無分類で silent drop され表示が永久に更新されない。
           hasBranchChange = true
           hasGitStatusChange = true
           hasRemoteRefsChange = true

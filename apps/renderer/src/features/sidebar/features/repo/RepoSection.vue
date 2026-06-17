@@ -64,10 +64,7 @@ const repoName = computed(() => repo.value?.repoName ?? props.rootDir);
 const isGitRepo = computed(() => repo.value?.isGitRepo ?? false);
 const collapsed = computed(() => repoStore.isCollapsed(props.rootDir));
 
-const active = computed(() => {
-  if (props.activeDir === undefined) return false;
-  return repoStore.findRepoOwning(props.activeDir)?.rootDir === props.rootDir;
-});
+const active = computed(() => repoStore.selectedRootDir === props.rootDir);
 
 const worktrees = computed(() => repo.value?.worktrees ?? []);
 

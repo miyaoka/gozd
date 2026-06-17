@@ -208,7 +208,8 @@ function onDragEnd(event: DragEndEvent) {
 // 見えるようにする。サイドバー操作で切り替えた場合は既に可視なので副作用なし
 // （scrollIntoView block:nearest は範囲内なら no-op、属する repo は開いている）。
 // ターミナルペイン側でのフォーカス移動など、サイドバー外の経路で dir が変わった
-// ときに効く。
+// ときに効く。immediate で起動直後 / フルリロード後（hydrate 済みの selectedDir）も
+// 初回表示で追従させる。nextTick を挟むので mount 後の DOM に対して走る。
 const scrollContainer = useTemplateRef<HTMLElement>("scrollContainer");
 
 watch(
@@ -230,6 +231,7 @@ watch(
     // block:nearest = 範囲内なら動かさず、範囲外のときだけ最小限スクロールする。
     el?.scrollIntoView({ block: "nearest" });
   },
+  { immediate: true },
 );
 
 // --- ProjectConfigPanel: active な root worktree がある時だけ表示 ---

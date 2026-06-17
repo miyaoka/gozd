@@ -28,12 +28,11 @@
 
   /* arcade FX 装飾色 (ゲームジュース層の環境光メッシュ / オーロラ)。
      Adobe Leonardo は gray + intent hues (blue/red/green/amber/orange) のみ生成し、
-     ここで使う violet / cyan / 中間 blue は intent に存在しない。演出専用の固定色で
+     ここで使う violet / 中間 blue は intent に存在しない。演出専用の固定色で
      theme 追従パイプラインに乗らないため brand-fixed primitive として隔離する (chat-* と同じ扱い)。
      アルファは利用側で color-mix で適用し、primitive は不透明値を持つ。 */
   --fx-aurora-blue-primitive: oklch(0.45 0.1 250);
   --fx-mesh-violet-primitive: oklch(0.4 0.11 320);
-  --fx-mesh-cyan-primitive: oklch(0.32 0.06 200);
 }
 
 /* ---------------------------------------------------------------------------
@@ -140,7 +139,6 @@
   /* arcade FX 装飾色 (brand-fixed primitive を参照する semantic alias) */
   --color-fx-aurora-blue: var(--fx-aurora-blue-primitive);
   --color-fx-mesh-violet: var(--fx-mesh-violet-primitive);
-  --color-fx-mesh-cyan: var(--fx-mesh-cyan-primitive);
 }
 
 @layer base {
@@ -259,8 +257,7 @@
 }
 
 /* フロストガラスパネル (モダンゲームメニューの定番)。
-   半透明面 + backdrop blur + 上端の光 + 深い影で奥行きを作る。
-   下に _fx-sidebar-bg の色彩メッシュが透けることで初めて「ガラス」に見える */
+   半透明面 + backdrop blur + 上端の光 + 深い影で奥行きを作る */
 ._fx-panel {
   background: color-mix(in srgb, var(--color-panel) 52%, transparent);
   -webkit-backdrop-filter: blur(14px) saturate(1.5);
@@ -276,15 +273,6 @@
   box-shadow:
     0 16px 40px oklch(0 0 0 / 0.6),
     0 6px 16px oklch(0 0 0 / 0.45);
-}
-
-/* セクションバナー: 左から流れて消えるアクセントグラデーション */
-._fx-banner {
-  background: linear-gradient(
-    100deg,
-    color-mix(in oklch, var(--color-primary) 16%, transparent),
-    transparent 60%
-  );
 }
 
 /* hover でカードを斜めに走るシャインスイープ */
@@ -410,9 +398,7 @@
   text-shadow: 0 0 6px color-mix(in oklch, var(--color-primary) 60%, transparent);
 }
 
-/* サイドバー背景: 色彩メッシュ (ガラスパネルの下に透ける光源)。
-   右上に primary、左下に紫の大きなソフトグラデーションを置き、
-   その上のフロストガラスが「何かをぼかしている」状態を作る */
+/* サイドバー背景: 背景色のみ */
 ._fx-sidebar-bg {
   background: var(--color-background);
 }

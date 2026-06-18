@@ -22,7 +22,6 @@ export {
   LoadAppStateResponse,
   SaveAppStateRequest,
   SaveAppStateResponse,
-  WindowFrame,
 } from "./generated/gozd/v1/app_state";
 export {
   ClaudeSessionLogEntry,
@@ -166,6 +165,8 @@ export {
   TaskAddRequest,
   TaskAddResponse,
   TaskList,
+  TaskListRequest,
+  TaskListResponse,
   TaskRemoveRequest,
   TaskRemoveResponse,
   TaskSetTerminalTitleRequest,

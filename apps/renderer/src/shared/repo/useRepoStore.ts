@@ -1,4 +1,4 @@
-import { AppState, type UpstreamStatus, type WorktreeEntry } from "@gozd/proto";
+import { type AppState, type Task, type UpstreamStatus, WorktreeEntry } from "@gozd/proto";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
 
@@ -342,20 +342,12 @@ export const useRepoStore = defineStore("repo", () => {
   // --- 永続化サポート（I/O は feature 側で実施） ---
 
   /**
-   * load した state のうち sidebar 以外のフィールド（windowFrame 等）を保持し、
-   * save 時に同じ値を書き戻すための pass-through buffer。
-   */
-  let cachedBaseState: AppState = AppState.fromJSON({});
-
-  /**
    * AppState の sidebar 関連フィールドを現在の store の状態で組み立てて返す。
    * shared スコープの制約により RPC 呼び出しは feature 側で行うので、
    * snapshot 構築だけここで提供する。
    */
   function buildAppStateSnapshot(): AppState {
     return {
-      ...cachedBaseState,
-      lastOpenedDir: selectedDir.value ?? cachedBaseState.lastOpenedDir,
       sidebarRepos: dirOrder.value.map((rootDir) => {
         const r = repos.value[rootDir];
         return {
@@ -363,6 +355,15 @@ export const useRepoStore = defineStore("repo", () => {
           repoName: r?.repoName ?? "",
           isGitRepo: r?.isGitRepo ?? false,
           collapsed: collapsedRoots.value.has(rootDir),
+          // worktree キャッシュ: 起動直後の楽観カード描画に必要な最小サブセットだけ
+          // 射影する。git status / tasks / upstream を含めないことで、gitStatusChange
+          // push のたびに snapshot が変化して save watch が回るのを防ぐ
+          // （既存 debounce 相乗り + 射影限定）。SSOT は git。
+          worktrees: (r?.worktrees ?? []).map((wt) => ({
+            path: wt.path,
+            branch: wt.branch,
+            isMain: wt.isMain,
+          })),
         };
       }),
     };
@@ -372,9 +373,13 @@ export const useRepoStore = defineStore("repo", () => {
    * 起動時に 1 回呼ぶ。`app-state.json` から読んだ AppState を渡すと、
    * sidebar repos / order / collapsed を復元する。既に gozdOpen で追加済みの
    * repo は新規エントリとして末尾に保持する（先勝ち merge）。
+   *
+   * worktrees はキャッシュ（path/branch/isMain のみ）から実カードとして復元し、
+   * 起動直後の layout shift を消す。git status / tasks / upstream は欠けた状態で
+   * 描画され、`fetchRepo` → `updateRepoData` の真値が来たら同一 path のカードが
+   * key 維持で in-place 更新される（楽観描画）。SSOT は git。
    */
   function hydrateFromAppState(state: AppState) {
-    cachedBaseState = state;
     const nextRepos: Record<string, RepoState> = {};
     const nextOrder: string[] = [];
     const nextCollapsed = new Set<string>();
@@ -384,7 +389,9 @@ export const useRepoStore = defineStore("repo", () => {
         rootDir: r.rootDir,
         repoName: r.repoName,
         isGitRepo: r.isGitRepo,
-        worktrees: [],
+        worktrees: r.worktrees.map((wt) =>
+          WorktreeEntry.fromPartial({ path: wt.path, branch: wt.branch, isMain: wt.isMain }),
+        ),
       };
       nextOrder.push(r.rootDir);
       if (r.collapsed) nextCollapsed.add(r.rootDir);
@@ -401,6 +408,25 @@ export const useRepoStore = defineStore("repo", () => {
     collapsedRoots.value = nextCollapsed;
   }
 
+  /**
+   * git 非依存で読んだ task 一覧（`rpcTaskList`）を、既存 worktrees に worktreeDir で
+   * 割り当てる。起動直後、worktree キャッシュから描画したカードに task 行を即埋める高速
+   * 経路。各 wt は spread で gitStatuses / upstream 等を保持し、tasks のみ差し替える。
+   * その後 `fetchRepo` → `updateRepoData` の git 真値（同じ tasks.json 由来の task を含む）
+   * が来たら全体が上書きされるため整合は壊れない。task の SSOT は tasks.json。
+   */
+  function applyRepoTasks(rootDir: string, tasks: Task[]) {
+    const current = repos.value[rootDir];
+    if (current === undefined) return;
+    repos.value[rootDir] = {
+      ...current,
+      worktrees: current.worktrees.map((wt) => ({
+        ...wt,
+        tasks: tasks.filter((t) => t.worktreeDir === wt.path),
+      })),
+    };
+  }
+
   return {
     repos,
     dirOrder,
@@ -414,6 +440,7 @@ export const useRepoStore = defineStore("repo", () => {
     isSameRepoAsActive,
     addRepo,
     updateRepoData,
+    applyRepoTasks,
     setWorktreeGitStatuses,
     getGitStatusGen,
     appendWorktree,

@@ -237,6 +237,7 @@ final class AppRuntime {
 
     let createdDispatcher = RpcDispatcher(
       configDir: AppRuntime.defaultConfigDir(),
+      stateDir: AppRuntime.defaultStateDir(),
       onPtyText: onPtyText,
       onPtyExit: onPtyExit,
       onHook: onHook,
@@ -321,6 +322,14 @@ final class AppRuntime {
   private static func defaultConfigDir() -> String {
     let home = FileManager.default.homeDirectoryForCurrentUser
     return home.appendingPathComponent(".config/\(bundlePrefix)").path
+  }
+
+  /// `~/.local/state/gozd`。dev/stable で同じパスを使う（config と同じ共有方針）。
+  /// app state は「前回の続き」を表す state であり、ユーザー設定 (config) ではない
+  /// ため XDG state ディレクトリに置く。`~/.config/gozd` (config) とは別管理。
+  private static func defaultStateDir() -> String {
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    return home.appendingPathComponent(".local/state/\(bundlePrefix)").path
   }
 
   /// socket / settings / launch dir / Bundle ID で共有する prefix。

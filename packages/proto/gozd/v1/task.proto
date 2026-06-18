@@ -18,6 +18,16 @@ message TaskList {
   repeated Task tasks = 1;
 }
 
+// git 非依存で tasks.json だけを読む高速経路。起動直後、worktree キャッシュから描画した
+// カードに task 行を即埋めるために使う（重い rpcGitWorktreeList の git 部分を待たずに
+// task を出す）。projectKey は dir から server 側で算出する。
+message TaskListRequest {
+  string dir = 1;
+}
+message TaskListResponse {
+  repeated Task tasks = 1;
+}
+
 message TaskAddRequest {
   string dir = 1;
   string worktree_dir = 3;

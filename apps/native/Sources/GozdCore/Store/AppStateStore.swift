@@ -2,7 +2,7 @@ import Foundation
 import GozdProto
 import SwiftProtobuf
 
-// アプリ状態の永続化（`~/.config/gozd/app-state.json`）。
+// アプリ状態の永続化（`~/.local/state/gozd/app-state.json`）。
 //
 // 設計判断:
 //
@@ -10,9 +10,9 @@ import SwiftProtobuf
 //    `init(jsonString:)` を使う。ワイヤーフォーマットと storage 形式を同じ
 //    proto 型で揃え、Codable との二重管理を避ける。
 //
-// 2. **configDir は init で固定**。`~/.config/gozd` はサーバーワイドな初期化
-//    時パラメータでリクエスト毎に変わらないため、issue #310 のステートレス化
-//    （worktree dir 必須）の対象外。
+// 2. **stateDir は init で固定**。app state は「前回の続き」を表す state であり
+//    ユーザー設定 (config) ではないため XDG state ディレクトリ (`~/.local/state/gozd`)
+//    に置く。サーバーワイドな初期化時パラメータでリクエスト毎に変わらない。
 //
 // 3. **load 時にファイル不在ならデフォルト値**を返す（初回起動）。
 //    SwiftProtobuf の JSON parse は `ignoreUnknownFields = true` を渡し、
@@ -32,13 +32,11 @@ public final class AppStateStore {
   /// AppState の既知 top-level field 名（proto3 JSON の lower-camel 表記）。
   /// proto schema が変わったらこの set も同期して更新する。
   private static let knownTopLevelKeys: Set<String> = [
-    "windowFrame",
-    "lastOpenedDir",
     "sidebarRepos",
   ]
 
-  public init(configDir: String) {
-    self.filePath = (configDir as NSString).appendingPathComponent("app-state.json")
+  public init(stateDir: String) {
+    self.filePath = (stateDir as NSString).appendingPathComponent("app-state.json")
   }
 
   public func load() throws -> Gozd_V1_AppState {

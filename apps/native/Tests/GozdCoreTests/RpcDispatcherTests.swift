@@ -21,6 +21,7 @@ struct RpcDispatcherTests {
 
     let dispatcher = RpcDispatcher(
       configDir: dir,
+      stateDir: dir,
       onPtyText: { _, _ in },
       onPtyExit: { _, _ in }
     )
@@ -41,13 +42,17 @@ struct RpcDispatcherTests {
 
     let dispatcher = RpcDispatcher(
       configDir: dir,
+      stateDir: dir,
       onPtyText: { _, _ in },
       onPtyExit: { _, _ in }
     )
 
     var saveReq = Gozd_V1_SaveAppStateRequest()
     var state = Gozd_V1_AppState()
-    state.lastOpenedDir = "/foo/bar"
+    var repo = Gozd_V1_SidebarRepo()
+    repo.rootDir = "/foo/bar"
+    repo.repoName = "bar"
+    state.sidebarRepos = [repo]
     saveReq.state = state
     _ = try await dispatcher.dispatch(path: "/appState/save", body: saveReq.jsonUTF8Data())
 
@@ -55,7 +60,7 @@ struct RpcDispatcherTests {
     let loadResp = try await dispatcher.dispatch(
       path: "/appState/load", body: loadReq.jsonUTF8Data())
     let parsed = try Gozd_V1_LoadAppStateResponse(jsonUTF8Data: loadResp)
-    #expect(parsed.state.lastOpenedDir == "/foo/bar")
+    #expect(parsed.state.sidebarRepos.first?.rootDir == "/foo/bar")
   }
 
   @Test("/fs/readFile は dir / path から bytes を返す")
@@ -68,6 +73,7 @@ struct RpcDispatcherTests {
 
     let dispatcher = RpcDispatcher(
       configDir: dir,
+      stateDir: dir,
       onPtyText: { _, _ in },
       onPtyExit: { _, _ in }
     )
@@ -96,6 +102,7 @@ struct RpcDispatcherTests {
     let (exitEvents, exitContinuation) = AsyncStream<(UInt32, PTYExitReason)>.makeStream()
     let dispatcher = RpcDispatcher(
       configDir: dir,
+      stateDir: dir,
       onPtyText: { _, _ in },
       onPtyExit: { id, reason in
         exitContinuation.yield((id, reason))
@@ -139,6 +146,7 @@ struct RpcDispatcherTests {
 
     let dispatcher = RpcDispatcher(
       configDir: configDir,
+      stateDir: configDir,
       onPtyText: { _, _ in },
       onPtyExit: { _, _ in }
     )
@@ -193,6 +201,7 @@ struct RpcDispatcherTests {
 
     let dispatcher = RpcDispatcher(
       configDir: configDir,
+      stateDir: configDir,
       onPtyText: { _, _ in },
       onPtyExit: { _, _ in }
     )
@@ -273,6 +282,7 @@ struct RpcDispatcherTests {
 
     let dispatcher = RpcDispatcher(
       configDir: configDir,
+      stateDir: configDir,
       onPtyText: { _, _ in },
       onPtyExit: { _, _ in }
     )
@@ -333,6 +343,7 @@ struct RpcDispatcherTests {
 
     let dispatcher = RpcDispatcher(
       configDir: configDir,
+      stateDir: configDir,
       onPtyText: { _, _ in },
       onPtyExit: { _, _ in }
     )
@@ -411,6 +422,7 @@ struct RpcDispatcherTests {
 
     let dispatcher = RpcDispatcher(
       configDir: dir,
+      stateDir: dir,
       onPtyText: { _, _ in },
       onPtyExit: { _, _ in }
     )
@@ -441,6 +453,7 @@ struct RpcDispatcherTests {
 
     let dispatcher = RpcDispatcher(
       configDir: dir,
+      stateDir: dir,
       onPtyText: { _, _ in },
       onPtyExit: { _, _ in }
     )
@@ -460,6 +473,7 @@ struct RpcDispatcherTests {
 
     let dispatcher = RpcDispatcher(
       configDir: dir,
+      stateDir: dir,
       onPtyText: { _, _ in },
       onPtyExit: { _, _ in }
     )
@@ -483,6 +497,7 @@ struct RpcDispatcherTests {
 
     let dispatcher = RpcDispatcher(
       configDir: dir,
+      stateDir: dir,
       onPtyText: { _, _ in },
       onPtyExit: { _, _ in }
     )
@@ -522,6 +537,7 @@ struct RpcDispatcherTests {
 
     let dispatcher = RpcDispatcher(
       configDir: dir,
+      stateDir: dir,
       onPtyText: { _, _ in },
       onPtyExit: { _, _ in }
     )
@@ -544,6 +560,7 @@ struct RpcDispatcherTests {
     let (hookStream, hookContinuation) = AsyncStream<Gozd_V1_HookMessage>.makeStream()
     let dispatcher = RpcDispatcher(
       configDir: dir,
+      stateDir: dir,
       onPtyText: { _, _ in },
       onPtyExit: { _, _ in },
       onHook: { hook in
@@ -570,6 +587,7 @@ struct RpcDispatcherTests {
     let (openStream, openContinuation) = AsyncStream<String>.makeStream()
     let dispatcher = RpcDispatcher(
       configDir: dir,
+      stateDir: dir,
       onPtyText: { _, _ in },
       onPtyExit: { _, _ in },
       onHook: { _ in },
@@ -594,6 +612,7 @@ struct RpcDispatcherTests {
 
     let dispatcher = RpcDispatcher(
       configDir: dir,
+      stateDir: dir,
       onPtyText: { _, _ in },
       onPtyExit: { _, _ in }
     )
@@ -705,6 +724,7 @@ private func dispatchShowCommitFile(
 ) async throws -> Gozd_V1_GitShowCommitFileResponse {
   let dispatcher = RpcDispatcher(
     configDir: configDir,
+    stateDir: configDir,
     onPtyText: { _, _ in },
     onPtyExit: { _, _ in }
   )

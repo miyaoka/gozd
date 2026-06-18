@@ -14,6 +14,8 @@ import {
   SaveAppStateResponse,
   TaskAddRequest,
   TaskAddResponse,
+  TaskListRequest,
+  TaskListResponse,
   TaskRemoveRequest,
   TaskRemoveResponse,
   TaskSetTerminalTitleRequest,
@@ -39,6 +41,11 @@ export const rpcGitWorktreeRemove = (req: GitWorktreeRemoveRequest) =>
   rpc("/git/worktreeRemove", req, GitWorktreeRemoveRequest, GitWorktreeRemoveResponse);
 
 // --- task ---
+
+// git 非依存で tasks.json だけを読む高速経路。起動直後、worktree キャッシュから描画した
+// カードに task 行を即埋めるために使う（重い rpcGitWorktreeList の git 部分を待たない）。
+export const rpcTaskList = (req: TaskListRequest) =>
+  rpc("/task/list", req, TaskListRequest, TaskListResponse);
 
 // task ≠ session 設計: task は PR/issue picker や手動操作で生まれる永続オブジェクト。
 // Claude session は task に attach する短命属性として server 側で扱う。

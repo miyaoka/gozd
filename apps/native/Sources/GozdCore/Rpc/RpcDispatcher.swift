@@ -52,6 +52,7 @@ public actor RpcDispatcher {
 
   public init(
     configDir: String,
+    stateDir: String,
     onPtyText: @escaping @Sendable (UInt32, String) -> Void,
     onPtyExit: @escaping @Sendable (UInt32, PTYExitReason) -> Void,
     onHook: @escaping HookHandler = { _ in },
@@ -77,7 +78,7 @@ public actor RpcDispatcher {
       onRemoteRefsChange: onRemoteRefsChange,
       onWorktreeChange: onWorktreeChange
     )
-    self.appState = AppStateStore(configDir: configDir)
+    self.appState = AppStateStore(stateDir: stateDir)
     self.appConfig = AppConfigStore(configDir: configDir)
     self.projectConfig = ProjectConfigStore(configDir: configDir)
     self.tasks = TaskStore(configDir: configDir)
@@ -190,6 +191,7 @@ public actor RpcDispatcher {
     case "/git/createWorktree": return try await handleCreateWorktree(body)
     case "/git/worktreeRemove": return try await handleWorktreeRemove(body)
     // task
+    case "/task/list": return try await handleTaskList(body)
     case "/task/add": return try await handleTaskAdd(body)
     case "/task/setTerminalTitle": return try await handleTaskSetTerminalTitle(body)
     case "/task/setUserTitle": return try await handleTaskSetUserTitle(body)

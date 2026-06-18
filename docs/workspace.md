@@ -30,18 +30,17 @@
 
 ## アプリ状態の復元
 
-`~/.config/gozd/app-state.json` に最後のウィンドウ状態を保存し、次回起動時に sidebar として hydrate する。dev / stable で同じファイルを共有する。
+`~/.local/state/gozd/app-state.json`（XDG state ディレクトリ）に最後の sidebar 状態を保存し、次回起動時に sidebar として hydrate する。dev / stable で同じファイルを共有する。
 
 save の発火条件は `buildAppStateSnapshot()` のシリアライズ結果が前回と変化した時のみ。`worktrees` / `gitStatuses` / `task` などサイドバー描画用のデータは snapshot に含まれないため、git status push / `fetchRepo` / Task title 同期では save が走らない。発火するのは `dirOrder` / `collapsedRoots` / `selectedDir` / 各 repo の `repoName` / `isGitRepo` が実際に変化した時のみ。
 
 > [!WARNING]
 > dev / stable を同時起動して両方の sidebar を編集した場合、最後に save したプロセスが他方の sidebar 状態を上書きする。プロセス間ロックは未実装。詳細は [architecture.md](./architecture.md#データ永続化) を参照。
 
-保存する情報:
+保存する情報（`~/.local/state/gozd/app-state.json`、XDG state ディレクトリ）:
 
-- sidebar に表示中の repo 一覧（`sidebarRepos`: rootDir / repoName / collapsed）
-- 最後にアクティブだった worktree ディレクトリ（`lastOpenedDir`）
-- ウィンドウフレーム（位置・サイズ）
+- sidebar に表示中の repo 一覧（`sidebarRepos`: rootDir / repoName / isGitRepo / collapsed）
+- 各 repo の worktree 一覧キャッシュ（`sidebarRepos[].worktrees`: path / branch / isMain）。起動直後の layout shift を消すための楽観描画用。SSOT は git で、`rpcGitWorktreeList` の真値が来たら上書きされる
 
 起動時の挙動:
 
@@ -65,11 +64,11 @@ save の発火条件は `buildAppStateSnapshot()` のシリアライズ結果が
 
 ### 永続化
 
-`app-state.json` の `sidebarRepos` で同居中の repo 一覧（rootDir / repoName / collapsed 状態）を永続化済み。
+`app-state.json` の `sidebarRepos` で同居中の repo 一覧（rootDir / repoName / collapsed 状態）+ 各 repo の worktree 一覧キャッシュを永続化済み。
 
 未実装:
 
-- 起動時の active worktree 自動復元（`lastOpenedDir` は保存されているが hydrate 時に `selectedDir` へ反映していない）
+- 起動時の active worktree 自動復元（最後に選択していた worktree の記憶・復元は未実装）
 - worktree ごとの setup / teardown スクリプト（`pnpm install` 等の初期化自動化）
 
 将来的に永続化対象が大きく増えた場合は SQLite への移行を検討する。

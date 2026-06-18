@@ -32,6 +32,8 @@ export interface ClaudeStateVisual {
   color: string;
   animate?: string;
   ariaLabel: string;
+  /** 行下端を走る indeterminate progress スキャンライン (`_fx-progress-line`) を出すか */
+  progress?: true;
 }
 
 /**
@@ -51,6 +53,7 @@ export const CLAUDE_STATE_VISUAL: Record<ClaudeState, ClaudeStateVisual> = {
     ...CLAUDE_STATE_ICON.working,
     color: "text-warning-text _fx-glow-warning",
     ariaLabel: "Working",
+    progress: true,
   },
   done: {
     ...CLAUDE_STATE_ICON.done,

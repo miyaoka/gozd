@@ -81,7 +81,8 @@ function handleTerminalBlur() {
     >
       <!-- Claude セッションのみ: status アイコン + task タイトル（サイドバー TaskRow と同一の行） -->
       <TerminalLeafTitle :leaf-id="leafId" />
-      <!-- セッションログ preview（main / sub の最新 user / assistant 発言を右上に固定表示） -->
+      <!-- セッションログ preview（main / sub の最新 user / assistant 発言を右上に固定表示。
+           leaf 全体に対する absolute overlay なのでヘッダ行に被さってよい） -->
       <TerminalSessionPreview :leaf-id="leafId" />
       <div
         class="min-h-0 flex-1 overflow-hidden p-2 transition-opacity"

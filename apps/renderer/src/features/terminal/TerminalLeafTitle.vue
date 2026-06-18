@@ -44,7 +44,7 @@ const title = computed<string | undefined>(() => {
 <template>
   <div
     v-if="visual"
-    class="flex shrink-0 items-center gap-2 border-b border-border-subtle px-2 py-1"
+    class="relative flex shrink-0 items-center gap-2 border-b border-border-subtle px-2 py-1"
   >
     <span class="flex w-5 shrink-0 flex-col items-center gap-0.5">
       <component
@@ -56,5 +56,6 @@ const title = computed<string | undefined>(() => {
       />
     </span>
     <span class="line-clamp-2 flex-1 text-sm break-all" :title="title">{{ title }}</span>
+    <span v-if="visual.progress" class="_fx-progress-line" aria-hidden="true"></span>
   </div>
 </template>

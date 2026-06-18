@@ -35,7 +35,8 @@ const title = computed<string | undefined>(() => {
   const ptyId = terminalStore.getPtyId(props.leafId);
   if (ptyId === undefined) return undefined;
   const sessionId = terminalStore.getSessionIdByPtyId(ptyId);
-  if (sessionId === undefined) return undefined;
+  // 空文字は未起動 / 切り離し済みを意味し、findTaskBySessionId が誤一致しうるため除外する
+  if (sessionId === undefined || sessionId === "") return undefined;
   const task = repoStore.findTaskBySessionId(sessionId);
   return task === undefined ? undefined : taskDisplayTitle(task);
 });

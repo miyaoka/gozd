@@ -3,7 +3,7 @@ import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, shallowRef } from "vue";
 import { useContextKeys } from "../../shared/command";
 import { useNotificationStore } from "../../shared/notification";
-import { onMessage } from "../../shared/rpc";
+import { dispatchMessage, onMessage } from "../../shared/rpc";
 import type { ClaudeStatus } from "./claudeStatus";
 import { isHookEvent, createClaudeStatusManager } from "./claudeStatus";
 import { createPtySessionManager } from "./ptySession";
@@ -362,7 +362,7 @@ export const useTerminalStore = defineStore("terminal", () => {
       const { event, ptyId } = payload;
       if (!isHookEvent(event)) return;
       // claudeStatus.ts は snake_case の payload を期待するので boundary で変換する
-      claude.handleHookEvent(ptyId, event, {
+      const fx = claude.handleHookEvent(ptyId, event, {
         session_id: payload.sessionId,
         last_assistant_message: payload.lastAssistantMessage,
         tool_name: payload.toolName,
@@ -370,6 +370,10 @@ export const useTerminalStore = defineStore("terminal", () => {
         is_interrupt: payload.isInterrupt,
         pending_work: payload.pendingWork,
       });
+      // 効果（音・演出・読み上げ）は正規化済みの claudeFx ストリームに流す。pending done 等の
+      // 「完了扱いしない hook」は handleHookEvent が undefined を返して落とすので、購読側は
+      // pending を意識せず受け取れる（判断は handleHookEvent 1 箇所に集約）。
+      if (fx !== undefined) dispatchMessage("claudeFx", fx);
     });
   }
 

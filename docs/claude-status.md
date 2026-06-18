@@ -98,11 +98,19 @@ foreground subagent（Task tool の同期実行）はサブエージェント完
 
 CLI が 2 配列の length を OR で畳んで `pending_work` 信号を立て、状態判定に渡す。
 
-`pending_work` が立っていても **状態は常に `done` に倒す**。`pending_work` は `ClaudeStatus` の `done` バリアントに flag として保持し、表示層が `displayClaudeState()` 経由で `done + pendingWork` を `working` として描画して緑バッジ・吹き出し・音声を抑止する。pending が空になった本物の `Stop`（次のターン終了）で `pendingWork` が落ち、表示が `working` → `done` に切り替わる。
+`pending_work` が立っていても **状態は常に `done` に倒す**。`pending_work` は `ClaudeStatus` の `done` バリアントに flag として保持し、バッジは `displayClaudeState()` 経由で `done + pendingWork` を `working` として描画する。pending が空になった本物の `Stop`（次のターン終了）で `pendingWork` が落ち、表示が `working` → `done` に切り替わる。
 
 `working` を直接維持せず必ず `done` を経由させる理由は **状態固着の回避**。`Stop` 後に Claude が再起動しないケース（background 完了通知の欠落 / 予約再起動の不発）では「次の `Stop`」が永久に来ない。`working` を維持するとその状態に張り付き、`done` でしか効かない `clearDoneStates`（フォーカス時の既読消化）での消化経路も失う。`done` を経由させることで、再起動が来なくてもフォーカスで `idle` に消化でき、完了通知が永久に出ない事故を防ぐ。
 
-判定（`done + pendingWork` を完了扱いしない）は表示の `displayClaudeState()` と音声の `speechText.ts` の 2 経路に出るが、いずれも SSOT である proto の `pending_work` フィールド 1 つを参照する。
+### 効果（音・演出・読み上げ）の抑止は claudeFx に一元化する
+
+「`done + pendingWork` を完了扱いするか」の判断を購読者ごとに散らすと、効果購読者を増やすたび取りこぼす（実際に arcade 演出の取りこぼしが起きた）。これを防ぐため、効果は **`hook` を解釈する terminal が再発行する正規化イベント `claudeFx` 1 本** に集約する。
+
+- `handleHookEvent` が hook を解釈した結果として `ClaudeFxEvent` を返し、`useTerminalStore` が `dispatchMessage("claudeFx", fx)` で再発行する
+- pending done / dead PTY など「完了扱いしない hook」は `handleHookEvent` が `undefined` を返して落とす（**抑止判断はこの 1 箇所のみ**）
+- 効果側（VOICEVOX 読み上げ・arcade の演出/効果音）は `claudeFx` を購読するだけで、`pending_work` を一切見ない。pending done は構造的に届かないため、新しい効果購読者を足しても取りこぼせない
+
+`pendingWork` flag の **算出は `handleHookEvent` の done 分岐 1 箇所**（SSOT は proto の `pending_work` フィールド）。この flag を読む**判断点はバッジ側（`displayClaudeState()`）と効果側（fx 発行可否）の 2 経路**だが、いずれも同じ flag を参照する。バッジは表示 state、効果はイベント駆動で出力先が異なるため、責務として分離している。
 
 > [!NOTE]
 > 旧バージョン（v2.1.145 未満）の Claude Code は両キーを stdin に乗せないが、CLI は欠落を count 0（= pending なし）として扱うため、その場合は従来どおり `pendingWork` なしの `done` になる（欠落 == 空で正しい挙動）。

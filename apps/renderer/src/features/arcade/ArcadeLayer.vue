@@ -12,9 +12,10 @@
 
 - pointerdown (capture): クリック位置に火花 + ボタン系 target ならクリック音。
   同時に AudioContext を unlock する (autoplay policy 対応)
-- hook push: done → 花火 + ファンファーレ / needs-input → アラート音 + アンバーフラッシュ /
-  running → エンゲージ音 / tool-done → チック音 / session-start → 起動音 /
-  stop-failure → エラー音 + レッドフラッシュ
+- claudeFx (terminal が hook を解釈して再発行する正規化イベント): done → 花火 + ファンファーレ /
+  needs-input → アラート音 + アンバーフラッシュ / running → エンゲージ音 / tool-done → チック音 /
+  session-start → 起動音 / stop-failure → エラー音 + レッドフラッシュ。pending done（裏で作業
+  継続中 = 真の完了ではない）は terminal 側で除去されるため、ここには届かず演出も出ない
 - 通知 store: error の発生 (lastEvent) でエラー音 + レッドフラッシュ
 
 ## パフォーマンス
@@ -30,13 +31,9 @@ import { useEventListener } from "@vueuse/core";
 import { onMounted, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
+import type { ClaudeFxEvent, HookEvent } from "../terminal";
 import { createParticleEngine, type ParticleEngine } from "./particleEngine";
 import { sfx, unlockAudio } from "./sfx";
-
-/** hook push payload のうち arcade が使う部分 (payload 型は feature 定義の規約) */
-interface ArcadeHookPayload {
-  event: string;
-}
 
 /** フラッシュ演出の表示時間 (ms)。CSS の _fx-flash アニメーション長と揃える */
 const FLASH_DURATION_MS = 700;
@@ -73,7 +70,9 @@ useEventListener(
   { capture: true },
 );
 
-const HOOK_REACTIONS: Record<string, () => void> = {
+// Partial<Record<HookEvent, ...>> で keying することで、event 名のタイポと未対応 event を
+// 型で検出する（claudeFx の event は HookEvent union）。
+const HOOK_REACTIONS: Partial<Record<HookEvent, () => void>> = {
   "session-start": () => sfx.boot(),
   running: () => sfx.engage(),
   "tool-done": () => sfx.tick(),
@@ -93,8 +92,8 @@ const HOOK_REACTIONS: Record<string, () => void> = {
   },
 };
 
-const disposeHook = onMessage<ArcadeHookPayload>("hook", (payload) => {
-  HOOK_REACTIONS[payload.event]?.();
+const disposeHook = onMessage<ClaudeFxEvent>("claudeFx", (fx) => {
+  HOOK_REACTIONS[fx.event]?.();
 });
 onUnmounted(disposeHook);
 

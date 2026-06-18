@@ -1,3 +1,4 @@
+import { tryCatch } from "@gozd/shared";
 import { ref, type FunctionalComponent, type Ref, type SVGAttributes } from "vue";
 import IconLucideCircleCheck from "~icons/lucide/circle-check";
 import IconLucideCircleEllipsis from "~icons/lucide/circle-ellipsis";
@@ -108,7 +109,7 @@ export function displayClaudeState(status: ClaudeStatus | undefined): ClaudeStat
  * - tool-failure: PostToolUseFailure（ツール実行失敗。is_interrupt で中断判定）
  * - stop-failure: StopFailure（API エラーによる停止）
  */
-type HookEvent =
+export type HookEvent =
   | "session-start"
   | "session-end"
   | "running"
@@ -131,6 +132,40 @@ const HOOK_EVENTS: readonly HookEvent[] = [
 
 export function isHookEvent(value: string): value is HookEvent {
   return (HOOK_EVENTS as readonly string[]).includes(value);
+}
+
+/**
+ * Claude hook の `tool_input` を構造化オブジェクトにする。proto3 の string 制約により
+ * boundary までは JSON 文字列で運ばれる（CLI が object → JSON 文字列にシリアライズする）。
+ * ここで 1 度だけ parse することで、`extractAskingText` 等の object 判定が初めて成立する。
+ * 既に object のケース（テスト等）はそのまま通し、parse 失敗・非 object は undefined にする。
+ */
+function parseToolInput(raw: unknown): Record<string, unknown> | undefined {
+  if (typeof raw === "object" && raw !== null) return raw as Record<string, unknown>;
+  if (typeof raw !== "string" || raw === "") return undefined;
+  const result = tryCatch(() => JSON.parse(raw) as unknown);
+  if (!result.ok) return undefined;
+  const parsed = result.value;
+  return typeof parsed === "object" && parsed !== null
+    ? (parsed as Record<string, unknown>)
+    : undefined;
+}
+
+/**
+ * 音・演出・読み上げの「効果」を駆動する正規化イベント。terminal が hook を 1 度だけ解釈した
+ * 結果として発行する (`dispatchMessage("claudeFx", ...)`)。効果を出すべきでない hook
+ * (pending work が残る done = 裏で作業継続中 / dead PTY 等) はここで `undefined` に潰されるので、
+ * このストリームを購読する側 (voicevox / arcade) は pending を意識せず受け取るだけでよい。
+ * 「done を完了扱いするか」の判断を購読者ごとに散らさず、解釈点 1 箇所に集約するための型。
+ */
+export interface ClaudeFxEvent {
+  ptyId: number;
+  event: HookEvent;
+  /** done / stop-failure の last_assistant_message */
+  message?: string;
+  /** needs-input の tool 情報 */
+  toolName?: string;
+  toolInput?: unknown;
 }
 
 /** PermissionRequest の debounce 時間（ms）。この間に tool-done が来たら asking にしない */
@@ -192,9 +227,13 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
    * PermissionRequest は debounce し、一瞬で通過するケース（自動承認）を除外する。
    * done 後の遅延 tool-done（イベント順序逆転）は無視する。
    */
-  function handleHookEvent(ptyId: number, event: HookEvent, payload: Record<string, unknown>) {
-    // kill/exit 済みの PTY への遅延イベントを無視
-    if (!isPtyAlive(ptyId)) return;
+  function handleHookEvent(
+    ptyId: number,
+    event: HookEvent,
+    payload: Record<string, unknown>,
+  ): ClaudeFxEvent | undefined {
+    // kill/exit 済みの PTY への遅延イベントを無視（効果も出さない）
+    if (!isPtyAlive(ptyId)) return undefined;
 
     const current = claudeStatusByPtyId.value[ptyId];
 
@@ -215,7 +254,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
           onSessionAttached?.(ptyId, sessionId);
         }
         claudeStatusByPtyId.value[ptyId] = { state: "idle", lastActivityAt: Date.now() };
-        break;
+        return { ptyId, event };
       }
       case "session-end": {
         cancelAskTimer(ptyId);
@@ -234,26 +273,26 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
           );
         } else if (endingSessionId !== currentSessionId) {
           delete ptyIdBySessionId.value[endingSessionId];
-          break;
+          // 旧 session の stale な session-end。効果は出さない。
+          return undefined;
         }
         if (currentSessionId !== undefined) {
           delete ptyIdBySessionId.value[currentSessionId];
           delete sessionIdByPtyId.value[ptyId];
         }
         delete claudeStatusByPtyId.value[ptyId];
-        break;
+        // session-end に反応する効果は無いが、解釈結果として発行する
+        return { ptyId, event };
       }
       case "running": {
         cancelAskTimer(ptyId);
         claudeStatusByPtyId.value[ptyId] = { state: "working", lastActivityAt: Date.now() };
-        break;
+        return { ptyId, event };
       }
       case "needs-input": {
         const toolName = typeof payload.tool_name === "string" ? payload.tool_name : undefined;
-        const toolInput =
-          typeof payload.tool_input === "object" && payload.tool_input !== null
-            ? (payload.tool_input as Record<string, unknown>)
-            : undefined;
+        // tool_input は boundary まで JSON 文字列で運ばれるため 1 度だけ構造化する
+        const toolInput = parseToolInput(payload.tool_input);
         // debounce: タイマー満了まで asking にしない
         cancelAskTimer(ptyId);
         askTimers.set(
@@ -273,7 +312,8 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
             };
           }, ASK_DEBOUNCE_MS),
         );
-        break;
+        // 効果（アラート音・読み上げ）は従来どおり debounce せず即時発火させる
+        return { ptyId, event, toolName, toolInput };
       }
       case "tool-failure": {
         cancelAskTimer(ptyId);
@@ -281,25 +321,25 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
           // ユーザーが Ctrl+C でツール実行を中断 → プロンプト待ちに戻る。
           // session-start 後にしか発火しないため current は存在する。
           // current が undefined なら session-start 未到達の仕様外イベントなので無視。
-          if (current === undefined) return;
+          if (current === undefined) return undefined;
           // lastActivityAt は維持（中断はユーザー操作で、Claude の活動ではない）
           claudeStatusByPtyId.value[ptyId] = {
             state: "idle",
             lastActivityAt: current.lastActivityAt,
           };
-          break;
+          return undefined;
         }
         // interrupt でないツール失敗は tool-done と同じ扱い（working 継続）
-        if (current?.state === "done") break;
+        if (current?.state === "done") return undefined;
         claudeStatusByPtyId.value[ptyId] = { state: "working", lastActivityAt: Date.now() };
-        break;
+        return undefined;
       }
       case "tool-done": {
         cancelAskTimer(ptyId);
         // done 後の遅延 tool-done を無視（イベント順序逆転対策）
-        if (current?.state === "done") break;
+        if (current?.state === "done") return undefined;
         claudeStatusByPtyId.value[ptyId] = { state: "working", lastActivityAt: Date.now() };
-        break;
+        return { ptyId, event };
       }
       case "done": {
         cancelAskTimer(ptyId);
@@ -309,16 +349,20 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
             : undefined;
         // Stop は常に done へ倒す。pending_work（background_tasks / session_crons が残る =
         // 裏で作業継続中）は done バリアントの flag として保持し、表示層 (displayClaudeState) で
-        // working として描画して緑バッジ・通知を抑止する。working を直接維持すると、Claude が
+        // working として描画して緑バッジを抑止する。working を直接維持すると、Claude が
         // 再起動しないケース（background 完了通知の欠落）で状態が固着し、done 経由でしか効かない
         // clearDoneStates での消化経路を失う。done を必ず経由させることで固着を防ぐ。
+        const pendingWork = payload.pending_work === true;
         claudeStatusByPtyId.value[ptyId] = {
           state: "done",
           lastActivityAt: Date.now(),
           message,
-          pendingWork: payload.pending_work === true,
+          pendingWork,
         };
-        break;
+        // 効果（音・演出・読み上げ）の抑止はここ 1 箇所で行う。pending done は真の完了では
+        // ないため fx を発行しない → 購読側は pending を一切意識しない。
+        if (pendingWork) return undefined;
+        return { ptyId, event, message };
       }
       case "stop-failure": {
         // API エラーによる停止。done と同様に人間への通知が必要
@@ -332,9 +376,13 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
           lastActivityAt: Date.now(),
           message,
         };
-        break;
+        return { ptyId, event, message };
       }
     }
+    // 全 HookEvent を case で処理済み。新しい event を追加して case を書き忘れると、ここで
+    // `event` が never に絞られず compile error になる（hook event 種別を増やす方向の取りこぼし防止）。
+    event satisfies never;
+    return undefined;
   }
 
   /**

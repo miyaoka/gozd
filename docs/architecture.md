@@ -264,14 +264,16 @@ zsh 起動
 
 ## データ永続化
 
-アプリの状態と設定は `~/.config/gozd/` に proto3 JSON で保存する。dev / stable で永続ディレクトリは共有する。channel で分離するのは衝突回避が必要な実行時リソース（socket / TMPDIR / Vite URL / CLI ソース参照先）のみ。ファイル I/O は常に native（Swift）側で行い、renderer からは RPC request 経由でアクセスする。
+アプリのデータは XDG の役割で 2 ディレクトリに分ける。ユーザー設定 (config) / プロジェクトデータは `~/.config/gozd/`、「前回の続き」を表す state（sidebar 並び順・折りたたみ / worktree 一覧キャッシュ）は `~/.local/state/gozd/` に proto3 JSON で保存する。どちらも dev / stable で永続ディレクトリは共有する。channel で分離するのは衝突回避が必要な実行時リソース（socket / TMPDIR / Vite URL / CLI ソース参照先）のみ。ファイル I/O は常に native（Swift）側で行い、renderer からは RPC request 経由でアクセスする。
 
 > [!WARNING]
 > 永続ファイルへの cross-process ロックは未実装。dev / stable を同時起動した場合、各ストア（`AppStateStore` / `AppConfigStore` / `TaskStore` / `ProjectConfigStore`）の `load → mutate → save` が並走すると、最後に save したプロセスが他方の変更を上書きする可能性がある。
 
 ```text
+~/.local/state/gozd/
+└── app-state.json                        # state: sidebar repo 並び順 / 折りたたみ / worktree 一覧キャッシュ
+
 ~/.config/gozd/
-├── app-state.json                        # グローバル: ウィンドウ状態 / repo 並び順 / 折りたたみ状態
 ├── config.json                           # グローバル: ユーザー設定（VOICEVOX 等）
 └── projects/
     └── <projectKey>/                     # <repoName>-<hash>（realpath の SHA-256 先頭12文字）

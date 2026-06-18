@@ -11,25 +11,34 @@ struct AppStateStoreTests {
     let dir = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
 
-    let store = AppStateStore(configDir: dir)
+    let store = AppStateStore(stateDir: dir)
 
     var state = Gozd_V1_AppState()
-    state.lastOpenedDir = "/Users/test/projects/foo"
-    var frame = Gozd_V1_WindowFrame()
-    frame.x = 100
-    frame.y = 200
-    frame.width = 1280
-    frame.height = 800
-    state.windowFrame = frame
+    var repo = Gozd_V1_SidebarRepo()
+    repo.rootDir = "/Users/test/projects/foo"
+    repo.repoName = "foo"
+    repo.isGitRepo = true
+    repo.collapsed = true
+    var wt = Gozd_V1_WorktreeCacheEntry()
+    wt.path = "/Users/test/projects/foo/wt1"
+    wt.branch = "feature/x"
+    wt.isMain = false
+    repo.worktrees = [wt]
+    state.sidebarRepos = [repo]
 
     try store.save(state)
     let loaded = try store.load()
 
-    #expect(loaded.lastOpenedDir == "/Users/test/projects/foo")
-    #expect(loaded.windowFrame.x == 100)
-    #expect(loaded.windowFrame.y == 200)
-    #expect(loaded.windowFrame.width == 1280)
-    #expect(loaded.windowFrame.height == 800)
+    #expect(loaded.sidebarRepos.count == 1)
+    let r = loaded.sidebarRepos[0]
+    #expect(r.rootDir == "/Users/test/projects/foo")
+    #expect(r.repoName == "foo")
+    #expect(r.isGitRepo == true)
+    #expect(r.collapsed == true)
+    #expect(r.worktrees.count == 1)
+    #expect(r.worktrees[0].path == "/Users/test/projects/foo/wt1")
+    #expect(r.worktrees[0].branch == "feature/x")
+    #expect(r.worktrees[0].isMain == false)
   }
 
   @Test("ファイル不在時の load は default proto を返す")
@@ -37,26 +46,27 @@ struct AppStateStoreTests {
     let dir = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
 
-    let store = AppStateStore(configDir: dir)
+    let store = AppStateStore(stateDir: dir)
     let loaded = try store.load()
-    #expect(loaded.lastOpenedDir == "")
-    #expect(loaded.windowFrame.width == 0)
+    #expect(loaded.sidebarRepos.isEmpty)
   }
 
-  @Test("configDir が存在しなくても save が中間ディレクトリを作る")
+  @Test("stateDir が存在しなくても save が中間ディレクトリを作る")
   func savesNestedDir() throws {
     let dir = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
 
     let nestedDir = (dir as NSString).appendingPathComponent("a/b/c")
-    let store = AppStateStore(configDir: nestedDir)
+    let store = AppStateStore(stateDir: nestedDir)
 
     var state = Gozd_V1_AppState()
-    state.lastOpenedDir = "/x"
+    var repo = Gozd_V1_SidebarRepo()
+    repo.rootDir = "/x"
+    state.sidebarRepos = [repo]
     try store.save(state)
 
     let loaded = try store.load()
-    #expect(loaded.lastOpenedDir == "/x")
+    #expect(loaded.sidebarRepos.first?.rootDir == "/x")
   }
 
   @Test("save は既存ファイルの未知 top-level field を保持する")
@@ -68,15 +78,17 @@ struct AppStateStoreTests {
     let filePath = (dir as NSString).appendingPathComponent("app-state.json")
     let initialJson = """
       {
-        "lastOpenedDir": "/old",
+        "sidebarRepos": [{"rootDir": "/old"}],
         "futureField": {"version": 2, "extras": ["a", "b"]}
       }
       """
     try initialJson.write(toFile: filePath, atomically: true, encoding: .utf8)
 
-    let store = AppStateStore(configDir: dir)
+    let store = AppStateStore(stateDir: dir)
     var state = try store.load()
-    state.lastOpenedDir = "/new"
+    var repo = Gozd_V1_SidebarRepo()
+    repo.rootDir = "/new"
+    state.sidebarRepos = [repo]
     try store.save(state)
 
     // 保存後のファイルに futureField が残っていることを確認
@@ -87,7 +99,8 @@ struct AppStateStoreTests {
       Issue.record("saved file is not a JSON object")
       return
     }
-    #expect(savedDict["lastOpenedDir"] as? String == "/new")
+    let savedRepos = savedDict["sidebarRepos"] as? [[String: Any]]
+    #expect(savedRepos?.first?["rootDir"] as? String == "/new")
     #expect(savedDict["futureField"] != nil)
     if let future = savedDict["futureField"] as? [String: Any] {
       #expect(future["version"] as? Int == 2)
@@ -102,11 +115,10 @@ struct AppStateStoreTests {
     let dir = try makeTempDir()
     defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: dir)) }
 
-    let store = AppStateStore(configDir: dir)
+    let store = AppStateStore(stateDir: dir)
 
-    // 初回 save: sidebar repos と lastOpenedDir を埋める
+    // 初回 save: sidebar repos を埋める
     var first = Gozd_V1_AppState()
-    first.lastOpenedDir = "/old"
     var repo = Gozd_V1_SidebarRepo()
     repo.rootDir = "/repo/a"
     repo.repoName = "a"
@@ -118,7 +130,6 @@ struct AppStateStoreTests {
     try store.save(cleared)
 
     let loaded = try store.load()
-    #expect(loaded.lastOpenedDir == "")
     #expect(loaded.sidebarRepos.isEmpty)
   }
 
@@ -130,15 +141,15 @@ struct AppStateStoreTests {
     let filePath = (dir as NSString).appendingPathComponent("app-state.json")
     let json = """
       {
-        "lastOpenedDir": "/x",
+        "sidebarRepos": [{"rootDir": "/x"}],
         "totallyUnknownField": "should not break parse"
       }
       """
     try json.write(toFile: filePath, atomically: true, encoding: .utf8)
 
-    let store = AppStateStore(configDir: dir)
+    let store = AppStateStore(stateDir: dir)
     let loaded = try store.load()
-    #expect(loaded.lastOpenedDir == "/x")
+    #expect(loaded.sidebarRepos.first?.rootDir == "/x")
   }
 }
 

@@ -11,6 +11,7 @@ import {
   rpcAppStateLoad,
   rpcAppStateSave,
   rpcGitWorktreeList,
+  rpcTaskList,
   rpcTaskSetTerminalTitle,
 } from "./rpc";
 import type { BranchChangePayload, FsWatchReadyPayload, WorktreeChangePayload } from "./rpc";
@@ -72,13 +73,32 @@ export function useSidebarData() {
     for (const dir of stalePaths) terminalStore.remove(dir);
   }
 
-  // 新規 repo が追加されたら即 fetch
+  /**
+   * git 非依存で tasks.json を読み、起動直後に worktree キャッシュから描画したカードへ
+   * task 行を即埋める高速経路。`fetchRepo`（git worktree list + 各 wt の git status を
+   * 含む重い真値取得）と並走させ、task の SSOT (tasks.json) を git の往復を待たずに反映する。
+   * 失敗時は fetchRepo の真値が task を届けるため silent に諦める（補助経路。fetchRepo 側が
+   * 失敗を notify する）。
+   */
+  async function prefetchTasks(rootDir: string) {
+    const repo = repoStore.repos[rootDir];
+    if (repo === undefined || !repo.isGitRepo) return;
+    const result = await tryCatch(rpcTaskList({ dir: rootDir }));
+    if (!result.ok) return;
+    repoStore.applyRepoTasks(rootDir, result.value.tasks);
+  }
+
+  // 新規 repo が追加されたら即 fetch。git の往復が重いので、task だけ git 非依存の
+  // prefetch を並走させて起動直後のカード内 layout shift（task 行の遅延挿入）を抑える。
   watch(
     () => [...repoStore.dirOrder],
     (next, prev) => {
       const prevSet = new Set(prev);
       for (const dir of next) {
-        if (!prevSet.has(dir)) void fetchRepo(dir);
+        if (!prevSet.has(dir)) {
+          void prefetchTasks(dir);
+          void fetchRepo(dir);
+        }
       }
     },
     { immediate: true },

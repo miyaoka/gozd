@@ -1,4 +1,4 @@
-import { AppState, type UpstreamStatus, type WorktreeEntry } from "@gozd/proto";
+import { type AppState, type Task, type UpstreamStatus, WorktreeEntry } from "@gozd/proto";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
 
@@ -101,6 +101,15 @@ export const useRepoStore = defineStore("repo", () => {
   function getGitStatusGen(dir: string): number {
     return gitStatusGenByDir.get(dir) ?? 0;
   }
+
+  /**
+   * `updateRepoData`（= `rpcGitWorktreeList` の git 真値の唯一の書き込み口）が一度でも
+   * 走った rootDir の集合。`applyRepoTasks`（git 非依存の prefetch 適用）が、git 真値
+   * 到達後に古い tasks.json スナップショットで上書きするのを防ぐガードに使う。
+   * git 真値は tasks.json を JOIN した最新 task を含むため、真値到達後は prefetch の
+   * 出番が無いという不変条件を表す。reactivity 不要なため素の Set で持つ。
+   */
+  const gitTruthAppliedRoots = new Set<string>();
 
   /** selectedDir を含む repo を逆引き。最初に dir を含む repo */
   const selectedRepo = computed(() => {
@@ -224,6 +233,9 @@ export const useRepoStore = defineStore("repo", () => {
       current.worktrees.some((w) => w.path === selectedDir.value) &&
       !merged.some((w) => w.path === selectedDir.value);
     repos.value[rootDir] = { ...current, worktrees: merged };
+    // git 真値が書かれた印。以降 applyRepoTasks（prefetch）は古い task スナップショットで
+    // 上書きしない（真値は tasks.json を JOIN した最新 task を含むため出番が無い）。
+    gitTruthAppliedRoots.add(rootDir);
     if (orphanedActiveDir) {
       // 外部 git worktree remove 経由だとユーザー操作なしに active dir が切り替わる。
       // feature 層が DI した notifier 経由でユーザーに通知する。未注入なら console.info。
@@ -306,6 +318,10 @@ export const useRepoStore = defineStore("repo", () => {
       gitStatusGenByDir.delete(removed.rootDir);
       for (const wt of removed.worktrees) gitStatusGenByDir.delete(wt.path);
     }
+    // git 真値到達フラグも掃除する。残すと同 rootDir を再追加したとき applyRepoTasks が
+    // 永久 no-op になり、起動時 task 高速ロード（prefetch）の便益が失われて layout shift が
+    // 一段戻る。gitStatusGenByDir と同じ per-root 補助状態として同じライフサイクルで掃除する。
+    gitTruthAppliedRoots.delete(rootDir);
     if (selectedDir.value !== undefined) {
       const stillOwned = findRepoOwning(selectedDir.value);
       if (stillOwned === undefined) {
@@ -342,20 +358,12 @@ export const useRepoStore = defineStore("repo", () => {
   // --- 永続化サポート（I/O は feature 側で実施） ---
 
   /**
-   * load した state のうち sidebar 以外のフィールド（windowFrame 等）を保持し、
-   * save 時に同じ値を書き戻すための pass-through buffer。
-   */
-  let cachedBaseState: AppState = AppState.fromJSON({});
-
-  /**
    * AppState の sidebar 関連フィールドを現在の store の状態で組み立てて返す。
    * shared スコープの制約により RPC 呼び出しは feature 側で行うので、
    * snapshot 構築だけここで提供する。
    */
   function buildAppStateSnapshot(): AppState {
     return {
-      ...cachedBaseState,
-      lastOpenedDir: selectedDir.value ?? cachedBaseState.lastOpenedDir,
       sidebarRepos: dirOrder.value.map((rootDir) => {
         const r = repos.value[rootDir];
         return {
@@ -363,6 +371,15 @@ export const useRepoStore = defineStore("repo", () => {
           repoName: r?.repoName ?? "",
           isGitRepo: r?.isGitRepo ?? false,
           collapsed: collapsedRoots.value.has(rootDir),
+          // worktree キャッシュ: 起動直後の楽観カード描画に必要な最小サブセットだけ
+          // 射影する。git status / tasks / upstream を含めないことで、gitStatusChange
+          // push のたびに snapshot が変化して save watch が回るのを防ぐ
+          // （既存 debounce 相乗り + 射影限定）。SSOT は git。
+          worktrees: (r?.worktrees ?? []).map((wt) => ({
+            path: wt.path,
+            branch: wt.branch,
+            isMain: wt.isMain,
+          })),
         };
       }),
     };
@@ -372,9 +389,13 @@ export const useRepoStore = defineStore("repo", () => {
    * 起動時に 1 回呼ぶ。`app-state.json` から読んだ AppState を渡すと、
    * sidebar repos / order / collapsed を復元する。既に gozdOpen で追加済みの
    * repo は新規エントリとして末尾に保持する（先勝ち merge）。
+   *
+   * worktrees はキャッシュ（path/branch/isMain のみ）から実カードとして復元し、
+   * 起動直後の layout shift を消す。git status / tasks / upstream は欠けた状態で
+   * 描画され、`fetchRepo` → `updateRepoData` の真値が来たら同一 path のカードが
+   * key 維持で in-place 更新される（楽観描画）。SSOT は git。
    */
   function hydrateFromAppState(state: AppState) {
-    cachedBaseState = state;
     const nextRepos: Record<string, RepoState> = {};
     const nextOrder: string[] = [];
     const nextCollapsed = new Set<string>();
@@ -384,7 +405,9 @@ export const useRepoStore = defineStore("repo", () => {
         rootDir: r.rootDir,
         repoName: r.repoName,
         isGitRepo: r.isGitRepo,
-        worktrees: [],
+        worktrees: r.worktrees.map((wt) =>
+          WorktreeEntry.fromPartial({ path: wt.path, branch: wt.branch, isMain: wt.isMain }),
+        ),
       };
       nextOrder.push(r.rootDir);
       if (r.collapsed) nextCollapsed.add(r.rootDir);
@@ -401,6 +424,29 @@ export const useRepoStore = defineStore("repo", () => {
     collapsedRoots.value = nextCollapsed;
   }
 
+  /**
+   * git 非依存で読んだ task 一覧（`rpcTaskList`）を、既存 worktrees に worktreeDir で
+   * 割り当てる。起動直後、worktree キャッシュから描画したカードに task 行を即埋める高速
+   * 経路。各 wt は spread で gitStatuses / upstream 等を保持し、tasks のみ差し替える。
+   * `updateRepoData` で git 真値が既に書かれた repo は no-op にする。prefetch と fetchRepo
+   * は並走起動され完了順序は保証されない。fetchRepo が先に完了したケースで、prefetch の
+   * 古い tasks.json スナップショット（往復中に session hook 等で task が増えた場合、真値
+   * より古い）が後着して真値の task を消す race を構造的に塞ぐ。git 真値到達後は prefetch
+   * の出番が無い（真値が tasks.json を JOIN した最新 task を含む）。task の SSOT は tasks.json。
+   */
+  function applyRepoTasks(rootDir: string, tasks: Task[]) {
+    if (gitTruthAppliedRoots.has(rootDir)) return;
+    const current = repos.value[rootDir];
+    if (current === undefined) return;
+    repos.value[rootDir] = {
+      ...current,
+      worktrees: current.worktrees.map((wt) => ({
+        ...wt,
+        tasks: tasks.filter((t) => t.worktreeDir === wt.path),
+      })),
+    };
+  }
+
   return {
     repos,
     dirOrder,
@@ -414,6 +460,7 @@ export const useRepoStore = defineStore("repo", () => {
     isSameRepoAsActive,
     addRepo,
     updateRepoData,
+    applyRepoTasks,
     setWorktreeGitStatuses,
     getGitStatusGen,
     appendWorktree,

@@ -8,6 +8,16 @@ import GozdProto
 // `handleClaudeSessionRemoveByPty`) が担当する。
 
 extension RpcDispatcher {
+  // git 非依存で tasks.json だけを読む高速経路。renderer が起動直後、worktree キャッシュから
+  // 描画したカードに task 行を即埋めるために使う (rpcGitWorktreeList の git 部分を待たない)。
+  func handleTaskList(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_TaskListRequest(jsonUTF8Data: body)
+    let list = try await tasks.list(dir: req.dir)
+    var resp = Gozd_V1_TaskListResponse()
+    resp.tasks = list
+    return try resp.jsonUTF8Data()
+  }
+
   func handleTaskAdd(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_TaskAddRequest(jsonUTF8Data: body)
     let task = try await tasks.add(

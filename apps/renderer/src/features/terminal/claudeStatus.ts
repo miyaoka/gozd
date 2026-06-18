@@ -254,6 +254,13 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
       }
       case "done": {
         cancelAskTimer(ptyId);
+        // Stop 発火時に background_tasks / session_crons が残っているなら、主エージェントの
+        // ターンは終わったが裏で作業継続中（= background 完了で再起動する）。真の done ではない
+        // ので working を維持し、緑バッジ・通知を出さない。pending が無い本物の Stop で done に倒す。
+        if (payload.pending_work === true) {
+          claudeStatusByPtyId.value[ptyId] = { state: "working", lastActivityAt: Date.now() };
+          break;
+        }
         const message =
           typeof payload.last_assistant_message === "string"
             ? payload.last_assistant_message

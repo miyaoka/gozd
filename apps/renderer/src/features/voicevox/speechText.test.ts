@@ -48,6 +48,15 @@ describe("extractSpeechText", () => {
     expect(extractSpeechText("done", {})).toBeUndefined();
   });
 
+  test("done イベントで pending_work が true なら読み上げを抑止する", () => {
+    expect(
+      extractSpeechText("done", {
+        last_assistant_message: "サブエージェントに投げました。",
+        pending_work: true,
+      }),
+    ).toBeUndefined();
+  });
+
   test("needs-input イベントで AskUserQuestion の question を返す", () => {
     expect(
       extractSpeechText("needs-input", {

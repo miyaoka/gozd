@@ -42,7 +42,7 @@ undefined ──SessionStart──→ idle ──UserPromptSubmit──→ worki
 | `SessionStart`       | `session-start` | `idle`                                       | CLI 経由（`session_id`, `source` 取得 / resume 永続化のため） |
 | `SessionEnd`         | `session-end`   | `undefined`（エントリ削除）                  | CLI 経由（`session_id` で永続化エントリを削除するため）       |
 | `UserPromptSubmit`   | `running`       | `working`                                    | nc 直接送信                                                   |
-| `Stop`               | `done`          | `done`                                       | CLI 経由（`last_assistant_message` 取得）                     |
+| `Stop`               | `done`          | `done` / `working` 維持（pending work 時）   | CLI 経由（`last_assistant_message` / pending work 取得）      |
 | `PermissionRequest`  | `needs-input`   | `asking`（150ms debounce）                   | CLI 経由（`tool_name`, `tool_input` 取得）                    |
 | `PostToolUse`        | `tool-done`     | `working` 維持                               | nc 直接送信                                                   |
 | `PostToolUseFailure` | `tool-failure`  | `working` 維持 / `idle`（`is_interrupt` 時） | CLI 経由（`is_interrupt` 取得）                               |
@@ -84,6 +84,22 @@ Claude Code は中断時に以下の文字列を PTY に出力する:
 - `⎿` (U+23BF): Claude Code のツール出力プレフィックス
 - 空白: SP (U+0020) + NBSP (U+00A0)
 - `working` 状態の PTY データに対してのみマッチを行い、`idle` に遷移させる
+
+## 真の done と「background 待ちの偽 done」の区別
+
+`Stop` は「セッション終了」ではなく「主エージェントのターン終了」で発火する。エージェントが background 実行（`run_in_background` の Bash / 非同期 Agent / Monitor）や scheduled wakeup（`/loop` / `ScheduleWakeup` / `CronCreate`）を起動するとその時点でターンが終わり `Stop` が飛ぶが、裏の作業が完了すると Claude は自動で再起動する。このとき緑バッジ・音声通知を出すと、人間は「終わった」と誤認する。
+
+foreground subagent（Task tool の同期実行）はサブエージェント完了まで主エージェントの `Stop` を出さない（完了は別系統の `SubagentStop`。gozd は登録していない）。よって偽 done の構造的な発生源は **background 系だけ** に限定される。
+
+区別の信号は `Stop` フックの stdin（Claude Code v2.1.145+）に乗る 2 配列:
+
+- `background_tasks`: 走行中の background process（`run_in_background` / 非同期 Agent / Monitor）
+- `session_crons`: 予約された再起動（`/loop` / `ScheduleWakeup` / `CronCreate`）
+
+CLI（`GozdCLI/main.swift`）が両配列の length を OR で畳んで `HookMessage.pending_work`（proto field 8）に立て、push payload（`pendingWork`）→ renderer の `HookPayload.pendingWork` を経て `claudeStatus.ts` の `done` ケースに届く。`pending_work === true` のときは `done` に倒さず `working` を維持し、緑バッジを出さない。pending が空になった本物の `Stop` で初めて `done` に遷移する。音声通知も `speechText.ts` の `done` 分岐で同じ条件で抑止する。
+
+> [!NOTE]
+> 旧バージョン（v2.1.145 未満）の Claude Code は両キーを stdin に乗せないが、CLI は欠落を count 0（= pending なし）として扱うため、その場合は従来どおり常に `done` に倒れる（欠落 == 空で正しい挙動）。
 
 ## サイドバーの表示ルール
 

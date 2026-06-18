@@ -359,6 +359,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
         tool_name: payload.toolName,
         tool_input: payload.toolInput,
         is_interrupt: payload.isInterrupt,
+        pending_work: payload.pendingWork,
       };
       const text = extractSpeechText(payload.event, legacyPayload);
       if (text) {

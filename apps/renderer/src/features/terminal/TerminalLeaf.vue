@@ -3,8 +3,8 @@
 
 ## ヘッダバー
 
-- 上部に CWD + ターミナルタイトル、Claude 状態バッジを配置
-- worktree ディレクトリ外にいる場合は赤背景で警告表示
+- Claude セッションが attach された leaf だけ、上部 (ボーダー線上) に status アイコン +
+  task タイトルを表示する（`TerminalLeafTitle`）。素の PTY では何も出さない
 
 ## フォーカス
 
@@ -24,9 +24,8 @@
 import { computed } from "vue";
 import { useContextKeys } from "../../shared/command";
 import { useWorktreeStore } from "../worktree";
-import type { ClaudeState } from "./claudeStatus";
-import { CLAUDE_STATE_ICON } from "./claudeStatus";
 import { currentTheme } from "./terminalConfig";
+import TerminalLeafTitle from "./TerminalLeafTitle.vue";
 import TerminalSessionPreview from "./TerminalSessionPreview.vue";
 import { useTerminalStore } from "./useTerminalStore";
 import XtermTerminal from "./XtermTerminal.vue";
@@ -53,33 +52,6 @@ const isFocused = computed(() => {
 
 const effectiveFitSuspended = computed(() => terminalStore.dragSuspendCount > 0);
 
-const claudeState = computed(() => terminalStore.getClaudeState(props.leafId));
-
-const CLAUDE_STATE_LABEL: Record<ClaudeState, string> = {
-  idle: "Idle",
-  working: "Working",
-  asking: "Ask",
-  done: "Done",
-};
-
-/** OSC 7 で通知された CWD。未取得時は worktree dir をフォールバック */
-const cwd = computed(() => terminalStore.cwdByLeafId[props.leafId] ?? props.dir);
-
-/** CWD が worktree ディレクトリ内にあるか */
-const isInsideWorktree = computed(
-  () => cwd.value === props.dir || cwd.value.startsWith(props.dir + "/"),
-);
-
-/** CWD を worktree dir の親からの相対パスで表示 */
-const cwdLabel = computed(() => {
-  if (!isInsideWorktree.value) return cwd.value;
-  const parentEnd = props.dir.lastIndexOf("/");
-  return cwd.value.slice(parentEnd + 1);
-});
-
-/** OSC 0/2 で設定されたターミナルタイトル */
-const title = computed(() => terminalStore.titleByLeafId[props.leafId]);
-
 function handleTerminalFocus() {
   contextKeys.set("terminalFocus", true);
   terminalStore.focusPane(props.leafId);
@@ -99,7 +71,7 @@ function handleTerminalBlur() {
          leaf 高さを参照するための query container 指定。size-full で寸法が親から確定して
          いるため size containment による高さ collapse は起きない -->
     <div
-      class="@container-size relative size-full rounded-lg p-1 outline"
+      class="@container-size relative flex size-full flex-col rounded-lg p-1 outline"
       :style="{ backgroundColor: currentTheme.background }"
       :class="
         isFocused
@@ -107,38 +79,12 @@ function handleTerminalBlur() {
           : '-outline-offset-2 outline-border'
       "
     >
-      <!-- CWD + タイトル（左上、ボーダー線上） -->
-      <div
-        class="pointer-events-none absolute top-0 left-3 z-10 -translate-y-1/2 px-1 text-xs"
-        :style="{ backgroundColor: currentTheme.background }"
-        :class="isInsideWorktree ? 'text-foreground-low' : 'text-destructive-text'"
-        :title="cwd"
-      >
-        {{ title ? `${cwdLabel} ${title}` : cwdLabel }}
-      </div>
-      <!-- Claude Code 状態インジケーター（右上、ボーダー線上） -->
-      <div
-        v-if="claudeState !== undefined"
-        class="pointer-events-none absolute top-0 right-3 z-10 flex -translate-y-1/2 items-center gap-1 px-1 text-xs leading-none font-semibold"
-        :style="{ backgroundColor: currentTheme.background }"
-        :class="{
-          'text-foreground-low': claudeState === 'idle',
-          'text-warning-text': claudeState === 'working',
-          'text-warning-strong-text': claudeState === 'asking',
-          'text-success-text': claudeState === 'done',
-        }"
-      >
-        <component
-          :is="CLAUDE_STATE_ICON[claudeState].icon"
-          class="size-3.5"
-          :class="CLAUDE_STATE_ICON[claudeState].animate"
-        />
-        <span>{{ CLAUDE_STATE_LABEL[claudeState] }}</span>
-      </div>
+      <!-- Claude セッションのみ: status アイコン + task タイトル（サイドバー TaskRow と同一の行） -->
+      <TerminalLeafTitle :leaf-id="leafId" />
       <!-- セッションログ preview（main / sub の最新 user / assistant 発言を右上に固定表示） -->
       <TerminalSessionPreview :leaf-id="leafId" />
       <div
-        class="size-full overflow-hidden p-2 transition-opacity"
+        class="min-h-0 flex-1 overflow-hidden p-2 transition-opacity"
         :class="isFocused ? 'opacity-100' : 'opacity-50'"
       >
         <XtermTerminal

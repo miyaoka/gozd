@@ -49,6 +49,14 @@ public enum FSOps {
     return try Data(contentsOf: URL(fileURLWithPath: target))
   }
 
+  /// 絶対パスで raw bytes を読み取る（dir 制約なし）。preview の worktree 外画像 / SVG 用。
+  /// テキスト経路の `readFileAbsolute` と揃えているのは「dir 外参照を許す」参照範囲の契約のみ。
+  /// 戻り方は別で、不在 / ディレクトリは throw し handler が 500 → `<img>` error に倒す
+  /// （notFound / directory の正常応答への畳み込みはテキスト経路 `readFileAt` が担う）。
+  public static func readFileBytesAbsolute(absolutePath: String) throws -> Data {
+    return try Data(contentsOf: URL(fileURLWithPath: absolutePath))
+  }
+
   public static func writeFile(dir: String, path: String, data: Data) throws {
     let target = try resolveSafe(dir: dir, path: path)
     let parentDir = (target as NSString).deletingLastPathComponent

@@ -37,16 +37,16 @@ undefined ──SessionStart──→ idle ──UserPromptSubmit──→ worki
 
 ## フックイベントの対応
 
-| Claude Code hook     | gozd イベント   | 遷移先                                       | 送信経路                                                      |
-| -------------------- | --------------- | -------------------------------------------- | ------------------------------------------------------------- |
-| `SessionStart`       | `session-start` | `idle`                                       | CLI 経由（`session_id`, `source` 取得 / resume 永続化のため） |
-| `SessionEnd`         | `session-end`   | `undefined`（エントリ削除）                  | CLI 経由（`session_id` で永続化エントリを削除するため）       |
-| `UserPromptSubmit`   | `running`       | `working`                                    | nc 直接送信                                                   |
-| `Stop`               | `done`          | `done`                                       | CLI 経由（`last_assistant_message` 取得）                     |
-| `PermissionRequest`  | `needs-input`   | `asking`（150ms debounce）                   | CLI 経由（`tool_name`, `tool_input` 取得）                    |
-| `PostToolUse`        | `tool-done`     | `working` 維持                               | nc 直接送信                                                   |
-| `PostToolUseFailure` | `tool-failure`  | `working` 維持 / `idle`（`is_interrupt` 時） | CLI 経由（`is_interrupt` 取得）                               |
-| `StopFailure`        | `stop-failure`  | `done`（API エラーによる停止）               | CLI 経由（`last_assistant_message` 取得）                     |
+| Claude Code hook     | gozd イベント   | 遷移先                                        | 送信経路                                                      |
+| -------------------- | --------------- | --------------------------------------------- | ------------------------------------------------------------- |
+| `SessionStart`       | `session-start` | `idle`                                        | CLI 経由（`session_id`, `source` 取得 / resume 永続化のため） |
+| `SessionEnd`         | `session-end`   | `undefined`（エントリ削除）                   | CLI 経由（`session_id` で永続化エントリを削除するため）       |
+| `UserPromptSubmit`   | `running`       | `working`                                     | nc 直接送信                                                   |
+| `Stop`               | `done`          | `done`（pending work 時は表示のみ `working`） | CLI 経由（`last_assistant_message` / pending work 取得）      |
+| `PermissionRequest`  | `needs-input`   | `asking`（150ms debounce）                    | CLI 経由（`tool_name`, `tool_input` 取得）                    |
+| `PostToolUse`        | `tool-done`     | `working` 維持                                | nc 直接送信                                                   |
+| `PostToolUseFailure` | `tool-failure`  | `working` 維持 / `idle`（`is_interrupt` 時）  | CLI 経由（`is_interrupt` 取得）                               |
+| `StopFailure`        | `stop-failure`  | `done`（API エラーによる停止）                | CLI 経由（`last_assistant_message` 取得）                     |
 
 ### 送信経路の選択基準
 
@@ -84,6 +84,28 @@ Claude Code は中断時に以下の文字列を PTY に出力する:
 - `⎿` (U+23BF): Claude Code のツール出力プレフィックス
 - 空白: SP (U+0020) + NBSP (U+00A0)
 - `working` 状態の PTY データに対してのみマッチを行い、`idle` に遷移させる
+
+## 真の done と「background 待ちの偽 done」の区別
+
+`Stop` は「セッション終了」ではなく「主エージェントのターン終了」で発火する。エージェントが background 実行（`run_in_background` の Bash / 非同期 Agent / Monitor）や scheduled wakeup（`/loop` / `ScheduleWakeup` / `CronCreate`）を起動するとその時点でターンが終わり `Stop` が飛ぶが、裏の作業が完了すると Claude は自動で再起動する。このとき緑バッジ・音声通知を出すと、人間は「終わった」と誤認する。
+
+foreground subagent（Task tool の同期実行）はサブエージェント完了まで主エージェントの `Stop` を出さない（完了は別系統の `SubagentStop`。gozd は登録していない）。よって偽 done の構造的な発生源は **background 系だけ** に限定される。
+
+区別の信号は `Stop` フックの stdin（Claude Code v2.1.145+）に乗る 2 配列:
+
+- `background_tasks`: 走行中の background process（`run_in_background` / 非同期 Agent / Monitor）
+- `session_crons`: 予約された再起動（`/loop` / `ScheduleWakeup` / `CronCreate`）
+
+CLI が 2 配列の length を OR で畳んで `pending_work` 信号を立て、状態判定に渡す。
+
+`pending_work` が立っていても **状態は常に `done` に倒す**。`pending_work` は `ClaudeStatus` の `done` バリアントに flag として保持し、表示層が `displayClaudeState()` 経由で `done + pendingWork` を `working` として描画して緑バッジ・吹き出し・音声を抑止する。pending が空になった本物の `Stop`（次のターン終了）で `pendingWork` が落ち、表示が `working` → `done` に切り替わる。
+
+`working` を直接維持せず必ず `done` を経由させる理由は **状態固着の回避**。`Stop` 後に Claude が再起動しないケース（background 完了通知の欠落 / 予約再起動の不発）では「次の `Stop`」が永久に来ない。`working` を維持するとその状態に張り付き、`done` でしか効かない `clearDoneStates`（フォーカス時の既読消化）での消化経路も失う。`done` を経由させることで、再起動が来なくてもフォーカスで `idle` に消化でき、完了通知が永久に出ない事故を防ぐ。
+
+判定（`done + pendingWork` を完了扱いしない）は表示の `displayClaudeState()` と音声の `speechText.ts` の 2 経路に出るが、いずれも SSOT である proto の `pending_work` フィールド 1 つを参照する。
+
+> [!NOTE]
+> 旧バージョン（v2.1.145 未満）の Claude Code は両キーを stdin に乗せないが、CLI は欠落を count 0（= pending なし）として扱うため、その場合は従来どおり `pendingWork` なしの `done` になる（欠落 == 空で正しい挙動）。
 
 ## サイドバーの表示ルール
 

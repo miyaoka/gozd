@@ -120,6 +120,7 @@ final class AppRuntime {
         "toolName": hook.toolName,
         "toolInput": hook.toolInput,
         "isInterrupt": hook.isInterrupt,
+        "pendingWork": hook.pendingWork,
       ]
       Task { @MainActor in
         await pushToRenderer(page: holder.page, type: "hook", payload: payload)

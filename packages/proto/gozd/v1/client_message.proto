@@ -34,6 +34,14 @@ message HookMessage {
 
   // session-start / session-end のみ。Claude Code の resume 起動に必要。
   string session_id = 7;
+
+  // "done" (Stop) のみ。Stop 発火時に background_tasks / session_crons のいずれかが
+  // 残っているか。CLI が stdin の 2 配列を OR で畳んで立てる。true のときは主エージェントの
+  // ターンは終わったが裏で作業が継続中（= 再起動する）ため、真の done ではない。
+  // フィールド名に has_ を付けると swift-protobuf が presence accessor と衝突して
+  // `_p` suffix に mangle するため、pending_work とする。
+  bool pending_work = 8;
+
   // session-start のみ。"startup" / "resume" / "clear" / "compact" 等
   string source = 9;
 }

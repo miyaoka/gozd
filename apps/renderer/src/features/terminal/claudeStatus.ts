@@ -46,7 +46,20 @@ export type ClaudeStatus =
       toolName?: string;
       toolInput?: Record<string, unknown>;
     } & ClaudeStatusBase)
-  | ({ state: "done"; message?: string } & ClaudeStatusBase);
+  | ({ state: "done"; message?: string; pendingWork?: boolean } & ClaudeStatusBase);
+
+/**
+ * 表示用の state。`done` かつ `pendingWork`（Stop 発火時に background_tasks /
+ * session_crons が残る = 裏で作業継続中）は「真の done」ではないため `working` として
+ * 描画する。状態機械上は必ず `done` を経由するので `clearDoneStates`（フォーカス時の
+ * 既読消化）で消化でき、状態固着しない。緑バッジ・吹き出し・通知の抑止は表示層が
+ * この関数経由で行う。
+ */
+export function displayClaudeState(status: ClaudeStatus | undefined): ClaudeState | undefined {
+  if (status === undefined) return undefined;
+  if (status.state === "done" && status.pendingWork === true) return "working";
+  return status.state;
+}
 
 /**
  * hooks イベント種別。
@@ -258,10 +271,16 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
           typeof payload.last_assistant_message === "string"
             ? payload.last_assistant_message
             : undefined;
+        // Stop は常に done へ倒す。pending_work（background_tasks / session_crons が残る =
+        // 裏で作業継続中）は done バリアントの flag として保持し、表示層 (displayClaudeState) で
+        // working として描画して緑バッジ・通知を抑止する。working を直接維持すると、Claude が
+        // 再起動しないケース（background 完了通知の欠落）で状態が固着し、done 経由でしか効かない
+        // clearDoneStates での消化経路を失う。done を必ず経由させることで固着を防ぐ。
         claudeStatusByPtyId.value[ptyId] = {
           state: "done",
           lastActivityAt: Date.now(),
           message,
+          pendingWork: payload.pending_work === true,
         };
         break;
       }
@@ -316,7 +335,8 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
   function getClaudeState(leafId: string): ClaudeState | undefined {
     const ptyId = panes.getSessionPtyId(leafId);
     if (ptyId === undefined) return undefined;
-    return claudeStatusByPtyId.value[ptyId]?.state;
+    // 表示用 state を返す（done + pendingWork は working として描画）
+    return displayClaudeState(claudeStatusByPtyId.value[ptyId]);
   }
 
   /** Claude セッションが存在する（idle / working / asking / done）leafId 一覧 */

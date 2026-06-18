@@ -373,6 +373,7 @@ export const useTerminalStore = defineStore("terminal", () => {
         tool_name: payload.toolName,
         tool_input: payload.toolInput,
         is_interrupt: payload.isInterrupt,
+        pending_work: payload.pendingWork,
       });
     });
   }

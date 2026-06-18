@@ -42,6 +42,9 @@ export function extractSpeechText(
   payload: Record<string, unknown>,
 ): string | undefined {
   if (event === "done") {
+    // background_tasks / session_crons が残る Stop は真の done ではない（裏で作業継続中）。
+    // 早期の読み上げを抑止し、pending が無い本物の Stop でのみ読み上げる。
+    if (payload.pending_work === true) return undefined;
     const message =
       typeof payload.last_assistant_message === "string"
         ? payload.last_assistant_message

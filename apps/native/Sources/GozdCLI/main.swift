@@ -141,6 +141,14 @@ func hookCommand(event: String) async {
   if let source = stdinJson["source"] as? String {
     hook.source = source
   }
+  // Stop (done) フックの stdin に乗る pending work シグナル (Claude Code v2.1.145+)。
+  // background_tasks: run_in_background / 非同期 Agent / Monitor
+  // session_crons: /loop / ScheduleWakeup / CronCreate
+  // どちらかが残っていれば主エージェントのターンは終わったが裏で作業継続中 = 真の done ではない。
+  // 旧バージョンでは両キーが欠落するが、その場合は count 0 = pending なしで正しい (欠落 == 空)。
+  let backgroundCount = (stdinJson["background_tasks"] as? [Any])?.count ?? 0
+  let cronCount = (stdinJson["session_crons"] as? [Any])?.count ?? 0
+  hook.pendingWork = backgroundCount + cronCount > 0
 
   var msg = Gozd_V1_ClientMessage()
   msg.body = .hook(hook)

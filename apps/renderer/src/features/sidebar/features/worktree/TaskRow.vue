@@ -7,27 +7,31 @@ TaskEditDialog を開く。行内に inline 編集は持たない。
 
 ## state アイコン
 
+Claude state 由来 (idle / working / asking / done) のときだけアイコンを表示する。
 WCAG 1.4.1 準拠で色 + 形 + aria-label の 3 軸で状態を表現する。アニメーションは spin / pulse のみ
 （bounce は notification spam に見えるため不採用）。
+
+resumable / closed / not-started は task 専用の状態でアイコンを出さない。クリック挙動だけが意味を持つ:
 
 - `not-started`: PR/issue picker や手動作成で生まれただけで Claude session が未 attach の task。
   クリックすると素の `claude` が起動して SessionStart hook で attach される。
 - `resumable`: 過去に session を持っていた (task.sessionId 非空) が live PTY に未接続。
   app close (renderer 強制終了) で中断されたケース。クリックすると `claude --resume <sessionId>` が起動。
 - `closed`: ユーザーが明示的にターミナルを閉じた task (task.closedByUser=true)。
-  状態としては resumable と同じく resume 可能だが、`eye-closed` アイコンで「ユーザーが終わらせた」
-  感を出して区別する。クリック挙動は resumable と同じ。
+  状態としては resumable と同じく resume 可能。クリック挙動も resumable と同じ。
 
-`resumable` と `closed` の振る舞いは同じ (どちらもクリックで `claude --resume`) で、UI 上の
-意味的区別だけを行う。app close (renderer 強制終了) では `detachSession` が呼ばれないため
-`closedByUser` は false のまま残り、自動的に `resumable` 側に倒れる。
+`resumable` と `closed` の振る舞いは同じ (どちらもクリックで `claude --resume`)。app close (renderer
+強制終了) では `detachSession` が呼ばれないため `closedByUser` は false のまま残り、自動的に
+`resumable` 側に倒れる。
 
-## 相対時刻の起点
+## 左端カラム（アイコン / 相対時刻）
 
-`status.lastActivityAt`（Claude が最後に動いた時刻）を全 state で使う。state 遷移時刻ではなく
-活動時刻を基準にすることで、working → idle / asking などで "now" にリセットされない。
-status 不在（resumable / closed）時は `task.createdAt` にフォールバックする。算出ロジックは
-`taskBaseTime.resolveTaskBaseTime` を SSOT として使う。
+左端は固定幅のカラム。active な task（Claude state あり）はアイコンを、inactive な task
+（resumable / closed / not-started = アイコン無し）は相対時刻を排他表示する。両者を同時には出さない。
+
+相対時刻は `taskBaseTime.resolveTaskBaseTime` を SSOT として算出する。表示されるのは status 不在の
+inactive state だけなので実質 `task.createdAt` 起点になる（status があれば `lastActivityAt` を使うが、
+その state はアイコン表示側に倒れて時刻を出さない）。
 </doc>
 
 <script setup lang="ts">
@@ -39,22 +43,21 @@ import { extractAskingText, extractFirstSentence } from "../../../voicevox";
 import { resolveTaskBaseTime } from "../../taskBaseTime";
 import { useRelativeTime } from "../../useRelativeTime";
 import { taskDisplayTitle } from "../../utils";
-import IconLucideCircleDashed from "~icons/lucide/circle-dashed";
 import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
-import IconLucideEyeClosed from "~icons/lucide/eye-closed";
-import IconLucideSquarePlay from "~icons/lucide/square-play";
 
 type StateKind = "asking" | "working" | "done" | "idle" | "resumable" | "closed" | "not-started";
 
 /**
- * Claude state 由来 (idle / working / asking / done) のアイコンは
- * `CLAUDE_STATE_ICON` を SSOT として参照し、TerminalLeaf と形を揃える。
- * 色 / aria-label / 追加アニメーション (asking の pulse) は表示文脈で変わるため
- * サイドバー側でラップする。resumable / closed / not-started は task 専用の状態。
+ * Claude state 由来 (idle / working / asking / done) のときだけアイコンを表示する。
+ * 形は `CLAUDE_STATE_ICON` を SSOT として参照し、TerminalLeaf と揃える。色 / aria-label /
+ * 追加アニメーション (asking の pulse) は表示文脈で変わるためサイドバー側でラップする。
+ * resumable / closed / not-started は task 専用の状態でアイコンを出さない (entry を持たない)。
  */
-const STATE_VISUAL: Record<
-  StateKind,
-  { icon: FunctionalComponent<SVGAttributes>; color: string; animate?: string; ariaLabel: string }
+const STATE_VISUAL: Partial<
+  Record<
+    StateKind,
+    { icon: FunctionalComponent<SVGAttributes>; color: string; animate?: string; ariaLabel: string }
+  >
 > = {
   asking: {
     ...CLAUDE_STATE_ICON.asking,
@@ -76,21 +79,6 @@ const STATE_VISUAL: Record<
     ...CLAUDE_STATE_ICON.idle,
     color: "text-foreground-low",
     ariaLabel: "Idle",
-  },
-  resumable: {
-    icon: IconLucideSquarePlay,
-    color: "text-foreground-muted",
-    ariaLabel: "Resumable",
-  },
-  closed: {
-    icon: IconLucideEyeClosed,
-    color: "text-foreground-muted",
-    ariaLabel: "Closed by user",
-  },
-  "not-started": {
-    icon: IconLucideCircleDashed,
-    color: "text-foreground-muted",
-    ariaLabel: "Not started",
   },
 };
 
@@ -152,15 +140,20 @@ function onMenuClick(event: MouseEvent) {
       class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-element-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset data-[active=true]:bg-primary-subtle data-[active=true]:hover:bg-primary-subtle-hover"
       @click="emit('select', task)"
     >
-      <component
-        :is="visual.icon"
-        class="size-4 shrink-0"
-        :class="[visual.color, visual.animate]"
-        role="img"
-        :aria-label="visual.ariaLabel"
-      />
+      <span class="flex w-5 shrink-0 flex-col items-center gap-0.5">
+        <component
+          :is="visual.icon"
+          v-if="visual"
+          class="size-4"
+          :class="[visual.color, visual.animate]"
+          role="img"
+          :aria-label="visual.ariaLabel"
+        />
+        <span v-else class="text-[10px] text-foreground-muted tabular-nums">{{
+          relativeTime
+        }}</span>
+      </span>
       <span class="line-clamp-2 flex-1 text-sm break-all" :title="title">{{ title }}</span>
-      <span class="text-[10px] text-foreground-muted tabular-nums">{{ relativeTime }}</span>
     </button>
     <span v-if="stateKind === 'working'" class="_fx-progress-line" aria-hidden="true"></span>
     <button

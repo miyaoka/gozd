@@ -187,24 +187,41 @@ public actor FSWatchRegistry {
   /// watch ごとに増える世代番号。unwatch 後に積まれていた stale event の dispatch を
   /// 抑止するため、event 配送前後に entries[dir]?.generation と一致するか check する。
   private var nextGeneration: UInt64 = 0
-  /// working-tree status の trailing-debounce 待機 (ms)。FSWatcher の latency=0.1s で複数
-  /// バッチに分割される checkout flood を 1 回の `gitStatusFull` に畳むための窓。branch label は
-  /// ref 系経路 (`worktreeChange`) が即時駆動するため、この遅延は status バッジ系 (changes /
-  /// filer) にのみ効く (issue #809 の CAUTION)。
-  private static let statusDebounceMs = 150
+  /// working-tree status の trailing-debounce 待機。FSWatcher の latency=0.1s で複数バッチに
+  /// 分割される checkout flood を 1 回の status 取得に畳むための窓。branch label は ref 系経路
+  /// (`worktreeChange`) が即時駆動するため、この遅延は status バッジ系 (changes / filer) にのみ
+  /// 効く (issue #809 の CAUTION)。
+  ///
+  /// pure trailing-debounce のため、窓幅未満の間隔でファイルが鳴り続ける病的な継続 churn では
+  /// status 発火が窓ごとに先送りされ続ける starvation edge を持つ (旧設計の毎バッチ実行には無い
+  /// トレードオフ)。現実のファイル変更は必ず gap が空くため実害は薄く、ignore 対象の churn は
+  /// 仮に発火しても `lastPushedStatusByDir` の dedup で潰れる。max-wait cap で緩和できるが、それは
+  /// issue #809 が消したい「sustained churn 中の定期 git status」を再導入するため意図的に入れない。
+  /// starvation が実機で観測されたら cap を検討する。
+  /// 注入可能にしているのはテストで debounce 窓を制御するため (production は default の 150ms)。
+  private let statusDebounce: Duration
+  /// working-tree status の取得関数。production は `GitOps.gitStatusFull`。テストでは status の
+  /// 完了タイミングを制御できる fetcher を注入し、gen 二重 check の race (古い in-flight が新しい
+  /// 結果を上書きしないこと) を決定的に検証する seam として使う。
+  private let statusFetcher: @Sendable (_ dir: String) async throws -> GitOps.StatusFull
 
   public init(
     onFsChange: @escaping FsChangeHandler,
     onGitStatusChange: @escaping GitStatusChangeHandler,
     onBranchChange: @escaping BranchChangeHandler,
     onRemoteRefsChange: @escaping RemoteRefsChangeHandler,
-    onWorktreeChange: @escaping WorktreeChangeHandler
+    onWorktreeChange: @escaping WorktreeChangeHandler,
+    statusDebounce: Duration = .milliseconds(150),
+    statusFetcher: @escaping @Sendable (_ dir: String) async throws -> GitOps.StatusFull =
+      GitOps.gitStatusFull
   ) {
     self.onFsChange = onFsChange
     self.onGitStatusChange = onGitStatusChange
     self.onBranchChange = onBranchChange
     self.onRemoteRefsChange = onRemoteRefsChange
     self.onWorktreeChange = onWorktreeChange
+    self.statusDebounce = statusDebounce
+    self.statusFetcher = statusFetcher
   }
 
   /// dir の監視を開始する。同一 resolved dir に対する `watch` 呼び出しは冪等で
@@ -534,11 +551,14 @@ public actor FSWatchRegistry {
     let requestGeneration = (statusRequestGenerationByDir[dir] ?? 0) + 1
     statusRequestGenerationByDir[dir] = requestGeneration
     statusDebounceTasks[dir]?.cancel()
+    // `[weak self]` クロージャからは actor プロパティへ self 経由でしか触れないため、
+    // Sendable な debounce 値を Task 生成前にローカルへ退避してキャプチャする。
+    let debounce = statusDebounce
     statusDebounceTasks[dir] = Task { [weak self] in
       // trailing-debounce: 窓の間に新 event が来れば先行タスクが cancel され、この sleep が
       // CancellationError で抜ける。最新リクエストだけが窓を生き延びて status を取る。
       do {
-        try await Task.sleep(for: .milliseconds(FSWatchRegistry.statusDebounceMs))
+        try await Task.sleep(for: debounce)
       } catch {
         return
       }
@@ -560,7 +580,7 @@ public actor FSWatchRegistry {
     guard statusRequestGenerationByDir[dir] == requestGeneration else { return }
     let status: GitOps.StatusFull
     do {
-      status = try await GitOps.gitStatusFull(dir: dir)
+      status = try await statusFetcher(dir)
     } catch {
       // debounce タスクが後続 event / unwatch でキャンセルされると、in-flight の git status は
       // SIGTERM で中断され `commandFailed` として throw される (CancellationError ではない)。

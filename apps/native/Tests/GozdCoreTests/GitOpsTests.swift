@@ -2055,6 +2055,84 @@ struct GitOpsLogTests {
   }
 }
 
+@Suite("GitOps.refDigest category isolation")
+struct GitOpsRefDigestTests {
+  // 初期 commit を作って HEAD を確立した repo を返す。
+  private func seededRepo() async throws -> URL {
+    let dir = try await makeGitRepo()
+    try "seed".write(
+      to: dir.appendingPathComponent("seed.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "seed.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "seed"], cwd: dir.path)
+    return dir
+  }
+
+  @Test("branch 切替は head だけ動かし heads / remotes は不変")
+  func switchMovesHeadOnly() async throws {
+    let dir = try await seededRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    // 同じ commit を指す既存 branch を用意する (heads 集合は switch 前に確定させる)。
+    try await runTestGit(args: ["branch", "other"], cwd: dir.path)
+
+    let before = try await GitOps.refDigest(dir: dir.path)
+    try await runTestGit(args: ["switch", "other"], cwd: dir.path)
+    let after = try await GitOps.refDigest(dir: dir.path)
+
+    #expect(after.head != before.head)  // refs/heads/main → refs/heads/other
+    #expect(after.heads == before.heads)  // 両 branch とも同一 OID で集合不変
+    #expect(after.remotes == before.remotes)  // remote なし
+  }
+
+  @Test("commit は heads だけ動かし head / remotes は不変")
+  func commitMovesHeadsOnly() async throws {
+    let dir = try await seededRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    let before = try await GitOps.refDigest(dir: dir.path)
+    try "more".write(
+      to: dir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "a"], cwd: dir.path)
+    let after = try await GitOps.refDigest(dir: dir.path)
+
+    #expect(after.heads != before.heads)  // refs/heads/main の OID が進む
+    #expect(after.head == before.head)  // symbolic-ref 先は refs/heads/main のまま (誤って worktreeChange を撃たない根拠)
+    #expect(after.remotes == before.remotes)
+  }
+
+  @Test("remote-tracking ref 更新は remotes だけ動かし heads / head は不変")
+  func remoteUpdateMovesRemotesOnly() async throws {
+    let dir = try await seededRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    let before = try await GitOps.refDigest(dir: dir.path)
+    // 実 remote を立てず remote-tracking ref を直接作る (push / fetch 相当の refs/remotes 変化)。
+    try await runTestGit(
+      args: ["update-ref", "refs/remotes/origin/main", "HEAD"], cwd: dir.path)
+    let after = try await GitOps.refDigest(dir: dir.path)
+
+    #expect(after.remotes != before.remotes)
+    #expect(after.heads == before.heads)
+    #expect(after.head == before.head)
+  }
+
+  @Test("detached HEAD は head が detached:<oid> になり attach 時と異なる")
+  func detachedHeadDigest() async throws {
+    let dir = try await seededRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    let attached = try await GitOps.refDigest(dir: dir.path)
+    #expect(attached.head == "refs/heads/main")
+
+    // detached: symbolic-ref --quiet HEAD が exit 1 を返し currentHead が rev-parse に倒れる経路。
+    try await runTestGit(args: ["switch", "--detach", "main"], cwd: dir.path)
+    let detached = try await GitOps.refDigest(dir: dir.path)
+    #expect(detached.head.hasPrefix("detached:"))
+    #expect(detached.head != attached.head)
+    #expect(detached.heads == attached.heads)  // OID は不変、HEAD の指し方だけが変わる
+  }
+}
+
 // MARK: - Helpers
 
 private func commitHashAt(dir: String, rev: String) async throws -> String {

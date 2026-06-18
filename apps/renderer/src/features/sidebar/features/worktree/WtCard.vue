@@ -50,7 +50,7 @@ import type { Task, WorktreeEntry } from "@gozd/proto";
 import { computed } from "vue";
 import { useServerStore } from "../../../server";
 import type { ClaudeState, ClaudeStatus } from "../../../terminal";
-import { useTerminalStore } from "../../../terminal";
+import { displayClaudeState, useTerminalStore } from "../../../terminal";
 import { computeStatusIcons, StatusIcons } from "../../../worktree";
 import { branchLabel as resolveBranchLabel, hasChanges } from "../../utils";
 import TaskRow from "./TaskRow.vue";
@@ -91,7 +91,10 @@ const AURA_CLASS: Partial<Record<ClaudeState, string>> = {
 const AURA_PRIORITY: ClaudeState[] = ["asking", "working", "done"];
 
 const auraClass = computed<string | undefined>(() => {
-  const states = terminalStore.getClaudeStatusesByDir(props.wt.path).map((s) => s.state);
+  // displayClaudeState 経由で done + pendingWork を working として集約する（緑 aura を出さない）
+  const states = terminalStore
+    .getClaudeStatusesByDir(props.wt.path)
+    .map((s) => displayClaudeState(s));
   const top = AURA_PRIORITY.find((state) => states.includes(state));
   return top === undefined ? undefined : AURA_CLASS[top];
 });

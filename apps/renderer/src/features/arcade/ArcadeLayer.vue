@@ -12,9 +12,10 @@
 
 - pointerdown (capture): クリック位置に火花 + ボタン系 target ならクリック音。
   同時に AudioContext を unlock する (autoplay policy 対応)
-- hook push: done → 花火 + ファンファーレ / needs-input → アラート音 + アンバーフラッシュ /
-  running → エンゲージ音 / tool-done → チック音 / session-start → 起動音 /
-  stop-failure → エラー音 + レッドフラッシュ
+- claudeFx (terminal が hook を解釈して再発行する正規化イベント): done → 花火 + ファンファーレ /
+  needs-input → アラート音 + アンバーフラッシュ / running → エンゲージ音 / tool-done → チック音 /
+  session-start → 起動音 / stop-failure → エラー音 + レッドフラッシュ。pending done（裏で作業
+  継続中 = 真の完了ではない）は terminal 側で除去されるため、ここには届かず演出も出ない
 - 通知 store: error の発生 (lastEvent) でエラー音 + レッドフラッシュ
 
 ## パフォーマンス
@@ -33,8 +34,9 @@ import { onMessage } from "../../shared/rpc";
 import { createParticleEngine, type ParticleEngine } from "./particleEngine";
 import { sfx, unlockAudio } from "./sfx";
 
-/** hook push payload のうち arcade が使う部分 (payload 型は feature 定義の規約) */
-interface ArcadeHookPayload {
+/** 正規化済み claudeFx のうち arcade が使う部分。完了扱いしない hook (pending done 等) は
+ *  terminal 側で除去済みなので、arcade は受け取った event に素直に反応すればよい。 */
+interface ArcadeFxPayload {
   event: string;
 }
 
@@ -93,8 +95,8 @@ const HOOK_REACTIONS: Record<string, () => void> = {
   },
 };
 
-const disposeHook = onMessage<ArcadeHookPayload>("hook", (payload) => {
-  HOOK_REACTIONS[payload.event]?.();
+const disposeHook = onMessage<ArcadeFxPayload>("claudeFx", (fx) => {
+  HOOK_REACTIONS[fx.event]?.();
 });
 onUnmounted(disposeHook);
 

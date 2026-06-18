@@ -5,7 +5,7 @@ import { computed, readonly, ref, shallowRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { rpcLoadAppConfig, updateAppConfig } from "../settings";
-import type { HookPayload } from "../terminal";
+import type { ClaudeFxEvent } from "../terminal";
 import {
   rpcVoicevoxCheckEngine,
   rpcVoicevoxLaunch,
@@ -349,19 +349,18 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
 
   function initHookSubscription() {
     disposeHookListener?.();
-    disposeHookListener = onMessage<HookPayload>("hook", (payload) => {
+    // 正規化済み claudeFx を購読する。pending done など「完了扱いしない」hook は terminal 側で
+    // 既に除去されているので、ここでは pending を判定しない（判断は handleHookEvent に集約）。
+    disposeHookListener = onMessage<ClaudeFxEvent>("claudeFx", (fx) => {
       if (!enabled.value) return;
-      if (!SPEAK_EVENTS.has(payload.event)) return;
-      // extractSpeechText は旧 snake_case payload を期待するため境界で変換する
+      if (!SPEAK_EVENTS.has(fx.event)) return;
+      // extractSpeechText は snake_case payload を期待するため境界で変換する
       const legacyPayload: Record<string, unknown> = {
-        ptyId: payload.ptyId,
-        last_assistant_message: payload.lastAssistantMessage,
-        tool_name: payload.toolName,
-        tool_input: payload.toolInput,
-        is_interrupt: payload.isInterrupt,
-        pending_work: payload.pendingWork,
+        last_assistant_message: fx.message,
+        tool_name: fx.toolName,
+        tool_input: fx.toolInput,
       };
-      const text = extractSpeechText(payload.event, legacyPayload);
+      const text = extractSpeechText(fx.event, legacyPayload);
       if (text) {
         void speak(text, speedScale.value, volumeScale.value);
       }

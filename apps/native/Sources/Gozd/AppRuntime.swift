@@ -321,7 +321,7 @@ final class AppRuntime {
   /// app state / config / Task / ProjectConfig も同じものを共有する。
   private static func defaultConfigDir() -> String {
     let home = FileManager.default.homeDirectoryForCurrentUser
-    return home.appendingPathComponent(".config/\(bundlePrefix)").path
+    return home.appendingPathComponent(".config").appendingPathComponent(bundlePrefix).path
   }
 
   /// `~/.local/state/gozd`。dev/stable で同じパスを使う（config と同じ共有方針）。
@@ -329,7 +329,8 @@ final class AppRuntime {
   /// ため XDG state ディレクトリに置く。`~/.config/gozd` (config) とは別管理。
   private static func defaultStateDir() -> String {
     let home = FileManager.default.homeDirectoryForCurrentUser
-    return home.appendingPathComponent(".local/state/\(bundlePrefix)").path
+    return home.appendingPathComponent(".local").appendingPathComponent("state")
+      .appendingPathComponent(bundlePrefix).path
   }
 
   /// socket / settings / launch dir / Bundle ID で共有する prefix。

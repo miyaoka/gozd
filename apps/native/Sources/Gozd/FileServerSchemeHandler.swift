@@ -83,7 +83,7 @@ struct FileServerSchemeHandler: URLSchemeHandler {
   private func parsePath(url: URL) throws -> String {
     let path = queryValue(url: url, name: "path") ?? ""
     if path.isEmpty {
-      throw FileServerError.missingQuery
+      throw FileServerError.missingQuery("path")
     }
     return path
   }
@@ -92,7 +92,7 @@ struct FileServerSchemeHandler: URLSchemeHandler {
   private func parseDir(url: URL) throws -> String {
     let dir = queryValue(url: url, name: "dir") ?? ""
     if dir.isEmpty {
-      throw FileServerError.missingQuery
+      throw FileServerError.missingQuery("dir")
     }
     return dir
   }
@@ -126,14 +126,12 @@ struct FileServerSchemeHandler: URLSchemeHandler {
 }
 
 enum FileServerError: Error, CustomStringConvertible {
-  case invalidURL
-  case missingQuery
+  case missingQuery(String)
   case unknownKind(String)
 
   var description: String {
     switch self {
-    case .invalidURL: return "invalid URL components"
-    case .missingQuery: return "missing dir or path query parameter"
+    case .missingQuery(let name): return "missing required query parameter: \(name)"
     case .unknownKind(let kind): return "unknown kind: \(kind) (expected /fs, /git or /abs)"
     }
   }

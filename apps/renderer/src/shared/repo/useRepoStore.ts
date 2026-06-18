@@ -102,6 +102,15 @@ export const useRepoStore = defineStore("repo", () => {
     return gitStatusGenByDir.get(dir) ?? 0;
   }
 
+  /**
+   * `updateRepoData`（= `rpcGitWorktreeList` の git 真値の唯一の書き込み口）が一度でも
+   * 走った rootDir の集合。`applyRepoTasks`（git 非依存の prefetch 適用）が、git 真値
+   * 到達後に古い tasks.json スナップショットで上書きするのを防ぐガードに使う。
+   * git 真値は tasks.json を JOIN した最新 task を含むため、真値到達後は prefetch の
+   * 出番が無いという不変条件を表す。reactivity 不要なため素の Set で持つ。
+   */
+  const gitTruthAppliedRoots = new Set<string>();
+
   /** selectedDir を含む repo を逆引き。最初に dir を含む repo */
   const selectedRepo = computed(() => {
     const dir = selectedDir.value;
@@ -224,6 +233,9 @@ export const useRepoStore = defineStore("repo", () => {
       current.worktrees.some((w) => w.path === selectedDir.value) &&
       !merged.some((w) => w.path === selectedDir.value);
     repos.value[rootDir] = { ...current, worktrees: merged };
+    // git 真値が書かれた印。以降 applyRepoTasks（prefetch）は古い task スナップショットで
+    // 上書きしない（真値は tasks.json を JOIN した最新 task を含むため出番が無い）。
+    gitTruthAppliedRoots.add(rootDir);
     if (orphanedActiveDir) {
       // 外部 git worktree remove 経由だとユーザー操作なしに active dir が切り替わる。
       // feature 層が DI した notifier 経由でユーザーに通知する。未注入なら console.info。
@@ -412,10 +424,14 @@ export const useRepoStore = defineStore("repo", () => {
    * git 非依存で読んだ task 一覧（`rpcTaskList`）を、既存 worktrees に worktreeDir で
    * 割り当てる。起動直後、worktree キャッシュから描画したカードに task 行を即埋める高速
    * 経路。各 wt は spread で gitStatuses / upstream 等を保持し、tasks のみ差し替える。
-   * その後 `fetchRepo` → `updateRepoData` の git 真値（同じ tasks.json 由来の task を含む）
-   * が来たら全体が上書きされるため整合は壊れない。task の SSOT は tasks.json。
+   * `updateRepoData` で git 真値が既に書かれた repo は no-op にする。prefetch と fetchRepo
+   * は並走起動され完了順序は保証されない。fetchRepo が先に完了したケースで、prefetch の
+   * 古い tasks.json スナップショット（往復中に session hook 等で task が増えた場合、真値
+   * より古い）が後着して真値の task を消す race を構造的に塞ぐ。git 真値到達後は prefetch
+   * の出番が無い（真値が tasks.json を JOIN した最新 task を含む）。task の SSOT は tasks.json。
    */
   function applyRepoTasks(rootDir: string, tasks: Task[]) {
+    if (gitTruthAppliedRoots.has(rootDir)) return;
     const current = repos.value[rootDir];
     if (current === undefined) return;
     repos.value[rootDir] = {

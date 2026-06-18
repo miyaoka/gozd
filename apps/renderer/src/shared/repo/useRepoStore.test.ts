@@ -1,6 +1,7 @@
-import type { WorktreeEntry } from "@gozd/proto";
+import { Task, type WorktreeEntry } from "@gozd/proto";
 import { describe, expect, test } from "bun:test";
-import { collectFsWatchTargetDirs, type RepoState } from "./useRepoStore";
+import { createPinia, setActivePinia } from "pinia";
+import { collectFsWatchTargetDirs, type RepoState, useRepoStore } from "./useRepoStore";
 
 function wt(path: string, branch: string, isMain = false): WorktreeEntry {
   return {
@@ -14,6 +15,10 @@ function wt(path: string, branch: string, isMain = false): WorktreeEntry {
     upstream: undefined,
     latestMtime: 0,
   };
+}
+
+function task(id: string, worktreeDir: string): Task {
+  return Task.fromPartial({ id, worktreeDir });
 }
 
 describe("collectFsWatchTargetDirs", () => {
@@ -79,5 +84,49 @@ describe("collectFsWatchTargetDirs", () => {
       },
     };
     expect(collectFsWatchTargetDirs(["/ghost", "/alive"], repos)).toEqual(new Set(["/alive"]));
+  });
+});
+
+describe("applyRepoTasks", () => {
+  test("worktreeDir で task を各 wt に割り当て、gitStatuses 等は保持する", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo({
+      rootDir: "/r1",
+      repoName: "r1",
+      isGitRepo: true,
+      worktrees: [
+        { ...wt("/r1", "main", true), gitStatuses: { "a.txt": ".M" } },
+        wt("/r1/wt-1", "feat"),
+      ],
+    });
+
+    store.applyRepoTasks("/r1", [task("t2", "/r1"), task("t1", "/r1/wt-1")]);
+
+    const repo = store.repos["/r1"];
+    expect(repo?.worktrees[0]?.tasks.map((t) => t.id)).toEqual(["t2"]);
+    expect(repo?.worktrees[1]?.tasks.map((t) => t.id)).toEqual(["t1"]);
+    // tasks のみ差し替え。git status 等の他フィールドは保持する。
+    expect(repo?.worktrees[0]?.gitStatuses).toEqual({ "a.txt": ".M" });
+  });
+
+  test("git 真値（updateRepoData）到達後の applyRepoTasks は no-op（prefetch race ガード）", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo({
+      rootDir: "/r1",
+      repoName: "r1",
+      isGitRepo: true,
+      worktrees: [wt("/r1/wt-1", "feat")],
+    });
+
+    // git 真値が先に到達（往復中に増えた t-new を含む最新 task）
+    store.updateRepoData("/r1", [
+      { ...wt("/r1/wt-1", "feat"), tasks: [task("t-new", "/r1/wt-1")] },
+    ]);
+    // 古い prefetch スナップショット（t-new を含まない）が後着しても真値を消さない
+    store.applyRepoTasks("/r1", []);
+
+    expect(store.repos["/r1"]?.worktrees[0]?.tasks.map((t) => t.id)).toEqual(["t-new"]);
   });
 });

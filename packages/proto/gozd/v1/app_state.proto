@@ -10,6 +10,9 @@ package gozd.v1;
 // 直接ファイルに書き、jsonString() で復元する。RPC ワイヤーフォーマットと
 // 永続化形式を同一 proto 型で揃え、Codable との二重管理を避ける。
 message AppState {
+  // 1, 2 は削除済みの window_frame / last_opened_dir（produce/consume 経路が無い dead
+  // field だった）。番号の誤再利用を防ぐため reserved にする。
+  reserved 1, 2;
   // window 内に同居するサイドバー repo リスト。順序は dirOrder と一致する
   repeated SidebarRepo sidebar_repos = 3;
 }

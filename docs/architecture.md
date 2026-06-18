@@ -161,16 +161,17 @@ renderer の origin は dev (`http://localhost:$GOZD_DEV_VITE_PORT`) / build (`g
 採用している防御規律:
 
 - **`gozd-rpc://`**: request の `Origin` が allowlist (`gozd-app://localhost` + dev 時のみ `http://localhost:$GOZD_DEV_VITE_PORT`) に含まれるときのみ `Access-Control-Allow-Origin: <origin>` を echo back + `Vary: Origin` を併送する。それ以外 (空文字 / 攻撃 origin) はヘッダを返さない → WebKit が CORS reject。renderer 内 XSS が `fetch("gozd-rpc://localhost/fs/readFileAbsolute", ...)` で機密ファイル bytes を回収する経路を構造的に塞ぐ
-- **`gozd-file://`**: `Allow-Origin` ヘッダを一切返さない方針。`<img>` は passive content として CORS check 対象外で表示可能、一方 `fetch()` / `canvas.getImageData()` は CORS reject される。「画像は見える、bytes は機械的に取れない」を両立する規律
+- **`gozd-file://`**: `Allow-Origin` ヘッダを一切返さない方針。`<img>` は passive content として CORS check 対象外で表示可能、一方 `fetch()` / `canvas.getImageData()` は CORS reject される。「画像は見える、bytes は機械的に取れない」を両立する規律。`/abs` 経路は worktree 外の任意絶対パスを読むが、この規律により `<img>` 表示のみ可能で bytes の機械的回収は塞がれる
 
 両方とも `Allow-Origin: *` (全 origin 許可) は禁止。`*` は WebKit に「許可」を伝える正当なヘッダだが、XSS 経路で任意 origin からの bytes 回収を構造的に許してしまう。
 
 ### gozd-file:// URLSchemeHandler（preview の `<img>` 配信）
 
-preview ペインの image / SVG 表示専用。`<img src="gozd-file://localhost/{fs|git}?dir=<absDir>&path=<relPath>&v=<n>">` の URL を `FileServerSchemeHandler`（`apps/native/Sources/Gozd/FileServerSchemeHandler.swift`）が raw bytes で返す。
+preview ペインの image / SVG 表示専用。`<img src="gozd-file://localhost/{fs|git|abs}?...">` の URL を `FileServerSchemeHandler`（`apps/native/Sources/Gozd/FileServerSchemeHandler.swift`）が raw bytes で返す。`/fs` `/git` は `dir` + `path`（worktree 相対）、`/abs` は `path`（絶対パス）単独で受ける。
 
-- `/fs` : `FSOps.readFileBytes`（`resolveSafe` で path traversal 防止）
+- `/fs` : `FSOps.readFileBytes`（`resolveSafe` で dir 配下に path traversal 防止）
 - `/git`: `GitOps.showFile`（= `git show HEAD:<path>`）
+- `/abs`: `FSOps.readFileBytesAbsolute`（dir 制約なし）。worktree 外の画像 / SVG 用。テキスト preview の `fsReadFileAbsolute` RPC と同じ「dir 外参照を許す」契約を `<img>` 経路に揃える。git に渡さないため `validateRelPath`（絶対パスを reject）は通さず、CORS 規律で bytes 回収を塞ぐことを防御境界とする
 
 テキスト系のファイル読みは従来通り `gozd-rpc://` 経由で `FileReadResult.content: string` を使う。proto3 `string` がバイナリを保持できない問題は画像 / SVG 経路だけ別 scheme に分けることで回避する（proto 全体への破壊変更を避ける判断）。詳細は [preview.md](preview.md) を参照。
 

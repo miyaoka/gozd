@@ -160,9 +160,6 @@ const fileType = computed<FileType>(() => {
   return detectFileType(path);
 });
 
-/** 選択中パスが worktree 外の絶対パスか（terminal link から worktree 外を開いた場合） */
-const isExternalPath = computed(() => selection.value?.kind === "absolute");
-
 /** 画像プレビュー表示中か（diff 不可のため モード制限に使用） */
 const isImagePreview = computed(() => {
   const ft = fileType.value;
@@ -735,6 +732,18 @@ function buildFileServerUrl(
 }
 
 /**
+ * worktree 外の絶対パス画像 / SVG 用の `gozd-file://localhost/abs?path=<absPath>&v=<version>` を構築。
+ * `/abs` は dir 制約を持たず、テキスト preview の `fsReadFileAbsolute` と同じ「worktree 外参照」
+ * 契約を `<img>` 経路に揃える。git 履歴を持たないため Original タブ (gitOriginal) は無い。
+ */
+function buildAbsFileServerUrl(absPath: string, version: number): string {
+  const url = new URL("abs", FILE_SERVER_BASE_URL);
+  url.searchParams.set("path", absPath);
+  url.searchParams.set("v", String(version));
+  return url.href;
+}
+
+/**
  * commit mode (single 単体 or 範囲) かを集約判定。
  * `orderedRange` の null 経路の分岐と、uncommitted 専用データ (`renameOldPaths`) の適用 gate に使う。
  */
@@ -747,8 +756,13 @@ const imageUrl = computed(() => {
   if (!previewEnabled.value) return undefined;
   const ft = fileType.value;
   if (ft !== "image" && ft !== "svg") return undefined;
-  // 絶対パス（worktree 外）は file server 経路で扱えない。画像/SVG は
-  // fsReadFileAbsolute 経由の binary 表示にフォールバックする。
+  const sel = selection.value;
+  if (sel === undefined) return undefined;
+  // 絶対パス（worktree 外）は dir 制約のない `/abs` 経路で配信する。git 履歴を持たないため
+  // Original タブは無く、常に working tree の実ファイルを指す。
+  if (sel.kind === "absolute") {
+    return buildAbsFileServerUrl(sel.absPath, fetchVersionRef.value);
+  }
   const relPath = selectedRelPath.value;
   const dir = worktreeStore.dir;
   if (relPath === undefined || dir === undefined) return undefined;
@@ -766,11 +780,6 @@ const imageUrl = computed(() => {
 /** preview チェックボックスを表示するか（diff モードでは非表示） */
 const showPreviewCheckbox = computed(() => {
   if (activeMode.value === "diff") return false;
-  // 絶対パス（worktree 外）の image / svg は file server 経由で読めないため Preview トグルを出さない。
-  // markdown はテキスト経路で読めるためトグル対象を維持する。
-  if (isExternalPath.value && (fileType.value === "image" || fileType.value === "svg")) {
-    return false;
-  }
   return hasRenderedView(fileType.value);
 });
 
@@ -1051,20 +1060,12 @@ watch(
           @line-number-click="onDiffLineClick"
         />
 
-        <!-- 画像プレビュー（バイナリ画像 + SVG preview モード） -->
+        <!-- 画像プレビュー（バイナリ画像 + SVG preview モード）。worktree 外の絶対パスも /abs 経路で配信 -->
         <ImagePreview
           v-else-if="imageUrl"
           :src="imageUrl"
           @error="error = 'Failed to load image'"
         />
-
-        <!-- worktree 外の絶対パス image / svg は file server 経由で読めないため未対応を明示する -->
-        <div
-          v-else-if="(fileType === 'image' || fileType === 'svg') && isExternalPath"
-          class="p-4 text-sm text-foreground-low"
-        >
-          Image preview is not available for paths outside the worktree
-        </div>
 
         <!-- バイナリ（画像以外） -->
         <div v-else-if="displayIsBinary" class="p-4 text-sm text-foreground-low">

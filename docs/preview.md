@@ -126,9 +126,10 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 - 画像 / SVG: WKWebView が `file://` をブロックするため、native の `gozd-file://` URLSchemeHandler 経由で raw bytes を配信
   - `gozd-file://localhost/fs?dir=<absDir>&path=<relPath>&v=<n>` — 作業ツリーの実ファイル (`FSOps.readFileBytes`、`resolveSafe` で path traversal 防止)
   - `gozd-file://localhost/git?dir=<absDir>&path=<relPath>&v=<n>` — `git show HEAD:<path>` の出力 (Original タブ)
+  - `gozd-file://localhost/abs?path=<absPath>&v=<n>` — worktree 外の絶対パス (`FSOps.readFileBytesAbsolute`、dir 制約なし)。terminal link 等で worktree 外を開いた画像 / SVG 用。テキスト preview の `fsReadFileAbsolute` と同じ「worktree 外参照を許す」契約を `<img>` 経路に揃えたもの。git 履歴を持たないため Original タブ (`/git`) は無い
   - `?v=<n>` パラメータは `fsChange` 等の再 fetch トリガーで同一 URL を再読み込みさせるためのキャッシュバスト
   - proto を bytes 化せずに `<img>` 直配信に倒した理由: テキスト系は従来通り `gozd-rpc://` + UTF-8 string で扱い、画像 / SVG だけ別 scheme に分ける方が proto 全体への破壊変更を避けられる
-- 絶対パスの場合は git 操作（`gitShowFile`）を呼ばない
+- worktree 外の絶対パスは git 操作（`gitShowFile`）を呼ばず、画像 / SVG は `/abs` 経路で配信する
 - rename (move) されたファイルの Original / Diff: `gitStatuses` のキーは新パスのみ持つため、status と同一 snapshot で届く `renameOldPaths`（新パス → 旧パス、`useGitStatusStore` が SSOT）で HEAD 側のパスを解決してから `gitShowFile` / `gozd-file://localhost/git` を引く。旧パス解決を欠くと HEAD 側が notFound になり「全行追加」の diff に倒れる。uncommitted モードの HEAD 側 blame（`rev === "HEAD"`）も同じ map で旧パスに揃える
 - バイナリ判定: NUL バイト（`0x00`）の有無で判定（git と同じ方式）
 - 最大サイズ: 1MB を超えるファイルはバイナリ扱い

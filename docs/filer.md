@@ -28,14 +28,16 @@ flowchart LR
 
 ファイル監視の実体は Swift 側の watch registry（FSEvents をラップ）。renderer は repo store の派生 computed として「開いている全 repo / 全 worktree の dir 集合」を計算し、watch 同期 layer がその集合を観測して差分を `rpcFsWatch` / `rpcFsUnwatch` で発射する。詳細は [architecture.md](architecture.md#fswatch-の対象スコープ)。
 
-| push event        | 発火条件                                                                                                                              | ルートペインの挙動                                                                                                |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `fsChange`        | watch 対象 dir 配下のファイル変化                                                                                                     | active dir 一致時のみ反応。ルート配下の変更はルート再 load、サブディレクトリ配下の変更は event bus 経由で子に通知 |
-| `gitStatusChange` | per-wt の `.git/index` / HEAD、common の `refs/remotes/*` / `packed-refs`、作業ツリー側のファイル変更（`fsChange` と同 burst で発火） | active dir 一致時のみ反応。`gitStatusStore` の再 load + ルート再構築 + event bus で全ツリー子ノードに通知         |
-| `fsWatchReady`    | watch 登録成功直後の再同期シグナル                                                                                                    | サイドバー / GitGraphPane 側で消費（ルートペインは購読しない）                                                    |
+| push event        | 発火条件                                                                                                                                                                 | ルートペインの挙動                                                                                                |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `fsChange`        | watch 対象 dir 配下のファイル変化                                                                                                                                        | active dir 一致時のみ反応。ルート配下の変更はルート再 load、サブディレクトリ配下の変更は event bus 経由で子に通知 |
+| `gitStatusChange` | per-wt の `.git/index` / HEAD、common の `refs/remotes/*` / `packed-refs`、作業ツリー側のファイル変更（working-tree 由来は trailing-debounce 経由で遅延発火。下記 NOTE） | active dir 一致時のみ反応。`gitStatusStore` の再 load + ルート再構築 + event bus で全ツリー子ノードに通知         |
+| `fsWatchReady`    | watch 登録成功直後の再同期シグナル                                                                                                                                       | サイドバー / GitGraphPane 側で消費（ルートペインは購読しない）                                                    |
 
 > [!NOTE]
 > `gitStatusChange` の native 側 debounce は watch registry 内部で行う。`.git/` 配下を Node.js API の `fs.watchFile` で 500ms ポーリングする旧設計は持たない。
+>
+> working-tree 由来の `gitStatusChange`（`git status` 全体 snapshot）は dir ごとの trailing-debounce タスクに集約し、`git switch` 等の checkout flood で出る複数 FSEvents バッチを最新 1 回の `git status` に畳む。ref 系（branch / HEAD / worktree 検知）は debounce を通さず即時 dispatch するため、branch label の反映は working tree の書き換え量に従属しない（[architecture.md](architecture.md#ssot-push-の-dir-filter-規律) / `FSWatchRegistry` 冒頭コメント参照）。
 
 ## 並走 race の防御
 

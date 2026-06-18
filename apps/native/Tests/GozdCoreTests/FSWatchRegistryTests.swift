@@ -156,17 +156,20 @@ struct FSWatchRegistryTests {
     await waitForEvent(collector, matching: { $0 == "git:clean" })
 
     // 2 回目: ignore 対象なので status は clean のまま = 内容一致で dedup され push されない。
-    // b.log の batch が dispatch されたことを relDir == "dir-b" の fsChange で待ち、次の c.txt を
-    // b.log とは別 batch に確実に分離する（同一 batch に coalesce すると b.log の clean status が
-    // 単独で評価されず dedup を検証できない）。
+    // b.log の batch が dispatch されたことを relDir == "dir-b" の fsChange で待つ。さらに
+    // status の trailing-debounce 窓 (statusDebounceMs=150ms) + gitStatusFull の実行時間を超える
+    // settle を挟み、b.log の status 評価 (clean → dedup) を c.txt より前に確実に発火させる
+    // (issue #809 で gitStatusFull は直列 await から debounce タスクへ移行。settle を挟まないと
+    // b.log の debounce タスクが c.txt の schedule にキャンセルされ、同一窓に畳まれて b.log 単独の
+    // dedup を検証できない)。
     try "b".write(
       to: dirB.appendingPathComponent("b.log"), atomically: false, encoding: .utf8)
     await waitForEvent(collector, matching: { $0 == "fs:dir-b" })
+    await sleepThreaded(.milliseconds(400))
 
     // 3 回目: ignore されない c.txt を作る。status が dirty（?? c.txt）に変わるので dedup されず
-    // git:dirty が push される。serial for-await により c.txt の handleEvents は b.log の
-    // handleEvents が gitStatusFull の await 込みで完全に return した後に走る。よって git:dirty
-    // 到達時点で b.log の dedup 判定は確定済みで、settle 無しに観測できる。
+    // git:dirty が push される。b.log の status 評価は上の settle で確定済みのため、git:dirty
+    // 到達時点で b.log の dedup 判定は観測可能。
     try "c".write(
       to: repo.appendingPathComponent("c.txt"), atomically: false, encoding: .utf8)
     await waitForEvent(collector, matching: { $0 == "git:dirty" })

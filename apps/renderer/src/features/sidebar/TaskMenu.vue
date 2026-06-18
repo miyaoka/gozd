@@ -9,10 +9,10 @@ SessionLogDialog を開く (session 未起動の task では Claude ログが存
 <script setup lang="ts">
 import type { Task } from "@gozd/proto";
 import { computed } from "vue";
+import { taskDisplayTitle } from "../../shared/repo";
 import { useSessionLogViewer } from "../session-log";
 import { useTaskEditing } from "./useTaskEditing";
 import { useTaskMenu } from "./useTaskMenu";
-import { taskDisplayTitle } from "./utils";
 import IconLucidePencil from "~icons/lucide/pencil";
 import IconLucideScrollText from "~icons/lucide/scroll-text";
 import IconLucideTrash2 from "~icons/lucide/trash-2";

@@ -131,6 +131,24 @@ export const useRepoStore = defineStore("repo", () => {
   /** `useFsWatchSync` が watch すべき dir 集合。`repos[*].worktrees` または非 git の rootDir */
   const fsWatchTargetDirs = computed(() => collectFsWatchTargetDirs(dirOrder.value, repos.value));
 
+  /**
+   * Claude session_id を持つ Task を全 repo / 全 worktree から逆引きする。
+   * terminal の leaf → ptyId → sessionId 経由でタイトル表示するときに使う。
+   * SSOT は tasks.json を JOIN した `WorktreeEntry.tasks`。空文字 sessionId は
+   * 「未起動 / 切り離し済み」を意味するので呼び出し側で除外してから渡す前提。
+   */
+  function findTaskBySessionId(sessionId: string): Task | undefined {
+    for (const rootDir of dirOrder.value) {
+      const repo = repos.value[rootDir];
+      if (repo === undefined) continue;
+      for (const wt of repo.worktrees) {
+        const task = wt.tasks.find((t) => t.sessionId === sessionId);
+        if (task !== undefined) return task;
+      }
+    }
+    return undefined;
+  }
+
   /** dir がどこかの repo の worktrees に含まれていればその repo を返す */
   function findRepoOwning(dir: string): RepoState | undefined {
     for (const rootDir of dirOrder.value) {
@@ -457,6 +475,7 @@ export const useRepoStore = defineStore("repo", () => {
     fsWatchTargetDirs,
     collapsedRoots,
     findRepoOwning,
+    findTaskBySessionId,
     isSameRepoAsActive,
     addRepo,
     updateRepoData,

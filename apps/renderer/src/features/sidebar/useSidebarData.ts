@@ -2,7 +2,7 @@ import { tryCatch } from "@gozd/shared";
 import { onMounted, onUnmounted, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import type { NotifyPayload } from "../../shared/notification";
-import { useRepoStore } from "../../shared/repo";
+import { CLAUDE_PLACEHOLDER_TITLE, useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
 import { useTerminalStore } from "../terminal";
 import type { HookPayload } from "../terminal";
@@ -16,7 +16,7 @@ import {
 } from "./rpc";
 import type { BranchChangePayload, FsWatchReadyPayload, WorktreeChangePayload } from "./rpc";
 import { validateTasksCreatedAt } from "./taskBaseTime";
-import { CLAUDE_PLACEHOLDER_TITLE, stripClaudeStatusPrefix } from "./utils";
+import { stripClaudeStatusPrefix } from "./utils";
 
 /**
  * サイドバーのデータ取得・状態管理。

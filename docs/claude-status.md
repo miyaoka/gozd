@@ -125,10 +125,11 @@ worktree に複数ターミナルがある場合、`ClaudeState` の優先度順
 
 ## 関連ファイル
 
-| ファイル                                                       | 責務                                             |
-| -------------------------------------------------------------- | ------------------------------------------------ |
-| `apps/native/Sources/GozdCore/ClaudeHooksSettings.swift`       | hooks 設定 JSON の生成                           |
-| `apps/native/Sources/GozdCLI/main.swift`                       | CLI の hook サブコマンド（stdin → ソケット転送） |
-| `apps/renderer/src/features/terminal/useTerminalStore.ts`      | 状態管理（`handleHookEvent`、interrupt 検知）    |
-| `apps/renderer/src/features/terminal/TerminalLeaf.vue`         | ターミナル右上のインジケーター                   |
-| `apps/renderer/src/features/sidebar/worktree/WorktreeItem.vue` | サイドバーのバッジ・吹き出し                     |
+| ファイル                                                           | 責務                                                                    |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `apps/native/Sources/GozdCore/ClaudeHooksSettings.swift`           | hooks 設定 JSON の生成                                                  |
+| `apps/native/Sources/GozdCLI/main.swift`                           | CLI の hook サブコマンド（stdin → ソケット転送）                        |
+| `apps/renderer/src/features/terminal/useTerminalStore.ts`          | 状態管理（`handleHookEvent`、interrupt 検知）                           |
+| `apps/renderer/src/features/terminal/TerminalLeafTitle.vue`        | leaf ヘッダの status アイコン + Task タイトル（TaskRow と同一の見た目） |
+| `apps/renderer/src/features/sidebar/features/worktree/WtCard.vue`  | worktree 内 Claude 状態の aura 集約                                     |
+| `apps/renderer/src/features/sidebar/features/worktree/TaskRow.vue` | サイドバーの行内 status アイコン・吹き出し                              |

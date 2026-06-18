@@ -15,13 +15,8 @@ import IconLucideMessageCircleWarning from "~icons/lucide/message-circle-warning
  */
 export type ClaudeState = "idle" | "working" | "asking" | "done";
 
-/**
- * Claude state ごとの視覚アイコン定義 (SSOT)。
- * 色や aria-label / 表示ラベルは表示文脈 (ターミナル上 / サイドバー上) で
- * 微妙に異なるため各コンポーネント側で持つ。形 (icon) と動き (animate) のみ
- * ここで一元管理して、TerminalLeaf と TaskRow で同じ状態が同じ形に揃うことを保証する。
- */
-export const CLAUDE_STATE_ICON: Record<
+/** Claude state ごとの形 (icon) と動き (animate)。`CLAUDE_STATE_VISUAL` の構築元（module 内専用） */
+const CLAUDE_STATE_ICON: Record<
   ClaudeState,
   { icon: FunctionalComponent<SVGAttributes>; animate?: string }
 > = {
@@ -29,6 +24,47 @@ export const CLAUDE_STATE_ICON: Record<
   working: { icon: IconLucideLoader, animate: "animate-spin" },
   asking: { icon: IconLucideMessageCircleWarning },
   done: { icon: IconLucideCircleCheck },
+};
+
+export interface ClaudeStateVisual {
+  icon: FunctionalComponent<SVGAttributes>;
+  /** 色 + glow を束ねた Tailwind class。状態の緊急度を色と発光で示す */
+  color: string;
+  animate?: string;
+  ariaLabel: string;
+  /** 行下端を走る indeterminate progress スキャンライン (`_fx-progress-line`) を出すか */
+  progress?: true;
+}
+
+/**
+ * Claude state の完全な視覚定義 (形 + 色 + glow + animate + aria-label) の SSOT。
+ * サイドバー TaskRow とターミナル leaf タイトルが**同一の見た目**を共有するため、
+ * 色 / glow / aria-label までここに一元化する。形 (icon / animate) は `CLAUDE_STATE_ICON`
+ * から継ぐ。asking のみ pulse を上乗せして承認待ちの緊急度を強調する。
+ */
+export const CLAUDE_STATE_VISUAL: Record<ClaudeState, ClaudeStateVisual> = {
+  asking: {
+    ...CLAUDE_STATE_ICON.asking,
+    color: "text-warning-strong-text _fx-glow-alert",
+    animate: "animate-pulse",
+    ariaLabel: "Awaiting permission",
+  },
+  working: {
+    ...CLAUDE_STATE_ICON.working,
+    color: "text-warning-text _fx-glow-warning",
+    ariaLabel: "Working",
+    progress: true,
+  },
+  done: {
+    ...CLAUDE_STATE_ICON.done,
+    color: "text-success-text _fx-glow-success",
+    ariaLabel: "Done",
+  },
+  idle: {
+    ...CLAUDE_STATE_ICON.idle,
+    color: "text-foreground-low",
+    ariaLabel: "Idle",
+  },
 };
 
 /**

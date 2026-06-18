@@ -75,9 +75,6 @@ export const useTerminalStore = defineStore("terminal", () => {
   /** ptyId → Claude Code の状態（idle は undefined = エントリなし） */
   const claudeStatusByPtyId = ref<Record<number, ClaudeStatus>>({});
 
-  /** leafId → PTY の現在の CWD（OSC 7 で更新される） */
-  const cwdByLeafId = ref<Record<string, string>>({});
-
   /** leafId → ターミナルタイトル（OSC 0/2 で更新される） */
   const titleByLeafId = ref<Record<string, string>>({});
 
@@ -283,7 +280,6 @@ export const useTerminalStore = defineStore("terminal", () => {
             // 削除 RPC の完了後に kill。失敗時も pane の UI は閉じる契約なので
             // kill は実行する。paneRegistry にまだ entry があるので killPty は有効。
             ptySession.killPty(leafId);
-            delete cwdByLeafId.value[leafId];
             delete titleByLeafId.value[leafId];
             delete pendingResumeByLeafId.value[leafId];
             delete paneRegistry.value[leafId];
@@ -292,7 +288,6 @@ export const useTerminalStore = defineStore("terminal", () => {
         } else {
           // Claude セッションを持たない pane（spawn 前 / 素 PTY のみ）は同期で完結。
           ptySession.killPty(leafId);
-          delete cwdByLeafId.value[leafId];
           delete titleByLeafId.value[leafId];
           delete pendingResumeByLeafId.value[leafId];
           delete paneRegistry.value[leafId];
@@ -595,13 +590,6 @@ export const useTerminalStore = defineStore("terminal", () => {
     return leafIdByPtyId.value.get(ptyId);
   }
 
-  // --- CWD ---
-
-  /** OSC 7 で通知された CWD を保存する */
-  function setCwd(leafId: string, cwd: string) {
-    cwdByLeafId.value[leafId] = cwd;
-  }
-
   /** OSC 0/2 で通知されたタイトルを保存する */
   function setTitle(leafId: string, title: string) {
     if (title === "") {
@@ -629,7 +617,6 @@ export const useTerminalStore = defineStore("terminal", () => {
     dragSuspendCount,
     viewMode,
     toggleViewMode,
-    cwdByLeafId,
     titleByLeafId,
     lastTitleUpdate,
     lastRemovedSessionInfo,
@@ -661,8 +648,6 @@ export const useTerminalStore = defineStore("terminal", () => {
     getPaneDir,
     getPtyId,
     getLeafIdByPtyId,
-    // cwd
-    setCwd,
     // title
     setTitle,
     // drag

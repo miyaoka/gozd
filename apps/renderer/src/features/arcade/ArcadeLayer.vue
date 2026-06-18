@@ -31,14 +31,9 @@ import { useEventListener } from "@vueuse/core";
 import { onMounted, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
+import type { ClaudeFxEvent, HookEvent } from "../terminal";
 import { createParticleEngine, type ParticleEngine } from "./particleEngine";
 import { sfx, unlockAudio } from "./sfx";
-
-/** 正規化済み claudeFx のうち arcade が使う部分。完了扱いしない hook (pending done 等) は
- *  terminal 側で除去済みなので、arcade は受け取った event に素直に反応すればよい。 */
-interface ArcadeFxPayload {
-  event: string;
-}
 
 /** フラッシュ演出の表示時間 (ms)。CSS の _fx-flash アニメーション長と揃える */
 const FLASH_DURATION_MS = 700;
@@ -75,7 +70,9 @@ useEventListener(
   { capture: true },
 );
 
-const HOOK_REACTIONS: Record<string, () => void> = {
+// Partial<Record<HookEvent, ...>> で keying することで、event 名のタイポと未対応 event を
+// 型で検出する（claudeFx の event は HookEvent union）。
+const HOOK_REACTIONS: Partial<Record<HookEvent, () => void>> = {
   "session-start": () => sfx.boot(),
   running: () => sfx.engage(),
   "tool-done": () => sfx.tick(),
@@ -95,7 +92,7 @@ const HOOK_REACTIONS: Record<string, () => void> = {
   },
 };
 
-const disposeHook = onMessage<ArcadeFxPayload>("claudeFx", (fx) => {
+const disposeHook = onMessage<ClaudeFxEvent>("claudeFx", (fx) => {
   HOOK_REACTIONS[fx.event]?.();
 });
 onUnmounted(disposeHook);

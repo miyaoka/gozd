@@ -1,3 +1,4 @@
+import { tryCatch } from "@gozd/shared";
 import { ref, type FunctionalComponent, type Ref, type SVGAttributes } from "vue";
 import IconLucideCircleCheck from "~icons/lucide/circle-check";
 import IconLucideCircleEllipsis from "~icons/lucide/circle-ellipsis";
@@ -108,7 +109,7 @@ export function displayClaudeState(status: ClaudeStatus | undefined): ClaudeStat
  * - tool-failure: PostToolUseFailure（ツール実行失敗。is_interrupt で中断判定）
  * - stop-failure: StopFailure（API エラーによる停止）
  */
-type HookEvent =
+export type HookEvent =
   | "session-start"
   | "session-end"
   | "running"
@@ -131,6 +132,23 @@ const HOOK_EVENTS: readonly HookEvent[] = [
 
 export function isHookEvent(value: string): value is HookEvent {
   return (HOOK_EVENTS as readonly string[]).includes(value);
+}
+
+/**
+ * Claude hook の `tool_input` を構造化オブジェクトにする。proto3 の string 制約により
+ * boundary までは JSON 文字列で運ばれる（CLI が object → JSON 文字列にシリアライズする）。
+ * ここで 1 度だけ parse することで、`extractAskingText` 等の object 判定が初めて成立する。
+ * 既に object のケース（テスト等）はそのまま通し、parse 失敗・非 object は undefined にする。
+ */
+function parseToolInput(raw: unknown): Record<string, unknown> | undefined {
+  if (typeof raw === "object" && raw !== null) return raw as Record<string, unknown>;
+  if (typeof raw !== "string" || raw === "") return undefined;
+  const result = tryCatch(() => JSON.parse(raw) as unknown);
+  if (!result.ok) return undefined;
+  const parsed = result.value;
+  return typeof parsed === "object" && parsed !== null
+    ? (parsed as Record<string, unknown>)
+    : undefined;
 }
 
 /**
@@ -273,10 +291,8 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
       }
       case "needs-input": {
         const toolName = typeof payload.tool_name === "string" ? payload.tool_name : undefined;
-        const toolInput =
-          typeof payload.tool_input === "object" && payload.tool_input !== null
-            ? (payload.tool_input as Record<string, unknown>)
-            : undefined;
+        // tool_input は boundary まで JSON 文字列で運ばれるため 1 度だけ構造化する
+        const toolInput = parseToolInput(payload.tool_input);
         // debounce: タイマー満了まで asking にしない
         cancelAskTimer(ptyId);
         askTimers.set(
@@ -363,6 +379,10 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
         return { ptyId, event, message };
       }
     }
+    // 全 HookEvent を case で処理済み。新しい event を追加して case を書き忘れると、ここで
+    // `event` が never に絞られず compile error になる（hook event 種別を増やす方向の取りこぼし防止）。
+    event satisfies never;
+    return undefined;
   }
 
   /**

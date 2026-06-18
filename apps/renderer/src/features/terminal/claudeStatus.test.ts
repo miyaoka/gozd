@@ -79,15 +79,26 @@ describe("handleHookEvent fx 発行（効果ストリームの単一発行点）
     expect(manager.handleHookEvent(1, "running", {})).toEqual({ ptyId: 1, event: "running" });
     // tool-done は working 中のみ（done 中の遅延は無視）
     expect(manager.handleHookEvent(1, "tool-done", {})).toEqual({ ptyId: 1, event: "tool-done" });
+    // 本番では tool_input は JSON 文字列で届く（proto3 string）。boundary で 1 度 parse して
+    // 構造化オブジェクトとして fx に載ることを検証する。
     expect(
       manager.handleHookEvent(1, "needs-input", {
         tool_name: "Bash",
-        tool_input: { command: "ls" },
+        tool_input: '{"command":"ls"}',
       }),
     ).toEqual({ ptyId: 1, event: "needs-input", toolName: "Bash", toolInput: { command: "ls" } });
     expect(
       manager.handleHookEvent(1, "stop-failure", { last_assistant_message: "API error" }),
     ).toEqual({ ptyId: 1, event: "stop-failure", message: "API error" });
+  });
+
+  test("needs-input の tool_input が壊れた JSON 文字列でも throw せず toolInput は undefined", () => {
+    const { manager } = setup();
+    const fx = manager.handleHookEvent(1, "needs-input", {
+      tool_name: "Bash",
+      tool_input: "{not json",
+    });
+    expect(fx).toEqual({ ptyId: 1, event: "needs-input", toolName: "Bash", toolInput: undefined });
   });
 
   test("dead PTY への hook は fx を発行しない", () => {

@@ -129,4 +129,30 @@ describe("applyRepoTasks", () => {
 
     expect(store.repos["/r1"]?.worktrees[0]?.tasks.map((t) => t.id)).toEqual(["t-new"]);
   });
+
+  test("removeRepo → 同 rootDir 再追加で applyRepoTasks が再び効く（git 真値フラグの掃除）", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo({
+      rootDir: "/r1",
+      repoName: "r1",
+      isGitRepo: true,
+      worktrees: [wt("/r1/wt-1", "feat")],
+    });
+    // 1 回目: git 真値到達でフラグが立つ
+    store.updateRepoData("/r1", [wt("/r1/wt-1", "feat")]);
+
+    store.removeRepo("/r1");
+    // 再追加（キャッシュから楽観カードを復元した状態）
+    store.addRepo({
+      rootDir: "/r1",
+      repoName: "r1",
+      isGitRepo: true,
+      worktrees: [wt("/r1/wt-1", "feat")],
+    });
+
+    // フラグが残っていれば no-op になり task が出ない。掃除済みなら prefetch が再び効く。
+    store.applyRepoTasks("/r1", [task("t1", "/r1/wt-1")]);
+    expect(store.repos["/r1"]?.worktrees[0]?.tasks.map((t) => t.id)).toEqual(["t1"]);
+  });
 });

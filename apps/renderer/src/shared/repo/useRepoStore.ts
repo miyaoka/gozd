@@ -318,6 +318,10 @@ export const useRepoStore = defineStore("repo", () => {
       gitStatusGenByDir.delete(removed.rootDir);
       for (const wt of removed.worktrees) gitStatusGenByDir.delete(wt.path);
     }
+    // git 真値到達フラグも掃除する。残すと同 rootDir を再追加したとき applyRepoTasks が
+    // 永久 no-op になり、起動時 task 高速ロード（prefetch）の便益が失われて layout shift が
+    // 一段戻る。gitStatusGenByDir と同じ per-root 補助状態として同じライフサイクルで掃除する。
+    gitTruthAppliedRoots.delete(rootDir);
     if (selectedDir.value !== undefined) {
       const stillOwned = findRepoOwning(selectedDir.value);
       if (stillOwned === undefined) {

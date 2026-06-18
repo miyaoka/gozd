@@ -50,8 +50,20 @@ import Foundation
 //    そこで `git rev-parse --git-dir --git-common-dir` で 2 つの git dir を解決し、
 //    FSWatcher の paths に追加する。通常 clone では両者が一致するので dedupe する。
 //
-// 3. **debounce**。FSEvents は数十 ms 以内に同一バッチを連続 dispatch する。
-//    1 バッチを 1 つの push にまとめるため、Task の実行内でフラグ管理する。
+// 3. **event class による経路分離**（issue #809）。`git switch` は性質の異なる 2 種の event を
+//    生む: working tree のファイル書き換え（大量・差分依存・全体 snapshot で十分・低優先）と、
+//    ref store（`.git/HEAD` / 共有 `reftable/`）の書き換え（1 個・確定的・branch label を即駆動・
+//    高優先）。両者を 1 本の直列ループで FIFO 処理し各 working-tree バッチで full `git status`
+//    （数十 ms）を await すると、checkout 終盤の HEAD バッチがこの backlog の後ろに並び、branch
+//    検知が working-tree 書き換え量に従属して数秒遅れる。これを防ぐため処理を 2 経路に分ける:
+//    - **直列イベントループ**は `classify` + `fsChange` + ref 系 dispatch（`refDigest` 経由の
+//      `branchChange` / `remoteRefsChange` / head 由来 `worktreeChange`）のみを担う。ref 系は
+//      `refDigest` が安価（≒ 0 秒）なので working-tree status を待たず即処理され、branch label の
+//      latency が working tree 書き換え量から切り離される。
+//    - **working-tree 由来の `gitStatusFull`** は直列ループから外し、dir ごとの trailing-debounce
+//      タスク（`scheduleStatusRefresh`）に集約する。checkout flood の N バッチ → status 実行は
+//      最新 1 回に畳む（誤り 1: status の consumer は全員が working tree 全体 snapshot を読み、
+//      個別ファイル event を誰も使わないため、N 回取り直す必要が無い）。
 //
 // 4. **push の重複は許容**。renderer 側は冪等な再 fetch（onMessage の handler）
 //    で受け止めるので、`fsChange` と `gitStatusChange` を両方出しても問題ない。
@@ -158,22 +170,58 @@ public actor FSWatchRegistry {
   /// `fsWatchReady` 経由で renderer が再 fetch して baseline を張り直すため、最初の status を
   /// 無条件 push して native の cache と renderer を再同期させる。
   private var lastPushedStatusByDir: [String: GitOps.StatusFull] = [:]
+  /// dir ごとの working-tree status trailing-debounce タスク。新しい working-tree event の
+  /// 到着で先行タスクをキャンセルし、最新リクエストだけを `gitStatusFull` まで進める
+  /// (checkout flood の N バッチを最新 1 回に畳む。issue #809)。entry の lifecycle に揃え、
+  /// `_unwatch` でキャンセル + 破棄する。
+  private var statusDebounceTasks: [String: Task<Void, Never>] = [:]
+  /// dir ごとの status リクエスト世代。`scheduleStatusRefresh` で increment し、
+  /// `gitStatusFull` の await 前後で「自分が最新リクエストか」を再 check する。Task.cancel は
+  /// 協調的かつ非同期で、`gitStatusFull` (Process) のキャンセルは SIGTERM 中断として効くが、
+  /// SIGTERM が届く前に git status が正常完了した in-flight Task は cancel では止まらず結果を
+  /// 持って await 後コードへ進む (`runProcessCollectingOutput` の onCancel でも continuation は
+  /// returning で resume される)。debounce 窓を抜けた後に新リクエストが来た、この「cancel が間に
+  /// 合わなかった」古い in-flight が新しい結果を上書きするのを世代比較で弾く (watch generation とは
+  /// 独立。同一 watch 内での request 順序を守る軸)。
+  private var statusRequestGenerationByDir: [String: UInt64] = [:]
   /// watch ごとに増える世代番号。unwatch 後に積まれていた stale event の dispatch を
   /// 抑止するため、event 配送前後に entries[dir]?.generation と一致するか check する。
   private var nextGeneration: UInt64 = 0
+  /// working-tree status の trailing-debounce 待機。FSWatcher の latency=0.1s で複数バッチに
+  /// 分割される checkout flood を 1 回の status 取得に畳むための窓。branch label は ref 系経路
+  /// (`worktreeChange`) が即時駆動するため、この遅延は status バッジ系 (changes / filer) にのみ
+  /// 効く (issue #809 の CAUTION)。
+  ///
+  /// pure trailing-debounce のため、窓幅未満の間隔でファイルが鳴り続ける病的な継続 churn では
+  /// status 発火が窓ごとに先送りされ続ける starvation edge を持つ (旧設計の毎バッチ実行には無い
+  /// トレードオフ)。現実のファイル変更は必ず gap が空くため実害は薄く、ignore 対象の churn は
+  /// 仮に発火しても `lastPushedStatusByDir` の dedup で潰れる。max-wait cap で緩和できるが、それは
+  /// issue #809 が消したい「sustained churn 中の定期 git status」を再導入するため意図的に入れない。
+  /// starvation が実機で観測されたら cap を検討する。
+  /// 注入可能にしているのはテストで debounce 窓を制御するため (production は default の 150ms)。
+  private let statusDebounce: Duration
+  /// working-tree status の取得関数。production は `GitOps.gitStatusFull`。テストでは status の
+  /// 完了タイミングを制御できる fetcher を注入し、gen 二重 check の race (古い in-flight が新しい
+  /// 結果を上書きしないこと) を決定的に検証する seam として使う。
+  private let statusFetcher: @Sendable (_ dir: String) async throws -> GitOps.StatusFull
 
   public init(
     onFsChange: @escaping FsChangeHandler,
     onGitStatusChange: @escaping GitStatusChangeHandler,
     onBranchChange: @escaping BranchChangeHandler,
     onRemoteRefsChange: @escaping RemoteRefsChangeHandler,
-    onWorktreeChange: @escaping WorktreeChangeHandler
+    onWorktreeChange: @escaping WorktreeChangeHandler,
+    statusDebounce: Duration = .milliseconds(150),
+    statusFetcher: @escaping @Sendable (_ dir: String) async throws -> GitOps.StatusFull =
+      GitOps.gitStatusFull
   ) {
     self.onFsChange = onFsChange
     self.onGitStatusChange = onGitStatusChange
     self.onBranchChange = onBranchChange
     self.onRemoteRefsChange = onRemoteRefsChange
     self.onWorktreeChange = onWorktreeChange
+    self.statusDebounce = statusDebounce
+    self.statusFetcher = statusFetcher
   }
 
   /// dir の監視を開始する。同一 resolved dir に対する `watch` 呼び出しは冪等で
@@ -311,6 +359,12 @@ public actor FSWatchRegistry {
     // dedup キャッシュも掃除する。再 watch 後の最初の status を無条件 push させ、
     // dir 削除後の別 repo 再配置などで stale 値が次の push を握り潰すのを防ぐ。
     lastPushedStatusByDir.removeValue(forKey: dir)
+    // 進行中の status debounce タスクをキャンセルして破棄する。unwatch を跨いだ stale な
+    // gitStatusFull の発火を止める (タスク内の isActive 再 check でも弾かれるが、無駄な
+    // git fork を残さないためここでキャンセルする)。request 世代も破棄し、再 watch 時は
+    // 世代 0 起点に戻す。
+    statusDebounceTasks.removeValue(forKey: dir)?.cancel()
+    statusRequestGenerationByDir.removeValue(forKey: dir)
     // 同一 resolved dir を指していた他の userDir 逆引きも掃除する。
     // 同一 resolved に複数 userDir（symlink パスと非 symlink パスなど）で watch が
     // 重ねられた状態で、片方しか unwatch されないと逆引きエントリが leak するため。
@@ -480,33 +534,77 @@ public actor FSWatchRegistry {
     }
 
     if result.hasGitStatusChange {
-      // 同一 dir の handleEvents は driving Task の serial for-await で直列化される
-      // (1 dir = 1 Task = 1 ループ、`await handleEvents` の return まで次の events を取らない)。
-      // よって gitStatusFull の await 中に同一 dir の別 batch が割り込み、古い実体を読んだ
-      // batch が後着して新しい push を上書きする reorder は構造的に起きない。actor reentrancy
-      // で割り込めるのは別 dir(別 Task)の処理のみ。再 watch を跨ぐ古い batch は下の
-      // isActive(generation) が弾く。この不変条件が成立するため status 読み取りの後着破棄
-      // guard は不要 (将来 handleEvents を並行起動する設計にしない限り再導入しない)。
-      let status: GitOps.StatusFull
+      // working-tree 由来の status 再取得は直列ループから外し、dir ごとの trailing-debounce
+      // タスクに集約する。直列ループ内で gitStatusFull を await すると、checkout 終盤の HEAD
+      // バッチがこの backlog の後ろに並んで branch 検知が遅延する (issue #809 誤り 2)。ここでは
+      // スケジュールするだけで await せず、ref 系 dispatch (上の worktreeChange / branchChange) が
+      // working tree 書き換え量に従属しないようにする。
+      scheduleStatusRefresh(dir: dir, watchGeneration: generation, originalDir: originalDir)
+    }
+  }
+
+  /// working-tree 由来の `gitStatusFull` を trailing-debounce タスクに集約する。新しい
+  /// working-tree event ごとに先行タスクをキャンセルし request 世代を進めるため、checkout flood
+  /// の N バッチは最新 1 回の status 取得に畳まれる (issue #809)。直列ループからは await せず
+  /// fire-and-forget で呼ぶ。
+  private func scheduleStatusRefresh(dir: String, watchGeneration: UInt64, originalDir: String) {
+    let requestGeneration = (statusRequestGenerationByDir[dir] ?? 0) + 1
+    statusRequestGenerationByDir[dir] = requestGeneration
+    statusDebounceTasks[dir]?.cancel()
+    // `[weak self]` クロージャからは actor プロパティへ self 経由でしか触れないため、
+    // Sendable な debounce 値を Task 生成前にローカルへ退避してキャプチャする。
+    let debounce = statusDebounce
+    statusDebounceTasks[dir] = Task { [weak self] in
+      // trailing-debounce: 窓の間に新 event が来れば先行タスクが cancel され、この sleep が
+      // CancellationError で抜ける。最新リクエストだけが窓を生き延びて status を取る。
       do {
-        status = try await GitOps.gitStatusFull(dir: dir)
+        try await Task.sleep(for: debounce)
       } catch {
-        // 観察可能性のためログを残す。renderer は次の FSEvents バッチで再 fetch するため
-        // 致命的ではないが、繰り返し発生していれば一時障害として診断したい。
-        StderrLog.write(
-          tag: "FSWatchRegistry", "gitStatusFull failed for \(dir): \(error)")
         return
       }
-      // gitStatusFull の await 中に unwatch されている可能性があるため再 check
-      guard isActive(dir: dir, generation: generation) else { return }
-      // 内容が直近 push と同一なら push しない。gitignore 対象（ビルド成果物 /
-      // node_modules 等）の書き込みは作業ツリー event として gitStatusChange を立てるが
-      // git status 出力には現れず StatusFull は不変になる。typecheck / ビルド中の連射を
-      // ここで止める（理由は lastPushedStatusByDir の docstring 参照）。
-      if lastPushedStatusByDir[dir] == status { return }
-      lastPushedStatusByDir[dir] = status
-      onGitStatusChange(originalDir, status)
+      await self?.runStatusRefresh(
+        dir: dir, watchGeneration: watchGeneration,
+        requestGeneration: requestGeneration, originalDir: originalDir)
     }
+  }
+
+  /// debounce 窓を生き延びたリクエストの `gitStatusFull` を実行し、最新であれば push する。
+  /// await 前後で watch 世代 (unwatch / 再 watch) と request 世代 (後続 event による新リクエスト)
+  /// の両方を再 check し、古い in-flight status が新しい結果を上書きするのを防ぐ
+  /// (issue #809 の CAUTION)。
+  private func runStatusRefresh(
+    dir: String, watchGeneration: UInt64, requestGeneration: UInt64, originalDir: String
+  ) async {
+    // await 前: watch 世代 + request 世代がどちらも最新か。
+    guard isActive(dir: dir, generation: watchGeneration) else { return }
+    guard statusRequestGenerationByDir[dir] == requestGeneration else { return }
+    let status: GitOps.StatusFull
+    do {
+      status = try await statusFetcher(dir)
+    } catch {
+      // debounce タスクが後続 event / unwatch でキャンセルされると、in-flight の git status は
+      // SIGTERM で中断され `commandFailed` として throw される (CancellationError ではない)。
+      // これは正常な畳み込みであって障害ではないため silent return し、本物の git 障害だけを
+      // stderr に残す。cancel の粒度を scheduleStatusRefresh の sleep catch と揃え、issue #809 の
+      // 「git status 連打ログ」抑止の検証ノイズにしない。
+      if Task.isCancelled { return }
+      // 観察可能性のためログを残す。renderer は次の FSEvents バッチで再 fetch するため
+      // 致命的ではないが、繰り返し発生していれば一時障害として診断したい。
+      StderrLog.write(tag: "FSWatchRegistry", "gitStatusFull failed for \(dir): \(error)")
+      return
+    }
+    // await 後: unwatch / 再 watch (watch 世代) と、後続 event の新リクエスト (request 世代) を
+    // 両方再 check。cancel が SIGTERM 到達前に正常完了した古い in-flight (statusRequestGenerationByDir
+    // docstring 参照) が新しい結果を上書きしないようここで弾く。
+    guard isActive(dir: dir, generation: watchGeneration) else { return }
+    guard statusRequestGenerationByDir[dir] == requestGeneration else { return }
+    // 内容が直近 push と同一なら push しない。gitignore 対象（ビルド成果物 / node_modules 等）の
+    // 書き込みは作業ツリー event として gitStatusChange を立てるが git status 出力には現れず
+    // StatusFull は不変になる。typecheck / ビルド中の連射をここで止める（理由は
+    // lastPushedStatusByDir の docstring 参照）。
+    if lastPushedStatusByDir[dir] == status { return }
+    lastPushedStatusByDir[dir] = status
+    onGitStatusChange(originalDir, status)
   }
 
   public func isWatching(dir userDir: String) -> Bool {

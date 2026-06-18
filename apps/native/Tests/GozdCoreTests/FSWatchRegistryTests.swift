@@ -156,17 +156,20 @@ struct FSWatchRegistryTests {
     await waitForEvent(collector, matching: { $0 == "git:clean" })
 
     // 2 回目: ignore 対象なので status は clean のまま = 内容一致で dedup され push されない。
-    // b.log の batch が dispatch されたことを relDir == "dir-b" の fsChange で待ち、次の c.txt を
-    // b.log とは別 batch に確実に分離する（同一 batch に coalesce すると b.log の clean status が
-    // 単独で評価されず dedup を検証できない）。
+    // b.log の batch が dispatch されたことを relDir == "dir-b" の fsChange で待つ。さらに
+    // status の trailing-debounce 窓 (statusDebounceMs=150ms) + gitStatusFull の実行時間を超える
+    // settle を挟み、b.log の status 評価 (clean → dedup) を c.txt より前に確実に発火させる
+    // (issue #809 で gitStatusFull は直列 await から debounce タスクへ移行。settle を挟まないと
+    // b.log の debounce タスクが c.txt の schedule にキャンセルされ、同一窓に畳まれて b.log 単独の
+    // dedup を検証できない)。
     try "b".write(
       to: dirB.appendingPathComponent("b.log"), atomically: false, encoding: .utf8)
     await waitForEvent(collector, matching: { $0 == "fs:dir-b" })
+    await sleepThreaded(.milliseconds(400))
 
     // 3 回目: ignore されない c.txt を作る。status が dirty（?? c.txt）に変わるので dedup されず
-    // git:dirty が push される。serial for-await により c.txt の handleEvents は b.log の
-    // handleEvents が gitStatusFull の await 込みで完全に return した後に走る。よって git:dirty
-    // 到達時点で b.log の dedup 判定は確定済みで、settle 無しに観測できる。
+    // git:dirty が push される。b.log の status 評価は上の settle で確定済みのため、git:dirty
+    // 到達時点で b.log の dedup 判定は観測可能。
     try "c".write(
       to: repo.appendingPathComponent("c.txt"), atomically: false, encoding: .utf8)
     await waitForEvent(collector, matching: { $0 == "git:dirty" })
@@ -671,6 +674,114 @@ struct FSWatchRegistryTests {
     await sleepThreaded(.milliseconds(500))
     #expect(collector.snapshot().isEmpty)
   }
+
+  @Test("await 後の request 世代 re-check が、後続リクエストに抜かれた古い in-flight status の push を弾く")
+  func staleInFlightStatusDroppedByRequestGeneration() async throws {
+    // 本 PR (issue #809) の正しさの要である「gitStatusFull の await 後 request 世代 re-check」を
+    // 決定的に踏む。実 git では status の完了タイミングを制御できないため、status fetcher を注入し
+    // 完了を gate する。SIGTERM 到達前に正常完了した古い in-flight (cancel では止まらない) が
+    // 新しい結果を上書きしないことを固定する。fetcher を注入する以上、debounce 窓は短く (20ms) して
+    // event ごとに別 fetch を踏ませる (production の 150ms 畳み込みとは別の検証軸)。
+    let repo = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: repo) }
+    try await initGitRepo(at: repo)
+
+    // call#0 = statusA (in-flight に保持して後で stale 化)、call#1 = statusB (最新として push)。
+    // statuses のキーで A/B を識別する。
+    let statusA = GitOps.StatusFull(
+      statuses: ["a.txt": "??"], renameOldPaths: [:], head: "", branchHead: "main",
+      hasUpstream: false, ahead: 0, behind: 0, latestMtime: 0)
+    let statusB = GitOps.StatusFull(
+      statuses: ["b.txt": "??"], renameOldPaths: [:], head: "", branchHead: "main",
+      hasUpstream: false, ahead: 0, behind: 0, latestMtime: 0)
+    let fetcher = GatedStatusFetcher(statuses: [statusA, statusB])
+
+    let collector = EventNameCollector()
+    let registry = FSWatchRegistry(
+      onFsChange: { _, _ in },
+      onGitStatusChange: { _, status in
+        collector.append("status:\(status.statuses.keys.sorted().joined(separator: ","))")
+      },
+      onBranchChange: { _ in },
+      onRemoteRefsChange: { _ in },
+      onWorktreeChange: { _ in },
+      statusDebounce: .milliseconds(20),
+      statusFetcher: { _ in await fetcher.fetch() }
+    )
+
+    try await registry.watch(dir: repo.path)
+    await sleepThreaded(.milliseconds(300))
+
+    // 1 回目の working-tree 変更 → debounce 後 fetcher#0 が呼ばれ statusA を抱えてブロック (in-flight)。
+    // fetcher.callsMade は NSLock 同期読みなので waitUntil の同期 predicate で踏める (FSEvents
+    // propagation 待ち — WaitUntil.swift の用途規律「OS event 到達待ち」に該当)。
+    try "a".write(to: repo.appendingPathComponent("a.txt"), atomically: false, encoding: .utf8)
+    await waitUntil(
+      timeout: .seconds(2), description: "fetcher call #0 in-flight",
+      lastObserved: { "calls=\(fetcher.callsMade)" }
+    ) { fetcher.callsMade >= 1 }
+
+    // 2 回目の working-tree 変更 → request 世代が進む。fetcher#1 (statusB) は先に release しておき、
+    // 最新リクエストとして push される。
+    fetcher.release(call: 1)
+    try "b".write(to: repo.appendingPathComponent("b.txt"), atomically: false, encoding: .utf8)
+    await waitForEvent(collector, matching: { $0 == "status:b.txt" })
+
+    // in-flight だった fetcher#0 を今 release する。古い request 世代 (call#0) なので await 後の
+    // re-check で弾かれ、statusA は push されない。settle 窓で不在を確定する。
+    fetcher.release(call: 0)
+    await sleepThreaded(.milliseconds(300))
+
+    let events = collector.snapshot()
+    #expect(events.contains("status:b.txt"))
+    #expect(!events.contains("status:a.txt"))
+  }
+
+  @Test("await 後の watch 世代 re-check が、unwatch を跨いだ古い in-flight status の push を弾く")
+  func staleInFlightStatusDroppedByWatchGenerationOnUnwatch() async throws {
+    // request 世代版と対の regression guard。in-flight の gitStatusFull の await 中に unwatch される
+    // ケースで、entry 消滅 (watch 世代の無効化) を await 後の isActive re-check が捕まえ、stale な
+    // status を push しないことを固定する。
+    let repo = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: repo) }
+    try await initGitRepo(at: repo)
+
+    let statusA = GitOps.StatusFull(
+      statuses: ["a.txt": "??"], renameOldPaths: [:], head: "", branchHead: "main",
+      hasUpstream: false, ahead: 0, behind: 0, latestMtime: 0)
+    let fetcher = GatedStatusFetcher(statuses: [statusA])
+
+    let collector = EventNameCollector()
+    let registry = FSWatchRegistry(
+      onFsChange: { _, _ in },
+      onGitStatusChange: { _, _ in collector.append("gitStatusChange") },
+      onBranchChange: { _ in },
+      onRemoteRefsChange: { _ in },
+      onWorktreeChange: { _ in },
+      statusDebounce: .milliseconds(20),
+      statusFetcher: { _ in await fetcher.fetch() }
+    )
+
+    try await registry.watch(dir: repo.path)
+    await sleepThreaded(.milliseconds(300))
+
+    // working-tree 変更 → debounce 後 fetcher#0 が statusA を抱えてブロック (in-flight)。
+    try "a".write(to: repo.appendingPathComponent("a.txt"), atomically: false, encoding: .utf8)
+    await waitUntil(
+      timeout: .seconds(2), description: "fetcher call #0 in-flight",
+      lastObserved: { "calls=\(fetcher.callsMade)" }
+    ) { fetcher.callsMade >= 1 }
+
+    // in-flight のまま unwatch。entry が消え watch 世代が無効化される。
+    await registry.unwatch(dir: repo.path)
+
+    // in-flight だった fetcher#0 を release。unwatch 済みなので await 後の isActive(watch 世代)
+    // re-check で弾かれ、statusA は push されない。
+    fetcher.release(call: 0)
+    await sleepThreaded(.milliseconds(300))
+
+    #expect(collector.snapshot().isEmpty)
+  }
 }
 
 // MARK: - classify pure unit tests
@@ -1116,6 +1227,68 @@ private final class EventCounter: @unchecked Sendable {
     defer { lock.unlock() }
     return count
   }
+}
+
+/// FSWatchRegistry に注入する status fetcher の test double。呼ばれた順に index を振り、
+/// `release(call:)` されるまでブロックして `statuses[index]` を返す。`gitStatusFull` の完了
+/// タイミングを test 側で制御し、await 後の世代 re-check (古い in-flight が新しい結果を上書き
+/// しないこと) を決定的に踏むための seam。cancel には応答しない (SIGTERM 到達前に正常完了する
+/// in-flight を模す)。`callsMade` は NSLock 同期読みで `waitUntil` の同期 predicate から踏める。
+private final class GatedStatusFetcher: @unchecked Sendable {
+  private let lock = NSLock()
+  private let statuses: [GitOps.StatusFull]
+  private var callCount = 0
+  private var gates: [Int: CheckedContinuation<Void, Never>] = [:]
+  private var released: Set<Int> = []
+
+  init(statuses: [GitOps.StatusFull]) {
+    self.statuses = statuses
+  }
+
+  func fetch() async -> GitOps.StatusFull {
+    let index: Int = {
+      lock.lock()
+      defer { lock.unlock() }
+      let i = callCount
+      callCount += 1
+      return i
+    }()
+    await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+      lock.lock()
+      // continuation 登録前に release が来ていれば即 resume (lock 区間での race を閉じる)。
+      if released.contains(index) {
+        lock.unlock()
+        cont.resume()
+      } else {
+        gates[index] = cont
+        lock.unlock()
+      }
+    }
+    return statusAt(index)
+  }
+
+  func release(call index: Int) {
+    lock.lock()
+    released.insert(index)
+    let cont = gates.removeValue(forKey: index)
+    lock.unlock()
+    cont?.resume()
+  }
+
+  var callsMade: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return callCount
+  }
+
+  private func statusAt(_ index: Int) -> GitOps.StatusFull {
+    if index < statuses.count { return statuses[index] }
+    return statuses.last ?? GatedStatusFetcher.emptyStatus
+  }
+
+  static let emptyStatus = GitOps.StatusFull(
+    statuses: [:], renameOldPaths: [:], head: "", branchHead: "",
+    hasUpstream: false, ahead: 0, behind: 0, latestMtime: 0)
 }
 
 private final class EventNameCollector: @unchecked Sendable {

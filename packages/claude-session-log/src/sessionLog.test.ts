@@ -570,6 +570,53 @@ describe("parseSessionLog", () => {
     expect(log.skipped).toBe(0);
   });
 
+  // 画像添付つきで queue に積むと prompt は string でなく ContentBlock[] (text + image) になる。
+  // string と決め打ちして配列を text に push すると base64 が生露出する。message.content と同じく
+  // text → user / image → image に分離する。
+  test("queued_command の prompt が配列なら text/image を分離する", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "attachment",
+        timestamp: TS,
+        attachment: {
+          type: "queued_command",
+          commandMode: "prompt",
+          prompt: [
+            { type: "text", text: "これ見て\n[Image #1]" },
+            { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+          ],
+        },
+      }),
+    );
+    expect(log.events).toEqual([
+      { kind: "user", text: "これ見て\n[Image #1]", ts: TS },
+      { kind: "image", ts: TS, source: { mediaType: "image/png", base64: "AAAA" } },
+    ]);
+    expect(log.skipped).toBe(0);
+  });
+
+  // 配列 prompt 内の未知 block は無言で落とさず skipped に計上する。この skipped 計上は
+  // userArrayBlockEvent (helper) ではなく queued_command 配列ループ側の固有コードなので、
+  // 通常 user 経路の既存テストでは踏まれず独立に検証する必要がある。
+  test("queued_command の配列 prompt 内の未知 block は skipped に計上", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "attachment",
+        timestamp: TS,
+        attachment: {
+          type: "queued_command",
+          commandMode: "prompt",
+          prompt: [
+            { type: "text", text: "ここだけ拾う" },
+            { type: "future_block_type", foo: 1 },
+          ],
+        },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "user", text: "ここだけ拾う", ts: TS }]);
+    expect(log.skipped).toBe(1);
+  });
+
   test("parse 失敗行は malformed に計上し他行は継続処理", () => {
     const valid = JSON.stringify({
       type: "user",

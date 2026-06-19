@@ -570,6 +570,31 @@ describe("parseSessionLog", () => {
     expect(log.skipped).toBe(0);
   });
 
+  // 画像添付つきで queue に積むと prompt は string でなく ContentBlock[] (text + image) になる。
+  // string と決め打ちして配列を text に push すると base64 が生露出する。message.content と同じく
+  // text → user / image → image に分離する。
+  test("queued_command の prompt が配列なら text/image を分離する", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "attachment",
+        timestamp: TS,
+        attachment: {
+          type: "queued_command",
+          commandMode: "prompt",
+          prompt: [
+            { type: "text", text: "これ見て\n[Image #1]" },
+            { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+          ],
+        },
+      }),
+    );
+    expect(log.events).toEqual([
+      { kind: "user", text: "これ見て\n[Image #1]", ts: TS },
+      { kind: "image", ts: TS, source: { mediaType: "image/png", base64: "AAAA" } },
+    ]);
+    expect(log.skipped).toBe(0);
+  });
+
   test("parse 失敗行は malformed に計上し他行は継続処理", () => {
     const valid = JSON.stringify({
       type: "user",

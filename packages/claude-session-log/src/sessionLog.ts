@@ -110,8 +110,10 @@ interface RawMessage {
 // `type:"attachment"` レコードの中身。queued_command のみ会話に載せるため prompt を読む。
 interface RawAttachment {
   type?: string;
-  // queued_command が積んだ発話本文。信頼境界外の入力なので optional。
-  prompt?: string;
+  // queued_command が積んだ発話本文。`message.content` と同じ shape を取り、テキストのみなら
+  // string、画像添付があると ContentBlock[] (text + image) になる。信頼境界外の入力なので
+  // optional。string と決め打ちすると画像添付時に配列が text に流れ込み base64 が生露出する。
+  prompt?: string | ContentBlock[];
   // queue 種別の SSOT。"prompt" = ユーザーの生発話 / "task-notification" = 注入通知。
   // 上流 (Claude Code) が分類済みのため本文パターンで再導出せずこのフィールドで採否を決める。
   commandMode?: string;
@@ -450,6 +452,23 @@ function toolResultText(content: string | ContentBlock[]): string {
     .join("\n");
 }
 
+/**
+ * user content 配列の 1 ブロックを transcript イベントにする。content 配列は通常の
+ * `message.content` と queued_command の `attachment.prompt` の 2 経路に現れ、どちらでも
+ * text → user / image → image の対応は同一。ここに一元化し「一方だけ image 分離を欠く」
+ * 非対称バグ (base64 が text に生露出する類) を構造的に防ぐ。
+ *
+ * tool_result は実 user メッセージにしか現れず ask / tool 充填という別ロジック (askById /
+ * toolById への副作用) なのでこの helper の責務外。呼び出し側が先に処理する。text / image
+ * 以外は undefined を返し、呼び出し側が skipped 計上する (silent drop 禁止の観察可能性は
+ * 呼び出し側に残す)。
+ */
+function userArrayBlockEvent(block: ContentBlock, ts: string): TranscriptEvent | undefined {
+  if (block.type === "text") return { kind: "user", text: block.text, ts };
+  if (block.type === "image") return { kind: "image", ts, source: imageSource(block) };
+  return undefined;
+}
+
 /** branchKey (分岐点 = 候補が共有する親 uuid) → 選択した childUuid。未指定の分岐点は最新枝を採る。 */
 export type BranchSelection = Map<string, string>;
 
@@ -724,9 +743,7 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
       }
       if (Array.isArray(content)) {
         for (const block of content) {
-          if (block.type === "text") {
-            events.push({ kind: "user", text: block.text, ts });
-          } else if (block.type === "tool_result") {
+          if (block.type === "tool_result") {
             // AskUserQuestion の応答なら ask イベントの answer を充填する。引き当ては
             // askById 優先 → toolById fallback の順 (同 tool_use_id が両方に居ることは無いが、
             // ask 経路を先に試すことで「ask に登録されているのに tool として処理する」誤りを防ぐ)。
@@ -763,12 +780,16 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
               text: toolResultText(block.content),
               isError: block.is_error === true,
             };
-          } else if (block.type === "image") {
-            events.push({ kind: "image", ts, source: imageSource(block) });
-          } else {
-            // 未知 block type は無言で落とさず skipped に計上する (footer 観察可能性)。
-            skipped++;
+            continue;
           }
+          // text / image は両 content 経路 (message.content / queued_command.prompt) で同一
+          // 処理。helper に一元化済み。undefined (未知 block) は無言で落とさず skipped に計上する。
+          const ev = userArrayBlockEvent(block, ts);
+          if (ev === undefined) {
+            skipped++;
+            continue;
+          }
+          events.push(ev);
         }
         continue;
       }
@@ -861,13 +882,31 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     // 上流が分類済みの commandMode を SSOT にし、生発話 ("prompt") のみ拾う。注入通知
     // ("task-notification" 等) は除外する。prompt は生発話なので本文を加工せずそのまま出す
     // (本文が <span> や <command-name> 始まりの正当な発話を切り詰めない)。
+    //
+    // prompt は message.content と同じ shape: テキストのみなら string、画像添付があると
+    // ContentBlock[] (text + image)。array の場合は通常の user content 配列と同じく text →
+    // user / image → image に分離する。string と決め打ちして配列を text に push すると base64
+    // が生露出するため、shape で分岐する。
     if (raw.type === "attachment" && raw.attachment?.type === "queued_command") {
       const { commandMode, prompt } = raw.attachment;
-      if (commandMode === "prompt" && prompt !== undefined && prompt !== "") {
-        events.push({ kind: "user", text: prompt, ts });
+      if (commandMode !== "prompt" || prompt === undefined) {
+        skipped++;
         continue;
       }
-      skipped++;
+      if (typeof prompt === "string") {
+        if (prompt === "") skipped++;
+        else events.push({ kind: "user", text: prompt, ts });
+        continue;
+      }
+      // 配列 prompt は通常の message.content と同じ text / image 処理を共有する。
+      for (const block of prompt) {
+        const ev = userArrayBlockEvent(block, ts);
+        if (ev === undefined) {
+          skipped++;
+          continue;
+        }
+        events.push(ev);
+      }
       continue;
     }
 

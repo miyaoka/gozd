@@ -36,7 +36,7 @@
   },
   "devDependencies": {
     "@gozd/eslint-plugin": "workspace:*",
-    "@iconify-json/lucide": "1.2.112",
+    "@iconify-json/lucide": "1.2.113",
     "@miyaoka/eslint-plugin-barrel-import": "0.0.0",
     "@miyaoka/vite-plugin-doc-block": "0.0.2",
     "@tailwindcss/vite": "catalog:",

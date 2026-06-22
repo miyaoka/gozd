@@ -1097,14 +1097,20 @@ function blockEdit(event: Event) {
    `user-select: none` は selectAll 経路で仕様保証が無いため scope 制御には使わない。 */
 ._split-section {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* `minmax(0, 1fr)` は 50/50 を保証するための必須形。`1fr` (= `minmax(auto, 1fr)`) だと
+     auto 側の automatic minimum がコンテンツの min-content になり、nowrap (`white-space: pre`)
+     の長い行を持つ半身がトラックを押し広げて左右がコンテンツ量比で分割される。min を 0 に
+     固定して利用可能幅を等分し、長い行は半身内の overflow に逃がす。 */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   /* grid-template-rows は section ごとに style binding で `repeat(N, auto)` を渡す (= 上記コメント参照) */
 }
 
 ._split-half {
   display: grid;
   grid-template-rows: subgrid;
-  grid-template-columns: 1fr;
+  /* 親 `_split-section` と同じ理由で min を 0 に固定。半身の単一カラムを 50% 枠に収め、
+     nowrap の長い行は overflow に逃がす (`1fr` だと auto-min がトラックを押し広げる)。 */
+  grid-template-columns: minmax(0, 1fr);
   /* `grid-row: 1 / -1` は subgrid 親 row track を継承するための定型。両半身に同じ範囲を当てても
      `_split-section` が 2 列 grid で左右が別 column に置かれるので row は衝突しない。 */
   grid-row: 1 / -1;

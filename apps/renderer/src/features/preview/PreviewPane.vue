@@ -3,15 +3,19 @@
 
 ## プレビュー種別
 
+拡張子 → 種別の対応表の SSOT は `docs/preview.md` のファイル種別表。子コンポーネントの内訳:
+
 - コード → CodePreview（Shiki ハイライト）
 - 差分 → DiffPreview（`git diff --no-index` で取得した hunk 配列を描画）
 - 画像 / SVG → ImagePreview（ファイルサーバー URL）
 - Markdown → MarkdownPreview（marked + DOMPurify）
+- HTML → HtmlPreview（sandboxed `<iframe srcdoc>` でネイティブ描画）
 
 ## モード切替
 
 - git 変更があるファイルでは Current / Diff / Original タブを表示
-- SVG・Markdown・画像は Preview チェックボックスでレンダリング/ソース表示を切替可能
+- SVG・Markdown・画像・HTML は Preview チェックボックスでレンダリング/ソース表示を切替可能
+  （HTML のみデフォルトはソース表示）
 
 ## データ取得
 
@@ -142,7 +146,7 @@ const isDirectory = ref(false);
 const isNotFound = ref(false);
 const activeMode = ref<PreviewMode>("current");
 
-/** Preview チェックボックス（SVG / Markdown / 画像で使用） */
+/** Preview チェックボックス（SVG / Markdown / 画像 / HTML で使用） */
 const previewEnabled = ref(true);
 
 /** コード折り返しトグル */

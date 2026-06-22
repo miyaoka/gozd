@@ -48,6 +48,7 @@ import type { GitChangeKind, Selection } from "../worktree";
 import ChangesSummaryView from "./ChangesSummaryView.vue";
 import CodePreview from "./CodePreview.vue";
 import DiffPreview from "./DiffPreview.vue";
+import HtmlPreview from "./HtmlPreview.vue";
 import ImagePreview from "./ImagePreview.vue";
 import MarkdownPreview from "./MarkdownPreview.vue";
 import { previewCodeFontFamily, previewFontFamily, previewFontSize } from "./previewConfig";
@@ -68,7 +69,7 @@ import IconLucideX from "~icons/lucide/x";
 type PreviewMode = "current" | "diff" | "original";
 
 /** ファイルの表示種別 */
-type FileType = "image" | "svg" | "markdown" | "code" | "binary";
+type FileType = "image" | "svg" | "markdown" | "html" | "code" | "binary";
 
 const FILE_TYPE_EXTENSIONS: Record<string, FileType> = {
   png: "image",
@@ -81,6 +82,8 @@ const FILE_TYPE_EXTENSIONS: Record<string, FileType> = {
   bmp: "image",
   svg: "svg",
   md: "markdown",
+  html: "html",
+  htm: "html",
 };
 
 function detectFileType(filePath: string): FileType {
@@ -90,7 +93,16 @@ function detectFileType(filePath: string): FileType {
 
 /** rendered 表示を持つファイル種別か */
 function hasRenderedView(ft: FileType): boolean {
-  return ft === "svg" || ft === "markdown" || ft === "image";
+  return ft === "svg" || ft === "markdown" || ft === "image" || ft === "html";
+}
+
+/**
+ * ファイル選択時に rendered / source のどちらをデフォルト表示にするか。
+ * HTML は「ソースを読む」用途が主で、レンダリング描画は明示的なトグルに倒す。
+ * markdown / svg / image はレンダリング表示がデフォルト。
+ */
+function defaultPreviewEnabled(ft: FileType): boolean {
+  return ft !== "html";
 }
 
 const emit = defineEmits<{
@@ -636,7 +648,7 @@ watch(
       changesStore.orderedFileChanges,
     ] as const,
   async ([path, _kind, gitChange, selectedHash, compareHash, isPrDiff]) => {
-    previewEnabled.value = true;
+    previewEnabled.value = defaultPreviewEnabled(fileType.value);
     commitGitChange.value = undefined;
 
     const sel = selection.value;
@@ -1075,6 +1087,12 @@ watch(
         <!-- Markdown preview モード -->
         <MarkdownPreview
           v-else-if="fileType === 'markdown' && previewEnabled && displayContent"
+          :content="displayContent"
+        />
+
+        <!-- HTML preview モード（sandboxed iframe でネイティブ描画） -->
+        <HtmlPreview
+          v-else-if="fileType === 'html' && previewEnabled && displayContent"
           :content="displayContent"
         />
 

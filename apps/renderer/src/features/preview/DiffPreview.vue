@@ -1097,14 +1097,23 @@ function blockEdit(event: Event) {
    `user-select: none` は selectAll 経路で仕様保証が無いため scope 制御には使わない。 */
 ._split-section {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* `minmax(0, 1fr)` でトラックの min を 0 に固定し、コンテンツ幅に依らず左右を等分する。
+     `1fr` (= `minmax(auto, 1fr)`) だと auto 側の automatic minimum が nowrap (`white-space: pre`)
+     の長い行の min-content を拾い、半身がトラックを押し広げて左右がコンテンツ量比で割れる。
+     50% を越える長い行は半身の枠を越えて overflow: visible のまま描画され、diff 全体を囲む
+     `_diff-scroll` (overflow-auto) の横スクロールで参照する。半身単位の overflow box は持たない。 */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   /* grid-template-rows は section ごとに style binding で `repeat(N, auto)` を渡す (= 上記コメント参照) */
 }
 
 ._split-half {
   display: grid;
   grid-template-rows: subgrid;
-  grid-template-columns: 1fr;
+  /* 親と同じく min を 0 に固定し、半身内の単一カラムを 50% 枠に収める。`1fr` だと inner track が
+     長い行の min-content まで伸びて半身の content box が 50% を越えて膨らむ (外側 section の
+     50/50 自体は min 0 トラックなので保たれるが、min 0 で両 grid を揃えて挙動を一致させる)。
+     長い行は親と同様 overflow: visible で枠を越え `_diff-scroll` の横スクロールに逃げる。 */
+  grid-template-columns: minmax(0, 1fr);
   /* `grid-row: 1 / -1` は subgrid 親 row track を継承するための定型。両半身に同じ範囲を当てても
      `_split-section` が 2 列 grid で左右が別 column に置かれるので row は衝突しない。 */
   grid-row: 1 / -1;

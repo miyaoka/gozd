@@ -21,6 +21,10 @@ const config: KnipConfig = {
         // ため、knip からは unused に見える
         "@iconify-json/lucide",
       ],
+      // unplugin-icons の `~icons/lucide/*` は Vite が build 時に生成する virtual module で
+      // ディスク上に実体がない。静的解析する knip は恒久的に解決できず Unresolved imports に
+      // 出すため、specifier パターンで除外する（上の ignoreDependencies とは別系統の検査）。
+      ignoreUnresolved: [/^~icons\//],
     },
     "packages/eslint-plugin": {},
     "packages/proto": {

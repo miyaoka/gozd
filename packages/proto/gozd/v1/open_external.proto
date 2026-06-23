@@ -10,3 +10,16 @@ message OpenExternalRequest {
 }
 
 message OpenExternalResponse {}
+
+// ローカルファイルを OS のデフォルトアプリで開く。Swift 側で
+// `NSWorkspace.shared.open(URL(fileURLWithPath:))`（= macOS の `open` コマンド相当）。
+//
+// 用途: preview ペインのヘッダから表示中ファイルをデフォルトアプリで開く。
+// `openExternal` は scheme allowlist (http/https/mailto) で `file://` を弾く防壁を持つため、
+// ローカルファイルを開く intent は別 RPC として分離する。
+message OpenFileRequest {
+  // 開く対象の絶対パス。
+  string path = 1;
+}
+
+message OpenFileResponse {}

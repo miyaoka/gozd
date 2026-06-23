@@ -115,6 +115,15 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
   - 単一ファイル削除も親ディレクトリごとの削除も同じ経路で拾えるのは、FSWatcher が `kFSEventStreamCreateFlagFileEvents` 付きで配下ファイル単位の削除イベントを出し、その relDir が選択ファイルの親 relDir と一致するため（`apps/native/Sources/GozdCore/FSWatcher.swift`）
   - close 判定の SSOT は純粋関数 `shouldCloseForMissingFile`（summary 表示中 / 絶対パス / current 在 のいずれかなら閉じない、を集約）。PreviewPane 側の if は HEAD 在否確定 RPC を無駄撃ちしないための前段ガード
 
+### デフォルトアプリで開く
+
+ヘッダの external-link ボタンで、表示中ファイルを OS のデフォルトアプリ（macOS の `open` 相当）で開く。
+
+- 対象は常に **working tree の実ファイル**。commit / PR diff モードで履歴版を表示中でも、開くのはディスク上の実体（git 履歴の内容ではない）。selection の kind から実パスを解決する（`worktreeRelative` は `joinAbsRel(dir, relPath)`、`absolute` は `absPath` 直）。表示用の `selectedDisplayPath` は RPC 入力に使わない契約のため流用しない
+- RPC は専用の `/open/file`（`rpcOpenFile`）。native は `NSWorkspace.shared.open(URL(fileURLWithPath:))`。`openExternal`（`/open/external`）は OSC 8 リンク経由の任意 scheme 流入への防壁として scheme allowlist（http/https/mailto）で `file://` を弾くため、ローカルファイルを開く intent は別 RPC に分離する
+- native はパス空・ファイル不在を `invalidArgument` で弾く（無言 no-op にせずエラーにする規律）。renderer 側は失敗を `useNotificationStore` のトーストで通知する
+- selection が無い（プレビュー未選択）ときはボタン自体を非表示にする
+
 ## データ取得
 
 `PreviewPane` が RPC 経由で desktop からファイル内容を取得する。

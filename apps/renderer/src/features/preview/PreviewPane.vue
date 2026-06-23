@@ -47,7 +47,7 @@ import { useChangesStore, useChangesSummaryStore } from "../changes";
 import { getFileIconUrl, relDirOf, rpcFsReadFile, rpcFsReadFileAbsolute } from "../filer";
 import type { FsChangePayload } from "../filer";
 import { rpcGitReadBlob, useGitGraphStore, usePrDiffToggleStore } from "../git-graph";
-import { UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../worktree";
+import { joinAbsRel, UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../worktree";
 import type { GitChangeKind, Selection } from "../worktree";
 import ChangesSummaryView from "./ChangesSummaryView.vue";
 import CodePreview from "./CodePreview.vue";
@@ -56,13 +56,14 @@ import HtmlPreview from "./HtmlPreview.vue";
 import ImagePreview from "./ImagePreview.vue";
 import MarkdownPreview from "./MarkdownPreview.vue";
 import { previewCodeFontFamily, previewFontFamily, previewFontSize } from "./previewConfig";
-import { rpcGitShowCommitFile, rpcGitShowFile } from "./rpc";
+import { rpcGitShowCommitFile, rpcGitShowFile, rpcOpenFile } from "./rpc";
 import { shouldCloseForMissingFile } from "./shouldCloseForMissingFile";
 import { useBlamePopover } from "./useBlamePopover";
 import { useMarkdownHistoryStore } from "./useMarkdownHistoryStore";
 import { usePreviewStore } from "./usePreviewStore";
 import IconLucideArrowLeft from "~icons/lucide/arrow-left";
 import IconLucideArrowRight from "~icons/lucide/arrow-right";
+import IconLucideExternalLink from "~icons/lucide/external-link";
 import IconLucideEye from "~icons/lucide/eye";
 import IconLucideFileClock from "~icons/lucide/file-clock";
 import IconLucideFileDiff from "~icons/lucide/file-diff";
@@ -793,6 +794,30 @@ const imageUrl = computed(() => {
   return buildFileServerUrl(dir, serverPath, fetchVersionRef.value, isOriginal);
 });
 
+/**
+ * 表示中ファイルの実 (working tree) 絶対パス。OS のデフォルトアプリで開く入力に使う。
+ * 表示用の `selectedDisplayPath` は RPC 入力に使わない契約のため、selection の kind から実パスを組む。
+ * commit / PR diff モードでも対象は常に working tree の実ファイル（git 履歴の内容ではない）。
+ */
+const openableAbsPath = computed<string | undefined>(() => {
+  const sel = selection.value;
+  if (sel === undefined) return undefined;
+  if (sel.kind === "absolute") return sel.absPath;
+  const dir = worktreeStore.dir;
+  if (dir === undefined) return undefined;
+  return joinAbsRel(dir, sel.relPath);
+});
+
+/** 表示中ファイルを OS のデフォルトアプリで開く（macOS の `open` 相当）。 */
+async function openInDefaultApp() {
+  const path = openableAbsPath.value;
+  if (path === undefined) return;
+  const result = await tryCatch(rpcOpenFile({ path }));
+  if (!result.ok) {
+    notification.error(`Failed to open file: ${path}`, result.error);
+  }
+}
+
 /** preview チェックボックスを表示するか（diff モードでは非表示） */
 const showPreviewCheckbox = computed(() => {
   if (activeMode.value === "diff") return false;
@@ -978,8 +1003,19 @@ watch(
       </template>
       <span v-else class="text-sm text-foreground-low">Preview</span>
       <button
+        v-if="openableAbsPath"
         type="button"
         class="ml-auto shrink-0 text-foreground-low hover:text-foreground"
+        title="Open in default app"
+        aria-label="Open in default app"
+        @click="openInDefaultApp()"
+      >
+        <IconLucideExternalLink class="size-4" />
+      </button>
+      <button
+        type="button"
+        class="shrink-0 text-foreground-low hover:text-foreground"
+        :class="{ 'ml-auto': !openableAbsPath }"
         title="Close preview"
         aria-label="Close preview"
         @click="emit('close')"

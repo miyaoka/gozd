@@ -53,6 +53,24 @@ extension RpcDispatcher {
     return try Gozd_V1_OpenExternalResponse().jsonUTF8Data()
   }
 
+  func handleOpenFile(_ body: Data) throws -> Data {
+    let req = try Gozd_V1_OpenFileRequest(jsonUTF8Data: body)
+    guard !req.path.isEmpty else {
+      throw RpcError.invalidArgument("empty path")
+    }
+    let url = URL(fileURLWithPath: req.path)
+    // 存在しないパスを NSWorkspace に渡すと無言で no-op になるため、ここで弾いて
+    // renderer 側にエラーを返す（fallback せずエラーにする規律）。
+    guard FileManager.default.fileExists(atPath: url.path) else {
+      throw RpcError.invalidArgument("file not found: \(req.path)")
+    }
+    // NSWorkspace.open は @MainActor。actor 内から MainActor.run でホップする。
+    Task { @MainActor in
+      NSWorkspace.shared.open(url)
+    }
+    return try Gozd_V1_OpenFileResponse().jsonUTF8Data()
+  }
+
   func handleWindowClose(_ body: Data) throws -> Data {
     _ = try Gozd_V1_WindowCloseRequest(jsonUTF8Data: body)
     Task { @MainActor in

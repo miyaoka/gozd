@@ -55,16 +55,23 @@ extension RpcDispatcher {
 
   func handleOpenFile(_ body: Data) throws -> Data {
     let req = try Gozd_V1_OpenFileRequest(jsonUTF8Data: body)
-    guard !req.path.isEmpty else {
-      throw RpcError.invalidArgument("empty path")
+    // path は renderer が joinAbsRel(worktree root, relPath) で解決済みの絶対パス契約。
+    // 相対→絶対の「解決」は基準ディレクトリ (worktree root) を持つ renderer の責務であり、
+    // それを native で再実装すると契約の SSOT が二重化するためここではしない。
+    //
+    // 一方この guard は解決ではなく、URL(fileURLWithPath:) が空文字・相対パスを CWD 基準で
+    // silent に絶対化する Foundation の暗黙 fallback を塞ぐ入口チェック。特に空文字は url.path が
+    // CWD そのものになり fileExists も true を返すため、NSWorkspace.open が Finder で CWD を
+    // 黙って開く誤動作になる。基準ディレクトリを使わない非絶対判定だけで両者を弾き、
+    // 暗黙 fallback を「fallback せずエラーにする」規律に従って明示エラーへ倒す。
+    guard req.path.hasPrefix("/") else {
+      throw RpcError.invalidArgument("path must be absolute: \(req.path)")
     }
     let url = URL(fileURLWithPath: req.path)
-    // 存在しないパスを NSWorkspace に渡すと無言で no-op になるため、ここで弾いて
-    // renderer 側にエラーを返す（fallback せずエラーにする規律）。
-    // これは「無言 no-op を避けエラートーストを出す」ための前段チェックであり、
-    // アクセス制御の関所（セキュリティ境界）ではない。信頼境界は他 RPC (/pty/spawn 等) と
-    // 同じく renderer 内コードを信頼する前提で一貫させる。後続が fileExists を関所と誤読して
-    // ロジックを足さないこと。
+    // fileExists は契約検証ではなく、renderer 側の描画 gate (resolveOpenablePath) を抜けた race
+    // (表示直後に実体が消えた等) 向けの safety net。存在しないパスを NSWorkspace に渡すと無言で
+    // no-op になるため、ここで弾いて renderer にエラーを返す (無言 no-op を避けエラートーストを
+    // 出す)。アクセス制御の関所 (セキュリティ境界) ではない。
     guard FileManager.default.fileExists(atPath: url.path) else {
       throw RpcError.invalidArgument("file not found: \(req.path)")
     }

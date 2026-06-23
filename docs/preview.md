@@ -122,7 +122,9 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 - 対象は常に **working tree の実ファイル**。commit / PR diff モードで履歴版を表示中でも、開くのはディスク上の実体（git 履歴の内容ではない）。表示用の `selectedDisplayPath` は RPC 入力に使わない契約のため流用しない
 - RPC は専用の `/open/file`（`rpcOpenFile`）。native は `NSWorkspace.shared.open(URL(fileURLWithPath:))`。`openExternal`（`/open/external`）は OSC 8 リンク経由の任意 scheme 流入への防壁として scheme allowlist（http/https/mailto）で `file://` を弾くため、ローカルファイルを開く intent は別 RPC に分離する
 - 実パスの解決と描画 gate は純関数 `resolveOpenablePath`（テスト付き）が SSOT。working tree に実体があるときだけ selection の kind から実パスを解決し（`worktreeRelative` は `joinAbsRel(dir, relPath)`、`absolute` は `absPath` 直）、実体が無いケース（selection 無し / `isNotFound` / commit・PR diff モードで `deleted` 版を表示中）は undefined を返す。`openableAbsPath` がこれに委譲し、template の `v-if` がそのままボタン描画を gate するため、押せるが native の存在チェックで必ず失敗する silent dead button を作らない（`blameEnabled` の added file gate と同じ規律）
-- native はパス空・ファイル不在を `invalidArgument` で弾く（無言 no-op にせずエラーにする規律）。これは描画 gate を抜けた race（表示直後に実体が消えた等）の例外ケース向け safety net であり、アクセス制御の関所ではない。renderer 側は失敗を `useNotificationStore` のトーストで通知する
+- **相対→絶対の解決は基準ディレクトリ（worktree root）を持つ renderer の責務**。`/open/file` には常に解決済みの絶対パスが渡る契約で、native は基準ディレクトリを持たず解決を**再実装しない**（再実装すると契約の SSOT が二重化する）。この契約は proto の `OpenFileRequest.path` コメントと native handler に明記する
+- ただし native は入口で**非絶対パス（空文字含む）を `invalidArgument` で弾く**。これは解決（基準ディレクトリ依存）ではなく、`URL(fileURLWithPath:)` が空文字・相対パスを CWD 基準で silent に絶対化する Foundation の暗黙 fallback を塞ぐためのガード。特に空文字は `url.path` が CWD になり `fileExists` も true を返すため、`NSWorkspace.open` が Finder で CWD を黙って開く誤動作になる。`fallback せずエラーにする` 規律に従い明示エラーへ倒す
+- native の `fileExists` は契約検証ではなく、上記描画 gate を抜けた race（表示直後に実体が消えた等）向けの safety net。不在なら `invalidArgument` で弾き（無言 no-op を避ける）、renderer 側は失敗を `useNotificationStore` のトーストで通知する。アクセス制御の関所ではない
 
 ## データ取得
 

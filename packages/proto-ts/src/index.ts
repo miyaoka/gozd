@@ -133,7 +133,12 @@ export {
   SortMode,
 } from "./generated/gozd/v1/git_ops";
 export { GitStatusRequest, GitStatusResponse } from "./generated/gozd/v1/git_status";
-export { OpenExternalRequest, OpenExternalResponse } from "./generated/gozd/v1/open_external";
+export {
+  OpenExternalRequest,
+  OpenExternalResponse,
+  OpenFileRequest,
+  OpenFileResponse,
+} from "./generated/gozd/v1/open_external";
 export { PickAndOpenRequest, PickAndOpenResponse } from "./generated/gozd/v1/open_target";
 export {
   ProjectConfigLoadRequest,

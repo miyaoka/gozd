@@ -56,13 +56,15 @@ import HtmlPreview from "./HtmlPreview.vue";
 import ImagePreview from "./ImagePreview.vue";
 import MarkdownPreview from "./MarkdownPreview.vue";
 import { previewCodeFontFamily, previewFontFamily, previewFontSize } from "./previewConfig";
-import { rpcGitShowCommitFile, rpcGitShowFile } from "./rpc";
+import { resolveOpenablePath } from "./resolveOpenablePath";
+import { rpcGitShowCommitFile, rpcGitShowFile, rpcOpenFile } from "./rpc";
 import { shouldCloseForMissingFile } from "./shouldCloseForMissingFile";
 import { useBlamePopover } from "./useBlamePopover";
 import { useMarkdownHistoryStore } from "./useMarkdownHistoryStore";
 import { usePreviewStore } from "./usePreviewStore";
 import IconLucideArrowLeft from "~icons/lucide/arrow-left";
 import IconLucideArrowRight from "~icons/lucide/arrow-right";
+import IconLucideExternalLink from "~icons/lucide/external-link";
 import IconLucideEye from "~icons/lucide/eye";
 import IconLucideFileClock from "~icons/lucide/file-clock";
 import IconLucideFileDiff from "~icons/lucide/file-diff";
@@ -793,6 +795,30 @@ const imageUrl = computed(() => {
   return buildFileServerUrl(dir, serverPath, fetchVersionRef.value, isOriginal);
 });
 
+/**
+ * 表示中ファイルを OS のデフォルトアプリで開く入力に使う実 (working tree) 絶対パス。
+ * working tree に実体が無い (notFound / deleted) ケースは undefined を返し、ボタン描画自体を
+ * gate して silent dead button を作らない。解決ロジックは純関数 `resolveOpenablePath` に切り出す。
+ */
+const openableAbsPath = computed<string | undefined>(() =>
+  resolveOpenablePath({
+    selection: selection.value,
+    dir: worktreeStore.dir,
+    isNotFound: isNotFound.value,
+    effectiveGitChange: effectiveGitChange.value,
+  }),
+);
+
+/** 表示中ファイルを OS のデフォルトアプリで開く（macOS の `open` 相当）。 */
+async function openInDefaultApp() {
+  const path = openableAbsPath.value;
+  if (path === undefined) return;
+  const result = await tryCatch(rpcOpenFile({ path }));
+  if (!result.ok) {
+    notification.error(`Failed to open file: ${path}`, result.error);
+  }
+}
+
 /** preview チェックボックスを表示するか（diff モードでは非表示） */
 const showPreviewCheckbox = computed(() => {
   if (activeMode.value === "diff") return false;
@@ -978,8 +1004,19 @@ watch(
       </template>
       <span v-else class="text-sm text-foreground-low">Preview</span>
       <button
+        v-if="openableAbsPath"
         type="button"
         class="ml-auto shrink-0 text-foreground-low hover:text-foreground"
+        title="Open in default app"
+        aria-label="Open in default app"
+        @click="openInDefaultApp()"
+      >
+        <IconLucideExternalLink class="size-4" />
+      </button>
+      <button
+        type="button"
+        class="shrink-0 text-foreground-low hover:text-foreground"
+        :class="{ 'ml-auto': !openableAbsPath }"
         title="Close preview"
         aria-label="Close preview"
         @click="emit('close')"

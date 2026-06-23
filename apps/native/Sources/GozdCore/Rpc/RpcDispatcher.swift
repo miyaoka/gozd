@@ -157,6 +157,7 @@ public actor RpcDispatcher {
     case "/projectConfig/save": return try handleProjectConfigSave(body)
     // open / window
     case "/open/external": return try handleOpenExternal(body)
+    case "/open/file": return try handleOpenFile(body)
     case "/open/pickAndOpen": return try await handlePickAndOpen(body)
     case "/window/close": return try handleWindowClose(body)
     case "/window/setTitleContext": return try await handleWindowSetTitleContext(body)

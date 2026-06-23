@@ -119,10 +119,10 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 
 ヘッダの external-link ボタンで、表示中ファイルを OS のデフォルトアプリ（macOS の `open` 相当）で開く。
 
-- 対象は常に **working tree の実ファイル**。commit / PR diff モードで履歴版を表示中でも、開くのはディスク上の実体（git 履歴の内容ではない）。selection の kind から実パスを解決する（`worktreeRelative` は `joinAbsRel(dir, relPath)`、`absolute` は `absPath` 直）。表示用の `selectedDisplayPath` は RPC 入力に使わない契約のため流用しない
+- 対象は常に **working tree の実ファイル**。commit / PR diff モードで履歴版を表示中でも、開くのはディスク上の実体（git 履歴の内容ではない）。表示用の `selectedDisplayPath` は RPC 入力に使わない契約のため流用しない
 - RPC は専用の `/open/file`（`rpcOpenFile`）。native は `NSWorkspace.shared.open(URL(fileURLWithPath:))`。`openExternal`（`/open/external`）は OSC 8 リンク経由の任意 scheme 流入への防壁として scheme allowlist（http/https/mailto）で `file://` を弾くため、ローカルファイルを開く intent は別 RPC に分離する
-- native はパス空・ファイル不在を `invalidArgument` で弾く（無言 no-op にせずエラーにする規律）。renderer 側は失敗を `useNotificationStore` のトーストで通知する
-- selection が無い（プレビュー未選択）ときはボタン自体を非表示にする
+- 実パスの解決と描画 gate は純関数 `resolveOpenablePath`（テスト付き）が SSOT。working tree に実体があるときだけ selection の kind から実パスを解決し（`worktreeRelative` は `joinAbsRel(dir, relPath)`、`absolute` は `absPath` 直）、実体が無いケース（selection 無し / `isNotFound` / commit・PR diff モードで `deleted` 版を表示中）は undefined を返す。`openableAbsPath` がこれに委譲し、template の `v-if` がそのままボタン描画を gate するため、押せるが native の存在チェックで必ず失敗する silent dead button を作らない（`blameEnabled` の added file gate と同じ規律）
+- native はパス空・ファイル不在を `invalidArgument` で弾く（無言 no-op にせずエラーにする規律）。これは描画 gate を抜けた race（表示直後に実体が消えた等）の例外ケース向け safety net であり、アクセス制御の関所ではない。renderer 側は失敗を `useNotificationStore` のトーストで通知する
 
 ## データ取得
 

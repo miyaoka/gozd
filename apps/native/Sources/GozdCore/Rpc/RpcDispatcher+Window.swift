@@ -61,6 +61,10 @@ extension RpcDispatcher {
     let url = URL(fileURLWithPath: req.path)
     // 存在しないパスを NSWorkspace に渡すと無言で no-op になるため、ここで弾いて
     // renderer 側にエラーを返す（fallback せずエラーにする規律）。
+    // これは「無言 no-op を避けエラートーストを出す」ための前段チェックであり、
+    // アクセス制御の関所（セキュリティ境界）ではない。信頼境界は他 RPC (/pty/spawn 等) と
+    // 同じく renderer 内コードを信頼する前提で一貫させる。後続が fileExists を関所と誤読して
+    // ロジックを足さないこと。
     guard FileManager.default.fileExists(atPath: url.path) else {
       throw RpcError.invalidArgument("file not found: \(req.path)")
     }

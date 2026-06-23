@@ -47,7 +47,7 @@ import { useChangesStore, useChangesSummaryStore } from "../changes";
 import { getFileIconUrl, relDirOf, rpcFsReadFile, rpcFsReadFileAbsolute } from "../filer";
 import type { FsChangePayload } from "../filer";
 import { rpcGitReadBlob, useGitGraphStore, usePrDiffToggleStore } from "../git-graph";
-import { joinAbsRel, UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../worktree";
+import { UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../worktree";
 import type { GitChangeKind, Selection } from "../worktree";
 import ChangesSummaryView from "./ChangesSummaryView.vue";
 import CodePreview from "./CodePreview.vue";
@@ -56,6 +56,7 @@ import HtmlPreview from "./HtmlPreview.vue";
 import ImagePreview from "./ImagePreview.vue";
 import MarkdownPreview from "./MarkdownPreview.vue";
 import { previewCodeFontFamily, previewFontFamily, previewFontSize } from "./previewConfig";
+import { resolveOpenablePath } from "./resolveOpenablePath";
 import { rpcGitShowCommitFile, rpcGitShowFile, rpcOpenFile } from "./rpc";
 import { shouldCloseForMissingFile } from "./shouldCloseForMissingFile";
 import { useBlamePopover } from "./useBlamePopover";
@@ -795,18 +796,18 @@ const imageUrl = computed(() => {
 });
 
 /**
- * 表示中ファイルの実 (working tree) 絶対パス。OS のデフォルトアプリで開く入力に使う。
- * 表示用の `selectedDisplayPath` は RPC 入力に使わない契約のため、selection の kind から実パスを組む。
- * commit / PR diff モードでも対象は常に working tree の実ファイル（git 履歴の内容ではない）。
+ * 表示中ファイルを OS のデフォルトアプリで開く入力に使う実 (working tree) 絶対パス。
+ * working tree に実体が無い (notFound / deleted) ケースは undefined を返し、ボタン描画自体を
+ * gate して silent dead button を作らない。解決ロジックは純関数 `resolveOpenablePath` に切り出す。
  */
-const openableAbsPath = computed<string | undefined>(() => {
-  const sel = selection.value;
-  if (sel === undefined) return undefined;
-  if (sel.kind === "absolute") return sel.absPath;
-  const dir = worktreeStore.dir;
-  if (dir === undefined) return undefined;
-  return joinAbsRel(dir, sel.relPath);
-});
+const openableAbsPath = computed<string | undefined>(() =>
+  resolveOpenablePath({
+    selection: selection.value,
+    dir: worktreeStore.dir,
+    isNotFound: isNotFound.value,
+    effectiveGitChange: effectiveGitChange.value,
+  }),
+);
 
 /** 表示中ファイルを OS のデフォルトアプリで開く（macOS の `open` 相当）。 */
 async function openInDefaultApp() {

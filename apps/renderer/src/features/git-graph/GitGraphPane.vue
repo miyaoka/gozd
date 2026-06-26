@@ -12,6 +12,19 @@ Git commit graph showing the current worktree branch and the default branch.
 - CommitDetailPane is shown as a toggleable right pane inside the graph
 - Commits are stored in `useGitGraphStore` and shared with ChangesPane
 
+## 古い current branch の途切れ表示
+
+全ブランチ表示 (`currentBranchOnly` OFF) は全 ref を始点に新しい順 `maxCount` 件で切るため、default
+ブランチに HEAD tip より新しい commit が `maxCount` 件以上あると現在ブランチ (HEAD) がウィンドウから
+押し出されて 1 行も出ない。これを防ぐため native (`GitOps.log`) は HEAD が結果に含まれないとき HEAD-only
+walk を末尾に append し、その境界の先頭 commit に `truncatedAbove` を立てる。
+
+renderer 側は `graphLayout.ts` で `truncatedAbove` の行の手前に **gap 行を 1 行挿入** し、あわせて上の
+クラスタの (cut された親を待つ) レーンを切断する。gap 行は SVG の dot を描かず、`Earlier history hidden`
+を graph 列の左端から 1 レーン分インデントして開始する全幅 separator として表示する (commit メッセージ列と
+紛れず、lane 0 のコネクタにも被らない)。gap 行も `layout.nodes` の 1 ノードとして 1 行枠を占有するため、
+SVG の行 index 座標系と DOM 行が一致し続ける。キーボードナビは gap 行を読み飛ばす。
+
 ## 右クリックメニュー
 
 commit 行を右クリックすると `CommitContextMenu` (singleton popover) が開き、「Reset (mixed) to here」で
@@ -56,6 +69,7 @@ import { useGitGraphStore } from "./useGitGraphStore";
 import { usePrListStore } from "./usePrListStore";
 import IconLucideGitCommitHorizontal from "~icons/lucide/git-commit-horizontal";
 import IconLucideGitMerge from "~icons/lucide/git-merge";
+import IconLucideMoreHorizontal from "~icons/lucide/more-horizontal";
 import IconLucidePanelRight from "~icons/lucide/panel-right";
 
 const rootRef = useTemplateRef<HTMLElement>("root");
@@ -699,11 +713,21 @@ function getGraphListSize(): number {
   return el?.offsetWidth ?? GRAPH_LIST_MIN_WIDTH;
 }
 
-/** 現在選択中のノードのインデックス。範囲選択中は compareHash（移動端）を返す */
+/** 現在選択中のノードの **行 (node) インデックス**。範囲選択中は compareHash（移動端）を返す。
+ * gap 行挿入で commit index と node index がずれるため、store の hashToIndex (commit index) では
+ * なく layout.nodes 上の位置を引く。未選択 / Working Tree は -1。 */
 function selectedIndex(): number {
   const { compareHash } = gitGraphStore;
   const hash = compareHash ?? gitGraphStore.selectedHash;
-  return gitGraphStore.hashToIndex.get(hash) ?? -1;
+  return layout.value.nodes.findIndex((n) => !n.gap && n.commit.hash === hash);
+}
+
+/** index から dir 方向へ gap 行を読み飛ばした最初の非 gap 行を返す。範囲外はそのまま返し caller が clamp する。 */
+function skipGapRows(index: number, dir: number): number {
+  const nodes = layout.value.nodes;
+  let i = index;
+  while (i >= 0 && i < nodes.length && nodes[i]?.gap) i += dir;
+  return i;
 }
 
 /** 選択を Uncommitted Changes に戻し、HEAD コミット付近にスクロール */
@@ -761,7 +785,8 @@ function onKeydown(e: KeyboardEvent) {
       scrollToIndex(0);
       return;
     }
-    const next = Math.min(step - 1, nodes.length - 1);
+    const next = skipGapRows(Math.min(step - 1, nodes.length - 1), 1);
+    if (next >= nodes.length) return;
     const hash = nodes[next].commit.hash;
     if (e.shiftKey) {
       gitGraphStore.selectCompare(hash);
@@ -785,9 +810,19 @@ function onKeydown(e: KeyboardEvent) {
   let next: number;
 
   if (isUp) {
-    next = current - step;
+    next = skipGapRows(current - step, -1);
+    // gap を上に抜けて Working Tree 域に出たら Working Tree 選択へ倒す。
+    if (next < 0) {
+      if (e.shiftKey) {
+        gitGraphStore.selectCompare(UNCOMMITTED_HASH);
+      } else {
+        gitGraphStore.select(UNCOMMITTED_HASH);
+      }
+      return;
+    }
   } else {
-    next = Math.min(nodes.length - 1, current + step);
+    next = skipGapRows(Math.min(nodes.length - 1, current + step), 1);
+    if (next >= nodes.length) return;
   }
 
   if (e.shiftKey) {
@@ -1146,9 +1181,10 @@ const isWorkingTreeActive = computed(
                 :stroke="colorFor(seg.color)"
                 stroke-width="2"
               />
-              <!-- コミットドット -->
+              <!-- コミットドット (gap 行は dot を描かない) -->
               <circle
                 v-for="(node, row) in layout.nodes"
+                v-show="!node.gap"
                 :key="`dot-${node.commit.hash}`"
                 :cx="laneX(node.lane)"
                 :cy="rowY(row)"
@@ -1165,69 +1201,87 @@ const isWorkingTreeActive = computed(
                  SVG は positioned absolute (layer 6) なので、CSS の painting order により z-index
                  を一切使わずに SVG が row 背景の上に描かれる。`relative` を足すと row が layer 6
                  に上がり、tree order で後発の row 背景が先発の SVG を塗りつぶす不具合が再発する。 -->
-            <div
-              v-for="node in layout.nodes"
-              :key="node.commit.hash"
-              class="_graph-row grid items-center text-xs"
-              :class="rowHighlightClass(node.commit.hash)"
-              :style="{
-                gridTemplateColumns: 'var(--graph-cols)',
-                height: `${ROW_HEIGHT}px`,
-              }"
-              @click="onRowClick(node.commit.hash, $event)"
-              @contextmenu="onCommitContextMenu(node.commit.hash, $event)"
-            >
-              <!-- col 1 (graph): SVG が absolute で覆うセル。右端の
+            <template v-for="(node, row) in layout.nodes" :key="`row-${row}`">
+              <!-- gap 行: 履歴の途切れ。全ブランチ表示で HEAD が新しい順 maxCount ウィンドウから
+                   押し出され HEAD-only walk が末尾 append された境界に挟まる。コミットメッセージ
+                   (col 2) と紛れないよう grid を使わず、graph 列の左端から 1 レーン分インデントして
+                   開始する全幅の separator として置く。lane 0 のコネクタ破線にも被らない。
+                   height は ROW_HEIGHT に固定し SVG の行 index 座標系を崩さない。 -->
+              <div
+                v-if="node.gap"
+                class="flex items-center gap-[0.5ch] bg-panel text-xs text-foreground-low select-none"
+                :style="{
+                  height: `${ROW_HEIGHT}px`,
+                  paddingLeft: `${GRAPH_PADDING_X + LANE_WIDTH}px`,
+                }"
+              >
+                <IconLucideMoreHorizontal class="size-3.5 shrink-0" />
+                <span>Earlier history hidden</span>
+              </div>
+
+              <div
+                v-else
+                class="_graph-row grid items-center text-xs"
+                :class="rowHighlightClass(node.commit.hash)"
+                :style="{
+                  gridTemplateColumns: 'var(--graph-cols)',
+                  height: `${ROW_HEIGHT}px`,
+                }"
+                @click="onRowClick(node.commit.hash, $event)"
+                @contextmenu="onCommitContextMenu(node.commit.hash, $event)"
+              >
+                <!-- col 1 (graph): SVG が absolute で覆うセル。右端の
                    HEAD_MARKER_RIGHT_PADDING 余白に HEAD marker を in-flow 右寄せで置く。
                    col 2 内の absolute 配置 (`right-full`) にすると col 2 の `truncate`
                    (overflow: hidden) が containing block ごとクリップして marker が消える。
                    非 positioned content (layer 4) なので row 背景 / SVG の painting order に
                    影響せず、余白内なので SVG の lane / dot とも x 帯が重ならない。 -->
-              <div class="flex items-center justify-end pr-1">
-                <span v-if="hasHead(node.commit.refs)" class="text-warning-text" title="HEAD">
-                  →
-                </span>
-              </div>
+                <div class="flex items-center justify-end pr-1">
+                  <span v-if="hasHead(node.commit.refs)" class="text-warning-text" title="HEAD">
+                    →
+                  </span>
+                </div>
 
-              <!-- col 2 (description) -->
-              <div class="flex min-w-0 items-center gap-1 truncate pr-2">
-                <IconLucideGitMerge
-                  v-if="isMergeCommit(node.commit)"
-                  class="size-3.5 shrink-0 text-foreground-low"
-                />
-                <RefBadge
-                  v-for="displayRef in computeDisplayRefs(
-                    node.commit.refs,
-                    currentBranch,
-                    defaultBranch,
-                    outOfSyncBranches,
-                  )"
-                  :key="`${displayRef.type}:${displayRef.label}`"
-                  :display-ref="displayRef"
-                  :pr-by-branch="prByBranch"
-                />
-                <span class="truncate">
-                  <CommitSegmentList
-                    :segments="commitMessageSegmentsByHash.get(node.commit.hash) ?? []"
+                <!-- col 2 (description) -->
+                <div class="flex min-w-0 items-center gap-1 truncate pr-2">
+                  <IconLucideGitMerge
+                    v-if="isMergeCommit(node.commit)"
+                    class="size-3.5 shrink-0 text-foreground-low"
                   />
-                </span>
-              </div>
+                  <RefBadge
+                    v-for="displayRef in computeDisplayRefs(
+                      node.commit.refs,
+                      currentBranch,
+                      defaultBranch,
+                      outOfSyncBranches,
+                    )"
+                    :key="`${displayRef.type}:${displayRef.label}`"
+                    :display-ref="displayRef"
+                    :pr-by-branch="prByBranch"
+                  />
+                  <span class="truncate">
+                    <CommitSegmentList
+                      :segments="commitMessageSegmentsByHash.get(node.commit.hash) ?? []"
+                    />
+                  </span>
+                </div>
 
-              <!-- col 3 (date) -->
-              <div class="text-foreground-low">
-                {{ formatDate(node.commit.date) }}
-              </div>
+                <!-- col 3 (date) -->
+                <div class="text-foreground-low">
+                  {{ formatDate(node.commit.date) }}
+                </div>
 
-              <!-- col 4 (author) -->
-              <div class="truncate text-foreground-low">
-                {{ node.commit.author }}
-              </div>
+                <!-- col 4 (author) -->
+                <div class="truncate text-foreground-low">
+                  {{ node.commit.author }}
+                </div>
 
-              <!-- col 5 (hash) -->
-              <div class="font-mono text-foreground-low">
-                {{ node.commit.shortHash }}
+                <!-- col 5 (hash) -->
+                <div class="font-mono text-foreground-low">
+                  {{ node.commit.shortHash }}
+                </div>
               </div>
-            </div>
+            </template>
           </div>
         </div>
       </div>

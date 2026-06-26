@@ -29,7 +29,24 @@ interface GraphNode {
   lane: number;
   /** 色インデックス */
   color: number;
+  /** 履歴の途切れを示す gap 行か。true のとき `commit` は描画しない placeholder で、
+   *  template は diff の hunk-bar 相当の全幅バーを描く。SVG の dot は描かない。 */
+  gap?: boolean;
 }
+
+/** gap 行の placeholder commit。refs / hash を空にして HEAD 判定・選択・headNode 探索に
+ *  引っかからないようにする。gap 行は描画専用で commit データを持たない。 */
+const GAP_COMMIT: GitCommit = {
+  hash: "",
+  shortHash: "",
+  parents: [],
+  author: "",
+  date: 0,
+  message: "",
+  body: "",
+  refs: [],
+  truncatedAbove: false,
+};
 
 /** レーン計算の結果 */
 export interface GraphLayout {
@@ -86,24 +103,44 @@ export function computeGraphLayout(
   }
 
   // HEAD を最左 lane に固定するための予約判定。
-  // HEAD が表示順で先頭 (headRow === 0) なら貪欲割り当てで既に最左なので予約不要。
+  // HEAD が表示順で先頭 (commit index 0) なら貪欲割り当てで既に最左なので予約不要。
   // それ以外 (HEAD より上に他コミットが並ぶ) のときは、HEAD 到達前の行で lane 0 を
   // 空けて予約し、HEAD 行で lane 0 に固定する。HEAD がグラフ内に子を持つ (= 非 tip) 場合も、
   // 子の各レーンを HEAD 行で lane 0 へ合流させることで lane を壊さず固定できる。
-  const headRow = headHash === undefined ? -1 : (commitIndexMap.get(headHash) ?? -1);
-  const reserveHeadLane = headRow > 0;
+  const headCommitIndex = headHash === undefined ? -1 : (commitIndexMap.get(headHash) ?? -1);
+  const reserveHeadLane = headCommitIndex > 0;
+  // 出力行 (node index) は gap 挿入で commit index とずれるため、「HEAD に到達済みか」を
+  // フラグで持ち、数値の行 index に依存せず lane 0 予約の解除を判定する。
+  let headReached = false;
 
   const activeLanes: (LaneState | undefined)[] = [];
   // HEAD が表示集合内にあるなら色 0 は HEAD 専用に予約し、他レーンは 1 から採番する。
-  // HEAD 不在 (headRow < 0) なら予約不要なので従来どおり 0 から採番する。
-  let nextColor = headRow >= 0 ? 1 : 0;
+  // HEAD 不在 (headCommitIndex < 0) なら予約不要なので従来どおり 0 から採番する。
+  let nextColor = headCommitIndex >= 0 ? 1 : 0;
   let maxLanes = 0;
 
   const nodes: GraphNode[] = [];
   const lines: LineSegment[] = [];
 
-  for (let row = 0; row < commits.length; row++) {
-    const commit = commits[row];
+  for (let ci = 0; ci < commits.length; ci++) {
+    const commit = commits[ci];
+
+    // --- Phase 0: 途切れ境界で gap 行を挿入しレーンを切断 ---
+    // truncatedAbove は「直上で履歴が連続しない別セグメントの先頭」を示す
+    // (native が全ブランチ表示で HEAD-only walk を末尾 append した境界に立てる)。
+    // gap 行を 1 行挿入して最新クラスタと現在ブランチクラスタの間を視覚的に空ける
+    // (diff preview の「N unchanged lines」バー相当)。あわせて上のクラスタの末尾レーンは
+    // cut された親 (= 結果集合外) を待ったまま active に残るため、ここでクリアしないと
+    // Phase 1 が下のクラスタまで縦の通過線を垂れ流す。全 active レーンを undefined にして
+    // 上のクラスタの線を gap の手前で終端させ、下のクラスタを新規レーンで開始する。
+    if (ci > 0 && commit.truncatedAbove) {
+      nodes.push({ commit: GAP_COMMIT, lane: 0, color: 0, gap: true });
+      for (let i = 0; i < activeLanes.length; i++) activeLanes[i] = undefined;
+    }
+
+    // この commit の出力行 (gap 挿入を含めた node index)。SVG の dot / line 座標も
+    // この row を使い、行 DOM と SVG を同一 index 座標系に保つ。
+    const row = nodes.length;
 
     // --- Phase 1: この行に到達するセグメントを生成 ---
     // 前の行のレーン状態からこの行への遷移
@@ -117,14 +154,15 @@ export function computeGraphLayout(
     let lane: number;
     let color: number;
 
-    const isHead = row === headRow;
-    // HEAD 到達前は lane 0 を予約 (空き探索の下限を 1 に上げる) し、HEAD に確保しておく
-    const minLane = reserveHeadLane && row < headRow ? 1 : 0;
+    const isHead = headHash !== undefined && commit.hash === headHash;
+    // HEAD 到達前は lane 0 を予約 (空き探索の下限を 1 に上げる) し、HEAD に確保しておく。
+    // HEAD 行自身と HEAD 以降は予約解除 (minLane 0)。
+    const minLane = reserveHeadLane && !headReached && !isHead ? 1 : 0;
 
     if (isHead) {
       // HEAD は常に最左 lane (lane 0) と固定色 (HEAD_COLOR) に置く。
-      // 予約中 (headRow > 0) は確保済みの lane 0、HEAD が表示先頭 (headRow === 0) なら
-      // 貪欲割り当てでも lane 0 になる。子がある (matchingLanes あり) 場合も lane 0 を優先し、
+      // 予約中 (reserveHeadLane = headCommitIndex > 0) は確保済みの lane 0、HEAD が表示先頭
+      // (headCommitIndex === 0) なら貪欲割り当てでも lane 0 になる。子がある (matchingLanes あり) 場合も lane 0 を優先し、
       // 子の各レーンを下の合流処理で lane 0 へ寄せる。色は子に追従せず HEAD_COLOR に固定して
       // lane 0 = current branch の線を常に同色にし、Working Tree 行と揃える
       lane = reserveHeadLane ? 0 : findEmptyLane(activeLanes, minLane);
@@ -220,6 +258,8 @@ export function computeGraphLayout(
 
     maxLanes = Math.max(maxLanes, countActive(activeLanes));
     nodes.push({ commit, lane, color });
+    // HEAD 行を処理し終えたら lane 0 予約を解除する (以降の行は minLane 0)。
+    if (isHead) headReached = true;
   }
 
   return { nodes, lines, maxLanes: Math.max(maxLanes, 1) };

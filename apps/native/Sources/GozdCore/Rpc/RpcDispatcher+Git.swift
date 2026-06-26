@@ -420,6 +420,7 @@ fileprivate func toGitCommitProto(_ c: CommitInfo) -> Gozd_V1_GitCommit {
   pb.message = c.message
   pb.body = c.body
   pb.refs = c.refs
+  pb.truncatedAbove = c.truncatedAbove
   return pb
 }
 

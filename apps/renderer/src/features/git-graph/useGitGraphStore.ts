@@ -15,6 +15,7 @@ const uncommittedCommit: GitCommit = {
   message: "Uncommitted Changes",
   body: "",
   refs: [],
+  truncatedAbove: false,
 };
 
 export const useGitGraphStore = defineStore("gitGraph", () => {

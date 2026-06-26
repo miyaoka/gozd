@@ -13,6 +13,21 @@ import { buildRangeHashes } from "./rangeHashes";
  */
 const WT_SENTINEL = "__test-working-tree__";
 
+/** テスト用 commit を最小フィールドで生成する */
+function commit(hash: string, parents: string[], refs: string[] = []): GitCommit {
+  return {
+    hash,
+    shortHash: hash,
+    parents,
+    author: "",
+    date: 0,
+    message: "",
+    body: "",
+    refs,
+    truncatedAbove: false,
+  };
+}
+
 /**
  * テスト用 commit。first-parent walk のみ意味があるので parents[0] のみ設定する。
  * graph 形:
@@ -23,46 +38,10 @@ const WT_SENTINEL = "__test-working-tree__";
  */
 function makeCommits(): GitCommit[] {
   return [
-    {
-      hash: "c0",
-      shortHash: "c0",
-      parents: ["c1"],
-      author: "",
-      date: 0,
-      message: "",
-      body: "",
-      refs: ["HEAD"],
-    },
-    {
-      hash: "c1",
-      shortHash: "c1",
-      parents: ["c2"],
-      author: "",
-      date: 0,
-      message: "",
-      body: "",
-      refs: [],
-    },
-    {
-      hash: "c2",
-      shortHash: "c2",
-      parents: ["c3"],
-      author: "",
-      date: 0,
-      message: "",
-      body: "",
-      refs: [],
-    },
-    {
-      hash: "c3",
-      shortHash: "c3",
-      parents: [],
-      author: "",
-      date: 0,
-      message: "",
-      body: "",
-      refs: [],
-    },
+    commit("c0", ["c1"], ["HEAD"]),
+    commit("c1", ["c2"]),
+    commit("c2", ["c3"]),
+    commit("c3", []),
   ];
 }
 
@@ -116,18 +95,7 @@ describe("buildRangeHashes", () => {
   });
 
   test("HEAD ref を持つ commit が無いまま newer=WT_SENTINEL を渡すと空配列", () => {
-    const commits: GitCommit[] = [
-      {
-        hash: "c0",
-        shortHash: "c0",
-        parents: [],
-        author: "",
-        date: 0,
-        message: "",
-        body: "",
-        refs: [], // HEAD ref を持たない
-      },
-    ];
+    const commits: GitCommit[] = [commit("c0", [])]; // HEAD ref を持たない
     const map = makeMap(commits);
     expect(buildRangeHashes(WT_SENTINEL, WT_SENTINEL, map, commits, WT_SENTINEL)).toEqual([]);
   });

@@ -120,7 +120,53 @@ extension GitOps {
     let commits = try await runLogStdin(
       dir: dir, refs: Array(refs), maxCount: maxCount,
       firstParentOnly: firstParentOnly, sortMode: sortMode)
-    return LogResult(commits: commits, defaultBranch: defaultBranch, branchHead: branchHead)
+
+    let merged = try await rescueCurrentBranch(
+      dir: dir, commits: commits, currentBranchOnly: currentBranchOnly, headExists: headExists,
+      maxCount: maxCount, firstParentOnly: firstParentOnly, sortMode: sortMode)
+    return LogResult(commits: merged, defaultBranch: defaultBranch, branchHead: branchHead)
+  }
+
+  /// 全ブランチ表示で現在ブランチ (HEAD) が結果から丸ごと欠落するケースを救済する。
+  ///
+  /// `currentBranchOnly == false` の walk は HEAD / `origin/<default>` / `@{upstream}` を
+  /// 始点に新しい順 `maxCount` 件で切る。default ブランチに HEAD tip より新しい commit が
+  /// `maxCount` 件以上あると HEAD 系統がウィンドウから押し出され、graph 上に現在ブランチが
+  /// 1 行も出ない。現在ブランチが見えないと "Scroll to HEAD" / lane 0 の HEAD 予約も機能しなくなる。
+  ///
+  /// 救済は HEAD が結果に含まれないときだけ HEAD-only walk を 1 本足し、末尾に append する
+  /// (OID dedup)。HEAD 系統は「新しい順 `maxCount` ウィンドウから押し出された」= all-refs 結果の最古
+  /// commit より必ず古いため、HEAD-only walk の全 commit は all-refs 結果の全 commit より古い。
+  /// よって単純 append で date / topo どちらの順序契約も保たれる (親が子より先に出ない制約も、
+  /// 古い祖先側を末尾に置くので維持される)。renderer は git の返却順をそのまま行に写すため、
+  /// この順序保証が描画の前提を満たす。
+  ///
+  /// HEAD の在否判定は parse 済み refs を見る (`%D` の `HEAD -> branch` / detached `HEAD` は
+  /// `parseRefs` が `"HEAD"` 要素に展開する)。別途 `rev-parse HEAD` を spawn せず済む。
+  /// `maxCount == 0` (無制限) では all-refs walk が HEAD も含めて全件返すため、この判定で
+  /// 自然に false になり追加 walk は走らない。
+  private static func rescueCurrentBranch(
+    dir: String, commits: [CommitInfo], currentBranchOnly: Bool, headExists: Bool,
+    maxCount: UInt32, firstParentOnly: Bool, sortMode: LogSortMode
+  ) async throws -> [CommitInfo] {
+    guard !currentBranchOnly, headExists else { return commits }
+    let headPresent = commits.contains { $0.refs.contains("HEAD") }
+    if headPresent { return commits }
+
+    let headCommits = try await runLogStdin(
+      dir: dir, refs: ["HEAD"], maxCount: maxCount,
+      firstParentOnly: firstParentOnly, sortMode: sortMode)
+    var seen = Set(commits.map { $0.hash })
+    var merged = commits
+    var isBoundary = true
+    for commit in headCommits where !seen.contains(commit.hash) {
+      // append セグメントの先頭 commit にだけ truncatedAbove を立て、renderer が
+      // 最新クラスタとの境界に「途切れ行」を描けるようにする。2 件目以降は通常の commit。
+      merged.append(isBoundary ? commit.withTruncatedAbove() : commit)
+      seen.insert(commit.hash)
+      isBoundary = false
+    }
+    return merged
   }
 
   /// `git log --stdin` で複数 ref を始点に走る単発 helper。

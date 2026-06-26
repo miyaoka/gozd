@@ -3,8 +3,23 @@ import { describe, expect, test } from "bun:test";
 import { computeGraphLayout, HEAD_COLOR } from "./graphLayout";
 
 /** テスト用 commit を最小フィールドで生成する */
-function commit(hash: string, parents: string[], refs: string[] = []): GitCommit {
-  return { hash, shortHash: hash, parents, author: "", date: 0, message: "", body: "", refs };
+function commit(
+  hash: string,
+  parents: string[],
+  refs: string[] = [],
+  truncatedAbove = false,
+): GitCommit {
+  return {
+    hash,
+    shortHash: hash,
+    parents,
+    author: "",
+    date: 0,
+    message: "",
+    body: "",
+    refs,
+    truncatedAbove,
+  };
 }
 
 /** hash → lane の引きやすいマップに変換する */
@@ -56,7 +71,7 @@ describe("computeGraphLayout の HEAD 最左固定", () => {
   });
 
   test("HEAD 到達前の merge コミットの 2nd parent が予約 lane 0 を奪わない", () => {
-    // 上枝が内部 merge を持ち、HEAD (h0) は tip。merge (m) は headRow より前の行。
+    // 上枝が内部 merge を持ち、HEAD (h0) は tip。merge (m) は HEAD より前の行。
     // m の 2nd parent (u2) が lane 0 を取ると h0 が最左を確保できないため、
     // findEmptyLane の minLane=1 により u2 は lane 1 以降へ追いやられる必要がある。
     //   u0 → m ┬─ u1 ┐
@@ -232,5 +247,31 @@ describe("computeGraphLayout の HEAD 最左固定", () => {
     const commits = [commit("c0", ["c1"]), commit("c1", [])];
     const lanes = laneByHash(computeGraphLayout(commits, {}));
     expect(lanes.get("c0")).toBe(0);
+  });
+});
+
+describe("computeGraphLayout の途切れ境界 (truncatedAbove)", () => {
+  test("truncatedAbove の行の手前に gap 行を挿入しレーンを切断する", () => {
+    // 上クラスタ: u0 → u1 (u1 の親 "cut" は結果集合外 = maxCount 打ち切り相当)。
+    // 下クラスタ: h0 (truncatedAbove, HEAD) → h1。全ブランチ表示で HEAD-only walk を
+    // 末尾 append した境界に相当する。h0 の手前に gap 行が 1 行挿入され、上クラスタの
+    // 「cut 親待ち」レーンはそこで終端して下クラスタへ縦線を引き継がない。
+    const commits = [
+      commit("u0", ["u1"]),
+      commit("u1", ["cut"]),
+      commit("h0", ["h1"], ["HEAD"], true),
+      commit("h1", []),
+    ];
+    const layout = computeGraphLayout(commits, { headHash: "h0" });
+
+    // gap 行が h0 の直前 (node index 2) に入り、h0 は 1 行ぶん後ろにずれる。
+    expect(layout.nodes[2]?.gap).toBe(true);
+    expect(layout.nodes[3]?.commit.hash).toBe("h0");
+    // gap 行 (row 2) には線が一切繋がらない (上クラスタの線は手前で終端)。
+    expect(layout.lines.some((l) => l.y1 === 2 || l.y2 === 2)).toBe(false);
+    // 上クラスタ (row<=1) と下クラスタ (row>=3) を跨ぐ線は無い。
+    expect(layout.lines.filter((l) => l.y1 <= 1 && l.y2 >= 3)).toHaveLength(0);
+    // HEAD は切断後も最左 lane 0 に固定される。
+    expect(laneByHash(layout).get("h0")).toBe(0);
   });
 });

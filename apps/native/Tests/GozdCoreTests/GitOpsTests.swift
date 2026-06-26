@@ -2150,6 +2150,98 @@ private func porcelainStatus(dir: String) async throws -> String {
   return String(decoding: stdout, as: UTF8.self)
 }
 
+@Suite("GitOps.log 古い現在ブランチの救済")
+struct GitOpsLogRescueTests {
+  /// 全ブランチ表示で default ブランチに HEAD tip より新しい commit が maxCount 件以上
+  /// あると、HEAD 系統が新しい順 maxCount 窓から押し出される。その場合に HEAD-only walk を
+  /// append して現在ブランチを結果に必ず含め、境界先頭に truncatedAbove を立てることを検証する。
+  ///
+  /// 構成 (epoch で date-order を固定):
+  ///   main:    seed(1000) → m1(2000) … m5(2004)   (origin/main = m5)
+  ///   feature: seed(1000) → feat(1100)            (HEAD = feat、main より古い)
+  private func makeOldBranchRepo() async throws -> (local: URL, origin: URL) {
+    let origin = try makeTempDir()
+    try await runTestGit(args: ["init", "-q", "--bare", "-b", "main"], cwd: origin.path)
+    let local = try await makeGitRepo()
+    try await commitAt(dir: local.path, message: "seed", epoch: 1000)
+    try await runTestGit(args: ["remote", "add", "origin", origin.path], cwd: local.path)
+    try await runTestGit(args: ["push", "-u", "origin", "main"], cwd: local.path)
+
+    // 古い feature ブランチ: seed から分岐し feat を 1 つ積む (main より古い epoch)。
+    try await runTestGit(args: ["checkout", "-q", "-b", "feature"], cwd: local.path)
+    try await commitAt(dir: local.path, message: "feat", epoch: 1100)
+
+    // main に新しい commit を 5 つ積み origin/main を前進させる。
+    try await runTestGit(args: ["checkout", "-q", "main"], cwd: local.path)
+    for index in 0..<5 {
+      try await commitAt(dir: local.path, message: "m\(index + 1)", epoch: 2000 + index)
+    }
+    try await runTestGit(args: ["push", "origin", "main"], cwd: local.path)
+    try await runTestGit(args: ["remote", "set-head", "origin", "main"], cwd: local.path)
+
+    // 現在ブランチを古い feature に戻す。
+    try await runTestGit(args: ["checkout", "-q", "feature"], cwd: local.path)
+    return (local, origin)
+  }
+
+  @Test("HEAD が窓から押し出されると HEAD-only walk を append し境界に truncatedAbove を立てる")
+  func rescuesOldCurrentBranch() async throws {
+    let (local, origin) = try await makeOldBranchRepo()
+    defer {
+      try? FileManager.default.removeItem(at: local)
+      try? FileManager.default.removeItem(at: origin)
+    }
+
+    // maxCount=3: 新しい順 3 件は m5/m4/m3 で埋まり feat(HEAD) は押し出される。
+    let result = try await GitOps.log(
+      dir: local.path, maxCount: 3, firstParentOnly: false, currentBranchOnly: false,
+      sortMode: .date)
+
+    // HEAD は append で必ず結果に含まれる。
+    #expect(result.commits.contains { $0.refs.contains("HEAD") })
+    // 途切れ標識は append 境界の先頭 (= HEAD tip feat) に 1 つだけ立つ。
+    let truncated = result.commits.filter { $0.truncatedAbove }
+    #expect(truncated.count == 1)
+    #expect(truncated.first?.refs.contains("HEAD") == true)
+    // 最新 3 件 (main 窓) + feat + seed = 5 件。
+    #expect(result.commits.count == 5)
+  }
+
+  @Test("currentBranchOnly では rescue せず truncatedAbove は立たない")
+  func noRescueWhenCurrentBranchOnly() async throws {
+    let (local, origin) = try await makeOldBranchRepo()
+    defer {
+      try? FileManager.default.removeItem(at: local)
+      try? FileManager.default.removeItem(at: origin)
+    }
+
+    let result = try await GitOps.log(
+      dir: local.path, maxCount: 3, firstParentOnly: false, currentBranchOnly: true,
+      sortMode: .date)
+
+    #expect(result.commits.contains { $0.refs.contains("HEAD") })
+    #expect(result.commits.allSatisfy { !$0.truncatedAbove })
+    // feature 系統 (feat, seed) のみ。
+    #expect(result.commits.count == 2)
+  }
+
+  @Test("maxCount が十分大きく HEAD が窓内に収まるなら rescue しない")
+  func noRescueWhenHeadFitsInWindow() async throws {
+    let (local, origin) = try await makeOldBranchRepo()
+    defer {
+      try? FileManager.default.removeItem(at: local)
+      try? FileManager.default.removeItem(at: origin)
+    }
+
+    let result = try await GitOps.log(
+      dir: local.path, maxCount: 100, firstParentOnly: false, currentBranchOnly: false,
+      sortMode: .date)
+
+    #expect(result.commits.contains { $0.refs.contains("HEAD") })
+    #expect(result.commits.allSatisfy { !$0.truncatedAbove })
+  }
+}
+
 private func makeTempDir() throws -> URL {
   let raw = FileManager.default.temporaryDirectory
     .appendingPathComponent("gozd-gitops-\(UUID().uuidString.prefix(8))")
@@ -2228,4 +2320,46 @@ private func runTestGit(args: [String], cwd: String) async throws {
       cont.resume(throwing: error)
     }
   }
+}
+
+/// `runTestGit` の env 注入版。`GIT_AUTHOR_DATE` / `GIT_COMMITTER_DATE` を固定して
+/// `--date-order` の並びを決定的にするために使う (同一秒に積むと tie-break が topo に
+/// 落ちて test が flaky になる)。
+private func runTestGitEnv(args: [String], cwd: String, extraEnv: [String: String]) async throws {
+  try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["git"] + args
+    process.currentDirectoryURL = URL(fileURLWithPath: cwd)
+    var env = ProcessInfo.processInfo.environment
+    for (key, value) in extraEnv { env[key] = value }
+    process.environment = env
+    process.standardOutput = FileHandle.nullDevice
+    let stderrPipe = Pipe()
+    process.standardError = stderrPipe
+    process.terminationHandler = { proc in
+      if proc.terminationStatus == 0 {
+        cont.resume()
+      } else {
+        let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderr =
+          String(bytes: data, encoding: .utf8) ?? "<non-UTF8 stderr (\(data.count) bytes)>"
+        cont.resume(
+          throwing: GitError.commandFailed(exitCode: proc.terminationStatus, stderr: stderr))
+      }
+    }
+    do {
+      try process.run()
+    } catch {
+      cont.resume(throwing: error)
+    }
+  }
+}
+
+/// 指定 epoch (Unix 秒) を author/committer date 両方に固定した empty commit を作る。
+private func commitAt(dir: String, message: String, epoch: Int) async throws {
+  let date = "@\(epoch) +0000"
+  try await runTestGitEnv(
+    args: ["commit", "--allow-empty", "-q", "-m", message], cwd: dir,
+    extraEnv: ["GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date])
 }

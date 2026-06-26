@@ -25,9 +25,13 @@ public struct CommitInfo: Equatable, Sendable {
   public let message: String
   public let body: String
   public let refs: [String]
+  /// 直上で履歴が途切れている (上の行と連続しない別セグメントの先頭) 行か。
+  /// 全ブランチ表示で HEAD が窓から押し出され HEAD-only walk を append した境界の
+  /// 先頭 commit にだけ true が立つ。通常の commit は false。
+  public let truncatedAbove: Bool
   public init(
     hash: String, shortHash: String, parents: [String], author: String, date: Int64,
-    message: String, body: String, refs: [String]
+    message: String, body: String, refs: [String], truncatedAbove: Bool = false
   ) {
     self.hash = hash
     self.shortHash = shortHash
@@ -37,6 +41,14 @@ public struct CommitInfo: Equatable, Sendable {
     self.message = message
     self.body = body
     self.refs = refs
+    self.truncatedAbove = truncatedAbove
+  }
+
+  /// `truncatedAbove = true` の copy を返す。append セグメント境界の標識用。
+  public func withTruncatedAbove() -> CommitInfo {
+    CommitInfo(
+      hash: hash, shortHash: shortHash, parents: parents, author: author, date: date,
+      message: message, body: body, refs: refs, truncatedAbove: true)
   }
 }
 

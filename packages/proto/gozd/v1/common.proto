@@ -109,6 +109,12 @@ message GitCommit {
   string message = 6;
   string body = 7;
   repeated string refs = 8;
+  // この commit の直上で履歴が途切れている (上の行とは連続しない別セグメントの先頭)
+  // ことを示す。全ブランチ表示で現在ブランチ (HEAD) が新しい順 max_count ウィンドウから
+  // 押し出されたとき、HEAD-only walk を末尾 append する境界の先頭 commit に立つ。
+  // renderer はこの行の上に「途切れ行」を描き、最新クラスタと現在ブランチクラスタの
+  // 不連続を可視化する。
+  bool truncated_above = 9;
 }
 
 message GitPullRequest {

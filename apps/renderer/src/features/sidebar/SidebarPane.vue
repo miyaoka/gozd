@@ -74,7 +74,7 @@ useSidebarData();
 
 const { confirmRef, confirmMessage, showConfirm, closeConfirm, executeConfirm } = useDialogs();
 
-const { isCreatingFor, handleWorktreeSelect, addWorktree, handleWorktreeRemove } =
+const { isCreatingFor, selectDir, handleWorktreeSelect, addWorktree, handleWorktreeRemove } =
   useWorktreeActions({
     showConfirm,
   });
@@ -100,6 +100,11 @@ function onSelectWt(wt: WorktreeEntry) {
   // 同 wt 再クリック時の done 消化は worktreeStore.setOpen の selectionVersion 経由で
   // useSidebarData の watch が処理する。ここでは isActive 分岐せず常に setOpen を呼ぶ。
   handleWorktreeSelect(wt);
+}
+
+// 非 git project ヘッダ経路。dir 選択プリミティブに委譲して rootDir を active にする。
+function onSelectRoot(rootDir: string) {
+  selectDir(rootDir);
 }
 
 function onSelectTask(wt: WorktreeEntry, task: Task) {
@@ -318,6 +323,7 @@ const activeRootWorktree = computed(() => {
           :is-creating="isCreatingFor(rootDir)"
           :get-focused-pty-id="getFocusedPtyId"
           @remove-repo="onRemoveRepo"
+          @select-root="onSelectRoot"
           @select-wt="onSelectWt"
           @select-task="onSelectTask"
           @add-worktree="addWorktree"

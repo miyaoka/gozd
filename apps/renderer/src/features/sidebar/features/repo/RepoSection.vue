@@ -95,6 +95,18 @@ useSortable({
 
 const visiblyCollapsed = computed(() => collapsed.value || props.editMode);
 
+// テンプレートでネスト三項を書かず、ヘッダの aria はスクリプト側で導出する。
+// git repo は折りたたみトグル (Expand/Collapse + aria-expanded)、非 git project は
+// rootDir 選択ボタン (Open directory、折りたたみ概念なし) として振る舞う。
+const headerAriaLabel = computed(() => {
+  if (props.editMode) return undefined;
+  if (!isGitRepo.value) return "Open directory";
+  return visiblyCollapsed.value ? "Expand" : "Collapse";
+});
+const headerAriaExpanded = computed(() =>
+  props.editMode || !isGitRepo.value ? undefined : !visiblyCollapsed.value,
+);
+
 function onHeaderClick() {
   if (props.editMode) return;
   // 非 git project は worktree カードを持たず畳む対象が無いため、ヘッダクリックを
@@ -118,16 +130,8 @@ function onHeaderClick() {
       class="_fx-hud-header _fx-shine group/repo flex items-center gap-2 rounded-md px-1.5 py-1 text-foreground"
       :class="editMode ? '' : 'cursor-pointer'"
       :role="editMode ? undefined : 'button'"
-      :aria-label="
-        editMode
-          ? undefined
-          : !isGitRepo
-            ? 'Open directory'
-            : visiblyCollapsed
-              ? 'Expand'
-              : 'Collapse'
-      "
-      :aria-expanded="editMode || !isGitRepo ? undefined : !visiblyCollapsed"
+      :aria-label="headerAriaLabel"
+      :aria-expanded="headerAriaExpanded"
       @click="onHeaderClick"
     >
       <div

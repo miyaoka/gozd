@@ -26,11 +26,20 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
 
   const creatingRootDirs = ref(new Set<string>());
 
-  function handleWorktreeSelect(wt: WorktreeEntry) {
+  /**
+   * dir を active 表示にする選択プリミティブ。viewMode を wt に倒し setOpen で
+   * selectedDir を切り替える。WtCard クリック (worktree path) と非 git project の
+   * ヘッダクリック (rootDir) の両経路が共有する SSOT。
+   * setOpen は冪等で、同一 dir の再選択でも selectionVersion が発火し
+   * useTerminalStore 側の watch が done を消化する。
+   */
+  function selectDir(dir: string) {
     terminalStore.viewMode = "wt";
-    // setOpen は冪等。同一 wt の再選択でも selectionVersion が発火し、
-    // useTerminalStore 側の watch が done を消化する。
-    worktreeStore.setOpen(wt.path);
+    worktreeStore.setOpen(dir);
+  }
+
+  function handleWorktreeSelect(wt: WorktreeEntry) {
+    selectDir(wt.path);
   }
 
   // --- store 更新 helpers ---
@@ -112,6 +121,7 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
 
   return {
     isCreatingFor,
+    selectDir,
     handleWorktreeSelect,
     addWorktree,
     handleWorktreeRemove,

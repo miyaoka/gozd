@@ -74,7 +74,7 @@ useSidebarData();
 
 const { confirmRef, confirmMessage, showConfirm, closeConfirm, executeConfirm } = useDialogs();
 
-const { isCreatingFor, handleWorktreeSelect, addWorktree, handleWorktreeRemove } =
+const { isCreatingFor, selectDir, handleWorktreeSelect, addWorktree, handleWorktreeRemove } =
   useWorktreeActions({
     showConfirm,
   });
@@ -102,12 +102,9 @@ function onSelectWt(wt: WorktreeEntry) {
   handleWorktreeSelect(wt);
 }
 
-// 非 git project は worktree カードを持たないため、RepoSection ヘッダクリックで rootDir を
-// 直接 active にする。WtCard 経路 (handleWorktreeSelect) と同じく viewMode を wt に倒し、
-// setOpen で selectedDir を rootDir に設定してファイラーを表示させる。
+// 非 git project ヘッダ経路。dir 選択プリミティブに委譲して rootDir を active にする。
 function onSelectRoot(rootDir: string) {
-  terminalStore.viewMode = "wt";
-  worktreeStore.setOpen(rootDir);
+  selectDir(rootDir);
 }
 
 function onSelectTask(wt: WorktreeEntry, task: Task) {

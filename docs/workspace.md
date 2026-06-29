@@ -26,7 +26,7 @@
 
 `gozd <path>` を実行すると、対象 path が既存 repo の worktree に含まれていればその repo にフォーカス + worktree 切替、含まれていなければ新規 repo として既存ウィンドウに追加される。新ウィンドウは作らない。
 
-非 git ディレクトリも同じ仕組みで「project」として登録される。worktree 概念がないため、`RepoSection` 内に WtCard 列は描かれず、ヘッダとターミナルのみが利用可能。
+非 git ディレクトリも同じ仕組みで「project」として登録される。worktree 概念がないため、`RepoSection` 内に WtCard 列は描かれず、ヘッダがそのまま rootDir を表す。git repo はヘッダクリックで折りたたみトグルだが、非 git project は畳む対象が無いためヘッダクリックで rootDir を active dir に選択する（ファイラー / ターミナルを表示する唯一の経路）。
 
 ## アプリ状態の復元
 

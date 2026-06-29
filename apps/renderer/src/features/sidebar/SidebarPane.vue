@@ -102,6 +102,14 @@ function onSelectWt(wt: WorktreeEntry) {
   handleWorktreeSelect(wt);
 }
 
+// 非 git project は worktree カードを持たないため、RepoSection ヘッダクリックで rootDir を
+// 直接 active にする。WtCard 経路 (handleWorktreeSelect) と同じく viewMode を wt に倒し、
+// setOpen で selectedDir を rootDir に設定してファイラーを表示させる。
+function onSelectRoot(rootDir: string) {
+  terminalStore.viewMode = "wt";
+  worktreeStore.setOpen(rootDir);
+}
+
 function onSelectTask(wt: WorktreeEntry, task: Task) {
   // wt を active にしたうえで、task に対応する leaf へフォーカスする。
   // 分岐:
@@ -318,6 +326,7 @@ const activeRootWorktree = computed(() => {
           :is-creating="isCreatingFor(rootDir)"
           :get-focused-pty-id="getFocusedPtyId"
           @remove-repo="onRemoveRepo"
+          @select-root="onSelectRoot"
           @select-wt="onSelectWt"
           @select-task="onSelectTask"
           @add-worktree="addWorktree"

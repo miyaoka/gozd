@@ -128,17 +128,19 @@ function onHeaderClick() {
   >
     <header
       class="_fx-hud-header _fx-shine group/repo flex items-center gap-2 rounded-md px-1.5 py-1 text-foreground"
-      :class="editMode ? '' : 'cursor-pointer'"
-      :role="editMode ? undefined : 'button'"
-      :aria-label="headerAriaLabel"
-      :aria-expanded="headerAriaExpanded"
-      @click="onHeaderClick"
     >
-      <div
+      <!-- clickable 部はネイティブ button。focus / Enter / Space の起動はブラウザが扱うため
+           tabindex / keydown を自前実装しない (WtCard と同じ規約)。editMode 中は useSortable の
+           ドラッグハンドルを兼ね、onHeaderClick が早期 return するので click は no-op になる。 -->
+      <button
         ref="dragHandle"
-        class="flex min-w-0 flex-1 items-center gap-2"
-        :class="editMode && 'cursor-grab active:cursor-grabbing'"
+        type="button"
+        class="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset"
+        :class="editMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'"
         :title="rootDir"
+        :aria-label="headerAriaLabel"
+        :aria-expanded="headerAriaExpanded"
+        @click="onHeaderClick"
       >
         <RepoEmblem :name="repoName" />
         <span class="min-w-0 flex-1 truncate text-sm font-semibold tracking-wide">
@@ -149,7 +151,7 @@ function onHeaderClick() {
           class="size-3.5 shrink-0 text-foreground-muted transition-transform"
           :class="visiblyCollapsed && '-rotate-90'"
         />
-      </div>
+      </button>
       <button
         v-if="editMode"
         type="button"

@@ -28,8 +28,8 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
 
   /**
    * dir を active 表示にする選択プリミティブ。viewMode を wt に倒し setOpen で
-   * selectedDir を切り替える。WtCard クリック (worktree path) と非 git project の
-   * ヘッダクリック (rootDir) の両経路が共有する SSOT。
+   * selectedDir を切り替える。dir を active にする全選択経路が共有する SSOT
+   * (特定 caller を列挙するとドリフトの源になるため数えない)。
    * setOpen は冪等で、同一 dir の再選択でも selectionVersion が発火し
    * useTerminalStore 側の watch が done を消化する。
    */

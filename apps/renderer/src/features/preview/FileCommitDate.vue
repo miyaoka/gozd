@@ -16,6 +16,7 @@ preview ヘッダにファイルの最終コミット日を表示し、クリッ
 import type { GitCommit } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { onUnmounted, ref, useTemplateRef, watch } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { formatAbsoluteTime, formatRelativeTime } from "../../shared/time";
 import type { GitStatusChangePayload } from "../worktree";
@@ -34,6 +35,7 @@ const props = defineProps<{
 }>();
 
 const fileHistory = useFileHistoryPopover();
+const notification = useNotificationStore();
 
 const buttonRef = useTemplateRef<HTMLButtonElement>("buttonRef");
 const lastCommit = ref<GitCommit>();
@@ -43,19 +45,21 @@ let fetchVersion = 0;
 let lastFetchedHead: string | undefined;
 
 async function fetchLastCommit(): Promise<void> {
+  // version 採番は enabled ガードの前に置く。後ろに置くと、enabled=false で無効化された
+  // ときに version が進まず、非表示中に返った in-flight の古い応答が次回有効化直後に
+  // 再利用される (stale 表示)。最初に採番して無効化経路でも in-flight を破棄する。
+  const myVersion = ++fetchVersion;
   if (!props.enabled) {
     lastCommit.value = undefined;
     return;
   }
-  const myVersion = ++fetchVersion;
   const result = await tryCatch(
     rpcGitLogFile({ dir: props.dir, relPath: props.relPath, rev: props.rev, maxCount: 1 }),
   );
   if (myVersion !== fetchVersion) return;
   if (!result.ok) {
-    // 取得失敗 (権限 / git 異常等) は日付を出さないだけに倒す。preview 本体の content 取得が
-    // 同条件で error トーストを出すため、ヘッダ補助表示でトーストを二重に出さない。
     lastCommit.value = undefined;
+    notification.error("Failed to load file commit date", result.error);
     return;
   }
   lastCommit.value = result.value.commits[0];
@@ -66,6 +70,9 @@ watch(
   () => {
     // ファイル / rev 切替で head 追跡をリセットし、新コンテキストの baseline を取り直す。
     lastFetchedHead = undefined;
+    // 切替直後に前ファイルの古い日付を残さないよう即クリアする (新 fetch 完了まで非表示)。
+    // gitStatusChange 由来の再 fetch ではクリアしないため、commit 時のちらつきは出ない。
+    lastCommit.value = undefined;
     void fetchLastCommit();
   },
   { immediate: true },

@@ -1124,6 +1124,92 @@ struct GitOpsLogLineTests {
   }
 }
 
+@Suite("GitOps.logFile")
+struct GitOpsLogFileTests {
+  @Test("正常: ファイル全体の history を新しい順で返す")
+  func historyHappyPath() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let file = dir.appendingPathComponent("a.txt")
+    try "first\n".write(to: file, atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "add a"], cwd: dir.path)
+    try "first\nsecond\n".write(to: file, atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["commit", "-am", "modify a"], cwd: dir.path)
+
+    let commits = try await GitOps.logFile(
+      dir: dir.path, relPath: "a.txt", rev: "HEAD", maxCount: 10)
+    #expect(commits.count == 2)
+    #expect(commits[0].message == "modify a")
+    #expect(commits[1].message == "add a")
+  }
+
+  @Test("空 rev は許容され HEAD を walk する (logLine との契約差)")
+  func emptyRevWalksHead() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let file = dir.appendingPathComponent("a.txt")
+    try "first\n".write(to: file, atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "add a"], cwd: dir.path)
+
+    let commits = try await GitOps.logFile(
+      dir: dir.path, relPath: "a.txt", rev: "", maxCount: 10)
+    #expect(commits.count == 1)
+    #expect(commits[0].message == "add a")
+  }
+
+  @Test("max_count で件数を絞る")
+  func maxCountLimits() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let file = dir.appendingPathComponent("a.txt")
+    try "v1\n".write(to: file, atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "a.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "c1"], cwd: dir.path)
+    try "v2\n".write(to: file, atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["commit", "-am", "c2"], cwd: dir.path)
+
+    let commits = try await GitOps.logFile(
+      dir: dir.path, relPath: "a.txt", rev: "", maxCount: 1)
+    #expect(commits.count == 1)
+    #expect(commits[0].message == "c2")
+  }
+
+  @Test("history の無いファイル (未コミット) は空配列")
+  func untrackedReturnsEmpty() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try "seed\n".write(
+      to: dir.appendingPathComponent("seed.txt"), atomically: true, encoding: .utf8)
+    try await runTestGit(args: ["add", "seed.txt"], cwd: dir.path)
+    try await runTestGit(args: ["commit", "-m", "init"], cwd: dir.path)
+    // commit していない未追跡ファイル
+    try "new\n".write(
+      to: dir.appendingPathComponent("new.txt"), atomically: true, encoding: .utf8)
+
+    let commits = try await GitOps.logFile(
+      dir: dir.path, relPath: "new.txt", rev: "", maxCount: 10)
+    #expect(commits.isEmpty)
+  }
+
+  @Test("`-` 始まりの rev は validateRev で reject")
+  func dashRevRejected() async throws {
+    let dir = try await makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    do {
+      _ = try await GitOps.logFile(
+        dir: dir.path, relPath: "a.txt", rev: "-foo", maxCount: 10)
+      Issue.record("expected throw, got success")
+    } catch let GitError.unexpectedOutput(message) {
+      #expect(message.contains("leading '-'"))
+    } catch {
+      Issue.record("unexpected error: \(error)")
+    }
+  }
+}
+
 @Suite("GitOps.blameLine")
 struct GitOpsBlameLineTests {
   @Test("正常: 単一行 blame で author / summary / sourceLine を返す")

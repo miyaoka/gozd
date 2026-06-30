@@ -5,6 +5,8 @@ import {
   GitDiffExpandLinesResponse,
   GitDiffHunksRequest,
   GitDiffHunksResponse,
+  GitLogFileRequest,
+  GitLogFileResponse,
   GitLogLineRequest,
   GitLogLineResponse,
   GitShowCommitFileRequest,
@@ -34,6 +36,9 @@ export const rpcGitBlameLine = (req: GitBlameLineRequest) =>
 
 export const rpcGitLogLine = (req: GitLogLineRequest) =>
   rpc("/git/logLine", req, GitLogLineRequest, GitLogLineResponse);
+
+export const rpcGitLogFile = (req: GitLogFileRequest) =>
+  rpc("/git/logFile", req, GitLogFileRequest, GitLogFileResponse);
 
 /** 表示中ファイルを OS のデフォルトアプリで開く（macOS の `open` 相当）。path は絶対パス。 */
 export const rpcOpenFile = (req: OpenFileRequest) =>

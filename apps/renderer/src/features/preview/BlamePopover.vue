@@ -14,6 +14,7 @@ Popover API (`popover="auto"`) の Esc / 外クリック dismiss を `@toggle` �
 import { nextTick, ref, watch } from "vue";
 import { formatAbsoluteTime, formatRelativeTime } from "../../shared/time";
 import { useGitGraphStore } from "../git-graph";
+import CommitHistoryList from "./CommitHistoryList.vue";
 import { useBlamePopover } from "./useBlamePopover";
 import IconLucideGitCommitHorizontal from "~icons/lucide/git-commit-horizontal";
 import IconLucideHistory from "~icons/lucide/history";
@@ -192,29 +193,11 @@ function isHistoryDisabled(): boolean {
         >
           No commits touched this line.
         </div>
-        <ul v-else-if="historyState.kind === 'ready'" class="divide-y divide-border-subtle">
-          <li v-for="c in historyState.commits" :key="c.hash">
-            <button
-              type="button"
-              class="flex w-full items-start gap-2 px-3 py-2 text-left text-xs hover:bg-panel"
-              @click="onCommitClick(c.hash)"
-            >
-              <span
-                class="mt-0.5 shrink-0 rounded-sm bg-panel px-1.5 py-0.5 font-mono text-[11px] text-foreground"
-                >{{ c.shortHash }}</span
-              >
-              <span class="min-w-0 flex-1">
-                <span class="block truncate text-foreground">{{ c.message }}</span>
-                <span class="mt-0.5 flex items-center gap-2 text-[11px] text-foreground-low">
-                  <span class="truncate">{{ c.author }}</span>
-                  <span :title="formatAbsoluteTime(Number(c.date))">{{
-                    formatRelativeTime(Number(c.date))
-                  }}</span>
-                </span>
-              </span>
-            </button>
-          </li>
-        </ul>
+        <CommitHistoryList
+          v-else-if="historyState.kind === 'ready'"
+          :commits="historyState.commits"
+          @select="onCommitClick"
+        />
       </template>
     </div>
   </div>

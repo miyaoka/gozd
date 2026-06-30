@@ -101,6 +101,8 @@ export {
   GitGithubIdentityResponse,
   GitIssueListRequest,
   GitIssueListResponse,
+  GitLogFileRequest,
+  GitLogFileResponse,
   GitLogLineRequest,
   GitLogLineResponse,
   GitLogRequest,

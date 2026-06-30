@@ -52,6 +52,7 @@ import type { GitChangeKind, Selection } from "../worktree";
 import ChangesSummaryView from "./ChangesSummaryView.vue";
 import CodePreview from "./CodePreview.vue";
 import DiffPreview from "./DiffPreview.vue";
+import FileCommitDate from "./FileCommitDate.vue";
 import HtmlPreview from "./HtmlPreview.vue";
 import ImagePreview from "./ImagePreview.vue";
 import MarkdownPreview from "./MarkdownPreview.vue";
@@ -60,6 +61,7 @@ import { resolveOpenablePath } from "./resolveOpenablePath";
 import { rpcGitShowCommitFile, rpcGitShowFile, rpcOpenFile } from "./rpc";
 import { shouldCloseForMissingFile } from "./shouldCloseForMissingFile";
 import { useBlamePopover } from "./useBlamePopover";
+import { useFileHistoryPopover } from "./useFileHistoryPopover";
 import { useMarkdownHistoryStore } from "./useMarkdownHistoryStore";
 import { usePreviewStore } from "./usePreviewStore";
 import IconLucideArrowLeft from "~icons/lucide/arrow-left";
@@ -699,6 +701,7 @@ const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ dir: event
   // PR diff モードでは to が working tree のため、fs change で再取得する必要がある。
   if (prDiffToggle.isOn) {
     blamePopover.closeIfActive(eventDir, sel.relPath);
+    fileHistoryPopover.closeIfActive(eventDir, sel.relPath);
     void fetchPrDiffContent(sel.relPath);
     return;
   }
@@ -710,6 +713,7 @@ const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ dir: event
   // が再ハイライト・再描画し、line-no button DOM が置換される。blame popover が同 file に
   // 対して開いていれば anchorEl が detached になるため、再 fetch 前に閉じる。
   blamePopover.closeIfActive(eventDir, sel.relPath);
+  fileHistoryPopover.closeIfActive(eventDir, sel.relPath);
   void fetchContent(sel, selectedGitChange.value);
 });
 onUnmounted(unsubscribeFsChange);
@@ -890,6 +894,37 @@ const blameEnabled = computed(() => {
 });
 
 const blamePopover = useBlamePopover();
+const fileHistoryPopover = useFileHistoryPopover();
+
+/**
+ * ヘッダのコミット日表示 / ファイル history の起点 rev。
+ * 表示中タブに追従する: Original タブは original 側 rev、Current / Diff は current 側 rev
+ * (onCodeLineClick の rev 切替と同じ規律)。orderedRange null で undefined のときは
+ * `fileHistoryEnabled` 側で表示を抑止する。
+ */
+const historyRev = computed<string | undefined>(() =>
+  activeMode.value === "original" ? originalRev.value : currentRev.value,
+);
+
+/**
+ * ヘッダのコミット日を出すか。worktreeRelative (git 管理下) かつ rev 解決済みのときのみ。
+ * 絶対パス (worktree 外 open) / orderedRange 不整合を除外し、silent dead button を作らない
+ * (`blameEnabled` の gate と同規律)。
+ */
+const fileHistoryEnabled = computed(
+  () => selection.value?.kind === "worktreeRelative" && historyRev.value !== undefined,
+);
+
+/**
+ * FileCommitDate に渡す props 束。`enabled=false` のとき component は描画も fetch もしないため、
+ * dir / relPath / rev の "" fallback は使われない (template を単純参照に保つための束ね)。
+ */
+const fileCommitDateProps = computed(() => ({
+  dir: worktreeStore.dir ?? "",
+  relPath: selectedRelPath.value ?? "",
+  rev: historyRev.value ?? "",
+  enabled: fileHistoryEnabled.value,
+}));
 
 function modeLabelForRev(rev: string): string {
   if (rev === "") return "Working Tree";
@@ -965,6 +1000,9 @@ watch(
     if (blamePopover.context.value !== undefined) {
       blamePopover.close();
     }
+    if (fileHistoryPopover.context.value !== undefined) {
+      fileHistoryPopover.close();
+    }
   },
 );
 </script>
@@ -1001,6 +1039,7 @@ watch(
         <span class="truncate text-sm text-foreground" :title="selectedDisplayPath">{{
           fileName(selectedDisplayPath)
         }}</span>
+        <FileCommitDate v-bind="fileCommitDateProps" />
       </template>
       <span v-else class="text-sm text-foreground-low">Preview</span>
       <button

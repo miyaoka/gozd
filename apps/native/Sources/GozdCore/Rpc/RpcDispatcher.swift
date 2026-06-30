@@ -184,6 +184,7 @@ public actor RpcDispatcher {
     case "/git/githubIdentity": return try await handleGitGithubIdentity(body)
     case "/git/blameLine": return try await handleGitBlameLine(body)
     case "/git/logLine": return try await handleGitLogLine(body)
+    case "/git/logFile": return try await handleGitLogFile(body)
     // gh (GitHub API)
     case "/git/prList": return try await handleGitPrList(body)
     case "/git/issueList": return try await handleGitIssueList(body)

@@ -72,7 +72,15 @@ let mermaidIdCounter = 0;
 function loadMermaid() {
   if (mermaidPromise === null) {
     mermaidPromise = import("mermaid").then((mod) => {
-      mod.default.initialize({ startOnLoad: false, theme: "dark", fontFamily: "inherit" });
+      // 生成 SVG は block.innerHTML に raw 注入され gozd の DOMPurify を経由しない。XSS 防御は
+      // mermaid 内蔵サニタイズに依存するため、securityLevel: "strict" を明示して境界を宣言する
+      // (upstream の既定値変更や後続の緩和に対する防壁)。markdown は untrusted content を含みうる。
+      mod.default.initialize({
+        startOnLoad: false,
+        securityLevel: "strict",
+        theme: "dark",
+        fontFamily: "inherit",
+      });
       return mod.default;
     });
   }

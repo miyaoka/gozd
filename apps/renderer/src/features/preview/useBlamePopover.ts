@@ -6,8 +6,12 @@
  * 呼ぶ設計を禁じる規約 (apps/renderer/CLAUDE.md) の対象を満たすため、composable
  * 経由のみで popover を操作する契約。
  *
+ * popover の開閉・anchor 付け替え・light-dismiss・toggle race は共通抽象
+ * `shared/popover/usePopover` に委譲し、本 composable は blame / line history の RPC race
+ * だけを所有する。
+ *
  * race 設計:
- *   - `activeVersion` を open / close のたびに ++ し、await 復帰時に
+ *   - `activeVersion` を open / close (light-dismiss 含む) のたびに ++ し、await 復帰時に
  *     `version !== activeVersion` なら結果を破棄する
  *   - history 起点は blame で得た `commit.hash` + `commit.sourceLine` に固定する。
  *     表示中 rev で行が動いていても「blame した commit を起点に walk する」
@@ -16,8 +20,9 @@
  */
 import type { GitBlameCommit, GitCommit } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
-import { ref } from "vue";
+import { effectScope, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import { usePopover } from "../../shared/popover";
 import { rpcGitBlameLine, rpcGitLogLine } from "./rpc";
 
 type BlameContext = {
@@ -52,10 +57,8 @@ const HISTORY_MAX = 100;
 // `useNotificationStore` は Pinia ではなく plain module ref singleton のため、
 // import 時点で生存し最初の呼び出しから安定して使える。
 const notification = useNotificationStore();
+const popover = usePopover<BlameContext>();
 
-const context = ref<BlameContext>();
-const anchorEl = ref<HTMLElement>();
-const openVersion = ref(0);
 const viewMode = ref<ViewMode>("blame");
 const blameState = ref<BlameState>({ kind: "idle" });
 const historyState = ref<HistoryState>({ kind: "idle" });
@@ -69,6 +72,29 @@ let activeVersion = 0;
  * 「他 version の blame に乗ったまま history 発射」を構造的に防ぐ。
  */
 let blameInFlight: { version: number; promise: Promise<void> } | undefined;
+
+// popover が閉じる (context が undefined になる) と進行中の blame / history を破棄し
+// state を初期化する。usePopover の onToggle 経由 light-dismiss も context clear に集約され、
+// Esc / 外クリック / 親 popover 連動 close を 1 経路で扱える。
+const scope = effectScope(true);
+scope.run(() => {
+  watch(popover.context, (ctx) => {
+    if (ctx === undefined) {
+      activeVersion++;
+      viewMode.value = "blame";
+      blameState.value = { kind: "idle" };
+      historyState.value = { kind: "idle" };
+      blameInFlight = undefined;
+    }
+  });
+});
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    popover.stop();
+    scope.stop();
+  });
+}
 
 async function loadBlame(ctx: BlameContext, version: number): Promise<void> {
   const result = await tryCatch(
@@ -96,7 +122,7 @@ async function loadHistory(): Promise<void> {
   // version は await 前に capture。await 後の activeVersion 比較で「途中で open() が
   // 走って別 context に切り替わった」場合に history 結果を捨てる。
   const myVersion = activeVersion;
-  const ctx = context.value;
+  const ctx = popover.context.value;
   if (ctx === undefined) return;
   // History タブを開いた瞬間に loading 表示へ倒す。blame await 後の分岐で loading を
   // 後置きすると、history タブクリック直後に template の 3 つの v-if (loading / error /
@@ -146,24 +172,11 @@ async function loadHistory(): Promise<void> {
 
 function open(el: HTMLElement, ctx: BlameContext): void {
   const version = ++activeVersion;
-  context.value = ctx;
-  anchorEl.value = el;
   viewMode.value = "blame";
   blameState.value = { kind: "loading" };
   historyState.value = { kind: "idle" };
-  openVersion.value = version;
+  popover.open(el, ctx);
   blameInFlight = { version, promise: loadBlame(ctx, version) };
-}
-
-function close(): void {
-  // 進行中の loadBlame / loadHistory を破棄させる
-  activeVersion++;
-  context.value = undefined;
-  anchorEl.value = undefined;
-  viewMode.value = "blame";
-  blameState.value = { kind: "idle" };
-  historyState.value = { kind: "idle" };
-  blameInFlight = undefined;
 }
 
 /**
@@ -185,10 +198,10 @@ function close(): void {
  *     観察可能性のため debug log を 1 行出して切り分けを楽にする
  */
 function closeIfActive(dir: string, relPath: string): void {
-  const ctx = context.value;
+  const ctx = popover.context.value;
   if (ctx === undefined) return;
   if (ctx.dir === dir && ctx.relPath === relPath) {
-    close();
+    popover.close();
     return;
   }
   // 不一致 no-op: popover が他 owner / 他 file に対して開いている時のクロス呼び出し。
@@ -210,14 +223,13 @@ function setViewMode(mode: ViewMode): void {
 
 export function useBlamePopover() {
   return {
-    context,
-    anchorEl,
-    openVersion,
+    Popover: popover.Popover,
+    context: popover.context,
     viewMode,
     blameState,
     historyState,
     open,
-    close,
+    close: popover.close,
     closeIfActive,
     setViewMode,
   };

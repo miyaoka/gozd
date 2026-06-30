@@ -19,6 +19,7 @@ import { onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { onMessage } from "../../shared/rpc";
 import { formatAbsoluteTime, formatRelativeTime } from "../../shared/time";
 import type { GitStatusChangePayload } from "../worktree";
+import { revModeLabel } from "./revModeLabel";
 import { rpcGitLogFile } from "./rpc";
 import { useFileHistoryPopover } from "./useFileHistoryPopover";
 import IconLucideHistory from "~icons/lucide/history";
@@ -38,6 +39,8 @@ const buttonRef = useTemplateRef<HTMLButtonElement>("buttonRef");
 const lastCommit = ref<GitCommit>();
 
 let fetchVersion = 0;
+// 直近 fetch を発火させた repo HEAD OID。gitStatusChange の churn 抑制に使う (下記購読参照)。
+let lastFetchedHead: string | undefined;
 
 async function fetchLastCommit(): Promise<void> {
   if (!props.enabled) {
@@ -58,24 +61,29 @@ async function fetchLastCommit(): Promise<void> {
   lastCommit.value = result.value.commits[0];
 }
 
-watch(() => [props.dir, props.relPath, props.rev, props.enabled], fetchLastCommit, {
-  immediate: true,
-});
+watch(
+  () => [props.dir, props.relPath, props.rev, props.enabled],
+  () => {
+    // ファイル / rev 切替で head 追跡をリセットし、新コンテキストの baseline を取り直す。
+    lastFetchedHead = undefined;
+    void fetchLastCommit();
+  },
+  { immediate: true },
+);
 
 // HEAD 追従 rev のときだけ、active dir のコミット (head 変化) でヘッダ日付を更新する。
-// 固定 hash rev は HEAD が動いても起点が不変なので再 fetch しない (churn 抑制)。
-const unsubscribe = onMessage<GitStatusChangePayload>("gitStatusChange", ({ dir }) => {
+// `gitStatusChange` は StatusFull (mtime 込み Equatable) 由来で working-tree 編集ごとに飛ぶため、
+// head が前回 fetch 時と同一なら skip する。ファイルの最新コミットが動くのは head 移動時
+// (commit / amend / reset / checkout / rebase) だけで、編集では変わらないため churn を弾ける。
+// 固定 hash rev は HEAD が動いても起点が不変なので、そもそも再 fetch しない。
+const unsubscribe = onMessage<GitStatusChangePayload>("gitStatusChange", ({ dir, head }) => {
   if (dir !== props.dir) return;
   if (props.rev !== "" && props.rev !== "HEAD") return;
+  if (head === lastFetchedHead) return;
+  lastFetchedHead = head;
   void fetchLastCommit();
 });
 onUnmounted(unsubscribe);
-
-function modeLabelForRev(rev: string): string {
-  if (rev === "") return "Working Tree";
-  if (rev === "HEAD") return "HEAD";
-  return rev;
-}
 
 function onClick(): void {
   const el = buttonRef.value;
@@ -84,7 +92,7 @@ function onClick(): void {
     dir: props.dir,
     relPath: props.relPath,
     rev: props.rev,
-    modeLabel: modeLabelForRev(props.rev),
+    modeLabel: revModeLabel(props.rev),
   });
 }
 </script>

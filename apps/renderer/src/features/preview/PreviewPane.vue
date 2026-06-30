@@ -58,6 +58,7 @@ import ImagePreview from "./ImagePreview.vue";
 import MarkdownPreview from "./MarkdownPreview.vue";
 import { previewCodeFontFamily, previewFontFamily, previewFontSize } from "./previewConfig";
 import { resolveOpenablePath } from "./resolveOpenablePath";
+import { revModeLabel } from "./revModeLabel";
 import { rpcGitShowCommitFile, rpcGitShowFile, rpcOpenFile } from "./rpc";
 import { shouldCloseForMissingFile } from "./shouldCloseForMissingFile";
 import { useBlamePopover } from "./useBlamePopover";
@@ -907,12 +908,16 @@ const historyRev = computed<string | undefined>(() =>
 );
 
 /**
- * ヘッダのコミット日を出すか。worktreeRelative (git 管理下) かつ rev 解決済みのときのみ。
- * 絶対パス (worktree 外 open) / orderedRange 不整合を除外し、silent dead button を作らない
- * (`blameEnabled` の gate と同規律)。
+ * ヘッダのコミット日を出すか。worktreeRelative (git 管理下) かつ rev 解決済み、かつ
+ * ディレクトリ選択でないときのみ。絶対パス (worktree 外 open) / orderedRange 不整合 /
+ * ディレクトリを除外し、silent dead button や "ファイル単位" 機能のディレクトリ露出を防ぐ
+ * (`blameEnabled` が content 領域描画でディレクトリに出ないのと挙動を揃える)。
  */
 const fileHistoryEnabled = computed(
-  () => selection.value?.kind === "worktreeRelative" && historyRev.value !== undefined,
+  () =>
+    selection.value?.kind === "worktreeRelative" &&
+    historyRev.value !== undefined &&
+    !isDirectory.value,
 );
 
 /**
@@ -925,12 +930,6 @@ const fileCommitDateProps = computed(() => ({
   rev: historyRev.value ?? "",
   enabled: fileHistoryEnabled.value,
 }));
-
-function modeLabelForRev(rev: string): string {
-  if (rev === "") return "Working Tree";
-  if (rev === "HEAD") return "HEAD";
-  return rev;
-}
 
 function openBlame(rev: string, line: number, anchorEl: HTMLElement): void {
   const dir = worktreeStore.dir;
@@ -946,7 +945,7 @@ function openBlame(rev: string, line: number, anchorEl: HTMLElement): void {
     relPath: blamePath,
     rev,
     line,
-    modeLabel: modeLabelForRev(rev),
+    modeLabel: revModeLabel(rev),
   });
 }
 

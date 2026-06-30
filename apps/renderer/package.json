@@ -30,6 +30,7 @@
     "dompurify": "3.4.11",
     "marked": "18.0.5",
     "material-icon-theme": "5.36.1",
+    "mermaid": "11.16.0",
     "pinia": "3.0.4",
     "shiki": "4.3.0",
     "vue": "3.5.39"

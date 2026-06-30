@@ -262,6 +262,12 @@ History は blame 完了を必ず待ってから走る。起点 commit は blame
 
 - Markdown を HTML に変換して描画する。HTML はサニタイズして XSS を防ぐ
 - YAML frontmatter はコードブロックとして描画する
+- ` ```mermaid ` コードブロックは mermaid で SVG にレンダリングする（描画は共有層 `MarkdownBody.vue` が担うため preview / session-log など全 markdown 経路で効く）。parse error はブロック内にインライン表示する
+
+> [!NOTE]
+> mermaid は重量級ライブラリのため `MarkdownBody.vue` で dynamic import する。renderer は `codeSplitting: false`（単一バンドル）のため別 chunk には分かれないが、mermaid のトップレベル評価と `initialize()` は mermaid ブロックが現れるまで遅延される。
+>
+> 過去に一度 mermaid を依存ごと削除した経緯がある（`@mermaid-js/parser → langium → vscode-languageserver-*` の phantom dependency 問題）。現在の `@mermaid-js/parser` は langium を捨て chevrotain ベースに移行したため、この依存チェーンは解消済み。
 
 #### リンクの遷移先ルール
 

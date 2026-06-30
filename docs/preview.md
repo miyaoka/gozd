@@ -10,6 +10,9 @@ features/preview/
 ├── CodePreview.vue           # コード表示（Shiki ハイライト + 行番号）
 ├── DiffPreview.vue           # diff 表示（行単位の差分色分け、2列行番号）
 ├── BlamePopover.vue          # 行番号クリックで開く blame / line history popover
+├── FileCommitDate.vue        # ヘッダのファイル最終コミット日表示（クリックで file history）
+├── FileHistoryPopover.vue    # ファイル単位の history popover（git log -- <path>）
+├── CommitHistoryList.vue     # コミット履歴一覧の描画（blame / file history で共有）
 ├── ImagePreview.vue          # 画像表示
 ├── MarkdownPreview.vue       # Markdown レンダリング（marked + DOMPurify）
 ├── ChangesSummaryView.vue    # 全変更ファイルを縦並びで diff 表示するビュー
@@ -130,12 +133,13 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 
 `PreviewPane` が RPC 経由で desktop からファイル内容を取得する。
 
-| RPC                  | 用途                                                                 |
-| -------------------- | -------------------------------------------------------------------- |
-| `fsReadFile`         | 現在のファイル内容（バイナリ判定）                                   |
-| `fsReadFileAbsolute` | 絶対パスでのファイル読み取り（ワークスペース外）                     |
-| `gitShowFile`        | `HEAD` 時点のファイル内容（Uncommitted モードの Original / Diff 用） |
-| `gitShowCommitFile`  | コミット間のファイル内容（from/to を一括取得。コミットモードで使用） |
+| RPC                  | 用途                                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------------- |
+| `fsReadFile`         | 現在のファイル内容（バイナリ判定）                                                          |
+| `fsReadFileAbsolute` | 絶対パスでのファイル読み取り（ワークスペース外）                                            |
+| `gitShowFile`        | `HEAD` 時点のファイル内容（Uncommitted モードの Original / Diff 用）                        |
+| `gitShowCommitFile`  | コミット間のファイル内容（from/to を一括取得。コミットモードで使用）                        |
+| `gitLogFile`         | ファイル全体の commit 履歴（`git log -- <path>`。ヘッダのコミット日 + file history で使用） |
 
 - 画像 / SVG: WKWebView が `file://` をブロックするため、native の `gozd-file://` URLSchemeHandler 経由で raw bytes を配信
   - `gozd-file://localhost/fs?dir=<absDir>&path=<relPath>&v=<n>` — 作業ツリーの実ファイル (`FSOps.readFileBytes`、`resolveSafe` で path traversal 防止)
@@ -206,11 +210,11 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
 
 ### BlamePopover
 
-行番号クリックで開く blame / line history popover。HTML Popover API (`popover="auto"`) と CSS Anchor Positioning (`top: anchor(bottom)`) を使い、Esc / 外クリックでの dismiss と viewport flip をブラウザに委譲する (SidebarMenu と同じパターン)。
+行番号クリックで開く blame / line history popover。HTML Popover API (`popover="auto"`) と CSS Anchor Positioning を使い、Esc / 外クリックでの dismiss と viewport flip をブラウザに委譲する。popover の anchor 付け替え・light-dismiss・toggle race は共通抽象 `shared/popover/usePopover` に委譲し (useTaskMenu / useWorktreeMenu 等と同パターン)、`useBlamePopover` は blame / line history の RPC race だけを所有する。
 
 #### 起動経路 (composable)
 
-open / close / state は `useBlamePopover` (module singleton) が SSOT。`defineExpose` で親から子の内部メソッドを呼ぶ設計禁止規約 (apps/renderer/CLAUDE.md) に従い、`BlamePopover.vue` は state を購読して描画するだけで操作は composable に集約する。PreviewPane と ChangesSummaryItem は `useBlamePopover().open(anchorEl, ctx)` を呼ぶ。`BlamePopover` は MainLayout に 1 度だけ mount する。
+open / close / state は `useBlamePopover` (module singleton) が SSOT。`defineExpose` で親から子の内部メソッドを呼ぶ設計禁止規約 (apps/renderer/CLAUDE.md) に従い、`BlamePopover.vue` は `usePopover` の `Popover` コンポーネント + state を購読して描画するだけで操作は composable に集約する。PreviewPane と ChangesSummaryItem は `useBlamePopover().open(anchorEl, ctx)` を呼ぶ。`BlamePopover` は MainLayout に 1 度だけ mount する。
 
 #### rev の決定ルール
 
@@ -240,7 +244,7 @@ History は blame 完了を必ず待ってから走る。起点 commit は blame
 - PreviewPane / ChangesSummaryItem の `fsChange` callback は `fetchContent()` / `runFetch()` の **前** に `useBlamePopover().closeIfActive(dir, relPath)` を発火する。content 更新で CodePreview の Shiki / fallback button や DiffPreview の line-no button が DOM 置換されると anchor が detached になるため、再描画と同フレームで popover を閉じる
 - ChangesSummaryItem は `onUnmounted` で `closeIfActive(dir, displayPath)` を発火する。`orderedFileChanges` 更新で `v-for` re-key で item が消えるケースも anchor detach 経路として共通化
 - `closeIfActive(dir, relPath)` は context が完全一致する場合のみ close する。他 owner の文脈にぶつけても no-op で安全
-- Popover API の `toggle` イベントを受けて Esc / 外クリック dismiss も composable 側の state を clear する
+- popover の close (Esc / 外クリック light-dismiss 含む) は `usePopover` の `context` が undefined になる経路に集約され、`useBlamePopover` はその watch で進行中 RPC を破棄し state を初期化する
 - `open()` / `close()` は `activeVersion` をインクリメントし、進行中の blame / history RPC は await 復帰時に version 不一致なら結果を破棄する
 - 進行中 blame は `blameInFlight = { version, promise }` で tuple 化して保持する。`loadHistory` は await 前に `myVersion = activeVersion` を capture し、`blameInFlight.version === myVersion` のときだけ自分 version の blame を await する。let の素 Promise 参照だと `open(B)` で `blamePromise` が reassign されても、待機中の loadHistory は古い (A の) 参照を引きずって別 version の blame を待ち続けるバグになる。tuple version 比較でこれを構造的に防ぐ
 
@@ -257,6 +261,35 @@ History は blame 完了を必ず待ってから走る。起点 commit は blame
 
 - 絶対パスで開いたファイル (filer の "open external" 経由) は git 管理外として、CodePreview / DiffPreview / ChangesSummaryItem 側で `blameEnabled=false` を渡して button 描画自体を抑止する (popover は起動しない)
 - 単一行のみ。範囲選択 (multi-line) はスコープ外
+
+### FileCommitDate / FileHistoryPopover
+
+BlamePopover が **行単位** (`git blame` / `git log -L`) なのに対し、こちらは **ファイル単位** (`git log -- <path>`)。preview ヘッダにファイルの最終コミット日を常時表示し、クリックでファイル全体の commit 履歴 popover を開く。一覧 commit のクリックで `gitGraphStore.select(hash)` する挙動は行 history と同じ。
+
+行単位の `useBlamePopover` とは別経路 (`useFileHistoryPopover`、module singleton) で、blame ステップを持たず history 一本の state だけを管理する。BlamePopover と同じく popover 機構は `shared/popover/usePopover` に委譲し (`Popover` コンポーネント + `context`)、composable は RPC race (`activeVersion` で await 復帰時に破棄) だけを所有する。commit 行のマークアップ (shortHash バッジ / 相対日付 / クリック) は `CommitHistoryList.vue` に切り出し、行 history (BlamePopover) とファイル history (FileHistoryPopover) で共有する。`rev → modeLabel` 変換は `revModeLabel.ts` を PreviewPane / FileCommitDate で共有する。
+
+#### rev の決定ルール
+
+ヘッダのコミット日 / file history の起点 rev は **表示中タブに追従** する (`PreviewPane` の `historyRev`)。
+
+| 表示タブ       | rev                                 |
+| -------------- | ----------------------------------- |
+| Original       | `originalRev` (`HEAD` / `<older>^`) |
+| Current / Diff | `currentRev` (`""` / `<newer>`)     |
+
+`gitLogFile` は `gitLogLine` (行) と違い **空文字 rev を許容** する (空文字 = HEAD walk = ファイルの最新コミット起点)。blame-anchored 契約がファイル history には無いため。Diff タブは単一 rev を持たないため Current 側 rev を代表に使う。
+
+#### 表示 gate とリアクティブ更新
+
+- `fileHistoryEnabled`: selection が `worktreeRelative` かつ `historyRev` 解決済み、かつディレクトリでないときだけ日付を表示する (絶対パス / orderedRange 不整合 / ディレクトリを除外、`blameEnabled` が content 領域描画でディレクトリに出ないのと挙動を揃え silent dead button を作らない)
+- props (`dir` / `relPath` / `rev`) 変化で `git log -1` を再 fetch (ファイル切替 / タブ・commit 選択切替に追従)。race は version counter で破棄
+- HEAD 追従 rev (`""` / `"HEAD"`) のときは active dir の `gitStatusChange` で再 fetch するが、`gitStatusChange` は `StatusFull` (mtime 込み Equatable) 由来で working-tree 編集ごとに飛ぶため、payload の `head` が前回 fetch 時と同一なら skip する (編集 churn を弾く)。ファイルの最新コミットが動くのは head 移動時 (commit / amend / reset / checkout / rebase) だけ。固定 hash rev は起点不変なので再 fetch しない
+- 表示中ファイル / commit selection / mode 切替 / summary 切替で popover を閉じる経路は BlamePopover と同じ watcher / fsChange callback に併記 (`PreviewPane`)
+
+#### スコープ外
+
+- rename を跨いだ履歴追跡 (`git log --follow`) は行 history (`logLine`) が追従していない先例に合わせて付けない
+- ChangesSummaryView / ChangesSummaryItem (複数ファイル diff) へのコミット日表示は対象外。単一ファイル preview ヘッダのみ
 
 ### MarkdownPreview
 

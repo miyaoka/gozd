@@ -133,6 +133,30 @@ extension GitOps {
     let text = String(decoding: stdout, as: UTF8.self)
     return try parseLogRecords(text)
   }
+
+  /// ファイル全体の変更履歴。`git log --format=<logFormat> --no-patch <rev> -- <relPath>` 相当。
+  ///
+  /// `logLine` (行単位) との違いは、`-L<n>,<n>:<path>` ではなく pathspec (`-- <relPath>`) で
+  /// ファイル全体を walk する点と、**rev に空文字を許容** する点。空文字は rev を渡さず
+  /// `git log` の default (HEAD walk) に倒れ、「そのファイルの最新コミット」起点になる。
+  /// blame-anchored 契約 (logLine の rev 必須) はファイル history には無いため許す。
+  ///
+  /// parse は `parseLogRecords` SSOT を経由し `logLine` / `runLogStdin` と同じ strict 契約
+  /// (8 fields 不一致 / Int64 author date 失敗 → `unexpectedOutput` throw) を共有する。
+  /// pathspec は `--` で分離するため `logLine` のような `:` reject は不要。
+  public static func logFile(
+    dir: String, relPath: String, rev: String, maxCount: UInt32
+  ) async throws -> [CommitInfo] {
+    try validateRev(rev)
+    var args = ["log", "--format=\(GitOps.logFormat)", "--decorate=short", "--no-patch"]
+    if maxCount > 0 { args.append("--max-count=\(maxCount)") }
+    if !rev.isEmpty { args.append(rev) }
+    args.append("--")
+    args.append(relPath)
+    let stdout = try await runGit(args: args, cwd: dir)
+    let text = String(decoding: stdout, as: UTF8.self)
+    return try parseLogRecords(text)
+  }
 }
 
 /// `rev` 指定時のサイズチェック helper。rev 指定時は `git cat-file -s <rev>:<relPath>`、

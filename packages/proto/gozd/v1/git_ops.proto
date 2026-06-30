@@ -446,6 +446,26 @@ message GitLogLineResponse {
   repeated GitCommit commits = 1;
 }
 
+// gitLogFile: ファイル全体の変更履歴を返す。`git log --no-patch <rev> -- <relPath>` 相当。
+//
+// preview ヘッダのコミット日表示 (max_count=1) と、そこから開くファイル history popover
+// (一覧) で使う。`gitLogLine` (行単位) と違い blame-anchored 契約を持たないため、
+// rev は **空文字を許容** する (空文字 = HEAD を walk = ファイルの最新コミット起点)。
+// 許容形式は `validateRev` 同等 (空文字 / HEAD / hex hash / 末尾 `^` / `~N`)。
+//
+// max_count は 0 のとき git にも `--max-count` を渡さない (= 全件)。
+// `--no-patch` で diff 本体を抑制し commit 一覧だけ取り出す。
+message GitLogFileRequest {
+  string dir = 1;
+  string rel_path = 2;
+  string rev = 3;
+  uint32 max_count = 4;
+}
+
+message GitLogFileResponse {
+  repeated GitCommit commits = 1;
+}
+
 // gitResetMixed: active worktree の現在 branch を指定コミットへ `git reset --mixed <hash>` で移動する。
 //
 // git-graph の commit 行の右クリックメニュー「Reset (mixed) to here」から呼ぶ。

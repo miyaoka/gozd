@@ -239,6 +239,15 @@ extension RpcDispatcher {
     return try resp.jsonUTF8Data()
   }
 
+  func handleGitLogFile(_ body: Data) async throws -> Data {
+    let req = try Gozd_V1_GitLogFileRequest(jsonUTF8Data: body)
+    let commits = try await GitOps.logFile(
+      dir: req.dir, relPath: req.relPath, rev: req.rev, maxCount: req.maxCount)
+    var resp = Gozd_V1_GitLogFileResponse()
+    resp.commits = commits.map(toGitCommitProto)
+    return try resp.jsonUTF8Data()
+  }
+
   func handleGitCommitFiles(_ body: Data) async throws -> Data {
     let req = try Gozd_V1_GitCommitFilesRequest(jsonUTF8Data: body)
     let compare = req.compareHash.isEmpty ? nil : req.compareHash

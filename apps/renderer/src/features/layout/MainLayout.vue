@@ -31,6 +31,7 @@ import {
 } from "../palette";
 import {
   BlamePopover,
+  FileHistoryPopover,
   PreviewPane,
   registerMarkdownHistoryCommands,
   usePreviewStore,
@@ -288,6 +289,7 @@ watch(
     <IssuePickerDialog />
     <SettingsModal />
     <BlamePopover />
+    <FileHistoryPopover />
     <NotificationToast />
   </div>
 </template>

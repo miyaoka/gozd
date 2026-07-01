@@ -238,9 +238,14 @@ export function buildSubagentLinks(
       if (sub === undefined && ev.result !== undefined && ev.result.agentId !== "") {
         sub = byAgentId.get(ev.result.agentId);
       }
+      // rootPromptId フォールバックは、物理 id (agentId) を一切持たない team teammate 限定の
+      // 最終手段。agentId を持つ通常 subagent がまだ候補一覧に現れていない (live refresh の
+      // タイミング差等) だけのケースでこの分岐に落ちると、同じ promptId を共有する無関係な
+      // 別 subagent に誤ってリンクしてしまうため、agentId が空のときだけ試す。
       if (
         sub === undefined &&
         ev.result !== undefined &&
+        ev.result.agentId === "" &&
         ev.result.promptId !== "" &&
         !ambiguousRootPromptIds.has(ev.result.promptId)
       ) {

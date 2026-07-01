@@ -405,9 +405,11 @@ export interface ParsedSessionLog {
   versions: string[];
   /**
    * この JSONL の先頭レコードの promptId。subagent ファイルの先頭レコードは spawn 元の
-   * promptId を引き継ぐため、team teammate 等 meta.json に toolUseId を持たない spawn 経路でも
-   * main 側 tool_result.promptId と厳密一致させて subagent ファイルを一意に特定できる
-   * (gozd の buildSubagentLinks が使う)。先頭レコードが promptId を持たなければ空文字。
+   * promptId を引き継ぐため、team teammate 等 meta.json に toolUseId を持たない spawn 経路で
+   * main 側 tool_result.promptId と照合する鍵になる (gozd の buildSubagentLinks が使う)。
+   * ただし promptId は spawn 単位ではなく1回のプロンプト処理サイクル単位の id のため、同一
+   * サイクル内で複数 subagent が spawn されると値を共有しうる (一意性は保証しない。呼び出し側で
+   * 衝突を検査すること)。先頭レコードが promptId を持たなければ空文字。
    */
   rootPromptId: string;
   /** 表示した (live な) JSONL 行数。rewind で選ばれなかった枝の行は含まない */

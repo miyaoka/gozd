@@ -231,6 +231,27 @@ describe("buildSubagentLinks", () => {
     expect(links.has("toolu_2")).toBe(false);
   });
 
+  test("agentId を持つが未解決 (候補未到着等) の Agent 呼び出しは、rootPromptId で無関係な subagent に誤ってリンクしない", () => {
+    // rootPromptId フォールバックは物理 id を一切持たない team teammate 専用の最終手段。
+    // 通常 subagent (agentId 有り) がまだ subagents 一覧に現れていないだけ (live refresh の
+    // タイミング差等) のケースでこの分岐に落ちると、同じ promptId を共有する無関係な
+    // team teammate に誤ってリンクしてしまう。agentId が空でない限り rootPromptId は試さない。
+    const links = buildSubagentLinks(
+      [
+        toolEvent(
+          "Agent",
+          "toolu_A",
+          {},
+          "Async agent launched successfully.",
+          "prompt-shared",
+          "not-yet-loaded-agent-id",
+        ),
+      ],
+      [sub({ id: "team-x", label: "team teammate", rootPromptId: "prompt-shared" })],
+    );
+    expect(links.has("toolu_A")).toBe(false);
+  });
+
   test("SendMessage は input.to == agent_id で結ぶ", () => {
     const links = buildSubagentLinks(
       [toolEvent("SendMessage", "toolu_S", { to: "agent1" })],

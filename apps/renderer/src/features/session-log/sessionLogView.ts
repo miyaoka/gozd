@@ -28,10 +28,22 @@ export function formatModelLabel(model: string): string {
 // --- subagent 紐付け / 時刻ジャンプ (SessionLogDialog / SessionLogTranscript が使う純関数) ---
 
 /** main の Agent / SendMessage 行を起動/宛先 subagent に結ぶリンク。 */
-export interface SubagentLink {
+interface SubagentLink {
   agentId: string;
   label: string;
 }
+
+/**
+ * buildSubagentLinks の 1 tool_use に対する解決結果。`resolved` (紐付く subagent が一意に
+ * 決まった) と `unresolved` (Agent/SendMessage/Workflow 呼び出しではあるが一意に決められ
+ * なかった) を区別する discriminated union。この tool_use が Agent/SendMessage/Workflow
+ * ですらない (Bash 等、紐付け対象外) 場合は map に entry 自体を作らない。
+ *
+ * consumer (`SessionLogSubagentButton`) はこの3値 (resolved / unresolved / entry 無し) だけを
+ * 見れば良く、「どの tool 名が紐付け対象か」という知識を持つ必要がない。tool 名リストの
+ * 判定条件がこの関数内の分岐 1 箇所に閉じ、view 側との手動同期が要らなくなる。
+ */
+export type SubagentLinkResult = ({ status: "resolved" } & SubagentLink) | { status: "unresolved" };
 
 /** buildSubagentLinks が参照する subagent の最小情報 (SessionTab の射影)。 */
 export interface SubagentDescriptor {
@@ -40,6 +52,12 @@ export interface SubagentDescriptor {
   name: string; // meta.json の name (SendMessage の to が name のことがある)
   agentType: string; // meta.json の agentType (team teammate は SendMessage の to が role 名 = agentType)
   parentToolUseId: string; // spawn した main 側 Agent tool_use id
+  // この subagent の raw jsonl 先頭レコードの promptId (parsed.rootPromptId)。team teammate
+  // spawn (meta.json に toolUseId を持たず、tool_result にも物理 id が乗らない) を Agent
+  // tool_use に結ぶ最後の手段。promptId は「1回のプロンプト処理サイクル」単位の id で spawn
+  // 単位ではないため、同一プロンプト内で複数 spawn があると複数 subagent が同じ値を共有しうる
+  // (buildSubagentLinks 側で ambiguousRootPromptIds として除外する)。
+  rootPromptId: string;
   // workflow agent が属する workflow run の id (wf_xxx)。非 workflow subagent は空文字。
   // main の Workflow tool_use を workflow agent 群に結ぶグループキー。
   workflowRunId: string;
@@ -117,38 +135,61 @@ export function subagentTabLabel(entry: {
 }
 
 /**
- * main の tool 呼び出し (Agent / SendMessage) を起動/宛先 subagent に結ぶ map を作る。
- * key は main tool event の toolUseId、value は紐づく subagent の {agentId,label}。
+ * main の tool 呼び出し (Agent / SendMessage / Workflow) を起動/宛先 subagent に結ぶ map を作る。
+ * key は main tool event の toolUseId。Agent/SendMessage/Workflow の呼び出しには、解決できても
+ * できなくても必ず entry を作る (`resolved` / `unresolved`)。この3種以外の tool (Bash 等) には
+ * entry を作らない。「この tool_use が紐付け対象かどうか」の唯一の判定はこの関数の分岐条件
+ * (`ev.name === "Agent"` 等) であり、consumer 側で tool 名を判定し直す必要はない。
  *
- * - Agent (新規 spawn): main の `tool_use.id` === subagent の `parentToolUseId` (meta.toolUseId)。
- *   team teammate は meta が toolUseId を持たないため、引けないときは spawn 時の `input.name`
- *   (role 名 = agentType) を resolveTo に通してフォールバックする
+ * - Agent (新規 spawn): 3段階の厳密一致のみで引く。どれも決められないときは unresolved にする
+ *   (name/agentType はコーディネータ指定のラベルに過ぎず、同名 teammate を繰り返し spawn すると
+ *   衝突する。実ログで確認済み: 同名 spawn 2 件の tool_result はテキストが完全一致するのに、
+ *   物理的には無関係な独立 jsonl になる。ラベルへのフォールバックは誤 link を生むため使わない)。
+ *     1. `tool_use.id` === subagent の `parentToolUseId` (meta.toolUseId)。通常 subagent
+ *        (Agent tool を subagent_type で呼ぶ経路) の大半はこれで決まる
+ *     2. `tool_result.toolUseResult.agentId` === subagent の `id`。meta.json に toolUseId が
+ *        無い通常 subagent (run_in_background 系) でも tool_result 自体に spawn 先の物理 id が
+ *        乗るため、これで一意に引ける (実ログで確認済み)
+ *     3. `tool_result.promptId` === subagent ファイル先頭レコードの `promptId` (rootPromptId)。
+ *        team teammate は 1・2 の情報を一切持たないため最後の手段になる。promptId は「1回の
+ *        プロンプト処理サイクル」単位の id で spawn 単位ではないため (同一ターンで Agent を
+ *        複数回呼べば tool_result 全てが同じ promptId を持つ。実ログで確認済み)、複数 subagent が
+ *        同じ rootPromptId を共有する場合は一意に決められないため unresolved にする
  * - SendMessage (resume): main の `tool_use.input.to` === subagent の `id` / `name` / `agentType`
  *   (Claude Code の SendMessage は to に agent_id / agent name / role 名 のいずれも取りうる。team
  *   teammate は role 名 = agentType で宛先指定するため、name/id で引けない)。id → name → agentType
- *   の順に引き、同 name / 同 agentType が複数あると一意に決められないためその値はリンクを張らない
- *   (誤った subagent へ飛ばすより無表示が安全)。id は一意なので衝突しない。
+ *   の順に引き、同 name / 同 agentType が複数あると一意に決められないため unresolved にする
+ *   (誤った subagent へ飛ばすより無表示が安全)。id は一意なので衝突しない。resume は新規 spawn では
+ *   ないため promptId 照合は使えない (再開先の subagent ファイルに新規ルートレコードは増えない)
  * - Workflow (workflow 起動): main の Workflow tool_result テキストの `Run ID: wf_xxx` ===
  *   workflow agent 群の `workflowRunId`。1 Workflow = N agent なので先頭 agent に結ぶ
  *   (右ペインで開いた後はタブバーのグループから他 agent へ辿れる)。ラベルは `<名> (件数)`。
  *
- * toolUseId が空 (id 欠落 tool_use) の event は紐付け対象外。
+ * toolUseId が空 (id 欠落 tool_use) の event は対象外 (entry を作らない)。
  */
 export function buildSubagentLinks(
   mainEvents: TranscriptEvent[],
   subagents: SubagentDescriptor[],
-): Map<string, SubagentLink> {
-  const links = new Map<string, SubagentLink>();
+): Map<string, SubagentLinkResult> {
+  const links = new Map<string, SubagentLinkResult>();
   const byParentToolUse = new Map<string, SubagentDescriptor>();
+  const byRootPromptId = new Map<string, SubagentDescriptor>();
+  // 複数 subagent が同じ rootPromptId を共有する場合 (同一プロンプト処理サイクル内の複数 spawn)、
+  // その値では一意に引けないので除外対象にする。ambiguousNames/ambiguousAgentTypes と同じ規律。
+  const ambiguousRootPromptIds = new Set<string>();
   const byAgentId = new Map<string, SubagentDescriptor>();
   const byName = new Map<string, SubagentDescriptor>();
-  // team teammate は SendMessage の to が role 名 (agentType) のことがあるため agentType でも引く。
+  // team teammate は SendMessage の to が役割名 (agentType) のことがあるため agentType でも引く。
   const byAgentType = new Map<string, SubagentDescriptor>();
   // 複数 subagent が同じ name / agentType を持つ場合、その値では一意に引けないので除外対象にする。
   const ambiguousNames = new Set<string>();
   const ambiguousAgentTypes = new Set<string>();
   for (const sub of subagents) {
     if (sub.parentToolUseId !== "") byParentToolUse.set(sub.parentToolUseId, sub);
+    if (sub.rootPromptId !== "") {
+      if (byRootPromptId.has(sub.rootPromptId)) ambiguousRootPromptIds.add(sub.rootPromptId);
+      else byRootPromptId.set(sub.rootPromptId, sub);
+    }
     byAgentId.set(sub.id, sub);
     if (sub.name !== "") {
       if (byName.has(sub.name)) ambiguousNames.add(sub.name);
@@ -177,7 +218,7 @@ export function buildSubagentLinks(
   };
 
   // Workflow 行: result テキストの `Run ID: wf_xxx` で agent 群を引き、先頭 agent に結ぶ。
-  // 結果未記録 / runId 抽出失敗 / 該当 agent ゼロ件はリンクを張らない (無表示が安全)。
+  // 結果未記録 / runId 抽出失敗 / 該当 agent ゼロ件は unresolved にする。
   const resolveWorkflow = (resultText: string | undefined): SubagentLink | undefined => {
     if (resultText === undefined) return undefined;
     const match = WORKFLOW_RUN_ID_RE.exec(resultText);
@@ -189,24 +230,45 @@ export function buildSubagentLinks(
     return { agentId: first.id, label: `${group.name} (${group.agents.length})` };
   };
 
+  // SubagentDescriptor (見つかれば) を SubagentLinkResult に変換する。見つからなければ unresolved。
+  const toResult = (sub: SubagentDescriptor | undefined): SubagentLinkResult =>
+    sub === undefined
+      ? { status: "unresolved" }
+      : { status: "resolved", agentId: sub.id, label: sub.label };
+
   for (const ev of mainEvents) {
     if (ev.kind !== "tool" || ev.toolUseId === "") continue;
     if (ev.name === "Agent") {
-      // 通常 subagent は tool_use.id == meta.toolUseId で引く。team teammate は meta が
-      // toolUseId を持たない代わりに spawn 時の input.name が role 名 (= agentType) なので、
-      // parentToolUseId で引けないときは input.name を resolveTo に通してフォールバックする。
+      // 3段階の厳密一致 (parentToolUseId → tool_result.agentId → rootPromptId、後者は
+      // ambiguousRootPromptIds を経由)。name/agentType はラベルに過ぎず同名 spawn の
+      // 繰り返しで衝突するため、フォールバックには使わない (関数ヘッダのコメント参照)。
       let sub = byParentToolUse.get(ev.toolUseId);
-      if (sub === undefined && typeof ev.input.name === "string") sub = resolveTo(ev.input.name);
-      if (sub !== undefined) links.set(ev.toolUseId, { agentId: sub.id, label: sub.label });
+      if (sub === undefined && ev.result !== undefined && ev.result.agentId !== "") {
+        sub = byAgentId.get(ev.result.agentId);
+      }
+      // rootPromptId フォールバックは、物理 id (agentId) を一切持たない team teammate 限定の
+      // 最終手段。agentId を持つ通常 subagent がまだ候補一覧に現れていない (live refresh の
+      // タイミング差等) だけのケースでこの分岐に落ちると、同じ promptId を共有する無関係な
+      // 別 subagent に誤ってリンクしてしまうため、agentId が空のときだけ試す。
+      if (
+        sub === undefined &&
+        ev.result !== undefined &&
+        ev.result.agentId === "" &&
+        ev.result.promptId !== "" &&
+        !ambiguousRootPromptIds.has(ev.result.promptId)
+      ) {
+        sub = byRootPromptId.get(ev.result.promptId);
+      }
+      links.set(ev.toolUseId, toResult(sub));
     } else if (ev.name === "SendMessage") {
       const to = ev.input.to;
-      if (typeof to === "string") {
-        const sub = resolveTo(to);
-        if (sub !== undefined) links.set(ev.toolUseId, { agentId: sub.id, label: sub.label });
-      }
+      links.set(ev.toolUseId, toResult(typeof to === "string" ? resolveTo(to) : undefined));
     } else if (ev.name === "Workflow") {
       const link = resolveWorkflow(ev.result?.text);
-      if (link !== undefined) links.set(ev.toolUseId, link);
+      links.set(
+        ev.toolUseId,
+        link === undefined ? { status: "unresolved" } : { status: "resolved", ...link },
+      );
     }
   }
   return links;

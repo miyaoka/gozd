@@ -63,7 +63,7 @@ import { MarkdownBody } from "../preview";
 import SessionLogSubagentButton from "./SessionLogSubagentButton.vue";
 import SessionLogTimestamp from "./SessionLogTimestamp.vue";
 import SessionLogToolArg from "./SessionLogToolArg.vue";
-import { formatModelLabel, nearestEventIndexByTs, type SubagentLink } from "./sessionLogView";
+import { formatModelLabel, nearestEventIndexByTs, type SubagentLinkResult } from "./sessionLogView";
 import IconLucideArrowDown from "~icons/lucide/arrow-down";
 import IconLucideGitBranch from "~icons/lucide/git-branch";
 import IconLucideUsers from "~icons/lucide/users";
@@ -76,9 +76,10 @@ const props = defineProps<{
   subtitle?: string;
   // 別セッションへ切り替わった際に <details> を作り直すための :key prefix。
   sessionKey: string;
-  // main ペイン専用。tool event の toolUseId → 紐づく subagent。
-  // 該当があれば summary に subagent を開くボタンを出す。
-  subagentLinks?: Map<string, SubagentLink>;
+  // main ペイン専用。tool event の toolUseId → 紐づく subagent の解決結果。
+  // Agent/SendMessage/Workflow の呼び出しには resolved/unresolved いずれかの entry があり、
+  // それ以外の tool (Bash 等) には entry 自体が無い (buildSubagentLinks が判定済み)。
+  subagentLinks?: Map<string, SubagentLinkResult>;
   // 指定 ts に最も近いイベントへ 1 ショットでスクロールする (横断タイムラインの seek 起点。
   // main / subagent どちらのペインも受ける)。nonce は同一 ts の再クリックでも watch を
   // 発火させるための単調増加カウンタ。
@@ -97,7 +98,7 @@ const emit = defineEmits<{
 
 const notify = useNotificationStore();
 
-function subagentLinkFor(toolUseId: string): SubagentLink | undefined {
+function subagentLinkFor(toolUseId: string): SubagentLinkResult | undefined {
   return props.subagentLinks?.get(toolUseId);
 }
 
@@ -635,9 +636,11 @@ onBeforeUnmount(teardownObserver);
                 >error</span
               >
               <SessionLogToolArg :input="ev.input" />
-              <!-- Agent / SendMessage が subagent に結べるなら、開くボタンを出す。 -->
+              <!-- Agent / SendMessage / Workflow が subagent に結べるなら開くボタン、
+                   結べるはずなのに解決できなかった場合は警告アイコンを出す
+                   (resolved/unresolved/entry 無しの3値は buildSubagentLinks が既に判定済み)。 -->
               <SessionLogSubagentButton
-                :link="subagentLinkFor(ev.toolUseId)"
+                :result="subagentLinkFor(ev.toolUseId)"
                 :ts="ev.ts"
                 @open="emit('open-subagent', $event)"
               />

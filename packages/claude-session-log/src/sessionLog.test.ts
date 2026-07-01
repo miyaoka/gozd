@@ -17,6 +17,32 @@ describe("parseSessionLog", () => {
     expect(log.totalLines).toBe(1);
   });
 
+  test("rootPromptId は先頭レコードの promptId", () => {
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "user",
+          timestamp: TS,
+          promptId: "root-1",
+          message: { role: "user", content: "hi" },
+        },
+        {
+          type: "assistant",
+          timestamp: TS,
+          message: { role: "assistant", content: [{ type: "text", text: "yo" }] },
+        },
+      ),
+    );
+    expect(log.rootPromptId).toBe("root-1");
+  });
+
+  test("先頭レコードに promptId が無ければ rootPromptId は空文字", () => {
+    const log = parseSessionLog(
+      jsonl({ type: "user", timestamp: TS, message: { role: "user", content: "hi" } }),
+    );
+    expect(log.rootPromptId).toBe("");
+  });
+
   test("assistant の text / thinking を個別イベントにする", () => {
     const log = parseSessionLog(
       jsonl({
@@ -157,9 +183,61 @@ describe("parseSessionLog", () => {
         input: { command: "ls" },
         toolUseId: "t1",
         ts: TS,
-        result: { text: "a\nb", isError: false },
+        result: { text: "a\nb", isError: false, agentId: "", promptId: "" },
       },
     ]);
+  });
+
+  test("tool_result を運ぶレコードの promptId を result に載せる", () => {
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "assistant",
+          timestamp: TS,
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_use", id: "t1", name: "Agent", input: {} }],
+          },
+        },
+        {
+          type: "user",
+          timestamp: TS,
+          promptId: "prompt-123",
+          message: {
+            role: "user",
+            content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
+          },
+        },
+      ),
+    );
+    const tool = log.events[0];
+    expect(tool?.kind === "tool" && tool.result?.promptId).toBe("prompt-123");
+  });
+
+  test("tool_result の toolUseResult.agentId を result に載せる (通常 Agent spawn の物理 id)", () => {
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "assistant",
+          timestamp: TS,
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_use", id: "t1", name: "Agent", input: {} }],
+          },
+        },
+        {
+          type: "user",
+          timestamp: TS,
+          toolUseResult: { agentId: "a042cccee019f7982" },
+          message: {
+            role: "user",
+            content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
+          },
+        },
+      ),
+    );
+    const tool = log.events[0];
+    expect(tool?.kind === "tool" && tool.result?.agentId).toBe("a042cccee019f7982");
   });
 
   test("is_error の tool_result は result.isError=true", () => {
@@ -184,7 +262,12 @@ describe("parseSessionLog", () => {
       ),
     );
     const tool = log.events[0];
-    expect(tool?.kind === "tool" && tool.result).toEqual({ text: "boom", isError: true });
+    expect(tool?.kind === "tool" && tool.result).toEqual({
+      text: "boom",
+      isError: true,
+      agentId: "",
+      promptId: "",
+    });
   });
 
   test("isMeta:true の user レコードは載せず skipped に計上", () => {
@@ -1503,7 +1586,7 @@ describe("parseSessionLog", () => {
         input: { command: "ls" },
         toolUseId: "t1",
         ts: TS,
-        result: { text: "out1", isError: false },
+        result: { text: "out1", isError: false, agentId: "", promptId: "" },
       },
       {
         kind: "tool",
@@ -1511,7 +1594,7 @@ describe("parseSessionLog", () => {
         input: { file: "x" },
         toolUseId: "t2",
         ts: TS,
-        result: { text: "out2", isError: false },
+        result: { text: "out2", isError: false, agentId: "", promptId: "" },
       },
       { kind: "assistant", text: "終わり", ts: TS },
     ]);

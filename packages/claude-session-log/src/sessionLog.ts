@@ -125,6 +125,12 @@ interface RawAttachment {
 // 任意 char 集合に依存せず構造的に取れるので、AskUserQuestion の answer 充填はこれを SSOT に使う。
 interface RawToolUseResult {
   answers?: Record<string, string>;
+  // Agent tool (subagent_type 経由の通常 spawn) の spawn 結果に乗る、spawn 先 subagent 自身の
+  // 物理 id。ファイル名 `agent-<agentId>.jsonl` と厳密一致し、spawn ごとに一意 (実ログで確認済み:
+  // meta.json に toolUseId を持たない spawn パターンでもこのフィールドは存在した)。team teammate
+  // (Agent tool を `name` 付きで呼ぶ経路) の spawn 結果にはこのフィールドが無く、代わりに
+  // `agent_id`/`name` という衝突しうるラベルしか載らない (実ログで確認済み)。
+  agentId?: string;
 }
 interface RawLine {
   type?: string;
@@ -147,6 +153,14 @@ interface RawLine {
   // 中継時に `origin.kind:"coordinator"` を付ける。中継は `isMeta:true` と併記されるため、これが
   // 無いと CLI/hook 注入レコードと区別できず会話から落ちる。中継発話を救済する判別キー。
   origin?: { kind?: string };
+  // Claude Code が 1 回のユーザープロンプト処理サイクルに採番する UUID。tool_use 単位ではなく
+  // 「そのプロンプト処理中に呼んだ全 tool の呼び出し」単位で共有されるため、1 回の応答で
+  // 複数 tool を呼べば (並列呼び出しに限らず、同一プロンプト内の逐次呼び出しも含め) それら
+  // 全ての tool_result が同じ promptId を持つ (実ログで確認済み: 1 promptId を最大 32 件の
+  // tool_result が共有していた)。spawn ごとに一意ではないため、team teammate の spawn 解決
+  // (`gozd` の buildSubagentLinks) では「同一 promptId を複数 subagent が共有していないか」を
+  // 検査した上でのみ使える鍵になる (`toolUseResult.agentId` が使える通常 spawn では不要)。
+  promptId?: string;
   // このレコードを書いた Claude Code のバージョン (例 "2.1.178")。行ごとに付くため、セッション中の
   // auto-update で複数値になりうる。UI のバージョン表示に出現順ユニークで集める。
   version?: string;
@@ -338,7 +352,12 @@ export type TranscriptEvent =
       input: Record<string, unknown>;
       toolUseId: string;
       ts: string;
-      result: { text: string; isError: boolean } | undefined;
+      // agentId: tool_result の toolUseResult に乗る、spawn 先 subagent 自身の物理 id
+      // (Agent tool の通常 spawn のみ非空)。promptId: tool_result を運ぶ生レコードの promptId
+      // (team teammate spawn 解決の鍵。1 プロンプト処理サイクル単位で複数 tool_result にまたがり
+      // うるため、呼び出し側で一意性を検査した上で使うこと)。どちらも gozd の buildSubagentLinks
+      // が使う。tool_result 欠落時は undefined。
+      result: { text: string; isError: boolean; agentId: string; promptId: string } | undefined;
     }
   // AskUserQuestion 専用イベント。assistant の質問 (+選択肢) と user の回答を 1 つの構造に
   // 畳む。実体は tool_use + tool_result だが、UI 上は会話 (Q→A) として扱いたいため通常の
@@ -384,6 +403,15 @@ export interface ParsedSessionLog {
    * SSOT。auto-update でセッション途中に上がると複数値になりうるため配列で保持する。
    */
   versions: string[];
+  /**
+   * この JSONL の先頭レコードの promptId。subagent ファイルの先頭レコードは spawn 元の
+   * promptId を引き継ぐため、team teammate 等 meta.json に toolUseId を持たない spawn 経路で
+   * main 側 tool_result.promptId と照合する鍵になる (gozd の buildSubagentLinks が使う)。
+   * ただし promptId は spawn 単位ではなく1回のプロンプト処理サイクル単位の id のため、同一
+   * サイクル内で複数 subagent が spawn されると値を共有しうる (一意性は保証しない。呼び出し側で
+   * 衝突を検査すること)。先頭レコードが promptId を持たなければ空文字。
+   */
+  rootPromptId: string;
   /** 表示した (live な) JSONL 行数。rewind で選ばれなかった枝の行は含まない */
   totalLines: number;
   /** JSON parse に失敗した行数 (末尾の追記途中行など) */
@@ -776,9 +804,15 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
               skipped++;
               continue;
             }
+            // raw は JSON.parse を type assertion しただけで実行時型を保証しないため、
+            // ?? だけだと number/object 等の非 string 値がそのまま紛れ込む。version/parentUuid
+            // と同じ規約で typeof チェックし、string でなければ空文字に倒す。
             tool.result = {
               text: toolResultText(block.content),
               isError: block.is_error === true,
+              agentId:
+                typeof raw.toolUseResult?.agentId === "string" ? raw.toolUseResult.agentId : "",
+              promptId: typeof raw.promptId === "string" ? raw.promptId : "",
             };
             continue;
           }
@@ -915,7 +949,13 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     skipped++;
   }
 
-  return { events, models, versions, totalLines, malformed, skipped, emptyThinking };
+  // 先頭レコードの promptId。rewind で捨てられうる分岐候補とは無関係にファイル先頭 1 件で
+  // 決まる (subagent ファイルは常に spawn 元の promptId を持つ 1 行目から始まる)。raw は
+  // 実行時型を保証しないため typeof で string を確認する (version/parentUuid と同じ規約)。
+  const rootFirstPromptId = nodes[0]?.raw.promptId;
+  const rootPromptId = typeof rootFirstPromptId === "string" ? rootFirstPromptId : "";
+
+  return { events, models, versions, totalLines, malformed, skipped, emptyThinking, rootPromptId };
 }
 
 /**

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import type { TranscriptEvent } from "../session-log";
 import type { PreviewEvent } from "./terminalSessionPreviewMessages";
-import { collectMessages } from "./terminalSessionPreviewMessages";
+import { collectMessages, isSessionInProgress } from "./terminalSessionPreviewMessages";
 
 // "u1" → user, "a3" → assistant のように先頭文字で kind を決め、ラベルを text に入れる。
 // ts は出現順の連番 (順序は ts に依存しない設計だが、実ログ同様に昇順で振っておく)
@@ -77,5 +78,43 @@ describe("collectMessages", () => {
   test("assistant 発言のみのログでも最新 run の末尾 3 件が出る", () => {
     const input = events("a1", "a2", "a3", "a4");
     expect(texts(input)).toEqual(["a2", "a3", "a4"]);
+  });
+});
+
+describe("isSessionInProgress", () => {
+  const tool: TranscriptEvent = {
+    kind: "tool",
+    name: "Bash",
+    input: {},
+    toolUseId: "t1",
+    ts: "2026-06-12T00:00:00Z",
+    result: undefined,
+  };
+  const thinking: TranscriptEvent = { kind: "thinking", text: "...", ts: "2026-06-12T00:00:00Z" };
+  const assistant: TranscriptEvent = {
+    kind: "assistant",
+    text: "done",
+    ts: "2026-06-12T00:00:00Z",
+  };
+  const user: TranscriptEvent = { kind: "user", text: "hi", ts: "2026-06-12T00:00:00Z" };
+
+  test("末尾が tool なら進行中", () => {
+    expect(isSessionInProgress([user, tool])).toBe(true);
+  });
+
+  test("末尾が thinking なら進行中", () => {
+    expect(isSessionInProgress([user, assistant, thinking])).toBe(true);
+  });
+
+  test("末尾が assistant (発言) ならリセットされる", () => {
+    expect(isSessionInProgress([user, tool, assistant])).toBe(false);
+  });
+
+  test("末尾が user (発言) ならリセットされる", () => {
+    expect(isSessionInProgress([assistant, tool, user])).toBe(false);
+  });
+
+  test("空配列は進行中でない", () => {
+    expect(isSessionInProgress([])).toBe(false);
   });
 });

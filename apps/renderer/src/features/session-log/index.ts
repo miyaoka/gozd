@@ -4,7 +4,7 @@
 // feature にまたがる (sidebar の task ⋮ メニュー dialog / terminal 右上の preview) ため、
 // 独立 feature として切り出している。共有データ取得は `useSessionLogLive` 1 つで賄い、
 // 表示の違いは各 consumer 側に閉じる。
-export { expandAskMessages, parseSessionLog } from "@gozd/claude-session-log";
+export { expandAskMessages, parseSessionLog, type TranscriptEvent } from "@gozd/claude-session-log";
 export { default as SessionLogDialog } from "./SessionLogDialog.vue";
 export { useSessionLogLive } from "./useSessionLogLive";
 export { useSessionLogViewer } from "./useSessionLogViewer";

@@ -441,6 +441,28 @@
   }
 }
 
+/* セッションビューの「進行中」typing indicator (TerminalSessionPreview)。thinking / tool
+   などの発言以外のアクション中に「・」の数を周期的に増減させ、次の発言が来るまでの
+   作業継続をチャット UI の入力中表現で示す。content は非補間プロパティなので各
+   keyframe 区間の中間点で discrete に切り替わる (steps() 指定なしでも仕様上そう動く)。 */
+._fx-typing-dots::after {
+  content: "・";
+  animation: fx-typing-dots 1.2s ease-in-out infinite;
+}
+
+@keyframes fx-typing-dots {
+  0%,
+  100% {
+    content: "・";
+  }
+  33% {
+    content: "・・";
+  }
+  66% {
+    content: "・・・";
+  }
+}
+
 /* HUD のデジタル読み出し (時計等)。primary で淡く発光させる */
 ._fx-hud-readout {
   color: var(--color-primary-text);

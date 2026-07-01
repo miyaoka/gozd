@@ -2,11 +2,24 @@
 // 「応答 (run) 単位」で preview に出すメッセージを選ぶ純粋関数。SFC から分離して
 // 回帰テスト (collectMessages.test.ts 相当) を書けるようにしている。
 
+import type { TranscriptEvent } from "../session-log";
+
 // parseSessionLog の events から user / assistant のみ残した会話イベント。
 export interface PreviewEvent {
   kind: "user" | "assistant";
   text: string;
   ts: string;
+}
+
+/**
+ * セッションが「発言以外のアクション中 (= 進行中)」かどうかを判定する。
+ * transcript の末尾イベントが thinking / tool なら、直近の発言以降まだ次の発言が
+ * 無い = 作業継続中とみなす。末尾が user / assistant (発言) なら進行中表示をリセットする。
+ * ask は expandAskMessages で user / assistant に展開済みの前提 (呼び出し側で展開してから渡す)。
+ */
+export function isSessionInProgress(events: TranscriptEvent[]): boolean {
+  const last = events[events.length - 1];
+  return last !== undefined && (last.kind === "thinking" || last.kind === "tool");
 }
 
 // 1 overlay 分の bubble。run 単位で表示対象を選び、events の出現順で並べる。

@@ -31,6 +31,16 @@ run 単位で kind ごとに件数を確保するため、assistant が連続応
 中間 span に逃がしている)。bubble が 0 件の overlay は非表示にし、両 overlay とも空なら
 何も描画しない。
 
+## 進行中インジケータ
+
+各 overlay の bubble 列末尾に、transcript の直近が「発言以外のアクション中」なら
+`・` が増減する typing indicator (`_fx-typing-dots`) を assistant 吹き出しと同じ見た目で
+追加表示する。判定は `isSessionInProgress`
+(`terminalSessionPreviewMessages.ts`) が担い、ask 展開後の events 列の末尾 kind が
+thinking / tool なら進行中、user / assistant (発言) なら false にリセットする。
+preview は user/assistant/teammate 以外を filter で捨てるため、この判定だけは filter 前の
+events 列 (`parsePreview` の中間結果) を見る必要がある。
+
 ## 折りたたみと高さ上限
 
 main / sub とも `<details><summary>` で bubble 群を折りたためる。summary は main が
@@ -96,7 +106,7 @@ import { usePopover } from "../../shared/popover";
 import { MarkdownBody } from "../preview";
 import { expandAskMessages, parseSessionLog, useSessionLogLive } from "../session-log";
 import type { PreviewEvent, PreviewMessage } from "./terminalSessionPreviewMessages";
-import { collectMessages } from "./terminalSessionPreviewMessages";
+import { collectMessages, isSessionInProgress } from "./terminalSessionPreviewMessages";
 import { useTerminalStore } from "./useTerminalStore";
 
 interface Props {
@@ -123,19 +133,27 @@ const { sessions } = useSessionLogLive(sessionId);
 // `expandAskMessages` で AskUserQuestion (kind: "ask") を「質問 = assistant 発言」
 // 「回答 = user 発言」に inline 展開する。展開後の events 列から user / assistant 以外
 // (thinking / tool / image / branch) を捨てるのは preview 側の責務 (どの kind を見せるかは
-// 表示制約。parser 側は ask 展開のみに閉じる)。
-function parsedEvents(content: string): PreviewEvent[] {
-  const out: PreviewEvent[] = [];
-  for (const ev of expandAskMessages(parseSessionLog(content).events)) {
+// 表示制約。parser 側は ask 展開のみに閉じる)。inProgress は展開後・filter 前の events 列
+// (末尾が thinking / tool かどうか) から判定するため、messages と同じ 1 回の parse 結果を
+// 両方の派生元にする。
+interface ParsedPreview {
+  messages: PreviewEvent[];
+  inProgress: boolean;
+}
+
+function parsePreview(content: string): ParsedPreview {
+  const events = expandAskMessages(parseSessionLog(content).events);
+  const messages: PreviewEvent[] = [];
+  for (const ev of events) {
     if (ev.kind === "user" || ev.kind === "assistant") {
-      out.push({ kind: ev.kind, text: ev.text, ts: ev.ts });
+      messages.push({ kind: ev.kind, text: ev.text, ts: ev.ts });
     } else if (ev.kind === "teammate") {
       // peer セッションからの受信発話は、この agent への inbound 入力として user 扱いで見せる
       // (subagent の spawn prompt も teammate でラップされるため、これを落とすと preview から消える)。
-      out.push({ kind: "user", text: ev.text, ts: ev.ts });
+      messages.push({ kind: "user", text: ev.text, ts: ev.ts });
     }
   }
-  return out;
+  return { messages, inProgress: isSessionInProgress(events) };
 }
 
 // 最後に「会話発話」(kind === user | assistant) があった ts。tool だけ走り続けている
@@ -150,21 +168,28 @@ function lastConversationTs(events: PreviewEvent[]): number {
   return 0;
 }
 
-// main session の events。サブで二度評価されるのを避けるため computed に切る。
-const mainEvents = computed<PreviewEvent[]>(() => {
+// main session の parse 結果 (messages + inProgress)。サブで二度評価されるのを避けるため
+// computed に切る。
+const mainParsed = computed<ParsedPreview>(() => {
   const main = sessions.value.find((s) => s.kind === "main");
-  return main === undefined ? [] : parsedEvents(main.content);
+  return main === undefined ? { messages: [], inProgress: false } : parsePreview(main.content);
 });
+const mainInProgress = computed<boolean>(() => mainParsed.value.inProgress);
 
 // 最後に発話があった subagent 1 つの events + 表示ラベル (subagentTabLabel が組み立てた
-// agent 名 / workflow 見出し)。「発話」は会話イベント (user / assistant) の最終 ts で判定し、
-// tool 単独走行の subagent はここでの最新性に寄与させない。events と label を 1 つの
-// computed にまとめておくと sub overlay の見出しと本文が同じ subagent から派生する不変条件を
-// 構造的に担保できる。
-const newestSub = computed<{ label: string; events: PreviewEvent[] } | undefined>(() => {
+// agent 名 / workflow 見出し) + inProgress。「発話」は会話イベント (user / assistant) の
+// 最終 ts で判定し、tool 単独走行の subagent はここでの最新性に寄与させない。events と
+// label を 1 つの computed にまとめておくと sub overlay の見出しと本文が同じ subagent から
+// 派生する不変条件を構造的に担保できる。
+const newestSub = computed<
+  { label: string; events: PreviewEvent[]; inProgress: boolean } | undefined
+>(() => {
   const subs = sessions.value
     .filter((s) => s.kind !== "main")
-    .map((s) => ({ label: s.label, events: parsedEvents(s.content) }))
+    .map((s) => {
+      const parsed = parsePreview(s.content);
+      return { label: s.label, events: parsed.messages, inProgress: parsed.inProgress };
+    })
     .filter((x) => x.events.length > 0);
   if (subs.length === 0) return undefined;
   let newest = subs[0];
@@ -179,6 +204,7 @@ const newestSub = computed<{ label: string; events: PreviewEvent[] } | undefined
   return newest;
 });
 const subEvents = computed<PreviewEvent[]>(() => newestSub.value?.events ?? []);
+const subInProgress = computed<boolean>(() => newestSub.value?.inProgress ?? false);
 // subLabel は <summary> の折り畳みハンドルを兼ねるため、subagentTabLabel が空文字
 // を返すケース (ロード途中 / meta.json 解析失敗) でも "Subagent" にフォールバック
 // して summary を必ず出す。summary を欠落させると UA デフォルト "Details" 表示に
@@ -190,7 +216,7 @@ const subLabel = computed<string>(() => {
 
 // bubble 選択は run 単位の純粋関数 `collectMessages` (terminalSessionPreviewMessages.ts) に
 // 委譲する。選択規則の詳細はそちらのコメントとテストを参照。
-const mainMessages = computed<PreviewMessage[]>(() => collectMessages(mainEvents.value));
+const mainMessages = computed<PreviewMessage[]>(() => collectMessages(mainParsed.value.messages));
 const subMessages = computed<PreviewMessage[]>(() => collectMessages(subEvents.value));
 
 // クリックで全文を出す popover。kind は吹き出し色を合わせるための discriminator、
@@ -280,6 +306,18 @@ const hasSub = computed(() => subMessages.value.length > 0);
               <span class="line-clamp-2">{{ msg.text }}</span>
             </button>
           </div>
+          <!-- 進行中インジケータ。transcript 末尾が thinking / tool (発言以外のアクション)
+               のときだけ出し、次の発言が来た瞬間 mainInProgress が false になって消える
+               (発言でリセット)。会話バブルの続きに見えるよう assistant 側と同じ吹き出し。 -->
+          <div v-if="mainInProgress" class="flex min-w-0">
+            <div
+              class="block rounded-lg bg-chat-incoming px-2 py-1 text-chat-incoming-text"
+              role="status"
+              aria-label="Working"
+            >
+              <span class="_fx-typing-dots inline-block w-9 text-center"></span>
+            </div>
+          </div>
         </div>
       </div>
     </details>
@@ -326,6 +364,16 @@ const hasSub = computed(() => subMessages.value.length > 0);
             >
               <span class="line-clamp-2">{{ msg.text }}</span>
             </button>
+          </div>
+          <!-- 進行中インジケータ。main と同じ規律 (末尾が thinking / tool のときだけ表示)。 -->
+          <div v-if="subInProgress" class="flex min-w-0">
+            <div
+              class="block rounded-lg bg-chat-incoming px-2 py-1 text-chat-incoming-text"
+              role="status"
+              aria-label="Working"
+            >
+              <span class="_fx-typing-dots inline-block w-9 text-center"></span>
+            </div>
           </div>
         </div>
       </div>

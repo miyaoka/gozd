@@ -1,6 +1,7 @@
 /**
  * Monaco Editor の worker 環境セットアップ。preview の編集機能 (CodeEditor / DiffPreview の
- * editable モード) から import された時点で 1 度だけ実行される (module 評価は import 時に 1 回)。
+ * editable モード) が `import("./monacoSetup")` で動的 import した時点で 1 度だけ実行される
+ * (module 評価は import 時に 1 回)。編集モードに入らない閲覧専用ユーザーはロードしない。
  *
  * Vite plugin (`vite-plugin-monaco-editor-esm` 等) は使わない。最終更新から 1 年以上経過しており
  * 依存先として採用しない (CLAUDE.md 生存判定規律)。代わりに Vite 標準の `?worker` import で
@@ -24,10 +25,11 @@ import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker"
 
 // `monaco-editor` は全言語 contribution を含む「全部入り」パッケージ (exports map に
 // エントリーポイントが 1 つしかなく、モジュラーな部分 import には別パッケージ
-// `monaco-editor-core` への切替えが必要)。今回は切替えを見送り、全部入り構成を受け入れる
-// (gozd は .app バンドル内配信でネットワーク経由のダウンロードコストが無いため、19MB 級の
-// メインバンドルでも実害は起動時ロードコストのみ)。よって worker も言語ごとに正しくルーティング
-// し、CSS/HTML/JSON/TypeScript の言語サービス (diagnostics 等) をフルに使える状態にしておく。
+// `monaco-editor-core` への切替えが必要)。今回は切替えを見送り、全部入り構成を受け入れる。
+// 動的 import + build 側の chunk 分割 (`vite.config.ts` に codeSplitting 無効化の指定は無い) に
+// より、このモジュールは編集モード突入時にのみ別チャンクとしてロードされる。よって worker も
+// 言語ごとに正しくルーティングし、CSS/HTML/JSON/TypeScript の言語サービス (diagnostics 等) を
+// フルに使える状態にしておく。
 self.MonacoEnvironment = {
   getWorker(_workerId: string, label: string) {
     switch (label) {
@@ -50,4 +52,15 @@ self.MonacoEnvironment = {
   },
 };
 
-export { monaco };
+/** ファイルパスから Monaco の言語 ID を逆引きする (Monaco 自身の登録メタデータが SSOT)。 */
+function detectMonacoLanguage(filePath: string): string {
+  const fileName = filePath.split("/").pop() ?? filePath;
+  const ext = `.${fileName.split(".").pop() ?? ""}`;
+  for (const lang of monaco.languages.getLanguages()) {
+    if (lang.filenames?.includes(fileName)) return lang.id;
+    if (lang.extensions?.includes(ext)) return lang.id;
+  }
+  return "plaintext";
+}
+
+export { monaco, detectMonacoLanguage };

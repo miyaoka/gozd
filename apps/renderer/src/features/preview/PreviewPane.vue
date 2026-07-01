@@ -638,6 +638,19 @@ watch(
 );
 
 /**
+ * summary view は単一ファイル preview ごと unmount する (CodeEditor / DiffPreview の editable も
+ * 含む) ため編集不可。summary 進入時に editMode を抜けないと、editStore.editMode が true のまま
+ * 残って fsChange 抑止 (`if (editStore.editMode) return`) が効き続け、summary 表示中の対象ファイル
+ * 外部変更が currentContent に反映されなくなる。
+ */
+watch(
+  () => summaryStore.enabled,
+  (enabled) => {
+    if (enabled) editStore.exitEditMode();
+  },
+);
+
+/**
  * ファイル選択・git status 変化・コミット選択変化時にリセット＋再取得。
  *
  * **deps はプリミティブで揃える**: selection オブジェクトを deps にすると、`selectRelPath` /
@@ -828,14 +841,26 @@ const openableAbsPath = computed<string | undefined>(() =>
 );
 
 /**
+ * template の v-else-if 連鎖冒頭 4 分岐 (loading/directory/notFound/error) と共有する判定。
+ * isCodePreviewActive / isDiffPreviewActive の両方がこの 4 条件を前提にしているため、
+ * 個別に書くと drift しうる箇所を 1 つに集約する。
+ */
+const isContentUnavailable = computed(
+  () => loading.value || isDirectory.value || isNotFound.value || error.value !== undefined,
+);
+
+/**
  * template の CodePreview 描画条件 (v-else-if 連鎖の最終フォールバック) をミラーした判定。
  * Edit ボタンの表示可否は「実際に CodePreview が描画されている状態か」に一致させる必要がある
  * ため、テンプレート側の条件をそのまま computed 化する。
+ *
+ * `editStore.editMode` は意図的に条件に含めない。この computed は isEditable 経由で
+ * 「編集を許可するか」自体を決める入力であり、editMode を条件に混ぜると自己参照になる
+ * (編集中は CodePreview の代わりに CodeEditor が描画されるが、その間も Edit/Save/Discard の
+ * 表示は維持したいため、「編集中でなければ CodePreview が描画されるはずの状態か」を判定する)。
  */
 const isCodePreviewActive = computed(() => {
-  if (loading.value || isDirectory.value || isNotFound.value || error.value !== undefined) {
-    return false;
-  }
+  if (isContentUnavailable.value) return false;
   if (activeMode.value === "diff") return false;
   if (imageUrl.value !== undefined) return false;
   if (displayIsBinary.value) return false;
@@ -846,9 +871,7 @@ const isCodePreviewActive = computed(() => {
 
 /** template の DiffPreview 描画条件をミラーした判定。isEditable の Diff タブ許可に使う。 */
 const isDiffPreviewActive = computed(() => {
-  if (loading.value || isDirectory.value || isNotFound.value || error.value !== undefined) {
-    return false;
-  }
+  if (isContentUnavailable.value) return false;
   return (
     activeMode.value === "diff" &&
     originalContent.value !== undefined &&
@@ -869,11 +892,8 @@ const isEditable = computed(() => {
   return isCodePreviewActive.value || isDiffPreviewActive.value;
 });
 
-/** Save ボタンの活性判定。Diff タブは DOM 抽出ベースの boolean dirty flag、Current タブは文字列比較。 */
-const isDirtyForSave = computed(() => {
-  if (activeMode.value === "diff") return diffEditor.isDirty.value;
-  return editStore.isDirty;
-});
+/** Save ボタンの活性判定。Current/Diff どちらも編集内容の SSOT は editStore.draftContent。 */
+const isDirtyForSave = computed(() => editStore.isDirty);
 
 function startEdit() {
   const dir = worktreeStore.dir;
@@ -884,35 +904,22 @@ function startEdit() {
 }
 
 /**
- * Diff タブは Monaco DiffEditor の modified モデルが編集内容の実体であり、
- * editStore.draftContent とは独立している。editStore.discard() は draftContent を
- * savedContent に戻すだけなので、Diff タブでは代わりに useDiffEditor().reset() で
- * Monaco 側の表示内容そのものを保存済みの内容に書き戻す必要がある。
+ * editStore.discard() で draftContent を savedContent に戻す。Diff タブは Monaco の
+ * modified model が別途その値を表示しているため、useDiffEditor().reset() で Monaco 側の
+ * 表示内容も書き戻す (CodeEditor.vue は modelValue の watch で自動的に追従する)。
  */
 function discardEdit() {
+  editStore.discard();
   if (activeMode.value === "diff") {
     const content = editStore.savedContent;
     if (content === undefined) return;
     diffEditor.reset(content);
-    return;
   }
-  editStore.discard();
 }
 
 async function saveEdit() {
-  // Diff タブは DiffPreview の contenteditable DOM から最新テキストを抽出してから保存する
-  // (draftContent は v-model で同期しておらず DOM が source of truth のため)。
-  const isDiff = activeMode.value === "diff";
-  if (isDiff) {
-    const extracted = diffEditor.extract();
-    if (extracted === undefined) return;
-    editStore.updateDraft(extracted);
-  }
   const saved = await editStore.save();
   if (saved === undefined) return;
-  // Diff タブの dirty state は useDiffEditor().isDirty (Monaco 側 onDidChangeModelContent 由来)
-  // が SSOT。保存成功後にクリアしないと、保存済みなのに Save/Discard が有効なままになる。
-  if (isDiff) diffEditor.markClean();
   // fsChange 到達を待たず楽観的に反映し、保存直後のチラつきを防ぐ。
   currentContent.value = saved;
 }
@@ -1339,6 +1346,7 @@ watch(
             :editable="editStore.editMode && isEditable"
             @line-number-click="onDiffLineClick"
             @cancel="editStore.exitEditMode()"
+            @update:model-value="editStore.updateDraft($event)"
           />
 
           <!-- 画像プレビュー（バイナリ画像 + SVG preview モード）。worktree 外の絶対パスも /abs 経路で配信 -->

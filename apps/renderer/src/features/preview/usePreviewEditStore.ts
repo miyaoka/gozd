@@ -69,6 +69,8 @@ export const usePreviewEditStore = defineStore("preview-edit", () => {
   /** 保存成功時、書き込んだ内容を返す（呼び出し側が楽観的に表示コンテンツを更新するため） */
   async function save(): Promise<string | undefined> {
     if (!editMode.value) return undefined;
+    // Cmd+S はボタンの :disabled="saving" を経由しないため、ここで再入を弾く。
+    if (saving.value) return undefined;
     const t = target.value;
     const content = draftContent.value;
     if (t === undefined || content === undefined) return undefined;

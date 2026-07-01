@@ -5,13 +5,19 @@ Preview の Current タブ編集用エディタ。Monaco Editor (`monacoSetup.ts
 ## 言語判定
 
 Monaco 自身が保持する言語登録メタデータ (`monaco.languages.getLanguages()` の
-`extensions` / `filenames`) から逆引きする。Shiki 用の `@gozd/shiki-lang-map` とは別の
-SSOT (Monaco 上での編集にのみ関係するため、Shiki 側の拡張子マップに寄せる必要はない)。
+`extensions` / `filenames`) から逆引きする (`monacoSetup.ts` の `detectMonacoLanguage`)。
+Shiki 用の `@gozd/shiki-lang-map` とは別の SSOT (Monaco 上での編集にのみ関係するため、
+Shiki 側の拡張子マップに寄せる必要はない)。
+
+## 遅延ロード
+
+`monaco-editor` は全言語入りの重量パッケージ (`monacoSetup.ts` 参照) のため、`onMounted` 内で
+`import("./monacoSetup")` する。閲覧のみ (編集モードに入らない) ユーザーはロードしない。
 </doc>
 
 <script setup lang="ts">
+import type * as Monaco from "monaco-editor";
 import { onMounted, onUnmounted, ref, watch } from "vue";
-import { monaco } from "./monacoSetup";
 import { previewCodeFontFamily } from "./previewConfig";
 
 const props = defineProps<{
@@ -26,24 +32,17 @@ const emit = defineEmits<{
 }>();
 
 const containerRef = ref<HTMLElement>();
-let editor: monaco.editor.IStandaloneCodeEditor | undefined;
+let editor: Monaco.editor.IStandaloneCodeEditor | undefined;
 
-function detectLanguage(filePath: string): string {
-  const fileName = filePath.split("/").pop() ?? filePath;
-  const ext = `.${fileName.split(".").pop() ?? ""}`;
-  for (const lang of monaco.languages.getLanguages()) {
-    if (lang.filenames?.includes(fileName)) return lang.id;
-    if (lang.extensions?.includes(ext)) return lang.id;
-  }
-  return "plaintext";
-}
-
-onMounted(() => {
+onMounted(async () => {
   const el = containerRef.value;
   if (el === undefined) return;
+  const { monaco, detectMonacoLanguage } = await import("./monacoSetup");
+  // await 中に unmount された場合、containerRef は Vue によって undefined に戻される。
+  if (containerRef.value !== el) return;
   editor = monaco.editor.create(el, {
     value: props.modelValue,
-    language: detectLanguage(props.filePath),
+    language: detectMonacoLanguage(props.filePath),
     theme: "vs-dark",
     automaticLayout: true,
     minimap: { enabled: false },
@@ -73,6 +72,18 @@ watch(
   () => props.wordWrap,
   (wrap) => {
     editor?.updateOptions({ wordWrap: wrap ? "on" : "off" });
+  },
+);
+
+/**
+ * Discard 等、外部（editStore.draftContent）からの内容変更を Monaco に反映する。
+ * `editor.getValue() !== val` の等値チェックが、この watch 自身が発火させた
+ * `update:modelValue` → 親の `updateDraft` → 同じ値の modelValue という feedback loop を止める。
+ */
+watch(
+  () => props.modelValue,
+  (val) => {
+    if (editor !== undefined && editor.getValue() !== val) editor.setValue(val);
   },
 );
 </script>

@@ -8,7 +8,8 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 - git リポジトリでない場合は Filer のみ表示
 - FilerPane の reveal は worktreeStore.revealVersion を内部で購読しているため props 経由不要
 - FilerPane / ChangesPane の `select` emit はどちらも user-initiated select として `previewStore.requestSelect` を呼ぶ。同一パス再選択でのトグル close / summary 抜けの意思決定は preview store 側に集約されている（[docs/preview.md](../../../../../docs/preview.md) の決定表を参照）
-- Filer ヘッダーは `gitGraphStore.selectedHash` が snapshot mode（`UNCOMMITTED_HASH` 以外）のとき "Now" ボタンを表示する。選択中コミットが commits ウィンドウ内に解決できれば日時（`formatCompactTime`、狭幅向け compact 表示）も併せて表示し、tooltip に shortHash・絶対時刻（`formatAbsoluteTime`）・コミットメッセージを出す。"Now" の表示条件は日時解決の成否と切り離してあり（commits ウィンドウ未ロード中でも "Now" は出る）、"Now" クリックで `gitGraphStore.select(UNCOMMITTED_HASH)` を呼び working tree 表示に戻す（GitGraphPane の Working Tree 行クリックと同一経路）
+- Filer ヘッダーの時刻表示は `headerTimestamp` 1 つの computed に集約する。snapshot mode（`gitGraphStore.selectedHash` が `UNCOMMITTED_HASH` 以外）では選択中コミットの日時、working tree mode では変更ファイルの最新 mtime（`useGitStatusStore.workingTreeMtime`）を指し、どちらも同じ span（`formatCompactTime` の狭幅向け compact 表示、tooltip に `formatAbsoluteTime` の絶対時刻）で描画する。由来が違っても見た目・配置を統一するのが目的
+- snapshot mode 中は "Now" ボタンも表示する。表示条件は `gitGraphStore.selectedHash !== UNCOMMITTED_HASH` 単独（日時解決の成否とは独立。commits ウィンドウ未ロード中でも "Now" は出る）。クリックで `gitGraphStore.select(UNCOMMITTED_HASH)` を呼び working tree 表示に戻す（GitGraphPane の Working Tree 行クリックと同一経路）
 - ヘッダーの高さは `h-8` で固定し、working tree 表示 / snapshot 表示の切替でヘッダーの高さが変わらないようにしている（他ペインの `py-2` ヘッダー規約と揃える）
 
 ## 右クリックメニュー
@@ -18,6 +19,7 @@ FilerPane / ChangesPane (および配下の TreeItem) から `contextMenu` event
 
 <script setup lang="ts">
 import { useElementSize, useEventListener } from "@vueuse/core";
+import { storeToRefs } from "pinia";
 import { computed, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
@@ -27,7 +29,7 @@ import { FilerPane } from "../filer";
 import { useGitGraphStore } from "../git-graph";
 import { ResizeHandle } from "../layout";
 import { usePreviewStore } from "../preview";
-import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
+import { UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../worktree";
 import FileContextMenu from "./FileContextMenu.vue";
 import { useFileContextMenu } from "./useFileContextMenu";
 import type { FileContextMenuPayload } from "./useFileContextMenu";
@@ -74,6 +76,8 @@ const { open: openFileContextMenu } = useFileContextMenu();
 const gitGraphStore = useGitGraphStore();
 const worktreeStore = useWorktreeStore();
 const notification = useNotificationStore();
+const gitStatusStore = useGitStatusStore();
+const { workingTreeMtime } = storeToRefs(gitStatusStore);
 
 // Filer が snapshot mode 中か。FilerPane.snapshotHash と同じ判定 (selectedHash 単独、
 // 範囲選択は scope 外)。"Now" ボタンの表示条件はこれ単独に結合する — snapshotCommit
@@ -88,6 +92,25 @@ const snapshotCommit = computed(() => {
   if (hash === UNCOMMITTED_HASH) return undefined;
   const idx = gitGraphStore.hashToIndex.get(hash);
   return idx !== undefined ? gitGraphStore.commits[idx] : undefined;
+});
+
+/**
+ * ヘッダーに出す時刻表示 1 つの SSOT。snapshot mode では選択中コミットの日時、
+ * working tree mode では変更ファイルの最新 mtime (`workingTreeMtime`) を指す。
+ * どちらの由来でも同じ見た目 (同じ span) で表示するため、ここで 1 つの値に集約する。
+ */
+const headerTimestamp = computed<{ epochSec: number; title: string } | undefined>(() => {
+  if (isSnapshotMode.value) {
+    const commit = snapshotCommit.value;
+    if (commit === undefined) return undefined;
+    const epochSec = Number(commit.date);
+    return {
+      epochSec,
+      title: `${commit.shortHash} · ${formatAbsoluteTime(epochSec)}\n${commit.message}`,
+    };
+  }
+  if (workingTreeMtime.value <= 0) return undefined;
+  return { epochSec: workingTreeMtime.value, title: formatAbsoluteTime(workingTreeMtime.value) };
 });
 
 // snapshot 表示から working tree (最新 = "Now") に戻す。git-graph の「Working Tree」行
@@ -204,23 +227,22 @@ function onFileContextMenu(req: FileContextMenuPayload) {
           <IconLucideFolderTree class="size-3.5" />
           Files
         </span>
-        <template v-if="isSnapshotMode">
-          <span
-            v-if="snapshotCommit"
-            class="min-w-0 flex-1 truncate text-xs text-foreground-low"
-            :title="`${snapshotCommit.shortHash} · ${formatAbsoluteTime(Number(snapshotCommit.date))}\n${snapshotCommit.message}`"
-          >
-            {{ formatCompactTime(Number(snapshotCommit.date)) }}
-          </span>
-          <button
-            type="button"
-            class="ml-auto shrink-0 rounded-sm border border-border px-1.5 py-1 text-xs text-foreground-low hover:bg-element-hover hover:text-foreground"
-            title="Jump to latest (working tree)"
-            @click="goToNow"
-          >
-            Now
-          </button>
-        </template>
+        <span
+          v-if="headerTimestamp"
+          class="min-w-0 flex-1 truncate text-xs text-foreground-low"
+          :title="headerTimestamp.title"
+        >
+          {{ formatCompactTime(headerTimestamp.epochSec) }}
+        </span>
+        <button
+          v-if="isSnapshotMode"
+          type="button"
+          class="ml-auto shrink-0 rounded-sm border border-border px-1.5 py-1 text-xs text-foreground-low hover:bg-element-hover hover:text-foreground"
+          title="Jump to latest (working tree)"
+          @click="goToNow"
+        >
+          Now
+        </button>
       </div>
       <div class="min-h-0 flex-1 overflow-hidden">
         <FilerPane @select="onFileSelect" @context-menu="onFileContextMenu" />

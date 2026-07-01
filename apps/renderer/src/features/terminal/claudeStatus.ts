@@ -7,11 +7,18 @@ import IconLucideLoaderCircle from "~icons/lucide/loader-circle";
  * 塗り潰しの丸 dot。idle / asking で共通の形として使う。
  * lucide は stroke ベースの icon set で塗り潰し円のグリフを持たないため、
  * ここだけ手書きの SVG functional component にする。
+ *
+ * props を宣言しない functional component は既定で class/style/onXxx しか
+ * フォールスルーしない（unplugin-icons 生成物は stateful component で
+ * inheritAttrs: true のため role/aria-label も含め全属性が乗る）。両者を
+ * 同じ `<component :is>` 経路で描画する都合上、挙動を揃えるため attrs を
+ * 明示 spread する。
  */
-const IconSolidDot: FunctionalComponent<SVGAttributes> = () =>
-  h("svg", { viewBox: "0 0 24 24" }, [
+const IconSolidDot: FunctionalComponent<SVGAttributes> = (_props, { attrs }) =>
+  h("svg", { ...attrs, viewBox: "0 0 24 24", width: "1em", height: "1em" }, [
     h("circle", { cx: 12, cy: 12, r: 10, fill: "currentColor" }),
   ]);
+IconSolidDot.inheritAttrs = false;
 
 /**
  * Claude Code の状態。

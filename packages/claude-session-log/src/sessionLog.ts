@@ -125,6 +125,12 @@ interface RawAttachment {
 // 任意 char 集合に依存せず構造的に取れるので、AskUserQuestion の answer 充填はこれを SSOT に使う。
 interface RawToolUseResult {
   answers?: Record<string, string>;
+  // Agent tool (subagent_type 経由の通常 spawn) の spawn 結果に乗る、spawn 先 subagent 自身の
+  // 物理 id。ファイル名 `agent-<agentId>.jsonl` と厳密一致し、spawn ごとに一意 (実ログで確認済み:
+  // meta.json に toolUseId を持たない spawn パターンでもこのフィールドは存在した)。team teammate
+  // (Agent tool を `name` 付きで呼ぶ経路) の spawn 結果にはこのフィールドが無く、代わりに
+  // `agent_id`/`name` という衝突しうるラベルしか載らない (実ログで確認済み)。
+  agentId?: string;
 }
 interface RawLine {
   type?: string;
@@ -147,12 +153,13 @@ interface RawLine {
   // 中継時に `origin.kind:"coordinator"` を付ける。中継は `isMeta:true` と併記されるため、これが
   // 無いと CLI/hook 注入レコードと区別できず会話から落ちる。中継発話を救済する判別キー。
   origin?: { kind?: string };
-  // Claude Code がこのレコードの「やり取り単位」に採番する UUID。tool_result を運ぶ user
-  // レコードでは、そのやり取りを起こした tool_use と 1:1 対応する。team teammate の spawn
-  // (Agent tool を `name` 付きで呼ぶ経路) は spawn 先 subagent の先頭レコードにも同じ値が
-  // 現れるため、main 側 tool_result とその subagent ファイルを厳密に紐付けられる唯一の鍵になる。
-  // agent_id / name はコーディネータが指定するラベルに過ぎず、同名 spawn を繰り返すと衝突するが
-  // promptId は spawn ごとに新規採番されるため衝突しない (実ログで確認済み)。
+  // Claude Code が 1 回のユーザープロンプト処理サイクルに採番する UUID。tool_use 単位ではなく
+  // 「そのプロンプト処理中に呼んだ全 tool の呼び出し」単位で共有されるため、1 回の応答で
+  // 複数 tool を呼べば (並列呼び出しに限らず、同一プロンプト内の逐次呼び出しも含め) それら
+  // 全ての tool_result が同じ promptId を持つ (実ログで確認済み: 1 promptId を最大 32 件の
+  // tool_result が共有していた)。spawn ごとに一意ではないため、team teammate の spawn 解決
+  // (`gozd` の buildSubagentLinks) では「同一 promptId を複数 subagent が共有していないか」を
+  // 検査した上でのみ使える鍵になる (`toolUseResult.agentId` が使える通常 spawn では不要)。
   promptId?: string;
   // このレコードを書いた Claude Code のバージョン (例 "2.1.178")。行ごとに付くため、セッション中の
   // auto-update で複数値になりうる。UI のバージョン表示に出現順ユニークで集める。
@@ -345,10 +352,12 @@ export type TranscriptEvent =
       input: Record<string, unknown>;
       toolUseId: string;
       ts: string;
-      // promptId: tool_result を運ぶ生レコードの promptId。Agent tool の team teammate spawn
-      // (`gozd` の buildSubagentLinks が使う) を、名前衝突に左右されず一意に subagent ファイルへ
-      // 結ぶための鍵。tool_result 欠落時は undefined。
-      result: { text: string; isError: boolean; promptId: string } | undefined;
+      // agentId: tool_result の toolUseResult に乗る、spawn 先 subagent 自身の物理 id
+      // (Agent tool の通常 spawn のみ非空)。promptId: tool_result を運ぶ生レコードの promptId
+      // (team teammate spawn 解決の鍵。1 プロンプト処理サイクル単位で複数 tool_result にまたがり
+      // うるため、呼び出し側で一意性を検査した上で使うこと)。どちらも gozd の buildSubagentLinks
+      // が使う。tool_result 欠落時は undefined。
+      result: { text: string; isError: boolean; agentId: string; promptId: string } | undefined;
     }
   // AskUserQuestion 専用イベント。assistant の質問 (+選択肢) と user の回答を 1 つの構造に
   // 畳む。実体は tool_use + tool_result だが、UI 上は会話 (Q→A) として扱いたいため通常の
@@ -796,6 +805,7 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
             tool.result = {
               text: toolResultText(block.content),
               isError: block.is_error === true,
+              agentId: raw.toolUseResult?.agentId ?? "",
               promptId: raw.promptId ?? "",
             };
             continue;

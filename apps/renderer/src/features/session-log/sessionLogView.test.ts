@@ -67,13 +67,14 @@ describe("formatSessionTime", () => {
 });
 
 describe("buildSubagentLinks", () => {
-  // tool event を 1 つ作る helper。toolUseId / name / input / result (+その promptId) を指定する。
+  // tool event を 1 つ作る helper。toolUseId / name / input / result (+その agentId / promptId) を指定する。
   function toolEvent(
     name: string,
     toolUseId: string,
     input: Record<string, unknown> = {},
     resultText?: string,
     promptId = "",
+    agentId = "",
   ): TranscriptEvent {
     return {
       kind: "tool",
@@ -81,7 +82,10 @@ describe("buildSubagentLinks", () => {
       input,
       toolUseId,
       ts: TS,
-      result: resultText === undefined ? undefined : { text: resultText, isError: false, promptId },
+      result:
+        resultText === undefined
+          ? undefined
+          : { text: resultText, isError: false, agentId, promptId },
     };
   }
   function sub(over: Partial<SubagentDescriptor>): SubagentDescriptor {
@@ -184,6 +188,47 @@ describe("buildSubagentLinks", () => {
     );
     expect(links.get("toolu_1")).toEqual({ agentId: "aa...-hash1", label: "re-review 1" });
     expect(links.get("toolu_2")).toEqual({ agentId: "aa...-hash2", label: "re-review 2" });
+  });
+
+  test("Agent は parentToolUseId で引けないとき tool_result.agentId (通常 subagent の物理 id) で結ぶ", () => {
+    // run_in_background 系の通常 subagent は meta.json に toolUseId を持たないことがあるが、
+    // tool_result の toolUseResult.agentId に spawn 先の物理 id が乗る (実ログで確認済み)。
+    const links = buildSubagentLinks(
+      [
+        toolEvent(
+          "Agent",
+          "toolu_A",
+          {},
+          "Async agent launched successfully.",
+          "",
+          "a042cccee019f7982",
+        ),
+      ],
+      [sub({ id: "a042cccee019f7982", label: "Summarize session" })],
+    );
+    expect(links.get("toolu_A")).toEqual({
+      agentId: "a042cccee019f7982",
+      label: "Summarize session",
+    });
+  });
+
+  test("同一プロンプト処理サイクル内で複数 Agent spawn が同じ rootPromptId を共有すると、いずれもリンクを張らない", () => {
+    // promptId は spawn 単位ではなく「1回のプロンプト処理サイクル」単位の id なので、
+    // 1 ターンで Agent を複数回呼ぶと tool_result 全てが同じ promptId を持ちうる (実ログで確認済み、
+    // 最大 10 件の Agent tool_use が同一 promptId を共有していた実例あり)。この場合 promptId では
+    // 一意に決められないため、誤った subagent へ結ぶより無表示を選ぶ。
+    const links = buildSubagentLinks(
+      [
+        toolEvent("Agent", "toolu_1", {}, "Async agent launched successfully.", "prompt-shared"),
+        toolEvent("Agent", "toolu_2", {}, "Async agent launched successfully.", "prompt-shared"),
+      ],
+      [
+        sub({ id: "s1", label: "Summarize A", rootPromptId: "prompt-shared" }),
+        sub({ id: "s2", label: "Summarize B", rootPromptId: "prompt-shared" }),
+      ],
+    );
+    expect(links.has("toolu_1")).toBe(false);
+    expect(links.has("toolu_2")).toBe(false);
   });
 
   test("SendMessage は input.to == agent_id で結ぶ", () => {

@@ -27,6 +27,19 @@ export function formatModelLabel(model: string): string {
 
 // --- subagent 紐付け / 時刻ジャンプ (SessionLogDialog / SessionLogTranscript が使う純関数) ---
 
+/**
+ * buildSubagentLinks が紐付けを試みる tool 名の SSOT。この3つの呼び出しは本来 subagent /
+ * workflow agent に結べるはずの呼び出しであり、`SessionLogSubagentButton` が「紐付け対象では
+ * ないので何も出さない (Bash 等)」と「紐付け対象なのに解決できなかった (警告アイコン)」を
+ * 区別するのにも使う。buildSubagentLinks 内の分岐条件 (`ev.name === "Agent"` 等) と要素を
+ * 揃えること。
+ */
+export const SUBAGENT_LINK_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "Agent",
+  "SendMessage",
+  "Workflow",
+]);
+
 /** main の Agent / SendMessage 行を起動/宛先 subagent に結ぶリンク。 */
 export interface SubagentLink {
   agentId: string;
@@ -41,9 +54,10 @@ export interface SubagentDescriptor {
   agentType: string; // meta.json の agentType (team teammate は SendMessage の to が role 名 = agentType)
   parentToolUseId: string; // spawn した main 側 Agent tool_use id
   // この subagent の raw jsonl 先頭レコードの promptId (parsed.rootPromptId)。team teammate
-  // spawn (meta.json に toolUseId を持たない) を Agent tool_use に結ぶ唯一の厳密キー。
-  // name/agentType はコーディネータ指定のラベルに過ぎず同名 spawn の繰り返しで衝突するが、
-  // promptId は spawn ごとに新規採番されるため衝突しない。
+  // spawn (meta.json に toolUseId を持たず、tool_result にも物理 id が乗らない) を Agent
+  // tool_use に結ぶ最後の手段。promptId は「1回のプロンプト処理サイクル」単位の id で spawn
+  // 単位ではないため、同一プロンプト内で複数 spawn があると複数 subagent が同じ値を共有しうる
+  // (buildSubagentLinks 側で ambiguousRootPromptIds として除外する)。
   rootPromptId: string;
   // workflow agent が属する workflow run の id (wf_xxx)。非 workflow subagent は空文字。
   // main の Workflow tool_use を workflow agent 群に結ぶグループキー。
@@ -125,20 +139,26 @@ export function subagentTabLabel(entry: {
  * main の tool 呼び出し (Agent / SendMessage) を起動/宛先 subagent に結ぶ map を作る。
  * key は main tool event の toolUseId、value は紐づく subagent の {agentId,label}。
  *
- * - Agent (新規 spawn): 通常 subagent は `tool_use.id` === subagent の `parentToolUseId`
- *   (meta.toolUseId) で引く。team teammate は meta が toolUseId を持たないため、`tool_result`
- *   を運ぶレコードの `promptId` === subagent ファイル先頭レコードの `promptId` (rootPromptId)
- *   で引く。name/agentType はコーディネータが指定するラベルに過ぎず、同名で teammate を
- *   繰り返し spawn すると衝突する (実ログで確認済み: 同名 spawn 2 件の tool_result はテキストが
- *   完全一致するのに、物理的には無関係な独立 jsonl になる)。promptId は spawn ごとに新規採番
- *   されるため衝突せず、name ベースの誤 link (issue #872) を構造的に防ぐ
+ * - Agent (新規 spawn): 3段階の厳密一致のみで引く。どれも決められないときはリンクを張らない
+ *   (name/agentType はコーディネータ指定のラベルに過ぎず、同名 teammate を繰り返し spawn すると
+ *   衝突する。実ログで確認済み: 同名 spawn 2 件の tool_result はテキストが完全一致するのに、
+ *   物理的には無関係な独立 jsonl になる。ラベルへのフォールバックは誤 link を生むため使わない)。
+ *     1. `tool_use.id` === subagent の `parentToolUseId` (meta.toolUseId)。通常 subagent
+ *        (Agent tool を subagent_type で呼ぶ経路) の大半はこれで決まる
+ *     2. `tool_result.toolUseResult.agentId` === subagent の `id`。meta.json に toolUseId が
+ *        無い通常 subagent (run_in_background 系) でも tool_result 自体に spawn 先の物理 id が
+ *        乗るため、これで一意に引ける (実ログで確認済み)
+ *     3. `tool_result.promptId` === subagent ファイル先頭レコードの `promptId` (rootPromptId)。
+ *        team teammate は 1・2 の情報を一切持たないため最後の手段になる。promptId は「1回の
+ *        プロンプト処理サイクル」単位の id で spawn 単位ではないため (同一ターンで Agent を
+ *        複数回呼べば tool_result 全てが同じ promptId を持つ。実ログで確認済み)、複数 subagent が
+ *        同じ rootPromptId を共有する場合は一意に決められないためリンクを張らない
  * - SendMessage (resume): main の `tool_use.input.to` === subagent の `id` / `name` / `agentType`
  *   (Claude Code の SendMessage は to に agent_id / agent name / role 名 のいずれも取りうる。team
  *   teammate は role 名 = agentType で宛先指定するため、name/id で引けない)。id → name → agentType
  *   の順に引き、同 name / 同 agentType が複数あると一意に決められないためその値はリンクを張らない
- *   (誤った subagent へ飛ばすより無表示が安全)。id は一意なので衝突しない。SendMessage の to は
- *   spawn 時刻を持たない宛先ラベルなので promptId 照合は使えない (対象は既存 subagent で
- *   新規 promptId が採番されない)
+ *   (誤った subagent へ飛ばすより無表示が安全)。id は一意なので衝突しない。resume は新規 spawn では
+ *   ないため promptId 照合は使えない (再開先の subagent ファイルに新規ルートレコードは増えない)
  * - Workflow (workflow 起動): main の Workflow tool_result テキストの `Run ID: wf_xxx` ===
  *   workflow agent 群の `workflowRunId`。1 Workflow = N agent なので先頭 agent に結ぶ
  *   (右ペインで開いた後はタブバーのグループから他 agent へ辿れる)。ラベルは `<名> (件数)`。
@@ -152,16 +172,22 @@ export function buildSubagentLinks(
   const links = new Map<string, SubagentLink>();
   const byParentToolUse = new Map<string, SubagentDescriptor>();
   const byRootPromptId = new Map<string, SubagentDescriptor>();
+  // 複数 subagent が同じ rootPromptId を共有する場合 (同一プロンプト処理サイクル内の複数 spawn)、
+  // その値では一意に引けないので除外対象にする。ambiguousNames/ambiguousAgentTypes と同じ規律。
+  const ambiguousRootPromptIds = new Set<string>();
   const byAgentId = new Map<string, SubagentDescriptor>();
   const byName = new Map<string, SubagentDescriptor>();
-  // team teammate は SendMessage の to が role 名 (agentType) のことがあるため agentType でも引く。
+  // team teammate は SendMessage の to が役割名 (agentType) のことがあるため agentType でも引く。
   const byAgentType = new Map<string, SubagentDescriptor>();
   // 複数 subagent が同じ name / agentType を持つ場合、その値では一意に引けないので除外対象にする。
   const ambiguousNames = new Set<string>();
   const ambiguousAgentTypes = new Set<string>();
   for (const sub of subagents) {
     if (sub.parentToolUseId !== "") byParentToolUse.set(sub.parentToolUseId, sub);
-    if (sub.rootPromptId !== "") byRootPromptId.set(sub.rootPromptId, sub);
+    if (sub.rootPromptId !== "") {
+      if (byRootPromptId.has(sub.rootPromptId)) ambiguousRootPromptIds.add(sub.rootPromptId);
+      else byRootPromptId.set(sub.rootPromptId, sub);
+    }
     byAgentId.set(sub.id, sub);
     if (sub.name !== "") {
       if (byName.has(sub.name)) ambiguousNames.add(sub.name);
@@ -205,12 +231,19 @@ export function buildSubagentLinks(
   for (const ev of mainEvents) {
     if (ev.kind !== "tool" || ev.toolUseId === "") continue;
     if (ev.name === "Agent") {
-      // 通常 subagent は tool_use.id == meta.toolUseId で引く。team teammate は meta が
-      // toolUseId を持たないため、parentToolUseId で引けないときは tool_result.promptId ==
-      // subagent ファイル先頭レコードの promptId (rootPromptId) で引く。name/agentType は
-      // ラベルに過ぎず同名 spawn の繰り返しで衝突するため、フォールバックには使わない。
+      // 3段階の厳密一致 (parentToolUseId → tool_result.agentId → rootPromptId、後者は
+      // ambiguousRootPromptIds を経由)。name/agentType はラベルに過ぎず同名 spawn の
+      // 繰り返しで衝突するため、フォールバックには使わない (関数ヘッダのコメント参照)。
       let sub = byParentToolUse.get(ev.toolUseId);
-      if (sub === undefined && ev.result !== undefined && ev.result.promptId !== "") {
+      if (sub === undefined && ev.result !== undefined && ev.result.agentId !== "") {
+        sub = byAgentId.get(ev.result.agentId);
+      }
+      if (
+        sub === undefined &&
+        ev.result !== undefined &&
+        ev.result.promptId !== "" &&
+        !ambiguousRootPromptIds.has(ev.result.promptId)
+      ) {
         sub = byRootPromptId.get(ev.result.promptId);
       }
       if (sub !== undefined) links.set(ev.toolUseId, { agentId: sub.id, label: sub.label });

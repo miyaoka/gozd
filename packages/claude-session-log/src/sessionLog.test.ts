@@ -183,7 +183,7 @@ describe("parseSessionLog", () => {
         input: { command: "ls" },
         toolUseId: "t1",
         ts: TS,
-        result: { text: "a\nb", isError: false, promptId: "" },
+        result: { text: "a\nb", isError: false, agentId: "", promptId: "" },
       },
     ]);
   });
@@ -214,6 +214,32 @@ describe("parseSessionLog", () => {
     expect(tool?.kind === "tool" && tool.result?.promptId).toBe("prompt-123");
   });
 
+  test("tool_result の toolUseResult.agentId を result に載せる (通常 Agent spawn の物理 id)", () => {
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "assistant",
+          timestamp: TS,
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_use", id: "t1", name: "Agent", input: {} }],
+          },
+        },
+        {
+          type: "user",
+          timestamp: TS,
+          toolUseResult: { agentId: "a042cccee019f7982" },
+          message: {
+            role: "user",
+            content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
+          },
+        },
+      ),
+    );
+    const tool = log.events[0];
+    expect(tool?.kind === "tool" && tool.result?.agentId).toBe("a042cccee019f7982");
+  });
+
   test("is_error の tool_result は result.isError=true", () => {
     const log = parseSessionLog(
       jsonl(
@@ -239,6 +265,7 @@ describe("parseSessionLog", () => {
     expect(tool?.kind === "tool" && tool.result).toEqual({
       text: "boom",
       isError: true,
+      agentId: "",
       promptId: "",
     });
   });
@@ -1559,7 +1586,7 @@ describe("parseSessionLog", () => {
         input: { command: "ls" },
         toolUseId: "t1",
         ts: TS,
-        result: { text: "out1", isError: false, promptId: "" },
+        result: { text: "out1", isError: false, agentId: "", promptId: "" },
       },
       {
         kind: "tool",
@@ -1567,7 +1594,7 @@ describe("parseSessionLog", () => {
         input: { file: "x" },
         toolUseId: "t2",
         ts: TS,
-        result: { text: "out2", isError: false, promptId: "" },
+        result: { text: "out2", isError: false, agentId: "", promptId: "" },
       },
       { kind: "assistant", text: "終わり", ts: TS },
     ]);

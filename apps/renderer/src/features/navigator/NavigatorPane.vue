@@ -100,10 +100,9 @@ const headerStatus = computed<{ text: string; title?: string } | undefined>(() =
   if (!isSnapshotMode.value) return { text: "(now)" };
   const commit = snapshotCommit.value;
   if (commit === undefined) return undefined;
-  const epochSec = Number(commit.date);
   return {
-    text: formatCompactTime(epochSec),
-    title: `${commit.shortHash} · ${formatAbsoluteTime(epochSec)}\n${commit.message}`,
+    text: formatCompactTime(commit.date),
+    title: `${commit.shortHash} · ${formatAbsoluteTime(commit.date)}\n${commit.message}`,
   };
 });
 

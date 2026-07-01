@@ -48,12 +48,17 @@ export function formatAbsoluteTime(unixSec: number): string {
   return new Date(unixSec * 1000).toLocaleString();
 }
 
+// `Intl.DateTimeFormat` に日付・時刻フィールドを混在させると、locale の結合パターンが
+// "... at ..." のような接続語を挿入する（抑制するオプションは無い）。全フィールドを
+// 数値指定 (`2-digit` / `numeric`、単語形式の `month: "short"` は使わない) にすることで
+// これを回避できる。`formatDetailTime` も同じ理由でこの手法を使う。
+
 /**
  * compact な絶対時刻文字列に整形する。`Intl.DateTimeFormat` に整形を委譲するため、
- * 日付の並び順・区切りはシステムロケールに従って正しく組まれる
- * （自前でテンプレート文字列を組み立てない）。全フィールドを数値指定 (`2-digit` /
- * `numeric`) にすることで、locale の日付＋時刻結合パターンが挿入する `"at"` のような
- * 接続語を回避できる（単語形式の月名 (`month: "short"`) と時刻を混在させると挿入される）。
+ * 日付の並び順・区切りはシステムロケールに従って正しく組まれる（自前でテンプレート
+ * 文字列を組み立てない）。
+ *
+ * `unixSec <= 0` は空文字（`formatRelativeTime` / `formatAbsoluteTime` と同じ契約）。
  *
  * 今年の日付は年を省き月・日・時・分を表示、今年以外は時刻を省き年・月・日を表示する
  * （同年内では時刻の解像度が有用、年を跨ぐと「いつか」の特定に年の方が優先度が高い）。
@@ -75,12 +80,33 @@ const COMPACT_DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
 });
 
 export function formatCompactTime(unixSec: number): string {
+  if (unixSec <= 0) return "";
   const date = new Date(unixSec * 1000);
   const formatter =
-    date.getFullYear() === new Date().getFullYear()
+    date.getFullYear() === new Date(Date.now()).getFullYear()
       ? COMPACT_TIME_FORMATTER
       : COMPACT_DATE_FORMATTER;
   return formatter.format(date);
+}
+
+/**
+ * 詳細な絶対時刻文字列（年・月・日・時・分・秒）に整形する。`unixSec <= 0` は空文字。
+ *
+ * git-graph の commit 詳細ペインのような、省略せず全フィールドを見せる用途。
+ */
+const DETAIL_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
+
+export function formatDetailTime(unixSec: number): string {
+  if (unixSec <= 0) return "";
+  return DETAIL_TIME_FORMATTER.format(new Date(unixSec * 1000));
 }
 
 const SECOND_MS = 1000;

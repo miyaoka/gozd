@@ -1142,7 +1142,7 @@ const isWorkingTreeActive = computed(
 
             <!-- col 3 (date): 変更ファイルの mtime 最大値。clean / 未取得時は空表示。 -->
             <div class="text-foreground-low">
-              {{ workingTreeMtime > 0 ? formatCompactTime(workingTreeMtime) : "" }}
+              {{ formatCompactTime(workingTreeMtime) }}
             </div>
             <!-- col 4 (author) / col 5 (hash) は空セル。grid template が幅を確保する。 -->
           </div>

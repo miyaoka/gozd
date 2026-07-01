@@ -635,10 +635,12 @@ onBeforeUnmount(teardownObserver);
                 >error</span
               >
               <SessionLogToolArg :input="ev.input" />
-              <!-- Agent / SendMessage が subagent に結べるなら、開くボタンを出す。 -->
+              <!-- Agent / SendMessage / Workflow が subagent に結べるなら開くボタンを出す。
+                   結べるはずなのに解決できなかった場合は警告アイコンを出す (SessionLogSubagentButton 側で判定)。 -->
               <SessionLogSubagentButton
                 :link="subagentLinkFor(ev.toolUseId)"
                 :ts="ev.ts"
+                :tool-name="ev.name"
                 @open="emit('open-subagent', $event)"
               />
             </template>

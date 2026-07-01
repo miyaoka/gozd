@@ -46,6 +46,7 @@ export interface KeyStroke {
 export interface ContextMap {
   terminalFocus: boolean;
   previewVisible: boolean;
+  previewEditMode: boolean;
   commandPaletteVisible: boolean;
   quickPickVisible: boolean;
   prPickerVisible: boolean;

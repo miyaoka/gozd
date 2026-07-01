@@ -168,6 +168,24 @@ watch(
   { immediate: true },
 );
 
+/**
+ * previewEditMode context key を editStore.editMode と同期。
+ * preview.save の Cmd+S は DOM フォーカス (inputFocused) ではなくこの論理状態で判定する。
+ * VSCode の `workbench.action.files.save` も `when: undefined` (フォーカス位置を問わず
+ * "アクティブなドキュメントを保存する") であり、editMode という「今アクティブな編集対象が
+ * あるか」の論理条件の方が正しいスコープになる。inputFocused ベースにすると、Monaco 自身も
+ * 隠し textarea で入力を受けるため「Monaco 編集中こそ Cmd+S を使いたい」場面まで巻き込んで
+ * 無効化してしまう (Monaco の Cmd+[ / Cmd+] 等、他の !inputFocused binding も同様の理由で
+ * inputFocused の意味を変えるべきではない)。
+ */
+watch(
+  () => previewEditStore.editMode,
+  (editMode) => {
+    contextKeys.set("previewEditMode", editMode);
+  },
+  { immediate: true },
+);
+
 // ESC で preview を閉じる。popover="manual" によって OS の auto dismiss が無いため、
 // HTML popover が popover="auto" で持っていた ESC dismiss の性質を自前で代替する。
 // 他の popover (BlamePopover 等) や dialog (SettingsModal 等) が前面にあるときはそちらに ESC を譲り、

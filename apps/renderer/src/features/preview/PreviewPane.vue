@@ -867,9 +867,10 @@ const isContentUnavailable = computed(
 );
 
 /**
- * template の CodePreview 描画条件 (v-else-if 連鎖の最終フォールバック) をミラーした判定。
- * Edit ボタンの表示可否は「実際に CodePreview が描画されている状態か」に一致させる必要がある
- * ため、テンプレート側の条件をそのまま computed 化する。
+ * Current タブでコード編集可能な状態か。Edit ボタンの表示可否 (isEditable 経由) に使う。
+ * template の CodePreview 描画条件をベースにしつつ、"current" モードだけに絞ったホワイトリスト
+ * なので、template がそのまま描画する "original" (履歴表示、読み取り専用) はここでは false になる
+ * ("original" では CodePreview は描画されるが編集は許可しない) — 単純な描画条件のミラーではない。
  *
  * `editStore.editMode` は意図的に条件に含めない。この computed は isEditable 経由で
  * 「編集を許可するか」自体を決める入力であり、editMode を条件に混ぜると自己参照になる
@@ -878,7 +879,9 @@ const isContentUnavailable = computed(
  */
 const isCodePreviewActive = computed(() => {
   if (isContentUnavailable.value) return false;
-  if (activeMode.value === "diff") return false;
+  // "diff" だけでなく "original" (履歴表示) も除外する。ホワイトリストにすることで、
+  // 将来 PreviewMode が増えても「編集可能なのは current だけ」の意図を構造的に保つ。
+  if (activeMode.value !== "current") return false;
   if (imageUrl.value !== undefined) return false;
   if (displayIsBinary.value) return false;
   if (fileType.value === "markdown" && previewEnabled.value) return false;
@@ -1390,9 +1393,16 @@ watch(
             :content="displayContent"
           />
 
-          <!-- 編集モード: CodePreview の代わりにプレーンテキストエディタを表示 -->
+          <!--
+            編集モード: CodePreview の代わりにプレーンテキストエディタを表示。
+            activeMode === 'current' も条件に含める。含めないと、Current タブで編集開始した後に
+            Original タブへ切り替えても (editMode / draftContent は維持されたままなので)
+            CodeEditor が Current の draft を描画し続けてしまう (isCodePreviewActive と同じ理由)。
+          -->
           <CodeEditor
-            v-else-if="editStore.editMode && editStore.draftContent !== undefined"
+            v-else-if="
+              editStore.editMode && editStore.draftContent !== undefined && activeMode === 'current'
+            "
             :model-value="editStore.draftContent"
             :file-path="selectedDisplayPath ?? ''"
             :word-wrap="wordWrap"

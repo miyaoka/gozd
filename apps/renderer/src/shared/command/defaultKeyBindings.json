@@ -1,7 +1,7 @@
 [
   { "key": "shift+cmd+p", "command": "commandPalette.show" },
   { "key": "cmd+j", "command": "preview.toggle" },
-  { "key": "cmd+s", "command": "preview.save", "when": "previewVisible" },
+  { "key": "cmd+s", "command": "preview.save", "when": "previewEditMode" },
   { "key": "cmd+[", "command": "markdownPreview.back", "when": "previewVisible && !inputFocused" },
   {
     "key": "cmd+]",

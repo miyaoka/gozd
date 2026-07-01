@@ -8,6 +8,7 @@ import type { ContextKey, ContextMap, When } from "./types";
 const INITIAL_STATE: ContextMap = {
   terminalFocus: false,
   previewVisible: false,
+  previewEditMode: false,
   commandPaletteVisible: false,
   quickPickVisible: false,
   prPickerVisible: false,

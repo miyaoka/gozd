@@ -748,7 +748,9 @@ let monacoDiffEditor: Monaco.editor.IStandaloneDiffEditor | undefined;
 let mountGeneration = 0;
 async function mountMonacoDiffEditor() {
   const el = monacoContainerRef.value;
-  if (el === undefined) return;
+  // unmount 済みの template ref は Vue により null に戻る (undefined は初期値のみ)。
+  // reset() (781 行目付近) の null チェックと対称に揃える。
+  if (!el) return;
   const myGeneration = ++mountGeneration;
   const { monaco, detectMonacoLanguage } = await import("./monacoSetup");
   // await 中に editable の再トグル / unmount が起きた場合は何もしない (世代不一致で判定)。

@@ -8,6 +8,8 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 - git リポジトリでない場合は Filer のみ表示
 - FilerPane の reveal は worktreeStore.revealVersion を内部で購読しているため props 経由不要
 - FilerPane / ChangesPane の `select` emit はどちらも user-initiated select として `previewStore.requestSelect` を呼ぶ。同一パス再選択でのトグル close / summary 抜けの意思決定は preview store 側に集約されている（[docs/preview.md](../../../../../docs/preview.md) の決定表を参照）
+- Filer ヘッダーは `gitGraphStore.selectedHash` が snapshot mode（`UNCOMMITTED_HASH` 以外）のとき、選択中コミットの日時と "Now" ボタンを表示する。日時は `formatAbsoluteTime`（絶対時刻）、tooltip に shortHash とコミットメッセージ。"Now" クリックで `gitGraphStore.select(UNCOMMITTED_HASH)` を呼び working tree 表示に戻す（GitGraphPane の Working Tree 行クリックと同一経路）
+- ヘッダーの高さは `h-8` で固定し、working tree 表示 / snapshot 表示の切替でヘッダーの高さが変わらないようにしている（他ペインの `py-2` ヘッダー規約と揃える）
 
 ## 右クリックメニュー
 
@@ -16,15 +18,16 @@ FilerPane / ChangesPane (および配下の TreeItem) から `contextMenu` event
 
 <script setup lang="ts">
 import { useElementSize, useEventListener } from "@vueuse/core";
-import { ref, useTemplateRef, watch } from "vue";
+import { computed, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
+import { formatAbsoluteTime } from "../../shared/time";
 import { ChangesPane } from "../changes";
 import { FilerPane } from "../filer";
 import { useGitGraphStore } from "../git-graph";
 import { ResizeHandle } from "../layout";
 import { usePreviewStore } from "../preview";
-import { useWorktreeStore } from "../worktree";
+import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import FileContextMenu from "./FileContextMenu.vue";
 import { useFileContextMenu } from "./useFileContextMenu";
 import type { FileContextMenuPayload } from "./useFileContextMenu";
@@ -71,6 +74,21 @@ const { open: openFileContextMenu } = useFileContextMenu();
 const gitGraphStore = useGitGraphStore();
 const worktreeStore = useWorktreeStore();
 const notification = useNotificationStore();
+
+// Filer が過去コミットの snapshot を表示中なら、その commit を返す。working tree 表示中は
+// undefined。判定は FilerPane.snapshotHash と同じく selectedHash 単独 (範囲選択は scope 外)。
+const snapshotCommit = computed(() => {
+  const hash = gitGraphStore.selectedHash;
+  if (hash === UNCOMMITTED_HASH) return undefined;
+  const idx = gitGraphStore.hashToIndex.get(hash);
+  return idx !== undefined ? gitGraphStore.commits[idx] : undefined;
+});
+
+// snapshot 表示から working tree (最新 = "Now") に戻す。git-graph の「Working Tree」行
+// クリックと同一経路 (user-initiated select、compareHash クリア)。
+function goToNow() {
+  gitGraphStore.select(UNCOMMITTED_HASH);
+}
 
 type PendingOpen = {
   payload: FileContextMenuPayload;
@@ -175,11 +193,27 @@ function onFileContextMenu(req: FileContextMenuPayload) {
   >
     <!-- Filer -->
     <div ref="filerWrapper" class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div class="flex shrink-0 items-center border-b border-border">
-        <span class="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-foreground">
+      <div class="flex h-8 shrink-0 items-center gap-1.5 border-b border-border px-3">
+        <span class="flex shrink-0 items-center gap-1 text-xs font-semibold text-foreground">
           <IconLucideFolderTree class="size-3.5" />
           Files
         </span>
+        <template v-if="snapshotCommit">
+          <span
+            class="min-w-0 flex-1 truncate text-xs text-foreground-low"
+            :title="`${snapshotCommit.shortHash} · ${snapshotCommit.message}`"
+          >
+            {{ formatAbsoluteTime(Number(snapshotCommit.date)) }}
+          </span>
+          <button
+            type="button"
+            class="shrink-0 rounded-sm border border-border px-1.5 py-1 text-xs text-foreground-low hover:bg-element-hover hover:text-foreground"
+            title="Jump to latest (working tree)"
+            @click="goToNow"
+          >
+            Now
+          </button>
+        </template>
       </div>
       <div class="min-h-0 flex-1 overflow-hidden">
         <FilerPane @select="onFileSelect" @context-menu="onFileContextMenu" />

@@ -10,7 +10,6 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 - FilerPane / ChangesPane の `select` emit はどちらも user-initiated select として `previewStore.requestSelect` を呼ぶ。同一パス再選択でのトグル close / summary 抜けの意思決定は preview store 側に集約されている（[docs/preview.md](../../../../../docs/preview.md) の決定表を参照）
 - Filer ヘッダーの状態表示は `headerStatus` 1 つの computed に集約する。snapshot mode（`gitGraphStore.selectedHash` が `UNCOMMITTED_HASH` 以外）では選択中コミットの日時（`formatCompactTime` の狭幅向け compact 表示、tooltip に `formatAbsoluteTime` の絶対時刻）、working tree mode では固定テキスト `"(now)"` を同じ span で描画する。working tree mode を時刻でなく固定ラベルにするのは、"Now" ボタンを押した遷移先が何であるかを明示するため（変更ファイルの mtime を出すと「今」であることが伝わりにくい）
 - snapshot mode 中は "Now" ボタンも表示する。表示条件は `gitGraphStore.selectedHash !== UNCOMMITTED_HASH` 単独（日時解決の成否とは独立。commits ウィンドウ未ロード中でも "Now" は出る）。クリックで `gitGraphStore.select(UNCOMMITTED_HASH)` を呼び working tree 表示に戻す（GitGraphPane の Working Tree 行クリックと同一経路）
-- ヘッダーの高さは `h-8` で固定し、working tree 表示 / snapshot 表示の切替でヘッダーの高さが変わらないようにしている（他ペインの `py-2` ヘッダー規約と揃える）
 
 ## 右クリックメニュー
 

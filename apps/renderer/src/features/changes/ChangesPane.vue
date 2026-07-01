@@ -79,7 +79,7 @@ function onClickViewAll() {
   <div
     class="flex size-full flex-col overflow-hidden border-l border-border bg-background text-foreground"
   >
-    <div class="flex h-8 shrink-0 items-center gap-1.5 border-b border-border px-3">
+    <div class="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1.5">
       <IconLucideGitBranch class="size-4 text-foreground-low" />
       <span class="text-xs font-semibold text-foreground-low">Changes</span>
       <span v-if="changesStore.orderedFileChanges.length > 0" class="text-xs text-foreground-low"

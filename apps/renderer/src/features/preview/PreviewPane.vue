@@ -676,11 +676,28 @@ watch(
       // store の SSOT computed に揃える)。
       changesStore.orderedFileChanges,
     ] as const,
-  async ([path, _kind, gitChange, selectedHash, compareHash, isPrDiff]) => {
+  async ([path, _kind, gitChange, selectedHash, compareHash, isPrDiff], previous) => {
+    const [prevPath, , , prevSelectedHash, prevCompareHash, prevIsPrDiff] = previous ?? [];
+    // 「表示対象そのものの切替」= ファイル / コミット選択 / PR diff トグルの変化。
+    // gitChange (対象ファイルの git status) や orderedFileChanges (working tree 全体の変更一覧)
+    // だけの変化はここに含めない: 編集中に自分の save が書き込んだ内容がそのまま git status に
+    // 反映されただけのケースを「別ファイルへの切替」と誤認すると、save のたびに編集セッションが
+    // 強制終了してしまう (discard はファイルを書かないため同じ経路を踏まず、この問題を再現しない)。
+    const targetChanged =
+      previous === undefined ||
+      path !== prevPath ||
+      selectedHash !== prevSelectedHash ||
+      compareHash !== prevCompareHash ||
+      isPrDiff !== prevIsPrDiff;
+
+    // 編集中に対象切替ではない再発火 (自分の save 由来の git status 反映等) が来た場合は無視する。
+    // fsChange ハンドラの `if (editStore.editMode) return` と同じ規律。
+    if (!targetChanged && editStore.editMode) return;
+
     previewEnabled.value = defaultPreviewEnabled(fileType.value);
     commitGitChange.value = undefined;
-    // ファイル切替 / git status 変化 / コミット選択変化はすべて表示内容の入れ替えを意味するため、
-    // 編集中の draft は無条件で破棄する (別ファイルの内容を編集し続ける状態を作らない)。
+    // ファイル切替 / コミット選択変化は表示内容の入れ替えを意味するため、編集中の draft は
+    // 無条件で破棄する (別ファイルの内容を編集し続ける状態を作らない)。
     editStore.exitEditMode();
 
     const sel = selection.value;

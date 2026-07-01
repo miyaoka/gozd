@@ -804,11 +804,15 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
               skipped++;
               continue;
             }
+            // raw は JSON.parse を type assertion しただけで実行時型を保証しないため、
+            // ?? だけだと number/object 等の非 string 値がそのまま紛れ込む。version/parentUuid
+            // と同じ規約で typeof チェックし、string でなければ空文字に倒す。
             tool.result = {
               text: toolResultText(block.content),
               isError: block.is_error === true,
-              agentId: raw.toolUseResult?.agentId ?? "",
-              promptId: raw.promptId ?? "",
+              agentId:
+                typeof raw.toolUseResult?.agentId === "string" ? raw.toolUseResult.agentId : "",
+              promptId: typeof raw.promptId === "string" ? raw.promptId : "",
             };
             continue;
           }
@@ -946,8 +950,10 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
   }
 
   // 先頭レコードの promptId。rewind で捨てられうる分岐候補とは無関係にファイル先頭 1 件で
-  // 決まる (subagent ファイルは常に spawn 元の promptId を持つ 1 行目から始まる)。
-  const rootPromptId = nodes[0]?.raw.promptId ?? "";
+  // 決まる (subagent ファイルは常に spawn 元の promptId を持つ 1 行目から始まる)。raw は
+  // 実行時型を保証しないため typeof で string を確認する (version/parentUuid と同じ規約)。
+  const rootFirstPromptId = nodes[0]?.raw.promptId;
+  const rootPromptId = typeof rootFirstPromptId === "string" ? rootFirstPromptId : "";
 
   return { events, models, versions, totalLines, malformed, skipped, emptyThinking, rootPromptId };
 }

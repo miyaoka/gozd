@@ -65,6 +65,9 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
     return wt.branch;
   });
 
+  /** git-graph で working tree 以外の commit が選択されているか (filer の snapshot mode 判定の SSOT) */
+  const isSnapshotMode = computed(() => selectedHash.value !== UNCOMMITTED_HASH);
+
   /** range 選択モードか */
   const isRangeMode = computed(() => compareHash.value !== null);
 
@@ -213,6 +216,7 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
     hashToIndex,
     headHash,
     currentBranch,
+    isSnapshotMode,
     isRangeMode,
     includesWorkingTree,
     otherEndpointHash,

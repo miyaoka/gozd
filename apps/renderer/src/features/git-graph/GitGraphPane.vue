@@ -42,6 +42,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch 
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
+import { formatCompactTime } from "../../shared/time";
 import { ResizeHandle } from "../layout";
 import { ghErrorMessage, rpcGitPrList } from "../palette";
 import type { BranchChangePayload, FsWatchReadyPayload, RemoteRefsChangePayload } from "../sidebar";
@@ -667,16 +668,6 @@ function computeDisplayRefs(
   return result;
 }
 
-/** 日付フォーマット（短い形式） */
-function formatDate(timestamp: number): string {
-  const date = new Date(timestamp * 1000);
-  const month = date.toLocaleString("en", { month: "short" });
-  const day = date.getDate();
-  const hours = date.getHours().toString().padStart(2, "0");
-  const minutes = date.getMinutes().toString().padStart(2, "0");
-  return `${day} ${month} ${hours}:${minutes}`;
-}
-
 /** 詳細ペインの幅 */
 const DETAIL_MIN_WIDTH = 200;
 const GRAPH_LIST_MIN_WIDTH = 400;
@@ -1151,7 +1142,7 @@ const isWorkingTreeActive = computed(
 
             <!-- col 3 (date): 変更ファイルの mtime 最大値。clean / 未取得時は空表示。 -->
             <div class="text-foreground-low">
-              {{ workingTreeMtime > 0 ? formatDate(workingTreeMtime) : "" }}
+              {{ formatCompactTime(workingTreeMtime) }}
             </div>
             <!-- col 4 (author) / col 5 (hash) は空セル。grid template が幅を確保する。 -->
           </div>
@@ -1268,7 +1259,7 @@ const isWorkingTreeActive = computed(
 
                 <!-- col 3 (date) -->
                 <div class="text-foreground-low">
-                  {{ formatDate(node.commit.date) }}
+                  {{ formatCompactTime(node.commit.date) }}
                 </div>
 
                 <!-- col 4 (author) -->

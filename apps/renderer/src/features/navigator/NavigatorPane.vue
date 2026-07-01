@@ -8,6 +8,8 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 - git リポジトリでない場合は Filer のみ表示
 - FilerPane の reveal は worktreeStore.revealVersion を内部で購読しているため props 経由不要
 - FilerPane / ChangesPane の `select` emit はどちらも user-initiated select として `previewStore.requestSelect` を呼ぶ。同一パス再選択でのトグル close / summary 抜けの意思決定は preview store 側に集約されている（[docs/preview.md](../../../../../docs/preview.md) の決定表を参照）
+- Filer ヘッダーの状態表示は `headerStatus` 1 つの computed に集約する。snapshot mode（`gitGraphStore.selectedHash` が `UNCOMMITTED_HASH` 以外）では選択中コミットの日時（`formatCompactTime` の狭幅向け compact 表示、tooltip に `formatAbsoluteTime` の絶対時刻）、working tree mode では固定テキスト `"(now)"` を同じ span で描画する。working tree mode を時刻でなく固定ラベルにするのは、"Now" ボタンを押した遷移先が何であるかを明示するため（変更ファイルの mtime を出すと「今」であることが伝わりにくい）
+- snapshot mode 中は "Now" ボタンも表示する。表示条件は `gitGraphStore.selectedHash !== UNCOMMITTED_HASH` 単独（日時解決の成否とは独立。commits ウィンドウ未ロード中でも "Now" は出る）。クリックで `gitGraphStore.select(UNCOMMITTED_HASH)` を呼び working tree 表示に戻す（GitGraphPane の Working Tree 行クリックと同一経路）
 
 ## 右クリックメニュー
 
@@ -16,15 +18,16 @@ FilerPane / ChangesPane (および配下の TreeItem) から `contextMenu` event
 
 <script setup lang="ts">
 import { useElementSize, useEventListener } from "@vueuse/core";
-import { ref, useTemplateRef, watch } from "vue";
+import { computed, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
+import { formatAbsoluteTime, formatCompactTime } from "../../shared/time";
 import { ChangesPane } from "../changes";
 import { FilerPane } from "../filer";
 import { useGitGraphStore } from "../git-graph";
 import { ResizeHandle } from "../layout";
 import { usePreviewStore } from "../preview";
-import { useWorktreeStore } from "../worktree";
+import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import FileContextMenu from "./FileContextMenu.vue";
 import { useFileContextMenu } from "./useFileContextMenu";
 import type { FileContextMenuPayload } from "./useFileContextMenu";
@@ -71,6 +74,49 @@ const { open: openFileContextMenu } = useFileContextMenu();
 const gitGraphStore = useGitGraphStore();
 const worktreeStore = useWorktreeStore();
 const notification = useNotificationStore();
+
+// Filer の snapshot mode UI (状態表示 + "Now" ボタン) を出すべきか。headerStatus と
+// "Now" ボタンはこれ 1 つだけを見る (1 つの判定が 2 箇所に分岐して食い違うのを防ぐ)。
+// - gitGraphStore.isSnapshotMode: FilerPane.snapshotHash と共通の SSOT (selectedHash
+//   単独判定、範囲選択は scope 外)
+// - repoStore.selectedIsGitRepo: 非 git project は git-graph 自体が mount されず
+//   「過去か現在か」という概念が存在しないため合わせて隠す
+// snapshotCommit (下記) は commits ウィンドウ未ロード等で解決できないことがあるが、
+// その間も snapshot mode 自体は継続しているため、日時表示が無くても "Now" は出し続ける。
+const isSnapshotMode = computed(() => repoStore.selectedIsGitRepo && gitGraphStore.isSnapshotMode);
+
+// snapshot 表示中の commit 詳細 (日時等)。commits ウィンドウ内に無ければ undefined
+// (ロード中 / reload で一時的に外れた場合)。日時表示のみこれで gate する。
+const snapshotCommit = computed(() => {
+  if (!gitGraphStore.isSnapshotMode) return undefined;
+  const idx = gitGraphStore.hashToIndex.get(gitGraphStore.selectedHash);
+  return idx !== undefined ? gitGraphStore.commits[idx] : undefined;
+});
+
+/**
+ * ヘッダーに出す状態表示 1 つの SSOT。snapshot mode では選択中コミットの日時、
+ * working tree mode では固定テキスト "(now)" を指す。"Now" ボタンを押した遷移先が
+ * 何であるかを、時刻情報ではなく状態ラベルとして明示する。
+ *
+ * 非 git project（git-graph 自体が mount されず snapshot mode が存在しない）では
+ * 表示しない。git リポジトリでの「過去か現在か」という概念がそもそも無いため。
+ */
+const headerStatus = computed<{ text: string; title?: string } | undefined>(() => {
+  if (!repoStore.selectedIsGitRepo) return undefined;
+  if (!isSnapshotMode.value) return { text: "(now)" };
+  const commit = snapshotCommit.value;
+  if (commit === undefined) return undefined;
+  return {
+    text: formatCompactTime(commit.date),
+    title: `${commit.shortHash} · ${formatAbsoluteTime(commit.date)}\n${commit.message}`,
+  };
+});
+
+// snapshot 表示から working tree (最新 = "Now") に戻す。git-graph の「Working Tree」行
+// クリックと同一経路 (user-initiated select、compareHash クリア)。
+function goToNow() {
+  gitGraphStore.select(UNCOMMITTED_HASH);
+}
 
 type PendingOpen = {
   payload: FileContextMenuPayload;
@@ -175,11 +221,27 @@ function onFileContextMenu(req: FileContextMenuPayload) {
   >
     <!-- Filer -->
     <div ref="filerWrapper" class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div class="flex shrink-0 items-center border-b border-border">
-        <span class="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-foreground">
+      <div class="flex h-8 shrink-0 items-center gap-1.5 border-b border-border px-3">
+        <span class="flex shrink-0 items-center gap-1 text-xs font-semibold text-foreground">
           <IconLucideFolderTree class="size-3.5" />
           Files
         </span>
+        <span
+          v-if="headerStatus"
+          class="min-w-0 flex-1 truncate text-xs text-foreground-low"
+          :title="headerStatus.title"
+        >
+          {{ headerStatus.text }}
+        </span>
+        <button
+          v-if="isSnapshotMode"
+          type="button"
+          class="ml-auto shrink-0 rounded-sm border border-border px-1.5 py-1 text-xs text-foreground-low hover:bg-element-hover hover:text-foreground"
+          title="Jump to latest (working tree)"
+          @click="goToNow"
+        >
+          Now
+        </button>
       </div>
       <div class="min-h-0 flex-1 overflow-hidden">
         <FilerPane @select="onFileSelect" @context-menu="onFileContextMenu" />

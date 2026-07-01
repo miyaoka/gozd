@@ -1,20 +1,22 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { formatRelativeTime, formatShortAge } from "./relativeTime";
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
+import {
+  formatCompactTime,
+  formatDetailTime,
+  formatRelativeTime,
+  formatShortAge,
+} from "./relativeTime";
 
-// 2026-05-21T00:00:00Z 固定 (テスト独立性のため Date.now を spyOn で固定)
+// 2026-05-21T00:00:00Z 固定 (テスト独立性のため setSystemTime で固定)
 const FIXED_NOW_MS = 1779580800000;
 const FIXED_NOW_SEC = Math.floor(FIXED_NOW_MS / 1000);
 
 describe("formatRelativeTime", () => {
-  let nowSpy: ReturnType<typeof spyOn<DateConstructor, "now">> | undefined;
-
   function freezeNow() {
-    nowSpy = spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
+    setSystemTime(new Date(FIXED_NOW_MS));
   }
 
   afterEach(() => {
-    nowSpy?.mockRestore();
-    nowSpy = undefined;
+    setSystemTime();
   });
 
   test("unixSec <= 0 は空文字", () => {
@@ -45,6 +47,52 @@ describe("formatRelativeTime", () => {
   test("ちょうど今 (diff=0) は 0s ago (numeric:always)", () => {
     freezeNow();
     expect(formatRelativeTime(FIXED_NOW_SEC)).toBe("0s ago");
+  });
+});
+
+// formatCompactTime / formatDetailTime は locale 未指定 (システムロケール依存) のため、
+// 出力文字列をロケール固定で pin しない。年・時刻の有無という構造的性質だけを検証する。
+describe("formatCompactTime", () => {
+  function freezeNow() {
+    setSystemTime(new Date(FIXED_NOW_MS));
+  }
+
+  afterEach(() => {
+    setSystemTime();
+  });
+
+  test("unixSec <= 0 は空文字", () => {
+    freezeNow();
+    expect(formatCompactTime(0)).toBe("");
+    expect(formatCompactTime(-1)).toBe("");
+  });
+
+  test("今年の日付は時刻を含み年を含まない", () => {
+    freezeNow();
+    const result = formatCompactTime(FIXED_NOW_SEC - 10 * 86400);
+    expect(result).toContain(":");
+    expect(result).not.toContain("2026");
+  });
+
+  test("今年以外の日付は年を含み時刻を含まない", () => {
+    freezeNow();
+    const result = formatCompactTime(FIXED_NOW_SEC - 365 * 86400);
+    expect(result).toContain("2025");
+    expect(result).not.toContain(":");
+  });
+});
+
+describe("formatDetailTime", () => {
+  test("unixSec <= 0 は空文字", () => {
+    expect(formatDetailTime(0)).toBe("");
+    expect(formatDetailTime(-1)).toBe("");
+  });
+
+  test("年・時・分・秒をすべて含む", () => {
+    const result = formatDetailTime(FIXED_NOW_SEC);
+    expect(result).toContain("2026");
+    // hour:minute:second の区切り 2 箇所
+    expect(result.match(/:/g)?.length).toBe(2);
   });
 });
 

@@ -95,8 +95,12 @@ const snapshotCommit = computed(() => {
  * ヘッダーに出す状態表示 1 つの SSOT。snapshot mode では選択中コミットの日時、
  * working tree mode では固定テキスト "(now)" を指す。"Now" ボタンを押した遷移先が
  * 何であるかを、時刻情報ではなく状態ラベルとして明示する。
+ *
+ * 非 git project（git-graph 自体が mount されず snapshot mode が存在しない）では
+ * 表示しない。git リポジトリでの「過去か現在か」という概念がそもそも無いため。
  */
 const headerStatus = computed<{ text: string; title?: string } | undefined>(() => {
+  if (!repoStore.selectedIsGitRepo) return undefined;
   if (!isSnapshotMode.value) return { text: "(now)" };
   const commit = snapshotCommit.value;
   if (commit === undefined) return undefined;

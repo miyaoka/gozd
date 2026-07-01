@@ -33,13 +33,21 @@ run 単位で kind ごとに件数を確保するため、assistant が連続応
 
 ## 進行中インジケータ
 
-各 overlay の bubble 列末尾に、transcript の直近が「発言以外のアクション中」なら
-`・` が増減する typing indicator (`_fx-typing-dots`) を assistant 吹き出しと同じ見た目で
-追加表示する。判定は `isSessionInProgress`
-(`terminalSessionPreviewMessages.ts`) が担い、ask 展開後の events 列の末尾 kind が
-thinking / tool なら進行中、user / assistant (発言) なら false にリセットする。
-preview は user/assistant/teammate 以外を filter で捨てるため、この判定だけは filter 前の
-events 列 (`parsePreview` の中間結果) を見る必要がある。
+各 overlay の bubble 列末尾に、「発言以外のアクション中」なら `・` が増減する typing
+indicator (`_fx-typing-dots`) を assistant 吹き出しと同じ見た目で追加表示する。transcript
+ベースの判定は `isSessionInProgress` (`terminalSessionPreviewMessages.ts`) が担い、ask 展開後の
+events 列の末尾 kind が thinking / tool なら進行中、user / assistant (発言) なら false
+にリセットする。preview は user/assistant/teammate 以外を filter で捨てるため、この判定だけは
+filter 前の events 列 (`parsePreview` の中間結果) を見る必要がある。
+
+main と sub で判定の確からしさが非対称になる。main は PTY を持ち、ClaudeStatus
+(`claudeStatus.ts`) が hooks + PTY 出力の interrupt パターンマッチで「本当に working か」を
+継続的に更新している。ユーザーが Ctrl+C/Escape で中断すると Claude Code は transcript に
+新規イベントを追記しない (interrupt 通知フックが無いため) ので、transcript 末尾だけで判定
+すると次の発言まで進行中表示が居座り続けて ClaudeStatus の badge (idle) と食い違う。そのため
+`mainInProgress` は `isSessionInProgress` の結果を `ClaudeStatus` (`getClaudeState(leafId)
+=== "working"`) で AND し、より確からしい信号を優先する。sub は Task ツールで起動される
+仮想セッションで PTY / ClaudeStatus を持たないため、transcript ベースの推定のみで妥協する。
 
 ## 折りたたみと高さ上限
 
@@ -174,7 +182,15 @@ const mainParsed = computed<ParsedPreview>(() => {
   const main = sessions.value.find((s) => s.kind === "main");
   return main === undefined ? { messages: [], inProgress: false } : parsePreview(main.content);
 });
-const mainInProgress = computed<boolean>(() => mainParsed.value.inProgress);
+// transcript 末尾が thinking/tool でも、ユーザーが Ctrl+C/Escape で中断した直後は
+// Claude Code が transcript に新規イベントを追記しない (interrupt 通知フックが無いため。
+// docs/claude-status.md 参照)。この場合 `ClaudeStatus` は PTY 出力のパターンマッチで
+// 既に idle に落ちているのに、transcript ベースの判定だけだと次の発言までインジケータが
+// 居座り続けて食い違う。main は PTY を持つため `ClaudeStatus` (TerminalLeafTitle の badge と
+// 同じ `getClaudeState`) で確定させ、transcript ベースの推定より優先する。
+const mainInProgress = computed<boolean>(
+  () => mainParsed.value.inProgress && terminalStore.getClaudeState(props.leafId) === "working",
+);
 
 // 最後に発話があった subagent 1 つの events + 表示ラベル (subagentTabLabel が組み立てた
 // agent 名 / workflow 見出し) + inProgress。「発話」は会話イベント (user / assistant) の
@@ -204,6 +220,8 @@ const newestSub = computed<
   return newest;
 });
 const subEvents = computed<PreviewEvent[]>(() => newestSub.value?.events ?? []);
+// sub は Task ツールで起動される仮想セッションで PTY を持たず ClaudeStatus が存在しないため、
+// main と異なり transcript ベースの推定 (`parsePreview` の inProgress) だけで判定する。
 const subInProgress = computed<boolean>(() => newestSub.value?.inProgress ?? false);
 // subLabel は <summary> の折り畳みハンドルを兼ねるため、subagentTabLabel が空文字
 // を返すケース (ロード途中 / meta.json 解析失敗) でも "Subagent" にフォールバック

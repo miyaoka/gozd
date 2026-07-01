@@ -48,6 +48,41 @@ export function formatAbsoluteTime(unixSec: number): string {
   return new Date(unixSec * 1000).toLocaleString();
 }
 
+/**
+ * compact な絶対時刻文字列に整形する。`Intl.DateTimeFormat` に整形を委譲するため、
+ * 日付の並び順・区切りはシステムロケールに従って正しく組まれる
+ * （自前でテンプレート文字列を組み立てない）。全フィールドを数値指定 (`2-digit` /
+ * `numeric`) にすることで、locale の日付＋時刻結合パターンが挿入する `"at"` のような
+ * 接続語を回避できる（単語形式の月名 (`month: "short"`) と時刻を混在させると挿入される）。
+ *
+ * 今年の日付は年を省き月・日・時・分を表示、今年以外は時刻を省き年・月・日を表示する
+ * （同年内では時刻の解像度が有用、年を跨ぐと「いつか」の特定に年の方が優先度が高い）。
+ *
+ * git-graph の commit 行、Filer ヘッダーのような狭幅 UI の可視ラベル用途。
+ */
+const COMPACT_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+const COMPACT_DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+export function formatCompactTime(unixSec: number): string {
+  const date = new Date(unixSec * 1000);
+  const formatter =
+    date.getFullYear() === new Date().getFullYear()
+      ? COMPACT_TIME_FORMATTER
+      : COMPACT_DATE_FORMATTER;
+  return formatter.format(date);
+}
+
 const SECOND_MS = 1000;
 const MINUTE_MS = 60 * SECOND_MS;
 const HOUR_MS = 60 * MINUTE_MS;

@@ -41,13 +41,15 @@ function isUncommitted(hash: string): boolean {
   return hash === UNCOMMITTED_HASH;
 }
 
-/** 日付フォーマット（詳細形式） */
+/** 日付フォーマット（詳細形式）。全フィールド数値指定・ロケール無指定にすることで、
+ * locale の日付＋時刻結合パターンが挿入する "at" のような接続語を回避する
+ * （`formatCompactTime` と同じ回避策。単語形式の月名と時刻を混在させると挿入される）。 */
 function formatDetailDate(timestamp: number): string {
   const date = new Date(timestamp * 1000);
-  return date.toLocaleString("en", {
+  return date.toLocaleString(undefined, {
     year: "numeric",
-    month: "short",
-    day: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",

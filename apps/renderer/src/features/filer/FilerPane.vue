@@ -41,7 +41,7 @@ import { computed, onUnmounted, watch } from "vue";
 import { onMessage } from "../../shared/rpc";
 import { useGitGraphStore } from "../git-graph";
 import type { FileContextMenuPayload } from "../navigator";
-import { UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../worktree";
+import { useGitStatusStore, useWorktreeStore } from "../worktree";
 import FileTreeItem from "./FileTreeItem.vue";
 import type { FsChangePayload } from "./rpc";
 import { useFilerEventStore } from "./useFilerEventStore";
@@ -66,9 +66,9 @@ const filerEventStore = useFilerEventStore();
 
 // git-graph で UNCOMMITTED_HASH 以外の commit が選択されているとき、filer は
 // そのコミット時点の全 tree (snapshot) を表示する。compareHash は今回スコープ外で、
-// selectedHash 単独で判定する。
+// selectedHash 単独で判定する (`gitGraphStore.isSnapshotMode` が SSOT)。
 const snapshotHash = computed(() =>
-  selectedHash.value === UNCOMMITTED_HASH ? undefined : selectedHash.value,
+  gitGraphStore.isSnapshotMode ? selectedHash.value : undefined,
 );
 
 // dir 切替で git-graph の selection をリセットする。GitGraphPane が unmount される経路

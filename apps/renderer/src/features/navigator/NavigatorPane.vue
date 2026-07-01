@@ -75,18 +75,21 @@ const gitGraphStore = useGitGraphStore();
 const worktreeStore = useWorktreeStore();
 const notification = useNotificationStore();
 
-// Filer が snapshot mode 中か。FilerPane.snapshotHash と同じ判定 (selectedHash 単独、
-// 範囲選択は scope 外)。"Now" ボタンの表示条件はこれ単独に結合する — snapshotCommit
-// (下記) は commits ウィンドウ未ロード等で解決できないことがあるが、その間も snapshot
-// mode 自体は継続しているため、日時表示が無くても "Now" は出し続ける必要がある。
-const isSnapshotMode = computed(() => gitGraphStore.selectedHash !== UNCOMMITTED_HASH);
+// Filer の snapshot mode UI (状態表示 + "Now" ボタン) を出すべきか。headerStatus と
+// "Now" ボタンはこれ 1 つだけを見る (1 つの判定が 2 箇所に分岐して食い違うのを防ぐ)。
+// - gitGraphStore.isSnapshotMode: FilerPane.snapshotHash と共通の SSOT (selectedHash
+//   単独判定、範囲選択は scope 外)
+// - repoStore.selectedIsGitRepo: 非 git project は git-graph 自体が mount されず
+//   「過去か現在か」という概念が存在しないため合わせて隠す
+// snapshotCommit (下記) は commits ウィンドウ未ロード等で解決できないことがあるが、
+// その間も snapshot mode 自体は継続しているため、日時表示が無くても "Now" は出し続ける。
+const isSnapshotMode = computed(() => repoStore.selectedIsGitRepo && gitGraphStore.isSnapshotMode);
 
 // snapshot 表示中の commit 詳細 (日時等)。commits ウィンドウ内に無ければ undefined
 // (ロード中 / reload で一時的に外れた場合)。日時表示のみこれで gate する。
 const snapshotCommit = computed(() => {
-  const hash = gitGraphStore.selectedHash;
-  if (hash === UNCOMMITTED_HASH) return undefined;
-  const idx = gitGraphStore.hashToIndex.get(hash);
+  if (!gitGraphStore.isSnapshotMode) return undefined;
+  const idx = gitGraphStore.hashToIndex.get(gitGraphStore.selectedHash);
   return idx !== undefined ? gitGraphStore.commits[idx] : undefined;
 });
 

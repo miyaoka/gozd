@@ -12,6 +12,7 @@ import {
   subagentTabLabel,
   timelineAxisRange,
   type SubagentDescriptor,
+  type SubagentLinkResult,
   type TimelineSession,
   type WorkflowGroupItem,
 } from "./sessionLogView";
@@ -102,12 +103,18 @@ describe("buildSubagentLinks", () => {
     };
   }
 
+  // 解決済みの SubagentLinkResult を作る helper。
+  function resolved(agentId: string, label: string): SubagentLinkResult {
+    return { status: "resolved", agentId, label };
+  }
+  const unresolved: SubagentLinkResult = { status: "unresolved" };
+
   test("Agent は tool_use.id == subagent.parentToolUseId で結ぶ", () => {
     const links = buildSubagentLinks(
       [toolEvent("Agent", "toolu_A")],
       [sub({ id: "agent1", label: "reviewer", parentToolUseId: "toolu_A" })],
     );
-    expect(links.get("toolu_A")).toEqual({ agentId: "agent1", label: "reviewer" });
+    expect(links.get("toolu_A")).toEqual(resolved("agent1", "reviewer"));
   });
 
   test("Agent は parentToolUseId で引けないとき tool_result.promptId (subagent ファイル先頭の rootPromptId) で結ぶ", () => {
@@ -133,7 +140,7 @@ describe("buildSubagentLinks", () => {
         }),
       ],
     );
-    expect(links.get("toolu_A")).toEqual({ agentId: "aabbcc", label: "PR870の再レビュー依頼" });
+    expect(links.get("toolu_A")).toEqual(resolved("aabbcc", "PR870の再レビュー依頼"));
   });
 
   test("Agent は parentToolUseId 一致を promptId フォールバックより優先する", () => {
@@ -144,7 +151,7 @@ describe("buildSubagentLinks", () => {
         sub({ id: "byPrompt", label: "by-prompt", rootPromptId: "prompt-1" }),
       ],
     );
-    expect(links.get("toolu_A")).toEqual({ agentId: "byTool", label: "by-tool" });
+    expect(links.get("toolu_A")).toEqual(resolved("byTool", "by-tool"));
   });
 
   test("同名 teammate を複数回 spawn しても各 Agent 呼び出しが promptId で正しい subagent に結ぶ", () => {
@@ -186,8 +193,8 @@ describe("buildSubagentLinks", () => {
         }),
       ],
     );
-    expect(links.get("toolu_1")).toEqual({ agentId: "aa...-hash1", label: "re-review 1" });
-    expect(links.get("toolu_2")).toEqual({ agentId: "aa...-hash2", label: "re-review 2" });
+    expect(links.get("toolu_1")).toEqual(resolved("aa...-hash1", "re-review 1"));
+    expect(links.get("toolu_2")).toEqual(resolved("aa...-hash2", "re-review 2"));
   });
 
   test("Agent は parentToolUseId で引けないとき tool_result.agentId (通常 subagent の物理 id) で結ぶ", () => {
@@ -206,17 +213,14 @@ describe("buildSubagentLinks", () => {
       ],
       [sub({ id: "a042cccee019f7982", label: "Summarize session" })],
     );
-    expect(links.get("toolu_A")).toEqual({
-      agentId: "a042cccee019f7982",
-      label: "Summarize session",
-    });
+    expect(links.get("toolu_A")).toEqual(resolved("a042cccee019f7982", "Summarize session"));
   });
 
-  test("同一プロンプト処理サイクル内で複数 Agent spawn が同じ rootPromptId を共有すると、いずれもリンクを張らない", () => {
+  test("同一プロンプト処理サイクル内で複数 Agent spawn が同じ rootPromptId を共有すると、いずれも unresolved になる", () => {
     // promptId は spawn 単位ではなく「1回のプロンプト処理サイクル」単位の id なので、
     // 1 ターンで Agent を複数回呼ぶと tool_result 全てが同じ promptId を持ちうる (実ログで確認済み、
     // 最大 10 件の Agent tool_use が同一 promptId を共有していた実例あり)。この場合 promptId では
-    // 一意に決められないため、誤った subagent へ結ぶより無表示を選ぶ。
+    // 一意に決められないため、誤った subagent へ結ぶより unresolved を選ぶ。
     const links = buildSubagentLinks(
       [
         toolEvent("Agent", "toolu_1", {}, "Async agent launched successfully.", "prompt-shared"),
@@ -227,8 +231,8 @@ describe("buildSubagentLinks", () => {
         sub({ id: "s2", label: "Summarize B", rootPromptId: "prompt-shared" }),
       ],
     );
-    expect(links.has("toolu_1")).toBe(false);
-    expect(links.has("toolu_2")).toBe(false);
+    expect(links.get("toolu_1")).toEqual(unresolved);
+    expect(links.get("toolu_2")).toEqual(unresolved);
   });
 
   test("agentId を持つが未解決 (候補未到着等) の Agent 呼び出しは、rootPromptId で無関係な subagent に誤ってリンクしない", () => {
@@ -249,7 +253,7 @@ describe("buildSubagentLinks", () => {
       ],
       [sub({ id: "team-x", label: "team teammate", rootPromptId: "prompt-shared" })],
     );
-    expect(links.has("toolu_A")).toBe(false);
+    expect(links.get("toolu_A")).toEqual(unresolved);
   });
 
   test("SendMessage は input.to == agent_id で結ぶ", () => {
@@ -257,7 +261,7 @@ describe("buildSubagentLinks", () => {
       [toolEvent("SendMessage", "toolu_S", { to: "agent1" })],
       [sub({ id: "agent1", label: "reviewer" })],
     );
-    expect(links.get("toolu_S")).toEqual({ agentId: "agent1", label: "reviewer" });
+    expect(links.get("toolu_S")).toEqual(resolved("agent1", "reviewer"));
   });
 
   test("SendMessage は input.to が agent name でも結ぶ (id 不一致時の name フォールバック)", () => {
@@ -265,7 +269,7 @@ describe("buildSubagentLinks", () => {
       [toolEvent("SendMessage", "toolu_S", { to: "reviewer" })],
       [sub({ id: "agent1", label: "PR review", name: "reviewer" })],
     );
-    expect(links.get("toolu_S")).toEqual({ agentId: "agent1", label: "PR review" });
+    expect(links.get("toolu_S")).toEqual(resolved("agent1", "PR review"));
   });
 
   test("SendMessage は input.to が agentType (team teammate の role 名) でも結ぶ", () => {
@@ -274,10 +278,10 @@ describe("buildSubagentLinks", () => {
       // teammate は meta が agentType のみで name/id (hex) は to と一致しない。
       [sub({ id: "aabbcc", label: "ssot-reviewer", name: "", agentType: "ssot-reviewer" })],
     );
-    expect(links.get("toolu_S")).toEqual({ agentId: "aabbcc", label: "ssot-reviewer" });
+    expect(links.get("toolu_S")).toEqual(resolved("aabbcc", "ssot-reviewer"));
   });
 
-  test("同 agentType の subagent が複数 + to が agentType のときはリンクを張らない (一意に決められない)", () => {
+  test("同 agentType の subagent が複数 + to が agentType のときは unresolved になる (一意に決められない)", () => {
     const links = buildSubagentLinks(
       [toolEvent("SendMessage", "toolu_S", { to: "ssot-reviewer" })],
       [
@@ -285,7 +289,7 @@ describe("buildSubagentLinks", () => {
         sub({ id: "a2", agentType: "ssot-reviewer" }),
       ],
     );
-    expect(links.has("toolu_S")).toBe(false);
+    expect(links.get("toolu_S")).toEqual(unresolved);
   });
 
   test("name を agentType より優先する", () => {
@@ -296,7 +300,7 @@ describe("buildSubagentLinks", () => {
         sub({ id: "a2", label: "by-agentType", name: "", agentType: "reviewer" }),
       ],
     );
-    expect(links.get("toolu_S")).toEqual({ agentId: "a1", label: "by-name" });
+    expect(links.get("toolu_S")).toEqual(resolved("a1", "by-name"));
   });
 
   test("id を name より優先する", () => {
@@ -307,15 +311,16 @@ describe("buildSubagentLinks", () => {
         sub({ id: "agent2", label: "by-name", name: "agent1" }),
       ],
     );
-    expect(links.get("toolu_S")?.agentId).toBe("agent1");
+    const result = links.get("toolu_S");
+    expect(result?.status === "resolved" && result.agentId).toBe("agent1");
   });
 
-  test("同名 subagent が複数 + to が name のときはリンクを張らない (一意に決められない)", () => {
+  test("同名 subagent が複数 + to が name のときは unresolved になる (一意に決められない)", () => {
     const links = buildSubagentLinks(
       [toolEvent("SendMessage", "toolu_S", { to: "reviewer" })],
       [sub({ id: "agent1", name: "reviewer" }), sub({ id: "agent2", name: "reviewer" })],
     );
-    expect(links.has("toolu_S")).toBe(false);
+    expect(links.get("toolu_S")).toEqual(unresolved);
   });
 
   test("同名 subagent が複数でも to が id なら一意に引ける", () => {
@@ -326,18 +331,18 @@ describe("buildSubagentLinks", () => {
         sub({ id: "agent2", label: "second", name: "reviewer" }),
       ],
     );
-    expect(links.get("toolu_S")).toEqual({ agentId: "agent2", label: "second" });
+    expect(links.get("toolu_S")).toEqual(resolved("agent2", "second"));
   });
 
-  test("parentToolUseId 空の subagent は Agent 紐付け対象から外す", () => {
+  test("parentToolUseId 空の subagent は Agent 紐付け対象から外し unresolved になる", () => {
     const links = buildSubagentLinks(
       [toolEvent("Agent", "toolu_A")],
       [sub({ id: "agent1", parentToolUseId: "" })],
     );
-    expect(links.has("toolu_A")).toBe(false);
+    expect(links.get("toolu_A")).toEqual(unresolved);
   });
 
-  test("toolUseId 空の tool event は紐付け対象外", () => {
+  test("toolUseId 空の tool event は紐付け対象外 (entry 自体を作らない)", () => {
     const links = buildSubagentLinks(
       [toolEvent("Agent", "")],
       [sub({ id: "agent1", parentToolUseId: "" })],
@@ -345,12 +350,14 @@ describe("buildSubagentLinks", () => {
     expect(links.size).toBe(0);
   });
 
-  test("引き当たらない to / 無関係 tool は map に入らない", () => {
+  test("引き当たらない to は unresolved、無関係 tool (Bash 等) は entry 自体が無い", () => {
     const links = buildSubagentLinks(
       [toolEvent("SendMessage", "toolu_S", { to: "missing" }), toolEvent("Read", "toolu_R")],
       [sub({ id: "agent1", name: "reviewer" })],
     );
-    expect(links.size).toBe(0);
+    expect(links.get("toolu_S")).toEqual(unresolved);
+    expect(links.has("toolu_R")).toBe(false);
+    expect(links.size).toBe(1);
   });
 
   test("Workflow は result の Run ID で workflow agent 群の先頭に結ぶ (ラベルは名 + 件数)", () => {
@@ -361,7 +368,7 @@ describe("buildSubagentLinks", () => {
         sub({ id: "ag2", workflowRunId: "wf_abc123", workflowName: "diagnose" }),
       ],
     );
-    expect(links.get("toolu_W")).toEqual({ agentId: "ag1", label: "diagnose (2)" });
+    expect(links.get("toolu_W")).toEqual(resolved("ag1", "diagnose (2)"));
   });
 
   test("Workflow の workflowName が空なら runId をラベル名に使う", () => {
@@ -369,31 +376,31 @@ describe("buildSubagentLinks", () => {
       [toolEvent("Workflow", "toolu_W", {}, "Run ID: wf_xyz")],
       [sub({ id: "ag1", workflowRunId: "wf_xyz" })],
     );
-    expect(links.get("toolu_W")).toEqual({ agentId: "ag1", label: "wf_xyz (1)" });
+    expect(links.get("toolu_W")).toEqual(resolved("ag1", "wf_xyz (1)"));
   });
 
-  test("Workflow の result が未記録ならリンクを張らない", () => {
+  test("Workflow の result が未記録なら unresolved になる", () => {
     const links = buildSubagentLinks(
       [toolEvent("Workflow", "toolu_W")],
       [sub({ id: "ag1", workflowRunId: "wf_abc123" })],
     );
-    expect(links.has("toolu_W")).toBe(false);
+    expect(links.get("toolu_W")).toEqual(unresolved);
   });
 
-  test("Workflow の result に Run ID が無ければリンクを張らない", () => {
+  test("Workflow の result に Run ID が無ければ unresolved になる", () => {
     const links = buildSubagentLinks(
       [toolEvent("Workflow", "toolu_W", {}, "Workflow launched but no run id here")],
       [sub({ id: "ag1", workflowRunId: "wf_abc123" })],
     );
-    expect(links.has("toolu_W")).toBe(false);
+    expect(links.get("toolu_W")).toEqual(unresolved);
   });
 
-  test("Workflow の Run ID に対応する agent が無ければリンクを張らない", () => {
+  test("Workflow の Run ID に対応する agent が無ければ unresolved になる", () => {
     const links = buildSubagentLinks(
       [toolEvent("Workflow", "toolu_W", {}, "Run ID: wf_other")],
       [sub({ id: "ag1", workflowRunId: "wf_abc123" })],
     );
-    expect(links.has("toolu_W")).toBe(false);
+    expect(links.get("toolu_W")).toEqual(unresolved);
   });
 });
 

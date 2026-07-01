@@ -60,7 +60,7 @@ import {
   groupByWorkflow,
   newestSubagentTrackId,
   timelineAxisRange,
-  type SubagentLink,
+  type SubagentLinkResult,
   type TimelineSession,
   type TimelineTrack,
 } from "./sessionLogView";
@@ -138,9 +138,9 @@ const activeSub = computed<ParsedSessionTab | undefined>(() =>
 
 // main の Agent / SendMessage 呼び出しを subagent に結ぶ map (key=main tool event の toolUseId)。
 // 畳み込みロジックは sessionLog の純関数 buildSubagentLinks に委ねる (テスト可能性 + SSOT)。
-const mainSubagentLinks = computed<Map<string, SubagentLink>>(() => {
+const mainSubagentLinks = computed<Map<string, SubagentLinkResult>>(() => {
   const main = mainSession.value;
-  if (main === undefined) return new Map<string, SubagentLink>();
+  if (main === undefined) return new Map<string, SubagentLinkResult>();
   return buildSubagentLinks(
     main.parsed.events,
     subagents.value.map((s) => ({

@@ -41,6 +41,7 @@ import { tryCatch } from "@gozd/shared";
 import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref, watch } from "vue";
 import type { FunctionalComponent, SVGAttributes } from "vue";
+import { useCommandRegistry } from "../../shared/command";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { useChangesStore, useChangesSummaryStore } from "../changes";
@@ -50,6 +51,7 @@ import { rpcGitReadBlob, useGitGraphStore, usePrDiffToggleStore } from "../git-g
 import { UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../worktree";
 import type { GitChangeKind, Selection } from "../worktree";
 import ChangesSummaryView from "./ChangesSummaryView.vue";
+import CodeEditor from "./CodeEditor.vue";
 import CodePreview from "./CodePreview.vue";
 import DiffPreview from "./DiffPreview.vue";
 import FileCommitDate from "./FileCommitDate.vue";
@@ -62,8 +64,10 @@ import { revModeLabel } from "./revModeLabel";
 import { rpcGitShowCommitFile, rpcGitShowFile, rpcOpenFile } from "./rpc";
 import { shouldCloseForMissingFile } from "./shouldCloseForMissingFile";
 import { useBlamePopover } from "./useBlamePopover";
+import { useDiffEditor } from "./useDiffEditor";
 import { useFileHistoryPopover } from "./useFileHistoryPopover";
 import { useMarkdownHistoryStore } from "./useMarkdownHistoryStore";
+import { usePreviewEditStore } from "./usePreviewEditStore";
 import { usePreviewStore } from "./usePreviewStore";
 import IconLucideArrowLeft from "~icons/lucide/arrow-left";
 import IconLucideArrowRight from "~icons/lucide/arrow-right";
@@ -72,6 +76,7 @@ import IconLucideEye from "~icons/lucide/eye";
 import IconLucideFileClock from "~icons/lucide/file-clock";
 import IconLucideFileDiff from "~icons/lucide/file-diff";
 import IconLucideFileText from "~icons/lucide/file-text";
+import IconLucidePencil from "~icons/lucide/pencil";
 import IconLucideWrapText from "~icons/lucide/wrap-text";
 import IconLucideX from "~icons/lucide/x";
 
@@ -136,6 +141,8 @@ const prDiffToggle = usePrDiffToggleStore();
 const summaryStore = useChangesSummaryStore();
 const changesStore = useChangesStore();
 const previewStore = usePreviewStore();
+const editStore = usePreviewEditStore();
+const diffEditor = useDiffEditor();
 const markdownHistory = useMarkdownHistoryStore();
 const notification = useNotificationStore();
 
@@ -659,6 +666,9 @@ watch(
   async ([path, _kind, gitChange, selectedHash, compareHash, isPrDiff]) => {
     previewEnabled.value = defaultPreviewEnabled(fileType.value);
     commitGitChange.value = undefined;
+    // ファイル切替 / git status 変化 / コミット選択変化はすべて表示内容の入れ替えを意味するため、
+    // 編集中の draft は無条件で破棄する (別ファイルの内容を編集し続ける状態を作らない)。
+    editStore.exitEditMode();
 
     const sel = selection.value;
     if (path === undefined || sel === undefined) {
@@ -698,6 +708,9 @@ const unsubscribeFsChange = onMessage<FsChangePayload>("fsChange", ({ dir: event
   if (eventDir !== worktreeStore.dir) return;
   if (sel.kind !== "worktreeRelative") return;
   if (relDir !== relDirOf(sel.relPath)) return;
+  // 編集中は外部変更で draft の元になった currentContent を上書きしない。保存 (editMode を
+  // false にする) 後の fsChange は通常経路で再取得され、書き込んだ内容がサーバ確定値と揃う。
+  if (editStore.editMode) return;
 
   // PR diff モードでは to が working tree のため、fs change で再取得する必要がある。
   if (prDiffToggle.isOn) {
@@ -813,6 +826,118 @@ const openableAbsPath = computed<string | undefined>(() =>
     effectiveGitChange: effectiveGitChange.value,
   }),
 );
+
+/**
+ * template の CodePreview 描画条件 (v-else-if 連鎖の最終フォールバック) をミラーした判定。
+ * Edit ボタンの表示可否は「実際に CodePreview が描画されている状態か」に一致させる必要がある
+ * ため、テンプレート側の条件をそのまま computed 化する。
+ */
+const isCodePreviewActive = computed(() => {
+  if (loading.value || isDirectory.value || isNotFound.value || error.value !== undefined) {
+    return false;
+  }
+  if (activeMode.value === "diff") return false;
+  if (imageUrl.value !== undefined) return false;
+  if (displayIsBinary.value) return false;
+  if (fileType.value === "markdown" && previewEnabled.value) return false;
+  if (fileType.value === "html" && previewEnabled.value) return false;
+  return displayContent.value !== undefined;
+});
+
+/** template の DiffPreview 描画条件をミラーした判定。isEditable の Diff タブ許可に使う。 */
+const isDiffPreviewActive = computed(() => {
+  if (loading.value || isDirectory.value || isNotFound.value || error.value !== undefined) {
+    return false;
+  }
+  return (
+    activeMode.value === "diff" &&
+    originalContent.value !== undefined &&
+    currentContent.value !== undefined
+  );
+});
+
+/**
+ * 編集可能か。対象は worktree 相対パスの実ファイル (`fsWriteFile` が dir + relPath でしか
+ * 書けないため絶対パスは対象外)。commit / PR diff モードは git オブジェクトから取得した
+ * 履歴表示なので編集対象にしない。Current タブ (CodeEditor) と Diff タブ (DiffPreview の
+ * 右半身 inline 編集) の両方を対象とする。Original タブは履歴表示のため対象外。
+ */
+const isEditable = computed(() => {
+  if (selection.value?.kind !== "worktreeRelative") return false;
+  if (isCommitMode.value) return false;
+  if (prDiffToggle.isOn) return false;
+  return isCodePreviewActive.value || isDiffPreviewActive.value;
+});
+
+/** Save ボタンの活性判定。Diff タブは DOM 抽出ベースの boolean dirty flag、Current タブは文字列比較。 */
+const isDirtyForSave = computed(() => {
+  if (activeMode.value === "diff") return diffEditor.isDirty.value;
+  return editStore.isDirty;
+});
+
+function startEdit() {
+  const dir = worktreeStore.dir;
+  const relPath = selectedRelPath.value;
+  const content = currentContent.value;
+  if (dir === undefined || relPath === undefined || content === undefined) return;
+  editStore.startEdit(dir, relPath, content);
+}
+
+/**
+ * Diff タブは Monaco DiffEditor の modified モデルが編集内容の実体であり、
+ * editStore.draftContent とは独立している。editStore.discard() は draftContent を
+ * savedContent に戻すだけなので、Diff タブでは代わりに useDiffEditor().reset() で
+ * Monaco 側の表示内容そのものを保存済みの内容に書き戻す必要がある。
+ */
+function discardEdit() {
+  if (activeMode.value === "diff") {
+    const content = editStore.savedContent;
+    if (content === undefined) return;
+    diffEditor.reset(content);
+    return;
+  }
+  editStore.discard();
+}
+
+async function saveEdit() {
+  // Diff タブは DiffPreview の contenteditable DOM から最新テキストを抽出してから保存する
+  // (draftContent は v-model で同期しておらず DOM が source of truth のため)。
+  const isDiff = activeMode.value === "diff";
+  if (isDiff) {
+    const extracted = diffEditor.extract();
+    if (extracted === undefined) return;
+    editStore.updateDraft(extracted);
+  }
+  const saved = await editStore.save();
+  if (saved === undefined) return;
+  // Diff タブの dirty state は useDiffEditor().isDirty (Monaco 側 onDidChangeModelContent 由来)
+  // が SSOT。保存成功後にクリアしないと、保存済みなのに Save/Discard が有効なままになる。
+  if (isDiff) diffEditor.markClean();
+  // fsChange 到達を待たず楽観的に反映し、保存直後のチラつきを防ぐ。
+  currentContent.value = saved;
+}
+
+/**
+ * Cmd+S 保存コマンド。`saveEdit` (楽観更新込み) を handler にするため、`currentContent` を
+ * 持つ本コンポーネント内で直接 register する (registerMarkdownHistoryCommands のような
+ * MainLayout 経由の外部登録にすると currentContent への参照を渡す経路が必要になり複雑化する)。
+ * PreviewPane は popover 要素として常時 mount される前提のため、onUnmounted は実質アプリ終了時のみ。
+ *
+ * 編集中でないときは何もせず false を返す。Cmd+S はブラウザ既定 (保存ダイアログ等) を
+ * 「編集中のときだけ preventDefault で止める」挙動になり、他 textarea (ProjectConfigPanel 等)
+ * にフォーカスがあっても奪わない。
+ */
+const { register } = useCommandRegistry();
+const disposeSaveCommand = register("preview.save", {
+  label: "Preview: Save File",
+  precondition: "previewVisible",
+  handler: () => {
+    if (!editStore.editMode) return false;
+    void saveEdit();
+    return true;
+  },
+});
+onUnmounted(disposeSaveCommand);
 
 /** 表示中ファイルを OS のデフォルトアプリで開く（macOS の `open` 相当）。 */
 async function openInDefaultApp() {
@@ -994,6 +1119,9 @@ watch(
     // summary view 切替で CodePreview / DiffPreview が unmount され anchor が detached
     // になるため、popover も同時に閉じる必要がある。
     () => summaryStore.enabled,
+    // edit mode 切替で CodePreview ↔ CodeEditor が入れ替わり line-no button anchor が
+    // detached になるため、同様に閉じる。
+    () => editStore.editMode,
   ],
   () => {
     if (blamePopover.context.value !== undefined) {
@@ -1041,26 +1169,28 @@ watch(
         <FileCommitDate v-bind="fileCommitDateProps" />
       </template>
       <span v-else class="text-sm text-foreground-low">Preview</span>
-      <button
-        v-if="openableAbsPath"
-        type="button"
-        class="ml-auto shrink-0 text-foreground-low hover:text-foreground"
-        title="Open in default app"
-        aria-label="Open in default app"
-        @click="openInDefaultApp()"
-      >
-        <IconLucideExternalLink class="size-4" />
-      </button>
-      <button
-        type="button"
-        class="shrink-0 text-foreground-low hover:text-foreground"
-        :class="{ 'ml-auto': !openableAbsPath }"
-        title="Close preview"
-        aria-label="Close preview"
-        @click="emit('close')"
-      >
-        <IconLucideX class="size-4" />
-      </button>
+
+      <div class="ml-auto flex shrink-0 items-center gap-1">
+        <button
+          v-if="openableAbsPath"
+          type="button"
+          class="text-foreground-low hover:text-foreground"
+          title="Open in default app"
+          aria-label="Open in default app"
+          @click="openInDefaultApp()"
+        >
+          <IconLucideExternalLink class="size-4" />
+        </button>
+        <button
+          type="button"
+          class="text-foreground-low hover:text-foreground"
+          title="Close preview"
+          aria-label="Close preview"
+          @click="emit('close')"
+        >
+          <IconLucideX class="size-4" />
+        </button>
+      </div>
     </div>
 
     <!-- 未選択 -->
@@ -1117,75 +1247,146 @@ watch(
         </div>
       </div>
 
-      <!--
-        コンテンツ。Cmd+A scope は各 leaf (CodePreview / MarkdownPreview / DiffPreview) 側の
-        contenteditable で完結させる。PreviewPane 側はラッパとしてのみ振る舞い、contenteditable
-        を持たないことで nested editing host の不安定領域を踏まない。
-      -->
-      <div
-        class="flex-1 overflow-auto"
-        :style="{
-          fontFamily: previewFontFamily || undefined,
-          fontSize: previewFontSize > 0 ? `${previewFontSize}px` : undefined,
-          '--preview-code-font-family': previewCodeFontFamily || undefined,
-        }"
-      >
-        <div v-if="loading" class="p-4 text-sm text-foreground-low">Loading...</div>
+      <!-- 編集ツールバー: コード領域右上にフローティング。スクロールで流れないよう
+           外側の relative ラッパー (overflow-hidden) を基準に固定する。
+           Exit (モードを抜けるだけの表示操作) と Discard/Save (データ操作) はセパレーターで
+           グループを分け、Discard/Save はテキスト + 色でフォームの cancel/submit パターンに
+           揃える (ProjectConfigPanel.vue と同じ)。真逆の破壊的アクションである save/discard を
+           アイコンだけの小さなボタンで隣接させると誤操作しやすいため、ラベルと視覚的な重み
+           (Save = primary 塗りつぶし、Discard = 地味なテキスト) の非対称性で区別する。 -->
+      <div class="relative min-h-0 flex-1">
+        <!-- Edit/Exit と Discard/Save は別々のグループ (別 div) にする。
+             外側 flex ラッパーは items-center で子を縦センタリングするため、2 グループの
+             高さが揃っていないと、編集モードの有無でどちらか高い方に再センタリングされ
+             縦にずれる (Save ボタンの padding だけ高さが違うと発生する)。これを構造的に
+             防ぐため、両グループとも中身の padding に依存せず同じ明示的な高さ (h-7) にする。 -->
+        <div v-if="isEditable" class="absolute top-2 right-4 z-10 flex items-center gap-2">
+          <!-- Discard/Save グループ: Edit/Exit トグルとは独立 -->
+          <div
+            v-if="editStore.editMode"
+            class="flex h-7 items-center gap-2 rounded-md border border-border bg-panel px-2 shadow-sm"
+          >
+            <button
+              type="button"
+              class="text-xs text-foreground-low hover:text-foreground disabled:cursor-default disabled:text-foreground-muted disabled:hover:text-foreground-muted"
+              :disabled="!isDirtyForSave"
+              title="Discard changes"
+              aria-label="Discard changes"
+              @click="discardEdit()"
+            >
+              Discard
+            </button>
+            <button
+              type="button"
+              class="rounded-sm bg-primary px-2 py-0.5 text-xs text-foreground hover:bg-primary-hover disabled:bg-element disabled:text-foreground-muted disabled:hover:bg-element"
+              :disabled="!isDirtyForSave || editStore.saving"
+              title="Save (Cmd+S)"
+              aria-label="Save"
+              @click="saveEdit()"
+            >
+              Save
+            </button>
+          </div>
 
-        <div v-else-if="isDirectory" class="p-4 text-sm text-foreground-low">Directory</div>
-
-        <div v-else-if="isNotFound" class="p-4 text-sm text-foreground-low">File not found</div>
-
-        <div v-else-if="error" class="p-4 text-sm text-destructive-text">{{ error }}</div>
-
-        <!-- diff モード -->
-        <DiffPreview
-          v-else-if="
-            activeMode === 'diff' && originalContent !== undefined && currentContent !== undefined
-          "
-          :original="originalContent"
-          :current="currentContent"
-          :file-path="selectedDisplayPath ?? ''"
-          :word-wrap="wordWrap"
-          :blame-enabled="blameEnabled"
-          @line-number-click="onDiffLineClick"
-        />
-
-        <!-- 画像プレビュー（バイナリ画像 + SVG preview モード）。worktree 外の絶対パスも /abs 経路で配信 -->
-        <ImagePreview
-          v-else-if="imageUrl"
-          :src="imageUrl"
-          @error="error = 'Failed to load image'"
-        />
-
-        <!-- バイナリ（画像以外） -->
-        <div v-else-if="displayIsBinary" class="p-4 text-sm text-foreground-low">
-          Binary file — preview not available
+          <!-- Edit / Exit トグルグループ: 同じ状態のトグル。同じボタン・同じ位置でラベルだけ切り替える -->
+          <div
+            class="flex h-7 items-center rounded-md border border-border bg-panel px-2 shadow-sm"
+          >
+            <button
+              type="button"
+              class="flex items-center gap-1 text-xs text-foreground-low hover:text-foreground"
+              :title="editStore.editMode ? 'Exit edit mode' : 'Edit file'"
+              :aria-label="editStore.editMode ? 'Exit edit mode' : 'Edit file'"
+              @click="editStore.editMode ? editStore.exitEditMode() : startEdit()"
+            >
+              <IconLucidePencil class="size-3.5" />
+              {{ editStore.editMode ? "Exit" : "Edit" }}
+            </button>
+          </div>
         </div>
 
-        <!-- Markdown preview モード -->
-        <MarkdownPreview
-          v-else-if="fileType === 'markdown' && previewEnabled && displayContent"
-          :content="displayContent"
-        />
+        <!--
+          コンテンツ。Cmd+A scope は各 leaf (CodePreview / MarkdownPreview / DiffPreview) 側の
+          contenteditable で完結させる。PreviewPane 側はラッパとしてのみ振る舞い、contenteditable
+          を持たないことで nested editing host の不安定領域を踏まない。
+        -->
+        <div
+          class="size-full overflow-auto"
+          :style="{
+            fontFamily: previewFontFamily || undefined,
+            fontSize: previewFontSize > 0 ? `${previewFontSize}px` : undefined,
+            '--preview-code-font-family': previewCodeFontFamily || undefined,
+          }"
+        >
+          <div v-if="loading" class="p-4 text-sm text-foreground-low">Loading...</div>
 
-        <!-- HTML preview モード（sandboxed iframe でネイティブ描画） -->
-        <HtmlPreview
-          v-else-if="fileType === 'html' && previewEnabled && displayContent"
-          :content="displayContent"
-        />
+          <div v-else-if="isDirectory" class="p-4 text-sm text-foreground-low">Directory</div>
 
-        <!-- コード表示 -->
-        <CodePreview
-          v-else-if="displayContent !== undefined"
-          :content="displayContent"
-          :file-path="selectedDisplayPath"
-          :line-number="selectedLineNumber"
-          :reveal-version="revealVersion"
-          :word-wrap="wordWrap"
-          :blame-enabled="blameEnabled"
-          @line-number-click="onCodeLineClick"
-        />
+          <div v-else-if="isNotFound" class="p-4 text-sm text-foreground-low">File not found</div>
+
+          <div v-else-if="error" class="p-4 text-sm text-destructive-text">{{ error }}</div>
+
+          <!-- diff モード -->
+          <DiffPreview
+            v-else-if="
+              activeMode === 'diff' && originalContent !== undefined && currentContent !== undefined
+            "
+            :original="originalContent"
+            :current="currentContent"
+            :file-path="selectedDisplayPath ?? ''"
+            :word-wrap="wordWrap"
+            :blame-enabled="blameEnabled"
+            :editable="editStore.editMode && isEditable"
+            @line-number-click="onDiffLineClick"
+            @cancel="editStore.exitEditMode()"
+          />
+
+          <!-- 画像プレビュー（バイナリ画像 + SVG preview モード）。worktree 外の絶対パスも /abs 経路で配信 -->
+          <ImagePreview
+            v-else-if="imageUrl"
+            :src="imageUrl"
+            @error="error = 'Failed to load image'"
+          />
+
+          <!-- バイナリ（画像以外） -->
+          <div v-else-if="displayIsBinary" class="p-4 text-sm text-foreground-low">
+            Binary file — preview not available
+          </div>
+
+          <!-- Markdown preview モード -->
+          <MarkdownPreview
+            v-else-if="fileType === 'markdown' && previewEnabled && displayContent"
+            :content="displayContent"
+          />
+
+          <!-- HTML preview モード（sandboxed iframe でネイティブ描画） -->
+          <HtmlPreview
+            v-else-if="fileType === 'html' && previewEnabled && displayContent"
+            :content="displayContent"
+          />
+
+          <!-- 編集モード: CodePreview の代わりにプレーンテキストエディタを表示 -->
+          <CodeEditor
+            v-else-if="editStore.editMode && editStore.draftContent !== undefined"
+            :model-value="editStore.draftContent"
+            :file-path="selectedDisplayPath ?? ''"
+            :word-wrap="wordWrap"
+            @update:model-value="editStore.updateDraft($event)"
+            @cancel="editStore.exitEditMode()"
+          />
+
+          <!-- コード表示 -->
+          <CodePreview
+            v-else-if="displayContent !== undefined"
+            :content="displayContent"
+            :file-path="selectedDisplayPath"
+            :line-number="selectedLineNumber"
+            :reveal-version="revealVersion"
+            :word-wrap="wordWrap"
+            :blame-enabled="blameEnabled"
+            @line-number-click="onCodeLineClick"
+          />
+        </div>
       </div>
     </template>
   </div>

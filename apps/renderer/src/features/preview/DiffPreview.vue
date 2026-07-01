@@ -73,14 +73,33 @@ Swift 側で `Binary files ... differ` を検知して error にトーストす�
 > unchanged 行でも original と current でトークン結果が異なりうる。
 > unified では unchanged を常に current のトークンで描画するため、
 > 旧側の文脈との不整合が生じる場合がある。split では左右で別トークンを使うため整合する。
+
+## 編集モード (`editable` prop)
+
+上記の自前 hunk 描画 (contenteditable + Shiki トークン) とは完全に別の描画パス。Monaco Editor
+(`monacoSetup.ts`) の `createDiffEditor` をそのままマウントし、シンタックスハイライトを保った
+まま original (readonly) / modified (editable) を左右比較できるようにする。理由:
+
+- Shiki トークンの `v-for` を直接 contenteditable にすると、入力のたびに token 構造が壊れる上、
+  次の Vue 再レンダリングで実 DOM がユーザーの編集を上書きしてしまう
+- VSCode / Monaco は hidden `<textarea>` + 独自テキストモデルで入力と描画を分離する設計だが、
+  これを自前実装するのは車輪の再発明。同ジャンルの実プロダクト (stablyai/orca) も `monaco-editor`
+  をそのまま採用しているため、gozd でも同じ選択をする
+
+diff 計算は Monaco 自身の内蔵アルゴリズムに委ねる (read-only 表示は git 由来の SSOT を保つ設計の
+ままだが、編集専用のこのパスだけは Monaco の diff 計算に委譲するトレードオフを取る)。
+`hideUnchangedRegions` で unchanged 領域の折り畳みも Monaco 標準機能に任せるため、read-only 側の
+hunk-bar 展開のような処理はここでは不要。unified view は非対応で editable 中は split 固定。
 </doc>
 
 <script setup lang="ts">
 import { type DiffExpandedLine, type DiffHunk, DiffLineKind } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import { monaco } from "./monacoSetup";
 import { rpcGitDiffExpandLines, rpcGitDiffHunks } from "./rpc";
+import { useDiffEditor } from "./useDiffEditor";
 import { type ThemedToken, highlightTokens } from "./useHighlight";
 import IconLucideAlignJustify from "~icons/lucide/align-justify";
 import IconLucideColumns2 from "~icons/lucide/columns-2";
@@ -103,8 +122,13 @@ const props = withDefaults(
      * hover も cursor:pointer も出さない (silent dead button 禁止規約)。
      */
     blameEnabled?: boolean;
+    /**
+     * true のとき右半身 (current 側) を編集可能にする。左半身 (original) は常に read-only。
+     * unified view には対応しないため editable 中は split view に固定し、トグルを隠す。
+     */
+    editable?: boolean;
   }>(),
-  { externalViewMode: undefined, blameEnabled: false },
+  { externalViewMode: undefined, blameEnabled: false, editable: false },
 );
 
 /**
@@ -114,6 +138,8 @@ const props = withDefaults(
  */
 const emit = defineEmits<{
   lineNumberClick: [payload: { side: "old" | "new"; line: number; anchorEl: HTMLElement }];
+  /** 編集モード中の ESC (他 widget が開いていないとき)。PreviewPane が編集キャンセルにバインドする */
+  cancel: [];
 }>();
 
 function onLineClick(side: "old" | "new", line: number, ev: MouseEvent): void {
@@ -653,14 +679,10 @@ function barLabel(item: DiffBarItem): string {
  * `inFlightBars.delete` は token 判定の前に呼ぶ。watch 側 clear と二重に走っても Set.delete は
  * idempotent なので問題なく、対称性が崩れない (add と必ず対になる)。
  */
-async function toggleBar(bar: DiffBarItem): Promise<void> {
+/** バーを RPC で展開して `expansions` に格納する (既展開ならフェッチしない)。toggleBar / expandAllBars 共有。 */
+async function fetchBarLines(bar: DiffBarItem): Promise<void> {
   const key = barKey(bar);
-  if (expansions.value.has(key)) {
-    const next = new Map(expansions.value);
-    next.delete(key);
-    expansions.value = next;
-    return;
-  }
+  if (expansions.value.has(key)) return;
   if (inFlightBars.has(key)) return;
   inFlightBars.add(key);
   const myToken = loadToken;
@@ -683,6 +705,124 @@ async function toggleBar(bar: DiffBarItem): Promise<void> {
   next.set(key, result.value.lines);
   expansions.value = next;
 }
+
+async function toggleBar(bar: DiffBarItem): Promise<void> {
+  const key = barKey(bar);
+  if (expansions.value.has(key)) {
+    const next = new Map(expansions.value);
+    next.delete(key);
+    expansions.value = next;
+    return;
+  }
+  await fetchBarLines(bar);
+}
+
+/**
+ * 編集モード。Monaco の `createDiffEditor` (シンタックスハイライト付き diff editor 標準機能) を
+ * 丸ごとマウントし、read-only 表示 (自前 hunk 描画、上記 unified/split ロジック) とは完全に別の
+ * 描画パスにする。original は常に readonly、modified (= current) のみ編集可能にする。
+ *
+ * diff 計算は Monaco 自身の内蔵アルゴリズムに委ねる (read-only 表示は git 由来の SSOT を保つ設計
+ * のままだが、編集専用のこのパスだけは Monaco の diff 計算に委譲するトレードオフを取る。
+ * `hideUnchangedRegions` で unchanged 領域の折り畳みも Monaco 標準機能に任せるため、read-only
+ * 側にあった hunk-bar 展開 (`expandAllBars` 相当) はここでは不要)。
+ */
+const monacoContainerRef = ref<HTMLElement>();
+let monacoDiffEditor: monaco.editor.IStandaloneDiffEditor | undefined;
+
+function detectMonacoLanguage(filePath: string): string {
+  const fileName = filePath.split("/").pop() ?? filePath;
+  const ext = `.${fileName.split(".").pop() ?? ""}`;
+  for (const lang of monaco.languages.getLanguages()) {
+    if (lang.filenames?.includes(fileName)) return lang.id;
+    if (lang.extensions?.includes(ext)) return lang.id;
+  }
+  return "plaintext";
+}
+
+function mountMonacoDiffEditor() {
+  const el = monacoContainerRef.value;
+  if (el === undefined) return;
+  const language = detectMonacoLanguage(props.filePath);
+  const originalModel = monaco.editor.createModel(props.original, language);
+  const modifiedModel = monaco.editor.createModel(props.current, language);
+  monacoDiffEditor = monaco.editor.createDiffEditor(el, {
+    originalEditable: false,
+    readOnly: false,
+    renderSideBySide: true,
+    automaticLayout: true,
+    theme: "vs-dark",
+    minimap: { enabled: false },
+    scrollBeyondLastLine: false,
+    hideUnchangedRegions: { enabled: true },
+    wordWrap: props.wordWrap ? "on" : "off",
+  });
+  monacoDiffEditor.setModel({ original: originalModel, modified: modifiedModel });
+  const modifiedEditor = monacoDiffEditor.getModifiedEditor();
+  // MainLayout のグローバル ESC (preview を閉じる) は e.defaultPrevented を見て早期 return する。
+  // CodeEditor.vue と同じ契約: 他 widget が開いていないときだけ「編集キャンセル」に倒す。
+  modifiedEditor.addCommand(
+    monaco.KeyCode.Escape,
+    () => emit("cancel"),
+    "!suggestWidgetVisible && !findWidgetVisible && !renameInputVisible",
+  );
+  // reset() (Discard) 実行中は setValue が発火させる onDidChangeModelContent を無視する。
+  // 無視しないと Discard 直後に markDirty が再度走り、押した瞬間また dirty 状態に戻ってしまう。
+  let suppressDirty = false;
+  // Save/Discard ボタンの活性判定 (isDirtyForSave) は useDiffEditor().isDirty を見ているため、
+  // 実際に内容が変わったタイミングで markDirty しないとボタンが永久に disabled のまま残る。
+  modifiedEditor.onDidChangeModelContent(() => {
+    if (suppressDirty) return;
+    diffEditor.markDirty();
+  });
+  diffEditor.register({
+    extract: () => monacoDiffEditor?.getModifiedEditor().getValue() ?? "",
+    reset: (content: string) => {
+      const model = monacoDiffEditor?.getModifiedEditor().getModel();
+      if (model === undefined || model === null) return;
+      suppressDirty = true;
+      model.setValue(content);
+      suppressDirty = false;
+      diffEditor.markClean();
+    },
+  });
+}
+
+function unmountMonacoDiffEditor() {
+  const model = monacoDiffEditor?.getModel();
+  model?.original.dispose();
+  model?.modified.dispose();
+  monacoDiffEditor?.dispose();
+  monacoDiffEditor = undefined;
+  diffEditor.unregister();
+}
+
+const diffEditor = useDiffEditor();
+
+watch(
+  () => props.editable,
+  (editable) => {
+    if (!editable) {
+      unmountMonacoDiffEditor();
+      return;
+    }
+    // unified view には対応しないため split に固定する。
+    internalViewMode.value = "split";
+    void nextTick(mountMonacoDiffEditor);
+  },
+  { immediate: true },
+);
+
+watch(
+  () => props.wordWrap,
+  (wrap) => {
+    monacoDiffEditor?.updateOptions({ wordWrap: wrap ? "on" : "off" });
+  },
+);
+
+onUnmounted(() => {
+  unmountMonacoDiffEditor();
+});
 
 /** split row の左セル背景クラス */
 function splitLeftBg(row: DiffSplitRowItem): string {
@@ -714,7 +854,13 @@ function blockEdit(event: Event) {
 </script>
 
 <template>
-  <div class="flex h-full flex-col">
+  <!--
+    編集モード: 自前 hunk 描画とは完全に別の描画パス。Monaco の createDiffEditor をそのまま
+    マウントするだけのコンテナ (script 側の mountMonacoDiffEditor 参照)。
+  -->
+  <div v-if="editable" ref="monacoContainerRef" class="size-full" />
+
+  <div v-else class="flex h-full flex-col">
     <!-- ビューモードトグル (externalViewMode 指定時は親側で 1 本に統合) -->
     <div
       v-if="state.kind === 'success' && externalViewMode === undefined"

@@ -154,12 +154,6 @@ public enum ClaudeSessionLog {
 
   /// subagents ディレクトリ配下の agent-*.jsonl を agentId 昇順 (決定的) で読む。
   /// 同名 .meta.json (agentType / description) があればラベルに使う。
-  ///
-  /// team 機能の teammate は再メッセージのたびに「過去履歴を丸ごとコピーした新 agentId の
-  /// jsonl」を生む (通常の Task subagent が 1 ファイルに追記するのと非対称)。disk 上に実在
-  /// する累積スナップショット群を dedupe しないと、1 人の reviewer が複数トラックとして
-  /// 増殖表示される。先頭レコードの uuid (spawn root) でグループ化し、最長 (= 他の superset)
-  /// だけ残すことで「reviewer 1 人」に畳む。詳細は dedupeCumulativeSnapshots を参照。
   private static func readSubagents(in dir: URL) -> [ClaudeSessionLogEntry] {
     let fm = FileManager.default
     guard
@@ -173,7 +167,7 @@ public enum ClaudeSessionLog {
       .filter { $0.pathExtension == "jsonl" && $0.lastPathComponent.hasPrefix("agent-") }
       .sorted { $0.lastPathComponent < $1.lastPathComponent }
 
-    let candidates = jsonlFiles.compactMap { file -> SubagentCandidate? in
+    return jsonlFiles.compactMap { file -> ClaudeSessionLogEntry? in
       guard let content = readText(at: file) else {
         // main と非対称に当該 subagent だけ落とす (他 subagent は見せる) が、落とした
         // 事実は silent にせず観察可能にする。
@@ -184,7 +178,7 @@ public enum ClaudeSessionLog {
       let agentId = file.deletingPathExtension().lastPathComponent
         .replacingOccurrences(of: "agent-", with: "")
       let meta = readMeta(forAgentFile: file)
-      let entry = ClaudeSessionLogEntry(
+      return ClaudeSessionLogEntry(
         kind: "subagent",
         id: agentId,
         label: meta.description,
@@ -193,78 +187,7 @@ public enum ClaudeSessionLog {
         content: content,
         parentToolUseId: meta.toolUseId,
         name: meta.name)
-      return SubagentCandidate(entry: entry, agentId: agentId, content: content)
     }
-
-    return dedupeCumulativeSnapshots(candidates)
-  }
-
-  /// dedupe 前の subagent 1 ファイル分の素材。
-  private struct SubagentCandidate {
-    let entry: ClaudeSessionLogEntry
-    let agentId: String
-    let content: String
-  }
-
-  /// 累積スナップショットの dedupe。先頭レコードの uuid (spawn root) を共有する群を 1 つに
-  /// まとめ、最長 (非空行数が最大 = 累積コピーの性質上 他の superset) だけ残す。
-  ///
-  /// - グループキー = 先頭レコードの uuid。team の累積コピーは同一 spawn root を共有する。
-  /// - 先頭 uuid を持たない (parse 失敗 / 旧フォーマット) ファイルは agentId をフォールバック
-  ///   キーにし、各々を独立 entry のまま残す (grouping で取りこぼさない)。
-  /// - uuid と agentId は namespace prefix で分離し、両者が偶然衝突して別物が畳まれる事故を防ぐ。
-  /// - 通常の Task subagent (1 ファイル) は uuid が全て異なるため各々独立トラックのまま。
-  /// - 出力順は「グループ初出 (最小 agentId) の位置」で決まり、入力 (agentId 昇順) に対し決定的。
-  private static func dedupeCumulativeSnapshots(
-    _ candidates: [SubagentCandidate]
-  ) -> [ClaudeSessionLogEntry] {
-    var winnerIndexByKey: [String: Int] = [:]
-    var picked: [(entry: ClaudeSessionLogEntry, lineCount: Int)] = []
-
-    for candidate in candidates {
-      let key = groupKey(for: candidate)
-      let lineCount = nonEmptyLineCount(candidate.content)
-      guard let idx = winnerIndexByKey[key] else {
-        winnerIndexByKey[key] = picked.count
-        picked.append((candidate.entry, lineCount))
-        continue
-      }
-      // 累積コピーは最長が他の superset。tie は先着 (より小さい agentId) を維持する。
-      if lineCount > picked[idx].lineCount {
-        picked[idx] = (candidate.entry, lineCount)
-      }
-    }
-
-    return picked.map { $0.entry }
-  }
-
-  /// dedupe のグループキー。先頭レコードの uuid があれば spawn root として使い、無ければ
-  /// agentId にフォールバックする。uuid / agentId は prefix で namespace 分離する。
-  private static func groupKey(for candidate: SubagentCandidate) -> String {
-    if let uuid = firstRecordUuid(in: candidate.content) {
-      return "uuid:\(uuid)"
-    }
-    return "agent:\(candidate.agentId)"
-  }
-
-  /// JSONL の先頭非空行を 1 レコードとして parse し、その uuid を返す。先頭行が parse 不能 /
-  /// uuid 欠落なら nil (= grouping は agentId にフォールバック)。
-  private static func firstRecordUuid(in content: String) -> String? {
-    for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
-      guard let data = line.data(using: .utf8),
-        let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-      else {
-        return nil
-      }
-      guard let uuid = obj["uuid"] as? String, !uuid.isEmpty else { return nil }
-      return uuid
-    }
-    return nil
-  }
-
-  /// JSONL の非空行数 (= レコード数)。累積コピーの長短判定に使う。
-  private static func nonEmptyLineCount(_ content: String) -> Int {
-    return content.split(separator: "\n", omittingEmptySubsequences: true).count
   }
 
   /// workflowProgress の 1 agent エントリから JOIN する表示メタ。

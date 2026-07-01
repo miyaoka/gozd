@@ -1,9 +1,17 @@
 import { tryCatch } from "@gozd/shared";
-import { ref, type FunctionalComponent, type Ref, type SVGAttributes } from "vue";
+import { h, ref, type FunctionalComponent, type Ref, type SVGAttributes } from "vue";
 import IconLucideCircleCheck from "~icons/lucide/circle-check";
-import IconLucideCircleEllipsis from "~icons/lucide/circle-ellipsis";
-import IconLucideLoader from "~icons/lucide/loader";
-import IconLucideMessageCircleWarning from "~icons/lucide/message-circle-warning";
+import IconLucideLoaderCircle from "~icons/lucide/loader-circle";
+
+/**
+ * 塗り潰しの丸 dot。idle / asking で共通の形として使う。
+ * lucide は stroke ベースの icon set で塗り潰し円のグリフを持たないため、
+ * ここだけ手書きの SVG functional component にする。
+ */
+const IconSolidDot: FunctionalComponent<SVGAttributes> = () =>
+  h("svg", { viewBox: "0 0 24 24" }, [
+    h("circle", { cx: 12, cy: 12, r: 10, fill: "currentColor" }),
+  ]);
 
 /**
  * Claude Code の状態。
@@ -21,9 +29,10 @@ const CLAUDE_STATE_ICON: Record<
   ClaudeState,
   { icon: FunctionalComponent<SVGAttributes>; animate?: string }
 > = {
-  idle: { icon: IconLucideCircleEllipsis },
-  working: { icon: IconLucideLoader, animate: "animate-spin" },
-  asking: { icon: IconLucideMessageCircleWarning },
+  idle: { icon: IconSolidDot },
+  // working だけ隙間のあるリング。塗り潰し丸に spin をかけても回転対称で見た目が変化しないため
+  working: { icon: IconLucideLoaderCircle, animate: "animate-spin" },
+  asking: { icon: IconSolidDot },
   done: { icon: IconLucideCircleCheck },
 };
 
@@ -63,7 +72,8 @@ export const CLAUDE_STATE_VISUAL: Record<ClaudeState, ClaudeStateVisual> = {
   },
   idle: {
     ...CLAUDE_STATE_ICON.idle,
-    color: "text-foreground-low",
+    // ターミナルが裏で生きている（active/online 相当）ことを主張するため緑にする
+    color: "text-success",
     ariaLabel: "Idle",
   },
 };

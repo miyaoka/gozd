@@ -67,12 +67,13 @@ describe("formatSessionTime", () => {
 });
 
 describe("buildSubagentLinks", () => {
-  // tool event を 1 つ作る helper。toolUseId / name / input / result を指定する。
+  // tool event を 1 つ作る helper。toolUseId / name / input / result (+その promptId) を指定する。
   function toolEvent(
     name: string,
     toolUseId: string,
     input: Record<string, unknown> = {},
     resultText?: string,
+    promptId = "",
   ): TranscriptEvent {
     return {
       kind: "tool",
@@ -80,7 +81,7 @@ describe("buildSubagentLinks", () => {
       input,
       toolUseId,
       ts: TS,
-      result: resultText === undefined ? undefined : { text: resultText, isError: false },
+      result: resultText === undefined ? undefined : { text: resultText, isError: false, promptId },
     };
   }
   function sub(over: Partial<SubagentDescriptor>): SubagentDescriptor {
@@ -90,6 +91,7 @@ describe("buildSubagentLinks", () => {
       name: "",
       agentType: "",
       parentToolUseId: "",
+      rootPromptId: "",
       workflowRunId: "",
       workflowName: "",
       ...over,
@@ -104,24 +106,84 @@ describe("buildSubagentLinks", () => {
     expect(links.get("toolu_A")).toEqual({ agentId: "agent1", label: "reviewer" });
   });
 
-  test("Agent は parentToolUseId で引けないとき input.name (team teammate の role 名) で結ぶ", () => {
+  test("Agent は parentToolUseId で引けないとき tool_result.promptId (subagent ファイル先頭の rootPromptId) で結ぶ", () => {
     const links = buildSubagentLinks(
-      // teammate spawn: meta が toolUseId 無し、input.name が role 名 = agentType。
-      [toolEvent("Agent", "toolu_A", { name: "ssot-reviewer", subagent_type: "reviewer" })],
-      [sub({ id: "aabbcc", label: "ssot-reviewer", name: "", agentType: "ssot-reviewer" })],
+      // teammate spawn: meta が toolUseId 無し、tool_result を運ぶレコードの promptId が
+      // 対応 subagent ファイルの先頭レコードの promptId と厳密一致する。
+      [
+        toolEvent(
+          "Agent",
+          "toolu_A",
+          { name: "a55a74b8fc5258aae" },
+          "Spawned successfully.",
+          "prompt-1",
+        ),
+      ],
+      [
+        sub({
+          id: "aabbcc",
+          label: "PR870の再レビュー依頼",
+          name: "a55a74b8fc5258aae",
+          agentType: "a55a74b8fc5258aae",
+          rootPromptId: "prompt-1",
+        }),
+      ],
     );
-    expect(links.get("toolu_A")).toEqual({ agentId: "aabbcc", label: "ssot-reviewer" });
+    expect(links.get("toolu_A")).toEqual({ agentId: "aabbcc", label: "PR870の再レビュー依頼" });
   });
 
-  test("Agent は parentToolUseId 一致を input.name フォールバックより優先する", () => {
+  test("Agent は parentToolUseId 一致を promptId フォールバックより優先する", () => {
     const links = buildSubagentLinks(
-      [toolEvent("Agent", "toolu_A", { name: "ssot-reviewer" })],
+      [toolEvent("Agent", "toolu_A", {}, "ok", "prompt-1")],
       [
         sub({ id: "byTool", label: "by-tool", parentToolUseId: "toolu_A" }),
-        sub({ id: "byName", label: "by-name", agentType: "ssot-reviewer" }),
+        sub({ id: "byPrompt", label: "by-prompt", rootPromptId: "prompt-1" }),
       ],
     );
     expect(links.get("toolu_A")).toEqual({ agentId: "byTool", label: "by-tool" });
+  });
+
+  test("同名 teammate を複数回 spawn しても各 Agent 呼び出しが promptId で正しい subagent に結ぶ", () => {
+    // 実際に issue #872 で観測された形: 同名 (= 同 agentType) の teammate を 2 回 spawn すると、
+    // tool_result のテキスト (agent_id / name) は完全一致するが、物理的には無関係な独立した
+    // subagent ファイルになる。name/agentType の一致だけで結ぶと一意に決められず ambiguous に
+    // なってしまうケースを、promptId が厳密に解決できることを確認する。
+    const links = buildSubagentLinks(
+      [
+        toolEvent(
+          "Agent",
+          "toolu_1",
+          { name: "a55a74b8fc5258aae" },
+          "Spawned successfully.\nagent_id: a55a74b8fc5258aae@session-x\nname: a55a74b8fc5258aae",
+          "prompt-1",
+        ),
+        toolEvent(
+          "Agent",
+          "toolu_2",
+          { name: "a55a74b8fc5258aae" },
+          "Spawned successfully.\nagent_id: a55a74b8fc5258aae@session-x\nname: a55a74b8fc5258aae",
+          "prompt-2",
+        ),
+      ],
+      [
+        sub({
+          id: "aa...-hash1",
+          label: "re-review 1",
+          name: "a55a74b8fc5258aae",
+          agentType: "a55a74b8fc5258aae",
+          rootPromptId: "prompt-1",
+        }),
+        sub({
+          id: "aa...-hash2",
+          label: "re-review 2",
+          name: "a55a74b8fc5258aae",
+          agentType: "a55a74b8fc5258aae",
+          rootPromptId: "prompt-2",
+        }),
+      ],
+    );
+    expect(links.get("toolu_1")).toEqual({ agentId: "aa...-hash1", label: "re-review 1" });
+    expect(links.get("toolu_2")).toEqual({ agentId: "aa...-hash2", label: "re-review 2" });
   });
 
   test("SendMessage は input.to == agent_id で結ぶ", () => {

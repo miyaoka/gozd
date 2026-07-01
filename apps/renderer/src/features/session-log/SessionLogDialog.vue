@@ -149,6 +149,7 @@ const mainSubagentLinks = computed<Map<string, SubagentLink>>(() => {
       name: s.name,
       agentType: s.agentType,
       parentToolUseId: s.parentToolUseId,
+      rootPromptId: s.parsed.rootPromptId,
       workflowRunId: s.workflowRunId,
       workflowName: s.workflowName,
     })),

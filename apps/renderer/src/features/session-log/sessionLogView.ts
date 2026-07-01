@@ -40,6 +40,11 @@ export interface SubagentDescriptor {
   name: string; // meta.json の name (SendMessage の to が name のことがある)
   agentType: string; // meta.json の agentType (team teammate は SendMessage の to が role 名 = agentType)
   parentToolUseId: string; // spawn した main 側 Agent tool_use id
+  // この subagent の raw jsonl 先頭レコードの promptId (parsed.rootPromptId)。team teammate
+  // spawn (meta.json に toolUseId を持たない) を Agent tool_use に結ぶ唯一の厳密キー。
+  // name/agentType はコーディネータ指定のラベルに過ぎず同名 spawn の繰り返しで衝突するが、
+  // promptId は spawn ごとに新規採番されるため衝突しない。
+  rootPromptId: string;
   // workflow agent が属する workflow run の id (wf_xxx)。非 workflow subagent は空文字。
   // main の Workflow tool_use を workflow agent 群に結ぶグループキー。
   workflowRunId: string;
@@ -120,14 +125,20 @@ export function subagentTabLabel(entry: {
  * main の tool 呼び出し (Agent / SendMessage) を起動/宛先 subagent に結ぶ map を作る。
  * key は main tool event の toolUseId、value は紐づく subagent の {agentId,label}。
  *
- * - Agent (新規 spawn): main の `tool_use.id` === subagent の `parentToolUseId` (meta.toolUseId)。
- *   team teammate は meta が toolUseId を持たないため、引けないときは spawn 時の `input.name`
- *   (role 名 = agentType) を resolveTo に通してフォールバックする
+ * - Agent (新規 spawn): 通常 subagent は `tool_use.id` === subagent の `parentToolUseId`
+ *   (meta.toolUseId) で引く。team teammate は meta が toolUseId を持たないため、`tool_result`
+ *   を運ぶレコードの `promptId` === subagent ファイル先頭レコードの `promptId` (rootPromptId)
+ *   で引く。name/agentType はコーディネータが指定するラベルに過ぎず、同名で teammate を
+ *   繰り返し spawn すると衝突する (実ログで確認済み: 同名 spawn 2 件の tool_result はテキストが
+ *   完全一致するのに、物理的には無関係な独立 jsonl になる)。promptId は spawn ごとに新規採番
+ *   されるため衝突せず、name ベースの誤 link (issue #872) を構造的に防ぐ
  * - SendMessage (resume): main の `tool_use.input.to` === subagent の `id` / `name` / `agentType`
  *   (Claude Code の SendMessage は to に agent_id / agent name / role 名 のいずれも取りうる。team
  *   teammate は role 名 = agentType で宛先指定するため、name/id で引けない)。id → name → agentType
  *   の順に引き、同 name / 同 agentType が複数あると一意に決められないためその値はリンクを張らない
- *   (誤った subagent へ飛ばすより無表示が安全)。id は一意なので衝突しない。
+ *   (誤った subagent へ飛ばすより無表示が安全)。id は一意なので衝突しない。SendMessage の to は
+ *   spawn 時刻を持たない宛先ラベルなので promptId 照合は使えない (対象は既存 subagent で
+ *   新規 promptId が採番されない)
  * - Workflow (workflow 起動): main の Workflow tool_result テキストの `Run ID: wf_xxx` ===
  *   workflow agent 群の `workflowRunId`。1 Workflow = N agent なので先頭 agent に結ぶ
  *   (右ペインで開いた後はタブバーのグループから他 agent へ辿れる)。ラベルは `<名> (件数)`。
@@ -140,6 +151,7 @@ export function buildSubagentLinks(
 ): Map<string, SubagentLink> {
   const links = new Map<string, SubagentLink>();
   const byParentToolUse = new Map<string, SubagentDescriptor>();
+  const byRootPromptId = new Map<string, SubagentDescriptor>();
   const byAgentId = new Map<string, SubagentDescriptor>();
   const byName = new Map<string, SubagentDescriptor>();
   // team teammate は SendMessage の to が role 名 (agentType) のことがあるため agentType でも引く。
@@ -149,6 +161,7 @@ export function buildSubagentLinks(
   const ambiguousAgentTypes = new Set<string>();
   for (const sub of subagents) {
     if (sub.parentToolUseId !== "") byParentToolUse.set(sub.parentToolUseId, sub);
+    if (sub.rootPromptId !== "") byRootPromptId.set(sub.rootPromptId, sub);
     byAgentId.set(sub.id, sub);
     if (sub.name !== "") {
       if (byName.has(sub.name)) ambiguousNames.add(sub.name);
@@ -193,10 +206,13 @@ export function buildSubagentLinks(
     if (ev.kind !== "tool" || ev.toolUseId === "") continue;
     if (ev.name === "Agent") {
       // 通常 subagent は tool_use.id == meta.toolUseId で引く。team teammate は meta が
-      // toolUseId を持たない代わりに spawn 時の input.name が role 名 (= agentType) なので、
-      // parentToolUseId で引けないときは input.name を resolveTo に通してフォールバックする。
+      // toolUseId を持たないため、parentToolUseId で引けないときは tool_result.promptId ==
+      // subagent ファイル先頭レコードの promptId (rootPromptId) で引く。name/agentType は
+      // ラベルに過ぎず同名 spawn の繰り返しで衝突するため、フォールバックには使わない。
       let sub = byParentToolUse.get(ev.toolUseId);
-      if (sub === undefined && typeof ev.input.name === "string") sub = resolveTo(ev.input.name);
+      if (sub === undefined && ev.result !== undefined && ev.result.promptId !== "") {
+        sub = byRootPromptId.get(ev.result.promptId);
+      }
       if (sub !== undefined) links.set(ev.toolUseId, { agentId: sub.id, label: sub.label });
     } else if (ev.name === "SendMessage") {
       const to = ev.input.to;

@@ -147,6 +147,13 @@ interface RawLine {
   // 中継時に `origin.kind:"coordinator"` を付ける。中継は `isMeta:true` と併記されるため、これが
   // 無いと CLI/hook 注入レコードと区別できず会話から落ちる。中継発話を救済する判別キー。
   origin?: { kind?: string };
+  // Claude Code がこのレコードの「やり取り単位」に採番する UUID。tool_result を運ぶ user
+  // レコードでは、そのやり取りを起こした tool_use と 1:1 対応する。team teammate の spawn
+  // (Agent tool を `name` 付きで呼ぶ経路) は spawn 先 subagent の先頭レコードにも同じ値が
+  // 現れるため、main 側 tool_result とその subagent ファイルを厳密に紐付けられる唯一の鍵になる。
+  // agent_id / name はコーディネータが指定するラベルに過ぎず、同名 spawn を繰り返すと衝突するが
+  // promptId は spawn ごとに新規採番されるため衝突しない (実ログで確認済み)。
+  promptId?: string;
   // このレコードを書いた Claude Code のバージョン (例 "2.1.178")。行ごとに付くため、セッション中の
   // auto-update で複数値になりうる。UI のバージョン表示に出現順ユニークで集める。
   version?: string;
@@ -338,7 +345,10 @@ export type TranscriptEvent =
       input: Record<string, unknown>;
       toolUseId: string;
       ts: string;
-      result: { text: string; isError: boolean } | undefined;
+      // promptId: tool_result を運ぶ生レコードの promptId。Agent tool の team teammate spawn
+      // (`gozd` の buildSubagentLinks が使う) を、名前衝突に左右されず一意に subagent ファイルへ
+      // 結ぶための鍵。tool_result 欠落時は undefined。
+      result: { text: string; isError: boolean; promptId: string } | undefined;
     }
   // AskUserQuestion 専用イベント。assistant の質問 (+選択肢) と user の回答を 1 つの構造に
   // 畳む。実体は tool_use + tool_result だが、UI 上は会話 (Q→A) として扱いたいため通常の
@@ -384,6 +394,13 @@ export interface ParsedSessionLog {
    * SSOT。auto-update でセッション途中に上がると複数値になりうるため配列で保持する。
    */
   versions: string[];
+  /**
+   * この JSONL の先頭レコードの promptId。subagent ファイルの先頭レコードは spawn 元の
+   * promptId を引き継ぐため、team teammate 等 meta.json に toolUseId を持たない spawn 経路でも
+   * main 側 tool_result.promptId と厳密一致させて subagent ファイルを一意に特定できる
+   * (gozd の buildSubagentLinks が使う)。先頭レコードが promptId を持たなければ空文字。
+   */
+  rootPromptId: string;
   /** 表示した (live な) JSONL 行数。rewind で選ばれなかった枝の行は含まない */
   totalLines: number;
   /** JSON parse に失敗した行数 (末尾の追記途中行など) */
@@ -779,6 +796,7 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
             tool.result = {
               text: toolResultText(block.content),
               isError: block.is_error === true,
+              promptId: raw.promptId ?? "",
             };
             continue;
           }
@@ -915,7 +933,11 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
     skipped++;
   }
 
-  return { events, models, versions, totalLines, malformed, skipped, emptyThinking };
+  // 先頭レコードの promptId。rewind で捨てられうる分岐候補とは無関係にファイル先頭 1 件で
+  // 決まる (subagent ファイルは常に spawn 元の promptId を持つ 1 行目から始まる)。
+  const rootPromptId = nodes[0]?.raw.promptId ?? "";
+
+  return { events, models, versions, totalLines, malformed, skipped, emptyThinking, rootPromptId };
 }
 
 /**

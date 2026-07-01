@@ -21,34 +21,7 @@ function requireManifestKey(manifest: Manifest, key: "file" | "folder" | "folder
   return value;
 }
 
-const manifest = generateManifest();
-
-/** Vite が SVG をハッシュ付き URL に変換した結果（basename → URL） */
-const svgUrlByBasename = new Map<string, string>();
-const svgModules = import.meta.glob<string>("/node_modules/material-icon-theme/icons/*.svg", {
-  eager: true,
-  import: "default",
-  query: "?url",
-  exhaustive: true,
-});
-for (const [path, url] of Object.entries(svgModules)) {
-  // "/node_modules/material-icon-theme/icons/folder-development.clone.svg" → "folder-development.clone"
-  const [, basename] = path.match(/\/([^/]+)\.svg$/) ?? [];
-  if (basename === undefined) {
-    throw new Error(
-      `material-icon-theme: cannot extract basename from SVG path ${JSON.stringify(path)}`,
-    );
-  }
-  svgUrlByBasename.set(basename, url);
-}
-
-const iconUrlByName = buildIconUrlByName(manifest.iconDefinitions ?? {}, svgUrlByBasename);
-
-const DEFAULT_FILE_ICON_NAME = requireManifestKey(manifest, "file");
-const DEFAULT_FOLDER_ICON_NAME = requireManifestKey(manifest, "folder");
-const DEFAULT_FOLDER_OPEN_ICON_NAME = requireManifestKey(manifest, "folderExpanded");
-
-function requireIconUrl(name: string): string {
+function requireIconUrl(iconUrlByName: Map<string, string>, name: string): string {
   const url = iconUrlByName.get(name);
   if (url === undefined) {
     throw new Error(`material-icon-theme: icon ${JSON.stringify(name)} not resolvable`);
@@ -56,14 +29,91 @@ function requireIconUrl(name: string): string {
   return url;
 }
 
-const fileNameMap = new Map<string, string>();
-for (const [name, icon] of Object.entries(manifest.fileNames ?? {})) {
-  fileNameMap.set(name.toLowerCase(), icon);
+interface IconMaps {
+  iconUrlByName: Map<string, string>;
+  defaultFileIconName: string;
+  defaultFolderIconName: string;
+  defaultFolderOpenIconName: string;
+  fileNameMap: Map<string, string>;
+  fileExtensionMap: Map<string, string>;
+  languageIdMap: Map<string, string>;
+  folderNameMap: Map<string, string>;
+  folderNameOpenMap: Map<string, string>;
 }
 
-const fileExtensionMap = new Map<string, string>();
-for (const [ext, icon] of Object.entries(manifest.fileExtensions ?? {})) {
-  fileExtensionMap.set(ext, icon);
+/**
+ * `import.meta.glob` は Vite 専用構文で、`bun test` 環境では未定義のため呼び出すと例外になる。
+ * barrel 経由でこのモジュールが評価されるだけで（`getFileIconUrl` を実際に使わなくても）
+ * 例外になるのを避けるため、初回呼び出し時まで評価を遅延する。
+ */
+function buildIconMaps(): IconMaps {
+  const manifest = generateManifest();
+
+  /** Vite が SVG をハッシュ付き URL に変換した結果（basename → URL） */
+  const svgUrlByBasename = new Map<string, string>();
+  const svgModules = import.meta.glob<string>("/node_modules/material-icon-theme/icons/*.svg", {
+    eager: true,
+    import: "default",
+    query: "?url",
+    exhaustive: true,
+  });
+  for (const [path, url] of Object.entries(svgModules)) {
+    // "/node_modules/material-icon-theme/icons/folder-development.clone.svg" → "folder-development.clone"
+    const [, basename] = path.match(/\/([^/]+)\.svg$/) ?? [];
+    if (basename === undefined) {
+      throw new Error(
+        `material-icon-theme: cannot extract basename from SVG path ${JSON.stringify(path)}`,
+      );
+    }
+    svgUrlByBasename.set(basename, url);
+  }
+
+  const iconUrlByName = buildIconUrlByName(manifest.iconDefinitions ?? {}, svgUrlByBasename);
+
+  const fileNameMap = new Map<string, string>();
+  for (const [name, icon] of Object.entries(manifest.fileNames ?? {})) {
+    fileNameMap.set(name.toLowerCase(), icon);
+  }
+
+  const fileExtensionMap = new Map<string, string>();
+  for (const [ext, icon] of Object.entries(manifest.fileExtensions ?? {})) {
+    fileExtensionMap.set(ext, icon);
+  }
+
+  const languageIdMap = new Map<string, string>();
+  for (const [langId, icon] of Object.entries(manifest.languageIds ?? {})) {
+    languageIdMap.set(langId, icon);
+  }
+
+  const folderNameMap = new Map<string, string>();
+  for (const [name, icon] of Object.entries(manifest.folderNames ?? {})) {
+    folderNameMap.set(name.toLowerCase(), icon);
+  }
+
+  const folderNameOpenMap = new Map<string, string>();
+  for (const [name, icon] of Object.entries(manifest.folderNamesExpanded ?? {})) {
+    folderNameOpenMap.set(name.toLowerCase(), icon);
+  }
+
+  return {
+    iconUrlByName,
+    defaultFileIconName: requireManifestKey(manifest, "file"),
+    defaultFolderIconName: requireManifestKey(manifest, "folder"),
+    defaultFolderOpenIconName: requireManifestKey(manifest, "folderExpanded"),
+    fileNameMap,
+    fileExtensionMap,
+    languageIdMap,
+    folderNameMap,
+    folderNameOpenMap,
+  };
+}
+
+let iconMaps: IconMaps | undefined;
+function getIconMaps(): IconMaps {
+  if (iconMaps === undefined) {
+    iconMaps = buildIconMaps();
+  }
+  return iconMaps;
 }
 
 /**
@@ -133,32 +183,17 @@ const EXTENSION_LANGUAGE_ID_MAP: Record<string, string> = {
   log: "log",
 };
 
-const languageIdMap = new Map<string, string>();
-for (const [langId, icon] of Object.entries(manifest.languageIds ?? {})) {
-  languageIdMap.set(langId, icon);
-}
-
-const folderNameMap = new Map<string, string>();
-for (const [name, icon] of Object.entries(manifest.folderNames ?? {})) {
-  folderNameMap.set(name.toLowerCase(), icon);
-}
-
-const folderNameOpenMap = new Map<string, string>();
-for (const [name, icon] of Object.entries(manifest.folderNamesExpanded ?? {})) {
-  folderNameOpenMap.set(name.toLowerCase(), icon);
-}
-
-function resolveFileIconName(fileName: string): string {
+function resolveFileIconName(maps: IconMaps, fileName: string): string {
   const lower = fileName.toLowerCase();
 
-  const byName = fileNameMap.get(lower);
+  const byName = maps.fileNameMap.get(lower);
   if (byName !== undefined) return byName;
 
   // 複合拡張子も対応: .test.ts → test.ts → ts
   const parts = lower.split(".");
   for (let i = 1; i < parts.length; i++) {
     const ext = parts.slice(i).join(".");
-    const byExt = fileExtensionMap.get(ext);
+    const byExt = maps.fileExtensionMap.get(ext);
     if (byExt !== undefined) return byExt;
   }
 
@@ -166,30 +201,32 @@ function resolveFileIconName(fileName: string): string {
   if (ext !== "") {
     const langId = EXTENSION_LANGUAGE_ID_MAP[ext];
     if (langId !== undefined) {
-      const byLang = languageIdMap.get(langId);
+      const byLang = maps.languageIdMap.get(langId);
       if (byLang !== undefined) return byLang;
     }
   }
 
-  return DEFAULT_FILE_ICON_NAME;
+  return maps.defaultFileIconName;
 }
 
-function resolveFolderIconName(folderName: string, isOpen: boolean): string {
+function resolveFolderIconName(maps: IconMaps, folderName: string, isOpen: boolean): string {
   const lower = folderName.toLowerCase();
   if (isOpen) {
-    return folderNameOpenMap.get(lower) ?? DEFAULT_FOLDER_OPEN_ICON_NAME;
+    return maps.folderNameOpenMap.get(lower) ?? maps.defaultFolderOpenIconName;
   }
-  return folderNameMap.get(lower) ?? DEFAULT_FOLDER_ICON_NAME;
+  return maps.folderNameMap.get(lower) ?? maps.defaultFolderIconName;
 }
 
 /** ファイル名から material-icon-theme の SVG URL を返す */
 function getFileIconUrl(fileName: string): string {
-  return requireIconUrl(resolveFileIconName(fileName));
+  const maps = getIconMaps();
+  return requireIconUrl(maps.iconUrlByName, resolveFileIconName(maps, fileName));
 }
 
 /** フォルダ名から material-icon-theme の SVG URL を返す */
 function getFolderIconUrl(folderName: string, isOpen: boolean): string {
-  return requireIconUrl(resolveFolderIconName(folderName, isOpen));
+  const maps = getIconMaps();
+  return requireIconUrl(maps.iconUrlByName, resolveFolderIconName(maps, folderName, isOpen));
 }
 
 export { getFileIconUrl, getFolderIconUrl };

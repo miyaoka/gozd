@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import {
   formatCompactTime,
   formatDetailTime,
@@ -6,20 +6,17 @@ import {
   formatShortAge,
 } from "./relativeTime";
 
-// 2026-05-21T00:00:00Z 固定 (テスト独立性のため Date.now を spyOn で固定)
+// 2026-05-21T00:00:00Z 固定 (テスト独立性のため setSystemTime で固定)
 const FIXED_NOW_MS = 1779580800000;
 const FIXED_NOW_SEC = Math.floor(FIXED_NOW_MS / 1000);
 
 describe("formatRelativeTime", () => {
-  let nowSpy: ReturnType<typeof spyOn<DateConstructor, "now">> | undefined;
-
   function freezeNow() {
-    nowSpy = spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
+    setSystemTime(new Date(FIXED_NOW_MS));
   }
 
   afterEach(() => {
-    nowSpy?.mockRestore();
-    nowSpy = undefined;
+    setSystemTime();
   });
 
   test("unixSec <= 0 は空文字", () => {
@@ -56,15 +53,12 @@ describe("formatRelativeTime", () => {
 // formatCompactTime / formatDetailTime は locale 未指定 (システムロケール依存) のため、
 // 出力文字列をロケール固定で pin しない。年・時刻の有無という構造的性質だけを検証する。
 describe("formatCompactTime", () => {
-  let nowSpy: ReturnType<typeof spyOn<DateConstructor, "now">> | undefined;
-
   function freezeNow() {
-    nowSpy = spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
+    setSystemTime(new Date(FIXED_NOW_MS));
   }
 
   afterEach(() => {
-    nowSpy?.mockRestore();
-    nowSpy = undefined;
+    setSystemTime();
   });
 
   test("unixSec <= 0 は空文字", () => {

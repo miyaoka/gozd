@@ -83,7 +83,7 @@ export function formatCompactTime(unixSec: number): string {
   if (unixSec <= 0) return "";
   const date = new Date(unixSec * 1000);
   const formatter =
-    date.getFullYear() === new Date(Date.now()).getFullYear()
+    date.getFullYear() === new Date().getFullYear()
       ? COMPACT_TIME_FORMATTER
       : COMPACT_DATE_FORMATTER;
   return formatter.format(date);

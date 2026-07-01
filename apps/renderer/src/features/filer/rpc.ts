@@ -11,6 +11,8 @@ import {
   FsUnwatchResponse,
   FsWatchRequest,
   FsWatchResponse,
+  FsWriteFileRequest,
+  FsWriteFileResponse,
   GitLsTreeRequest,
   GitLsTreeResponse,
 } from "@gozd/proto";
@@ -30,6 +32,10 @@ export const rpcFsReadFile = (req: FsReadFileRequest) =>
 
 export const rpcFsReadFileAbsolute = (req: FsReadFileAbsoluteRequest) =>
   rpc("/fs/readFileAbsolute", req, FsReadFileAbsoluteRequest, FsReadFileAbsoluteResponse);
+
+// dir 配下への書き込み。path traversal guard は server 側 (resolveSafe)。
+export const rpcFsWriteFile = (req: FsWriteFileRequest) =>
+  rpc("/fs/writeFile", req, FsWriteFileRequest, FsWriteFileResponse);
 
 export const rpcFsWatch = (req: FsWatchRequest) =>
   rpc("/fs/watch", req, FsWatchRequest, FsWatchResponse);

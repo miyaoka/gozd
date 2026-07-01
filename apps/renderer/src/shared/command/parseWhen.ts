@@ -20,6 +20,7 @@ const KNOWN_KEYS = new Set<string>(
   Object.keys({
     terminalFocus: true,
     previewVisible: true,
+    previewEditMode: true,
     commandPaletteVisible: true,
     quickPickVisible: true,
     prPickerVisible: true,

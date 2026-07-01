@@ -34,6 +34,7 @@ import {
   FileHistoryPopover,
   PreviewPane,
   registerMarkdownHistoryCommands,
+  usePreviewEditStore,
   usePreviewStore,
 } from "../preview";
 import { registerSettingsCommand, SettingsModal } from "../settings";
@@ -47,6 +48,7 @@ import IconLucidePanelRightOpen from "~icons/lucide/panel-right-open";
 
 const repoStore = useRepoStore();
 const previewStore = usePreviewStore();
+const previewEditStore = usePreviewEditStore();
 const contextKeys = useContextKeys();
 const previewPopoverRef = useTemplateRef<HTMLElement>("previewPopover");
 
@@ -166,10 +168,36 @@ watch(
   { immediate: true },
 );
 
+/**
+ * previewEditMode context key を editStore.editMode と同期。
+ * preview.save の Cmd+S は DOM フォーカス (inputFocused) ではなくこの論理状態で判定する。
+ * VSCode の `workbench.action.files.save` も `when: undefined` (フォーカス位置を問わず
+ * "アクティブなドキュメントを保存する") であり、editMode という「今アクティブな編集対象が
+ * あるか」の論理条件の方が正しいスコープになる。inputFocused ベースにすると、Monaco 自身も
+ * 隠し textarea で入力を受けるため「Monaco 編集中こそ Cmd+S を使いたい」場面まで巻き込んで
+ * 無効化してしまう (Monaco の Cmd+[ / Cmd+] 等、他の !inputFocused binding も同様の理由で
+ * inputFocused の意味を変えるべきではない)。
+ */
+watch(
+  () => previewEditStore.editMode,
+  (editMode) => {
+    contextKeys.set("previewEditMode", editMode);
+  },
+  { immediate: true },
+);
+
 // ESC で preview を閉じる。popover="manual" によって OS の auto dismiss が無いため、
 // HTML popover が popover="auto" で持っていた ESC dismiss の性質を自前で代替する。
 // 他の popover (BlamePopover 等) や dialog (SettingsModal 等) が前面にあるときはそちらに ESC を譲り、
 // すべて閉じた次の ESC で preview を閉じる。preventDefault は macOS の NSBeep 抑止に必須。
+//
+// 編集モード中は同じ優先順位で ESC を「編集モードを抜ける」に先に割り当てる (save/discard とは
+// 独立した表示操作、usePreviewEditStore.ts の契約を参照)。CodeEditor.vue / DiffPreview.vue の
+// Monaco 側 addCommand は widget (suggest/find 等) が開いていないときだけ preventDefault +
+// stopPropagation で document への伝播を止める設計だが、Monaco の内部実装
+// (StandaloneKeybindingService の dispatch 結果) に依存させたくないため、ここでも独立して
+// 「編集中は close ではなく exitEditMode」を保証する (Monaco 側が止めていればここには到達しない
+// 想定だが、到達しても exitEditMode は冪等なので二重発火しても実害はない)。
 useEventListener(document, "keydown", (e: KeyboardEvent) => {
   if (e.defaultPrevented) return;
   if (isIMEActive(e) || e.key !== "Escape") return;
@@ -179,6 +207,11 @@ useEventListener(document, "keydown", (e: KeyboardEvent) => {
   );
   if (otherPopoverOpen) return;
   if (document.querySelector("dialog[open]") !== null) return;
+  if (previewEditStore.editMode) {
+    e.preventDefault();
+    previewEditStore.exitEditMode();
+    return;
+  }
   e.preventDefault();
   previewStore.close();
 });

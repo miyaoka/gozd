@@ -222,6 +222,19 @@ func sendOrExit(message: Gozd_V1_ClientMessage) async {
   }
   defer { close(fd) }
 
+  // SO_NOSIGPIPE: app 側が connection を close / reset した後の write は、これが無いと
+  // EPIPE ではなく SIGPIPE で CLI プロセスが即死し、hook イベントが stderr 出力もなく
+  // silent に消える (silent drop 禁止規律違反)。設定後は EPIPE が返り、下の write 失敗
+  // 経路が stderr へエラーを残して exit 1 する。
+  var noSigpipe: Int32 = 1
+  if setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigpipe, socklen_t(MemoryLayout<Int32>.size))
+    != 0
+  {
+    FileHandle.standardError.write(
+      Data("Failed to set SO_NOSIGPIPE: \(String(cString: strerror(errno)))\n".utf8))
+    exit(1)
+  }
+
   var addr = sockaddr_un()
   addr.sun_family = sa_family_t(AF_UNIX)
   let pathBytes = Array(path.utf8)

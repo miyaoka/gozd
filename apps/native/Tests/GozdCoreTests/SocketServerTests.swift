@@ -111,6 +111,7 @@ private func fileExists(_ path: String) -> Bool {
 
 enum SocketClientError: Error, CustomStringConvertible {
   case createSocket(errno: Int32)
+  case setNoSigpipe(errno: Int32)
   case pathTooLong
   case connect(errno: Int32)
   case write(errno: Int32)
@@ -118,6 +119,8 @@ enum SocketClientError: Error, CustomStringConvertible {
   var description: String {
     switch self {
     case .createSocket(let e): return "socket() failed: \(String(cString: strerror(e)))"
+    case .setNoSigpipe(let e):
+      return "setsockopt(SO_NOSIGPIPE) failed: \(String(cString: strerror(e)))"
     case .pathTooLong: return "socket path too long"
     case .connect(let e): return "connect() failed: \(String(cString: strerror(e)))"
     case .write(let e): return "write() failed: \(String(cString: strerror(e)))"
@@ -133,6 +136,18 @@ private func sendOverUnixSocket(path: String, data: Data) throws {
   let fd = socket(AF_UNIX, SOCK_STREAM, 0)
   guard fd >= 0 else { throw SocketClientError.createSocket(errno: errno) }
   defer { close(fd) }
+
+  // SO_NOSIGPIPE: peer (server) が connection を close / reset した後の write は、
+  // これが無いと EPIPE ではなく SIGPIPE をプロセス全体に配送する (default action は
+  // terminate)。swift-testing は全 suite を単一プロセスで並列実行するため、1 回の
+  // race で swiftpm-testing-helper ごと signal 13 死し、全テストが巻き添えになる
+  // (CI でのみ再現する flaky crash の正体)。設定後は EPIPE が返り、下の write-all
+  // loop が SocketClientError.write として観察可能に throw する。
+  var noSigpipe: Int32 = 1
+  guard
+    setsockopt(
+      fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigpipe, socklen_t(MemoryLayout<Int32>.size)) == 0
+  else { throw SocketClientError.setNoSigpipe(errno: errno) }
 
   var addr = sockaddr_un()
   addr.sun_family = sa_family_t(AF_UNIX)

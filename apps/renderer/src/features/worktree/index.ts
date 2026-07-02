@@ -23,4 +23,4 @@ export {
   resolveFileGitChange,
   resolveGitChangeKind,
 } from "./gitStatusUtils";
-export type { GitChangeKind } from "./gitStatusUtils";
+export type { GitChangeKind, StatusIconEntry } from "./gitStatusUtils";

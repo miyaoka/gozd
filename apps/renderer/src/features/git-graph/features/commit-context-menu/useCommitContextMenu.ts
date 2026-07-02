@@ -35,7 +35,7 @@
  * 仕様を変える際は両者を必ず同時に更新する。Filer / Changes 版の `useFileContextMenu.ts` とも
  * 同じ不変条件を共有するため、light-dismiss 周りの修正はそちらも合わせて確認する。
  */
-import { usePopover } from "../../shared/popover";
+import { usePopover } from "../../../../shared/popover";
 
 type CommitContextMenuContext = {
   /** 右クリック時に snapshot した worktree dir (絶対パス) */

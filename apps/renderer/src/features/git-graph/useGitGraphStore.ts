@@ -190,6 +190,55 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
     return selectedHash.value;
   });
 
+  /**
+   * 範囲選択の min/max インデックス。compareHash が null なら undefined。
+   * UNCOMMITTED_HASH は layout.nodes に含まれないため -1 として扱う。
+   */
+  const rangeIndices = computed<{ min: number; max: number } | undefined>(() => {
+    if (compareHash.value === null) return undefined;
+    const map = hashToIndex.value;
+    const selectedIdx = selectedHash.value === UNCOMMITTED_HASH ? -1 : map.get(selectedHash.value);
+    const compareIdx = compareHash.value === UNCOMMITTED_HASH ? -1 : map.get(compareHash.value);
+    if (selectedIdx === undefined || compareIdx === undefined) return undefined;
+    return { min: Math.min(selectedIdx, compareIdx), max: Math.max(selectedIdx, compareIdx) };
+  });
+
+  /** 範囲選択の両端の内側 (端点そのものは含まない) にあるか */
+  function isInRange(hash: string): boolean {
+    const range = rangeIndices.value;
+    if (range === undefined) return false;
+    const idx = hashToIndex.value.get(hash);
+    if (idx === undefined) return false;
+    return idx > range.min && idx < range.max;
+  }
+
+  /**
+   * 行の青背景ハイライト対象か (単一選択 / 範囲選択の visual range)。
+   * 「ユーザーが選んだ範囲そのもの」を表し、実 diff 対象を示す `isActiveDot` とは別軸。
+   */
+  function isSelectedRow(hash: string): boolean {
+    if (compareHash.value === null) return hash === selectedHash.value;
+    return hash === selectedHash.value || hash === compareHash.value || isInRange(hash);
+  }
+
+  /**
+   * dot を branch color で塗って強調する対象か。単一選択時は選択 commit、範囲選択時は
+   * first-parent walk の実 diff 対象 (activeCommitHashes)。
+   */
+  function isActiveDot(hash: string): boolean {
+    if (compareHash.value === null) return hash === selectedHash.value;
+    return activeCommitHashes.value?.has(hash) ?? false;
+  }
+
+  /**
+   * 「HEAD をビューポート中央にスクロールせよ」という要求 signal。data 取得側が token を進め、
+   * scroll DOM を持つ描画側が watch して実行する。両者を直接呼ばず signal 1 本で疎結合にする。
+   */
+  const scrollToHeadToken = ref(0);
+  function requestScrollToHead() {
+    scrollToHeadToken.value++;
+  }
+
   function select(hash: string) {
     selectedHash.value = hash;
     compareHash.value = null;
@@ -224,6 +273,10 @@ export const useGitGraphStore = defineStore("gitGraph", () => {
     rangeHashes,
     activeCommitHashes,
     contextMenuHash,
+    isSelectedRow,
+    isActiveDot,
+    scrollToHeadToken,
+    requestScrollToHead,
     select,
     selectCompare,
     resetSelection,

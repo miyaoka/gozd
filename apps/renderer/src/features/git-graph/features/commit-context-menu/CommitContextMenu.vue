@@ -8,8 +8,8 @@ docstring を SSOT として参照する。
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
 import { computed } from "vue";
-import { useNotificationStore } from "../../shared/notification";
-import { rpcGitResetMixed } from "./rpc";
+import { useNotificationStore } from "../../../../shared/notification";
+import { rpcGitResetMixed } from "../../rpc";
 import { useCommitContextMenu } from "./useCommitContextMenu";
 import IconLucideUndo2 from "~icons/lucide/undo-2";
 

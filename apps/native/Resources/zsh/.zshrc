@@ -72,9 +72,8 @@ _gozd_resume_claude() {
 # 新 sessionId を結びつけることで task と session の紐付けが成立する。
 #
 # GOZD_CLAUDE_PREFILL があれば `claude --prefill <text>` で入力欄にテキストを事前挿入する
-# (挿入のみで送信はされない)。PR/issue から task を作成した直後の起動で PR/issue URL を
-# プロンプト入力欄に置くために renderer が spawn env に注入する。--prefill は claude CLI の
-# hidden option (--help に出ない) だが、入力欄への非送信挿入を実現する唯一の公式経路。
+# (挿入のみで送信はされない)。renderer が spawn env に注入する。--prefill は claude CLI の
+# hidden option (--help に出ない)。採用理由は docs/task.md「PR/issue URL の prefill」を参照。
 _gozd_start_claude() {
   unset GOZD_AUTOSTART_CLAUDE
   local _prefill="$GOZD_CLAUDE_PREFILL"

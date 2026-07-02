@@ -291,6 +291,7 @@ export const useTerminalStore = defineStore("terminal", () => {
             ptySession.killPty(leafId);
             delete titleByLeafId.value[leafId];
             delete pendingResumeByLeafId.value[leafId];
+            delete pendingAutostartByLeafId.value[leafId];
             delete paneRegistry.value[leafId];
             lastRemovedLeafId.value = leafId;
           })();
@@ -299,6 +300,7 @@ export const useTerminalStore = defineStore("terminal", () => {
           ptySession.killPty(leafId);
           delete titleByLeafId.value[leafId];
           delete pendingResumeByLeafId.value[leafId];
+          delete pendingAutostartByLeafId.value[leafId];
           delete paneRegistry.value[leafId];
           lastRemovedLeafId.value = leafId;
         }

@@ -61,7 +61,7 @@ public enum ClaudeHooksSettings {
         "PostToolUseFailure": [
           [
             "matcher": "*",
-            "hooks": [["type": "command", "command": cliCommand("tool-failure")]],
+            "hooks": [["type": "command", "command": ncCommand("tool-failure")]],
           ]
         ],
       ]

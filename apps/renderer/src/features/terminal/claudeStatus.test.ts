@@ -178,6 +178,31 @@ describe("observeTitle（OSC タイトル駆動の状態）", () => {
     expect(claudeStatusByPtyId.value[1]?.state).toBe("done");
   });
 
+  test("✳ は asking を上書きしない（hook 権威を温存）", async () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    manager.observeTitle(1, WORKING_TITLE);
+    manager.handleHookEvent(1, "needs-input", { tool_name: "Bash", tool_input: "{}" });
+    // needs-input は 150ms debounce 後に asking へ遷移する
+    await new Promise((r) => setTimeout(r, 200));
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("asking");
+
+    manager.observeTitle(1, IDLE_TITLE);
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("asking");
+  });
+
+  test("asking 中にスピナーが来ると working に復帰する（承認後の再開）", async () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    manager.observeTitle(1, WORKING_TITLE);
+    manager.handleHookEvent(1, "needs-input", { tool_name: "Bash", tool_input: "{}" });
+    await new Promise((r) => setTimeout(r, 200));
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("asking");
+
+    manager.observeTitle(1, WORKING_TITLE);
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("working");
+  });
+
   test("done 中でもスピナー（新ターン開始）は working にする", () => {
     const { claudeStatusByPtyId, manager } = setup();
     manager.handleHookEvent(1, "session-start", { session_id: "s1" });

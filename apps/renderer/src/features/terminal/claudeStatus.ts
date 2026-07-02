@@ -23,7 +23,7 @@ IconSolidDot.inheritAttrs = false;
 /**
  * Claude Code の状態。
  * - idle: セッション開始済みだがプロンプト待ち（通知不要）
- * - working: エージェントが作業中（UserPromptSubmit / PostToolUse）
+ * - working: エージェントが作業中（OSC タイトルのスピナー）
  * - asking: 承認待ち（PermissionRequest）— ユーザー操作が必要
  * - done: 応答完了（Stop）— 人間の確認・入力待ち（通知が必要）
  *
@@ -87,9 +87,9 @@ export const CLAUDE_STATE_VISUAL: Record<ClaudeState, ClaudeStateVisual> = {
 
 /**
  * Claude Code の状態エントリ。状態と付随データを一体管理する。
- * - lastActivityAt: 最後に Claude が動いた時刻。session-start / running / tool-done /
- *   tool-failure（非 interrupt）/ done / stop-failure で更新。idle（interrupt 含む）/
- *   asking 遷移時は維持する。サイドバーの相対時刻はこれを基準にする。
+ * - lastActivityAt: session-start / working 遷移（OSC タイトルのスピナー）/ done /
+ *   stop-failure で更新する。working は開始時刻を刻み、以降のスピナー各フレームでは
+ *   更新しない。idle / asking 遷移時は直前の値を維持する。サイドバーの相対時刻の基準。
  */
 type ClaudeStatusBase = { lastActivityAt: number };
 export type ClaudeStatus =
@@ -123,7 +123,7 @@ export function displayClaudeState(status: ClaudeStatus | undefined): ClaudeStat
  * - needs-input: PermissionRequest（承認ダイアログ表示）
  * - done: Stop（応答完了）
  * - tool-done: PostToolUse（ツール実行完了）
- * - tool-failure: PostToolUseFailure（ツール実行失敗。is_interrupt で中断判定）
+ * - tool-failure: PostToolUseFailure（ツール実行失敗。ask debounce の cancel に使う）
  * - stop-failure: StopFailure（API エラーによる停止）
  */
 export type HookEvent =
@@ -207,11 +207,11 @@ export function classifyClaudeTitle(title: string): "working" | "idle" | undefin
 
 /**
  * OSC タイトルから Claude の状態プレフィックス（スピナー / `✳` + スペース）を除去する。
- * サイドバーの task タイトル表示が生タイトルからプレフィックスを落とすために使う。分類
- * (`classifyClaudeTitle`) と同じ文字集合を SSOT として共有し、二重定義を避ける。
+ * サイドバーの task タイトル表示が生タイトルからプレフィックスを落とすために使う。
+ * プレフィックスは相互排他なので、分類と同じ 2 定数を順に適用して文字集合を一本化する。
  */
 export function stripClaudeTitlePrefix(title: string): string {
-  return title.replace(/^[✳⠀-⣿] /, "");
+  return title.replace(CLAUDE_TITLE_WORKING_RE, "").replace(CLAUDE_TITLE_IDLE_RE, "");
 }
 
 /** paneRegistry の読み取り専用ビュー。claudeStatus が必要とする情報だけを公開する */
@@ -354,9 +354,9 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
         return { ptyId, event, toolName, toolInput };
       }
       case "tool-failure": {
+        // 状態は OSC タイトルが駆動し、固有の fx も持たない。残る役割は ask debounce の cancel
+        // のみ（自動承認されたツールが 150ms 以内に失敗するケースで spurious な asking を抑止する）。
         cancelAskTimer(ptyId);
-        // 状態は OSC タイトルが駆動する。ツール実行中の中断も「スピナー→✳」で idle 化されるため、
-        // is_interrupt を状態に反映しない。tool-failure は固有の fx を持たないので何も発行しない。
         return undefined;
       }
       case "tool-done": {

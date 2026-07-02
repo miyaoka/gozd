@@ -47,10 +47,10 @@ undefined ──SessionStart──→ idle ──OSC: スピナー──→ work
 | `StopFailure`        | `stop-failure`  | `done`（API エラーによる停止）                | CLI 経由（`last_assistant_message` 取得）                     |
 | `UserPromptSubmit`   | `running`       | **なし**（fx のみ。working は OSC タイトル）  | nc 直接送信                                                   |
 | `PostToolUse`        | `tool-done`     | **なし**（fx のみ。working は OSC タイトル）  | nc 直接送信                                                   |
-| `PostToolUseFailure` | `tool-failure`  | **なし**（状態も fx も無し。inert）           | CLI 経由（現状 payload 未使用）                               |
+| `PostToolUseFailure` | `tool-failure`  | **なし**（ask debounce の cancel のみ）       | nc 直接送信                                                   |
 
 > [!NOTE]
-> `running` / `tool-done` / `tool-failure` は状態を動かさない（working / idle は OSC タイトルが駆動）。`running` / `tool-done` は arcade の効果音（engage / tick）のために fx だけ発行し続ける。`tool-failure` は fx も持たず現状 inert（将来 hook 登録ごと削除可能）。
+> `running` / `tool-done` / `tool-failure` は状態を動かさない（working / idle は OSC タイトルが駆動）。`running` / `tool-done` は arcade の効果音（engage / tick）のために fx を発行し続ける。`tool-failure` は状態も fx も持たないが、自動承認されたツールが 150ms 以内に失敗するケースで ask debounce を畳んで spurious な `asking` を抑止する役割が残るため hook は残す（payload 不要のため nc 直送）。
 
 ### 送信経路の選択基準
 
@@ -72,7 +72,7 @@ undefined ──SessionStart──→ idle ──OSC: スピナー──→ work
 このため working / idle を hook では取らず、Claude が OSC タイトル先頭に常時出す状態プレフィックスから導出する（`observeTitle`）。中断も通常完了も「スピナー→`✳`」の 1 経路で拾えるので、中断専用の検知（PTY 出力の中断メッセージマッチや入力キー推論）が不要になる。
 
 - Claude は稼働中はタイトル先頭に**点字スピナー（U+2800–U+28FF）**、プロンプト待ちでは **`✳`（U+2733）**を出す（いずれも直後に半角スペース）。`classifyClaudeTitle` がこのプレフィックスを working / idle に分類する
-- 取得経路は `XtermTerminal.vue` の `terminal.onTitleChange`（xterm が OSC 0/2 を解析）→ `useTerminalStore.setTitle` → `observeTitle`。**全 worktree の leaf が `v-show` でマウント維持**され PTY データを処理し続けるため、非アクティブ worktree の badge も即時更新される（ポーリング不要）
+- 取得経路は `XtermTerminal.vue` の `terminal.onTitleChange`（xterm が OSC 0/2 を解析）→ `useTerminalStore.setTitle` → `observeTitle`。**全 worktree の leaf が常時マウントされる**（`TerminalPane` が `v-for` で全 leaf を生成し `v-if` しない。表示は grid template で絞る）ため、非アクティブ worktree の xterm も PTY を処理し続け、badge が即時更新される（ポーリング不要）
 - **working プレフィックスは常に `working` にする**（新ターン開始・中断後の再開の確証）。**`✳` は `working` からの離脱時のみ `idle`** に倒し、`done` / `asking` は温存する（hook 権威。未読 done を `✳` で消さない）
 - サイドバーの task タイトルは同じプレフィックスを `stripClaudeTitlePrefix` で落として表示する。分類と除去は同じ文字集合を SSOT（`claudeStatus.ts`）として共有する
 

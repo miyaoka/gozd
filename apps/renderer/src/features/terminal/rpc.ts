@@ -75,7 +75,6 @@ export interface HookPayload {
   lastAssistantMessage: string;
   toolName: string;
   toolInput: string;
-  isInterrupt: boolean;
   /**
    * done (Stop) のみ。Stop 発火時に background_tasks / session_crons が残っているか。
    * true のとき主エージェントのターンは終わったが裏で作業継続中（再起動する）= 真の done ではない。

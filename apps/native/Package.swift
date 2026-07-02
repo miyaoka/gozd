@@ -23,8 +23,14 @@ let package = Package(
     .executableTarget(
       name: "GozdCLI",
       dependencies: [
+        "GozdSocketClient",
         .product(name: "GozdProto", package: "GozdProto"),
       ]
+    ),
+    // Unix socket クライアント送信の SSOT。gozd-cli (短命プロセス) が GozdCore を
+    // リンクせずに済むよう、Darwin + Foundation のみ依存の軽量 target に分離する。
+    .target(
+      name: "GozdSocketClient"
     ),
     .target(
       name: "GozdCore",
@@ -42,7 +48,7 @@ let package = Package(
     ),
     .testTarget(
       name: "GozdCoreTests",
-      dependencies: ["GozdCore"]
+      dependencies: ["GozdCore", "GozdSocketClient"]
     ),
   ]
 )

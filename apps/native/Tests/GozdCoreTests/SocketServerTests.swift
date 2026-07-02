@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import GozdSocketClient
 import Testing
 
 @testable import GozdCore
@@ -25,7 +26,7 @@ struct SocketServerTests {
     // WaitUntil.swift 規律「使用可: OS event の到達待ち」に該当 (issue #710 系譜)。
     await waitUntil(timeout: .seconds(2)) { fileExists(path) }
 
-    try sendOverUnixSocket(path: path, data: Data(#"{"type":"ping"}\#n"#.utf8))
+    try sendOverUnixSocket(path: path, payload: Data(#"{"type":"ping"}\#n"#.utf8))
 
     let received = await bridge.collect(count: 1)
     #expect(received.count == 1)
@@ -54,7 +55,7 @@ struct SocketServerTests {
       {"i":3}
 
       """.utf8)
-    try sendOverUnixSocket(path: path, data: payload)
+    try sendOverUnixSocket(path: path, payload: payload)
 
     let received = await bridge.collect(count: 3).map { String(decoding: $0, as: UTF8.self) }
     #expect(received == [#"{"i":1}"#, #"{"i":2}"#, #"{"i":3}"#])
@@ -78,7 +79,7 @@ struct SocketServerTests {
     try await withThrowingTaskGroup(of: Void.self) { group in
       for i in 0..<5 {
         group.addTask {
-          try sendOverUnixSocket(path: path, data: Data(#"{"i":\#(i)}\#n"#.utf8))
+          try sendOverUnixSocket(path: path, payload: Data(#"{"i":\#(i)}\#n"#.utf8))
         }
       }
       try await group.waitForAll()
@@ -109,77 +110,8 @@ private func fileExists(_ path: String) -> Bool {
 // `waitUntil` は `WaitUntil.swift` の共有実装 ( dedicated NSThread 上で polling loop を完結 )。
 // timeout 時に `Issue.record` で tick 履歴を message に inline する。
 
-enum SocketClientError: Error, CustomStringConvertible {
-  case createSocket(errno: Int32)
-  case pathTooLong
-  case connect(errno: Int32)
-  case write(errno: Int32)
-
-  var description: String {
-    switch self {
-    case .createSocket(let e): return "socket() failed: \(String(cString: strerror(e)))"
-    case .pathTooLong: return "socket path too long"
-    case .connect(let e): return "connect() failed: \(String(cString: strerror(e)))"
-    case .write(let e): return "write() failed: \(String(cString: strerror(e)))"
-    }
-  }
-}
-
-/// 本番 CLI（GozdCLI.sendOrExit）と同じ POSIX socket + write-all + shutdown(SHUT_WR) +
-/// drain パターンの test helper。NWConnection の `contentProcessed` 後に即 cancel すると
-/// NWListener が accept する前に FIN が届いて受信されない race（spike `gozd-spike` で
-/// 検証済み）が起き、CI で flaky に取りこぼす原因になる。production と同じ手順に揃える。
-private func sendOverUnixSocket(path: String, data: Data) throws {
-  let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-  guard fd >= 0 else { throw SocketClientError.createSocket(errno: errno) }
-  defer { close(fd) }
-
-  var addr = sockaddr_un()
-  addr.sun_family = sa_family_t(AF_UNIX)
-  let pathBytes = Array(path.utf8)
-  let maxLen = MemoryLayout.size(ofValue: addr.sun_path) - 1
-  guard pathBytes.count <= maxLen else { throw SocketClientError.pathTooLong }
-  withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
-    let buf = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
-    for (i, byte) in pathBytes.enumerated() {
-      buf[i] = CChar(bitPattern: byte)
-    }
-    buf[pathBytes.count] = 0
-  }
-  let connectResult = withUnsafePointer(to: &addr) { ptr in
-    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-      Darwin.connect(fd, sa, socklen_t(MemoryLayout<sockaddr_un>.size))
-    }
-  }
-  if connectResult < 0 { throw SocketClientError.connect(errno: errno) }
-
-  // write-all（部分書き込みに loop 対応）
-  try data.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
-    var remaining = buf.count
-    var ptr = buf.baseAddress!
-    while remaining > 0 {
-      let written = Darwin.write(fd, ptr, remaining)
-      if written < 0 {
-        if errno == EINTR { continue }
-        throw SocketClientError.write(errno: errno)
-      }
-      remaining -= written
-      ptr = ptr.advanced(by: written)
-    }
-  }
-
-  // shutdown(SHUT_WR) → drain。server 側が EOF まで読み取るのを待つ。
-  shutdown(fd, Int32(SHUT_WR))
-  var drainBuf = [UInt8](repeating: 0, count: 256)
-  while true {
-    let n = drainBuf.withUnsafeMutableBufferPointer {
-      Darwin.read(fd, $0.baseAddress, $0.count)
-    }
-    if n > 0 { continue }
-    if n < 0, errno == EINTR { continue }
-    break
-  }
-}
+// 送信は本番 CLI（GozdCLI.sendOrExit）と同一実装の `GozdSocketClient.sendOverUnixSocket` を
+// 使う。shutdown + drain 手順が必要な理由は SocketClient.swift の module コメントを参照。
 
 /// SocketServer の message callback を AsyncStream に直結する test 用 bridge。
 ///

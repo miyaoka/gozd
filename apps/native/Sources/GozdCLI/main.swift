@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import GozdProto
+import GozdSocketClient
 
 // gozd CLI（Swift 版）。
 //
@@ -194,15 +195,8 @@ func writeLaunchRequest(targetPath: String) throws {
 }
 
 /// 短命接続で 1 メッセージを送って終了する。失敗時は stderr + exit 1。
-///
-/// spike `gozd-spike` で検証した必須パターン:
-///   1. write
-///   2. shutdown(fd, SHUT_WR) で FIN を送信
-///   3. read drain（EOF まで読む）
-///   4. close
-///
-/// 直接 `close` すると NWListener が accept する前に FIN が届いて受信されない race が
-/// 起きるため、shutdown + drain で読み終わるまで待つ必要がある。
+/// socket の作成〜送信手順 (SO_NOSIGPIPE / write-all / shutdown + drain) は
+/// `GozdSocketClient.sendOverUnixSocket` が SSOT として持つ。
 func sendOrExit(message: Gozd_V1_ClientMessage) async {
   let payload: Data
   do {
@@ -213,71 +207,13 @@ func sendOrExit(message: Gozd_V1_ClientMessage) async {
     exit(1)
   }
 
-  let path = socketPath()
-  let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-  if fd < 0 {
-    FileHandle.standardError.write(
-      Data("Failed to create socket: \(String(cString: strerror(errno)))\n".utf8))
+  do {
+    try sendOverUnixSocket(path: socketPath(), payload: payload)
+  } catch SocketClientError.connect(let code) where code == ENOENT || code == ECONNREFUSED {
+    FileHandle.standardError.write(Data("gozd app is not running\n".utf8))
     exit(1)
-  }
-  defer { close(fd) }
-
-  var addr = sockaddr_un()
-  addr.sun_family = sa_family_t(AF_UNIX)
-  let pathBytes = Array(path.utf8)
-  let maxLen = MemoryLayout.size(ofValue: addr.sun_path) - 1
-  if pathBytes.count > maxLen {
-    FileHandle.standardError.write(
-      Data("Socket path too long: \(path)\n".utf8))
+  } catch {
+    FileHandle.standardError.write(Data("\(error)\n".utf8))
     exit(1)
-  }
-  withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
-    let buf = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
-    for (i, byte) in pathBytes.enumerated() {
-      buf[i] = CChar(bitPattern: byte)
-    }
-    buf[pathBytes.count] = 0
-  }
-
-  let connectResult = withUnsafePointer(to: &addr) { ptr in
-    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-      Darwin.connect(fd, sa, socklen_t(MemoryLayout<sockaddr_un>.size))
-    }
-  }
-  if connectResult < 0 {
-    let code = errno
-    if code == ENOENT || code == ECONNREFUSED {
-      FileHandle.standardError.write(Data("gozd app is not running\n".utf8))
-    } else {
-      FileHandle.standardError.write(
-        Data("Failed to connect: \(String(cString: strerror(code)))\n".utf8))
-    }
-    exit(1)
-  }
-
-  // write
-  payload.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
-    var remaining = buf.count
-    var ptr = buf.baseAddress!
-    while remaining > 0 {
-      let written = Darwin.write(fd, ptr, remaining)
-      if written < 0 {
-        FileHandle.standardError.write(
-          Data("write failed: \(String(cString: strerror(errno)))\n".utf8))
-        exit(1)
-      }
-      remaining -= written
-      ptr = ptr.advanced(by: written)
-    }
-  }
-
-  // shutdown(SHUT_WR) で書き終わりを通知してから drain
-  shutdown(fd, Int32(SHUT_WR))
-  var drainBuf = [UInt8](repeating: 0, count: 256)
-  while true {
-    let n = drainBuf.withUnsafeMutableBufferPointer {
-      Darwin.read(fd, $0.baseAddress, $0.count)
-    }
-    if n <= 0 { break }
   }
 }

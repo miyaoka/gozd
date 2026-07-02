@@ -111,18 +111,25 @@ export const useTerminalStore = defineStore("terminal", () => {
   const preferredResumeByDir = ref<Record<string, string>>({});
 
   /**
+   * autostart ヒント。prefill は claude の入力欄に事前挿入するテキスト
+   * (`claude --prefill <text>`。挿入のみで送信はされない)。
+   * PR/issue picker が worktree 作成時に PR/issue URL を渡す。
+   */
+  type AutostartHint = { prefill?: string };
+
+  /**
    * leafId → 次回 spawn 時に GOZD_AUTOSTART_CLAUDE フラグを立てる印。
    * session 未紐付け task (PR/issue 経由で worktree のみ作成された等) をクリック
    * した時に、resume ではなく素の `claude` を起動するために使う。spawnPty が env
    * を組み立てるタイミングで一度だけ消費する。
    */
-  const pendingAutostartByLeafId = ref<Record<string, true>>({});
+  const pendingAutostartByLeafId = ref<Record<string, AutostartHint>>({});
 
   /**
    * 未訪問 worktree に対する「visit で最初の leaf に autostart フラグを乗せる」ヒント。
    * preferredResumeByDir と排他的に使う。visit 内で 1 回だけ消費する。
    */
-  const preferredAutostartByDir = ref<Record<string, true>>({});
+  const preferredAutostartByDir = ref<Record<string, AutostartHint>>({});
 
   /**
    * `visit()` の世代カウンタ（per dir）。await 中に同じ dir が再 visit されたり、
@@ -154,6 +161,9 @@ export const useTerminalStore = defineStore("terminal", () => {
       const autostart = pendingAutostartByLeafId.value[leafId];
       if (autostart) {
         env.GOZD_AUTOSTART_CLAUDE = "1";
+        if (autostart.prefill !== undefined && autostart.prefill !== "") {
+          env.GOZD_CLAUDE_PREFILL = autostart.prefill;
+        }
       }
       const res = await tryCatch(
         rpcPtySpawn({
@@ -281,6 +291,7 @@ export const useTerminalStore = defineStore("terminal", () => {
             ptySession.killPty(leafId);
             delete titleByLeafId.value[leafId];
             delete pendingResumeByLeafId.value[leafId];
+            delete pendingAutostartByLeafId.value[leafId];
             delete paneRegistry.value[leafId];
             lastRemovedLeafId.value = leafId;
           })();
@@ -289,6 +300,7 @@ export const useTerminalStore = defineStore("terminal", () => {
           ptySession.killPty(leafId);
           delete titleByLeafId.value[leafId];
           delete pendingResumeByLeafId.value[leafId];
+          delete pendingAutostartByLeafId.value[leafId];
           delete paneRegistry.value[leafId];
           lastRemovedLeafId.value = leafId;
         }
@@ -443,14 +455,15 @@ export const useTerminalStore = defineStore("terminal", () => {
     // とは排他ではなく共存させる (訪問済み経路の requestNewClaudeSession と同じ流儀):
     // - firstSessionId 無し → 初期 leaf を直接 autostart に
     // - firstSessionId あり → 追加 leaf を split して autostart + focus
-    if (preferredAutostartByDir.value[dir]) {
+    const autostartHint = preferredAutostartByDir.value[dir];
+    if (autostartHint) {
       delete preferredAutostartByDir.value[dir];
       if (firstSessionId === undefined) {
-        pendingAutostartByLeafId.value[initialLeafId] = true;
+        pendingAutostartByLeafId.value[initialLeafId] = autostartHint;
       } else {
         const autostartLeafId = layout.splitPane(dir, "horizontal");
         if (autostartLeafId !== undefined) {
-          pendingAutostartByLeafId.value[autostartLeafId] = true;
+          pendingAutostartByLeafId.value[autostartLeafId] = autostartHint;
           layout.focusPane(autostartLeafId);
         }
       }
@@ -526,10 +539,14 @@ export const useTerminalStore = defineStore("terminal", () => {
    * SessionStart hook が走ると server 側 attachSession が「sessionId 空の最新 task」
    * に新 sessionId を結びつける。クリックした task と attach 先が一致するのは
    * 「wt に sessionId 空の task が 1 つだけ」のケース。複数ある場合は最新が選ばれる。
+   *
+   * prefill を渡すと `claude --prefill <text>` で入力欄にテキストを事前挿入する
+   * (送信はされない)。PR/issue picker が PR/issue URL を渡す用途。
    */
-  function requestNewClaudeSession(dir: string) {
+  function requestNewClaudeSession(dir: string, prefill?: string) {
+    const hint: AutostartHint = prefill === undefined ? {} : { prefill };
     if (!visitedDirs.value.includes(dir)) {
-      preferredAutostartByDir.value[dir] = true;
+      preferredAutostartByDir.value[dir] = hint;
       return;
     }
     const newLeafId = layout.splitPane(dir, "horizontal");
@@ -540,7 +557,7 @@ export const useTerminalStore = defineStore("terminal", () => {
       );
       return;
     }
-    pendingAutostartByLeafId.value[newLeafId] = true;
+    pendingAutostartByLeafId.value[newLeafId] = hint;
     layout.focusPane(newLeafId);
   }
 

@@ -16,6 +16,8 @@ const props = defineProps<{
   graphColumnWidth: number;
   /** HEAD レーンの色インデックス。接続ダッシュ線の色に使う */
   headColor: number;
+  /** HEAD 行の index (不在時 -1)。接続ダッシュ線の終点に使う */
+  headRow: number;
 }>();
 
 const gitGraphStore = useGitGraphStore();
@@ -23,19 +25,14 @@ const gitGraphStore = useGitGraphStore();
 /** グラフ全体の SVG 高さ */
 const svgHeight = computed(() => props.layout.nodes.length * ROW_HEIGHT);
 
-/** refs に "HEAD" を持つ表示中ノードの行番号。不在時は -1 */
-const headIndex = computed(() =>
-  props.layout.nodes.findIndex((n) => n.commit.refs.includes("HEAD")),
-);
-
 /**
  * Working Tree 固定行 → HEAD コミットへの接続ダッシュ線パス。
  * HEAD は表示集合内では常に lane 0 に固定されるため、lane 0 上端から HEAD 行まで降りる垂直直線。
  */
 const connectorPath = computed(() => {
-  if (headIndex.value === -1) return "";
+  if (props.headRow === -1) return "";
   const x0 = laneX(0);
-  return `M${x0},0L${x0},${rowY(headIndex.value)}`;
+  return `M${x0},0L${x0},${rowY(props.headRow)}`;
 });
 </script>
 

@@ -1,5 +1,5 @@
 /**
- * commit 行の右クリックメニューを開くトリガー。呼び出し側 (GitGraphPane) は右クリック時に
+ * commit 行の右クリックメニューを開くトリガー。呼び出し側は右クリック時に
  * `requestOpen(anchorEl, { dir, hash, x, y })` を呼ぶだけでよい。実際の popover 表示は次の
  * pointerup まで遅延させる (WebKit light-dismiss 回避)。この遅延と回避策はこの composable が
  * 内包し、context-menu 機能を自己完結させる。

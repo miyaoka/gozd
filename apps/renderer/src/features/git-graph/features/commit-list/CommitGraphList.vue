@@ -262,6 +262,7 @@ function onRowClick(hash: string, e: MouseEvent) {
           :layout="layout"
           :graph-column-width="graphColumnWidth"
           :head-color="headColor"
+          :head-row="headNode?.index ?? -1"
         />
 
         <!-- Commit table rows: row には `position` を付けない (非 positioned = stacking layer 3)。

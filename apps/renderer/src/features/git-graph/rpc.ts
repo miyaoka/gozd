@@ -1,8 +1,6 @@
 import {
   GitCommitFilesRequest,
   GitCommitFilesResponse,
-  GitGithubIdentityRequest,
-  GitGithubIdentityResponse,
   GitLogRequest,
   GitLogResponse,
   GitMergeBaseRequest,
@@ -36,9 +34,6 @@ export const rpcGitRevReachable = (req: GitRevReachableRequest) =>
 
 export const rpcGitMergeBase = (req: GitMergeBaseRequest) =>
   rpc("/git/mergeBase", req, GitMergeBaseRequest, GitMergeBaseResponse);
-
-export const rpcGitGithubIdentity = (req: GitGithubIdentityRequest) =>
-  rpc("/git/githubIdentity", req, GitGithubIdentityRequest, GitGithubIdentityResponse);
 
 export const rpcGitResetMixed = (req: GitResetMixedRequest) =>
   rpc("/git/resetMixed", req, GitResetMixedRequest, GitResetMixedResponse);

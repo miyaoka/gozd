@@ -32,7 +32,7 @@ import { CommitContextMenu, useCommitContextMenuTrigger } from "./features/commi
 import { CommitGraphList } from "./features/commit-list";
 import GitGraphToolbar from "./GitGraphToolbar.vue";
 import { buildRepoBaseUrl } from "./linkifyCommitMessage";
-import { rpcGitGithubIdentity, rpcGitLog } from "./rpc";
+import { rpcGitLog } from "./rpc";
 import { useGitGraphStore } from "./useGitGraphStore";
 import { usePrListStore } from "./usePrListStore";
 
@@ -287,27 +287,18 @@ async function loadPrList() {
   prListStore.setPrs(res.prs);
 }
 
-// --- GitHub repo identity (コミットメッセージ `#N` リンク化の SSOT) ---
+// --- GitHub repo identity (コミットメッセージ `#N` リンク化) ---
 
-/** active worktree の origin remote を parse した `(owner, repo)`。worktree 切替時に 1 回だけ取得。 */
-const repoIdentity = ref({ owner: "", repo: "" });
-/** loadRepoIdentity の世代管理。並行実行で古いレスポンスが後着して上書きするのを防ぐ */
-let loadRepoIdentityGen = 0;
-
-async function loadRepoIdentity() {
-  const gen = ++loadRepoIdentityGen;
+/**
+ * active worktree が属する repo の `(owner, repo)`。SSOT は repoStore.githubIdentity
+ * (useSidebarData が repo 追加時に origin remote から解決して書く)。identity は repo 単位で
+ * 全 worktree 共通のため、worktree dir → 所有 repo の逆引きで正しく、自前 fetch を持たない。
+ */
+const repoIdentity = computed(() => {
   const dir = worktreeStore.dir;
-  if (dir === undefined) return;
-  const result = await tryCatch(rpcGitGithubIdentity({ dir }));
-  if (gen !== loadRepoIdentityGen) return;
-  if (!result.ok) {
-    // launch failure は git CLI 解決失敗 (PATH 不在等) のみ。remote 未設定 / 非 github は native 側で
-    // 空文字 + stderr ログに倒すため、ここには来ない。
-    notify.error("Failed to load GitHub identity", result.error);
-    return;
-  }
-  repoIdentity.value = { owner: result.value.owner, repo: result.value.repo };
-}
+  if (dir === undefined) return undefined;
+  return repoStore.findRepoOwning(dir)?.githubIdentity;
+});
 
 /** GitHub repo base URL (`https://github.com/<owner>/<repo>`)。remote 未設定 / 非 github.com は undefined。 */
 const issueLinkBaseUrl = computed(() => buildRepoBaseUrl(repoIdentity.value));
@@ -323,20 +314,18 @@ const { pause: pausePrPolling, resume: resumePrPolling } = useIntervalFn(
 
 onMounted(() => {
   void loadPrList();
-  void loadRepoIdentity();
 });
 
-// worktree 切り替え時に PR / repo identity 再取得 + interval を新 dir 基準に再スタート。
-// fetch 完了前の async 窓で旧 repo の identity / PR map が残ると cross-repo 事故が起きるため、
-// fetch 発射前に同期で空に倒す。
+// worktree 切り替え時に PR 一覧を再取得 + interval を新 dir 基準に再スタート。
+// fetch 完了前の async 窓で旧 repo の PR map が残ると cross-repo 事故が起きるため、
+// fetch 発射前に同期で空に倒す。repo identity は store 由来の computed が同期で
+// 切り替わるため、ここでのリセットは不要。
 watch(
   () => worktreeStore.dir,
   () => {
     pausePrPolling();
-    repoIdentity.value = { owner: "", repo: "" };
     prListStore.clear();
     void loadPrList();
-    void loadRepoIdentity();
     resumePrPolling();
   },
 );

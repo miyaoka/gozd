@@ -43,7 +43,9 @@ export const rpcGitWorktreeRemove = (req: GitWorktreeRemoveRequest) =>
   rpc("/git/worktreeRemove", req, GitWorktreeRemoveRequest, GitWorktreeRemoveResponse);
 
 // origin remote のローカル parse で GitHub の (owner, repo) を返す（外部通信なし）。
-// repo ヘッダの org アバター URL 組み立てに owner を使う。非 github.com / remote 未設定は空文字。
+// useSidebarData が repo 追加時に呼び、repoStore.githubIdentity（SSOT）へ書く唯一の取得口。
+// sidebar の org アバターと git-graph の issue リンクが store 経由で共有する。
+// 非 github.com / remote 未設定は空文字。
 export const rpcGitGithubIdentity = (req: GitGithubIdentityRequest) =>
   rpc("/git/githubIdentity", req, GitGithubIdentityRequest, GitGithubIdentityResponse);
 

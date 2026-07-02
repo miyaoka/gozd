@@ -1,4 +1,4 @@
-import { Task, type WorktreeEntry } from "@gozd/proto";
+import { AppState, Task, type WorktreeEntry } from "@gozd/proto";
 import { describe, expect, test } from "bun:test";
 import { createPinia, setActivePinia } from "pinia";
 import { collectFsWatchTargetDirs, type RepoState, useRepoStore } from "./useRepoStore";
@@ -154,5 +154,49 @@ describe("applyRepoTasks", () => {
     // フラグが残っていれば no-op になり task が出ない。掃除済みなら prefetch が再び効く。
     store.applyRepoTasks("/r1", [task("t1", "/r1/wt-1")]);
     expect(store.repos["/r1"]?.worktrees[0]?.tasks.map((t) => t.id)).toEqual(["t1"]);
+  });
+});
+
+describe("setGithubIdentity", () => {
+  test("既存 repo に identity を書き、updateRepoData（worktrees 差し替え）後も保持する", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo({
+      rootDir: "/r1",
+      repoName: "r1",
+      isGitRepo: true,
+      worktrees: [wt("/r1", "main", true)],
+    });
+
+    store.setGithubIdentity("/r1", { owner: "miyaoka", repo: "gozd" });
+    expect(store.repos["/r1"]?.githubIdentity).toEqual({ owner: "miyaoka", repo: "gozd" });
+
+    // fetchRepo の真値反映（updateRepoData）は worktrees を差し替えるが identity は保持する
+    store.updateRepoData("/r1", [wt("/r1", "main", true)]);
+    expect(store.repos["/r1"]?.githubIdentity).toEqual({ owner: "miyaoka", repo: "gozd" });
+  });
+
+  test("未登録 rootDir への書き込みは no-op（repo エントリを生まない）", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.setGithubIdentity("/nope", { owner: "a", repo: "b" });
+    expect(store.repos["/nope"]).toBeUndefined();
+  });
+
+  test("hydrateFromAppState は fetch 済み identity を引き継ぐ", () => {
+    // hydrate は app-state キャッシュから RepoState を作り直すが、dirOrder が変わらない
+    // 既存 repo は useSidebarData の新規 dir watch が再発火せず identity を再取得しない。
+    // hydrate 前に fetch 済みの値を引き継ぐことで取りこぼしを防ぐ。
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo({ rootDir: "/r1", repoName: "r1", isGitRepo: true, worktrees: [] });
+    store.setGithubIdentity("/r1", { owner: "miyaoka", repo: "gozd" });
+
+    store.hydrateFromAppState(
+      AppState.fromPartial({
+        sidebarRepos: [{ rootDir: "/r1", repoName: "r1", isGitRepo: true, worktrees: [] }],
+      }),
+    );
+    expect(store.repos["/r1"]?.githubIdentity).toEqual({ owner: "miyaoka", repo: "gozd" });
   });
 });

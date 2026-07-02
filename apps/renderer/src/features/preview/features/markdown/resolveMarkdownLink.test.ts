@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeAbsolute, normalizeRelative, type PathTarget } from "../worktree";
+import { normalizeAbsolute, normalizeRelative, type PathTarget } from "../../../worktree";
 import { resolveMarkdownLink } from "./resolveMarkdownLink";
 
 /**

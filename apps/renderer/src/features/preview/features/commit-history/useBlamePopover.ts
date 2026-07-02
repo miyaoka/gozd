@@ -21,9 +21,9 @@
 import type { GitBlameCommit, GitCommit } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { effectScope, ref, watch } from "vue";
-import { useNotificationStore } from "../../shared/notification";
-import { usePopover } from "../../shared/popover";
-import { rpcGitBlameLine, rpcGitLogLine } from "./rpc";
+import { useNotificationStore } from "../../../../shared/notification";
+import { usePopover } from "../../../../shared/popover";
+import { rpcGitBlameLine, rpcGitLogLine } from "../../rpc";
 
 type BlameContext = {
   dir: string;
@@ -185,7 +185,8 @@ function open(el: HTMLElement, ctx: BlameContext): void {
  * 2 系統の呼び出し経路:
  *   - owner unmount: ChangesSummaryItem の onUnmounted で発火。v-for re-key で item が
  *     消えた時に popover が detached anchor を抱えるのを防ぐ
- *   - fsChange content reload: PreviewPane / ChangesSummaryItem の fsChange callback で、
+ *   - fsChange content reload: 単一ファイル view (`usePreviewContent` の onBeforeRefetch) /
+ *     ChangesSummaryItem の fsChange callback で、
  *     fetchContent() / runFetch() の **前** に発火。CodePreview / DiffPreview の content
  *     更新で button DOM が置換 → anchorEl が detached になる構造的問題を popover の
  *     auto close で潰す
@@ -194,7 +195,7 @@ function open(el: HTMLElement, ctx: BlameContext): void {
  *   - `ctx === undefined`: popover が open していない。close watcher / unmount 多重 fire の
  *     正常 case で頻発するため log を出さない
  *   - `ctx あるが dir / relPath 不一致`: 他 owner が open している context にぶつけた case。
- *     正常運用 (PreviewPane と ChangesSummaryItem が同 file を取り合うケース等) でも起き得るが、
+ *     正常運用 (単一ファイル view と ChangesSummaryItem が同 file を取り合うケース等) でも起き得るが、
  *     観察可能性のため debug log を 1 行出して切り分けを楽にする
  */
 function closeIfActive(dir: string, relPath: string): void {

@@ -14,7 +14,7 @@
  * 3 つ目の意味を持たせず、ボタンの責務を単純に保つ。
  *
  * `exitEditMode` は draftContent を破棄しない (unmount するだけ)。再度 `startEdit` で同じ
- * target に対して呼ばれた場合、呼び出し側 (PreviewPane) が最新の displayContent を渡すため、
+ * target に対して呼ばれた場合、呼び出し側 (`usePreviewEdit`) が最新の currentContent を渡すため、
  * 前回の未保存 draft は結果的に失われる。「編集内容を保持したまま閉じる」までは要求されていない
  * ため、シンプルさを優先する (必要になったら target 一致時に draftContent を保つ判定を足す)。
  */

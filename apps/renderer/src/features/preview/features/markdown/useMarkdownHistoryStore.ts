@@ -18,8 +18,13 @@
  */
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
-import { type PathTarget, pathTargetEquals, type Selection, useWorktreeStore } from "../worktree";
-import { usePreviewStore } from "./usePreviewStore";
+import {
+  type PathTarget,
+  pathTargetEquals,
+  type Selection,
+  useWorktreeStore,
+} from "../../../worktree";
+import { usePreviewStore } from "../../usePreviewStore";
 
 interface HistoryEntry {
   selection: Selection;

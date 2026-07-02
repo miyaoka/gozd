@@ -12,9 +12,9 @@
 import type { GitCommit } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { effectScope, ref, watch } from "vue";
-import { useNotificationStore } from "../../shared/notification";
-import { usePopover } from "../../shared/popover";
-import { rpcGitLogFile } from "./rpc";
+import { useNotificationStore } from "../../../../shared/notification";
+import { usePopover } from "../../../../shared/popover";
+import { rpcGitLogFile } from "../../rpc";
 
 type FileHistoryContext = {
   dir: string;

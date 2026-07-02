@@ -19,10 +19,10 @@
 
 <script setup lang="ts">
 import { onUnmounted, ref } from "vue";
-import { useNotificationStore } from "../../shared/notification";
-import { useChangesStore } from "../changes";
+import { useNotificationStore } from "../../../../shared/notification";
+import { useChangesStore } from "../../../changes";
+import { previewCodeFontFamily } from "../../previewConfig";
 import ChangesSummaryItem from "./ChangesSummaryItem.vue";
-import { previewCodeFontFamily } from "./previewConfig";
 import IconLucideAlignJustify from "~icons/lucide/align-justify";
 import IconLucideColumns2 from "~icons/lucide/columns-2";
 import IconLucideFileDiff from "~icons/lucide/file-diff";

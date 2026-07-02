@@ -16,12 +16,12 @@ preview ヘッダにファイルの最終コミット日を表示し、クリッ
 import type { GitCommit } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { onUnmounted, ref, useTemplateRef, watch } from "vue";
-import { useNotificationStore } from "../../shared/notification";
-import { onMessage } from "../../shared/rpc";
-import { formatAbsoluteTime, formatRelativeTime } from "../../shared/time";
-import type { GitStatusChangePayload } from "../worktree";
+import { useNotificationStore } from "../../../../shared/notification";
+import { onMessage } from "../../../../shared/rpc";
+import { formatAbsoluteTime, formatRelativeTime } from "../../../../shared/time";
+import type { GitStatusChangePayload } from "../../../worktree";
+import { rpcGitLogFile } from "../../rpc";
 import { revModeLabel } from "./revModeLabel";
-import { rpcGitLogFile } from "./rpc";
 import { useFileHistoryPopover } from "./useFileHistoryPopover";
 import IconLucideHistory from "~icons/lucide/history";
 

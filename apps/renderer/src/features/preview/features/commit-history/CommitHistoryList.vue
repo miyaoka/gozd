@@ -8,7 +8,7 @@
 
 <script setup lang="ts">
 import type { GitCommit } from "@gozd/proto";
-import { formatAbsoluteTime, formatRelativeTime } from "../../shared/time";
+import { formatAbsoluteTime, formatRelativeTime } from "../../../../shared/time";
 
 defineProps<{
   commits: GitCommit[];

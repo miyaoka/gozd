@@ -5,7 +5,7 @@
  * ここが持つのは Discard 時に Monaco 側へ内容を書き戻す `reset` だけ。
  *
  * `defineExpose` 禁止規約 (親から子の内部メソッドを呼ぶ設計を避ける) のため、DiffPreview は
- * mount 時に自分の reset 関数をここに register し、PreviewPane は `reset()` 経由で参照する。
+ * mount 時に自分の reset 関数をここに register し、`usePreviewEdit` は `reset()` 経由で参照する。
  */
 import { ref } from "vue";
 

@@ -18,8 +18,13 @@
  */
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
-import { type PathTarget, pathTargetEquals, type Selection, useWorktreeStore } from "../worktree";
-import { usePreviewStore } from "./usePreviewStore";
+import {
+  type PathTarget,
+  pathTargetEquals,
+  type Selection,
+  useWorktreeStore,
+} from "../../../worktree";
+import { usePreviewStore } from "../../usePreviewStore";
 
 interface HistoryEntry {
   selection: Selection;
@@ -44,7 +49,7 @@ export const useMarkdownHistoryStore = defineStore("markdown-history", () => {
   }
 
   // markdown 内 link navigation は「同一 path への再遷移でも閉じない」navigation 意味のため
-  // forceSelect を使う（[docs/preview.md](../../../../../docs/preview.md) の決定表を参照）。
+  // forceSelect を使う（[docs/preview.md](../../../../../../../docs/preview.md) の決定表を参照）。
   function applySelection(entry: HistoryEntry) {
     isInternalNav = true;
     try {

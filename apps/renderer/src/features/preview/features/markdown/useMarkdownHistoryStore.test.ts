@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createPinia, setActivePinia } from "pinia";
-import { useRepoStore } from "../../shared/repo";
-import { useWorktreeStore } from "../worktree";
+import { useRepoStore } from "../../../../shared/repo";
+import { useWorktreeStore } from "../../../worktree";
 import { useMarkdownHistoryStore } from "./useMarkdownHistoryStore";
 
 /**

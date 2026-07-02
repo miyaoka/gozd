@@ -1,5 +1,5 @@
 import { tryCatch } from "@gozd/shared";
-import type { PathTarget } from "../worktree";
+import type { PathTarget } from "../../../worktree";
 
 /**
  * Markdown プレビュー内 `<a>` の href を解決し、内部遷移 / 素通し / 無効のいずれかを返す。

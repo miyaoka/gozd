@@ -35,7 +35,7 @@ import {
  *   ESC / Preview ヘッダ close ボタン / dir 切替 / closeSummary すべて同一意味)
  * - `closeForMissingSelection()`: 表示中ファイルが実体としてどこにも存在しなくなった
  *   (未追跡ファイルの削除等) ときに選択解除して close する。current / HEAD いずれにも無いと
- *   PreviewPane が判定した経路から呼ぶ
+ *   content 取得層 (`usePreviewContent`) が判定した経路から呼ぶ
  * - `openSummary()` / `toggleSummary()`: summary 表示モードを open する意図単位 API。`close()` 側に
  *   invariant を寄せたので summary を閉じる専用 API は持たない (close と区別する意味が無い)
  *
@@ -165,9 +165,9 @@ export const usePreviewStore = defineStore("preview", () => {
    * 選択を解除して preview を閉じる。
    *
    * 「current (作業ツリー) にも HEAD にも無い」= 復元・閲覧できる内容が一切無い、の判定は
-   * PreviewPane が `fetchContent` の結果で行う (git status の push タイミングに依存せず両ソースを
-   * 直接読んで確定する)。git 追跡下の削除は HEAD に内容が残り Original を閲覧できるため、
-   * PreviewPane 側でこの呼び出しに到達しない。
+   * `usePreviewContent` が `fetchContent` の結果で行う (git status の push タイミングに依存せず
+   * 両ソースを直接読んで確定する)。git 追跡下の削除は HEAD に内容が残り Original を閲覧できるため、
+   * content 取得層はこの呼び出しに到達しない。
    *
    * `close()` の invariant (popover 閉 ⇒ summary 解除) に乗せるため close() を経由する。
    */

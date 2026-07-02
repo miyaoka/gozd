@@ -4,12 +4,12 @@
 開閉とデータ取得は `useBlamePopover` (module singleton) が SSOT。popover の anchor 付け替えや
 light-dismiss は共通抽象 `usePopover` の `Popover` コンポーネントに委譲し、このコンポーネントは
 `context` / `viewMode` / `blameState` / `historyState` を購読して描画するだけ。`open()` の
-呼び出し元は PreviewPane / ChangesSummaryItem 等の親側。
+呼び出し元は usePreviewRevs / ChangesSummaryItem 等の親側。
 </doc>
 
 <script setup lang="ts">
-import { formatAbsoluteTime, formatRelativeTime } from "../../shared/time";
-import { useGitGraphStore } from "../git-graph";
+import { formatAbsoluteTime, formatRelativeTime } from "../../../../shared/time";
+import { useGitGraphStore } from "../../../git-graph";
 import CommitHistoryList from "./CommitHistoryList.vue";
 import { useBlamePopover } from "./useBlamePopover";
 import IconLucideGitCommitHorizontal from "~icons/lucide/git-commit-horizontal";

@@ -11,7 +11,7 @@
  * 時点でユーザー意図は「マニュアル back / forward」確定なので、stack が空でもブラウザ既定
  * (WebKit の `cmd+[` history back 等) に逃さないため常に true を返す。
  */
-import { useCommandRegistry } from "../../shared/command";
+import { useCommandRegistry } from "../../../../shared/command";
 import { useMarkdownHistoryStore } from "./useMarkdownHistoryStore";
 
 export function registerMarkdownHistoryCommands(): () => void {

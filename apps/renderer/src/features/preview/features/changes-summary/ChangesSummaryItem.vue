@@ -6,7 +6,7 @@ Summary view の 1 ファイル分のブロック。
 - uncommitted: `rpcGitShowFile` (HEAD) と `rpcFsReadFile` を並列で取得
 - commit / range: `rpcGitShowCommitFile` で from / to を一括取得 (newer が Working Tree なら fs から to を取る)
 
-`PreviewPane` の fetchContent / fetchCommitContent と同じ方針。差分は「単一ファイル選択を per-item に複製」した点だけ。
+`usePreviewContent` の fetchContent / fetchCommitContent と同じ方針。差分は「単一ファイル選択を per-item に複製」した点だけ。
 
 ## 遅延フェッチ
 
@@ -35,15 +35,17 @@ import { type GitFileChange } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { useIntersectionObserver } from "@vueuse/core";
 import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
-import { onMessage } from "../../shared/rpc";
-import { getFileIconUrl, relDirOf, rpcFsReadFile } from "../filer";
-import type { FsChangePayload } from "../filer";
-import { rpcGitReadBlob, useGitGraphStore, usePrDiffToggleStore } from "../git-graph";
-import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
-import type { GitChangeKind } from "../worktree";
-import DiffPreview from "./DiffPreview.vue";
-import { rpcGitShowCommitFile, rpcGitShowFile } from "./rpc";
-import { useBlamePopover } from "./useBlamePopover";
+import { onMessage } from "../../../../shared/rpc";
+import { getFileIconUrl, relDirOf, rpcFsReadFile } from "../../../filer";
+import type { FsChangePayload } from "../../../filer";
+import { rpcGitReadBlob, useGitGraphStore, usePrDiffToggleStore } from "../../../git-graph";
+import { UNCOMMITTED_HASH, useWorktreeStore } from "../../../worktree";
+import type { GitChangeKind } from "../../../worktree";
+import { orderCommitRange } from "../../commitRange";
+import type { OrderedRange } from "../../commitRange";
+import DiffPreview from "../../DiffPreview.vue";
+import { rpcGitShowCommitFile, rpcGitShowFile } from "../../rpc";
+import { revModeLabel, useBlamePopover } from "../commit-history";
 import IconLucideChevronDown from "~icons/lucide/chevron-down";
 import IconLucideChevronRight from "~icons/lucide/chevron-right";
 
@@ -137,7 +139,7 @@ const blamePopover = useBlamePopover();
 
 /**
  * uncommitted / commit mode に応じた currentRev / originalRev。
- * PreviewPane と同じ規則で「Current = newer side」「Original = older 側 `<older>^`」。
+ * 単一ファイル view (`usePreviewRevs`) と同じ規則で「Current = newer side」「Original = older 側 `<older>^`」。
  * uncommitted モードでは current="" (working tree) / original="HEAD"、
  * commit モードでは fetchCommit の newer / older を再利用する。
  */
@@ -145,25 +147,18 @@ const isCommitMode = computed(
   () => gitGraphStore.selectedHash !== UNCOMMITTED_HASH || gitGraphStore.compareHash !== null,
 );
 
-type Endpoints = { newer: string; older: string | undefined };
-
 /**
- * fetchCommit と同じ newer / older 決定ロジックを SSOT として 1 度だけ計算する。
- * commit が hashToIndex に無い (loaded log の外) ケースは null を返し、blame は disable する。
+ * fetchCommit と同じ newer / older 決定を SSOT (`orderCommitRange`) に委譲して 1 度だけ計算する。
+ * commit が hashToIndex に無い (loaded log の外) / 両端 Working Tree のケースは null を返し、
+ * blame は disable する。
  */
-const endpoints = computed<Endpoints | null>(() => {
+const endpoints = computed<OrderedRange | null>(() => {
   if (!isCommitMode.value) return null;
-  const selectedHash = gitGraphStore.selectedHash;
-  const compareHash = gitGraphStore.compareHash;
-  if (compareHash === null) return { newer: selectedHash, older: undefined };
-  if (selectedHash === UNCOMMITTED_HASH && compareHash === UNCOMMITTED_HASH) return null;
-  const map = gitGraphStore.hashToIndex;
-  const idxOf = (h: string) => (h === UNCOMMITTED_HASH ? -1 : map.get(h));
-  const sIdx = idxOf(selectedHash);
-  const cIdx = idxOf(compareHash);
-  if (sIdx === undefined || cIdx === undefined) return null;
-  if (sIdx >= cIdx) return { newer: compareHash, older: selectedHash };
-  return { newer: selectedHash, older: compareHash };
+  return orderCommitRange(
+    gitGraphStore.selectedHash,
+    gitGraphStore.compareHash,
+    gitGraphStore.hashToIndex,
+  );
 });
 
 const currentRev = computed<string | undefined>(() => {
@@ -203,12 +198,6 @@ const blameEnabled = computed(() => {
   return true;
 });
 
-function modeLabelForRev(rev: string): string {
-  if (rev === "") return "Working Tree";
-  if (rev === "HEAD") return "HEAD";
-  return rev;
-}
-
 function onLineNumberClick(payload: {
   side: "old" | "new";
   line: number;
@@ -233,7 +222,7 @@ function onLineNumberClick(payload: {
     relPath: path,
     rev,
     line: payload.line,
-    modeLabel: modeLabelForRev(rev),
+    modeLabel: revModeLabel(rev),
   });
 }
 
@@ -291,38 +280,21 @@ async function fetchUncommitted(dir: string, version: number) {
 }
 
 async function fetchCommit(dir: string, version: number) {
-  const selectedHash = gitGraphStore.selectedHash;
-  const compareHash = gitGraphStore.compareHash;
   const path = props.change.newFilePath || props.change.oldFilePath;
 
-  // 時系列で newer/older を決定 (PreviewPane.orderedRange と同じロジック)
-  const map = gitGraphStore.hashToIndex;
-  const idxOf = (h: string) => (h === UNCOMMITTED_HASH ? -1 : map.get(h));
-  let newer: string;
-  let older: string | undefined;
-  if (compareHash === null) {
-    newer = selectedHash;
-    older = undefined;
-  } else if (selectedHash === UNCOMMITTED_HASH && compareHash === UNCOMMITTED_HASH) {
-    error.value = "Both endpoints are Working Tree";
+  // 時系列で newer/older を決定 (SSOT: `orderCommitRange`)。null は commit 未ロード /
+  // stale 選択 / 両端 Working Tree の不整合で、per-item error 表示に倒す。
+  const range = orderCommitRange(
+    gitGraphStore.selectedHash,
+    gitGraphStore.compareHash,
+    gitGraphStore.hashToIndex,
+  );
+  if (range === null) {
+    error.value = "Commit selection is inconsistent with loaded git log";
     loading.value = false;
     return;
-  } else {
-    const sIdx = idxOf(selectedHash);
-    const cIdx = idxOf(compareHash);
-    if (sIdx === undefined || cIdx === undefined) {
-      error.value = "Commit not found in loaded git log";
-      loading.value = false;
-      return;
-    }
-    if (sIdx >= cIdx) {
-      newer = compareHash;
-      older = selectedHash;
-    } else {
-      newer = selectedHash;
-      older = compareHash;
-    }
   }
+  const { newer, older } = range;
 
   const fetchResult = await tryCatch(
     (async () => {
@@ -526,7 +498,7 @@ watch(
  *
  * `useChangesStore.orderedFileChanges` は git status (状態種別) の変化しか拾わないので、
  * 例えば M → M (中身は別) のケースでは props.change の identity が変わらず watch が走らない。
- * PreviewPane の単一ファイル view と同じ fsChange 購読規律 (docs/preview.md のリアクティブ更新)
+ * 単一ファイル view (`usePreviewContent`) と同じ fsChange 購読規律 (docs/preview.md のリアクティブ更新)
  * を summary item にも適用して、画面の diff と実ファイルの整合を保つ。
  *
  * - commit mode は無視 (表示内容は git オブジェクト由来で fs 変更とは独立)

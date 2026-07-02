@@ -45,8 +45,6 @@ interface PtySessionManagerDeps {
   }) => Promise<number>;
   /** RPC: PTY を kill する（fire-and-forget） */
   sendPtyKill: (params: { id: number }) => void;
-  /** PTY データ受信時のコールバック（interrupt 検知等に使う） */
-  onDataReceived?: (ptyId: number, data: string) => void;
   /** PTY 終了時のコールバック（Claude 状態クリーンアップ等に使う） */
   onPtyCleanup?: (ptyId: number) => void;
   /** PTY spawn 失敗時のコールバック（notify 等に使う）。leafId / dir を載せて UI 通知の手掛かりにする */
@@ -54,7 +52,7 @@ interface PtySessionManagerDeps {
 }
 
 export function createPtySessionManager(deps: PtySessionManagerDeps) {
-  const { panes, requestPtySpawn, sendPtyKill, onDataReceived, onPtyCleanup, onSpawnError } = deps;
+  const { panes, requestPtySpawn, sendPtyKill, onPtyCleanup, onSpawnError } = deps;
 
   /** leafId → xterm.write コールバック。attach 中のみ存在 */
   const terminalWriters = new Map<string, (data: string) => void>();
@@ -90,9 +88,6 @@ export function createPtySessionManager(deps: PtySessionManagerDeps) {
     if (leafId === undefined) return;
     const entry = panes.getPane(leafId);
     if (entry?.session === undefined) return;
-
-    // interrupt 検知等の外部コールバック
-    onDataReceived?.(id, data);
 
     // ring buffer に追記
     const session = entry.session;

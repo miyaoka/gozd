@@ -104,11 +104,12 @@ const bubbleText = computed<string | undefined>(() => {
   return undefined;
 });
 
-// 吹き出しの intent 色。bg は両状態とも panel（warning-strong-subtle は未定義 / YAGNI のため
-// subtle bg には寄せず、ニュートラル地 + intent 輪郭で統一する）
+// 吹き出しの intent は border 色だけで識別する。地は白 (bg-foreground) + 黒文字
+// (text-background) の反転ペアで、intent の *-text token (dark 地用の step 11) は
+// 白地では contrast が保証されないため文字色には使わない
 const BUBBLE_INTENT_CLASS = {
-  done: "border-success text-success-text",
-  asking: "border-warning-strong text-warning-strong-text",
+  done: "border-success",
+  asking: "border-warning-strong",
 } as const;
 
 const bubbleClass = computed(() => {
@@ -159,12 +160,12 @@ function onMenuClick(event: MouseEvent) {
     </button>
     <p
       v-if="bubbleText"
-      class="pointer-events-none absolute bottom-full left-1 mb-1.5 w-max max-w-[calc(100%-0.5rem)] rounded-xl border bg-panel px-2 py-0.5 text-xs italic shadow-md"
+      class="pointer-events-none absolute bottom-full left-1 mb-1.5 w-max max-w-[calc(100%-0.5rem)] rounded-xl border bg-foreground px-2 py-0.5 text-xs text-background shadow-md"
       :class="bubbleClass"
     >
       <span class="line-clamp-1">{{ bubbleText }}</span>
       <span
-        class="absolute -bottom-1 left-3 size-2 rotate-45 border-r border-b border-inherit bg-panel"
+        class="absolute -bottom-1 left-3 size-2 rotate-45 border-r border-b border-inherit bg-foreground"
         aria-hidden="true"
       ></span>
     </p>

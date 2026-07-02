@@ -1,15 +1,15 @@
 <doc lang="md">
-git-graph の commit 行の右クリックメニュー。「Reset (mixed) to here」アクションを描画し、
-snapshot した dir / hash に対して `git reset --mixed` を実行する。context の組み立てと
-snapshot semantics、defer / disconnect ガード等の内部仕様は `useCommitContextMenu.ts` の
-docstring を SSOT として参照する。
+git-graph の commit 行の右クリックメニュー。「Reset (mixed) to here」を描画し、snapshot した
+dir / hash に対して `git reset --mixed` を実行する。context の snapshot・位置決めは
+`useCommitContextMenu.ts`、pointerup まで open を遅延させる light-dismiss 回避は
+`useCommitContextMenuTrigger.ts` を参照。
 </doc>
 
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
 import { computed } from "vue";
-import { useNotificationStore } from "../../shared/notification";
-import { rpcGitResetMixed } from "./rpc";
+import { useNotificationStore } from "../../../../shared/notification";
+import { rpcGitResetMixed } from "../../rpc";
 import { useCommitContextMenu } from "./useCommitContextMenu";
 import IconLucideUndo2 from "~icons/lucide/undo-2";
 

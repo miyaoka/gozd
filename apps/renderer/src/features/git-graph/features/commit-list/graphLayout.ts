@@ -23,7 +23,7 @@ interface LineSegment {
 }
 
 /** グラフ上の1行分のデータ */
-interface GraphNode {
+export interface GraphNode {
   commit: GitCommit;
   /** この行のレーン（x 座標） */
   lane: number;

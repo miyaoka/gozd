@@ -72,7 +72,7 @@ undefined ──SessionStart──→ idle ──OSC: スピナー──→ work
 このため working / idle を hook では取らず、Claude が OSC タイトル先頭に常時出す状態プレフィックスから導出する（`observeTitle`）。中断も通常完了も「スピナー→`✳`」の 1 経路で拾えるので、中断専用の検知（PTY 出力の中断メッセージマッチや入力キー推論）が不要になる。
 
 - Claude は稼働中はタイトル先頭に**点字スピナー（U+2800–U+28FF）**、プロンプト待ちでは **`✳`（U+2733）**を出す（いずれも直後に半角スペース）。`classifyClaudeTitle` がこのプレフィックスを working / idle に分類する
-- 取得経路は `XtermTerminal.vue` の `terminal.onTitleChange`（xterm が OSC 0/2 を解析）→ `useTerminalStore.setTitle` → `observeTitle`。**全 worktree の leaf が常時マウントされる**（`TerminalPane` が `v-for` で全 leaf を生成し `v-if` しない。表示は grid template で絞る）ため、非アクティブ worktree の xterm も PTY を処理し続け、badge が即時更新される（ポーリング不要）
+- 取得経路は `XtermTerminal.vue` の `terminal.onTitleChange`（xterm が OSC 0/2 を解析）→ `useTerminalStore.setTitle` → `observeTitle`。**全 worktree の leaf は非表示でも DOM にマウントされ続ける**（unmount しない）ため、非アクティブ worktree の xterm も PTY を処理し続け、badge が即時更新される（ポーリング不要）
 - **working プレフィックスは常に `working` にする**（新ターン開始・中断後の再開の確証）。**`✳` は `working` からの離脱時のみ `idle`** に倒し、`done` / `asking` は温存する（hook 権威。未読 done を `✳` で消さない）
 - サイドバーの task タイトルは同じプレフィックスを `stripClaudeTitlePrefix` で落として表示する。分類と除去は同じ文字集合を SSOT（`claudeStatus.ts`）として共有する
 

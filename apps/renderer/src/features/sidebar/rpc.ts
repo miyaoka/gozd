@@ -4,6 +4,8 @@ import {
   CreateWorktreeResponse,
   GitDefaultBranchRequest,
   GitDefaultBranchResponse,
+  GitGithubIdentityRequest,
+  GitGithubIdentityResponse,
   GitWorktreeListRequest,
   GitWorktreeListResponse,
   GitWorktreeRemoveRequest,
@@ -39,6 +41,11 @@ export const rpcGitDefaultBranch = (req: GitDefaultBranchRequest) =>
 
 export const rpcGitWorktreeRemove = (req: GitWorktreeRemoveRequest) =>
   rpc("/git/worktreeRemove", req, GitWorktreeRemoveRequest, GitWorktreeRemoveResponse);
+
+// origin remote のローカル parse で GitHub の (owner, repo) を返す（外部通信なし）。
+// repo ヘッダの org アバター URL 組み立てに owner を使う。非 github.com / remote 未設定は空文字。
+export const rpcGitGithubIdentity = (req: GitGithubIdentityRequest) =>
+  rpc("/git/githubIdentity", req, GitGithubIdentityRequest, GitGithubIdentityResponse);
 
 // --- task ---
 

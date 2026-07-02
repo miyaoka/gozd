@@ -5,6 +5,7 @@ Git Graph のヘッダーツールバー。表示オプション (first-parent /
 
 <script setup lang="ts">
 import { SortMode } from "@gozd/proto";
+import ToggleChip from "./ToggleChip.vue";
 import IconLucideGitCommitHorizontal from "~icons/lucide/git-commit-horizontal";
 import IconLucidePanelRight from "~icons/lucide/panel-right";
 
@@ -33,62 +34,38 @@ function toggleSortMode() {
     <IconLucideGitCommitHorizontal class="size-4 text-foreground-low" />
     <span class="text-xs font-semibold text-foreground-low">Git Graph</span>
     <span v-if="commitCount > 0" class="text-xs text-foreground-low">({{ commitCount }})</span>
-    <button
-      class="rounded-sm px-1.5 py-0.5 text-[10px]"
-      :class="
-        firstParentOnly
-          ? 'bg-primary-subtle text-primary-text'
-          : 'text-foreground-low hover:text-foreground'
-      "
-      :aria-pressed="firstParentOnly"
+    <ToggleChip
+      :active="firstParentOnly"
+      title="Show first-parent history only"
       @click="firstParentOnly = !firstParentOnly"
     >
       First Parent
-    </button>
-    <button
-      class="rounded-sm px-1.5 py-0.5 text-[10px]"
-      :class="
-        currentBranchOnly
-          ? 'bg-primary-subtle text-primary-text'
-          : 'text-foreground-low hover:text-foreground'
-      "
-      :aria-pressed="currentBranchOnly"
+    </ToggleChip>
+    <ToggleChip
+      :active="currentBranchOnly"
       title="Hide default branch and show current branch only"
       @click="currentBranchOnly = !currentBranchOnly"
     >
       Current Branch
-    </button>
-    <button
-      class="rounded-sm px-1.5 py-0.5 text-[10px]"
-      :class="
-        sortMode === SortMode.SORT_MODE_TOPO
-          ? 'bg-primary-subtle text-primary-text'
-          : 'text-foreground-low hover:text-foreground'
-      "
-      :aria-pressed="sortMode === SortMode.SORT_MODE_TOPO"
-      @click="toggleSortMode"
-    >
+    </ToggleChip>
+    <ToggleChip :active="sortMode === SortMode.SORT_MODE_TOPO" @click="toggleSortMode">
       {{ sortMode === SortMode.SORT_MODE_DATE ? "Date Order" : "Topo Order" }}
-    </button>
+    </ToggleChip>
     <button
+      type="button"
       class="rounded-sm px-1.5 py-0.5 text-[10px] text-foreground-low hover:text-foreground"
       @click="emit('scrollToHead')"
     >
       Scroll to HEAD
     </button>
-    <button
-      class="ml-auto rounded-sm px-1.5 py-0.5 text-[10px]"
-      :class="
-        detailOpen
-          ? 'bg-primary-subtle text-primary-text'
-          : 'text-foreground-low hover:text-foreground'
-      "
-      :aria-pressed="detailOpen"
+    <ToggleChip
+      class="ml-auto"
+      :active="detailOpen"
       title="Toggle commit detail"
       aria-label="Toggle commit detail"
       @click="detailOpen = !detailOpen"
     >
       <IconLucidePanelRight class="size-3.5" />
-    </button>
+    </ToggleChip>
   </div>
 </template>

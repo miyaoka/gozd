@@ -33,20 +33,25 @@ export function rowY(row: number): number {
 }
 
 /**
- * ラインセグメントの SVG パスを生成する。各セグメントは隣接する2行間なので常に1行分の高さ。
- * 同じレーンなら垂直線、異なるレーンならベジェ曲線。
+ * ラインセグメントの SVG パスを生成する。引数は lane / row (グラフ座標)、内部で pixel に変換する。
+ * 各セグメントは隣接する2行間なので常に1行分の高さ。同じレーンなら垂直線、異なるレーンならベジェ曲線。
  */
-export function segmentPath(x1: number, y1: number, x2: number, y2: number): string {
-  const px1 = laneX(x1);
-  const py1 = rowY(y1);
-  const px2 = laneX(x2);
-  const py2 = rowY(y2);
+export function segmentPath(
+  fromLane: number,
+  fromRow: number,
+  toLane: number,
+  toRow: number,
+): string {
+  const x1 = laneX(fromLane);
+  const y1 = rowY(fromRow);
+  const x2 = laneX(toLane);
+  const y2 = rowY(toRow);
 
-  if (px1 === px2) {
-    return `M${px1},${py1}L${px2},${py2}`;
+  if (x1 === x2) {
+    return `M${x1},${y1}L${x2},${y2}`;
   }
 
   // ベジェ曲線で滑らかにレーン移動
   const d = ROW_HEIGHT * 0.8;
-  return `M${px1},${py1}C${px1},${py1 + d} ${px2},${py2 - d} ${px2},${py2}`;
+  return `M${x1},${y1}C${x1},${y1 + d} ${x2},${y2 - d} ${x2},${y2}`;
 }

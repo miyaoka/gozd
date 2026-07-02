@@ -10,6 +10,7 @@ import { useWorktreeStore } from "../worktree";
 import {
   rpcAppStateLoad,
   rpcAppStateSave,
+  rpcGitGithubIdentity,
   rpcGitWorktreeList,
   rpcTaskList,
   rpcTaskSetTerminalTitle,
@@ -87,6 +88,31 @@ export function useSidebarData() {
     repoStore.applyRepoTasks(rootDir, result.value.tasks);
   }
 
+  /**
+   * origin remote から GitHub identity (owner / repo) を解決して repoStore に書く。
+   * remote URL のローカル parse (外部通信なし)。repo 追加時に 1 回だけ取得する
+   * (remote URL の変更を検知する push 経路は無く、都度 refetch する価値がない)。
+   *
+   * 失敗 (git CLI launch 不能等のグローバル条件) はトーストしない。identity 未解決は
+   * 「sidebar は identicon、git-graph は issue リンク無し」という定義済みの劣化に倒れる
+   * progressive enhancement であり、per-repo に N 回同一トーストを出しても actionable
+   * でないため、console.debug で観察可能性だけ残す。非 github.com / remote 未設定は
+   * native 側が空文字に正規化して ok で返るので、そもそもここには来ない。
+   */
+  async function fetchGithubIdentity(rootDir: string) {
+    const repo = repoStore.repos[rootDir];
+    if (repo === undefined || !repo.isGitRepo) return;
+    const result = await tryCatch(rpcGitGithubIdentity({ dir: rootDir }));
+    if (!result.ok) {
+      notify.debug(`[useSidebarData] github identity fetch failed: ${rootDir}`, result.error);
+      return;
+    }
+    repoStore.setGithubIdentity(rootDir, {
+      owner: result.value.owner,
+      repo: result.value.repo,
+    });
+  }
+
   // 新規 repo が追加されたら即 fetch。git の往復が重いので、task だけ git 非依存の
   // prefetch を並走させて起動直後のカード内 layout shift（task 行の遅延挿入）を抑える。
   watch(
@@ -96,6 +122,7 @@ export function useSidebarData() {
       for (const dir of next) {
         if (!prevSet.has(dir)) {
           void prefetchTasks(dir);
+          void fetchGithubIdentity(dir);
           void fetchRepo(dir);
         }
       }

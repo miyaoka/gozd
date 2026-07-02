@@ -9,6 +9,12 @@ export interface RepoState {
   isGitRepo: boolean;
   /** rpcGitWorktreeList の結果。Phase 6 で repoStore が直接保持するようにした */
   worktrees: WorktreeEntry[];
+  /**
+   * origin remote から解決した GitHub identity（repo 単位、全 worktree で共通）。
+   * 未取得は undefined、非 github.com remote / remote 未設定は owner / repo が空文字。
+   * sidebar の org アバターと git-graph の issue リンク base URL が共有する SSOT。
+   */
+  githubIdentity?: { owner: string; repo: string };
 }
 
 /**
@@ -318,6 +324,16 @@ export const useRepoStore = defineStore("repo", () => {
     updateRepoData(rootDir, [...current.worktrees, wt]);
   }
 
+  /**
+   * origin remote から解決した GitHub identity を反映する（useSidebarData の fetch 経路が
+   * 唯一の書き込み元）。repo 未登録なら no-op。
+   */
+  function setGithubIdentity(rootDir: string, identity: { owner: string; repo: string }) {
+    const current = repos.value[rootDir];
+    if (current === undefined) return;
+    repos.value[rootDir] = { ...current, githubIdentity: identity };
+  }
+
   function selectDir(dir: string) {
     selectedDir.value = dir;
   }
@@ -426,6 +442,10 @@ export const useRepoStore = defineStore("repo", () => {
         worktrees: r.worktrees.map((wt) =>
           WorktreeEntry.fromPartial({ path: wt.path, branch: wt.branch, isMain: wt.isMain }),
         ),
+        // githubIdentity は persist しない派生値（origin remote から都度解決）。
+        // hydrate 前に gozdOpen → fetch 済みの repo は dirOrder が変わらず useSidebarData の
+        // 新規 dir watch が再発火しないため、ここで引き継がないと再取得されない。
+        githubIdentity: repos.value[r.rootDir]?.githubIdentity,
       };
       nextOrder.push(r.rootDir);
       if (r.collapsed) nextCollapsed.add(r.rootDir);
@@ -481,6 +501,7 @@ export const useRepoStore = defineStore("repo", () => {
     updateRepoData,
     applyRepoTasks,
     setWorktreeGitStatuses,
+    setGithubIdentity,
     getGitStatusGen,
     appendWorktree,
     selectDir,

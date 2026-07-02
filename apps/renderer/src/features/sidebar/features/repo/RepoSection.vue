@@ -1,7 +1,7 @@
 <doc lang="md">
 1 つの repo を表すサイドバーセクション。
 
-ヘッダ (chevron + folder アイコン + repo 名 + 編集モード時の ✕) と、
+ヘッダ (repo アイコン + repo 名 + chevron + 編集モード時の ✕) と、
 配下の WtCard 列 (main wt 先頭固定、その後 worktrees 配列順) + `+ New worktree`。
 
 ## 並び順
@@ -35,7 +35,7 @@ import type { Task, WorktreeEntry } from "@gozd/proto";
 import { computed, useTemplateRef } from "vue";
 import { useRepoStore } from "../../../../shared/repo";
 import { WtCard } from "../worktree";
-import RepoEmblem from "./RepoEmblem.vue";
+import RepoIcon from "./RepoIcon.vue";
 import IconLucideChevronDown from "~icons/lucide/chevron-down";
 import IconLucideLoaderCircle from "~icons/lucide/loader-circle";
 import IconLucidePlus from "~icons/lucide/plus";
@@ -68,6 +68,9 @@ const isGitRepo = computed(() => repo.value?.isGitRepo ?? false);
 const collapsed = computed(() => repoStore.isCollapsed(props.rootDir));
 
 const active = computed(() => repoStore.selectedRootDir === props.rootDir);
+
+/** GitHub owner (org / 個人ユーザー)。取得は useSidebarData、SSOT は repoStore.githubIdentity */
+const githubOwner = computed(() => repo.value?.githubIdentity?.owner ?? "");
 
 const worktrees = computed(() => repo.value?.worktrees ?? []);
 
@@ -142,7 +145,7 @@ function onHeaderClick() {
         :aria-expanded="headerAriaExpanded"
         @click="onHeaderClick"
       >
-        <RepoEmblem :name="repoName" />
+        <RepoIcon :name="repoName" :owner="githubOwner" />
         <span class="min-w-0 flex-1 truncate text-sm font-semibold tracking-wide">
           {{ repoName }}
         </span>

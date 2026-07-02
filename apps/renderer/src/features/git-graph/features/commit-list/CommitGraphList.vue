@@ -167,9 +167,16 @@ function onKeydown(e: KeyboardEvent) {
   const isPage = e.key === "PageUp" || e.key === "PageDown";
   const step = isPage ? pageSize() : 1;
   const current = selectedIndex();
+  const movingHash = gitGraphStore.compareHash ?? gitGraphStore.selectedHash;
 
-  // 移動端が Working Tree にある場合（単一選択 or 範囲選択の compareHash が UNCOMMITTED_HASH）
+  // selectedIndex の -1 は「移動端が真に Working Tree」と「選択コミットが表示から消えた
+  // (currentBranchOnly 等の filter / stale)」の両方で起きるため、移動端 hash が UNCOMMITTED_HASH か
+  // で区別する。filter で消えただけの -1 は起点が無いので Working Tree に倒し、次操作に委ねる。
   if (current === -1) {
+    if (movingHash !== UNCOMMITTED_HASH) {
+      gitGraphStore.select(UNCOMMITTED_HASH);
+      return;
+    }
     if (isUp) {
       scrollToIndex(0);
       return;

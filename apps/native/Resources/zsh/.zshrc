@@ -70,8 +70,19 @@ _gozd_resume_claude() {
 # session 未紐付け task をサイドバーでクリックした場合、resume せず素の claude を起動する。
 # SessionStart hook が走った後、native 側 attachSession が「sessionId 空の最新 task」に
 # 新 sessionId を結びつけることで task と session の紐付けが成立する。
+#
+# GOZD_CLAUDE_PREFILL があれば `claude --prefill <text>` で入力欄にテキストを事前挿入する
+# (挿入のみで送信はされない)。PR/issue から task を作成した直後の起動で PR/issue URL を
+# プロンプト入力欄に置くために renderer が spawn env に注入する。--prefill は claude CLI の
+# hidden option (--help に出ない) だが、入力欄への非送信挿入を実現する唯一の公式経路。
 _gozd_start_claude() {
   unset GOZD_AUTOSTART_CLAUDE
-  claude
+  local _prefill="$GOZD_CLAUDE_PREFILL"
+  unset GOZD_CLAUDE_PREFILL
+  if [[ -n "$_prefill" ]]; then
+    claude --prefill "$_prefill"
+  else
+    claude
+  fi
 }
 [[ -n "$GOZD_AUTOSTART_CLAUDE" ]] && _gozd_start_claude

@@ -116,7 +116,8 @@ export function registerIssueCommand(): () => void {
             // 直後の setOpen で visit が走り初期 leaf が作られる前に autostart ヒントを残す。
             // これで visit が初期 leaf に素の `claude` 起動を仕込み、SessionStart hook で
             // 上で作成した task に attach される。後追いクリック起動の二重 leaf を防ぐ。
-            terminalStore.requestNewClaudeSession(result.value.dir);
+            // issue URL を prefill で渡し、claude の入力欄に事前挿入する (送信はされない)。
+            terminalStore.requestNewClaudeSession(result.value.dir, issue.url);
             terminalStore.viewMode = "wt";
             worktreeStore.setOpen(result.value.dir);
           })();

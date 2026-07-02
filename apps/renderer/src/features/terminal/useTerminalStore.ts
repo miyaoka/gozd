@@ -189,7 +189,6 @@ export const useTerminalStore = defineStore("terminal", () => {
     sendPtyKill: ({ id }) => {
       void rpcPtyKill({ ptyId: id });
     },
-    onDataReceived: (ptyId, data) => claude.detectInterrupt(ptyId, data),
     onPtyCleanup: (ptyId) => claude.cleanupPty(ptyId),
     onSpawnError: ({ dir, error }) => {
       // spawn 失敗をユーザーに通知する。resume 連打 dedup の catch path 経由で
@@ -367,7 +366,6 @@ export const useTerminalStore = defineStore("terminal", () => {
         last_assistant_message: payload.lastAssistantMessage,
         tool_name: payload.toolName,
         tool_input: payload.toolInput,
-        is_interrupt: payload.isInterrupt,
         pending_work: payload.pendingWork,
       });
       // 効果（音・演出・読み上げ）は正規化済みの claudeFx ストリームに流す。pending done 等の
@@ -602,6 +600,10 @@ export const useTerminalStore = defineStore("terminal", () => {
       titleByLeafId.value[leafId] = title;
     }
     lastTitleUpdate.value = { leafId, title };
+    // Claude の状態 (working / idle) は OSC タイトルのスピナー/✳ プレフィックスから導出する。
+    // session が確立している leaf のみ observeTitle 内で反応する。
+    const ptyId = getPtyId(leafId);
+    if (ptyId !== undefined) claude.observeTitle(ptyId, title);
   }
 
   // --- drag suspend ---

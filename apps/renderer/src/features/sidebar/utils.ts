@@ -1,15 +1,6 @@
 import type { Task, WorktreeEntry } from "@gozd/proto";
 import { resolveDisplayTitle, taskDisplayTitle, taskNumberPrefix } from "../../shared/repo";
 
-/**
- * Claude Code が OSC タイトルの先頭に付与するステータスプレフィックス
- * (`✳ ` + Braille spinner dots) を除去する。
- * 正規表現を 2 箇所以上に重複させないための SSOT。仕様変更時はここだけ直す。
- */
-export function stripClaudeStatusPrefix(title: string): string {
-  return title.replace(/^[✳⠀-⣿] /, "");
-}
-
 const DETACHED_BRANCH_LABEL = "(detached)";
 
 /**

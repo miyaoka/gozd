@@ -132,9 +132,6 @@ func hookCommand(event: String) async {
       hook.toolInput = s
     }
   }
-  if let isInterrupt = stdinJson["is_interrupt"] as? Bool {
-    hook.isInterrupt = isInterrupt
-  }
   if let sessionId = stdinJson["session_id"] as? String {
     hook.sessionID = sessionId
   }

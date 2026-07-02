@@ -1,6 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { ref } from "vue";
-import { createClaudeStatusManager, displayClaudeState, type ClaudeStatus } from "./claudeStatus";
+import {
+  classifyClaudeTitle,
+  createClaudeStatusManager,
+  displayClaudeState,
+  stripClaudeTitlePrefix,
+  type ClaudeStatus,
+} from "./claudeStatus";
+
+/** Claude が OSC タイトル先頭に出すプレフィックス（点字スピナー / ✳ + スペース） */
+const WORKING_TITLE = "⠋ project"; // U+280B = 点字スピナーの一種
+const IDLE_TITLE = "✳ project"; // U+2733 = ✳
 
 function setup() {
   const claudeStatusByPtyId = ref<Record<number, ClaudeStatus>>({});
@@ -117,5 +127,108 @@ describe("handleHookEvent fx 発行（効果ストリームの単一発行点）
     const lateFx = manager.handleHookEvent(1, "tool-done", {});
     expect(lateFx).toBeUndefined();
     expect(claudeStatusByPtyId.value[1]?.state).toBe("done");
+  });
+});
+
+describe("classifyClaudeTitle / stripClaudeTitlePrefix", () => {
+  test("スピナープレフィックスは working、✳ は idle、それ以外は undefined", () => {
+    expect(classifyClaudeTitle(WORKING_TITLE)).toBe("working");
+    expect(classifyClaudeTitle(IDLE_TITLE)).toBe("idle");
+    expect(classifyClaudeTitle("plain title")).toBeUndefined();
+    // 矢印キー等のエスケープではなく通常タイトル。プレフィックス無しは状態シグナル無し
+    expect(classifyClaudeTitle("⠋no-space")).toBeUndefined();
+  });
+
+  test("strip は working/idle 両プレフィックスを落とし、素のタイトルは触らない", () => {
+    expect(stripClaudeTitlePrefix(WORKING_TITLE)).toBe("project");
+    expect(stripClaudeTitlePrefix(IDLE_TITLE)).toBe("project");
+    expect(stripClaudeTitlePrefix("project")).toBe("project");
+  });
+});
+
+describe("observeTitle（OSC タイトル駆動の状態）", () => {
+  test("session 確立後: スピナー → working、✳ → idle。idle は lastActivityAt 維持", () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+
+    manager.observeTitle(1, WORKING_TITLE);
+    const working = claudeStatusByPtyId.value[1];
+    expect(working?.state).toBe("working");
+
+    manager.observeTitle(1, IDLE_TITLE);
+    const idle = claudeStatusByPtyId.value[1];
+    expect(idle?.state).toBe("idle");
+    // idle 化は Claude の活動ではないため working の lastActivityAt を持ち越す
+    expect(idle?.lastActivityAt).toBe(working?.lastActivityAt);
+  });
+
+  test("session 未確立（session-start 前）はタイトルから状態を作らない", () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.observeTitle(1, WORKING_TITLE);
+    expect(claudeStatusByPtyId.value[1]).toBeUndefined();
+  });
+
+  test("✳ は done を上書きしない（未読 done を消さない）", () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    manager.handleHookEvent(1, "done", { pending_work: false });
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("done");
+    // Stop 直後に Claude はプロンプト待ちタイトル ✳ を出すが、done は温存する
+    manager.observeTitle(1, IDLE_TITLE);
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("done");
+  });
+
+  test("✳ は asking を上書きしない（hook 権威を温存）", async () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    manager.observeTitle(1, WORKING_TITLE);
+    manager.handleHookEvent(1, "needs-input", { tool_name: "Bash", tool_input: "{}" });
+    // needs-input は 150ms debounce 後に asking へ遷移する
+    await new Promise((r) => setTimeout(r, 200));
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("asking");
+
+    manager.observeTitle(1, IDLE_TITLE);
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("asking");
+  });
+
+  test("asking 中にスピナーが来ると working に復帰する（承認後の再開）", async () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    manager.observeTitle(1, WORKING_TITLE);
+    manager.handleHookEvent(1, "needs-input", { tool_name: "Bash", tool_input: "{}" });
+    await new Promise((r) => setTimeout(r, 200));
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("asking");
+
+    manager.observeTitle(1, WORKING_TITLE);
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("working");
+  });
+
+  test("done 中でもスピナー（新ターン開始）は working にする", () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    manager.handleHookEvent(1, "done", { pending_work: false });
+    manager.observeTitle(1, WORKING_TITLE);
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("working");
+  });
+
+  test("プレフィックスの無いタイトルは状態を変えない", () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    manager.observeTitle(1, "plain title");
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("idle");
+  });
+});
+
+describe("running / tool-done は状態を駆動しない（状態は title 専任）", () => {
+  test("running / tool-done は fx を返すが state は変えない", () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("idle");
+
+    // fx は従来どおり発行される（arcade engage / tick）
+    expect(manager.handleHookEvent(1, "running", {})).toEqual({ ptyId: 1, event: "running" });
+    expect(manager.handleHookEvent(1, "tool-done", {})).toEqual({ ptyId: 1, event: "tool-done" });
+    // しかし状態は idle のまま（working 化は title のみが行う）
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("idle");
   });
 });

@@ -4,7 +4,7 @@ import { useNotificationStore } from "../../shared/notification";
 import type { NotifyPayload } from "../../shared/notification";
 import { CLAUDE_PLACEHOLDER_TITLE, useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
-import { useTerminalStore } from "../terminal";
+import { stripClaudeTitlePrefix, useTerminalStore } from "../terminal";
 import type { HookPayload } from "../terminal";
 import { useWorktreeStore } from "../worktree";
 import {
@@ -16,7 +16,6 @@ import {
 } from "./rpc";
 import type { BranchChangePayload, FsWatchReadyPayload, WorktreeChangePayload } from "./rpc";
 import { validateTasksCreatedAt } from "./taskBaseTime";
-import { stripClaudeStatusPrefix } from "./utils";
 
 /**
  * サイドバーのデータ取得・状態管理。
@@ -237,7 +236,7 @@ export function useSidebarData() {
     (update) => {
       if (!update?.title) return;
       // Claude Code のステータスプレフィックス（✳ + Braille dots）を除去
-      const title = stripClaudeStatusPrefix(update.title);
+      const title = stripClaudeTitlePrefix(update.title);
       if (!title) return;
       if (title === CLAUDE_PLACEHOLDER_TITLE) return;
       void drainTitleSync(update.leafId, title);
@@ -353,7 +352,7 @@ export function useSidebarData() {
             // タイトルがあれば再同期を回す。これで `New session` 残留を解消する。
             const pendingTitle = terminalStore.titleByLeafId[leafId];
             if (pendingTitle !== undefined && pendingTitle !== "") {
-              const cleaned = stripClaudeStatusPrefix(pendingTitle);
+              const cleaned = stripClaudeTitlePrefix(pendingTitle);
               if (cleaned && cleaned !== CLAUDE_PLACEHOLDER_TITLE) {
                 void drainTitleSync(leafId, cleaned);
               }

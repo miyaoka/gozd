@@ -30,7 +30,6 @@ message HookMessage {
   string tool_name = 4;
   // Claude Code の tool_input をそのまま JSON 文字列として保持
   string tool_input = 5;
-  bool is_interrupt = 6;
 
   // session-start / session-end のみ。Claude Code の resume 起動に必要。
   string session_id = 7;

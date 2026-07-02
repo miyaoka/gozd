@@ -23,7 +23,7 @@ IconSolidDot.inheritAttrs = false;
 /**
  * Claude Code の状態。
  * - idle: セッション開始済みだがプロンプト待ち（通知不要）
- * - working: エージェントが作業中（UserPromptSubmit / PostToolUse）
+ * - working: エージェントが作業中（OSC タイトルのスピナー）
  * - asking: 承認待ち（PermissionRequest）— ユーザー操作が必要
  * - done: 応答完了（Stop）— 人間の確認・入力待ち（通知が必要）
  *
@@ -87,9 +87,9 @@ export const CLAUDE_STATE_VISUAL: Record<ClaudeState, ClaudeStateVisual> = {
 
 /**
  * Claude Code の状態エントリ。状態と付随データを一体管理する。
- * - lastActivityAt: 最後に Claude が動いた時刻。session-start / running / tool-done /
- *   tool-failure（非 interrupt）/ done / stop-failure で更新。idle（interrupt 含む）/
- *   asking 遷移時は維持する。サイドバーの相対時刻はこれを基準にする。
+ * - lastActivityAt: session-start / working 遷移（OSC タイトルのスピナー）/ done /
+ *   stop-failure で更新する。working は開始時刻を刻み、以降のスピナー各フレームでは
+ *   更新しない。idle / asking 遷移時は直前の値を維持する。サイドバーの相対時刻の基準。
  */
 type ClaudeStatusBase = { lastActivityAt: number };
 export type ClaudeStatus =
@@ -123,7 +123,7 @@ export function displayClaudeState(status: ClaudeStatus | undefined): ClaudeStat
  * - needs-input: PermissionRequest（承認ダイアログ表示）
  * - done: Stop（応答完了）
  * - tool-done: PostToolUse（ツール実行完了）
- * - tool-failure: PostToolUseFailure（ツール実行失敗。is_interrupt で中断判定）
+ * - tool-failure: PostToolUseFailure（ツール実行失敗。ask debounce の cancel に使う）
  * - stop-failure: StopFailure（API エラーによる停止）
  */
 export type HookEvent =
@@ -188,9 +188,31 @@ export interface ClaudeFxEvent {
 /** PermissionRequest の debounce 時間（ms）。この間に tool-done が来たら asking にしない */
 const ASK_DEBOUNCE_MS = 150;
 
-/** interrupt パターンマッチ用の定数 */
-const INTERRUPT_MARKER = "⎿ \u00A0Interrupted";
-const PTY_TAIL_BUFFER_SIZE = 50;
+/**
+ * Claude Code が OSC タイトル先頭に付ける状態プレフィックス。working / idle をこの
+ * プレフィックスで判定する（herdr 方式）。Claude は稼働中はタイトル先頭に点字スピナー
+ * (U+2800–U+28FF)、プロンプト待ちでは `✳` (U+2733) を出す。いずれも直後に半角スペースが続く。
+ * `working` は「今まさに稼働している」確証、`idle` は「入力待ちに戻った」確証で、UserPromptSubmit /
+ * PostToolUse hook や PTY 出力の中断メッセージに頼らず状態を導出できる。
+ */
+const CLAUDE_TITLE_WORKING_RE = /^[⠀-⣿] /;
+const CLAUDE_TITLE_IDLE_RE = /^✳ /;
+
+/** OSC タイトルの状態プレフィックスを分類する。プレフィックスが無ければ undefined */
+export function classifyClaudeTitle(title: string): "working" | "idle" | undefined {
+  if (CLAUDE_TITLE_WORKING_RE.test(title)) return "working";
+  if (CLAUDE_TITLE_IDLE_RE.test(title)) return "idle";
+  return undefined;
+}
+
+/**
+ * OSC タイトルから Claude の状態プレフィックス（スピナー / `✳` + スペース）を除去する。
+ * サイドバーの task タイトル表示が生タイトルからプレフィックスを落とすために使う。
+ * プレフィックスは相互排他なので、分類と同じ 2 定数を順に適用して文字集合を一本化する。
+ */
+export function stripClaudeTitlePrefix(title: string): string {
+  return title.replace(CLAUDE_TITLE_WORKING_RE, "").replace(CLAUDE_TITLE_IDLE_RE, "");
+}
 
 /** paneRegistry の読み取り専用ビュー。claudeStatus が必要とする情報だけを公開する */
 interface PaneAccessor {
@@ -217,8 +239,6 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
 
   /** ptyId → PermissionRequest の debounce タイマー */
   const askTimers = new Map<number, ReturnType<typeof setTimeout>>();
-  /** PTY ごとの直近 tail バッファ。チャンク分割でマーカーが跨いだ場合に備える */
-  const ptyTailBuffers = new Map<number, string>();
   /** sessionId ↔ ptyId のマッピング。session-start hook で確立、session-end / cleanup で破棄。
    *  WtCard / SidebarPane が `task.sessionId` 経由でこの map を引いて、task 行から live PTY や
    *  ClaudeStatus を解決するために使う。
@@ -303,7 +323,8 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
       }
       case "running": {
         cancelAskTimer(ptyId);
-        claudeStatusByPtyId.value[ptyId] = { state: "working", lastActivityAt: Date.now() };
+        // 状態 (working) は OSC タイトル (observeTitle) が駆動する。ここは fx（arcade engage /
+        // 読み上げ）の発行のみ。タイトルのスピナー出現より前でも音は鳴らしたいので hook で早取りする。
         return { ptyId, event };
       }
       case "needs-input": {
@@ -333,29 +354,16 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
         return { ptyId, event, toolName, toolInput };
       }
       case "tool-failure": {
+        // 状態は OSC タイトルが駆動し、固有の fx も持たない。残る役割は ask debounce の cancel
+        // のみ（自動承認されたツールが 150ms 以内に失敗するケースで spurious な asking を抑止する）。
         cancelAskTimer(ptyId);
-        if (payload.is_interrupt === true) {
-          // ユーザーが Ctrl+C でツール実行を中断 → プロンプト待ちに戻る。
-          // session-start 後にしか発火しないため current は存在する。
-          // current が undefined なら session-start 未到達の仕様外イベントなので無視。
-          if (current === undefined) return undefined;
-          // lastActivityAt は維持（中断はユーザー操作で、Claude の活動ではない）
-          claudeStatusByPtyId.value[ptyId] = {
-            state: "idle",
-            lastActivityAt: current.lastActivityAt,
-          };
-          return undefined;
-        }
-        // interrupt でないツール失敗は tool-done と同じ扱い（working 継続）
-        if (current?.state === "done") return undefined;
-        claudeStatusByPtyId.value[ptyId] = { state: "working", lastActivityAt: Date.now() };
         return undefined;
       }
       case "tool-done": {
         cancelAskTimer(ptyId);
-        // done 後の遅延 tool-done を無視（イベント順序逆転対策）
+        // 状態 (working) は OSC タイトルが駆動する。ここは fx（arcade tick）の発行のみ。
+        // done 後の遅延 tool-done は fx も出さない（イベント順序逆転対策）。
         if (current?.state === "done") return undefined;
-        claudeStatusByPtyId.value[ptyId] = { state: "working", lastActivityAt: Date.now() };
         return { ptyId, event };
       }
       case "done": {
@@ -403,33 +411,37 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
   }
 
   /**
-   * PTY データから interrupt パターンを検知して状態を更新する。
-   * Claude Code は Ctrl+C/Escape で中断されると以下を PTY に出力する:
-   *   "⎿ \u00A0Interrupted · What should Claude do instead?"
-   * しかし interrupt 時にフックは発火しない（Stop も PostToolUseFailure も来ない）。
-   * Claude Code にはユーザー中断を通知するフック（UserInterrupt 等）が存在しないため
-   * （anthropics/claude-code#9516 で要望中）、PTY 出力のパターンマッチで代替している。
-   * Claude Code の UI 変更でこの文字列が変わると壊れるので注意。
-   * "⎿"(U+23BF) は Claude Code のツール出力プレフィックス、空白は SP(U+0020) + NBSP(U+00A0)。
-   * PTY の data は任意境界で分割されるため、tail バッファと結合してマッチする。
+   * OSC タイトルの状態プレフィックスから working / idle を駆動する（herdr 方式）。
+   *
+   * Claude Code には「ユーザー中断 (Ctrl+C / Escape)」を通知する hook が存在せず
+   * (anthropics/claude-code#9516)、`Stop` はテキスト生成中の中断では発火しない。一方 Claude は
+   * 稼働中/待機中をタイトル先頭のスピナー/`✳` で常時示すため、これを状態の権威にすると
+   * 中断も通常完了も「スピナー→✳」の 1 経路で拾える。onTitleChange 駆動なのでポーリングも
+   * settle 待ちも不要で、全 worktree（v-show でマウント維持）の badge が即時更新される。
+   *
+   * hook 権威との調停:
+   * - session 未確立（session-start 前）でタイトルだけ来ても状態は作らない
+   * - working プレフィックスは「実稼働の確証」として常に working にする（新ターン開始や中断後の再開）
+   * - idle プレフィックスは **working からの離脱時のみ** idle に倒す。done / asking は hook 所有の
+   *   状態なので温存し、未読 done を `✳` で消してしまわない（done→idle の消化はフォーカス時の
+   *   `clearDoneStates` が担う）
    */
-  function detectInterrupt(ptyId: number, data: string) {
-    const currentState = claudeStatusByPtyId.value[ptyId]?.state;
-    const tail = ptyTailBuffers.get(ptyId) ?? "";
-    const combined = tail + data;
+  function observeTitle(ptyId: number, title: string) {
+    const current = claudeStatusByPtyId.value[ptyId];
+    // session-start 前は Claude セッション未確立。タイトルから状態を生成しない
+    if (current === undefined) return;
+    const kind = classifyClaudeTitle(title);
+    if (kind === undefined) return;
 
-    if (currentState !== "working") return;
-
-    if (combined.includes(INTERRUPT_MARKER)) {
-      cancelAskTimer(ptyId);
-      // 上の `currentState !== "working"` ガードを通過しているので prev は必ず存在する
-      const prev = claudeStatusByPtyId.value[ptyId];
-      if (prev === undefined) return;
-      // interrupt はユーザー操作で Claude の活動ではないので lastActivityAt 維持
-      claudeStatusByPtyId.value[ptyId] = { state: "idle", lastActivityAt: prev.lastActivityAt };
+    if (kind === "working") {
+      if (current.state === "working") return;
+      claudeStatusByPtyId.value[ptyId] = { state: "working", lastActivityAt: Date.now() };
+      return;
     }
-    // 直近 PTY_TAIL_BUFFER_SIZE 文字を保持
-    ptyTailBuffers.set(ptyId, data.slice(-PTY_TAIL_BUFFER_SIZE));
+    // kind === "idle": working からの離脱のみ扱う（done / asking / idle は温存）
+    if (current.state !== "working") return;
+    // idle 化はユーザー操作/待機で Claude の活動ではないので lastActivityAt 維持
+    claudeStatusByPtyId.value[ptyId] = { state: "idle", lastActivityAt: current.lastActivityAt };
   }
 
   /** leafId に対応する Claude Code の状態を返す。未起動（エントリなし）の場合は undefined */
@@ -488,7 +500,6 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
   /** PTY 終了時のクリーンアップ */
   function cleanupPty(ptyId: number) {
     cancelAskTimer(ptyId);
-    ptyTailBuffers.delete(ptyId);
     const previousSessionId = sessionIdByPtyId.value[ptyId];
     if (previousSessionId !== undefined) {
       delete ptyIdBySessionId.value[previousSessionId];
@@ -516,7 +527,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
 
   return {
     handleHookEvent,
-    detectInterrupt,
+    observeTitle,
     getClaudeState,
     getClaudeActiveLeafIds,
     getClaudeStatusesByDir,

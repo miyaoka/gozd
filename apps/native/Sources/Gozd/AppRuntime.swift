@@ -119,7 +119,6 @@ final class AppRuntime {
         "lastAssistantMessage": hook.lastAssistantMessage,
         "toolName": hook.toolName,
         "toolInput": hook.toolInput,
-        "isInterrupt": hook.isInterrupt,
         "pendingWork": hook.pendingWork,
       ]
       Task { @MainActor in

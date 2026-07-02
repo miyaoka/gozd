@@ -94,16 +94,6 @@ const baseTime = computed<number | undefined>(() => resolveTaskBaseTime(props.st
 
 const relativeTime = useRelativeTime(baseTime);
 
-const bubbleText = computed<string | undefined>(() => {
-  const status = props.status;
-  if (status === undefined) return undefined;
-  // pendingWork でない真の done のみ吹き出しを出す。pending 中は working 描画なので出さない。
-  if (status.state === "done" && status.pendingWork !== true && status.message)
-    return extractFirstSentence(status.message);
-  if (status.state === "asking") return extractAskingText(status.toolName, status.toolInput);
-  return undefined;
-});
-
 // 吹き出しの intent は border 色だけで識別する。地は白 (bg-foreground) + 黒文字
 // (text-background) の反転ペアで、intent の *-text token (dark 地用の step 11) は
 // 白地では contrast が保証されないため文字色には使わない
@@ -112,12 +102,32 @@ const BUBBLE_INTENT_CLASS = {
   asking: "border-warning-strong",
 } as const;
 
-const bubbleClass = computed(() => {
-  const status = props.status;
-  if (displayClaudeState(status) === "done") return BUBBLE_INTENT_CLASS.done;
-  if (status?.state === "asking") return BUBBLE_INTENT_CLASS.asking;
-  return "";
-});
+// 吹き出しの表示判定 SSOT。intent (色) と text を単一 computed で導出し、
+// done/asking 判定が複数 computed に分散してドリフトするのを防ぐ。
+// done は displayClaudeState を SSOT に判定する（pendingWork 中の done は working に
+// 倒れ吹き出しを出さない）。state === "done" の併記は union narrowing のためで、
+// displayClaudeState === "done" と常に同値。
+const bubble = computed<{ intent: keyof typeof BUBBLE_INTENT_CLASS; text: string } | undefined>(
+  () => {
+    const status = props.status;
+    if (status === undefined) return undefined;
+    // text の空文字は「表示するものが無い」と同義。undefined と併せて弾かないと
+    // テキスト無しの空吹き出し（枠 + 尻尾のみ）が描画される
+    if (status.state === "done" && displayClaudeState(status) === "done" && status.message) {
+      const text = extractFirstSentence(status.message);
+      return text === undefined || text === "" ? undefined : { intent: "done", text };
+    }
+    if (status.state === "asking") {
+      const text = extractAskingText(status.toolName, status.toolInput);
+      return text === undefined || text === "" ? undefined : { intent: "asking", text };
+    }
+    return undefined;
+  },
+);
+
+const bubbleClass = computed(() =>
+  bubble.value === undefined ? "" : BUBBLE_INTENT_CLASS[bubble.value.intent],
+);
 
 function onMenuClick(event: MouseEvent) {
   event.stopPropagation();
@@ -159,11 +169,11 @@ function onMenuClick(event: MouseEvent) {
       <IconLucideEllipsisVertical class="text-xs" />
     </button>
     <p
-      v-if="bubbleText"
+      v-if="bubble"
       class="pointer-events-none absolute bottom-full left-1 mb-1.5 w-max max-w-[calc(100%-0.5rem)] rounded-xl border bg-foreground px-2 py-0.5 text-xs text-background shadow-md"
       :class="bubbleClass"
     >
-      <span class="line-clamp-1">{{ bubbleText }}</span>
+      <span class="line-clamp-1">{{ bubble.text }}</span>
       <span
         class="absolute -bottom-1 left-3 size-2 rotate-45 border-r border-b border-inherit bg-foreground"
         aria-hidden="true"

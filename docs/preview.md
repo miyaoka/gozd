@@ -23,7 +23,8 @@ markdown レンダリング・blame / file history popover・changes summary は
 | markdown | md                                        | marked + DOMPurify                                        |
 | html     | html, htm                                 | sandboxed `<iframe srcdoc>` でネイティブ描画 / ソース切替 |
 | code     | その他すべて                              | Shiki シンタックスハイライト                              |
-| binary   | NUL バイト含有                            | 「Binary file」メッセージ                                 |
+
+NUL バイトを含むファイルは拡張子ベースの種別判定に依らず、内容ベースの binary 判定（`displayIsBinary`）で「Binary file」メッセージ表示に倒す。
 
 HTML の Preview トグルは **デフォルト OFF（ソース表示）**。他のレンダリング種別（markdown / svg / image）はデフォルト ON だが、HTML は「ソースを読む」用途が主なため向きを反転させる。デフォルトの向きは `defaultPreviewEnabled`、トグル可否は `hasRenderedView` と別関数に分離する（`previewFileType.ts`）。
 

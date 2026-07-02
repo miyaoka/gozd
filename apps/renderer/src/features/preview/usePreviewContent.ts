@@ -671,7 +671,6 @@ export function usePreviewContent(
     // 表示種別・トグル
     fileType,
     previewEnabled,
-    isImagePreview,
     // モード
     activeMode,
     availableModes,

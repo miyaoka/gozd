@@ -34,7 +34,10 @@ function dispatchToListeners(type: string, payload: unknown): void {
 /**
  * renderer bootstrap で 1 回だけ呼ぶ。native (Swift) からの
  * `WebPage.callJavaScript("window.__gozdReceive(...)")` を受けるため
- * dispatcher を `window` に固定する。
+ * dispatcher を `window` に固定する。Electron shell では preload が公開する
+ * `__gozdElectronRpc.onPush` を同じ dispatcher に接続する（contextIsolation 下の
+ * preload は main world の `window.__gozdReceive` を直接呼べないため、購読登録は
+ * renderer 側の責務になる）。
  *
  * test / SSR では呼ばない契約。listener 登録 (`onMessage`) や renderer 内部の
  * 再同期 push (`dispatchMessage`) は init 不要で動く (どちらも `dispatchToListeners`
@@ -42,6 +45,7 @@ function dispatchToListeners(type: string, payload: unknown): void {
  */
 export function initRpcDispatcher(): void {
   window.__gozdReceive = dispatchToListeners;
+  window.__gozdElectronRpc?.onPush(dispatchToListeners);
 }
 
 export function onMessage<T>(type: string, fn: (payload: T) => void): () => void {

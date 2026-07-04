@@ -1,10 +1,14 @@
+// spike ページ。実 renderer と同じワイヤ（__gozdElectronRpc + proto3 JSON）で
+// /pty/spawn 〜 echo round-trip を検証する自動テストハーネス。
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
+import type { ElectronRpcBridge } from "@gozd/shared";
 import type { SpikeApi } from "../ipc";
 
 declare global {
   interface Window {
+    __gozdElectronRpc: ElectronRpcBridge;
     gozdSpike: SpikeApi;
   }
 }
@@ -23,7 +27,7 @@ window.addEventListener("unhandledrejection", (event) => {
 });
 
 async function main() {
-  const api = window.gozdSpike;
+  const rpc = window.__gozdElectronRpc;
   const container = document.querySelector<HTMLElement>("#terminal");
   if (container === null) throw new Error("#terminal not found");
 
@@ -33,41 +37,65 @@ async function main() {
   terminal.open(container);
   fitAddon.fit();
 
-  const ptyId = await api.ptySpawn({ cols: terminal.cols, rows: terminal.rows });
+  // PtySpawnRequest の proto3 JSON。dir はテスト用に "/"（spike ページは homedir を知らない）
+  const spawnRes = await rpc.request(
+    "/pty/spawn",
+    JSON.stringify({
+      dir: "/",
+      executable: "/bin/zsh",
+      args: ["-l"],
+      env: {},
+      rows: terminal.rows,
+      cols: terminal.cols,
+      worktreePath: "",
+    }),
+  );
+  const ptyId: number = JSON.parse(spawnRes).ptyId;
 
   let outputBuffer = "";
-  api.onPtyData((id, data) => {
-    if (id !== ptyId) return;
-    terminal.write(data);
-    outputBuffer += data;
+  rpc.onPush((type, payload) => {
+    if (type === "ptyText") {
+      const { id, text } = payload as { id: number; text: string };
+      if (id !== ptyId) return;
+      terminal.write(text);
+      outputBuffer += text;
+      return;
+    }
+    if (type === "ptyExit") {
+      const { id } = payload as { id: number };
+      if (id !== ptyId) return;
+      terminal.write("\r\n[Process exited]\r\n");
+    }
   });
-  api.onPtyExit((id, exitCode) => {
-    if (id !== ptyId) return;
-    terminal.write(`\r\n[Process exited: ${exitCode}]\r\n`);
-  });
-  terminal.onData((data) => {
-    api.ptyWrite(ptyId, data);
-  });
+
+  // PtyWriteRequest.data は bytes（proto3 JSON では base64）。キー入力は ASCII 前提の btoa で足りる
+  const writePty = (data: string) => {
+    void rpc.request("/pty/write", JSON.stringify({ ptyId, data: btoa(data) }));
+  };
+  terminal.onData(writePty);
 
   window.addEventListener("resize", () => {
     fitAddon.fit();
-    api.ptyResize(ptyId, terminal.cols, terminal.rows);
+    void rpc.request(
+      "/pty/resize",
+      JSON.stringify({ ptyId, rows: terminal.rows, cols: terminal.cols }),
+    );
   });
 
-  if (!api.isTestMode) return;
+  if (!window.gozdSpike.isTestMode) return;
 
   // 自動テスト: printf の出力（コマンドラインの echo back には現れない文字列）を待つ
-  api.ptyWrite(ptyId, `printf '${SPIKE_MARKER.replace("-ok", "-%s")}\\n' ok\r`);
+  writePty(`printf '${SPIKE_MARKER.replace("-ok", "-%s")}\\n' ok\r`);
   const timer = setInterval(() => {
     if (!outputBuffer.includes(SPIKE_MARKER)) return;
     clearInterval(timer);
     setTimeout(() => {
-      api.reportSpikeResult(true, "pty echo round-trip verified");
+      window.gozdSpike.reportSpikeResult(true, "pty echo round-trip verified via rpc bridge");
     }, SPIKE_RENDER_WAIT_MS);
   }, 100);
   setTimeout(() => {
     clearInterval(timer);
-    api.reportSpikeResult(false, `timeout; tail: ${outputBuffer.slice(-200)}`);
+    window.gozdSpike.reportSpikeResult(false, `timeout; tail: ${outputBuffer.slice(-200)}`);
   }, SPIKE_TIMEOUT_MS);
 }
 

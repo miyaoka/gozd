@@ -80,6 +80,12 @@ importers:
 
   apps/electron:
     dependencies:
+      '@gozd/proto':
+        specifier: workspace:*
+        version: link:../../packages/proto-ts
+      '@gozd/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       node-pty:
         specifier: 1.2.0-beta.14
         version: 1.2.0-beta.14

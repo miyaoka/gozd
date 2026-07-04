@@ -1,18 +1,19 @@
+import type { ElectronRpcBridge } from "@gozd/shared";
 import { contextBridge, ipcRenderer } from "electron";
-import { SPIKE_TEST_ARG, type PtySpawnParams, type SpikeApi } from "./ipc";
+import { SPIKE_TEST_ARG, type SpikeApi } from "./ipc";
 
-const api: SpikeApi = {
-  ptySpawn: (params: PtySpawnParams) => ipcRenderer.invoke("pty:spawn", params),
-  ptyWrite: (id, data) => ipcRenderer.send("pty:write", id, data),
-  ptyResize: (id, cols, rows) => ipcRenderer.send("pty:resize", id, cols, rows),
-  onPtyData: (cb) => {
-    ipcRenderer.on("pty:data", (_event, id: number, data: string) => cb(id, data));
+// RPC 本経路。renderer の shared/rpc がこの有無でシェル（Electron / Swift）を判定する
+const rpcBridge: ElectronRpcBridge = {
+  request: (path, bodyJson) => ipcRenderer.invoke("rpc:request", path, bodyJson),
+  onPush: (cb) => {
+    ipcRenderer.on("rpc:push", (_event, type: string, payload: unknown) => cb(type, payload));
   },
-  onPtyExit: (cb) => {
-    ipcRenderer.on("pty:exit", (_event, id: number, exitCode: number) => cb(id, exitCode));
-  },
+};
+
+const spikeApi: SpikeApi = {
   reportSpikeResult: (ok, detail) => ipcRenderer.send("spike:report", ok, detail),
   isTestMode: process.argv.includes(SPIKE_TEST_ARG),
 };
 
-contextBridge.exposeInMainWorld("gozdSpike", api);
+contextBridge.exposeInMainWorld("__gozdElectronRpc", rpcBridge);
+contextBridge.exposeInMainWorld("gozdSpike", spikeApi);

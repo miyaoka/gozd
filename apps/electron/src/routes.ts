@@ -7,16 +7,28 @@
 import {
   EchoRequest,
   EchoResponse,
+  FsReadDirRequest,
+  FsReadDirResponse,
+  FsReadFileAbsoluteRequest,
+  FsReadFileAbsoluteResponse,
+  FsReadFileRequest,
+  FsReadFileResponse,
+  FsStatRequest,
+  FsStatResponse,
   FsUnwatchAllRequest,
   FsUnwatchAllResponse,
   FsUnwatchRequest,
   FsUnwatchResponse,
   FsWatchRequest,
   FsWatchResponse,
+  FsWriteFileRequest,
+  FsWriteFileResponse,
   GitFetchRemotesRequest,
   GitFetchRemotesResponse,
   GitGithubIdentityRequest,
   GitGithubIdentityResponse,
+  GitStatusRequest,
+  GitStatusResponse,
   GitWorktreeListRequest,
   GitWorktreeListResponse,
   LoadAppConfigResponse,
@@ -41,6 +53,7 @@ import {
 } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { spawn, type IPty } from "node-pty";
+import { readDir, readFile, readFileAbsolute, stat, writeFile } from "./fs/fsOps";
 import { createFsWatchRegistry } from "./fs/fsWatchRegistry";
 import { fetchRemotes, gitStatusFull, worktreeList } from "./git/gitOps";
 import { GitCommandError } from "./git/gitRunner";
@@ -266,6 +279,49 @@ export function unwatchAllFsWatches(): void {
   fsWatchRegistry.unwatchAll();
 }
 
+function handleFsReadFile(body: unknown): unknown {
+  const req = FsReadFileRequest.fromJSON(body);
+  const info = readFile(req.dir, req.path);
+  return FsReadFileResponse.toJSON({
+    content: info.content,
+    isBinary: info.isBinary,
+    isDirectory: info.isDirectory,
+    notFound: info.notFound,
+  });
+}
+
+async function handleFsReadDir(body: unknown): Promise<unknown> {
+  const req = FsReadDirRequest.fromJSON(body);
+  return FsReadDirResponse.toJSON(await readDir(req.dir, req.path));
+}
+
+function handleFsReadFileAbsolute(body: unknown): unknown {
+  const req = FsReadFileAbsoluteRequest.fromJSON(body);
+  return FsReadFileAbsoluteResponse.toJSON({ result: readFileAbsolute(req.absolutePath) });
+}
+
+function handleFsWriteFile(body: unknown): unknown {
+  const req = FsWriteFileRequest.fromJSON(body);
+  writeFile(req.dir, req.path, req.data);
+  return FsWriteFileResponse.toJSON({});
+}
+
+function handleFsStat(body: unknown): unknown {
+  const req = FsStatRequest.fromJSON(body);
+  return FsStatResponse.toJSON(stat(req.dir, req.path));
+}
+
+async function handleGitStatus(body: unknown): Promise<unknown> {
+  const req = GitStatusRequest.fromJSON(body);
+  const status = await gitStatusFull(req.dir);
+  return GitStatusResponse.toJSON({
+    entries: status.statuses,
+    renameOldPaths: status.renameOldPaths,
+    latestMtime: status.latestMtime,
+    upstream: status.hasUpstream ? { ahead: status.ahead, behind: status.behind } : undefined,
+  });
+}
+
 async function handleFsWatch(body: unknown, ctx: RpcContext): Promise<unknown> {
   const req = FsWatchRequest.fromJSON(body);
   if (req.dir === "") throw new Error("fs/watch: dir is required");
@@ -297,9 +353,15 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/appConfig/save", handleAppConfigSave],
   ["/appState/load", handleAppStateLoad],
   ["/appState/save", handleAppStateSave],
+  ["/fs/readFile", handleFsReadFile],
+  ["/fs/readDir", handleFsReadDir],
+  ["/fs/readFileAbsolute", handleFsReadFileAbsolute],
+  ["/fs/writeFile", handleFsWriteFile],
+  ["/fs/stat", handleFsStat],
   ["/fs/watch", handleFsWatch],
   ["/fs/unwatch", handleFsUnwatch],
   ["/fs/unwatchAll", handleFsUnwatchAll],
+  ["/git/status", handleGitStatus],
   ["/git/worktreeList", handleGitWorktreeList],
   ["/git/githubIdentity", handleGitGithubIdentity],
   ["/git/fetchRemotes", handleGitFetchRemotes],

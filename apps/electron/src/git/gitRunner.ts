@@ -8,7 +8,7 @@
 //   ステップで移植する。terminal 由来 PATH の dev 起動では `git` が同一バイナリに解決される
 
 import { tryCatch } from "@gozd/shared";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -67,6 +67,43 @@ async function execGit(args: string[], cwd: string, env: Record<string, string>)
 
 export function runGit(args: string[], cwd: string): Promise<string> {
   return execGit(args, cwd, gozdGitEnv());
+}
+
+/**
+ * stdin にデータを流して git を実行する。`git check-ignore --stdin` 等の
+ * stdin バッチ経路用。
+ *
+ * `treatNonZeroExitAsSuccess`: check-ignore は「無視パスがあれば exit 0、無ければ exit 1」を
+ * 返す仕様のため、exit != 0 でも stderr が空なら成功として stdout を返す opt-in
+ * （このフラグは check-ignore 専用。Swift 版 runGitWithStdin と同契約）
+ */
+export function runGitWithStdin(
+  args: string[],
+  cwd: string,
+  stdin: string,
+  { treatNonZeroExitAsSuccess = false } = {},
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", args, { cwd, env: gozdGitEnv() });
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    child.stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
+    child.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
+      const stderr = Buffer.concat(stderrChunks).toString("utf8");
+      if (code === 0 || (treatNonZeroExitAsSuccess && stderr === "")) {
+        resolve(stdout);
+        return;
+      }
+      reject(new GitCommandError(code ?? -1, stderr));
+    });
+    // EPIPE (git が stdin を読み切る前に終了) は error event で拾われるが、
+    // stdin 側の書き込みエラーはプロセス失敗と独立に起こり得るため個別に握って close に任せる
+    child.stdin.on("error", () => {});
+    child.stdin.end(stdin);
+  });
 }
 
 export function runGitNonInteractive(args: string[], cwd: string): Promise<string> {

@@ -4,7 +4,7 @@
 import { tryCatch } from "@gozd/shared";
 import { statSync } from "node:fs";
 import { join } from "node:path";
-import { GitCommandError, runGit, runGitNonInteractive } from "./gitRunner";
+import { GitCommandError, runGit, runGitNonInteractive, runGitWithStdin } from "./gitRunner";
 import {
   parsePorcelainV2WithBranch,
   parseWorktreePorcelain,
@@ -29,6 +29,27 @@ export async function gitStatusFull(dir: string): Promise<StatusFull> {
   );
   const parsed = parsePorcelainV2WithBranch(stdout);
   return { ...parsed, latestMtime: latestMtimeOf(dir, Object.keys(parsed.statuses)) };
+}
+
+/**
+ * relPaths のうち gitignore で無視されるものを Set で返す。
+ *
+ * `git check-ignore --stdin -z` を使い、stdin に NUL 区切りでパスを流す。
+ * 出力も NUL 区切りで「無視されたパス」だけが返る。1 fork で全件まとめて判定できる。
+ * - dir 配下が git 管理されていない / git が無い場合は空 Set を返す（throw しない）
+ * - 入力空なら git を起動せず即時空 Set を返す
+ */
+export async function checkIgnore(dir: string, relPaths: string[]): Promise<Set<string>> {
+  if (relPaths.length === 0) return new Set();
+  const stdin = relPaths.map((path) => `${path}\0`).join("");
+  const result = await tryCatch(
+    runGitWithStdin(["check-ignore", "--stdin", "-z"], dir, stdin, {
+      treatNonZeroExitAsSuccess: true,
+    }),
+  );
+  // not a git repo / no .gitignore 等は exit code != 0。無視されたパス無しとして扱う
+  if (!result.ok) return new Set();
+  return new Set(result.value.split("\0").filter((path) => path !== ""));
 }
 
 /**

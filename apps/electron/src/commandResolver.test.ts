@@ -120,6 +120,26 @@ describe("createCommandResolver (fake shell)", () => {
     expect(resolver.resolve("git")).rejects.toThrow(/no markers/);
   });
 
+  test("alias / function 出力（exit 0 だが非実行パス）は silent に採用せず CommandResolveError", async () => {
+    // `command` builtin を function で shadow し、alias 定義風の文字列を marker 間に出させる
+    const shell = makeFakeShell(
+      "fake-shell-alias",
+      `exec /bin/sh -c "command() { echo 'git: aliased to hub'; }; $4"`,
+    );
+    const resolver = createCommandResolver({ shellOverride: shell });
+    expect(resolver.resolve("git")).rejects.toThrow(/non-executable or non-POSIX/);
+  });
+
+  test("execute bit 付き directory のパス出力は採用せず CommandResolveError", async () => {
+    // workDir 自体（x bit の立った directory）の絶対パスを command -v の出力として返させる
+    const shell = makeFakeShell(
+      "fake-shell-dir",
+      `exec /bin/sh -c "command() { echo '${workDir}'; }; $4"`,
+    );
+    const resolver = createCommandResolver({ shellOverride: shell });
+    expect(resolver.resolve("git")).rejects.toThrow(/non-executable or non-POSIX/);
+  });
+
   test("hang する shell は timeout で SIGKILL され CommandResolveError", async () => {
     const shell = makeFakeShell("fake-shell-hang", "sleep 30");
     const resolver = createCommandResolver({ shellOverride: shell, timeoutMs: 300 });
@@ -139,8 +159,11 @@ describe("createCommandResolver (fake shell)", () => {
 const REAL_SHELLS = ["/bin/zsh", "/bin/sh"].filter((shell) => existsSync(shell));
 
 describe.each(REAL_SHELLS)("createCommandResolver (実シェル %s)", (shell) => {
+  // timeoutMs は bun:test の per-test default timeout (5s) より短くする。resolver 側の
+  // SIGKILL + `timed out` 診断メッセージが bun のタイムアウトより先に発火することを保証し、
+  // rc が hang する環境でも失敗原因が読み取れるようにする
   test("hang せず絶対パスを解決できる", async () => {
-    const resolver = createCommandResolver({ shellOverride: shell });
+    const resolver = createCommandResolver({ shellOverride: shell, timeoutMs: 4000 });
     const path = await resolver.resolve("sh");
     expect(path).toBeDefined();
     expect(path!.startsWith("/")).toBe(true);

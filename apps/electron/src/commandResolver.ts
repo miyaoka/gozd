@@ -227,8 +227,10 @@ export interface CommandResolver {
    * shell spawn 失敗 / hang / 起動エラーは CommandResolveError を throw する。
    * 結果はキャッシュされる（positive / negative どちらも）。spawn 失敗はキャッシュしない */
   resolve(name: string): Promise<string | undefined>;
-  /** キャッシュ（positive / negative 両方）を無効化する。stale cache（mise / asdf upgrade で
-   * versioned path が消えた等）や「未インストールだったコマンドを後から入れた」ときに呼ぶ */
+  /** キャッシュ（positive / negative 両方）を無効化する。呼び出し元は
+   * `withResolvedCommand` の実行時 ENOENT 経路（positive cache stale = mise / asdf upgrade で
+   * versioned path が消えた等）のみ。negative cache（未インストール判定）を自動で
+   * 無効化する経路は無く、後からインストールされた CLI の認識にはアプリ再起動が必要 */
   invalidate(name: string): void;
 }
 

@@ -11,6 +11,7 @@
 
 import { tryCatch } from "@gozd/shared";
 import { execFile, spawn } from "node:child_process";
+import { delimiter, dirname } from "node:path";
 import { promisify } from "node:util";
 import { withResolvedCommand } from "../commandResolver";
 
@@ -43,10 +44,19 @@ function stderrText(error: ExecError): string {
   return typeof error.stderr === "string" ? error.stderr : error.stderr.toString("utf8");
 }
 
-function gozdGitEnv(): Record<string, string> {
+function gozdGitEnv(gitPath: string): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined) env[key] = value;
+  }
+  // packaged Finder 起動の最小 PATH では、git が PATH 探索する兄弟ツール
+  // （git-lfs の smudge/clean filter、osxkeychain 以外の credential helper 等）が
+  // 見つからない。解決済み git の dir を PATH 先頭に足し、同居ツールを掴めるようにする
+  // （Homebrew なら git-lfs 等は同じ /opt/homebrew/bin に居る）
+  const gitDir = dirname(gitPath);
+  const currentPath = env.PATH ?? "";
+  if (!currentPath.split(delimiter).includes(gitDir)) {
+    env.PATH = currentPath === "" ? gitDir : `${gitDir}${delimiter}${currentPath}`;
   }
   env.GIT_OPTIONAL_LOCKS = "0";
   return env;
@@ -61,10 +71,10 @@ function buildNonInteractiveEnv(base: Record<string, string>): Record<string, st
   return env;
 }
 
-async function execGit(args: string[], cwd: string, env: Record<string, string>): Promise<string> {
+async function execGit(args: string[], cwd: string): Promise<string> {
   return withResolvedCommand("git", async (gitPath) => {
     const result = await tryCatch(
-      execFileAsync(gitPath, args, { cwd, env, maxBuffer: GIT_MAX_BUFFER }),
+      execFileAsync(gitPath, args, { cwd, env: gozdGitEnv(gitPath), maxBuffer: GIT_MAX_BUFFER }),
     );
     if (result.ok) return result.value.stdout;
     const error = result.error as ExecError;
@@ -87,7 +97,7 @@ export async function runGitBuffer(args: string[], cwd: string): Promise<Buffer>
     const result = await tryCatch(
       execFileAsync(gitPath, args, {
         cwd,
-        env: gozdGitEnv(),
+        env: gozdGitEnv(gitPath),
         maxBuffer: GIT_MAX_BUFFER,
         encoding: "buffer",
       }),
@@ -108,7 +118,7 @@ export async function runGitBuffer(args: string[], cwd: string): Promise<Buffer>
 export async function runGitAllowExit1(args: string[], cwd: string): Promise<string> {
   return withResolvedCommand("git", async (gitPath) => {
     const result = await tryCatch(
-      execFileAsync(gitPath, args, { cwd, env: gozdGitEnv(), maxBuffer: GIT_MAX_BUFFER }),
+      execFileAsync(gitPath, args, { cwd, env: gozdGitEnv(gitPath), maxBuffer: GIT_MAX_BUFFER }),
     );
     if (result.ok) return result.value.stdout;
     const error = result.error as ExecError;
@@ -121,7 +131,7 @@ export async function runGitAllowExit1(args: string[], cwd: string): Promise<str
 }
 
 export function runGit(args: string[], cwd: string): Promise<string> {
-  return execGit(args, cwd, gozdGitEnv());
+  return execGit(args, cwd);
 }
 
 /**
@@ -151,7 +161,7 @@ function runGitWithStdinOnce(
   { treatNonZeroExitAsSuccess = false } = {},
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(gitPath, args, { cwd, env: gozdGitEnv() });
+    const child = spawn(gitPath, args, { cwd, env: gozdGitEnv(gitPath) });
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
     child.stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
@@ -187,7 +197,7 @@ function runGitWithStdinOnce(
  */
 export async function runGitNonInteractive(args: string[], cwd: string): Promise<string> {
   return withResolvedCommand("git", async (gitPath) => {
-    const env = buildNonInteractiveEnv(gozdGitEnv());
+    const env = buildNonInteractiveEnv(gozdGitEnv(gitPath));
     const traceEnabled = process.env.GOZD_GIT_TRACE === "1";
     if (traceEnabled) env.GIT_TRACE = "1";
     const argsText = args.join(" ");

@@ -6,7 +6,7 @@
 // （detached = setsid 相当が効いている）ことを検証する。Swift 版 CommandResolverTests の対応物。
 
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CommandResolveError, createCommandResolver } from "./commandResolver";
@@ -134,8 +134,11 @@ describe("createCommandResolver (fake shell)", () => {
 
 // 実シェルの `-i -l` は controlling tty が無いと job control 初期化で hang し得る
 // （detached: true = setsid で回避している）。回避が効いていることを実シェルで検証する。
-// 解決対象は「どの環境にも確実に存在し alias されにくい」sh を使う
-describe.each(["/bin/zsh", "/bin/sh"])("createCommandResolver (実シェル %s)", (shell) => {
+// 解決対象は「どの環境にも確実に存在し alias されにくい」sh を使う。
+// CI（Linux runner）には /bin/zsh が無いため、存在するシェルだけを対象にする
+const REAL_SHELLS = ["/bin/zsh", "/bin/sh"].filter((shell) => existsSync(shell));
+
+describe.each(REAL_SHELLS)("createCommandResolver (実シェル %s)", (shell) => {
   test("hang せず絶対パスを解決できる", async () => {
     const resolver = createCommandResolver({ shellOverride: shell });
     const path = await resolver.resolve("sh");

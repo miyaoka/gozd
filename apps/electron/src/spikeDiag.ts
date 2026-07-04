@@ -70,11 +70,18 @@ async function diagGit(): Promise<void> {
   const helperConfig = await tryCatch(
     execFileAsync(gitPath, ["config", "--show-origin", "--get-all", "credential.helper"]),
   );
-  log(
-    helperConfig.ok
-      ? `credential.helper config -> ${helperConfig.value.stdout.trim().replaceAll("\n", " | ")}`
-      : "credential.helper config -> (not set)",
-  );
+  if (helperConfig.ok) {
+    log(`credential.helper config -> ${helperConfig.value.stdout.trim().replaceAll("\n", " | ")}`);
+    return;
+  }
+  const configError = helperConfig.error as Error & { code?: number | string };
+  // exit 1 はキー未設定の正常系（git config の規約）。それ以外（設定ファイル破損 /
+  // 権限エラー等）は診断ツールの目的上、詳細を隠さずそのまま残す
+  if (configError.code === 1) {
+    log("credential.helper config -> (not set)");
+    return;
+  }
+  log(`credential.helper config -> FAILED: ${configError.message}`);
 }
 
 /** 起動時 background fetch と同一の production 経路で fetch を再現する */

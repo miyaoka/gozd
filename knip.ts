@@ -14,6 +14,11 @@ const config: KnipConfig = {
   ignore: ["**/.build/**", "packages/proto-ts/src/generated/**"],
   workspaces: {
     ".": {},
+    "apps/electron": {
+      // esbuild (build.mjs) が bundle するエントリポイント。import graph の根が
+      // package.json の main (dist/main.cjs) 側にあるため、knip からは unused に見える
+      entry: ["src/main.ts", "src/preload.ts", "src/renderer/main.ts"],
+    },
     "apps/renderer": {
       ignoreDependencies: [
         // unplugin-icons が `~icons/lucide/*` virtual module の icon data source として

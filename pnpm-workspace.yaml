@@ -4,8 +4,10 @@ packages:
 
 allowBuilds:
   '@tailwindcss/oxide': true
+  electron: true
   esbuild: true
   lefthook: true
+  node-pty: true
   unrs-resolver: true
 
 catalog:

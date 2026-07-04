@@ -23,14 +23,25 @@ import {
   FsWatchResponse,
   FsWriteFileRequest,
   FsWriteFileResponse,
+  GitDefaultBranchRequest,
+  GitDefaultBranchResponse,
   GitFetchRemotesRequest,
   GitFetchRemotesResponse,
   GitGithubIdentityRequest,
   GitGithubIdentityResponse,
+  GitLogRequest,
+  GitLogResponse,
+  GitMergeBaseRequest,
+  GitMergeBaseResponse,
+  GitResetMixedRequest,
+  GitResetMixedResponse,
+  GitRevReachableRequest,
+  GitRevReachableResponse,
   GitStatusRequest,
   GitStatusResponse,
   GitWorktreeListRequest,
   GitWorktreeListResponse,
+  SortMode,
   LoadAppConfigResponse,
   LoadAppStateResponse,
   PtyKillRequest,
@@ -55,6 +66,8 @@ import { tryCatch } from "@gozd/shared";
 import { spawn, type IPty } from "node-pty";
 import { readDir, readFile, readFileAbsolute, stat, writeFile } from "./fs/fsOps";
 import { createFsWatchRegistry } from "./fs/fsWatchRegistry";
+import { resolveStartPoint } from "./git/gitBranch";
+import { log, mergeBase, resetMixed, revReachable } from "./git/gitLog";
 import { fetchRemotes, gitStatusFull, worktreeList } from "./git/gitOps";
 import { GitCommandError } from "./git/gitRunner";
 import type { StatusFull } from "./git/porcelain";
@@ -341,6 +354,43 @@ function handleFsUnwatchAll(body: unknown): unknown {
   return FsUnwatchAllResponse.toJSON({ unwatchedCount: fsWatchRegistry.unwatchAll() });
 }
 
+async function handleGitLog(body: unknown): Promise<unknown> {
+  const req = GitLogRequest.fromJSON(body);
+  const result = await log({
+    dir: req.dir,
+    maxCount: req.maxCount,
+    firstParentOnly: req.firstParentOnly,
+    currentBranchOnly: req.currentBranchOnly,
+    sortMode: req.sortMode === SortMode.SORT_MODE_DATE ? "date" : "topo",
+  });
+  return GitLogResponse.toJSON(result);
+}
+
+async function handleGitMergeBase(body: unknown): Promise<unknown> {
+  const req = GitMergeBaseRequest.fromJSON(body);
+  return GitMergeBaseResponse.toJSON({ mergeBaseOid: await mergeBase(req.dir, req.hash1, req.hash2) });
+}
+
+async function handleGitRevReachable(body: unknown): Promise<unknown> {
+  const req = GitRevReachableRequest.fromJSON(body);
+  return GitRevReachableResponse.toJSON({ reachable: await revReachable(req.dir, req.hash) });
+}
+
+async function handleGitResetMixed(body: unknown): Promise<unknown> {
+  const req = GitResetMixedRequest.fromJSON(body);
+  await resetMixed(req.dir, req.hash);
+  return GitResetMixedResponse.toJSON({});
+}
+
+async function handleGitDefaultBranch(body: unknown): Promise<unknown> {
+  const req = GitDefaultBranchRequest.fromJSON(body);
+  // GitCommandError（origin/HEAD 未設定 / detached HEAD 等のドメイン失敗）のみ空文字列に倒し、
+  // spawn 失敗（git CLI 解決失敗）は throw して renderer に通知する
+  const result = await tryCatch(resolveStartPoint(req.dir));
+  if (!result.ok && !(result.error instanceof GitCommandError)) throw result.error;
+  return GitDefaultBranchResponse.toJSON({ branch: result.ok ? result.value : "" });
+}
+
 function handleWindowSetServerPanelOpen(): unknown {
   // renderer が SSOT として持つパネル開閉状態を native titlebar トグルへミラーする RPC。
   // Electron shell には対応する native toolbar がまだ無いため受理のみ
@@ -362,6 +412,11 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/fs/unwatch", handleFsUnwatch],
   ["/fs/unwatchAll", handleFsUnwatchAll],
   ["/git/status", handleGitStatus],
+  ["/git/log", handleGitLog],
+  ["/git/mergeBase", handleGitMergeBase],
+  ["/git/revReachable", handleGitRevReachable],
+  ["/git/resetMixed", handleGitResetMixed],
+  ["/git/defaultBranch", handleGitDefaultBranch],
   ["/git/worktreeList", handleGitWorktreeList],
   ["/git/githubIdentity", handleGitGithubIdentity],
   ["/git/fetchRemotes", handleGitFetchRemotes],

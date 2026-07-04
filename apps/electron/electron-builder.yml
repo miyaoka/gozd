@@ -27,8 +27,12 @@ asar: false
 # node-pty prebuild は Electron でそのまま動作確認済み（dev 経路と同一バイナリ）。
 # rebuild すると node-gyp コンパイルが走り prebuild の意味が消えるため無効化
 npmRebuild: false
-# Electron 本体は pnpm が展開済みの dist を使う（GitHub からの zip ダウンロード回避）
-electronDist: node_modules/electron/dist
+# Electron 本体は pnpm が展開済みの dist を使う（GitHub からの zip ダウンロード回避）。
+# nodeLinker: hoisted により electron は repo root の node_modules に単一配置される
+# （このパスは projectDir = apps/electron 相対）。dist の実在は build:app 冒頭の
+# ensureElectronDist.ts が保証する（pnpm は fresh install で electron の postinstall を
+# 省略することがあり、その場合 dist が展開されない）
+electronDist: ../../node_modules/electron/dist
 extraResources:
   - from: resources/bin
     to: app/bin

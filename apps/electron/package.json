@@ -7,7 +7,7 @@
   "main": "dist/main.cjs",
   "scripts": {
     "build": "bun ./build.ts",
-    "build:app": "pnpm --filter @gozd/renderer build && pnpm build && iconutil -c icns build/icon.iconset -o build/icon.icns && electron-builder --dir",
+    "build:app": "bun ./ensureElectronDist.ts && pnpm --filter @gozd/renderer build && pnpm build && iconutil -c icns build/icon.iconset -o build/icon.icns && electron-builder --dir",
     "dev": "pnpm build && electron .",
     "start": "electron .",
     "spike": "pnpm build && GOZD_SPIKE_TEST=1 electron .",

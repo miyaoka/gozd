@@ -16,7 +16,7 @@ import { isAllZeroHex, validateRev } from "./gitValidate";
  * `%H` hash / `%h` shortHash / `%P` parents / `%an` author /
  * `%at` author date (unix epoch) / `%s` subject / `%b` body / `%D` refs
  */
-const LOG_FORMAT = "%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e";
+export const LOG_FORMAT = "%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%s%x1f%b%x1f%D%x1e";
 
 export interface CommitInfo {
   hash: string;

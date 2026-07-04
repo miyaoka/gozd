@@ -32,10 +32,16 @@ import {
   GitDiffExpandLinesResponse,
   GitDiffHunksRequest,
   GitDiffHunksResponse,
+  GitBlameLineRequest,
+  GitBlameLineResponse,
   GitFetchRemotesRequest,
   GitFetchRemotesResponse,
   GitGithubIdentityRequest,
   GitGithubIdentityResponse,
+  GitLogFileRequest,
+  GitLogFileResponse,
+  GitLogLineRequest,
+  GitLogLineResponse,
   GitLogRequest,
   GitLogResponse,
   GitLsTreeRequest,
@@ -83,6 +89,7 @@ import { tryCatch } from "@gozd/shared";
 import { spawn, type IPty } from "node-pty";
 import { readDir, readFile, readFileAbsolute, stat, writeFile } from "./fs/fsOps";
 import { createFsWatchRegistry } from "./fs/fsWatchRegistry";
+import { blameLine, logFile, logLine } from "./git/gitBlame";
 import { resolveStartPoint } from "./git/gitBranch";
 import { diffHunks, expandDiffLines, type DiffHunkLineKind } from "./git/gitDiff";
 import { log, mergeBase, resetMixed, revReachable } from "./git/gitLog";
@@ -418,6 +425,35 @@ async function handleGitDefaultBranch(body: unknown): Promise<unknown> {
   return GitDefaultBranchResponse.toJSON({ branch: result.ok ? result.value : "" });
 }
 
+async function handleGitBlameLine(body: unknown): Promise<unknown> {
+  const req = GitBlameLineRequest.fromJSON(body);
+  const commit = await blameLine({ dir: req.dir, relPath: req.relPath, rev: req.rev, line: req.line });
+  return GitBlameLineResponse.toJSON({ commit });
+}
+
+async function handleGitLogLine(body: unknown): Promise<unknown> {
+  const req = GitLogLineRequest.fromJSON(body);
+  const commits = await logLine({
+    dir: req.dir,
+    relPath: req.relPath,
+    rev: req.rev,
+    line: req.line,
+    maxCount: req.maxCount,
+  });
+  return GitLogLineResponse.toJSON({ commits });
+}
+
+async function handleGitLogFile(body: unknown): Promise<unknown> {
+  const req = GitLogFileRequest.fromJSON(body);
+  const commits = await logFile({
+    dir: req.dir,
+    relPath: req.relPath,
+    rev: req.rev,
+    maxCount: req.maxCount,
+  });
+  return GitLogFileResponse.toJSON({ commits });
+}
+
 const DIFF_LINE_KIND_PROTO: Record<DiffHunkLineKind, DiffLineKind> = {
   context: DiffLineKind.DIFF_LINE_KIND_CONTEXT,
   added: DiffLineKind.DIFF_LINE_KIND_ADDED,
@@ -545,6 +581,9 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/git/prDiffFiles", handleGitPrDiffFiles],
   ["/git/readBlob", handleGitReadBlob],
   ["/git/lsTree", handleGitLsTree],
+  ["/git/blameLine", handleGitBlameLine],
+  ["/git/logLine", handleGitLogLine],
+  ["/git/logFile", handleGitLogFile],
   ["/git/mergeBase", handleGitMergeBase],
   ["/git/revReachable", handleGitRevReachable],
   ["/git/resetMixed", handleGitResetMixed],

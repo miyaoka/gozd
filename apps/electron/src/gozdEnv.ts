@@ -21,6 +21,9 @@ const repoRoot = resolve(__dirname, "..", "..", "..");
 
 export const socketPath = join(tmpdir(), `gozd-${CHANNEL}.sock`);
 export const claudeSettingsPath = join(tmpdir(), `gozd-${CHANNEL}-claude-settings.json`);
+// gozd-cli が GOZD_COLD_START 時に書き出す launch request の置き場。channel 名は
+// CLI 側が GOZD_SOCKET_PATH のファイル名から導出するため socket と自動で揃う
+export const launchRequestDir = join(tmpdir(), `gozd-${CHANNEL}-launch`);
 export const cliPath = join(repoRoot, "apps", "native", ".build", "debug", "gozd-cli");
 export const zdotdir = join(repoRoot, "apps", "native", "Resources", "zsh");
 

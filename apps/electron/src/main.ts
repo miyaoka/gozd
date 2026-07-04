@@ -3,9 +3,11 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeClaudeHooksSettings } from "./claudeHooksSettings";
 import { registerFileServerProtocol } from "./fileServer";
-import { claudeSettingsPath, socketPath } from "./gozdEnv";
+import { claudeSettingsPath, launchRequestDir, socketPath } from "./gozdEnv";
 import { SPIKE_TEST_ARG } from "./ipc";
+import { consumeLaunchRequest } from "./launchRequest";
 import { installAppMenu } from "./menu";
+import { buildGozdOpenPayload } from "./openTarget";
 import { createRpcDispatcher, type PushFn } from "./rpcDispatcher";
 import { killAllPtys, routes, unwatchAllFsWatches } from "./routes";
 import { createSocketMessageHandler } from "./socketMessages";
@@ -137,6 +139,19 @@ app.whenReady().then(() => {
     window.webContents.send("rpc:push", type, payload);
   };
   socketServer = startSocketServer(socketPath, createSocketMessageHandler(socketPush));
+
+  // CLI cold start の launch request を消費して gozdOpen を push する
+  // （Swift 版 performInitialOpen 対応）。push が renderer の購読登録より先に飛ぶと
+  // 落ちるため、page load 完了まで待つ。once なのは Vite フルリロード等の再 load で
+  // 再発火させないため（consume 済みなので no-op だが、意味論を Swift の
+  // 「起動時 1 回」に揃える）
+  window.webContents.once("did-finish-load", () => {
+    const target = consumeLaunchRequest(launchRequestDir);
+    if (target === undefined) return;
+    void buildGozdOpenPayload(target).then((payload) => {
+      socketPush("gozdOpen", payload);
+    });
+  });
 
   // 起動検証: 指定 ms 後にスクリーンショットを撮って正常終了する
   // （実 renderer の boot 確認など、spike report 経路が無いページ用）

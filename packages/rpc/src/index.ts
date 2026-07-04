@@ -144,7 +144,12 @@ export type {
   PtyWriteRequest,
   PtyWriteResponse,
 } from "./pty";
-export type { ServerAttribution, ServerEntry, ServerListRequest, ServerListResponse } from "./server";
+export type {
+  ServerAttribution,
+  ServerEntry,
+  ServerListRequest,
+  ServerListResponse,
+} from "./server";
 export type {
   ShellCommandInstallRequest,
   ShellCommandInstallResponse,

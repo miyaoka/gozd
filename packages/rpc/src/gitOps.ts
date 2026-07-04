@@ -249,7 +249,13 @@ export interface GitRevReachableResponse {
 /** gh 経路の失敗種別。`ok=false` のとき renderer 側で文言を区別するために使う。
  * "ok" は ok=true 時のデフォルト値で、`ok=false` 時に "ok" のまま来ることはない。
  * main 側 `classifyGhStderr` の分類文字列と同一（境界での変換なし）。 */
-export type GhErrorKind = "ok" | "rateLimit" | "unauthenticated" | "repoNotFound" | "network" | "other";
+export type GhErrorKind =
+  | "ok"
+  | "rateLimit"
+  | "unauthenticated"
+  | "repoNotFound"
+  | "network"
+  | "other";
 
 // gitPrList: gh pr list
 export interface GitPrListRequest {

@@ -192,6 +192,64 @@ export function createTaskStore(configDir: string) {
     await save(dir, fileList);
   }
 
+  /** Claude session-start hook を Task に attach する。
+   *
+   * 優先順位（Swift attachSession と同一意味論）:
+   * (1) 既に sessionId が一致する task → resume 確定経路。closedByUser を false に戻すのみ
+   * (2) 同 worktreeDir の sessionId 空 task に attach。pick は createdAt 最大（= 最新）、
+   *     tie-break は id 辞書順最大（createdAt は秒粒度なので同値がありうる。tie-break を
+   *     入れないと入力順序依存で非決定的になる）。closed でも sessionId が空なら candidate
+   *     に含め、pick 時に false へ倒す。**closed だが sessionId を保持する（= resume 可能な）
+   *     task は candidate にしない**（新 session が既存 task の sid を奪う hijack はしない）
+   * (3) 該当なし → 新規 task を作成し sessionId を入れる（Claude 直接起動経路） */
+  async function attachSession(dir: string, sessionId: string, worktreeDir: string): Promise<void> {
+    const fileList = await loadFile(dir);
+    const existing = fileList.tasks.find((t) => t.sessionId === sessionId);
+    if (existing !== undefined) {
+      if (existing.closedByUser) {
+        existing.closedByUser = false;
+        await save(dir, fileList);
+      }
+      return;
+    }
+    const candidates = fileList.tasks.filter((t) => t.worktreeDir === worktreeDir && t.sessionId === "");
+    const [pick] = candidates.toSorted((a, b) => {
+      if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
+      return a.id < b.id ? 1 : -1;
+    });
+    if (pick !== undefined) {
+      pick.sessionId = sessionId;
+      if (pick.closedByUser) pick.closedByUser = false;
+    } else {
+      fileList.tasks.push({
+        id: randomUUID(),
+        worktreeDir,
+        ghRef: undefined,
+        createdAt: iso8601Seconds(),
+        sessionId,
+        closedByUser: false,
+        userTitle: "",
+        terminalTitle: "",
+        ghTitle: "",
+      });
+    }
+    await save(dir, fileList);
+  }
+
+  /** resume 失敗検出経路（`claude --resume` が transcript 不在等で error 終了）で呼ぶ。
+   * task 本体は削除せず sessionId だけ空にし、次のクリックで素の claude 起動に流す。
+   * markClosedByUser=true（removeByPty 経路: pane close + SessionStart 不達）は
+   * closedByUser も立てる。false（session-start fallback 経路）は据え置き —
+   * 直後の attachSession が候補ピックで同一 task に転移する */
+  async function clearDeadSession(dir: string, sessionId: string, markClosedByUser: boolean): Promise<void> {
+    const fileList = await loadFile(dir);
+    const task = fileList.tasks.find((t) => t.sessionId === sessionId);
+    if (task === undefined) return;
+    task.sessionId = "";
+    if (markClosedByUser) task.closedByUser = true;
+    await save(dir, fileList);
+  }
+
   /** SessionEnd hook / terminal close 由来。task 本体は削除せず sessionId も保持
    * （次回 `claude --resume` の起点）。closedByUser=true でサイドバー表示を closed に
    * 切り替える。sessionId 不一致なら no-op（silent return、Swift 版と同じ） */
@@ -218,6 +276,8 @@ export function createTaskStore(configDir: string) {
     setTerminalTitle,
     setUserTitle,
     remove,
+    attachSession,
+    clearDeadSession,
     detachSession,
     removeByWorktree,
   };

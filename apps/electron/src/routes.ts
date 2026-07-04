@@ -161,8 +161,10 @@ import { fetchRemotes, gitStatusFull, worktreeList } from "./git/gitOps";
 import { GitCommandError } from "./git/gitRunner";
 import type { StatusFull } from "./git/porcelain";
 import { issueList, prList, repoOwnerName, viewer, type GhErrorKindName } from "./git/github";
+import { buildPtyEnv } from "./gozdEnv";
 import { buildGozdOpenPayload } from "./openTarget";
 import { loadProjectConfig, saveProjectConfig } from "./projectConfigStore";
+import { clearAssociations, consumeExpectedResumeSid, registerSpawn, sessionIdFor, unregisterExit } from "./ptySessions";
 import type { PushFn, RpcContext, RpcHandler } from "./rpcDispatcher";
 import { scanListenServers } from "./serverList";
 import { installShellCommand, uninstallShellCommand } from "./shellCommandOps";
@@ -173,44 +175,12 @@ import { checkEngine, launch as voicevoxLaunch, listSpeakers, speak } from "./vo
 const ptys = new Map<number, IPty>();
 let nextPtyId = 1;
 
-// PTY ⇔ Claude session の紐付け（Swift PTYRegistry の worktreePathById / sessionIdById /
-// explicitlyRemovedPtyIds に対応）。
-//
-// - worktreePathById: spawn 時の worktree_path。hook 受信時 / removeByPty の projectKey 解決に使う
-// - sessionIdById: session-start hook で観測した直近 sessionId。**hooks 統合が未実装のため
-//   現状 populate されない**（removeByPty は常に「素 PTY pane close」経路に倒れる）
-// - expectedResumeSid（GOZD_RESUME_CLAUDE_SESSION）は意図的に**記録しない**。SessionStart
-//   hook の consume 経路なしに記録すると、resume 成功後の pane close を「resume 失敗」と
-//   誤判定して task の sessionID を破壊する（tasks.json は Swift shell と共有のため実害が出る）。
-//   hooks 統合ステップで consume 経路と同時に移植する
-const worktreePathById = new Map<number, string>();
-const sessionIdById = new Map<number, string>();
-// 削除 RPC で紐付けが消された ptyId 集合。late hook の観察ログ分岐用（hooks 統合で参照）
-const explicitlyRemovedPtyIds = new Set<number>();
-
 /** will-quit で全 PTY を始末する */
 export function killAllPtys(): void {
   for (const pty of ptys.values()) {
     pty.kill();
   }
   ptys.clear();
-}
-
-// Swift PTYManager が注入するターミナル環境変数と同一（docs/architecture.md）。
-// GOZD_PTY_ID / GOZD_SOCKET_PATH 等の gozd 固有変数は hooks 統合ステップで移植する
-const TERMINAL_ENV = {
-  TERM: "xterm-256color",
-  COLORTERM: "truecolor",
-  TERM_PROGRAM: "gozd",
-  FORCE_HYPERLINK: "1",
-};
-
-function buildPtyEnv(overlay: Record<string, string>): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined) env[key] = value;
-  }
-  return { ...env, ...TERMINAL_ENV, ...overlay };
 }
 
 function handlePtySpawn(body: unknown, ctx: RpcContext): unknown {
@@ -231,20 +201,20 @@ function handlePtySpawn(body: unknown, ctx: RpcContext): unknown {
     cols: req.cols,
     rows: req.rows,
     cwd: req.dir,
-    env: buildPtyEnv(req.env),
+    env: buildPtyEnv(req.env, id),
   });
   ptys.set(id, pty);
-  if (req.worktreePath !== "") {
-    worktreePathById.set(id, req.worktreePath);
-  }
+  // GOZD_RESUME_CLAUDE_SESSION（renderer が resume 起動時に載せる）を expected sid として
+  // 記録する。SessionStart hook 着弾時に consume され、removeByPty 時点で残っていれば
+  // resume 失敗（SessionStart 不達）と判定する
+  registerSpawn(id, req.worktreePath, req.env.GOZD_RESUME_CLAUDE_SESSION ?? "");
 
   pty.onData((text) => {
     ctx.push("ptyText", { id, text });
   });
   pty.onExit(({ exitCode, signal }) => {
     ptys.delete(id);
-    worktreePathById.delete(id);
-    sessionIdById.delete(id);
+    unregisterExit(id);
     // Swift PTYExitReason と同形の payload（terminal/rpc.ts の PtyExitReason 契約）
     const reason =
       signal !== undefined && signal !== 0
@@ -865,12 +835,44 @@ function handleWindowSetTitleContext(body: unknown): unknown {
 
 async function handleClaudeSessionRemoveByPty(body: unknown, ctx: RpcContext): Promise<unknown> {
   const req = ClaudeSessionRemoveByPtyRequest.fromJSON(body);
-  // Swift 版は expectedResumeSid 残存による resume 失敗検出も担うが、その記録は hooks
-  // 統合と同時に移植する（冒頭の紐付けマップのコメント参照）。現状は live session の
-  // detach と紐付けクリアのみを行う（sessionIdById は hooks 未統合のため常に空 =
-  // 「素 PTY pane close」の正常経路に倒れる）
-  const liveSid = sessionIdById.get(req.ptyId) ?? "";
+  // Swift handleClaudeSessionRemoveByPty と同一意味論。sessionId / worktreePath 紐付けは
+  // 最後に必ずクリアする（tasks 側の cleanup が失敗しても late session-start hook を
+  // 弾く必要があるため、各 taskStore 呼び出しは個別 tryCatch で notify に倒す）
+  let removedSessionId = "";
+
+  const liveSid = sessionIdFor(req.ptyId);
+  const expectedSid = consumeExpectedResumeSid(req.ptyId);
+
+  // SessionStart 着弾時点で expected は必ず消費されるため、removeByPty 時点で
+  // 「expected と live が同居」は構造的に発生し得ない。到達したら consume 不変条件が
+  // 壊れている兆候なので観察ログを残す（Swift は precondition で fatal にするが、
+  // Electron main の fatal はダイアログ停止でハングに見えるため error ログに留める）
+  if (expectedSid !== "" && liveSid !== "") {
+    console.error(
+      `[removeByPty] expectedSid (${expectedSid}) and liveSid (${liveSid}) both non-empty; SessionStart consume invariant broken`,
+    );
+  }
+
+  if (expectedSid !== "") {
+    // SessionStart hook が一度も着弾しないまま pane が閉じられた = `claude --resume` が
+    // error 終了し zsh fallback も SessionStart 不達のまま終わったケース。sessionId を
+    // 空に書き換え、次のクリックで素の claude 起動に流す。pane close の事実を
+    // シグナル化するため markClosedByUser=true
+    const cleared = await tryCatch(taskStore.clearDeadSession(req.worktreePath, expectedSid, true));
+    if (!cleared.ok) {
+      console.error(`[TaskStore] clearDeadSession failed: ${cleared.error}`);
+      ctx.push("notify", {
+        type: "error",
+        source: "task-store",
+        message: "Failed to clear dead session from task after resume failure",
+        detail: String(cleared.error),
+        dir: req.worktreePath,
+      });
+    }
+  }
+
   if (liveSid !== "") {
+    removedSessionId = liveSid;
     // ターミナル close は session-end hook を発火させないため、ここで明示的に
     // detachSession を呼び closed_by_user=true を立てる。task 本体と sessionID は保持
     const result = await tryCatch(taskStore.detachSession(req.worktreePath, liveSid));
@@ -884,12 +886,15 @@ async function handleClaudeSessionRemoveByPty(body: unknown, ctx: RpcContext): P
         dir: req.worktreePath,
       });
     }
+  } else if (expectedSid !== "") {
+    // live なし + expected あり（純粋な resume 失敗）。removedSessionId に expected を
+    // 載せて renderer に「何かは消した」と伝え、所属 repo の refetch を促す
+    removedSessionId = expectedSid;
   }
-  // 削除 RPC 受信後に到達する late hook を弾くための紐付けクリア（hooks 統合で参照）
-  worktreePathById.delete(req.ptyId);
-  sessionIdById.delete(req.ptyId);
-  explicitlyRemovedPtyIds.add(req.ptyId);
-  return ClaudeSessionRemoveByPtyResponse.toJSON({ removedSessionId: liveSid });
+  // else: live も expected もない素 PTY pane の close。正常経路でログ価値が薄い
+
+  clearAssociations(req.ptyId);
+  return ClaudeSessionRemoveByPtyResponse.toJSON({ removedSessionId });
 }
 
 function handleClaudeSessionReadLog(body: unknown): unknown {

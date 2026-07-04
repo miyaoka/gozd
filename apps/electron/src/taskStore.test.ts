@@ -165,6 +165,133 @@ describe("TaskStore", () => {
     expect(store.setUserTitle(dir, "no-such-id", "x")).rejects.toThrow(TaskNotFoundError);
   });
 
+  test("attachSession: 既に同 sessionID の task があれば closed=false に戻して no-op (resume 復帰)", async () => {
+    const { store, dir, configDir } = setup();
+    await writeTasksFile(configDir, dir, [
+      makeTask({ id: "1", worktreeDir: "/wt/a", sessionId: "sid-1", closedByUser: true, ghTitle: "keep" }),
+    ]);
+    await store.attachSession(dir, "sid-1", "/wt/a");
+    const tasks = await store.list(dir);
+    expect(tasks.length).toBe(1);
+    expect(tasks[0]?.closedByUser).toBe(false);
+    expect(tasks[0]?.ghTitle).toBe("keep");
+  });
+
+  test("attachSession: sessionId 空の最新 task に attach + closed=false を立てる", async () => {
+    const { store, dir, configDir } = setup();
+    await writeTasksFile(configDir, dir, [
+      makeTask({ id: "old", worktreeDir: "/wt/a", createdAt: "2026-07-01T00:00:00Z" }),
+      makeTask({ id: "new", worktreeDir: "/wt/a", createdAt: "2026-07-02T00:00:00Z", closedByUser: true }),
+    ]);
+    await store.attachSession(dir, "sid-new", "/wt/a");
+    const tasks = await store.list(dir);
+    const picked = tasks.find((t) => t.id === "new");
+    expect(picked?.sessionId).toBe("sid-new");
+    expect(picked?.closedByUser).toBe(false);
+    expect(tasks.find((t) => t.id === "old")?.sessionId).toBe("");
+  });
+
+  test("attachSession: createdAt 同値なら id 辞書順最大を pick する (tie-break)", async () => {
+    const { store, dir, configDir } = setup();
+    await writeTasksFile(configDir, dir, [
+      makeTask({ id: "aaa", worktreeDir: "/wt/a", createdAt: "2026-07-01T00:00:00Z" }),
+      makeTask({ id: "zzz", worktreeDir: "/wt/a", createdAt: "2026-07-01T00:00:00Z" }),
+    ]);
+    await store.attachSession(dir, "sid-1", "/wt/a");
+    const tasks = await store.list(dir);
+    expect(tasks.find((t) => t.id === "zzz")?.sessionId).toBe("sid-1");
+    expect(tasks.find((t) => t.id === "aaa")?.sessionId).toBe("");
+  });
+
+  test("attachSession: 該当 task 無しなら新規 task を作成 (Claude 直接起動経路)", async () => {
+    const { store, dir } = setup();
+    await store.attachSession(dir, "sid-direct", "/wt/a");
+    const tasks = await store.list(dir);
+    expect(tasks.length).toBe(1);
+    expect(tasks[0]?.sessionId).toBe("sid-direct");
+    expect(tasks[0]?.worktreeDir).toBe("/wt/a");
+    expect(tasks[0]?.ghRef).toBeUndefined();
+  });
+
+  test("attachSession + clearDeadSession(markClosedByUser=false): 自動転移で同一 task に新 sid attach", async () => {
+    const { store, dir, configDir } = setup();
+    await writeTasksFile(configDir, dir, [
+      makeTask({ id: "1", worktreeDir: "/wt/a", sessionId: "sid-dead", ghTitle: "task body" }),
+    ]);
+    // resume 失敗 → sessionId を空に戻す（fallback 経路なので closed は据え置き）
+    await store.clearDeadSession(dir, "sid-dead", false);
+    // 直後の attachSession(新 sid) が同一 task を候補ピックで拾う
+    await store.attachSession(dir, "sid-new", "/wt/a");
+    const tasks = await store.list(dir);
+    expect(tasks.length).toBe(1);
+    expect(tasks[0]?.sessionId).toBe("sid-new");
+    expect(tasks[0]?.ghTitle).toBe("task body");
+    expect(tasks[0]?.closedByUser).toBe(false);
+  });
+
+  test("attachSession: 他 worktree の sessionId 空 task は attach 対象外", async () => {
+    const { store, dir, configDir } = setup();
+    await writeTasksFile(configDir, dir, [makeTask({ id: "1", worktreeDir: "/wt/other" })]);
+    await store.attachSession(dir, "sid-1", "/wt/a");
+    const tasks = await store.list(dir);
+    expect(tasks.length).toBe(2);
+    expect(tasks.find((t) => t.id === "1")?.sessionId).toBe("");
+    expect(tasks.find((t) => t.worktreeDir === "/wt/a")?.sessionId).toBe("sid-1");
+  });
+
+  test("attachSession: closed (sid 保持) task は奪わず、新 sid は別 task を作る (hijack なし)", async () => {
+    const { store, dir, configDir } = setup();
+    await writeTasksFile(configDir, dir, [
+      makeTask({ id: "1", worktreeDir: "/wt/a", sessionId: "sid-kept", closedByUser: true }),
+    ]);
+    await store.attachSession(dir, "sid-new", "/wt/a");
+    const tasks = await store.list(dir);
+    expect(tasks.length).toBe(2);
+    expect(tasks.find((t) => t.id === "1")?.sessionId).toBe("sid-kept");
+  });
+
+  test("attachSession: ghRef 有り closed task も奪わず、素 claude (新 sid) は別 task を作る", async () => {
+    const { store, dir, configDir } = setup();
+    await writeTasksFile(configDir, dir, [
+      makeTask({ id: "1", worktreeDir: "/wt/a", sessionId: "sid-kept", closedByUser: true, ghRef: ghRefForPr(9) }),
+    ]);
+    await store.attachSession(dir, "sid-new", "/wt/a");
+    const tasks = await store.list(dir);
+    expect(tasks.length).toBe(2);
+    const kept = tasks.find((t) => t.id === "1");
+    expect(kept?.sessionId).toBe("sid-kept");
+    expect(kept?.ghRef).toEqual(ghRefForPr(9));
+  });
+
+  test("clearDeadSession(markClosedByUser=true): sessionID 空 + closed_by_user=true (terminal close 経路)", async () => {
+    const { store, dir, configDir } = setup();
+    await writeTasksFile(configDir, dir, [makeTask({ id: "1", worktreeDir: "/wt/a", sessionId: "sid-1" })]);
+    await store.clearDeadSession(dir, "sid-1", true);
+    const [task] = await store.list(dir);
+    expect(task?.sessionId).toBe("");
+    expect(task?.closedByUser).toBe(true);
+  });
+
+  test("clearDeadSession(markClosedByUser=false): closed_by_user 据え置き (session-start fallback)", async () => {
+    const { store, dir, configDir } = setup();
+    await writeTasksFile(configDir, dir, [makeTask({ id: "1", worktreeDir: "/wt/a", sessionId: "sid-1" })]);
+    await store.clearDeadSession(dir, "sid-1", false);
+    const [task] = await store.list(dir);
+    expect(task?.sessionId).toBe("");
+    expect(task?.closedByUser).toBe(false);
+  });
+
+  test("clearDeadSession: sessionId 不一致なら no-op / task 本体は残す", async () => {
+    const { store, dir, configDir } = setup();
+    await writeTasksFile(configDir, dir, [
+      makeTask({ id: "1", worktreeDir: "/wt/a", sessionId: "sid-1", ghTitle: "body" }),
+    ]);
+    await store.clearDeadSession(dir, "sid-unknown", true);
+    const [task] = await store.list(dir);
+    expect(task?.sessionId).toBe("sid-1");
+    expect(task?.ghTitle).toBe("body");
+  });
+
   test("loadFile: 壊れた tasks.json は空 list で reinit される（後方互換なし規約）", async () => {
     const { store, dir, configDir } = setup();
     const path = await writeTasksFile(configDir, dir, []);

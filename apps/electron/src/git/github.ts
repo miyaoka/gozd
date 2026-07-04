@@ -6,13 +6,14 @@
 //   rate limit 枯渇に気づけない）
 // - **GraphQL 経由**。`gh pr list --json author` は avatarUrl を返さない。bot アカウント
 //   （renovate 等）も正しく解決するため `https://github.com/{login}.png` 構築は採らない
-// - gh の絶対パス解決（CommandResolver、Finder/Dock 起動の最小 PATH 対応）は
-//   git と同じく Finder/Dock 起動対応のステップで移植する。terminal 由来 PATH の
-//   dev 起動では `gh` が PATH から解決される
+// - `gh` の絶対パスは git と同じく commandResolver（ユーザーログインシェル経由）で解決する。
+//   Finder/Dock 起動の最小 PATH には Homebrew の `gh` が存在せず、Apple stub にも救われない
+//   （設計理由は commandResolver.ts 冒頭コメント参照）
 
 import { tryCatch } from "@gozd/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { withResolvedCommand } from "../commandResolver";
 import { GitCommandError, runGit } from "./gitRunner";
 
 const execFileAsync = promisify(execFile);
@@ -219,18 +220,21 @@ function graphqlArgs(owner: string, repo: string, query: string): string[] {
 }
 
 /** gh を実行し、non-zero exit を stderr 内容で GhError 4 種に分類して返す。
- * spawn 失敗（gh CLI 不在等）はそのまま throw して上位で HTTP error として renderer に流す */
+ * 解決失敗（gh CLI 未インストール = CommandNotFoundError 等）はそのまま throw して
+ * 上位で HTTP error として renderer に流す */
 async function runGhCategorized(args: string[], cwd: string): Promise<GhResult<string>> {
-  const result = await tryCatch(
-    execFileAsync("gh", args, { cwd, maxBuffer: 128 * 1024 * 1024 }),
-  );
-  if (result.ok) return { ok: true, value: result.value.stdout };
-  const error = result.error as Error & { code?: number | string; stderr?: string };
-  if (typeof error.code === "number") {
-    const stderr = error.stderr ?? "";
-    return { ok: false, error: { kind: classifyGhStderr(stderr), detail: truncateDetail(stderr) } };
-  }
-  throw result.error;
+  return withResolvedCommand("gh", async (ghPath) => {
+    const result = await tryCatch(
+      execFileAsync(ghPath, args, { cwd, maxBuffer: 128 * 1024 * 1024 }),
+    );
+    if (result.ok) return { ok: true, value: result.value.stdout };
+    const error = result.error as Error & { code?: number | string; stderr?: string };
+    if (typeof error.code === "number") {
+      const stderr = error.stderr ?? "";
+      return { ok: false, error: { kind: classifyGhStderr(stderr), detail: truncateDetail(stderr) } };
+    }
+    throw result.error;
+  });
 }
 
 /**

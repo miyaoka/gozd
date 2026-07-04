@@ -46,12 +46,10 @@ export const bundledRendererIndex = join(bundledAppRoot, "views", "main", "index
  * Electron 固有の GOZD_ELECTRON_RENDERER_URL） */
 const STRIPPED_KEYS = ["GOZD_DEV_PROJECT_ROOT", "GOZD_DEV_VITE_PORT", "GOZD_ELECTRON_RENDERER_URL", "ZDOTDIR"];
 
-/** 親プロセス env を base に renderer env と gozd overlay を重ねた最終形を返す。
- * 優先順（後勝ち）: 親 env → renderer env → gozd overlay。
- * allow-list 継承ではなく全継承 + deny-list（GozdEnvOverlay.swift の設計判断を踏襲） */
-export function buildPtyEnv(rendererEnv: Record<string, string>, ptyId: number): Record<string, string> {
-  const userHome = homedir();
-
+/** 親プロセス env から gozd 起源キーを除去した snapshot を返す。
+ * PTY spawn（buildPtyEnv）と commandResolver のログインシェル spawn が共有する deny-list の
+ * SSOT。特に ZDOTDIR を剥がさないと、子 zsh が gozd の zsh init チェーンに巻き込まれる */
+export function sanitizeParentEnv(): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined) result[key] = value;
@@ -59,6 +57,16 @@ export function buildPtyEnv(rendererEnv: Record<string, string>, ptyId: number):
   for (const key of STRIPPED_KEYS) {
     delete result[key];
   }
+  return result;
+}
+
+/** 親プロセス env を base に renderer env と gozd overlay を重ねた最終形を返す。
+ * 優先順（後勝ち）: 親 env → renderer env → gozd overlay。
+ * allow-list 継承ではなく全継承 + deny-list（GozdEnvOverlay.swift の設計判断を踏襲） */
+export function buildPtyEnv(rendererEnv: Record<string, string>, ptyId: number): Record<string, string> {
+  const userHome = homedir();
+
+  const result = sanitizeParentEnv();
 
   Object.assign(result, rendererEnv);
 

@@ -9,6 +9,7 @@
     "build": "node build.mjs",
     "start": "electron .",
     "spike": "pnpm build && GOZD_SPIKE_TEST=1 electron .",
+    "test": "bun test",
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
@@ -17,6 +18,7 @@
     "node-pty": "1.2.0-beta.14"
   },
   "devDependencies": {
+    "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "@typescript/native-preview": "catalog:",
     "@xterm/addon-fit": "0.11.0",

@@ -7,6 +7,8 @@
 import {
   EchoRequest,
   EchoResponse,
+  LoadAppConfigResponse,
+  LoadAppStateResponse,
   PtyKillRequest,
   PtyKillResponse,
   PtyResizeRequest,
@@ -15,9 +17,17 @@ import {
   PtySpawnResponse,
   PtyWriteRequest,
   PtyWriteResponse,
+  SaveAppConfigRequest,
+  SaveAppConfigResponse,
+  SaveAppStateRequest,
+  SaveAppStateResponse,
+  ServerListResponse,
+  WindowSetServerPanelOpenResponse,
 } from "@gozd/proto";
 import { spawn, type IPty } from "node-pty";
 import type { RpcContext, RpcHandler } from "./rpcDispatcher";
+import { scanListenServers } from "./serverList";
+import { loadAppConfig, loadAppState, saveAppConfig, saveAppState } from "./stores";
 
 const ptys = new Map<number, IPty>();
 let nextPtyId = 1;
@@ -110,10 +120,48 @@ function handleEcho(body: unknown): unknown {
   return EchoResponse.toJSON({ text: req.text });
 }
 
+function handleAppConfigLoad(): unknown {
+  return LoadAppConfigResponse.toJSON({ config: loadAppConfig() });
+}
+
+function handleAppConfigSave(body: unknown): unknown {
+  const req = SaveAppConfigRequest.fromJSON(body);
+  if (req.config === undefined) throw new Error("appConfig/save: config is required");
+  saveAppConfig(req.config);
+  return SaveAppConfigResponse.toJSON({});
+}
+
+function handleAppStateLoad(): unknown {
+  return LoadAppStateResponse.toJSON({ state: loadAppState() });
+}
+
+function handleAppStateSave(body: unknown): unknown {
+  const req = SaveAppStateRequest.fromJSON(body);
+  if (req.state === undefined) throw new Error("appState/save: state is required");
+  saveAppState(req.state);
+  return SaveAppStateResponse.toJSON({});
+}
+
+async function handleServerList(): Promise<unknown> {
+  return ServerListResponse.toJSON({ servers: await scanListenServers() });
+}
+
+function handleWindowSetServerPanelOpen(): unknown {
+  // renderer が SSOT として持つパネル開閉状態を native titlebar トグルへミラーする RPC。
+  // Electron shell には対応する native toolbar がまだ無いため受理のみ
+  return WindowSetServerPanelOpenResponse.toJSON({});
+}
+
 export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandler>([
   ["/echo", handleEcho],
+  ["/appConfig/load", handleAppConfigLoad],
+  ["/appConfig/save", handleAppConfigSave],
+  ["/appState/load", handleAppStateLoad],
+  ["/appState/save", handleAppStateSave],
   ["/pty/spawn", handlePtySpawn],
   ["/pty/write", handlePtyWrite],
   ["/pty/resize", handlePtyResize],
   ["/pty/kill", handlePtyKill],
+  ["/server/list", handleServerList],
+  ["/window/setServerPanelOpen", handleWindowSetServerPanelOpen],
 ]);

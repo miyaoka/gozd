@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen } from "electron";
+import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeClaudeHooksSettings } from "./claudeHooksSettings";
@@ -31,6 +31,41 @@ const rendererUrl = resolveRendererUrl();
 const dispatch = createRpcDispatcher(routes);
 
 const DEFAULT_WINDOW_SIZE = { width: 1280, height: 800 };
+
+/** renderer 内リンクの外部送り防壁。Swift 版 ExternalLinkNavigationDecider の対応物。
+ * デフォルトでは `<a target="_blank">` が新しい Electron window を開き、main frame の
+ * http(s) 遷移は UI 全体を置換してしまうため構造的に必要な防壁。判定軸は Swift 版と
+ * 同じ scheme 3 分岐: 内部 origin（dev の Vite URL / packaged の file:）は許可、
+ * それ以外の http(s) は OS のデフォルトブラウザへ、その他 scheme は許可 */
+function installExternalLinkPolicy(window: BrowserWindow): void {
+  const openExternal = (url: string): void => {
+    // 外部 URL の launch 失敗は具体的な error 込みで stderr に残す（silent drop 禁止）
+    shell.openExternal(url).catch((error: unknown) => {
+      console.error(`[ExternalLink] failed to open external URL: ${url}: ${error}`);
+    });
+  };
+  const isHttp = (url: string): boolean => url.startsWith("http://") || url.startsWith("https://");
+  const isInternal = (url: string): boolean => {
+    if (rendererUrl !== undefined && url.startsWith(rendererUrl)) return true;
+    // packaged / spike は loadFile 経由の file: origin
+    return url.startsWith("file://");
+  };
+
+  // window.open / target="_blank" は経路を問わず新 window を作らせない。
+  // http(s) のみ外部ブラウザに送り、それ以外は黙って deny
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (isHttp(url)) openExternal(url);
+    return { action: "deny" };
+  });
+
+  // main frame の遷移。内部 origin（Vite フルリロード等）は許可、外部 http(s) は
+  // ブラウザへ、その他 scheme は許可（Swift 版と同じ分岐）
+  window.webContents.on("will-navigate", (event, url) => {
+    if (isInternal(url) || !isHttp(url)) return;
+    event.preventDefault();
+    openExternal(url);
+  });
+}
 
 /** 保存 frame がどのディスプレイとも交差しない（外部モニタ取り外し等で off-screen 化）
  * 場合は復元せずデフォルトで開き直すための判定 */
@@ -68,6 +103,7 @@ function createWindow(): BrowserWindow {
   window.on("close", () => {
     windowStateStore.saveBounds(window.getNormalBounds());
   });
+  installExternalLinkPolicy(window);
   // ロード経路は 3 つ（Swift 版 GozdApp.task と同型）:
   //   1. GOZD_ELECTRON_RENDERER_URL: Vite dev server（HMR / 検証）
   //   2. packaged: .app 同梱の renderer（Vite build は base "./" のため file:// で成立。

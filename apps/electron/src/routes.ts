@@ -34,10 +34,13 @@ import {
   GitDiffHunksResponse,
   GitBlameLineRequest,
   GitBlameLineResponse,
+  GhErrorKind,
   GitFetchRemotesRequest,
   GitFetchRemotesResponse,
   GitGithubIdentityRequest,
   GitGithubIdentityResponse,
+  GitIssueListRequest,
+  GitIssueListResponse,
   GitLogFileRequest,
   GitLogFileResponse,
   GitLogLineRequest,
@@ -50,6 +53,8 @@ import {
   GitMergeBaseResponse,
   GitPrDiffFilesRequest,
   GitPrDiffFilesResponse,
+  GitPrListRequest,
+  GitPrListResponse,
   GitReadBlobRequest,
   GitReadBlobResponse,
   GitResetMixedRequest,
@@ -62,6 +67,8 @@ import {
   GitShowFileResponse,
   GitStatusRequest,
   GitStatusResponse,
+  GitViewerRequest,
+  GitViewerResponse,
   GitWorktreeListRequest,
   GitWorktreeListResponse,
   SortMode,
@@ -105,7 +112,7 @@ import { validateRev } from "./git/gitValidate";
 import { fetchRemotes, gitStatusFull, worktreeList } from "./git/gitOps";
 import { GitCommandError } from "./git/gitRunner";
 import type { StatusFull } from "./git/porcelain";
-import { repoOwnerName } from "./git/github";
+import { issueList, prList, repoOwnerName, viewer, type GhErrorKindName } from "./git/github";
 import type { PushFn, RpcContext, RpcHandler } from "./rpcDispatcher";
 import { scanListenServers } from "./serverList";
 import { loadAppConfig, loadAppState, saveAppConfig, saveAppState } from "./stores";
@@ -551,6 +558,71 @@ async function handleGitLsTree(body: unknown): Promise<unknown> {
   return GitLsTreeResponse.toJSON({ entries: await lsTree(req.dir, req.hash, req.path) });
 }
 
+const GH_ERROR_KIND_PROTO: Record<GhErrorKindName, GhErrorKind> = {
+  rateLimit: GhErrorKind.GH_ERROR_KIND_RATE_LIMIT,
+  unauthenticated: GhErrorKind.GH_ERROR_KIND_UNAUTHENTICATED,
+  repoNotFound: GhErrorKind.GH_ERROR_KIND_REPO_NOT_FOUND,
+  network: GhErrorKind.GH_ERROR_KIND_NETWORK,
+  other: GhErrorKind.GH_ERROR_KIND_OTHER,
+};
+
+async function handleGitPrList(body: unknown): Promise<unknown> {
+  const req = GitPrListRequest.fromJSON(body);
+  const result = await prList(req.dir);
+  if (!result.ok) {
+    return GitPrListResponse.toJSON({
+      ok: false,
+      prs: [],
+      errorKind: GH_ERROR_KIND_PROTO[result.error.kind],
+      errorDetail: result.error.detail,
+    });
+  }
+  return GitPrListResponse.toJSON({
+    ok: true,
+    prs: result.value,
+    errorKind: GhErrorKind.GH_ERROR_KIND_OK,
+    errorDetail: "",
+  });
+}
+
+async function handleGitIssueList(body: unknown): Promise<unknown> {
+  const req = GitIssueListRequest.fromJSON(body);
+  const result = await issueList(req.dir);
+  if (!result.ok) {
+    return GitIssueListResponse.toJSON({
+      ok: false,
+      issues: [],
+      errorKind: GH_ERROR_KIND_PROTO[result.error.kind],
+      errorDetail: result.error.detail,
+    });
+  }
+  return GitIssueListResponse.toJSON({
+    ok: true,
+    issues: result.value,
+    errorKind: GhErrorKind.GH_ERROR_KIND_OK,
+    errorDetail: "",
+  });
+}
+
+async function handleGitViewer(body: unknown): Promise<unknown> {
+  const req = GitViewerRequest.fromJSON(body);
+  const result = await viewer(req.dir);
+  if (!result.ok) {
+    return GitViewerResponse.toJSON({
+      ok: false,
+      login: "",
+      errorKind: GH_ERROR_KIND_PROTO[result.error.kind],
+      errorDetail: result.error.detail,
+    });
+  }
+  return GitViewerResponse.toJSON({
+    ok: true,
+    login: result.value,
+    errorKind: GhErrorKind.GH_ERROR_KIND_OK,
+    errorDetail: "",
+  });
+}
+
 function handleWindowSetServerPanelOpen(): unknown {
   // renderer が SSOT として持つパネル開閉状態を native titlebar トグルへミラーする RPC。
   // Electron shell には対応する native toolbar がまだ無いため受理のみ
@@ -588,6 +660,9 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/git/revReachable", handleGitRevReachable],
   ["/git/resetMixed", handleGitResetMixed],
   ["/git/defaultBranch", handleGitDefaultBranch],
+  ["/git/prList", handleGitPrList],
+  ["/git/issueList", handleGitIssueList],
+  ["/git/viewer", handleGitViewer],
   ["/git/worktreeList", handleGitWorktreeList],
   ["/git/githubIdentity", handleGitGithubIdentity],
   ["/git/fetchRemotes", handleGitFetchRemotes],

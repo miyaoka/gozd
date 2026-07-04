@@ -1,9 +1,7 @@
-// commandResolver のテスト。
+// commandResolver のテスト。Swift 版 CommandResolverTests の対応物。
 //
-// fake shell（`-i -l -c <script>` を非対話 `/bin/sh -c` に委譲する薄いラッパー）で
-// spawn / marker 抽出 / キャッシュ / timeout の機構をユーザー環境の rc に依存せず決定的に
-// 検証する。実シェル（/bin/zsh / /bin/sh）では「`-i -l` で hang しない」
-// （detached = setsid 相当が効いている）ことを検証する。Swift 版 CommandResolverTests の対応物。
+// fake shell で spawn / marker 抽出 / キャッシュ / timeout の機構をユーザー環境の rc に
+// 依存せず決定的に検証し、実シェルでは「`-i -l` で hang しない」ことだけを検証する。
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

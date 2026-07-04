@@ -15,6 +15,8 @@ const config: KnipConfig = {
       // esbuild (build.ts) が bundle するエントリポイント。import graph の根が
       // package.json の main (dist/main.cjs) 側にあるため、knip からは unused に見える
       entry: ["src/main.ts", "src/preload.ts", "src/cli.ts", "src/renderer/main.ts"],
+      // iconutil: macOS 標準コマンド（build:app script で iconset → icns 変換）
+      ignoreBinaries: ["iconutil"],
     },
     "apps/renderer": {
       ignoreDependencies: [

@@ -1,0 +1,2 @@
+# build:app が icon.iconset から iconutil で生成する（サイズ別 png が SSOT）
+/build/icon.icns

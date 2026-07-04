@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
+import { tryCatch } from "@gozd/shared";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeClaudeHooksSettings } from "./claudeHooksSettings";
@@ -178,6 +179,19 @@ let socketServer: SocketServerHandle | undefined;
 
 app.whenReady().then(() => {
   installAppMenu();
+
+  // dev の Dock アイコン。packaged は electron-builder が焼いた icns（production 用
+  // icon.png 由来）が使われるが、未パッケージ（electron .）は Electron デフォルト
+  // アイコンになるため、Swift 期の dev 用アイコン（旧 icon.dev.iconset）を実行時に
+  // 当てる。dev / production をアイコンで識別する運用（Swift 期の Gozd-Dev.app 相当）
+  if (!isPackaged) {
+    const devIconResult = tryCatch(() =>
+      app.dock?.setIcon(join(__dirname, "..", "resources", "icon.dev.iconset", "icon_512x512@2x.png")),
+    );
+    if (!devIconResult.ok) {
+      console.error(`[main] failed to set dev dock icon: ${devIconResult.error}`);
+    }
+  }
 
   // protocol 登録は window の loadURL より先に行う（先に読み込まれた <img> が
   // 未登録 scheme として即 error になるのを避ける）

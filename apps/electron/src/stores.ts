@@ -25,7 +25,7 @@ const appStatePath = join(homedir(), ".local", "state", "gozd", "app-state.json"
 const APP_STATE_KNOWN_TOP_LEVEL_KEYS = ["sidebarRepos"];
 
 /** Swift の `.atomic` write と同じ保証: 同 dir の tmp に書いて rename */
-function writeFileAtomic(path: string, content: string): void {
+export function writeFileAtomic(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmpPath = `${path}.tmp-${process.pid}`;
   writeFileSync(tmpPath, content);

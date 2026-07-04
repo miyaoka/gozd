@@ -1,14 +1,16 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, screen } from "electron";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeClaudeHooksSettings } from "./claudeHooksSettings";
 import { registerFileServerProtocol } from "./fileServer";
 import { claudeSettingsPath, socketPath } from "./gozdEnv";
 import { SPIKE_TEST_ARG } from "./ipc";
+import { installAppMenu } from "./menu";
 import { createRpcDispatcher, type PushFn } from "./rpcDispatcher";
 import { killAllPtys, routes, unwatchAllFsWatches } from "./routes";
 import { createSocketMessageHandler } from "./socketMessages";
 import { startSocketServer, type SocketServerHandle } from "./socketServer";
+import { windowStateStore, type WindowBounds } from "./windowState";
 
 const isTestMode = process.env.GOZD_SPIKE_TEST === "1";
 // 既存 Vue renderer（Vite dev server）を読む場合に URL を渡す。無指定なら spike ページ
@@ -16,16 +18,43 @@ const rendererUrl = process.env.GOZD_ELECTRON_RENDERER_URL;
 
 const dispatch = createRpcDispatcher(routes);
 
+const DEFAULT_WINDOW_SIZE = { width: 1280, height: 800 };
+
+/** 保存 frame がどのディスプレイとも交差しない（外部モニタ取り外し等で off-screen 化）
+ * 場合は復元せずデフォルトで開き直すための判定 */
+function intersectsAnyDisplay(bounds: WindowBounds): boolean {
+  return screen.getAllDisplays().some((display) => {
+    const area = display.workArea;
+    return (
+      bounds.x < area.x + area.width &&
+      bounds.x + bounds.width > area.x &&
+      bounds.y < area.y + area.height &&
+      bounds.y + bounds.height > area.y
+    );
+  });
+}
+
 function createWindow(): BrowserWindow {
+  const saved = windowStateStore.loadBounds();
+  const restored = saved !== undefined && intersectsAnyDisplay(saved) ? saved : undefined;
   const window = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: restored?.width ?? DEFAULT_WINDOW_SIZE.width,
+    height: restored?.height ?? DEFAULT_WINDOW_SIZE.height,
+    // x / y は undefined ならディスプレイ中央配置（Electron デフォルト）
+    x: restored?.x,
+    y: restored?.y,
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
       contextIsolation: true,
       sandbox: true,
       additionalArguments: isTestMode ? [SPIKE_TEST_ARG] : [],
     },
+  });
+  // frame 保存は will-quit ではなく close で行う: will-quit 時点では window が destroy
+  // 済みで bounds を取れない。getNormalBounds は fullscreen / maximize 中でも
+  // 通常時 frame を返すため、復元時に巨大 frame が焼き付く事故を避けられる
+  window.on("close", () => {
+    windowStateStore.saveBounds(window.getNormalBounds());
   });
   if (rendererUrl !== undefined && rendererUrl !== "") {
     void window.loadURL(rendererUrl);
@@ -85,6 +114,8 @@ if (isTestMode) {
 let socketServer: SocketServerHandle | undefined;
 
 app.whenReady().then(() => {
+  installAppMenu();
+
   // protocol 登録は window の loadURL より先に行う（先に読み込まれた <img> が
   // 未登録 scheme として即 error になるのを避ける）
   registerFileServerProtocol();

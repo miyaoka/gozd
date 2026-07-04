@@ -221,7 +221,12 @@ function handlePtySpawn(body: unknown, ctx: RpcContext): unknown {
   const id = nextPtyId;
   nextPtyId++;
 
-  const pty = spawn(req.executable, req.args, {
+  // ワイヤ契約 (Swift PTYManager の execve 流儀): req.args は argv **全体** で、
+  // args[0] = argv[0] (プログラム名)。node-pty は spawn(file, args) の args に
+  // argv[0] を含めない ([file, ...args] を自前で組む) ため、args[0] を落として渡す。
+  // 落とさないと `zsh /bin/zsh -i` のように実行され、zsh がバイナリをスクリプトとして
+  // 読んで即死する (Mach-O マジックバイトの command not found + parse error)
+  const pty = spawn(req.executable, req.args.slice(1), {
     name: "xterm-256color",
     cols: req.cols,
     rows: req.rows,

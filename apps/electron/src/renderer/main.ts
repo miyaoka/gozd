@@ -43,7 +43,8 @@ async function main() {
     JSON.stringify({
       dir: "/",
       executable: "/bin/zsh",
-      args: ["-l"],
+      // args はワイヤ契約 (Swift execve 流儀) どおり argv[0] を含む argv 全体
+      args: ["/bin/zsh", "-l"],
       env: {},
       rows: terminal.rows,
       cols: terminal.cols,

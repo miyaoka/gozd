@@ -44,6 +44,13 @@ function computeProjectKey(mainRepoRoot: string): string {
   return `${basename(resolved)}-${hash.slice(0, 12)}`;
 }
 
+/** dir（main / worktree / 配下 subdir のいずれでも可）から projectKey を解決する。
+ * Swift 版 `ProjectKey.resolveAndCompute` の対応物。worktree 配置先の決定
+ * （worktreeOps）と永続ファイルパスの両方がこの値を共有する */
+export async function resolveProjectKey(dir: string): Promise<string> {
+  return computeProjectKey(await resolveMainRepoRoot(dir));
+}
+
 async function tasksFilePath(dir: string): Promise<string> {
   const projectKey = computeProjectKey(await resolveMainRepoRoot(dir));
   return join(configDir, "projects", projectKey, "tasks.json");
@@ -71,4 +78,12 @@ async function loadFile(dir: string): Promise<TaskList> {
 /** projectKey 内の全 Task を返す。handleGitWorktreeList の WorktreeEntry.tasks JOIN に使う */
 export async function listTasks(dir: string): Promise<Task[]> {
   return (await loadFile(dir)).tasks;
+}
+
+/** worktree 物理削除からの連動掃除。該当 worktreeDir に紐づく全 Task を削除し、
+ * worktree 削除後に Task が孤児として永続化に残るのを防ぐ */
+export async function removeTasksByWorktree(dir: string, worktreePath: string): Promise<void> {
+  const list = await loadFile(dir);
+  list.tasks = list.tasks.filter((task) => task.worktreeDir !== worktreePath);
+  saveFile(await tasksFilePath(dir), list);
 }

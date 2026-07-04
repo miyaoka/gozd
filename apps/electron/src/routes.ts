@@ -5,6 +5,8 @@
 // Swift shell（AppRuntime.swift の pushToRenderer）と一致させる契約。
 
 import {
+  CreateWorktreeRequest,
+  CreateWorktreeResponse,
   DiffLineKind,
   EchoRequest,
   EchoResponse,
@@ -71,6 +73,8 @@ import {
   GitViewerResponse,
   GitWorktreeListRequest,
   GitWorktreeListResponse,
+  GitWorktreeRemoveRequest,
+  GitWorktreeRemoveResponse,
   SortMode,
   LoadAppConfigResponse,
   LoadAppStateResponse,
@@ -109,6 +113,7 @@ import {
   type FileChangeInfo,
 } from "./git/gitTree";
 import { validateRev } from "./git/gitValidate";
+import { createWorktree, removeWorktree } from "./git/worktreeOps";
 import { fetchRemotes, gitStatusFull, worktreeList } from "./git/gitOps";
 import { GitCommandError } from "./git/gitRunner";
 import type { StatusFull } from "./git/porcelain";
@@ -116,7 +121,7 @@ import { issueList, prList, repoOwnerName, viewer, type GhErrorKindName } from "
 import type { PushFn, RpcContext, RpcHandler } from "./rpcDispatcher";
 import { scanListenServers } from "./serverList";
 import { loadAppConfig, loadAppState, saveAppConfig, saveAppState } from "./stores";
-import { listTasks } from "./taskStore";
+import { listTasks, removeTasksByWorktree } from "./taskStore";
 
 const ptys = new Map<number, IPty>();
 let nextPtyId = 1;
@@ -623,6 +628,51 @@ async function handleGitViewer(body: unknown): Promise<unknown> {
   });
 }
 
+async function handleCreateWorktree(body: unknown): Promise<unknown> {
+  const req = CreateWorktreeRequest.fromJSON(body);
+  const info = await createWorktree({
+    dir: req.dir,
+    worktreeDir: req.worktreeDir,
+    branch: req.branch,
+    startPoint: req.startPoint,
+  });
+  return CreateWorktreeResponse.toJSON({
+    worktree: {
+      path: info.path,
+      head: info.head,
+      branch: info.branch ?? "",
+      isMain: info.isMain,
+      gitStatuses: {},
+      renameOldPaths: {},
+      latestMtime: 0,
+      upstream: undefined,
+      tasks: [],
+    },
+    dir: info.path,
+  });
+}
+
+async function handleWorktreeRemove(body: unknown, ctx: RpcContext): Promise<unknown> {
+  const req = GitWorktreeRemoveRequest.fromJSON(body);
+  await removeWorktree(req.dir, req.path, req.force);
+  // worktree 物理削除に Task の片付けも連動させる。放置すると tasks.json に孤児 Task が残り
+  // サイドバーにゾンビ行が出る。projectKey 解決は req.dir（main repo dir、削除されない側）から
+  // 行う（req.path は物理削除済みなので anchor にすると projectKey が変わる）。失敗は notify で
+  // ユーザーに伝える
+  const cleanup = await tryCatch(removeTasksByWorktree(req.dir, req.path));
+  if (!cleanup.ok) {
+    console.error(`[TaskStore] removeTasksByWorktree failed: ${cleanup.error}`);
+    ctx.push("notify", {
+      type: "error",
+      source: "task-store",
+      message: "Failed to clean up tasks after worktree removal",
+      detail: String(cleanup.error),
+      dir: req.dir,
+    });
+  }
+  return GitWorktreeRemoveResponse.toJSON({});
+}
+
 function handleWindowSetServerPanelOpen(): unknown {
   // renderer が SSOT として持つパネル開閉状態を native titlebar トグルへミラーする RPC。
   // Electron shell には対応する native toolbar がまだ無いため受理のみ
@@ -660,6 +710,8 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/git/revReachable", handleGitRevReachable],
   ["/git/resetMixed", handleGitResetMixed],
   ["/git/defaultBranch", handleGitDefaultBranch],
+  ["/git/createWorktree", handleCreateWorktree],
+  ["/git/worktreeRemove", handleWorktreeRemove],
   ["/git/prList", handleGitPrList],
   ["/git/issueList", handleGitIssueList],
   ["/git/viewer", handleGitViewer],

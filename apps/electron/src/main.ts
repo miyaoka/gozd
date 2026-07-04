@@ -15,8 +15,18 @@ import { startSocketServer, type SocketServerHandle } from "./socketServer";
 import { windowStateStore, type WindowBounds } from "./windowState";
 
 const isTestMode = process.env.GOZD_SPIKE_TEST === "1";
-// 既存 Vue renderer（Vite dev server）を読む場合に URL を渡す。無指定なら spike ページ
-const rendererUrl = process.env.GOZD_ELECTRON_RENDERER_URL;
+
+// Vite dev server の URL 解決。GOZD_DEV_VITE_PORT が port の SSOT
+// （root の dev script が設定。scheme + host は http://localhost 固定契約）。
+// GOZD_ELECTRON_RENDERER_URL は検証用の明示 override
+function resolveRendererUrl(): string | undefined {
+  const explicit = process.env.GOZD_ELECTRON_RENDERER_URL;
+  if (explicit !== undefined && explicit !== "") return explicit;
+  const port = process.env.GOZD_DEV_VITE_PORT;
+  if (port !== undefined && port !== "") return `http://localhost:${port}`;
+  return undefined;
+}
+const rendererUrl = resolveRendererUrl();
 
 const dispatch = createRpcDispatcher(routes);
 
@@ -66,6 +76,13 @@ function createWindow(): BrowserWindow {
   //   3. fallback: spike テストページ
   if (rendererUrl !== undefined && rendererUrl !== "") {
     void window.loadURL(rendererUrl);
+    // dev では esbuild + electron の起動が Vite dev server より速く、初回 load が
+    // ERR_CONNECTION_REFUSED になり得る。Vite が上がるまで retry する
+    const RETRY_MS = 300;
+    window.webContents.on("did-fail-load", (_event, _code, _description, failedUrl) => {
+      if (!failedUrl.startsWith(rendererUrl)) return;
+      setTimeout(() => void window.loadURL(rendererUrl), RETRY_MS);
+    });
   } else if (isPackaged) {
     void window.loadFile(bundledRendererIndex);
   } else {

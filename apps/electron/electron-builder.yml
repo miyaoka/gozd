@@ -32,7 +32,7 @@ electronDist: node_modules/electron/dist
 extraResources:
   - from: resources/bin
     to: app/bin
-  - from: ../native/Resources/zsh
+  - from: resources/zsh
     to: app/zsh
   - from: ../renderer/dist
     to: app/views/main

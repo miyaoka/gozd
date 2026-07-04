@@ -2,16 +2,14 @@
 // Swift 版 `AppRuntime.defaultSocketPath / claudeSettingsPath / makeEnvOverlay` +
 // `Shell/GozdEnvOverlay.swift` の対応物。
 //
-// channel: packaged `.app` は "electron-stable"、未パッケージ（`electron .`）は
-// "electron-dev"。Swift dev（"dev"）/ stable（"stable"）と socket / settings を分離し、
-// 移行期間中に全シェルを同時起動しても衝突しない。Swift 撤廃時に "dev"/"stable" を
-// 引き継ぐ（socket 名が変わるだけで永続データは channel 非依存の共有）。
+// channel: packaged `.app` は "stable"、未パッケージ（`electron .`）は "dev"。
+// socket / launch dir / claude settings を channel で分離し、dev と stable の
+// 同時起動で衝突しない。永続データ（~/.config/gozd/ 等）は channel 非依存の共有。
 //
 // gozd-cli は TS 再実装（src/cli.ts → dist/cli.cjs。issue #895）。bin/gozd-cli shim が
 // dev は node、packaged は ELECTRON_RUN_AS_NODE=1 + 同梱 Electron バイナリで実行する。
-// zsh init チェーンは環境変数駆動の shell script でシェル実装非依存のため、Swift 側の
-// `apps/native/Resources/zsh` を参照する（Swift 撤廃時に apps/electron へ移設する）。
-// packaged はどちらも `.app` 内 Resources/app/ 配下に同梱される。
+// zsh init チェーンは resources/zsh/。packaged はどちらも `.app` 内 Resources/app/
+// 配下に同梱される。
 
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -23,9 +21,9 @@ import { join, resolve } from "node:path";
 const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
 export const isPackaged = resourcesPath !== undefined && __dirname.startsWith(resourcesPath);
 
-const CHANNEL = isPackaged ? "electron-stable" : "electron-dev";
+const CHANNEL = isPackaged ? "stable" : "dev";
 
-const repoRoot = resolve(__dirname, "..", "..", "..");
+const electronRoot = resolve(__dirname, "..");
 // packaged 時の同梱リソース root（Contents/Resources/app）。非 packaged では使わない
 const bundledAppRoot = join(resourcesPath ?? "", "app");
 
@@ -36,10 +34,10 @@ export const claudeSettingsPath = join(tmpdir(), `gozd-${CHANNEL}-claude-setting
 export const launchRequestDir = join(tmpdir(), `gozd-${CHANNEL}-launch`);
 export const cliPath = isPackaged
   ? join(bundledAppRoot, "bin", "gozd-cli")
-  : join(repoRoot, "apps", "electron", "bin", "gozd-cli");
+  : join(electronRoot, "bin", "gozd-cli");
 export const zdotdir = isPackaged
   ? join(bundledAppRoot, "zsh")
-  : join(repoRoot, "apps", "native", "Resources", "zsh");
+  : join(electronRoot, "resources", "zsh");
 // packaged 時に loadFile する renderer（Vite build は base "./" なので file:// で成立する）
 export const bundledRendererIndex = join(bundledAppRoot, "views", "main", "index.html");
 

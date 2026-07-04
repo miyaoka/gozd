@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 
-# gozd shell wrapper（Electron 版）。apps/native/Resources/bin/gozd と同一ロジックで、
-# socket default だけ Electron packaged の channel (electron-stable) を指す。
-# Swift 撤廃時に channel を stable へ引き継いだらこの default も追従する。
+# gozd shell wrapper。
 #
 # .app 内配置:
 #   Gozd.app/Contents/Resources/app/bin/gozd        ← このスクリプト
@@ -31,7 +29,7 @@ APP_CONTENTS="${APP_RESOURCES}/../.."
 APP_BUNDLE="${APP_CONTENTS}/.."
 
 TMPDIR_NORMALIZED="${TMPDIR:-/tmp}"
-SOCKET_PATH="${GOZD_SOCKET_PATH:-${TMPDIR_NORMALIZED%/}/gozd-electron-stable.sock}"
+SOCKET_PATH="${GOZD_SOCKET_PATH:-${TMPDIR_NORMALIZED%/}/gozd-stable.sock}"
 
 is_app_running() {
   [[ -S "${SOCKET_PATH}" ]] || return 1

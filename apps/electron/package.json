@@ -8,6 +8,7 @@
   "scripts": {
     "build": "bun ./build.ts",
     "build:app": "pnpm --filter @gozd/renderer build && pnpm build && electron-builder --dir",
+    "dev": "pnpm build && electron .",
     "start": "electron .",
     "spike": "pnpm build && GOZD_SPIKE_TEST=1 electron .",
     "test": "bun test",

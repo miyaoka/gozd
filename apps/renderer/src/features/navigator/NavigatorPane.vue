@@ -27,11 +27,13 @@ import { FilerPane } from "../filer";
 import { useGitGraphStore } from "../git-graph";
 import { ResizeHandle } from "../layout";
 import { usePreviewStore } from "../preview";
+import { useServerStore } from "../server";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import FileContextMenu from "./FileContextMenu.vue";
 import { useFileContextMenu } from "./useFileContextMenu";
 import type { FileContextMenuPayload } from "./useFileContextMenu";
 import IconLucideFolderTree from "~icons/lucide/folder-tree";
+import IconLucideServer from "~icons/lucide/server";
 
 const HANDLE_HEIGHT = 8;
 const FILER_MIN_HEIGHT = 100;
@@ -74,6 +76,7 @@ const { open: openFileContextMenu } = useFileContextMenu();
 const gitGraphStore = useGitGraphStore();
 const worktreeStore = useWorktreeStore();
 const notification = useNotificationStore();
+const serverStore = useServerStore();
 
 // Filer の snapshot mode UI (状態表示 + "Now" ボタン) を出すべきか。headerStatus と
 // "Now" ボタンはこれ 1 つだけを見る (1 つの判定が 2 箇所に分岐して食い違うのを防ぐ)。
@@ -137,7 +140,7 @@ const pendingOpen = ref<PendingOpen | null>(null);
  *
  * **不変条件 (実装変更時に必読)**:
  * - `setTimeout(0)` / `requestAnimationFrame` / `queueMicrotask` 等の task / microtask defer は
- *   WebKit (WebPage) の `popover="auto"` light-dismiss を **抜けない** (実機検証済)。続く mouseup が
+ *   `popover="auto"` light-dismiss を **抜けない** (WebKit shell 期に実機検証済)。続く mouseup が
  *   popover に到達して即 dismiss される (whatwg/html#10905)
  * - `pointerup` を `capture: true` で window に貼ると、popover が show される **前** に listener が
  *   pointerup を消化する → 続く mouseup は popover open 前の press cycle として扱われ
@@ -241,6 +244,20 @@ function onFileContextMenu(req: FileContextMenuPayload) {
           @click="goToNow"
         >
           Now
+        </button>
+        <!-- Running servers パネルのトグル。Swift 期は native titlebar の ToolbarItem
+             だったが、Electron shell は native toolbar を持たないためアプリ右上に相当する
+             この位置に置く -->
+        <button
+          type="button"
+          class="ml-auto shrink-0 rounded-sm p-1 hover:bg-element-hover"
+          :class="
+            serverStore.isOpen ? 'text-primary-text' : 'text-foreground-low hover:text-foreground'
+          "
+          title="Running servers"
+          @click="serverStore.toggle()"
+        >
+          <IconLucideServer class="size-3.5" />
         </button>
       </div>
       <div class="min-h-0 flex-1 overflow-hidden">

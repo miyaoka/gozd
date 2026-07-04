@@ -31,7 +31,7 @@ active worktree を所有する repo は section 枠を薄い primary 線 + 浮�
 
 <script setup lang="ts">
 import { useSortable } from "@dnd-kit/vue/sortable";
-import type { Task, WorktreeEntry } from "@gozd/proto";
+import type { Task, WorktreeEntry } from "@gozd/rpc";
 import { computed, useTemplateRef } from "vue";
 import { useRepoStore } from "../../../../shared/repo";
 import { WtCard } from "../worktree";

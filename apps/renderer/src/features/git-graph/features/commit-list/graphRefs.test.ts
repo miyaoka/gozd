@@ -1,4 +1,4 @@
-import type { GitCommit } from "@gozd/proto";
+import type { GitCommit } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
 import { computeDisplayRefs, computeOutOfSyncBranches } from "./graphRefs";
 

@@ -4,7 +4,7 @@
  * issue を選択して worktree を作成する。
  */
 
-import { ghRefForIssue } from "@gozd/proto";
+import { ghRefForIssue } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
@@ -54,7 +54,7 @@ export function registerIssueCommand(): () => void {
         // を degraded mode (filter 非表示) にする。
         show(issuesRes.issues, viewerLogin ?? "", (issue) => {
           void (async () => {
-            // 新規 worktree は default branch を起点に作る。Swift 側で `origin/HEAD` を
+            // 新規 worktree は default branch を起点に作る。main 側で `origin/HEAD` を
             // 優先し、未設定（remote 無し / push 前 repo）の場合は main repo root 自身の
             // current branch に fallback して解決した ref を受け取り、`startPoint` に渡す。
             const rootDir = repoStore.findRepoOwning(dir)?.rootDir;

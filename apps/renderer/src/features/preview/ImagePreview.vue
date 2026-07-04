@@ -2,7 +2,7 @@
 画像ファイルのプレビュー。ファイルサーバー経由の URL を `src` として受け取り、
 アスペクト比を保ったまま中央に表示する。
 
-WebKit の `<img>` 読み込み失敗 (handler の throw / MIME 不一致 / fetch エラー) は `error` イベントで親へ通知する。
+`<img>` 読み込み失敗 (handler の throw / MIME 不一致 / fetch エラー) は `error` イベントで親へ通知する。
 silent broken-image アイコンに倒さず PreviewPane の error 表示と挙動を揃える。
 </doc>
 

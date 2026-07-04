@@ -1,4 +1,4 @@
-import type { Task } from "@gozd/proto";
+import type { Task } from "@gozd/rpc";
 import { useNotificationStore } from "../../shared/notification";
 import type { ClaudeStatus } from "../terminal";
 
@@ -7,7 +7,7 @@ const notifiedInvalidCreatedAtTaskIds = new Set<string>();
 
 /**
  * 受信した tasks の `createdAt` を検証する ingress バリデータ。
- * Swift 側 (TaskStore) は ISO8601 を書く契約。パース失敗は proto 契約違反なので
+ * main 側 (taskStore.ts) は ISO8601 を書く契約。パース失敗はワイヤ契約違反なので
  * 観察可能化のため `useNotificationStore.error` で通知する。task そのものは通す
  * （無効な createdAt 1 件のために UI から task を消す方が事故）。
  *

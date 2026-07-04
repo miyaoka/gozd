@@ -1,0 +1,261 @@
+import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
+import { tryCatch } from "@gozd/shared";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { writeClaudeHooksSettings } from "./claudeHooksSettings";
+import { registerFileServerProtocol } from "./fileServer";
+import { bundledRendererIndex, claudeSettingsPath, isPackaged, launchRequestDir, socketPath } from "./gozdEnv";
+import { SPIKE_TEST_ARG } from "./ipc";
+import { consumeLaunchRequest } from "./launchRequest";
+import { installAppMenu } from "./menu";
+import { buildGozdOpenPayload } from "./openTarget";
+import { createRpcDispatcher, type PushFn } from "./rpcDispatcher";
+import { killAllPtys, routes, startPortScanner, stopPortScanner, unwatchAllFsWatches } from "./routes";
+import { createSocketMessageHandler } from "./socketMessages";
+import { startSocketServer, type SocketServerHandle } from "./socketServer";
+import { windowStateStore, type WindowBounds } from "./windowState";
+
+const isTestMode = process.env.GOZD_SPIKE_TEST === "1";
+
+// Vite dev server の URL 解決。GOZD_DEV_VITE_PORT が port の SSOT
+// （root の dev script が設定。scheme + host は http://localhost 固定契約）。
+// GOZD_ELECTRON_RENDERER_URL は検証用の明示 override
+function resolveRendererUrl(): string | undefined {
+  const explicit = process.env.GOZD_ELECTRON_RENDERER_URL;
+  if (explicit !== undefined && explicit !== "") return explicit;
+  const port = process.env.GOZD_DEV_VITE_PORT;
+  if (port !== undefined && port !== "") return `http://localhost:${port}`;
+  return undefined;
+}
+const rendererUrl = resolveRendererUrl();
+
+const dispatch = createRpcDispatcher(routes);
+
+const DEFAULT_WINDOW_SIZE = { width: 1280, height: 800 };
+
+/** renderer 内リンクの外部送り防壁。Swift 版 ExternalLinkNavigationDecider の対応物。
+ * デフォルトでは `<a target="_blank">` が新しい Electron window を開き、main frame の
+ * http(s) 遷移は UI 全体を置換してしまうため構造的に必要な防壁。判定軸は Swift 版と
+ * 同じ scheme 3 分岐: 内部 origin（dev の Vite URL / packaged の file:）は許可、
+ * それ以外の http(s) は OS のデフォルトブラウザへ、その他 scheme は許可 */
+function installExternalLinkPolicy(window: BrowserWindow): void {
+  const openExternal = (url: string): void => {
+    // 外部 URL の launch 失敗は具体的な error 込みで stderr に残す（silent drop 禁止）
+    shell.openExternal(url).catch((error: unknown) => {
+      console.error(`[ExternalLink] failed to open external URL: ${url}: ${error}`);
+    });
+  };
+  const isHttp = (url: string): boolean => url.startsWith("http://") || url.startsWith("https://");
+  const isInternal = (url: string): boolean => {
+    if (rendererUrl !== undefined && url.startsWith(rendererUrl)) return true;
+    // packaged / spike は loadFile 経由の file: origin
+    return url.startsWith("file://");
+  };
+
+  // window.open / target="_blank" は経路を問わず新 window を作らせない。
+  // http(s) のみ外部ブラウザに送り、それ以外は黙って deny
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (isHttp(url)) openExternal(url);
+    return { action: "deny" };
+  });
+
+  // main frame の遷移。内部 origin（Vite フルリロード等）は許可、外部 http(s) は
+  // ブラウザへ、その他 scheme は許可（Swift 版と同じ分岐）
+  window.webContents.on("will-navigate", (event, url) => {
+    if (isInternal(url) || !isHttp(url)) return;
+    event.preventDefault();
+    openExternal(url);
+  });
+}
+
+/** 保存 frame がどのディスプレイとも交差しない（外部モニタ取り外し等で off-screen 化）
+ * 場合は復元せずデフォルトで開き直すための判定 */
+function intersectsAnyDisplay(bounds: WindowBounds): boolean {
+  return screen.getAllDisplays().some((display) => {
+    const area = display.workArea;
+    return (
+      bounds.x < area.x + area.width &&
+      bounds.x + bounds.width > area.x &&
+      bounds.y < area.y + area.height &&
+      bounds.y + bounds.height > area.y
+    );
+  });
+}
+
+function createWindow(): BrowserWindow {
+  const saved = windowStateStore.loadBounds();
+  const restored = saved !== undefined && intersectsAnyDisplay(saved) ? saved : undefined;
+  const window = new BrowserWindow({
+    width: restored?.width ?? DEFAULT_WINDOW_SIZE.width,
+    height: restored?.height ?? DEFAULT_WINDOW_SIZE.height,
+    // x / y は undefined ならディスプレイ中央配置（Electron デフォルト）
+    x: restored?.x,
+    y: restored?.y,
+    webPreferences: {
+      preload: join(__dirname, "preload.cjs"),
+      contextIsolation: true,
+      sandbox: true,
+      additionalArguments: isTestMode ? [SPIKE_TEST_ARG] : [],
+    },
+  });
+  // frame 保存は will-quit ではなく close で行う: will-quit 時点では window が destroy
+  // 済みで bounds を取れない。getNormalBounds は fullscreen / maximize 中でも
+  // 通常時 frame を返すため、復元時に巨大 frame が焼き付く事故を避けられる
+  window.on("close", () => {
+    windowStateStore.saveBounds(window.getNormalBounds());
+  });
+  installExternalLinkPolicy(window);
+  // ロード経路は 3 つ（Swift 版 GozdApp.task と同型）:
+  //   1. GOZD_ELECTRON_RENDERER_URL: Vite dev server（HMR / 検証）
+  //   2. packaged: .app 同梱の renderer（Vite build は base "./" のため file:// で成立。
+  //      Swift は WebPage に loadFileURL 相当が無く gozd-app:// scheme を要したが、
+  //      Electron は loadFile で足りる）
+  //   3. fallback: spike テストページ
+  if (rendererUrl !== undefined && rendererUrl !== "") {
+    void window.loadURL(rendererUrl);
+    // dev では esbuild + electron の起動が Vite dev server より速く、初回 load が
+    // ERR_CONNECTION_REFUSED になり得る。Vite が上がるまで retry する
+    const RETRY_MS = 300;
+    window.webContents.on("did-fail-load", (_event, _code, _description, failedUrl) => {
+      if (!failedUrl.startsWith(rendererUrl)) return;
+      setTimeout(() => void window.loadURL(rendererUrl), RETRY_MS);
+    });
+  } else if (isPackaged) {
+    void window.loadFile(bundledRendererIndex);
+  } else {
+    void window.loadFile(join(__dirname, "renderer/index.html"));
+  }
+  return window;
+}
+
+ipcMain.handle("rpc:request", (event, path: string, bodyJson: string) => {
+  const sender = event.sender;
+  const push: PushFn = (type, payload) => {
+    if (sender.isDestroyed()) return;
+    sender.send("rpc:push", type, payload);
+  };
+  return dispatch(path, bodyJson, { push });
+});
+
+/** スクリーンショットを保存して app を終了する（検証経路の共通処理） */
+function captureAndExit(window: BrowserWindow, exitCode: number): void {
+  const shotPath = process.env.GOZD_SPIKE_SHOT;
+  if (shotPath === undefined) {
+    app.exit(exitCode);
+    return;
+  }
+  void window.webContents.capturePage().then((image) => {
+    writeFileSync(shotPath, image.toPNG());
+    console.log(`[spike] screenshot: ${shotPath}`);
+    app.exit(exitCode);
+  });
+}
+
+// spike 自動テスト: renderer からの結果報告を受けて証跡を残し、exit code に反映する
+ipcMain.on("spike:report", (event, ok: boolean, detail: string) => {
+  console.log(`[spike] ${ok ? "OK" : "NG"}: ${detail}`);
+  const window = BrowserWindow.fromWebContents(event.sender);
+  if (window === null) {
+    app.exit(ok ? 0 : 1);
+    return;
+  }
+  captureAndExit(window, ok ? 0 : 1);
+});
+
+// spike 自動テスト: main プロセスの例外・ハングでもプロセスを残さない
+if (isTestMode) {
+  process.on("uncaughtException", (error) => {
+    console.error(`[spike] uncaughtException: ${error.stack ?? error}`);
+    app.exit(1);
+  });
+  const WATCHDOG_MS = 25000;
+  setTimeout(() => {
+    console.error("[spike] watchdog timeout: no report received");
+    app.exit(2);
+  }, WATCHDOG_MS).unref();
+}
+
+let socketServer: SocketServerHandle | undefined;
+
+app.whenReady().then(() => {
+  installAppMenu();
+
+  // dev の Dock アイコン。packaged は electron-builder が焼いた icns（production 用
+  // icon.png 由来）が使われるが、未パッケージ（electron .）は Electron デフォルト
+  // アイコンになるため、Swift 期の dev 用アイコン（旧 icon.dev.iconset）を実行時に
+  // 当てる。dev / production をアイコンで識別する運用（Swift 期の Gozd-Dev.app 相当）
+  if (!isPackaged) {
+    const devIconResult = tryCatch(() =>
+      app.dock?.setIcon(join(__dirname, "..", "resources", "icon.dev.iconset", "icon_512x512@2x.png")),
+    );
+    if (!devIconResult.ok) {
+      console.error(`[main] failed to set dev dock icon: ${devIconResult.error}`);
+    }
+  }
+
+  // protocol 登録は window の loadURL より先に行う（先に読み込まれた <img> が
+  // 未登録 scheme として即 error になるのを避ける）
+  registerFileServerProtocol();
+
+  const window = createWindow();
+
+  // Claude hooks 設定 JSON を $TMPDIR に書き出す。PTY の zsh init で claude() 関数が
+  // このパスを --settings に注入する。失敗しても PTY は動くため起動は止めない
+  try {
+    writeClaudeHooksSettings(claudeSettingsPath);
+  } catch (error) {
+    console.error(`[main] failed to write claude hooks settings: ${error}`);
+  }
+
+  // CLI / Claude hooks からの NDJSON を受け付けるソケット server。push は window の
+  // webContents に束縛する（gozd はシングルウィンドウ運用）
+  const socketPush: PushFn = (type, payload) => {
+    if (window.webContents.isDestroyed()) return;
+    window.webContents.send("rpc:push", type, payload);
+  };
+  socketServer = startSocketServer(socketPath, createSocketMessageHandler(socketPush));
+
+  // 実行中サーバーの周期検出。push は window に束縛（シングルウィンドウ運用）
+  startPortScanner(socketPush);
+
+  // CLI cold start の launch request を消費して gozdOpen を push する
+  // （Swift 版 performInitialOpen 対応）。push が renderer の購読登録より先に飛ぶと
+  // 落ちるため、page load 完了まで待つ。once なのは Vite フルリロード等の再 load で
+  // 再発火させないため（consume 済みなので no-op だが、意味論を Swift の
+  // 「起動時 1 回」に揃える）
+  window.webContents.once("did-finish-load", () => {
+    const target = consumeLaunchRequest(launchRequestDir);
+    if (target === undefined) return;
+    void buildGozdOpenPayload(target).then((payload) => {
+      socketPush("gozdOpen", payload);
+    });
+  });
+
+  // 起動検証: 指定 ms 後にスクリーンショットを撮って正常終了する
+  // （実 renderer の boot 確認など、spike report 経路が無いページ用）
+  const shotAfterMs = process.env.GOZD_SHOT_AFTER_MS;
+  if (shotAfterMs !== undefined && shotAfterMs !== "") {
+    setTimeout(() => captureAndExit(window, 0), Number(shotAfterMs));
+  }
+
+  if (!isTestMode) return;
+  console.log("[spike] window created");
+  window.webContents.on("did-finish-load", () => {
+    console.log("[spike] did-finish-load");
+  });
+  window.webContents.on("did-fail-load", (_event, code, description) => {
+    console.error(`[spike] did-fail-load: ${code} ${description}`);
+    app.exit(1);
+  });
+});
+
+app.on("window-all-closed", () => {
+  app.quit();
+});
+
+app.on("will-quit", () => {
+  killAllPtys();
+  unwatchAllFsWatches();
+  stopPortScanner();
+  socketServer?.close();
+});

@@ -1,4 +1,4 @@
-import type { Task } from "@gozd/proto";
+import type { Task } from "@gozd/rpc";
 
 /**
  * Claude Code が transcript 起動直後に OSC タイトルとして送ってくる

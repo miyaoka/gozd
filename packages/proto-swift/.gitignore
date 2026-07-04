@@ -1,5 +1,0 @@
-.build/
-.swiftpm/
-.DS_Store
-Package.resolved
-Sources/GozdProto/*.pb.swift

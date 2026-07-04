@@ -17,7 +17,7 @@ import { rpcGitStatus } from "./rpc";
  * - サイドバーは `wt.gitStatuses` を直接読むため、別 store に最新値を持つと
  *   gitStatusChange push 受信時に「サイドバーは更新されないが Filer は更新される」
  *   という SSOT 違反が起きる
- * - ファイル変更 push に対し、Swift 側に worktree list を全件再 RPC させる経路を
+ * - ファイル変更 push に対し、main 側に worktree list を全件再 RPC させる経路を
  *   挟まずに、push payload を直接 repoStore に書いて全リーダーへ伝搬させる
  * - `statuses` / `upstream` / `latestMtime` は同一の `gitStatusFull` 出力から派生する
  *   1 セットなので、`setWorktreeGitStatuses` の 1 patch で原子的に書く

@@ -1,42 +1,34 @@
-// gozd-rpc:// URL Scheme 越しの RPC クライアント。
+// RPC クライアント。preload が contextBridge で公開する `window.__gozdElectronRpc` 経由で
+// main process に request を投げる（`ipcMain.handle("rpc:request")` に届く）。
 //
 // 設計判断:
 //
-// 1. **proto3 JSON mapping**。`@gozd/proto` から生成された型の `toJSON` /
-//    `fromJSON` で encode / decode する。binary は使わない（ブラウザ側で
-//    base64 / Uint8Array が煩雑になるため、性能ボトルネックが見えるまで JSON）
+// 1. **型付き JSON ワイヤ**。`@gozd/rpc` の型を JSON.stringify / JSON.parse でそのまま運ぶ。
+//    codec は持たない。response 型は feature の rpc wrapper が generic で当てる
+//    （main 側 routes.ts が同じ型を `satisfies` でチェックして返す契約なので、
+//    ワイヤ両端の型は単一定義を共有する）
 //
-// 2. **gozd-rpc://localhost プレフィックス固定**。renderer 側の origin (Vite dev
-//    `http://localhost:<port>` / build `gozd-app://localhost`) から見ると
-//    `gozd-rpc://localhost` は cross-origin になるが、native 側 `RpcSchemeHandler`
-//    が Origin allowlist に基づき `Access-Control-Allow-Origin` を明示 echo するため
-//    WebKit の標準 CORS check を pass する。詳細は
-//    [docs/architecture.md の「CORS 運用規律」セクション](../../../../../docs/architecture.md)
-//
-// 3. **エラーは throw**。HTTP 4xx/5xx は ok=false で fetch は throw しないため、
-//    明示的に判定してエラーを投げる。renderer 側は try/catch + tryCatch で扱う
+// 2. **エラーは throw**。ハンドラ未実装・処理失敗は bridge の reject として届くため、
+//    tryCatch で受けて Error に包み直す
 
-interface Codec<T> {
-  toJSON(t: T): unknown;
-  fromJSON(j: unknown): T;
+import { tryCatch, type ElectronRpcBridge } from "@gozd/shared";
+
+declare global {
+  interface Window {
+    __gozdElectronRpc?: ElectronRpcBridge;
+  }
 }
 
-const RPC_BASE = "gozd-rpc://localhost";
-
-export async function rpc<Req, Resp>(
-  path: string,
-  req: Req,
-  reqCodec: Codec<Req>,
-  respCodec: Codec<Resp>,
-): Promise<Resp> {
-  const res = await fetch(`${RPC_BASE}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(reqCodec.toJSON(req)),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`RPC ${path} failed: ${res.status} ${text}`);
+export async function rpc<Resp>(path: string, req: unknown): Promise<Resp> {
+  const bridge = window.__gozdElectronRpc;
+  if (bridge === undefined) {
+    // Electron renderer では preload が必ず bridge を公開する。不在は bootstrap 順序の
+    // 破綻なので fallback せずエラーにする
+    throw new Error(`RPC ${path} failed: electron bridge not available`);
   }
-  return respCodec.fromJSON(await res.json());
+  const result = await tryCatch(bridge.request(path, JSON.stringify(req)));
+  if (!result.ok) {
+    throw new Error(`RPC ${path} failed: ${String(result.error)}`);
+  }
+  return JSON.parse(result.value) as Resp;
 }

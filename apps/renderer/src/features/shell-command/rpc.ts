@@ -1,17 +1,9 @@
-import {
-  ShellCommandInstallRequest,
-  ShellCommandInstallResponse,
-  ShellCommandUninstallRequest,
-  ShellCommandUninstallResponse,
-} from "@gozd/proto";
+import type { ShellCommandInstallResponse, ShellCommandUninstallResponse } from "@gozd/rpc";
 
 import { rpc } from "../../shared/rpc";
 
-export const rpcShellCommandInstall = (
-  req: ShellCommandInstallRequest = ShellCommandInstallRequest.create(),
-) => rpc("/shellCommand/install", req, ShellCommandInstallRequest, ShellCommandInstallResponse);
+export const rpcShellCommandInstall = () =>
+  rpc<ShellCommandInstallResponse>("/shellCommand/install", {});
 
-export const rpcShellCommandUninstall = (
-  req: ShellCommandUninstallRequest = ShellCommandUninstallRequest.create(),
-) =>
-  rpc("/shellCommand/uninstall", req, ShellCommandUninstallRequest, ShellCommandUninstallResponse);
+export const rpcShellCommandUninstall = () =>
+  rpc<ShellCommandUninstallResponse>("/shellCommand/uninstall", {});

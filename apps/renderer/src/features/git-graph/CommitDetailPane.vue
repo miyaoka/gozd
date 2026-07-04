@@ -8,7 +8,7 @@ Commit detail pane showing metadata for selected commits in the git graph.
 </doc>
 
 <script setup lang="ts">
-import type { GitCommit } from "@gozd/proto";
+import type { GitCommit } from "@gozd/rpc";
 import { computed } from "vue";
 import { formatDetailTime } from "../../shared/time";
 import { UNCOMMITTED_HASH } from "../worktree";

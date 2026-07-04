@@ -17,7 +17,7 @@
     "@dnd-kit/vue": "0.5.0",
     "@gozd/claude-session-log": "workspace:*",
     "@gozd/design-tokens": "workspace:*",
-    "@gozd/proto": "workspace:*",
+    "@gozd/rpc": "workspace:*",
     "@gozd/shared": "workspace:*",
     "@gozd/shiki-lang-map": "workspace:*",
     "@gozd/themes": "workspace:*",

@@ -5,8 +5,9 @@ import type { PathTarget } from "../../../worktree";
  * Markdown プレビュー内 `<a>` の href を解決し、内部遷移 / 素通し / 無効のいずれかを返す。
  *
  * scheme 判定は信頼境界として allowlist 方式を採る。Markdown プレビューは
- * リポジトリ内ファイル由来のテキストを描画するため、`gozd-rpc://` / `gozd-app://` /
- * `file:` / `data:` / `javascript:` 等の native or 危険 scheme は明示的に invalid に倒す。
+ * リポジトリ内ファイル由来のテキストを描画するため、`gozd-file://` / 旧内部 scheme
+ * (`gozd-rpc://` / `gozd-app://`) / `file:` / `data:` / `javascript:` 等の内部 or
+ * 危険 scheme は明示的に invalid に倒す。
  * passthrough は http(s) / mailto: のみ (外部ブラウザに渡す scheme)。
  *
  * 行番号フラグメント (`#L42`, `#L42,5`, `#42`) は VS Code の `getLocationFragmentFromLinkText`
@@ -72,7 +73,7 @@ function parseAnchor(fragment: string): { lineNumber: number | undefined; droppe
  *
  * `~/` 経路:
  *   - normalizeRelative はチルダを通常 segment として保持する (`~/foo` → `~/foo`)
- *   - ここで弾かないと store に `~/secret.md` のような未展開リテラルが渡り、Swift の
+ *   - ここで弾かないと store に `~/secret.md` のような未展開リテラルが渡り、main の
  *     fsReadFile が join した先で notFound に倒れる。markdown link で `[x](~/...)` を
  *     書いた意図はユーザー dir 参照 (= worktree 外) なので silent notFound ではなく
  *     invalid (outside the worktree) に倒して通知する

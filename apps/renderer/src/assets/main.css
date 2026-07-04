@@ -142,10 +142,9 @@
 }
 
 @layer base {
-  /* macOS WebKit の rubber band (elastic scroll) を抑止する。
-     WebView 内部 NSScrollView の bounce が発火するとタイトルバーとの隙間に
-     SwiftUI 側 .background(Color.black) が透けて見える。SwiftUI WebView (macOS 26)
-     には scroll 制御 API が無いため CSS 側で抑える。 */
+  /* macOS の rubber band (elastic scroll) を抑止する。document 全体が bounce すると
+     単一ウィンドウ UI 全体が引っ張られて見えるため CSS 側で抑える
+     (WebKit shell 期に NSScrollView の bounce 対策として導入。Chromium でも同契約を維持)。 */
   html,
   body {
     overscroll-behavior: none;

@@ -18,8 +18,8 @@
  *
  * NavigatorPane は `pointerup` capture listener を setup 直下に常設し、子 pane から bubble する
  * contextmenu event を `pending` ref に積んで次の pointerup で showPopover する。**`setTimeout(0)`
- * / `requestAnimationFrame` 等の defer は WebKit (WebPage) の `popover="auto"` light-dismiss を
- * 抜けない** (whatwg/html#10905、実機検証で確認)。続く mouseup が popover に到達して即 dismiss
+ * / `requestAnimationFrame` 等の defer は `popover="auto"` light-dismiss を
+ * 抜けない** (whatwg/html#10905、WebKit shell 期に実機検証で確認)。続く mouseup が popover に到達して即 dismiss
  * されるため、`pointerup` が popover の show 前に消化されることで mouseup の dismiss 対象外に
  * 倒す。`{ capture: true }` を外したり pointerdown / mousedown 経路に変えてはならない。
  *

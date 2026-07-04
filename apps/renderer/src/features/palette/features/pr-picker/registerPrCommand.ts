@@ -4,7 +4,7 @@
  * PR を選択して worktree を作成する。既にブランチの worktree が存在する場合はそちらに切り替える。
  */
 
-import { ghRefForPr } from "@gozd/proto";
+import { ghRefForPr } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";

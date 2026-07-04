@@ -9,7 +9,7 @@
  * (`activeVersion` + `historyState`) だけを所有する。FileHistoryPopover.vue は
  * `Popover` + `context` + `historyState` を購読して描画するだけ。
  */
-import type { GitCommit } from "@gozd/proto";
+import type { GitCommit } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { effectScope, ref, watch } from "vue";
 import { useNotificationStore } from "../../../../shared/notification";

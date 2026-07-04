@@ -152,8 +152,8 @@ export function isHookEvent(value: string): value is HookEvent {
 }
 
 /**
- * Claude hook の `tool_input` を構造化オブジェクトにする。proto3 の string 制約により
- * boundary までは JSON 文字列で運ばれる（CLI が object → JSON 文字列にシリアライズする）。
+ * Claude hook の `tool_input` を構造化オブジェクトにする。ワイヤ契約 (HookMessage.toolInput)
+ * により boundary までは JSON 文字列で運ばれる（CLI が object → JSON 文字列にシリアライズする）。
  * ここで 1 度だけ parse することで、`extractAskingText` 等の object 判定が初めて成立する。
  * 既に object のケース（テスト等）はそのまま通し、parse 失敗・非 object は undefined にする。
  */
@@ -301,7 +301,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
         // あとに旧 session の session-end が遅延到達した場合、現在 mapping を
         // 誤って消すのを防ぐ。
         if (endingSessionId === "") {
-          // Swift 側 hook payload (GozdApp.swift の onHook) は session-start /
+          // main 側 hook payload (socketMessages.ts) は session-start /
           // session-end で必ず sessionId を含む。空文字到達は仕様外なので silent
           // 通過させず観察可能化する。
           console.warn(

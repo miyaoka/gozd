@@ -20,7 +20,7 @@ import {
  */
 const EXTENSION_OVERRIDES: Partial<Record<string, BundledLanguage | null>> = {
   // .m: Linguist は MATLAB を ASCII 順優先で `.m → matlab` に倒すが、gozd は MATLAB ファイルを
-  // 扱わず、apps/native の Objective-C / C ブリッジが対象。
+  // 扱わず、閲覧対象は Objective-C / C ソースが主。
   m: "objective-c",
   // .php: Linguist で Hack が ASCII 先勝ちのため `.php → hack` に倒れるが、PHP ファイルは
   // 圧倒的に多数派。Shiki に `php` grammar が存在する。

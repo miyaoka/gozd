@@ -14,7 +14,7 @@ flush: "post"。列の縦揃えは Working Tree 行と commit 行が同じ `--gr
 </doc>
 
 <script setup lang="ts">
-import type { GitPullRequest } from "@gozd/proto";
+import type { GitPullRequest } from "@gozd/rpc";
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 import { computeStatusIcons, UNCOMMITTED_HASH, useGitStatusStore } from "../../../worktree";

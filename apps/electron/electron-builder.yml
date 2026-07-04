@@ -1,0 +1,44 @@
+# Electron 版 gozd の .app パッケージング設定。Swift 版 apps/native/scripts/build-app.sh の
+# 対応物。unsigned ローカル配布前提（署名 / notarize なし）。
+#
+# 前提: workspace の nodeLinker: hoisted（Electron 公式処方）。依存が npm 式の実体
+# ファイルで配置されるため、electron-builder の標準の依存収集（node-pty /
+# @parcel/watcher + transitive）がそのまま機能する。orca 式の自前閉包コピーは不要。
+#
+# レイアウト（asar: false。Swift 版 / shellCommandOps の期待と同一）:
+#   Gozd.app/Contents/Resources/app/
+#     package.json / dist/             ← files（esbuild 成果物: main / preload / cli）
+#     node_modules/                    ← electron-builder の prod 依存収集
+#     bin/                             ← extraResources（wrapper + gozd-cli shim）
+#     zsh/                             ← extraResources（zsh init チェーン。Swift 版と共有）
+#     views/main/                      ← extraResources（renderer の Vite ビルド成果物）
+appId: io.github.miyaoka.gozd.electron
+productName: Gozd
+directories:
+  output: out
+  buildResources: build
+files:
+  - dist/**
+  - package.json
+# asar 化しない: node-pty の spawn-helper / prebuild、bin/ の shim が実体ファイルを
+# 要求する。gozd-cli は ELECTRON_RUN_AS_NODE 起動で asar 内が見えないため、
+# asar を使うと orca 式の asarUnpack 列挙が必要になる（asar: false で丸ごと回避）
+asar: false
+# node-pty prebuild は Electron でそのまま動作確認済み（dev 経路と同一バイナリ）。
+# rebuild すると node-gyp コンパイルが走り prebuild の意味が消えるため無効化
+npmRebuild: false
+# Electron 本体は pnpm が展開済みの dist を使う（GitHub からの zip ダウンロード回避）。
+# nodeLinker: hoisted により electron は repo root の node_modules に単一配置される
+# （このパスは projectDir = apps/electron 相対）。dist の実在は build:app 冒頭の
+# ensureElectronDist.ts が保証する（pnpm は fresh install で electron の postinstall を
+# 省略することがあり、その場合 dist が展開されない）
+electronDist: ../../node_modules/electron/dist
+extraResources:
+  - from: resources/bin
+    to: app/bin
+  - from: resources/zsh
+    to: app/zsh
+  - from: ../renderer/dist
+    to: app/views/main
+mac:
+  target: dir

@@ -1,4 +1,4 @@
-import type { WorktreeEntry } from "@gozd/proto";
+import type { WorktreeEntry } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
 import { collectFsWatchTargetDirs, type RepoState } from "../../shared/repo";
 import { runOneSyncPass, type SyncPassDeps } from "./runOneSyncPass";

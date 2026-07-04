@@ -11,12 +11,12 @@ interface IssueSegment {
 
 export type CommitMessageSegment = TextSegment | IssueSegment;
 
-/** Swift 側 `GitHubOps.parseGitHubOwnerRepo` で parse 済みの `(owner, repo)` から GitHub の
- * repo base URL を組み立てる。remote 未設定 / 非 github.com host (parser が nil で返す経路) は
- * 両方が空文字で届くため undefined に倒し、renderer は `#N` を plain text に保つ。
+/** main 側 `parseGitHubOwnerRepo`（`src/git/github.ts`）で parse 済みの `(owner, repo)` から
+ * GitHub の repo base URL を組み立てる。remote 未設定 / 非 github.com host (parser が失敗で
+ * 返す経路) は両方が空文字で届くため undefined に倒し、renderer は `#N` を plain text に保つ。
  *
  * remote URL の文字列 parse / SSH 形式の正規化 / `.git` suffix 剥がし / host policy 判定は
- * Swift 側 1 箇所 (`GitHubOps.parseGitHubOwnerRepo`) で完結している。renderer は構造化済み
+ * main 側 1 箇所 (`parseGitHubOwnerRepo`) で完結している。renderer は構造化済み
  * identifier を受け取って文字列を組み立てるだけ。
  *
  * GitHub は `/issues/<n>` も `/pull/<n>` も互いにリダイレクトするため、base から

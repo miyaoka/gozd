@@ -106,7 +106,7 @@ CLI が 2 配列の length を OR で畳んで `pending_work` 信号を立て、
 - pending done / dead PTY など「完了扱いしない hook」は `handleHookEvent` が `undefined` を返して落とす（**抑止判断はこの 1 箇所のみ**）
 - 効果側（VOICEVOX 読み上げ・arcade の演出/効果音）は `claudeFx` を購読するだけで、`pending_work` を一切見ない。pending done は構造的に届かないため、新しい効果購読者を足しても取りこぼせない
 
-`pendingWork` flag の **算出は `handleHookEvent` の done 分岐 1 箇所**（SSOT は proto の `pending_work` フィールド）。この flag を読む**判断点はバッジ側（`displayClaudeState()`）と効果側（fx 発行可否）の 2 経路**だが、いずれも同じ flag を参照する。バッジは表示 state、効果はイベント駆動で出力先が異なるため、責務として分離している。
+`pendingWork` flag の **算出は `handleHookEvent` の done 分岐 1 箇所**（SSOT は `HookMessage.pendingWork` フィールド）。この flag を読む**判断点はバッジ側（`displayClaudeState()`）と効果側（fx 発行可否）の 2 経路**だが、いずれも同じ flag を参照する。バッジは表示 state、効果はイベント駆動で出力先が異なるため、責務として分離している。
 
 > [!NOTE]
 > 旧バージョン（v2.1.145 未満）の Claude Code は両キーを stdin に乗せないが、CLI は欠落を count 0（= pending なし）として扱うため、その場合は従来どおり `pendingWork` なしの `done` になる（欠落 == 空で正しい挙動）。
@@ -131,8 +131,8 @@ worktree に複数ターミナルがある場合、`ClaudeState` の優先度順
 
 | ファイル                                                           | 責務                                                                          |
 | ------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
-| `apps/native/Sources/GozdCore/ClaudeHooksSettings.swift`           | hooks 設定 JSON の生成                                                        |
-| `apps/native/Sources/GozdCLI/main.swift`                           | CLI の hook サブコマンド（stdin → ソケット転送）                              |
+| `apps/electron/src/claudeHooksSettings.ts`                         | hooks 設定 JSON の生成                                                        |
+| `apps/electron/src/cli.ts`                                         | CLI の hook サブコマンド（stdin → ソケット転送）                              |
 | `apps/renderer/src/features/terminal/claudeStatus.ts`              | 状態管理（`handleHookEvent` + `observeTitle` による OSC タイトル駆動）        |
 | `apps/renderer/src/features/terminal/XtermTerminal.vue`            | `terminal.onTitleChange` で OSC タイトルを `setTitle` → `observeTitle` に流す |
 | `apps/renderer/src/features/terminal/TerminalLeafTitle.vue`        | leaf ヘッダの status アイコン + Task タイトル（TaskRow と同一の見た目）       |

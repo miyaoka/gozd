@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { relDirOf } from "./relDirOf";
 
 describe("relDirOf", () => {
-  // Swift `FSWatchRegistry.relativeDir(path:dir:dirWithSlash:)` の出力と一致させる境界。
+  // main 側 `relativeDir(path, dirWithSlash)`（fs/classify.ts）の出力と一致させる境界。
   // 表現が乖離すると fsChange.relDir との `===` 比較が永久に外れる。
   test.each([
     ["worktree 直下ファイルは空文字", "foo.ts", ""],

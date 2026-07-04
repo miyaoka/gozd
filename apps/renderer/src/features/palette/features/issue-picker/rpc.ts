@@ -1,6 +1,6 @@
-import { GitIssueListRequest, GitIssueListResponse } from "@gozd/proto";
+import { GitIssueListRequest, GitIssueListResponse } from "@gozd/rpc";
 
 import { rpc } from "../../../../shared/rpc";
 
 export const rpcGitIssueList = (req: GitIssueListRequest) =>
-  rpc("/git/issueList", req, GitIssueListRequest, GitIssueListResponse);
+  rpc<GitIssueListResponse>("/git/issueList", req);

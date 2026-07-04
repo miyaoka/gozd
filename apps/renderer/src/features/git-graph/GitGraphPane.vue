@@ -14,7 +14,7 @@ HEAD-only walk を末尾 append し境界に `truncatedAbove` を立てる。ren
 </doc>
 
 <script setup lang="ts">
-import { SortMode, type GitCommit } from "@gozd/proto";
+import { SortMode, type GitCommit } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { useElementSize, useIntervalFn } from "@vueuse/core";
 import { storeToRefs } from "pinia";
@@ -48,8 +48,8 @@ const { commits } = storeToRefs(gitGraphStore);
 
 const defaultBranch = ref<string | undefined>();
 const firstParentOnly = ref(false);
-// SSOT: proto の SortMode enum をそのまま UI 状態として持ち、RPC 呼び出しで変換不要にする。
-const sortMode = ref<SortMode>(SortMode.SORT_MODE_DATE);
+// SSOT: ワイヤ型 SortMode をそのまま UI 状態として持ち、RPC 呼び出しで変換不要にする。
+const sortMode = ref<SortMode>("date");
 const currentBranchOnly = ref(false);
 
 /** refs 配列に "HEAD" を持つコミットを探す */

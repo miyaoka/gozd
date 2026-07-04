@@ -1,4 +1,4 @@
-import type { GitFileChange } from "@gozd/proto";
+import type { GitFileChange } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
@@ -100,7 +100,7 @@ export const useChangesStore = defineStore("changes", () => {
 
   /** `git diff --diff-filter=AMDR` 由来の tracked 変更に untracked を append する untracked merge の
    * SSOT。PR diff モードと range mode + Working Tree 端が共有する。dedup は newFilePath key で行う
-   * (Swift 側 diff の path 表記と gitStatus の path 表記は同一形式)。 */
+   * (main 側 diff の path 表記と gitStatus の path 表記は同一形式)。 */
   function mergeUntracked(tracked: GitFileChange[]): GitFileChange[] {
     const seen = new Set(tracked.map((c) => c.newFilePath));
     const extras = untrackedFiles.value.filter((c) => !seen.has(c.newFilePath));
@@ -182,7 +182,7 @@ export const useChangesStore = defineStore("changes", () => {
    * source が変わったら fetch (workingTree / none は fetch 不要なので skip)。
    *
    * 経路ごとの RPC 呼び分け:
-   * - prDiff: `rpcGitPrDiffFiles` (Swift 側は tracked AMDR diff のみ。untracked は `fileChanges`
+   * - prDiff: `rpcGitPrDiffFiles` (main 側は tracked AMDR diff のみ。untracked は `fileChanges`
    *   computed が `mergeUntracked` で append する)。base reachable 判定 / fetch / merge-base 計算は
    *   `usePrDiffToggleStore.enable()` が事前に済ませており、`source.baseOid` は merge-base OID。
    * - range / commit: `rpcGitCommitFiles` (既存)

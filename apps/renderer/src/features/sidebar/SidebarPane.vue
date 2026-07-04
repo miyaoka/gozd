@@ -28,7 +28,7 @@
 import type { DragEndEvent } from "@dnd-kit/abstract";
 import { move } from "@dnd-kit/helpers";
 import { DragDropProvider } from "@dnd-kit/vue";
-import type { Task, WorktreeEntry } from "@gozd/proto";
+import type { Task, WorktreeEntry } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
@@ -141,7 +141,7 @@ function getFocusedPtyId(dir: string): number | undefined {
 }
 
 async function handleTaskRemove(rootDir: string, task: Task) {
-  // ⋮ メニューからの明示削除。Swift 側 TaskStore.remove で永続化を消した後、
+  // ⋮ メニューからの明示削除。main 側 taskStore.remove で永続化を消した後、
   // `requestRefresh` で server から真値を取り直す。他の task 系操作
   // (reviveTaskForGhRef / registerPrCommand / registerIssueCommand) と SSOT 取得規約を
   // 揃え、`repos[...]` の直書き楽観更新 (race の源) を避ける。
@@ -180,7 +180,7 @@ function onRemoveRepo(rootDir: string) {
 async function onAddDir() {
   // native の NSOpenPanel を開いてユーザーに dir を選ばせる。
   // 選択後は内部で onOpen → gozdOpen push → repoStore.addRepo に流れる
-  const result = await tryCatch(rpcPickAndOpen({}));
+  const result = await tryCatch(rpcPickAndOpen());
   if (!result.ok) {
     notify.error("Failed to open directory picker", result.error);
   }

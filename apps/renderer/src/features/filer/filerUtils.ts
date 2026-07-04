@@ -1,4 +1,4 @@
-import type { FsReadDirEntry, GitTreeEntry } from "@gozd/proto";
+import type { FsReadDirEntry, GitTreeEntry } from "@gozd/rpc";
 import type { GitChangeKind } from "../worktree";
 
 /**
@@ -91,7 +91,7 @@ function getDeletedEntries(dirPath: string, gitStatuses: Record<string, string>)
   }));
 }
 
-/** proto の FsReadDirEntry を FileEntry に変換する */
+/** ワイヤ型 FsReadDirEntry を FileEntry に変換する */
 function toFileEntries(entries: FsReadDirEntry[]): FileEntry[] {
   return entries.map((e) => ({
     name: e.name,
@@ -126,7 +126,7 @@ function joinPath(parent: string, name: string): string {
 }
 
 /**
- * worktree 自体（不可視ルート）を表す path 値かどうか。Swift の `relDir` SSOT に合わせ、
+ * worktree 自体（不可視ルート）を表す path 値かどうか。main 側の `relDir` SSOT に合わせ、
  * worktree 直下を `""` で表現する規約に依存する全分岐の根拠を 1 か所に集約する。
  */
 function isRootPath(path: string): boolean {

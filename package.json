@@ -5,10 +5,10 @@
   "description": "AI Agent Orchestrator",
   "type": "module",
   "scripts": {
-    "dev": "GOZD_DEV_VITE_PORT=16873 concurrently --kill-others --names renderer,native --prefix-colors cyan,magenta 'pnpm --filter @gozd/renderer dev' 'pnpm --filter @gozd/native dev'",
-    "dev:prod": "rm -rf \"$TMPDIR/gozd-stable-launch\" \"$TMPDIR/gozd-stable.sock\" && env -u GOZD_SOCKET_PATH apps/native/.build/app/Gozd.app/Contents/Resources/app/bin/gozd",
+    "dev": "GOZD_DEV_VITE_PORT=16873 concurrently --kill-others --names renderer,electron --prefix-colors cyan,magenta 'pnpm --filter @gozd/renderer dev' 'pnpm --filter @gozd/electron dev'",
+    "dev:prod": "rm -rf \"$TMPDIR/gozd-stable-launch\" \"$TMPDIR/gozd-stable.sock\" && env -u GOZD_SOCKET_PATH apps/electron/out/mac-arm64/Gozd.app/Contents/Resources/app/bin/gozd",
     "build": "pnpm -r build",
-    "bootstrap": "pnpm build && open apps/native/.build/app/Gozd.app",
+    "bootstrap": "pnpm --filter @gozd/electron build:app && open apps/electron/out/mac-arm64/Gozd.app",
     "format": "oxfmt .",
     "lint": "oxlint --type-aware",
     "fix": "oxfmt '!apps/**' '!packages/**'",

@@ -58,7 +58,7 @@ export function useSidebarData() {
     if (fetchGenByRoot.get(rootDir) !== gen) return;
     const wtList = result.value.worktrees;
 
-    // proto 契約違反 (Swift 側の TaskStore で生成された createdAt が ISO8601 でない)
+    // ワイヤ契約違反 (main 側の taskStore で生成された createdAt が ISO8601 でない)
     // を ingress で観察可能化する。downstream は NaN を扱える形を維持する
     for (const wt of wtList) {
       validateTasksCreatedAt(wt.tasks);
@@ -325,7 +325,7 @@ export function useSidebarData() {
     cleanups.push(onMessage<FsWatchReadyPayload>("fsWatchReady", ({ dir }) => fetchOwnerOf(dir)));
     // 永続化ストア (TaskStore) の失敗 notify を該当 repo の
     // 真値再取得トリガとして使う。session hook (session-start / session-end /
-    // removeByWorktree / removeByPty 等) の Swift 側 I/O が失敗したとき refetch で
+    // removeByWorktree / removeByPty 等) の main 側 I/O が失敗したとき refetch で
     // 能動的に整合を取る。永続化と renderer state が乖離する可能性がある以上、
     // 再 fetch でしか真値に戻せない。
     // session hook 経路の I/O 失敗はディスクフル / 権限欠落 / 競合書き込みで連発
@@ -351,7 +351,7 @@ export function useSidebarData() {
       onMessage<HookPayload>("hook", (payload) => {
         if (payload.event !== "session-start" && payload.event !== "session-end") return;
         if (payload.sessionId === "") {
-          // Swift hook payload には sessionId が必ず入る前提 (GozdApp.swift の onHook
+          // main 側 hook payload には sessionId が必ず入る前提 (socketMessages.ts
           // が session-start / session-end でセットする)。空文字到達は仕様外なので
           // silent 通過させず観察可能化する。
           console.warn(

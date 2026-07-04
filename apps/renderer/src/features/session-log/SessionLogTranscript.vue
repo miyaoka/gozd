@@ -312,9 +312,9 @@ watch(
 
 // assistant markdown 内リンクのポリシー。
 // session log dialog は MarkdownPreview と違い worktree 相対解決の文脈を持たないため、
-// 外部 http(s) URL のみ素通しし (ExternalLinkNavigationDecider が外部ブラウザで開く)、
+// 外部 http(s) URL のみ素通しし (main 側の navigation 防壁が外部ブラウザで開く)、
 // それ以外 (相対パス / ルート絶対パス / protocol-relative / fragment / 他 scheme) はすべて
-// 無効化する。放置すると gozd-app:// 基準で解決され WebView の main frame 置換リスクがある。
+// 無効化する。放置すると renderer origin 基準で解決され main frame 置換リスクがある。
 // 相対解決を意図的に行わない設計なので resolveMarkdownLink は再利用しない (ポリシーが異なる)。
 const EXTERNAL_HTTP_RE = /^https?:\/\//i;
 function onAssistantLinkClick(e: MouseEvent) {

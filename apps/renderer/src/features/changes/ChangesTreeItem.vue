@@ -3,7 +3,7 @@ Recursive tree node for the changes pane. Renders folders (with collapse/expand)
 </doc>
 
 <script setup lang="ts">
-import type { GitFileChange } from "@gozd/proto";
+import type { GitFileChange } from "@gozd/rpc";
 import { computed } from "vue";
 import { getFileIconUrl, getFolderIconUrl } from "../filer";
 import type { FileContextMenuPayload } from "../navigator";

@@ -1,4 +1,4 @@
-import type { GitFileChange } from "@gozd/proto";
+import type { GitFileChange } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
 import { buildChangesTree, flattenChangesTree } from "./changesTree";
 

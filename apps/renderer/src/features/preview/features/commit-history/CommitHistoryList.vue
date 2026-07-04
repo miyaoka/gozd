@@ -7,7 +7,7 @@
 </doc>
 
 <script setup lang="ts">
-import type { GitCommit } from "@gozd/proto";
+import type { GitCommit } from "@gozd/rpc";
 import { formatAbsoluteTime, formatRelativeTime } from "../../../../shared/time";
 
 defineProps<{

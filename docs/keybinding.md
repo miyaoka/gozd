@@ -84,7 +84,7 @@ global keydown listener（capture phase）で以下の順に処理する。
 > [!NOTE]
 > 「macOS 予約キー (Cmd+C/V/X 等)」をハードコードで除外する仕組みは持たない。bind されていないキーは matching ループで unmatch となり、`preventDefault()` を呼ばないためブラウザ既定 (コピー / ペースト等) がそのまま動く。bind すれば上書き可能。
 >
-> 例外: macOS の application menu / SwiftUI の標準 menu に bind されたキー (Cmd+Q の Quit、Cmd+H の Hide、Cmd+M の Minimize 等) は JS handler に届く前に OS が処理するため bind 不可。一方 Cmd+W は OS による予約ではないため bind 可能で、実際 `defaultKeyBindings.json` で `terminal.closePane` に割り当てている。
+> 例外: application menu の accelerator に bind されたキー (Cmd+Q の Quit、Cmd+H の Hide、Cmd+M の Minimize 等) は JS handler に届く前に処理されるため bind 不可。menu 構成は `apps/electron/src/menu.ts`（role ベース）。Cmd+W は `defaultKeyBindings.json` で `terminal.closePane` に割り当てているため、menu には fileMenu（中身が Close Window = Cmd+W のみ）を置かない。Electron の menu accelerator は renderer の keydown より優先されるため、menu から外すのが唯一の共存手段。
 
 ### ディスパッチ
 

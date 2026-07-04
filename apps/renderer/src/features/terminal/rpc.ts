@@ -14,39 +14,30 @@ import {
   PtyWriteResponse,
   ResumableSessionListRequest,
   ResumableSessionListResponse,
-} from "@gozd/proto";
+} from "@gozd/rpc";
 
 import { rpc } from "../../shared/rpc";
 
 // --- request ---
 
-export const rpcPtySpawn = (req: PtySpawnRequest) =>
-  rpc("/pty/spawn", req, PtySpawnRequest, PtySpawnResponse);
+export const rpcPtySpawn = (req: PtySpawnRequest) => rpc<PtySpawnResponse>("/pty/spawn", req);
 
 // dir で resume 可能な Claude セッションの session_id 一覧を取得する。SSOT は
 // tasks.json (task.session_id)。visit() が未訪問 worktree の初回オープン時に呼ぶ。
 export const rpcResumableSessionList = (req: ResumableSessionListRequest) =>
-  rpc("/task/resumableSessions", req, ResumableSessionListRequest, ResumableSessionListResponse);
+  rpc<ResumableSessionListResponse>("/task/resumableSessions", req);
 
 export const rpcClaudeSessionRemoveByPty = (req: ClaudeSessionRemoveByPtyRequest) =>
-  rpc(
-    "/claudeSession/removeByPty",
-    req,
-    ClaudeSessionRemoveByPtyRequest,
-    ClaudeSessionRemoveByPtyResponse,
-  );
+  rpc<ClaudeSessionRemoveByPtyResponse>("/claudeSession/removeByPty", req);
 
-export const rpcPtyWrite = (req: PtyWriteRequest) =>
-  rpc("/pty/write", req, PtyWriteRequest, PtyWriteResponse);
+export const rpcPtyWrite = (req: PtyWriteRequest) => rpc<PtyWriteResponse>("/pty/write", req);
 
-export const rpcPtyResize = (req: PtyResizeRequest) =>
-  rpc("/pty/resize", req, PtyResizeRequest, PtyResizeResponse);
+export const rpcPtyResize = (req: PtyResizeRequest) => rpc<PtyResizeResponse>("/pty/resize", req);
 
-export const rpcPtyKill = (req: PtyKillRequest) =>
-  rpc("/pty/kill", req, PtyKillRequest, PtyKillResponse);
+export const rpcPtyKill = (req: PtyKillRequest) => rpc<PtyKillResponse>("/pty/kill", req);
 
 export const rpcOpenExternal = (req: OpenExternalRequest) =>
-  rpc("/open/external", req, OpenExternalRequest, OpenExternalResponse);
+  rpc<OpenExternalResponse>("/open/external", req);
 
 // --- push event payload ---
 

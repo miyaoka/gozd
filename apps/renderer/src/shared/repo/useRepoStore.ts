@@ -1,4 +1,4 @@
-import { type AppState, type Task, type UpstreamStatus, WorktreeEntry } from "@gozd/proto";
+import { type AppState, type Task, type UpstreamStatus, WorktreeEntry } from "@gozd/rpc";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
 
@@ -439,8 +439,18 @@ export const useRepoStore = defineStore("repo", () => {
         rootDir: r.rootDir,
         repoName: r.repoName,
         isGitRepo: r.isGitRepo,
-        worktrees: r.worktrees.map((wt) =>
-          WorktreeEntry.fromPartial({ path: wt.path, branch: wt.branch, isMain: wt.isMain }),
+        // キャッシュに無い残りフィールドは空で埋め、rpcGitWorktreeList の真値で上書きされる
+        worktrees: r.worktrees.map(
+          (wt): WorktreeEntry => ({
+            path: wt.path,
+            branch: wt.branch,
+            isMain: wt.isMain,
+            head: "",
+            gitStatuses: {},
+            renameOldPaths: {},
+            tasks: [],
+            latestMtime: 0,
+          }),
         ),
         // githubIdentity は persist しない派生値（origin remote から都度解決）。
         // hydrate 前に gozdOpen → fetch 済みの repo は dirOrder が変わらず useSidebarData の

@@ -5,6 +5,7 @@
 // Swift shell（AppRuntime.swift の pushToRenderer）と一致させる契約。
 
 import {
+  DiffLineKind,
   EchoRequest,
   EchoResponse,
   FsReadDirRequest,
@@ -23,20 +24,36 @@ import {
   FsWatchResponse,
   FsWriteFileRequest,
   FsWriteFileResponse,
+  GitCommitFilesRequest,
+  GitCommitFilesResponse,
   GitDefaultBranchRequest,
   GitDefaultBranchResponse,
+  GitDiffExpandLinesRequest,
+  GitDiffExpandLinesResponse,
+  GitDiffHunksRequest,
+  GitDiffHunksResponse,
   GitFetchRemotesRequest,
   GitFetchRemotesResponse,
   GitGithubIdentityRequest,
   GitGithubIdentityResponse,
   GitLogRequest,
   GitLogResponse,
+  GitLsTreeRequest,
+  GitLsTreeResponse,
   GitMergeBaseRequest,
   GitMergeBaseResponse,
+  GitPrDiffFilesRequest,
+  GitPrDiffFilesResponse,
+  GitReadBlobRequest,
+  GitReadBlobResponse,
   GitResetMixedRequest,
   GitResetMixedResponse,
   GitRevReachableRequest,
   GitRevReachableResponse,
+  GitShowCommitFileRequest,
+  GitShowCommitFileResponse,
+  GitShowFileRequest,
+  GitShowFileResponse,
   GitStatusRequest,
   GitStatusResponse,
   GitWorktreeListRequest,
@@ -67,7 +84,17 @@ import { spawn, type IPty } from "node-pty";
 import { readDir, readFile, readFileAbsolute, stat, writeFile } from "./fs/fsOps";
 import { createFsWatchRegistry } from "./fs/fsWatchRegistry";
 import { resolveStartPoint } from "./git/gitBranch";
+import { diffHunks, expandDiffLines, type DiffHunkLineKind } from "./git/gitDiff";
 import { log, mergeBase, resetMixed, revReachable } from "./git/gitLog";
+import {
+  commitFiles,
+  fileReadResultFromGit,
+  lsTree,
+  prDiffFiles,
+  treeFileOID,
+  type FileChangeInfo,
+} from "./git/gitTree";
+import { validateRev } from "./git/gitValidate";
 import { fetchRemotes, gitStatusFull, worktreeList } from "./git/gitOps";
 import { GitCommandError } from "./git/gitRunner";
 import type { StatusFull } from "./git/porcelain";
@@ -391,6 +418,103 @@ async function handleGitDefaultBranch(body: unknown): Promise<unknown> {
   return GitDefaultBranchResponse.toJSON({ branch: result.ok ? result.value : "" });
 }
 
+const DIFF_LINE_KIND_PROTO: Record<DiffHunkLineKind, DiffLineKind> = {
+  context: DiffLineKind.DIFF_LINE_KIND_CONTEXT,
+  added: DiffLineKind.DIFF_LINE_KIND_ADDED,
+  removed: DiffLineKind.DIFF_LINE_KIND_REMOVED,
+};
+
+async function handleGitDiffHunks(body: unknown): Promise<unknown> {
+  const req = GitDiffHunksRequest.fromJSON(body);
+  const result = await diffHunks(req.original, req.current);
+  return GitDiffHunksResponse.toJSON({
+    oldTotalLines: result.oldTotalLines,
+    newTotalLines: result.newTotalLines,
+    hunks: result.hunks.map((hunk) => ({
+      ...hunk,
+      lines: hunk.lines.map((line) => ({ kind: DIFF_LINE_KIND_PROTO[line.kind], text: line.text })),
+    })),
+  });
+}
+
+function handleGitDiffExpandLines(body: unknown): unknown {
+  const req = GitDiffExpandLinesRequest.fromJSON(body);
+  return GitDiffExpandLinesResponse.toJSON({
+    lines: expandDiffLines(req.original, req.current, req.oldStart, req.newStart, req.lines),
+  });
+}
+
+async function handleGitShowFile(body: unknown): Promise<unknown> {
+  const req = GitShowFileRequest.fromJSON(body);
+  return GitShowFileResponse.toJSON({
+    result: await fileReadResultFromGit(req.dir, "HEAD", req.relPath),
+  });
+}
+
+async function handleGitShowCommitFile(body: unknown): Promise<unknown> {
+  const req = GitShowCommitFileRequest.fromJSON(body);
+  // 単一コミット選択 (compareHash 空) では GitHub と同等の <hash>^ vs <hash> 比較に揃える
+  // （commitFiles のファイル一覧と diff endpoint を一致させる。root commit は <hash>^ が
+  // 解決失敗 → notFound=true となり追加扱いに自然解決する）。範囲選択 (compareHash 非空) では
+  // commitFiles の <older>^ vs <newer> に揃え、older 端自身の変更も diff に含める。
+  // Working Tree 端の扱いは renderer 側で分岐し、wire には常に実 git hash のみ流れる契約
+  const olderEnd = req.compareHash === "" ? req.hash : req.compareHash;
+  const fromHash = `${olderEnd}^`;
+  // content と OID を並行取得。両端の blob OID が一致すれば「コミット範囲で変更なし」として
+  // renderer に伝える（Filer 経由の非変更ファイル選択を救済）
+  const [from, to, fromOID, toOID] = await Promise.all([
+    fileReadResultFromGit(req.dir, fromHash, req.relPath),
+    fileReadResultFromGit(req.dir, req.hash, req.relPath),
+    treeFileOID(req.dir, fromHash, req.relPath),
+    treeFileOID(req.dir, req.hash, req.relPath),
+  ]);
+  return GitShowCommitFileResponse.toJSON({
+    from,
+    to,
+    // 両 OID が解決でき、かつ一致した場合のみ true
+    unchanged: fromOID !== undefined && toOID !== undefined && fromOID === toOID,
+  });
+}
+
+function toFileChangeProto(change: FileChangeInfo): {
+  oldFilePath: string;
+  newFilePath: string;
+  type: string;
+} {
+  return { oldFilePath: change.oldPath, newFilePath: change.newPath, type: change.type };
+}
+
+async function handleGitCommitFiles(body: unknown): Promise<unknown> {
+  const req = GitCommitFilesRequest.fromJSON(body);
+  const changes = await commitFiles({
+    dir: req.dir,
+    hash: req.hash,
+    rangeHashes: req.rangeHashes,
+    includeWorkingTree: req.includeWorkingTree,
+  });
+  return GitCommitFilesResponse.toJSON({ changes: changes.map(toFileChangeProto) });
+}
+
+async function handleGitPrDiffFiles(body: unknown): Promise<unknown> {
+  const req = GitPrDiffFilesRequest.fromJSON(body);
+  const changes = await prDiffFiles(req.dir, req.baseHash);
+  return GitPrDiffFilesResponse.toJSON({ changes: changes.map(toFileChangeProto) });
+}
+
+async function handleGitReadBlob(body: unknown): Promise<unknown> {
+  const req = GitReadBlobRequest.fromJSON(body);
+  // rev は `git show <rev>:<path>` に渡るため option 注入を弾く validateRev を入口で通す
+  validateRev(req.hash);
+  return GitReadBlobResponse.toJSON({
+    result: await fileReadResultFromGit(req.dir, req.hash, req.relPath),
+  });
+}
+
+async function handleGitLsTree(body: unknown): Promise<unknown> {
+  const req = GitLsTreeRequest.fromJSON(body);
+  return GitLsTreeResponse.toJSON({ entries: await lsTree(req.dir, req.hash, req.path) });
+}
+
 function handleWindowSetServerPanelOpen(): unknown {
   // renderer が SSOT として持つパネル開閉状態を native titlebar トグルへミラーする RPC。
   // Electron shell には対応する native toolbar がまだ無いため受理のみ
@@ -413,6 +537,14 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/fs/unwatchAll", handleFsUnwatchAll],
   ["/git/status", handleGitStatus],
   ["/git/log", handleGitLog],
+  ["/git/diffHunks", handleGitDiffHunks],
+  ["/git/diffExpandLines", handleGitDiffExpandLines],
+  ["/git/showFile", handleGitShowFile],
+  ["/git/showCommitFile", handleGitShowCommitFile],
+  ["/git/commitFiles", handleGitCommitFiles],
+  ["/git/prDiffFiles", handleGitPrDiffFiles],
+  ["/git/readBlob", handleGitReadBlob],
+  ["/git/lsTree", handleGitLsTree],
   ["/git/mergeBase", handleGitMergeBase],
   ["/git/revReachable", handleGitRevReachable],
   ["/git/resetMixed", handleGitResetMixed],

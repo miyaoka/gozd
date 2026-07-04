@@ -31,7 +31,13 @@ export class GitCommandError extends Error {
 
 interface ExecError extends Error {
   code?: number | string;
-  stderr?: string;
+  stderr?: string | Buffer;
+  stdout?: string | Buffer;
+}
+
+function stderrText(error: ExecError): string {
+  if (error.stderr === undefined) return "";
+  return typeof error.stderr === "string" ? error.stderr : error.stderr.toString("utf8");
 }
 
 function gozdGitEnv(): Record<string, string> {
@@ -59,9 +65,48 @@ async function execGit(args: string[], cwd: string, env: Record<string, string>)
   if (result.ok) return result.value.stdout;
   const error = result.error as ExecError;
   if (typeof error.code === "number") {
-    throw new GitCommandError(error.code, error.stderr ?? "");
+    throw new GitCommandError(error.code, stderrText(error));
   }
   // spawn 失敗（ENOENT 等）は commandFailed と区別してそのまま伝播する
+  throw result.error;
+}
+
+/**
+ * stdout を raw Buffer で返す runGit。`git show <rev>:<path>` 等の blob 読み取り用。
+ * string 経路（default encoding utf8）はバイナリ blob を lossy 変換して NUL byte 判定を
+ * 壊すため、binary 判定が要る経路はこちらを使う
+ */
+export async function runGitBuffer(args: string[], cwd: string): Promise<Buffer> {
+  const result = await tryCatch(
+    execFileAsync("git", args, {
+      cwd,
+      env: gozdGitEnv(),
+      maxBuffer: GIT_MAX_BUFFER,
+      encoding: "buffer",
+    }),
+  );
+  if (result.ok) return result.value.stdout;
+  const error = result.error as ExecError;
+  if (typeof error.code === "number") {
+    throw new GitCommandError(error.code, stderrText(error));
+  }
+  throw result.error;
+}
+
+/**
+ * `git diff` 系専用: exit 0（差分なし）/ 1（差分あり）をどちらも成功として stdout を返す。
+ * exit > 1 は通常エラー扱い（Swift runGitDiffNoIndex と同契約）
+ */
+export async function runGitAllowExit1(args: string[], cwd: string): Promise<string> {
+  const result = await tryCatch(
+    execFileAsync("git", args, { cwd, env: gozdGitEnv(), maxBuffer: GIT_MAX_BUFFER }),
+  );
+  if (result.ok) return result.value.stdout;
+  const error = result.error as ExecError;
+  if (error.code === 1 && typeof error.stdout === "string") return error.stdout;
+  if (typeof error.code === "number") {
+    throw new GitCommandError(error.code, stderrText(error));
+  }
   throw result.error;
 }
 

@@ -7,6 +7,12 @@
 import {
   EchoRequest,
   EchoResponse,
+  GitFetchRemotesRequest,
+  GitFetchRemotesResponse,
+  GitGithubIdentityRequest,
+  GitGithubIdentityResponse,
+  GitWorktreeListRequest,
+  GitWorktreeListResponse,
   LoadAppConfigResponse,
   LoadAppStateResponse,
   PtyKillRequest,
@@ -22,12 +28,20 @@ import {
   SaveAppStateRequest,
   SaveAppStateResponse,
   ServerListResponse,
+  TaskListRequest,
+  TaskListResponse,
   WindowSetServerPanelOpenResponse,
+  type WorktreeEntry,
 } from "@gozd/proto";
+import { tryCatch } from "@gozd/shared";
 import { spawn, type IPty } from "node-pty";
+import { fetchRemotes, gitStatusFull, worktreeList } from "./git/gitOps";
+import { GitCommandError } from "./git/gitRunner";
+import { repoOwnerName } from "./git/github";
 import type { RpcContext, RpcHandler } from "./rpcDispatcher";
 import { scanListenServers } from "./serverList";
 import { loadAppConfig, loadAppState, saveAppConfig, saveAppState } from "./stores";
+import { listTasks } from "./taskStore";
 
 const ptys = new Map<number, IPty>();
 let nextPtyId = 1;
@@ -146,6 +160,67 @@ async function handleServerList(): Promise<unknown> {
   return ServerListResponse.toJSON({ servers: await scanListenServers() });
 }
 
+async function handleGitWorktreeList(body: unknown): Promise<unknown> {
+  const req = GitWorktreeListRequest.fromJSON(body);
+  const worktrees = await worktreeList(req.dir);
+  const allTasks = await listTasks(req.dir);
+  // 各 wt の git status は補助データ。1 wt の失敗で worktree list 全体を捨てないため、
+  // per-wt で握って空 statuses で続行する（prunable wt は listing から除外済みなので、
+  // ここで失敗するのは worktree 実 path 不整合などの稀ケース）。失敗は stderr に残す
+  const entries: WorktreeEntry[] = await Promise.all(
+    worktrees.map(async (wt) => {
+      const full = await tryCatch(gitStatusFull(wt.path));
+      if (!full.ok) {
+        console.error(`[handleGitWorktreeList] gitStatusFull failed for ${wt.path}: ${full.error}`);
+      }
+      const status = full.ok ? full.value : undefined;
+      return {
+        path: wt.path,
+        head: wt.head,
+        branch: wt.branch ?? "",
+        isMain: wt.isMain,
+        gitStatuses: status?.statuses ?? {},
+        renameOldPaths: status?.renameOldPaths ?? {},
+        latestMtime: status?.latestMtime ?? 0,
+        upstream: status?.hasUpstream ? { ahead: status.ahead, behind: status.behind } : undefined,
+        // 1 wt = 複数 Claude session の前提で session 単位の Task が複数並ぶ
+        tasks: allTasks.filter((task) => task.worktreeDir === wt.path),
+      };
+    }),
+  );
+  return GitWorktreeListResponse.toJSON({ worktrees: entries });
+}
+
+async function handleTaskList(body: unknown): Promise<unknown> {
+  const req = TaskListRequest.fromJSON(body);
+  return TaskListResponse.toJSON({ tasks: await listTasks(req.dir) });
+}
+
+async function handleGitGithubIdentity(body: unknown): Promise<unknown> {
+  const req = GitGithubIdentityRequest.fromJSON(body);
+  const identity = await repoOwnerName(req.dir);
+  if (identity.kind === "ok") {
+    return GitGithubIdentityResponse.toJSON({ owner: identity.owner, repo: identity.repo });
+  }
+  // remote 未設定 / 非 github.com host。UI には出ないが観察可能にする
+  // （raw URL は credential 漏出防止のため stderr にも載せない）
+  console.error(`[handleGitGithubIdentity] ${identity.kind} for dir=${req.dir}`);
+  return GitGithubIdentityResponse.toJSON({ owner: "", repo: "" });
+}
+
+async function handleGitFetchRemotes(body: unknown): Promise<unknown> {
+  const req = GitFetchRemotesRequest.fromJSON(body);
+  const result = await tryCatch(fetchRemotes(req.dir));
+  if (result.ok) return GitFetchRemotesResponse.toJSON({ ok: true, errorDetail: "" });
+  // offline / 認証失敗 / remote 未設定 etc. は呼び出し側で握り潰す。
+  // stderr 冒頭のみを debug 用に積む (UI には出さない)
+  const detail =
+    result.error instanceof GitCommandError
+      ? result.error.stderr.slice(0, 512)
+      : String(result.error);
+  return GitFetchRemotesResponse.toJSON({ ok: false, errorDetail: detail });
+}
+
 function handleWindowSetServerPanelOpen(): unknown {
   // renderer が SSOT として持つパネル開閉状態を native titlebar トグルへミラーする RPC。
   // Electron shell には対応する native toolbar がまだ無いため受理のみ
@@ -158,10 +233,14 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/appConfig/save", handleAppConfigSave],
   ["/appState/load", handleAppStateLoad],
   ["/appState/save", handleAppStateSave],
+  ["/git/worktreeList", handleGitWorktreeList],
+  ["/git/githubIdentity", handleGitGithubIdentity],
+  ["/git/fetchRemotes", handleGitFetchRemotes],
   ["/pty/spawn", handlePtySpawn],
   ["/pty/write", handlePtyWrite],
   ["/pty/resize", handlePtyResize],
   ["/pty/kill", handlePtyKill],
   ["/server/list", handleServerList],
+  ["/task/list", handleTaskList],
   ["/window/setServerPanelOpen", handleWindowSetServerPanelOpen],
 ]);

@@ -1,4 +1,4 @@
-import type { GitCommit } from "@gozd/proto";
+import type { GitCommit } from "@gozd/rpc";
 
 /**
  * 範囲選択時の対象 commit hash 列を組み立てる。

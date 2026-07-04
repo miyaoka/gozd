@@ -5,7 +5,7 @@ contextmenu は preventDefault し anchor / 座標をその場で snapshot し�
 </doc>
 
 <script setup lang="ts">
-import type { GitCommit, GitPullRequest } from "@gozd/proto";
+import type { GitCommit, GitPullRequest } from "@gozd/rpc";
 import { computed } from "vue";
 import { formatCompactTime } from "../../../../shared/time";
 import CommitSegmentList from "../../CommitSegmentList";

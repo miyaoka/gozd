@@ -1,4 +1,4 @@
-import type { GitCommit } from "@gozd/proto";
+import type { GitCommit } from "@gozd/rpc";
 
 /**
  * 隣接する2行間のラインセグメント。

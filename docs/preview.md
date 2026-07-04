@@ -118,7 +118,7 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 - 対象は常に **working tree の実ファイル**。commit / PR diff モードで履歴版を表示中でも、開くのはディスク上の実体（git 履歴の内容ではない）。表示用の `selectedDisplayPath` は RPC 入力に使わない契約のため流用しない
 - RPC は専用の `/open/file`（`rpcOpenFile`）。native は `NSWorkspace.shared.open(URL(fileURLWithPath:))`。`openExternal`（`/open/external`）は OSC 8 リンク経由の任意 scheme 流入への防壁として scheme allowlist（http/https/mailto）で `file://` を弾くため、ローカルファイルを開く intent は別 RPC に分離する
 - 実パスの解決と描画 gate は純関数 `resolveOpenablePath`（テスト付き）が SSOT。working tree に実体があるときだけ selection の kind から実パスを解決し（`worktreeRelative` は `joinAbsRel(dir, relPath)`、`absolute` は `absPath` 直）、実体が無いケース（selection 無し / `isNotFound` / commit・PR diff モードで `deleted` 版を表示中）は undefined を返す。`openableAbsPath` がこれに委譲し、template の `v-if` がそのままボタン描画を gate するため、押せるが native の存在チェックで必ず失敗する silent dead button を作らない（`blameEnabled` の added file gate と同じ規律）
-- **相対→絶対の解決は基準ディレクトリ（worktree root）を持つ renderer の責務**。`/open/file` には常に解決済みの絶対パスが渡る契約で、native は基準ディレクトリを持たず解決を**再実装しない**（再実装すると契約の SSOT が二重化する）。この契約は proto の `OpenFileRequest.path` コメントと native handler に明記する
+- **相対→絶対の解決は基準ディレクトリ（worktree root）を持つ renderer の責務**。`/open/file` には常に解決済みの絶対パスが渡る契約で、native は基準ディレクトリを持たず解決を**再実装しない**（再実装すると契約の SSOT が二重化する）。この契約は `OpenFileRequest.path`（`@gozd/rpc`）のコメントと main handler に明記する
 - ただし native は入口で**非絶対パス（空文字含む）を `invalidArgument` で弾く**。これは解決（基準ディレクトリ依存）ではなく、`URL(fileURLWithPath:)` が空文字・相対パスを CWD 基準で silent に絶対化する Foundation の暗黙 fallback を塞ぐためのガード。特に空文字は `url.path` が CWD になり `fileExists` も true を返すため、`NSWorkspace.open` が Finder で CWD を黙って開く誤動作になる。`fallback せずエラーにする` 規律に従い明示エラーへ倒す
 - native の `fileExists` は契約検証ではなく、上記描画 gate を抜けた race（表示直後に実体が消えた等）向けの safety net。不在なら `invalidArgument` で弾き（無言 no-op を避ける）、renderer 側は失敗を `useNotificationStore` のトーストで通知する。アクセス制御の関所ではない
 
@@ -134,12 +134,12 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 | `gitShowCommitFile`  | コミット間のファイル内容（from/to を一括取得。コミットモードで使用）                        |
 | `gitLogFile`         | ファイル全体の commit 履歴（`git log -- <path>`。ヘッダのコミット日 + file history で使用） |
 
-- 画像 / SVG: main の `gozd-file://` protocol（`fileServer.ts` の protocol.handle）経由で raw bytes を配信（proto3 string がバイナリを運べないための専用経路）
+- 画像 / SVG: main の `gozd-file://` protocol（`fileServer.ts` の protocol.handle）経由で raw bytes を配信（JSON string ワイヤがバイナリを運べないための専用経路）
   - `gozd-file://localhost/fs?dir=<absDir>&path=<relPath>&v=<n>` — 作業ツリーの実ファイル (`FSOps.readFileBytes`、`resolveSafe` で path traversal 防止)
   - `gozd-file://localhost/git?dir=<absDir>&path=<relPath>&v=<n>` — `git show HEAD:<path>` の出力 (Original タブ)
   - `gozd-file://localhost/abs?path=<absPath>&v=<n>` — worktree 外の絶対パス (`FSOps.readFileBytesAbsolute`、dir 制約なし)。terminal link 等で worktree 外を開いた画像 / SVG 用。テキスト preview の `fsReadFileAbsolute` と同じ「worktree 外参照を許す」契約を `<img>` 経路に揃えたもの。git 履歴を持たないため Original タブ (`/git`) は無い
   - `?v=<n>` パラメータは `fsChange` 等の再 fetch トリガーで同一 URL を再読み込みさせるためのキャッシュバスト
-  - proto を bytes 化せずに `<img>` 直配信に倒した理由: テキスト系は従来通り RPC + UTF-8 string で扱い、画像 / SVG だけ別 scheme に分ける方が proto 全体への破壊変更を避けられる
+  - RPC を bytes 対応にせず `<img>` 直配信に倒した理由: テキスト系は従来通り RPC + UTF-8 string で扱い、画像 / SVG だけ別 scheme に分ける方が base64 の膨張と往復コストを避けられる
 - worktree 外の絶対パスは git 操作（`gitShowFile`）を呼ばず、画像 / SVG は `/abs` 経路で配信する
 - rename (move) されたファイルの Original / Diff: `gitStatuses` のキーは新パスのみ持つため、status と同一 snapshot で届く `renameOldPaths`（新パス → 旧パス、`useGitStatusStore` が SSOT）で HEAD 側のパスを解決してから `gitShowFile` / `gozd-file://localhost/git` を引く。旧パス解決を欠くと HEAD 側が notFound になり「全行追加」の diff に倒れる。uncommitted モードの HEAD 側 blame（`rev === "HEAD"`）も同じ map で旧パスに揃える
 - バイナリ判定: NUL バイト（`0x00`）の有無で判定（git と同じ方式）
@@ -244,7 +244,7 @@ History は blame 完了を必ず待ってから走る。起点 commit は blame
 #### main 側の防御
 
 - `rev` は `validateRev` で `空文字 / "HEAD" / hex hash + 末尾 ^ ~` のみ許可。`-` 始まりや空白文字は option 注入として reject
-- `blameLine` は空文字 (working tree) を許容するが、`logLine` は空文字を `unexpectedOutput` で reject する。`logLine` の rev は呼び出し側が必ず blame した commit hash を起点として流す契約のため、空文字で HEAD 起点 walk に倒れると「blame した commit を含まない history」が返って意味契約が壊れる。proto 側も同じ契約 (`gitLogLine` メッセージのコメント参照)
+- `blameLine` は空文字 (working tree) を許容するが、`logLine` は空文字を `unexpectedOutput` で reject する。`logLine` の rev は呼び出し側が必ず blame した commit hash を起点として流す契約のため、空文字で HEAD 起点 walk に倒れると「blame した commit を含まない history」が返って意味契約が壊れる。`@gozd/rpc` 側も同じ契約 (`GitLogLineRequest` のコメント参照)
 - blame 対象ファイルは `git cat-file -s` (または fs stat) でサイズを先に測り、`BLAME_MAX_BLOB_BYTES` (2 MiB) を超えるなら `unexpectedOutput` で reject。`pnpm-lock.yaml` 級ファイル全体 walk による UI ブロックを防ぐ
 - size 取得失敗の silent 通過は「予期された不在」経路のみ: working tree はファイル不在 (ENOENT) のみ、`git cat-file` は commandFailed (exit 128 = path 未解決) のみ。spawn 失敗 / 数値 parse 失敗等は throw で観察可能化する (規約「fallback せずエラーにする」と整合)
 - `git log -L` は path に `:` を含むと syntax が壊れるため、`logLine` 側で reject する

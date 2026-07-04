@@ -1,20 +1,19 @@
 // Claude Code の `--settings` で読み込まれる hooks 設定 JSON を生成する。
 // Swift 版 `Claude/ClaudeHooksSettings.swift` の対応物。
 //
-// - Claude が消費する外部 schema なので gozd の proto SSOT には乗らない。固定構造を組む
+// - Claude が消費する外部 schema なので gozd の型 SSOT (@gozd/rpc) には乗らない。固定構造を組む
 // - 2 経路の hook command:
 //   - `nc -w 1 -U $GOZD_SOCKET_PATH`: 軽量、固定 JSON 直送。発火頻度の高いイベント用
 //   - `"$GOZD_CLI_PATH" hook <event>`: CLI 経由。stdin の Claude hook JSON をパースして
 //     rich payload（session_id / last_assistant_message 等）を含む HookMessage を作る
-// - wire 形式は proto3 JSON mapping: `{"hook":{"event":"<name>","ptyId":<n>}}` の形で
-//   ClientMessage の hook oneof をそのまま埋め込み、SocketServer の receive 側を
-//   proto デコーダに統一する
+// - wire 形式は ClientMessage の JSON: `{"hook":{"event":"<name>","ptyId":<n>}}` の形で
+//   固定 JSON を埋め込み、SocketServer の receive 側 (parseClientMessage) に統一する
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 function ncCommand(event: string): string {
-  // proto3 JSON mapping: `{"hook":{"event":"<event>","ptyId":<id>}}`
+  // ClientMessage の JSON: `{"hook":{"event":"<event>","ptyId":<id>}}`
   // GOZD_PTY_ID は PTY spawn 時の env overlay で各 PTY に注入される
   return `echo '{"hook":{"event":"${event}","ptyId":'"$GOZD_PTY_ID"'}}' | nc -w 1 -U "$GOZD_SOCKET_PATH"`;
 }

@@ -18,7 +18,7 @@
  *     意味契約を守るため、`ctx.rev` を log -L の rev に流さない
  *   - history は blame 完了を必ず待ってから走る (loading 中 fallback 禁止)
  */
-import type { GitBlameCommit, GitCommit } from "@gozd/proto";
+import type { GitBlameCommit, GitCommit } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { effectScope, ref, watch } from "vue";
 import { useNotificationStore } from "../../../../shared/notification";
@@ -108,7 +108,7 @@ async function loadBlame(ctx: BlameContext, version: number): Promise<void> {
   }
   const commit = result.value.commit;
   if (commit === undefined) {
-    // proto schema 違反 (server が必須フィールドを返さない予期しない経路)。
+    // ワイヤ契約違反 (main が必須フィールドを返さない予期しない経路)。
     // popover が閉じた後に観察不能にならないよう state error + toast を併発する。
     const err = new Error("blame response had no commit");
     blameState.value = { kind: "error", message: err.message };

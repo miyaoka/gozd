@@ -1,87 +1,70 @@
-// 生成された RPC メッセージ型の barrel。
+// RPC メッセージ型の barrel（旧 `.proto` SSOT の後継。手書き TS 型が SSOT）。
 //
-// `src/generated/` 配下が buf 管理（`clean: true` で全削除される領域）。
-// この barrel は人間管理。新しい proto を追加した際はここに 1 行追加する。
-//
-// ts-proto は各ファイルに `DeepPartial` / `MessageFns` / `protobufPackage` という
-// 共通の utility を export するため、`export *` だと衝突する。message 型のみを
-// 明示 re-export する。
-export {
+// ワイヤ契約: renderer ↔ main の request / response と Unix ソケットの ClientMessage は
+// この型を `JSON.stringify` / `JSON.parse` でそのまま運ぶ。フィールド名 = JSON キー
+// （旧 proto3 JSON mapping の lowerCamelCase を踏襲）。`?` フィールドはキー不在で
+// 未設定を表現する。永続化ファイル（config.json / app-state.json / tasks.json 等）も
+// 同じ型で読み書きし、旧ファイルの欠落フィールドは main 側 store の load 時に
+// default 充填する。
+
+export type {
   AppConfig,
   LoadAppConfigRequest,
   LoadAppConfigResponse,
-  PreviewConfig,
   SaveAppConfigRequest,
   SaveAppConfigResponse,
-  TerminalConfig,
-  VoicevoxConfig,
-} from "./generated/gozd/v1/app_config";
-export {
+} from "./appConfig";
+export type {
   AppState,
   LoadAppStateRequest,
   LoadAppStateResponse,
   SaveAppStateRequest,
   SaveAppStateResponse,
-} from "./generated/gozd/v1/app_state";
-export {
-  ClaudeSessionLogEntry,
+  SidebarRepo,
+  WorktreeCacheEntry,
+} from "./appState";
+export type {
   ClaudeSessionLogRequest,
   ClaudeSessionLogResponse,
   ClaudeSessionRemoveByPtyRequest,
   ClaudeSessionRemoveByPtyResponse,
-} from "./generated/gozd/v1/claude_session";
-export { ClientMessage, HookMessage, OpenMessage } from "./generated/gozd/v1/client_message";
-export { ghRefForIssue, ghRefForPr, ghRefLabel } from "./helpers";
-export {
-  FileEntry,
-  FileReadResult,
+} from "./claudeSession";
+export type { ClientMessage, HookMessage, OpenMessage } from "./clientMessage";
+export type {
   GhRef,
   GitCommit,
   GitFileChange,
   GitIssue,
   GitPullRequest,
-  OpenTargetSelection,
-  ProjectConfig,
   Task,
   UpstreamStatus,
   WorktreeEntry,
-} from "./generated/gozd/v1/common";
-export { EchoRequest, EchoResponse } from "./generated/gozd/v1/echo";
-export {
-  BranchChangeEvent,
-  FsChangeEvent,
-  GitStatusChangeEvent,
-  GozdOpenEvent,
-  NotifyEvent,
-  WorktreeChangeEvent,
-} from "./generated/gozd/v1/events";
-export {
+} from "./common";
+export type { EchoRequest, EchoResponse } from "./echo";
+export type {
   FsReadDirEntry,
   FsReadDirRequest,
   FsReadDirResponse,
+  FsReadFileAbsoluteRequest,
+  FsReadFileAbsoluteResponse,
   FsReadFileRequest,
   FsReadFileResponse,
+  FsStatRequest,
+  FsStatResponse,
   FsUnwatchAllRequest,
   FsUnwatchAllResponse,
   FsUnwatchRequest,
   FsUnwatchResponse,
   FsWatchRequest,
   FsWatchResponse,
-} from "./generated/gozd/v1/fs";
-export {
-  FsReadFileAbsoluteRequest,
-  FsReadFileAbsoluteResponse,
-  FsStatRequest,
-  FsStatResponse,
   FsWriteFileRequest,
   FsWriteFileResponse,
-} from "./generated/gozd/v1/fs_extra";
-export {
+} from "./fs";
+export type {
   CreateWorktreeRequest,
   CreateWorktreeResponse,
   DiffExpandedLine,
   DiffHunk,
-  DiffHunkLine,
   DiffLineKind,
   GhErrorKind,
   GitBlameCommit,
@@ -133,24 +116,25 @@ export {
   GitWorktreeRemoveRequest,
   GitWorktreeRemoveResponse,
   SortMode,
-} from "./generated/gozd/v1/git_ops";
-export { GitStatusRequest, GitStatusResponse } from "./generated/gozd/v1/git_status";
-export {
+} from "./gitOps";
+export type { GitStatusRequest, GitStatusResponse } from "./gitStatus";
+export { ghRefForIssue, ghRefForPr, ghRefLabel } from "./helpers";
+export type {
   OpenExternalRequest,
   OpenExternalResponse,
   OpenFileRequest,
   OpenFileResponse,
-} from "./generated/gozd/v1/open_external";
-export { PickAndOpenRequest, PickAndOpenResponse } from "./generated/gozd/v1/open_target";
-export {
+  PickAndOpenRequest,
+  PickAndOpenResponse,
+} from "./open";
+export type {
+  ProjectConfig,
   ProjectConfigLoadRequest,
   ProjectConfigLoadResponse,
   ProjectConfigSaveRequest,
   ProjectConfigSaveResponse,
-} from "./generated/gozd/v1/project_config";
-export {
-  PtyDataEvent,
-  PtyExitEvent,
+} from "./projectConfig";
+export type {
   PtyKillRequest,
   PtyKillResponse,
   PtyResizeRequest,
@@ -159,14 +143,15 @@ export {
   PtySpawnResponse,
   PtyWriteRequest,
   PtyWriteResponse,
-} from "./generated/gozd/v1/pty";
-export {
+} from "./pty";
+export type { ServerAttribution, ServerEntry, ServerListRequest, ServerListResponse } from "./server";
+export type {
   ShellCommandInstallRequest,
   ShellCommandInstallResponse,
   ShellCommandUninstallRequest,
   ShellCommandUninstallResponse,
-} from "./generated/gozd/v1/shell_command";
-export {
+} from "./shellCommand";
+export type {
   ResumableSessionListRequest,
   ResumableSessionListResponse,
   TaskAddRequest,
@@ -180,8 +165,8 @@ export {
   TaskSetTerminalTitleResponse,
   TaskSetUserTitleRequest,
   TaskSetUserTitleResponse,
-} from "./generated/gozd/v1/task";
-export {
+} from "./task";
+export type {
   VoicevoxCheckEngineRequest,
   VoicevoxCheckEngineResponse,
   VoicevoxLaunchRequest,
@@ -189,21 +174,14 @@ export {
   VoicevoxListSpeakersRequest,
   VoicevoxListSpeakersResponse,
   VoicevoxSpeaker,
-  VoicevoxSpeakerStyle,
   VoicevoxSpeakRequest,
   VoicevoxSpeakResponse,
-} from "./generated/gozd/v1/voicevox";
-export {
+} from "./voicevox";
+export type {
   WindowCloseRequest,
   WindowCloseResponse,
   WindowSetServerPanelOpenRequest,
   WindowSetServerPanelOpenResponse,
   WindowSetTitleContextRequest,
   WindowSetTitleContextResponse,
-} from "./generated/gozd/v1/window";
-export {
-  ServerAttribution,
-  ServerEntry,
-  ServerListRequest,
-  ServerListResponse,
-} from "./generated/gozd/v1/server";
+} from "./window";

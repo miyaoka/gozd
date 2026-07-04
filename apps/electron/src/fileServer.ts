@@ -1,8 +1,9 @@
 // `gozd-file://localhost/<kind>?dir=<absDir>&path=<relPath>` を `<img src>` に直配信する。
 // Swift 版 `FileServerSchemeHandler.swift` の対応物（protocol.handle 版）。
 //
-// 用途: preview の画像 / SVG 表示。RPC 経由で bytes を運ぶと proto3 の `content: string` が
-// バイナリを保持できない問題に当たるため、`<img>` 経路だけ別 scheme で raw bytes を返す。
+// 用途: preview の画像 / SVG 表示。JSON ワイヤの `content: string` はバイナリを保持
+// できない（base64 の膨張と往復コストも無駄）ため、`<img>` 経路だけ別 scheme で
+// raw bytes を返す。下記の CORS 規律（bytes の機械的回収防止）にも価値が残る。
 //
 // 経路:
 //   - `/fs` : 作業ツリーの実ファイル（resolveSafe containment + validateRelPath safety net）

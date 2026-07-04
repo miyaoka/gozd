@@ -4,7 +4,7 @@
  * 親 (SidebarPane) から `open(anchorEl, { worktree, rootDir })` を呼び、
  * WorktreeMenu.vue が context を購読して描画する。
  */
-import type { WorktreeEntry } from "@gozd/proto";
+import type { WorktreeEntry } from "@gozd/rpc";
 import { usePopover } from "../../shared/popover";
 
 type WorktreeMenuContext = {

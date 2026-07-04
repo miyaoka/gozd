@@ -102,7 +102,7 @@ DiffPreview / useDiffEditor は独自の dirty state を持たない。
 </doc>
 
 <script setup lang="ts">
-import { type DiffExpandedLine, type DiffHunk, DiffLineKind } from "@gozd/proto";
+import type { DiffExpandedLine, DiffHunk } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import type * as Monaco from "monaco-editor";
 import { computed, nextTick, onUnmounted, ref, watch } from "vue";
@@ -265,10 +265,10 @@ function expandHunkLinesUnified(h: DiffHunk, items: DiffViewItem[]): void {
   let oldLine = h.oldStart;
   let newLine = h.newStart;
   for (const line of h.lines) {
-    if (line.kind === DiffLineKind.DIFF_LINE_KIND_REMOVED) {
+    if (line.kind === "removed") {
       items.push({ type: "line", kind: "removed", text: line.text, oldLineNo: oldLine });
       oldLine += 1;
-    } else if (line.kind === DiffLineKind.DIFF_LINE_KIND_ADDED) {
+    } else if (line.kind === "added") {
       items.push({ type: "line", kind: "added", text: line.text, newLineNo: newLine });
       newLine += 1;
     } else {
@@ -297,7 +297,7 @@ function expandHunkLinesSplit(h: DiffHunk, items: DiffSplitViewItem[]): void {
   let i = 0;
   while (i < h.lines.length) {
     const line = h.lines[i];
-    if (line.kind === DiffLineKind.DIFF_LINE_KIND_CONTEXT) {
+    if (line.kind === "context") {
       items.push({
         type: "split-row",
         kind: "context",
@@ -313,13 +313,13 @@ function expandHunkLinesSplit(h: DiffHunk, items: DiffSplitViewItem[]): void {
     }
 
     const removeds: { lineNo: number; text: string }[] = [];
-    while (i < h.lines.length && h.lines[i].kind === DiffLineKind.DIFF_LINE_KIND_REMOVED) {
+    while (i < h.lines.length && h.lines[i].kind === "removed") {
       removeds.push({ lineNo: oldLine, text: h.lines[i].text });
       oldLine += 1;
       i += 1;
     }
     const addeds: { lineNo: number; text: string }[] = [];
-    while (i < h.lines.length && h.lines[i].kind === DiffLineKind.DIFF_LINE_KIND_ADDED) {
+    while (i < h.lines.length && h.lines[i].kind === "added") {
       addeds.push({ lineNo: newLine, text: h.lines[i].text });
       newLine += 1;
       i += 1;

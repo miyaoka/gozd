@@ -89,7 +89,7 @@ describe("handleHookEvent fx 発行（効果ストリームの単一発行点）
     expect(manager.handleHookEvent(1, "running", {})).toEqual({ ptyId: 1, event: "running" });
     // tool-done は working 中のみ（done 中の遅延は無視）
     expect(manager.handleHookEvent(1, "tool-done", {})).toEqual({ ptyId: 1, event: "tool-done" });
-    // 本番では tool_input は JSON 文字列で届く（proto3 string）。boundary で 1 度 parse して
+    // 本番では tool_input は JSON 文字列で届く（HookMessage.toolInput 契約）。boundary で 1 度 parse して
     // 構造化オブジェクトとして fx に載ることを検証する。
     expect(
       manager.handleHookEvent(1, "needs-input", {

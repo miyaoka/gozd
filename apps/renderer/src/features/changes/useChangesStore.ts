@@ -1,4 +1,4 @@
-import type { GitFileChange } from "@gozd/proto";
+import type { GitFileChange } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, watch } from "vue";

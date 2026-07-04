@@ -1,8 +1,8 @@
 // gozd-cli のコマンド構築ロジック（純関数部）。Swift 版 `GozdCLI/main.swift` の
 // 対応物（issue #895「CLI: ソケットプロトコル互換を保って TS で再実装」）。
-// ワイヤは proto3 JSON の ClientMessage 1 行（NDJSON）で Swift 版と完全互換。
+// ワイヤは ClientMessage の JSON 1 行（NDJSON）。形状は旧 proto3 JSON mapping と同一。
 
-import { HookMessage } from "@gozd/proto";
+import type { HookMessage } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -62,7 +62,7 @@ export function buildHookMessage(
   const backgroundCount = Array.isArray(stdinJson.background_tasks) ? stdinJson.background_tasks.length : 0;
   const cronCount = Array.isArray(stdinJson.session_crons) ? stdinJson.session_crons.length : 0;
 
-  return HookMessage.fromPartial({
+  return {
     event,
     ptyId,
     lastAssistantMessage: typeof stdinJson.last_assistant_message === "string" ? stdinJson.last_assistant_message : "",
@@ -71,7 +71,7 @@ export function buildHookMessage(
     sessionId: typeof stdinJson.session_id === "string" ? stdinJson.session_id : "",
     source: typeof stdinJson.source === "string" ? stdinJson.source : "",
     pendingWork: backgroundCount + cronCount > 0,
-  });
+  };
 }
 
 /** stdin テキストを lenient に JSON parse する（空 / 壊れは空オブジェクト。Swift 版と同じ） */

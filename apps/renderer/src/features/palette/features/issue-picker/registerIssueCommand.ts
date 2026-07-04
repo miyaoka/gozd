@@ -4,7 +4,7 @@
  * issue を選択して worktree を作成する。
  */
 
-import { ghRefForIssue } from "@gozd/proto";
+import { ghRefForIssue } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";

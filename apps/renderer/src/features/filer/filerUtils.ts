@@ -1,4 +1,4 @@
-import type { FsReadDirEntry, GitTreeEntry } from "@gozd/proto";
+import type { FsReadDirEntry, GitTreeEntry } from "@gozd/rpc";
 import type { GitChangeKind } from "../worktree";
 
 /**
@@ -91,7 +91,7 @@ function getDeletedEntries(dirPath: string, gitStatuses: Record<string, string>)
   }));
 }
 
-/** proto の FsReadDirEntry を FileEntry に変換する */
+/** ワイヤ型 FsReadDirEntry を FileEntry に変換する */
 function toFileEntries(entries: FsReadDirEntry[]): FileEntry[] {
   return entries.map((e) => ({
     name: e.name,

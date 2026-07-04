@@ -20,7 +20,7 @@
   },
   "devDependencies": {
     "electron-builder": "26.15.6",
-    "@gozd/proto": "workspace:*",
+    "@gozd/rpc": "workspace:*",
     "@gozd/shared": "workspace:*",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",

@@ -1,44 +1,30 @@
 // AppConfig（グローバル設定）の RPC wrapper + flat-key アダプタ。
 //
-// proto の AppConfig は section を nest した typed message だが、settings UI の
+// AppConfig は section を nest した typed message だが、settings UI の
 // schema は dot-key (`terminal.theme` 等) のフラットマップ前提。両者の境界を
 // このモジュールで吸収する。
-import {
+import type {
   AppConfig,
-  LoadAppConfigRequest,
   LoadAppConfigResponse,
   ProjectConfig,
   ProjectConfigLoadRequest,
   ProjectConfigLoadResponse,
-  ProjectConfigSaveRequest,
   ProjectConfigSaveResponse,
-  SaveAppConfigRequest,
   SaveAppConfigResponse,
-} from "@gozd/proto";
+} from "@gozd/rpc";
 
 import { rpc } from "../../shared/rpc";
 
-export const rpcLoadAppConfig = (req: LoadAppConfigRequest = LoadAppConfigRequest.create()) =>
-  rpc("/appConfig/load", req, LoadAppConfigRequest, LoadAppConfigResponse);
+export const rpcLoadAppConfig = () => rpc<LoadAppConfigResponse>("/appConfig/load", {});
 
 const rpcSaveAppConfig = (config: AppConfig) =>
-  rpc(
-    "/appConfig/save",
-    SaveAppConfigRequest.create({ config }),
-    SaveAppConfigRequest,
-    SaveAppConfigResponse,
-  );
+  rpc<SaveAppConfigResponse>("/appConfig/save", { config });
 
 export const rpcProjectConfigLoad = (req: ProjectConfigLoadRequest) =>
-  rpc("/projectConfig/load", req, ProjectConfigLoadRequest, ProjectConfigLoadResponse);
+  rpc<ProjectConfigLoadResponse>("/projectConfig/load", req);
 
 export const rpcProjectConfigSave = (dir: string, config: ProjectConfig) =>
-  rpc(
-    "/projectConfig/save",
-    ProjectConfigSaveRequest.create({ dir, config }),
-    ProjectConfigSaveRequest,
-    ProjectConfigSaveResponse,
-  );
+  rpc<ProjectConfigSaveResponse>("/projectConfig/save", { dir, config });
 
 // --- flat-key アダプタ ---
 
@@ -60,17 +46,9 @@ export function flattenAppConfig(c: AppConfig | undefined): Record<string, unkno
 
 /** dot-key の patch を AppConfig に適用する。未知のキーは無視。 */
 function applyDotKey(config: AppConfig, key: string, value: unknown): void {
-  const terminal = config.terminal ?? { theme: "", fontFamily: "", fontSize: 0 };
-  const preview = config.preview ?? { fontFamily: "", fontSize: 0, codeFontFamily: "" };
-  const voicevox = config.voicevox ?? {
-    enabled: false,
-    speedScale: 0,
-    volumeScale: 0,
-    speakerId: undefined,
-  };
-  config.terminal = terminal;
-  config.preview = preview;
-  config.voicevox = voicevox;
+  // main 側 loadAppConfig が全セクションを default 充填して返す契約のため、
+  // ここでのセクション存在チェックは不要
+  const { terminal, preview, voicevox } = config;
   switch (key) {
     case "terminal.theme":
       if (typeof value === "string") terminal.theme = value;
@@ -120,7 +98,7 @@ let appConfigQueue: Promise<unknown> = Promise.resolve();
 export async function updateAppConfig(mutate: (config: AppConfig) => void): Promise<void> {
   const run = appConfigQueue.then(async () => {
     const loaded = await rpcLoadAppConfig();
-    const config = loaded.config ?? AppConfig.create();
+    const config = loaded.config;
     mutate(config);
     await rpcSaveAppConfig(config);
   });
@@ -152,7 +130,7 @@ export async function patchProjectConfig(
   patch: Record<string, unknown>,
 ): Promise<void> {
   const loaded = await rpcProjectConfigLoad({ dir });
-  const config: ProjectConfig = loaded.config ?? { worktreeSymlinks: [] };
+  const config: ProjectConfig = loaded.config;
   if (
     "worktreeSymlinks" in patch &&
     Array.isArray(patch.worktreeSymlinks) &&

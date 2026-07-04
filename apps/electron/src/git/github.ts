@@ -40,7 +40,7 @@ export async function repoOwnerName(dir: string): Promise<RepoIdentity> {
   return { kind: "ok", ...parsed };
 }
 
-export type GhErrorKindName = "rateLimit" | "unauthenticated" | "repoNotFound" | "network" | "other";
+type GhErrorKindName = "rateLimit" | "unauthenticated" | "repoNotFound" | "network" | "other";
 
 interface GhError {
   kind: GhErrorKindName;

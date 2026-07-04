@@ -5,10 +5,6 @@ const config: KnipConfig = {
   // typecheck: pnpm -r で呼ぶワークスペースの scripts 名
   // open: macOS 標準コマンド（pnpm run bootstrap で .app を起動）
   ignoreBinaries: ["eslint", "typecheck", "open"],
-  // proto-ts の src/generated/ は buf 完全管理（clean: true で wipe される領域）。
-  // ts-proto 由来の utility (DeepPartial / MessageFns / protobufPackage) は手書き
-  // コードから参照しないため解析から外す。
-  ignore: ["packages/proto-ts/src/generated/**"],
   workspaces: {
     ".": {},
     "apps/electron": {
@@ -31,16 +27,7 @@ const config: KnipConfig = {
       ignoreUnresolved: [/^~icons\//],
     },
     "packages/eslint-plugin": {},
-    "packages/proto": {
-      // buf は mise 経由で実行（packages/proto/prepare で `buf generate`）
-      ignoreBinaries: ["buf"],
-    },
-    "packages/proto-ts": {
-      // @bufbuild/protobuf は src/generated/ の生成物だけが参照する runtime dep。
-      // 生成物は knip 解析対象外 (ignore 指定) なので、手書きコードから見ると
-      // unused に誤検出される。明示的に保護する。
-      ignoreDependencies: ["@bufbuild/protobuf"],
-    },
+    "packages/rpc": {},
     "packages/shared": {},
     "packages/shiki-lang-map": {},
     "packages/themes": {},

@@ -77,10 +77,10 @@ export function readFileBytesAbsolute(absolutePath: string): Buffer {
   return readFileSync(absolutePath);
 }
 
-export function writeFile(dir: string, path: string, data: Uint8Array): void {
+export function writeFile(dir: string, path: string, content: string): void {
   const target = resolveSafe(dir, path);
   mkdirSync(dirname(target), { recursive: true });
-  writeFileSync(target, data);
+  writeFileSync(target, content);
 }
 
 export function stat(dir: string, path: string): FsStatResult {

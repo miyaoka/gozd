@@ -39,9 +39,8 @@ const emit = defineEmits<{
 
 const containerRef = ref<HTMLElement>();
 const terminalStore = useTerminalStore();
-const ptyTextEncoder = new TextEncoder();
 function sendPtyWrite(ptyId: number, data: string) {
-  void rpcPtyWrite({ ptyId, data: ptyTextEncoder.encode(data) });
+  void rpcPtyWrite({ ptyId, data });
 }
 function sendPtyResize(ptyId: number, cols: number, rows: number) {
   void rpcPtyResize({ ptyId, cols, rows });

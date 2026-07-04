@@ -157,7 +157,7 @@ picker 経由は独立: PR picker 起動ごとに `rpcGitPrList` が 1 回走る
 
 ## gh エラー分類
 
-silent drop / 一律 nil 化は rate limit 枯渇を観察可能性から消すため禁止。main 側で stderr を分類し、proto enum `GhErrorKind` で renderer に返す。
+silent drop / 一律 nil 化は rate limit 枯渇を観察可能性から消すため禁止。main 側で stderr を分類し、文字列リテラル union `GhErrorKind` で renderer に返す。
 
 ### 分類 (`classifyGhStderr` in `apps/electron/src/git/github.ts`)
 
@@ -186,4 +186,4 @@ renderer 側は `ghErrorMessage(kind, action)` で文言を組み立て、`notif
 
 - [architecture.md](architecture.md) — 全体の通信経路、SSOT push の dir filter 規律、FSWatch のスコープ
 - [workspace.md](workspace.md) — マルチ repo / マルチ worktree の運用
-- [rpc.md](rpc.md) — RPC スキーマの proto 定義
+- [rpc.md](rpc.md) — RPC スキーマの型 SSOT

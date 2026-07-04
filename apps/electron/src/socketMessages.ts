@@ -7,9 +7,10 @@
 // await 境界で別メッセージが割り込めるため、promise chain の逐次キューで同じ保証を作る。
 // session 系 hook は頻度が低く、後続 push を待たせる影響は小さい。
 
-import { ClientMessage, type HookMessage } from "@gozd/proto";
+import type { ClientMessage, HookMessage, OpenMessage } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { buildGozdOpenPayload } from "./openTarget";
+import { asDict } from "./rawJson";
 import {
   clearSessionId,
   consumeExpectedResumeSid,
@@ -96,8 +97,34 @@ async function applyClaudeSessionHook(hook: HookMessage, worktreePath: string, p
   clearSessionId(hook.ptyId);
 }
 
+const HOOK_MESSAGE_DEFAULTS: HookMessage = {
+  event: "",
+  ptyId: 0,
+  lastAssistantMessage: "",
+  toolName: "",
+  toolInput: "",
+  sessionId: "",
+  pendingWork: false,
+  source: "",
+};
+
+/** NDJSON 1 行を ClientMessage に正規化する。nc 直送経路の hook は event / ptyId しか
+ * JSON に載せないため default 充填が必須（充填しないと hook push payload に undefined が
+ * 混ざり、renderer 側の `sessionId !== ""` 等の文字列比較が壊れる） */
+function parseClientMessage(line: string): ClientMessage {
+  const dict = asDict(JSON.parse(line));
+  const msg: ClientMessage = {};
+  if (dict.hook !== undefined) {
+    msg.hook = { ...HOOK_MESSAGE_DEFAULTS, ...asDict(dict.hook) } as HookMessage;
+  }
+  if (dict.open !== undefined) {
+    msg.open = { targetPath: "", ...asDict(dict.open) } as OpenMessage;
+  }
+  return msg;
+}
+
 async function handleSocketMessage(line: string, push: PushFn): Promise<void> {
-  const parsed = tryCatch(() => ClientMessage.fromJSON(JSON.parse(line)));
+  const parsed = tryCatch(() => parseClientMessage(line));
   if (!parsed.ok) {
     console.error(`[SocketServer] failed to decode ClientMessage: ${parsed.error}: ${line.slice(0, 200)}`);
     return;

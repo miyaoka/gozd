@@ -1,4 +1,4 @@
-// spike ページ。実 renderer と同じワイヤ（__gozdElectronRpc + proto3 JSON）で
+// spike ページ。実 renderer と同じワイヤ（__gozdElectronRpc + JSON）で
 // /pty/spawn 〜 echo round-trip を検証する自動テストハーネス。
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
@@ -37,7 +37,7 @@ async function main() {
   terminal.open(container);
   fitAddon.fit();
 
-  // PtySpawnRequest の proto3 JSON。dir はテスト用に "/"（spike ページは homedir を知らない）
+  // PtySpawnRequest の JSON。dir はテスト用に "/"（spike ページは homedir を知らない）
   const spawnRes = await rpc.request(
     "/pty/spawn",
     JSON.stringify({
@@ -69,9 +69,9 @@ async function main() {
     }
   });
 
-  // PtyWriteRequest.data は bytes（proto3 JSON では base64）。キー入力は ASCII 前提の btoa で足りる
+  // PtyWriteRequest.data はテキスト直送（旧ワイヤの base64 bytes は proto 廃止時に置き換えた）
   const writePty = (data: string) => {
-    void rpc.request("/pty/write", JSON.stringify({ ptyId, data: btoa(data) }));
+    void rpc.request("/pty/write", JSON.stringify({ ptyId, data }));
   };
   terminal.onData(writePty);
 

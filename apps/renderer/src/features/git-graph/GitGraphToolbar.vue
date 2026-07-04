@@ -4,7 +4,7 @@ Git Graph のヘッダーツールバー。表示オプション (first-parent /
 </doc>
 
 <script setup lang="ts">
-import { SortMode } from "@gozd/proto";
+import type { SortMode } from "@gozd/rpc";
 import ToggleChip from "./ToggleChip.vue";
 import IconLucideGitCommitHorizontal from "~icons/lucide/git-commit-horizontal";
 import IconLucidePanelRight from "~icons/lucide/panel-right";
@@ -24,8 +24,7 @@ const emit = defineEmits<{
 }>();
 
 function toggleSortMode() {
-  sortMode.value =
-    sortMode.value === SortMode.SORT_MODE_DATE ? SortMode.SORT_MODE_TOPO : SortMode.SORT_MODE_DATE;
+  sortMode.value = sortMode.value === "date" ? "topo" : "date";
 }
 </script>
 
@@ -48,8 +47,8 @@ function toggleSortMode() {
     >
       Current Branch
     </ToggleChip>
-    <ToggleChip :active="sortMode === SortMode.SORT_MODE_TOPO" @click="toggleSortMode">
-      {{ sortMode === SortMode.SORT_MODE_DATE ? "Date Order" : "Topo Order" }}
+    <ToggleChip :active="sortMode === 'topo'" @click="toggleSortMode">
+      {{ sortMode === "date" ? "Date Order" : "Topo Order" }}
     </ToggleChip>
     <button
       type="button"

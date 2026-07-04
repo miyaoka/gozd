@@ -1,10 +1,10 @@
-import type { Task, WorktreeEntry } from "@gozd/proto";
+import type { Task, WorktreeEntry } from "@gozd/rpc";
 import { resolveDisplayTitle, taskDisplayTitle, taskNumberPrefix } from "../../shared/repo";
 
 const DETACHED_BRANCH_LABEL = "(detached)";
 
 /**
- * proto3 string は default が空文字なので `??` では detached を吸えない。
+ * ワイヤ契約では detached HEAD を空文字で表現するため `??` では吸えない。
  * 「空文字 or undefined なら detached」を明示比較で判定する。
  */
 export function branchLabel(branch: string | undefined): string {

@@ -1,4 +1,4 @@
-import type { WorktreeEntry } from "@gozd/proto";
+import type { WorktreeEntry } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { ref } from "vue";
 import { useNotificationStore } from "../../../../shared/notification";

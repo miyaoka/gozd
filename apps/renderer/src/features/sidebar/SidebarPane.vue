@@ -28,7 +28,7 @@
 import type { DragEndEvent } from "@dnd-kit/abstract";
 import { move } from "@dnd-kit/helpers";
 import { DragDropProvider } from "@dnd-kit/vue";
-import type { Task, WorktreeEntry } from "@gozd/proto";
+import type { Task, WorktreeEntry } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
@@ -180,7 +180,7 @@ function onRemoveRepo(rootDir: string) {
 async function onAddDir() {
   // native の NSOpenPanel を開いてユーザーに dir を選ばせる。
   // 選択後は内部で onOpen → gozdOpen push → repoStore.addRepo に流れる
-  const result = await tryCatch(rpcPickAndOpen({}));
+  const result = await tryCatch(rpcPickAndOpen());
   if (!result.ok) {
     notify.error("Failed to open directory picker", result.error);
   }

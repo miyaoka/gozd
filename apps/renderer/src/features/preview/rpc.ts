@@ -15,31 +15,30 @@ import {
   GitShowFileResponse,
   OpenFileRequest,
   OpenFileResponse,
-} from "@gozd/proto";
+} from "@gozd/rpc";
 
 import { rpc } from "../../shared/rpc";
 
 export const rpcGitShowFile = (req: GitShowFileRequest) =>
-  rpc("/git/showFile", req, GitShowFileRequest, GitShowFileResponse);
+  rpc<GitShowFileResponse>("/git/showFile", req);
 
 export const rpcGitShowCommitFile = (req: GitShowCommitFileRequest) =>
-  rpc("/git/showCommitFile", req, GitShowCommitFileRequest, GitShowCommitFileResponse);
+  rpc<GitShowCommitFileResponse>("/git/showCommitFile", req);
 
 export const rpcGitDiffHunks = (req: GitDiffHunksRequest) =>
-  rpc("/git/diffHunks", req, GitDiffHunksRequest, GitDiffHunksResponse);
+  rpc<GitDiffHunksResponse>("/git/diffHunks", req);
 
 export const rpcGitDiffExpandLines = (req: GitDiffExpandLinesRequest) =>
-  rpc("/git/diffExpandLines", req, GitDiffExpandLinesRequest, GitDiffExpandLinesResponse);
+  rpc<GitDiffExpandLinesResponse>("/git/diffExpandLines", req);
 
 export const rpcGitBlameLine = (req: GitBlameLineRequest) =>
-  rpc("/git/blameLine", req, GitBlameLineRequest, GitBlameLineResponse);
+  rpc<GitBlameLineResponse>("/git/blameLine", req);
 
 export const rpcGitLogLine = (req: GitLogLineRequest) =>
-  rpc("/git/logLine", req, GitLogLineRequest, GitLogLineResponse);
+  rpc<GitLogLineResponse>("/git/logLine", req);
 
 export const rpcGitLogFile = (req: GitLogFileRequest) =>
-  rpc("/git/logFile", req, GitLogFileRequest, GitLogFileResponse);
+  rpc<GitLogFileResponse>("/git/logFile", req);
 
 /** 表示中ファイルを OS のデフォルトアプリで開く（macOS の `open` 相当）。path は絶対パス。 */
-export const rpcOpenFile = (req: OpenFileRequest) =>
-  rpc("/open/file", req, OpenFileRequest, OpenFileResponse);
+export const rpcOpenFile = (req: OpenFileRequest) => rpc<OpenFileResponse>("/open/file", req);

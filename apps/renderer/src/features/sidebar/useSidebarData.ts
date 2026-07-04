@@ -58,7 +58,7 @@ export function useSidebarData() {
     if (fetchGenByRoot.get(rootDir) !== gen) return;
     const wtList = result.value.worktrees;
 
-    // proto 契約違反 (main 側の taskStore で生成された createdAt が ISO8601 でない)
+    // ワイヤ契約違反 (main 側の taskStore で生成された createdAt が ISO8601 でない)
     // を ingress で観察可能化する。downstream は NaN を扱える形を維持する
     for (const wt of wtList) {
       validateTasksCreatedAt(wt.tasks);

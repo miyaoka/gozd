@@ -87,9 +87,9 @@ importers:
         specifier: 1.2.0-beta.14
         version: 1.2.0-beta.14
     devDependencies:
-      '@gozd/proto':
+      '@gozd/rpc':
         specifier: workspace:*
-        version: link:../../packages/proto-ts
+        version: link:../../packages/rpc
       '@gozd/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -138,9 +138,9 @@ importers:
       '@gozd/design-tokens':
         specifier: workspace:*
         version: link:../../packages/design-tokens
-      '@gozd/proto':
+      '@gozd/rpc':
         specifier: workspace:*
-        version: link:../../packages/proto-ts
+        version: link:../../packages/rpc
       '@gozd/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -336,13 +336,7 @@ importers:
         specifier: 10.4.1
         version: 10.4.1(eslint@10.6.0(jiti@2.7.0))
 
-  packages/proto: {}
-
-  packages/proto-ts:
-    dependencies:
-      '@bufbuild/protobuf':
-        specifier: 2.12.1
-        version: 2.12.1
+  packages/rpc:
     devDependencies:
       '@types/bun':
         specifier: 'catalog:'
@@ -459,9 +453,6 @@ packages:
 
   '@braintree/sanitize-url@7.1.2':
     resolution: {integrity: sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA==}
-
-  '@bufbuild/protobuf@2.12.1':
-    resolution: {integrity: sha512-BvAMfS6LrgZiryOAZ4pBYucu4wG/Ei/9o9DZ9akbREnMLbPJiom2i8b9C8IsKErQoiKqVhrerzt3kOT/RrzLHg==}
 
   '@chevrotain/types@11.1.2':
     resolution: {integrity: sha512-U+HFai5+zmJCkK86QsaJtoITlboZHBqrVketcO2ROv865xfCMSFpELQoz1GkX5GzME8pTa+3kbKrZHQtI0gdbw==}
@@ -4476,8 +4467,6 @@ snapshots:
       '@babel/helper-validator-identifier': 7.29.7
 
   '@braintree/sanitize-url@7.1.2': {}
-
-  '@bufbuild/protobuf@2.12.1': {}
 
   '@chevrotain/types@11.1.2': {}
 

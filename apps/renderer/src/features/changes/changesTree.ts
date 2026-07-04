@@ -1,4 +1,4 @@
-import type { GitFileChange } from "@gozd/proto";
+import type { GitFileChange } from "@gozd/rpc";
 
 export type ChangesTreeNode =
   | {

@@ -76,8 +76,7 @@ export const usePreviewEditStore = defineStore("preview-edit", () => {
     if (t === undefined || content === undefined) return undefined;
 
     saving.value = true;
-    const data = new TextEncoder().encode(content);
-    const result = await tryCatch(rpcFsWriteFile({ dir: t.dir, path: t.relPath, data }));
+    const result = await tryCatch(rpcFsWriteFile({ dir: t.dir, path: t.relPath, content }));
     saving.value = false;
 
     if (!result.ok) {

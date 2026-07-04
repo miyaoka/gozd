@@ -15,36 +15,32 @@ import {
   FsWriteFileResponse,
   GitLsTreeRequest,
   GitLsTreeResponse,
-} from "@gozd/proto";
+} from "@gozd/rpc";
 
 import { rpc } from "../../shared/rpc";
 
-export const rpcFsReadDir = (req: FsReadDirRequest) =>
-  rpc("/fs/readDir", req, FsReadDirRequest, FsReadDirResponse);
+export const rpcFsReadDir = (req: FsReadDirRequest) => rpc<FsReadDirResponse>("/fs/readDir", req);
 
 // snapshot mode (git-graph でコミット選択中) の filer が呼ぶ。
 // hash 必須。空文字は main 側で reject される。
-export const rpcGitLsTree = (req: GitLsTreeRequest) =>
-  rpc("/git/lsTree", req, GitLsTreeRequest, GitLsTreeResponse);
+export const rpcGitLsTree = (req: GitLsTreeRequest) => rpc<GitLsTreeResponse>("/git/lsTree", req);
 
 export const rpcFsReadFile = (req: FsReadFileRequest) =>
-  rpc("/fs/readFile", req, FsReadFileRequest, FsReadFileResponse);
+  rpc<FsReadFileResponse>("/fs/readFile", req);
 
 export const rpcFsReadFileAbsolute = (req: FsReadFileAbsoluteRequest) =>
-  rpc("/fs/readFileAbsolute", req, FsReadFileAbsoluteRequest, FsReadFileAbsoluteResponse);
+  rpc<FsReadFileAbsoluteResponse>("/fs/readFileAbsolute", req);
 
 // dir 配下への書き込み。path traversal guard は server 側 (resolveSafe)。
 export const rpcFsWriteFile = (req: FsWriteFileRequest) =>
-  rpc("/fs/writeFile", req, FsWriteFileRequest, FsWriteFileResponse);
+  rpc<FsWriteFileResponse>("/fs/writeFile", req);
 
-export const rpcFsWatch = (req: FsWatchRequest) =>
-  rpc("/fs/watch", req, FsWatchRequest, FsWatchResponse);
+export const rpcFsWatch = (req: FsWatchRequest) => rpc<FsWatchResponse>("/fs/watch", req);
 
-export const rpcFsUnwatch = (req: FsUnwatchRequest) =>
-  rpc("/fs/unwatch", req, FsUnwatchRequest, FsUnwatchResponse);
+export const rpcFsUnwatch = (req: FsUnwatchRequest) => rpc<FsUnwatchResponse>("/fs/unwatch", req);
 
 export const rpcFsUnwatchAll = (req: FsUnwatchAllRequest) =>
-  rpc("/fs/unwatchAll", req, FsUnwatchAllRequest, FsUnwatchAllResponse);
+  rpc<FsUnwatchAllResponse>("/fs/unwatchAll", req);
 
 // fsChange push event payload.
 // `dir` は購読時に渡した dir（renderer 側 worktree dir と文字列同一）。

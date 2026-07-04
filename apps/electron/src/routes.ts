@@ -1,17 +1,16 @@
-// RPC ルート実装。Swift 版 handler 群の対応物。
+// RPC ルート実装。
 //
-// proto3 JSON ⇔ message の変換は `@gozd/proto`（ts-proto 生成物）の
-// fromJSON / toJSON をそのまま使う。ワイヤ形式・push payload の形は
-// Swift shell（AppRuntime.swift の pushToRenderer）と一致させる契約。
+// ワイヤは `@gozd/rpc` の型を素の JSON で運ぶ。request は dispatcher が JSON.parse 済みの
+// body を型 cast で受け（送り手は同型を参照する renderer なので構造は一致する契約）、
+// response は `satisfies` でワイヤ契約の型チェックだけ通して素の object を返す。
 
-import {
+import type {
   ClaudeSessionLogRequest,
   ClaudeSessionLogResponse,
   ClaudeSessionRemoveByPtyRequest,
   ClaudeSessionRemoveByPtyResponse,
   CreateWorktreeRequest,
   CreateWorktreeResponse,
-  DiffLineKind,
   EchoRequest,
   EchoResponse,
   FsReadDirRequest,
@@ -22,7 +21,6 @@ import {
   FsReadFileResponse,
   FsStatRequest,
   FsStatResponse,
-  FsUnwatchAllRequest,
   FsUnwatchAllResponse,
   FsUnwatchRequest,
   FsUnwatchResponse,
@@ -40,7 +38,6 @@ import {
   GitDiffHunksResponse,
   GitBlameLineRequest,
   GitBlameLineResponse,
-  GhErrorKind,
   GitFetchRemotesRequest,
   GitFetchRemotesResponse,
   GitGithubIdentityRequest,
@@ -79,14 +76,12 @@ import {
   GitWorktreeListResponse,
   GitWorktreeRemoveRequest,
   GitWorktreeRemoveResponse,
-  SortMode,
   LoadAppConfigResponse,
   LoadAppStateResponse,
   OpenExternalRequest,
   OpenExternalResponse,
   OpenFileRequest,
   OpenFileResponse,
-  PickAndOpenRequest,
   PickAndOpenResponse,
   ProjectConfigLoadRequest,
   ProjectConfigLoadResponse,
@@ -106,11 +101,8 @@ import {
   SaveAppStateResponse,
   ResumableSessionListRequest,
   ResumableSessionListResponse,
-  ServerAttribution,
   ServerListResponse,
-  ShellCommandInstallRequest,
   ShellCommandInstallResponse,
-  ShellCommandUninstallRequest,
   ShellCommandUninstallResponse,
   TaskAddRequest,
   TaskAddResponse,
@@ -122,21 +114,17 @@ import {
   TaskSetTerminalTitleResponse,
   TaskSetUserTitleRequest,
   TaskSetUserTitleResponse,
-  VoicevoxCheckEngineRequest,
   VoicevoxCheckEngineResponse,
-  VoicevoxLaunchRequest,
   VoicevoxLaunchResponse,
-  VoicevoxListSpeakersRequest,
   VoicevoxListSpeakersResponse,
   VoicevoxSpeakRequest,
   VoicevoxSpeakResponse,
-  WindowCloseRequest,
   WindowCloseResponse,
   WindowSetTitleContextRequest,
   WindowSetTitleContextResponse,
   WindowSetServerPanelOpenResponse,
-  type WorktreeEntry,
-} from "@gozd/proto";
+  WorktreeEntry,
+} from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { app, BrowserWindow, dialog, shell } from "electron";
 import { existsSync } from "node:fs";
@@ -146,7 +134,7 @@ import { readDir, readFile, readFileAbsolute, stat, writeFile } from "./fs/fsOps
 import { createFsWatchRegistry } from "./fs/fsWatchRegistry";
 import { blameLine, logFile, logLine } from "./git/gitBlame";
 import { resolveStartPoint } from "./git/gitBranch";
-import { diffHunks, expandDiffLines, type DiffHunkLineKind } from "./git/gitDiff";
+import { diffHunks, expandDiffLines } from "./git/gitDiff";
 import { log, mergeBase, resetMixed, revReachable } from "./git/gitLog";
 import {
   commitFiles,
@@ -161,11 +149,11 @@ import { createWorktree, removeWorktree } from "./git/worktreeOps";
 import { fetchRemotes, gitStatusFull, worktreeList } from "./git/gitOps";
 import { GitCommandError } from "./git/gitRunner";
 import type { StatusFull } from "./git/porcelain";
-import { issueList, prList, repoOwnerName, viewer, type GhErrorKindName } from "./git/github";
+import { issueList, prList, repoOwnerName, viewer } from "./git/github";
 import { buildPtyEnv } from "./gozdEnv";
 import { buildGozdOpenPayload } from "./openTarget";
 import { loadProjectConfig, saveProjectConfig } from "./projectConfigStore";
-import { createPortScanner, listProcParents, type PtyOwner, type ServerAttributionKind } from "./portScanner";
+import { createPortScanner, listProcParents, type PtyOwner } from "./portScanner";
 import { clearAssociations, consumeExpectedResumeSid, registerSpawn, sessionIdFor, unregisterExit, worktreePathFor } from "./ptySessions";
 import type { PushFn, RpcContext, RpcHandler } from "./rpcDispatcher";
 import { listListenProcesses } from "./serverList";
@@ -215,7 +203,7 @@ export function stopPortScanner(): void {
 }
 
 function handlePtySpawn(body: unknown, ctx: RpcContext): unknown {
-  const req = PtySpawnRequest.fromJSON(body);
+  const req = body as PtySpawnRequest;
   if (req.dir === "") throw new Error("pty/spawn: dir is required");
   if (req.executable === "") throw new Error("pty/spawn: executable is required");
 
@@ -254,78 +242,69 @@ function handlePtySpawn(body: unknown, ctx: RpcContext): unknown {
     ctx.push("ptyExit", { id, reason });
   });
 
-  return PtySpawnResponse.toJSON({ ptyId: id });
+  return ({ ptyId: id }) satisfies PtySpawnResponse;
 }
 
 function handlePtyWrite(body: unknown): unknown {
-  const req = PtyWriteRequest.fromJSON(body);
+  const req = body as PtyWriteRequest;
   const pty = ptys.get(req.ptyId);
   if (pty === undefined) throw new Error(`pty/write: unknown ptyId ${req.ptyId}`);
-  pty.write(Buffer.from(req.data).toString("utf8"));
-  return PtyWriteResponse.toJSON({});
+  pty.write(req.data);
+  return ({}) satisfies PtyWriteResponse;
 }
 
 function handlePtyResize(body: unknown): unknown {
-  const req = PtyResizeRequest.fromJSON(body);
+  const req = body as PtyResizeRequest;
   const pty = ptys.get(req.ptyId);
   if (pty === undefined) throw new Error(`pty/resize: unknown ptyId ${req.ptyId}`);
   pty.resize(req.cols, req.rows);
-  return PtyResizeResponse.toJSON({});
+  return ({}) satisfies PtyResizeResponse;
 }
 
 function handlePtyKill(body: unknown): unknown {
-  const req = PtyKillRequest.fromJSON(body);
+  const req = body as PtyKillRequest;
   const pty = ptys.get(req.ptyId);
   if (pty === undefined) throw new Error(`pty/kill: unknown ptyId ${req.ptyId}`);
   pty.kill();
   ptys.delete(req.ptyId);
-  return PtyKillResponse.toJSON({});
+  return ({}) satisfies PtyKillResponse;
 }
 
 function handleEcho(body: unknown): unknown {
-  const req = EchoRequest.fromJSON(body);
-  return EchoResponse.toJSON({ text: req.text });
+  const req = body as EchoRequest;
+  return ({ text: req.text }) satisfies EchoResponse;
 }
 
 function handleAppConfigLoad(): unknown {
-  return LoadAppConfigResponse.toJSON({ config: loadAppConfig() });
+  return ({ config: loadAppConfig() }) satisfies LoadAppConfigResponse;
 }
 
 function handleAppConfigSave(body: unknown): unknown {
-  const req = SaveAppConfigRequest.fromJSON(body);
+  const req = body as SaveAppConfigRequest;
   if (req.config === undefined) throw new Error("appConfig/save: config is required");
   saveAppConfig(req.config);
-  return SaveAppConfigResponse.toJSON({});
+  return ({}) satisfies SaveAppConfigResponse;
 }
 
 function handleAppStateLoad(): unknown {
-  return LoadAppStateResponse.toJSON({ state: loadAppState() });
+  return ({ state: loadAppState() }) satisfies LoadAppStateResponse;
 }
 
 function handleAppStateSave(body: unknown): unknown {
-  const req = SaveAppStateRequest.fromJSON(body);
+  const req = body as SaveAppStateRequest;
   if (req.state === undefined) throw new Error("appState/save: state is required");
   saveAppState(req.state);
-  return SaveAppStateResponse.toJSON({});
+  return ({}) satisfies SaveAppStateResponse;
 }
 
-// portScanner の内部表現 → proto enum（/server/list 応答用。push は文字列のまま運ぶ）
-const ATTRIBUTION_TO_PROTO: Record<ServerAttributionKind, ServerAttribution> = {
-  live: ServerAttribution.SERVER_ATTRIBUTION_LIVE,
-  orphaned: ServerAttribution.SERVER_ATTRIBUTION_ORPHANED,
-  external: ServerAttribution.SERVER_ATTRIBUTION_EXTERNAL,
-};
-
 function handleServerList(): unknown {
-  // renderer mount 時の hydrate。周期 scan の直近 snapshot を返す（Swift currentSnapshot と同じ）
-  const servers = portScanner
-    .current()
-    .map((server) => ({ ...server, attribution: ATTRIBUTION_TO_PROTO[server.attribution] }));
-  return ServerListResponse.toJSON({ servers });
+  // renderer mount 時の hydrate。周期 scan の直近 snapshot を返す。
+  // attribution は push（serverPortsChange）と同じ文字列表現で、内部表現をそのまま流せる
+  return { servers: portScanner.current() } satisfies ServerListResponse;
 }
 
 async function handleGitWorktreeList(body: unknown): Promise<unknown> {
-  const req = GitWorktreeListRequest.fromJSON(body);
+  const req = body as GitWorktreeListRequest;
   const worktrees = await worktreeList(req.dir);
   const allTasks = await taskStore.list(req.dir);
   // 各 wt の git status は補助データ。1 wt の失敗で worktree list 全体を捨てないため、
@@ -352,73 +331,73 @@ async function handleGitWorktreeList(body: unknown): Promise<unknown> {
       };
     }),
   );
-  return GitWorktreeListResponse.toJSON({ worktrees: entries });
+  return ({ worktrees: entries }) satisfies GitWorktreeListResponse;
 }
 
 async function handleTaskList(body: unknown): Promise<unknown> {
-  const req = TaskListRequest.fromJSON(body);
-  return TaskListResponse.toJSON({ tasks: await taskStore.list(req.dir) });
+  const req = body as TaskListRequest;
+  return ({ tasks: await taskStore.list(req.dir) }) satisfies TaskListResponse;
 }
 
 async function handleTaskAdd(body: unknown): Promise<unknown> {
-  const req = TaskAddRequest.fromJSON(body);
+  const req = body as TaskAddRequest;
   const task = await taskStore.add({
     dir: req.dir,
     ghTitle: req.ghTitle,
     worktreeDir: req.worktreeDir,
     ghRef: req.ghRef,
   });
-  return TaskAddResponse.toJSON({ task });
+  return ({ task }) satisfies TaskAddResponse;
 }
 
 async function handleTaskSetTerminalTitle(body: unknown): Promise<unknown> {
-  const req = TaskSetTerminalTitleRequest.fromJSON(body);
+  const req = body as TaskSetTerminalTitleRequest;
   const task = await taskStore.setTerminalTitle(req.dir, req.id, req.terminalTitle);
-  return TaskSetTerminalTitleResponse.toJSON({ task });
+  return ({ task }) satisfies TaskSetTerminalTitleResponse;
 }
 
 async function handleTaskSetUserTitle(body: unknown): Promise<unknown> {
-  const req = TaskSetUserTitleRequest.fromJSON(body);
+  const req = body as TaskSetUserTitleRequest;
   const task = await taskStore.setUserTitle(req.dir, req.id, req.userTitle);
-  return TaskSetUserTitleResponse.toJSON({ task });
+  return ({ task }) satisfies TaskSetUserTitleResponse;
 }
 
 async function handleTaskRemove(body: unknown): Promise<unknown> {
-  const req = TaskRemoveRequest.fromJSON(body);
+  const req = body as TaskRemoveRequest;
   await taskStore.remove(req.dir, req.id);
-  return TaskRemoveResponse.toJSON({});
+  return ({}) satisfies TaskRemoveResponse;
 }
 
 async function handleResumableSessionList(body: unknown): Promise<unknown> {
-  const req = ResumableSessionListRequest.fromJSON(body);
-  return ResumableSessionListResponse.toJSON({
+  const req = body as ResumableSessionListRequest;
+  return ({
     sessionIds: await taskStore.resumableSessionIds(req.dir),
-  });
+  }) satisfies ResumableSessionListResponse;
 }
 
 async function handleGitGithubIdentity(body: unknown): Promise<unknown> {
-  const req = GitGithubIdentityRequest.fromJSON(body);
+  const req = body as GitGithubIdentityRequest;
   const identity = await repoOwnerName(req.dir);
   if (identity.kind === "ok") {
-    return GitGithubIdentityResponse.toJSON({ owner: identity.owner, repo: identity.repo });
+    return ({ owner: identity.owner, repo: identity.repo }) satisfies GitGithubIdentityResponse;
   }
   // remote 未設定 / 非 github.com host。UI には出ないが観察可能にする
   // （raw URL は credential 漏出防止のため stderr にも載せない）
   console.error(`[handleGitGithubIdentity] ${identity.kind} for dir=${req.dir}`);
-  return GitGithubIdentityResponse.toJSON({ owner: "", repo: "" });
+  return ({ owner: "", repo: "" }) satisfies GitGithubIdentityResponse;
 }
 
 async function handleGitFetchRemotes(body: unknown): Promise<unknown> {
-  const req = GitFetchRemotesRequest.fromJSON(body);
+  const req = body as GitFetchRemotesRequest;
   const result = await tryCatch(fetchRemotes(req.dir));
-  if (result.ok) return GitFetchRemotesResponse.toJSON({ ok: true, errorDetail: "" });
+  if (result.ok) return ({ ok: true, errorDetail: "" }) satisfies GitFetchRemotesResponse;
   // offline / 認証失敗 / remote 未設定 etc. は呼び出し側で握り潰す。
   // stderr 冒頭のみを debug 用に積む (UI には出さない)
   const detail =
     result.error instanceof GitCommandError
       ? result.error.stderr.slice(0, 512)
       : String(result.error);
-  return GitFetchRemotesResponse.toJSON({ ok: false, errorDetail: detail });
+  return ({ ok: false, errorDetail: detail }) satisfies GitFetchRemotesResponse;
 }
 
 // fs watch の push は「最後に /fs/watch を呼んだ window」の sender に配送する。
@@ -459,112 +438,111 @@ export function unwatchAllFsWatches(): void {
 }
 
 function handleFsReadFile(body: unknown): unknown {
-  const req = FsReadFileRequest.fromJSON(body);
+  const req = body as FsReadFileRequest;
   const info = readFile(req.dir, req.path);
-  return FsReadFileResponse.toJSON({
+  return ({
     content: info.content,
     isBinary: info.isBinary,
     isDirectory: info.isDirectory,
     notFound: info.notFound,
-  });
+  }) satisfies FsReadFileResponse;
 }
 
 async function handleFsReadDir(body: unknown): Promise<unknown> {
-  const req = FsReadDirRequest.fromJSON(body);
-  return FsReadDirResponse.toJSON(await readDir(req.dir, req.path));
+  const req = body as FsReadDirRequest;
+  return (await readDir(req.dir, req.path)) satisfies FsReadDirResponse;
 }
 
 function handleFsReadFileAbsolute(body: unknown): unknown {
-  const req = FsReadFileAbsoluteRequest.fromJSON(body);
-  return FsReadFileAbsoluteResponse.toJSON({ result: readFileAbsolute(req.absolutePath) });
+  const req = body as FsReadFileAbsoluteRequest;
+  return ({ result: readFileAbsolute(req.absolutePath) }) satisfies FsReadFileAbsoluteResponse;
 }
 
 function handleFsWriteFile(body: unknown): unknown {
-  const req = FsWriteFileRequest.fromJSON(body);
-  writeFile(req.dir, req.path, req.data);
-  return FsWriteFileResponse.toJSON({});
+  const req = body as FsWriteFileRequest;
+  writeFile(req.dir, req.path, req.content);
+  return ({}) satisfies FsWriteFileResponse;
 }
 
 function handleFsStat(body: unknown): unknown {
-  const req = FsStatRequest.fromJSON(body);
-  return FsStatResponse.toJSON(stat(req.dir, req.path));
+  const req = body as FsStatRequest;
+  return (stat(req.dir, req.path)) satisfies FsStatResponse;
 }
 
 async function handleGitStatus(body: unknown): Promise<unknown> {
-  const req = GitStatusRequest.fromJSON(body);
+  const req = body as GitStatusRequest;
   const status = await gitStatusFull(req.dir);
-  return GitStatusResponse.toJSON({
+  return ({
     entries: status.statuses,
     renameOldPaths: status.renameOldPaths,
     latestMtime: status.latestMtime,
     upstream: status.hasUpstream ? { ahead: status.ahead, behind: status.behind } : undefined,
-  });
+  }) satisfies GitStatusResponse;
 }
 
 async function handleFsWatch(body: unknown, ctx: RpcContext): Promise<unknown> {
-  const req = FsWatchRequest.fromJSON(body);
+  const req = body as FsWatchRequest;
   if (req.dir === "") throw new Error("fs/watch: dir is required");
   fsPush = ctx.push;
   await fsWatchRegistry.watch(req.dir);
-  return FsWatchResponse.toJSON({});
+  return ({}) satisfies FsWatchResponse;
 }
 
 function handleFsUnwatch(body: unknown): unknown {
-  const req = FsUnwatchRequest.fromJSON(body);
+  const req = body as FsUnwatchRequest;
   fsWatchRegistry.unwatch(req.dir);
-  return FsUnwatchResponse.toJSON({});
+  return ({}) satisfies FsUnwatchResponse;
 }
 
-function handleFsUnwatchAll(body: unknown): unknown {
-  FsUnwatchAllRequest.fromJSON(body);
-  return FsUnwatchAllResponse.toJSON({ unwatchedCount: fsWatchRegistry.unwatchAll() });
+function handleFsUnwatchAll(): unknown {
+  return ({ unwatchedCount: fsWatchRegistry.unwatchAll() }) satisfies FsUnwatchAllResponse;
 }
 
 async function handleGitLog(body: unknown): Promise<unknown> {
-  const req = GitLogRequest.fromJSON(body);
+  const req = body as GitLogRequest;
   const result = await log({
     dir: req.dir,
     maxCount: req.maxCount,
     firstParentOnly: req.firstParentOnly,
     currentBranchOnly: req.currentBranchOnly,
-    sortMode: req.sortMode === SortMode.SORT_MODE_DATE ? "date" : "topo",
+    sortMode: req.sortMode,
   });
-  return GitLogResponse.toJSON(result);
+  return (result) satisfies GitLogResponse;
 }
 
 async function handleGitMergeBase(body: unknown): Promise<unknown> {
-  const req = GitMergeBaseRequest.fromJSON(body);
-  return GitMergeBaseResponse.toJSON({ mergeBaseOid: await mergeBase(req.dir, req.hash1, req.hash2) });
+  const req = body as GitMergeBaseRequest;
+  return ({ mergeBaseOid: await mergeBase(req.dir, req.hash1, req.hash2) }) satisfies GitMergeBaseResponse;
 }
 
 async function handleGitRevReachable(body: unknown): Promise<unknown> {
-  const req = GitRevReachableRequest.fromJSON(body);
-  return GitRevReachableResponse.toJSON({ reachable: await revReachable(req.dir, req.hash) });
+  const req = body as GitRevReachableRequest;
+  return ({ reachable: await revReachable(req.dir, req.hash) }) satisfies GitRevReachableResponse;
 }
 
 async function handleGitResetMixed(body: unknown): Promise<unknown> {
-  const req = GitResetMixedRequest.fromJSON(body);
+  const req = body as GitResetMixedRequest;
   await resetMixed(req.dir, req.hash);
-  return GitResetMixedResponse.toJSON({});
+  return ({}) satisfies GitResetMixedResponse;
 }
 
 async function handleGitDefaultBranch(body: unknown): Promise<unknown> {
-  const req = GitDefaultBranchRequest.fromJSON(body);
+  const req = body as GitDefaultBranchRequest;
   // GitCommandError（origin/HEAD 未設定 / detached HEAD 等のドメイン失敗）のみ空文字列に倒し、
   // spawn 失敗（git CLI 解決失敗）は throw して renderer に通知する
   const result = await tryCatch(resolveStartPoint(req.dir));
   if (!result.ok && !(result.error instanceof GitCommandError)) throw result.error;
-  return GitDefaultBranchResponse.toJSON({ branch: result.ok ? result.value : "" });
+  return ({ branch: result.ok ? result.value : "" }) satisfies GitDefaultBranchResponse;
 }
 
 async function handleGitBlameLine(body: unknown): Promise<unknown> {
-  const req = GitBlameLineRequest.fromJSON(body);
+  const req = body as GitBlameLineRequest;
   const commit = await blameLine({ dir: req.dir, relPath: req.relPath, rev: req.rev, line: req.line });
-  return GitBlameLineResponse.toJSON({ commit });
+  return ({ commit }) satisfies GitBlameLineResponse;
 }
 
 async function handleGitLogLine(body: unknown): Promise<unknown> {
-  const req = GitLogLineRequest.fromJSON(body);
+  const req = body as GitLogLineRequest;
   const commits = await logLine({
     dir: req.dir,
     relPath: req.relPath,
@@ -572,55 +550,43 @@ async function handleGitLogLine(body: unknown): Promise<unknown> {
     line: req.line,
     maxCount: req.maxCount,
   });
-  return GitLogLineResponse.toJSON({ commits });
+  return ({ commits }) satisfies GitLogLineResponse;
 }
 
 async function handleGitLogFile(body: unknown): Promise<unknown> {
-  const req = GitLogFileRequest.fromJSON(body);
+  const req = body as GitLogFileRequest;
   const commits = await logFile({
     dir: req.dir,
     relPath: req.relPath,
     rev: req.rev,
     maxCount: req.maxCount,
   });
-  return GitLogFileResponse.toJSON({ commits });
+  return ({ commits }) satisfies GitLogFileResponse;
 }
 
-const DIFF_LINE_KIND_PROTO: Record<DiffHunkLineKind, DiffLineKind> = {
-  context: DiffLineKind.DIFF_LINE_KIND_CONTEXT,
-  added: DiffLineKind.DIFF_LINE_KIND_ADDED,
-  removed: DiffLineKind.DIFF_LINE_KIND_REMOVED,
-};
-
 async function handleGitDiffHunks(body: unknown): Promise<unknown> {
-  const req = GitDiffHunksRequest.fromJSON(body);
+  const req = body as GitDiffHunksRequest;
+  // gitDiff.ts の内部表現（kind 文字列含む）がワイヤ契約と一致するためそのまま返す
   const result = await diffHunks(req.original, req.current);
-  return GitDiffHunksResponse.toJSON({
-    oldTotalLines: result.oldTotalLines,
-    newTotalLines: result.newTotalLines,
-    hunks: result.hunks.map((hunk) => ({
-      ...hunk,
-      lines: hunk.lines.map((line) => ({ kind: DIFF_LINE_KIND_PROTO[line.kind], text: line.text })),
-    })),
-  });
+  return result satisfies GitDiffHunksResponse;
 }
 
 function handleGitDiffExpandLines(body: unknown): unknown {
-  const req = GitDiffExpandLinesRequest.fromJSON(body);
-  return GitDiffExpandLinesResponse.toJSON({
+  const req = body as GitDiffExpandLinesRequest;
+  return ({
     lines: expandDiffLines(req.original, req.current, req.oldStart, req.newStart, req.lines),
-  });
+  }) satisfies GitDiffExpandLinesResponse;
 }
 
 async function handleGitShowFile(body: unknown): Promise<unknown> {
-  const req = GitShowFileRequest.fromJSON(body);
-  return GitShowFileResponse.toJSON({
+  const req = body as GitShowFileRequest;
+  return ({
     result: await fileReadResultFromGit(req.dir, "HEAD", req.relPath),
-  });
+  }) satisfies GitShowFileResponse;
 }
 
 async function handleGitShowCommitFile(body: unknown): Promise<unknown> {
-  const req = GitShowCommitFileRequest.fromJSON(body);
+  const req = body as GitShowCommitFileRequest;
   // 単一コミット選択 (compareHash 空) では GitHub と同等の <hash>^ vs <hash> 比較に揃える
   // （commitFiles のファイル一覧と diff endpoint を一致させる。root commit は <hash>^ が
   // 解決失敗 → notFound=true となり追加扱いに自然解決する）。範囲選択 (compareHash 非空) では
@@ -636,12 +602,12 @@ async function handleGitShowCommitFile(body: unknown): Promise<unknown> {
     treeFileOID(req.dir, fromHash, req.relPath),
     treeFileOID(req.dir, req.hash, req.relPath),
   ]);
-  return GitShowCommitFileResponse.toJSON({
+  return ({
     from,
     to,
     // 両 OID が解決でき、かつ一致した場合のみ true
     unchanged: fromOID !== undefined && toOID !== undefined && fromOID === toOID,
-  });
+  }) satisfies GitShowCommitFileResponse;
 }
 
 function toFileChangeProto(change: FileChangeInfo): {
@@ -653,110 +619,92 @@ function toFileChangeProto(change: FileChangeInfo): {
 }
 
 async function handleGitCommitFiles(body: unknown): Promise<unknown> {
-  const req = GitCommitFilesRequest.fromJSON(body);
+  const req = body as GitCommitFilesRequest;
   const changes = await commitFiles({
     dir: req.dir,
     hash: req.hash,
     rangeHashes: req.rangeHashes,
     includeWorkingTree: req.includeWorkingTree,
   });
-  return GitCommitFilesResponse.toJSON({ changes: changes.map(toFileChangeProto) });
+  return ({ changes: changes.map(toFileChangeProto) }) satisfies GitCommitFilesResponse;
 }
 
 async function handleGitPrDiffFiles(body: unknown): Promise<unknown> {
-  const req = GitPrDiffFilesRequest.fromJSON(body);
+  const req = body as GitPrDiffFilesRequest;
   const changes = await prDiffFiles(req.dir, req.baseHash);
-  return GitPrDiffFilesResponse.toJSON({ changes: changes.map(toFileChangeProto) });
+  return ({ changes: changes.map(toFileChangeProto) }) satisfies GitPrDiffFilesResponse;
 }
 
 async function handleGitReadBlob(body: unknown): Promise<unknown> {
-  const req = GitReadBlobRequest.fromJSON(body);
+  const req = body as GitReadBlobRequest;
   // rev は `git show <rev>:<path>` に渡るため option 注入を弾く validateRev を入口で通す
   validateRev(req.hash);
-  return GitReadBlobResponse.toJSON({
+  return ({
     result: await fileReadResultFromGit(req.dir, req.hash, req.relPath),
-  });
+  }) satisfies GitReadBlobResponse;
 }
 
 async function handleGitLsTree(body: unknown): Promise<unknown> {
-  const req = GitLsTreeRequest.fromJSON(body);
-  return GitLsTreeResponse.toJSON({ entries: await lsTree(req.dir, req.hash, req.path) });
+  const req = body as GitLsTreeRequest;
+  return ({ entries: await lsTree(req.dir, req.hash, req.path) }) satisfies GitLsTreeResponse;
 }
 
-const GH_ERROR_KIND_PROTO: Record<GhErrorKindName, GhErrorKind> = {
-  rateLimit: GhErrorKind.GH_ERROR_KIND_RATE_LIMIT,
-  unauthenticated: GhErrorKind.GH_ERROR_KIND_UNAUTHENTICATED,
-  repoNotFound: GhErrorKind.GH_ERROR_KIND_REPO_NOT_FOUND,
-  network: GhErrorKind.GH_ERROR_KIND_NETWORK,
-  other: GhErrorKind.GH_ERROR_KIND_OTHER,
-};
-
 async function handleGitPrList(body: unknown): Promise<unknown> {
-  const req = GitPrListRequest.fromJSON(body);
+  const req = body as GitPrListRequest;
   const result = await prList(req.dir);
   if (!result.ok) {
-    return GitPrListResponse.toJSON({
+    return {
       ok: false,
       prs: [],
-      errorKind: GH_ERROR_KIND_PROTO[result.error.kind],
+      errorKind: result.error.kind,
       errorDetail: result.error.detail,
-    });
+    } satisfies GitPrListResponse;
   }
-  return GitPrListResponse.toJSON({
-    ok: true,
-    prs: result.value,
-    errorKind: GhErrorKind.GH_ERROR_KIND_OK,
-    errorDetail: "",
-  });
+  return { ok: true, prs: result.value, errorKind: "ok", errorDetail: "" } satisfies GitPrListResponse;
 }
 
 async function handleGitIssueList(body: unknown): Promise<unknown> {
-  const req = GitIssueListRequest.fromJSON(body);
+  const req = body as GitIssueListRequest;
   const result = await issueList(req.dir);
   if (!result.ok) {
-    return GitIssueListResponse.toJSON({
+    return {
       ok: false,
       issues: [],
-      errorKind: GH_ERROR_KIND_PROTO[result.error.kind],
+      errorKind: result.error.kind,
       errorDetail: result.error.detail,
-    });
+    } satisfies GitIssueListResponse;
   }
-  return GitIssueListResponse.toJSON({
+  return {
     ok: true,
     issues: result.value,
-    errorKind: GhErrorKind.GH_ERROR_KIND_OK,
+    errorKind: "ok",
     errorDetail: "",
-  });
+  } satisfies GitIssueListResponse;
 }
 
 async function handleGitViewer(body: unknown): Promise<unknown> {
-  const req = GitViewerRequest.fromJSON(body);
+  const req = body as GitViewerRequest;
   const result = await viewer(req.dir);
   if (!result.ok) {
-    return GitViewerResponse.toJSON({
+    return {
       ok: false,
       login: "",
-      errorKind: GH_ERROR_KIND_PROTO[result.error.kind],
+      errorKind: result.error.kind,
       errorDetail: result.error.detail,
-    });
+    } satisfies GitViewerResponse;
   }
-  return GitViewerResponse.toJSON({
-    ok: true,
-    login: result.value,
-    errorKind: GhErrorKind.GH_ERROR_KIND_OK,
-    errorDetail: "",
-  });
+  return { ok: true, login: result.value, errorKind: "ok", errorDetail: "" } satisfies GitViewerResponse;
 }
 
 async function handleCreateWorktree(body: unknown): Promise<unknown> {
-  const req = CreateWorktreeRequest.fromJSON(body);
+  const req = body as CreateWorktreeRequest;
   const info = await createWorktree({
     dir: req.dir,
     worktreeDir: req.worktreeDir,
     branch: req.branch,
     startPoint: req.startPoint,
   });
-  return CreateWorktreeResponse.toJSON({
+  return ({
     worktree: {
       path: info.path,
       head: info.head,
@@ -769,11 +717,11 @@ async function handleCreateWorktree(body: unknown): Promise<unknown> {
       tasks: [],
     },
     dir: info.path,
-  });
+  }) satisfies CreateWorktreeResponse;
 }
 
 async function handleWorktreeRemove(body: unknown, ctx: RpcContext): Promise<unknown> {
-  const req = GitWorktreeRemoveRequest.fromJSON(body);
+  const req = body as GitWorktreeRemoveRequest;
   await removeWorktree(req.dir, req.path, req.force);
   // worktree 物理削除に Task の片付けも連動させる。放置すると tasks.json に孤児 Task が残り
   // サイドバーにゾンビ行が出る。projectKey 解決は req.dir（main repo dir、削除されない側）から
@@ -790,19 +738,19 @@ async function handleWorktreeRemove(body: unknown, ctx: RpcContext): Promise<unk
       dir: req.dir,
     });
   }
-  return GitWorktreeRemoveResponse.toJSON({});
+  return ({}) satisfies GitWorktreeRemoveResponse;
 }
 
 async function handleProjectConfigLoad(body: unknown): Promise<unknown> {
-  const req = ProjectConfigLoadRequest.fromJSON(body);
-  return ProjectConfigLoadResponse.toJSON({ config: await loadProjectConfig(req.dir) });
+  const req = body as ProjectConfigLoadRequest;
+  return ({ config: await loadProjectConfig(req.dir) }) satisfies ProjectConfigLoadResponse;
 }
 
 async function handleProjectConfigSave(body: unknown): Promise<unknown> {
-  const req = ProjectConfigSaveRequest.fromJSON(body);
+  const req = body as ProjectConfigSaveRequest;
   if (req.config === undefined) throw new Error("projectConfig/save: config is required");
   await saveProjectConfig(req.dir, req.config);
-  return ProjectConfigSaveResponse.toJSON({});
+  return ({}) satisfies ProjectConfigSaveResponse;
 }
 
 // `openExternal` で許可する URL scheme の allowlist。OSC 8 リンクや WebLinksAddon 経由で
@@ -811,18 +759,18 @@ async function handleProjectConfigSave(body: unknown): Promise<unknown> {
 const OPEN_EXTERNAL_ALLOWED_SCHEMES = new Set(["http:", "https:", "mailto:"]);
 
 async function handleOpenExternal(body: unknown): Promise<unknown> {
-  const req = OpenExternalRequest.fromJSON(body);
+  const req = body as OpenExternalRequest;
   const parsed = tryCatch(() => new URL(req.url));
   if (!parsed.ok) throw new Error(`invalid url: ${req.url}`);
   if (!OPEN_EXTERNAL_ALLOWED_SCHEMES.has(parsed.value.protocol)) {
     throw new Error(`scheme not allowed: ${parsed.value.protocol}`);
   }
   await shell.openExternal(req.url);
-  return OpenExternalResponse.toJSON({});
+  return ({}) satisfies OpenExternalResponse;
 }
 
 async function handleOpenFile(body: unknown): Promise<unknown> {
-  const req = OpenFileRequest.fromJSON(body);
+  const req = body as OpenFileRequest;
   // path は renderer が解決済みの絶対パス契約。非絶対（空文字含む）を CWD 基準で silent に
   // 解決する暗黙 fallback を塞ぐため、入口で明示エラーに倒す（Swift 版と同じ規律）
   if (!req.path.startsWith("/")) {
@@ -837,11 +785,10 @@ async function handleOpenFile(body: unknown): Promise<unknown> {
   if (errorMessage !== "") {
     throw new Error(`failed to open: ${errorMessage}`);
   }
-  return OpenFileResponse.toJSON({});
+  return ({}) satisfies OpenFileResponse;
 }
 
-async function handlePickAndOpen(body: unknown, ctx: RpcContext): Promise<unknown> {
-  PickAndOpenRequest.fromJSON(body);
+async function handlePickAndOpen(_body: unknown, ctx: RpcContext): Promise<unknown> {
   const result = await dialog.showOpenDialog({
     properties: ["openDirectory"],
     buttonLabel: "Open",
@@ -852,18 +799,17 @@ async function handlePickAndOpen(body: unknown, ctx: RpcContext): Promise<unknow
   if (!result.canceled && pickedPath !== "") {
     ctx.push("gozdOpen", await buildGozdOpenPayload(pickedPath));
   }
-  return PickAndOpenResponse.toJSON({});
+  return ({}) satisfies PickAndOpenResponse;
 }
 
-function handleWindowClose(body: unknown): unknown {
-  WindowCloseRequest.fromJSON(body);
+function handleWindowClose(): unknown {
   // シングルウィンドウ運用ではアプリ終了相当（Swift 版 NSApplication.terminate と同じ）
   app.quit();
-  return WindowCloseResponse.toJSON({});
+  return ({}) satisfies WindowCloseResponse;
 }
 
 function handleWindowSetTitleContext(body: unknown): unknown {
-  const req = WindowSetTitleContextRequest.fromJSON(body);
+  const req = body as WindowSetTitleContextRequest;
   // "repo · worktree" 形式に整形。Swift 版は titlebar の ToolbarItem に出すが、
   // Electron shell は対応する native toolbar を持たないため window title に反映する。
   // gozd はシングルウィンドウなので全 window に適用で実質固定
@@ -872,11 +818,11 @@ function handleWindowSetTitleContext(body: unknown): unknown {
   for (const window of BrowserWindow.getAllWindows()) {
     window.setTitle(text === "" ? "gozd" : text);
   }
-  return WindowSetTitleContextResponse.toJSON({});
+  return ({}) satisfies WindowSetTitleContextResponse;
 }
 
 async function handleClaudeSessionRemoveByPty(body: unknown, ctx: RpcContext): Promise<unknown> {
-  const req = ClaudeSessionRemoveByPtyRequest.fromJSON(body);
+  const req = body as ClaudeSessionRemoveByPtyRequest;
   // Swift handleClaudeSessionRemoveByPty と同一意味論。sessionId / worktreePath 紐付けは
   // 最後に必ずクリアする（tasks 側の cleanup が失敗しても late session-start hook を
   // 弾く必要があるため、各 taskStore 呼び出しは個別 tryCatch で notify に倒す）
@@ -936,66 +882,63 @@ async function handleClaudeSessionRemoveByPty(body: unknown, ctx: RpcContext): P
   // else: live も expected もない素 PTY pane の close。正常経路でログ価値が薄い
 
   clearAssociations(req.ptyId);
-  return ClaudeSessionRemoveByPtyResponse.toJSON({ removedSessionId });
+  return ({ removedSessionId }) satisfies ClaudeSessionRemoveByPtyResponse;
 }
 
 function handleClaudeSessionReadLog(body: unknown): unknown {
-  const req = ClaudeSessionLogRequest.fromJSON(body);
+  const req = body as ClaudeSessionLogRequest;
   const result = readClaudeSessionLog(req.sessionId);
-  return ClaudeSessionLogResponse.toJSON({
+  return ({
     found: result.found,
     watchDir: result.watchDir,
     entries: result.entries,
-  });
+  }) satisfies ClaudeSessionLogResponse;
 }
 
-function handleShellCommandInstall(body: unknown): unknown {
-  ShellCommandInstallRequest.fromJSON(body);
-  return ShellCommandInstallResponse.toJSON(installShellCommand());
+function handleShellCommandInstall(): unknown {
+  return (installShellCommand()) satisfies ShellCommandInstallResponse;
 }
 
-function handleShellCommandUninstall(body: unknown): unknown {
-  ShellCommandUninstallRequest.fromJSON(body);
-  return ShellCommandUninstallResponse.toJSON(uninstallShellCommand());
+function handleShellCommandUninstall(): unknown {
+  return (uninstallShellCommand()) satisfies ShellCommandUninstallResponse;
 }
 
-async function handleVoicevoxLaunch(body: unknown): Promise<unknown> {
-  VoicevoxLaunchRequest.fromJSON(body);
-  return VoicevoxLaunchResponse.toJSON({ ok: await voicevoxLaunch() });
+async function handleVoicevoxLaunch(): Promise<unknown> {
+  return ({ ok: await voicevoxLaunch() }) satisfies VoicevoxLaunchResponse;
 }
 
-async function handleVoicevoxCheckEngine(body: unknown): Promise<unknown> {
-  VoicevoxCheckEngineRequest.fromJSON(body);
-  return VoicevoxCheckEngineResponse.toJSON({ ok: await checkEngine() });
+async function handleVoicevoxCheckEngine(): Promise<unknown> {
+  return ({ ok: await checkEngine() }) satisfies VoicevoxCheckEngineResponse;
 }
 
-async function handleVoicevoxListSpeakers(body: unknown): Promise<unknown> {
-  VoicevoxListSpeakersRequest.fromJSON(body);
+async function handleVoicevoxListSpeakers(): Promise<unknown> {
   const speakers = await listSpeakers();
   // engine 起動失敗 / network 失敗は空 list にフォールバックしつつ、silent drop 禁止規律
   // として stderr に観察ログを残す（listSpeakers 内部でも要因別にログ済み）
   if (speakers === undefined) {
     console.error("[handleVoicevoxListSpeakers] listSpeakers returned undefined; responding with empty list");
   }
-  return VoicevoxListSpeakersResponse.toJSON({ speakers: speakers ?? [] });
+  return ({ speakers: speakers ?? [] }) satisfies VoicevoxListSpeakersResponse;
 }
 
 async function handleVoicevoxSpeak(body: unknown): Promise<unknown> {
-  const req = VoicevoxSpeakRequest.fromJSON(body);
+  const req = body as VoicevoxSpeakRequest;
   const wav = await speak({
     text: req.text,
     speedScale: req.speedScale,
     volumeScale: req.volumeScale,
     speakerId: req.speakerId,
   });
-  // 合成失敗時は空 wav（proto 契約: 失敗時は空。再生側が空をスキップする）
-  return VoicevoxSpeakResponse.toJSON({ wav: wav ?? new Uint8Array() });
+  // 合成失敗時は空文字（ワイヤ契約: 失敗時は空。再生側が空をスキップする）
+  return {
+    wavBase64: wav === undefined ? "" : Buffer.from(wav).toString("base64"),
+  } satisfies VoicevoxSpeakResponse;
 }
 
 function handleWindowSetServerPanelOpen(): unknown {
   // renderer が SSOT として持つパネル開閉状態を native titlebar トグルへミラーする RPC。
   // Electron shell には対応する native toolbar がまだ無いため受理のみ
-  return WindowSetServerPanelOpenResponse.toJSON({});
+  return ({}) satisfies WindowSetServerPanelOpenResponse;
 }
 
 export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandler>([

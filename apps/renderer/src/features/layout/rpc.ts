@@ -1,19 +1,15 @@
-import {
-  PickAndOpenRequest,
+import type {
   PickAndOpenResponse,
-  WindowCloseRequest,
   WindowCloseResponse,
   WindowSetTitleContextRequest,
   WindowSetTitleContextResponse,
-} from "@gozd/proto";
+} from "@gozd/rpc";
 
 import { rpc } from "../../shared/rpc";
 
-export const rpcWindowClose = (req: WindowCloseRequest = WindowCloseRequest.create()) =>
-  rpc("/window/close", req, WindowCloseRequest, WindowCloseResponse);
+export const rpcWindowClose = () => rpc<WindowCloseResponse>("/window/close", {});
 
-export const rpcPickAndOpen = (req: PickAndOpenRequest = PickAndOpenRequest.create()) =>
-  rpc("/open/pickAndOpen", req, PickAndOpenRequest, PickAndOpenResponse);
+export const rpcPickAndOpen = () => rpc<PickAndOpenResponse>("/open/pickAndOpen", {});
 
 export const rpcWindowSetTitleContext = (req: WindowSetTitleContextRequest) =>
-  rpc("/window/setTitleContext", req, WindowSetTitleContextRequest, WindowSetTitleContextResponse);
+  rpc<WindowSetTitleContextResponse>("/window/setTitleContext", req);

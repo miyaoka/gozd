@@ -5,7 +5,7 @@
 // 両シェルが同じ tasks.json を共有するため、upsert / no-op / 保持の意味論が Swift 版と
 // ずれると相互破壊になる。ケース名の対応を崩さないこと。
 
-import { ghRefForPr, TaskList, type Task } from "@gozd/proto";
+import { ghRefForPr, type Task, type TaskList } from "@gozd/rpc";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -53,7 +53,7 @@ describe("TaskStore", () => {
   async function writeTasksFile(configDir: string, dir: string, tasks: Task[]): Promise<string> {
     const path = join(configDir, "projects", await resolveProjectKey(dir), "tasks.json");
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify(TaskList.toJSON({ tasks })));
+    writeFileSync(path, JSON.stringify({ tasks } satisfies TaskList));
     return path;
   }
 
@@ -297,7 +297,8 @@ describe("TaskStore", () => {
     const path = await writeTasksFile(configDir, dir, []);
     writeFileSync(path, "{ broken json");
     expect(await store.list(dir)).toEqual([]);
-    // 上書き save されて以後は正常 parse できること
-    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({});
+    // 上書き save されて以後は正常 parse できること（空 list も明示的にキーを書く。
+    // 旧 proto3 JSON の「空 repeated 省略」はここで廃止）
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ tasks: [] });
   });
 });

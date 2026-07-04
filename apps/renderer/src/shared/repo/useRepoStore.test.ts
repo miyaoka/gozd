@@ -1,4 +1,4 @@
-import { AppState, Task, type WorktreeEntry } from "@gozd/proto";
+import { Task, type WorktreeEntry } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
 import { createPinia, setActivePinia } from "pinia";
 import { collectFsWatchTargetDirs, type RepoState, useRepoStore } from "./useRepoStore";
@@ -18,7 +18,16 @@ function wt(path: string, branch: string, isMain = false): WorktreeEntry {
 }
 
 function task(id: string, worktreeDir: string): Task {
-  return Task.fromPartial({ id, worktreeDir });
+  return {
+    id,
+    worktreeDir,
+    createdAt: "",
+    sessionId: "",
+    closedByUser: false,
+    userTitle: "",
+    terminalTitle: "",
+    ghTitle: "",
+  };
 }
 
 describe("collectFsWatchTargetDirs", () => {
@@ -192,11 +201,11 @@ describe("setGithubIdentity", () => {
     store.addRepo({ rootDir: "/r1", repoName: "r1", isGitRepo: true, worktrees: [] });
     store.setGithubIdentity("/r1", { owner: "miyaoka", repo: "gozd" });
 
-    store.hydrateFromAppState(
-      AppState.fromPartial({
-        sidebarRepos: [{ rootDir: "/r1", repoName: "r1", isGitRepo: true, worktrees: [] }],
-      }),
-    );
+    store.hydrateFromAppState({
+      sidebarRepos: [
+        { rootDir: "/r1", repoName: "r1", isGitRepo: true, collapsed: false, worktrees: [] },
+      ],
+    });
     expect(store.repos["/r1"]?.githubIdentity).toEqual({ owner: "miyaoka", repo: "gozd" });
   });
 });

@@ -1,8 +1,8 @@
 // ClaudeHooksSettings のテスト。Swift 版 `ClaudeHooksSettingsTests.swift` のケースを
 // 対で移植し、hook command の 2 経路（nc 直送 / CLI 経由）と wire 形式
-// （ClientMessage proto3 JSON）の契約を固定する。
+// （ClientMessage の JSON 1 行）の契約を固定する。
 
-import { ClientMessage } from "@gozd/proto";
+import type { ClientMessage } from "@gozd/rpc";
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -50,7 +50,7 @@ describe("ClaudeHooksSettings", () => {
     ]);
   });
 
-  test("nc コマンドは proto3 JSON mapping の {hook: {...}} 形式を出す", () => {
+  test("nc コマンドは ClientMessage の {hook: {...}} 形式を出す", () => {
     const command = commandFor("UserPromptSubmit");
     expect(command).toContain('{"hook":{"event":"running","ptyId":');
     expect(command).toContain('nc -w 1 -U "$GOZD_SOCKET_PATH"');
@@ -68,12 +68,12 @@ describe("ClaudeHooksSettings", () => {
     expect(commandFor("SessionEnd")).toBe('"$GOZD_CLI_PATH" hook session-end');
   });
 
-  test("生成された nc コマンドの JSON は ClientMessage proto としてデコードできる", () => {
+  test("生成された nc コマンドの JSON は ClientMessage としてデコードできる", () => {
     const command = commandFor("PostToolUse");
     // シェル変数展開 `'"$GOZD_PTY_ID"'` を数値に置換して、実際に流れる JSON を再現する
     const jsonPart = command.slice(command.indexOf("'") + 1, command.lastIndexOf("' | nc"));
     const substituted = jsonPart.replace(`'"$GOZD_PTY_ID"'`, "42");
-    const msg = ClientMessage.fromJSON(JSON.parse(substituted));
+    const msg = JSON.parse(substituted) as ClientMessage;
     expect(msg.hook?.event).toBe("tool-done");
     expect(msg.hook?.ptyId).toBe(42);
   });

@@ -1,4 +1,4 @@
-import type { VoicevoxSpeaker } from "@gozd/proto";
+import type { VoicevoxSpeaker } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, readonly, ref, shallowRef, watch } from "vue";
@@ -83,7 +83,7 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
   const volumeScale = ref(DEFAULT_VOLUME_SCALE);
   /**
    * 現在の speaker id。初期値は DEFAULT。永続化値が現エンジンに存在しなくても touch しない
-   * (effectiveSpeakerId が memory 上 fallback する)。proto3 optional は load 経路で
+   * (effectiveSpeakerId が memory 上 fallback する)。optional field は load 経路で
    * 「初期インストール (未保存)」と「ID 0 を正規値として保存」の区別にだけ使う。
    */
   const speakerId = ref<number>(DEFAULT_SPEAKER_ID);
@@ -216,10 +216,11 @@ export const useVoicevoxStore = defineStore("voicevox", () => {
           speakerId: effectiveSpeakerId.value,
         }),
       );
-      if (!result.ok || result.value.wav.length === 0) return;
+      if (!result.ok || result.value.wavBase64 === "") return;
       if (gen !== speakGeneration) return;
 
-      const blob = new Blob([new Uint8Array(result.value.wav)], { type: "audio/wav" });
+      const wavBytes = Uint8Array.from(atob(result.value.wavBase64), (c) => c.charCodeAt(0));
+      const blob = new Blob([wavBytes], { type: "audio/wav" });
       const url = URL.createObjectURL(blob);
       currentObjectUrl = url;
       currentAudio = new Audio(url);

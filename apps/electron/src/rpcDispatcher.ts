@@ -1,8 +1,8 @@
 // RPC dispatcher。Swift 版 `RpcDispatcher.swift` の対応物。
 //
 // renderer からの request は preload → `ipcMain.handle("rpc:request")` → ここに届く。
-// body / response は proto3 JSON 文字列（Swift shell と同一のワイヤ形式を維持し、
-// renderer の feature コードを両シェルで無変更にする）。
+// body / response は `@gozd/rpc` の型を JSON.stringify した文字列（両端が同じ型定義を
+// 参照するため codec は不要。routes.ts の cast / satisfies 契約を参照）。
 
 /** push 発射関数。spawn 時の sender に束縛される */
 export type PushFn = (type: string, payload: unknown) => void;

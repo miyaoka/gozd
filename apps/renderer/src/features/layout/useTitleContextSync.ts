@@ -1,4 +1,3 @@
-import { WindowSetTitleContextRequest } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
@@ -31,8 +30,7 @@ export function useTitleContextSync(): void {
       // ContentView 側で windowTitle ("gozd" / "gozd (dev)") にフォールバックするが、
       // 空 push のラウンドトリップ自体を省くことで toolbar の一瞬の空表示を避ける。
       if (repoName === "" && worktreeName === "") return;
-      const req = WindowSetTitleContextRequest.create({ repoName, worktreeName });
-      const result = await tryCatch(rpcWindowSetTitleContext(req));
+      const result = await tryCatch(rpcWindowSetTitleContext({ repoName, worktreeName }));
       if (!result.ok) {
         notify.error("Failed to sync window title context", result.error);
       }

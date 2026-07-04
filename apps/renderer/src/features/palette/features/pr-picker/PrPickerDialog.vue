@@ -20,7 +20,7 @@ creations would be rejected by `git worktree add` itself.
 </doc>
 
 <script setup lang="ts">
-import type { GitPullRequest } from "@gozd/proto";
+import type { GitPullRequest } from "@gozd/rpc";
 import { useEventListener } from "@vueuse/core";
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useContextKeys } from "../../../../shared/command";

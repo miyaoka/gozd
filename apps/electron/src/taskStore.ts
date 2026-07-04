@@ -8,19 +8,21 @@
 //
 // - projectKey は `<repoName>-<sha256(realpath)[0..12]>`。worktree 配下のどの dir から
 //   呼ばれても main repo root に解決した上で同一 projectKey に揃える
-// - 永続化形式は proto JSON（TaskList ラッパー）。**両シェル（Swift / Electron）が同じ
-//   永続ファイルを共有する**ため、mutation の意味論は Swift 版と完全一致させる
+// - 永続化形式は TaskList を素の JSON で書いたもの（キー名 / ghRef.kind の文字列は
+//   旧 proto3 JSON mapping と同一。**merge までは main branch の Swift 版 gozd と同じ
+//   tasks.json を共有する**ため、mutation の意味論もワイヤ表現も Swift 版と一致させる）
 // - parse 失敗時は**空 list で上書き save**する（後方互換を作らない規約。主データ
 //   (git worktree list) を JOIN する立場のため、load 経路から throw を伝播させない）。
 //   stderr に reinit ログを残して観察可能性を保つ
 
-import { TaskList, type GhRef, type Task } from "@gozd/proto";
+import type { GhRef, Task, TaskList } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { runGit } from "./git/gitRunner";
+import { asArray, asDict } from "./rawJson";
 
 const defaultConfigDir = join(homedir(), ".config", "gozd");
 
@@ -67,6 +69,39 @@ function sameGhRef(a: GhRef, b: GhRef): boolean {
   return a.kind === b.kind && a.number === b.number;
 }
 
+/** ghRef の kind が既知値でなければ ghRef ごと落とす（表示 / upsert 判定が意味を持たないため）。
+ * 落とした場合は観察ログを残す */
+function normalizeGhRef(raw: unknown): GhRef | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const dict = asDict(raw);
+  if (dict.kind !== "GH_REF_KIND_PR" && dict.kind !== "GH_REF_KIND_ISSUE") {
+    console.error(`[TaskStore] normalizeGhRef: unknown kind ${JSON.stringify(dict.kind)}; dropping ghRef`);
+    return undefined;
+  }
+  return { kind: dict.kind, number: typeof dict.number === "number" ? dict.number : 0 };
+}
+
+/** 旧 proto3 JSON が省略した default 値フィールドを充填する（`rawJson.ts` の契約参照） */
+function normalizeTaskList(raw: unknown): TaskList {
+  return {
+    tasks: asArray(asDict(raw).tasks).map((task) => {
+      const dict = asDict(task);
+      return {
+        id: "",
+        worktreeDir: "",
+        createdAt: "",
+        sessionId: "",
+        closedByUser: false,
+        userTitle: "",
+        terminalTitle: "",
+        ghTitle: "",
+        ...dict,
+        ghRef: normalizeGhRef(dict.ghRef),
+      } as Task;
+    }),
+  };
+}
+
 export class TaskNotFoundError extends Error {
   constructor(id: string) {
     super(`task not found: ${id}`);
@@ -85,17 +120,17 @@ export function createTaskStore(configDir: string) {
   function saveFile(path: string, list: TaskList): void {
     mkdirSync(dirname(path), { recursive: true });
     const tmpPath = `${path}.tmp-${process.pid}`;
-    writeFileSync(tmpPath, JSON.stringify(TaskList.toJSON(list)));
+    writeFileSync(tmpPath, JSON.stringify(list));
     renameSync(tmpPath, path);
   }
 
   async function loadFile(dir: string): Promise<TaskList> {
     const path = await tasksFilePath(dir);
-    if (!existsSync(path)) return TaskList.fromJSON({});
-    const parsed = tryCatch(() => TaskList.fromJSON(JSON.parse(readFileSync(path, "utf8"))));
+    if (!existsSync(path)) return { tasks: [] };
+    const parsed = tryCatch(() => normalizeTaskList(JSON.parse(readFileSync(path, "utf8"))));
     if (parsed.ok) return parsed.value;
     console.error(`[TaskStore] loadFile: parse failed at ${path}: ${parsed.error}`);
-    const empty = TaskList.fromJSON({});
+    const empty: TaskList = { tasks: [] };
     saveFile(path, empty);
     console.error(`[TaskStore] loadFile: corrupted tasks.json reinitialized at ${path}`);
     return empty;

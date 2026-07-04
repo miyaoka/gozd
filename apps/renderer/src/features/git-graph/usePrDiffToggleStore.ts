@@ -1,4 +1,4 @@
-import type { GitPullRequest } from "@gozd/proto";
+import type { GitPullRequest } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, watch } from "vue";

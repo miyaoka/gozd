@@ -13,27 +13,26 @@ import {
   GitResetMixedResponse,
   GitRevReachableRequest,
   GitRevReachableResponse,
-} from "@gozd/proto";
+} from "@gozd/rpc";
 
 import { rpc } from "../../shared/rpc";
 
-export const rpcGitLog = (req: GitLogRequest) =>
-  rpc("/git/log", req, GitLogRequest, GitLogResponse);
+export const rpcGitLog = (req: GitLogRequest) => rpc<GitLogResponse>("/git/log", req);
 
 export const rpcGitCommitFiles = (req: GitCommitFilesRequest) =>
-  rpc("/git/commitFiles", req, GitCommitFilesRequest, GitCommitFilesResponse);
+  rpc<GitCommitFilesResponse>("/git/commitFiles", req);
 
 export const rpcGitPrDiffFiles = (req: GitPrDiffFilesRequest) =>
-  rpc("/git/prDiffFiles", req, GitPrDiffFilesRequest, GitPrDiffFilesResponse);
+  rpc<GitPrDiffFilesResponse>("/git/prDiffFiles", req);
 
 export const rpcGitReadBlob = (req: GitReadBlobRequest) =>
-  rpc("/git/readBlob", req, GitReadBlobRequest, GitReadBlobResponse);
+  rpc<GitReadBlobResponse>("/git/readBlob", req);
 
 export const rpcGitRevReachable = (req: GitRevReachableRequest) =>
-  rpc("/git/revReachable", req, GitRevReachableRequest, GitRevReachableResponse);
+  rpc<GitRevReachableResponse>("/git/revReachable", req);
 
 export const rpcGitMergeBase = (req: GitMergeBaseRequest) =>
-  rpc("/git/mergeBase", req, GitMergeBaseRequest, GitMergeBaseResponse);
+  rpc<GitMergeBaseResponse>("/git/mergeBase", req);
 
 export const rpcGitResetMixed = (req: GitResetMixedRequest) =>
-  rpc("/git/resetMixed", req, GitResetMixedRequest, GitResetMixedResponse);
+  rpc<GitResetMixedResponse>("/git/resetMixed", req);

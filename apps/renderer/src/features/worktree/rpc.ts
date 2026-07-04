@@ -4,15 +4,14 @@ import {
   GitStatusRequest,
   GitStatusResponse,
   UpstreamStatus,
-} from "@gozd/proto";
+} from "@gozd/rpc";
 
 import { rpc } from "../../shared/rpc";
 
-export const rpcGitStatus = (req: GitStatusRequest) =>
-  rpc("/git/status", req, GitStatusRequest, GitStatusResponse);
+export const rpcGitStatus = (req: GitStatusRequest) => rpc<GitStatusResponse>("/git/status", req);
 
 export const rpcGitFetchRemotes = (req: GitFetchRemotesRequest) =>
-  rpc("/git/fetchRemotes", req, GitFetchRemotesRequest, GitFetchRemotesResponse);
+  rpc<GitFetchRemotesResponse>("/git/fetchRemotes", req);
 
 // gitStatusChange push event payload
 export interface GitStatusChangePayload {

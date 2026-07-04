@@ -47,7 +47,7 @@ launchd へ付け替わっても、記憶から最後の帰属先を引いて or
   再水和も担う）
 - **push**: `serverPortsChange`。差分があった scan でのみ発射する（churn 抑制）
 
-wire shape は `packages/proto/gozd/v1/server.proto` の `ServerEntry` が SSOT。renderer は
+wire shape は `@gozd/rpc` の `ServerEntry` が SSOT。renderer は
 feature 内部型 `ServerInfo` に正規化する（`apps/renderer/src/features/server/rpc.ts`）。
 
 ## UI

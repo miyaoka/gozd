@@ -1,12 +1,10 @@
-// Window frame の保存・復元。Swift shell は SwiftUI Window scene の macOS 標準
-// window restoration に任せており対応コードを持たない（proto AppState.window_frame も
-// produce/consume 経路の無い dead field として削除済み）。Electron は自動復元機構を
-// 持たないため、shell 固有 state として自前で永続化する。
+// Window frame の保存・復元。Swift shell 期は macOS 標準の window restoration に任せて
+// おり対応コードが無かった（旧 AppState.window_frame も produce/consume 経路の無い
+// dead field として削除済み）。Electron は自動復元機構を持たないため、shell 固有 state
+// として自前で永続化する。
 //
 // 保存先は共有の app-state.json ではなく専用ファイル `electron-window.json`:
-// - proto AppState に window_frame を復活させると Swift shell と schema を再共有する
-//   ことになり、Swift 側の macOS 標準復元と二重管理の競合を生む
-// - frame は Electron shell だけの関心事なので proto を触らず shell-local に閉じる
+// - frame は shell 固有の関心事なので AppState schema には乗せず shell-local に閉じる
 //
 // dev / stable の区別はしない（永続データは channel 共有の方針。architecture.md）。
 // 保存タイミングは window "close"（destroy 前に getNormalBounds を取れる最後の同期点。

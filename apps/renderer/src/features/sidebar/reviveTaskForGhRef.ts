@@ -1,4 +1,4 @@
-import type { GhRef } from "@gozd/proto";
+import type { GhRef } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";

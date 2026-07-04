@@ -11,7 +11,7 @@
 //   gozd-cli hook <event>          … stdin JSON を HookMessage に詰めて送信
 //   gozd-cli --help                … usage
 
-import { ClientMessage } from "@gozd/proto";
+import type { ClientMessage } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -55,7 +55,7 @@ async function openCommand(target: string): Promise<void> {
     return;
   }
 
-  await sendOrExit(ClientMessage.fromPartial({ open: { targetPath: absolute } }));
+  await sendOrExit({ open: { targetPath: absolute } });
 }
 
 async function hookCommand(event: string): Promise<void> {
@@ -63,7 +63,7 @@ async function hookCommand(event: string): Promise<void> {
   const stdinText = tryCatch(() => readFileSync(0, "utf8"));
   const stdinJson = parseStdinJson(stdinText.ok ? stdinText.value : "");
   const hook = buildHookMessage(event, stdinJson, process.env);
-  await sendOrExit(ClientMessage.fromPartial({ hook }));
+  await sendOrExit({ hook });
 }
 
 async function main(): Promise<void> {

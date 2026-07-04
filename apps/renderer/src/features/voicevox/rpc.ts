@@ -1,26 +1,20 @@
-import {
-  VoicevoxCheckEngineRequest,
+import type {
   VoicevoxCheckEngineResponse,
-  VoicevoxLaunchRequest,
   VoicevoxLaunchResponse,
-  VoicevoxListSpeakersRequest,
   VoicevoxListSpeakersResponse,
   VoicevoxSpeakRequest,
   VoicevoxSpeakResponse,
-} from "@gozd/proto";
+} from "@gozd/rpc";
 
 import { rpc } from "../../shared/rpc";
 
-export const rpcVoicevoxLaunch = (req: VoicevoxLaunchRequest = VoicevoxLaunchRequest.create()) =>
-  rpc("/voicevox/launch", req, VoicevoxLaunchRequest, VoicevoxLaunchResponse);
+export const rpcVoicevoxLaunch = () => rpc<VoicevoxLaunchResponse>("/voicevox/launch", {});
 
-export const rpcVoicevoxCheckEngine = (
-  req: VoicevoxCheckEngineRequest = VoicevoxCheckEngineRequest.create(),
-) => rpc("/voicevox/checkEngine", req, VoicevoxCheckEngineRequest, VoicevoxCheckEngineResponse);
+export const rpcVoicevoxCheckEngine = () =>
+  rpc<VoicevoxCheckEngineResponse>("/voicevox/checkEngine", {});
 
-export const rpcVoicevoxListSpeakers = (
-  req: VoicevoxListSpeakersRequest = VoicevoxListSpeakersRequest.create(),
-) => rpc("/voicevox/listSpeakers", req, VoicevoxListSpeakersRequest, VoicevoxListSpeakersResponse);
+export const rpcVoicevoxListSpeakers = () =>
+  rpc<VoicevoxListSpeakersResponse>("/voicevox/listSpeakers", {});
 
 export const rpcVoicevoxSpeak = (req: VoicevoxSpeakRequest) =>
-  rpc("/voicevox/speak", req, VoicevoxSpeakRequest, VoicevoxSpeakResponse);
+  rpc<VoicevoxSpeakResponse>("/voicevox/speak", req);

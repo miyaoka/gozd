@@ -19,12 +19,6 @@ type AnyListener = (payload: unknown) => void;
 
 const listeners = new Map<string, AnyListener[]>();
 
-declare global {
-  interface Window {
-    __gozdReceive?: (type: string, payload: unknown) => void;
-  }
-}
-
 function dispatchToListeners(type: string, payload: unknown): void {
   const fns = listeners.get(type);
   if (fns === undefined) return;
@@ -34,16 +28,13 @@ function dispatchToListeners(type: string, payload: unknown): void {
 /**
  * renderer bootstrap で 1 回だけ呼ぶ。preload が公開する `__gozdElectronRpc.onPush` を
  * dispatcher に接続する（contextIsolation 下の preload は main world の関数を直接
- * 呼べないため、購読登録は renderer 側の責務になる）。`window.__gozdReceive` への
- * 固定は Swift shell 期のワイヤ（WebPage.callJavaScript）の名残で、proto 廃止までの
- * 移行期間中は残している。
+ * 呼べないため、購読登録は renderer 側の責務になる）。
  *
  * test / SSR では呼ばない契約。listener 登録 (`onMessage`) や renderer 内部の
  * 再同期 push (`dispatchMessage`) は init 不要で動く (どちらも `dispatchToListeners`
  * を直接呼ぶため、window indirection が無くて済む)。
  */
 export function initRpcDispatcher(): void {
-  window.__gozdReceive = dispatchToListeners;
   window.__gozdElectronRpc?.onPush(dispatchToListeners);
 }
 

@@ -4,7 +4,7 @@
 // 置かれるため、本 feature は load (`rpcClaudeSessionLog`) と watch を組み合わせて
 // dialog / terminal preview にライブログを供給する。watch 自体は filer feature の汎用
 // `rpcFsWatch` / `rpcFsUnwatch` を借りる (`useSessionLogLive` 参照)。
-import { ClaudeSessionLogRequest, ClaudeSessionLogResponse } from "@gozd/proto";
+import { ClaudeSessionLogRequest, ClaudeSessionLogResponse } from "@gozd/rpc";
 
 import { rpc } from "../../shared/rpc";
 
@@ -12,4 +12,4 @@ import { rpc } from "../../shared/rpc";
 // session_id (UUID) を渡すと native が ~/.claude/projects/*/<session_id>.jsonl を
 // glob 解決して、 main + subagent の生 JSONL 一式を返す。
 export const rpcClaudeSessionLog = (req: ClaudeSessionLogRequest) =>
-  rpc("/claudeSession/readLog", req, ClaudeSessionLogRequest, ClaudeSessionLogResponse);
+  rpc<ClaudeSessionLogResponse>("/claudeSession/readLog", req);

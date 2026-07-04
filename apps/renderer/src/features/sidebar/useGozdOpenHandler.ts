@@ -5,7 +5,7 @@
  * - targetDir が既存 repo の worktrees に含まれる → 切替のみ
  * - 含まれない → 新規 repo として worktrees を fetch して `addRepo` → 切替
  */
-import type { WorktreeEntry } from "@gozd/proto";
+import type { WorktreeEntry } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { onMounted, onUnmounted } from "vue";
 import { useAppStore } from "../../shared/app";
@@ -19,11 +19,11 @@ import { rpcGitWorktreeList } from "./rpc";
 interface GozdOpenPayload {
   dir: string;
   /**
-   * native 側 `GozdApp.swift` の resolver は **ファイル指定のときだけ** selection を埋め、
+   * main 側 `openTarget.ts` の resolver は **ファイル指定のときだけ** selection を埋め、
    * その場合 `kind: "file"` 固定で送る（dir 指定時は selection 未指定）。renderer は
-   * `kind` で分岐せず常に worktree 相対のファイルとして扱う契約。proto に field を残す
-   * のは将来 `dir` 種別を追加する余地のため。判定 / mapping を増やすときは本コメントと
-   * native 側 `GozdApp.swift` の selection 生成箇所（`"kind": "file"` リテラルを含むブロック）
+   * `kind` で分岐せず常に worktree 相対のファイルとして扱う契約。field を残すのは将来
+   * `dir` 種別を追加する余地のため。判定 / mapping を増やすときは本コメントと
+   * `openTarget.ts` の selection 生成箇所（`kind: "file"` リテラルを含むブロック）
    * を同時に更新する。
    */
   selection?: { kind: string; relPath: string; lineNumber: number };
@@ -56,7 +56,7 @@ export function useGozdOpenHandler() {
       notify.error("Failed to resolve git binary", error);
     }
     const targetDir = switchToDir !== "" ? switchToDir : dir;
-    // proto3 scalar では undefined が表現できないため、空 selection は未指定として扱う
+    // 空 relPath の selection は未指定として扱う（openTarget.ts の payload 契約）
     const sel = selection !== undefined && selection.relPath !== "" ? selection : undefined;
 
     if (repoStore.findRepoOwning(targetDir) === undefined) {
@@ -77,7 +77,7 @@ export function useGozdOpenHandler() {
     // setOpen → forceSelect の順で呼ぶことで「dir 切替で preview を一旦 close → 続けて新ファイルで再 open」
     // のシーケンスが usePreviewStore 内部の dir watch（flush:'sync'）との組み合わせで成立する。
     //
-    // proto3 scalar の `line_number` 未指定は `0` で表現されるため、1-based の有効値に正規化する。
+    // `lineNumber` 未指定は `0` で表現される契約のため、1-based の有効値に正規化する。
     // `0` は「未指定」として undefined に倒す。
     if (sel) {
       const lineNumber = sel.lineNumber > 0 ? sel.lineNumber : undefined;

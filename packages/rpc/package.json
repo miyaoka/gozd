@@ -1,5 +1,5 @@
 {
-  "name": "@gozd/proto",
+  "name": "@gozd/rpc",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -9,10 +9,8 @@
   "scripts": {
     "typecheck": "tsgo --noEmit",
     "lint": "oxlint --type-aware",
-    "fix": "oxlint --type-aware --fix && oxfmt ."
-  },
-  "dependencies": {
-    "@bufbuild/protobuf": "2.12.1"
+    "fix": "oxlint --type-aware --fix && oxfmt .",
+    "test": "bun test"
   },
   "devDependencies": {
     "@types/bun": "catalog:",

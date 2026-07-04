@@ -3,7 +3,7 @@ PR picker の1行分。PR 番号・タイトル・ブランチ・author・更新
 </doc>
 
 <script setup lang="ts">
-import type { GitPullRequest } from "@gozd/proto";
+import type { GitPullRequest } from "@gozd/rpc";
 import { computed } from "vue";
 import { formatRelativeDate } from "../../formatRelativeDate";
 import IconLucideUser from "~icons/lucide/user";

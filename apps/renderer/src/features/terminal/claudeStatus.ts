@@ -152,8 +152,8 @@ export function isHookEvent(value: string): value is HookEvent {
 }
 
 /**
- * Claude hook の `tool_input` を構造化オブジェクトにする。proto3 の string 制約により
- * boundary までは JSON 文字列で運ばれる（CLI が object → JSON 文字列にシリアライズする）。
+ * Claude hook の `tool_input` を構造化オブジェクトにする。ワイヤ契約 (HookMessage.toolInput)
+ * により boundary までは JSON 文字列で運ばれる（CLI が object → JSON 文字列にシリアライズする）。
  * ここで 1 度だけ parse することで、`extractAskingText` 等の object 判定が初めて成立する。
  * 既に object のケース（テスト等）はそのまま通し、parse 失敗・非 object は undefined にする。
  */

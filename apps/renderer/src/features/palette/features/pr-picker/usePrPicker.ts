@@ -4,7 +4,7 @@
  * 外部のコマンドハンドラーは show() を呼ぶだけで dialog が開く。
  */
 
-import type { GitPullRequest } from "@gozd/proto";
+import type { GitPullRequest } from "@gozd/rpc";
 import { ref } from "vue";
 
 const prItems = ref<GitPullRequest[]>([]);

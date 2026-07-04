@@ -1,8 +1,8 @@
 // arcade (ゲームジュース層) の設定 store。
 //
-// 永続化は AppConfig (config.json) に乗せ、native (proto3 JSON) を SSOT とする。
+// 永続化は AppConfig (config.json) に乗せ、main 側 store を SSOT とする。
 // renderer からは settings の updateAppConfig (直列化された RMW) 経由で書き、起動時のみ
-// rpcLoadAppConfig で読む。gozd の「renderer 永続化は native RPC 経由」規約 (architecture.md)
+// rpcLoadAppConfig で読む。gozd の「renderer 永続化は main の RPC 経由」規約 (architecture.md)
 // に従い localStorage は使わない。更新が他セクション (terminal / preview / voicevox) と
 // 並行しても巻き戻らないよう、書き込みは updateAppConfig の単一キューに通す。
 
@@ -19,7 +19,7 @@ export const useArcadeStore = defineStore("arcade", () => {
   const notify = useNotificationStore();
   const sfxEnabled = ref(DEFAULT_SFX_ENABLED);
 
-  // 起動時に設定を読み込む。未設定 (proto3 optional が undefined) は default (ON) のまま据え置く
+  // 起動時に設定を読み込む。未設定 (optional field が undefined) は default (ON) のまま据え置く
   void tryCatch(rpcLoadAppConfig()).then((result) => {
     if (!result.ok) {
       notify.error("Failed to load sound settings", result.error);

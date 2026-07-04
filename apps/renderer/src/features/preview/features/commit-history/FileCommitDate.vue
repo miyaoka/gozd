@@ -13,7 +13,7 @@ preview ヘッダにファイルの最終コミット日を表示し、クリッ
 </doc>
 
 <script setup lang="ts">
-import type { GitCommit } from "@gozd/proto";
+import type { GitCommit } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../../../shared/notification";

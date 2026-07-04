@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runGitAllowExit1 } from "./gitRunner";
 
-export type DiffHunkLineKind = "context" | "added" | "removed";
+type DiffHunkLineKind = "context" | "added" | "removed";
 
 interface DiffHunkLineInfo {
   kind: DiffHunkLineKind;

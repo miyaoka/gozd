@@ -4,7 +4,7 @@
  * 親 (SidebarPane) から `open(anchorEl, { task, rootDir })` を呼び、
  * TaskMenu.vue が context を購読して描画する。
  */
-import type { Task } from "@gozd/proto";
+import type { Task } from "@gozd/rpc";
 import { usePopover } from "../../shared/popover";
 
 type TaskMenuContext = {

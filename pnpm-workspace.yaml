@@ -2,12 +2,20 @@ packages:
   - apps/*
   - packages/*
 
+# Electron 公式処方 (Building your First App): パッケージングツールチェーンは
+# npm 式に物理配置された node_modules を前提とするため、pnpm では hoisted linker が
+# 必須。symlink の virtual store (.pnpm) だと electron-builder の依存収集が
+# packaged 側に実体を運べない（参考実装 codiff も同設定）
+nodeLinker: hoisted
+
 allowBuilds:
   # postinstall は prebuilt 不在時の node-gyp fallback。platform 別 prebuilt
   # (@parcel/watcher-darwin-arm64 等) が optionalDependencies で入るため実行不要
   '@parcel/watcher': false
   '@tailwindcss/oxide': true
   electron: true
+  # electron-builder の Windows 用 transitive dep。macOS 専用の gozd では script 不要
+  electron-winstaller: false
   esbuild: true
   lefthook: true
   node-pty: true

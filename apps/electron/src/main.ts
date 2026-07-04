@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeClaudeHooksSettings } from "./claudeHooksSettings";
 import { registerFileServerProtocol } from "./fileServer";
-import { claudeSettingsPath, launchRequestDir, socketPath } from "./gozdEnv";
+import { bundledRendererIndex, claudeSettingsPath, isPackaged, launchRequestDir, socketPath } from "./gozdEnv";
 import { SPIKE_TEST_ARG } from "./ipc";
 import { consumeLaunchRequest } from "./launchRequest";
 import { installAppMenu } from "./menu";
@@ -58,8 +58,16 @@ function createWindow(): BrowserWindow {
   window.on("close", () => {
     windowStateStore.saveBounds(window.getNormalBounds());
   });
+  // ロード経路は 3 つ（Swift 版 GozdApp.task と同型）:
+  //   1. GOZD_ELECTRON_RENDERER_URL: Vite dev server（HMR / 検証）
+  //   2. packaged: .app 同梱の renderer（Vite build は base "./" のため file:// で成立。
+  //      Swift は WebPage に loadFileURL 相当が無く gozd-app:// scheme を要したが、
+  //      Electron は loadFile で足りる）
+  //   3. fallback: spike テストページ
   if (rendererUrl !== undefined && rendererUrl !== "") {
     void window.loadURL(rendererUrl);
+  } else if (isPackaged) {
+    void window.loadFile(bundledRendererIndex);
   } else {
     void window.loadFile(join(__dirname, "renderer/index.html"));
   }

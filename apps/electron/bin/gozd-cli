@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# gozd-cli の dev 用 shim。dist/cli.cjs（esbuild bundle）を node で実行する。
+# packaged 版の shim は scripts/build-app.mjs が生成し、ELECTRON_RUN_AS_NODE=1 で
+# 同梱 Electron バイナリを Node として使う（ユーザー環境に Node を要求しない）。
+
+set -euo pipefail
+
+SOURCE="$0"
+while [[ -L "${SOURCE}" ]]; do
+  DIR="$(cd "$(dirname "${SOURCE}")" && pwd)"
+  SOURCE="$(readlink "${SOURCE}")"
+  [[ "${SOURCE}" != /* ]] && SOURCE="${DIR}/${SOURCE}"
+done
+SCRIPT_DIR="$(cd "$(dirname "${SOURCE}")" && pwd)"
+
+exec node "${SCRIPT_DIR}/../dist/cli.cjs" "$@"

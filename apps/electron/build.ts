@@ -1,7 +1,7 @@
 import { build } from "esbuild";
 import { copyFileSync, mkdirSync } from "node:fs";
 
-// main / preload は Electron が CJS で読むため cjs、renderer は browser バンドル
+// main / preload / cli は Electron / Node が CJS で読むため cjs、renderer は browser バンドル
 await build({
   entryPoints: ["src/main.ts"],
   outfile: "dist/main.cjs",
@@ -19,6 +19,15 @@ await build({
   platform: "node",
   format: "cjs",
   external: ["electron"],
+});
+
+// gozd-cli（TS 再実装）。bin/gozd-cli shim が node / ELECTRON_RUN_AS_NODE で実行する
+await build({
+  entryPoints: ["src/cli.ts"],
+  outfile: "dist/cli.cjs",
+  bundle: true,
+  platform: "node",
+  format: "cjs",
 });
 
 await build({

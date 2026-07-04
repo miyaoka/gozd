@@ -2,30 +2,46 @@
 // Swift 版 `AppRuntime.defaultSocketPath / claudeSettingsPath / makeEnvOverlay` +
 // `Shell/GozdEnvOverlay.swift` の対応物。
 //
-// channel: Electron shell は現状未パッケージの開発形態のみなので "electron-dev" 固定。
-// Swift dev（"dev"）/ stable（"stable"）と socket / settings を分離し、両シェルの
-// 同時起動で衝突しない。Swift 撤廃時に "dev"/"stable" を引き継ぐ。
+// channel: packaged `.app` は "electron-stable"、未パッケージ（`electron .`）は
+// "electron-dev"。Swift dev（"dev"）/ stable（"stable"）と socket / settings を分離し、
+// 移行期間中に全シェルを同時起動しても衝突しない。Swift 撤廃時に "dev"/"stable" を
+// 引き継ぐ（socket 名が変わるだけで永続データは channel 非依存の共有）。
 //
-// CLI / zsh init は Swift 側の成果物をそのまま参照する:
-//   - gozd-cli: ワイヤが proto3 JSON NDJSON で共通のため Swift バイナリを流用できる
-//     （`swift build --product gozd-cli` 済みであること。無ければ hook の CLI 経路が
-//     command not found で silent 死するが、nc 直送経路は生きる）
-//   - zsh init チェーン: 環境変数駆動の shell script なのでシェル実装非依存
+// gozd-cli は TS 再実装（src/cli.ts → dist/cli.cjs。issue #895）。bin/gozd-cli shim が
+// dev は node、packaged は ELECTRON_RUN_AS_NODE=1 + 同梱 Electron バイナリで実行する。
+// zsh init チェーンは環境変数駆動の shell script でシェル実装非依存のため、Swift 側の
+// `apps/native/Resources/zsh` を参照する（Swift 撤廃時に apps/electron へ移設する）。
+// packaged はどちらも `.app` 内 Resources/app/ 配下に同梱される。
 
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const CHANNEL = "electron-dev";
+// packaged 判定: Electron main の __dirname（Resources/app/dist）は packaged 時のみ
+// process.resourcesPath（Contents/Resources）配下に入る。`app.isPackaged` を使わないのは
+// electron import が bun test で成立しないため（resourcesPath は bun では undefined =
+// 非 packaged 判定に自然に倒れる）
+const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+export const isPackaged = resourcesPath !== undefined && __dirname.startsWith(resourcesPath);
+
+const CHANNEL = isPackaged ? "electron-stable" : "electron-dev";
 
 const repoRoot = resolve(__dirname, "..", "..", "..");
+// packaged 時の同梱リソース root（Contents/Resources/app）。非 packaged では使わない
+const bundledAppRoot = join(resourcesPath ?? "", "app");
 
 export const socketPath = join(tmpdir(), `gozd-${CHANNEL}.sock`);
 export const claudeSettingsPath = join(tmpdir(), `gozd-${CHANNEL}-claude-settings.json`);
 // gozd-cli が GOZD_COLD_START 時に書き出す launch request の置き場。channel 名は
 // CLI 側が GOZD_SOCKET_PATH のファイル名から導出するため socket と自動で揃う
 export const launchRequestDir = join(tmpdir(), `gozd-${CHANNEL}-launch`);
-export const cliPath = join(repoRoot, "apps", "native", ".build", "debug", "gozd-cli");
-export const zdotdir = join(repoRoot, "apps", "native", "Resources", "zsh");
+export const cliPath = isPackaged
+  ? join(bundledAppRoot, "bin", "gozd-cli")
+  : join(repoRoot, "apps", "electron", "bin", "gozd-cli");
+export const zdotdir = isPackaged
+  ? join(bundledAppRoot, "zsh")
+  : join(repoRoot, "apps", "native", "Resources", "zsh");
+// packaged 時に loadFile する renderer（Vite build は base "./" なので file:// で成立する）
+export const bundledRendererIndex = join(bundledAppRoot, "views", "main", "index.html");
 
 /** PTY 子プロセスに継承させない親プロセス由来のキー。
  * gozd app が内部フラグとして持つ env を子に漏らさない（Swift strippedKeys と同集合 +

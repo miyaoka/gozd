@@ -6,20 +6,29 @@
 // build:app の入口で不在時のみ electron 同梱の install script を実行して dist を展開する
 // （zip は ~/Library/Caches/electron にキャッシュされるため 2 回目以降は展開のみ）。
 //
-// パッケージ位置は resolve で引く。electron-builder.yml の `electronDist` は静的 YAML の
-// ため repo root 相対（`../../node_modules/electron/dist`）を固定で書いており、
-// nodeLinker: hoisted（workspace 全体で electron 単一バージョン = root hoist）がその
-// 前提を保証する。resolve 結果が前提とずれた場合はここで気づけるようログに残す。
+// パスは electron-builder.yml の `electronDist`（projectDir 相対の
+// `../../node_modules/electron/dist`）と同一の導出で固定する。module 解決
+// （require.resolve 系）で引くと、旧 install の残骸（apps/electron/node_modules/electron）
+// を拾って「guard は通るが electron-builder は空の root を読む」乖離が起きうるため、
+// guard と consumer は単一のパス定義を共有する。root 単一配置は nodeLinker: hoisted
+// （workspace 全体で electron 単一バージョン）が保証する前提で、崩れたら明示エラーで落とす。
 
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
-const electronDir = dirname(Bun.resolveSync("electron/package.json", import.meta.dir));
+const electronDir = join(import.meta.dir, "..", "..", "node_modules", "electron");
 const dist = join(electronDir, "dist");
 
 if (existsSync(dist)) {
   process.exit(0);
+}
+
+if (!existsSync(join(electronDir, "install.js"))) {
+  console.error(
+    `[ensureElectronDist] electron package not found at ${electronDir} (nodeLinker: hoisted の root 単一配置前提が崩れている)`,
+  );
+  process.exit(1);
 }
 
 console.error(`[ensureElectronDist] dist not found; running electron install script: ${dist}`);

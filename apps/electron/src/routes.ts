@@ -7,6 +7,12 @@
 import {
   EchoRequest,
   EchoResponse,
+  FsUnwatchAllRequest,
+  FsUnwatchAllResponse,
+  FsUnwatchRequest,
+  FsUnwatchResponse,
+  FsWatchRequest,
+  FsWatchResponse,
   GitFetchRemotesRequest,
   GitFetchRemotesResponse,
   GitGithubIdentityRequest,
@@ -35,10 +41,12 @@ import {
 } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
 import { spawn, type IPty } from "node-pty";
+import { createFsWatchRegistry } from "./fs/fsWatchRegistry";
 import { fetchRemotes, gitStatusFull, worktreeList } from "./git/gitOps";
 import { GitCommandError } from "./git/gitRunner";
+import type { StatusFull } from "./git/porcelain";
 import { repoOwnerName } from "./git/github";
-import type { RpcContext, RpcHandler } from "./rpcDispatcher";
+import type { PushFn, RpcContext, RpcHandler } from "./rpcDispatcher";
 import { scanListenServers } from "./serverList";
 import { loadAppConfig, loadAppState, saveAppConfig, saveAppState } from "./stores";
 import { listTasks } from "./taskStore";
@@ -221,6 +229,62 @@ async function handleGitFetchRemotes(body: unknown): Promise<unknown> {
   return GitFetchRemotesResponse.toJSON({ ok: false, errorDetail: detail });
 }
 
+// fs watch の push は「最後に /fs/watch を呼んだ window」の sender に配送する。
+// registry は request をまたいで生き続けるため、per-request の ctx.push をそのまま束縛できない。
+// gozd はシングルウィンドウなので実質固定（Swift 版も単一 WebPage への push で同じ前提）。
+// マルチウィンドウ化する場合は dir → sender の対応を registry 側に持たせる必要がある
+let fsPush: PushFn | undefined;
+
+/** AppRuntime.swift の onGitStatusChange と同形の payload を組む */
+function gitStatusChangePayload(dir: string, status: StatusFull): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    dir,
+    statuses: status.statuses,
+    renameOldPaths: status.renameOldPaths,
+    head: status.head,
+    branchHead: status.branchHead,
+    latestMtime: status.latestMtime,
+  };
+  // upstream 未設定なら upstream フィールドごと不在にする。renderer 側は
+  // `upstream === undefined` を「ahead/behind を読まない」契約として扱う
+  if (status.hasUpstream) {
+    payload.upstream = { ahead: status.ahead, behind: status.behind };
+  }
+  return payload;
+}
+
+const fsWatchRegistry = createFsWatchRegistry({
+  onFsChange: (dir, relDir) => fsPush?.("fsChange", { dir, relDir }),
+  onGitStatusChange: (dir, status) => fsPush?.("gitStatusChange", gitStatusChangePayload(dir, status)),
+  onBranchChange: (dir) => fsPush?.("branchChange", { dir }),
+  onRemoteRefsChange: (dir) => fsPush?.("remoteRefsChange", { dir }),
+  onWorktreeChange: (dir) => fsPush?.("worktreeChange", { dir }),
+});
+
+/** will-quit で全 watch を始末する（watcher スレッドの残骸を残さない） */
+export function unwatchAllFsWatches(): void {
+  fsWatchRegistry.unwatchAll();
+}
+
+async function handleFsWatch(body: unknown, ctx: RpcContext): Promise<unknown> {
+  const req = FsWatchRequest.fromJSON(body);
+  if (req.dir === "") throw new Error("fs/watch: dir is required");
+  fsPush = ctx.push;
+  await fsWatchRegistry.watch(req.dir);
+  return FsWatchResponse.toJSON({});
+}
+
+function handleFsUnwatch(body: unknown): unknown {
+  const req = FsUnwatchRequest.fromJSON(body);
+  fsWatchRegistry.unwatch(req.dir);
+  return FsUnwatchResponse.toJSON({});
+}
+
+function handleFsUnwatchAll(body: unknown): unknown {
+  FsUnwatchAllRequest.fromJSON(body);
+  return FsUnwatchAllResponse.toJSON({ unwatchedCount: fsWatchRegistry.unwatchAll() });
+}
+
 function handleWindowSetServerPanelOpen(): unknown {
   // renderer が SSOT として持つパネル開閉状態を native titlebar トグルへミラーする RPC。
   // Electron shell には対応する native toolbar がまだ無いため受理のみ
@@ -233,6 +297,9 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/appConfig/save", handleAppConfigSave],
   ["/appState/load", handleAppStateLoad],
   ["/appState/save", handleAppStateSave],
+  ["/fs/watch", handleFsWatch],
+  ["/fs/unwatch", handleFsUnwatch],
+  ["/fs/unwatchAll", handleFsUnwatchAll],
   ["/git/worktreeList", handleGitWorktreeList],
   ["/git/githubIdentity", handleGitGithubIdentity],
   ["/git/fetchRemotes", handleGitFetchRemotes],

@@ -3,6 +3,9 @@ packages:
   - packages/*
 
 allowBuilds:
+  # postinstall は prebuilt 不在時の node-gyp fallback。platform 別 prebuilt
+  # (@parcel/watcher-darwin-arm64 等) が optionalDependencies で入るため実行不要
+  '@parcel/watcher': false
   '@tailwindcss/oxide': true
   electron: true
   esbuild: true

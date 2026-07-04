@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SPIKE_TEST_ARG } from "./ipc";
 import { createRpcDispatcher, type PushFn } from "./rpcDispatcher";
-import { killAllPtys, routes } from "./routes";
+import { killAllPtys, routes, unwatchAllFsWatches } from "./routes";
 
 const isTestMode = process.env.GOZD_SPIKE_TEST === "1";
 // 既存 Vue renderer（Vite dev server）を読む場合に URL を渡す。無指定なら spike ページ
@@ -104,4 +104,5 @@ app.on("window-all-closed", () => {
 
 app.on("will-quit", () => {
   killAllPtys();
+  unwatchAllFsWatches();
 });

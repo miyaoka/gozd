@@ -8,7 +8,8 @@ await build({
   bundle: true,
   platform: "node",
   format: "cjs",
-  external: ["electron", "node-pty"],
+  // @parcel/watcher は .node ネイティブバイナリを実行時解決するため bundle できない
+  external: ["electron", "node-pty", "@parcel/watcher"],
 });
 
 await build({

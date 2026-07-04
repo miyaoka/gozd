@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeClaudeHooksSettings } from "./claudeHooksSettings";
+import { registerFileServerProtocol } from "./fileServer";
 import { claudeSettingsPath, socketPath } from "./gozdEnv";
 import { SPIKE_TEST_ARG } from "./ipc";
 import { createRpcDispatcher, type PushFn } from "./rpcDispatcher";
@@ -84,6 +85,10 @@ if (isTestMode) {
 let socketServer: SocketServerHandle | undefined;
 
 app.whenReady().then(() => {
+  // protocol 登録は window の loadURL より先に行う（先に読み込まれた <img> が
+  // 未登録 scheme として即 error になるのを避ける）
+  registerFileServerProtocol();
+
   const window = createWindow();
 
   // Claude hooks 設定 JSON を $TMPDIR に書き出す。PTY の zsh init で claude() 関数が

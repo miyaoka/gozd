@@ -66,6 +66,17 @@ export function readFileAbsolute(absolutePath: string): FileReadInfo {
   return readFileAt(absolutePath);
 }
 
+/** raw bytes で読み取る（`gozd-file://` の `<img>` 直配信用）。dir 配下に containment。
+ * 不在 / decode 系はそのまま throw し、呼び出し側（file server）が error response に変換する */
+export function readFileBytes(dir: string, path: string): Buffer {
+  return readFileSync(resolveSafe(dir, path));
+}
+
+/** raw bytes の絶対パス版（dir 制約なし）。worktree 外の画像 / SVG 用 */
+export function readFileBytesAbsolute(absolutePath: string): Buffer {
+  return readFileSync(absolutePath);
+}
+
 export function writeFile(dir: string, path: string, data: Uint8Array): void {
   const target = resolveSafe(dir, path);
   mkdirSync(dirname(target), { recursive: true });

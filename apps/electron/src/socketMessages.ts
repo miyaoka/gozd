@@ -158,6 +158,14 @@ async function handleSocketMessage(line: string, push: PushFn): Promise<void> {
 export function createSocketMessageHandler(push: PushFn): (line: string) => void {
   let chain: Promise<void> = Promise.resolve();
   return (line) => {
-    chain = chain.then(() => handleSocketMessage(line, push));
+    chain = chain
+      .then(() => handleSocketMessage(line, push))
+      .catch((error) => {
+        // メッセージ単位の失敗を終端で握らないと chain が rejected のまま残り、以降の
+        // 全メッセージが onRejected 不在の .then で素通しされて恒久 drop になる
+        // （unhandledRejection になるだけで [SocketServer] の観察ログも出ない）。
+        // キューを生かし続け、失敗行だけを観察ログに倒す
+        console.error(`[SocketServer] handler rejected, chain kept alive: ${error}: ${line.slice(0, 200)}`);
+      });
   };
 }

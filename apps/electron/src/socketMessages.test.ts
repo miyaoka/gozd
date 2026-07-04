@@ -92,4 +92,20 @@ describe("socketMessages", () => {
     await waitFor(() => pushed.length === 3);
     expect(pushed.map((p) => p.event)).toEqual(["running", "tool-done", "done"]);
   });
+
+  test("処理が reject する行が混ざっても後続行は処理される（chain 汚染防止）", async () => {
+    // 逐次キューの終端 catch が無いと、1 度の reject で chain が rejected のまま残り
+    // 以降の全メッセージが恒久 drop される。push が throw する行で reject を再現し、
+    // 後続行が届くことを固定する
+    const pushed: Array<{ event: string }> = [];
+    const handle = createSocketMessageHandler((_type, payload) => {
+      const p = payload as { event: string };
+      if (p.event === "poison") throw new Error("push failed");
+      pushed.push(p);
+    });
+    handle('{"hook":{"event":"poison","ptyId":1}}');
+    handle('{"hook":{"event":"running","ptyId":1}}');
+    await waitFor(() => pushed.length === 1);
+    expect(pushed.map((p) => p.event)).toEqual(["running"]);
+  });
 });

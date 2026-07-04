@@ -1,5 +1,5 @@
 /**
- * Swift 側 `GhError.Kind` (proto enum `GhErrorKind`) を、ユーザー向け英文に変換する。
+ * main 側 `classifyGhStderr`（proto enum `GhErrorKind`）の分類を、ユーザー向け英文に変換する。
  *
  * 観察可能性: トースト本文だけで「何が壊れたか」が分かる必要がある。silent 化 / 一括文言は
  * rate limit 枯渇を発見させない原因になるため、4 種類で文言を区別する。

@@ -274,7 +274,7 @@ export const useTerminalStore = defineStore("terminal", () => {
             if (!res.ok) {
               notify.error("Failed to remove saved Claude session", res.error);
             } else if (res.value.removedSessionId !== "") {
-              // Swift 側で TaskStore.detachSession が走り、ghRef 有無に関わらず task は
+              // main 側で taskStore.detachSession が走り、ghRef 有無に関わらず task は
               // 残る (closed_by_user=true + sessionID 保持で `closed` 状態に倒れる)。
               // useSidebarData がこの ref を watch して所属 repo を refetch することで、
               // WorktreeEntry.tasks 側の closed_by_user 反映を取り込む。

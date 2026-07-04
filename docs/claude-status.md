@@ -131,8 +131,8 @@ worktree に複数ターミナルがある場合、`ClaudeState` の優先度順
 
 | ファイル                                                           | 責務                                                                          |
 | ------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
-| `apps/native/Sources/GozdCore/ClaudeHooksSettings.swift`           | hooks 設定 JSON の生成                                                        |
-| `apps/native/Sources/GozdCLI/main.swift`                           | CLI の hook サブコマンド（stdin → ソケット転送）                              |
+| `apps/electron/src/claudeHooksSettings.ts`                         | hooks 設定 JSON の生成                                                        |
+| `apps/electron/src/cli.ts`                                         | CLI の hook サブコマンド（stdin → ソケット転送）                              |
 | `apps/renderer/src/features/terminal/claudeStatus.ts`              | 状態管理（`handleHookEvent` + `observeTitle` による OSC タイトル駆動）        |
 | `apps/renderer/src/features/terminal/XtermTerminal.vue`            | `terminal.onTitleChange` で OSC タイトルを `setTitle` → `observeTitle` に流す |
 | `apps/renderer/src/features/terminal/TerminalLeafTitle.vue`        | leaf ヘッダの status アイコン + Task タイトル（TaskRow と同一の見た目）       |

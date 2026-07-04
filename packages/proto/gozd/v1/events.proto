@@ -4,7 +4,7 @@ package gozd.v1;
 
 import "gozd/v1/common.proto";
 
-// Swift → renderer の push event。`window.__gozdReceive(type, payload)` 経由で配送。
+// main → renderer の push event。`rpc:push`（preload の onPush）経由で配送。
 //
 // payload は proto3 JSON mapping でシリアライズされ、renderer 側は `onMessage(type, fn)` で購読する。
 // 既存の PtyDataEvent / PtyExitEvent / HookMessage / OpenMessage と同じ流儀。

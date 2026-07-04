@@ -1,8 +1,8 @@
-// Swift → renderer の push 経路のシングルトン dispatcher。
+// main → renderer の push 経路のシングルトン dispatcher。
 //
-// `apps/native` の `WebPage.callJavaScript("window.__gozdReceive(type, payload)", ...)` を
-// 受ける。type ごとの listener 配列を持ち、`onMessage(type, fn)` で購読、戻り値の
-// disposer で解除する。
+// main process の `webContents.send("rpc:push", type, payload)` を preload の
+// `__gozdElectronRpc.onPush` 経由で受ける。type ごとの listener 配列を持ち、
+// `onMessage(type, fn)` で購読、戻り値の disposer で解除する。
 //
 // 設計判断:
 //
@@ -32,12 +32,11 @@ function dispatchToListeners(type: string, payload: unknown): void {
 }
 
 /**
- * renderer bootstrap で 1 回だけ呼ぶ。native (Swift) からの
- * `WebPage.callJavaScript("window.__gozdReceive(...)")` を受けるため
- * dispatcher を `window` に固定する。Electron shell では preload が公開する
- * `__gozdElectronRpc.onPush` を同じ dispatcher に接続する（contextIsolation 下の
- * preload は main world の `window.__gozdReceive` を直接呼べないため、購読登録は
- * renderer 側の責務になる）。
+ * renderer bootstrap で 1 回だけ呼ぶ。preload が公開する `__gozdElectronRpc.onPush` を
+ * dispatcher に接続する（contextIsolation 下の preload は main world の関数を直接
+ * 呼べないため、購読登録は renderer 側の責務になる）。`window.__gozdReceive` への
+ * 固定は Swift shell 期のワイヤ（WebPage.callJavaScript）の名残で、proto 廃止までの
+ * 移行期間中は残している。
  *
  * test / SSR では呼ばない契約。listener 登録 (`onMessage`) や renderer 内部の
  * 再同期 push (`dispatchMessage`) は init 不要で動く (どちらも `dispatchToListeners`
@@ -63,13 +62,13 @@ export function onMessage<T>(type: string, fn: (payload: T) => void): () => void
 /**
  * renderer 内部発の push を同じ dispatcher 経由で発火する。
  *
- * 通常 push は native → renderer の一方向（`window.__gozdReceive` 経由）だが、
+ * 通常 push は main → renderer の一方向（`rpc:push` 経由）だが、
  * renderer 内で「watch 開始後の取りこぼし救済」「明示的な再同期トリガー」など
- * native 経由ではない再同期 event が必要なケースで使う。listener 側は
- * `onMessage` と同じ subscriber を再利用できる（native 由来と renderer 由来を
+ * main 経由ではない再同期 event が必要なケースで使う。listener 側は
+ * `onMessage` と同じ subscriber を再利用できる（main 由来と renderer 由来を
  * 区別せず処理する）。
  *
- * 命名は `dispatchMessage` で、native の push と意味的に並ぶ位置に置く。
+ * 命名は `dispatchMessage` で、main の push と意味的に並ぶ位置に置く。
  * 実装は `dispatchToListeners` 直呼び出し: window 経由を挟まないため、
  * `initRpcDispatcher` を呼んでいない test 環境からも動く。
  */

@@ -6,9 +6,9 @@ package gozd.v1;
 // 「前回の続き」を表す state であり、ユーザー設定 (config) ではないため XDG state
 // ディレクトリ (~/.local/state) に置く。
 //
-// 永続化形式は proto3 JSON mapping。SwiftProtobuf の jsonString() で
-// 直接ファイルに書き、jsonString() で復元する。RPC ワイヤーフォーマットと
-// 永続化形式を同一 proto 型で揃え、Codable との二重管理を避ける。
+// 永続化形式は proto3 JSON mapping。生成型の toJSON / fromJSON で
+// 直接ファイルに書き、復元する。RPC ワイヤーフォーマットと
+// 永続化形式を同一 proto 型で揃え、独自シリアライズとの二重管理を避ける。
 message AppState {
   // 1, 2 は削除済みの window_frame / last_opened_dir（produce/consume 経路が無い dead
   // field だった）。番号の誤再利用を防ぐため reserved にする。

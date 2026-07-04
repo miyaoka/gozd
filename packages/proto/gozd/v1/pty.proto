@@ -44,7 +44,7 @@ message PtyKillRequest {
 
 message PtyKillResponse {}
 
-// renderer 側に push される PTY イベント（Swift → JS、callJavaScript で配送）。
+// renderer 側に push される PTY イベント（main → renderer、`rpc:push` で配送）。
 message PtyDataEvent {
   uint32 pty_id = 1;
   bytes data = 2;

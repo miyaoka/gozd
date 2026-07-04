@@ -72,10 +72,10 @@ message GitLogResponse {
 // 数万行ファイルで Myers LCS が O(N×M) で爆発しメインスレッドが固まる。git の最適化された
 // diff エンジン（xdiff、C 実装）に SSOT を移して計算コストを切り離す。
 //
-// Swift 側は受け取った original / current を tmp に書き出し `git diff --no-index --no-color`
+// main 側は受け取った original / current を tmp に書き出し `git diff --no-index --no-color`
 // を実行、unified diff 出力を Hunk[] に parse して返す。renderer は hunk を順次描画し、
 // hunk 間の skipped context 行は静的バーで表示する。バーのクリック展開時は
-// `gitDiffExpandLines` を呼び、行範囲のテキストを Swift から取得する。
+// `gitDiffExpandLines` を呼び、行範囲のテキストを main から取得する。
 message GitDiffHunksRequest {
   string original = 1;
   string current = 2;
@@ -106,7 +106,7 @@ message GitDiffHunksResponse {
   repeated DiffHunk hunks = 1;
   // 入力 original / current の総行数。trailing バー描画と context 拡張の
   // 絶対座標計算は git の line counting 規約に揃える必要があるため、
-  // SSOT を Swift 側に置く。renderer 側で `text.split("\n").length` を回すと
+  // SSOT を main 側に置く。renderer 側で `text.split("\n").length` を回すと
   // CRLF / 末尾改行の扱いが git と分かれて表示行数と実態がずれる。
   uint32 old_total_lines = 2;
   uint32 new_total_lines = 3;
@@ -114,9 +114,9 @@ message GitDiffHunksResponse {
 
 // gitDiffExpandLines: hunk-bar クリック展開用に original / current 全文から指定行範囲を切り出す。
 //
-// renderer 側で `text.split("\n")` を回すと CRLF / 末尾改行の扱いが Swift 側
-// `countDiffLines` と分かれて、表示行と Swift が返す `old_total_lines` / `new_total_lines`
-// で末尾 1 行ずれる。バー展開も SSOT を Swift に寄せるため、専用 RPC で行配列を切り出す。
+// renderer 側で `text.split("\n")` を回すと CRLF / 末尾改行の扱いが main 側
+// `countDiffLines` と分かれて、表示行と main が返す `old_total_lines` / `new_total_lines`
+// で末尾 1 行ずれる。バー展開も SSOT を main に寄せるため、専用 RPC で行配列を切り出す。
 //
 // 1-based。`old_start` / `new_start` から `lines` 行分を取得する。範囲外は server 側で error。
 message GitDiffExpandLinesRequest {
@@ -172,7 +172,7 @@ message GitShowCommitFileResponse {
 // gitCommitFiles: コミット（または範囲指定）の変更ファイル一覧
 //
 // 単一 commit 選択時は hash のみを使う。range_hashes が非空なら range mode で、
-// renderer が git-graph の first-parent walk で組み立てた commit hash 列を渡す。Swift 側は
+// renderer が git-graph の first-parent walk で組み立てた commit hash 列を渡す。main 側は
 // 配列の先頭（newer）と末尾（older）の 2 endpoint で `git diff <older>^ <newer>` を実行する。
 message GitCommitFilesRequest {
   string dir = 1;
@@ -183,7 +183,7 @@ message GitCommitFilesRequest {
   // 非空なら hash / compare_hash は無視され、先頭と末尾の 2 endpoint diff が返る。
   repeated string range_hashes = 4;
   // 範囲選択の片端が Working Tree（UNCOMMITTED_HASH）の場合 true。
-  // Swift 側で `git diff <older>^` (第二引数省略 = working tree 比較) に切り替える。
+  // main 側で `git diff <older>^` (第二引数省略 = working tree 比較) に切り替える。
   bool include_working_tree = 5;
 }
 message GitCommitFilesResponse {
@@ -486,12 +486,12 @@ message GitResetMixedResponse {}
 // gitLsTree: 指定コミットの tree から 1 階層分のエントリを返す。
 //
 // filer の snapshot mode (git-graph でコミット選択中) が呼ぶ。`git ls-tree -z <hash> <path>/`
-// に対応し、`path` 末尾 `/` を Swift 側で必ず付与する規約 (末尾 `/` を外すと「該当 path の
+// に対応し、`path` 末尾 `/` を main 側で必ず付与する規約 (末尾 `/` を外すと「該当 path の
 // エントリ 1 件」が返って 1 階層分の列挙にならないため)。`path` が空文字 ("") なら repo root の
 // 1 階層分を返す。
 //
 // type は "file" / "directory" / "symlink" / "submodule" のいずれか (git mode → 文字列写像は
-// Swift `GitOps.lsTree` の SSOT に置く)。FsReadDirEntry とフィールド名を揃え、renderer 側の
+// main 側 `gitTree.ts` の SSOT に置く)。FsReadDirEntry とフィールド名を揃え、renderer 側の
 // FileEntry 構築経路を共通化する (snapshot mode で `is_ignored` は意味を持たないため省略)。
 message GitLsTreeRequest {
   string dir = 1;

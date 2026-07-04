@@ -63,10 +63,10 @@ const DEFAULT_CLASS = "ring-1 ring-inset ring-current";
 
 <template>
   <!-- PR number badge (left of branch label) -->
-  <!-- 外部リンクは native 側の `ExternalLinkNavigationDecider` が OS のブラウザに渡す。
-       `target="_blank" rel="noopener noreferrer"` は decider 経路が完全に握る前 (decider が
-       cancel するまでの thin window) に WebKit が referrer / opener を組み立てる可能性に対する
-       defense in depth。行クリック伝播は `@click.stop` で止める。 -->
+  <!-- 外部リンクは main 側の navigation 防壁 (setWindowOpenHandler) が OS のブラウザに渡す。
+       `target="_blank" rel="noopener noreferrer"` は防壁が deny するまでの thin window に
+       エンジンが referrer / opener を組み立てる可能性に対する defense in depth。
+       行クリック伝播は `@click.stop` で止める。 -->
   <a
     v-if="pr"
     :href="pr.url"

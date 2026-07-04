@@ -141,7 +141,7 @@ function getFocusedPtyId(dir: string): number | undefined {
 }
 
 async function handleTaskRemove(rootDir: string, task: Task) {
-  // ⋮ メニューからの明示削除。Swift 側 TaskStore.remove で永続化を消した後、
+  // ⋮ メニューからの明示削除。main 側 taskStore.remove で永続化を消した後、
   // `requestRefresh` で server から真値を取り直す。他の task 系操作
   // (reviveTaskForGhRef / registerPrCommand / registerIssueCommand) と SSOT 取得規約を
   // 揃え、`repos[...]` の直書き楽観更新 (race の源) を避ける。

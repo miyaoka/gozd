@@ -137,7 +137,7 @@ const pendingOpen = ref<PendingOpen | null>(null);
  *
  * **不変条件 (実装変更時に必読)**:
  * - `setTimeout(0)` / `requestAnimationFrame` / `queueMicrotask` 等の task / microtask defer は
- *   WebKit (WebPage) の `popover="auto"` light-dismiss を **抜けない** (実機検証済)。続く mouseup が
+ *   `popover="auto"` light-dismiss を **抜けない** (WebKit shell 期に実機検証済)。続く mouseup が
  *   popover に到達して即 dismiss される (whatwg/html#10905)
  * - `pointerup` を `capture: true` で window に貼ると、popover が show される **前** に listener が
  *   pointerup を消化する → 続く mouseup は popover open 前の press cycle として扱われ

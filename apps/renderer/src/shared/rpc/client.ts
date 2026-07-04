@@ -1,4 +1,5 @@
-// gozd-rpc:// URL Scheme 越しの RPC クライアント。
+// RPC クライアント。preload が contextBridge で公開する `window.__gozdElectronRpc` 経由で
+// main process に request を投げる（`ipcMain.handle("rpc:request")` に届く）。
 //
 // 設計判断:
 //
@@ -6,20 +7,12 @@
 //    `fromJSON` で encode / decode する。binary は使わない（ブラウザ側で
 //    base64 / Uint8Array が煩雑になるため、性能ボトルネックが見えるまで JSON）
 //
-// 2. **gozd-rpc://localhost プレフィックス固定**。renderer 側の origin (Vite dev
-//    `http://localhost:<port>` / build `gozd-app://localhost`) から見ると
-//    `gozd-rpc://localhost` は cross-origin になるが、native 側 `RpcSchemeHandler`
-//    が Origin allowlist に基づき `Access-Control-Allow-Origin` を明示 echo するため
-//    WebKit の標準 CORS check を pass する。詳細は
-//    [docs/architecture.md の「CORS 運用規律」セクション](../../../../../docs/architecture.md)
+// 2. **エラーは throw**。ハンドラ未実装・処理失敗は bridge の reject として届くため、
+//    tryCatch で受けて Error に包み直す
 //
-// 3. **エラーは throw**。HTTP 4xx/5xx は ok=false で fetch は throw しないため、
-//    明示的に判定してエラーを投げる。renderer 側は try/catch + tryCatch で扱う
-//
-// 4. **シェル判定は `window.__gozdElectronRpc` の有無**。Electron shell では preload が
-//    contextBridge でブリッジを公開するため、存在すれば IPC 経路、無ければ Swift shell の
-//    fetch(gozd-rpc://) 経路を使う（エラー時の fallback ではなく起動シェルによる静的な二者択一）。
-//    ワイヤ形式はどちらも proto3 JSON で共通
+// 3. **fetch(gozd-rpc://) 分岐は Swift shell 期のワイヤの名残**。Swift shell は撤廃済みで
+//    Electron では bridge が常に存在するため到達しない dead path だが、proto 廃止
+//    （共有 TS 型化）で transport を整理するまで維持する
 
 import { tryCatch, type ElectronRpcBridge } from "@gozd/shared";
 

@@ -97,7 +97,7 @@ describe("isRootPath", () => {
     expect(isRootPath("a/b")).toBe(false);
   });
 
-  test(". は root ではない（Swift relDir SSOT に従い root は空文字のみ）", () => {
+  test(". は root ではない（main 側 relDir SSOT に従い root は空文字のみ）", () => {
     expect(isRootPath(".")).toBe(false);
   });
 });

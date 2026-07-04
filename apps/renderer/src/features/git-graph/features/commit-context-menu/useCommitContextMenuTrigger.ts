@@ -5,9 +5,9 @@
  * 内包し、context-menu 機能を自己完結させる。
  *
  * **不変条件 (実装変更時に必読)**:
- * - `setTimeout(0)` / `requestAnimationFrame` / `queueMicrotask` 等の defer は WebKit (WebPage) の
- *   `popover="auto"` light-dismiss を **抜けない** (実機検証済)。続く mouseup が popover に到達して
- *   即 dismiss される (whatwg/html#10905)
+ * - `setTimeout(0)` / `requestAnimationFrame` / `queueMicrotask` 等の defer は
+ *   `popover="auto"` light-dismiss を **抜けない** (WebKit shell 期に実機検証済)。続く mouseup が
+ *   popover に到達して即 dismiss される (whatwg/html#10905)
  * - `pointerup` を `capture: true` で window に貼ると、popover が show される **前** に listener が
  *   pointerup を消化する → 続く mouseup は popover open 前の press cycle として扱われ light-dismiss の
  *   対象外になる。`{ capture: true }` を外したり pointerdown / mousedown 経路に変えてはならない

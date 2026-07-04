@@ -10,8 +10,8 @@ package gozd.v1;
 //    だったが、新実装ではセクションをネスト messages にして型を持たせる。
 //    新しい設定を追加するときは proto に field を追加する（buf generate 必須）。
 //
-// 2. **永続化形式は proto JSON mapping**。`AppStateStore` と同じ流儀で、
-//    SwiftProtobuf の `jsonString()` でファイルへ書き出す。
+// 2. **永続化形式は proto JSON mapping**。AppState と同じ流儀で、
+//    生成型の toJSON でファイルへ書き出す（stores.ts）。
 message AppConfig {
   TerminalConfig terminal = 1;
   PreviewConfig preview = 2;

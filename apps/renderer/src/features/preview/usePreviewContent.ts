@@ -147,7 +147,7 @@ export function usePreviewContent(
 
   /**
    * Original タブが指している hash の表記。
-   * Swift 側 handleGitShowCommitFile の fromHash と一致させる:
+   * main 側 handleGitShowCommitFile の fromHash と一致させる:
    * - PR diff モード: PR base OID (^ なし)
    * - uncommitted モード (newer=Working Tree, older=undefined): HEAD
    * - 単一コミット: <hash>^
@@ -366,7 +366,7 @@ export function usePreviewContent(
       return;
     }
 
-    // unchanged は Swift 側で from と to の blob OID 比較から導出される SSOT 判定。
+    // unchanged は main 側で from と to の blob OID 比較から導出される SSOT 判定。
     // Filer 経由でコミット範囲外（差分のない）ファイルを選んだ場合の救済はここに寄せる。
     const { from, to, unchanged } = fetchResult.value;
     const fromNotFound = from?.notFound ?? true;
@@ -485,7 +485,7 @@ export function usePreviewContent(
     } else if (toNotFound) {
       commitGitChange.value = "deleted";
     } else {
-      // 内容比較は renderer 側でなく Swift 側 unchanged を使うのが SSOT だが、
+      // 内容比較は renderer 側でなく main 側 unchanged を使うのが SSOT だが、
       // PR diff モードは to が working tree (blob OID 無し) なので unchanged 判定は持たない。
       // `modified` / `renamed` 固定にし、実体が同一なら DiffPreview 側で空 diff として描画される。
       commitGitChange.value = change.type === "R" ? "renamed" : "modified";

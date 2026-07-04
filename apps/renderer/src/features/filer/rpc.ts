@@ -23,7 +23,7 @@ export const rpcFsReadDir = (req: FsReadDirRequest) =>
   rpc("/fs/readDir", req, FsReadDirRequest, FsReadDirResponse);
 
 // snapshot mode (git-graph でコミット選択中) の filer が呼ぶ。
-// hash 必須。空文字は Swift 側で reject される。
+// hash 必須。空文字は main 側で reject される。
 export const rpcGitLsTree = (req: GitLsTreeRequest) =>
   rpc("/git/lsTree", req, GitLsTreeRequest, GitLsTreeResponse);
 
@@ -49,7 +49,7 @@ export const rpcFsUnwatchAll = (req: FsUnwatchAllRequest) =>
 // fsChange push event payload.
 // `dir` は購読時に渡した dir（renderer 側 worktree dir と文字列同一）。
 // `relDir` は変更ファイルの親 dir を `dir` からの相対パスで表現する。
-// Swift `FSWatchRegistry.relativeDir()` の SSOT に従い、worktree 直下は `""`、
+// main 側 `relativeDir()`（fs/classify.ts）の SSOT に従い、worktree 直下は `""`、
 // サブディレクトリ配下は末尾 "/" を含まないディレクトリ相対パス。
 export interface FsChangePayload {
   dir: string;

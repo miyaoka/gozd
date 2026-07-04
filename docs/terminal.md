@@ -1,6 +1,6 @@
 # Terminal
 
-ターミナルエミュレータ。`gozd-rpc://` 経由で native（Swift）側の PTY プロセスと通信する。
+ターミナルエミュレータ。RPC（IPC）経由で main process 側の PTY プロセスと通信する。
 xterm.js をバックエンドとして使用する。
 
 ## 構成
@@ -26,7 +26,7 @@ features/terminal/
 ```mermaid
 sequenceDiagram
     participant R as TerminalPane (renderer)
-    participant N as native (Swift)
+    participant N as main (Electron)
     participant P as PTY (shell)
 
     R->>N: ptySpawn({ dir, cols, rows })
@@ -242,9 +242,9 @@ write() 後（onWriteParsed で集約）:
 
 リサイズ時は Marker ベースの復元を試みるが、TUI アプリの SIGWINCH 再描画で Marker 復元後にずれる場合がある。他のターミナル（alacritty, kitty 等）でもリサイズ時は bottom にリセットされるため、許容する。
 
-## Native 側の PTY 管理
+## main 側の PTY 管理
 
-- `PTYRegistry`（`apps/native/Sources/GozdCore/PTYRegistry.swift`）が PTY ID → エントリ（pid, masterFd, worktreeDir, decoder）を管理
-- アプリ終了時 (`applicationWillTerminate`) は `PidTracker` 経由で全 PTY に SIGHUP を送る
-- worktree 削除時は `worktreeDir` で該当 PTY を特定して kill
-- forkpty は `apps/native/Sources/CPty/` の C bridge 経由で呼ぶ。master fd は `O_NONBLOCK`、`DispatchSourceRead` / `DispatchSourceProcess` を per-PTY serial queue に統合し、`onExit` 前に出力をすべて drain してから配送する契約に揃えている
+- PTY の実体は node-pty。instance の所有は `apps/electron/src/routes.ts`、PTY ⇔ Claude session の紐付けは `ptySessions.ts` が持つ
+- アプリ終了時 (`will-quit`) は `killAllPtys` で全 PTY に SIGHUP を送る（orphan 化防止）
+- worktree 削除時は worktreePath で該当 PTY を特定して kill
+- spawn のワイヤ契約は argv 全体（args[0] = プログラム名）。node-pty は argv[0] を含めない流儀のため main 側で `args.slice(1)` して渡す

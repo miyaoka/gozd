@@ -12,7 +12,7 @@ Summary view の 1 ファイル分のブロック。
 
 `useIntersectionObserver` でビューポート進入を観測し、`hasBeenVisible` が true に
 なってから初めて fetch を発火する。N=100 のような大きな PR でも、初描画時に同時並列
-発射されるのは「画面に見える数件」だけになり、Swift 側 git プロセスの瞬間ピークを抑える。
+発射されるのは「画面に見える数件」だけになり、main 側 git プロセスの瞬間ピークを抑える。
 一度 visible になったら hasBeenVisible は true で固定し、scroll-out / scroll-back では
 再 fetch しない (props 変化があれば再 fetch)。
 

@@ -34,7 +34,7 @@
 
 ## ルートノード（worktree 自体を表す不可視ノード）
 
-- `path === ""` を worktree 自体を指す値として扱う（Swift `relDir` SSOT と整合）。`isRootPath()` で 1 か所判定
+- `path === ""` を worktree 自体を指す値として扱う（main 側 `relDir` SSOT と整合）。`isRootPath()` で 1 か所判定
 - ボタン非表示、初期 `expanded = true`、`onMounted` で `loadChildren()` を起動
 - 表示要素由来の computed（`textColorClass` / `effectiveGitChange` / `iconUrl`）はテンプレートが `<button v-if="!isRoot">` でガードしているため、root では lazy 評価により実行されない。ルート専用の早期 return は持たない（v-if を唯一の防壁とする）
 - `depth` の意味は「自身のインデント階層」。root には FilerPane が sentinel `-1` を渡し、root 自身は描画されないので depth は使われない。子に渡す depth は通常通り `depth + 1` で、root 直下の子は `-1 + 1 = 0` から始まる

@@ -106,6 +106,7 @@ import {
   SaveAppStateResponse,
   ResumableSessionListRequest,
   ResumableSessionListResponse,
+  ServerAttribution,
   ServerListResponse,
   ShellCommandInstallRequest,
   ShellCommandInstallResponse,
@@ -164,9 +165,10 @@ import { issueList, prList, repoOwnerName, viewer, type GhErrorKindName } from "
 import { buildPtyEnv } from "./gozdEnv";
 import { buildGozdOpenPayload } from "./openTarget";
 import { loadProjectConfig, saveProjectConfig } from "./projectConfigStore";
-import { clearAssociations, consumeExpectedResumeSid, registerSpawn, sessionIdFor, unregisterExit } from "./ptySessions";
+import { createPortScanner, listProcParents, type PtyOwner, type ServerAttributionKind } from "./portScanner";
+import { clearAssociations, consumeExpectedResumeSid, registerSpawn, sessionIdFor, unregisterExit, worktreePathFor } from "./ptySessions";
 import type { PushFn, RpcContext, RpcHandler } from "./rpcDispatcher";
-import { scanListenServers } from "./serverList";
+import { listListenProcesses } from "./serverList";
 import { installShellCommand, uninstallShellCommand } from "./shellCommandOps";
 import { loadAppConfig, loadAppState, saveAppConfig, saveAppState } from "./stores";
 import { taskStore } from "./taskStore";
@@ -181,6 +183,35 @@ export function killAllPtys(): void {
     pty.kill();
   }
   ptys.clear();
+}
+
+// 実行中サーバーの周期検出（Swift 版 PortScanner 対応物）。push 先の window は
+// main.ts が起動時に startPortScanner で bind する（fs watch push と同じ後付け束縛）
+let serverPush: PushFn | undefined;
+const portScanner = createPortScanner({
+  listListenProcesses,
+  listProcParents,
+  // PTY の shell pid → 帰属先。scan のたびに現在の registry から引き直す
+  ptyOwners: () => {
+    const owners = new Map<number, PtyOwner>();
+    for (const [ptyId, pty] of ptys) {
+      owners.set(pty.pid, { ptyId, worktreePath: worktreePathFor(ptyId) });
+    }
+    return owners;
+  },
+  // 手組み dict payload（renderer の ServerPortsChangePayload と一致。attribution は文字列）
+  onSnapshot: (servers) => {
+    serverPush?.("serverPortsChange", { servers });
+  },
+});
+
+export function startPortScanner(push: PushFn): void {
+  serverPush = push;
+  portScanner.start();
+}
+
+export function stopPortScanner(): void {
+  portScanner.stop();
 }
 
 function handlePtySpawn(body: unknown, ctx: RpcContext): unknown {
@@ -278,8 +309,19 @@ function handleAppStateSave(body: unknown): unknown {
   return SaveAppStateResponse.toJSON({});
 }
 
-async function handleServerList(): Promise<unknown> {
-  return ServerListResponse.toJSON({ servers: await scanListenServers() });
+// portScanner の内部表現 → proto enum（/server/list 応答用。push は文字列のまま運ぶ）
+const ATTRIBUTION_TO_PROTO: Record<ServerAttributionKind, ServerAttribution> = {
+  live: ServerAttribution.SERVER_ATTRIBUTION_LIVE,
+  orphaned: ServerAttribution.SERVER_ATTRIBUTION_ORPHANED,
+  external: ServerAttribution.SERVER_ATTRIBUTION_EXTERNAL,
+};
+
+function handleServerList(): unknown {
+  // renderer mount 時の hydrate。周期 scan の直近 snapshot を返す（Swift currentSnapshot と同じ）
+  const servers = portScanner
+    .current()
+    .map((server) => ({ ...server, attribution: ATTRIBUTION_TO_PROTO[server.attribution] }));
+  return ServerListResponse.toJSON({ servers });
 }
 
 async function handleGitWorktreeList(body: unknown): Promise<unknown> {

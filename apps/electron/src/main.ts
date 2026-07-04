@@ -9,7 +9,7 @@ import { consumeLaunchRequest } from "./launchRequest";
 import { installAppMenu } from "./menu";
 import { buildGozdOpenPayload } from "./openTarget";
 import { createRpcDispatcher, type PushFn } from "./rpcDispatcher";
-import { killAllPtys, routes, unwatchAllFsWatches } from "./routes";
+import { killAllPtys, routes, startPortScanner, stopPortScanner, unwatchAllFsWatches } from "./routes";
 import { createSocketMessageHandler } from "./socketMessages";
 import { startSocketServer, type SocketServerHandle } from "./socketServer";
 import { windowStateStore, type WindowBounds } from "./windowState";
@@ -201,6 +201,9 @@ app.whenReady().then(() => {
   };
   socketServer = startSocketServer(socketPath, createSocketMessageHandler(socketPush));
 
+  // 実行中サーバーの周期検出。push は window に束縛（シングルウィンドウ運用）
+  startPortScanner(socketPush);
+
   // CLI cold start の launch request を消費して gozdOpen を push する
   // （Swift 版 performInitialOpen 対応）。push が renderer の購読登録より先に飛ぶと
   // 落ちるため、page load 完了まで待つ。once なのは Vite フルリロード等の再 load で
@@ -239,5 +242,6 @@ app.on("window-all-closed", () => {
 app.on("will-quit", () => {
   killAllPtys();
   unwatchAllFsWatches();
+  stopPortScanner();
   socketServer?.close();
 });

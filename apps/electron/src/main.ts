@@ -13,6 +13,7 @@ import { createRpcDispatcher, type PushFn } from "./rpcDispatcher";
 import { killAllPtys, routes, startPortScanner, stopPortScanner, unwatchAllFsWatches } from "./routes";
 import { createSocketMessageHandler } from "./socketMessages";
 import { startSocketServer, type SocketServerHandle } from "./socketServer";
+import { runSpikeResolverDiag } from "./spikeDiag";
 import { windowStateStore, type WindowBounds } from "./windowState";
 
 const isTestMode = process.env.GOZD_SPIKE_TEST === "1";
@@ -179,6 +180,12 @@ let socketServer: SocketServerHandle | undefined;
 
 app.whenReady().then(() => {
   installAppMenu();
+
+  // spike 診断: 実 Electron main が使う git / credential helper を stdout に残す。
+  // GOZD_SPIKE_FETCH_DIR=<repo> で起動時 background fetch の再現まで行う（spikeDiag.ts 参照）
+  if (isTestMode) {
+    void runSpikeResolverDiag();
+  }
 
   // dev の Dock アイコン。packaged は electron-builder が焼いた icns（production 用
   // icon.png 由来）が使われるが、未パッケージ（electron .）は Electron デフォルト

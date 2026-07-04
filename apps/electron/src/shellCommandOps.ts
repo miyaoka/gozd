@@ -9,9 +9,9 @@
 //   - wrapper が cold/warm start を判定して socket 経路 / `open` 経路を切り替える
 //   - bypass すると hook 用の起動連携が壊れる
 //
-// Electron のパッケージングは未実装のため、現状 target は常に不在で
-// targetNotFound エラーになる（Swift の dev `.app` と同じ挙動）。パッケージング
-// ステップで `process.resourcesPath` 配下に wrapper を同梱したら自然に解決する。
+// dev（未パッケージ実行）では target が存在せず targetNotFound エラーになる
+// （Swift 期の dev 実行と同じ挙動）。packaged app では electron-builder が
+// `Resources/app/bin/gozd` に wrapper を同梱するため実在し、install が機能する。
 
 import { tryCatch } from "@gozd/shared";
 import { accessSync, constants, existsSync, lstatSync, mkdirSync, readlinkSync, symlinkSync, unlinkSync } from "node:fs";

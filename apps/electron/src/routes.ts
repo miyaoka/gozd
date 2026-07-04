@@ -5,6 +5,10 @@
 // Swift shell（AppRuntime.swift の pushToRenderer）と一致させる契約。
 
 import {
+  ClaudeSessionLogRequest,
+  ClaudeSessionLogResponse,
+  ClaudeSessionRemoveByPtyRequest,
+  ClaudeSessionRemoveByPtyResponse,
   CreateWorktreeRequest,
   CreateWorktreeResponse,
   DiffLineKind,
@@ -78,6 +82,16 @@ import {
   SortMode,
   LoadAppConfigResponse,
   LoadAppStateResponse,
+  OpenExternalRequest,
+  OpenExternalResponse,
+  OpenFileRequest,
+  OpenFileResponse,
+  PickAndOpenRequest,
+  PickAndOpenResponse,
+  ProjectConfigLoadRequest,
+  ProjectConfigLoadResponse,
+  ProjectConfigSaveRequest,
+  ProjectConfigSaveResponse,
   PtyKillRequest,
   PtyKillResponse,
   PtyResizeRequest,
@@ -90,14 +104,43 @@ import {
   SaveAppConfigResponse,
   SaveAppStateRequest,
   SaveAppStateResponse,
+  ResumableSessionListRequest,
+  ResumableSessionListResponse,
   ServerListResponse,
+  ShellCommandInstallRequest,
+  ShellCommandInstallResponse,
+  ShellCommandUninstallRequest,
+  ShellCommandUninstallResponse,
+  TaskAddRequest,
+  TaskAddResponse,
   TaskListRequest,
   TaskListResponse,
+  TaskRemoveRequest,
+  TaskRemoveResponse,
+  TaskSetTerminalTitleRequest,
+  TaskSetTerminalTitleResponse,
+  TaskSetUserTitleRequest,
+  TaskSetUserTitleResponse,
+  VoicevoxCheckEngineRequest,
+  VoicevoxCheckEngineResponse,
+  VoicevoxLaunchRequest,
+  VoicevoxLaunchResponse,
+  VoicevoxListSpeakersRequest,
+  VoicevoxListSpeakersResponse,
+  VoicevoxSpeakRequest,
+  VoicevoxSpeakResponse,
+  WindowCloseRequest,
+  WindowCloseResponse,
+  WindowSetTitleContextRequest,
+  WindowSetTitleContextResponse,
   WindowSetServerPanelOpenResponse,
   type WorktreeEntry,
 } from "@gozd/proto";
 import { tryCatch } from "@gozd/shared";
+import { app, BrowserWindow, dialog, shell } from "electron";
+import { existsSync } from "node:fs";
 import { spawn, type IPty } from "node-pty";
+import { readClaudeSessionLog } from "./claude/claudeSessionLog";
 import { readDir, readFile, readFileAbsolute, stat, writeFile } from "./fs/fsOps";
 import { createFsWatchRegistry } from "./fs/fsWatchRegistry";
 import { blameLine, logFile, logLine } from "./git/gitBlame";
@@ -118,13 +161,32 @@ import { fetchRemotes, gitStatusFull, worktreeList } from "./git/gitOps";
 import { GitCommandError } from "./git/gitRunner";
 import type { StatusFull } from "./git/porcelain";
 import { issueList, prList, repoOwnerName, viewer, type GhErrorKindName } from "./git/github";
+import { buildGozdOpenPayload } from "./openTarget";
+import { loadProjectConfig, saveProjectConfig } from "./projectConfigStore";
 import type { PushFn, RpcContext, RpcHandler } from "./rpcDispatcher";
 import { scanListenServers } from "./serverList";
+import { installShellCommand, uninstallShellCommand } from "./shellCommandOps";
 import { loadAppConfig, loadAppState, saveAppConfig, saveAppState } from "./stores";
-import { listTasks, removeTasksByWorktree } from "./taskStore";
+import { taskStore } from "./taskStore";
+import { checkEngine, launch as voicevoxLaunch, listSpeakers, speak } from "./voicevox";
 
 const ptys = new Map<number, IPty>();
 let nextPtyId = 1;
+
+// PTY ⇔ Claude session の紐付け（Swift PTYRegistry の worktreePathById / sessionIdById /
+// explicitlyRemovedPtyIds に対応）。
+//
+// - worktreePathById: spawn 時の worktree_path。hook 受信時 / removeByPty の projectKey 解決に使う
+// - sessionIdById: session-start hook で観測した直近 sessionId。**hooks 統合が未実装のため
+//   現状 populate されない**（removeByPty は常に「素 PTY pane close」経路に倒れる）
+// - expectedResumeSid（GOZD_RESUME_CLAUDE_SESSION）は意図的に**記録しない**。SessionStart
+//   hook の consume 経路なしに記録すると、resume 成功後の pane close を「resume 失敗」と
+//   誤判定して task の sessionID を破壊する（tasks.json は Swift shell と共有のため実害が出る）。
+//   hooks 統合ステップで consume 経路と同時に移植する
+const worktreePathById = new Map<number, string>();
+const sessionIdById = new Map<number, string>();
+// 削除 RPC で紐付けが消された ptyId 集合。late hook の観察ログ分岐用（hooks 統合で参照）
+const explicitlyRemovedPtyIds = new Set<number>();
 
 /** will-quit で全 PTY を始末する */
 export function killAllPtys(): void {
@@ -167,12 +229,17 @@ function handlePtySpawn(body: unknown, ctx: RpcContext): unknown {
     env: buildPtyEnv(req.env),
   });
   ptys.set(id, pty);
+  if (req.worktreePath !== "") {
+    worktreePathById.set(id, req.worktreePath);
+  }
 
   pty.onData((text) => {
     ctx.push("ptyText", { id, text });
   });
   pty.onExit(({ exitCode, signal }) => {
     ptys.delete(id);
+    worktreePathById.delete(id);
+    sessionIdById.delete(id);
     // Swift PTYExitReason と同形の payload（terminal/rpc.ts の PtyExitReason 契約）
     const reason =
       signal !== undefined && signal !== 0
@@ -243,7 +310,7 @@ async function handleServerList(): Promise<unknown> {
 async function handleGitWorktreeList(body: unknown): Promise<unknown> {
   const req = GitWorktreeListRequest.fromJSON(body);
   const worktrees = await worktreeList(req.dir);
-  const allTasks = await listTasks(req.dir);
+  const allTasks = await taskStore.list(req.dir);
   // 各 wt の git status は補助データ。1 wt の失敗で worktree list 全体を捨てないため、
   // per-wt で握って空 statuses で続行する（prunable wt は listing から除外済みなので、
   // ここで失敗するのは worktree 実 path 不整合などの稀ケース）。失敗は stderr に残す
@@ -273,7 +340,43 @@ async function handleGitWorktreeList(body: unknown): Promise<unknown> {
 
 async function handleTaskList(body: unknown): Promise<unknown> {
   const req = TaskListRequest.fromJSON(body);
-  return TaskListResponse.toJSON({ tasks: await listTasks(req.dir) });
+  return TaskListResponse.toJSON({ tasks: await taskStore.list(req.dir) });
+}
+
+async function handleTaskAdd(body: unknown): Promise<unknown> {
+  const req = TaskAddRequest.fromJSON(body);
+  const task = await taskStore.add({
+    dir: req.dir,
+    ghTitle: req.ghTitle,
+    worktreeDir: req.worktreeDir,
+    ghRef: req.ghRef,
+  });
+  return TaskAddResponse.toJSON({ task });
+}
+
+async function handleTaskSetTerminalTitle(body: unknown): Promise<unknown> {
+  const req = TaskSetTerminalTitleRequest.fromJSON(body);
+  const task = await taskStore.setTerminalTitle(req.dir, req.id, req.terminalTitle);
+  return TaskSetTerminalTitleResponse.toJSON({ task });
+}
+
+async function handleTaskSetUserTitle(body: unknown): Promise<unknown> {
+  const req = TaskSetUserTitleRequest.fromJSON(body);
+  const task = await taskStore.setUserTitle(req.dir, req.id, req.userTitle);
+  return TaskSetUserTitleResponse.toJSON({ task });
+}
+
+async function handleTaskRemove(body: unknown): Promise<unknown> {
+  const req = TaskRemoveRequest.fromJSON(body);
+  await taskStore.remove(req.dir, req.id);
+  return TaskRemoveResponse.toJSON({});
+}
+
+async function handleResumableSessionList(body: unknown): Promise<unknown> {
+  const req = ResumableSessionListRequest.fromJSON(body);
+  return ResumableSessionListResponse.toJSON({
+    sessionIds: await taskStore.resumableSessionIds(req.dir),
+  });
 }
 
 async function handleGitGithubIdentity(body: unknown): Promise<unknown> {
@@ -659,7 +762,7 @@ async function handleWorktreeRemove(body: unknown, ctx: RpcContext): Promise<unk
   // サイドバーにゾンビ行が出る。projectKey 解決は req.dir（main repo dir、削除されない側）から
   // 行う（req.path は物理削除済みなので anchor にすると projectKey が変わる）。失敗は notify で
   // ユーザーに伝える
-  const cleanup = await tryCatch(removeTasksByWorktree(req.dir, req.path));
+  const cleanup = await tryCatch(taskStore.removeByWorktree(req.dir, req.path));
   if (!cleanup.ok) {
     console.error(`[TaskStore] removeTasksByWorktree failed: ${cleanup.error}`);
     ctx.push("notify", {
@@ -671,6 +774,170 @@ async function handleWorktreeRemove(body: unknown, ctx: RpcContext): Promise<unk
     });
   }
   return GitWorktreeRemoveResponse.toJSON({});
+}
+
+async function handleProjectConfigLoad(body: unknown): Promise<unknown> {
+  const req = ProjectConfigLoadRequest.fromJSON(body);
+  return ProjectConfigLoadResponse.toJSON({ config: await loadProjectConfig(req.dir) });
+}
+
+async function handleProjectConfigSave(body: unknown): Promise<unknown> {
+  const req = ProjectConfigSaveRequest.fromJSON(body);
+  if (req.config === undefined) throw new Error("projectConfig/save: config is required");
+  await saveProjectConfig(req.dir, req.config);
+  return ProjectConfigSaveResponse.toJSON({});
+}
+
+// `openExternal` で許可する URL scheme の allowlist。OSC 8 リンクや WebLinksAddon 経由で
+// 任意 scheme が流れ込み得るので、ブラウザで開く想定の scheme のみを許可する
+// （Swift 版 openExternalAllowedSchemes と同一集合）
+const OPEN_EXTERNAL_ALLOWED_SCHEMES = new Set(["http:", "https:", "mailto:"]);
+
+async function handleOpenExternal(body: unknown): Promise<unknown> {
+  const req = OpenExternalRequest.fromJSON(body);
+  const parsed = tryCatch(() => new URL(req.url));
+  if (!parsed.ok) throw new Error(`invalid url: ${req.url}`);
+  if (!OPEN_EXTERNAL_ALLOWED_SCHEMES.has(parsed.value.protocol)) {
+    throw new Error(`scheme not allowed: ${parsed.value.protocol}`);
+  }
+  await shell.openExternal(req.url);
+  return OpenExternalResponse.toJSON({});
+}
+
+async function handleOpenFile(body: unknown): Promise<unknown> {
+  const req = OpenFileRequest.fromJSON(body);
+  // path は renderer が解決済みの絶対パス契約。非絶対（空文字含む）を CWD 基準で silent に
+  // 解決する暗黙 fallback を塞ぐため、入口で明示エラーに倒す（Swift 版と同じ規律）
+  if (!req.path.startsWith("/")) {
+    throw new Error(`path must be absolute: ${req.path}`);
+  }
+  // 存在チェックは契約検証ではなく、renderer 側の描画 gate を抜けた race
+  // （表示直後に実体が消えた等）向けの safety net。無言 no-op を避けエラートーストを出す
+  if (!existsSync(req.path)) {
+    throw new Error(`file not found: ${req.path}`);
+  }
+  const errorMessage = await shell.openPath(req.path);
+  if (errorMessage !== "") {
+    throw new Error(`failed to open: ${errorMessage}`);
+  }
+  return OpenFileResponse.toJSON({});
+}
+
+async function handlePickAndOpen(body: unknown, ctx: RpcContext): Promise<unknown> {
+  PickAndOpenRequest.fromJSON(body);
+  const result = await dialog.showOpenDialog({
+    properties: ["openDirectory"],
+    buttonLabel: "Open",
+    message: "Select a directory to open",
+  });
+  // ユーザーがキャンセルした場合は何もしない
+  const [pickedPath = ""] = result.filePaths;
+  if (!result.canceled && pickedPath !== "") {
+    ctx.push("gozdOpen", await buildGozdOpenPayload(pickedPath));
+  }
+  return PickAndOpenResponse.toJSON({});
+}
+
+function handleWindowClose(body: unknown): unknown {
+  WindowCloseRequest.fromJSON(body);
+  // シングルウィンドウ運用ではアプリ終了相当（Swift 版 NSApplication.terminate と同じ）
+  app.quit();
+  return WindowCloseResponse.toJSON({});
+}
+
+function handleWindowSetTitleContext(body: unknown): unknown {
+  const req = WindowSetTitleContextRequest.fromJSON(body);
+  // "repo · worktree" 形式に整形。Swift 版は titlebar の ToolbarItem に出すが、
+  // Electron shell は対応する native toolbar を持たないため window title に反映する。
+  // gozd はシングルウィンドウなので全 window に適用で実質固定
+  const parts = [req.repoName, req.worktreeName].filter((part) => part !== "");
+  const text = parts.join(" · ");
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.setTitle(text === "" ? "gozd" : text);
+  }
+  return WindowSetTitleContextResponse.toJSON({});
+}
+
+async function handleClaudeSessionRemoveByPty(body: unknown, ctx: RpcContext): Promise<unknown> {
+  const req = ClaudeSessionRemoveByPtyRequest.fromJSON(body);
+  // Swift 版は expectedResumeSid 残存による resume 失敗検出も担うが、その記録は hooks
+  // 統合と同時に移植する（冒頭の紐付けマップのコメント参照）。現状は live session の
+  // detach と紐付けクリアのみを行う（sessionIdById は hooks 未統合のため常に空 =
+  // 「素 PTY pane close」の正常経路に倒れる）
+  const liveSid = sessionIdById.get(req.ptyId) ?? "";
+  if (liveSid !== "") {
+    // ターミナル close は session-end hook を発火させないため、ここで明示的に
+    // detachSession を呼び closed_by_user=true を立てる。task 本体と sessionID は保持
+    const result = await tryCatch(taskStore.detachSession(req.worktreePath, liveSid));
+    if (!result.ok) {
+      console.error(`[TaskStore] detachSession (removeByPty) failed: ${result.error}`);
+      ctx.push("notify", {
+        type: "error",
+        source: "task-store",
+        message: "Failed to detach session on terminal close",
+        detail: String(result.error),
+        dir: req.worktreePath,
+      });
+    }
+  }
+  // 削除 RPC 受信後に到達する late hook を弾くための紐付けクリア（hooks 統合で参照）
+  worktreePathById.delete(req.ptyId);
+  sessionIdById.delete(req.ptyId);
+  explicitlyRemovedPtyIds.add(req.ptyId);
+  return ClaudeSessionRemoveByPtyResponse.toJSON({ removedSessionId: liveSid });
+}
+
+function handleClaudeSessionReadLog(body: unknown): unknown {
+  const req = ClaudeSessionLogRequest.fromJSON(body);
+  const result = readClaudeSessionLog(req.sessionId);
+  return ClaudeSessionLogResponse.toJSON({
+    found: result.found,
+    watchDir: result.watchDir,
+    entries: result.entries,
+  });
+}
+
+function handleShellCommandInstall(body: unknown): unknown {
+  ShellCommandInstallRequest.fromJSON(body);
+  return ShellCommandInstallResponse.toJSON(installShellCommand());
+}
+
+function handleShellCommandUninstall(body: unknown): unknown {
+  ShellCommandUninstallRequest.fromJSON(body);
+  return ShellCommandUninstallResponse.toJSON(uninstallShellCommand());
+}
+
+async function handleVoicevoxLaunch(body: unknown): Promise<unknown> {
+  VoicevoxLaunchRequest.fromJSON(body);
+  return VoicevoxLaunchResponse.toJSON({ ok: await voicevoxLaunch() });
+}
+
+async function handleVoicevoxCheckEngine(body: unknown): Promise<unknown> {
+  VoicevoxCheckEngineRequest.fromJSON(body);
+  return VoicevoxCheckEngineResponse.toJSON({ ok: await checkEngine() });
+}
+
+async function handleVoicevoxListSpeakers(body: unknown): Promise<unknown> {
+  VoicevoxListSpeakersRequest.fromJSON(body);
+  const speakers = await listSpeakers();
+  // engine 起動失敗 / network 失敗は空 list にフォールバックしつつ、silent drop 禁止規律
+  // として stderr に観察ログを残す（listSpeakers 内部でも要因別にログ済み）
+  if (speakers === undefined) {
+    console.error("[handleVoicevoxListSpeakers] listSpeakers returned undefined; responding with empty list");
+  }
+  return VoicevoxListSpeakersResponse.toJSON({ speakers: speakers ?? [] });
+}
+
+async function handleVoicevoxSpeak(body: unknown): Promise<unknown> {
+  const req = VoicevoxSpeakRequest.fromJSON(body);
+  const wav = await speak({
+    text: req.text,
+    speedScale: req.speedScale,
+    volumeScale: req.volumeScale,
+    speakerId: req.speakerId,
+  });
+  // 合成失敗時は空 wav（proto 契約: 失敗時は空。再生側が空をスキップする）
+  return VoicevoxSpeakResponse.toJSON({ wav: wav ?? new Uint8Array() });
 }
 
 function handleWindowSetServerPanelOpen(): unknown {
@@ -724,5 +991,25 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/pty/kill", handlePtyKill],
   ["/server/list", handleServerList],
   ["/task/list", handleTaskList],
+  ["/task/add", handleTaskAdd],
+  ["/task/setTerminalTitle", handleTaskSetTerminalTitle],
+  ["/task/setUserTitle", handleTaskSetUserTitle],
+  ["/task/remove", handleTaskRemove],
+  ["/task/resumableSessions", handleResumableSessionList],
+  ["/projectConfig/load", handleProjectConfigLoad],
+  ["/projectConfig/save", handleProjectConfigSave],
+  ["/open/external", handleOpenExternal],
+  ["/open/file", handleOpenFile],
+  ["/open/pickAndOpen", handlePickAndOpen],
+  ["/window/close", handleWindowClose],
+  ["/window/setTitleContext", handleWindowSetTitleContext],
   ["/window/setServerPanelOpen", handleWindowSetServerPanelOpen],
+  ["/claudeSession/removeByPty", handleClaudeSessionRemoveByPty],
+  ["/claudeSession/readLog", handleClaudeSessionReadLog],
+  ["/shellCommand/install", handleShellCommandInstall],
+  ["/shellCommand/uninstall", handleShellCommandUninstall],
+  ["/voicevox/launch", handleVoicevoxLaunch],
+  ["/voicevox/checkEngine", handleVoicevoxCheckEngine],
+  ["/voicevox/listSpeakers", handleVoicevoxListSpeakers],
+  ["/voicevox/speak", handleVoicevoxSpeak],
 ]);

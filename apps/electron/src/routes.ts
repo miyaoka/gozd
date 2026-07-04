@@ -587,6 +587,10 @@ async function handleGitShowFile(body: unknown): Promise<unknown> {
 
 async function handleGitShowCommitFile(body: unknown): Promise<unknown> {
   const req = body as GitShowCommitFileRequest;
+  // rev は `git show <rev>:<path>` / `git rev-parse` に渡るため、他 git ルートと同じ
+  // 入口 safety net（option 注入 / 非 hex の reject）を通す。compareHash は空文字を許容
+  validateRev(req.hash);
+  validateRev(req.compareHash);
   // 単一コミット選択 (compareHash 空) では GitHub と同等の <hash>^ vs <hash> 比較に揃える
   // （commitFiles のファイル一覧と diff endpoint を一致させる。root commit は <hash>^ が
   // 解決失敗 → notFound=true となり追加扱いに自然解決する）。範囲選択 (compareHash 非空) では

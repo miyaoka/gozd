@@ -8,13 +8,13 @@ import {
   type PathTarget,
 } from "../worktree";
 import { collectIndentedBlock } from "./collectIndentedBlock";
+import type { CwdTracker } from "./cwdTracker";
 import {
   type AbsolutePathMatch,
   findAbsolutePathMatches,
   resolveHomeDir,
 } from "./findAbsolutePathMatches";
 import { findRelativePaths } from "./findRelativePaths";
-import { useTerminalStore } from "./useTerminalStore";
 
 /**
  * ターミナル出力中のファイルパスを検出し、クリックでファイラー/プレビューに反映する LinkProvider を作成する。
@@ -23,14 +23,17 @@ import { useTerminalStore } from "./useTerminalStore";
  *   - Preview は fsReadFileAbsolute で内容表示する
  *   - FilerPane のツリーは active worktree 配下しか持たないため reveal 対象外
  *     （ツリー上で選択ハイライトされない契約）
- * - 相対パスはシェルの cwd（OSC 7 で追跡、`cwdByLeafId`）を基準に解決する。
- *   cwd 未取得（OSC 7 を送らないシェル等）は worktree root 基準に fallback する
+ * - 相対パスは「その行が出力された時点のシェル cwd」（OSC 7 遷移を cwdTracker が行位置つきで
+ *   追跡）を基準に解決する。cwd 不明（OSC 7 を送らないシェル / 最初の遷移より前の行）は
+ *   worktree root 基準に fallback する
  * - Claude Code が明示的改行+インデントで折り返した長いパスも結合して検出
  */
-export function createFilePathLinkProvider(terminal: Terminal, leafId: string): ILinkProvider {
+export function createFilePathLinkProvider(
+  terminal: Terminal,
+  cwdTracker: CwdTracker,
+): ILinkProvider {
   const worktreeStore = useWorktreeStore();
   const previewStore = usePreviewStore();
-  const terminalStore = useTerminalStore();
 
   return {
     provideLinks(bufferLineNumber, callback) {
@@ -71,7 +74,7 @@ export function createFilePathLinkProvider(terminal: Terminal, leafId: string): 
       );
 
       // 相対パスの検出（現在行のテキストのみ）
-      const cwd = terminalStore.cwdByLeafId[leafId];
+      const cwd = cwdTracker.cwdAtLine(bufferLineNumber - 1);
       findRelativePathLinks(text, dirPrefix, cwd, bufLine, bufferLineNumber, previewStore, links);
 
       callback(links.length > 0 ? links : undefined);
@@ -210,11 +213,11 @@ function findRelativePathLinks(
  * ターミナル出力中の相対パスを PathTarget に解決する。
  *
  * ツール（tsc / eslint 等）はパスを実行時の pwd 基準で出力するため、worktree root 基準で
- * 解決するとサブディレクトリで実行した出力のリンク先がずれる。シェルの cwd
- * （OSC 7 で追跡）を基準に絶対パス化し、worktree 内に収まれば worktreeRelative
+ * 解決するとサブディレクトリで実行した出力のリンク先がずれる。その行の出力時点の
+ * シェル cwd（cwdTracker）を基準に絶対パス化し、worktree 内に収まれば worktreeRelative
  * （filer reveal が成立）、worktree 外（別 repo に cd した場合等）は absolute に倒す。
  *
- * - cwd 未取得（OSC 7 を送らないシェル / chpwd 前）は従来どおり worktree root 基準
+ * - cwd 不明（OSC 7 を送らないシェル / 最初の遷移より前の行）は従来どおり worktree root 基準
  * - dirPrefix は worktree root の末尾 `/` 付き絶対パス
  *
  * export は test 可能性のため（`clipMatchToCurrentLine` と同じ規律）。

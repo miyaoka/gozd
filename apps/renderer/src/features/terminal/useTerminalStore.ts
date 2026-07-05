@@ -78,14 +78,6 @@ export const useTerminalStore = defineStore("terminal", () => {
   /** leafId → ターミナルタイトル（OSC 0/2 で更新される） */
   const titleByLeafId = ref<Record<string, string>>({});
 
-  /**
-   * leafId → シェルの現在ディレクトリ（zsh chpwd hook が送る OSC 7 で更新される）。
-   * 相対パスリンクの解決基準（useFilePathLinkProvider）。component ローカルではなく
-   * store に置くのは title と同じ理由: OSC 7 は chpwd 時にしか流れないため、
-   * ring buffer から evict された後の再マウント（HMR 等）で replay からは復元できない。
-   */
-  const cwdByLeafId = ref<Record<string, string>>({});
-
   /** 直近のタイトル更新（外部の watch 用シグナル） */
   const lastTitleUpdate = shallowRef<{ leafId: string; title: string }>();
 
@@ -298,7 +290,6 @@ export const useTerminalStore = defineStore("terminal", () => {
             // kill は実行する。paneRegistry にまだ entry があるので killPty は有効。
             ptySession.killPty(leafId);
             delete titleByLeafId.value[leafId];
-            delete cwdByLeafId.value[leafId];
             delete pendingResumeByLeafId.value[leafId];
             delete pendingAutostartByLeafId.value[leafId];
             delete paneRegistry.value[leafId];
@@ -308,7 +299,6 @@ export const useTerminalStore = defineStore("terminal", () => {
           // Claude セッションを持たない pane（spawn 前 / 素 PTY のみ）は同期で完結。
           ptySession.killPty(leafId);
           delete titleByLeafId.value[leafId];
-          delete cwdByLeafId.value[leafId];
           delete pendingResumeByLeafId.value[leafId];
           delete pendingAutostartByLeafId.value[leafId];
           delete paneRegistry.value[leafId];
@@ -633,11 +623,6 @@ export const useTerminalStore = defineStore("terminal", () => {
     if (ptyId !== undefined) claude.observeTitle(ptyId, title);
   }
 
-  /** OSC 7 で通知されたシェル cwd を保存する（相対パスリンクの解決基準） */
-  function setCwd(leafId: string, cwd: string) {
-    cwdByLeafId.value[leafId] = cwd;
-  }
-
   // --- drag suspend ---
 
   function incrementDragSuspend() {
@@ -656,7 +641,6 @@ export const useTerminalStore = defineStore("terminal", () => {
     viewMode,
     toggleViewMode,
     titleByLeafId,
-    cwdByLeafId,
     lastTitleUpdate,
     lastRemovedSessionInfo,
     lastRemovedLeafId,
@@ -689,7 +673,6 @@ export const useTerminalStore = defineStore("terminal", () => {
     getLeafIdByPtyId,
     // title
     setTitle,
-    setCwd,
     // drag
     incrementDragSuspend,
     decrementDragSuspend,

@@ -4,8 +4,11 @@
 
 import { describe, expect, test } from "bun:test";
 import type { PaneEntry } from "./ptySession";
-import { createPtySessionManager, PTY_RING_BUFFER_MAX_CHARS } from "./ptySession";
-import { terminalScrollback } from "./terminalConfig";
+import {
+  createPtySessionManager,
+  PTY_RING_BUFFER_CAPACITY,
+  PTY_RING_BUFFER_MAX_CHARS,
+} from "./ptySession";
 
 /** in-memory の pane registry を持つ manager を作り、leaf "leaf" を spawn 済みにする */
 async function setupManager() {
@@ -47,12 +50,12 @@ describe("ptySession ring buffer", () => {
   test("チャンク数上限を超えると古いチャンクから破棄される", async () => {
     const manager = await setupManager();
     const overflow = 5;
-    const total = terminalScrollback + overflow;
+    const total = PTY_RING_BUFFER_CAPACITY + overflow;
     for (let i = 0; i < total; i++) {
       manager.handlePtyData(1, `c${i}`);
     }
     const replayed = replayChunks(manager);
-    expect(replayed.length).toBe(terminalScrollback);
+    expect(replayed.length).toBe(PTY_RING_BUFFER_CAPACITY);
     expect(replayed[0]).toBe(`c${overflow}`);
     expect(replayed[replayed.length - 1]).toBe(`c${total - 1}`);
   });

@@ -22,7 +22,7 @@ export interface PaneEntry {
 }
 
 /** ring buffer の容量（チャンク数）。scrollback（行数）とは単位が異なるが、十分な再生データを保持する目安として同じ値を使う */
-const PTY_RING_BUFFER_CAPACITY = terminalScrollback;
+export const PTY_RING_BUFFER_CAPACITY = terminalScrollback;
 
 /**
  * ring buffer が保持する総文字数の上限。JS string は UTF-16 なのでメモリ占有は約 2 倍のバイト数。

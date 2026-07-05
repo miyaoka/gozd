@@ -70,6 +70,17 @@ function buildIconMaps(): IconMaps {
     svgUrlByBasename.set(basename, url);
   }
 
+  // glob マッチ 0 件は build / typecheck を通過し、後段の per-icon エラー（"SVG x.svg not found"）が
+  // 単一ファイル欠落を誤示唆する。全滅は alias 解決・node_modules 配置・Vite バージョンといった
+  // 全体に及ぶ原因なので、ここで根本原因を名指しして throw する（silent drop 禁止の規律）
+  if (svgUrlByBasename.size === 0) {
+    throw new Error(
+      'material-icon-theme: import.meta.glob("$material-icons/*.svg") matched 0 files. ' +
+        "Check the $material-icons alias in vite.config.ts, the node_modules layout, " +
+        "and the Vite version (>= 8.0.8 for alias glob in production build; vitejs/vite issue 22193).",
+    );
+  }
+
   const iconUrlByName = buildIconUrlByName(manifest.iconDefinitions ?? {}, svgUrlByBasename);
 
   const fileNameMap = new Map<string, string>();

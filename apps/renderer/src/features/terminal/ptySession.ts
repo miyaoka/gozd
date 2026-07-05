@@ -8,6 +8,10 @@ interface PtySession {
   chunks: string[];
   /** 書き込み済み総チャンク数（ring buffer のインデックス計算用） */
   totalChunks: number;
+  /** 保持している最古チャンクの通し番号。これより前は容量上限で破棄済み */
+  startChunk: number;
+  /** 保持中チャンクの合計文字数（PTY_RING_BUFFER_MAX_CHARS との比較用） */
+  bufferedChars: number;
   /** PTY 終了済みか */
   exited: boolean;
 }
@@ -18,7 +22,43 @@ export interface PaneEntry {
 }
 
 /** ring buffer の容量（チャンク数）。scrollback（行数）とは単位が異なるが、十分な再生データを保持する目安として同じ値を使う */
-const PTY_RING_BUFFER_CAPACITY = terminalScrollback;
+export const PTY_RING_BUFFER_CAPACITY = terminalScrollback;
+
+/**
+ * ring buffer が保持する総文字数の上限。JS string は UTF-16 なのでメモリ占有は約 2 倍のバイト数。
+ * チャンクサイズは PTY read 単位次第で数十 B〜数十 KB までばらつくため、チャンク数上限だけでは
+ * 総メモリが実質無制限になる（TUI の高頻度再描画で 1 ターミナルあたり 200MB 級。issue #894）。
+ * 8Mi 文字 ≈ 16 MiB/台。scrollback 10,000 行（ANSI エスケープ込み）の復元には十分な値
+ */
+export const PTY_RING_BUFFER_MAX_CHARS = 8 * 1024 * 1024;
+
+/**
+ * ring buffer にチャンクを追記する。チャンク数（PTY_RING_BUFFER_CAPACITY）と
+ * 総文字数（PTY_RING_BUFFER_MAX_CHARS）の二重上限で、古いチャンクから破棄する。
+ * 直近のチャンクは単体で上限を超えていても必ず 1 個残す
+ */
+function pushChunk(session: PtySession, data: string) {
+  // チャンク数が満杯なら、これから上書きする最古チャンクの分を先に差し引く
+  if (session.totalChunks - session.startChunk === PTY_RING_BUFFER_CAPACITY) {
+    session.bufferedChars -= session.chunks[session.startChunk % PTY_RING_BUFFER_CAPACITY].length;
+    session.startChunk++;
+  }
+  session.chunks[session.totalChunks % PTY_RING_BUFFER_CAPACITY] = data;
+  session.totalChunks++;
+  session.bufferedChars += data.length;
+
+  // 総文字数上限を超えたら最古チャンクから破棄する。空文字代入は、上書きで
+  // ring が一周するまで文字列参照が残り GC できないのを防ぐため
+  while (
+    session.bufferedChars > PTY_RING_BUFFER_MAX_CHARS &&
+    session.totalChunks - session.startChunk > 1
+  ) {
+    const oldestIdx = session.startChunk % PTY_RING_BUFFER_CAPACITY;
+    session.bufferedChars -= session.chunks[oldestIdx].length;
+    session.chunks[oldestIdx] = "";
+    session.startChunk++;
+  }
+}
 
 /** paneRegistry への session 読み書きアクセサ。store が所有する paneRegistry の session フィールドだけを操作する */
 interface PaneSessionAccessor {
@@ -90,10 +130,7 @@ export function createPtySessionManager(deps: PtySessionManagerDeps) {
     if (entry?.session === undefined) return;
 
     // ring buffer に追記
-    const session = entry.session;
-    const idx = session.totalChunks % PTY_RING_BUFFER_CAPACITY;
-    session.chunks[idx] = data;
-    session.totalChunks++;
+    pushChunk(entry.session, data);
 
     // attach 中の terminal に即時転送
     const writer = terminalWriters.get(leafId);
@@ -112,9 +149,7 @@ export function createPtySessionManager(deps: PtySessionManagerDeps) {
 
     // ring buffer に終了メッセージを追記
     const exitMsg = "\r\n[Process exited]\r\n";
-    const idx = session.totalChunks % PTY_RING_BUFFER_CAPACITY;
-    session.chunks[idx] = exitMsg;
-    session.totalChunks++;
+    pushChunk(session, exitMsg);
 
     const writer = terminalWriters.get(leafId);
     if (writer !== undefined) writer(exitMsg);
@@ -161,6 +196,8 @@ export function createPtySessionManager(deps: PtySessionManagerDeps) {
       ptyId,
       chunks: Array.from<string>({ length: PTY_RING_BUFFER_CAPACITY }),
       totalChunks: 0,
+      startChunk: 0,
+      bufferedChars: 0,
       exited: false,
     };
 
@@ -193,9 +230,7 @@ export function createPtySessionManager(deps: PtySessionManagerDeps) {
     if (entry?.session !== undefined) {
       // ring buffer replay
       const session = entry.session;
-      const stored = Math.min(session.totalChunks, PTY_RING_BUFFER_CAPACITY);
-      const startIdx = session.totalChunks - stored;
-      for (let i = startIdx; i < session.totalChunks; i++) {
+      for (let i = session.startChunk; i < session.totalChunks; i++) {
         writer(session.chunks[i % PTY_RING_BUFFER_CAPACITY]);
       }
     }

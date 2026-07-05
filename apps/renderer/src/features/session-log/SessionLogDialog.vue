@@ -60,6 +60,7 @@ import {
   groupByWorkflow,
   newestSubagentTrackId,
   timelineAxisRange,
+  type BranchSelectPayload,
   type SubagentLinkResult,
   type TimelineSession,
   type TimelineTrack,
@@ -102,15 +103,15 @@ const parsedSessions = computed<ParsedSessionTab[]>(() =>
 // 枝切替は parsed を差し替えるため Transcript の parsed watch が走るが、scrollTarget を立てて
 // おくとボトム追従を抑止して分岐点位置を保てる。scrollTarget は scrollNonce で必ず変化させ、
 // 同 ts への連続切替でも子の watch を発火させる。
-function selectBranch(tabId: string, branchKey: string, childUuid: string, ts: string) {
+function selectBranch({ sessionKey, branchKey, childUuid, ts }: BranchSelectPayload) {
   const next = new Map(branchSelections.value);
-  const inner = new Map(next.get(tabId) ?? []);
+  const inner = new Map(next.get(sessionKey) ?? []);
   inner.set(branchKey, childUuid);
-  next.set(tabId, inner);
+  next.set(sessionKey, inner);
   branchSelections.value = next;
 
   const target = { ts, nonce: ++scrollNonce };
-  if (tabId === mainSession.value?.id) mainScrollTarget.value = target;
+  if (sessionKey === mainSession.value?.id) mainScrollTarget.value = target;
   else subScrollTarget.value = target;
 }
 
@@ -361,9 +362,7 @@ function onDialogClick(event: MouseEvent) {
           class="min-w-0 flex-1"
           @open-subagent="openSubagent"
           @current-ts="onMainCurrentTs"
-          @select-branch="
-            selectBranch(mainSession.id, $event.branchKey, $event.childUuid, $event.ts)
-          "
+          @select-branch="selectBranch"
         />
 
         <!-- 右: 選択中の subagent (あれば横並び)。scrollTo で呼び出し時刻へ同期する。 -->
@@ -376,7 +375,7 @@ function onDialogClick(event: MouseEvent) {
           :session-key="activeSub.id"
           :scroll-to="subScrollTarget"
           class="min-w-0 flex-1 border-l border-border-subtle"
-          @select-branch="selectBranch(activeSub.id, $event.branchKey, $event.childUuid, $event.ts)"
+          @select-branch="selectBranch"
         />
       </div>
     </div>

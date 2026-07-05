@@ -1,6 +1,12 @@
 import type { IBufferLine, ILink, ILinkProvider, Terminal } from "@xterm/xterm";
 import { usePreviewStore } from "../preview";
-import { pathTargetToString, useWorktreeStore } from "../worktree";
+import {
+  joinAbsRel,
+  normalizeAbsolute,
+  pathTargetToString,
+  useWorktreeStore,
+  type PathTarget,
+} from "../worktree";
 import { collectIndentedBlock } from "./collectIndentedBlock";
 import {
   type AbsolutePathMatch,
@@ -8,6 +14,7 @@ import {
   resolveHomeDir,
 } from "./findAbsolutePathMatches";
 import { findRelativePaths } from "./findRelativePaths";
+import { useTerminalStore } from "./useTerminalStore";
 
 /**
  * ターミナル出力中のファイルパスを検出し、クリックでファイラー/プレビューに反映する LinkProvider を作成する。
@@ -16,11 +23,14 @@ import { findRelativePaths } from "./findRelativePaths";
  *   - Preview は fsReadFileAbsolute で内容表示する
  *   - FilerPane のツリーは active worktree 配下しか持たないため reveal 対象外
  *     （ツリー上で選択ハイライトされない契約）
+ * - 相対パスはシェルの cwd（OSC 7 で追跡、`cwdByLeafId`）を基準に解決する。
+ *   cwd 未取得（OSC 7 を送らないシェル等）は worktree root 基準に fallback する
  * - Claude Code が明示的改行+インデントで折り返した長いパスも結合して検出
  */
-export function createFilePathLinkProvider(terminal: Terminal): ILinkProvider {
+export function createFilePathLinkProvider(terminal: Terminal, leafId: string): ILinkProvider {
   const worktreeStore = useWorktreeStore();
   const previewStore = usePreviewStore();
+  const terminalStore = useTerminalStore();
 
   return {
     provideLinks(bufferLineNumber, callback) {
@@ -61,7 +71,8 @@ export function createFilePathLinkProvider(terminal: Terminal): ILinkProvider {
       );
 
       // 相対パスの検出（現在行のテキストのみ）
-      findRelativePathLinks(text, bufLine, bufferLineNumber, previewStore, links);
+      const cwd = terminalStore.cwdByLeafId[leafId];
+      findRelativePathLinks(text, dirPrefix, cwd, bufLine, bufferLineNumber, previewStore, links);
 
       callback(links.length > 0 ? links : undefined);
     },
@@ -157,6 +168,8 @@ function pushLink(
 /** 相対パスを検出してリンクを作成する */
 function findRelativePathLinks(
   text: string,
+  dirPrefix: string,
+  cwd: string | undefined,
   bufLine: IBufferLine,
   lineNumber: number,
   previewStore: ReturnType<typeof usePreviewStore>,
@@ -177,18 +190,46 @@ function findRelativePathLinks(
 
     if (startCellX === -1 || endCellX === -1) continue;
 
+    const target = resolveRelativePathTarget(relPath, dirPrefix, cwd);
+
     links.push({
       range: {
         start: { x: startCellX + 1, y: lineNumber },
         end: { x: endCellX + 1, y: lineNumber },
       },
-      text: relPath,
+      text: pathTargetToString(target),
       activate: (event) => {
         if (!event.shiftKey) return;
-        previewStore.requestSelect({ kind: "worktreeRelative", relPath }, lineNum);
+        previewStore.requestSelect(target, lineNum);
       },
     });
   }
+}
+
+/**
+ * ターミナル出力中の相対パスを PathTarget に解決する。
+ *
+ * ツール（tsc / eslint 等）はパスを実行時の pwd 基準で出力するため、worktree root 基準で
+ * 解決するとサブディレクトリで実行した出力のリンク先がずれる。シェルの cwd
+ * （OSC 7 で追跡）を基準に絶対パス化し、worktree 内に収まれば worktreeRelative
+ * （filer reveal が成立）、worktree 外（別 repo に cd した場合等）は absolute に倒す。
+ *
+ * - cwd 未取得（OSC 7 を送らないシェル / chpwd 前）は従来どおり worktree root 基準
+ * - dirPrefix は worktree root の末尾 `/` 付き絶対パス
+ *
+ * export は test 可能性のため（`clipMatchToCurrentLine` と同じ規律）。
+ */
+export function resolveRelativePathTarget(
+  relPath: string,
+  dirPrefix: string,
+  cwd: string | undefined,
+): PathTarget {
+  if (cwd === undefined) return { kind: "worktreeRelative", relPath };
+  const absPath = normalizeAbsolute(joinAbsRel(cwd, relPath));
+  if (absPath.startsWith(dirPrefix)) {
+    return { kind: "worktreeRelative", relPath: absPath.slice(dirPrefix.length) };
+  }
+  return { kind: "absolute", absPath };
 }
 
 /** リンクの範囲が指定区間と重複するか判定する（同一行のみ） */

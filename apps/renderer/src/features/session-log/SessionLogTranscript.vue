@@ -63,7 +63,12 @@ import { MarkdownBody } from "../preview";
 import SessionLogSubagentButton from "./SessionLogSubagentButton.vue";
 import SessionLogTimestamp from "./SessionLogTimestamp.vue";
 import SessionLogToolArg from "./SessionLogToolArg.vue";
-import { formatModelLabel, nearestEventIndexByTs, type SubagentLinkResult } from "./sessionLogView";
+import {
+  type BranchSelectPayload,
+  formatModelLabel,
+  nearestEventIndexByTs,
+  type SubagentLinkResult,
+} from "./sessionLogView";
 import IconLucideArrowDown from "~icons/lucide/arrow-down";
 import IconLucideGitBranch from "~icons/lucide/git-branch";
 import IconLucideUsers from "~icons/lucide/users";
@@ -91,9 +96,9 @@ const emit = defineEmits<{
   // topmost に見えている会話イベントの ts。親 (SessionLogDialog) が横断タイムラインの
   // playhead 位置に使う。スクロールに追従して発火する。
   (e: "current-ts", ts: string): void;
-  // rewind 分岐セレクタのクリック。親がそのタブの branch 選択を更新して transcript を
-  // 該当バージョンへ再構築する。ts は選択枝先頭の時刻で、切替後にその分岐点へ寄せるのに使う。
-  (e: "select-branch", payload: { branchKey: string; childUuid: string; ts: string }): void;
+  // rewind 分岐セレクタのクリック。親が payload.sessionKey のタブの branch 選択を更新して
+  // transcript を該当バージョンへ再構築する。ts は選択枝先頭の時刻で、切替後にその分岐点へ寄せるのに使う。
+  (e: "select-branch", payload: BranchSelectPayload): void;
 }>();
 
 const notify = useNotificationStore();
@@ -109,6 +114,19 @@ type EventKind = TranscriptEvent["kind"];
 const DEFAULT_COLLAPSED = new Set<EventKind>(["thinking", "tool"]);
 function defaultOpen(kind: EventKind): boolean {
   return !DEFAULT_COLLAPSED.has(kind);
+}
+
+// rewind 分岐セレクタの選択肢クリック。vue-tsc 3.3.6 以降、複数行のインラインハンドラは
+// 関数スコープに包まれ v-if による ev の narrowing がハンドラ式内へ届かないため、
+// union のまま受けて script 側で絞り直す。
+function selectBranchOption(ev: TranscriptEvent, opt: { childUuid: string; ts: string }) {
+  if (ev.kind !== "branch") return;
+  emit("select-branch", {
+    sessionKey: props.sessionKey,
+    branchKey: ev.branchKey,
+    childUuid: opt.childUuid,
+    ts: opt.ts,
+  });
 }
 
 // tool input の整形済み JSON (event index → 文字列)。テンプレートで毎回 JSON.stringify すると
@@ -535,13 +553,7 @@ onBeforeUnmount(teardownObserver);
                 : 'border-border text-foreground-low hover:bg-element-hover hover:text-foreground'
             "
             :title="opt.lead"
-            @click="
-              emit('select-branch', {
-                branchKey: ev.branchKey,
-                childUuid: opt.childUuid,
-                ts: opt.ts,
-              })
-            "
+            @click="selectBranchOption(ev, opt)"
           >
             <span class="shrink-0 tabular-nums">#{{ opt.index }}</span>
             <span v-if="opt.lead !== ''" class="min-w-0 truncate">{{ opt.lead }}</span>

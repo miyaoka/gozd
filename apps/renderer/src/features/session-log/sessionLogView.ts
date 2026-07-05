@@ -25,6 +25,19 @@ export function formatModelLabel(model: string): string {
   return `${MODEL_FAMILY_LABELS[family]} ${major}.${minor}`;
 }
 
+/**
+ * SessionLogTranscript の `select-branch` emit payload (SessionLogDialog との契約)。
+ * sessionKey で発火元タブを自己記述する。親側ハンドラでタブを特定し直す形にすると
+ * v-if で narrowing した値の参照が必要になり、vue-tsc 3.3.6 以降インラインハンドラは
+ * 関数スコープに包まれて narrowing が届かないため、payload 側で完結させる。
+ */
+export interface BranchSelectPayload {
+  sessionKey: string;
+  branchKey: string;
+  childUuid: string;
+  ts: string;
+}
+
 // --- subagent 紐付け / 時刻ジャンプ (SessionLogDialog / SessionLogTranscript が使う純関数) ---
 
 /** main の Agent / SendMessage 行を起動/宛先 subagent に結ぶリンク。 */

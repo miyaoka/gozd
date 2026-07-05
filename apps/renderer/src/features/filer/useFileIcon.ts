@@ -51,14 +51,16 @@ function buildIconMaps(): IconMaps {
 
   /** Vite が SVG をハッシュ付き URL に変換した結果（basename → URL） */
   const svgUrlByBasename = new Map<string, string>();
-  const svgModules = import.meta.glob<string>("/node_modules/material-icon-theme/icons/*.svg", {
+  // "$material-icons" は vite.config.ts の alias。Node の module resolution で解決した
+  // material-icon-theme/icons の実体ディレクトリを指す（node_modules の物理配置に依存しない）
+  const svgModules = import.meta.glob<string>("$material-icons/*.svg", {
     eager: true,
     import: "default",
     query: "?url",
     exhaustive: true,
   });
   for (const [path, url] of Object.entries(svgModules)) {
-    // "/node_modules/material-icon-theme/icons/folder-development.clone.svg" → "folder-development.clone"
+    // ".../icons/folder-development.clone.svg" → "folder-development.clone"
     const [, basename] = path.match(/\/([^/]+)\.svg$/) ?? [];
     if (basename === undefined) {
       throw new Error(

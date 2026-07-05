@@ -1,8 +1,20 @@
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { docBlockPlugin } from "@miyaoka/vite-plugin-doc-block";
 import tailwindcss from "@tailwindcss/vite";
 import vue from "@vitejs/plugin-vue";
 import Icons from "unplugin-icons/vite";
 import { defineConfig } from "vite";
+
+// material-icon-theme の SVG を import.meta.glob で列挙するための alias。
+// nodeLinker: hoisted ではパッケージ実体が repo root の node_modules に置かれ、
+// Vite root (apps/renderer) 基準の "/node_modules/..." glob ではマッチしない。
+// Node の module resolution を SSOT に実体ディレクトリを解決し、配置方式に依存させない。
+const require = createRequire(import.meta.url);
+const materialIconsDir = join(
+  dirname(require.resolve("material-icon-theme/package.json")),
+  "icons",
+);
 
 // dev server port は env `GOZD_DEV_VITE_PORT` (root の `pnpm dev` script で設定) を SSOT として
 // 受け取る。Swift 側 (`RpcSchemeHandler` の Origin allowlist / `ExternalLinkNavigationDecider` の
@@ -23,6 +35,13 @@ export default defineConfig(() => {
     // font-size でサイズ指定している icon (text-xs 等) は 1em 基準が前提
     plugins: [docBlockPlugin(), tailwindcss(), vue(), Icons({ compiler: "vue3", scale: 1 })],
     base: "./",
+    resolve: {
+      alias: {
+        // "$" 始まりは実 fs パスへの alias の慣習 (SvelteKit $lib と同型)。"~" は
+        // unplugin-icons の virtual module (~icons/) と紛れるため使わない
+        "$material-icons": materialIconsDir,
+      },
+    },
     server: {
       port: portEnv !== undefined && portEnv !== "" ? Number(portEnv) : undefined,
       strictPort: true,

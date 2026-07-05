@@ -1,7 +1,57 @@
 import { describe, expect, test } from "bun:test";
 import { findAbsolutePathMatches } from "./findAbsolutePathMatches";
 import { findRelativePaths } from "./findRelativePaths";
-import { clipMatchToCurrentLine } from "./useFilePathLinkProvider";
+import { clipMatchToCurrentLine, resolveRelativePathTarget } from "./useFilePathLinkProvider";
+
+describe("resolveRelativePathTarget", () => {
+  const dirPrefix = "/Users/foo/repo/";
+
+  test("cwd 未取得は worktree root 基準に fallback する", () => {
+    expect(resolveRelativePathTarget("src/main.ts", dirPrefix, undefined)).toEqual({
+      kind: "worktreeRelative",
+      relPath: "src/main.ts",
+    });
+  });
+
+  test("cwd = worktree root は従来と同じ相対パスに解決する", () => {
+    expect(resolveRelativePathTarget("src/main.ts", dirPrefix, "/Users/foo/repo")).toEqual({
+      kind: "worktreeRelative",
+      relPath: "src/main.ts",
+    });
+  });
+
+  test("cwd がサブディレクトリなら cwd 基準で worktree 相対に解決する", () => {
+    expect(
+      resolveRelativePathTarget("src/main.ts", dirPrefix, "/Users/foo/repo/apps/renderer"),
+    ).toEqual({
+      kind: "worktreeRelative",
+      relPath: "apps/renderer/src/main.ts",
+    });
+  });
+
+  test("`..` を含む相対パスを正規化して解決する", () => {
+    expect(
+      resolveRelativePathTarget("../shared/a.ts", dirPrefix, "/Users/foo/repo/apps/renderer"),
+    ).toEqual({
+      kind: "worktreeRelative",
+      relPath: "apps/shared/a.ts",
+    });
+  });
+
+  test("worktree 外に出る相対パスは absolute に倒す", () => {
+    expect(resolveRelativePathTarget("../other/a.ts", dirPrefix, "/Users/foo/repo")).toEqual({
+      kind: "absolute",
+      absPath: "/Users/foo/other/a.ts",
+    });
+  });
+
+  test("cwd が worktree 外（別 repo に cd）なら absolute に解決する", () => {
+    expect(resolveRelativePathTarget("src/a.ts", dirPrefix, "/Users/foo/another")).toEqual({
+      kind: "absolute",
+      absPath: "/Users/foo/another/src/a.ts",
+    });
+  });
+});
 
 describe("findRelativePaths", () => {
   test("基本的な相対パスを検出する", () => {

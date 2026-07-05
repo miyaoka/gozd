@@ -11,6 +11,8 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal, type IMarker } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
+import { createCwdTracker } from "./cwdTracker";
+import { parseOsc7Cwd } from "./parseOsc7Cwd";
 import { rpcOpenExternal, rpcPtyResize, rpcPtyWrite } from "./rpc";
 import {
   currentTheme,
@@ -154,8 +156,19 @@ onMounted(async () => {
     activate: (event, text) => openLink(event, text),
   };
 
+  // zsh の chpwd hook（_gozd_osc7_cwd）が送る OSC 7 からシェルの cwd 遷移を
+  // バッファ行位置つきで追跡する。相対パスリンクの解決基準（useFilePathLinkProvider）に使う
+  const cwdTracker = createCwdTracker(terminal);
+  terminal.parser.registerOscHandler(7, (data) => {
+    const cwd = parseOsc7Cwd(data);
+    if (cwd !== undefined) {
+      cwdTracker.observe(cwd);
+    }
+    return true;
+  });
+
   // ファイルパスをクリックでファイラー/プレビューに反映する
-  terminal.registerLinkProvider(createFilePathLinkProvider(terminal));
+  terminal.registerLinkProvider(createFilePathLinkProvider(terminal, cwdTracker));
 
   // xterm.js の onTitleChange でタイトル変更を受け取り store に保存する
   // xterm.js 内部で OSC 0/2 を処理済みなので registerOscHandler ではなくイベントを購読する

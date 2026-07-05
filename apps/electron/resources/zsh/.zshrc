@@ -8,9 +8,12 @@ export ZDOTDIR="$_gozd_user_zdotdir"
 # .zshrc は non-login shell の最後の初期化ファイルなので、ZDOTDIR をユーザー側に固定する
 # （gozd 側に戻さない。claude() 関数は環境変数で動作するため ZDOTDIR に依存しない）
 
-# CWD を OSC 7 でターミナルに通知する（xterm.js 側で registerOscHandler(7) で受け取る）
+# CWD を OSC 7 でターミナルに通知する（xterm.js 側で registerOscHandler(7) で受け取る）。
+# 受信側（parseOsc7Cwd）は decodeURIComponent を通すため `%` だけ `%25` に escape する。
+# 非 ASCII は生 UTF-8 のまま送っても decode で素通りするので full encode は不要で、
+# パス中の literal `%XX` が誤 decode されるのだけを防げばよい
 _gozd_osc7_cwd() {
-  printf '\e]7;file://%s%s\a' "${HOST}" "${PWD}"
+  printf '\e]7;file://%s%s\a' "${HOST}" "${PWD//\%/%25}"
 }
 autoload -Uz add-zsh-hook
 add-zsh-hook chpwd _gozd_osc7_cwd

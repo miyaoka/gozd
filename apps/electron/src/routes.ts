@@ -166,14 +166,46 @@ import { taskStore } from "./taskStore";
 import { checkEngine, launch as voicevoxLaunch, listSpeakers, speak } from "./voicevox";
 
 const ptys = new Map<number, IPty>();
+// ptyId → onData/onExit listener を dispose する closure。
+// node-pty の onData/onExit は native NAPI ThreadSafeFunction callback を登録する。
+// dispose せずに kill / quit すると stale callback が node::FreeEnvironment() まで生き残り、
+// 破壊済み env 上で NAPI が呼び出そうとして SIGABRT する（アプリ終了時クラッシュの真因）。
+const ptyDisposers = new Map<number, () => void>();
 let nextPtyId = 1;
+
+function disposePtyListeners(id: number): void {
+  ptyDisposers.get(id)?.();
+  ptyDisposers.delete(id);
+}
+
+/** ptmx master を閉じて fd を解放する。node-pty の destroy() は socket close 時に
+ * `kill('SIGHUP')` を撃つが、子 reaped 後は pid が別プロセスに再利用されて誤爆しうる。
+ * destroy 前に kill を no-op 化してこの遅延 SIGHUP を無効化する。master を閉じると
+ * カーネルが tty hangup で foreground process group に SIGHUP を配り、閉じ忘れた
+ * サーバー子プロセスも落とせる。destroy は public 型に無いため cast で呼ぶ。 */
+function closePtyMaster(pty: IPty): void {
+  const handle = pty as unknown as { kill: (sig?: string) => void; destroy?: () => void };
+  handle.kill = () => {};
+  tryCatch(() => handle.destroy?.());
+}
+
+/** PTY を明示的に破棄する（単一 kill / 終了時の全 kill 共通）。listener の dispose を
+ * kill より先に行い、FreeEnvironment 中の stale callback による SIGABRT を防ぐ。 */
+function teardownPty(id: number, pty: IPty): void {
+  disposePtyListeners(id);
+  pty.kill();
+  closePtyMaster(pty);
+  ptys.delete(id);
+  unregisterExit(id);
+}
 
 /** will-quit で全 PTY を始末する */
 export function killAllPtys(): void {
-  for (const pty of ptys.values()) {
-    pty.kill();
+  // teardownPty は自分がイテレート中の現在の id だけを ptys から削除する。
+  // Map は現在エントリの削除に対してイテレーションを安全に継続するため直接回せる
+  for (const [id, pty] of ptys) {
+    teardownPty(id, pty);
   }
-  ptys.clear();
 }
 
 // 実行中サーバーの周期検出（Swift 版 PortScanner 対応物）。push 先の window は
@@ -231,10 +263,14 @@ function handlePtySpawn(body: unknown, ctx: RpcContext): unknown {
   // resume 失敗（SessionStart 不達）と判定する
   registerSpawn(id, req.worktreePath, req.env.GOZD_RESUME_CLAUDE_SESSION ?? "");
 
-  pty.onData((text) => {
+  const dataDisposable = pty.onData((text) => {
     ctx.push("ptyText", { id, text });
   });
-  pty.onExit(({ exitCode, signal }) => {
+  const exitDisposable = pty.onExit(({ exitCode, signal }) => {
+    // 自然終了。子 reaped 直後に closePtyMaster で kill を無効化して、destroy の
+    // 遅延 SIGHUP が recycled pid に着弾する window を閉じ、ptmx fd も解放する
+    closePtyMaster(pty);
+    disposePtyListeners(id);
     ptys.delete(id);
     unregisterExit(id);
     // Swift PTYExitReason と同形の payload（terminal/rpc.ts の PtyExitReason 契約）
@@ -243,6 +279,11 @@ function handlePtySpawn(body: unknown, ctx: RpcContext): unknown {
         ? { kind: "signaled", signal }
         : { kind: "exited", exitCode };
     ctx.push("ptyExit", { id, reason });
+  });
+  // onData/onExit の IDisposable を保持し、teardownPty / 自然 exit で dispose する
+  ptyDisposers.set(id, () => {
+    dataDisposable.dispose();
+    exitDisposable.dispose();
   });
 
   return ({ ptyId: id }) satisfies PtySpawnResponse;
@@ -268,8 +309,7 @@ function handlePtyKill(body: unknown): unknown {
   const req = body as PtyKillRequest;
   const pty = ptys.get(req.ptyId);
   if (pty === undefined) throw new Error(`pty/kill: unknown ptyId ${req.ptyId}`);
-  pty.kill();
-  ptys.delete(req.ptyId);
+  teardownPty(req.ptyId, pty);
   return ({}) satisfies PtyKillResponse;
 }
 

@@ -23,7 +23,7 @@ import IconLucideTriangleAlert from "~icons/lucide/triangle-alert";
 import IconLucideX from "~icons/lucide/x";
 
 const props = defineProps<{
-  type: "error" | "info";
+  type: "error" | "warning" | "info";
   message: string;
   cause?: unknown;
 }>();
@@ -51,16 +51,19 @@ const copyIconMap: Record<CopyState, FunctionalComponent<SVGAttributes>> = {
 
 const iconMap = {
   error: IconLucideCircleX,
+  warning: IconLucideTriangleAlert,
   info: IconLucideInfo,
 } as const;
 
 const colorMap = {
   error: "border-destructive bg-destructive-subtle",
+  warning: "border-warning bg-warning-subtle",
   info: "border-border bg-background",
 } as const;
 
 const iconColorMap = {
   error: "text-destructive-text",
+  warning: "text-warning-text",
   info: "text-primary-text",
 } as const;
 

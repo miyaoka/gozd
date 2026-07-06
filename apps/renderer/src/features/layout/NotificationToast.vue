@@ -4,7 +4,7 @@ Popover API (`popover="manual"`) によるトースト通知。
 ## 動作
 
 - 通知が存在する間 popover を open にし、空になったら hide する
-- error は手動クローズのみ、info は自動消去（store 側で管理）
+- error は手動クローズのみ、warning / info は自動消去（store 側で管理）
 - 複数通知は下から上へスタック表示
 </doc>
 

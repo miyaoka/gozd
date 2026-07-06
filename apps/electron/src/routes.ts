@@ -166,10 +166,10 @@ import { taskStore } from "./taskStore";
 import { checkEngine, launch as voicevoxLaunch, listSpeakers, speak } from "./voicevox";
 
 const ptys = new Map<number, IPty>();
-// ptyId → onData/onExit listener を dispose する closure。
-// node-pty の onData/onExit は native NAPI ThreadSafeFunction callback を登録する。
-// dispose せずに kill / quit すると stale callback が node::FreeEnvironment() まで生き残り、
-// 破壊済み env 上で NAPI が呼び出そうとして SIGABRT する（アプリ終了時クラッシュの真因）。
+// ptyId → onData/onExit listener を dispose する closure。onData/onExit は純粋な JS
+// EventEmitter なので、dispose しても node-pty 内部の exit ThreadSafeFunction は止まらない
+// （終了時 SIGABRT 回避の主因は closePtyMaster 側。下記参照）。dispose の役割は、破棄中に
+// 遅延 onExit が発火して破棄済み webContents への ctx.push を呼ぶのを防ぐ多重防御。
 const ptyDisposers = new Map<number, () => void>();
 let nextPtyId = 1;
 
@@ -178,19 +178,27 @@ function disposePtyListeners(id: number): void {
   ptyDisposers.delete(id);
 }
 
-/** ptmx master を閉じて fd を解放する。node-pty の destroy() は socket close 時に
- * `kill('SIGHUP')` を撃つが、子 reaped 後は pid が別プロセスに再利用されて誤爆しうる。
- * destroy 前に kill を no-op 化してこの遅延 SIGHUP を無効化する。master を閉じると
- * カーネルが tty hangup で foreground process group に SIGHUP を配り、閉じ忘れた
- * サーバー子プロセスも落とせる。destroy は public 型に無いため cast で呼ぶ。 */
+/** ptmx master を閉じる。これが終了時 SIGABRT 回避の主因。
+ * node-pty の exit callback（native waitpid ベースの ThreadSafeFunction）は listener の
+ * dispose では止まらず、子 reaped 時に必ず JS の onexit closure を呼ぶ。その closure は
+ * socket 未 close（`_emittedClose === false`）だと `setTimeout` を張る分岐に入り、env 破棄中
+ * (FreeEnvironment) にこれを踏むと NAPI が throw して SIGABRT する。destroy() が socket を
+ * 閉じて `_emittedClose` を立てると、遅れて着弾する native onexit は純 JS の emit 分岐へ
+ * 落ちて無害化する。併せて ptmx fd を解放し、tty hangup で foreground process group
+ * （閉じ忘れたサーバー子プロセス）を掃除する。destroy() は close 時に `kill('SIGHUP')` を
+ * 撃つが、子 reaped 後は pid が別プロセスに再利用され誤爆しうるため、destroy 前に kill を
+ * no-op 化して無効化する。destroy は public 型に無いため cast で呼ぶ。 */
 function closePtyMaster(pty: IPty): void {
   const handle = pty as unknown as { kill: (sig?: string) => void; destroy?: () => void };
   handle.kill = () => {};
-  tryCatch(() => handle.destroy?.());
+  const result = tryCatch(() => handle.destroy?.());
+  if (!result.ok) {
+    console.error(`[closePtyMaster] destroy failed: ${result.error}`);
+  }
 }
 
-/** PTY を明示的に破棄する（単一 kill / 終了時の全 kill 共通）。listener の dispose を
- * kill より先に行い、FreeEnvironment 中の stale callback による SIGABRT を防ぐ。 */
+/** PTY を明示的に破棄する（単一 kill / 終了時の全 kill 共通）。closePtyMaster が終了時
+ * SIGABRT 回避の主因、dispose は破棄中の ctx.push を防ぐ多重防御。 */
 function teardownPty(id: number, pty: IPty): void {
   disposePtyListeners(id);
   pty.kill();
@@ -267,8 +275,8 @@ function handlePtySpawn(body: unknown, ctx: RpcContext): unknown {
     ctx.push("ptyText", { id, text });
   });
   const exitDisposable = pty.onExit(({ exitCode, signal }) => {
-    // 自然終了。子 reaped 直後に closePtyMaster で kill を無効化して、destroy の
-    // 遅延 SIGHUP が recycled pid に着弾する window を閉じ、ptmx fd も解放する
+    // 自然終了。closePtyMaster で ptmx fd を解放し、destroy の遅延 SIGHUP を
+    // 無効化する（子 reaped 後の recycled pid への誤爆を防ぐ）
     closePtyMaster(pty);
     disposePtyListeners(id);
     ptys.delete(id);

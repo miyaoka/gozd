@@ -49,8 +49,8 @@ sequenceDiagram
     end
 
     R->>N: ptyKill({ id })
-    N->>N: dispose onData/onExit（FreeEnvironment SIGABRT 回避）
-    N->>P: kill(pid, SIGHUP) + destroy(masterFd)
+    N->>N: dispose onData/onExit（破棄中 push の多重防御）
+    N->>P: kill(pid, SIGHUP) + destroy(masterFd)（socket close で終了時 SIGABRT を回避）
 
     Note over P,R: 自然終了は waitpid → ptyExit({ id, reason }) を push
 ```
@@ -266,7 +266,8 @@ write() 後（onWriteParsed で集約）:
 ## main 側の PTY 管理
 
 - PTY の実体は node-pty。instance の所有は `apps/electron/src/routes.ts`、PTY ⇔ Claude session の紐付けは `ptySessions.ts` が持つ
-- アプリ終了時 (`will-quit`) の `killAllPtys`・個別 kill・worktree 削除は共通の破棄経路（`teardownPty`）を通す。順序が契約: **node-pty の onData/onExit listener を kill より先に dispose する**。dispose を怠ると native の ThreadSafeFunction callback が `node::FreeEnvironment()`（env 破棄）まで生き残り、破壊済み env 上で NAPI が呼び出そうとして SIGABRT で落ちる（アプリ終了時クラッシュの真因）
-- kill（shell への SIGHUP）だけでは配下のサーバー子プロセスが orphan 化して残る。`destroy()` で ptmx master を閉じると、カーネルが tty hangup で foreground process group に SIGHUP を配り、閉じ忘れた子まで落ちる（同時に master fd リークも防ぐ）。ただし node-pty の destroy は socket close 時に遅延 SIGHUP を撃ち、子 reaped 後は pid が別プロセスに再利用されて誤爆しうるため、destroy 前に kill を no-op 化して無効化する
+- アプリ終了時 (`will-quit`) の `killAllPtys`・個別 kill・worktree 削除は共通の破棄経路（`teardownPty`）を通す
+- **アプリ終了時 SIGABRT 回避の主因は `destroy()`（ptmx master を閉じる）**。node-pty の exit callback（native waitpid ベースの ThreadSafeFunction）は listener の dispose では止まらず、子 reaped 時に必ず内部の onexit closure を呼ぶ。この closure は socket 未 close だと `setTimeout` を張る分岐に入り、env 破棄中（`FreeEnvironment`）にこれを踏むと NAPI が throw して SIGABRT する。`destroy()` が socket を閉じ `_emittedClose` を立てると、遅れて着弾する native onexit は純 JS の emit 分岐へ落ちて無害化する。onData/onExit listener の dispose は、破棄中に遅延 onExit が破棄済み webContents への `ctx.push` を呼ぶのを防ぐ多重防御（crash の主因対策ではない）
+- `destroy()` は同時に、kill（shell への SIGHUP）だけでは残る配下のサーバー子プロセスを掃除する。ptmx master を閉じるとカーネルが tty hangup で foreground process group に SIGHUP を配り、閉じ忘れた子まで落ちる（master fd リークも防ぐ）。ただし node-pty の destroy は socket close 時に遅延 SIGHUP を撃ち、子 reaped 後は pid が別プロセスに再利用されて誤爆しうるため、destroy 前に kill を no-op 化して無効化する
 - worktree 削除時は worktreePath で該当 PTY を特定して kill
 - spawn のワイヤ契約は argv 全体（args[0] = プログラム名）。node-pty は argv[0] を含めない流儀のため main 側で `args.slice(1)` して渡す

@@ -6,6 +6,7 @@
 // テキスト形式（path 文字列）と違い、貼り付け先にはファイル実体が渡る。
 
 import { clipboard } from "electron";
+import { existsSync } from "node:fs";
 
 const XML_ESCAPES: Record<string, string> = {
   "&": "&amp;",
@@ -20,6 +21,14 @@ function escapeXml(value: string): string {
 export function writeFilesToClipboard(paths: string[]): void {
   if (paths.length === 0) {
     throw new Error("paths is empty");
+  }
+  // 存在しないパス（git status D の削除済みファイル等）を書くと、クリップボード書き込み自体は
+  // 成功して "Copied" 通知が出るのに paste 先では何も得られない dangling reference になる。
+  // false-success を作らないため実体の存在を検証して throw する（renderer 側で error toast になる）
+  for (const p of paths) {
+    if (!existsSync(p)) {
+      throw new Error(`file not found: ${p}`);
+    }
   }
   const items = paths.map((p) => `<string>${escapeXml(p)}</string>`).join("");
   const plist = [

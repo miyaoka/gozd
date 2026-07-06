@@ -19,10 +19,6 @@ const currentBranchOnly = defineModel<boolean>("currentBranchOnly", { required: 
 const sortMode = defineModel<SortMode>("sortMode", { required: true });
 const detailOpen = defineModel<boolean>("detailOpen", { required: true });
 
-const emit = defineEmits<{
-  scrollToHead: [];
-}>();
-
 function toggleSortMode() {
   sortMode.value = sortMode.value === "date" ? "topo" : "date";
 }
@@ -50,13 +46,6 @@ function toggleSortMode() {
     <ToggleChip :active="sortMode === 'topo'" @click="toggleSortMode">
       {{ sortMode === "date" ? "Date Order" : "Topo Order" }}
     </ToggleChip>
-    <button
-      type="button"
-      class="rounded-sm px-1.5 py-0.5 text-[10px] text-foreground-low hover:text-foreground"
-      @click="emit('scrollToHead')"
-    >
-      Scroll to HEAD
-    </button>
     <ToggleChip
       class="ml-auto"
       :active="detailOpen"

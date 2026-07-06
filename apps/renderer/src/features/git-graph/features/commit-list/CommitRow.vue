@@ -39,11 +39,15 @@ const emit = defineEmits<{
 
 const gitGraphStore = useGitGraphStore();
 
-const highlightClass = computed(() =>
-  gitGraphStore.isSelectedRow(props.node.commit.hash)
-    ? "bg-primary-subtle hover:bg-primary-subtle-hover"
-    : "hover:bg-element-hover",
-);
+// 選択と HEAD は別軸。選択を最優先、次に HEAD 行の持続背景、通常は hover のみ。
+const highlightClass = computed(() => {
+  if (gitGraphStore.isSelectedRow(props.node.commit.hash))
+    return "bg-primary-subtle hover:bg-primary-subtle-hover";
+  // HEAD 行は lane 0 (HEAD 予約色 teal/green) 帯で示す。graph 専用色なので token 非依存で直接指定。
+  if (props.node.commit.hash === gitGraphStore.headHash)
+    return "bg-[#50da6336] hover:bg-[#50da634d]";
+  return "hover:bg-element-hover";
+});
 
 const displayRefs = computed(() =>
   computeDisplayRefs(
@@ -72,9 +76,9 @@ function onContextmenu(e: MouseEvent) {
 
 <template>
   <div
-    class="_graph-row grid items-center text-xs"
+    class="_graph-row col-span-full grid grid-cols-subgrid items-center text-xs"
     :class="highlightClass"
-    :style="{ gridTemplateColumns: 'var(--graph-cols)', height: `${ROW_HEIGHT}px` }"
+    :style="{ height: `${ROW_HEIGHT}px` }"
     @click="emit('rowClick', node.commit.hash, $event)"
     @contextmenu="onContextmenu"
   >
@@ -83,7 +87,7 @@ function onContextmenu(e: MouseEvent) {
     <div></div>
 
     <!-- col 2 (description) -->
-    <div class="flex min-w-0 items-center gap-1 truncate pr-2">
+    <div class="flex min-w-0 items-center gap-1 truncate px-1">
       <IconLucideGitMerge
         v-if="isMergeCommit(node.commit)"
         class="size-3.5 shrink-0 text-foreground-low"
@@ -100,17 +104,17 @@ function onContextmenu(e: MouseEvent) {
     </div>
 
     <!-- col 3 (date) -->
-    <div class="text-foreground-low">
+    <div class="truncate px-1 text-foreground-low">
       {{ formatCompactTime(node.commit.date) }}
     </div>
 
     <!-- col 4 (author) -->
-    <div class="truncate text-foreground-low">
+    <div class="truncate px-1 text-foreground-low">
       {{ node.commit.author }}
     </div>
 
     <!-- col 5 (hash) -->
-    <div class="font-mono text-foreground-low">
+    <div class="truncate px-1 font-mono text-foreground-low">
       {{ node.commit.shortHash }}
     </div>
   </div>

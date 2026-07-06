@@ -10,7 +10,7 @@ import IconLucideMoreHorizontal from "~icons/lucide/more-horizontal";
 
 <template>
   <div
-    class="flex items-center gap-[0.5ch] bg-panel text-xs text-foreground-low select-none"
+    class="col-span-full flex items-center gap-[0.5ch] bg-panel text-xs text-foreground-low select-none"
     :style="{ height: `${ROW_HEIGHT}px`, paddingLeft: `${GRAPH_PADDING_X + LANE_WIDTH}px` }"
   >
     <IconLucideMoreHorizontal class="size-3.5 shrink-0" />

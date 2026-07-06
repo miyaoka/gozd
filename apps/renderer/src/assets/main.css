@@ -33,6 +33,13 @@
      アルファは利用側で color-mix で適用し、primitive は不透明値を持つ。 */
   --fx-aurora-blue-primitive: oklch(0.45 0.1 250);
   --fx-mesh-violet-primitive: oklch(0.4 0.11 320);
+
+  /* scroll-to-HEAD pill (git-graph の HEAD ジャンプ用フローティングボタン)。
+     primary (主 CTA) とは役割が異なり、theme に追従しない固定の深い青 + 白文字
+     (Slack の new-messages pill 相当) にするため brand-fixed primitive として隔離する。 */
+  --scroll-pill-primitive: oklch(0.48 0.11 250);
+  --scroll-pill-hover-primitive: oklch(0.53 0.11 250);
+  --scroll-pill-foreground-primitive: oklch(1 0 0);
 }
 
 /* layout 定数: カスタムタイトルバー（TitleBar.vue）の高さ。
@@ -164,6 +171,11 @@
   /* arcade FX 装飾色 (brand-fixed primitive を参照する semantic alias) */
   --color-fx-aurora-blue: var(--fx-aurora-blue-primitive);
   --color-fx-mesh-violet: var(--fx-mesh-violet-primitive);
+
+  /* scroll-to-HEAD pill (brand-fixed primitive を参照する semantic alias) */
+  --color-scroll-pill: var(--scroll-pill-primitive);
+  --color-scroll-pill-hover: var(--scroll-pill-hover-primitive);
+  --color-scroll-pill-foreground: var(--scroll-pill-foreground-primitive);
 }
 
 @layer base {

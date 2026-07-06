@@ -392,7 +392,6 @@ function onCommitContextmenu(payload: {
       v-model:sort-mode="sortMode"
       v-model:detail-open="detailOpen"
       :commit-count="commits.length"
-      @scroll-to-head="gitGraphStore.requestScrollToHead()"
     />
 
     <!-- Graph list + Detail pane (horizontal split) -->

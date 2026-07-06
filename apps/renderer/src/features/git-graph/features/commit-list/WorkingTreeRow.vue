@@ -1,6 +1,7 @@
 <doc lang="md">
-commit graph の Working Tree 固定行。scroll 領域の中に sticky で置くことで commit 行と同じ
-effective 幅・`--graph-cols` grid を共有し、列が揃う (scroll bar の有無に影響されない)。
+commit graph の Working Tree 固定行。master grid の subgrid として commit 行と同じ列トラックを
+共有し (`grid-cols-subgrid`)、sticky で最上部に留まる。列整合は subgrid が保証する
+(scroll bar の有無やセル内容差に影響されない)。
 </doc>
 
 <script setup lang="ts">
@@ -42,9 +43,9 @@ const highlightClass = computed(() =>
 
 <template>
   <div
-    class="_graph-row sticky top-0 z-10 grid items-center border-b border-border-subtle bg-background text-xs"
+    class="_graph-row sticky top-0 z-10 col-span-full grid grid-cols-subgrid items-center border-b border-border-subtle bg-background text-xs"
     :class="highlightClass"
-    :style="{ gridTemplateColumns: 'var(--graph-cols)', height: `${ROW_HEIGHT}px` }"
+    :style="{ height: `${ROW_HEIGHT}px` }"
     @click="emit('rowClick', $event)"
   >
     <!-- Working Tree 行の SVG: lane 0 にドット、下端へダッシュ線。grid 上に absolute で重ねる -->
@@ -77,14 +78,14 @@ const highlightClass = computed(() =>
     <div />
 
     <!-- col 2 (description) -->
-    <div class="flex min-w-0 items-center gap-1 truncate pr-2">
+    <div class="flex min-w-0 items-center gap-1 truncate px-1">
       <span class="truncate font-semibold text-foreground-low">Working Tree</span>
       <span v-if="changeCount === 0" class="text-foreground-low italic"> (Clean) </span>
       <StatusIcons v-else :entries="statusIcons" icon-size="size-4" />
     </div>
 
     <!-- col 3 (date): 変更ファイルの mtime 最大値。clean / 未取得時は空表示。 -->
-    <div class="text-foreground-low">
+    <div class="truncate px-1 text-foreground-low">
       {{ formatCompactTime(mtime) }}
     </div>
     <!-- col 4 (author) / col 5 (hash) は空セル。grid template が幅を確保する。 -->

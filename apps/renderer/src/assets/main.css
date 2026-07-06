@@ -58,6 +58,9 @@
 @theme inline {
   /* surfaces (1-5 step roles) */
   --color-background: var(--gray-1);
+  /* read-only surface: snapshot 等の不変コンテンツ面。element と同値だが役割が独立
+     (element の restyle で read-only 表現が巻き添えに変わるのを防ぐ) */
+  --color-background-readonly: var(--gray-3);
   --color-panel: var(--gray-2);
   --color-element: var(--gray-3);
   --color-element-hover: var(--gray-4);

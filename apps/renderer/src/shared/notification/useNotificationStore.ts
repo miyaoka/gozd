@@ -2,7 +2,7 @@
  * 通知ストア。module singleton パターン。
  * トースト通知の追加・削除・タイムアウト管理を行う。
  *
- * `error` / `info` は toast 表示 + console 出力、`debug` は **console.debug への
+ * `error` / `warning` / `info` は toast 表示 + console 出力、`debug` は **console.debug への
  * 集約窓口**で toast 表示なし。renderer 規約 (CLAUDE.md エラーハンドリング) で
  * 「呼び出し側で console を直書きしない (store 経由)」方針を満たすため、
  * 切り分け用 log もこの store 経由で発火する。
@@ -11,13 +11,13 @@ import { ref } from "vue";
 
 interface Notification {
   id: number;
-  type: "error" | "info";
+  type: "error" | "warning" | "info";
   message: string;
   cause?: unknown;
 }
 
-/** info 通知の自動消去時間（ms） */
-const INFO_AUTO_DISMISS_MS = 5000;
+/** warning / info 通知の自動消去時間（ms）。error は手動クローズのみ */
+const AUTO_DISMISS_MS = 5000;
 
 let nextId = 0;
 const notifications = ref<Notification[]>([]);
@@ -39,6 +39,7 @@ const lastEvent = ref<NotifyEvent | undefined>(undefined);
 
 const CONSOLE_BY_TYPE = {
   error: console.error,
+  warning: console.warn,
   info: console.info,
 } as const;
 
@@ -61,8 +62,8 @@ function add(type: Notification["type"], message: string, cause?: unknown) {
   const id = nextId++;
   notifications.value.push({ id, type, message, cause });
 
-  if (type === "info") {
-    const timer = setTimeout(() => dismiss(id), INFO_AUTO_DISMISS_MS);
+  if (type !== "error") {
+    const timer = setTimeout(() => dismiss(id), AUTO_DISMISS_MS);
     timers.set(id, timer);
   }
 }
@@ -91,6 +92,7 @@ export function useNotificationStore() {
     notifications,
     lastEvent,
     error: (message: string, cause?: unknown) => add("error", message, cause),
+    warning: (message: string, cause?: unknown) => add("warning", message, cause),
     info: (message: string, cause?: unknown) => add("info", message, cause),
     debug,
     dismiss,

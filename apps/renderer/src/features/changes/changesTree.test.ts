@@ -14,7 +14,7 @@ function ch(newFilePath: string): GitFileChange {
 describe("buildChangesTree", () => {
   /**
    * `displayPath` は chain 圧縮された folder 行の copy 対象 path として user に直接見える値。
-   * 右クリック menu の Copy file path で渡される relPath になるため、chain 圧縮ロジックの
+   * 右クリック menu の Copy path で渡される relPath になるため、chain 圧縮ロジックの
    * 境界条件を踏むテストを用意する。
    */
   describe("displayPath", () => {

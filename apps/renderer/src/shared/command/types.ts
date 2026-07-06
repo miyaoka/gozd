@@ -45,6 +45,7 @@ export interface KeyStroke {
 /** context key の名前と値型のマッピング */
 export interface ContextMap {
   terminalFocus: boolean;
+  filerFocus: boolean;
   previewVisible: boolean;
   previewEditMode: boolean;
   commandPaletteVisible: boolean;

@@ -19,6 +19,7 @@ import { useEventListener, useWindowSize } from "@vueuse/core";
 import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
+import { registerFilerCommands } from "../filer";
 import { GitGraphPane } from "../git-graph";
 import { NavigatorPane } from "../navigator";
 import {
@@ -74,6 +75,7 @@ const disposePrCommand = registerPrCommand();
 const disposeIssueCommand = registerIssueCommand();
 const disposeShellCommandActions = registerShellCommandActions();
 const disposeMarkdownHistoryCommands = registerMarkdownHistoryCommands();
+const disposeFilerCommands = registerFilerCommands();
 onUnmounted(disposePreviewToggle);
 onUnmounted(disposeWindowClose);
 onUnmounted(disposeThemeCommand);
@@ -82,6 +84,7 @@ onUnmounted(disposePrCommand);
 onUnmounted(disposeIssueCommand);
 onUnmounted(disposeShellCommandActions);
 onUnmounted(disposeMarkdownHistoryCommands);
+onUnmounted(disposeFilerCommands);
 
 /** ハンドル幅 w-2 = 8px */
 const HANDLE_WIDTH = 8;

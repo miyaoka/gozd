@@ -110,6 +110,12 @@ const props = defineProps<{
   depth: number;
   selectedRelPath?: string;
   /**
+   * 右クリック menu が open 中の操作対象 relPath。menu が閉じると undefined に戻る。
+   * 選択 (selectedRelPath) とは独立の一時状態で、menu の操作対象がどの行かを outline で
+   * 可視化する (右クリックで選択を動かすと preview 連動の副作用が出るため選択は変えない)。
+   */
+  menuTargetRelPath?: string;
+  /**
    * snapshot mode のとき、そのコミットの hash。working tree モードでは undefined。
    * 子に同じ値を継承する。
    */
@@ -180,6 +186,13 @@ const textColorClass = computed(() => {
   if (props.selectedRelPath === props.path) return "text-foreground";
   return "text-foreground";
 });
+
+// snapshot mode では面自体が element と同値 (background-readonly = gray step 3) に上がるため、
+// hover / 選択を element のままにすると同色で識別が消える。1 段明るい element-hover に逃がす
+const rowHoverClass = computed(() =>
+  isSnapshot.value ? "hover:bg-element-hover" : "hover:bg-element",
+);
+const rowSelectedClass = computed(() => (isSnapshot.value ? "bg-element-hover" : "bg-element"));
 
 /** 削除ファイルかどうか (snapshot mode では発生しない) */
 const isDeleted = computed(() => !isSnapshot.value && props.gitChange === "deleted");
@@ -431,9 +444,11 @@ function onContextMenu(event: MouseEvent) {
     <button
       v-if="!isRoot"
       ref="button"
-      class="flex w-full items-center gap-1 rounded-sm px-1 py-0.5 text-left text-sm hover:bg-element"
+      class="flex w-full items-center gap-1 rounded-sm px-1 py-0.5 text-left text-sm"
       :class="[
-        selectedRelPath === path ? 'bg-element' : '',
+        rowHoverClass,
+        selectedRelPath === path ? rowSelectedClass : '',
+        menuTargetRelPath === path ? 'ring-1 ring-ring ring-inset' : '',
         textColorClass,
         isDeleted ? 'text-foreground-muted line-through' : '',
         isInertLeaf ? 'cursor-not-allowed text-foreground-muted' : '',
@@ -482,6 +497,7 @@ function onContextMenu(event: MouseEvent) {
         :snapshot-hash="snapshotHash"
         :depth="depth + 1"
         :selected-rel-path="selectedRelPath"
+        :menu-target-rel-path="menuTargetRelPath"
         @select="onChildSelect"
         @context-menu="(payload) => emit('contextMenu', payload)"
       />

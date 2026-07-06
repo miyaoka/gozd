@@ -84,7 +84,7 @@ function onChildToggle(fullPath: string) {
  * - file leaf: `change.newFilePath` を relPath に
  * - folder: chain 圧縮の **最深** folder fullPath (`displayPath`) を relPath に。user が UI で
  *   見ている folder 行 (例: `.github/workflows`) は実体として一意に決まる folder path を指す
- *   ため、Copy file path として渡す path が曖昧になることはない。Filer の directory 行と
+ *   ため、Copy path として渡す path が曖昧になることはない。Filer の directory 行と
  *   同じく menu 対象に揃える
  *
  * light-dismiss 回避 (pointerup 待機) は NavigatorPane が処理する責務。本 component は

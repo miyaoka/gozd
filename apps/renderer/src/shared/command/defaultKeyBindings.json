@@ -8,6 +8,7 @@
     "command": "markdownPreview.forward",
     "when": "previewVisible && !inputFocused"
   },
+  { "key": "cmd+c", "command": "filer.copyFile", "when": "filerFocus && !inputFocused" },
   { "key": "cmd+d", "command": "terminal.splitHorizontal", "when": "terminalFocus" },
   { "key": "shift+cmd+d", "command": "terminal.splitVertical", "when": "terminalFocus" },
   { "key": "cmd+w", "command": "terminal.closePane", "when": "terminalFocus" },

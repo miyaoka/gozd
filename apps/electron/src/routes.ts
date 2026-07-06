@@ -9,6 +9,8 @@ import type {
   ClaudeSessionLogResponse,
   ClaudeSessionRemoveByPtyRequest,
   ClaudeSessionRemoveByPtyResponse,
+  ClipboardCopyFilesRequest,
+  ClipboardCopyFilesResponse,
   CreateWorktreeRequest,
   CreateWorktreeResponse,
   EchoRequest,
@@ -130,6 +132,7 @@ import { app, BrowserWindow, dialog, shell } from "electron";
 import { existsSync } from "node:fs";
 import { spawn, type IPty } from "node-pty";
 import { readClaudeSessionLog } from "./claude/claudeSessionLog";
+import { writeFilesToClipboard } from "./clipboardOps";
 import { readDir, readFile, readFileAbsolute, stat, writeFile } from "./fs/fsOps";
 import { createFsWatchRegistry } from "./fs/fsWatchRegistry";
 import { blameLine, logFile, logLine } from "./git/gitBlame";
@@ -899,6 +902,12 @@ function handleClaudeSessionReadLog(body: unknown): unknown {
   }) satisfies ClaudeSessionLogResponse;
 }
 
+function handleClipboardCopyFiles(body: unknown): unknown {
+  const req = body as ClipboardCopyFilesRequest;
+  writeFilesToClipboard(req.paths);
+  return ({}) satisfies ClipboardCopyFilesResponse;
+}
+
 function handleShellCommandInstall(): unknown {
   return (installShellCommand()) satisfies ShellCommandInstallResponse;
 }
@@ -1005,6 +1014,7 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/window/setServerPanelOpen", handleWindowSetServerPanelOpen],
   ["/claudeSession/removeByPty", handleClaudeSessionRemoveByPty],
   ["/claudeSession/readLog", handleClaudeSessionReadLog],
+  ["/clipboard/copyFiles", handleClipboardCopyFiles],
   ["/shellCommand/install", handleShellCommandInstall],
   ["/shellCommand/uninstall", handleShellCommandUninstall],
   ["/voicevox/launch", handleVoicevoxLaunch],

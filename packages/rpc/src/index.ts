@@ -29,6 +29,7 @@ export type {
   ClaudeSessionRemoveByPtyRequest,
   ClaudeSessionRemoveByPtyResponse,
 } from "./claudeSession";
+export type { ClipboardCopyFilesRequest, ClipboardCopyFilesResponse } from "./clipboard";
 export type { ClientMessage, HookMessage, OpenMessage } from "./clientMessage";
 export type {
   GhRef,

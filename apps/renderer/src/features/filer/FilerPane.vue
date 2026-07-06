@@ -19,6 +19,11 @@
   既存 CommitMode 経路 (`gitShowCommitFile`) で from/to を取得する
 - snapshot mode 切替時、選択中ファイルが snapshot tree に存在しないと Filer ハイライトが消え
   Preview は CommitMode の `not_found` 規約で "File not found" を表示する（既存契約）
+- snapshot は不変（編集不可）であることを、ツリー背景の read-only surface への切替で伝える
+- working tree に戻る "Now" ボタンはヘッダーではなく tree 右上に float させる。フリーズした
+  過去（グレー面）の上に脱出口を重ねることで「ここは過去、押すと now」の対比が空間的に伝わる。
+  表示条件は `snapshotHash` 単独（commits ウィンドウ未ロードで日時が解決できなくても snapshot
+  mode 自体は継続しているため、日時表示の成否と独立して出し続ける）
 
 ## selection リセット
 
@@ -36,15 +41,23 @@
 </doc>
 
 <script setup lang="ts">
+import { useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import { computed, onUnmounted, watch } from "vue";
+import { computed, onUnmounted, useTemplateRef, watch } from "vue";
+import { useContextKeys } from "../../shared/command";
 import { onMessage } from "../../shared/rpc";
 import { useGitGraphStore } from "../git-graph";
 import type { FileContextMenuPayload } from "../navigator";
-import { useGitStatusStore, useWorktreeStore } from "../worktree";
+import { UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../worktree";
 import FileTreeItem from "./FileTreeItem.vue";
 import type { FsChangePayload } from "./rpc";
 import { useFilerEventStore } from "./useFilerEventStore";
+
+// 右クリック menu open 中の操作対象 relPath。menu state の SSOT は navigator の popover
+// singleton だが、依存方向 (navigator → 子) を保つため props で受けて FileTreeItem に流す
+const props = defineProps<{
+  menuTargetRelPath?: string;
+}>();
 
 const emit = defineEmits<{
   select: [relPath: string];
@@ -70,6 +83,25 @@ const filerEventStore = useFilerEventStore();
 const snapshotHash = computed(() =>
   gitGraphStore.isSnapshotMode ? selectedHash.value : undefined,
 );
+
+// filerFocus context key の同期。ツリー行は <button> なのでクリック / Tab でフォーカスが
+// 入り、focusin/focusout がコンテナまで bubble する。focusout はツリー内のフォーカス移動
+// （行間の移動）でも発火するため、移動先がコンテナ内なら維持する。
+const rootRef = useTemplateRef<HTMLElement>("root");
+const contextKeys = useContextKeys();
+useEventListener(rootRef, "focusin", () => contextKeys.set("filerFocus", true));
+useEventListener(rootRef, "focusout", (e: FocusEvent) => {
+  const next = e.relatedTarget;
+  if (next instanceof Node && rootRef.value?.contains(next)) return;
+  contextKeys.set("filerFocus", false);
+});
+onUnmounted(() => contextKeys.set("filerFocus", false));
+
+// snapshot 表示から working tree (最新 = "Now") に戻す。git-graph の「Working Tree」行
+// クリックと同一経路 (user-initiated select、compareHash クリア)。
+function goToNow() {
+  gitGraphStore.select(UNCOMMITTED_HASH);
+}
 
 // dir 切替で git-graph の selection をリセットする。GitGraphPane が unmount される経路
 // (MainLayout の v-if で non-git project では mount されない) では GitGraphPane 側の
@@ -110,7 +142,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex size-full flex-col">
+  <div
+    ref="root"
+    class="relative flex size-full flex-col"
+    :class="snapshotHash !== undefined ? 'bg-background-readonly' : undefined"
+  >
     <!-- ツリー本体 -->
     <div class="flex-1 overflow-y-auto p-1">
       <div v-if="!dir" class="px-2 py-4 text-center text-sm text-foreground-low">
@@ -126,9 +162,21 @@ onUnmounted(() => {
         :snapshot-hash="snapshotHash"
         :depth="-1"
         :selected-rel-path="selectedRelPath"
+        :menu-target-rel-path="props.menuTargetRelPath"
         @select="(path: string) => emit('select', path)"
         @context-menu="(payload) => emit('contextMenu', payload)"
       />
     </div>
+    <!-- snapshot 脱出ボタン。scroll 内に置くと tree と一緒に流れるため、scroll 外の
+         sibling として float させる（設計意図は doc ブロック参照） -->
+    <button
+      v-if="snapshotHash !== undefined"
+      type="button"
+      class="absolute top-1 right-2 rounded-sm border border-border bg-element px-1.5 py-1 text-xs text-foreground-low hover:bg-element-hover hover:text-foreground"
+      title="Jump to latest (working tree)"
+      @click="goToNow"
+    >
+      ↑now
+    </button>
   </div>
 </template>

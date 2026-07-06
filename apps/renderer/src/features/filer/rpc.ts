@@ -1,4 +1,6 @@
 import {
+  ClipboardCopyFilesRequest,
+  ClipboardCopyFilesResponse,
   FsReadDirRequest,
   FsReadDirResponse,
   FsReadFileAbsoluteRequest,
@@ -34,6 +36,11 @@ export const rpcFsReadFileAbsolute = (req: FsReadFileAbsoluteRequest) =>
 // dir 配下への書き込み。path traversal guard は server 側 (resolveSafe)。
 export const rpcFsWriteFile = (req: FsWriteFileRequest) =>
   rpc<FsWriteFileResponse>("/fs/writeFile", req);
+
+// ファイル参照を OS クリップボードに書く（他アプリへの paste 用）。macOS pasteboard の
+// ファイル参照形式は renderer の navigator.clipboard では書けないため main 側で行う。
+export const rpcClipboardCopyFiles = (req: ClipboardCopyFilesRequest) =>
+  rpc<ClipboardCopyFilesResponse>("/clipboard/copyFiles", req);
 
 export const rpcFsWatch = (req: FsWatchRequest) => rpc<FsWatchResponse>("/fs/watch", req);
 

@@ -19,6 +19,7 @@ import type { ContextKey, ContextMap, When } from "./types";
 const KNOWN_KEYS = new Set<string>(
   Object.keys({
     terminalFocus: true,
+    filerFocus: true,
     previewVisible: true,
     previewEditMode: true,
     commandPaletteVisible: true,

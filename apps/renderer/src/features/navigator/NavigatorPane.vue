@@ -8,8 +8,7 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 - git リポジトリでない場合は Filer のみ表示
 - FilerPane の reveal は worktreeStore.revealVersion を内部で購読しているため props 経由不要
 - FilerPane / ChangesPane の `select` emit はどちらも user-initiated select として `previewStore.requestSelect` を呼ぶ。同一パス再選択でのトグル close / summary 抜けの意思決定は preview store 側に集約されている（[docs/preview.md](../../../../../docs/preview.md) の決定表を参照）
-- Filer ヘッダーの状態表示は `headerStatus` 1 つの computed に集約する。snapshot mode（`gitGraphStore.selectedHash` が `UNCOMMITTED_HASH` 以外）では選択中コミットの日時（`formatCompactTime` の狭幅向け compact 表示、tooltip に `formatAbsoluteTime` の絶対時刻）、working tree mode では固定テキスト `"(now)"` を同じ span で描画する。working tree mode を時刻でなく固定ラベルにするのは、"Now" ボタンを押した遷移先が何であるかを明示するため（変更ファイルの mtime を出すと「今」であることが伝わりにくい）
-- snapshot mode 中は "Now" ボタンも表示する。表示条件は `gitGraphStore.selectedHash !== UNCOMMITTED_HASH` 単独（日時解決の成否とは独立。commits ウィンドウ未ロード中でも "Now" は出る）。クリックで `gitGraphStore.select(UNCOMMITTED_HASH)` を呼び working tree 表示に戻す（GitGraphPane の Working Tree 行クリックと同一経路）
+- Filer ヘッダーの状態表示は `headerStatus` 1 つの computed に集約する。snapshot mode（`gitGraphStore.selectedHash` が `UNCOMMITTED_HASH` 以外）では選択中コミットの日時（`formatCompactTime` の狭幅向け compact 表示、tooltip に `formatAbsoluteTime` の絶対時刻）、working tree mode では固定テキスト `"(now)"` を同じ span で描画する。working tree mode を時刻でなく固定ラベルにするのは、"Now" ボタン（FilerPane がツリー右上に float 表示。設計意図はそちらの doc 参照）を押した遷移先が何であるかを明示するため（変更ファイルの mtime を出すと「今」であることが伝わりにくい）
 
 ## 右クリックメニュー
 
@@ -28,7 +27,7 @@ import { useGitGraphStore } from "../git-graph";
 import { ResizeHandle } from "../layout";
 import { usePreviewStore } from "../preview";
 import { useServerStore } from "../server";
-import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
+import { useWorktreeStore } from "../worktree";
 import FileContextMenu from "./FileContextMenu.vue";
 import { useFileContextMenu } from "./useFileContextMenu";
 import type { FileContextMenuPayload } from "./useFileContextMenu";
@@ -72,20 +71,29 @@ function onFileSelect(relPath: string) {
   previewStore.requestSelect({ kind: "worktreeRelative", relPath });
 }
 
-const { open: openFileContextMenu } = useFileContextMenu();
+const { open: openFileContextMenu, context: fileContextMenuContext } = useFileContextMenu();
 const gitGraphStore = useGitGraphStore();
 const worktreeStore = useWorktreeStore();
 const notification = useNotificationStore();
 const serverStore = useServerStore();
 
-// Filer の snapshot mode UI (状態表示 + "Now" ボタン) を出すべきか。headerStatus と
-// "Now" ボタンはこれ 1 つだけを見る (1 つの判定が 2 箇所に分岐して食い違うのを防ぐ)。
+// 右クリック menu open 中の操作対象 relPath (VSCode 同様、選択とは独立に border で示す)。
+// menu context は右クリック時点の dir を焼き付けているため、open 中に worktree が
+// 切り替わったケースは dir 不一致で highlight を出さない (別 worktree の同名 relPath への
+// 誤 highlight を防ぐ)。menu が閉じると popover context が undefined に戻り自動で消える。
+const menuTargetRelPath = computed(() => {
+  const ctx = fileContextMenuContext.value;
+  if (ctx === undefined) return undefined;
+  if (ctx.dir !== worktreeStore.dir) return undefined;
+  return ctx.relPath;
+});
+
+// Filer ヘッダーの snapshot 状態表示 (headerStatus) を出すべきか。"Now" ボタンは
+// FilerPane 側 (`snapshotHash` gate) に移設済みで、ここは日時表示のみを gate する。
 // - gitGraphStore.isSnapshotMode: FilerPane.snapshotHash と共通の SSOT (selectedHash
 //   単独判定、範囲選択は scope 外)
 // - repoStore.selectedIsGitRepo: 非 git project は git-graph 自体が mount されず
 //   「過去か現在か」という概念が存在しないため合わせて隠す
-// snapshotCommit (下記) は commits ウィンドウ未ロード等で解決できないことがあるが、
-// その間も snapshot mode 自体は継続しているため、日時表示が無くても "Now" は出し続ける。
 const isSnapshotMode = computed(() => repoStore.selectedIsGitRepo && gitGraphStore.isSnapshotMode);
 
 // snapshot 表示中の commit 詳細 (日時等)。commits ウィンドウ内に無ければ undefined
@@ -114,12 +122,6 @@ const headerStatus = computed<{ text: string; title?: string } | undefined>(() =
     title: `${commit.shortHash} · ${formatAbsoluteTime(commit.date)}\n${commit.message}`,
   };
 });
-
-// snapshot 表示から working tree (最新 = "Now") に戻す。git-graph の「Working Tree」行
-// クリックと同一経路 (user-initiated select、compareHash クリア)。
-function goToNow() {
-  gitGraphStore.select(UNCOMMITTED_HASH);
-}
 
 type PendingOpen = {
   payload: FileContextMenuPayload;
@@ -236,15 +238,6 @@ function onFileContextMenu(req: FileContextMenuPayload) {
         >
           {{ headerStatus.text }}
         </span>
-        <button
-          v-if="isSnapshotMode"
-          type="button"
-          class="ml-auto shrink-0 rounded-sm border border-border px-1.5 py-1 text-xs text-foreground-low hover:bg-element-hover hover:text-foreground"
-          title="Jump to latest (working tree)"
-          @click="goToNow"
-        >
-          Now
-        </button>
         <!-- Running servers パネルのトグル。Swift 期は native titlebar の ToolbarItem
              だったが、Electron shell は native toolbar を持たないためアプリ右上に相当する
              この位置に置く -->
@@ -261,7 +254,11 @@ function onFileContextMenu(req: FileContextMenuPayload) {
         </button>
       </div>
       <div class="min-h-0 flex-1 overflow-hidden">
-        <FilerPane @select="onFileSelect" @context-menu="onFileContextMenu" />
+        <FilerPane
+          :menu-target-rel-path="menuTargetRelPath"
+          @select="onFileSelect"
+          @context-menu="onFileContextMenu"
+        />
       </div>
     </div>
 

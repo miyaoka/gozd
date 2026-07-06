@@ -83,10 +83,9 @@
      Radix Tooltip / Material modal / Spectrum overlay と同じ業界標準パターン) */
   --color-overlay: oklch(0 0 0 / 0.5);
 
-  /* intent: 各 intent は 5 token を持つ (subtle = step 3、subtle bg / chip / active row)
-     solid (step 9) は CTA / badge、subtle (step 3) は dim な intent 面、text (step 11) は
-     neutral 上の低コントラスト文字、foreground は solid bg 上の文字。
-     subtle-hover は step 4 (active row の hover、primary のみ提供)。 */
+  /* intent tokens。suffix の分類・step 対応・用途の SSOT は
+     .claude/skills/gozd-ui/SKILL.md (数や列挙をここに書くと追加・削除のたびに腐る)。
+     各 token の役割は定義行のインラインコメントで説明する。 */
 
   /* intent: primary (blue) */
   --color-primary: var(--blue-9);
@@ -100,18 +99,19 @@
   --color-destructive: var(--red-9);
   --color-destructive-hover: var(--red-10);
   --color-destructive-subtle: var(--red-3);
-  /* subtle-active (step 5): subtle bg の上に重ねる強調面。diff の行内 (文字単位) 変更範囲で使用。
-     dark パレットの低 step は差が圧縮されているため、subtle との知覚差は明るい側 (step 5) でしか
-     成立しない (step 2 への沈み込みは ΔL 0.03 で人間には判別不能だった) */
-  --color-destructive-subtle-active: var(--red-5);
+  /* subtle-emphasis (step 5): subtle bg の上に重ねる静的な強調面。diff の行内 (文字単位)
+     変更範囲で使用。dark パレットの低 step は差が圧縮されているため、subtle との知覚差は
+     明るい側 (step 5) でしか成立しない (step 2 への沈み込みは ΔL 0.03 で人間には判別不能だった)。
+     `-active` (交互作用の押下 / 選択状態) と混同しないよう emphasis と命名する */
+  --color-destructive-subtle-emphasis: var(--red-5);
   --color-destructive-text: var(--red-11);
   --color-destructive-foreground: var(--gray-12);
 
   /* intent: success (green)。-hover は未利用 (solid success button が無い) */
   --color-success: var(--green-9);
   --color-success-subtle: var(--green-3);
-  /* subtle-active (step 5): destructive-subtle-active と同じ役割 */
-  --color-success-subtle-active: var(--green-5);
+  /* subtle-emphasis (step 5): destructive-subtle-emphasis と同じ役割 */
+  --color-success-subtle-emphasis: var(--green-5);
   --color-success-text: var(--green-11);
   --color-success-foreground: var(--gray-12);
 

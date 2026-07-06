@@ -44,6 +44,7 @@ import { registerThemeCommand, TerminalPane } from "../terminal";
 import NotificationToast from "./NotificationToast.vue";
 import ResizeHandle from "./ResizeHandle.vue";
 import { rpcWindowClose } from "./rpc";
+import TitleBar from "./TitleBar.vue";
 import IconLucidePanelRightOpen from "~icons/lucide/panel-right-open";
 
 const repoStore = useRepoStore();
@@ -237,6 +238,7 @@ watch(
 
 <template>
   <div class="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+    <TitleBar />
     <!-- 横3カラム: Sidebar | Center(Terminal + GitGraph) | Navigator -->
     <div class="flex min-h-0 flex-1 overflow-hidden">
       <div class="shrink-0 overflow-hidden" :style="{ width: `${sidebarWidth}px` }">
@@ -333,14 +335,14 @@ watch(
 }
 
 ._preview-popover {
-  /* アンカーの左端に右端を揃え、ウィンドウ全高で表示 */
+  /* アンカーの左端に右端を揃え、タイトルバー下からウィンドウ下端まで表示
+     （top-layer の popover はタイトルバーを覆ってドラッグ領域を塞ぐため下に逃がす） */
   position-anchor: --preview-anchor;
   inset: unset;
   margin: 0;
-  top: 0;
+  top: var(--titlebar-height);
   bottom: 0;
   right: anchor(left);
-  height: 100dvh;
   max-height: none;
 }
 </style>

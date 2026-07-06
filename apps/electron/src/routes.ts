@@ -814,13 +814,11 @@ function handleWindowClose(): unknown {
 
 function handleWindowSetTitleContext(body: unknown): unknown {
   const req = body as WindowSetTitleContextRequest;
-  // "repo · worktree" 形式に整形。Swift 版は titlebar の ToolbarItem に出すが、
-  // Electron shell は対応する native toolbar を持たないため window title に反映する。
+  // 表示整形（"repo · worktree"）は renderer のカスタムタイトルバーが SSOT。ここでは
+  // Mission Control / Cmd+Tab に出る native window title に同じ文字列を反映するだけ。
   // gozd はシングルウィンドウなので全 window に適用で実質固定
-  const parts = [req.repoName, req.worktreeName].filter((part) => part !== "");
-  const text = parts.join(" · ");
   for (const window of BrowserWindow.getAllWindows()) {
-    window.setTitle(text === "" ? "gozd" : text);
+    window.setTitle(req.title === "" ? "gozd" : req.title);
   }
   return ({}) satisfies WindowSetTitleContextResponse;
 }

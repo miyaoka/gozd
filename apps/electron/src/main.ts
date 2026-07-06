@@ -4,8 +4,8 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeClaudeHooksSettings } from "./claudeHooksSettings";
 import { registerFileServerProtocol } from "./fileServer";
-import { bundledRendererIndex, claudeSettingsPath, isPackaged, launchRequestDir, socketPath } from "./gozdEnv";
-import { SPIKE_TEST_ARG } from "./ipc";
+import { bundledRendererIndex, channel, claudeSettingsPath, isPackaged, launchRequestDir, socketPath } from "./gozdEnv";
+import { GOZD_CHANNEL_ARG_PREFIX, SPIKE_TEST_ARG } from "./ipc";
 import { consumeLaunchRequest } from "./launchRequest";
 import { installAppMenu } from "./menu";
 import { buildGozdOpenPayload } from "./openTarget";
@@ -33,6 +33,14 @@ const rendererUrl = resolveRendererUrl();
 const dispatch = createRpcDispatcher(routes);
 
 const DEFAULT_WINDOW_SIZE = { width: 1280, height: 800 };
+
+// カスタムタイトルバー: titleBarStyle "hiddenInset" でネイティブバーの描画を消し、
+// renderer の TitleBar.vue（高さ = renderer 側 --titlebar-height と同値）が帯を描く。
+// 信号機ボタンは window 座標固定のネイティブ部品なので、帯の垂直中央
+// （中央 y − ボタン半径）に main 側で位置合わせする
+const TITLEBAR_HEIGHT = 36;
+const TRAFFIC_LIGHT_RADIUS = 6;
+const TRAFFIC_LIGHT_X = 16;
 
 /** renderer 内リンクの外部送り防壁。Swift 版 ExternalLinkNavigationDecider の対応物。
  * デフォルトでは `<a target="_blank">` が新しい Electron window を開き、main frame の
@@ -92,11 +100,16 @@ function createWindow(): BrowserWindow {
     // x / y は undefined ならディスプレイ中央配置（Electron デフォルト）
     x: restored?.x,
     y: restored?.y,
+    titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: TRAFFIC_LIGHT_X, y: TITLEBAR_HEIGHT / 2 - TRAFFIC_LIGHT_RADIUS },
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
       contextIsolation: true,
       sandbox: true,
-      additionalArguments: isTestMode ? [SPIKE_TEST_ARG] : [],
+      additionalArguments: [
+        `${GOZD_CHANNEL_ARG_PREFIX}${channel}`,
+        ...(isTestMode ? [SPIKE_TEST_ARG] : []),
+      ],
     },
   });
   // frame 保存は will-quit ではなく close で行う: will-quit 時点では window が destroy

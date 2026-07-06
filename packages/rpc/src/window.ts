@@ -6,11 +6,11 @@ import type { EmptyMessage } from "./common";
 export type WindowCloseRequest = EmptyMessage;
 export type WindowCloseResponse = EmptyMessage;
 
-/** titlebar に出すコンテキスト（active repo / worktree）。
- * renderer 側で active worktree が変わるたびに push し、window title に反映する。 */
+/** native window title（Mission Control / Cmd+Tab に出る文字列）の更新。
+ * 表示整形（"repo · worktree"）は renderer のカスタムタイトルバーが SSOT で、
+ * main は受け取った文字列をそのまま setTitle する。 */
 export interface WindowSetTitleContextRequest {
-  repoName: string;
-  worktreeName: string;
+  title: string;
 }
 export type WindowSetTitleContextResponse = EmptyMessage;
 

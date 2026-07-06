@@ -35,6 +35,14 @@
   --fx-mesh-violet-primitive: oklch(0.4 0.11 320);
 }
 
+/* layout 定数: カスタムタイトルバー（TitleBar.vue）の高さ。
+ * main process の trafficLightPosition（main.ts TITLEBAR_HEIGHT）と同値である契約。
+ * ウィンドウ全高の overlay（_preview-popover / ServerListPanel）はこの分だけ top を下げ、
+ * タイトルバーのドラッグ領域を覆わないようにする */
+:root {
+  --titlebar-height: 36px;
+}
+
 /* ---------------------------------------------------------------------------
  * gozd design tokens — Tier 2 / Tier 3
  *
@@ -132,6 +140,13 @@
 
   /* intent: info (text-only、solid なし。primary と同 hue の text step を借用) */
   --color-info: var(--blue-11);
+
+  /* channel 識別 (dev 起動バッジ、TitleBar.vue)。緑系だが success (完了/成功) とは
+     独立した role。「dev channel で起動している」は環境の識別であり成功状態ではない
+     ため、success の色相変更に巻き込まれない専用 alias を持つ */
+  --color-channel-dev: var(--green-9);
+  --color-channel-dev-subtle: var(--green-3);
+  --color-channel-dev-foreground: var(--gray-12);
 
   /* chat (Tier 2 semantic alias): brand 固定 primitive (`:root` 配下) を `var()` で
      参照する。値の直書きは Tier 1 に集約し、Tier 2 は role 名のマッピングだけ持つ。 */

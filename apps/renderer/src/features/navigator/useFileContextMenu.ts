@@ -64,6 +64,12 @@ type FileContextMenuContext = {
   relPath: string;
   /** 右クリック時に snapshot した commit hash。working tree なら undefined */
   commitHash?: string;
+  /**
+   * 右クリック時点で filer が snapshot mode（`gitGraphStore.isSnapshotMode`）だったか。
+   * Copy file の可視判定に使う。commitHash（Copy path の hash 前置き用）は range mode で
+   * undefined になるため snapshot 判定には流用できない（判定の目的が別）。
+   */
+  isSnapshot: boolean;
   /** contextmenu イベント時のマウス座標。指定時は anchor() より優先 */
   x?: number;
   y?: number;

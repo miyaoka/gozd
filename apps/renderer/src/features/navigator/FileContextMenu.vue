@@ -3,7 +3,7 @@
 Copy path（テキスト）を描画する。context の組み立てと snapshot semantics、
 defer / disconnect ガード等の内部仕様は `useFileContextMenu.ts` の docstring を SSOT として参照する。
 
-Copy file は snapshot mode（commitHash あり）では項目ごと出さない。snapshot のファイルは
+Copy file は snapshot mode（context.isSnapshot）では項目ごと出さない。snapshot のファイルは
 ディスク上に実体が無く、パスを載せると最新の worktree 内容が paste される誤読を生むため。
 メニューは可視 UI なので「出さない」こと自体が説明になり、toast による拒否通知
 （キーボード経路 `filer.copyFile` の担当）は不要。
@@ -63,7 +63,7 @@ async function handleCopyPath() {
     :style="popoverStyle"
   >
     <button
-      v-if="context && context.commitHash === undefined"
+      v-if="context && !context.isSnapshot"
       class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel"
       @click="handleCopyFile"
     >

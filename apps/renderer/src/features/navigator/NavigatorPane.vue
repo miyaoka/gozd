@@ -127,6 +127,7 @@ type PendingOpen = {
   payload: FileContextMenuPayload;
   dir: string;
   hash: string | undefined;
+  isSnapshot: boolean;
 };
 
 /**
@@ -187,6 +188,7 @@ useEventListener(
       dir: pending.dir,
       relPath: pending.payload.relPath,
       commitHash: pending.hash,
+      isSnapshot: pending.isSnapshot,
       x: pending.payload.x,
       y: pending.payload.y,
     });
@@ -215,6 +217,11 @@ function onFileContextMenu(req: FileContextMenuPayload) {
     payload: req,
     dir: dirSnapshot,
     hash: gitGraphStore.contextMenuHash,
+    // Copy file の可視判定は filer 表示 / keyboard 拒否と同じ isSnapshotMode を SSOT にする。
+    // contextMenuHash は「Copy path の hash 前置きを単一 commit で代表できるか」という別問題の
+    // 判定で、range mode で undefined になるため snapshot 判定に流用すると
+    // 「snapshot 表示中なのに Copy file が出て working tree の実体を載せる」穴が開く
+    isSnapshot: gitGraphStore.isSnapshotMode,
   };
 }
 </script>

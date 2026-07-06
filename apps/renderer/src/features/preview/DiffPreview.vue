@@ -107,6 +107,7 @@ import { tryCatch } from "@gozd/shared";
 import type * as Monaco from "monaco-editor";
 import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import { abortComposition, blockEdit } from "./contenteditableHostGuard";
 import { rpcGitDiffExpandLines, rpcGitDiffHunks } from "./rpc";
 import { useDiffEditor } from "./useDiffEditor";
 import { type ThemedToken, highlightTokens } from "./useHighlight";
@@ -851,20 +852,6 @@ function splitRightBg(row: DiffSplitRowItem): string {
   if (row.newText === undefined) return "_split-filler";
   return tokensReady.value ? LINE_BG_CLASSES.added : LINE_FALLBACK_CLASSES.added;
 }
-
-/**
- * contenteditable host の編集経路を構造的にブロックする。`beforeinput` で
- * `event.preventDefault()` すれば typing / paste / IME / undo-redo / drop の DOM mutation を
- * 1 経路で止められる (input 系全部の上位 hook)。
- *
- * テンプレート側では各 contenteditable host に `@beforeinput="blockEdit"` に加えて
- * `@dragover.prevent @drop.prevent` も付けている。`beforeinput` だけでも drop の DOM mutation
- * は弾けるが、`dragover` を preventDefault しないと UA がドロップ可能 cursor / drop indicator を
- * 一瞬表示してチラ見せが起きる経路があり、UX 上の保険として両方つける契約。
- */
-function blockEdit(event: Event) {
-  event.preventDefault();
-}
 </script>
 
 <template>
@@ -951,6 +938,7 @@ function blockEdit(event: Event) {
             role="region"
             aria-label="Diff section"
             @beforeinput="blockEdit"
+            @compositionstart="abortComposition"
             @dragover.prevent
             @drop.prevent
           >
@@ -1040,6 +1028,7 @@ function blockEdit(event: Event) {
               role="region"
               aria-label="Old contents"
               @beforeinput="blockEdit"
+              @compositionstart="abortComposition"
               @dragover.prevent
               @drop.prevent
             >
@@ -1088,6 +1077,7 @@ function blockEdit(event: Event) {
               role="region"
               aria-label="New contents"
               @beforeinput="blockEdit"
+              @compositionstart="abortComposition"
               @dragover.prevent
               @drop.prevent
             >

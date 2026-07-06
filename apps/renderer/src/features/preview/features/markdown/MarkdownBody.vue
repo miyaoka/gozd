@@ -209,6 +209,10 @@ watch(
 ._markdown-body :deep(a) {
   color: var(--color-primary);
   text-decoration: underline;
+  /* MarkdownPreview では contenteditable host 内に置かれる。editable コンテンツ上では
+     cursor: auto が I ビーム (キャレット配置) に解決され、リンクでも手カーソルにならない
+     ため明示する。author 指定の cursor は editable 内でも auto 解決に勝つ。 */
+  cursor: pointer;
 }
 
 ._markdown-body :deep(strong) {

@@ -40,12 +40,14 @@ function onDialogClick(event: MouseEvent) {
       <p class="text-sm">Claude is still working in this terminal. Close it anyway?</p>
       <div class="flex justify-end gap-2">
         <button
+          type="button"
           class="rounded-sm px-3 py-1.5 text-sm text-foreground-low hover:bg-panel"
           @click="requestClose"
         >
           Cancel
         </button>
         <button
+          type="button"
           class="rounded-sm bg-destructive px-3 py-1.5 text-sm text-foreground hover:bg-destructive-hover"
           @click="confirm"
         >

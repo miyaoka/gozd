@@ -1,4 +1,4 @@
-// 起動 channel（"stable" | "dev"）。SSOT は main の gozdEnv.channel で、
+// 起動 channel（"stable" | "dev-<worktree hash>"）。SSOT は main の gozdEnv.channel で、
 // additionalArguments → preload の contextBridge 経由で `window.__gozdChannel` に届く。
 
 declare global {

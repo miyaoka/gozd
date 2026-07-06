@@ -16,17 +16,16 @@ const materialIconsDir = join(
   "icons",
 );
 
-// dev server port は env `GOZD_DEV_VITE_PORT` (root の `pnpm dev` script で設定) を SSOT として
-// 受け取る。Swift 側 (`RpcSchemeHandler` の Origin allowlist / `ExternalLinkNavigationDecider` の
-// dev origin 判定 / `GozdApp` の `page.load`) も同じ env を読むため、port を変えるときは root
-// `package.json` の dev script 1 箇所だけ書き換えればよい。dev URL の scheme + host は
-// `http://localhost` 固定の契約。env なし時は port 未指定 (Vite default) に倒し config load 自体は
-// 通す (knip 等の静的解析が `vite.config.ts` を invoke する経路を壊さないため)。env 強制は
-// root `pnpm dev` script の責務に集約する。
+// dev server port は env `GOZD_DEV_VITE_PORT` を SSOT として受け取る。値は root の dev runner
+// (`scripts/dev.ts`) が worktree の realpath から決定論的に導出して設定する（複数 worktree の
+// 並列 `pnpm dev` 対応）。Electron main (`resolveRendererUrl`) も同じ env を読むため、両者は
+// 起動順序に依存せず同じ port で合意する。dev URL の scheme + host は `http://localhost` 固定の
+// 契約。env なし時は port 未指定 (Vite default) に倒し config load 自体は通す (knip 等の静的解析
+// が `vite.config.ts` を invoke する経路を壊さないため)。env 強制は dev runner の責務に集約する。
 //
-// strictPort: true により、二重 `pnpm dev` / 別 Vite アプリと衝突したら即時 fail させる。
-// fallback すると Swift `.app` の dev port は固定なので先発の Vite に繋がって「別 worktree の
-// はずなのに先発の内容が表示される」事故になる。
+// strictPort: true により、port 占有時 (runner の probe と bind の間の TOCTOU / 別 Vite アプリ
+// との衝突) は即時 fail させる。fallback すると固定 env を読む Electron が先発の Vite に繋がって
+// 「別 worktree のはずなのに先発の内容が表示される」事故になる。
 
 export default defineConfig(() => {
   const portEnv = process.env.GOZD_DEV_VITE_PORT;

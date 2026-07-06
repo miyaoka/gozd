@@ -15,6 +15,6 @@ export interface SpikeApi {
 
 export const SPIKE_TEST_ARG = "--gozd-spike-test";
 
-/** channel（"stable" | "dev"）を main → preload に渡す additionalArguments のプレフィックス。
+/** channel（"stable" | "dev-<worktree hash>"）を main → preload に渡す additionalArguments のプレフィックス。
  * SSOT は gozdEnv.channel。preload が parse して `window.__gozdChannel` として公開する */
 export const GOZD_CHANNEL_ARG_PREFIX = "--gozd-channel=";

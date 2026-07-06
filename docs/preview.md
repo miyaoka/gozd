@@ -192,6 +192,10 @@ desktop からの `fsChange` メッセージを購読し、選択中ファイル
   - split: 左側 → original のトークン、右側 → current のトークン
   - diff の色分けは背景色のみ。テキスト色はトークンに委ねる
   - 言語未対応時はフォールバック表示（追加=緑、削除=赤）
+- 行内 (文字単位) ハイライト: 変更ブロック (removed run × added run) の内側を monaco-editor deep import の VSCode `DefaultLinesDiffComputer` で文字単位に再計算する
+  - 行単位 diff の SSOT は git のまま。行内は表示専用の追加レイヤーで、hunk 構造と矛盾しない。VSCode のノイズ抑制ヒューリスティック (単語境界への拡張、細切れ一致の除去) がそのまま効く
+  - トーン設計は VSCode の line/char decoration 二層と同型。行背景は従来の diff 色 (`<intent>-subtle`、step 3)、行内変更範囲は 1 段明るい `<intent>-subtle-emphasis` (step 5) を重ねる。沈む側 (step 2 以下) での差別化は dark パレットの低 step 圧縮で知覚不能のため不採用。純粋な追加 / 削除行と degrade した run (予算切れ / timeout) は従来通り行全体 subtle
+  - メインスレッド同期実行のため 1 ファイル合算の時間予算で打ち切り、超過分は行単位表示に degrade する (エラーにしない。VSCode と同じ戦略)
 - unified と split の両方の表示形式を取得時に事前展開して保持。view mode 切替で再 fetch は走らない
 - split view では modified hunk 内で連続する removed run と added run を貪欲ペアリングし、余った片側は反対側の行を空 (`_split-filler` で灰色背景) にして残す
 - レンダリング構造は **section ベース**。`renderRows` / `splitRenderRows` を hunk-bar 境界で section 化し、各 section を `contenteditable=true` の editing host にする。hunk-bar は section の外に sibling として置くため、Cmd+A の scope に入らず unchanged lines のラベルは clipboard に乗らない。split では section 内の左右半身がそれぞれ独立した host で、Cmd+A は focus が居る半身 1 つだけに閉じる

@@ -11,7 +11,7 @@ import { formatCompactTime } from "../../../../shared/time";
 import CommitSegmentList from "../../CommitSegmentList";
 import type { CommitMessageSegment } from "../../linkifyCommitMessage";
 import { useGitGraphStore } from "../../useGitGraphStore";
-import { HEAD_ROW_BG } from "./graphColors";
+import { HEAD_ROW_BG, HEAD_ROW_BG_HOVER } from "./graphColors";
 import { ROW_HEIGHT } from "./graphGeometry";
 import type { GraphNode } from "./graphLayout";
 import { computeDisplayRefs } from "./graphRefs";
@@ -43,19 +43,23 @@ const gitGraphStore = useGitGraphStore();
 const isSelectedRow = computed(() => gitGraphStore.isSelectedRow(props.node.commit.hash));
 const isHeadRow = computed(() => props.node.commit.hash === gitGraphStore.headHash);
 
-// 選択と HEAD は別軸。選択を最優先、次に HEAD 行の持続背景 (帯は rowStyle が inline で敷く)、通常は hover のみ。
+// 選択と HEAD は別軸。選択を最優先、次に HEAD 行の持続背景、通常は hover のみ。
+// HEAD 帯は CSS 変数 (--head-bg / --head-bg-hover) を rowStyle が供給し、静的な bg / hover class で参照する。
+// 色を class リテラルに直書きしない (graphColors 由来で Tailwind の静的スキャンに乗らないため) が、
+// 変数名は固定なので class はスキャンでき、hover も cascade で効く (inline background だと hover が付けられない)。
 const highlightClass = computed(() => {
   if (isSelectedRow.value) return "bg-primary-subtle hover:bg-primary-subtle-hover";
-  if (isHeadRow.value) return "";
+  if (isHeadRow.value) return "bg-[var(--head-bg)] hover:bg-[var(--head-bg-hover)]";
   return "hover:bg-element-hover";
 });
 
-// HEAD 行の背景帯。色源は graphColors の HEAD lane 色 (リング / ドットと同一 SSOT)。
-// arbitrary class ではなく inline style で敷く (色が graphColors 由来で Tailwind の静的スキャン対象外のため)。
-// 選択が勝つときは敷かない (選択の primary 帯を inline background で潰さないため)。
+// HEAD 帯の色源は graphColors の HEAD lane 色 (リング / ドットと同一 SSOT)。選択が勝つときは供給しない。
 const rowStyle = computed<Record<string, string>>(() => {
   const style: Record<string, string> = { height: `${ROW_HEIGHT}px` };
-  if (isHeadRow.value && !isSelectedRow.value) style.background = HEAD_ROW_BG;
+  if (isHeadRow.value && !isSelectedRow.value) {
+    style["--head-bg"] = HEAD_ROW_BG;
+    style["--head-bg-hover"] = HEAD_ROW_BG_HOVER;
+  }
   return style;
 });
 

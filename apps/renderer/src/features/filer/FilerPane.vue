@@ -87,6 +87,15 @@ const snapshotHash = computed(() =>
 // filerFocus context key の同期。ツリー行は <button> なのでクリック / Tab でフォーカスが
 // 入り、focusin/focusout がコンテナまで bubble する。focusout はツリー内のフォーカス移動
 // （行間の移動）でも発火するため、移動先がコンテナ内なら維持する。
+//
+// アプリ (window) 切替の再同期 fallback（window "focus" / visibilitychange で
+// document.activeElement から復元する類）は不要。Chromium の FocusController は
+// window 非アクティブ化時も DOM のフォーカス位置を保持したまま focused element に
+// blur/focusout を、再アクティブ化時に同じ要素へ focus/focusin を再 dispatch するため
+// （focus_controller.cc の DispatchEventsOnWindowAndFocusedElement、FocusType::kPage）、
+// この focusin/focusout 購読だけで filerFocus は実フォーカスに追従する。HTML spec は
+// この挙動を規定しない implementation-defined 領域だが、Electron 同梱 Chromium 前提の
+// アプリなので依存してよい（Cmd+Tab 復帰後のコピー動作は実機確認済み）。
 const rootRef = useTemplateRef<HTMLElement>("root");
 const contextKeys = useContextKeys();
 useEventListener(rootRef, "focusin", () => contextKeys.set("filerFocus", true));

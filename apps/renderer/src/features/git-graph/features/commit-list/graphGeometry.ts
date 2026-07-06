@@ -7,6 +7,9 @@
 export const LANE_WIDTH = 16;
 export const ROW_HEIGHT = 24;
 export const DOT_RADIUS = 4;
+/** HEAD ドットの外側リング半径をドット本体からどれだけ離すか (px)。塗り/選択とは別チャンネルで
+ *  「今 HEAD がいる場所」を輪で示す。 */
+export const HEAD_RING_GAP = 3;
 export const GRAPH_PADDING_X = 12;
 
 /**

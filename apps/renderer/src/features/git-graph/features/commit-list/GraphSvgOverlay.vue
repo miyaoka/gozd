@@ -7,7 +7,7 @@ commit graph のレーン / ドットを描く SVG overlay。commit 行の上に
 import { computed } from "vue";
 import { useGitGraphStore } from "../../useGitGraphStore";
 import { laneTextColor } from "./graphColors";
-import { DOT_RADIUS, ROW_HEIGHT, laneX, rowY, segmentPath } from "./graphGeometry";
+import { DOT_RADIUS, HEAD_RING_GAP, ROW_HEIGHT, laneX, rowY, segmentPath } from "./graphGeometry";
 import type { GraphLayout } from "./graphLayout";
 
 const props = defineProps<{
@@ -59,6 +59,21 @@ const connectorPath = computed(() => {
       fill="none"
       :stroke="laneTextColor(seg.color)"
       stroke-width="2"
+    />
+    <!-- HEAD リング: 「今 HEAD がいる場所」を dot の外側の輪で示す。塗り (選択) とは別チャンネルなので
+         選択と HEAD が一致してもしなくても両立する。dot より先に描き、fill を背景色にして
+         dot と輪の隙間を通過する lane 線をマスクする (line が輪の中を貫通しないように)。 -->
+    <circle
+      v-for="(node, row) in layout.nodes"
+      v-show="!node.gap && node.commit.hash === gitGraphStore.headHash"
+      :key="`head-ring-${node.commit.hash}`"
+      :cx="laneX(node.lane)"
+      :cy="rowY(row)"
+      :r="DOT_RADIUS + HEAD_RING_GAP"
+      fill="currentColor"
+      :stroke="laneTextColor(node.color)"
+      stroke-width="1.5"
+      class="text-background"
     />
     <!-- コミットドット (gap 行は dot を描かない) -->
     <circle

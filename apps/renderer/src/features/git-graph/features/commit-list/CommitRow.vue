@@ -58,10 +58,6 @@ function isMergeCommit(commit: GitCommit): boolean {
   return commit.parents.length > 1;
 }
 
-function hasHead(refs: string[]): boolean {
-  return refs.includes("HEAD");
-}
-
 function onContextmenu(e: MouseEvent) {
   if (!(e.currentTarget instanceof HTMLElement)) return;
   e.preventDefault();
@@ -82,12 +78,9 @@ function onContextmenu(e: MouseEvent) {
     @click="emit('rowClick', node.commit.hash, $event)"
     @contextmenu="onContextmenu"
   >
-    <!-- col 1 (graph): SVG が absolute で覆うセル。右端の HEAD marker 余白に marker を
-         in-flow 右寄せで置く。col 2 内の absolute 配置にすると col 2 の truncate が
-         containing block ごとクリップして marker が消える。 -->
-    <div class="flex items-center justify-end pr-1">
-      <span v-if="hasHead(node.commit.refs)" class="text-warning-text" title="HEAD"> → </span>
-    </div>
+    <!-- col 1 (graph): SVG が absolute で覆うセル。HEAD は SVG 側の dot リングで示すため、
+         ここにはマーカーを置かない。 -->
+    <div></div>
 
     <!-- col 2 (description) -->
     <div class="flex min-w-0 items-center gap-1 truncate pr-2">

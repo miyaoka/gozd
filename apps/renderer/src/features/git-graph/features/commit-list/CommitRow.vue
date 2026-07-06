@@ -11,6 +11,7 @@ import { formatCompactTime } from "../../../../shared/time";
 import CommitSegmentList from "../../CommitSegmentList";
 import type { CommitMessageSegment } from "../../linkifyCommitMessage";
 import { useGitGraphStore } from "../../useGitGraphStore";
+import { HEAD_ROW_BG } from "./graphColors";
 import { ROW_HEIGHT } from "./graphGeometry";
 import type { GraphNode } from "./graphLayout";
 import { computeDisplayRefs } from "./graphRefs";
@@ -39,14 +40,23 @@ const emit = defineEmits<{
 
 const gitGraphStore = useGitGraphStore();
 
-// 選択と HEAD は別軸。選択を最優先、次に HEAD 行の持続背景、通常は hover のみ。
+const isSelectedRow = computed(() => gitGraphStore.isSelectedRow(props.node.commit.hash));
+const isHeadRow = computed(() => props.node.commit.hash === gitGraphStore.headHash);
+
+// 選択と HEAD は別軸。選択を最優先、次に HEAD 行の持続背景 (帯は rowStyle が inline で敷く)、通常は hover のみ。
 const highlightClass = computed(() => {
-  if (gitGraphStore.isSelectedRow(props.node.commit.hash))
-    return "bg-primary-subtle hover:bg-primary-subtle-hover";
-  // HEAD 行は lane 0 (HEAD 予約色 teal/green) 帯で示す。graph 専用色なので token 非依存で直接指定。
-  if (props.node.commit.hash === gitGraphStore.headHash)
-    return "bg-[#50da6336] hover:bg-[#50da634d]";
+  if (isSelectedRow.value) return "bg-primary-subtle hover:bg-primary-subtle-hover";
+  if (isHeadRow.value) return "";
   return "hover:bg-element-hover";
+});
+
+// HEAD 行の背景帯。色源は graphColors の HEAD lane 色 (リング / ドットと同一 SSOT)。
+// arbitrary class ではなく inline style で敷く (色が graphColors 由来で Tailwind の静的スキャン対象外のため)。
+// 選択が勝つときは敷かない (選択の primary 帯を inline background で潰さないため)。
+const rowStyle = computed<Record<string, string>>(() => {
+  const style: Record<string, string> = { height: `${ROW_HEIGHT}px` };
+  if (isHeadRow.value && !isSelectedRow.value) style.background = HEAD_ROW_BG;
+  return style;
 });
 
 const displayRefs = computed(() =>
@@ -78,7 +88,7 @@ function onContextmenu(e: MouseEvent) {
   <div
     class="_graph-row col-span-full grid grid-cols-subgrid items-center text-xs"
     :class="highlightClass"
-    :style="{ height: `${ROW_HEIGHT}px` }"
+    :style="rowStyle"
     @click="emit('rowClick', node.commit.hash, $event)"
     @contextmenu="onContextmenu"
   >

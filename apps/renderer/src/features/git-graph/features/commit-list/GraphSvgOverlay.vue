@@ -34,6 +34,15 @@ const connectorPath = computed(() => {
   const x0 = laneX(0);
   return `M${x0},0L${x0},${rowY(props.headRow)}`;
 });
+
+/** HEAD リングを描く単一ノード。HEAD は高々 1 行なので headRow から直接引く (全ノード走査しない)。
+ *  不在 (-1) / gap 行のときは描かない。 */
+const headRingNode = computed(() => {
+  if (props.headRow === -1) return undefined;
+  const node = props.layout.nodes[props.headRow];
+  if (node === undefined || node.gap) return undefined;
+  return node;
+});
 </script>
 
 <template>
@@ -64,14 +73,12 @@ const connectorPath = computed(() => {
          選択と HEAD が一致してもしなくても両立する。dot より先に描き、fill を背景色にして
          dot と輪の隙間を通過する lane 線をマスクする (line が輪の中を貫通しないように)。 -->
     <circle
-      v-for="(node, row) in layout.nodes"
-      v-show="!node.gap && node.commit.hash === gitGraphStore.headHash"
-      :key="`head-ring-${node.commit.hash}`"
-      :cx="laneX(node.lane)"
-      :cy="rowY(row)"
+      v-if="headRingNode"
+      :cx="laneX(headRingNode.lane)"
+      :cy="rowY(headRow)"
       :r="DOT_RADIUS + HEAD_RING_GAP"
       fill="currentColor"
-      :stroke="laneTextColor(node.color)"
+      :stroke="laneTextColor(headRingNode.color)"
       stroke-width="1.5"
       class="text-background"
     />

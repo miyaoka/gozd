@@ -92,11 +92,9 @@ const graphColumnWidth = computed(() => calcGraphColumnWidth(layout.value.maxLan
 const MIN_MESSAGE_WIDTH = "12rem";
 
 /**
- * grid の列定義。**親 grid (master) が唯一の定義元**で、WorkingTree 行 / commit 行は subgrid として
- * このトラックを共有する。共有ゆえ date/hash を `max-content` にしても全行で同一トラックに解決され、
- * 内容幅ぴったり (例: 全部 7 桁なら 7 桁幅、10 桁が混じればその幅) で列が揃う。
- * col2 message は最低幅を確保し、狭幅では min 0 の date/hash が先に縮む (truncate)。
- * author だけ内容依存だと極端に長い名前で膨らむため 7rem でキャップする。
+ * master grid の列トラック SSOT (subgrid 共有でこれを全行が引く。共有の理由は <doc> 参照)。
+ * col1 graph = 動的 px、col2 message = 最低幅つき 1fr、date/hash = 内容幅 (max-content)、
+ * author = 内容依存だと長い名前で膨らむため 7rem cap。狭幅では min 0 の date/hash が先に truncate する。
  */
 const graphCols = computed(
   () =>
@@ -133,9 +131,9 @@ const { height: viewportHeight } = useElementSize(scrollContainer);
 
 /**
  * HEAD 行がビューポート外にあるか。ボタンをどちらの端に出すかを決める。
- * - "above": HEAD が上に隠れている (上へスクロールで戻る)
- * - "below": HEAD が下に隠れている (下へスクロール)
- * - null: (部分的にでも) 見えている → ボタン不要
+ * - "above": HEAD の行 top が sticky WorkingTree 行の下端より上 (上端で一部でも隠れる)
+ * - "below": HEAD の行 bottom がビューポート下端を超える (下端で一部でも切れる)
+ * - null: HEAD が sticky 行の下〜ビューポート下端に**完全に**収まるときのみ (ボタン不要)
  *
  * 行位置は既存スクロール座標 (`index * ROW_HEIGHT`) で表す。sticky な WorkingTree 行が上端 1 行分を
  * 覆うため、下端判定では行自身の高さと合わせて 2 行分を可視域から差し引く。
@@ -301,9 +299,7 @@ function onRowClick(hash: string, e: MouseEvent) {
 </script>
 
 <template>
-  <!-- `--graph-cols` を SSOT として持つ。Working Tree 行 (sticky) と commit 行は 1 枚の master grid の
-       subgrid で、この列トラックを共有する。共有ゆえ date/hash を max-content にしても全行で揃う。
-       description 列は minmax(12rem, 1fr) — min 0 だと狭幅で真っ先に潰れるため最低幅を確保する。 -->
+  <!-- `--graph-cols` は master grid の列トラック SSOT (subgrid 共有の理由は <doc> 参照)。 -->
   <div
     class="relative flex min-w-0 flex-1 flex-col outline-none"
     :style="{ '--graph-cols': graphCols }"

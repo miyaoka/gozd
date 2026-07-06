@@ -1,6 +1,6 @@
 <doc lang="md">
 Git Graph のヘッダーツールバー。表示オプション (first-parent / current-branch / sort order) の
-トグルと、HEAD へのスクロール要求・詳細ペイン開閉を扱う。状態はすべて v-model / emit で親が所有する。
+トグルと詳細ペイン開閉を扱う。状態はすべて v-model で親が所有する。
 </doc>
 
 <script setup lang="ts">

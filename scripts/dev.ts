@@ -11,16 +11,10 @@
 // - probe と Vite bind の間の TOCTOU は vite.config.ts の strictPort: true が fail-fast で受ける
 
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { createServer } from "node:net";
 import { basename, resolve } from "node:path";
-
-// 16800..16999: 旧固定値 16873 を含む帯。macOS の ephemeral port（49152-65535）の外なので
-// OS の自動割当とは衝突しない
-const PORT_BASE = 16800;
-const PORT_RANGE = 200;
-const PORT_SWEEP = 16;
+import { derivePortBase, PORT_SWEEP } from "./devPort";
 
 const repoRoot = realpathSync(resolve(import.meta.dir, ".."));
 
@@ -35,10 +29,7 @@ function isPortFree(port: number): Promise<boolean> {
 }
 
 async function pickVitePort(): Promise<number> {
-  const seed = Number.parseInt(createHash("sha256").update(repoRoot).digest("hex").slice(0, 8), 16);
-  // base を帯末尾から PORT_SWEEP 分引いた範囲に丸め、probe の最大到達点（base + PORT_SWEEP - 1）
-  // が宣言帯 16800..16999 を超えないようにする（帯の宣言 = 実挙動を保つ）
-  const base = PORT_BASE + (seed % (PORT_RANGE - PORT_SWEEP));
+  const base = derivePortBase(repoRoot);
   for (let i = 0; i < PORT_SWEEP; i++) {
     if (await isPortFree(base + i)) return base + i;
   }

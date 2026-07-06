@@ -7,19 +7,20 @@
 export const LANE_WIDTH = 16;
 export const ROW_HEIGHT = 24;
 export const DOT_RADIUS = 4;
+/** HEAD ドットの外側リング半径をドット本体からどれだけ離すか (px)。塗り/選択とは別チャンネルで
+ *  「今 HEAD がいる場所」を輪で示す。 */
+export const HEAD_RING_GAP = 3;
 export const GRAPH_PADDING_X = 12;
 
 /**
- * col 1 (graph 列) の右側に確保する HEAD marker `→` 用余白 (px)。
- * marker は col 1 内に in-flow 右寄せ配置されるため、SVG が描く lane / dot と marker の
- * x 帯が物理的に重ならない width をここで予約する。
- * 内訳: marker glyph ~14 + col 2 との padding 4 + 安全余白 2 = 20。
+ * col 1 (graph 列) の右側に確保するガター (px)。最右レーンの dot / HEAD リング (半径 ~7) が
+ * col 2 の description に密着しないための余白。HEAD marker `→` は廃止済み (HEAD は dot リングで表示)。
  */
-const HEAD_MARKER_RIGHT_PADDING = 20;
+const GRAPH_RIGHT_GUTTER = 8;
 
-/** Graph 列の幅。右側は HEAD marker 分の余白を確保する。 */
+/** Graph 列の幅。右側に最右 dot / リング用のガターを確保する。 */
 export function graphColumnWidth(maxLanes: number): number {
-  return GRAPH_PADDING_X + maxLanes * LANE_WIDTH + HEAD_MARKER_RIGHT_PADDING;
+  return GRAPH_PADDING_X + maxLanes * LANE_WIDTH + GRAPH_RIGHT_GUTTER;
 }
 
 /** レーン番号 → X ピクセル座標 */

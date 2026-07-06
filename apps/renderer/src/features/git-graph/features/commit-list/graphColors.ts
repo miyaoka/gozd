@@ -29,3 +29,12 @@ export function laneTextColor(index: number): string {
   const s = LANE_SPECS[index % LANE_SPECS.length];
   return `oklch(${s.l} ${s.c} ${s.h})`;
 }
+
+/**
+ * HEAD 行の背景帯 (通常 / hover)。HEAD lane (lane 0 = HEAD 予約色) の色を低 alpha で敷き、
+ * リング / ドットと同一の色源に揃える (graph の色 SSOT は本 palette)。選択行 (primary 青) とは
+ * hue が異なるため、alpha を混ぜても「選択と別 hue で HEAD 位置を示す」区別は保たれる。
+ * hover は他行 (通常 / 選択) と一貫させるため alpha を上げて明るくする。
+ */
+export const HEAD_ROW_BG = `color-mix(in oklch, ${laneTextColor(0)} 22%, transparent)`;
+export const HEAD_ROW_BG_HOVER = `color-mix(in oklch, ${laneTextColor(0)} 32%, transparent)`;

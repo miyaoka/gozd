@@ -11,6 +11,7 @@ import { formatCompactTime } from "../../../../shared/time";
 import CommitSegmentList from "../../CommitSegmentList";
 import type { CommitMessageSegment } from "../../linkifyCommitMessage";
 import { useGitGraphStore } from "../../useGitGraphStore";
+import { HEAD_ROW_BG, HEAD_ROW_BG_HOVER } from "./graphColors";
 import { ROW_HEIGHT } from "./graphGeometry";
 import type { GraphNode } from "./graphLayout";
 import { computeDisplayRefs } from "./graphRefs";
@@ -39,11 +40,28 @@ const emit = defineEmits<{
 
 const gitGraphStore = useGitGraphStore();
 
-const highlightClass = computed(() =>
-  gitGraphStore.isSelectedRow(props.node.commit.hash)
-    ? "bg-primary-subtle hover:bg-primary-subtle-hover"
-    : "hover:bg-element-hover",
-);
+const isSelectedRow = computed(() => gitGraphStore.isSelectedRow(props.node.commit.hash));
+const isHeadRow = computed(() => props.node.commit.hash === gitGraphStore.headHash);
+
+// 選択と HEAD は別軸。選択を最優先、次に HEAD 行の持続背景、通常は hover のみ。
+// HEAD 帯は CSS 変数 (--head-bg / --head-bg-hover) を rowStyle が供給し、静的な bg / hover class で参照する。
+// 色を class リテラルに直書きしない (graphColors 由来で Tailwind の静的スキャンに乗らないため) が、
+// 変数名は固定なので class はスキャンでき、hover も cascade で効く (inline background だと hover が付けられない)。
+const highlightClass = computed(() => {
+  if (isSelectedRow.value) return "bg-primary-subtle hover:bg-primary-subtle-hover";
+  if (isHeadRow.value) return "bg-[var(--head-bg)] hover:bg-[var(--head-bg-hover)]";
+  return "hover:bg-element-hover";
+});
+
+// HEAD 帯の色源は graphColors の HEAD lane 色 (リング / ドットと同一 SSOT)。選択が勝つときは供給しない。
+const rowStyle = computed<Record<string, string>>(() => {
+  const style: Record<string, string> = { height: `${ROW_HEIGHT}px` };
+  if (isHeadRow.value && !isSelectedRow.value) {
+    style["--head-bg"] = HEAD_ROW_BG;
+    style["--head-bg-hover"] = HEAD_ROW_BG_HOVER;
+  }
+  return style;
+});
 
 const displayRefs = computed(() =>
   computeDisplayRefs(
@@ -56,10 +74,6 @@ const displayRefs = computed(() =>
 
 function isMergeCommit(commit: GitCommit): boolean {
   return commit.parents.length > 1;
-}
-
-function hasHead(refs: string[]): boolean {
-  return refs.includes("HEAD");
 }
 
 function onContextmenu(e: MouseEvent) {
@@ -76,21 +90,18 @@ function onContextmenu(e: MouseEvent) {
 
 <template>
   <div
-    class="_graph-row grid items-center text-xs"
+    class="_graph-row col-span-full grid grid-cols-subgrid items-center text-xs"
     :class="highlightClass"
-    :style="{ gridTemplateColumns: 'var(--graph-cols)', height: `${ROW_HEIGHT}px` }"
+    :style="rowStyle"
     @click="emit('rowClick', node.commit.hash, $event)"
     @contextmenu="onContextmenu"
   >
-    <!-- col 1 (graph): SVG が absolute で覆うセル。右端の HEAD marker 余白に marker を
-         in-flow 右寄せで置く。col 2 内の absolute 配置にすると col 2 の truncate が
-         containing block ごとクリップして marker が消える。 -->
-    <div class="flex items-center justify-end pr-1">
-      <span v-if="hasHead(node.commit.refs)" class="text-warning-text" title="HEAD"> → </span>
-    </div>
+    <!-- col 1 (graph): SVG が absolute で覆うセル。HEAD は SVG 側の dot リングで示すため、
+         ここにはマーカーを置かない。 -->
+    <div></div>
 
     <!-- col 2 (description) -->
-    <div class="flex min-w-0 items-center gap-1 truncate pr-2">
+    <div class="flex min-w-0 items-center gap-1 truncate px-1">
       <IconLucideGitMerge
         v-if="isMergeCommit(node.commit)"
         class="size-3.5 shrink-0 text-foreground-low"
@@ -107,17 +118,17 @@ function onContextmenu(e: MouseEvent) {
     </div>
 
     <!-- col 3 (date) -->
-    <div class="text-foreground-low">
+    <div class="truncate px-1 text-foreground-low">
       {{ formatCompactTime(node.commit.date) }}
     </div>
 
     <!-- col 4 (author) -->
-    <div class="truncate text-foreground-low">
+    <div class="truncate px-1 text-foreground-low">
       {{ node.commit.author }}
     </div>
 
     <!-- col 5 (hash) -->
-    <div class="font-mono text-foreground-low">
+    <div class="truncate px-1 font-mono text-foreground-low">
       {{ node.commit.shortHash }}
     </div>
   </div>

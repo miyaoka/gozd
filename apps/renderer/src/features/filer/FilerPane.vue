@@ -172,7 +172,7 @@ onUnmounted(() => {
     <button
       v-if="snapshotHash !== undefined"
       type="button"
-      class="absolute top-1 right-2 rounded-sm border border-border bg-element px-1.5 py-1 text-xs text-foreground-low hover:bg-element-hover hover:text-foreground"
+      class="absolute top-1 right-2 rounded-sm border border-border bg-element-hover px-1.5 py-1 text-xs text-foreground-low hover:bg-element-active hover:text-foreground"
       title="Jump to latest (working tree)"
       @click="goToNow"
     >

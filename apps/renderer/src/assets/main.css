@@ -36,7 +36,8 @@
 }
 
 /* layout 定数: カスタムタイトルバー（TitleBar.vue）の高さ。
- * main process の trafficLightPosition（main.ts TITLEBAR_HEIGHT）と同値である契約。
+ * TS 側の SSOT は `@gozd/shared` の TITLEBAR_HEIGHT（main の trafficLightPosition と
+ * renderer の縦レイアウト計算が参照）で、本 CSS var は同値を持つ契約。
  * ウィンドウ全高の overlay（_preview-popover / ServerListPanel）はこの分だけ top を下げ、
  * タイトルバーのドラッグ領域を覆わないようにする */
 :root {

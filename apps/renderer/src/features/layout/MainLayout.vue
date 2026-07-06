@@ -15,6 +15,7 @@
 </doc>
 
 <script setup lang="ts">
+import { TITLEBAR_HEIGHT } from "@gozd/shared";
 import { useEventListener, useWindowSize } from "@vueuse/core";
 import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useCommandRegistry, useContextKeys } from "../../shared/command";
@@ -223,11 +224,12 @@ function getCenterTerminalHeight(): number {
 }
 
 // ウィンドウ縦縮小時に gitGraphHeight をクランプ（Terminal が潰れるのを防ぐ）。
-// 書き換え対象 gitGraphHeight は source に含めない
+// windowHeight はタイトルバー帯を含む renderer 全高なので、中央カラムの実高に
+// 合わせて TITLEBAR_HEIGHT を差し引く。書き換え対象 gitGraphHeight は source に含めない
 watch(
   windowHeight,
   (h) => {
-    const maxGitGraph = h - TERMINAL_MIN_HEIGHT - HANDLE_WIDTH;
+    const maxGitGraph = h - TITLEBAR_HEIGHT - TERMINAL_MIN_HEIGHT - HANDLE_WIDTH;
     if (gitGraphHeight.value > maxGitGraph) {
       gitGraphHeight.value = Math.max(GIT_GRAPH_MIN_HEIGHT, maxGitGraph);
     }

@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
-import { tryCatch } from "@gozd/shared";
+import { TITLEBAR_HEIGHT, tryCatch } from "@gozd/shared";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeClaudeHooksSettings } from "./claudeHooksSettings";
@@ -35,10 +35,9 @@ const dispatch = createRpcDispatcher(routes);
 const DEFAULT_WINDOW_SIZE = { width: 1280, height: 800 };
 
 // カスタムタイトルバー: titleBarStyle "hiddenInset" でネイティブバーの描画を消し、
-// renderer の TitleBar.vue（高さ = renderer 側 --titlebar-height と同値）が帯を描く。
+// renderer の TitleBar.vue（高さ = @gozd/shared TITLEBAR_HEIGHT が SSOT）が帯を描く。
 // 信号機ボタンは window 座標固定のネイティブ部品なので、帯の垂直中央
 // （中央 y − ボタン半径）に main 側で位置合わせする
-const TITLEBAR_HEIGHT = 36;
 const TRAFFIC_LIGHT_RADIUS = 6;
 const TRAFFIC_LIGHT_X = 16;
 

@@ -1,5 +1,6 @@
 {
   "name": "@gozd/electron",
+  "productName": "Gozd",
   "version": "0.0.0",
   "private": true,
   "description": "Electron shell spike (issue #895): BrowserWindow + typed IPC + node-pty + xterm.js",
@@ -7,7 +8,7 @@
   "main": "dist/main.cjs",
   "scripts": {
     "build": "bun ./build.ts",
-    "build:app": "pnpm --filter @gozd/renderer build && pnpm build && iconutil -c icns build/icon.iconset -o build/icon.icns && electron-builder --dir",
+    "build:app": "pnpm --filter @gozd/renderer build && pnpm build && iconutil -c icns build/icon.iconset -o build/icon.icns && electron-builder --dir -c.buildVersion=\"$(git show -s --format=%cd --date=format:%Y%m%d-%H%M%S HEAD) $(git describe --always --dirty)\"",
     "dev": "pnpm build && electron .",
     "start": "electron .",
     "spike": "pnpm build && GOZD_SPIKE_TEST=1 electron .",

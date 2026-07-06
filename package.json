@@ -5,7 +5,7 @@
   "description": "AI Agent Orchestrator",
   "type": "module",
   "scripts": {
-    "dev": "GOZD_DEV_VITE_PORT=16873 concurrently --kill-others --names renderer,electron --prefix-colors cyan,magenta 'pnpm --filter @gozd/renderer dev' 'pnpm --filter @gozd/electron dev'",
+    "dev": "bun scripts/dev.ts",
     "dev:prod": "rm -rf \"$TMPDIR/gozd-stable-launch\" \"$TMPDIR/gozd-stable.sock\" && env -u GOZD_SOCKET_PATH apps/electron/out/mac-arm64/Gozd.app/Contents/Resources/app/bin/gozd",
     "build": "pnpm -r build",
     "bootstrap": "pnpm --filter @gozd/electron build:app && open apps/electron/out/mac-arm64/Gozd.app",
@@ -14,7 +14,8 @@
     "fix": "oxfmt '!apps/**' '!packages/**'",
     "lint:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only lint",
     "fix:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only fix",
-    "test:all": "pnpm -r --if-present --no-bail --aggregate-output --reporter=append-only test",
+    "test": "bun test scripts",
+    "test:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only test",
     "typecheck:all": "pnpm -r --include-workspace-root --if-present typecheck",
     "knip": "knip",
     "prepare": "lefthook install"

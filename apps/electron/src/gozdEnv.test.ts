@@ -5,7 +5,32 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { homedir } from "node:os";
-import { buildPtyEnv, claudeSettingsPath, cliPath, socketPath, zdotdir } from "./gozdEnv";
+import { basename } from "node:path";
+import {
+  buildPtyEnv,
+  claudeSettingsPath,
+  cliPath,
+  launchRequestDir,
+  socketPath,
+  zdotdir,
+} from "./gozdEnv";
+
+describe("channel リソース分離", () => {
+  // bun test は非 packaged 判定に倒れるため dev channel。worktree hash 付き形式を契約として固定する
+  test("非 packaged では dev channel が worktree hash 付きで導出される", () => {
+    expect(basename(socketPath)).toMatch(/^gozd-dev-[0-9a-f]{12}\.sock$/);
+  });
+
+  test("socket / claude settings / launch dir は同一 channel を共有する", () => {
+    // CLI が socket ファイル名から channel を逆導出する（cliOps.ts）ため、
+    // 3 リソースの channel が揃っていることがワイヤ互換の前提
+    const channel = basename(socketPath)
+      .replace(/^gozd-/, "")
+      .replace(/\.sock$/, "");
+    expect(basename(claudeSettingsPath)).toBe(`gozd-${channel}-claude-settings.json`);
+    expect(basename(launchRequestDir)).toBe(`gozd-${channel}-launch`);
+  });
+});
 
 describe("buildPtyEnv", () => {
   const touchedKeys: string[] = [];

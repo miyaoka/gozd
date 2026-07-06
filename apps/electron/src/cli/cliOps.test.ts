@@ -29,11 +29,21 @@ describe("launchRequestDirFromSocketPath", () => {
     expect(launchRequestDirFromSocketPath("/tmp/gozd-electron-stable.sock")).toBe(
       join(tmpdir(), "gozd-electron-stable-launch"),
     );
-    expect(launchRequestDirFromSocketPath("/tmp/gozd-dev.sock")).toBe(join(tmpdir(), "gozd-dev-launch"));
+    expect(launchRequestDirFromSocketPath("/tmp/gozd-dev.sock")).toBe(
+      join(tmpdir(), "gozd-dev-launch"),
+    );
+  });
+
+  test("worktree hash 付き dev channel も抽出できる（並列 pnpm dev の per-worktree socket）", () => {
+    expect(launchRequestDirFromSocketPath("/tmp/gozd-dev-a1b2c3d4e5f6.sock")).toBe(
+      join(tmpdir(), "gozd-dev-a1b2c3d4e5f6-launch"),
+    );
   });
 
   test("形式外は stable 扱い", () => {
-    expect(launchRequestDirFromSocketPath("/tmp/other.sock")).toBe(join(tmpdir(), "gozd-stable-launch"));
+    expect(launchRequestDirFromSocketPath("/tmp/other.sock")).toBe(
+      join(tmpdir(), "gozd-stable-launch"),
+    );
   });
 });
 
@@ -47,7 +57,9 @@ describe("writeLaunchRequest", () => {
     const [entry] = readdirSync(dir);
     expect(entry).toMatch(/\.json$/);
     if (entry === undefined) throw new Error("unreachable");
-    expect(JSON.parse(readFileSync(join(dir, entry), "utf8"))).toEqual({ targetPath: "/Users/foo/repo" });
+    expect(JSON.parse(readFileSync(join(dir, entry), "utf8"))).toEqual({
+      targetPath: "/Users/foo/repo",
+    });
 
     rmSync(dir, { recursive: true, force: true });
     expect(existsSync(dir)).toBe(false);
@@ -88,7 +100,9 @@ describe("buildHookMessage", () => {
 
   test("pending_work は background_tasks / session_crons の OR（欠落 = pending なし）", () => {
     expect(buildHookMessage("done", {}, {}).pendingWork).toBe(false);
-    expect(buildHookMessage("done", { background_tasks: [], session_crons: [] }, {}).pendingWork).toBe(false);
+    expect(
+      buildHookMessage("done", { background_tasks: [], session_crons: [] }, {}).pendingWork,
+    ).toBe(false);
     expect(buildHookMessage("done", { background_tasks: [{}] }, {}).pendingWork).toBe(true);
     expect(buildHookMessage("done", { session_crons: [{}] }, {}).pendingWork).toBe(true);
   });

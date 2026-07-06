@@ -137,7 +137,8 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 
 ## 開発コマンド
 
-- `pnpm dev` — renderer（Vite HMR）と Electron shell を concurrently で同時起動
+- `pnpm dev` — renderer（Vite HMR）と Electron shell を concurrently で同時起動。port / socket は
+  worktree 単位で分離されるため、複数 worktree での並列起動が可能
 - `pnpm --filter @gozd/electron build:app` — `.app` バンドルを生成（`apps/electron/out/mac-arm64/Gozd.app`）
 
 全チェックはルートの `pnpm run test:all` / `pnpm run typecheck:all` で行う。pnpm 11 は `pnpm run` 実行時に node_modules を自動インストールするため、事前の手動 install は不要。

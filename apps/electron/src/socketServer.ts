@@ -5,7 +5,8 @@
 // - 1 行 = 1 メッセージ。接続クローズ時に残った不完全な行は捨てる（クライアントは
 //   必ず `\n` で終端する規約）
 // - listen 前に stale socket file を unlink する（前回異常終了の残骸で EADDRINUSE に
-//   なるため）。稼働中の別インスタンスの socket を消すリスクは channel 分離で回避する
+//   なるため）。稼働中の別インスタンスの socket を消すリスクは channel 分離
+//   （dev は worktree 単位の hash 付き channel。gozdEnv.ts）で回避する
 
 import { unlinkSync } from "node:fs";
 import { createServer, type Server } from "node:net";
@@ -17,7 +18,10 @@ export interface SocketServerHandle {
   close(): void;
 }
 
-export function startSocketServer(socketPath: string, onMessage: SocketMessageHandler): SocketServerHandle {
+export function startSocketServer(
+  socketPath: string,
+  onMessage: SocketMessageHandler,
+): SocketServerHandle {
   tryCatch(() => unlinkSync(socketPath));
 
   const server: Server = createServer((connection) => {

@@ -13,7 +13,7 @@
 import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { createServer } from "node:net";
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
 import { derivePortBase, PORT_SWEEP } from "./devPort";
 
 const repoRoot = realpathSync(resolve(import.meta.dir, ".."));
@@ -37,7 +37,6 @@ async function pickVitePort(): Promise<number> {
 }
 
 const port = await pickVitePort();
-console.error(`[dev] worktree=${basename(repoRoot)} vite=http://localhost:${port}`);
 
 // bun は起動時の env snapshot を子プロセスのデフォルト継承に使うため、`process.env` への
 // 代入 / delete は spawnSync の子に反映されない。必ず明示の env オブジェクトで渡す

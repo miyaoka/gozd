@@ -62,6 +62,30 @@ diff の各行に対応するトークンをマッピングして色付き表示
 unified では removed 行は original のトークン、added / unchanged 行は current のトークンを使用。
 split では左セルが original、右セルが current のトークンを使用する。
 
+## 行内 (文字単位) ハイライト
+
+行単位 diff の SSOT は git のまま、変更ブロック (removed run × added run) の内側だけを
+`intraLineDiff.ts` (monaco-editor deep import の VSCode `DefaultLinesDiffComputer`) で
+文字単位に再計算する。表示専用の追加レイヤーなので git の hunk 構造とは矛盾しない。
+
+トーン設計は VSCode の line/char decoration 二層と同型。行背景は従来の diff 色
+(subtle、step 3)、行内変更範囲は 1 段明るい subtle-active (step 5) を重ねる。
+変更フラグメントが浮き、同一部分が行背景のトーンに沈んで見える。
+沈む側 (step 2 以下) でトーン差を作る案は、dark パレットの低 step 圧縮 (ΔL 0.03) で
+人間に判別できず不採用。コントラストは明るい側でしか成立しない。
+
+純粋な追加 / 削除行は VSCode では行全体が char 強度になるが、gozd は従来の subtle を
+維持する (大きな追加ブロックが明るい壁になるのを避ける。GitHub と同じ判断)。
+degrade した run (予算切れ / timeout) も従来の行単位表示のまま。
+
+計算はメインスレッド同期実行のため、1 ファイル全 run 合算の予算
+(`INTRA_LINE_DIFF_BUDGET_MS`) で打ち切る。予算切れ / run 単体の timeout は
+行単位表示への degrade (VSCode と同じ戦略) で、エラーにはしない。
+
+描画は DiffLineContent が「トークン境界 × 変更範囲境界」の両方で segment を切って合成する。
+強調は inline span の background なので、contenteditable コピーの clipboard 正規化
+(1 行 = 1 改行) には影響しない。
+
 ## 入力契約
 
 `original` / `current` は UTF-8 として解釈可能なテキストである必要がある。NUL バイトを含む
@@ -108,6 +132,8 @@ import type * as Monaco from "monaco-editor";
 import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { abortComposition, blockEdit } from "./contenteditableHostGuard";
+import DiffLineContent from "./DiffLineContent.vue";
+import { type ColRange, computeIntraLineRanges } from "./intraLineDiff";
 import { rpcGitDiffExpandLines, rpcGitDiffHunks } from "./rpc";
 import { useDiffEditor } from "./useDiffEditor";
 import { type ThemedToken, highlightTokens } from "./useHighlight";
@@ -206,6 +232,9 @@ type DiffSuccessState = {
   kind: "success";
   baseItems: DiffViewItem[];
   baseSplitItems: DiffSplitViewItem[];
+  /** 行内 (文字単位) 変更範囲。key は old / new 側それぞれの 1-based 絶対行番号 */
+  oldInnerRanges: Map<number, ColRange[]>;
+  newInnerRanges: Map<number, ColRange[]>;
   oldTotal: number;
   newTotal: number;
 };
@@ -260,53 +289,27 @@ function barKey(bar: DiffBarItem): string {
 }
 
 /**
- * 1 hunk の lines を unified 行アイテムに展開する。
+ * hunk 内の 1 セグメント。context 1 行、または「連続する removed run + added run」の
+ * 1 変更ブロック。unified / split の展開と行内 diff の run 対象抽出が同じ走査を必要と
+ * するため、hunk lines の走査 (絶対行番号の採番 + run のグルーピング) をここに一本化する。
  */
-function expandHunkLinesUnified(h: DiffHunk, items: DiffViewItem[]): void {
-  let oldLine = h.oldStart;
-  let newLine = h.newStart;
-  for (const line of h.lines) {
-    if (line.kind === "removed") {
-      items.push({ type: "line", kind: "removed", text: line.text, oldLineNo: oldLine });
-      oldLine += 1;
-    } else if (line.kind === "added") {
-      items.push({ type: "line", kind: "added", text: line.text, newLineNo: newLine });
-      newLine += 1;
-    } else {
-      items.push({
-        type: "line",
-        kind: "unchanged",
-        text: line.text,
-        oldLineNo: oldLine,
-        newLineNo: newLine,
-      });
-      oldLine += 1;
-      newLine += 1;
-    }
-  }
-}
+type HunkSegment =
+  | { kind: "context"; oldLineNo: number; newLineNo: number; text: string }
+  | {
+      kind: "run";
+      removeds: { lineNo: number; text: string }[];
+      addeds: { lineNo: number; text: string }[];
+    };
 
-/**
- * 1 hunk の lines を split 行アイテムに展開する。
- * unchanged は両側にテキストを持つ context row、modified 区間は連続する removed run と
- * added run を貪欲にペアリングして同じ row に左右配置する。run 長が不揃いの場合は
- * 余った片側だけの row が並ぶ。
- */
-function expandHunkLinesSplit(h: DiffHunk, items: DiffSplitViewItem[]): void {
+function collectHunkSegments(h: DiffHunk): HunkSegment[] {
+  const segments: HunkSegment[] = [];
   let oldLine = h.oldStart;
   let newLine = h.newStart;
   let i = 0;
   while (i < h.lines.length) {
     const line = h.lines[i];
     if (line.kind === "context") {
-      items.push({
-        type: "split-row",
-        kind: "context",
-        oldLineNo: oldLine,
-        oldText: line.text,
-        newLineNo: newLine,
-        newText: line.text,
-      });
+      segments.push({ kind: "context", oldLineNo: oldLine, newLineNo: newLine, text: line.text });
       oldLine += 1;
       newLine += 1;
       i += 1;
@@ -325,10 +328,59 @@ function expandHunkLinesSplit(h: DiffHunk, items: DiffSplitViewItem[]): void {
       newLine += 1;
       i += 1;
     }
-    const pairCount = Math.max(removeds.length, addeds.length);
+    segments.push({ kind: "run", removeds, addeds });
+  }
+  return segments;
+}
+
+/**
+ * 1 hunk のセグメント列を unified 行アイテムに展開する。
+ * run は removed → added の順に並べる (git の unified diff 出力と同じ並び)。
+ */
+function expandHunkLinesUnified(segments: HunkSegment[], items: DiffViewItem[]): void {
+  for (const seg of segments) {
+    if (seg.kind === "context") {
+      items.push({
+        type: "line",
+        kind: "unchanged",
+        text: seg.text,
+        oldLineNo: seg.oldLineNo,
+        newLineNo: seg.newLineNo,
+      });
+      continue;
+    }
+    for (const r of seg.removeds) {
+      items.push({ type: "line", kind: "removed", text: r.text, oldLineNo: r.lineNo });
+    }
+    for (const a of seg.addeds) {
+      items.push({ type: "line", kind: "added", text: a.text, newLineNo: a.lineNo });
+    }
+  }
+}
+
+/**
+ * 1 hunk のセグメント列を split 行アイテムに展開する。
+ * unchanged は両側にテキストを持つ context row、run は removed run と added run を
+ * 貪欲にペアリングして同じ row に左右配置する。run 長が不揃いの場合は
+ * 余った片側だけの row が並ぶ。
+ */
+function expandHunkLinesSplit(segments: HunkSegment[], items: DiffSplitViewItem[]): void {
+  for (const seg of segments) {
+    if (seg.kind === "context") {
+      items.push({
+        type: "split-row",
+        kind: "context",
+        oldLineNo: seg.oldLineNo,
+        oldText: seg.text,
+        newLineNo: seg.newLineNo,
+        newText: seg.text,
+      });
+      continue;
+    }
+    const pairCount = Math.max(seg.removeds.length, seg.addeds.length);
     for (let j = 0; j < pairCount; j++) {
-      const r = removeds[j];
-      const a = addeds[j];
+      const r = seg.removeds[j];
+      const a = seg.addeds[j];
       items.push({
         type: "split-row",
         kind: "modified",
@@ -342,6 +394,50 @@ function expandHunkLinesSplit(h: DiffHunk, items: DiffSplitViewItem[]): void {
 }
 
 /**
+ * 1 ファイル分の行内 diff 計算に許す合計時間。VSCode の diff は worker で走るが gozd の
+ * 行内 diff はメインスレッド同期実行のため、巨大 diff (lock ファイル等) で UI が固まらない
+ * よう全 run 合算の予算で打ち切る。予算切れ以降の run は行単位表示に degrade する。
+ */
+const INTRA_LINE_DIFF_BUDGET_MS = 500;
+
+/**
+ * 変更ブロック (removed run × added run 両方が非空のもの) の行内変更範囲を収集し、
+ * 絶対行番号 key のマップに積む。予算切れは想定内の degrade だが、観察できるよう
+ * 初回だけ stderr にログを残す (budget.exhausted フラグで 1 回に抑制)。
+ */
+function collectIntraLineRanges(
+  segments: HunkSegment[],
+  oldRanges: Map<number, ColRange[]>,
+  newRanges: Map<number, ColRange[]>,
+  budget: { deadline: number; exhausted: boolean },
+): void {
+  for (const seg of segments) {
+    if (seg.kind !== "run") continue;
+    if (seg.removeds.length === 0 || seg.addeds.length === 0) continue;
+    const remaining = budget.deadline - performance.now();
+    if (remaining <= 0) {
+      if (!budget.exhausted) {
+        budget.exhausted = true;
+        console.error(
+          `[DiffPreview] intra-line diff budget (${INTRA_LINE_DIFF_BUDGET_MS}ms) exhausted; ` +
+            "remaining runs degrade to line-level highlight",
+        );
+      }
+      return;
+    }
+    const result = computeIntraLineRanges(
+      seg.removeds.map((r) => r.text),
+      seg.addeds.map((a) => a.text),
+      remaining,
+    );
+    // undefined = hitTimeout。この run だけ行内ハイライトなし (従来の行単位表示) に degrade する
+    if (result === undefined) continue;
+    for (const [idx, list] of result.old) oldRanges.set(seg.removeds[idx].lineNo, list);
+    for (const [idx, list] of result.new) newRanges.set(seg.addeds[idx].lineNo, list);
+  }
+}
+
+/**
  * hunks を走査して unified / split の base items を 1 度に組み立てる。
  * hunk 間 / 末尾の連続 unchanged 範囲は `DiffBarItem` で省略する。invariant 違反は throw。
  * 0-line hunk (新規 / 削除ファイル) の扱いは unified / split で同一なので gap 計算をここに集約する。
@@ -350,9 +446,20 @@ function buildBaseItems(
   hs: DiffHunk[],
   oldTotal: number,
   newTotal: number,
-): { items: DiffViewItem[]; splitItems: DiffSplitViewItem[] } {
+): {
+  items: DiffViewItem[];
+  splitItems: DiffSplitViewItem[];
+  oldInnerRanges: Map<number, ColRange[]>;
+  newInnerRanges: Map<number, ColRange[]>;
+} {
   const items: DiffViewItem[] = [];
   const splitItems: DiffSplitViewItem[] = [];
+  const oldInnerRanges = new Map<number, ColRange[]>();
+  const newInnerRanges = new Map<number, ColRange[]>();
+  const intraLineBudget = {
+    deadline: performance.now() + INTRA_LINE_DIFF_BUDGET_MS,
+    exhausted: false,
+  };
   let prevOldEnd = 0;
   let prevNewEnd = 0;
 
@@ -385,8 +492,10 @@ function buildBaseItems(
       splitItems.push(bar);
     }
 
-    expandHunkLinesUnified(h, items);
-    expandHunkLinesSplit(h, splitItems);
+    const segments = collectHunkSegments(h);
+    expandHunkLinesUnified(segments, items);
+    expandHunkLinesSplit(segments, splitItems);
+    collectIntraLineRanges(segments, oldInnerRanges, newInnerRanges, intraLineBudget);
 
     if (h.oldLines > 0) prevOldEnd = h.oldStart + h.oldLines - 1;
     if (h.newLines > 0) prevNewEnd = h.newStart + h.newLines - 1;
@@ -412,7 +521,7 @@ function buildBaseItems(
     splitItems.push(bar);
   }
 
-  return { items, splitItems };
+  return { items, splitItems, oldInnerRanges, newInnerRanges };
 }
 
 watch(
@@ -447,6 +556,8 @@ watch(
       kind: "success",
       baseItems: buildResult.value.items,
       baseSplitItems: buildResult.value.splitItems,
+      oldInnerRanges: buildResult.value.oldInnerRanges,
+      newInnerRanges: buildResult.value.newInnerRanges,
       oldTotal,
       newTotal,
     };
@@ -461,6 +572,19 @@ const lineNoWidth = computed(() => {
   return `${String(maxLine).length}ch`;
 });
 
+/**
+ * diff 背景のトーン設計 (VSCode の line/char decoration 二層と同型):
+ * - 行背景 = 従来の diff 色 (subtle、step 3)。VSCode の弱い line 背景に相当
+ * - 行内変更範囲 = 1 段明るい subtle-active (step 5) を重ねる。VSCode の char decoration
+ *   に相当し、変更フラグメントが明るく浮き、同一部分は行背景のトーンに沈んで見える
+ *
+ * dark パレットの低 step (1-3) は差が圧縮されていて (ΔL 0.03-0.04)、subtle より暗い側で
+ * トーン差を作っても人間には判別できない。コントラストは明るい側 (step 3 → 5、ΔL 0.08)
+ * でしか成立しない。
+ *
+ * VSCode は純粋な追加 / 削除行も行全体を char 強度にするが、gozd では従来の subtle を
+ * 維持する (大きな追加ブロックが明るい壁になるのを避ける。GitHub と同じ判断)。
+ */
 const LINE_BG_CLASSES: Record<DiffLineKindName, string> = {
   added: "bg-success-subtle",
   removed: "bg-destructive-subtle",
@@ -471,6 +595,13 @@ const LINE_FALLBACK_CLASSES: Record<DiffLineKindName, string> = {
   added: "text-success-text bg-success-subtle",
   removed: "text-destructive-text bg-destructive-subtle",
   unchanged: "text-foreground",
+};
+
+/** 行内 (文字単位) 変更範囲の強調背景。VSCode の char decoration に相当 */
+const INNER_MARK_CLASSES: Record<DiffLineKindName, string> = {
+  added: "bg-success-subtle-active",
+  removed: "bg-destructive-subtle-active",
+  unchanged: "",
 };
 
 const originalTokens = ref<ThemedToken[][]>();
@@ -510,15 +641,16 @@ watch(
   { immediate: true },
 );
 
-/** unified の renderRows: 展開済みバーを unchanged 行に置換した後、tokens を埋め込む */
+/** unified の renderRows: 展開済みバーを unchanged 行に置換した後、tokens と行内 range を埋め込む */
 const renderRows = computed(() => {
-  if (state.value.kind !== "success") return [];
+  const s = state.value;
+  if (s.kind !== "success") return [];
   const orig = originalTokens.value;
   const curr = currentTokens.value;
   const expandedMap = expansions.value;
 
-  const rendered: ((DiffLineItem & { tokens?: ThemedToken[] }) | DiffBarItem)[] = [];
-  for (const item of state.value.baseItems) {
+  const rendered: (RenderedUnifiedLine | DiffBarItem)[] = [];
+  for (const item of s.baseItems) {
     if (item.type === "hunk-bar") {
       const lines = expandedMap.get(barKey(item));
       if (lines === undefined) {
@@ -537,12 +669,13 @@ const renderRows = computed(() => {
             },
             orig,
             curr,
+            s,
           ),
         );
       }
       continue;
     }
-    rendered.push(buildRenderedLine(item, orig, curr));
+    rendered.push(buildRenderedLine(item, orig, curr, s));
   }
   return rendered;
 });
@@ -551,7 +684,8 @@ function buildRenderedLine(
   item: DiffLineItem,
   orig: ThemedToken[][] | undefined,
   curr: ThemedToken[][] | undefined,
-): DiffLineItem & { tokens?: ThemedToken[] } {
+  s: DiffSuccessState,
+): RenderedUnifiedLine {
   let tokens: ThemedToken[] | undefined;
   if (orig && curr) {
     if (item.kind === "removed" && item.oldLineNo !== undefined) {
@@ -560,21 +694,25 @@ function buildRenderedLine(
       tokens = curr[item.newLineNo - 1];
     }
   }
-  return { ...item, tokens };
+  let innerRanges: ColRange[] | undefined;
+  if (item.kind === "removed" && item.oldLineNo !== undefined) {
+    innerRanges = s.oldInnerRanges.get(item.oldLineNo);
+  } else if (item.kind === "added" && item.newLineNo !== undefined) {
+    innerRanges = s.newInnerRanges.get(item.newLineNo);
+  }
+  return { ...item, tokens, innerRanges };
 }
 
-/** split の renderRows: 展開済みバーを context row に置換した後、両側のトークンを埋め込む */
+/** split の renderRows: 展開済みバーを context row に置換した後、両側のトークンと行内 range を埋め込む */
 const splitRenderRows = computed(() => {
-  if (state.value.kind !== "success") return [];
+  const s = state.value;
+  if (s.kind !== "success") return [];
   const orig = originalTokens.value;
   const curr = currentTokens.value;
   const expandedMap = expansions.value;
 
-  type Rendered =
-    | (DiffSplitRowItem & { oldTokens?: ThemedToken[]; newTokens?: ThemedToken[] })
-    | DiffBarItem;
-  const rendered: Rendered[] = [];
-  for (const item of state.value.baseSplitItems) {
+  const rendered: (RenderedSplitLine | DiffBarItem)[] = [];
+  for (const item of s.baseSplitItems) {
     if (item.type === "hunk-bar") {
       const lines = expandedMap.get(barKey(item));
       if (lines === undefined) {
@@ -594,12 +732,13 @@ const splitRenderRows = computed(() => {
             },
             orig,
             curr,
+            s,
           ),
         );
       }
       continue;
     }
-    rendered.push(buildRenderedSplitRow(item, orig, curr));
+    rendered.push(buildRenderedSplitRow(item, orig, curr, s));
   }
   return rendered;
 });
@@ -608,10 +747,21 @@ function buildRenderedSplitRow(
   row: DiffSplitRowItem,
   orig: ThemedToken[][] | undefined,
   curr: ThemedToken[][] | undefined,
-): DiffSplitRowItem & { oldTokens?: ThemedToken[]; newTokens?: ThemedToken[] } {
+  s: DiffSuccessState,
+): RenderedSplitLine {
   const oldTokens = orig && row.oldLineNo !== undefined ? orig[row.oldLineNo - 1] : undefined;
   const newTokens = curr && row.newLineNo !== undefined ? curr[row.newLineNo - 1] : undefined;
-  return { ...row, oldTokens, newTokens };
+  // 行内 range は modified 行にしか積まれないが、lookup は行番号だけで安全
+  // (context 行の行番号は collectIntraLineRanges の対象外なので必ず miss する)
+  const oldInnerRanges =
+    row.kind === "modified" && row.oldLineNo !== undefined
+      ? s.oldInnerRanges.get(row.oldLineNo)
+      : undefined;
+  const newInnerRanges =
+    row.kind === "modified" && row.newLineNo !== undefined
+      ? s.newInnerRanges.get(row.newLineNo)
+      : undefined;
+  return { ...row, oldTokens, newTokens, oldInnerRanges, newInnerRanges };
 }
 
 /**
@@ -624,10 +774,12 @@ function buildRenderedSplitRow(
  * 並び順が DOM 描画順と一致する。hunk-bar の前後関係 / 末尾 trailing は flat 配列に
  * そのまま現れるため、template の v-for 1 段で素直に描ける。
  */
-type RenderedUnifiedLine = DiffLineItem & { tokens?: ThemedToken[] };
+type RenderedUnifiedLine = DiffLineItem & { tokens?: ThemedToken[]; innerRanges?: ColRange[] };
 type RenderedSplitLine = DiffSplitRowItem & {
   oldTokens?: ThemedToken[];
   newTokens?: ThemedToken[];
+  oldInnerRanges?: ColRange[];
+  newInnerRanges?: ColRange[];
 };
 type UnifiedItem = DiffBarItem | { type: "section"; lines: RenderedUnifiedLine[] };
 type SplitItem = DiffBarItem | { type: "section"; lines: RenderedSplitLine[] };
@@ -977,15 +1129,12 @@ function splitRightBg(row: DiffSplitRowItem): string {
                 aria-hidden="true"
               />
               <span class="_line-text" :class="wordWrap ? '_word-wrap' : ''">
-                <template v-if="row.tokens">
-                  <span
-                    v-for="(token, k) in row.tokens"
-                    :key="k"
-                    :style="token.color ? { color: token.color } : undefined"
-                    >{{ token.content }}</span
-                  >
-                </template>
-                <template v-else>{{ row.text }}</template>
+                <DiffLineContent
+                  :text="row.text"
+                  :tokens="row.tokens"
+                  :ranges="row.innerRanges"
+                  :mark-class="INNER_MARK_CLASSES[row.kind]"
+                />
               </span>
             </div>
           </div>
@@ -1053,17 +1202,13 @@ function splitRightBg(row: DiffSplitRowItem): string {
                   aria-hidden="true"
                 />
                 <span class="_line-text" :class="wordWrap ? '_word-wrap' : ''">
-                  <template v-if="row.oldText !== undefined">
-                    <template v-if="row.oldTokens">
-                      <span
-                        v-for="(token, k) in row.oldTokens"
-                        :key="k"
-                        :style="token.color ? { color: token.color } : undefined"
-                        >{{ token.content }}</span
-                      >
-                    </template>
-                    <template v-else>{{ row.oldText }}</template>
-                  </template>
+                  <DiffLineContent
+                    v-if="row.oldText !== undefined"
+                    :text="row.oldText"
+                    :tokens="row.oldTokens"
+                    :ranges="row.oldInnerRanges"
+                    :mark-class="INNER_MARK_CLASSES.removed"
+                  />
                 </span>
               </div>
             </div>
@@ -1102,17 +1247,13 @@ function splitRightBg(row: DiffSplitRowItem): string {
                   aria-hidden="true"
                 />
                 <span class="_line-text" :class="wordWrap ? '_word-wrap' : ''">
-                  <template v-if="row.newText !== undefined">
-                    <template v-if="row.newTokens">
-                      <span
-                        v-for="(token, k) in row.newTokens"
-                        :key="k"
-                        :style="token.color ? { color: token.color } : undefined"
-                        >{{ token.content }}</span
-                      >
-                    </template>
-                    <template v-else>{{ row.newText }}</template>
-                  </template>
+                  <DiffLineContent
+                    v-if="row.newText !== undefined"
+                    :text="row.newText"
+                    :tokens="row.newTokens"
+                    :ranges="row.newInnerRanges"
+                    :mark-class="INNER_MARK_CLASSES.added"
+                  />
                 </span>
               </div>
             </div>

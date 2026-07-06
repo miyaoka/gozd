@@ -100,12 +100,18 @@
   --color-destructive: var(--red-9);
   --color-destructive-hover: var(--red-10);
   --color-destructive-subtle: var(--red-3);
+  /* subtle-active (step 5): subtle bg の上に重ねる強調面。diff の行内 (文字単位) 変更範囲で使用。
+     dark パレットの低 step は差が圧縮されているため、subtle との知覚差は明るい側 (step 5) でしか
+     成立しない (step 2 への沈み込みは ΔL 0.03 で人間には判別不能だった) */
+  --color-destructive-subtle-active: var(--red-5);
   --color-destructive-text: var(--red-11);
   --color-destructive-foreground: var(--gray-12);
 
   /* intent: success (green)。-hover は未利用 (solid success button が無い) */
   --color-success: var(--green-9);
   --color-success-subtle: var(--green-3);
+  /* subtle-active (step 5): destructive-subtle-active と同じ役割 */
+  --color-success-subtle-active: var(--green-5);
   --color-success-text: var(--green-11);
   --color-success-foreground: var(--gray-12);
 

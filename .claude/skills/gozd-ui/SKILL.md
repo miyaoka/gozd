@@ -83,18 +83,19 @@ primitive utility (`bg-gray-3` 等) は Tailwind が utility 化していない 
 
 ### Intent (primary / destructive / success / warning / warning-strong / info)
 
-各 intent は最大 6 token を持つ:
+各 intent は最大 7 token を持つ:
 
-| token suffix            | 用途                                               | 例                                           |
-| ----------------------- | -------------------------------------------------- | -------------------------------------------- |
-| `<intent>`              | solid bg (step 9)                                  | `bg-primary`, `bg-destructive`               |
-| `<intent>-hover`        | solid bg hover (step 10)                           | `hover:bg-primary-hover`                     |
-| `<intent>-subtle`       | subtle bg (step 3、intent 性を保った dim 面)       | `bg-destructive-subtle`, `bg-success-subtle` |
-| `<intent>-subtle-hover` | subtle bg hover (step 4、primary のみ提供)         | `hover:bg-primary-subtle-hover`              |
-| `<intent>-text`         | low-contrast text on neutral / subtle bg (step 11) | `text-primary-text`, `text-destructive-text` |
-| `<intent>-foreground`   | text on `<intent>` solid bg                        | `text-primary-foreground` (on `bg-primary`)  |
+| token suffix             | 用途                                                          | 例                                             |
+| ------------------------ | ------------------------------------------------------------- | ---------------------------------------------- |
+| `<intent>`               | solid bg (step 9)                                             | `bg-primary`, `bg-destructive`                 |
+| `<intent>-hover`         | solid bg hover (step 10)                                      | `hover:bg-primary-hover`                       |
+| `<intent>-subtle`        | subtle bg (step 3、intent 性を保った dim 面)                  | `bg-destructive-subtle`, `bg-success-subtle`   |
+| `<intent>-subtle-hover`  | subtle bg hover (step 4、primary のみ提供)                    | `hover:bg-primary-subtle-hover`                |
+| `<intent>-subtle-active` | subtle bg 上の強調面 (step 5、destructive / success のみ提供) | `bg-success-subtle-active` (diff 行内変更範囲) |
+| `<intent>-text`          | low-contrast text on neutral / subtle bg (step 11)            | `text-primary-text`, `text-destructive-text`   |
+| `<intent>-foreground`    | text on `<intent>` solid bg                                   | `text-primary-foreground` (on `bg-primary`)    |
 
-`-subtle-hover` は active row の hover で必要になった `primary` のみ提供。他 intent は use case が出た時点で追加する (YAGNI)。`warning-strong-subtle` も同様に未利用のため未定義 (subtle banner として warning と区別する用途が無い)。
+`-subtle-hover` は active row の hover で必要になった `primary` のみ提供。`-subtle-active` は diff の行内 (文字単位) 変更範囲の強調で必要になった `destructive` / `success` のみ提供 (subtle より暗い側での差別化は dark パレットの低 step 圧縮により知覚不能なため、強調は明るい側で取る)。他 intent は use case が出た時点で追加する (YAGNI)。`warning-strong-subtle` も同様に未利用のため未定義 (subtle banner として warning と区別する用途が無い)。
 
 `info` は text-only (solid なし、blue step 11 を借用)。warning / warning-strong は light yellow / mid-orange のため `*-foreground` は dark (gray-1)。
 

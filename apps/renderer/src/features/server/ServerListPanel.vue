@@ -134,7 +134,7 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
 <template>
   <div
     v-if="serverStore.isOpen"
-    class="fixed inset-y-0 right-0 z-40 flex w-[480px] flex-col border-l border-border bg-panel shadow-xl"
+    class="_below-titlebar fixed right-0 bottom-0 z-40 flex w-[480px] flex-col border-l border-border bg-panel shadow-xl"
   >
     <header class="flex items-center gap-2 border-b border-border px-3 py-2">
       <IconLucideServer class="size-4 text-foreground-low" />
@@ -196,3 +196,10 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
     </div>
   </div>
 </template>
+
+<style>
+/* タイトルバー（drag 領域）を覆わないよう、パネル上端をその直下に置く */
+._below-titlebar {
+  top: var(--titlebar-height);
+}
+</style>

@@ -157,6 +157,13 @@ primary と info は同じ青系だが意味階層が異なる。同一 toolbar 
 
 **同一要素内で hover による intent 切り替えは禁止** (`text-info hover:text-primary` 等)。link の hover 強調は intent を変えず、`hover:underline` で表現する (`hover:opacity-N` は本 doc の Alpha 規律に反するので使わない)。
 
+### 色が先に決まっている場合
+
+ユーザー指定や実装都合で hue が先に決まっていても、色 → intent の逆引きで既存 intent を借用しない（「緑にしたいから success」は「目立たせたいから primary」と同型の曖昧基準）。判定は常に **意味 → token** の方向で行う:
+
+- 表現したい意味が intent 表のどれかに該当する → その intent を使う（hue が指定色と違うならユーザーと token の意味を擦り合わせる）
+- どれにも該当しない（環境識別・カテゴリ分類など「状態」でないもの）→ 同 hue の primitive を参照する専用 semantic role を新設する（例: `channel-dev` — dev 起動バッジ。値は success と同じ green だが、channel 識別は成功状態ではないため独立 role として success の hue 変更に巻き込まれない）
+
 ## Click handler は `<button type="button">`
 
 click handler を持つ要素は必ず `<button type="button">`。`<div>` に `role="button"` + `tabindex="0"` + 手動 keydown handler の ARIA shim は禁止。`<button>` で書けば semantic / keyboard navigation / accessibility がすべて OS + browser の提供で自動成立する。form 内で使うときは `type="button"` を明示 (submit 暴発防止)。

@@ -21,17 +21,17 @@ import { join, resolve } from "node:path";
 const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
 export const isPackaged = resourcesPath !== undefined && __dirname.startsWith(resourcesPath);
 
-const CHANNEL = isPackaged ? "stable" : "dev";
+export const channel = isPackaged ? "stable" : "dev";
 
 const electronRoot = resolve(__dirname, "..");
 // packaged 時の同梱リソース root（Contents/Resources/app）。非 packaged では使わない
 const bundledAppRoot = join(resourcesPath ?? "", "app");
 
-export const socketPath = join(tmpdir(), `gozd-${CHANNEL}.sock`);
-export const claudeSettingsPath = join(tmpdir(), `gozd-${CHANNEL}-claude-settings.json`);
+export const socketPath = join(tmpdir(), `gozd-${channel}.sock`);
+export const claudeSettingsPath = join(tmpdir(), `gozd-${channel}-claude-settings.json`);
 // gozd-cli が GOZD_COLD_START 時に書き出す launch request の置き場。channel 名は
 // CLI 側が GOZD_SOCKET_PATH のファイル名から導出するため socket と自動で揃う
-export const launchRequestDir = join(tmpdir(), `gozd-${CHANNEL}-launch`);
+export const launchRequestDir = join(tmpdir(), `gozd-${channel}-launch`);
 export const cliPath = isPackaged
   ? join(bundledAppRoot, "bin", "gozd-cli")
   : join(electronRoot, "bin", "gozd-cli");

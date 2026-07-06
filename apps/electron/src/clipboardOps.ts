@@ -1,9 +1,9 @@
 // OS クリップボードへのファイル参照書き込み（macOS 専用）。
 //
 // Electron の clipboard には「ファイルをコピーする」高水準 API が無いため、
-// macOS pasteboard の NSFilenamesPboardType（ファイルパス配列の plist XML）を
-// writeBuffer で直接書く。これで Finder / Slack 等へのファイル paste が成立する。
-// テキスト形式（path 文字列）と違い、貼り付け先にはファイル実体が渡る。
+// macOS 固有の pasteboard 形式を低レベル API で直接書いて Finder / Slack 等への
+// ファイル paste を成立させる。テキスト形式（path 文字列）と違い、貼り付け先には
+// ファイル実体が渡る。
 
 import { clipboard } from "electron";
 import { existsSync } from "node:fs";

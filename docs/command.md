@@ -121,7 +121,7 @@ interface ContextMap {
 | キー名                  | source                                                                                             |
 | ----------------------- | -------------------------------------------------------------------------------------------------- |
 | `terminalFocus`         | アクティブターミナルのフォーカス変化 + worktree 切替 / closePane / visibilitychange で同期         |
-| `filerFocus`            | FilerPane コンテナの focusin/focusout で同期（ツリー行は button なのでフォーカスが bubble する）   |
+| `filerFocus`            | FilerPane（ファイルツリー）内にフォーカスがあるか。フォーカス変化に追従して同期                    |
 | `previewVisible`        | Preview popover の開閉状態と同期                                                                   |
 | `commandPaletteVisible` | コマンドパレット dialog の open/close で同期                                                       |
 | `quickPickVisible`      | QuickPick dialog の open/close で同期                                                              |

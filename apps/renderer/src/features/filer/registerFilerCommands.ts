@@ -2,7 +2,7 @@
  * filer のコマンドを登録する。MainLayout で一度だけ呼び出す。
  *
  * `filer.copyFile` はツリーで選択中のファイルを OS クリップボードにファイル参照として
- * コピーする（cmd+c、when: filerFocus）。snapshot mode ではコピーしない: snapshot の
+ * コピーする。snapshot mode ではコピーしない: snapshot の
  * ファイルはディスク上に実体が無く、パスを載せると「見ていた過去の内容」ではなく
  * 最新の worktree 内容が paste される誤読を生む。無音で不発にすると「コピーした」という
  * 誤認 + 古いクリップボード内容の paste 事故につながるため、toast で拒否を明示する。

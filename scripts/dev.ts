@@ -36,7 +36,9 @@ function isPortFree(port: number): Promise<boolean> {
 
 async function pickVitePort(): Promise<number> {
   const seed = Number.parseInt(createHash("sha256").update(repoRoot).digest("hex").slice(0, 8), 16);
-  const base = PORT_BASE + (seed % PORT_RANGE);
+  // base を帯末尾から PORT_SWEEP 分引いた範囲に丸め、probe の最大到達点（base + PORT_SWEEP - 1）
+  // が宣言帯 16800..16999 を超えないようにする（帯の宣言 = 実挙動を保つ）
+  const base = PORT_BASE + (seed % (PORT_RANGE - PORT_SWEEP));
   for (let i = 0; i < PORT_SWEEP; i++) {
     if (await isPortFree(base + i)) return base + i;
   }
@@ -69,4 +71,6 @@ const result = spawnSync(
   ],
   { cwd: repoRoot, stdio: "inherit", env: childEnv },
 );
+// spawn 自体の失敗（ENOENT 等）は result.error にしか現れず stdio inherit では透過されない
+if (result.error) console.error(`[dev] spawn failed: ${result.error}`);
 process.exit(result.status ?? 1);

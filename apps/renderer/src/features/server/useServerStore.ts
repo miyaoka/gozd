@@ -20,7 +20,10 @@ import {
  *   - native の `serverPortsChange` push で全件 snapshot を latest-wins 置換
  *
  * パネル開閉:
- *   - 開閉状態はこの store が SSOT として所有する
+ *   - 開閉状態はこの store が SSOT として所有する。popover DOM へのミラーは `open()` /
+ *     `close()` が `showPopover()` / `hidePopover()` を呼んで担う (usePreviewStore と同流儀)。
+ *     冪等 gate は自前 `isOpen` ref だけで判定し、DOM state (`:popover-open`) は判定材料に
+ *     しない — 開閉の真実源を store 1 つに保ち「store と DOM のどちらが正か」の分岐を作らない
  *   - native titlebar のトグルボタンは `toggleServerPanel` push で `toggle()` を叩く
  *   - `isOpen` の変化を `/window/setServerPanelOpen` で native にミラーし、ボタンの
  *     active 表示 (塗り) を同期する (TitleContext と同流儀)
@@ -34,6 +37,7 @@ let disposeTogglePanel: (() => void) | undefined;
 export const useServerStore = defineStore("server", () => {
   const notify = useNotificationStore();
   const servers = ref<ServerInfo[]>([]);
+  const popoverEl = ref<HTMLElement>();
   const isOpen = ref(false);
   // push を一度でも受けたか。in-flight の hydrate (pull) 結果が後着で push の新しい
   // snapshot を踏み潰す race を防ぐ (push 受信後は hydrate 結果を捨てる)。
@@ -76,14 +80,30 @@ export const useServerStore = defineStore("server", () => {
     { immediate: true },
   );
 
+  function bindPopover(el: HTMLElement | undefined): void {
+    popoverEl.value = el;
+  }
+
   function open(): void {
+    if (isOpen.value) return;
+    const el = popoverEl.value;
+    if (!el) return;
+    el.showPopover();
     isOpen.value = true;
   }
   function close(): void {
+    if (!isOpen.value) return;
+    const el = popoverEl.value;
+    if (!el) return;
+    el.hidePopover();
     isOpen.value = false;
   }
   function toggle(): void {
-    isOpen.value = !isOpen.value;
+    if (isOpen.value) {
+      close();
+    } else {
+      open();
+    }
   }
 
   /**
@@ -108,6 +128,7 @@ export const useServerStore = defineStore("server", () => {
     servers,
     isOpen,
     hasServers,
+    bindPopover,
     open,
     close,
     toggle,

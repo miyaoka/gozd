@@ -348,6 +348,9 @@ watch(
   top: var(--titlebar-height);
   bottom: 0;
   right: anchor(left);
+  /* UA スタイル [popover] { height: fit-content } を打ち消す。
+     height が auto でないと top + bottom の伸縮が効かずコンテンツ高さに縮む */
+  height: auto;
   max-height: none;
 }
 </style>

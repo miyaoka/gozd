@@ -11,11 +11,11 @@ import {
 /**
  * Preview popover の開閉と「選択 → 表示」の意思決定を集約する SSOT。
  *
- * `isOpen` は popover DOM の状態ではなく自前 ref で持つ。HTML Popover API の
- * `toggle` event は spec 上 task に queue される非同期発火のため、`hidePopover()`
- * / `showPopover()` 直後の同 tick で `popoverEl.matches(":popover-open")` を
- * 読んでも前の状態が見える窓がある。`open()` / `close()` の冪等 gate も自前 ref
- * のみで判定し、DOM state は判定材料にしない。
+ * `isOpen` は popover DOM の状態ではなく自前 ref で持ち、`open()` / `close()` の冪等 gate も
+ * この ref だけで判定する。popover の可視状態遷移 (`:popover-open`) 自体は show/hide 呼び出しと
+ * 同期で、task に queue される非同期発火は `toggle` event のみ (WHATWG HTML spec)。DOM state を
+ * 判定材料にしないのは同期性の問題ではなく、開閉の意思決定 SSOT を store 1 つに保ち
+ * 「store と DOM のどちらが正か」の分岐を作らないため (useServerStore と同じ契約)。
  *
  * ## 公開 API の意味契約（intent 別 entry point）
  *

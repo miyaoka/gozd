@@ -51,10 +51,20 @@ describe("useClosePaneConfirm", () => {
     expect(pendingAction.value).toBeUndefined();
   });
 
-  test("request の上書き後は最後の action だけ実行される", () => {
+  test("確認中の request 再投入は無視される（先勝ち。close 対象の差し替え防止）", () => {
     const { request, confirm } = useClosePaneConfirm();
     const calls: string[] = [];
     request(() => calls.push("first"));
+    request(() => calls.push("second"));
+    confirm();
+    expect(calls).toEqual(["first"]);
+  });
+
+  test("確認を畳んだ後は再び request できる", () => {
+    const { request, confirm, cancel } = useClosePaneConfirm();
+    const calls: string[] = [];
+    request(() => calls.push("first"));
+    cancel();
     request(() => calls.push("second"));
     confirm();
     expect(calls).toEqual(["second"]);

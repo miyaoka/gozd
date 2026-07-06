@@ -10,8 +10,14 @@ import { ref } from "vue";
 const pendingAction = ref<(() => void) | undefined>(undefined);
 
 export function useClosePaneConfirm() {
-  /** 確認を要求する。OK されたら action が実行される */
+  /**
+   * 確認を要求する。OK されたら action が実行される。
+   * 確認中の再投入は無視する（先勝ち）。上書きを許すとダイアログ表示中に
+   * コマンドが再実行されたとき close 対象が別 pane に差し替わるため、
+   * focus 制御や keybinding の when 条件に依存せず構造的に防ぐ。
+   */
   function request(action: () => void) {
+    if (pendingAction.value !== undefined) return;
     pendingAction.value = action;
   }
 

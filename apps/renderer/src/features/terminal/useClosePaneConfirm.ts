@@ -2,8 +2,8 @@
  * Claude が作業中 (working) の pane を閉じる前の確認 state を保持する module singleton。
  *
  * `useSessionLogViewer` と同じく必要最小の値だけ保持する。close 処理そのものは
- * コマンド handler 側の知識（closePane / resetLayout フォールバック）なので、
- * ここは実行するクロージャを預かるだけにして層の知識を持ち込まない。
+ * 呼び出し元の知識なので、ここは実行するクロージャを預かるだけにして
+ * 層の知識を持ち込まない。
  */
 import { ref } from "vue";
 

@@ -87,15 +87,15 @@ leafNode
 
 ### コマンド
 
-| コマンド                   | 動作                                    |
-| -------------------------- | --------------------------------------- |
-| `terminal.splitHorizontal` | アクティブ leaf を水平分割              |
-| `terminal.splitVertical`   | アクティブ leaf を垂直分割              |
-| `terminal.closePane`       | アクティブ leaf を閉じる（PTY も kill） |
-| `terminal.focusLeft`       | 左の leaf にフォーカス移動              |
-| `terminal.focusRight`      | 右の leaf にフォーカス移動              |
-| `terminal.focusUp`         | 上の leaf にフォーカス移動              |
-| `terminal.focusDown`       | 下の leaf にフォーカス移動              |
+| コマンド                   | 動作                                                                                                                                                                               |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `terminal.splitHorizontal` | アクティブ leaf を水平分割                                                                                                                                                         |
+| `terminal.splitVertical`   | アクティブ leaf を垂直分割                                                                                                                                                         |
+| `terminal.closePane`       | アクティブ leaf を閉じる（PTY も kill）。Claude が working の leaf は確認ダイアログを挟む（PTY kill で作業が失われるため。done + pendingWork の「裏で作業継続中」も working 扱い） |
+| `terminal.focusLeft`       | 左の leaf にフォーカス移動                                                                                                                                                         |
+| `terminal.focusRight`      | 右の leaf にフォーカス移動                                                                                                                                                         |
+| `terminal.focusUp`         | 上の leaf にフォーカス移動                                                                                                                                                         |
+| `terminal.focusDown`       | 下の leaf にフォーカス移動                                                                                                                                                         |
 
 ## Worktree ごとのレイアウト保持
 

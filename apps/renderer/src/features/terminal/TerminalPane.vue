@@ -17,6 +17,7 @@ import { useElementSize, useEventListener } from "@vueuse/core";
 import { computed, onUnmounted, useTemplateRef, watch } from "vue";
 import { useContextKeys } from "../../shared/command";
 import { useWorktreeStore } from "../worktree";
+import ClosePaneConfirmDialog from "./ClosePaneConfirmDialog.vue";
 import { registerTerminalCommands } from "./registerTerminalCommands";
 import SplitResizeHandle from "./SplitResizeHandle.vue";
 import {
@@ -210,5 +211,7 @@ function handleRectStyle(rect: PixelRect): Record<string, string> {
       :available-px="handle.availablePx"
       :style="handleRectStyle(handle.rect)"
     />
+    <!-- Claude 作業中 pane を閉じる前の確認 dialog（closed 時は display:none、open 時は top layer なので grid に影響しない） -->
+    <ClosePaneConfirmDialog />
   </div>
 </template>

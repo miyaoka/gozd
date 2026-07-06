@@ -4,6 +4,7 @@
  */
 import type { Ref, ShallowRef } from "vue";
 import { useCommandRegistry } from "../../shared/command";
+import { useClosePaneConfirm } from "./useClosePaneConfirm";
 import { findNavigationTarget } from "./useSpatialNavigation";
 import { useTerminalStore } from "./useTerminalStore";
 
@@ -19,6 +20,7 @@ export function registerTerminalCommands(
 ): () => void {
   const registry = useCommandRegistry();
   const terminalStore = useTerminalStore();
+  const closeConfirm = useClosePaneConfirm();
 
   /** 現在の dir と layout を取得するヘルパー。無効なら undefined */
   function getActiveLayout() {
@@ -98,10 +100,20 @@ export function registerTerminalCommands(
       handler: () => {
         const active = getFocusedLayout();
         if (active === undefined) return false;
-        // 最後の1ペインでは closePane が false を返すので、レイアウトをリセットして新ターミナルを起動
-        if (!terminalStore.closePane(active.dir, active.layout.focusedLeafId)) {
-          terminalStore.resetLayout(active.dir);
+        const leafId = active.layout.focusedLeafId;
+        const close = () => {
+          // 最後の1ペインでは closePane が false を返すので、レイアウトをリセットして新ターミナルを起動
+          if (!terminalStore.closePane(active.dir, leafId)) {
+            terminalStore.resetLayout(active.dir);
+          }
+        };
+        // Claude が作業中の pane は PTY kill で作業が失われるため確認を挟む
+        // （done + pendingWork の「裏で作業継続中」も displayClaudeState が working に畳む）
+        if (terminalStore.getClaudeState(leafId) === "working") {
+          closeConfirm.request(close);
+          return true;
         }
+        close();
         return true;
       },
     }),

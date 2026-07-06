@@ -126,8 +126,12 @@ watch(
  */
 /**
  * contenteditable host の編集経路を構造的にブロックする。`beforeinput` で
- * `event.preventDefault()` すれば typing / paste / IME / undo-redo / drop の DOM mutation を
+ * `event.preventDefault()` すれば typing / paste / undo-redo / drop の DOM mutation を
  * 1 経路で止められる (input 系全部の上位 hook)。
+ *
+ * 例外は IME: composition 由来の `beforeinput` (`insertCompositionText`) は Input Events
+ * 仕様で cancelable: false のため preventDefault が no-op になり、変換中テキストが DOM に
+ * 挿入されてしまう。IME 経路は `abortComposition` (`@compositionstart`) 側で塞ぐ。
  *
  * テンプレート側では各 contenteditable host に `@beforeinput="blockEdit"` に加えて
  * `@dragover.prevent @drop.prevent` も付けている。`beforeinput` だけでも drop の DOM mutation
@@ -139,6 +143,22 @@ watch(
  */
 function blockEdit(e: Event) {
   e.preventDefault();
+}
+
+/**
+ * IME composition を入口で中断する (`blockEdit` の IME 例外の受け皿)。composition 開始と
+ * 同時に host を non-editable にすると Chromium が composition を abort し、cancelable: false
+ * の `insertCompositionText` が DOM に到達しない。次フレームで editable に戻して
+ * Cmd+A スコープ / 選択コピーの契約を維持する (template の contenteditable は静的属性で
+ * Vue は再描画時に復元しないため、自前で戻す)。
+ */
+function abortComposition(e: CompositionEvent) {
+  const host = e.currentTarget;
+  if (!(host instanceof HTMLElement)) return;
+  host.contentEditable = "false";
+  requestAnimationFrame(() => {
+    host.contentEditable = "true";
+  });
 }
 
 function onContainerClick(e: MouseEvent) {
@@ -177,6 +197,7 @@ function onContainerClick(e: MouseEvent) {
     v-html="highlightedHtml"
     @click="onContainerClick"
     @beforeinput="blockEdit"
+    @compositionstart="abortComposition"
     @dragover.prevent
     @drop.prevent
   />
@@ -196,6 +217,7 @@ function onContainerClick(e: MouseEvent) {
     :style="{ '--line-no-width': lineNoWidth }"
     @click="onContainerClick"
     @beforeinput="blockEdit"
+    @compositionstart="abortComposition"
     @dragover.prevent
     @drop.prevent
   ><code><span

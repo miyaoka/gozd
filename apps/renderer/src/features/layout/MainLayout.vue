@@ -30,6 +30,8 @@ import {
   QuickPick,
   registerIssueCommand,
   registerPrCommand,
+  registerReviveCommand,
+  RevivePickerDialog,
 } from "../palette";
 import {
   BlamePopover,
@@ -75,6 +77,7 @@ const disposeThemeCommand = registerThemeCommand();
 const disposeSettingsCommand = registerSettingsCommand();
 const disposePrCommand = registerPrCommand();
 const disposeIssueCommand = registerIssueCommand();
+const disposeReviveCommand = registerReviveCommand();
 const disposeShellCommandActions = registerShellCommandActions();
 const disposeMarkdownHistoryCommands = registerMarkdownHistoryCommands();
 const disposeFilerCommands = registerFilerCommands();
@@ -84,6 +87,7 @@ onUnmounted(disposeThemeCommand);
 onUnmounted(disposeSettingsCommand);
 onUnmounted(disposePrCommand);
 onUnmounted(disposeIssueCommand);
+onUnmounted(disposeReviveCommand);
 onUnmounted(disposeShellCommandActions);
 onUnmounted(disposeMarkdownHistoryCommands);
 onUnmounted(disposeFilerCommands);
@@ -327,6 +331,7 @@ watch(
     <QuickPick />
     <PrPickerDialog />
     <IssuePickerDialog />
+    <RevivePickerDialog />
     <SettingsModal />
     <BlamePopover />
     <FileHistoryPopover />

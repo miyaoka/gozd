@@ -28,6 +28,11 @@ export type {
   ClaudeSessionLogResponse,
   ClaudeSessionRemoveByPtyRequest,
   ClaudeSessionRemoveByPtyResponse,
+  ReviveSessionInfo,
+  ReviveSessionListRequest,
+  ReviveSessionListResponse,
+  ReviveSessionRequest,
+  ReviveSessionResponse,
 } from "./claudeSession";
 export type { ClipboardCopyFilesRequest, ClipboardCopyFilesResponse } from "./clipboard";
 export type { ClientMessage, HookMessage, OpenMessage } from "./clientMessage";

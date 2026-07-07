@@ -55,7 +55,16 @@ function register(id: string, input: CommandInput): () => void {
  */
 function execute(id: string, args?: unknown): boolean {
   const entry = entries.get(id);
-  if (entry === undefined) return false;
+  if (entry === undefined) {
+    // コマンドは動的登録される文字列 namespace なので id の存在は静的に型検査できない
+    // （VSCode も同様で id は string）。未登録 id を silent-false で握りつぶすと、rename / typo /
+    // 登録漏れで呼び出し側（サイドバーのボタン等）が無反応のまま壊れる。VSCode の
+    // CommandService が未知コマンドを reject するのと同じく、実行時に fail-loud で観測可能化する
+    // （silent drop 禁止）。契約は boolean のまま保ち、通知は注入済み onError（handler throw と
+    // 同じ口）に流す。
+    onError(`Command "${id}" not found`);
+    return false;
+  }
   // precondition が false ならスキップ（キーバインド等からの実行も防止）
   const contextKeys = useContextKeys();
   if (!contextKeys.evaluate(entry.precondition)) return false;

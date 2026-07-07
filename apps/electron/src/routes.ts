@@ -9,6 +9,10 @@ import type {
   ClaudeSessionLogResponse,
   ClaudeSessionRemoveByPtyRequest,
   ClaudeSessionRemoveByPtyResponse,
+  ReviveSessionListRequest,
+  ReviveSessionListResponse,
+  ReviveSessionRequest,
+  ReviveSessionResponse,
   ClipboardCopyFilesRequest,
   ClipboardCopyFilesResponse,
   CreateWorktreeRequest,
@@ -130,7 +134,7 @@ import { tryCatch } from "@gozd/shared";
 import { app, BrowserWindow, dialog, shell } from "electron";
 import { existsSync } from "node:fs";
 import { spawn, type IPty } from "node-pty";
-import { readClaudeSessionLog } from "./claude/claudeSessionLog";
+import { listReviveSessions, readClaudeSessionLog } from "./claude/claudeSessionLog";
 import { writeFilesToClipboard } from "./clipboardOps";
 import { readDir, readFile, readFileAbsolute, stat, writeFile } from "./fs/fsOps";
 import { createFsWatchRegistry } from "./fs/fsWatchRegistry";
@@ -148,7 +152,7 @@ import {
   type FileChangeInfo,
 } from "./git/gitTree";
 import { validateRev } from "./git/gitValidate";
-import { createWorktree, removeWorktree } from "./git/worktreeOps";
+import { createWorktree, removeWorktree, resolveReviveBranch } from "./git/worktreeOps";
 import { fetchRemotes, gitStatusFull, worktreeList } from "./git/gitOps";
 import { GitCommandError } from "./git/gitRunner";
 import type { StatusFull } from "./git/porcelain";
@@ -984,6 +988,52 @@ function handleClaudeSessionReadLog(body: unknown): unknown {
   }) satisfies ClaudeSessionLogResponse;
 }
 
+async function handleReviveSessionList(body: unknown): Promise<unknown> {
+  const req = body as ReviveSessionListRequest;
+  return ({ sessions: await listReviveSessions(req.dir) }) satisfies ReviveSessionListResponse;
+}
+
+async function handleReviveSession(body: unknown): Promise<unknown> {
+  const req = body as ReviveSessionRequest;
+  // branch は resume に影響しないため、意味のある候補を優先しつつ衝突だけ避ける（main 側で判定）。
+  // cwd（= worktree パス）は worktreeDir で 1 バイト一致再現し、resume の project key 一致を担保する。
+  const projectConfig = await loadProjectConfig(req.dir);
+  const { branch, startPoint } = await resolveReviveBranch(req.dir, req.branch);
+  const info = await createWorktree({
+    dir: req.dir,
+    worktreeDir: req.worktreeDir,
+    branch,
+    startPoint,
+    symlinks: projectConfig.worktreeSymlinks,
+  });
+  // 復活直後の worktree には task が無いので、attachSession の path(3) が sessionId 付き task を
+  // 新規作成する。以降は既存の resume 機構（visit 時の resumableSessionIds → `claude --resume`）が
+  // そのまま resume を駆動する。
+  await taskStore.attachSession(req.dir, req.sessionId, info.path);
+  const task = (await taskStore.list(req.dir)).find(
+    (t) => t.sessionId === req.sessionId && t.worktreeDir === info.path,
+  );
+  if (task === undefined) {
+    throw new Error(`revive: task not created for session ${req.sessionId} at ${info.path}`);
+  }
+  return ({
+    worktree: {
+      path: info.path,
+      head: info.head,
+      branch: info.branch ?? "",
+      isMain: info.isMain,
+      gitStatuses: {},
+      renameOldPaths: {},
+      latestMtime: 0,
+      upstream: undefined,
+      tasks: [task],
+    },
+    dir: info.path,
+    task,
+    setupScript: projectConfig.setupScript,
+  }) satisfies ReviveSessionResponse;
+}
+
 function handleClipboardCopyFiles(body: unknown): unknown {
   const req = body as ClipboardCopyFilesRequest;
   writeFilesToClipboard(req.paths);
@@ -1089,6 +1139,8 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/window/setTitleContext", handleWindowSetTitleContext],
   ["/claudeSession/removeByPty", handleClaudeSessionRemoveByPty],
   ["/claudeSession/readLog", handleClaudeSessionReadLog],
+  ["/claudeSession/reviveList", handleReviveSessionList],
+  ["/claudeSession/revive", handleReviveSession],
   ["/clipboard/copyFiles", handleClipboardCopyFiles],
   ["/shellCommand/install", handleShellCommandInstall],
   ["/shellCommand/uninstall", handleShellCommandUninstall],

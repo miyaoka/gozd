@@ -37,6 +37,7 @@ import { useRepoStore } from "../../../../shared/repo";
 import { WtCard } from "../worktree";
 import RepoIcon from "./RepoIcon.vue";
 import IconLucideChevronDown from "~icons/lucide/chevron-down";
+import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
 import IconLucideLoaderCircle from "~icons/lucide/loader-circle";
 import IconLucidePlus from "~icons/lucide/plus";
 import IconLucideX from "~icons/lucide/x";
@@ -58,6 +59,7 @@ const emit = defineEmits<{
   addWorktree: [rootDir: string];
   openWorktreeMenu: [anchorEl: HTMLElement, wt: WorktreeEntry, rootDir: string];
   openTaskMenu: [anchorEl: HTMLElement, task: Task, rootDir: string];
+  openRepoMenu: [anchorEl: HTMLElement, rootDir: string];
 }>();
 
 const repoStore = useRepoStore();
@@ -110,6 +112,13 @@ const headerAriaExpanded = computed(() =>
   props.editMode || !isGitRepo.value ? undefined : !visiblyCollapsed.value,
 );
 
+// ⋮ menu trigger。currentTarget (ボタン要素) を anchor として emit する (WtCard と同じ規約)。
+function onOpenMenu(event: MouseEvent) {
+  event.stopPropagation();
+  const target = event.currentTarget;
+  if (target instanceof HTMLElement) emit("openRepoMenu", target, props.rootDir);
+}
+
 function onHeaderClick() {
   if (props.editMode) return;
   // 非 git project は worktree カードを持たず畳む対象が無いため、ヘッダクリックを
@@ -149,12 +158,35 @@ function onHeaderClick() {
         <span class="min-w-0 flex-1 truncate text-sm font-semibold tracking-wide">
           {{ repoName }}
         </span>
-        <IconLucideChevronDown
-          v-if="isGitRepo"
-          class="size-3.5 shrink-0 text-foreground-muted transition-transform"
-          :class="visiblyCollapsed && '-rotate-90'"
-        />
       </button>
+      <!-- 右側アクションクラスタ: 開閉 chevron + ⋮ menu を並べ、両方まとめて hover / focus-within で
+           出す (WtCard の … と同一マテリアル)。absolute オーバーレイで flow から外すので icon / title を
+           押さず、chevron 単独で右に浮くこともない。通常モード + git repo 限定
+           (非 git は折りたたみ対象が無く、復元も gozd 製 worktree 向けのため)。 -->
+      <div
+        v-if="!editMode && isGitRepo"
+        class="absolute inset-y-0 right-1 my-auto flex items-center gap-0.5 opacity-0 transition-opacity duration-100 group-focus-within/repo:opacity-100 group-hover/repo:opacity-100"
+      >
+        <button
+          type="button"
+          :aria-label="visiblyCollapsed ? 'Expand' : 'Collapse'"
+          class="grid size-5 place-items-center rounded-sm bg-panel text-foreground shadow-md ring-1 ring-border hover:bg-element"
+          @click.stop="repoStore.toggleCollapsed(rootDir)"
+        >
+          <IconLucideChevronDown
+            class="size-3.5 text-foreground-muted transition-transform"
+            :class="visiblyCollapsed && '-rotate-90'"
+          />
+        </button>
+        <button
+          type="button"
+          aria-label="Open menu"
+          class="grid size-5 place-items-center rounded-sm bg-panel text-foreground shadow-md ring-1 ring-border hover:bg-element"
+          @click="onOpenMenu"
+        >
+          <IconLucideEllipsisVertical class="text-xs" />
+        </button>
+      </div>
       <button
         v-if="editMode"
         type="button"

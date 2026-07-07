@@ -8,6 +8,7 @@ import { realpathSync } from "node:fs";
 import { tryCatch } from "@gozd/shared";
 import { resolveContained } from "../fs/pathContainment";
 import { resolveMainRepoRoot, resolveProjectKey } from "../taskStore";
+import { resolveStartPoint } from "./gitBranch";
 import { worktreeList } from "./gitOps";
 import { runGit } from "./gitRunner";
 import type { WorktreeInfo } from "./porcelain";
@@ -99,6 +100,53 @@ export function createWorktreeSymlinks(
       );
     }
   }
+}
+
+/** revive 用の worktree タイムスタンプ (YYYYMMDD_HHMMSS)。branch 衝突時の fallback 名に使う。
+ * renderer の generateTimestamp と同一形式（main / renderer は別ランタイムのため実装を複製する）。 */
+function reviveTimestamp(): string {
+  const now = new Date();
+  return [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+    "_",
+    String(now.getHours()).padStart(2, "0"),
+    String(now.getMinutes()).padStart(2, "0"),
+    String(now.getSeconds()).padStart(2, "0"),
+  ].join("");
+}
+
+/** branch が他 worktree に checkout 済みか。`git worktree add` / `-B` は他 worktree 占有中の
+ * branch を拒否するため、この判定で衝突を先に検知して日付ブランチへ倒す。 */
+async function isBranchCheckedOut(dir: string, branch: string): Promise<boolean> {
+  return (await worktreeList(dir)).some((wt) => wt.branch === branch);
+}
+
+/** ローカルに branch が存在するか。`git rev-parse --verify --quiet refs/heads/<branch>` 相当。 */
+async function localBranchExists(dir: string, branch: string): Promise<boolean> {
+  const result = await tryCatch(runGit(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], dir));
+  return result.ok;
+}
+
+/** 復活 worktree のブランチと startPoint を決める（createWorktree にそのまま渡す）。
+ *
+ * cwd（= worktree のパス）は resume の鍵なので leaf 側で固定し、ここでは branch のみ決める。
+ * branch 名は resume に影響しないため、意味のある候補（ログ末尾の PR 名）を優先しつつ衝突だけ避ける:
+ * - candidate 空 / 他 worktree 占有 → 衝突。日付ブランチを default から新規作成
+ * - candidate 既存（未占有）→ その branch に attach（startPoint 空）
+ * - candidate 未存在 → default branch から candidate を新規作成 */
+export async function resolveReviveBranch(
+  dir: string,
+  candidate: string,
+): Promise<{ branch: string; startPoint: string }> {
+  if (candidate === "" || (await isBranchCheckedOut(dir, candidate))) {
+    return { branch: reviveTimestamp(), startPoint: await resolveStartPoint(dir) };
+  }
+  if (await localBranchExists(dir, candidate)) {
+    return { branch: candidate, startPoint: "" };
+  }
+  return { branch: candidate, startPoint: await resolveStartPoint(dir) };
 }
 
 /** `git worktree remove [-f] <path>` 相当 */

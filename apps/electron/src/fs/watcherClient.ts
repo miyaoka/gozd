@@ -168,8 +168,9 @@ export function createWatcherClient(deps: WatcherClientDeps): WatcherClient {
       spawned.on("message", onMessage);
       spawned.on("exit", onExit);
       // postMessage は spawn 完了前だと取りこぼす可能性があるため spawn を待ってから解決する。
-      // UtilityProcess は error イベントを持たず、spawn 失敗も exit で届くため onExit の
-      // readyReject ガードが解放を担う（getChild を hang させない）
+      // UtilityProcess の error イベントは Experimental で型定義にも露出せず購読できないが、
+      // error を listen してもしなくても terminate 後に exit が必ず後続発火する保証があるため、
+      // exit の readyReject ガードが getChild の解放を担う（hang させない）
       spawned.on("spawn", () => {
         readyReject = undefined;
         resolve(spawned);

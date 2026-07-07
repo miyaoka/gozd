@@ -623,6 +623,16 @@ export const useTerminalStore = defineStore("terminal", () => {
     if (ptyId !== undefined) claude.observeTitle(ptyId, title);
   }
 
+  /**
+   * 可視画面本文から asking の離脱（承認せずキャンセル / 中断）を検知する。
+   * XtermTerminal の描画確定フック（onWriteParsed）から呼ぶ。screen text は asking のときだけ
+   * 読めばよいため遅延取得の関数で渡す（observeScreen 内で asking 以外なら呼ばれない）。
+   */
+  function observeScreen(leafId: string, readScreenText: () => string) {
+    const ptyId = getPtyId(leafId);
+    if (ptyId !== undefined) claude.observeScreen(ptyId, readScreenText);
+  }
+
   // --- drag suspend ---
 
   function incrementDragSuspend() {
@@ -673,6 +683,8 @@ export const useTerminalStore = defineStore("terminal", () => {
     getLeafIdByPtyId,
     // title
     setTitle,
+    // screen（画面本文から asking 離脱を検知）
+    observeScreen,
     // drag
     incrementDragSuspend,
     decrementDragSuspend,

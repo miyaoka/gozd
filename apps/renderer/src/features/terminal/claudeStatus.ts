@@ -206,6 +206,27 @@ export function classifyClaudeTitle(title: string): "working" | "idle" | undefin
 }
 
 /**
+ * Claude の承認プロンプト（asking の UI）が可視画面に出ているかを判定する文言。
+ * herdr の detect manifest（`claude.toml` の blocked ルール）が可視画面から blocked を
+ * 判定するのに使う文言を借用する。asking に**入る**のは hook（PermissionRequest）権威のままだが、
+ * ask を**抜ける**（承認せずキャンセル / 中断）hook が Claude Code に存在しない
+ * (anthropics/claude-code#9516)。OSC タイトルは承認プロンプト表示中もキャンセル後も同じ `✳` で
+ * 区別できないため、herdr と同じく画面本文の承認 UI 文言の消失を asking→idle の離脱信号にする。
+ */
+const CLAUDE_BLOCKER_MARKERS = [
+  "do you want to proceed?",
+  "esc to cancel",
+  "enter to select",
+  "to navigate", // "tab/arrow keys to navigate" / "↑↓ to navigate" 等の選択 UI を一括で拾う
+] as const;
+
+/** 可視画面本文に Claude の承認 UI が出ているか（文言の部分一致・大小無視） */
+export function screenHasClaudeBlocker(screenText: string): boolean {
+  const lower = screenText.toLowerCase();
+  return CLAUDE_BLOCKER_MARKERS.some((marker) => lower.includes(marker));
+}
+
+/**
  * OSC タイトルから Claude の状態プレフィックス（スピナー / `✳` + スペース）を除去する。
  * サイドバーの task タイトル表示が生タイトルからプレフィックスを落とすために使う。
  * プレフィックスは相互排他なので、分類と同じ 2 定数を順に適用して文字集合を一本化する。
@@ -444,6 +465,28 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
     claudeStatusByPtyId.value[ptyId] = { state: "idle", lastActivityAt: current.lastActivityAt };
   }
 
+  /**
+   * 可視画面本文から asking の離脱（承認せずキャンセル / 中断）を検知する（herdr の画面判定に相当）。
+   *
+   * asking に入るのは hook（PermissionRequest）権威のままだが、ask を抜ける hook が Claude Code に
+   * 無く、OSC タイトルは承認プロンプト表示中もキャンセル後も同じ `✳` で区別できない。そこで
+   * 承認 UI 文言（`screenHasClaudeBlocker`）が画面から消えたことを離脱信号にして idle へ戻す。
+   *
+   * - **asking のときだけ**評価する。それ以外の状態では画面読み取りコストも掛けないため、
+   *   呼び出し側は screen text を遅延取得の関数で渡す（asking 以外なら関数は呼ばれない）
+   * - 承認して再開したケースは OSC タイトルのスピナー（observeTitle）が working に倒すのが先
+   *   （同一 write チャンク内で OSC が先に parse される）ため、ここは離脱＝idle だけを担う
+   */
+  function observeScreen(ptyId: number, readScreenText: () => string) {
+    const current = claudeStatusByPtyId.value[ptyId];
+    if (current?.state !== "asking") return;
+    // 承認 UI がまだ画面にある = 承認待ち継続。何もしない
+    if (screenHasClaudeBlocker(readScreenText())) return;
+    // 承認 UI が画面から消えた = 承認せず離脱。idle に戻す（離脱は Claude の活動ではないので
+    // lastActivityAt 維持）
+    claudeStatusByPtyId.value[ptyId] = { state: "idle", lastActivityAt: current.lastActivityAt };
+  }
+
   /** leafId に対応する Claude Code の状態を返す。未起動（エントリなし）の場合は undefined */
   function getClaudeState(leafId: string): ClaudeState | undefined {
     const ptyId = panes.getSessionPtyId(leafId);
@@ -528,6 +571,7 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
   return {
     handleHookEvent,
     observeTitle,
+    observeScreen,
     getClaudeState,
     getClaudeActiveLeafIds,
     getClaudeStatusesByDir,

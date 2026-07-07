@@ -1,6 +1,6 @@
 /**
  * PR 選択コマンド。
- * コマンドパレットから "Workspace: Open Pull Request" を実行すると PR picker が開き、
+ * コマンドパレットから "Workspace: New Worktree from Pull Request" を実行すると PR picker が開き、
  * PR を選択して worktree を作成する。既にブランチの worktree が存在する場合はそちらに切り替える。
  */
 
@@ -24,35 +24,41 @@ import { fetchViewer } from "./useViewer";
 
 export function registerPrCommand(): () => void {
   const registry = useCommandRegistry();
-  const { show } = usePrPicker();
+  const { open, setResult, hide } = usePrPicker();
   const notify = useNotificationStore();
   const worktreeStore = useWorktreeStore();
   const terminalStore = useTerminalStore();
   const repoStore = useRepoStore();
 
   const dispose = registry.register("workspace.openPr", {
-    label: "Workspace: Open Pull Request",
+    label: "Workspace: New Worktree from Pull Request",
     precondition: "isGitRepo",
     handler: () => {
       void (async () => {
         const dir = worktreeStore.dir;
         if (dir === undefined) return;
+        // fetch 前に picker を loading で開き、gh GraphQL の待ち時間を可視化する。
+        // 取得が空でも下の setResult で empty state を表示する。
+        // gen は stale 応答 (open 後に別 open で開き直された場合) を捨てるための世代。
+        const gen = open();
         const fetchResult = await tryCatch(
           Promise.all([rpcGitPrList({ dir }), rpcGitWorktreeList({ dir }), fetchViewer(dir)]),
         );
         if (!fetchResult.ok) {
-          notify.error("Failed to load pull requests", fetchResult.error);
+          // hide が作用した (現在世代) ときだけ toast する。superseded な起動の失敗は抑止する。
+          if (hide(gen)) notify.error("Failed to load pull requests", fetchResult.error);
           return;
         }
         const [prsRes, worktreesRes, viewerLogin] = fetchResult.value;
         if (!prsRes.ok) {
-          notify.error(
-            ghErrorMessage(prsRes.errorKind, "Failed to load pull requests"),
-            prsRes.errorDetail || undefined,
-          );
+          if (hide(gen)) {
+            notify.error(
+              ghErrorMessage(prsRes.errorKind, "Failed to load pull requests"),
+              prsRes.errorDetail || undefined,
+            );
+          }
           return;
         }
-        if (prsRes.prs.length === 0) return;
 
         const wtByBranch = new Map(
           worktreesRes.worktrees.filter((wt) => wt.branch !== "").map((wt) => [wt.branch, wt.path]),
@@ -63,7 +69,7 @@ export function registerPrCommand(): () => void {
         // viewer 取得失敗時は undefined。空文字に倒して picker dialog の "@me" filter UI
         // を degraded mode (filter 非表示) にする。表示ロジックは PrPickerDialog 側の
         // `viewer !== ""` 判定で完結する。
-        show(prsRes.prs, viewerLogin ?? "", (pr) => {
+        setResult(gen, prsRes.prs, viewerLogin ?? "", (pr) => {
           const existingDir = wtByBranch.get(pr.headRef);
           if (existingDir !== undefined) {
             // 既存 worktree に切り替え（ステートレス化により switchDir RPC は廃止）。

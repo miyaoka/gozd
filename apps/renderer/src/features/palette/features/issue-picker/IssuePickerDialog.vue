@@ -3,7 +3,15 @@ Issue selection dialog. Displays open issues in a table layout with fuzzy filter
 
 ## Behavior
 
-- Opened via `useIssuePicker().show()`
+- Opens immediately in a loading state, then fills once the gh fetch resolves,
+  showing an empty state on 0 results. This gives visible feedback during the gh
+  GraphQL wait and when there are no open issues, both of which would otherwise
+  look like nothing happened.
+- The loading / empty text lives in a single persistent `role="status"` region
+  (never `v-if`'d away — only its text is swapped) so screen readers reliably
+  announce the state transitions. A live region must pre-exist in the DOM before
+  its content changes; a conditionally rendered region inserts container + text
+  together, which many screen readers miss.
 - Filters issues by fuzzy match on number, title, and author
 - Arrow keys navigate rows, Enter accepts, Escape closes
 - Color scheme follows `gh issue list` (green #number, gray author/date)
@@ -26,13 +34,14 @@ import { fuzzyMatch } from "../../fuzzyMatch";
 import { useListNavigation } from "../../useListNavigation";
 import IssuePickerRow from "./IssuePickerRow.vue";
 import { useIssuePicker } from "./useIssuePicker";
+import IconLucideLoaderCircle from "~icons/lucide/loader-circle";
 
 const contextKeys = useContextKeys();
 const dialogRef = useTemplateRef<HTMLDialogElement>("dialog");
 const inputRef = useTemplateRef<HTMLInputElement>("input");
 const listRef = useTemplateRef<HTMLDivElement>("list");
 
-const { issueItems, viewer, showSignal, accept } = useIssuePicker();
+const { items: issueItems, viewer, status, showSignal, hideSignal, accept } = useIssuePicker();
 
 const query = ref("");
 const filterAssignee = ref(false);
@@ -71,6 +80,23 @@ const { selectedIndex, move, movePage, reset, scrollToSelected } = useListNaviga
   itemCount,
 });
 
+/** 取得結果自体が空か、フィルタで 0 件になったかで文言を分ける。 */
+const emptyMessage = computed(() =>
+  issueItems.value.length === 0 ? "No open issues" : "No matching issues",
+);
+
+/**
+ * 常設 live region に出す status テキスト。一覧表示中は空文字。
+ * region を v-if で出し入れせずテキストだけ差し替えることで、AT が状態遷移
+ * (loading→empty / loading→list) を確実に読み上げる（live region は「先在する
+ * region の内容変化」を監視する仕様。同時挿入は取りこぼす）。
+ */
+const statusMessage = computed(() => {
+  if (status.value === "loading") return "Loading issues...";
+  if (filteredIssues.value.length === 0) return emptyMessage.value;
+  return "";
+});
+
 watch(filteredIssues, () => {
   reset();
 });
@@ -78,7 +104,6 @@ watch(filteredIssues, () => {
 watch(showSignal, () => {
   const dialog = dialogRef.value;
   if (!dialog || dialog.open) return;
-  if (issueItems.value.length === 0) return;
   query.value = "";
   filterAssignee.value = false;
   reset();
@@ -88,6 +113,11 @@ watch(showSignal, () => {
     inputRef.value?.focus();
     scrollToSelected();
   });
+});
+
+// fetch 失敗時、loading で開いた dialog を閉じる (エラーはコマンド側が toast する)。
+watch(hideSignal, () => {
+  close();
 });
 
 function close() {
@@ -168,7 +198,33 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           assignee:me
         </label>
       </div>
-      <div v-if="filteredIssues.length > 0" ref="list" class="max-h-[400px] overflow-y-auto py-1">
+      <!--
+        常設 status region: DOM から出し入れせずテキストだけ差し替え、loading→empty /
+        loading→list の遷移を AT に確実に読ませる。一覧表示中は空要素として残す (高さ 0・不可視)。
+        spinner svg は装飾なので aria-hidden で本文だけ読ませる。
+      -->
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        :class="
+          statusMessage
+            ? 'flex items-center justify-center gap-2 px-3 py-8 text-sm text-foreground-low'
+            : ''
+        "
+      >
+        <IconLucideLoaderCircle
+          v-if="status === 'loading'"
+          aria-hidden="true"
+          class="size-4 animate-spin"
+        />
+        {{ statusMessage }}
+      </div>
+      <div
+        v-if="status === 'ready' && filteredIssues.length > 0"
+        ref="list"
+        class="max-h-[400px] overflow-y-auto py-1"
+      >
         <div
           v-for="(issue, i) in filteredIssues"
           :key="issue.number"
@@ -189,7 +245,6 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           <IssuePickerRow :issue="issue" />
         </div>
       </div>
-      <div v-else class="px-3 py-4 text-center text-sm text-foreground-low">No matching issues</div>
     </div>
   </dialog>
 </template>

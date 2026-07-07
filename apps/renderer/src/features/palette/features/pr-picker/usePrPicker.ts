@@ -1,32 +1,15 @@
 /**
- * PR picker の制御を外部に公開する module singleton composable。
- * PrPickerDialog.vue がリアクティブに状態を読み取り、
- * 外部のコマンドハンドラーは show() を呼ぶだけで dialog が開く。
+ * PR picker の状態を保持する module singleton composable。
+ * PrPickerDialog.vue が status / items をリアクティブに読み取り、
+ * コマンドハンドラーは open() で loading を即時表示し、fetch 完了後に setResult() で埋める。
+ * 状態機械の実体は createListPicker（Issue picker と共通）。
  */
 
 import type { GitPullRequest } from "@gozd/rpc";
-import { ref } from "vue";
+import { createListPicker } from "../../createListPicker";
 
-const prItems = ref<GitPullRequest[]>([]);
-const viewer = ref("");
-const showSignal = ref(0);
-let acceptCallback: ((pr: GitPullRequest) => void) | undefined;
+const picker = createListPicker<GitPullRequest>();
 
 export function usePrPicker() {
-  function show(
-    items: GitPullRequest[],
-    viewerLogin: string,
-    onAccept: (pr: GitPullRequest) => void,
-  ) {
-    prItems.value = items;
-    viewer.value = viewerLogin;
-    acceptCallback = onAccept;
-    showSignal.value++;
-  }
-
-  function accept(pr: GitPullRequest) {
-    acceptCallback?.(pr);
-  }
-
-  return { prItems, viewer, showSignal, show, accept };
+  return picker;
 }

@@ -1,28 +1,15 @@
 /**
- * Issue picker の制御を外部に公開する module singleton composable。
- * IssuePickerDialog.vue がリアクティブに状態を読み取り、
- * 外部のコマンドハンドラーは show() を呼ぶだけで dialog が開く。
+ * Issue picker の状態を保持する module singleton composable。
+ * IssuePickerDialog.vue が status / items をリアクティブに読み取り、
+ * コマンドハンドラーは open() で loading を即時表示し、fetch 完了後に setResult() で埋める。
+ * 状態機械の実体は createListPicker（PR picker と共通）。
  */
 
 import type { GitIssue } from "@gozd/rpc";
-import { ref } from "vue";
+import { createListPicker } from "../../createListPicker";
 
-const issueItems = ref<GitIssue[]>([]);
-const viewer = ref("");
-const showSignal = ref(0);
-let acceptCallback: ((issue: GitIssue) => void) | undefined;
+const picker = createListPicker<GitIssue>();
 
 export function useIssuePicker() {
-  function show(items: GitIssue[], viewerLogin: string, onAccept: (issue: GitIssue) => void) {
-    issueItems.value = items;
-    viewer.value = viewerLogin;
-    acceptCallback = onAccept;
-    showSignal.value++;
-  }
-
-  function accept(issue: GitIssue) {
-    acceptCallback?.(issue);
-  }
-
-  return { issueItems, viewer, showSignal, show, accept };
+  return picker;
 }

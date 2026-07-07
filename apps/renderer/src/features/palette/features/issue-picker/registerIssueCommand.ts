@@ -1,6 +1,6 @@
 /**
  * Issue 選択コマンド。
- * コマンドパレットから "Workspace: Open Issue" を実行すると issue picker が開き、
+ * コマンドパレットから "Workspace: New Worktree from Issue" を実行すると issue picker が開き、
  * issue を選択して worktree を作成する。
  */
 
@@ -18,41 +18,47 @@ import { useIssuePicker } from "./useIssuePicker";
 
 export function registerIssueCommand(): () => void {
   const registry = useCommandRegistry();
-  const { show } = useIssuePicker();
+  const { open, setResult, hide } = useIssuePicker();
   const notify = useNotificationStore();
   const worktreeStore = useWorktreeStore();
   const terminalStore = useTerminalStore();
   const repoStore = useRepoStore();
 
   const dispose = registry.register("workspace.openIssue", {
-    label: "Workspace: Open Issue",
+    label: "Workspace: New Worktree from Issue",
     precondition: "isGitRepo",
     handler: () => {
       void (async () => {
         const dir = worktreeStore.dir;
         if (dir === undefined) return;
+        // fetch 前に picker を loading で開き、gh GraphQL の待ち時間を可視化する。
+        // 取得が空でも下の setResult で empty state を表示する。
+        // gen は stale 応答 (open 後に別 open で開き直された場合) を捨てるための世代。
+        const gen = open();
         const fetchResult = await tryCatch(
           Promise.all([rpcGitIssueList({ dir }), fetchViewer(dir)]),
         );
         if (!fetchResult.ok) {
-          notify.error("Failed to load issues", fetchResult.error);
+          // hide が作用した (現在世代) ときだけ toast する。superseded な起動の失敗は抑止する。
+          if (hide(gen)) notify.error("Failed to load issues", fetchResult.error);
           return;
         }
         const [issuesRes, viewerLogin] = fetchResult.value;
         if (!issuesRes.ok) {
-          notify.error(
-            ghErrorMessage(issuesRes.errorKind, "Failed to load issues"),
-            issuesRes.errorDetail || undefined,
-          );
+          if (hide(gen)) {
+            notify.error(
+              ghErrorMessage(issuesRes.errorKind, "Failed to load issues"),
+              issuesRes.errorDetail || undefined,
+            );
+          }
           return;
         }
-        if (issuesRes.issues.length === 0) return;
 
         // この callback は IssuePickerDialog 側で close() 後に呼ばれるため、
         // 連打による再エントリは dialog の DOM 除去で塞がれている。`isCreating` 相当のガードは不要。
         // viewer 取得失敗時は undefined。空文字に倒して picker dialog の "@me" filter UI
         // を degraded mode (filter 非表示) にする。
-        show(issuesRes.issues, viewerLogin ?? "", (issue) => {
+        setResult(gen, issuesRes.issues, viewerLogin ?? "", (issue) => {
           void (async () => {
             // 新規 worktree は default branch を起点に作る。main 側で `origin/HEAD` を
             // 優先し、未設定（remote 無し / push 前 repo）の場合は main repo root 自身の

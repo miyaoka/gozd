@@ -3,7 +3,10 @@ Issue selection dialog. Displays open issues in a table layout with fuzzy filter
 
 ## Behavior
 
-- Opened via `useIssuePicker().show()`
+- Opens immediately in a loading state, then fills once the gh fetch resolves.
+  This keeps the gh GraphQL wait visible and shows an empty state on 0 results,
+  instead of the old silent no-op that gave no feedback while fetching or when
+  there were no open issues.
 - Filters issues by fuzzy match on number, title, and author
 - Arrow keys navigate rows, Enter accepts, Escape closes
 - Color scheme follows `gh issue list` (green #number, gray author/date)
@@ -26,13 +29,14 @@ import { fuzzyMatch } from "../../fuzzyMatch";
 import { useListNavigation } from "../../useListNavigation";
 import IssuePickerRow from "./IssuePickerRow.vue";
 import { useIssuePicker } from "./useIssuePicker";
+import IconLucideLoaderCircle from "~icons/lucide/loader-circle";
 
 const contextKeys = useContextKeys();
 const dialogRef = useTemplateRef<HTMLDialogElement>("dialog");
 const inputRef = useTemplateRef<HTMLInputElement>("input");
 const listRef = useTemplateRef<HTMLDivElement>("list");
 
-const { issueItems, viewer, showSignal, accept } = useIssuePicker();
+const { items: issueItems, viewer, status, showSignal, hideSignal, accept } = useIssuePicker();
 
 const query = ref("");
 const filterAssignee = ref(false);
@@ -71,6 +75,11 @@ const { selectedIndex, move, movePage, reset, scrollToSelected } = useListNaviga
   itemCount,
 });
 
+/** 取得結果自体が空か、フィルタで 0 件になったかで文言を分ける。 */
+const emptyMessage = computed(() =>
+  issueItems.value.length === 0 ? "No open issues" : "No matching issues",
+);
+
 watch(filteredIssues, () => {
   reset();
 });
@@ -78,7 +87,6 @@ watch(filteredIssues, () => {
 watch(showSignal, () => {
   const dialog = dialogRef.value;
   if (!dialog || dialog.open) return;
-  if (issueItems.value.length === 0) return;
   query.value = "";
   filterAssignee.value = false;
   reset();
@@ -88,6 +96,11 @@ watch(showSignal, () => {
     inputRef.value?.focus();
     scrollToSelected();
   });
+});
+
+// fetch 失敗時、loading で開いた dialog を閉じる (エラーはコマンド側が toast する)。
+watch(hideSignal, () => {
+  close();
 });
 
 function close() {
@@ -168,7 +181,18 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           assignee:me
         </label>
       </div>
-      <div v-if="filteredIssues.length > 0" ref="list" class="max-h-[400px] overflow-y-auto py-1">
+      <div
+        v-if="status === 'loading'"
+        class="flex items-center justify-center gap-2 px-3 py-8 text-sm text-foreground-low"
+      >
+        <IconLucideLoaderCircle class="size-4 animate-spin" />
+        Loading issues...
+      </div>
+      <div
+        v-else-if="filteredIssues.length > 0"
+        ref="list"
+        class="max-h-[400px] overflow-y-auto py-1"
+      >
         <div
           v-for="(issue, i) in filteredIssues"
           :key="issue.number"
@@ -189,7 +213,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           <IssuePickerRow :issue="issue" />
         </div>
       </div>
-      <div v-else class="px-3 py-4 text-center text-sm text-foreground-low">No matching issues</div>
+      <div v-else class="px-3 py-4 text-center text-sm text-foreground-low">{{ emptyMessage }}</div>
     </div>
   </dialog>
 </template>

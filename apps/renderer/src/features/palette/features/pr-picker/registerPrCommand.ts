@@ -1,6 +1,6 @@
 /**
  * PR 選択コマンド。
- * コマンドパレットから "Workspace: Open Pull Request" を実行すると PR picker が開き、
+ * コマンドパレットから "Workspace: New Worktree from Pull Request" を実行すると PR picker が開き、
  * PR を選択して worktree を作成する。既にブランチの worktree が存在する場合はそちらに切り替える。
  */
 
@@ -31,7 +31,7 @@ export function registerPrCommand(): () => void {
   const repoStore = useRepoStore();
 
   const dispose = registry.register("workspace.openPr", {
-    label: "Workspace: Open Pull Request",
+    label: "Workspace: New Worktree from Pull Request",
     precondition: "isGitRepo",
     handler: () => {
       void (async () => {

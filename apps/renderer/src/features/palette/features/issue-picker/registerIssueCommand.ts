@@ -1,6 +1,6 @@
 /**
  * Issue 選択コマンド。
- * コマンドパレットから "Workspace: Open Issue" を実行すると issue picker が開き、
+ * コマンドパレットから "Workspace: New Worktree from Issue" を実行すると issue picker が開き、
  * issue を選択して worktree を作成する。
  */
 
@@ -25,7 +25,7 @@ export function registerIssueCommand(): () => void {
   const repoStore = useRepoStore();
 
   const dispose = registry.register("workspace.openIssue", {
-    label: "Workspace: Open Issue",
+    label: "Workspace: New Worktree from Issue",
     precondition: "isGitRepo",
     handler: () => {
       void (async () => {

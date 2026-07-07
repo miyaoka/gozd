@@ -154,6 +154,21 @@ describe("watcherClient respawn state machine", () => {
     expect(ctx.processes.length).toBe(6);
   });
 
+  test("crashes spread beyond the window are evicted and never give up", async () => {
+    const ctx = setup();
+    await establish(ctx); // proc1
+
+    // 窓（60s）を超える間隔で crash を撃つ。古い timestamp が evict され窓内カウントが
+    // 上限を超えないため、いつまでも self-heal して gave-up しない
+    for (let i = 0; i < 8; i++) {
+      ctx.setNow(1_000_000 + i * 61_000);
+      ctx.processes[ctx.processes.length - 1].emit("exit", 1);
+    }
+
+    expect(ctx.notifies.length).toBe(0);
+    expect(ctx.labels()).not.toContain("gave-up");
+  });
+
   test("no live subscriptions: exit does not respawn", async () => {
     const ctx = setup();
     const { handle } = await establish(ctx); // proc1

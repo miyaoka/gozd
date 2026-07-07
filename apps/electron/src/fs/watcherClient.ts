@@ -167,7 +167,9 @@ export function createWatcherClient(deps: WatcherClientDeps): WatcherClient {
       const spawned = fork(scriptPath);
       spawned.on("message", onMessage);
       spawned.on("exit", onExit);
-      // postMessage は spawn 完了前だと取りこぼす可能性があるため spawn を待ってから解決する
+      // postMessage は spawn 完了前だと取りこぼす可能性があるため spawn を待ってから解決する。
+      // UtilityProcess は error イベントを持たず、spawn 失敗も exit で届くため onExit の
+      // readyReject ガードが解放を担う（getChild を hang させない）
       spawned.on("spawn", () => {
         readyReject = undefined;
         resolve(spawned);

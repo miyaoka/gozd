@@ -476,9 +476,10 @@ function gitStatusChangePayload(dir: string, status: StatusFull): Record<string,
 }
 
 // @parcel/watcher を隔離した utilityProcess の client。native crash はこのプロセス内に
-// 封じ込め、main は onExit で検知して respawn する（watcherClient 参照）。
-// 診断（crash/respawn）は debugLog push → renderer の event-log パネルへ。監視が完全停止した
-// terminal ケースだけ notify push でトースト表示する（console.error は packaged で見えない）
+// 封じ込め、main は onExit で検知して respawn する（watcherClient 参照）。自己修復する crash は
+// event-log に留め、監視が完全停止した terminal ケースだけ notify でトースト表示する
+// （console.error は packaged で見えないため使わない）
+
 // 診断（crash/respawn/watch-error）を renderer の event-log パネルに流す共通経路
 const pushDebugLog = (channel: string, label: string, detail: string) =>
   fsPush?.("debugLog", { channel, label, repo: "", detail });

@@ -13,10 +13,3 @@ export interface WindowSetTitleContextRequest {
   title: string;
 }
 export type WindowSetTitleContextResponse = EmptyMessage;
-
-/** サーバー一覧パネルの開閉状態の通知。native toolbar 廃止後は受理のみ
- * （トグルボタンが renderer 内に移り、開閉ミラー自体が不要化。titlebar 対応時に再設計）。 */
-export interface WindowSetServerPanelOpenRequest {
-  open: boolean;
-}
-export type WindowSetServerPanelOpenResponse = EmptyMessage;

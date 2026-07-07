@@ -124,7 +124,6 @@ import type {
   WindowCloseResponse,
   WindowSetTitleContextRequest,
   WindowSetTitleContextResponse,
-  WindowSetServerPanelOpenResponse,
   WorktreeEntry,
 } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
@@ -994,12 +993,6 @@ async function handleVoicevoxSpeak(body: unknown): Promise<unknown> {
   } satisfies VoicevoxSpeakResponse;
 }
 
-function handleWindowSetServerPanelOpen(): unknown {
-  // renderer が SSOT として持つパネル開閉状態を native titlebar トグルへミラーする RPC。
-  // Electron shell には対応する native toolbar がまだ無いため受理のみ
-  return ({}) satisfies WindowSetServerPanelOpenResponse;
-}
-
 export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandler>([
   ["/echo", handleEcho],
   ["/appConfig/load", handleAppConfigLoad],
@@ -1057,7 +1050,6 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/open/pickAndOpen", handlePickAndOpen],
   ["/window/close", handleWindowClose],
   ["/window/setTitleContext", handleWindowSetTitleContext],
-  ["/window/setServerPanelOpen", handleWindowSetServerPanelOpen],
   ["/claudeSession/removeByPty", handleClaudeSessionRemoveByPty],
   ["/claudeSession/readLog", handleClaudeSessionReadLog],
   ["/clipboard/copyFiles", handleClipboardCopyFiles],

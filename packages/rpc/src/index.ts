@@ -186,8 +186,6 @@ export type {
 export type {
   WindowCloseRequest,
   WindowCloseResponse,
-  WindowSetServerPanelOpenRequest,
-  WindowSetServerPanelOpenResponse,
   WindowSetTitleContextRequest,
   WindowSetTitleContextResponse,
 } from "./window";

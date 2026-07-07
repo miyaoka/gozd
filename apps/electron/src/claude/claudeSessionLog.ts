@@ -55,6 +55,11 @@ function defaultProjectsDir(): string {
   return join(homedir(), ".claude", "projects");
 }
 
+/** production の gozd worktrees root。`~/.local/share/gozd/worktrees/`（ensureWorktreePath の base と同一）。 */
+function defaultWorktreesRoot(): string {
+  return join(homedir(), ".local", "share", "gozd", "worktrees");
+}
+
 /** session_id を path 結合に渡す前の入力ゲート。UUID 構成文字 ([0-9a-fA-F-]) のみ許可し、
  * `/` や `..` 経由の path traversal を構造的に塞ぐ */
 function isSafeSessionId(sessionId: string): boolean {
@@ -433,14 +438,16 @@ function readSessionMeta(path: string): SessionMeta {
  * projectKey が呼び出し repo と一致し、かつ cwd が実在しない (= worktree 削除済み) もの。外部 worktree
  * は cwd が gozd スキーム外なので projectKey に帰属付けできず、対象にしない (設計判断)。
  *
- * `projectsDir` はテスト用の injection 口。production は省略して `~/.claude/projects/` を使う。 */
+ * `projectsDir` / `worktreesRoot` はテスト用の injection 口。production は省略し、それぞれ
+ * `~/.claude/projects/` と `~/.local/share/gozd/worktrees/`（ensureWorktreePath の base と同一）を使う。 */
 export async function listReviveSessions(
   dir: string,
   projectsDir: string = defaultProjectsDir(),
+  worktreesRoot: string = defaultWorktreesRoot(),
 ): Promise<ReviveSessionInfo[]> {
   if (!isDirectory(projectsDir)) return [];
   const projectKey = await resolveProjectKey(dir);
-  const basePrefix = join(homedir(), ".local", "share", "gozd", "worktrees", projectKey) + sep;
+  const basePrefix = join(worktreesRoot, projectKey) + sep;
 
   const sessions: ReviveSessionInfo[] = [];
   for (const name of listDir(projectsDir)) {
@@ -448,18 +455,28 @@ export async function listReviveSessions(
     if (!isDirectory(projectDir)) continue;
     const jsonls = listDir(projectDir).filter((n) => n.endsWith(".jsonl"));
     if (jsonls.length === 0) continue;
-    // 同 projectDir の全 jsonl は同じ cwd (Claude の dir エンコード前が同一 dir)。先頭 1 本の
-    // tail で dir 単位に分類し、対象外 dir では残りの tail 読みを丸ごと省く。
-    const firstPath = join(projectDir, jsonls[0]);
-    const firstMeta = readSessionMeta(firstPath);
-    const cwd = firstMeta.cwd;
+    // 同 projectDir の全 jsonl は同じ cwd (Claude の dir エンコード前が同一 dir)。cwd を返せる
+    // 最初の 1 本を代表に dir 単位で分類する。readdir 先頭が 0 バイト / 破損で cwd を返せなくても
+    // dir 全体を捨てず後続 jsonl を試す (代表 1 本の欠損で兄弟セッションを silent drop しない)。
+    const metaByPath = new Map<string, SessionMeta>();
+    let cwd = "";
+    for (const jsonlName of jsonls) {
+      const path = join(projectDir, jsonlName);
+      const meta = readSessionMeta(path);
+      metaByPath.set(path, meta);
+      if (meta.cwd !== "") {
+        cwd = meta.cwd;
+        break;
+      }
+      console.error(`[listReviveSessions] empty cwd, trying siblings: ${path}`);
+    }
     if (cwd === "" || !cwd.startsWith(basePrefix) || existsSync(cwd)) continue;
     const worktreeDir = basename(cwd);
     for (const jsonlName of jsonls) {
       const sessionId = basename(jsonlName, ".jsonl");
       if (!isSafeSessionId(sessionId)) continue;
       const path = join(projectDir, jsonlName);
-      const meta = path === firstPath ? firstMeta : readSessionMeta(path);
+      const meta = metaByPath.get(path) ?? readSessionMeta(path);
       // 最終アクティビティは末尾レコードの timestamp (内容由来) を SSOT にする。ISO が無い /
       // parse 不能な病的ケースだけ mtime にフォールバックする (0 で epoch 表示に落とさない)。
       const tsMs = meta.timestamp !== "" ? Date.parse(meta.timestamp) : Number.NaN;

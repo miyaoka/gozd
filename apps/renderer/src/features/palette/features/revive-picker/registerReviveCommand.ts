@@ -84,7 +84,12 @@ export function registerReviveCommand(): () => void {
     label: "Workspace: Revive Session",
     handler: (args?: unknown) => {
       const rootDir = resolveRootDir(args);
-      if (rootDir === undefined) return false;
+      if (rootDir === undefined) {
+        // コマンドパレット起動で active repo も無い（repo 未オープン）ケース。silent に閉じず
+        // fail-loud で知らせる（本 PR で execute の未登録 id を fail-loud にしたのと同じ思想）。
+        notify.error("No repository available to revive sessions");
+        return false;
+      }
       void openReviveFor(rootDir);
       return true;
     },

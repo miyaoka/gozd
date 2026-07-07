@@ -99,8 +99,8 @@ export interface ReviveSessionInfo {
 }
 
 /** 指定 repo (dir) 配下の削除済み worktree に紐づく復活可能セッション一覧。
- * repo 詳細メニューの「復元」パネルが呼ぶ。dir は repo root / worktree / 配下 subdir の
- * いずれでも可 (main 側で projectKey に解決する)。 */
+ * repo ⋮ メニュー / コマンドパレット由来の revive picker が開くときに呼ぶ。dir は
+ * repo root / worktree / 配下 subdir のいずれでも可 (main 側で projectKey に解決する)。 */
 export interface ReviveSessionListRequest {
   dir: string;
 }

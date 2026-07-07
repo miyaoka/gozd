@@ -5,7 +5,7 @@ import { mkdirSync, lstatSync, symlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { realpathSync } from "node:fs";
-import { tryCatch } from "@gozd/shared";
+import { generateTimestamp, tryCatch } from "@gozd/shared";
 import { resolveContained } from "../fs/pathContainment";
 import { resolveMainRepoRoot, resolveProjectKey } from "../taskStore";
 import { resolveStartPoint } from "./gitBranch";
@@ -102,21 +102,6 @@ export function createWorktreeSymlinks(
   }
 }
 
-/** revive 用の worktree タイムスタンプ (YYYYMMDD_HHMMSS)。branch 衝突時の fallback 名に使う。
- * renderer の generateTimestamp と同一形式（main / renderer は別ランタイムのため実装を複製する）。 */
-function reviveTimestamp(): string {
-  const now = new Date();
-  return [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0"),
-    "_",
-    String(now.getHours()).padStart(2, "0"),
-    String(now.getMinutes()).padStart(2, "0"),
-    String(now.getSeconds()).padStart(2, "0"),
-  ].join("");
-}
-
 /** branch が他 worktree に checkout 済みか。`git worktree add` / `-B` は他 worktree 占有中の
  * branch を拒否するため、この判定で衝突を先に検知して日付ブランチへ倒す。 */
 async function isBranchCheckedOut(dir: string, branch: string): Promise<boolean> {
@@ -141,12 +126,20 @@ export async function resolveReviveBranch(
   candidate: string,
 ): Promise<{ branch: string; startPoint: string }> {
   if (candidate === "" || (await isBranchCheckedOut(dir, candidate))) {
-    return { branch: reviveTimestamp(), startPoint: await resolveStartPoint(dir) };
+    return { branch: generateTimestamp(), startPoint: await resolveStartPoint(dir) };
   }
   if (await localBranchExists(dir, candidate)) {
     return { branch: candidate, startPoint: "" };
   }
   return { branch: candidate, startPoint: await resolveStartPoint(dir) };
+}
+
+/** `git worktree prune` 相当。working dir が消えた missing-but-registered な worktree 登録を掃除する。
+ * revive は cwd 不在を条件に列挙するため、外部 rm-rf 済みで `git worktree prune` 未実行の path に
+ * stale 登録が残っていると `git worktree add` が失敗する。add 前に prune して、gozd の
+ * `git worktree remove` 経由の削除だけでなく外部 rm-rf 由来の stale 登録も同一経路で救う。 */
+export async function pruneWorktrees(dir: string): Promise<void> {
+  await runGit(["worktree", "prune"], dir);
 }
 
 /** `git worktree remove [-f] <path>` 相当 */

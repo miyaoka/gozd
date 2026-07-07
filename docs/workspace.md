@@ -279,3 +279,5 @@ worktree を削除すると上記の自動 resume は届かなくなる。理由
 復活は `createWorktree` + `attachSession` の合成で、専用の resume 経路は増やさない。branch は「末尾の gitBranch（リネーム済みなら PR 名）」を第 1 候補にし、他 worktree に占有されていれば日付ブランチへ倒す。branch tip はマージ / prune 済みでありうるので startPoint は default branch にする（branch 名は resume に影響せず cwd 一致だけが要件のため、意味のある名前を優先しつつ衝突だけ避ける）。worktree を作り直したら `attachSession` が sessionId 付き task を書き、以降は visit → 自動 resume がそのまま駆動する。
 
 起動は command `workspace.reviveSession`。サイドバーの repo ⋮ メニューは対象 repo の rootDir を明示引数で渡し、コマンドパレット起動時は active worktree の repo に fall back する（VSCode の SCM コマンドが clicked resource を優先し無ければ active に倒す `getRepository(args[0]) ?? pickRepository()` と同型）。
+
+制約: 1 つの削除済み worktree に複数セッション（同一 cwd で複数回 `claude` を起動 = 同 projectDir 内に複数 jsonl）が紐づく場合、一覧は各セッションを別行で出すが、1 件を revive すると cwd が実在に転じて残りの兄弟セッションは次回一覧から外れる（`attachSession` は選んだ 1 件しか task 化しない）。gozd は 1 worktree 1 セッションが主で複数はエッジのため許容する。兄弟の jsonl は残るので、復活後の worktree で手動 `claude --resume <sessionId>` は可能。

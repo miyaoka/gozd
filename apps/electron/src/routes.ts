@@ -152,7 +152,12 @@ import {
   type FileChangeInfo,
 } from "./git/gitTree";
 import { validateRev } from "./git/gitValidate";
-import { createWorktree, removeWorktree, resolveReviveBranch } from "./git/worktreeOps";
+import {
+  createWorktree,
+  pruneWorktrees,
+  removeWorktree,
+  resolveReviveBranch,
+} from "./git/worktreeOps";
 import { fetchRemotes, gitStatusFull, worktreeList } from "./git/gitOps";
 import { GitCommandError } from "./git/gitRunner";
 import type { StatusFull } from "./git/porcelain";
@@ -998,6 +1003,9 @@ async function handleReviveSession(body: unknown): Promise<unknown> {
   // branch は resume に影響しないため、意味のある候補を優先しつつ衝突だけ避ける（main 側で判定）。
   // cwd（= worktree パス）は worktreeDir で 1 バイト一致再現し、resume の project key 一致を担保する。
   const projectConfig = await loadProjectConfig(req.dir);
+  // 外部 rm-rf 済みで登録だけ残った worktree（missing-but-registered）を掃除してから add する。
+  // revive 対象は cwd 不在で列挙されるため、この stale 登録が残っていると createWorktree が失敗する。
+  await pruneWorktrees(req.dir);
   const { branch, startPoint } = await resolveReviveBranch(req.dir, req.branch);
   const info = await createWorktree({
     dir: req.dir,

@@ -202,6 +202,8 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
       </div>
       <div
         v-if="status === 'loading'"
+        role="status"
+        aria-live="polite"
         class="flex items-center justify-center gap-2 px-3 py-8 text-sm text-foreground-low"
       >
         <IconLucideLoaderCircle class="size-4 animate-spin" />
@@ -229,7 +231,12 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           <PrPickerRow :pr="pr" />
         </div>
       </div>
-      <div v-else class="px-3 py-4 text-center text-sm text-foreground-low">
+      <div
+        v-else
+        role="status"
+        aria-live="polite"
+        class="px-3 py-4 text-center text-sm text-foreground-low"
+      >
         {{ emptyMessage }}
       </div>
     </div>

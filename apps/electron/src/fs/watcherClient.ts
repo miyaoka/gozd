@@ -135,6 +135,13 @@ export function createWatcherClient(deps: WatcherClientDeps): WatcherClient {
         "gave-up",
         `${crashTimestamps.length} crashes within ${CRASH_WINDOW_MS / 1000}s; ${live.size} watchers down`,
       );
+      // give-up は terminal。呼び出し側（fsWatchRegistry）に各 watch の死亡を伝え、live を
+      // 空にする。残すと後続の無関係な crash の respawn が give-up 済み subscription を巻き込んで
+      // 再 subscribe し、「要再起動」通知と矛盾するため
+      for (const sub of live.values()) {
+        sub.onError("file watching stopped after repeated crashes");
+      }
+      live.clear();
       return;
     }
     // crash → 自己修復。行動不要なので toast にせず event-log だけに残す（VS Code と同じ）

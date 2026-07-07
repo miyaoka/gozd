@@ -140,7 +140,7 @@ describe("watcherClient respawn state machine", () => {
 
   test("crash flood within window: gives up, notifies, stops respawning", async () => {
     const ctx = setup();
-    await establish(ctx); // proc1
+    const { errors } = await establish(ctx); // proc1
 
     // 窓内で上限 (5) を超える crash。各 exit が次を fork し、超過時に respawn を止める
     for (let i = 0; i < 6; i++) {
@@ -152,6 +152,12 @@ describe("watcherClient respawn state machine", () => {
     expect(ctx.labels()).toContain("gave-up");
     // gave-up 後は fork しない（proc1 + respawn 5 回 = 6 プロセスで打ち止め）
     expect(ctx.processes.length).toBe(6);
+    // give-up で各 subscription に死亡が伝わる（fsWatchRegistry へ onError）
+    expect(errors.length).toBeGreaterThan(0);
+    // live がクリアされ、後続の無関係な exit で give-up 済み sub が再 subscribe されない
+    const before = ctx.processes.length;
+    ctx.processes[ctx.processes.length - 1].emit("exit", 1);
+    expect(ctx.processes.length).toBe(before);
   });
 
   test("crashes spread beyond the window are evicted and never give up", async () => {

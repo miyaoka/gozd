@@ -107,7 +107,7 @@ watch(panelRef, (el) => store.bindPopover(el ?? undefined), { immediate: true })
       <button
         type="button"
         aria-label="Copy all"
-        :disabled="reversed.length === 0"
+        :disabled="events.length === 0"
         class="grid size-6 place-items-center rounded-sm text-foreground-low hover:bg-element-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
         @click="copyAll()"
       >

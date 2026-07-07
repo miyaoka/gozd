@@ -43,8 +43,17 @@ async function handleSubscribe(id: number, root: string, ignore: string[]): Prom
     return;
   }
   if (cancelledBeforeReady.delete(id)) {
-    // subscribe 解決前に unsubscribe 済み。ack を返さず即解放する
-    void result.value.unsubscribe();
+    // subscribe 解決前に unsubscribe 済み。ack を返さず即解放する。unsubscribe の reject を
+    // 握らないと unhandled rejection でこのプロセスごと落ち respawn を誘発するため tryCatch で包む
+    const released = await tryCatch(result.value.unsubscribe());
+    if (!released.ok) {
+      post({
+        type: "log",
+        channel: "file-watcher",
+        label: "unsubscribe-failed",
+        detail: `id=${id}: ${String(released.error)}`,
+      });
+    }
     return;
   }
   subscriptions.set(id, result.value);

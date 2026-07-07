@@ -474,13 +474,24 @@ function gitStatusChangePayload(dir: string, status: StatusFull): Record<string,
   return payload;
 }
 
-const fsWatchRegistry = createFsWatchRegistry({
-  onFsChange: (dir, relDir) => fsPush?.("fsChange", { dir, relDir }),
-  onGitStatusChange: (dir, status) => fsPush?.("gitStatusChange", gitStatusChangePayload(dir, status)),
-  onBranchChange: (dir) => fsPush?.("branchChange", { dir }),
-  onRemoteRefsChange: (dir) => fsPush?.("remoteRefsChange", { dir }),
-  onWorktreeChange: (dir) => fsPush?.("worktreeChange", { dir }),
-});
+const fsWatchRegistry = createFsWatchRegistry(
+  {
+    onFsChange: (dir, relDir) => fsPush?.("fsChange", { dir, relDir }),
+    onGitStatusChange: (dir, status) =>
+      fsPush?.("gitStatusChange", gitStatusChangePayload(dir, status)),
+    onBranchChange: (dir) => fsPush?.("branchChange", { dir }),
+    onRemoteRefsChange: (dir) => fsPush?.("remoteRefsChange", { dir }),
+    onWorktreeChange: (dir) => fsPush?.("worktreeChange", { dir }),
+  },
+  {
+    // buildEntry ごとに最新の config を読む。除外は value === true のキーだけ有効
+    // （false は seed 済み default をユーザーが無効化する subtraction）
+    getWatcherExclude: () =>
+      Object.entries(loadAppConfig().watcherExclude)
+        .filter(([, enabled]) => enabled)
+        .map(([glob]) => glob),
+  },
+);
 
 /** will-quit で全 watch を始末する（watcher スレッドの残骸を残さない） */
 export function unwatchAllFsWatches(): void {

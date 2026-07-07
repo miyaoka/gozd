@@ -11,6 +11,11 @@ export interface AppConfig {
   preview: PreviewConfig;
   voicevox: VoicevoxConfig;
   arcade: ArcadeConfig;
+  /** ファイル監視から除外する glob マップ（VS Code の `files.watcherExclude` 相当）。
+   * key = 監視 root からの相対 glob、value = true で除外 / false で除外解除。
+   * gozd は VS Code の user⊕workspace マージを持たず global 1 枚のみ。初期値は
+   * stores.ts が seed する（`.git` 内部の高churn 領域。ref シグナルは含まない）。 */
+  watcherExclude: Record<string, boolean>;
 }
 
 interface TerminalConfig {

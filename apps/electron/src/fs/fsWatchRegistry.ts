@@ -58,6 +58,11 @@ export interface FsWatchOptions {
   statusDebounceMs?: number;
   /** working-tree status の取得関数。テスト用 seam（production は gitStatusFull） */
   statusFetcher?: (dir: string) => Promise<StatusFull>;
+  /** ファイル監視から除外する glob 一覧を返す（VS Code の `files.watcherExclude` 相当）。
+   * buildEntry 時に読むため、設定変更は新規 watch にのみ反映される（既存 watch は再 watch
+   * まで旧 exclude のまま。VS Code は config 変更で re-watch するが、gozd は v1 で見送る）。
+   * production は AppConfig の watcherExclude を渡す。省略時は除外なし（テスト用 default） */
+  getWatcherExclude?: () => string[];
 }
 
 interface Entry {
@@ -83,6 +88,7 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
   const {
     statusDebounceMs = DEFAULT_STATUS_DEBOUNCE_MS,
     statusFetcher = gitStatusFull,
+    getWatcherExclude = () => [],
   } = options;
   const { onFsChange, onGitStatusChange, onBranchChange, onRemoteRefsChange, onWorktreeChange } =
     handlers;
@@ -191,9 +197,22 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
       );
     };
 
+    // exclude は working-tree 由来の高churn（node_modules / build 等）を抑える設定だが、
+    // git dir を root とする subscription に掛けると ref/HEAD/index イベントを落として
+    // branch / status 検知が壊れる。git dir root（通常 clone では dir 配下に包含され
+    // watchRoots に現れないが、worktree では commonGitDir が独立 root になる）には
+    // 適用せず、working-tree root にだけ渡す
+    const gitDirRoots = new Set(
+      [perWorktreeGitDir, commonGitDir].filter((path): path is string => path !== undefined),
+    );
+    const excludeGlobs = getWatcherExclude();
+
     const subscriptions: AsyncSubscription[] = [];
     for (const root of watchRoots) {
-      const sub = await tryCatch(subscribe(root, callback));
+      const applyExclude = !gitDirRoots.has(root) && excludeGlobs.length > 0;
+      const sub = await tryCatch(
+        applyExclude ? subscribe(root, callback, { ignore: excludeGlobs }) : subscribe(root, callback),
+      );
       if (!sub.ok) {
         // 部分成功のまま throw すると成功済み subscription が leak するため巻き戻す
         for (const succeeded of subscriptions) {

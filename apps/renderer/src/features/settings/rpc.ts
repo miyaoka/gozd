@@ -41,7 +41,18 @@ export function flattenAppConfig(c: AppConfig | undefined): Record<string, unkno
     "voicevox.speedScale": c?.voicevox?.speedScale ?? 1.5,
     "voicevox.volumeScale": c?.voicevox?.volumeScale ?? 1.0,
     // voicevox.speakerId は VoicevoxSpeakerWidget が store と直結するため flatten 経路を通らない
+    watcherExclude: c?.watcherExclude ?? {},
   };
+}
+
+/** value が Record<string, boolean> か判定する */
+function isStringBooleanMap(value: unknown): value is Record<string, boolean> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.values(value).every((v) => typeof v === "boolean")
+  );
 }
 
 /** dot-key の patch を AppConfig に適用する。未知のキーは無視。 */
@@ -50,6 +61,9 @@ function applyDotKey(config: AppConfig, key: string, value: unknown): void {
   // ここでのセクション存在チェックは不要
   const { terminal, preview, voicevox } = config;
   switch (key) {
+    case "watcherExclude":
+      if (isStringBooleanMap(value)) config.watcherExclude = value;
+      break;
     case "terminal.theme":
       if (typeof value === "string") terminal.theme = value;
       break;

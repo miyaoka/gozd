@@ -51,6 +51,14 @@ export interface StringArraySetting extends SettingBase {
   placeholder?: string;
 }
 
+/** glob → boolean マップ → 行リスト（glob 入力 + 有効トグル + 削除）。
+ * VS Code の files.watcherExclude 相当。false で seed 済み default を無効化できる */
+export interface StringBooleanMapSetting extends SettingBase {
+  widget: "stringBooleanMap";
+  defaultValue: Record<string, boolean>;
+  placeholder?: string;
+}
+
 /**
  * VOICEVOX のキャラ + スタイル選択 → 2 段 select。
  * widget 内部で voicevox store と直結するため defaultValue / dot-key 経由の値は持たない。
@@ -66,6 +74,7 @@ export type SettingDefinition =
   | StringSetting
   | TextSetting
   | StringArraySetting
+  | StringBooleanMapSetting
   | VoicevoxSpeakerSetting;
 
 /** 設定セクション（グループ化） */

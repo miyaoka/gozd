@@ -65,10 +65,20 @@ describe("createWorktreeSymlinks", () => {
     expect(readlinkSync(dest)).toBe(join(main, ".config", "app.json"));
   });
 
-  test("`..` traversal target は rejected で skip する", () => {
-    const { main, wt } = makePair();
+  test("`..` traversal target は rejected で skip する（containment を外すと張られる位置を検証）", () => {
+    // main と wt を別々の親 dir 配下に置き、`..` の脱出先を各親に用意する。
+    // containment が無効なら source=mainParent/escape を dest=wtParent/escape に張るため、
+    // 脱出先の非生成を assert すれば「rejected による skip」を実証できる（source 不在 skip と区別）。
+    const mainParent = mkdtempSync(join(tmpdir(), "gozd-symlink-mainp-"));
+    const wtParent = mkdtempSync(join(tmpdir(), "gozd-symlink-wtp-"));
+    tempDirs.push(mainParent, wtParent);
+    const main = join(mainParent, "repo");
+    const wt = join(wtParent, "repo");
+    mkdirSync(main);
+    mkdirSync(wt);
+    writeFileSync(join(mainParent, "escape"), "secret");
     createWorktreeSymlinks(main, wt, ["../escape"]);
-    expect(existsSync(join(wt, "escape"))).toBe(false);
+    expect(existsSync(join(wtParent, "escape"))).toBe(false);
   });
 
   test("中間パスが非ディレクトリでも throw せず後続 target を処理する", () => {

@@ -131,6 +131,7 @@ export function registerPrCommand(): () => void {
             // 上で作成した task に attach される。後追いクリック起動の二重 leaf を防ぐ。
             // PR URL を prefill で渡し、claude の入力欄に事前挿入する (送信はされない)。
             terminalStore.requestNewClaudeSession(result.value.dir, pr.url);
+            terminalStore.setPreferredSetup(result.value.dir, result.value.setupScript);
             terminalStore.viewMode = "wt";
             worktreeStore.setOpen(result.value.dir);
           })();

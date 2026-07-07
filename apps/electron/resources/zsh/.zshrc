@@ -88,3 +88,20 @@ _gozd_start_claude() {
   fi
 }
 [[ -n "$GOZD_AUTOSTART_CLAUDE" ]] && _gozd_start_claude
+
+# worktree 作成時の setup スクリプト（project 設定 setupScript、例: `pnpm install`）を
+# 専用ターミナル leaf で実行する。renderer が spawn env に GOZD_SETUP_SCRIPT を注入する。
+#
+# eval を使う理由: setupScript は複数行を許すため（例: `node setup.mjs` 改行 `pnpm install`）。
+# exec しない理由: 実行後は素のシェルプロンプトに戻り、ユーザーが出力を確認・追加操作できる。
+_gozd_run_setup() {
+  local _script="$GOZD_SETUP_SCRIPT"
+  unset GOZD_SETUP_SCRIPT
+  # このターミナルが setup script 実行用であることを明示する。ヘッダに続けて実行する
+  # コマンド本体を出す（print -r で % を prompt escape 解釈させずリテラル表示）。
+  print -P "%F{6}%B❯ gozd setup script%b%f"
+  print -r -- "$_script"
+  print
+  eval "$_script"
+}
+[[ -n "$GOZD_SETUP_SCRIPT" ]] && _gozd_run_setup

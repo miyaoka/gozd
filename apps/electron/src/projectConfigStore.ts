@@ -23,10 +23,12 @@ async function configFilePath(dir: string): Promise<string> {
 }
 
 function normalizeProjectConfig(raw: unknown): ProjectConfig {
+  const dict = asDict(raw);
   return {
-    worktreeSymlinks: asArray(asDict(raw).worktreeSymlinks).filter(
+    worktreeSymlinks: asArray(dict.worktreeSymlinks).filter(
       (value): value is string => typeof value === "string",
     ),
+    setupScript: typeof dict.setupScript === "string" ? dict.setupScript : "",
   };
 }
 

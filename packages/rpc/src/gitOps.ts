@@ -348,6 +348,8 @@ export interface CreateWorktreeRequest {
 export interface CreateWorktreeResponse {
   worktree: WorktreeEntry;
   dir: string;
+  /** project 設定の setupScript。renderer が専用ターミナルで実行する。空なら実行しない */
+  setupScript: string;
 }
 
 // gitWorktreeRemove: worktree を削除

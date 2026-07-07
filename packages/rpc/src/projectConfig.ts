@@ -6,6 +6,8 @@ import type { EmptyMessage } from "./common";
 export interface ProjectConfig {
   /** worktree 作成時にメインリポジトリからシンボリックリンクする相対パス一覧 */
   worktreeSymlinks: string[];
+  /** worktree 作成時に専用ターミナルで実行する setup スクリプト（例: `pnpm install`）。空なら実行しない */
+  setupScript: string;
 }
 
 export interface ProjectConfigLoadRequest {

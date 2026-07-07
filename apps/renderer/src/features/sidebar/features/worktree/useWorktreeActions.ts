@@ -81,6 +81,8 @@ export function useWorktreeActions({ showConfirm }: UseWorktreeActionsOptions) {
       );
       if (result.ok && result.value.worktree !== undefined) {
         repoStore.appendWorktree(rootDir, result.value.worktree);
+        // setOpen（selectDir 内）が visit を駆動する前に setup ヒントを立てる
+        terminalStore.setPreferredSetup(result.value.dir, result.value.setupScript);
         selectDir(result.value.dir);
       } else {
         notify.error("Failed to add worktree", result.ok ? undefined : result.error);

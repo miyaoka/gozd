@@ -23,7 +23,7 @@ const rpcSaveAppConfig = (config: AppConfig) =>
 export const rpcProjectConfigLoad = (req: ProjectConfigLoadRequest) =>
   rpc<ProjectConfigLoadResponse>("/projectConfig/load", req);
 
-export const rpcProjectConfigSave = (dir: string, config: ProjectConfig) =>
+const rpcProjectConfigSave = (dir: string, config: ProjectConfig) =>
   rpc<ProjectConfigSaveResponse>("/projectConfig/save", { dir, config });
 
 // --- flat-key アダプタ ---
@@ -121,6 +121,7 @@ export async function patchAppConfig(patch: Record<string, unknown>): Promise<vo
 export function flattenProjectConfig(c: ProjectConfig | undefined): Record<string, unknown> {
   return {
     worktreeSymlinks: c?.worktreeSymlinks ?? [],
+    setupScript: c?.setupScript ?? "",
   };
 }
 
@@ -137,6 +138,9 @@ export async function patchProjectConfig(
     patch.worktreeSymlinks.every((v): v is string => typeof v === "string")
   ) {
     config.worktreeSymlinks = patch.worktreeSymlinks;
+  }
+  if ("setupScript" in patch && typeof patch.setupScript === "string") {
+    config.setupScript = patch.setupScript;
   }
   await rpcProjectConfigSave(dir, config);
 }

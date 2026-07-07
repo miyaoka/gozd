@@ -479,8 +479,12 @@ function gitStatusChangePayload(dir: string, status: StatusFull): Record<string,
 // 封じ込め、main は onExit で検知して respawn する（watcherClient 参照）。
 // 診断（crash/respawn）は debugLog push → renderer の event-log パネルへ。監視が完全停止した
 // terminal ケースだけ notify push でトースト表示する（console.error は packaged で見えない）
+// 診断（crash/respawn/watch-error）を renderer の event-log パネルに流す共通経路
+const pushDebugLog = (channel: string, label: string, detail: string) =>
+  fsPush?.("debugLog", { channel, label, repo: "", detail });
+
 const watcherClient = createWatcherClient({
-  logEvent: (channel, label, detail) => fsPush?.("debugLog", { channel, label, repo: "", detail }),
+  logEvent: pushDebugLog,
   notify: (message, detail) =>
     fsPush?.("notify", { type: "error", source: "file-watcher", message, detail, dir: "" }),
 });
@@ -496,6 +500,7 @@ const fsWatchRegistry = createFsWatchRegistry(
   },
   {
     transport: watcherClient,
+    logEvent: pushDebugLog,
     // buildEntry ごとに最新の config を読む。除外は value === true のキーだけ有効
     // （false は seed 済み default をユーザーが無効化する subtraction）
     getWatcherExclude: () =>

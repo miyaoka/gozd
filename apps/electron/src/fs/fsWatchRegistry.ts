@@ -83,6 +83,9 @@ export interface FsWatchOptions {
   /** native watcher への subscribe 経路（必須）。production は utilityProcess 隔離した
    * watcherClient、テストは実 @parcel/watcher を包む adapter を渡す */
   transport: WatchTransport;
+  /** watcher 実行時エラー等の診断を event-log へ流す。routes 側で `debugLog` push に変換する。
+   * console.error は packaged で見えないため使わない。省略時は no-op（テスト用） */
+  logEvent?: (channel: string, label: string, detail: string) => void;
 }
 
 interface Entry {
@@ -110,6 +113,7 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     statusFetcher = gitStatusFull,
     getWatcherExclude = () => [],
     transport,
+    logEvent = () => {},
   } = options;
   const { onFsChange, onGitStatusChange, onBranchChange, onRemoteRefsChange, onWorktreeChange } =
     handlers;
@@ -210,7 +214,8 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
       void handleEvents(dir, generation, paths);
     };
     const onError = (message: string) => {
-      console.error(`[FSWatchRegistry] watcher error for ${dir}: ${message}`);
+      // packaged で見えない console.error でなく event-log に出す（crash 観測と観察面を揃える）
+      logEvent("file-watcher", "watch-error", `${dir}: ${message}`);
     };
 
     // exclude は working-tree 由来の高churn（node_modules / build 等）を抑える設定だが、

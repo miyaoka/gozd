@@ -131,16 +131,21 @@ GitGraphPane 側の防衛は 2 段構え:
 
 gozd の primary use case は **「Claude / ユーザーが worktree で並列に `gh pr create` する」** ことであり、上記の中でも特に `gh pr create` (既 push) は中核の操作。これを反映する経路として **active worktree 1 個に対する 60 秒間隔の `gh pr list` polling** が GitGraphPane に組み込まれている。
 
-scope は active worktree 1 個に限定するため負荷は 60 query/h (GH GraphQL 5000/h の 1.2%)。全 worktree fan-out にはしない。
+scope は active worktree 1 個に限定し全 worktree fan-out にはしない。さらに **focus 中のみ** polling するため、負荷の上限は継続 focus 時で 60 query/h (GH GraphQL 5000/h の 1.2%)、blur 中は 0。
 
 ### `loadPrList` の発火条件 (GitGraphPane)
 
-| 発火元                      | 場面                                                                       |
-| --------------------------- | -------------------------------------------------------------------------- |
-| `onMounted`                 | GitGraphPane マウント時                                                    |
-| `watch(worktreeStore.dir)`  | worktree 切替時 (interval も再スタート)                                    |
-| `remoteRefsChange`          | push / fetch で remote ref が動いたとき (current 以外の branch 動きも含む) |
-| `useIntervalFn` (60 秒間隔) | active worktree に対する定期取得                                           |
+active repo の PR 情報だけを対象にし、無駄撃ちを 3 つの規律で抑える: **focus gate** (blur 中はユーザーが badge を見られないため撃たない)、**repo-identity lifecycle** (同一 repo 内の worktree 切替では撃ち直さない。`gh pr list` は repo 単位で結果同一のため)、**request coalesce** (burst を末尾 1 発に畳む)。
+
+| 発火元                      | 場面                                                                                           |
+| --------------------------- | ---------------------------------------------------------------------------------------------- |
+| `onMounted`                 | GitGraphPane マウント時                                                                        |
+| `watch(activeRepoRootDir)`  | active repo が変わったとき (clear + 再取得)。同一 repo 内の worktree 切替では発火しない        |
+| `remoteRefsChange`          | push / fetch で remote ref が動いたとき (current 以外の branch 動きも含む)。**focus 中のみ**   |
+| `useIntervalFn` (60 秒間隔) | active worktree に対する定期取得。**focus 中のみ** (timer は回し続け callback 内で focus 判定) |
+| focus 復帰 (blur→focus)     | blur 中に撃たなかった分の catch-up を 1 回                                                     |
+
+全発火元は coalescer `scheduleLoadPrList` を経由する。in-flight 中の再要求は末尾 1 発に畳むため、上記が近接発火しても実 `gh pr list` は最大 2 発に収束する (`loadLog` の `scheduleLoadLog` と同型の事前防衛。世代ガード `loadPrGen` は後着レスポンスを捨てる事後防衛で二重化)。
 
 `gitStatusChange.upstreamChanged` 側では `loadPrList` を呼ばない。`# branch.ab` の数値変化のうち、`headChanged` でない経路は構造的に `refs/remotes/origin/<current-branch>` の書き換えに対応し、その場合は必ず `remoteRefsChange` も同じ burst で発射されるため、`gitStatusChange` 側で呼ぶと `gh pr list` が 2 連射される。`branchChange` / `fsWatchReady` は graph 再描画のみで PR list を取り直さない。
 

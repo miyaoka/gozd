@@ -16,9 +16,10 @@ HEAD-only walk を末尾 append し境界に `truncatedAbove` を立てる。ren
 <script setup lang="ts">
 import { SortMode, type GitCommit } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
-import { useElementSize, useIntervalFn } from "@vueuse/core";
+import { useElementSize, useIntervalFn, useWindowFocus } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from "vue";
+import { logEvent } from "../../shared/debug";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
@@ -45,6 +46,8 @@ const notify = useNotificationStore();
 const repoStore = useRepoStore();
 const { prByBranch } = storeToRefs(prListStore);
 const { commits } = storeToRefs(gitGraphStore);
+/** window focus 状態。PR poll を focus 中のみ撃つための gate (blur 中の GitHub API 消費を止める)。 */
+const focused = useWindowFocus();
 
 const defaultBranch = ref<string | undefined>();
 const firstParentOnly = ref(false);
@@ -247,7 +250,10 @@ const disposeRemoteRefsChange = onMessage<RemoteRefsChangePayload>(
   ({ dir }) => {
     if (!repoStore.isSameRepoAsActive(dir)) return;
     scheduleLoadLog();
-    void loadPrList();
+    // PR reload は focus 中のみ (blur 中の GitHub API 消費を止める)。blur 中の ref 変化は
+    // focus 復帰の catch-up watch が取り込む。
+    if (focused.value) scheduleLoadPrList("remoteRefsChange");
+    else logEvent("pr-poll", "skip:blur", activeRepoName(), "remoteRefsChange");
   },
 );
 onUnmounted(disposeRemoteRefsChange);
@@ -261,9 +267,22 @@ const disposeFsWatchReady = onMessage<FsWatchReadyPayload>("fsWatchReady", ({ di
 onUnmounted(disposeFsWatchReady);
 
 // --- PR 情報（非同期で後追い取得。SSOT は `usePrListStore`） ---
+//
+// PR poll は **active repo のみ** を対象とする更新 (PR badge は active worktree の git graph に
+// しか出ないため)。3 つの規律で無駄撃ちを消す:
+// - focus gate: window blur 中は poll しない (背景放置中の GitHub API 消費を止める)
+// - repo-identity lifecycle: 同 repo の worktree 切替では撃ち直さない (`gh pr list` は repo 単位)
+// - request coalesce: interval / remoteRefsChange / repo 切替 / mount の burst を末尾 1 発に畳む
 
 /** loadPrList の世代管理。並行実行で古いレスポンスが後着して上書きするのを防ぐ */
 let loadPrGen = 0;
+
+/** 現在 active な worktree が属する repo 名 (event log 表示用)。無ければ空文字。 */
+function activeRepoName(): string {
+  const dir = worktreeStore.dir;
+  if (dir === undefined) return "";
+  return repoStore.findRepoOwning(dir)?.repoName ?? "";
+}
 
 /** PR 一覧を取得して prListStore を更新する。失敗時は前回値を保持しつつ notify.error で告知する。 */
 async function loadPrList() {
@@ -271,20 +290,55 @@ async function loadPrList() {
   const dir = worktreeStore.dir;
   if (dir === undefined) return;
   const result = await tryCatch(rpcGitPrList({ dir }));
-  if (gen !== loadPrGen) return;
+  if (gen !== loadPrGen) {
+    logEvent("pr-poll", "stale", activeRepoName());
+    return;
+  }
   if (!result.ok) {
+    logEvent("pr-poll", "error", activeRepoName(), "rpc failed");
     notify.error("Failed to load pull requests", result.error);
     return;
   }
   const res = result.value;
   if (!res.ok) {
+    logEvent("pr-poll", "error", activeRepoName(), res.errorKind);
     notify.error(
       ghErrorMessage(res.errorKind, "Failed to load pull requests"),
       res.errorDetail || undefined,
     );
     return;
   }
+  logEvent("pr-poll", "done", activeRepoName(), `${res.prs.length} prs`);
   prListStore.setPrs(res.prs);
+}
+
+// loadPrList の burst coalescer。`loadLog` の `scheduleLoadLog` と同型 (in-flight 中の再要求を
+// 末尾 1 発に畳む事前防衛)。`loadPrGen` は後着レスポンスを捨てる事後防衛で、両者は二重防衛。
+// PR list は awaitable path を持たない (全 caller が fire-and-forget) ため schedule のみ公開する。
+let loadPrInFlightCount = 0;
+let loadPrScheduled = false;
+
+async function fireLoadPrList(reason: string) {
+  loadPrInFlightCount += 1;
+  logEvent("pr-poll", "fire", activeRepoName(), reason);
+  try {
+    await loadPrList();
+  } finally {
+    loadPrInFlightCount -= 1;
+    if (loadPrInFlightCount === 0 && loadPrScheduled) {
+      loadPrScheduled = false;
+      void fireLoadPrList("trailing");
+    }
+  }
+}
+
+function scheduleLoadPrList(reason: string) {
+  if (loadPrInFlightCount > 0) {
+    loadPrScheduled = true;
+    logEvent("pr-poll", "coalesced", activeRepoName(), reason);
+    return;
+  }
+  void fireLoadPrList(reason);
 }
 
 // --- GitHub repo identity (コミットメッセージ `#N` リンク化) ---
@@ -305,30 +359,46 @@ const issueLinkBaseUrl = computed(() => buildRepoBaseUrl(repoIdentity.value));
 
 // active worktree の PR 一覧を 60 秒間隔で取得する。既 push branch での `gh pr create` / `edit` /
 // `comment` 等は local refs を動かさず SSOT push 経路では到達不能なため、これを反映する唯一の経路。
+// focus 中のみ撃つ: blur 中はユーザーが badge を見られず、GitHub API を消費する意味がない。
+// timer 自体は回し続け callback 内で focus を見る (useRemoteFetchSync と同じ idiom)。
 const PR_LIST_POLL_INTERVAL_MS = 60_000;
-const { pause: pausePrPolling, resume: resumePrPolling } = useIntervalFn(
-  loadPrList,
+useIntervalFn(
+  () => {
+    if (!focused.value) {
+      logEvent("pr-poll", "skip:blur", activeRepoName(), "interval");
+      return;
+    }
+    scheduleLoadPrList("interval");
+  },
   PR_LIST_POLL_INTERVAL_MS,
   { immediateCallback: false },
 );
 
-onMounted(() => {
-  void loadPrList();
+// blur → focus 復帰で 1 回 catch-up。blur 中に interval / remoteRefsChange を撃たない分、
+// focus 復帰時点までの GitHub 側変化 (PR open/close/edit) をここで取り込む。
+watch(focused, (isFocused, wasFocused) => {
+  logEvent("focus", isFocused ? "on" : "off");
+  if (isFocused && wasFocused === false) scheduleLoadPrList("focus-recovery");
 });
 
-// worktree 切り替え時に PR 一覧を再取得 + interval を新 dir 基準に再スタート。
-// fetch 完了前の async 窓で旧 repo の PR map が残ると cross-repo 事故が起きるため、
-// fetch 発射前に同期で空に倒す。repo identity は store 由来の computed が同期で
-// 切り替わるため、ここでのリセットは不要。
-watch(
-  () => worktreeStore.dir,
-  () => {
-    pausePrPolling();
-    prListStore.clear();
-    void loadPrList();
-    resumePrPolling();
-  },
-);
+onMounted(() => {
+  scheduleLoadPrList("mount");
+});
+
+// active worktree が属する repo の rootDir。PR poll lifecycle の軸。`gh pr list` は repo 単位で
+// open PR を返すため、同一 repo 内の worktree 切替では内容が同一 → 再フェッチしない。repo が実際に
+// 変わった時だけ clear + 再フェッチする。clear は「別 repo の PR map が残る cross-repo 表示事故」を
+// 防ぐためで、それが起きるのは repo 変化時だけなので同 repo 切替の無駄な clear (badge のちらつき) も消える。
+const activeRepoRootDir = computed(() => {
+  const dir = worktreeStore.dir;
+  if (dir === undefined) return undefined;
+  return repoStore.findRepoOwning(dir)?.rootDir;
+});
+
+watch(activeRepoRootDir, () => {
+  prListStore.clear();
+  scheduleLoadPrList("repo-change");
+});
 
 // --- 詳細ペイン (右) の開閉 / リサイズ ---
 

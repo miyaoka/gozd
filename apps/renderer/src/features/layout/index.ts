@@ -4,3 +4,4 @@ export { rpcPickAndOpen } from "./rpc";
 export { useTitleContextSync } from "./useTitleContextSync";
 export { useCommandErrorBridge } from "./useCommandErrorBridge";
 export { useNotifySubscription } from "./useNotifySubscription";
+export { useMainDebugSubscription } from "./useMainDebugSubscription";

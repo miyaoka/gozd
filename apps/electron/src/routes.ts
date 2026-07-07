@@ -134,6 +134,7 @@ import { readClaudeSessionLog } from "./claude/claudeSessionLog";
 import { writeFilesToClipboard } from "./clipboardOps";
 import { readDir, readFile, readFileAbsolute, stat, writeFile } from "./fs/fsOps";
 import { createFsWatchRegistry } from "./fs/fsWatchRegistry";
+import { createWatcherClient } from "./fs/watcherClient";
 import { blameLine, logFile, logLine } from "./git/gitBlame";
 import { resolveStartPoint } from "./git/gitBranch";
 import { diffHunks, expandDiffLines } from "./git/gitDiff";
@@ -474,6 +475,16 @@ function gitStatusChangePayload(dir: string, status: StatusFull): Record<string,
   return payload;
 }
 
+// @parcel/watcher を隔離した utilityProcess の client。native crash はこのプロセス内に
+// 封じ込め、main は onExit で検知して respawn する（watcherClient 参照）。
+// 診断（crash/respawn）は debugLog push → renderer の event-log パネルへ。監視が完全停止した
+// terminal ケースだけ notify push でトースト表示する（console.error は packaged で見えない）
+const watcherClient = createWatcherClient({
+  logEvent: (channel, label, detail) => fsPush?.("debugLog", { channel, label, repo: "", detail }),
+  notify: (message, detail) =>
+    fsPush?.("notify", { type: "error", source: "file-watcher", message, detail, dir: "" }),
+});
+
 const fsWatchRegistry = createFsWatchRegistry(
   {
     onFsChange: (dir, relDir) => fsPush?.("fsChange", { dir, relDir }),
@@ -484,6 +495,7 @@ const fsWatchRegistry = createFsWatchRegistry(
     onWorktreeChange: (dir) => fsPush?.("worktreeChange", { dir }),
   },
   {
+    transport: watcherClient,
     // buildEntry ごとに最新の config を読む。除外は value === true のキーだけ有効
     // （false は seed 済み default をユーザーが無効化する subtraction）
     getWatcherExclude: () =>
@@ -493,9 +505,11 @@ const fsWatchRegistry = createFsWatchRegistry(
   },
 );
 
-/** will-quit で全 watch を始末する（watcher スレッドの残骸を残さない） */
+/** will-quit で全 watch を始末する（watcher スレッドの残骸を残さない）。
+ * unwatchAll で subscription を畳んだ後、utilityProcess 自体を kill する */
 export function unwatchAllFsWatches(): void {
   fsWatchRegistry.unwatchAll();
+  watcherClient.dispose();
 }
 
 function handleFsReadFile(body: unknown): unknown {

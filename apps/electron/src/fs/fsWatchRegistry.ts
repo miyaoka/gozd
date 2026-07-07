@@ -32,12 +32,29 @@
 //   作業ツリー event として候補が立つが git status 出力は不変のため、直近 push 値と一致する
 //   間は push しない。
 
-import { subscribe, type AsyncSubscription, type SubscribeCallback } from "@parcel/watcher";
 import { tryCatch } from "@gozd/shared";
 import { realpathSync } from "node:fs";
 import { gitDirs, gitStatusFull, refDigest, type RefDigest } from "../git/gitOps";
 import type { StatusFull } from "../git/porcelain";
 import { classify } from "./classify";
+
+/** 1 subscription の破棄ハンドル。@parcel/watcher の AsyncSubscription を transport 越しに抽象化 */
+export interface WatchHandle {
+  unsubscribe(): Promise<void>;
+}
+
+/** native watcher への subscribe 経路を抽象化する。production は utilityProcess 隔離した
+ * watcherClient を注入し、テストは実 @parcel/watcher を直接包む transport を注入する。
+ * これにより fsWatchRegistry は @parcel/watcher / electron に直接依存しない（classify 層を
+ * native crash から切り離す境界）。onEvents は event path の配列、onError は文字列メッセージ */
+export interface WatchTransport {
+  subscribe(
+    root: string,
+    ignore: string[],
+    onEvents: (paths: string[]) => void,
+    onError: (message: string) => void,
+  ): Promise<WatchHandle>;
+}
 
 export interface FsWatchHandlers {
   onFsChange: (dir: string, relDir: string) => void;
@@ -63,11 +80,14 @@ export interface FsWatchOptions {
    * まで旧 exclude のまま。VS Code は config 変更で re-watch するが、gozd は v1 で見送る）。
    * production は AppConfig の watcherExclude を渡す。省略時は除外なし（テスト用 default） */
   getWatcherExclude?: () => string[];
+  /** native watcher への subscribe 経路（必須）。production は utilityProcess 隔離した
+   * watcherClient、テストは実 @parcel/watcher を包む adapter を渡す */
+  transport: WatchTransport;
 }
 
 interface Entry {
   generation: number;
-  subscriptions: AsyncSubscription[];
+  subscriptions: WatchHandle[];
   /** `/fs/watch` で renderer から渡された原文の dir。push payload はこの値を返し、
    * renderer 側の `worktreeStore.dir` / `wt.path` 等の生文字列キーと直接比較できるようにする
    * （entries のキーは realpath 解決済み path で、event path の比較に使う） */
@@ -84,11 +104,12 @@ interface Entry {
 
 const DEFAULT_STATUS_DEBOUNCE_MS = 150;
 
-export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatchOptions = {}) {
+export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatchOptions) {
   const {
     statusDebounceMs = DEFAULT_STATUS_DEBOUNCE_MS,
     statusFetcher = gitStatusFull,
     getWatcherExclude = () => [],
+    transport,
   } = options;
   const { onFsChange, onGitStatusChange, onBranchChange, onRemoteRefsChange, onWorktreeChange } =
     handlers;
@@ -185,16 +206,11 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     );
     const watchRoots = coveringRoots(candidates);
 
-    const callback: SubscribeCallback = (err, events) => {
-      if (err !== null) {
-        console.error(`[FSWatchRegistry] watcher error for ${dir}: ${err}`);
-        return;
-      }
-      void handleEvents(
-        dir,
-        generation,
-        events.map((event) => event.path),
-      );
+    const onEvents = (paths: string[]) => {
+      void handleEvents(dir, generation, paths);
+    };
+    const onError = (message: string) => {
+      console.error(`[FSWatchRegistry] watcher error for ${dir}: ${message}`);
     };
 
     // exclude は working-tree 由来の高churn（node_modules / build 等）を抑える設定だが、
@@ -207,12 +223,10 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     );
     const excludeGlobs = getWatcherExclude();
 
-    const subscriptions: AsyncSubscription[] = [];
+    const subscriptions: WatchHandle[] = [];
     for (const root of watchRoots) {
-      const applyExclude = !gitDirRoots.has(root) && excludeGlobs.length > 0;
-      const sub = await tryCatch(
-        applyExclude ? subscribe(root, callback, { ignore: excludeGlobs }) : subscribe(root, callback),
-      );
+      const ignore = gitDirRoots.has(root) ? [] : excludeGlobs;
+      const sub = await tryCatch(transport.subscribe(root, ignore, onEvents, onError));
       if (!sub.ok) {
         // 部分成功のまま throw すると成功済み subscription が leak するため巻き戻す
         for (const succeeded of subscriptions) {

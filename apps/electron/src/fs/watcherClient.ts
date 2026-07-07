@@ -167,13 +167,16 @@ export function createWatcherClient(deps: WatcherClientDeps): WatcherClient {
       const spawned = fork(scriptPath);
       spawned.on("message", onMessage);
       spawned.on("exit", onExit);
-      // postMessage は spawn 完了前だと取りこぼす可能性があるため spawn を待ってから解決する。
-      // UtilityProcess の error イベントは Experimental で型定義にも露出せず購読できないが、
-      // error を listen してもしなくても terminate 後に exit が必ず後続発火する保証があるため、
-      // exit の readyReject ガードが getChild の解放を担う（hang させない）
+      // postMessage は spawn 完了前だと取りこぼす可能性があるため spawn を待ってから解決する
       spawned.on("spawn", () => {
         readyReject = undefined;
         resolve(spawned);
+      });
+      // V8 の継続不能エラー（FatalError）時に type / location / Node.js diagnostic report を得る。
+      // 解放は exit 側（error を listen してもしなくても terminate 後に exit が必ず発火する保証が
+      // あるため readyReject ガードが担う）に任せ、ここでは crash の中身を event-log に残す
+      spawned.on("error", (type, location, report) => {
+        logEvent("file-watcher", "fatal-error", `${type} @ ${location}: ${report}`);
       });
       child = spawned;
     });

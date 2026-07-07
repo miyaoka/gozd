@@ -16,14 +16,14 @@ function tick(): Promise<void> {
 interface FakeWatcherProcess {
   posted: HostToWatcherMessage[];
   killed: boolean;
-  on(event: string, cb: (arg: unknown) => void): FakeWatcherProcess;
-  emit(event: string, arg?: unknown): void;
+  on(event: string, cb: (...args: unknown[]) => void): FakeWatcherProcess;
+  emit(event: string, ...args: unknown[]): void;
   postMessage(message: HostToWatcherMessage): void;
   kill(): void;
 }
 
 function createFakeWatcherProcess(): FakeWatcherProcess {
-  const handlers = new Map<string, ((arg: unknown) => void)[]>();
+  const handlers = new Map<string, ((...args: unknown[]) => void)[]>();
   const proc: FakeWatcherProcess = {
     posted: [],
     killed: false,
@@ -33,8 +33,8 @@ function createFakeWatcherProcess(): FakeWatcherProcess {
       handlers.set(event, list);
       return proc;
     },
-    emit(event, arg) {
-      for (const cb of handlers.get(event) ?? []) cb(arg);
+    emit(event, ...args) {
+      for (const cb of handlers.get(event) ?? []) cb(...args);
     },
     postMessage(message) {
       proc.posted.push(message);
@@ -179,6 +179,19 @@ describe("watcherClient respawn state machine", () => {
 
     expect(ctx.processes.length).toBe(before); // 再 fork なし
     expect(ctx.labels()).not.toContain("crashed");
+  });
+
+  test("V8 fatal error event is surfaced to the event-log", async () => {
+    const ctx = setup();
+    const { proc } = await establish(ctx);
+
+    proc.emit("error", "FatalError", "watcher.node", "<<report>>");
+
+    expect(ctx.logs).toContainEqual([
+      "file-watcher",
+      "fatal-error",
+      "FatalError @ watcher.node: <<report>>",
+    ]);
   });
 
   test("dispose: kills the process and a later exit does not respawn", async () => {

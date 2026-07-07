@@ -12,12 +12,12 @@
  * 渡し、現在世代と一致するときだけ反映することで stale 応答を無視する。
  */
 
-import { ref, type Ref } from "vue";
+import { ref } from "vue";
 
 export type ListPickerStatus = "loading" | "ready";
 
 export function createListPicker<T>() {
-  const items = ref([]) as Ref<T[]>;
+  const items = ref<T[]>([]);
   const viewer = ref("");
   const status = ref<ListPickerStatus>("loading");
   const showSignal = ref(0);

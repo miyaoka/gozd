@@ -152,8 +152,11 @@ describe("watcherClient respawn state machine", () => {
     expect(ctx.labels()).toContain("gave-up");
     // gave-up 後は fork しない（proc1 + respawn 5 回 = 6 プロセスで打ち止め）
     expect(ctx.processes.length).toBe(6);
-    // give-up で各 subscription に死亡が伝わる（fsWatchRegistry へ onError）
-    expect(errors.length).toBeGreaterThan(0);
+    // 直前 respawn の stale catch が microtask で走る猶予を与える
+    await tick();
+    // give-up で各 subscription に死亡がちょうど 1 回伝わる（epoch を進めて stale catch を
+    // no-op 化するため、give-up の onError と二重に撃たれない）
+    expect(errors.length).toBe(1);
     // live がクリアされ、後続の無関係な exit で give-up 済み sub が再 subscribe されない
     const before = ctx.processes.length;
     ctx.processes[ctx.processes.length - 1].emit("exit", 1);

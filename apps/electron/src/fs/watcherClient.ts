@@ -135,6 +135,9 @@ export function createWatcherClient(deps: WatcherClientDeps): WatcherClient {
         "gave-up",
         `${crashTimestamps.length} crashes within ${CRASH_WINDOW_MS / 1000}s; ${live.size} watchers down`,
       );
+      // 世代を進めて直前の respawn の resubscribe catch を stale 化する。これをしないと
+      // その catch が epoch 一致のまま走り、下の onError と二重に onError を撃つ（ログ重複）
+      respawnEpoch++;
       // give-up は terminal。呼び出し側（fsWatchRegistry）に各 watch の死亡を伝え、live を
       // 空にする。残すと後続の無関係な crash の respawn が give-up 済み subscription を巻き込んで
       // 再 subscribe し、「要再起動」通知と矛盾するため

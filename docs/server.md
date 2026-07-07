@@ -61,7 +61,6 @@ feature 内部型 `ServerInfo` に正規化する（`apps/renderer/src/features/
 
 ## 開閉状態の所有
 
-パネルの開閉状態は renderer（`useServerStore.isOpen`）が SSOT として所有する。トグルボタンは
-Files ヘッダー右端（`NavigatorPane.vue`。Swift 期の native titlebar ToolbarItem の代替。
-Electron shell は native toolbar を持たない）。ボタンが renderer 内にあり store を直接読める
-ため native への開閉ミラーは不要になり、`/window/setServerPanelOpen` RPC は受理のみ。
+パネルの開閉状態は renderer の store（`useServerStore.isOpen`）が SSOT として所有する。トグルは
+TitleBar 右端の renderer ボタンが store を直接 `toggle()` する。ボタンが store を直接読み書きするため
+native 往復（開閉ミラー RPC）は持たない。

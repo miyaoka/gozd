@@ -78,6 +78,7 @@ onUnmounted(disposeFullscreen);
           serverStore.isOpen ? 'text-primary-text' : 'text-foreground-low hover:text-foreground'
         "
         title="Running servers"
+        aria-label="Running servers"
         @click="serverStore.toggle()"
       >
         <IconLucideServer class="size-3.5" />
@@ -89,6 +90,7 @@ onUnmounted(disposeFullscreen);
           eventLogStore.isOpen ? 'text-primary-text' : 'text-foreground-low hover:text-foreground'
         "
         title="Event log"
+        aria-label="Event log"
         @click="eventLogStore.toggle()"
       >
         <IconLucideActivity class="size-3.5" />

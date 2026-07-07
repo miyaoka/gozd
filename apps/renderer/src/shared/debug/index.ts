@@ -1,1 +1,1 @@
-export {  logEvent, useDebugLog } from "./useDebugLog";
+export { logEvent, useDebugLog } from "./useDebugLog";

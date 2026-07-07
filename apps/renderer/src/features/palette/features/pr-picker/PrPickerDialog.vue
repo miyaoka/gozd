@@ -7,6 +7,11 @@ PR selection dialog. Displays open pull requests in a table layout with fuzzy fi
   showing an empty state on 0 results. This gives visible feedback during the gh
   GraphQL wait and when there are no open PRs, both of which would otherwise look
   like nothing happened.
+- The loading / empty text lives in a single persistent `role="status"` region
+  (never `v-if`'d away — only its text is swapped) so screen readers reliably
+  announce the state transitions. A live region must pre-exist in the DOM before
+  its content changes; a conditionally rendered region inserts container + text
+  together, which many screen readers miss.
 - Filters PRs by fuzzy match on title, branch, and author
 - Arrow keys navigate rows, Enter accepts, Escape closes
 - Draft PRs are dimmed (opacity-50)
@@ -85,6 +90,18 @@ const { selectedIndex, move, movePage, reset, scrollToSelected } = useListNaviga
 const emptyMessage = computed(() =>
   prItems.value.length === 0 ? "No open pull requests" : "No matching pull requests",
 );
+
+/**
+ * 常設 live region に出す status テキスト。一覧表示中は空文字。
+ * region を v-if で出し入れせずテキストだけ差し替えることで、AT が状態遷移
+ * (loading→empty / loading→list) を確実に読み上げる（live region は「先在する
+ * region の内容変化」を監視する仕様。同時挿入は取りこぼす）。
+ */
+const statusMessage = computed(() => {
+  if (status.value === "loading") return "Loading pull requests...";
+  if (filteredPrs.value.length === 0) return emptyMessage.value;
+  return "";
+});
 
 watch(filteredPrs, () => {
   reset();
@@ -200,16 +217,33 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           reviewer:me
         </label>
       </div>
+      <!--
+        常設 status region: DOM から出し入れせずテキストだけ差し替え、loading→empty /
+        loading→list の遷移を AT に確実に読ませる。一覧表示中は空要素として残す (高さ 0・不可視)。
+        spinner svg は装飾なので aria-hidden で本文だけ読ませる。
+      -->
       <div
-        v-if="status === 'loading'"
         role="status"
         aria-live="polite"
-        class="flex items-center justify-center gap-2 px-3 py-8 text-sm text-foreground-low"
+        aria-atomic="true"
+        :class="
+          statusMessage
+            ? 'flex items-center justify-center gap-2 px-3 py-8 text-sm text-foreground-low'
+            : ''
+        "
       >
-        <IconLucideLoaderCircle class="size-4 animate-spin" />
-        Loading pull requests...
+        <IconLucideLoaderCircle
+          v-if="status === 'loading'"
+          aria-hidden="true"
+          class="size-4 animate-spin"
+        />
+        {{ statusMessage }}
       </div>
-      <div v-else-if="filteredPrs.length > 0" ref="list" class="max-h-[400px] overflow-y-auto py-1">
+      <div
+        v-if="status === 'ready' && filteredPrs.length > 0"
+        ref="list"
+        class="max-h-[400px] overflow-y-auto py-1"
+      >
         <div
           v-for="(pr, i) in filteredPrs"
           :key="pr.number"
@@ -230,14 +264,6 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
         >
           <PrPickerRow :pr="pr" />
         </div>
-      </div>
-      <div
-        v-else
-        role="status"
-        aria-live="polite"
-        class="px-3 py-4 text-center text-sm text-foreground-low"
-      >
-        {{ emptyMessage }}
       </div>
     </div>
   </dialog>

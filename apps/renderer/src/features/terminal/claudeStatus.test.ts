@@ -155,6 +155,14 @@ describe("screenHasClaudeBlocker（承認 UI の可視判定）", () => {
     expect(screenHasClaudeBlocker("❯ ")).toBe(false);
     expect(screenHasClaudeBlocker("some normal output line")).toBe(false);
   });
+
+  // 選択 UI（AskUserQuestion 等）の footer 文言。誤離脱リスクが最も高い経路なので、
+  // 各 marker が個別に有効であることを固定して、落とし / typo を回帰検出できるようにする
+  test("選択 UI の footer 文言（enter to select / to navigate）を検出する", () => {
+    expect(screenHasClaudeBlocker("↑/↓ to navigate · enter to select")).toBe(true);
+    expect(screenHasClaudeBlocker("Press enter to select an option")).toBe(true);
+    expect(screenHasClaudeBlocker("Use tab/arrow keys to navigate")).toBe(true);
+  });
 });
 
 describe("observeTitle（OSC タイトル駆動の状態）", () => {

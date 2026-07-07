@@ -683,6 +683,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     getLeafIdByPtyId,
     // title
     setTitle,
+    // screen（画面本文から asking 離脱を検知）
     observeScreen,
     // drag
     incrementDragSuspend,

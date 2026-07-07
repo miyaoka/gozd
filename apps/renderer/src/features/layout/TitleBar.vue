@@ -19,8 +19,12 @@
 <script setup lang="ts">
 import { onUnmounted, ref } from "vue";
 import { onMessage } from "../../shared/rpc";
+import { useEventLogStore } from "../event-log";
+import { useServerStore } from "../server";
 import { isDevChannel } from "./channel";
 import { useTitleContext } from "./useTitleContext";
+import IconLucideActivity from "~icons/lucide/activity";
+import IconLucideServer from "~icons/lucide/server";
 
 /** main の enter/leave-full-screen から届く push。payload 型は購読側が SSOT（docs/rpc.md） */
 interface WindowFullscreenChangePayload {
@@ -29,6 +33,8 @@ interface WindowFullscreenChangePayload {
 
 const isDev = isDevChannel();
 const title = useTitleContext();
+const serverStore = useServerStore();
+const eventLogStore = useEventLogStore();
 
 // fullscreen では macOS が信号機ボタンを消すため pad を畳む。初期値 false は
 // 「ウィンドウは非 fullscreen で生成される」前提。pull hydrate は持たない
@@ -61,6 +67,33 @@ onUnmounted(disposeFullscreen);
     >
       {{ title === "" ? "gozd" : title }}
     </span>
+
+    <!-- ツールバー右端のグローバルトグル (Swift 期は native titlebar の ToolbarItem。Electron shell は
+         native toolbar を持たないためこのカスタム titlebar 右端に集約する)。drag 帯なので no-drag 指定必須。 -->
+    <div class="_titlebar-actions ml-auto flex shrink-0 items-center gap-0.5 pr-2">
+      <button
+        type="button"
+        class="grid size-6 place-items-center rounded-sm hover:bg-element-hover"
+        :class="
+          serverStore.isOpen ? 'text-primary-text' : 'text-foreground-low hover:text-foreground'
+        "
+        title="Running servers"
+        @click="serverStore.toggle()"
+      >
+        <IconLucideServer class="size-3.5" />
+      </button>
+      <button
+        type="button"
+        class="grid size-6 place-items-center rounded-sm hover:bg-element-hover"
+        :class="
+          eventLogStore.isOpen ? 'text-primary-text' : 'text-foreground-low hover:text-foreground'
+        "
+        title="Event log"
+        @click="eventLogStore.toggle()"
+      >
+        <IconLucideActivity class="size-3.5" />
+      </button>
+    </div>
   </div>
 </template>
 
@@ -72,5 +105,10 @@ onUnmounted(disposeFullscreen);
 
 ._titlebar-traffic-light-pad {
   width: 80px;
+}
+
+/* drag 帯の中でボタンをクリック可能にする (drag region はクリックを飲むため) */
+._titlebar-actions {
+  -webkit-app-region: no-drag;
 }
 </style>

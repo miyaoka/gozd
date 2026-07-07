@@ -6,6 +6,7 @@
 
 <script setup lang="ts">
 import { ArcadeLayer } from "./features/arcade";
+import { EventLogPanel } from "./features/event-log";
 import { useFsWatchSync } from "./features/filer";
 import {
   MainLayout,
@@ -32,5 +33,6 @@ useTitleContextSync();
 <template>
   <MainLayout />
   <ServerListPanel />
+  <EventLogPanel />
   <ArcadeLayer />
 </template>

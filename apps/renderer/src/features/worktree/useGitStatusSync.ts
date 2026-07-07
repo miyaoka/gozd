@@ -7,6 +7,7 @@
  * - native 側 FSWatchRegistry からの gitStatusChange push（外部エディタ等での編集を反映）
  */
 import { onMounted, onUnmounted, watch } from "vue";
+import { logEvent } from "../../shared/debug";
 import { useRepoStore } from "../../shared/repo";
 import { onMessage } from "../../shared/rpc";
 import { useTerminalStore } from "../terminal";
@@ -50,6 +51,14 @@ export function useGitStatusSync() {
     // gitStatuses を直接 repoStore に反映する。サイドバー / Filer / GitGraph は
     // すべて repoStore（または派生 computed）を読むので 1 回の書き込みで全箇所が更新される。
     cleanup = onMessage<GitStatusChangePayload>("gitStatusChange", (payload) => {
+      // payload.dir は source worktree。basename を repo 列に出す (findRepoOwning の O(repos) 探索を
+      // push ごとに走らせないため、ここでは所有 repo 解決ではなく worktree 名だけ載せる)。
+      const wtName =
+        payload.dir
+          .split("/")
+          .filter((s) => s !== "")
+          .at(-1) ?? payload.dir;
+      logEvent("git-status", "change", wtName);
       repoStore.setWorktreeGitStatuses(payload.dir, {
         statuses: payload.statuses,
         renameOldPaths: payload.renameOldPaths,

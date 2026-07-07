@@ -274,9 +274,6 @@ onUnmounted(disposeFsWatchReady);
 // - repo-identity lifecycle: 同 repo の worktree 切替では撃ち直さない (`gh pr list` は repo 単位)
 // - request coalesce: interval / remoteRefsChange / repo 切替 / mount の burst を末尾 1 発に畳む
 
-/** loadPrList の世代管理。並行実行で古いレスポンスが後着して上書きするのを防ぐ */
-let loadPrGen = 0;
-
 /** 現在 active な worktree が属する repo 名 (event log 表示用)。無ければ空文字。 */
 function activeRepoName(): string {
   const dir = worktreeStore.dir;
@@ -284,13 +281,25 @@ function activeRepoName(): string {
   return repoStore.findRepoOwning(dir)?.repoName ?? "";
 }
 
+/** active worktree が属する repo の rootDir。PR poll の lifecycle 軸であり、in-flight fetch の
+ * staleness 判定軸でもある。`gh pr list` は repo 単位で結果同一なので、await 前後でこの値が変われば
+ * repo が切り替わったとみなして応答を破棄する。 */
+const activeRepoRootDir = computed(() => {
+  const dir = worktreeStore.dir;
+  if (dir === undefined) return undefined;
+  return repoStore.findRepoOwning(dir)?.rootDir;
+});
+
 /** PR 一覧を取得して prListStore を更新する。失敗時は前回値を保持しつつ notify.error で告知する。 */
 async function loadPrList() {
-  const gen = ++loadPrGen;
   const dir = worktreeStore.dir;
   if (dir === undefined) return;
+  // staleness は lifecycle と同じ repo identity 軸で判定する。await 中に active repo が変わったら
+  // この応答は旧 repo のものなので破棄し、clear 済みの prByBranch に旧 repo の PR を復活させない
+  // (coalescer で loadPrList は直列化されるため、世代カウンタでは切替中の in-flight 応答を捨てられない)。
+  const repoAtStart = activeRepoRootDir.value;
   const result = await tryCatch(rpcGitPrList({ dir }));
-  if (gen !== loadPrGen) {
+  if (activeRepoRootDir.value !== repoAtStart) {
     logEvent("pr-poll", "stale", activeRepoName());
     return;
   }
@@ -313,7 +322,8 @@ async function loadPrList() {
 }
 
 // loadPrList の burst coalescer。`loadLog` の `scheduleLoadLog` と同型 (in-flight 中の再要求を
-// 末尾 1 発に畳む事前防衛)。`loadPrGen` は後着レスポンスを捨てる事後防衛で、両者は二重防衛。
+// 末尾 1 発に畳む事前防衛)。全 caller がこの schedule を経由するため loadPrList は直列化され、
+// 後着レスポンスの破棄は loadPrList 内の repo identity チェック 1 箇所に集約される。
 // PR list は awaitable path を持たない (全 caller が fire-and-forget) ため schedule のみ公開する。
 let loadPrInFlightCount = 0;
 let loadPrScheduled = false;
@@ -385,16 +395,10 @@ onMounted(() => {
   scheduleLoadPrList("mount");
 });
 
-// active worktree が属する repo の rootDir。PR poll lifecycle の軸。`gh pr list` は repo 単位で
-// open PR を返すため、同一 repo 内の worktree 切替では内容が同一 → 再フェッチしない。repo が実際に
-// 変わった時だけ clear + 再フェッチする。clear は「別 repo の PR map が残る cross-repo 表示事故」を
-// 防ぐためで、それが起きるのは repo 変化時だけなので同 repo 切替の無駄な clear (badge のちらつき) も消える。
-const activeRepoRootDir = computed(() => {
-  const dir = worktreeStore.dir;
-  if (dir === undefined) return undefined;
-  return repoStore.findRepoOwning(dir)?.rootDir;
-});
-
+// active repo が変わったときだけ PR 一覧を clear + 再取得する。`gh pr list` は repo 単位で open PR を
+// 返すため、同一 repo 内の worktree 切替では内容が同一 → 再フェッチしない。clear は別 repo の PR map が
+// 残る cross-repo 表示事故を防ぐためで、それが起きるのは repo 変化時だけなので同 repo 切替の無駄な
+// clear (badge のちらつき) も消える。
 watch(activeRepoRootDir, () => {
   prListStore.clear();
   scheduleLoadPrList("repo-change");

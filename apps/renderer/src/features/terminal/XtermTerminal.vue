@@ -23,6 +23,21 @@ import {
 import { createFilePathLinkProvider } from "./useFilePathLinkProvider";
 import { useTerminalStore } from "./useTerminalStore";
 
+/**
+ * xterm の現在の可視画面（スクロール位置に依らず最新の 1 画面分）をテキスト化する。
+ * Claude の承認 UI 文言（asking 離脱検知）を画面本文から拾うために使う。baseY 起点で
+ * `rows` 行読むので、ユーザーが scrollback を遡っていても最新画面を見る。
+ */
+function extractVisibleText(term: Terminal): string {
+  const buf = term.buffer.active;
+  const lines: string[] = [];
+  for (let i = 0; i < term.rows; i++) {
+    const line = buf.getLine(buf.baseY + i);
+    if (line !== undefined) lines.push(line.translateToString(true));
+  }
+  return lines.join("\n");
+}
+
 const props = defineProps<{
   /** PTY を起動する worktree ディレクトリ */
   dir: string;
@@ -288,6 +303,9 @@ onMounted(async () => {
   }
 
   const writeParsedSubscription = term.onWriteParsed(() => {
+    // asking の離脱（承認 UI 消失 = キャンセル / 中断）を可視画面から検知する。
+    // screen text は asking のときだけ読まれる（遅延取得の関数を asking 以外では呼ばない）
+    terminalStore.observeScreen(props.leafId, () => extractVisibleText(term));
     if (!parsedSinceLastRestore) return;
     parsedSinceLastRestore = false;
     restoreViewportIntent();

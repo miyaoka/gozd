@@ -4,6 +4,7 @@ import {
   classifyClaudeTitle,
   createClaudeStatusManager,
   displayClaudeState,
+  screenHasClaudeBlocker,
   stripClaudeTitlePrefix,
   type ClaudeStatus,
 } from "./claudeStatus";
@@ -146,6 +147,16 @@ describe("classifyClaudeTitle / stripClaudeTitlePrefix", () => {
   });
 });
 
+describe("screenHasClaudeBlocker（承認 UI の可視判定）", () => {
+  test("承認プロンプトの文言（大小無視）を検出する", () => {
+    expect(screenHasClaudeBlocker("Do you want to proceed?")).toBe(true);
+    expect(screenHasClaudeBlocker("  2. No (esc to cancel)")).toBe(true);
+    // 承認 UI の無い素のプロンプトは false
+    expect(screenHasClaudeBlocker("❯ ")).toBe(false);
+    expect(screenHasClaudeBlocker("some normal output line")).toBe(false);
+  });
+});
+
 describe("observeTitle（OSC タイトル駆動の状態）", () => {
   test("session 確立後: スピナー → working、✳ → idle。idle は lastActivityAt 維持", () => {
     const { claudeStatusByPtyId, manager } = setup();
@@ -201,6 +212,48 @@ describe("observeTitle（OSC タイトル駆動の状態）", () => {
 
     manager.observeTitle(1, WORKING_TITLE);
     expect(claudeStatusByPtyId.value[1]?.state).toBe("working");
+  });
+
+  test("asking 中に承認 UI 文言が画面から消えたら idle に戻る（キャンセル / 中断）", async () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    manager.observeTitle(1, WORKING_TITLE);
+    manager.handleHookEvent(1, "needs-input", { tool_name: "Bash", tool_input: "{}" });
+    await new Promise((r) => setTimeout(r, 200));
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("asking");
+
+    // 承認プロンプト表示中は文言が画面にあるので asking を維持
+    manager.observeScreen(1, () => "Do you want to proceed?\n❯ 1. Yes\n  2. No (esc to cancel)");
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("asking");
+
+    // キャンセルで承認 UI が消えた画面 → idle に戻る
+    manager.observeScreen(1, () => "❯ ");
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("idle");
+  });
+
+  test("asking 離脱では lastActivityAt を維持する", async () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    manager.observeTitle(1, WORKING_TITLE);
+    const workingAt = claudeStatusByPtyId.value[1]?.lastActivityAt;
+    manager.handleHookEvent(1, "needs-input", { tool_name: "Bash", tool_input: "{}" });
+    await new Promise((r) => setTimeout(r, 200));
+
+    manager.observeScreen(1, () => "❯ ");
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("idle");
+    expect(claudeStatusByPtyId.value[1]?.lastActivityAt).toBe(workingAt);
+  });
+
+  test("asking 以外では画面本文を読まない（遅延取得を呼ばない）", () => {
+    const { manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    // idle 状態
+    let read = false;
+    manager.observeScreen(1, () => {
+      read = true;
+      return "";
+    });
+    expect(read).toBe(false);
   });
 
   test("done 中でもスピナー（新ターン開始）は working にする", () => {

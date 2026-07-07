@@ -39,17 +39,18 @@ export function registerIssueCommand(): () => void {
           Promise.all([rpcGitIssueList({ dir }), fetchViewer(dir)]),
         );
         if (!fetchResult.ok) {
-          hide(gen);
-          notify.error("Failed to load issues", fetchResult.error);
+          // hide が作用した (現在世代) ときだけ toast する。superseded な起動の失敗は抑止する。
+          if (hide(gen)) notify.error("Failed to load issues", fetchResult.error);
           return;
         }
         const [issuesRes, viewerLogin] = fetchResult.value;
         if (!issuesRes.ok) {
-          hide(gen);
-          notify.error(
-            ghErrorMessage(issuesRes.errorKind, "Failed to load issues"),
-            issuesRes.errorDetail || undefined,
-          );
+          if (hide(gen)) {
+            notify.error(
+              ghErrorMessage(issuesRes.errorKind, "Failed to load issues"),
+              issuesRes.errorDetail || undefined,
+            );
+          }
           return;
         }
 

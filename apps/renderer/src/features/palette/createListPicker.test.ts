@@ -79,20 +79,21 @@ describe("createListPicker", () => {
     expect(p.viewer.value).toBe("");
   });
 
-  test("古い世代の hide は dialog を閉じない（hideSignal を進めない）", () => {
+  // 返り値の false で呼び出し側が error toast を抑止する
+  test("古い世代の hide は false を返し hideSignal を進めない", () => {
     const p = createListPicker<Item>();
     const g1 = p.open();
     p.open(); // g1 を置き換える
     const before = p.hideSignal.value;
-    p.hide(g1);
+    expect(p.hide(g1)).toBe(false);
     expect(p.hideSignal.value).toBe(before);
   });
 
-  test("現在世代の hide は hideSignal を進める", () => {
+  test("現在世代の hide は true を返し hideSignal を進める", () => {
     const p = createListPicker<Item>();
     const g = p.open();
     const before = p.hideSignal.value;
-    p.hide(g);
+    expect(p.hide(g)).toBe(true);
     expect(p.hideSignal.value).toBe(before + 1);
   });
 });

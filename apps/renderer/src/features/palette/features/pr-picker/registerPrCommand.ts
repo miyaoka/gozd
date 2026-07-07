@@ -45,17 +45,18 @@ export function registerPrCommand(): () => void {
           Promise.all([rpcGitPrList({ dir }), rpcGitWorktreeList({ dir }), fetchViewer(dir)]),
         );
         if (!fetchResult.ok) {
-          hide(gen);
-          notify.error("Failed to load pull requests", fetchResult.error);
+          // hide が作用した (現在世代) ときだけ toast する。superseded な起動の失敗は抑止する。
+          if (hide(gen)) notify.error("Failed to load pull requests", fetchResult.error);
           return;
         }
         const [prsRes, worktreesRes, viewerLogin] = fetchResult.value;
         if (!prsRes.ok) {
-          hide(gen);
-          notify.error(
-            ghErrorMessage(prsRes.errorKind, "Failed to load pull requests"),
-            prsRes.errorDetail || undefined,
-          );
+          if (hide(gen)) {
+            notify.error(
+              ghErrorMessage(prsRes.errorKind, "Failed to load pull requests"),
+              prsRes.errorDetail || undefined,
+            );
+          }
           return;
         }
 

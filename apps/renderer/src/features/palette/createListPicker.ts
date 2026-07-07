@@ -56,13 +56,16 @@ export function createListPicker<T>() {
   }
 
   /**
-   * fetch 失敗時に loading dialog を閉じる (エラーは呼び出し側が toast で通知する)。
+   * fetch 失敗時に loading dialog を閉じる。作用したかを返す。
    * gen が現在世代と異なる場合は、別の open() で開き直した dialog を巻き添えに
-   * 閉じないよう no-op にする。
+   * 閉じないよう no-op にして false を返す。呼び出し側はこの返り値で対の error
+   * toast を束ね、置き換わった (superseded) 世代の失敗トーストを抑止する
+   * (toast も現在世代の起動だけが駆動すべき UI 効果のため)。
    */
-  function hide(gen: number) {
-    if (gen !== generation) return;
+  function hide(gen: number): boolean {
+    if (gen !== generation) return false;
     hideSignal.value++;
+    return true;
   }
 
   function accept(item: T) {

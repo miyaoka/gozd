@@ -26,13 +26,11 @@ import { FilerPane } from "../filer";
 import { useGitGraphStore } from "../git-graph";
 import { ResizeHandle } from "../layout";
 import { usePreviewStore } from "../preview";
-import { useServerStore } from "../server";
 import { useWorktreeStore } from "../worktree";
 import FileContextMenu from "./FileContextMenu.vue";
 import { useFileContextMenu } from "./useFileContextMenu";
 import type { FileContextMenuPayload } from "./useFileContextMenu";
 import IconLucideFolderTree from "~icons/lucide/folder-tree";
-import IconLucideServer from "~icons/lucide/server";
 
 const HANDLE_HEIGHT = 8;
 const FILER_MIN_HEIGHT = 100;
@@ -75,7 +73,6 @@ const { open: openFileContextMenu, context: fileContextMenuContext } = useFileCo
 const gitGraphStore = useGitGraphStore();
 const worktreeStore = useWorktreeStore();
 const notification = useNotificationStore();
-const serverStore = useServerStore();
 
 // 右クリック menu open 中の操作対象 relPath (VSCode 同様、選択とは独立に border で示す)。
 // menu context は右クリック時点の dir を焼き付けているため、open 中に worktree が
@@ -245,20 +242,6 @@ function onFileContextMenu(req: FileContextMenuPayload) {
         >
           {{ headerStatus.text }}
         </span>
-        <!-- Running servers パネルのトグル。Swift 期は native titlebar の ToolbarItem
-             だったが、Electron shell は native toolbar を持たないためアプリ右上に相当する
-             この位置に置く -->
-        <button
-          type="button"
-          class="ml-auto shrink-0 rounded-sm p-1 hover:bg-element-hover"
-          :class="
-            serverStore.isOpen ? 'text-primary-text' : 'text-foreground-low hover:text-foreground'
-          "
-          title="Running servers"
-          @click="serverStore.toggle()"
-        >
-          <IconLucideServer class="size-3.5" />
-        </button>
       </div>
       <div class="min-h-0 flex-1 overflow-hidden">
         <FilerPane

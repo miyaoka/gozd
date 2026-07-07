@@ -1,11 +1,10 @@
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import {
   rpcServerList,
-  rpcWindowSetServerPanelOpen,
   type ServerInfo,
   type ServerPortsChangePayload,
   serversFromPayload,
@@ -24,15 +23,12 @@ import {
  *     `close()` が `showPopover()` / `hidePopover()` を呼んで担う (usePreviewStore と同流儀)。
  *     冪等 gate は自前 `isOpen` ref だけで判定し、DOM state (`:popover-open`) は判定材料に
  *     しない — 開閉の真実源を store 1 つに保ち「store と DOM のどちらが正か」の分岐を作らない
- *   - native titlebar のトグルボタンは `toggleServerPanel` push で `toggle()` を叩く
- *   - `isOpen` の変化を `/window/setServerPanelOpen` で native にミラーし、ボタンの
- *     active 表示 (塗り) を同期する (TitleContext と同流儀)
+ *   - トグルは TitleBar の renderer ボタンが `toggle()` を直接叩く (native 往復は持たない)
  */
 
 // HMR 再実行時に前回のリスナーを解除するための disposer。defineStore の外 (module
 // スコープ) に置くことで HMR 再実行をまたいで生き残り、listeners 配列への二重登録を防ぐ。
 let disposeServerPorts: (() => void) | undefined;
-let disposeTogglePanel: (() => void) | undefined;
 
 export const useServerStore = defineStore("server", () => {
   const notify = useNotificationStore();
@@ -61,24 +57,6 @@ export const useServerStore = defineStore("server", () => {
     receivedPush = true;
     servers.value = serversFromPayload(payload);
   });
-
-  // titlebar トグルボタンからの開閉要求。
-  disposeTogglePanel?.();
-  disposeTogglePanel = onMessage<Record<string, never>>("toggleServerPanel", () => {
-    toggle();
-  });
-
-  // 開閉状態を native の ToolbarItem 表示にミラーする。immediate で初期状態も必ず送り、
-  // renderer だけ HMR リロードした場合に native 側 (前回値が残る) とズレるのを防ぐ。
-  watch(
-    isOpen,
-    async (open) => {
-      const result = await tryCatch(rpcWindowSetServerPanelOpen(open));
-      // 失敗すると titlebar ボタンの active 表示が renderer の開閉状態とズレるため通知する。
-      if (!result.ok) notify.error("Failed to sync server panel state", result.error);
-    },
-    { immediate: true },
-  );
 
   function bindPopover(el: HTMLElement | undefined): void {
     popoverEl.value = el;

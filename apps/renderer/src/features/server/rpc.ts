@@ -5,12 +5,7 @@
 //   - pull (/server/list): ServerListResponse（型付きワイヤ）
 // attribution は両経路とも main 内部表現と同じ文字列。push は手組み dict のため
 // 防御的に正規化して feature 内部型 `ServerInfo` に揃える。
-import type {
-  ServerAttribution,
-  ServerEntry,
-  ServerListResponse,
-  WindowSetServerPanelOpenResponse,
-} from "@gozd/rpc";
+import type { ServerAttribution, ServerEntry, ServerListResponse } from "@gozd/rpc";
 
 import { rpc } from "../../shared/rpc";
 
@@ -53,7 +48,3 @@ export async function rpcServerList(): Promise<ServerInfo[]> {
   const resp = await rpc<ServerListResponse>("/server/list", {});
   return resp.servers;
 }
-
-/** パネル開閉状態の通知（native toolbar 廃止後は main 側で受理のみ）。 */
-export const rpcWindowSetServerPanelOpen = (open: boolean) =>
-  rpc<WindowSetServerPanelOpenResponse>("/window/setServerPanelOpen", { open });

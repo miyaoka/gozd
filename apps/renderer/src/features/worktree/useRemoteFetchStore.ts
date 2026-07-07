@@ -1,5 +1,6 @@
 import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
+import { logEvent } from "../../shared/debug";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { rpcGitFetchRemotes } from "./rpc";
@@ -79,22 +80,30 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
    * `requestImmediateFetch` (gate bypass 意図) の 2 経路から呼び分ける。
    */
   function runFetch(rootDir: string): Promise<boolean> {
+    const name = repoStore.repos[rootDir]?.repoName ?? rootDir;
     const existing = inFlight.get(rootDir);
-    if (existing !== undefined) return existing;
+    if (existing !== undefined) {
+      logEvent("fetch", "in-flight", name);
+      return existing;
+    }
+    logEvent("fetch", "fire", name);
 
     const promise = (async () => {
       const result = await tryCatch(rpcGitFetchRemotes({ dir: rootDir }));
       const now = Date.now();
       if (!result.ok) {
+        logEvent("fetch", "error", name);
         notify.info(`Background git fetch failed for ${rootDir}`, result.error);
         nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_FAILURE_BACKOFF_MS);
         return false;
       }
       if (!result.value.ok) {
+        logEvent("fetch", "error", name);
         notify.info(`Background git fetch failed for ${rootDir}`, result.value.errorDetail);
         nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_FAILURE_BACKOFF_MS);
         return false;
       }
+      logEvent("fetch", "done", name);
       nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_SUCCESS_INTERVAL_MS);
       return true;
     })();
@@ -122,7 +131,10 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
       allowedAt: nextFetchAllowedAt.get(rootDir),
       now: opts.now ?? Date.now(),
     });
-    if (!due) return false;
+    if (!due) {
+      logEvent("fetch", "skip", repoStore.repos[rootDir]?.repoName ?? rootDir);
+      return false;
+    }
     return await runFetch(rootDir);
   }
 

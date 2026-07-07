@@ -32,19 +32,20 @@ export function registerIssueCommand(): () => void {
         const dir = worktreeStore.dir;
         if (dir === undefined) return;
         // fetch 前に picker を loading で開き、gh GraphQL の待ち時間を可視化する。
-        // 0 件でも empty state を表示する (従来は fetch 後に length===0 で silent return していた)。
-        open();
+        // 取得が空でも下の setResult で empty state を表示する。
+        // gen は stale 応答 (open 後に別 open で開き直された場合) を捨てるための世代。
+        const gen = open();
         const fetchResult = await tryCatch(
           Promise.all([rpcGitIssueList({ dir }), fetchViewer(dir)]),
         );
         if (!fetchResult.ok) {
-          hide();
+          hide(gen);
           notify.error("Failed to load issues", fetchResult.error);
           return;
         }
         const [issuesRes, viewerLogin] = fetchResult.value;
         if (!issuesRes.ok) {
-          hide();
+          hide(gen);
           notify.error(
             ghErrorMessage(issuesRes.errorKind, "Failed to load issues"),
             issuesRes.errorDetail || undefined,
@@ -56,7 +57,7 @@ export function registerIssueCommand(): () => void {
         // 連打による再エントリは dialog の DOM 除去で塞がれている。`isCreating` 相当のガードは不要。
         // viewer 取得失敗時は undefined。空文字に倒して picker dialog の "@me" filter UI
         // を degraded mode (filter 非表示) にする。
-        setResult(issuesRes.issues, viewerLogin ?? "", (issue) => {
+        setResult(gen, issuesRes.issues, viewerLogin ?? "", (issue) => {
           void (async () => {
             // 新規 worktree は default branch を起点に作る。main 側で `origin/HEAD` を
             // 優先し、未設定（remote 無し / push 前 repo）の場合は main repo root 自身の

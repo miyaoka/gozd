@@ -3,10 +3,10 @@ Issue selection dialog. Displays open issues in a table layout with fuzzy filter
 
 ## Behavior
 
-- Opens immediately in a loading state, then fills once the gh fetch resolves.
-  This keeps the gh GraphQL wait visible and shows an empty state on 0 results,
-  instead of the old silent no-op that gave no feedback while fetching or when
-  there were no open issues.
+- Opens immediately in a loading state, then fills once the gh fetch resolves,
+  showing an empty state on 0 results. This gives visible feedback during the gh
+  GraphQL wait and when there are no open issues, both of which would otherwise
+  look like nothing happened.
 - Filters issues by fuzzy match on number, title, and author
 - Arrow keys navigate rows, Enter accepts, Escape closes
 - Color scheme follows `gh issue list` (green #number, gray author/date)

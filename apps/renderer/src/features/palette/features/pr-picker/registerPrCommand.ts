@@ -38,19 +38,20 @@ export function registerPrCommand(): () => void {
         const dir = worktreeStore.dir;
         if (dir === undefined) return;
         // fetch 前に picker を loading で開き、gh GraphQL の待ち時間を可視化する。
-        // 0 件でも empty state を表示する (従来は fetch 後に length===0 で silent return していた)。
-        open();
+        // 取得が空でも下の setResult で empty state を表示する。
+        // gen は stale 応答 (open 後に別 open で開き直された場合) を捨てるための世代。
+        const gen = open();
         const fetchResult = await tryCatch(
           Promise.all([rpcGitPrList({ dir }), rpcGitWorktreeList({ dir }), fetchViewer(dir)]),
         );
         if (!fetchResult.ok) {
-          hide();
+          hide(gen);
           notify.error("Failed to load pull requests", fetchResult.error);
           return;
         }
         const [prsRes, worktreesRes, viewerLogin] = fetchResult.value;
         if (!prsRes.ok) {
-          hide();
+          hide(gen);
           notify.error(
             ghErrorMessage(prsRes.errorKind, "Failed to load pull requests"),
             prsRes.errorDetail || undefined,
@@ -67,7 +68,7 @@ export function registerPrCommand(): () => void {
         // viewer 取得失敗時は undefined。空文字に倒して picker dialog の "@me" filter UI
         // を degraded mode (filter 非表示) にする。表示ロジックは PrPickerDialog 側の
         // `viewer !== ""` 判定で完結する。
-        setResult(prsRes.prs, viewerLogin ?? "", (pr) => {
+        setResult(gen, prsRes.prs, viewerLogin ?? "", (pr) => {
           const existingDir = wtByBranch.get(pr.headRef);
           if (existingDir !== undefined) {
             // 既存 worktree に切り替え（ステートレス化により switchDir RPC は廃止）。

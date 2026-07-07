@@ -5,12 +5,32 @@
 // macOS の TMPDIR は `/var/folders/...`（実体 `/private/var/...`）の symlink 配下なので、
 // このテストは realpath 解決（watch キーと event path の整合）も自然に踏む。
 
+import { subscribe as parcelSubscribe } from "@parcel/watcher";
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFsWatchRegistry } from "./fsWatchRegistry";
+import { createFsWatchRegistry, type WatchTransport } from "./fsWatchRegistry";
+
+// production は utilityProcess 隔離した watcherClient を注入するが、統合テストでは
+// 実 @parcel/watcher を in-process で直接包む transport を注入し、classify 経路を検証する
+const realParcelTransport: WatchTransport = {
+  async subscribe(root, ignore, onEvents, onError) {
+    const sub = await parcelSubscribe(
+      root,
+      (err, events) => {
+        if (err !== null) {
+          onError(String(err));
+          return;
+        }
+        onEvents(events.map((event) => event.path));
+      },
+      ignore.length > 0 ? { ignore } : undefined,
+    );
+    return { unsubscribe: () => sub.unsubscribe() };
+  },
+};
 
 const WAIT_TIMEOUT_MS = 5000;
 const WAIT_INTERVAL_MS = 25;
@@ -63,7 +83,7 @@ function createRecordingRegistry() {
       onRemoteRefsChange: (dir) => recorded.remoteDirs.push(dir),
       onWorktreeChange: (dir) => recorded.worktreeDirs.push(dir),
     },
-    { statusDebounceMs: TEST_STATUS_DEBOUNCE_MS },
+    { statusDebounceMs: TEST_STATUS_DEBOUNCE_MS, transport: realParcelTransport },
   );
   return { registry, recorded };
 }

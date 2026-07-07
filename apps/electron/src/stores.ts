@@ -18,6 +18,26 @@ import { asArray, asDict } from "./rawJson";
 const appConfigPath = join(homedir(), ".config", "gozd", "config.json");
 const appStatePath = join(homedir(), ".local", "state", "gozd", "app-state.json");
 
+/** watcherExclude の初期値（key 不在の初回のみ seed）。VS Code の `files.watcherExclude`
+ * デフォルトに倣うが、gozd は git 専用なので `.hg` 系は落とす。`.git/objects` /
+ * `.git/subtree-cache` は blob の高churn 領域で、HEAD / refs / packed-refs / index の
+ * ref シグナルを含まないため、除外しても branch / status 検知は壊れない。node_modules /
+ * build 等は「規約が反転しうる」ためアプリが決め打たず、ユーザーが設定で足す。 */
+const DEFAULT_WATCHER_EXCLUDE: Record<string, boolean> = {
+  ".git/objects/**": true,
+  ".git/subtree-cache/**": true,
+};
+
+/** raw な値を Record<string, boolean> に正規化する。boolean 以外の値は落とす */
+function asBooleanMap(raw: unknown): Record<string, boolean> {
+  const dict = asDict(raw);
+  const result: Record<string, boolean> = {};
+  for (const [key, value] of Object.entries(dict)) {
+    if (typeof value === "boolean") result[key] = value;
+  }
+  return result;
+}
+
 /** Swift 期の `.atomic` write と同じ保証: 同 dir の tmp に書いて rename */
 export function writeFileAtomic(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true });
@@ -55,6 +75,12 @@ function normalizeAppConfig(raw: unknown): AppConfig {
       ...asDict(dict.voicevox),
     } as AppConfig["voicevox"],
     arcade: { ...asDict(dict.arcade) } as AppConfig["arcade"],
+    // key 不在（初回 / watcherExclude を書いていない旧ファイル）のみ default を seed する。
+    // 一度 seed 後はユーザーの map をそのまま尊重し、default 行の削除 / false 化を巻き戻さない
+    watcherExclude:
+      dict.watcherExclude === undefined
+        ? { ...DEFAULT_WATCHER_EXCLUDE }
+        : asBooleanMap(dict.watcherExclude),
   };
 }
 

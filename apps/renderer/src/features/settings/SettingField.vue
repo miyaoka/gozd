@@ -8,6 +8,7 @@ import BooleanWidget from "./widgets/BooleanWidget.vue";
 import EnumWidget from "./widgets/EnumWidget.vue";
 import NumberWidget from "./widgets/NumberWidget.vue";
 import StringArrayWidget from "./widgets/StringArrayWidget.vue";
+import StringBooleanMapWidget from "./widgets/StringBooleanMapWidget.vue";
 import StringWidget from "./widgets/StringWidget.vue";
 import TextWidget from "./widgets/TextWidget.vue";
 import VoicevoxSpeakerWidget from "./widgets/VoicevoxSpeakerWidget.vue";
@@ -58,6 +59,11 @@ const model = defineModel<unknown>();
       <StringArrayWidget
         v-else-if="setting.widget === 'stringArray'"
         v-model="model as string[]"
+        :setting="setting"
+      />
+      <StringBooleanMapWidget
+        v-else-if="setting.widget === 'stringBooleanMap'"
+        v-model="model as Record<string, boolean>"
         :setting="setting"
       />
       <VoicevoxSpeakerWidget v-else-if="setting.widget === 'voicevoxSpeaker'" :setting="setting" />

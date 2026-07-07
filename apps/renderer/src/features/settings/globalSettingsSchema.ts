@@ -95,4 +95,17 @@ export const globalSettingsSections: readonly SettingSection[] = [
       },
     },
   },
+  {
+    title: "File Watcher",
+    settings: {
+      watcherExclude: {
+        widget: "stringBooleanMap",
+        label: "Watcher Exclude",
+        description:
+          "Glob patterns (relative to the watched folder) to exclude from file watching. Toggle off to disable a default without deleting it. Exclude high-churn folders (e.g. node_modules, build output) if the watcher uses a lot of CPU.",
+        defaultValue: {},
+        placeholder: "**/node_modules/**",
+      },
+    },
+  },
 ];

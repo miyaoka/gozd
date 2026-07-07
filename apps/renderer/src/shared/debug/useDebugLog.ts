@@ -12,6 +12,16 @@ interface DebugEvent {
   detail: string;
 }
 
+/** main プロセス発の観測イベントを renderer の logEvent に載せる push payload。
+ * main 側（utilityProcess 隔離した watcher の crash/respawn 等）は renderer の
+ * ring buffer に直接触れないため、`debugLog` push でこの形を送り bridge が logEvent に渡す。 */
+export interface DebugLogPayload {
+  channel: string;
+  label: string;
+  repo: string;
+  detail: string;
+}
+
 /** ring buffer 上限。超過分は古い順に捨てる。 */
 const MAX_EVENTS = 500;
 

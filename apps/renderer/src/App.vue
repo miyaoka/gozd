@@ -11,6 +11,7 @@ import { useFsWatchSync } from "./features/filer";
 import {
   MainLayout,
   useCommandErrorBridge,
+  useMainDebugSubscription,
   useNotifySubscription,
   useTitleContextSync,
 } from "./features/layout";
@@ -21,6 +22,7 @@ import { useKeyBindings } from "./shared/command";
 
 useKeyBindings();
 useNotifySubscription();
+useMainDebugSubscription();
 useCommandErrorBridge();
 useGozdOpenHandler();
 useRepoContextKey();

@@ -12,19 +12,50 @@
 </doc>
 
 <script setup lang="ts">
+import { tryCatch } from "@gozd/shared";
 import { useEventListener } from "@vueuse/core";
 import { computed, useTemplateRef, watch } from "vue";
 import { useDebugLog } from "../../shared/debug";
+import { useNotificationStore } from "../../shared/notification";
 import { useEventLogStore } from "./useEventLogStore";
 import IconLucideActivity from "~icons/lucide/activity";
+import IconLucideCopy from "~icons/lucide/copy";
 import IconLucideTrash2 from "~icons/lucide/trash-2";
 import IconLucideX from "~icons/lucide/x";
 
 const store = useEventLogStore();
 const { events, counts, clear } = useDebugLog();
+const notify = useNotificationStore();
 
 /** 新しい順。ring buffer は push 順 (古い → 新しい) なので反転する。 */
 const reversed = computed(() => [...events.value].reverse());
+
+/** 1 event を表示と同じ体裁の 1 行テキストにする（copy all / 将来の書式共有用）。 */
+function fmtLine(e: {
+  t: number;
+  channel: string;
+  label: string;
+  repo: string;
+  detail: string;
+}): string {
+  const parts = [fmtTime(e.t), `[${e.channel}]`, e.label];
+  if (e.repo) parts.push(e.repo);
+  if (e.detail) parts.push(e.detail);
+  return parts.join(" ");
+}
+
+/** 全 event を時系列（古い順）のプレーンテキストでクリップボードへ。バグ報告に貼れるよう
+ * 表示の newest-first ではなくログ慣習の oldest-first で出す。 */
+async function copyAll(): Promise<void> {
+  const text = events.value.map(fmtLine).join("\n");
+  // navigator.clipboard 参照時点の同期 throw も拾うため async IIFE で Promise 化してから tryCatch
+  const result = await tryCatch((async () => navigator.clipboard.writeText(text))());
+  if (result.ok) {
+    notify.info("Event log copied to clipboard");
+  } else {
+    notify.error("Failed to copy event log", result.error);
+  }
+}
 
 /** epoch ms → HH:MM:SS.mmm。frequency 観測のため ms まで出す。 */
 function fmtTime(t: number): string {
@@ -75,6 +106,15 @@ watch(panelRef, (el) => store.bindPopover(el ?? undefined), { immediate: true })
       <h2 class="flex-1 text-sm font-medium text-foreground">Event log</h2>
       <button
         type="button"
+        aria-label="Copy all"
+        :disabled="events.length === 0"
+        class="grid size-6 place-items-center rounded-sm text-foreground-low hover:bg-element-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+        @click="copyAll()"
+      >
+        <IconLucideCopy class="size-4" />
+      </button>
+      <button
+        type="button"
         aria-label="Clear"
         class="grid size-6 place-items-center rounded-sm text-foreground-low hover:bg-element-hover hover:text-foreground"
         @click="clear()"
@@ -97,7 +137,7 @@ watch(panelRef, (el) => store.bindPopover(el ?? undefined), { immediate: true })
     <!-- 要約: channel:label ごとの累計回数 -->
     <div
       v-if="store.isOpen && counts.length > 0"
-      class="flex flex-wrap gap-x-3 gap-y-1 border-b border-border px-3 py-2 text-[11px] text-foreground-low"
+      class="flex flex-wrap gap-x-3 gap-y-1 border-b border-border px-3 py-2 text-[11px] text-foreground-low select-text"
     >
       <span v-for="[key, n] in counts" :key="key" class="tabular-nums">
         {{ key }} <span class="font-semibold text-foreground">{{ n }}</span>
@@ -113,7 +153,7 @@ watch(panelRef, (el) => store.bindPopover(el ?? undefined), { immediate: true })
 
     <div
       v-else-if="store.isOpen"
-      class="min-h-0 flex-1 overflow-y-auto font-mono text-[11px] leading-relaxed"
+      class="min-h-0 flex-1 overflow-y-auto font-mono text-[11px] leading-relaxed select-text"
     >
       <div
         v-for="e in reversed"

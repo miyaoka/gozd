@@ -30,6 +30,17 @@ await build({
   format: "cjs",
 });
 
+// @parcel/watcher の subscribe を隔離する utilityProcess entry。native crash を別プロセスに
+// 封じ込めるため main とは別 process で動く。@parcel/watcher は .node のため external
+await build({
+  entryPoints: ["src/fs/watcherProcess.ts"],
+  outfile: "dist/watcherProcess.cjs",
+  bundle: true,
+  platform: "node",
+  format: "cjs",
+  external: ["@parcel/watcher"],
+});
+
 await build({
   entryPoints: ["src/renderer/main.ts"],
   outdir: "dist/renderer",

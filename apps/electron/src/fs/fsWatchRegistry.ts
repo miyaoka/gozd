@@ -32,12 +32,29 @@
 //   作業ツリー event として候補が立つが git status 出力は不変のため、直近 push 値と一致する
 //   間は push しない。
 
-import { subscribe, type AsyncSubscription, type SubscribeCallback } from "@parcel/watcher";
 import { tryCatch } from "@gozd/shared";
 import { realpathSync } from "node:fs";
 import { gitDirs, gitStatusFull, refDigest, type RefDigest } from "../git/gitOps";
 import type { StatusFull } from "../git/porcelain";
 import { classify } from "./classify";
+
+/** 1 subscription の破棄ハンドル。@parcel/watcher の AsyncSubscription を transport 越しに抽象化 */
+export interface WatchHandle {
+  unsubscribe(): Promise<void>;
+}
+
+/** native watcher への subscribe 経路を抽象化する。production は utilityProcess 隔離した
+ * watcherClient を注入し、テストは実 @parcel/watcher を直接包む transport を注入する。
+ * これにより fsWatchRegistry は @parcel/watcher / electron に直接依存しない（classify 層を
+ * native crash から切り離す境界）。onEvents は event path の配列、onError は文字列メッセージ */
+export interface WatchTransport {
+  subscribe(
+    root: string,
+    ignore: string[],
+    onEvents: (paths: string[]) => void,
+    onError: (message: string) => void,
+  ): Promise<WatchHandle>;
+}
 
 export interface FsWatchHandlers {
   onFsChange: (dir: string, relDir: string) => void;
@@ -58,11 +75,22 @@ export interface FsWatchOptions {
   statusDebounceMs?: number;
   /** working-tree status の取得関数。テスト用 seam（production は gitStatusFull） */
   statusFetcher?: (dir: string) => Promise<StatusFull>;
+  /** ファイル監視から除外する glob 一覧を返す（VS Code の `files.watcherExclude` 相当）。
+   * buildEntry 時に読むため、設定変更は新規 watch にのみ反映される（既存 watch は再 watch
+   * まで旧 exclude のまま。VS Code は config 変更で re-watch するが、gozd は v1 で見送る）。
+   * production は AppConfig の watcherExclude を渡す。省略時は除外なし（テスト用 default） */
+  getWatcherExclude?: () => string[];
+  /** native watcher への subscribe 経路（必須）。production は utilityProcess 隔離した
+   * watcherClient、テストは実 @parcel/watcher を包む adapter を渡す */
+  transport: WatchTransport;
+  /** watcher 実行時エラー等の診断を event-log へ流す。routes 側で `debugLog` push に変換する。
+   * console.error は packaged で見えないため使わない。省略時は no-op（テスト用） */
+  logEvent?: (channel: string, label: string, detail: string) => void;
 }
 
 interface Entry {
   generation: number;
-  subscriptions: AsyncSubscription[];
+  subscriptions: WatchHandle[];
   /** `/fs/watch` で renderer から渡された原文の dir。push payload はこの値を返し、
    * renderer 側の `worktreeStore.dir` / `wt.path` 等の生文字列キーと直接比較できるようにする
    * （entries のキーは realpath 解決済み path で、event path の比較に使う） */
@@ -79,10 +107,13 @@ interface Entry {
 
 const DEFAULT_STATUS_DEBOUNCE_MS = 150;
 
-export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatchOptions = {}) {
+export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatchOptions) {
   const {
     statusDebounceMs = DEFAULT_STATUS_DEBOUNCE_MS,
     statusFetcher = gitStatusFull,
+    getWatcherExclude = () => [],
+    transport,
+    logEvent = () => {},
   } = options;
   const { onFsChange, onGitStatusChange, onBranchChange, onRemoteRefsChange, onWorktreeChange } =
     handlers;
@@ -179,21 +210,28 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     );
     const watchRoots = coveringRoots(candidates);
 
-    const callback: SubscribeCallback = (err, events) => {
-      if (err !== null) {
-        console.error(`[FSWatchRegistry] watcher error for ${dir}: ${err}`);
-        return;
-      }
-      void handleEvents(
-        dir,
-        generation,
-        events.map((event) => event.path),
-      );
+    const onEvents = (paths: string[]) => {
+      void handleEvents(dir, generation, paths);
+    };
+    const onError = (message: string) => {
+      // packaged で見えない console.error でなく event-log に出す（crash 観測と観察面を揃える）
+      logEvent("file-watcher", "watch-error", `${dir}: ${message}`);
     };
 
-    const subscriptions: AsyncSubscription[] = [];
+    // exclude は working-tree 由来の高churn（node_modules / build 等）を抑える設定だが、
+    // git dir を root とする subscription に掛けると ref/HEAD/index イベントを落として
+    // branch / status 検知が壊れる。git dir root（通常 clone では dir 配下に包含され
+    // watchRoots に現れないが、worktree では commonGitDir が独立 root になる）には
+    // 適用せず、working-tree root にだけ渡す
+    const gitDirRoots = new Set(
+      [perWorktreeGitDir, commonGitDir].filter((path): path is string => path !== undefined),
+    );
+    const excludeGlobs = getWatcherExclude();
+
+    const subscriptions: WatchHandle[] = [];
     for (const root of watchRoots) {
-      const sub = await tryCatch(subscribe(root, callback));
+      const ignore = gitDirRoots.has(root) ? [] : excludeGlobs;
+      const sub = await tryCatch(transport.subscribe(root, ignore, onEvents, onError));
       if (!sub.ok) {
         // 部分成功のまま throw すると成功済み subscription が leak するため巻き戻す
         for (const succeeded of subscriptions) {

@@ -134,6 +134,7 @@ import { readClaudeSessionLog } from "./claude/claudeSessionLog";
 import { writeFilesToClipboard } from "./clipboardOps";
 import { readDir, readFile, readFileAbsolute, stat, writeFile } from "./fs/fsOps";
 import { createFsWatchRegistry } from "./fs/fsWatchRegistry";
+import { createWatcherClient } from "./fs/watcherClient";
 import { blameLine, logFile, logLine } from "./git/gitBlame";
 import { resolveStartPoint } from "./git/gitBranch";
 import { diffHunks, expandDiffLines } from "./git/gitDiff";
@@ -474,17 +475,47 @@ function gitStatusChangePayload(dir: string, status: StatusFull): Record<string,
   return payload;
 }
 
-const fsWatchRegistry = createFsWatchRegistry({
-  onFsChange: (dir, relDir) => fsPush?.("fsChange", { dir, relDir }),
-  onGitStatusChange: (dir, status) => fsPush?.("gitStatusChange", gitStatusChangePayload(dir, status)),
-  onBranchChange: (dir) => fsPush?.("branchChange", { dir }),
-  onRemoteRefsChange: (dir) => fsPush?.("remoteRefsChange", { dir }),
-  onWorktreeChange: (dir) => fsPush?.("worktreeChange", { dir }),
+// @parcel/watcher を隔離した utilityProcess の client。native crash はこのプロセス内に
+// 封じ込め、main は onExit で検知して respawn する（watcherClient 参照）。自己修復する crash は
+// event-log に留め、監視が完全停止した terminal ケースだけ notify でトースト表示する
+// （console.error は packaged で見えないため使わない）
+
+// 診断（crash/respawn/watch-error）を renderer の event-log パネルに流す共通経路
+const pushDebugLog = (channel: string, label: string, detail: string) =>
+  fsPush?.("debugLog", { channel, label, repo: "", detail });
+
+const watcherClient = createWatcherClient({
+  logEvent: pushDebugLog,
+  notify: (message, detail) =>
+    fsPush?.("notify", { type: "error", source: "file-watcher", message, detail, dir: "" }),
 });
 
-/** will-quit で全 watch を始末する（watcher スレッドの残骸を残さない） */
+const fsWatchRegistry = createFsWatchRegistry(
+  {
+    onFsChange: (dir, relDir) => fsPush?.("fsChange", { dir, relDir }),
+    onGitStatusChange: (dir, status) =>
+      fsPush?.("gitStatusChange", gitStatusChangePayload(dir, status)),
+    onBranchChange: (dir) => fsPush?.("branchChange", { dir }),
+    onRemoteRefsChange: (dir) => fsPush?.("remoteRefsChange", { dir }),
+    onWorktreeChange: (dir) => fsPush?.("worktreeChange", { dir }),
+  },
+  {
+    transport: watcherClient,
+    logEvent: pushDebugLog,
+    // buildEntry ごとに最新の config を読む。除外は value === true のキーだけ有効
+    // （false は seed 済み default をユーザーが無効化する subtraction）
+    getWatcherExclude: () =>
+      Object.entries(loadAppConfig().watcherExclude)
+        .filter(([, enabled]) => enabled)
+        .map(([glob]) => glob),
+  },
+);
+
+/** will-quit で全 watch を始末する（watcher スレッドの残骸を残さない）。
+ * unwatchAll で subscription を畳んだ後、utilityProcess 自体を kill する */
 export function unwatchAllFsWatches(): void {
   fsWatchRegistry.unwatchAll();
+  watcherClient.dispose();
 }
 
 function handleFsReadFile(body: unknown): unknown {

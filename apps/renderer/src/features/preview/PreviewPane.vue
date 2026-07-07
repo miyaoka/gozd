@@ -157,7 +157,7 @@ const openableAbsPath = computed<string | undefined>(() =>
            外側の relative ラッパー (overflow-hidden) を基準に固定する。
            Exit (モードを抜けるだけの表示操作) と Discard/Save (データ操作) はセパレーターで
            グループを分け、Discard/Save はテキスト + 色でフォームの cancel/submit パターンに
-           揃える (ProjectConfigPanel.vue と同じ)。真逆の破壊的アクションである save/discard を
+           揃える。真逆の破壊的アクションである save/discard を
            アイコンだけの小さなボタンで隣接させると誤操作しやすいため、ラベルと視覚的な重み
            (Save = primary 塗りつぶし、Discard = 地味なテキスト) の非対称性で区別する。 -->
       <div class="relative min-h-0 flex-1">

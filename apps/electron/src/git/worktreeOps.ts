@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { realpathSync } from "node:fs";
 import { tryCatch } from "@gozd/shared";
 import { resolveContained } from "../fs/pathContainment";
-import { resolveProjectKey } from "../taskStore";
+import { resolveMainRepoRoot, resolveProjectKey } from "../taskStore";
 import { worktreeList } from "./gitOps";
 import { runGit } from "./gitRunner";
 import type { WorktreeInfo } from "./porcelain";
@@ -48,7 +48,10 @@ export async function createWorktree(params: {
     args.push(absPath, branch);
   }
   await runGit(args, dir);
-  createWorktreeSymlinks(dir, absPath, symlinks);
+  // symlink source は main repo root 基準。dir は subdir / worktree のこともある
+  // （createWorktree の dir 契約）ため、worktree 配置と同じく main root に解決してから渡す。
+  const mainRepoRoot = await resolveMainRepoRoot(dir);
+  createWorktreeSymlinks(mainRepoRoot, absPath, symlinks);
   const list = await worktreeList(dir);
   const resolved = realpathOrSelf(absPath);
   const entry = list.find((wt) => wt.path === absPath || realpathOrSelf(wt.path) === resolved);
@@ -67,9 +70,14 @@ export async function createWorktree(params: {
  * - dest（worktree/target）が既に存在すれば skip（git checkout で取得済みの可能性）
  * - target は project 設定由来の untrusted 入力なので resolveContained で `..` 脱出を無害化する
  * - ネストした target（`.config/foo`）は dest の親ディレクトリを先に作る
- * - symlink 失敗は 1 件でも worktree 作成全体を止めないよう握って観察ログに残す
+ * - mkdir / symlink 失敗は 1 件でも worktree 作成全体を止めないよう握って観察ログに残す
+ *   （中間パスが非ディレクトリで mkdirSync が throw する端ケースでも次の target に進む）
  */
-function createWorktreeSymlinks(mainRepoDir: string, wtPath: string, targets: string[]): void {
+export function createWorktreeSymlinks(
+  mainRepoDir: string,
+  wtPath: string,
+  targets: string[],
+): void {
   for (const target of targets) {
     const sourcePath = resolveContained(mainRepoDir, target);
     const destPath = resolveContained(wtPath, target);
@@ -79,8 +87,12 @@ function createWorktreeSymlinks(mainRepoDir: string, wtPath: string, targets: st
     }
     if (!tryCatch(() => lstatSync(sourcePath)).ok) continue;
     if (tryCatch(() => lstatSync(destPath)).ok) continue;
-    mkdirSync(dirname(destPath), { recursive: true });
-    const linked = tryCatch(() => symlinkSync(sourcePath, destPath));
+    // mkdir と symlink は 1 つの tryCatch で握る。中間パスが非ディレクトリで mkdirSync が
+    // throw しても worktree 作成全体を止めず、当該 target を skip して次へ進める。
+    const linked = tryCatch(() => {
+      mkdirSync(dirname(destPath), { recursive: true });
+      symlinkSync(sourcePath, destPath);
+    });
     if (!linked.ok) {
       console.error(
         `[createWorktreeSymlinks] symlink failed target=${target} error=${linked.error}`,

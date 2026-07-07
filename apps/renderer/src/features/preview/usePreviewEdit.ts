@@ -132,8 +132,8 @@ export function usePreviewEdit(content: PreviewContent) {
    * PreviewPane は popover 要素として常時 mount される前提のため、onUnmounted は実質アプリ終了時のみ。
    *
    * 編集中でないときは何もせず false を返す。Cmd+S はブラウザ既定 (保存ダイアログ等) を
-   * 「編集中のときだけ preventDefault で止める」挙動になり、他 textarea (ProjectConfigPanel 等)
-   * にフォーカスがあっても奪わない。
+   * 「編集中のときだけ preventDefault で止める」挙動になり、他の textarea に
+   * フォーカスがあっても奪わない。
    */
   const { register } = useCommandRegistry();
   const disposeSaveCommand = register("preview.save", {

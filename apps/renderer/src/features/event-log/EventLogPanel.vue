@@ -91,9 +91,12 @@ watch(panelRef, (el) => store.bindPopover(el ?? undefined), { immediate: true })
       </button>
     </header>
 
+    <!-- store.isOpen で内容をゲートする。閉じている間は counts / reversed を読まないため、背景 event
+         ごとの再描画 (最大 500 行) が止まる。short-circuit で computed 依存も張られない (ring buffer への
+         記録は logEvent 側で継続)。 -->
     <!-- 要約: channel:label ごとの累計回数 -->
     <div
-      v-if="counts.length > 0"
+      v-if="store.isOpen && counts.length > 0"
       class="flex flex-wrap gap-x-3 gap-y-1 border-b border-border px-3 py-2 text-[11px] text-foreground-low"
     >
       <span v-for="[key, n] in counts" :key="key" class="tabular-nums">
@@ -101,11 +104,17 @@ watch(panelRef, (el) => store.bindPopover(el ?? undefined), { immediate: true })
       </span>
     </div>
 
-    <div v-if="reversed.length === 0" class="px-3 py-8 text-center text-xs text-foreground-low">
+    <div
+      v-if="store.isOpen && reversed.length === 0"
+      class="px-3 py-8 text-center text-xs text-foreground-low"
+    >
       No events recorded yet
     </div>
 
-    <div v-else class="min-h-0 flex-1 overflow-y-auto font-mono text-[11px] leading-relaxed">
+    <div
+      v-else-if="store.isOpen"
+      class="min-h-0 flex-1 overflow-y-auto font-mono text-[11px] leading-relaxed"
+    >
       <div
         v-for="e in reversed"
         :key="e.id"

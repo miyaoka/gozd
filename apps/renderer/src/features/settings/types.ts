@@ -37,6 +37,13 @@ export interface StringSetting extends SettingBase {
   placeholder?: string;
 }
 
+/** 複数行文字列 → テキストエリア（改行を保持する。stringArray と違い分割・trim しない） */
+export interface TextSetting extends SettingBase {
+  widget: "text";
+  defaultValue: string;
+  placeholder?: string;
+}
+
 /** 文字列配列 → テキストエリア（改行区切り） */
 export interface StringArraySetting extends SettingBase {
   widget: "stringArray";
@@ -57,6 +64,7 @@ export type SettingDefinition =
   | NumberSetting
   | EnumSetting
   | StringSetting
+  | TextSetting
   | StringArraySetting
   | VoicevoxSpeakerSetting;
 

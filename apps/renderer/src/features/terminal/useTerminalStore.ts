@@ -132,6 +132,20 @@ export const useTerminalStore = defineStore("terminal", () => {
   const preferredAutostartByDir = ref<Record<string, AutostartHint>>({});
 
   /**
+   * worktree 作成直後に「専用 leaf で setup スクリプトを実行する」ヒント（値 = スクリプト本体）。
+   * 作成経路（addWorktree / issue・pr picker）だけが setPreferredSetup で立てる。visit()（初回
+   * オープン）で消費する — visit はアプリ再起動後の既存 worktree オープンでも走るため、
+   * 無条件実行だと開くたび再走する。作成時だけヒントがあることで「作成時 1 回」に限定する。
+   */
+  const preferredSetupByDir = ref<Record<string, string>>({});
+
+  /**
+   * leafId → 次回 spawn 時に GOZD_SETUP_SCRIPT として注入する setup スクリプト。
+   * zsh init の _gozd_run_setup が eval で実行する。spawnPty が env 組み立て時に 1 回だけ消費する。
+   */
+  const pendingSetupByLeafId = ref<Record<string, string>>({});
+
+  /**
    * `visit()` の世代カウンタ（per dir）。await 中に同じ dir が再 visit されたり、
    * 別の visit が並走したりしたとき、stale な復元処理が後勝ちでレイアウトを
    * 壊さないよう、await 後に最新世代と一致するかチェックする。
@@ -165,6 +179,10 @@ export const useTerminalStore = defineStore("terminal", () => {
           env.GOZD_CLAUDE_PREFILL = autostart.prefill;
         }
       }
+      const setupScript = pendingSetupByLeafId.value[leafId];
+      if (setupScript !== undefined && setupScript !== "") {
+        env.GOZD_SETUP_SCRIPT = setupScript;
+      }
       const res = await tryCatch(
         rpcPtySpawn({
           dir,
@@ -186,6 +204,7 @@ export const useTerminalStore = defineStore("terminal", () => {
         if (autostart) {
           delete pendingAutostartByLeafId.value[leafId];
         }
+        delete pendingSetupByLeafId.value[leafId];
         throw res.error;
       }
       // pendingResumeByLeafId は spawn 成功時点では削除しない。session-start hook の
@@ -194,6 +213,7 @@ export const useTerminalStore = defineStore("terminal", () => {
       if (autostart) {
         delete pendingAutostartByLeafId.value[leafId];
       }
+      delete pendingSetupByLeafId.value[leafId];
       return res.value.ptyId;
     },
     sendPtyKill: ({ id }) => {
@@ -292,6 +312,7 @@ export const useTerminalStore = defineStore("terminal", () => {
             delete titleByLeafId.value[leafId];
             delete pendingResumeByLeafId.value[leafId];
             delete pendingAutostartByLeafId.value[leafId];
+            delete pendingSetupByLeafId.value[leafId];
             delete paneRegistry.value[leafId];
             lastRemovedLeafId.value = leafId;
           })();
@@ -301,6 +322,7 @@ export const useTerminalStore = defineStore("terminal", () => {
           delete titleByLeafId.value[leafId];
           delete pendingResumeByLeafId.value[leafId];
           delete pendingAutostartByLeafId.value[leafId];
+          delete pendingSetupByLeafId.value[leafId];
           delete paneRegistry.value[leafId];
           lastRemovedLeafId.value = leafId;
         }
@@ -468,6 +490,21 @@ export const useTerminalStore = defineStore("terminal", () => {
         }
       }
     }
+
+    // worktree 作成直後の setup スクリプトを専用 leaf で実行する。resume / autostart とは
+    // 独立した split leaf に載せる。splitPane は新 leaf に focus を移すため、split 前の
+    // focus（初期の作業 leaf、または autostart leaf）を退避して復元する。setup は裏で
+    // 並走させ、焦点は最初のターミナルに残す。
+    const setupScript = preferredSetupByDir.value[dir];
+    if (setupScript !== undefined && setupScript !== "") {
+      delete preferredSetupByDir.value[dir];
+      const focusBeforeSetup = layoutsByDir.value[dir]?.focusedLeafId;
+      const setupLeafId = layout.splitPane(dir, "horizontal");
+      if (setupLeafId !== undefined) {
+        pendingSetupByLeafId.value[setupLeafId] = setupScript;
+        if (focusBeforeSetup !== undefined) layout.focusPane(focusBeforeSetup);
+      }
+    }
   }
 
   /**
@@ -562,6 +599,16 @@ export const useTerminalStore = defineStore("terminal", () => {
   }
 
   /**
+   * worktree 作成経路（addWorktree / issue・pr picker）が呼ぶ。次回の visit で専用 leaf を
+   * 立てて setup スクリプトを実行するヒントを残す。呼び出し元が直後に setOpen して
+   * TerminalPane の watch が visit を駆動する（preferredResume / preferredAutostart と同流儀）。
+   */
+  function setPreferredSetup(dir: string, script: string) {
+    if (script === "") return;
+    preferredSetupByDir.value[dir] = script;
+  }
+
+  /**
    * worktree が外部削除された / アクティブから外れたときの cleanup。
    * `layout.remove` を呼ぶ前に visitGenByDir の世代を進めることで、
    * 進行中の `visit` の await 後 world は stale 判定で破棄される。
@@ -574,6 +621,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     // 古いヒントが流れ込まないよう、layout 撤去と同じタイミングで落とす。
     delete preferredResumeByDir.value[dir];
     delete preferredAutostartByDir.value[dir];
+    delete preferredSetupByDir.value[dir];
     layout.remove(dir);
   }
 
@@ -660,6 +708,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     visit,
     requestResumeSession,
     requestNewClaudeSession,
+    setPreferredSetup,
     splitPane: layout.splitPane,
     closePane: layout.closePane,
     resetLayout: layout.resetLayout,

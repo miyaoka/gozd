@@ -13,6 +13,13 @@ export const projectSettingsSections: readonly SettingSection[] = [
         defaultValue: [],
         placeholder: ".claude\n.env.local",
       },
+      setupScript: {
+        widget: "text",
+        label: "Setup script",
+        description: "Command run in a dedicated terminal when creating worktrees",
+        defaultValue: "",
+        placeholder: "pnpm install",
+      },
     },
   },
 ];

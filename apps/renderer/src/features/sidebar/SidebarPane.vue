@@ -31,7 +31,7 @@ import { DragDropProvider } from "@dnd-kit/vue";
 import type { Task, WorktreeEntry } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { storeToRefs } from "pinia";
-import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
+import { nextTick, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { useArcadeStore } from "../arcade";
@@ -41,7 +41,6 @@ import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
 import { RepoSection } from "./features/repo";
 import { useWorktreeActions } from "./features/worktree";
-import ProjectConfigPanel from "./ProjectConfigPanel.vue";
 import { rpcTaskRemove } from "./rpc";
 import SidebarClock from "./SidebarClock.vue";
 import TaskEditDialog from "./TaskEditDialog.vue";
@@ -241,16 +240,6 @@ watch(
   },
   { immediate: true, flush: "post" },
 );
-
-// --- ProjectConfigPanel: active な root worktree がある時だけ表示 ---
-
-const activeRootWorktree = computed(() => {
-  const repo = repoStore.selectedRepo;
-  if (repo === undefined) return undefined;
-  const root = repo.worktrees.find((wt) => wt.isMain);
-  if (root === undefined) return undefined;
-  return root.path === worktreeStore.dir ? root : undefined;
-});
 </script>
 
 <template>
@@ -378,9 +367,6 @@ const activeRootWorktree = computed(() => {
         </div>
       </div>
     </dialog>
-
-    <!-- Project Config（active な root worktree のみ） -->
-    <ProjectConfigPanel v-if="activeRootWorktree" />
 
     <!-- VOICEVOX -->
     <VoicevoxPanel />

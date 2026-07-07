@@ -753,11 +753,16 @@ async function handleGitViewer(body: unknown): Promise<unknown> {
 
 async function handleCreateWorktree(body: unknown): Promise<unknown> {
   const req = body as CreateWorktreeRequest;
+  // symlink 適用と setupScript は同じ project 設定なので 1 回の load で両方を賄う。
+  // symlink は main 側の fs 操作としてここで適用し、setupScript は renderer が専用
+  // ターミナルで実行するため response に載せて返す。
+  const projectConfig = await loadProjectConfig(req.dir);
   const info = await createWorktree({
     dir: req.dir,
     worktreeDir: req.worktreeDir,
     branch: req.branch,
     startPoint: req.startPoint,
+    symlinks: projectConfig.worktreeSymlinks,
   });
   return ({
     worktree: {
@@ -772,6 +777,7 @@ async function handleCreateWorktree(body: unknown): Promise<unknown> {
       tasks: [],
     },
     dir: info.path,
+    setupScript: projectConfig.setupScript,
   }) satisfies CreateWorktreeResponse;
 }
 

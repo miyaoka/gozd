@@ -92,13 +92,25 @@ save の発火条件は `buildAppStateSnapshot()` のシリアライズ結果が
 - PR 作成時にリネームを促す導線を用意する。検証だけで終わる worktree は名前を付けずに削除してもよい
 - 各 worktree は独立したファイルシステムを持ち、`pnpm install` / `pnpm dev` / `pnpm build` を独立して実行できる
 
-### シンボリックリンク共有
+### worktree 作成時のセットアップ
 
-worktree 作成時に、メインリポジトリの指定ファイル/ディレクトリを新 worktree にシンボリックリンクできる。`.claude/`（Claude Code のローカル設定・許可済みコマンド）や `.env.local`（環境変数）など、git 管理外のローカル設定を全 worktree で共有するための仕組み。
+worktree を作成した直後に、プロジェクトごとの初期化を自動で行える。設定はプロジェクト設定
+（`~/.config/gozd/projects/<projectKey>/config.json`）に個人ローカルとして持ち、repo にはコミット
+しない。設定 UI は Settings モーダルの「Project」タブ（対象はアクティブ worktree が属する
+プロジェクト。アクティブ worktree が無いときは対象が定まらないためタブを無効化する）。
 
-- 対象パスはプロジェクト設定（`~/.config/gozd/projects/<projectKey>/config.json` の `worktreeSymlinks`）で管理する
-- サイドバー下部の「Worktree symlinks」パネルで編集できる
-- メインリポジトリに存在しないパス、または worktree 側に既に存在するパスはスキップされる
+**シンボリックリンク共有（`worktreeSymlinks`）**: メインリポジトリの指定ファイル/ディレクトリを
+新 worktree にシンボリックリンクする。`.claude/`（Claude Code のローカル設定・許可済みコマンド）や
+`.env.local`（環境変数）など、git 管理外のローカル設定を全 worktree で共有するための仕組み。
+メインリポジトリに存在しないパス、または worktree 側に既に存在するパス（git checkout 済み）は
+スキップする。main 側の fs 操作として `createWorktree` 内で適用する。
+
+**setup スクリプト（`setupScript`）**: `pnpm install` など worktree ごとに必要な初期化コマンドを、
+専用ターミナル leaf で実行する。renderer が spawn env に `GOZD_SETUP_SCRIPT` を注入し、zsh init の
+`_gozd_run_setup` が eval で実行する（`GOZD_RESUME_CLAUDE_SESSION` / `GOZD_AUTOSTART_CLAUDE` と同じ
+env 注入方式）。作業ターミナルとは別 leaf に並走させ、フォーカスは最初のターミナルに残す。作成時
+だけ実行するため、visit（作成経路が立てたヒントの消費）で 1 回だけ発火し、既存 worktree の再オープン
+では走らない。
 
 ### git worktree の制約
 

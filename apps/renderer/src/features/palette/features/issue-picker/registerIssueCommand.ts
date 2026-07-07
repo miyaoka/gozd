@@ -118,6 +118,7 @@ export function registerIssueCommand(): () => void {
             // 上で作成した task に attach される。後追いクリック起動の二重 leaf を防ぐ。
             // issue URL を prefill で渡し、claude の入力欄に事前挿入する (送信はされない)。
             terminalStore.requestNewClaudeSession(result.value.dir, issue.url);
+            terminalStore.setPreferredSetup(result.value.dir, result.value.setupScript);
             terminalStore.viewMode = "wt";
             worktreeStore.setOpen(result.value.dir);
           })();

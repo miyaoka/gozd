@@ -9,6 +9,7 @@ import EnumWidget from "./widgets/EnumWidget.vue";
 import NumberWidget from "./widgets/NumberWidget.vue";
 import StringArrayWidget from "./widgets/StringArrayWidget.vue";
 import StringWidget from "./widgets/StringWidget.vue";
+import TextWidget from "./widgets/TextWidget.vue";
 import VoicevoxSpeakerWidget from "./widgets/VoicevoxSpeakerWidget.vue";
 
 defineProps<{
@@ -46,6 +47,11 @@ const model = defineModel<unknown>();
       />
       <StringWidget
         v-else-if="setting.widget === 'string'"
+        v-model="model as string"
+        :setting="setting"
+      />
+      <TextWidget
+        v-else-if="setting.widget === 'text'"
         v-model="model as string"
         :setting="setting"
       />

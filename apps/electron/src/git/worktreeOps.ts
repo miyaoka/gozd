@@ -1,11 +1,12 @@
 // worktree / branch を変更する書き込み系操作。Swift 版 `WorktreeOps.swift` の対応物。
 // 読み取り系（list / log）は gitOps / gitLog、副作用持ち（create / remove）はここ。
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, lstatSync, symlinkSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { realpathSync } from "node:fs";
 import { tryCatch } from "@gozd/shared";
+import { resolveContained } from "../fs/pathContainment";
 import { resolveProjectKey } from "../taskStore";
 import { worktreeList } from "./gitOps";
 import { runGit } from "./gitRunner";
@@ -28,8 +29,10 @@ export async function createWorktree(params: {
   worktreeDir: string;
   branch: string;
   startPoint: string;
+  /** メインリポジトリからシンボリックリンクする相対パス一覧（project 設定 worktreeSymlinks） */
+  symlinks: string[];
 }): Promise<WorktreeInfo> {
-  const { dir, worktreeDir, branch, startPoint } = params;
+  const { dir, worktreeDir, branch, startPoint, symlinks } = params;
   const absPath = await ensureWorktreePath(dir, worktreeDir);
   const args = ["worktree", "add"];
   if (startPoint !== "") {
@@ -45,6 +48,7 @@ export async function createWorktree(params: {
     args.push(absPath, branch);
   }
   await runGit(args, dir);
+  createWorktreeSymlinks(dir, absPath, symlinks);
   const list = await worktreeList(dir);
   const resolved = realpathOrSelf(absPath);
   const entry = list.find((wt) => wt.path === absPath || realpathOrSelf(wt.path) === resolved);
@@ -52,6 +56,37 @@ export async function createWorktree(params: {
     throw new Error(`worktree created but not found in list: ${absPath}`);
   }
   return entry;
+}
+
+/**
+ * メインリポジトリの各 target を worktree にシンボリックリンクする。
+ * `.claude/` や `.env.local` など git 管理外のローカル設定を全 worktree で共有する用途
+ * （pnpm v11 の worktree ヘルパーと同じアプローチ）。
+ *
+ * - source（mainRepo/target）が存在しなければ skip
+ * - dest（worktree/target）が既に存在すれば skip（git checkout で取得済みの可能性）
+ * - target は project 設定由来の untrusted 入力なので resolveContained で `..` 脱出を無害化する
+ * - ネストした target（`.config/foo`）は dest の親ディレクトリを先に作る
+ * - symlink 失敗は 1 件でも worktree 作成全体を止めないよう握って観察ログに残す
+ */
+function createWorktreeSymlinks(mainRepoDir: string, wtPath: string, targets: string[]): void {
+  for (const target of targets) {
+    const sourcePath = resolveContained(mainRepoDir, target);
+    const destPath = resolveContained(wtPath, target);
+    if (sourcePath === undefined || destPath === undefined) {
+      console.error(`[createWorktreeSymlinks] rejected traversal target=${target}`);
+      continue;
+    }
+    if (!tryCatch(() => lstatSync(sourcePath)).ok) continue;
+    if (tryCatch(() => lstatSync(destPath)).ok) continue;
+    mkdirSync(dirname(destPath), { recursive: true });
+    const linked = tryCatch(() => symlinkSync(sourcePath, destPath));
+    if (!linked.ok) {
+      console.error(
+        `[createWorktreeSymlinks] symlink failed target=${target} error=${linked.error}`,
+      );
+    }
+  }
 }
 
 /** `git worktree remove [-f] <path>` 相当 */

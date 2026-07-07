@@ -1,12 +1,9 @@
 <doc lang="md">
 glob → boolean マップ設定用の行リスト editor（VS Code の files.watcherExclude 相当）。
 
-各行は glob パターン + 有効トグル + 削除ボタン。value === false は「seed 済み default を
-無効化する」subtraction を表すため、削除せずトグルで無効化もできる。空 glob の行は編集中の
-一時状態として保持し、マップには含めない（`rowsToMap` で除外）。
-
-model（Record）↔ rows（順序を持つ配列）の双方向同期は、自分の編集で生じた model 変更を
-`rowsToMap(rows)` との一致で検出してスキップし、フィードバックループを避ける。
+value === false は「seed 済み default を無効化する」subtraction を表すため、行を削除せず
+トグルで無効化もできる。空 glob の行は編集中の一時状態としてローカルに保持し、マップには
+含めない。
 </doc>
 
 <script setup lang="ts">
@@ -22,14 +19,18 @@ const props = defineProps<{
 const model = defineModel<Record<string, boolean>>({ required: true });
 
 interface Row {
+  /** splice 削除で index が動いても DOM（フォーカス等）が正しい行に紐づくよう、
+   * 行生成時に採番する安定キー。v-for の :key に使う */
+  id: number;
   pattern: string;
   enabled: boolean;
 }
 
+let nextRowId = 0;
 const rows = ref<Row[]>([]);
 
 function mapToRows(map: Record<string, boolean>): Row[] {
-  return Object.entries(map).map(([pattern, enabled]) => ({ pattern, enabled }));
+  return Object.entries(map).map(([pattern, enabled]) => ({ id: nextRowId++, pattern, enabled }));
 }
 
 function rowsToMap(list: Row[]): Record<string, boolean> {
@@ -59,7 +60,7 @@ function commit(): void {
 }
 
 function addRow(): void {
-  rows.value.push({ pattern: "", enabled: true });
+  rows.value.push({ id: nextRowId++, pattern: "", enabled: true });
 }
 
 function removeRow(index: number): void {
@@ -70,10 +71,11 @@ function removeRow(index: number): void {
 
 <template>
   <div class="flex w-72 flex-col gap-1.5">
-    <div v-for="(row, index) in rows" :key="index" class="flex items-center gap-1.5">
+    <div v-for="(row, index) in rows" :key="row.id" class="flex items-center gap-1.5">
       <input
         v-model="row.pattern"
         type="text"
+        aria-label="Glob pattern"
         class="min-w-0 flex-1 rounded-sm border border-border-strong bg-element px-2 py-1 text-sm text-foreground focus:border-primary focus:outline-none"
         :placeholder="props.setting.placeholder"
         @change="commit"

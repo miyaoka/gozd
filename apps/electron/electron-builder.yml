@@ -5,13 +5,16 @@
 # ファイルで配置されるため、electron-builder の標準の依存収集（node-pty /
 # @parcel/watcher + transitive）がそのまま機能する。orca 式の自前閉包コピーは不要。
 #
-# レイアウト（asar: false。Swift 版 / shellCommandOps の期待と同一）:
-#   Gozd.app/Contents/Resources/app/
-#     package.json / dist/             ← files（esbuild 成果物: main / preload / cli）
-#     node_modules/                    ← electron-builder の prod 依存収集
-#     bin/                             ← extraResources（wrapper + gozd-cli shim）
-#     zsh/                             ← extraResources（zsh init チェーン。Swift 版と共有）
-#     views/main/                      ← extraResources（renderer の Vite ビルド成果物）
+# レイアウト（asar: true + asarUnpack）:
+#   Gozd.app/Contents/Resources/
+#     app.asar                         ← files（esbuild 成果物: main / preload / cli / watcherProcess）+ prod node_modules
+#     app.asar.unpacked/               ← asarUnpack（dist/cli.cjs + native module）
+#       dist/cli.cjs                     ← ELECTRON_RUN_AS_NODE で実行するため実ファイル必須
+#       node_modules/node-pty, @parcel/watcher*  ← dlopen する native
+#     app/                             ← extraResources（asar の外。実ディレクトリ）
+#       bin/                             ← wrapper + gozd-cli shim（shellCommandOps / gozdEnv が Resources/app/bin を期待）
+#       zsh/                             ← zsh init チェーン（Swift 版と共有）
+#       views/main/                      ← renderer の Vite ビルド成果物
 appId: io.github.miyaoka.gozd.electron
 productName: Gozd
 directories:
@@ -20,10 +23,21 @@ directories:
 files:
   - dist/**
   - package.json
-# asar 化しない: node-pty の spawn-helper / prebuild、bin/ の shim が実体ファイルを
-# 要求する。gozd-cli は ELECTRON_RUN_AS_NODE 起動で asar 内が見えないため、
-# asar を使うと orca 式の asarUnpack 列挙が必要になる（asar: false で丸ごと回避）
-asar: false
+# asar 有効 + asarUnpack（Electron / electron-builder 公式推奨。asar: false は非推奨警告が出る）。
+# gozd-cli は ELECTRON_RUN_AS_NODE 起動で asar 内が require から見えないため dist/cli.cjs だけ
+# unpack する（esbuild で全依存 bundle 済みの単一ファイルなので unpack は 1 ファイルで済む。
+# orca は tsc 出力 + ランタイム require のため out/cli/** 等の広い列挙が要るが gozd は不要）。
+# native module（node-pty の spawn-helper / prebuild、@parcel/watcher の .node）は dlopen が
+# asar 内から不可のため unpack する。electron-builder の smartUnpack が自動検出するが、
+# 記載漏れ = packaged 実行時クラッシュの footgun を消すため明示する。
+# 将来 stable で署名 + notarize に進む際、ASAR integrity（embeddedAsarIntegrityValidation Fuse）は
+# asar 有効が前提になるため、今 asar 有効にしておくと地続きで移行できる。
+asar: true
+asarUnpack:
+  - dist/cli.cjs
+  - node_modules/node-pty/**
+  - node_modules/@parcel/watcher/**
+  - node_modules/@parcel/watcher-darwin-arm64/**
 # node-pty prebuild は Electron でそのまま動作確認済み（dev 経路と同一バイナリ）。
 # rebuild すると node-gyp コンパイルが走り prebuild の意味が消えるため無効化
 npmRebuild: false

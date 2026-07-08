@@ -14,4 +14,7 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${SOURCE}")" && pwd)"
 
 # SCRIPT_DIR = Contents/Resources/app/bin → ../../../MacOS/Gozd = Contents/MacOS/Gozd
-exec env ELECTRON_RUN_AS_NODE=1 "${SCRIPT_DIR}/../../../MacOS/Gozd" "${SCRIPT_DIR}/../dist/cli.cjs" "$@"
+# cli.cjs は asarUnpack で app.asar.unpacked/dist/ に展開される（ELECTRON_RUN_AS_NODE は
+# asar 統合をバイパスするため asar 内の dist/cli.cjs は require から見えない）。
+# SCRIPT_DIR(app/bin) → ../../app.asar.unpacked/dist/cli.cjs = Contents/Resources/app.asar.unpacked/dist/cli.cjs
+exec env ELECTRON_RUN_AS_NODE=1 "${SCRIPT_DIR}/../../../MacOS/Gozd" "${SCRIPT_DIR}/../../app.asar.unpacked/dist/cli.cjs" "$@"

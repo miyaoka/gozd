@@ -17,7 +17,7 @@ import { realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-// packaged 判定: Electron main の __dirname（Resources/app/dist）は packaged 時のみ
+// packaged 判定: Electron main の __dirname（asar 有効時は Resources/app.asar/dist）は packaged 時のみ
 // process.resourcesPath（Contents/Resources）配下に入る。`app.isPackaged` を使わないのは
 // electron import が bun test で成立しないため（resourcesPath は bun では undefined =
 // 非 packaged 判定に自然に倒れる）

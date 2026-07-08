@@ -3,7 +3,8 @@
   "productName": "Gozd",
   "version": "0.0.0",
   "private": true,
-  "description": "Electron shell spike (issue #895): BrowserWindow + typed IPC + node-pty + xterm.js",
+  "author": "miyaoka",
+  "description": "Gozd — Git Orchestrated Zone for Development. Electron main process for managing parallel AI agent development.",
   "type": "module",
   "main": "dist/main.cjs",
   "scripts": {

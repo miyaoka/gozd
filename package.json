@@ -2,7 +2,8 @@
   "name": "gozd",
   "version": "0.0.0",
   "private": true,
-  "description": "AI Agent Orchestrator",
+  "description": "Gozd — Git Orchestrated Zone for Development. Desktop app for managing parallel AI agent development.",
+  "author": "miyaoka",
   "type": "module",
   "scripts": {
     "dev": "bun scripts/dev.ts",

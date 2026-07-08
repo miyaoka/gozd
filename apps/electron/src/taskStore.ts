@@ -58,6 +58,13 @@ export async function resolveProjectKey(dir: string): Promise<string> {
   return computeProjectKey(await resolveMainRepoRoot(dir));
 }
 
+/** gozd の worktree 配置 root（projectKey 抜き）。`<root>/<projectKey>/<leaf>` が各 worktree のパス。
+ * worktreeOps（worktree の作成先）と claudeSessionLog（revive の cwd prefix 判定）が同一 base を
+ * 指すことに revive の「cwd 1 バイト一致」が依存するため、literal を 2 箇所に散らさず SSOT を置く。 */
+export function gozdWorktreesRoot(): string {
+  return join(homedir(), ".local", "share", "gozd", "worktrees");
+}
+
 /** Swift ISO8601DateFormatter (withInternetDateTime) と同じ秒粒度表記に揃える。
  * createdAt は文字列比較で候補ピックの順序キーになるため、両シェルで表記を揃えないと
  * ミリ秒あり/なしの混在で同一秒 tie-break の意味が変わる */

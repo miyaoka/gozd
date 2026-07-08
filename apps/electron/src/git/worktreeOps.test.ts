@@ -2,6 +2,7 @@
 // main repo / worktree を模した 2 つの temp dir を直接操作して検証する。
 
 import { afterEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import {
   existsSync,
   lstatSync,
@@ -14,7 +15,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createWorktreeSymlinks } from "./worktreeOps";
+import { createWorktreeSymlinks, resolveReviveBranch } from "./worktreeOps";
 
 describe("createWorktreeSymlinks", () => {
   const tempDirs: string[] = [];
@@ -92,5 +93,64 @@ describe("createWorktreeSymlinks", () => {
     expect(() => createWorktreeSymlinks(main, wt, [".config/foo", ".env"])).not.toThrow();
     // 前段が throw しても後続 .env は張られる（worktree 作成全体を止めない不変条件）
     expect(lstatSync(join(wt, ".env")).isSymbolicLink()).toBe(true);
+  });
+});
+
+describe("resolveReviveBranch", () => {
+  const tempDirs: string[] = [];
+
+  function git(args: string[], cwd: string): void {
+    execFileSync("git", args, { cwd, stdio: "ignore" });
+  }
+
+  /** origin 無しの初期 commit 1 個 repo（default branch = main）。 */
+  function makeRepo(): string {
+    const dir = mkdtempSync(join(tmpdir(), "gozd-revive-branch-"));
+    tempDirs.push(dir);
+    git(["init", "-b", "main"], dir);
+    git(["config", "user.email", "t@example.com"], dir);
+    git(["config", "user.name", "t"], dir);
+    writeFileSync(join(dir, "a.txt"), "a\n");
+    git(["add", "."], dir);
+    git(["commit", "-m", "first"], dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("candidate 空 → 日付ブランチを default(HEAD) から作成", async () => {
+    const dir = makeRepo();
+    const { branch, startPoint } = await resolveReviveBranch(dir, "");
+    expect(branch).toMatch(/^\d{8}_\d{6}$/);
+    expect(startPoint).toBe("main");
+  });
+
+  test("candidate が既存ローカルブランチ(未 checkout) → attach（startPoint 空）", async () => {
+    const dir = makeRepo();
+    git(["branch", "feature/foo"], dir);
+    const { branch, startPoint } = await resolveReviveBranch(dir, "feature/foo");
+    expect(branch).toBe("feature/foo");
+    expect(startPoint).toBe("");
+  });
+
+  test("candidate が未存在 → その名前を default から作成", async () => {
+    const dir = makeRepo();
+    const { branch, startPoint } = await resolveReviveBranch(dir, "feature/new");
+    expect(branch).toBe("feature/new");
+    expect(startPoint).toBe("main");
+  });
+
+  test("candidate が他 worktree に checkout 済み → 日付ブランチへ倒す", async () => {
+    const dir = makeRepo();
+    git(["branch", "occupied"], dir);
+    const parent = mkdtempSync(join(tmpdir(), "gozd-revive-occ-"));
+    tempDirs.push(parent);
+    // occupied を別 worktree で checkout（占有させる）。git が wt path を新規作成する
+    git(["worktree", "add", join(parent, "wt"), "occupied"], dir);
+    const { branch, startPoint } = await resolveReviveBranch(dir, "occupied");
+    expect(branch).toMatch(/^\d{8}_\d{6}$/);
+    expect(startPoint).toBe("main");
   });
 });

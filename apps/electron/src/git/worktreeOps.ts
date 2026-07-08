@@ -2,12 +2,12 @@
 // 読み取り系（list / log）は gitOps / gitLog、副作用持ち（create / remove）はここ。
 
 import { mkdirSync, lstatSync, symlinkSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { realpathSync } from "node:fs";
-import { tryCatch } from "@gozd/shared";
+import { generateTimestamp, tryCatch } from "@gozd/shared";
 import { resolveContained } from "../fs/pathContainment";
-import { resolveMainRepoRoot, resolveProjectKey } from "../taskStore";
+import { gozdWorktreesRoot, resolveMainRepoRoot, resolveProjectKey } from "../taskStore";
+import { resolveStartPoint } from "./gitBranch";
 import { worktreeList } from "./gitOps";
 import { runGit } from "./gitRunner";
 import type { WorktreeInfo } from "./porcelain";
@@ -101,6 +101,46 @@ export function createWorktreeSymlinks(
   }
 }
 
+/** branch が他 worktree に checkout 済みか。`git worktree add` / `-B` は他 worktree 占有中の
+ * branch を拒否するため、この判定で衝突を先に検知して日付ブランチへ倒す。 */
+async function isBranchCheckedOut(dir: string, branch: string): Promise<boolean> {
+  return (await worktreeList(dir)).some((wt) => wt.branch === branch);
+}
+
+/** ローカルに branch が存在するか。`git rev-parse --verify --quiet refs/heads/<branch>` 相当。 */
+async function localBranchExists(dir: string, branch: string): Promise<boolean> {
+  const result = await tryCatch(runGit(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], dir));
+  return result.ok;
+}
+
+/** 復活 worktree のブランチと startPoint を決める（createWorktree にそのまま渡す）。
+ *
+ * cwd（= worktree のパス）は resume の鍵なので leaf 側で固定し、ここでは branch のみ決める。
+ * branch 名は resume に影響しないため、意味のある候補（ログ末尾の PR 名）を優先しつつ衝突だけ避ける:
+ * - candidate 空 / 他 worktree 占有 → 衝突。日付ブランチを default から新規作成
+ * - candidate 既存（未占有）→ その branch に attach（startPoint 空）
+ * - candidate 未存在 → default branch から candidate を新規作成 */
+export async function resolveReviveBranch(
+  dir: string,
+  candidate: string,
+): Promise<{ branch: string; startPoint: string }> {
+  if (candidate === "" || (await isBranchCheckedOut(dir, candidate))) {
+    return { branch: generateTimestamp(), startPoint: await resolveStartPoint(dir) };
+  }
+  if (await localBranchExists(dir, candidate)) {
+    return { branch: candidate, startPoint: "" };
+  }
+  return { branch: candidate, startPoint: await resolveStartPoint(dir) };
+}
+
+/** `git worktree prune` 相当。working dir が消えた missing-but-registered な worktree 登録を掃除する。
+ * revive は cwd 不在を条件に列挙するため、外部 rm-rf 済みで `git worktree prune` 未実行の path に
+ * stale 登録が残っていると `git worktree add` が失敗する。add 前に prune して、gozd の
+ * `git worktree remove` 経由の削除だけでなく外部 rm-rf 由来の stale 登録も同一経路で救う。 */
+export async function pruneWorktrees(dir: string): Promise<void> {
+  await runGit(["worktree", "prune"], dir);
+}
+
 /** `git worktree remove [-f] <path>` 相当 */
 export async function removeWorktree(dir: string, path: string, force: boolean): Promise<void> {
   const args = ["worktree", "remove"];
@@ -128,7 +168,7 @@ async function ensureWorktreePath(projectDir: string, leaf: string): Promise<str
     throw new Error(`invalid worktree leaf name: ${leaf}`);
   }
   const projectKey = await resolveProjectKey(projectDir);
-  const base = join(homedir(), ".local", "share", "gozd", "worktrees", projectKey);
+  const base = join(gozdWorktreesRoot(), projectKey);
   mkdirSync(base, { recursive: true });
   return join(base, leaf);
 }

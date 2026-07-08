@@ -14,6 +14,7 @@ const INITIAL_STATE: ContextMap = {
   quickPickVisible: false,
   prPickerVisible: false,
   issuePickerVisible: false,
+  revivePickerVisible: false,
   inputFocused: false,
   isGitRepo: false,
 };

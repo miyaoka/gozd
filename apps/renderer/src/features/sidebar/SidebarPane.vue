@@ -41,11 +41,13 @@ import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
 import { RepoSection } from "./features/repo";
 import { useWorktreeActions } from "./features/worktree";
+import RepoMenu from "./RepoMenu.vue";
 import { rpcTaskRemove } from "./rpc";
 import SidebarClock from "./SidebarClock.vue";
 import TaskEditDialog from "./TaskEditDialog.vue";
 import TaskMenu from "./TaskMenu.vue";
 import { useDialogs } from "./useDialogs";
+import { useRepoMenu } from "./useRepoMenu";
 import { useSidebarData } from "./useSidebarData";
 import { useTaskMenu } from "./useTaskMenu";
 import { useWorktreeMenu } from "./useWorktreeMenu";
@@ -86,6 +88,7 @@ const { isCreatingFor, selectDir, handleWorktreeSelect, addWorktree, handleWorkt
 
 const { open: openWorktreeMenu } = useWorktreeMenu();
 const { open: openTaskMenu } = useTaskMenu();
+const { open: openRepoMenu } = useRepoMenu();
 
 function onOpenWorktreeMenu(anchorEl: HTMLElement, worktree: WorktreeEntry, rootDir: string) {
   openWorktreeMenu(anchorEl, { worktree, rootDir });
@@ -93,6 +96,10 @@ function onOpenWorktreeMenu(anchorEl: HTMLElement, worktree: WorktreeEntry, root
 
 function onOpenTaskMenu(anchorEl: HTMLElement, task: Task, rootDir: string) {
   openTaskMenu(anchorEl, { task, rootDir });
+}
+
+function onOpenRepoMenu(anchorEl: HTMLElement, rootDir: string) {
+  openRepoMenu(anchorEl, { rootDir });
 }
 
 function onSelectWt(wt: WorktreeEntry) {
@@ -318,6 +325,7 @@ watch(
           @add-worktree="addWorktree"
           @open-worktree-menu="onOpenWorktreeMenu"
           @open-task-menu="onOpenTaskMenu"
+          @open-repo-menu="onOpenRepoMenu"
         />
       </DragDropProvider>
 
@@ -333,9 +341,10 @@ watch(
       </button>
     </div>
 
-    <!-- ⋮ メニュー（worktree / task） -->
+    <!-- ⋮ メニュー（worktree / task / repo） -->
     <WorktreeMenu @remove="(wt, rd) => handleWorktreeRemove(rd, wt)" />
     <TaskMenu @remove="(task, rd) => handleTaskRemove(rd, task)" />
+    <RepoMenu />
 
     <!-- task title 編集 dialog -->
     <TaskEditDialog />

@@ -11,10 +11,12 @@
 // 記録される。workflow agent の表示名 / phase は <projectDir>/<session_id>/workflows/
 // <wf_id>.json の workflowProgress から agentId をキーに JOIN する。
 
+import type { ReviveSessionInfo } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, sep } from "node:path";
+import { gozdWorktreesRoot, resolveProjectKey } from "../taskStore";
 
 interface ClaudeSessionLogEntry {
   kind: "main" | "subagent";
@@ -51,6 +53,11 @@ export interface ClaudeSessionLogResult {
 /** production の本番 projectsDir。`~/.claude/projects/` */
 function defaultProjectsDir(): string {
   return join(homedir(), ".claude", "projects");
+}
+
+/** production の gozd worktrees root。SSOT は `taskStore.gozdWorktreesRoot`（ensureWorktreePath と共有）。 */
+function defaultWorktreesRoot(): string {
+  return gozdWorktreesRoot();
 }
 
 /** session_id を path 結合に渡す前の入力ゲート。UUID 構成文字 ([0-9a-fA-F-]) のみ許可し、
@@ -314,4 +321,187 @@ export function readClaudeSessionLog(
     return { found: true, entries, watchDir: projectDir };
   }
   return { found: false, entries: [], watchDir: projectsDir };
+}
+
+// --- 削除済み worktree のセッション復活 (revive) ---
+//
+// gozd 製 worktree を消すと cwd パスが失われ `claude --resume` の project key 解決が成立
+// しなくなるが、セッションログ (~/.claude/projects/<enc>/<sid>.jsonl) は残る。cwd を worktree
+// として作り直せば resume できるため、その候補一覧を列挙する。
+//
+// 抽出は全行 parse を避け tail (末尾) だけ読む。必要な 3 値はいずれも末尾側に最新値がある:
+// cwd (resume の鍵) は全レコード共通の不変値、branch (リネーム後の最終値) は最後の gitBranch、
+// title は Claude 生成の要約 (`type:"ai-title"` の aiTitle。gozd の terminalTitle と同一物) の最新値。
+// 1 セッションの jsonl は tool 出力込みで数 MB になりうるため、末尾だけ fd で読む。
+
+/** tail 読みの初期 window (bytes)。cwd / branch / title は通常この範囲に収まる。 */
+const REVIVE_SCAN_CHUNK = 64 * 1024;
+/** window を広げる上限 (bytes)。ここまでで見つからなければ諦める (病的に長い前置きへの上限)。 */
+const REVIVE_SCAN_MAX = 4 * 1024 * 1024;
+/** title の最大長。表示上の切り詰めは renderer が CSS で行うが、ワイヤ肥大を防ぐため主側でも上限を掛ける。 */
+const REVIVE_TITLE_MAX = 200;
+
+/** file のサイズ (bytes)。stat 失敗は 0。 */
+function fileSize(path: string): number {
+  const result = tryCatch(() => statSync(path).size);
+  return result.ok ? result.value : 0;
+}
+
+/** file の最終更新時刻 (Unix ミリ秒)。stat 失敗は 0。 */
+function fileMtimeMs(path: string): number {
+  const result = tryCatch(() => statSync(path).mtimeMs);
+  return result.ok ? result.value : 0;
+}
+
+/** file の [start, start+length) を UTF-8 文字列で読む。fd を確実に close する。失敗は空文字。 */
+function readByteRange(path: string, start: number, length: number): string {
+  const result = tryCatch(() => {
+    const fd = openSync(path, "r");
+    try {
+      const buf = Buffer.alloc(length);
+      const bytes = readSync(fd, buf, 0, length, start);
+      return buf.subarray(0, bytes).toString("utf8");
+    } finally {
+      closeSync(fd);
+    }
+  });
+  return result.ok ? result.value : "";
+}
+
+interface SessionMeta {
+  cwd: string;
+  branch: string;
+  title: string;
+  /** 最後のレコードの timestamp (ISO 文字列)。無ければ空文字。 */
+  timestamp: string;
+}
+
+/** 行群を通して cwd / branch / title / timestamp を集める (いずれも最後に現れた値を採る)。
+ *
+ * - cwd: どの会話レコードにも載る不変値 (last でよい)
+ * - branch: リネームは行順に記録されるため「最後の gitBranch」が最終ブランチ名
+ *   (未リネームなら日付、リネーム済みなら PR 名)
+ * - title: Claude 生成の要約 (`type:"ai-title"` の aiTitle)。gozd の terminalTitle と同一物で、
+ *   毎ターン更新されるため「最後の aiTitle」が最新タイトル。ユーザーの生発話ではない
+ * - timestamp: 各レコードの `timestamp` (ISO)。「最後の timestamp」= セッションが最後に動いた時刻。
+ *   ファイル mtime と違い FS 操作 (copy / touch / 移動) の影響を受けない内容由来の真値 */
+function extractMeta(lines: string[]): SessionMeta {
+  let cwd = "";
+  let branch = "";
+  let title = "";
+  let timestamp = "";
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    const result = tryCatch(
+      () =>
+        JSON.parse(line) as {
+          cwd?: unknown;
+          gitBranch?: unknown;
+          type?: unknown;
+          aiTitle?: unknown;
+          timestamp?: unknown;
+        },
+    );
+    if (!result.ok) continue;
+    const v = result.value;
+    if (typeof v.cwd === "string" && v.cwd !== "") cwd = v.cwd;
+    if (typeof v.gitBranch === "string" && v.gitBranch !== "") branch = v.gitBranch;
+    if (v.type === "ai-title" && typeof v.aiTitle === "string" && v.aiTitle !== "") title = v.aiTitle;
+    if (typeof v.timestamp === "string" && v.timestamp !== "") timestamp = v.timestamp;
+  }
+  const trimmedTitle = title.length > REVIVE_TITLE_MAX ? `${title.slice(0, REVIVE_TITLE_MAX)}…` : title;
+  return { cwd, branch, title: trimmedTitle, timestamp };
+}
+
+/** file 末尾から cwd / branch / title / timestamp を読む。cwd と branch が揃うまで window を広げる
+ * (title / timestamp は best-effort)。全値とも末尾側に最新値があるため tail 読みで足りる。 */
+function readSessionMeta(path: string): SessionMeta {
+  const size = fileSize(path);
+  let window = REVIVE_SCAN_CHUNK;
+  while (true) {
+    const start = Math.max(0, size - window);
+    const text = readByteRange(path, start, size - start);
+    const rawLines = text.split("\n");
+    // start > 0 のとき先頭は途中からの部分行なので落とす。
+    const lines = start > 0 ? rawLines.slice(1) : rawLines;
+    const meta = extractMeta(lines);
+    if ((meta.cwd !== "" && meta.branch !== "") || start === 0 || window >= REVIVE_SCAN_MAX) {
+      return meta;
+    }
+    window *= 4;
+  }
+}
+
+/** 指定 repo (dir) 配下の削除済み worktree に紐づく復活可能セッションを列挙する。
+ *
+ * gozd 製 worktree に限定する: cwd が `~/.local/share/gozd/worktrees/<projectKey>/<leaf>` 配下で、
+ * projectKey が呼び出し repo と一致し、かつ cwd が実在しない (= worktree 削除済み) もの。外部 worktree
+ * は cwd が gozd スキーム外なので projectKey に帰属付けできず、対象にしない (設計判断)。
+ *
+ * `projectsDir` / `worktreesRoot` はテスト用の injection 口。production は省略し、それぞれ
+ * `~/.claude/projects/` と `~/.local/share/gozd/worktrees/`（ensureWorktreePath の base と同一）を使う。 */
+export async function listReviveSessions(
+  dir: string,
+  projectsDir: string = defaultProjectsDir(),
+  worktreesRoot: string = defaultWorktreesRoot(),
+): Promise<ReviveSessionInfo[]> {
+  if (!isDirectory(projectsDir)) return [];
+  const projectKey = await resolveProjectKey(dir);
+  const basePrefix = join(worktreesRoot, projectKey) + sep;
+
+  const sessions: ReviveSessionInfo[] = [];
+  for (const name of listDir(projectsDir)) {
+    const projectDir = join(projectsDir, name);
+    if (!isDirectory(projectDir)) continue;
+    // sort して代表選定と列挙順を決定論化する (readdir 順は FS 依存。全 jsonl は cwd 共有なので
+    // sort は correctness に無害で、代表 1 本の選ばれ方をテスト可能にする)。
+    const jsonls = listDir(projectDir)
+      .filter((n) => n.endsWith(".jsonl"))
+      .sort();
+    if (jsonls.length === 0) continue;
+    // 同 projectDir の全 jsonl は同じ cwd (Claude の dir エンコード前が同一 dir)。cwd を返せる
+    // 最初の 1 本を代表に dir 単位で分類する。先頭が 0 バイト / 破損で cwd を返せなくても
+    // dir 全体を捨てず後続 jsonl を試す (代表 1 本の欠損で兄弟セッションを silent drop しない)。
+    const metaByPath = new Map<string, SessionMeta>();
+    let cwd = "";
+    for (const jsonlName of jsonls) {
+      const path = join(projectDir, jsonlName);
+      const meta = readSessionMeta(path);
+      metaByPath.set(path, meta);
+      if (meta.cwd !== "") {
+        cwd = meta.cwd;
+        break;
+      }
+      console.error(`[listReviveSessions] empty cwd, trying siblings: ${path}`);
+    }
+    if (cwd === "" || !cwd.startsWith(basePrefix) || existsSync(cwd)) continue;
+    const worktreeDir = basename(cwd);
+    for (const jsonlName of jsonls) {
+      const sessionId = basename(jsonlName, ".jsonl");
+      if (!isSafeSessionId(sessionId)) continue;
+      const path = join(projectDir, jsonlName);
+      // 0 バイト jsonl は session 実体が無く revive しても resume できないため行に出さない
+      // (代表選定で cwd 分類から除外したのと整合させ、空 title / 0 KB の blank 行を出さない)。
+      const sizeBytes = fileSize(path);
+      if (sizeBytes === 0) continue;
+      const meta = metaByPath.get(path) ?? readSessionMeta(path);
+      // 非 0 バイトでも自セッションの cwd を読めない破損 jsonl は blank 行になるため出さない
+      // (正常な Claude jsonl は全レコードに cwd が載るため、cwd 空 = 実体無し)。
+      if (meta.cwd === "") continue;
+      // 最終アクティビティは末尾レコードの timestamp (内容由来) を SSOT にする。ISO が無い /
+      // parse 不能な病的ケースだけ mtime にフォールバックする (0 で epoch 表示に落とさない)。
+      const tsMs = meta.timestamp !== "" ? Date.parse(meta.timestamp) : Number.NaN;
+      sessions.push({
+        sessionId,
+        cwd,
+        worktreeDir,
+        branch: meta.branch,
+        title: meta.title,
+        lastActivity: Number.isNaN(tsMs) ? fileMtimeMs(path) : tsMs,
+        sizeBytes,
+      });
+    }
+  }
+  sessions.sort((a, b) => b.lastActivity - a.lastActivity);
+  return sessions;
 }

@@ -2,7 +2,10 @@
 //
 // セッションの永続化自体は task.ts の Task.sessionId が SSOT (worktree 単位の
 // resume 復元は ResumableSessionList で tasks.json から引く)。このファイルには PTY 単位の
-// session 掃除 (RemoveByPty) とセッションログ表示 (ClaudeSessionLog) の RPC 型のみ置く。
+// session 掃除 (RemoveByPty)、セッションログ表示 (ClaudeSessionLog)、削除済み worktree の
+// セッション復活 (ReviveSession*) の RPC 型を置く。
+
+import type { Task, WorktreeEntry } from "./common";
 
 /** 指定 PTY に紐づく Claude セッションを永続化から削除する。renderer の
  * unregisterPane（terminal.closePane / resetLayout / worktree 削除）から呼ぶ。
@@ -66,6 +69,69 @@ interface ClaudeSessionLogEntry {
   /** workflow agent の phase 名 (workflowProgress の phaseTitle)。タブのラベルに使う。
    * 非 workflow subagent / main は空文字。 */
   phaseTitle: string;
+}
+
+/** 削除済み worktree に紐づく、復活可能な 1 セッションの表示メタ。
+ *
+ * gozd 製 worktree を消すと cwd パスが失われ `claude --resume` の project key 解決が
+ * 成立しなくなるが、セッションログ (~/.claude/projects/<enc>/<sid>.jsonl) は残る。
+ * cwd を worktree として作り直せば resume できるため、その候補一覧を出すための行データ。
+ * 復活対象は gozd 製 worktree に限定する (cwd が `worktrees/<projectKey>/<leaf>` 配下で、
+ * projectKey が呼び出し repo と一致するもの)。 */
+export interface ReviveSessionInfo {
+  /** ~/.claude/projects/<enc>/<sessionId>.jsonl のファイル名から取る sessionId。resume の鍵。 */
+  sessionId: string;
+  /** ログ記録時の cwd (= 復活先 worktree の絶対パス)。resume の project key 一致条件。 */
+  cwd: string;
+  /** 復活 worktree の leaf (= basename(cwd)、元の作成タイムスタンプ)。createWorktree の worktreeDir。 */
+  worktreeDir: string;
+  /** ログ末尾の gitBranch (リネーム済みなら PR 用の名前、未リネームなら日付)。復活ブランチの第 1 候補。 */
+  branch: string;
+  /** セッションを識別する表示用タイトル。Claude 生成の要約 (`type:"ai-title"` の aiTitle の最新値)
+   * で、gozd のターミナルタイトル (task.terminalTitle) と同一物。取れなければ空文字 (renderer が
+   * branch にフォールバック)。 */
+  title: string;
+  /** セッションが最後に動いた時刻 (Unix ミリ秒)。ログ末尾レコードの `timestamp` (内容由来) を
+   * SSOT にする。行の「最終日付」表示 + 新しい順ソートに使う。 */
+  lastActivity: number;
+  /** セッションログ jsonl のファイルサイズ (bytes)。会話量の目安として行に表示する。 */
+  sizeBytes: number;
+}
+
+/** 指定 repo (dir) 配下の削除済み worktree に紐づく復活可能セッション一覧。
+ * repo ⋮ メニュー / コマンドパレット由来の revive picker が開くときに呼ぶ。dir は
+ * repo root / worktree / 配下 subdir のいずれでも可 (main 側で projectKey に解決する)。 */
+export interface ReviveSessionListRequest {
+  dir: string;
+}
+export interface ReviveSessionListResponse {
+  /** lastActivity 降順 (新しい順) で返す。復活候補が無ければ空配列。 */
+  sessions: ReviveSessionInfo[];
+}
+
+/** セッション 1 件を復活させる。cwd を worktree として作り直し、tasks.json に sessionId 付き
+ * task を書く。以降は既存の resume 機構 (visit 時の resumableSessionIds → `claude --resume`)
+ * がそのまま resume を駆動する。branch は main 側で衝突判定する (他 worktree が占有中なら
+ * 日付ブランチへ fallback) ため、renderer は候補 branch を渡すだけでよい。 */
+export interface ReviveSessionRequest {
+  /** repo root / 配下 dir。main 側で projectKey → worktree 配置先を解決する。 */
+  dir: string;
+  /** 復活先 worktree の leaf (= ReviveSessionInfo.worktreeDir)。cwd を 1 バイト一致で再現する。 */
+  worktreeDir: string;
+  /** 復活ブランチの第 1 候補 (= ReviveSessionInfo.branch)。衝突時は main 側で日付名に倒す。 */
+  branch: string;
+  /** 復活するセッションの sessionId。tasks.json の task.sessionId に載せて resume 起点にする。 */
+  sessionId: string;
+}
+export interface ReviveSessionResponse {
+  /** 作り直した worktree。renderer が repoStore.appendWorktree で即時反映する。 */
+  worktree: WorktreeEntry;
+  /** 作成した worktree の絶対パス。renderer が worktreeStore.setOpen で開く。 */
+  dir: string;
+  /** sessionId を載せた task。サイドバーに即時表示する。 */
+  task: Task;
+  /** project 設定の setupScript。renderer が専用ターミナルで実行する。空なら実行しない。 */
+  setupScript: string;
 }
 
 export interface ClaudeSessionLogResponse {

@@ -52,6 +52,7 @@ export interface ContextMap {
   quickPickVisible: boolean;
   prPickerVisible: boolean;
   issuePickerVisible: boolean;
+  revivePickerVisible: boolean;
   inputFocused: boolean;
   isGitRepo: boolean;
 }

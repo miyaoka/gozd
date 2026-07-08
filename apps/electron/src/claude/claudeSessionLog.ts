@@ -16,7 +16,7 @@ import { tryCatch } from "@gozd/shared";
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, sep } from "node:path";
-import { resolveProjectKey } from "../taskStore";
+import { gozdWorktreesRoot, resolveProjectKey } from "../taskStore";
 
 interface ClaudeSessionLogEntry {
   kind: "main" | "subagent";
@@ -55,9 +55,9 @@ function defaultProjectsDir(): string {
   return join(homedir(), ".claude", "projects");
 }
 
-/** production の gozd worktrees root。`~/.local/share/gozd/worktrees/`（ensureWorktreePath の base と同一）。 */
+/** production の gozd worktrees root。SSOT は `taskStore.gozdWorktreesRoot`（ensureWorktreePath と共有）。 */
 function defaultWorktreesRoot(): string {
-  return join(homedir(), ".local", "share", "gozd", "worktrees");
+  return gozdWorktreesRoot();
 }
 
 /** session_id を path 結合に渡す前の入力ゲート。UUID 構成文字 ([0-9a-fA-F-]) のみ許可し、
@@ -453,10 +453,14 @@ export async function listReviveSessions(
   for (const name of listDir(projectsDir)) {
     const projectDir = join(projectsDir, name);
     if (!isDirectory(projectDir)) continue;
-    const jsonls = listDir(projectDir).filter((n) => n.endsWith(".jsonl"));
+    // sort して代表選定と列挙順を決定論化する (readdir 順は FS 依存。全 jsonl は cwd 共有なので
+    // sort は correctness に無害で、代表 1 本の選ばれ方をテスト可能にする)。
+    const jsonls = listDir(projectDir)
+      .filter((n) => n.endsWith(".jsonl"))
+      .sort();
     if (jsonls.length === 0) continue;
     // 同 projectDir の全 jsonl は同じ cwd (Claude の dir エンコード前が同一 dir)。cwd を返せる
-    // 最初の 1 本を代表に dir 単位で分類する。readdir 先頭が 0 バイト / 破損で cwd を返せなくても
+    // 最初の 1 本を代表に dir 単位で分類する。先頭が 0 バイト / 破損で cwd を返せなくても
     // dir 全体を捨てず後続 jsonl を試す (代表 1 本の欠損で兄弟セッションを silent drop しない)。
     const metaByPath = new Map<string, SessionMeta>();
     let cwd = "";
@@ -476,6 +480,10 @@ export async function listReviveSessions(
       const sessionId = basename(jsonlName, ".jsonl");
       if (!isSafeSessionId(sessionId)) continue;
       const path = join(projectDir, jsonlName);
+      // 0 バイト jsonl は session 実体が無く revive しても resume できないため行に出さない
+      // (代表選定で cwd 分類から除外したのと整合させ、空 title / 0 KB の blank 行を出さない)。
+      const sizeBytes = fileSize(path);
+      if (sizeBytes === 0) continue;
       const meta = metaByPath.get(path) ?? readSessionMeta(path);
       // 最終アクティビティは末尾レコードの timestamp (内容由来) を SSOT にする。ISO が無い /
       // parse 不能な病的ケースだけ mtime にフォールバックする (0 で epoch 表示に落とさない)。
@@ -487,7 +495,7 @@ export async function listReviveSessions(
         branch: meta.branch,
         title: meta.title,
         lastActivity: Number.isNaN(tsMs) ? fileMtimeMs(path) : tsMs,
-        sizeBytes: fileSize(path),
+        sizeBytes,
       });
     }
   }

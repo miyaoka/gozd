@@ -224,6 +224,8 @@ describe("listReviveSessions", () => {
     const valid = sessions.find((s) => s.sessionId === validSid);
     expect(valid?.title).toBe("Real session");
     expect(valid?.branch).toBe("feature/foo");
+    // 0 バイトの兄弟は blank 行として出さない（cwd 分類からの救済とは別に、行生成でも skip）
+    expect(sessions.find((s) => s.sessionId === "00000000-0000-0000-0000-000000000000")).toBeUndefined();
   });
 
   test("timestamp が無いセッションは lastActivity を mtime にフォールバックする", async () => {

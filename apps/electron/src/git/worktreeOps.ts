@@ -2,12 +2,11 @@
 // 読み取り系（list / log）は gitOps / gitLog、副作用持ち（create / remove）はここ。
 
 import { mkdirSync, lstatSync, symlinkSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { realpathSync } from "node:fs";
 import { generateTimestamp, tryCatch } from "@gozd/shared";
 import { resolveContained } from "../fs/pathContainment";
-import { resolveMainRepoRoot, resolveProjectKey } from "../taskStore";
+import { gozdWorktreesRoot, resolveMainRepoRoot, resolveProjectKey } from "../taskStore";
 import { resolveStartPoint } from "./gitBranch";
 import { worktreeList } from "./gitOps";
 import { runGit } from "./gitRunner";
@@ -169,7 +168,7 @@ async function ensureWorktreePath(projectDir: string, leaf: string): Promise<str
     throw new Error(`invalid worktree leaf name: ${leaf}`);
   }
   const projectKey = await resolveProjectKey(projectDir);
-  const base = join(homedir(), ".local", "share", "gozd", "worktrees", projectKey);
+  const base = join(gozdWorktreesRoot(), projectKey);
   mkdirSync(base, { recursive: true });
   return join(base, leaf);
 }

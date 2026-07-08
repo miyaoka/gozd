@@ -132,6 +132,30 @@ describe("ptyClient", () => {
     expect(ctx.processes.length).toBe(1);
   });
 
+  test("spawnError 受信で spawn が reject する", async () => {
+    const ctx = setup();
+    const pidP = ctx.client.spawn(1, SPAWN_PARAMS);
+    const proc = ctx.processes[ctx.processes.length - 1];
+    proc.emit("spawn");
+    await tick();
+    proc.emit("message", { type: "spawnError", id: 1, message: "boom" } satisfies PtyToHostMessage);
+    await expect(pidP).rejects.toThrow("boom");
+  });
+
+  test("spawn 確定前に host が crash したら spawn が reject し、exited 通知は出ない", async () => {
+    const ctx = setup();
+    const pidP = ctx.client.spawn(1, SPAWN_PARAMS);
+    const proc = ctx.processes[ctx.processes.length - 1];
+    proc.emit("spawn");
+    await tick();
+    // spawned ack が来る前に host が異常終了。pending の spawn は reject される
+    proc.emit("exit", 1);
+    await expect(pidP).rejects.toThrow();
+    // 確定前なので live に入っておらず、crash の exit-all 通知も出ない
+    expect(ctx.exits).toEqual([]);
+    expect(ctx.labels()).not.toContain("crashed");
+  });
+
   test("dispose は host を kill し、crash 通知を出さない", async () => {
     const ctx = setup();
     const { proc } = await establish(ctx, 1);

@@ -8,6 +8,7 @@
 // （ptyExit push）し、次の spawn 要求で host を lazy 再起動する。app 丸ごと即死よりは厳密に
 // 改善（app は生存、当該端末だけ死ぬ）。VS Code も host crash 時は端末を exited 扱いにする。
 
+import { tryCatch } from "@gozd/shared";
 import type { UtilityProcess } from "electron";
 import { join } from "node:path";
 import type { HostToPtyMessage, PtyToHostMessage } from "./ptyProtocol";
@@ -121,9 +122,16 @@ export function createPtyClient(deps: PtyClientDeps): PtyClient {
 
   function getChild(): Promise<UtilityProcess> {
     if (ready !== undefined) return ready;
+    // fork は promise 生成の前に回す。executor 内で ready=undefined にしても外側の
+    // `ready = new Promise(...)` 代入で上書きされ reset が効かないため。同期 fork 失敗時は
+    // ready を掴まず（undefined のまま）reject を返し、次の spawn で lazy 再起動を再試行できる
+    const forked = tryCatch(() => fork(scriptPath));
+    if (!forked.ok) {
+      return Promise.reject(new Error(`pty host fork failed: ${String(forked.error)}`));
+    }
+    const spawned = forked.value;
     ready = new Promise<UtilityProcess>((resolve, reject) => {
       readyReject = reject;
-      const spawned = fork(scriptPath);
       // main 側の utilityProcess message は payload を直に受け取る（child の parentPort とは
       // 非対称。child は event.data でラップされる）。watcherClient と同じ扱い
       spawned.on("message", (message: PtyToHostMessage) => {
@@ -137,8 +145,8 @@ export function createPtyClient(deps: PtyClientDeps): PtyClient {
       spawned.on("error", (type, location, report) => {
         logEvent("pty-host", "fatal-error", `${type} @ ${location}: ${report}`);
       });
-      child = spawned;
     });
+    child = spawned;
     return ready;
   }
 

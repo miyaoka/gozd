@@ -139,7 +139,8 @@ describe("ptyClient", () => {
     proc.emit("spawn");
     await tick();
     proc.emit("message", { type: "spawnError", id: 1, message: "boom" } satisfies PtyToHostMessage);
-    await expect(pidP).rejects.toThrow("boom");
+    // bun は非 await の .rejects も追跡して失敗を捕捉する（codebase の commandResolver.test と同作法）
+    expect(pidP).rejects.toThrow("boom");
   });
 
   test("spawn 確定前に host が crash したら spawn が reject し、exited 通知は出ない", async () => {
@@ -150,7 +151,7 @@ describe("ptyClient", () => {
     await tick();
     // spawned ack が来る前に host が異常終了。pending の spawn は reject される
     proc.emit("exit", 1);
-    await expect(pidP).rejects.toThrow();
+    expect(pidP).rejects.toThrow();
     // 確定前なので live に入っておらず、crash の exit-all 通知も出ない
     expect(ctx.exits).toEqual([]);
     expect(ctx.labels()).not.toContain("crashed");
@@ -165,6 +166,34 @@ describe("ptyClient", () => {
     proc.emit("exit", 0);
     expect(ctx.exits).toEqual([]);
     expect(ctx.labels()).not.toContain("crashed");
+  });
+
+  test("fork が同期 throw しても ready を壊さず、次の spawn で再試行できる", async () => {
+    const processes: FakePtyProcess[] = [];
+    let failNextFork = true;
+    const client = createPtyClient({
+      onData: () => {},
+      onExit: () => {},
+      logEvent: () => {},
+      fork: () => {
+        if (failNextFork) {
+          failNextFork = false;
+          throw new Error("fork boom");
+        }
+        const proc = createFakePtyProcess();
+        processes.push(proc);
+        return proc as unknown as UtilityProcess;
+      },
+    });
+    // 1 回目: fork 同期失敗 → spawn は reject
+    expect(client.spawn(1, SPAWN_PARAMS)).rejects.toThrow("fork boom");
+    // 2 回目: fork 成功 → lazy 再起動して spawn 成功（reject 済み ready がキャッシュされていない証拠）
+    const pidP = client.spawn(2, SPAWN_PARAMS);
+    const proc = processes[processes.length - 1];
+    proc.emit("spawn");
+    await tick();
+    proc.emit("message", { type: "spawned", id: 2, pid: 7777 } satisfies PtyToHostMessage);
+    expect(await pidP).toBe(7777);
   });
 
   test("crash 後の次の spawn で host を lazy 再起動する", async () => {

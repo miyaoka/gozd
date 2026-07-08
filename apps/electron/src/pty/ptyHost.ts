@@ -11,22 +11,16 @@
 
 import { tryCatch } from "@gozd/shared";
 import { spawn, type IPty } from "node-pty";
+import { createFlowController, type FlowController } from "./ptyFlowControl";
 import type { HostToPtyMessage, PtyToHostMessage } from "./ptyProtocol";
 
 // utilityProcess 内でのみ parentPort が生える。それ以外での誤起動は起動元がいないので即死
 const parentPort = process.parentPort;
 
-// flow control の watermark（VS Code FlowControlConstants と同値）。host→main IPC を溢れさせず
-// MB/s の onData を流すための backpressure。未 ack 文字数が High を超えたら pty を pause し、
-// main の ack で Low を下回ったら resume する。
-const HIGH_WATERMARK_CHARS = 100_000;
-const LOW_WATERMARK_CHARS = 5_000;
-
 interface PtyEntry {
   pty: IPty;
-  /** main へ送ったが ack されていない文字数。flow control の pause 判定に使う */
-  unackedChars: number;
-  paused: boolean;
+  /** host→main IPC の backpressure。onData で onSent、main の ack で onAck を回す */
+  flow: FlowController;
 }
 
 const entries = new Map<number, PtyEntry>();
@@ -67,16 +61,18 @@ function handleSpawn(msg: Extract<HostToPtyMessage, { type: "spawn" }>): void {
     return;
   }
   const pty = result.value;
-  const entry: PtyEntry = { pty, unackedChars: 0, paused: false };
+  const entry: PtyEntry = {
+    pty,
+    flow: createFlowController(
+      () => pty.pause(),
+      () => pty.resume(),
+    ),
+  };
   entries.set(msg.id, entry);
 
   pty.onData((text) => {
     post({ type: "data", id: msg.id, text });
-    entry.unackedChars += text.length;
-    if (!entry.paused && entry.unackedChars > HIGH_WATERMARK_CHARS) {
-      entry.paused = true;
-      pty.pause();
-    }
+    entry.flow.onSent(text.length);
   });
   pty.onExit(({ exitCode, signal }) => {
     // 自然終了。ptmx fd を解放し、destroy の遅延 SIGHUP を無効化する
@@ -88,15 +84,9 @@ function handleSpawn(msg: Extract<HostToPtyMessage, { type: "spawn" }>): void {
   post({ type: "spawned", id: msg.id, pid: pty.pid });
 }
 
-/** flow control: main が転送し終えた文字数を差し引き、Low 未満に落ちたら resume する */
+/** flow control: main が転送し終えた文字数を ack する（Low 未満に落ちたら resume が走る） */
 function handleAck(id: number, charCount: number): void {
-  const entry = entries.get(id);
-  if (entry === undefined) return;
-  entry.unackedChars = Math.max(entry.unackedChars - charCount, 0);
-  if (entry.paused && entry.unackedChars < LOW_WATERMARK_CHARS) {
-    entry.paused = false;
-    entry.pty.resume();
-  }
+  entries.get(id)?.flow.onAck(charCount);
 }
 
 /** 単一端末クローズ。kill（SIGHUP）+ ptmx close。onExit が発火して exit を post する */

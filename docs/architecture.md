@@ -276,7 +276,8 @@ main が PTY を spawn する時に以下の環境変数を注入する（`gozdE
 
 node-pty の `IPty` は **Electron の utilityProcess（pty 専用 host。`ptyHost`）に隔離**し、main は
 `ptyClient` の transport 越しに spawn / write / resize / kill を仲介する。main は node-pty を
-一切 import しない（`import { spawn } from "node-pty"` は main のバンドルから消えている）。
+一切 import せず、main のバンドルに node-pty への参照は存在しない（唯一の import 元は host entry
+`ptyHost`）。
 
 - **なぜ別プロセスか**: node-pty の exit callback は「native waitpid スレッド → ThreadSafeFunction →
   JS の onexit」という非同期経路で、子の reap がアプリ終了時の env teardown（`node::FreeEnvironment`

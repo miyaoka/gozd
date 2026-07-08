@@ -3,8 +3,8 @@
 
 ## ヘッダバー
 
-- Claude セッションが attach された leaf だけ、上部 (ボーダー線上) に status アイコン +
-  task タイトルを表示する（`TerminalLeafTitle`）。素の PTY では何も出さない
+- Claude セッションが attach された leaf だけ `TerminalLeafTitle` を出す（表示内容は同コンポーネント参照）。
+  素の PTY では何も出さない
 
 ## フォーカス
 

@@ -183,9 +183,21 @@ let nextPtyId = 1;
 // （fsPush と同じ後付け束縛。gozd はシングルウィンドウ前提）
 let ptyPush: PushFn | undefined;
 
+// 診断（crash / respawn / host 内部ログ等）を renderer の event-log パネルへ流す push を作る
+// 共通ファクトリ。push 先の window sender（ptyPush / fsPush）は後付け束縛の可変参照なので
+// thunk で受ける。二段構えの理由: event-log push は packaged UI で見えるが、束縛前や window
+// クローズ後は無音で落ちる。console.error は packaged では UI に出ないが dev で可視かつ push が
+// 落ちても残る floor になる。両方出して失敗経路（crashed / fatal-error 等）の silent drop を
+// 防ぐ（CLAUDE.md 観察ログ規約）。隔離プロセス側（watcherProcess / ptyHost）の child stderr は
+// 不可視なので、そちらは console.error を使わず log message を main へ投げる分業はそのまま
+const makeDebugLogPush =
+  (getPush: () => PushFn | undefined) => (channel: string, label: string, detail: string) => {
+    console.error(`[${channel}] ${label}: ${detail}`);
+    getPush()?.("debugLog", { channel, label, repo: "", detail });
+  };
+
 // host crash / 内部ログを event-log パネルに流す共通経路
-const pushPtyDebugLog = (channel: string, label: string, detail: string) =>
-  ptyPush?.("debugLog", { channel, label, repo: "", detail });
+const pushPtyDebugLog = makeDebugLogPush(() => ptyPush);
 
 // node-pty を丸ごと所有する utilityProcess の client。node-pty の env teardown crash を
 // 起こす isolate は使い捨ての host 側にしかなく、main は host の exit を観測して cleanly quit
@@ -455,11 +467,10 @@ function gitStatusChangePayload(dir: string, status: StatusFull): Record<string,
 // @parcel/watcher を隔離した utilityProcess の client。native crash はこのプロセス内に
 // 封じ込め、main は onExit で検知して respawn する（watcherClient 参照）。自己修復する crash は
 // event-log に留め、監視が完全停止した terminal ケースだけ notify でトースト表示する
-// （console.error は packaged で見えないため使わない）
 
 // 診断（crash/respawn/watch-error）を renderer の event-log パネルに流す共通経路
-const pushDebugLog = (channel: string, label: string, detail: string) =>
-  fsPush?.("debugLog", { channel, label, repo: "", detail });
+// （console.error floor + event-log push の二段構え。makeDebugLogPush 参照）
+const pushDebugLog = makeDebugLogPush(() => fsPush);
 
 const watcherClient = createWatcherClient({
   logEvent: pushDebugLog,

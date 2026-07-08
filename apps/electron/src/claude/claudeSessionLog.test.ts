@@ -228,6 +228,28 @@ describe("listReviveSessions", () => {
     expect(sessions.find((s) => s.sessionId === "00000000-0000-0000-0000-000000000000")).toBeUndefined();
   });
 
+  test("非 0 バイトだが cwd を持たない破損 jsonl は行に出さない", async () => {
+    const repo = makeTemp("gozd-revive-repo-");
+    const projects = makeTemp("gozd-revive-projects-");
+    const wtRoot = makeTemp("gozd-revive-wtroot-");
+    const cwd = await gozdCwd(repo, wtRoot, "20260101_120000");
+    const projectDir = join(projects, "enc-1");
+    mkdirSync(projectDir, { recursive: true });
+    // 非 0 バイトだが cwd を 1 レコードも持たない破損 jsonl（sizeBytes>0 で 0 バイト skip は素通り）
+    const corruptSid = "cccccccc-0000-0000-0000-000000000000";
+    writeFileSync(join(projectDir, `${corruptSid}.jsonl`), '{"foo":"bar"}\n');
+    const validSid = "aaaaaaaa-1111-2222-3333-444444444444";
+    writeFileSync(
+      join(projectDir, `${validSid}.jsonl`),
+      `{"type":"ai-title","aiTitle":"Real","gitBranch":"feature/foo","timestamp":"2026-01-01T12:05:00.000Z","cwd":"${cwd}"}\n`,
+    );
+
+    const sessions = await listReviveSessions(repo, projects, wtRoot);
+    expect(sessions.find((s) => s.sessionId === validSid)?.title).toBe("Real");
+    // meta.cwd === "" ガードで破損セッションは行から除外される
+    expect(sessions.find((s) => s.sessionId === corruptSid)).toBeUndefined();
+  });
+
   test("timestamp が無いセッションは lastActivity を mtime にフォールバックする", async () => {
     const repo = makeTemp("gozd-revive-repo-");
     const projects = makeTemp("gozd-revive-projects-");

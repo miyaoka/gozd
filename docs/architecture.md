@@ -272,6 +272,35 @@ main が PTY を spawn する時に以下の環境変数を注入する（`gozdE
 > `PtySpawnRequest.args` のワイヤ契約は **argv 全体**（args[0] = プログラム名）。node-pty は
 > args に argv[0] を含めない流儀なので、main 側で `args.slice(1)` して渡す。
 
+### node-pty の utilityProcess 隔離
+
+node-pty の `IPty` は **Electron の utilityProcess（pty 専用 host。`ptyHost`）に隔離**し、main は
+`ptyClient` の transport 越しに spawn / write / resize / kill を仲介する。main は node-pty を
+一切 import しない（`import { spawn } from "node-pty"` は main のバンドルから消えている）。
+
+- **なぜ別プロセスか**: node-pty の exit callback は「native waitpid スレッド → ThreadSafeFunction →
+  JS の onexit」という非同期経路で、子の reap がアプリ終了時の env teardown（`node::FreeEnvironment`
+  → `CleanupHandles` → `uv_run` の drain）と競合すると、破壊中 isolate 上で `cb.Call` が失敗し
+  node-addon-api が二重 throw して `SIGABRT` する。これは in-process では原理的に消せない
+  （microsoft/vscode issue243952 も未解決）。IPty を丸ごと別アドレス空間へ移し、crash する env を
+  使い捨ての host に閉じ込めるのが唯一の構造的解（VS Code ptyHost モデルと同型）。watcher の
+  native heap 破壊とは別クラスの crash だが、封じ込めの思想は共通
+- **境界**: host が持つのは IPty のライフサイクルと data のみ。env 構築（`buildPtyEnv` の
+  `GOZD_PTY_ID` 注入等）・session 紐付け（`ptySessions`）・portScanner の pid 帰属は main に据え置く。
+  pid は spawn 応答で host から返して main が引き取る
+- **flow control**: MB/s 規模の onData を host→main IPC で溢れさせないため backpressure をかける。
+  host は未 ack 文字数を数え、閾値超で `pty.pause()`、main が転送後に ack を返し、下限を割ると
+  `resume()`（VS Code FlowControlConstants と同じ watermark 方式）
+- **crash 復帰が watcher と違う理由**: watcher は re-subscribe で透過復帰できるが、pty host が落ちると
+  配下の shell / claude セッションは子プロセスごと死ぬため蘇生できない。よって host crash 時は
+  respawn して復元せず、live な全 pty を exited として renderer に通知（`ptyExit`）し、次の spawn 要求で
+  host を lazy 再起動する。app 丸ごと即死より厳密に改善（app は生存、当該端末だけ死ぬ）
+- **quit 経路**: アプリ終了時は `ptyClient.dispose()` で host を terminate する。host の env teardown
+  （pending TSFN の drain crash 含む）は使い捨て host 内で完結し、main は `child exit` を観測して
+  cleanly quit する
+- **観察可能性**: crash / host 内部ログは `debugLog` push で renderer の event-log パネルへ流す
+  （watcher と同じ規律。`console.error` / stderr は packaged で見えないため host からは使わない）
+
 ### gozd 固有の環境変数
 
 | 変数                        | 用途                                                     |

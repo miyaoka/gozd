@@ -1,6 +1,7 @@
 // PTY ⇔ Claude session の紐付け registry。Swift 版 `PTYRegistry` の per-id state
 // （worktreePathById / sessionIdById / expectedResumeSidById / explicitlyRemovedPtyIds）の対応物。
-// PTY 本体（node-pty instance）は routes.ts が所有し、本モジュールは紐付けのみ扱う。
+// PTY 本体（node-pty instance）は utilityProcess（ptyHost）が所有し、本モジュールは
+// ptyId 単位の紐付けのみ扱う（pty オブジェクトには依存しない）。
 // socket 経由の hook 処理（claudeSessionHooks）と RPC（routes）の両方から参照される。
 
 const worktreePathById = new Map<number, string>();

@@ -133,12 +133,12 @@ import type {
 import { tryCatch } from "@gozd/shared";
 import { app, BrowserWindow, dialog, shell } from "electron";
 import { existsSync } from "node:fs";
-import { spawn, type IPty } from "node-pty";
 import { listReviveSessions, readClaudeSessionLog } from "./claude/claudeSessionLog";
 import { writeFilesToClipboard } from "./clipboardOps";
 import { readDir, readFile, readFileAbsolute, stat, writeFile } from "./fs/fsOps";
 import { createFsWatchRegistry } from "./fs/fsWatchRegistry";
 import { createWatcherClient } from "./fs/watcherClient";
+import { createPtyClient } from "./pty/ptyClient";
 import { blameLine, logFile, logLine } from "./git/gitBlame";
 import { resolveStartPoint } from "./git/gitBranch";
 import { diffHunks, expandDiffLines } from "./git/gitDiff";
@@ -174,55 +174,39 @@ import { loadAppConfig, loadAppState, saveAppConfig, saveAppState } from "./stor
 import { taskStore } from "./taskStore";
 import { checkEngine, launch as voicevoxLaunch, listSpeakers, speak } from "./voicevox";
 
-const ptys = new Map<number, IPty>();
-// ptyId → onData/onExit listener を dispose する closure。onData/onExit は純粋な JS
-// EventEmitter なので、dispose しても node-pty 内部の exit ThreadSafeFunction は止まらない
-// （終了時 SIGABRT 回避の主因は closePtyMaster 側。下記参照）。dispose の役割は、破棄中に
-// 遅延 onExit が発火して破棄済み webContents への ctx.push を呼ぶのを防ぐ多重防御。
-const ptyDisposers = new Map<number, () => void>();
+// node-pty を隔離した utilityProcess（ptyHost）の IPty を指す ptyId → shell pid のマップ。
+// pty の実体は host 側にあり main は持たない。pid は portScanner の worktree 帰属に使う。
+const ptyPids = new Map<number, number>();
 let nextPtyId = 1;
 
-function disposePtyListeners(id: number): void {
-  ptyDisposers.get(id)?.();
-  ptyDisposers.delete(id);
-}
+// ptyText / ptyExit / 診断ログの push 先。最後に pty 操作した window の sender に配送する
+// （fsPush と同じ後付け束縛。gozd はシングルウィンドウ前提）
+let ptyPush: PushFn | undefined;
 
-/** ptmx master を閉じる。これが終了時 SIGABRT 回避の主因。
- * node-pty の exit callback（native waitpid ベースの ThreadSafeFunction）は listener の
- * dispose では止まらず、子 reaped 時に必ず JS の onexit closure を呼ぶ。その closure は
- * socket 未 close（`_emittedClose === false`）だと `setTimeout` を張る分岐に入り、env 破棄中
- * (FreeEnvironment) にこれを踏むと NAPI が throw して SIGABRT する。destroy() が socket を
- * 閉じて `_emittedClose` を立てると、遅れて着弾する native onexit は純 JS の emit 分岐へ
- * 落ちて無害化する。併せて ptmx fd を解放し、tty hangup で foreground process group
- * （閉じ忘れたサーバー子プロセス）を掃除する。destroy() は close 時に `kill('SIGHUP')` を
- * 撃つが、子 reaped 後は pid が別プロセスに再利用され誤爆しうるため、destroy 前に kill を
- * no-op 化して無効化する。destroy は public 型に無いため cast で呼ぶ。 */
-function closePtyMaster(pty: IPty): void {
-  const handle = pty as unknown as { kill: (sig?: string) => void; destroy?: () => void };
-  handle.kill = () => {};
-  const result = tryCatch(() => handle.destroy?.());
-  if (!result.ok) {
-    console.error(`[closePtyMaster] destroy failed: ${result.error}`);
-  }
-}
+// host crash / 内部ログを event-log パネルに流す共通経路
+const pushPtyDebugLog = (channel: string, label: string, detail: string) =>
+  ptyPush?.("debugLog", { channel, label, repo: "", detail });
 
-/** PTY を明示的に破棄する（単一 kill / 終了時の全 kill 共通）。closePtyMaster が終了時
- * SIGABRT 回避の主因、dispose は破棄中の ctx.push を防ぐ多重防御。 */
-function teardownPty(id: number, pty: IPty): void {
-  disposePtyListeners(id);
-  pty.kill();
-  closePtyMaster(pty);
-  ptys.delete(id);
-  unregisterExit(id);
-}
+// node-pty を丸ごと所有する utilityProcess の client。node-pty の env teardown crash を
+// 起こす isolate は使い捨ての host 側にしかなく、main は host の exit を観測して cleanly quit
+// する（VS Code ptyHost モデル。ptyClient 参照）。onData / onExit は host からの message 経由。
+const ptyClient = createPtyClient({
+  onData: (id, text) => ptyPush?.("ptyText", { id, text }),
+  onExit: (id, exitCode, signal) => {
+    ptyPids.delete(id);
+    unregisterExit(id);
+    // Swift PTYExitReason と同形の payload（terminal/rpc.ts の PtyExitReason 契約）
+    const reason = signal !== 0 ? { kind: "signaled", signal } : { kind: "exited", exitCode };
+    ptyPush?.("ptyExit", { id, reason });
+  },
+  logEvent: pushPtyDebugLog,
+});
 
-/** will-quit で全 PTY を始末する */
+/** will-quit で pty host を停止する。host の env teardown（pending TSFN の drain crash 含む）は
+ * 使い捨ての host プロセス内で完結し、main は巻き込まれず cleanly quit する */
 export function killAllPtys(): void {
-  // teardownPty は自分がイテレート中の現在の id だけを ptys から削除する。
-  // Map は現在エントリの削除に対してイテレーションを安全に継続するため直接回せる
-  for (const [id, pty] of ptys) {
-    teardownPty(id, pty);
-  }
+  ptyClient.dispose();
+  ptyPids.clear();
 }
 
 // 実行中サーバーの周期検出（Swift 版 PortScanner 対応物）。push 先の window は
@@ -234,8 +218,8 @@ const portScanner = createPortScanner({
   // PTY の shell pid → 帰属先。scan のたびに現在の registry から引き直す
   ptyOwners: () => {
     const owners = new Map<number, PtyOwner>();
-    for (const [ptyId, pty] of ptys) {
-      owners.set(pty.pid, { ptyId, worktreePath: worktreePathFor(ptyId) });
+    for (const [ptyId, pid] of ptyPids) {
+      owners.set(pid, { ptyId, worktreePath: worktreePathFor(ptyId) });
     }
     return owners;
   },
@@ -254,79 +238,63 @@ export function stopPortScanner(): void {
   portScanner.stop();
 }
 
-function handlePtySpawn(body: unknown, ctx: RpcContext): unknown {
+async function handlePtySpawn(body: unknown, ctx: RpcContext): Promise<unknown> {
   const req = body as PtySpawnRequest;
   if (req.dir === "") throw new Error("pty/spawn: dir is required");
   if (req.executable === "") throw new Error("pty/spawn: executable is required");
 
   const id = nextPtyId;
   nextPtyId++;
+  // onData/onExit/診断ログの push 先をこの window の sender に束縛する（後付け束縛）
+  ptyPush = ctx.push;
 
-  // ワイヤ契約 (Swift PTYManager の execve 流儀): req.args は argv **全体** で、
-  // args[0] = argv[0] (プログラム名)。node-pty は spawn(file, args) の args に
-  // argv[0] を含めない ([file, ...args] を自前で組む) ため、args[0] を落として渡す。
-  // 落とさないと `zsh /bin/zsh -i` のように実行され、zsh がバイナリをスクリプトとして
-  // 読んで即死する (Mach-O マジックバイトの command not found + parse error)
-  const pty = spawn(req.executable, req.args.slice(1), {
-    name: "xterm-256color",
-    cols: req.cols,
-    rows: req.rows,
-    cwd: req.dir,
-    env: buildPtyEnv(req.env, id),
-  });
-  ptys.set(id, pty);
   // GOZD_RESUME_CLAUDE_SESSION（renderer が resume 起動時に載せる）を expected sid として
   // 記録する。SessionStart hook 着弾時に consume され、removeByPty 時点で残っていれば
   // resume 失敗（SessionStart 不達）と判定する
   registerSpawn(id, req.worktreePath, req.env.GOZD_RESUME_CLAUDE_SESSION ?? "");
 
-  const dataDisposable = pty.onData((text) => {
-    ctx.push("ptyText", { id, text });
-  });
-  const exitDisposable = pty.onExit(({ exitCode, signal }) => {
-    // 自然終了。closePtyMaster で ptmx fd を解放し、destroy の遅延 SIGHUP を
-    // 無効化する（子 reaped 後の recycled pid への誤爆を防ぐ）
-    closePtyMaster(pty);
-    disposePtyListeners(id);
-    ptys.delete(id);
+  // ワイヤ契約 (Swift PTYManager の execve 流儀): req.args は argv **全体** で、
+  // args[0] = argv[0] (プログラム名)。node-pty は spawn(file, args) の args に
+  // argv[0] を含めない ([file, ...args] を自前で組む) ため、args[0] を落として渡す。
+  // 落とさないと `zsh /bin/zsh -i` のように実行され、zsh がバイナリをスクリプトとして
+  // 読んで即死する (Mach-O マジックバイトの command not found + parse error)。
+  // env 構築（GOZD_PTY_ID 注入等）は main で行い、spawn 本体だけ host に委譲する。
+  const spawned = await tryCatch(
+    ptyClient.spawn(id, {
+      executable: req.executable,
+      args: req.args.slice(1),
+      env: buildPtyEnv(req.env, id),
+      cwd: req.dir,
+      cols: req.cols,
+      rows: req.rows,
+    }),
+  );
+  if (!spawned.ok) {
+    // host が spawn に失敗（host crash 等）。session 登録を巻き戻して throw する
     unregisterExit(id);
-    // Swift PTYExitReason と同形の payload（terminal/rpc.ts の PtyExitReason 契約）
-    const reason =
-      signal !== undefined && signal !== 0
-        ? { kind: "signaled", signal }
-        : { kind: "exited", exitCode };
-    ctx.push("ptyExit", { id, reason });
-  });
-  // onData/onExit の IDisposable を保持し、teardownPty / 自然 exit で dispose する
-  ptyDisposers.set(id, () => {
-    dataDisposable.dispose();
-    exitDisposable.dispose();
-  });
+    throw new Error(`pty/spawn failed: ${spawned.error}`);
+  }
+  ptyPids.set(id, spawned.value);
 
   return ({ ptyId: id }) satisfies PtySpawnResponse;
 }
 
 function handlePtyWrite(body: unknown): unknown {
   const req = body as PtyWriteRequest;
-  const pty = ptys.get(req.ptyId);
-  if (pty === undefined) throw new Error(`pty/write: unknown ptyId ${req.ptyId}`);
-  pty.write(req.data);
+  ptyClient.write(req.ptyId, req.data);
   return ({}) satisfies PtyWriteResponse;
 }
 
 function handlePtyResize(body: unknown): unknown {
   const req = body as PtyResizeRequest;
-  const pty = ptys.get(req.ptyId);
-  if (pty === undefined) throw new Error(`pty/resize: unknown ptyId ${req.ptyId}`);
-  pty.resize(req.cols, req.rows);
+  ptyClient.resize(req.ptyId, req.cols, req.rows);
   return ({}) satisfies PtyResizeResponse;
 }
 
 function handlePtyKill(body: unknown): unknown {
   const req = body as PtyKillRequest;
-  const pty = ptys.get(req.ptyId);
-  if (pty === undefined) throw new Error(`pty/kill: unknown ptyId ${req.ptyId}`);
-  teardownPty(req.ptyId, pty);
+  // host が kill + ptmx close し、onExit 経由で ptyExit が push される（状態掃除もそこで走る）
+  ptyClient.kill(req.ptyId);
   return ({}) satisfies PtyKillResponse;
 }
 

@@ -79,8 +79,8 @@ function handleTerminalBlur() {
           : '-outline-offset-2 outline-border'
       "
     >
-      <!-- Claude セッションのみ: status アイコン + task タイトル（サイドバー TaskRow と同一の行） -->
-      <TerminalLeafTitle :leaf-id="leafId" />
+      <!-- Claude セッションのみ: 2 行タイトル（上段 repo アイコン + repo 名 / 下段 status アイコン + task タイトル） -->
+      <TerminalLeafTitle :dir="dir" :leaf-id="leafId" />
       <!-- セッションログ preview（main / sub の最新 user / assistant 発言を右上に固定表示。
            leaf 全体に対する absolute overlay なのでヘッダ行に被さってよい） -->
       <TerminalSessionPreview :leaf-id="leafId" />

@@ -485,6 +485,9 @@ export async function listReviveSessions(
       const sizeBytes = fileSize(path);
       if (sizeBytes === 0) continue;
       const meta = metaByPath.get(path) ?? readSessionMeta(path);
+      // 非 0 バイトでも自セッションの cwd を読めない破損 jsonl は blank 行になるため出さない
+      // (正常な Claude jsonl は全レコードに cwd が載るため、cwd 空 = 実体無し)。
+      if (meta.cwd === "") continue;
       // 最終アクティビティは末尾レコードの timestamp (内容由来) を SSOT にする。ISO が無い /
       // parse 不能な病的ケースだけ mtime にフォールバックする (0 で epoch 表示に落とさない)。
       const tsMs = meta.timestamp !== "" ? Date.parse(meta.timestamp) : Number.NaN;

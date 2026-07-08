@@ -54,12 +54,13 @@ gozd はスロベニア語で「森」（[ɡɔ́st]、「ゴスト」）。
 ```bash
 mise install
 pnpm install
-pnpm run bootstrap
+pnpm run build:app   # .app をパッケージング
+pnpm run open:app    # 生成した .app を起動
 ```
 
 起動したアプリで `Shift+Cmd+P` でコマンドパレットを開き、`Shell Command: Install 'gozd' command in PATH` を実行すると `~/.local/bin/gozd` に CLI への symlink が作られる（`~/.local/bin` が PATH に通っている前提）。アンインストールは `Shell Command: Uninstall 'gozd' command from PATH`。
 
-以降の再ビルドは `pnpm run build`。symlink は `.app` 内 wrapper を指すため、ビルドし直しても張り替え不要（`.app` を別の場所に移したときのみ install をやり直す）。
+以降の再ビルドも `pnpm run build:app`。electron-builder が成果物を `.app` 内へコピーするため、`.app` を更新するにはこの再パッケージが要る（root の `pnpm run build` は各パッケージの成果物を作るだけで `.app` は更新しない）。symlink は `.app` 内 wrapper を指すため、ビルドし直しても張り替え不要（`.app` を別の場所に移したときのみ install をやり直す）。
 
 `gozd` CLI で任意のパスを開く。アプリが未起動であれば自動で起動する。
 

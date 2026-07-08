@@ -3,7 +3,7 @@ import type { KnipConfig } from "knip";
 const config: KnipConfig = {
   // eslint: lefthook.yml で pnpm exec eslint として使用（renderer の devDep）
   // typecheck: pnpm -r で呼ぶワークスペースの scripts 名
-  // open: macOS 標準コマンド（pnpm run bootstrap で .app を起動）
+  // open: macOS 標準コマンド（pnpm run open:app で .app を起動）
   ignoreBinaries: ["eslint", "typecheck", "open"],
   workspaces: {
     ".": {},

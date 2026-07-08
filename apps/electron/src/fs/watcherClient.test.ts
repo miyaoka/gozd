@@ -214,4 +214,45 @@ describe("watcherClient respawn state machine", () => {
     proc.emit("exit", 0);
     expect(ctx.processes.length).toBe(before); // dispose 後は respawn しない
   });
+
+  test("synchronous fork failure does not cache a rejected ready; the next subscribe retries", async () => {
+    const processes: FakeWatcherProcess[] = [];
+    let failNextFork = true;
+    const client = createWatcherClient({
+      logEvent: () => {},
+      notify: () => {},
+      fork: () => {
+        if (failNextFork) {
+          failNextFork = false;
+          throw new Error("fork boom");
+        }
+        const proc = createFakeWatcherProcess();
+        processes.push(proc);
+        return proc as unknown as UtilityProcess;
+      },
+      clock: () => 1_000_000,
+    });
+    // 1 回目: fork 同期失敗 → subscribe は reject
+    expect(
+      client.subscribe(
+        "/repo",
+        [],
+        () => {},
+        () => {},
+      ),
+    ).rejects.toThrow("fork boom");
+    // 2 回目: fork 成功 → 再確立して subscribe 成功（reject 済み ready がキャッシュされていない証拠）
+    const handleP = client.subscribe(
+      "/repo2",
+      [],
+      () => {},
+      () => {},
+    );
+    const proc = processes[processes.length - 1];
+    proc.emit("spawn");
+    await tick();
+    proc.emit("message", { type: "subscribed", id: 1 } satisfies WatcherToHostMessage);
+    await tick();
+    expect(await handleP).toBeDefined();
+  });
 });

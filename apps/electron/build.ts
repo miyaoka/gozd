@@ -41,6 +41,17 @@ await build({
   external: ["@parcel/watcher"],
 });
 
+// node-pty を隔離する utilityProcess entry。node-pty の env teardown crash（SIGABRT）を
+// 使い捨ての host プロセスに封じ込めるため main とは別 process で動く。node-pty は .node のため external
+await build({
+  entryPoints: ["src/pty/ptyHost.ts"],
+  outfile: "dist/ptyHost.cjs",
+  bundle: true,
+  platform: "node",
+  format: "cjs",
+  external: ["node-pty"],
+});
+
 await build({
   entryPoints: ["src/renderer/main.ts"],
   outdir: "dist/renderer",

@@ -6,6 +6,7 @@
 // 監視が止まると gozd の「push を落とさない」規律が破れるため、respawn と観察は必須。
 // VS Code の UniversalWatcherClient（utilityProcess worker + onDidTerminate 再init）と同型。
 
+import { tryCatch } from "@gozd/shared";
 import type { UtilityProcess } from "electron";
 import { join } from "node:path";
 import type { WatchHandle, WatchTransport } from "./fsWatchRegistry";
@@ -172,9 +173,16 @@ export function createWatcherClient(deps: WatcherClientDeps): WatcherClient {
 
   function getChild(): Promise<UtilityProcess> {
     if (ready !== undefined) return ready;
+    // fork は promise 生成の前に回す。executor 内で ready=undefined にしても外側の
+    // `ready = new Promise(...)` 代入で上書きされ reset が効かないため。同期 fork 失敗時は
+    // ready を掴まず（undefined のまま）reject を返し、次の subscribe で再確立を再試行できる
+    const forked = tryCatch(() => fork(scriptPath));
+    if (!forked.ok) {
+      return Promise.reject(new Error(`watcher process fork failed: ${String(forked.error)}`));
+    }
+    const spawned = forked.value;
     ready = new Promise<UtilityProcess>((resolve, reject) => {
       readyReject = reject;
-      const spawned = fork(scriptPath);
       spawned.on("message", onMessage);
       spawned.on("exit", onExit);
       // postMessage は spawn 完了前だと取りこぼす可能性があるため spawn を待ってから解決する
@@ -188,8 +196,8 @@ export function createWatcherClient(deps: WatcherClientDeps): WatcherClient {
       spawned.on("error", (type, location, report) => {
         logEvent("file-watcher", "fatal-error", `${type} @ ${location}: ${report}`);
       });
-      child = spawned;
     });
+    child = spawned;
     return ready;
   }
 

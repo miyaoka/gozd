@@ -7,7 +7,7 @@
 #
 # レイアウト（asar: true + asarUnpack）:
 #   Gozd.app/Contents/Resources/
-#     app.asar                         ← files（esbuild 成果物: main / preload / cli / watcherProcess）+ prod node_modules
+#     app.asar                         ← files（esbuild 成果物: main / preload / cli / watcherProcess / ptyHost）+ prod node_modules
 #     app.asar.unpacked/               ← asarUnpack（dist/cli.cjs + native module）
 #       dist/cli.cjs                     ← ELECTRON_RUN_AS_NODE で実行するため実ファイル必須
 #       node_modules/node-pty, @parcel/watcher*  ← dlopen する native

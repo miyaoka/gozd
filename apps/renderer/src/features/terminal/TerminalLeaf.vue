@@ -3,8 +3,8 @@
 
 ## ヘッダバー
 
-- Claude セッションが attach された leaf だけ、上部 (ボーダー線上) に status アイコン +
-  task タイトルを表示する（`TerminalLeafTitle`）。素の PTY では何も出さない
+- Claude セッションが attach された leaf だけ `TerminalLeafTitle` を出す（表示内容は同コンポーネント参照）。
+  素の PTY では何も出さない
 
 ## フォーカス
 
@@ -79,8 +79,8 @@ function handleTerminalBlur() {
           : '-outline-offset-2 outline-border'
       "
     >
-      <!-- Claude セッションのみ: status アイコン + task タイトル（サイドバー TaskRow と同一の行） -->
-      <TerminalLeafTitle :leaf-id="leafId" />
+      <!-- Claude セッションのみ: 2 行タイトル（上段 repo アイコン + repo 名 / 下段 status アイコン + task タイトル） -->
+      <TerminalLeafTitle :dir="dir" :leaf-id="leafId" />
       <!-- セッションログ preview（main / sub の最新 user / assistant 発言を右上に固定表示。
            leaf 全体に対する absolute overlay なのでヘッダ行に被さってよい） -->
       <TerminalSessionPreview :leaf-id="leafId" />

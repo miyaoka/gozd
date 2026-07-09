@@ -9,9 +9,11 @@
 
 ## Project タブの対象
 
-Project 設定はアクティブ worktree が属するプロジェクトを対象にする（`worktreeStore.dir` から
-`resolveProjectKey` で解決）。アクティブ worktree が無いと対象が定まらず、保存経路が dir 不在で
-握りつぶすため、Project タブを無効化する（対象名も UI に明示して複数 repo 時の曖昧さを消す）。
+Project 設定はデフォルトでアクティブ worktree が属するプロジェクトを対象にする
+（`worktreeStore.dir` から `resolveProjectKey` で解決）。ただし repo メニューから開いた場合は
+`targetProjectDir`（その repo の rootDir）で対象を固定する（clicked resource 優先）。対象が
+定まらないと保存経路が dir 不在で握りつぶすため、Project タブを無効化する（対象名も UI に
+明示して複数 repo 時の曖昧さを消す）。
 </doc>
 
 <script setup lang="ts">
@@ -35,28 +37,27 @@ import {
   rpcProjectConfigLoad,
 } from "./rpc";
 import SettingSection from "./SettingSection.vue";
-import { useSettingsModal } from "./useSettingsModal";
+import { useSettingsModal, type SettingsTab } from "./useSettingsModal";
 import IconLucideX from "~icons/lucide/x";
 
-type TabId = "global" | "project";
-
-const TABS: readonly { id: TabId; label: string }[] = [
+const TABS: readonly { id: SettingsTab; label: string }[] = [
   { id: "global", label: "Global" },
   { id: "project", label: "Project" },
 ];
 
 const { Dialog, isOpen, show, close } = useDialog();
-const { isOpen: modalIsOpen } = useSettingsModal();
+const { isOpen: modalIsOpen, initialTab, targetProjectDir } = useSettingsModal();
 const voicevoxStore = useVoicevoxStore();
 const worktreeStore = useWorktreeStore();
 const repoStore = useRepoStore();
 const notify = useNotificationStore();
 
 /**
- * project 設定の対象 dir（= アクティブな worktree）。undefined なら対象プロジェクトが
- * 定まらないため Project タブは無効化する（対象不在で編集を握りつぶさないため）。
+ * project 設定の対象 dir。repo メニューから明示指定された `targetProjectDir` を優先し、
+ * 無ければアクティブな worktree に追従する。undefined なら対象プロジェクトが定まらないため
+ * Project タブは無効化する（対象不在で編集を握りつぶさないため）。
  */
-const projectDir = computed(() => worktreeStore.dir);
+const projectDir = computed(() => targetProjectDir.value ?? worktreeStore.dir);
 
 /** 対象プロジェクトの表示名。設定 UI にどの project を編集中かを明示する */
 const projectName = computed(() => {
@@ -65,22 +66,22 @@ const projectName = computed(() => {
   return repoStore.findRepoOwning(dir)?.repoName ?? dir;
 });
 
-const activeTab = ref<TabId>("global");
+const activeTab = ref<SettingsTab>("global");
 const loading = ref(true);
 const globalValues = ref<Record<string, unknown>>({});
 const projectValues = ref<Record<string, unknown>>({});
 
-/** モーダルを開くときに設定を読み込む。load 完了後に dialog を表示する */
 // 対象プロジェクトが外れたら Project タブに留まらせない（無効タブでの空編集を防ぐ）
 watch(projectDir, (dir) => {
   if (dir === undefined && activeTab.value === "project") activeTab.value = "global";
 });
 
+/** モーダルを開くときに設定を読み込む。load 完了後に dialog を表示する */
 async function openWithSettings() {
   loading.value = true;
-  const dir = worktreeStore.dir;
-  // 対象不在で開いた場合は Global に固定して開く（Project タブは無効表示になる）
-  if (dir === undefined) activeTab.value = "global";
+  const dir = projectDir.value;
+  // 初期タブは要求値。ただし対象が定まらないと Project タブは無効なので Global に落とす
+  activeTab.value = dir === undefined ? "global" : initialTab.value;
   const [globalResult, projectResult] = await Promise.all([
     tryCatch(rpcLoadAppConfig()),
     dir !== undefined ? tryCatch(rpcProjectConfigLoad({ dir })) : Promise.resolve(undefined),
@@ -161,7 +162,7 @@ async function handleGlobalChange(key: string, value: unknown) {
 /** プロジェクト設定の値変更ハンドラー */
 async function handleProjectChange(key: string, value: unknown) {
   projectValues.value[key] = value;
-  const dir = worktreeStore.dir;
+  const dir = projectDir.value;
   if (dir === undefined) return;
   const result = await tryCatch(patchProjectConfig(dir, { [key]: value }));
   if (!result.ok) notify.error("Failed to save project settings", result.error);

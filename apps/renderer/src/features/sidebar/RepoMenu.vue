@@ -1,8 +1,8 @@
 <doc lang="md">
-repo セクションヘッダの ⋮ ポップオーバーメニュー。現状は「Revive session」1 項目。
+repo セクションヘッダの ⋮ ポップオーバーメニュー。repo スコープのアクション
+(Revive session / Project settings) を command registry 経由で rootDir 付き dispatch する。
 state は `useRepoMenu` (module singleton) 経由で SidebarPane と共有する。
-Revive session は command registry 経由で `workspace.reviveSession` を rootDir 付きで dispatch
-する。command はコマンドパレットからも起動でき (その場合 active repo が対象)、サイドバーからは
+command はコマンドパレットからも起動でき (その場合 active repo が対象)、サイドバーからは
 明示 rootDir を渡す — VSCode の SCM コマンド (clicked resource 優先 / 無ければ picker) と同型。
 palette / command registry を直接 import せず command bus 経由にすることで sidebar→palette の
 import 循環を避ける。
@@ -12,6 +12,7 @@ import 循環を避ける。
 import { useCommandRegistry } from "../../shared/command";
 import { useRepoMenu } from "./useRepoMenu";
 import IconLucideHistory from "~icons/lucide/history";
+import IconLucideSettings from "~icons/lucide/settings";
 
 const { Popover, context, close } = useRepoMenu();
 const registry = useCommandRegistry();
@@ -21,6 +22,13 @@ function handleRevive() {
   const { rootDir } = context.value;
   close();
   registry.execute("workspace.reviveSession", { rootDir });
+}
+
+function handleProjectSettings() {
+  if (!context.value) return;
+  const { rootDir } = context.value;
+  close();
+  registry.execute("settings.open", { tab: "project", rootDir });
 }
 </script>
 
@@ -40,6 +48,13 @@ function handleRevive() {
       >
         <IconLucideHistory class="text-xs" />
         Revive session
+      </button>
+      <button
+        class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel"
+        @click="handleProjectSettings"
+      >
+        <IconLucideSettings class="text-xs" />
+        Project settings
       </button>
     </template>
   </Popover>

@@ -71,12 +71,12 @@ const loading = ref(true);
 const globalValues = ref<Record<string, unknown>>({});
 const projectValues = ref<Record<string, unknown>>({});
 
-/** モーダルを開くときに設定を読み込む。load 完了後に dialog を表示する */
 // 対象プロジェクトが外れたら Project タブに留まらせない（無効タブでの空編集を防ぐ）
 watch(projectDir, (dir) => {
   if (dir === undefined && activeTab.value === "project") activeTab.value = "global";
 });
 
+/** モーダルを開くときに設定を読み込む。load 完了後に dialog を表示する */
 async function openWithSettings() {
   loading.value = true;
   const dir = projectDir.value;

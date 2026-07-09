@@ -36,7 +36,7 @@ function close() {
 }
 
 /** command args から tab / 対象 repo（rootDir）を取り出す。未指定は undefined */
-function parseOpenArgs(args: unknown): OpenOptions {
+export function parseOpenArgs(args: unknown): OpenOptions {
   if (typeof args !== "object" || args === null) return {};
   const { tab, rootDir } = args as { tab?: unknown; rootDir?: unknown };
   return {

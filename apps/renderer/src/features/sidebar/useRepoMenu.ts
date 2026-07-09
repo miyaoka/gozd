@@ -2,9 +2,7 @@
  * repo セクションヘッダの ⋮ menu の module singleton。
  *
  * 親 (SidebarPane) から `open(anchorEl, { rootDir })` を呼び、RepoMenu.vue が context を
- * 購読して描画する。メニュー内アクション (Revive session) は command registry 経由で
- * `workspace.reviveSession` を rootDir 付きで dispatch する (picker dialog は modal なので
- * anchor 不要)。
+ * 購読して描画する。メニュー内アクションは command registry 経由で rootDir 付き dispatch する。
  */
 import { usePopover } from "../../shared/popover";
 

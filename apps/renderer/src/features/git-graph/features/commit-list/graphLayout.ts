@@ -117,7 +117,6 @@ export function computeGraphLayout(
   // HEAD が表示集合内にあるなら色 0 は HEAD 専用に予約し、他レーンは 1 から採番する。
   // HEAD 不在 (headCommitIndex < 0) なら予約不要なので従来どおり 0 から採番する。
   let nextColor = headCommitIndex >= 0 ? 1 : 0;
-  let maxLanes = 0;
 
   const nodes: GraphNode[] = [];
   const lines: LineSegment[] = [];
@@ -256,13 +255,16 @@ export function computeGraphLayout(
       activeLanes[mergeLane] = { hash: parentHash, color: mergeColor, originLane: lane };
     }
 
-    maxLanes = Math.max(maxLanes, countActive(activeLanes));
     nodes.push({ commit, lane, color });
     // HEAD 行を処理し終えたら lane 0 予約を解除する (以降の行は minLane 0)。
     if (isHead) headReached = true;
   }
 
-  return { nodes, lines, maxLanes: Math.max(maxLanes, 1) };
+  // maxLanes は「使われた最大レーン番号 + 1」(描画幅の根拠)。同時 active 数を数えると、
+  // HEAD 予約で lane 0 が空のまま上のコミットが lane 1 に置かれるケース (HEAD が表示先頭でない
+  // worktree 構成の典型) で幅が不足し、右端レーンの dot / 曲線が見切れる。activeLanes は解放時も
+  // undefined 代入のみで length を縮めないため、最終 length がそのまま最大レーン番号 + 1 になる。
+  return { nodes, lines, maxLanes: Math.max(activeLanes.length, 1) };
 }
 
 /**
@@ -273,12 +275,4 @@ function findEmptyLane(lanes: (LaneState | undefined)[], minLane = 0): number {
     if (lanes[i] === undefined) return i;
   }
   return Math.max(lanes.length, minLane);
-}
-
-function countActive(lanes: (LaneState | undefined)[]): number {
-  let count = 0;
-  for (const lane of lanes) {
-    if (lane !== undefined) count++;
-  }
-  return count;
 }

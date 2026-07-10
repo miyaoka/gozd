@@ -196,6 +196,26 @@ describe("computeGraphLayout の HEAD 最左固定", () => {
     expect(lanes.get("c")).toBe(0);
   });
 
+  test("HEAD より上の枝が HEAD へ合流するだけでも maxLanes は使用レーン全体を覆う", () => {
+    // バグ再現形: 他 worktree がチェックアウトした先行コミットが HEAD の上に並ぶ構成。
+    //   u0 → u1 (lane 1, HEAD 予約で lane 0 を避ける)
+    //   h0 (HEAD, lane 0) ← u1 が合流
+    // lane 0 (予約中は空) と lane 1 (HEAD 行で解放) が同時に active になる瞬間がないため、
+    // 「同時 active 数」で数えると maxLanes = 1 になり lane 1 の dot / 曲線が描画幅から見切れる。
+    const commits = [
+      commit("u0", ["u1"]),
+      commit("u1", ["h0"]),
+      commit("h0", ["base"], ["HEAD"]),
+      commit("base", []),
+    ];
+    const layout = computeGraphLayout(commits, { headHash: "h0" });
+    const lanes = laneByHash(layout);
+    expect(lanes.get("u0")).toBe(1);
+    expect(lanes.get("h0")).toBe(0);
+    // lane 1 が描画幅に含まれる
+    expect(layout.maxLanes).toBe(2);
+  });
+
   test("HEAD には固定色 (HEAD_COLOR) を割り当て、上に並ぶ他枝には別色を割り当てる", () => {
     // バグ再現形: HEAD が tip で、上に divergent な origin 枝が並ぶ。
     // 先着順採番だと origin が色 0 を取り HEAD が色 1 になり、Working Tree (常に色 0) と

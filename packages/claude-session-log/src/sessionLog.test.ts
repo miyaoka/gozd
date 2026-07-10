@@ -658,13 +658,23 @@ describe("parseSessionLog", () => {
 
   test("hookName 欠落の hook attachment は label を hook に倒す", () => {
     const log = parseSessionLog(
-      jsonl({
-        type: "attachment",
-        timestamp: TS,
-        attachment: { type: "hook_success", content: "injected" },
-      }),
+      jsonl(
+        {
+          type: "attachment",
+          timestamp: TS,
+          attachment: { type: "hook_success", content: "injected" },
+        },
+        {
+          type: "attachment",
+          timestamp: TS,
+          attachment: { type: "hook_additional_context", content: ["extra context"] },
+        },
+      ),
     );
-    expect(log.events).toEqual([{ kind: "system", label: "hook", text: "injected", ts: TS }]);
+    expect(log.events).toEqual([
+      { kind: "system", label: "hook", text: "injected", ts: TS },
+      { kind: "system", label: "hook", text: "extra context", ts: TS },
+    ]);
   });
 
   test("SDK 合成 assistant (model:<synthetic>) は transcript に載せず skipped に計上", () => {

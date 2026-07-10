@@ -1,6 +1,6 @@
 <doc lang="md">
 ゲームジュース層の全画面オーバーレイ。UI 最前面 (pointer-events: none) に
-パーティクル canvas / ビネット / オーロラ / イベントフラッシュを重ねる。
+パーティクル canvas / ビネット / イベントフラッシュを重ねる。
 
 ## 重ね順と操作透過
 
@@ -21,9 +21,11 @@
 ## パフォーマンス
 
 - canvas パーティクルはイベント発火時のみ rAF を回し、空になれば停止する (idle 時の rAF ゼロ)
-- 一方 aurora / 各種グローは CSS 合成による**常時演出**。GPU レイヤーは
-  保持され続けるため、canvas のような完全停止はせず idle 時も合成負荷が残る。
-  aurora は `will-change: transform` で常時 drift するため、無負荷ではない点に注意
+- **常時アニメーションを置かない**。全画面を常時 drift させる演出 (blur +
+  mix-blend-mode の環境光など) は、知覚できないほど遅い動きでも compositor に
+  毎フレーム全画面の blend + blur 再合成を強制し、背後の backdrop-filter パネルの
+  blur キャッシュも毎フレーム無効化するため、GPU プロセスの負荷が常時数十% に達する。
+  静的なビネットは合成負荷を持たないので使ってよい
 </doc>
 
 <script setup lang="ts">
@@ -120,8 +122,6 @@ onUnmounted(() => {
 
 <template>
   <div class="pointer-events-none fixed inset-0" aria-hidden="true">
-    <!-- ゆっくり漂う環境光 (additive blend で暗部だけ持ち上げる) -->
-    <div class="_fx-aurora absolute inset-0"></div>
     <!-- 周辺減光で中央に視線を集める -->
     <div class="_fx-vignette absolute inset-0"></div>
     <!-- パーティクル -->
@@ -134,62 +134,6 @@ onUnmounted(() => {
 <style>
 ._fx-vignette {
   background: radial-gradient(ellipse 120% 100% at 50% 45%, transparent 60%, oklch(0 0 0 / 0.3));
-}
-
-._fx-aurora {
-  opacity: 0.5;
-  mix-blend-mode: screen;
-}
-
-._fx-aurora::before,
-._fx-aurora::after {
-  content: "";
-  position: absolute;
-  width: 60vw;
-  height: 60vh;
-  border-radius: 50%;
-  filter: blur(80px);
-  will-change: transform;
-}
-
-._fx-aurora::before {
-  background: radial-gradient(
-    circle,
-    color-mix(in oklch, var(--color-fx-aurora-blue) 16%, transparent),
-    transparent 70%
-  );
-  top: -20%;
-  left: -10%;
-  animation: fx-drift-a 26s ease-in-out infinite alternate;
-}
-
-._fx-aurora::after {
-  background: radial-gradient(
-    circle,
-    color-mix(in oklch, var(--color-fx-mesh-violet) 12%, transparent),
-    transparent 70%
-  );
-  bottom: -25%;
-  right: -10%;
-  animation: fx-drift-b 34s ease-in-out infinite alternate;
-}
-
-@keyframes fx-drift-a {
-  from {
-    transform: translate(0, 0) scale(1);
-  }
-  to {
-    transform: translate(30vw, 20vh) scale(1.3);
-  }
-}
-
-@keyframes fx-drift-b {
-  from {
-    transform: translate(0, 0) scale(1.2);
-  }
-  to {
-    transform: translate(-25vw, -15vh) scale(0.9);
-  }
 }
 
 /* イベント発生時に画面端を発光させるフラッシュ。色は data-kind で切り替える */

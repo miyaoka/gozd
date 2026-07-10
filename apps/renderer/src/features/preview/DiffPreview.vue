@@ -131,6 +131,7 @@ import { useNotificationStore } from "../../shared/notification";
 import { abortComposition, blockEdit } from "./contenteditableHostGuard";
 import DiffLineContent from "./DiffLineContent.vue";
 import { type ColRange, computeIntraLineRanges } from "./intraLineDiff";
+import { previewCodeFontFamily, previewFontSize } from "./previewConfig";
 import { rpcGitDiffExpandLines, rpcGitDiffHunks } from "./rpc";
 import { type ThemedToken, highlightTokens } from "./useHighlight";
 import IconLucideAlignJustify from "~icons/lucide/align-justify";
@@ -605,10 +606,14 @@ const originalTokens = ref<ThemedToken[][]>();
 const currentTokens = ref<ThemedToken[][]>();
 
 watch(
-  () => [props.original, props.current, props.filePath],
+  () => [props.original, props.current, props.filePath, props.editable] as const,
   async (_, __, onCleanup) => {
     originalTokens.value = undefined;
     currentTokens.value = undefined;
+    // 編集パスは Monaco が描画するため tokens は不要。hunk 計算 watch と同じ理由で、
+    // editable 中は draft の打鍵ごとに props.current が変わり、ガードしないと毎打鍵
+    // 全文トークン化が走る (結果は read-only 描画専用で誰も表示しない)
+    if (props.editable) return;
 
     let cancelled = false;
     onCleanup(() => {
@@ -896,8 +901,20 @@ async function mountMonacoDiffEditor() {
   // unmount 済みの template ref は Vue により null に戻る (undefined は初期値のみ)。
   if (!el) return;
   const myGeneration = ++mountGeneration;
-  const { monaco, MONACO_THEME, resolveMonacoLanguage } = await import("./monacoSetup");
-  const language = await resolveMonacoLanguage(props.filePath);
+  const setupResult = await tryCatch(
+    (async () => {
+      const { monaco, MONACO_THEME, resolveMonacoLanguage } = await import("./monacoSetup");
+      const language = await resolveMonacoLanguage(props.filePath);
+      return { monaco, MONACO_THEME, language };
+    })(),
+  );
+  if (!setupResult.ok) {
+    // Monaco chunk / grammar の dynamic import 失敗経路。silent にエディタ無しへ沈黙すると
+    // 原因を追えないため通知する (renderer 規約: silent drop 禁止)
+    notification.error("Failed to load editor", setupResult.error);
+    return;
+  }
+  const { monaco, MONACO_THEME, language } = setupResult.value;
   // await 中に editable の再トグル / unmount が起きた場合は何もしない (世代不一致で判定)。
   if (myGeneration !== mountGeneration || monacoContainerRef.value !== el || !props.editable) {
     return;
@@ -914,6 +931,11 @@ async function mountMonacoDiffEditor() {
     scrollBeyondLastLine: false,
     hideUnchangedRegions: { enabled: true },
     wordWrap: props.wordWrap ? "on" : "off",
+    fontFamily: previewCodeFontFamily.value || undefined,
+    fontSize: previewFontSize.value > 0 ? previewFontSize.value : undefined,
+    // preview は overflow を隠す popover 内にあるため、hover / suggest 等の overflow widget を
+    // position:fixed で描画してエディタ境界を越えられるようにする (境界で clip されるのを防ぐ)
+    fixedOverflowWidgets: true,
   });
   monacoDiffEditor.setModel({ original: originalModel, modified: modifiedModel });
   const modifiedEditor = monacoDiffEditor.getModifiedEditor();
@@ -951,7 +973,6 @@ watch(
  * save 後の再取得を、すべてこの 1 経路で model に反映する。自分の編集の round-trip
  * (modified 変更 → update:current → 同値の props.current) は等値チェックで無視され、
  * 打鍵のたびに setValue でカーソルが飛ぶことを防ぐ (CodePreview の content watch と同じ設計)。
- * 旧実装の useDiffEditor (discard reset 用の module singleton registry) はこの watch で置き換えた。
  */
 watch(
   () => [props.original, props.current] as const,
@@ -970,15 +991,31 @@ watch(
 watch(
   () => props.filePath,
   async (filePath) => {
-    if (monacoDiffEditor === undefined) return;
+    if (monacoDiffEditor === undefined) {
+      // editable なのにエディタが無い = 前回 mount が失敗している (mount 進行中なら世代管理が
+      // 最新 props で作り直す)。ファイル切替を機に再試行し、silent な空表示の継続を避ける
+      // (CodePreview の content watch と同じ回復契約)
+      if (props.editable) void nextTick(mountMonacoDiffEditor);
+      return;
+    }
     const myGeneration = mountGeneration;
-    const { monaco, resolveMonacoLanguage } = await import("./monacoSetup");
-    const language = await resolveMonacoLanguage(filePath);
+    const result = await tryCatch(
+      (async () => {
+        const { monaco, resolveMonacoLanguage } = await import("./monacoSetup");
+        const language = await resolveMonacoLanguage(filePath);
+        return { monaco, language };
+      })(),
+    );
+    if (!result.ok) {
+      // grammar の on-demand load 失敗経路。表示は前言語のままで続行できるが silent にしない
+      notification.error("Failed to load editor", result.error);
+      return;
+    }
     if (myGeneration !== mountGeneration || monacoDiffEditor === undefined) return;
     const model = monacoDiffEditor.getModel();
     if (!model) return;
-    monaco.editor.setModelLanguage(model.original, language);
-    monaco.editor.setModelLanguage(model.modified, language);
+    result.value.monaco.editor.setModelLanguage(model.original, result.value.language);
+    result.value.monaco.editor.setModelLanguage(model.modified, result.value.language);
   },
 );
 
@@ -993,6 +1030,14 @@ watch(
     monacoDiffEditor?.updateOptions({ wordWrap: wrap ? "on" : "off" });
   },
 );
+
+/** フォント設定のライブ追従 (CodePreview と同じ契約)。未設定は undefined でデフォルトへ戻す */
+watch([previewFontSize, previewCodeFontFamily], ([size, family]) => {
+  monacoDiffEditor?.updateOptions({
+    fontSize: size > 0 ? size : undefined,
+    fontFamily: family || undefined,
+  });
+});
 
 onUnmounted(() => {
   unmountMonacoDiffEditor();

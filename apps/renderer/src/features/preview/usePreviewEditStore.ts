@@ -11,9 +11,8 @@
  *
  * ## dirty を保護境界にする契約
  *
- * 旧実装は editMode フラグで外部変更の反映を止めていたが、常時編集ではフラグが存在しない。
- * 代わりに「未保存の変更があるか (isDirty)」を保護境界にする: dirty なら外部変更で draft を
- * 上書きしない、クリーンなら外部変更に追従して `beginSession` がセッションを張り替える
+ * 「未保存の変更があるか (isDirty)」を外部変更に対する保護境界にする: dirty なら外部変更で
+ * draft を上書きしない、クリーンなら外部変更に追従して `beginSession` がセッションを張り替える
  * (VS Code のエディタバッファと同じ意味論)。
  */
 import { tryCatch } from "@gozd/shared";
@@ -84,6 +83,10 @@ export const usePreviewEditStore = defineStore("preview-edit", () => {
 
   /** 保存成功時、書き込んだ内容を返す（呼び出し側が楽観的に表示コンテンツを更新するため） */
   async function save(): Promise<string | undefined> {
+    // クリーンなら書かない (VS Code の Cmd+S と同じ no-op)。Save ボタンは dirty 時のみ
+    // 表示されるが、Cmd+S はセッションがあれば発火するため、ここで弾かないと内容不変の
+    // 書き込みで mtime だけ動き fsChange の無駄往復が起きる。
+    if (!isDirty.value) return undefined;
     // Cmd+S はボタンの :disabled="saving" を経由しないため、ここで再入を弾く。
     if (saving.value) return undefined;
     const t = target.value;

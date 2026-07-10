@@ -45,7 +45,8 @@ import { detectLang, SHIKI_THEME } from "./useHighlight";
 // エントリーポイントが 1 つしかなく、モジュラーな部分 import には別パッケージ
 // `monaco-editor-core` への切替えが必要)。今回は切替えを見送り、全部入り構成を受け入れる。
 // 動的 import + build 側の chunk 分割 (`vite.config.ts` に codeSplitting 無効化の指定は無い) に
-// より、このモジュールは編集モード突入時にのみ別チャンクとしてロードされる。よって worker も
+// より、このモジュールはメインバンドルとは別チャンクになり、コード表示 leaf の初回表示か
+// PreviewPane 起動時のアイドル先読み (requestIdleCallback) でロードされる。worker も
 // 言語ごとに正しくルーティングし、CSS/HTML/JSON/TypeScript の言語サービス (diagnostics 等) を
 // フルに使える状態にしておく。
 self.MonacoEnvironment = {
@@ -103,6 +104,10 @@ let themeWired = false;
  * 言語 id として返す (Monaco 未知の言語は `monaco.languages.register` で新規登録する。
  * `shikiToMonaco` は登録済み言語 id にしか provider を張らないため register が先)。
  * Shiki 未対応の場合は Monaco 組み込みメタデータへ fallback する。
+ *
+ * 新規登録する言語は `{ id }` のみで language configuration (bracket matching / コメント
+ * トグル / auto-indent) を持たない。ハイライトと検索が目的の viewer / light editor 用途
+ * では十分という意図したトレードオフ (configuration を足すなら言語ごとの定義が別途必要)。
  *
  * 同一言語の並行呼び出しは `shikiToMonaco` が二重に走り得るが、provider / defineTheme とも
  * 上書き登録で冪等なので排他は持たない。

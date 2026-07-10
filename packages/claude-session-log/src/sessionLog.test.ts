@@ -518,26 +518,130 @@ describe("parseSessionLog", () => {
     expect(log.skipped).toBe(0);
   });
 
-  test("task-notification / system-reminder 注入 string は載せず skipped に計上", () => {
+  test("task-notification 注入 string は載せず skipped に計上", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content: "<task-notification>\n<task-id>abc</task-id>\n<result>done</result>",
+        },
+      }),
+    );
+    expect(log.events).toEqual([]);
+    expect(log.skipped).toBe(1);
+  });
+
+  test("system-reminder 注入 string は開閉タグを剥がして system イベントにする", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: { role: "user", content: "<system-reminder>be careful</system-reminder>" },
+      }),
+    );
+    expect(log.events).toEqual([
+      { kind: "system", label: "system-reminder", text: "be careful", ts: TS },
+    ]);
+    expect(log.skipped).toBe(0);
+  });
+
+  test("閉じタグ欠落の system-reminder は先頭タグだけ剥がして全文を残す", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: { role: "user", content: "<system-reminder>truncated body" },
+      }),
+    );
+    expect(log.events).toEqual([
+      { kind: "system", label: "system-reminder", text: "truncated body", ts: TS },
+    ]);
+  });
+
+  test("本文が空の system-reminder は載せず skipped に計上", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: { role: "user", content: "<system-reminder> </system-reminder>" },
+      }),
+    );
+    expect(log.events).toEqual([]);
+    expect(log.skipped).toBe(1);
+  });
+
+  test("hook_success attachment の非空 content は system イベントにする", () => {
     const log = parseSessionLog(
       jsonl(
         {
-          type: "user",
+          type: "attachment",
           timestamp: TS,
-          message: {
-            role: "user",
-            content: "<task-notification>\n<task-id>abc</task-id>\n<result>done</result>",
+          attachment: {
+            type: "hook_success",
+            hookName: "SessionStart:startup",
+            hookEvent: "SessionStart",
+            content: "このセッションのルートは /path/to/worktree です。",
           },
         },
+        // content 空の hook_success (発火記録のみ) は表示する中身が無いため skipped。
         {
-          type: "user",
+          type: "attachment",
           timestamp: TS,
-          message: { role: "user", content: "<system-reminder>be careful</system-reminder>" },
+          attachment: {
+            type: "hook_success",
+            hookName: "PreToolUse:Bash",
+            hookEvent: "PreToolUse",
+            content: "",
+          },
         },
       ),
     );
-    expect(log.events).toEqual([]);
-    expect(log.skipped).toBe(2);
+    expect(log.events).toEqual([
+      {
+        kind: "system",
+        label: "SessionStart:startup",
+        text: "このセッションのルートは /path/to/worktree です。",
+        ts: TS,
+      },
+    ]);
+    expect(log.skipped).toBe(1);
+  });
+
+  test("hook_additional_context attachment は非空 string 要素を結合して system イベントにする", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "attachment",
+        timestamp: TS,
+        attachment: {
+          type: "hook_additional_context",
+          hookName: "PreToolUse:Bash",
+          hookEvent: "PreToolUse",
+          content: ["node_modules を直接読むな", "", "ghq skill を使え"],
+        },
+      }),
+    );
+    expect(log.events).toEqual([
+      {
+        kind: "system",
+        label: "PreToolUse:Bash",
+        text: "node_modules を直接読むな\nghq skill を使え",
+        ts: TS,
+      },
+    ]);
+    expect(log.skipped).toBe(0);
+  });
+
+  test("hookName 欠落の hook attachment は label を hook に倒す", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "attachment",
+        timestamp: TS,
+        attachment: { type: "hook_success", content: "injected" },
+      }),
+    );
+    expect(log.events).toEqual([{ kind: "system", label: "hook", text: "injected", ts: TS }]);
   });
 
   test("SDK 合成 assistant (model:<synthetic>) は transcript に載せず skipped に計上", () => {

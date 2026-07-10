@@ -13,13 +13,13 @@
 token を介して TerminalSessionPreview と SSOT 共有する (user=`bg-chat-outgoing` + 黒文字 /
 assistant=`bg-chat-incoming` + 白文字 / inline code=`var(--color-chat-code)` の紫)。話者は
 左右寄せ + chat-outgoing/chat-incoming の塗り分けで識別できるため、アバターや話者アイコン
-は置かない。thinking / tool は LINE に対応物が無いため、中央寄せの控えめなシステム行に
-畳む。現在地のナビゲーションはペイン内に持たず、親の横断タイムラインに集約する
-(`scrollTo` で時刻位置へジャンプを受ける)。
+は置かない。thinking / tool / system (hook 等の注入) は LINE に対応物が無いため、中央寄せの
+控えめなシステム行に畳む。現在地のナビゲーションはペイン内に持たず、親の横断タイムラインに
+集約する (`scrollTo` で時刻位置へジャンプを受ける)。
 
 ## 設計判断
 
-- 吹き出し (user / assistant / image) は常時表示、システム行 (thinking / tool) のみ
+- 吹き出し (user / assistant / image) は常時表示、システム行 (thinking / tool / system) のみ
   `<details>` のネイティブ開閉に委ね、Vue 側に per-event の ref を持たない
 - rewind 分岐は `branch` イベントとして中央寄せのセレクタ行で出す。番号は古い順 (最新が最大)、
   選択中の枝をハイライトし、他をクリックで `select-branch` を emit して親に枝の切り替えを委ねる
@@ -109,9 +109,9 @@ function subagentLinkFor(toolUseId: string): SubagentLinkResult | undefined {
 
 type EventKind = TranscriptEvent["kind"];
 
-// thinking と tool はデフォルト閉じる (思考過程とツール詳細はノイズになりやすく、
-// user / assistant の会話を読みやすくするため)。中央システム行として畳んだ状態で見せる。
-const DEFAULT_COLLAPSED = new Set<EventKind>(["thinking", "tool"]);
+// thinking / tool / system はデフォルト閉じる (思考過程・ツール詳細・system 注入はノイズに
+// なりやすく、user / assistant の会話を読みやすくするため)。中央システム行として畳んだ状態で見せる。
+const DEFAULT_COLLAPSED = new Set<EventKind>(["thinking", "tool", "system"]);
 function defaultOpen(kind: EventKind): boolean {
   return !DEFAULT_COLLAPSED.has(kind);
 }
@@ -623,9 +623,9 @@ onBeforeUnmount(teardownObserver);
           </div>
         </div>
 
-        <!-- thinking / tool: 中央寄せの控えめなシステム行 (デフォルト閉じ) -->
+        <!-- thinking / tool / system: 中央寄せの控えめなシステム行 (デフォルト閉じ) -->
         <details
-          v-else-if="ev.kind === 'thinking' || ev.kind === 'tool'"
+          v-else-if="ev.kind === 'thinking' || ev.kind === 'tool' || ev.kind === 'system'"
           :data-ev="i"
           :open="defaultOpen(ev.kind)"
           class="scroll-mt-2"
@@ -639,6 +639,14 @@ onBeforeUnmount(teardownObserver);
             class="mx-auto flex w-fit max-w-[70%] cursor-pointer list-none items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-foreground-low select-none hover:bg-element-hover [&::-webkit-details-marker]:hidden"
           >
             <span v-if="ev.kind === 'thinking'">thinking</span>
+            <!-- system 注入: 種別を dim で、注入元 (hook 名 / system-reminder) を primary で出す
+                 (tool 行の「tool 名 = primary」と同じ主従)。 -->
+            <template v-else-if="ev.kind === 'system'">
+              <span class="shrink-0">system</span>
+              <span class="min-w-0 truncate font-mono font-medium text-foreground">{{
+                ev.label
+              }}</span>
+            </template>
             <template v-else>
               <!-- tool 名 = primary (weight)。error は引数 truncate に押し出されないよう名直後。 -->
               <span class="shrink-0 font-mono font-medium text-foreground">{{ ev.name }}</span>
@@ -659,9 +667,9 @@ onBeforeUnmount(teardownObserver);
             </template>
           </summary>
 
-          <!-- thinking 平文 -->
+          <!-- thinking / system 平文 -->
           <div
-            v-if="ev.kind === 'thinking'"
+            v-if="ev.kind === 'thinking' || ev.kind === 'system'"
             class="mx-auto mt-1 max-w-[85%] rounded-md bg-element-hover px-3 py-2 text-sm wrap-break-word whitespace-pre-wrap text-foreground-low"
           >
             {{ ev.text }}

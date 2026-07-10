@@ -21,11 +21,11 @@
 ## パフォーマンス
 
 - canvas パーティクルはイベント発火時のみ rAF を回し、空になれば停止する (idle 時の rAF ゼロ)
-- **常時アニメーションを置かない**。かつて全画面 drift する aurora (blur 80px +
-  mix-blend-mode: screen の環境光) を常時演出として持っていたが、知覚できないほど
-  遅い動きでも compositor は毎フレーム全画面の blend + blur 再合成を強制され、
-  さらに backdrop-filter パネルの blur キャッシュを毎フレーム無効化して GPU プロセスの
-  負荷が常時数十% に達したため削除した。静的なビネットは合成負荷を持たないので残す
+- **常時アニメーションを置かない**。全画面を常時 drift させる演出 (blur +
+  mix-blend-mode の環境光など) は、知覚できないほど遅い動きでも compositor に
+  毎フレーム全画面の blend + blur 再合成を強制し、背後の backdrop-filter パネルの
+  blur キャッシュも毎フレーム無効化するため、GPU プロセスの負荷が常時数十% に達する。
+  静的なビネットは合成負荷を持たないので使ってよい
 </doc>
 
 <script setup lang="ts">

@@ -633,6 +633,29 @@ describe("parseSessionLog", () => {
     expect(log.skipped).toBe(0);
   });
 
+  test("hook_additional_context の content が全要素空 / 空配列なら載せず skipped に計上", () => {
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "attachment",
+          timestamp: TS,
+          attachment: { type: "hook_additional_context", hookName: "PreToolUse:Bash", content: [] },
+        },
+        {
+          type: "attachment",
+          timestamp: TS,
+          attachment: {
+            type: "hook_additional_context",
+            hookName: "PreToolUse:Bash",
+            content: ["", ""],
+          },
+        },
+      ),
+    );
+    expect(log.events).toEqual([]);
+    expect(log.skipped).toBe(2);
+  });
+
   test("hookName 欠落の hook attachment は label を hook に倒す", () => {
     const log = parseSessionLog(
       jsonl({

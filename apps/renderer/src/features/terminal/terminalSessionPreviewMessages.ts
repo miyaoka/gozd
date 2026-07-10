@@ -16,10 +16,19 @@ export interface PreviewEvent {
  * transcript の末尾イベントが thinking / tool なら、直近の発言以降まだ次の発言が
  * 無い = 作業継続中とみなす。末尾が user / assistant (発言) なら進行中表示をリセットする。
  * ask は expandAskMessages で user / assistant に展開済みの前提 (呼び出し側で展開してから渡す)。
+ *
+ * system (注入) はエージェント自身のアクションでも発言でもないため透過し、直近の非 system
+ * イベントで判定する。透過しないと、tool 実行中に hook 注入が末尾に来た瞬間 (tool_use →
+ * hook attachment → tool_result の JSONL 順で、tool_result 到着前の window) に進行中表示が
+ * 誤って消える。
  */
 export function isSessionInProgress(events: TranscriptEvent[]): boolean {
-  const last = events[events.length - 1];
-  return last !== undefined && (last.kind === "thinking" || last.kind === "tool");
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i];
+    if (ev === undefined || ev.kind === "system") continue;
+    return ev.kind === "thinking" || ev.kind === "tool";
+  }
+  return false;
 }
 
 // 1 overlay 分の bubble。run 単位で表示対象を選び、events の出現順で並べる。

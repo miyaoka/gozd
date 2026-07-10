@@ -1,18 +1,32 @@
 <doc lang="md">
-Shiki によるシンタックスハイライト付きコード表示。
+Monaco Editor (readonly) によるコード表示。ハイライトは Shiki の TextMate grammar を
+`@shikijs/monaco` 経由で Monaco に接ぎ込む (`monacoSetup.ts`)。
 
-- 非同期ハイライト完了までは行番号付きプレーンテキストをフォールバック表示
-- onCleanup で非同期レースを防止
+旧実装は Shiki の HTML 出力を contenteditable で表示していたが、Monaco readonly に置き換えた。
+狙いは検索 (Cmd+F の find widget) と大きいファイルの仮想スクロール。編集モード (CodeEditor) と
+同じエディタ基盤になるため、モード切替での見た目のジャンプも消える。
+
+## blame anchor の契約
+
+行番号クリック → blame popover の起動は `monacoSetup.ts` の `wireGutterLineClick` に委譲する
+(クリック判定・popover light dismiss との位相・anchor 配置の設計判断は同 docstring 参照)。
+anchor は Monaco 内部の DOM ではなく、コンポーネントが所有する不可視要素をクリック行の
+gutter セル位置に重ねて使う。anchor の位置はクリック時に固定されるため、スクロールすると
+行とずれる。ずれた位置を指す popover を残さないよう、スクロールで `scrolled` を emit し
+親 (PreviewPane) が blame popover を閉じる。
+
+旧実装の行番号 `<button>` が持っていた keyboard 到達性 (Tab + Enter) は Monaco gutter では
+提供できず失われる。blame は mouse 専用機能に倒すトレードオフ。
+
+## fallback
+
+Monaco (重量 chunk) のロード完了までは行番号なしのプレーンテキストを表示する。
 </doc>
 
 <script setup lang="ts">
-import { tryCatch } from "@gozd/shared";
-import { watch, ref, nextTick, computed } from "vue";
-import { useNotificationStore } from "../../shared/notification";
-import { abortComposition, blockEdit } from "./contenteditableHostGuard";
-import { highlight } from "./useHighlight";
-
-const notification = useNotificationStore();
+import type * as Monaco from "monaco-editor";
+import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { previewCodeFontFamily, previewFontSize } from "./previewConfig";
 
 const props = withDefaults(
   defineProps<{
@@ -24,7 +38,7 @@ const props = withDefaults(
     revealVersion: number;
     wordWrap: boolean;
     /**
-     * 行番号を blame ボタンとして描画するか。false なら静的な表示に倒し、
+     * 行番号を blame ボタンとして扱うか。false なら gutter click を無視し、
      * hover も cursor:pointer も出さない (silent dead button を避ける契約)。
      */
     blameEnabled?: boolean;
@@ -35,74 +49,116 @@ const props = withDefaults(
 const emit = defineEmits<{
   /** 行番号クリック。anchorEl は popover anchor 用、line は 1-based の表示行 */
   lineNumberClick: [payload: { line: number; anchorEl: HTMLElement }];
+  /** エディタのスクロール。gutter anchor が仮想化で無効になるため親は blame popover を閉じる */
+  scrolled: [];
 }>();
 
-const highlightedHtml = ref<string>();
 const containerRef = ref<HTMLElement>();
-const activeLineNumber = ref<number>();
+/** blame popover の anchor (自前所有の固定要素。monacoSetup の wireGutterLineClick が位置決め) */
+const blameAnchorRef = ref<HTMLElement>();
+const editorReady = ref(false);
+let editor: Monaco.editor.IStandaloneCodeEditor | undefined;
+let activeDecorations: Monaco.editor.IEditorDecorationsCollection | undefined;
 
-const ACTIVE_LINE_CLASS = "_active-line";
+const ACTIVE_LINE_CLASS = "_monaco-active-line";
 
-/** 行数の桁数（CSS カスタムプロパティ --line-no-width に使用） */
-const lineCount = computed(() => props.content.split("\n").length);
-const lineNoWidth = computed(() => `${String(lineCount.value).length}ch`);
+/** 言語解決 await 中にファイルが切り替わった場合に古い解決結果を捨てるための世代カウンタ */
+let langEpoch = 0;
 
-/** 前回のハイライトをクリアする */
-function clearActiveHighlight() {
-  const container = containerRef.value;
-  if (!container) return;
-  const prev = container.querySelector(`.${ACTIVE_LINE_CLASS}`);
-  if (prev) prev.classList.remove(ACTIVE_LINE_CLASS);
+/** 指定行までスクロールしてハイライトする。範囲外の行は無視する (旧実装と同じ挙動) */
+function revealLine(line: number) {
+  if (editor === undefined) return;
+  const lineCount = editor.getModel()?.getLineCount() ?? 0;
+  if (line > lineCount) return;
+  editor.revealLineInCenter(line);
+  activeDecorations?.set([
+    {
+      range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
+      options: { isWholeLine: true, className: ACTIVE_LINE_CLASS },
+    },
+  ]);
 }
 
-/** 指定行までスクロールしてハイライトする */
-async function scrollToLine(line: number) {
-  activeLineNumber.value = line;
+onMounted(async () => {
+  const el = containerRef.value;
+  if (el === undefined) return;
+  const myEpoch = ++langEpoch;
+  const { monaco, MONACO_THEME, resolveMonacoLanguage, wireGutterLineClick } =
+    await import("./monacoSetup");
+  const language = await resolveMonacoLanguage(props.filePath);
+  // await 中に unmount された場合、containerRef は Vue によって undefined に戻される。
+  // ファイル切替 (watch 側が最新の言語解決を持つ) は世代不一致で捨てる。
+  if (containerRef.value !== el || myEpoch !== langEpoch) return;
+  // create より先に fallback → コンテナへ表示を切り替える。v-show=false (display:none) の
+  // コンテナに create すると初期サイズ 0 で layout され、直後の revealLineInCenter の
+  // センタリング計算が壊れるため。nextTick 直後 (同一 task 内) に create するので
+  // 空白フレームは描画されない。
+  editorReady.value = true;
   await nextTick();
-  const container = containerRef.value;
-  if (!container) return;
+  if (containerRef.value !== el) return;
+  editor = monaco.editor.create(el, {
+    value: props.content,
+    language,
+    theme: MONACO_THEME,
+    readOnly: true,
+    // DOM レベルでも readonly (contenteditable ではなく aria-readonly な textbox) にし、
+    // IME 起動等の編集系イベントを構造的に抑止する
+    domReadOnly: true,
+    automaticLayout: true,
+    minimap: { enabled: false },
+    fontFamily: previewCodeFontFamily.value || undefined,
+    fontSize: previewFontSize.value > 0 ? previewFontSize.value : undefined,
+    wordWrap: props.wordWrap ? "on" : "off",
+    scrollBeyondLastLine: false,
+    // readonly ビューアにカーソル行の常時ハイライトは不要 (reveal 行の decoration と紛れる)
+    renderLineHighlight: "none",
+    ariaLabel: "File contents",
+  });
+  activeDecorations = editor.createDecorationsCollection();
+  // gutter クリック → blame 起動。判定と anchor 配置の設計判断は wireGutterLineClick の
+  // docstring (monacoSetup.ts) を参照。
+  wireGutterLineClick(
+    editor,
+    () => blameAnchorRef.value,
+    () => props.blameEnabled,
+    (payload) => emit("lineNumberClick", payload),
+  );
+  editor.onDidScrollChange(() => emit("scrolled"));
+  if (props.lineNumber !== undefined) revealLine(props.lineNumber);
+});
 
-  clearActiveHighlight();
+onUnmounted(() => {
+  langEpoch++;
+  editor?.dispose();
+  editor = undefined;
+});
 
-  const lineEl = container.querySelector(`[data-line="${line}"]`);
-  if (!lineEl) return;
-
-  lineEl.classList.add(ACTIVE_LINE_CLASS);
-  lineEl.scrollIntoView({ block: "center" });
-}
-
+/**
+ * ファイル切替 / 内容更新 (fsChange 再取得) の反映。コンポーネントはファイルを跨いで
+ * 再利用されるため、model の中身と言語をここで差し替える。旧実装 (DOM 全置換) と挙動を
+ * 揃え、スクロールは先頭へ戻す (lineNumber 指定があれば reveal が優先)。
+ */
 watch(
-  () => [props.content, props.filePath, props.blameEnabled],
-  async (_, __, onCleanup) => {
-    highlightedHtml.value = undefined;
-    activeLineNumber.value = undefined;
-
-    let cancelled = false;
-    onCleanup(() => {
-      cancelled = true;
-    });
-
-    const result = await tryCatch(highlight(props.content, props.filePath, props.blameEnabled));
-    if (cancelled) return;
-    if (!result.ok) {
-      // `highlight` は言語不明を undefined で正常返却する (useHighlight.ts)。
-      // ここで tryCatch が捕捉するのは Shiki の grammar load 失敗や予期しない例外で、
-      // map 拡大後は on-demand load 経路で起こりうる。silent fallback すると原因を
-      // 追えないため error として通知する (renderer 規約: silent fallback 禁止、
-      // DiffPreview と同じ契約)。
-      notification.error("Syntax highlight failed", result.error);
-      return;
+  () => [props.content, props.filePath] as const,
+  async ([, filePath], [, oldFilePath]) => {
+    if (editor === undefined) return; // 初期 mount 前。onMounted が最新 props で作る
+    activeDecorations?.clear();
+    if (filePath !== oldFilePath) {
+      const myEpoch = ++langEpoch;
+      // monacoSetup は初回 mount で評価済みのため、この import は同期的に解決する
+      const { monaco, resolveMonacoLanguage } = await import("./monacoSetup");
+      const language = await resolveMonacoLanguage(filePath);
+      if (editor === undefined || myEpoch !== langEpoch) return;
+      const model = editor.getModel();
+      if (model) monaco.editor.setModelLanguage(model, language);
     }
-
-    // result.value が undefined の場合はフォールバック表示（Shiki 未対応言語）
-    if (result.value) {
-      highlightedHtml.value = result.value;
-    }
+    if (editor.getValue() !== props.content) editor.setValue(props.content);
     if (props.lineNumber !== undefined) {
-      void scrollToLine(props.lineNumber);
+      revealLine(props.lineNumber);
+    } else {
+      editor.setScrollPosition({ scrollTop: 0, scrollLeft: 0 });
     }
   },
-  { immediate: true },
 );
 
 /** selectPath のたびにスクロールを再発火（同一パス・同一行番号でも対応） */
@@ -110,212 +166,62 @@ watch(
   () => props.revealVersion,
   () => {
     if (props.lineNumber !== undefined) {
-      void scrollToLine(props.lineNumber);
+      revealLine(props.lineNumber);
     } else {
-      clearActiveHighlight();
-      activeLineNumber.value = undefined;
+      activeDecorations?.clear();
     }
   },
 );
 
-/**
- * 行番号ボタンの click をコンテナ delegation で拾う。
- * Shiki / fallback どちらも `[data-line-no-btn]` 属性付きの button を持つので、
- * `closest` で 1 経路に統一する。`blameEnabled` が false のときは早期 return し、
- * CSS でも cursor:pointer / hover styling を抑制して「クリックしても何も起きない
- * ボタン」を作らない契約 (silent dead button 禁止)。
- */
-function onContainerClick(e: MouseEvent) {
-  if (!props.blameEnabled) return;
-  const target = e.target;
-  if (!(target instanceof HTMLElement)) return;
-  const btn = target.closest("[data-line-no-btn]");
-  if (!(btn instanceof HTMLElement)) return;
-  const lineStr = btn.dataset.lineNoBtn;
-  if (lineStr === undefined) return;
-  const line = Number(lineStr);
-  if (!Number.isInteger(line) || line <= 0) return;
-  // preventDefault は button の form submit / focus 移動の副作用を抑えるため。
-  // stopPropagation はしない: 親 (PreviewPane / 上位 layout) で将来 click delegation
-  // を仕掛けたい場合に潰さない方針。close() の Popover API トグルは別経路。
-  e.preventDefault();
-  emit("lineNumberClick", { line, anchorEl: btn });
-}
+watch(
+  () => props.wordWrap,
+  (wrap) => {
+    editor?.updateOptions({ wordWrap: wrap ? "on" : "off" });
+  },
+);
 </script>
 
 <template>
-  <!-- ハイライト済み HTML。contenteditable で Cmd+A scope をこの leaf に閉じ込める。
-       SR には "edit, read only" ではなく region として案内する (aria-readonly は textbox role 専用)。 -->
-  <div
-    v-if="highlightedHtml"
-    ref="containerRef"
-    class="_highlighted-code text-sm/tight"
-    :class="wordWrap ? '_word-wrap' : ''"
-    contenteditable="true"
-    spellcheck="false"
-    autocorrect="off"
-    autocapitalize="off"
-    role="region"
-    aria-label="File contents"
-    :style="{ '--line-no-width': lineNoWidth }"
-    v-html="highlightedHtml"
-    @click="onContainerClick"
-    @beforeinput="blockEdit"
-    @compositionstart="abortComposition"
-    @dragover.prevent
-    @drop.prevent
-  />
+  <div class="relative size-full">
+    <!-- Monaco コンテナ。ロード完了までは v-show で隠し、fallback のプレーンテキストを出す。
+         v-if にしないのは、mount 時の dynamic import await 中もコンテナ DOM を保持して
+         create 先を確保するため。 -->
+    <div
+      v-show="editorReady"
+      ref="containerRef"
+      class="size-full"
+      :class="blameEnabled ? '_blame-gutter' : ''"
+    />
 
-  <!-- フォールバック: プレーンテキスト。同様に contenteditable で scope 化。 -->
-  <pre
-    v-else
-    ref="containerRef"
-    class="_line-numbered p-4 text-sm/tight text-foreground"
-    :class="wordWrap ? '_word-wrap break-all whitespace-pre-wrap' : ''"
-    contenteditable="true"
-    spellcheck="false"
-    autocorrect="off"
-    autocapitalize="off"
-    role="region"
-    aria-label="File contents"
-    :style="{ '--line-no-width': lineNoWidth }"
-    @click="onContainerClick"
-    @beforeinput="blockEdit"
-    @compositionstart="abortComposition"
-    @dragover.prevent
-    @drop.prevent
-  ><code><span
-        v-for="(line, i) in content.split('\n')"
-        :key="i"
-        class="_line"
-        :data-line="i + 1"
-      ><button
-          v-if="blameEnabled"
-          type="button"
-          class="_line-no-btn"
-          :data-line-no-btn="i + 1"
-          :aria-label="`Line ${i + 1}`"
-        /><span
-          v-else
-          class="_line-no-static"
-          :data-line-no-static="i + 1"
-          aria-hidden="true"
-        />{{ line }}
-</span></code></pre>
+    <!-- blame popover の anchor。Monaco 内部の DOM は anchor に使えない
+         (wireGutterLineClick の docstring 参照) ため、自前の不可視要素をクリック行の
+         gutter セル位置に重ねて popover の source にする -->
+    <div ref="blameAnchorRef" class="pointer-events-none absolute" aria-hidden="true" />
+
+    <!-- フォールバック: プレーンテキスト（Monaco chunk ロード完了まで） -->
+    <pre
+      v-if="!editorReady"
+      class="p-4 text-sm/tight whitespace-pre text-foreground"
+      role="region"
+      aria-label="File contents"
+    ><code>{{ content }}</code></pre>
+  </div>
 </template>
 
 <style scoped>
-/* contenteditable host の focus 表示。`outline: none` で全部消すと keyboard 経路の
-   focus 視認が失われるため、`:focus-visible` で keyboard focus 時だけ outline を出し、
-   mouse click 経路の outline は UA 既定に従って表示しない (`:focus-visible` 非マッチ)。 */
-._highlighted-code:focus-visible,
-._line-numbered:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: -2px;
+/* reveal 対象行のハイライト（Monaco decoration の className 経由で view overlay に付与される） */
+:deep(._monaco-active-line) {
+  background-color: color-mix(in oklch, var(--color-warning) 15%, transparent);
 }
 
-/* blame ON: `<button data-line-no-btn>` (Shiki / fallback どちらも同形)
- *
- * 行番号は DOM テキストではなく `::before` の `content: attr(...)` でレンダリングする。
- * 擬似要素 content は構造的にクリップボード対象外なので、`user-select: none` 任せで
- * Cmd+A や範囲跨ぎコピーに行番号が混入するリスクを根本から消す。あわせて空行スパンに
- * user-select: none なテキストが居なくなり、Shiki 経路で「改行だけの行」のコピーが
- * 隣接の \n テキストノードごと取りこぼされる挙動も解消する。
- */
-._line-numbered ._line ._line-no-btn,
-._highlighted-code :deep(.line ._line-no-btn) {
-  display: inline-block;
-  width: var(--line-no-width, 3ch);
-  margin-right: 1.5ch;
-  padding: 0;
-  background: transparent;
-  border: none;
-  text-align: right;
-  font: inherit;
-  color: var(--color-element-hover);
-  user-select: none;
+/* blame ON のときだけ gutter の行番号をクリック可能に見せる。
+   blame OFF では Monaco 標準のまま (cursor も hover も出さない = silent dead button 禁止)。 */
+._blame-gutter :deep(.margin-view-overlays .line-numbers) {
   cursor: pointer;
 }
 
-._line-numbered ._line ._line-no-btn::before,
-._highlighted-code :deep(.line ._line-no-btn::before) {
-  content: attr(data-line-no-btn);
-}
-
-._line-numbered ._line ._line-no-btn:hover,
-._highlighted-code :deep(.line ._line-no-btn:hover) {
+._blame-gutter :deep(.margin-view-overlays .line-numbers:hover) {
   color: var(--color-primary);
   text-decoration: underline;
-}
-
-/* keyboard focus 可視化。silent dead button 禁止規約の延長で、Tab 到達した button が
-   視認できることを担保する。outline は Tailwind の blue-400 と整合させる */
-._line-numbered ._line ._line-no-btn:focus-visible,
-._highlighted-code :deep(.line ._line-no-btn:focus-visible) {
-  outline: 2px solid var(--color-primary);
-  outline-offset: -2px;
-  color: var(--color-primary);
-}
-
-/* blame OFF: `<span class="_line-no-static">`。focusable を奪うため span に倒す。
-   silent dead button 禁止規約: keyboard 経路 (Tab + Enter) でも何も起きないことを構造で保証する。
-   行番号レンダリングは button 経路と同じく `::before` + `attr()` 経由。 */
-._line-numbered ._line ._line-no-static,
-._highlighted-code :deep(.line ._line-no-static) {
-  display: inline-block;
-  width: var(--line-no-width, 3ch);
-  margin-right: 1.5ch;
-  text-align: right;
-  color: var(--color-element-hover);
-  user-select: none;
-}
-
-._line-numbered ._line ._line-no-static::before,
-._highlighted-code :deep(.line ._line-no-static::before) {
-  content: attr(data-line-no-static);
-}
-
-/* 折り返し時: 行番号を absolute で固定し、折り返し行が行番号の右側に揃うよう padding で確保 */
-._line-numbered._word-wrap ._line,
-._highlighted-code._word-wrap :deep(.line) {
-  position: relative;
-  display: block;
-  padding-left: calc(var(--line-no-width, 3ch) + 1.5ch);
-  min-height: 1lh;
-}
-
-._line-numbered._word-wrap ._line ._line-no-btn,
-._highlighted-code._word-wrap :deep(.line ._line-no-btn),
-._line-numbered._word-wrap ._line ._line-no-static,
-._highlighted-code._word-wrap :deep(.line ._line-no-static) {
-  position: absolute;
-  left: 0;
-  margin-right: 0;
-}
-
-._highlighted-code :deep(pre) {
-  padding: 1rem;
-  margin: 0;
-  background: transparent !important;
-}
-
-._highlighted-code._word-wrap :deep(pre) {
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-._highlighted-code :deep(code) {
-  font-family: inherit;
-}
-
-._highlighted-code._word-wrap :deep(code) {
-  display: flex;
-  flex-direction: column;
-}
-
-/* アクティブ行のハイライト（scrollToLine が直接クラスを付与） */
-._line-numbered ._line._active-line,
-._highlighted-code :deep(.line._active-line) {
-  background-color: color-mix(in oklch, var(--color-warning) 15%, transparent);
 }
 </style>

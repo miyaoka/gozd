@@ -16,7 +16,7 @@
 拡張子 → 種別の対応表の SSOT は `previewFileType.ts`（docs/preview.md のファイル種別表と対応）。
 子コンポーネントの内訳:
 
-- コード → CodePreview（Shiki ハイライト）
+- コード → CodePreview（Monaco readonly + Shiki TextMate ハイライト）
 - 差分 → DiffPreview（`git diff --no-index` で取得した hunk 配列を描画）
 - 画像 / SVG → ImagePreview（ファイルサーバー URL）
 - Markdown → MarkdownPreview（marked + DOMPurify）
@@ -121,6 +121,17 @@ const openableAbsPath = computed<string | undefined>(() =>
     effectiveGitChange: effectiveGitChange.value,
   }),
 );
+
+/**
+ * CodePreview / CodeEditor (Monaco) のスクロールで blame popover を閉じる。blame anchor は
+ * クリック時の位置に固定した自前要素のため、スクロールすると行とずれた位置を指し続ける
+ * (CodePreview の doc 参照)。file history popover はヘッダ anchored なので閉じない。
+ */
+function onCodeScrolled() {
+  if (blamePopover.context.value !== undefined) {
+    blamePopover.close();
+  }
+}
 </script>
 
 <template>
@@ -212,9 +223,10 @@ const openableAbsPath = computed<string | undefined>(() =>
         </div>
 
         <!--
-          コンテンツ。Cmd+A scope は各 leaf (CodePreview / MarkdownPreview / DiffPreview) 側の
-          contenteditable で完結させる。PreviewPane 側はラッパとしてのみ振る舞い、contenteditable
-          を持たないことで nested editing host の不安定領域を踏まない。
+          コンテンツ。Cmd+A scope は各 leaf 側で完結させる (MarkdownPreview / DiffPreview は
+          contenteditable、CodePreview / CodeEditor は Monaco 自身の selection)。PreviewPane 側は
+          ラッパとしてのみ振る舞い、contenteditable を持たないことで nested editing host の
+          不安定領域を踏まない。
         -->
         <div
           class="size-full overflow-auto"
@@ -285,8 +297,11 @@ const openableAbsPath = computed<string | undefined>(() =>
             :model-value="editStore.draftContent"
             :file-path="selectedDisplayPath ?? ''"
             :word-wrap="wordWrap"
+            :blame-enabled="blameEnabled"
             @update:model-value="editStore.updateDraft($event)"
             @cancel="editStore.exitEditMode()"
+            @line-number-click="onCodeLineClick"
+            @scrolled="onCodeScrolled"
           />
 
           <!-- コード表示 -->
@@ -299,6 +314,7 @@ const openableAbsPath = computed<string | undefined>(() =>
             :word-wrap="wordWrap"
             :blame-enabled="blameEnabled"
             @line-number-click="onCodeLineClick"
+            @scrolled="onCodeScrolled"
           />
         </div>
       </div>

@@ -907,12 +907,12 @@ async function mountMonacoDiffEditor() {
   // reset() (781 行目付近) の null チェックと対称に揃える。
   if (!el) return;
   const myGeneration = ++mountGeneration;
-  const { monaco, detectMonacoLanguage } = await import("./monacoSetup");
+  const { monaco, MONACO_THEME, resolveMonacoLanguage } = await import("./monacoSetup");
+  const language = await resolveMonacoLanguage(props.filePath);
   // await 中に editable の再トグル / unmount が起きた場合は何もしない (世代不一致で判定)。
   if (myGeneration !== mountGeneration || monacoContainerRef.value !== el || !props.editable) {
     return;
   }
-  const language = detectMonacoLanguage(props.filePath);
   const originalModel = monaco.editor.createModel(props.original, language);
   const modifiedModel = monaco.editor.createModel(props.current, language);
   monacoDiffEditor = monaco.editor.createDiffEditor(el, {
@@ -920,7 +920,7 @@ async function mountMonacoDiffEditor() {
     readOnly: false,
     renderSideBySide: true,
     automaticLayout: true,
-    theme: "vs-dark",
+    theme: MONACO_THEME,
     minimap: { enabled: false },
     scrollBeyondLastLine: false,
     hideUnchangedRegions: { enabled: true },

@@ -1,10 +1,18 @@
 <doc lang="md">
-Monaco Editor (readonly) によるコード表示。ハイライトは Shiki の TextMate grammar を
+Monaco Editor によるコード表示・編集。ハイライトは Shiki の TextMate grammar を
 `@shikijs/monaco` 経由で Monaco に接ぎ込む (`monacoSetup.ts`)。
 
-旧実装は Shiki の HTML 出力を contenteditable で表示していたが、Monaco readonly に置き換えた。
-狙いは検索 (Cmd+F の find widget) と大きいファイルの仮想スクロール。編集モード (CodeEditor) と
-同じエディタ基盤になるため、モード切替での見た目のジャンプも消える。
+`editable` prop で読み取り専用 (Original タブ / commit・PR diff モード / 絶対パス) と
+編集可能 (Current タブの worktree 実ファイル。明示的な edit mode は無く常時編集) を切り替える。
+単一コンポーネント + `updateOptions` の切替なので、タブ切替でエディタが remount されず
+スクロール位置や undo 履歴が保たれる。
+
+- 編集内容の SSOT は `usePreviewEditStore.draftContent`。編集のたびに `update:content` を
+  emit し、親 (PreviewPane) が `updateDraft` に流す。content prop との round-trip
+  (同値で戻ってくる) は watch 側で無視し、スクロールリセットや decoration クリアを起こさない
+- 保存は Cmd+S コマンド / Save ボタン (`usePreviewEdit`)。エディタ自身は保存を持たない
+- mount 時に focus を奪わない。preview はファイラー操作の途中で開くため、自動 focus すると
+  ファイラーのキーボードナビゲーションを壊す
 
 ## blame anchor の契約
 
@@ -42,8 +50,10 @@ const props = withDefaults(
      * hover も cursor:pointer も出さない (silent dead button を避ける契約)。
      */
     blameEnabled?: boolean;
+    /** 編集可能にするか。true なら編集のたびに update:content を emit する */
+    editable?: boolean;
   }>(),
-  { blameEnabled: false },
+  { blameEnabled: false, editable: false },
 );
 
 const emit = defineEmits<{
@@ -51,6 +61,8 @@ const emit = defineEmits<{
   lineNumberClick: [payload: { line: number; anchorEl: HTMLElement }];
   /** エディタのスクロール。gutter anchor が仮想化で無効になるため親は blame popover を閉じる */
   scrolled: [];
+  /** editable 時の編集内容 (エディタ全文)。親が editStore.updateDraft に流す */
+  "update:content": [value: string];
 }>();
 
 const containerRef = ref<HTMLElement>();
@@ -100,10 +112,10 @@ onMounted(async () => {
     value: props.content,
     language,
     theme: MONACO_THEME,
-    readOnly: true,
+    readOnly: !props.editable,
     // DOM レベルでも readonly (contenteditable ではなく aria-readonly な textbox) にし、
     // IME 起動等の編集系イベントを構造的に抑止する
-    domReadOnly: true,
+    domReadOnly: !props.editable,
     automaticLayout: true,
     minimap: { enabled: false },
     fontFamily: previewCodeFontFamily.value || undefined,
@@ -111,10 +123,14 @@ onMounted(async () => {
     wordWrap: props.wordWrap ? "on" : "off",
     scrollBeyondLastLine: false,
     // readonly ビューアにカーソル行の常時ハイライトは不要 (reveal 行の decoration と紛れる)
-    renderLineHighlight: "none",
-    ariaLabel: "File contents",
+    renderLineHighlight: props.editable ? "line" : "none",
+    ariaLabel: props.editable ? "Edit file contents" : "File contents",
   });
   activeDecorations = editor.createDecorationsCollection();
+  editor.onDidChangeModelContent(() => {
+    if (!props.editable || editor === undefined) return;
+    emit("update:content", editor.getValue());
+  });
   // gutter クリック → blame 起動。判定と anchor 配置の設計判断は wireGutterLineClick の
   // docstring (monacoSetup.ts) を参照。
   wireGutterLineClick(
@@ -134,16 +150,24 @@ onUnmounted(() => {
 });
 
 /**
- * ファイル切替 / 内容更新 (fsChange 再取得) の反映。コンポーネントはファイルを跨いで
- * 再利用されるため、model の中身と言語をここで差し替える。旧実装 (DOM 全置換) と挙動を
- * 揃え、スクロールは先頭へ戻す (lineNumber 指定があれば reveal が優先)。
+ * ファイル切替 / 内容更新 (fsChange 再取得・discard) の反映。コンポーネントはファイルを
+ * 跨いで再利用されるため、model の中身と言語をここで差し替える。内容の入れ替え時は
+ * スクロールを先頭へ戻す (lineNumber 指定があれば reveal が優先)。
+ *
+ * editable 時の編集 round-trip (update:content → updateDraft → 同値の content prop) は
+ * `getValue() === content` で検出して何もしない。ここで return しないと、1 打鍵ごとに
+ * decoration クリアとスクロールリセットが走って編集にならない。
  */
 watch(
   () => [props.content, props.filePath] as const,
   async ([, filePath], [, oldFilePath]) => {
     if (editor === undefined) return; // 初期 mount 前。onMounted が最新 props で作る
+    const fileChanged = filePath !== oldFilePath;
+    const valueChanged = editor.getValue() !== props.content;
+    if (!fileChanged && !valueChanged) return;
     activeDecorations?.clear();
-    if (filePath !== oldFilePath) {
+    if (valueChanged) editor.setValue(props.content);
+    if (fileChanged) {
       const myEpoch = ++langEpoch;
       // monacoSetup は初回 mount で評価済みのため、この import は同期的に解決する
       const { monaco, resolveMonacoLanguage } = await import("./monacoSetup");
@@ -152,12 +176,27 @@ watch(
       const model = editor.getModel();
       if (model) monaco.editor.setModelLanguage(model, language);
     }
-    if (editor.getValue() !== props.content) editor.setValue(props.content);
     if (props.lineNumber !== undefined) {
       revealLine(props.lineNumber);
     } else {
       editor.setScrollPosition({ scrollTop: 0, scrollLeft: 0 });
     }
+  },
+);
+
+/**
+ * 読み取り専用 ↔ 編集可能の切替 (Current ↔ Original タブ等)。エディタを remount せず
+ * オプションだけ切り替えることで、スクロール位置と undo 履歴を保つ。
+ */
+watch(
+  () => props.editable,
+  (editable) => {
+    editor?.updateOptions({
+      readOnly: !editable,
+      domReadOnly: !editable,
+      renderLineHighlight: editable ? "line" : "none",
+      ariaLabel: editable ? "Edit file contents" : "File contents",
+    });
   },
 );
 

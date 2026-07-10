@@ -21,7 +21,7 @@ const KNOWN_KEYS = new Set<string>(
     terminalFocus: true,
     filerFocus: true,
     previewVisible: true,
-    previewEditMode: true,
+    previewEditable: true,
     commandPaletteVisible: true,
     quickPickVisible: true,
     prPickerVisible: true,

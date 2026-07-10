@@ -1,7 +1,6 @@
 /**
- * Monaco Editor の worker 環境セットアップと Shiki ハイライト統合。preview のコード表示
- * (CodePreview) / 編集機能 (CodeEditor / DiffPreview の editable モード) が
- * `import("./monacoSetup")` で動的 import した時点で 1 度だけ実行される
+ * Monaco Editor の worker 環境セットアップと Shiki ハイライト統合。preview のコード表示・編集
+ * (CodePreview) が `import("./monacoSetup")` で動的 import した時点で 1 度だけ実行される
  * (module 評価は import 時に 1 回)。コードファイルを開かないユーザーはロードしない。
  *
  * Vite plugin (`vite-plugin-monaco-editor-esm` 等) は使わない。最終更新から 1 年以上経過しており
@@ -130,7 +129,7 @@ async function resolveMonacoLanguage(filePath: string): Promise<string> {
 
 /**
  * gutter (行番号) クリックを検出し、クリック行の gutter 位置に anchor 要素を配置して handler を
- * 呼ぶ。CodePreview (readonly) / CodeEditor (編集) の blame 起動が共有する。VS Code の folding
+ * 呼ぶ。CodePreview の blame 起動が使う。VS Code の folding
  * gutter クリックと同じ mousedown 記録 → mouseup 検証の 2 段方式 (vscode folding.ts の
  * `mouseDownInfo` と同型)。
  *

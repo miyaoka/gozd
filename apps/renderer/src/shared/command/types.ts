@@ -47,7 +47,7 @@ export interface ContextMap {
   terminalFocus: boolean;
   filerFocus: boolean;
   previewVisible: boolean;
-  previewEditMode: boolean;
+  previewEditable: boolean;
   commandPaletteVisible: boolean;
   quickPickVisible: boolean;
   prPickerVisible: boolean;

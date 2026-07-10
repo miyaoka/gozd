@@ -9,7 +9,7 @@ const INITIAL_STATE: ContextMap = {
   terminalFocus: false,
   filerFocus: false,
   previewVisible: false,
-  previewEditMode: false,
+  previewEditable: false,
   commandPaletteVisible: false,
   quickPickVisible: false,
   prPickerVisible: false,

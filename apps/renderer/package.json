@@ -21,6 +21,7 @@
     "@gozd/shared": "workspace:*",
     "@gozd/shiki-lang-map": "workspace:*",
     "@gozd/themes": "workspace:*",
+    "@shikijs/monaco": "4.3.1",
     "@vueuse/core": "14.3.0",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/addon-unicode11": "0.9.0",

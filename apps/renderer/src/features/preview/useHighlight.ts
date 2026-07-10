@@ -1,11 +1,8 @@
 import { LINGUIST_EXTENSION_LANG_MAP, LINGUIST_FILENAME_LANG_MAP } from "@gozd/shiki-lang-map";
-import {
-  type BundledLanguage,
-  type ShikiTransformer,
-  type ThemedToken,
-  codeToHtml as shikiCodeToHtml,
-  codeToTokens as shikiCodeToTokens,
-} from "shiki";
+import { type BundledLanguage, type ThemedToken, codeToTokens as shikiCodeToTokens } from "shiki";
+
+/** preview 系 (CodePreview の Monaco 統合 / DiffPreview のトークン化) で共有する Shiki テーマ */
+const SHIKI_THEME = "github-dark";
 
 /** プロジェクト固有の拡張子 override。
  *
@@ -70,70 +67,6 @@ function detectLang(filePath: string): BundledLanguage | undefined {
   return extOverride ?? LINGUIST_EXTENSION_LANG_MAP[lc];
 }
 
-/** コードをハイライトして HTML 文字列を返す。言語不明ならプレーンテキストを返す。
- *
- * `blameEnabled` が true のときだけ行頭に `<button data-line-no-btn>` を挿入し、
- * false のときは `<span class="_line-no-static">` を挿入する。button だと CSS で
- * cursor を消しても keyboard (Tab + Enter) で到達でき silent dead button になるため、
- * blame できない経路では DOM 要素自体を span に倒して focusable を奪う契約。
- *
- * Shiki の shorthand `codeToHtml` は内部で grammar を on-demand load する
- * (`createSingletonShorthands` 経路、`getSingletonHighlighter` で idempotent)。
- */
-async function highlight(
-  code: string,
-  filePath: string,
-  blameEnabled: boolean,
-): Promise<string | undefined> {
-  const lang = detectLang(filePath);
-  if (!lang) return undefined;
-
-  const lineNumberTransformer: ShikiTransformer = {
-    line(node, line) {
-      node.properties["data-line"] = line;
-      // 行頭の line-no 要素はテキスト子を持たせず、表示は CSS `::before` +
-      // `content: attr(data-line-no-btn)` (静的経路は `data-line-no-static`) で行う。
-      // 行番号を DOM テキストにしないことで以下を両立する:
-      //   - クリップボードに行番号が混入しない (`::before` の content は構造的にコピー対象外)。
-      //     `user-select: none` だけだと WebKit が Cmd+A / 範囲跨ぎ等で取りこぼすことがあり、
-      //     構造で保証するほうが堅い
-      //   - Shiki 既定の「行間 \n テキストノード」をそのまま使っても、空行スパンの中に
-      //     user-select: none なテキストが居ない状態になるので、空行の改行が選択範囲から
-      //     落ちにくくなる (改行が消える本来のバグへの対処)
-      if (blameEnabled) {
-        node.children.unshift({
-          type: "element",
-          tagName: "button",
-          properties: {
-            type: "button",
-            class: "_line-no-btn",
-            "data-line-no-btn": line,
-            "aria-label": `Line ${line}`,
-          },
-          children: [],
-        });
-      } else {
-        node.children.unshift({
-          type: "element",
-          tagName: "span",
-          properties: {
-            class: "_line-no-static",
-            "data-line-no-static": line,
-            "aria-hidden": "true",
-          },
-          children: [],
-        });
-      }
-    },
-  };
-
-  return shikiCodeToHtml(code, {
-    lang,
-    theme: "github-dark",
-    transformers: [lineNumberTransformer],
-  });
-}
-
 /** コードを行ごとのトークン配列に変換する。言語不明なら undefined を返す */
 async function highlightTokens(
   code: string,
@@ -144,10 +77,10 @@ async function highlightTokens(
 
   const { tokens } = await shikiCodeToTokens(code, {
     lang,
-    theme: "github-dark",
+    theme: SHIKI_THEME,
   });
   return tokens;
 }
 
-export { highlight, highlightTokens };
+export { detectLang, highlightTokens, SHIKI_THEME };
 export type { ThemedToken };

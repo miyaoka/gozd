@@ -134,7 +134,8 @@ export function usePreviewRevs(content: PreviewContent) {
 
   function onCodeLineClick(payload: { line: number; anchorEl: HTMLElement }): void {
     // CodePreview は activeMode の content (current か original) をそのまま渡しているので
-    // activeMode に応じて rev を切り替える。
+    // activeMode に応じて rev を切り替える。editable (常時編集) は Current タブでしか
+    // 成立しない (usePreviewEdit の isEditable) ため、同じ分岐で currentRev に落ちる。
     const rev = activeMode.value === "original" ? originalRev.value : currentRev.value;
     if (rev === undefined) return;
     openBlame(rev, payload.line, payload.anchorEl);
@@ -166,9 +167,10 @@ export function usePreviewRevs(content: PreviewContent) {
       // summary view 切替で CodePreview / DiffPreview が unmount され anchor が detached
       // になるため、popover も同時に閉じる必要がある。
       () => summaryStore.enabled,
-      // edit mode 切替で CodePreview ↔ CodeEditor が入れ替わり line-no button anchor が
-      // detached になるため、同様に閉じる。
-      () => editStore.editMode,
+      // タイピングで行が増減すると popover の blame 行と表示行が乖離する。
+      // blame は保存済み working tree に対して走る (CodePreview doc 参照) ため、draft の
+      // 変更を検知したら popover を閉じて乖離状態を残さない。
+      () => editStore.draftContent,
     ],
     () => {
       if (blamePopover.context.value !== undefined) {

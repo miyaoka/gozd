@@ -65,7 +65,7 @@ function execute(id: string, args?: unknown): boolean {
     //
     // 不変条件: keybinding 経由 (useKeyBindings) の実行もこの fail-loud に乗る。条件付き登録の
     // command（pane mount 時のみ register される preview.* / terminal.* 等）は、対応する
-    // keybinding の when（previewEditMode / terminalFocus 等）がその pane mount を含意するため、
+    // keybinding の when（previewEditable / terminalFocus 等）がその pane mount を含意するため、
     // when が真のとき command は必ず登録済みで未登録分岐に到達しない。when 無し keybinding や
     // lazily-registered command を足すとこの前提が崩れ、毎キー入力で not-found トーストが出る。
     onError(`Command "${id}" not found`);

@@ -96,7 +96,7 @@ export function usePreviewContent(
 
   /**
    * main watch の発火ごとに増えるカウンタ。「content が変わりうる瞬間」の観測点として
-   * `usePreviewRevs` の popover close watcher が購読する。早期 return (editMode ガード等) より
+   * `usePreviewRevs` の popover close watcher が購読する。早期 return (dirty ガード等) より
    * 前に増やすことで、旧実装の「close watcher は content watch と同一 deps で無条件発火」と
    * 同じ発火集合を 1 本の ref で表現する。
    */
@@ -127,6 +127,25 @@ export function usePreviewContent(
   const availableModes = computed<PreviewMode[]>(() =>
     availableModesFor(effectiveGitChange.value, isImagePreview.value),
   );
+
+  /**
+   * activeMode の再決定。対象切替 (reset=true) は fallback (その経路のデフォルトモード) へ
+   * リセットし、同一対象の再発火 (自分の save で gitChange が unmodified → modified に動いた /
+   * 外部変更の追従等) ではユーザーの選んだタブを維持する。無条件にリセットすると、Current で
+   * 編集保存した瞬間に diff タブへ勝手に切り替わってしまう。維持できるのは現在モードが
+   * gitChange 上成立している間だけで、利用不能になったとき (外部 checkout で diff が消える /
+   * 削除で original しか残らない等) は fallback へ倒す。
+   */
+  function applyActiveMode(
+    reset: boolean,
+    gitChange: GitChangeKind | undefined,
+    fallback: PreviewMode,
+  ) {
+    if (!reset && availableModesFor(gitChange, isImagePreview.value).includes(activeMode.value)) {
+      return;
+    }
+    activeMode.value = fallback;
+  }
 
   /**
    * commit mode (single 単体 or 範囲) かを集約判定。
@@ -173,8 +192,17 @@ export function usePreviewContent(
   let fetchVersion = 0;
 
   /** ファイル内容を取得する（watch と fsChange から共用） */
-  async function fetchContent(sel: Selection, gitChange: GitChangeKind | undefined) {
-    loading.value = true;
+  async function fetchContent(
+    sel: Selection,
+    gitChange: GitChangeKind | undefined,
+    targetChanged: boolean,
+  ) {
+    // loading を立てるのは表示対象そのものの切替時のみ。同一対象の再取得 (自分の save 由来の
+    // fsChange / git status 変化の再発火) で立てると、PreviewPane の v-if チェーンが Loading
+    // leaf に切り替わって CodePreview (Monaco) が unmount → remount され、保存のたびに
+    // エディタが作り直されてスクロール・カーソルが飛ぶ。既存表示を保ったまま裏で内容を
+    // 差し替える (同値なら CodePreview 側の等値チェックで no-op)。
+    if (targetChanged) loading.value = true;
     error.value = undefined;
     isDirectory.value = false;
     isNotFound.value = false;
@@ -290,8 +318,9 @@ export function usePreviewContent(
   }
 
   /** コミットモード時のファイル内容取得 */
-  async function fetchCommitContent(filePath: string) {
-    loading.value = true;
+  async function fetchCommitContent(filePath: string, targetChanged: boolean) {
+    // loading / activeMode リセットとも対象切替時のみ (fetchContent と同じ理由)
+    if (targetChanged) loading.value = true;
     error.value = undefined;
     isDirectory.value = false;
     isNotFound.value = false;
@@ -384,13 +413,14 @@ export function usePreviewContent(
       commitGitChange.value = "modified";
     }
 
-    if (commitGitChange.value === "deleted") {
-      activeMode.value = "original";
-    } else if (commitGitChange.value === "modified") {
-      activeMode.value = "diff";
-    } else {
-      activeMode.value = "current";
-    }
+    // added は defaultMode (diff) と違い current に倒す既存挙動を維持する
+    const fallback: PreviewMode =
+      commitGitChange.value === "deleted"
+        ? "original"
+        : commitGitChange.value === "modified"
+          ? "diff"
+          : "current";
+    applyActiveMode(targetChanged, commitGitChange.value, fallback);
 
     originalContent.value = fromNotFound ? undefined : from?.content;
     isOriginalBinary.value = from?.isBinary ?? false;
@@ -408,8 +438,9 @@ export function usePreviewContent(
    * to = working tree の fs 内容。起点 OID の決定は `usePrDiffToggleStore.enable()` で済んでおり、
    * `lockedBaseOid` (= `lockedBase.diffBaseOid`) はそのままここで起点として使える。
    */
-  async function fetchPrDiffContent(filePath: string) {
-    loading.value = true;
+  async function fetchPrDiffContent(filePath: string, targetChanged: boolean) {
+    // loading / activeMode リセットとも対象切替時のみ (fetchContent と同じ理由)
+    if (targetChanged) loading.value = true;
     error.value = undefined;
     isDirectory.value = false;
     isNotFound.value = false;
@@ -491,13 +522,14 @@ export function usePreviewContent(
       commitGitChange.value = change.type === "R" ? "renamed" : "modified";
     }
 
-    if (commitGitChange.value === "deleted") {
-      activeMode.value = "original";
-    } else if (commitGitChange.value === "modified" || commitGitChange.value === "renamed") {
-      activeMode.value = "diff";
-    } else {
-      activeMode.value = "current";
-    }
+    // added は defaultMode (diff) と違い current に倒す既存挙動を維持する
+    const fallback: PreviewMode =
+      commitGitChange.value === "deleted"
+        ? "original"
+        : commitGitChange.value === "modified" || commitGitChange.value === "renamed"
+          ? "diff"
+          : "current";
+    applyActiveMode(targetChanged, commitGitChange.value, fallback);
 
     originalContent.value = fromNotFound ? undefined : from?.content;
     isOriginalBinary.value = from?.isBinary ?? false;
@@ -510,6 +542,8 @@ export function usePreviewContent(
 
   /**
    * ファイル選択・git status 変化・コミット選択変化時にリセット＋再取得。
+   * activeMode のリセットは「表示対象そのものの切替」(targetChanged) に限る。git status だけの
+   * 変化ではユーザーの選んだタブを維持する (`applyActiveMode` の docstring 参照)。
    *
    * **deps はプリミティブで揃える**: selection オブジェクトを deps にすると、`selectRelPath` /
    * `selectAbsPath` が毎回新 object literal を作るため、同一パス再クリックでも identity 変化で
@@ -551,15 +585,23 @@ export function usePreviewContent(
         compareHash !== prevCompareHash ||
         isPrDiff !== prevIsPrDiff;
 
-      // 編集中に対象切替ではない再発火 (自分の save 由来の git status 反映等) が来た場合は無視する。
-      // fsChange ハンドラの `if (editStore.editMode) return` と同じ規律。
-      if (!targetChanged && editStore.editMode) return;
+      // 未保存の draft があるとき、対象切替ではない再発火 (自分の save 由来の git status 反映等)
+      // は無視する。fsChange ハンドラの `if (editStore.isDirty) return` と同じ規律。
+      if (!targetChanged && editStore.isDirty) return;
 
-      previewEnabled.value = defaultPreviewEnabled(fileType.value);
-      commitGitChange.value = undefined;
-      // ファイル切替 / コミット選択変化は表示内容の入れ替えを意味するため、編集中の draft は
-      // 無条件で破棄する (別ファイルの内容を編集し続ける状態を作らない)。
-      editStore.exitEditMode();
+      // UI 状態のリセットは対象切替時のみ。同一対象の再発火 (save 由来の git status 変化等) で
+      // リセットすると、Preview トグルがデフォルトへ戻る (markdown ソース編集 → 保存で
+      // レンダリング表示へ飛ぶ) / クリーンな編集セッションが畳まれる、が起きる。
+      // commitGitChange も対象切替時のみ undefined に倒す (非対象切替の再発火では fetch 側が
+      // 上書きするため、先にクリアすると availableModes が一瞬縮んでタブがちらつく)。
+      if (targetChanged) {
+        previewEnabled.value = defaultPreviewEnabled(fileType.value);
+        commitGitChange.value = undefined;
+        // ファイル切替 / コミット選択変化は表示内容の入れ替えを意味するため、編集セッションを
+        // 畳む (別ファイルの内容を編集し続ける状態を作らない)。fetch 完了後に
+        // usePreviewEdit の watch が新しい content でセッションを張り直す。
+        editStore.endSession();
+      }
 
       const sel = selection.value;
       if (path === undefined || sel === undefined) {
@@ -575,17 +617,17 @@ export function usePreviewContent(
 
       // PR diff モードは graph selection より優先。worktreeRelative のみ対象 (絶対パスは git 履歴なし)。
       if (isPrDiff && sel.kind === "worktreeRelative") {
-        await fetchPrDiffContent(sel.relPath);
+        await fetchPrDiffContent(sel.relPath, targetChanged);
         return;
       }
       const isCommitSelection = selectedHash !== UNCOMMITTED_HASH || compareHash !== null;
       // 絶対パス（worktree 外）は git 履歴を持たないため、commit mode 中でも fsReadFileAbsolute
       // 経路に倒す。
       if (isCommitSelection && sel.kind === "worktreeRelative") {
-        await fetchCommitContent(sel.relPath);
+        await fetchCommitContent(sel.relPath, targetChanged);
       } else {
-        activeMode.value = defaultMode(gitChange);
-        await fetchContent(sel, gitChange);
+        applyActiveMode(targetChanged, gitChange, defaultMode(gitChange));
+        await fetchContent(sel, gitChange, targetChanged);
       }
     },
     { immediate: true },
@@ -601,14 +643,17 @@ export function usePreviewContent(
       if (eventDir !== worktreeStore.dir) return;
       if (sel.kind !== "worktreeRelative") return;
       if (relDir !== relDirOf(sel.relPath)) return;
-      // 編集中は外部変更で draft の元になった currentContent を上書きしない。保存 (editMode を
-      // false にする) 後の fsChange は通常経路で再取得され、書き込んだ内容がサーバ確定値と揃う。
-      if (editStore.editMode) return;
+      // 未保存の draft がある間は外部変更で currentContent を上書きしない (dirty 保護)。
+      // クリーンなら追従し、再取得後に usePreviewEdit の watch → beginSession が編集セッションを
+      // 新しい内容で張り替える。自分の save 由来の fsChange はこの経路で再取得され、書き込んだ
+      // 内容がサーバ確定値と揃う (save 直後は draft === saved でクリーン)。
+      if (editStore.isDirty) return;
 
       // PR diff モードでは to が working tree のため、fs change で再取得する必要がある。
+      // targetChanged=false: fsChange の契約 (モード・UI状態は維持) に従いタブは動かさない。
       if (prDiffToggle.isOn) {
         options.onBeforeRefetch?.(eventDir, sel.relPath);
-        void fetchPrDiffContent(sel.relPath);
+        void fetchPrDiffContent(sel.relPath, false);
         return;
       }
       // commit モードではファイル変更通知を無視（表示内容は git オブジェクトから取得済み）
@@ -616,7 +661,8 @@ export function usePreviewContent(
         return;
       }
       options.onBeforeRefetch?.(eventDir, sel.relPath);
-      void fetchContent(sel, selectedGitChange.value);
+      // targetChanged=false: 同一ファイルの内容更新なので loading を立てず表示を保ったまま差し替える
+      void fetchContent(sel, selectedGitChange.value, false);
     },
   );
   onUnmounted(unsubscribeFsChange);

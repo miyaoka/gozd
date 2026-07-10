@@ -16,15 +16,13 @@ Monaco Editor によるコード表示・編集。ハイライトは Shiki の T
 
 ## blame anchor の契約
 
-行番号クリック → blame popover の起動は `monacoSetup.ts` の `wireGutterLineClick` に委譲する
-(クリック判定・popover light dismiss との位相・anchor 配置の設計判断は同 docstring 参照)。
-anchor は Monaco 内部の DOM ではなく、コンポーネントが所有する不可視要素をクリック行の
-gutter セル位置に重ねて使う。anchor の位置はクリック時に固定されるため、スクロールすると
+blame popover の起動 (gutter クリック / context menu・command palette の "Show Blame for
+Line" action) は `monacoSetup.ts` の `wireGutterBlame` に委譲する (クリック判定・popover
+light dismiss との位相・anchor 配置・keyboard 経路の設計判断は同 docstring 参照)。
+anchor は Monaco 内部の DOM ではなく、コンポーネントが所有する不可視要素を対象行の
+gutter セル位置に重ねて使う。anchor の位置は起動時に固定されるため、スクロールすると
 行とずれる。ずれた位置を指す popover を残さないよう、スクロールで `scrolled` を emit し
 親 (PreviewPane) が blame popover を閉じる。
-
-旧実装の行番号 `<button>` が持っていた keyboard 到達性 (Tab + Enter) は Monaco gutter では
-提供できず失われる。blame は mouse 専用機能に倒すトレードオフ。
 
 ## fallback
 
@@ -70,11 +68,13 @@ const emit = defineEmits<{
 const notification = useNotificationStore();
 
 const containerRef = ref<HTMLElement>();
-/** blame popover の anchor (自前所有の固定要素。monacoSetup の wireGutterLineClick が位置決め) */
+/** blame popover の anchor (自前所有の固定要素。monacoSetup の wireGutterBlame が位置決め) */
 const blameAnchorRef = ref<HTMLElement>();
 const editorReady = ref(false);
 let editor: Monaco.editor.IStandaloneCodeEditor | undefined;
 let activeDecorations: Monaco.editor.IEditorDecorationsCollection | undefined;
+/** blame トリガーの有効状態を props.blameEnabled と同期するためのハンドル */
+let setBlameEnabled: ((enabled: boolean) => void) | undefined;
 
 const ACTIVE_LINE_CLASS = "_monaco-active-line";
 
@@ -123,7 +123,7 @@ onMounted(async () => {
 });
 
 async function setupEditor(el: HTMLElement, myEpoch: number): Promise<void> {
-  const { monaco, MONACO_THEME, resolveMonacoLanguage, wireGutterLineClick } =
+  const { monaco, MONACO_THEME, resolveMonacoLanguage, wireGutterBlame } =
     await import("./monacoSetup");
   const language = await resolveMonacoLanguage(props.filePath);
   // await 中に unmount された場合、containerRef は Vue によって undefined に戻される。
@@ -162,14 +162,15 @@ async function setupEditor(el: HTMLElement, myEpoch: number): Promise<void> {
     if (!props.editable || editor === undefined) return;
     emit("update:content", editor.getValue());
   });
-  // gutter クリック → blame 起動。判定と anchor 配置の設計判断は wireGutterLineClick の
-  // docstring (monacoSetup.ts) を参照。
-  wireGutterLineClick(
+  // gutter クリック / context menu action → blame 起動。判定と anchor 配置の設計判断は
+  // wireGutterBlame の docstring (monacoSetup.ts) を参照。
+  const blameHandle = wireGutterBlame(
     editor,
     () => blameAnchorRef.value,
-    () => props.blameEnabled,
     (payload) => emit("lineNumberClick", payload),
   );
+  blameHandle.setEnabled(props.blameEnabled);
+  setBlameEnabled = blameHandle.setEnabled;
   editor.onDidScrollChange(() => emit("scrolled"));
   if (props.lineNumber !== undefined) revealLine(props.lineNumber);
 }
@@ -178,7 +179,15 @@ onUnmounted(() => {
   langEpoch++;
   editor?.dispose();
   editor = undefined;
+  setBlameEnabled = undefined;
 });
+
+watch(
+  () => props.blameEnabled,
+  (enabled) => {
+    setBlameEnabled?.(enabled);
+  },
+);
 
 /**
  * ファイル切替 / 内容更新 (fsChange 再取得・discard) の反映。コンポーネントはファイルを
@@ -297,7 +306,7 @@ watch([previewFontSize, previewCodeFontFamily], ([size, family]) => {
     />
 
     <!-- blame popover の anchor。Monaco 内部の DOM は anchor に使えない
-         (wireGutterLineClick の docstring 参照) ため、自前の不可視要素をクリック行の
+         (wireGutterBlame の docstring 参照) ため、自前の不可視要素を対象行の
          gutter セル位置に重ねて popover の source にする -->
     <div ref="blameAnchorRef" class="pointer-events-none absolute" aria-hidden="true" />
 

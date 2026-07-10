@@ -262,6 +262,7 @@ function onCodeScrolled() {
             :editable="isEditable"
             @line-number-click="onDiffLineClick"
             @update:current="editStore.updateDraft($event)"
+            @scrolled="onCodeScrolled"
           />
 
           <!-- 画像プレビュー（バイナリ画像 + SVG preview モード）。worktree 外の絶対パスも /abs 経路で配信 -->

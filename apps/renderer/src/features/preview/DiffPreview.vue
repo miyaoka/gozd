@@ -131,6 +131,7 @@ import { useNotificationStore } from "../../shared/notification";
 import { abortComposition, blockEdit } from "./contenteditableHostGuard";
 import DiffLineContent from "./DiffLineContent.vue";
 import { type ColRange, computeIntraLineRanges } from "./intraLineDiff";
+import type { GutterBlameHandle } from "./monacoSetup";
 import { previewCodeFontFamily, previewFontSize } from "./previewConfig";
 import { rpcGitDiffExpandLines, rpcGitDiffHunks } from "./rpc";
 import { type ThemedToken, highlightTokens } from "./useHighlight";
@@ -173,6 +174,8 @@ const emit = defineEmits<{
   lineNumberClick: [payload: { side: "old" | "new"; line: number; anchorEl: HTMLElement }];
   /** editable 時、Monaco modified model の内容が変わるたびに発火。親が editStore.updateDraft に流す */
   "update:current": [value: string];
+  /** editable 時のエディタスクロール。blame anchor が固定位置のため親は popover を閉じる */
+  scrolled: [];
 }>();
 
 function onLineClick(side: "old" | "new", line: number, ev: MouseEvent): void {
@@ -889,7 +892,11 @@ async function toggleBar(bar: DiffBarItem): Promise<void> {
  * 設計判断は doc の「編集パス」を参照。
  */
 const monacoContainerRef = ref<HTMLElement>();
+/** blame popover の anchor (自前所有の固定要素。monacoSetup の wireGutterBlame が位置決め) */
+const blameAnchorRef = ref<HTMLElement>();
 let monacoDiffEditor: Monaco.editor.IStandaloneDiffEditor | undefined;
+/** 左右半身それぞれの blame トリガーの有効状態を props.blameEnabled と同期するためのハンドル */
+let blameHandles: GutterBlameHandle[] = [];
 
 /**
  * `monaco-editor` は全言語入りの重量パッケージ (`monacoSetup.ts` 参照) のため、編集パスの
@@ -903,9 +910,10 @@ async function mountMonacoDiffEditor() {
   const myGeneration = ++mountGeneration;
   const setupResult = await tryCatch(
     (async () => {
-      const { monaco, MONACO_THEME, resolveMonacoLanguage } = await import("./monacoSetup");
+      const { monaco, MONACO_THEME, resolveMonacoLanguage, wireGutterBlame } =
+        await import("./monacoSetup");
       const language = await resolveMonacoLanguage(props.filePath);
-      return { monaco, MONACO_THEME, language };
+      return { monaco, MONACO_THEME, language, wireGutterBlame };
     })(),
   );
   if (!setupResult.ok) {
@@ -914,7 +922,7 @@ async function mountMonacoDiffEditor() {
     notification.error("Failed to load editor", setupResult.error);
     return;
   }
-  const { monaco, MONACO_THEME, language } = setupResult.value;
+  const { monaco, MONACO_THEME, language, wireGutterBlame } = setupResult.value;
   // await 中に editable の再トグル / unmount が起きた場合は何もしない (世代不一致で判定)。
   if (myGeneration !== mountGeneration || monacoContainerRef.value !== el || !props.editable) {
     return;
@@ -945,6 +953,26 @@ async function mountMonacoDiffEditor() {
   modifiedEditor.onDidChangeModelContent(() => {
     emit("update:current", modifiedEditor.getValue());
   });
+  // gutter クリック / context menu action → blame 起動 (side 別)。old 側 = 比較元 rev、
+  // new 側 = working tree。read-only の自前 hunk 描画と同じ side 契約で親へ通知する。
+  // 判定と anchor 配置の設計判断は wireGutterBlame の docstring (monacoSetup.ts) を参照。
+  blameHandles = (
+    [
+      ["old", monacoDiffEditor.getOriginalEditor()],
+      ["new", modifiedEditor],
+    ] as const
+  ).map(([side, sideEditor]) => {
+    const handle = wireGutterBlame(
+      sideEditor,
+      () => blameAnchorRef.value,
+      ({ line, anchorEl }) => emit("lineNumberClick", { side, line, anchorEl }),
+    );
+    handle.setEnabled(props.blameEnabled);
+    return handle;
+  });
+  // blame anchor はクリック時の位置に固定した自前要素のため、スクロールで親が popover を閉じる
+  // (CodePreview の scrolled と同じ契約)。左右はスクロール同期するので modified 側のみ監視する。
+  modifiedEditor.onDidScrollChange(() => emit("scrolled"));
 }
 
 function unmountMonacoDiffEditor() {
@@ -954,6 +982,7 @@ function unmountMonacoDiffEditor() {
   model?.modified.dispose();
   monacoDiffEditor?.dispose();
   monacoDiffEditor = undefined;
+  blameHandles = []; // トリガー本体は editor.dispose() で解放される (wireGutterBlame の契約)
 }
 
 watch(
@@ -1012,6 +1041,9 @@ watch(
       return;
     }
     if (myGeneration !== mountGeneration || monacoDiffEditor === undefined) return;
+    // mountGeneration はファイル切替では増えないため、B → C の連続切替で解決が逆順に完了すると
+    // B の言語が最後に適用される。最新の要求 (props.filePath) と一致するときだけ適用する
+    if (props.filePath !== filePath) return;
     const model = monacoDiffEditor.getModel();
     if (!model) return;
     result.value.monaco.editor.setModelLanguage(model.original, result.value.language);
@@ -1039,6 +1071,13 @@ watch([previewFontSize, previewCodeFontFamily], ([size, family]) => {
   });
 });
 
+watch(
+  () => props.blameEnabled,
+  (enabled) => {
+    for (const handle of blameHandles) handle.setEnabled(enabled);
+  },
+);
+
 onUnmounted(() => {
   unmountMonacoDiffEditor();
 });
@@ -1059,7 +1098,7 @@ function splitRightBg(row: DiffSplitRowItem): string {
 </script>
 
 <template>
-  <div class="flex h-full flex-col">
+  <div class="relative flex h-full flex-col">
     <!-- ビューモードトグル (externalViewMode 指定時は親側で 1 本に統合)。
          editable (Monaco diff) では renderSideBySide のマッピング先として機能する -->
     <div
@@ -1098,9 +1137,19 @@ function splitRightBg(row: DiffSplitRowItem): string {
       </div>
     </div>
 
+    <!-- blame popover の anchor (編集パス用)。Monaco 内部の DOM は anchor に使えない
+         (wireGutterBlame の docstring 参照) ため、自前の不可視要素を対象行の
+         gutter セル位置に重ねて popover の source にする -->
+    <div ref="blameAnchorRef" class="pointer-events-none absolute" aria-hidden="true" />
+
     <!-- 編集パス: Monaco の createDiffEditor をマウントするだけのコンテナ
          (script 側の mountMonacoDiffEditor 参照) -->
-    <div v-if="editable" ref="monacoContainerRef" class="min-h-0 flex-1" />
+    <div
+      v-if="editable"
+      ref="monacoContainerRef"
+      class="min-h-0 flex-1"
+      :class="blameEnabled ? '_blame-gutter' : ''"
+    />
 
     <!--
       read-only の diff 本体 scroll コンテナ。contenteditable は **section (= hunk-bar で挟まれた可視チャンク) 単位**
@@ -1322,6 +1371,17 @@ function splitRightBg(row: DiffSplitRowItem): string {
    ここで参照し、コードフォントの解決 (設定値 → --font-mono fallback) を pre/code 面と揃える。 */
 ._diff-scroll {
   font-family: var(--preview-code-font-family, var(--font-mono));
+}
+
+/* blame ON のときだけ Monaco (編集パス) の gutter 行番号をクリック可能に見せる
+   (CodePreview と同じ契約) */
+._blame-gutter :deep(.margin-view-overlays .line-numbers) {
+  cursor: pointer;
+}
+
+._blame-gutter :deep(.margin-view-overlays .line-numbers:hover) {
+  color: var(--color-primary);
+  text-decoration: underline;
 }
 
 /* 1 diff 行を 1 block に揃えて clipboard の `\n` を 1 行につき 1 個にする。

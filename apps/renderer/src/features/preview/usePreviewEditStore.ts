@@ -33,6 +33,14 @@ export const usePreviewEditStore = defineStore("preview-edit", () => {
   const saving = ref(false);
   const target = ref<EditTarget>();
 
+  /**
+   * セッション世代。張り替え (beginSession のリセット経路) / endSession のたびに増える。
+   * save の await 中にセッションが切り替わった場合、復帰後の世代不一致で「旧ファイルの
+   * 保存結果を新セッションの savedContent に書き込む」汚染を防ぐ (ディスク書き込み自体は
+   * 旧ファイルへの正当な保存なので取り消さない)。
+   */
+  let sessionEpoch = 0;
+
   /** 直近の保存済み内容。dirty 判定の基準であり discard の復元先でもある */
   const savedContent = ref<string>();
 
@@ -60,6 +68,7 @@ export const usePreviewEditStore = defineStore("preview-edit", () => {
     ) {
       return;
     }
+    sessionEpoch++;
     target.value = { dir, relPath };
     draftContent.value = content;
     savedContent.value = content;
@@ -67,6 +76,7 @@ export const usePreviewEditStore = defineStore("preview-edit", () => {
 
   /** セッションを畳む（表示対象の切替 / summary view 進入）。未保存 draft は破棄される */
   function endSession() {
+    sessionEpoch++;
     draftContent.value = undefined;
     savedContent.value = undefined;
     target.value = undefined;
@@ -93,6 +103,7 @@ export const usePreviewEditStore = defineStore("preview-edit", () => {
     const content = draftContent.value;
     if (t === undefined || content === undefined) return undefined;
 
+    const myEpoch = sessionEpoch;
     saving.value = true;
     const result = await tryCatch(rpcFsWriteFile({ dir: t.dir, path: t.relPath, content }));
     saving.value = false;
@@ -101,6 +112,10 @@ export const usePreviewEditStore = defineStore("preview-edit", () => {
       notification.error(`Failed to save ${t.relPath}`, result.error);
       return undefined;
     }
+
+    // await 中にセッションが切り替わっていたら結果を捨てる。適用すると別ファイルの内容が
+    // 新セッションの savedContent / currentContent (呼び出し側の楽観反映) に混入する
+    if (myEpoch !== sessionEpoch) return undefined;
 
     savedContent.value = content;
     return content;

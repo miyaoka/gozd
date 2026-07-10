@@ -121,22 +121,37 @@ async function resolveMonacoLanguage(filePath: string): Promise<string> {
     themes: [SHIKI_THEME],
     langs: shikiLang === undefined ? [] : [shikiLang],
   });
-  if (shikiLang !== undefined) {
-    if (!monaco.languages.getLanguages().some((lang) => lang.id === shikiLang)) {
-      monaco.languages.register({ id: shikiLang });
-    }
-    wiredShikiLangs.add(shikiLang);
+  if (
+    shikiLang !== undefined &&
+    !monaco.languages.getLanguages().some((lang) => lang.id === shikiLang)
+  ) {
+    monaco.languages.register({ id: shikiLang });
   }
   shikiToMonaco(highlighter, monaco);
+  // 配線済みの記録は shikiToMonaco 成功後に行う。先に記録すると throw した言語が
+  // 配線済み扱いになり、以降の再試行が構造的に止まる
   themeWired = true;
+  if (shikiLang !== undefined) wiredShikiLangs.add(shikiLang);
   return shikiLang ?? detectMonacoLanguage(filePath);
 }
 
+/** `wireGutterBlame` が返す操作ハンドル */
+interface GutterBlameHandle {
+  /** blame の可否。gutter click と context menu / command palette の action が連動する */
+  setEnabled: (enabled: boolean) => void;
+}
+
 /**
- * gutter (行番号) クリックを検出し、クリック行の gutter 位置に anchor 要素を配置して handler を
- * 呼ぶ。CodePreview の blame 起動が使う。VS Code の folding
- * gutter クリックと同じ mousedown 記録 → mouseup 検証の 2 段方式 (vscode folding.ts の
- * `mouseDownInfo` と同型)。
+ * blame 起動のトリガーをエディタに配線する。CodePreview と DiffPreview (編集パスの両側) が使う。
+ * 起動経路は 2 つ:
+ *
+ * - **gutter (行番号) クリック**: VS Code の folding gutter クリックと同じ mousedown 記録 →
+ *   mouseup 検証の 2 段方式 (vscode folding.ts の `mouseDownInfo` と同型)
+ * - **editor action** (context menu / command palette 内 "Show Blame for Line"): カーソル行を
+ *   対象にする keyboard 到達可能な経路。disabled 時は context key (precondition) で項目ごと
+ *   隠し、silent dead item を作らない
+ *
+ * gutter クリック側の設計判断:
  *
  * - native click は使えない: Monaco は mousedown で viewLines に setPointerCapture する
  *   (vscode globalPointerMoveMonitor) ため、click は gutter 要素を経由せず委譲では拾えない
@@ -144,29 +159,59 @@ async function resolveMonacoLanguage(filePath: string): Promise<string> {
  *   pointerup で閉じる) は Chromium では pointer イベントをリスナーへ dispatch する **前** に
  *   走る (pointer_event_manager.cc)。mousedown 中に開くと同じクリックの pointerup の
  *   light dismiss で即閉じされる。mouseup リスナー内で開けば light dismiss は処理済みで安全
+ *
+ * anchor の設計判断:
+ *
  * - anchor に Monaco 内部の DOM は使えない: `IMouseTarget.element` は幾何計算ではなく生の
  *   ブラウザイベント target をそのまま返す (vscode mouseTarget.ts の `HitTestRequest.target`)
  *   ため、pointer capture 中の mouseup では viewLines コンテナが返る。また gutter の行番号 DOM
  *   は再描画・仮想スクロールで detach される。type / position は幾何計算なので信頼できる。
  *   よって呼び出し側が所有する固定要素 (`getAnchorEl`) を、幾何 API (`getTopForLineNumber` /
- *   `getLayoutInfo`) でクリック行の gutter セル位置に重ねて anchor とする (VS Code が内部 DOM を
+ *   `getLayoutInfo`) で対象行の gutter セル位置に重ねて anchor とする (VS Code が内部 DOM を
  *   掴まず幾何 API でウィジェットを配置するのと同じ規律)
+ * - 位置は anchor の offsetParent と editor DOM の getBoundingClientRect 差分で補正する。
+ *   diff editor の左右半身のようにエディタが anchor の positioned ancestor と一致しない
+ *   配置でも成立させるため
  * - 末尾改行直後の空の最終行 (Monaco が描画する phantom 行) は無視する。git は `\n` 終端で
  *   行を数えるためこの行は git 側に存在せず、blame が "file has only N lines" で必ず失敗する。
  *   旧実装 (Shiki HTML) でもこの行は描画されなかった
  *
- * リスナーはエディタに紐づき `editor.dispose()` で解放されるため、明示的な解除は不要。
+ * リスナー / action はエディタに紐づき `editor.dispose()` で解放されるため、明示的な解除は不要。
  */
-function wireGutterLineClick(
+function wireGutterBlame(
   editor: monaco.editor.IStandaloneCodeEditor,
   getAnchorEl: () => HTMLElement | undefined,
-  isEnabled: () => boolean,
-  onClick: (payload: { line: number; anchorEl: HTMLElement }) => void,
-): void {
+  onTrigger: (payload: { line: number; anchorEl: HTMLElement }) => void,
+): GutterBlameHandle {
+  let enabled = false;
+  const enabledKey = editor.createContextKey<boolean>("gozdBlameEnabled", false);
+
+  function openBlameAt(line: number): void {
+    if (!enabled) return;
+    const model = editor.getModel();
+    if (!model) return;
+    if (line === model.getLineCount() && model.getLineLength(line) === 0) return;
+    const anchorEl = getAnchorEl();
+    if (anchorEl === undefined) return;
+    const editorNode = editor.getDomNode();
+    const host = anchorEl.offsetParent;
+    if (!editorNode || !(host instanceof HTMLElement)) return;
+    const hostRect = host.getBoundingClientRect();
+    const editorRect = editorNode.getBoundingClientRect();
+    const layout = editor.getLayoutInfo();
+    const top =
+      editorRect.top - hostRect.top + editor.getTopForLineNumber(line) - editor.getScrollTop();
+    anchorEl.style.top = `${top}px`;
+    anchorEl.style.left = `${editorRect.left - hostRect.left + layout.lineNumbersLeft}px`;
+    anchorEl.style.width = `${layout.lineNumbersWidth}px`;
+    anchorEl.style.height = `${editor.getOption(monaco.editor.EditorOption.lineHeight)}px`;
+    onTrigger({ line, anchorEl });
+  }
+
   let mouseDownLine: number | undefined;
   editor.onMouseDown((e) => {
     mouseDownLine = undefined;
-    if (!isEnabled()) return;
+    if (!enabled) return;
     if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) return;
     mouseDownLine = e.target.position?.lineNumber;
   });
@@ -176,18 +221,27 @@ function wireGutterLineClick(
     if (line === undefined) return;
     if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) return;
     if (e.target.position?.lineNumber !== line) return;
-    const model = editor.getModel();
-    if (!model) return;
-    if (line === model.getLineCount() && model.getLineLength(line) === 0) return;
-    const anchorEl = getAnchorEl();
-    if (anchorEl === undefined) return;
-    const layout = editor.getLayoutInfo();
-    anchorEl.style.top = `${editor.getTopForLineNumber(line) - editor.getScrollTop()}px`;
-    anchorEl.style.left = `${layout.lineNumbersLeft}px`;
-    anchorEl.style.width = `${layout.lineNumbersWidth}px`;
-    anchorEl.style.height = `${editor.getOption(monaco.editor.EditorOption.lineHeight)}px`;
-    onClick({ line, anchorEl });
+    openBlameAt(line);
   });
+
+  editor.addAction({
+    id: "gozd.showBlameForLine",
+    label: "Show Blame for Line",
+    contextMenuGroupId: "navigation",
+    precondition: "gozdBlameEnabled",
+    run: (ed) => {
+      const line = ed.getPosition()?.lineNumber;
+      if (line !== undefined) openBlameAt(line);
+    },
+  });
+
+  return {
+    setEnabled: (value) => {
+      enabled = value;
+      enabledKey.set(value);
+    },
+  };
 }
 
-export { monaco, MONACO_THEME, resolveMonacoLanguage, wireGutterLineClick };
+export { monaco, MONACO_THEME, resolveMonacoLanguage, wireGutterBlame };
+export type { GutterBlameHandle };

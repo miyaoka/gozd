@@ -17,6 +17,8 @@ import {
   FsWriteFileResponse,
   GitLsTreeRequest,
   GitLsTreeResponse,
+  OpenFileRequest,
+  OpenFileResponse,
 } from "@gozd/rpc";
 
 import { rpc } from "../../shared/rpc";
@@ -41,6 +43,9 @@ export const rpcFsWriteFile = (req: FsWriteFileRequest) =>
 // ファイル参照形式は renderer の navigator.clipboard では書けないため main 側で行う。
 export const rpcClipboardCopyFiles = (req: ClipboardCopyFilesRequest) =>
   rpc<ClipboardCopyFilesResponse>("/clipboard/copyFiles", req);
+
+/** ファイルを OS のデフォルトアプリで開く（macOS の `open` 相当）。path は絶対パス。 */
+export const rpcOpenFile = (req: OpenFileRequest) => rpc<OpenFileResponse>("/open/file", req);
 
 export const rpcFsWatch = (req: FsWatchRequest) => rpc<FsWatchResponse>("/fs/watch", req);
 

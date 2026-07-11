@@ -1,28 +1,30 @@
 <doc lang="md">
 Preview popover のヘッダ行。markdown 内部リンク履歴の back / forward、ファイル名 +
-コミット日 (FileCommitDate)、「デフォルトアプリで開く」/ close ボタンを持つ。
+コミット日 (FileCommitDate)、ファイル操作の ⋮ メニュー / close ボタンを持つ。
 
 - back / forward は履歴の有無で header の幅が揺れないよう常時描画し、`canGoBack` /
   `canGoForward` が false の側は `disabled` 属性 + `disabled:text-foreground-muted` で見た目だけ
   落とす (Primer "NEVER use opacity for disabled" 規律に従い solid token を使う)
-- open ボタンは `openableAbsPath` (working tree に実体があるときだけ解決される実パス) を prop で
+- ⋮ ボタンは `openableAbsPath` (working tree に実体があるときだけ解決される実パス) を prop で
   受け、`v-if` で描画自体を gate して silent dead button を作らない
-- 「デフォルトアプリで開く」の RPC 発射と失敗トーストは本コンポーネントで完結する
-  (macOS の `open` 相当。対象は常に working tree の実ファイル)
+- メニュー項目 (Open in default app / Copy file / Copy path) は Filer / Changes の
+  右クリックメニューと共通の `FileActionMenuItems` (filer)。popover instance は
+  `usePopover` の「menu の種類ごとに独立」規律に従い per-instance で持つ
+- メニュー context は ⋮ クリック時点の openableAbsPath を snapshot する。open 中に
+  表示ファイルが切り替わっても、そのクリックで参照した当時のファイルを一貫して操作する
+  (FileContextMenu の dir snapshot と同じ規律)
 </doc>
 
 <script setup lang="ts">
-import { tryCatch } from "@gozd/shared";
 import { computed } from "vue";
-import { useNotificationStore } from "../../shared/notification";
-import { getFileIconUrl } from "../filer";
+import { usePopover } from "../../shared/popover";
+import { FileActionMenuItems, getFileIconUrl } from "../filer";
 import { useWorktreeStore } from "../worktree";
 import { FileCommitDate } from "./features/commit-history";
 import { useMarkdownHistoryStore } from "./features/markdown";
-import { rpcOpenFile } from "./rpc";
 import IconLucideArrowLeft from "~icons/lucide/arrow-left";
 import IconLucideArrowRight from "~icons/lucide/arrow-right";
-import IconLucideExternalLink from "~icons/lucide/external-link";
+import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
 import IconLucideX from "~icons/lucide/x";
 
 const props = defineProps<{
@@ -38,7 +40,6 @@ const emit = defineEmits<{
 
 const worktreeStore = useWorktreeStore();
 const markdownHistory = useMarkdownHistoryStore();
-const notification = useNotificationStore();
 
 const selectedDisplayPath = computed(() => worktreeStore.selectedDisplayPath);
 
@@ -52,14 +53,24 @@ const headerIconUrl = computed(() => {
   return getFileIconUrl(fileName(path));
 });
 
-/** 表示中ファイルを OS のデフォルトアプリで開く（macOS の `open` 相当）。 */
-async function openInDefaultApp() {
+type FileMenuContext = {
+  /** ⋮ クリック時に snapshot した操作対象の絶対パス (working tree 実体) */
+  absPath: string;
+};
+
+const {
+  Popover: FileMenuPopover,
+  context: fileMenuContext,
+  toggle: toggleFileMenu,
+  close: closeFileMenu,
+} = usePopover<FileMenuContext>();
+
+function onFileMenuClick(event: MouseEvent) {
   const path = props.openableAbsPath;
   if (path === undefined) return;
-  const result = await tryCatch(rpcOpenFile({ path }));
-  if (!result.ok) {
-    notification.error(`Failed to open file: ${path}`, result.error);
-  }
+  const target = event.currentTarget;
+  if (!(target instanceof HTMLElement)) return;
+  toggleFileMenu(target, { absPath: path });
 }
 </script>
 
@@ -100,11 +111,11 @@ async function openInDefaultApp() {
         v-if="openableAbsPath"
         type="button"
         class="text-foreground-low hover:text-foreground"
-        title="Open in default app"
-        aria-label="Open in default app"
-        @click="openInDefaultApp()"
+        title="File actions"
+        aria-label="File actions"
+        @click="onFileMenuClick"
       >
-        <IconLucideExternalLink class="size-4" />
+        <IconLucideEllipsisVertical class="size-4" />
       </button>
       <button
         type="button"
@@ -116,5 +127,23 @@ async function openInDefaultApp() {
         <IconLucideX class="size-4" />
       </button>
     </div>
+
+    <!-- ファイル操作メニュー。ヘッダ右端が anchor のため inline-start (左) 方向へ展開する -->
+    <FileMenuPopover
+      class="m-0 min-w-36 rounded-lg border border-border bg-background py-1 text-sm text-foreground shadow-lg"
+      :style="{
+        position: 'fixed',
+        positionArea: 'block-end span-inline-start',
+        positionTryFallbacks: 'flip-block, flip-inline, flip-block flip-inline',
+      }"
+    >
+      <FileActionMenuItems
+        v-if="fileMenuContext"
+        :abs-path="fileMenuContext.absPath"
+        :display-name="fileName(fileMenuContext.absPath)"
+        :openable="true"
+        @close="closeFileMenu()"
+      />
+    </FileMenuPopover>
   </div>
 </template>

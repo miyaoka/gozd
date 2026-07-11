@@ -1,4 +1,4 @@
-export { copyFileToOsClipboard } from "./copyFileToOsClipboard";
+export { default as FileActionMenuItems } from "./FileActionMenuItems.vue";
 export { default as FilerPane } from "./FilerPane.vue";
 export { registerFilerCommands } from "./registerFilerCommands";
 export { relDirOf } from "./relDirOf";

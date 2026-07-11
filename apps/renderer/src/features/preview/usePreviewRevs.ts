@@ -6,6 +6,7 @@
  * rev 決定ルールの決定表は docs/preview.md の BlamePopover / FileCommitDate セクションを参照。
  */
 import { computed, watch } from "vue";
+import { useRepoStore } from "../../shared/repo";
 import { useChangesSummaryStore } from "../changes";
 import { usePrDiffToggleStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../worktree";
@@ -14,6 +15,7 @@ import type { PreviewContent } from "./usePreviewContent";
 import { usePreviewEditStore } from "./usePreviewEditStore";
 
 export function usePreviewRevs(content: PreviewContent) {
+  const repoStore = useRepoStore();
   const worktreeStore = useWorktreeStore();
   const gitStatusStore = useGitStatusStore();
   const prDiffToggle = usePrDiffToggleStore();
@@ -65,15 +67,17 @@ export function usePreviewRevs(content: PreviewContent) {
     return `${range.older}^`;
   });
 
-  /** blame 不可なファイル (絶対パスの外部 open / PR diff の added file) を弾く判定。
+  /** blame 不可なファイル (非 git project / 絶対パスの外部 open / PR diff の added file) を弾く判定。
    *  button 描画自体を gate して silent dead button (DiffPreview docstring 規約) を作らない。
    *
+   *  - 非 git project は blame が `not a git repository` (exit 128) になるため全面抑止
    *  - worktreeRelative 以外 (absolute path) は git 履歴なしで blame 不成立
    *  - PR diff で added file は old 側 blame が `git blame <baseOid> -- <path>` で path 不在エラーに
    *    なるため、両側まとめて抑止する (現状の DiffPreview 単一 prop の API 制約上、side ごとに
    *    gate できないため最小コスト解。新側 blame も失うが、added file の PR view では trade-off で許容)
    */
   const blameEnabled = computed(() => {
+    if (!repoStore.selectedIsGitRepo) return false;
     if (worktreeStore.selection?.kind !== "worktreeRelative") return false;
     if (prDiffToggle.isOn && effectiveGitChange.value === "added") return false;
     return true;
@@ -90,13 +94,16 @@ export function usePreviewRevs(content: PreviewContent) {
   );
 
   /**
-   * ヘッダのコミット日を出すか。worktreeRelative (git 管理下) かつ rev 解決済み、かつ
-   * ディレクトリ選択でないときのみ。絶対パス (worktree 外 open) / orderedRange 不整合 /
-   * ディレクトリを除外し、silent dead button や "ファイル単位" 機能のディレクトリ露出を防ぐ
-   * (`blameEnabled` が content 領域描画でディレクトリに出ないのと挙動を揃える)。
+   * ヘッダのコミット日を出すか。git repo かつ worktreeRelative かつ rev 解決済み、かつ
+   * ディレクトリ選択でないときのみ。非 git project / 絶対パス (worktree 外 open) /
+   * orderedRange 不整合 / ディレクトリを除外し、silent dead button や "ファイル単位" 機能の
+   * ディレクトリ露出を防ぐ (`blameEnabled` が content 領域描画でディレクトリに出ないのと
+   * 挙動を揃える)。非 git project を弾かないと file preview のたびに `git log` が exit 128 で
+   * error toast になる。
    */
   const fileHistoryEnabled = computed(
     () =>
+      repoStore.selectedIsGitRepo &&
       worktreeStore.selection?.kind === "worktreeRelative" &&
       historyRev.value !== undefined &&
       !isDirectory.value,

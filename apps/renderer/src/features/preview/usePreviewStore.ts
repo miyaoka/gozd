@@ -123,19 +123,25 @@ export const usePreviewStore = defineStore("preview", () => {
   }
 
   /**
+   * selectFromTarget が selection を成立させられるかの事前判定。worktreeRelative は dir が
+   * ないと selectRelPath が no-op するため、ここで弾かないと「selection 空のまま popover
+   * だけ開く」状態が観察される。absolute は dir 文脈不要 (selectAbsPath 参照) なので
+   * repo 未選択でも開ける (session log の生ログ preview 等)。
+   */
+  function canSelect(target: PathTarget): boolean {
+    return target.kind === "absolute" || worktreeStore.dir !== undefined;
+  }
+
+  /**
    * user-initiated select（navigator / terminal link 等）。
    *
    * 3 分岐:
    * - 同 path + 開 + summary 非表示 → close（トグル close）
    * - 同 path + 開 + summary 表示中 → summary を抜けて単一 file 表示へ（preview は閉じない）
    * - それ以外 → selection を切り替えて preview を開く
-   *
-   * dir 未確立 (`worktreeStore.dir` が undefined) のときは何もしない。selectFromTarget も
-   * 内部で同じ条件で no-op するため、ここで早期 return しないと「selection 空のまま popover
-   * だけ開く」状態が観察される。
    */
   function requestSelect(target: PathTarget, lineNumber?: number) {
-    if (!worktreeStore.dir) return;
+    if (!canSelect(target)) return;
     if (isSameAsCurrent(target) && isOpen.value) {
       if (summaryStore.enabled) {
         summaryStore.disable();
@@ -152,10 +158,10 @@ export const usePreviewStore = defineStore("preview", () => {
    * 強制 open select（gozdOpen / markdown link 等のナビゲーション経路）。
    * 同一 path への再呼び出しでも閉じない。「always open」契約。
    *
-   * `requestSelect` と同じく dir 未確立時は no-op（空 popover を作らない契約）。
+   * `requestSelect` と同じく selection が成立しない入力は no-op（空 popover を作らない契約）。
    */
   function forceSelect(target: PathTarget, lineNumber?: number) {
-    if (!worktreeStore.dir) return;
+    if (!canSelect(target)) return;
     worktreeStore.selectFromTarget(target, lineNumber);
     open();
   }

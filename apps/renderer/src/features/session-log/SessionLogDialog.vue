@@ -29,6 +29,8 @@ subagent が居て軸を引けるときだけタイムラインを出す。subag
 - 各 entry を `parseSessionLog` で transcript 化する (`entries[0]` が main、残りが subagents)。
   subagent タブを選ぶと右ペインの transcript が切り替わる
 - 取得失敗 / 未発見 / 空ログはそれぞれ明示メッセージを出す (fallback で握り潰さない)
+- 各ペインヘッダの「生ログを開く」ボタンは dialog を閉じてから preview に `forceSelect` する。
+  modal dialog と preview popover はどちらも top layer に載り同時に見せられないため
 - rewind があるセッションはデフォルトで最新枝だけを表示する。分岐点に出る branch セレクタを
   クリックすると `branchSelections` (tabId → branchKey → childUuid) を更新し、`parsedSessions`
   computed がそのバージョンへ再 parse する。選択はライブ refresh を跨いで保持し、別セッション
@@ -52,6 +54,7 @@ import {
   type ParsedSessionLog,
 } from "@gozd/claude-session-log";
 import { computed, ref, watch } from "vue";
+import { usePreviewStore } from "../preview";
 import SessionLogTimeline from "./SessionLogTimeline.vue";
 import SessionLogTranscript from "./SessionLogTranscript.vue";
 import {
@@ -288,6 +291,16 @@ function requestClose() {
   dialogRef.value?.close();
 }
 
+// ペインヘッダの「生ログを開く」: modal dialog と preview popover は同時に見せられない
+// (両方 top layer で dialog が後勝ちしうる) ため、dialog を閉じてから preview に出す。
+// forceSelect (always open 契約) を使うのは、同一 jsonl を再度開き直す操作でもトグル close
+// させないため。jsonl は worktree 外なので PathTarget は absolute kind。
+const previewStore = usePreviewStore();
+function openLogFile(path: string) {
+  requestClose();
+  previewStore.forceSelect({ kind: "absolute", absPath: path });
+}
+
 function onDialogClick(event: MouseEvent) {
   if (event.target === dialogRef.value) requestClose();
 }
@@ -359,10 +372,12 @@ function onDialogClick(event: MouseEvent) {
           :session-key="mainSession.id"
           :subagent-links="mainSubagentLinks"
           :scroll-to="mainScrollTarget"
+          :file-path="mainSession.path"
           class="min-w-0 flex-1"
           @open-subagent="openSubagent"
           @current-ts="onMainCurrentTs"
           @select-branch="selectBranch"
+          @open-file="openLogFile"
         />
 
         <!-- 右: 選択中の subagent (あれば横並び)。scrollTo で呼び出し時刻へ同期する。 -->
@@ -374,8 +389,10 @@ function onDialogClick(event: MouseEvent) {
           :subtitle="activeSub.id"
           :session-key="activeSub.id"
           :scroll-to="subScrollTarget"
+          :file-path="activeSub.path"
           class="min-w-0 flex-1 border-l border-border-subtle"
           @select-branch="selectBranch"
+          @open-file="openLogFile"
         />
       </div>
     </div>

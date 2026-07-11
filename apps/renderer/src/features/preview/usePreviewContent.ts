@@ -213,6 +213,30 @@ export function usePreviewContent(
     const isDeleted = gitChange === "deleted";
     const hasDiff = hasGitDiff(gitChange);
 
+    // absolute (worktree 外) は git 履歴も dir 文脈も持たないため、fsReadFileAbsolute 単独で
+    // 読み切って確定する。dir ガードより先に分岐することで、repo 未選択 (dir 未確立) でも
+    // session log 等の worktree 外ファイルを表示できる。消失時の close 判定は不要
+    // (shouldCloseForMissingFile は absolute を常に「閉じない」に倒す契約)。
+    if (sel.kind === "absolute") {
+      const absResult = await tryCatch(rpcFsReadFileAbsolute({ absolutePath: sel.absPath }));
+      if (version !== fetchVersion) return;
+      if (!absResult.ok) {
+        error.value = absResult.error.message;
+        notification.error("Failed to read file", absResult.error);
+        loading.value = false;
+        return;
+      }
+      const current = absResult.value.result;
+      isDirectory.value = current?.isDirectory ?? false;
+      isNotFound.value = current?.notFound ?? false;
+      currentContent.value = current?.content;
+      isBinary.value = current?.isBinary ?? false;
+      originalContent.value = undefined;
+      isOriginalBinary.value = false;
+      loading.value = false;
+      return;
+    }
+
     const dir = worktreeStore.dir;
     // await 前の同期パス: version === fetchVersion 保証のため version ガード不要。
     if (dir === undefined) {
@@ -220,22 +244,19 @@ export function usePreviewContent(
       return;
     }
 
-    // 並列でデータ取得。worktreeRelative は fsReadFile + git show を、
-    // absolute は fsReadFileAbsolute 単独を呼ぶ (worktree 外は git 履歴を持たない)。
+    // 並列でデータ取得。fsReadFile (working tree) + git show (HEAD) を引く。
     const currentPromise = isDeleted
       ? Promise.resolve(undefined)
-      : sel.kind === "absolute"
-        ? rpcFsReadFileAbsolute({ absolutePath: sel.absPath }).then((r) => r.result)
-        : rpcFsReadFile({ dir, path: sel.relPath }).then((r) => ({
-            content: r.content,
-            isBinary: r.isBinary,
-            isDirectory: r.isDirectory,
-            notFound: r.notFound,
-          }));
+      : rpcFsReadFile({ dir, path: sel.relPath }).then((r) => ({
+          content: r.content,
+          isBinary: r.isBinary,
+          isDirectory: r.isDirectory,
+          notFound: r.notFound,
+        }));
     // rename (move) されたファイルは HEAD 側に新パスが存在しない。比較元は旧パスで引く。
     // 旧パス map は git status と同一 snapshot から来る SSOT (`gitStatusStore.renameOldPaths`)。
     const originalPromise =
-      sel.kind === "worktreeRelative" && (hasDiff || isDeleted)
+      hasDiff || isDeleted
         ? rpcGitShowFile({
             dir,
             relPath: gitStatusStore.renameOldPaths[sel.relPath] ?? sel.relPath,
@@ -261,15 +282,15 @@ export function usePreviewContent(
     // (FSWatcher は FileEvents flag 付きで配下ファイル単位の削除イベントを出すため)。
     //
     // 閉じるかの論理判定 (summary / kind / current / HEAD) は shouldCloseForMissingFile に一本化する。
-    // ここでは HEAD 在否確定の RPC を「撃つ価値がある最小条件」= summary 非表示 かつ worktreeRelative
-    // かつ current notFound かつ未取得、のときだけ撃つ (無駄撃ち回避)。RPC ガードは純粋関数が閉じうる
-    // 前提のうち副作用回避に効くものだけを写し、最終判定は純粋関数に委ねる。それ以外は HEAD 在否を
-    // 見るまでもなく閉じないので originalMissing=false に倒す。
+    // ここでは HEAD 在否確定の RPC を「撃つ価値がある最小条件」= summary 非表示 かつ
+    // current notFound かつ未取得、のときだけ撃つ (無駄撃ち回避。absolute は冒頭で return 済み)。
+    // RPC ガードは純粋関数が閉じうる前提のうち副作用回避に効くものだけを写し、最終判定は
+    // 純粋関数に委ねる。それ以外は HEAD 在否を見るまでもなく閉じないので originalMissing=false に倒す。
     const currentNotFound = currentResult?.notFound ?? false;
     let originalMissing: boolean;
     if (originalResult !== undefined) {
       originalMissing = originalResult.notFound;
-    } else if (!summaryStore.enabled && currentNotFound && sel.kind === "worktreeRelative") {
+    } else if (!summaryStore.enabled && currentNotFound) {
       // original 未取得 (untracked / clean tracked) かつ current 消失。HEAD 在否を直接確定する。
       // git status の push が fsChange より遅れて selectedGitChange がまだ deleted に変わっていない
       // race でも、HEAD に在れば追跡下なので閉じない (直後の gitStatusChange が Original 表示へ倒す)。
@@ -280,7 +301,7 @@ export function usePreviewContent(
       // transport/dispatch 層の失敗のみで、不在を確定できないため閉じない (notFound 表示へ倒す)。
       originalMissing = head.ok ? (head.value.result?.notFound ?? false) : false;
     } else {
-      // 閉じる候補でない (current 在 / 絶対パス) → HEAD を確定する必要がなく、不在ではない扱い
+      // 閉じる候補でない (current 在) → HEAD を確定する必要がなく、不在ではない扱い
       originalMissing = false;
     }
     if (

@@ -70,6 +70,7 @@ import {
   type SubagentLinkResult,
 } from "./sessionLogView";
 import IconLucideArrowDown from "~icons/lucide/arrow-down";
+import IconLucideFileJson from "~icons/lucide/file-json";
 import IconLucideGitBranch from "~icons/lucide/git-branch";
 import IconLucideUsers from "~icons/lucide/users";
 
@@ -89,6 +90,9 @@ const props = defineProps<{
   // main / subagent どちらのペインも受ける)。nonce は同一 ts の再クリックでも watch を
   // 発火させるための単調増加カウンタ。
   scrollTo?: { ts: string; nonce: number };
+  // このペインの生 jsonl の絶対パス。指定すると「preview で生ログを開く」ボタンを出す
+  // (dialog 経路のみ。terminal preview は preview pane と同居しないため渡さない)。
+  filePath?: string;
 }>();
 
 const emit = defineEmits<{
@@ -99,6 +103,8 @@ const emit = defineEmits<{
   // rewind 分岐セレクタのクリック。親が payload.sessionKey のタブの branch 選択を更新して
   // transcript を該当バージョンへ再構築する。ts は選択枝先頭の時刻で、切替後にその分岐点へ寄せるのに使う。
   (e: "select-branch", payload: BranchSelectPayload): void;
+  // ヘッダの「生ログを開く」ボタン。親 (dialog) が dialog を閉じて preview に filePath を出す。
+  (e: "open-file", path: string): void;
 }>();
 
 const notify = useNotificationStore();
@@ -516,6 +522,17 @@ onBeforeUnmount(teardownObserver);
       >
         {{ subtitle }}
       </span>
+      <!-- 生 jsonl を preview で開く。filePath を渡された dialog 経路だけ出す。 -->
+      <button
+        v-if="filePath !== undefined && filePath !== ''"
+        type="button"
+        aria-label="Open log file in preview"
+        title="Open log file in preview"
+        class="ml-auto grid size-5 shrink-0 place-items-center self-center rounded-sm text-foreground-low hover:bg-element-hover hover:text-foreground"
+        @click="emit('open-file', filePath)"
+      >
+        <IconLucideFileJson class="size-3.5" />
+      </button>
     </div>
 
     <!-- 本文: 空ログメッセージ or トランスクリプト -->

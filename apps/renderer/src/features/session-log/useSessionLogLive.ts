@@ -62,6 +62,8 @@ export interface SessionTab {
   workflowRunId: string;
   // workflow の表示名 (グループ見出し)。非 workflow subagent / main は空。
   workflowName: string;
+  // jsonl の絶対パス。preview で生ログファイルを開く経路 (PathTarget absolute) に使う。
+  path: string;
   // 生 JSONL。parse は呼び出し側の computed で行う (branchSelection 依存等)。
   content: string;
 }
@@ -107,6 +109,7 @@ export function useSessionLogLive(
     workflowRunId: string;
     workflowName: string;
     phaseTitle: string;
+    path: string;
     content: string;
   }): SessionTab {
     return {
@@ -118,6 +121,7 @@ export function useSessionLogLive(
       agentType: entry.agentType,
       workflowRunId: entry.workflowRunId,
       workflowName: entry.workflowName,
+      path: entry.path,
       content: entry.content,
     };
   }

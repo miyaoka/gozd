@@ -87,6 +87,7 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 | CLI `gozd <file>` (gozdOpen push)              | `forceSelect`              | preview を維持（再 open） |
 | MarkdownPreview 内部リンク click               | `forceSelect`              | preview を維持（再 open） |
 | MarkdownPreview back / forward                 | `forceSelect`              | preview を維持（再 open） |
+| Session log dialog の生ログを開くボタン        | `forceSelect`              | preview を維持（再 open） |
 | ChangesPane `View all` ボタン                  | `toggleSummary`            | -                         |
 | PreviewPane summary `Close` ボタン             | `close`                    | -                         |
 | Preview 開閉ボタン / `preview.toggle` コマンド | `toggle`                   | 開閉反転                  |
@@ -96,6 +97,8 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 | 表示中ファイルが消える (再 fetch で notFound)  | `closeForMissingSelection` | -                         |
 
 `close()` は invariant として「popover 閉 ⇒ summary 解除」を担う。ESC / Preview ヘッダ close ボタン / dir 切替 / summary `Close` ボタンはすべてこの 1 つの経路に集約され、summary enabled=true + popover closed の整合性破綻状態は構造的に発生しない。
+
+`requestSelect` / `forceSelect` は selection が成立しない入力を no-op に倒す（空 popover を作らない契約）。worktreeRelative は dir 未確立時に弾かれるが、absolute（worktree 外の絶対パス）は dir 文脈を必要としないため repo 未選択でも開ける（session log の生ログ preview が該当）。
 
 `requestSelect` の例外: 同一 path 再選択時に Changes summary が表示中なら `summaryStore.disable()` を単独で呼び、popover は閉じず単一 file 表示に戻る。これは `close()` invariant とは別経路で、PreviewPane のファイル選択 watch (`PreviewPane.vue` の `selectedDisplayPath` watch) と同じ「summary を抜けて単一 file 表示にフォールバック (popover 維持)」セマンティクスを共有する。
 

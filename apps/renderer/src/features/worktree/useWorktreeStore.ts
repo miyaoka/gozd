@@ -104,8 +104,10 @@ export const useWorktreeStore = defineStore("worktree", () => {
     revealVersion.value++;
   }
 
+  // absolute は dir 文脈を必要としない (読みは fsReadFileAbsolute 単独、filer reveal は
+  // relPath 不在で no-op) ため、relPath と違い dir 未確立でも選択を成立させる。
+  // repo 未選択のまま session log 等の worktree 外ファイルを preview する経路が該当する。
   function selectAbsPath(absPath: string, lineNumber?: number) {
-    if (!dir.value) return;
     selection.value = {
       kind: "absolute",
       absPath: normalizeAbsolute(absPath),

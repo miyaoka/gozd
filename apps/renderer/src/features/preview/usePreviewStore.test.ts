@@ -256,6 +256,40 @@ describe("usePreviewStore dir 未確立ガード", () => {
     expect(preview.isOpen).toBe(false);
     expect(popover.showCount).toBe(0);
   });
+
+  // absolute は dir 文脈を必要としない (fsReadFileAbsolute 単独) ため、repo 未選択でも
+  // 選択が成立して preview が開く。session log の生ログを開く経路が該当する。
+  test("dir 未確立でも absolute への forceSelect は selection 確立 + open する", () => {
+    setActivePinia(createPinia());
+    const preview = usePreviewStore();
+    const wt = useWorktreeStore();
+    const popover = createMockPopover();
+    preview.bindPopover(popover.el);
+
+    preview.forceSelect({ kind: "absolute", absPath: "/home/user/.claude/projects/x/s.jsonl" });
+
+    expect(wt.selection).toEqual({
+      kind: "absolute",
+      absPath: "/home/user/.claude/projects/x/s.jsonl",
+      lineNumber: undefined,
+    });
+    expect(preview.isOpen).toBe(true);
+    expect(popover.showCount).toBe(1);
+  });
+
+  test("dir 未確立でも absolute への requestSelect は開き、同 path 再選択でトグル close する", () => {
+    setActivePinia(createPinia());
+    const preview = usePreviewStore();
+    const popover = createMockPopover();
+    preview.bindPopover(popover.el);
+
+    preview.requestSelect({ kind: "absolute", absPath: "/etc/hosts" });
+    expect(preview.isOpen).toBe(true);
+
+    preview.requestSelect({ kind: "absolute", absPath: "/etc/hosts" });
+    expect(preview.isOpen).toBe(false);
+    expect(popover.hideCount).toBe(1);
+  });
 });
 
 describe("usePreviewStore.toggleSummary", () => {

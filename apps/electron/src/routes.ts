@@ -56,6 +56,8 @@ import type {
   GitLogLineResponse,
   GitLogRequest,
   GitLogResponse,
+  GitLsFilesRequest,
+  GitLsFilesResponse,
   GitLsTreeRequest,
   GitLsTreeResponse,
   GitMergeBaseRequest,
@@ -143,6 +145,7 @@ import { blameLine, logFile, logLine } from "./git/gitBlame";
 import { resolveStartPoint } from "./git/gitBranch";
 import { diffHunks, expandDiffLines } from "./git/gitDiff";
 import { log, mergeBase, resetMixed, revReachable } from "./git/gitLog";
+import { lsFiles } from "./git/gitLsFiles";
 import {
   commitFiles,
   fileReadResultFromGit,
@@ -722,6 +725,11 @@ async function handleGitLsTree(body: unknown): Promise<unknown> {
   return ({ entries: await lsTree(req.dir, req.hash, req.path) }) satisfies GitLsTreeResponse;
 }
 
+async function handleGitLsFiles(body: unknown): Promise<unknown> {
+  const req = body as GitLsFilesRequest;
+  return ({ files: await lsFiles(req.dir) }) satisfies GitLsFilesResponse;
+}
+
 async function handleGitPrList(body: unknown): Promise<unknown> {
   const req = body as GitPrListRequest;
   const result = await prList(req.dir);
@@ -1090,6 +1098,7 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/git/commitFiles", handleGitCommitFiles],
   ["/git/prDiffFiles", handleGitPrDiffFiles],
   ["/git/readBlob", handleGitReadBlob],
+  ["/git/lsFiles", handleGitLsFiles],
   ["/git/lsTree", handleGitLsTree],
   ["/git/blameLine", handleGitBlameLine],
   ["/git/logLine", handleGitLogLine],

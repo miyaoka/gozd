@@ -1,5 +1,6 @@
 [
   { "key": "shift+cmd+p", "command": "commandPalette.show" },
+  { "key": "cmd+p", "command": "workspace.goToFile" },
   { "key": "cmd+j", "command": "preview.toggle" },
   { "key": "cmd+s", "command": "preview.save", "when": "previewEditable" },
   { "key": "cmd+[", "command": "markdownPreview.back", "when": "previewVisible && !inputFocused" },

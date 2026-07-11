@@ -96,6 +96,8 @@ export type {
   GitLogLineResponse,
   GitLogRequest,
   GitLogResponse,
+  GitLsFilesRequest,
+  GitLsFilesResponse,
   GitLsTreeRequest,
   GitLsTreeResponse,
   GitMergeBaseRequest,

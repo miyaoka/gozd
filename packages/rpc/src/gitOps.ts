@@ -476,3 +476,17 @@ export interface GitTreeEntry {
 export interface GitLsTreeResponse {
   entries: GitTreeEntry[];
 }
+
+// gitLsFiles: worktree 内の全ファイル（tracked + untracked、gitignore 除外）の相対パスを返す。
+//
+// file picker（Go to File）が worktree 単位の全ファイル列挙に使う。
+// `git ls-files -z --cached --others --exclude-standard` に対応し、`--cached` が拾う
+// 「index にあるが working tree から削除済み」のエントリは main 側で除外する
+// （picker はディスクに実在するファイルだけを開く対象として提示する契約）。
+export interface GitLsFilesRequest {
+  dir: string;
+}
+
+export interface GitLsFilesResponse {
+  files: string[];
+}

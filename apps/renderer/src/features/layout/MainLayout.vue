@@ -25,9 +25,11 @@ import { GitGraphPane } from "../git-graph";
 import { NavigatorPane } from "../navigator";
 import {
   CommandPalette,
+  FilePickerDialog,
   IssuePickerDialog,
   PrPickerDialog,
   QuickPick,
+  registerFilePickerCommand,
   registerIssueCommand,
   registerPrCommand,
   registerReviveCommand,
@@ -77,6 +79,7 @@ const disposeThemeCommand = registerThemeCommand();
 const disposeSettingsCommand = registerSettingsCommand();
 const disposePrCommand = registerPrCommand();
 const disposeIssueCommand = registerIssueCommand();
+const disposeFilePickerCommand = registerFilePickerCommand();
 const disposeReviveCommand = registerReviveCommand();
 const disposeShellCommandActions = registerShellCommandActions();
 const disposeMarkdownHistoryCommands = registerMarkdownHistoryCommands();
@@ -87,6 +90,7 @@ onUnmounted(disposeThemeCommand);
 onUnmounted(disposeSettingsCommand);
 onUnmounted(disposePrCommand);
 onUnmounted(disposeIssueCommand);
+onUnmounted(disposeFilePickerCommand);
 onUnmounted(disposeReviveCommand);
 onUnmounted(disposeShellCommandActions);
 onUnmounted(disposeMarkdownHistoryCommands);
@@ -318,6 +322,7 @@ watch(
 
     <CommandPalette />
     <QuickPick />
+    <FilePickerDialog />
     <PrPickerDialog />
     <IssuePickerDialog />
     <RevivePickerDialog />

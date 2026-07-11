@@ -111,6 +111,7 @@ interface ContextMap {
   previewVisible: boolean;
   commandPaletteVisible: boolean;
   quickPickVisible: boolean;
+  filePickerVisible: boolean;
   prPickerVisible: boolean;
   issuePickerVisible: boolean;
   inputFocused: boolean;
@@ -125,6 +126,7 @@ interface ContextMap {
 | `previewVisible`        | Preview popover の開閉状態と同期                                                                   |
 | `commandPaletteVisible` | コマンドパレット dialog の open/close で同期                                                       |
 | `quickPickVisible`      | QuickPick dialog の open/close で同期                                                              |
+| `filePickerVisible`     | File picker（Go to File）dialog の open/close で同期                                               |
 | `prPickerVisible`       | PR ピッカー dialog の open/close で同期                                                            |
 | `issuePickerVisible`    | Issue ピッカー dialog の open/close で同期                                                         |
 | `inputFocused`          | document の focusin/focusout を購読し、input/textarea/contenteditable へのフォーカスを検出して同期 |

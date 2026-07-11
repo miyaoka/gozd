@@ -60,6 +60,28 @@ describe("lsFiles (integration)", () => {
     expect(files).not.toContain("removed.ts");
   });
 
+  test("merge コンフリクト中も unmerged パスを 1 件に畳む", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gozd-lsfiles-conflict-"));
+    tempDirs.push(dir);
+    runGitCmd(["init", "-b", "main"], dir);
+    runGitCmd(["config", "user.email", "t@example.com"], dir);
+    runGitCmd(["config", "user.name", "t"], dir);
+    writeFileSync(join(dir, "conflict.txt"), "base\n");
+    runGitCmd(["add", "."], dir);
+    runGitCmd(["commit", "-m", "base"], dir);
+    runGitCmd(["checkout", "-b", "topic"], dir);
+    writeFileSync(join(dir, "conflict.txt"), "topic\n");
+    runGitCmd(["commit", "-am", "topic"], dir);
+    runGitCmd(["checkout", "main"], dir);
+    writeFileSync(join(dir, "conflict.txt"), "main\n");
+    runGitCmd(["commit", "-am", "main"], dir);
+    // コンフリクトで merge は exit 1 になる（期待挙動なので失敗を握りつぶす）
+    expect(() => runGitCmd(["merge", "topic"], dir)).toThrow();
+
+    const files = await lsFiles(dir);
+    expect(files.filter((path) => path === "conflict.txt").length).toBe(1);
+  });
+
   test("commit 無し repo でも untracked を列挙する", async () => {
     const dir = mkdtempSync(join(tmpdir(), "gozd-lsfiles-unborn-"));
     tempDirs.push(dir);

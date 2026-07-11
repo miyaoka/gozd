@@ -25,10 +25,15 @@ export function subtractDeleted(primaryOutput: string, deletedOutput: string): s
 /**
  * worktree 内の全ファイル（tracked + untracked、gitignore 除外）の相対パスを返す。
  * 出力順は git ls-files の既定順（cached がソート済みで先、others が後）をそのまま保つ。
+ *
+ * `--deduplicate`（git 2.31+）は必須: merge / rebase のコンフリクト中、`--cached` は
+ * unmerged パスを stage 1/2/3 のぶん重複出力する。gozd はコンフリクト解決が日常の
+ * worktree 並列ツールなので、重複を畳まないと picker に同一ファイルが 3 行並び
+ * Vue の `:key` 一意性契約も壊れる。
  */
 export async function lsFiles(dir: string): Promise<string[]> {
   const [primary, deleted] = await Promise.all([
-    runGit(["ls-files", "-z", "--cached", "--others", "--exclude-standard"], dir),
+    runGit(["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--deduplicate"], dir),
     runGit(["ls-files", "-z", "--deleted"], dir),
   ]);
   return subtractDeleted(primary, deleted);

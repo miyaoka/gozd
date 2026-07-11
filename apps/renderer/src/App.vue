@@ -16,6 +16,7 @@ import {
   useTitleContextSync,
 } from "./features/layout";
 import { ServerListPanel } from "./features/server";
+import { PinnedLogLayer } from "./features/session-log";
 import { useGozdOpenHandler, useRepoContextKey } from "./features/sidebar";
 import { useGitStatusSync, useRemoteFetchSync } from "./features/worktree";
 import { useKeyBindings } from "./shared/command";
@@ -36,5 +37,6 @@ useTitleContextSync();
   <MainLayout />
   <ServerListPanel />
   <EventLogPanel />
+  <PinnedLogLayer />
   <ArcadeLayer />
 </template>

@@ -13,8 +13,10 @@
  * メニュー側は `joinAbsRel(dir, relPath)` で絶対 path に展開し、`commitHash === undefined` なら
  * 絶対 path のみ、定義されていれば `${hash}\n${絶対 path}` を clipboard に書く。
  *
- * x / y は contextmenu イベント時のマウス座標。指定時はメニュー側で `position: fixed; left/top`
- * を使い、undefined なら CSS Anchor Position で anchor 要素基準で出す (将来の menu 起動経路用)。
+ * x / y は contextmenu イベント時のマウス座標。指定時はメニュー側がその座標に不可視の 0 サイズ
+ * anchor 要素を置き、undefined なら anchor 要素 (implicit anchor) を基準にする (将来の menu
+ * 起動経路用)。どちらも CSS Anchor Positioning (position-area + flip fallback) で配置するため、
+ * viewport 端では自動で反転して見切れない。
  *
  * NavigatorPane は `pointerup` capture listener を setup 直下に常設し、子 pane から bubble する
  * contextmenu event を `pending` ref に積んで次の pointerup で showPopover する。**`setTimeout(0)`

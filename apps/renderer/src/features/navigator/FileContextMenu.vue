@@ -9,26 +9,41 @@ FileActionMenuItems の doc を参照 (openable prop に反転して渡す)。
 </doc>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, type CSSProperties } from "vue";
 import { FileActionMenuItems } from "../filer";
 import { joinAbsRel } from "../worktree";
 import { useFileContextMenu } from "./useFileContextMenu";
 
 const { Popover, context, close } = useFileContextMenu();
 
-// 右クリックでマウス座標 (context.x/y) が渡された場合はそれを優先。
-// ⋮ ボタン経路など座標未指定の場合は CSS Anchor Position で anchor 要素の bottom-left に出す。
-const popoverStyle = computed(() => {
+/**
+ * 右クリック座標 (context.x/y) に置く不可視の 0 サイズ anchor。popover に left/top を直書きすると
+ * viewport 右端 / 下端で `position-try-fallbacks` が効かず見切れるため、座標は anchor 要素側に
+ * 持たせ、popover は常に CSS Anchor Positioning (position-area + flip fallback) で配置する
+ * (BlamePopover の「コンポーネント所有の不可視 anchor を幾何座標に重ねる」方式と同型)。
+ * `showPopover({ source })` の implicit anchor (行要素) は positionAnchor 指定で上書きされる。
+ */
+const originAnchorStyle = computed<CSSProperties | undefined>(() => {
   const ctx = context.value;
-  if (ctx?.x !== undefined && ctx?.y !== undefined) {
-    return { position: "fixed", left: `${ctx.x}px`, top: `${ctx.y}px` };
-  }
+  if (ctx?.x === undefined || ctx?.y === undefined) return undefined;
   return {
     position: "fixed",
-    positionArea: "block-end span-inline-end",
-    positionTryFallbacks: "flip-block, flip-inline, flip-block flip-inline",
+    left: `${ctx.x}px`,
+    top: `${ctx.y}px`,
+    anchorName: "--file-context-menu-origin",
   };
 });
+
+// 右クリック経路は上記の不可視 anchor、⋮ ボタン経路など座標未指定の場合は implicit anchor
+// (anchor 要素) を基準に、いずれも bottom-left へ出して端では flip する。
+const popoverStyle = computed(() => ({
+  position: "fixed",
+  ...(originAnchorStyle.value === undefined
+    ? {}
+    : { positionAnchor: "--file-context-menu-origin" }),
+  positionArea: "block-end span-inline-end",
+  positionTryFallbacks: "flip-block, flip-inline, flip-block flip-inline",
+}));
 
 /** context → FileActionMenuItems props の変換。閉じているときは undefined で項目ごと消す */
 const itemProps = computed(() => {
@@ -44,6 +59,8 @@ const itemProps = computed(() => {
 </script>
 
 <template>
+  <!-- 不可視 anchor は positioned element (popover) より DOM 前方に置く (acceptable anchor 条件) -->
+  <div v-if="originAnchorStyle" :style="originAnchorStyle" aria-hidden="true" />
   <Popover
     class="m-0 min-w-36 rounded-lg border border-border bg-background py-1 text-sm text-foreground shadow-lg"
     :style="popoverStyle"

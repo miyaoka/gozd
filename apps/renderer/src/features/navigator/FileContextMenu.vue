@@ -25,7 +25,7 @@ const { Popover, context, close } = useFileContextMenu();
  */
 const originAnchorStyle = computed<CSSProperties | undefined>(() => {
   const ctx = context.value;
-  if (ctx?.x === undefined || ctx?.y === undefined) return undefined;
+  if (ctx === undefined) return undefined;
   return {
     position: "fixed",
     left: `${ctx.x}px`,
@@ -34,16 +34,13 @@ const originAnchorStyle = computed<CSSProperties | undefined>(() => {
   };
 });
 
-// 右クリック経路は上記の不可視 anchor、⋮ ボタン経路など座標未指定の場合は implicit anchor
-// (anchor 要素) を基準に、いずれも bottom-left へ出して端では flip する。
-const popoverStyle = computed(() => ({
+// マウス座標 (不可視 anchor) の bottom-right へ出し、viewport 端では flip する
+const popoverStyle = {
   position: "fixed",
-  ...(originAnchorStyle.value === undefined
-    ? {}
-    : { positionAnchor: "--file-context-menu-origin" }),
+  positionAnchor: "--file-context-menu-origin",
   positionArea: "block-end span-inline-end",
   positionTryFallbacks: "flip-block, flip-inline, flip-block flip-inline",
-}));
+};
 
 /** context → FileActionMenuItems props の変換。閉じているときは undefined で項目ごと消す */
 const itemProps = computed(() => {

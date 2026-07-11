@@ -533,45 +533,6 @@ describe("parseSessionLog", () => {
     expect(log.skipped).toBe(1);
   });
 
-  test("system-reminder 注入 string は開閉タグを剥がして system イベントにする", () => {
-    const log = parseSessionLog(
-      jsonl({
-        type: "user",
-        timestamp: TS,
-        message: { role: "user", content: "<system-reminder>be careful</system-reminder>" },
-      }),
-    );
-    expect(log.events).toEqual([
-      { kind: "system", label: "system-reminder", text: "be careful", ts: TS },
-    ]);
-    expect(log.skipped).toBe(0);
-  });
-
-  test("閉じタグ欠落の system-reminder は先頭タグだけ剥がして全文を残す", () => {
-    const log = parseSessionLog(
-      jsonl({
-        type: "user",
-        timestamp: TS,
-        message: { role: "user", content: "<system-reminder>truncated body" },
-      }),
-    );
-    expect(log.events).toEqual([
-      { kind: "system", label: "system-reminder", text: "truncated body", ts: TS },
-    ]);
-  });
-
-  test("本文が空の system-reminder は載せず skipped に計上", () => {
-    const log = parseSessionLog(
-      jsonl({
-        type: "user",
-        timestamp: TS,
-        message: { role: "user", content: "<system-reminder> </system-reminder>" },
-      }),
-    );
-    expect(log.events).toEqual([]);
-    expect(log.skipped).toBe(1);
-  });
-
   test("hook_success attachment の非空 content は system イベントにする", () => {
     const log = parseSessionLog(
       jsonl(
@@ -703,12 +664,12 @@ describe("parseSessionLog", () => {
         timestamp: TS,
         message: {
           role: "user",
-          content: "これを直して\n<system-reminder>noise</system-reminder>",
+          content: "これを直して\n<task-notification>noise</task-notification>",
         },
       }),
     );
     expect(log.events).toEqual([
-      { kind: "user", text: "これを直して\n<system-reminder>noise</system-reminder>", ts: TS },
+      { kind: "user", text: "これを直して\n<task-notification>noise</task-notification>", ts: TS },
     ]);
   });
 

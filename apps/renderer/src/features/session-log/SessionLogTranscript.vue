@@ -639,7 +639,7 @@ onBeforeUnmount(teardownObserver);
             class="mx-auto flex w-fit max-w-[70%] cursor-pointer list-none items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-foreground-low select-none hover:bg-element-hover [&::-webkit-details-marker]:hidden"
           >
             <span v-if="ev.kind === 'thinking'">thinking</span>
-            <!-- system 注入: 種別を dim で、注入元 (hook 名 / system-reminder) を primary で出す
+            <!-- system 注入: 種別を dim で、注入元 (hook 名) を primary で出す
                  (tool 行の「tool 名 = primary」と同じ主従)。 -->
             <template v-else-if="ev.kind === 'system'">
               <span class="shrink-0">system</span>

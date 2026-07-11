@@ -109,9 +109,9 @@ shadow-xl` + kind 別 `bg-chat-incoming` / `bg-chat-outgoing`)
   absolute 配置は内容と一緒にスクロールし、overlay 配置はスクロールバー上に重なる)。
   `overflow-hidden` + `border-radius` は CSS Backgrounds Module Level 3 §5.3
   (Corner Clipping) で子の painting を clip するため、bg / ヘッダは角丸内に収まる
-- 内側 box (kind 別、bg は持たない)
-  user は `wrap-break-word whitespace-pre-wrap text-chat-outgoing-text`、
-  assistant は MarkdownBody + `text-chat-incoming-text` + CSS var 上書き。背景は wrapper
+- 内側 box (`SessionLogMessageBody`。kind 別の本文描画、bg は持たない)
+  user は素テキスト、assistant は MarkdownBody + chat 配色。PinnedLogWindow と共有する
+  (`:deep(code)` の specificity 回避策含め session-log feature 側に集約)。背景は wrapper
   から透ける構造
 
 「位置決め (外) / 見た目 + スクロール (中間) / 配色 (内)」と責務を分けることで、外側に
@@ -123,10 +123,10 @@ box が伸び続ける挙動を構造的に排除する。
 import { computed, ref, useTemplateRef } from "vue";
 import { usePopover } from "../../shared/popover";
 import { taskDisplayTitle, useRepoStore } from "../../shared/repo";
-import { MarkdownBody } from "../preview";
 import {
   expandAskMessages,
   parseSessionLog,
+  SessionLogMessageBody,
   usePinnedLog,
   useSessionLogLive,
   type PinDragHandoff,
@@ -508,8 +508,7 @@ const hasSub = computed(() => subMessages.value.length > 0);
 
   <!-- 全文 preview popover。anchor は被クリックの bubble、`positionTryFallbacks` で
        端に押し出されたら反対側へ flip。light-dismiss (popover 外 click / ESC) で閉じる。
-       assistant 側のみ MarkdownBody で描画 (SessionLogTranscript と同じ規律: user 投稿は
-       素のテキストとして書かれる前提で markdown 解釈しない)。 -->
+       本文描画は SessionLogMessageBody に委譲 (assistant のみ markdown 解釈)。 -->
   <PreviewPopover
     class="m-0 w-3xl max-w-[80vw] overflow-visible border-none bg-transparent px-0 py-3 text-base"
     :style="{
@@ -554,27 +553,9 @@ const hasSub = computed(() => subMessages.value.length > 0);
           </button>
         </div>
         <div class="min-h-0 flex-1 overflow-auto">
-          <div
-            v-if="previewContext.msg.kind === 'assistant'"
-            class="_preview-assistant px-3 py-2 text-chat-incoming-text [--color-foreground-low:var(--color-chat-incoming-text-low)] [--color-foreground:var(--color-chat-incoming-text)] [--md-code-bg:transparent]"
-          >
-            <MarkdownBody :content="previewContext.msg.text" />
-          </div>
-          <div v-else class="px-3 py-2 wrap-break-word whitespace-pre-wrap text-chat-outgoing-text">
-            {{ previewContext.msg.text }}
-          </div>
+          <SessionLogMessageBody :kind="previewContext.msg.kind" :text="previewContext.msg.text" />
         </div>
       </div>
     </template>
   </PreviewPopover>
 </template>
-
-<style scoped>
-/* MarkdownBody は `_markdown-body :deep(code) { color: var(--color-foreground); ... }` で
-   inline code を一様に染めるため、本文 (`p` / `h*` 等) を黒文字にしたまま code だけ紫に
-   するには CSS 変数 override では足りない。`_preview-assistant` scope に :deep(code) を
-   足して specificity を MarkdownBody 側と同等以上に持ち上げる。 */
-._preview-assistant :deep(code) {
-  color: var(--color-chat-code);
-}
-</style>

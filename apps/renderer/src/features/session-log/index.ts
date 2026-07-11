@@ -7,6 +7,7 @@
 export { expandAskMessages, parseSessionLog, type TranscriptEvent } from "@gozd/claude-session-log";
 export { default as PinnedLogLayer } from "./PinnedLogLayer.vue";
 export { default as SessionLogDialog } from "./SessionLogDialog.vue";
+export { default as SessionLogMessageBody } from "./SessionLogMessageBody.vue";
 export { usePinnedLog, type PinDragHandoff } from "./usePinnedLog";
 export { useSessionLogLive } from "./useSessionLogLive";
 export { useSessionLogViewer } from "./useSessionLogViewer";

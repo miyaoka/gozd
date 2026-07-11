@@ -13,8 +13,6 @@ import {
   GitShowCommitFileResponse,
   GitShowFileRequest,
   GitShowFileResponse,
-  OpenFileRequest,
-  OpenFileResponse,
 } from "@gozd/rpc";
 
 import { rpc } from "../../shared/rpc";
@@ -39,6 +37,3 @@ export const rpcGitLogLine = (req: GitLogLineRequest) =>
 
 export const rpcGitLogFile = (req: GitLogFileRequest) =>
   rpc<GitLogFileResponse>("/git/logFile", req);
-
-/** 表示中ファイルを OS のデフォルトアプリで開く（macOS の `open` 相当）。path は絶対パス。 */
-export const rpcOpenFile = (req: OpenFileRequest) => rpc<OpenFileResponse>("/open/file", req);

@@ -1,82 +1,67 @@
 <doc lang="md">
-ファイル行の右クリックメニュー。Copy file（ファイル参照の OS クリップボード書き込み）と
-Copy path（テキスト）を描画する。context の組み立てと snapshot semantics、
-defer / disconnect ガード等の内部仕様は `useFileContextMenu.ts` の docstring を SSOT として参照する。
+ファイル行の右クリックメニュー。項目 (Open in default app / Copy file / Copy path) は
+preview ヘッダの ⋮ メニューと共通の `FileActionMenuItems` (filer) を描画する。
+context の組み立てと snapshot semantics、defer / disconnect ガード等の内部仕様は
+`useFileContextMenu.ts` の docstring を SSOT として参照する。
 
-Copy file は snapshot mode（context.isSnapshot）では項目ごと出さない。snapshot のファイルは
-ディスク上に実体が無く、パスを載せると最新の worktree 内容が paste される誤読を生むため。
-メニューは可視 UI なので「出さない」こと自体が説明になり、toast による拒否通知
-（キーボード経路 `filer.copyFile` の担当）は不要。
+Open / Copy file は snapshot mode (context.isSnapshot) では出さない。可視判定の理由は
+FileActionMenuItems の doc を参照 (openable prop に反転して渡す)。
 </doc>
 
 <script setup lang="ts">
-import { tryCatch } from "@gozd/shared";
-import { computed } from "vue";
-import { useNotificationStore } from "../../shared/notification";
-import { copyFileToOsClipboard } from "../filer";
+import { computed, type CSSProperties } from "vue";
+import { FileActionMenuItems } from "../filer";
 import { joinAbsRel } from "../worktree";
 import { useFileContextMenu } from "./useFileContextMenu";
-import IconLucideFiles from "~icons/lucide/files";
-import IconLucideFolderTree from "~icons/lucide/folder-tree";
 
 const { Popover, context, close } = useFileContextMenu();
-const notify = useNotificationStore();
 
-// 右クリックでマウス座標 (context.x/y) が渡された場合はそれを優先。
-// ⋮ ボタン経路など座標未指定の場合は CSS Anchor Position で anchor 要素の bottom-left に出す。
-const popoverStyle = computed(() => {
+/**
+ * 右クリック座標 (context.x/y) に置く不可視の 0 サイズ anchor。popover に left/top を直書きすると
+ * viewport 右端 / 下端で `position-try-fallbacks` が効かず見切れるため、座標は anchor 要素側に
+ * 持たせ、popover は常に CSS Anchor Positioning (position-area + flip fallback) で配置する
+ * (BlamePopover の「コンポーネント所有の不可視 anchor を幾何座標に重ねる」方式と同型)。
+ * `showPopover({ source })` の implicit anchor (行要素) は positionAnchor 指定で上書きされる。
+ */
+const originAnchorStyle = computed<CSSProperties | undefined>(() => {
   const ctx = context.value;
-  if (ctx?.x !== undefined && ctx?.y !== undefined) {
-    return { position: "fixed", left: `${ctx.x}px`, top: `${ctx.y}px` };
-  }
+  if (ctx === undefined) return undefined;
   return {
     position: "fixed",
-    positionArea: "block-end span-inline-end",
-    positionTryFallbacks: "flip-block, flip-inline, flip-block flip-inline",
+    left: `${ctx.x}px`,
+    top: `${ctx.y}px`,
+    anchorName: "--file-context-menu-origin",
   };
 });
 
-async function handleCopyFile() {
-  if (!context.value) return;
-  const { dir, relPath } = context.value;
-  close();
-  await copyFileToOsClipboard(joinAbsRel(dir, relPath), relPath);
-}
+// マウス座標 (不可視 anchor) の bottom-right へ出し、viewport 端では flip する
+const popoverStyle = {
+  position: "fixed",
+  positionAnchor: "--file-context-menu-origin",
+  positionArea: "block-end span-inline-end",
+  positionTryFallbacks: "flip-block, flip-inline, flip-block flip-inline",
+};
 
-async function handleCopyPath() {
-  if (!context.value) return;
-  const { dir, relPath, commitHash } = context.value;
-  const absPath = joinAbsRel(dir, relPath);
-  const text = commitHash === undefined ? absPath : `${commitHash}\n${absPath}`;
-  close();
-  // navigator.clipboard 参照時の同期 throw も拾うため async IIFE で Promise 化してから tryCatch に渡す
-  const result = await tryCatch((async () => navigator.clipboard.writeText(text))());
-  if (!result.ok) {
-    notify.error("Failed to copy path", result.error);
-  }
-}
+/** context → FileActionMenuItems props の変換。閉じているときは undefined で項目ごと消す */
+const itemProps = computed(() => {
+  const ctx = context.value;
+  if (ctx === undefined) return undefined;
+  return {
+    absPath: joinAbsRel(ctx.dir, ctx.relPath),
+    displayName: ctx.relPath,
+    commitHash: ctx.commitHash,
+    openable: !ctx.isSnapshot,
+  };
+});
 </script>
 
 <template>
+  <!-- 不可視 anchor は positioned element (popover) より DOM 前方に置く (acceptable anchor 条件) -->
+  <div v-if="originAnchorStyle" :style="originAnchorStyle" aria-hidden="true" />
   <Popover
     class="m-0 min-w-36 rounded-lg border border-border bg-background py-1 text-sm text-foreground shadow-lg"
     :style="popoverStyle"
   >
-    <button
-      v-if="context && !context.isSnapshot"
-      class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel"
-      @click="handleCopyFile"
-    >
-      <IconLucideFiles class="size-4 shrink-0" />
-      Copy file
-    </button>
-    <button
-      v-if="context"
-      class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel"
-      @click="handleCopyPath"
-    >
-      <IconLucideFolderTree class="size-4 shrink-0" />
-      Copy path
-    </button>
+    <FileActionMenuItems v-if="itemProps" v-bind="itemProps" @close="close()" />
   </Popover>
 </template>

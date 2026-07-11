@@ -117,4 +117,25 @@ describe("isSessionInProgress", () => {
   test("空配列は進行中でない", () => {
     expect(isSessionInProgress([])).toBe(false);
   });
+
+  const system: TranscriptEvent = {
+    kind: "system",
+    label: "PreToolUse:Bash",
+    text: "injected",
+    ts: "2026-06-12T00:00:00Z",
+  };
+
+  // system (注入) はエージェントのアクションでも発言でもないため末尾判定で透過する。
+  // tool 実行中に hook 注入が末尾に来た瞬間 (tool_result 到着前) に進行中表示を消さない。
+  test("末尾の system を透過して直近の tool で進行中と判定する", () => {
+    expect(isSessionInProgress([user, tool, system])).toBe(true);
+  });
+
+  test("末尾の system を透過して直近の assistant (発言) でリセットされる", () => {
+    expect(isSessionInProgress([user, assistant, system])).toBe(false);
+  });
+
+  test("system のみの列は進行中でない", () => {
+    expect(isSessionInProgress([system])).toBe(false);
+  });
 });

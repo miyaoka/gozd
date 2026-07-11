@@ -518,26 +518,124 @@ describe("parseSessionLog", () => {
     expect(log.skipped).toBe(0);
   });
 
-  test("task-notification / system-reminder 注入 string は載せず skipped に計上", () => {
+  test("task-notification 注入 string は載せず skipped に計上", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "user",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content: "<task-notification>\n<task-id>abc</task-id>\n<result>done</result>",
+        },
+      }),
+    );
+    expect(log.events).toEqual([]);
+    expect(log.skipped).toBe(1);
+  });
+
+  test("hook_success attachment の非空 content は system イベントにする", () => {
     const log = parseSessionLog(
       jsonl(
         {
-          type: "user",
+          type: "attachment",
           timestamp: TS,
-          message: {
-            role: "user",
-            content: "<task-notification>\n<task-id>abc</task-id>\n<result>done</result>",
+          attachment: {
+            type: "hook_success",
+            hookName: "SessionStart:startup",
+            hookEvent: "SessionStart",
+            content: "このセッションのルートは /path/to/worktree です。",
           },
         },
+        // content 空の hook_success (発火記録のみ) は表示する中身が無いため skipped。
         {
-          type: "user",
+          type: "attachment",
           timestamp: TS,
-          message: { role: "user", content: "<system-reminder>be careful</system-reminder>" },
+          attachment: {
+            type: "hook_success",
+            hookName: "PreToolUse:Bash",
+            hookEvent: "PreToolUse",
+            content: "",
+          },
+        },
+      ),
+    );
+    expect(log.events).toEqual([
+      {
+        kind: "system",
+        label: "SessionStart:startup",
+        text: "このセッションのルートは /path/to/worktree です。",
+        ts: TS,
+      },
+    ]);
+    expect(log.skipped).toBe(1);
+  });
+
+  test("hook_additional_context attachment は非空 string 要素を結合して system イベントにする", () => {
+    const log = parseSessionLog(
+      jsonl({
+        type: "attachment",
+        timestamp: TS,
+        attachment: {
+          type: "hook_additional_context",
+          hookName: "PreToolUse:Bash",
+          hookEvent: "PreToolUse",
+          content: ["node_modules を直接読むな", "", "ghq skill を使え"],
+        },
+      }),
+    );
+    expect(log.events).toEqual([
+      {
+        kind: "system",
+        label: "PreToolUse:Bash",
+        text: "node_modules を直接読むな\nghq skill を使え",
+        ts: TS,
+      },
+    ]);
+    expect(log.skipped).toBe(0);
+  });
+
+  test("hook_additional_context の content が全要素空 / 空配列なら載せず skipped に計上", () => {
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "attachment",
+          timestamp: TS,
+          attachment: { type: "hook_additional_context", hookName: "PreToolUse:Bash", content: [] },
+        },
+        {
+          type: "attachment",
+          timestamp: TS,
+          attachment: {
+            type: "hook_additional_context",
+            hookName: "PreToolUse:Bash",
+            content: ["", ""],
+          },
         },
       ),
     );
     expect(log.events).toEqual([]);
     expect(log.skipped).toBe(2);
+  });
+
+  test("hookName 欠落の hook attachment は label を hook に倒す", () => {
+    const log = parseSessionLog(
+      jsonl(
+        {
+          type: "attachment",
+          timestamp: TS,
+          attachment: { type: "hook_success", content: "injected" },
+        },
+        {
+          type: "attachment",
+          timestamp: TS,
+          attachment: { type: "hook_additional_context", content: ["extra context"] },
+        },
+      ),
+    );
+    expect(log.events).toEqual([
+      { kind: "system", label: "hook", text: "injected", ts: TS },
+      { kind: "system", label: "hook", text: "extra context", ts: TS },
+    ]);
   });
 
   test("SDK 合成 assistant (model:<synthetic>) は transcript に載せず skipped に計上", () => {
@@ -566,12 +664,12 @@ describe("parseSessionLog", () => {
         timestamp: TS,
         message: {
           role: "user",
-          content: "これを直して\n<system-reminder>noise</system-reminder>",
+          content: "これを直して\n<task-notification>noise</task-notification>",
         },
       }),
     );
     expect(log.events).toEqual([
-      { kind: "user", text: "これを直して\n<system-reminder>noise</system-reminder>", ts: TS },
+      { kind: "user", text: "これを直して\n<task-notification>noise</task-notification>", ts: TS },
     ]);
   });
 

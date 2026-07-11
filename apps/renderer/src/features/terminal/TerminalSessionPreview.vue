@@ -37,7 +37,9 @@ run 単位で kind ごとに件数を確保するため、assistant が連続応
 indicator (`_fx-typing-dots`) を assistant 吹き出しと同じ見た目で追加表示する。transcript
 ベースの判定は `isSessionInProgress` (`terminalSessionPreviewMessages.ts`) が担い、ask 展開後の
 events 列の末尾 kind が thinking / tool なら進行中、user / assistant (発言) なら false
-にリセットする。preview は user/assistant/teammate 以外を filter で捨てるため、この判定だけは
+にリセットする。system (注入) はエージェントのアクションでも発言でもないため末尾判定で透過し、
+直近の非 system イベントで判定する (tool 実行中の hook 注入で進行中表示が誤って消えないように)。
+preview は user/assistant/teammate 以外を filter で捨てるため、この判定だけは
 filter 前の events 列 (`parsePreview` の中間結果) を見る必要がある。
 
 main と sub で判定の確からしさが非対称になる。main は PTY を持ち、ClaudeStatus

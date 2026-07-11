@@ -15,6 +15,16 @@
 // 残らないことがあるため USER ブロックに載せる。採否は上流が分類済みの attachment.commandMode
 // を SSOT にし、生発話 ("prompt") のみ拾う。注入通知 ("task-notification" 等) は除外する。
 //
+// system 注入の可視化 (`kind:"system"`): エージェントのコンテキストに注入されたシステム由来
+// テキストを system イベントとして載せる。ソースは hook 由来 attachment
+// (`hook_success` / `hook_additional_context`)。SessionStart hook の出力等、実行時に
+// system-reminder としてエージェントに届く content の永続化形。content 空の hook_success
+// (発火記録だけの PreToolUse 等が大半) は表示する中身が無いため skipped。
+// なお output_style / task_reminder 等のランタイムリマインダは JSONL に永続化されず、原理的に
+// 表示できない。harness 追記の `<system-reminder>` (tool call バッチ推奨 / truncation 通知等) は
+// tool_result の content 内に現れ、tool イベントの result.text に全文が載るため抽出しない
+// (追記と「file 本文がたまたまタグ文字列を含む」偶発一致を区別する構造的マーカーが無い)。
+//
 // 平文の無い thinking (最新モデルの暗号化 signature のみ / フィールド欠落) も載せないが、
 // これは非会話レコードではなく会話イベントの一種なので skipped と混ぜず emptyThinking に
 // 別集計する。footer は両者を別ラベルで示し、件数の意味を 1:1 に保つ。
@@ -107,7 +117,7 @@ interface RawMessage {
   // null / 空 / システム生成の "<synthetic>" がありうるため optional かつ null 許容にする。
   model?: string | null;
 }
-// `type:"attachment"` レコードの中身。queued_command のみ会話に載せるため prompt を読む。
+// `type:"attachment"` レコードの中身。queued_command (会話) と hook 系 (system 注入) を読む。
 interface RawAttachment {
   type?: string;
   // queued_command が積んだ発話本文。`message.content` と同じ shape を取り、テキストのみなら
@@ -117,6 +127,13 @@ interface RawAttachment {
   // queue 種別の SSOT。"prompt" = ユーザーの生発話 / "task-notification" = 注入通知。
   // 上流 (Claude Code) が分類済みのため本文パターンで再導出せずこのフィールドで採否を決める。
   commandMode?: string;
+  // hook 系 attachment の発火元 hook 名 (例 "SessionStart:startup" / "PreToolUse:Bash")。
+  // system イベントの label に使う。
+  hookName?: string;
+  // hook が注入した content。`hook_success` は string (実ログで確認済み。大半は空 = 発火記録
+  // だけで注入なし)、`hook_additional_context` は string[] (実ログで確認済み)。queued_command
+  // の prompt とは別フィールド。信頼境界外なので shape ごと typeof で検証して使う。
+  content?: string | string[];
 }
 // AskUserQuestion 応答の raw line top-level に乗る構造化フィールド。Claude Code が
 // 組み立てた `question 文字列 → answer 文字列` の Map を `answers` に持つ。
@@ -167,14 +184,16 @@ interface RawLine {
 }
 
 // harness / CLI が user role で注入するラッパーで始まる string。これらはユーザーの
-// 生発話ではない (ローカルコマンド出力 / バックグラウンドタスク完了通知 / システム
-// リマインダ) ため USER ブロック / 目次に出さない。
+// 生発話ではない (ローカルコマンド出力 / バックグラウンドタスク完了通知) ため
+// USER ブロック / 目次に出さない。
 //
 // `type:"user"` + content=string + isMeta:null の形で main loop に注入されるため、
 // isMeta フラグでは区別できず、先頭ラッパータグで判定する。実ユーザー発話はこれらの
-// タグで始まらない (リマインダ等は発話の後ろに付くため先頭一致しない)。
+// タグで始まらない。`<system-reminder>` が user string の先頭に現れる形は存在しない
+// (harness 追記は tool_result content 内、生発話には語としての言及・埋め込みのみで、
+// いずれも先頭一致しない。ファイル冒頭の module doc 参照)。
 const INJECTED_USER_WRAPPER_RE =
-  /^\s*<(local-command-stdout|local-command-stderr|task-notification|system-reminder)>/;
+  /^\s*<(local-command-stdout|local-command-stderr|task-notification)>/;
 function isInjectedUserText(text: string): boolean {
   return INJECTED_USER_WRAPPER_RE.test(text);
 }
@@ -306,7 +325,8 @@ function slashCommandText(text: string): string | undefined {
  *
  * - 先頭が command block → slash command 起動。コマンド名 (+ 引数) を出す。command-name を
  *   欠いた病的ブロックは undefined
- * - 先頭が注入ラッパー (ローカルコマンド出力 / task-notification / system-reminder) → 除外
+ * - 先頭が注入ラッパー (ローカルコマンド出力 / task-notification) → 除外。branch 候補
+ *   判定 (isBranchCandidate) は本関数を使うため、注入ラッパーは候補にならない
  * - それ以外は生発話としてそのまま出す (本文中の <command-name> 等は加工しない)
  */
 function userTextOf(text: string): string | undefined {
@@ -346,6 +366,10 @@ export type TranscriptEvent =
   | { kind: "user"; text: string; ts: string }
   | { kind: "assistant"; text: string; ts: string }
   | { kind: "thinking"; text: string; ts: string }
+  // エージェントのコンテキストに注入されたシステム由来テキスト。ソースは hook 由来
+  // attachment (hook_success / hook_additional_context)。label は注入元の識別子 (hook 名)。
+  // 会話ターンではないので branch 候補 / scroll-spy の観測対象にはしない。
+  | { kind: "system"; label: string; text: string; ts: string }
   | {
       kind: "tool";
       name: string;
@@ -944,8 +968,37 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
       continue;
     }
 
-    // 上記以外 (その他 attachment / system / progress / permission-mode 等) は
-    // 会話 transcript には載せない。
+    // hook 由来 attachment はエージェントへの system 注入の永続化形なので system イベントに
+    // 載せる。ランタイムでは system-reminder としてコンテキストに届く content が、JSONL 上は
+    // この構造化 attachment にだけ残る (注入 user string としては書かれない)。
+    // - hook_success: content は string。非空 = 注入あり (SessionStart hook の出力等)。
+    //   空 = 発火記録のみ (PreToolUse の大半) で表示する中身が無いため skipped
+    // - hook_additional_context: content は string[] (PreToolUse 等が注入する追加コンテキスト)。
+    //   非空 string 要素を結合して載せる
+    if (raw.type === "attachment") {
+      const att = raw.attachment;
+      const label =
+        typeof att?.hookName === "string" && att.hookName !== "" ? att.hookName : "hook";
+      if (att?.type === "hook_success" && typeof att.content === "string" && att.content !== "") {
+        events.push({ kind: "system", label, text: att.content, ts });
+        continue;
+      }
+      if (att?.type === "hook_additional_context" && Array.isArray(att.content)) {
+        const text = att.content
+          .filter((item): item is string => typeof item === "string" && item !== "")
+          .join("\n");
+        if (text !== "") {
+          events.push({ kind: "system", label, text, ts });
+          continue;
+        }
+      }
+      // 上記以外の attachment (output_style / task_reminder / edited_text_file 等の構造化
+      // メタデータ) は skipped。
+      skipped++;
+      continue;
+    }
+
+    // 上記以外 (system / progress / permission-mode 等) は会話 transcript には載せない。
     skipped++;
   }
 
@@ -960,7 +1013,7 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
 
 /**
  * ask イベントを通常の assistant (質問) / user (回答) メッセージに展開して inline する。
- * 他 kind (user / assistant / thinking / tool / image / branch) はそのまま透過する。
+ * ask 以外の全 kind はそのまま透過する。
  *
  * 1 ask = 「assistant の質問群 + user の回答群」という意味を保ったまま、他の会話イベント
  * と同じ並びの TranscriptEvent[] に揃えるための変換。preview / dialog どちらの consumer も

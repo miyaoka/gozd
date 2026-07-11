@@ -189,8 +189,9 @@ interface RawLine {
 //
 // `type:"user"` + content=string + isMeta:null の形で main loop に注入されるため、
 // isMeta フラグでは区別できず、先頭ラッパータグで判定する。実ユーザー発話はこれらの
-// タグで始まらない。`<system-reminder>` は user string としては現れない
-// (tool_result content 内にのみ現れる。ファイル冒頭の module doc 参照)。
+// タグで始まらない。`<system-reminder>` が user string の先頭に現れる形は存在しない
+// (harness 追記は tool_result content 内、生発話には語としての言及・埋め込みのみで、
+// いずれも先頭一致しない。ファイル冒頭の module doc 参照)。
 const INJECTED_USER_WRAPPER_RE =
   /^\s*<(local-command-stdout|local-command-stderr|task-notification)>/;
 function isInjectedUserText(text: string): boolean {
@@ -1012,7 +1013,7 @@ export function parseSessionLog(jsonl: string, selection?: BranchSelection): Par
 
 /**
  * ask イベントを通常の assistant (質問) / user (回答) メッセージに展開して inline する。
- * 他 kind (user / assistant / thinking / tool / image / branch) はそのまま透過する。
+ * ask 以外の全 kind はそのまま透過する。
  *
  * 1 ask = 「assistant の質問群 + user の回答群」という意味を保ったまま、他の会話イベント
  * と同じ並びの TranscriptEvent[] に揃えるための変換。preview / dialog どちらの consumer も

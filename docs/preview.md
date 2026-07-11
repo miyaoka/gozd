@@ -85,6 +85,7 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 | Changes ファイル行クリック                     | `requestSelect`            | preview を close          |
 | Terminal 出力中のファイルパス shift+click      | `requestSelect`            | preview を close          |
 | CLI `gozd <file>` (gozdOpen push)              | `forceSelect`              | preview を維持（再 open） |
+| File picker（Go to File / Cmd+P）で選択        | `forceSelect`              | preview を維持（再 open） |
 | MarkdownPreview 内部リンク click               | `forceSelect`              | preview を維持（再 open） |
 | MarkdownPreview back / forward                 | `forceSelect`              | preview を維持（再 open） |
 | Session log dialog の生ログを開くボタン        | `forceSelect`              | preview を維持（再 open） |

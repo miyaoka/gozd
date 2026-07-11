@@ -24,6 +24,7 @@ const KNOWN_KEYS = new Set<string>(
     previewEditable: true,
     commandPaletteVisible: true,
     quickPickVisible: true,
+    filePickerVisible: true,
     prPickerVisible: true,
     issuePickerVisible: true,
     revivePickerVisible: true,

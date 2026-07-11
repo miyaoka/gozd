@@ -50,6 +50,7 @@ export interface ContextMap {
   previewEditable: boolean;
   commandPaletteVisible: boolean;
   quickPickVisible: boolean;
+  filePickerVisible: boolean;
   prPickerVisible: boolean;
   issuePickerVisible: boolean;
   revivePickerVisible: boolean;

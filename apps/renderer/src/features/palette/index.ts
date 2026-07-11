@@ -1,4 +1,5 @@
 export { CommandPalette } from "./features/command-palette";
+export { FilePickerDialog, registerFilePickerCommand } from "./features/file-picker";
 export { IssuePickerDialog, registerIssueCommand } from "./features/issue-picker";
 export {
   ghErrorMessage,

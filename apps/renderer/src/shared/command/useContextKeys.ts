@@ -12,6 +12,7 @@ const INITIAL_STATE: ContextMap = {
   previewEditable: false,
   commandPaletteVisible: false,
   quickPickVisible: false,
+  filePickerVisible: false,
   prPickerVisible: false,
   issuePickerVisible: false,
   revivePickerVisible: false,

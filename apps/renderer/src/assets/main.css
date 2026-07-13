@@ -302,25 +302,6 @@
   filter: drop-shadow(0 0 5px var(--color-warning-strong));
 }
 
-/* HUD 風セクションヘッダ。右に流れて消えるグラデーション下線を引く */
-._fx-hud-header {
-  position: relative;
-}
-
-._fx-hud-header::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 20%;
-  bottom: -3px;
-  height: 1px;
-  background: linear-gradient(
-    to right,
-    color-mix(in oklch, var(--color-primary) 65%, transparent),
-    transparent
-  );
-}
-
 /* ガラスのトップバー (sidebar toolbar)。パネルと同じ素材感で枠は下端のみ */
 ._fx-toolbar {
   background: color-mix(in srgb, var(--color-panel) 45%, transparent);

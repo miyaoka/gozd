@@ -155,10 +155,8 @@ function onHeaderClick() {
 
 <template>
   <section ref="section" :data-active="active" class="_fx-panel mx-1 mb-2 flex flex-col rounded-lg">
-    <!-- header は panel 幅 full-bleed の 1 行コントロール。padding は内側の button が持ち、
-         focus ring / shine が行全体 = collapsed 時は panel 全体に掛かる。角丸は状態で
-         変えず panel と同じ rounded-lg（展開時に上下で radius が混在するとタブ状の
-         歪な形に見えるため、全周統一の pill にする）。 -->
+    <!-- 角丸は状態で変えず panel と同じ rounded-lg 固定。展開時に上下で radius が混在すると
+         タブ状の歪な形に見えるため（full-bleed の設計原則は <doc> のレイアウト節を参照）。 -->
     <header class="_fx-shine group/repo relative flex items-center rounded-lg text-foreground">
       <!-- clickable 部はネイティブ button。focus / Enter / Space の起動はブラウザが扱うため
            tabindex / keydown を自前実装しない (WtCard と同じ規約)。editMode 中は useSortable の
@@ -220,8 +218,8 @@ function onHeaderClick() {
 
     <Transition
       enter-from-class="h-0"
-      enter-active-class="overflow-hidden transition-[height] duration-200 ease-out"
-      leave-active-class="overflow-hidden transition-[height] duration-200 ease-out"
+      enter-active-class="overflow-hidden transition-[height] duration-200 ease-out motion-reduce:duration-0"
+      leave-active-class="overflow-hidden transition-[height] duration-200 ease-out motion-reduce:duration-0"
       leave-to-class="h-0"
     >
       <div v-if="bodyVisible" class="[interpolate-size:allow-keywords]">

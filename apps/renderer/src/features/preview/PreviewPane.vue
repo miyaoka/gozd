@@ -95,7 +95,21 @@ const {
   isBinary,
   effectiveGitChange,
   imageSource,
+  contentEpoch,
 } = content;
+
+/**
+ * 画像描画失敗 (壊れた bytes 等) の error 表示。content 層の error (fetch 失敗) に畳むと
+ * rev 切替 (Current ↔ Original) で正常に描ける側まで error 表示が固定されるため分離し、
+ * view 操作と content 更新 (contentEpoch) でリセットする (PinnedPreviewWindow と同じ規律)。
+ */
+const imageError = ref(false);
+watch([activeMode, previewEnabled, contentEpoch], () => {
+  imageError.value = false;
+});
+const displayError = computed<string | undefined>(
+  () => error.value ?? (imageError.value ? "Failed to load image" : undefined),
+);
 
 const { blameEnabled, fileCommitDateProps, onCodeLineClick, onDiffLineClick } =
   usePreviewRevs(content);
@@ -409,7 +423,7 @@ function onCodeScrolled() {
           :loading="loading"
           :is-directory="isDirectory"
           :is-not-found="isNotFound"
-          :error="error"
+          :error="displayError"
           :line-number="selectedLineNumber"
           :reveal-version="revealVersion"
           :blame-enabled="blameEnabled"
@@ -418,7 +432,7 @@ function onCodeScrolled() {
           @diff-line-click="onDiffLineClick"
           @update-content="editStore.updateDraft($event)"
           @scrolled="onCodeScrolled"
-          @image-error="error = 'Failed to load image'"
+          @image-error="imageError = true"
         />
       </div>
     </template>

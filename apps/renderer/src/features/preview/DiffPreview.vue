@@ -87,9 +87,10 @@ degrade した run (予算切れ / timeout) も従来の行単位表示のまま
 
 ## 入力契約
 
-`original` / `current` は UTF-8 として解釈可能なテキストである必要がある。NUL バイトを含む
-バイナリは PreviewPane 側の `isBinary` 判定で弾かれる前提。万一すり抜けた場合は
-main 側で `Binary files ... differ` を検知して error にトーストする。
+`original` / `current` は UTF-8 として解釈可能なテキストである必要がある。バイナリは
+content の型 narrow（`currentText` / `originalText` がバイナリ (bytes) で `undefined` に
+倒れる）により diff leaf の描画条件を満たさず、本コンポーネントに渡らない前提。
+万一すり抜けた場合は main 側で `Binary files ... differ` を検知して error にトーストする。
 
 > [!NOTE]
 > 複数行コメントやテンプレートリテラルの開始/終了が変更に含まれる場合、

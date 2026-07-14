@@ -42,7 +42,11 @@ export interface HookMessage {
    * 生配列）の JSON スナップショット。「完了しているのに working 表示が残る」false positive
    * （完了済み entry の残留 / 長寿命 background process / 発火済み cron）の実態を観測する
    * ための一時的な診断フィールド。main 側 (socketMessages) がログに出すだけで renderer には
-   * 転送しない。両キー不在（旧バージョン / nc 直送）は空文字列。 */
+   * 転送しない。両キー不在（旧バージョン / nc 直送）は空文字列。
+   *
+   * 撤去条件: false positive の原因が実データで特定され、pendingWork 判定が status を考慮した
+   * 形に修正された時点で、本フィールド / cliOps の snapshot 生成 / socketMessages の
+   * done 分岐ログをまとめて撤去する。 */
   pendingWorkDetail: string;
 
   /** session-start のみ。"startup" / "resume" / "clear" / "compact" 等 */

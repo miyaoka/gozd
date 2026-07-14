@@ -1,8 +1,9 @@
 // RPC dispatcher。Swift 版 `RpcDispatcher.swift` の対応物。
 //
 // renderer からの request は preload → `ipcMain.handle("rpc:request")` → ここに届く。
-// body / response は `@gozd/rpc` の型を JSON.stringify した文字列（両端が同じ型定義を
-// 参照するため codec は不要。routes.ts の cast / satisfies 契約を参照）。
+// body / response は `@gozd/rpc` の型を structured clone でそのまま運ぶ plain data
+// （両端が同じ型定義を参照するため codec は不要。routes.ts の cast / satisfies 契約を参照。
+// plain data の不変条件は `@gozd/shared` の `ElectronRpcBridge` docstring が SSOT）。
 
 /** push 発射関数。spawn 時の sender に束縛される */
 export type PushFn = (type: string, payload: unknown) => void;
@@ -17,7 +18,7 @@ export type RpcHandler = (body: unknown, ctx: RpcContext) => Promise<unknown> | 
 const loggedUnimplemented = new Set<string>();
 
 export function createRpcDispatcher(routes: ReadonlyMap<string, RpcHandler>) {
-  return async (path: string, bodyJson: string, ctx: RpcContext): Promise<string> => {
+  return async (path: string, body: unknown, ctx: RpcContext): Promise<unknown> => {
     const handler = routes.get(path);
     if (handler === undefined) {
       if (!loggedUnimplemented.has(path)) {
@@ -26,7 +27,6 @@ export function createRpcDispatcher(routes: ReadonlyMap<string, RpcHandler>) {
       }
       throw new Error(`unimplemented RPC path: ${path}`);
     }
-    const result = await handler(JSON.parse(bodyJson), ctx);
-    return JSON.stringify(result);
+    return handler(body, ctx);
   };
 }

@@ -150,13 +150,13 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
-ipcMain.handle("rpc:request", (event, path: string, bodyJson: string) => {
+ipcMain.handle("rpc:request", (event, path: string, body: unknown) => {
   const sender = event.sender;
   const push: PushFn = (type, payload) => {
     if (sender.isDestroyed()) return;
     sender.send("rpc:push", type, payload);
   };
-  return dispatch(path, bodyJson, { push });
+  return dispatch(path, body, { push });
 });
 
 /** スクリーンショットを保存して app を終了する（検証経路の共通処理） */

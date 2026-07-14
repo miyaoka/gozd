@@ -1,4 +1,4 @@
-// spike ページ。実 renderer と同じワイヤ（__gozdElectronRpc + JSON）で
+// spike ページ。実 renderer と同じワイヤ（__gozdElectronRpc + structured clone）で
 // /pty/spawn 〜 echo round-trip を検証する自動テストハーネス。
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
@@ -37,21 +37,18 @@ async function main() {
   terminal.open(container);
   fitAddon.fit();
 
-  // PtySpawnRequest の JSON。dir はテスト用に "/"（spike ページは homedir を知らない）
-  const spawnRes = await rpc.request(
-    "/pty/spawn",
-    JSON.stringify({
-      dir: "/",
-      executable: "/bin/zsh",
-      // args はワイヤ契約 (Swift execve 流儀) どおり argv[0] を含む argv 全体
-      args: ["/bin/zsh", "-l"],
-      env: {},
-      rows: terminal.rows,
-      cols: terminal.cols,
-      worktreePath: "",
-    }),
-  );
-  const ptyId: number = JSON.parse(spawnRes).ptyId;
+  // PtySpawnRequest。dir はテスト用に "/"（spike ページは homedir を知らない）
+  const spawnRes = await rpc.request("/pty/spawn", {
+    dir: "/",
+    executable: "/bin/zsh",
+    // args はワイヤ契約 (Swift execve 流儀) どおり argv[0] を含む argv 全体
+    args: ["/bin/zsh", "-l"],
+    env: {},
+    rows: terminal.rows,
+    cols: terminal.cols,
+    worktreePath: "",
+  });
+  const ptyId: number = (spawnRes as { ptyId: number }).ptyId;
 
   let outputBuffer = "";
   rpc.onPush((type, payload) => {
@@ -71,16 +68,13 @@ async function main() {
 
   // PtyWriteRequest.data はテキスト直送（旧ワイヤの base64 bytes は proto 廃止時に置き換えた）
   const writePty = (data: string) => {
-    void rpc.request("/pty/write", JSON.stringify({ ptyId, data }));
+    void rpc.request("/pty/write", { ptyId, data });
   };
   terminal.onData(writePty);
 
   window.addEventListener("resize", () => {
     fitAddon.fit();
-    void rpc.request(
-      "/pty/resize",
-      JSON.stringify({ ptyId, rows: terminal.rows, cols: terminal.cols }),
-    );
+    void rpc.request("/pty/resize", { ptyId, rows: terminal.rows, cols: terminal.cols });
   });
 
   if (!window.gozdSpike.isTestMode) return;

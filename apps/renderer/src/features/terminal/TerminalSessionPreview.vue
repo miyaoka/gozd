@@ -288,9 +288,7 @@ const { pin: pinLog } = usePinnedLog();
 
 // pin 時の実測対象。位置は popover の中間 box の rect、サイズは本文 (スクロール面) の
 // rect を固定ウィンドウへ引き継ぎ、popover がその場でフローティング化したような視覚的
-// 連続性を出す。サイズを box の総高さでなく本文で渡すのは、ウィンドウ側のヘッダ
-// (repo + タイトル 2 段) が popover のヘッダ (pin ボタン 1 行) より高く、総高さを
-// 引き継ぐと増えたヘッダ分だけ本文が食われて切れるため (usePinnedLog の doc 参照)。
+// 連続性を出す (総高さでなく本文サイズを渡す理由は usePinnedLog の doc 参照)。
 const previewBoxRef = useTemplateRef<HTMLElement>("previewBox");
 const previewBodyRef = useTemplateRef<HTMLElement>("previewBody");
 

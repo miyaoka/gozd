@@ -30,9 +30,8 @@ export interface PinnedLog {
   x: number;
   y: number;
   /**
-   * 初期の本文 (スクロール面) サイズ (pin 元 popover の本文実測)。ウィンドウは mount 時に
-   * 自ヘッダ高 + border を足して総サイズへ換算する。mount 後は native resize が inline
-   * style を上書きする。
+   * 初期の本文 (スクロール面) サイズ (pin 元 popover の本文実測。総サイズでない理由は
+   * モジュール docstring 参照)。mount 後は native resize が inline style を上書きする。
    */
   bodyWidth: number;
   bodyHeight: number;

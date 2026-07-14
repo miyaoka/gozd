@@ -15,6 +15,7 @@ import {
   useNotifySubscription,
   useTitleContextSync,
 } from "./features/layout";
+import { PinnedPreviewLayer } from "./features/preview";
 import { ServerListPanel } from "./features/server";
 import { PinnedLogLayer } from "./features/session-log";
 import { useGozdOpenHandler, useRepoContextKey } from "./features/sidebar";
@@ -38,5 +39,6 @@ useTitleContextSync();
   <ServerListPanel />
   <EventLogPanel />
   <PinnedLogLayer />
+  <PinnedPreviewLayer />
   <ArcadeLayer />
 </template>

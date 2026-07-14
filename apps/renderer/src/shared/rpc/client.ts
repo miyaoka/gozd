@@ -3,12 +3,17 @@
 //
 // 設計判断:
 //
-// 1. **型付き JSON ワイヤ**。`@gozd/rpc` の型を JSON.stringify / JSON.parse でそのまま運ぶ。
-//    codec は持たない。response 型は feature の rpc wrapper が generic で当てる
-//    （main 側 routes.ts が同じ型を `satisfies` でチェックして返す契約なので、
-//    ワイヤ両端の型は単一定義を共有する）
+// 1. **型付き structured clone ワイヤ**。`@gozd/rpc` の型の plain data を Electron IPC の
+//    structured clone でそのまま運ぶ。codec は持たない。response 型は feature の rpc wrapper が
+//    generic で当てる（main 側 routes.ts が同じ型を `satisfies` でチェックして返す契約なので、
+//    ワイヤ両端の型は単一定義を共有する）。バイナリは `Uint8Array` を第一級で運ぶ
+//    （main の `Buffer` は renderer には `Uint8Array` として届く）
 //
-// 2. **エラーは throw**。ハンドラ未実装・処理失敗は bridge の reject として届くため、
+// 2. **body は plain data 限定**。Vue の reactive proxy 等は structured clone できず
+//    `An object could not be cloned` で reject する。ここで laundering せず、呼び出し側が
+//    plain data を渡す（不変条件の SSOT は `@gozd/shared` の `ElectronRpcBridge` docstring）
+//
+// 3. **エラーは throw**。ハンドラ未実装・処理失敗は bridge の reject として届くため、
 //    tryCatch で受けて Error に包み直す
 
 import { tryCatch, type ElectronRpcBridge } from "@gozd/shared";
@@ -26,9 +31,9 @@ export async function rpc<Resp>(path: string, req: unknown): Promise<Resp> {
     // 破綻なので fallback せずエラーにする
     throw new Error(`RPC ${path} failed: electron bridge not available`);
   }
-  const result = await tryCatch(bridge.request(path, JSON.stringify(req)));
+  const result = await tryCatch(bridge.request(path, req));
   if (!result.ok) {
     throw new Error(`RPC ${path} failed: ${String(result.error)}`);
   }
-  return JSON.parse(result.value) as Resp;
+  return result.value as Resp;
 }

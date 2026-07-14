@@ -3,7 +3,6 @@ import { TITLEBAR_HEIGHT, tryCatch } from "@gozd/shared";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeClaudeHooksSettings } from "./claudeHooksSettings";
-import { registerFileServerProtocol } from "./fileServer";
 import { bundledRendererIndex, channel, claudeSettingsPath, isPackaged, launchRequestDir, socketPath } from "./gozdEnv";
 import { GOZD_CHANNEL_ARG_PREFIX, SPIKE_TEST_ARG } from "./ipc";
 import { consumeLaunchRequest } from "./launchRequest";
@@ -150,13 +149,13 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
-ipcMain.handle("rpc:request", (event, path: string, bodyJson: string) => {
+ipcMain.handle("rpc:request", (event, path: string, body: unknown) => {
   const sender = event.sender;
   const push: PushFn = (type, payload) => {
     if (sender.isDestroyed()) return;
     sender.send("rpc:push", type, payload);
   };
-  return dispatch(path, bodyJson, { push });
+  return dispatch(path, body, { push });
 });
 
 /** スクリーンショットを保存して app を終了する（検証経路の共通処理） */
@@ -220,10 +219,6 @@ app.whenReady().then(() => {
       console.error(`[main] failed to set dev dock icon: ${devIconResult.error}`);
     }
   }
-
-  // protocol 登録は window の loadURL より先に行う（先に読み込まれた <img> が
-  // 未登録 scheme として即 error になるのを避ける）
-  registerFileServerProtocol();
 
   const window = createWindow();
 

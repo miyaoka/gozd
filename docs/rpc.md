@@ -1,18 +1,26 @@
 # RPC
 
 renderer（Vue）と main（Electron）間の通信。型は共有 TS 型パッケージ `@gozd/rpc` を SSOT
-に置き、ワイヤは素の JSON で運ぶ（codec レス。旧 `.proto` SSOT + ts-proto 生成は廃止済み）。
+に置き、ワイヤは Electron IPC の structured clone で plain data をそのまま運ぶ
+（codec レス。旧 `.proto` SSOT + ts-proto 生成、および JSON 文字列ワイヤは廃止済み）。
 
 ## SSOT は `@gozd/rpc`
 
 `packages/rpc` が全 message 型（request / response / 永続化 schema / socket の
 ClientMessage）を手書き TS interface / 文字列リテラル union として持つ。renderer /
-electron の両方が同じ型定義を import するため、ワイヤ変換は `JSON.stringify` /
-`JSON.parse` だけで成立する。
+electron の両方が同じ型定義を import するため、ワイヤ変換は存在しない（オブジェクトを
+そのまま渡す）。
 
-- フィールド名がそのまま JSON キー（旧 proto3 JSON mapping の lowerCamelCase を踏襲）
-- `?` フィールドは「JSON キー不在」で未設定を表現する（`JSON.stringify` が undefined を
-  落とす性質と対応）
+- 型は plain data（JSON 形のオブジェクト / 配列 / プリミティブ + `WireBytes`）に限る。
+  Vue の reactive proxy 等の exotic object は structured clone できず reject するため、
+  呼び出し側が plain data を渡す（不変条件の SSOT は `@gozd/shared` の
+  `ElectronRpcBridge` docstring）
+- バイナリは `WireBytes`（専有 ArrayBuffer 背景の `Uint8Array`）を第一級で運ぶ。main の
+  Buffer は送出前に exact-size コピー（`toWireBytes`）へ変換する（共有プール view を
+  そのまま送ると backing buffer ごと複製され、無関係なデータが漏出するため）。socket の
+  NDJSON を通る型（ClientMessage）にはバイナリを載せない
+- フィールド名は旧 proto3 JSON mapping の lowerCamelCase を踏襲（永続化 JSON のキーと一致）
+- `?` フィールドは undefined で未設定を表現する（永続化 JSON ではキー不在）
 - 旧 enum は文字列リテラル union（`SortMode = "topo" | "date"` 等）。main 内部表現と
   同じ文字列にしてあり、境界での変換層は存在しない
 - 例外は `GhRefKind`（`"GH_REF_KIND_PR"` / `"GH_REF_KIND_ISSUE"`）。tasks.json に
@@ -60,17 +68,17 @@ flowchart LR
 ### renderer → main（request / response）
 
 `apps/renderer/src/shared/rpc/client.ts` の `rpc()` ヘルパーが preload の
-`window.__gozdElectronRpc.request(path, bodyJson)` を呼ぶ（実体は
-`ipcRenderer.invoke("rpc:request")`）。body / response は `@gozd/rpc` の型を
-JSON 文字列化したもの。
+`window.__gozdElectronRpc.request(path, body)` を呼ぶ（実体は
+`ipcRenderer.invoke("rpc:request")`）。body / response は `@gozd/rpc` の型の plain data
+そのもので、push 方向（`webContents.send`）と同じ structured clone 意味論に揃っている。
 
 main 側は `ipcMain.handle("rpc:request")` が受け、`rpcDispatcher.ts` のルート表から
 `routes.ts` の handler に配送する。
 
 > [!NOTE]
-> binary encoding ではなく JSON を使っている。ブラウザ側で `Uint8Array` / base64 を
-> 扱うのが煩雑になるため、性能ボトルネックが顕在化するまで JSON を採用する。
-> バイナリが必要な唯一の経路（preview の `<img>`）は `gozd-file://` protocol に分離済み。
+> ファイル内容などのバイナリも本経路で `WireBytes` として運ぶ（VS Code が Electron IPC に
+> `VSBuffer` の生 bytes を直接乗せるのと同じ構造）。バイナリ専用の別 scheme
+> （旧 `gozd-file://` protocol）は廃止済み。
 
 ### main → renderer（push）
 

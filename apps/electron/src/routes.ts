@@ -1,8 +1,9 @@
 // RPC ルート実装。
 //
-// ワイヤは `@gozd/rpc` の型を素の JSON で運ぶ。request は dispatcher が JSON.parse 済みの
-// body を型 cast で受け（送り手は同型を参照する renderer なので構造は一致する契約）、
+// ワイヤは `@gozd/rpc` の型の plain data を structured clone で運ぶ。request の body を
+// 型 cast で受け（送り手は同型を参照する renderer なので構造は一致する契約）、
 // response は `satisfies` でワイヤ契約の型チェックだけ通して素の object を返す。
+// バイナリは `WireBytes`（送出前に `toWireBytes` で専有 buffer 化）で返す。
 
 import type {
   ClaudeSessionLogRequest,
@@ -522,13 +523,7 @@ export function unwatchAllFsWatches(): void {
 
 function handleFsReadFile(body: unknown): unknown {
   const req = body as FsReadFileRequest;
-  const info = readFile(req.dir, req.path);
-  return ({
-    content: info.content,
-    isBinary: info.isBinary,
-    isDirectory: info.isDirectory,
-    notFound: info.notFound,
-  }) satisfies FsReadFileResponse;
+  return readFile(req.dir, req.path) satisfies FsReadFileResponse;
 }
 
 async function handleFsReadDir(body: unknown): Promise<unknown> {

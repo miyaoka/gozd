@@ -5,9 +5,9 @@ import type { PathTarget } from "../../../worktree";
  * Markdown プレビュー内 `<a>` の href を解決し、内部遷移 / 素通し / 無効のいずれかを返す。
  *
  * scheme 判定は信頼境界として allowlist 方式を採る。Markdown プレビューは
- * リポジトリ内ファイル由来のテキストを描画するため、`gozd-file://` / 旧内部 scheme
- * (`gozd-rpc://` / `gozd-app://`) / `file:` / `data:` / `javascript:` 等の内部 or
- * 危険 scheme は明示的に invalid に倒す。
+ * リポジトリ内ファイル由来のテキストを描画するため、旧内部 scheme
+ * (`gozd-file://` / `gozd-rpc://` / `gozd-app://`) / `file:` / `data:` / `javascript:` 等の
+ * 内部 or 危険 scheme は明示的に invalid に倒す (廃止済み scheme も defense in depth で残す)。
  * passthrough は http(s) / mailto: のみ (外部ブラウザに渡す scheme)。
  *
  * 行番号フラグメント (`#L42`, `#L42,5`, `#42`) は VS Code の `getLocationFragmentFromLinkText`

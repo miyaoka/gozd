@@ -32,16 +32,16 @@ describe("FSOps", () => {
     writeFileSync(join(dir, "hello.txt"), "hello gozd\n");
     const info = readFile(dir, "hello.txt");
     expect(info.content).toBe("hello gozd\n");
-    expect(info.isBinary).toBe(false);
     expect(info.notFound).toBe(false);
   });
 
-  test("バイナリファイルは isBinary=true で返される", () => {
+  test("バイナリファイルは生 bytes がそのまま返される", () => {
     const dir = makeTempDir();
-    writeFileSync(join(dir, "bin.dat"), Buffer.from([0x00, 0x01, 0xff, 0xfe]));
+    const bytes = Buffer.from([0x00, 0x01, 0xff, 0xfe]);
+    writeFileSync(join(dir, "bin.dat"), bytes);
     const info = readFile(dir, "bin.dat");
-    expect(info.isBinary).toBe(true);
-    expect(info.content).toBe("");
+    expect(info.content).toBeInstanceOf(Uint8Array);
+    expect(Buffer.from(info.content as Uint8Array).equals(bytes)).toBe(true);
   });
 
   test("dir 範囲外への path traversal は outsideDir で拒否される", () => {

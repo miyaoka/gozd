@@ -4,7 +4,7 @@ import { GOZD_CHANNEL_ARG_PREFIX, SPIKE_TEST_ARG, type SpikeApi } from "./ipc";
 
 // RPC 本経路。renderer の shared/rpc がこの有無でシェル（Electron / Swift）を判定する
 const rpcBridge: ElectronRpcBridge = {
-  request: (path, bodyJson) => ipcRenderer.invoke("rpc:request", path, bodyJson),
+  request: (path, body) => ipcRenderer.invoke("rpc:request", path, body),
   onPush: (cb) => {
     ipcRenderer.on("rpc:push", (_event, type: string, payload: unknown) => cb(type, payload));
   },

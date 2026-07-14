@@ -24,13 +24,14 @@ export function usePreviewEdit(content: PreviewContent) {
   const {
     activeMode,
     isContentUnavailable,
-    imageUrl,
+    imageSource,
     displayIsBinary,
     displayContent,
     fileType,
     previewEnabled,
     currentContent,
-    originalContent,
+    currentText,
+    originalText,
     isCommitMode,
   } = content;
 
@@ -44,20 +45,21 @@ export function usePreviewEdit(content: PreviewContent) {
     // "diff" だけでなく "original" (履歴表示) も除外する。ホワイトリストにすることで、
     // 将来 PreviewMode が増えても「編集可能なのは current だけ」の意図を構造的に保つ。
     if (activeMode.value !== "current") return false;
-    if (imageUrl.value !== undefined) return false;
+    if (imageSource.value !== undefined) return false;
     if (displayIsBinary.value) return false;
     if (fileType.value === "markdown" && previewEnabled.value) return false;
     if (fileType.value === "html" && previewEnabled.value) return false;
     return displayContent.value !== undefined;
   });
 
-  /** template の DiffPreview 描画条件をミラーした判定。isEditable の Diff タブ許可に使う。 */
+  /** template の DiffPreview 描画条件をミラーした判定。isEditable の Diff タブ許可に使う。
+   * diff はテキスト面 (currentText / originalText) でしか成立しない (バイナリは undefined)。 */
   const isDiffPreviewActive = computed(() => {
     if (isContentUnavailable.value) return false;
     return (
       activeMode.value === "diff" &&
-      originalContent.value !== undefined &&
-      currentContent.value !== undefined
+      originalText.value !== undefined &&
+      currentText.value !== undefined
     );
   });
 
@@ -86,7 +88,7 @@ export function usePreviewEdit(content: PreviewContent) {
    * 先に畳む。
    */
   watch(
-    [isEditable, currentContent] as const,
+    [isEditable, currentText] as const,
     ([editable, text]) => {
       if (!editable || text === undefined) return;
       const dir = worktreeStore.dir;

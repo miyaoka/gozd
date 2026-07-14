@@ -79,10 +79,21 @@ export interface GhRef {
  * kind の組み立ては helpers.ts の ghRefForPr / ghRefForIssue 経由に限定する。 */
 export type GhRefKind = "GH_REF_KIND_PR" | "GH_REF_KIND_ISSUE";
 
+/**
+ * ワイヤ（structured clone）で運ぶバイト列。専有 ArrayBuffer 背景の Uint8Array に限定する。
+ * Node の Buffer は小サイズだと共有プールの view のため、そのまま送ると structured clone が
+ * backing ArrayBuffer（プール全体 = 無関係なデータを含む）ごと複製する。main 側は送出前に
+ * exact-size コピー（`toWireBytes`）へ変換して、漏出と過剰転送を構造的に防ぐ。
+ */
+export type WireBytes = Uint8Array<ArrayBuffer>;
+
 export interface FileReadResult {
-  /** UTF-8 として decode できなかった場合は空 + isBinary=true */
-  content: string;
-  isBinary: boolean;
+  /**
+   * UTF-8 として decode できたらテキスト（string）、できなかったバイナリは生 bytes。
+   * バイナリ判定はこの union の型自体が SSOT で、フラグは持たない。
+   * isDirectory / notFound のときは空文字。
+   */
+  content: string | WireBytes;
   isDirectory: boolean;
   notFound: boolean;
 }

@@ -73,8 +73,8 @@ export type TaskRemoveResponse = EmptyMessage;
 
 /** ⋮ メニューからの worktree 単位の一括削除。worktree 削除 cascade と同じ掃除
  * （removeByWorktree）を worktree を残したまま単独発火する経路。
- * `git worktree remove` できない main worktree に滞留した task/session を
- * 一掃するためのユーザー操作。 */
+ * `git worktree remove` できない main worktree に滞留した task（= サイドバーの
+ * session 行）を一掃するためのユーザー操作。Claude セッションの JSONL は消さない。 */
 export interface TaskRemoveByWorktreeRequest {
   dir: string;
   worktreeDir: string;

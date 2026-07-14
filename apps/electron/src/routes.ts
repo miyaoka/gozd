@@ -417,7 +417,7 @@ async function handleTaskRemoveByWorktree(body: unknown): Promise<unknown> {
   const req = body as TaskRemoveByWorktreeRequest;
   // worktree 削除 cascade（handleWorktreeRemove）と同じ removeByWorktree を、worktree を
   // 残したまま単独発火する経路。main worktree は git worktree remove 不可のため、
-  // 滞留 task/session の一掃にはこの経路が唯一の手段になる
+  // 滞留 task の一掃にはこの経路が唯一の手段になる（Claude セッションの JSONL は消さない）
   await taskStore.removeByWorktree(req.dir, req.worktreeDir);
   return ({}) satisfies TaskRemoveByWorktreeResponse;
 }

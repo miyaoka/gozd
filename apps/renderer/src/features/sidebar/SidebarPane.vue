@@ -165,7 +165,7 @@ async function handleTaskRemove(rootDir: string, task: Task) {
 
 function handleWorktreeTasksRemove(rootDir: string, wt: WorktreeEntry) {
   // worktree ⋮ メニューからの一括削除。worktree 削除と違い wt 自体は残る（remove 不可の
-  // main worktree で滞留 session を一掃する主用途）。複数 task を不可逆に消すため確認を挟む。
+  // main worktree で滞留 task 行を一掃する主用途）。複数 task を不可逆に消すため確認を挟む。
   // 削除後は handleTaskRemove と同じく requestRefresh で server の真値を取り直す
   showConfirm(
     `Remove all tasks (${wt.tasks.length}) in "${worktreeDisplayName(wt)}"?`,

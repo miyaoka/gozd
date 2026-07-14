@@ -100,7 +100,7 @@ resume 失敗検出経路 (`claude --resume <sid>` が transcript 不在等で e
 
 ### removeByWorktree の単独発火 (worktree 行 ⋮ の "Remove all tasks")
 
-worktree 削除 cascade の task 掃除 (`removeByWorktree`) を、worktree を残したまま単独発火するユーザー操作。`git worktree remove` できない main worktree では worktree 削除経由の一括掃除が使えないため、滞留した task/session を一掃する唯一の手段になる。task が 1 件以上ある worktree でのみメニューに表示する。
+worktree 削除 cascade の task 掃除 (`removeByWorktree`) を、worktree を残したまま単独発火するユーザー操作。`git worktree remove` できない main worktree では worktree 削除経由の一括掃除が使えないため、滞留した task (= サイドバーの session 行) を一掃する唯一の手段になる。消えるのは tasks.json の Task レコードだけで、Claude セッションの JSONL と live terminal は削除しない。task が 1 件以上ある worktree でのみメニューに表示する。
 
 ### ライフサイクル遷移 (SSOT)
 

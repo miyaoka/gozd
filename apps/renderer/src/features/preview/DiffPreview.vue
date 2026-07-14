@@ -979,9 +979,11 @@ async function mountMonacoDiffEditor() {
 function unmountMonacoDiffEditor() {
   mountGeneration++; // in-flight な mountMonacoDiffEditor (dynamic import 待ち) を無効化する
   const model = monacoDiffEditor?.getModel();
+  // editor → model の順で破棄する。アタッチ中の model を先に dispose すると Monaco が
+  // "TextModel got disposed before DiffEditorWidget model got reset" を throw する (issue #970)
+  monacoDiffEditor?.dispose();
   model?.original.dispose();
   model?.modified.dispose();
-  monacoDiffEditor?.dispose();
   monacoDiffEditor = undefined;
   blameHandles = []; // トリガー本体は editor.dispose() で解放される (wireGutterBlame の契約)
 }

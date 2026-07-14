@@ -15,6 +15,9 @@ Issue selection dialog. Displays open issues in a table layout with fuzzy filter
 - Filters issues by fuzzy match on number, title, and author
 - Arrow keys navigate rows, Enter accepts, Escape closes
 - Color scheme follows `gh issue list` (green #number, gray author/date)
+- Rows whose issue already has a task in this repo are tinted (bg-primary-subtle) and
+  marked with a check icon; accepting them switches to the existing task's worktree
+  instead of creating a new one (the branch decision lives in registerIssueCommand)
 
 ## Concurrency
 
@@ -34,6 +37,7 @@ import { fuzzyMatch } from "../../fuzzyMatch";
 import { useListNavigation } from "../../useListNavigation";
 import IssuePickerRow from "./IssuePickerRow.vue";
 import { useIssuePicker } from "./useIssuePicker";
+import type { IssuePickerItem } from "./useIssuePicker";
 import IconLucideLoaderCircle from "~icons/lucide/loader-circle";
 
 const contextKeys = useContextKeys();
@@ -51,27 +55,27 @@ function searchText(issue: GitIssue): string {
   return `#${issue.number} ${issue.title} ${issue.author}`;
 }
 
-const filteredIssues = computed((): GitIssue[] => {
+const filteredIssues = computed((): IssuePickerItem[] => {
   const v = viewer.value;
   let items = issueItems.value;
 
   // assignee:me フィルタ
   if (filterAssignee.value && v !== "") {
-    items = items.filter((issue) => issue.assignees.includes(v));
+    items = items.filter((item) => item.issue.assignees.includes(v));
   }
 
   const q = query.value;
   if (q === "") return items;
 
-  const scored: Array<{ issue: GitIssue; score: number }> = [];
-  for (const issue of items) {
-    const result = fuzzyMatch(searchText(issue), q);
+  const scored: Array<{ item: IssuePickerItem; score: number }> = [];
+  for (const item of items) {
+    const result = fuzzyMatch(searchText(item.issue), q);
     if (result) {
-      scored.push({ issue, score: result.score });
+      scored.push({ item, score: result.score });
     }
   }
   scored.sort((a, b) => b.score - a.score);
-  return scored.map((s) => s.issue);
+  return scored.map((s) => s.item);
 });
 
 const itemCount = computed(() => filteredIssues.value.length);
@@ -126,10 +130,10 @@ function close() {
 }
 
 function acceptSelected() {
-  const issue = filteredIssues.value[selectedIndex.value];
-  if (!issue) return;
+  const item = filteredIssues.value[selectedIndex.value];
+  if (!item) return;
   close();
-  accept(issue);
+  accept(item);
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -226,14 +230,16 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
         class="max-h-[400px] overflow-y-auto py-1"
       >
         <div
-          v-for="(issue, i) in filteredIssues"
-          :key="issue.number"
+          v-for="(item, i) in filteredIssues"
+          :key="item.issue.number"
           class="grid cursor-pointer gap-x-2 px-3 py-1.5 text-sm"
           style="grid-template-columns: 70px 1fr 120px 90px"
           :class="[
             i === selectedIndex
               ? 'bg-element text-foreground'
-              : 'text-foreground hover:bg-element-hover',
+              : item.existingTask !== undefined
+                ? 'bg-primary-subtle text-foreground hover:bg-primary-subtle-hover'
+                : 'text-foreground hover:bg-element-hover',
           ]"
           @click="
             () => {
@@ -242,7 +248,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
             }
           "
         >
-          <IssuePickerRow :issue="issue" />
+          <IssuePickerRow :issue="item.issue" :has-task="item.existingTask !== undefined" />
         </div>
       </div>
     </div>

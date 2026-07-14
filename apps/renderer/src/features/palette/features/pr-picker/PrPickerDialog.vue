@@ -16,6 +16,9 @@ PR selection dialog. Displays open pull requests in a table layout with fuzzy fi
 - Arrow keys navigate rows, Enter accepts, Escape closes
 - Draft PRs are dimmed (opacity-50)
 - Color scheme follows `gh pr list` (green #number, cyan branch, gray author/date)
+- Rows whose PR already has a task in this repo are tinted (bg-primary-subtle) and
+  marked with a check icon; accepting them switches to the existing task's worktree
+  instead of creating a new one (the branch decision lives in registerPrCommand)
 
 ## Concurrency
 
@@ -36,6 +39,7 @@ import { fuzzyMatch } from "../../fuzzyMatch";
 import { useListNavigation } from "../../useListNavigation";
 import PrPickerRow from "./PrPickerRow.vue";
 import { usePrPicker } from "./usePrPicker";
+import type { PrPickerItem } from "./usePrPicker";
 import IconLucideLoaderCircle from "~icons/lucide/loader-circle";
 
 const contextKeys = useContextKeys();
@@ -54,30 +58,30 @@ function searchText(pr: GitPullRequest): string {
   return `#${pr.number} ${pr.title} ${pr.headRef} ${pr.author}`;
 }
 
-const filteredPrs = computed((): GitPullRequest[] => {
+const filteredPrs = computed((): PrPickerItem[] => {
   const v = viewer.value;
   let items = prItems.value;
 
   // assignee:me / reviewer:me フィルタ
   if (filterAssignee.value && v !== "") {
-    items = items.filter((pr) => pr.assignees.includes(v));
+    items = items.filter((item) => item.pr.assignees.includes(v));
   }
   if (filterReviewer.value && v !== "") {
-    items = items.filter((pr) => pr.reviewers.includes(v));
+    items = items.filter((item) => item.pr.reviewers.includes(v));
   }
 
   const q = query.value;
   if (q === "") return items;
 
-  const scored: Array<{ pr: GitPullRequest; score: number }> = [];
-  for (const pr of items) {
-    const result = fuzzyMatch(searchText(pr), q);
+  const scored: Array<{ item: PrPickerItem; score: number }> = [];
+  for (const item of items) {
+    const result = fuzzyMatch(searchText(item.pr), q);
     if (result) {
-      scored.push({ pr, score: result.score });
+      scored.push({ item, score: result.score });
     }
   }
   scored.sort((a, b) => b.score - a.score);
-  return scored.map((s) => s.pr);
+  return scored.map((s) => s.item);
 });
 
 const itemCount = computed(() => filteredPrs.value.length);
@@ -133,10 +137,10 @@ function close() {
 }
 
 function acceptSelected() {
-  const pr = filteredPrs.value[selectedIndex.value];
-  if (!pr) return;
+  const item = filteredPrs.value[selectedIndex.value];
+  if (!item) return;
   close();
-  accept(pr);
+  accept(item);
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -245,15 +249,17 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
         class="max-h-[400px] overflow-y-auto py-1"
       >
         <div
-          v-for="(pr, i) in filteredPrs"
-          :key="pr.number"
+          v-for="(item, i) in filteredPrs"
+          :key="item.pr.number"
           class="grid cursor-pointer gap-x-2 px-3 py-1.5 text-sm"
           style="grid-template-columns: 70px 1fr 220px 120px 90px"
           :class="[
             i === selectedIndex
               ? 'bg-element text-foreground'
-              : 'text-foreground hover:bg-element-hover',
-            pr.isDraft && 'opacity-50',
+              : item.existingTask !== undefined
+                ? 'bg-primary-subtle text-foreground hover:bg-primary-subtle-hover'
+                : 'text-foreground hover:bg-element-hover',
+            item.pr.isDraft && 'opacity-50',
           ]"
           @click="
             () => {
@@ -262,7 +268,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
             }
           "
         >
-          <PrPickerRow :pr="pr" />
+          <PrPickerRow :pr="item.pr" :has-task="item.existingTask !== undefined" />
         </div>
       </div>
     </div>

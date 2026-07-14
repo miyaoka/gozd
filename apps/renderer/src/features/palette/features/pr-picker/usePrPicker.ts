@@ -5,10 +5,17 @@
  * 状態機械の実体は createListPicker（Issue picker と共通）。
  */
 
-import type { GitPullRequest } from "@gozd/rpc";
+import type { GitPullRequest, Task } from "@gozd/rpc";
 import { createListPicker } from "../../createListPicker";
 
-const picker = createListPicker<GitPullRequest>();
+/** picker 行 1 件分。fetch 時に repo 内の既存 task を ghRef で JOIN 済みの形で持つ。
+ * existingTask を持つ PR は選択時に worktree を作成せず、その task の worktree を表示する。 */
+export interface PrPickerItem {
+  pr: GitPullRequest;
+  existingTask?: Task;
+}
+
+const picker = createListPicker<PrPickerItem>();
 
 export function usePrPicker() {
   return picker;

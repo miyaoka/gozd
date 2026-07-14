@@ -17,9 +17,11 @@ import {
 } from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
+import { buildTaskIndexByGhRef, ghRefKey } from "../../taskIndexByGhRef";
 import { ghErrorMessage } from "./ghError";
 import { rpcGitPrList } from "./rpc";
 import { usePrPicker } from "./usePrPicker";
+import type { PrPickerItem } from "./usePrPicker";
 import { fetchViewer } from "./useViewer";
 
 export function registerPrCommand(): () => void {
@@ -64,13 +66,26 @@ export function registerPrCommand(): () => void {
           worktreesRes.worktrees.filter((wt) => wt.branch !== "").map((wt) => [wt.branch, wt.path]),
         );
 
+        // repo 内の既存 task を ghRef で JOIN する。dialog は existingTask の有無で行の
+        // 色を変え、選択時は新規作成ではなく既存 task の worktree 表示に倒す。
+        const taskByGhRef = buildTaskIndexByGhRef(repoStore.findRepoOwning(dir)?.worktrees ?? []);
+        const items = prsRes.prs.map(
+          (pr): PrPickerItem => ({
+            pr,
+            existingTask: taskByGhRef.get(ghRefKey(ghRefForPr(pr.number))),
+          }),
+        );
+
         // この callback は PrPickerDialog 側で close() 後に呼ばれるため、
         // 連打による再エントリは dialog の DOM 除去で塞がれている。`isCreating` 相当のガードは不要。
         // viewer 取得失敗時は undefined。空文字に倒して picker dialog の "@me" filter UI
         // を degraded mode (filter 非表示) にする。表示ロジックは PrPickerDialog 側の
         // `viewer !== ""` 判定で完結する。
-        setResult(gen, prsRes.prs, viewerLogin ?? "", (pr) => {
-          const existingDir = wtByBranch.get(pr.headRef);
+        setResult(gen, items, viewerLogin ?? "", ({ pr, existingTask }) => {
+          // 既存 task の worktree を最優先で採用する（task が指す worktree が sidebar で
+          // ユーザーが見ている実体）。task 不在で branch の worktree だけ残っている場合は
+          // 従来の branch hit として同じ切り替え + upsert 蘇生ルートに乗せる。
+          const existingDir = existingTask?.worktreeDir ?? wtByBranch.get(pr.headRef);
           if (existingDir !== undefined) {
             // 既存 worktree に切り替え（ステートレス化により switchDir RPC は廃止）。
             // 直前に terminal close で closed_by_user 化されている可能性があるため、

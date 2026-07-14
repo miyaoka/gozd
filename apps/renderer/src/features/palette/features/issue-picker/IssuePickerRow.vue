@@ -1,22 +1,34 @@
 <doc lang="md">
 Issue picker の1行分。Issue 番号・タイトル・author・更新日時を色分け表示する。
+`hasTask` (repo 内に同 issue の task が既に存在する) の行は番号横にチェックアイコンを出し、
+選択が新規作成ではなく既存 task への切り替えになることを示す。
 </doc>
 
 <script setup lang="ts">
 import type { GitIssue } from "@gozd/rpc";
 import { computed } from "vue";
 import { formatRelativeDate } from "../../formatRelativeDate";
+import IconLucideCheck from "~icons/lucide/check";
 import IconLucideUser from "~icons/lucide/user";
 
 const props = defineProps<{
   issue: GitIssue;
+  hasTask: boolean;
 }>();
 
 const dateDisplay = computed(() => formatRelativeDate(props.issue.updatedAt));
 </script>
 
 <template>
-  <span class="truncate text-success-text">#{{ issue.number }}</span>
+  <span class="flex items-center gap-1 text-success-text">
+    <span class="truncate">#{{ issue.number }}</span>
+    <IconLucideCheck
+      v-if="hasTask"
+      aria-hidden="true"
+      class="size-3.5 shrink-0 text-primary-text"
+    />
+    <span v-if="hasTask" class="sr-only">task exists</span>
+  </span>
   <span class="truncate">{{ issue.title }}</span>
   <span class="flex items-center gap-1 truncate text-foreground-low">
     <img

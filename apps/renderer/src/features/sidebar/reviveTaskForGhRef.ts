@@ -5,18 +5,18 @@ import { useRepoStore } from "../../shared/repo";
 import { rpcTaskAdd } from "./rpc";
 
 /**
- * PR picker の `pr.headRef` hit ルート専用ヘルパー。
+ * PR / issue picker の「既存に切り替える」ルート用ヘルパー。
  *
- * 同じ PR を再選択した時に、terminal close で `closed_by_user=true` 化された既存 task を
- * server 側 `TaskStore.add` の upsert (同 worktreeDir + 同 ghRef キー) で蘇生する。
- * `gh_title` を最新の PR タイトルで上書きし、`closed_by_user=false` に倒す。ユーザーが
- * dialog で編集した `user_title` は触らない (3 レイヤ分離契約)。
+ * 既に worktree / task がある PR・issue を再選択した時に、terminal close で
+ * `closed_by_user=true` 化された既存 task を server 側 `TaskStore.add` の upsert
+ * (同 worktreeDir + 同 ghRef キー) で蘇生する。
+ * `gh_title` を最新の PR / issue タイトルで上書きし、`closed_by_user=false` に倒す。
+ * ユーザーが dialog で編集した `user_title` は触らない (3 レイヤ分離契約)。
  * 成功後は `repoStore.requestRefresh(rootDir)` で SSOT 取り直しを `useSidebarData` に
  * 依頼する (楽観更新で `repos[...]` を直書きしない)。
  *
- * issue picker は branch を timestamp ベースにしており既存 worktree hit ルートを持たない
- * (同 issue から複数 worktree が独立して生える設計) ため、本ヘルパーは PR picker からのみ
- * 呼ばれる。
+ * 呼び出し元は両 picker の既存 task hit ルートと、PR picker の branch hit ルート
+ * (task は消えたが同 branch の worktree が残っている場合)。
  */
 export async function reviveTaskForGhRef(params: {
   existingDir: string;

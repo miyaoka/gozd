@@ -1,7 +1,7 @@
 /**
  * Issue 選択コマンド。
  * コマンドパレットから "Workspace: New Worktree from Issue" を実行すると issue picker が開き、
- * issue を選択して worktree を作成する。
+ * issue を選択して worktree を作成する。既に task がある issue はそちらの worktree に切り替える。
  */
 
 import { ghRefForIssue } from "@gozd/rpc";
@@ -9,12 +9,19 @@ import { tryCatch } from "@gozd/shared";
 import { useCommandRegistry } from "../../../../shared/command";
 import { useNotificationStore } from "../../../../shared/notification";
 import { useRepoStore } from "../../../../shared/repo";
-import { rpcCreateWorktree, rpcGitDefaultBranch, rpcTaskAdd } from "../../../sidebar";
+import {
+  reviveTaskForGhRef,
+  rpcCreateWorktree,
+  rpcGitDefaultBranch,
+  rpcTaskAdd,
+} from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
+import { buildTaskIndexByGhRef, ghRefKey } from "../../taskIndexByGhRef";
 import { fetchViewer, ghErrorMessage } from "../pr-picker";
 import { rpcGitIssueList } from "./rpc";
 import { useIssuePicker } from "./useIssuePicker";
+import type { IssuePickerItem } from "./useIssuePicker";
 
 export function registerIssueCommand(): () => void {
   const registry = useCommandRegistry();
@@ -54,11 +61,38 @@ export function registerIssueCommand(): () => void {
           return;
         }
 
+        // repo 内の既存 task を ghRef で JOIN する。dialog は existingTask の有無で行の
+        // 色を変え、選択時は新規作成ではなく既存 task の worktree 表示に倒す。
+        const taskByGhRef = buildTaskIndexByGhRef(repoStore.findRepoOwning(dir)?.worktrees ?? []);
+        const items = issuesRes.issues.map(
+          (issue): IssuePickerItem => ({
+            issue,
+            existingTask: taskByGhRef.get(ghRefKey(ghRefForIssue(issue.number))),
+          }),
+        );
+
         // この callback は IssuePickerDialog 側で close() 後に呼ばれるため、
         // 連打による再エントリは dialog の DOM 除去で塞がれている。`isCreating` 相当のガードは不要。
         // viewer 取得失敗時は undefined。空文字に倒して picker dialog の "@me" filter UI
         // を degraded mode (filter 非表示) にする。
-        setResult(gen, issuesRes.issues, viewerLogin ?? "", (issue) => {
+        setResult(gen, items, viewerLogin ?? "", ({ issue, existingTask }) => {
+          // 既存 task がある issue は新規 worktree を作らず、その task の worktree に
+          // 切り替える。terminal close で closed_by_user 化されている可能性があるため
+          // 同 ghRef の upsert (reviveTaskForGhRef) で蘇生する (PR picker の既存
+          // worktree hit ルートと同じ挙動)。
+          if (existingTask !== undefined) {
+            void (async () => {
+              await reviveTaskForGhRef({
+                existingDir: existingTask.worktreeDir,
+                ghTitle: issue.title,
+                ghRef: ghRefForIssue(issue.number),
+                errorLabel: "Failed to revive task for issue",
+              });
+              terminalStore.viewMode = "wt";
+              worktreeStore.setOpen(existingTask.worktreeDir);
+            })();
+            return;
+          }
           void (async () => {
             // 新規 worktree は default branch を起点に作る。main 側で `origin/HEAD` を
             // 優先し、未設定（remote 無し / push 前 repo）の場合は main repo root 自身の
@@ -77,7 +111,8 @@ export function registerIssueCommand(): () => void {
               return;
             }
             // 通常の新規 worktree と同じ timestamp ベースで命名する。issue 番号を branch 名に
-            // 埋め込まないため、同じ issue から複数の worktree を独立して作れる。
+            // 埋め込まないため、task を削除した後に同じ issue から作り直しても branch 名が
+            // 衝突しない。
             const timestamp = generateTimestamp();
             const result = await tryCatch(
               rpcCreateWorktree({

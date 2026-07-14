@@ -197,6 +197,7 @@ function handleRectStyle(rect: PixelRect): Record<string, string> {
       :style="{ gridArea: leafIdToAreaName(leafId) }"
       :dir="terminalStore.getPaneDir(leafId) ?? ''"
       :leaf-id="leafId"
+      :visible="visibleLeafIds.has(leafId)"
     />
     <!-- 分割リサイズハンドル（absolute overlay） -->
     <SplitResizeHandle

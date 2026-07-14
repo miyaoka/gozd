@@ -119,6 +119,12 @@ describe("buildHookMessage", () => {
       session_crons: [],
     });
   });
+
+  test("pendingWorkDetail は片キーのみでも組み立て、4000 文字で切り詰める", () => {
+    const hook = buildHookMessage("done", { background_tasks: [{ command: "x".repeat(5000) }] }, {});
+    expect(hook.pendingWorkDetail.startsWith('{"background_tasks":')).toBe(true);
+    expect(hook.pendingWorkDetail.length).toBe(4000);
+  });
 });
 
 describe("parseStdinJson", () => {

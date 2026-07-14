@@ -1,9 +1,8 @@
 <doc lang="md">
 pin されたファイルプレビューウィンドウ群を描画する app-scope レイヤー。
 
-App.vue 直下にマウントし、ファイル選択 / worktree の切り替えと独立してウィンドウを
-生存させる (state は `usePinnedPreview` の module singleton)。個々のウィンドウの
-ドラッグ / リサイズ / close は PinnedPreviewWindow に閉じる。
+ファイル選択 / worktree の切り替えと独立してウィンドウを生存させるため、選択に結合した
+ペイン階層ではなく app scope に置く (state は module singleton)。
 </doc>
 
 <script setup lang="ts">

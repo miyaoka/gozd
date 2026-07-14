@@ -1,31 +1,25 @@
 <doc lang="md">
 pin されたファイルプレビュー 1 件のフローティングウィンドウ。
 
-「view の切り離し」なので UI は本体 preview と同一部品で組む: モード切替 / Preview /
-Wrap は本体の PreviewToolbar、本文 leaf 切替は本体と共有の PreviewContent (表示 SSOT)。
-本体との違いはデータ源だけ — 本体は global selection に結合した `usePreviewContent`
-(live)、こちらは pin 時に焼き込んだ raw source (`doc` = current / original の 2 rev
-テキスト) で、mode / preview / wrap は window ローカルの view 状態 (初期値は pin 時点の
+「view の切り離し」なので UI は本体 preview と同一部品で組み、縮小版・独自 UI を作らない。
+本体との違いはデータ源だけ — 本体は global selection に結合した live な取得層、こちらは
+pin 時に焼き込んだ raw source (doc) + window ローカルの view 状態 (初期値は pin 時点の
 本体の状態)。編集 / blame / 行番号 reveal は選択文脈に紐づく機能のため capability を
-無効のまま使う。markdown 内リンクのナビゲーションは本体 preview 側
-(`usePreviewStore.forceSelect`) へ流れる既存挙動のまま。
+無効のまま使う。
 
 ドラッグ / リサイズ / クランプ / 初期サイズ換算は汎用シェル FloatingWindow に委譲。
-ヘッダは PinnedLogWindow と同じ 2 段構成 (上段: repo アイコン + repo 名 + worktree
-branch / 下段: file icon + ファイル名) で、worktree 切替を跨いで生存するウィンドウの
-出自を識別する。repo 未解決 (worktree 外の絶対パス等) は上段ごと省く。
+ヘッダには pin 時点の出自 (repo / branch / ファイル名) を焼き込む — worktree 切替を
+跨いで生存するウィンドウを識別するため。repo 未解決 (worktree 外の絶対パス等) は
+出自の段ごと省く。
 
-ヘッダの open ボタンで pin 元の選択 (`source`) を本体 preview として開き直せる。
-worktree 由来は gozdOpen と同じ setOpen → forceSelect のシーケンスで「worktree 切替 +
-filer reveal + preview 表示」になり、git / working tree に追従する live な文脈
-(編集・blame 含む) はこちらで得る。開けたらウィンドウは閉じる (本体への昇格であり
-二重表示を残さない。pin 時に popover を閉じるのと対称)。pin 元 worktree が閉じられて
-いる場合はエラートーストで可視化し、ウィンドウは残す。
+ヘッダの open ボタンで pin 元の選択を本体 preview として開き直せる。git / working tree
+に追従する live な文脈 (編集・blame 含む) はこちらで得る。開けたらウィンドウは閉じる
+(本体への昇格であり二重表示を残さない。pin 時に popover を閉じるのと対称)。pin 元
+worktree が閉じられている場合はエラートーストで可視化し、ウィンドウは残す。
 
-画像 (image / svg) も doc の snapshot (バイナリは bytes、SVG はテキスト) から表示する
-(ImagePreview が Blob → ObjectURL に変換)。テキストと同じく pin 時点の内容に固定され、
-pin 後のファイル削除・変更・worktree 消失に影響されない。`<img>` の描画失敗 (壊れた bytes 等)
-は error 表示に切り替え、mode / Preview トグルの操作でリセットする。
+画像も doc の snapshot から表示するため、テキストと同じく pin 時点の内容に固定され、
+pin 後のファイル削除・変更・worktree 消失に影響されない。描画失敗は error 表示に
+切り替え、view 操作でリセットする。
 </doc>
 
 <script setup lang="ts">

@@ -10,7 +10,7 @@ export interface FsReadFileRequest {
   path: string;
 }
 
-/** content は UTF-8 として decode できなかった場合は空、isBinary=true。
+/** content はテキストなら string、バイナリなら生 bytes（FileReadResult の契約）。
  * ディレクトリなら isDirectory=true、ファイル不在なら notFound=true。 */
 export type FsReadFileResponse = FileReadResult;
 

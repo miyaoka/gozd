@@ -3,8 +3,10 @@
 // root commit を含む range の起点は EMPTY_TREE_HASH を経由して empty tree に倒す
 // （root が追加したファイルも diff に含めるため）。
 
+import type { FileReadResult } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { basename } from "node:path";
+import { toWireBytes } from "../wireBytes";
 import { runGit, runGitBuffer } from "./gitRunner";
 import { isAllZeroHex, validateRelPath, validateRev } from "./gitValidate";
 
@@ -19,13 +21,6 @@ export interface GitTreeEntryInfo {
   type: string;
 }
 
-export interface FileReadResultInfo {
-  content: string;
-  isBinary: boolean;
-  isDirectory: boolean;
-  notFound: boolean;
-}
-
 /** git の well-known empty tree object hash（`git hash-object -t tree </dev/null`）。
  * root commit を range の起点にする際、`<root>` 自身ではなく empty tree を from に置くことで
  * root commit が追加したファイルも diff に含まれる */
@@ -38,26 +33,27 @@ const DIFF_OPTIONS = ["--name-status", "-z", "--find-renames", "--diff-filter=AM
  * 失敗（exit != 0）= ファイル不在として notFound=true を返す。
  * 想定する失敗: root commit の `^` 解決失敗、未追跡 path、invalid hash。
  * それ以外も silent drop しないよう stderr にログを残して観察可能にする。
- * blob は raw Buffer で読み、NUL byte を含む or UTF-8 decode 失敗で binary 判定する。
+ * blob は raw Buffer で読み、NUL byte を含む or UTF-8 decode 失敗はバイナリとして
+ * 生 bytes を返す（fsOps.readFileAt と同じ判定規律）。
  */
 export async function fileReadResultFromGit(
   dir: string,
   hash: string,
   relPath: string,
-): Promise<FileReadResultInfo> {
+): Promise<FileReadResult> {
   const data = await tryCatch(runGitBuffer(["show", `${hash}:${relPath}`], dir));
   if (!data.ok) {
     console.error(`[RpcDispatcher] git show ${hash}:${relPath} failed in ${dir}: ${data.error}`);
-    return { content: "", isBinary: false, isDirectory: false, notFound: true };
+    return { content: "", isDirectory: false, notFound: true };
   }
   if (data.value.includes(0x00)) {
-    return { content: "", isBinary: true, isDirectory: false, notFound: false };
+    return { content: toWireBytes(data.value), isDirectory: false, notFound: false };
   }
   const decoded = tryCatch(() => new TextDecoder("utf-8", { fatal: true }).decode(data.value));
   if (!decoded.ok) {
-    return { content: "", isBinary: true, isDirectory: false, notFound: false };
+    return { content: toWireBytes(data.value), isDirectory: false, notFound: false };
   }
-  return { content: decoded.value, isBinary: false, isDirectory: false, notFound: false };
+  return { content: decoded.value, isDirectory: false, notFound: false };
 }
 
 /**

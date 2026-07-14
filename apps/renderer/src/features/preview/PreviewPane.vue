@@ -24,7 +24,7 @@ leaf コンポーネントの内訳 (`PreviewContent` 配下):
 
 - コード → CodePreview（Monaco + Shiki TextMate ハイライト。編集可能ファイルは常時編集状態）
 - 差分 → DiffPreview（`git diff --no-index` で取得した hunk 配列を描画）
-- 画像 / SVG → ImagePreview（ファイルサーバー URL）
+- 画像 / SVG → ImagePreview（取得済み content から Blob → ObjectURL）
 - Markdown → MarkdownPreview（marked + DOMPurify）
 - HTML → HtmlPreview（sandboxed `<iframe srcdoc>` でネイティブ描画）
 </doc>
@@ -88,12 +88,13 @@ const {
   isContentUnavailable,
   currentContent,
   originalContent,
+  currentText,
+  originalText,
   displayContent,
   displayIsBinary,
   isBinary,
-  isOriginalBinary,
   effectiveGitChange,
-  imageUrl,
+  imageSource,
 } = content;
 
 const { blameEnabled, fileCommitDateProps, onCodeLineClick, onDiffLineClick } =
@@ -112,11 +113,12 @@ const codeContent = computed<string | undefined>(() => {
 
 /**
  * Diff タブの current 側。編集可能なら draft (SSOT) を渡し、未保存の編集も diff に反映する
- * (VS Code の diff editor がバッファを表示するのと同じ意味論)。
+ * (VS Code の diff editor がバッファを表示するのと同じ意味論)。diff はテキスト面のみ
+ * (バイナリは currentText が undefined になり diff leaf 自体が出ない)。
  */
 const diffCurrent = computed<string | undefined>(() => {
-  if (!isEditable.value) return currentContent.value;
-  return editStore.draftContent ?? currentContent.value;
+  if (!isEditable.value) return currentText.value;
+  return editStore.draftContent ?? currentText.value;
 });
 
 /** コード折り返しトグル */
@@ -133,22 +135,24 @@ const paneBoxRef = useTemplateRef<HTMLElement>("paneBox");
 const paneBodyRef = useTemplateRef<HTMLElement>("paneBody");
 
 /**
- * pin 時点の raw source (current / original の 2 rev テキスト) をスナップショット化する。
+ * pin 時点の raw source (current / original の 2 rev の中身) をスナップショット化する。
+ * テキストは string、バイナリは bytes で、意味論はどちらも「pin 時点に固定」。
  * 表示形は保存しない — window 側が doc + view 状態 (mode / preview / wrap) から都度導出
  * する (PinnedPreviewDoc の doc 参照)。表示が確定していない状態 (loading / directory /
- * notFound / error) と、表示可能な形を 1 つも持たないファイルは undefined で pin 不可に
- * 倒す (ドラッグは無反応になる)。
+ * notFound / error) と、表示可能な形 (テキスト or 画像) を 1 つも持たないファイル
+ * (バイナリ非画像は placeholder しか出せない) は undefined で pin 不可に倒す
+ * (ドラッグは無反応になる)。
  */
 function buildPinnedDoc(): PinnedPreviewDoc | undefined {
   const path = selectedDisplayPath.value;
   if (path === undefined) return undefined;
   if (isContentUnavailable.value) return undefined;
-  // current は編集可能ファイルなら draft を含む diffCurrent が SSOT。バイナリ側は持たない
-  const current = isBinary.value ? undefined : diffCurrent.value;
-  const original = isOriginalBinary.value ? undefined : originalContent.value;
+  // current は編集可能ファイルなら draft を含む diffCurrent が SSOT。バイナリは raw bytes
+  const current = isBinary.value ? currentContent.value : diffCurrent.value;
+  const original = originalContent.value;
   const ft = fileType.value;
-  // 画像 (image / svg) はテキストが無くても URL 表示できる (window 側が source から組む)
-  if (current === undefined && original === undefined && ft !== "image" && ft !== "svg") {
+  const hasText = typeof current === "string" || typeof original === "string";
+  if (!hasText && ft !== "image" && ft !== "svg") {
     return undefined;
   }
   return { filePath: path, current, original };
@@ -396,11 +400,11 @@ function onCodeScrolled() {
           :active-mode="activeMode"
           :preview-enabled="previewEnabled"
           :word-wrap="wordWrap"
-          :original-content="originalContent"
+          :original-content="originalText"
           :diff-current="diffCurrent"
           :code-content="codeContent"
           :display-content="displayContent"
-          :image-url="imageUrl"
+          :image-source="imageSource"
           :display-is-binary="displayIsBinary"
           :loading="loading"
           :is-directory="isDirectory"

@@ -5,18 +5,13 @@
 // - 不在 / ディレクトリは throw ではなく正常応答（notFound / isDirectory）で返す。
 //   renderer は削除ノードとして扱い、エラートーストを出さない規律
 
+import type { FileReadResult } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { lstatSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { checkIgnore } from "../git/gitOps";
+import { toWireBytes } from "../wireBytes";
 import { resolveContained } from "./pathContainment";
-
-export interface FileReadInfo {
-  content: string;
-  isBinary: boolean;
-  isDirectory: boolean;
-  notFound: boolean;
-}
 
 interface FsEntry {
   name: string;
@@ -37,17 +32,10 @@ export interface FsStatResult {
   modifiedAt: string;
 }
 
-const NOT_FOUND_RESULT: FileReadInfo = {
+const NOT_FOUND_RESULT: FileReadResult = {
   content: "",
-  isBinary: false,
   isDirectory: false,
   notFound: true,
-};
-const BINARY_RESULT: FileReadInfo = {
-  content: "",
-  isBinary: true,
-  isDirectory: false,
-  notFound: false,
 };
 
 function resolveSafe(dir: string, path: string): string {
@@ -56,25 +44,14 @@ function resolveSafe(dir: string, path: string): string {
   return resolved;
 }
 
-/** FileReadResult ベースで読み取る。NUL byte を含む or UTF-8 decode 失敗で isBinary=true */
-export function readFile(dir: string, path: string): FileReadInfo {
+/** FileReadResult ベースで読み取る。NUL byte を含む or UTF-8 decode 失敗はバイナリとして bytes を返す */
+export function readFile(dir: string, path: string): FileReadResult {
   return readFileAt(resolveSafe(dir, path));
 }
 
 /** 絶対パスでファイルを読み取る（dir 制約なし）。プレビューで dir 外参照が必要なため */
-export function readFileAbsolute(absolutePath: string): FileReadInfo {
+export function readFileAbsolute(absolutePath: string): FileReadResult {
   return readFileAt(absolutePath);
-}
-
-/** raw bytes で読み取る（`gozd-file://` の `<img>` 直配信用）。dir 配下に containment。
- * 不在 / decode 系はそのまま throw し、呼び出し側（file server）が error response に変換する */
-export function readFileBytes(dir: string, path: string): Buffer {
-  return readFileSync(resolveSafe(dir, path));
-}
-
-/** raw bytes の絶対パス版（dir 制約なし）。worktree 外の画像 / SVG 用 */
-export function readFileBytesAbsolute(absolutePath: string): Buffer {
-  return readFileSync(absolutePath);
 }
 
 export function writeFile(dir: string, path: string, content: string): void {
@@ -141,17 +118,21 @@ export async function readDir(dir: string, path: string): Promise<FsReadDirResul
 }
 
 /** 共通の file 読み取り処理。directory / not-found / binary 検出を一括で扱う */
-function readFileAt(absolutePath: string): FileReadInfo {
+function readFileAt(absolutePath: string): FileReadResult {
   const followed = tryCatch(() => statSync(absolutePath));
   if (!followed.ok) return NOT_FOUND_RESULT;
   if (followed.value.isDirectory()) {
-    return { content: "", isBinary: false, isDirectory: true, notFound: false };
+    return { content: "", isDirectory: true, notFound: false };
   }
   const data = tryCatch(() => readFileSync(absolutePath));
   if (!data.ok) return NOT_FOUND_RESULT;
-  // NUL byte を含む or UTF-8 decode 失敗で binary 判定
-  if (data.value.includes(0x00)) return BINARY_RESULT;
+  // NUL byte を含む or UTF-8 decode 失敗でバイナリ判定し、生 bytes を返す
+  if (data.value.includes(0x00)) {
+    return { content: toWireBytes(data.value), isDirectory: false, notFound: false };
+  }
   const decoded = tryCatch(() => new TextDecoder("utf-8", { fatal: true }).decode(data.value));
-  if (!decoded.ok) return BINARY_RESULT;
-  return { content: decoded.value, isBinary: false, isDirectory: false, notFound: false };
+  if (!decoded.ok) {
+    return { content: toWireBytes(data.value), isDirectory: false, notFound: false };
+  }
+  return { content: decoded.value, isDirectory: false, notFound: false };
 }

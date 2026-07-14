@@ -90,6 +90,15 @@ const loading = ref(true);
 const error = ref<string>();
 const effectiveKind = ref<GitChangeKind>();
 
+/**
+ * FileReadResult.content の union をテキスト表示用に分解する。バイナリ (bytes) は
+ * diff を組めないため空文字 + binary フラグに倒し、binary leaf の表示に使う。
+ */
+function splitContent(content: string | Uint8Array): { text: string; binary: boolean } {
+  if (typeof content === "string") return { text: content, binary: false };
+  return { text: "", binary: true };
+}
+
 /** 表示用のファイルパス。renamed の時は newFilePath を主に使う */
 const displayPath = computed(() => props.change.newFilePath || props.change.oldFilePath);
 
@@ -266,12 +275,14 @@ async function fetchUncommitted(dir: string, version: number) {
   }
 
   const [curr, orig] = fetchResult.value;
-  current.value = curr?.notFound ? "" : (curr?.content ?? "");
-  isBinary.value = curr?.isBinary ?? false;
+  const currSplit = splitContent(curr?.notFound ? "" : (curr?.content ?? ""));
+  current.value = currSplit.text;
+  isBinary.value = currSplit.binary;
 
   const origResult = orig.result;
-  original.value = origResult?.notFound ? "" : (origResult?.content ?? "");
-  isOriginalBinary.value = origResult?.isBinary ?? false;
+  const origSplit = splitContent(origResult?.notFound ? "" : (origResult?.content ?? ""));
+  original.value = origSplit.text;
+  isOriginalBinary.value = origSplit.binary;
 
   // untracked は HEAD に存在しないので original 側が notFound になり original="" になる。
   // 既存の type をそのまま使う。
@@ -313,11 +324,7 @@ async function fetchCommit(dir: string, version: number) {
         ]);
         return {
           from: showResult.from,
-          to: {
-            content: fsResult.content,
-            isBinary: fsResult.isBinary,
-            notFound: fsResult.notFound,
-          },
+          to: { content: fsResult.content, notFound: fsResult.notFound },
           unchanged: false,
         };
       }
@@ -358,10 +365,12 @@ async function fetchCommit(dir: string, version: number) {
     effectiveKind.value = "modified";
   }
 
-  original.value = fromNotFound ? "" : (from?.content ?? "");
-  isOriginalBinary.value = from?.isBinary ?? false;
-  current.value = toNotFound ? "" : (to?.content ?? "");
-  isBinary.value = to?.isBinary ?? false;
+  const fromSplit = splitContent(fromNotFound ? "" : (from?.content ?? ""));
+  original.value = fromSplit.text;
+  isOriginalBinary.value = fromSplit.binary;
+  const toSplit = splitContent(toNotFound ? "" : (to?.content ?? ""));
+  current.value = toSplit.text;
+  isBinary.value = toSplit.binary;
 
   loading.value = false;
 }
@@ -423,10 +432,12 @@ async function fetchPrDiff(dir: string, version: number) {
     effectiveKind.value = change.type === "R" ? "renamed" : "modified";
   }
 
-  original.value = fromNotFound ? "" : (from?.content ?? "");
-  isOriginalBinary.value = from?.isBinary ?? false;
-  current.value = toNotFound ? "" : (fsResult?.content ?? "");
-  isBinary.value = fsResult?.isBinary ?? false;
+  const fromSplit = splitContent(fromNotFound ? "" : (from?.content ?? ""));
+  original.value = fromSplit.text;
+  isOriginalBinary.value = fromSplit.binary;
+  const toSplit = splitContent(toNotFound ? "" : (fsResult?.content ?? ""));
+  current.value = toSplit.text;
+  isBinary.value = toSplit.binary;
   loading.value = false;
 }
 

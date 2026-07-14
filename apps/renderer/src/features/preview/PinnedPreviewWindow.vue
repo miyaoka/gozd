@@ -22,14 +22,14 @@ filer reveal + preview 表示」になり、git / working tree に追従する l
 二重表示を残さない。pin 時に popover を閉じるのと対称)。pin 元 worktree が閉じられて
 いる場合はエラートーストで可視化し、ウィンドウは残す。
 
-画像 (image / svg) の bytes は JSON ワイヤに乗らないため、表示はファイルサーバー URL を
-source + mode から都度組み立てる (current = /fs か /abs、original = /git)。URL 参照なので
-表示時点のディスク / HEAD の内容が映る (テキスト snapshot と違い pin 時点に固定されない)。
-load 失敗 (pin 後のファイル削除等) は error 表示に切り替え、mode / Preview トグルの操作で
-リセットする。
+画像 (image / svg) も doc の snapshot (バイナリは bytes、SVG はテキスト) から表示する
+(ImagePreview が Blob → ObjectURL に変換)。テキストと同じく pin 時点の内容に固定され、
+pin 後のファイル削除・変更・worktree 消失に影響されない。`<img>` の描画失敗 (壊れた bytes 等)
+は error 表示に切り替え、mode / Preview トグルの操作でリセットする。
 </doc>
 
 <script setup lang="ts">
+import type { WireBytes } from "@gozd/rpc";
 import { computed, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
@@ -37,7 +37,6 @@ import { getFileIconUrl } from "../filer";
 import { FloatingWindow } from "../floating-window";
 import { RepoIcon } from "../repo-icon";
 import { useWorktreeStore } from "../worktree";
-import { buildAbsFileServerUrl, buildFileServerUrl } from "./fileServerUrl";
 import PreviewContent from "./PreviewContent.vue";
 import { detectFileType } from "./previewFileType";
 import type { PreviewMode } from "./previewMode";
@@ -77,26 +76,31 @@ const wordWrap = ref(props.preview.wordWrap);
 const doc = props.preview.doc;
 const fileType = detectFileType(doc.filePath);
 const isImageFile = fileType === "image" || fileType === "svg";
+/** current / original のテキスト面。バイナリ (bytes) は undefined (本体の currentText / originalText 相当) */
+const currentText = typeof doc.current === "string" ? doc.current : undefined;
+const originalText = typeof doc.original === "string" ? doc.original : undefined;
 
-/** activeMode 解決済みの表示テキスト (本体の displayContent 相当)。 */
+/** activeMode 解決済みの表示対象 (union のまま。本体の displayRaw 相当)。 */
+const displayRaw = computed(() => (activeMode.value === "original" ? doc.original : doc.current));
+
+/** activeMode 解決済みの表示テキスト (本体の displayContent 相当)。バイナリは undefined。 */
 const displayContent = computed<string | undefined>(() =>
-  activeMode.value === "original" ? doc.original : doc.current,
+  typeof displayRaw.value === "string" ? displayRaw.value : undefined,
 );
 
+/** バイナリ判定は content の型そのものが SSOT (本体の displayIsBinary 相当)。 */
+const displayIsBinary = computed(() => displayRaw.value instanceof Uint8Array);
+
 /**
- * 画像表示用 URL (本体の imageUrl 相当: previewEnabled off / 非画像は undefined)。
- * source + mode から都度組み立てる (doc 参照)。version はキャッシュバスト用途のみなので
- * 0 固定。rename 済みファイルの Original 旧パス解決は省略する (実質発生しない edge の
- * ため relPath をそのまま使う)。
+ * 画像表示の中身 (本体の imageSource 相当: previewEnabled off / 非画像は undefined)。
+ * doc の snapshot から導出するため pin 時点の内容に固定される。
  */
-const imageUrl = computed<string | undefined>(() => {
+const imageSource = computed<string | WireBytes | undefined>(() => {
   if (!isImageFile || !previewEnabled.value) return undefined;
-  const source = props.preview.source;
-  if (source.kind === "absolute") return buildAbsFileServerUrl(source.absPath, 0);
-  return buildFileServerUrl(source.dir, source.relPath, 0, activeMode.value === "original");
+  return displayRaw.value;
 });
 
-/** 画像 load 失敗 (pin 後のファイル削除等) の error 表示。view 操作でリセットする。 */
+/** 画像描画失敗 (壊れた bytes 等) の error 表示。view 操作でリセットする。 */
 const imageError = ref(false);
 watch([activeMode, previewEnabled], () => {
   imageError.value = false;
@@ -195,8 +199,8 @@ function openInPreview() {
       :file-type="fileType"
     />
 
-    <!-- 本文 leaf 切替も本体と共有の PreviewContent。displayIsBinary は「テキストを
-         持たない = バイナリ側」の導出 (doc の contract 上、画像以外のバイナリは pin 不可) -->
+    <!-- 本文 leaf 切替も本体と共有の PreviewContent。テキスト面 (code / diff) は string、
+         画像は union のまま渡し、binary 判定は content の型から導出する (本体と同じ規律) -->
     <PreviewContent
       class="min-h-0 flex-1 select-text"
       :file-path="doc.filePath"
@@ -204,12 +208,12 @@ function openInPreview() {
       :active-mode="activeMode"
       :preview-enabled="previewEnabled"
       :word-wrap="wordWrap"
-      :original-content="doc.original"
-      :diff-current="doc.current"
+      :original-content="originalText"
+      :diff-current="currentText"
       :code-content="displayContent"
       :display-content="displayContent"
-      :image-url="imageUrl"
-      :display-is-binary="displayContent === undefined"
+      :image-source="imageSource"
+      :display-is-binary="displayIsBinary"
       :error="contentError"
       @image-error="imageError = true"
     />

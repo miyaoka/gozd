@@ -78,18 +78,19 @@ describe("gitTree (integration)", () => {
     writeFileSync(join(dir, "a.txt"), "hello\n");
     commit(dir, "first");
     const found = await fileReadResultFromGit(dir, "HEAD", "a.txt");
-    expect(found).toEqual({ content: "hello\n", isBinary: false, isDirectory: false, notFound: false });
+    expect(found).toEqual({ content: "hello\n", isDirectory: false, notFound: false });
     const missing = await fileReadResultFromGit(dir, "HEAD", "nope.txt");
     expect(missing.notFound).toBe(true);
   });
 
-  test("fileReadResultFromGit: NUL byte 入り blob は isBinary=true", async () => {
+  test("fileReadResultFromGit: NUL byte 入り blob は生 bytes がそのまま返される", async () => {
     const dir = makeRepo();
-    writeFileSync(join(dir, "bin.dat"), Buffer.from([0x00, 0x01, 0xff]));
+    const bytes = Buffer.from([0x00, 0x01, 0xff]);
+    writeFileSync(join(dir, "bin.dat"), bytes);
     commit(dir, "bin");
     const result = await fileReadResultFromGit(dir, "HEAD", "bin.dat");
-    expect(result.isBinary).toBe(true);
-    expect(result.content).toBe("");
+    expect(result.content).toBeInstanceOf(Uint8Array);
+    expect(Buffer.from(result.content as Uint8Array).equals(bytes)).toBe(true);
   });
 
   test("lsTree: 1 階層分のエントリを type 付きで返す", async () => {

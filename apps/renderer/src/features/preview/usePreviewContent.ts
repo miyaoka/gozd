@@ -5,7 +5,9 @@
  *
  * ## 所有する状態
  *
- * - 取得結果 (current / original の content と binary 判定、loading / error / notFound)
+ * - 取得結果 (current / original の content、loading / error / notFound)。content は
+ *   FileReadResult の union 契約 (テキストは string、バイナリは bytes) をそのまま保持し、
+ *   binary 判定・テキスト面・画像面はすべて content の型から導出する
  * - 表示モード (`activeMode`) と Preview トグル (`previewEnabled`): fetch 結果からデフォルトを
  *   導出して書き換えるのは本層だけなので、UI 状態だがここに置く
  * - `contentEpoch`: main watch が発火するたびに増えるカウンタ。「content が変わる (かもしれない)
@@ -26,6 +28,7 @@
  * fsChange メッセージで選択中ファイルをリアクティブに再取得（uncommitted / PR diff モードのみ）。
  * バージョンカウンターで非同期レースを防止する。
  */
+import type { WireBytes } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref, watch } from "vue";
@@ -39,7 +42,6 @@ import { UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../worktr
 import type { GitChangeKind, Selection } from "../worktree";
 import { orderCommitRange } from "./commitRange";
 import type { OrderedRange } from "./commitRange";
-import { buildAbsFileServerUrl, buildFileServerUrl } from "./fileServerUrl";
 import { defaultPreviewEnabled, detectFileType } from "./previewFileType";
 import type { FileType } from "./previewFileType";
 import { availableModesFor, defaultMode, hasGitDiff } from "./previewMode";
@@ -50,6 +52,11 @@ import { usePreviewEditStore } from "./usePreviewEditStore";
 import { usePreviewStore } from "./usePreviewStore";
 
 const SHORT_HASH_LEN = 7;
+
+/** FileReadResult.content の union からテキスト面を取り出す。バイナリ (bytes) は undefined */
+function asText(content: string | WireBytes | undefined): string | undefined {
+  return typeof content === "string" ? content : undefined;
+}
 
 export type PreviewContent = ReturnType<typeof usePreviewContent>;
 
@@ -66,8 +73,7 @@ export function usePreviewContent(
 ) {
   const worktreeStore = useWorktreeStore();
   const gitStatusStore = useGitStatusStore();
-  const { selection, selectedDisplayPath, selectedRelPath, selectedGitChange } =
-    storeToRefs(worktreeStore);
+  const { selection, selectedDisplayPath, selectedGitChange } = storeToRefs(worktreeStore);
   const gitGraphStore = useGitGraphStore();
   const prDiffToggle = usePrDiffToggleStore();
   const summaryStore = useChangesSummaryStore();
@@ -76,10 +82,14 @@ export function usePreviewContent(
   const editStore = usePreviewEditStore();
   const notification = useNotificationStore();
 
-  const currentContent = ref<string>();
-  const originalContent = ref<string>();
-  const isBinary = ref(false);
-  const isOriginalBinary = ref(false);
+  const currentContent = ref<string | WireBytes>();
+  const originalContent = ref<string | WireBytes>();
+  /** バイナリ判定は content の型そのものが SSOT (FileReadResult の union 契約)。フラグ状態は持たない */
+  const isBinary = computed(() => currentContent.value instanceof Uint8Array);
+  const isOriginalBinary = computed(() => originalContent.value instanceof Uint8Array);
+  /** current / original のテキスト面。バイナリは undefined (code / diff / markdown leaf 用) */
+  const currentText = computed(() => asText(currentContent.value));
+  const originalText = computed(() => asText(originalContent.value));
   const loading = ref(false);
   const error = ref<string>();
   /** 選択パスがディレクトリの場合 true */
@@ -187,8 +197,7 @@ export function usePreviewContent(
     return `${olderEnd.slice(0, SHORT_HASH_LEN)}^`;
   });
 
-  /** 非同期レース防止 + 画像キャッシュバスト用のバージョンカウンター */
-  const fetchVersionRef = ref(0);
+  /** 非同期レース防止のバージョンカウンター */
   let fetchVersion = 0;
 
   /** ファイル内容を取得する（watch と fsChange から共用） */
@@ -208,7 +217,6 @@ export function usePreviewContent(
     isNotFound.value = false;
 
     const version = ++fetchVersion;
-    fetchVersionRef.value = version;
 
     const isDeleted = gitChange === "deleted";
     const hasDiff = hasGitDiff(gitChange);
@@ -230,9 +238,7 @@ export function usePreviewContent(
       isDirectory.value = current?.isDirectory ?? false;
       isNotFound.value = current?.notFound ?? false;
       currentContent.value = current?.content;
-      isBinary.value = current?.isBinary ?? false;
       originalContent.value = undefined;
-      isOriginalBinary.value = false;
       loading.value = false;
       return;
     }
@@ -247,12 +253,7 @@ export function usePreviewContent(
     // 並列でデータ取得。fsReadFile (working tree) + git show (HEAD) を引く。
     const currentPromise = isDeleted
       ? Promise.resolve(undefined)
-      : rpcFsReadFile({ dir, path: sel.relPath }).then((r) => ({
-          content: r.content,
-          isBinary: r.isBinary,
-          isDirectory: r.isDirectory,
-          notFound: r.notFound,
-        }));
+      : rpcFsReadFile({ dir, path: sel.relPath });
     // rename (move) されたファイルは HEAD 側に新パスが存在しない。比較元は旧パスで引く。
     // 旧パス map は git status と同一 snapshot から来る SSOT (`gitStatusStore.renameOldPaths`)。
     const originalPromise =
@@ -320,20 +321,8 @@ export function usePreviewContent(
     isDirectory.value = currentResult?.isDirectory ?? false;
     isNotFound.value = currentResult?.notFound ?? false;
 
-    if (currentResult !== undefined) {
-      currentContent.value = currentResult.content;
-      isBinary.value = currentResult.isBinary;
-    } else {
-      currentContent.value = undefined;
-      isBinary.value = false;
-    }
-    if (originalResult !== undefined) {
-      originalContent.value = originalResult.content;
-      isOriginalBinary.value = originalResult.isBinary;
-    } else {
-      originalContent.value = undefined;
-      isOriginalBinary.value = false;
-    }
+    currentContent.value = currentResult?.content;
+    originalContent.value = originalResult?.content;
 
     loading.value = false;
   }
@@ -347,7 +336,6 @@ export function usePreviewContent(
     isNotFound.value = false;
 
     const version = ++fetchVersion;
-    fetchVersionRef.value = version;
 
     // 以下 await 前の同期パス: version === fetchVersion が保証されているため version ガード不要。
     const dir = worktreeStore.dir;
@@ -388,11 +376,7 @@ export function usePreviewContent(
           ]);
           return {
             from: showResult.from,
-            to: {
-              content: fsResult.content,
-              isBinary: fsResult.isBinary,
-              notFound: fsResult.notFound,
-            },
+            to: { content: fsResult.content, notFound: fsResult.notFound },
             // Working Tree との比較は git blob OID が無いので unchanged 判定なし。
             unchanged: false,
           };
@@ -444,9 +428,7 @@ export function usePreviewContent(
     applyActiveMode(targetChanged, commitGitChange.value, fallback);
 
     originalContent.value = fromNotFound ? undefined : from?.content;
-    isOriginalBinary.value = from?.isBinary ?? false;
     currentContent.value = toNotFound ? undefined : to?.content;
-    isBinary.value = to?.isBinary ?? false;
     isNotFound.value = fromNotFound && toNotFound;
 
     loading.value = false;
@@ -467,7 +449,6 @@ export function usePreviewContent(
     isNotFound.value = false;
 
     const version = ++fetchVersion;
-    fetchVersionRef.value = version;
 
     const dir = worktreeStore.dir;
     if (dir === undefined) {
@@ -497,8 +478,6 @@ export function usePreviewContent(
     if (change === undefined) {
       currentContent.value = undefined;
       originalContent.value = undefined;
-      isBinary.value = false;
-      isOriginalBinary.value = false;
       isNotFound.value = false;
       commitGitChange.value = undefined;
       loading.value = false;
@@ -553,9 +532,7 @@ export function usePreviewContent(
     applyActiveMode(targetChanged, commitGitChange.value, fallback);
 
     originalContent.value = fromNotFound ? undefined : from?.content;
-    isOriginalBinary.value = from?.isBinary ?? false;
     currentContent.value = toNotFound ? undefined : fsResult?.content;
-    isBinary.value = fsResult?.isBinary ?? false;
     isNotFound.value = fromNotFound && toNotFound;
 
     loading.value = false;
@@ -628,8 +605,6 @@ export function usePreviewContent(
       if (path === undefined || sel === undefined) {
         currentContent.value = undefined;
         originalContent.value = undefined;
-        isBinary.value = false;
-        isOriginalBinary.value = false;
         isDirectory.value = false;
         isNotFound.value = false;
         error.value = undefined;
@@ -688,16 +663,16 @@ export function usePreviewContent(
   );
   onUnmounted(unsubscribeFsChange);
 
-  /** 表示中のテキストコンテンツ */
-  const displayContent = computed(() => {
+  /** activeMode 解決済みの表示対象 content (union のまま) */
+  const displayRaw = computed(() => {
     if (activeMode.value === "original") return originalContent.value;
     return currentContent.value;
   });
 
-  const displayIsBinary = computed(() => {
-    if (activeMode.value === "original") return isOriginalBinary.value;
-    return isBinary.value;
-  });
+  /** 表示中のテキストコンテンツ。バイナリは undefined */
+  const displayContent = computed(() => asText(displayRaw.value));
+
+  const displayIsBinary = computed(() => displayRaw.value instanceof Uint8Array);
 
   /**
    * template の v-else-if 連鎖冒頭 4 分岐 (loading/directory/notFound/error) と共有する判定。
@@ -708,30 +683,17 @@ export function usePreviewContent(
     () => loading.value || isDirectory.value || isNotFound.value || error.value !== undefined,
   );
 
-  /** 画像として表示する URL */
-  const imageUrl = computed(() => {
+  /**
+   * 画像 / SVG として表示する中身 (activeMode 解決済み)。バイナリ画像は bytes、SVG はテキスト。
+   * 取得経路 (uncommitted / commit / PR diff / absolute) を問わず fetch 済みの content を
+   * そのまま使うため、Original タブは各経路が実際に参照した rev の中身が表示される
+   * (rename の旧パス解決も fetch 側の規律に一元化されている)。
+   */
+  const imageSource = computed<string | WireBytes | undefined>(() => {
     if (!previewEnabled.value) return undefined;
     const ft = fileType.value;
     if (ft !== "image" && ft !== "svg") return undefined;
-    const sel = selection.value;
-    if (sel === undefined) return undefined;
-    // 絶対パス（worktree 外）は dir 制約のない `/abs` 経路で配信する。git 履歴を持たないため
-    // Original タブは無く、常に working tree の実ファイルを指す。
-    if (sel.kind === "absolute") {
-      return buildAbsFileServerUrl(sel.absPath, fetchVersionRef.value);
-    }
-    const relPath = selectedRelPath.value;
-    const dir = worktreeStore.dir;
-    if (relPath === undefined || dir === undefined) return undefined;
-    const isOriginal = activeMode.value === "original";
-    // Original タブは `git show HEAD:<path>` 配信。rename されたファイルは HEAD 側に
-    // 新パスが存在しないため旧パスで引く (テキスト経路の fetchContent と同じ規律)。
-    // `renameOldPaths` は現在の working tree の git status 由来 (= uncommitted 専用) のため、
-    // commit / PR diff モードでは適用しない (fetchContent の mode 分離と同じ非対称を作らない)。
-    const isUncommitted = !isCommitMode.value && !prDiffToggle.isOn;
-    const serverPath =
-      isOriginal && isUncommitted ? (gitStatusStore.renameOldPaths[relPath] ?? relPath) : relPath;
-    return buildFileServerUrl(dir, serverPath, fetchVersionRef.value, isOriginal);
+    return displayRaw.value;
   });
 
   return {
@@ -750,6 +712,9 @@ export function usePreviewContent(
     isContentUnavailable,
     currentContent,
     originalContent,
+    // current / original のテキスト面 (バイナリは undefined。code / diff leaf への配線用)
+    currentText,
+    originalText,
     displayContent,
     displayIsBinary,
     // rev 別の binary 判定 (pinned preview の snapshot が current / original を独立に扱うため)
@@ -760,7 +725,7 @@ export function usePreviewContent(
     isCommitMode,
     orderedRange,
     // 画像
-    imageUrl,
+    imageSource,
     // popover close 同期用の観測点
     contentEpoch,
   };

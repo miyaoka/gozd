@@ -3,7 +3,6 @@ import { TITLEBAR_HEIGHT, tryCatch } from "@gozd/shared";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeClaudeHooksSettings } from "./claudeHooksSettings";
-import { registerFileServerProtocol } from "./fileServer";
 import { bundledRendererIndex, channel, claudeSettingsPath, isPackaged, launchRequestDir, socketPath } from "./gozdEnv";
 import { GOZD_CHANNEL_ARG_PREFIX, SPIKE_TEST_ARG } from "./ipc";
 import { consumeLaunchRequest } from "./launchRequest";
@@ -220,10 +219,6 @@ app.whenReady().then(() => {
       console.error(`[main] failed to set dev dock icon: ${devIconResult.error}`);
     }
   }
-
-  // protocol 登録は window の loadURL より先に行う（先に読み込まれた <img> が
-  // 未登録 scheme として即 error になるのを避ける）
-  registerFileServerProtocol();
 
   const window = createWindow();
 

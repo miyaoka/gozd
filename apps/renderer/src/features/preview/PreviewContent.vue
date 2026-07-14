@@ -18,6 +18,7 @@
 </doc>
 
 <script setup lang="ts">
+import type { WireBytes } from "@gozd/rpc";
 import CodePreview from "./CodePreview.vue";
 import DiffPreview from "./DiffPreview.vue";
 import { MarkdownPreview } from "./features/markdown";
@@ -42,8 +43,9 @@ withDefaults(
     codeContent: string | undefined;
     /** markdown / html の rendered 元テキスト (activeMode 解決済み) */
     displayContent: string | undefined;
-    /** 画像表示 URL。previewEnabled off / 非画像は undefined を渡す契約 */
-    imageUrl: string | undefined;
+    /** 画像 / SVG の中身 (バイナリ画像は bytes、SVG はテキスト)。previewEnabled off /
+     * 非画像は undefined を渡す契約 */
+    imageSource: string | WireBytes | undefined;
     displayIsBinary?: boolean;
     loading?: boolean;
     isDirectory?: boolean;
@@ -113,7 +115,12 @@ const emit = defineEmits<{
     />
 
     <!-- 画像プレビュー（バイナリ画像 + SVG preview モード） -->
-    <ImagePreview v-else-if="imageUrl" :src="imageUrl" @error="emit('imageError')" />
+    <ImagePreview
+      v-else-if="imageSource !== undefined"
+      :source="imageSource"
+      :file-path="filePath"
+      @error="emit('imageError')"
+    />
 
     <!-- バイナリ（画像以外） -->
     <div v-else-if="displayIsBinary" class="p-4 text-sm text-foreground-low">

@@ -1,11 +1,12 @@
 // RPC メッセージ型の barrel（旧 `.proto` SSOT の後継。手書き TS 型が SSOT）。
 //
-// ワイヤ契約: renderer ↔ main の request / response と Unix ソケットの ClientMessage は
-// この型を `JSON.stringify` / `JSON.parse` でそのまま運ぶ。フィールド名 = JSON キー
-// （旧 proto3 JSON mapping の lowerCamelCase を踏襲）。`?` フィールドはキー不在で
-// 未設定を表現する。永続化ファイル（config.json / app-state.json / tasks.json 等）も
-// 同じ型で読み書きし、旧ファイルの欠落フィールドは main 側 store の load 時に
-// default 充填する。
+// ワイヤ契約: renderer ↔ main の request / response は Electron IPC の structured clone で
+// plain data（JSON 形 + `WireBytes`）をそのまま運ぶ。Unix ソケットの ClientMessage は
+// NDJSON（JSON 1 行）で、socket を通る型にバイナリは載せない。フィールド名は
+// 旧 proto3 JSON mapping の lowerCamelCase を踏襲（永続化 JSON のキーと一致）。
+// `?` フィールドは undefined（永続化 JSON ではキー不在）で未設定を表現する。
+// 永続化ファイル（config.json / app-state.json / tasks.json 等）も同じ型で読み書きし、
+// 旧ファイルの欠落フィールドは main 側 store の load 時に default 充填する。
 
 export type {
   AppConfig,
@@ -37,6 +38,7 @@ export type {
 export type { ClipboardCopyFilesRequest, ClipboardCopyFilesResponse } from "./clipboard";
 export type { ClientMessage, HookMessage, OpenMessage } from "./clientMessage";
 export type {
+  FileReadResult,
   GhRef,
   GitCommit,
   GitFileChange,
@@ -44,6 +46,7 @@ export type {
   GitPullRequest,
   Task,
   UpstreamStatus,
+  WireBytes,
   WorktreeEntry,
 } from "./common";
 export type { EchoRequest, EchoResponse } from "./echo";

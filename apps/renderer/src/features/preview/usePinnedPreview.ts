@@ -12,6 +12,7 @@
  * ウィンドウ状態 (位置 / 初期本文サイズ / z / drag handoff) は floating-window の
  * `createFloatingWindows` に委譲する。
  */
+import type { WireBytes } from "@gozd/rpc";
 import { createFloatingWindows, type FloatingWindowState } from "../floating-window";
 import type { PreviewMode } from "./previewMode";
 
@@ -19,17 +20,16 @@ import type { PreviewMode } from "./previewMode";
  * pin されたファイルの raw source snapshot。表示形は保存せず、window 側が
  * doc + view 状態 (mode / preview / wrap) から都度導出する (PinnedPreviewWindow の
  * view computed。fileType も filePath から再導出する)。current / original の 2 rev の
- * テキストを持ち、diff 表示もこの 2 つから導出する。バイナリ (画像) はテキストを
- * 持たず、表示 URL は source + mode から都度組み立てる (バイナリの bytes は JSON
- * ワイヤに乗らないため renderer は URL 参照しか持てない。docs/architecture.md の
- * gozd-file:// の存在理由と同じ)。
+ * 中身を持ち、diff / 画像表示もこの 2 つから導出する。テキストは string、バイナリは
+ * pin 時点の bytes (FileReadResult と同じ union 契約) で、「doc = pin 時点の内容」の
+ * snapshot 意味論をテキストとバイナリで揃える。
  */
 export interface PinnedPreviewDoc {
   filePath: string;
-  /** current 側テキスト。バイナリは undefined。 */
-  current: string | undefined;
-  /** original (比較元) 側テキスト。比較元が無い / バイナリは undefined。 */
-  original: string | undefined;
+  /** current 側の中身。テキストは string (編集 draft 込み)、バイナリは bytes。無ければ undefined。 */
+  current: string | WireBytes | undefined;
+  /** original (比較元) 側の中身。比較元が無ければ undefined。 */
+  original: string | WireBytes | undefined;
 }
 
 /**

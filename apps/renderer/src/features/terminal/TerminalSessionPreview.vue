@@ -123,13 +123,13 @@ box が伸び続ける挙動を構造的に排除する。
 import { computed, ref, useTemplateRef } from "vue";
 import { usePopover } from "../../shared/popover";
 import { taskDisplayTitle, useRepoStore } from "../../shared/repo";
+import type { PinDragHandoff } from "../floating-window";
 import {
   expandAskMessages,
   parseSessionLog,
   SessionLogMessageBody,
   usePinnedLog,
   useSessionLogLive,
-  type PinDragHandoff,
 } from "../session-log";
 import type { PreviewEvent, PreviewMessage } from "./terminalSessionPreviewMessages";
 import { collectMessages, isSessionInProgress } from "./terminalSessionPreviewMessages";

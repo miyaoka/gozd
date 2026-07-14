@@ -2,7 +2,7 @@
 // 滑らない」「上辺が topMin (タイトルバー直下) で止まる」「角が width/height と x/y を揃えて
 // 返す」の 3 不変条件。
 import { describe, expect, test } from "bun:test";
-import { deriveResize, type ResizeBounds, type ResizeStartRect } from "./pinnedLogResize";
+import { deriveResize, type ResizeBounds, type ResizeStartRect } from "./floatingWindowResize";
 
 // left=100, top=100 の 400x300 ウィンドウ (right=500, bottom=400)
 const START_RECT: ResizeStartRect = { width: 400, height: 300, right: 500, bottom: 400 };

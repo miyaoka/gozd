@@ -1,7 +1,7 @@
 /**
- * pin ウィンドウの 8 方位リサイズの反対辺アンカー算術 (純関数)。
+ * フローティングウィンドウの 8 方位リサイズの反対辺アンカー算術 (純関数)。
  *
- * PinnedLogWindow の pointer ハンドラから DOM 非依存の算術だけを切り出したもの。
+ * FloatingWindow の pointer ハンドラから DOM 非依存の算術だけを切り出したもの。
  * ハンドラ側は DOM の読み取り (rect / computed style) と反映 (inline style / move()) だけを
  * 担い、境界挙動の正しさはこのモジュールの単体テストで担保する。
  *

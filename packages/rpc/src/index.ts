@@ -172,6 +172,8 @@ export type {
   TaskList,
   TaskListRequest,
   TaskListResponse,
+  TaskRemoveByWorktreeRequest,
+  TaskRemoveByWorktreeResponse,
   TaskRemoveRequest,
   TaskRemoveResponse,
   TaskSetTerminalTitleRequest,

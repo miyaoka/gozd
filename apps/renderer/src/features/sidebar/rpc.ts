@@ -18,6 +18,8 @@ import {
   TaskAddResponse,
   TaskListRequest,
   TaskListResponse,
+  TaskRemoveByWorktreeRequest,
+  TaskRemoveByWorktreeResponse,
   TaskRemoveRequest,
   TaskRemoveResponse,
   TaskSetTerminalTitleRequest,
@@ -68,9 +70,14 @@ export const rpcTaskSetTerminalTitle = (req: TaskSetTerminalTitleRequest) =>
 export const rpcTaskSetUserTitle = (req: TaskSetUserTitleRequest) =>
   rpc<TaskSetUserTitleResponse>("/task/setUserTitle", req);
 
-// ⋮ メニューからの明示削除。worktree 削除 cascade と並ぶ唯一のユーザー操作削除経路。
+// task 行 ⋮ メニューからの明示削除（1 件単位）。
 export const rpcTaskRemove = (req: TaskRemoveRequest) =>
   rpc<TaskRemoveResponse>("/task/remove", req);
+
+// worktree ⋮ メニューからの一括削除。worktree 削除 cascade の task 掃除だけを
+// worktree を残したまま発火する（remove 不可の main worktree の滞留 task 一掃用）。
+export const rpcTaskRemoveByWorktree = (req: TaskRemoveByWorktreeRequest) =>
+  rpc<TaskRemoveByWorktreeResponse>("/task/removeByWorktree", req);
 
 // --- app-state 永続化（sidebar repos / order / collapse の保存） ---
 

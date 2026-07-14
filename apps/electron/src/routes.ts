@@ -116,6 +116,8 @@ import type {
   TaskAddResponse,
   TaskListRequest,
   TaskListResponse,
+  TaskRemoveByWorktreeRequest,
+  TaskRemoveByWorktreeResponse,
   TaskRemoveRequest,
   TaskRemoveResponse,
   TaskSetTerminalTitleRequest,
@@ -409,6 +411,15 @@ async function handleTaskRemove(body: unknown): Promise<unknown> {
   const req = body as TaskRemoveRequest;
   await taskStore.remove(req.dir, req.id);
   return ({}) satisfies TaskRemoveResponse;
+}
+
+async function handleTaskRemoveByWorktree(body: unknown): Promise<unknown> {
+  const req = body as TaskRemoveByWorktreeRequest;
+  // worktree 削除 cascade（handleWorktreeRemove）と同じ removeByWorktree を、worktree を
+  // 残したまま単独発火する経路。main worktree は git worktree remove 不可のため、
+  // 滞留 task の一掃にはこの経路が唯一の手段になる（Claude セッションの JSONL は消さない）
+  await taskStore.removeByWorktree(req.dir, req.worktreeDir);
+  return ({}) satisfies TaskRemoveByWorktreeResponse;
 }
 
 async function handleResumableSessionList(body: unknown): Promise<unknown> {
@@ -1125,6 +1136,7 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/task/setTerminalTitle", handleTaskSetTerminalTitle],
   ["/task/setUserTitle", handleTaskSetUserTitle],
   ["/task/remove", handleTaskRemove],
+  ["/task/removeByWorktree", handleTaskRemoveByWorktree],
   ["/task/resumableSessions", handleResumableSessionList],
   ["/projectConfig/load", handleProjectConfigLoad],
   ["/projectConfig/save", handleProjectConfigSave],

@@ -1,7 +1,7 @@
 import { Task, type WorktreeEntry } from "@gozd/rpc";
 import { describe, expect, test } from "bun:test";
 import { createPinia, setActivePinia } from "pinia";
-import { collectFsWatchTargetDirs, type RepoState, useRepoStore } from "./useRepoStore";
+import { collectFsWatchTargetDirs, dirsOfRepo, type RepoState, useRepoStore } from "./useRepoStore";
 
 function wt(path: string, branch: string, isMain = false): WorktreeEntry {
   return {
@@ -29,6 +29,38 @@ function task(id: string, worktreeDir: string): Task {
     ghTitle: "",
   };
 }
+
+describe("dirsOfRepo", () => {
+  test("git repo は配下の全 worktree path を返す（rootDir 自身は worktree として含まれる）", () => {
+    const repo: RepoState = {
+      rootDir: "/r1",
+      repoName: "r1",
+      isGitRepo: true,
+      worktrees: [wt("/r1", "main", true), wt("/r1/wt-1", "feat-a")],
+    };
+    expect(dirsOfRepo(repo)).toEqual(["/r1", "/r1/wt-1"]);
+  });
+
+  test("非 git project は rootDir 自身のみを返す", () => {
+    const repo: RepoState = {
+      rootDir: "/note",
+      repoName: "note",
+      isGitRepo: false,
+      worktrees: [],
+    };
+    expect(dirsOfRepo(repo)).toEqual(["/note"]);
+  });
+
+  test("worktree 未取得（fetch 前）の git repo は空を返す", () => {
+    const repo: RepoState = {
+      rootDir: "/r1",
+      repoName: "r1",
+      isGitRepo: true,
+      worktrees: [],
+    };
+    expect(dirsOfRepo(repo)).toEqual([]);
+  });
+});
 
 describe("collectFsWatchTargetDirs", () => {
   test("空 repo セットでは空集合", () => {

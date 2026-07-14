@@ -54,6 +54,7 @@ import { useRepoMenu } from "./useRepoMenu";
 import { useSidebarData } from "./useSidebarData";
 import { useTaskMenu } from "./useTaskMenu";
 import { useWorktreeMenu } from "./useWorktreeMenu";
+import { filterClaudeActiveRootDirs } from "./utils";
 import VoicevoxPanel from "./VoicevoxPanel.vue";
 import WorktreeMenu from "./WorktreeMenu.vue";
 import IconLucideBot from "~icons/lucide/bot";
@@ -211,19 +212,15 @@ function toggleEditMode() {
   editMode.value = !editMode.value;
 }
 
-// claude ビュー中は Claude セッションが動いている dir を持つ repo だけに絞る
-// （terminal のタイル表示と対象を揃える）。編集モード中はフィルタを解除する。
-// 隠れた repo が並び替え（move は dirOrder 全体の index で動く）や削除の対象から
-// 漏れると操作結果がずれるため。
+// claude ビュー中は Claude セッションが動いている dir を持つ repo だけに絞る。
+// 編集モード中はフィルタ解除（理由は <doc> 参照）。
 const visibleRootDirs = computed(() => {
   if (editMode.value || terminalStore.viewMode !== "claude") return repoStore.dirOrder;
-  return repoStore.dirOrder.filter((rootDir) => {
-    const repo = repoStore.repos[rootDir];
-    if (repo === undefined) return false;
-    // 非 git project は worktree を持たないので rootDir 自身で判定する
-    if (!repo.isGitRepo) return terminalStore.claudeActiveDirs.has(rootDir);
-    return repo.worktrees.some((wt) => terminalStore.claudeActiveDirs.has(wt.path));
-  });
+  return filterClaudeActiveRootDirs(
+    repoStore.dirOrder,
+    repoStore.repos,
+    terminalStore.claudeActiveDirs,
+  );
 });
 
 // move() は dragend イベントの operation を見て新しい配列を返す

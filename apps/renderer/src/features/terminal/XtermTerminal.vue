@@ -47,6 +47,8 @@ const props = defineProps<{
   fitSuspended?: boolean;
   /** true になったタイミングで imperative に DOM focus を当てる */
   focused?: boolean;
+  /** leaf が表示中か（v-show と同値）。WebglAddon のライフサイクルを同期する */
+  visible: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -69,6 +71,8 @@ let resizeObserver: ResizeObserver | undefined;
 let detachDisposer: (() => void) | undefined;
 let writeParsedDisposer: (() => void) | undefined;
 let unmounted = false;
+let webglAddon: WebglAddon | undefined;
+let webglReloadedAfterLoss = false;
 
 /** fit() の RAF デバウンス制御 */
 let fitRafId = 0;
@@ -119,6 +123,85 @@ watch(
   (suspended) => {
     if (!suspended) scheduleFit();
   },
+);
+
+/**
+ * WebGL context はページ全体で同時保持数に上限があり（Chromium は 16。17 個目の作成で
+ * 最古が強制 evict される）、gozd は全 worktree の全 leaf を mount し続けるため、全 leaf に
+ * context を持たせると上限に飽和する。飽和状態では「作り直し」が別の端末を evict する
+ * 玉突きになり永久に収束しない。可視 leaf だけが context を持つことで総数を上限未満に保つ。
+ *
+ * evict された非表示 canvas は再描画されない限り webglcontextrestored が発火せず、addon 内部の
+ * 復帰待ち失敗後の onContextLoss で通知される。復帰手段は addon の作り直しだけなので、
+ * lost したら dispose し、次の可視化で作り直す。
+ */
+function loadWebglAddon() {
+  const term = terminal;
+  if (term === undefined || webglAddon !== undefined) return;
+  const addon = new WebglAddon();
+  addon.onContextLoss(() => {
+    console.warn(`[XtermTerminal] WebGL context lost leafId=${props.leafId}`);
+    disposeWebglAddon();
+    // 可視中の lost（GPU プロセス再起動等）は hide/show を待たず 1 回だけ自己復帰を試みる。
+    // 1 回で打ち切るのは、可視 leaf が上限 16 を超える飽和状態では再ロードが別の可視 leaf を
+    // evict する玉突きになるため（1 回制限により連鎖は leaf 数で有限に止まる）
+    if (!props.visible || webglReloadedAfterLoss) return;
+    webglReloadedAfterLoss = true;
+    requestAnimationFrame(() => {
+      if (unmounted || !props.visible) return;
+      loadWebglAddon();
+    });
+  });
+  const result = tryCatch(() => term.loadAddon(addon));
+  if (!result.ok) {
+    console.warn(
+      `[XtermTerminal] WebGL unavailable, using DOM renderer: ${result.error} leafId=${props.leafId}`,
+    );
+    tryCatch(() => addon.dispose());
+    return;
+  }
+  webglAddon = addon;
+}
+
+function disposeWebglAddon() {
+  if (webglAddon === undefined) return;
+  const addon = webglAddon;
+  webglAddon = undefined;
+  // context lost 直後の dispose は内部リソースの解放に失敗しうる
+  const result = tryCatch(() => addon.dispose());
+  if (!result.ok) {
+    console.warn(
+      `[XtermTerminal] WebglAddon dispose failed: ${result.error} leafId=${props.leafId}`,
+    );
+  }
+}
+
+// renderer の差し替え（dispose / load）は常に可視状態で行う。
+// hide は pre flush（display:none 適用前 = まだ可視のうち）に dispose し、
+// show は post flush（適用後 = 寸法確定後）に load する二段構え。
+watch(
+  () => props.visible,
+  (visible) => {
+    if (visible) return;
+    disposeWebglAddon();
+  },
+  { flush: "pre" },
+);
+
+watch(
+  () => props.visible,
+  (visible) => {
+    if (!visible) return;
+    webglReloadedAfterLoss = false;
+    loadWebglAddon();
+    // 差し替え直後の cols/rows 再同期。生の fit() は scheduleFit の 0 サイズガードと
+    // lastFit 記録を迂回して極小 resize 事故を起こすため使わない。hide 前と同寸だと
+    // dedup に skip されるので、明示リセットで再 fit を強制する
+    lastFitWidth = 0;
+    lastFitHeight = 0;
+    scheduleFit();
+  },
+  { flush: "post" },
 );
 
 // focused prop が true → false → true の遷移で imperative に DOM focus を当てる。
@@ -193,7 +276,7 @@ onMounted(async () => {
 
   terminal.open(container);
 
-  // WebGL レンダラで GPU アクセラレーション（失敗時は DOM フォールバック）
+  // theme / font watcher のクロージャ用に非 undefined の terminal を capture する
   const term = terminal;
 
   // テーマ変更を全 xterm インスタンスにリアルタイム反映
@@ -212,15 +295,9 @@ onMounted(async () => {
     fitAddon?.fit();
   });
 
-  const webglResult = tryCatch(() => {
-    const webglAddon = new WebglAddon();
-    webglAddon.onContextLoss(() => {
-      webglAddon.dispose();
-    });
-    term.loadAddon(webglAddon);
-  });
-  if (!webglResult.ok) {
-    console.warn("[xterm] WebGL unavailable, using DOM renderer:", webglResult.error);
+  // WebGL レンダラで GPU アクセラレーション（可視 leaf のみ。理由は loadWebglAddon）
+  if (props.visible) {
+    loadWebglAddon();
   }
 
   fitAddon.fit();

@@ -33,6 +33,8 @@ import XtermTerminal from "./XtermTerminal.vue";
 interface Props {
   dir: string;
   leafId: string;
+  /** 親の v-show による表示状態。XtermTerminal の WebglAddon ライフサイクル同期に使う */
+  visible: boolean;
 }
 
 const props = defineProps<Props>();
@@ -94,6 +96,7 @@ function handleTerminalBlur() {
           :leaf-id="leafId"
           :fit-suspended="effectiveFitSuspended"
           :focused="isFocused"
+          :visible="visible"
           @focus="handleTerminalFocus"
           @blur="handleTerminalBlur"
         />

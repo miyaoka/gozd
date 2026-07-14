@@ -603,6 +603,11 @@ export function usePreviewContent(
 
       const sel = selection.value;
       if (path === undefined || sel === undefined) {
+        // 進行中の fetch を無効化する。version を進めないと、選択解除後に完了した fetch が
+        // version ガードを通過してクリア済みの content を復活させる。無効化した fetch は
+        // loading を畳む者がいなくなるため、loading もここで下ろす
+        fetchVersion++;
+        loading.value = false;
         currentContent.value = undefined;
         originalContent.value = undefined;
         isDirectory.value = false;

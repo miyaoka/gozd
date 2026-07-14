@@ -105,6 +105,7 @@ const HOOK_MESSAGE_DEFAULTS: HookMessage = {
   toolInput: "",
   sessionId: "",
   pendingWork: false,
+  pendingWorkDetail: "",
   source: "",
 };
 
@@ -134,6 +135,17 @@ async function handleSocketMessage(line: string, push: PushFn): Promise<void> {
     const hook = msg.hook;
     if (hook.event === "session-start" || hook.event === "session-end") {
       await applyClaudeSessionHook(hook, worktreePathFor(hook.ptyId), push);
+    }
+    if (hook.event === "done") {
+      // pendingWork false positive（完了済み entry の残留 / 長寿命 background process /
+      // 発火済み cron による working 表示の固着）の実態観測ログ。console.error floor +
+      // event-log push の二段構え（routes.ts makeDebugLogPush と同じ規律）。
+      // Stop はターンごとに 1 回なので常時出しても低頻度
+      const detail = `pty=${hook.ptyId} pendingWork=${hook.pendingWork} ${
+        hook.pendingWorkDetail !== "" ? hook.pendingWorkDetail : "(no arrays)"
+      }`;
+      console.error(`[claude-hook] Stop: ${detail}`);
+      push("debugLog", { channel: "claude-hook", label: "Stop", repo: "", detail });
     }
     // Swift onHook と同形の payload（renderer useTerminalStore handleHookEvent 契約）
     push("hook", {

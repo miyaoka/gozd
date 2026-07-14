@@ -39,6 +39,10 @@ export function writeLaunchRequest(targetPath: string, socketPath: string): void
   writeFileSync(join(dir, `${randomUUID()}.json`), JSON.stringify({ targetPath }));
 }
 
+/** pendingWorkDetail の最大長。生配列をそのまま運ぶとコマンド文字列等で肥大しうるため、
+ * ログ用途に十分な長さで切り詰める（途中で切れて JSON として壊れてもログとしては読める） */
+const PENDING_WORK_DETAIL_MAX = 4000;
+
 /** Claude Code が stdin で渡す hook JSON から HookMessage を組み立てる。
  * 代表フィールドの取り出しと pending_work の畳み込みは Swift `hookCommand` と同一 */
 export function buildHookMessage(
@@ -62,6 +66,15 @@ export function buildHookMessage(
   const backgroundCount = Array.isArray(stdinJson.background_tasks) ? stdinJson.background_tasks.length : 0;
   const cronCount = Array.isArray(stdinJson.session_crons) ? stdinJson.session_crons.length : 0;
 
+  // 観測ログ用: pending_work 算出元の生配列スナップショット。length だけで畳む現行判定が
+  // 「完了済み entry の残留 / 長寿命 background process / 発火済み cron」で false positive に
+  // なっていないかを main 側のログで観測するために運ぶ（HookMessage.pendingWorkDetail 参照）
+  const pendingArrays: Record<string, unknown> = {};
+  if (Array.isArray(stdinJson.background_tasks)) pendingArrays.background_tasks = stdinJson.background_tasks;
+  if (Array.isArray(stdinJson.session_crons)) pendingArrays.session_crons = stdinJson.session_crons;
+  const pendingWorkDetail =
+    Object.keys(pendingArrays).length > 0 ? JSON.stringify(pendingArrays).slice(0, PENDING_WORK_DETAIL_MAX) : "";
+
   return {
     event,
     ptyId,
@@ -71,6 +84,7 @@ export function buildHookMessage(
     sessionId: typeof stdinJson.session_id === "string" ? stdinJson.session_id : "",
     source: typeof stdinJson.source === "string" ? stdinJson.source : "",
     pendingWork: backgroundCount + cronCount > 0,
+    pendingWorkDetail,
   };
 }
 

@@ -16,7 +16,7 @@
 - WtCard ヘッダクリック: `worktreeStore.dir` をその wt に切り替え。focus は wt の `focusedLeafId` 維持
 - TaskRow クリック: wt を active にしたうえで、task に対応する PTY の leaf を `focusPane`
 - focus 解決: `layoutsByDir[dir].focusedLeafId` (生きていれば) → 無効なら `findFirstLeaf(root)` (ensureLayout が担保)
-- ⋮ メニュー: SidebarMenu に委譲 (worktree 行は Remove worktree、task 行は Remove task)
+- ⋮ メニュー: worktree 行は WorktreeMenu、task 行は TaskMenu に委譲
 
 ## 責務分離
 
@@ -45,7 +45,7 @@ import { useWorktreeStore } from "../worktree";
 import { RepoSection } from "./features/repo";
 import { useWorktreeActions } from "./features/worktree";
 import RepoMenu from "./RepoMenu.vue";
-import { rpcTaskRemove } from "./rpc";
+import { rpcTaskRemove, rpcTaskRemoveByWorktree } from "./rpc";
 import SidebarClock from "./SidebarClock.vue";
 import TaskEditDialog from "./TaskEditDialog.vue";
 import TaskMenu from "./TaskMenu.vue";
@@ -54,7 +54,7 @@ import { useRepoMenu } from "./useRepoMenu";
 import { useSidebarData } from "./useSidebarData";
 import { useTaskMenu } from "./useTaskMenu";
 import { useWorktreeMenu } from "./useWorktreeMenu";
-import { filterClaudeActiveRootDirs } from "./utils";
+import { filterClaudeActiveRootDirs, worktreeDisplayName } from "./utils";
 import VoicevoxPanel from "./VoicevoxPanel.vue";
 import WorktreeMenu from "./WorktreeMenu.vue";
 import IconLucideBot from "~icons/lucide/bot";
@@ -161,6 +161,25 @@ async function handleTaskRemove(rootDir: string, task: Task) {
     return;
   }
   repoStore.requestRefresh(rootDir);
+}
+
+function handleWorktreeTasksRemove(rootDir: string, wt: WorktreeEntry) {
+  // worktree ⋮ メニューからの一括削除。worktree 削除と違い wt 自体は残る（remove 不可の
+  // main worktree で滞留 session を一掃する主用途）。複数 task を不可逆に消すため確認を挟む。
+  // 削除後は handleTaskRemove と同じく requestRefresh で server の真値を取り直す
+  showConfirm(
+    `Remove all tasks (${wt.tasks.length}) in "${worktreeDisplayName(wt)}"?`,
+    async () => {
+      const result = await tryCatch(
+        rpcTaskRemoveByWorktree({ dir: rootDir, worktreeDir: wt.path }),
+      );
+      if (!result.ok) {
+        notify.error("Failed to remove tasks", result.error);
+        return;
+      }
+      repoStore.requestRefresh(rootDir);
+    },
+  );
 }
 
 function onRemoveRepo(rootDir: string) {
@@ -357,7 +376,10 @@ watch(
     </div>
 
     <!-- ⋮ メニュー（worktree / task / repo） -->
-    <WorktreeMenu @remove="(wt, rd) => handleWorktreeRemove(rd, wt)" />
+    <WorktreeMenu
+      @remove="(wt, rd) => handleWorktreeRemove(rd, wt)"
+      @remove-all-tasks="(wt, rd) => handleWorktreeTasksRemove(rd, wt)"
+    />
     <TaskMenu @remove="(task, rd) => handleTaskRemove(rd, task)" />
     <RepoMenu />
 

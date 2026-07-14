@@ -166,8 +166,9 @@ const focusedTaskId = computed(() => {
  */
 const headerActive = computed(() => props.active && focusedTaskId.value === undefined);
 
-/** main worktree (= リポジトリ root) は git worktree remove 不可。現状メニュー項目は Remove のみ。 */
-const canRemove = computed(() => !props.wt.isMain);
+/** main worktree (= リポジトリ root) は git worktree remove 不可だが、task の一括削除は
+ * できるため、いずれかの項目が出せるときだけ ⋮ を表示する（WorktreeMenu 側の出し分けと対）。 */
+const canOpenMenu = computed(() => !props.wt.isMain || props.wt.tasks.length > 0);
 
 function onMenuClick(event: MouseEvent) {
   event.stopPropagation();
@@ -229,7 +230,7 @@ function onHeaderClick() {
         </span>
       </button>
       <button
-        v-if="canRemove"
+        v-if="canOpenMenu"
         type="button"
         aria-label="Open menu"
         class="absolute inset-y-0 right-1 my-auto grid size-5 place-items-center rounded-sm bg-panel text-foreground opacity-0 shadow-md ring-1 ring-border transition-opacity duration-100 group-focus-within/wt:opacity-100 group-hover/wt:opacity-100 hover:bg-element hover:text-foreground"

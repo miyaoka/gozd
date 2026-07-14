@@ -5,6 +5,9 @@
 
 - **トップツールバー**: 左に view mode トグル (active worktree / claude terminals)、右にリスト編集ボタン
 - **dirOrder の各 repo** に対して `RepoSection` を縦に並べる
+- **claude ビュー中のフィルタ**: `terminalStore.claudeActiveDirs` に該当する dir を持つ repo だけ表示
+  (worktree / task の絞り込みは RepoSection / WtCard が同じキーで行う)。編集モード中は解除する。
+  並び替えの `move()` は dirOrder 全体の index で動くため、repo が隠れたまま drag すると操作結果がずれる
 - 各 RepoSection は header (folder + repo 名) + WtCard 列 (main wt 先頭固定) + `+ New worktree`
 - 編集モード中: 全 section が collapsed + drag で並び替え + ✕ で削除 + 末尾に `+ Add directory`
 
@@ -31,7 +34,7 @@ import { DragDropProvider } from "@dnd-kit/vue";
 import type { Task, WorktreeEntry } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { storeToRefs } from "pinia";
-import { nextTick, ref, useTemplateRef, watch } from "vue";
+import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { useArcadeStore } from "../arcade";
@@ -208,6 +211,21 @@ function toggleEditMode() {
   editMode.value = !editMode.value;
 }
 
+// claude ビュー中は Claude セッションが動いている dir を持つ repo だけに絞る
+// （terminal のタイル表示と対象を揃える）。編集モード中はフィルタを解除する。
+// 隠れた repo が並び替え（move は dirOrder 全体の index で動く）や削除の対象から
+// 漏れると操作結果がずれるため。
+const visibleRootDirs = computed(() => {
+  if (editMode.value || terminalStore.viewMode !== "claude") return repoStore.dirOrder;
+  return repoStore.dirOrder.filter((rootDir) => {
+    const repo = repoStore.repos[rootDir];
+    if (repo === undefined) return false;
+    // 非 git project は worktree を持たないので rootDir 自身で判定する
+    if (!repo.isGitRepo) return terminalStore.claudeActiveDirs.has(rootDir);
+    return repo.worktrees.some((wt) => terminalStore.claudeActiveDirs.has(wt.path));
+  });
+});
+
 // move() は dragend イベントの operation を見て新しい配列を返す
 function onDragEnd(event: DragEndEvent) {
   repoStore.dirOrder = move(repoStore.dirOrder, event);
@@ -310,7 +328,7 @@ watch(
     <div ref="scrollContainer" class="_thin-scrollbar flex flex-1 flex-col overflow-y-scroll py-4">
       <DragDropProvider @drag-end="onDragEnd">
         <RepoSection
-          v-for="(rootDir, i) in repoStore.dirOrder"
+          v-for="(rootDir, i) in visibleRootDirs"
           :key="rootDir"
           :root-dir="rootDir"
           :index="i"

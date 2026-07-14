@@ -342,6 +342,21 @@ export const useTerminalStore = defineStore("terminal", () => {
   const claudeActiveLeafIds = computed(() => claude.getClaudeActiveLeafIds());
 
   /**
+   * Claude セッションを持つ leaf の所属 dir 集合。claude ビュー中に sidebar が
+   * repo / worktree を絞り込むためのフィルタキー。TerminalPane のタイル対象
+   * （claudeActiveLeafIds）から導出するため、タイルに出る leaf と sidebar に残る
+   * wt が常に一致する。
+   */
+  const claudeActiveDirs = computed<Set<string>>(() => {
+    const dirs = new Set<string>();
+    for (const leafId of claudeActiveLeafIds.value) {
+      const dir = paneRegistry.value[leafId]?.dir;
+      if (dir !== undefined) dirs.add(dir);
+    }
+    return dirs;
+  });
+
+  /**
    * 表示用の実効モード。`userViewMode === "claude"` でも Claude leaf が 0 件なら
    * `wt` として解釈する。これにより:
    *  - claude ビュー中に split で素 PTY を増やしても、新 pane が見える wt として描画
@@ -704,6 +719,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     lastRemovedLeafId,
     // computed
     claudeActiveLeafIds,
+    claudeActiveDirs,
     // layout
     visit,
     requestResumeSession,

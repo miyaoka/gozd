@@ -106,6 +106,25 @@ describe("buildHookMessage", () => {
     expect(buildHookMessage("done", { background_tasks: [{}] }, {}).pendingWork).toBe(true);
     expect(buildHookMessage("done", { session_crons: [{}] }, {}).pendingWork).toBe(true);
   });
+
+  test("pendingWorkDetail は算出元の生配列スナップショット（両キー不在は空文字列）", () => {
+    expect(buildHookMessage("done", {}, {}).pendingWorkDetail).toBe("");
+    const hook = buildHookMessage(
+      "done",
+      { background_tasks: [{ status: "completed", id: "t1" }], session_crons: [] },
+      {},
+    );
+    expect(JSON.parse(hook.pendingWorkDetail)).toEqual({
+      background_tasks: [{ status: "completed", id: "t1" }],
+      session_crons: [],
+    });
+  });
+
+  test("pendingWorkDetail は片キーのみでも組み立て、4000 文字で切り詰める", () => {
+    const hook = buildHookMessage("done", { background_tasks: [{ command: "x".repeat(5000) }] }, {});
+    expect(hook.pendingWorkDetail.startsWith('{"background_tasks":')).toBe(true);
+    expect(hook.pendingWorkDetail.length).toBe(4000);
+  });
 });
 
 describe("parseStdinJson", () => {

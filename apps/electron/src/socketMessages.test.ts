@@ -85,7 +85,11 @@ describe("socketMessages", () => {
 
   test("複数行は submit 順に逐次処理される", async () => {
     const pushed: Array<{ event: string }> = [];
-    const handle = createSocketMessageHandler((_type, payload) => pushed.push(payload as { event: string }));
+    // done イベントは観測用の debugLog push も飛ぶため、順序検証対象の hook push だけ拾う
+    const handle = createSocketMessageHandler((type, payload) => {
+      if (type !== "hook") return;
+      pushed.push(payload as { event: string });
+    });
     handle('{"hook":{"event":"running","ptyId":1}}');
     handle('{"hook":{"event":"tool-done","ptyId":1}}');
     handle('{"hook":{"event":"done","ptyId":1}}');

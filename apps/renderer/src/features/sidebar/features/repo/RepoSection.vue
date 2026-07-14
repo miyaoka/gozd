@@ -136,12 +136,21 @@ useSortable({
   disabled: computed(() => !props.editMode),
 });
 
+/**
+ * claude ビューは「動いている agent の俯瞰」なので、対象 wt を持つ repo は collapse
+ * 状態を無視して展開する。terminal のタイルは collapse と無関係に表示されるため、
+ * 畳んだままだとタイルとサイドバーで見えている対象がずれる。
+ * force-expand 中は折りたたみコントロール（ヘッダクリック / chevron）も抑止する。
+ * 抑止しないと「クリックしても見た目は無反応だが永続 collapse 状態だけ反転する」
+ * 隠れ副作用になり、wt ビューへ戻ったとき折りたたみが予期せずずれる。
+ */
+const forceExpanded = computed(
+  () => !props.editMode && claudeFilterActive.value && visibleWorktrees.value.length > 0,
+);
+
 const visiblyCollapsed = computed(() => {
   if (props.editMode) return true;
-  // claude ビューは「動いている agent の俯瞰」なので、対象 wt を持つ repo は collapse
-  // 状態を無視して展開する。terminal のタイルは collapse と無関係に表示されるため、
-  // 畳んだままだとタイルとサイドバーで見えている対象がずれる。
-  if (claudeFilterActive.value && visibleWorktrees.value.length > 0) return false;
+  if (forceExpanded.value) return false;
   return collapsed.value;
 });
 
@@ -154,6 +163,8 @@ const bodyVisible = computed(() => isGitRepo.value && !visiblyCollapsed.value);
 const headerAriaLabel = computed(() => {
   if (props.editMode) return undefined;
   if (!isGitRepo.value) return "Open directory";
+  // force-expand 中はトグルが効かないので Collapse を予告しない
+  if (forceExpanded.value) return undefined;
   return visiblyCollapsed.value ? "Expand" : "Collapse";
 });
 const headerAriaExpanded = computed(() =>
@@ -176,6 +187,8 @@ function onHeaderClick() {
     emit("selectRoot", props.rootDir);
     return;
   }
+  // force-expand 中の toggle 抑止（理由は forceExpanded の docstring 参照）
+  if (forceExpanded.value) return;
   repoStore.toggleCollapsed(props.rootDir);
 }
 </script>
@@ -212,6 +225,7 @@ function onHeaderClick() {
         class="absolute inset-y-0 right-1.5 my-auto flex items-center gap-0.5 opacity-0 transition-opacity duration-100 group-focus-within/repo:opacity-100 group-hover/repo:opacity-100"
       >
         <button
+          v-if="!forceExpanded"
           type="button"
           :aria-label="visiblyCollapsed ? 'Expand' : 'Collapse'"
           class="grid size-5 place-items-center rounded-sm bg-panel text-foreground shadow-md ring-1 ring-border hover:bg-element"

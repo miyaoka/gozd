@@ -23,6 +23,8 @@ server port バッジは、その worktree の端末で LISTEN 中の dev server
 Task は PR/issue picker や手動操作で永続的に作られ、Claude session は
 `task.sessionId` に attach する短命属性として扱う。session 未紐付けの task
 (`sessionId == ""`) も表示対象で、行をクリックすると素の `claude` が起動する。
+ただし claude ビュー中は live な Claude セッションを持つ行だけに絞る（terminal タイルに
+対応する leaf が出ない task を sidebar だけに残すと、ビューの対象が食い違うため）。
 
 ## ハイライト
 
@@ -132,6 +134,16 @@ const tasksWithStatus = computed<TaskWithStatus[]>(() => {
 });
 
 /**
+ * claude ビュー中は live な Claude セッションを持つ task 行だけに絞る。
+ * status が undefined = セッション未紐付け / resumable（PTY 無し）で、これらは
+ * terminal タイルに対応する leaf が出ないため sidebar からも落とす。
+ */
+const visibleTasks = computed<TaskWithStatus[]>(() => {
+  if (terminalStore.viewMode !== "claude") return tasksWithStatus.value;
+  return tasksWithStatus.value.filter((entry) => entry.status !== undefined);
+});
+
+/**
  * wt 内のいずれかの task が focused PTY を持っているか。
  * active wt 以外では capsule を出してはいけない。各 wt の layoutsByDir[dir].
  * focusedLeafId は履歴として残るため、active 条件を噛ませないと過去訪問した
@@ -227,9 +239,9 @@ function onHeaderClick() {
       </button>
     </div>
 
-    <div v-if="tasksWithStatus.length > 0" class="mt-0.5 border-t border-border-subtle pt-0.5">
+    <div v-if="visibleTasks.length > 0" class="mt-0.5 border-t border-border-subtle pt-0.5">
       <TaskRow
-        v-for="entry in tasksWithStatus"
+        v-for="entry in visibleTasks"
         :key="entry.task.id"
         :task="entry.task"
         :status="entry.status"

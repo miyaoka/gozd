@@ -18,8 +18,18 @@ export interface RepoState {
 }
 
 /**
+ * repo を代表する dir 群。git repo は配下の全 worktree path、非 git は rootDir 自身。
+ * 「repo → その repo が所有する dir 集合」の分岐ルールはここが SSOT で、
+ * fs watch 対象（`collectFsWatchTargetDirs`）と sidebar の claude ビューフィルタ
+ * （`filterClaudeActiveRootDirs`）が共有する。
+ */
+export function dirsOfRepo(repo: RepoState): string[] {
+  if (!repo.isGitRepo) return [repo.rootDir];
+  return repo.worktrees.map((wt) => wt.path);
+}
+
+/**
  * `useFsWatchSync` が watch すべき dir 集合を計算する pure 関数。
- * - 各 repo の `isGitRepo` で分岐: git repo は配下の全 worktree path、非 git は rootDir 自身
  * - `useRepoStore` の computed `fsWatchTargetDirs` から呼ばれ、戻り値の `Set<string>` の
  *   `===` 比較で `watch` の再 run がトリガされる
  */
@@ -31,12 +41,8 @@ export function collectFsWatchTargetDirs(
   for (const rootDir of dirOrder) {
     const repo = repos[rootDir];
     if (repo === undefined) continue;
-    if (!repo.isGitRepo) {
-      dirs.add(repo.rootDir);
-      continue;
-    }
-    for (const wt of repo.worktrees) {
-      dirs.add(wt.path);
+    for (const dir of dirsOfRepo(repo)) {
+      dirs.add(dir);
     }
   }
   return dirs;

@@ -5,6 +5,9 @@
 
 - **トップツールバー**: 左に view mode トグル (active worktree / claude terminals)、右にリスト編集ボタン
 - **dirOrder の各 repo** に対して `RepoSection` を縦に並べる
+- **claude ビュー中のフィルタ**: `terminalStore.claudeActiveDirs` に該当する dir を持つ repo だけ表示
+  (worktree / task の絞り込みは RepoSection / WtCard が同じキーで行う)。編集モード中は解除する。
+  並び替えの `move()` は dirOrder 全体の index で動くため、repo が隠れたまま drag すると操作結果がずれる
 - 各 RepoSection は header (folder + repo 名) + WtCard 列 (main wt 先頭固定) + `+ New worktree`
 - 編集モード中: 全 section が collapsed + drag で並び替え + ✕ で削除 + 末尾に `+ Add directory`
 
@@ -31,7 +34,7 @@ import { DragDropProvider } from "@dnd-kit/vue";
 import type { Task, WorktreeEntry } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { storeToRefs } from "pinia";
-import { nextTick, ref, useTemplateRef, watch } from "vue";
+import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { useArcadeStore } from "../arcade";
@@ -51,6 +54,7 @@ import { useRepoMenu } from "./useRepoMenu";
 import { useSidebarData } from "./useSidebarData";
 import { useTaskMenu } from "./useTaskMenu";
 import { useWorktreeMenu } from "./useWorktreeMenu";
+import { filterClaudeActiveRootDirs } from "./utils";
 import VoicevoxPanel from "./VoicevoxPanel.vue";
 import WorktreeMenu from "./WorktreeMenu.vue";
 import IconLucideBot from "~icons/lucide/bot";
@@ -208,6 +212,17 @@ function toggleEditMode() {
   editMode.value = !editMode.value;
 }
 
+// claude ビュー中は Claude セッションが動いている dir を持つ repo だけに絞る。
+// 編集モード中はフィルタ解除（理由は <doc> 参照）。
+const visibleRootDirs = computed(() => {
+  if (editMode.value || terminalStore.viewMode !== "claude") return repoStore.dirOrder;
+  return filterClaudeActiveRootDirs(
+    repoStore.dirOrder,
+    repoStore.repos,
+    terminalStore.claudeActiveDirs,
+  );
+});
+
 // move() は dragend イベントの operation を見て新しい配列を返す
 function onDragEnd(event: DragEndEvent) {
   repoStore.dirOrder = move(repoStore.dirOrder, event);
@@ -310,7 +325,7 @@ watch(
     <div ref="scrollContainer" class="_thin-scrollbar flex flex-1 flex-col overflow-y-scroll py-4">
       <DragDropProvider @drag-end="onDragEnd">
         <RepoSection
-          v-for="(rootDir, i) in repoStore.dirOrder"
+          v-for="(rootDir, i) in visibleRootDirs"
           :key="rootDir"
           :root-dir="rootDir"
           :index="i"

@@ -72,6 +72,7 @@ let detachDisposer: (() => void) | undefined;
 let writeParsedDisposer: (() => void) | undefined;
 let unmounted = false;
 let webglAddon: WebglAddon | undefined;
+let webglReloadedAfterLoss = false;
 
 /** fit() の RAF デバウンス制御 */
 let fitRafId = 0;
@@ -139,10 +140,17 @@ function loadWebglAddon() {
   if (term === undefined || webglAddon !== undefined) return;
   const addon = new WebglAddon();
   addon.onContextLoss(() => {
-    console.warn(
-      `[XtermTerminal] WebGL context lost; using DOM renderer until next show leafId=${props.leafId}`,
-    );
+    console.warn(`[XtermTerminal] WebGL context lost leafId=${props.leafId}`);
     disposeWebglAddon();
+    // 可視中の lost（GPU プロセス再起動等）は hide/show を待たず 1 回だけ自己復帰を試みる。
+    // 1 回で打ち切るのは、可視 leaf が上限 16 を超える飽和状態では再ロードが別の可視 leaf を
+    // evict する玉突きになるため（1 回制限により連鎖は leaf 数で有限に止まる）
+    if (!props.visible || webglReloadedAfterLoss) return;
+    webglReloadedAfterLoss = true;
+    requestAnimationFrame(() => {
+      if (unmounted || !props.visible) return;
+      loadWebglAddon();
+    });
   });
   const result = tryCatch(() => term.loadAddon(addon));
   if (!result.ok) {
@@ -184,6 +192,7 @@ watch(
   () => props.visible,
   (visible) => {
     if (!visible) return;
+    webglReloadedAfterLoss = false;
     loadWebglAddon();
     // 差し替え直後の cols/rows 再同期。生の fit() は scheduleFit の 0 サイズガードと
     // lastFit 記録を迂回して極小 resize 事故を起こすため使わない。hide 前と同寸だと
@@ -267,7 +276,7 @@ onMounted(async () => {
 
   terminal.open(container);
 
-  // WebGL レンダラで GPU アクセラレーション（失敗時は DOM フォールバック）
+  // theme / font watcher のクロージャ用に非 undefined の terminal を capture する
   const term = terminal;
 
   // テーマ変更を全 xterm インスタンスにリアルタイム反映

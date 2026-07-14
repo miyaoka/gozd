@@ -167,8 +167,10 @@ const headerAriaLabel = computed(() => {
   if (forceExpanded.value) return undefined;
   return visiblyCollapsed.value ? "Expand" : "Collapse";
 });
+// force-expand 中はヘッダが無反応になるため、disclosure widget としての
+// aria-expanded も aria-label と対称に外す
 const headerAriaExpanded = computed(() =>
-  props.editMode || !isGitRepo.value ? undefined : !visiblyCollapsed.value,
+  props.editMode || !isGitRepo.value || forceExpanded.value ? undefined : !visiblyCollapsed.value,
 );
 
 // ⋮ menu trigger。currentTarget (ボタン要素) を anchor として emit する (WtCard と同じ規約)。

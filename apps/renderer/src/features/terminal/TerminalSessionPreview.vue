@@ -286,15 +286,21 @@ function togglePreview(event: MouseEvent, msg: PreviewMessage, origin: "main" | 
 // 焼き込んで出自を識別できるようにする。pin 後は popover を閉じる (二重表示を残さない)。
 const { pin: pinLog } = usePinnedLog();
 
-// pin 時の実測対象 (popover の中間 box)。この rect を固定ウィンドウの初期位置・初期
-// サイズに引き継ぎ、popover がその場でフローティング化したような視覚的連続性を出す。
+// pin 時の実測対象。位置は popover の中間 box の rect、サイズは本文 (スクロール面) の
+// rect を固定ウィンドウへ引き継ぎ、popover がその場でフローティング化したような視覚的
+// 連続性を出す。サイズを box の総高さでなく本文で渡すのは、ウィンドウ側のヘッダ
+// (repo + タイトル 2 段) が popover のヘッダ (pin ボタン 1 行) より高く、総高さを
+// 引き継ぐと増えたヘッダ分だけ本文が食われて切れるため (usePinnedLog の doc 参照)。
 const previewBoxRef = useTemplateRef<HTMLElement>("previewBox");
+const previewBodyRef = useTemplateRef<HTMLElement>("previewBody");
 
 function pinPreview(handoff?: PinDragHandoff) {
   const ctx = previewContext.value;
   const box = previewBoxRef.value;
-  if (ctx === undefined || box === null) return;
+  const body = previewBodyRef.value;
+  if (ctx === undefined || box === null || body === null) return;
   const rect = box.getBoundingClientRect();
+  const bodyRect = body.getBoundingClientRect();
   // ヘッダは TerminalLeafTitle と同じ SSOT から組み立てる: repo は dir → findRepoOwning
   // (name + RepoIcon 用 owner)、session タイトルは sessionId → findTaskBySessionId →
   // taskDisplayTitle。sub 由来はどの subagent かも識別できるよう subLabel を足す (main は
@@ -317,8 +323,8 @@ function pinPreview(handoff?: PinDragHandoff) {
       text: ctx.msg.text,
       x: rect.left,
       y: rect.top,
-      width: rect.width,
-      height: rect.height,
+      bodyWidth: bodyRect.width,
+      bodyHeight: bodyRect.height,
     },
     handoff,
   );
@@ -552,7 +558,7 @@ const hasSub = computed(() => subMessages.value.length > 0);
             <IconLucidePin class="size-3.5" />
           </button>
         </div>
-        <div class="min-h-0 flex-1 overflow-auto">
+        <div ref="previewBody" class="min-h-0 flex-1 overflow-auto">
           <SessionLogMessageBody :kind="previewContext.msg.kind" :text="previewContext.msg.text" />
         </div>
       </div>

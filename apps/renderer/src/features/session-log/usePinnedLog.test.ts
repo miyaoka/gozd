@@ -13,8 +13,8 @@ function pinInput(): Omit<PinnedLog, "id" | "z"> {
     text: "hello",
     x: 10,
     y: 20,
-    width: 300,
-    height: 200,
+    bodyWidth: 300,
+    bodyHeight: 200,
   };
 }
 
@@ -92,7 +92,7 @@ describe("move / close", () => {
     move(log.id, 111, 222);
     expect(log.x).toBe(111);
     expect(log.y).toBe(222);
-    expect(log.width).toBe(300);
+    expect(log.bodyWidth).toBe(300);
 
     close(log.id);
     expect(logs.value.some((l) => l.id === log.id)).toBe(false);

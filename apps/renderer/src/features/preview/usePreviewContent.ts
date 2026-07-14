@@ -752,6 +752,9 @@ export function usePreviewContent(
     originalContent,
     displayContent,
     displayIsBinary,
+    // rev 別の binary 判定 (pinned preview の snapshot が current / original を独立に扱うため)
+    isBinary,
+    isOriginalBinary,
     // git 文脈
     effectiveGitChange,
     isCommitMode,

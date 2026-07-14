@@ -8,13 +8,19 @@
 - blame / file history の rev 導出と popover 連携: `usePreviewRevs`
 - 編集の可否判定・編集セッション同期と Save / Discard 操作: `usePreviewEdit`
 - ヘッダ / モード切替ツールバーの表示ロジック: `PreviewHeader` / `PreviewToolbar`
+- 本文の leaf 切替 (v-else-if 連鎖): `PreviewContent`（pinned window と共有する表示 SSOT）
+- 独立ウィンドウへの切り離し: ヘッダのドラッグ (しきい値超過) で raw source を
+  スナップショット化して `usePinnedPreview` / PinnedPreviewLayer へ pin する
+  (terminal の session preview popover と同じ操作感)。ドラッグ経路は pin 元の rect と
+  掴んだ pointer を `PinDragHandoff` でウィンドウへ引き継ぎ、pane を掴んでそのまま
+  引き剥がす操作感にする。pin 後は popover を閉じる (二重表示を残さない)
 
-本コンポーネントに残るのは leaf の切替（v-else-if 連鎖）と上記レイヤー間の配線だけ。
+本コンポーネントに残るのは上記レイヤー間の配線だけ。
 
 ## プレビュー種別
 
 拡張子 → 種別の対応表の SSOT は `previewFileType.ts`（docs/preview.md のファイル種別表と対応）。
-子コンポーネントの内訳:
+leaf コンポーネントの内訳 (`PreviewContent` 配下):
 
 - コード → CodePreview（Monaco + Shiki TextMate ハイライト。編集可能ファイルは常時編集状態）
 - 差分 → DiffPreview（`git diff --no-index` で取得した hunk 配列を描画）
@@ -25,20 +31,22 @@
 
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, useTemplateRef, watch } from "vue";
+import { useRepoStore } from "../../shared/repo";
 import { useChangesSummaryStore } from "../changes";
+import type { PinDragHandoff } from "../floating-window";
 import { useWorktreeStore } from "../worktree";
-import CodePreview from "./CodePreview.vue";
-import DiffPreview from "./DiffPreview.vue";
 import { ChangesSummaryView } from "./features/changes-summary";
 import { useBlamePopover, useFileHistoryPopover } from "./features/commit-history";
-import { MarkdownPreview } from "./features/markdown";
-import HtmlPreview from "./HtmlPreview.vue";
-import ImagePreview from "./ImagePreview.vue";
-import { previewCodeFontFamily, previewFontFamily, previewFontSize } from "./previewConfig";
+import PreviewContent from "./PreviewContent.vue";
 import PreviewHeader from "./PreviewHeader.vue";
 import PreviewToolbar from "./PreviewToolbar.vue";
 import { resolveOpenablePath } from "./resolveOpenablePath";
+import {
+  usePinnedPreview,
+  type PinnedPreviewDoc,
+  type PinnedPreviewSource,
+} from "./usePinnedPreview";
 import { usePreviewContent } from "./usePreviewContent";
 import { usePreviewEdit } from "./usePreviewEdit";
 import { usePreviewEditStore } from "./usePreviewEditStore";
@@ -50,6 +58,7 @@ const emit = defineEmits<{
 }>();
 
 const worktreeStore = useWorktreeStore();
+const repoStore = useRepoStore();
 const { selectedDisplayPath, selectedLineNumber, revealVersion } = storeToRefs(worktreeStore);
 const summaryStore = useChangesSummaryStore();
 const previewStore = usePreviewStore();
@@ -76,10 +85,13 @@ const {
   error,
   isDirectory,
   isNotFound,
+  isContentUnavailable,
   currentContent,
   originalContent,
   displayContent,
   displayIsBinary,
+  isBinary,
+  isOriginalBinary,
   effectiveGitChange,
   imageUrl,
 } = content;
@@ -109,6 +121,140 @@ const diffCurrent = computed<string | undefined>(() => {
 
 /** コード折り返しトグル */
 const wordWrap = ref(true);
+
+// ==== 独立ウィンドウへの切り離し (pin) ====
+
+const { pin: pinPreviewWindow } = usePinnedPreview();
+
+// pin 時の実測対象。位置は pane 全体 (paneBox) の rect、サイズは本文領域 (paneBody) の
+// rect を固定ウィンドウへ引き継ぎ、pane がその場でフローティング化したような視覚的
+// 連続性を出す (総サイズでなく本文サイズを渡す理由は useFloatingWindows の doc 参照)。
+const paneBoxRef = useTemplateRef<HTMLElement>("paneBox");
+const paneBodyRef = useTemplateRef<HTMLElement>("paneBody");
+
+/**
+ * pin 時点の raw source (current / original の 2 rev テキスト) をスナップショット化する。
+ * 表示形は保存しない — window 側が doc + view 状態 (mode / preview / wrap) から都度導出
+ * する (PinnedPreviewDoc の doc 参照)。表示が確定していない状態 (loading / directory /
+ * notFound / error) と、表示可能な形を 1 つも持たないファイルは undefined で pin 不可に
+ * 倒す (ドラッグは無反応になる)。
+ */
+function buildPinnedDoc(): PinnedPreviewDoc | undefined {
+  const path = selectedDisplayPath.value;
+  if (path === undefined) return undefined;
+  if (isContentUnavailable.value) return undefined;
+  // current は編集可能ファイルなら draft を含む diffCurrent が SSOT。バイナリ側は持たない
+  const current = isBinary.value ? undefined : diffCurrent.value;
+  const original = isOriginalBinary.value ? undefined : originalContent.value;
+  const ft = fileType.value;
+  // 画像 (image / svg) はテキストが無くても URL 表示できる (window 側が source から組む)
+  if (current === undefined && original === undefined && ft !== "image" && ft !== "svg") {
+    return undefined;
+  }
+  return { filePath: path, current, original };
+}
+
+function detachPreview(handoff?: PinDragHandoff) {
+  const path = selectedDisplayPath.value;
+  const box = paneBoxRef.value;
+  const body = paneBodyRef.value;
+  if (path === undefined || box === null || body === null) return;
+  // 「本体 preview として開き直す」ボタンの対象。pin 元の選択をそのまま焼き込む。
+  // doc の画像 URL 構築にも使うため先に確定させる。
+  const sel = worktreeStore.selection;
+  const dir = worktreeStore.dir;
+  const source: PinnedPreviewSource | undefined =
+    sel === undefined
+      ? undefined
+      : sel.kind === "absolute"
+        ? { kind: "absolute", absPath: sel.absPath }
+        : dir === undefined
+          ? undefined
+          : { kind: "worktree", dir, relPath: sel.relPath };
+  if (source === undefined) return;
+  const doc = buildPinnedDoc();
+  if (doc === undefined) return;
+  const rect = box.getBoundingClientRect();
+  const bodyRect = body.getBoundingClientRect();
+  // ヘッダ上段の出自 (repo + worktree branch)。pinned window は worktree 切替を跨いで
+  // 生存するため pin 時点の値を焼き込む (PinnedLogWindow のヘッダと同じ規律)。
+  // worktree 外の絶対パス (session log 等) は repo 帰属が無いので解決しない (空文字で
+  // 上段ごと省かれる)。branch は WorktreeEntry のワイヤ契約どおり detached HEAD で空文字。
+  const repo = source.kind === "worktree" ? repoStore.findRepoOwning(source.dir) : undefined;
+  const branch = repo?.worktrees.find((wt) => wt.path === dir)?.branch ?? "";
+  pinPreviewWindow(
+    {
+      repoName: repo?.repoName ?? "",
+      repoOwner: repo?.githubIdentity?.owner ?? "",
+      branch,
+      fileName: path.split("/").pop() ?? path,
+      displayPath: path,
+      // モードタブは本体 availableModes の snapshot で再現する (window 側は git change
+      // 種別を知らないため、判定結果だけを焼き込む)
+      modes: [...availableModes.value],
+      activeMode: activeMode.value,
+      originalHashLabel: originalHashLabel.value,
+      wordWrap: wordWrap.value,
+      previewEnabled: previewEnabled.value,
+      doc,
+      source,
+      x: rect.left,
+      y: rect.top,
+      bodyWidth: bodyRect.width,
+      bodyHeight: bodyRect.height,
+    },
+    handoff,
+  );
+  // pin 後は popover を閉じる (二重表示を残さない)。close 経路は MainLayout →
+  // previewStore.close() で、ヘッダの close ボタンと同じ意味論。
+  emit("close");
+}
+
+/** ヘッダのドラッグを pin 化とみなすしきい値 (px)。ヘッダ内ボタンのクリックと区別する。 */
+const DRAG_PIN_THRESHOLD = 4;
+
+// ヘッダのドラッグ検知。しきい値を超えたら pin して、掴んでいる pointer ごと
+// PinnedPreviewWindow へドラッグを引き継ぐ (PinDragHandoff)。pin は rect を実測してから
+// popover を閉じるので、ウィンドウは掴んだその位置に現れてそのまま動かせる
+// (TerminalSessionPreview の全文 popover と同じ流儀)。
+let headerDrag: { pointerId: number; startX: number; startY: number } | undefined;
+
+function onHeaderPointerDown(event: PointerEvent) {
+  if (event.button !== 0) return;
+  // ヘッダ内のボタン (back / forward / ⋮ / close) 起点はボタン操作。ドラッグ判定に乗せない
+  if (event.target instanceof Element && event.target.closest("button") !== null) return;
+  const header = event.currentTarget;
+  if (!(header instanceof HTMLElement)) return;
+  // しきい値到達前に pointer がヘッダ外へ滑っても pointermove を受け続けるため capture する。
+  // pin 発火後は popover が hide されるが要素は mount されたままなので、capture された
+  // pointer の event は window までバブリングし FloatingWindow のドラッグ追従が継続する。
+  header.setPointerCapture(event.pointerId);
+  headerDrag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY };
+}
+
+function onHeaderPointerMove(event: PointerEvent) {
+  if (headerDrag === undefined || event.pointerId !== headerDrag.pointerId) return;
+  const dx = event.clientX - headerDrag.startX;
+  const dy = event.clientY - headerDrag.startY;
+  if (Math.hypot(dx, dy) < DRAG_PIN_THRESHOLD) return;
+  const box = paneBoxRef.value;
+  if (box === null) return;
+  // オフセットは掴んだ瞬間 (pointerdown) の位置基準。しきい値超過時点の位置基準にすると
+  // 引き継ぎ直後にしきい値分だけウィンドウが跳ねる。
+  const rect = box.getBoundingClientRect();
+  const grab = headerDrag;
+  headerDrag = undefined;
+  detachPreview({
+    pointerId: event.pointerId,
+    offsetX: grab.startX - rect.left,
+    offsetY: grab.startY - rect.top,
+  });
+}
+
+function onHeaderPointerUp(event: PointerEvent) {
+  if (headerDrag?.pointerId !== event.pointerId) return;
+  headerDrag = undefined;
+}
 
 /**
  * Monaco chunk (数 MB) のアイドル先読み。初回のコードプレビューで dynamic import を待つと
@@ -167,13 +313,23 @@ function onCodeScrolled() {
 <template>
   <ChangesSummaryView v-if="summaryStore.enabled" @close="previewStore.close()" />
 
-  <div v-else class="flex h-full flex-col overflow-hidden">
-    <!-- ヘッダー（常に表示） -->
-    <PreviewHeader
-      :file-commit-date-props="fileCommitDateProps"
-      :openable-abs-path="openableAbsPath"
-      @close="emit('close')"
-    />
+  <div v-else ref="paneBox" class="flex h-full flex-col overflow-hidden">
+    <!-- ヘッダー（常に表示）。ボタン以外の領域のドラッグ (しきい値超過) で表示中
+         コンテンツを独立フローティングウィンドウへ切り離す -->
+    <div
+      class="shrink-0 cursor-grab select-none active:cursor-grabbing"
+      title="Drag to pin as floating window"
+      @pointerdown="onHeaderPointerDown"
+      @pointermove="onHeaderPointerMove"
+      @pointerup="onHeaderPointerUp"
+      @pointercancel="onHeaderPointerUp"
+    >
+      <PreviewHeader
+        :file-commit-date-props="fileCommitDateProps"
+        :openable-abs-path="openableAbsPath"
+        @close="emit('close')"
+      />
+    </div>
 
     <!-- 未選択 -->
     <div
@@ -201,7 +357,7 @@ function onCodeScrolled() {
            真逆の破壊的アクションである save/discard をアイコンだけの小さなボタンで
            隣接させると誤操作しやすいため、ラベルと視覚的な重み (Save = primary 塗りつぶし、
            Discard = 地味なテキスト) の非対称性で区別する。 -->
-      <div class="relative min-h-0 flex-1">
+      <div ref="paneBody" class="relative min-h-0 flex-1">
         <div
           v-if="isEditable && isDirty"
           class="absolute top-2 right-4 z-10 flex h-7 items-center gap-2 rounded-md border border-border bg-panel px-2 shadow-sm"
@@ -228,84 +384,38 @@ function onCodeScrolled() {
         </div>
 
         <!--
-          コンテンツ。Cmd+A scope は各 leaf 側で完結させる (MarkdownPreview / DiffPreview は
-          contenteditable、CodePreview は Monaco 自身の selection)。PreviewPane 側は
-          ラッパとしてのみ振る舞い、contenteditable を持たないことで nested editing host の
-          不安定領域を踏まない。
+          コンテンツ。leaf 切替の実体は PreviewContent (pinned window と共有する表示 SSOT)。
+          ここは live なデータ源 (usePreviewContent) と編集 / blame の文脈を配線するだけ。
+          Cmd+A scope は各 leaf 側で完結させる (MarkdownPreview / DiffPreview は
+          contenteditable、CodePreview は Monaco 自身の selection)。
         -->
-        <div
-          class="size-full overflow-auto"
-          :style="{
-            fontFamily: previewFontFamily || undefined,
-            fontSize: previewFontSize > 0 ? `${previewFontSize}px` : undefined,
-            '--preview-code-font-family': previewCodeFontFamily || undefined,
-          }"
-        >
-          <div v-if="loading" class="p-4 text-sm text-foreground-low">Loading...</div>
-
-          <div v-else-if="isDirectory" class="p-4 text-sm text-foreground-low">Directory</div>
-
-          <div v-else-if="isNotFound" class="p-4 text-sm text-foreground-low">File not found</div>
-
-          <div v-else-if="error" class="p-4 text-sm text-destructive-text">{{ error }}</div>
-
-          <!-- diff モード。編集可能ファイルは Monaco diff editor (modified 側が常時編集可) -->
-          <DiffPreview
-            v-else-if="
-              activeMode === 'diff' && originalContent !== undefined && diffCurrent !== undefined
-            "
-            :original="originalContent"
-            :current="diffCurrent"
-            :file-path="selectedDisplayPath ?? ''"
-            :word-wrap="wordWrap"
-            :blame-enabled="blameEnabled"
-            :editable="isEditable"
-            @line-number-click="onDiffLineClick"
-            @update:current="editStore.updateDraft($event)"
-            @scrolled="onCodeScrolled"
-          />
-
-          <!-- 画像プレビュー（バイナリ画像 + SVG preview モード）。worktree 外の絶対パスも /abs 経路で配信 -->
-          <ImagePreview
-            v-else-if="imageUrl"
-            :src="imageUrl"
-            @error="error = 'Failed to load image'"
-          />
-
-          <!-- バイナリ（画像以外） -->
-          <div v-else-if="displayIsBinary" class="p-4 text-sm text-foreground-low">
-            Binary file — preview not available
-          </div>
-
-          <!-- Markdown preview モード -->
-          <MarkdownPreview
-            v-else-if="fileType === 'markdown' && previewEnabled && displayContent"
-            :content="displayContent"
-          />
-
-          <!-- HTML preview モード（sandboxed iframe でネイティブ描画） -->
-          <HtmlPreview
-            v-else-if="fileType === 'html' && previewEnabled && displayContent"
-            :content="displayContent"
-          />
-
-          <!-- コード表示・編集。編集可能ファイル (isEditable) は常時編集状態で、内容は
-               editStore.draftContent が SSOT (codeContent 参照)。読み取り専用 (Original タブ /
-               commit・PR diff モード等) は displayContent をそのまま表示する。 -->
-          <CodePreview
-            v-else-if="codeContent !== undefined"
-            :content="codeContent"
-            :file-path="selectedDisplayPath"
-            :line-number="selectedLineNumber"
-            :reveal-version="revealVersion"
-            :word-wrap="wordWrap"
-            :blame-enabled="blameEnabled"
-            :editable="isEditable"
-            @line-number-click="onCodeLineClick"
-            @scrolled="onCodeScrolled"
-            @update:content="editStore.updateDraft($event)"
-          />
-        </div>
+        <PreviewContent
+          class="size-full"
+          :file-path="selectedDisplayPath"
+          :file-type="fileType"
+          :active-mode="activeMode"
+          :preview-enabled="previewEnabled"
+          :word-wrap="wordWrap"
+          :original-content="originalContent"
+          :diff-current="diffCurrent"
+          :code-content="codeContent"
+          :display-content="displayContent"
+          :image-url="imageUrl"
+          :display-is-binary="displayIsBinary"
+          :loading="loading"
+          :is-directory="isDirectory"
+          :is-not-found="isNotFound"
+          :error="error"
+          :line-number="selectedLineNumber"
+          :reveal-version="revealVersion"
+          :blame-enabled="blameEnabled"
+          :editable="isEditable"
+          @code-line-click="onCodeLineClick"
+          @diff-line-click="onDiffLineClick"
+          @update-content="editStore.updateDraft($event)"
+          @scrolled="onCodeScrolled"
+          @image-error="error = 'Failed to load image'"
+        />
       </div>
     </template>
   </div>

@@ -18,7 +18,7 @@ const HEAD_MARKER_HEIGHT = 12;
  */
 const GRAPH_RIGHT_GUTTER = 8;
 
-/** Graph 列の幅。右側に最右 dot / リング用のガターを確保する。 */
+/** Graph 列の幅。右側に最右レーンの dot 用のガターを確保する。 */
 export function graphColumnWidth(maxLanes: number): number {
   return GRAPH_PADDING_X + maxLanes * LANE_WIDTH + GRAPH_RIGHT_GUTTER;
 }

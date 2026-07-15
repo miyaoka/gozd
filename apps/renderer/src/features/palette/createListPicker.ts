@@ -23,7 +23,7 @@ export function createListPicker<T>() {
   const showSignal = ref(0);
   const hideSignal = ref(0);
   let generation = 0;
-  let acceptCallback: ((item: T) => void) | undefined;
+  let acceptCallback: ((item: T) => void | Promise<void>) | undefined;
 
   /** loading 状態で dialog を即時表示する。fetch 前に呼ぶ。返り値の世代を setResult/hide に渡す。 */
   function open(): number {
@@ -46,7 +46,7 @@ export function createListPicker<T>() {
     gen: number,
     nextItems: T[],
     viewerLogin: string,
-    onAccept: (item: T) => void,
+    onAccept: (item: T) => void | Promise<void>,
   ) {
     if (gen !== generation) return;
     items.value = nextItems;
@@ -68,8 +68,11 @@ export function createListPicker<T>() {
     return true;
   }
 
-  function accept(item: T) {
-    acceptCallback?.(item);
+  /** 選択 item に callback を適用する。返り値の promise は callback の完了（成功 / 失敗を
+   * 問わず）を表し、dialog が「連続選択（Shift 選択）で完了まで追加の accept をブロックする」
+   * ために使う。sync callback / 未束縛（loading 中 / open で破棄済み）は即 resolve。 */
+  function accept(item: T): Promise<void> {
+    return Promise.resolve(acceptCallback?.(item));
   }
 
   return { items, viewer, status, showSignal, hideSignal, open, setResult, hide, accept };

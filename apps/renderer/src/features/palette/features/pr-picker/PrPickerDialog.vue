@@ -19,15 +19,21 @@ PR selection dialog. Displays open pull requests in a table layout with fuzzy fi
 - Rows whose PR already has a task in this repo are tinted (bg-primary-subtle) and
   marked with a check icon; accepting them switches to the existing task's worktree
   instead of creating a new one (the branch decision lives in registerPrCommand)
+- Shift+Enter / Shift+Click accepts without closing the dialog, for creating
+  worktrees from multiple PRs consecutively. The command writes the created task
+  back into the picker item on completion, so the row flips to the tinted
+  "task exists" state and re-accepting it routes to the existing-task switch
 
 ## Concurrency
 
-`acceptSelected` calls `close()` before `accept()` so the dialog is removed
-from the DOM before the async accept callback (worktree creation) starts.
-This is the primary guard against re-entry: callbacks do not need their own
-`isCreating` flag because keydown / click events stop reaching the closed
-dialog. Additionally, `branch: pr.headRef` is deterministic, so duplicate
-creations would be rejected by `git worktree add` itself.
+For a plain accept, `acceptSelected` calls `close()` before `accept()` so the
+dialog is removed from the DOM before the async accept callback (worktree
+creation) starts; keydown / click events stop reaching the closed dialog.
+For a Shift accept the dialog stays open, so that guard does not apply:
+accepts of different rows run in parallel, and only re-accepting a row whose
+accept is still in flight is blocked (`busyNumbers`) — it would recreate the
+same `pr.headRef` branch. Each in-flight row shows a spinner in place of the
+check icon.
 </doc>
 
 <script setup lang="ts">
@@ -52,6 +58,10 @@ const { items: prItems, viewer, status, showSignal, hideSignal, accept } = usePr
 const query = ref("");
 const filterAssignee = ref(false);
 const filterReviewer = ref(false);
+/** Shift 選択 (dialog を閉じない accept) で実行中の PR 番号集合。同一 PR の再 accept
+ * (= 同じ headRef branch の二重作成) だけをブロックし、別 PR は並行に accept できる。
+ * 実行中の行はチェックマーク位置にスピナーを出す */
+const busyNumbers = ref(new Set<number>());
 
 /** 検索対象テキストを生成（title, branch, author を結合） */
 function searchText(pr: GitPullRequest): string {
@@ -117,6 +127,9 @@ watch(showSignal, () => {
   query.value = "";
   filterAssignee.value = false;
   filterReviewer.value = false;
+  // 前回 session の Shift 選択が未完了のまま閉じられていても、新 session では
+  // 選択をブロックしない (close 後の accept は従来から fire-and-forget)。
+  busyNumbers.value.clear();
   reset();
   dialog.showModal();
   contextKeys.set("prPickerVisible", true);
@@ -136,11 +149,24 @@ function close() {
   contextKeys.set("prPickerVisible", false);
 }
 
-function acceptSelected() {
+/**
+ * keepOpen (Shift 選択) は dialog を閉じずに accept し、連続作成に使う。
+ * close() による再入ガードが効かないため、同一 item の accept 実行中だけ再 accept を
+ * ブロックする (同じ branch 名での二重作成 = 競合になるため)。別 item は並行に accept できる。
+ */
+function acceptSelected(keepOpen: boolean) {
   const item = filteredPrs.value[selectedIndex.value];
   if (!item) return;
-  close();
-  accept(item);
+  if (busyNumbers.value.has(item.pr.number)) return;
+  if (!keepOpen) {
+    close();
+    void accept(item);
+    return;
+  }
+  busyNumbers.value.add(item.pr.number);
+  void accept(item).finally(() => {
+    busyNumbers.value.delete(item.pr.number);
+  });
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -164,7 +190,7 @@ function handleKeydown(e: KeyboardEvent) {
       break;
     case "Enter":
       e.preventDefault();
-      acceptSelected();
+      acceptSelected(e.shiftKey);
       break;
   }
 }
@@ -262,13 +288,17 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
             item.pr.isDraft && 'opacity-50',
           ]"
           @click="
-            () => {
+            (e) => {
               selectedIndex = i;
-              acceptSelected();
+              acceptSelected(e.shiftKey);
             }
           "
         >
-          <PrPickerRow :pr="item.pr" :has-task="item.existingTask !== undefined" />
+          <PrPickerRow
+            :pr="item.pr"
+            :has-task="item.existingTask !== undefined"
+            :creating="busyNumbers.has(item.pr.number)"
+          />
         </div>
       </div>
     </div>

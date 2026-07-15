@@ -17,7 +17,7 @@ describe("createListPicker", () => {
   test("open で loading・showSignal++、前回の items/viewer をクリアする", () => {
     const p = createListPicker<Item>();
     const g0 = p.open();
-    p.setResult(g0, [{ id: 1 }], "alice", () => {});
+    p.setResult(g0, [{ id: 1 }], "alice", async () => {});
     const before = p.showSignal.value;
 
     p.open();
@@ -31,7 +31,7 @@ describe("createListPicker", () => {
   test("setResult で ready へ遷移し items/viewer を埋める", () => {
     const p = createListPicker<Item>();
     const g = p.open();
-    p.setResult(g, [{ id: 1 }, { id: 2 }], "bob", () => {});
+    p.setResult(g, [{ id: 1 }, { id: 2 }], "bob", async () => {});
     expect(p.status.value).toBe("ready");
     expect(p.items.value).toEqual([{ id: 1 }, { id: 2 }]);
     expect(p.viewer.value).toBe("bob");
@@ -41,7 +41,7 @@ describe("createListPicker", () => {
   test("setResult は空配列でも ready に遷移する", () => {
     const p = createListPicker<Item>();
     const g = p.open();
-    p.setResult(g, [], "bob", () => {});
+    p.setResult(g, [], "bob", async () => {});
     expect(p.status.value).toBe("ready");
     expect(p.items.value).toEqual([]);
   });
@@ -50,21 +50,47 @@ describe("createListPicker", () => {
     const p = createListPicker<Item>();
     const picked: Item[] = [];
     const g = p.open();
-    p.setResult(g, [{ id: 7 }], "", (item) => picked.push(item));
+    p.setResult(g, [{ id: 7 }], "", async (item) => {
+      picked.push(item);
+    });
     p.accept({ id: 7 });
     expect(picked).toEqual([{ id: 7 }]);
   });
 
+  // 連続選択 (Shift 選択) で dialog が完了までブロックするための契約
+  test("accept は callback の完了を表す promise を返す", async () => {
+    const p = createListPicker<Item>();
+    let resolveCallback: (() => void) | undefined;
+    const g = p.open();
+    p.setResult(
+      g,
+      [{ id: 1 }],
+      "",
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCallback = resolve;
+        }),
+    );
+    let settled = false;
+    const promise = p.accept({ id: 1 }).then(() => {
+      settled = true;
+    });
+    expect(settled).toBe(false);
+    resolveCallback?.();
+    await promise;
+    expect(settled).toBe(true);
+  });
+
   // loading 中は選択できないので callback は未束縛。open は前回の callback も破棄する
-  test("open 後・setResult 前の accept は no-op（stale callback を残さない）", () => {
+  test("open 後・setResult 前の accept は no-op（stale callback を残さず即 resolve）", async () => {
     const p = createListPicker<Item>();
     let called = false;
     const g = p.open();
-    p.setResult(g, [{ id: 1 }], "", () => {
+    p.setResult(g, [{ id: 1 }], "", async () => {
       called = true;
     });
     p.open();
-    p.accept({ id: 1 });
+    await p.accept({ id: 1 });
     expect(called).toBe(false);
   });
 
@@ -73,7 +99,7 @@ describe("createListPicker", () => {
     const p = createListPicker<Item>();
     const g1 = p.open();
     p.open(); // g1 を置き換える
-    p.setResult(g1, [{ id: 1 }], "alice", () => {});
+    p.setResult(g1, [{ id: 1 }], "alice", async () => {});
     expect(p.status.value).toBe("loading");
     expect(p.items.value).toEqual([]);
     expect(p.viewer.value).toBe("");

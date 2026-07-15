@@ -18,14 +18,22 @@ Issue selection dialog. Displays open issues in a table layout with fuzzy filter
 - Rows whose issue already has a task in this repo are tinted (bg-primary-subtle) and
   marked with a check icon; accepting them switches to the existing task's worktree
   instead of creating a new one (the branch decision lives in registerIssueCommand)
+- Shift+Enter / Shift+Click accepts without closing the dialog, for creating
+  worktrees from multiple issues consecutively. The command writes the created task
+  back into the picker item on completion, so the row flips to the tinted
+  "task exists" state and re-accepting it routes to the existing-task switch
 
 ## Concurrency
 
-`acceptSelected` calls `close()` before `accept()` so the dialog is removed
-from the DOM before the async accept callback (worktree creation) starts.
-This is the primary guard against re-entry: callbacks do not need their own
-`isCreating` flag because keydown / click events stop reaching the closed
-dialog.
+For a plain accept, `acceptSelected` calls `close()` before `accept()` so the
+dialog is removed from the DOM before the async accept callback (worktree
+creation) starts; keydown / click events stop reaching the closed dialog.
+For a Shift accept the dialog stays open, so that guard does not apply:
+accepts of different rows run in parallel, and only re-accepting a row whose
+accept is still in flight is blocked (`busyNumbers`) — it would create a
+duplicate worktree for the same issue. Each in-flight row shows a spinner in
+place of the check icon. Same-second timestamp branch collisions between
+different issues are guarded in registerIssueCommand, not here.
 </doc>
 
 <script setup lang="ts">
@@ -49,6 +57,10 @@ const { items: issueItems, viewer, status, showSignal, hideSignal, accept } = us
 
 const query = ref("");
 const filterAssignee = ref(false);
+/** Shift 選択 (dialog を閉じない accept) で実行中の issue 番号集合。同一 issue の再 accept
+ * (= 同 issue の worktree 二重作成) だけをブロックし、別 issue は並行に accept できる。
+ * 実行中の行はチェックマーク位置にスピナーを出す */
+const busyNumbers = ref(new Set<number>());
 
 /** 検索対象テキストを生成（number, title, author を結合） */
 function searchText(issue: GitIssue): string {
@@ -110,6 +122,9 @@ watch(showSignal, () => {
   if (!dialog || dialog.open) return;
   query.value = "";
   filterAssignee.value = false;
+  // 前回 session の Shift 選択が未完了のまま閉じられていても、新 session では
+  // 選択をブロックしない (close 後の accept は従来から fire-and-forget)。
+  busyNumbers.value.clear();
   reset();
   dialog.showModal();
   contextKeys.set("issuePickerVisible", true);
@@ -129,11 +144,24 @@ function close() {
   contextKeys.set("issuePickerVisible", false);
 }
 
-function acceptSelected() {
+/**
+ * keepOpen (Shift 選択) は dialog を閉じずに accept し、連続作成に使う。
+ * close() による再入ガードが効かないため、同一 item の accept 実行中だけ再 accept を
+ * ブロックする (同 issue の worktree 二重作成になるため)。別 item は並行に accept できる。
+ */
+function acceptSelected(keepOpen: boolean) {
   const item = filteredIssues.value[selectedIndex.value];
   if (!item) return;
-  close();
-  accept(item);
+  if (busyNumbers.value.has(item.issue.number)) return;
+  if (!keepOpen) {
+    close();
+    void accept(item);
+    return;
+  }
+  busyNumbers.value.add(item.issue.number);
+  void accept(item).finally(() => {
+    busyNumbers.value.delete(item.issue.number);
+  });
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -157,7 +185,7 @@ function handleKeydown(e: KeyboardEvent) {
       break;
     case "Enter":
       e.preventDefault();
-      acceptSelected();
+      acceptSelected(e.shiftKey);
       break;
   }
 }
@@ -242,13 +270,17 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
                 : 'text-foreground hover:bg-element-hover',
           ]"
           @click="
-            () => {
+            (e) => {
               selectedIndex = i;
-              acceptSelected();
+              acceptSelected(e.shiftKey);
             }
           "
         >
-          <IssuePickerRow :issue="item.issue" :has-task="item.existingTask !== undefined" />
+          <IssuePickerRow
+            :issue="item.issue"
+            :has-task="item.existingTask !== undefined"
+            :creating="busyNumbers.has(item.issue.number)"
+          />
         </div>
       </div>
     </div>

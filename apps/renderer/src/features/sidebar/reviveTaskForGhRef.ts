@@ -1,4 +1,4 @@
-import type { GhRef } from "@gozd/rpc";
+import type { GhRef, Task } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
@@ -17,13 +17,16 @@ import { rpcTaskAdd } from "./rpc";
  *
  * 呼び出し元は両 picker の既存 task hit ルートと、PR picker の branch hit ルート
  * (task は消えたが同 branch の worktree が残っている場合)。
+ *
+ * 蘇生後の task を返す (失敗時は undefined)。picker が連続選択モードで item に
+ * 書き戻し、行表示と再選択挙動を即追従させるために使う。
  */
 export async function reviveTaskForGhRef(params: {
   existingDir: string;
   ghTitle: string;
   ghRef: GhRef;
   errorLabel: string;
-}): Promise<void> {
+}): Promise<Task | undefined> {
   const { existingDir, ghTitle, ghRef, errorLabel } = params;
   const repoStore = useRepoStore();
   const notify = useNotificationStore();
@@ -35,7 +38,7 @@ export async function reviveTaskForGhRef(params: {
     // silent skip せず観察可能化する。詳細は cause 経由で渡して、トースト本文は
     // `errorLabel` のまま短く保つ (CLAUDE.md renderer の通知規約)。
     notify.error(errorLabel, new Error(`repo root not resolved for ${existingDir}`));
-    return;
+    return undefined;
   }
 
   const result = await tryCatch(
@@ -48,7 +51,8 @@ export async function reviveTaskForGhRef(params: {
   );
   if (!result.ok) {
     notify.error(errorLabel, result.error);
-    return;
+    return undefined;
   }
   repoStore.requestRefresh(rootDir);
+  return result.value.task;
 }

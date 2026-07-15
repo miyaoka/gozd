@@ -113,7 +113,7 @@ function acceptSelected() {
   const session = filteredSessions.value[selectedIndex.value];
   if (!session) return;
   close();
-  accept(session);
+  void accept(session);
 }
 
 function handleKeydown(e: KeyboardEvent) {

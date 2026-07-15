@@ -16,15 +16,27 @@ PR selection dialog. Displays open pull requests in a table layout with fuzzy fi
 - Arrow keys navigate rows, Enter accepts, Escape closes
 - Draft PRs are dimmed (opacity-50)
 - Color scheme follows `gh pr list` (green #number, cyan branch, gray author/date)
+- Rows whose PR already has a task in this repo are tinted (bg-primary-subtle) and
+  marked with a check icon; accepting them switches to the existing task's worktree
+  instead of creating a new one (the branch decision lives in registerPrCommand)
+- Shift+Enter / Shift+Click accepts without closing the dialog, for creating
+  worktrees from multiple PRs consecutively. The command writes the created task
+  back into the picker item on completion, so the row flips to the tinted
+  "task exists" state and re-accepting it routes to the existing-task switch
 
 ## Concurrency
 
-`acceptSelected` calls `close()` before `accept()` so the dialog is removed
-from the DOM before the async accept callback (worktree creation) starts.
-This is the primary guard against re-entry: callbacks do not need their own
-`isCreating` flag because keydown / click events stop reaching the closed
-dialog. Additionally, `branch: pr.headRef` is deterministic, so duplicate
-creations would be rejected by `git worktree add` itself.
+For a plain accept, `acceptSelected` calls `close()` before `accept()` so the
+dialog is removed from the DOM before the async accept callback (worktree
+creation) starts; keydown / click events stop reaching the closed dialog.
+In-flight exclusion is owned by the command layer (`useInFlightGhRefs`), not
+this dialog: dialog state is destroyed on close / reopen, so it cannot block
+re-accepting a PR whose plain accept is still running in the background. The
+dialog reads the shared set to block selection and to render a spinner in
+place of the check icon on in-flight rows — the spinner therefore survives
+closing and reopening the picker. Accepts of different rows run in parallel;
+only re-accepting an in-flight row is blocked (it would recreate the same
+`pr.headRef` branch).
 </doc>
 
 <script setup lang="ts">
@@ -33,9 +45,11 @@ import { useEventListener } from "@vueuse/core";
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useContextKeys } from "../../../../shared/command";
 import { fuzzyMatch } from "../../fuzzyMatch";
+import { useInFlightGhRefs } from "../../inFlightGhRefs";
 import { useListNavigation } from "../../useListNavigation";
 import PrPickerRow from "./PrPickerRow.vue";
 import { usePrPicker } from "./usePrPicker";
+import type { PrPickerItem } from "./usePrPicker";
 import IconLucideLoaderCircle from "~icons/lucide/loader-circle";
 
 const contextKeys = useContextKeys();
@@ -48,36 +62,39 @@ const { items: prItems, viewer, status, showSignal, hideSignal, accept } = usePr
 const query = ref("");
 const filterAssignee = ref(false);
 const filterReviewer = ref(false);
+/** accept 実行中キーの共有集合。設計理由は inFlightGhRefs.ts の module doc が SSOT。
+ * 実行中の行は選択ブロック + スピナー表示に使う */
+const inFlightGhRefs = useInFlightGhRefs();
 
 /** 検索対象テキストを生成（title, branch, author を結合） */
 function searchText(pr: GitPullRequest): string {
   return `#${pr.number} ${pr.title} ${pr.headRef} ${pr.author}`;
 }
 
-const filteredPrs = computed((): GitPullRequest[] => {
+const filteredPrs = computed((): PrPickerItem[] => {
   const v = viewer.value;
   let items = prItems.value;
 
   // assignee:me / reviewer:me フィルタ
   if (filterAssignee.value && v !== "") {
-    items = items.filter((pr) => pr.assignees.includes(v));
+    items = items.filter((item) => item.pr.assignees.includes(v));
   }
   if (filterReviewer.value && v !== "") {
-    items = items.filter((pr) => pr.reviewers.includes(v));
+    items = items.filter((item) => item.pr.reviewers.includes(v));
   }
 
   const q = query.value;
   if (q === "") return items;
 
-  const scored: Array<{ pr: GitPullRequest; score: number }> = [];
-  for (const pr of items) {
-    const result = fuzzyMatch(searchText(pr), q);
+  const scored: Array<{ item: PrPickerItem; score: number }> = [];
+  for (const item of items) {
+    const result = fuzzyMatch(searchText(item.pr), q);
     if (result) {
-      scored.push({ pr, score: result.score });
+      scored.push({ item, score: result.score });
     }
   }
   scored.sort((a, b) => b.score - a.score);
-  return scored.map((s) => s.pr);
+  return scored.map((s) => s.item);
 });
 
 const itemCount = computed(() => filteredPrs.value.length);
@@ -132,11 +149,20 @@ function close() {
   contextKeys.set("prPickerVisible", false);
 }
 
-function acceptSelected() {
-  const pr = filteredPrs.value[selectedIndex.value];
-  if (!pr) return;
-  close();
-  accept(pr);
+/**
+ * keepOpen (Shift 選択) は dialog を閉じずに accept し、連続作成に使う。
+ * 同一 item の accept 実行中だけ再 accept をブロックする (同じ branch 名での二重作成 =
+ * 競合になるため)。別 item は並行に accept できる。実行中判定はコマンド層所有の共有集合を
+ * 参照する (dialog ローカルだと close / 開き直しで破棄され、通常選択の実行中を塞げない)。
+ */
+function acceptSelected(keepOpen: boolean) {
+  const item = filteredPrs.value[selectedIndex.value];
+  if (!item) return;
+  if (inFlightGhRefs.has(item.refKey)) return;
+  if (!keepOpen) {
+    close();
+  }
+  void accept(item);
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -160,7 +186,7 @@ function handleKeydown(e: KeyboardEvent) {
       break;
     case "Enter":
       e.preventDefault();
-      acceptSelected();
+      acceptSelected(e.shiftKey);
       break;
   }
 }
@@ -245,24 +271,30 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
         class="max-h-[400px] overflow-y-auto py-1"
       >
         <div
-          v-for="(pr, i) in filteredPrs"
-          :key="pr.number"
+          v-for="(item, i) in filteredPrs"
+          :key="item.pr.number"
           class="grid cursor-pointer gap-x-2 px-3 py-1.5 text-sm"
           style="grid-template-columns: 70px 1fr 220px 120px 90px"
           :class="[
             i === selectedIndex
               ? 'bg-element text-foreground'
-              : 'text-foreground hover:bg-element-hover',
-            pr.isDraft && 'opacity-50',
+              : item.existingTask !== undefined
+                ? 'bg-primary-subtle text-foreground hover:bg-primary-subtle-hover'
+                : 'text-foreground hover:bg-element-hover',
+            item.pr.isDraft && 'opacity-50',
           ]"
           @click="
-            () => {
+            (e) => {
               selectedIndex = i;
-              acceptSelected();
+              acceptSelected(e.shiftKey);
             }
           "
         >
-          <PrPickerRow :pr="pr" />
+          <PrPickerRow
+            :pr="item.pr"
+            :has-task="item.existingTask !== undefined"
+            :creating="inFlightGhRefs.has(item.refKey)"
+          />
         </div>
       </div>
     </div>

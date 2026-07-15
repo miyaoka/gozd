@@ -150,7 +150,8 @@ describe("resolveReviveBranch", () => {
     // occupied を別 worktree で checkout（占有させる）。git が wt path を新規作成する
     git(["worktree", "add", join(parent, "wt"), "occupied"], dir);
     const { branch, startPoint } = await resolveReviveBranch(dir, "occupied");
-    expect(branch).toMatch(/^\d{8}_\d{6}$/);
+    // generateTimestamp は同一秒内の連続呼び出しで連番 suffix を付ける (per-process 一意)
+    expect(branch).toMatch(/^\d{8}_\d{6}(_\d+)?$/);
     expect(startPoint).toBe("main");
   });
 });

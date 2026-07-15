@@ -87,7 +87,7 @@ save の発火条件は `buildAppStateSnapshot()` のシリアライズ結果が
 ### 作業用 worktree
 
 - 新しい作業を始めるときは必ず worktree を作成する
-- worktree 作成時にタイムスタンプ形式のブランチ名（`YYYYMMDD_HHMMSS`）を自動生成する
+- worktree 作成時にタイムスタンプ形式のブランチ名（`YYYYMMDD_HHMMSS`）を自動生成する。同一秒内の連続作成では連番 suffix（`_2`, `_3`...）が付き、名前はプロセス内で一意
 - ブランチ名は `git branch -m <名前>` でいつでもリネームできる（worktree の紐づけは追従する）
 - PR 作成時にリネームを促す導線を用意する。検証だけで終わる worktree は名前を付けずに削除してもよい
 - 各 worktree は独立したファイルシステムを持ち、`pnpm install` / `pnpm dev` / `pnpm build` を独立して実行できる

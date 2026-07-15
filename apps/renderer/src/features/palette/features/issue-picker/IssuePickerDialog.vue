@@ -33,7 +33,7 @@ accepts of different rows run in parallel, and only re-accepting a row whose
 accept is still in flight is blocked (`busyNumbers`) — it would create a
 duplicate worktree for the same issue. Each in-flight row shows a spinner in
 place of the check icon. Same-second timestamp branch collisions between
-different issues are guarded in registerIssueCommand, not here.
+different issues cannot happen: `generateTimestamp` is unique per process.
 </doc>
 
 <script setup lang="ts">

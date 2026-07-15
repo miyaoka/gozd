@@ -17,6 +17,8 @@ export function ghRefKey(ref: GhRef): string {
  * worktree 横断で ghRef 付き task を index 化する。同一 ghRef の task が複数ある場合
  * （同 issue から複数 worktree を作った履歴がある場合）は createdAt が最新の 1 件を採用する。
  * createdAt は main 側 TaskStore が生成する同一書式の ISO 8601 のため文字列比較で足りる。
+ * createdAt は秒粒度で同点がありうるため、同点は id 辞書順で決定論的に倒す
+ * （main 側 taskStore.attachSession の pick と同じ tie-break）。
  */
 export function buildTaskIndexByGhRef(worktrees: WorktreeEntry[]): Map<string, Task> {
   const index = new Map<string, Task>();
@@ -25,7 +27,11 @@ export function buildTaskIndexByGhRef(worktrees: WorktreeEntry[]): Map<string, T
       if (task.ghRef === undefined) continue;
       const key = ghRefKey(task.ghRef);
       const current = index.get(key);
-      if (current === undefined || task.createdAt > current.createdAt) {
+      const wins =
+        current === undefined ||
+        task.createdAt > current.createdAt ||
+        (task.createdAt === current.createdAt && task.id > current.id);
+      if (wins) {
         index.set(key, task);
       }
     }

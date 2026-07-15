@@ -98,7 +98,7 @@ function acceptSelected() {
   const path = filteredFiles.value[selectedIndex.value];
   if (path === undefined) return;
   close();
-  accept(path);
+  void accept(path);
 }
 
 function handleKeydown(e: KeyboardEvent) {

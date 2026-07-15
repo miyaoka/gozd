@@ -2,7 +2,8 @@
 PR picker の1行分。PR 番号・タイトル・ブランチ・author・更新日時を色分け表示する。
 `hasTask` (repo 内に同 PR の task が既に存在する) の行は番号横にチェックアイコンを出し、
 選択が新規作成ではなく既存 task への切り替えになることを示す。
-`creating` (Shift 選択の accept 実行中) はチェックマークと同じ位置にスピナーを出す。
+`creating` (accept 実行中) はチェックマークと同じ位置にスピナーを出す。実行中判定は
+コマンド層所有の共有集合由来のため、picker を開き直しても実行中の間は表示が維持される。
 </doc>
 
 <script setup lang="ts">
@@ -25,11 +26,13 @@ const dateDisplay = computed(() => formatRelativeDate(props.pr.updatedAt));
 <template>
   <span class="flex items-center gap-1 text-success-text">
     <span class="truncate">#{{ pr.number }}</span>
-    <IconLucideLoaderCircle
-      v-if="creating"
-      aria-hidden="true"
-      class="size-3.5 shrink-0 animate-spin text-primary-text"
-    />
+    <template v-if="creating">
+      <IconLucideLoaderCircle
+        aria-hidden="true"
+        class="size-3.5 shrink-0 animate-spin text-primary-text"
+      />
+      <span class="sr-only">creating task</span>
+    </template>
     <template v-else-if="hasTask">
       <IconLucideCheck aria-hidden="true" class="size-3.5 shrink-0 text-primary-text" />
       <span class="sr-only">task exists</span>

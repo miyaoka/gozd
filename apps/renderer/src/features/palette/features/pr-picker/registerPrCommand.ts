@@ -17,6 +17,7 @@ import {
 } from "../../../sidebar";
 import { useTerminalStore } from "../../../terminal";
 import { generateTimestamp, useWorktreeStore } from "../../../worktree";
+import { inFlightKey, useInFlightGhRefs } from "../../inFlightGhRefs";
 import { buildTaskIndexByGhRef, ghRefKey } from "../../taskIndexByGhRef";
 import { ghErrorMessage } from "./ghError";
 import { rpcGitPrList } from "./rpc";
@@ -31,6 +32,7 @@ export function registerPrCommand(): () => void {
   const worktreeStore = useWorktreeStore();
   const terminalStore = useTerminalStore();
   const repoStore = useRepoStore();
+  const inFlightGhRefs = useInFlightGhRefs();
 
   const dispose = registry.register("workspace.openPr", {
     label: "Workspace: New Worktree from Pull Request",
@@ -68,25 +70,21 @@ export function registerPrCommand(): () => void {
 
         // repo 内の既存 task を ghRef で JOIN する。dialog は existingTask の有無で行の
         // 色を変え、選択時は新規作成ではなく既存 task の worktree 表示に倒す。
-        const taskByGhRef = buildTaskIndexByGhRef(repoStore.findRepoOwning(dir)?.worktrees ?? []);
+        const owningRepo = repoStore.findRepoOwning(dir);
+        const taskByGhRef = buildTaskIndexByGhRef(owningRepo?.worktrees ?? []);
         const items = prsRes.prs.map(
           (pr): PrPickerItem => ({
             pr,
             existingTask: taskByGhRef.get(ghRefKey(ghRefForPr(pr.number))),
+            refKey: inFlightKey(owningRepo?.rootDir ?? dir, ghRefForPr(pr.number)),
           }),
         );
 
-        // この callback は PrPickerDialog 側で close() 後に呼ばれるため、
-        // 連打による再エントリは dialog の DOM 除去で塞がれている。`isCreating` 相当のガードは不要。
-        // viewer 取得失敗時は undefined。空文字に倒して picker dialog の "@me" filter UI
-        // を degraded mode (filter 非表示) にする。表示ロジックは PrPickerDialog 側の
-        // `viewer !== ""` 判定で完結する。
-        // callback は async で、返す promise が処理完了 (成功 / 失敗を問わず) を表す。
-        // dialog は連続選択 (Shift 選択) 時にこの完了を待って次の選択を解禁する。
+        // accept の実体。失敗はすべて notify 済みで resolve する (throw しない) 契約。
         // 完了時に item.existingTask へ task を書き戻す (item は dialog が picker.items
         // (reactive) から渡す proxy) ことで、開いたままの一覧の行が作成済み表示に変わり、
         // 同 PR の再選択が既存切り替えルートに倒れる。
-        setResult(gen, items, viewerLogin ?? "", async (item) => {
+        const acceptPr = async (item: PrPickerItem): Promise<void> => {
           const { pr } = item;
           // 既存 task の worktree を最優先で採用する（task が指す worktree が sidebar で
           // ユーザーが見ている実体）。task 不在で branch の worktree だけ残っている場合は
@@ -160,6 +158,31 @@ export function registerPrCommand(): () => void {
           terminalStore.setPreferredSetup(result.value.dir, result.value.setupScript);
           terminalStore.viewMode = "wt";
           worktreeStore.setOpen(result.value.dir);
+        };
+
+        // viewer 取得失敗時は undefined。空文字に倒して picker dialog の "@me" filter UI
+        // を degraded mode (filter 非表示) にする。表示ロジックは PrPickerDialog 側の
+        // `viewer !== ""` 判定で完結する。
+        // callback は async で、返す promise が処理完了 (成功 / 失敗を問わず) を表す。
+        // 実行中の排他は dialog ではなくここ (コマンド層) が inFlightGhRefs で持つ。
+        // dialog の状態は close / 開き直しで破棄されるため、通常選択 (close 後の
+        // fire-and-forget 実行) 中に picker を開き直して同じ PR を選ぶ経路を dialog 側
+        // では塞げない。dialog は同じ集合を参照して選択をブロックするので通常ここには
+        // 来ないが、ブロック反映前の競合窓で到達しうるため観察可能化して弾く。
+        setResult(gen, items, viewerLogin ?? "", async (item) => {
+          if (inFlightGhRefs.has(item.refKey)) {
+            notify.info(`PR #${item.pr.number} is already being processed`);
+            return;
+          }
+          inFlightGhRefs.add(item.refKey);
+          const accepted = await tryCatch(acceptPr(item));
+          inFlightGhRefs.remove(item.refKey);
+          if (!accepted.ok) {
+            // acceptPr は失敗を notify 済みで resolve する契約なので、ここに来るのは
+            // 契約違反の throw = 真の未通知失敗。packaged では console が不可視のため、
+            // ユーザーに surface するトーストで観察可能化する
+            notify.error("Failed to process pull request selection", accepted.error);
+          }
         });
       })();
 

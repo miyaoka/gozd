@@ -28,12 +28,15 @@ Issue selection dialog. Displays open issues in a table layout with fuzzy filter
 For a plain accept, `acceptSelected` calls `close()` before `accept()` so the
 dialog is removed from the DOM before the async accept callback (worktree
 creation) starts; keydown / click events stop reaching the closed dialog.
-For a Shift accept the dialog stays open, so that guard does not apply:
-accepts of different rows run in parallel, and only re-accepting a row whose
-accept is still in flight is blocked (`busyNumbers`) — it would create a
-duplicate worktree for the same issue. Each in-flight row shows a spinner in
-place of the check icon. Same-second timestamp branch collisions between
-different issues cannot happen: `generateTimestamp` is unique per process.
+In-flight exclusion is owned by the command layer (`useInFlightGhRefs`), not
+this dialog: dialog state is destroyed on close / reopen, so it cannot block
+re-accepting an issue whose plain accept is still running in the background
+(which would create a duplicate worktree for the same issue). The dialog reads
+the shared set to block selection and to render a spinner in place of the
+check icon on in-flight rows — the spinner therefore survives closing and
+reopening the picker. Accepts of different rows run in parallel; same-second
+timestamp branch collisions cannot happen (`generateTimestamp` is unique per
+process).
 </doc>
 
 <script setup lang="ts">
@@ -42,6 +45,7 @@ import { useEventListener } from "@vueuse/core";
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useContextKeys } from "../../../../shared/command";
 import { fuzzyMatch } from "../../fuzzyMatch";
+import { useInFlightGhRefs } from "../../inFlightGhRefs";
 import { useListNavigation } from "../../useListNavigation";
 import IssuePickerRow from "./IssuePickerRow.vue";
 import { useIssuePicker } from "./useIssuePicker";
@@ -57,10 +61,9 @@ const { items: issueItems, viewer, status, showSignal, hideSignal, accept } = us
 
 const query = ref("");
 const filterAssignee = ref(false);
-/** Shift 選択 (dialog を閉じない accept) で実行中の issue 番号集合。同一 issue の再 accept
- * (= 同 issue の worktree 二重作成) だけをブロックし、別 issue は並行に accept できる。
- * 実行中の行はチェックマーク位置にスピナーを出す */
-const busyNumbers = ref(new Set<number>());
+/** accept 実行中キーの共有集合。設計理由は inFlightGhRefs.ts の module doc が SSOT。
+ * 実行中の行は選択ブロック + スピナー表示に使う */
+const inFlightGhRefs = useInFlightGhRefs();
 
 /** 検索対象テキストを生成（number, title, author を結合） */
 function searchText(issue: GitIssue): string {
@@ -122,9 +125,6 @@ watch(showSignal, () => {
   if (!dialog || dialog.open) return;
   query.value = "";
   filterAssignee.value = false;
-  // 前回 session の Shift 選択が未完了のまま閉じられていても、新 session では
-  // 選択をブロックしない (close 後の accept は従来から fire-and-forget)。
-  busyNumbers.value.clear();
   reset();
   dialog.showModal();
   contextKeys.set("issuePickerVisible", true);
@@ -146,22 +146,18 @@ function close() {
 
 /**
  * keepOpen (Shift 選択) は dialog を閉じずに accept し、連続作成に使う。
- * close() による再入ガードが効かないため、同一 item の accept 実行中だけ再 accept を
- * ブロックする (同 issue の worktree 二重作成になるため)。別 item は並行に accept できる。
+ * 同一 item の accept 実行中だけ再 accept をブロックする (同 issue の worktree 二重作成に
+ * なるため)。別 item は並行に accept できる。実行中判定はコマンド層所有の共有集合を
+ * 参照する (dialog ローカルだと close / 開き直しで破棄され、通常選択の実行中を塞げない)。
  */
 function acceptSelected(keepOpen: boolean) {
   const item = filteredIssues.value[selectedIndex.value];
   if (!item) return;
-  if (busyNumbers.value.has(item.issue.number)) return;
+  if (inFlightGhRefs.has(item.refKey)) return;
   if (!keepOpen) {
     close();
-    void accept(item);
-    return;
   }
-  busyNumbers.value.add(item.issue.number);
-  void accept(item).finally(() => {
-    busyNumbers.value.delete(item.issue.number);
-  });
+  void accept(item);
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -279,7 +275,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           <IssuePickerRow
             :issue="item.issue"
             :has-task="item.existingTask !== undefined"
-            :creating="busyNumbers.has(item.issue.number)"
+            :creating="inFlightGhRefs.has(item.refKey)"
           />
         </div>
       </div>

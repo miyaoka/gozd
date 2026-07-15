@@ -29,11 +29,14 @@ PR selection dialog. Displays open pull requests in a table layout with fuzzy fi
 For a plain accept, `acceptSelected` calls `close()` before `accept()` so the
 dialog is removed from the DOM before the async accept callback (worktree
 creation) starts; keydown / click events stop reaching the closed dialog.
-For a Shift accept the dialog stays open, so that guard does not apply:
-accepts of different rows run in parallel, and only re-accepting a row whose
-accept is still in flight is blocked (`busyNumbers`) — it would recreate the
-same `pr.headRef` branch. Each in-flight row shows a spinner in place of the
-check icon.
+In-flight exclusion is owned by the command layer (`useInFlightGhRefs`), not
+this dialog: dialog state is destroyed on close / reopen, so it cannot block
+re-accepting a PR whose plain accept is still running in the background. The
+dialog reads the shared set to block selection and to render a spinner in
+place of the check icon on in-flight rows — the spinner therefore survives
+closing and reopening the picker. Accepts of different rows run in parallel;
+only re-accepting an in-flight row is blocked (it would recreate the same
+`pr.headRef` branch).
 </doc>
 
 <script setup lang="ts">
@@ -42,6 +45,7 @@ import { useEventListener } from "@vueuse/core";
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useContextKeys } from "../../../../shared/command";
 import { fuzzyMatch } from "../../fuzzyMatch";
+import { useInFlightGhRefs } from "../../inFlightGhRefs";
 import { useListNavigation } from "../../useListNavigation";
 import PrPickerRow from "./PrPickerRow.vue";
 import { usePrPicker } from "./usePrPicker";
@@ -58,10 +62,9 @@ const { items: prItems, viewer, status, showSignal, hideSignal, accept } = usePr
 const query = ref("");
 const filterAssignee = ref(false);
 const filterReviewer = ref(false);
-/** Shift 選択 (dialog を閉じない accept) で実行中の PR 番号集合。同一 PR の再 accept
- * (= 同じ headRef branch の二重作成) だけをブロックし、別 PR は並行に accept できる。
- * 実行中の行はチェックマーク位置にスピナーを出す */
-const busyNumbers = ref(new Set<number>());
+/** accept 実行中キーの共有集合。設計理由は inFlightGhRefs.ts の module doc が SSOT。
+ * 実行中の行は選択ブロック + スピナー表示に使う */
+const inFlightGhRefs = useInFlightGhRefs();
 
 /** 検索対象テキストを生成（title, branch, author を結合） */
 function searchText(pr: GitPullRequest): string {
@@ -127,9 +130,6 @@ watch(showSignal, () => {
   query.value = "";
   filterAssignee.value = false;
   filterReviewer.value = false;
-  // 前回 session の Shift 選択が未完了のまま閉じられていても、新 session では
-  // 選択をブロックしない (close 後の accept は従来から fire-and-forget)。
-  busyNumbers.value.clear();
   reset();
   dialog.showModal();
   contextKeys.set("prPickerVisible", true);
@@ -151,22 +151,18 @@ function close() {
 
 /**
  * keepOpen (Shift 選択) は dialog を閉じずに accept し、連続作成に使う。
- * close() による再入ガードが効かないため、同一 item の accept 実行中だけ再 accept を
- * ブロックする (同じ branch 名での二重作成 = 競合になるため)。別 item は並行に accept できる。
+ * 同一 item の accept 実行中だけ再 accept をブロックする (同じ branch 名での二重作成 =
+ * 競合になるため)。別 item は並行に accept できる。実行中判定はコマンド層所有の共有集合を
+ * 参照する (dialog ローカルだと close / 開き直しで破棄され、通常選択の実行中を塞げない)。
  */
 function acceptSelected(keepOpen: boolean) {
   const item = filteredPrs.value[selectedIndex.value];
   if (!item) return;
-  if (busyNumbers.value.has(item.pr.number)) return;
+  if (inFlightGhRefs.has(item.refKey)) return;
   if (!keepOpen) {
     close();
-    void accept(item);
-    return;
   }
-  busyNumbers.value.add(item.pr.number);
-  void accept(item).finally(() => {
-    busyNumbers.value.delete(item.pr.number);
-  });
+  void accept(item);
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -297,7 +293,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
           <PrPickerRow
             :pr="item.pr"
             :has-task="item.existingTask !== undefined"
-            :creating="busyNumbers.has(item.pr.number)"
+            :creating="inFlightGhRefs.has(item.refKey)"
           />
         </div>
       </div>

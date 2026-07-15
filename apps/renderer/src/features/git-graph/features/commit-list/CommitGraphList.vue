@@ -84,7 +84,7 @@ const headNode = computed(() => {
 /** HEAD ノードの色インデックス。Working Tree のドット/接続線を HEAD と同色に揃える。不在時 0。 */
 const headColor = computed(() => headNode.value?.node.color ?? 0);
 
-/** Graph 列の幅。右側は最右 dot / リング用のガターを確保する。 */
+/** Graph 列の幅。右側は最右レーンの dot 用のガターを確保する。 */
 const graphColumnWidth = computed(() => calcGraphColumnWidth(layout.value.maxLanes));
 
 /** commit message (col 2) の最低幅。これを下回るまでは date/author/hash (min 0) が先に潰れ、

@@ -11,7 +11,6 @@ import { formatCompactTime } from "../../../../shared/time";
 import CommitSegmentList from "../../CommitSegmentList";
 import type { CommitMessageSegment } from "../../linkifyCommitMessage";
 import { useGitGraphStore } from "../../useGitGraphStore";
-import { HEAD_ROW_BG, HEAD_ROW_BG_HOVER } from "./graphColors";
 import { ROW_HEIGHT } from "./graphGeometry";
 import type { GraphNode } from "./graphLayout";
 import { computeDisplayRefs } from "./graphRefs";
@@ -41,26 +40,12 @@ const emit = defineEmits<{
 const gitGraphStore = useGitGraphStore();
 
 const isSelectedRow = computed(() => gitGraphStore.isSelectedRow(props.node.commit.hash));
-const isHeadRow = computed(() => props.node.commit.hash === gitGraphStore.headHash);
 
-// 選択と HEAD は別軸。選択を最優先、次に HEAD 行の持続背景、通常は hover のみ。
-// HEAD 帯は CSS 変数 (--head-bg / --head-bg-hover) を rowStyle が供給し、静的な bg / hover class で参照する。
-// 色を class リテラルに直書きしない (graphColors 由来で Tailwind の静的スキャンに乗らないため) が、
-// 変数名は固定なので class はスキャンでき、hover も cascade で効く (inline background だと hover が付けられない)。
-const highlightClass = computed(() => {
+// 背景塗りは選択 / hover のみが担う。HEAD は SVG overlay の三角マーカー (別チャンネル) で示すため、
+// 行の背景では表現しない (背景塗りで HEAD を敷くと選択 / hover と同一 layer を奪い合い区別できない)。
+const backgroundClass = computed(() => {
   if (isSelectedRow.value) return "bg-primary-subtle hover:bg-primary-subtle-hover";
-  if (isHeadRow.value) return "bg-[var(--head-bg)] hover:bg-[var(--head-bg-hover)]";
   return "hover:bg-element-hover";
-});
-
-// HEAD 帯の色源は graphColors の HEAD lane 色 (リング / ドットと同一 SSOT)。選択が勝つときは供給しない。
-const rowStyle = computed<Record<string, string>>(() => {
-  const style: Record<string, string> = { height: `${ROW_HEIGHT}px` };
-  if (isHeadRow.value && !isSelectedRow.value) {
-    style["--head-bg"] = HEAD_ROW_BG;
-    style["--head-bg-hover"] = HEAD_ROW_BG_HOVER;
-  }
-  return style;
 });
 
 const displayRefs = computed(() =>
@@ -91,12 +76,12 @@ function onContextmenu(e: MouseEvent) {
 <template>
   <div
     class="_graph-row col-span-full grid grid-cols-subgrid items-center text-xs"
-    :class="highlightClass"
-    :style="rowStyle"
+    :class="backgroundClass"
+    :style="{ height: `${ROW_HEIGHT}px` }"
     @click="emit('rowClick', node.commit.hash, $event)"
     @contextmenu="onContextmenu"
   >
-    <!-- col 1 (graph): SVG が absolute で覆うセル。HEAD は SVG 側の dot リングで示すため、
+    <!-- col 1 (graph): SVG が absolute で覆うセル。HEAD は SVG 側の三角マーカーで示すため、
          ここにはマーカーを置かない。 -->
     <div></div>
 

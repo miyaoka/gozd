@@ -14,6 +14,7 @@ Open / Copy file は `openable` (working tree に実体がある) のときだ�
 
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
+import { writeClipboardText } from "../../shared/clipboard";
 import { useNotificationStore } from "../../shared/notification";
 import { copyFileToOsClipboard } from "./copyFileToOsClipboard";
 import { rpcOpenFile } from "./rpc";
@@ -61,8 +62,7 @@ async function handleCopyPath() {
   const { absPath, commitHash } = props;
   const text = commitHash === undefined ? absPath : `${commitHash}\n${absPath}`;
   emit("close");
-  // navigator.clipboard 参照時の同期 throw も拾うため async IIFE で Promise 化してから tryCatch に渡す
-  const result = await tryCatch((async () => navigator.clipboard.writeText(text))());
+  const result = await writeClipboardText(text);
   if (!result.ok) {
     notify.error("Failed to copy path", result.error);
   }

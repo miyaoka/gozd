@@ -1,16 +1,18 @@
 <doc lang="md">
-git-graph の commit 行の右クリックメニュー。「Reset (mixed) to here」を描画し、snapshot した
-dir / hash に対して `git reset --mixed` を実行する。context の snapshot・位置決めは
-`useCommitContextMenu.ts`、pointerup まで open を遅延させる light-dismiss 回避は
-`useCommitContextMenuTrigger.ts` を参照。
+git-graph の commit 行の右クリックメニュー。「Copy commit hash」(full hash を clipboard へ) と
+「Reset (mixed) to here」(snapshot した dir / hash へ `git reset --mixed`) を描画する。
+context の snapshot・位置決めは `useCommitContextMenu.ts`、pointerup まで open を遅延させる
+light-dismiss 回避は `useCommitContextMenuTrigger.ts` を参照。
 </doc>
 
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
 import { computed } from "vue";
+import { writeClipboardText } from "../../../../shared/clipboard";
 import { useNotificationStore } from "../../../../shared/notification";
 import { rpcGitResetMixed } from "../../rpc";
 import { useCommitContextMenu } from "./useCommitContextMenu";
+import IconLucideCopy from "~icons/lucide/copy";
 import IconLucideUndo2 from "~icons/lucide/undo-2";
 
 const { Popover, context, close } = useCommitContextMenu();
@@ -33,6 +35,16 @@ const popoverStyle = computed(() => {
 /** メニュー表示用の短縮 hash (7 桁)。full hash は RPC にそのまま渡す */
 const shortHash = computed(() => context.value?.hash.slice(0, 7) ?? "");
 
+async function handleCopyHash() {
+  if (!context.value) return;
+  const { hash } = context.value;
+  close();
+  const result = await writeClipboardText(hash);
+  if (!result.ok) {
+    notify.error("Failed to copy commit hash", result.error);
+  }
+}
+
 async function handleResetMixed() {
   if (!context.value) return;
   const { dir, hash } = context.value;
@@ -49,6 +61,14 @@ async function handleResetMixed() {
     class="m-0 min-w-44 rounded-lg border border-border bg-background py-1 text-sm text-foreground shadow-lg"
     :style="popoverStyle"
   >
+    <button
+      v-if="context"
+      class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel"
+      @click="handleCopyHash"
+    >
+      <IconLucideCopy class="text-xs" />
+      Copy commit hash <span class="font-mono text-foreground-low">{{ shortHash }}</span>
+    </button>
     <button
       v-if="context"
       class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel"

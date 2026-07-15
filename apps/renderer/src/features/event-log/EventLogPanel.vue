@@ -12,9 +12,9 @@
 </doc>
 
 <script setup lang="ts">
-import { tryCatch } from "@gozd/shared";
 import { useEventListener } from "@vueuse/core";
 import { computed, useTemplateRef, watch } from "vue";
+import { writeClipboardText } from "../../shared/clipboard";
 import { useDebugLog } from "../../shared/debug";
 import { useNotificationStore } from "../../shared/notification";
 import { useEventLogStore } from "./useEventLogStore";
@@ -48,8 +48,7 @@ function fmtLine(e: {
  * 表示の newest-first ではなくログ慣習の oldest-first で出す。 */
 async function copyAll(): Promise<void> {
   const text = events.value.map(fmtLine).join("\n");
-  // navigator.clipboard 参照時点の同期 throw も拾うため async IIFE で Promise 化してから tryCatch
-  const result = await tryCatch((async () => navigator.clipboard.writeText(text))());
+  const result = await writeClipboardText(text);
   if (result.ok) {
     notify.info("Event log copied to clipboard");
   } else {

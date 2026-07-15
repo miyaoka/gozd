@@ -11,8 +11,8 @@
 </doc>
 
 <script setup lang="ts">
-import { tryCatch } from "@gozd/shared";
 import { computed, ref, type FunctionalComponent, type SVGAttributes } from "vue";
+import { writeClipboardText } from "../../shared/clipboard";
 import { formatCauseChain } from "./formatCause";
 import IconLucideCheck from "~icons/lucide/check";
 import IconLucideChevronDown from "~icons/lucide/chevron-down";
@@ -78,11 +78,7 @@ function toggle() {
 
 async function copyDetail() {
   const text = `${props.message}\n\n${detail.value}`;
-  // navigator.clipboard 自体が undefined の環境（古い WebView / 非 secure context）で
-  // .writeText 参照時点の同期 throw も拾うため、async IIFE で Promise 化してから tryCatch に渡す。
-  // tryCatch の関数版は Result<Promise<T>> を返すだけで Promise の reject を拾わないため、
-  // ここでは Promise 版に流し込む必要がある。
-  const result = await tryCatch((async () => navigator.clipboard.writeText(text))());
+  const result = await writeClipboardText(text);
   copyState.value = result.ok ? "copied" : "failed";
   setTimeout(() => {
     copyState.value = "idle";

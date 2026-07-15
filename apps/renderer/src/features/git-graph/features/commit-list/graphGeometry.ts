@@ -7,14 +7,14 @@
 export const LANE_WIDTH = 16;
 export const ROW_HEIGHT = 24;
 export const DOT_RADIUS = 4;
-/** HEAD ドットの外側リング半径をドット本体からどれだけ離すか (px)。塗り/選択とは別チャンネルで
- *  「今 HEAD がいる場所」を輪で示す。 */
-export const HEAD_RING_GAP = 3;
 export const GRAPH_PADDING_X = 12;
+/** HEAD マーカー: 行左端に置く右向き三角形。apex が右にどれだけ伸びるか / base の縦幅 (px)。 */
+const HEAD_MARKER_WIDTH = 8;
+const HEAD_MARKER_HEIGHT = 12;
 
 /**
- * col 1 (graph 列) の右側に確保するガター (px)。最右レーンの dot / HEAD リング (半径 ~7) が
- * col 2 の description に密着しないための余白。HEAD marker `→` は廃止済み (HEAD は dot リングで表示)。
+ * col 1 (graph 列) の右側に確保するガター (px)。最右レーンの dot が col 2 の description に
+ * 密着しないための余白。HEAD は行左端の右向き三角マーカーで示す (グラフ座標系に置く)。
  */
 const GRAPH_RIGHT_GUTTER = 8;
 
@@ -31,6 +31,16 @@ export function laneX(lane: number): number {
 /** 行番号 → Y ピクセル座標（行の中央） */
 export function rowY(row: number): number {
   return row * ROW_HEIGHT + ROW_HEIGHT / 2;
+}
+
+/**
+ * HEAD マーカーの polygon points。行左端 (x=0) に縦の base を立て、apex を右に尖らせた右向き三角形。
+ * 左ボーダーの縦バーを右へ尖らせた形で、HEAD 行と進行方向 (コミット側) を指す。
+ */
+export function headMarkerPoints(row: number): string {
+  const cy = rowY(row);
+  const halfH = HEAD_MARKER_HEIGHT / 2;
+  return `0,${cy - halfH} ${HEAD_MARKER_WIDTH},${cy} 0,${cy + halfH}`;
 }
 
 /**

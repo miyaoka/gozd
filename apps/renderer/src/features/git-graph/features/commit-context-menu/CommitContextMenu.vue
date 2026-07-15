@@ -8,6 +8,7 @@ light-dismiss 回避は `useCommitContextMenuTrigger.ts` を参照。
 <script setup lang="ts">
 import { tryCatch } from "@gozd/shared";
 import { computed } from "vue";
+import { writeClipboardText } from "../../../../shared/clipboard";
 import { useNotificationStore } from "../../../../shared/notification";
 import { rpcGitResetMixed } from "../../rpc";
 import { useCommitContextMenu } from "./useCommitContextMenu";
@@ -38,8 +39,7 @@ async function handleCopyHash() {
   if (!context.value) return;
   const { hash } = context.value;
   close();
-  // navigator.clipboard 参照時の同期 throw も拾うため async IIFE で Promise 化してから tryCatch に渡す
-  const result = await tryCatch((async () => navigator.clipboard.writeText(hash))());
+  const result = await writeClipboardText(hash);
   if (!result.ok) {
     notify.error("Failed to copy commit hash", result.error);
   }

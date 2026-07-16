@@ -186,16 +186,10 @@ watch(
   },
 );
 
-// firstParentOnly / sortMode / branchScope 切替時に再取得
-watch(firstParentOnly, () => {
-  gitGraphStore.resetSelection();
-  void loadLog();
-});
-watch(sortMode, () => {
-  gitGraphStore.resetSelection();
-  void loadLog();
-});
-watch(branchScope, () => {
+// firstParentOnly / sortMode / branchScope 切替時に再取得。3 つとも callback が同一
+// (resetSelection + loadLog) なので source 配列で 1 effect に束ねる。worktree.dir の watch は
+// callback が別 (scroll + closure リセット) なのでここには含めない。
+watch([firstParentOnly, sortMode, branchScope], () => {
   gitGraphStore.resetSelection();
   void loadLog();
 });

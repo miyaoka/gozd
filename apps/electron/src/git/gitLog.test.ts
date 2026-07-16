@@ -161,6 +161,40 @@ describe("log (integration)", () => {
     expect(allScope.commits.map((c) => c.message).sort()).toEqual(["base", "feature-only"]);
   });
 
+  test('branchScope "all" で HEAD が maxCount 窓外に押し出されても rescue で末尾 append する', async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gozd-gitlog-all-rescue-"));
+    tempDirs.push(dir);
+    runGitCmd(["init", "-b", "main"], dir);
+    runGitCmd(["config", "user.email", "t@example.com"], dir);
+    runGitCmd(["config", "user.name", "t"], dir);
+    // main（= HEAD）を古い commit にする
+    writeFileSync(join(dir, "a.txt"), "a\n");
+    runGitCmd(["add", "."], dir);
+    runGitCmd(["commit", "-m", "old-head"], dir);
+    // main から分岐した feature に、より新しい独立 commit を積む
+    runGitCmd(["checkout", "-b", "feature"], dir);
+    writeFileSync(join(dir, "f.txt"), "f\n");
+    runGitCmd(["add", "."], dir);
+    runGitCmd(["commit", "-m", "newer-feature"], dir);
+    runGitCmd(["checkout", "main"], dir);
+
+    // maxCount=1 の all walk は topo 先頭の feature tip だけを返し HEAD(main) を窓外に落とす。
+    // rescue が HEAD-only walk を末尾 append し、境界先頭に truncatedAbove を立てる。
+    const result = await log({
+      dir,
+      maxCount: 1,
+      firstParentOnly: false,
+      branchScope: "all",
+      sortMode: "topo",
+    });
+    expect(result.commits.map((c) => c.message)).toEqual(["newer-feature", "old-head"]);
+    // all walk 側 (feature tip) は境界でない
+    expect(result.commits[0].truncatedAbove).toBe(false);
+    // append された HEAD セグメントの先頭に境界マーカーが立つ
+    expect(result.commits[1].refs).toContain("HEAD");
+    expect(result.commits[1].truncatedAbove).toBe(true);
+  });
+
   test("unborn branch（commit 無し）は空 commits で正常応答する", async () => {
     const dir = mkdtempSync(join(tmpdir(), "gozd-gitlog-unborn-"));
     tempDirs.push(dir);

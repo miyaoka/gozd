@@ -100,6 +100,12 @@ popover はログがいくら追記されても開いた位置に留まり続け
 再クリックすると閉じる (トグル)。anchor が毎回同一 proxy になるため要素同一性では
 トグル判定できず、表示中 context との message 同値 (kind / ts / text / origin) で判定する。
 
+proxy が守るのは v-for の作り替えまでで、overlay root 自体が v-if で消えるとき (session
+切替で sessions が一旦空になる等) は proxy ごと unmount され、anchor 喪失の左上飛びが
+再発する。この経路は表示中 origin 側の overlay 消失を watch して popover を閉じることで
+塞ぐ (popover の内容は開いた時点の session のスナップショットで、overlay 消失後は stale
+なので閉じるのが自然)。
+
 開く向きのデフォルトは由来 overlay によって反転させる。main 由来 (画面上側 bubble) は
 `block-end` で anchor の下に、sub 由来 (画面下側 bubble) は `block-start` で anchor の
 上に開く。下側 bubble の真下は画面端に近く即 flip 前提のレイアウトになるため、初期向きを
@@ -132,7 +138,7 @@ box が伸び続ける挙動を構造的に排除する。
 </doc>
 
 <script setup lang="ts">
-import { computed, ref, useTemplateRef } from "vue";
+import { computed, ref, useTemplateRef, watch } from "vue";
 import { usePopover } from "../../shared/popover";
 import { taskDisplayTitle, useRepoStore } from "../../shared/repo";
 import type { PinDragHandoff } from "../floating-window";
@@ -286,13 +292,9 @@ const {
   close: closePreviewPopover,
 } = usePopover<PreviewContext>();
 
-// popover の anchor に使う proxy。被クリック bubble はログ追記の v-for 再レンダリングで
-// DOM ごと作り替えられ / 3 run 窓から押し出されて消えるため、直接 anchor にすると開いている
-// popover が anchor 喪失で UA fallback 位置 (左上) へ飛ぶ。クリック時点の bubble rect を
-// overlay root 相対で proxy に写して寄生先にする。overlay root 内の absolute 配置なので、
-// pane / window リサイズで overlay が動けば proxy ごと動き、CSS anchor positioning の live な
-// 追随で popover も付いてくる。ログ追記 / wrapper のスクロールでは proxy は動かない
-// (scroll content の外) ため、popover は開いた位置に留まる。
+// popover の anchor に使う proxy。クリック時点の bubble rect を overlay root 相対で写し、
+// bubble の代わりに寄生先にする (なぜ bubble を直接 anchor にしないか・なぜ fixed でなく
+// overlay 内 absolute かは <doc> の「全文 preview」参照)。
 const mainAnchorProxyRef = useTemplateRef<HTMLElement>("mainAnchorProxy");
 const subAnchorProxyRef = useTemplateRef<HTMLElement>("subAnchorProxy");
 const anchorRect = ref<{
@@ -466,6 +468,19 @@ function onSubToggle(event: Event) {
 // collectMessages も空配列を返し、副次的にカバーされる。
 const hasMain = computed(() => mainMessages.value.length > 0);
 const hasSub = computed(() => subMessages.value.length > 0);
+
+// anchor proxy は overlay root (v-if) ごと unmount され得る (session 切替で sessions が
+// 一旦空になる等)。anchor を失った popover は UA fallback 位置 (左上) へ飛ぶため、表示中
+// origin 側の overlay が消えるときは popover を閉じる。popover の内容は開いた時点の
+// session のスナップショットで、overlay 消失後は stale なので閉じるのが意味的にも自然。
+// pre-flush watch なので overlay unmount の render より先に hide が走り、左上への一瞬の
+// ちらつきも出ない。
+watch([hasMain, hasSub], ([main, sub]) => {
+  const ctx = previewContext.value;
+  if (ctx === undefined) return;
+  const overlayAlive = ctx.origin === "main" ? main : sub;
+  if (!overlayAlive) closePreviewPopover();
+});
 </script>
 
 <template>

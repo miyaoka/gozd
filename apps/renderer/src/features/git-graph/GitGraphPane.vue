@@ -1,6 +1,7 @@
 <doc lang="md">
-Git commit graph pane。active worktree のブランチとデフォルトブランチの commit graph を表示する。
-git log の取得と各部の合成を担うコンテナで、描画自体は持たない。
+Git commit graph pane。active worktree の commit graph を表示する。walk の始点 ref 範囲は
+toolbar の branch scope (current / default / all) で切替可能。git log の取得と各部の合成を担う
+コンテナで、描画自体は持たない。
 
 ## HEAD スクロールが間接経路な理由
 
@@ -14,7 +15,7 @@ HEAD-only walk を末尾 append し境界に `truncatedAbove` を立てる。ren
 </doc>
 
 <script setup lang="ts">
-import { SortMode, type GitCommit } from "@gozd/rpc";
+import { BranchScope, SortMode, type GitCommit } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { useElementSize, useIntervalFn, useWindowFocus } from "@vueuse/core";
 import { storeToRefs } from "pinia";
@@ -51,9 +52,9 @@ const focused = useWindowFocus();
 
 const defaultBranch = ref<string | undefined>();
 const firstParentOnly = ref(false);
-// SSOT: ワイヤ型 SortMode をそのまま UI 状態として持ち、RPC 呼び出しで変換不要にする。
+// SSOT: ワイヤ型 SortMode / BranchScope をそのまま UI 状態として持ち、RPC 呼び出しで変換不要にする。
 const sortMode = ref<SortMode>("date");
-const currentBranchOnly = ref(false);
+const branchScope = ref<BranchScope>("default");
 
 /** refs 配列に "HEAD" を持つコミットを探す */
 function findHeadCommit(rawCommits: GitCommit[]): GitCommit | undefined {
@@ -126,7 +127,7 @@ async function runLoadLog(): Promise<boolean> {
       dir,
       maxCount: 200,
       firstParentOnly: firstParentOnly.value,
-      currentBranchOnly: currentBranchOnly.value,
+      branchScope: branchScope.value,
       sortMode: sortMode.value,
     }),
   );
@@ -185,7 +186,7 @@ watch(
   },
 );
 
-// firstParentOnly / sortMode / currentBranchOnly 切替時に再取得
+// firstParentOnly / sortMode / branchScope 切替時に再取得
 watch(firstParentOnly, () => {
   gitGraphStore.resetSelection();
   void loadLog();
@@ -194,7 +195,7 @@ watch(sortMode, () => {
   gitGraphStore.resetSelection();
   void loadLog();
 });
-watch(currentBranchOnly, () => {
+watch(branchScope, () => {
   gitGraphStore.resetSelection();
   void loadLog();
 });
@@ -462,7 +463,7 @@ function onCommitContextmenu(payload: {
   <div ref="root" class="flex size-full flex-col overflow-hidden bg-background text-foreground">
     <GitGraphToolbar
       v-model:first-parent-only="firstParentOnly"
-      v-model:current-branch-only="currentBranchOnly"
+      v-model:branch-scope="branchScope"
       v-model:sort-mode="sortMode"
       v-model:detail-open="detailOpen"
       :commit-count="commits.length"

@@ -126,6 +126,7 @@ export type {
   GitWorktreeListResponse,
   GitWorktreeRemoveRequest,
   GitWorktreeRemoveResponse,
+  BranchScope,
   SortMode,
 } from "./gitOps";
 export type { GitStatusRequest, GitStatusResponse } from "./gitStatus";

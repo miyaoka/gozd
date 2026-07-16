@@ -2,8 +2,15 @@
 // `git log --stdin` で N ref を 1 walk する `log` を中核に置き、後続 RPC（logLine / blame
 // anchored history）が共有する `LOG_FORMAT` と `parseLogRecords` SSOT を本ファイルに閉じる。
 
+import type { BranchScope } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
-import { branchHeadName, defaultBranchName, headOidExists, upstreamRefName } from "./gitBranch";
+import {
+  allBranchRefs,
+  branchHeadName,
+  defaultBranchName,
+  headOidExists,
+  upstreamRefName,
+} from "./gitBranch";
 import { runGit, runGitWithStdin } from "./gitRunner";
 import { isAllZeroHex, validateRev } from "./gitValidate";
 
@@ -46,7 +53,7 @@ export interface LogParams {
   dir: string;
   maxCount: number;
   firstParentOnly: boolean;
-  currentBranchOnly: boolean;
+  branchScope: BranchScope;
   sortMode: LogSortMode;
 }
 
@@ -68,7 +75,7 @@ export interface LogParams {
  * - spawn 失敗（git CLI 不在等）: rethrow して上位の notify.error まで通す
  */
 export async function log(params: LogParams): Promise<LogResult> {
-  const { dir, maxCount, firstParentOnly, currentBranchOnly, sortMode } = params;
+  const { dir, maxCount, firstParentOnly, branchScope, sortMode } = params;
   // ref 解決を並列起動。fallback は正常パスだが「設定壊れ」等の異常系と区別できるよう
   // stderr に 1 行残す（silent drop 禁止規律）
   const [defaultBranchResult, upstreamRefResult, branchHeadResult, headExists] = await Promise.all([
@@ -90,21 +97,25 @@ export async function log(params: LogParams): Promise<LogResult> {
     `log: branchHeadName fallback to "" (detached HEAD?) dir=${dir}`,
   );
 
-  // 始点 ref を Set dedup で集める。currentBranchOnly では HEAD のみ。
+  // 始点 ref を Set dedup で集める。branchScope で範囲を決める。
   // unborn branch（HEAD が commit を指さない）では HEAD を始点にすると exit 128 で
   // throw するため、始点 refs から HEAD を除外する
   const refs = new Set<string>();
   if (headExists) refs.add("HEAD");
-  if (!currentBranchOnly) {
+  if (branchScope === "default") {
     if (defaultBranch !== "") refs.add(`origin/${defaultBranch}`);
     if (upstreamRef !== "") refs.add(upstreamRef);
+  } else if (branchScope === "all") {
+    // ローカル / リモート全ブランチ ref を始点に投入。git 自身が walk 中に OID dedup するため
+    // renderer 側の merge は不要（default モードと同じ walk 契約）。
+    for (const ref of await allBranchRefs(dir)) refs.add(ref);
   }
 
   const commits = await runLogStdin(dir, [...refs], maxCount, firstParentOnly, sortMode);
   const merged = await rescueCurrentBranch(
     dir,
     commits,
-    currentBranchOnly,
+    branchScope,
     headExists,
     maxCount,
     firstParentOnly,
@@ -132,13 +143,14 @@ function fallbackEmpty(result: { ok: true; value: string } | { ok: false; error:
 async function rescueCurrentBranch(
   dir: string,
   commits: CommitInfo[],
-  currentBranchOnly: boolean,
+  branchScope: BranchScope,
   headExists: boolean,
   maxCount: number,
   firstParentOnly: boolean,
   sortMode: LogSortMode,
 ): Promise<CommitInfo[]> {
-  if (currentBranchOnly || !headExists) return commits;
+  // "current" は始点が HEAD のみで押し出しが起きないため救済不要。"default" / "all" のみ対象。
+  if (branchScope === "current" || !headExists) return commits;
   // HEAD の在否判定は parse 済み refs を見る（%D の `HEAD -> branch` / detached `HEAD` は
   // parseRefs が "HEAD" 要素に展開する）。maxCount == 0（無制限）では all-refs walk が
   // HEAD も含めて全件返すため自然に false になり追加 walk は走らない

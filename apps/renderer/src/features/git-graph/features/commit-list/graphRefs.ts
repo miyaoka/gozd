@@ -6,9 +6,9 @@ import type { DisplayRef } from "./displayRef";
  * 同じコミットにローカルとリモートが両方あれば synced（computeDisplayRefs で処理）。
  * 別コミットに分かれていれば out-of-sync としてここで検出する。
  *
- * 検出範囲は `commits` に出現する ref に限定される。`currentBranchOnly` が ON のとき
+ * 検出範囲は `commits` に出現する ref に限定される。branchScope が "current" のとき
  * native 側の `git log` 始点 ref が HEAD のみに絞られ origin/<default> 系の commit が消えるため、
- * HEAD 系統から到達しない ref ペアの out-of-sync は検出できない (toggle 意味の直接の帰結)。
+ * HEAD 系統から到達しない ref ペアの out-of-sync は検出できない (scope 意味の直接の帰結)。
  */
 export function computeOutOfSyncBranches(commits: GitCommit[]): Set<string> {
   const localCommits = new Map<string, string>();

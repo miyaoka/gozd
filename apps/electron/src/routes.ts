@@ -582,7 +582,7 @@ async function handleGitLog(body: unknown): Promise<unknown> {
     dir: req.dir,
     maxCount: req.maxCount,
     firstParentOnly: req.firstParentOnly,
-    currentBranchOnly: req.currentBranchOnly,
+    branchScope: req.branchScope,
     sortMode: req.sortMode,
   });
   return (result) satisfies GitLogResponse;

@@ -23,6 +23,12 @@ export interface GitWorktreeListResponse {
  * - "date": `--date-order` で commit date 降順を厳守 */
 export type SortMode = "topo" | "date";
 
+/** git graph が walk の始点にする ref の範囲。
+ * - "current": HEAD だけを始点にする（現在ブランチのみ）
+ * - "default": HEAD + `origin/<default>` + `@{upstream}` を始点にする（標準の 2 系統表示）
+ * - "all": ローカル / リモートの全ブランチ ref を始点にする */
+export type BranchScope = "current" | "default" | "all";
+
 // gitLog: HEAD / `origin/<default>` / `@{upstream}` の各 ref を始点に
 // 1 回の `git log --stdin --decorate=short` で walk する。
 //
@@ -42,15 +48,14 @@ export interface GitLogRequest {
   dir: string;
   maxCount: number;
   firstParentOnly: boolean;
-  /** true のとき `origin/<default>` と `@{upstream}` を始点 ref から除外し、
-   * HEAD だけを始点にする。`defaultBranch` 文字列は `git symbolic-ref` で
-   * 引き続き解決して返す。 */
-  currentBranchOnly: boolean;
+  /** walk の始点 ref 範囲。`defaultBranch` 文字列は scope に依らず
+   * `git symbolic-ref` で解決して返す。 */
+  branchScope: BranchScope;
   sortMode: SortMode;
 }
 export interface GitLogResponse {
-  /** 全 ref を始点に `git log --stdin` で walk した結果。child → parent 順、
-   * sortMode に従って tie-break される。currentBranchOnly=false で HEAD が
+  /** 始点 ref を `git log --stdin` で walk した結果。child → parent 順、
+   * sortMode に従って tie-break される。branchScope !== "current" で HEAD が
    * 新しい順 maxCount ウィンドウから押し出され結果に 1 件も含まれない場合のみ、HEAD-only
    * walk を追加して末尾に append する (古い現在ブランチを graph 上で見えるように救済。
    * HEAD 系統はウィンドウの最古 commit より古いため append で順序契約は保たれる)。 */

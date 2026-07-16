@@ -53,6 +53,22 @@ export async function headOidExists(dir: string): Promise<boolean> {
 }
 
 /**
+ * ローカル / リモートの全ブランチ ref 名を返す（例: `refs/heads/main` /
+ * `refs/remotes/origin/foo`）。git graph の全ブランチ表示で `git log --stdin` の
+ * 始点に投入する。full refname で返すため log の始点として曖昧さがない。
+ *
+ * `refs/remotes/origin/HEAD`（symref）も含まれるが、指す先が origin/<default> と同一で
+ * git log の OID dedup に吸収されるため無害。tags は含めない（branch graph の対象外）。
+ */
+export async function allBranchRefs(dir: string): Promise<string[]> {
+  const stdout = await runGit(
+    ["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"],
+    dir,
+  );
+  return stdout.split("\n").filter((line) => line !== "");
+}
+
+/**
  * worktree 作成の起点として使う ref を返す。`git worktree add -b <new> <abs> <ref>` の
  * `<ref>` にそのまま渡せる文字列（`origin/main` / `main` 等）が caller の期待値。
  *

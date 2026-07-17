@@ -107,23 +107,45 @@ describe("buildHookMessage", () => {
     expect(buildHookMessage("done", { session_crons: [{}] }, {}).pendingWork).toBe(true);
   });
 
-  test("pendingWorkDetail は算出元の生配列スナップショット（両キー不在は空文字列）", () => {
-    expect(buildHookMessage("done", {}, {}).pendingWorkDetail).toBe("");
-    const hook = buildHookMessage(
+  test("teammate 型の background_tasks は pending_work に数えない（idle でも running のまま残るため）", () => {
+    // teammate のみ → pending なし（hasTeammateTask だけ立つ）
+    const teammateOnly = buildHookMessage(
       "done",
-      { background_tasks: [{ status: "completed", id: "t1" }], session_crons: [] },
+      { background_tasks: [{ id: "tk1", type: "teammate", status: "running" }] },
       {},
     );
-    expect(JSON.parse(hook.pendingWorkDetail)).toEqual({
-      background_tasks: [{ status: "completed", id: "t1" }],
-      session_crons: [],
-    });
+    expect(teammateOnly.pendingWork).toBe(false);
+    expect(teammateOnly.hasTeammateTask).toBe(true);
+
+    // teammate + subagent 混在 → subagent 分で pending
+    const mixed = buildHookMessage(
+      "done",
+      {
+        background_tasks: [
+          { id: "tk1", type: "teammate", status: "running" },
+          { id: "a1", type: "subagent", status: "running" },
+        ],
+      },
+      {},
+    );
+    expect(mixed.pendingWork).toBe(true);
+    expect(mixed.hasTeammateTask).toBe(true);
+
+    // teammate なし → hasTeammateTask は立たない
+    expect(buildHookMessage("done", { background_tasks: [{ type: "subagent" }] }, {}).hasTeammateTask).toBe(false);
+    expect(buildHookMessage("done", {}, {}).hasTeammateTask).toBe(false);
   });
 
-  test("pendingWorkDetail は片キーのみでも組み立て、4000 文字で切り詰める", () => {
-    const hook = buildHookMessage("done", { background_tasks: [{ command: "x".repeat(5000) }] }, {});
-    expect(hook.pendingWorkDetail.startsWith('{"background_tasks":')).toBe(true);
-    expect(hook.pendingWorkDetail.length).toBe(4000);
+  test("agent_id / teammate_name は subagent lifecycle hook の stdin から詰める（欠落は空文字列）", () => {
+    const start = buildHookMessage("subagent-start", { agent_id: "apr-1-reviewer-90ed05bf" }, {});
+    expect(start.agentId).toBe("apr-1-reviewer-90ed05bf");
+    expect(start.teammateName).toBe("");
+
+    const idle = buildHookMessage("teammate-idle", { teammate_name: "pr-1-reviewer" }, {});
+    expect(idle.teammateName).toBe("pr-1-reviewer");
+    expect(idle.agentId).toBe("");
+
+    expect(buildHookMessage("done", {}, {}).agentId).toBe("");
   });
 });
 

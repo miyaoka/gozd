@@ -39,16 +39,19 @@ undefined ──SessionStart──→ idle ──OSC: スピナー──→ work
 
 ## フックイベントの対応
 
-| Claude Code hook     | gozd イベント   | 状態への作用                                  | 送信経路                                                      |
-| -------------------- | --------------- | --------------------------------------------- | ------------------------------------------------------------- |
-| `SessionStart`       | `session-start` | `idle`                                        | CLI 経由（`session_id`, `source` 取得 / resume 永続化のため） |
-| `SessionEnd`         | `session-end`   | `undefined`（エントリ削除）                   | CLI 経由（`session_id` で永続化エントリを削除するため）       |
-| `Stop`               | `done`          | `done`（pending work 時は表示のみ `working`） | CLI 経由（`last_assistant_message` / pending work 取得）      |
-| `PermissionRequest`  | `needs-input`   | `asking`（150ms debounce）                    | CLI 経由（`tool_name`, `tool_input` 取得）                    |
-| `StopFailure`        | `stop-failure`  | `done`（API エラーによる停止）                | CLI 経由（`last_assistant_message` 取得）                     |
-| `UserPromptSubmit`   | `running`       | **なし**（fx のみ。working は OSC タイトル）  | nc 直接送信                                                   |
-| `PostToolUse`        | `tool-done`     | **なし**（fx のみ。working は OSC タイトル）  | nc 直接送信                                                   |
-| `PostToolUseFailure` | `tool-failure`  | **なし**（ask debounce の cancel のみ）       | nc 直接送信                                                   |
+| Claude Code hook     | gozd イベント    | 状態への作用                                           | 送信経路                                                      |
+| -------------------- | ---------------- | ------------------------------------------------------ | ------------------------------------------------------------- |
+| `SessionStart`       | `session-start`  | `idle`                                                 | CLI 経由（`session_id`, `source` 取得 / resume 永続化のため） |
+| `SessionEnd`         | `session-end`    | `undefined`（エントリ削除）                            | CLI 経由（`session_id` で永続化エントリを削除するため）       |
+| `Stop`               | `done`           | `done`（pending work 時は表示のみ `working`）          | CLI 経由（`last_assistant_message` / pending work 取得）      |
+| `PermissionRequest`  | `needs-input`    | `asking`（150ms debounce）                             | CLI 経由（`tool_name`, `tool_input` 取得）                    |
+| `StopFailure`        | `stop-failure`   | `done`（API エラーによる停止）                         | CLI 経由（`last_assistant_message` 取得）                     |
+| `UserPromptSubmit`   | `running`        | **なし**（fx のみ。working は OSC タイトル）           | nc 直接送信                                                   |
+| `PostToolUse`        | `tool-done`      | **なし**（fx のみ。working は OSC タイトル）           | nc 直接送信                                                   |
+| `PostToolUseFailure` | `tool-failure`   | **なし**（ask debounce の cancel のみ）                | nc 直接送信                                                   |
+| `SubagentStart`      | `subagent-start` | **なし**（teammate 台帳への追加のみ）                  | CLI 経由（`agent_id` 取得）                                   |
+| `SubagentStop`       | `subagent-stop`  | **なし**（teammate 台帳から除去 → done 表示回復）      | CLI 経由（`agent_id` 取得）                                   |
+| `TeammateIdle`       | `teammate-idle`  | **なし**（同上。SubagentStop 取りこぼし時の fallback） | CLI 経由（`teammate_name` 取得）                              |
 
 > [!NOTE]
 > `running` / `tool-done` / `tool-failure` は状態を動かさない（working / idle は OSC タイトルが駆動）。`running` / `tool-done` は arcade の効果音（engage / tick）のために fx を発行し続ける。`tool-failure` は状態も fx も持たないが、自動承認されたツールが 150ms 以内に失敗するケースで ask debounce を畳んで spurious な `asking` を抑止する役割が残るため hook は残す（payload 不要のため nc 直送）。
@@ -95,18 +98,51 @@ undefined ──SessionStart──→ idle ──OSC: スピナー──→ work
 
 `Stop` は「セッション終了」ではなく「主エージェントのターン終了」で発火する。エージェントが background 実行（`run_in_background` の Bash / 非同期 Agent / Monitor）や scheduled wakeup（`/loop` / `ScheduleWakeup` / `CronCreate`）を起動するとその時点でターンが終わり `Stop` が飛ぶが、裏の作業が完了すると Claude は自動で再起動する。このとき緑バッジ・音声通知を出すと、人間は「終わった」と誤認する。
 
-foreground subagent（Task tool の同期実行）はサブエージェント完了まで主エージェントの `Stop` を出さない（完了は別系統の `SubagentStop`。gozd は登録していない）。よって偽 done の構造的な発生源は **background 系だけ** に限定される。
+foreground subagent（Task tool の同期実行）はサブエージェント完了まで主エージェントの `Stop` を出さない。よって偽 done の構造的な発生源は **background 系だけ** に限定される。
 
 区別の信号は `Stop` フックの stdin（Claude Code v2.1.145+）に乗る 2 配列:
 
-- `background_tasks`: 走行中の background process（`run_in_background` / 非同期 Agent / Monitor）
+- `background_tasks`: 走行中の background エンティティ（`run_in_background` / 非同期 Agent / Monitor / teammate）
 - `session_crons`: 予約された再起動（`/loop` / `ScheduleWakeup` / `CronCreate`）
 
-CLI が 2 配列の length を OR で畳んで `pending_work` 信号を立て、状態判定に渡す。
+CLI が 2 配列の length を OR で畳んで `pending_work` 信号を立て、状態判定に渡す。ただし `background_tasks` の **type `"teammate"` エントリは数えない**（後述の「teammate の稼働判定」）。
 
 `pending_work` が立っていても **状態は常に `done` に倒す**。`pending_work` は `ClaudeStatus` の `done` バリアントに flag として保持し、バッジは `displayClaudeState()` 経由で `done + pendingWork` を `working` として描画する。pending が空になった本物の `Stop`（次のターン終了）で `pendingWork` が落ち、表示が `working` → `done` に切り替わる。
 
 `working` を直接維持せず必ず `done` を経由させる理由は **状態固着の回避**。`Stop` 後に Claude が再起動しないケース（background 完了通知の欠落 / 予約再起動の不発）では「次の `Stop`」が永久に来ない。`working` を維持するとその状態に張り付き、`done` でしか効かない `clearDoneStates`（フォーカス時の既読消化）での消化経路も失う。`done` を経由させることで、再起動が来なくてもフォーカスで `idle` に消化でき、完了通知が永久に出ない事故を防ぐ。
+
+### teammate の稼働判定（lifecycle hook 台帳）
+
+teammate（`Agent` ツールの `name` 付き spawn）は one-shot subagent と寿命モデルが違う。one-shot は完了すると `background_tasks` から消えるが、teammate は idle 化しても **status `"running"` のまま session 終了まで残り続ける**（アクター的な常駐エンティティで、「完了」が entry の除去に接続されていない）。length 判定に含めると、一度 teammate を spawn した session が永続的に working 表示になる。
+
+このため teammate は length 判定（`pending_work`）から除外し、稼働中かどうかは **subagent lifecycle hook で維持する台帳**（`claudeStatus` の `workingTeammatesByPtyId`。orca の roster と同じ構成）で判定する:
+
+- `subagent-start`: teammate 形状の id（`a<name>-<hex>`。one-shot は `a<hex>` でハイフンなし）だけ台帳に追加する。`SendMessage` による再開でも発火し、resume された teammate は行を再獲得する
+- `subagent-stop`: 台帳から除去する。除去で台帳が空になったら `teammatePending` を落とし、**次の `Stop` を待たず**表示を done に回復する（shutdown 等、lead を再起動しない終了経路のため）。この回復では fx を発行しない（完了通知としての fx は Stop 側が担う）
+- `teammate-idle`: 台帳から除去する（`TeammateIdle` は name がキーなので id 命名規約 `teammateIdMatchesName` で照合）。同時に **in-flight 通知マーカー**を立てる（後述）
+- `Stop` の `has_teammate_task`（`background_tasks` に teammate 型が残っているか）が false なら台帳と in-flight マーカーを掃除する。`Stop` の配列は完全な台帳なので、teammate 型が 1 件も無い = teammate 形状の子は生存し得ず、lifecycle hook を取りこぼした残留を回復できる
+
+### idle 通知の in-flight 追跡（真の done の条件）
+
+人間に通知してよい「真の done」の条件は、**系の静止（quiescence）**である:
+
+```text
+done = lead が Stop 済み
+     ∧ 全 teammate が idle（台帳が空）
+     ∧ 配送待ちメッセージが無い（idle 通知が消化済み）
+     ∧ 予約された再起動が無い（pending_work = false）
+```
+
+3 行目が必要なのは、teammate が idle 化するとき**必ず idle 通知を lead へ発射する**ため。lead が稼働中だと通知は queue に滞留し、**lead のターン終了直後に配送されて lead を再起動する**。このとき「teammate idle + lead 停止」という静的状態が通知の配送前後で 2 回現れ、配送前の Stop を done にすると完了通知が二重に鳴る（総括 Stop で 1 回目 → 4ms 後に再起動 → 通知消化の Stop で 2 回目、を実測）。分散システムの終了検知（全プロセス idle でも転送中メッセージがあれば未終了）と同じ構造。
+
+hook はチャネル内のメッセージを見せないため、発射と消化の観測で橋渡しする:
+
+- **発射の観測**: `teammate-idle` 受信で in-flight マーカーを立てる
+- **消化の観測**: lead の新ターン開始でマーカーを消す。ターン開始は `running`（ユーザープロンプト）または OSC タイトルの **done / idle → working 遷移**で観測する。asking → working（承認後の同一ターン再開）はターン境界を跨いでいないため消化しない
+
+done 時の判定は `teammatePending = has_teammate_task && (台帳非空 || in-flight 通知あり)`。バッジは `done + (pendingWork || teammatePending)` を `working` として描画する（`displayClaudeState`）。
+
+通知が drop されて再起動が来ない場合は working 表示が残るが、これは `pendingWork` と同型の故障モードで、状態機械は `done` を経由しているため `clearDoneStates`（フォーカス時の既読消化）で救済される。
 
 ### 効果（音・演出・読み上げ）の抑止は claudeFx に一元化する
 

@@ -39,12 +39,14 @@ export function writeLaunchRequest(targetPath: string, socketPath: string): void
   writeFileSync(join(dir, `${randomUUID()}.json`), JSON.stringify({ targetPath }));
 }
 
-/** pendingWorkDetail の最大長。生配列をそのまま運ぶとコマンド文字列等で肥大しうるため、
- * ログ用途に十分な長さで切り詰める（途中で切れて JSON として壊れてもログとしては読める） */
-const PENDING_WORK_DETAIL_MAX = 4000;
+/** background_tasks のエントリが teammate 型かどうか。teammate は idle 化しても
+ * status "running" のまま session 終了まで残り続けるため、pendingWork の算出から除外する */
+function isTeammateTask(task: unknown): boolean {
+  if (typeof task !== "object" || task === null) return false;
+  return (task as Record<string, unknown>).type === "teammate";
+}
 
-/** Claude Code が stdin で渡す hook JSON から HookMessage を組み立てる。
- * 代表フィールドの取り出しと pending_work の畳み込みは Swift `hookCommand` と同一 */
+/** Claude Code が stdin で渡す hook JSON から HookMessage を組み立てる */
 export function buildHookMessage(
   event: string,
   stdinJson: Record<string, unknown>,
@@ -61,19 +63,12 @@ export function buildHookMessage(
     toolInputText = JSON.stringify(toolInput);
   }
 
-  // Stop (done) フックの pending work シグナル。background_tasks / session_crons の
-  // いずれかが残っていれば true（旧バージョンのキー欠落は count 0 = pending なし）
-  const backgroundCount = Array.isArray(stdinJson.background_tasks) ? stdinJson.background_tasks.length : 0;
+  // Stop (done) フックの pending work シグナル。teammate 型を除く background_tasks /
+  // session_crons のいずれかが残っていれば true（旧バージョンのキー欠落は count 0 =
+  // pending なし）。teammate の稼働判定は renderer が subagent lifecycle hook の台帳で行う
+  const backgroundTasks = Array.isArray(stdinJson.background_tasks) ? stdinJson.background_tasks : [];
+  const nonTeammateCount = backgroundTasks.filter((task) => !isTeammateTask(task)).length;
   const cronCount = Array.isArray(stdinJson.session_crons) ? stdinJson.session_crons.length : 0;
-
-  // 観測ログ用: pending_work 算出元の生配列スナップショット。length だけで畳む現行判定が
-  // 「完了済み entry の残留 / 長寿命 background process / 発火済み cron」で false positive に
-  // なっていないかを main 側のログで観測するために運ぶ（HookMessage.pendingWorkDetail 参照）
-  const pendingArrays: Record<string, unknown> = {};
-  if (Array.isArray(stdinJson.background_tasks)) pendingArrays.background_tasks = stdinJson.background_tasks;
-  if (Array.isArray(stdinJson.session_crons)) pendingArrays.session_crons = stdinJson.session_crons;
-  const pendingWorkDetail =
-    Object.keys(pendingArrays).length > 0 ? JSON.stringify(pendingArrays).slice(0, PENDING_WORK_DETAIL_MAX) : "";
 
   return {
     event,
@@ -83,8 +78,10 @@ export function buildHookMessage(
     toolInput: toolInputText,
     sessionId: typeof stdinJson.session_id === "string" ? stdinJson.session_id : "",
     source: typeof stdinJson.source === "string" ? stdinJson.source : "",
-    pendingWork: backgroundCount + cronCount > 0,
-    pendingWorkDetail,
+    pendingWork: nonTeammateCount + cronCount > 0,
+    hasTeammateTask: backgroundTasks.some(isTeammateTask),
+    agentId: typeof stdinJson.agent_id === "string" ? stdinJson.agent_id : "",
+    teammateName: typeof stdinJson.teammate_name === "string" ? stdinJson.teammate_name : "",
   };
 }
 

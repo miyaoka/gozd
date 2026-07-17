@@ -416,6 +416,9 @@ export const useTerminalStore = defineStore("terminal", () => {
         tool_name: payload.toolName,
         tool_input: payload.toolInput,
         pending_work: payload.pendingWork,
+        has_teammate_task: payload.hasTeammateTask,
+        agent_id: payload.agentId,
+        teammate_name: payload.teammateName,
       });
       // 効果（音・演出・読み上げ）は正規化済みの claudeFx ストリームに流す。pending done 等の
       // 「完了扱いしない hook」は handleHookEvent が undefined を返して落とすので、購読側は

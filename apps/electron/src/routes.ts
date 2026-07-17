@@ -890,7 +890,9 @@ async function handlePickAndOpen(_body: unknown, ctx: RpcContext): Promise<unkno
   // ユーザーがキャンセルした場合は何もしない
   const [pickedPath = ""] = result.filePaths;
   if (!result.canceled && pickedPath !== "") {
-    ctx.push("gozdOpen", await buildGozdOpenPayload(pickedPath));
+    // undefined = 不在パス。ダイアログ選択では実質発生しないが契約に従い push しない
+    const payload = await buildGozdOpenPayload(pickedPath);
+    if (payload !== undefined) ctx.push("gozdOpen", payload);
   }
   return ({}) satisfies PickAndOpenResponse;
 }

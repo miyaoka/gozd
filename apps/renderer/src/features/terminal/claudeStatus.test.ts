@@ -106,7 +106,7 @@ describe("teammate 台帳（subagent-start / subagent-stop / teammate-idle）", 
 
   test("teammate-idle は in-flight 通知として扱い、lead が再稼働するまで done にしない", () => {
     // teammate の idle 化は必ず idle 通知を lead へ発射する。台帳が空になっても通知の
-    // 消化（次のターン開始）までは系が静止していないため working 表示を維持する
+    // 消化（次のターン開始）まではシステム全体が静止していないため working 表示を維持する
     const { claudeStatusByPtyId, manager } = setup();
     manager.handleHookEvent(1, "session-start", { session_id: "s1" });
     manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
@@ -147,7 +147,7 @@ describe("teammate 台帳（subagent-start / subagent-stop / teammate-idle）", 
 
     // 通知配送 → turn #2 開始（done → working 遷移で in-flight 消化）
     manager.observeTitle(1, WORKING_TITLE);
-    // Stop #2: 系が静止 → 真の done、ここで 1 回だけ鳴る
+    // Stop #2: システム全体が静止 → 真の done、ここで 1 回だけ鳴る
     const fx2 = manager.handleHookEvent(1, "done", {
       last_assistant_message: "対応は不要です。",
       pending_work: false,

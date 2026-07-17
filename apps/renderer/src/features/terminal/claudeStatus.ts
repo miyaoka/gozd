@@ -334,10 +334,10 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
    * teammate の idle 通知が「発射されてから lead の次のターン開始で消化されるまで」の間
    * true になる in-flight マーカー。teammate は idle 化時に必ず idle 通知を lead へ発射し、
    * lead が稼働中なら通知は queue に滞留して**ターン終了直後に配送され lead を再起動する**。
-   * つまり「teammate も lead も止まって見えるが系は静止していない」瞬間が存在し、
+   * つまり「teammate も lead も止まって見えるがシステム全体は静止していない」瞬間が存在し、
    * その間の Stop を真の done にすると完了通知が二重に鳴る（Stop → 4ms 後に再起動 →
    * 数秒後にもう 1 回 Stop、を実測）。分散システムの終了検知と同じで、全プロセス idle でも
-   * 転送中メッセージがあれば系は未終了。hook はチャネル内のメッセージを見せないため、
+   * 転送中メッセージがあればシステム全体は未終了。hook はチャネル内のメッセージを見せないため、
    * TeammateIdle（発射の観測）から次のターン開始（消化の観測）までをこのマーカーで橋渡しする。
    */
   const inFlightIdleNotificationPtyIds = new Set<number>();

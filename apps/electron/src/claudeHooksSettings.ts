@@ -34,6 +34,13 @@ export function claudeHooksSettings(): Record<string, unknown> {
       PermissionRequest: [{ matcher: "*", hooks: [{ type: "command", command: cliCommand("needs-input") }] }],
       PostToolUse: [{ matcher: "*", hooks: [{ type: "command", command: ncCommand("tool-done") }] }],
       PostToolUseFailure: [{ matcher: "*", hooks: [{ type: "command", command: ncCommand("tool-failure") }] }],
+      // 子エージェント（subagent / teammate）のライフサイクル。teammate は idle 化しても
+      // Stop の background_tasks に status "running" のまま残るため、稼働中/idle の判定は
+      // この 3 hook を情報源に renderer 側の台帳で行う（orca の roster と同じ構成）。
+      // agent_id / teammate_name を payload に載せる必要があるため CLI 経由
+      SubagentStart: [{ hooks: [{ type: "command", command: cliCommand("subagent-start") }] }],
+      SubagentStop: [{ hooks: [{ type: "command", command: cliCommand("subagent-stop") }] }],
+      TeammateIdle: [{ hooks: [{ type: "command", command: cliCommand("teammate-idle") }] }],
     },
   };
 }

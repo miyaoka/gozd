@@ -47,6 +47,9 @@ describe("socketMessages", () => {
       toolName: "",
       toolInput: "",
       pendingWork: false,
+      hasTeammateTask: false,
+      agentId: "",
+      teammateName: "",
     });
   });
 

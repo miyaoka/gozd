@@ -4,8 +4,10 @@ import {
   classifyClaudeTitle,
   createClaudeStatusManager,
   displayClaudeState,
+  isTeammateLifecycleId,
   screenHasClaudeBlocker,
   stripClaudeTitlePrefix,
+  teammateIdMatchesName,
   type ClaudeStatus,
 } from "./claudeStatus";
 
@@ -81,6 +83,200 @@ describe("handleHookEvent done", () => {
     expect(claudeStatusByPtyId.value[1]?.state).toBe("done");
     manager.clearDoneStates("/wt");
     expect(claudeStatusByPtyId.value[1]?.state).toBe("idle");
+  });
+});
+
+describe("teammate 台帳（subagent-start / subagent-stop / teammate-idle）", () => {
+  // 実データ形状: teammate id は `a<name>-<hex>`、one-shot subagent id は `a<hex>`
+  const TEAMMATE_ID = "apr-981-reviewer-90ed05bf5c651c85";
+  const TEAMMATE_NAME = "pr-981-reviewer";
+  const ONE_SHOT_ID = "a16e6e90f336247e8";
+
+  test("teammate 稼働中の done は working 表示（pending_work=false でも）、fx は抑止", () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
+    const fx = manager.handleHookEvent(1, "done", {
+      pending_work: false,
+      has_teammate_task: true,
+    });
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("done");
+    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("working");
+    expect(fx).toBeUndefined();
+  });
+
+  test("teammate-idle は in-flight 通知として扱い、lead が再稼働するまで done にしない", () => {
+    // teammate の idle 化は必ず idle 通知を lead へ発射する。台帳が空になっても通知の
+    // 消化（次のターン開始）まではシステム全体が静止していないため working 表示を維持する
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
+    manager.handleHookEvent(1, "done", { pending_work: false, has_teammate_task: true });
+    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("working");
+
+    manager.handleHookEvent(1, "teammate-idle", { teammate_name: TEAMMATE_NAME });
+    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("working");
+
+    // idle 通知が配送され lead が再稼働（新ターン開始）→ in-flight 消化
+    manager.observeTitle(1, WORKING_TITLE);
+    const fx = manager.handleHookEvent(1, "done", {
+      last_assistant_message: "対応は不要です。",
+      pending_work: false,
+      has_teammate_task: true,
+    });
+    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("done");
+    expect(fx).toEqual({ ptyId: 1, event: "done", message: "対応は不要です。" });
+  });
+
+  test("しりとり終局シナリオ: lead 稼働中の idle 化 → 最初の Stop は鳴らず、消化後の Stop で 1 回だけ鳴る", () => {
+    // 実測した二重通知: teammate が最終手を送って idle 化（通知が queue に滞留）→ lead の
+    // 総括 Stop（ここで鳴ってしまっていた）→ 4ms 後に通知配送 → 応答 Stop（2 回目）
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    manager.observeTitle(1, WORKING_TITLE); // lead は最終ターン処理中
+    manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
+    manager.handleHookEvent(1, "teammate-idle", { teammate_name: TEAMMATE_NAME });
+
+    // Stop #1（総括）: in-flight 通知があるため真の done ではない → 鳴らさない
+    const fx1 = manager.handleHookEvent(1, "done", {
+      last_assistant_message: "10 語完走で引き分けです。",
+      pending_work: false,
+      has_teammate_task: true,
+    });
+    expect(fx1).toBeUndefined();
+    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("working");
+
+    // 通知配送 → turn #2 開始（done → working 遷移で in-flight 消化）
+    manager.observeTitle(1, WORKING_TITLE);
+    // Stop #2: システム全体が静止 → 真の done、ここで 1 回だけ鳴る
+    const fx2 = manager.handleHookEvent(1, "done", {
+      last_assistant_message: "対応は不要です。",
+      pending_work: false,
+      has_teammate_task: true,
+    });
+    expect(fx2).toEqual({ ptyId: 1, event: "done", message: "対応は不要です。" });
+    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("done");
+  });
+
+  test("running（ユーザープロンプト）でも in-flight 通知を消化する", () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
+    manager.handleHookEvent(1, "teammate-idle", { teammate_name: TEAMMATE_NAME });
+    manager.handleHookEvent(1, "running", {});
+    manager.handleHookEvent(1, "done", { pending_work: false, has_teammate_task: true });
+    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("done");
+  });
+
+  test("asking → working（承認後の同一ターン再開）では in-flight を消化しない", async () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    manager.observeTitle(1, WORKING_TITLE);
+    manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
+    manager.handleHookEvent(1, "needs-input", { tool_name: "Bash", tool_input: "{}" });
+    await new Promise((r) => setTimeout(r, 200));
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("asking");
+
+    // lead が承認待ちの間に teammate が idle 化（通知は滞留）
+    manager.handleHookEvent(1, "teammate-idle", { teammate_name: TEAMMATE_NAME });
+    // 承認 → 同一ターン再開。ターン境界を跨いでいないので通知は未消化のまま
+    manager.observeTitle(1, WORKING_TITLE);
+    const fx = manager.handleHookEvent(1, "done", { pending_work: false, has_teammate_task: true });
+    expect(fx).toBeUndefined();
+    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("working");
+  });
+
+  test("subagent-stop（shutdown 等の通知なし終了）は台帳から除去して done 表示に回復する", () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
+    manager.handleHookEvent(1, "done", { pending_work: false, has_teammate_task: true });
+    manager.handleHookEvent(1, "subagent-stop", { agent_id: TEAMMATE_ID });
+    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("done");
+  });
+
+  test("one-shot subagent の id は台帳に載らない（length 判定 = pending_work が担う）", () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "subagent-start", { agent_id: ONE_SHOT_ID });
+    manager.handleHookEvent(1, "done", { pending_work: false, has_teammate_task: true });
+    // 台帳は空（one-shot は載せない）ので teammate task が残っていても done
+    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("done");
+  });
+
+  test("has_teammate_task=false の Stop は台帳と in-flight 通知の残留を掃除する（取りこぼし回復）", () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
+    manager.handleHookEvent(1, "teammate-idle", { teammate_name: TEAMMATE_NAME });
+    // teammate が shutdown され配列から消えた（idle 通知の配送は来なかった）
+    manager.handleHookEvent(1, "done", { pending_work: false, has_teammate_task: false });
+    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("done");
+    // 掃除済みなので、以降 has_teammate_task=true の Stop が来ても phantom で working 化しない
+    manager.handleHookEvent(1, "done", { pending_work: false, has_teammate_task: true });
+    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("done");
+  });
+
+  test("teammatePending な done は clearDoneStates で idle に消化できる（固着しない）", () => {
+    const claudeStatusByPtyId = ref<Record<number, ClaudeStatus>>({});
+    const manager = createClaudeStatusManager({
+      claudeStatusByPtyId,
+      panes: {
+        getSessionPtyId: () => undefined,
+        iteratePanes: () => [{ leafId: "leaf-1", dir: "/wt", ptyId: 1 }],
+      },
+      isPtyAlive: () => true,
+    });
+    manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
+    manager.handleHookEvent(1, "done", { pending_work: false, has_teammate_task: true });
+    manager.clearDoneStates("/wt");
+    expect(claudeStatusByPtyId.value[1]?.state).toBe("idle");
+  });
+
+  test("session-end で台帳が破棄され、次セッションを汚染しない", () => {
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
+    manager.handleHookEvent(1, "session-end", { session_id: "s1" });
+
+    manager.handleHookEvent(1, "session-start", { session_id: "s2" });
+    manager.handleHookEvent(1, "done", { pending_work: false, has_teammate_task: true });
+    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("done");
+  });
+
+  test("session-end なしの sessionId 置換（/clear・/resume）でも台帳と in-flight を破棄する", () => {
+    // /clear や --resume では旧セッションの session-end が発火しない（socketMessages.ts）。
+    // 旧セッションの teammate 残留が新セッションの done を抑止しないこと。
+    // 台帳（稼働中 teammate）と in-flight（配送待ち通知）の両方が残った状態で切り替える:
+    // 2 体 spawn して片方だけ idle 化すると、台帳に生存 1 件 + in-flight true になる
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
+    manager.handleHookEvent(1, "subagent-start", { agent_id: "areviewer-b-11aa22bb" });
+    manager.handleHookEvent(1, "teammate-idle", { teammate_name: TEAMMATE_NAME });
+
+    manager.handleHookEvent(1, "session-start", { session_id: "s2" });
+    manager.handleHookEvent(1, "done", { pending_work: false, has_teammate_task: true });
+    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("done");
+  });
+
+  test("同一 sessionId の session-start（compact 由来）では台帳を保持する", () => {
+    // compact では in-process teammate が生存するため、稼働中 teammate の追跡を失わないこと
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
+
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    manager.handleHookEvent(1, "done", { pending_work: false, has_teammate_task: true });
+    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("working");
+  });
+
+  test("isTeammateLifecycleId: teammate 形状（a<name>-<hex>）だけ true", () => {
+    expect(isTeammateLifecycleId(TEAMMATE_ID)).toBe(true);
+    expect(isTeammateLifecycleId(ONE_SHOT_ID)).toBe(false);
+    expect(isTeammateLifecycleId("")).toBe(false);
+    expect(isTeammateLifecycleId("no-a-prefix")).toBe(false);
+  });
+
+  test("teammateIdMatchesName: suffix にハイフンを許さず rev が rev-two に誤一致しない", () => {
+    expect(teammateIdMatchesName("arev-90ed05bf", "rev")).toBe(true);
+    expect(teammateIdMatchesName("arev-two-90ed05bf", "rev")).toBe(false);
+    expect(teammateIdMatchesName("arev-two-90ed05bf", "rev-two")).toBe(true);
   });
 });
 

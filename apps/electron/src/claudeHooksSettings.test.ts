@@ -46,6 +46,9 @@ describe("ClaudeHooksSettings", () => {
       "SessionStart",
       "Stop",
       "StopFailure",
+      "SubagentStart",
+      "SubagentStop",
+      "TeammateIdle",
       "UserPromptSubmit",
     ]);
   });
@@ -66,6 +69,12 @@ describe("ClaudeHooksSettings", () => {
   test("SessionStart / SessionEnd は CLI 経由（stdin の session_id を取得するため）", () => {
     expect(commandFor("SessionStart")).toBe('"$GOZD_CLI_PATH" hook session-start');
     expect(commandFor("SessionEnd")).toBe('"$GOZD_CLI_PATH" hook session-end');
+  });
+
+  test("子エージェント lifecycle hook は CLI 経由（stdin の agent_id / teammate_name を取得するため）", () => {
+    expect(commandFor("SubagentStart")).toBe('"$GOZD_CLI_PATH" hook subagent-start');
+    expect(commandFor("SubagentStop")).toBe('"$GOZD_CLI_PATH" hook subagent-stop');
+    expect(commandFor("TeammateIdle")).toBe('"$GOZD_CLI_PATH" hook teammate-idle');
   });
 
   test("生成された nc コマンドの JSON は ClientMessage としてデコードできる", () => {

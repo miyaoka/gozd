@@ -100,18 +100,27 @@ export type ClaudeStatus =
       toolName?: string;
       toolInput?: Record<string, unknown>;
     } & ClaudeStatusBase)
-  | ({ state: "done"; message?: string; pendingWork?: boolean } & ClaudeStatusBase);
+  | ({
+      state: "done";
+      message?: string;
+      pendingWork?: boolean;
+      /** Stop 時に teammate task が残存し、かつ台帳に稼働中 teammate がいたか。
+       * teammate-idle / subagent-stop で台帳が空になった時点で false に落ちる */
+      teammatePending?: boolean;
+    } & ClaudeStatusBase);
 
 /**
- * 表示用の state。`done` かつ `pendingWork`（Stop 発火時に background_tasks /
- * session_crons が残る = 裏で作業継続中）は「真の done」ではないため `working` として
- * 描画する。状態機械上は必ず `done` を経由するので `clearDoneStates`（フォーカス時の
- * 既読消化）で消化でき、状態固着しない。緑バッジ・吹き出し・通知の抑止は表示層が
- * この関数経由で行う。
+ * 表示用の state。`done` かつ `pendingWork`（Stop 発火時に teammate 型を除く
+ * background_tasks / session_crons が残る = 裏で作業継続中）または `teammatePending`
+ * （稼働中の teammate が残る）は「真の done」ではないため `working` として描画する。
+ * 状態機械上は必ず `done` を経由するので `clearDoneStates`（フォーカス時の既読消化）で
+ * 消化でき、状態固着しない。緑バッジ・吹き出し・通知の抑止は表示層がこの関数経由で行う。
  */
 export function displayClaudeState(status: ClaudeStatus | undefined): ClaudeState | undefined {
   if (status === undefined) return undefined;
-  if (status.state === "done" && status.pendingWork === true) return "working";
+  if (status.state === "done" && (status.pendingWork === true || status.teammatePending === true)) {
+    return "working";
+  }
   return status.state;
 }
 
@@ -125,6 +134,10 @@ export function displayClaudeState(status: ClaudeStatus | undefined): ClaudeStat
  * - tool-done: PostToolUse（ツール実行完了）
  * - tool-failure: PostToolUseFailure（ツール実行失敗。ask debounce の cancel に使う）
  * - stop-failure: StopFailure（API エラーによる停止）
+ * - subagent-start: SubagentStart（子エージェント実行開始。teammate 台帳への追加）
+ * - subagent-stop: SubagentStop（子エージェント完了。teammate 台帳からの除去）
+ * - teammate-idle: TeammateIdle（teammate の idle 遷移。SubagentStop 取りこぼし時の
+ *   fallback 完了シグナル）
  */
 export type HookEvent =
   | "session-start"
@@ -134,7 +147,10 @@ export type HookEvent =
   | "done"
   | "tool-done"
   | "tool-failure"
-  | "stop-failure";
+  | "stop-failure"
+  | "subagent-start"
+  | "subagent-stop"
+  | "teammate-idle";
 
 const HOOK_EVENTS: readonly HookEvent[] = [
   "session-start",
@@ -145,6 +161,9 @@ const HOOK_EVENTS: readonly HookEvent[] = [
   "tool-done",
   "tool-failure",
   "stop-failure",
+  "subagent-start",
+  "subagent-stop",
+  "teammate-idle",
 ];
 
 export function isHookEvent(value: string): value is HookEvent {
@@ -235,6 +254,28 @@ export function stripClaudeTitlePrefix(title: string): string {
   return title.replace(CLAUDE_TITLE_WORKING_RE, "").replace(CLAUDE_TITLE_IDLE_RE, "");
 }
 
+/**
+ * 子エージェント id が teammate 形状（`a<name>-<hex>`）かどうか。one-shot subagent の id は
+ * `a<hex>`（ハイフンなし）。teammate だけを稼働台帳に載せるための判定で、one-shot は
+ * background_tasks に正しく現れて完了で消えるため pendingWork（length 判定）で足りる。
+ * 判定規約は orca の isClaudeTeammateLifecycleId と同一。
+ */
+export function isTeammateLifecycleId(id: string): boolean {
+  const separator = id.lastIndexOf("-");
+  return separator > 1 && id.startsWith("a") && /^[0-9a-f]+$/i.test(id.slice(separator + 1));
+}
+
+/**
+ * teammate 台帳の id が TeammateIdle hook の name に対応するか。teammate id は
+ * `a<name>-<hex>` に name を埋め込むため prefix 一致で照合する。suffix にハイフンを
+ * 許すと teammate "rev" が "rev-two" の id（`arev-two-<hex>`）に誤一致するため、
+ * suffix はハイフンなしを要求する（orca の claudeTeammateIdMatchesName と同一）。
+ */
+export function teammateIdMatchesName(id: string, name: string): boolean {
+  const prefix = `a${name}-`;
+  return id.startsWith(prefix) && !id.slice(prefix.length).includes("-");
+}
+
 /** paneRegistry の読み取り専用ビュー。claudeStatus が必要とする情報だけを公開する */
 interface PaneAccessor {
   /** leafId に対応する session の ptyId を返す。session がなければ undefined */
@@ -281,6 +322,39 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
   }
 
   /**
+   * ptyId → 稼働中 teammate の agent_id 集合（orca の roster の最小形）。
+   * teammate は idle 化しても Stop の background_tasks に status "running" のまま残るため、
+   * 稼働中かどうかは subagent-start（追加）/ subagent-stop・teammate-idle（除去）の
+   * lifecycle hook でしか判定できない。表示は status オブジェクトの teammatePending
+   * flag 経由で reactivity に乗るため、台帳自体は素の Map でよい。
+   */
+  const workingTeammatesByPtyId = new Map<number, Set<string>>();
+
+  /**
+   * teammate の idle 通知が「発射されてから lead の次のターン開始で消化されるまで」の間
+   * true になる in-flight マーカー。teammate は idle 化時に必ず idle 通知を lead へ発射し、
+   * lead が稼働中なら通知は queue に滞留して**ターン終了直後に配送され lead を再起動する**。
+   * つまり「teammate も lead も止まって見えるがシステム全体は静止していない」瞬間が存在し、
+   * その間の Stop を真の done にすると完了通知が二重に鳴る（Stop → 4ms 後に再起動 →
+   * 数秒後にもう 1 回 Stop、を実測）。分散システムの終了検知と同じで、全プロセス idle でも
+   * 転送中メッセージがあればシステム全体は未終了。hook はチャネル内のメッセージを見せないため、
+   * TeammateIdle（発射の観測）から次のターン開始（消化の観測）までをこのマーカーで橋渡しする。
+   */
+  const inFlightIdleNotificationPtyIds = new Set<number>();
+
+  /** 台帳が空 + in-flight 通知なしになったら done + teammatePending の表示を done に落とす。
+   * teammate の完了は lead を再起動しないことがある（shutdown 等）ため、次の Stop を待たず
+   * 台帳側から表示を回復する。fx は発行しない（last_assistant_message は前回 Stop のもので、
+   * 完了通知としては次の Stop が担う） */
+  function settleTeammatePending(ptyId: number) {
+    if ((workingTeammatesByPtyId.get(ptyId)?.size ?? 0) > 0) return;
+    if (inFlightIdleNotificationPtyIds.has(ptyId)) return;
+    const current = claudeStatusByPtyId.value[ptyId];
+    if (current?.state !== "done" || current.teammatePending !== true) return;
+    claudeStatusByPtyId.value[ptyId] = { ...current, teammatePending: false };
+  }
+
+  /**
    * hooks イベントを受けて Claude 状態を更新する。
    * PermissionRequest は debounce し、一瞬で通過するケース（自動承認）を除外する。
    * done 後の遅延 tool-done（イベント順序逆転）は無視する。
@@ -306,6 +380,12 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
           const previousSessionId = sessionIdByPtyId.value[ptyId];
           if (previousSessionId !== undefined && previousSessionId !== sessionId) {
             delete ptyIdBySessionId.value[previousSessionId];
+            // session 切り替えでは session-end が発火しない（socketMessages.ts 参照）ため、
+            // 旧セッションの teammate 台帳と in-flight 通知をここで破棄する。残すと新セッションで
+            // teammate を使った時に旧 id が台帳に居座り working 固着が再発する。同一 sessionId の
+            // session-start（compact 由来）では消さない: compact では in-process teammate が生存する
+            workingTeammatesByPtyId.delete(ptyId);
+            inFlightIdleNotificationPtyIds.delete(ptyId);
           }
           sessionIdByPtyId.value[ptyId] = sessionId;
           ptyIdBySessionId.value[sessionId] = ptyId;
@@ -339,11 +419,17 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
           delete sessionIdByPtyId.value[ptyId];
         }
         delete claudeStatusByPtyId.value[ptyId];
+        // teammate はセッション終了とともに死ぬ。次セッションの判定を汚染しないよう破棄する
+        workingTeammatesByPtyId.delete(ptyId);
+        inFlightIdleNotificationPtyIds.delete(ptyId);
         // session-end に反応する効果は無いが、解釈結果として発行する
         return { ptyId, event };
       }
       case "running": {
         cancelAskTimer(ptyId);
+        // ユーザーのプロンプト送信 = 新しいターンの開始。queue に滞留していた idle 通知は
+        // ターン境界で配送されるため、in-flight マーカーはここで消化済みとみなす
+        inFlightIdleNotificationPtyIds.delete(ptyId);
         // 状態 (working) は OSC タイトル (observeTitle) が駆動する。ここは fx（arcade engage /
         // 読み上げ）の発行のみ。タイトルのスピナー出現より前でも音は鳴らしたいので hook で早取りする。
         return { ptyId, event };
@@ -393,21 +479,38 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
           typeof payload.last_assistant_message === "string"
             ? payload.last_assistant_message
             : undefined;
-        // Stop は常に done へ倒す。pending_work（background_tasks / session_crons が残る =
-        // 裏で作業継続中）は done バリアントの flag として保持し、表示層 (displayClaudeState) で
-        // working として描画して緑バッジを抑止する。working を直接維持すると、Claude が
-        // 再起動しないケース（background 完了通知の欠落）で状態が固着し、done 経由でしか効かない
-        // clearDoneStates での消化経路を失う。done を必ず経由させることで固着を防ぐ。
+        // Stop は常に done へ倒す。pending_work（teammate 型を除く background_tasks /
+        // session_crons が残る = 裏で作業継続中）は done バリアントの flag として保持し、
+        // 表示層 (displayClaudeState) で working として描画して緑バッジを抑止する。working を
+        // 直接維持すると、Claude が再起動しないケース（background 完了通知の欠落）で状態が
+        // 固着し、done 経由でしか効かない clearDoneStates での消化経路を失う。
+        // done を必ず経由させることで固着を防ぐ。
         const pendingWork = payload.pending_work === true;
+        const hasTeammateTask = payload.has_teammate_task === true;
+        if (!hasTeammateTask) {
+          // Stop の background_tasks は完全な台帳。teammate 型が 1 件も無い = teammate 形状の
+          // 子は生存し得ないため、lifecycle hook を取りこぼした台帳の残留をここで掃除する
+          // （残すと将来の Stop で teammatePending が誤って立ち続ける）
+          workingTeammatesByPtyId.delete(ptyId);
+          inFlightIdleNotificationPtyIds.delete(ptyId);
+        }
+        // teammate は idle でも background_tasks に "running" で残るため task の存在だけでは
+        // pending にできない。稼働中 teammate（台帳）または配送待ちの idle 通知（in-flight
+        // マーカー = この Stop の直後に再起動が来る）がある時だけ立てる
+        const teammatePending =
+          hasTeammateTask &&
+          ((workingTeammatesByPtyId.get(ptyId)?.size ?? 0) > 0 ||
+            inFlightIdleNotificationPtyIds.has(ptyId));
         claudeStatusByPtyId.value[ptyId] = {
           state: "done",
           lastActivityAt: Date.now(),
           message,
           pendingWork,
+          teammatePending,
         };
         // 効果（音・演出・読み上げ）の抑止はここ 1 箇所で行う。pending done は真の完了では
         // ないため fx を発行しない → 購読側は pending を一切意識しない。
-        if (pendingWork) return undefined;
+        if (pendingWork || teammatePending) return undefined;
         return { ptyId, event, message };
       }
       case "stop-failure": {
@@ -423,6 +526,45 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
           message,
         };
         return { ptyId, event, message };
+      }
+      case "subagent-start": {
+        // teammate 形状の id だけ台帳に載せる（isTeammateLifecycleId の doc 参照）。
+        // spawn / SendMessage 再開のどちらでも発火し、resume された teammate は行を再獲得する。
+        // lead の状態は変えない（spawn は lead の tool call 中 = working 中に起きる）
+        const agentId = typeof payload.agent_id === "string" ? payload.agent_id : "";
+        if (isTeammateLifecycleId(agentId)) {
+          const roster = workingTeammatesByPtyId.get(ptyId) ?? new Set<string>();
+          roster.add(agentId);
+          workingTeammatesByPtyId.set(ptyId, roster);
+        }
+        return undefined;
+      }
+      case "subagent-stop": {
+        // 子エージェントの正規の完了シグナル。teammate の background_tasks エントリは
+        // 完了後も "running" のまま残るため、台帳からの除去はこの hook が担う
+        const agentId = typeof payload.agent_id === "string" ? payload.agent_id : "";
+        const roster = workingTeammatesByPtyId.get(ptyId);
+        if (roster !== undefined && roster.delete(agentId)) {
+          settleTeammatePending(ptyId);
+        }
+        return undefined;
+      }
+      case "teammate-idle": {
+        // idle = 稼働していない。SubagentStop を取りこぼした teammate の fallback 完了
+        // シグナル。TeammateIdle は name がキーなので id 規約（a<name>-<hex>）で照合する
+        const name = typeof payload.teammate_name === "string" ? payload.teammate_name : "";
+        if (name === "") return undefined;
+        // idle 化は必ず idle 通知を lead へ発射する。次のターン開始で消化されるまで
+        // in-flight を立て、その間の Stop / settle を真の done にしない
+        inFlightIdleNotificationPtyIds.add(ptyId);
+        const roster = workingTeammatesByPtyId.get(ptyId);
+        if (roster === undefined) return undefined;
+        for (const id of roster) {
+          if (teammateIdMatchesName(id, name)) {
+            roster.delete(id);
+          }
+        }
+        return undefined;
       }
     }
     // 全 HookEvent を case で処理済み。新しい event を追加して case を書き忘れると、ここで
@@ -456,6 +598,13 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
 
     if (kind === "working") {
       if (current.state === "working") return;
+      // done / idle からの working 遷移 = 新しいターンの開始。queue に滞留していた idle 通知は
+      // ターン境界で配送されるため、in-flight マーカーをここで消化する。asking → working は
+      // 承認後の同一ターン再開でターン境界を跨いでいないため消化しない（跨いだと誤認すると
+      // 滞留通知が残ったまま次の Stop が鳴り、二重通知が再発する）
+      if (current.state === "done" || current.state === "idle") {
+        inFlightIdleNotificationPtyIds.delete(ptyId);
+      }
       claudeStatusByPtyId.value[ptyId] = { state: "working", lastActivityAt: Date.now() };
       return;
     }
@@ -549,6 +698,8 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
       delete sessionIdByPtyId.value[ptyId];
     }
     delete claudeStatusByPtyId.value[ptyId];
+    workingTeammatesByPtyId.delete(ptyId);
+    inFlightIdleNotificationPtyIds.delete(ptyId);
   }
 
   /** task.id (= sessionId) から ClaudeStatus を引く。session 確立前 / pty 終了後は undefined */

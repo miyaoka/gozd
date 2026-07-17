@@ -60,8 +60,15 @@ export interface HookPayload {
   toolName: string;
   toolInput: string;
   /**
-   * done (Stop) のみ。Stop 発火時に background_tasks / session_crons が残っているか。
-   * true のとき主エージェントのターンは終わったが裏で作業継続中（再起動する）= 真の done ではない。
+   * done (Stop) のみ。Stop 発火時に background_tasks（teammate 型を除く）/ session_crons が
+   * 残っているか。true のとき主エージェントのターンは終わったが裏で作業継続中（再起動する）
+   * = 真の done ではない。teammate の稼働判定は claudeStatus の台帳が担う。
    */
   pendingWork: boolean;
+  /** done (Stop) のみ。background_tasks に type "teammate" のエントリが残っているか */
+  hasTeammateTask: boolean;
+  /** subagent-start / subagent-stop のみ。子エージェントの一意 id */
+  agentId: string;
+  /** teammate-idle のみ。idle に遷移した teammate の名前 */
+  teammateName: string;
 }

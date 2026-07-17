@@ -1,20 +1,20 @@
 <doc lang="md">
 プレビュー本文 (leaf 切替) の表示 SSOT。
 
-「どの leaf をどの条件で描くか」の v-else-if 連鎖を本体 (PreviewPane) と pinned window
-(PinnedPreviewWindow) で共有する presentational コンポーネント。store には触れず、
+「どの leaf をどの条件で描くか」の v-else-if 連鎖を本体 (PreviewPane) と undocked window
+(UndockedPreviewWindow) で共有する presentational コンポーネント。store には触れず、
 データは props、操作は emit のみ。データ源が live (`usePreviewContent`) か snapshot
-(`PinnedPreviewDoc`) かは呼び出し側の関心で、表示は「同じ入力 → 同じ UI」を構造的に
+(`UndockedPreviewDoc`) かは呼び出し側の関心で、表示は「同じ入力 → 同じ UI」を構造的に
 保証する (view の切り離しで UI が縮小・分岐しないための境界)。
 
 - 編集 / blame / 行番号 reveal は capability props (editable / blameEnabled / lineNumber /
-  revealVersion)。対応する文脈を持たない呼び出し側 (pinned window) は default の
+  revealVersion)。対応する文脈を持たない呼び出し側 (undocked window) は default の
   無効値のまま使う
-- フォント設定 (previewConfig) の適用もここに含める (本体と pinned でフォントが
+- フォント設定 (previewConfig) の適用もここに含める (本体と undocked でフォントが
   食い違わないように)。root は overflow-auto のみ持ち、サイズ決定 (size-full /
   min-h-0 flex-1 等) は呼び出し側の class fallthrough に委ねる
 - 画像の load 失敗は imageError を emit するだけで、error 表示への反映 (error prop) は
-  呼び出し側が決める (本体は content 層の error ref、pinned はローカル ref)
+  呼び出し側が決める (本体は content 層の error ref、undocked はローカル ref)
 </doc>
 
 <script setup lang="ts">

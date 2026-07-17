@@ -24,10 +24,11 @@ const config: KnipConfig = {
     },
     "apps/renderer": {
       ignoreDependencies: [
-        // unplugin-icons が `~icons/lucide/*` virtual module の icon data source として
-        // 動的に読み込む。コード上の import は virtual path で package 名に解決されない
-        // ため、knip からは unused に見える
+        // unplugin-icons が `~icons/<collection>/*` virtual module の icon data source と
+        // して動的に読み込む。コード上の import は virtual path で package 名に解決され
+        // ないため、knip からは unused に見える
         "@iconify-json/lucide",
+        "@iconify-json/mdi",
       ],
     },
     "packages/eslint-plugin": {},

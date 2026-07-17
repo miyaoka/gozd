@@ -798,7 +798,7 @@ export function usePreviewContent(
     originalText,
     displayContent,
     displayIsBinary,
-    // rev 別の binary 判定 (pinned preview の snapshot が current / original を独立に扱うため)
+    // rev 別の binary 判定 (undocked preview の snapshot が current / original を独立に扱うため)
     isBinary,
     isOriginalBinary,
     // git 文脈

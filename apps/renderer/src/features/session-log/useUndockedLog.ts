@@ -1,9 +1,9 @@
 /**
- * terminal preview の全文 popover から固定化 (pin) されたメッセージ群の module singleton。
+ * terminal preview の全文 popover から切り離し (undock) されたメッセージ群の module singleton。
  *
- * pinned window は表示中の repo / session / terminal と独立して存在し続けるため、
+ * undocked window は表示中の repo / session / terminal と独立して存在し続けるため、
  * component ローカルではなく module singleton に置く (`useSessionLogViewer` と同パターン)。
- * 内容は pin 時点のスナップショット (kind + text) で、元セッションのログ参照や
+ * 内容は undock 時点のスナップショット (kind + text) で、元セッションのログ参照や
  * watch ライフサイクルには乗らない。元の popover が閉じても消えない独立性が要件のため、
  * ライブ更新はしない。
  *
@@ -12,7 +12,7 @@
  */
 import { createFloatingWindows, type FloatingWindowState } from "../floating-window";
 
-interface PinnedLogData {
+interface UndockedLogData {
   kind: "user" | "assistant";
   /** ヘッダ上段: repo 名 (TerminalLeafTitle と同構成)。未解決は空文字で上段ごと省く。 */
   repoName: string;
@@ -23,11 +23,11 @@ interface PinnedLogData {
   text: string;
 }
 
-export type PinnedLog = PinnedLogData & FloatingWindowState;
+export type UndockedLog = UndockedLogData & FloatingWindowState;
 
-const store = createFloatingWindows<PinnedLogData>();
+const store = createFloatingWindows<UndockedLogData>();
 
-export function usePinnedLog() {
-  const { windows, pin, takeHandoff, close, move, bringToFront } = store;
-  return { logs: windows, pin, takeHandoff, close, move, bringToFront };
+export function useUndockedLog() {
+  const { windows, undock, takeHandoff, close, move, bringToFront } = store;
+  return { logs: windows, undock, takeHandoff, close, move, bringToFront };
 }

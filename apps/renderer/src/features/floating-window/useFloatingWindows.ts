@@ -1,13 +1,13 @@
 /**
- * pin されたフローティングウィンドウ群の状態管理 factory。
+ * undock されたフローティングウィンドウ群の状態管理 factory。
  *
- * pinned window は pin 元 (popover / pane) の表示状態と独立して存在し続けるため、
+ * undocked window は undock 元 (popover / pane) の表示状態と独立して存在し続けるため、
  * consumer feature (session-log / preview) が module スコープで `createFloatingWindows<T>()`
  * を 1 回だけ実行し、payload T を載せた singleton のウィンドウ列を得る。
  *
- * 位置は pin 元 (popover の box) の実測 rect、サイズは pin 元の本文 (スクロール面) の
+ * 位置は undock 元 (popover の box) の実測 rect、サイズは undock 元の本文 (スクロール面) の
  * 実測を初期値として受け取る。popover がその場でフローティング化したように見せる視覚的
- * 連続性のため。サイズを総高さでなく本文で受け渡すのは、pin 元とウィンドウでヘッダの
+ * 連続性のため。サイズを総高さでなく本文で受け渡すのは、undock 元とウィンドウでヘッダの
  * 高さが違うため。総高さを引き継ぐと増えたヘッダ分だけ本文が食われて切れる。ウィンドウは
  * mount 時に自分のヘッダ実測高を足して総高さを決める。以後、位置 (x / y) はドラッグと
  * 左/上辺リサイズで更新されるが、サイズは store 上では初期値のまま不変で、リサイズの
@@ -24,7 +24,7 @@ export interface FloatingWindowState {
   x: number;
   y: number;
   /**
-   * 初期の本文 (スクロール面) サイズ (pin 元の本文実測。総サイズでない理由は
+   * 初期の本文 (スクロール面) サイズ (undock 元の本文実測。総サイズでない理由は
    * モジュール docstring 参照)。mount 後はリサイズハンドラが inline style を上書きする。
    */
   bodyWidth: number;
@@ -33,12 +33,12 @@ export interface FloatingWindowState {
 }
 
 /**
- * pin と同時にドラッグを開始する引き継ぎ情報。pin 元ヘッダのドラッグで pin する経路では、
- * 掴んでいた要素が pin と同時に消える (unmount / hide) ため pointer capture を持ち越せない。
- * pin() がこれを預かり、mount されたウィンドウが takeHandoff() で 1 回だけ消費して
+ * undock と同時にドラッグを開始する引き継ぎ情報。undock 元ヘッダのドラッグで undock する経路では、
+ * 掴んでいた要素が undock と同時に消える (unmount / hide) ため pointer capture を持ち越せない。
+ * undock() がこれを預かり、mount されたウィンドウが takeHandoff() で 1 回だけ消費して
  * 同じ pointerId のドラッグとして継続する。
  */
-export interface PinDragHandoff {
+export interface UndockDragHandoff {
   pointerId: number;
   /** pointer からウィンドウ原点 (rect 左上) へのオフセット。 */
   offsetX: number;
@@ -55,17 +55,17 @@ let zTop = Z_BASE;
 export function createFloatingWindows<T>() {
   const windows = ref([]) as Ref<(T & FloatingWindowState)[]>;
   let nextId = 0;
-  // pin() → mount → takeHandoff() が同期フラッシュ内で完結するため reactive にしない。
-  let pendingHandoff: ({ id: number } & PinDragHandoff) | undefined;
+  // undock() → mount → takeHandoff() が同期フラッシュ内で完結するため reactive にしない。
+  let pendingHandoff: ({ id: number } & UndockDragHandoff) | undefined;
 
-  function pin(input: T & Omit<FloatingWindowState, "id" | "z">, handoff?: PinDragHandoff) {
+  function undock(input: T & Omit<FloatingWindowState, "id" | "z">, handoff?: UndockDragHandoff) {
     const id = nextId++;
     windows.value.push({ ...input, id, z: ++zTop });
     if (handoff !== undefined) pendingHandoff = { id, ...handoff };
   }
 
   /** id 宛の drag handoff を 1 回だけ消費する。無ければ undefined。 */
-  function takeHandoff(id: number): PinDragHandoff | undefined {
+  function takeHandoff(id: number): UndockDragHandoff | undefined {
     if (pendingHandoff === undefined || pendingHandoff.id !== id) return undefined;
     const { pointerId, offsetX, offsetY } = pendingHandoff;
     pendingHandoff = undefined;
@@ -86,11 +86,11 @@ export function createFloatingWindows<T>() {
   function bringToFront(id: number) {
     const win = windows.value.find((w) => w.id === id);
     if (win === undefined) return;
-    // zTop は全種共有のため、他種のウィンドウが後から pin されていれば z !== zTop になり
+    // zTop は全種共有のため、他種のウィンドウが後から undock されていれば z !== zTop になり
     // 正しく再前面化される
     if (win.z === zTop) return;
     win.z = ++zTop;
   }
 
-  return { windows, pin, takeHandoff, close, move, bringToFront };
+  return { windows, undock, takeHandoff, close, move, bringToFront };
 }

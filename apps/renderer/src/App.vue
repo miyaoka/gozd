@@ -15,9 +15,9 @@ import {
   useNotifySubscription,
   useTitleContextSync,
 } from "./features/layout";
-import { PinnedPreviewLayer } from "./features/preview";
+import { UndockedPreviewLayer } from "./features/preview";
 import { ServerListPanel } from "./features/server";
-import { PinnedLogLayer } from "./features/session-log";
+import { UndockedLogLayer } from "./features/session-log";
 import { useGozdOpenHandler, useRepoContextKey } from "./features/sidebar";
 import { useGitStatusSync, useRemoteFetchSync } from "./features/worktree";
 import { useKeyBindings } from "./shared/command";
@@ -38,7 +38,7 @@ useTitleContextSync();
   <MainLayout />
   <ServerListPanel />
   <EventLogPanel />
-  <PinnedLogLayer />
-  <PinnedPreviewLayer />
+  <UndockedLogLayer />
+  <UndockedPreviewLayer />
   <ArcadeLayer />
 </template>

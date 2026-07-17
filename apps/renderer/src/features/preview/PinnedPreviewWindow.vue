@@ -22,7 +22,8 @@ snapshot に固定する — 過去の内容で実ファイルを上書き保存
 - original (比較元 rev) 側は pin 時点に固定のまま。live な git 文脈 (rev 解決・blame) は
   ヘッダの open ボタンで本体 preview に昇格して得る
 - 編集は window ローカルの draft / save (本体の editStore とは独立した per-window
-  セッション)。dirty の間は外部変更で上書きしない (本体と同じ dirty 保護)。Original
+  セッション)。dirty の間は外部変更で上書きしないが、イベントは保留して編集終了
+  (Discard / Save) 時に再取得する (捨てると Discard 後に stale が残る)。Original
   タブは履歴表示のため編集対象外
 - 再取得が notFound / 失敗のときは直前の内容を維持する (pin 後のファイル削除・worktree
   消失でもウィンドウは生存する既存契約)
@@ -189,21 +190,39 @@ async function saveEdit() {
 /** 非同期レース防止のバージョンカウンター (本体 usePreviewContent と同じ規律) */
 let fetchVersion = 0;
 
+/** dirty 中に届いた変更の保留。破棄すると Discard 後に stale な内容が残り、そのまま保存すると
+ * 外部変更を見ないまま上書きしてしまうため、isDirty が落ちた時点で再取得する */
+let pendingRefetch = false;
+
 async function refetchCurrent() {
-  // dirty の間は外部変更で上書きしない (本体の fsChange と同じ dirty 保護)
-  if (isDirty.value) return;
+  // dirty 保護 (draft を上書きしない) は本体と同じ規律だが、イベントは捨てずに保留する
+  if (isDirty.value) {
+    pendingRefetch = true;
+    return;
+  }
   const version = ++fetchVersion;
   const result = await tryCatch(
     rpcFsReadFileAbsolute({ absolutePath: sourceAbsPath }).then((r) => r.result),
   );
   if (version !== fetchVersion) return;
-  // 再取得失敗 / notFound (削除等) は直前の内容を維持する (ウィンドウ生存契約)
-  if (!result.ok) return;
+  // transport 失敗は stale 表示に気づけないため通知する (意図的な notFound 維持と区別する)
+  if (!result.ok) {
+    notification.error(`Failed to reload ${props.preview.fileName}`, result.error);
+    return;
+  }
   const file = result.value;
+  // notFound / directory (削除等) は直前の内容を維持する (ウィンドウ生存契約)
   if (file === undefined || file.notFound || file.isDirectory) return;
   current.value = file.content;
   draft.value = undefined;
 }
+
+// Discard / Save で isDirty が落ちたら、dirty 中に保留した外部変更を取り込む
+watch(isDirty, (dirty) => {
+  if (dirty || !pendingRefetch) return;
+  pendingRefetch = false;
+  void refetchCurrent();
+});
 
 // window が生きている間だけ main に単一ファイル watch を張る (sourceAbsPath は不変)。
 // fsChange (fsWatchSync) に相乗りしない理由は doc 参照。
@@ -211,12 +230,20 @@ async function refetchCurrent() {
 // watch も購読も張らず、pin 時 snapshot に固定する。
 if (props.preview.currentIsWorkingTree) {
   void tryCatch(rpcFsWatchFileAbsolute({ absolutePath: sourceAbsPath })).then((result) => {
-    // watch 失敗は live 追従が効かないだけで snapshot 表示は成立するため、ログに残す
+    // watch 失敗は live 追従が止まり stale 表示に気づけないため通知する
     if (!result.ok) {
-      console.error(`[PinnedPreviewWindow] watch failed: ${sourceAbsPath}: ${result.error}`);
+      notification.error(
+        `Failed to watch ${props.preview.fileName} for live updates`,
+        result.error,
+      );
     }
   });
-  onUnmounted(() => void tryCatch(rpcFsUnwatchFileAbsolute({ absolutePath: sourceAbsPath })));
+  onUnmounted(() => {
+    void tryCatch(rpcFsUnwatchFileAbsolute({ absolutePath: sourceAbsPath })).then((result) => {
+      // unwatch 失敗は watcher のリーク (表示は正常動作) なので info で通知する
+      if (!result.ok) notification.info("Failed to release file watcher", result.error);
+    });
+  });
   const unsubscribeFileChange = onMessage<FsChangeAbsolutePayload>(
     "fsChangeAbsolute",
     ({ path }) => {

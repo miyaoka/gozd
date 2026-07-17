@@ -4,10 +4,19 @@
 import { tryCatch } from "@gozd/shared";
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readDir, readFile } from "./fsOps";
+import { readDir, readFile, writeFileAbsolute } from "./fsOps";
 
 describe("FSOps", () => {
   const tempDirs: string[] = [];
@@ -136,5 +145,34 @@ describe("FSOps", () => {
     expect(byName.get("app.log")).toBe(true);
     expect(byName.get("keep.ts")).toBe(false);
     expect(byName.get(".gitignore")).toBe(false);
+  });
+
+  test("writeFileAbsolute は絶対パスに書き込め、tmp ファイルを残さない", () => {
+    const dir = makeTempDir();
+    const path = join(dir, "config.json");
+    writeFileAbsolute(path, '{"a":1}');
+    expect(readFileSync(path, "utf8")).toBe('{"a":1}');
+    // atomic write (tmp + rename) の tmp が残骸として残らない
+    expect(readdirSync(dir)).toEqual(["config.json"]);
+  });
+
+  test("writeFileAbsolute は既存ファイルを上書きできる", () => {
+    const dir = makeTempDir();
+    const path = join(dir, "config.json");
+    writeFileAbsolute(path, "old");
+    writeFileAbsolute(path, "new");
+    expect(readFileSync(path, "utf8")).toBe("new");
+  });
+
+  test("writeFileAbsolute は非絶対パスを reject する", () => {
+    const result = tryCatch(() => writeFileAbsolute("relative/config.json", "x"));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(String(result.error)).toContain("notAbsolutePath");
+  });
+
+  test("writeFileAbsolute は親 dir 不在なら失敗する (作成しない)", () => {
+    const dir = makeTempDir();
+    const result = tryCatch(() => writeFileAbsolute(join(dir, "missing", "a.txt"), "x"));
+    expect(result.ok).toBe(false);
   });
 });

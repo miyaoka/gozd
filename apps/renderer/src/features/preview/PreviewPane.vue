@@ -60,7 +60,8 @@ const emit = defineEmits<{
 
 const worktreeStore = useWorktreeStore();
 const repoStore = useRepoStore();
-const { selectedDisplayPath, selectedLineNumber, revealVersion } = storeToRefs(worktreeStore);
+const { selection, selectedDisplayPath, selectedLineNumber, revealVersion } =
+  storeToRefs(worktreeStore);
 const summaryStore = useChangesSummaryStore();
 const previewStore = usePreviewStore();
 const editStore = usePreviewEditStore();
@@ -155,6 +156,9 @@ const prDiffToggle = usePrDiffToggleStore();
  * orderedRange 不整合 (null) は安全側 (固定・読み取り専用) に倒す。
  */
 const currentIsWorkingTree = computed<boolean>(() => {
+  // absolute (worktree 外) は commit 選択と無関係に常に fs 読みで確定する
+  // (usePreviewContent の absolute 分岐)。commit mode の判定より先に返す
+  if (selection.value?.kind === "absolute") return true;
   if (prDiffToggle.isOn) return true;
   if (!isCommitMode.value) return true;
   return orderedRange.value?.newer === UNCOMMITTED_HASH;

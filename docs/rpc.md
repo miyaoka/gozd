@@ -106,8 +106,10 @@ main は `webContents.send("rpc:push", type, payload)` で renderer に push す
 | `windowFullscreenChange` | main (BrowserWindow enter/leave-full-screen)     | macOS fullscreen 遷移（タイトルバーの信号機 pad 開閉）             |
 | `appConfigChange`        | main (`appConfigWatcher`)                        | AppConfig ファイル変更の hot reload（直接編集の即時適用）          |
 
-ファイル監視系の push payload は `dir`（または発火元 dir）を必須で持つ。詳細は
-[architecture.md](architecture.md#ssot-push-の-dir-filter-規律) を参照。
+fsWatchRegistry 由来の複数 dir 監視の push payload は `dir`（または発火元 dir）を必須で持つ。
+詳細は [architecture.md](architecture.md#ssot-push-の-dir-filter-規律) を参照。単一ファイル
+watcher の push はこの dir filter 規律の対象外で、`fsChangeAbsolute` は exact `path` match、
+`appConfigChange` は唯一のグローバル config が対象のため filter キー自体を持たない。
 
 push payload の型は request / response と違い `@gozd/rpc` に置かない。main 側の
 push 発火箇所（手組み dict）と renderer 側 feature の `*Payload` interface を SSOT とする

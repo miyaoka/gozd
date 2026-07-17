@@ -45,6 +45,12 @@ function applyConfig(config: AppConfig): void {
   const voicevoxStore = useVoicevoxStore();
   if (config.voicevox.speedScale > 0) voicevoxStore.speedScale = config.voicevox.speedScale;
   if (config.voicevox.volumeScale > 0) voicevoxStore.volumeScale = config.voicevox.volumeScale;
+  // speakerId も適用する。適用しないと、他 voicevox フィールドとの同時ファイル編集時に
+  // store の save watch (echo save) が store 側の旧 speakerId を書き戻し、ファイルの変更を
+  // silent に revert してしまう。undefined は「未設定」(キー不在) なので現在値を維持
+  if (config.voicevox.speakerId !== undefined) {
+    voicevoxStore.setSpeakerId(config.voicevox.speakerId);
+  }
   // enabled は engine 起動 / 停止の副作用を伴うため、実際に状態が変わるときだけ UI トグルと
   // 同じ activate / deactivate を通す（activate 失敗時は enabled が false のまま → store の
   // save watch が false を書き戻す、まで UI 経由と同じ挙動に揃う）

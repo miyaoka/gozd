@@ -22,3 +22,13 @@ export interface ProjectConfigSaveRequest {
   config: ProjectConfig;
 }
 export type ProjectConfigSaveResponse = EmptyMessage;
+
+export interface ProjectConfigEnsureFileRequest {
+  dir: string;
+}
+
+/** 設定ファイルを実体化して絶対パスを返す（未存在なら default 充填した現在値を書き出す）。
+ * settings UI の「Open settings file (JSON)」が preview で開くために使う。 */
+export interface ProjectConfigEnsureFileResponse {
+  path: string;
+}

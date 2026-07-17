@@ -5,8 +5,11 @@
 // このモジュールで吸収する。
 import type {
   AppConfig,
+  EnsureAppConfigFileResponse,
   LoadAppConfigResponse,
   ProjectConfig,
+  ProjectConfigEnsureFileRequest,
+  ProjectConfigEnsureFileResponse,
   ProjectConfigLoadRequest,
   ProjectConfigLoadResponse,
   ProjectConfigSaveResponse,
@@ -20,8 +23,14 @@ export const rpcLoadAppConfig = () => rpc<LoadAppConfigResponse>("/appConfig/loa
 const rpcSaveAppConfig = (config: AppConfig) =>
   rpc<SaveAppConfigResponse>("/appConfig/save", { config });
 
+export const rpcEnsureAppConfigFile = () =>
+  rpc<EnsureAppConfigFileResponse>("/appConfig/ensureFile", {});
+
 export const rpcProjectConfigLoad = (req: ProjectConfigLoadRequest) =>
   rpc<ProjectConfigLoadResponse>("/projectConfig/load", req);
+
+export const rpcProjectConfigEnsureFile = (req: ProjectConfigEnsureFileRequest) =>
+  rpc<ProjectConfigEnsureFileResponse>("/projectConfig/ensureFile", req);
 
 const rpcProjectConfigSave = (dir: string, config: ProjectConfig) =>
   rpc<ProjectConfigSaveResponse>("/projectConfig/save", { dir, config });

@@ -83,6 +83,30 @@ export interface FsWriteFileRequest {
 }
 export type FsWriteFileResponse = EmptyMessage;
 
+/** 絶対パスへの書き込み（dir 外を許可）。fsReadFileAbsolute の書き込み対。preview の
+ * worktree 外ファイル（設定 JSON 等）の編集保存で使用。絶対パス以外は main 側で reject する
+ * （相対パスが CWD 基準で silent に解決される Foundation/Node の暗黙 fallback を塞ぐ）。 */
+export interface FsWriteFileAbsoluteRequest {
+  absolutePath: string;
+  content: string;
+}
+export type FsWriteFileAbsoluteResponse = EmptyMessage;
+
+/** 絶対パスの単一ファイル監視を開始する（dir 外を許可）。preview が表示中の worktree 外
+ * ファイル（設定 JSON / session log 等）の変更追従に使う。同一 path の重複 watch は
+ * refcount で共有し、変更は `fsChangeAbsolute { path }` として push される。 */
+export interface FsWatchFileAbsoluteRequest {
+  absolutePath: string;
+}
+export type FsWatchFileAbsoluteResponse = EmptyMessage;
+
+/** 絶対パスの単一ファイル監視を解除する。refcount が 0 になったら watcher を破棄する。
+ * watch されていない path でも no-op で成功する。 */
+export interface FsUnwatchFileAbsoluteRequest {
+  absolutePath: string;
+}
+export type FsUnwatchFileAbsoluteResponse = EmptyMessage;
+
 /** fsStat: ファイル / ディレクトリの存在確認 + 種別取得 */
 export interface FsStatRequest {
   dir: string;

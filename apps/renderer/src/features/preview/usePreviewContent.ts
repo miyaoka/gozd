@@ -35,8 +35,14 @@ import { computed, onUnmounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { useChangesStore, useChangesSummaryStore } from "../changes";
-import { relDirOf, rpcFsReadFile, rpcFsReadFileAbsolute } from "../filer";
-import type { FsChangePayload } from "../filer";
+import {
+  relDirOf,
+  rpcFsReadFile,
+  rpcFsReadFileAbsolute,
+  rpcFsUnwatchFileAbsolute,
+  rpcFsWatchFileAbsolute,
+} from "../filer";
+import type { FsChangeAbsolutePayload, FsChangePayload } from "../filer";
 import { rpcGitReadBlob, useGitGraphStore, usePrDiffToggleStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../worktree";
 import type { GitChangeKind, Selection } from "../worktree";
@@ -667,6 +673,54 @@ export function usePreviewContent(
     },
   );
   onUnmounted(unsubscribeFsChange);
+
+  // ==== absolute 選択 (worktree 外) のファイル変更追従 ====
+  //
+  // worktree 外は fsWatchRegistry の対象外で fsChange が届かないため、表示している間だけ
+  // main に単一ファイル watch (absFileWatcher) を張り、fsChangeAbsolute で再取得する
+  // (設定 JSON / session log 等。VS Code が開いているファイルを個別 watch するのと同じ形)。
+
+  /** 現在 watch を張っている絶対パス。selection の absolute ⇄ それ以外の遷移に同期する */
+  let watchedAbsPath: string | undefined;
+
+  watch(
+    () => (selection.value?.kind === "absolute" ? selection.value.absPath : undefined),
+    (absPath) => {
+      if (absPath === watchedAbsPath) return;
+      if (watchedAbsPath !== undefined) {
+        const prev = watchedAbsPath;
+        void tryCatch(rpcFsUnwatchFileAbsolute({ absolutePath: prev })).then((result) => {
+          // unwatch 失敗は watch のリークだが表示は正しく動くため、トーストにせずログに残す
+          if (!result.ok)
+            console.error(`[usePreviewContent] unwatch failed: ${prev}: ${result.error}`);
+        });
+      }
+      watchedAbsPath = absPath;
+      if (absPath === undefined) return;
+      void tryCatch(rpcFsWatchFileAbsolute({ absolutePath: absPath })).then((result) => {
+        // watch 失敗 (親 dir 消失等) は live 追従が効かないだけで表示は成立するため、ログに残す
+        if (!result.ok)
+          console.error(`[usePreviewContent] watch failed: ${absPath}: ${result.error}`);
+      });
+    },
+    { immediate: true },
+  );
+  onUnmounted(() => {
+    if (watchedAbsPath === undefined) return;
+    void tryCatch(rpcFsUnwatchFileAbsolute({ absolutePath: watchedAbsPath }));
+  });
+
+  const unsubscribeFsChangeAbsolute = onMessage<FsChangeAbsolutePayload>(
+    "fsChangeAbsolute",
+    ({ path }) => {
+      const sel = selection.value;
+      if (sel?.kind !== "absolute" || sel.absPath !== path) return;
+      // dirty 保護と targetChanged=false (モード・UI 状態は維持) の規律は fsChange と同じ
+      if (editStore.isDirty) return;
+      void fetchContent(sel, undefined, false);
+    },
+  );
+  onUnmounted(unsubscribeFsChangeAbsolute);
 
   /** activeMode 解決済みの表示対象 content (union のまま) */
   const displayRaw = computed(() => {

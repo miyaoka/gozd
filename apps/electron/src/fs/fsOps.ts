@@ -8,7 +8,7 @@
 import type { FileReadResult } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { lstatSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { checkIgnore } from "../git/gitOps";
 import { toWireBytes } from "../wireBytes";
 import { resolveContained } from "./pathContainment";
@@ -58,6 +58,14 @@ export function writeFile(dir: string, path: string, content: string): void {
   const target = resolveSafe(dir, path);
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, content);
+}
+
+/** 絶対パスでファイルを書き込む（dir 制約なし）。readFileAbsolute の書き込み対。
+ * 非絶対パスは reject する（CWD 基準の silent 解決に倒さない）。読めたファイルの上書き
+ * 保存が唯一の経路のため、親ディレクトリは作成しない（不在なら ENOENT で観察可能化） */
+export function writeFileAbsolute(absolutePath: string, content: string): void {
+  if (!isAbsolute(absolutePath)) throw new Error(`notAbsolutePath: ${absolutePath}`);
+  writeFileSync(absolutePath, content);
 }
 
 export function stat(dir: string, path: string): FsStatResult {

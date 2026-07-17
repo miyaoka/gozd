@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
 import { TITLEBAR_HEIGHT, tryCatch } from "@gozd/shared";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { startAppConfigWatcher, stopAppConfigWatcher } from "./appConfigWatcher";
 import { writeClaudeHooksSettings } from "./claudeHooksSettings";
 import { bundledRendererIndex, channel, claudeSettingsPath, isPackaged, launchRequestDir, socketPath } from "./gozdEnv";
 import { GOZD_CHANNEL_ARG_PREFIX, SPIKE_TEST_ARG } from "./ipc";
@@ -241,6 +242,9 @@ app.whenReady().then(() => {
   // 実行中サーバーの周期検出。push は window に束縛（シングルウィンドウ運用）
   startPortScanner(socketPush);
 
+  // AppConfig ファイルの hot reload（直接編集を appConfigChange として push）
+  startAppConfigWatcher(socketPush);
+
   // CLI cold start の launch request を消費して gozdOpen を push する
   // （Swift 版 performInitialOpen 対応）。push が renderer の購読登録より先に飛ぶと
   // 落ちるため、page load 完了まで待つ。once なのは Vite フルリロード等の再 load で
@@ -280,5 +284,6 @@ app.on("will-quit", () => {
   killAllPtys();
   unwatchAllFsWatches();
   stopPortScanner();
+  stopAppConfigWatcher();
   socketServer?.close();
 });

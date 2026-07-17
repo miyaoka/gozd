@@ -6,6 +6,9 @@
 - 左タブ: Global / Project 切り替え
 - 右コンテンツ: スキーマ駆動のセクション・ウィジェット一覧
 - 値変更時に即座に RPC で保存
+- ヘッダーの JSON ボタン: アクティブタブの設定ファイルを preview で開く（ensureFile RPC で
+  実体化してから forceSelect）。modal は閉じない。popover は dialog より後に top layer に
+  入るため modal の上に見え、modal を閉じると操作可能になる
 
 ## Project タブの対象
 
@@ -22,7 +25,12 @@ import { computed, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { useDialog } from "../palette";
-import { previewCodeFontFamily, previewFontFamily, previewFontSize } from "../preview";
+import {
+  previewCodeFontFamily,
+  previewFontFamily,
+  previewFontSize,
+  usePreviewStore,
+} from "../preview";
 import { applyTerminalTheme, terminalFontFamily, terminalFontSize } from "../terminal";
 import { useVoicevoxStore } from "../voicevox";
 import { useWorktreeStore } from "../worktree";
@@ -33,11 +41,14 @@ import {
   flattenProjectConfig,
   patchAppConfig,
   patchProjectConfig,
+  rpcEnsureAppConfigFile,
   rpcLoadAppConfig,
+  rpcProjectConfigEnsureFile,
   rpcProjectConfigLoad,
 } from "./rpc";
 import SettingSection from "./SettingSection.vue";
 import { useSettingsModal, type SettingsTab } from "./useSettingsModal";
+import IconLucideFileJson from "~icons/lucide/file-json";
 import IconLucideX from "~icons/lucide/x";
 
 const TABS: readonly { id: SettingsTab; label: string }[] = [
@@ -168,6 +179,30 @@ async function handleProjectChange(key: string, value: unknown) {
   if (!result.ok) notify.error("Failed to save project settings", result.error);
 }
 
+const previewStore = usePreviewStore();
+
+/** アクティブタブの設定ファイルを実体化して絶対パスを返す。Project タブは対象未解決だと
+ * タブ自体が無効化されるため dir 不在はここに来ない（型ガードとして throw に倒す） */
+async function ensureActiveConfigFile() {
+  if (activeTab.value === "global") return rpcEnsureAppConfigFile();
+  const dir = projectDir.value;
+  if (dir === undefined) throw new Error("project settings target is not resolved");
+  return rpcProjectConfigEnsureFile({ dir });
+}
+
+// アクティブタブの設定ファイル (JSON) を preview で開く。設定ファイルは worktree 外なので
+// PathTarget は absolute kind。modal は閉じない: preview popover は dialog より後に top layer
+// へ入るため modal の上に描画され、modal が開いている間は inert (閲覧のみ)、ユーザーが
+// modal を閉じた時点で操作可能になる。
+async function openSettingsFile() {
+  const result = await tryCatch(ensureActiveConfigFile());
+  if (!result.ok) {
+    notify.error("Failed to open settings file", result.error);
+    return;
+  }
+  previewStore.forceSelect({ kind: "absolute", absPath: result.value.path });
+}
+
 // modalIsOpen と dialog の isOpen を同期
 watch(modalIsOpen, (open) => {
   if (open) {
@@ -193,14 +228,25 @@ watch(isOpen, (open) => {
       <!-- ヘッダー -->
       <div class="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
         <h2 class="text-sm font-medium text-foreground">Settings</h2>
-        <button
-          type="button"
-          class="text-foreground-low hover:text-foreground"
-          aria-label="Close settings"
-          @click="modalIsOpen = false"
-        >
-          <IconLucideX class="size-4" />
-        </button>
+        <div class="flex items-center gap-3">
+          <button
+            type="button"
+            class="text-foreground-low hover:text-foreground"
+            aria-label="Open settings file (JSON)"
+            title="Open settings file (JSON)"
+            @click="openSettingsFile"
+          >
+            <IconLucideFileJson class="size-4" />
+          </button>
+          <button
+            type="button"
+            class="text-foreground-low hover:text-foreground"
+            aria-label="Close settings"
+            @click="modalIsOpen = false"
+          >
+            <IconLucideX class="size-4" />
+          </button>
+        </div>
       </div>
 
       <!-- 本体 -->

@@ -43,7 +43,7 @@ import {
   usePreviewEditStore,
   usePreviewStore,
 } from "../preview";
-import { registerSettingsCommand, SettingsModal } from "../settings";
+import { registerAppConfigSync, registerSettingsCommand, SettingsModal } from "../settings";
 import { registerShellCommandActions } from "../shell-command";
 import { SidebarPane } from "../sidebar";
 import { registerThemeCommand, TerminalPane } from "../terminal";
@@ -77,6 +77,7 @@ const disposeWindowClose = register("window.close", {
 });
 const disposeThemeCommand = registerThemeCommand();
 const disposeSettingsCommand = registerSettingsCommand();
+const disposeAppConfigSync = registerAppConfigSync();
 const disposePrCommand = registerPrCommand();
 const disposeIssueCommand = registerIssueCommand();
 const disposeFilePickerCommand = registerFilePickerCommand();
@@ -88,6 +89,7 @@ onUnmounted(disposePreviewToggle);
 onUnmounted(disposeWindowClose);
 onUnmounted(disposeThemeCommand);
 onUnmounted(disposeSettingsCommand);
+onUnmounted(disposeAppConfigSync);
 onUnmounted(disposePrCommand);
 onUnmounted(disposeIssueCommand);
 onUnmounted(disposeFilePickerCommand);

@@ -1,12 +1,13 @@
 /**
  * preview popover から固定化 (pin) されたファイルプレビュー群の module singleton。
  *
- * pinned window はファイル選択 / worktree 切り替えと独立して存在し続ける。内容は pin 時点の
- * スナップショット (raw source) で、選択状態には乗らずライブ更新もしない
- * (usePinnedLog と同じ独立性の設計)。`usePreviewContent` は global selection
- * (worktree / git-graph / PR diff) に結合した状態機械のため、pin 側をライブにするには
- * 選択状態の多重化が要る。git / working tree への追従・編集・blame 等の文脈機能が必要に
- * なったら、pin 元の選択を焼き込んだ `source` から本体 preview として開き直す
+ * pinned window はファイル選択 / worktree 切り替えと独立して存在し続ける (usePinnedLog と
+ * 同じ独立性の設計)。global selection には乗らないが、current 側の中身は window ごとに
+ * source の実ファイルへ追従し、編集もできる (per-window の draft / save。実装は
+ * PinnedPreviewWindow の doc 参照)。`usePreviewContent` (global selection に結合した
+ * 状態機械) を多重化するのではなく、window ローカルの軽量な fetch / edit を持つ。
+ * original (比較元 rev) 側は pin 時点に固定で、git 文脈 (rev 追従・blame) が必要になったら
+ * pin 元の選択を焼き込んだ `source` から本体 preview として開き直す
  * (PinnedPreviewWindow の open ボタン = worktree 切替 + filer reveal + preview 表示)。
  *
  * ウィンドウ状態 (位置 / 初期本文サイズ / z / drag handoff) は floating-window の
@@ -17,18 +18,18 @@ import { createFloatingWindows, type FloatingWindowState } from "../floating-win
 import type { PreviewMode } from "./previewMode";
 
 /**
- * pin されたファイルの raw source snapshot。表示形は保存せず、window 側が
+ * pin されたファイルの raw source。表示形は保存せず、window 側が
  * doc + view 状態 (mode / preview / wrap) から都度導出する (PinnedPreviewWindow の
  * view computed。fileType も filePath から再導出する)。current / original の 2 rev の
  * 中身を持ち、diff / 画像表示もこの 2 つから導出する。テキストは string、バイナリは
- * pin 時点の bytes (FileReadResult と同じ union 契約) で、「doc = pin 時点の内容」の
- * snapshot 意味論をテキストとバイナリで揃える。
+ * bytes (FileReadResult と同じ union 契約)。
  */
 export interface PinnedPreviewDoc {
   filePath: string;
-  /** current 側の中身。テキストは string (編集 draft 込み)、バイナリは bytes。無ければ undefined。 */
+  /** current 側の pin 時点の中身 (window 側 live 追従の初期値)。テキストは string
+   * (編集 draft 込み)、バイナリは bytes。無ければ undefined。 */
   current: string | WireBytes | undefined;
-  /** original (比較元) 側の中身。比較元が無ければ undefined。 */
+  /** original (比較元) 側の中身。pin 後も不変。比較元が無ければ undefined。 */
   original: string | WireBytes | undefined;
 }
 
@@ -69,6 +70,10 @@ interface PinnedPreviewData {
   wordWrap: boolean;
   /** pin 時点の Preview トグル状態。window 側トグルの初期値 (以後は window ローカル state)。 */
   previewEnabled: boolean;
+  /** current 側が working tree の実ファイル内容か。false (過去 rev の歴史表示を pin した)
+   * なら window は live 追従も編集もせず pin 時 snapshot に固定する — 過去の内容で
+   * 実ファイルを上書き保存する事故を構造的に防ぐ。 */
+  currentIsWorkingTree: boolean;
   doc: PinnedPreviewDoc;
   source: PinnedPreviewSource;
 }

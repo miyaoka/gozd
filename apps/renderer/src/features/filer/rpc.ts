@@ -9,10 +9,16 @@ import {
   FsReadFileResponse,
   FsUnwatchAllRequest,
   FsUnwatchAllResponse,
+  FsUnwatchFileAbsoluteRequest,
+  FsUnwatchFileAbsoluteResponse,
   FsUnwatchRequest,
   FsUnwatchResponse,
+  FsWatchFileAbsoluteRequest,
+  FsWatchFileAbsoluteResponse,
   FsWatchRequest,
   FsWatchResponse,
+  FsWriteFileAbsoluteRequest,
+  FsWriteFileAbsoluteResponse,
   FsWriteFileRequest,
   FsWriteFileResponse,
   GitLsTreeRequest,
@@ -39,6 +45,11 @@ export const rpcFsReadFileAbsolute = (req: FsReadFileAbsoluteRequest) =>
 export const rpcFsWriteFile = (req: FsWriteFileRequest) =>
   rpc<FsWriteFileResponse>("/fs/writeFile", req);
 
+// 絶対パスへの書き込み（dir 外を許可）。rpcFsReadFileAbsolute の書き込み対。
+// 非絶対パスは main 側で reject される。
+export const rpcFsWriteFileAbsolute = (req: FsWriteFileAbsoluteRequest) =>
+  rpc<FsWriteFileAbsoluteResponse>("/fs/writeFileAbsolute", req);
+
 // ファイル参照を OS クリップボードに書く（他アプリへの paste 用）。macOS pasteboard の
 // ファイル参照形式は renderer の navigator.clipboard では書けないため main 側で行う。
 export const rpcClipboardCopyFiles = (req: ClipboardCopyFilesRequest) =>
@@ -51,6 +62,14 @@ export const rpcFsWatch = (req: FsWatchRequest) => rpc<FsWatchResponse>("/fs/wat
 
 export const rpcFsUnwatch = (req: FsUnwatchRequest) => rpc<FsUnwatchResponse>("/fs/unwatch", req);
 
+// 絶対パスの単一ファイル watch（worktree 外。preview の表示中ファイル追従用）。
+// 変更は fsChangeAbsolute push で届く。同一 path は main 側 refcount で共有される。
+export const rpcFsWatchFileAbsolute = (req: FsWatchFileAbsoluteRequest) =>
+  rpc<FsWatchFileAbsoluteResponse>("/fs/watchFileAbsolute", req);
+
+export const rpcFsUnwatchFileAbsolute = (req: FsUnwatchFileAbsoluteRequest) =>
+  rpc<FsUnwatchFileAbsoluteResponse>("/fs/unwatchFileAbsolute", req);
+
 export const rpcFsUnwatchAll = (req: FsUnwatchAllRequest) =>
   rpc<FsUnwatchAllResponse>("/fs/unwatchAll", req);
 
@@ -62,4 +81,11 @@ export const rpcFsUnwatchAll = (req: FsUnwatchAllRequest) =>
 export interface FsChangePayload {
   dir: string;
   relDir: string;
+}
+
+// fsChangeAbsolute push event payload.
+// rpcFsWatchFileAbsolute で watch 中の絶対パスファイルが変更されたことを通知する
+// （main 側 absFileWatcher が発火元）。
+export interface FsChangeAbsolutePayload {
+  path: string;
 }

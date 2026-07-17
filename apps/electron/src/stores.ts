@@ -15,7 +15,8 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { asArray, asDict } from "./rawJson";
 
-const appConfigPath = join(homedir(), ".config", "gozd", "config.json");
+/** appConfigWatcher が watch 対象の導出に使うため export する（パスの SSOT はここ） */
+export const appConfigPath = join(homedir(), ".config", "gozd", "config.json");
 const appStatePath = join(homedir(), ".local", "state", "gozd", "app-state.json");
 
 /** watcherExclude の初期値（key 不在の初回のみ seed）。VS Code の `files.watcherExclude`
@@ -110,7 +111,16 @@ export function loadAppConfig(): AppConfig {
 }
 
 export function saveAppConfig(config: AppConfig): void {
-  writeFileAtomic(appConfigPath, JSON.stringify(config));
+  // settings UI の「Open settings file (JSON)」で preview 表示する対象のため整形して書く
+  writeFileAtomic(appConfigPath, JSON.stringify(config, null, 2));
+}
+
+/** 設定ファイルを実体化して絶対パスを返す。未存在（初回起動から一度も保存していない）なら
+ * default 充填した現在値を書き出す（VS Code の「Open Settings (JSON)」と同じ挙動）。
+ * preview は不在ファイルを "File not found" 表示に倒すため、開く前に実体を保証する。 */
+export function ensureAppConfigFile(): string {
+  if (!existsSync(appConfigPath)) saveAppConfig(loadAppConfig());
+  return appConfigPath;
 }
 
 export function loadAppState(): AppState {

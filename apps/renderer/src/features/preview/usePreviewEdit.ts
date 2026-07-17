@@ -64,16 +64,22 @@ export function usePreviewEdit(content: PreviewContent) {
   });
 
   /**
-   * 編集可能か。対象は worktree 相対パスの実ファイル (`fsWriteFile` が dir + relPath でしか
-   * 書けないため絶対パスは対象外)。commit / PR diff モードは git オブジェクトから取得した
-   * 履歴表示なので編集対象にしない。編集面は Current タブ (CodePreview の editable) と
-   * Diff タブ (DiffPreview の Monaco diff editor、modified 側)。Original タブは履歴表示のため
-   * 対象外。
+   * 編集可能か。対象は worktree 相対パスの実ファイル (`fsWriteFile`) と worktree 外の
+   * 絶対パスの実ファイル (`fsWriteFileAbsolute`。設定 JSON 等)。commit / PR diff モードは
+   * git オブジェクトから取得した履歴表示なので編集対象にしないが、この gate は
+   * worktreeRelative にのみ適用する: absolute は git 文脈を持たず常に fs 実体の表示
+   * (`usePreviewContent` の absolute 分岐が commit 選択と無関係に fs 読みで確定する) のため、
+   * git-graph の commit 選択が同居していても編集を塞がない。編集面は Current タブ
+   * (CodePreview の editable) と Diff タブ (DiffPreview の Monaco diff editor、modified 側)。
+   * Original タブは履歴表示のため対象外。
    */
   const isEditable = computed(() => {
-    if (worktreeStore.selection?.kind !== "worktreeRelative") return false;
-    if (isCommitMode.value) return false;
-    if (prDiffToggle.isOn) return false;
+    const sel = worktreeStore.selection;
+    if (sel === undefined) return false;
+    if (sel.kind === "worktreeRelative") {
+      if (isCommitMode.value) return false;
+      if (prDiffToggle.isOn) return false;
+    }
     return isCodePreviewActive.value || isDiffPreviewActive.value;
   });
 
@@ -91,10 +97,15 @@ export function usePreviewEdit(content: PreviewContent) {
     [isEditable, currentText] as const,
     ([editable, text]) => {
       if (!editable || text === undefined) return;
+      const sel = worktreeStore.selection;
+      if (sel?.kind === "absolute") {
+        editStore.beginSession({ kind: "absolute", absPath: sel.absPath }, text);
+        return;
+      }
       const dir = worktreeStore.dir;
       const relPath = worktreeStore.selectedRelPath;
       if (dir === undefined || relPath === undefined) return;
-      editStore.beginSession(dir, relPath, text);
+      editStore.beginSession({ kind: "worktreeRelative", dir, relPath }, text);
     },
     { immediate: true },
   );

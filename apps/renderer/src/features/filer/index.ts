@@ -6,9 +6,12 @@ export {
   rpcFsReadFile,
   rpcFsReadFileAbsolute,
   rpcFsUnwatch,
+  rpcFsUnwatchFileAbsolute,
   rpcFsWatch,
+  rpcFsWatchFileAbsolute,
   rpcFsWriteFile,
+  rpcFsWriteFileAbsolute,
 } from "./rpc";
-export type { FsChangePayload } from "./rpc";
+export type { FsChangeAbsolutePayload, FsChangePayload } from "./rpc";
 export { getFileIconUrl, getFolderIconUrl } from "./useFileIcon";
 export { useFsWatchSync } from "./useFsWatchSync";

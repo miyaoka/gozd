@@ -8,12 +8,13 @@
 - blame / file history の rev 導出と popover 連携: `usePreviewRevs`
 - 編集の可否判定・編集セッション同期と Save / Discard 操作: `usePreviewEdit`
 - ヘッダ / モード切替ツールバーの表示ロジック: `PreviewHeader` / `PreviewToolbar`
-- 本文の leaf 切替 (v-else-if 連鎖): `PreviewContent`（pinned window と共有する表示 SSOT）
-- 独立ウィンドウへの切り離し: ヘッダのドラッグ (しきい値超過) で raw source を
-  スナップショット化して `usePinnedPreview` / PinnedPreviewLayer へ pin する
-  (terminal の session preview popover と同じ操作感)。ドラッグ経路は pin 元の rect と
-  掴んだ pointer を `PinDragHandoff` でウィンドウへ引き継ぎ、pane を掴んでそのまま
-  引き剥がす操作感にする。pin 後は popover を閉じる (二重表示を残さない)
+- 本文の leaf 切替 (v-else-if 連鎖): `PreviewContent`（undocked window と共有する表示 SSOT）
+- 独立ウィンドウへの切り離し: ヘッダの undock ボタン、またはヘッダのドラッグ (しきい値
+  超過) で raw source をスナップショット化して `useUndockedPreview` /
+  UndockedPreviewLayer へ undock する
+  (terminal の session preview popover と同じ操作感)。ドラッグ経路は undock 元の rect と
+  掴んだ pointer を `UndockDragHandoff` でウィンドウへ引き継ぎ、pane を掴んでそのまま
+  引き剥がす操作感にする。undock 後は popover を閉じる (二重表示を残さない)
 
 本コンポーネントに残るのは上記レイヤー間の配線だけ。
 
@@ -34,7 +35,7 @@ import { storeToRefs } from "pinia";
 import { computed, onMounted, ref, useTemplateRef, watch } from "vue";
 import { useRepoStore } from "../../shared/repo";
 import { useChangesSummaryStore } from "../changes";
-import type { PinDragHandoff } from "../floating-window";
+import type { UndockDragHandoff } from "../floating-window";
 import { usePrDiffToggleStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import { ChangesSummaryView } from "./features/changes-summary";
@@ -43,16 +44,16 @@ import PreviewContent from "./PreviewContent.vue";
 import PreviewHeader from "./PreviewHeader.vue";
 import PreviewToolbar from "./PreviewToolbar.vue";
 import { resolveOpenablePath } from "./resolveOpenablePath";
-import {
-  usePinnedPreview,
-  type PinnedPreviewDoc,
-  type PinnedPreviewSource,
-} from "./usePinnedPreview";
 import { usePreviewContent } from "./usePreviewContent";
 import { usePreviewEdit } from "./usePreviewEdit";
 import { usePreviewEditStore } from "./usePreviewEditStore";
 import { usePreviewRevs } from "./usePreviewRevs";
 import { usePreviewStore } from "./usePreviewStore";
+import {
+  useUndockedPreview,
+  type UndockedPreviewDoc,
+  type UndockedPreviewSource,
+} from "./useUndockedPreview";
 
 const emit = defineEmits<{
   close: [];
@@ -105,7 +106,7 @@ const {
 /**
  * 画像描画失敗 (壊れた bytes 等) の error 表示。content 層の error (fetch 失敗) に畳むと
  * rev 切替 (Current ↔ Original) で正常に描ける側まで error 表示が固定されるため分離し、
- * view 操作と content 更新 (contentEpoch) でリセットする (PinnedPreviewWindow と同じ規律)。
+ * view 操作と content 更新 (contentEpoch) でリセットする (UndockedPreviewWindow と同じ規律)。
  */
 const imageError = ref(false);
 watch([activeMode, previewEnabled, contentEpoch], () => {
@@ -142,15 +143,15 @@ const diffCurrent = computed<string | undefined>(() => {
 /** コード折り返しトグル */
 const wordWrap = ref(true);
 
-// ==== 独立ウィンドウへの切り離し (pin) ====
+// ==== 独立ウィンドウへの切り離し (undock) ====
 
-const { pin: pinPreviewWindow } = usePinnedPreview();
+const { undock: undockPreviewWindow } = useUndockedPreview();
 
 const prDiffToggle = usePrDiffToggleStore();
 
 /**
- * pin 時点で current 側の中身が working tree の実ファイルかどうか。過去 rev の歴史表示
- * (commit / 範囲選択で newer が実 hash) を pin した window が live 追従・編集して
+ * undock 時点で current 側の中身が working tree の実ファイルかどうか。過去 rev の歴史表示
+ * (commit / 範囲選択で newer が実 hash) を undock した window が live 追従・編集して
  * 「過去の内容で実ファイルを上書き保存する」事故を防ぐため、判定結果を焼き込む。
  * PR diff は to = working tree、範囲選択の Working Tree 端点も fs 読みなので true。
  * orderedRange 不整合 (null) は安全側 (固定・読み取り専用) に倒す。
@@ -164,22 +165,22 @@ const currentIsWorkingTree = computed<boolean>(() => {
   return orderedRange.value?.newer === UNCOMMITTED_HASH;
 });
 
-// pin 時の実測対象。位置は pane 全体 (paneBox) の rect、サイズは本文領域 (paneBody) の
+// undock 時の実測対象。位置は pane 全体 (paneBox) の rect、サイズは本文領域 (paneBody) の
 // rect を固定ウィンドウへ引き継ぎ、pane がその場でフローティング化したような視覚的
 // 連続性を出す (総サイズでなく本文サイズを渡す理由は useFloatingWindows の doc 参照)。
 const paneBoxRef = useTemplateRef<HTMLElement>("paneBox");
 const paneBodyRef = useTemplateRef<HTMLElement>("paneBody");
 
 /**
- * pin 時点の raw source (current / original の 2 rev の中身) をスナップショット化する。
- * テキストは string、バイナリは bytes で、意味論はどちらも「pin 時点に固定」。
+ * undock 時点の raw source (current / original の 2 rev の中身) をスナップショット化する。
+ * テキストは string、バイナリは bytes で、意味論はどちらも「undock 時点に固定」。
  * 表示形は保存しない — window 側が doc + view 状態 (mode / preview / wrap) から都度導出
- * する (PinnedPreviewDoc の doc 参照)。表示が確定していない状態 (loading / directory /
+ * する (UndockedPreviewDoc の doc 参照)。表示が確定していない状態 (loading / directory /
  * notFound / error) と、表示可能な形 (テキスト or 画像) を 1 つも持たないファイル
- * (バイナリ非画像は placeholder しか出せない) は undefined で pin 不可に倒す
+ * (バイナリ非画像は placeholder しか出せない) は undefined で undock 不可に倒す
  * (ドラッグは無反応になる)。
  */
-function buildPinnedDoc(): PinnedPreviewDoc | undefined {
+function buildUndockedDoc(): UndockedPreviewDoc | undefined {
   const path = selectedDisplayPath.value;
   if (path === undefined) return undefined;
   if (isContentUnavailable.value) return undefined;
@@ -194,16 +195,27 @@ function buildPinnedDoc(): PinnedPreviewDoc | undefined {
   return { filePath: path, current, original };
 }
 
-function detachPreview(handoff?: PinDragHandoff) {
+/**
+ * ヘッダ undock ボタンの描画 gate。ドラッグ経路と同じ undock 可否 (source が解決でき、
+ * doc がスナップショット化できる) を写し、silent dead button を作らない。
+ */
+const canUndock = computed<boolean>(() => {
+  const sel = selection.value;
+  if (sel === undefined) return false;
+  if (sel.kind !== "absolute" && worktreeStore.dir === undefined) return false;
+  return buildUndockedDoc() !== undefined;
+});
+
+function undockPreview(handoff?: UndockDragHandoff) {
   const path = selectedDisplayPath.value;
   const box = paneBoxRef.value;
   const body = paneBodyRef.value;
   if (path === undefined || box === null || body === null) return;
-  // 「本体 preview として開き直す」ボタンの対象。pin 元の選択をそのまま焼き込む。
+  // 「本体 preview として開き直す」ボタンの対象。undock 元の選択をそのまま焼き込む。
   // doc の画像 URL 構築にも使うため先に確定させる。
   const sel = worktreeStore.selection;
   const dir = worktreeStore.dir;
-  const source: PinnedPreviewSource | undefined =
+  const source: UndockedPreviewSource | undefined =
     sel === undefined
       ? undefined
       : sel.kind === "absolute"
@@ -212,17 +224,17 @@ function detachPreview(handoff?: PinDragHandoff) {
           ? undefined
           : { kind: "worktree", dir, relPath: sel.relPath };
   if (source === undefined) return;
-  const doc = buildPinnedDoc();
+  const doc = buildUndockedDoc();
   if (doc === undefined) return;
   const rect = box.getBoundingClientRect();
   const bodyRect = body.getBoundingClientRect();
-  // ヘッダ上段の出自 (repo + worktree branch)。pinned window は worktree 切替を跨いで
-  // 生存するため pin 時点の値を焼き込む (PinnedLogWindow のヘッダと同じ規律)。
+  // ヘッダ上段の出自 (repo + worktree branch)。undocked window は worktree 切替を跨いで
+  // 生存するため undock 時点の値を焼き込む (UndockedLogWindow のヘッダと同じ規律)。
   // worktree 外の絶対パス (session log 等) は repo 帰属が無いので解決しない (空文字で
   // 上段ごと省かれる)。branch は WorktreeEntry のワイヤ契約どおり detached HEAD で空文字。
   const repo = source.kind === "worktree" ? repoStore.findRepoOwning(source.dir) : undefined;
   const branch = repo?.worktrees.find((wt) => wt.path === dir)?.branch ?? "";
-  pinPreviewWindow(
+  undockPreviewWindow(
     {
       repoName: repo?.repoName ?? "",
       repoOwner: repo?.githubIdentity?.owner ?? "",
@@ -246,28 +258,28 @@ function detachPreview(handoff?: PinDragHandoff) {
     },
     handoff,
   );
-  // pin 後は popover を閉じる (二重表示を残さない)。close 経路は MainLayout →
+  // undock 後は popover を閉じる (二重表示を残さない)。close 経路は MainLayout →
   // previewStore.close() で、ヘッダの close ボタンと同じ意味論。
   emit("close");
 }
 
-/** ヘッダのドラッグを pin 化とみなすしきい値 (px)。ヘッダ内ボタンのクリックと区別する。 */
-const DRAG_PIN_THRESHOLD = 4;
+/** ヘッダのドラッグを undock とみなすしきい値 (px)。ヘッダ内ボタンのクリックと区別する。 */
+const DRAG_UNDOCK_THRESHOLD = 4;
 
-// ヘッダのドラッグ検知。しきい値を超えたら pin して、掴んでいる pointer ごと
-// PinnedPreviewWindow へドラッグを引き継ぐ (PinDragHandoff)。pin は rect を実測してから
+// ヘッダのドラッグ検知。しきい値を超えたら undock して、掴んでいる pointer ごと
+// UndockedPreviewWindow へドラッグを引き継ぐ (UndockDragHandoff)。undock は rect を実測してから
 // popover を閉じるので、ウィンドウは掴んだその位置に現れてそのまま動かせる
 // (TerminalSessionPreview の全文 popover と同じ流儀)。
 let headerDrag: { pointerId: number; startX: number; startY: number } | undefined;
 
 function onHeaderPointerDown(event: PointerEvent) {
   if (event.button !== 0) return;
-  // ヘッダ内のボタン (back / forward / ⋮ / close) 起点はボタン操作。ドラッグ判定に乗せない
+  // ヘッダ内のボタン (back / forward / undock / ⋮ / close) 起点はボタン操作。ドラッグ判定に乗せない
   if (event.target instanceof Element && event.target.closest("button") !== null) return;
   const header = event.currentTarget;
   if (!(header instanceof HTMLElement)) return;
   // しきい値到達前に pointer がヘッダ外へ滑っても pointermove を受け続けるため capture する。
-  // pin 発火後は popover が hide されるが要素は mount されたままなので、capture された
+  // undock 発火後は popover が hide されるが要素は mount されたままなので、capture された
   // pointer の event は window までバブリングし FloatingWindow のドラッグ追従が継続する。
   header.setPointerCapture(event.pointerId);
   headerDrag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY };
@@ -277,7 +289,7 @@ function onHeaderPointerMove(event: PointerEvent) {
   if (headerDrag === undefined || event.pointerId !== headerDrag.pointerId) return;
   const dx = event.clientX - headerDrag.startX;
   const dy = event.clientY - headerDrag.startY;
-  if (Math.hypot(dx, dy) < DRAG_PIN_THRESHOLD) return;
+  if (Math.hypot(dx, dy) < DRAG_UNDOCK_THRESHOLD) return;
   const box = paneBoxRef.value;
   if (box === null) return;
   // オフセットは掴んだ瞬間 (pointerdown) の位置基準。しきい値超過時点の位置基準にすると
@@ -285,7 +297,7 @@ function onHeaderPointerMove(event: PointerEvent) {
   const rect = box.getBoundingClientRect();
   const grab = headerDrag;
   headerDrag = undefined;
-  detachPreview({
+  undockPreview({
     pointerId: event.pointerId,
     offsetX: grab.startX - rect.left,
     offsetY: grab.startY - rect.top,
@@ -359,7 +371,7 @@ function onCodeScrolled() {
          コンテンツを独立フローティングウィンドウへ切り離す -->
     <div
       class="shrink-0 cursor-grab select-none active:cursor-grabbing"
-      title="Drag to pin as floating window"
+      title="Drag to undock into floating window"
       @pointerdown="onHeaderPointerDown"
       @pointermove="onHeaderPointerMove"
       @pointerup="onHeaderPointerUp"
@@ -368,7 +380,9 @@ function onCodeScrolled() {
       <PreviewHeader
         :file-commit-date-props="fileCommitDateProps"
         :openable-abs-path="openableAbsPath"
+        :undockable="canUndock"
         @close="emit('close')"
+        @undock="undockPreview()"
       />
     </div>
 
@@ -425,7 +439,7 @@ function onCodeScrolled() {
         </div>
 
         <!--
-          コンテンツ。leaf 切替の実体は PreviewContent (pinned window と共有する表示 SSOT)。
+          コンテンツ。leaf 切替の実体は PreviewContent (undocked window と共有する表示 SSOT)。
           ここは live なデータ源 (usePreviewContent) と編集 / blame の文脈を配線するだけ。
           Cmd+A scope は各 leaf 側で完結させる (MarkdownPreview / DiffPreview は
           contenteditable、CodePreview は Monaco 自身の selection)。

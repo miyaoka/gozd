@@ -1,6 +1,6 @@
 <doc lang="md">
 チャットメッセージ 1 件の本文描画 (kind 別)。terminal preview の全文 popover と
-pin されたフローティングウィンドウ (PinnedLogWindow) が共有する。
+undock されたフローティングウィンドウ (UndockedLogWindow) が共有する。
 
 - user は素のテキストとして描画する (markdown 解釈しない。SessionLogTranscript と同じ規律)
 - assistant は MarkdownBody + chat 配色への CSS var 上書き。`_markdown-body :deep(code)` が

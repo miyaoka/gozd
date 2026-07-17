@@ -1,5 +1,5 @@
 <doc lang="md">
-pin されたセッションログメッセージ 1 件のフローティングウィンドウ。
+undock されたセッションログメッセージ 1 件のフローティングウィンドウ。
 
 ドラッグ / リサイズ / クランプ / 初期サイズ換算は汎用シェル FloatingWindow に委譲し、
 ここはヘッダ内容 (TerminalLeafTitle と同じ repo + session タイトルの 2 段構成) と
@@ -10,17 +10,17 @@ kind 別配色の本文スクロール面だけを担う。
 import { FloatingWindow } from "../floating-window";
 import { RepoIcon } from "../repo-icon";
 import SessionLogMessageBody from "./SessionLogMessageBody.vue";
-import { usePinnedLog, type PinnedLog } from "./usePinnedLog";
+import { useUndockedLog, type UndockedLog } from "./useUndockedLog";
 
 interface Props {
-  log: PinnedLog;
+  log: UndockedLog;
 }
 
 const props = defineProps<Props>();
-const { close, move, bringToFront, takeHandoff } = usePinnedLog();
+const { close, move, bringToFront, takeHandoff } = useUndockedLog();
 
-// popover ヘッダのドラッグから pin された場合の引き継ぎ。setup で 1 回だけ消費する
-// (pin() → 描画フラッシュ → setup が同期で完結するため、setup 時点で必ず取得できる)。
+// popover ヘッダのドラッグから undock された場合の引き継ぎ。setup で 1 回だけ消費する
+// (undock() → 描画フラッシュ → setup が同期で完結するため、setup 時点で必ず取得できる)。
 const handoff = takeHandoff(props.log.id);
 </script>
 

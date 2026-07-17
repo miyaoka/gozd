@@ -1,12 +1,15 @@
 <doc lang="md">
 Preview popover のヘッダ行。markdown 内部リンク履歴の back / forward、ファイル名 +
-コミット日 (FileCommitDate)、ファイル操作の ⋮ メニュー / close ボタンを持つ。
+コミット日 (FileCommitDate)、undock / ファイル操作の ⋮ メニュー / close ボタンを持つ。
 
 - back / forward は履歴の有無で header の幅が揺れないよう常時描画し、`canGoBack` /
   `canGoForward` が false の側は `disabled` 属性 + `disabled:text-foreground-muted` で見た目だけ
   落とす (Primer "NEVER use opacity for disabled" 規律に従い solid token を使う)
 - ⋮ ボタンは `openableAbsPath` (working tree に実体があるときだけ解決される実パス) を prop で
   受け、`v-if` で描画自体を gate して silent dead button を作らない
+- undock ボタンは表示中コンテンツを独立フローティングウィンドウへ切り離す (実体は親の
+  ドラッグ undock と同じ経路。`undockable` prop で描画を gate し silent dead button を
+  作らない)
 - メニュー項目 (Open in default app / Copy file / Copy path) は Filer / Changes の
   右クリックメニューと共通の `FileActionMenuItems` (filer)。popover instance は
   `usePopover` の「menu の種類ごとに独立」規律に従い per-instance で持つ
@@ -26,16 +29,20 @@ import IconLucideArrowLeft from "~icons/lucide/arrow-left";
 import IconLucideArrowRight from "~icons/lucide/arrow-right";
 import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
 import IconLucideX from "~icons/lucide/x";
+import IconMdiDockWindow from "~icons/mdi/dock-window";
 
 const props = defineProps<{
   /** FileCommitDate に渡す props 束。enabled=false なら FileCommitDate は描画も fetch もしない */
   fileCommitDateProps: { dir: string; relPath: string; rev: string; enabled: boolean };
   /** working tree に実体があるときだけ解決される絶対パス。undefined ならボタン非描画 */
   openableAbsPath: string | undefined;
+  /** undock 可能なコンテンツを表示中か。false なら undock ボタン非描画 */
+  undockable: boolean;
 }>();
 
 const emit = defineEmits<{
   close: [];
+  undock: [];
 }>();
 
 const worktreeStore = useWorktreeStore();
@@ -107,6 +114,16 @@ function onFileMenuClick(event: MouseEvent) {
     <span v-else class="text-sm text-foreground-low">Preview</span>
 
     <div class="ml-auto flex shrink-0 items-center gap-1">
+      <button
+        v-if="undockable"
+        type="button"
+        class="text-foreground-low hover:text-foreground"
+        title="Undock into floating window"
+        aria-label="Undock"
+        @click="emit('undock')"
+      >
+        <IconMdiDockWindow class="size-4" />
+      </button>
       <button
         v-if="openableAbsPath"
         type="button"

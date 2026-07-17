@@ -196,33 +196,33 @@ function buildUndockedDoc(): UndockedPreviewDoc | undefined {
 }
 
 /**
+ * 「本体 preview として開き直す」ボタンの対象 (undock 元の選択の焼き込み)。未選択 /
+ * worktree 文脈なしは undefined。gate (canUndock) と実処理 (undockPreview) の両方が
+ * ここから導き、判定のドリフトを構造的に防ぐ (⋮ ボタンの resolveOpenablePath と同じ切り方)。
+ */
+function resolveUndockSource(): UndockedPreviewSource | undefined {
+  const sel = worktreeStore.selection;
+  if (sel === undefined) return undefined;
+  if (sel.kind === "absolute") return { kind: "absolute", absPath: sel.absPath };
+  const dir = worktreeStore.dir;
+  if (dir === undefined) return undefined;
+  return { kind: "worktree", dir, relPath: sel.relPath };
+}
+
+/**
  * ヘッダ undock ボタンの描画 gate。ドラッグ経路と同じ undock 可否 (source が解決でき、
  * doc がスナップショット化できる) を写し、silent dead button を作らない。
  */
-const canUndock = computed<boolean>(() => {
-  const sel = selection.value;
-  if (sel === undefined) return false;
-  if (sel.kind !== "absolute" && worktreeStore.dir === undefined) return false;
-  return buildUndockedDoc() !== undefined;
-});
+const canUndock = computed<boolean>(
+  () => resolveUndockSource() !== undefined && buildUndockedDoc() !== undefined,
+);
 
 function undockPreview(handoff?: UndockDragHandoff) {
   const path = selectedDisplayPath.value;
   const box = paneBoxRef.value;
   const body = paneBodyRef.value;
   if (path === undefined || box === null || body === null) return;
-  // 「本体 preview として開き直す」ボタンの対象。undock 元の選択をそのまま焼き込む。
-  // doc の画像 URL 構築にも使うため先に確定させる。
-  const sel = worktreeStore.selection;
-  const dir = worktreeStore.dir;
-  const source: UndockedPreviewSource | undefined =
-    sel === undefined
-      ? undefined
-      : sel.kind === "absolute"
-        ? { kind: "absolute", absPath: sel.absPath }
-        : dir === undefined
-          ? undefined
-          : { kind: "worktree", dir, relPath: sel.relPath };
+  const source = resolveUndockSource();
   if (source === undefined) return;
   const doc = buildUndockedDoc();
   if (doc === undefined) return;
@@ -233,7 +233,10 @@ function undockPreview(handoff?: UndockDragHandoff) {
   // worktree 外の絶対パス (session log 等) は repo 帰属が無いので解決しない (空文字で
   // 上段ごと省かれる)。branch は WorktreeEntry のワイヤ契約どおり detached HEAD で空文字。
   const repo = source.kind === "worktree" ? repoStore.findRepoOwning(source.dir) : undefined;
-  const branch = repo?.worktrees.find((wt) => wt.path === dir)?.branch ?? "";
+  const branch =
+    source.kind === "worktree"
+      ? (repo?.worktrees.find((wt) => wt.path === source.dir)?.branch ?? "")
+      : "";
   undockPreviewWindow(
     {
       repoName: repo?.repoName ?? "",

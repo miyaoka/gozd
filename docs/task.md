@@ -187,11 +187,13 @@ PR/issue picker や session 未紐付け task クリックで `claude` を autos
 
 ### サイドバークリックの分岐 (`SidebarPane.onSelectTask`)
 
-| task.sessionId | live PTY | 動作                                                                    |
-| -------------- | -------- | ----------------------------------------------------------------------- |
-| 空文字         | —        | `requestNewClaudeSession`: 新 leaf で素の `claude` を起動               |
-| 値あり         | あり     | 該当 leaf を focus                                                      |
-| 値あり         | 無し     | `requestResumeSession`: 新 leaf で `claude --resume <sessionId>` を起動 |
+| task.sessionId | live PTY | 動作                                                                                    |
+| -------------- | -------- | --------------------------------------------------------------------------------------- |
+| 空文字         | —        | `requestNewClaudeSession`: レイアウト先頭の新 leaf で素の `claude` を起動               |
+| 値あり         | あり     | 該当 leaf を focus                                                                      |
+| 値あり         | 無し     | `requestResumeSession`: レイアウト先頭の新 leaf で `claude --resume <sessionId>` を起動 |
+
+訪問済み worktree では新 leaf をレイアウト先頭 (最左) に追加する。素のターミナルが既に開いていても、Claude セッションの leaf が常に先頭に来る。
 
 ## サイドバー UI における状態表示
 

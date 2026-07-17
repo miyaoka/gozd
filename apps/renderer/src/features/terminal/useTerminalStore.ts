@@ -481,7 +481,7 @@ export const useTerminalStore = defineStore("terminal", () => {
    * サイドバーから resumable Task をクリックしたときに呼ぶ。
    * - 未訪問: 次回の visit で当該 sessionId を先頭 leaf に乗せるヒントを残す。
    *   呼び出し元が直後に setOpen → TerminalPane の watch が visit を駆動する。
-   * - 訪問済み: その場で split して新 leaf に sessionId を紐付け、フォーカスを移す。
+   * - 訪問済み: レイアウト先頭に新 leaf を追加して sessionId を紐付け、フォーカスを移す。
    * 当該 sessionId が既に live PTY を持っているなら何もしない (上位で focus 済み)。
    */
   function requestResumeSession(dir: string, sessionId: string) {
@@ -523,14 +523,15 @@ export const useTerminalStore = defineStore("terminal", () => {
       preferredResumeByDir.value[dir] = sessionId;
       return;
     }
-    const newLeafId = layout.splitPane(dir, "horizontal");
+    // Claude セッションの leaf は素のターミナルより先頭 (最左) に置く
+    const newLeafId = layout.prependPane(dir, "horizontal");
     if (newLeafId === undefined) {
-      // split に失敗するとユーザーの click が無反応に終わる。silent return は
-      // 観察可能性を欠くので notify する (発生条件: layout 制約 / dir 未初期化)。
+      // 失敗するとユーザーの click が無反応に終わる。silent return は
+      // 観察可能性を欠くので notify する (発生条件: dir 未初期化)。
       // 本文は短く、診断情報 (dir / sessionId) は cause で展開表示。
       notify.error(
         "Failed to open resume session",
-        new Error(`splitPane returned undefined; dir=${dir} sessionId=${sessionId}`),
+        new Error(`prependPane returned undefined; dir=${dir} sessionId=${sessionId}`),
       );
       return;
     }
@@ -541,7 +542,7 @@ export const useTerminalStore = defineStore("terminal", () => {
   /**
    * サイドバーから session 未紐付け task (PR/issue 由来等) をクリックしたときに呼ぶ。
    * - 未訪問: 次回の visit で初期 leaf を素の claude 起動として生成するヒントを残す。
-   * - 訪問済み: その場で split して新 leaf に autostart フラグを仕込み、フォーカスを移す。
+   * - 訪問済み: レイアウト先頭に新 leaf を追加して autostart フラグを仕込み、フォーカスを移す。
    *
    * SessionStart hook が走ると server 側 attachSession が「sessionId 空の最新 task」
    * に新 sessionId を結びつける。クリックした task と attach 先が一致するのは
@@ -556,11 +557,12 @@ export const useTerminalStore = defineStore("terminal", () => {
       preferredAutostartByDir.value[dir] = hint;
       return;
     }
-    const newLeafId = layout.splitPane(dir, "horizontal");
+    // Claude セッションの leaf は素のターミナルより先頭 (最左) に置く
+    const newLeafId = layout.prependPane(dir, "horizontal");
     if (newLeafId === undefined) {
       notify.error(
         "Failed to start Claude session",
-        new Error(`splitPane returned undefined; dir=${dir}`),
+        new Error(`prependPane returned undefined; dir=${dir}`),
       );
       return;
     }

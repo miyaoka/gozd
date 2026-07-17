@@ -3,6 +3,7 @@ import type { SplitDirection, SplitNode } from "./splitTree";
 import {
   collectLeafIds,
   createLeaf,
+  prependLeaf,
   removeNode,
   resizeBranch as resizeBranchFn,
   splitNode,
@@ -69,6 +70,23 @@ export function createTerminalLayout(deps: TerminalLayoutDeps) {
     const result = splitNode(layout.root, layout.focusedLeafId, direction);
     if (!result.changed) return undefined;
 
+    layoutsByDir.value[dir] = {
+      root: result.root,
+      focusedLeafId: result.nextFocusedLeafId,
+    };
+
+    if (result.createdLeafId !== undefined) {
+      panes.registerPane(result.createdLeafId, dir);
+    }
+    return result.createdLeafId;
+  }
+
+  /** レイアウト先頭（最左）に新リーフを追加する。新しい leafId を返す（dir 未初期化なら undefined） */
+  function prependPane(dir: string, direction: SplitDirection): string | undefined {
+    const layout = layoutsByDir.value[dir];
+    if (layout === undefined) return undefined;
+
+    const result = prependLeaf(layout.root, direction);
     layoutsByDir.value[dir] = {
       root: result.root,
       focusedLeafId: result.nextFocusedLeafId,
@@ -178,6 +196,7 @@ export function createTerminalLayout(deps: TerminalLayoutDeps) {
     ensureLayout,
     visit,
     splitPane,
+    prependPane,
     closePane,
     resetLayout,
     resizeBranch,

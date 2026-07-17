@@ -9,6 +9,7 @@ import {
   flattenHandles,
   flattenTree,
   getMinSize,
+  prependLeaf,
   removeNode,
   resizeBranch,
   splitNode,
@@ -164,6 +165,41 @@ describe("splitNode", () => {
 
     expect(original.first).toBe(leaf1);
     expect(original.second).toBe(leaf2);
+  });
+});
+
+describe("prependLeaf", () => {
+  test("単一リーフの先頭に追加すると新リーフが first になる", () => {
+    const leaf = createLeaf();
+    const result = prependLeaf(leaf, "horizontal");
+
+    expect(result.changed).toBe(true);
+    const branch = result.root as SplitBranch;
+    expect(branch.direction).toBe("horizontal");
+    expect(branch.ratio).toBe(0.5);
+    expect(branch.first.type).toBe("leaf");
+    expect(branch.second).toBe(leaf);
+    expect(result.createdLeafId).toBe(branch.first.id);
+    expect(result.nextFocusedLeafId).toBe(branch.first.id);
+    expect(collectLeafIds(result.root)).toEqual([branch.first.id, leaf.id]);
+  });
+
+  test("branch ツリーの先頭に追加すると既存の相対配置を保ったまま DFS 先頭になる", () => {
+    const leaf1 = createLeaf();
+    const leaf2 = createLeaf();
+    const existing: SplitBranch = {
+      type: "branch",
+      id: "b1",
+      direction: "vertical",
+      ratio: 0.3,
+      first: leaf1,
+      second: leaf2,
+    };
+
+    const result = prependLeaf(existing, "horizontal");
+    const root = result.root as SplitBranch;
+    expect(root.second).toBe(existing);
+    expect(collectLeafIds(result.root)).toEqual([result.createdLeafId ?? "", leaf1.id, leaf2.id]);
   });
 });
 

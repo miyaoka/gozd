@@ -108,8 +108,6 @@ import type {
   SaveAppConfigResponse,
   SaveAppStateRequest,
   SaveAppStateResponse,
-  ResumableSessionListRequest,
-  ResumableSessionListResponse,
   ServerListResponse,
   ShellCommandInstallResponse,
   ShellCommandUninstallResponse,
@@ -421,13 +419,6 @@ async function handleTaskRemoveByWorktree(body: unknown): Promise<unknown> {
   // 滞留 task の一掃にはこの経路が唯一の手段になる（Claude セッションの JSONL は消さない）
   await taskStore.removeByWorktree(req.dir, req.worktreeDir);
   return ({}) satisfies TaskRemoveByWorktreeResponse;
-}
-
-async function handleResumableSessionList(body: unknown): Promise<unknown> {
-  const req = body as ResumableSessionListRequest;
-  return ({
-    sessionIds: await taskStore.resumableSessionIds(req.dir),
-  }) satisfies ResumableSessionListResponse;
 }
 
 async function handleGitGithubIdentity(body: unknown): Promise<unknown> {
@@ -1008,8 +999,8 @@ async function handleReviveSession(body: unknown): Promise<unknown> {
     symlinks: projectConfig.worktreeSymlinks,
   });
   // 復活直後の worktree には task が無いので、attachSession の path(3) が sessionId 付き task を
-  // 新規作成する。以降は既存の resume 機構（visit 時の resumableSessionIds → `claude --resume`）が
-  // そのまま resume を駆動する。
+  // 新規作成する。resume の駆動は renderer 側（registerReviveCommand が requestResumeSession の
+  // 明示ヒントを立て、visit が消費して `claude --resume` を仕込む）。
   await taskStore.attachSession(req.dir, req.sessionId, info.path);
   const task = (await taskStore.list(req.dir)).find(
     (t) => t.sessionId === req.sessionId && t.worktreeDir === info.path,
@@ -1132,7 +1123,6 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/task/setUserTitle", handleTaskSetUserTitle],
   ["/task/remove", handleTaskRemove],
   ["/task/removeByWorktree", handleTaskRemoveByWorktree],
-  ["/task/resumableSessions", handleResumableSessionList],
   ["/projectConfig/load", handleProjectConfigLoad],
   ["/projectConfig/save", handleProjectConfigSave],
   ["/open/external", handleOpenExternal],

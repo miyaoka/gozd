@@ -8,14 +8,8 @@ import type { ClaudeStatus } from "./claudeStatus";
 import { isHookEvent, createClaudeStatusManager } from "./claudeStatus";
 import { createPtySessionManager } from "./ptySession";
 import type { PaneEntry } from "./ptySession";
-import { buildResumeSessionIds } from "./resumeSessionIds";
 import type { HookPayload, PtyExitPayload, PtyTextPayload } from "./rpc";
-import {
-  rpcClaudeSessionRemoveByPty,
-  rpcPtyKill,
-  rpcPtySpawn,
-  rpcResumableSessionList,
-} from "./rpc";
+import { rpcClaudeSessionRemoveByPty, rpcPtyKill, rpcPtySpawn } from "./rpc";
 import { createTerminalLayout } from "./terminalLayout";
 import type { TerminalLayoutState } from "./terminalLayout";
 
@@ -104,9 +98,8 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   /**
    * 未訪問 worktree に対する「visit で最初の leaf に乗せたい sessionId」のヒント。
-   * サイドバーで resumable な Task 行をクリックしたとき、setOpen 起点の自動 visit が
-   * savedSessionIds の先頭順で leaf を割り当てて意図がずれるのを防ぐ。visit 内で
-   * 1 回だけ消費し、対象 dir の前置きとして使う。
+   * サイドバーで resumable な Task 行をクリックしたとき（revive 経路も同経路）、
+   * setOpen 起点の自動 visit がこのヒントを 1 回だけ消費して初期 leaf に resume を仕込む。
    */
   const preferredResumeByDir = ref<Record<string, string>>({});
 
@@ -144,13 +137,6 @@ export const useTerminalStore = defineStore("terminal", () => {
    * zsh init の _gozd_run_setup が eval で実行する。spawnPty が env 組み立て時に 1 回だけ消費する。
    */
   const pendingSetupByLeafId = ref<Record<string, string>>({});
-
-  /**
-   * `visit()` の世代カウンタ（per dir）。await 中に同じ dir が再 visit されたり、
-   * 別の visit が並走したりしたとき、stale な復元処理が後勝ちでレイアウトを
-   * 壊さないよう、await 後に最新世代と一致するかチェックする。
-   */
-  const visitGenByDir = new Map<string, number>();
 
   // --- モジュール初期化 ---
 
@@ -429,73 +415,42 @@ export const useTerminalStore = defineStore("terminal", () => {
   // --- worktree visit + Claude セッション復元 ---
 
   /**
-   * worktree を訪問する。初回 visit 時に保存済み Claude セッションを引き、
-   * セッション数だけ leaf を split で生成して各 leaf に resume sessionId を仕込む。
+   * worktree を訪問する。初回 visit 時に初期 leaf を生成し、明示クリック由来の
+   * ヒント (preferredResume / preferredAutostart / preferredSetup) があれば消費する。
+   * 保存済みセッションの自動 resume はしない — セッションが開くのはサイドバーの
+   * task 行を明示クリックした経路 (requestResumeSession / requestNewClaudeSession)
+   * だけで、worktree ヘッダのクリックは素のターミナルを開くに留める。
    * 2 回目以降の visit は何もしない（既存レイアウトを維持）。
-   *
-   * 非同期だが呼び出し側の watch ハンドラは await しない。
-   * 順序の正しさは visitGenByDir の世代チェックで担保する：
-   * - fetch 失敗時に visitedDirs を汚さないため、visitedDirs.push は await 後に行う
-   * - await 中に同じ dir で別の visit が走った場合、古い世代の処理は中断する
    */
-  async function visit(dir: string): Promise<void> {
+  function visit(dir: string): void {
     if (visitedDirs.value.includes(dir)) {
       // 既に訪問済みなら何もしない（既存レイアウトを維持）
       return;
     }
-    const gen = (visitGenByDir.get(dir) ?? 0) + 1;
-    visitGenByDir.set(dir, gen);
-
-    const fetched = await tryCatch(rpcResumableSessionList({ dir }));
-    if (visitGenByDir.get(dir) !== gen) return;
-    if (!fetched.ok) {
-      // fetch 失敗時は visitedDirs を汚さず、ユーザーに通知して終了。
-      // 復元情報なしで起動すると意図しない素 PTY が走り Claude セッションを失うため、
-      // ここで止めて再試行（次回の visit）に委ねる。
-      notify.error(`Failed to load Claude sessions for ${dir}`, fetched.error);
-      return;
-    }
-
     visitedDirs.value.push(dir);
-    const savedSessionIds = fetched.value.sessionIds;
-
-    // 復元する sessionId 列を組み立てる。preferred はサイドバーで resumable / closed
-    // Task をクリックして visit を誘発したケースの sessionId (= task.sessionId)。
-    //
-    // savedSessionIds は rpcResumableSessionList が返す resumable 集合 (tasks.json の
-    // sessionId 有 + !closedByUser、= app close で中断され残ったもの)。ユーザーが明示
-    // クリックした closed task (closedByUser=true) はこの集合に含まれないため、preferred
-    // が saved に無いのは異常ではなく通常ケース。保存リストでの検証はせず、明示クリックを
-    // 尊重して preferred を常に先頭 (= initial focused leaf) に置く (重複は除外)。これは
-    // 訪問済み経路の requestResumeSession が saved を参照せず直接 resume するのと同じ流儀。
-    // resume が真に不能なら native 側の dead session 清掃が hook 経路で処理する。
-    // 列組み立ては境界条件 (preferred の有無 / saved 重複) を持つので純関数に分離。
-    const preferred = preferredResumeByDir.value[dir];
-    if (preferred !== undefined) delete preferredResumeByDir.value[dir];
-    const resumeSessionIds = buildResumeSessionIds(preferred, savedSessionIds);
 
     // ensureLayout で初期 leaf を作る（既存の単一 leaf 起動と同じ）
     const initialLayout = layout.ensureLayout(dir);
     const initialLeafId = initialLayout.focusedLeafId;
-    const [firstSessionId, ...remainingSessionIds] = resumeSessionIds;
-    if (firstSessionId !== undefined) {
-      pendingResumeByLeafId.value[initialLeafId] = firstSessionId;
+
+    // preferred はサイドバーで resumable / closed Task をクリックして visit を
+    // 誘発したケースの sessionId (= task.sessionId)。resume 可否の検証はせず
+    // 明示クリックを尊重して初期 leaf に resume を仕込む。resume が真に不能なら
+    // native 側の dead session 清掃が hook 経路で処理する。
+    const preferred = preferredResumeByDir.value[dir];
+    if (preferred !== undefined) {
+      delete preferredResumeByDir.value[dir];
+      pendingResumeByLeafId.value[initialLeafId] = preferred;
     }
-    // 2 つ目以降のセッションは split で leaf を増やす
-    for (const sessionId of remainingSessionIds) {
-      const newLeafId = layout.splitPane(dir, "horizontal");
-      if (newLeafId !== undefined) {
-        pendingResumeByLeafId.value[newLeafId] = sessionId;
-      }
-    }
-    // session 未紐付け task クリックで visit を誘発したケース。saved session の resume
-    // とは排他ではなく共存させる (訪問済み経路の requestNewClaudeSession と同じ流儀):
-    // - firstSessionId 無し → 初期 leaf を直接 autostart に
-    // - firstSessionId あり → 追加 leaf を split して autostart + focus
+
+    // session 未紐付け task クリックで visit を誘発したケース。resume ヒントとは
+    // 排他ではなく共存させる (訪問済み経路の requestNewClaudeSession と同じ流儀):
+    // - resume ヒント無し → 初期 leaf を直接 autostart に
+    // - resume ヒントあり → 追加 leaf を split して autostart + focus
     const autostartHint = preferredAutostartByDir.value[dir];
     if (autostartHint) {
       delete preferredAutostartByDir.value[dir];
-      if (firstSessionId === undefined) {
+      if (preferred === undefined) {
         pendingAutostartByLeafId.value[initialLeafId] = autostartHint;
       } else {
         const autostartLeafId = layout.splitPane(dir, "horizontal");
@@ -625,13 +580,8 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   /**
    * worktree が外部削除された / アクティブから外れたときの cleanup。
-   * `layout.remove` を呼ぶ前に visitGenByDir の世代を進めることで、
-   * 進行中の `visit` の await 後 world は stale 判定で破棄される。
-   * これにより、削除済み worktree の遅延 fetch 結果が `ensureLayout` を
-   * 復活させる race を防ぐ。
    */
   function removeWorktreeFromLayout(dir: string) {
-    visitGenByDir.set(dir, (visitGenByDir.get(dir) ?? 0) + 1);
     // 未消費の resume ヒントを掃除する。worktree が削除→再作成された後の visit に
     // 古いヒントが流れ込まないよう、layout 撤去と同じタイミングで落とす。
     delete preferredResumeByDir.value[dir];

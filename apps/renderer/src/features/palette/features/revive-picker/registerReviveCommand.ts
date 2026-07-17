@@ -60,8 +60,10 @@ export function registerReviveCommand(): () => void {
     repoStore.appendWorktree(rootDir, result.value.worktree);
     repoStore.requestRefresh(rootDir);
     terminalStore.setPreferredSetup(result.value.dir, result.value.setupScript);
-    // setOpen の visit が resumableSessions 経由で `claude --resume <sessionId>` を仕込む。
-    // task に sessionId を載せ済みなので requestNewClaudeSession (素の claude) は呼ばない。
+    // visit は保存済みセッションを自動 resume しないため、revive 対象の sessionId を
+    // 明示ヒントとして渡す。作り直した worktree は未訪問なので、setOpen 起点の visit が
+    // このヒントを消費して初期 leaf に `claude --resume <sessionId>` を仕込む。
+    terminalStore.requestResumeSession(result.value.dir, session.sessionId);
     terminalStore.viewMode = "wt";
     worktreeStore.setOpen(result.value.dir);
   }

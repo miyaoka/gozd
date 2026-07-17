@@ -169,8 +169,6 @@ export type {
   ShellCommandUninstallResponse,
 } from "./shellCommand";
 export type {
-  ResumableSessionListRequest,
-  ResumableSessionListResponse,
   TaskAddRequest,
   TaskAddResponse,
   TaskList,

@@ -13,7 +13,7 @@
 
 import type { ClientMessage } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { buildHookMessage, parseStdinJson, resolveSocketPath, writeLaunchRequest } from "./cli/cliOps";
 import { sendClientMessage } from "./cli/socketClient";
@@ -43,6 +43,15 @@ async function sendOrExit(message: ClientMessage): Promise<void> {
 
 async function openCommand(target: string): Promise<void> {
   const absolute = resolve(process.cwd(), target);
+
+  // 存在しないパスはここで fail fast する。socket は一方向 NDJSON で main 側で弾いても
+  // ターミナルに何も返せないため、実行者にエラーを伝えられるのは送信前のこの位置だけ。
+  // gozd には新規ファイル編集機能がなく、存在しないパスを受けても実現手段がない
+  // （通すとサイドバーに幽霊 repo が登録され fs watch が恒久的に失敗し続ける）
+  if (!existsSync(absolute)) {
+    process.stderr.write(`gozd: path does not exist: ${absolute}\n`);
+    process.exit(1);
+  }
 
   // cold start: socket が無い前提で launch request ファイルを書き出す
   // （bin/gozd シェルラッパーがアプリ未起動時にこの経路を取らせる）

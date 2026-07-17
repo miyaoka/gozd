@@ -152,16 +152,6 @@ export function createTaskStore(configDir: string) {
     return (await loadFile(dir)).tasks;
   }
 
-  /** 指定 worktree dir で resume 可能な Claude セッションの session_id 一覧。
-   * `worktreeDir === dir && sessionId 非空 && !closedByUser` の task を集める。
-   * list は projectKey 単位で全 worktree の task を返すため worktreeDir 一致で絞る
-   * （絞り漏れると別 worktree の session を resume してしまう） */
-  async function resumableSessionIds(dir: string): Promise<string[]> {
-    return (await list(dir))
-      .filter((task) => task.worktreeDir === dir && task.sessionId !== "" && !task.closedByUser)
-      .map((task) => task.sessionId);
-  }
-
   /** Task を作成または再活性化する。
    *
    * - `ghRef` 指定があり、同 `worktreeDir` + 同 `ghRef` の既存 task が見つかれば
@@ -313,7 +303,6 @@ export function createTaskStore(configDir: string) {
 
   return {
     list,
-    resumableSessionIds,
     add,
     setTerminalTitle,
     setUserTitle,

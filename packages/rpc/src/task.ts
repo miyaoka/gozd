@@ -80,16 +80,3 @@ export interface TaskRemoveByWorktreeRequest {
   worktreeDir: string;
 }
 export type TaskRemoveByWorktreeResponse = EmptyMessage;
-
-/** 指定 worktree dir で resume 可能な Claude セッションの sessionId 一覧。renderer の
- * visit() が未訪問 worktree の初回オープン時に呼び、保存済みセッションを leaf に復元する。
- * task.sessionId が SSOT。`sessionId != "" && !closedByUser` の task を集める
- * (app close で中断され closedByUser=false のまま残ったもの。session-end / 明示 close で
- * closedByUser=true になったものは除外)。dead session (transcript 不在) が混じり得るが、
- * その場合 `claude --resume` がエラー終了し resume 失敗検出経路が当該 task を片付ける。 */
-export interface ResumableSessionListRequest {
-  dir: string;
-}
-export interface ResumableSessionListResponse {
-  sessionIds: string[];
-}

@@ -12,8 +12,6 @@ import {
   PtySpawnResponse,
   PtyWriteRequest,
   PtyWriteResponse,
-  ResumableSessionListRequest,
-  ResumableSessionListResponse,
 } from "@gozd/rpc";
 
 import { rpc } from "../../shared/rpc";
@@ -21,11 +19,6 @@ import { rpc } from "../../shared/rpc";
 // --- request ---
 
 export const rpcPtySpawn = (req: PtySpawnRequest) => rpc<PtySpawnResponse>("/pty/spawn", req);
-
-// dir で resume 可能な Claude セッションの session_id 一覧を取得する。SSOT は
-// tasks.json (task.session_id)。visit() が未訪問 worktree の初回オープン時に呼ぶ。
-export const rpcResumableSessionList = (req: ResumableSessionListRequest) =>
-  rpc<ResumableSessionListResponse>("/task/resumableSessions", req);
 
 export const rpcClaudeSessionRemoveByPty = (req: ClaudeSessionRemoveByPtyRequest) =>
   rpc<ClaudeSessionRemoveByPtyResponse>("/claudeSession/removeByPty", req);

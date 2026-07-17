@@ -1,7 +1,6 @@
 // Claude Code セッション関連の RPC 型。
 //
-// セッションの永続化自体は task.ts の Task.sessionId が SSOT (worktree 単位の
-// resume 復元は ResumableSessionList で tasks.json から引く)。このファイルには PTY 単位の
+// セッションの永続化自体は task.ts の Task.sessionId が SSOT。このファイルには PTY 単位の
 // session 掃除 (RemoveByPty)、セッションログ表示 (ClaudeSessionLog)、削除済み worktree の
 // セッション復活 (ReviveSession*) の RPC 型を置く。
 
@@ -110,9 +109,9 @@ export interface ReviveSessionListResponse {
 }
 
 /** セッション 1 件を復活させる。cwd を worktree として作り直し、tasks.json に sessionId 付き
- * task を書く。以降は既存の resume 機構 (visit 時の resumableSessionIds → `claude --resume`)
- * がそのまま resume を駆動する。branch は main 側で衝突判定する (他 worktree が占有中なら
- * 日付ブランチへ fallback) ため、renderer は候補 branch を渡すだけでよい。 */
+ * task を書く。resume の駆動は renderer 側 (requestResumeSession の明示ヒントを visit が
+ * 消費して `claude --resume` を仕込む)。branch は main 側で衝突判定する (他 worktree が
+ * 占有中なら日付ブランチへ fallback) ため、renderer は候補 branch を渡すだけでよい。 */
 export interface ReviveSessionRequest {
   /** repo root / 配下 dir。main 側で projectKey → worktree 配置先を解決する。 */
   dir: string;

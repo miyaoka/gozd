@@ -1,5 +1,5 @@
 // TaskStore の統合テスト。Swift 版 `TaskStoreTests.swift` のうち、今回移植した mutation
-// 経路（add / setTitle / remove / resumableSessionIds / detachSession）のケースを対で維持する。
+// 経路（add / setTitle / remove / detachSession）のケースを対で維持する。
 // attachSession / clearDeadSession のケースは hooks 統合ステップで移植する。
 //
 // 両シェルが同じ tasks.json を共有するため、upsert / no-op / 保持の意味論が Swift 版と
@@ -91,19 +91,6 @@ describe("TaskStore", () => {
     expect(task.userTitle).toBe("");
     // Swift ISO8601DateFormatter と同じ秒粒度（ミリ秒なし）であること
     expect(task.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
-  });
-
-  test("resumableSessionIds: sessionId 非空 + !closedByUser + worktreeDir 一致の task だけ返す", async () => {
-    const { store, dir, configDir } = setup();
-    // resumableSessionIds(dir) は list(dir) を worktreeDir === dir で絞るため、
-    // 一致させたい fixture は worktreeDir に dir 自身を持たせる
-    await writeTasksFile(configDir, dir, [
-      makeTask({ id: "1", worktreeDir: dir, sessionId: "sid-live" }),
-      makeTask({ id: "2", worktreeDir: dir, sessionId: "sid-closed", closedByUser: true }),
-      makeTask({ id: "3", worktreeDir: dir, sessionId: "" }),
-      makeTask({ id: "4", worktreeDir: "/wt/other", sessionId: "sid-other-wt" }),
-    ]);
-    expect(await store.resumableSessionIds(dir)).toEqual(["sid-live"]);
   });
 
   test("remove: 指定 id の task を削除", async () => {

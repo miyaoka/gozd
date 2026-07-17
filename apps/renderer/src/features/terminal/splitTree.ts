@@ -109,6 +109,32 @@ function splitNode(
 }
 
 /**
+ * ツリー全体の先頭（最左）に新リーフを追加する。root を新 branch で包み、
+ * 新リーフを first に置くことで DFS 順・表示順の先頭になる。
+ * 既存ツリー全体が second に入るため、既存 leaf の相対配置は保たれる。
+ *
+ * 反復 prepend では既存 leaf 群が 50% ずつ半減し続ける。sibling を均等割りにしない
+ * のは、binary tree のままでは先頭保証と均等割りが両立せず、フラットな row 構造への
+ * 作り替えが必要になるため（主用途の session 1 + 素端末 1 では 50/50 で最適）。
+ */
+function prependLeaf(root: SplitNode, direction: SplitDirection): SplitMutationResult {
+  const newLeaf = createLeaf();
+  return {
+    root: {
+      type: "branch",
+      id: crypto.randomUUID(),
+      direction,
+      ratio: 0.5,
+      first: newLeaf,
+      second: root,
+    },
+    changed: true,
+    nextFocusedLeafId: newLeaf.id,
+    createdLeafId: newLeaf.id,
+  };
+}
+
+/**
  * 対象リーフを削除し、兄弟ノードを親の位置に昇格する。
  * 最後の1リーフは削除不可（changed: false で返す）。
  */
@@ -690,6 +716,7 @@ export {
   findFirstLeaf,
   collectLeafIds,
   splitNode,
+  prependLeaf,
   removeNode,
   resizeBranch,
   getMinSize,

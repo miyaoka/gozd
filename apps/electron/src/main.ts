@@ -254,6 +254,8 @@ app.whenReady().then(() => {
     const target = consumeLaunchRequest(launchRequestDir);
     if (target === undefined) return;
     void buildGozdOpenPayload(target).then((payload) => {
+      // undefined = 不在パス（launch request 書き出し後に消えた TOCTOU 等）。push しない
+      if (payload === undefined) return;
       socketPush("gozdOpen", payload);
     });
   });

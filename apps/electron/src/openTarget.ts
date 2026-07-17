@@ -2,6 +2,9 @@
 // の対応物。pickAndOpen（ダイアログ選択）と、将来の CLI / socket 経由 OpenMessage の
 // 共通エントリポイント。
 //
+// - 存在しないパスは undefined を返す（呼び出し元は「push しない」として扱う契約）。
+//   gozd に新規ファイル編集機能はなく、通すと renderer が幽霊 repo を addRepo して
+//   fs watch が恒久的に失敗し続ける
 // - git repo 内のパスなら `git rev-parse --show-toplevel` で repo root を解決し、
 //   main repo の basename を repoName として使う（worktree から開いた場合 toplevel は
 //   その worktree 自身のため、表示用には main repo 名を使う）
@@ -24,13 +27,21 @@ async function repoTopLevel(dir: string): Promise<string> {
   throw result.error;
 }
 
-export async function buildGozdOpenPayload(targetPath: string): Promise<Record<string, unknown>> {
-  const exists = existsSync(targetPath);
-  const isDir = exists && statSync(targetPath).isDirectory();
+export async function buildGozdOpenPayload(
+  targetPath: string,
+): Promise<Record<string, unknown> | undefined> {
+  // CLI も送信前に同じ検証で弾くが、cold start は launch request 書き出しから消費までに
+  // 時間差があり、その間にパスが消える TOCTOU が残る。3 つの呼び出し元（socket open /
+  // launch request 消費 / ファイルピッカー）が合流するここを不変条件の SSOT にする
+  if (!existsSync(targetPath)) {
+    console.error(`[buildGozdOpenPayload] target does not exist, skip open: ${targetPath}`);
+    return undefined;
+  }
+  const isDir = statSync(targetPath).isDirectory();
 
   let probeDir: string;
   let selection: Record<string, unknown> | undefined;
-  if (exists && !isDir) {
+  if (!isDir) {
     // ファイル指定 → parent を dir にして selection を埋める
     probeDir = dirname(targetPath);
     selection = { kind: "file", relPath: basename(targetPath), lineNumber: 0 };

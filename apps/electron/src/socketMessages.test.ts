@@ -77,6 +77,18 @@ describe("socketMessages", () => {
     expect(payload.switchToDir).toBe("");
   });
 
+  test("open メッセージの不在パスは gozdOpen を push しない（観察ログのみ）", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gozd-socket-open-notexist-"));
+    tempDirs.push(dir);
+    const pushed: unknown[] = [];
+    const handle = createSocketMessageHandler((type) => pushed.push(type));
+    handle(JSON.stringify({ open: { targetPath: join(dir, "notexist") } }));
+    // 逐次キューの完了を後続 hook の到達で観測し、gozdOpen が飛んでいないことを固定する
+    handle('{"hook":{"event":"running","ptyId":1}}');
+    await waitFor(() => pushed.length === 1);
+    expect(pushed).toEqual(["hook"]);
+  });
+
   test("JSON として壊れた行は push せずに落とす（観察ログのみ）", async () => {
     const pushed: unknown[] = [];
     const handle = createSocketMessageHandler((type) => pushed.push(type));

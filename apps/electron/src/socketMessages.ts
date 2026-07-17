@@ -154,7 +154,9 @@ async function handleSocketMessage(line: string, push: PushFn): Promise<void> {
     return;
   }
   if (msg.open !== undefined) {
-    push("gozdOpen", await buildGozdOpenPayload(msg.open.targetPath));
+    // undefined = 不在パス（buildGozdOpenPayload が観察ログを出して弾く）。push しない
+    const payload = await buildGozdOpenPayload(msg.open.targetPath);
+    if (payload !== undefined) push("gozdOpen", payload);
     return;
   }
   console.error(`[SocketServer] ClientMessage with empty oneof: ${line.slice(0, 200)}`);

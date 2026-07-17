@@ -13,7 +13,7 @@
 ## アイコン
 
 - icon は unplugin-icons の **per-icon component import** で書く。`icon-[lucide--x]` 形式の Tailwind class は使えない（ESLint の `gozd/no-iconify-class` が error にする）
-- import パスは `~icons/lucide/<kebab-name>`、ローカル名は `IconLucide<PascalName>` で揃える
+- import パスは `~icons/<collection>/<kebab-name>`、ローカル名は `Icon<Collection><PascalName>` で collection + icon 名に揃える（例: `IconLucideX` / `IconMdiDockWindow`）
 
   ```vue
   <script setup lang="ts">

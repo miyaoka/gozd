@@ -380,6 +380,12 @@ export function createClaudeStatusManager(deps: ClaudeStatusManagerDeps) {
           const previousSessionId = sessionIdByPtyId.value[ptyId];
           if (previousSessionId !== undefined && previousSessionId !== sessionId) {
             delete ptyIdBySessionId.value[previousSessionId];
+            // session 切り替えでは session-end が発火しない（socketMessages.ts 参照）ため、
+            // 旧セッションの teammate 台帳と in-flight 通知をここで破棄する。残すと新セッションで
+            // teammate を使った時に旧 id が台帳に居座り working 固着が再発する。同一 sessionId の
+            // session-start（compact 由来）では消さない: compact では in-process teammate が生存する
+            workingTeammatesByPtyId.delete(ptyId);
+            inFlightIdleNotificationPtyIds.delete(ptyId);
           }
           sessionIdByPtyId.value[ptyId] = sessionId;
           ptyIdBySessionId.value[sessionId] = ptyId;

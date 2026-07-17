@@ -239,6 +239,33 @@ describe("teammate 台帳（subagent-start / subagent-stop / teammate-idle）", 
     expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("done");
   });
 
+  test("session-end なしの sessionId 置換（/clear・/resume）でも台帳と in-flight を破棄する", () => {
+    // /clear や --resume では旧セッションの session-end が発火しない（socketMessages.ts）。
+    // 旧セッションの teammate 残留が新セッションの done を抑止しないこと。
+    // 台帳（稼働中 teammate）と in-flight（配送待ち通知）の両方が残った状態で切り替える:
+    // 2 体 spawn して片方だけ idle 化すると、台帳に生存 1 件 + in-flight true になる
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
+    manager.handleHookEvent(1, "subagent-start", { agent_id: "areviewer-b-11aa22bb" });
+    manager.handleHookEvent(1, "teammate-idle", { teammate_name: TEAMMATE_NAME });
+
+    manager.handleHookEvent(1, "session-start", { session_id: "s2" });
+    manager.handleHookEvent(1, "done", { pending_work: false, has_teammate_task: true });
+    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("done");
+  });
+
+  test("同一 sessionId の session-start（compact 由来）では台帳を保持する", () => {
+    // compact では in-process teammate が生存するため、稼働中 teammate の追跡を失わないこと
+    const { claudeStatusByPtyId, manager } = setup();
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    manager.handleHookEvent(1, "subagent-start", { agent_id: TEAMMATE_ID });
+
+    manager.handleHookEvent(1, "session-start", { session_id: "s1" });
+    manager.handleHookEvent(1, "done", { pending_work: false, has_teammate_task: true });
+    expect(displayClaudeState(claudeStatusByPtyId.value[1])).toBe("working");
+  });
+
   test("isTeammateLifecycleId: teammate 形状（a<name>-<hex>）だけ true", () => {
     expect(isTeammateLifecycleId(TEAMMATE_ID)).toBe(true);
     expect(isTeammateLifecycleId(ONE_SHOT_ID)).toBe(false);

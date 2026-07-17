@@ -2,35 +2,62 @@
 pin されたファイルプレビュー 1 件のフローティングウィンドウ。
 
 「view の切り離し」なので UI は本体 preview と同一部品で組み、縮小版・独自 UI を作らない。
-本体との違いはデータ源だけ — 本体は global selection に結合した live な取得層、こちらは
-pin 時に焼き込んだ raw source (doc) + window ローカルの view 状態 (初期値は pin 時点の
-本体の状態)。編集 / blame / 行番号 reveal は選択文脈に紐づく機能のため capability を
-無効のまま使う。
+本体との違いはデータ源 — 本体は global selection に結合した live な取得層、こちらは
+pin 元の source (実ファイル参照) + window ローカルの view / 編集状態 (初期値は pin 時点の
+本体の状態)。blame / 行番号 reveal は選択文脈に紐づく機能のため capability を無効のまま使う。
+
+## current 側の live 追従と編集
+
+current 側は pin 時 snapshot を初期値に、以後は source の実ファイルに追従する。ただし
+`currentIsWorkingTree=false` の pin (過去 rev の歴史表示。commit / 範囲選択で newer が
+実 hash) は current が実ファイルの内容ではないため、live 追従も編集もせず pin 時
+snapshot に固定する — 過去の内容で実ファイルを上書き保存する事故を構造的に防ぐ:
+
+- source の kind を問わず絶対パスに解決 (worktree は `joinAbsRel`) して自前の単一ファイル
+  watch (`rpcFsWatchFileAbsolute`。mount で watch / unmount で解除) + `fsChangeAbsolute`
+  購読で再取得する。fsChange (fsWatchSync) に相乗りしないのは、pinned window は repo /
+  worktree を閉じても生存する契約のため — sidebar の watch 集合に依存すると閉じた瞬間に
+  snapshot へ degrade してしまう。読み書きも同じ絶対パスで統一する
+  (`rpcFsReadFileAbsolute` / `rpcFsWriteFileAbsolute`)
+- original (比較元 rev) 側は pin 時点に固定のまま。live な git 文脈 (rev 解決・blame) は
+  ヘッダの open ボタンで本体 preview に昇格して得る
+- 編集は window ローカルの draft / save (本体の editStore とは独立した per-window
+  セッション)。dirty の間は外部変更で上書きしないが、イベントは保留して編集終了
+  (Discard / Save) 時に再取得する (捨てると Discard 後に stale が残る)。Original
+  タブは履歴表示のため編集対象外
+- 再取得が notFound / 失敗のときは直前の内容を維持する (pin 後のファイル削除・worktree
+  消失でもウィンドウは生存する既存契約)
 
 ドラッグ / リサイズ / クランプ / 初期サイズ換算は汎用シェル FloatingWindow に委譲。
 ヘッダには pin 時点の出自 (repo / branch / ファイル名) を焼き込む — worktree 切替を
 跨いで生存するウィンドウを識別するため。repo 未解決 (worktree 外の絶対パス等) は
 出自の段ごと省く。
 
-ヘッダの open ボタンで pin 元の選択を本体 preview として開き直せる。git / working tree
-に追従する live な文脈 (編集・blame 含む) はこちらで得る。開けたらウィンドウは閉じる
-(本体への昇格であり二重表示を残さない。pin 時に popover を閉じるのと対称)。pin 元
+ヘッダの open ボタンで pin 元の選択を本体 preview として開き直せる。開けたらウィンドウは
+閉じる (本体への昇格であり二重表示を残さない。pin 時に popover を閉じるのと対称)。pin 元
 worktree が閉じられている場合はエラートーストで可視化し、ウィンドウは残す。
 
-画像も doc の snapshot から表示するため、テキストと同じく pin 時点の内容に固定され、
-pin 後のファイル削除・変更・worktree 消失に影響されない。描画失敗は error 表示に
-切り替え、view 操作でリセットする。
+画像描画失敗は error 表示に切り替え、view 操作・内容更新でリセットする。
 </doc>
 
 <script setup lang="ts">
 import type { WireBytes } from "@gozd/rpc";
-import { computed, ref, watch } from "vue";
+import { tryCatch } from "@gozd/shared";
+import { computed, onUnmounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
-import { getFileIconUrl } from "../filer";
+import { onMessage } from "../../shared/rpc";
+import {
+  getFileIconUrl,
+  rpcFsReadFileAbsolute,
+  rpcFsUnwatchFileAbsolute,
+  rpcFsWatchFileAbsolute,
+  rpcFsWriteFileAbsolute,
+} from "../filer";
+import type { FsChangeAbsolutePayload } from "../filer";
 import { FloatingWindow } from "../floating-window";
 import { RepoIcon } from "../repo-icon";
-import { useWorktreeStore } from "../worktree";
+import { joinAbsRel, useWorktreeStore } from "../worktree";
 import PreviewContent from "./PreviewContent.vue";
 import { detectFileType } from "./previewFileType";
 import type { PreviewMode } from "./previewMode";
@@ -64,18 +91,25 @@ const activeMode = ref<PreviewMode>(
 const previewEnabled = ref(props.preview.previewEnabled);
 const wordWrap = ref(props.preview.wordWrap);
 
-// ==== PreviewContent への入力導出 (raw source + view 状態) ====
+// ==== PreviewContent への入力導出 (source + view 状態) ====
 
-// doc は pin 後不変なので setup 時に確定できる
+// doc (pin 時 snapshot) は current 側の初期値。original 側は pin 後も不変
 const doc = props.preview.doc;
+const source = props.preview.source;
+/** live 追従・読み書きの対象 (source を絶対パスに解決したもの)。kind を問わずこれ 1 本で扱う */
+const sourceAbsPath =
+  source.kind === "absolute" ? source.absPath : joinAbsRel(source.dir, source.relPath);
 const fileType = detectFileType(doc.filePath);
 const isImageFile = fileType === "image" || fileType === "svg";
+
+/** current 側の中身。pin 時 snapshot を初期値に、source の実ファイル変更へ追従する */
+const current = ref<string | WireBytes | undefined>(doc.current);
 /** current / original のテキスト面。バイナリ (bytes) は undefined (本体の currentText / originalText 相当) */
-const currentText = typeof doc.current === "string" ? doc.current : undefined;
+const currentText = computed(() => (typeof current.value === "string" ? current.value : undefined));
 const originalText = typeof doc.original === "string" ? doc.original : undefined;
 
 /** activeMode 解決済みの表示対象 (union のまま。本体の displayRaw 相当)。 */
-const displayRaw = computed(() => (activeMode.value === "original" ? doc.original : doc.current));
+const displayRaw = computed(() => (activeMode.value === "original" ? doc.original : current.value));
 
 /** activeMode 解決済みの表示テキスト (本体の displayContent 相当)。バイナリは undefined。 */
 const displayContent = computed<string | undefined>(() =>
@@ -87,21 +121,138 @@ const displayIsBinary = computed(() => displayRaw.value instanceof Uint8Array);
 
 /**
  * 画像表示の中身 (本体の imageSource 相当: previewEnabled off / 非画像は undefined)。
- * doc の snapshot から導出するため pin 時点の内容に固定される。
  */
 const imageSource = computed<string | WireBytes | undefined>(() => {
   if (!isImageFile || !previewEnabled.value) return undefined;
   return displayRaw.value;
 });
 
-/** 画像描画失敗 (壊れた bytes 等) の error 表示。view 操作でリセットする。 */
+/** 画像描画失敗 (壊れた bytes 等) の error 表示。view 操作・内容更新でリセットする。 */
 const imageError = ref(false);
-watch([activeMode, previewEnabled], () => {
+watch([activeMode, previewEnabled, current], () => {
   imageError.value = false;
 });
 const contentError = computed<string | undefined>(() =>
   imageError.value ? "Failed to load image" : undefined,
 );
+
+// ==== 編集 (window ローカルの per-window セッション) ====
+
+/** 未保存の編集。undefined = 編集なし。本体の editStore とは独立した window ローカル状態 */
+const draft = ref<string>();
+const saving = ref(false);
+const isDirty = computed(() => draft.value !== undefined && draft.value !== currentText.value);
+
+/**
+ * 編集可否。current 側が working tree でない pin (過去 rev の歴史表示) は全面不可 —
+ * 保存すると過去の内容で実ファイルを上書きしてしまうため。Original タブは pin 時
+ * snapshot の履歴表示なので対象外 (本体の「編集可能なのは current だけ」whitelist と
+ * 同じ向き。diff の編集面は current 側のみ)。バイナリ / 画像は editable を消費する
+ * leaf (CodePreview / DiffPreview) 自体が描画されないため条件に含めない。
+ */
+const editable = computed(
+  () =>
+    props.preview.currentIsWorkingTree &&
+    activeMode.value !== "original" &&
+    currentText.value !== undefined,
+);
+
+/** コード leaf / diff current に渡す内容 (draft 込み。本体 PreviewPane の codeContent と同じ形) */
+const codeContent = computed<string | undefined>(() => {
+  if (!editable.value) return displayContent.value;
+  return draft.value ?? displayContent.value;
+});
+const diffCurrent = computed<string | undefined>(() => {
+  if (!editable.value) return currentText.value;
+  return draft.value ?? currentText.value;
+});
+
+function discardEdit() {
+  draft.value = undefined;
+}
+
+async function saveEdit() {
+  const content = draft.value;
+  if (content === undefined || !isDirty.value || saving.value) return;
+  saving.value = true;
+  const result = await tryCatch(rpcFsWriteFileAbsolute({ absolutePath: sourceAbsPath, content }));
+  saving.value = false;
+  if (!result.ok) {
+    notification.error(`Failed to save ${props.preview.fileName}`, result.error);
+    return;
+  }
+  current.value = content;
+  draft.value = undefined;
+}
+
+// ==== current 側の live 追従 ====
+
+/** 非同期レース防止のバージョンカウンター (本体 usePreviewContent と同じ規律) */
+let fetchVersion = 0;
+
+/** dirty 中に届いた変更の保留。破棄すると Discard 後に stale な内容が残り、そのまま保存すると
+ * 外部変更を見ないまま上書きしてしまうため、isDirty が落ちた時点で再取得する */
+let pendingRefetch = false;
+
+async function refetchCurrent() {
+  // dirty 保護 (draft を上書きしない) は本体と同じ規律だが、イベントは捨てずに保留する
+  if (isDirty.value) {
+    pendingRefetch = true;
+    return;
+  }
+  const version = ++fetchVersion;
+  const result = await tryCatch(
+    rpcFsReadFileAbsolute({ absolutePath: sourceAbsPath }).then((r) => r.result),
+  );
+  if (version !== fetchVersion) return;
+  // transport 失敗は stale 表示に気づけないため通知する (意図的な notFound 維持と区別する)
+  if (!result.ok) {
+    notification.error(`Failed to reload ${props.preview.fileName}`, result.error);
+    return;
+  }
+  const file = result.value;
+  // notFound / directory (削除等) は直前の内容を維持する (ウィンドウ生存契約)
+  if (file === undefined || file.notFound || file.isDirectory) return;
+  current.value = file.content;
+  draft.value = undefined;
+}
+
+// Discard / Save で isDirty が落ちたら、dirty 中に保留した外部変更を取り込む
+watch(isDirty, (dirty) => {
+  if (dirty || !pendingRefetch) return;
+  pendingRefetch = false;
+  void refetchCurrent();
+});
+
+// window が生きている間だけ main に単一ファイル watch を張る (sourceAbsPath は不変)。
+// fsChange (fsWatchSync) に相乗りしない理由は doc 参照。
+// current 側が working tree でない pin (過去 rev の歴史表示) は追従対象がそもそも無いため
+// watch も購読も張らず、pin 時 snapshot に固定する。
+if (props.preview.currentIsWorkingTree) {
+  void tryCatch(rpcFsWatchFileAbsolute({ absolutePath: sourceAbsPath })).then((result) => {
+    // watch 失敗は live 追従が止まり stale 表示に気づけないため通知する
+    if (!result.ok) {
+      notification.error(
+        `Failed to watch ${props.preview.fileName} for live updates`,
+        result.error,
+      );
+    }
+  });
+  onUnmounted(() => {
+    void tryCatch(rpcFsUnwatchFileAbsolute({ absolutePath: sourceAbsPath })).then((result) => {
+      // unwatch 失敗は watcher のリーク (表示は正常動作) なので info で通知する
+      if (!result.ok) notification.info("Failed to release file watcher", result.error);
+    });
+  });
+  const unsubscribeFileChange = onMessage<FsChangeAbsolutePayload>(
+    "fsChangeAbsolute",
+    ({ path }) => {
+      if (path !== sourceAbsPath) return;
+      void refetchCurrent();
+    },
+  );
+  onUnmounted(unsubscribeFileChange);
+}
 
 /**
  * pin 元の選択を本体 preview として開き直す (doc 参照)。worktree 由来は
@@ -110,7 +261,6 @@ const contentError = computed<string | undefined>(() =>
  * 残る (useGozdOpenHandler と同じシーケンス)。
  */
 function openInPreview() {
-  const source = props.preview.source;
   if (source.kind === "absolute") {
     previewStore.forceSelect({ kind: "absolute", absPath: source.absPath });
     close(props.preview.id);
@@ -194,22 +344,53 @@ function openInPreview() {
     />
 
     <!-- 本文 leaf 切替も本体と共有の PreviewContent。テキスト面 (code / diff) は string、
-         画像は union のまま渡し、binary 判定は content の型から導出する (本体と同じ規律) -->
-    <PreviewContent
-      class="min-h-0 flex-1 select-text"
-      :file-path="doc.filePath"
-      :file-type="fileType"
-      :active-mode="activeMode"
-      :preview-enabled="previewEnabled"
-      :word-wrap="wordWrap"
-      :original-content="originalText"
-      :diff-current="currentText"
-      :code-content="displayContent"
-      :display-content="displayContent"
-      :image-source="imageSource"
-      :display-is-binary="displayIsBinary"
-      :error="contentError"
-      @image-error="imageError = true"
-    />
+         画像は union のまま渡し、binary 判定は content の型から導出する (本体と同じ規律)。
+         保存ツールバーは本体 PreviewPane と同じ「未保存の変更があるときだけ Discard/Save を
+         フローティング表示」(relative ラッパー基準で右上固定) -->
+    <div class="relative min-h-0 flex-1">
+      <div
+        v-if="editable && isDirty"
+        class="absolute top-2 right-4 z-10 flex h-7 items-center gap-2 rounded-md border border-border bg-panel px-2 shadow-sm"
+      >
+        <button
+          type="button"
+          class="text-xs text-foreground-low hover:text-foreground"
+          title="Discard changes"
+          aria-label="Discard changes"
+          @click="discardEdit()"
+        >
+          Discard
+        </button>
+        <button
+          type="button"
+          class="rounded-sm bg-primary px-2 py-0.5 text-xs text-foreground hover:bg-primary-hover disabled:bg-element disabled:text-foreground-muted disabled:hover:bg-element"
+          :disabled="saving"
+          title="Save"
+          aria-label="Save"
+          @click="saveEdit()"
+        >
+          Save
+        </button>
+      </div>
+
+      <PreviewContent
+        class="size-full select-text"
+        :file-path="doc.filePath"
+        :file-type="fileType"
+        :active-mode="activeMode"
+        :preview-enabled="previewEnabled"
+        :word-wrap="wordWrap"
+        :original-content="originalText"
+        :diff-current="diffCurrent"
+        :code-content="codeContent"
+        :display-content="displayContent"
+        :image-source="imageSource"
+        :display-is-binary="displayIsBinary"
+        :error="contentError"
+        :editable="editable"
+        @update-content="draft = $event"
+        @image-error="imageError = true"
+      />
+    </div>
   </FloatingWindow>
 </template>

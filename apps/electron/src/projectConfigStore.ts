@@ -42,7 +42,17 @@ export async function saveProjectConfig(dir: string, config: ProjectConfig): Pro
   const path = await configFilePath(dir);
   mkdirSync(dirname(path), { recursive: true });
   // Swift 期の `.atomic` write と同じ保証: 同 dir の tmp に書いて rename
+  // settings UI の「Open settings file (JSON)」で preview 表示する対象のため整形して書く
   const tmpPath = `${path}.tmp-${process.pid}`;
-  writeFileSync(tmpPath, JSON.stringify(config));
+  writeFileSync(tmpPath, JSON.stringify(config, null, 2));
   renameSync(tmpPath, path);
+}
+
+/** 設定ファイルを実体化して絶対パスを返す。未存在（一度も保存していないプロジェクト）なら
+ * default 充填した現在値を書き出す（VS Code の「Open Settings (JSON)」と同じ挙動）。
+ * preview は不在ファイルを "File not found" 表示に倒すため、開く前に実体を保証する。 */
+export async function ensureProjectConfigFile(dir: string): Promise<string> {
+  const path = await configFilePath(dir);
+  if (!existsSync(path)) await saveProjectConfig(dir, await loadProjectConfig(dir));
+  return path;
 }

@@ -29,10 +29,16 @@ import type {
   FsStatRequest,
   FsStatResponse,
   FsUnwatchAllResponse,
+  FsUnwatchFileAbsoluteRequest,
+  FsUnwatchFileAbsoluteResponse,
   FsUnwatchRequest,
   FsUnwatchResponse,
+  FsWatchFileAbsoluteRequest,
+  FsWatchFileAbsoluteResponse,
   FsWatchRequest,
   FsWatchResponse,
+  FsWriteFileAbsoluteRequest,
+  FsWriteFileAbsoluteResponse,
   FsWriteFileRequest,
   FsWriteFileResponse,
   GitCommitFilesRequest,
@@ -85,6 +91,7 @@ import type {
   GitWorktreeListResponse,
   GitWorktreeRemoveRequest,
   GitWorktreeRemoveResponse,
+  EnsureAppConfigFileResponse,
   LoadAppConfigResponse,
   LoadAppStateResponse,
   OpenExternalRequest,
@@ -92,6 +99,8 @@ import type {
   OpenFileRequest,
   OpenFileResponse,
   PickAndOpenResponse,
+  ProjectConfigEnsureFileRequest,
+  ProjectConfigEnsureFileResponse,
   ProjectConfigLoadRequest,
   ProjectConfigLoadResponse,
   ProjectConfigSaveRequest,
@@ -138,7 +147,15 @@ import { app, BrowserWindow, dialog, shell } from "electron";
 import { existsSync } from "node:fs";
 import { listReviveSessions, readClaudeSessionLog } from "./claude/claudeSessionLog";
 import { writeFilesToClipboard } from "./clipboardOps";
-import { readDir, readFile, readFileAbsolute, stat, writeFile } from "./fs/fsOps";
+import {
+  readDir,
+  readFile,
+  readFileAbsolute,
+  stat,
+  writeFile,
+  writeFileAbsolute,
+} from "./fs/fsOps";
+import { unwatchAbsFile, unwatchAllAbsFiles, watchAbsFile } from "./fs/absFileWatcher";
 import { createFsWatchRegistry } from "./fs/fsWatchRegistry";
 import { createWatcherClient } from "./fs/watcherClient";
 import { createPtyClient } from "./pty/ptyClient";
@@ -168,13 +185,23 @@ import type { StatusFull } from "./git/porcelain";
 import { issueList, prList, repoOwnerName, viewer } from "./git/github";
 import { buildPtyEnv } from "./gozdEnv";
 import { buildGozdOpenPayload } from "./openTarget";
-import { loadProjectConfig, saveProjectConfig } from "./projectConfigStore";
+import {
+  ensureProjectConfigFile,
+  loadProjectConfig,
+  saveProjectConfig,
+} from "./projectConfigStore";
 import { createPortScanner, listProcParents, type PtyOwner } from "./portScanner";
 import { clearAssociations, consumeExpectedResumeSid, registerSpawn, sessionIdFor, unregisterExit, worktreePathFor } from "./ptySessions";
 import type { PushFn, RpcContext, RpcHandler } from "./rpcDispatcher";
 import { listListenProcesses } from "./serverList";
 import { installShellCommand, uninstallShellCommand } from "./shellCommandOps";
-import { loadAppConfig, loadAppState, saveAppConfig, saveAppState } from "./stores";
+import {
+  ensureAppConfigFile,
+  loadAppConfig,
+  loadAppState,
+  saveAppConfig,
+  saveAppState,
+} from "./stores";
 import { taskStore } from "./taskStore";
 import { checkEngine, launch as voicevoxLaunch, listSpeakers, speak } from "./voicevox";
 
@@ -328,6 +355,10 @@ function handleAppConfigSave(body: unknown): unknown {
   if (req.config === undefined) throw new Error("appConfig/save: config is required");
   saveAppConfig(req.config);
   return ({}) satisfies SaveAppConfigResponse;
+}
+
+function handleAppConfigEnsureFile(): unknown {
+  return ({ path: ensureAppConfigFile() }) satisfies EnsureAppConfigFileResponse;
 }
 
 function handleAppStateLoad(): unknown {
@@ -509,6 +540,7 @@ const fsWatchRegistry = createFsWatchRegistry(
  * unwatchAll で subscription を畳んだ後、utilityProcess 自体を kill する */
 export function unwatchAllFsWatches(): void {
   fsWatchRegistry.unwatchAll();
+  unwatchAllAbsFiles();
   watcherClient.dispose();
 }
 
@@ -531,6 +563,12 @@ function handleFsWriteFile(body: unknown): unknown {
   const req = body as FsWriteFileRequest;
   writeFile(req.dir, req.path, req.content);
   return ({}) satisfies FsWriteFileResponse;
+}
+
+function handleFsWriteFileAbsolute(body: unknown): unknown {
+  const req = body as FsWriteFileAbsoluteRequest;
+  writeFileAbsolute(req.absolutePath, req.content);
+  return ({}) satisfies FsWriteFileAbsoluteResponse;
 }
 
 function handleFsStat(body: unknown): unknown {
@@ -561,6 +599,18 @@ function handleFsUnwatch(body: unknown): unknown {
   const req = body as FsUnwatchRequest;
   fsWatchRegistry.unwatch(req.dir);
   return ({}) satisfies FsUnwatchResponse;
+}
+
+function handleFsWatchFileAbsolute(body: unknown, ctx: RpcContext): unknown {
+  const req = body as FsWatchFileAbsoluteRequest;
+  watchAbsFile(req.absolutePath, ctx.push);
+  return ({}) satisfies FsWatchFileAbsoluteResponse;
+}
+
+function handleFsUnwatchFileAbsolute(body: unknown): unknown {
+  const req = body as FsUnwatchFileAbsoluteRequest;
+  unwatchAbsFile(req.absolutePath);
+  return ({}) satisfies FsUnwatchFileAbsoluteResponse;
 }
 
 function handleFsUnwatchAll(): unknown {
@@ -837,6 +887,11 @@ async function handleProjectConfigSave(body: unknown): Promise<unknown> {
   return ({}) satisfies ProjectConfigSaveResponse;
 }
 
+async function handleProjectConfigEnsureFile(body: unknown): Promise<unknown> {
+  const req = body as ProjectConfigEnsureFileRequest;
+  return ({ path: await ensureProjectConfigFile(req.dir) }) satisfies ProjectConfigEnsureFileResponse;
+}
+
 // `openExternal` で許可する URL scheme の allowlist。OSC 8 リンクや WebLinksAddon 経由で
 // 任意 scheme が流れ込み得るので、ブラウザで開く想定の scheme のみを許可する
 // （Swift 版 openExternalAllowedSchemes と同一集合）
@@ -1076,16 +1131,20 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/echo", handleEcho],
   ["/appConfig/load", handleAppConfigLoad],
   ["/appConfig/save", handleAppConfigSave],
+  ["/appConfig/ensureFile", handleAppConfigEnsureFile],
   ["/appState/load", handleAppStateLoad],
   ["/appState/save", handleAppStateSave],
   ["/fs/readFile", handleFsReadFile],
   ["/fs/readDir", handleFsReadDir],
   ["/fs/readFileAbsolute", handleFsReadFileAbsolute],
   ["/fs/writeFile", handleFsWriteFile],
+  ["/fs/writeFileAbsolute", handleFsWriteFileAbsolute],
   ["/fs/stat", handleFsStat],
   ["/fs/watch", handleFsWatch],
   ["/fs/unwatch", handleFsUnwatch],
   ["/fs/unwatchAll", handleFsUnwatchAll],
+  ["/fs/watchFileAbsolute", handleFsWatchFileAbsolute],
+  ["/fs/unwatchFileAbsolute", handleFsUnwatchFileAbsolute],
   ["/git/status", handleGitStatus],
   ["/git/log", handleGitLog],
   ["/git/diffHunks", handleGitDiffHunks],
@@ -1125,6 +1184,7 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/task/removeByWorktree", handleTaskRemoveByWorktree],
   ["/projectConfig/load", handleProjectConfigLoad],
   ["/projectConfig/save", handleProjectConfigSave],
+  ["/projectConfig/ensureFile", handleProjectConfigEnsureFile],
   ["/open/external", handleOpenExternal],
   ["/open/file", handleOpenFile],
   ["/open/pickAndOpen", handlePickAndOpen],

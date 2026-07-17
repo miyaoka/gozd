@@ -35,8 +35,14 @@ import { computed, onUnmounted, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import { useChangesStore, useChangesSummaryStore } from "../changes";
-import { relDirOf, rpcFsReadFile, rpcFsReadFileAbsolute } from "../filer";
-import type { FsChangePayload } from "../filer";
+import {
+  relDirOf,
+  rpcFsReadFile,
+  rpcFsReadFileAbsolute,
+  rpcFsUnwatchFileAbsolute,
+  rpcFsWatchFileAbsolute,
+} from "../filer";
+import type { FsChangeAbsolutePayload, FsChangePayload } from "../filer";
 import { rpcGitReadBlob, useGitGraphStore, usePrDiffToggleStore } from "../git-graph";
 import { UNCOMMITTED_HASH, useGitStatusStore, useWorktreeStore } from "../worktree";
 import type { GitChangeKind, Selection } from "../worktree";
@@ -667,6 +673,76 @@ export function usePreviewContent(
     },
   );
   onUnmounted(unsubscribeFsChange);
+
+  // ==== absolute 選択 (worktree 外) のファイル変更追従 ====
+  //
+  // worktree 外は fsWatchRegistry の対象外で fsChange が届かないため、表示している間だけ
+  // main に単一ファイル watch (absFileWatcher) を張り、fsChangeAbsolute で再取得する
+  // (設定 JSON / session log 等。VS Code が開いているファイルを個別 watch するのと同じ形)。
+
+  /** 現在 watch を張っている絶対パス。selection の absolute ⇄ それ以外の遷移に同期する */
+  let watchedAbsPath: string | undefined;
+
+  watch(
+    () => (selection.value?.kind === "absolute" ? selection.value.absPath : undefined),
+    (absPath) => {
+      if (absPath === watchedAbsPath) return;
+      if (watchedAbsPath !== undefined) {
+        void tryCatch(rpcFsUnwatchFileAbsolute({ absolutePath: watchedAbsPath })).then((result) => {
+          // unwatch 失敗は watcher のリーク (表示は正常動作) なので info で通知する
+          if (!result.ok) notification.info("Failed to release file watcher", result.error);
+        });
+      }
+      watchedAbsPath = absPath;
+      if (absPath === undefined) return;
+      void tryCatch(rpcFsWatchFileAbsolute({ absolutePath: absPath })).then((result) => {
+        // watch 失敗 (親 dir 消失等) は live 追従が止まり stale 表示に気づけないため通知する
+        if (!result.ok) notification.error("Failed to watch file for live updates", result.error);
+      });
+    },
+    { immediate: true },
+  );
+  onUnmounted(() => {
+    if (watchedAbsPath === undefined) return;
+    void tryCatch(rpcFsUnwatchFileAbsolute({ absolutePath: watchedAbsPath })).then((result) => {
+      if (!result.ok) notification.info("Failed to release file watcher", result.error);
+    });
+  });
+
+  /** dirty 中に届いた absolute 変更の保留 path。破棄すると Discard 後に stale な内容が残り、
+   * そのまま保存すると外部変更を見ないまま上書きしてしまうため、編集終了時に再取得する */
+  let pendingAbsRefetchPath: string | undefined;
+
+  const unsubscribeFsChangeAbsolute = onMessage<FsChangeAbsolutePayload>(
+    "fsChangeAbsolute",
+    ({ path }) => {
+      const sel = selection.value;
+      if (sel?.kind !== "absolute" || sel.absPath !== path) return;
+      // dirty 保護 (draft を上書きしない) は fsChange と同じ規律だが、イベントは捨てずに
+      // 保留し、isDirty が落ちた時点 (Discard / Save / セッション終了) で再取得する
+      if (editStore.isDirty) {
+        pendingAbsRefetchPath = path;
+        return;
+      }
+      // targetChanged=false: モード・UI 状態は維持 (fsChange と同じ)
+      void fetchContent(sel, undefined, false);
+    },
+  );
+  onUnmounted(unsubscribeFsChangeAbsolute);
+
+  watch(
+    () => editStore.isDirty,
+    (dirty) => {
+      if (dirty) return;
+      const pending = pendingAbsRefetchPath;
+      pendingAbsRefetchPath = undefined;
+      if (pending === undefined) return;
+      // 対象切替済み (endSession 経由で isDirty が落ちた) の保留は捨てる
+      const sel = selection.value;
+      if (sel?.kind !== "absolute" || sel.absPath !== pending) return;
+      void fetchContent(sel, undefined, false);
+    },
+  );
 
   /** activeMode 解決済みの表示対象 content (union のまま) */
   const displayRaw = computed(() => {

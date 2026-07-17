@@ -10,6 +10,8 @@
 
 export type {
   AppConfig,
+  EnsureAppConfigFileRequest,
+  EnsureAppConfigFileResponse,
   LoadAppConfigRequest,
   LoadAppConfigResponse,
   SaveAppConfigRequest,
@@ -62,10 +64,16 @@ export type {
   FsStatResponse,
   FsUnwatchAllRequest,
   FsUnwatchAllResponse,
+  FsUnwatchFileAbsoluteRequest,
+  FsUnwatchFileAbsoluteResponse,
   FsUnwatchRequest,
   FsUnwatchResponse,
+  FsWatchFileAbsoluteRequest,
+  FsWatchFileAbsoluteResponse,
   FsWatchRequest,
   FsWatchResponse,
+  FsWriteFileAbsoluteRequest,
+  FsWriteFileAbsoluteResponse,
   FsWriteFileRequest,
   FsWriteFileResponse,
 } from "./fs";
@@ -141,6 +149,8 @@ export type {
 } from "./open";
 export type {
   ProjectConfig,
+  ProjectConfigEnsureFileRequest,
+  ProjectConfigEnsureFileResponse,
   ProjectConfigLoadRequest,
   ProjectConfigLoadResponse,
   ProjectConfigSaveRequest,

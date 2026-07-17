@@ -88,24 +88,28 @@ main は `webContents.send("rpc:push", type, payload)` で renderer に push す
 
 主な push type:
 
-| type                     | 発火元                                           | 用途                                                             |
-| ------------------------ | ------------------------------------------------ | ---------------------------------------------------------------- |
-| `ptyText`                | main (`routes.ts` の node-pty onData)            | PTY 出力                                                         |
-| `ptyExit`                | main (`routes.ts` の node-pty onExit)            | PTY 終了                                                         |
-| `fsChange`               | main (`fsWatchRegistry`)                         | watch dir 配下のファイル変更                                     |
-| `gitStatusChange`        | main (`fsWatchRegistry` の git 経路)             | git status snapshot 変化                                         |
-| `branchChange`           | main (primary worktree のみ dedup)               | ローカルブランチ参照の変化 (`refs/heads/*`)                      |
-| `remoteRefsChange`       | main (primary worktree のみ dedup)               | リモート tracking 参照の変化 (`refs/remotes/*`、push / fetch 後) |
-| `worktreeChange`         | main (primary worktree のみ dedup)               | `worktrees/*` 配下の変化                                         |
-| `fsWatchReady`           | renderer 内部 (`useFsWatchSync.dispatchMessage`) | `rpcFsWatch` 成功直後の dir 単位 re-sync シグナル                |
-| `gozdOpen`               | main                                             | CLI / launch request からの open リクエスト                      |
-| `serverPortsChange`      | main (`portScanner`)                             | 実行中サーバー検出結果の snapshot                                |
-| `hook`                   | main (`socketServer` → `HookMessage`)            | Claude Code Hook イベント                                        |
-| `notify`                 | main                                             | main 側のバックグラウンドエラー / 情報通知                       |
-| `windowFullscreenChange` | main (BrowserWindow enter/leave-full-screen)     | macOS fullscreen 遷移（タイトルバーの信号機 pad 開閉）           |
+| type                     | 発火元                                           | 用途                                                               |
+| ------------------------ | ------------------------------------------------ | ------------------------------------------------------------------ |
+| `ptyText`                | main (`routes.ts` の node-pty onData)            | PTY 出力                                                           |
+| `ptyExit`                | main (`routes.ts` の node-pty onExit)            | PTY 終了                                                           |
+| `fsChange`               | main (`fsWatchRegistry`)                         | watch dir 配下のファイル変更                                       |
+| `fsChangeAbsolute`       | main (`absFileWatcher`)                          | watch 中の絶対パス単一ファイルの変更（preview の worktree 外追従） |
+| `gitStatusChange`        | main (`fsWatchRegistry` の git 経路)             | git status snapshot 変化                                           |
+| `branchChange`           | main (primary worktree のみ dedup)               | ローカルブランチ参照の変化 (`refs/heads/*`)                        |
+| `remoteRefsChange`       | main (primary worktree のみ dedup)               | リモート tracking 参照の変化 (`refs/remotes/*`、push / fetch 後)   |
+| `worktreeChange`         | main (primary worktree のみ dedup)               | `worktrees/*` 配下の変化                                           |
+| `fsWatchReady`           | renderer 内部 (`useFsWatchSync.dispatchMessage`) | `rpcFsWatch` 成功直後の dir 単位 re-sync シグナル                  |
+| `gozdOpen`               | main                                             | CLI / launch request からの open リクエスト                        |
+| `serverPortsChange`      | main (`portScanner`)                             | 実行中サーバー検出結果の snapshot                                  |
+| `hook`                   | main (`socketServer` → `HookMessage`)            | Claude Code Hook イベント                                          |
+| `notify`                 | main                                             | main 側のバックグラウンドエラー / 情報通知                         |
+| `windowFullscreenChange` | main (BrowserWindow enter/leave-full-screen)     | macOS fullscreen 遷移（タイトルバーの信号機 pad 開閉）             |
+| `appConfigChange`        | main (`appConfigWatcher`)                        | AppConfig ファイル変更の hot reload（直接編集の即時適用）          |
 
-ファイル監視系の push payload は `dir`（または発火元 dir）を必須で持つ。詳細は
-[architecture.md](architecture.md#ssot-push-の-dir-filter-規律) を参照。
+fsWatchRegistry 由来の複数 dir 監視の push payload は `dir`（または発火元 dir）を必須で持つ。
+詳細は [architecture.md](architecture.md#ssot-push-の-dir-filter-規律) を参照。単一ファイル
+watcher の push はこの dir filter 規律の対象外で、`fsChangeAbsolute` は exact `path` match、
+`appConfigChange` は唯一のグローバル config が対象のため filter キー自体を持たない。
 
 push payload の型は request / response と違い `@gozd/rpc` に置かない。main 側の
 push 発火箇所（手組み dict）と renderer 側 feature の `*Payload` interface を SSOT とする

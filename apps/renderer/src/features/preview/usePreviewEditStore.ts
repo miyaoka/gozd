@@ -3,10 +3,11 @@
  * 管理する pinia store。
  *
  * 編集可能ファイルは常に編集状態で表示する（明示的な edit mode トグルは持たない）。
- * 「編集セッション」= target（dir + relPath）と draft / saved の組で、編集可能な content が
+ * 「編集セッション」= target と draft / saved の組で、編集可能な content が
  * 表示されるたびに `beginSession` が同期する（`usePreviewEdit` の watch が呼び出し元）。
  *
- * 対象は worktree 相対パスの実ファイルのみ（`fsWriteFile` が dir + relPath でしか書けないため）。
+ * 対象は worktree 相対パスの実ファイル（`fsWriteFile`）と worktree 外の絶対パスの実ファイル
+ * （`fsWriteFileAbsolute`。設定 JSON 等）。target の kind で保存 RPC を振り分ける。
  * 保存は明示的（Cmd+S / 保存ボタン）で、debounce による自動保存は行わない。
  *
  * ## dirty を保護境界にする契約
@@ -19,11 +20,25 @@ import { tryCatch } from "@gozd/shared";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { rpcFsWriteFile } from "../filer";
+import { rpcFsWriteFile, rpcFsWriteFileAbsolute } from "../filer";
 
-interface EditTarget {
-  dir: string;
-  relPath: string;
+/** 編集対象。worktree 選択 (`PathTarget`) と同型の判別 union だが、worktreeRelative は
+ * 保存 RPC (`fsWriteFile`) が dir を要求するため dir を同梱する */
+export type EditTarget =
+  | { kind: "worktreeRelative"; dir: string; relPath: string }
+  | { kind: "absolute"; absPath: string };
+
+function targetEquals(a: EditTarget, b: EditTarget): boolean {
+  if (a.kind === "worktreeRelative" && b.kind === "worktreeRelative") {
+    return a.dir === b.dir && a.relPath === b.relPath;
+  }
+  if (a.kind === "absolute" && b.kind === "absolute") return a.absPath === b.absPath;
+  return false;
+}
+
+/** エラートースト用の表示名 */
+function targetLabel(t: EditTarget): string {
+  return t.kind === "worktreeRelative" ? t.relPath : t.absPath;
 }
 
 export const usePreviewEditStore = defineStore("preview-edit", () => {
@@ -58,18 +73,18 @@ export const usePreviewEditStore = defineStore("preview-edit", () => {
    * dirty な draft の保護は呼び出し側（fsChange / 再取得経路の isDirty ガード）が担い、
    * ここまで到達した content は常に「表示すべき最新」として扱う。
    */
-  function beginSession(dir: string, relPath: string, content: string) {
+  function beginSession(newTarget: EditTarget, content: string) {
     const t = target.value;
     if (
-      t?.dir === dir &&
-      t.relPath === relPath &&
+      t !== undefined &&
+      targetEquals(t, newTarget) &&
       savedContent.value === content &&
       draftContent.value !== undefined
     ) {
       return;
     }
     sessionEpoch++;
-    target.value = { dir, relPath };
+    target.value = newTarget;
     draftContent.value = content;
     savedContent.value = content;
   }
@@ -105,11 +120,15 @@ export const usePreviewEditStore = defineStore("preview-edit", () => {
 
     const myEpoch = sessionEpoch;
     saving.value = true;
-    const result = await tryCatch(rpcFsWriteFile({ dir: t.dir, path: t.relPath, content }));
+    const result = await tryCatch(
+      t.kind === "worktreeRelative"
+        ? rpcFsWriteFile({ dir: t.dir, path: t.relPath, content })
+        : rpcFsWriteFileAbsolute({ absolutePath: t.absPath, content }),
+    );
     saving.value = false;
 
     if (!result.ok) {
-      notification.error(`Failed to save ${t.relPath}`, result.error);
+      notification.error(`Failed to save ${targetLabel(t)}`, result.error);
       return undefined;
     }
 

@@ -35,7 +35,8 @@ import { computed, onMounted, ref, useTemplateRef, watch } from "vue";
 import { useRepoStore } from "../../shared/repo";
 import { useChangesSummaryStore } from "../changes";
 import type { PinDragHandoff } from "../floating-window";
-import { useWorktreeStore } from "../worktree";
+import { usePrDiffToggleStore } from "../git-graph";
+import { UNCOMMITTED_HASH, useWorktreeStore } from "../worktree";
 import { ChangesSummaryView } from "./features/changes-summary";
 import { useBlamePopover, useFileHistoryPopover } from "./features/commit-history";
 import PreviewContent from "./PreviewContent.vue";
@@ -59,7 +60,8 @@ const emit = defineEmits<{
 
 const worktreeStore = useWorktreeStore();
 const repoStore = useRepoStore();
-const { selectedDisplayPath, selectedLineNumber, revealVersion } = storeToRefs(worktreeStore);
+const { selection, selectedDisplayPath, selectedLineNumber, revealVersion } =
+  storeToRefs(worktreeStore);
 const summaryStore = useChangesSummaryStore();
 const previewStore = usePreviewStore();
 const editStore = usePreviewEditStore();
@@ -96,6 +98,8 @@ const {
   effectiveGitChange,
   imageSource,
   contentEpoch,
+  isCommitMode,
+  orderedRange,
 } = content;
 
 /**
@@ -141,6 +145,24 @@ const wordWrap = ref(true);
 // ==== 独立ウィンドウへの切り離し (pin) ====
 
 const { pin: pinPreviewWindow } = usePinnedPreview();
+
+const prDiffToggle = usePrDiffToggleStore();
+
+/**
+ * pin 時点で current 側の中身が working tree の実ファイルかどうか。過去 rev の歴史表示
+ * (commit / 範囲選択で newer が実 hash) を pin した window が live 追従・編集して
+ * 「過去の内容で実ファイルを上書き保存する」事故を防ぐため、判定結果を焼き込む。
+ * PR diff は to = working tree、範囲選択の Working Tree 端点も fs 読みなので true。
+ * orderedRange 不整合 (null) は安全側 (固定・読み取り専用) に倒す。
+ */
+const currentIsWorkingTree = computed<boolean>(() => {
+  // absolute (worktree 外) は commit 選択と無関係に常に fs 読みで確定する
+  // (usePreviewContent の absolute 分岐)。commit mode の判定より先に返す
+  if (selection.value?.kind === "absolute") return true;
+  if (prDiffToggle.isOn) return true;
+  if (!isCommitMode.value) return true;
+  return orderedRange.value?.newer === UNCOMMITTED_HASH;
+});
 
 // pin 時の実測対象。位置は pane 全体 (paneBox) の rect、サイズは本文領域 (paneBody) の
 // rect を固定ウィンドウへ引き継ぎ、pane がその場でフローティング化したような視覚的
@@ -214,6 +236,7 @@ function detachPreview(handoff?: PinDragHandoff) {
       originalHashLabel: originalHashLabel.value,
       wordWrap: wordWrap.value,
       previewEnabled: previewEnabled.value,
+      currentIsWorkingTree: currentIsWorkingTree.value,
       doc,
       source,
       x: rect.left,

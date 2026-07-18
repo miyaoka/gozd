@@ -142,8 +142,7 @@ async function copyDetail() {
       </div>
       <pre
         class="max-h-64 overflow-auto font-mono text-xs break-all whitespace-pre-wrap text-foreground select-text"
-        >{{ detail }}</pre
-      >
+        >{{ detail }}</pre>
     </div>
   </div>
 </template>

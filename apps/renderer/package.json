@@ -35,7 +35,7 @@
     "monaco-editor": "0.55.1",
     "pinia": "4.0.2",
     "shiki": "4.3.1",
-    "vue": "3.5.39"
+    "vue": "3.5.40"
   },
   "devDependencies": {
     "@gozd/eslint-plugin": "workspace:*",

@@ -25,7 +25,7 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "concurrently": "10.0.3",
-    "knip": "6.26.0",
+    "knip": "6.27.0",
     "lefthook": "catalog:",
     "oxfmt": "catalog:",
     "oxlint": "catalog:",

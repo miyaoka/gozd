@@ -44,7 +44,6 @@ import {
   usePreviewStore,
 } from "../preview";
 import { registerAppConfigSync, registerSettingsCommand, SettingsModal } from "../settings";
-import { registerShellCommandActions } from "../shell-command";
 import { SidebarPane } from "../sidebar";
 import { registerThemeCommand, TerminalPane } from "../terminal";
 import NotificationToast from "./NotificationToast.vue";
@@ -82,7 +81,6 @@ const disposePrCommand = registerPrCommand();
 const disposeIssueCommand = registerIssueCommand();
 const disposeFilePickerCommand = registerFilePickerCommand();
 const disposeReviveCommand = registerReviveCommand();
-const disposeShellCommandActions = registerShellCommandActions();
 const disposeMarkdownHistoryCommands = registerMarkdownHistoryCommands();
 const disposeFilerCommands = registerFilerCommands();
 onUnmounted(disposePreviewToggle);
@@ -94,7 +92,6 @@ onUnmounted(disposePrCommand);
 onUnmounted(disposeIssueCommand);
 onUnmounted(disposeFilePickerCommand);
 onUnmounted(disposeReviveCommand);
-onUnmounted(disposeShellCommandActions);
 onUnmounted(disposeMarkdownHistoryCommands);
 onUnmounted(disposeFilerCommands);
 

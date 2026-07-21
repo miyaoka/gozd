@@ -20,7 +20,7 @@
 #       dist/cli.cjs                     ← ELECTRON_RUN_AS_NODE で実行するため実ファイル必須
 #       node_modules/node-pty, @parcel/watcher*  ← dlopen する native
 #     app/                             ← extraResources（asar の外。実ディレクトリ）
-#       bin/                             ← wrapper + gozd-cli shim（shellCommandOps / gozdEnv が Resources/app/bin を期待）
+#       bin/                             ← wrapper + gozd-cli shim（gozdEnv が Resources/app/bin を期待）
 #       zsh/                             ← zsh init チェーン（Swift 版と共有）
 #       views/main/                      ← renderer の Vite ビルド成果物
 appId: io.github.miyaoka.gozd.electron

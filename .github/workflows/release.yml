@@ -12,11 +12,17 @@ on:
       - main
   workflow_dispatch:
 
-# canary の連番は「既存 tag の max + 1」で採番するため、並行実行すると同じ tag を
-# 二重に計算しうる。リリースは常に直列化する。cancel はしない（ビルド途中の cancel は
-# tag だけ残る等の中途半端な状態を作るため）
+# decide job は checkout + git 読みのみで write 不要。release job 側の明示ブロックだけ昇格する
+permissions:
+  contents: read
+
+# canary の連番は「既存 tag の max + 1」で採番するため、同 channel のリリースは直列化する。
+# cancel はしない（ビルド途中の cancel は tag だけ残る等の中途半端な状態を作るため）。
+# group を channel 別に分けるのは、共有 group だと queued 状態の stable dispatch が後続の
+# canary push に supersede されて取り消されるため。channel 間で tag は衝突せず
+# （vX.Y.Z と vX.Y.(Z+1)-canary.N）、並走しても次の canary 採番が自己補正する
 concurrency:
-  group: release
+  group: release-${{ github.event_name == 'workflow_dispatch' && 'stable' || 'canary' }}
 
 jobs:
   # ==============================================================
@@ -54,8 +60,11 @@ jobs:
               echo "::error::tag ${tag} already exists. Bump apps/electron/package.json version first"
               exit 1
             fi
-            if [[ "$(printf '%s\n' "${latest_stable}" "${tag}" | sort -V | tail -1)" != "${tag}" ]]; then
-              echo "::error::version ${tag} is not newer than latest stable ${latest_stable}"
+            # 「最新 stable より厳密に大きい」を要求する。同値も弾くことで、stable tag が
+            # 1 つも無い初期状態（latest_stable 既定 v0.0.0 = package.json 0.0.0）の
+            # 未 bump リリースもエラーになる
+            if [[ "${tag}" == "${latest_stable}" ]] || [[ "$(printf '%s\n' "${latest_stable}" "${tag}" | sort -V | tail -1)" != "${tag}" ]]; then
+              echo "::error::version ${tag} must be newer than latest stable ${latest_stable}. Bump apps/electron/package.json version first"
               exit 1
             fi
           else

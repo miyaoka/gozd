@@ -41,6 +41,9 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           show-progress: false
+          # 後続ステップは git push しない（release 作成は gh CLI + GH_TOKEN）ため
+          # トークンを git config に残さない
+          persist-credentials: false
 
       - name: Decide release tag
         id: decide
@@ -124,6 +127,9 @@ jobs:
           filter: blob:none
           fetch-depth: 0
           show-progress: false
+          # 後続ステップは git push しない（release 作成は gh CLI + GH_TOKEN）ため
+          # トークンを git config に残さない
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-environment
 

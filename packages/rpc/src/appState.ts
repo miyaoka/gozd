@@ -11,6 +11,10 @@ import type { EmptyMessage } from "./common";
 export interface AppState {
   /** window 内に同居するサイドバー repo リスト。順序は表示順と一致する */
   sidebarRepos: SidebarRepo[];
+  /** 最後に選択していた worktree path（非 git project は rootDir）。次回起動時に
+   * 復元してターミナルを自動で開く。未選択はキー不在（undefined）で表現する。
+   * CLI の launch request（`gozd <dir>`）がある起動では復元より明示 open を優先する。 */
+  activeDir?: string;
 }
 
 /** サイドバー上の 1 repo の永続化エントリ。 */

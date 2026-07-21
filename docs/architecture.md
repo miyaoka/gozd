@@ -387,7 +387,7 @@ zsh 起動
 
 ```text
 ~/.local/state/gozd/
-├── app-state.json                        # state: sidebar repo 並び順 / 折りたたみ / worktree 一覧キャッシュ
+├── app-state.json                        # state: sidebar repo 並び順 / 折りたたみ / worktree 一覧キャッシュ / active worktree
 └── electron-window.json                  # state: window frame（shell 固有。close 時に保存）
 
 ~/.config/gozd/

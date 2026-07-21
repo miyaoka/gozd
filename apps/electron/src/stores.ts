@@ -102,6 +102,10 @@ function normalizeAppState(raw: unknown): AppState {
         worktrees,
       } as SidebarRepo;
     }),
+    // 「未選択 = キー不在」の optional 契約。文字列以外 / 空文字は unset に正規化する
+    // （undefined 値は JSON.stringify で落ちるため、save 時にキー不在へ戻る）
+    activeDir:
+      typeof dict.activeDir === "string" && dict.activeDir !== "" ? dict.activeDir : undefined,
   };
 }
 

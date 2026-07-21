@@ -422,6 +422,9 @@ export const useRepoStore = defineStore("repo", () => {
           })),
         };
       }),
+      // 次回起動時の active worktree 復元用。未選択（undefined）は JSON.stringify で
+      // キーごと落ちるため、save 側の shallow merge で stale な値が残らない
+      activeDir: selectedDir.value,
     };
   }
 

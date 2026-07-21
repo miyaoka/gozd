@@ -7,6 +7,7 @@ import { onMessage } from "../../shared/rpc";
 import { stripClaudeTitlePrefix, useTerminalStore } from "../terminal";
 import type { HookPayload } from "../terminal";
 import { useWorktreeStore } from "../worktree";
+import { restoreActiveDir } from "./restoreActiveDir";
 import {
   rpcAppStateLoad,
   rpcAppStateSave,
@@ -427,6 +428,7 @@ export function useSidebarData() {
     const result = await tryCatch(rpcAppStateLoad({}));
     if (result.ok && result.value.state !== undefined) {
       repoStore.hydrateFromAppState(result.value.state);
+      restoreActiveDir(result.value.state.activeDir);
     }
     hydrated = true;
   }

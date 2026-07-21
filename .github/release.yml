@@ -1,0 +1,9 @@
+# 自動生成 release notes の設定（release.yml の gh release create --generate-notes が参照）。
+# renovate / deps 更新はリリース対象外（release workflow の判定で除外）のため notes からも消す
+changelog:
+  exclude:
+    authors:
+      - renovate
+      - renovate[bot]
+    labels:
+      - dependencies

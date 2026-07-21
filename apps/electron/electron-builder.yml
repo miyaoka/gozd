@@ -1,5 +1,13 @@
 # Electron 版 gozd の .app パッケージング設定。Swift 版 apps/native/scripts/build-app.sh の
-# 対応物。unsigned ローカル配布前提（署名 / notarize なし）。
+# 対応物。配布は GitHub Releases + mise（docs/release.md）。channel 別の上書き
+# （productName / appId / extraMetadata）は buildApp.ts が CLI 引数で行う。
+#
+# 署名: Developer ID 署名 / notarize なし。identity が無いため electron-builder の署名
+# ステップはスキップされる（ad-hoc の自動付与はされない）。未署名で成立する背景
+# （linker-signed ad-hoc の残存、quarantine と Gatekeeper の関係）は docs/release.md 参照。
+# mac.identity "-"（明示 ad-hoc）を使わないのは、bundle seal が生成されると buildApp.ts の
+# channel marker 後書きで必ず壊れる上、hardenedRuntime 下では disable-library-validation
+# entitlement まで要求されるため
 #
 # 前提: workspace の nodeLinker: hoisted（Electron 公式処方）。依存が npm 式の実体
 # ファイルで配置されるため、electron-builder の標準の依存収集（node-pty /

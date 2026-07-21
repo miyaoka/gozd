@@ -5,12 +5,20 @@
 # .app 内配置:
 #   Gozd.app/Contents/Resources/app/bin/gozd        ← このスクリプト
 #   Gozd.app/Contents/Resources/app/bin/gozd-cli    ← TS CLI の shim
+#   Gozd.app/Contents/Resources/app/channel         ← channel marker（buildApp.ts が焼き込む）
 #   Gozd.app/Contents/MacOS/Gozd                    ← Electron メインバイナリ
 #
 # 動作:
 #   - hook サブコマンド or -- で始まる引数: アプリ起動チェックなしで CLI を直接呼ぶ
 #   - open（デフォルト）: ソケット稼働中なら warm start、なければ cold start で
 #     CLI に launch request を書かせてから .app を `open` で起動する
+#
+# channel marker:
+#   socket 名（gozd-<channel>.sock）と cold start の分岐に使う。stable（mise 配布）だけ
+#   cold start 時に ~/Applications/Gozd.app へ自己同期してから固定パス側を open する。
+#   marker が無い場合（リポジトリ checkout 内の wrapper）は従来どおり stable socket 宛て・
+#   同期なし（アプリ側は marker 欠落の packaged 起動を拒否するため、channel 認識の
+#   ずれた組は存在しない）
 
 set -euo pipefail
 
@@ -28,8 +36,52 @@ APP_RESOURCES="${SCRIPT_DIR}/.."
 APP_CONTENTS="${APP_RESOURCES}/../.."
 APP_BUNDLE="${APP_CONTENTS}/.."
 
+# 空白・改行を除去して main（gozdEnv の trim）と channel 認識がずれないようにする
+# （tr は内部空白まで消すため trim より広いが、marker 値は buildApp.ts が書く
+# stable / local のみで空白を含まず、到達可能な入力では等価）
+CHANNEL=""
+[[ -f "${APP_RESOURCES}/channel" ]] && CHANNEL="$(tr -d '[:space:]' < "${APP_RESOURCES}/channel")"
+
 TMPDIR_NORMALIZED="${TMPDIR:-/tmp}"
-SOCKET_PATH="${GOZD_SOCKET_PATH:-${TMPDIR_NORMALIZED%/}/gozd-stable.sock}"
+SOCKET_PATH="${GOZD_SOCKET_PATH:-${TMPDIR_NORMALIZED%/}/gozd-${CHANNEL:-stable}.sock}"
+
+# Dock ピン / Spotlight が指す固定パス。mise 側の実体はバージョンごとにパスが変わるため、
+# 固定パスへの実体 copy を起動対象にする（symlink は Spotlight に index されない）
+INSTALL_APP="${HOME}/Applications/Gozd.app"
+
+# mise 側 .app と固定パスの CFBundleVersion を比較し、差異があれば APFS clone（cp -c）で
+# 複製してから mv で atomic に差し替える。稼働中バンドルの検査はしない（cold start 経路
+# 限定なのでアプリは未起動。起動中に mise up しても次回 cold start まで反映されない契約）
+sync_installed_app() {
+  local src src_ver dest_ver tmp old
+  src="$(cd "${APP_BUNDLE}" && pwd -P)"
+  # wrapper 自身が固定パス側の実体なら同期不要（自分自身の差し替えを防ぐ）
+  if [[ "${src}" == "$(cd "${INSTALL_APP}" 2>/dev/null && pwd -P)" ]]; then
+    return 0
+  fi
+  src_ver="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${src}/Contents/Info.plist")"
+  # PlistBuddy はファイル不在時に "File Doesn't Exist" を stdout に出すため、存在ガードで
+  # dest_ver を決定的にする（不在 = 空 = 不一致で同期に進む）
+  dest_ver=""
+  if [[ -f "${INSTALL_APP}/Contents/Info.plist" ]]; then
+    dest_ver="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${INSTALL_APP}/Contents/Info.plist")"
+  fi
+  if [[ "${src_ver}" == "${dest_ver}" ]]; then
+    return 0
+  fi
+  mkdir -p "${HOME}/Applications"
+  # 過去の失敗実行が残した作業ディレクトリ（PID 付き名）を回収する。trap は SIGKILL で
+  # 走らず、PID 付き名は再実行と一致しないため、実行のたびに前回分を glob で掃除する。
+  # cold start の並走時に他プロセスの .new.<pid> を消しうるが、消された側は set -e で
+  # loud に落ち、成功側の atomic swap で固定パスは常に妥当な状態を保つため許容する
+  rm -rf "${INSTALL_APP}".new.* "${INSTALL_APP}".old.*
+  tmp="${INSTALL_APP}.new.$$"
+  old="${INSTALL_APP}.old.$$"
+  cp -Rc "${src}" "${tmp}"
+  [[ -e "${INSTALL_APP}" ]] && mv "${INSTALL_APP}" "${old}"
+  mv "${tmp}" "${INSTALL_APP}"
+  rm -rf "${old}"
+}
 
 is_app_running() {
   [[ -S "${SOCKET_PATH}" ]] || return 1
@@ -51,7 +103,12 @@ should_launch_app() {
 if should_launch_app "$@"; then
   # cold start: CLI に launch request ファイルを書かせてからアプリを起動
   GOZD_COLD_START=1 GOZD_SOCKET_PATH="${SOCKET_PATH}" "${CLI}" "$@" || exit $?
-  open "${APP_BUNDLE}"
+  if [[ "${CHANNEL}" == "stable" ]]; then
+    sync_installed_app
+    open "${INSTALL_APP}"
+  else
+    open "${APP_BUNDLE}"
+  fi
   exit $?
 fi
 

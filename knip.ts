@@ -21,6 +21,9 @@ const config: KnipConfig = {
       ],
       // iconutil: macOS 標準コマンド（build:app script で iconset → icns 変換）
       ignoreBinaries: ["iconutil"],
+      // electron-builder: buildApp.ts が spawnSync("pnpm", ["exec", "electron-builder", ...]) で
+      // 呼ぶため、package.json scripts を読む knip からは unused に見える
+      ignoreDependencies: ["electron-builder"],
     },
     "apps/renderer": {
       ignoreDependencies: [

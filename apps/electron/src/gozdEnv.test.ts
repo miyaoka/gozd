@@ -11,6 +11,7 @@ import {
   claudeSettingsPath,
   cliPath,
   launchRequestDir,
+  resolvePackagedChannel,
   socketPath,
   zdotdir,
 } from "./gozdEnv";
@@ -29,6 +30,21 @@ describe("channel リソース分離", () => {
       .replace(/\.sock$/, "");
     expect(basename(claudeSettingsPath)).toBe(`gozd-${channel}-claude-settings.json`);
     expect(basename(launchRequestDir)).toBe(`gozd-${channel}-launch`);
+  });
+});
+
+describe("resolvePackagedChannel", () => {
+  test("marker の stable / local はそのまま channel になる", () => {
+    expect(resolvePackagedChannel("stable")).toBe("stable");
+    expect(resolvePackagedChannel("local")).toBe("local");
+  });
+
+  test("marker 欠落・未知値は throw で起動を止める", () => {
+    // 静かに local へ倒すと同バンドル内の wrapper（stable 既定）と channel 認識がずれ、
+    // warm start が永続的に壊れるため、フェイルセーフではなくエラーにする契約
+    expect(() => resolvePackagedChannel(undefined)).toThrow();
+    expect(() => resolvePackagedChannel("canary")).toThrow();
+    expect(() => resolvePackagedChannel("")).toThrow();
   });
 });
 

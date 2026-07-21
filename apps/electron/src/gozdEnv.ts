@@ -2,18 +2,21 @@
 // Swift 版 `AppRuntime.defaultSocketPath / claudeSettingsPath / makeEnvOverlay` +
 // `Shell/GozdEnvOverlay.swift` の対応物。
 //
-// channel: packaged `.app` は "stable"、未パッケージ（`electron .`）は "dev-<worktree hash>"。
-// socket / launch dir / claude settings を channel で分離し、dev / stable の同時起動に加えて
-// 複数 worktree の並列 `pnpm dev` でも衝突しない。永続データ（~/.config/gozd/ 等）は
-// channel 非依存の共有（複数インスタンスの save は last-write-wins を許容する）。
+// channel: packaged `.app` は build 時に焼き込まれた marker（Resources/app/channel）で
+// "stable"（release CI ビルド）/ "local"（無指定の build:app）に分かれ、未パッケージ
+// （`electron .`）は "dev-<worktree hash>"。socket / launch dir / claude settings を channel で
+// 分離し、mise 配布の Gozd と local ビルド / 複数 worktree の並列 `pnpm dev` が衝突しない。
+// 永続データ（~/.config/gozd/ 等）は channel 非依存の共有（複数インスタンスの save は
+// last-write-wins を許容する）。
 //
 // gozd-cli は TS 再実装（src/cli.ts → dist/cli.cjs。issue #895）。bin/gozd-cli shim が
 // dev は node、packaged は ELECTRON_RUN_AS_NODE=1 + 同梱 Electron バイナリで実行する。
 // zsh init チェーンは resources/zsh/。packaged はどちらも `.app` 内 Resources/app/
 // 配下に同梱される。
 
+import { tryCatch } from "@gozd/shared";
 import { createHash } from "node:crypto";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -26,16 +29,36 @@ export const isPackaged = resourcesPath !== undefined && __dirname.startsWith(re
 
 const electronRoot = resolve(__dirname, "..");
 
+// packaged 時の同梱リソース root（Contents/Resources/app）。非 packaged では使わない
+const bundledAppRoot = join(resourcesPath ?? "", "app");
+
+/** marker 値から packaged channel を解決する。buildApp.ts が Resources/app/channel に
+ * 焼き込んだ値が SSOT で、"stable" は GOZD_BUILD_CHANNEL=stable の release CI ビルドだけが
+ * 持つ（bin/gozd wrapper も同じ marker を読んで socket / 同期処理を分岐する）。
+ * 欠落・未知値は marker 導入前の古いビルドか壊れたバンドルなので throw で起動を止める
+ * （packaged main の module ロード時 throw は Electron のエラーダイアログで可視化される。
+ * 静かに local へ倒すと、同バンドル内の wrapper と channel 認識がずれ warm start が
+ * 永続的に壊れる） */
+export function resolvePackagedChannel(marker: string | undefined): "stable" | "local" {
+  if (marker === "stable" || marker === "local") return marker;
+  throw new Error(
+    `[gozdEnv] channel marker missing or invalid (${marker}). Rebuild the app with build:app`,
+  );
+}
+
+function readChannelMarker(): string | undefined {
+  const read = tryCatch(() => readFileSync(join(bundledAppRoot, "channel"), "utf8"));
+  return read.ok ? read.value.trim() : undefined;
+}
+
 // dev channel は worktree 単位で分離する（`dev-<electronRoot realpath の SHA-256 先頭12文字>`。
 // projectKey と同じ hash 慣習）。socket / launch dir / claude settings は channel から導出される
 // ため、複数 worktree の並列 `pnpm dev` で先発インスタンスの socket を奪わない
 // （socketServer は listen 前に既存 socket を unlink する）。CLI 側は socket ファイル名から
 // channel を逆導出する（cliOps.ts）ため、この拡張に変更なしで追従する
 export const channel = isPackaged
-  ? "stable"
+  ? resolvePackagedChannel(readChannelMarker())
   : `dev-${createHash("sha256").update(realpathSync(electronRoot)).digest("hex").slice(0, 12)}`;
-// packaged 時の同梱リソース root（Contents/Resources/app）。非 packaged では使わない
-const bundledAppRoot = join(resourcesPath ?? "", "app");
 
 export const socketPath = join(tmpdir(), `gozd-${channel}.sock`);
 export const claudeSettingsPath = join(tmpdir(), `gozd-${channel}-claude-settings.json`);

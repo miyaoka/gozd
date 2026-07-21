@@ -10,6 +10,8 @@
 #
 # 動作:
 #   - hook サブコマンド or -- で始まる引数: アプリ起動チェックなしで CLI を直接呼ぶ
+#   - sync-app サブコマンド: ~/Applications/Gozd.app へ自己同期して終了する（stable のみ）。
+#     mise の postinstall から呼ばれる更新伝播の主経路
 #   - open（デフォルト）: ソケット稼働中なら warm start、なければ cold start で
 #     CLI に launch request を書かせてから .app を `open` で起動する
 #
@@ -50,8 +52,8 @@ SOCKET_PATH="${GOZD_SOCKET_PATH:-${TMPDIR_NORMALIZED%/}/gozd-${CHANNEL:-stable}.
 INSTALL_APP="${HOME}/Applications/Gozd.app"
 
 # mise 側 .app と固定パスの CFBundleVersion を比較し、差異があれば APFS clone（cp -c）で
-# 複製してから mv で atomic に差し替える。稼働中バンドルの検査はしない（cold start 経路
-# 限定なのでアプリは未起動。起動中に mise up しても次回 cold start まで反映されない契約）
+# 複製してから mv で atomic に差し替える。アプリ稼働中の swap も安全（旧プロセスは開いた
+# inode を掴んだまま動き続け、次回起動から新版になる。Homebrew cask の upgrade と同じ扱い）
 sync_installed_app() {
   local src src_ver dest_ver tmp old
   src="$(cd "${APP_BUNDLE}" && pwd -P)"
@@ -99,6 +101,18 @@ should_launch_app() {
   [[ "${1:-}" == "hook" || "${1:-}" == -* ]] && return 1
   return 0
 }
+
+# mise の postinstall（'"$MISE_TOOL_INSTALL_PATH/bin/gozd" sync-app'）から呼ばれる同期
+# エントリポイント。インストール直後に走るため、Dock / Spotlight しか使わないユーザーにも
+# 更新が伝播する。cold start 同期は postinstall 未設定環境向けのバックアップ（docs/release.md）
+if [[ "${1:-}" == "sync-app" ]]; then
+  if [[ "${CHANNEL}" != "stable" ]]; then
+    echo "gozd: sync-app is only for the stable channel (channel: ${CHANNEL:-unset})" >&2
+    exit 1
+  fi
+  sync_installed_app
+  exit 0
+fi
 
 if should_launch_app "$@"; then
   # cold start: CLI に launch request ファイルを書かせてからアプリを起動

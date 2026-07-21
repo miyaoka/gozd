@@ -36,8 +36,9 @@ APP_RESOURCES="${SCRIPT_DIR}/.."
 APP_CONTENTS="${APP_RESOURCES}/../.."
 APP_BUNDLE="${APP_CONTENTS}/.."
 
-# 空白・改行を除去して main（gozdEnv の trim）と読み取りを対称にする。非対称だと
-# 空白混入時に main と wrapper で channel 認識がずれる
+# 空白・改行を除去して main（gozdEnv の trim）と channel 認識がずれないようにする
+# （tr は内部空白まで消すため trim より広いが、marker 値は buildApp.ts が書く
+# stable / local のみで空白を含まず、到達可能な入力では等価）
 CHANNEL=""
 [[ -f "${APP_RESOURCES}/channel" ]] && CHANNEL="$(tr -d '[:space:]' < "${APP_RESOURCES}/channel")"
 
@@ -70,7 +71,9 @@ sync_installed_app() {
   fi
   mkdir -p "${HOME}/Applications"
   # 過去の失敗実行が残した作業ディレクトリ（PID 付き名）を回収する。trap は SIGKILL で
-  # 走らず、PID 付き名は再実行と一致しないため、実行のたびに前回分を glob で掃除する
+  # 走らず、PID 付き名は再実行と一致しないため、実行のたびに前回分を glob で掃除する。
+  # cold start の並走時に他プロセスの .new.<pid> を消しうるが、消された側は set -e で
+  # loud に落ち、成功側の atomic swap で固定パスは常に妥当な状態を保つため許容する
   rm -rf "${INSTALL_APP}".new.* "${INSTALL_APP}".old.*
   tmp="${INSTALL_APP}.new.$$"
   old="${INSTALL_APP}.old.$$"

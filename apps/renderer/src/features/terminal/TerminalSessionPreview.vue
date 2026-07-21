@@ -113,10 +113,30 @@ proxy が守るのは v-for の作り替えまでで、overlay root 自体が v-
 flip 規則 (`positionTryFallbacks`) は両 origin で共通のため、開いた後の縁ぶつかり時の
 逆転挙動は維持される。
 
+popover はカスタムタイトルバー帯 (`-webkit-app-region: drag`) へ食い込ませない。
+Electron の drag region はペイント順 (top layer) と無関係に平面で効くため、重なった帯は
+window ドラッグ判定に取られて popover ヘッダの undock ドラッグが効かなくなり、視覚的にも
+タイトルバーを覆う (FloatingWindow が top を titlebar 高で clamp しているのと同じ問題)。
+制約は inset keep-out + max-height クランプの 2 点セットで入れる。position-area は選んだ
+region を containing block にするが**サイズの自動クランプはしない** (仕様上、要素は
+containing block を overflow できる) ため、keep-out inset (`top: var(--titlebar-height)`)
+だけでは高さが region を超えた瞬間に突き抜ける。% が region 高さ基準で解決されることを
+利用し `max-height: calc(100% - var(--titlebar-height))` で「region − keep-out」に高さを
+クランプする (外側 popover を flex-col、中間 box を min-h-0 にしてクランプを scroll 面まで
+伝播させる)。下向き基準の main は bottom に同値を置き、flip-block が block 軸 inset ごと
+flip する仕様で flip 後の top keep-out にする。クランプ導入後は高さ不足で flip しなくなる
+(縮んでスクロールする) が、min-content すら入らない極端ケースの flip は残る。その base
+配置 overflow 経路が仕様上残るため、TitleBar のボタン群と同じ `-webkit-app-region:
+no-drag` の切り抜きも敷く (Electron 公式の drag 帯プラクティス)。
+
 DOM 構造は三段:
 
-- 外側 popover element (`bg-transparent border-none overflow-visible px-0 py-3` のみ)
-  位置決めと縦 padding だけを担う透明枠。UA default の `[popover] { overflow: auto }` は
+- 外側 popover element (`bg-transparent border-none overflow-visible p-0` + `flex flex-col`)
+  位置決めと max-height クランプの伝播を担う透明枠。flex-col は中間 box (min-h-0) を
+  クランプ内へ縮めてスクロール面に高さ制約を届けるための指定。padding は持たない
+  (透明 padding があると keep-out clamp 時にタイトルバーとの間へスキマが出る。`p-0` は
+  UA default の `[popover]` padding の打ち消し)。
+  UA default の `[popover] { overflow: auto }` は
   `overflow-visible` で明示的に打ち消す (打ち消さないと内側 box の `shadow-xl` が外側
   border-box で clip され shadow がほぼ見えなくなる)
 - 中間 box (`max-h-[60vh] flex-col overflow-hidden rounded-md border border-border-strong
@@ -449,6 +469,33 @@ function onPreviewHeaderPointerUp(event: PointerEvent) {
   headerDrag = undefined;
 }
 
+// 全文 popover の配置スタイル。タイトルバー keep-out / max-height クランプ / flip の
+// 設計根拠は <doc> の「全文 preview」が SSOT。ここは編集時の防波堤のみ:
+//   - main 側の `bottom: var(--titlebar-height)` は base 配置 (下開き・start 整列) では
+//     不活性に見えるが、flip-block が block 軸 inset を反転して top keep-out になるため消さない
+//   - `-webkit-app-region: no-drag` は keep-out で通常タイトルバーと重ならなくても消さない
+//     (min-content が max-height を超える退化幾何で base 配置が overflow する経路の防御)
+const previewPopoverStyle = computed(() => {
+  const base = {
+    position: "fixed",
+    maxHeight: "calc(100% - var(--titlebar-height))",
+    positionTryFallbacks: "flip-block, flip-inline, flip-block flip-inline",
+    "-webkit-app-region": "no-drag",
+  } as const;
+  if (previewContext.value?.origin === "sub") {
+    return {
+      ...base,
+      positionArea: "block-start span-inline-start",
+      top: "var(--titlebar-height)",
+    };
+  }
+  return {
+    ...base,
+    positionArea: "block-end span-inline-start",
+    bottom: "var(--titlebar-height)",
+  };
+});
+
 // 各 overlay の折り畳み状態。`<details>` の `open` 属性を SSOT にすると v-if /
 // subagent 切替で <details> が unmount → mount される度に静的 `open` で展開状態に
 // 戻ってしまうため、Vue 側 ref を SSOT にして `<details :open>` でバインドし、
@@ -624,15 +671,8 @@ watch([hasMain, hasSub], ([main, sub]) => {
        (popover 外 click / ESC) で閉じる。
        本文描画は SessionLogMessageBody に委譲 (assistant のみ markdown 解釈)。 -->
   <PreviewPopover
-    class="m-0 w-3xl max-w-[80vw] overflow-visible border-none bg-transparent px-0 py-3 text-base"
-    :style="{
-      position: 'fixed',
-      positionArea:
-        previewContext?.origin === 'sub'
-          ? 'block-start span-inline-start'
-          : 'block-end span-inline-start',
-      positionTryFallbacks: 'flip-block, flip-inline, flip-block flip-inline',
-    }"
+    class="m-0 flex w-3xl max-w-[80vw] flex-col overflow-visible border-none bg-transparent p-0 text-base"
+    :style="previewPopoverStyle"
   >
     <template v-if="previewContext">
       <!-- 全文 popover はメッセージを読む / コピーする面なので select-text で選択可にする
@@ -642,7 +682,7 @@ watch([hasMain, hasSub], ([main, sub]) => {
            painting clip は overflow-hidden が担う。 -->
       <div
         ref="previewBox"
-        class="flex max-h-[60vh] flex-col overflow-hidden rounded-md border border-border-strong shadow-xl select-text"
+        class="flex max-h-[60vh] min-h-0 flex-col overflow-hidden rounded-md border border-border-strong shadow-xl select-text"
         :class="previewContext.msg.kind === 'assistant' ? 'bg-chat-incoming' : 'bg-chat-outgoing'"
       >
         <!-- ヘッダはドラッグで undock + そのまま移動できる (しきい値超過で発火)。

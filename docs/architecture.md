@@ -123,10 +123,13 @@ Gozd.app/Contents/
   （読み取り失敗でも対象ファイルは削除する。壊れた request の残留は起動のたびに失敗し続けるため）
 - **warm start**（アプリ起動済み）: CLI がソケット経由で `OpenMessage` を送信 → renderer に push
 - **hook コマンド**: アプリ起動チェックをスキップし、CLI を直接実行
+- **sync-app コマンド**: `~/Applications/Gozd.app` へ自己同期して終了（stable channel のみ）。
+  mise の postinstall から呼ばれる更新伝播の主経路
 
-stable channel の wrapper は cold start 時に `~/Applications/Gozd.app` へ自己同期
-（`CFBundleVersion` 比較 + APFS clone の atomic 差し替え）してから固定パス側を `open` する。
-Dock ピン / Spotlight が固定パスを指し続けるための機構（[release.md](release.md)）。
+Dock ピン / Spotlight が指す固定パス `~/Applications/Gozd.app` への同期
+（`CFBundleVersion` 比較 + APFS clone の atomic 差し替え）は、mise の postinstall が実行する
+`sync-app` が主経路で、stable channel の cold start 時の自己同期はバックアップ
+（[release.md](release.md)）。
 
 ### gozd-cli（TS 実装）
 

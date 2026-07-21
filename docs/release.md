@@ -61,27 +61,40 @@ gozd-macos-arm64.tar.gz
 [tools."github:miyaoka/gozd"]
 version = "latest"
 prerelease = true
+postinstall = '"$MISE_TOOL_INSTALL_PATH/bin/gozd" sync-app'
 
 # stable のみ
 [tools."github:miyaoka/gozd"]
 version = "latest"
+postinstall = '"$MISE_TOOL_INSTALL_PATH/bin/gozd" sync-app'
 ```
+
+- `postinstall` は README の `mise use` ワンライナー（bracket 構文）で設定される。
+  tool-level postinstall は「そのツールの新バージョンがインストールされた直後」に走り、
+  `MISE_TOOL_INSTALL_PATH` がインストール先を指す（mise の契約）
 
 1 ユーザーが追うのはどちらか片方の前提で、同時併用はしない（アプリ identity はどちらも
 同じ stable channel の「Gozd」）。
 
-## 更新の反映（wrapper 同期）
+## 更新の反映（~/Applications への同期）
 
 `mise up` は mise 側の実体を差し替えるだけで、Dock ピン / Spotlight が指す固定パスは動かない。
-wrapper `bin/gozd` が cold start 経路で同期する。
+固定パスへの同期はどちらの経路も wrapper `bin/gozd` の `sync_installed_app`
+（`CFBundleVersion` 比較 + APFS clone `cp -Rc` + mv の atomic 差し替え）を通る冪等な操作で、
+stable channel だけが行う。
 
-- mise 側 `.app` と `~/Applications/Gozd.app` の `CFBundleVersion` を比較し、差異があれば
-  APFS clone（`cp -Rc`）+ mv で atomic に差し替えてから固定パス側を `open` する
-- 同期は stable channel の wrapper だけが行う。warm start（アプリ稼働中）は差し替えない
+- **主経路: mise の postinstall**。`mise up` で新バージョンが入った直後に
+  `"$MISE_TOOL_INSTALL_PATH/bin/gozd" sync-app` が走り、起動動線（Dock / Spotlight /
+  ターミナル）に依存せず更新が伝播する。更新の反映を起動時ではなく更新時に行う
+  Homebrew cask と同じモデル
+- **バックアップ: cold start 同期**。wrapper がターミナル起動の cold start 時に同期する。
+  postinstall 未設定の環境でもターミナル動線なら追従する
+- アプリ稼働中の同期も安全。旧プロセスは開いた inode を掴んだまま動き続け、次回起動から
+  新版になる（cask の upgrade と同じセマンティクス）
+- `sync-app` を stable 以外の channel で呼ぶとエラーで止める（`Gozd Local.app` が
+  `~/Applications/Gozd.app` を乗っ取る事故の防止）
 - Spotlight は `~/Applications` 配下の実体 copy を index する（symlink は index されない。
   Homebrew cask が symlink 方式を廃止した既知の理由）
-- Dock / Spotlight からのみ起動し続けると wrapper を経由せず更新が伝播しない。ターミナルの
-  `gozd` が日常動線である前提で許容する
 
 ## channel identity
 

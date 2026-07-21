@@ -44,14 +44,14 @@ gozd はスロベニア語で「森」（[ɡɔ́st]、「ゴスト」）。
 
 ## インストール
 
-[mise](https://mise.jdx.dev/) でインストールする。
+[mise](https://mise.jdx.dev/) でインストールする。`postinstall` がインストール直後に `~/Applications/Gozd.app` へアプリを配置する。
 
 ### canary（開発版）を追う
 
 main への機能 merge ごとに自動リリースされる。
 
 ```bash
-mise use -g 'github:miyaoka/gozd[prerelease=true]'
+mise use -g 'github:miyaoka/gozd[prerelease=true,postinstall="\"$MISE_TOOL_INSTALL_PATH/bin/gozd\" sync-app"]'
 ```
 
 ### stable のみを追う
@@ -59,17 +59,17 @@ mise use -g 'github:miyaoka/gozd[prerelease=true]'
 手動リリースされる安定版だけを取得する。
 
 ```bash
-mise use -g github:miyaoka/gozd
+mise use -g 'github:miyaoka/gozd[postinstall="\"$MISE_TOOL_INSTALL_PATH/bin/gozd\" sync-app"]'
 ```
 
 ### 起動
 
 ```bash
-gozd   # 初回起動で ~/Applications/Gozd.app に配置される
+gozd
 ```
 
-- `gozd` コマンドの起動時に `~/Applications/Gozd.app` へアプリが配置・更新される。Dock ピン留めと Spotlight 起動はこの固定パスで安定する
-- 更新は `mise up` → 次回 `gozd` 起動時に反映（詳細は [docs/release.md](docs/release.md)）
+- Dock ピン留めと Spotlight 起動は `~/Applications/Gozd.app` の固定パスで安定する
+- 更新は `mise up` の実行時に postinstall が固定パスを差し替えて反映する。アプリ稼働中に更新した場合は次回起動から新版になる（詳細は [docs/release.md](docs/release.md)）
 
 `gozd` CLI で任意のパスを開く。アプリが未起動であれば自動で起動する。
 

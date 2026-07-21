@@ -118,8 +118,6 @@ import type {
   SaveAppStateRequest,
   SaveAppStateResponse,
   ServerListResponse,
-  ShellCommandInstallResponse,
-  ShellCommandUninstallResponse,
   TaskAddRequest,
   TaskAddResponse,
   TaskListRequest,
@@ -194,7 +192,6 @@ import { createPortScanner, listProcParents, type PtyOwner } from "./portScanner
 import { clearAssociations, consumeExpectedResumeSid, registerSpawn, sessionIdFor, unregisterExit, worktreePathFor } from "./ptySessions";
 import type { PushFn, RpcContext, RpcHandler } from "./rpcDispatcher";
 import { listListenProcesses } from "./serverList";
-import { installShellCommand, uninstallShellCommand } from "./shellCommandOps";
 import {
   ensureAppConfigFile,
   loadAppConfig,
@@ -1089,14 +1086,6 @@ function handleClipboardCopyFiles(body: unknown): unknown {
   return ({}) satisfies ClipboardCopyFilesResponse;
 }
 
-function handleShellCommandInstall(): unknown {
-  return (installShellCommand()) satisfies ShellCommandInstallResponse;
-}
-
-function handleShellCommandUninstall(): unknown {
-  return (uninstallShellCommand()) satisfies ShellCommandUninstallResponse;
-}
-
 async function handleVoicevoxLaunch(): Promise<unknown> {
   return ({ ok: await voicevoxLaunch() }) satisfies VoicevoxLaunchResponse;
 }
@@ -1197,8 +1186,6 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/claudeSession/reviveList", handleReviveSessionList],
   ["/claudeSession/revive", handleReviveSession],
   ["/clipboard/copyFiles", handleClipboardCopyFiles],
-  ["/shellCommand/install", handleShellCommandInstall],
-  ["/shellCommand/uninstall", handleShellCommandUninstall],
   ["/voicevox/launch", handleVoicevoxLaunch],
   ["/voicevox/checkEngine", handleVoicevoxCheckEngine],
   ["/voicevox/listSpeakers", handleVoicevoxListSpeakers],

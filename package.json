@@ -7,10 +7,10 @@
   "type": "module",
   "scripts": {
     "dev": "bun scripts/dev.ts",
-    "dev:prod": "rm -rf \"$TMPDIR/gozd-stable-launch\" \"$TMPDIR/gozd-stable.sock\" && env -u GOZD_SOCKET_PATH apps/electron/out/mac-arm64/Gozd.app/Contents/Resources/app/bin/gozd",
+    "dev:prod": "rm -rf \"$TMPDIR/gozd-local-launch\" \"$TMPDIR/gozd-local.sock\" && env -u GOZD_SOCKET_PATH \"apps/electron/out/mac-arm64/Gozd Local.app/Contents/Resources/app/bin/gozd\"",
     "build": "pnpm -r build",
     "build:app": "pnpm --filter @gozd/electron build:app",
-    "open:app": "open apps/electron/out/mac-arm64/Gozd.app",
+    "open:app": "open \"apps/electron/out/mac-arm64/Gozd Local.app\"",
     "format": "oxfmt .",
     "lint": "oxlint --type-aware",
     "fix": "oxfmt '!apps/**' '!packages/**'",

@@ -44,23 +44,32 @@ gozd はスロベニア語で「森」（[ɡɔ́st]、「ゴスト」）。
 
 ## インストール
 
-ソースからビルドして配置する。事前に以下を導入しておく。
+[mise](https://mise.jdx.dev/) でインストールする。
 
-- Xcode 26 以降（Swift 6.2 / macOS 26 SDK が含まれる）
-- [mise](https://mise.jdx.dev/)（残りのツールチェインを `mise install` でまとめて揃える）
+### canary（開発版）を追う
 
-初回はツールチェイン / 依存をインストールし、ビルドしてアプリを起動する。
+main への機能 merge ごとに自動リリースされる。
 
 ```bash
-mise install
-pnpm install
-pnpm run build:app   # .app をパッケージング
-pnpm run open:app    # 生成した .app を起動
+mise use -g 'github:miyaoka/gozd[prerelease=true]'
 ```
 
-起動したアプリで `Shift+Cmd+P` でコマンドパレットを開き、`Shell Command: Install 'gozd' command in PATH` を実行すると `~/.local/bin/gozd` に CLI への symlink が作られる（`~/.local/bin` が PATH に通っている前提）。アンインストールは `Shell Command: Uninstall 'gozd' command from PATH`。
+### stable のみを追う
 
-以降の再ビルドも `pnpm run build:app`。electron-builder が成果物を `.app` 内へコピーするため、`.app` を更新するにはこの再パッケージが要る（root の `pnpm run build` は各パッケージの成果物を作るだけで `.app` は更新しない）。symlink は `.app` 内 wrapper を指すため、ビルドし直しても張り替え不要（`.app` を別の場所に移したときのみ install をやり直す）。
+手動リリースされる安定版だけを取得する。
+
+```bash
+mise use -g github:miyaoka/gozd
+```
+
+### 起動
+
+```bash
+gozd   # 初回起動で ~/Applications/Gozd.app に配置される
+```
+
+- `gozd` コマンドの起動時に `~/Applications/Gozd.app` へアプリが配置・更新される。Dock ピン留めと Spotlight 起動はこの固定パスで安定する
+- 更新は `mise up` → 次回 `gozd` 起動時に反映（詳細は [docs/release.md](docs/release.md)）
 
 `gozd` CLI で任意のパスを開く。アプリが未起動であれば自動で起動する。
 
@@ -81,8 +90,22 @@ gozd src/main.ts  # src/ で開き、main.ts を開く
 
 ## 開発
 
-インストール手順でツールチェイン / 依存を導入済みの前提。開発ビルドを起動する。
+[mise](https://mise.jdx.dev/) でツールチェインを揃え、依存を入れて開発ビルドを起動する。
 
 ```bash
+mise install
+pnpm install
 pnpm run dev
 ```
+
+パッケージした `.app` で検証する場合はソースからビルドする。生成されるのは local channel の
+`Gozd Local.app` で、mise 配布の Gozd とは socket / bundle id が分かれており隣で同時起動できる
+（[docs/release.md](docs/release.md)）。
+
+```bash
+pnpm run build:app   # out/mac-arm64/Gozd Local.app をパッケージング
+pnpm run open:app    # 生成した .app を起動
+```
+
+electron-builder が成果物を `.app` 内へコピーするため、`.app` を更新するにはこの再パッケージが要る
+（root の `pnpm run build` は各パッケージの成果物を作るだけで `.app` は更新しない）。

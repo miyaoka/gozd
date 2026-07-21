@@ -173,12 +173,6 @@ export type {
   ServerListResponse,
 } from "./server";
 export type {
-  ShellCommandInstallRequest,
-  ShellCommandInstallResponse,
-  ShellCommandUninstallRequest,
-  ShellCommandUninstallResponse,
-} from "./shellCommand";
-export type {
   TaskAddRequest,
   TaskAddResponse,
   TaskList,

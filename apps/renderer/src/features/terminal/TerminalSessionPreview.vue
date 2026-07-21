@@ -131,9 +131,11 @@ no-drag` の切り抜きも敷く (Electron 公式の drag 帯プラクティス
 
 DOM 構造は三段:
 
-- 外側 popover element (`bg-transparent border-none overflow-visible p-0` のみ)
-  位置決めだけを担う透明枠。padding は持たない (透明 padding があると keep-out clamp 時に
-  タイトルバーとの間へスキマが出る。`p-0` は UA default の `[popover]` padding の打ち消し)。
+- 外側 popover element (`bg-transparent border-none overflow-visible p-0` + `flex flex-col`)
+  位置決めと max-height クランプの伝播を担う透明枠。flex-col は中間 box (min-h-0) を
+  クランプ内へ縮めてスクロール面に高さ制約を届けるための指定。padding は持たない
+  (透明 padding があると keep-out clamp 時にタイトルバーとの間へスキマが出る。`p-0` は
+  UA default の `[popover]` padding の打ち消し)。
   UA default の `[popover] { overflow: auto }` は
   `overflow-visible` で明示的に打ち消す (打ち消さないと内側 box の `shadow-xl` が外側
   border-box で clip され shadow がほぼ見えなくなる)
@@ -467,23 +469,12 @@ function onPreviewHeaderPointerUp(event: PointerEvent) {
   headerDrag = undefined;
 }
 
-// 全文 popover の配置スタイル。開く向きのデフォルトは origin で反転させる (<doc> の
-// 「全文 preview」参照)。タイトルバー帯への食い込み防止は inset keep-out + max-height
-// クランプの 2 点セット (詳細は <doc> の「全文 preview」参照):
-//   - 上に開く placement に `top: var(--titlebar-height)` の keep-out。position-area の
-//     region が containing block になるため、inset は region 縁からの通常の abspos offset
-//     として効き、anchor 側 alignment は保たれる
-//   - `max-height: calc(100% - var(--titlebar-height))`。position-area はサイズを自動
-//     クランプしない (仕様: 要素は containing block を overflow できる) ため、inset だけ
-//     では高さが region を超えた瞬間に keep-out ごと突き抜ける。% は region 高さ基準で
-//     解決されるので、この calc が「region から keep-out を引いた高さ」に一致する
-//   - flip-block fallback は block 軸の inset も一緒に flip するため、下向き基準の main は
-//     bottom に同値を置いておくと flip して上向きになったとき top keep-out として効く
-// `-webkit-app-region: no-drag` は Electron の drag region 対策 (タイトルバーの
-// `app-region: drag` はペイント順と無関係に平面で効き、重なった領域の pointer event を
-// window ドラッグに奪う)。keep-out で通常は重ならないが、極端に狭い window で flip が
-// 全滅して base 配置が overflow する経路が仕様上残るため、TitleBar のボタン群と同じ
-// no-drag 切り抜きを敷いておく。
+// 全文 popover の配置スタイル。タイトルバー keep-out / max-height クランプ / flip の
+// 設計根拠は <doc> の「全文 preview」が SSOT。ここは編集時の防波堤のみ:
+//   - main 側の `bottom: var(--titlebar-height)` は base 配置 (下開き・start 整列) では
+//     不活性に見えるが、flip-block が block 軸 inset を反転して top keep-out になるため消さない
+//   - `-webkit-app-region: no-drag` は keep-out で通常タイトルバーと重ならなくても消さない
+//     (min-content が max-height を超える退化幾何で base 配置が overflow する経路の防御)
 const previewPopoverStyle = computed(() => {
   const base = {
     position: "fixed",

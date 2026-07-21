@@ -241,3 +241,26 @@ describe("setGithubIdentity", () => {
     expect(store.repos["/r1"]?.githubIdentity).toEqual({ owner: "miyaoka", repo: "gozd" });
   });
 });
+
+describe("buildAppStateSnapshot", () => {
+  test("選択中の worktree を activeDir として含める", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo({
+      rootDir: "/r1",
+      repoName: "r1",
+      isGitRepo: true,
+      worktrees: [wt("/r1", "main", true), wt("/r1/wt-1", "feat")],
+    });
+    store.selectDir("/r1/wt-1");
+    expect(store.buildAppStateSnapshot().activeDir).toBe("/r1/wt-1");
+  });
+
+  test("未選択なら activeDir は undefined（JSON 化でキー不在になる）", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    const snapshot = store.buildAppStateSnapshot();
+    expect(snapshot.activeDir).toBeUndefined();
+    expect(JSON.parse(JSON.stringify(snapshot))).not.toHaveProperty("activeDir");
+  });
+});

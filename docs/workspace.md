@@ -32,7 +32,7 @@
 
 `~/.local/state/gozd/app-state.json`（XDG state ディレクトリ）に最後の sidebar 状態を保存し、次回起動時に sidebar として hydrate する。dev / stable で同じファイルを共有する。
 
-save の発火条件は `buildAppStateSnapshot()` のシリアライズ結果が前回と変化した時のみ。snapshot に含めるのは `dirOrder` / `collapsedRoots` / 各 repo の `repoName` / `isGitRepo` と、各 worktree の `path` / `branch` / `isMain`（worktree 一覧キャッシュ）。`gitStatuses` / `task` は snapshot に含めないため、git status push / Task title 同期では save が走らない（`selectedDir` も snapshot 非対象）。発火するのは上記フィールドが実際に変化した時のみ。
+save の発火条件は `buildAppStateSnapshot()` のシリアライズ結果が前回と変化した時のみ。snapshot に含めるのは `dirOrder` / `collapsedRoots` / `selectedDir`（`activeDir` として保存）/ 各 repo の `repoName` / `isGitRepo` と、各 worktree の `path` / `branch` / `isMain`（worktree 一覧キャッシュ）。`gitStatuses` / `task` は snapshot に含めないため、git status push / Task title 同期では save が走らない。発火するのは上記フィールドが実際に変化した時のみ。
 
 > [!WARNING]
 > dev / stable を同時起動して両方の sidebar を編集した場合、最後に save したプロセスが他方の sidebar 状態を上書きする。プロセス間ロックは未実装。詳細は [architecture.md](./architecture.md#データ永続化) を参照。
@@ -41,11 +41,12 @@ save の発火条件は `buildAppStateSnapshot()` のシリアライズ結果が
 
 - sidebar に表示中の repo 一覧（`sidebarRepos`: rootDir / repoName / isGitRepo / collapsed）
 - 各 repo の worktree 一覧キャッシュ（`sidebarRepos[].worktrees`: path / branch / isMain）。起動直後の layout shift を消すための楽観描画用。SSOT は git で、`rpcGitWorktreeList` の真値が来たら上書きされる
+- 最後に選択していた worktree（`activeDir`: worktree path、非 git project は rootDir。未選択はキー不在）
 
 起動時の挙動:
 
 - CLI の launch request ファイル（`gozd <dir>` 時）があればその dir を開く
-- それ以外（Dock/Finder / `pnpm dev` 起動時）は launch request なし → renderer が `app-state.json` を hydrate して sidebar を復元する。active dir の自動選択は未実装で、ユーザーが sidebar から手動選択する
+- それ以外（Dock/Finder / `pnpm dev` 起動時）は launch request なし → renderer が `app-state.json` を hydrate して sidebar を復元し、`activeDir` の worktree を自動選択する（`setOpen` 経由なので TerminalPane がターミナルを開く）。既に gozdOpen で選択済み / `activeDir` がどの repo にも属さない場合は復元しない
 - 初回起動時（state なし）は空の sidebar で待機する
 
 ## プロジェクト管理
@@ -64,11 +65,10 @@ save の発火条件は `buildAppStateSnapshot()` のシリアライズ結果が
 
 ### 永続化
 
-`app-state.json` の `sidebarRepos` で同居中の repo 一覧（rootDir / repoName / collapsed 状態）+ 各 repo の worktree 一覧キャッシュを永続化済み。
+`app-state.json` の `sidebarRepos` で同居中の repo 一覧（rootDir / repoName / collapsed 状態）+ 各 repo の worktree 一覧キャッシュ、`activeDir` で最後に選択していた worktree を永続化済み。
 
 未実装:
 
-- 起動時の active worktree 自動復元（最後に選択していた worktree の記憶・復元は未実装）
 - worktree ごとの setup / teardown スクリプト（`pnpm install` 等の初期化自動化）
 
 将来的に永続化対象が大きく増えた場合は SQLite への移行を検討する。

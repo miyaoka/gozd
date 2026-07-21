@@ -427,8 +427,26 @@ export function useSidebarData() {
     const result = await tryCatch(rpcAppStateLoad({}));
     if (result.ok && result.value.state !== undefined) {
       repoStore.hydrateFromAppState(result.value.state);
+      restoreActiveDir(result.value.state.activeDir);
     }
     hydrated = true;
+  }
+
+  /**
+   * 前回終了時の active worktree を復元し、TerminalPane の dir watch 経由でターミナルを
+   * 自動で開く。復元しないケース:
+   * - 既に選択済み（cold start の launch request 由来の gozdOpen が hydrate と並走して
+   *   先に setOpen したケース）。明示 open を復元より優先する。逆順で gozdOpen が後着した
+   *   場合も setOpen の後勝ちで明示 open が勝つため、到達順に依らず優先順位が保たれる
+   * - 保存された dir がどの repo にも属さない（worktree キャッシュごと消えた / 手で
+   *   編集された state）。外部削除で「キャッシュには居るが実体が無い」dir は
+   *   updateRepoData の orphan fallback が rootDir へ倒すため、ここでは検査しない
+   */
+  function restoreActiveDir(activeDir: string | undefined) {
+    if (activeDir === undefined || activeDir === "") return;
+    if (worktreeStore.dir !== undefined) return;
+    if (repoStore.findRepoOwning(activeDir) === undefined) return;
+    worktreeStore.setOpen(activeDir);
   }
 
   // snapshot を JSON シリアライズした文字列を watch source にする。

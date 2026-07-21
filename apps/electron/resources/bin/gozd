@@ -51,7 +51,7 @@ SOCKET_PATH="${GOZD_SOCKET_PATH:-${TMPDIR_NORMALIZED%/}/gozd-${CHANNEL:-stable}.
 # 固定パスへの実体 copy を起動対象にする（symlink は Spotlight に index されない）
 INSTALL_APP="${HOME}/Applications/Gozd.app"
 
-# mise 側 .app と固定パスの CFBundleVersion を比較し、差異があれば APFS clone（cp -c）で
+# mise 側 .app と固定パスの CFBundleVersion を比較し、差異があれば APFS clone（cp -Rc）で
 # 複製してから mv で atomic に差し替える。アプリ稼働中の swap も安全（旧プロセスは開いた
 # inode を掴んだまま動き続け、次回起動から新版になる。Homebrew cask の upgrade と同じ扱い）
 sync_installed_app() {

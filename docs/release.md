@@ -2,7 +2,10 @@
 
 GitHub Releases（miyaoka/gozd）に tag + tar.gz を積み、mise の github backend でインストールする。
 署名・公証はしない（mise 経由のダウンロードには quarantine 属性が付かず Gatekeeper に
-ブロックされない。Apple Silicon で必須の署名は electron-builder の ad-hoc 署名で満たされる）。
+ブロックされない。Apple Silicon で必須の Mach-O 署名は、Electron 配布バイナリに焼かれた
+linker-signed ad-hoc 署名がそのまま残ることで満たされる。identity が無いため
+electron-builder の署名ステップはスキップされ bundle seal は生成されない — seal を
+作らないことは、channel marker の後書きが署名を壊さない前提でもある）。
 改竄検知は署名の代わりに artifact attestation（`actions/attest-build-provenance`）が担う。
 
 ## チャンネル

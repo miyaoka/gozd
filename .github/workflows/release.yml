@@ -1,0 +1,161 @@
+# リリースワークフロー
+# - push (main): canary。直近 tag からの feat / fix（deps scope 除外）があれば
+#   prerelease を自動発行する。バージョンは tag 台帳から自動採番する
+# - workflow_dispatch: stable。事前に人間が apps/electron/package.json の version を
+#   bump して merge しておく前提で、CI は採番せず package.json の version で tag + release
+#   を作る（tag と manifest の一致を保つ。openai/codex の tag-check と同型）
+name: release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# canary の連番は「既存 tag の max + 1」で採番するため、並行実行すると同じ tag を
+# 二重に計算しうる。リリースは常に直列化する。cancel はしない（ビルド途中の cancel は
+# tag だけ残る等の中途半端な状態を作るため）
+concurrency:
+  group: release
+
+jobs:
+  # ==============================================================
+  # リリース判定と tag 採番（ubuntu で完結する軽量ジョブ）
+  # ==============================================================
+  decide:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      proceed: ${{ steps.decide.outputs.proceed }}
+      tag: ${{ steps.decide.outputs.tag }}
+      channel: ${{ steps.decide.outputs.channel }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          show-progress: false
+
+      - name: Decide release tag
+        id: decide
+        run: |
+          set -euo pipefail
+
+          # 最新 stable tag（prerelease を含まない v*）。無ければ v0.0.0 起点
+          latest_stable="$(git tag -l 'v*' | grep -v '[-]' | sort -V | tail -1 || true)"
+          latest_stable="${latest_stable:-v0.0.0}"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            channel=stable
+            version="$(jq -r .version apps/electron/package.json)"
+            tag="v${version}"
+            # 事前 bump の検証: tag 未使用かつ最新 stable より大きいこと
+            if git rev-parse -q --verify "refs/tags/${tag}" > /dev/null; then
+              echo "::error::tag ${tag} already exists. Bump apps/electron/package.json version first"
+              exit 1
+            fi
+            if [[ "$(printf '%s\n' "${latest_stable}" "${tag}" | sort -V | tail -1)" != "${tag}" ]]; then
+              echo "::error::version ${tag} is not newer than latest stable ${latest_stable}"
+              exit 1
+            fi
+          else
+            channel=canary
+            # 発火判定: 直近の tag（チャンネル問わず）から HEAD に feat / fix があるか。
+            # renovate は全 commit が scope (deps) を持つため scope 除外で確実に落ちる
+            last="$(git describe --tags --abbrev=0 2> /dev/null || true)"
+            if [[ -n "${last}" ]]; then
+              range="${last}..HEAD"
+            else
+              range="HEAD"
+            fi
+            count="$(git log "${range}" --format=%s | grep -E '^(feat|fix)(\([^)]+\))?!?:' | grep -cvE '^(feat|fix)\(deps\)' || true)"
+            if [[ "${count}" -eq 0 ]]; then
+              echo "no feat/fix commits since ${last:-repository root}; skipping release"
+              echo "proceed=false" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+            # canary tag: 最新 stable の次 patch + 連番（semver 順序が
+            # stable < canary < 次 stable で単調になる）
+            IFS=. read -r major minor patch <<< "${latest_stable#v}"
+            next="v${major}.${minor}.$((patch + 1))"
+            latest_n="$(git tag -l "${next}-canary.*" | sed 's/.*-canary\.//' | sort -n | tail -1 || true)"
+            if [[ -n "${latest_n}" ]]; then
+              n=$((latest_n + 1))
+            else
+              n=0
+            fi
+            tag="${next}-canary.${n}"
+          fi
+
+          echo "channel=${channel} tag=${tag}"
+          {
+            echo "proceed=true"
+            echo "tag=${tag}"
+            echo "channel=${channel}"
+          } >> "${GITHUB_OUTPUT}"
+
+  # ==============================================================
+  # ビルドと GitHub Release 作成（macOS arm64）
+  # ==============================================================
+  release:
+    needs: decide
+    if: needs.decide.outputs.proceed == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      TAG: ${{ needs.decide.outputs.tag }}
+      CHANNEL: ${{ needs.decide.outputs.channel }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          filter: blob:none
+          fetch-depth: 0
+          show-progress: false
+
+      - uses: ./.github/actions/setup-environment
+
+      # リリースビルドは canary / stable どちらも stable identity（GOZD_BUILD_CHANNEL）。
+      # canary は tag 由来の version を extraMetadata で焼き込む。stable は人間が bump 済みの
+      # package.json の version がそのまま使われる
+      - name: Build .app
+        run: |
+          set -euo pipefail
+          build_version=""
+          if [[ "${CHANNEL}" == "canary" ]]; then
+            build_version="${TAG#v}"
+          fi
+          GOZD_BUILD_CHANNEL=stable GOZD_BUILD_VERSION="${build_version}" pnpm --filter @gozd/electron build:app
+
+      # ルートは bin/ + Gozd.app/ の 2 エントリにする。ルートがディレクトリ 1 個だけの
+      # tar は mise が strip_components=1 を自動適用して .app バンドルが解体されるため
+      - name: Package tarball
+        run: |
+          set -euo pipefail
+          stage="$(mktemp -d)"
+          mkdir "${stage}/bin"
+          mv "apps/electron/out/mac-arm64/Gozd.app" "${stage}/"
+          ln -s ../Gozd.app/Contents/Resources/app/bin/gozd "${stage}/bin/gozd"
+          tar -C "${stage}" -czf gozd-macos-arm64.tar.gz bin Gozd.app
+
+      # 署名の代わりの改竄検知。mise は GitHub attestation 検証をデフォルト有効にしている
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4
+        with:
+          subject-path: gozd-macos-arm64.tar.gz
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          flags=(--generate-notes --target "${GITHUB_SHA}")
+          if [[ "${CHANNEL}" == "canary" ]]; then
+            flags+=(--prerelease)
+          else
+            flags+=(--latest)
+          fi
+          gh release create "${TAG}" "${flags[@]}" gozd-macos-arm64.tar.gz

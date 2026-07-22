@@ -355,13 +355,13 @@ function onDragEnd(event: DragEndEvent) {
 //
 // アクティブターミナル（= worktreeStore.dir）が変わったら、その wt がサイドバーで
 // 見えるようにする。サイドバー操作で切り替えた場合は既に可視なので副作用なし
-// （scrollIntoView block:nearest は範囲内なら no-op、属する repo は開いている）。
-// ターミナルペイン側でのフォーカス移動など、サイドバー外の経路で dir が変わった
-// ときに効く。immediate で起動直後 / フルリロード後（hydrate 済みの selectedDir）も
-// 初回表示で追従させる。flush:post で常に DOM 更新後にコールバックを走らせ、immediate
-// 初回でも scrollContainer / WtCard が mount 済みになることを Vue 内部のスケジューリングに
-// 依存せず保証する。コールバック内の nextTick は expand（store 変更→再レンダー）と scroll
-// の間で別途必要なため残す。
+// （setActiveRepoList / scrollIntoView block:nearest は範囲内なら no-op、属する repo は
+// 開いている）。claude ビューのタイルフォーカスやターミナルペイン側でのフォーカス移動など、
+// サイドバー外の経路で dir が変わったときに効く。immediate で起動直後 / フルリロード後
+// （hydrate 済みの selectedDir）も初回表示で追従させる。flush:post で常に DOM 更新後に
+// コールバックを走らせ、immediate 初回でも scrollContainer / WtCard が mount 済みになる
+// ことを Vue 内部のスケジューリングに依存せず保証する。コールバック内の nextTick は
+// list 切り替え / expand（store 変更→再レンダー）と scroll の間で別途必要なため残す。
 const scrollContainer = useTemplateRef<HTMLElement>("scrollContainer");
 
 watch(
@@ -369,12 +369,22 @@ watch(
   async (dir) => {
     if (dir === undefined) return;
     // 編集モード中は全 section が強制 collapse され WtCard が描画されないため、
-    // スクロール先が存在しない。追従はスキップする。
+    // スクロール先が存在しない。list 切り替えも編集対象が足元で変わると混乱するため、
+    // 追従はまとめてスキップする。
     if (editMode.value) return;
-    // 畳まれた repo の中にいると WtCard が v-if で出ていないので、まず開く。
     const owner = repoStore.findRepoOwning(dir);
-    if (owner !== undefined) repoStore.expand(owner.rootDir);
-    // expand による WtCard の出現を待ってからスクロール先を引く。
+    if (owner !== undefined) {
+      // アクティブ repo list がその repo を含まないと、wt ビューに戻ったとき active wt が
+      // サイドバーに見えない（claude ビューは poolDirs 母集団なので別 list の repo でも
+      // 選択できる）。含む list（複数所属なら repoLists 先頭側）へ表示も追従させる。
+      if (!repoStore.dirOrder.includes(owner.rootDir)) {
+        const [owningList] = repoStore.repoListsContaining(owner.rootDir);
+        if (owningList !== undefined) repoStore.setActiveRepoList(owningList.id);
+      }
+      // 畳まれた repo の中にいると WtCard が v-if で出ていないので開く。
+      repoStore.expand(owner.rootDir);
+    }
+    // list 切り替え / expand による WtCard の出現を待ってからスクロール先を引く。
     await nextTick();
     const container = scrollContainer.value;
     if (container === null) return;

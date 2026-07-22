@@ -171,6 +171,8 @@ repo 一覧は **repo list** 単位で表示する（機能名は repo list、UI
 
 `gozd <path>` で既存プール repo を開いた場合、その repo がアクティブ repo list に無ければ末尾に追加される（開いたのに何も見えない状態を作らない）。
 
+アクティブ worktree がサイドバー外の経路（claude ビューのタイルフォーカス / ターミナルペインのフォーカス移動等）で切り替わり、その repo がアクティブ repo list に無い場合は、その repo を含む list（複数所属なら repoLists 先頭側）へアクティブ repo list も追従する。追従しないと wt ビューに戻ったときアクティブ worktree がサイドバーに見えないずれが残る。編集モード中は追従しない（編集対象が足元で変わるため）。
+
 各 repo セクションの中身:
 
 - ヘッダ: 展開トグル + folder アイコン（git / 非 git で区別）+ repo 名。編集モード中は ✕ 表示。✕ は他 repo list にも属する repo なら「アクティブ repo list から外す」（非破壊・確認なし）、最後の所属なら「window から解除」（確認 + PTY cleanup）

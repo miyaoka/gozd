@@ -167,11 +167,7 @@ function hasControlChar(s: string): boolean {
 
 async function ensureWorktreePath(projectDir: string, leaf: string): Promise<string> {
   const invalid =
-    leaf === "" ||
-    leaf.includes("/") ||
-    leaf === "." ||
-    leaf === ".." ||
-    hasControlChar(leaf);
+    leaf === "" || leaf.includes("/") || leaf === "." || leaf === ".." || hasControlChar(leaf);
   if (invalid) {
     throw new Error(`invalid worktree leaf name: ${leaf}`);
   }

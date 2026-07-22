@@ -94,6 +94,22 @@ const draftConfirm = createUnsavedDraftConfirm();
 // preview ヘッダのドラッグから undock された場合の引き継ぎ。one-shot 消費 (UndockedLogWindow と同じ)。
 const handoff = takeHandoff(props.preview.id);
 
+/** undock 元 popover close の保険 timeout (ms)。表示完了 push (通常 +50ms 程度) が落ちた
+ * 場合の自己回復 (UndockedLogWindow のゴースト保険と同じ値)。 */
+const UNDOCK_CLOSE_FALLBACK_MS = 500;
+
+// undock 元の本体 popover はこの window の表示完了まで開いたままにし、表示完了 (ChildWindow
+// の shown) で閉じて二重表示を解消する。undock と同フレームで閉じると child の表示までの
+// 隙間が点滅するため、イベント駆動にしている。push 欠落時は timeout の保険で閉じる。
+// one-shot ガードは、保険 timeout がユーザーの開き直した popover を後から閉じる誤爆を防ぐ
+let sourcePopoverClosed = false;
+function closeSourcePopover() {
+  if (sourcePopoverClosed) return;
+  sourcePopoverClosed = true;
+  previewStore.requestClose();
+}
+setTimeout(closeSourcePopover, UNDOCK_CLOSE_FALLBACK_MS);
+
 const iconUrl = computed(() => getFileIconUrl(props.preview.fileName));
 
 // ==== view 状態 (window ローカル。初期値は undock 時点の本体の状態) ====
@@ -337,6 +353,7 @@ function dockToPreview() {
     :height="preview.height"
     :block-close="isDirty"
     :handoff="handoff"
+    @shown="closeSourcePopover()"
     @close="close(preview.id)"
     @close-requested="guardedClose"
     @save-requested="saveEdit()"

@@ -274,9 +274,9 @@ function undockPreview(handoff?: UndockDragHandoff) {
   // これにより直後の close 経路 (requestClose) の dirty ガードも掛からない — undock は
   // 破棄ではなく移動なので確認を出さないのが正しい。
   editStore.endSession();
-  // undock 後は popover を閉じる (二重表示を残さない)。close 経路は MainLayout →
-  // previewStore.requestClose() で、ヘッダの close ボタンと同じ意味論。
-  emit("close");
+  // undock 後の popover close (二重表示の解消) はここでは行わない。同フレームで閉じると
+  // child window の表示までの隙間が点滅するため、UndockedPreviewWindow が表示完了
+  // (ChildWindow の shown) を合図に閉じる (イベント駆動)。
 }
 
 /** ヘッダのドラッグを undock とみなすしきい値 (px)。ヘッダ内ボタンのクリックと区別する。 */

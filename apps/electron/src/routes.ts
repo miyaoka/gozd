@@ -135,6 +135,10 @@ import type {
   VoicevoxListSpeakersResponse,
   VoicevoxSpeakRequest,
   VoicevoxSpeakResponse,
+  ChildWindowMoveRequest,
+  ChildWindowMoveResponse,
+  ChildWindowResizeByRequest,
+  ChildWindowResizeByResponse,
   WindowCloseResponse,
   WindowSetTitleContextRequest,
   WindowSetTitleContextResponse,
@@ -143,7 +147,7 @@ import type {
 import { tryCatch } from "@gozd/shared";
 import { app, BrowserWindow, dialog, shell } from "electron";
 import { existsSync } from "node:fs";
-import { isChildWindow } from "./childWindows";
+import { getChildWindow, isChildWindow } from "./childWindows";
 import { listReviveSessions, readClaudeSessionLog } from "./claude/claudeSessionLog";
 import { writeFilesToClipboard } from "./clipboardOps";
 import {
@@ -971,6 +975,31 @@ function handleWindowClose(): unknown {
   return {} satisfies WindowCloseResponse;
 }
 
+function handleChildWindowMove(body: unknown): unknown {
+  const req = body as ChildWindowMoveRequest;
+  const window = getChildWindow(req.frameName);
+  // ドラッグ終盤に close された直後の move が届き得る。silent drop 禁止のため記録して捨てる
+  if (window === undefined || window.isDestroyed()) {
+    console.error(`[handleChildWindowMove] child window not found frameName=${req.frameName}`);
+    return {} satisfies ChildWindowMoveResponse;
+  }
+  window.setPosition(Math.round(req.x), Math.round(req.y));
+  return {} satisfies ChildWindowMoveResponse;
+}
+
+function handleChildWindowResizeBy(body: unknown): unknown {
+  const req = body as ChildWindowResizeByRequest;
+  const window = getChildWindow(req.frameName);
+  if (window === undefined || window.isDestroyed()) {
+    console.error(`[handleChildWindowResizeBy] child window not found frameName=${req.frameName}`);
+    return {} satisfies ChildWindowResizeByResponse;
+  }
+  // 実 bounds 基準で高さだけ加算する（renderer resizeBy の Blink キャッシュ誤差を避ける）
+  const bounds = window.getBounds();
+  window.setBounds({ ...bounds, height: bounds.height + Math.round(req.deltaHeight) });
+  return {} satisfies ChildWindowResizeByResponse;
+}
+
 function handleWindowSetTitleContext(body: unknown): unknown {
   const req = body as WindowSetTitleContextRequest;
   // 表示整形（"repo · worktree"）は renderer のカスタムタイトルバーが SSOT。ここでは
@@ -1210,6 +1239,8 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/open/pickAndOpen", handlePickAndOpen],
   ["/window/close", handleWindowClose],
   ["/window/setTitleContext", handleWindowSetTitleContext],
+  ["/childWindow/move", handleChildWindowMove],
+  ["/childWindow/resizeBy", handleChildWindowResizeBy],
   ["/claudeSession/removeByPty", handleClaudeSessionRemoveByPty],
   ["/claudeSession/readLog", handleClaudeSessionReadLog],
   ["/claudeSession/reviveList", handleReviveSessionList],

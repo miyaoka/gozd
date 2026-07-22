@@ -200,6 +200,10 @@ export type {
   VoicevoxSpeakResponse,
 } from "./voicevox";
 export type {
+  ChildWindowMoveRequest,
+  ChildWindowMoveResponse,
+  ChildWindowResizeByRequest,
+  ChildWindowResizeByResponse,
   WindowCloseRequest,
   WindowCloseResponse,
   WindowSetTitleContextRequest,

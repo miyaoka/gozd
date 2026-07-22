@@ -21,7 +21,6 @@ import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
 import { registerFilerCommands } from "../filer";
-import { closeFrontFloatingWindow, hasFloatingWindow } from "../floating-window";
 import { GitGraphPane } from "../git-graph";
 import { NavigatorPane } from "../navigator";
 import {
@@ -83,10 +82,6 @@ const disposePreviewClose = register("preview.close", {
     return true;
   },
 });
-const disposeFloatingWindowClose = register("floatingWindow.closeFront", {
-  label: "Floating Window: Close Front",
-  handler: () => closeFrontFloatingWindow(),
-});
 const disposeWindowClose = register("window.close", {
   label: "Window: Close",
   handler: () => {
@@ -105,7 +100,6 @@ const disposeMarkdownHistoryCommands = registerMarkdownHistoryCommands();
 const disposeFilerCommands = registerFilerCommands();
 onUnmounted(disposePreviewToggle);
 onUnmounted(disposePreviewClose);
-onUnmounted(disposeFloatingWindowClose);
 onUnmounted(disposeWindowClose);
 onUnmounted(disposeThemeCommand);
 onUnmounted(disposeSettingsCommand);
@@ -240,16 +234,6 @@ watch(
     }
     previewRestoreFocusEl = undefined;
   },
-);
-
-// floatingWindowVisible context key を in-app undock ウィンドウ (現行は log のみ。preview は
-// 別 OS ウィンドウで対象外) の有無と同期
-watch(
-  hasFloatingWindow,
-  (has) => {
-    contextKeys.set("floatingWindowVisible", has);
-  },
-  { immediate: true },
 );
 
 /**

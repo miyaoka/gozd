@@ -13,11 +13,6 @@
   { "key": "cmd+d", "command": "terminal.splitHorizontal", "when": "terminalFocus" },
   { "key": "shift+cmd+d", "command": "terminal.splitVertical", "when": "terminalFocus" },
   { "key": "cmd+w", "command": "terminal.closePane", "when": "terminalFocus" },
-  {
-    "key": "cmd+w",
-    "command": "floatingWindow.closeFront",
-    "when": "floatingWindowVisible && !terminalFocus"
-  },
   { "key": "cmd+w", "command": "preview.close", "when": "previewVisible && !terminalFocus" },
   { "key": "shift+cmd+w", "command": "window.close", "when": "!childWindowFocused" },
   { "key": "alt+cmd+left", "command": "terminal.focusLeft", "when": "terminalFocus" },

@@ -5,14 +5,15 @@
 ## レイアウト構成
 
 - **トップツールバー**: 左に view mode トグル (active worktree / claude terminals)、右に時計 / SFX
-- **repo list バー**: 右端に編集トグル（鉛筆 ↔ チェック）。編集トグルをツールバーではなく
-  このバーに置くのは、編集の対象がこのバー以下のリストエリアに閉じるため（配置と作用範囲の
-  対応づけ）。表示は 2 態:
-  - 通常モード: chip 列。クリックでアクティブ repo list を切り替えるだけ
-  - 編集モード: 縦一覧 (`ListRow`)。行 drag で list の並び替え、行クリックで切り替え、
-    行 hover の ⋮ で ListMenu（Rename → ListEditDialog / Delete → 確認ダイアログ）。
-    末尾に `New list`。rename / delete を常時露出させないのは delete が気軽に押す操作では
-    ないため（repo / wt 行の ⋮ メニューと同じ流儀）
+- **repo list バー**: 編集トグルをツールバーではなくこのバーに置くのは、編集の対象がこの
+  バー以下のリストエリアに閉じるため（配置と作用範囲の対応づけ）。表示は 2 態:
+  - 通常モード: chip 列（クリックでアクティブ repo list を切り替えるだけ）+ 右端に鉛筆
+  - 編集モード: 専用ヘッダ（左に "Edit list" タイトル / 右に Done ボタン）+ 全幅の縦一覧
+    (`ListRow`)。行 drag で list の並び替え、行クリックで切り替え、行 hover の ⋮ で
+    ListMenu（Rename → ListEditDialog / Delete → 確認ダイアログ）。末尾に `New list`。
+    rename / delete を常時露出させないのは delete が気軽に押す操作ではないため
+    （repo / wt 行の ⋮ メニューと同じ流儀）。トグルを一覧の右隣に置くと右端の縦スペースが
+    列ごと専有されるため、編集中の出口はヘッダ行の Done に置く
 - **アクティブ repo list の dirOrder の各 repo** に対して `RepoSection` を縦に並べる。
   空リストは通常モードで操作の手がかりが消えるため、empty state（"This list is empty" +
   Edit list ボタンで編集モードへ）を出す
@@ -87,7 +88,6 @@ import { filterClaudeActiveRootDirs, worktreeDisplayName } from "./utils";
 import VoicevoxPanel from "./VoicevoxPanel.vue";
 import WorktreeMenu from "./WorktreeMenu.vue";
 import IconLucideBot from "~icons/lucide/bot";
-import IconLucideCheck from "~icons/lucide/check";
 import IconLucideFolderPlus from "~icons/lucide/folder-plus";
 import IconLucideMonitor from "~icons/lucide/monitor";
 import IconLucidePencil from "~icons/lucide/pencil";
@@ -426,12 +426,12 @@ watch(
       </div>
     </div>
 
-    <!-- repo list バー: chip 列でアクティブ repo list を切り替え。編集トグルは編集対象
-         （リストエリア）と同じ行の右端に置く。ツールバーは view mode 等のグローバル操作で、
-         編集はこのバー以下のリストエリアに閉じるため配置で対応づける -->
-    <div class="flex items-start gap-1 px-2 pt-3 pb-1">
-      <!-- 通常モード: chip 列（切り替えのみ） -->
-      <div v-if="!editMode" class="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+    <!-- repo list バー: 編集トグルはツールバーではなくこのエリアに置く。ツールバーは
+         view mode 等のグローバル操作で、編集はこのバー以下のリストエリアに閉じるため
+         配置で対応づける -->
+    <!-- 通常モード: chip 列（切り替えのみ）+ 右端に鉛筆 -->
+    <div v-if="!editMode" class="flex items-start gap-1 px-2 pt-3 pb-1">
+      <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1">
         <button
           v-for="pl in repoStore.repoLists"
           :key="pl.id"
@@ -449,8 +449,31 @@ watch(
           {{ pl.name }}
         </button>
       </div>
-      <!-- 編集モード: 縦一覧。行 drag で並び替え、行 hover の ⋮ で ListMenu (Rename / Delete) -->
-      <div v-else class="flex min-w-0 flex-1 flex-col gap-0.5">
+      <button
+        type="button"
+        aria-label="Edit list"
+        title="Edit list"
+        class="grid size-5 shrink-0 place-items-center rounded-sm text-foreground-low transition-colors hover:bg-panel hover:text-foreground"
+        @click="toggleEditMode"
+      >
+        <IconLucidePencil class="size-3.5" />
+      </button>
+    </div>
+    <!-- 編集モード: 専用ヘッダ（左にタイトル / 右に Done）+ 全幅の縦一覧。
+         トグルを一覧の右隣に置くと右端の縦スペースが列ごと専有されるため、ヘッダ行に出す -->
+    <template v-else>
+      <div class="flex items-center justify-between px-2 pt-3 pb-1">
+        <span class="px-1 text-sm font-semibold">Edit list</span>
+        <button
+          type="button"
+          class="rounded-sm bg-primary px-2.5 py-0.5 text-xs text-foreground hover:bg-primary-hover"
+          @click="toggleEditMode"
+        >
+          Done
+        </button>
+      </div>
+      <!-- 縦一覧: 行 drag で並び替え、行 hover の ⋮ で ListMenu (Rename / Delete) -->
+      <div class="flex flex-col gap-0.5 px-2 pb-1">
         <DragDropProvider @drag-end="onListDragEnd">
           <ListRow
             v-for="(pl, i) in repoStore.repoLists"
@@ -472,21 +495,7 @@ watch(
           <span>New list</span>
         </button>
       </div>
-      <button
-        type="button"
-        :aria-label="editMode ? 'Exit edit mode' : 'Edit list'"
-        :title="editMode ? 'Done' : 'Edit list'"
-        class="grid size-5 shrink-0 place-items-center rounded-sm transition-colors"
-        :class="
-          editMode
-            ? 'bg-primary text-foreground hover:bg-primary-hover'
-            : 'text-foreground-low hover:bg-panel hover:text-foreground'
-        "
-        @click="toggleEditMode"
-      >
-        <component :is="editMode ? IconLucideCheck : IconLucidePencil" class="size-3.5" />
-      </button>
-    </div>
+    </template>
 
     <!-- 上 padding は repo list バー側の pb-1 が担うため詰める（pt-4 を残すと二重で不自然な
          空白になる）。下は overscroll の余白として pb-4 を保つ -->

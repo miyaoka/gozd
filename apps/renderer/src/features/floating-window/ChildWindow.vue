@@ -207,7 +207,10 @@ if (child === null) {
   // chrome 高 (標準 titlebar) の分だけコンテンツが要求位置より下にずれる。chrome 高は
   // open 前には測れないので、open 後の初回フレームで実測して 1 回だけ補正する。
   // ドラッグ引き継ぎ中は pointermove の moveTo が同じ content 揃えを毎回行うため補正
-  // しない (補正すると古い初期座標へ巻き戻る)
+  // しない (補正すると古い初期座標へ巻き戻る)。ガードを props.handoff (経路) ではなく
+  // dragState (実行時点で継続中か) にしているのは、しきい値超過直後に release された
+  // 場合に pointermove の揃えが 1 回も走らないことがあり、そのときはこの補正が
+  // 唯一の content 揃えになるため
   child.requestAnimationFrame(() => {
     if (dragState !== undefined) return;
     const chromeY = child.outerHeight - child.innerHeight;

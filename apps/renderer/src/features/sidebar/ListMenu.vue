@@ -1,5 +1,6 @@
 <doc lang="md">
-repo list chip の右クリックで開くポップオーバーメニュー。Rename / Delete list… を提供する。
+編集モードの list 行（ListRow）の ⋮ ボタンから開くポップオーバーメニュー。
+Rename / Delete list… を提供する。
 
 rename / delete を常時ボタンで露出させないのは、特に delete が気軽に押す操作ではないため。
 メニュー → （delete は）確認ダイアログの二段階で明示操作に限定する。実処理は SidebarPane が

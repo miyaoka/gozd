@@ -1,5 +1,5 @@
 /**
- * repo list chip の context menu の module singleton。
+ * 編集モードの list 行（ListRow）の ⋮ メニューの module singleton。
  *
  * 親 (SidebarPane) から `open(anchorEl, { listId })` を呼び、ListMenu.vue が context を
  * 購読して描画する。rename / delete は常時ボタンとして露出させず、このメニュー経由の

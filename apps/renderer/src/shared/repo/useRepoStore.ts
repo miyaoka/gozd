@@ -502,6 +502,13 @@ export const useRepoStore = defineStore("repo", () => {
         // まずアクティブ repo list の先頭、そこが空ならプール先頭（他 repo list）に倒す
         const [firstRoot = poolDirs.value[0]] = dirOrder.value;
         selectedDir.value = firstRoot;
+        // プール先頭へ倒れた（= アクティブ list に無い repo を選択した）場合は、その repo を
+        // 含む list へアクティブも切り替える。切り替えないと「サイドバーは empty state なのに
+        // terminal / filer は別 list の repo を開いている」という表示のずれが残る
+        if (firstRoot !== undefined && !dirOrder.value.includes(firstRoot)) {
+          const owningList = repoLists.value.find((p) => p.dirOrder.includes(firstRoot));
+          if (owningList !== undefined) activeRepoListId.value = owningList.id;
+        }
       }
     }
   }

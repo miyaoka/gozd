@@ -293,6 +293,25 @@ describe("repoLists", () => {
     expect(store.repos["/a"]).toBeUndefined();
   });
 
+  test("removeRepo の選択フォールバックが別 list に倒れたらアクティブ list も追従する", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo(repo("/a"));
+    const firstId = store.activeRepoListId;
+    const secondId = store.addRepoList("second");
+    store.addRepo(repo("/b"));
+    store.setActiveRepoList(firstId);
+    store.selectDir("/a");
+
+    // アクティブ list (first) 唯一の repo を window から解除 → dirOrder が空になり
+    // プール先頭 /b（second 所属）へ倒れる。選択だけ移してアクティブ list を first のまま
+    // 残すと「サイドバーは empty state / terminal は /b」の表示ずれになる
+    store.removeRepo("/a");
+    expect(store.selectedDir).toBe("/b");
+    expect(store.activeRepoListId).toBe(secondId);
+    expect(store.dirOrder).toEqual(["/b"]);
+  });
+
   test("removeRepoList は最後の 1 個を拒否し、孤児 repo を先頭 repo list へ移す", () => {
     setActivePinia(createPinia());
     const store = useRepoStore();

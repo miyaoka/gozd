@@ -175,7 +175,7 @@ repo 一覧は **repo list** 単位で表示する（機能名は repo list、UI
 
 各 repo セクションの中身:
 
-- ヘッダ: 展開トグル + folder アイコン（git / 非 git で区別）+ repo 名。編集モード中は ✕ 表示。✕ は他 repo list にも属する repo なら「アクティブ repo list から外す」（非破壊・確認なし）、最後の所属なら「window から解除」（確認 + PTY cleanup）
+- ヘッダ: 展開トグル + RepoIcon（GitHub avatar / identicon）+ repo 名。展開時のみ 2 行目に GitHub owner を表示する（owner 解決済みかつ GitHub owner がある repo のみ。解決中・owner なし・編集モードでは表示しない）。編集モード中は ✕ 表示。✕ は他 repo list にも属する repo なら「アクティブ repo list から外す」（非破壊・確認なし）、最後の所属なら「window から解除」（確認 + PTY cleanup）
 - worktree カード列: main worktree を先頭に固定し、その後は `git worktree list` の順を維持。Claude state による並び替えはしない（位置の安定性を優先）
 - 末尾に新規 worktree 作成ボタン
 

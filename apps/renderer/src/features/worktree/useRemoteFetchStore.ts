@@ -43,7 +43,9 @@ export function isRepoFetchDue(args: {
  * 既存規律:
  * - in-flight ロックで同 rootDir 並列発射を抑止 (`inFlight` Map で dedup)
  * - 成功時は 180s、失敗時は 30s の backoff
- * - 失敗は `notify.info` で通知 (CLAUDE.md `console.error で握り潰さない`)
+ * - 失敗は `notify.info` の persist 指定で通知 (CLAUDE.md `console.error で握り潰さない`)。
+ *   background 発火でユーザーが目撃前に自動消去されると silent drop と等価になるため、
+ *   手動クローズまで残す
  *
  * ## public API は 2 経路のみ
  *
@@ -93,13 +95,15 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
       const now = Date.now();
       if (!result.ok) {
         logEvent("fetch", "error", name);
-        notify.info(`Background git fetch failed for ${rootDir}`, result.error);
+        notify.info(`Background git fetch failed for ${rootDir}`, result.error, { persist: true });
         nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_FAILURE_BACKOFF_MS);
         return false;
       }
       if (!result.value.ok) {
         logEvent("fetch", "error", name);
-        notify.info(`Background git fetch failed for ${rootDir}`, result.value.errorDetail);
+        notify.info(`Background git fetch failed for ${rootDir}`, result.value.errorDetail, {
+          persist: true,
+        });
         nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_FAILURE_BACKOFF_MS);
         return false;
       }

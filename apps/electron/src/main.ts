@@ -15,6 +15,7 @@ import { killAllPtys, routes, startPortScanner, stopPortScanner, unwatchAllFsWat
 import { createSocketMessageHandler } from "./socketMessages";
 import { startSocketServer, type SocketServerHandle } from "./socketServer";
 import { runSpikeResolverDiag } from "./spikeDiag";
+import { isHttpUrl, isInternalUrl } from "./urlPolicy";
 import { windowStateStore, type WindowBounds } from "./windowState";
 
 const isTestMode = process.env.GOZD_SPIKE_TEST === "1";
@@ -30,6 +31,9 @@ function resolveRendererUrl(): string | undefined {
   return undefined;
 }
 const rendererUrl = resolveRendererUrl();
+// isInternal の完全一致比較用 (installExternalLinkPolicy 参照)。不正な env 値は起動時に
+// fail-loud させる (fallback して黙って外部扱いにすると防壁の誤動作原因が追えない)
+const rendererOrigin = rendererUrl !== undefined ? new URL(rendererUrl).origin : undefined;
 
 const dispatch = createRpcDispatcher(routes);
 
@@ -56,16 +60,16 @@ const TRAFFIC_LIGHT_X = 16;
 function installExternalLinkPolicy(contents: WebContents): void {
   const openExternal = (url: string): void => {
     // 外部 URL の launch 失敗は具体的な error 込みで stderr に残す（silent drop 禁止）
-    shell.openExternal(url).catch((error: unknown) => {
-      console.error(`[ExternalLink] failed to open external URL: ${url}: ${error}`);
+    void tryCatch(shell.openExternal(url)).then((result) => {
+      if (!result.ok) {
+        console.error(`[ExternalLink] failed to open external URL: ${url}: ${result.error}`);
+      }
     });
   };
-  const isHttp = (url: string): boolean => url.startsWith("http://") || url.startsWith("https://");
-  const isInternal = (url: string): boolean => {
-    if (rendererUrl !== undefined && url.startsWith(rendererUrl)) return true;
-    // packaged / spike は loadFile 経由の file: origin
-    return url.startsWith("file://");
-  };
+  // 判定はセキュリティ境界のため純関数 (urlPolicy.ts) に切り出し、バイパス文字列の
+  // 回帰テストで固定している
+  const isHttp = isHttpUrl;
+  const isInternal = (url: string): boolean => isInternalUrl(url, rendererOrigin);
 
   // window.open / target="_blank" は about:blank（undock child window）以外は新 window を
   // 作らせない。http(s) のみ外部ブラウザに送り、それ以外は黙って deny。

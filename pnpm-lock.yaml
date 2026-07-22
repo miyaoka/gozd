@@ -53,7 +53,7 @@ catalogs:
       version: 8.1.5
 
 patchedDependencies:
-  monaco-editor: a6f1c2a872af0b538072d78845cabbab0a1bd8d413cb104282ca19445e642a5c
+  monaco-editor@0.55.1: a6f1c2a872af0b538072d78845cabbab0a1bd8d413cb104282ca19445e642a5c
 
 importers:
 

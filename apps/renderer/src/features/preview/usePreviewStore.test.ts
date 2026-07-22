@@ -491,6 +491,22 @@ describe("usePreviewStore 未保存 draft ガード", () => {
     expect(summary.enabled).toBe(false);
   });
 
+  test("Don't Save 後に Monaco の遅延 update-content が着弾しても dirty は復活しない", () => {
+    const { preview, editStore } = openDirty();
+    const confirm = useUnsavedDraftConfirm();
+
+    preview.requestClose();
+    confirm.chooseDiscard();
+
+    // Monaco onDidChangeModelContent はプログラム的 setValue でも発火するため、
+    // endSession 後に update:content → updateDraft が着弾する (usePreviewEditStore の
+    // updateDraft docstring)。セッション外の呼び出しとして無視されることを pin する
+    editStore.updateDraft("base");
+
+    expect(editStore.hasSession).toBe(false);
+    expect(editStore.isDirty).toBe(false);
+  });
+
   test("確認中の再投入は先勝ちで無視される", () => {
     const { preview } = openDirty();
     const confirm = useUnsavedDraftConfirm();

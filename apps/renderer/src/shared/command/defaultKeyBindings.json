@@ -25,5 +25,7 @@
   { "key": "alt+cmd+up", "command": "terminal.focusUp", "when": "terminalFocus" },
   { "key": "alt+cmd+down", "command": "terminal.focusDown", "when": "terminalFocus" },
   { "key": "cmd+/", "command": "workspace.toggleViewMode" },
-  { "key": "cmd+,", "command": "settings.open" }
+  { "key": "cmd+,", "command": "settings.open" },
+  { "key": "cmd+w", "command": "childWindow.close", "when": "childWindowFocused" },
+  { "key": "cmd+s", "command": "childWindow.save", "when": "childWindowFocused" }
 ]

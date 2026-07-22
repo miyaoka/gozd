@@ -143,6 +143,7 @@ import type {
 import { tryCatch } from "@gozd/shared";
 import { app, BrowserWindow, dialog, shell } from "electron";
 import { existsSync } from "node:fs";
+import { isChildWindow } from "./childWindows";
 import { listReviveSessions, readClaudeSessionLog } from "./claude/claudeSessionLog";
 import { writeFilesToClipboard } from "./clipboardOps";
 import {
@@ -950,8 +951,10 @@ function handleWindowSetTitleContext(body: unknown): unknown {
   const req = body as WindowSetTitleContextRequest;
   // 表示整形（"repo · worktree"）は renderer のカスタムタイトルバーが SSOT。ここでは
   // Mission Control / Cmd+Tab に出る native window title に同じ文字列を反映するだけ。
-  // gozd はシングルウィンドウなので全 window に適用で実質固定
+  // undock child window は renderer が document.title（ファイル名）を管理するため除外する
+  // （除外しないと worktree 切替のたびに child のタイトルが上書きされる）
   for (const window of BrowserWindow.getAllWindows()) {
+    if (isChildWindow(window)) continue;
     window.setTitle(req.title === "" ? "gozd" : req.title);
   }
   return ({}) satisfies WindowSetTitleContextResponse;

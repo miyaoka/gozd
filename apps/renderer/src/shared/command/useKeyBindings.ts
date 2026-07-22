@@ -1,8 +1,14 @@
 /**
- * Keybinding システム。App.vue で1回だけ呼び出す。
- * document の keydown を capture phase で listen し、
- * keybinding テーブルと照合してコマンドを実行する。
- * useEventListener により、コンポーネントの unmount 時に自動解除される。
+ * Keybinding システム。解決系 (binding テーブル + context key 評価 + command registry) は
+ * 単一で、keydown listener だけを各ウィンドウの document に張る (VS Code が
+ * onDidRegisterWindow で全ウィンドウに同一 dispatcher を張るのと同じ構造)。
+ *
+ * - main window: App.vue が `useKeyBindings()` を 1 回だけ呼ぶ
+ * - child window (undock 等): 生成側コンポーネントが `useWindowKeyBindings(win)` を呼ぶ。
+ *   listener の寿命は呼び出しコンポーネントの effect scope に載り、unmount で自動解除される
+ *
+ * child window 由来のキーも同じ binding テーブルで解決されるため、child 固有の割り当ては
+ * when 条件 (childWindowFocused) で分岐し、テーブル末尾 (高優先) に置く。
  */
 import { useEventListener } from "@vueuse/core";
 import DEFAULT_KEY_BINDINGS from "./defaultKeyBindings.json";
@@ -70,23 +76,24 @@ function isEditableElement(el: EventTarget | null): boolean {
   return el.isContentEditable;
 }
 
-export function useKeyBindings() {
+// default + user（将来）を concat して resolve。全ウィンドウ共有の単一テーブル
+const resolved = resolveBindings(DEFAULT_KEY_BINDINGS);
+
+/** 1 ウィンドウ分の listener 一式を張る。解決系はモジュール単位の共有 (docstring 参照) */
+function attachListeners(doc: Document) {
   const registry = useCommandRegistry();
   const contextKeys = useContextKeys();
 
   // inputFocused context key をフォーカス変化で更新
-  useEventListener(document, "focusin", (e: FocusEvent) => {
+  useEventListener(doc, "focusin", (e: FocusEvent) => {
     contextKeys.set("inputFocused", isEditableElement(e.target));
   });
-  useEventListener(document, "focusout", () => {
+  useEventListener(doc, "focusout", () => {
     contextKeys.set("inputFocused", false);
   });
 
-  // default + user（将来）を concat して resolve
-  const resolved = resolveBindings(DEFAULT_KEY_BINDINGS);
-
   useEventListener(
-    document,
+    doc,
     "keydown",
     (e: KeyboardEvent) => {
       if (!shouldHandle(e)) return;
@@ -122,4 +129,14 @@ export function useKeyBindings() {
     },
     { capture: true },
   );
+}
+
+/** main window の keybinding 配線。App.vue で 1 回だけ呼ぶ */
+export function useKeyBindings() {
+  attachListeners(document);
+}
+
+/** child window の keybinding 配線。ウィンドウ生成側コンポーネントの setup で呼ぶ */
+export function useWindowKeyBindings(win: Window) {
+  attachListeners(win.document);
 }

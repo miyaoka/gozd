@@ -1,5 +1,5 @@
 <doc lang="md">
-undock されたファイルプレビュー 1 件のフローティングウィンドウ。
+undock されたファイルプレビュー 1 件の独立 OS ウィンドウ。
 
 「view の切り離し」なので UI は本体 preview と同一部品で組み、縮小版・独自 UI を作らない。
 本体との違いはデータ源 — 本体は global selection に結合した live な取得層、こちらは
@@ -27,15 +27,21 @@ snapshot に固定する — 過去の内容で実ファイルを上書き保存
   dirty の間は外部変更で上書きしないが、イベントは保留して編集終了
   (Discard / Save) 時に再取得する (捨てると Discard 後に stale が残る)。Original
   タブは履歴表示のため編集対象外
-- close (close ボタン / cmd+w の closeRequested / dock ボタン) は window draft の破棄境界。
-  dirty なら Save / Don't Save / Cancel の確認 (useUnsavedDraftConfirm) を挟む
+- close (OS ウィンドウのネイティブ close / cmd+w / dock ボタン) は window draft の破棄境界。
+  dirty ならネイティブ close を ChildWindow の blockClose (beforeunload veto) で止め、
+  Save / Don't Save / Cancel の確認を挟む。確認ダイアログは per-window の
+  `createUnsavedDraftConfirm()` instance をこの window 内に mount して自ウィンドウに出す
+  (main の shared singleton を使うとダイアログが main window に出てしまう)
+- cmd+s は keybinding 系 (childWindow.save → ChildWindow の saveRequested emit) 経由で
+  window ローカルの saveEdit に届く
 - 再取得が notFound / 失敗のときは直前の内容を維持する (undock 後のファイル削除・worktree
   消失でもウィンドウは生存する既存契約)
 
-ドラッグ / リサイズ / クランプ / 初期サイズ換算は汎用シェル FloatingWindow に委譲。
+ウィンドウの実体は別 OS ウィンドウで、生成・スタイル複製・close 経路は汎用シェル
+ChildWindow に委譲。移動 / リサイズ / 前面順は OS ネイティブに任せる。
 ヘッダには undock 時点の出自 (repo / branch / ファイル名) を焼き込む — worktree 切替を
 跨いで生存するウィンドウを識別するため。repo 未解決 (worktree 外の絶対パス等) は
-出自の段ごと省く。
+出自の段ごと省く。タイトルバー (document.title) はファイル名。
 
 ヘッダの dock ボタンで undock 元の選択を本体 preview として開き直せる。開けたらウィンドウは
 閉じる (本体への昇格であり二重表示を残さない。undock 時に popover を閉じるのと対称)。undock 元
@@ -59,16 +65,17 @@ import {
   rpcFsWriteFileAbsolute,
 } from "../filer";
 import type { FsChangeAbsolutePayload } from "../filer";
-import { FloatingWindow } from "../floating-window";
+import { ChildWindow } from "../floating-window";
 import { RepoIcon } from "../repo-icon";
 import { joinAbsRel, useWorktreeStore } from "../worktree";
 import PreviewContent from "./PreviewContent.vue";
 import { detectFileType } from "./previewFileType";
 import type { PreviewMode } from "./previewMode";
 import PreviewToolbar from "./PreviewToolbar.vue";
+import UnsavedDraftConfirmDialog from "./UnsavedDraftConfirmDialog.vue";
 import { usePreviewStore } from "./usePreviewStore";
 import { useUndockedPreview, type UndockedPreview } from "./useUndockedPreview";
-import { useUnsavedDraftConfirm } from "./useUnsavedDraftConfirm";
+import { createUnsavedDraftConfirm } from "./useUnsavedDraftConfirm";
 import IconMdiDockRight from "~icons/mdi/dock-right";
 
 interface Props {
@@ -76,12 +83,13 @@ interface Props {
 }
 
 const props = defineProps<Props>();
-const { close, move, bringToFront, takeHandoff } = useUndockedPreview();
+const { close, takeHandoff } = useUndockedPreview();
 const worktreeStore = useWorktreeStore();
 const repoStore = useRepoStore();
 const previewStore = usePreviewStore();
 const notification = useNotificationStore();
-const draftConfirm = useUnsavedDraftConfirm();
+// 破棄確認はこの window 内に出す per-window instance (doc 参照)
+const draftConfirm = createUnsavedDraftConfirm();
 
 // preview ヘッダのドラッグから undock された場合の引き継ぎ。one-shot 消費 (UndockedLogWindow と同じ)。
 const handoff = takeHandoff(props.preview.id);
@@ -283,7 +291,8 @@ function withWindowDraftGuard(action: () => void) {
   });
 }
 
-/** close 要求 (close ボタン / cmd+w の closeRequested)。未保存 draft があれば確認を挟む */
+/** dirty 中のネイティブ close 要求 (ChildWindow の beforeunload veto 経由)。確認を挟み、
+ * 通過したら state を消してシェルにウィンドウを閉じさせる */
 function guardedClose() {
   withWindowDraftGuard(() => close(props.preview.id));
 }
@@ -320,117 +329,121 @@ function dockToPreview() {
 </script>
 
 <template>
-  <FloatingWindow
-    :x="preview.x"
-    :y="preview.y"
-    :z="preview.z"
-    :body-width="preview.bodyWidth"
-    :body-height="preview.bodyHeight"
-    :close-requested="preview.closeRequested"
+  <ChildWindow
+    :title="preview.fileName"
+    :screen-x="preview.screenX"
+    :screen-y="preview.screenY"
+    :width="preview.width"
+    :height="preview.height"
+    :block-close="isDirty"
     :handoff="handoff"
-    @move="(x, y) => move(preview.id, x, y)"
-    @activate="bringToFront(preview.id)"
-    @close="guardedClose"
+    @close="close(preview.id)"
+    @close-requested="guardedClose"
+    @save-requested="saveEdit()"
   >
-    <!-- UndockedLogWindow と同じ 2 段構成 (上段: repo アイコン + repo 名 + branch / 下段:
-         ファイル)。repo 未解決 (空文字) は上段ごと省く。 -->
-    <template #header>
-      <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-        <div v-if="preview.repoName !== ''" class="flex items-center gap-2">
-          <RepoIcon :name="preview.repoName" :owner="preview.repoOwner" />
-          <span class="shrink-0 truncate text-xs font-semibold tracking-wide">
-            {{ preview.repoName }}
-          </span>
-          <span
-            v-if="preview.branch !== ''"
-            class="min-w-0 flex-1 truncate text-xs text-foreground-low"
-          >
-            {{ preview.branch }}
-          </span>
+    <!-- OS ウィンドウ全面を占めるルート。テキスト / 背景の既定は複製 CSS の Tier 3 でも
+         当たるが、ルートで明示して child 側の描画を自立させる -->
+    <div class="flex h-screen flex-col bg-background text-foreground">
+      <!-- UndockedLogWindow と同じ 2 段構成 (上段: repo アイコン + repo 名 + branch / 下段:
+           ファイル)。repo 未解決 (空文字) は上段ごと省く。close はネイティブ titlebar に
+           任せ、consumer 固有の dock ボタンだけ右上に置く -->
+      <header class="flex shrink-0 items-start gap-2 border-b border-border bg-panel px-2 py-1">
+        <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div v-if="preview.repoName !== ''" class="flex items-center gap-2">
+            <RepoIcon :name="preview.repoName" :owner="preview.repoOwner" />
+            <span class="shrink-0 truncate text-xs font-semibold tracking-wide">
+              {{ preview.repoName }}
+            </span>
+            <span
+              v-if="preview.branch !== ''"
+              class="min-w-0 flex-1 truncate text-xs text-foreground-low"
+            >
+              {{ preview.branch }}
+            </span>
+          </div>
+          <div class="flex min-w-0 items-center gap-2">
+            <img :src="iconUrl" class="size-4 shrink-0" alt="" />
+            <span class="min-w-0 truncate text-xs font-semibold" :title="preview.displayPath">
+              {{ preview.fileName }}
+            </span>
+          </div>
         </div>
-        <div class="flex min-w-0 items-center gap-2">
-          <img :src="iconUrl" class="size-4 shrink-0" alt="" />
-          <span class="min-w-0 truncate text-xs font-semibold" :title="preview.displayPath">
-            {{ preview.fileName }}
-          </span>
-        </div>
-      </div>
-    </template>
 
-    <!-- undock 元を本体 preview として開き直す (wt 切替 + filer reveal)。シェルの close と
-         同一グループ (ヘッダ右上) に集約する -->
-    <template #actions>
-      <button
-        type="button"
-        aria-label="Dock to preview"
-        title="Dock to preview"
-        class="grid size-5 shrink-0 place-items-center rounded-sm text-foreground-low hover:bg-element-hover hover:text-foreground"
-        @pointerdown.stop
-        @click="dockToPreview()"
-      >
-        <IconMdiDockRight class="size-3.5" />
-      </button>
-    </template>
-
-    <!-- 本体と同一のツールバー (モードタブ + Preview / Wrap)。state だけ window ローカル -->
-    <PreviewToolbar
-      v-model:active-mode="activeMode"
-      v-model:preview-enabled="previewEnabled"
-      v-model:word-wrap="wordWrap"
-      class="shrink-0"
-      :modes="modes"
-      :original-hash-label="preview.originalHashLabel"
-      :file-type="fileType"
-    />
-
-    <!-- 本文 leaf 切替も本体と共有の PreviewContent。テキスト面 (code / diff) は string、
-         画像は union のまま渡し、binary 判定は content の型から導出する (本体と同じ規律)。
-         保存ツールバーは本体 PreviewPane と同じ「未保存の変更があるときだけ Discard/Save を
-         フローティング表示」(relative ラッパー基準で右上固定) -->
-    <div class="relative min-h-0 flex-1">
-      <div
-        v-if="editable && isDirty"
-        class="absolute top-2 right-4 z-10 flex h-7 items-center gap-2 rounded-md border border-border bg-panel px-2 shadow-sm"
-      >
+        <!-- undock 元を本体 preview として開き直す (wt 切替 + filer reveal) -->
         <button
           type="button"
-          class="text-xs text-foreground-low hover:text-foreground"
-          title="Discard changes"
-          aria-label="Discard changes"
-          @click="discardEdit()"
+          aria-label="Dock to preview"
+          title="Dock to preview"
+          class="grid size-5 shrink-0 place-items-center rounded-sm text-foreground-low hover:bg-element-hover hover:text-foreground"
+          @click="dockToPreview()"
         >
-          Discard
+          <IconMdiDockRight class="size-3.5" />
         </button>
-        <button
-          type="button"
-          class="rounded-sm bg-primary px-2 py-0.5 text-xs text-foreground hover:bg-primary-hover disabled:bg-element disabled:text-foreground-muted disabled:hover:bg-element"
-          :disabled="saving"
-          title="Save"
-          aria-label="Save"
-          @click="saveEdit()"
-        >
-          Save
-        </button>
-      </div>
+      </header>
 
-      <PreviewContent
-        class="size-full select-text"
-        :file-path="doc.filePath"
+      <!-- 本体と同一のツールバー (モードタブ + Preview / Wrap)。state だけ window ローカル -->
+      <PreviewToolbar
+        v-model:active-mode="activeMode"
+        v-model:preview-enabled="previewEnabled"
+        v-model:word-wrap="wordWrap"
+        class="shrink-0"
+        :modes="modes"
+        :original-hash-label="preview.originalHashLabel"
         :file-type="fileType"
-        :active-mode="activeMode"
-        :preview-enabled="previewEnabled"
-        :word-wrap="wordWrap"
-        :original-content="originalText"
-        :diff-current="diffCurrent"
-        :code-content="codeContent"
-        :display-content="displayContent"
-        :image-source="imageSource"
-        :display-is-binary="displayIsBinary"
-        :error="contentError"
-        :editable="editable"
-        @update-content="draft = $event"
-        @image-error="imageError = true"
       />
+
+      <!-- 本文 leaf 切替も本体と共有の PreviewContent。テキスト面 (code / diff) は string、
+           画像は union のまま渡し、binary 判定は content の型から導出する (本体と同じ規律)。
+           保存ツールバーは本体 PreviewPane と同じ「未保存の変更があるときだけ Discard/Save を
+           フローティング表示」(relative ラッパー基準で右上固定) -->
+      <div class="relative min-h-0 flex-1">
+        <div
+          v-if="editable && isDirty"
+          class="absolute top-2 right-4 z-10 flex h-7 items-center gap-2 rounded-md border border-border bg-panel px-2 shadow-sm"
+        >
+          <button
+            type="button"
+            class="text-xs text-foreground-low hover:text-foreground"
+            title="Discard changes"
+            aria-label="Discard changes"
+            @click="discardEdit()"
+          >
+            Discard
+          </button>
+          <button
+            type="button"
+            class="rounded-sm bg-primary px-2 py-0.5 text-xs text-foreground hover:bg-primary-hover disabled:bg-element disabled:text-foreground-muted disabled:hover:bg-element"
+            :disabled="saving"
+            title="Save"
+            aria-label="Save"
+            @click="saveEdit()"
+          >
+            Save
+          </button>
+        </div>
+
+        <PreviewContent
+          class="size-full select-text"
+          :file-path="doc.filePath"
+          :file-type="fileType"
+          :active-mode="activeMode"
+          :preview-enabled="previewEnabled"
+          :word-wrap="wordWrap"
+          :original-content="originalText"
+          :diff-current="diffCurrent"
+          :code-content="codeContent"
+          :display-content="displayContent"
+          :image-source="imageSource"
+          :display-is-binary="displayIsBinary"
+          :error="contentError"
+          :editable="editable"
+          @update-content="draft = $event"
+          @image-error="imageError = true"
+        />
+      </div>
+
+      <!-- 破棄確認はこの window の top layer に出す (per-window instance。doc 参照) -->
+      <UnsavedDraftConfirmDialog :confirm="draftConfirm" />
     </div>
-  </FloatingWindow>
+  </ChildWindow>
 </template>

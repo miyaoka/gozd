@@ -11,10 +11,11 @@
 - 本文の leaf 切替 (v-else-if 連鎖): `PreviewContent`（undocked window と共有する表示 SSOT）
 - 独立ウィンドウへの切り離し: ヘッダの undock ボタン、またはヘッダのドラッグ (しきい値
   超過) で raw source をスナップショット化して `useUndockedPreview` /
-  UndockedPreviewLayer へ undock する
-  (terminal の session preview popover と同じ操作感)。ドラッグ経路は undock 元の rect と
-  掴んだ pointer を `UndockDragHandoff` でウィンドウへ引き継ぎ、pane を掴んでそのまま
-  引き剥がす操作感にする。undock 後は popover を閉じる (二重表示を残さない)
+  UndockedPreviewLayer へ undock する。ウィンドウは別 OS ウィンドウ (ChildWindow) で、
+  pane の実測 rect をスクリーン座標に換算した位置に現れる (その場で OS ウィンドウ化した
+  ような視覚的連続性)。ドラッグ経路は掴んだ pointer を `UndockDragHandoff` で引き継ぎ、
+  ChildWindow が moveTo 追従に変換して pane を掴んだままウィンドウごと引き剥がす操作感を
+  保つ。undock 後は popover を閉じる (二重表示を残さない)
 
 本コンポーネントに残るのは上記レイヤー間の配線だけ。
 
@@ -165,11 +166,9 @@ const currentIsWorkingTree = computed<boolean>(() => {
   return orderedRange.value?.newer === UNCOMMITTED_HASH;
 });
 
-// undock 時の実測対象。位置は pane 全体 (paneBox) の rect、サイズは本文領域 (paneBody) の
-// rect を固定ウィンドウへ引き継ぎ、pane がその場でフローティング化したような視覚的
-// 連続性を出す (総サイズでなく本文サイズを渡す理由は useFloatingWindows の doc 参照)。
+// undock 時の実測対象。pane 全体 (paneBox) の rect をスクリーン座標へ換算して OS ウィンドウの
+// 初期 frame にし、pane がその場で OS ウィンドウ化したような視覚的連続性を出す。
 const paneBoxRef = useTemplateRef<HTMLElement>("paneBox");
-const paneBodyRef = useTemplateRef<HTMLElement>("paneBody");
 
 /**
  * undock 時点の raw source (current / original の 2 rev の中身) をスナップショット化する。
@@ -221,14 +220,15 @@ const canUndock = computed<boolean>(
 function undockPreview(handoff?: UndockDragHandoff) {
   const path = selectedDisplayPath.value;
   const box = paneBoxRef.value;
-  const body = paneBodyRef.value;
-  if (path === undefined || box === null || body === null) return;
+  if (path === undefined || box === null) return;
   const source = resolveUndockSource();
   if (source === undefined) return;
   const doc = buildUndockedDoc();
   if (doc === undefined) return;
   const rect = box.getBoundingClientRect();
-  const bodyRect = body.getBoundingClientRect();
+  // ビューポート座標 → スクリーン座標。screenX/Y は OS ウィンドウ外枠の原点なので、
+  // コンテンツ原点とのずれ (titlebar 等の chrome 高) を outer/inner 差で補正する
+  const chromeY = window.outerHeight - window.innerHeight;
   // ヘッダ上段の出自 (repo + worktree branch)。undocked window は worktree 切替を跨いで
   // 生存するため undock 時点の値を焼き込む (UndockedLogWindow のヘッダと同じ規律)。
   // worktree 外の絶対パス (session log 等) は repo 帰属が無いので解決しない (空文字で
@@ -262,10 +262,10 @@ function undockPreview(handoff?: UndockDragHandoff) {
         currentIsWorkingTree.value && editStore.isDirty ? editStore.draftContent : undefined,
       doc,
       source,
-      x: rect.left,
-      y: rect.top,
-      bodyWidth: bodyRect.width,
-      bodyHeight: bodyRect.height,
+      screenX: window.screenX + rect.left,
+      screenY: window.screenY + chromeY + rect.top,
+      width: rect.width,
+      height: rect.height,
     },
     handoff,
   );
@@ -283,9 +283,8 @@ function undockPreview(handoff?: UndockDragHandoff) {
 const DRAG_UNDOCK_THRESHOLD = 4;
 
 // ヘッダのドラッグ検知。しきい値を超えたら undock して、掴んでいる pointer ごと
-// UndockedPreviewWindow へドラッグを引き継ぐ (UndockDragHandoff)。undock は rect を実測してから
-// popover を閉じるので、ウィンドウは掴んだその位置に現れてそのまま動かせる
-// (TerminalSessionPreview の全文 popover と同じ流儀)。
+// ChildWindow へドラッグを引き継ぐ (UndockDragHandoff → moveTo 追従)。undock は rect を
+// 実測してから popover を閉じるので、ウィンドウは掴んだその位置に現れてそのまま動かせる。
 let headerDrag: { pointerId: number; startX: number; startY: number } | undefined;
 
 function onHeaderPointerDown(event: PointerEvent) {
@@ -296,7 +295,7 @@ function onHeaderPointerDown(event: PointerEvent) {
   if (!(header instanceof HTMLElement)) return;
   // しきい値到達前に pointer がヘッダ外へ滑っても pointermove を受け続けるため capture する。
   // undock 発火後は popover が hide されるが要素は mount されたままなので、capture された
-  // pointer の event は window までバブリングし FloatingWindow のドラッグ追従が継続する。
+  // pointer の event は window までバブリングし ChildWindow の moveTo 追従が継続する。
   header.setPointerCapture(event.pointerId);
   headerDrag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY };
 }
@@ -428,7 +427,7 @@ function onCodeScrolled() {
            真逆の破壊的アクションである save/discard をアイコンだけの小さなボタンで
            隣接させると誤操作しやすいため、ラベルと視覚的な重み (Save = primary 塗りつぶし、
            Discard = 地味なテキスト) の非対称性で区別する。 -->
-      <div ref="paneBody" class="relative min-h-0 flex-1">
+      <div class="relative min-h-0 flex-1">
         <div
           v-if="isEditable && isDirty"
           class="absolute top-2 right-4 z-10 flex h-7 items-center gap-2 rounded-md border border-border bg-panel px-2 shadow-sm"

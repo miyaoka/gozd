@@ -1,5 +1,6 @@
 // bun test の preload（bunfig.toml [test].preload）。テストプロセスの process.env から
 // GIT_* を除去し、テスト対象実装が spawn する git を ambient な git 環境から隔離する。
+// 隔離ポリシー（剥がす prefix / config 隔離ペア）の SSOT は testGitFixture.ts。
 //
 // git hook（lefthook の pre-commit ジョブ等）配下では git が GIT_DIR / GIT_INDEX_FILE を
 // 注入し、linked worktree ではどちらも絶対パスになる。GIT_DIR は cwd より優先されるため、
@@ -13,12 +14,10 @@
 // git 実行は testGitFixture.ts の runFixtureGit（env 明示指定）を必ず使う。この二層で
 // 「テスト対象」「fixture」双方の git spawn が隔離される。
 
-import { devNull } from "node:os";
+import { GIT_CONFIG_ISOLATION, GIT_ENV_PREFIX } from "./testGitFixture";
 
 for (const key of Object.keys(process.env)) {
-  if (key.startsWith("GIT_")) delete process.env[key];
+  if (key.startsWith(GIT_ENV_PREFIX)) delete process.env[key];
 }
 
-// ユーザー / システム gitconfig からの隔離（git t/test-lib.sh と同じ規律）
-process.env.GIT_CONFIG_GLOBAL = devNull;
-process.env.GIT_CONFIG_NOSYSTEM = "1";
+Object.assign(process.env, GIT_CONFIG_ISOLATION);

@@ -31,6 +31,7 @@ const handoff = takeHandoff(props.log.id);
     :z="log.z"
     :body-width="log.bodyWidth"
     :body-height="log.bodyHeight"
+    :close-requested="log.closeRequested"
     :handoff="handoff"
     @move="(x, y) => move(log.id, x, y)"
     @activate="bringToFront(log.id)"

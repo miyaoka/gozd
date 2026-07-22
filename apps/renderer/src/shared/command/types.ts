@@ -48,6 +48,7 @@ export interface ContextMap {
   filerFocus: boolean;
   previewVisible: boolean;
   previewEditable: boolean;
+  floatingWindowVisible: boolean;
   commandPaletteVisible: boolean;
   quickPickVisible: boolean;
   filePickerVisible: boolean;

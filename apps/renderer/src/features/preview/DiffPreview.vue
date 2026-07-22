@@ -951,7 +951,10 @@ async function mountMonacoDiffEditor() {
   // 編集内容の SSOT は editStore.draftContent。ここでは Monaco の変更を親 (PreviewPane) に
   // 伝播するだけで、dirty 判定は持たない。round-trip (同値で戻る props.current) は
   // 下の props 同期 watch の等値チェックで止まる。
-  modifiedEditor.onDidChangeModelContent(() => {
+  modifiedEditor.onDidChangeModelContent((e) => {
+    // isFlush (= props 同期 watch の setValue によるモデルリセット) はユーザー編集ではない
+    // ため emit しない (CodePreview の onDidChangeModelContent と同じ規律)
+    if (e.isFlush) return;
     emit("update:current", modifiedEditor.getValue());
   });
   // gutter クリック / context menu action → blame 起動 (side 別)。old 側 = 比較元 rev、

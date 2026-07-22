@@ -22,9 +22,13 @@ snapshot に固定する — 過去の内容で実ファイルを上書き保存
 - original (比較元 rev) 側は undock 時点に固定のまま。live な git 文脈 (rev 解決・blame) は
   ヘッダの dock ボタンで本体 preview に昇格して得る
 - 編集は window ローカルの draft / save (本体の editStore とは独立した per-window
-  セッション)。dirty の間は外部変更で上書きしないが、イベントは保留して編集終了
+  セッション)。undock 時の本体の未保存 draft は initialDraft としてここへ「移動」する
+  (本体セッションは undock 時に畳まれ、未保存編集の所有者はウィンドウに一意化される)。
+  dirty の間は外部変更で上書きしないが、イベントは保留して編集終了
   (Discard / Save) 時に再取得する (捨てると Discard 後に stale が残る)。Original
   タブは履歴表示のため編集対象外
+- close (close ボタン / cmd+w の closeRequested / dock ボタン) は window draft の破棄境界。
+  dirty なら Save / Don't Save / Cancel の確認 (useUnsavedDraftConfirm) を挟む
 - 再取得が notFound / 失敗のときは直前の内容を維持する (undock 後のファイル削除・worktree
   消失でもウィンドウは生存する既存契約)
 
@@ -64,6 +68,7 @@ import type { PreviewMode } from "./previewMode";
 import PreviewToolbar from "./PreviewToolbar.vue";
 import { usePreviewStore } from "./usePreviewStore";
 import { useUndockedPreview, type UndockedPreview } from "./useUndockedPreview";
+import { useUnsavedDraftConfirm } from "./useUnsavedDraftConfirm";
 import IconMdiDockRight from "~icons/mdi/dock-right";
 
 interface Props {
@@ -76,6 +81,7 @@ const worktreeStore = useWorktreeStore();
 const repoStore = useRepoStore();
 const previewStore = usePreviewStore();
 const notification = useNotificationStore();
+const draftConfirm = useUnsavedDraftConfirm();
 
 // preview ヘッダのドラッグから undock された場合の引き継ぎ。one-shot 消費 (UndockedLogWindow と同じ)。
 const handoff = takeHandoff(props.preview.id);
@@ -138,8 +144,10 @@ const contentError = computed<string | undefined>(() =>
 
 // ==== 編集 (window ローカルの per-window セッション) ====
 
-/** 未保存の編集。undefined = 編集なし。本体の editStore とは独立した window ローカル状態 */
-const draft = ref<string>();
+/** 未保存の編集。undefined = 編集なし。本体の editStore とは独立した window ローカル状態。
+ * 初期値は undock 時点の本体 draft (initialDraft)。undock は draft の移動であり、本体側
+ * セッションは undock 時に畳まれている (PreviewPane の undockPreview 参照) */
+const draft = ref<string | undefined>(props.preview.initialDraft);
 const saving = ref(false);
 const isDirty = computed(() => draft.value !== undefined && draft.value !== currentText.value);
 
@@ -255,28 +263,59 @@ if (props.preview.currentIsWorkingTree) {
 }
 
 /**
+ * dirty な window draft を破棄する操作のガード。クリーンなら action を即実行、dirty なら
+ * Save / Don't Save / Cancel の確認を挟む (本体 previewStore の withDraftGuard と同じ意味論。
+ * draft の SSOT が window ローカルなのでガードもここに持つ)。
+ */
+function withWindowDraftGuard(action: () => void) {
+  if (!isDirty.value) {
+    action();
+    return;
+  }
+  draftConfirm.request({
+    fileName: props.preview.fileName,
+    save: async () => {
+      await saveEdit();
+      return !isDirty.value;
+    },
+    discard: discardEdit,
+    proceed: action,
+  });
+}
+
+/** close 要求 (close ボタン / cmd+w の closeRequested)。未保存 draft があれば確認を挟む */
+function guardedClose() {
+  withWindowDraftGuard(() => close(props.preview.id));
+}
+
+/**
  * undock 元の選択を本体 preview として開き直す (doc 参照)。worktree 由来は
  * setOpen → forceSelect の順で呼ぶ: usePreviewStore の dir watch (flush: 'sync') が
  * setOpen の dir 切替と同期で close を消化し、続く forceSelect の open が最終状態として
  * 残る (useGozdOpenHandler と同じシーケンス)。
+ *
+ * ウィンドウは閉じられる = window draft の破棄境界なので、dirty なら確認を挟む
+ * (開き先が無いエラーは draft と無関係なため、ガードより先に判定して確認自体を出さない)。
  */
 function dockToPreview() {
-  if (source.kind === "absolute") {
-    previewStore.forceSelect({ kind: "absolute", absPath: source.absPath });
-    close(props.preview.id);
-    return;
-  }
   // undock 元 worktree が閉じられた / 削除された後は開き先が無い。silent no-op にせず、
   // snapshot (ウィンドウ) も残す — 開けなかったのに表示だけ失う状態を作らない
-  if (repoStore.findRepoOwning(source.dir) === undefined) {
+  if (source.kind !== "absolute" && repoStore.findRepoOwning(source.dir) === undefined) {
     notification.error("Worktree is no longer open");
     return;
   }
-  worktreeStore.setOpen(source.dir);
-  previewStore.forceSelect({ kind: "worktreeRelative", relPath: source.relPath });
-  // 本体 preview へ昇格したらウィンドウは役目を終える (二重表示を残さない。
-  // undock 時に popover を閉じるのと対称の規律)
-  close(props.preview.id);
+  withWindowDraftGuard(() => {
+    if (source.kind === "absolute") {
+      previewStore.forceSelect({ kind: "absolute", absPath: source.absPath });
+      close(props.preview.id);
+      return;
+    }
+    worktreeStore.setOpen(source.dir);
+    previewStore.forceSelect({ kind: "worktreeRelative", relPath: source.relPath });
+    // 本体 preview へ昇格したらウィンドウは役目を終える (二重表示を残さない。
+    // undock 時に popover を閉じるのと対称の規律)
+    close(props.preview.id);
+  });
 }
 </script>
 
@@ -287,10 +326,11 @@ function dockToPreview() {
     :z="preview.z"
     :body-width="preview.bodyWidth"
     :body-height="preview.bodyHeight"
+    :close-requested="preview.closeRequested"
     :handoff="handoff"
     @move="(x, y) => move(preview.id, x, y)"
     @activate="bringToFront(preview.id)"
-    @close="close(preview.id)"
+    @close="guardedClose"
   >
     <!-- UndockedLogWindow と同じ 2 段構成 (上段: repo アイコン + repo 名 + branch / 下段:
          ファイル)。repo 未解決 (空文字) は上段ごと省く。 -->

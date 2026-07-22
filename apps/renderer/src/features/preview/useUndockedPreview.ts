@@ -26,8 +26,9 @@ import type { PreviewMode } from "./previewMode";
  */
 export interface UndockedPreviewDoc {
   filePath: string;
-  /** current 側の undock 時点の中身 (window 側 live 追従の初期値)。テキストは string
-   * (編集 draft 込み)、バイナリは bytes。無ければ undefined。 */
+  /** current 側の undock 時点の中身 (window 側 live 追従の初期値)。テキストは string、
+   * バイナリは bytes。無ければ undefined。未保存編集は含まない (draft は initialDraft で
+   * 別途運ぶ — current は dirty 判定の基準になる disk / rev 内容)。 */
   current: string | WireBytes | undefined;
   /** original (比較元) 側の中身。undock 後も不変。比較元が無ければ undefined。 */
   original: string | WireBytes | undefined;
@@ -74,6 +75,10 @@ interface UndockedPreviewData {
    * なら window は live 追従も編集もせず undock 時 snapshot に固定する — 過去の内容で
    * 実ファイルを上書き保存する事故を構造的に防ぐ。 */
   currentIsWorkingTree: boolean;
+  /** undock 時点の本体の未保存編集 (window 側 draft の初期値)。undock は draft の「移動」で、
+   * 本体セッションは undock 時に畳まれるため、未保存編集の所有者はウィンドウに一意化される。
+   * クリーンな undock / 編集不可 (currentIsWorkingTree=false) は undefined。 */
+  initialDraft: string | undefined;
   doc: UndockedPreviewDoc;
   source: UndockedPreviewSource;
 }

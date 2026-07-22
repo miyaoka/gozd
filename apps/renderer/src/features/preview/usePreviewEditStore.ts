@@ -102,7 +102,16 @@ export const usePreviewEditStore = defineStore("preview-edit", () => {
     draftContent.value = savedContent.value;
   }
 
+  /**
+   * draft はセッションの中でだけ存在する。セッション外 (endSession 後) の呼び出しは無視する:
+   * Monaco の onDidChangeModelContent はプログラム的な setValue でも発火するため、
+   * discard → endSession → (flush) content prop 反映 → update:content の順で endSession の
+   * 後に updateDraft が着弾する。無視しないと target 無しの draft だけが残り、isDirty が
+   * 復活して close 確認が再表示される (対象切替経路では直後の beginSession が上書きするため
+   * 顕在化しない)。
+   */
   function updateDraft(content: string) {
+    if (target.value === undefined) return;
     draftContent.value = content;
   }
 
@@ -143,6 +152,7 @@ export const usePreviewEditStore = defineStore("preview-edit", () => {
   return {
     draftContent,
     savedContent,
+    target,
     isDirty,
     hasSession,
     saving,

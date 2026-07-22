@@ -24,6 +24,10 @@ pre-commit:
             root: "apps/renderer/"
             glob: "**/*.{ts,vue}"
             run: pnpm run typecheck
+          - name: typecheck-electron
+            root: "apps/electron/"
+            glob: "**/*.ts"
+            run: pnpm run typecheck
           - name: test-shared
             root: "packages/shared/"
             glob: "**/*.ts"
@@ -34,6 +38,10 @@ pre-commit:
             run: bun test
           - name: test-renderer
             root: "apps/renderer/"
+            glob: "**/*.ts"
+            run: bun test
+          - name: test-electron
+            root: "apps/electron/"
             glob: "**/*.ts"
             run: bun test
 
@@ -58,6 +66,11 @@ pre-commit:
             stage_fixed: true
           - name: oxlint-claude-session-log
             root: "packages/claude-session-log/"
+            glob: "**/*.ts"
+            run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
+            stage_fixed: true
+          - name: oxlint-electron
+            root: "apps/electron/"
             glob: "**/*.ts"
             run: pnpm exec oxlint --type-aware --fix {staged_files} && pnpm exec oxfmt {staged_files}
             stage_fixed: true

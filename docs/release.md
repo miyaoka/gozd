@@ -56,6 +56,9 @@ gozd-macos-arm64.tar.gz
   1 個だけの tar は `strip_components=1` が自動適用され `.app` バンドルが解体される
 - release notes は `--generate-notes` 自動生成。renovate / dependencies は
   `.github/release.yml` で除外する
+- ノートの範囲: canary は直前リリースとの差分（起点自動決定のまま）、stable は
+  `--notes-start-tag`（前回 stable）起点で canary サイクル全体を含める。起点の自動決定は
+  channel を区別せず直前リリースに倒れるため、stable 側だけ明示が要る
 
 ## mise インストール
 

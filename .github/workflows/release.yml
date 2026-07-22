@@ -36,6 +36,7 @@ jobs:
       proceed: ${{ steps.decide.outputs.proceed }}
       tag: ${{ steps.decide.outputs.tag }}
       channel: ${{ steps.decide.outputs.channel }}
+      prev_stable: ${{ steps.decide.outputs.prev_stable }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -101,6 +102,7 @@ jobs:
             echo "proceed=true"
             echo "tag=${tag}"
             echo "channel=${channel}"
+            echo "prev_stable=${latest_stable}"
           } >> "${GITHUB_OUTPUT}"
 
   # ==============================================================
@@ -162,12 +164,16 @@ jobs:
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
+          PREV_STABLE: ${{ needs.decide.outputs.prev_stable }}
         run: |
           set -euo pipefail
           flags=(--generate-notes --target "${GITHUB_SHA}")
           if [[ "${CHANNEL}" == "canary" ]]; then
             flags+=(--prerelease)
           else
-            flags+=(--latest)
+            # generate-notes の起点自動決定は channel を区別せず直前リリース（canary 含む）に
+            # なるため、stable は前回 stable を起点に明示して canary サイクル全体を含める。
+            # 前回 stable が tag として実在しない異常系は gh release create が失敗して止まる
+            flags+=(--latest --notes-start-tag "${PREV_STABLE}")
           fi
           gh release create "${TAG}" "${flags[@]}" gozd-macos-arm64.tar.gz

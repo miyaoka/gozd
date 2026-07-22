@@ -14,7 +14,9 @@
     "start": "electron .",
     "spike": "pnpm build && GOZD_SPIKE_TEST=1 electron .",
     "test": "bun test",
-    "typecheck": "tsgo --noEmit"
+    "typecheck": "tsgo --noEmit",
+    "lint": "oxlint --type-aware",
+    "fix": "oxlint --type-aware --fix && oxfmt ."
   },
   "dependencies": {
     "@parcel/watcher": "2.5.6",

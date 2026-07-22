@@ -33,14 +33,13 @@ setWindowOpenHandler が about:blank だけを allow する契約とセット。
   window drag をプログラムから開始する API は無いが、掴んだままの pointer の capture は
   opener 側 window に残り続けるため、opener の pointermove をウィンドウ移動へ変換して
   追従させる (pointer と child の間の offset をスクリーン座標で保つ)
-- 追従は script が開いた popup に許可されている `moveTo()` で行う。`moveTo()` は現在の
-  ディスプレイ内にクランプされる (Chromium の popup 逃亡対策) ため、ドラッグ追従で
-  ディスプレイは跨げない (既知の制限)。クランプ解除の代替は両方実測済みで不採用:
-  Window Management permission 経路 (`getScreenDetails()`) は Electron の browser 層が
-  実装しておらず効かない。main の `setPosition` へ RPC で流すとクランプは消えるが、
-  macOS のウィンドウ帰属 (過半のディスプレイの Space に属す) の切り替えと座標変換の
-  基準フリップが押し合い、境界付近で発振する。跨ぎたい場合はネイティブ titlebar ドラッグ
-  (window server の特別扱いで跨げる) を使う
+- 追従は main の `setPosition` へ RPC で流す (`/childWindow/move`。位置のみ書き高さに
+  触れない)。renderer の `moveTo` / `resizeBy` は使わない — Blink がキャッシュした高さ込みの
+  full rect を SetBounds へ送るため、初回レイアウト前 (inner=0) や mount 時の header resize と
+  並走するドラッグで高さを破壊する (bounds ログの実測で確認)。`moveTo` にあった
+  ディスプレイ内クランプ (Chromium の popup 逃亡対策) は setPosition には無い。過去の検討では
+  setPosition 追従に macOS のウィンドウ帰属切替との押し合いで境界発振の観測があり、
+  ディスプレイ境界跨ぎの挙動は要実機確認 (発振する場合はネイティブ titlebar ドラッグが代替)
 - `window.open` の frame 名は乱数で一意化する。main が did-create-window の
   `details.frameName` で BrowserWindow を registry に確保し、main window 向け一括操作
   (setTitleContext) から child を除外する判定に使う
@@ -72,7 +71,8 @@ interface Props {
   height: number;
   /** true の間、ネイティブ close を veto して closeRequested を emit する (dirty ガード用)。 */
   blockClose: boolean;
-  /** undock 元から引き継いだドラッグ (moveTo 追従。doc 参照)。offset はコンテンツ原点基準。 */
+  /** undock 元から引き継いだドラッグ (main setPosition の RPC 追従。doc 参照)。offset は
+   * コンテンツ原点基準。 */
   handoff?: UndockDragHandoff;
 }
 

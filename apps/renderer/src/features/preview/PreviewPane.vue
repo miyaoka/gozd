@@ -14,7 +14,7 @@
   UndockedPreviewLayer へ undock する。ウィンドウは別 OS ウィンドウ (ChildWindow) で、
   pane の実測 rect をスクリーン座標に換算した位置に現れる (その場で OS ウィンドウ化した
   ような視覚的連続性)。ドラッグ経路は掴んだ pointer を `UndockDragHandoff` で引き継ぎ、
-  ChildWindow が moveTo 追従に変換して pane を掴んだままウィンドウごと引き剥がす操作感を
+  ChildWindow が main setPosition の RPC 追従に変換して pane を掴んだままウィンドウごと引き剥がす操作感を
   保つ。undock 後は popover を閉じる (二重表示を残さない)
 
 本コンポーネントに残るのは上記レイヤー間の配線だけ。
@@ -283,7 +283,7 @@ function undockPreview(handoff?: UndockDragHandoff) {
 const DRAG_UNDOCK_THRESHOLD = 4;
 
 // ヘッダのドラッグ検知。しきい値を超えたら undock して、掴んでいる pointer ごと
-// ChildWindow へドラッグを引き継ぐ (UndockDragHandoff → moveTo 追従)。undock は rect を
+// ChildWindow へドラッグを引き継ぐ (UndockDragHandoff → main setPosition の RPC 追従)。undock は rect を
 // 実測してから popover を閉じるので、ウィンドウは掴んだその位置に現れてそのまま動かせる。
 let headerDrag: { pointerId: number; startX: number; startY: number } | undefined;
 
@@ -295,7 +295,7 @@ function onHeaderPointerDown(event: PointerEvent) {
   if (!(header instanceof HTMLElement)) return;
   // しきい値到達前に pointer がヘッダ外へ滑っても pointermove を受け続けるため capture する。
   // undock 発火後は popover が hide されるが要素は mount されたままなので、capture された
-  // pointer の event は window までバブリングし ChildWindow の moveTo 追従が継続する。
+  // pointer の event は window までバブリングし ChildWindow の RPC 追従が継続する。
   header.setPointerCapture(event.pointerId);
   headerDrag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY };
 }

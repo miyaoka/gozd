@@ -41,15 +41,19 @@ const { close, takeHandoff } = useUndockedLog();
 const handoff = takeHandoff(props.log.id);
 
 // 総高さの決定は旧 FloatingWindow と同じ方式: 受け取った height は本文 (スクロール面) の
-// 高さで、mount 後に自分のヘッダの実測高をウィンドウに足す。これで本文高が undock 前後で
+// 高さで、mount 後にヘッダの実測高をウィンドウに足す。これで本文高が undock 前後で
 // 一致する (ヘッダ高を定数で持つと実描画とずれて本文が欠ける / 余るため実測が SSOT)。
+// 実測は child 側ヘッダではなく**ゴースト側ヘッダ**で行う — child document の複製 CSS は
+// packaged では <link rel=stylesheet> でシート適用が非同期になり、mount 直後の同期実測が
+// UA 既定スタイルの高さを読む恐れがある。ゴーストは main window 内で CSS 適用済みかつ
+// markup / class / 幅が child ヘッダと同一なので高さも一致する。
 // 加算は renderer の resizeBy ではなく RPC 経由で main が実 bounds に対して行う
 // (renderer の resize API は Blink キャッシュ基準で実 bounds とずれる。rpc.ts の doc 参照)。
 // open 失敗時は opened が emit されず frameName が undefined のままなので何もしない。
 const frameName = ref<string>();
-const headerRef = useTemplateRef<HTMLElement>("logHeader");
+const ghostHeaderRef = useTemplateRef<HTMLElement>("ghostHeader");
 onMounted(() => {
-  const header = headerRef.value;
+  const header = ghostHeaderRef.value;
   const frame = frameName.value;
   if (header === null || frame === undefined) return;
   void rpcChildWindowResizeBy({
@@ -98,7 +102,12 @@ onMounted(() => {
       zIndex: GHOST_Z,
     }"
   >
-    <header class="flex shrink-0 items-start gap-2 border-b border-border bg-panel px-2 py-1">
+    <!-- ゴースト側ヘッダが総高さ実測の対象 (script 内コメント参照)。child 側ヘッダと
+         markup / class を一致させ続けること -->
+    <header
+      ref="ghostHeader"
+      class="flex shrink-0 items-start gap-2 border-b border-border bg-panel px-2 py-1"
+    >
       <div class="flex min-w-0 flex-1 flex-col gap-0.5">
         <div v-if="log.repoName !== ''" class="flex items-center gap-2">
           <RepoIcon :name="log.repoName" :owner="log.repoOwner" />
@@ -137,10 +146,7 @@ onMounted(() => {
     <div class="flex h-screen flex-col bg-background text-foreground">
       <!-- TerminalLeafTitle と同じ 2 段構成 (上段: repo アイコン + repo 名 / 下段: session
            タイトル)。repo 未解決 (空文字) は上段ごと省く。close はネイティブ titlebar に任せる -->
-      <header
-        ref="logHeader"
-        class="flex shrink-0 items-start gap-2 border-b border-border bg-panel px-2 py-1"
-      >
+      <header class="flex shrink-0 items-start gap-2 border-b border-border bg-panel px-2 py-1">
         <div class="flex min-w-0 flex-1 flex-col gap-0.5">
           <div v-if="log.repoName !== ''" class="flex items-center gap-2">
             <RepoIcon :name="log.repoName" :owner="log.repoOwner" />

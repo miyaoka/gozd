@@ -26,7 +26,8 @@ export interface ChildWindowInit {
  * undock と同時にドラッグを開始する引き継ぎ情報。undock 元ヘッダのドラッグで undock する経路では、
  * 掴んでいた要素が undock と同時に消える (unmount / hide) ため pointer capture を持ち越せない。
  * undock() がこれを預かり、mount されたウィンドウが takeHandoff() で 1 回だけ消費して
- * 同じ pointerId のドラッグとして継続する (ChildWindow が moveTo 追従に変換する)。
+ * 同じ pointerId のドラッグとして継続する (ChildWindow が main setPosition の RPC 追従に
+ * 変換する)。
  */
 export interface UndockDragHandoff {
   pointerId: number;

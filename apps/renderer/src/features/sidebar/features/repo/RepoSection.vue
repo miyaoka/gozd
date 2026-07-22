@@ -106,8 +106,9 @@ const collapsed = computed(() => repoStore.isCollapsed(props.rootDir));
 
 const active = computed(() => repoStore.selectedRootDir === props.rootDir);
 
-/** GitHub owner (org / 個人ユーザー)。取得は useSidebarData、SSOT は repoStore.githubIdentity */
-const githubOwner = computed(() => repo.value?.githubIdentity?.owner ?? "");
+/** GitHub owner (org / 個人ユーザー)。取得は useSidebarData、SSOT は repoStore.githubIdentity。
+ * undefined は解決中 (RepoIcon が空プレースホルダーを出す) */
+const githubOwner = computed(() => repo.value?.githubIdentity?.owner);
 
 const worktrees = computed(() => repo.value?.worktrees ?? []);
 

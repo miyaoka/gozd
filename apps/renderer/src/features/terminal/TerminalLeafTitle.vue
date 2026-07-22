@@ -42,8 +42,8 @@ const visual = computed(() =>
 /** dir が属する repo。起動直後の未登録時は undefined */
 const repo = computed(() => repoStore.findRepoOwning(props.dir));
 const repoName = computed(() => repo.value?.repoName ?? "");
-/** GitHub owner。空文字は未解決（RepoIcon が identicon にフォールバックする） */
-const repoOwner = computed(() => repo.value?.githubIdentity?.owner ?? "");
+/** GitHub owner。undefined は解決中（RepoIcon が空プレースホルダーを出す） */
+const repoOwner = computed(() => repo.value?.githubIdentity?.owner);
 
 /** leaf → ptyId → sessionId → Task → 表示タイトル。Task 未到達時は undefined */
 const title = computed<string | undefined>(() => {

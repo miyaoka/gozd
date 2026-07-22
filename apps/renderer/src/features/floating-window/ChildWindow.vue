@@ -46,7 +46,7 @@ setWindowOpenHandler が about:blank だけを allow する契約とセット。
 </doc>
 
 <script setup lang="ts">
-import { CHILD_WINDOW_FRAME_PREFIX, CHILD_WINDOW_TITLEBAR_HEIGHT } from "@gozd/shared";
+import { CHILD_WINDOW_FRAME_PREFIX, CHILD_WINDOW_TITLEBAR_HEIGHT, tryCatch } from "@gozd/shared";
 import { useEventListener, useMutationObserver } from "@vueuse/core";
 import { onMounted, onUnmounted, ref } from "vue";
 import { useWindowKeyBindings } from "../../shared/command";
@@ -213,11 +213,15 @@ if (child === null) {
     // キャッシュの高さ込み full rect を SetBounds に送るため、mount 時の header resize と
     // 並走するドラッグで高さを破壊する (bounds 検証ログで確認済み)。座標は window 外枠
     // 原点。offset はコンテンツ原点基準なので titlebar 分を差し引いて換算する
-    void rpcChildWindowMove({
-      frameName,
-      x: Math.round(event.screenX - dragState.offsetX),
-      y: Math.round(event.screenY - dragState.offsetY - CHILD_WINDOW_TITLEBAR_HEIGHT),
-    });
+    // 失敗は次の pointermove で自己補正されるため通知しない。tryCatch は bare void で
+    // transport 失敗が unhandled rejection として量産されるのを防ぐため
+    void tryCatch(
+      rpcChildWindowMove({
+        frameName,
+        x: Math.round(event.screenX - dragState.offsetX),
+        y: Math.round(event.screenY - dragState.offsetY - CHILD_WINDOW_TITLEBAR_HEIGHT),
+      }),
+    );
   });
   const endDrag = (event: PointerEvent) => {
     if (dragState?.pointerId !== event.pointerId) return;

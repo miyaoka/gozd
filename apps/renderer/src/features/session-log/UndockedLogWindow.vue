@@ -23,7 +23,9 @@ event を転送) を合図にするイベント駆動。push が落ちた場合 
 </doc>
 
 <script setup lang="ts">
+import { tryCatch } from "@gozd/shared";
 import { onMounted, ref, useTemplateRef } from "vue";
+import { useNotificationStore } from "../../shared/notification";
 import { ChildWindow, rpcChildWindowResizeBy } from "../floating-window";
 import { RepoIcon } from "../repo-icon";
 import SessionLogMessageBody from "./SessionLogMessageBody.vue";
@@ -50,15 +52,21 @@ const handoff = takeHandoff(props.log.id);
 // 加算は renderer の resizeBy ではなく RPC 経由で main が実 bounds に対して行う
 // (renderer の resize API は Blink キャッシュ基準で実 bounds とずれる。rpc.ts の doc 参照)。
 // open 失敗時は opened が emit されず frameName が undefined のままなので何もしない。
+const notification = useNotificationStore();
 const frameName = ref<string>();
 const ghostHeaderRef = useTemplateRef<HTMLElement>("ghostHeader");
 onMounted(() => {
   const header = ghostHeaderRef.value;
   const frame = frameName.value;
   if (header === null || frame === undefined) return;
-  void rpcChildWindowResizeBy({
-    frameName: frame,
-    deltaHeight: Math.round(header.getBoundingClientRect().height),
+  void tryCatch(
+    rpcChildWindowResizeBy({
+      frameName: frame,
+      deltaHeight: Math.round(header.getBoundingClientRect().height),
+    }),
+  ).then((result) => {
+    // one-shot の恒久補正なので、失敗すると本文がヘッダ分欠けたまま固定される。通知する
+    if (!result.ok) notification.error("Failed to size undocked log window", result.error);
   });
 });
 

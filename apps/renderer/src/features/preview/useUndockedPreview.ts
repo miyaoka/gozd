@@ -10,11 +10,13 @@
  * undock 元の選択を焼き込んだ `source` から本体 preview として開き直す
  * (UndockedPreviewWindow の open ボタン = worktree 切替 + filer reveal + preview 表示)。
  *
- * ウィンドウ状態 (位置 / 初期本文サイズ / z / drag handoff) は floating-window の
- * `createFloatingWindows` に委譲する。
+ * ウィンドウの実体は別 OS ウィンドウ (floating-window の ChildWindow)。ここが持つのは
+ * 生成パラメータ (初期スクリーン座標 / サイズ) と snapshot payload だけで、生成後の
+ * 位置 / サイズ / 前面順は OS が SSOT。永続化はしない (undocked window は揮発的)。
  */
 import type { WireBytes } from "@gozd/rpc";
-import { createFloatingWindows, type FloatingWindowState } from "../floating-window";
+import { ref, type Ref } from "vue";
+import type { UndockDragHandoff } from "../floating-window";
 import type { PreviewMode } from "./previewMode";
 
 /**
@@ -83,11 +85,47 @@ interface UndockedPreviewData {
   source: UndockedPreviewSource;
 }
 
-export type UndockedPreview = UndockedPreviewData & FloatingWindowState;
+/** OS child window の生成パラメータ。undock 元 pane の実測 rect をスクリーン座標へ
+ * 換算した値で、pane がその場で OS ウィンドウ化したような視覚的連続性を出す。 */
+interface UndockedPreviewWindowInit {
+  screenX: number;
+  screenY: number;
+  width: number;
+  height: number;
+}
 
-const store = createFloatingWindows<UndockedPreviewData>();
+export type UndockedPreview = UndockedPreviewData & UndockedPreviewWindowInit & { id: number };
+
+// Ref cast は createFloatingWindows と同じ理由 (payload union の UnwrapRef を避ける)
+const windows = ref([]) as Ref<UndockedPreview[]>;
+let nextId = 0;
+
+// undock() → mount → takeHandoff() が同期フラッシュ内で完結するため reactive にしない
+// (createFloatingWindows と同じ one-shot 引き継ぎ。OS ウィンドウ版は ChildWindow が
+// moveTo 追従に変換する)。
+let pendingHandoff: ({ id: number } & UndockDragHandoff) | undefined;
+
+function undock(
+  input: UndockedPreviewData & UndockedPreviewWindowInit,
+  handoff?: UndockDragHandoff,
+) {
+  const id = nextId++;
+  windows.value.push({ ...input, id });
+  if (handoff !== undefined) pendingHandoff = { id, ...handoff };
+}
+
+/** id 宛の drag handoff を 1 回だけ消費する。無ければ undefined。 */
+function takeHandoff(id: number): UndockDragHandoff | undefined {
+  if (pendingHandoff === undefined || pendingHandoff.id !== id) return undefined;
+  const { pointerId, offsetX, offsetY } = pendingHandoff;
+  pendingHandoff = undefined;
+  return { pointerId, offsetX, offsetY };
+}
+
+function close(id: number) {
+  windows.value = windows.value.filter((w) => w.id !== id);
+}
 
 export function useUndockedPreview() {
-  const { windows, undock, takeHandoff, close, move, bringToFront } = store;
-  return { previews: windows, undock, takeHandoff, close, move, bringToFront };
+  return { previews: windows, undock, takeHandoff, close };
 }

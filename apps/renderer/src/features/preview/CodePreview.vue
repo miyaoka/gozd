@@ -123,7 +123,7 @@ onMounted(async () => {
 });
 
 async function setupEditor(el: HTMLElement, myEpoch: number): Promise<void> {
-  const { monaco, MONACO_THEME, resolveMonacoLanguage, wireGutterBlame } =
+  const { monaco, MONACO_THEME, registerMonacoWindow, resolveMonacoLanguage, wireGutterBlame } =
     await import("./monacoSetup");
   const language = await resolveMonacoLanguage(props.filePath);
   // await 中に unmount された場合、containerRef は Vue によって undefined に戻される。
@@ -136,6 +136,8 @@ async function setupEditor(el: HTMLElement, myEpoch: number): Promise<void> {
   editorReady.value = true;
   await nextTick();
   if (containerRef.value !== el) return;
+  // undock child window 内で caret を出すための registry 登録 (monacoSetup の doc 参照)
+  registerMonacoWindow(el);
   editor = monaco.editor.create(el, {
     value: props.content,
     language,

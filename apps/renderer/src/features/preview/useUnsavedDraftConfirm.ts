@@ -1,6 +1,6 @@
 /**
  * 未保存 draft を破棄する操作 (preview close / ファイル切替 / undocked window close) の
- * 確認 state を保持する module singleton。
+ * 確認 state。
  *
  * useClosePaneConfirm と同じ「実行するクロージャを預かる」構造。破棄対象がファイル編集
  * なので選択肢は Save / Don't Save / Cancel の 3 択 (VS Code の close confirmation と同じ
@@ -10,6 +10,12 @@
  * draft の SSOT は要求元ごとに異なる (本体 = usePreviewEditStore / undocked window =
  * window ローカル ref) ため、ここは save / discard / proceed のクロージャだけを預かり
  * 編集状態の知識を持ち込まない。
+ *
+ * instance は「ダイアログを出すウィンドウ」の単位で分ける: main window は shared singleton
+ * (`useUnsavedDraftConfirm`)、undock された child window は per-window に
+ * `createUnsavedDraftConfirm()` して自分の document 内にダイアログを描く。singleton を
+ * 共有するとダイアログの表示先が MainLayout (main window) に固定され、child 側の close
+ * 確認が別ウィンドウに出てしまう。
  */
 import { ref } from "vue";
 
@@ -24,10 +30,11 @@ export interface UnsavedDraftRequest {
   proceed: () => void;
 }
 
-const pending = ref<UnsavedDraftRequest>();
-const saving = ref(false);
+export type UnsavedDraftConfirm = ReturnType<typeof createUnsavedDraftConfirm>;
 
-export function useUnsavedDraftConfirm() {
+export function createUnsavedDraftConfirm() {
+  const pending = ref<UnsavedDraftRequest>();
+  const saving = ref(false);
   /**
    * 確認を要求する。確認中の再投入は無視する (先勝ち)。上書きを許すとダイアログ表示中に
    * 別の破棄操作が走ったとき proceed が別対象に差し替わるため、構造的に防ぐ
@@ -72,4 +79,11 @@ export function useUnsavedDraftConfirm() {
   }
 
   return { pending, saving, request, cancel, chooseSave, chooseDiscard };
+}
+
+/** main window 用の shared instance (ダイアログは MainLayout が描く)。 */
+const shared = createUnsavedDraftConfirm();
+
+export function useUnsavedDraftConfirm() {
+  return shared;
 }

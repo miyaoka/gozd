@@ -4,5 +4,6 @@ export { default as UndockedPreviewLayer } from "./UndockedPreviewLayer.vue";
 export { default as PreviewPane } from "./PreviewPane.vue";
 export { previewCodeFontFamily, previewFontFamily, previewFontSize } from "./previewConfig";
 export { default as UnsavedDraftConfirmDialog } from "./UnsavedDraftConfirmDialog.vue";
+export { useUnsavedDraftConfirm } from "./useUnsavedDraftConfirm";
 export { usePreviewEditStore } from "./usePreviewEditStore";
 export { usePreviewStore } from "./usePreviewStore";

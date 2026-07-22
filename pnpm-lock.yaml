@@ -52,6 +52,9 @@ catalogs:
       specifier: 8.1.5
       version: 8.1.5
 
+patchedDependencies:
+  monaco-editor@0.55.1: a6f1c2a872af0b538072d78845cabbab0a1bd8d413cb104282ca19445e642a5c
+
 importers:
 
   .:
@@ -185,7 +188,7 @@ importers:
         version: 11.16.0
       monaco-editor:
         specifier: 0.55.1
-        version: 0.55.1
+        version: 0.55.1(patch_hash=a6f1c2a872af0b538072d78845cabbab0a1bd8d413cb104282ca19445e642a5c)
       pinia:
         specifier: 4.0.2
         version: 4.0.2(@vue/devtools-api@8.1.5)(typescript@6.0.3)(vue@3.5.40(typescript@6.0.3))
@@ -7353,7 +7356,7 @@ snapshots:
       pkg-types: 1.3.1
       ufo: 1.6.4
 
-  monaco-editor@0.55.1:
+  monaco-editor@0.55.1(patch_hash=a6f1c2a872af0b538072d78845cabbab0a1bd8d413cb104282ca19445e642a5c):
     dependencies:
       dompurify: 3.2.7
       marked: 14.0.0

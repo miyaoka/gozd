@@ -911,10 +911,10 @@ async function mountMonacoDiffEditor() {
   const myGeneration = ++mountGeneration;
   const setupResult = await tryCatch(
     (async () => {
-      const { monaco, MONACO_THEME, resolveMonacoLanguage, wireGutterBlame } =
+      const { monaco, MONACO_THEME, registerMonacoWindow, resolveMonacoLanguage, wireGutterBlame } =
         await import("./monacoSetup");
       const language = await resolveMonacoLanguage(props.filePath);
-      return { monaco, MONACO_THEME, language, wireGutterBlame };
+      return { monaco, MONACO_THEME, language, registerMonacoWindow, wireGutterBlame };
     })(),
   );
   if (!setupResult.ok) {
@@ -923,11 +923,14 @@ async function mountMonacoDiffEditor() {
     notification.error("Failed to load editor", setupResult.error);
     return;
   }
-  const { monaco, MONACO_THEME, language, wireGutterBlame } = setupResult.value;
+  const { monaco, MONACO_THEME, language, registerMonacoWindow, wireGutterBlame } =
+    setupResult.value;
   // await 中に editable の再トグル / unmount が起きた場合は何もしない (世代不一致で判定)。
   if (myGeneration !== mountGeneration || monacoContainerRef.value !== el || !props.editable) {
     return;
   }
+  // undock child window 内で caret を出すための registry 登録 (monacoSetup の doc 参照)
+  registerMonacoWindow(el);
   const originalModel = monaco.editor.createModel(props.original, language);
   const modifiedModel = monaco.editor.createModel(props.current, language);
   monacoDiffEditor = monaco.editor.createDiffEditor(el, {

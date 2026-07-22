@@ -41,3 +41,8 @@ catalog:
 minimumReleaseAge: 4320
 
 shellEmulator: true
+
+patchedDependencies:
+  # バージョン限定: patch は 0.55.1 の配布物の行位置に依存する。name-only key だと
+  # 将来バージョンにも適用され、失敗理由が patch 側の腐敗として現れて分かりにくい
+  "monaco-editor@0.55.1": patches/monaco-editor.patch

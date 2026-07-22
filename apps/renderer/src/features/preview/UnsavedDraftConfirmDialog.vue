@@ -1,7 +1,11 @@
 <doc lang="md">
 未保存 draft を破棄する操作の確認 dialog (Save / Don't Save / Cancel)。
 
-`useUnsavedDraftConfirm` の pending が SSOT。ClosePaneConfirmDialog と同じく、ユーザー操作
+`confirm` prop で渡された instance の pending が SSOT。instance は表示先ウィンドウ単位
+(main = shared singleton を MainLayout が渡す / undock child window = per-window instance を
+UndockedPreviewWindow が渡す)。この component が mount された document の top layer に
+showModal されるため、child window 内に mount すればその window に出る。
+ClosePaneConfirmDialog と同じく、ユーザー操作
 (backdrop / ESC) は native `dialog.close()` を起点にし `@close` → `cancel()` だけが pending を
 畳む。Save / Don't Save は各 choose が pending を先に消化するため、後続の close → cancel は
 no-op になり二重実行しない。
@@ -13,9 +17,14 @@ Save 実行中は全ボタンを無効化し、ESC (native `cancel` event) も p
 
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import { useUnsavedDraftConfirm } from "./useUnsavedDraftConfirm";
+import type { UnsavedDraftConfirm } from "./useUnsavedDraftConfirm";
 
-const { pending, saving, cancel, chooseSave, chooseDiscard } = useUnsavedDraftConfirm();
+interface Props {
+  confirm: UnsavedDraftConfirm;
+}
+
+const props = defineProps<Props>();
+const { pending, saving, cancel, chooseSave, chooseDiscard } = props.confirm;
 const dialogRef = ref<HTMLDialogElement | undefined>(undefined);
 
 watch(pending, (next) => {

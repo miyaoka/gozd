@@ -44,6 +44,7 @@ import {
   UnsavedDraftConfirmDialog,
   usePreviewEditStore,
   usePreviewStore,
+  useUnsavedDraftConfirm,
 } from "../preview";
 import { registerAppConfigSync, registerSettingsCommand, SettingsModal } from "../settings";
 import { SidebarPane } from "../sidebar";
@@ -60,6 +61,8 @@ const repoStore = useRepoStore();
 const worktreeStore = useWorktreeStore();
 const previewStore = usePreviewStore();
 const previewEditStore = usePreviewEditStore();
+// main window に出す破棄確認の shared instance (undock child window は per-window instance)
+const mainDraftConfirm = useUnsavedDraftConfirm();
 const contextKeys = useContextKeys();
 const previewPopoverRef = useTemplateRef<HTMLElement>("previewPopover");
 
@@ -239,7 +242,8 @@ watch(
   },
 );
 
-// floatingWindowVisible context key を undock ウィンドウ (log / preview 全種) の有無と同期
+// floatingWindowVisible context key を in-app undock ウィンドウ (現行は log のみ。preview は
+// 別 OS ウィンドウで対象外) の有無と同期
 watch(
   hasFloatingWindow,
   (has) => {
@@ -399,7 +403,7 @@ watch(
     <SettingsModal />
     <BlamePopover />
     <FileHistoryPopover />
-    <UnsavedDraftConfirmDialog />
+    <UnsavedDraftConfirmDialog :confirm="mainDraftConfirm" />
     <NotificationToast />
     <NotificationCenterPanel />
   </div>

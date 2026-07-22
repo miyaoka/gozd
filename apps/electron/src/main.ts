@@ -1,8 +1,9 @@
-import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
-import { TITLEBAR_HEIGHT, tryCatch } from "@gozd/shared";
+import { app, BrowserWindow, ipcMain, screen, shell, type WebContents } from "electron";
+import { CHILD_WINDOW_FRAME_PREFIX, TITLEBAR_HEIGHT, tryCatch } from "@gozd/shared";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { startAppConfigWatcher, stopAppConfigWatcher } from "./appConfigWatcher";
+import { registerChildWindow } from "./childWindows";
 import { writeClaudeHooksSettings } from "./claudeHooksSettings";
 import { bundledRendererIndex, channel, claudeSettingsPath, isPackaged, launchRequestDir, socketPath } from "./gozdEnv";
 import { GOZD_CHANNEL_ARG_PREFIX, SPIKE_TEST_ARG } from "./ipc";
@@ -14,6 +15,7 @@ import { killAllPtys, routes, startPortScanner, stopPortScanner, unwatchAllFsWat
 import { createSocketMessageHandler } from "./socketMessages";
 import { startSocketServer, type SocketServerHandle } from "./socketServer";
 import { runSpikeResolverDiag } from "./spikeDiag";
+import { isHttpUrl, isInternalUrl } from "./urlPolicy";
 import { windowStateStore, type WindowBounds } from "./windowState";
 
 const isTestMode = process.env.GOZD_SPIKE_TEST === "1";
@@ -29,6 +31,9 @@ function resolveRendererUrl(): string | undefined {
   return undefined;
 }
 const rendererUrl = resolveRendererUrl();
+// isInternal の完全一致比較用 (installExternalLinkPolicy 参照)。不正な env 値は起動時に
+// fail-loud させる (fallback して黙って外部扱いにすると防壁の誤動作原因が追えない)
+const rendererOrigin = rendererUrl !== undefined ? new URL(rendererUrl).origin : undefined;
 
 const dispatch = createRpcDispatcher(routes);
 
@@ -45,36 +50,61 @@ const TRAFFIC_LIGHT_X = 16;
  * デフォルトでは `<a target="_blank">` が新しい Electron window を開き、main frame の
  * http(s) 遷移は UI 全体を置換してしまうため構造的に必要な防壁。判定軸は Swift 版と
  * 同じ scheme 3 分岐: 内部 origin（dev の Vite URL / packaged の file:）は許可、
- * それ以外の http(s) は OS のデフォルトブラウザへ、その他 scheme は許可 */
-function installExternalLinkPolicy(window: BrowserWindow): void {
+ * それ以外の http(s) は OS のデフォルトブラウザへ、その他 scheme は許可。
+ *
+ * 唯一の例外が `window.open("about:blank")` で、undock 用 child window として許可する
+ * （VS Code の auxiliary window と同じ判定軸）。same-origin の about:blank は opener と
+ * 同一 renderer プロセスに作られ、中身は opener が DOM 投影で構築する（renderer の
+ * ChildWindow.vue）。URL を load しないため「URL 越しにファイルを読む口を作らない」
+ * 既存のセキュリティ境界は変わらない。 */
+function installExternalLinkPolicy(contents: WebContents): void {
   const openExternal = (url: string): void => {
     // 外部 URL の launch 失敗は具体的な error 込みで stderr に残す（silent drop 禁止）
-    shell.openExternal(url).catch((error: unknown) => {
-      console.error(`[ExternalLink] failed to open external URL: ${url}: ${error}`);
+    void tryCatch(shell.openExternal(url)).then((result) => {
+      if (!result.ok) {
+        console.error(`[ExternalLink] failed to open external URL: ${url}: ${result.error}`);
+      }
     });
   };
-  const isHttp = (url: string): boolean => url.startsWith("http://") || url.startsWith("https://");
-  const isInternal = (url: string): boolean => {
-    if (rendererUrl !== undefined && url.startsWith(rendererUrl)) return true;
-    // packaged / spike は loadFile 経由の file: origin
-    return url.startsWith("file://");
-  };
+  // 判定はセキュリティ境界のため純関数 (urlPolicy.ts) に切り出し、バイパス文字列の
+  // 回帰テストで固定している
+  const isHttp = isHttpUrl;
+  const isInternal = (url: string): boolean => isInternalUrl(url, rendererOrigin);
 
-  // window.open / target="_blank" は経路を問わず新 window を作らせない。
-  // http(s) のみ外部ブラウザに送り、それ以外は黙って deny
-  window.webContents.setWindowOpenHandler(({ url }) => {
+  // window.open / target="_blank" は about:blank（undock child window）以外は新 window を
+  // 作らせない。http(s) のみ外部ブラウザに送り、それ以外は黙って deny。
+  // about:blank も frame 名 prefix で first-party の undock 経路に限定する — rendered
+  // content 由来の window.open("about:blank") 等を allow すると registry に乗らない
+  // 追跡外の空ウィンドウが生まれるため
+  contents.setWindowOpenHandler(({ url, frameName }) => {
+    if (url === "about:blank" && frameName.startsWith(CHILD_WINDOW_FRAME_PREFIX)) {
+      return { action: "allow" };
+    }
     if (isHttp(url)) openExternal(url);
     return { action: "deny" };
   });
 
   // main frame の遷移。内部 origin（Vite フルリロード等）は許可、外部 http(s) は
   // ブラウザへ、その他 scheme は許可（Swift 版と同じ分岐）
-  window.webContents.on("will-navigate", (event, url) => {
+  contents.on("will-navigate", (event, url) => {
     if (isInternal(url) || !isHttp(url)) return;
     event.preventDefault();
     openExternal(url);
   });
 }
+
+// 防壁は main window だけでなく about:blank child window（markdown preview のリンクを
+// 含む）にも要る。child は createWindow を通らず window.open で生まれるため、生成
+// event で全 webContents に一律適用する
+app.on("web-contents-created", (_event, contents) => {
+  installExternalLinkPolicy(contents);
+  // window.open で生まれた child window を frame 名で registry に確保する。
+  // タイトル同期（setTitleContext）の除外判定が child を識別するのに使う
+  contents.on("did-create-window", (childWindow, details) => {
+    if (!details.frameName.startsWith(CHILD_WINDOW_FRAME_PREFIX)) return;
+    registerChildWindow(details.frameName, childWindow);
+  });
+});
 
 /** 保存 frame がどのディスプレイとも交差しない（外部モニタ取り外し等で off-screen 化）
  * 場合は復元せずデフォルトで開き直すための判定 */
@@ -126,7 +156,6 @@ function createWindow(): BrowserWindow {
   };
   window.on("enter-full-screen", () => pushFullscreenChange(true));
   window.on("leave-full-screen", () => pushFullscreenChange(false));
-  installExternalLinkPolicy(window);
   // ロード経路は 3 つ（Swift 版 GozdApp.task と同型）:
   //   1. GOZD_ELECTRON_RENDERER_URL: Vite dev server（HMR / 検証）
   //   2. packaged: .app 同梱の renderer（Vite build は base "./" のため file:// で成立。

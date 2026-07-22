@@ -173,9 +173,13 @@ CLI は socket ファイル名から channel を逆導出する（`cliOps.ts`）
 
 renderer 内の `<a target="_blank">` / `window.open` / main frame の外部 http(s) 遷移は、
 デフォルトでは新しい Electron window を開くか UI 全体を置換してしまう。
-`installExternalLinkPolicy`（`src/main.ts`）が構造的な防壁を張る:
+`installExternalLinkPolicy`（`src/main.ts`）が構造的な防壁を張る。適用は
+`app.on("web-contents-created")` で全 webContents（main window + undock child window）に一律:
 
-- `setWindowOpenHandler`: 全経路 deny。http(s) のみ `shell.openExternal` で OS ブラウザへ
+- `setWindowOpenHandler`: `about:blank` のみ allow（undock 用 child window。VS Code の
+  auxiliary window と同じ判定軸。same-origin の about:blank は opener と同一 renderer
+  プロセスに作られ、中身は opener が DOM 投影で構築する — renderer の ChildWindow.vue）。
+  それ以外は deny し、http(s) のみ `shell.openExternal` で OS ブラウザへ
 - `will-navigate`: 内部 origin（dev の Vite URL / packaged の file:）は許可、外部 http(s) は
   preventDefault + OS ブラウザへ、その他 scheme は許可
 
@@ -183,7 +187,9 @@ renderer 内の `<a target="_blank">` / `window.open` / main frame の外部 htt
 launch 失敗は具体的な error 込みで stderr に残す（silent drop 禁止）。
 
 markdown preview で render される `[text](https://...)` 由来のリンクも同じ防壁を通るため、
-すべて外部ブラウザで開かれる。
+すべて外部ブラウザで開かれる（child window 内の markdown preview 含む）。child window は
+URL を load しないため、「renderer 内に URL 越しにファイルを読む口が存在しない」という
+バイナリ配信セクションのセキュリティ境界は変わらない。
 
 ## 通信経路
 

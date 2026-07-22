@@ -72,7 +72,7 @@ atom     = "!" atom | contextKey
 
 ## useKeyBindings — ディスパッチ
 
-`useEventListener(document, "keydown", ..., { capture: true })` で global listener を登録。
+keydown listener（capture phase）を**ウィンドウごとの document** に張り、解決系（binding テーブル + context key + command registry）は単一を共有する。main window は `useKeyBindings()`（App.vue で 1 回）、child window は `useWindowKeyBindings(win)`（ウィンドウ生成側コンポーネントの setup で呼び、listener 寿命はその effect scope に載る）。
 
 ### 除外判定（shouldHandle）
 

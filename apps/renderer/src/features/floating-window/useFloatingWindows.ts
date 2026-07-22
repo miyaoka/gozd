@@ -2,8 +2,9 @@
  * undock されたフローティングウィンドウ群の状態管理 factory。
  *
  * undocked window は undock 元 (popover / pane) の表示状態と独立して存在し続けるため、
- * consumer feature (session-log / preview) が module スコープで `createFloatingWindows<T>()`
- * を 1 回だけ実行し、payload T を載せた singleton のウィンドウ列を得る。
+ * consumer feature (現行は session-log。preview は OS ウィンドウの ChildWindow へ移行済み)
+ * が module スコープで `createFloatingWindows<T>()` を 1 回だけ実行し、payload T を載せた
+ * singleton のウィンドウ列を得る。
  *
  * 位置は undock 元 (popover の box) の実測 rect、サイズは undock 元の本文 (スクロール面) の
  * 実測を初期値として受け取る。popover がその場でフローティング化したように見せる視覚的
@@ -13,9 +14,9 @@
  * 左/上辺リサイズで更新されるが、サイズは store 上では初期値のまま不変で、リサイズの
  * SSOT はリサイズハンドラが書く DOM の inline style に移る (FloatingWindow の doc 参照)。
  *
- * z カウンタは全 factory instance で共有する。種類の異なるウィンドウ (log / preview) も
- * 同じ plain fixed のスタッキング文脈に並ぶため、カウンタを instance ごとに分けると
- * 種類を跨いだ bring-to-front が効かなくなる。
+ * z カウンタは全 factory instance で共有する。種類の異なるウィンドウも同じ plain fixed の
+ * スタッキング文脈に並ぶため、カウンタを instance ごとに分けると種類を跨いだ
+ * bring-to-front が効かなくなる。
  */
 import { computed, ref, shallowReactive, type Ref } from "vue";
 
@@ -60,7 +61,7 @@ const Z_BASE = 30;
 let zTop = Z_BASE;
 
 /**
- * 全 factory instance の registry。種類の異なるウィンドウ (log / preview) を跨いで
+ * 全 factory instance の registry。種類の異なるウィンドウを跨いで
  * 「最前面の 1 枚」を特定するために module で持つ。Ref の invariance を避けるため
  * windows は getter で覆って FloatingWindowState[] へ covariant に読み出す。
  * shallowReactive なのは、consumer module の HMR 再実行で instance が後から増えても

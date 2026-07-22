@@ -1,7 +1,7 @@
 <doc lang="md">
 1 つの repo を表すサイドバーセクション。
 
-ヘッダ (repo アイコン + repo 名 + chevron + 編集モード時の ✕) と、
+ヘッダ (repo アイコン + repo 名 + 展開時のみ 2 行目に GitHub owner + chevron + 編集モード時の ✕) と、
 配下の WtCard 列 (main wt 先頭固定、その後 worktrees 配列順) + `+ New worktree`。
 
 ## 並び順
@@ -167,6 +167,13 @@ const visiblyCollapsed = computed(() => {
 // wt カード列が実際に展開表示されているか（非 git はカード列を持たないので常に false）
 const bodyVisible = computed(() => isGitRepo.value && !visiblyCollapsed.value);
 
+// owner 2 行目は展開時のみ表示（collapsed 時はヘッダを 1 行に保って一覧密度を優先する）。
+// owner は 3 値（undefined = 解決中 / "" = GitHub owner なし。RepoIcon の <doc> 参照）で、
+// どちらも空の 2 行目を出さない
+const ownerVisible = computed(
+  () => bodyVisible.value && githubOwner.value !== undefined && githubOwner.value !== "",
+);
+
 // テンプレートでネスト三項を書かず、ヘッダの aria はスクリプト側で導出する。
 // git repo は折りたたみトグル (Expand/Collapse + aria-expanded)、非 git project は
 // rootDir 選択ボタン (Open directory、折りたたみ概念なし) として振る舞う。
@@ -267,9 +274,12 @@ function onHeaderClick() {
           @click="onHeaderClick"
         >
           <RepoIcon :name="repoName" :owner="githubOwner" />
-          <span class="min-w-0 flex-1 truncate text-sm font-semibold tracking-wide">
-            {{ repoName }}
-          </span>
+          <div class="flex min-w-0 flex-1 flex-col">
+            <span class="truncate text-sm font-semibold tracking-wide">{{ repoName }}</span>
+            <span v-if="ownerVisible" class="truncate text-xs text-foreground-low">
+              {{ githubOwner }}
+            </span>
+          </div>
         </button>
         <!-- 右側アクションクラスタ: 開閉 chevron + ⋮ menu を並べ、両方まとめて hover / focus-within で
              出す (WtCard の … と同一マテリアル)。absolute オーバーレイで flow から外すので icon / title を

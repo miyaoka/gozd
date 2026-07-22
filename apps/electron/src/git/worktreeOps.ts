@@ -109,7 +109,9 @@ async function isBranchCheckedOut(dir: string, branch: string): Promise<boolean>
 
 /** ローカルに branch が存在するか。`git rev-parse --verify --quiet refs/heads/<branch>` 相当。 */
 async function localBranchExists(dir: string, branch: string): Promise<boolean> {
-  const result = await tryCatch(runGit(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], dir));
+  const result = await tryCatch(
+    runGit(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], dir),
+  );
   return result.ok;
 }
 

@@ -15,7 +15,12 @@ import type { ClientMessage } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { buildHookMessage, parseStdinJson, resolveSocketPath, writeLaunchRequest } from "./cli/cliOps";
+import {
+  buildHookMessage,
+  parseStdinJson,
+  resolveSocketPath,
+  writeLaunchRequest,
+} from "./cli/cliOps";
 import { sendClientMessage } from "./cli/socketClient";
 
 const USAGE = `gozd - Git Orchestrated Zone for Development

@@ -85,7 +85,12 @@ describe("ClaudeSessionLog", () => {
     writeFileSync(join(subagentsDir, "agent-aaa.jsonl"), "sub-a\n");
     writeFileSync(
       join(subagentsDir, "agent-aaa.meta.json"),
-      JSON.stringify({ agentType: "Explore", description: "search files", toolUseId: "toolu_1", name: "scout" }),
+      JSON.stringify({
+        agentType: "Explore",
+        description: "search files",
+        toolUseId: "toolu_1",
+        name: "scout",
+      }),
     );
 
     const result = readClaudeSessionLog(SID, projects);
@@ -115,7 +120,13 @@ describe("ClaudeSessionLog", () => {
       JSON.stringify({
         workflowName: "review-changes",
         workflowProgress: [
-          { type: "workflow_agent", agentId: "w1", label: "review:bugs", phaseTitle: "Review", agentType: null },
+          {
+            type: "workflow_agent",
+            agentId: "w1",
+            label: "review:bugs",
+            phaseTitle: "Review",
+            agentType: null,
+          },
         ],
       }),
     );
@@ -201,7 +212,12 @@ describe("listReviveSessions", () => {
     const projects = makeTemp("gozd-revive-projects-");
     const wtRoot = makeTemp("gozd-revive-wtroot-");
     const outside = join(makeTemp("gozd-revive-outside-"), "20260101_120000"); // base 外・不在
-    writeSession(projects, "enc-1", "aaaaaaaa-1111-2222-3333-444444444444", `{"cwd":"${outside}"}\n`);
+    writeSession(
+      projects,
+      "enc-1",
+      "aaaaaaaa-1111-2222-3333-444444444444",
+      `{"cwd":"${outside}"}\n`,
+    );
     expect(await listReviveSessions(repo, projects, wtRoot)).toEqual([]);
   });
 
@@ -225,7 +241,9 @@ describe("listReviveSessions", () => {
     expect(valid?.title).toBe("Real session");
     expect(valid?.branch).toBe("feature/foo");
     // 0 バイトの兄弟は blank 行として出さない（cwd 分類からの救済とは別に、行生成でも skip）
-    expect(sessions.find((s) => s.sessionId === "00000000-0000-0000-0000-000000000000")).toBeUndefined();
+    expect(
+      sessions.find((s) => s.sessionId === "00000000-0000-0000-0000-000000000000"),
+    ).toBeUndefined();
   });
 
   test("非 0 バイトだが cwd を持たない破損 jsonl は行に出さない", async () => {
@@ -256,7 +274,12 @@ describe("listReviveSessions", () => {
     const wtRoot = makeTemp("gozd-revive-wtroot-");
     const cwd = await gozdCwd(repo, wtRoot, "20260101_120000");
     const sid = "aaaaaaaa-1111-2222-3333-444444444444";
-    const file = writeSession(projects, "enc-1", sid, `{"cwd":"${cwd}","gitBranch":"feature/foo"}\n`);
+    const file = writeSession(
+      projects,
+      "enc-1",
+      sid,
+      `{"cwd":"${cwd}","gitBranch":"feature/foo"}\n`,
+    );
 
     const [s] = await listReviveSessions(repo, projects, wtRoot);
     expect(s.lastActivity).toBe(statSync(file).mtimeMs);

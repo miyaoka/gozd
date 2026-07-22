@@ -94,7 +94,9 @@ async function diagFetch(dir: string): Promise<void> {
 export async function runSpikeResolverDiag(): Promise<void> {
   log(`process.env.PATH = ${process.env.PATH ?? "(unset)"}`);
   const shell = tryCatch(() => userInfo().shell);
-  log(`login shell: userInfo.shell=${shell.ok ? shell.value : "?"} env.SHELL=${process.env.SHELL ?? "(unset)"}`);
+  log(
+    `login shell: userInfo.shell=${shell.ok ? shell.value : "?"} env.SHELL=${process.env.SHELL ?? "(unset)"}`,
+  );
 
   await diagGit();
 

@@ -25,7 +25,10 @@ function makeFakeShell(name: string, body: string): string {
  * countFile 指定時は呼び出しごとに 1 行追記する（キャッシュ検証用） */
 function makeStandardFakeShell(name: string, countFile?: string): string {
   const count = countFile === undefined ? "" : `echo x >> "${countFile}"`;
-  return makeFakeShell(name, `${count}\nPATH="${workDir}:$PATH"; export PATH\nexec /bin/sh -c "$4"`);
+  return makeFakeShell(
+    name,
+    `${count}\nPATH="${workDir}:$PATH"; export PATH\nexec /bin/sh -c "$4"`,
+  );
 }
 
 function makeTargetCommand(name: string): string {
@@ -36,7 +39,9 @@ function makeTargetCommand(name: string): string {
 }
 
 function countInvocations(countFile: string): number {
-  return readFileSync(countFile, "utf8").split("\n").filter((line) => line !== "").length;
+  return readFileSync(countFile, "utf8")
+    .split("\n")
+    .filter((line) => line !== "").length;
 }
 
 describe("createCommandResolver (fake shell)", () => {

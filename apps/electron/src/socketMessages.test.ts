@@ -75,7 +75,9 @@ describe("socketMessages", () => {
   test("未登録 ptyId の session-start は skip されつつ hook push 自体は届く", async () => {
     const pushed: Array<{ type: string; payload: unknown }> = [];
     const handle = createSocketMessageHandler((type, payload) => pushed.push({ type, payload }));
-    handle('{"hook":{"event":"session-start","ptyId":999999,"sessionId":"00000000-0000-0000-0000-000000000001"}}');
+    handle(
+      '{"hook":{"event":"session-start","ptyId":999999,"sessionId":"00000000-0000-0000-0000-000000000001"}}',
+    );
     await waitFor(() => pushed.length === 1);
     expect(pushed[0]?.type).toBe("hook");
     const payload = pushed[0]?.payload as { sessionId: string };

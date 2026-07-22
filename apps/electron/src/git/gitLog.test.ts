@@ -36,7 +36,16 @@ describe("parseLogRecords", () => {
   const record = (fields: string[]) => `${fields.join("\x1f")}\x1e`;
 
   test("8 field record を CommitInfo に変換する", () => {
-    const text = record(["abc123", "abc", "p1 p2", "alice", "1700000000", "subject", "body", "HEAD -> main"]);
+    const text = record([
+      "abc123",
+      "abc",
+      "p1 p2",
+      "alice",
+      "1700000000",
+      "subject",
+      "body",
+      "HEAD -> main",
+    ]);
     expect(parseLogRecords(text)).toEqual([
       {
         hash: "abc123",

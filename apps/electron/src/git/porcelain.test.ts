@@ -65,9 +65,11 @@ describe("parsePorcelainV2WithBranch", () => {
 
   test("rename エントリは新パスを statuses に、旧パスを renameOldPaths に入れる", () => {
     const text =
-      ["1 .M N... 100644 100644 100644 aaa bbb other.txt", "2 R. N... 100644 100644 100644 aaa bbb R100 new.txt", "old.txt"].join(
-        NUL,
-      ) + NUL;
+      [
+        "1 .M N... 100644 100644 100644 aaa bbb other.txt",
+        "2 R. N... 100644 100644 100644 aaa bbb R100 new.txt",
+        "old.txt",
+      ].join(NUL) + NUL;
     const result = parsePorcelainV2WithBranch(text);
     expect(result.statuses["new.txt"]).toBe("R.");
     expect(result.renameOldPaths).toEqual({ "new.txt": "old.txt" });

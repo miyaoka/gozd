@@ -56,7 +56,9 @@ function asBooleanMap(raw: unknown, label: string): Record<string, boolean> {
     if (typeof value === "boolean") {
       result[key] = value;
     } else {
-      console.error(`[normalizeAppConfig] ${label}.${key}: expected boolean, got ${typeof value}; dropping`);
+      console.error(
+        `[normalizeAppConfig] ${label}.${key}: expected boolean, got ${typeof value}; dropping`,
+      );
     }
   }
   return result;
@@ -206,7 +208,9 @@ export function loadAppState(): AppState {
 function saveAppStateTo(path: string, state: AppState): void {
   // merge 元の既存ファイル読み込み失敗は新規化に倒す（load 経路と対照的に、save の
   // merge 元は救済不要）
-  const existing = tryCatch(() => JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>);
+  const existing = tryCatch(
+    () => JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>,
+  );
   const merged: Record<string, unknown> =
     existing.ok && typeof existing.value === "object" && existing.value !== null
       ? existing.value

@@ -15,7 +15,11 @@ const expectedResumeSidById = new Map<number, string>();
 // spawn 成功 ptyId は単調増加で再利用されないため、集合に残しても偽陽性は出ない
 const explicitlyRemovedPtyIds = new Set<number>();
 
-export function registerSpawn(ptyId: number, worktreePath: string, expectedResumeSid: string): void {
+export function registerSpawn(
+  ptyId: number,
+  worktreePath: string,
+  expectedResumeSid: string,
+): void {
   if (worktreePath !== "") worktreePathById.set(ptyId, worktreePath);
   if (expectedResumeSid !== "") expectedResumeSidById.set(ptyId, expectedResumeSid);
 }
@@ -28,7 +32,9 @@ export function unregisterExit(ptyId: number): void {
   const stale = expectedResumeSidById.get(ptyId);
   if (stale !== undefined) {
     expectedResumeSidById.delete(ptyId);
-    console.error(`[PtySessions] exit: dropped expected resume sid=${stale} without removeByPty for pty=${ptyId}`);
+    console.error(
+      `[PtySessions] exit: dropped expected resume sid=${stale} without removeByPty for pty=${ptyId}`,
+    );
   }
 }
 

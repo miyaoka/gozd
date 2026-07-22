@@ -18,7 +18,14 @@
 import type { GhRef, Task, TaskList } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { runGit } from "./git/gitRunner";
@@ -97,7 +104,9 @@ function normalizeGhRef(raw: unknown, label: string): GhRef | undefined {
   const dict = asDict(raw);
   const kind = strictString(dict.kind, `${label}.kind`);
   if (kind !== "GH_REF_KIND_PR" && kind !== "GH_REF_KIND_ISSUE") {
-    console.error(`[TaskStore] normalizeGhRef: unknown kind ${JSON.stringify(kind)}; dropping ghRef`);
+    console.error(
+      `[TaskStore] normalizeGhRef: unknown kind ${JSON.stringify(kind)}; dropping ghRef`,
+    );
     return undefined;
   }
   return { kind, number: strictNumber(dict.number, `${label}.number`) };
@@ -184,7 +193,9 @@ export function createTaskStore(configDir: string) {
     if (ghRef !== undefined) {
       const existing = fileList.tasks.find(
         (task) =>
-          task.worktreeDir === worktreeDir && task.ghRef !== undefined && sameGhRef(task.ghRef, ghRef),
+          task.worktreeDir === worktreeDir &&
+          task.ghRef !== undefined &&
+          sameGhRef(task.ghRef, ghRef),
       );
       if (existing !== undefined) {
         existing.ghTitle = ghTitle;
@@ -258,7 +269,9 @@ export function createTaskStore(configDir: string) {
       }
       return;
     }
-    const candidates = fileList.tasks.filter((t) => t.worktreeDir === worktreeDir && t.sessionId === "");
+    const candidates = fileList.tasks.filter(
+      (t) => t.worktreeDir === worktreeDir && t.sessionId === "",
+    );
     const [pick] = candidates.toSorted((a, b) => {
       if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
       return a.id < b.id ? 1 : -1;
@@ -287,7 +300,11 @@ export function createTaskStore(configDir: string) {
    * markClosedByUser=true（removeByPty 経路: pane close + SessionStart 不達）は
    * closedByUser も立てる。false（session-start fallback 経路）は据え置き —
    * 直後の attachSession が候補ピックで同一 task に転移する */
-  async function clearDeadSession(dir: string, sessionId: string, markClosedByUser: boolean): Promise<void> {
+  async function clearDeadSession(
+    dir: string,
+    sessionId: string,
+    markClosedByUser: boolean,
+  ): Promise<void> {
     const fileList = await loadFile(dir);
     const task = fileList.tasks.find((t) => t.sessionId === sessionId);
     if (task === undefined) return;

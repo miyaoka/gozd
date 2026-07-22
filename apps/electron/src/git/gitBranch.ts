@@ -78,7 +78,9 @@ export async function allBranchRefs(dir: string): Promise<string[]> {
  *     caller（handleGitDefaultBranch）が空文字に倒す
  */
 export async function resolveStartPoint(dir: string): Promise<string> {
-  const remote = await tryCatch(runGit(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], dir));
+  const remote = await tryCatch(
+    runGit(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], dir),
+  );
   if (remote.ok) {
     const text = remote.value.trim();
     if (text !== "") return text;

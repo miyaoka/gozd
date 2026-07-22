@@ -59,10 +59,20 @@ describe("TaskStore", () => {
 
   test("add: 同 worktreeDir + 同 ghRef の既存 task は再活性化される (PR/issue 再選択)", async () => {
     const { store, dir } = setup();
-    const first = await store.add({ dir, ghTitle: "old title", worktreeDir: "/wt/a", ghRef: ghRefForPr(42) });
+    const first = await store.add({
+      dir,
+      ghTitle: "old title",
+      worktreeDir: "/wt/a",
+      ghRef: ghRefForPr(42),
+    });
     // closed 状態を作る（detachSession は sessionId 起点なので直接ファイルを書き換えない
     // 代わりに、再 add で closedByUser=false へ戻る挙動を上書きタイトルとセットで検証）
-    const second = await store.add({ dir, ghTitle: "new title", worktreeDir: "/wt/a", ghRef: ghRefForPr(42) });
+    const second = await store.add({
+      dir,
+      ghTitle: "new title",
+      worktreeDir: "/wt/a",
+      ghRef: ghRefForPr(42),
+    });
     expect(second.id).toBe(first.id);
     expect(second.ghTitle).toBe("new title");
     expect(second.closedByUser).toBe(false);
@@ -79,8 +89,18 @@ describe("TaskStore", () => {
 
   test("add: 別 worktree の同 ghRef は別 task として扱う", async () => {
     const { store, dir } = setup();
-    const first = await store.add({ dir, ghTitle: "t", worktreeDir: "/wt/a", ghRef: ghRefForPr(42) });
-    const second = await store.add({ dir, ghTitle: "t", worktreeDir: "/wt/b", ghRef: ghRefForPr(42) });
+    const first = await store.add({
+      dir,
+      ghTitle: "t",
+      worktreeDir: "/wt/a",
+      ghRef: ghRefForPr(42),
+    });
+    const second = await store.add({
+      dir,
+      ghTitle: "t",
+      worktreeDir: "/wt/b",
+      ghRef: ghRefForPr(42),
+    });
     expect(second.id).not.toBe(first.id);
     expect((await store.list(dir)).length).toBe(2);
   });
@@ -111,7 +131,9 @@ describe("TaskStore", () => {
 
   test("detachSession: ghRef 無し task も残し、sessionID 保持 + closed_by_user=true", async () => {
     const { store, dir, configDir } = setup();
-    await writeTasksFile(configDir, dir, [makeTask({ id: "1", worktreeDir: "/wt/a", sessionId: "sid-1" })]);
+    await writeTasksFile(configDir, dir, [
+      makeTask({ id: "1", worktreeDir: "/wt/a", sessionId: "sid-1" }),
+    ]);
     await store.detachSession(dir, "sid-1");
     const [task] = await store.list(dir);
     expect(task?.sessionId).toBe("sid-1");
@@ -132,7 +154,9 @@ describe("TaskStore", () => {
 
   test("detachSession: sessionId 不一致なら no-op (silent return)", async () => {
     const { store, dir, configDir } = setup();
-    await writeTasksFile(configDir, dir, [makeTask({ id: "1", worktreeDir: "/wt/a", sessionId: "sid-1" })]);
+    await writeTasksFile(configDir, dir, [
+      makeTask({ id: "1", worktreeDir: "/wt/a", sessionId: "sid-1" }),
+    ]);
     await store.detachSession(dir, "sid-unknown");
     const [task] = await store.list(dir);
     expect(task?.closedByUser).toBe(false);
@@ -155,7 +179,13 @@ describe("TaskStore", () => {
   test("attachSession: 既に同 sessionID の task があれば closed=false に戻して no-op (resume 復帰)", async () => {
     const { store, dir, configDir } = setup();
     await writeTasksFile(configDir, dir, [
-      makeTask({ id: "1", worktreeDir: "/wt/a", sessionId: "sid-1", closedByUser: true, ghTitle: "keep" }),
+      makeTask({
+        id: "1",
+        worktreeDir: "/wt/a",
+        sessionId: "sid-1",
+        closedByUser: true,
+        ghTitle: "keep",
+      }),
     ]);
     await store.attachSession(dir, "sid-1", "/wt/a");
     const tasks = await store.list(dir);
@@ -168,7 +198,12 @@ describe("TaskStore", () => {
     const { store, dir, configDir } = setup();
     await writeTasksFile(configDir, dir, [
       makeTask({ id: "old", worktreeDir: "/wt/a", createdAt: "2026-07-01T00:00:00Z" }),
-      makeTask({ id: "new", worktreeDir: "/wt/a", createdAt: "2026-07-02T00:00:00Z", closedByUser: true }),
+      makeTask({
+        id: "new",
+        worktreeDir: "/wt/a",
+        createdAt: "2026-07-02T00:00:00Z",
+        closedByUser: true,
+      }),
     ]);
     await store.attachSession(dir, "sid-new", "/wt/a");
     const tasks = await store.list(dir);
@@ -240,7 +275,13 @@ describe("TaskStore", () => {
   test("attachSession: ghRef 有り closed task も奪わず、素 claude (新 sid) は別 task を作る", async () => {
     const { store, dir, configDir } = setup();
     await writeTasksFile(configDir, dir, [
-      makeTask({ id: "1", worktreeDir: "/wt/a", sessionId: "sid-kept", closedByUser: true, ghRef: ghRefForPr(9) }),
+      makeTask({
+        id: "1",
+        worktreeDir: "/wt/a",
+        sessionId: "sid-kept",
+        closedByUser: true,
+        ghRef: ghRefForPr(9),
+      }),
     ]);
     await store.attachSession(dir, "sid-new", "/wt/a");
     const tasks = await store.list(dir);
@@ -252,7 +293,9 @@ describe("TaskStore", () => {
 
   test("clearDeadSession(markClosedByUser=true): sessionID 空 + closed_by_user=true (terminal close 経路)", async () => {
     const { store, dir, configDir } = setup();
-    await writeTasksFile(configDir, dir, [makeTask({ id: "1", worktreeDir: "/wt/a", sessionId: "sid-1" })]);
+    await writeTasksFile(configDir, dir, [
+      makeTask({ id: "1", worktreeDir: "/wt/a", sessionId: "sid-1" }),
+    ]);
     await store.clearDeadSession(dir, "sid-1", true);
     const [task] = await store.list(dir);
     expect(task?.sessionId).toBe("");
@@ -261,7 +304,9 @@ describe("TaskStore", () => {
 
   test("clearDeadSession(markClosedByUser=false): closed_by_user 据え置き (session-start fallback)", async () => {
     const { store, dir, configDir } = setup();
-    await writeTasksFile(configDir, dir, [makeTask({ id: "1", worktreeDir: "/wt/a", sessionId: "sid-1" })]);
+    await writeTasksFile(configDir, dir, [
+      makeTask({ id: "1", worktreeDir: "/wt/a", sessionId: "sid-1" }),
+    ]);
     await store.clearDeadSession(dir, "sid-1", false);
     const [task] = await store.list(dir);
     expect(task?.sessionId).toBe("");

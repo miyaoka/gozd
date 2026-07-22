@@ -18,7 +18,10 @@ describe("gitBlame (integration)", () => {
     const dir = mkdtempSync(join(tmpdir(), "gozd-blame-test-"));
     tempDirs.push(dir);
     execFileSync("git", ["init", "-b", "main"], { cwd: dir, stdio: "ignore" });
-    execFileSync("git", ["config", "user.email", "alice@example.com"], { cwd: dir, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "alice@example.com"], {
+      cwd: dir,
+      stdio: "ignore",
+    });
     execFileSync("git", ["config", "user.name", "alice"], { cwd: dir, stdio: "ignore" });
     return dir;
   }

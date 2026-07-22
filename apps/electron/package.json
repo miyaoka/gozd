@@ -1,10 +1,9 @@
 {
   "name": "@gozd/electron",
-  "productName": "Gozd",
   "version": "0.1.0",
   "private": true,
-  "author": "miyaoka",
   "description": "Gozd — Git Orchestrated Zone for Development. Electron main process for managing parallel AI agent development.",
+  "author": "miyaoka",
   "type": "module",
   "main": "dist/main.cjs",
   "scripts": {
@@ -23,7 +22,6 @@
     "node-pty": "1.2.0-beta.14"
   },
   "devDependencies": {
-    "electron-builder": "26.15.7",
     "@gozd/rpc": "workspace:*",
     "@gozd/shared": "workspace:*",
     "@types/bun": "catalog:",
@@ -32,7 +30,9 @@
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
     "electron": "43.1.1",
+    "electron-builder": "26.15.7",
     "esbuild": "0.28.1",
     "typescript": "catalog:"
-  }
+  },
+  "productName": "Gozd"
 }

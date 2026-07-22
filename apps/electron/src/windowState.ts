@@ -62,6 +62,4 @@ export function createWindowStateStore(stateDir: string) {
   return { loadBounds, saveBounds };
 }
 
-export const windowStateStore = createWindowStateStore(
-  join(homedir(), ".local", "state", "gozd"),
-);
+export const windowStateStore = createWindowStateStore(join(homedir(), ".local", "state", "gozd"));

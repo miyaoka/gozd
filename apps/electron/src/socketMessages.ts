@@ -29,7 +29,11 @@ function notifyTaskStoreError(push: PushFn, message: string, error: unknown, dir
 
 /** session-start / session-end hook を task store に反映する。
  * 各 taskStore 呼び出しは個別 tryCatch で notify に倒すため、本関数自身は throw しない */
-async function applyClaudeSessionHook(hook: HookMessage, worktreePath: string, push: PushFn): Promise<void> {
+async function applyClaudeSessionHook(
+  hook: HookMessage,
+  worktreePath: string,
+  push: PushFn,
+): Promise<void> {
   if (hook.sessionId === "") return;
   if (worktreePath === "") {
     // worktreePath 空には 2 つの異なる経路がある。観察ログで区別する:
@@ -41,7 +45,9 @@ async function applyClaudeSessionHook(hook: HookMessage, worktreePath: string, p
         `[applyClaudeSessionHook] late ${hook.event} for pty=${hook.ptyId} session=${hook.sessionId} after removeByPty; skipping`,
       );
     } else {
-      console.error(`[applyClaudeSessionHook] ${hook.event} for unknown pty=${hook.ptyId}; skipping`);
+      console.error(
+        `[applyClaudeSessionHook] ${hook.event} for unknown pty=${hook.ptyId}; skipping`,
+      );
     }
     return;
   }
@@ -55,7 +61,12 @@ async function applyClaudeSessionHook(hook: HookMessage, worktreePath: string, p
     if (previous !== "" && previous !== hook.sessionId) {
       const detached = await tryCatch(taskStore.detachSession(worktreePath, previous));
       if (!detached.ok) {
-        notifyTaskStoreError(push, "Failed to detach previous session from task", detached.error, worktreePath);
+        notifyTaskStoreError(
+          push,
+          "Failed to detach previous session from task",
+          detached.error,
+          worktreePath,
+        );
       }
     }
     // expected resume sid を必ず消費する。これで removeByPty 経路の
@@ -79,7 +90,9 @@ async function applyClaudeSessionHook(hook: HookMessage, worktreePath: string, p
     // 永続化（attachSession）を先に成功させてから registry のマッピングを更新する。
     // 逆順だと attach が失敗した場合 registry だけ新 sessionId に進み、次回 cleanup
     // （removeByPty）の根拠を失う
-    const attached = await tryCatch(taskStore.attachSession(worktreePath, hook.sessionId, worktreePath));
+    const attached = await tryCatch(
+      taskStore.attachSession(worktreePath, hook.sessionId, worktreePath),
+    );
     if (attached.ok) {
       setSessionId(hook.ptyId, hook.sessionId);
     } else {
@@ -96,7 +109,6 @@ async function applyClaudeSessionHook(hook: HookMessage, worktreePath: string, p
   }
   clearSessionId(hook.ptyId);
 }
-
 
 /** NDJSON 1 行を ClientMessage に正規化する。nc 直送経路の hook は event / ptyId しか
  * JSON に載せないため default 充填が必須（充填しないと hook push payload に undefined が
@@ -123,7 +135,9 @@ function parseClientMessage(line: string): ClientMessage {
     };
   }
   if (dict.open !== undefined) {
-    msg.open = { targetPath: lenientString(lenientDict(dict.open, "open").targetPath, "open.targetPath") };
+    msg.open = {
+      targetPath: lenientString(lenientDict(dict.open, "open").targetPath, "open.targetPath"),
+    };
   }
   return msg;
 }
@@ -131,7 +145,9 @@ function parseClientMessage(line: string): ClientMessage {
 async function handleSocketMessage(line: string, push: PushFn): Promise<void> {
   const parsed = tryCatch(() => parseClientMessage(line));
   if (!parsed.ok) {
-    console.error(`[SocketServer] failed to decode ClientMessage: ${parsed.error}: ${line.slice(0, 200)}`);
+    console.error(
+      `[SocketServer] failed to decode ClientMessage: ${parsed.error}: ${line.slice(0, 200)}`,
+    );
     return;
   }
   const msg = parsed.value;
@@ -175,7 +191,9 @@ export function createSocketMessageHandler(push: PushFn): (line: string) => void
         // 全メッセージが onRejected 不在の .then で素通しされて恒久 drop になる
         // （unhandledRejection になるだけで [SocketServer] の観察ログも出ない）。
         // キューを生かし続け、失敗行だけを観察ログに倒す
-        console.error(`[SocketServer] handler rejected, chain kept alive: ${error}: ${line.slice(0, 200)}`);
+        console.error(
+          `[SocketServer] handler rejected, chain kept alive: ${error}: ${line.slice(0, 200)}`,
+        );
       });
   };
 }

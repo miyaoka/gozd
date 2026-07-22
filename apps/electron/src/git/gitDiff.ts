@@ -58,12 +58,21 @@ export async function diffHunks(original: string, current: string): Promise<Diff
     // exit 0（差分なし）/ 1（差分あり）はどちらも成功
     const output = await runGitAllowExit1(
       [
-        "-c", "diff.algorithm=myers",
-        "-c", "diff.renames=false",
-        "-c", "core.autocrlf=false",
-        "-c", "core.eol=lf",
-        "diff", "--no-index", "--no-color", "-U3",
-        "--", aPath, bPath,
+        "-c",
+        "diff.algorithm=myers",
+        "-c",
+        "diff.renames=false",
+        "-c",
+        "core.autocrlf=false",
+        "-c",
+        "core.eol=lf",
+        "diff",
+        "--no-index",
+        "--no-color",
+        "-U3",
+        "--",
+        aPath,
+        bPath,
       ],
       tmpDir,
     );

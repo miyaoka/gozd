@@ -112,7 +112,11 @@ function stderrTail(chunks: Buffer[]): string {
 /** `<shell> -i -l -c 'command -v <name>'` を新 session で起動して絶対パスを得る。
  * 戻り値 undefined = `command -v` が空（コマンド未インストール）。
  * spawn 失敗 / hang / 非 0 exit / marker 抽出失敗は CommandResolveError で reject する */
-function lookupViaLoginShell(name: string, shell: string, timeoutMs: number): Promise<string | undefined> {
+function lookupViaLoginShell(
+  name: string,
+  shell: string,
+  timeoutMs: number,
+): Promise<string | undefined> {
   const token = randomUUID();
   const begin = `GOZD_BEGIN_${token}`;
   const end = `GOZD_END_${token}`;
@@ -130,7 +134,9 @@ function lookupViaLoginShell(name: string, shell: string, timeoutMs: number): Pr
     let timedOut = false;
     let settled = false;
 
-    const settle = (result: { ok: true; value: string | undefined } | { ok: false; error: Error }) => {
+    const settle = (
+      result: { ok: true; value: string | undefined } | { ok: false; error: Error },
+    ) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -170,7 +176,8 @@ function lookupViaLoginShell(name: string, shell: string, timeoutMs: number): Pr
         return;
       }
       if (code !== 0) {
-        const reason = code !== null ? `shell exited with code ${code}` : `shell killed by signal ${signal}`;
+        const reason =
+          code !== null ? `shell exited with code ${code}` : `shell killed by signal ${signal}`;
         settle({
           ok: false,
           error: new CommandResolveError(
@@ -244,7 +251,9 @@ export function createCommandResolver({
 
   async function resolve(name: string): Promise<string | undefined> {
     if (!VALID_COMMAND_NAME.test(name)) {
-      throw new CommandResolveError(`CLI resolver: invalid command name '${name}' (must match [A-Za-z0-9_-]+)`);
+      throw new CommandResolveError(
+        `CLI resolver: invalid command name '${name}' (must match [A-Za-z0-9_-]+)`,
+      );
     }
     const cached = cache.get(name);
     if (cached !== undefined) return cached;
@@ -259,7 +268,9 @@ export function createCommandResolver({
     inflight.delete(name);
     if (!result.ok) {
       // 失敗時にユーザーには launchFailed 相当としか見えないため、サブ原因を stderr に残す
-      console.error(`[commandResolver] resolve failed name=${name} shell=${shell}: ${result.error.message}`);
+      console.error(
+        `[commandResolver] resolve failed name=${name} shell=${shell}: ${result.error.message}`,
+      );
       throw result.error;
     }
     if (result.value === undefined) {
@@ -305,7 +316,9 @@ export async function withResolvedCommand<T>(
   const first = await tryCatch(run(await resolveRequired(name)));
   if (first.ok) return first.value;
   if (!isEnoent(first.error)) throw first.error;
-  console.error(`[commandResolver] cached path for '${name}' hit ENOENT, invalidating and re-resolving`);
+  console.error(
+    `[commandResolver] cached path for '${name}' hit ENOENT, invalidating and re-resolving`,
+  );
   commandResolver.invalidate(name);
   return run(await resolveRequired(name));
 }

@@ -81,7 +81,9 @@ export function strictDictArray(value: unknown, label: string): RawDict[] {
 // 落とすと UI 状態が永続的にずれるため message ごと破棄せずフィールド単位で継続する。
 
 function logLenientFallback(label: string, expected: string, value: unknown): void {
-  console.error(`[rawJson] ${label}: expected ${expected}, got ${describeValue(value)}; using default`);
+  console.error(
+    `[rawJson] ${label}: expected ${expected}, got ${describeValue(value)}; using default`,
+  );
 }
 
 export function lenientString(value: unknown, label: string, fallback = ""): string {

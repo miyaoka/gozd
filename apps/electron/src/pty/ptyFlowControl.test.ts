@@ -2,11 +2,7 @@
 // edge-triggered（閾値を跨いだ瞬間に 1 度だけ発火）であることを呼び出し回数で検証する。
 
 import { describe, expect, test } from "bun:test";
-import {
-  createFlowController,
-  HIGH_WATERMARK_CHARS,
-  LOW_WATERMARK_CHARS,
-} from "./ptyFlowControl";
+import { createFlowController, HIGH_WATERMARK_CHARS, LOW_WATERMARK_CHARS } from "./ptyFlowControl";
 
 function setup() {
   const calls: string[] = [];

@@ -30,6 +30,13 @@ export interface FloatingWindowState {
   bodyWidth: number;
   bodyHeight: number;
   z: number;
+  /**
+   * 外部 (cmd+w の closeFrontFloatingWindow 等) からの close 要求 epoch。増加を
+   * FloatingWindow シェルが close emit へ変換し、consumer の close 経路 (未保存確認
+   * ガード込み) に合流させる。store が直接 close しないのは、close してよいかの判断
+   * (dirty 確認等) が consumer の知識のため。
+   */
+  closeRequested: number;
 }
 
 /**
@@ -60,7 +67,7 @@ let zTop = Z_BASE;
  * hasFloatingWindow の computed が追跡し直せるようにするため。
  */
 const instances = shallowReactive<
-  { getWindows: () => readonly FloatingWindowState[]; close: (id: number) => void }[]
+  { getWindows: () => readonly FloatingWindowState[]; requestClose: (id: number) => void }[]
 >([]);
 
 /** undock されたウィンドウが 1 枚でも存在するか (floatingWindowVisible context key の source)。 */
@@ -68,18 +75,22 @@ export const hasFloatingWindow = computed(() =>
   instances.some((instance) => instance.getWindows().length > 0),
 );
 
-/** 全種のウィンドウのうち最前面 (z 最大) の 1 枚を閉じる。1 枚も無ければ false。 */
+/**
+ * 全種のウィンドウのうち最前面 (z 最大) の 1 枚に close を要求する。1 枚も無ければ false。
+ * 即 close ではなく closeRequested 経由で consumer の close 経路 (未保存確認ガード込み) に
+ * 合流させるため、要求後もウィンドウが (確認 Cancel で) 残ることがある。
+ */
 export function closeFrontFloatingWindow(): boolean {
-  let front: { close: (id: number) => void; id: number; z: number } | undefined;
+  let front: { requestClose: (id: number) => void; id: number; z: number } | undefined;
   for (const instance of instances) {
     for (const win of instance.getWindows()) {
       if (front === undefined || win.z > front.z) {
-        front = { close: instance.close, id: win.id, z: win.z };
+        front = { requestClose: instance.requestClose, id: win.id, z: win.z };
       }
     }
   }
   if (front === undefined) return false;
-  front.close(front.id);
+  front.requestClose(front.id);
   return true;
 }
 
@@ -89,9 +100,12 @@ export function createFloatingWindows<T>() {
   // undock() → mount → takeHandoff() が同期フラッシュ内で完結するため reactive にしない。
   let pendingHandoff: ({ id: number } & UndockDragHandoff) | undefined;
 
-  function undock(input: T & Omit<FloatingWindowState, "id" | "z">, handoff?: UndockDragHandoff) {
+  function undock(
+    input: T & Omit<FloatingWindowState, "id" | "z" | "closeRequested">,
+    handoff?: UndockDragHandoff,
+  ) {
     const id = nextId++;
-    windows.value.push({ ...input, id, z: ++zTop });
+    windows.value.push({ ...input, id, z: ++zTop, closeRequested: 0 });
     if (handoff !== undefined) pendingHandoff = { id, ...handoff };
   }
 
@@ -105,6 +119,13 @@ export function createFloatingWindows<T>() {
 
   function close(id: number) {
     windows.value = windows.value.filter((w) => w.id !== id);
+  }
+
+  /** 外部からの close 要求 (FloatingWindowState.closeRequested の docstring 参照) */
+  function requestClose(id: number) {
+    const win = windows.value.find((w) => w.id === id);
+    if (win === undefined) return;
+    win.closeRequested++;
   }
 
   function move(id: number, x: number, y: number) {
@@ -123,7 +144,7 @@ export function createFloatingWindows<T>() {
     win.z = ++zTop;
   }
 
-  instances.push({ getWindows: () => windows.value, close });
+  instances.push({ getWindows: () => windows.value, requestClose });
 
   return { windows, undock, takeHandoff, close, move, bringToFront };
 }

@@ -4,7 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { useUndockedLog, type UndockedLog } from "./useUndockedLog";
 
-function undockInput(): Omit<UndockedLog, "id" | "z"> {
+function undockInput(): Omit<UndockedLog, "id" | "z" | "closeRequested"> {
   return {
     kind: "assistant",
     repoName: "gozd",

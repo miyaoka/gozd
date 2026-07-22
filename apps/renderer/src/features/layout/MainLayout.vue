@@ -41,6 +41,7 @@ import {
   FileHistoryPopover,
   PreviewPane,
   registerMarkdownHistoryCommands,
+  UnsavedDraftConfirmDialog,
   usePreviewEditStore,
   usePreviewStore,
 } from "../preview";
@@ -72,7 +73,7 @@ const disposePreviewClose = register("preview.close", {
   label: "Preview: Close",
   handler: () => {
     if (!previewStore.isOpen) return false;
-    previewStore.close();
+    previewStore.requestClose();
     return true;
   },
 });
@@ -226,8 +227,8 @@ watch(
 // HTML popover が popover="auto" で持っていた ESC dismiss の性質を自前で代替する。
 // 他の popover (BlamePopover 等) や dialog (SettingsModal 等) が前面にあるときはそちらに ESC を譲り、
 // すべて閉じた次の ESC で preview を閉じる。preventDefault は macOS の NSBeep 抑止に必須。
-// 編集は常時編集 (edit mode トグル無し) のため ESC に編集系の意味は無い。未保存 draft は
-// close してもセッションが store に残り、同一ファイルの再 open で復元される。
+// 編集は常時編集 (edit mode トグル無し) のため ESC に編集系の意味は無い。未保存 draft が
+// あれば requestClose の確認 (Save / Don't Save / Cancel) を挟む (close で破棄されるため)。
 useEventListener(document, "keydown", (e: KeyboardEvent) => {
   if (e.defaultPrevented) return;
   if (isIMEActive(e) || e.key !== "Escape") return;
@@ -238,7 +239,7 @@ useEventListener(document, "keydown", (e: KeyboardEvent) => {
   if (otherPopoverOpen) return;
   if (document.querySelector("dialog[open]") !== null) return;
   e.preventDefault();
-  previewStore.close();
+  previewStore.requestClose();
 });
 
 /** 中央カラム内 Terminal の DOM 実測高さ（flex-1 のため v-model 不可） */
@@ -339,7 +340,7 @@ watch(
       />
 
       <div class="min-w-0 flex-1 overflow-hidden">
-        <PreviewPane @close="previewStore.close()" />
+        <PreviewPane @close="previewStore.requestClose()" />
       </div>
     </div>
 
@@ -352,6 +353,7 @@ watch(
     <SettingsModal />
     <BlamePopover />
     <FileHistoryPopover />
+    <UnsavedDraftConfirmDialog />
     <NotificationToast />
   </div>
 </template>

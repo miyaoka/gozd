@@ -3,7 +3,9 @@ import { createPinia, setActivePinia } from "pinia";
 import { useRepoStore } from "../../shared/repo";
 import { useChangesSummaryStore } from "../changes";
 import { useWorktreeStore } from "../worktree";
+import { usePreviewEditStore } from "./usePreviewEditStore";
 import { usePreviewStore } from "./usePreviewStore";
+import { useUnsavedDraftConfirm } from "./useUnsavedDraftConfirm";
 
 /**
  * `previewStore.requestSelect` / `forceSelect` の決定論理だけを検証する。
@@ -39,6 +41,8 @@ beforeEach(() => {
   setActivePinia(createPinia());
   const repoStore = useRepoStore();
   repoStore.selectDir(DIR);
+  // 確認 state は module singleton のためテスト間で明示的に畳む
+  useUnsavedDraftConfirm().cancel();
 });
 
 describe("usePreviewStore.requestSelect", () => {
@@ -379,6 +383,123 @@ describe("usePreviewStore.close invariant", () => {
 
     expect(summary.enabled).toBe(false);
     expect(preview.isOpen).toBe(false);
+  });
+});
+
+describe("usePreviewStore 未保存 draft ガード", () => {
+  /** a.ts を選択して preview を開き、dirty な編集セッションを作る */
+  function openDirty() {
+    const preview = usePreviewStore();
+    const editStore = usePreviewEditStore();
+    const popover = createMockPopover();
+    preview.bindPopover(popover.el);
+    preview.requestSelect({ kind: "worktreeRelative", relPath: "a.ts" });
+    editStore.beginSession({ kind: "worktreeRelative", dir: DIR, relPath: "a.ts" }, "base");
+    editStore.updateDraft("edited");
+    return { preview, editStore, popover };
+  }
+
+  test("close は編集セッションを畳む (不可視の未保存 draft を残さない)", () => {
+    const { preview, editStore } = openDirty();
+
+    preview.close();
+
+    expect(preview.isOpen).toBe(false);
+    expect(editStore.hasSession).toBe(false);
+  });
+
+  test("dirty で requestClose → 確認 pending になり close されない", () => {
+    const { preview, editStore } = openDirty();
+    const confirm = useUnsavedDraftConfirm();
+
+    preview.requestClose();
+
+    expect(confirm.pending.value).toBeDefined();
+    expect(preview.isOpen).toBe(true);
+    expect(editStore.isDirty).toBe(true);
+  });
+
+  test("クリーンな requestClose は確認なしで即 close", () => {
+    const preview = usePreviewStore();
+    const confirm = useUnsavedDraftConfirm();
+    const popover = createMockPopover();
+    preview.bindPopover(popover.el);
+    preview.requestSelect({ kind: "worktreeRelative", relPath: "a.ts" });
+
+    preview.requestClose();
+
+    expect(confirm.pending.value).toBeUndefined();
+    expect(preview.isOpen).toBe(false);
+  });
+
+  test("確認の Don't Save は draft を破棄して close を実行する", () => {
+    const { preview, editStore } = openDirty();
+    const confirm = useUnsavedDraftConfirm();
+
+    preview.requestClose();
+    confirm.chooseDiscard();
+
+    expect(preview.isOpen).toBe(false);
+    expect(editStore.hasSession).toBe(false);
+  });
+
+  test("確認の Cancel は close も draft 破棄もしない", () => {
+    const { preview, editStore } = openDirty();
+    const confirm = useUnsavedDraftConfirm();
+
+    preview.requestClose();
+    confirm.cancel();
+
+    expect(preview.isOpen).toBe(true);
+    expect(editStore.isDirty).toBe(true);
+    expect(editStore.draftContent).toBe("edited");
+  });
+
+  test("dirty で別 path への requestSelect → 確認 pending、selection は動かない", () => {
+    const { preview } = openDirty();
+    const wt = useWorktreeStore();
+    const confirm = useUnsavedDraftConfirm();
+
+    preview.requestSelect({ kind: "worktreeRelative", relPath: "b.ts" });
+
+    expect(confirm.pending.value).toBeDefined();
+    expect(wt.selectedRelPath).toBe("a.ts");
+
+    confirm.chooseDiscard();
+    expect(wt.selectedRelPath).toBe("b.ts");
+  });
+
+  test("dirty でも同 path の forceSelect は確認なしで開き直す", () => {
+    const { preview, editStore } = openDirty();
+    const confirm = useUnsavedDraftConfirm();
+
+    preview.forceSelect({ kind: "worktreeRelative", relPath: "a.ts" });
+
+    expect(confirm.pending.value).toBeUndefined();
+    expect(preview.isOpen).toBe(true);
+    expect(editStore.isDirty).toBe(true);
+  });
+
+  test("dirty で openSummary → 確認 pending になり summary は入らない", () => {
+    const { preview } = openDirty();
+    const summary = useChangesSummaryStore();
+    const confirm = useUnsavedDraftConfirm();
+
+    preview.openSummary();
+
+    expect(confirm.pending.value).toBeDefined();
+    expect(summary.enabled).toBe(false);
+  });
+
+  test("確認中の再投入は先勝ちで無視される", () => {
+    const { preview } = openDirty();
+    const confirm = useUnsavedDraftConfirm();
+
+    preview.requestClose();
+    const first = confirm.pending.value;
+    preview.requestSelect({ kind: "worktreeRelative", relPath: "b.ts" });
+
+    expect(confirm.pending.value).toBe(first);
   });
 });
 

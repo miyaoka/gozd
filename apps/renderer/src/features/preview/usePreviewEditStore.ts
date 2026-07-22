@@ -143,6 +143,7 @@ export const usePreviewEditStore = defineStore("preview-edit", () => {
   return {
     draftContent,
     savedContent,
+    target,
     isDirty,
     hasSession,
     saving,

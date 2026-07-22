@@ -7,6 +7,8 @@ import {
   type PathTarget,
   useWorktreeStore,
 } from "../worktree";
+import { usePreviewEditStore } from "./usePreviewEditStore";
+import { useUnsavedDraftConfirm } from "./useUnsavedDraftConfirm";
 
 /**
  * Preview popover の開閉と「選択 → 表示」の意思決定を集約する SSOT。
@@ -30,9 +32,11 @@ import {
  * - `forceSelect(target)`: 強制 open（gozdOpen / markdown link navigation）。同一 path でも
  *   閉じない。「ユーザーが見たいファイルを CLI で明示指定した」「md 内 link で遷移した」など、
  *   navigation 意味の経路で使う
- * - `open()` / `close()` / `toggle()`: state の直接操作。ESC / button / `preview.toggle` コマンド
- *   などで使う。`close()` は「popover 閉 ⇒ summary 解除」の invariant を担う (close 経路は
- *   ESC / Preview ヘッダ close ボタン / dir 切替 / closeSummary すべて同一意味)
+ * - `open()` / `close()` / `toggle()`: state の直接操作。`close()` は「popover 閉 ⇒ summary
+ *   解除 + 編集セッション破棄」の invariant を担う (不可視の未保存 draft を残さない)。
+ *   dir 切替 / closeForMissingSelection など veto 不能な経路が直接呼ぶ
+ * - `requestClose()`: UI 経路 (ESC / close ボタン / cmd+w / toggle) の close 要求。未保存
+ *   draft があれば確認 (Save / Don't Save / Cancel) を挟み、Cancel なら閉じない
  * - `closeForMissingSelection()`: 表示中ファイルが実体としてどこにも存在しなくなった
  *   (未追跡ファイルの削除等) ときに選択解除して close する。current / HEAD いずれにも無いと
  *   content 取得層 (`usePreviewContent`) が判定した経路から呼ぶ
@@ -56,9 +60,36 @@ export const usePreviewStore = defineStore("preview", () => {
   // の dir watch → close() invariant が担う)。
   const worktreeStore = useWorktreeStore();
   const summaryStore = useChangesSummaryStore();
+  const editStore = usePreviewEditStore();
+  const draftConfirm = useUnsavedDraftConfirm();
 
   const popoverEl = ref<HTMLElement>();
   const isOpen = ref(false);
+
+  /**
+   * 未保存 draft を破棄する操作のガード。クリーンなら action を即実行、dirty なら
+   * Save / Don't Save / Cancel の確認を挟む (Cancel = action を実行しない)。
+   * Save は editStore.save() の失敗 (isDirty が残る) を veto として action を中止する。
+   */
+  function withDraftGuard(action: () => void) {
+    if (!editStore.isDirty) {
+      action();
+      return;
+    }
+    const target = editStore.target;
+    const path = target?.kind === "worktreeRelative" ? target.relPath : (target?.absPath ?? "");
+    draftConfirm.request({
+      fileName: path.split("/").pop() ?? path,
+      save: async () => {
+        await editStore.save();
+        return !editStore.isDirty;
+      },
+      discard: () => {
+        editStore.discard();
+      },
+      proceed: action,
+    });
+  }
 
   function bindPopover(el: HTMLElement | undefined) {
     popoverEl.value = el;
@@ -77,6 +108,11 @@ export const usePreviewStore = defineStore("preview", () => {
     // ボタン / dir 切替経由でも適用される。これをやらないと summary enabled=true + popover
     // closed の状態が残り、次に preview を toggle で開いた瞬間に summary view が復活する。
     summaryStore.disable();
+    // invariant: popover 閉 ⇒ 編集セッションも畳む。不可視の未保存 draft を残すと、dirty
+    // インジケータが無いまま再 open 時の外部変更同期で無警告破棄される経路が生まれる。
+    // dirty 時の確認は requestClose 側の責務で、ここは無条件に破棄する (veto 不能な
+    // dir 切替 watch が sync で呼ぶため、ここに async ガードは置けない)。
+    editStore.endSession();
     if (!isOpen.value) return;
     const el = popoverEl.value;
     if (!el) return;
@@ -84,9 +120,14 @@ export const usePreviewStore = defineStore("preview", () => {
     isOpen.value = false;
   }
 
+  /** UI 経路の close 要求。未保存 draft があれば確認を挟む (doc 参照) */
+  function requestClose() {
+    withDraftGuard(close);
+  }
+
   function toggle() {
     if (isOpen.value) {
-      close();
+      requestClose();
     } else {
       open();
     }
@@ -98,13 +139,17 @@ export const usePreviewStore = defineStore("preview", () => {
   // summary store 側の API として残る。
 
   function openSummary() {
-    summaryStore.enable();
-    open();
+    // summary 進入は単一ファイル preview ごと unmount して編集セッションを畳む
+    // (usePreviewEdit の watch) ため、破棄境界としてガードする
+    withDraftGuard(() => {
+      summaryStore.enable();
+      open();
+    });
   }
 
   function toggleSummary() {
     if (summaryStore.enabled) {
-      close();
+      requestClose();
     } else {
       openSummary();
     }
@@ -147,11 +192,15 @@ export const usePreviewStore = defineStore("preview", () => {
         summaryStore.disable();
         return;
       }
-      close();
+      requestClose();
       return;
     }
-    worktreeStore.selectFromTarget(target, lineNumber);
-    open();
+    // 別 path への切替は現セッションの draft 破棄 (usePreviewContent の targetChanged →
+    // endSession) を意味するためガードする。同一 path (上の分岐) は破棄が起きない
+    withDraftGuard(() => {
+      worktreeStore.selectFromTarget(target, lineNumber);
+      open();
+    });
   }
 
   /**
@@ -162,8 +211,17 @@ export const usePreviewStore = defineStore("preview", () => {
    */
   function forceSelect(target: PathTarget, lineNumber?: number) {
     if (!canSelect(target)) return;
-    worktreeStore.selectFromTarget(target, lineNumber);
-    open();
+    // 同一 path は draft 破棄が起きない (targetChanged にならない) ためガードを通さず
+    // 常に開く。lineNumber ジャンプの再実行のため selectFromTarget は呼ぶ
+    if (isSameAsCurrent(target)) {
+      worktreeStore.selectFromTarget(target, lineNumber);
+      open();
+      return;
+    }
+    withDraftGuard(() => {
+      worktreeStore.selectFromTarget(target, lineNumber);
+      open();
+    });
   }
 
   /**
@@ -203,6 +261,7 @@ export const usePreviewStore = defineStore("preview", () => {
     bindPopover,
     open,
     close,
+    requestClose,
     toggle,
     openSummary,
     toggleSummary,

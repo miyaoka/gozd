@@ -184,8 +184,9 @@ function buildUndockedDoc(): UndockedPreviewDoc | undefined {
   const path = selectedDisplayPath.value;
   if (path === undefined) return undefined;
   if (isContentUnavailable.value) return undefined;
-  // current は編集可能ファイルなら draft を含む diffCurrent が SSOT。バイナリは raw bytes
-  const current = isBinary.value ? currentContent.value : diffCurrent.value;
+  // current は disk / rev の内容 (currentText)。未保存 draft は含めない — draft は
+  // initialDraft として別途運び、window 側 dirty 判定の基準を disk 内容に保つ。バイナリは raw bytes
+  const current = isBinary.value ? currentContent.value : currentText.value;
   const original = originalContent.value;
   const ft = fileType.value;
   const hasText = typeof current === "string" || typeof original === "string";
@@ -255,6 +256,10 @@ function undockPreview(handoff?: UndockDragHandoff) {
       wordWrap: wordWrap.value,
       previewEnabled: previewEnabled.value,
       currentIsWorkingTree: currentIsWorkingTree.value,
+      // 未保存 draft はウィンドウへ「移動」する (下の endSession とセット)。編集不可の
+      // undock (過去 rev) に渡すと window 側の保存で実ファイルを汚すため渡さない
+      initialDraft:
+        currentIsWorkingTree.value && editStore.isDirty ? editStore.draftContent : undefined,
       doc,
       source,
       x: rect.left,
@@ -264,8 +269,13 @@ function undockPreview(handoff?: UndockDragHandoff) {
     },
     handoff,
   );
+  // draft は initialDraft としてウィンドウへ移動済みなので本体セッションを畳み、未保存編集の
+  // 所有者を一意に保つ (残すと同じ編集が 2 か所に併存し、片方の破棄確認が意味を失う)。
+  // これにより直後の close 経路 (requestClose) の dirty ガードも掛からない — undock は
+  // 破棄ではなく移動なので確認を出さないのが正しい。
+  editStore.endSession();
   // undock 後は popover を閉じる (二重表示を残さない)。close 経路は MainLayout →
-  // previewStore.close() で、ヘッダの close ボタンと同じ意味論。
+  // previewStore.requestClose() で、ヘッダの close ボタンと同じ意味論。
   emit("close");
 }
 

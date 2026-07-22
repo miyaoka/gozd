@@ -3,7 +3,7 @@
 
 import { tryCatch } from "@gozd/shared";
 import { afterEach, describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
+import { runFixtureGit } from "../testGitFixture";
 import {
   chmodSync,
   mkdirSync,
@@ -134,7 +134,7 @@ describe("FSOps", () => {
 
   test("git repo 内では .gitignore に一致する entry の isIgnored=true", async () => {
     const dir = makeTempDir();
-    execFileSync("git", ["init"], { cwd: dir, stdio: "ignore" });
+    runFixtureGit(["init"], dir);
     writeFileSync(join(dir, ".gitignore"), "dist/\n*.log\n");
     mkdirSync(join(dir, "dist"));
     writeFileSync(join(dir, "app.log"), "");

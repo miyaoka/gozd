@@ -240,6 +240,9 @@ function undockPreview(handoff?: UndockDragHandoff) {
   undockPreviewWindow(
     {
       repoName: repo?.repoName ?? "",
+      // undocked window は live な identity 更新を受けない凍結 snapshot のため、
+      // 解決中 (undefined) は identicon ("") に倒す。live 消費者と違い `?? ""` を
+      // 外してはいけない (外すと解決中に undock した window が恒久的に空白になる)
       repoOwner: repo?.githubIdentity?.owner ?? "",
       branch,
       fileName: path.split("/").pop() ?? path,

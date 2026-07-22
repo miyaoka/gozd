@@ -49,9 +49,16 @@ export function useUnsavedDraftConfirm() {
     const req = pending.value;
     if (req === undefined || saving.value) return;
     saving.value = true;
-    const ok = await req.save();
-    saving.value = false;
-    pending.value = undefined;
+    let ok = false;
+    // save の契約は「reject せず boolean を返す」だが、saving はこの module が所有する
+    // 状態なので契約違反 (reject) でも finally でリセットを構造保証する。リークすると
+    // 全ボタン disabled + ESC 遮断のダイアログが永久デッドロックになるため
+    try {
+      ok = await req.save();
+    } finally {
+      saving.value = false;
+      pending.value = undefined;
+    }
     if (ok) req.proceed();
   }
 

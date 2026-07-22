@@ -108,6 +108,7 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 
 - worktree 切替 (dir 変化) で自動クローズ。dir watch は `usePreviewStore` 内部に閉じ込めてあり、MainLayout や外部経路から発火を観測する必要はない。新 worktree でファイル選択を伴う dir 切替 (`gozdOpen` で別 worktree のファイルを指定した経路等) では、続けて `forceSelect` で再 open されるため最終状態は新ファイルで表示継続になる。dir watch は `flush: 'sync'` で `gozdOpen` handler の `setOpen → forceSelect` 連続呼びと順序が崩れないようにする
 - 外側クリックでは閉じない
+- Cmd+W の close チェーンは**フォーカス**で分岐する: terminal にフォーカスがあれば `terminal.closePane`、それ以外は最前面のサーフェス（preview popover > undocked window）を閉じる（`defaultKeyBindings.json` の when 条件）。この意味論を成立させるため、popover の open（表示中のファイル切替を含む）では MainLayout の watch がフォーカスを popover へ移す — `showPopover()` はフォーカスを移さないため、terminal リンク経由の open でフォーカスが terminal に残ると、開いた直後の Cmd+W が preview でなく terminal pane を閉じてしまう。close 時は open 時点のフォーカス元へ戻す（terminal リンクから開いて Cmd+W で閉じると terminal に入力が戻る）。popover 内部にフォーカスがあるとき（Monaco 編集中等）は奪わない
 - ESC キーで閉じる。ただし他の popover (BlamePopover 等) や dialog (SettingsModal 等) が前面にあるときはそれらが優先され、すべて閉じた次の ESC で preview が閉じる
 - IME 変換中の ESC（変換キャンセル）では閉じない
 - 表示中ファイルが削除されると自動クローズ。`fsChange` 再 fetch で current (作業ツリー) が notFound になったとき、content 取得層 (`usePreviewContent`) は HEAD (`gitShowFile`) の在否も確認し、**current / HEAD いずれにも無い** (= 未追跡ファイルの削除等で実体がどこにも残っていない) と確定した場合のみ `closeForMissingSelection()` を呼んで選択解除 + close する。単一ファイル削除・ディレクトリごとの削除のどちらも同じ経路で拾う

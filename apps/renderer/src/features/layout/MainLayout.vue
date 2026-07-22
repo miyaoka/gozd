@@ -48,6 +48,7 @@ import {
 import { registerAppConfigSync, registerSettingsCommand, SettingsModal } from "../settings";
 import { SidebarPane } from "../sidebar";
 import { registerThemeCommand, TerminalPane } from "../terminal";
+import { useWorktreeStore } from "../worktree";
 import NotificationCenterPanel from "./NotificationCenterPanel.vue";
 import NotificationToast from "./NotificationToast.vue";
 import ResizeHandle from "./ResizeHandle.vue";
@@ -56,6 +57,7 @@ import TitleBar from "./TitleBar.vue";
 import IconLucidePanelRightOpen from "~icons/lucide/panel-right-open";
 
 const repoStore = useRepoStore();
+const worktreeStore = useWorktreeStore();
 const previewStore = usePreviewStore();
 const previewEditStore = usePreviewEditStore();
 const contextKeys = useContextKeys();
@@ -197,6 +199,46 @@ watch(
   { immediate: true },
 );
 
+/**
+ * preview の open でフォーカスを popover へ移し、close で open 時点のフォーカス元へ戻す。
+ *
+ * cmd+w は「フォーカスのあるサーフェスを閉じる」意味論で terminalFocus により分岐する
+ * (defaultKeyBindings.json)。popover の `showPopover()` はフォーカスを移さないため、
+ * terminal リンク経由の open でフォーカスが terminal に残ると、開いた直後の cmd+w が
+ * preview でなく terminal pane を閉じてしまう。open のたびに popover へフォーカスを
+ * 引き直すことで防ぐ (VS Code の terminal link → editor focus と同じ意味論)。
+ *
+ * revealVersion を watch source に含めるのは、preview 表示中のファイル切替 (terminal
+ * リンクの再クリック等) でも同じ理由でフォーカスを引き直すため。popover 内部に
+ * フォーカスがある場合 (Monaco 編集中等) は奪わない。
+ *
+ * DOM フォーカスは view の関心なので、DOM なしでテストされる previewStore ではなく
+ * popover 要素を所有する本コンポーネントが担う。
+ */
+let previewRestoreFocusEl: HTMLElement | undefined;
+watch(
+  () => [previewStore.isOpen, worktreeStore.revealVersion] as const,
+  ([open], [wasOpen]) => {
+    const el = previewPopoverRef.value;
+    if (el === null) return;
+    if (open) {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && el.contains(active)) return;
+      previewRestoreFocusEl = active instanceof HTMLElement ? active : undefined;
+      el.focus({ preventScroll: true });
+      return;
+    }
+    if (!wasOpen) return;
+    // hidePopover の時点でフォーカスは body へ落ちているため、「popover がフォーカスを
+    // 持っていたか」は判定できない。open→close 遷移では常に復帰を試みる (xterm の
+    // hidden textarea 等。unmount 済み / 不可視なら focus() が no-op で body に留まる)
+    if (previewRestoreFocusEl?.isConnected === true) {
+      previewRestoreFocusEl.focus({ preventScroll: true });
+    }
+    previewRestoreFocusEl = undefined;
+  },
+);
+
 // floatingWindowVisible context key を undock ウィンドウ (log / preview 全種) の有無と同期
 watch(
   hasFloatingWindow,
@@ -323,11 +365,14 @@ watch(
       </div>
     </div>
 
-    <!-- Preview popover: 開閉ボタンをアンカーにして左側に展開 -->
+    <!-- Preview popover: 開閉ボタンをアンカーにして左側に展開。
+         tabindex="-1" は open 時のプログラムフォーカス移送用 (フォーカス移送 watch 参照)。
+         tab 到達不能なパネル面へのフォーカスルーティングなので focus ring は出さない -->
     <div
       ref="previewPopover"
       popover="manual"
-      class="_preview-popover overflow-hidden border-0 border-l border-border bg-background p-0 [&:popover-open]:flex"
+      tabindex="-1"
+      class="_preview-popover overflow-hidden border-0 border-l border-border bg-background p-0 outline-hidden [&:popover-open]:flex"
       :style="{ width: `${previewWidth}px` }"
     >
       <!-- 左端リサイズハンドル -->

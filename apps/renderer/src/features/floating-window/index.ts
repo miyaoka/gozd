@@ -6,7 +6,9 @@
 // 何を undock するか (payload とヘッダ / 本文の描画) は各 consumer 側に閉じる。
 export { default as FloatingWindow } from "./FloatingWindow.vue";
 export {
+  closeFrontFloatingWindow,
   createFloatingWindows,
   type FloatingWindowState,
+  hasFloatingWindow,
   type UndockDragHandoff,
 } from "./useFloatingWindows";

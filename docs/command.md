@@ -109,6 +109,7 @@ interface ContextMap {
   terminalFocus: boolean;
   filerFocus: boolean;
   previewVisible: boolean;
+  floatingWindowVisible: boolean;
   commandPaletteVisible: boolean;
   quickPickVisible: boolean;
   filePickerVisible: boolean;
@@ -124,6 +125,7 @@ interface ContextMap {
 | `terminalFocus`         | アクティブターミナルのフォーカス変化 + worktree 切替 / closePane / visibilitychange で同期         |
 | `filerFocus`            | FilerPane（ファイルツリー）内にフォーカスがあるか。フォーカス変化に追従して同期                    |
 | `previewVisible`        | Preview popover の開閉状態と同期                                                                   |
+| `floatingWindowVisible` | undock されたフローティングウィンドウ（log / preview 全種）が 1 枚でも存在するか                   |
 | `commandPaletteVisible` | コマンドパレット dialog の open/close で同期                                                       |
 | `quickPickVisible`      | QuickPick dialog の open/close で同期                                                              |
 | `filePickerVisible`     | File picker（Go to File）dialog の open/close で同期                                               |

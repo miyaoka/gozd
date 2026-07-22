@@ -21,6 +21,7 @@ import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
 import { registerFilerCommands } from "../filer";
+import { closeFrontFloatingWindow, hasFloatingWindow } from "../floating-window";
 import { GitGraphPane } from "../git-graph";
 import { NavigatorPane } from "../navigator";
 import {
@@ -67,6 +68,18 @@ const disposePreviewToggle = register("preview.toggle", {
     return true;
   },
 });
+const disposePreviewClose = register("preview.close", {
+  label: "Preview: Close",
+  handler: () => {
+    if (!previewStore.isOpen) return false;
+    previewStore.close();
+    return true;
+  },
+});
+const disposeFloatingWindowClose = register("floatingWindow.closeFront", {
+  label: "Floating Window: Close Front",
+  handler: () => closeFrontFloatingWindow(),
+});
 const disposeWindowClose = register("window.close", {
   label: "Window: Close",
   handler: () => {
@@ -84,6 +97,8 @@ const disposeReviveCommand = registerReviveCommand();
 const disposeMarkdownHistoryCommands = registerMarkdownHistoryCommands();
 const disposeFilerCommands = registerFilerCommands();
 onUnmounted(disposePreviewToggle);
+onUnmounted(disposePreviewClose);
+onUnmounted(disposeFloatingWindowClose);
 onUnmounted(disposeWindowClose);
 onUnmounted(disposeThemeCommand);
 onUnmounted(disposeSettingsCommand);
@@ -176,6 +191,15 @@ watch(
   () => previewStore.isOpen,
   (open) => {
     contextKeys.set("previewVisible", open);
+  },
+  { immediate: true },
+);
+
+// floatingWindowVisible context key を undock ウィンドウ (log / preview 全種) の有無と同期
+watch(
+  hasFloatingWindow,
+  (has) => {
+    contextKeys.set("floatingWindowVisible", has);
   },
   { immediate: true },
 );

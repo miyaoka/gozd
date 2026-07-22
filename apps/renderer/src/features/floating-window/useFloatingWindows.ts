@@ -17,7 +17,7 @@
  * 同じ plain fixed のスタッキング文脈に並ぶため、カウンタを instance ごとに分けると
  * 種類を跨いだ bring-to-front が効かなくなる。
  */
-import { ref, type Ref } from "vue";
+import { computed, ref, shallowReactive, type Ref } from "vue";
 
 export interface FloatingWindowState {
   id: number;
@@ -51,6 +51,37 @@ const Z_BASE = 30;
 
 // 全 factory instance で共有 (モジュール docstring 参照)。
 let zTop = Z_BASE;
+
+/**
+ * 全 factory instance の registry。種類の異なるウィンドウ (log / preview) を跨いで
+ * 「最前面の 1 枚」を特定するために module で持つ。Ref の invariance を避けるため
+ * windows は getter で覆って FloatingWindowState[] へ covariant に読み出す。
+ * shallowReactive なのは、consumer module の HMR 再実行で instance が後から増えても
+ * hasFloatingWindow の computed が追跡し直せるようにするため。
+ */
+const instances = shallowReactive<
+  { getWindows: () => readonly FloatingWindowState[]; close: (id: number) => void }[]
+>([]);
+
+/** undock されたウィンドウが 1 枚でも存在するか (floatingWindowVisible context key の source)。 */
+export const hasFloatingWindow = computed(() =>
+  instances.some((instance) => instance.getWindows().length > 0),
+);
+
+/** 全種のウィンドウのうち最前面 (z 最大) の 1 枚を閉じる。1 枚も無ければ false。 */
+export function closeFrontFloatingWindow(): boolean {
+  let front: { close: (id: number) => void; id: number; z: number } | undefined;
+  for (const instance of instances) {
+    for (const win of instance.getWindows()) {
+      if (front === undefined || win.z > front.z) {
+        front = { close: instance.close, id: win.id, z: win.z };
+      }
+    }
+  }
+  if (front === undefined) return false;
+  front.close(front.id);
+  return true;
+}
 
 export function createFloatingWindows<T>() {
   const windows = ref([]) as Ref<(T & FloatingWindowState)[]>;
@@ -91,6 +122,8 @@ export function createFloatingWindows<T>() {
     if (win.z === zTop) return;
     win.z = ++zTop;
   }
+
+  instances.push({ getWindows: () => windows.value, close });
 
   return { windows, undock, takeHandoff, close, move, bringToFront };
 }

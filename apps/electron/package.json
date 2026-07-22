@@ -1,7 +1,7 @@
 {
   "name": "@gozd/electron",
   "productName": "Gozd",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "author": "miyaoka",
   "description": "Gozd — Git Orchestrated Zone for Development. Electron main process for managing parallel AI agent development.",

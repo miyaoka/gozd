@@ -173,7 +173,8 @@ jobs:
           else
             # generate-notes の起点自動決定は channel を区別せず直前リリース（canary 含む）に
             # なるため、stable は前回 stable を起点に明示して canary サイクル全体を含める。
-            # 前回 stable が tag として実在しない異常系は gh release create が失敗して止まる
+            # 前回 stable は常に実在する前提。latest_stable が既定 v0.0.0 に倒れるのは
+            # stable tag がゼロの状態だけで、v0.1.0 リリース済みのため到達しない
             flags+=(--latest --notes-start-tag "${PREV_STABLE}")
           fi
           gh release create "${TAG}" "${flags[@]}" gozd-macos-arm64.tar.gz

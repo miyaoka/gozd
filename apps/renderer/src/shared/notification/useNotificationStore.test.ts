@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { useNotificationStore } from "./useNotificationStore";
+import { MAX_NOTIFICATIONS, useNotificationStore } from "./useNotificationStore";
 
 const store = useNotificationStore();
 
@@ -124,6 +124,22 @@ describe("center 操作", () => {
     store.remove(second!.id);
     expect(store.notifications.value).toHaveLength(1);
     expect(store.notifications.value[0]?.id).toBe(first!.id);
+  });
+
+  test("上限超過は最終発生が最も古い項目から落ち、再発生した項目は残る", () => {
+    for (let i = 0; i < MAX_NOTIFICATIONS; i++) {
+      store.info(`msg ${i}`);
+    }
+    // msg 0 の再発生で seq が進む (配列位置は先頭のまま)
+    store.info("msg 0");
+
+    store.info("overflow trigger");
+    expect(store.notifications.value).toHaveLength(MAX_NOTIFICATIONS);
+
+    const messages = store.notifications.value.map((n) => n.message);
+    expect(messages).toContain("msg 0");
+    // 最終発生が最も古いのは msg 1 (msg 0 は再発生で保護される)
+    expect(messages).not.toContain("msg 1");
   });
 
   test("clear は全項目を削除し pending timer も解放する", () => {

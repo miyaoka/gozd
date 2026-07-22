@@ -36,8 +36,8 @@ export interface Notification {
 
 /** persist しない warning / info toast の自動消去時間（ms） */
 const AUTO_DISMISS_MS = 5000;
-/** center に保持する通知数の上限。超過分は古い順に落とす */
-const MAX_NOTIFICATIONS = 100;
+/** center に保持する通知数の上限。超過分は最終発生が古い順 (seq 昇順) に落とす */
+export const MAX_NOTIFICATIONS = 100;
 
 interface NotifyOptions {
   /** true でユーザーが閉じるまで toast を残す。background 発火の must-see 通知用（ヘッダコメント参照） */
@@ -117,13 +117,20 @@ function add(type: Notification["type"], message: string, cause?: unknown, opts?
     toastVisible: true,
   });
 
-  // 上限超過は古い順に落とす (toast 表示中でも落とす。100 件溜まる時点で異常系であり、
-  // 表示保護より上限保証を優先する)
+  // 上限超過は最終発生が最も古い項目 (最小 seq) から落とす (persist でも落とす。100 件
+  // 溜まる時点で異常系であり、表示保護より上限保証を優先する)。配列位置 = 初回発生順を
+  // 基準にすると、重複抑制で in-place 更新され続ける再発火中の must-see (背景 fetch 失敗等)
+  // が先頭に居座ったまま最優先で消えるため、seq (最新発生順) を基準にする
   const overflow = notifications.value.length - MAX_NOTIFICATIONS;
   if (overflow > 0) {
-    for (const dropped of notifications.value.splice(0, overflow)) {
-      clearTimer(dropped.id);
-    }
+    const dropIds = new Set(
+      [...notifications.value]
+        .sort((a, b) => a.seq - b.seq)
+        .slice(0, overflow)
+        .map((n) => n.id),
+    );
+    for (const dropId of dropIds) clearTimer(dropId);
+    notifications.value = notifications.value.filter((n) => !dropIds.has(n.id));
   }
 
   if (!persistRequested) {

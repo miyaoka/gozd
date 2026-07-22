@@ -221,26 +221,31 @@ function onRemoveRepo(rootDir: string) {
     return;
   }
   const name = repoStore.repos[rootDir]?.repoName ?? rootDir;
-  showConfirm(`Remove "${name}" from this window?`, async () => {
-    // repo 削除前に配下 worktree の terminal state / PTY を cleanup する。
-    // これを忘れると `claude` view で消したはずの repo の PTY が
-    // 生き残る（visitedDirs に残るため）。
-    const repo = repoStore.repos[rootDir];
-    if (repo !== undefined) {
-      const targets = new Set<string>([rootDir, ...repo.worktrees.map((wt) => wt.path)]);
-      for (const dir of targets) terminalStore.remove(dir);
-    }
-    const prevSelected = worktreeStore.dir;
-    repoStore.removeRepo(rootDir);
-    // 削除した repo に active wt が属していた場合、removeRepo は dirOrder の先頭に
-    // selectedDir を直接フォールバックする（setOpen を経由しない）。selectionVersion
-    // を進めて新 active wt の done を useSidebarData に消化させるため、ここで明示的に
-    // setOpen を再呼びする。selectedDir が変わっていない（別 repo を削除した）場合は no-op。
-    const nextSelected = worktreeStore.dir;
-    if (nextSelected !== undefined && nextSelected !== prevSelected) {
-      worktreeStore.setOpen(nextSelected);
-    }
-  });
+  // 「このリストにしか属していない = gozd への登録ごと解除」であることと、失うもの
+  // （ターミナル）を明示する。"window" は設計語彙でユーザーには指示対象が見えないため使わない
+  showConfirm(
+    `"${name}" is not in any other list. Remove it from gozd and close its terminals?`,
+    async () => {
+      // repo 削除前に配下 worktree の terminal state / PTY を cleanup する。
+      // これを忘れると `claude` view で消したはずの repo の PTY が
+      // 生き残る（visitedDirs に残るため）。
+      const repo = repoStore.repos[rootDir];
+      if (repo !== undefined) {
+        const targets = new Set<string>([rootDir, ...repo.worktrees.map((wt) => wt.path)]);
+        for (const dir of targets) terminalStore.remove(dir);
+      }
+      const prevSelected = worktreeStore.dir;
+      repoStore.removeRepo(rootDir);
+      // 削除した repo に active wt が属していた場合、removeRepo は dirOrder の先頭に
+      // selectedDir を直接フォールバックする（setOpen を経由しない）。selectionVersion
+      // を進めて新 active wt の done を useSidebarData に消化させるため、ここで明示的に
+      // setOpen を再呼びする。selectedDir が変わっていない（別 repo を削除した）場合は no-op。
+      const nextSelected = worktreeStore.dir;
+      if (nextSelected !== undefined && nextSelected !== prevSelected) {
+        worktreeStore.setOpen(nextSelected);
+      }
+    },
+  );
 }
 
 async function onAddDir() {

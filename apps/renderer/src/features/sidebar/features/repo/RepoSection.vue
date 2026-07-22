@@ -245,9 +245,9 @@ function onHeaderClick() {
         <button
           type="button"
           :aria-label="
-            removesFromWindow ? 'Remove repository from window' : 'Remove repository from list'
+            removesFromWindow ? 'Remove repository from gozd' : 'Remove repository from list'
           "
-          :title="removesFromWindow ? 'Remove from window' : 'Remove from list'"
+          :title="removesFromWindow ? 'Remove from gozd' : 'Remove from list'"
           class="mr-1.5 grid size-6 place-items-center rounded-sm text-destructive-text hover:bg-destructive-subtle hover:text-destructive-text"
           @click.stop="emit('removeRepo', rootDir)"
         >

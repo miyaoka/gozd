@@ -507,6 +507,22 @@ describe("usePreviewStore 未保存 draft ガード", () => {
     expect(editStore.isDirty).toBe(false);
   });
 
+  test("保存中にセッションが外部破棄されたら Save は veto (stale な proceed を実行しない)", async () => {
+    const { preview, editStore } = openDirty();
+    const confirm = useUnsavedDraftConfirm();
+
+    preview.requestClose();
+    // Save の await 中に外部発火 (gozd open の dir 切替 / closeForMissingSelection 等) で
+    // セッションだけが先に畳まれた状況。save() はセッション不変のときだけ defined を返す
+    // 契約なので undefined (veto) になる。isDirty を成功条件にすると endSession で false に
+    // 偽装され stale な close が走る — その回帰を pin する
+    editStore.endSession();
+    await confirm.chooseSave();
+
+    expect(preview.isOpen).toBe(true);
+    expect(confirm.pending.value).toBeUndefined();
+  });
+
   test("確認中の再投入は先勝ちで無視される", () => {
     const { preview } = openDirty();
     const confirm = useUnsavedDraftConfirm();

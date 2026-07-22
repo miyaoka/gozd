@@ -69,7 +69,11 @@ export const usePreviewStore = defineStore("preview", () => {
   /**
    * 未保存 draft を破棄する操作のガード。クリーンなら action を即実行、dirty なら
    * Save / Don't Save / Cancel の確認を挟む (Cancel = action を実行しない)。
-   * Save は editStore.save() の失敗 (isDirty が残る) を veto として action を中止する。
+   * Save の成功シグナルは editStore.save() の戻り値 (書き込み成功かつセッション不変の
+   * ときだけ defined)。`!isDirty` を成功条件にしてはいけない: 保存 await 中に外部発火
+   * (gozd open の dir 切替 / closeForMissingSelection 等。modal は DOM 操作しか遮断しない)
+   * で endSession されると isDirty は false に偽装され、失敗した save でも stale な
+   * close / select (proceed) が実行されてしまう。
    */
   function withDraftGuard(action: () => void) {
     if (!editStore.isDirty) {
@@ -80,10 +84,7 @@ export const usePreviewStore = defineStore("preview", () => {
     const path = target?.kind === "worktreeRelative" ? target.relPath : (target?.absPath ?? "");
     draftConfirm.request({
       fileName: path.split("/").pop() ?? path,
-      save: async () => {
-        await editStore.save();
-        return !editStore.isDirty;
-      },
+      save: async () => (await editStore.save()) !== undefined,
       discard: () => {
         editStore.discard();
       },

@@ -84,21 +84,18 @@ function attachListeners(doc: Document) {
   const registry = useCommandRegistry();
   const contextKeys = useContextKeys();
 
-  // inputFocused context key をフォーカス変化で更新。key は全ウィンドウ共有の単一値で、
-  // 「最後に focus イベントを発したウィンドウ」の状態を映す (ウィンドウを跨いだ直後は
-  // 一瞬 stale になりうるが、次の focus イベントで自己回復する)
-  useEventListener(doc, "focusin", (e: FocusEvent) => {
-    contextKeys.set("inputFocused", isEditableElement(e.target));
-  });
-  useEventListener(doc, "focusout", () => {
-    contextKeys.set("inputFocused", false);
-  });
-
   useEventListener(
     doc,
     "keydown",
     (e: KeyboardEvent) => {
       if (!shouldHandle(e)) return;
+
+      // inputFocused は「keydown を受けた document のフォーカス状態」を評価直前に写す。
+      // focusin / focusout で共有 state を先回り更新する方式だと、非アクティブな別ウィンドウの
+      // フォーカスイベントが発火元ウィンドウの when 判定を上書きしうる (ウィンドウ間の混線)。
+      // 消費者は keybinding の when 節のみで、この key が意味を持つのはディスパッチの
+      // 瞬間だけなので、都度読み取るだけで十分かつ常に正しい
+      contextKeys.set("inputFocused", isEditableElement(doc.activeElement));
 
       const stroke = eventToKeyStroke(e);
 

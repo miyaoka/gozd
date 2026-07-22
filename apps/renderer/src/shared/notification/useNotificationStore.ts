@@ -66,6 +66,11 @@ function add(type: Notification["type"], message: string, cause?: unknown, opts?
   const duplicate = notifications.value.find((n) => n.type === type && n.message === message);
   if (duplicate) {
     duplicate.cause = cause;
+    // persist は昇格のみ反映する (timer を解除して手動クローズ化)。降格はしない:
+    // 表示中の must-see を後発の非 persist 要求が短縮すると silent drop に戻るため
+    if (opts?.persist === true) {
+      clearTimer(duplicate.id);
+    }
     return;
   }
 
@@ -79,12 +84,16 @@ function add(type: Notification["type"], message: string, cause?: unknown, opts?
   }
 }
 
-function dismiss(id: number) {
+function clearTimer(id: number) {
   const timer = timers.get(id);
   if (timer !== undefined) {
     clearTimeout(timer);
     timers.delete(id);
   }
+}
+
+function dismiss(id: number) {
+  clearTimer(id);
   notifications.value = notifications.value.filter((n) => n.id !== id);
 }
 

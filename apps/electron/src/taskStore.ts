@@ -22,7 +22,14 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFil
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { runGit } from "./git/gitRunner";
-import { asArray, asDict } from "./rawJson";
+import {
+  asDict,
+  RawJsonTypeError,
+  strictBoolean,
+  strictDictArray,
+  strictNumber,
+  strictString,
+} from "./rawJson";
 
 const defaultConfigDir = join(homedir(), ".config", "gozd");
 
@@ -76,36 +83,43 @@ function sameGhRef(a: GhRef, b: GhRef): boolean {
   return a.kind === b.kind && a.number === b.number;
 }
 
-/** ghRef の kind が既知値でなければ ghRef ごと落とす（表示 / upsert 判定が意味を持たないため）。
- * 落とした場合は観察ログを残す */
-function normalizeGhRef(raw: unknown): GhRef | undefined {
-  if (typeof raw !== "object" || raw === null) return undefined;
+/** ghRef の strict 検証。唯一の例外として、kind の**未知の文字列値**だけは ghRef ごと落とす
+ * （`GhRefKind` は tasks.json に永続化される文字列 enum で、新 kind を書いた新バージョンの
+ * ファイルを旧バージョンが読む forward-compat 経路が docs/rpc.md で契約化されているため。
+ * 表示 / upsert 判定が意味を持たないので drop し、観察ログを残す）。
+ * それ以外の型違反（非 object / 非文字列 kind / 非 number の number）は state 系 strict
+ * ポリシーどおり RawJsonTypeError で reinit に倒す */
+function normalizeGhRef(raw: unknown, label: string): GhRef | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new RawJsonTypeError(label, "object", raw);
+  }
   const dict = asDict(raw);
-  if (dict.kind !== "GH_REF_KIND_PR" && dict.kind !== "GH_REF_KIND_ISSUE") {
-    console.error(`[TaskStore] normalizeGhRef: unknown kind ${JSON.stringify(dict.kind)}; dropping ghRef`);
+  const kind = strictString(dict.kind, `${label}.kind`);
+  if (kind !== "GH_REF_KIND_PR" && kind !== "GH_REF_KIND_ISSUE") {
+    console.error(`[TaskStore] normalizeGhRef: unknown kind ${JSON.stringify(kind)}; dropping ghRef`);
     return undefined;
   }
-  return { kind: dict.kind, number: typeof dict.number === "number" ? dict.number : 0 };
+  return { kind, number: strictNumber(dict.number, `${label}.number`) };
 }
 
-/** 旧 proto3 JSON が省略した default 値フィールドを充填する（`rawJson.ts` の契約参照） */
+/** 旧 proto3 JSON が省略した default 値フィールドを充填する（`rawJson.ts` の契約参照）。
+ * 「存在するが型違反」は strict 検証で RawJsonTypeError を投げ、loadFile の既存 tryCatch が
+ * parse 失敗と同じ reinit 経路（stderr ログ + 空で上書き save）に倒す。
+ * 例外は ghRef.kind の未知文字列値の drop のみ（normalizeGhRef 参照） */
 function normalizeTaskList(raw: unknown): TaskList {
   return {
-    tasks: asArray(asDict(raw).tasks).map((task) => {
-      const dict = asDict(task);
-      return {
-        id: "",
-        worktreeDir: "",
-        createdAt: "",
-        sessionId: "",
-        closedByUser: false,
-        userTitle: "",
-        terminalTitle: "",
-        ghTitle: "",
-        ...dict,
-        ghRef: normalizeGhRef(dict.ghRef),
-      } as Task;
-    }),
+    tasks: strictDictArray(asDict(raw).tasks, "tasks").map((dict, i) => ({
+      id: strictString(dict.id, `tasks[${i}].id`),
+      worktreeDir: strictString(dict.worktreeDir, `tasks[${i}].worktreeDir`),
+      createdAt: strictString(dict.createdAt, `tasks[${i}].createdAt`),
+      sessionId: strictString(dict.sessionId, `tasks[${i}].sessionId`),
+      closedByUser: strictBoolean(dict.closedByUser, `tasks[${i}].closedByUser`),
+      userTitle: strictString(dict.userTitle, `tasks[${i}].userTitle`),
+      terminalTitle: strictString(dict.terminalTitle, `tasks[${i}].terminalTitle`),
+      ghTitle: strictString(dict.ghTitle, `tasks[${i}].ghTitle`),
+      ghRef: normalizeGhRef(dict.ghRef, `tasks[${i}].ghRef`),
+    })),
   };
 }
 

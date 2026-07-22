@@ -7,10 +7,10 @@
 // await 境界で別メッセージが割り込めるため、promise chain の逐次キューで同じ保証を作る。
 // session 系 hook は頻度が低く、後続 push を待たせる影響は小さい。
 
-import type { ClientMessage, HookMessage, OpenMessage } from "@gozd/rpc";
+import type { ClientMessage, HookMessage } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { buildGozdOpenPayload } from "./openTarget";
-import { asDict } from "./rawJson";
+import { asDict, lenientBoolean, lenientDict, lenientNumber, lenientString } from "./rawJson";
 import {
   clearSessionId,
   consumeExpectedResumeSid,
@@ -97,31 +97,33 @@ async function applyClaudeSessionHook(hook: HookMessage, worktreePath: string, p
   clearSessionId(hook.ptyId);
 }
 
-const HOOK_MESSAGE_DEFAULTS: HookMessage = {
-  event: "",
-  ptyId: 0,
-  lastAssistantMessage: "",
-  toolName: "",
-  toolInput: "",
-  sessionId: "",
-  pendingWork: false,
-  hasTeammateTask: false,
-  agentId: "",
-  teammateName: "",
-  source: "",
-};
 
 /** NDJSON 1 行を ClientMessage に正規化する。nc 直送経路の hook は event / ptyId しか
  * JSON に載せないため default 充填が必須（充填しないと hook push payload に undefined が
- * 混ざり、renderer 側の `sessionId !== ""` 等の文字列比較が壊れる） */
+ * 混ざり、renderer 側の `sessionId !== ""` 等の文字列比較が壊れる）。
+ * 型違反フィールドは lenient に default へ倒して stderr ログを残す（rawJson.ts の契約）。
+ * hook は落とすと UI 状態が永続的にずれる push なので message ごと破棄しない */
 function parseClientMessage(line: string): ClientMessage {
   const dict = asDict(JSON.parse(line));
   const msg: ClientMessage = {};
   if (dict.hook !== undefined) {
-    msg.hook = { ...HOOK_MESSAGE_DEFAULTS, ...asDict(dict.hook) } as HookMessage;
+    const hook = lenientDict(dict.hook, "hook");
+    msg.hook = {
+      event: lenientString(hook.event, "hook.event"),
+      ptyId: lenientNumber(hook.ptyId, "hook.ptyId"),
+      lastAssistantMessage: lenientString(hook.lastAssistantMessage, "hook.lastAssistantMessage"),
+      toolName: lenientString(hook.toolName, "hook.toolName"),
+      toolInput: lenientString(hook.toolInput, "hook.toolInput"),
+      sessionId: lenientString(hook.sessionId, "hook.sessionId"),
+      pendingWork: lenientBoolean(hook.pendingWork, "hook.pendingWork"),
+      hasTeammateTask: lenientBoolean(hook.hasTeammateTask, "hook.hasTeammateTask"),
+      agentId: lenientString(hook.agentId, "hook.agentId"),
+      teammateName: lenientString(hook.teammateName, "hook.teammateName"),
+      source: lenientString(hook.source, "hook.source"),
+    };
   }
   if (dict.open !== undefined) {
-    msg.open = { targetPath: "", ...asDict(dict.open) } as OpenMessage;
+    msg.open = { targetPath: lenientString(lenientDict(dict.open, "open").targetPath, "open.targetPath") };
   }
   return msg;
 }

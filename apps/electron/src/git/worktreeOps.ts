@@ -151,11 +151,6 @@ export async function removeWorktree(dir: string, path: string, force: boolean):
   await runGit(args, dir);
 }
 
-/**
- * `~/.local/share/gozd/worktrees/<projectKey>/<leaf>` の絶対パスを返し、親ディレクトリを作成する。
- * `leaf` は 1 path component のみ許可。`/`, `.`, `..`, 制御文字を含むものは拒否する
- * （base 配下からの逸脱や、ファイル API への橋渡しでの予期しない扱いを防ぐ）
- */
 /** C0 制御文字（< 0x20）と DEL（0x7f）を含むか。for-of は code point 単位で走査する */
 function hasControlChar(s: string): boolean {
   for (const char of s) {
@@ -165,6 +160,11 @@ function hasControlChar(s: string): boolean {
   return false;
 }
 
+/**
+ * `~/.local/share/gozd/worktrees/<projectKey>/<leaf>` の絶対パスを返し、親ディレクトリを作成する。
+ * `leaf` は 1 path component のみ許可。`/`, `.`, `..`, 制御文字を含むものは拒否する
+ * （base 配下からの逸脱や、ファイル API への橋渡しでの予期しない扱いを防ぐ）
+ */
 async function ensureWorktreePath(projectDir: string, leaf: string): Promise<string> {
   const invalid =
     leaf === "" || leaf.includes("/") || leaf === "." || leaf === ".." || hasControlChar(leaf);

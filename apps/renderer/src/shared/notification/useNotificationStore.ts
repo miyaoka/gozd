@@ -1,6 +1,7 @@
 /**
  * 通知ストア。module singleton パターン。
- * トースト通知の追加・削除・タイムアウト管理を行う。
+ * トースト通知の追加・削除を行う。全種別とも自動消去せず手動クローズのみ
+ * (背景処理の失敗通知は目撃前に消えると silent drop と等価になるため)。
  *
  * `error` / `warning` / `info` は toast 表示 + console 出力、`debug` は **console.debug への
  * 集約窓口**で toast 表示なし。renderer 規約 (CLAUDE.md エラーハンドリング) で
@@ -16,12 +17,8 @@ interface Notification {
   cause?: unknown;
 }
 
-/** warning / info 通知の自動消去時間（ms）。error は手動クローズのみ */
-const AUTO_DISMISS_MS = 5000;
-
 let nextId = 0;
 const notifications = ref<Notification[]>([]);
-const timers = new Map<number, ReturnType<typeof setTimeout>>();
 
 /**
  * 最後に発火した通知イベント。`add()` のたびに (重複抑制で toast を追加しなかった場合も)
@@ -59,21 +56,10 @@ function add(type: Notification["type"], message: string, cause?: unknown) {
     return;
   }
 
-  const id = nextId++;
-  notifications.value.push({ id, type, message, cause });
-
-  if (type !== "error") {
-    const timer = setTimeout(() => dismiss(id), AUTO_DISMISS_MS);
-    timers.set(id, timer);
-  }
+  notifications.value.push({ id: nextId++, type, message, cause });
 }
 
 function dismiss(id: number) {
-  const timer = timers.get(id);
-  if (timer !== undefined) {
-    clearTimeout(timer);
-    timers.delete(id);
-  }
   notifications.value = notifications.value.filter((n) => n.id !== id);
 }
 

@@ -94,18 +94,27 @@ export function useSidebarData() {
    * remote URL のローカル parse (外部通信なし)。repo 追加時に 1 回だけ取得する
    * (remote URL の変更を検知する push 経路は無く、都度 refetch する価値がない)。
    *
-   * 失敗 (git CLI launch 不能等のグローバル条件) はトーストしない。identity 未解決は
+   * 失敗 (git CLI launch 不能等のグローバル条件) はトーストしない。owner なしは
    * 「sidebar は identicon、git-graph は issue リンク無し」という定義済みの劣化に倒れる
    * progressive enhancement であり、per-repo に N 回同一トーストを出しても actionable
    * でないため、console.debug で観察可能性だけ残す。非 github.com / remote 未設定は
    * native 側が空文字に正規化して ok で返るので、そもそもここには来ない。
+   *
+   * githubIdentity undefined は「解決中」の契約 (RepoIcon が空プレースホルダーを出す)。
+   * 非 git repo と fetch 失敗も空 identity を書いて解決済みに倒し、undefined のまま
+   * 残さない (残すとプレースホルダーが永続し identicon に到達しない)。
    */
   async function fetchGithubIdentity(rootDir: string) {
     const repo = repoStore.repos[rootDir];
-    if (repo === undefined || !repo.isGitRepo) return;
+    if (repo === undefined) return;
+    if (!repo.isGitRepo) {
+      repoStore.setGithubIdentity(rootDir, { owner: "", repo: "" });
+      return;
+    }
     const result = await tryCatch(rpcGitGithubIdentity({ dir: rootDir }));
     if (!result.ok) {
       notify.debug(`[useSidebarData] github identity fetch failed: ${rootDir}`, result.error);
+      repoStore.setGithubIdentity(rootDir, { owner: "", repo: "" });
       return;
     }
     repoStore.setGithubIdentity(rootDir, {

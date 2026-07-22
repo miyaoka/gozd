@@ -337,8 +337,8 @@ const addableRootDirs = computed(() =>
 function repoNameOf(rootDir: string): string {
   return repoStore.repos[rootDir]?.repoName ?? rootDir;
 }
-function repoOwnerOf(rootDir: string): string {
-  return repoStore.repos[rootDir]?.githubIdentity?.owner ?? "";
+function repoOwnerOf(rootDir: string): string | undefined {
+  return repoStore.repos[rootDir]?.githubIdentity?.owner;
 }
 
 /** RepoSection の ✕ が window 解除（破壊的）になるか。ラベル出し分けに使う */

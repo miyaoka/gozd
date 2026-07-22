@@ -17,7 +17,10 @@ export interface RepoState {
   worktrees: WorktreeEntry[];
   /**
    * origin remote から解決した GitHub identity（repo 単位、全 worktree で共通）。
-   * 未取得は undefined、非 github.com remote / remote 未設定は owner / repo が空文字。
+   * undefined は「解決中」で transient（useSidebarData の fetch 経路が非 git repo /
+   * fetch 失敗も空 identity で必ず settle させる契約。RepoIcon は undefined の間だけ
+   * 空プレースホルダーを出す）。owner / repo の空文字は「解決済みで identity なし」
+   * （非 github.com remote / remote 未設定 / 非 git / fetch 失敗）。
    * sidebar の org アバターと git-graph の issue リンク base URL が共有する SSOT。
    */
   githubIdentity?: { owner: string; repo: string };

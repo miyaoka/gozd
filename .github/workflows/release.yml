@@ -1,6 +1,6 @@
 # リリースワークフロー
 # - push (main): canary。直近 tag からの feat / fix（deps scope 除外）があれば
-#   prerelease を自動発行する。バージョンは tag 台帳から自動採番する
+#   prerelease を自動発行する。バージョンは「最新 stable の次 patch + UTC 日時」で自動決定する
 # - workflow_dispatch: stable。事前に人間が apps/electron/package.json の version を
 #   bump して merge しておく前提で、CI は採番せず package.json の version で tag + release
 #   を作る（tag と manifest の一致を保つ。openai/codex の tag-check と同型）
@@ -16,11 +16,12 @@ on:
 permissions:
   contents: read
 
-# canary の連番は「既存 tag の max + 1」で採番するため、同 channel のリリースは直列化する。
+# canary の日時サフィックスは decide 時刻で採番するため、同 channel のリリースを直列化して
+# 同刻衝突と時系列逆転を構造的に防ぐ。
 # cancel はしない（ビルド途中の cancel は tag だけ残る等の中途半端な状態を作るため）。
 # group を channel 別に分けるのは、共有 group だと queued 状態の stable dispatch が後続の
-# canary push に supersede されて取り消されるため。channel 間で tag は衝突せず
-# （vX.Y.Z と vX.Y.(Z+1)-canary.N）、並走しても次の canary 採番が自己補正する
+# canary push に supersede されて取り消されるため。channel 間で tag は衝突しない
+# （vX.Y.Z と vX.Y.(Z+1)-canary.<datetime> でバージョン部が必ず異なる）
 concurrency:
   group: release-${{ github.event_name == 'workflow_dispatch' && 'stable' || 'canary' }}
 
@@ -86,17 +87,15 @@ jobs:
               echo "proceed=false" >> "${GITHUB_OUTPUT}"
               exit 0
             fi
-            # canary tag: 最新 stable の次 patch + 連番（semver 順序が
-            # stable < canary < 次 stable で単調になる）
+            # canary tag: 最新 stable の次 patch + UTC 日時（semver 順序が
+            # stable < canary < 次 stable で単調になる）。連番でないのは、GitHub の
+            # release 一覧が同日グループ内をタグ名の文字列比較で並べるため、数値連番は
+            # 同日 10 件超で崩れ、API 返却順に依存する mise の latest 解決まで誤るから。
+            # 固定幅の日時は文字列比較 = 時系列が常に成立する。同刻衝突と時系列逆転は
+            # concurrency の直列化（同 group 最大 1 run）が防ぐ
             IFS=. read -r major minor patch <<< "${latest_stable#v}"
             next="v${major}.${minor}.$((patch + 1))"
-            latest_n="$(git tag -l "${next}-canary.*" | sed 's/.*-canary\.//' | sort -n | tail -1 || true)"
-            if [[ -n "${latest_n}" ]]; then
-              n=$((latest_n + 1))
-            else
-              n=0
-            fi
-            tag="${next}-canary.${n}"
+            tag="${next}-canary.$(date -u +%Y%m%d%H%M%S)"
           fi
 
           echo "channel=${channel} tag=${tag}"

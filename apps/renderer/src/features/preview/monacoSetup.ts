@@ -32,7 +32,9 @@
  * 高々数十、各層は delegate するだけなので許容する。
  */
 import { shikiToMonaco } from "@shikijs/monaco";
+import { useEventListener } from "@vueuse/core";
 import * as monaco from "monaco-editor";
+import { registerWindow } from "monaco-editor/esm/vs/base/browser/dom.js";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
 import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
@@ -243,5 +245,34 @@ function wireGutterBlame(
   };
 }
 
-export { monaco, MONACO_THEME, resolveMonacoLanguage, wireGutterBlame };
+// main window は Monaco (dom.js) が module 初期化で id=1 として自己登録する。child の id は
+// それと衝突しなければ何でもよい
+let nextMonacoWindowId = 2;
+
+/**
+ * el が属するウィンドウを Monaco の window registry に登録する。main window / 登録済みは no-op。
+ *
+ * Monaco の focus 判定 (`getActiveDocument`) は registry 登録済みウィンドウしか走査せず、
+ * 未登録の child window では常に main document へ fallback する。その結果、child 内の
+ * エディタは DOM フォーカスを得ても「非フォーカス」と誤認され、caret が描画されない。
+ * editor / diff editor を create する前に必ずコンテナ要素で呼ぶこと。
+ *
+ * 登録解除はウィンドウの pagehide で行う (エディタ unmount ではなくウィンドウ寿命に載せる。
+ * モード切替でエディタだけ作り直してもウィンドウは登録されたままでよい)。
+ */
+function registerMonacoWindow(el: HTMLElement): void {
+  const win = el.ownerDocument.defaultView;
+  if (win === null || win === window) return;
+  // VSCode 本体の ensureCodeWindow 相当。registry のキーになる vscodeWindowId を焼き込む
+  // (window.js の ensureCodeWindow は配布物で export ごと tree-shake されているため自前実装)
+  const codeWin = win as Window & { vscodeWindowId?: number };
+  if (typeof codeWin.vscodeWindowId !== "number") {
+    const id = nextMonacoWindowId++;
+    Object.defineProperty(codeWin, "vscodeWindowId", { get: () => id });
+  }
+  const registration = registerWindow(win);
+  useEventListener(win, "pagehide", () => registration.dispose(), { once: true });
+}
+
+export { monaco, MONACO_THEME, registerMonacoWindow, resolveMonacoLanguage, wireGutterBlame };
 export type { GutterBlameHandle };

@@ -358,8 +358,8 @@ function onDragEnd(event: DragEndEvent) {
 //
 // アクティブターミナル（= worktreeStore.dir）が変わったら、その wt がサイドバーで
 // 見えるようにする。サイドバー操作で切り替えた場合は既に可視なので副作用なし
-// （setActiveRepoList / scrollIntoView block:nearest は範囲内なら no-op、属する repo は
-// 開いている）。claude ビューのタイルフォーカスやターミナルペイン側でのフォーカス移動など、
+// （activateRepoListContaining / scrollIntoView block:nearest は範囲内なら no-op、属する
+// repo は開いている）。claude ビューのタイルフォーカスやターミナルペイン側でのフォーカス移動など、
 // サイドバー外の経路で dir が変わったときに効く。immediate で起動直後 / フルリロード後
 // （hydrate 済みの selectedDir）も初回表示で追従させる。flush:post で常に DOM 更新後に
 // コールバックを走らせ、immediate 初回でも scrollContainer / WtCard が mount 済みになる
@@ -379,11 +379,8 @@ watch(
     if (owner !== undefined) {
       // アクティブ repo list がその repo を含まないと、wt ビューに戻ったとき active wt が
       // サイドバーに見えない（claude ビューは poolDirs 母集団なので別 list の repo でも
-      // 選択できる）。含む list（複数所属なら repoLists 先頭側）へ表示も追従させる。
-      if (!repoStore.dirOrder.includes(owner.rootDir)) {
-        const [owningList] = repoStore.repoListsContaining(owner.rootDir);
-        if (owningList !== undefined) repoStore.setActiveRepoList(owningList.id);
-      }
+      // 選択できる）。含む list へ表示も追従させる（選定ポリシーは store 側が SSOT）。
+      repoStore.activateRepoListContaining(owner.rootDir);
       // 畳まれた repo の中にいると WtCard が v-if で出ていないので開く。
       repoStore.expand(owner.rootDir);
     }

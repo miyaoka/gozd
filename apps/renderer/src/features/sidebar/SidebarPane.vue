@@ -6,8 +6,11 @@
 
 - **トップツールバー**: 左に view mode トグル (active worktree / claude terminals)、右に時計 / SFX
 - **repo list バー**: 編集トグルをツールバーではなくこのバーに置くのは、編集の対象がこの
-  バー以下のリストエリアに閉じるため（配置と作用範囲の対応づけ）。表示は 2 態:
+  バー以下のリストエリアに閉じるため（配置と作用範囲の対応づけ）。表示は 3 態:
   - 通常モード: chip 列（クリックでアクティブ repo list を切り替えるだけ）+ 右端に鉛筆
+  - claude ビュー中（非編集）: chip 列の代わりにスコープ表記（bot アイコン + "Claude
+    terminals"）。repo セクションが poolDirs 母集団になり list と対応しなくなるため、
+    chip（= アクティブ list の表示機能）を出すと表示とスコープが食い違う
   - 編集モード: 専用ヘッダ（左に "Edit list" タイトル / 右に Done ボタン）+ 全幅の縦一覧
     (`ListRow`)。行 drag で list の並び替え、行クリックで切り替え、行 hover の ⋮ で
     ListMenu（Rename → ListEditDialog / Delete → 確認ダイアログ）。末尾に `New list`。
@@ -355,13 +358,13 @@ function onDragEnd(event: DragEndEvent) {
 //
 // アクティブターミナル（= worktreeStore.dir）が変わったら、その wt がサイドバーで
 // 見えるようにする。サイドバー操作で切り替えた場合は既に可視なので副作用なし
-// （scrollIntoView block:nearest は範囲内なら no-op、属する repo は開いている）。
-// ターミナルペイン側でのフォーカス移動など、サイドバー外の経路で dir が変わった
-// ときに効く。immediate で起動直後 / フルリロード後（hydrate 済みの selectedDir）も
-// 初回表示で追従させる。flush:post で常に DOM 更新後にコールバックを走らせ、immediate
-// 初回でも scrollContainer / WtCard が mount 済みになることを Vue 内部のスケジューリングに
-// 依存せず保証する。コールバック内の nextTick は expand（store 変更→再レンダー）と scroll
-// の間で別途必要なため残す。
+// （activateRepoListContaining / scrollIntoView block:nearest は範囲内なら no-op、属する
+// repo は開いている）。claude ビューのタイルフォーカスやターミナルペイン側でのフォーカス移動など、
+// サイドバー外の経路で dir が変わったときに効く。immediate で起動直後 / フルリロード後
+// （hydrate 済みの selectedDir）も初回表示で追従させる。flush:post で常に DOM 更新後に
+// コールバックを走らせ、immediate 初回でも scrollContainer / WtCard が mount 済みになる
+// ことを Vue 内部のスケジューリングに依存せず保証する。コールバック内の nextTick は
+// list 切り替え / expand（store 変更→再レンダー）と scroll の間で別途必要なため残す。
 const scrollContainer = useTemplateRef<HTMLElement>("scrollContainer");
 
 watch(
@@ -369,12 +372,19 @@ watch(
   async (dir) => {
     if (dir === undefined) return;
     // 編集モード中は全 section が強制 collapse され WtCard が描画されないため、
-    // スクロール先が存在しない。追従はスキップする。
+    // スクロール先が存在しない。list 切り替えも編集対象が足元で変わると混乱するため、
+    // 追従はまとめてスキップする。
     if (editMode.value) return;
-    // 畳まれた repo の中にいると WtCard が v-if で出ていないので、まず開く。
     const owner = repoStore.findRepoOwning(dir);
-    if (owner !== undefined) repoStore.expand(owner.rootDir);
-    // expand による WtCard の出現を待ってからスクロール先を引く。
+    if (owner !== undefined) {
+      // アクティブ repo list がその repo を含まないと、wt ビューに戻ったとき active wt が
+      // サイドバーに見えない（claude ビューは poolDirs 母集団なので別 list の repo でも
+      // 選択できる）。含む list へ表示も追従させる（選定ポリシーは store 側が SSOT）。
+      repoStore.activateRepoListContaining(owner.rootDir);
+      // 畳まれた repo の中にいると WtCard が v-if で出ていないので開く。
+      repoStore.expand(owner.rootDir);
+    }
+    // list 切り替え / expand による WtCard の出現を待ってからスクロール先を引く。
     await nextTick();
     const container = scrollContainer.value;
     if (container === null) return;
@@ -436,7 +446,18 @@ watch(
          配置で対応づける -->
     <!-- 通常モード: chip 列（切り替えのみ）+ 右端に鉛筆 -->
     <div v-if="!editMode" class="flex items-start gap-1 px-2 pt-3 pb-1">
-      <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+      <!-- claude ビュー中は chip 列をスコープ表記に置き換える。chip は「アクティブ repo list の
+           表示」機能だが、claude ビューの repo セクションは poolDirs 母集団で list 外の repo も
+           出るため、chip を出すと「切り替えても表示が変わらない / list に無い repo が見える」
+           という表示とスコープの不一致が生じる。表記は view mode トグルと同語彙で対応づける -->
+      <div
+        v-if="terminalStore.viewMode === 'claude'"
+        class="flex min-w-0 flex-1 items-center gap-1.5 px-1 py-0.5 text-xs text-foreground-low"
+      >
+        <IconLucideBot class="size-3.5 shrink-0" />
+        <span class="truncate">Claude terminals</span>
+      </div>
+      <div v-else class="flex min-w-0 flex-1 flex-wrap items-center gap-1">
         <button
           v-for="pl in repoStore.repoLists"
           :key="pl.id"

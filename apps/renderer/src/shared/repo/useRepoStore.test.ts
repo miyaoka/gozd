@@ -312,6 +312,29 @@ describe("repoLists", () => {
     expect(store.dirOrder).toEqual(["/b"]);
   });
 
+  test("activateRepoListContaining: アクティブ list 内は no-op / list 外は含む先頭 list へ切り替える", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo(repo("/a"));
+    const firstId = store.activeRepoListId;
+    const secondId = store.addRepoList("second");
+    store.addRepo(repo("/b"));
+    const thirdId = store.addRepoList("third");
+    store.ensureInActiveRepoList("/b");
+
+    // アクティブ list (third) が既に含む repo は no-op
+    store.activateRepoListContaining("/b");
+    expect(store.activeRepoListId).toBe(thirdId);
+
+    // 単一所属: /a を含むのは first のみ
+    store.activateRepoListContaining("/a");
+    expect(store.activeRepoListId).toBe(firstId);
+
+    // 複数所属: /b は second / third に属する → repoLists 先頭側の second に倒す
+    store.activateRepoListContaining("/b");
+    expect(store.activeRepoListId).toBe(secondId);
+  });
+
   test("removeRepoList は最後の 1 個を拒否し、孤児 repo を先頭 repo list へ移す", () => {
     setActivePinia(createPinia());
     const store = useRepoStore();

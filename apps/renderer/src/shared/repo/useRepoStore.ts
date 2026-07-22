@@ -328,6 +328,18 @@ export const useRepoStore = defineStore("repo", () => {
   }
 
   /**
+   * rootDir を含む先頭 repo list をアクティブにする（アクティブ list が既に含むなら no-op）。
+   * 「アクティブ list に無い repo が選択されたら、含む list（複数所属なら repoLists 先頭側）へ
+   * 表示を追従させる」選定ポリシーの SSOT。選択追従（SidebarPane の watcher）と removeRepo の
+   * 選択フォールバックが共有する。プール外の rootDir はどの list にも含まれないため no-op。
+   */
+  function activateRepoListContaining(rootDir: string) {
+    if (dirOrder.value.includes(rootDir)) return;
+    const [owningList] = repoListsContaining(rootDir);
+    if (owningList !== undefined) activeRepoListId.value = owningList.id;
+  }
+
+  /**
    * 既存 repo の worktrees を更新（rpcGitWorktreeList 結果の反映）。
    *
    * `gitStatusesGenSnapshot` には fetch 開始時に各 wt について `getGitStatusGen` で
@@ -508,10 +520,7 @@ export const useRepoStore = defineStore("repo", () => {
         // プール先頭へ倒れた（= アクティブ list に無い repo を選択した）場合は、その repo を
         // 含む list へアクティブも切り替える。切り替えないと「サイドバーは empty state なのに
         // terminal / filer は別 list の repo を開いている」という表示のずれが残る
-        if (firstRoot !== undefined && !dirOrder.value.includes(firstRoot)) {
-          const owningList = repoLists.value.find((p) => p.dirOrder.includes(firstRoot));
-          if (owningList !== undefined) activeRepoListId.value = owningList.id;
-        }
+        if (firstRoot !== undefined) activateRepoListContaining(firstRoot);
       }
     }
   }
@@ -700,6 +709,7 @@ export const useRepoStore = defineStore("repo", () => {
     renameRepoList,
     removeRepoList,
     setActiveRepoList,
+    activateRepoListContaining,
     selectedDir,
     selectedRepo,
     selectedIsGitRepo,

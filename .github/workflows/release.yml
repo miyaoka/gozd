@@ -88,11 +88,9 @@ jobs:
               exit 0
             fi
             # canary tag: 最新 stable の次 patch + UTC 日時（semver 順序が
-            # stable < canary < 次 stable で単調になる）。連番でないのは、GitHub の
-            # release 一覧が同日グループ内をタグ名の文字列比較で並べるため、数値連番は
-            # 同日 10 件超で崩れ、API 返却順に依存する mise の latest 解決まで誤るから。
-            # 固定幅の日時は文字列比較 = 時系列が常に成立する。同刻衝突と時系列逆転は
-            # concurrency の直列化（同 group 最大 1 run）が防ぐ
+            # stable < canary < 次 stable で単調になる）。連番にしないのは、GitHub の
+            # release 一覧の並びと mise の latest 解決が数値連番で崩れるため
+            # （メカニズムの詳細は docs/release.md）
             IFS=. read -r major minor patch <<< "${latest_stable#v}"
             next="v${major}.${minor}.$((patch + 1))"
             tag="${next}-canary.$(date -u +%Y%m%d%H%M%S)"

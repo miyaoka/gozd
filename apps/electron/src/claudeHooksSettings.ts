@@ -31,9 +31,15 @@ export function claudeHooksSettings(): Record<string, unknown> {
       UserPromptSubmit: [{ hooks: [{ type: "command", command: ncCommand("running") }] }],
       Stop: [{ hooks: [{ type: "command", command: cliCommand("done") }] }],
       StopFailure: [{ hooks: [{ type: "command", command: cliCommand("stop-failure") }] }],
-      PermissionRequest: [{ matcher: "*", hooks: [{ type: "command", command: cliCommand("needs-input") }] }],
-      PostToolUse: [{ matcher: "*", hooks: [{ type: "command", command: ncCommand("tool-done") }] }],
-      PostToolUseFailure: [{ matcher: "*", hooks: [{ type: "command", command: ncCommand("tool-failure") }] }],
+      PermissionRequest: [
+        { matcher: "*", hooks: [{ type: "command", command: cliCommand("needs-input") }] },
+      ],
+      PostToolUse: [
+        { matcher: "*", hooks: [{ type: "command", command: ncCommand("tool-done") }] },
+      ],
+      PostToolUseFailure: [
+        { matcher: "*", hooks: [{ type: "command", command: ncCommand("tool-failure") }] },
+      ],
       // 子エージェント（subagent / teammate）のライフサイクル。teammate は idle 化しても
       // Stop の background_tasks に status "running" のまま残るため、稼働中/idle の判定は
       // この 3 hook を情報源に renderer 側の台帳で行う（orca の roster と同じ構成）。

@@ -171,7 +171,12 @@ export async function prDiffFiles(dir: string, baseHash: string): Promise<FileCh
  */
 async function isRootCommit(dir: string, hash: string): Promise<boolean> {
   const stdout = await runGit(["rev-list", "--parents", "-n", "1", hash], dir);
-  return stdout.trim().split(" ").filter((token) => token !== "").length === 1;
+  return (
+    stdout
+      .trim()
+      .split(" ")
+      .filter((token) => token !== "").length === 1
+  );
 }
 
 /**

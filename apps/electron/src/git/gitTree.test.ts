@@ -1,7 +1,7 @@
 // gitTree の pure parser test + 実 git repo での統合テスト。
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
+import { runFixtureGit } from "../testGitFixture";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -61,16 +61,16 @@ describe("gitTree (integration)", () => {
   function makeRepo(): string {
     const dir = mkdtempSync(join(tmpdir(), "gozd-gittree-test-"));
     tempDirs.push(dir);
-    execFileSync("git", ["init", "-b", "main"], { cwd: dir, stdio: "ignore" });
-    execFileSync("git", ["config", "user.email", "t@example.com"], { cwd: dir, stdio: "ignore" });
-    execFileSync("git", ["config", "user.name", "t"], { cwd: dir, stdio: "ignore" });
+    runFixtureGit(["init", "-b", "main"], dir);
+    runFixtureGit(["config", "user.email", "t@example.com"], dir);
+    runFixtureGit(["config", "user.name", "t"], dir);
     return dir;
   }
 
   function commit(dir: string, message: string): string {
-    execFileSync("git", ["add", "."], { cwd: dir, stdio: "ignore" });
-    execFileSync("git", ["commit", "-m", message], { cwd: dir, stdio: "ignore" });
-    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim();
+    runFixtureGit(["add", "."], dir);
+    runFixtureGit(["commit", "-m", message], dir);
+    return runFixtureGit(["rev-parse", "HEAD"], dir);
   }
 
   test("fileReadResultFromGit: HEAD の blob を読み、未追跡 path は notFound", async () => {

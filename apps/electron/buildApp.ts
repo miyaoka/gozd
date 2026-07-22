@@ -23,7 +23,10 @@ const productName = channel === "stable" ? "Gozd" : "Gozd Local";
 
 /** stdout を捕捉して返す（git 等の値取り用） */
 function capture(command: string, args: string[]): string {
-  const result = spawnSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "inherit"],
+  });
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(" ")} exited with ${result.status}`);
   }
@@ -40,10 +43,21 @@ function run(command: string, args: string[]): void {
 
 // CFBundleVersion にコミット日時 + hash を注入する（About パネルのビルド識別と
 // wrapper の ~/Applications 同期の比較キー）。dirty ビルドは hash に -dirty が付く
-const commitDate = capture("git", ["show", "-s", "--format=%cd", "--date=format:%Y%m%d-%H%M%S", "HEAD"]);
+const commitDate = capture("git", [
+  "show",
+  "-s",
+  "--format=%cd",
+  "--date=format:%Y%m%d-%H%M%S",
+  "HEAD",
+]);
 const commitHash = capture("git", ["describe", "--always", "--dirty"]);
 
-const builderArgs = ["exec", "electron-builder", "--dir", `-c.buildVersion=${commitDate} ${commitHash}`];
+const builderArgs = [
+  "exec",
+  "electron-builder",
+  "--dir",
+  `-c.buildVersion=${commitDate} ${commitHash}`,
+];
 if (channel === "local") {
   // productName は Info.plist（-c.productName）と同梱 package.json（extraMetadata。実行時の
   // app.name = メニューラベル）の両方に効かせる。片方だけだと About とメニューで名前が食い違う

@@ -109,7 +109,9 @@ async function isBranchCheckedOut(dir: string, branch: string): Promise<boolean>
 
 /** ローカルに branch が存在するか。`git rev-parse --verify --quiet refs/heads/<branch>` 相当。 */
 async function localBranchExists(dir: string, branch: string): Promise<boolean> {
-  const result = await tryCatch(runGit(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], dir));
+  const result = await tryCatch(
+    runGit(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], dir),
+  );
   return result.ok;
 }
 
@@ -149,6 +151,15 @@ export async function removeWorktree(dir: string, path: string, force: boolean):
   await runGit(args, dir);
 }
 
+/** C0 制御文字（< 0x20）と DEL（0x7f）を含むか。for-of は code point 単位で走査する */
+function hasControlChar(s: string): boolean {
+  for (const char of s) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
 /**
  * `~/.local/share/gozd/worktrees/<projectKey>/<leaf>` の絶対パスを返し、親ディレクトリを作成する。
  * `leaf` は 1 path component のみ許可。`/`, `.`, `..`, 制御文字を含むものは拒否する
@@ -156,14 +167,7 @@ export async function removeWorktree(dir: string, path: string, force: boolean):
  */
 async function ensureWorktreePath(projectDir: string, leaf: string): Promise<string> {
   const invalid =
-    leaf === "" ||
-    leaf.includes("/") ||
-    leaf === "." ||
-    leaf === ".." ||
-    [...leaf].some((char) => {
-      const code = char.codePointAt(0) ?? 0;
-      return code < 0x20 || code === 0x7f;
-    });
+    leaf === "" || leaf.includes("/") || leaf === "." || leaf === ".." || hasControlChar(leaf);
   if (invalid) {
     throw new Error(`invalid worktree leaf name: ${leaf}`);
   }

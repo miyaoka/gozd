@@ -79,13 +79,21 @@ export async function listSpeakers(): Promise<VoicevoxSpeaker[] | undefined> {
   const speakers: VoicevoxSpeaker[] = [];
   for (const entry of root as Record<string, unknown>[]) {
     if (typeof entry.name !== "string" || !Array.isArray(entry.styles)) {
-      console.error(`[VoicevoxOps.listSpeakers] skipping malformed speaker entry: ${JSON.stringify(entry)}`);
+      console.error(
+        `[VoicevoxOps.listSpeakers] skipping malformed speaker entry: ${JSON.stringify(entry)}`,
+      );
       continue;
     }
     const styles: VoicevoxSpeakerStyle[] = [];
     for (const style of entry.styles as Record<string, unknown>[]) {
-      if (typeof style.name !== "string" || typeof style.id !== "number" || !Number.isInteger(style.id)) {
-        console.error(`[VoicevoxOps.listSpeakers] skipping malformed style entry: ${JSON.stringify(style)}`);
+      if (
+        typeof style.name !== "string" ||
+        typeof style.id !== "number" ||
+        !Number.isInteger(style.id)
+      ) {
+        console.error(
+          `[VoicevoxOps.listSpeakers] skipping malformed style entry: ${JSON.stringify(style)}`,
+        );
         continue;
       }
       styles.push({ name: style.name, id: style.id });
@@ -105,7 +113,10 @@ async function resolveVoicevoxAppPath(): Promise<string | undefined> {
     const [first = ""] = found.value.stdout.split("\n");
     if (first !== "") return first;
   }
-  const candidates = [join("/Applications", "VOICEVOX.app"), join(homedir(), "Applications", "VOICEVOX.app")];
+  const candidates = [
+    join("/Applications", "VOICEVOX.app"),
+    join(homedir(), "Applications", "VOICEVOX.app"),
+  ];
   return candidates.find((path) => existsSync(path));
 }
 
@@ -135,13 +146,17 @@ export async function launch(): Promise<boolean> {
   // （戻り値 true は「engine listen 済み」ではなく「後続は polling で listen を待つ責任」の意味。
   // caller (renderer の doActivate) は launch ok=true の後に waitForEngine を回す前提）
   if (spawnedEngine !== undefined && spawnedEngine.exitCode === null) {
-    console.error("[VoicevoxOps.launch] concurrent spawn in-flight; skipping (caller must poll /version)");
+    console.error(
+      "[VoicevoxOps.launch] concurrent spawn in-flight; skipping (caller must poll /version)",
+    );
     return true;
   }
 
   // stdout / stderr は親 (gozd) を継承。engine がモデルロード失敗等で起動できない
   // ケースのログを gozd の stderr に流して観察可能性を保つ
-  const spawnResult = tryCatch(() => spawn(enginePath, [], { stdio: ["ignore", "inherit", "inherit"] }));
+  const spawnResult = tryCatch(() =>
+    spawn(enginePath, [], { stdio: ["ignore", "inherit", "inherit"] }),
+  );
   if (!spawnResult.ok) {
     console.error(`[VoicevoxOps.launch] failed to spawn engine: ${spawnResult.error}`);
     return false;
@@ -162,7 +177,10 @@ export async function launch(): Promise<boolean> {
   return true;
 }
 
-async function audioQuery(text: string, speakerId: number): Promise<Record<string, unknown> | undefined> {
+async function audioQuery(
+  text: string,
+  speakerId: number,
+): Promise<Record<string, unknown> | undefined> {
   const params = new URLSearchParams({ text, speaker: String(speakerId) });
   const result = await tryCatch(
     fetch(`${BASE_URL}/audio_query?${params}`, {
@@ -175,7 +193,9 @@ async function audioQuery(text: string, speakerId: number): Promise<Record<strin
     return undefined;
   }
   if (!result.value.ok) {
-    console.error(`[VoicevoxOps.audioQuery] non-200 status: ${result.value.status} (speaker=${speakerId})`);
+    console.error(
+      `[VoicevoxOps.audioQuery] non-200 status: ${result.value.status} (speaker=${speakerId})`,
+    );
     return undefined;
   }
   const json = await tryCatch(result.value.json() as Promise<Record<string, unknown>>);
@@ -186,7 +206,10 @@ async function audioQuery(text: string, speakerId: number): Promise<Record<strin
   return json.value;
 }
 
-async function synthesize(audioQueryBody: Record<string, unknown>, speakerId: number): Promise<Uint8Array | undefined> {
+async function synthesize(
+  audioQueryBody: Record<string, unknown>,
+  speakerId: number,
+): Promise<Uint8Array | undefined> {
   const params = new URLSearchParams({ speaker: String(speakerId) });
   const result = await tryCatch(
     fetch(`${BASE_URL}/synthesis?${params}`, {
@@ -201,7 +224,9 @@ async function synthesize(audioQueryBody: Record<string, unknown>, speakerId: nu
     return undefined;
   }
   if (!result.value.ok) {
-    console.error(`[VoicevoxOps.synthesize] non-200 status: ${result.value.status} (speaker=${speakerId})`);
+    console.error(
+      `[VoicevoxOps.synthesize] non-200 status: ${result.value.status} (speaker=${speakerId})`,
+    );
     return undefined;
   }
   const buf = await tryCatch(result.value.arrayBuffer());

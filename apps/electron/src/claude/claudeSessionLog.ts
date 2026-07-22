@@ -13,7 +13,15 @@
 
 import type { ReviveSessionInfo } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
-import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readSync,
+  statSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, sep } from "node:path";
 import { gozdWorktreesRoot, resolveProjectKey } from "../taskStore";
@@ -98,7 +106,9 @@ function readMeta(agentFile: string): AgentMeta {
   // meta.json 不在は正常系 (古い subagent / 未生成) なので無言で空ラベルに倒す
   if (!existsSync(metaPath)) return { agentType: "", description: "", toolUseId: "", name: "" };
   // ファイルは在るのに読めない / parse 失敗は異常なので観察ログを残す
-  const parsed = tryCatch(() => JSON.parse(readFileSync(metaPath, "utf8")) as Record<string, unknown>);
+  const parsed = tryCatch(
+    () => JSON.parse(readFileSync(metaPath, "utf8")) as Record<string, unknown>,
+  );
   if (!parsed.ok || typeof parsed.value !== "object" || parsed.value === null) {
     console.error(`[ClaudeSessionLog] subagent meta decode failed: ${metaPath}`);
     return { agentType: "", description: "", toolUseId: "", name: "" };
@@ -126,7 +136,9 @@ function readMeta(agentFile: string): AgentMeta {
 function readAgentTypeFromMeta(agentFile: string): string {
   const metaPath = agentFile.replace(/\.jsonl$/, ".meta.json");
   if (!existsSync(metaPath)) return "";
-  const parsed = tryCatch(() => JSON.parse(readFileSync(metaPath, "utf8")) as Record<string, unknown>);
+  const parsed = tryCatch(
+    () => JSON.parse(readFileSync(metaPath, "utf8")) as Record<string, unknown>,
+  );
   if (!parsed.ok || typeof parsed.value !== "object" || parsed.value === null) {
     console.error(`[ClaudeSessionLog] workflow agent meta decode failed: ${metaPath}`);
     return "";
@@ -192,7 +204,9 @@ function readWorkflowProgress(
   const metaPath = join(metaDir, `${wfId}.json`);
   const agentMeta = new Map<string, WorkflowAgentMeta>();
   if (!existsSync(metaPath)) return { workflowName: "", agentMeta };
-  const parsed = tryCatch(() => JSON.parse(readFileSync(metaPath, "utf8")) as Record<string, unknown>);
+  const parsed = tryCatch(
+    () => JSON.parse(readFileSync(metaPath, "utf8")) as Record<string, unknown>,
+  );
   if (!parsed.ok || typeof parsed.value !== "object" || parsed.value === null) {
     console.error(`[ClaudeSessionLog] workflow json decode failed: ${metaPath}`);
     return { workflowName: "", agentMeta };
@@ -238,7 +252,9 @@ function readWorkflowSubagents(dir: string, metaDir: string): ClaudeSessionLogEn
       // だけ載っていない = JOIN ミス。journal / progress の追記タイミング差等で起こりうる
       // 信頼境界外データの兆候なので silent にせず観察ログを残す (ラベル無しで agent 自体は表示)
       if (progress === undefined && agentMeta.size > 0) {
-        console.error(`[ClaudeSessionLog] workflow agent missing in progress: wfId=${wfId} agentId=${agentId}`);
+        console.error(
+          `[ClaudeSessionLog] workflow agent missing in progress: wfId=${wfId} agentId=${agentId}`,
+        );
       }
       // agentType は workflowProgress 優先、空なら agent の meta.json をフォールバック
       const progressAgentType = progress?.agentType ?? "";
@@ -317,7 +333,9 @@ export function readClaudeSessionLog(
     entries.push(...readSubagents(subagentsDir));
     // workflow subagents: <subagents>/workflows/<wf_id>/agent-*.jsonl (Workflow ツール)。
     // ラベルは <sessionDir>/workflows/<wf_id>.json (兄弟) から JOIN する
-    entries.push(...readWorkflowSubagents(join(subagentsDir, "workflows"), join(sessionDir, "workflows")));
+    entries.push(
+      ...readWorkflowSubagents(join(subagentsDir, "workflows"), join(sessionDir, "workflows")),
+    );
     return { found: true, entries, watchDir: projectDir };
   }
   return { found: false, entries: [], watchDir: projectsDir };
@@ -406,10 +424,12 @@ function extractMeta(lines: string[]): SessionMeta {
     const v = result.value;
     if (typeof v.cwd === "string" && v.cwd !== "") cwd = v.cwd;
     if (typeof v.gitBranch === "string" && v.gitBranch !== "") branch = v.gitBranch;
-    if (v.type === "ai-title" && typeof v.aiTitle === "string" && v.aiTitle !== "") title = v.aiTitle;
+    if (v.type === "ai-title" && typeof v.aiTitle === "string" && v.aiTitle !== "")
+      title = v.aiTitle;
     if (typeof v.timestamp === "string" && v.timestamp !== "") timestamp = v.timestamp;
   }
-  const trimmedTitle = title.length > REVIVE_TITLE_MAX ? `${title.slice(0, REVIVE_TITLE_MAX)}…` : title;
+  const trimmedTitle =
+    title.length > REVIVE_TITLE_MAX ? `${title.slice(0, REVIVE_TITLE_MAX)}…` : title;
   return { cwd, branch, title: trimmedTitle, timestamp };
 }
 

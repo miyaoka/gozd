@@ -45,7 +45,13 @@ describe("portScanner", () => {
     const h = makeHarness();
     // shell(10) → npm(20) → node(30, LISTEN)
     h.setOwners(new Map([[10, { ptyId: 7, worktreePath: "/wt/a" }]]));
-    h.setParents(new Map([[30, 20], [20, 10], [10, 1]]));
+    h.setParents(
+      new Map([
+        [30, 20],
+        [20, 10],
+        [10, 1],
+      ]),
+    );
     h.setListens([{ pid: 30, name: "node", ports: [3000] }]);
     await h.scanner.scanOnce();
     expect(h.pushes).toHaveLength(1);
@@ -62,7 +68,12 @@ describe("portScanner", () => {
   test("PTY 消滅後は orphaned として worktree を記憶し続ける", async () => {
     const h = makeHarness();
     h.setOwners(new Map([[10, { ptyId: 7, worktreePath: "/wt/a" }]]));
-    h.setParents(new Map([[30, 10], [10, 1]]));
+    h.setParents(
+      new Map([
+        [30, 10],
+        [10, 1],
+      ]),
+    );
     h.setListens([{ pid: 30, name: "node", ports: [3000] }]);
     await h.scanner.scanOnce();
 
@@ -71,7 +82,11 @@ describe("portScanner", () => {
     h.setParents(new Map([[30, 1]]));
     await h.scanner.scanOnce();
     expect(h.pushes).toHaveLength(2);
-    expect(h.pushes[1]?.[0]).toMatchObject({ attribution: "orphaned", worktreePath: "/wt/a", ptyId: 0 });
+    expect(h.pushes[1]?.[0]).toMatchObject({
+      attribution: "orphaned",
+      worktreePath: "/wt/a",
+      ptyId: 0,
+    });
   });
 
   test("gozd 外プロセスは external", async () => {
@@ -111,7 +126,13 @@ describe("portScanner", () => {
 
   test("port 昇順 → pid 昇順で安定ソートする", async () => {
     const h = makeHarness();
-    h.setParents(new Map([[1, 1], [2, 1], [3, 1]]));
+    h.setParents(
+      new Map([
+        [1, 1],
+        [2, 1],
+        [3, 1],
+      ]),
+    );
     h.setListens([
       { pid: 3, name: "c", ports: [9000] },
       { pid: 2, name: "b", ports: [3000] },
@@ -124,7 +145,12 @@ describe("portScanner", () => {
   test("消滅した pid の orphaned 記憶は掃除される", async () => {
     const h = makeHarness();
     h.setOwners(new Map([[10, { ptyId: 7, worktreePath: "/wt/a" }]]));
-    h.setParents(new Map([[30, 10], [10, 1]]));
+    h.setParents(
+      new Map([
+        [30, 10],
+        [10, 1],
+      ]),
+    );
     h.setListens([{ pid: 30, name: "node", ports: [3000] }]);
     await h.scanner.scanOnce();
 

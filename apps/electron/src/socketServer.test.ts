@@ -36,7 +36,10 @@ describe("SocketServer", () => {
   const cleanups: Array<() => void> = [];
   const tempDirs: string[] = [];
 
-  function makeServer(onMessage: (line: string) => void): { handle: SocketServerHandle; path: string } {
+  function makeServer(onMessage: (line: string) => void): {
+    handle: SocketServerHandle;
+    path: string;
+  } {
     const dir = mkdtempSync(join(tmpdir(), "gozd-socket-test-"));
     tempDirs.push(dir);
     const path = join(dir, "test.sock");
@@ -69,7 +72,11 @@ describe("SocketServer", () => {
   test("複数接続から並行受信できる", async () => {
     const received: string[] = [];
     const { path } = makeServer((line) => received.push(line));
-    await Promise.all([sendLines(path, '{"from":"a"}\n'), sendLines(path, '{"from":"b"}\n'), sendLines(path, '{"from":"c"}\n')]);
+    await Promise.all([
+      sendLines(path, '{"from":"a"}\n'),
+      sendLines(path, '{"from":"b"}\n'),
+      sendLines(path, '{"from":"c"}\n'),
+    ]);
     await waitFor(() => received.length === 3);
     expect(received.toSorted()).toEqual(['{"from":"a"}', '{"from":"b"}', '{"from":"c"}']);
   });

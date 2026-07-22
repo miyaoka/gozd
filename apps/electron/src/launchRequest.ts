@@ -31,7 +31,9 @@ export function consumeLaunchRequest(launchDir: string): string | undefined {
   const parsed = tryCatch(() => JSON.parse(readFileSync(first.path, "utf8")) as unknown);
   rmSync(first.path, { force: true });
   if (!parsed.ok) {
-    console.error(`[launchRequest] parse failed, request discarded: ${first.path}: ${parsed.error}`);
+    console.error(
+      `[launchRequest] parse failed, request discarded: ${first.path}: ${parsed.error}`,
+    );
     return undefined;
   }
   if (parsed.value === null || typeof parsed.value !== "object") {

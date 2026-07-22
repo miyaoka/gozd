@@ -7,7 +7,7 @@
 
 import { subscribe as parcelSubscribe } from "@parcel/watcher";
 import { afterEach, describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
+import { runFixtureGit } from "../testGitFixture";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -46,17 +46,13 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
   throw new Error(`waitUntil timeout: ${label}`);
 }
 
-function runGitCmd(args: string[], cwd: string): void {
-  execFileSync("git", args, { cwd, stdio: "ignore" });
-}
-
 function initGitRepo(dir: string): void {
-  runGitCmd(["init", "-b", "main"], dir);
-  runGitCmd(["config", "user.email", "test@example.com"], dir);
-  runGitCmd(["config", "user.name", "test"], dir);
+  runFixtureGit(["init", "-b", "main"], dir);
+  runFixtureGit(["config", "user.email", "test@example.com"], dir);
+  runFixtureGit(["config", "user.name", "test"], dir);
   writeFileSync(join(dir, "init.txt"), "init\n");
-  runGitCmd(["add", "."], dir);
-  runGitCmd(["commit", "-m", "init"], dir);
+  runFixtureGit(["add", "."], dir);
+  runFixtureGit(["commit", "-m", "init"], dir);
 }
 
 interface Recorded {
@@ -127,8 +123,8 @@ describe("FSWatchRegistry (integration)", () => {
 
     await registry.watch(dir);
     writeFileSync(join(dir, "a.txt"), "a\n");
-    runGitCmd(["add", "."], dir);
-    runGitCmd(["commit", "-m", "second"], dir);
+    runFixtureGit(["add", "."], dir);
+    runFixtureGit(["commit", "-m", "second"], dir);
 
     // commit は refs/heads を動かす → branchChange 候補 → heads digest 変化で発火
     await waitUntil(() => recorded.branchDirs.length > 0, "branchChange");
@@ -143,9 +139,9 @@ describe("FSWatchRegistry (integration)", () => {
     const { registry, recorded } = createRecordingRegistry();
     cleanups.push(() => registry.unwatchAll());
 
-    runGitCmd(["branch", "other"], dir);
+    runFixtureGit(["branch", "other"], dir);
     await registry.watch(dir);
-    runGitCmd(["switch", "other"], dir);
+    runFixtureGit(["switch", "other"], dir);
 
     // `.git/HEAD` の symbolic-ref 先変化 → head 候補 → digest の head 変化 → worktreeChange
     await waitUntil(() => recorded.worktreeDirs.length > 0, "worktreeChange");

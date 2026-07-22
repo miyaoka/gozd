@@ -63,7 +63,10 @@ describe("windowStateStore", () => {
   test("save は既存ファイルを丸ごと置き換える（bounds 以外の未知キーは保持しない）", () => {
     const dir = makeStateDir();
     const path = join(dir, "electron-window.json");
-    writeFileSync(path, JSON.stringify({ bounds: { x: 0, y: 0, width: 1, height: 1 }, junk: true }));
+    writeFileSync(
+      path,
+      JSON.stringify({ bounds: { x: 0, y: 0, width: 1, height: 1 }, junk: true }),
+    );
     const store = createWindowStateStore(dir);
     store.saveBounds({ x: 10, y: 20, width: 800, height: 600 });
     const written = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;

@@ -3,7 +3,12 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RawJsonTypeError } from "./rawJson";
-import { loadAppConfigFrom, loadAppStateFrom, normalizeAppConfig, normalizeAppState } from "./stores";
+import {
+  loadAppConfigFrom,
+  loadAppStateFrom,
+  normalizeAppConfig,
+  normalizeAppState,
+} from "./stores";
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "gozd-stores-test-"));
@@ -36,9 +41,9 @@ describe("normalizeAppState (strict)", () => {
     expect(() => normalizeAppState({ sidebarRepos: [{ collapsed: "yes" }] })).toThrow(
       RawJsonTypeError,
     );
-    expect(() =>
-      normalizeAppState({ sidebarRepos: [{ worktrees: [{ isMain: 1 }] }] }),
-    ).toThrow(RawJsonTypeError);
+    expect(() => normalizeAppState({ sidebarRepos: [{ worktrees: [{ isMain: 1 }] }] })).toThrow(
+      RawJsonTypeError,
+    );
     expect(() => normalizeAppState({ activeRepoListId: 5 })).toThrow(RawJsonTypeError);
     expect(() => normalizeAppState({ activeDir: 5 })).toThrow(RawJsonTypeError);
   });

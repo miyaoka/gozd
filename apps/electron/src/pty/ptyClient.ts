@@ -65,7 +65,10 @@ export function createPtyClient(deps: PtyClientDeps): PtyClient {
   // 生存中の pty id 集合。host crash 時にまとめて exited 通知する対象
   const live = new Set<number>();
   // spawn ack 待ち。spawned / spawnError を id で相関する
-  const pending = new Map<number, { resolve: (pid: number) => void; reject: (error: Error) => void }>();
+  const pending = new Map<
+    number,
+    { resolve: (pid: number) => void; reject: (error: Error) => void }
+  >();
 
   function onHostMessage(message: PtyToHostMessage): void {
     switch (message.type) {

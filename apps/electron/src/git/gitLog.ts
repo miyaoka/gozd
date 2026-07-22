@@ -124,7 +124,10 @@ export async function log(params: LogParams): Promise<LogResult> {
   return { commits: merged, defaultBranch, branchHead };
 }
 
-function fallbackEmpty(result: { ok: true; value: string } | { ok: false; error: unknown }, note: string): string {
+function fallbackEmpty(
+  result: { ok: true; value: string } | { ok: false; error: unknown },
+  note: string,
+): string {
   if (result.ok) return result.value;
   console.error(`[GitOps] ${note}`);
   return "";
@@ -292,7 +295,9 @@ export async function mergeBase(dir: string, hash1: string, hash2: string): Prom
     validateRev(hash2);
   });
   if (!valid.ok) {
-    console.error(`[GitOps] mergeBase: invalid rev: hash1='${hash1}' hash2='${hash2}': ${valid.error}`);
+    console.error(
+      `[GitOps] mergeBase: invalid rev: hash1='${hash1}' hash2='${hash2}': ${valid.error}`,
+    );
     return "";
   }
   const result = await tryCatch(runGit(["merge-base", hash1, hash2], dir));

@@ -132,7 +132,9 @@ describe("buildHookMessage", () => {
     expect(mixed.hasTeammateTask).toBe(true);
 
     // teammate なし → hasTeammateTask は立たない
-    expect(buildHookMessage("done", { background_tasks: [{ type: "subagent" }] }, {}).hasTeammateTask).toBe(false);
+    expect(
+      buildHookMessage("done", { background_tasks: [{ type: "subagent" }] }, {}).hasTeammateTask,
+    ).toBe(false);
     expect(buildHookMessage("done", {}, {}).hasTeammateTask).toBe(false);
   });
 

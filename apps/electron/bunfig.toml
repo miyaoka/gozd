@@ -1,0 +1,3 @@
+# git spawn を含むテストの env 隔離。設計理由は src/testPreload.ts 冒頭コメント
+[test]
+preload = ["./src/testPreload.ts"]

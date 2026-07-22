@@ -2,7 +2,7 @@
 // main repo / worktree を模した 2 つの temp dir を直接操作して検証する。
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
+import { runFixtureGit } from "../testGitFixture";
 import {
   existsSync,
   lstatSync,
@@ -100,7 +100,7 @@ describe("resolveReviveBranch", () => {
   const tempDirs: string[] = [];
 
   function git(args: string[], cwd: string): void {
-    execFileSync("git", args, { cwd, stdio: "ignore" });
+    runFixtureGit(args, cwd);
   }
 
   /** origin 無しの初期 commit 1 個 repo（default branch = main）。 */

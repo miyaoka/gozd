@@ -5,13 +5,26 @@ import { join } from "node:path";
 import { startAppConfigWatcher, stopAppConfigWatcher } from "./appConfigWatcher";
 import { registerChildWindow } from "./childWindows";
 import { writeClaudeHooksSettings } from "./claudeHooksSettings";
-import { bundledRendererIndex, channel, claudeSettingsPath, isPackaged, launchRequestDir, socketPath } from "./gozdEnv";
+import {
+  bundledRendererIndex,
+  channel,
+  claudeSettingsPath,
+  isPackaged,
+  launchRequestDir,
+  socketPath,
+} from "./gozdEnv";
 import { GOZD_CHANNEL_ARG_PREFIX, SPIKE_TEST_ARG } from "./ipc";
 import { consumeLaunchRequest } from "./launchRequest";
 import { installAppMenu } from "./menu";
 import { buildGozdOpenPayload } from "./openTarget";
 import { createRpcDispatcher, type PushFn } from "./rpcDispatcher";
-import { killAllPtys, routes, startPortScanner, stopPortScanner, unwatchAllFsWatches } from "./routes";
+import {
+  killAllPtys,
+  routes,
+  startPortScanner,
+  stopPortScanner,
+  unwatchAllFsWatches,
+} from "./routes";
 import { createSocketMessageHandler } from "./socketMessages";
 import { startSocketServer, type SocketServerHandle } from "./socketServer";
 import { runSpikeResolverDiag } from "./spikeDiag";
@@ -228,7 +241,7 @@ if (isTestMode) {
 
 let socketServer: SocketServerHandle | undefined;
 
-app.whenReady().then(() => {
+void app.whenReady().then(() => {
   installAppMenu();
 
   // spike 診断: 実 Electron main が使う git / credential helper を stdout に残す。
@@ -243,7 +256,9 @@ app.whenReady().then(() => {
   // 当てる。dev / production をアイコンで識別する運用（Swift 期の Gozd-Dev.app 相当）
   if (!isPackaged) {
     const devIconResult = tryCatch(() =>
-      app.dock?.setIcon(join(__dirname, "..", "resources", "icon.dev.iconset", "icon_512x512@2x.png")),
+      app.dock?.setIcon(
+        join(__dirname, "..", "resources", "icon.dev.iconset", "icon_512x512@2x.png"),
+      ),
     );
     if (!devIconResult.ok) {
       console.error(`[main] failed to set dev dock icon: ${devIconResult.error}`);
@@ -257,7 +272,7 @@ app.whenReady().then(() => {
   try {
     writeClaudeHooksSettings(claudeSettingsPath);
   } catch (error) {
-    console.error(`[main] failed to write claude hooks settings: ${error}`);
+    console.error(`[main] failed to write claude hooks settings: ${String(error)}`);
   }
 
   // CLI / Claude hooks からの NDJSON を受け付けるソケット server。push は window の

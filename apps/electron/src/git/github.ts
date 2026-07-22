@@ -216,7 +216,18 @@ async function resolveGitHubRepoOrError(
 // `-F` は型推論で number/bool を渡しうるため、string にしたい owner/repo/query は `-f` を使う。
 // limit のみ Int として渡したいので `-F` で渡す
 function graphqlArgs(owner: string, repo: string, query: string): string[] {
-  return ["api", "graphql", "-f", `owner=${owner}`, "-f", `repo=${repo}`, "-F", "limit=100", "-f", `query=${query}`];
+  return [
+    "api",
+    "graphql",
+    "-f",
+    `owner=${owner}`,
+    "-f",
+    `repo=${repo}`,
+    "-F",
+    "limit=100",
+    "-f",
+    `query=${query}`,
+  ];
 }
 
 /** gh を実行し、non-zero exit を stderr 内容で GhError 4 種に分類して返す。
@@ -231,7 +242,10 @@ async function runGhCategorized(args: string[], cwd: string): Promise<GhResult<s
     const error = result.error as Error & { code?: number | string; stderr?: string };
     if (typeof error.code === "number") {
       const stderr = error.stderr ?? "";
-      return { ok: false, error: { kind: classifyGhStderr(stderr), detail: truncateDetail(stderr) } };
+      return {
+        ok: false,
+        error: { kind: classifyGhStderr(stderr), detail: truncateDetail(stderr) },
+      };
     }
     throw result.error;
   });
@@ -337,9 +351,7 @@ function nodesAt(rawJson: string, key: "pullRequests" | "issues"): unknown[] | u
  * それ以外は undefined。`.git` 拡張子は剥がす。
  * `https://host/owner/repo` / `ssh://user@host/owner/repo` / scp 形式 `git@host:owner/repo` に対応
  */
-export function parseGitHubOwnerRepo(
-  url: string,
-): { owner: string; repo: string } | undefined {
+export function parseGitHubOwnerRepo(url: string): { owner: string; repo: string } | undefined {
   let host: string;
   let path: string;
 

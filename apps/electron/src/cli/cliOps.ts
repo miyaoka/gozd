@@ -66,14 +66,17 @@ export function buildHookMessage(
   // Stop (done) フックの pending work シグナル。teammate 型を除く background_tasks /
   // session_crons のいずれかが残っていれば true（旧バージョンのキー欠落は count 0 =
   // pending なし）。teammate の稼働判定は renderer が subagent lifecycle hook の台帳で行う
-  const backgroundTasks = Array.isArray(stdinJson.background_tasks) ? stdinJson.background_tasks : [];
+  const backgroundTasks = Array.isArray(stdinJson.background_tasks)
+    ? stdinJson.background_tasks
+    : [];
   const nonTeammateCount = backgroundTasks.filter((task) => !isTeammateTask(task)).length;
   const cronCount = Array.isArray(stdinJson.session_crons) ? stdinJson.session_crons.length : 0;
 
   return {
     event,
     ptyId,
-    lastAssistantMessage: typeof stdinJson.last_assistant_message === "string" ? stdinJson.last_assistant_message : "",
+    lastAssistantMessage:
+      typeof stdinJson.last_assistant_message === "string" ? stdinJson.last_assistant_message : "",
     toolName: typeof stdinJson.tool_name === "string" ? stdinJson.tool_name : "",
     toolInput: toolInputText,
     sessionId: typeof stdinJson.session_id === "string" ? stdinJson.session_id : "",

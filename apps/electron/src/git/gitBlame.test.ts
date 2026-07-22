@@ -1,7 +1,7 @@
 // gitBlame の統合テスト。実 git repo で blame porcelain parse と blame-anchored log の契約を固定する。
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
+import { runFixtureGit } from "../testGitFixture";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,16 +17,16 @@ describe("gitBlame (integration)", () => {
   function makeRepo(): string {
     const dir = mkdtempSync(join(tmpdir(), "gozd-blame-test-"));
     tempDirs.push(dir);
-    execFileSync("git", ["init", "-b", "main"], { cwd: dir, stdio: "ignore" });
-    execFileSync("git", ["config", "user.email", "alice@example.com"], { cwd: dir, stdio: "ignore" });
-    execFileSync("git", ["config", "user.name", "alice"], { cwd: dir, stdio: "ignore" });
+    runFixtureGit(["init", "-b", "main"], dir);
+    runFixtureGit(["config", "user.email", "alice@example.com"], dir);
+    runFixtureGit(["config", "user.name", "alice"], dir);
     return dir;
   }
 
   function commit(dir: string, message: string): string {
-    execFileSync("git", ["add", "."], { cwd: dir, stdio: "ignore" });
-    execFileSync("git", ["commit", "-m", message], { cwd: dir, stdio: "ignore" });
-    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim();
+    runFixtureGit(["add", "."], dir);
+    runFixtureGit(["commit", "-m", message], dir);
+    return runFixtureGit(["rev-parse", "HEAD"], dir);
   }
 
   test("blameLine: コミット済み行の author / summary / hash を返す", async () => {

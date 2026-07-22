@@ -1,10 +1,10 @@
 // subtractDeleted の pure test + 実 git repo での lsFiles 統合テスト。
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runFixtureGit } from "../testGitFixture";
 import { lsFiles, subtractDeleted } from "./gitLsFiles";
 
 describe("subtractDeleted", () => {
@@ -28,24 +28,20 @@ describe("lsFiles (integration)", () => {
     for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
-  function runGitCmd(args: string[], cwd: string): void {
-    execFileSync("git", args, { cwd, stdio: "ignore" });
-  }
-
   test("tracked + untracked を列挙し、gitignore と working tree 削除済みを除外する", async () => {
     const dir = mkdtempSync(join(tmpdir(), "gozd-lsfiles-test-"));
     tempDirs.push(dir);
-    runGitCmd(["init", "-b", "main"], dir);
-    runGitCmd(["config", "user.email", "t@example.com"], dir);
-    runGitCmd(["config", "user.name", "t"], dir);
+    runFixtureGit(["init", "-b", "main"], dir);
+    runFixtureGit(["config", "user.email", "t@example.com"], dir);
+    runFixtureGit(["config", "user.name", "t"], dir);
 
     // tracked
     mkdirSync(join(dir, "src"));
     writeFileSync(join(dir, "src", "tracked.ts"), "a\n");
     writeFileSync(join(dir, "removed.ts"), "b\n");
     writeFileSync(join(dir, ".gitignore"), "ignored.log\n");
-    runGitCmd(["add", "."], dir);
-    runGitCmd(["commit", "-m", "first"], dir);
+    runFixtureGit(["add", "."], dir);
+    runFixtureGit(["commit", "-m", "first"], dir);
 
     // untracked / ignored / working tree 削除
     writeFileSync(join(dir, "untracked.ts"), "c\n");
@@ -63,20 +59,20 @@ describe("lsFiles (integration)", () => {
   test("merge コンフリクト中も unmerged パスを 1 件に畳む", async () => {
     const dir = mkdtempSync(join(tmpdir(), "gozd-lsfiles-conflict-"));
     tempDirs.push(dir);
-    runGitCmd(["init", "-b", "main"], dir);
-    runGitCmd(["config", "user.email", "t@example.com"], dir);
-    runGitCmd(["config", "user.name", "t"], dir);
+    runFixtureGit(["init", "-b", "main"], dir);
+    runFixtureGit(["config", "user.email", "t@example.com"], dir);
+    runFixtureGit(["config", "user.name", "t"], dir);
     writeFileSync(join(dir, "conflict.txt"), "base\n");
-    runGitCmd(["add", "."], dir);
-    runGitCmd(["commit", "-m", "base"], dir);
-    runGitCmd(["checkout", "-b", "topic"], dir);
+    runFixtureGit(["add", "."], dir);
+    runFixtureGit(["commit", "-m", "base"], dir);
+    runFixtureGit(["checkout", "-b", "topic"], dir);
     writeFileSync(join(dir, "conflict.txt"), "topic\n");
-    runGitCmd(["commit", "-am", "topic"], dir);
-    runGitCmd(["checkout", "main"], dir);
+    runFixtureGit(["commit", "-am", "topic"], dir);
+    runFixtureGit(["checkout", "main"], dir);
     writeFileSync(join(dir, "conflict.txt"), "main\n");
-    runGitCmd(["commit", "-am", "main"], dir);
+    runFixtureGit(["commit", "-am", "main"], dir);
     // コンフリクトで merge は exit 1 になる（期待挙動なので失敗を握りつぶす）
-    expect(() => runGitCmd(["merge", "topic"], dir)).toThrow();
+    expect(() => runFixtureGit(["merge", "topic"], dir)).toThrow();
 
     const files = await lsFiles(dir);
     expect(files.filter((path) => path === "conflict.txt").length).toBe(1);
@@ -85,7 +81,7 @@ describe("lsFiles (integration)", () => {
   test("commit 無し repo でも untracked を列挙する", async () => {
     const dir = mkdtempSync(join(tmpdir(), "gozd-lsfiles-unborn-"));
     tempDirs.push(dir);
-    runGitCmd(["init", "-b", "main"], dir);
+    runFixtureGit(["init", "-b", "main"], dir);
     writeFileSync(join(dir, "a.ts"), "a\n");
 
     expect(await lsFiles(dir)).toEqual(["a.ts"]);

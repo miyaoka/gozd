@@ -112,7 +112,12 @@ describe("ptyClient", () => {
   test("exit message は signal 優先で onExit に渡る", async () => {
     const ctx = setup();
     const { proc } = await establish(ctx, 1);
-    proc.emit("message", { type: "exit", id: 1, exitCode: 0, signal: 15 } satisfies PtyToHostMessage);
+    proc.emit("message", {
+      type: "exit",
+      id: 1,
+      exitCode: 0,
+      signal: 15,
+    } satisfies PtyToHostMessage);
     expect(ctx.exits).toEqual([[1, 0, 15]]);
   });
 

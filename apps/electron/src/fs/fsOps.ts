@@ -16,7 +16,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute } from "node:path";
 import { checkIgnore } from "../git/gitOps";
 import { toWireBytes } from "../wireBytes";
 import { resolveContained } from "./pathContainment";

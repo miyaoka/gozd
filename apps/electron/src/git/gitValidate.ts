@@ -34,7 +34,7 @@ export function validateRev(rev: string): void {
  * `validateRev` は hex 文字列を通すため、「コミット指定が必須」な RPC 入口で別途明示的に弾く */
 export function isAllZeroHex(s: string): boolean {
   if (s === "") return false;
-  return [...s].every((char) => char === "0");
+  return /^0+$/.test(s);
 }
 
 /**

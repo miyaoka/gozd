@@ -12,7 +12,8 @@ export interface RpcContext {
   push: PushFn;
 }
 
-export type RpcHandler = (body: unknown, ctx: RpcContext) => Promise<unknown> | unknown;
+// 戻り値は sync / async 両対応。unknown は Promise<unknown> を包含するため union にしない
+export type RpcHandler = (body: unknown, ctx: RpcContext) => unknown;
 
 /** 移行中の観測用: 未実装パスは初回のみ stderr に出す（移行チェックリストとして機能する） */
 const loggedUnimplemented = new Set<string>();

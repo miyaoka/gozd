@@ -116,7 +116,7 @@ export function watchAbsFile(path: string, push: PushFn): void {
     },
     (error) => {
       // 非同期 error は entry ごと破棄する（refCount は無視して即死。以後の unwatch は no-op で安全）
-      console.error(`[absFileWatcher] watcher error, watch dropped: ${path}: ${error}`);
+      console.error(`[absFileWatcher] watcher error, watch dropped: ${path}: ${String(error)}`);
       entries.delete(path);
     },
   );

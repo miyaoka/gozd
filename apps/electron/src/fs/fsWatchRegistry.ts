@@ -317,7 +317,7 @@ export function createFsWatchRegistry(handlers: FsWatchHandlers, options: FsWatc
     for (const sub of entry.subscriptions) {
       // unsubscribe は async だが完了を待つ必要はない。失敗だけ観察可能にする
       sub.unsubscribe().catch((error: unknown) => {
-        console.error(`[FSWatchRegistry] unsubscribe failed for ${dir}: ${error}`);
+        console.error(`[FSWatchRegistry] unsubscribe failed for ${dir}: ${String(error)}`);
       });
     }
     // dedup キャッシュも掃除する。再 watch 後の最初の status を無条件 push させ、dir 削除後の

@@ -345,7 +345,5 @@ export function createTaskStore(configDir: string) {
   };
 }
 
-type TaskStore = ReturnType<typeof createTaskStore>;
-
 /** production 用の単一インスタンス（`~/.config/gozd/`）。routes.ts はこれを使う */
 export const taskStore = createTaskStore(defaultConfigDir);

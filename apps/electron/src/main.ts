@@ -241,7 +241,7 @@ if (isTestMode) {
 
 let socketServer: SocketServerHandle | undefined;
 
-app.whenReady().then(() => {
+void app.whenReady().then(() => {
   installAppMenu();
 
   // spike 診断: 実 Electron main が使う git / credential helper を stdout に残す。
@@ -272,7 +272,7 @@ app.whenReady().then(() => {
   try {
     writeClaudeHooksSettings(claudeSettingsPath);
   } catch (error) {
-    console.error(`[main] failed to write claude hooks settings: ${error}`);
+    console.error(`[main] failed to write claude hooks settings: ${String(error)}`);
   }
 
   // CLI / Claude hooks からの NDJSON を受け付けるソケット server。push は window の

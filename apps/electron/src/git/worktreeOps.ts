@@ -156,16 +156,22 @@ export async function removeWorktree(dir: string, path: string, force: boolean):
  * `leaf` は 1 path component のみ許可。`/`, `.`, `..`, 制御文字を含むものは拒否する
  * （base 配下からの逸脱や、ファイル API への橋渡しでの予期しない扱いを防ぐ）
  */
+/** C0 制御文字（< 0x20）と DEL（0x7f）を含むか。for-of は code point 単位で走査する */
+function hasControlChar(s: string): boolean {
+  for (const char of s) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
 async function ensureWorktreePath(projectDir: string, leaf: string): Promise<string> {
   const invalid =
     leaf === "" ||
     leaf.includes("/") ||
     leaf === "." ||
     leaf === ".." ||
-    [...leaf].some((char) => {
-      const code = char.codePointAt(0) ?? 0;
-      return code < 0x20 || code === 0x7f;
-    });
+    hasControlChar(leaf);
   if (invalid) {
     throw new Error(`invalid worktree leaf name: ${leaf}`);
   }

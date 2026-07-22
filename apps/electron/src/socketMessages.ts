@@ -23,7 +23,7 @@ import type { PushFn } from "./rpcDispatcher";
 import { taskStore } from "./taskStore";
 
 function notifyTaskStoreError(push: PushFn, message: string, error: unknown, dir: string): void {
-  console.error(`[TaskStore] ${message}: ${error}`);
+  console.error(`[TaskStore] ${message}: ${String(error)}`);
   push("notify", { type: "error", source: "task-store", message, detail: String(error), dir });
 }
 

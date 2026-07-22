@@ -7,7 +7,7 @@ import { statSync } from "node:fs";
 import { join } from "node:path";
 import { LOG_FORMAT, parseLogRecords, type CommitInfo } from "./gitLog";
 import { GitCommandError, runGit } from "./gitRunner";
-import { validateRev } from "./gitValidate";
+import { isAllZeroHex, validateRev } from "./gitValidate";
 
 /** blame 対象ファイルのサイズ上限。これを超えると blame は秒オーダーでブロックするため
  * 早期に reject する。閾値は GitHub の blame UI のハード上限と同等の目安 */
@@ -94,7 +94,7 @@ export async function blameLine(params: {
   if (hash === "") {
     throw new Error("git blame: missing porcelain header");
   }
-  const notCommitted = [...hash].every((char) => char === "0");
+  const notCommitted = isAllZeroHex(hash);
   return {
     hash,
     shortHash: hash.slice(0, 7),

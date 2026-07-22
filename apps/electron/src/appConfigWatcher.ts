@@ -37,7 +37,7 @@ export function startAppConfigWatcher(push: PushFn): void {
       },
       (error) => {
         // 非同期 error（config dir の削除等）。watcher は watchSingleFile 側で畳み済み
-        console.error(`[appConfigWatcher] watcher error, hot reload stopped: ${error}`);
+        console.error(`[appConfigWatcher] watcher error, hot reload stopped: ${String(error)}`);
         disposeWatch = undefined;
       },
     ),

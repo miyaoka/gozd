@@ -14,12 +14,14 @@ import { usePrDiffToggleStore } from "../git-graph";
 import { useWorktreeStore } from "../worktree";
 import type { PreviewContent } from "./usePreviewContent";
 import { usePreviewEditStore } from "./usePreviewEditStore";
+import { usePreviewStore } from "./usePreviewStore";
 
 export function usePreviewEdit(content: PreviewContent) {
   const worktreeStore = useWorktreeStore();
   const prDiffToggle = usePrDiffToggleStore();
   const summaryStore = useChangesSummaryStore();
   const editStore = usePreviewEditStore();
+  const previewStore = usePreviewStore();
 
   const {
     activeMode,
@@ -87,16 +89,25 @@ export function usePreviewEdit(content: PreviewContent) {
   const isDirty = computed(() => editStore.isDirty);
 
   /**
-   * 編集セッションの自動同期。編集可能な content が表示された時点でセッションを張る。
+   * 編集セッションの自動同期。不変条件「セッションが存在 ⇔ popover 表示中 && summary 外 &&
+   * 編集可能な content 表示」の「張る」側を担う。畳む側は usePreviewStore.close() の
+   * endSession (popover 閉) と下の summary watch (summary 進入)、対象切替は usePreviewContent
+   * の main watch が endSession で先に畳む。
+   *
+   * isOpen / summary.enabled をソースに含めるのは張り直しのため: close は endSession で
+   * セッションを破棄するが、再 open では isEditable / currentText が変化しない (popover の
+   * hide は unmount ではなく selection も content も残る) ので、可視状態の変化そのものを
+   * 発火源にしないとセッション不在のまま編集が updateDraft のセッション外ガードで
+   * 捨てられ続ける。summary 退出も同型 (enabled が false に戻るだけで content は不変)。
+   *
    * `beginSession` は「同一 target + 保存済み内容一致」なら no-op で dirty draft を保持する
    * ため、タブ切替 (current → original → current) やこの watch の再発火で未保存の編集は
-   * 失われない。表示対象そのものの切替は usePreviewContent の main watch が `endSession` で
-   * 先に畳む。
+   * 失われない。
    */
   watch(
-    [isEditable, currentText] as const,
-    ([editable, text]) => {
-      if (!editable || text === undefined) return;
+    [() => previewStore.isOpen, () => summaryStore.enabled, isEditable, currentText] as const,
+    ([open, summaryEnabled, editable, text]) => {
+      if (!open || summaryEnabled || !editable || text === undefined) return;
       const sel = worktreeStore.selection;
       if (sel?.kind === "absolute") {
         editStore.beginSession({ kind: "absolute", absPath: sel.absPath }, text);

@@ -158,7 +158,13 @@ async function setupEditor(el: HTMLElement, myEpoch: number): Promise<void> {
     fixedOverflowWidgets: true,
   });
   activeDecorations = editor.createDecorationsCollection();
-  editor.onDidChangeModelContent(() => {
+  editor.onDidChangeModelContent((e) => {
+    // isFlush = setValue によるモデル全体のリセット (vscode textModel._setValueFromTextBuffer
+    // が立てる)。props → model 同期の setValue でも本イベントは発火するため、これを
+    // ユーザー編集として emit すると「セッション破棄後に content prop が変わる」タイミングで
+    // 遅延 update:content が編集系 (updateDraft) へ着弾する。ユーザーの打鍵 / undo / redo は
+    // isFlush=false で届く
+    if (e.isFlush) return;
     if (!props.editable || editor === undefined) return;
     emit("update:content", editor.getValue());
   });

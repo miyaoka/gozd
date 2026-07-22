@@ -48,6 +48,7 @@ setWindowOpenHandler が about:blank だけを allow する契約とセット。
 </doc>
 
 <script setup lang="ts">
+import { CHILD_WINDOW_FRAME_PREFIX } from "@gozd/shared";
 import { useEventListener, useMutationObserver } from "@vueuse/core";
 import { onMounted, onUnmounted, ref } from "vue";
 import { useWindowKeyBindings } from "../../shared/command";
@@ -97,9 +98,10 @@ const features = [
   `left=${Math.round(props.screenX)}`,
   `top=${Math.round(props.screenY)}`,
 ].join(",");
-// frame 名は main 側 registry の対象解決キー (doc 参照)。同名 window があると window.open が
-// 新規生成せず既存を返してしまうため、乱数で一意化する (HMR でカウンタが巻き戻る事故も避ける)
-const frameName = `gozd-child-${crypto.randomUUID()}`;
+// frame 名は main 側の allow 判定 / registry の対象解決キー (prefix は @gozd/shared が SSOT)。
+// 同名 window があると window.open が新規生成せず既存を返してしまうため、乱数で一意化する
+// (HMR でカウンタが巻き戻る事故も避ける)
+const frameName = `${CHILD_WINDOW_FRAME_PREFIX}${crypto.randomUUID()}`;
 const child = window.open("about:blank", frameName, features);
 
 /** unmount 経路の close をユーザー起点の pagehide と区別するフラグ。 */
@@ -173,8 +175,12 @@ if (child === null) {
   useEventListener(child, "focus", () => activateChildWindow(ownHandle));
   useEventListener(child, "blur", () => deactivateChildWindow(ownHandle));
 
-  // opener の unload (Vite フルリロード / アプリ終了) で child を道連れにする (doc 参照)
+  // opener の unload (Vite フルリロード / アプリ終了) で child を道連れにする (doc 参照)。
+  // opener が消える時点で確認フロー (closeRequested の consumer) はもう走れないため、
+  // dirty ガードの veto を先に外す — 外さないと dirty な child が close を veto し、
+  // 新 renderer から追跡できない孤児ウィンドウとして残る
   useEventListener(window, "pagehide", () => {
+    child.onbeforeunload = null;
     child.close();
   });
 
@@ -196,6 +202,18 @@ if (child === null) {
   };
   useEventListener(window, "pointerup", endDrag);
   useEventListener(window, "pointercancel", endDrag);
+
+  // 初期配置の content 揃え。window.open の top は外枠原点に効くため、child 自身の
+  // chrome 高 (標準 titlebar) の分だけコンテンツが要求位置より下にずれる。chrome 高は
+  // open 前には測れないので、open 後の初回フレームで実測して 1 回だけ補正する。
+  // ドラッグ引き継ぎ中は pointermove の moveTo が同じ content 揃えを毎回行うため補正
+  // しない (補正すると古い初期座標へ巻き戻る)
+  child.requestAnimationFrame(() => {
+    if (dragState !== undefined) return;
+    const chromeY = child.outerHeight - child.innerHeight;
+    if (chromeY <= 0) return;
+    child.moveTo(Math.round(props.screenX), Math.round(props.screenY - chromeY));
+  });
 
   targetBody.value = doc.body;
 }

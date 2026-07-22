@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, screen, shell, type WebContents } from "electron";
-import { TITLEBAR_HEIGHT, tryCatch } from "@gozd/shared";
+import { CHILD_WINDOW_FRAME_PREFIX, TITLEBAR_HEIGHT, tryCatch } from "@gozd/shared";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { startAppConfigWatcher, stopAppConfigWatcher } from "./appConfigWatcher";
@@ -68,9 +68,14 @@ function installExternalLinkPolicy(contents: WebContents): void {
   };
 
   // window.open / target="_blank" は about:blank（undock child window）以外は新 window を
-  // 作らせない。http(s) のみ外部ブラウザに送り、それ以外は黙って deny
-  contents.setWindowOpenHandler(({ url }) => {
-    if (url === "about:blank") return { action: "allow" };
+  // 作らせない。http(s) のみ外部ブラウザに送り、それ以外は黙って deny。
+  // about:blank も frame 名 prefix で first-party の undock 経路に限定する — rendered
+  // content 由来の window.open("about:blank") 等を allow すると registry に乗らない
+  // 追跡外の空ウィンドウが生まれるため
+  contents.setWindowOpenHandler(({ url, frameName }) => {
+    if (url === "about:blank" && frameName.startsWith(CHILD_WINDOW_FRAME_PREFIX)) {
+      return { action: "allow" };
+    }
     if (isHttp(url)) openExternal(url);
     return { action: "deny" };
   });
@@ -92,7 +97,7 @@ app.on("web-contents-created", (_event, contents) => {
   // window.open で生まれた child window を frame 名で registry に確保する。
   // タイトル同期（setTitleContext）の除外判定が child を識別するのに使う
   contents.on("did-create-window", (childWindow, details) => {
-    if (details.frameName === "") return;
+    if (!details.frameName.startsWith(CHILD_WINDOW_FRAME_PREFIX)) return;
     registerChildWindow(details.frameName, childWindow);
   });
 });

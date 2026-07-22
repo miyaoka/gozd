@@ -19,7 +19,7 @@
     "when": "floatingWindowVisible && !terminalFocus"
   },
   { "key": "cmd+w", "command": "preview.close", "when": "previewVisible && !terminalFocus" },
-  { "key": "shift+cmd+w", "command": "window.close" },
+  { "key": "shift+cmd+w", "command": "window.close", "when": "!childWindowFocused" },
   { "key": "alt+cmd+left", "command": "terminal.focusLeft", "when": "terminalFocus" },
   { "key": "alt+cmd+right", "command": "terminal.focusRight", "when": "terminalFocus" },
   { "key": "alt+cmd+up", "command": "terminal.focusUp", "when": "terminalFocus" },

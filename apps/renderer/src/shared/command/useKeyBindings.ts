@@ -84,7 +84,9 @@ function attachListeners(doc: Document) {
   const registry = useCommandRegistry();
   const contextKeys = useContextKeys();
 
-  // inputFocused context key をフォーカス変化で更新
+  // inputFocused context key をフォーカス変化で更新。key は全ウィンドウ共有の単一値で、
+  // 「最後に focus イベントを発したウィンドウ」の状態を映す (ウィンドウを跨いだ直後は
+  // 一瞬 stale になりうるが、次の focus イベントで自己回復する)
   useEventListener(doc, "focusin", (e: FocusEvent) => {
     contextKeys.set("inputFocused", isEditableElement(e.target));
   });

@@ -250,7 +250,9 @@ function wireGutterBlame(
 let nextMonacoWindowId = 2;
 
 /**
- * el が属するウィンドウを Monaco の window registry に登録する。main window / 登録済みは no-op。
+ * el が属するウィンドウを Monaco の window registry に登録する。main window は no-op。
+ * 登録済みウィンドウへの再呼び出しは Monaco 側の registerWindow が冪等 (登録済み id は
+ * Disposable.None を返す) なので無害。
  *
  * Monaco の focus 判定 (`getActiveDocument`) は registry 登録済みウィンドウしか走査せず、
  * 未登録の child window では常に main document へ fallback する。その結果、child 内の

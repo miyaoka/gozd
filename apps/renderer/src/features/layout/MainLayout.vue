@@ -48,6 +48,7 @@ import {
 import { registerAppConfigSync, registerSettingsCommand, SettingsModal } from "../settings";
 import { SidebarPane } from "../sidebar";
 import { registerThemeCommand, TerminalPane } from "../terminal";
+import NotificationCenterPanel from "./NotificationCenterPanel.vue";
 import NotificationToast from "./NotificationToast.vue";
 import ResizeHandle from "./ResizeHandle.vue";
 import { rpcWindowClose } from "./rpc";
@@ -355,6 +356,7 @@ watch(
     <FileHistoryPopover />
     <UnsavedDraftConfirmDialog />
     <NotificationToast />
+    <NotificationCenterPanel />
   </div>
 </template>
 

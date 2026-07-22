@@ -23,8 +23,10 @@ import { onMessage } from "../../shared/rpc";
 import { useEventLogStore } from "../event-log";
 import { useServerStore } from "../server";
 import { channelChipLabel } from "./channel";
+import { useNotificationCenterStore } from "./useNotificationCenterStore";
 import { useTitleContext } from "./useTitleContext";
 import IconLucideActivity from "~icons/lucide/activity";
+import IconLucideBell from "~icons/lucide/bell";
 import IconLucideServer from "~icons/lucide/server";
 
 /** main の enter/leave-full-screen から届く push。payload 型は購読側が SSOT（docs/rpc.md） */
@@ -36,6 +38,7 @@ const channelChip = channelChipLabel();
 const title = useTitleContext();
 const serverStore = useServerStore();
 const eventLogStore = useEventLogStore();
+const notificationCenterStore = useNotificationCenterStore();
 
 // fullscreen では macOS が信号機ボタンを消すため pad を畳む。初期値 false は
 // 「ウィンドウは非 fullscreen で生成される」前提。pull hydrate は持たない
@@ -95,6 +98,26 @@ onUnmounted(disposeFullscreen);
         @click="eventLogStore.toggle()"
       >
         <IconLucideActivity class="size-3.5" />
+      </button>
+      <button
+        type="button"
+        class="relative grid size-6 place-items-center rounded-sm hover:bg-element-hover"
+        :class="
+          notificationCenterStore.isOpen
+            ? 'text-primary-text'
+            : 'text-foreground-low hover:text-foreground'
+        "
+        title="Notifications"
+        aria-label="Notifications"
+        @click="notificationCenterStore.toggle()"
+      >
+        <IconLucideBell class="size-3.5" />
+        <!-- 未読ドット。未読に error を含むときだけ destructive で目立たせる -->
+        <span
+          v-if="notificationCenterStore.unseenCount > 0"
+          class="absolute top-0.5 right-0.5 size-1.5 rounded-full"
+          :class="notificationCenterStore.hasUnseenError ? 'bg-destructive' : 'bg-primary'"
+        ></span>
       </button>
     </div>
   </div>

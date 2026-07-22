@@ -3,8 +3,9 @@ Popover API (`popover="manual"`) によるトースト通知。
 
 ## 動作
 
-- 通知が存在する間 popover を open にし、空になったら hide する
-- error は手動クローズのみ、warning / info は自動消去（store 側で管理）
+- toast 表示中の通知（store の `toasts` view）が存在する間 popover を open にし、空になったら hide する
+- error と `persist` 指定の通知は手動クローズのみ、それ以外の warning / info は自動消去（store 側で管理）
+- dismiss は toast を畳むだけで、通知自体は notification center に残る
 - 複数通知は下から上へスタック表示
 </doc>
 
@@ -14,13 +15,13 @@ import { useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import NotificationToastItem from "./NotificationToastItem.vue";
 
-const { notifications, dismiss } = useNotificationStore();
+const { toasts, dismiss } = useNotificationStore();
 
 const popoverRef = useTemplateRef<HTMLElement>("popover");
 
-// 通知の有無に応じて popover を開閉
+// toast の有無に応じて popover を開閉
 watch(
-  () => notifications.value.length,
+  () => toasts.value.length,
   (len) => {
     const el = popoverRef.value;
     if (!el) return;
@@ -32,10 +33,10 @@ watch(
   },
 );
 
-// popover が外部要因で閉じられた場合に全通知をクリア
+// popover が外部要因で閉じられた場合に全 toast を畳む（center には残る）
 useEventListener(popoverRef, "toggle", (e: ToggleEvent) => {
   if (e.newState === "closed") {
-    for (const n of notifications.value) {
+    for (const n of toasts.value) {
       dismiss(n.id);
     }
   }
@@ -49,7 +50,7 @@ useEventListener(popoverRef, "toggle", (e: ToggleEvent) => {
     class="_notification-toast pointer-events-none m-0 flex flex-col items-end gap-2 border-0 bg-transparent p-4 [&:popover-open]:flex"
   >
     <NotificationToastItem
-      v-for="n in notifications"
+      v-for="n in toasts"
       :key="n.id"
       :type="n.type"
       :message="n.message"

@@ -1,4 +1,10 @@
-import { type AppState, type Task, type UpstreamStatus, WorktreeEntry } from "@gozd/rpc";
+import {
+  type AppState,
+  type RepoList,
+  type Task,
+  type UpstreamStatus,
+  WorktreeEntry,
+} from "@gozd/rpc";
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
 
@@ -48,16 +54,71 @@ export function collectFsWatchTargetDirs(
   return dirs;
 }
 
+const DEFAULT_REPO_LIST_NAME = "Default";
+
+function createDefaultRepoList(dirOrder: string[] = []): RepoList {
+  return { id: crypto.randomUUID(), name: DEFAULT_REPO_LIST_NAME, dirOrder };
+}
+
 /**
  * window 内で同居する全 repo を保持する。
- * - `repos` は rootDir をキーに repo メタ情報 + worktrees を持つ
+ * - `repos` は rootDir をキーに repo メタ情報 + worktrees を持つ（= repo プール）
+ * - `repoLists` はプールに対する名前付きビュー（表示 repo の部分集合 + 並び順）。
+ *   1 repo は複数 repo list に所属できる。**プール = 全 repo list の union** が不変条件で、
+ *   どの repo list にも属さない repo（PTY だけ生きる不可視状態）を構造的に作らない。
+ *   repo list は表示だけを切り替え、PTY / fs watch / fetch はプール全体で維持する
  * - `selectedDir` は UI 上で選択中の worktree path（=どこかの repo の worktrees の一員）
  *   または非 git project の rootDir
  * - 非選択 repo の PTY / Claude status は terminalStore が並列保持し続ける
  */
 export const useRepoStore = defineStore("repo", () => {
   const repos = ref<Record<string, RepoState>>({});
-  const dirOrder = ref<string[]>([]);
+  const initialRepoList = createDefaultRepoList();
+  /** 常に 1 個以上を維持する（removeRepoList が最後の 1 個を拒否、hydrate が空を正規化） */
+  const repoLists = ref<RepoList[]>([initialRepoList]);
+  const activeRepoListId = ref<string>(initialRepoList.id);
+
+  const activeRepoList = computed<RepoList>(() => {
+    const found = repoLists.value.find((p) => p.id === activeRepoListId.value);
+    if (found !== undefined) return found;
+    // id 不整合（hydrate 前の一時状態等）は先頭に倒す。repoLists は空にならない不変条件
+    const [first] = repoLists.value;
+    if (first === undefined) throw new Error("[useRepoStore] repoLists must not be empty");
+    return first;
+  });
+
+  /**
+   * アクティブ repo list の表示順。get は repo list の dirOrder、set（drag 並び替え）は
+   * アクティブ repo list の dirOrder を差し替える。従来の単一リスト時代の名前を保ち、
+   * 「今サイドバーに見えている repo 列」という意味論を変えない。
+   */
+  const dirOrder = computed<string[]>({
+    get: () => activeRepoList.value.dirOrder,
+    set: (next) => {
+      const targetId = activeRepoList.value.id;
+      repoLists.value = repoLists.value.map((p) =>
+        p.id === targetId ? { ...p, dirOrder: next } : p,
+      );
+    },
+  });
+
+  /**
+   * repo プールの走査順（全 repo list の dirOrder を repo list 順に連結して dedup）。
+   * 表示に依らない横断ロジック（fs watch / findRepoOwning / fetch トリガー等）は
+   * アクティブ repo list ではなくこちらを使う。
+   */
+  const poolDirs = computed<string[]>(() => {
+    const seen = new Set<string>();
+    const dirs: string[] = [];
+    for (const repoList of repoLists.value) {
+      for (const dir of repoList.dirOrder) {
+        if (seen.has(dir)) continue;
+        seen.add(dir);
+        dirs.push(dir);
+      }
+    }
+    return dirs;
+  });
   /**
    * 明示 refetch 要求。feature 層 (sidebar / picker 等) が `requestRefresh(rootDir)`
    * を呼ぶと nonce が進み、`useSidebarData` の watch 経由で `fetchRepo(rootDir)` が
@@ -123,11 +184,12 @@ export const useRepoStore = defineStore("repo", () => {
    */
   const gitTruthAppliedRoots = new Set<string>();
 
-  /** selectedDir を含む repo を逆引き。最初に dir を含む repo */
+  /** selectedDir を含む repo を逆引き。最初に dir を含む repo。
+   * active dir はどの repo list の repo でも選択できるためプール全体を走査する */
   const selectedRepo = computed(() => {
     const dir = selectedDir.value;
     if (dir === undefined) return undefined;
-    for (const rootDir of dirOrder.value) {
+    for (const rootDir of poolDirs.value) {
       const repo = repos.value[rootDir];
       if (repo === undefined) continue;
       if (repo.rootDir === dir) return repo;
@@ -140,8 +202,9 @@ export const useRepoStore = defineStore("repo", () => {
   const selectedIsGitRepo = computed(() => selectedRepo.value?.isGitRepo ?? false);
   const selectedRootDir = computed(() => selectedRepo.value?.rootDir);
 
-  /** `useFsWatchSync` が watch すべき dir 集合。`repos[*].worktrees` または非 git の rootDir */
-  const fsWatchTargetDirs = computed(() => collectFsWatchTargetDirs(dirOrder.value, repos.value));
+  /** `useFsWatchSync` が watch すべき dir 集合。`repos[*].worktrees` または非 git の rootDir。
+   * repo list は表示のみの概念なので、非アクティブ repo list の repo も watch し続ける */
+  const fsWatchTargetDirs = computed(() => collectFsWatchTargetDirs(poolDirs.value, repos.value));
 
   /**
    * Claude session_id を持つ Task を全 repo / 全 worktree から逆引きする。
@@ -150,7 +213,7 @@ export const useRepoStore = defineStore("repo", () => {
    * 「未起動 / 切り離し済み」を意味するので呼び出し側で除外してから渡す前提。
    */
   function findTaskBySessionId(sessionId: string): Task | undefined {
-    for (const rootDir of dirOrder.value) {
+    for (const rootDir of poolDirs.value) {
       const repo = repos.value[rootDir];
       if (repo === undefined) continue;
       for (const wt of repo.worktrees) {
@@ -161,9 +224,9 @@ export const useRepoStore = defineStore("repo", () => {
     return undefined;
   }
 
-  /** dir がどこかの repo の worktrees に含まれていればその repo を返す */
+  /** dir がどこかの repo の worktrees に含まれていればその repo を返す（プール全体） */
   function findRepoOwning(dir: string): RepoState | undefined {
-    for (const rootDir of dirOrder.value) {
+    for (const rootDir of poolDirs.value) {
       const repo = repos.value[rootDir];
       if (repo === undefined) continue;
       if (repo.rootDir === dir) return repo;
@@ -187,12 +250,78 @@ export const useRepoStore = defineStore("repo", () => {
     return sourceRoot === activeRoot;
   }
 
-  /** 新規 repo を追加。既存ならメタ情報を上書き */
+  /** 新規 repo を追加してアクティブ repo list に載せる。既存ならメタ情報を上書き */
   function addRepo(state: RepoState) {
-    if (!(state.rootDir in repos.value)) {
-      dirOrder.value.push(state.rootDir);
-    }
     repos.value[state.rootDir] = state;
+    ensureInActiveRepoList(state.rootDir);
+  }
+
+  /**
+   * repo をアクティブ repo list の末尾に追加する（既に含まれていれば no-op）。
+   * `gozd <path>` で既存プール repo を開いたとき、今見ているリストに必ず現れることを
+   * 保証する経路。プールに未登録の rootDir を渡してはいけない（union 不変条件）。
+   */
+  function ensureInActiveRepoList(rootDir: string) {
+    const target = activeRepoList.value;
+    if (target.dirOrder.includes(rootDir)) return;
+    repoLists.value = repoLists.value.map((p) =>
+      p.id === target.id ? { ...p, dirOrder: [...p.dirOrder, rootDir] } : p,
+    );
+  }
+
+  /** rootDir を含む repo list の一覧。編集モードの ✕ が「repo list から外すだけ」か
+   * 「window から解除（PTY cleanup 必要）」かを feature 層が判定するのに使う */
+  function repoListsContaining(rootDir: string): RepoList[] {
+    return repoLists.value.filter((p) => p.dirOrder.includes(rootDir));
+  }
+
+  /**
+   * アクティブ repo list から repo を外す（プールからは消さない）。
+   * union 不変条件の維持は呼び出し側の責務: 最後の所属 repo list から外す場合は
+   * こちらではなく `removeRepo`（+ feature 層の PTY cleanup）を使うこと。
+   */
+  function removeFromActiveRepoList(rootDir: string) {
+    const targetId = activeRepoList.value.id;
+    repoLists.value = repoLists.value.map((p) =>
+      p.id === targetId ? { ...p, dirOrder: p.dirOrder.filter((d) => d !== rootDir) } : p,
+    );
+  }
+
+  /** repo list を追加してアクティブに切り替える。作成直後は空リストで、編集モードの
+   * 「Add from other lists」からプール repo を載せる想定 */
+  function addRepoList(name: string): string {
+    const repoList: RepoList = { id: crypto.randomUUID(), name, dirOrder: [] };
+    repoLists.value = [...repoLists.value, repoList];
+    activeRepoListId.value = repoList.id;
+    return repoList.id;
+  }
+
+  function renameRepoList(id: string, name: string) {
+    if (name === "") return;
+    repoLists.value = repoLists.value.map((p) => (p.id === id ? { ...p, name } : p));
+  }
+
+  /**
+   * repo list を削除する。最後の 1 個は削除できない（no-op）。
+   * union 不変条件のため、削除 repo list にしか属さない repo は先頭の残存 repo list の
+   * 末尾へ移す（非破壊。window からの解除 = PTY cleanup は伴わない）。
+   */
+  function removeRepoList(id: string) {
+    if (repoLists.value.length <= 1) return;
+    const removed = repoLists.value.find((p) => p.id === id);
+    if (removed === undefined) return;
+    const remaining = repoLists.value.filter((p) => p.id !== id);
+    const [first, ...rest] = remaining;
+    if (first === undefined) return;
+    const remainingUnion = new Set(remaining.flatMap((p) => p.dirOrder));
+    const orphans = removed.dirOrder.filter((d) => !remainingUnion.has(d));
+    repoLists.value = [{ ...first, dirOrder: [...first.dirOrder, ...orphans] }, ...rest];
+    if (activeRepoListId.value === id) activeRepoListId.value = first.id;
+  }
+
+  function setActiveRepoList(id: string) {
+    if (!repoLists.value.some((p) => p.id === id)) return;
+    activeRepoListId.value = id;
   }
 
   /**
@@ -344,10 +473,15 @@ export const useRepoStore = defineStore("repo", () => {
     selectedDir.value = dir;
   }
 
+  /** repo を window から解除する（全 repo list + プールから除去）。
+   * PTY / terminal state の cleanup は feature 層（SidebarPane）が事前に行う契約 */
   function removeRepo(rootDir: string) {
     const removed = repos.value[rootDir];
     delete repos.value[rootDir];
-    dirOrder.value = dirOrder.value.filter((d) => d !== rootDir);
+    repoLists.value = repoLists.value.map((p) => ({
+      ...p,
+      dirOrder: p.dirOrder.filter((d) => d !== rootDir),
+    }));
     if (collapsedRoots.value.has(rootDir)) {
       const next = new Set(collapsedRoots.value);
       next.delete(rootDir);
@@ -365,8 +499,16 @@ export const useRepoStore = defineStore("repo", () => {
     if (selectedDir.value !== undefined) {
       const stillOwned = findRepoOwning(selectedDir.value);
       if (stillOwned === undefined) {
-        const [firstRoot] = dirOrder.value;
+        // まずアクティブ repo list の先頭、そこが空ならプール先頭（他 repo list）に倒す
+        const [firstRoot = poolDirs.value[0]] = dirOrder.value;
         selectedDir.value = firstRoot;
+        // プール先頭へ倒れた（= アクティブ list に無い repo を選択した）場合は、その repo を
+        // 含む list へアクティブも切り替える。切り替えないと「サイドバーは empty state なのに
+        // terminal / filer は別 list の repo を開いている」という表示のずれが残る
+        if (firstRoot !== undefined && !dirOrder.value.includes(firstRoot)) {
+          const owningList = repoLists.value.find((p) => p.dirOrder.includes(firstRoot));
+          if (owningList !== undefined) activeRepoListId.value = owningList.id;
+        }
       }
     }
   }
@@ -404,7 +546,7 @@ export const useRepoStore = defineStore("repo", () => {
    */
   function buildAppStateSnapshot(): AppState {
     return {
-      sidebarRepos: dirOrder.value.map((rootDir) => {
+      sidebarRepos: poolDirs.value.map((rootDir) => {
         const r = repos.value[rootDir];
         return {
           rootDir,
@@ -422,6 +564,12 @@ export const useRepoStore = defineStore("repo", () => {
           })),
         };
       }),
+      repoLists: repoLists.value.map((p) => ({
+        id: p.id,
+        name: p.name,
+        dirOrder: [...p.dirOrder],
+      })),
+      activeRepoListId: activeRepoListId.value,
       // 次回起動時の active worktree 復元用。未選択（undefined）は JSON.stringify で
       // キーごと落ちるため、save 側の shallow merge で stale な値が残らない
       activeDir: selectedDir.value,
@@ -430,8 +578,15 @@ export const useRepoStore = defineStore("repo", () => {
 
   /**
    * 起動時に 1 回呼ぶ。`app-state.json` から読んだ AppState を渡すと、
-   * sidebar repos / order / collapsed を復元する。既に gozdOpen で追加済みの
-   * repo は新規エントリとして末尾に保持する（先勝ち merge）。
+   * sidebar repos / repoLists / collapsed を復元する。既に gozdOpen で追加済みの
+   * repo は新規エントリとして保持する（先勝ち merge）。
+   *
+   * repo list の不整合はここで正規化する（マイグレーションではなく不変条件の enforce）:
+   * - repoLists が空（repo list 導入前のファイル / 初回起動）→ 全プール repo を含む
+   *   Default 1 個を生成
+   * - dirOrder 内のプール外 dir / 重複 dir → 除去
+   * - どの repo list にも属さないプール repo → 先頭 repo list の末尾へ（union 不変条件）
+   * - activeRepoListId が迷子 → 先頭 repo list
    *
    * worktrees はキャッシュ（path/branch/isMain のみ）から実カードとして復元し、
    * 起動直後の layout shift を消す。git status / tasks / upstream は欠けた状態で
@@ -440,7 +595,7 @@ export const useRepoStore = defineStore("repo", () => {
    */
   function hydrateFromAppState(state: AppState) {
     const nextRepos: Record<string, RepoState> = {};
-    const nextOrder: string[] = [];
+    const poolOrder: string[] = [];
     const nextCollapsed = new Set<string>();
     for (const r of state.sidebarRepos) {
       if (r.rootDir === "") continue;
@@ -462,22 +617,46 @@ export const useRepoStore = defineStore("repo", () => {
           }),
         ),
         // githubIdentity は persist しない派生値（origin remote から都度解決）。
-        // hydrate 前に gozdOpen → fetch 済みの repo は dirOrder が変わらず useSidebarData の
+        // hydrate 前に gozdOpen → fetch 済みの repo は poolDirs が変わらず useSidebarData の
         // 新規 dir watch が再発火しないため、ここで引き継がないと再取得されない。
         githubIdentity: repos.value[r.rootDir]?.githubIdentity,
       };
-      nextOrder.push(r.rootDir);
+      poolOrder.push(r.rootDir);
       if (r.collapsed) nextCollapsed.add(r.rootDir);
     }
-    // hydrate 前に gozdOpen で追加された repo を末尾に merge
-    for (const dir of dirOrder.value) {
+    // hydrate 前に gozdOpen で追加された repo をプールに merge
+    for (const dir of poolDirs.value) {
       if (!(dir in nextRepos) && repos.value[dir]) {
         nextRepos[dir] = repos.value[dir];
-        nextOrder.push(dir);
+        poolOrder.push(dir);
       }
     }
+    // repo list の正規化: プール外 dir / repo list 内重複を除去。id 欠落（手編集ファイル）は
+    // 新規採番して repo list 自体は保持する
+    const sanitized = state.repoLists.map((p): RepoList => {
+      const seen = new Set<string>();
+      const cleanOrder = p.dirOrder.filter((d) => {
+        if (!(d in nextRepos) || seen.has(d)) return false;
+        seen.add(d);
+        return true;
+      });
+      return { id: p.id !== "" ? p.id : crypto.randomUUID(), name: p.name, dirOrder: cleanOrder };
+    });
+    const nextRepoLists = sanitized.length > 0 ? sanitized : [createDefaultRepoList([])];
+    // union 不変条件: どの repo list にも属さないプール repo（repo list 導入前のファイル /
+    // hydrate 前 merge 分）は先頭 repo list の末尾へ追加する
+    const union = new Set(nextRepoLists.flatMap((p) => p.dirOrder));
+    const unlisted = poolOrder.filter((d) => !union.has(d));
+    const [firstRepoList, ...restRepoLists] = nextRepoLists;
+    if (firstRepoList === undefined) throw new Error("[useRepoStore] repoLists must not be empty");
     repos.value = nextRepos;
-    dirOrder.value = nextOrder;
+    repoLists.value = [
+      { ...firstRepoList, dirOrder: [...firstRepoList.dirOrder, ...unlisted] },
+      ...restRepoLists,
+    ];
+    activeRepoListId.value = nextRepoLists.some((p) => p.id === state.activeRepoListId)
+      ? state.activeRepoListId
+      : firstRepoList.id;
     collapsedRoots.value = nextCollapsed;
   }
 
@@ -507,6 +686,17 @@ export const useRepoStore = defineStore("repo", () => {
   return {
     repos,
     dirOrder,
+    poolDirs,
+    repoLists,
+    activeRepoListId,
+    activeRepoList,
+    ensureInActiveRepoList,
+    repoListsContaining,
+    removeFromActiveRepoList,
+    addRepoList,
+    renameRepoList,
+    removeRepoList,
+    setActiveRepoList,
     selectedDir,
     selectedRepo,
     selectedIsGitRepo,

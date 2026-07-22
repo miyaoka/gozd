@@ -288,4 +288,38 @@ describe("TaskStore", () => {
     // 旧 proto3 JSON の「空 repeated 省略」はここで廃止）
     expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ tasks: [] });
   });
+
+  test("loadFile: 型違反フィールド（id が number）も parse 失敗と同格に reinit される", async () => {
+    const { store, dir, configDir } = setup();
+    const path = await writeTasksFile(configDir, dir, []);
+    writeFileSync(path, JSON.stringify({ tasks: [{ id: 1, worktreeDir: "/wt/a" }] }));
+    expect(await store.list(dir)).toEqual([]);
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ tasks: [] });
+  });
+
+  test("loadFile: ghRef.number の型違反も reinit される（strict の例外は kind の未知値のみ）", async () => {
+    const { store, dir, configDir } = setup();
+    const path = await writeTasksFile(configDir, dir, []);
+    writeFileSync(
+      path,
+      JSON.stringify({
+        tasks: [{ id: "t1", ghRef: { kind: "GH_REF_KIND_PR", number: "5" } }],
+      }),
+    );
+    expect(await store.list(dir)).toEqual([]);
+  });
+
+  test("loadFile: ghRef.kind の未知値は ghRef だけ落として task は残す（forward-compat 例外）", async () => {
+    const { store, dir, configDir } = setup();
+    const path = await writeTasksFile(configDir, dir, []);
+    writeFileSync(
+      path,
+      JSON.stringify({
+        tasks: [{ id: "t1", ghRef: { kind: "GH_REF_KIND_FUTURE", number: 5 } }],
+      }),
+    );
+    const [task] = await store.list(dir);
+    expect(task?.id).toBe("t1");
+    expect(task?.ghRef).toBeUndefined();
+  });
 });

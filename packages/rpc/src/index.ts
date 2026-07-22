@@ -23,6 +23,7 @@ export type {
   LoadAppStateResponse,
   SaveAppStateRequest,
   SaveAppStateResponse,
+  RepoList,
   SidebarRepo,
   WorktreeCacheEntry,
 } from "./appState";

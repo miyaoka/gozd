@@ -1,15 +1,39 @@
 <doc lang="md">
-左端のサイドバー。window 内に同居する全 repo をセクションごとに並べる。
+左端のサイドバー。window 内に同居する repo を repo list 単位で切り替えて並べる。
+（機能名は repo list、UI 文言は "List" 単体。非 git project も内部慣習どおり repo に含む）
 
 ## レイアウト構成
 
-- **トップツールバー**: 左に view mode トグル (active worktree / claude terminals)、右にリスト編集ボタン
-- **dirOrder の各 repo** に対して `RepoSection` を縦に並べる
+- **トップツールバー**: 左に view mode トグル (active worktree / claude terminals)、右に時計 / SFX
+- **repo list バー**: 編集トグルをツールバーではなくこのバーに置くのは、編集の対象がこの
+  バー以下のリストエリアに閉じるため（配置と作用範囲の対応づけ）。表示は 2 態:
+  - 通常モード: chip 列（クリックでアクティブ repo list を切り替えるだけ）+ 右端に鉛筆
+  - 編集モード: 専用ヘッダ（左に "Edit list" タイトル / 右に Done ボタン）+ 全幅の縦一覧
+    (`ListRow`)。行 drag で list の並び替え、行クリックで切り替え、行 hover の ⋮ で
+    ListMenu（Rename → ListEditDialog / Delete → 確認ダイアログ）。末尾に `New list`。
+    rename / delete を常時露出させないのは delete が気軽に押す操作ではないため
+    （repo / wt 行の ⋮ メニューと同じ流儀）。トグルを一覧の右隣に置くと右端の縦スペースが
+    列ごと専有されるため、編集中の出口はヘッダ行の Done に置く
+- **アクティブ repo list の dirOrder の各 repo** に対して `RepoSection` を縦に並べる。
+  空リストは通常モードで操作の手がかりが消えるため、empty state（"This list is empty" +
+  Edit list ボタンで編集モードへ）を出す
 - **claude ビュー中のフィルタ**: `terminalStore.claudeActiveDirs` に該当する dir を持つ repo だけ表示
   (worktree / task の絞り込みは RepoSection / WtCard が同じキーで行う)。編集モード中は解除する。
+  フィルタ対象は repo list ではなく **プール全体 (poolDirs)**: terminal のタイルは repo list と
+  無関係に全 dir から出るため、repo list で絞るとタイルとサイドバーの見えている対象がずれる。
   並び替えの `move()` は dirOrder 全体の index で動くため、repo が隠れたまま drag すると操作結果がずれる
 - 各 RepoSection は header (folder + repo 名) + WtCard 列 (main wt 先頭固定) + `+ New worktree`
-- 編集モード中: 全 section が collapsed + drag で並び替え + ✕ で削除 + 末尾に `+ Add directory`
+- 編集モード中: 全 section が collapsed + drag で並び替え + ✕ で削除。リスト末尾は
+  divider で区切った 2 セクション: 「Add from other lists」（既存プール repo の候補。
+  RepoIcon + repo 名の行 + 末尾 + で "既にある repo を載せる" ことを示す）と
+  「Open directory…」（folder-plus。ディスクから新規に開く。ellipsis はダイアログが
+  開くことを示す macOS 慣習）
+
+## 編集モードの ✕ の分岐
+
+repo が他 repo list にも属していれば「アクティブ repo list から外すだけ」（非破壊、確認なし）。
+最後の所属 repo list なら従来どおり「window から解除」（確認 + PTY cleanup）。分岐は
+`repoListsContaining` で判定し、RepoSection に `removes-from-window` を渡してラベルも変える
 
 ## クリック挙動
 
@@ -39,17 +63,23 @@ import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { useArcadeStore } from "../arcade";
 import { rpcPickAndOpen } from "../layout";
+import { RepoIcon } from "../repo-icon";
 import { SessionLogDialog } from "../session-log";
 import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
 import { RepoSection } from "./features/repo";
 import { useWorktreeActions } from "./features/worktree";
+import ListEditDialog from "./ListEditDialog.vue";
+import ListMenu from "./ListMenu.vue";
+import ListRow from "./ListRow.vue";
 import RepoMenu from "./RepoMenu.vue";
 import { rpcTaskRemove, rpcTaskRemoveByWorktree } from "./rpc";
 import SidebarClock from "./SidebarClock.vue";
 import TaskEditDialog from "./TaskEditDialog.vue";
 import TaskMenu from "./TaskMenu.vue";
 import { useDialogs } from "./useDialogs";
+import { useListEditing } from "./useListEditing";
+import { useListMenu } from "./useListMenu";
 import { useRepoMenu } from "./useRepoMenu";
 import { useSidebarData } from "./useSidebarData";
 import { useTaskMenu } from "./useTaskMenu";
@@ -58,7 +88,7 @@ import { filterClaudeActiveRootDirs, worktreeDisplayName } from "./utils";
 import VoicevoxPanel from "./VoicevoxPanel.vue";
 import WorktreeMenu from "./WorktreeMenu.vue";
 import IconLucideBot from "~icons/lucide/bot";
-import IconLucideCheck from "~icons/lucide/check";
+import IconLucideFolderPlus from "~icons/lucide/folder-plus";
 import IconLucideMonitor from "~icons/lucide/monitor";
 import IconLucidePencil from "~icons/lucide/pencil";
 import IconLucidePlus from "~icons/lucide/plus";
@@ -93,6 +123,7 @@ const { isCreatingFor, selectDir, handleWorktreeSelect, addWorktree, handleWorkt
 const { open: openWorktreeMenu } = useWorktreeMenu();
 const { open: openTaskMenu } = useTaskMenu();
 const { open: openRepoMenu } = useRepoMenu();
+const { open: openListMenu } = useListMenu();
 
 function onOpenWorktreeMenu(anchorEl: HTMLElement, worktree: WorktreeEntry, rootDir: string) {
   openWorktreeMenu(anchorEl, { worktree, rootDir });
@@ -183,27 +214,38 @@ function handleWorktreeTasksRemove(rootDir: string, wt: WorktreeEntry) {
 }
 
 function onRemoveRepo(rootDir: string) {
+  // 他 repo list にも属している repo はアクティブ repo list から外すだけ。
+  // 表示から消えるだけで PTY / watch は生きるため、確認なしの可逆操作とする
+  if (repoStore.repoListsContaining(rootDir).length > 1) {
+    repoStore.removeFromActiveRepoList(rootDir);
+    return;
+  }
   const name = repoStore.repos[rootDir]?.repoName ?? rootDir;
-  showConfirm(`Remove "${name}" from this window?`, async () => {
-    // repo 削除前に配下 worktree の terminal state / PTY を cleanup する。
-    // これを忘れると `claude` view で消したはずの repo の PTY が
-    // 生き残る（visitedDirs に残るため）。
-    const repo = repoStore.repos[rootDir];
-    if (repo !== undefined) {
-      const targets = new Set<string>([rootDir, ...repo.worktrees.map((wt) => wt.path)]);
-      for (const dir of targets) terminalStore.remove(dir);
-    }
-    const prevSelected = worktreeStore.dir;
-    repoStore.removeRepo(rootDir);
-    // 削除した repo に active wt が属していた場合、removeRepo は dirOrder の先頭に
-    // selectedDir を直接フォールバックする（setOpen を経由しない）。selectionVersion
-    // を進めて新 active wt の done を useSidebarData に消化させるため、ここで明示的に
-    // setOpen を再呼びする。selectedDir が変わっていない（別 repo を削除した）場合は no-op。
-    const nextSelected = worktreeStore.dir;
-    if (nextSelected !== undefined && nextSelected !== prevSelected) {
-      worktreeStore.setOpen(nextSelected);
-    }
-  });
+  // 「このリストにしか属していない = gozd への登録ごと解除」であることと、失うもの
+  // （ターミナル）を明示する。"window" は設計語彙でユーザーには指示対象が見えないため使わない
+  showConfirm(
+    `"${name}" is not in any other list. Remove it from gozd and close its terminals?`,
+    async () => {
+      // repo 削除前に配下 worktree の terminal state / PTY を cleanup する。
+      // これを忘れると `claude` view で消したはずの repo の PTY が
+      // 生き残る（visitedDirs に残るため）。
+      const repo = repoStore.repos[rootDir];
+      if (repo !== undefined) {
+        const targets = new Set<string>([rootDir, ...repo.worktrees.map((wt) => wt.path)]);
+        for (const dir of targets) terminalStore.remove(dir);
+      }
+      const prevSelected = worktreeStore.dir;
+      repoStore.removeRepo(rootDir);
+      // 削除した repo に active wt が属していた場合、removeRepo は dirOrder の先頭に
+      // selectedDir を直接フォールバックする（setOpen を経由しない）。selectionVersion
+      // を進めて新 active wt の done を useSidebarData に消化させるため、ここで明示的に
+      // setOpen を再呼びする。selectedDir が変わっていない（別 repo を削除した）場合は no-op。
+      const nextSelected = worktreeStore.dir;
+      if (nextSelected !== undefined && nextSelected !== prevSelected) {
+        worktreeStore.setOpen(nextSelected);
+      }
+    },
+  );
 }
 
 async function onAddDir() {
@@ -220,7 +262,7 @@ async function onAddDir() {
 // 編集モード中:
 // - 全 section が強制 collapse され、drag で並び替え可能
 // - 各 section に ✕ ボタンが表示され、クリックで repo を window から解除（確認ダイアログ）
-// - リスト末尾に `+ Add directory` ボタンが出現
+// - リスト末尾に `Open directory…` ボタンが出現
 // 通常モード:
 // - 各 section の永続 collapse 状態が反映される
 // - drag は無効、✕ は非表示、+ は非表示
@@ -232,15 +274,77 @@ function toggleEditMode() {
 }
 
 // claude ビュー中は Claude セッションが動いている dir を持つ repo だけに絞る。
+// フィルタ母集団はアクティブ repo list ではなくプール全体（理由は <doc> 参照）。
 // 編集モード中はフィルタ解除（理由は <doc> 参照）。
 const visibleRootDirs = computed(() => {
   if (editMode.value || terminalStore.viewMode !== "claude") return repoStore.dirOrder;
   return filterClaudeActiveRootDirs(
-    repoStore.dirOrder,
+    repoStore.poolDirs,
     repoStore.repos,
     terminalStore.claudeActiveDirs,
   );
 });
+
+// --- repo list 操作 ---
+//
+// rename / delete は list 行（編集モードの縦一覧）の ⋮ メニュー経由の明示操作に限定する。
+// 常時ボタンで露出させないのは、特に delete が気軽に押す操作ではないため。
+// Rename は編集ダイアログ (ListEditDialog)、Delete は確認ダイアログの二段階。
+
+const listEditing = useListEditing();
+
+// list 行の ⋮ trigger。anchor 要素基準で ListMenu を開く（RepoMenu と同じ anchor 方式）
+function onOpenListMenu(anchorEl: HTMLElement, listId: string) {
+  openListMenu(anchorEl, { listId });
+}
+
+// 編集モードの縦一覧の drag 並び替え。repoLists 配列の順序が list の表示順の SSOT
+function onListDragEnd(event: DragEndEvent) {
+  repoStore.repoLists = move(repoStore.repoLists, event);
+}
+
+function onAddRepoList() {
+  const id = repoStore.addRepoList(`List ${repoStore.repoLists.length + 1}`);
+  // 生成直後に rename ダイアログを開き、その場で名前を付けさせる（Cancel なら仮名のまま）
+  listEditing.open(id);
+}
+
+function onRemoveRepoList(listId: string) {
+  const target = repoStore.repoLists.find((p) => p.id === listId);
+  if (target === undefined) return;
+  const others = repoStore.repoLists.filter((p) => p.id !== listId);
+  const [firstOther] = others;
+  if (firstOther === undefined) return;
+  // この repo list にしか属さない repo は削除で消えず先頭 repo list へ移る（store 側の
+  // union 不変条件）。挙動が見た目から自明でないため、確認文で移動先を予告する
+  const otherUnion = new Set(others.flatMap((p) => p.dirOrder));
+  const orphanCount = target.dirOrder.filter((d) => !otherUnion.has(d)).length;
+  const orphanNote =
+    orphanCount > 0
+      ? ` ${orphanCount} repo(s) only in this list will move to "${firstOther.name}".`
+      : "";
+  showConfirm(`Delete list "${target.name}"?${orphanNote}`, async () => {
+    repoStore.removeRepoList(listId);
+  });
+}
+
+// 編集モードでアクティブ repo list に追加できるプール repo（他 repo list にのみ所属）
+const addableRootDirs = computed(() =>
+  repoStore.poolDirs.filter((d) => !repoStore.dirOrder.includes(d)),
+);
+
+// 候補行の表示用ヘルパー（テンプレートに optional chain の連鎖を書かない）
+function repoNameOf(rootDir: string): string {
+  return repoStore.repos[rootDir]?.repoName ?? rootDir;
+}
+function repoOwnerOf(rootDir: string): string {
+  return repoStore.repos[rootDir]?.githubIdentity?.owner ?? "";
+}
+
+/** RepoSection の ✕ が window 解除（破壊的）になるか。ラベル出し分けに使う */
+function removesFromWindow(rootDir: string): boolean {
+  return repoStore.repoListsContaining(rootDir).length <= 1;
+}
 
 // move() は dragend イベントの operation を見て新しい配列を返す
 function onDragEnd(event: DragEndEvent) {
@@ -324,24 +428,104 @@ watch(
         >
           <component :is="sfxEnabled ? IconLucideVolume2 : IconLucideVolumeOff" class="text-base" />
         </button>
-        <button
-          type="button"
-          :aria-label="editMode ? 'Exit edit mode' : 'Edit repositories'"
-          :title="editMode ? 'Done' : 'Edit repositories'"
-          class="grid size-7 place-items-center rounded-sm transition-colors"
-          :class="
-            editMode
-              ? 'bg-primary text-foreground hover:bg-primary-hover'
-              : 'text-foreground-low hover:bg-panel hover:text-foreground'
-          "
-          @click="toggleEditMode"
-        >
-          <component :is="editMode ? IconLucideCheck : IconLucidePencil" class="text-base" />
-        </button>
       </div>
     </div>
 
-    <div ref="scrollContainer" class="_thin-scrollbar flex flex-1 flex-col overflow-y-scroll py-4">
+    <!-- repo list バー: 編集トグルはツールバーではなくこのエリアに置く。ツールバーは
+         view mode 等のグローバル操作で、編集はこのバー以下のリストエリアに閉じるため
+         配置で対応づける -->
+    <!-- 通常モード: chip 列（切り替えのみ）+ 右端に鉛筆 -->
+    <div v-if="!editMode" class="flex items-start gap-1 px-2 pt-3 pb-1">
+      <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+        <button
+          v-for="pl in repoStore.repoLists"
+          :key="pl.id"
+          type="button"
+          :aria-pressed="pl.id === repoStore.activeRepoListId"
+          :title="pl.name"
+          class="max-w-full truncate rounded-full px-2.5 py-0.5 text-xs transition-colors"
+          :class="
+            pl.id === repoStore.activeRepoListId
+              ? 'bg-element-active text-foreground'
+              : 'text-foreground-low hover:bg-panel hover:text-foreground'
+          "
+          @click="repoStore.setActiveRepoList(pl.id)"
+        >
+          {{ pl.name }}
+        </button>
+      </div>
+      <button
+        type="button"
+        aria-label="Edit list"
+        title="Edit list"
+        class="grid size-5 shrink-0 place-items-center rounded-sm text-foreground-low transition-colors hover:bg-panel hover:text-foreground"
+        @click="toggleEditMode"
+      >
+        <IconLucidePencil class="size-3.5" />
+      </button>
+    </div>
+    <!-- 編集モード: 専用ヘッダ（左にタイトル / 右に Done）+ 全幅の縦一覧。
+         トグルを一覧の右隣に置くと右端の縦スペースが列ごと専有されるため、ヘッダ行に出す -->
+    <template v-else>
+      <div class="flex items-center justify-between px-2 pt-3 pb-1">
+        <span class="px-1 text-sm font-semibold">Edit list</span>
+        <button
+          type="button"
+          class="rounded-sm bg-primary px-2.5 py-0.5 text-xs text-foreground hover:bg-primary-hover"
+          @click="toggleEditMode"
+        >
+          Done
+        </button>
+      </div>
+      <!-- 縦一覧: 行 drag で並び替え、行 hover の ⋮ で ListMenu (Rename / Delete) -->
+      <div class="flex flex-col gap-0.5 px-2 pb-1">
+        <DragDropProvider @drag-end="onListDragEnd">
+          <ListRow
+            v-for="(pl, i) in repoStore.repoLists"
+            :key="pl.id"
+            :list-id="pl.id"
+            :name="pl.name"
+            :index="i"
+            :active="pl.id === repoStore.activeRepoListId"
+            @select="repoStore.setActiveRepoList"
+            @open-menu="onOpenListMenu"
+          />
+        </DragDropProvider>
+        <button
+          type="button"
+          class="flex w-full items-center gap-1.5 rounded-md px-2.5 py-1.5 text-left text-sm text-foreground-low hover:bg-panel hover:text-foreground"
+          @click="onAddRepoList"
+        >
+          <IconLucidePlus class="size-3.5 shrink-0" />
+          <span>New list</span>
+        </button>
+      </div>
+    </template>
+
+    <!-- 上 padding は repo list バー側の pb-1 が担うため詰める（pt-4 を残すと二重で不自然な
+         空白になる）。下は overscroll の余白として pb-4 を保つ -->
+    <div
+      ref="scrollContainer"
+      class="_thin-scrollbar flex flex-1 flex-col overflow-y-scroll pt-1 pb-4"
+    >
+      <!-- 空リストの empty state: 通常モードでは repo が 1 つも描画されず操作の手がかりが
+           消えるため、編集モード（Add from other lists / Open directory… が出る）への
+           導線を明示する。編集モード中は追加導線自体が出ているので不要 -->
+      <div
+        v-if="!editMode && visibleRootDirs.length === 0"
+        class="flex flex-col items-center gap-3 px-4 py-8"
+      >
+        <p class="text-xs text-foreground-muted">This list is empty</p>
+        <button
+          type="button"
+          class="flex items-center gap-1.5 rounded-md bg-element px-3 py-1.5 text-xs text-foreground hover:bg-element-hover"
+          @click="editMode = true"
+        >
+          <IconLucidePencil class="size-3.5" />
+          <span>Edit list</span>
+        </button>
+      </div>
+
       <DragDropProvider @drag-end="onDragEnd">
         <RepoSection
           v-for="(rootDir, i) in visibleRootDirs"
@@ -349,6 +533,7 @@ watch(
           :root-dir="rootDir"
           :index="i"
           :edit-mode="editMode"
+          :removes-from-window="removesFromWindow(rootDir)"
           :active-dir="worktreeStore.dir"
           :is-creating="isCreatingFor(rootDir)"
           :get-focused-pty-id="getFocusedPtyId"
@@ -363,16 +548,44 @@ watch(
         />
       </DragDropProvider>
 
-      <button
-        v-if="editMode"
-        type="button"
-        class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground-low hover:bg-panel hover:text-foreground"
-        title="Add directory"
-        @click="onAddDir"
+      <!-- 編集モード: 既存プール repo（他 repo list にのみ所属）の候補。RepoSection と同じ
+           RepoIcon + repo 名の行で「既にある repo をこの repo list に載せる」ことを示し、
+           ディスクからの新規追加 (Open directory…) と描き分ける -->
+      <div
+        v-if="editMode && addableRootDirs.length > 0"
+        class="mx-1 mt-2 border-t border-border-subtle pt-2"
       >
-        <IconLucidePlus class="size-4 shrink-0" />
-        <span>Add directory</span>
-      </button>
+        <div class="px-2 pb-1 text-xs text-foreground-muted">Add from other lists</div>
+        <button
+          v-for="rootDir in addableRootDirs"
+          :key="rootDir"
+          type="button"
+          class="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-foreground-low hover:bg-panel hover:text-foreground"
+          :title="rootDir"
+          :aria-label="`Add ${repoNameOf(rootDir)} to this repo list`"
+          @click="repoStore.ensureInActiveRepoList(rootDir)"
+        >
+          <RepoIcon :name="repoNameOf(rootDir)" :owner="repoOwnerOf(rootDir)" />
+          <span class="min-w-0 flex-1 truncate text-sm font-semibold tracking-wide">
+            {{ repoNameOf(rootDir) }}
+          </span>
+          <IconLucidePlus class="size-4 shrink-0" />
+        </button>
+      </div>
+
+      <!-- 新規ディレクトリ追加。既存 repo 候補とは divider で分離し、folder-plus で
+           「ディスクから新しく開く」操作であることを示す -->
+      <div v-if="editMode" class="mx-1 mt-2 border-t border-border-subtle pt-2">
+        <button
+          type="button"
+          class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground-low hover:bg-panel hover:text-foreground"
+          title="Open directory…"
+          @click="onAddDir"
+        >
+          <IconLucideFolderPlus class="size-4 shrink-0" />
+          <span>Open directory…</span>
+        </button>
+      </div>
     </div>
 
     <!-- ⋮ メニュー（worktree / task / repo） -->
@@ -382,6 +595,10 @@ watch(
     />
     <TaskMenu @remove="(task, rd) => handleTaskRemove(rd, task)" />
     <RepoMenu />
+    <ListMenu @rename="(id) => listEditing.open(id)" @remove="onRemoveRepoList" />
+
+    <!-- list 名編集 dialog -->
+    <ListEditDialog />
 
     <!-- task title 編集 dialog -->
     <TaskEditDialog />

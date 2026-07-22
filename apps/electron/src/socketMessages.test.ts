@@ -53,6 +53,25 @@ describe("socketMessages", () => {
     });
   });
 
+  test("hook の型違反フィールドは default に倒して push は届く（lenient。message 破棄しない）", async () => {
+    const pushed: Array<{ type: string; payload: unknown }> = [];
+    const handle = createSocketMessageHandler((type, payload) => pushed.push({ type, payload }));
+    handle('{"hook":{"event":"running","ptyId":"3","pendingWork":"yes"}}');
+    await waitFor(() => pushed.length === 1);
+    expect(pushed[0]?.payload).toEqual({
+      event: "running",
+      ptyId: 0,
+      sessionId: "",
+      lastAssistantMessage: "",
+      toolName: "",
+      toolInput: "",
+      pendingWork: false,
+      hasTeammateTask: false,
+      agentId: "",
+      teammateName: "",
+    });
+  });
+
   test("未登録 ptyId の session-start は skip されつつ hook push 自体は届く", async () => {
     const pushed: Array<{ type: string; payload: unknown }> = [];
     const handle = createSocketMessageHandler((type, payload) => pushed.push({ type, payload }));

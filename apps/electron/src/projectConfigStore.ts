@@ -9,10 +9,11 @@
 //   保持しない（AppStateStore の shallow merge とは対照的）
 
 import type { ProjectConfig } from "@gozd/rpc";
+import { tryCatch } from "@gozd/shared";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { asArray, asDict } from "./rawJson";
+import { asDict, lenientString, lenientStringArray } from "./rawJson";
 import { resolveProjectKey } from "./taskStore";
 
 const configDir = join(homedir(), ".config", "gozd");
@@ -22,20 +23,26 @@ async function configFilePath(dir: string): Promise<string> {
   return join(configDir, "projects", projectKey, "config.json");
 }
 
-function normalizeProjectConfig(raw: unknown): ProjectConfig {
+// ユーザー設定ファイルの lenient ポリシー（rawJson.ts の契約）。型違反フィールドは
+// default に倒して stderr ログを残し、ファイルは書き換えない。テスト用に export
+export function normalizeProjectConfig(raw: unknown): ProjectConfig {
   const dict = asDict(raw);
   return {
-    worktreeSymlinks: asArray(dict.worktreeSymlinks).filter(
-      (value): value is string => typeof value === "string",
-    ),
-    setupScript: typeof dict.setupScript === "string" ? dict.setupScript : "",
+    worktreeSymlinks: lenientStringArray(dict.worktreeSymlinks, "projectConfig.worktreeSymlinks"),
+    setupScript: lenientString(dict.setupScript, "projectConfig.setupScript"),
   };
 }
 
 export async function loadProjectConfig(dir: string): Promise<ProjectConfig> {
   const path = await configFilePath(dir);
   if (!existsSync(path)) return normalizeProjectConfig({});
-  return normalizeProjectConfig(JSON.parse(readFileSync(path, "utf8")));
+  const parsed = tryCatch(() => normalizeProjectConfig(JSON.parse(readFileSync(path, "utf8"))));
+  if (parsed.ok) return parsed.value;
+  // ユーザー編集ファイルは reinit しない（修復はユーザーの責務）。default で動かしログのみ残す
+  console.error(
+    `[loadProjectConfig] parse failed at ${path}: ${parsed.error}; using defaults (file left untouched)`,
+  );
+  return normalizeProjectConfig({});
 }
 
 export async function saveProjectConfig(dir: string, config: ProjectConfig): Promise<void> {

@@ -237,8 +237,178 @@ describe("setGithubIdentity", () => {
       sidebarRepos: [
         { rootDir: "/r1", repoName: "r1", isGitRepo: true, collapsed: false, worktrees: [] },
       ],
+      repoLists: [],
+      activeRepoListId: "",
     });
     expect(store.repos["/r1"]?.githubIdentity).toEqual({ owner: "miyaoka", repo: "gozd" });
+  });
+});
+
+describe("repoLists", () => {
+  function repo(rootDir: string): RepoState {
+    return { rootDir, repoName: rootDir.slice(1), isGitRepo: true, worktrees: [] };
+  }
+
+  test("addRepo はアクティブ repo list の末尾に追加する", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo(repo("/a"));
+    store.addRepo(repo("/b"));
+    expect(store.dirOrder).toEqual(["/a", "/b"]);
+    expect(store.poolDirs).toEqual(["/a", "/b"]);
+  });
+
+  test("repo list 切り替えで dirOrder が変わり、poolDirs は union を保つ", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo(repo("/a"));
+    const firstId = store.activeRepoListId;
+    const secondId = store.addRepoList("second");
+    // addRepoList はアクティブを切り替えるので /b は second に入る
+    store.addRepo(repo("/b"));
+    expect(store.dirOrder).toEqual(["/b"]);
+    expect(store.poolDirs).toEqual(["/a", "/b"]);
+    store.setActiveRepoList(firstId);
+    expect(store.dirOrder).toEqual(["/a"]);
+    expect(store.repoListsContaining("/b").map((p) => p.id)).toEqual([secondId]);
+  });
+
+  test("removeFromActiveRepoList はプールを維持し、removeRepo は全 repo list から消す", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo(repo("/a"));
+    const firstId = store.activeRepoListId;
+    store.addRepoList("second");
+    store.ensureInActiveRepoList("/a");
+    expect(store.repoListsContaining("/a")).toHaveLength(2);
+
+    store.removeFromActiveRepoList("/a");
+    expect(store.dirOrder).toEqual([]);
+    expect(store.poolDirs).toEqual(["/a"]);
+    expect(store.repos["/a"]).toBeDefined();
+
+    store.setActiveRepoList(firstId);
+    store.removeRepo("/a");
+    expect(store.poolDirs).toEqual([]);
+    expect(store.repos["/a"]).toBeUndefined();
+  });
+
+  test("removeRepo の選択フォールバックが別 list に倒れたらアクティブ list も追従する", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo(repo("/a"));
+    const firstId = store.activeRepoListId;
+    const secondId = store.addRepoList("second");
+    store.addRepo(repo("/b"));
+    store.setActiveRepoList(firstId);
+    store.selectDir("/a");
+
+    // アクティブ list (first) 唯一の repo を window から解除 → dirOrder が空になり
+    // プール先頭 /b（second 所属）へ倒れる。選択だけ移してアクティブ list を first のまま
+    // 残すと「サイドバーは empty state / terminal は /b」の表示ずれになる
+    store.removeRepo("/a");
+    expect(store.selectedDir).toBe("/b");
+    expect(store.activeRepoListId).toBe(secondId);
+    expect(store.dirOrder).toEqual(["/b"]);
+  });
+
+  test("removeRepoList は最後の 1 個を拒否し、孤児 repo を先頭 repo list へ移す", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    const firstId = store.activeRepoListId;
+    store.addRepo(repo("/a"));
+    const secondId = store.addRepoList("second");
+    store.addRepo(repo("/b"));
+
+    store.setActiveRepoList(firstId);
+    store.removeRepoList(firstId);
+    // 2 個あるので削除は成立。/a は second に属さない孤児なので second へ移る
+    expect(store.repoLists.map((p) => p.id)).toEqual([secondId]);
+    expect(store.repoLists[0]?.dirOrder).toEqual(["/b", "/a"]);
+    expect(store.activeRepoListId).toBe(secondId);
+
+    // 最後の 1 個は削除できない
+    store.removeRepoList(secondId);
+    expect(store.repoLists).toHaveLength(1);
+  });
+
+  test("hydrate: repoLists 空（旧ファイル）は全プール repo を含む Default 1 個に正規化する", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.hydrateFromAppState({
+      sidebarRepos: [
+        { rootDir: "/a", repoName: "a", isGitRepo: true, collapsed: false, worktrees: [] },
+        { rootDir: "/b", repoName: "b", isGitRepo: true, collapsed: true, worktrees: [] },
+      ],
+      repoLists: [],
+      activeRepoListId: "",
+    });
+    expect(store.repoLists).toHaveLength(1);
+    expect(store.dirOrder).toEqual(["/a", "/b"]);
+    expect(store.isCollapsed("/b")).toBe(true);
+  });
+
+  test("hydrate: プール外 dir の除去 / activeRepoListId 復元 / 未所属 repo の先頭 repo list 併合", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.hydrateFromAppState({
+      sidebarRepos: [
+        { rootDir: "/a", repoName: "a", isGitRepo: true, collapsed: false, worktrees: [] },
+        { rootDir: "/b", repoName: "b", isGitRepo: true, collapsed: false, worktrees: [] },
+        { rootDir: "/c", repoName: "c", isGitRepo: true, collapsed: false, worktrees: [] },
+      ],
+      repoLists: [
+        { id: "p1", name: "one", dirOrder: ["/a", "/ghost"] },
+        { id: "p2", name: "two", dirOrder: ["/b"] },
+      ],
+      activeRepoListId: "p2",
+    });
+    // /ghost はプール外なので除去、/c はどの repo list にも無いので先頭 p1 の末尾へ
+    expect(store.repoLists.map((p) => p.dirOrder)).toEqual([["/a", "/c"], ["/b"]]);
+    expect(store.activeRepoListId).toBe("p2");
+    expect(store.dirOrder).toEqual(["/b"]);
+    expect(store.poolDirs).toEqual(["/a", "/c", "/b"]);
+  });
+
+  test("hydrate: 迷子の activeRepoListId は先頭 repo list に倒す", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.hydrateFromAppState({
+      sidebarRepos: [
+        { rootDir: "/a", repoName: "a", isGitRepo: true, collapsed: false, worktrees: [] },
+      ],
+      repoLists: [{ id: "p1", name: "one", dirOrder: ["/a"] }],
+      activeRepoListId: "gone",
+    });
+    expect(store.activeRepoListId).toBe("p1");
+  });
+
+  test("hydrate 前に gozdOpen で追加された repo は repo list にも併合される（先勝ち merge）", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo(repo("/pre"));
+    store.hydrateFromAppState({
+      sidebarRepos: [
+        { rootDir: "/a", repoName: "a", isGitRepo: true, collapsed: false, worktrees: [] },
+      ],
+      repoLists: [{ id: "p1", name: "one", dirOrder: ["/a"] }],
+      activeRepoListId: "p1",
+    });
+    expect(store.poolDirs).toEqual(["/a", "/pre"]);
+    expect(store.dirOrder).toEqual(["/a", "/pre"]);
+    expect(store.repos["/pre"]).toBeDefined();
+  });
+
+  test("buildAppStateSnapshot は repoLists / activeRepoListId を含み、sidebarRepos はプール全量", () => {
+    setActivePinia(createPinia());
+    const store = useRepoStore();
+    store.addRepo(repo("/a"));
+    store.addRepoList("second");
+    store.addRepo(repo("/b"));
+    const snapshot = store.buildAppStateSnapshot();
+    expect(snapshot.sidebarRepos.map((r) => r.rootDir)).toEqual(["/a", "/b"]);
+    expect(snapshot.repoLists.map((p) => p.dirOrder)).toEqual([["/a"], ["/b"]]);
+    expect(snapshot.activeRepoListId).toBe(store.activeRepoListId);
   });
 });
 

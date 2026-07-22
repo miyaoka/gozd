@@ -59,7 +59,8 @@ export function useGozdOpenHandler() {
     // 空 relPath の selection は未指定として扱う（openTarget.ts の payload 契約）
     const sel = selection !== undefined && selection.relPath !== "" ? selection : undefined;
 
-    if (repoStore.findRepoOwning(targetDir) === undefined) {
+    const owning = repoStore.findRepoOwning(targetDir);
+    if (owning === undefined) {
       let worktrees: WorktreeEntry[] = [];
       if (isGitRepo) {
         const result = await tryCatch(rpcGitWorktreeList({ dir }));
@@ -70,6 +71,10 @@ export function useGozdOpenHandler() {
         }
       }
       repoStore.addRepo({ rootDir: dir, repoName, isGitRepo, worktrees });
+    } else {
+      // プールには居るがアクティブ repo list に無い repo を開いた場合、今見ている
+      // リストに現れないと「開いたのに何も起きない」ため、末尾に追加して可視化する
+      repoStore.ensureInActiveRepoList(owning.rootDir);
     }
 
     worktreeStore.setOpen(targetDir);

@@ -116,8 +116,11 @@ export function useSidebarData() {
 
   // 新規 repo が追加されたら即 fetch。git の往復が重いので、task だけ git 非依存の
   // prefetch を並走させて起動直後のカード内 layout shift（task 行の遅延挿入）を抑える。
+  // repo list は表示のみの概念なので、非アクティブ repo list の repo も含むプール全体
+  // (poolDirs) を watch する（アクティブ repo list だけだと hydrate 直後に非表示 repo の
+  // worktrees / identity が未取得のまま残り、findRepoOwning / PTY 帰属が壊れる）。
   watch(
-    () => [...repoStore.dirOrder],
+    () => [...repoStore.poolDirs],
     (next, prev) => {
       const prevSet = new Set(prev);
       for (const dir of next) {

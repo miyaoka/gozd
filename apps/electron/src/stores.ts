@@ -8,7 +8,7 @@
 // - AppState の save は既存ファイルを raw dict として読み shallow merge し、
 //   未知 top-level キー（別バージョンが書いたフィールド）を保持する
 
-import type { AppConfig, AppState, SidebarRepo, WorktreeCacheEntry } from "@gozd/rpc";
+import type { AppConfig, AppState, RepoList, SidebarRepo, WorktreeCacheEntry } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -102,6 +102,20 @@ function normalizeAppState(raw: unknown): AppState {
         worktrees,
       } as SidebarRepo;
     }),
+    // repo list の空 / 不整合（pool 外 dir、空 id、activeRepoListId 迷子）の正規化は
+    // renderer の hydrateFromAppState が担う。ここは型形状の default 充填だけを行う
+    repoLists: asArray(dict.repoLists).map((repoList) => {
+      const repoListDict = asDict(repoList);
+      return {
+        id: "",
+        name: "",
+        ...repoListDict,
+        dirOrder: asArray(repoListDict.dirOrder).filter(
+          (dir): dir is string => typeof dir === "string",
+        ),
+      } as RepoList;
+    }),
+    activeRepoListId: typeof dict.activeRepoListId === "string" ? dict.activeRepoListId : "",
     // 「未選択 = キー不在」の optional 契約。文字列以外 / 空文字は unset に正規化する
     // （undefined 値は JSON.stringify で落ちるため、save 時にキー不在へ戻る）
     activeDir:

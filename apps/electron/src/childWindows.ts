@@ -15,6 +15,10 @@ export function registerChildWindow(frameName: string, window: BrowserWindow): v
   });
 }
 
+export function getChildWindow(frameName: string): BrowserWindow | undefined {
+  return childWindows.get(frameName);
+}
+
 export function isChildWindow(window: BrowserWindow): boolean {
   for (const child of childWindows.values()) {
     if (child === window) return true;

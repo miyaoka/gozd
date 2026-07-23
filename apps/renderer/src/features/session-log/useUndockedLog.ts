@@ -7,10 +7,15 @@
  * watch ライフサイクルには乗らない。元の popover が閉じても消えない独立性が要件のため、
  * ライブ更新はしない。
  *
- * ウィンドウ状態 (位置 / 初期本文サイズ / z / drag handoff) の管理は floating-window の
- * `createFloatingWindows` に委譲する (サイズ受け渡しと handoff の契約はそちらの doc 参照)。
+ * ウィンドウの実体は別 OS ウィンドウ (floating-window の ChildWindow)。状態管理は
+ * `createChildWindows` に委譲し、ここが持つのは snapshot payload の型定義だけ
+ * (生成パラメータと handoff の契約は factory の doc 参照)。
+ *
+ * ChildWindowInit.height には本文 (スクロール面) の高さを渡す。総高さは UndockedLogWindow が
+ * mount 時に自分のヘッダ実測高を足して決める (旧 FloatingWindow と同じ本文基準の受け渡し。
+ * 総高さを引き継ぐと undock 元とウィンドウのヘッダ高の差分だけ本文が食われるため)。
  */
-import { createFloatingWindows, type FloatingWindowState } from "../floating-window";
+import { type ChildWindowInit, createChildWindows } from "../floating-window";
 
 interface UndockedLogData {
   kind: "user" | "assistant";
@@ -23,11 +28,11 @@ interface UndockedLogData {
   text: string;
 }
 
-export type UndockedLog = UndockedLogData & FloatingWindowState;
+export type UndockedLog = UndockedLogData & ChildWindowInit & { id: number };
 
-const store = createFloatingWindows<UndockedLogData>();
+const store = createChildWindows<UndockedLogData>();
 
 export function useUndockedLog() {
-  const { windows, undock, takeHandoff, close, move, bringToFront } = store;
-  return { logs: windows, undock, takeHandoff, close, move, bringToFront };
+  const { windows, undock, takeHandoff, close } = store;
+  return { logs: windows, undock, takeHandoff, close };
 }

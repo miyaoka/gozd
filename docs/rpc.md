@@ -104,6 +104,7 @@ main は `webContents.send("rpc:push", type, payload)` で renderer に push す
 | `hook`                   | main (`socketServer` → `HookMessage`)            | Claude Code Hook イベント                                          |
 | `notify`                 | main                                             | main 側のバックグラウンドエラー / 情報通知                         |
 | `windowFullscreenChange` | main (BrowserWindow enter/leave-full-screen)     | macOS fullscreen 遷移（タイトルバーの信号機 pad 開閉）             |
+| `childWindowShown`       | main (`did-create-window` の show event 転送)    | undock child window の表示完了（undock 元の後始末の合図）          |
 | `appConfigChange`        | main (`appConfigWatcher`)                        | AppConfig ファイル変更の hot reload（直接編集の即時適用）          |
 
 fsWatchRegistry 由来の複数 dir 監視の push payload は `dir`（または発火元 dir）を必須で持つ。

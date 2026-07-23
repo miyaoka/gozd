@@ -32,45 +32,47 @@ setWindowOpenHandler が about:blank だけを allow する契約とセット。
 - `handoff` があれば undock 元のドラッグを OS ウィンドウの移動として継続する。ネイティブの
   window drag をプログラムから開始する API は無いが、掴んだままの pointer の capture は
   opener 側 window に残り続けるため、opener の pointermove をウィンドウ移動へ変換して
-  追従させる (pointer と child の間に offset を保つ算術は in-app FloatingWindow のドラッグと
-  同型で、座標系だけ viewport → screen になる)
-- 追従は script が開いた popup に許可されている `moveTo()` で行う。`moveTo()` は現在の
-  ディスプレイ内にクランプされる (Chromium の popup 逃亡対策) ため、ドラッグ追従で
-  ディスプレイは跨げない (既知の制限)。クランプ解除の代替は両方実測済みで不採用:
-  Window Management permission 経路 (`getScreenDetails()`) は Electron の browser 層が
-  実装しておらず効かない。main の `setPosition` へ RPC で流すとクランプは消えるが、
-  macOS のウィンドウ帰属 (過半のディスプレイの Space に属す) の切り替えと座標変換の
-  基準フリップが押し合い、境界付近で発振する。跨ぎたい場合はネイティブ titlebar ドラッグ
-  (window server の特別扱いで跨げる) を使う
+  追従させる (pointer と child の間の offset をスクリーン座標で保つ)
+- 追従は main の `setPosition` へ RPC で流す (`/childWindow/move`。位置のみ書き高さに
+  触れない)。renderer の `moveTo` / `resizeBy` は使わない — Blink がキャッシュした高さ込みの
+  full rect を SetBounds へ送るため、初回レイアウト前 (inner=0) や mount 時の header resize と
+  並走するドラッグで高さを破壊する (bounds ログの実測で確認)。`moveTo` にあった
+  ディスプレイ内クランプ (Chromium の popup 逃亡対策) は setPosition には無い。過去の検討では
+  setPosition 追従に macOS のウィンドウ帰属切替との押し合いで境界発振の観測があり、
+  ディスプレイ境界跨ぎの挙動は要実機確認 (発振する場合はネイティブ titlebar ドラッグが代替)
 - `window.open` の frame 名は乱数で一意化する。main が did-create-window の
   `details.frameName` で BrowserWindow を registry に確保し、main window 向け一括操作
   (setTitleContext) から child を除外する判定に使う
 </doc>
 
 <script setup lang="ts">
-import { CHILD_WINDOW_FRAME_PREFIX } from "@gozd/shared";
+import { CHILD_WINDOW_FRAME_PREFIX, CHILD_WINDOW_TITLEBAR_HEIGHT, tryCatch } from "@gozd/shared";
 import { useEventListener, useMutationObserver } from "@vueuse/core";
 import { onMounted, onUnmounted, ref } from "vue";
 import { useWindowKeyBindings } from "../../shared/command";
 import { useNotificationStore } from "../../shared/notification";
+import { onMessage } from "../../shared/rpc";
 import {
   activateChildWindow,
   deactivateChildWindow,
   type ChildWindowHandle,
 } from "./childWindowCommands";
-import type { UndockDragHandoff } from "./useFloatingWindows";
+import { type ChildWindowShownPayload, rpcChildWindowMove } from "./rpc";
+import type { UndockDragHandoff } from "./useChildWindows";
 
 interface Props {
   /** child window のタイトルバー表示 (document.title)。 */
   title: string;
-  /** 生成時のスクリーン座標とコンテンツサイズ (window.open features)。以後の SSOT は OS。 */
+  /** 生成時のコンテンツ原点スクリーン座標とコンテンツサイズ。features は外枠に効くため、
+   * height には titlebar 分 (CHILD_WINDOW_TITLEBAR_HEIGHT) を足して渡す。以後の SSOT は OS。 */
   screenX: number;
   screenY: number;
   width: number;
   height: number;
   /** true の間、ネイティブ close を veto して closeRequested を emit する (dirty ガード用)。 */
   blockClose: boolean;
-  /** undock 元から引き継いだドラッグ (moveTo 追従。doc 参照)。offset はコンテンツ原点基準。 */
+  /** undock 元から引き継いだドラッグ (main setPosition の RPC 追従。doc 参照)。offset は
+   * コンテンツ原点基準。 */
   handoff?: UndockDragHandoff;
 }
 
@@ -83,6 +85,13 @@ const emit = defineEmits<{
   closeRequested: [];
   /** childWindow.save コマンド (cmd+s) の要求。保存の可否・実処理は consumer の知識。 */
   saveRequested: [];
+  /** open 成功。frameName は main 側 registry のキーで、consumer が bounds 操作 RPC
+   * (rpcChildWindowResizeBy 等) の対象指定に使う。 */
+  opened: [frameName: string];
+  /** OS の表示完了 (main が show event を childWindowShown push で転送)。consumer は
+   * undock 元の後始末 (ゴースト解除 / popover close) の合図に使う。push が落ちた場合は
+   * 発火しないため、consumer 側は timeout の保険を併用する。 */
+  shown: [];
 }>();
 
 const notification = useNotificationStore();
@@ -90,13 +99,22 @@ const notification = useNotificationStore();
 /** Teleport 先 (child の body)。open 失敗時は undefined のまま本文を描画しない。 */
 const targetBody = ref<HTMLElement>();
 
-// popup=yes が無いと通常タブ扱いになり得るため明示する (VS Code auxiliary window と同じ)
+// popup=yes が無いと通常タブ扱いになり得るため明示する (VS Code auxiliary window と同じ)。
+// features の height / top は外枠基準で解釈されるため、titlebar 分をここで換算して
+// コンテンツの rect が props の要求どおりになるよう焼き込む。open 後に moveTo / resizeTo で
+// 補正しないのは、それらが Blink の把握している rect を丸ごと SetBounds に送るため —
+// 複数の補正が別タイミングで走ると、後発が古いサイズ / 位置込みの rect で先発の変更を
+// 巻き戻す (consumer の mount 時 resize と競合し、タイミング依存の不具合になる)
 const features = [
   "popup=yes",
+  // show=no で非表示のまま生成し、初回描画完了 (ready-to-show) 後に main が show() する
+  // (Electron 公式の flash 回避策。main.ts の did-create-window 参照)。native 背景色は
+  // main が overrideBrowserWindowOptions で与える (WINDOW_BACKGROUND_COLOR)
+  "show=no",
   `width=${Math.round(props.width)}`,
-  `height=${Math.round(props.height)}`,
+  `height=${Math.round(props.height) + CHILD_WINDOW_TITLEBAR_HEIGHT}`,
   `left=${Math.round(props.screenX)}`,
-  `top=${Math.round(props.screenY)}`,
+  `top=${Math.round(props.screenY) - CHILD_WINDOW_TITLEBAR_HEIGHT}`,
 ].join(",");
 // frame 名は main 側の allow 判定 / registry の対象解決キー (prefix は @gozd/shared が SSOT)。
 // 同名 window があると window.open が新規生成せず既存を返してしまうため、乱数で一意化する
@@ -109,6 +127,9 @@ let closedBySelf = false;
 
 /** keybinding コマンドの対象ハンドル。open 成功時のみ設定 (unmount の deactivate 用に巻き上げ)。 */
 let handle: ChildWindowHandle | undefined;
+
+/** childWindowShown push の購読解除。open 成功時のみ設定 (unmount 用に巻き上げ)。 */
+let unsubscribeShown: (() => void) | undefined;
 
 if (child === null) {
   // fallback しない: 開けない (main 側 policy 不整合等) は通知して即 close に倒す
@@ -188,12 +209,18 @@ if (child === null) {
   let dragState = props.handoff;
   useEventListener(window, "pointermove", (event: PointerEvent) => {
     if (dragState === undefined || event.pointerId !== dragState.pointerId) return;
-    // moveTo の座標は window 外枠原点。offset はコンテンツ原点基準なので、titlebar 等の
-    // chrome 高 (outer/inner 差) を差し引いて外枠原点へ換算する
-    const chromeY = child.outerHeight - child.innerHeight;
-    child.moveTo(
-      Math.round(event.screenX - dragState.offsetX),
-      Math.round(event.screenY - dragState.offsetY - chromeY),
+    // 位置は main の setPosition (位置のみ書く) で更新する。renderer の moveTo は Blink
+    // キャッシュの高さ込み full rect を SetBounds に送るため、mount 時の header resize と
+    // 並走するドラッグで高さを破壊する (bounds 検証ログで確認済み)。座標は window 外枠
+    // 原点。offset はコンテンツ原点基準なので titlebar 分を差し引いて換算する
+    // 失敗は次の pointermove で自己補正されるため通知しない。tryCatch は bare void で
+    // transport 失敗が unhandled rejection として量産されるのを防ぐため
+    void tryCatch(
+      rpcChildWindowMove({
+        frameName,
+        x: Math.round(event.screenX - dragState.offsetX),
+        y: Math.round(event.screenY - dragState.offsetY - CHILD_WINDOW_TITLEBAR_HEIGHT),
+      }),
     );
   });
   const endDrag = (event: PointerEvent) => {
@@ -203,22 +230,14 @@ if (child === null) {
   useEventListener(window, "pointerup", endDrag);
   useEventListener(window, "pointercancel", endDrag);
 
-  // 初期配置の content 揃え。window.open の top は外枠原点に効くため、child 自身の
-  // chrome 高 (標準 titlebar) の分だけコンテンツが要求位置より下にずれる。chrome 高は
-  // open 前には測れないので、open 後の初回フレームで実測して 1 回だけ補正する。
-  // ドラッグ引き継ぎ中は pointermove の moveTo が同じ content 揃えを毎回行うため補正
-  // しない (補正すると古い初期座標へ巻き戻る)。ガードを props.handoff (経路) ではなく
-  // dragState (実行時点で継続中か) にしているのは、しきい値超過直後に release された
-  // 場合に pointermove の揃えが 1 回も走らないことがあり、そのときはこの補正が
-  // 唯一の content 揃えになるため
-  child.requestAnimationFrame(() => {
-    if (dragState !== undefined) return;
-    const chromeY = child.outerHeight - child.innerHeight;
-    if (chromeY <= 0) return;
-    child.moveTo(Math.round(props.screenX), Math.round(props.screenY - chromeY));
-  });
-
   targetBody.value = doc.body;
+  emit("opened", frameName);
+
+  // 表示完了 push を自 frameName で filter して shown emit に変換する (emits の doc 参照)
+  unsubscribeShown = onMessage<ChildWindowShownPayload>("childWindowShown", (payload) => {
+    if (payload.frameName !== frameName) return;
+    emit("shown");
+  });
 }
 
 onMounted(() => {
@@ -227,6 +246,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  unsubscribeShown?.();
   if (child === null) return;
   closedBySelf = true;
   // フォーカスされたまま閉じると blur が飛ばないことがあるため、unmount で確実に解除する

@@ -139,6 +139,10 @@ import type {
   ChildWindowMoveResponse,
   ChildWindowResizeByRequest,
   ChildWindowResizeByResponse,
+  TextSearchCancelRequest,
+  TextSearchCancelResponse,
+  TextSearchRequest,
+  TextSearchResponse,
   WindowCloseResponse,
   WindowSetTitleContextRequest,
   WindowSetTitleContextResponse,
@@ -162,6 +166,7 @@ import { unwatchAbsFile, unwatchAllAbsFiles, watchAbsFile } from "./fs/absFileWa
 import { createFsWatchRegistry } from "./fs/fsWatchRegistry";
 import { createWatcherClient } from "./fs/watcherClient";
 import { createPtyClient } from "./pty/ptyClient";
+import { cancelSearch, searchText } from "./search/ripgrepSearch";
 import { blameLine, logFile, logLine } from "./git/gitBlame";
 import { resolveStartPoint } from "./git/gitBranch";
 import { diffHunks, expandDiffLines } from "./git/gitDiff";
@@ -1176,6 +1181,17 @@ async function handleVoicevoxSpeak(body: unknown): Promise<unknown> {
   } satisfies VoicevoxSpeakResponse;
 }
 
+// 全文検索: rg を spawn し、マッチを textSearchMatch push で逐次配信する。
+// response は rg 終了を表す終端信号（limitHit）。ctx.push を request scope で束縛する。
+function handleTextSearch(body: unknown, ctx: RpcContext): Promise<TextSearchResponse> {
+  return searchText(body as TextSearchRequest, ctx.push);
+}
+
+function handleTextSearchCancel(body: unknown): TextSearchCancelResponse {
+  const req = body as TextSearchCancelRequest;
+  return { canceled: cancelSearch(req.searchId) } satisfies TextSearchCancelResponse;
+}
+
 export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandler>([
   ["/echo", handleEcho],
   ["/appConfig/load", handleAppConfigLoad],
@@ -1224,6 +1240,8 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/pty/write", handlePtyWrite],
   ["/pty/resize", handlePtyResize],
   ["/pty/kill", handlePtyKill],
+  ["/search/text", handleTextSearch],
+  ["/search/cancel", handleTextSearchCancel],
   ["/server/list", handleServerList],
   ["/task/list", handleTaskList],
   ["/task/add", handleTaskAdd],

@@ -45,6 +45,7 @@ import {
   usePreviewStore,
   useUnsavedDraftConfirm,
 } from "../preview";
+import { registerSearchCommand, SearchDialog } from "../search";
 import { registerAppConfigSync, registerSettingsCommand, SettingsModal } from "../settings";
 import { SidebarPane } from "../sidebar";
 import { registerThemeCommand, TerminalPane } from "../terminal";
@@ -95,6 +96,7 @@ const disposeAppConfigSync = registerAppConfigSync();
 const disposePrCommand = registerPrCommand();
 const disposeIssueCommand = registerIssueCommand();
 const disposeFilePickerCommand = registerFilePickerCommand();
+const disposeSearchCommand = registerSearchCommand();
 const disposeReviveCommand = registerReviveCommand();
 const disposeMarkdownHistoryCommands = registerMarkdownHistoryCommands();
 const disposeFilerCommands = registerFilerCommands();
@@ -107,6 +109,7 @@ onUnmounted(disposeAppConfigSync);
 onUnmounted(disposePrCommand);
 onUnmounted(disposeIssueCommand);
 onUnmounted(disposeFilePickerCommand);
+onUnmounted(disposeSearchCommand);
 onUnmounted(disposeReviveCommand);
 onUnmounted(disposeMarkdownHistoryCommands);
 onUnmounted(disposeFilerCommands);
@@ -380,6 +383,7 @@ watch(
 
     <CommandPalette />
     <QuickPick />
+    <SearchDialog />
     <FilePickerDialog />
     <PrPickerDialog />
     <IssuePickerDialog />

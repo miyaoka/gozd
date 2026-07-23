@@ -189,6 +189,17 @@ export type {
   TaskSetUserTitleResponse,
 } from "./task";
 export type {
+  TextSearchCancelRequest,
+  TextSearchCancelResponse,
+  TextSearchLineResult,
+  TextSearchMatchPush,
+  TextSearchMatchRange,
+  TextSearchOptions,
+  TextSearchQuery,
+  TextSearchRequest,
+  TextSearchResponse,
+} from "./textSearch";
+export type {
   VoicevoxCheckEngineRequest,
   VoicevoxCheckEngineResponse,
   VoicevoxLaunchRequest,

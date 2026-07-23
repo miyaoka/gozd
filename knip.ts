@@ -23,7 +23,11 @@ const config: KnipConfig = {
       ignoreBinaries: ["iconutil"],
       // electron-builder: buildApp.ts が spawnSync("pnpm", ["exec", "electron-builder", ...]) で
       // 呼ぶため、package.json scripts を読む knip からは unused に見える
-      ignoreDependencies: ["electron-builder"],
+      // @vscode/ripgrep: rg バイナリは per-platform パッケージ（@vscode/ripgrep-darwin-arm64）に
+      // 入り、search/rgPath.ts が require.resolve でパスだけ解決して spawn する。コード上に
+      // `@vscode/ripgrep` の import が無いため knip からは unused に見えるが、削ると optionalDep の
+      // バイナリが install されず packaging が壊れる
+      ignoreDependencies: ["electron-builder", "@vscode/ripgrep"],
     },
     "apps/renderer": {
       ignoreDependencies: [

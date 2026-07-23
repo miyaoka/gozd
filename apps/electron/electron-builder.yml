@@ -46,6 +46,8 @@ asarUnpack:
   - node_modules/node-pty/**
   - node_modules/@parcel/watcher/**
   - node_modules/@parcel/watcher-darwin-arm64/**
+  # rg 実行バイナリは asar 内から exec 不可のため unpack する（native module と同じ規律）
+  - node_modules/@vscode/ripgrep-darwin-arm64/**
 # node-pty prebuild は Electron でそのまま動作確認済み（dev 経路と同一バイナリ）。
 # rebuild すると node-gyp コンパイルが走り prebuild の意味が消えるため無効化
 npmRebuild: false

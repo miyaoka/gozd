@@ -8,7 +8,9 @@ await build({
   bundle: true,
   platform: "node",
   format: "cjs",
-  // @parcel/watcher は .node ネイティブバイナリを実行時解決するため bundle できない
+  // @parcel/watcher は .node ネイティブバイナリを実行時解決するため bundle できない。
+  // @vscode/ripgrep の rg バイナリは search/rgPath.ts が動的 require.resolve でパスだけ
+  // 解決して spawn する（リテラルでないため esbuild は bundle せず runtime 呼び出しのまま残す）。
   external: ["electron", "node-pty", "@parcel/watcher"],
 });
 

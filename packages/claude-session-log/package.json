@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsgo --noEmit",
+    "typecheck": "tsc --noEmit",
     "lint": "oxlint --type-aware",
     "fix": "oxlint --type-aware --fix && oxfmt .",
     "test": "bun test"
@@ -18,7 +18,7 @@
   "devDependencies": {
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
-    "@typescript/native-preview": "catalog:",
+    "@typescript/native": "catalog:",
     "oxfmt": "catalog:",
     "oxlint": "catalog:",
     "oxlint-tsgolint": "catalog:"

@@ -26,7 +26,11 @@ catalog:
   '@types/bun': 1.3.14
   '@types/node': 24.13.3
   '@typescript-eslint/parser': 8.65.0
-  '@typescript/native-preview': 7.0.0-dev.20260707.2
+  # TS7 (native) は programmatic API を持たない（7.1 で新 API 予定）ため、compiler API を
+  # 埋め込む tooling（vue-tsc / typescript-eslint）は TS6 に据え置く。TS 7.0 公式処方の
+  # dual alias: `tsc` バイナリは @typescript/native、`typescript` の import 名は TS6 API を
+  # 再エクスポートする互換 package へ向ける（同名 2 バージョン同居による解決の揺れを避ける）
+  '@typescript/native': npm:typescript@7.0.2
   eslint: 10.7.0
   eslint-plugin-import-x: 4.17.1
   eslint-plugin-unused-imports: 4.4.1
@@ -35,10 +39,18 @@ catalog:
   oxlint: 1.74.0
   oxlint-tsgolint: 0.25.0
   tailwindcss: 4.3.3
-  typescript: 6.0.3
+  typescript: npm:@typescript/typescript6@6.0.2
   vite: 8.1.5
 
 minimumReleaseAge: 4320
+
+# TS7 の dual alias（catalog 参照）で vue-tsc が動くのは、`typescript` が
+# @typescript/typescript6 へ alias された場合に実体の tsc を辿り直す対応が入った 3.3.8 から。
+# 公開直後で minimumReleaseAge を満たさないため、この version に限って除外する
+# （version 指定なので renovate が上げた次の version には効かず、除外は自然に切れる）
+minimumReleaseAgeExclude:
+  - vue-tsc@3.3.8
+  - '@vue/language-core@3.3.8'
 
 shellEmulator: true
 

@@ -9,7 +9,7 @@
   "scripts": {
     "build": "bun src/generateTokens.ts",
     "prepare": "bun src/generateTokens.ts",
-    "typecheck": "tsgo --noEmit",
+    "typecheck": "tsc --noEmit",
     "lint": "oxlint --type-aware",
     "fix": "oxlint --type-aware --fix && oxfmt ."
   },
@@ -18,7 +18,7 @@
     "@types/bun": "catalog:",
     "@types/chroma-js": "3.1.2",
     "@types/node": "catalog:",
-    "@typescript/native-preview": "catalog:",
+    "@typescript/native": "catalog:",
     "chroma-js": "3.2.0",
     "oxfmt": "catalog:",
     "oxlint": "catalog:",

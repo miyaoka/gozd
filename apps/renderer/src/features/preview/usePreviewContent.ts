@@ -475,16 +475,27 @@ export function usePreviewContent(
     // この path 選択を欠くと「存在しないパスへの `git show <base>:<path>`」を発射して stderr noise
     // を出し、R では from/to の取り違えで rename が added 扱いに倒れる。
     //
-    // lookup 失敗 (= orderedFileChanges に該当 change が無い) は 2 ケース: (a) PR diff fetch がまだ
-    // 確定していない race window (b) PR diff に含まれない (merge-base 起点で無変更の) ファイルを Filer
-    // から選択した状況。(a) は `orderedFileChanges` が上位 watcher の deps に含まれるため確定タイミングで
-    // 再発火して回復するが、(b) は何度再発火しても lookup は undefined のまま。よって空表示に倒さず、
-    // commit モードの「範囲外ファイル救済」(fetchCommitContent の unchanged 経路) と同じく working tree
-    // の中身を current に出す。空表示に倒すと Filer で見えているファイルが PR モード中だけ読めなくなる
-    // 非対称が生じる。per-type path 選択を欠く bogus な git show は base 側を撃たなければ発生しないので、
-    // fs read だけの本経路では起きない。
+    // lookup 失敗 (= orderedFileChanges に該当 change が無い) は 2 ケースを含み、`changesStore.loading`
+    // で判別する:
+    // (a) [loading=true] PR diff 一覧の fetch が未確定な race window。enable トグル直後は source が prDiff
+    //     に切り替わるが fetchedFiles が空のため、diff に含まれる tracked ファイルも orderedFileChanges から
+    //     一時的に消える。ここで Current に倒すと、変更済みファイルを開いたまま PR モードをトグルした際に
+    //     デフォルトタブが Diff から Current に落ちる退行になる。よって content / mode を触らず loading を
+    //     保って return し、fetchedFiles 確定で orderedFileChanges の identity が変わり本 watch が再発火する
+    //     のに委ねる (change 発見 → diff、依然 undefined + loading=false → 下の (b))。
+    // (b) [loading=false] PR diff に含まれない (merge-base 起点で無変更の) ファイルを Filer から選択した
+    //     状況。commit モードの「範囲外ファイル救済」(fetchCommitContent の unchanged 経路) と同じく working
+    //     tree の中身を Current に出す。空表示に倒すと Filer で見えているファイルが PR モード中だけ読めなく
+    //     なる非対称が生じる。per-type path 選択を欠く bogus な git show は base 側を撃たなければ発生しない
+    //     ので、fs read だけの本経路では起きない。
+    //
+    // loading を deps に足す必要はない: changesStore の source watch は本 watch より先に生成される
+    // (setup で useChangesStore() を watch 定義より前に呼ぶ) ため、enable トグルと同一 flush で先に走り
+    // loading=true を同期的に立てる。よって本経路は loading をそのまま観測でき、settle 時は
+    // orderedFileChanges の identity 変化が再発火を保証する。
     const change = changesStore.orderedFileChanges.find((c) => c.newFilePath === filePath);
     if (change === undefined) {
+      if (changesStore.loading) return;
       const fsResult = await tryCatch(rpcFsReadFile({ dir, path: filePath }));
       if (version !== fetchVersion) return;
       if (!fsResult.ok) {

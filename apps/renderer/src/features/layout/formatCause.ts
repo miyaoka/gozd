@@ -1,13 +1,13 @@
 /**
- * トースト詳細パネル用に `cause` を文字列化するヘルパー。
+ * 通知の詳細パネル用に `cause` を文字列化するヘルパー。
  *
  * Error の `cause` chain を辿って再帰展開する: 1 段目は `<name>: <message>` + stack、
  * 2 段目以降は `\n\nCaused by: ` をプレフィックスして並べる。これにより aggregate
  * Error が `cause` に first failure を持つパターン (`useFsWatchSync` の `runOneSyncPass`
- * など複数 caller で使う) で、トースト詳細 1 つだけで「集約 message + 根本原因 + stack」
+ * など複数 caller で使う) で、詳細パネル 1 箇所で「集約 message + 根本原因 + stack」
  * が全部読める。
  *
- * `NotificationToastItem.vue` から SFC 外に切り出した理由: chain walker は純関数で
+ * `NotificationCenterItem.vue` の SFC 外に置く理由: chain walker は純関数で
  * bun test から DOM 無しで直接呼べる方が回帰が固い。SFC 側は `computed` で薄く呼ぶだけ。
  *
  * V8 と JavaScriptCore で `Error.stack` のフォーマットが違う点も中で正規化する:

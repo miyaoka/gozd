@@ -215,7 +215,7 @@ describe("runOneSyncPass", () => {
     expect(err.message).toBe("Failed to sync FS watches (1)");
     const { aggregate, first } = expectAggregate(err.cause);
     // aggregate.message は summary のみ。first error の name/message/stack は cause 経由で
-    // `formatCauseChain` がトースト詳細に再帰展開する（toast UI 側の責務）
+    // `formatCauseChain` が通知の詳細パネルに再帰展開する（notification UI 側の責務）
     expect(aggregate.message).toBe("watch:/r1/wt-a");
     expect(first.message).toBe("watch failed: /r1/wt-a");
   });

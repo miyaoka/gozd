@@ -27,9 +27,12 @@ beforeEach(() => {
     spyOn(globalThis, "clearTimeout").mockImplementation(((id: number) => {
       pendingTimers.delete(id);
     }) as never),
+    // add() の観察ログを吸ってテスト出力を無音にする (検証対象は store の状態であって
+    // console 出力ではない)。store は呼び出し時に console から引くため spy が効く
+    spyOn(console, "error").mockImplementation(() => {}),
+    spyOn(console, "warn").mockImplementation(() => {}),
+    spyOn(console, "info").mockImplementation(() => {}),
   ];
-  // add() の console 出力はテストログに残る (store が module load 時に console.* を
-  // CONSOLE_BY_TYPE へ束縛するため後付け spy では黙らせられない)。観察ログなので許容する
   store.clear();
 });
 
@@ -66,48 +69,15 @@ describe("auto-dismiss", () => {
   });
 });
 
-describe("重複抑制と persist 昇格", () => {
-  test("表示中の非 persist toast への persist 要求は timer を解除して永続へ昇格する", () => {
-    store.info("fetch failed");
-    expect(pendingTimers.size).toBe(1);
-
-    store.info("fetch failed", undefined, { persist: true });
-    expect(pendingTimers.size).toBe(0);
-
-    fireAllTimers();
-    expect(store.toasts.value).toHaveLength(1);
-    expect(store.notifications.value[0]?.count).toBe(2);
-  });
-
-  test("persist 済み項目への非 persist 要求では降格しない", () => {
-    store.info("fetch failed", undefined, { persist: true });
-    store.info("fetch failed");
-    expect(pendingTimers.size).toBe(0);
-
-    fireAllTimers();
-    expect(store.toasts.value).toHaveLength(1);
-  });
-
-  test("再発生は toast を出し直し count / seq を進める", () => {
-    store.info("copied");
-    fireAllTimers();
-    expect(store.toasts.value).toHaveLength(0);
-    const firstSeq = store.notifications.value[0]?.seq;
-
-    store.info("copied");
-    expect(store.toasts.value).toHaveLength(1);
-    expect(store.notifications.value).toHaveLength(1);
-    expect(store.notifications.value[0]?.count).toBe(2);
-    expect(store.notifications.value[0]?.seq).toBeGreaterThan(firstSeq ?? Infinity);
-  });
-
-  test("非 persist の再発生は timer を張り直す", () => {
+describe("独立項目", () => {
+  test("同一 message でも毎回独立項目になり、seq が単調増加する", () => {
     store.info("copied");
     store.info("copied");
-    expect(pendingTimers.size).toBe(1);
 
-    fireAllTimers();
-    expect(store.toasts.value).toHaveLength(0);
+    expect(store.notifications.value).toHaveLength(2);
+    expect(store.toasts.value).toHaveLength(2);
+    const [first, second] = store.notifications.value;
+    expect(second!.seq).toBeGreaterThan(first!.seq);
   });
 });
 
@@ -126,20 +96,17 @@ describe("center 操作", () => {
     expect(store.notifications.value[0]?.id).toBe(first!.id);
   });
 
-  test("上限超過は最終発生が最も古い項目から落ち、再発生した項目は残る", () => {
+  test("上限超過は古い項目から落ちる", () => {
     for (let i = 0; i < MAX_NOTIFICATIONS; i++) {
       store.info(`msg ${i}`);
     }
-    // msg 0 の再発生で seq が進む (配列位置は先頭のまま)
-    store.info("msg 0");
-
     store.info("overflow trigger");
-    expect(store.notifications.value).toHaveLength(MAX_NOTIFICATIONS);
 
+    expect(store.notifications.value).toHaveLength(MAX_NOTIFICATIONS);
     const messages = store.notifications.value.map((n) => n.message);
-    expect(messages).toContain("msg 0");
-    // 最終発生が最も古いのは msg 1 (msg 0 は再発生で保護される)
-    expect(messages).not.toContain("msg 1");
+    expect(messages).not.toContain("msg 0");
+    expect(messages).toContain("msg 1");
+    expect(messages).toContain("overflow trigger");
   });
 
   test("clear は全項目を削除し pending timer も解放する", () => {

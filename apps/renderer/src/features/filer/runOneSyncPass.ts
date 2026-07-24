@@ -78,8 +78,8 @@ export async function runOneSyncPass(deps: SyncPassDeps): Promise<void> {
 
   if (failures.length > 0) {
     // batch 単位で 1 件に集約する。aggregate.message には summary のみを載せ、first failure
-    // の Error は cause として埋める。`NotificationToastItem.vue` 側の `formatCauseChain`
-    // が cause 再帰展開を行うため、トースト詳細だけで「summary + 最初の失敗の name +
+    // の Error は cause として埋める。`NotificationCenterItem.vue` 側の `formatCauseChain`
+    // が cause 再帰展開を行うため、通知の詳細パネルだけで「summary + 最初の失敗の name +
     // message + stack」が読める（旧実装の文言併記 workaround は不要）。
     const summary = failures.map((f) => `${f.kind}:${f.dir}`).join(", ");
     const [first] = failures;

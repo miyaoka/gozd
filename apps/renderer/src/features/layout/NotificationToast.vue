@@ -52,9 +52,10 @@ useEventListener(popoverRef, "toggle", (e: ToggleEvent) => {
     <NotificationToastItem
       v-for="n in toasts"
       :key="n.id"
+      :id="n.id"
       :type="n.type"
       :message="n.message"
-      :cause="n.cause"
+      :has-details="n.cause !== undefined"
       @dismiss="dismiss(n.id)"
     />
   </div>

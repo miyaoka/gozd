@@ -1,19 +1,32 @@
 <doc lang="md">
 Notification center の 1 行。toast (NotificationToastItem) と同じ通知を表示するが、
-一覧の中の行として時刻・累計回数を持ち、dismiss ではなく center からの削除を emit する。
+一覧の中の行として時刻を持ち、dismiss ではなく center からの削除を emit する。
 
 ## 動作
 
-- `cause` がある場合のみメッセージをクリック可能にし、詳細（cause chain）を展開する
+- `cause` がある通知のみ行頭に disclosure ボタン (閉 = ►、開 = ▼。DevTools と同じ文法) を
+  出し、詳細 (cause chain) をその字下げ配下に展開する。開閉ターゲットは 24px
+  (WCAG 2.5.8 の最小ターゲットサイズ)。本文は選択可能なテキストで、click toggle と
+  select-text を同一要素に同居させない
+- toast の Details ボタンから遷移した項目 (store の `revealId`) は mount / 変更時に
+  自動展開して可視位置へスクロールする
 - 詳細パネルには Copy ボタンを併設し、message + 詳細をクリップボードへコピーする
-- `count` が 2 以上なら累計発生回数チップを出す（重複抑制で 1 項目に集約されるため）
 </doc>
 
 <script setup lang="ts">
-import { computed, ref, type FunctionalComponent, type SVGAttributes } from "vue";
+import {
+  computed,
+  nextTick,
+  ref,
+  useTemplateRef,
+  watch,
+  type FunctionalComponent,
+  type SVGAttributes,
+} from "vue";
 import { writeClipboardText } from "../../shared/clipboard";
 import type { Notification } from "../../shared/notification";
 import { formatCauseChain } from "./formatCause";
+import { useNotificationCenterStore } from "./useNotificationCenterStore";
 import IconLucideCheck from "~icons/lucide/check";
 import IconLucideChevronDown from "~icons/lucide/chevron-down";
 import IconLucideCircleX from "~icons/lucide/circle-x";
@@ -57,7 +70,7 @@ const iconColorMap: Record<Notification["type"], string> = {
   info: "text-primary-text",
 };
 
-const hasCause = computed(() => props.notification.cause !== undefined);
+const hasDetails = computed(() => props.notification.cause !== undefined);
 
 const detail = computed(() => formatCauseChain(props.notification.cause));
 
@@ -68,10 +81,29 @@ const time = computed(() => {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 });
 
-function toggle() {
-  if (!hasCause.value) return;
-  expanded.value = !expanded.value;
-}
+const centerStore = useNotificationCenterStore();
+const rootRef = useTemplateRef<HTMLElement>("root");
+
+// toast の Details から遷移してきた項目を自動展開して可視位置へ出す。
+// immediate は「reveal → open → item mount」の順で mount 時に revealId が既に立っている
+// ケース (center が閉じていた場合) を拾うため
+watch(
+  () => centerStore.revealId,
+  async (id) => {
+    if (id !== props.notification.id) return;
+    // 詳細なし通知への reveal 要求は消費だけして展開しない (空の詳細パネルを出さない)。
+    // 現状の呼び出し元 (toast の Details) は詳細有無をガード済みだが、単体でも成立させる
+    if (!hasDetails.value) {
+      centerStore.clearReveal();
+      return;
+    }
+    expanded.value = true;
+    centerStore.clearReveal();
+    await nextTick();
+    rootRef.value?.scrollIntoView({ block: "nearest" });
+  },
+  { immediate: true },
+);
 
 async function copyDetail() {
   const text = `${props.notification.message}\n\n${detail.value}`;
@@ -84,66 +116,62 @@ async function copyDetail() {
 </script>
 
 <template>
-  <div class="flex flex-col border-b border-border-subtle">
-    <div class="flex items-start gap-2 px-3 py-2">
-      <component
-        :is="iconMap[notification.type]"
-        :class="['mt-0.5 size-4 shrink-0', iconColorMap[notification.type]]"
-      />
-      <div class="min-w-0 flex-1">
-        <button
-          type="button"
-          :class="[
-            'w-full text-left text-sm break-all text-foreground',
-            hasCause ? 'cursor-pointer hover:underline' : 'cursor-default',
-          ]"
-          :aria-expanded="hasCause ? expanded : undefined"
-          :disabled="!hasCause"
-          :title="hasCause ? (expanded ? 'Hide details' : 'Show details') : undefined"
-          @click="toggle"
-        >
-          <span class="flex items-center gap-1">
-            <span :class="hasCause ? '' : 'select-text'">{{ notification.message }}</span>
-            <IconLucideChevronDown
-              v-if="hasCause"
-              class="size-3 shrink-0 text-foreground-low transition-transform"
-              :class="expanded ? 'rotate-180' : ''"
-            />
-          </span>
-        </button>
+  <div ref="root" class="flex flex-col border-b border-border-subtle">
+    <div class="flex items-start gap-1 p-2">
+      <!-- DevTools の disclosure 文法: 三角形は行頭に置き、閉 = ►、開 = ▼。
+           詳細はこの列より右 (字下げ配下) に展開され、親行への帰属が構造で読める -->
+      <button
+        v-if="hasDetails"
+        type="button"
+        class="grid size-6 shrink-0 cursor-pointer place-items-center rounded-sm text-foreground-low hover:bg-element-hover hover:text-foreground"
+        :aria-expanded="expanded"
+        :aria-label="expanded ? 'Hide details' : 'Show details'"
+        :title="expanded ? 'Hide details' : 'Show details'"
+        @click="expanded = !expanded"
+      >
+        <IconLucideChevronDown
+          class="size-4 transition-transform"
+          :class="expanded ? '' : '-rotate-90'"
+        />
+      </button>
+      <!-- 詳細なし項目の桁揃え用スペーサー -->
+      <span v-else class="size-6 shrink-0" />
+      <div class="flex min-w-0 flex-1 flex-col gap-1">
+        <div class="flex items-start gap-2">
+          <component
+            :is="iconMap[notification.type]"
+            :class="['mt-1 size-4 shrink-0', iconColorMap[notification.type]]"
+          />
+          <p class="min-w-0 flex-1 py-0.5 text-sm break-all text-foreground select-text">
+            {{ notification.message }}
+          </p>
+        </div>
         <div class="flex items-center gap-2 text-[11px] text-foreground-low">
           <span class="tabular-nums">{{ time }}</span>
-          <span
-            v-if="notification.count > 1"
-            class="rounded-sm bg-element px-1 font-semibold tabular-nums"
+        </div>
+        <div v-if="hasDetails && expanded" class="flex items-start gap-2">
+          <pre
+            class="max-h-64 min-w-0 flex-1 overflow-auto font-mono text-xs break-all whitespace-pre-wrap text-foreground select-text"
+            >{{ detail }}</pre>
+          <button
+            type="button"
+            class="grid size-6 shrink-0 cursor-pointer place-items-center rounded-sm text-foreground-low hover:bg-element-hover hover:text-foreground"
+            :aria-label="copyLabelMap[copyState]"
+            :title="copyLabelMap[copyState]"
+            @click="copyDetail"
           >
-            ×{{ notification.count }}
-          </span>
+            <component :is="copyIconMap[copyState]" class="size-4" />
+          </button>
         </div>
       </div>
       <button
         type="button"
-        class="shrink-0 cursor-pointer text-foreground-low hover:text-foreground"
+        class="grid size-6 shrink-0 cursor-pointer place-items-center rounded-sm text-foreground-low hover:bg-element-hover hover:text-foreground"
         aria-label="Remove notification"
         @click="$emit('remove')"
       >
         <IconLucideX class="size-4" />
       </button>
-    </div>
-    <div v-if="hasCause && expanded" class="border-t border-border-subtle px-3 py-2">
-      <div class="mb-2 flex justify-end">
-        <button
-          type="button"
-          class="flex cursor-pointer items-center gap-1 rounded-sm border border-border-subtle px-2 py-0.5 text-xs text-foreground hover:bg-element-hover"
-          @click="copyDetail"
-        >
-          <component :is="copyIconMap[copyState]" class="size-3" />
-          {{ copyLabelMap[copyState] }}
-        </button>
-      </div>
-      <pre
-        class="max-h-64 overflow-auto font-mono text-xs break-all whitespace-pre-wrap text-foreground select-text"
-        >{{ detail }}</pre>
     </div>
   </div>
 </template>

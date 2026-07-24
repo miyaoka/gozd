@@ -43,10 +43,7 @@ const wordWrap = ref(true);
  * toast に丸める。fire 後に reset し、次のバッチで再び集計開始する (selection 変化で
  * 各 item が再 fetch する経路でも新たな失敗があれば再通知される)。
  *
- * トースト message は件数を含めない固定文字列にして、`useNotificationStore.error` の
- * dedup (同一 type + 同一 message で重複抑制) が効くようにする。窓を跨いだ追加失敗も
- * 同じ 1 件のトーストに丸まり、`cause` だけ最新で上書きされる。
- * 件数 / 直近 cause は wrapper Error の message と `Error.cause` chain で詳細パネルに展開される。
+ * バッチ内の件数は wrapper Error の message と `Error.cause` chain で詳細パネルに展開される。
  */
 const flushDebounceMs = 100;
 const TOAST_MESSAGE = "Failed to load some changes in summary";

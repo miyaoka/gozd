@@ -40,7 +40,9 @@ export function createConcurrencyLimiter<T>(concurrency: number) {
       const task = outstanding.shift();
       if (task === undefined) return;
       running++;
-      const promise = task.factory();
+      // factory() が Promise を返す前に同期 throw しても、reject 経路に載せて枠を必ず解放するため
+      // async で包む (裸で呼ぶと throw が consume を抜け running が減らず、cap 回累積で deadlock する)
+      const promise = (async () => task.factory())();
       // 解決値 / reject を caller へ透過。別の then で成否どちらでも枠を返す
       // (両ハンドラが consumed のため reject は再送されず unhandled にならない)
       void promise.then(task.resolve, task.reject);
@@ -105,8 +107,10 @@ export function isRepoFetchDue(args: {
  * - `fetchIfDue(rootDir, { focused, now? })`: 背景 polling 経路。`isRepoFetchDue` + in-flight を
  *   gate 込みで判定し、due なら fetch を発射する。due でなければ no-op。背景 polling が直接
  *   `isRepoFetchDue` を読まなくて済むよう、gate と発射を 1 関数に閉じる
- * - `requestImmediateFetch(dir)`: on-demand 経路。background polling の backoff を bypass し
- *   即時 fetch を要求する。`dir` は worktree path / rootDir どちらも可で内部正規化する
+ * - `requestImmediateFetch(dir)`: on-demand 経路。background polling の backoff を bypass して
+ *   fetch を要求する。ただし `fetchLimiter` の同時実行 cap は共有するため、cap が埋まっていれば
+ *   slot 空き待ちが入りうる (backoff は bypass するが並列度は共有)。`dir` は worktree path /
+ *   rootDir どちらも可で内部正規化する
  *
  * 内部 `runFetch` は public に出さない。直接呼びで backoff を bypass 連射する経路を
  * 型レベルで塞ぐため、外部からアクセス不可能な closure に閉じる。
@@ -201,7 +205,8 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
   }
 
   /**
-   * on-demand fetch。background polling の backoff を bypass し、即時 fetch を要求する。
+   * on-demand fetch。background polling の backoff を bypass して fetch を要求する。ただし
+   * `fetchLimiter` の同時実行 cap は共有するため、cap が埋まっていれば slot 空き待ちが入りうる。
    *
    * `dir` は repo 配下の任意 path (worktree path / rootDir どちらも可)。内部で
    * `findRepoOwning(dir)?.rootDir` に正規化するため呼び出し側は変換不要。

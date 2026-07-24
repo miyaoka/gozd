@@ -76,7 +76,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-/** finally → next → 次の run() が microtask 越しに走るのを待つ */
+/** factory 完了 → then(consumed) → consume が次を dequeue する microtask 連鎖を待つ */
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
 describe("createConcurrencyLimiter", () => {
@@ -134,6 +134,24 @@ describe("createConcurrencyLimiter", () => {
     await limit(async () => {
       throw new Error("x");
     }).catch(() => {});
+    let ran = false;
+    await limit(async () => {
+      ran = true;
+    });
+    expect(ran).toBe(true);
+  });
+
+  // factory が Promise を返す前に同期 throw しても、reject 透過 + slot 解放が成立すること
+  // (async で包まないと running が減らず cap 回累積で deadlock する)
+  test("factory が同期 throw しても reject 透過 + slot 解放される", async () => {
+    const limit = createConcurrencyLimiter<void>(1);
+    let caught: unknown;
+    await limit(() => {
+      throw new Error("sync");
+    }).catch((error) => {
+      caught = error;
+    });
+    expect((caught as Error).message).toBe("sync");
     let ran = false;
     await limit(async () => {
       ran = true;

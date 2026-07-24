@@ -1,5 +1,5 @@
 import type { IMarker } from "@xterm/xterm";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { createCwdTracker, type CwdMarkerHost } from "./cwdTracker";
 
 /** カーソル行を外部から進められる fake terminal。marker の dispose も操作できる */
@@ -119,11 +119,17 @@ describe("createCwdTracker", () => {
     expect(tracker.cwdAtLine(30)).toBe("/repo/b");
   });
 
-  test("registerMarker 失敗時は全行適用の近似に倒す", () => {
+  test("registerMarker 失敗時は全行適用の近似に倒し、縮退ログを出す", () => {
+    // 縮退時の観察ログはこの経路の契約。spy で出力を吸いつつ発火まで検証する
+    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
     const host: CwdMarkerHost = { registerMarker: () => undefined };
     const tracker = createCwdTracker(host);
     tracker.observe("/repo");
     expect(tracker.cwdAtLine(0)).toBe("/repo");
     expect(tracker.cwdAtLine(100)).toBe("/repo");
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[cwdTracker] registerMarker failed, degrading to baseline cwd=/repo",
+    );
+    errorSpy.mockRestore();
   });
 });

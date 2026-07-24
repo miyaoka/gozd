@@ -96,21 +96,21 @@ GitGraphPane 側の防衛は 2 段構え:
 
 gozd の primary use case は **「Claude / ユーザーが worktree で並列に `gh pr create` する」** ことであり、上記の中でも特に `gh pr create` (既 push) は中核の操作。これを反映する経路として **active worktree 1 個に対する 60 秒間隔の `gh pr list` polling** が GitGraphPane に組み込まれている。
 
-scope は active worktree 1 個に限定し全 worktree fan-out にはしない。focus はトリガにしない (window focus の揺れに API 取得を紐付けない) が、per-repo の 60s freshness lock が実取得を絞るため、負荷の上限は active repo 1 個あたり 60 query/h (GH GraphQL 5000/h の 1.2%)。
+scope は active worktree 1 個に限定し全 worktree fan-out にはしない。focus は**トリガにはしない**（window focus の揺れに API 取得を紐付けない）が、**抑制**には使う（blur 中は poll を skip し、見ていない間に失敗トーストを積まない）。per-repo の 60s freshness lock と合わせ、負荷の上限は focus 時で active repo 1 個あたり 60 query/h（GH GraphQL 5000/h の 1.2%）、blur 中は 0。
 
 ### `usePrListStore` の per-repo キャッシュと発火条件
 
 `gh pr list` は repo 単位で結果が同じなので、PR 一覧を **repo (rootDir) 単位でキャッシュ** (`cacheByRepo`) し、per-repo の freshness lock (`nextAllowedAt`、成否問わず取得後 60s) で再取得を絞る。取得・error 通知・in-flight dedup は `usePrListStore` に閉じ、GitGraphPane は「どの repo をいつ」だけを持つ (`useRemoteFetchStore` の git fetch と同型の per-repo 管理)。
 
-表示は `prByBranch` computed が **active repo のキャッシュ**を返す (active repo は GitGraphPane が `setActiveRepo` で書く)。repo 切替時はキャッシュを即表示し `clear()` しない。別 repo の PR が残る cross-repo 表示事故は repo 単位キー分離で構造的に起きないため、旧来必要だった await 前後の repo-identity stale 判定 / coalescer は不要になった。
+表示は `prByBranch` computed が **active repo のキャッシュ**を返す。「active repo」は `repoStore.selectedRootDir` を SSOT に直接導出し、別 ref にミラーしない（ミラーすると SSOT が二重化し、正しさが GitGraphPane の mount 状態に結びつく）。repo 切替時はキャッシュを即表示し `clear()` しない。別 repo の PR が残る cross-repo 表示事故は repo 単位キー分離で構造的に起きないため、旧来必要だった await 前後の repo-identity stale 判定 / coalescer は不要になった。
 
-| 発火元                      | 場面                                                                                                                                      |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `watch(activeRepoRootDir)`  | active repo が変わったとき。`setActiveRepo` でキャッシュ表示を切替 + `fetchIfDue` (lock 越し)。同一 repo 内の worktree 切替では発火しない |
-| `useIntervalFn` (60 秒間隔) | active repo の定期取得。focus は見ない                                                                                                    |
-| `remoteRefsChange`          | push / fetch で remote ref が動いたとき。同 repo の active のみ                                                                           |
+| 発火元                      | 場面                                                                                                                             |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `watch(activeRepoRootDir)`  | active repo が変わったとき `fetchIfDue`（lock 越し）。表示は `prByBranch` が自動追従。同一 repo 内の worktree 切替では発火しない |
+| `useIntervalFn` (60 秒間隔) | active repo の定期取得。focus は**トリガでなく抑制**（blur 中は skip、timer は回し続け callback で focus 判定）                  |
+| `remoteRefsChange`          | push / fetch で remote ref が動いたとき。同 repo の active のみ。blur 中は skip                                                  |
 
-全発火元が `fetchIfDue` を経由し、lock 中 / in-flight は no-op になる。これにより claude terminals の高頻度 repo 切替 (別 repo の worktree が並び active が頻繁に変わる) でも、60s 以内に取得済みの repo は撃ち直さない。後着レスポンスは repo 単位キーに書くため切替と in-flight が重なっても cross-repo 汚染は起きない。
+全発火元が `fetchIfDue`（focus 抑制 → lock → in-flight の順に gate）を経由する。これにより claude terminals の高頻度 repo 切替 (別 repo の worktree が並び active が頻繁に変わる) でも、60s 以内に取得済みの repo は撃ち直さない。後着レスポンスは repo 単位キーに書くため切替と in-flight が重なっても cross-repo 汚染は起きない。
 
 `gitStatusChange.upstreamChanged` 側では PR 再取得を呼ばない。`# branch.ab` の数値変化のうち `headChanged` でない経路は構造的に `refs/remotes/origin/<current-branch>` の書き換えに対応し、必ず `remoteRefsChange` も同じ burst で発射されるため、両方で呼ぶ必要がない。`branchChange` / `fsWatchReady` は graph 再描画のみで PR list を取り直さない。
 

@@ -22,9 +22,9 @@ import { ghErrorMessage, rpcGitPrList } from "../palette";
  * ## 表示スコープ
  *
  * `prByBranch` は **active repo のキャッシュ**を返す computed。読み手（GitGraphPane /
- * `usePrDiffToggleStore`）はこれだけ見る。どの repo が active かは GitGraphPane が
- * `setActiveRepo` で書く（PR badge は active worktree の git graph にしか出ないため、
- * poll 対象も active repo のみ）。
+ * `usePrDiffToggleStore`）はこれだけ見る。「active repo」は `repoStore.selectedRootDir` を
+ * SSOT に直接導出する（別 ref にミラーしない）。poll 対象も active repo のみ（PR badge は
+ * active worktree の git graph にしか出ないため）で、その発火は GitGraphPane が持つ。
  *
  * ## API スコープ
  *
@@ -34,6 +34,15 @@ import { ghErrorMessage, rpcGitPrList } from "../palette";
 
 /** 成功/失敗いずれの取得後もこの間は同 repo を再取得しない (freshness lock)。interval と同値。 */
 const PR_LIST_FRESH_MS = 60_000;
+
+/**
+ * 対象 repo が「いま取得すべきか」を決める純関数。lock (`allowedAt`) が未来なら抑制期間中。
+ * git fetch 側の `isRepoFetchDue` と同型 (対象 repo の選定は呼び出し側が持ち、これは lock だけ見る)。
+ */
+export function isPrListFetchDue(args: { allowedAt: number | undefined; now: number }): boolean {
+  const { allowedAt, now } = args;
+  return allowedAt === undefined || now >= allowedAt;
+}
 
 export const usePrListStore = defineStore("prList", () => {
   const notify = useNotificationStore();
@@ -45,21 +54,19 @@ export const usePrListStore = defineStore("prList", () => {
   const nextAllowedAt = new Map<string, number>();
   /** repoRootDir → in-flight な取得 (同 repo 並列発射の dedup) */
   const inFlight = new Map<string, Promise<void>>();
-  /** 表示中の active repo。`prByBranch` がどの repo のキャッシュを返すかを決める。 */
-  const activeRepoRootDir = ref<string>();
 
   const EMPTY: Map<string, GitPullRequest> = new Map();
 
-  /** active repo の PR map。branch 名で PR を引く読み手はこれだけ見る。 */
+  /**
+   * active repo の PR map。branch 名で PR を引く読み手 (GitGraphPane / usePrDiffToggleStore) は
+   * これだけ見る。「active repo」は `repoStore.selectedRootDir` を SSOT に直接導出する
+   * (別 ref にミラーすると SSOT が二重化し、正しさが GitGraphPane の mount 状態に結びつくため)。
+   */
   const prByBranch = computed(() => {
-    const key = activeRepoRootDir.value;
+    const key = repoStore.selectedRootDir;
     if (key === undefined) return EMPTY;
     return cacheByRepo.value.get(key) ?? EMPTY;
   });
-
-  function setActiveRepo(rootDir: string | undefined) {
-    activeRepoRootDir.value = rootDir;
-  }
 
   function repoName(rootDir: string): string {
     return repoStore.repos[rootDir]?.repoName ?? rootDir;
@@ -112,15 +119,14 @@ export const usePrListStore = defineStore("prList", () => {
    */
   function fetchIfDue(rootDir: string, dir: string, opts: { now?: number } = {}): void {
     if (inFlight.has(rootDir)) return;
-    const allowedAt = nextAllowedAt.get(rootDir);
-    if (allowedAt !== undefined && (opts.now ?? Date.now()) < allowedAt) {
+    if (!isPrListFetchDue({ allowedAt: nextAllowedAt.get(rootDir), now: opts.now ?? Date.now() })) {
       logEvent("pr-poll", "skip", repoName(rootDir));
       return;
     }
     void runFetch(rootDir, dir);
   }
 
-  return { prByBranch, setActiveRepo, fetchIfDue };
+  return { prByBranch, fetchIfDue };
 });
 
 if (import.meta.hot) {

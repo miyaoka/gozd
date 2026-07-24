@@ -17,7 +17,7 @@ HEAD-only walk を末尾 append し境界に `truncatedAbove` を立てる。ren
 <script setup lang="ts">
 import { BranchScope, SortMode, type GitCommit } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
-import { useElementSize, useIntervalFn } from "@vueuse/core";
+import { useElementSize, useIntervalFn, useWindowFocus } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
@@ -45,6 +45,8 @@ const notify = useNotificationStore();
 const repoStore = useRepoStore();
 const { prByBranch } = storeToRefs(prListStore);
 const { commits } = storeToRefs(gitGraphStore);
+/** window focus 状態。背景 PR poll は focus 中のみ（blur 中の GitHub API 消費 / 失敗トースト堆積を止める）。 */
+const focused = useWindowFocus();
 
 const defaultBranch = ref<string | undefined>();
 const firstParentOnly = ref(false);
@@ -259,9 +261,10 @@ onUnmounted(disposeFsWatchReady);
 // --- PR 情報（active repo のみ・per-repo キャッシュ + freshness lock。SSOT は `usePrListStore`） ---
 //
 // PR badge は active worktree の git graph にしか出ないため poll 対象は active repo のみ。
-// repo 切替では prListStore が repo 単位キャッシュを即表示し、60s lock を抜けた repo だけ再取得
-// する（claude terminals の高頻度 repo 切替で `gh pr list` を撃ち続けない）。focus はトリガに
-// しない（window focus の揺れに API 取得を紐付けない）。取得・error 通知・dedup は store に閉じる。
+// repo 切替では prListStore が repo 単位キャッシュを即表示し（表示は `selectedRootDir` から
+// 導出）、60s lock を抜けた repo だけ再取得する（claude terminals の高頻度 repo 切替で
+// `gh pr list` を撃ち続けない）。focus はトリガにしない（window focus の揺れに API 取得を
+// 紐付けない）が、blur 中は poll を抑制する（見ていない間に失敗トーストを積まないため）。
 
 /** active worktree が属する repo の rootDir。PR poll の対象軸。 */
 const activeRepoRootDir = computed(() => {
@@ -275,23 +278,18 @@ const activeRepoRootDir = computed(() => {
 const PR_LIST_POLL_INTERVAL_MS = 60_000;
 
 /** active repo の PR 一覧を lock 越しに取り直す。repo 切替のたびに呼ばれるが、store の 60s lock が
- *  実 fetch を絞るため高頻度切替でも撃ち続けない。lock 中はキャッシュのまま no-op。 */
+ *  実 fetch を絞るため高頻度切替でも撃ち続けない。lock 中はキャッシュのまま no-op。blur 中は撃たない
+ *  （focus は抑制であってトリガではない — `useRemoteFetchSync` と同じ規律）。 */
 function refreshActivePrList() {
+  if (!focused.value) return;
   const rootDir = activeRepoRootDir.value;
   const dir = worktreeStore.dir;
   if (rootDir === undefined || dir === undefined) return;
   prListStore.fetchIfDue(rootDir, dir);
 }
 
-// active repo が変わったら表示キャッシュを切替（即時）+ due なら再取得（lock 中はキャッシュ表示）。
-watch(
-  activeRepoRootDir,
-  (rootDir) => {
-    prListStore.setActiveRepo(rootDir);
-    refreshActivePrList();
-  },
-  { immediate: true },
-);
+// active repo が変わったら due なら再取得（表示は `prByBranch` が `selectedRootDir` から自動追従）。
+watch(activeRepoRootDir, refreshActivePrList, { immediate: true });
 
 // 一定間隔更新。active repo を lock 越しに取り直す（60s 経過分だけ実 fetch）。
 useIntervalFn(refreshActivePrList, PR_LIST_POLL_INTERVAL_MS, { immediateCallback: false });

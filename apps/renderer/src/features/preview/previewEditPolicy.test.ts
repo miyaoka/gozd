@@ -84,6 +84,17 @@ describe("isDiffPreviewActive", () => {
       ),
     ).toBe(false);
   });
+
+  test("content 不在 / diff 以外のモードは false (isCodePreviewActive と境界を揃える)", () => {
+    expect(
+      isDiffPreviewActive(
+        editableSnapshot({ activeMode: "diff", hasOriginalText: true, isContentUnavailable: true }),
+      ),
+    ).toBe(false);
+    expect(
+      isDiffPreviewActive(editableSnapshot({ activeMode: "current", hasOriginalText: true })),
+    ).toBe(false);
+  });
 });
 
 describe("isEditablePreview", () => {

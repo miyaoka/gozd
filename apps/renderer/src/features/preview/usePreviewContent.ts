@@ -475,17 +475,31 @@ export function usePreviewContent(
     // この path 選択を欠くと「存在しないパスへの `git show <base>:<path>`」を発射して stderr noise
     // を出し、R では from/to の取り違えで rename が added 扱いに倒れる。
     //
-    // lookup 失敗 (= orderedFileChanges に該当 change が無い) 経路はそのまま fetch すると per-type 分岐
-    // が失われて bogus stderr が再発するため、空表示にして watcher 再発火に委ねる。`orderedFileChanges`
-    // は上位 watcher の deps に含まれているため、`prDiffFiles` 取得完了 / 選択 path が含まれる
-    // 変化 で再発火する。本経路は (a) PR diff fetch がまだ確定していない race window
-    // (b) PR diff に含まれないファイルを Filer から選択した状況、いずれも結果として空表示が妥当。
+    // lookup 失敗 (= orderedFileChanges に該当 change が無い) は 2 ケース: (a) PR diff fetch がまだ
+    // 確定していない race window (b) PR diff に含まれない (merge-base 起点で無変更の) ファイルを Filer
+    // から選択した状況。(a) は `orderedFileChanges` が上位 watcher の deps に含まれるため確定タイミングで
+    // 再発火して回復するが、(b) は何度再発火しても lookup は undefined のまま。よって空表示に倒さず、
+    // commit モードの「範囲外ファイル救済」(fetchCommitContent の unchanged 経路) と同じく working tree
+    // の中身を current に出す。空表示に倒すと Filer で見えているファイルが PR モード中だけ読めなくなる
+    // 非対称が生じる。per-type path 選択を欠く bogus な git show は base 側を撃たなければ発生しないので、
+    // fs read だけの本経路では起きない。
     const change = changesStore.orderedFileChanges.find((c) => c.newFilePath === filePath);
     if (change === undefined) {
-      currentContent.value = undefined;
-      originalContent.value = undefined;
-      isNotFound.value = false;
+      const fsResult = await tryCatch(rpcFsReadFile({ dir, path: filePath }));
+      if (version !== fetchVersion) return;
+      if (!fsResult.ok) {
+        error.value = fsResult.error.message;
+        notification.error("Failed to read file", fsResult.error);
+        loading.value = false;
+        return;
+      }
+      const current = fsResult.value;
       commitGitChange.value = undefined;
+      applyActiveMode(targetChanged, undefined, "current");
+      isDirectory.value = current?.isDirectory ?? false;
+      isNotFound.value = current?.notFound ?? false;
+      currentContent.value = current?.content;
+      originalContent.value = undefined;
       loading.value = false;
       return;
     }

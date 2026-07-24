@@ -5,11 +5,15 @@ import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { rpcGitFetchRemotes } from "./rpc";
 
-/** 成功時の lock 期間 (ms)。VSCode の `git.autofetchPeriod` 既定値 180s と同じ */
-const REMOTE_FETCH_SUCCESS_INTERVAL_MS = 180_000;
-/** 失敗時の短 backoff (ms)。起動直後の SSH unlock 待ち / 一時的 offline からの回復を捕捉する。
- * `useRemoteFetchSync` の poll 間隔もこの粒度に合わせ、失敗 repo が次 tick で retry される */
-export const REMOTE_FETCH_FAILURE_BACKOFF_MS = 30_000;
+/**
+ * 背景 fetch の再取得周期 (ms)。**成功・失敗を区別せず単一周期**で回す（VSCode autofetch と同じ。
+ * `autofetch.ts` は成否問わず `git.autofetchPeriod` を待つだけで、失敗専用 backoff を持たない）。
+ * 値は PR poll (`gh pr list`, 60s) と揃える: all ブランチ表示で他人の branch の PR バッジは、その
+ * `origin/*` ref が fetch 済みであることに依存するため、ref (fetch) と PR (poll) の鮮度を同一周期に
+ * 揃えると整合が最良になる。gozd は fetch を可視 ∪ active repo に絞るため母数が小さく、VSCode の
+ * 全 repo 180s より 60s でも負荷は同等以下。`useRemoteFetchSync` の poll tick もこの値。
+ */
+export const REMOTE_FETCH_INTERVAL_MS = 60_000;
 /**
  * 背景 fetch の同時実行上限。可視集合（`useRemoteFetchSync` の対象「画面に写っている repo ∪
  * active repo」）が一度に多数入る（mount 時 / スクロールで多数カードが可視化）と、対象 repo が
@@ -95,7 +99,7 @@ export function isRepoFetchDue(args: {
  * - 全 fetch 経路が共有する `fetchLimiter` (`createConcurrencyLimiter(MAX_CONCURRENT_FETCH)`) で
  *   同時実行数を絞る。可視集合の同時 fetch が cap を超えたぶんは queue し、TLS 接続バーストによる
  *   connect hang を断つ
- * - 成功時は 180s、失敗時は 30s の backoff
+ * - 成功・失敗を区別せず 60s の単一周期で lock（`REMOTE_FETCH_INTERVAL_MS`）
  * - 失敗は `notify.info` の persist 指定で通知 (CLAUDE.md `console.error で握り潰さない`)。
  *   background 発火でユーザーが目撃前に自動消去されると silent drop と等価になるため、
  *   手動クローズまで残す
@@ -149,7 +153,7 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
       if (!result.ok) {
         logEvent("fetch", "error", name);
         notify.info(`Background git fetch failed for ${rootDir}`, result.error, { persist: true });
-        nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_FAILURE_BACKOFF_MS);
+        nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_INTERVAL_MS);
         return false;
       }
       if (!result.value.ok) {
@@ -157,11 +161,11 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
         notify.info(`Background git fetch failed for ${rootDir}`, result.value.errorDetail, {
           persist: true,
         });
-        nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_FAILURE_BACKOFF_MS);
+        nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_INTERVAL_MS);
         return false;
       }
       logEvent("fetch", "done", name);
-      nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_SUCCESS_INTERVAL_MS);
+      nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_INTERVAL_MS);
       return true;
     });
 

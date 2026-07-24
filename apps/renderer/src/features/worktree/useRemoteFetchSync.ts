@@ -29,8 +29,8 @@
  * - **focus 復帰 → 対象集合が再充填**: `watch(targetRoots)` が membership 変化として発火し、
  *   戻った時点の可視 repo を catch-up fetch する。カードが viewport に入ったときと同一経路で、
  *   focus 専用の発火トリガ (旧 focus-recovery の全 union fan-out) は持たない
- * - **定期 poll** で対象 repo を再取得する。tick は失敗 backoff 粒度 (30s)。成功 repo は 180s
- *   lock で skip され、失敗 repo は次 tick で retry される (発火判定は store の `isRepoFetchDue`)
+ * - **定期 poll** で対象 repo を再取得する。tick は再取得周期 (60s、成功・失敗を区別しない単一周期)。
+ *   直近 60s 以内に取得済みの repo は lock で skip される (発火判定は store の `isRepoFetchDue`)
  *
  * in-flight ロック / backoff / 同時実行 cap / 非 git 判定はすべて `useRemoteFetchStore` に
  * 閉じる。本 composable は「どの repo をいつ」だけを持つ。
@@ -42,7 +42,7 @@ import { useDebounceFn, useWindowFocus } from "@vueuse/core";
 import { computed, onUnmounted, watch } from "vue";
 import { useRepoStore } from "../../shared/repo";
 import {
-  REMOTE_FETCH_FAILURE_BACKOFF_MS as POLL_INTERVAL_MS,
+  REMOTE_FETCH_INTERVAL_MS as POLL_INTERVAL_MS,
   useRemoteFetchStore,
 } from "./useRemoteFetchStore";
 
@@ -84,7 +84,7 @@ export function useRemoteFetchSync() {
   const fetchTargetsDebounced = useDebounceFn(fetchTargets, MEMBERSHIP_DEBOUNCE_MS);
   watch(targetRoots, fetchTargetsDebounced, { immediate: true });
 
-  // 定期 poll。tick は失敗 backoff 粒度に合わせ、成功 repo は skip・失敗 repo は retry される。
+  // 定期 poll。tick は再取得周期 (60s)。直近 60s 以内に取得済みの repo は lock で skip される。
   const intervalId = setInterval(fetchTargets, POLL_INTERVAL_MS);
   onUnmounted(() => clearInterval(intervalId));
 }

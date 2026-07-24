@@ -266,12 +266,11 @@ onUnmounted(disposeFsWatchReady);
 // `gh pr list` を撃ち続けない）。focus はトリガにしない（window focus の揺れに API 取得を
 // 紐付けない）が、blur 中は poll を抑制する（見ていない間に失敗トーストを積まないため）。
 
-/** active worktree が属する repo の rootDir。PR poll の対象軸。 */
-const activeRepoRootDir = computed(() => {
-  const dir = worktreeStore.dir;
-  if (dir === undefined) return undefined;
-  return repoStore.findRepoOwning(dir)?.rootDir;
-});
+// active worktree が属する repo の rootDir。PR poll の対象軸。cache への write キー (これ) と
+// 表示 `prByBranch` の read キーを同じ `selectedRootDir` 導出に一本化する (両者が別導出だと
+// fallback 経路の差で稀に食い違いうる)。`selectedRootDir` は worktree path / rootDir 直指定 /
+// fetch 前 fallback すべてを吸収する SSOT (useRepoStore.selectedRepo)。
+const activeRepoRootDir = computed(() => repoStore.selectedRootDir);
 
 // 既 push branch での `gh pr create` / `edit` / `comment` は local refs を動かさず push 経路で
 // 到達不能なため、interval が PR 状態変化を反映する唯一の経路。

@@ -18,6 +18,11 @@ describe("isRepoFetchDue", () => {
     expect(isRepoFetchDue({ repo: GIT_REPO, allowedAt: NOW - 1, now: NOW })).toBe(true);
   });
 
+  // 境界: lock 期限ちょうど (now === allowedAt) は抜けたとみなす (now < allowedAt でないため)
+  test("lock 期限ちょうどは対象", () => {
+    expect(isRepoFetchDue({ repo: GIT_REPO, allowedAt: NOW, now: NOW })).toBe(true);
+  });
+
   test("非 git project は対象外", () => {
     expect(isRepoFetchDue({ repo: NON_GIT, allowedAt: undefined, now: NOW })).toBe(false);
   });

@@ -96,27 +96,27 @@ GitGraphPane 側の防衛は 2 段構え:
 
 gozd の primary use case は **「Claude / ユーザーが worktree で並列に `gh pr create` する」** ことであり、上記の中でも特に `gh pr create` (既 push) は中核の操作。これを反映する経路として **active worktree 1 個に対する 60 秒間隔の `gh pr list` polling** が GitGraphPane に組み込まれている。
 
-scope は active worktree 1 個に限定し全 worktree fan-out にはしない。さらに **focus 中のみ** polling するため、負荷の上限は継続 focus 時で 60 query/h (GH GraphQL 5000/h の 1.2%)、blur 中は 0。
+scope は active worktree 1 個に限定し全 worktree fan-out にはしない。**window focus を可視性の一部として扱う**: blur 中はユーザーが見ていないので poll 対象を undefined にし（撃たない）、focus 復帰は対象の出入りとして watch に乗り catch-up する（focus 専用の発火トリガは持たない）。per-repo の 60s freshness lock と合わせ、負荷の上限は focus 時で active repo 1 個あたり 60 query/h（GH GraphQL 5000/h の 1.2%）、blur 中は 0。
 
-### `loadPrList` の発火条件 (GitGraphPane)
+### `usePrListStore` の per-repo キャッシュと発火条件
 
-active repo の PR 情報だけを対象にし、無駄撃ちを 3 つの規律で抑える: **focus gate** (blur 中はユーザーが badge を見られないため撃たない)、**repo-identity lifecycle** (同一 repo 内の worktree 切替では撃ち直さない。`gh pr list` は repo 単位で結果同一のため)、**request coalesce** (burst を末尾 1 発に畳む)。
+`gh pr list` は repo 単位で結果が同じなので、PR 一覧を **repo (rootDir) 単位でキャッシュ** (`cacheByRepo`) し、per-repo の freshness lock (`nextAllowedAt`、成否問わず取得後 60s) で再取得を絞る。取得・error 通知・in-flight dedup は `usePrListStore` に閉じ、GitGraphPane は「どの repo をいつ」だけを持つ (`useRemoteFetchStore` の git fetch と同型の per-repo 管理)。
 
-| 発火元                      | 場面                                                                                           |
-| --------------------------- | ---------------------------------------------------------------------------------------------- |
-| `onMounted`                 | GitGraphPane マウント時                                                                        |
-| `watch(activeRepoRootDir)`  | active repo が変わったとき (clear + 再取得)。同一 repo 内の worktree 切替では発火しない        |
-| `remoteRefsChange`          | push / fetch で remote ref が動いたとき (current 以外の branch 動きも含む)。**focus 中のみ**   |
-| `useIntervalFn` (60 秒間隔) | active worktree に対する定期取得。**focus 中のみ** (timer は回し続け callback 内で focus 判定) |
-| focus 復帰 (blur→focus)     | blur 中に撃たなかった分の catch-up を 1 回                                                     |
+表示は `prByBranch` computed が **active repo のキャッシュ**を返す。「active repo」は `repoStore.selectedRootDir` を SSOT に直接導出し、別 ref にミラーしない（ミラーすると SSOT が二重化し、正しさが GitGraphPane の mount 状態に結びつく）。repo 切替時はキャッシュを即表示し `clear()` しない。別 repo の PR が残る cross-repo 表示事故は repo 単位キー分離で構造的に起きないため、旧来必要だった await 前後の repo-identity stale 判定 / coalescer は不要になった。
 
-全発火元は coalescer `scheduleLoadPrList` を経由する。in-flight 中の再要求は末尾 1 発に畳むため、上記が近接発火しても実 `gh pr list` は最大 2 発に収束する (`loadLog` の `scheduleLoadLog` と同型の事前防衛)。
+poll 対象は `pollTargetRootDir`（focus 中は `selectedRootDir`、blur 中は undefined）。発火元:
 
-coalescer で `loadPrList` は直列化されるため、後着レスポンスの破棄は **lifecycle と同じ repo identity 軸** で行う: `loadPrList` は await 前に active repo の rootDir を捕捉し、await 後に変わっていれば `setPrs` せず drop する。repo 切替が in-flight fetch と重なったとき、旧 repo の応答が `clear()` 済みの `prByBranch` を上書き復活させる cross-repo リークを防ぐ (世代カウンタでは coalescer 直列化下で切替中の in-flight を捨てられないため、判定軸を lifecycle に一致させる)。
+| 発火元                      | 場面                                                                                                                                                                       |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `watch(pollTargetRootDir)`  | 対象の出入り（repo 切替 / focus 復帰・喪失）で `fetchIfDue`（lock 越し）。focus 復帰は undefined→rootDir の変化として catch-up。同一 repo 内の worktree 切替では発火しない |
+| `useIntervalFn` (60 秒間隔) | active repo の定期取得。blur 中は対象 undefined で no-op                                                                                                                   |
+| `remoteRefsChange`          | push / fetch で remote ref が動いたとき。同 repo の active のみ。blur 中は対象 undefined で no-op                                                                          |
 
-`gitStatusChange.upstreamChanged` 側では `loadPrList` を呼ばない。`# branch.ab` の数値変化のうち、`headChanged` でない経路は構造的に `refs/remotes/origin/<current-branch>` の書き換えに対応し、その場合は必ず `remoteRefsChange` も同じ burst で発射されるため、`gitStatusChange` 側で呼ぶと `gh pr list` が 2 連射される。`branchChange` / `fsWatchReady` は graph 再描画のみで PR list を取り直さない。
+focus 抑制は発火元の上流（`pollTargetRootDir` が blur 中 undefined）にあり、blur 中は `refreshActivePrList` が `fetchIfDue` に到達しない。focus 中の発火元は `fetchIfDue` を経由し、内部で in-flight → lock（`isPrListFetchDue`）の順に gate する。これにより claude terminals の高頻度 repo 切替 (別 repo の worktree が並び active が頻繁に変わる) でも、60s 以内に取得済みの repo は撃ち直さない。後着レスポンスは repo 単位キーに書くため切替と in-flight が重なっても cross-repo 汚染は起きない。
 
-例外: `git branch --set-upstream-to` / `--unset-upstream` で `.git/config` だけが書き換わる経路は FSEvents の射程外 (refs を動かさない) で classify が silent drop する。後段の何か別 trigger で `gitStatusChange` が再発火したとき `upstreamChanged` 単独経路に流れて `loadPrList` が呼ばれないが、60s polling で吸収する想定。upstream 設定変更は gozd の primary use case (Claude が `gh pr create` する流れ) では低頻度の操作で、運用影響は限定的。
+`gitStatusChange.upstreamChanged` 側では PR 再取得を呼ばない。`# branch.ab` の数値変化のうち `headChanged` でない経路は構造的に `refs/remotes/origin/<current-branch>` の書き換えに対応し、必ず `remoteRefsChange` も同じ burst で発射されるため、両方で呼ぶ必要がない。`branchChange` / `fsWatchReady` は graph 再描画のみで PR list を取り直さない。
+
+例外: `git branch --set-upstream-to` / `--unset-upstream` で `.git/config` だけが書き換わる経路は FSEvents の射程外 (refs を動かさない) で classify が silent drop する。`upstreamChanged` 単独経路では PR 再取得が呼ばれないが、60s interval で吸収する。upstream 設定変更は gozd の primary use case (Claude が `gh pr create` する流れ) では低頻度の操作で、運用影響は限定的。
 
 picker 経由は独立: PR picker 起動ごとに `rpcGitPrList` が 1 回走る。
 

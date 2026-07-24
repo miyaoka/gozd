@@ -1,95 +1,71 @@
 /**
- * 登録 repo の `git fetch --all` を背景で回す app-scope な watcher。
+ * 背景 `git fetch --all` の対象 repo と発火タイミングを一元管理する app-scope な watcher。
  *
- * 設計方針:
+ * ## 対象スコープ = active repo ∪ 画面に写っている repo
  *
- * - **scope は repo の rootDir 単位**。同 repo 内の worktree は `refs/remotes/*` を
- *   common git dir で共有するため、1 fetch で全 worktree の ahead/behind が更新される。
- *   worktree 単位 fan-out は network コストと credential 消費が無駄に倍化する
- * - **`git fetch --all`** を使う。upstream が origin 以外 (fork PR workflow で
- *   upstream=upstream / origin=fork) でも全 remote を更新できる。VSCode autofetch の
- *   `"all"` モード相当
- * - **ウィンドウ focus + 3 分間隔** (VSCode 既定 180s と同じ)。focus を失っている間は
- *   fetch を回さない。focus 復帰直後は閾値を無視して 1 発射する (blur 中の経過時間で
- *   debounce が誤判定するため、focus false→true 遷移で `lastFetchedAt` を消す)
- * - **成功時は 180s lock、失敗時は 30s 短 backoff**。起動直後の SSH agent unlock 前
- *   ヒット等の transient 失敗が「次の 180 秒間 fetch しない」状態を作らないため、
- *   失敗は短い backoff にする
- * - **初回 fetch は登録されている全 repo を対象にする**。起動時に hydrate された repo も、
- *   後から開かれた repo も、それぞれ `nextFetchAllowedAt` 未設定のあいだ 1 回だけ即時
- *   fetch する。定期 interval / focus 復帰の発射は active repo に絞るが (定期 fan-out は
- *   rate limit 累積発火を招くため抑制する規律)、初回は polling ではなく repo 単位 1 回
- *   なので全 repo に広げても累積発火しない。A↔B 往復のたびに fetch を炊かないのは lock
- *   で保証する
- * - **in-flight ロック / backoff / 非 git project 判定**は `useRemoteFetchStore.fetchIfDue` に
- *   閉じる。本 composable は polling lifecycle (focus / interval / repo key watch) のみ担当し、
- *   gate 判定は store 側 1 箇所に集約する
- * - **失敗は `useNotificationStore.info` で通知**。プロジェクト規約「console.error で
- *   握り潰さない」に従う。連射抑制は 30s backoff で効くため、トースト爆発はしない
- *   (offline 等の継続的失敗でも 30s に 1 件)
+ * fetch する repo は「いま ahead/behind を見せる意味がある repo」だけに絞る:
+ *
+ * - **active repo**: ユーザーが作業中の worktree の repo。サイドバーで畳まれていても
+ *   スクロール外でも、GitGraph 等が最新の ahead/behind を要るので常に対象
+ * - **画面に写っている repo**: サイドバーの viewport 内に展開表示されている repo
+ *   (`RepoSection` が IntersectionObserver で `repoStore.setRepoOnScreen` に報告)。
+ *   カードの ahead/behind バッジを最新化するため。畳まれている / スクロール外の repo は
+ *   見えないので対象外
+ *
+ * これにより「登録されているが今は見ていない repo」(別 repo list の repo 等) への背景 fetch を
+ * やめる。従来 focus 復帰のたびに全 repo list union を fan-out していた退行を断つ
+ * (flaky な回線で見てもいない repo の 75s connect hang → 永続トーストが量産されていた)。
+ *
+ * ## トリガ
+ *
+ * - **対象集合の出入り** (wt 切替 / scroll / 展開・折りたたみ) は debounce して、新規に対象へ
+ *   入った repo を即 fetch する。連打 (wt を素早く切り替える等) は debounce で coalesce される
+ * - **定期 poll** で対象 repo を再取得する。tick は失敗 backoff 粒度 (30s)。成功 repo は 180s
+ *   lock で skip され、失敗 repo は次 tick で retry される (発火判定は store の `isRepoFetchDue`)
+ *
+ * focus は一切トリガにしない。window focus は作業中に細かく揺れる高頻度イベントで、そこに
+ * network fan-out を紐付けると focus が揺れるたびに全対象を再 fetch してしまうため。
+ *
+ * in-flight ロック / backoff / 同時実行 cap / 非 git 判定はすべて `useRemoteFetchStore` に
+ * 閉じる。本 composable は「どの repo をいつ」だけを持つ。
  *
  * 後段は既存パイプに乗る: fetch が成功すると `refs/remotes/<remote>/*` が書き換わり、
  * FSWatchRegistry が gitStatusFull を再実行して `gitStatusChange` push を発射する。
- * renderer 側は `useGitStatusSync` が repoStore に書き戻し、WtCard の ahead/behind が更新される。
  */
-import { useWindowFocus } from "@vueuse/core";
-import { onUnmounted, watch } from "vue";
+import { useDebounceFn } from "@vueuse/core";
+import { computed, onUnmounted, watch } from "vue";
 import { useRepoStore } from "../../shared/repo";
 import {
-  REMOTE_FETCH_SUCCESS_INTERVAL_MS as SUCCESS_INTERVAL_MS,
+  REMOTE_FETCH_FAILURE_BACKOFF_MS as POLL_INTERVAL_MS,
   useRemoteFetchStore,
 } from "./useRemoteFetchStore";
 
+/** 対象集合の churn (wt 切替 / scroll / 展開) を coalesce する debounce (ms) */
+const MEMBERSHIP_DEBOUNCE_MS = 300;
+
 export function useRemoteFetchSync() {
   const repoStore = useRepoStore();
-  const focused = useWindowFocus();
   const fetchStore = useRemoteFetchStore();
 
-  /** active repo を fetch (gate 判定込み、due でなければ no-op) */
-  function fetchActive() {
-    const rootDir = repoStore.selectedRootDir;
-    if (rootDir === undefined) return;
-    void fetchStore.fetchIfDue(rootDir, { focused: focused.value });
-  }
-
-  // 「初回 fetch は登録全 repo」の所有をこの 1 関数に集約する。focus 喪失中は store 側
-  // `fetchIfDue` が due 判定で skip され lock も立たないため、focus 復帰経路から再度
-  // この関数を呼べば取りこぼした repo を確実にリカバリできる。
-  // 初回判定は「allowedAt 未設定 = 未 fetch」をユーザー側で読まず、`fetchIfDue` 内の
-  // backoff チェックに含まれる (allowedAt undefined は backoff 期間外と判定される)。
-  function fetchAllRepos() {
-    for (const rootDir of Object.keys(repoStore.repos)) {
-      void fetchStore.fetchIfDue(rootDir, { focused: focused.value });
-    }
-  }
-
-  // 登録されている全 repo を対象に「初めて見た repo」を fetch する。起動時に hydrate
-  // された repo 群も、後から開かれた repo も、それぞれ初回 1 回だけ即時 fetch が走る。
-  // 既に一度 fetch した repo は `allowedAt` が立つため再発射しない (A↔B 往復で
-  // 都度 fetch を炊かない)。以降は interval 主導の閾値判定に任せる。
-  watch(() => Object.keys(repoStore.repos), fetchAllRepos, { immediate: true });
-
-  // focus 復帰 (blur → focus) で 2 つを行う。
-  // - active repo の deadline を消して即発射: blur 中も時計は進むため deadline ベース判定だと
-  //   「focus は戻ったが残り 179s」で behind 反映が最悪 3 分待たされる。focus 遷移自体を
-  //   トリガにすればユーザーが UI に戻ったタイミングで必ず最新化される。
-  // - 未 fetch repo の初回 fetch をリカバリ: focus 無し起動だと repos key watch 発火時に
-  //   全 repo が skip され lock も立たない。focus 復帰でここを通すことで取りこぼしを救う。
-  watch(focused, (isFocused, wasFocused) => {
-    if (!isFocused || wasFocused === true) return;
-    const rootDir = repoStore.selectedRootDir;
-    if (rootDir !== undefined) {
-      fetchStore.clearAllowedAt(rootDir);
-      void fetchStore.fetchIfDue(rootDir, { focused: true });
-    }
-    fetchAllRepos();
+  // 背景 fetch の対象 = 画面に写っている repo ∪ active repo。
+  const targetRoots = computed(() => {
+    const set = new Set(repoStore.onScreenRoots);
+    const active = repoStore.selectedRootDir;
+    if (active !== undefined) set.add(active);
+    return set;
   });
 
-  // 180s インターバル: focus 中は閾値判定に従って fetch、focus 喪失中は早期 return。
-  // タイマー自体は走らせ続けて問題ない (timer cost は無視できる)。
-  const intervalId = setInterval(fetchActive, SUCCESS_INTERVAL_MS);
+  // 対象 repo を due gate 越しに fetch する。fetchIfDue が per-repo の lock/backoff/in-flight を
+  // 見るため、lock 中の repo は no-op になる (毎 tick 呼んでも実 fetch は発火しない)。
+  function fetchTargets() {
+    for (const rootDir of targetRoots.value) void fetchStore.fetchIfDue(rootDir);
+  }
 
-  onUnmounted(() => {
-    clearInterval(intervalId);
-  });
+  // 対象集合が変わったら debounce して新規 repo を即 fetch (連打は coalesce)。
+  const fetchTargetsDebounced = useDebounceFn(fetchTargets, MEMBERSHIP_DEBOUNCE_MS);
+  watch(targetRoots, fetchTargetsDebounced, { immediate: true });
+
+  // 定期 poll。tick は失敗 backoff 粒度に合わせ、成功 repo は skip・失敗 repo は retry される。
+  const intervalId = setInterval(fetchTargets, POLL_INTERVAL_MS);
+  onUnmounted(() => clearInterval(intervalId));
 }

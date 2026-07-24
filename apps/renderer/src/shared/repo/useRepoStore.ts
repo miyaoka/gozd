@@ -146,6 +146,22 @@ export const useRepoStore = defineStore("repo", () => {
   const selectedDir = ref<string>();
   /** 折りたたまれている repo の rootDir 集合 */
   const collapsedRoots = ref<Set<string>>(new Set());
+  /**
+   * サイドバーで実際に画面に写っている（展開済み + viewport 内）repo の rootDir 集合。
+   * `RepoSection` が IntersectionObserver で報告し、`useRemoteFetchSync` が背景 fetch の
+   * 対象スコープに使う。collapsed / scroll 外の repo を fetch しないための SSOT
+   * （active repo は sync 側で別途 union に加える）。
+   */
+  const onScreenRoots = ref<Set<string>>(new Set());
+
+  /** repo カードの viewport 可視状態を反映する。実変化時のみ Set を張り替え無駄発火を防ぐ */
+  function setRepoOnScreen(rootDir: string, onScreen: boolean) {
+    if (onScreen === onScreenRoots.value.has(rootDir)) return;
+    const next = new Set(onScreenRoots.value);
+    if (onScreen) next.add(rootDir);
+    else next.delete(rootDir);
+    onScreenRoots.value = next;
+  }
 
   /**
    * auto-fallback 発火時の通知ハンドラ。feature 層から `setAutoFallbackNotifier()` で注入する。
@@ -716,6 +732,8 @@ export const useRepoStore = defineStore("repo", () => {
     selectedRootDir,
     fsWatchTargetDirs,
     collapsedRoots,
+    onScreenRoots,
+    setRepoOnScreen,
     findRepoOwning,
     findTaskBySessionId,
     isSameRepoAsActive,

@@ -6,15 +6,17 @@ import { useRepoStore } from "../../shared/repo";
 import { rpcGitFetchRemotes } from "./rpc";
 
 /** 成功時の lock 期間 (ms)。VSCode の `git.autofetchPeriod` 既定値 180s と同じ */
-export const REMOTE_FETCH_SUCCESS_INTERVAL_MS = 180_000;
-/** 失敗時の短 backoff (ms)。起動直後の SSH unlock 待ち / 一時的 offline からの回復を捕捉する */
-const REMOTE_FETCH_FAILURE_BACKOFF_MS = 30_000;
+const REMOTE_FETCH_SUCCESS_INTERVAL_MS = 180_000;
+/** 失敗時の短 backoff (ms)。起動直後の SSH unlock 待ち / 一時的 offline からの回復を捕捉する。
+ * `useRemoteFetchSync` の poll 間隔もこの粒度に合わせ、失敗 repo が次 tick で retry される */
+export const REMOTE_FETCH_FAILURE_BACKOFF_MS = 30_000;
 /**
- * 背景 fetch の同時実行上限。sidebar プールの全 repo は起動時 / focus 復帰時に一斉 fan-out
- * される（`useRemoteFetchSync`）。無制限だと N 本の `git fetch` が同一瞬間に同一ホストへ TLS
- * 接続を張り、バーストで負けた接続が確立できず OS TCP timeout（~75s）まで hang する。git には
- * connect timeout を縛る config が無い（`http.lowSpeedLimit/Time` は接続後の転送しか縛れない）
- * ため、根治は発射側で同時数を絞ること。VSCode が複数 repo 横断の初期 git 操作を並列 5 に絞る
+ * 背景 fetch の同時実行上限。可視集合（`useRemoteFetchSync` の対象「画面に写っている repo ∪
+ * active repo」）が一度に多数入る（mount 時 / スクロールで多数カードが可視化）と、対象 repo が
+ * 同時に fetch を要求しうる。無制限だと N 本の `git fetch` が同一瞬間に同一ホストへ TLS 接続を
+ * 張り、バーストで負けた接続が確立できず OS TCP timeout（~75s）まで hang する。git には connect
+ * timeout を縛る config が無い（`http.lowSpeedLimit/Time` は接続後の転送しか縛れない）ため、
+ * 発射側で同時数を絞る。VSCode が複数 repo 横断の初期 git 操作を並列 5 に絞る
  * （microsoft/vscode `Limiter<void>(5)`, issue #318279 ext host starvation 回避）のと同値・同理由。
  */
 const MAX_CONCURRENT_FETCH = 5;
@@ -65,23 +67,19 @@ export function createConcurrencyLimiter<T>(concurrency: number) {
 /**
  * 1 repo が「いま fetch すべき対象か」を決める唯一の述語。
  *
- * - **focus 喪失中は対象外**: 背景 fetch は focus 中だけ回す。focus が無いと false を返し
- *   `nextFetchAllowedAt` に何も記録しないため、focus 復帰時に同経路が再判定して取りこぼしを救う
  * - **backoff / lock 中は対象外**: `allowedAt` が未来なら抑制期間中
  * - **非 git project は対象外**: fetch する remote が無い
  *
+ * どの repo を対象にするか（active + 画面に写っている repo）は `useRemoteFetchSync` の
+ * 可視スコープが決める。この述語は「対象と決まった repo が lock 期間を抜けたか」だけを見る。
  * in-flight 抑止は Set の副作用なので呼び出し側で別途 guard する (純粋判定には含めない)。
- * 純粋関数として `useRemoteFetchStore` から export し、`fetchIfDue` 内部と test の両方が
- * 同じ判定ロジックを共有する。
  */
 export function isRepoFetchDue(args: {
   repo: { isGitRepo: boolean } | undefined;
-  focused: boolean;
   allowedAt: number | undefined;
   now: number;
 }): boolean {
-  const { repo, focused, allowedAt, now } = args;
-  if (!focused) return false;
+  const { repo, allowedAt, now } = args;
   if (allowedAt !== undefined && now < allowedAt) return false;
   if (repo === undefined || !repo.isGitRepo) return false;
   return true;
@@ -95,7 +93,7 @@ export function isRepoFetchDue(args: {
  * 既存規律:
  * - in-flight ロックで同 rootDir 並列発射を抑止 (`inFlight` Map で dedup)
  * - 全 fetch 経路が共有する `fetchLimiter` (`createConcurrencyLimiter(MAX_CONCURRENT_FETCH)`) で
- *   同時実行数を絞る。fan-out (全 repo) が cap を超えたぶんは queue し、TLS 接続バーストによる
+ *   同時実行数を絞る。可視集合の同時 fetch が cap を超えたぶんは queue し、TLS 接続バーストによる
  *   connect hang を断つ
  * - 成功時は 180s、失敗時は 30s の backoff
  * - 失敗は `notify.info` の persist 指定で通知 (CLAUDE.md `console.error で握り潰さない`)。
@@ -104,19 +102,16 @@ export function isRepoFetchDue(args: {
  *
  * ## public API は 2 経路のみ
  *
- * - `fetchIfDue(rootDir, { focused, now? })`: 背景 polling 経路。`isRepoFetchDue` + in-flight を
- *   gate 込みで判定し、due なら fetch を発射する。due でなければ no-op。背景 polling が直接
- *   `isRepoFetchDue` を読まなくて済むよう、gate と発射を 1 関数に閉じる
- * - `requestImmediateFetch(dir)`: on-demand 経路。background polling の backoff を bypass して
+ * - `fetchIfDue(rootDir, { now? })`: 背景 poll 経路。`isRepoFetchDue` + in-flight を gate 込みで
+ *   判定し、due なら fetch を発射する。due でなければ no-op。どの repo をいつ poll するかは
+ *   `useRemoteFetchSync` の可視スコープが決め、このストアは per-repo の lock/backoff だけ持つ
+ * - `requestImmediateFetch(dir)`: on-demand 経路。background poll の backoff を bypass して
  *   fetch を要求する。ただし `fetchLimiter` の同時実行 cap は共有するため、cap が埋まっていれば
  *   slot 空き待ちが入りうる (backoff は bypass するが並列度は共有)。`dir` は worktree path /
  *   rootDir どちらも可で内部正規化する
  *
  * 内部 `runFetch` は public に出さない。直接呼びで backoff を bypass 連射する経路を
  * 型レベルで塞ぐため、外部からアクセス不可能な closure に閉じる。
- *
- * `clearAllowedAt(rootDir)` は focus 復帰時の即時 fetch をリカバリするため `useRemoteFetchSync`
- * から呼ばれる専用 API。背景 polling lifecycle 固有の concern なのでここに残す。
  */
 export const useRemoteFetchStore = defineStore("remoteFetch", () => {
   const repoStore = useRepoStore();
@@ -128,10 +123,6 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
   const inFlight = new Map<string, Promise<boolean>>();
   /** 全 fetch 経路が共有する同時実行上限キュー。cap 超過ぶんは queue され順に実行される */
   const fetchLimiter = createConcurrencyLimiter<boolean>(MAX_CONCURRENT_FETCH);
-
-  function clearAllowedAt(rootDir: string) {
-    nextFetchAllowedAt.delete(rootDir);
-  }
 
   /**
    * fetch 1 回を実行し成功/失敗の bool を返す。inFlight にあれば同じ Promise を返して dedup。
@@ -180,20 +171,14 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
   }
 
   /**
-   * 背景 polling 用の gate 込み発射経路。in-flight / backoff / focus / git repo の判定を
-   * すべて store 内に閉じる。due でなければ no-op (false を返す)。
-   *
-   * 呼び出し側 (`useRemoteFetchSync`) は `focused` のみを渡せば良く、polling 経路ごとに
-   * isRepoFetchDue を直接読む責務を持たない。
+   * 背景 poll 用の gate 込み発射経路。in-flight / backoff / git repo の判定を store 内に
+   * 閉じる。due でなければ no-op (false を返す)。対象 repo の選定 (可視スコープ) は
+   * `useRemoteFetchSync` が持ち、この関数は lock を抜けたかだけ見る。
    */
-  async function fetchIfDue(
-    rootDir: string,
-    opts: { focused: boolean; now?: number },
-  ): Promise<boolean> {
+  async function fetchIfDue(rootDir: string, opts: { now?: number } = {}): Promise<boolean> {
     if (inFlight.has(rootDir)) return false;
     const due = isRepoFetchDue({
       repo: repoStore.repos[rootDir],
-      focused: opts.focused,
       allowedAt: nextFetchAllowedAt.get(rootDir),
       now: opts.now ?? Date.now(),
     });
@@ -231,7 +216,6 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
   return {
     fetchIfDue,
     requestImmediateFetch,
-    clearAllowedAt,
   };
 });
 

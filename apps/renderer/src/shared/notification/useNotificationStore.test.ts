@@ -27,9 +27,12 @@ beforeEach(() => {
     spyOn(globalThis, "clearTimeout").mockImplementation(((id: number) => {
       pendingTimers.delete(id);
     }) as never),
+    // add() の観察ログを吸ってテスト出力を無音にする (検証対象は store の状態であって
+    // console 出力ではない)。store は呼び出し時に console から引くため spy が効く
+    spyOn(console, "error").mockImplementation(() => {}),
+    spyOn(console, "warn").mockImplementation(() => {}),
+    spyOn(console, "info").mockImplementation(() => {}),
   ];
-  // add() の console 出力はテストログに残る (store が module load 時に console.* を
-  // CONSOLE_BY_TYPE へ束縛するため後付け spy では黙らせられない)。観察ログなので許容する
   store.clear();
 });
 

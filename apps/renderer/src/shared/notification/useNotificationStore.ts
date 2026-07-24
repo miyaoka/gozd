@@ -65,14 +65,16 @@ interface NotifyEvent {
 let eventSeq = 0;
 const lastEvent = ref<NotifyEvent | undefined>(undefined);
 
-const CONSOLE_BY_TYPE = {
-  error: console.error,
-  warning: console.warn,
-  info: console.info,
-} as const;
+// メソッド名だけ持ち、呼び出し時に console から引く。関数参照を module load 時に
+// 束縛すると、テストの spyOn (プロパティ差し替え) が効かず出力を黙らせられない
+const CONSOLE_METHOD_BY_TYPE = {
+  error: "error",
+  warning: "warn",
+  info: "info",
+} as const satisfies Record<Notification["type"], keyof Console>;
 
 function add(type: Notification["type"], message: string, cause?: unknown, opts?: NotifyOptions) {
-  CONSOLE_BY_TYPE[type](message, ...(cause !== undefined ? [cause] : []));
+  console[CONSOLE_METHOD_BY_TYPE[type]](message, ...(cause !== undefined ? [cause] : []));
 
   lastEvent.value = { type, seq: ++eventSeq };
 

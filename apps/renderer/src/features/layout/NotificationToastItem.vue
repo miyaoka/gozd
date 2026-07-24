@@ -67,7 +67,7 @@ function showDetails() {
     <button
       v-if="hasCause"
       type="button"
-      class="shrink-0 cursor-pointer rounded-sm border border-border-subtle px-2 py-0.5 text-xs text-foreground hover:bg-element-hover"
+      class="min-h-6 shrink-0 cursor-pointer rounded-sm border border-border-subtle px-2 py-0.5 text-xs text-foreground hover:bg-element-hover"
       @click="showDetails"
     >
       Details

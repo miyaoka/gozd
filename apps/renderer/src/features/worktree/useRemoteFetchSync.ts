@@ -16,16 +16,21 @@
  * やめる。従来 focus 復帰のたびに全 repo list union を fan-out していた退行を断つ
  * (flaky な回線で見てもいない repo の 75s connect hang → 永続トーストが量産されていた)。
  *
- * ## トリガと focus の役割
+ * ## window focus は可視性の一部
  *
- * - **対象集合の出入り** (wt 切替 / scroll / 展開・折りたたみ) は debounce して、新規に対象へ
- *   入った repo を即 fetch する。連打 (wt を素早く切り替える等) は debounce で coalesce される
+ * window blur 中はユーザーが gozd を見ていないので、どのカードも実質「不可視」。よって focus を
+ * **可視判定に畳み込む**: `targetRoots` は blur 中は空集合になる。これにより focus を専用のトリガ
+ * として扱わずに済み、blur / focus 復帰の両方が「対象集合の出入り」という 1 つの仕組みに乗る。
+ *
+ * - **対象集合の出入り** (wt 切替 / scroll / 展開・折りたたみ / window focus の変化) は debounce して、
+ *   新規に対象へ入った repo を即 fetch する。連打は debounce で coalesce される
+ * - **blur → 対象集合が空**: interval / watch が回っても iterate 対象が無く no-op。見ていない間に
+ *   撃たないので失敗トーストが積み上がらない (VSCode autofetch と同じく非 focus 時は回さない)
+ * - **focus 復帰 → 対象集合が再充填**: `watch(targetRoots)` が membership 変化として発火し、
+ *   戻った時点の可視 repo を catch-up fetch する。カードが viewport に入ったときと同一経路で、
+ *   focus 専用の発火トリガ (旧 focus-recovery の全 union fan-out) は持たない
  * - **定期 poll** で対象 repo を再取得する。tick は失敗 backoff 粒度 (30s)。成功 repo は 180s
  *   lock で skip され、失敗 repo は次 tick で retry される (発火判定は store の `isRepoFetchDue`)
- * - **focus は「抑制」であって「トリガ」ではない**。発火元は interval と集合変化で、window blur 中は
- *   callback 内で skip するだけ (focus 復帰を発火トリガにはしない — それが全 union fan-out の元だった)。
- *   blur 中に撃たないことで、見ていない間に失敗トーストが積み上がるのを防ぐ (VSCode autofetch と同じく
- *   window 非 focus 時は回さない)
  *
  * in-flight ロック / backoff / 同時実行 cap / 非 git 判定はすべて `useRemoteFetchStore` に
  * 閉じる。本 composable は「どの repo をいつ」だけを持つ。
@@ -59,16 +64,19 @@ export function useRemoteFetchSync() {
   const fetchStore = useRemoteFetchStore();
   const focused = useWindowFocus();
 
-  // 背景 fetch の対象 = 画面に写っている repo ∪ active repo。
+  // 背景 fetch の対象 = 画面に写っている repo ∪ active repo。window blur 中は「何も可視でない」
+  // ので空集合にする (focus を可視性に畳み込む — ヘッダ docstring 参照)。blur / focus 復帰は
+  // この集合の出入りとして watch に乗り、suppressor と catch-up が両方ここから落ちてくる。
   const targetRoots = computed(() =>
-    computeFetchTargets(repoStore.onScreenRoots, repoStore.selectedRootDir),
+    focused.value
+      ? computeFetchTargets(repoStore.onScreenRoots, repoStore.selectedRootDir)
+      : new Set<string>(),
   );
 
   // 対象 repo を due gate 越しに fetch する。fetchIfDue が per-repo の lock/backoff/in-flight を
-  // 見るため、lock 中の repo は no-op になる (毎 tick 呼んでも実 fetch は発火しない)。
-  // blur 中は skip (focus は抑制であってトリガではない — ヘッダ docstring 参照)。
+  // 見るため、lock 中の repo は no-op になる (毎 tick 呼んでも実 fetch は発火しない)。blur 中は
+  // targetRoots が空なので自然に no-op (focus の分岐をここに書かない)。
   function fetchTargets() {
-    if (!focused.value) return;
     for (const rootDir of targetRoots.value) void fetchStore.fetchIfDue(rootDir);
   }
 

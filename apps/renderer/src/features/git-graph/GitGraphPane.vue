@@ -263,32 +263,31 @@ onUnmounted(disposeFsWatchReady);
 // PR badge は active worktree の git graph にしか出ないため poll 対象は active repo のみ。
 // repo 切替では prListStore が repo 単位キャッシュを即表示し（表示は `selectedRootDir` から
 // 導出）、60s lock を抜けた repo だけ再取得する（claude terminals の高頻度 repo 切替で
-// `gh pr list` を撃ち続けない）。focus はトリガにしない（window focus の揺れに API 取得を
-// 紐付けない）が、blur 中は poll を抑制する（見ていない間に失敗トーストを積まないため）。
+// `gh pr list` を撃ち続けない）。window focus は可視性の一部として扱う（`useRemoteFetchSync`
+// と同じ規律）: blur 中は「見ていない」ので対象を undefined にし、focus 復帰は対象の出入りとして
+// watch に乗って catch-up する。focus 専用の発火トリガは持たない。
 
-// active worktree が属する repo の rootDir。PR poll の対象軸。cache への write キー (これ) と
-// 表示 `prByBranch` の read キーを同じ `selectedRootDir` 導出に一本化する (両者が別導出だと
-// fallback 経路の差で稀に食い違いうる)。`selectedRootDir` は worktree path / rootDir 直指定 /
-// fetch 前 fallback すべてを吸収する SSOT (useRepoStore.selectedRepo)。
-const activeRepoRootDir = computed(() => repoStore.selectedRootDir);
+// PR poll の対象 repo。blur 中は undefined（= 対象なし）。cache への write キーと表示 `prByBranch`
+// の read キーを同じ `selectedRootDir` 導出に一本化する（別導出だと fallback 経路の差で稀に食い違う）。
+// `selectedRootDir` は worktree path / rootDir 直指定 / fetch 前 fallback を吸収する SSOT。
+const pollTargetRootDir = computed(() => (focused.value ? repoStore.selectedRootDir : undefined));
 
 // 既 push branch での `gh pr create` / `edit` / `comment` は local refs を動かさず push 経路で
 // 到達不能なため、interval が PR 状態変化を反映する唯一の経路。
 const PR_LIST_POLL_INTERVAL_MS = 60_000;
 
-/** active repo の PR 一覧を lock 越しに取り直す。repo 切替のたびに呼ばれるが、store の 60s lock が
- *  実 fetch を絞るため高頻度切替でも撃ち続けない。lock 中はキャッシュのまま no-op。blur 中は撃たない
- *  （focus は抑制であってトリガではない — `useRemoteFetchSync` と同じ規律）。 */
+/** active repo の PR 一覧を lock 越しに取り直す。store の 60s lock が実 fetch を絞るため高頻度
+ *  切替でも撃ち続けない。lock 中 / blur 中 (target undefined) はキャッシュのまま no-op。 */
 function refreshActivePrList() {
-  if (!focused.value) return;
-  const rootDir = activeRepoRootDir.value;
+  const rootDir = pollTargetRootDir.value;
   const dir = worktreeStore.dir;
   if (rootDir === undefined || dir === undefined) return;
   prListStore.fetchIfDue(rootDir, dir);
 }
 
-// active repo が変わったら due なら再取得（表示は `prByBranch` が `selectedRootDir` から自動追従）。
-watch(activeRepoRootDir, refreshActivePrList, { immediate: true });
+// 対象の出入り（repo 切替 / focus 復帰・喪失）で再取得。focus 復帰は undefined→rootDir の変化として
+// ここに乗り catch-up する（表示は `prByBranch` が `selectedRootDir` から自動追従）。
+watch(pollTargetRootDir, refreshActivePrList, { immediate: true });
 
 // 一定間隔更新。active repo を lock 越しに取り直す（60s 経過分だけ実 fetch）。
 useIntervalFn(refreshActivePrList, PR_LIST_POLL_INTERVAL_MS, { immediateCallback: false });

@@ -92,6 +92,12 @@ watch(
   () => centerStore.revealId,
   async (id) => {
     if (id !== props.notification.id) return;
+    // cause なし通知への reveal 要求は消費だけして展開しない (空の詳細パネルを出さない)。
+    // 現状の呼び出し元 (toast の Details) は hasCause ガード済みだが、単体でも成立させる
+    if (!hasCause.value) {
+      centerStore.clearReveal();
+      return;
+    }
     expanded.value = true;
     centerStore.clearReveal();
     await nextTick();
@@ -150,7 +156,7 @@ async function copyDetail() {
             ×{{ notification.count }}
           </span>
         </div>
-        <div v-if="expanded" class="flex items-start gap-2">
+        <div v-if="hasCause && expanded" class="flex items-start gap-2">
           <pre
             class="max-h-64 min-w-0 flex-1 overflow-auto font-mono text-xs break-all whitespace-pre-wrap text-foreground select-text"
             >{{ detail }}</pre>

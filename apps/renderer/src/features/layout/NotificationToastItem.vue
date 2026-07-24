@@ -3,51 +3,29 @@
 
 ## 動作
 
-- `cause` がある場合のみメッセージ全体をクリック可能にし、詳細パネルを展開する
-- `Error` の `cause` chain を再帰的に辿り、各段を `Caused by: ` で連結して表示する
-- `Error` 以外（string / object など）は 1 段だけ整形して終了
-- 詳細パネルには「Copy」ボタンを併設し、issue 報告にコピペしやすくする
-- dismiss ボタンは独立しており、本文クリックで dismiss されない
+- toast は短文の at-a-glance 表示専用で、詳細のインライン展開は持たない
+  (toast は固定幅・短時間表示という業界慣習に従い、長文を toast 内で展開しない)
+- `cause` がある通知には Details ボタンを出し、notification center の該当項目を
+  展開表示させて toast は畳む (詳細閲覧の受け皿は center に一本化)
+- dismiss ボタンは toast を畳むだけで、通知自体は center に残る
 </doc>
 
 <script setup lang="ts">
-import { computed, ref, type FunctionalComponent, type SVGAttributes } from "vue";
-import { writeClipboardText } from "../../shared/clipboard";
-import { formatCauseChain } from "./formatCause";
-import IconLucideCheck from "~icons/lucide/check";
-import IconLucideChevronDown from "~icons/lucide/chevron-down";
+import { computed } from "vue";
+import { useNotificationCenterStore } from "./useNotificationCenterStore";
 import IconLucideCircleX from "~icons/lucide/circle-x";
-import IconLucideCopy from "~icons/lucide/copy";
 import IconLucideInfo from "~icons/lucide/info";
 import IconLucideTriangleAlert from "~icons/lucide/triangle-alert";
 import IconLucideX from "~icons/lucide/x";
 
 const props = defineProps<{
+  id: number;
   type: "error" | "warning" | "info";
   message: string;
   cause?: unknown;
 }>();
 
-defineEmits<{ dismiss: [] }>();
-
-type CopyState = "idle" | "copied" | "failed";
-
-const expanded = ref(false);
-const copyState = ref<CopyState>("idle");
-
-const COPY_FEEDBACK_MS = 1500;
-
-const copyLabelMap: Record<CopyState, string> = {
-  idle: "Copy",
-  copied: "Copied",
-  failed: "Failed",
-};
-
-const copyIconMap: Record<CopyState, FunctionalComponent<SVGAttributes>> = {
-  idle: IconLucideCopy,
-  copied: IconLucideCheck,
-  failed: IconLucideTriangleAlert,
-};
+const emit = defineEmits<{ dismiss: [] }>();
 
 const iconMap = {
   error: IconLucideCircleX,
@@ -69,80 +47,38 @@ const iconColorMap = {
 
 const hasCause = computed(() => props.cause !== undefined);
 
-const detail = computed(() => formatCauseChain(props.cause));
+const centerStore = useNotificationCenterStore();
 
-function toggle() {
-  if (!hasCause.value) return;
-  expanded.value = !expanded.value;
-}
-
-async function copyDetail() {
-  const text = `${props.message}\n\n${detail.value}`;
-  const result = await writeClipboardText(text);
-  copyState.value = result.ok ? "copied" : "failed";
-  setTimeout(() => {
-    copyState.value = "idle";
-  }, COPY_FEEDBACK_MS);
+function showDetails() {
+  centerStore.reveal(props.id);
+  emit("dismiss");
 }
 </script>
 
 <template>
   <div
     :class="[
-      'pointer-events-auto flex w-md max-w-md flex-col rounded-lg border text-sm text-foreground shadow-lg',
+      'pointer-events-auto flex w-md max-w-md items-start gap-2 rounded-lg border p-3 text-sm text-foreground shadow-lg',
       colorMap[type],
     ]"
   >
-    <div class="flex items-start gap-2 p-3">
-      <component :is="iconMap[type]" :class="['mt-0.5 size-4 shrink-0', iconColorMap[type]]" />
-      <button
-        type="button"
-        :class="[
-          'min-w-0 flex-1 text-left break-all',
-          hasCause ? 'cursor-pointer hover:underline' : 'cursor-default',
-        ]"
-        :aria-expanded="hasCause ? expanded : undefined"
-        :disabled="!hasCause"
-        :title="hasCause ? (expanded ? 'Hide details' : 'Show details') : undefined"
-        @click="toggle"
-      >
-        <span class="flex items-center gap-1">
-          <!-- エラー本文はコピー対象。cause がある通知は本 button が toggle するため
-               select-text を同居させず、Copy ボタン (message + detail) をコピー導線にする。
-               cause が無い通知は button が disabled で click しないので、Copy ボタンも出ない
-               本文を select-text で選択可にしても toggle が暴発しない (select-text と click を
-               同一要素に同居させない)。 -->
-          <span :class="hasCause ? '' : 'select-text'">{{ message }}</span>
-          <IconLucideChevronDown
-            v-if="hasCause"
-            class="size-3 shrink-0 text-foreground-low transition-transform"
-            :class="expanded ? 'rotate-180' : ''"
-          />
-        </span>
-      </button>
-      <button
-        type="button"
-        class="shrink-0 cursor-pointer text-foreground-low hover:text-foreground"
-        aria-label="Dismiss"
-        @click="$emit('dismiss')"
-      >
-        <IconLucideX class="size-4" />
-      </button>
-    </div>
-    <div v-if="hasCause && expanded" class="border-t border-border-subtle p-3">
-      <div class="mb-2 flex justify-end">
-        <button
-          type="button"
-          class="flex cursor-pointer items-center gap-1 rounded-sm border border-border-subtle px-2 py-0.5 text-xs text-foreground hover:bg-element-hover"
-          @click="copyDetail"
-        >
-          <component :is="copyIconMap[copyState]" class="size-3" />
-          {{ copyLabelMap[copyState] }}
-        </button>
-      </div>
-      <pre
-        class="max-h-64 overflow-auto font-mono text-xs break-all whitespace-pre-wrap text-foreground select-text"
-        >{{ detail }}</pre>
-    </div>
+    <component :is="iconMap[type]" :class="['mt-0.5 size-4 shrink-0', iconColorMap[type]]" />
+    <span class="min-w-0 flex-1 break-all select-text">{{ message }}</span>
+    <button
+      v-if="hasCause"
+      type="button"
+      class="shrink-0 cursor-pointer rounded-sm border border-border-subtle px-2 py-0.5 text-xs text-foreground hover:bg-element-hover"
+      @click="showDetails"
+    >
+      Details
+    </button>
+    <button
+      type="button"
+      class="grid size-6 shrink-0 cursor-pointer place-items-center rounded-sm text-foreground-low hover:text-foreground"
+      aria-label="Dismiss"
+      @click="$emit('dismiss')"
+    >
+      <IconLucideX class="size-4" />
+    </button>
   </div>
 </template>

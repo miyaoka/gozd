@@ -18,6 +18,8 @@ export const useNotificationCenterStore = defineStore("notificationCenter", () =
   const popoverEl = ref<HTMLElement>();
   const isOpen = ref(false);
   const lastSeenSeq = ref(0);
+  /** toast の Details から遷移してきた通知 id。該当 item が展開 + スクロール後に clear する */
+  const revealId = ref<number>();
 
   const latestSeq = computed(() => notifications.value.reduce((max, n) => Math.max(max, n.seq), 0));
   const unseen = computed(() => notifications.value.filter((n) => n.seq > lastSeenSeq.value));
@@ -53,7 +55,27 @@ export const useNotificationCenterStore = defineStore("notificationCenter", () =
     }
   }
 
-  return { isOpen, unseenCount, hasUnseenError, bindPopover, open, close, toggle };
+  /** center を開き、指定 id の項目に詳細展開を要求する（toast の Details ボタン用） */
+  function reveal(id: number): void {
+    revealId.value = id;
+    open();
+  }
+  function clearReveal(): void {
+    revealId.value = undefined;
+  }
+
+  return {
+    isOpen,
+    unseenCount,
+    hasUnseenError,
+    revealId,
+    bindPopover,
+    open,
+    close,
+    toggle,
+    reveal,
+    clearReveal,
+  };
 });
 
 if (import.meta.hot) {

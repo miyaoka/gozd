@@ -6,6 +6,10 @@
  * (VS Code の toasts / notification center と同じ分業。auto-dismiss が silent drop に
  * ならないのは center という受け皿があるため)。
  *
+ * 通知は毎回独立項目で、集約 (重複抑制) はしない (VS Code と同じ)。message 文字列での
+ * 暗黙グルーピングは別発生源の同文言が誤結合し、message に可変部を入れると誤分裂する
+ * 二方向の欠陥があるため採らない。
+ *
  * toast の永続化 (自動消去しない) の軸は重大度 (type) ではなく「ユーザーが画面を見て
  * いるか」: ユーザー操作への応答 (Copied 等の確認) は目撃済みなので自動消去し、
  * ユーザー操作を伴わず background で発火する must-see 通知 (背景 fetch の失敗等) は
@@ -18,63 +22,28 @@
  */
 import { computed, ref } from "vue";
 
-/** 1 回の発生。重複抑制で 1 項目に集約されても、発生ごとの時刻と cause は失わない */
-interface NotificationOccurrence {
-  /** 発生時刻 (epoch ms) */
-  at: number;
-  cause?: unknown;
-}
-
 export interface Notification {
   id: number;
   type: "error" | "warning" | "info";
   message: string;
-  /**
-   * 集約キー。発行側が明示指定した場合のみ、同一 key の発生がこの 1 項目に積まれる
-   * (Web Notification API / Android の `tag` と同じ「発行側が同一性を宣言する」モデル)。
-   * message 文字列での暗黙グルーピングはしない: 別発生源の同文言が誤結合し、message に
-   * 可変部を入れると誤分裂する二方向の欠陥があるため。未指定の通知は毎回独立項目になる
-   */
-  key?: string;
-  /**
-   * 発生履歴 (新しい順、`MAX_OCCURRENCES` で cap)。Sentry の issue / event 二層モデルと
-   * 同型: 項目 (issue) は同一 key の集約で、個々の発生 (event) は時刻 + cause を
-   * 個別保持する。cause を最新で上書きすると「同一 key で詳細が異なる発生」の過去分が
-   * 消えるため、上書きではなく蓄積する
-   */
-  occurrences: NotificationOccurrence[];
-  /** 最新の発生時刻 (epoch ms)。重複抑制時は最新発生で上書きする */
+  cause?: unknown;
+  /** 発生時刻 (epoch ms) */
   at: number;
-  /** 同一通知の累計発生回数 (重複抑制で加算。occurrences の cap を超えても加算し続ける) */
-  count: number;
-  /** 通知発生順の単調増加値。重複抑制時も更新され、center の未読判定 / 新着順ソートに使う */
+  /** 通知発生順の単調増加値。center の未読判定 / 新着順ソートに使う */
   seq: number;
   persist: boolean;
   /** toast として表示中か。false は center にのみ残る */
   toastVisible: boolean;
 }
 
-/** 詳細 (cause) を 1 件でも持つか。toast の Details ボタン / center の disclosure の表示条件 */
-export function hasNotificationDetails(notification: Notification): boolean {
-  return notification.occurrences.some((o) => o.cause !== undefined);
-}
-
 /** persist しない warning / info toast の自動消去時間（ms） */
 const AUTO_DISMISS_MS = 5000;
-/** center に保持する通知数の上限。超過分は最終発生が古い順 (seq 昇順) に落とす */
+/** center に保持する通知数の上限。超過分は古い順に落とす */
 export const MAX_NOTIFICATIONS = 100;
-/** 1 項目に保持する発生履歴の上限。超過分は古い発生から落とす (count は落とさず加算し続ける) */
-export const MAX_OCCURRENCES = 20;
 
 interface NotifyOptions {
   /** true でユーザーが閉じるまで toast を残す。background 発火の must-see 通知用（ヘッダコメント参照） */
   persist?: boolean;
-  /**
-   * 集約キー。同一 key の再発生は 1 項目に積まれる (`Notification.key` 参照)。
-   * 再発火し続ける background 通知 (fetch 失敗の backoff 再試行等) が center を
-   * 埋め尽くさないよう、発生源の同一性を表す安定した文字列を渡す (例: `fetch:${rootDir}`)
-   */
-  key?: string;
 }
 
 let nextId = 0;
@@ -85,11 +54,9 @@ const timers = new Map<number, ReturnType<typeof setTimeout>>();
 const toasts = computed(() => notifications.value.filter((n) => n.toastVisible));
 
 /**
- * 最後に発火した通知イベント。`add()` のたびに (重複抑制で toast を追加しなかった場合も)
- * 更新される。purpose は「toast の表示有無」ではなく「通知の発生そのもの」を観測したい
- * 購読者向け (例: arcade の error 演出)。`notifications` の length / 配列内容は重複抑制で
- * 動かないことがあるため、発生イベントはこの専用シグナルで配る。seq で同一 type の連続発火も
- * 区別できるようにする。
+ * 最後に発火した通知イベント。`add()` のたびに更新される。purpose は「toast の表示有無」
+ * ではなく「通知の発生そのもの」を観測したい購読者向け (例: arcade の error 演出)。
+ * seq で同一 type の連続発火も区別できるようにする。
  */
 interface NotifyEvent {
   type: Notification["type"];
@@ -104,74 +71,33 @@ const CONSOLE_BY_TYPE = {
   info: console.info,
 } as const;
 
-/**
- * `opts.key` が指定された通知は同一 key の既存項目に集約する。既存項目の at / seq を最新の
- * 発生時点に更新して count を加算し、発生 (時刻 + cause) を occurrences の先頭に積んで
- * toast を再表示する (dismiss 済みでも新しい発生は新しい観測なので toast を出し直し、
- * 非 persist なら timer も張り直す)。type / message は最新の発生で更新する (項目は最新状態を
- * 表し、履歴は occurrences が持つ)。key なしの通知は毎回独立項目 (`Notification.key` 参照)。
- * persist は昇格のみ反映する: 表示中の must-see を後発の非 persist 要求が短縮すると
- * silent drop に戻るため、降格はしない。
- */
 function add(type: Notification["type"], message: string, cause?: unknown, opts?: NotifyOptions) {
   CONSOLE_BY_TYPE[type](message, ...(cause !== undefined ? [cause] : []));
 
-  // 発生イベントは toast の表示有無と独立に毎回配る (集約で項目を足さない場合も含む)
   lastEvent.value = { type, seq: ++eventSeq };
 
   const persistRequested = type === "error" || opts?.persist === true;
-  const now = Date.now();
-  const key = opts?.key;
-
-  const existing = key === undefined ? undefined : notifications.value.find((n) => n.key === key);
-  if (existing) {
-    existing.type = type;
-    existing.message = message;
-    existing.occurrences.unshift({ at: now, cause });
-    existing.occurrences.length = Math.min(existing.occurrences.length, MAX_OCCURRENCES);
-    existing.at = now;
-    existing.count += 1;
-    existing.seq = eventSeq;
-    existing.persist = existing.persist || persistRequested;
-    existing.toastVisible = true;
-    clearTimer(existing.id);
-    if (!existing.persist) {
-      timers.set(
-        existing.id,
-        setTimeout(() => dismiss(existing.id), AUTO_DISMISS_MS),
-      );
-    }
-    return;
-  }
 
   const id = nextId++;
   notifications.value.push({
     id,
     type,
     message,
-    key,
-    occurrences: [{ at: now, cause }],
-    at: now,
-    count: 1,
+    cause,
+    at: Date.now(),
     seq: eventSeq,
     persist: persistRequested,
     toastVisible: true,
   });
 
-  // 上限超過は最終発生が最も古い項目 (最小 seq) から落とす (persist でも落とす。100 件
-  // 溜まる時点で異常系であり、表示保護より上限保証を優先する)。配列位置 = 初回発生順を
-  // 基準にすると、重複抑制で in-place 更新され続ける再発火中の must-see (背景 fetch 失敗等)
-  // が先頭に居座ったまま最優先で消えるため、seq (最新発生順) を基準にする
+  // 上限超過は古い項目から落とす (persist でも落とす。100 件溜まる時点で異常系であり、
+  // 表示保護より上限保証を優先する)。項目は追加のみで並び替えないため配列先頭 = 最古
   const overflow = notifications.value.length - MAX_NOTIFICATIONS;
   if (overflow > 0) {
-    const dropIds = new Set(
-      [...notifications.value]
-        .sort((a, b) => a.seq - b.seq)
-        .slice(0, overflow)
-        .map((n) => n.id),
-    );
-    for (const dropId of dropIds) clearTimer(dropId);
-    notifications.value = notifications.value.filter((n) => !dropIds.has(n.id));
+    for (const dropped of notifications.value.slice(0, overflow)) {
+      clearTimer(dropped.id);
+    }
+    notifications.value = notifications.value.slice(overflow);
   }
 
   if (!persistRequested) {
@@ -228,8 +154,7 @@ export function useNotificationStore() {
     notifications,
     toasts,
     lastEvent,
-    error: (message: string, cause?: unknown, opts?: NotifyOptions) =>
-      add("error", message, cause, opts),
+    error: (message: string, cause?: unknown) => add("error", message, cause),
     warning: (message: string, cause?: unknown, opts?: NotifyOptions) =>
       add("warning", message, cause, opts),
     info: (message: string, cause?: unknown, opts?: NotifyOptions) =>

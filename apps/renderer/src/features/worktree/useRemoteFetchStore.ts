@@ -95,10 +95,7 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
       const now = Date.now();
       if (!result.ok) {
         logEvent("fetch", "error", name);
-        notify.info(`Background git fetch failed for ${rootDir}`, result.error, {
-          persist: true,
-          key: `fetch:${rootDir}`,
-        });
+        notify.info(`Background git fetch failed for ${rootDir}`, result.error, { persist: true });
         nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_FAILURE_BACKOFF_MS);
         return false;
       }
@@ -106,7 +103,6 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
         logEvent("fetch", "error", name);
         notify.info(`Background git fetch failed for ${rootDir}`, result.value.errorDetail, {
           persist: true,
-          key: `fetch:${rootDir}`,
         });
         nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_FAILURE_BACKOFF_MS);
         return false;

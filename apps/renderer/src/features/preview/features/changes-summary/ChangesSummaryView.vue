@@ -43,8 +43,6 @@ const wordWrap = ref(true);
  * toast に丸める。fire 後に reset し、次のバッチで再び集計開始する (selection 変化で
  * 各 item が再 fetch する経路でも新たな失敗があれば再通知される)。
  *
- * 集約は明示 key (`changes-summary-fetch`) で行う。窓を跨いだ追加失敗も同じ 1 項目に
- * 丸まり、発生ごとの cause は occurrences に時刻つきで蓄積される。
  * バッチ内の件数は wrapper Error の message と `Error.cause` chain で詳細パネルに展開される。
  */
 const flushDebounceMs = 100;
@@ -67,7 +65,7 @@ function onItemFetchFailed(cause: Error) {
     // 件数情報は wrapper Error の message に詰め、直近 cause を chain に繋ぐ。
     // formatCause.ts の Error chain 展開で詳細パネルに「failure count: N」+「Caused by: <inner>」が出る。
     const aggregate = new Error(`failure count: ${count} ${noun}`, { cause: innerCause });
-    notification.error(TOAST_MESSAGE, aggregate, { key: "changes-summary-fetch" });
+    notification.error(TOAST_MESSAGE, aggregate);
   }, flushDebounceMs);
 }
 

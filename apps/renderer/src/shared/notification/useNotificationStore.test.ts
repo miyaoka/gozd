@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { MAX_NOTIFICATIONS, MAX_OCCURRENCES, useNotificationStore } from "./useNotificationStore";
+import { MAX_NOTIFICATIONS, useNotificationStore } from "./useNotificationStore";
 
 const store = useNotificationStore();
 
@@ -66,88 +66,15 @@ describe("auto-dismiss", () => {
   });
 });
 
-describe("key 集約と persist 昇格", () => {
-  test("key なしは同一 message でも毎回独立項目になる", () => {
+describe("独立項目", () => {
+  test("同一 message でも毎回独立項目になり、seq が単調増加する", () => {
     store.info("copied");
     store.info("copied");
 
     expect(store.notifications.value).toHaveLength(2);
     expect(store.toasts.value).toHaveLength(2);
-  });
-
-  test("同一 key は message が違っても 1 項目に集約され、message は最新で更新される", () => {
-    store.error("Failed to sync (1)", undefined, { key: "sync" });
-    store.error("Failed to sync (3)", undefined, { key: "sync" });
-
-    expect(store.notifications.value).toHaveLength(1);
-    expect(store.notifications.value[0]?.message).toBe("Failed to sync (3)");
-    expect(store.notifications.value[0]?.count).toBe(2);
-  });
-
-  test("表示中の非 persist toast への persist 要求は timer を解除して永続へ昇格する", () => {
-    store.info("fetch failed", undefined, { key: "k" });
-    expect(pendingTimers.size).toBe(1);
-
-    store.info("fetch failed", undefined, { persist: true, key: "k" });
-    expect(pendingTimers.size).toBe(0);
-
-    fireAllTimers();
-    expect(store.toasts.value).toHaveLength(1);
-    expect(store.notifications.value[0]?.count).toBe(2);
-  });
-
-  test("persist 済み項目への非 persist 要求では降格しない", () => {
-    store.info("fetch failed", undefined, { persist: true, key: "k" });
-    store.info("fetch failed", undefined, { key: "k" });
-    expect(pendingTimers.size).toBe(0);
-
-    fireAllTimers();
-    expect(store.toasts.value).toHaveLength(1);
-  });
-
-  test("再発生は toast を出し直し count / seq を進める", () => {
-    store.info("copied", undefined, { key: "k" });
-    fireAllTimers();
-    expect(store.toasts.value).toHaveLength(0);
-    const firstSeq = store.notifications.value[0]?.seq;
-
-    store.info("copied", undefined, { key: "k" });
-    expect(store.toasts.value).toHaveLength(1);
-    expect(store.notifications.value).toHaveLength(1);
-    expect(store.notifications.value[0]?.count).toBe(2);
-    expect(store.notifications.value[0]?.seq).toBeGreaterThan(firstSeq ?? Infinity);
-  });
-
-  test("非 persist の再発生は timer を張り直す", () => {
-    store.info("copied", undefined, { key: "k" });
-    store.info("copied", undefined, { key: "k" });
-    expect(pendingTimers.size).toBe(1);
-
-    fireAllTimers();
-    expect(store.toasts.value).toHaveLength(0);
-  });
-
-  test("再発生の cause は上書きせず新しい順に蓄積する", () => {
-    store.info("fetch failed", "detail A", { key: "k" });
-    store.info("fetch failed", "detail B", { key: "k" });
-    store.info("fetch failed", undefined, { key: "k" });
-
-    const [item] = store.notifications.value;
-    expect(item?.count).toBe(3);
-    expect(item?.occurrences.map((o) => o.cause)).toEqual([undefined, "detail B", "detail A"]);
-  });
-
-  test("occurrences は上限で古い発生から落ち、count は加算され続ける", () => {
-    for (let i = 0; i < MAX_OCCURRENCES + 5; i++) {
-      store.info("fetch failed", `detail ${i}`, { key: "k" });
-    }
-
-    const [item] = store.notifications.value;
-    expect(item?.count).toBe(MAX_OCCURRENCES + 5);
-    expect(item?.occurrences).toHaveLength(MAX_OCCURRENCES);
-    // 新しい順: 先頭が最新の発生、最古の 5 件が落ちている
-    expect(item?.occurrences[0]?.cause).toBe(`detail ${MAX_OCCURRENCES + 4}`);
-    expect(item?.occurrences.at(-1)?.cause).toBe("detail 5");
+    const [first, second] = store.notifications.value;
+    expect(second!.seq).toBeGreaterThan(first!.seq);
   });
 });
 
@@ -166,20 +93,17 @@ describe("center 操作", () => {
     expect(store.notifications.value[0]?.id).toBe(first!.id);
   });
 
-  test("上限超過は最終発生が最も古い項目から落ち、再発生した項目は残る", () => {
+  test("上限超過は古い項目から落ちる", () => {
     for (let i = 0; i < MAX_NOTIFICATIONS; i++) {
       store.info(`msg ${i}`);
     }
-    // key なしの "msg 0" 再発火は新規項目になり、最小 seq の初回 "msg 0" が overflow で落ちる
-    store.info("msg 0");
-
     store.info("overflow trigger");
-    expect(store.notifications.value).toHaveLength(MAX_NOTIFICATIONS);
 
+    expect(store.notifications.value).toHaveLength(MAX_NOTIFICATIONS);
     const messages = store.notifications.value.map((n) => n.message);
-    expect(messages).toContain("msg 0");
-    // 最終発生が最も古いのは msg 1 (msg 0 は再発生で保護される)
-    expect(messages).not.toContain("msg 1");
+    expect(messages).not.toContain("msg 0");
+    expect(messages).toContain("msg 1");
+    expect(messages).toContain("overflow trigger");
   });
 
   test("clear は全項目を削除し pending timer も解放する", () => {

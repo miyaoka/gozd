@@ -1,20 +1,16 @@
 <doc lang="md">
 Notification center の 1 行。toast (NotificationToastItem) と同じ通知を表示するが、
-一覧の中の行として時刻・累計回数を持ち、dismiss ではなく center からの削除を emit する。
+一覧の中の行として時刻を持ち、dismiss ではなく center からの削除を emit する。
 
 ## 動作
 
-- 詳細 (cause) を 1 件でも持つ通知のみ行頭に disclosure ボタン (閉 = ►、開 = ▼。DevTools と
-  同じ文法) を出し、**発生履歴 (occurrences) を発生ごとに時刻 + cause chain で**その字下げ
-  配下に展開する。同一 key の集約 (issue) と個々の発生 (event) を分けて見せる
-  Sentry 型の二層モデルで、集約によって発生時刻・詳細差分が失われない。
-  開閉ターゲットは 24px (WCAG 2.5.8 の最小ターゲットサイズ)。本文は選択可能なテキストで、
-  click toggle と select-text を同一要素に同居させない
+- `cause` がある通知のみ行頭に disclosure ボタン (閉 = ►、開 = ▼。DevTools と同じ文法) を
+  出し、詳細 (cause chain) をその字下げ配下に展開する。開閉ターゲットは 24px
+  (WCAG 2.5.8 の最小ターゲットサイズ)。本文は選択可能なテキストで、click toggle と
+  select-text を同一要素に同居させない
 - toast の Details ボタンから遷移した項目 (store の `revealId`) は mount / 変更時に
   自動展開して可視位置へスクロールする
-- 詳細パネルには Copy ボタンを併設し、message + 全発生 (時刻つき) をクリップボードへコピーする
-- `count` が 2 以上なら累計発生回数チップを出す（key 集約で 1 項目に積まれるため）。
-  count は occurrences の保持上限を超えても加算されるため、履歴は直近分のみのことがある
+- 詳細パネルには Copy ボタンを併設し、message + 詳細をクリップボードへコピーする
 </doc>
 
 <script setup lang="ts">
@@ -28,7 +24,7 @@ import {
   type SVGAttributes,
 } from "vue";
 import { writeClipboardText } from "../../shared/clipboard";
-import { hasNotificationDetails, type Notification } from "../../shared/notification";
+import type { Notification } from "../../shared/notification";
 import { formatCauseChain } from "./formatCause";
 import { useNotificationCenterStore } from "./useNotificationCenterStore";
 import IconLucideCheck from "~icons/lucide/check";
@@ -74,24 +70,16 @@ const iconColorMap: Record<Notification["type"], string> = {
   info: "text-primary-text",
 };
 
-const hasDetails = computed(() => hasNotificationDetails(props.notification));
+const hasDetails = computed(() => props.notification.cause !== undefined);
 
-/** 発生ごとの表示行 (新しい順)。cause の無い発生は時刻のみの行になる */
-const occurrenceRows = computed(() =>
-  props.notification.occurrences.map((o) => ({
-    time: formatTime(o.at),
-    detail: o.cause !== undefined ? formatCauseChain(o.cause) : "",
-  })),
-);
+const detail = computed(() => formatCauseChain(props.notification.cause));
 
 /** epoch ms → HH:MM:SS。center は同日運用が主なので日付は出さない。 */
-function formatTime(ms: number): string {
-  const d = new Date(ms);
+const time = computed(() => {
+  const d = new Date(props.notification.at);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
-const time = computed(() => formatTime(props.notification.at));
+});
 
 const centerStore = useNotificationCenterStore();
 const rootRef = useTemplateRef<HTMLElement>("root");
@@ -118,10 +106,7 @@ watch(
 );
 
 async function copyDetail() {
-  const body = occurrenceRows.value
-    .map((row) => (row.detail === "" ? row.time : `[${row.time}]\n${row.detail}`))
-    .join("\n\n");
-  const text = `${props.notification.message}\n\n${body}`;
+  const text = `${props.notification.message}\n\n${detail.value}`;
   const result = await writeClipboardText(text);
   copyState.value = result.ok ? "copied" : "failed";
   setTimeout(() => {
@@ -163,25 +148,11 @@ async function copyDetail() {
         </div>
         <div class="flex items-center gap-2 text-[11px] text-foreground-low">
           <span class="tabular-nums">{{ time }}</span>
-          <span
-            v-if="notification.count > 1"
-            class="rounded-sm bg-element px-1 font-semibold tabular-nums"
-          >
-            ×{{ notification.count }}
-          </span>
         </div>
         <div v-if="hasDetails && expanded" class="flex items-start gap-2">
-          <div class="flex max-h-64 min-w-0 flex-1 flex-col gap-2 overflow-auto">
-            <div v-for="(row, i) in occurrenceRows" :key="i" class="flex flex-col">
-              <span class="text-[11px] text-foreground-low tabular-nums select-text">
-                {{ row.time }}
-              </span>
-              <pre
-                v-if="row.detail !== ''"
-                class="font-mono text-xs break-all whitespace-pre-wrap text-foreground select-text"
-                >{{ row.detail }}</pre>
-            </div>
-          </div>
+          <pre
+            class="max-h-64 min-w-0 flex-1 overflow-auto font-mono text-xs break-all whitespace-pre-wrap text-foreground select-text"
+            >{{ detail }}</pre>
           <button
             type="button"
             class="grid size-6 shrink-0 cursor-pointer place-items-center rounded-sm text-foreground-low hover:bg-element-hover hover:text-foreground"

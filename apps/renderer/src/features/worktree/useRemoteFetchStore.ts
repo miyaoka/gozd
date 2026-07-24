@@ -9,6 +9,56 @@ import { rpcGitFetchRemotes } from "./rpc";
 export const REMOTE_FETCH_SUCCESS_INTERVAL_MS = 180_000;
 /** 失敗時の短 backoff (ms)。起動直後の SSH unlock 待ち / 一時的 offline からの回復を捕捉する */
 const REMOTE_FETCH_FAILURE_BACKOFF_MS = 30_000;
+/**
+ * 背景 fetch の同時実行上限。sidebar プールの全 repo は起動時 / focus 復帰時に一斉 fan-out
+ * される（`useRemoteFetchSync`）。無制限だと N 本の `git fetch` が同一瞬間に同一ホストへ TLS
+ * 接続を張り、バーストで負けた接続が確立できず OS TCP timeout（~75s）まで hang する。git には
+ * connect timeout を縛る config が無い（`http.lowSpeedLimit/Time` は接続後の転送しか縛れない）
+ * ため、根治は発射側で同時数を絞ること。VSCode が複数 repo 横断の初期 git 操作を並列 5 に絞る
+ * （microsoft/vscode `Limiter<void>(5)`, issue #318279 ext host starvation 回避）のと同値・同理由。
+ */
+const MAX_CONCURRENT_FETCH = 5;
+
+/**
+ * 同時実行数を `concurrency` に絞るキュー。VSCode の `Limiter`
+ * (microsoft/vscode `extensions/git/src/util.ts`) を、class 禁止の gozd 規約に合わせ関数化して
+ * 移植した。`outstanding` に積んだ factory を、実行中 (`running`) が上限未満のあいだ `consume` が
+ * while で dequeue して発火し、1 つ完了 (成否問わず) するごとに `consumed` が枠を返して再 consume
+ * する。factory の解決値 / reject は呼び出し側へ透過する。単一 consumer のためここに閉じ shared 化しない。
+ */
+export function createConcurrencyLimiter<T>(concurrency: number) {
+  interface QueuedTask {
+    factory: () => Promise<T>;
+    resolve: (value: T | PromiseLike<T>) => void;
+    reject: (reason: unknown) => void;
+  }
+  const outstanding: QueuedTask[] = [];
+  let running = 0;
+
+  function consume() {
+    while (outstanding.length > 0 && running < concurrency) {
+      const task = outstanding.shift();
+      if (task === undefined) return;
+      running++;
+      const promise = task.factory();
+      // 解決値 / reject を caller へ透過。別の then で成否どちらでも枠を返す
+      // (両ハンドラが consumed のため reject は再送されず unhandled にならない)
+      void promise.then(task.resolve, task.reject);
+      void promise.then(consumed, consumed);
+    }
+  }
+
+  function consumed() {
+    running--;
+    if (outstanding.length > 0) consume();
+  }
+
+  return (factory: () => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      outstanding.push({ factory, resolve, reject });
+      consume();
+    });
+}
 
 /**
  * 1 repo が「いま fetch すべき対象か」を決める唯一の述語。
@@ -42,6 +92,9 @@ export function isRepoFetchDue(args: {
  *
  * 既存規律:
  * - in-flight ロックで同 rootDir 並列発射を抑止 (`inFlight` Map で dedup)
+ * - 全 fetch 経路が共有する `fetchLimiter` (`createConcurrencyLimiter(MAX_CONCURRENT_FETCH)`) で
+ *   同時実行数を絞る。fan-out (全 repo) が cap を超えたぶんは queue し、TLS 接続バーストによる
+ *   connect hang を断つ
  * - 成功時は 180s、失敗時は 30s の backoff
  * - 失敗は `notify.info` の persist 指定で通知 (CLAUDE.md `console.error で握り潰さない`)。
  *   background 発火でユーザーが目撃前に自動消去されると silent drop と等価になるため、
@@ -69,6 +122,8 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
   const nextFetchAllowedAt = new Map<string, number>();
   /** rootDir → 現在 in-flight な fetch の Promise (dedup 用) */
   const inFlight = new Map<string, Promise<boolean>>();
+  /** 全 fetch 経路が共有する同時実行上限キュー。cap 超過ぶんは queue され順に実行される */
+  const fetchLimiter = createConcurrencyLimiter<boolean>(MAX_CONCURRENT_FETCH);
 
   function clearAllowedAt(rootDir: string) {
     nextFetchAllowedAt.delete(rootDir);
@@ -88,9 +143,12 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
       logEvent("fetch", "in-flight", name);
       return existing;
     }
-    logEvent("fetch", "fire", name);
+    logEvent("fetch", "queue", name);
 
-    const promise = (async () => {
+    // cap 超過ぶんは fetchLimiter が queue し、slot が空いてから実行する。"fire" は queue 通過後の
+    // 実ネットワーク開始を指す (queue と fire の間隔で発射バーストの詰まりが観察できる)。
+    const promise = fetchLimiter(async () => {
+      logEvent("fetch", "fire", name);
       const result = await tryCatch(rpcGitFetchRemotes({ dir: rootDir }));
       const now = Date.now();
       if (!result.ok) {
@@ -110,7 +168,7 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
       logEvent("fetch", "done", name);
       nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_SUCCESS_INTERVAL_MS);
       return true;
-    })();
+    });
 
     inFlight.set(rootDir, promise);
     void promise.finally(() => inFlight.delete(rootDir));

@@ -21,6 +21,8 @@ const props = defineProps<{
   id: number;
   type: "error" | "warning" | "info";
   message: string;
+  /** 累計発生回数。2 以上でチップ表示 (center と同じ見た目) */
+  count: number;
   /** 詳細 (cause) を持つか。true で Details ボタンを出す。判定 SSOT は `hasNotificationDetails` */
   hasDetails: boolean;
 }>();
@@ -61,7 +63,15 @@ function showDetails() {
     ]"
   >
     <component :is="iconMap[type]" :class="['mt-0.5 size-4 shrink-0', iconColorMap[type]]" />
-    <span class="min-w-0 flex-1 break-all select-text">{{ message }}</span>
+    <span class="min-w-0 flex-1 break-all select-text">
+      {{ message }}
+      <span
+        v-if="count > 1"
+        class="rounded-sm bg-element px-1 text-xs font-semibold text-foreground-low tabular-nums"
+      >
+        ×{{ count }}
+      </span>
+    </span>
     <button
       v-if="hasDetails"
       type="button"

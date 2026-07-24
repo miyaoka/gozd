@@ -21,7 +21,7 @@ export interface SyncPassDeps {
   watchedDirs: Set<string>;
   fsWatch: (req: { dir: string }) => Promise<unknown>;
   fsUnwatch: (req: { dir: string }) => Promise<unknown>;
-  notify: { error: (message: string, cause?: unknown) => void };
+  notify: { error: (message: string, cause?: unknown, opts?: { key?: string }) => void };
   /** 渡された dir を所有する repo の rootDir を返す。非 git project や所有 repo 不明時は
    * undefined。`fsWatchReady` の repo 単位 dedup に使う。 */
   resolveRootDir: (dir: string) => string | undefined;
@@ -84,7 +84,9 @@ export async function runOneSyncPass(deps: SyncPassDeps): Promise<void> {
     const summary = failures.map((f) => `${f.kind}:${f.dir}`).join(", ");
     const [first] = failures;
     const aggregate = new Error(summary, { cause: first.error });
-    notify.error(`Failed to sync FS watches (${failures.length})`, aggregate);
+    notify.error(`Failed to sync FS watches (${failures.length})`, aggregate, {
+      key: "fs-watch-sync",
+    });
   }
 
   // 同一 rootDir 配下の複数 worktree が新規 watch 起動した場合、subscriber 側の

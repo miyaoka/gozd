@@ -30,9 +30,16 @@ export interface Notification {
   type: "error" | "warning" | "info";
   message: string;
   /**
+   * 集約キー。発行側が明示指定した場合のみ、同一 key の発生がこの 1 項目に積まれる
+   * (Web Notification API / Android の `tag` と同じ「発行側が同一性を宣言する」モデル)。
+   * message 文字列での暗黙グルーピングはしない: 別発生源の同文言が誤結合し、message に
+   * 可変部を入れると誤分裂する二方向の欠陥があるため。未指定の通知は毎回独立項目になる
+   */
+  key?: string;
+  /**
    * 発生履歴 (新しい順、`MAX_OCCURRENCES` で cap)。Sentry の issue / event 二層モデルと
-   * 同型: 項目 (issue) は同一 type + message の集約で、個々の発生 (event) は時刻 + cause を
-   * 個別保持する。cause を最新で上書きすると「同一 message で詳細が異なる発生」の過去分が
+   * 同型: 項目 (issue) は同一 key の集約で、個々の発生 (event) は時刻 + cause を
+   * 個別保持する。cause を最新で上書きすると「同一 key で詳細が異なる発生」の過去分が
    * 消えるため、上書きではなく蓄積する
    */
   occurrences: NotificationOccurrence[];
@@ -62,6 +69,12 @@ export const MAX_OCCURRENCES = 20;
 interface NotifyOptions {
   /** true でユーザーが閉じるまで toast を残す。background 発火の must-see 通知用（ヘッダコメント参照） */
   persist?: boolean;
+  /**
+   * 集約キー。同一 key の再発生は 1 項目に積まれる (`Notification.key` 参照)。
+   * 再発火し続ける background 通知 (fetch 失敗の backoff 再試行等) が center を
+   * 埋め尽くさないよう、発生源の同一性を表す安定した文字列を渡す (例: `fetch:${rootDir}`)
+   */
+  key?: string;
 }
 
 let nextId = 0;
@@ -92,36 +105,40 @@ const CONSOLE_BY_TYPE = {
 } as const;
 
 /**
- * 同一 type + message は重複抑制で 1 項目に集約する。既存項目の at / seq を最新の
+ * `opts.key` が指定された通知は同一 key の既存項目に集約する。既存項目の at / seq を最新の
  * 発生時点に更新して count を加算し、発生 (時刻 + cause) を occurrences の先頭に積んで
  * toast を再表示する (dismiss 済みでも新しい発生は新しい観測なので toast を出し直し、
- * 非 persist なら timer も張り直す)。
+ * 非 persist なら timer も張り直す)。type / message は最新の発生で更新する (項目は最新状態を
+ * 表し、履歴は occurrences が持つ)。key なしの通知は毎回独立項目 (`Notification.key` 参照)。
  * persist は昇格のみ反映する: 表示中の must-see を後発の非 persist 要求が短縮すると
  * silent drop に戻るため、降格はしない。
  */
 function add(type: Notification["type"], message: string, cause?: unknown, opts?: NotifyOptions) {
   CONSOLE_BY_TYPE[type](message, ...(cause !== undefined ? [cause] : []));
 
-  // 発生イベントは toast の表示有無と独立に毎回配る (重複抑制で toast を足さない場合も含む)
+  // 発生イベントは toast の表示有無と独立に毎回配る (集約で項目を足さない場合も含む)
   lastEvent.value = { type, seq: ++eventSeq };
 
   const persistRequested = type === "error" || opts?.persist === true;
   const now = Date.now();
+  const key = opts?.key;
 
-  const duplicate = notifications.value.find((n) => n.type === type && n.message === message);
-  if (duplicate) {
-    duplicate.occurrences.unshift({ at: now, cause });
-    duplicate.occurrences.length = Math.min(duplicate.occurrences.length, MAX_OCCURRENCES);
-    duplicate.at = now;
-    duplicate.count += 1;
-    duplicate.seq = eventSeq;
-    duplicate.persist = duplicate.persist || persistRequested;
-    duplicate.toastVisible = true;
-    clearTimer(duplicate.id);
-    if (!duplicate.persist) {
+  const existing = key === undefined ? undefined : notifications.value.find((n) => n.key === key);
+  if (existing) {
+    existing.type = type;
+    existing.message = message;
+    existing.occurrences.unshift({ at: now, cause });
+    existing.occurrences.length = Math.min(existing.occurrences.length, MAX_OCCURRENCES);
+    existing.at = now;
+    existing.count += 1;
+    existing.seq = eventSeq;
+    existing.persist = existing.persist || persistRequested;
+    existing.toastVisible = true;
+    clearTimer(existing.id);
+    if (!existing.persist) {
       timers.set(
-        duplicate.id,
-        setTimeout(() => dismiss(duplicate.id), AUTO_DISMISS_MS),
+        existing.id,
+        setTimeout(() => dismiss(existing.id), AUTO_DISMISS_MS),
       );
     }
     return;
@@ -132,6 +149,7 @@ function add(type: Notification["type"], message: string, cause?: unknown, opts?
     id,
     type,
     message,
+    key,
     occurrences: [{ at: now, cause }],
     at: now,
     count: 1,
@@ -210,7 +228,8 @@ export function useNotificationStore() {
     notifications,
     toasts,
     lastEvent,
-    error: (message: string, cause?: unknown) => add("error", message, cause),
+    error: (message: string, cause?: unknown, opts?: NotifyOptions) =>
+      add("error", message, cause, opts),
     warning: (message: string, cause?: unknown, opts?: NotifyOptions) =>
       add("warning", message, cause, opts),
     info: (message: string, cause?: unknown, opts?: NotifyOptions) =>

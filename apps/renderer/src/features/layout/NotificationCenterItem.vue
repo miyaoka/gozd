@@ -6,14 +6,14 @@ Notification center の 1 行。toast (NotificationToastItem) と同じ通知を
 
 - 詳細 (cause) を 1 件でも持つ通知のみ行頭に disclosure ボタン (閉 = ►、開 = ▼。DevTools と
   同じ文法) を出し、**発生履歴 (occurrences) を発生ごとに時刻 + cause chain で**その字下げ
-  配下に展開する。同一 message の集約 (issue) と個々の発生 (event) を分けて見せる
+  配下に展開する。同一 key の集約 (issue) と個々の発生 (event) を分けて見せる
   Sentry 型の二層モデルで、集約によって発生時刻・詳細差分が失われない。
   開閉ターゲットは 24px (WCAG 2.5.8 の最小ターゲットサイズ)。本文は選択可能なテキストで、
   click toggle と select-text を同一要素に同居させない
 - toast の Details ボタンから遷移した項目 (store の `revealId`) は mount / 変更時に
   自動展開して可視位置へスクロールする
 - 詳細パネルには Copy ボタンを併設し、message + 全発生 (時刻つき) をクリップボードへコピーする
-- `count` が 2 以上なら累計発生回数チップを出す（重複抑制で 1 項目に集約されるため）。
+- `count` が 2 以上なら累計発生回数チップを出す（key 集約で 1 項目に積まれるため）。
   count は occurrences の保持上限を超えても加算されるため、履歴は直近分のみのことがある
 </doc>
 

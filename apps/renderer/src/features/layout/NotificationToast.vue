@@ -55,6 +55,7 @@ useEventListener(popoverRef, "toggle", (e: ToggleEvent) => {
       :id="n.id"
       :type="n.type"
       :message="n.message"
+      :count="n.count"
       :has-details="hasNotificationDetails(n)"
       @dismiss="dismiss(n.id)"
     />

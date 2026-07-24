@@ -45,8 +45,8 @@ const wordWrap = ref(true);
  *
  * トースト message は件数を含めない固定文字列にして、`useNotificationStore.error` の
  * dedup (同一 type + 同一 message で重複抑制) が効くようにする。窓を跨いだ追加失敗も
- * 同じ 1 件のトーストに丸まり、`cause` だけ最新で上書きされる。
- * 件数 / 直近 cause は wrapper Error の message と `Error.cause` chain で詳細パネルに展開される。
+ * 同じ 1 件のトーストに丸まり、発生ごとの cause は occurrences に時刻つきで蓄積される。
+ * バッチ内の件数は wrapper Error の message と `Error.cause` chain で詳細パネルに展開される。
  */
 const flushDebounceMs = 100;
 const TOAST_MESSAGE = "Failed to load some changes in summary";

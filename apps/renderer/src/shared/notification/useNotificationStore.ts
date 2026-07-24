@@ -18,14 +18,27 @@
  */
 import { computed, ref } from "vue";
 
+/** 1 回の発生。重複抑制で 1 項目に集約されても、発生ごとの時刻と cause は失わない */
+interface NotificationOccurrence {
+  /** 発生時刻 (epoch ms) */
+  at: number;
+  cause?: unknown;
+}
+
 export interface Notification {
   id: number;
   type: "error" | "warning" | "info";
   message: string;
-  cause?: unknown;
+  /**
+   * 発生履歴 (新しい順、`MAX_OCCURRENCES` で cap)。Sentry の issue / event 二層モデルと
+   * 同型: 項目 (issue) は同一 type + message の集約で、個々の発生 (event) は時刻 + cause を
+   * 個別保持する。cause を最新で上書きすると「同一 message で詳細が異なる発生」の過去分が
+   * 消えるため、上書きではなく蓄積する
+   */
+  occurrences: NotificationOccurrence[];
   /** 最新の発生時刻 (epoch ms)。重複抑制時は最新発生で上書きする */
   at: number;
-  /** 同一通知の累計発生回数 (重複抑制で加算) */
+  /** 同一通知の累計発生回数 (重複抑制で加算。occurrences の cap を超えても加算し続ける) */
   count: number;
   /** 通知発生順の単調増加値。重複抑制時も更新され、center の未読判定 / 新着順ソートに使う */
   seq: number;
@@ -34,10 +47,17 @@ export interface Notification {
   toastVisible: boolean;
 }
 
+/** 詳細 (cause) を 1 件でも持つか。toast の Details ボタン / center の disclosure の表示条件 */
+export function hasNotificationDetails(notification: Notification): boolean {
+  return notification.occurrences.some((o) => o.cause !== undefined);
+}
+
 /** persist しない warning / info toast の自動消去時間（ms） */
 const AUTO_DISMISS_MS = 5000;
 /** center に保持する通知数の上限。超過分は最終発生が古い順 (seq 昇順) に落とす */
 export const MAX_NOTIFICATIONS = 100;
+/** 1 項目に保持する発生履歴の上限。超過分は古い発生から落とす (count は落とさず加算し続ける) */
+export const MAX_OCCURRENCES = 20;
 
 interface NotifyOptions {
   /** true でユーザーが閉じるまで toast を残す。background 発火の must-see 通知用（ヘッダコメント参照） */
@@ -72,9 +92,10 @@ const CONSOLE_BY_TYPE = {
 } as const;
 
 /**
- * 同一 type + message は重複抑制で 1 項目に集約する。既存項目の cause / at / seq を最新の
- * 発生時点に更新して count を加算し、toast を再表示する (dismiss 済みでも新しい発生は
- * 新しい観測なので toast を出し直し、非 persist なら timer も張り直す)。
+ * 同一 type + message は重複抑制で 1 項目に集約する。既存項目の at / seq を最新の
+ * 発生時点に更新して count を加算し、発生 (時刻 + cause) を occurrences の先頭に積んで
+ * toast を再表示する (dismiss 済みでも新しい発生は新しい観測なので toast を出し直し、
+ * 非 persist なら timer も張り直す)。
  * persist は昇格のみ反映する: 表示中の must-see を後発の非 persist 要求が短縮すると
  * silent drop に戻るため、降格はしない。
  */
@@ -85,11 +106,13 @@ function add(type: Notification["type"], message: string, cause?: unknown, opts?
   lastEvent.value = { type, seq: ++eventSeq };
 
   const persistRequested = type === "error" || opts?.persist === true;
+  const now = Date.now();
 
   const duplicate = notifications.value.find((n) => n.type === type && n.message === message);
   if (duplicate) {
-    duplicate.cause = cause;
-    duplicate.at = Date.now();
+    duplicate.occurrences.unshift({ at: now, cause });
+    duplicate.occurrences.length = Math.min(duplicate.occurrences.length, MAX_OCCURRENCES);
+    duplicate.at = now;
     duplicate.count += 1;
     duplicate.seq = eventSeq;
     duplicate.persist = duplicate.persist || persistRequested;
@@ -109,8 +132,8 @@ function add(type: Notification["type"], message: string, cause?: unknown, opts?
     id,
     type,
     message,
-    cause,
-    at: Date.now(),
+    occurrences: [{ at: now, cause }],
+    at: now,
     count: 1,
     seq: eventSeq,
     persist: persistRequested,

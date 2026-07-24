@@ -12,7 +12,7 @@ Popover API (`popover="manual"`) によるトースト通知。
 <script setup lang="ts">
 import { useEventListener } from "@vueuse/core";
 import { useTemplateRef, watch } from "vue";
-import { useNotificationStore } from "../../shared/notification";
+import { hasNotificationDetails, useNotificationStore } from "../../shared/notification";
 import NotificationToastItem from "./NotificationToastItem.vue";
 
 const { toasts, dismiss } = useNotificationStore();
@@ -55,7 +55,7 @@ useEventListener(popoverRef, "toggle", (e: ToggleEvent) => {
       :id="n.id"
       :type="n.type"
       :message="n.message"
-      :cause="n.cause"
+      :has-details="hasNotificationDetails(n)"
       @dismiss="dismiss(n.id)"
     />
   </div>

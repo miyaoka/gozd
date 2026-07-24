@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { MAX_NOTIFICATIONS, useNotificationStore } from "./useNotificationStore";
+import { MAX_NOTIFICATIONS, MAX_OCCURRENCES, useNotificationStore } from "./useNotificationStore";
 
 const store = useNotificationStore();
 
@@ -108,6 +108,29 @@ describe("重複抑制と persist 昇格", () => {
 
     fireAllTimers();
     expect(store.toasts.value).toHaveLength(0);
+  });
+
+  test("再発生の cause は上書きせず新しい順に蓄積する", () => {
+    store.info("fetch failed", "detail A");
+    store.info("fetch failed", "detail B");
+    store.info("fetch failed");
+
+    const [item] = store.notifications.value;
+    expect(item?.count).toBe(3);
+    expect(item?.occurrences.map((o) => o.cause)).toEqual([undefined, "detail B", "detail A"]);
+  });
+
+  test("occurrences は上限で古い発生から落ち、count は加算され続ける", () => {
+    for (let i = 0; i < MAX_OCCURRENCES + 5; i++) {
+      store.info("fetch failed", `detail ${i}`);
+    }
+
+    const [item] = store.notifications.value;
+    expect(item?.count).toBe(MAX_OCCURRENCES + 5);
+    expect(item?.occurrences).toHaveLength(MAX_OCCURRENCES);
+    // 新しい順: 先頭が最新の発生、最古の 5 件が落ちている
+    expect(item?.occurrences[0]?.cause).toBe(`detail ${MAX_OCCURRENCES + 4}`);
+    expect(item?.occurrences.at(-1)?.cause).toBe("detail 5");
   });
 });
 

@@ -3,15 +3,21 @@
  * 編集セッションの自動同期 / Save / Discard 操作を content 取得層 (`usePreviewContent`) の
  * 状態に接続する。
  *
+ * 判定ロジックの実体は `previewEditPolicy.ts` (純粋関数、bun test 対象)。本 composable は
+ * store / ref から snapshot を組んで policy に渡し、結果を watch / computed / コマンド登録に
+ * 配線するだけの層で、それ自体はテストしない。
+ *
  * 編集セッション自体の状態 (draft / dirty / 保存) は `usePreviewEditStore` が SSOT。
  * 明示的な edit mode は存在せず、編集可能な content が表示されたら自動でセッションを張る
  * (常時編集。Edit ボタンは無い)。
  */
-import { computed, onUnmounted, watch } from "vue";
+import { computed, onScopeDispose, watch } from "vue";
 import { useCommandRegistry } from "../../shared/command";
 import { useChangesSummaryStore } from "../changes";
 import { usePrDiffToggleStore } from "../git-graph";
 import { useWorktreeStore } from "../worktree";
+import { isEditablePreview, resolveSessionTarget } from "./previewEditPolicy";
+import type { PreviewContentSnapshot } from "./previewEditPolicy";
 import type { PreviewContent } from "./usePreviewContent";
 import { usePreviewEditStore } from "./usePreviewEditStore";
 import { usePreviewStore } from "./usePreviewStore";
@@ -37,62 +43,36 @@ export function usePreviewEdit(content: PreviewContent) {
     isCommitMode,
   } = content;
 
-  /**
-   * Current タブでコード編集可能な状態か。template の CodePreview 描画条件をベースにしつつ、
-   * "current" モードだけに絞ったホワイトリストなので、template がそのまま描画する "original"
-   * (履歴表示、読み取り専用) はここでは false になる — 単純な描画条件のミラーではない。
-   */
-  const isCodePreviewActive = computed(() => {
-    if (isContentUnavailable.value) return false;
-    // "diff" だけでなく "original" (履歴表示) も除外する。ホワイトリストにすることで、
-    // 将来 PreviewMode が増えても「編集可能なのは current だけ」の意図を構造的に保つ。
-    if (activeMode.value !== "current") return false;
-    if (imageSource.value !== undefined) return false;
-    if (displayIsBinary.value) return false;
-    if (fileType.value === "markdown" && previewEnabled.value) return false;
-    if (fileType.value === "html" && previewEnabled.value) return false;
-    return displayContent.value !== undefined;
-  });
+  const snapshot = computed<PreviewContentSnapshot>(() => ({
+    isContentUnavailable: isContentUnavailable.value,
+    activeMode: activeMode.value,
+    hasImage: imageSource.value !== undefined,
+    displayIsBinary: displayIsBinary.value,
+    fileType: fileType.value,
+    previewEnabled: previewEnabled.value,
+    hasDisplayContent: displayContent.value !== undefined,
+    hasOriginalText: originalText.value !== undefined,
+    hasCurrentText: currentText.value !== undefined,
+  }));
 
-  /** template の DiffPreview 描画条件をミラーした判定。isEditable の Diff タブ許可に使う。
-   * diff はテキスト面 (currentText / originalText) でしか成立しない (バイナリは undefined)。 */
-  const isDiffPreviewActive = computed(() => {
-    if (isContentUnavailable.value) return false;
-    return (
-      activeMode.value === "diff" &&
-      originalText.value !== undefined &&
-      currentText.value !== undefined
-    );
-  });
-
-  /**
-   * 編集可能か。対象は worktree 相対パスの実ファイル (`fsWriteFile`) と worktree 外の
-   * 絶対パスの実ファイル (`fsWriteFileAbsolute`。設定 JSON 等)。commit / PR diff モードは
-   * git オブジェクトから取得した履歴表示なので編集対象にしないが、この gate は
-   * worktreeRelative にのみ適用する: absolute は git 文脈を持たず常に fs 実体の表示
-   * (`usePreviewContent` の absolute 分岐が commit 選択と無関係に fs 読みで確定する) のため、
-   * git-graph の commit 選択が同居していても編集を塞がない。編集面は Current タブ
-   * (CodePreview の editable) と Diff タブ (DiffPreview の Monaco diff editor、modified 側)。
-   * Original タブは履歴表示のため対象外。
-   */
-  const isEditable = computed(() => {
-    const sel = worktreeStore.selection;
-    if (sel === undefined) return false;
-    if (sel.kind === "worktreeRelative") {
-      if (isCommitMode.value) return false;
-      if (prDiffToggle.isOn) return false;
-    }
-    return isCodePreviewActive.value || isDiffPreviewActive.value;
-  });
+  const isEditable = computed(() =>
+    isEditablePreview(
+      {
+        selectionKind: worktreeStore.selection?.kind,
+        isCommitMode: isCommitMode.value,
+        prDiffOn: prDiffToggle.isOn,
+      },
+      snapshot.value,
+    ),
+  );
 
   /** Save / Discard ボタンの活性判定。編集内容の SSOT は editStore.draftContent。 */
   const isDirty = computed(() => editStore.isDirty);
 
   /**
-   * 編集セッションの自動同期。不変条件「セッションが存在 ⇔ popover 表示中 && summary 外 &&
-   * 編集可能な content 表示」の「張る」側を担う。畳む側は usePreviewStore.close() の
-   * endSession (popover 閉) と下の summary watch (summary 進入)、対象切替は usePreviewContent
-   * の main watch が endSession で先に畳む。
+   * 編集セッションの自動同期 (不変条件の「張る」側は `resolveSessionTarget` 参照)。畳む側は
+   * usePreviewStore.close() の endSession (popover 閉) と下の summary watch (summary 進入)、
+   * 対象切替は usePreviewContent の main watch が endSession で先に畳む。
    *
    * isOpen / summary.enabled をソースに含めるのは張り直しのため: close は endSession で
    * セッションを破棄するが、再 open では isEditable / currentText が変化しない (popover の
@@ -107,16 +87,18 @@ export function usePreviewEdit(content: PreviewContent) {
   watch(
     [() => previewStore.isOpen, () => summaryStore.enabled, isEditable, currentText] as const,
     ([open, summaryEnabled, editable, text]) => {
-      if (!open || summaryEnabled || !editable || text === undefined) return;
-      const sel = worktreeStore.selection;
-      if (sel?.kind === "absolute") {
-        editStore.beginSession({ kind: "absolute", absPath: sel.absPath }, text);
-        return;
-      }
-      const dir = worktreeStore.dir;
-      const relPath = worktreeStore.selectedRelPath;
-      if (dir === undefined || relPath === undefined) return;
-      editStore.beginSession({ kind: "worktreeRelative", dir, relPath }, text);
+      const target = resolveSessionTarget({
+        open,
+        summaryEnabled,
+        editable,
+        text,
+        selection: worktreeStore.selection,
+        dir: worktreeStore.dir,
+        relPath: worktreeStore.selectedRelPath,
+      });
+      // text の undefined は resolveSessionTarget 内で弾かれているが、型上ここでも絞る
+      if (target === undefined || text === undefined) return;
+      editStore.beginSession(target, text);
     },
     { immediate: true },
   );
@@ -150,7 +132,9 @@ export function usePreviewEdit(content: PreviewContent) {
    * Cmd+S 保存コマンド。`saveEdit` (楽観更新込み) を handler にするため、`currentContent` に
    * アクセスできる本 composable 内で直接 register する (registerMarkdownHistoryCommands のような
    * MainLayout 経由の外部登録にすると currentContent への参照を渡す経路が必要になり複雑化する)。
-   * PreviewPane は popover 要素として常時 mount される前提のため、onUnmounted は実質アプリ終了時のみ。
+   * PreviewPane は popover 要素として常時 mount される前提のため、dispose は実質アプリ終了時のみ。
+   * 解除は onScopeDispose に掛ける (component の setup scope は unmount で停止するため挙動は
+   * onUnmounted と同一。component インスタンス非依存で lifecycle を持ち込まない)。
    *
    * 編集セッションが無いときは何もせず false を返す。Cmd+S はブラウザ既定 (保存ダイアログ等) を
    * 「セッションがあるときだけ preventDefault で止める」挙動になり、他の textarea に
@@ -166,7 +150,7 @@ export function usePreviewEdit(content: PreviewContent) {
       return true;
     },
   });
-  onUnmounted(disposeSaveCommand);
+  onScopeDispose(disposeSaveCommand);
 
   return {
     isEditable,

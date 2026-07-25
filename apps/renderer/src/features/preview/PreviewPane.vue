@@ -415,8 +415,7 @@ function onCodeScrolled() {
 
     <!-- 選択中 -->
     <template v-else>
-      <!-- モードタブ + 本文が undock で引き継ぐ「中身」の単位 (undockPreview の実測対象)。
-           パネル側も同じ 2 段を描くため、この範囲を渡すと本文高が undock 前後で保たれる -->
+      <!-- undock が引き継ぐ「中身」の計測単位 (根拠は undockPreview)。畳むと計測対象が消える -->
       <div ref="paneContent" class="flex min-h-0 flex-1 flex-col">
         <PreviewToolbar
           v-model:active-mode="activeMode"

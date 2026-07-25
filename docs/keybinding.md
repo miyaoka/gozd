@@ -76,7 +76,7 @@ main window 側の割り当てを外す。
 
 ## 解決フロー
 
-keydown listener（capture phase）で以下の順に処理する。listener は**全ウィンドウの document に張り、解決系（command registry + context key）は単一を共有する**（VS Code が `onDidRegisterWindow` で全ウィンドウに同一 dispatcher を張るのと同じ構造）。main window は App.vue の `useKeyBindings()`、undock child window は ChildWindow の `useWindowKeyBindings(win)` が配線する。child 固有の割り当て（`childWindow.close` / `childWindow.save`）は `childWindowFocused` で分岐し、同じキーを持つ main window 側（`terminal.closePane` / `preview.close` / `preview.save`）が `!childWindowFocused` を持つことで排他になる。コマンドの対象になる「フォーカス中の child window」は floating-window の childWindowCommands が OS の focus / blur で追跡する。
+keydown listener（capture phase）で以下の順に処理する。listener は**全ウィンドウの document に張り、解決系（command registry + context key）は単一を共有する**（VS Code が `onDidRegisterWindow` で全ウィンドウに同一 dispatcher を張るのと同じ構造）。main window は App.vue の `useKeyBindings()`、undock child window は ChildWindow の `useWindowKeyBindings(win)` が配線する。同じキーに複数のサーフェスが並ぶとき、宛先はフォーカスで決める: フォーカス限定の割り当て（in-app undock パネルの `floatingWindow.close` / `floatingWindow.save`、child window の `childWindow.close` / `childWindow.save`）は `floatingWindowFocused` / `childWindowFocused` で分岐し、同じキーを持つ他方（`terminal.closePane` / `preview.close` / `preview.save`、および `floatingWindow.closeFront`）が対応する否定を持つことで排他になる。コマンドの対象になる「フォーカス中の child window / パネル」は floating-window の childWindowCommands / floatingWindowCommands が focus / blur で追跡する。
 
 ### 除外判定
 

@@ -45,7 +45,7 @@ focusout を floatingWindowCommands の activate / deactivate に変換する。
 <script setup lang="ts">
 import { TITLEBAR_HEIGHT } from "@gozd/shared";
 import { useEventListener } from "@vueuse/core";
-import { onMounted, onUnmounted, useTemplateRef, watch, type ComponentPublicInstance } from "vue";
+import { onMounted, onUnmounted, useTemplateRef, watch } from "vue";
 import { type ChildWindowInit, toChildWindowInit } from "./childWindowInit";
 import {
   activateFloatingWindow,
@@ -94,27 +94,26 @@ watch(
 );
 
 // ==== キー入力の宛先 (doc 参照) ====
-const handle: FloatingWindowHandle = {
+const focusHandle: FloatingWindowHandle = {
   requestClose: () => emit("closeRequested"),
   requestSave: () => emit("saveRequested"),
 };
 function onFocusIn() {
-  activateFloatingWindow(handle);
+  activateFloatingWindow(focusHandle);
 }
 function onFocusOut(event: FocusEvent) {
   // 子要素間のフォーカス移動 (Monaco → ボタン等) では解除しない
   const next = event.relatedTarget;
   if (next instanceof Node && rootRef.value?.contains(next) === true) return;
-  deactivateFloatingWindow(handle);
+  deactivateFloatingWindow(focusHandle);
 }
 // フォーカスされたまま unmount されると focusout が飛ばないことがあるため確実に解除する
-onUnmounted(() => deactivateFloatingWindow(handle));
+onUnmounted(() => deactivateFloatingWindow(focusHandle));
 
 /** ドラッグ / 描画クランプ時に画面内へ残すヘッダの掴み代 (px)。 */
 const GRAB_MARGIN = 80;
 
 const rootRef = useTemplateRef<HTMLElement>("root");
-const headerRef = useTemplateRef<ComponentPublicInstance>("header");
 
 // ドラッグ中の pointer と、pointer からウィンドウ原点へのオフセット。ドラッグ中のみ定義。
 let dragState: { pointerId: number; offsetX: number; offsetY: number } | undefined;
@@ -128,7 +127,9 @@ let dragState: { pointerId: number; offsetX: number; offsetY: number } | undefin
 // を足して border-box の総サイズへ換算する。
 onMounted(() => {
   const root = rootRef.value;
-  const header = headerRef.value?.$el;
+  // ヘッダは自テンプレートの先頭子 (子コンポーネントの $el を覗くと、その root 構造の変化で
+  // 実測が黙って飛ぶ)
+  const header = root?.firstElementChild;
   if (root === null || !(header instanceof HTMLElement)) return;
   const borderX = root.offsetWidth - root.clientWidth;
   const borderY = root.offsetHeight - root.clientHeight;
@@ -267,6 +268,14 @@ function onHeaderPointerDown(event: PointerEvent) {
 // 常時登録しつつ dragState の有無でゲートする。
 useEventListener(window, "pointermove", (event: PointerEvent) => {
   if (dragState === undefined || event.pointerId !== dragState.pointerId) return;
+  // ボタンが押されていないならそのドラッグは終わっている。handoff は mount 時に一度だけ
+  // 武装するが、prop は consumer が setup で 1 回消費した値を渡し続けるため、再 mount
+  // (昇格失敗の demote) で終了済みのドラッグが蘇る。pointerup が別ウィンドウに取られて
+  // 届かなかった取りこぼしも同じ形で閉じる (touch / pen は接触中 buttons !== 0)
+  if (event.buttons === 0) {
+    dragState = undefined;
+    return;
+  }
   const root = rootRef.value;
   if (root === null) return;
   // ヘッダが掴めない位置に逃げないようクランプする。x は左右に GRAB_MARGIN 分だけ
@@ -310,7 +319,7 @@ useEventListener(window, "pointercancel", endDrag);
   >
     <!-- ヘッダ全体がドラッグハンドル。枠は共通の UndockedWindowHeader、内容は slot。
          シェルのボタンは trailing に置き、pointerdown.stop でドラッグ開始に食われないようにする -->
-    <UndockedWindowHeader ref="header" draggable @pointerdown="onHeaderPointerDown">
+    <UndockedWindowHeader grabbable @pointerdown="onHeaderPointerDown">
       <template #header>
         <slot name="header" />
       </template>

@@ -176,7 +176,8 @@ export function createFloatingWindows<T>() {
   /**
    * 昇格の取り消し (in-app パネルへ引き返す)。OS ウィンドウの生成失敗だけが呼ぶ経路で、
    * entry を消す代わりにパネルへ戻すことで payload (preview なら移動済みの未保存 draft) を
-   * 失わせない。
+   * 失わせない。引き返し先のサイズは undock 時点の値 (リサイズ後の実サイズは inline style
+   * にしか無く store へ書き戻していないため、昇格前にリサイズしていたぶんは巻き戻る)。
    */
   function demote(id: number) {
     const win = windows.value.find((w) => w.id === id);

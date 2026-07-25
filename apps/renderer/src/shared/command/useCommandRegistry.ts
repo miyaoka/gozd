@@ -1,6 +1,9 @@
 /**
  * コマンドレジストリ。module singleton パターン。
- * コマンド ID → エントリ（handler + label）のマッピングを管理する。
+ * コマンド ID → エントリ（handler / label / precondition / 既定 keybinding）の登録簿。
+ *
+ * 既定 keybinding が記述子に同居するため、打鍵から実行コマンドを決める解決点もここが持つ
+ * （`resolveKeyBinding`）。listener を張るのは useKeyBindings 側。
  */
 import { tryCatch } from "@gozd/shared";
 import { matchKeyStroke, parseKeyStroke } from "./parseKeyStroke";

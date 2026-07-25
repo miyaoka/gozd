@@ -13,7 +13,7 @@ flowchart TB
         MENU[メニュー]
     end
 
-    subgraph command [features/command]
+    subgraph command [shared/command]
         CR[useCommandRegistry]
         CK[useContextKeys]
     end

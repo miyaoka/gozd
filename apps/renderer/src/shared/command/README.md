@@ -7,9 +7,9 @@
 
 ```
 types.ts                 ← 型定義の集約（循環 import 防止）
-useCommandRegistry.ts    ← コマンドレジストリ（module singleton）
+useCommandRegistry.ts    ← コマンドレジストリ + 打鍵からの解決（module singleton）
 useContextKeys.ts        ← context key 管理（module singleton）
-useKeyBindings.ts        ← keydown listener + ディスパッチ
+useKeyBindings.ts        ← keydown listener（解決は registry に委ねる）
 parseKeyStroke.ts        ← key 文字列 → KeyStroke 変換
 parseWhen.ts             ← when 文字列 → When AST 変換
 ```
@@ -73,7 +73,7 @@ atom     = "!" atom | contextKey
 - `evaluate(when)` で When AST を現在の state で再帰評価
 - `undefined` は常に true（when なし = 無条件）
 
-## useKeyBindings — ディスパッチ
+## ディスパッチ（listener は useKeyBindings、解決は useCommandRegistry）
 
 keydown listener（capture phase）を**ウィンドウごとの document** に張り、解決系（command registry + context key）は単一を共有する。main window は `useKeyBindings()`（App.vue で 1 回）、child window は `useWindowKeyBindings(win)`（ウィンドウ生成側コンポーネントの setup で呼び、listener 寿命はその effect scope に載る）。
 
@@ -89,7 +89,7 @@ keydown listener（capture phase）を**ウィンドウごとの document** に�
 
 input/textarea/contenteditable のフォーカス除外は `shouldHandle` 内では行わない。keydown を受けた document の `activeElement` から `inputFocused` context key を評価直前に書き、各 keybinding 側が `when` 句（例: `terminalFocus && !inputFocused`）で gating する設計（VS Code の `inputFocus` と同じパターン）。共有 state を先回り更新せず都度読む理由は `useKeyBindings.ts` のコメントを参照。
 
-### 照合
+### 照合（useCommandRegistry 側）
 
 key 文字列 / when 文字列は `register()` 時に parse し、when は precondition と AND して entry に
 持たせる。keydown 時は registry の `resolveKeyBinding(stroke)` が登録済みコマンドを走査し、

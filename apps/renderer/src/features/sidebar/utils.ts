@@ -1,11 +1,5 @@
 import type { Task, WorktreeEntry } from "@gozd/rpc";
-import type { RepoState } from "../../shared/repo";
-import {
-  dirsOfRepo,
-  resolveDisplayTitle,
-  taskDisplayTitle,
-  taskNumberPrefix,
-} from "../../shared/repo";
+import { resolveDisplayTitle, taskDisplayTitle, taskNumberPrefix } from "../../shared/repo";
 
 const DETACHED_BRANCH_LABEL = "(detached)";
 
@@ -39,31 +33,18 @@ export function worktreeDisplayName(wt: WorktreeEntry): string {
   return branchLabel(wt.branch);
 }
 
+/**
+ * task 行の並び順。`createdAt` (静的) だけをキーにする。state や lastActivityAt のような
+ * 動的値を混ぜると Claude の活動ごとに行位置が入れ替わり、ユーザーが「どこに何の task が
+ * あるか」を空間記憶で辿れなくなる。同じ task 集合を wt カードと active session ペインの
+ * 2 面に出すため、並びの規律も 2 面で共有する。
+ */
+export function compareTaskOrder(a: Task, b: Task): number {
+  return Date.parse(a.createdAt) - Date.parse(b.createdAt);
+}
+
 /** 変更ファイルがあるかどうか */
 export function hasChanges(gitStatuses: Record<string, string> | undefined): boolean {
   if (!gitStatuses) return false;
   return Object.keys(gitStatuses).length > 0;
-}
-
-/**
- * claude ビュー中に sidebar へ表示する rootDir 群。Claude セッションが動いている dir
- * （claudeActiveDirs）を所有する repo だけ残す。repo → dir 群の分岐は `dirsOfRepo` が SSOT。
- *
- * フィルタ結果が空のときは dirOrder 全体に倒す: 最後の active-claude worktree を削除すると、
- * repos からの worktree 除去（同期）と Claude セッションの teardown（RPC 往復後に leaf が
- * 消え viewMode が wt へ fallback）に時差があり、その間だけ全 repo がフィルタから外れる。
- * この一過性の窓で空のサイドバーを出さないための guard。
- */
-export function filterClaudeActiveRootDirs(
-  dirOrder: readonly string[],
-  repos: Readonly<Record<string, RepoState>>,
-  claudeActiveDirs: ReadonlySet<string>,
-): readonly string[] {
-  const filtered = dirOrder.filter((rootDir) => {
-    const repo = repos[rootDir];
-    if (repo === undefined) return false;
-    return dirsOfRepo(repo).some((dir) => claudeActiveDirs.has(dir));
-  });
-  if (filtered.length === 0) return dirOrder;
-  return filtered;
 }

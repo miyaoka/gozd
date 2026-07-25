@@ -4,27 +4,27 @@
 
 ## レイアウト構成
 
-- **トップツールバー**: 左に view mode トグル (active worktree / claude terminals)、右に時計 / SFX
+- **トップツールバー**: 左に view mode トグル (active worktree / claude terminals。ターミナルの
+  タイル表示だけに効き、サイドバーの表示内容は変えない)、右に時計 / SFX
 - **repo list バー**: 編集トグルをツールバーではなくこのバーに置くのは、編集の対象がこの
-  バー以下のリストエリアに閉じるため（配置と作用範囲の対応づけ）。表示は 3 態:
+  バー以下のリストエリアに閉じるため（配置と作用範囲の対応づけ）。表示は 2 態:
   - 通常モード: chip 列（クリックでアクティブ repo list を切り替えるだけ）+ 右端に鉛筆
-  - claude ビュー中（非編集）: chip 列の代わりにスコープ表記（bot アイコン + "Claude
-    terminals"）。repo セクションが poolDirs 母集団になり list と対応しなくなるため、
-    chip（= アクティブ list の表示機能）を出すと表示とスコープが食い違う
   - 編集モード: 専用ヘッダ（左に "Edit list" タイトル / 右に Done ボタン）+ 全幅の縦一覧
     (`ListRow`)。行 drag で list の並び替え、行クリックで切り替え、行 hover の ⋮ で
     ListMenu（Rename → ListEditDialog / Delete → 確認ダイアログ）。末尾に `New list`。
     rename / delete を常時露出させないのは delete が気軽に押す操作ではないため
     （repo / wt 行の ⋮ メニューと同じ流儀）。トグルを一覧の右隣に置くと右端の縦スペースが
     列ごと専有されるため、編集中の出口はヘッダ行の Done に置く
-- **アクティブ repo list の dirOrder の各 repo** に対して `RepoSection` を縦に並べる。
-  空リストは通常モードで操作の手がかりが消えるため、empty state（"This list is empty" +
-  Edit list ボタンで編集モードへ）を出す
-- **claude ビュー中のフィルタ**: `terminalStore.claudeActiveDirs` に該当する dir を持つ repo だけ表示
-  (worktree / task の絞り込みは RepoSection / WtCard が同じキーで行う)。編集モード中は解除する。
-  フィルタ対象は repo list ではなく **プール全体 (poolDirs)**: terminal のタイルは repo list と
-  無関係に全 dir から出るため、repo list で絞るとタイルとサイドバーの見えている対象がずれる。
-  並び替えの `move()` は dirOrder 全体の index で動くため、repo が隠れたまま drag すると操作結果がずれる
+- **縦 2 分割**: 上段 = repo 一覧（flex-1）、下段 = `ActiveSessionsPane`（固定高さ + ResizeHandle）。
+  上段は「どこで作業するか」の地図としてアクティブ repo list の dirOrder 全体を常に出し、
+  下段は「いま何が動いているか」を常時出す。上段をモードで絞らないのは、絞ると
+  切り替えのたびに repo 一覧が消えて操作の起点が失われるため（下段が常設なので絞る必要もない）
+- **分割の境界**: 分割コンテナの `gap` でハンドルの上下に余白を置き、両ペインの外側に
+  サイドバー地の溝を作る。上段はスクロール途中だとカードが縁で切れるため、余白を
+  ペインの内側（padding）で作ると境界が生まれない。下段側は塗り（`ActiveSessionsPane`）で
+  受ける
+- **上段の各 repo** に対して `RepoSection` を縦に並べる。空リストは通常モードで操作の
+  手がかりが消えるため、empty state（"This list is empty" + Edit list ボタンで編集モードへ）を出す
 - 各 RepoSection は header (folder + repo 名) + WtCard 列 (main wt 先頭固定) + `+ New worktree`
 - 編集モード中: 全 section が collapsed + drag で並び替え + ✕ で削除。リスト末尾は
   divider で区切った 2 セクション: 「Add from other lists」（既存プール repo の候補。
@@ -47,6 +47,11 @@ repo が他 repo list にも属していれば「アクティブ repo list か�
 
 ## 責務分離
 
+- `ActiveSessionsPane` — 下段（動いている Claude セッション一覧）。行の選択とメニューは
+  SidebarPane が emit を受けて処理する。ただし選択の意味論は上段と別で、下段は viewMode を
+  倒さず focus 追従だけを行う（`onSelectSession*`）
+- `useActiveSessions` — 下段の母集団（`ActiveSessionGroup[]`）。SidebarPane（分割枠の
+  出し分け）と ActiveSessionsPane（中身）の両方が同じ集合を見る
 - `useSidebarData` — fetch (per-repo) と terminal title → task body 同期
 - `useWorktreeActions` — worktree CRUD (rootDir 引数で対象 repo を特定)
 - `useDialogs` — 確認ダイアログ
@@ -60,16 +65,18 @@ import { move } from "@dnd-kit/helpers";
 import { DragDropProvider } from "@dnd-kit/vue";
 import type { Task, WorktreeEntry } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
+import { useElementSize } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { useRepoStore } from "../../shared/repo";
 import { useArcadeStore } from "../arcade";
-import { rpcPickAndOpen } from "../layout";
+import { rpcPickAndOpen, ResizeHandle } from "../layout";
 import { RepoIcon } from "../repo-icon";
 import { SessionLogDialog } from "../session-log";
 import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
+import ActiveSessionsPane from "./ActiveSessionsPane.vue";
 import { RepoSection } from "./features/repo";
 import { useWorktreeActions } from "./features/worktree";
 import ListEditDialog from "./ListEditDialog.vue";
@@ -80,6 +87,7 @@ import { rpcTaskRemove, rpcTaskRemoveByWorktree } from "./rpc";
 import SidebarClock from "./SidebarClock.vue";
 import TaskEditDialog from "./TaskEditDialog.vue";
 import TaskMenu from "./TaskMenu.vue";
+import { useActiveSessions } from "./useActiveSessions";
 import { useDialogs } from "./useDialogs";
 import { useListEditing } from "./useListEditing";
 import { useListMenu } from "./useListMenu";
@@ -87,7 +95,7 @@ import { useRepoMenu } from "./useRepoMenu";
 import { useSidebarData } from "./useSidebarData";
 import { useTaskMenu } from "./useTaskMenu";
 import { useWorktreeMenu } from "./useWorktreeMenu";
-import { filterClaudeActiveRootDirs, worktreeDisplayName } from "./utils";
+import { worktreeDisplayName } from "./utils";
 import VoicevoxPanel from "./VoicevoxPanel.vue";
 import WorktreeMenu from "./WorktreeMenu.vue";
 import IconLucideBot from "~icons/lucide/bot";
@@ -97,6 +105,13 @@ import IconLucidePencil from "~icons/lucide/pencil";
 import IconLucidePlus from "~icons/lucide/plus";
 import IconLucideVolume2 from "~icons/lucide/volume-2";
 import IconLucideVolumeOff from "~icons/lucide/volume-off";
+
+/** リサイズハンドルの高さ h-2 = 8px */
+const HANDLE_HEIGHT = 8;
+/** 上下ペインの間の余白 gap-2 = 8px（ハンドルの上下に 1 つずつ入る） */
+const SPLIT_GAP = 8;
+const REPO_LIST_MIN_HEIGHT = 120;
+const SESSIONS_MIN_HEIGHT = 80;
 
 const repoStore = useRepoStore();
 const worktreeStore = useWorktreeStore();
@@ -173,15 +188,52 @@ function onSelectTask(wt: WorktreeEntry, task: Task) {
   }
   handleWorktreeSelect(wt);
   const leafId = terminalStore.getLeafIdByPtyId(ptyId);
-  if (leafId === undefined) return;
+  if (leafId === undefined) {
+    // live PTY があるのに leaf が引けないのは paneRegistry の不整合。到達すると
+    // 「クリックしたのに何も起きない」だけになり痕跡が残らないため観察ログを残す
+    console.error(`[onSelectTask] no leaf for pty ptyId=${ptyId} dir=${wt.path}`);
+    return;
+  }
   terminalStore.focusPane(leafId);
 }
 
-/** 指定 wt 内で focus が当たっている PTY の ptyId。task ↔ ヘッダの capsule 二者択一に使う */
-function getFocusedPtyId(dir: string): number | undefined {
-  const focusedLeafId = terminalStore.layoutsByDir[dir]?.focusedLeafId;
-  if (focusedLeafId === undefined) return undefined;
-  return terminalStore.getPtyId(focusedLeafId);
+// --- 下段（active session ペイン）の選択 ---
+//
+// 上段と違い viewMode を倒さない。下段のクリックは「動いているタイルへ focus を移す」
+// 操作で、docs/terminal.md の「横断ビュー（all / claude）では focus 追従のみ行い viewMode は
+// 変更しない」規律と同じ意味論になる。selectDir（= wt ビューへ移動する）を通すと、claude
+// タイル表示中に下段を触った瞬間にタイルが畳まれ、常設ペインとして使えない。
+//
+// 下段の行は live session を持つ task だけなので（collectActiveSessionGroups が status で
+// 絞る）、上段の onSelectTask が持つ「未起動なら起動 / resumable なら resume」の分岐は
+// 到達しない。ここは focus 移動だけを扱う。
+
+function onSelectSessionDir(dir: string) {
+  worktreeStore.setOpen(dir);
+}
+
+function onSelectSessionWt(wt: WorktreeEntry) {
+  worktreeStore.setOpen(wt.path);
+}
+
+// lookup が両方成功するのは下段の不変条件（行は live session を持つ task だけ）だが、
+// 破れると「クリックしたのに何も起きない」だけになり痕跡が残らない。到達しないなら
+// コストは無く、不変条件が破れた瞬間だけ検出できるので観察ログを残す。
+function onSelectSessionTask(wt: WorktreeEntry, task: Task) {
+  worktreeStore.setOpen(wt.path);
+  const ptyId = terminalStore.getPtyIdBySessionId(task.sessionId);
+  if (ptyId === undefined) {
+    console.error(
+      `[onSelectSessionTask] no pty for session sessionId=${task.sessionId} dir=${wt.path}`,
+    );
+    return;
+  }
+  const leafId = terminalStore.getLeafIdByPtyId(ptyId);
+  if (leafId === undefined) {
+    console.error(`[onSelectSessionTask] no leaf for pty ptyId=${ptyId} dir=${wt.path}`);
+    return;
+  }
+  terminalStore.focusPane(leafId);
 }
 
 async function handleTaskRemove(rootDir: string, task: Task) {
@@ -276,18 +328,6 @@ function toggleEditMode() {
   editMode.value = !editMode.value;
 }
 
-// claude ビュー中は Claude セッションが動いている dir を持つ repo だけに絞る。
-// フィルタ母集団はアクティブ repo list ではなくプール全体（理由は <doc> 参照）。
-// 編集モード中はフィルタ解除（理由は <doc> 参照）。
-const visibleRootDirs = computed(() => {
-  if (editMode.value || terminalStore.viewMode !== "claude") return repoStore.dirOrder;
-  return filterClaudeActiveRootDirs(
-    repoStore.poolDirs,
-    repoStore.repos,
-    terminalStore.claudeActiveDirs,
-  );
-});
-
 // --- repo list 操作 ---
 //
 // rename / delete は list 行（編集モードの縦一覧）の ⋮ メニュー経由の明示操作に限定する。
@@ -377,8 +417,8 @@ watch(
     if (editMode.value) return;
     const owner = repoStore.findRepoOwning(dir);
     if (owner !== undefined) {
-      // アクティブ repo list がその repo を含まないと、wt ビューに戻ったとき active wt が
-      // サイドバーに見えない（claude ビューは poolDirs 母集団なので別 list の repo でも
+      // アクティブ repo list がその repo を含まないと、上段の repo 一覧に active wt が
+      // 見えない（active session ペインは poolDirs 母集団なので別 list の repo でも
       // 選択できる）。含む list へ表示も追従させる（選定ポリシーは store 側が SSOT）。
       repoStore.activateRepoListContaining(owner.rootDir);
       // 畳まれた repo の中にいると WtCard が v-if で出ていないので開く。
@@ -395,6 +435,47 @@ watch(
   },
   { immediate: true, flush: "post" },
 );
+
+// --- 縦 2 分割（上: repo 一覧 / 下: active session ペイン） ---
+//
+// 下段は「いま何が動いているか」を常時見せる面。session が 0 件のときはヘッダだけの
+// 高さに畳み、リサイズハンドルも出さない（空の箱で狭いサイドバーの縦を占有しない）。
+const activeSessions = useActiveSessions();
+
+const splitContainerRef = useTemplateRef<HTMLElement>("splitContainer");
+const sessionsPaneRef = useTemplateRef<HTMLElement>("sessionsPane");
+const { height: splitContainerHeight } = useElementSize(splitContainerRef);
+
+/** ドラッグで決まる下段の高さ（ユーザー意図）。実際に適用する高さは制約を掛けた computed */
+const sessionsHeight = ref(220);
+
+/**
+ * 実際に適用する下段の高さ。意図をそのまま高さにすると、ウィンドウ縮小や
+ * 「session 0 件 → 出現」で上段が最小高さを割り込む。意図（ref）と適用値（computed）を
+ * 分けることで、狭い状態を経由しても元の高さ意図が失われない（clamp で ref を書き潰さない）。
+ *
+ * 両方の最小を同時に満たせない高さでは **下段の最小を優先** する（潰れると「動いているものを
+ * 見る」というペインの存在意義が消えるため）。ただし分割に使える総高は超えない。window に
+ * minHeight が無く、縦に潰せばこの領域に到達する。
+ * useElementSize は mount 直後 0 を返すため、計測前は意図をそのまま使う。
+ */
+const appliedSessionsHeight = computed(() => {
+  if (splitContainerHeight.value <= 0) return sessionsHeight.value;
+  const available = splitContainerHeight.value - HANDLE_HEIGHT - SPLIT_GAP * 2;
+  const withRepoListMin = available - REPO_LIST_MIN_HEIGHT;
+  const max = Math.min(available, Math.max(SESSIONS_MIN_HEIGHT, withRepoListMin));
+  return Math.max(0, Math.min(sessionsHeight.value, max));
+});
+
+/** repo 一覧スクロール領域の DOM 実測高さ（flex-1 のため v-model 不可） */
+function getRepoListHeight(): number {
+  return scrollContainer.value?.offsetHeight ?? REPO_LIST_MIN_HEIGHT;
+}
+
+/** 下段の DOM 実測高さ。ドラッグ開始点を画面の実体に合わせる（意図 ref は clamp 済みとは限らない） */
+function getSessionsHeight(): number {
+  return sessionsPaneRef.value?.offsetHeight ?? appliedSessionsHeight.value;
+}
 </script>
 
 <template>
@@ -446,18 +527,7 @@ watch(
          配置で対応づける -->
     <!-- 通常モード: chip 列（切り替えのみ）+ 右端に鉛筆 -->
     <div v-if="!editMode" class="flex items-start gap-1 px-2 pt-3 pb-1">
-      <!-- claude ビュー中は chip 列をスコープ表記に置き換える。chip は「アクティブ repo list の
-           表示」機能だが、claude ビューの repo セクションは poolDirs 母集団で list 外の repo も
-           出るため、chip を出すと「切り替えても表示が変わらない / list に無い repo が見える」
-           という表示とスコープの不一致が生じる。表記は view mode トグルと同語彙で対応づける -->
-      <div
-        v-if="terminalStore.viewMode === 'claude'"
-        class="flex min-w-0 flex-1 items-center gap-1.5 px-1 py-0.5 text-xs text-foreground-low"
-      >
-        <IconLucideBot class="size-3.5 shrink-0" />
-        <span class="truncate">Claude terminals</span>
-      </div>
-      <div v-else class="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+      <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1">
         <button
           v-for="pl in repoStore.repoLists"
           :key="pl.id"
@@ -523,89 +593,119 @@ watch(
       </div>
     </template>
 
-    <!-- 上 padding は repo list バー側の pb-1 が担うため詰める（pt-4 を残すと二重で不自然な
-         空白になる）。下は overscroll の余白として pb-4 を保つ -->
-    <div
-      ref="scrollContainer"
-      class="_thin-scrollbar flex flex-1 flex-col overflow-y-scroll pt-1 pb-4"
-    >
-      <!-- 空リストの empty state: 通常モードでは repo が 1 つも描画されず操作の手がかりが
-           消えるため、編集モード（Add from other lists / Open directory… が出る）への
-           導線を明示する。編集モード中は追加導線自体が出ているので不要 -->
+    <!-- 縦 2 分割コンテナ: 上 = repo 一覧（flex-1）/ 下 = active session ペイン（固定高さ）。
+         クランプ計算がこの領域の実高を必要とするため、計測用に 1 段包む。
+         gap はハンドルの上下に入り、両ペインの外側にサイドバー地の溝を作る（上段は
+         スクロール途中だとカードが縁で切れるため、余白はペインの内側では作れない） -->
+    <div ref="splitContainer" class="flex min-h-0 flex-1 flex-col gap-2">
+      <!-- padding は上下対称。repo list バー側の余白と RepoSection 自身の下端余白が既に
+           あるため、ここは最小の内側クリアランスだけを持つ -->
       <div
-        v-if="!editMode && visibleRootDirs.length === 0"
-        class="flex flex-col items-center gap-3 px-4 py-8"
+        ref="scrollContainer"
+        class="_thin-scrollbar flex min-h-0 flex-1 flex-col overflow-y-scroll py-1"
       >
-        <p class="text-xs text-foreground-muted">This list is empty</p>
-        <button
-          type="button"
-          class="flex items-center gap-1.5 rounded-md bg-element px-3 py-1.5 text-xs text-foreground hover:bg-element-hover"
-          @click="editMode = true"
+        <!-- 空リストの empty state: 通常モードでは repo が 1 つも描画されず操作の手がかりが
+             消えるため、編集モード（Add from other lists / Open directory… が出る）への
+             導線を明示する。編集モード中は追加導線自体が出ているので不要 -->
+        <div
+          v-if="!editMode && repoStore.dirOrder.length === 0"
+          class="flex flex-col items-center gap-3 px-4 py-8"
         >
-          <IconLucidePencil class="size-3.5" />
-          <span>Edit list</span>
-        </button>
+          <p class="text-xs text-foreground-muted">This list is empty</p>
+          <button
+            type="button"
+            class="flex items-center gap-1.5 rounded-md bg-element px-3 py-1.5 text-xs text-foreground hover:bg-element-hover"
+            @click="editMode = true"
+          >
+            <IconLucidePencil class="size-3.5" />
+            <span>Edit list</span>
+          </button>
+        </div>
+
+        <DragDropProvider @drag-end="onDragEnd">
+          <RepoSection
+            v-for="(rootDir, i) in repoStore.dirOrder"
+            :key="rootDir"
+            :root-dir="rootDir"
+            :index="i"
+            :edit-mode="editMode"
+            :removes-from-window="removesFromWindow(rootDir)"
+            :active-dir="worktreeStore.dir"
+            :is-creating="isCreatingFor(rootDir)"
+            @remove-repo="onRemoveRepo"
+            @select-root="onSelectRoot"
+            @select-wt="onSelectWt"
+            @select-task="onSelectTask"
+            @add-worktree="addWorktree"
+            @open-worktree-menu="onOpenWorktreeMenu"
+            @open-task-menu="onOpenTaskMenu"
+            @open-repo-menu="onOpenRepoMenu"
+          />
+        </DragDropProvider>
+
+        <!-- 編集モード: 既存プール repo（他 repo list にのみ所属）の候補。RepoSection と同じ
+             RepoIcon + repo 名の行で「既にある repo をこの repo list に載せる」ことを示し、
+             ディスクからの新規追加 (Open directory…) と描き分ける -->
+        <div
+          v-if="editMode && addableRootDirs.length > 0"
+          class="mx-1 mt-2 border-t border-border-subtle pt-2"
+        >
+          <div class="px-2 pb-1 text-xs text-foreground-muted">Add from other lists</div>
+          <button
+            v-for="rootDir in addableRootDirs"
+            :key="rootDir"
+            type="button"
+            class="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-foreground-low hover:bg-panel hover:text-foreground"
+            :title="rootDir"
+            :aria-label="`Add ${repoNameOf(rootDir)} to this repo list`"
+            @click="repoStore.ensureInActiveRepoList(rootDir)"
+          >
+            <RepoIcon :name="repoNameOf(rootDir)" :owner="repoOwnerOf(rootDir)" />
+            <span class="min-w-0 flex-1 truncate text-sm font-semibold tracking-wide">
+              {{ repoNameOf(rootDir) }}
+            </span>
+            <IconLucidePlus class="size-4 shrink-0" />
+          </button>
+        </div>
+
+        <!-- 新規ディレクトリ追加。既存 repo 候補とは divider で分離し、folder-plus で
+             「ディスクから新しく開く」操作であることを示す -->
+        <div v-if="editMode" class="mx-1 mt-2 border-t border-border-subtle pt-2">
+          <button
+            type="button"
+            class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground-low hover:bg-panel hover:text-foreground"
+            title="Open directory…"
+            @click="onAddDir"
+          >
+            <IconLucideFolderPlus class="size-4 shrink-0" />
+            <span>Open directory…</span>
+          </button>
+        </div>
       </div>
 
-      <DragDropProvider @drag-end="onDragEnd">
-        <RepoSection
-          v-for="(rootDir, i) in visibleRootDirs"
-          :key="rootDir"
-          :root-dir="rootDir"
-          :index="i"
-          :edit-mode="editMode"
-          :removes-from-window="removesFromWindow(rootDir)"
-          :active-dir="worktreeStore.dir"
-          :is-creating="isCreatingFor(rootDir)"
-          :get-focused-pty-id="getFocusedPtyId"
-          @remove-repo="onRemoveRepo"
-          @select-root="onSelectRoot"
-          @select-wt="onSelectWt"
-          @select-task="onSelectTask"
-          @add-worktree="addWorktree"
-          @open-worktree-menu="onOpenWorktreeMenu"
+      <!-- 下段: active session ペイン。session が 0 件のときはハンドルを出さず、ペインは
+           ヘッダ高さに畳む（掴んでも動かせない境界を見せない）。
+           p-1 はプレートを四辺とも浮かせるための余地で、囲い（common region）を成立させる -->
+      <ResizeHandle
+        v-if="activeSessions.length > 0"
+        v-model:after-size="sessionsHeight"
+        direction="vertical"
+        :before-min-size="REPO_LIST_MIN_HEIGHT"
+        :after-min-size="SESSIONS_MIN_HEIGHT"
+        :get-before-size="getRepoListHeight"
+        :get-after-size="getSessionsHeight"
+      />
+      <div
+        ref="sessionsPane"
+        class="shrink-0 overflow-hidden p-1"
+        :style="activeSessions.length > 0 ? { height: `${appliedSessionsHeight}px` } : undefined"
+      >
+        <ActiveSessionsPane
+          @select-dir="onSelectSessionDir"
+          @select-wt="onSelectSessionWt"
+          @select-task="onSelectSessionTask"
           @open-task-menu="onOpenTaskMenu"
-          @open-repo-menu="onOpenRepoMenu"
         />
-      </DragDropProvider>
-
-      <!-- 編集モード: 既存プール repo（他 repo list にのみ所属）の候補。RepoSection と同じ
-           RepoIcon + repo 名の行で「既にある repo をこの repo list に載せる」ことを示し、
-           ディスクからの新規追加 (Open directory…) と描き分ける -->
-      <div
-        v-if="editMode && addableRootDirs.length > 0"
-        class="mx-1 mt-2 border-t border-border-subtle pt-2"
-      >
-        <div class="px-2 pb-1 text-xs text-foreground-muted">Add from other lists</div>
-        <button
-          v-for="rootDir in addableRootDirs"
-          :key="rootDir"
-          type="button"
-          class="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-foreground-low hover:bg-panel hover:text-foreground"
-          :title="rootDir"
-          :aria-label="`Add ${repoNameOf(rootDir)} to this repo list`"
-          @click="repoStore.ensureInActiveRepoList(rootDir)"
-        >
-          <RepoIcon :name="repoNameOf(rootDir)" :owner="repoOwnerOf(rootDir)" />
-          <span class="min-w-0 flex-1 truncate text-sm font-semibold tracking-wide">
-            {{ repoNameOf(rootDir) }}
-          </span>
-          <IconLucidePlus class="size-4 shrink-0" />
-        </button>
-      </div>
-
-      <!-- 新規ディレクトリ追加。既存 repo 候補とは divider で分離し、folder-plus で
-           「ディスクから新しく開く」操作であることを示す -->
-      <div v-if="editMode" class="mx-1 mt-2 border-t border-border-subtle pt-2">
-        <button
-          type="button"
-          class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground-low hover:bg-panel hover:text-foreground"
-          title="Open directory…"
-          @click="onAddDir"
-        >
-          <IconLucideFolderPlus class="size-4 shrink-0" />
-          <span>Open directory…</span>
-        </button>
       </div>
     </div>
 

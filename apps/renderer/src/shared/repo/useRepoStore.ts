@@ -26,14 +26,24 @@ export interface RepoState {
   githubIdentity?: { owner: string; repo: string };
 }
 
+/** repo が所有する dir 1 件。非 git project は rootDir 自身を指すため worktree を持たない */
+export interface RepoDirEntry {
+  dir: string;
+  worktree: WorktreeEntry | undefined;
+}
+
 /**
- * repo を代表する dir 群。git repo は配下の全 worktree path、非 git は rootDir 自身。
+ * repo を代表する dir 群。git repo は配下の全 worktree、非 git は rootDir 自身。
  * 「repo → その repo が所有する dir 集合」の分岐ルールはここが SSOT で、
- * fs watch 対象（`collectFsWatchTargetDirs`）が使う。
+ * fs watch 対象（`collectFsWatchTargetDirs`）と sidebar の active session ペイン
+ * （`collectActiveSessionGroups`）が共有する。
+ *
+ * dir だけでなく worktree entry も返すのは、消費者の片方が dir から worktree を
+ * 引き直す必要があるため。dir だけを返すと同じ分岐が呼び出し側で再実装される。
  */
-export function dirsOfRepo(repo: RepoState): string[] {
-  if (!repo.isGitRepo) return [repo.rootDir];
-  return repo.worktrees.map((wt) => wt.path);
+export function repoDirEntries(repo: RepoState): RepoDirEntry[] {
+  if (!repo.isGitRepo) return [{ dir: repo.rootDir, worktree: undefined }];
+  return repo.worktrees.map((worktree) => ({ dir: worktree.path, worktree }));
 }
 
 /**
@@ -49,7 +59,7 @@ export function collectFsWatchTargetDirs(
   for (const rootDir of dirOrder) {
     const repo = repos[rootDir];
     if (repo === undefined) continue;
-    for (const dir of dirsOfRepo(repo)) {
+    for (const { dir } of repoDirEntries(repo)) {
       dirs.add(dir);
     }
   }

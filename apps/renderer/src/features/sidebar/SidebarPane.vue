@@ -47,11 +47,11 @@ repo が他 repo list にも属していれば「アクティブ repo list か�
 
 ## 責務分離
 
-- `ActiveSessionsPane` — 下段（動いている Claude セッション一覧）。行の選択・メニューは
-  上段と同じハンドラを使うため、SidebarPane が emit を受けて処理する（ハンドラの重複定義を
-  作らない）
-- `useActiveSessionRootDirs` — 下段の母集団。SidebarPane（分割枠の出し分け）と
-  ActiveSessionsPane（中身）の両方が同じ集合を見る
+- `ActiveSessionsPane` — 下段（動いている Claude セッション一覧）。行の選択とメニューは
+  SidebarPane が emit を受けて処理する。ただし選択の意味論は上段と別で、下段は viewMode を
+  倒さず focus 追従だけを行う（`onSelectSession*`）
+- `useActiveSessions` — 下段の母集団（`ActiveSessionGroup[]`）。SidebarPane（分割枠の
+  出し分け）と ActiveSessionsPane（中身）の両方が同じ集合を見る
 - `useSidebarData` — fetch (per-repo) と terminal title → task body 同期
 - `useWorktreeActions` — worktree CRUD (rootDir 引数で対象 repo を特定)
 - `useDialogs` — 確認ダイアログ
@@ -192,11 +192,32 @@ function onSelectTask(wt: WorktreeEntry, task: Task) {
   terminalStore.focusPane(leafId);
 }
 
-/** 指定 wt 内で focus が当たっている PTY の ptyId。task ↔ ヘッダの capsule 二者択一に使う */
-function getFocusedPtyId(dir: string): number | undefined {
-  const focusedLeafId = terminalStore.layoutsByDir[dir]?.focusedLeafId;
-  if (focusedLeafId === undefined) return undefined;
-  return terminalStore.getPtyId(focusedLeafId);
+// --- 下段（active session ペイン）の選択 ---
+//
+// 上段と違い viewMode を倒さない。下段のクリックは「動いているタイルへ focus を移す」
+// 操作で、docs/terminal.md の「横断ビュー（all / claude）では focus 追従のみ行い viewMode は
+// 変更しない」規律と同じ意味論になる。selectDir（= wt ビューへ移動する）を通すと、claude
+// タイル表示中に下段を触った瞬間にタイルが畳まれ、常設ペインとして使えない。
+//
+// 下段の行は live session を持つ task だけなので（collectActiveSessionGroups が status で
+// 絞る）、上段の onSelectTask が持つ「未起動なら起動 / resumable なら resume」の分岐は
+// 到達しない。ここは focus 移動だけを扱う。
+
+function onSelectSessionDir(dir: string) {
+  worktreeStore.setOpen(dir);
+}
+
+function onSelectSessionWt(wt: WorktreeEntry) {
+  worktreeStore.setOpen(wt.path);
+}
+
+function onSelectSessionTask(wt: WorktreeEntry, task: Task) {
+  worktreeStore.setOpen(wt.path);
+  const ptyId = terminalStore.getPtyIdBySessionId(task.sessionId);
+  if (ptyId === undefined) return;
+  const leafId = terminalStore.getLeafIdByPtyId(ptyId);
+  if (leafId === undefined) return;
+  terminalStore.focusPane(leafId);
 }
 
 async function handleTaskRemove(rootDir: string, task: Task) {
@@ -414,17 +435,20 @@ const sessionsHeight = ref(220);
 
 /**
  * 実際に適用する下段の高さ。意図をそのまま高さにすると、ウィンドウ縮小や
- * 「session 0 件 → 出現」で repo 一覧が最小高さを割り込む。意図（ref）と適用値（computed）を
+ * 「session 0 件 → 出現」で上段が最小高さを割り込む。意図（ref）と適用値（computed）を
  * 分けることで、狭い状態を経由しても元の高さ意図が失われない（clamp で ref を書き潰さない）。
+ *
+ * 両方の最小を同時に満たせない高さでは **下段の最小を優先** する（潰れると「動いているものを
+ * 見る」というペインの存在意義が消えるため）。ただし分割に使える総高は超えない。window に
+ * minHeight が無く、縦に潰せばこの領域に到達する。
  * useElementSize は mount 直後 0 を返すため、計測前は意図をそのまま使う。
  */
 const appliedSessionsHeight = computed(() => {
   if (splitContainerHeight.value <= 0) return sessionsHeight.value;
-  const max = Math.max(
-    SESSIONS_MIN_HEIGHT,
-    splitContainerHeight.value - REPO_LIST_MIN_HEIGHT - HANDLE_HEIGHT - SPLIT_GAP * 2,
-  );
-  return Math.min(sessionsHeight.value, max);
+  const available = splitContainerHeight.value - HANDLE_HEIGHT - SPLIT_GAP * 2;
+  const withRepoListMin = available - REPO_LIST_MIN_HEIGHT;
+  const max = Math.min(available, Math.max(SESSIONS_MIN_HEIGHT, withRepoListMin));
+  return Math.max(0, Math.min(sessionsHeight.value, max));
 });
 
 /** repo 一覧スクロール領域の DOM 実測高さ（flex-1 のため v-model 不可） */
@@ -592,7 +616,6 @@ function getSessionsHeight(): number {
             :removes-from-window="removesFromWindow(rootDir)"
             :active-dir="worktreeStore.dir"
             :is-creating="isCreatingFor(rootDir)"
-            :get-focused-pty-id="getFocusedPtyId"
             @remove-repo="onRemoveRepo"
             @select-root="onSelectRoot"
             @select-wt="onSelectWt"
@@ -662,9 +685,9 @@ function getSessionsHeight(): number {
         :style="activeSessions.length > 0 ? { height: `${appliedSessionsHeight}px` } : undefined"
       >
         <ActiveSessionsPane
-          @select-dir="onSelectRoot"
-          @select-wt="onSelectWt"
-          @select-task="onSelectTask"
+          @select-dir="onSelectSessionDir"
+          @select-wt="onSelectSessionWt"
+          @select-task="onSelectSessionTask"
           @open-task-menu="onOpenTaskMenu"
         />
       </div>

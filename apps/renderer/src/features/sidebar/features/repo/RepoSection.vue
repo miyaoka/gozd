@@ -94,7 +94,6 @@ const props = defineProps<{
   removesFromWindow: boolean;
   activeDir: string | undefined;
   isCreating: boolean;
-  getFocusedPtyId: (dir: string) => number | undefined;
 }>();
 
 const emit = defineEmits<{
@@ -324,7 +323,6 @@ function onHeaderClick() {
             :wt="wt"
             :root-dir="rootDir"
             :active="activeDir === wt.path"
-            :focused-pty-id="getFocusedPtyId(wt.path)"
             @select-wt="emit('selectWt', $event)"
             @select-task="(w, t) => emit('selectTask', w, t)"
             @open-menu="(anchorEl, wt2) => emit('openWorktreeMenu', anchorEl, wt2, rootDir)"

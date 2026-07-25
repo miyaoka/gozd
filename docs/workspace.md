@@ -161,13 +161,14 @@ repo 一覧は **repo list** 単位で表示する（機能名は repo list、UI
 - **repo セクション一覧**: アクティブ repo list の dirOrder 順に repo / dir を縦に **並列展開**。空リストの通常モードでは empty state（Edit list ボタンで編集モードへ入る導線）を表示する。セクション単位で折りたたみ可能（collapsed は repo 単位のグローバル状態で repo list を跨いで共有）。編集モード中は drag-drop で並び替え
 - **active session ペイン（下段）**: サイドバーは縦 2 分割で、下段に「いま動いている Claude セッション」を常時出す（ResizeHandle で高さ可変。セッション 0 件のときはヘッダ行だけに畳み、ハンドルも出さない）。ビューモードトグルはターミナルのタイル表示だけに効き、サイドバーの表示内容は切り替えない。上段は「どこで作業するか」の地図、下段は「いま何が動いているか」の一覧という役割分担で、上段をモードで絞ると切り替えのたびに操作の起点が消えるため絞らない
 - **active session ペインの形式**: 上段の repo セクションを絞り込んだものではなく、**セッション専用の 2 階層**（`repoName · branch` の 1 行ラベル + その配下に live session を持つ task 行）。上段と同型のカードを並べると、境界線・余白・背景差を足しても「同じカード列の続き」としか読めないため、形そのものを変える（VS Code の Open Editors が Explorer ツリーと別形式、Copilot の Agents window がセッション行を workspace でグルーピングするのと同じ考え方）。ペイン全体は border + 角丸の 1 枚のプレートで、四辺に余地を残して囲いを成立させる
-- **active session ペインの母集団**: live な Claude セッションを持つ dir と、その配下で session が attach 済みの task だけ。キーはターミナルのタイル対象（`claudeActiveLeafIds`）から導出した dir 集合で、claude タイルに出る leaf とペインに出る worktree が常に一致する。母集団はアクティブ repo list ではなく repo プール全体（セッションは repo list と無関係に全 dir で動くため）。未起動 / resume 待ちの task は出さない（起動可能な候補の一覧ではないため）
+- **active session ペインの母集団**: repo プール全体（poolDirs）のうち、live な Claude セッションを持つ dir と、その配下で session が attach 済みの task。dir 集合のキーはターミナルのタイル対象（`claudeActiveLeafIds`）から導出するため、タイル側と同じ集合を指す（`repos` は fetch 時点のスナップショットなので、repo 除去中や worktree 未反映の窓では dir が引けずグループが出ないことがある）。アクティブ repo list で絞らないのは、セッションが repo list と無関係に全 dir で動くため。未起動 / resume 待ちの task は出さない（起動可能な候補の一覧ではないため）
+- **active session ペインの選択**: 行 / ラベルのクリックはビューモードを変えず、選択 dir の追従と対象 leaf の focus だけを行う。claude タイル表示中にクリックしてタイルが畳まれると常設ペインとして機能しないため（横断ビューでの focus 追従と同じ意味論。[terminal.md](terminal.md) 参照）
 - **repo list への repo 追加**: 編集モード時、他 repo list にのみ所属するプール repo が「Add from other lists」セクションに repo 行（RepoIcon + repo 名）として並び、クリックでアクティブ repo list に追加できる
 - **Open directory… ボタン**: 編集モード時のみリスト末尾に表示。既存 repo 候補とは divider で区切られ、クリックでネイティブのフォルダ選択ダイアログを開き、ユーザーが選んだ任意のディレクトリ（git 管理下 / 外問わず）を既存ウィンドウに追加する（プール + アクティブ repo list に入る）
 
 `gozd <path>` で既存プール repo を開いた場合、その repo がアクティブ repo list に無ければ末尾に追加される（開いたのに何も見えない状態を作らない）。
 
-アクティブ worktree がサイドバー外の経路（claude ビューのタイルフォーカス / ターミナルペインのフォーカス移動等）で切り替わり、その repo がアクティブ repo list に無い場合は、その repo を含む list（複数所属なら repoLists 先頭側）へアクティブ repo list も追従する。追従しないと wt ビューに戻ったときアクティブ worktree がサイドバーに見えないずれが残る。編集モード中は追従しない（編集対象が足元で変わるため）。
+アクティブ worktree がサイドバー外の経路（claude タイルのフォーカス / ターミナルペインのフォーカス移動 / 下段の active session ペイン等）で切り替わり、その repo がアクティブ repo list に無い場合は、その repo を含む list（複数所属なら repoLists 先頭側）へアクティブ repo list も追従する。追従しないと上段の repo 一覧にアクティブ worktree が見えないずれが残る。編集モード中は追従しない（編集対象が足元で変わるため）。
 
 各 repo セクションの中身:
 

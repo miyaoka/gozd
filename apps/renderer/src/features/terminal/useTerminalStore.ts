@@ -328,10 +328,9 @@ export const useTerminalStore = defineStore("terminal", () => {
   const claudeActiveLeafIds = computed(() => claude.getClaudeActiveLeafIds());
 
   /**
-   * Claude セッションを持つ leaf の所属 dir 集合。claude ビュー中に sidebar が
-   * repo / worktree を絞り込むためのフィルタキー。TerminalPane のタイル対象
-   * （claudeActiveLeafIds）から導出するため、タイルに出る leaf と sidebar に残る
-   * wt が常に一致する。
+   * Claude セッションを持つ leaf の所属 dir 集合。サイドバー下段（active session ペイン）の
+   * 母集団キー。TerminalPane のタイル対象（claudeActiveLeafIds）から導出するため、
+   * claude タイルに出る leaf と同じ集合を指す。
    */
   const claudeActiveDirs = computed<Set<string>>(() => {
     const dirs = new Set<string>();
@@ -627,6 +626,24 @@ export const useTerminalStore = defineStore("terminal", () => {
     return leafIdByPtyId.value.get(ptyId);
   }
 
+  /**
+   * dir の focus が当たっている PTY が、その session のものかどうか。
+   * サイドバーの「fill (青 capsule) はカード内 1 行だけ」という不変条件の判定 SSOT で、
+   * wt カード (WtCard) と active session ペインが共有する。同じ不変条件を 2 実装で守ると、
+   * 片方だけ直る形の劣化が必ず起きるため導出を 1 箇所に置く。
+   *
+   * session / focus / pty のいずれかが欠けたら false。undefined 同士の一致で true に
+   * 倒れる形（pty を持たない leaf が focus 中なら全行が focus 扱い）を構造的に排除する。
+   */
+  function isSessionFocused(dir: string, sessionId: string): boolean {
+    if (sessionId === "") return false;
+    const focusedLeafId = layoutsByDir.value[dir]?.focusedLeafId;
+    if (focusedLeafId === undefined) return false;
+    const focusedPtyId = getPtyId(focusedLeafId);
+    if (focusedPtyId === undefined) return false;
+    return focusedPtyId === claude.getPtyIdBySessionId(sessionId);
+  }
+
   /** OSC 0/2 で通知されたタイトルを保存する */
   function setTitle(leafId: string, title: string) {
     if (title === "") {
@@ -701,6 +718,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     getPaneDir,
     getPtyId,
     getLeafIdByPtyId,
+    isSessionFocused,
     // title
     setTitle,
     // screen（画面本文から asking 離脱を検知）

@@ -1,7 +1,8 @@
 import type { Task, WorktreeEntry } from "@gozd/rpc";
 import type { RepoState } from "../../shared/repo";
+import { repoDirEntries } from "../../shared/repo";
 import type { ClaudeStatus } from "../terminal";
-import { branchLabel } from "./utils";
+import { branchLabel, compareTaskOrder } from "./utils";
 
 /** live な Claude セッションを持つ 1 task。行の描画に必要な値だけを持つ */
 interface ActiveSessionEntry {
@@ -33,12 +34,15 @@ export interface ActiveSessionGroup {
  *
  * 母集団はアクティブ repo list ではなく repo プール全体（poolDirs）: セッションは repo list と
  * 無関係に全 dir で動くため、list で絞ると「動いているのに一覧に出ない」セッションが生まれる。
+ * repo → dir の分岐は `repoDirEntries` が SSOT（非 git project は rootDir 自身が dir で
+ * worktree を持たない）。
  *
  * session を持たない task（未起動 / resume 待ち）は除外する。ここは「いま何が動いているか」の
  * 面であり、起動可能な候補の一覧ではない。
  *
- * live session はあるが task がまだ紐づいていない worktree（SessionStart hook が届く前の窓）も
- * グループとして残す。行が 0 本でもラベルは出て、「起動中の何かがある」ことは伝わる。
+ * live session はあるが task がまだ紐づいていない dir（SessionStart hook が届く前の窓 /
+ * 非 git project）もグループとして残す。行が 0 本でもラベルは出て、「起動中の何かがある」
+ * ことは伝わる。
  */
 export function collectActiveSessionGroups(
   poolDirs: readonly string[],
@@ -51,30 +55,23 @@ export function collectActiveSessionGroups(
     const repo = repos[rootDir];
     if (repo === undefined) continue;
 
-    if (!repo.isGitRepo) {
-      // 非 git project は worktree を持たず rootDir 自身が dir。task も持たないためラベルのみ
-      if (!claudeActiveDirs.has(rootDir)) continue;
+    for (const { dir, worktree } of repoDirEntries(repo)) {
+      if (!claudeActiveDirs.has(dir)) continue;
+      const tasks = worktree?.tasks ?? [];
+      const entries = tasks
+        .flatMap<ActiveSessionEntry>((task) => {
+          if (task.sessionId === "") return [];
+          const status = statusOf(task.sessionId);
+          return status === undefined ? [] : [{ task, status }];
+        })
+        .sort((a, b) => compareTaskOrder(a.task, b.task));
       groups.push({
         rootDir,
-        dir: rootDir,
-        label: repo.repoName,
-        worktree: undefined,
-        entries: [],
-      });
-      continue;
-    }
-
-    for (const worktree of repo.worktrees) {
-      if (!claudeActiveDirs.has(worktree.path)) continue;
-      const entries = worktree.tasks.flatMap<ActiveSessionEntry>((task) => {
-        if (task.sessionId === "") return [];
-        const status = statusOf(task.sessionId);
-        return status === undefined ? [] : [{ task, status }];
-      });
-      groups.push({
-        rootDir,
-        dir: worktree.path,
-        label: `${repo.repoName} · ${branchLabel(worktree.branch)}`,
+        dir,
+        label:
+          worktree === undefined
+            ? repo.repoName
+            : `${repo.repoName} · ${branchLabel(worktree.branch)}`,
         worktree,
         entries,
       });

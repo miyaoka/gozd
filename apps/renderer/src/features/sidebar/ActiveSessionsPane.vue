@@ -31,6 +31,23 @@ full-bleed のままだと囲いが成立せず、`bg-background`(L 0.231) と `
 
 `claudeActiveLeafIds.length`（= claude タイルの数）を出す。行数ではなくタイル数を出すのは、
 task に紐づく前のセッションも「動いている 1 つ」として数えるため。
+
+## 吹き出しの受け皿
+
+`TaskRow` の done / asking 吹き出しは行の上に被さる absolute overlay（約 28px）で、直前要素を
+覆う前提の設計。WtCard ではカードヘッダがその受け皿になる。ここではグループラベルを `h-6` にし、
+スクロール領域に `py-2` を持たせて同じ高さの受け皿を作る。これが無いと先頭グループの先頭行の
+吹き出しがスクロール上端で恒久的に切れる（スクロールしても到達できない領域になる）。
+
+ラベルが覆われること自体は `TaskRow` から継承した契約（WtCard でも wt ヘッダが覆われる）。
+吹き出しは transient で `pointer-events-none` のため、覆いを避けるために行間を空けるより
+密度を優先する。
+
+## 選択の意味論
+
+行 / ラベルのクリックは viewMode を倒さない（`SidebarPane` の `onSelectSession*`）。「動いて
+いるタイルへ focus を移す」操作であり、claude タイル表示中にクリックしてタイルが畳まれると
+常設ペインとして機能しないため。
 </doc>
 
 <script setup lang="ts">
@@ -68,12 +85,15 @@ function onSelectTask(group: ActiveSessionGroup, task: Task) {
   emit("selectTask", group.worktree, task);
 }
 
-/** 行の fill は focus のある 1 本だけ。active worktree 以外の focus 履歴を拾わないよう dir も見る */
+/**
+ * 行の fill は focus のある 1 本だけ。pty 一致の判定は `terminalStore.isSessionFocused`
+ * （WtCard と共有する SSOT）に委ね、ここは「active worktree 以外では出さない」条件だけ足す。
+ * layoutsByDir[dir].focusedLeafId は履歴として残るため、この条件が無いと過去訪問した
+ * 全 dir の行に capsule が点く。
+ */
 function isFocused(dir: string, sessionId: string): boolean {
   if (worktreeStore.dir !== dir) return false;
-  const focusedLeafId = terminalStore.layoutsByDir[dir]?.focusedLeafId;
-  if (focusedLeafId === undefined) return false;
-  return terminalStore.getPtyId(focusedLeafId) === terminalStore.getPtyIdBySessionId(sessionId);
+  return terminalStore.isSessionFocused(dir, sessionId);
 }
 </script>
 
@@ -91,16 +111,19 @@ function isFocused(dir: string, sessionId: string): boolean {
 
     <!-- session が 0 件のときは body ごと出さない（親がプレートをヘッダ高さに畳む）。
          「0 件である」ことはヘッダの count が伝えるので、空の一覧本体は出さない -->
+    <!-- py-2 は先頭行の吹き出し（TaskRow の absolute overlay。行の上に約 28px 占める）が
+         スクロール領域の上端でクリップされないための headroom。h-6 のラベルと合わせて
+         WtCard がカードヘッダで作っているのと同じ受け皿を下段でも用意する -->
     <div
       v-if="groups.length > 0"
-      class="_thin-scrollbar flex min-h-0 flex-1 flex-col overflow-y-scroll"
+      class="_thin-scrollbar flex min-h-0 flex-1 flex-col overflow-y-scroll py-2"
     >
       <section v-for="group in groups" :key="group.dir" class="flex flex-col">
         <!-- グループラベル: repo 名 + branch を 1 行に畳む。行より 1 段小さく muted にして、
              見出しと行の主従を密度で示す（囲いは既にペイン外周が担っているので枠は付けない） -->
         <button
           type="button"
-          class="flex w-full items-center px-2 py-0.5 text-left text-foreground-muted transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset"
+          class="flex h-6 w-full items-center px-2 text-left text-foreground-muted transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset"
           :class="worktreeStore.dir === group.dir && 'text-primary-text'"
           :title="group.dir"
           @click="onSelectGroup(group)"

@@ -52,7 +52,7 @@ import { useServerStore } from "../../../server";
 import type { ClaudeState, ClaudeStatus } from "../../../terminal";
 import { displayClaudeState, useTerminalStore } from "../../../terminal";
 import { computeStatusIcons, StatusIcons } from "../../../worktree";
-import { branchLabel as resolveBranchLabel, hasChanges } from "../../utils";
+import { compareTaskOrder, branchLabel as resolveBranchLabel, hasChanges } from "../../utils";
 import TaskRow from "./TaskRow.vue";
 import IconLucideArrowDown from "~icons/lucide/arrow-down";
 import IconLucideArrowUp from "~icons/lucide/arrow-up";
@@ -63,7 +63,6 @@ const props = defineProps<{
   wt: WorktreeEntry;
   rootDir: string;
   active: boolean;
-  focusedPtyId: number | undefined;
 }>();
 
 const emit = defineEmits<{
@@ -109,39 +108,35 @@ const statusIcons = computed(() => {
 interface TaskWithStatus {
   task: Task;
   status: ClaudeStatus | undefined;
-  ptyId: number | undefined;
 }
 
 /**
- * ソートは `task.createdAt` (静的) のみ。state や lastActivityAt のような
- * 動的値をキーに混ぜると Claude の活動ごとに行位置が入れ替わり、ユーザーが
- * 「どこに何の task があるか」を空間記憶で辿れなくなる。位置は固定、状態は
- * 行頭アイコンと相対時刻で表現する責務分担。
+ * 並び順の規律 (`compareTaskOrder`) は active session ペインと共有する。
  */
 const tasksWithStatus = computed<TaskWithStatus[]>(() => {
   // task ≠ session 設計: sessionId が空 (PR/issue 由来で未起動 / SessionEnd で切り離し済み)
-  // の task は status / ptyId 共に undefined になる。サイドバークリック時に素の claude を
+  // の task は status が undefined になる。サイドバークリック時に素の claude を
   // 起動する分岐は SidebarPane.onSelectTask 側で扱う。
   const list = props.wt.tasks.map<TaskWithStatus>((task) => ({
     task,
     status:
       task.sessionId === "" ? undefined : terminalStore.getClaudeStatusBySessionId(task.sessionId),
-    ptyId: task.sessionId === "" ? undefined : terminalStore.getPtyIdBySessionId(task.sessionId),
   }));
-  return list.sort((a, b) => Date.parse(a.task.createdAt) - Date.parse(b.task.createdAt));
+  return list.sort((a, b) => compareTaskOrder(a.task, b.task));
 });
 
 /**
- * wt 内のいずれかの task が focused PTY を持っているか。
+ * wt 内のいずれかの task が focused PTY を持っているか。判定の SSOT は
+ * `terminalStore.isSessionFocused`（active session ペインと共有）。
  * active wt 以外では capsule を出してはいけない。各 wt の layoutsByDir[dir].
  * focusedLeafId は履歴として残るため、active 条件を噛ませないと過去訪問した
  * 全 wt で task に capsule が点いてしまう。
  */
 const focusedTaskId = computed(() => {
   if (!props.active) return undefined;
-  const focusedPty = props.focusedPtyId;
-  if (focusedPty === undefined) return undefined;
-  const found = tasksWithStatus.value.find((entry) => entry.ptyId === focusedPty);
+  const found = tasksWithStatus.value.find((entry) =>
+    terminalStore.isSessionFocused(props.wt.path, entry.task.sessionId),
+  );
   return found?.task.id;
 });
 

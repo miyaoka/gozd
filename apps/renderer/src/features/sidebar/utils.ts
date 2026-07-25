@@ -33,6 +33,16 @@ export function worktreeDisplayName(wt: WorktreeEntry): string {
   return branchLabel(wt.branch);
 }
 
+/**
+ * task 行の並び順。`createdAt` (静的) だけをキーにする。state や lastActivityAt のような
+ * 動的値を混ぜると Claude の活動ごとに行位置が入れ替わり、ユーザーが「どこに何の task が
+ * あるか」を空間記憶で辿れなくなる。同じ task 集合を wt カードと active session ペインの
+ * 2 面に出すため、並びの規律も 2 面で共有する。
+ */
+export function compareTaskOrder(a: Task, b: Task): number {
+  return Date.parse(a.createdAt) - Date.parse(b.createdAt);
+}
+
 /** 変更ファイルがあるかどうか */
 export function hasChanges(gitStatuses: Record<string, string> | undefined): boolean {
   if (!gitStatuses) return false;

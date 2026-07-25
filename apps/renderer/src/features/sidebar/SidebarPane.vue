@@ -598,11 +598,11 @@ function getSessionsHeight(): number {
          gap はハンドルの上下に入り、両ペインの外側にサイドバー地の溝を作る（上段は
          スクロール途中だとカードが縁で切れるため、余白はペインの内側では作れない） -->
     <div ref="splitContainer" class="flex min-h-0 flex-1 flex-col gap-2">
-      <!-- 上 padding は repo list バー側の pb-1 が担うため詰める（pt-4 を残すと二重で不自然な
-           空白になる）。下は overscroll の余白として pb-4 を保つ -->
+      <!-- padding は上下対称。repo list バー側の余白と RepoSection 自身の下端余白が既に
+           あるため、ここは最小の内側クリアランスだけを持つ -->
       <div
         ref="scrollContainer"
-        class="_thin-scrollbar flex min-h-0 flex-1 flex-col overflow-y-scroll pt-1 pb-4"
+        class="_thin-scrollbar flex min-h-0 flex-1 flex-col overflow-y-scroll py-1"
       >
         <!-- 空リストの empty state: 通常モードでは repo が 1 つも描画されず操作の手がかりが
              消えるため、編集モード（Add from other lists / Open directory… が出る）への

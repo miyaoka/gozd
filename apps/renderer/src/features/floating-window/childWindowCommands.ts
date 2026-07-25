@@ -8,8 +8,8 @@
  * 「条件は真なのに対象がいない」ずれを構造的に防ぐ。
  *
  * コマンドはモジュール初期化時に一度だけ登録する (ChildWindow の import で連れられて登録
- * される)。Cmd+W / Cmd+S は main window 側 (terminal.closePane / preview.close / preview.save) と
- * 同じキーなので、あちらに `!childWindowFocused` を置いて実効条件を排他にしている。
+ * される)。Cmd+W / Cmd+S は main window 側と同じキーで、あちらの同キー割り当てが
+ * `!childWindowFocused` を持つことで実効条件が排他になる。
  */
 import { useCommandRegistry, useContextKeys } from "../../shared/command";
 

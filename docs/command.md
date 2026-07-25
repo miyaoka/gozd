@@ -79,6 +79,7 @@ type CommandInput = CommandHandler | CommandDescriptor;
 
 - `label` 付きで登録したコマンドのみコマンドパレットに表示される
 - `label` なし（関数のみ）のコマンドはパレットに表示されない（引数付きコマンド等）
+- 既定 keybinding を持てるのは記述子（= `label` 必須）だけ。よって**キーで叩けるコマンドは必ずパレットにも出る**。キーだけで起動できる隠しコマンドは作れない
 - handler は処理した場合 `true`、何もしなかった場合 `false` を返す。呼び出し元はこの戻り値で `preventDefault` 等を判断する
 - `precondition` は context key 式（`parseWhen` で AST 化される）。`execute()` 経由・キーバインド経由のどちらでも条件不成立ならスキップされる。`when` と違いコマンド自体の有効/無効を示し、パレットでの可視性にも効く
 
@@ -97,7 +98,7 @@ registry.register("terminal.splitHorizontal", {
   },
 });
 
-// label なし: コマンドパレットに列挙されない（registry.execute や keybinding 経由では起動可能）
+// label なし: コマンドパレットに列挙されない（registry.execute 経由でのみ起動する）
 registry.register("workspace.someInternalAction", (args) => {
   if (typeof args !== "number") return false;
   // ...
@@ -109,11 +110,14 @@ registry.register("workspace.someInternalAction", (args) => {
 
 `useContextKeys()`（module singleton）で when 条件の評価に使う状態を管理する。key の一覧・型・各 key の意味は `shared/command/types.ts` の `ContextMap` が SSOT で、doc コメントに併記する。
 
-key の更新は「その状態を所有する側」が行う。`childWindowFocused` だけは floating-window の `childWindowCommands` が context key とコマンドの対象ハンドル（フォーカス中の child window）を同時に更新し、「条件は真なのに対象がいない」ずれを構造的に防ぐ。
+原則として key の更新は「その状態を所有する側」が行う。例外は 2 つ。
+
+- `childWindowFocused` は floating-window の `childWindowCommands` が context key とコマンドの対象ハンドル（フォーカス中の child window）を同時に更新し、「条件は真なのに対象がいない」ずれを構造的に防ぐ
+- `inputFocused` は所有側を持たず、ディスパッチが keydown を受けた document の `activeElement` から評価直前に書く（理由は `useKeyBindings.ts` のコメント）
 
 ### When 条件
 
-内部では typed AST（`When` 型）で表現する。外部入力（JSON 設定等）は文字列で受け取り、`parseWhen()` で AST に変換する。
+内部では typed AST（`When` 型）で表現する。記述子の `precondition` / `keybinding.when` は文字列で受け取り、`register()` 時に `parseWhen()` で AST に変換する。
 
 ```text
 terminalFocus

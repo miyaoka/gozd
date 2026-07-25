@@ -1,7 +1,7 @@
 # command feature 内部設計
 
 コマンドレジストリ、keybinding、context key の実装詳細。
-機能全体の設計は [docs/command.md](../../../../docs/command.md) と [docs/keybinding.md](../../../../docs/keybinding.md) を参照。
+機能全体の設計は [docs/command.md](../../../../../docs/command.md) と [docs/keybinding.md](../../../../../docs/keybinding.md) を参照。
 
 ## モジュール構成
 
@@ -59,7 +59,7 @@ atom     = "!" atom | contextKey
 
 - `&&` は `||` より結合が強い（VS Code 互換）
 - 括弧はサポートしない
-- `KNOWN_KEYS` セットで未知の context key をコンパイル時に検出
+- `KNOWN_KEYS` セットで未知の context key を検出し throw する（実行時。`register()` に記述子を渡した時点で落ちる）
 
 ### トークナイザ
 
@@ -85,9 +85,9 @@ keydown listener（capture phase）を**ウィンドウごとの document** に�
 - `e.isComposing` — 日本語入力中
 - `e.repeat` — 連打
 
-「macOS 予約キー (Cmd+C/V/X 等)」のような特殊なホワイトリストは持たない。bind されていないキーは matching ループで unmatch となり `preventDefault()` を呼ばずに抜けるため、ブラウザ既定 (コピー / ペースト等) が自然に動く。Cmd+C 等を上書きしたければそのまま bind すればよい (自己責任)。
+「macOS 予約キー (Cmd+C/V/X 等)」のような特殊なホワイトリストは持たない。bind されていないキーは照合で unmatch となり `preventDefault()` を呼ばずに抜けるため、ブラウザ既定 (コピー / ペースト等) が自然に動く。Cmd+C 等を上書きしたければそのまま bind すればよい (自己責任)。
 
-input/textarea/contenteditable のフォーカス除外は `shouldHandle` 内では行わない。`focusin`/`focusout` で `inputFocused` context key を更新し、各 keybinding 側が `when` 句（例: `terminalFocus && !inputFocused`）で gating する設計（VS Code の `inputFocus` と同じパターン）。
+input/textarea/contenteditable のフォーカス除外は `shouldHandle` 内では行わない。keydown を受けた document の `activeElement` から `inputFocused` context key を評価直前に書き、各 keybinding 側が `when` 句（例: `terminalFocus && !inputFocused`）で gating する設計（VS Code の `inputFocus` と同じパターン）。共有 state を先回り更新せず都度読む理由は `useKeyBindings.ts` のコメントを参照。
 
 ### 照合
 

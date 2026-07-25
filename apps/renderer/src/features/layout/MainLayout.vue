@@ -79,7 +79,7 @@ const disposePreviewToggle = register("preview.toggle", {
 const disposePreviewClose = register("preview.close", {
   label: "Preview: Close",
   // Cmd+W は「フォーカスのあるサーフェスを閉じる」意味論。terminal.closePane / childWindow.close と
-  // 同じキーなので、どちらとも同時に成立しない条件で振り分ける
+  // 同じキーなので、どちらとも同時に成立しない条件にする
   keybinding: { key: "cmd+w", when: "previewVisible && !terminalFocus && !childWindowFocused" },
   handler: () => {
     if (!previewStore.isOpen) return false;

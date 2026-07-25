@@ -99,9 +99,7 @@ export function registerTerminalCommands(
 
     registry.register("terminal.closePane", {
       label: "Terminal: Close Pane",
-      // Cmd+W は preview.close / childWindow.close と共有するキー。child window に OS フォーカスが
-      // あるときは main window 側の割り当てを外す（VS Code が auxiliary window で
-      // IsAuxiliaryWindowFocusedContext を否定するのと同じ切り分け）
+      // Cmd+W は preview.close / childWindow.close と共有するキー。child にフォーカスがある間は外す
       keybinding: { key: "cmd+w", when: "terminalFocus && !childWindowFocused" },
       handler: () => {
         const active = getFocusedLayout();

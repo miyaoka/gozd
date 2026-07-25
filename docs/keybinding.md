@@ -1,6 +1,6 @@
 # Keybinding
 
-VS Code 互換の keybinding システム。JSON 設定からキー入力をコマンドにマッピングする。コマンドシステムの詳細は [command.md](command.md) を参照。
+キー入力をコマンドにマッピングする。key / when の書式は VS Code 互換。コマンドシステムの詳細は [command.md](command.md) を参照。
 
 ## キー入力の解決（e.code ベース）
 
@@ -37,10 +37,8 @@ mount / unmount で条件付きに登録されるコマンドはキーも同時�
 VS Code が既定 keybinding をコマンドと同じ descriptor（`registerCommandAndKeybindingRule` /
 `Action2` の `desc.keybinding`）で登録し、JSON をユーザー設定層専用にしているのと同じ切り分け。
 
-ユーザー設定層は未実装。VS Code ではユーザー設定は weight を持たず、weight 順に整列した既定の
-**後ろに連結**されて必ず勝ち、打ち消しは `-commandId` で既定エントリだけを消す
-（`KeybindingResolver` の `concat(defaults).concat(overrides)` と `handleRemovals`）。gozd に
-入れるときも同じ形にする（既定側に層を足すのではなく、既定リストの後ろに載せる）。
+ユーザー設定層は持たない。既定 keybinding の宣言元はコマンド記述子だけで、キー割り当てを外部
+ファイルから足す / 打ち消す経路は無い。
 
 ### key フィールド
 
@@ -102,3 +100,6 @@ registry の `resolveKeyBinding(stroke)` が登録済みコマンドを走査し
 sort して逆順走査するが、あれは editor / workbench / 拡張という**登録元の層**が複数あり、
 同時可視のウィジェット同士（suggest / snippet / find が Escape を取り合う等）を when だけでは
 書き分けられないための機構。gozd の割り当ては 1 層で、競合はすべて context key で排他にできる。
+
+排他の契約が破れて複数が一致した場合、先頭を実行したうえでエラー通知に流す。どちらが勝つかは
+登録順（= コンポーネントの mount 順）に依存して再現しないため、黙って握りつぶさない。

@@ -7,16 +7,14 @@
  * - child window (undock 等): 生成側コンポーネントが `useWindowKeyBindings(win)` を呼ぶ。
  *   listener の寿命は呼び出しコンポーネントの effect scope に載り、unmount で自動解除される
  *
- * 既定 keybinding は独立したテーブルではなく `register()` の記述子に同居する (VS Code の
- * registerCommandAndKeybindingRule / Action2 の desc.keybinding と同じ切り分け)。よってキーの
- * 解決先は「登録済みコマンドの走査」であり、コマンド ID を突き合わせる第 2 のテーブルは無い。
+ * 既定 keybinding は独立したテーブルではなく `register()` の記述子に同居するため、キーの解決先は
+ * registry (`resolveKeyBinding`) であり、コマンド ID を突き合わせる第 2 のテーブルは無い。
  * child window 由来のキーも同じ registry で解決されるため、child 固有の割り当ては
- * childWindowFocused の条件で分岐する。
+ * childWindowFocused の条件で分岐する (docs/keybinding.md)。
  */
 import { useEventListener } from "@vueuse/core";
 import { isIMEActive } from "./isIMEActive";
-import { eventToKeyStroke, matchKeyStroke } from "./parseKeyStroke";
-import type { CommandEntry, KeyStroke } from "./types";
+import { eventToKeyStroke } from "./parseKeyStroke";
 import { useCommandRegistry } from "./useCommandRegistry";
 import { useContextKeys } from "./useContextKeys";
 
@@ -24,8 +22,8 @@ import { useContextKeys } from "./useContextKeys";
  * キーイベントをコマンドシステムで処理すべきか判定する。
  * false を返した場合はブラウザ/OS のデフォルト動作に委ねる。
  *
- * 一致する binding が無い場合は matching ループ側で素通りし `preventDefault` を呼ばないため、
- * ブラウザ既定 (Cmd+C のコピー等) は自然に動く。よって個別キーをここで予約する必要は無い。
+ * 一致する binding が無い場合は照合で素通りし `preventDefault` を呼ばないため、ブラウザ既定
+ * (Cmd+C のコピー等) は自然に動く。よって個別キーをここで予約する必要は無い。
  */
 function shouldHandle(e: KeyboardEvent): boolean {
   // 他の capture listener が既に処理済み
@@ -48,26 +46,6 @@ function isEditableElement(el: EventTarget | null): boolean {
   return el.isContentEditable;
 }
 
-/**
- * この keystroke で実行するコマンドを決める。条件は register 時に precondition と AND 済み。
- *
- * 優先度 (VS Code の KeybindingWeight) は持たない。同じキーを複数コマンドに割り当てるときは、
- * 実効条件が同時に真にならないように書く。ウィンドウのスコープで分かれる Cmd+W / Cmd+S は
- * childWindowFocused の有無で排他にしており、これは VS Code が auxiliary window を
- * IsAuxiliaryWindowFocusedContext.toNegated() で外すのと同じ切り分け。
- */
-export function resolveKeyBinding(stroke: KeyStroke): CommandEntry | undefined {
-  const registry = useCommandRegistry();
-  const contextKeys = useContextKeys();
-
-  return registry.listKeyBindings().find((entry) => {
-    const { keybinding } = entry;
-    if (keybinding === undefined) return false;
-    if (!matchKeyStroke(stroke, keybinding.stroke)) return false;
-    return contextKeys.evaluate(keybinding.when);
-  });
-}
-
 /** 1 ウィンドウ分の listener 一式を張る。解決系はモジュール単位の共有 (docstring 参照) */
 function attachListeners(doc: Document) {
   const registry = useCommandRegistry();
@@ -86,7 +64,7 @@ function attachListeners(doc: Document) {
       // 瞬間だけなので、都度読み取るだけで十分かつ常に正しい
       contextKeys.set("inputFocused", isEditableElement(doc.activeElement));
 
-      const entry = resolveKeyBinding(eventToKeyStroke(e));
+      const entry = registry.resolveKeyBinding(eventToKeyStroke(e));
 
       // bind 無し: preventDefault しないのでブラウザ既定 (Cmd+C のコピー等) がそのまま動く
       if (entry === undefined) return;

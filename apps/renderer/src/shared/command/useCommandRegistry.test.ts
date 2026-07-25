@@ -2,14 +2,13 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { parseKeyStroke } from "./parseKeyStroke";
 import { useCommandRegistry } from "./useCommandRegistry";
 import { useContextKeys } from "./useContextKeys";
-import { resolveKeyBinding } from "./useKeyBindings";
 
 const registry = useCommandRegistry();
 const contextKeys = useContextKeys();
 
 /** 発火した keystroke で実行されるコマンド ID */
 function resolvedId(key: string): string | undefined {
-  return resolveKeyBinding(parseKeyStroke(key))?.id;
+  return registry.resolveKeyBinding(parseKeyStroke(key))?.id;
 }
 
 describe("resolveKeyBinding", () => {
@@ -94,5 +93,42 @@ describe("resolveKeyBinding", () => {
 
     contextKeys.set("childWindowFocused", true);
     expect(resolvedId("cmd+w")).toBe("a.child");
+  });
+
+  test("実効条件が重なった割り当てはエラー通知に流れる（登録順の先勝ちを silent にしない）", () => {
+    const errors: string[] = [];
+    registry.setErrorHandler((message) => errors.push(message));
+    registry.register("a.one", { label: "a", keybinding: { key: "cmd+w" }, handler: () => true });
+    registry.register("a.two", { label: "b", keybinding: { key: "cmd+w" }, handler: () => true });
+
+    expect(resolvedId("cmd+w")).toBe("a.one");
+    expect(errors).toEqual(["Keybinding conflict: a.one, a.two"]);
+  });
+});
+
+describe("register の keybinding 検証", () => {
+  beforeEach(() => {
+    registry.reset();
+    contextKeys.reset();
+  });
+
+  test("未知の key 名は register 時点で throw する", () => {
+    expect(() =>
+      registry.register("a.badKey", {
+        label: "a",
+        keybinding: { key: "cmd+nosuchkey" },
+        handler: () => true,
+      }),
+    ).toThrow();
+  });
+
+  test("未知の context key を when に書くと register 時点で throw する", () => {
+    expect(() =>
+      registry.register("a.badWhen", {
+        label: "a",
+        keybinding: { key: "cmd+k", when: "nosuchContextKey" },
+        handler: () => true,
+      }),
+    ).toThrow();
   });
 });

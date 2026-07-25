@@ -93,9 +93,10 @@ keydown listener（capture phase）で以下の順に処理する。listener は
 
 ### ディスパッチ
 
-登録済みコマンドを走査し、keystroke が一致して実効条件が成立した最初のものを `execute()` する。
-handler が `true`（handled）を返した場合のみ `preventDefault()` + `stopPropagation()`。一致する
-割り当てが無ければ何もしない（`preventDefault()` を呼ばないのでブラウザ既定に抜ける）。
+registry の `resolveKeyBinding(stroke)` が登録済みコマンドを走査し、keystroke が一致して実効条件が
+成立したものを `execute()` する。handler が `true`（handled）を返した場合のみ `preventDefault()` +
+`stopPropagation()`。一致する割り当てが無ければ何もしない（`preventDefault()` を呼ばないので
+ブラウザ既定に抜ける）。
 
 優先度で解く仕組みは持たない。VS Code は `KeybindingWeight` → command id → 登録順で全割り当てを
 sort して逆順走査するが、あれは editor / workbench / 拡張という**登録元の層**が複数あり、

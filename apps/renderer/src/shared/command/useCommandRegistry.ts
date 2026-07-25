@@ -3,12 +3,13 @@
  * コマンド ID → エントリ（handler + label）のマッピングを管理する。
  */
 import { tryCatch } from "@gozd/shared";
-import { parseKeyStroke } from "./parseKeyStroke";
+import { matchKeyStroke, parseKeyStroke } from "./parseKeyStroke";
 import { parseWhen } from "./parseWhen";
 import type {
   CommandDescriptor,
   CommandEntry,
   CommandInput,
+  KeyStroke,
   ResolvedKeyBinding,
   When,
 } from "./types";
@@ -33,8 +34,8 @@ function combineWhen(precondition: When | undefined, when: When | undefined): Wh
   return { type: "and", values: [precondition, when] };
 }
 
-/** 既定 keybinding を登録時に parse する（key 文字列の誤りは register 時点で throw させる） */
-function resolveKeyBinding(
+/** 既定 keybinding を登録時に parse する（key / when 文字列の誤りは register 時点で throw させる） */
+function buildKeyBinding(
   descriptor: CommandDescriptor,
   precondition: When | undefined,
 ): ResolvedKeyBinding | undefined {
@@ -62,7 +63,7 @@ function register(id: string, input: CommandInput): () => void {
         label: input.label,
         handler: input.handler,
         precondition,
-        keybinding: resolveKeyBinding(input, precondition),
+        keybinding: buildKeyBinding(input, precondition),
       }
     : { id, label: undefined, handler: input, precondition: undefined, keybinding: undefined };
 
@@ -108,9 +109,26 @@ function execute(id: string, args?: unknown): boolean {
   return result.value;
 }
 
-/** keybinding を持つコマンドの一覧。ディスパッチ（useKeyBindings）が走査に使う */
-function listKeyBindings(): readonly CommandEntry[] {
-  return [...entries.values()].filter((entry) => entry.keybinding !== undefined);
+/**
+ * この keystroke で実行するコマンドを決める。条件は register 時に precondition と AND 済み。
+ *
+ * 優先度は持たず、同一キーの割り当ては実効条件で排他にする契約。破れた場合は登録順
+ * （= コンポーネントの mount 順）で先勝ちし再現しないため、観測可能化する（silent drop 禁止）。
+ */
+function resolveKeyBinding(stroke: KeyStroke): CommandEntry | undefined {
+  const contextKeys = useContextKeys();
+  const matched = [...entries.values()].filter(
+    (entry) =>
+      entry.keybinding !== undefined &&
+      matchKeyStroke(stroke, entry.keybinding.stroke) &&
+      contextKeys.evaluate(entry.keybinding.when),
+  );
+
+  const [first, ...rest] = matched;
+  if (rest.length > 0) {
+    onError(`Keybinding conflict: ${matched.map((entry) => entry.id).join(", ")}`);
+  }
+  return first;
 }
 
 /**
@@ -135,5 +153,5 @@ function reset(): void {
 }
 
 export function useCommandRegistry() {
-  return { register, execute, listKeyBindings, listForPalette, reset, setErrorHandler };
+  return { register, execute, resolveKeyBinding, listForPalette, reset, setErrorHandler };
 }

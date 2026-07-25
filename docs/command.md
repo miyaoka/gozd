@@ -43,7 +43,7 @@ flowchart TB
 interface CommandRegistry {
   register(id: string, input: CommandInput): () => void;
   execute(id: string, args?: unknown): boolean;
-  listKeyBindings(): readonly CommandEntry[];
+  resolveKeyBinding(stroke: KeyStroke): CommandEntry | undefined;
   listForPalette(): readonly CommandEntry[];
   reset(): void;
   setErrorHandler(handler: (message: string, cause?: unknown) => void): void;
@@ -52,7 +52,7 @@ interface CommandRegistry {
 
 - `register()` は dispose 関数を返す。同一 ID の二重登録は上書き（HMR 安全）
 - `execute()` は handler を `tryCatch` でラップして実行する。handler 内で例外が発生した場合は注入済みのエラー通知コールバックに渡して `false` を返す。未登録または `precondition` 不成立なら `false`
-- `listKeyBindings()` は既定 keybinding を持つコマンドを返す。keybinding ディスパッチ（`useKeyBindings`）が使用する
+- `resolveKeyBinding()` は keystroke に対して実行するコマンドを返す。keybinding ディスパッチ（`useKeyBindings`）が使用する。優先度は持たず、実効条件が重なった割り当ては契約違反としてエラー通知に流す
 - `listForPalette()` は label が設定されており、かつ `precondition` が true（または未指定）のコマンドのみを返す。コマンドパレット UI が使用する。キー表示はこの entry の `keybinding.key` から出すため、ID で別テーブルを引く JOIN は無い
 - `setErrorHandler()` は feature 層から通知ストアを注入するための inversion。`shared/command` から feature への直接依存を避ける
 - **アプリ起動時に `setErrorHandler` で通知ストアの `error` を必ず接続する**。注入し忘れると handler の例外が標準コンソールにしか出ず、`useNotificationStore` を通したトースト通知ポリシー（CLAUDE.md 規約）と一致しなくなる

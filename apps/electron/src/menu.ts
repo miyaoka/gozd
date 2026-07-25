@@ -15,7 +15,7 @@ export function installAppMenu(): void {
     Menu.buildFromTemplate([
       { role: "appMenu" },
       // fileMenu は置かない: 中身が Close Window (Cmd+W) だけで、Electron の menu
-      // accelerator は renderer の keydown より先にキーを奪うため、defaultKeyBindings の
+      // accelerator は renderer の keydown より先にキーを奪うため、renderer 側の
       // terminal.closePane (Cmd+W) が永久に呼ばれなくなる。Swift 期は WebView が
       // performKeyEquivalent で先に消費できたため共存できていたが、Electron では
       // menu から外すのが唯一の共存手段。window を閉じる経路は traffic light と

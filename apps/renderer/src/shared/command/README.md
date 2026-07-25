@@ -12,8 +12,10 @@ useContextKeys.ts        ← context key 管理（module singleton）
 useKeyBindings.ts        ← keydown listener + ディスパッチ
 parseKeyStroke.ts        ← key 文字列 → KeyStroke 変換
 parseWhen.ts             ← when 文字列 → When AST 変換
-defaultKeyBindings.json  ← デフォルト keybinding 定義
 ```
+
+既定 keybinding は独立ファイルを持たず、`register()` に渡すコマンド記述子の `keybinding`
+フィールドに同居する（コマンド ID を書く欄を 1 つに保つ。[docs/keybinding.md](../../../../../docs/keybinding.md)）。
 
 ## types.ts — 型の集約
 
@@ -23,7 +25,8 @@ defaultKeyBindings.json  ← デフォルト keybinding 定義
 - `KeyStroke` — e.code ベースの物理キー表現（code + modifier flags）
 - `ContextMap` — context key 名と値型のマッピング。新しい context key はここに追加する
 - `When` — 条件式の AST。`key` / `not` / `and` / `or` の tagged union
-- `KeyBinding` — JSON 互換の keybinding 定義（key, command, when は文字列、args は任意の JSON 値）
+- `KeyBindingSpec` — 記述子に書く既定 keybinding（key / when の文字列）
+- `ResolvedKeyBinding` — register 時に parse 済みの keybinding（stroke + precondition と AND 済みの when）
 
 ## parseKeyStroke — key 文字列の変換
 
@@ -88,4 +91,6 @@ input/textarea/contenteditable のフォーカス除外は `shouldHandle` 内で
 
 ### 照合
 
-`resolveBindings()` で JSON → `ResolvedBinding[]` に事前変換し、keydown 時は逆順走査で最初にマッチしたエントリを実行する。unbind エントリは `unboundCommands` Set で追跡し、後続の通常エントリをスキップする。
+key 文字列 / when 文字列は `register()` 時に parse し、when は precondition と AND して entry に
+持たせる。keydown 時は `resolveKeyBinding()` が keybinding 付きの entry を走査し、stroke 一致 +
+条件成立の最初の 1 つを `execute()` する。優先度は持たない（同一キーは条件で排他にする）。

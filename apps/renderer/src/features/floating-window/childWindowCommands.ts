@@ -1,15 +1,15 @@
 /**
  * child window (別 OS ウィンドウ) 向けコマンドの配線。
  *
- * keybinding の解決系は全ウィンドウ共有の単一テーブル (shared/command) なので、child 固有の
- * 割り当ては `childWindowFocused` context key の when 条件で分岐する。コマンドの対象は
- * 「フォーカスされている child window」で、各 ChildWindow が OS の focus / blur を
- * activate / deactivate に変換してここのハンドルを更新する。context key と対象ハンドルを
- * 同じ場所で同時に更新することで、「when は真なのに対象がいない」ずれを構造的に防ぐ。
+ * keybinding の解決系は全ウィンドウ共有 (shared/command) なので、child 固有の割り当ては
+ * `childWindowFocused` context key で分岐する。コマンドの対象は「フォーカスされている
+ * child window」で、各 ChildWindow が OS の focus / blur を activate / deactivate に変換して
+ * ここのハンドルを更新する。context key と対象ハンドルを同じ場所で同時に更新することで、
+ * 「条件は真なのに対象がいない」ずれを構造的に防ぐ。
  *
  * コマンドはモジュール初期化時に一度だけ登録する (ChildWindow の import で連れられて登録
- * される。keybinding の when = childWindowFocused が ChildWindow の存在を含意するため、
- * useCommandRegistry の fail-loud 不変条件「when が真なら command は登録済み」を満たす)。
+ * される)。Cmd+W / Cmd+S は main window 側 (terminal.closePane / preview.close / preview.save) と
+ * 同じキーなので、あちらに `!childWindowFocused` を置いて実効条件を排他にしている。
  */
 import { useCommandRegistry, useContextKeys } from "../../shared/command";
 
@@ -42,6 +42,8 @@ const { register } = useCommandRegistry();
 register("childWindow.close", {
   label: "Child Window: Close",
   precondition: "childWindowFocused",
+  // when は precondition との AND で効くため childWindowFocused を再掲しない
+  keybinding: { key: "cmd+w" },
   handler: () => {
     if (active === undefined) return false;
     active.requestClose();
@@ -52,6 +54,7 @@ register("childWindow.close", {
 register("childWindow.save", {
   label: "Child Window: Save",
   precondition: "childWindowFocused",
+  keybinding: { key: "cmd+s" },
   handler: () => {
     if (active === undefined) return false;
     active.requestSave();

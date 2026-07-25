@@ -16,18 +16,31 @@ VS Code 互換の keybinding システム。JSON 設定からキー入力をコ�
 > [!NOTE]
 > `e.key` はレイアウト依存で Shift+2 が `@` や `"` になるが、`e.code` は常に `Digit2`
 
-## 設定フォーマット（VS Code 互換）
+## 既定 keybinding の宣言
 
-JSON で定義する。`key` / `command` / `when` は文字列、`args` は任意の JSON 値。
+既定のキー割り当ては **コマンド記述子の `keybinding` フィールド** に書く（`register()` と同じ場所）。
+キー割り当てだけを列挙した独立テーブルは持たない。
 
-```json
-[
-  { "key": "cmd+d", "command": "terminal.splitHorizontal", "when": "terminalFocus" },
-  { "key": "shift+cmd+d", "command": "terminal.splitVertical", "when": "terminalFocus" },
-  { "key": "cmd+w", "command": "terminal.closePane", "when": "terminalFocus" },
-  { "key": "alt+cmd+left", "command": "terminal.focusLeft", "when": "terminalFocus" }
-]
+```typescript
+registry.register("terminal.splitHorizontal", {
+  label: "Terminal: Split Horizontal",
+  keybinding: { key: "cmd+d", when: "terminalFocus" },
+  handler: () => { ... },
+});
 ```
+
+コマンド ID を書く欄は `register()` の第 1 引数だけなので、ID の改名でキー割り当てとパレットの
+キー表示がずれる状態を作れない。キー割り当ての寿命はコマンドの登録寿命と一致し、pane の
+mount / unmount で条件付きに登録されるコマンドはキーも同時に出入りする（未登録コマンドを指す
+キー割り当てが残らない）。
+
+VS Code が既定 keybinding をコマンドと同じ descriptor（`registerCommandAndKeybindingRule` /
+`Action2` の `desc.keybinding`）で登録し、JSON をユーザー設定層専用にしているのと同じ切り分け。
+
+ユーザー設定層は未実装。VS Code ではユーザー設定は weight を持たず、weight 順に整列した既定の
+**後ろに連結**されて必ず勝ち、打ち消しは `-commandId` で既定エントリだけを消す
+（`KeybindingResolver` の `concat(defaults).concat(overrides)` と `handleRemovals`）。gozd に
+入れるときも同じ形にする（既定側に層を足すのではなく、既定リストの後ろに載せる）。
 
 ### key フィールド
 
@@ -48,32 +61,24 @@ modifier + key を `+` で結合。全て小文字。
 
 **角括弧記法:** `[BracketLeft]` のように e.code 値を直接指定できる。レイアウト依存のキーに使用する。
 
-### command フィールド
-
-コマンド ID。`-` prefix で unbind（既存 binding の打ち消し）。
-
-```json
-{ "key": "cmd+w", "command": "-terminal.closePane", "when": "terminalFocus" }
-```
-
-### args フィールド
-
-コマンドハンドラーに渡す引数。省略可。同一コマンドを異なる引数で呼び分ける場合に使用する（registry の `execute(id, args)` の第 2 引数として handler に届く）。
-
-```json
-[
-  { "key": "ctrl+1", "command": "foo.bar", "args": 1 },
-  { "key": "ctrl+2", "command": "foo.bar", "args": 2 }
-]
-```
-
 ### when フィールド
 
-context key の条件式。詳細は [command.md](command.md) の「When 条件」を参照。
+context key の条件式（省略可）。詳細は [command.md](command.md) の「When 条件」を参照。
+
+キーが発火する**実効条件**は `when` とコマンドの `precondition` の AND（VS Code の
+`registerAction2` が `ContextKeyExpr.and(precondition, keybinding.when)` を組むのと同じ）。よって
+precondition で既に効いている key を `when` に再掲しない（`childWindow.close` の precondition は
+`childWindowFocused` なので、その keybinding に when は要らない）。
+
+同一キーを複数のコマンドに割り当てるときは、**実効条件が同時に真にならないように書く**。
+優先度（VS Code の `KeybindingWeight`）は持たない。ウィンドウのスコープで分かれる Cmd+W / Cmd+S は
+`childWindowFocused` の有無で排他にしている。VS Code も auxiliary window（別 OS ウィンドウに
+切り出したエディタ）については weight ではなく `IsAuxiliaryWindowFocusedContext.toNegated()` で
+main window 側の割り当てを外す。
 
 ## 解決フロー
 
-keydown listener（capture phase）で以下の順に処理する。listener は**全ウィンドウの document に張り、解決系（binding テーブル + context key + command registry）は単一を共有する**（VS Code が `onDidRegisterWindow` で全ウィンドウに同一 dispatcher を張るのと同じ構造）。main window は App.vue の `useKeyBindings()`、undock child window は ChildWindow の `useWindowKeyBindings(win)` が配線する。child 固有の割り当て（`childWindow.close` / `childWindow.save`）は `childWindowFocused` context key の when 条件で分岐し、テーブル末尾（高優先）に置く。コマンドの対象になる「フォーカス中の child window」は floating-window の childWindowCommands が OS の focus / blur で追跡する。
+keydown listener（capture phase）で以下の順に処理する。listener は**全ウィンドウの document に張り、解決系（command registry + context key）は単一を共有する**（VS Code が `onDidRegisterWindow` で全ウィンドウに同一 dispatcher を張るのと同じ構造）。main window は App.vue の `useKeyBindings()`、undock child window は ChildWindow の `useWindowKeyBindings(win)` が配線する。child 固有の割り当て（`childWindow.close` / `childWindow.save`）は `childWindowFocused` で分岐し、同じキーを持つ main window 側（`terminal.closePane` / `preview.close` / `preview.save`）が `!childWindowFocused` を持つことで排他になる。コマンドの対象になる「フォーカス中の child window」は floating-window の childWindowCommands が OS の focus / blur で追跡する。
 
 ### 除外判定
 
@@ -82,16 +87,17 @@ keydown listener（capture phase）で以下の順に処理する。listener は
 - `e.repeat` → 除外（連打防止）
 
 > [!NOTE]
-> 「macOS 予約キー (Cmd+C/V/X 等)」をハードコードで除外する仕組みは持たない。bind されていないキーは matching ループで unmatch となり、`preventDefault()` を呼ばないためブラウザ既定 (コピー / ペースト等) がそのまま動く。bind すれば上書き可能。
+> 「macOS 予約キー (Cmd+C/V/X 等)」をハードコードで除外する仕組みは持たない。bind されていないキーは照合で unmatch となり、`preventDefault()` を呼ばないためブラウザ既定 (コピー / ペースト等) がそのまま動く。bind すれば上書き可能。
 >
-> 例外: application menu の accelerator に bind されたキー (Cmd+Q の Quit、Cmd+H の Hide、Cmd+M の Minimize 等) は JS handler に届く前に処理されるため bind 不可。menu 構成は `apps/electron/src/menu.ts`（role ベース）。Cmd+W は `defaultKeyBindings.json` で renderer 側コマンド（`preview.close` / `terminal.closePane` / `childWindow.close`）に割り当てているため、menu には fileMenu（中身が Close Window = Cmd+W のみ）を置かない。Electron の menu accelerator は renderer の keydown より優先されるため、menu から外すのが唯一の共存手段。
+> 例外: application menu の accelerator に bind されたキー (Cmd+Q の Quit、Cmd+H の Hide、Cmd+M の Minimize 等) は JS handler に届く前に処理されるため bind 不可。menu 構成は `apps/electron/src/menu.ts`（role ベース）。Cmd+W は renderer 側コマンド（`preview.close` / `terminal.closePane` / `childWindow.close`）に割り当てているため、menu には fileMenu（中身が Close Window = Cmd+W のみ）を置かない。Electron の menu accelerator は renderer の keydown より優先されるため、menu から外すのが唯一の共存手段。
 
 ### ディスパッチ
 
-keybinding テーブル（default + user を concat）を**末尾から逆順走査**する:
+登録済みコマンドを走査し、keystroke が一致して実効条件が成立した最初のものを `execute()` する。
+handler が `true`（handled）を返した場合のみ `preventDefault()` + `stopPropagation()`。一致する
+割り当てが無ければ何もしない（`preventDefault()` を呼ばないのでブラウザ既定に抜ける）。
 
-- keystroke 一致 + when 条件成立 → コマンド実行
-- unbind（`-` prefix）に match → そのコマンドを以降の走査でスキップ
-- handler が `true`（handled）を返した場合のみ `preventDefault()` + `stopPropagation()`
-
-逆順走査により、後のエントリ（ユーザー設定）がデフォルトより優先される。
+優先度で解く仕組みは持たない。VS Code は `KeybindingWeight` → command id → 登録順で全割り当てを
+sort して逆順走査するが、あれは editor / workbench / 拡張という**登録元の層**が複数あり、
+同時可視のウィジェット同士（suggest / snippet / find が Escape を取り合う等）を when だけでは
+書き分けられないための機構。gozd の割り当ては 1 層で、競合はすべて context key で排他にできる。

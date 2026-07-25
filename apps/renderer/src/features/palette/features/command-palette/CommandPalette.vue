@@ -15,7 +15,7 @@ import { useEventListener } from "@vueuse/core";
 import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useCommandRegistry, useContextKeys } from "../../../../shared/command";
 import { useListNavigation } from "../../useListNavigation";
-import { formatKeyBinding, getKeyBindingMap } from "./keyBindingDisplay";
+import { formatKeyBinding } from "./keyBindingDisplay";
 
 const registry = useCommandRegistry();
 const contextKeys = useContextKeys();
@@ -24,7 +24,6 @@ const inputRef = useTemplateRef<HTMLInputElement>("input");
 const listRef = useTemplateRef<HTMLUListElement>("list");
 
 const query = ref("");
-const keyBindingMap = getKeyBindingMap();
 
 const filteredCommands = computed(() => {
   const commands = registry.listForPalette();
@@ -106,6 +105,7 @@ useEventListener(dialogRef, "click", (e: MouseEvent) => {
 /** Register command for opening the palette */
 const disposeShow = registry.register("commandPalette.show", {
   label: "Show All Commands",
+  keybinding: { key: "shift+cmd+p" },
   handler: () => {
     show();
     return true;
@@ -155,10 +155,10 @@ onUnmounted(disposeShow);
         >
           <span>{{ cmd.label }}</span>
           <kbd
-            v-if="keyBindingMap.get(cmd.id)"
+            v-if="cmd.keybinding"
             class="ml-4 shrink-0 rounded-sm bg-background px-1.5 py-0.5 font-mono text-xs text-foreground-low"
           >
-            {{ formatKeyBinding(keyBindingMap.get(cmd.id)!) }}
+            {{ formatKeyBinding(cmd.keybinding.key) }}
           </kbd>
         </li>
       </ul>

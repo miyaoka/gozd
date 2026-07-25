@@ -50,6 +50,7 @@ export function registerSettingsCommand(): () => void {
   const registry = useCommandRegistry();
   return registry.register("settings.open", {
     label: "Settings: Open",
+    keybinding: { key: "cmd+," },
     handler: (args?: unknown) => {
       open(parseOpenArgs(args));
       return true;

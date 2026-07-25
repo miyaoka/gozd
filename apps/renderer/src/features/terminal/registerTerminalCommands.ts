@@ -71,6 +71,7 @@ export function registerTerminalCommands(
   const disposers = [
     registry.register("terminal.splitHorizontal", {
       label: "Terminal: Split Horizontal",
+      keybinding: { key: "cmd+d", when: "terminalFocus" },
       handler: () => {
         const active = getFocusedLayout();
         if (active === undefined) return false;
@@ -86,6 +87,7 @@ export function registerTerminalCommands(
 
     registry.register("terminal.splitVertical", {
       label: "Terminal: Split Vertical",
+      keybinding: { key: "shift+cmd+d", when: "terminalFocus" },
       handler: () => {
         const active = getFocusedLayout();
         if (active === undefined) return false;
@@ -97,6 +99,10 @@ export function registerTerminalCommands(
 
     registry.register("terminal.closePane", {
       label: "Terminal: Close Pane",
+      // Cmd+W は preview.close / childWindow.close と共有するキー。child window に OS フォーカスが
+      // あるときは main window 側の割り当てを外す（VS Code が auxiliary window で
+      // IsAuxiliaryWindowFocusedContext を否定するのと同じ切り分け）
+      keybinding: { key: "cmd+w", when: "terminalFocus && !childWindowFocused" },
       handler: () => {
         const active = getFocusedLayout();
         if (active === undefined) return false;
@@ -120,23 +126,28 @@ export function registerTerminalCommands(
 
     registry.register("terminal.focusLeft", {
       label: "Terminal: Focus Left",
+      keybinding: { key: "alt+cmd+left", when: "terminalFocus" },
       handler: createFocusHandler("left"),
     }),
     registry.register("terminal.focusRight", {
       label: "Terminal: Focus Right",
+      keybinding: { key: "alt+cmd+right", when: "terminalFocus" },
       handler: createFocusHandler("right"),
     }),
     registry.register("terminal.focusUp", {
       label: "Terminal: Focus Up",
+      keybinding: { key: "alt+cmd+up", when: "terminalFocus" },
       handler: createFocusHandler("up"),
     }),
     registry.register("terminal.focusDown", {
       label: "Terminal: Focus Down",
+      keybinding: { key: "alt+cmd+down", when: "terminalFocus" },
       handler: createFocusHandler("down"),
     }),
 
     registry.register("workspace.toggleViewMode", {
       label: "Workspace: Toggle Active Worktree / Claude Terminals",
+      keybinding: { key: "cmd+/" },
       handler: () => {
         terminalStore.toggleViewMode();
         return true;

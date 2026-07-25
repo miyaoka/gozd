@@ -43,6 +43,7 @@ flowchart TB
 interface CommandRegistry {
   register(id: string, input: CommandInput): () => void;
   execute(id: string, args?: unknown): boolean;
+  listKeyBindings(): readonly CommandEntry[];
   listForPalette(): readonly CommandEntry[];
   reset(): void;
   setErrorHandler(handler: (message: string, cause?: unknown) => void): void;
@@ -51,7 +52,8 @@ interface CommandRegistry {
 
 - `register()` は dispose 関数を返す。同一 ID の二重登録は上書き（HMR 安全）
 - `execute()` は handler を `tryCatch` でラップして実行する。handler 内で例外が発生した場合は注入済みのエラー通知コールバックに渡して `false` を返す。未登録または `precondition` 不成立なら `false`
-- `listForPalette()` は label が設定されており、かつ `precondition` が true（または未指定）のコマンドのみを返す。コマンドパレット UI が使用する
+- `listKeyBindings()` は既定 keybinding を持つコマンドを返す。keybinding ディスパッチ（`useKeyBindings`）が使用する
+- `listForPalette()` は label が設定されており、かつ `precondition` が true（または未指定）のコマンドのみを返す。コマンドパレット UI が使用する。キー表示はこの entry の `keybinding.key` から出すため、ID で別テーブルを引く JOIN は無い
 - `setErrorHandler()` は feature 層から通知ストアを注入するための inversion。`shared/command` から feature への直接依存を避ける
 - **アプリ起動時に `setErrorHandler` で通知ストアの `error` を必ず接続する**。注入し忘れると handler の例外が標準コンソールにしか出ず、`useNotificationStore` を通したトースト通知ポリシー（CLAUDE.md 規約）と一致しなくなる
 - dispose 時は一致チェックし、他の登録を壊さない
@@ -68,6 +70,8 @@ interface CommandDescriptor {
   handler: CommandHandler;
   /** コマンドの有効化条件。false の場合パレットに表示されず、`execute()` もスキップされる */
   precondition?: string;
+  /** 既定 keybinding。省略時はキー割り当てなし（[keybinding.md](keybinding.md)） */
+  keybinding?: { key: string; when?: string };
 }
 
 type CommandInput = CommandHandler | CommandDescriptor;
@@ -84,6 +88,7 @@ type CommandInput = CommandHandler | CommandDescriptor;
 // label 付き: コマンドパレットに表示される
 registry.register("terminal.splitHorizontal", {
   label: "Terminal: Split Horizontal",
+  keybinding: { key: "cmd+d", when: "terminalFocus" },
   handler: () => {
     const active = getActiveLayout();
     if (active === undefined) return false;

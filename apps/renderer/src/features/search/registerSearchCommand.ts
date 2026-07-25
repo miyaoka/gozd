@@ -13,6 +13,7 @@ export function registerSearchCommand(): () => void {
   return registry.register("search.show", {
     label: "Search: Find in Files",
     precondition: "isGitRepo",
+    keybinding: { key: "shift+cmd+f" },
     handler: () => {
       // dialog の open + 入力 focus は SearchDialog が showSignal を受けて行う（file-picker と同流儀）
       store.show();

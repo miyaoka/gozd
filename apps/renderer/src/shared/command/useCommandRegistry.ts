@@ -3,18 +3,21 @@
  * コマンド ID → エントリ（handler + label）のマッピングを管理する。
  */
 import { tryCatch } from "@gozd/shared";
+import { parseKeyStroke } from "./parseKeyStroke";
 import { parseWhen } from "./parseWhen";
-import type { CommandEntry, CommandInput } from "./types";
+import type {
+  CommandDescriptor,
+  CommandEntry,
+  CommandInput,
+  ResolvedKeyBinding,
+  When,
+} from "./types";
 import { useContextKeys } from "./useContextKeys";
 
 /** CommandInput が記述子（label 付き）かハンドラ関数かを判定 */
-function isDescriptor(
-  input: CommandInput,
-): input is { label: string; handler: (args?: unknown) => boolean } {
+function isDescriptor(input: CommandInput): input is CommandDescriptor {
   return typeof input !== "function";
 }
-
-const entries = new Map<string, CommandEntry>();
 
 /** エラー通知コールバック。feature 層から注入して shared 間の依存を回避する。未設定時は console.error にフォールバック */
 let onError: (message: string, cause?: unknown) => void = console.error;
@@ -23,20 +26,45 @@ function setErrorHandler(handler: (message: string, cause?: unknown) => void) {
   onError = handler;
 }
 
+/** precondition と when を AND した実効条件を作る（VS Code の registerAction2 と同じ合成） */
+function combineWhen(precondition: When | undefined, when: When | undefined): When | undefined {
+  if (precondition === undefined) return when;
+  if (when === undefined) return precondition;
+  return { type: "and", values: [precondition, when] };
+}
+
+/** 既定 keybinding を登録時に parse する（key 文字列の誤りは register 時点で throw させる） */
+function resolveKeyBinding(
+  descriptor: CommandDescriptor,
+  precondition: When | undefined,
+): ResolvedKeyBinding | undefined {
+  const { keybinding } = descriptor;
+  if (keybinding === undefined) return undefined;
+  return {
+    key: keybinding.key,
+    stroke: parseKeyStroke(keybinding.key),
+    when: combineWhen(precondition, parseWhen(keybinding.when)),
+  };
+}
+
+const entries = new Map<string, CommandEntry>();
+
 /**
  * コマンドを登録する。同一 ID の二重登録は上書き（HMR 安全）。
  * label 付き記述子で登録したコマンドのみパレットに表示される。
  * @returns dispose 関数（登録解除）
  */
 function register(id: string, input: CommandInput): () => void {
+  const precondition = isDescriptor(input) ? parseWhen(input.precondition) : undefined;
   const entry: CommandEntry = isDescriptor(input)
     ? {
         id,
         label: input.label,
         handler: input.handler,
-        precondition: parseWhen(input.precondition),
+        precondition,
+        keybinding: resolveKeyBinding(input, precondition),
       }
-    : { id, label: undefined, handler: input, precondition: undefined };
+    : { id, label: undefined, handler: input, precondition: undefined, keybinding: undefined };
 
   entries.set(id, entry);
 
@@ -60,14 +88,12 @@ function execute(id: string, args?: unknown): boolean {
     // （VSCode も同様で id は string）。未登録 id を silent-false で握りつぶすと、rename / typo /
     // 登録漏れで呼び出し側（サイドバーのボタン等）が無反応のまま壊れる。VSCode の
     // CommandService が未知コマンドを reject するのと同じく、実行時に fail-loud で観測可能化する
-    // （silent drop 禁止）。契約は boolean のまま保ち、通知は注入済み onError（handler throw と
-    // 同じ口）に流す。
+    // （silent drop 禁止）。契約は boolean のまま保ち、通知は注入済みのエラーチャネル
+    // （handler throw と同じ口）に流す。
     //
-    // 不変条件: keybinding 経由 (useKeyBindings) の実行もこの fail-loud に乗る。条件付き登録の
-    // command（pane mount 時のみ register される preview.* / terminal.* 等）は、対応する
-    // keybinding の when（previewEditable / terminalFocus 等）がその pane mount を含意するため、
-    // when が真のとき command は必ず登録済みで未登録分岐に到達しない。when 無し keybinding や
-    // lazily-registered command を足すとこの前提が崩れ、毎キー入力で not-found トーストが出る。
+    // この分岐に到達するのは id 文字列を直接渡す呼び出し側（サイドバーのボタン等）だけ。
+    // keybinding は entry に同居するため、未登録コマンドを指すキー割り当ては存在し得ない
+    // （未登録 = キー割り当ても消えている = ブラウザ既定に抜ける）。
     onError(`Command "${id}" not found`);
     return false;
   }
@@ -80,6 +106,11 @@ function execute(id: string, args?: unknown): boolean {
     return false;
   }
   return result.value;
+}
+
+/** keybinding を持つコマンドの一覧。ディスパッチ（useKeyBindings）が走査に使う */
+function listKeyBindings(): readonly CommandEntry[] {
+  return [...entries.values()].filter((entry) => entry.keybinding !== undefined);
 }
 
 /**
@@ -104,5 +135,5 @@ function reset(): void {
 }
 
 export function useCommandRegistry() {
-  return { register, execute, listForPalette, reset, setErrorHandler };
+  return { register, execute, listKeyBindings, listForPalette, reset, setErrorHandler };
 }

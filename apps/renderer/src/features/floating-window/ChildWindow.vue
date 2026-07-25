@@ -14,6 +14,9 @@ setWindowOpenHandler が about:blank だけを allow する契約とセット。
 - 本文 slot は Teleport で child の body 直下へ投影する。slot 内のコードが暗黙の
   `window` / `document` グローバルを参照すると opener 側を掴む (element 直付けの
   listener は child 内でもそのまま動く)
+- open 失敗 (main 側 policy 不整合等で `window.open` が null) は close ではなく `openFailed` で
+  通知する。consumer にとって「開けなかった」と「開いたものが閉じた」は後始末が別で、
+  前者を close に畳むと payload を捨てる経路になる
 - close は 2 経路: ユーザーのネイティブ close (traffic light) は `blockClose` が false なら
   そのまま閉じて pagehide → close emit (consumer が state を消す)、true なら beforeunload
   の veto (Electron は undefined 以外の返却で close を中止する) で止めて closeRequested を
@@ -29,36 +32,27 @@ setWindowOpenHandler が about:blank だけを allow する契約とセット。
 - opener の unload (Vite フルリロード / アプリ終了) は child を道連れに閉じる。opener の
   renderer プロセスが死ぬと child の JS ごと消えるため蘇生はなく、undock ウィンドウは
   揮発的 (位置・サイズ含め永続化しない) という契約で受容する
-- `handoff` があれば undock 元のドラッグを OS ウィンドウの移動として継続する。ネイティブの
-  window drag をプログラムから開始する API は無いが、掴んだままの pointer の capture は
-  opener 側 window に残り続けるため、opener の pointermove をウィンドウ移動へ変換して
-  追従させる (pointer と child の間の offset をスクリーン座標で保つ)
-- 追従は main の `setPosition` へ RPC で流す (`/childWindow/move`。位置のみ書き高さに
-  触れない)。renderer の `moveTo` / `resizeBy` は使わない — Blink がキャッシュした高さ込みの
-  full rect を SetBounds へ送るため、初回レイアウト前 (inner=0) や mount 時の header resize と
-  並走するドラッグで高さを破壊する (bounds ログの実測で確認)。`moveTo` にあった
-  ディスプレイ内クランプ (Chromium の popup 逃亡対策) は setPosition には無い。過去の検討では
-  setPosition 追従に macOS のウィンドウ帰属切替との押し合いで境界発振の観測があり、
-  ディスプレイ境界跨ぎの挙動は要実機確認 (発振する場合はネイティブ titlebar ドラッグが代替)
+- 生成後の移動 / リサイズ / 前面順は OS ネイティブに任せ、renderer からは触らない。
+  このシェルは in-app パネルからの昇格 (UndockedWindow の promote) でしか生成されず、
+  ドラッグ中に生成される経路が無いため、プログラムからの位置追従を持つ必要がない
+  (`moveTo` / `resizeBy` は Blink がキャッシュした rect を丸ごと SetBounds へ送るため、
+  生成直後の補正に使うと高さを破壊する)
 - `window.open` の frame 名は乱数で一意化する。main が did-create-window の
   `details.frameName` で BrowserWindow を registry に確保し、main window 向け一括操作
   (setTitleContext) から child を除外する判定に使う
 </doc>
 
 <script setup lang="ts">
-import { CHILD_WINDOW_FRAME_PREFIX, CHILD_WINDOW_TITLEBAR_HEIGHT, tryCatch } from "@gozd/shared";
+import { CHILD_WINDOW_FRAME_PREFIX, CHILD_WINDOW_TITLEBAR_HEIGHT } from "@gozd/shared";
 import { useEventListener, useMutationObserver } from "@vueuse/core";
 import { onMounted, onUnmounted, ref } from "vue";
 import { useWindowKeyBindings } from "../../shared/command";
 import { useNotificationStore } from "../../shared/notification";
-import { onMessage } from "../../shared/rpc";
 import {
   activateChildWindow,
   deactivateChildWindow,
   type ChildWindowHandle,
 } from "./childWindowCommands";
-import { type ChildWindowShownPayload, rpcChildWindowMove } from "./rpc";
-import type { UndockDragHandoff } from "./useChildWindows";
 
 interface Props {
   /** child window のタイトルバー表示 (document.title)。 */
@@ -71,27 +65,19 @@ interface Props {
   height: number;
   /** true の間、ネイティブ close を veto して closeRequested を emit する (dirty ガード用)。 */
   blockClose: boolean;
-  /** undock 元から引き継いだドラッグ (main setPosition の RPC 追従。doc 参照)。offset は
-   * コンテンツ原点基準。 */
-  handoff?: UndockDragHandoff;
 }
 
 const props = defineProps<Props>();
 
 const emit = defineEmits<{
+  /** window.open が失敗した (doc 参照)。consumer は昇格前の状態へ引き返す。 */
+  openFailed: [];
   /** child window が閉じた (ネイティブ close 通過後)。consumer は state を消す。 */
   close: [];
   /** blockClose 中のネイティブ close 要求。consumer が確認フローへ変換する。 */
   closeRequested: [];
   /** childWindow.save コマンド (cmd+s) の要求。保存の可否・実処理は consumer の知識。 */
   saveRequested: [];
-  /** open 成功。frameName は main 側 registry のキーで、consumer が bounds 操作 RPC
-   * (rpcChildWindowResizeBy 等) の対象指定に使う。 */
-  opened: [frameName: string];
-  /** OS の表示完了 (main が show event を childWindowShown push で転送)。consumer は
-   * undock 元の後始末 (ゴースト解除 / popover close) の合図に使う。push が落ちた場合は
-   * 発火しないため、consumer 側は timeout の保険を併用する。 */
-  shown: [];
 }>();
 
 const notification = useNotificationStore();
@@ -127,9 +113,6 @@ let closedBySelf = false;
 
 /** keybinding コマンドの対象ハンドル。open 成功時のみ設定 (unmount の deactivate 用に巻き上げ)。 */
 let handle: ChildWindowHandle | undefined;
-
-/** childWindowShown push の購読解除。open 成功時のみ設定 (unmount 用に巻き上げ)。 */
-let unsubscribeShown: (() => void) | undefined;
 
 if (child === null) {
   // fallback しない: 開けない (main 側 policy 不整合等) は通知して即 close に倒す
@@ -205,48 +188,15 @@ if (child === null) {
     child.close();
   });
 
-  // ==== drag handoff: opener に残った pointer capture をウィンドウ移動へ変換する (doc 参照) ====
-  let dragState = props.handoff;
-  useEventListener(window, "pointermove", (event: PointerEvent) => {
-    if (dragState === undefined || event.pointerId !== dragState.pointerId) return;
-    // 位置は main の setPosition (位置のみ書く) で更新する。renderer の moveTo は Blink
-    // キャッシュの高さ込み full rect を SetBounds に送るため、mount 時の header resize と
-    // 並走するドラッグで高さを破壊する (bounds 検証ログで確認済み)。座標は window 外枠
-    // 原点。offset はコンテンツ原点基準なので titlebar 分を差し引いて換算する
-    // 失敗は次の pointermove で自己補正されるため通知しない。tryCatch は bare void で
-    // transport 失敗が unhandled rejection として量産されるのを防ぐため
-    void tryCatch(
-      rpcChildWindowMove({
-        frameName,
-        x: Math.round(event.screenX - dragState.offsetX),
-        y: Math.round(event.screenY - dragState.offsetY - CHILD_WINDOW_TITLEBAR_HEIGHT),
-      }),
-    );
-  });
-  const endDrag = (event: PointerEvent) => {
-    if (dragState?.pointerId !== event.pointerId) return;
-    dragState = undefined;
-  };
-  useEventListener(window, "pointerup", endDrag);
-  useEventListener(window, "pointercancel", endDrag);
-
   targetBody.value = doc.body;
-  emit("opened", frameName);
-
-  // 表示完了 push を自 frameName で filter して shown emit に変換する (emits の doc 参照)
-  unsubscribeShown = onMessage<ChildWindowShownPayload>("childWindowShown", (payload) => {
-    if (payload.frameName !== frameName) return;
-    emit("shown");
-  });
 }
 
 onMounted(() => {
-  // open 失敗の close 通知。setup 同期中に emit すると親の v-for 描画中の状態変更になる
-  if (child === null) emit("close");
+  // open 失敗の通知。setup 同期中に emit すると親の v-for 描画中の状態変更になる
+  if (child === null) emit("openFailed");
 });
 
 onUnmounted(() => {
-  unsubscribeShown?.();
   if (child === null) return;
   closedBySelf = true;
   // フォーカスされたまま閉じると blur が飛ばないことがあるため、unmount で確実に解除する

@@ -79,10 +79,10 @@ ancestor をスクロール」がターミナルに向いてしまう)。root �
 
 各 bubble クリックで HTML Popover API ベースの全文ポップオーバーを開く。popover ヘッダの
 undock ボタンクリック、またはヘッダのドラッグ (しきい値超過) で、表示中メッセージを
-スナップショットとして別 OS ウィンドウ (session-log feature の `useUndockedLog` /
-UndockedLogLayer。実体は ChildWindow) へ切り離せる。ドラッグ経路は undock 元の rect と掴んだ
-pointer を `UndockDragHandoff` でウィンドウへ引き継ぎ (ChildWindow が main setPosition の
-RPC 追従に変換)、popover を掴んでそのまま引き剥がす操作感にする。popover 自体は light-dismiss で消える一時 UI なので、「残したい」要求は
+スナップショットとして独立フローティングウィンドウ (session-log feature の
+`useUndockedLog` / UndockedLogLayer) へ切り離せる。ドラッグ経路は undock 元の rect と掴んだ
+pointer を `UndockDragHandoff` でウィンドウへ引き継ぎ、popover を掴んでそのまま引き剥がす
+操作感にする。popover 自体は light-dismiss で消える一時 UI なので、「残したい」要求は
 別レイヤーへ昇格させる設計。Popover は `shared/popover` の `usePopover` を per-instance で使う。
 
 anchor は被クリック bubble そのものではなく、クリック時点の bubble rect を overlay root
@@ -116,7 +116,7 @@ flip 規則 (`positionTryFallbacks`) は両 origin で共通のため、開い�
 popover はカスタムタイトルバー帯 (`-webkit-app-region: drag`) へ食い込ませない。
 Electron の drag region はペイント順 (top layer) と無関係に平面で効くため、重なった帯は
 window ドラッグ判定に取られて popover ヘッダの undock ドラッグが効かなくなり、視覚的にも
-タイトルバーを覆う。
+タイトルバーを覆う (FloatingWindow が top を titlebar 高で clamp しているのと同じ問題)。
 制約は inset keep-out + max-height クランプの 2 点セットで入れる。position-area は選んだ
 region を containing block にするが**サイズの自動クランプはしない** (仕様上、要素は
 containing block を overflow できる) ため、keep-out inset (`top: var(--titlebar-height)`)
@@ -379,16 +379,14 @@ function togglePreview(event: MouseEvent, msg: PreviewMessage, origin: "main" | 
 }
 
 // popover ヘッダの undock ボタン。表示中メッセージを undock 時点のスナップショットとして
-// 別 OS ウィンドウ (UndockedLogLayer) へ切り離す。ウィンドウは repo /
+// 独立フローティングウィンドウ (UndockedLogLayer) へ切り離す。ウィンドウは repo /
 // session 切り替えを跨いで生存するため、タイトルに repo 名 + session タイトルを
 // 焼き込んで出自を識別できるようにする。undock 後は popover を閉じる (二重表示を残さない)。
 const { undock: undockLog } = useUndockedLog();
 
-// undock 時の実測対象。位置は popover の中間 box の rect (スクリーン座標へ換算)、サイズは
-// 本文 (スクロール面) の実測を渡す。総高さでなく本文で受け渡すのは旧 FloatingWindow と
-// 同じ理由 — undock 元とウィンドウでヘッダの高さが違うため、総高さを引き継ぐと増えた
-// ヘッダ分だけ本文が食われて切れる。ウィンドウ側 (UndockedLogWindow) が mount 時に自分の
-// ヘッダ実測高を足して総高さを決める。
+// undock 時の実測対象。位置は popover の中間 box の rect、サイズは本文 (スクロール面) の
+// rect を in-app パネルへ引き継ぎ、popover がその場でパネル化したような視覚的連続性を出す
+// (総サイズでなく中身のサイズを渡す理由は useUndockedLog の doc 参照)。
 const previewBoxRef = useTemplateRef<HTMLElement>("previewBox");
 const previewBodyRef = useTemplateRef<HTMLElement>("previewBody");
 
@@ -399,10 +397,6 @@ function undockPreview(handoff?: UndockDragHandoff) {
   if (ctx === undefined || box === null || body === null) return;
   const rect = box.getBoundingClientRect();
   const bodyRect = body.getBoundingClientRect();
-  // ビューポート座標 → スクリーン座標。screenX/Y は OS ウィンドウのコンテンツ原点なので、
-  // main window の chrome 高 (outer/inner 差) を足して換算する (PreviewPane の undock と
-  // 同じ換算)
-  const chromeY = window.outerHeight - window.innerHeight;
   // ヘッダは TerminalLeafTitle と同じ SSOT から組み立てる: repo は dir → findRepoOwning
   // (name + RepoIcon 用 owner)、session タイトルは sessionId → findTaskBySessionId →
   // taskDisplayTitle。sub 由来はどの subagent かも識別できるよう subLabel を足す (main は
@@ -426,10 +420,10 @@ function undockPreview(handoff?: UndockDragHandoff) {
       repoOwner: repo?.githubIdentity?.owner ?? "",
       title: title === "" ? "Session log" : title,
       text: ctx.msg.text,
-      screenX: window.screenX + rect.left,
-      screenY: window.screenY + chromeY + rect.top,
-      width: rect.width,
-      height: bodyRect.height,
+      x: rect.left,
+      y: rect.top,
+      contentWidth: bodyRect.width,
+      contentHeight: bodyRect.height,
     },
     handoff,
   );
@@ -440,8 +434,8 @@ function undockPreview(handoff?: UndockDragHandoff) {
 const DRAG_UNDOCK_THRESHOLD = 4;
 
 // popover ヘッダのドラッグ検知。しきい値を超えたら undock して、掴んでいる pointer ごと
-// ChildWindow へドラッグを引き継ぐ (UndockDragHandoff → main setPosition の RPC 追従)。undock は rect を
-// 実測してから popover を閉じるので、ウィンドウは掴んだその位置に現れてそのまま動かせる。
+// UndockedLogWindow へドラッグを引き継ぐ (UndockDragHandoff)。undock は rect を実測してから
+// popover を閉じるので、ウィンドウは掴んだその位置に現れてそのまま動かせる。
 let headerDrag: { pointerId: number; startX: number; startY: number } | undefined;
 
 function onPreviewHeaderPointerDown(event: PointerEvent) {

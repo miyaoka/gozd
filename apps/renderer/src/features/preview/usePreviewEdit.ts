@@ -144,8 +144,13 @@ export function usePreviewEdit(content: PreviewContent) {
   const disposeSaveCommand = register("preview.save", {
     label: "Preview: Save File",
     precondition: "previewVisible",
-    // Cmd+S は childWindow.save と共有するキーなので、child にフォーカスがある間は外す
-    keybinding: { key: "cmd+s", when: "previewEditable && !childWindowFocused" },
+    // Cmd+S は複数サーフェスで共有するキー。解決は優先順位を持たず実効条件で排他にする契約
+    // (docs/keybinding.md) なので、フォーカスを持つサーフェスがどれも Cmd+S を主張していない
+    // ときだけ popover 側の保存を成立させる
+    keybinding: {
+      key: "cmd+s",
+      when: "previewEditable && !childWindowFocused && !floatingWindowFocused",
+    },
     handler: () => {
       if (!editStore.hasSession) return false;
       void saveEdit();

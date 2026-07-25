@@ -125,19 +125,11 @@ app.on("web-contents-created", (_event, contents) => {
   // タイトル同期（setTitleContext）の除外判定が child を識別するのに使う
   contents.on("did-create-window", (childWindow, details) => {
     if (!details.frameName.startsWith(CHILD_WINDOW_FRAME_PREFIX)) return;
-    registerChildWindow(details.frameName, childWindow);
+    registerChildWindow(childWindow);
     // renderer は show=no で生成する (ChildWindow.vue)。生成直後に見せると renderer の
     // 初回フレームまでネイティブ背景が見えて白フラッシュするため、初回非空レイアウト
     // (ready-to-show) を待ってから表示する (Electron 公式の flash 回避策)
     childWindow.once("ready-to-show", () => childWindow.show());
-    // 表示完了を opener renderer へ push する (payload 型の SSOT は renderer 側
-    // ChildWindowShownPayload)。undock 元の後始末 (ゴースト解除 / popover close) の合図。
-    // push 欠落 (renderer 再構築中等) は renderer 側の timeout 保険で自己回復するため、
-    // ここでは once で送るだけでよい
-    childWindow.once("show", () => {
-      if (contents.isDestroyed()) return;
-      contents.send("rpc:push", "childWindowShown", { frameName: details.frameName });
-    });
   });
 });
 

@@ -11,11 +11,12 @@
 - 本文の leaf 切替 (v-else-if 連鎖): `PreviewContent`（undocked window と共有する表示 SSOT）
 - 独立ウィンドウへの切り離し: ヘッダの undock ボタン、またはヘッダのドラッグ (しきい値
   超過) で raw source をスナップショット化して `useUndockedPreview` /
-  UndockedPreviewLayer へ undock する。ウィンドウは別 OS ウィンドウ (ChildWindow) で、
-  pane の実測 rect をスクリーン座標に換算した位置に現れる (その場で OS ウィンドウ化した
-  ような視覚的連続性)。ドラッグ経路は掴んだ pointer を `UndockDragHandoff` で引き継ぎ、
-  ChildWindow が main setPosition の RPC 追従に変換して pane を掴んだままウィンドウごと引き剥がす操作感を
-  保つ。undock 後は popover を閉じる (二重表示を残さない)
+  UndockedPreviewLayer へ undock する。undock 先はアプリ画面内のパネルで、pane の実測 rect の
+  位置にその場で現れる (視覚的連続性)。ドラッグ経路は掴んだ pointer を `UndockDragHandoff` で
+  引き継ぎ、pane を掴んだままパネルごと引き剥がす操作感を保つ。undock 後は popover を閉じる
+  (二重表示を残さない)。パネルは自分のヘッダの promote ボタンで別 OS ウィンドウへ昇格できる
+  (機構は floating-window の UndockedWindow。session-log の undock と共通)。パネルにフォーカスが
+  ある間の Cmd+W / Cmd+S はパネル宛に解決され、本体 popover の close / save とは混ざらない
 
 本コンポーネントに残るのは上記レイヤー間の配線だけ。
 
@@ -166,9 +167,9 @@ const currentIsWorkingTree = computed<boolean>(() => {
   return orderedRange.value?.newer === UNCOMMITTED_HASH;
 });
 
-// undock 時の実測対象。pane 全体 (paneBox) の rect をスクリーン座標へ換算して OS ウィンドウの
-// 初期 frame にし、pane がその場で OS ウィンドウ化したような視覚的連続性を出す。
+// undock 時の実測対象 (位置は pane 全体、サイズは pane ヘッダを除いた中身。undockPreview 参照)。
 const paneBoxRef = useTemplateRef<HTMLElement>("paneBox");
+const paneContentRef = useTemplateRef<HTMLElement>("paneContent");
 
 /**
  * undock 時点の raw source (current / original の 2 rev の中身) をスナップショット化する。
@@ -220,15 +221,17 @@ const canUndock = computed<boolean>(
 function undockPreview(handoff?: UndockDragHandoff) {
   const path = selectedDisplayPath.value;
   const box = paneBoxRef.value;
-  if (path === undefined || box === null) return;
+  const content = paneContentRef.value;
+  if (path === undefined || box === null || content === null) return;
   const source = resolveUndockSource();
   if (source === undefined) return;
   const doc = buildUndockedDoc();
   if (doc === undefined) return;
+  // 位置は pane の box、サイズは pane ヘッダを除いた中身 (モードタブ + 本文) の実測を渡す。
+  // 総サイズでなく中身で受け渡すのは pane とパネルでヘッダ高が違うため。渡す単位に
+  // モードタブを含めるのは、パネル側も同じタブを描くため (useFloatingWindows の doc 参照)
   const rect = box.getBoundingClientRect();
-  // ビューポート座標 → スクリーン座標。screenX/Y は OS ウィンドウ外枠の原点なので、
-  // コンテンツ原点とのずれ (titlebar 等の chrome 高) を outer/inner 差で補正する
-  const chromeY = window.outerHeight - window.innerHeight;
+  const contentRect = content.getBoundingClientRect();
   // ヘッダ上段の出自 (repo + worktree branch)。undocked window は worktree 切替を跨いで
   // 生存するため undock 時点の値を焼き込む (UndockedLogWindow のヘッダと同じ規律)。
   // worktree 外の絶対パス (session log 等) は repo 帰属が無いので解決しない (空文字で
@@ -262,10 +265,10 @@ function undockPreview(handoff?: UndockDragHandoff) {
         currentIsWorkingTree.value && editStore.isDirty ? editStore.draftContent : undefined,
       doc,
       source,
-      screenX: window.screenX + rect.left,
-      screenY: window.screenY + chromeY + rect.top,
-      width: rect.width,
-      height: rect.height,
+      x: rect.left,
+      y: rect.top,
+      contentWidth: contentRect.width,
+      contentHeight: contentRect.height,
     },
     handoff,
   );
@@ -274,17 +277,18 @@ function undockPreview(handoff?: UndockDragHandoff) {
   // これにより直後の close 経路 (requestClose) の dirty ガードも掛からない — undock は
   // 破棄ではなく移動なので確認を出さないのが正しい。
   editStore.endSession();
-  // undock 後の popover close (二重表示の解消) はここでは行わない。同フレームで閉じると
-  // child window の表示までの隙間が点滅するため、UndockedPreviewWindow が表示完了
-  // (ChildWindow の shown) を合図に閉じる (イベント駆動)。
+  // undock 後は popover を閉じる (二重表示を残さない)。undock 先は in-app パネルで同フレームに
+  // 現れるため、閉じるのを遅延させる必要がない。close 経路は MainLayout →
+  // previewStore.requestClose() で、ヘッダの close ボタンと同じ意味論。
+  emit("close");
 }
 
 /** ヘッダのドラッグを undock とみなすしきい値 (px)。ヘッダ内ボタンのクリックと区別する。 */
 const DRAG_UNDOCK_THRESHOLD = 4;
 
-// ヘッダのドラッグ検知。しきい値を超えたら undock して、掴んでいる pointer ごと
-// ChildWindow へドラッグを引き継ぐ (UndockDragHandoff → main setPosition の RPC 追従)。undock は rect を
-// 実測してから popover を閉じるので、ウィンドウは掴んだその位置に現れてそのまま動かせる。
+// ヘッダのドラッグ検知。しきい値を超えたら undock して、掴んでいる pointer ごとパネルへ
+// ドラッグを引き継ぐ (UndockDragHandoff)。undock は rect を実測してから popover を閉じるので、
+// パネルは掴んだその位置に現れてそのまま動かせる。
 let headerDrag: { pointerId: number; startX: number; startY: number } | undefined;
 
 function onHeaderPointerDown(event: PointerEvent) {
@@ -295,7 +299,7 @@ function onHeaderPointerDown(event: PointerEvent) {
   if (!(header instanceof HTMLElement)) return;
   // しきい値到達前に pointer がヘッダ外へ滑っても pointermove を受け続けるため capture する。
   // undock 発火後は popover が hide されるが要素は mount されたままなので、capture された
-  // pointer の event は window までバブリングし ChildWindow の RPC 追従が継続する。
+  // pointer の event は window までバブリングしパネルのドラッグ追従が継続する。
   header.setPointerCapture(event.pointerId);
   headerDrag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY };
 }
@@ -411,81 +415,84 @@ function onCodeScrolled() {
 
     <!-- 選択中 -->
     <template v-else>
-      <PreviewToolbar
-        v-model:active-mode="activeMode"
-        v-model:preview-enabled="previewEnabled"
-        v-model:word-wrap="wordWrap"
-        :modes="availableModes"
-        :original-hash-label="originalHashLabel"
-        :file-type="fileType"
-      />
-
-      <!-- 保存ツールバー: コード領域右上にフローティング。スクロールで流れないよう
-           外側の relative ラッパー (overflow-hidden) を基準に固定する。
-           編集可能ファイルは常時編集状態のため Edit/Exit トグルは存在せず、未保存の変更が
-           あるときだけ Discard/Save を出す (クリーン時に常時出すとただのノイズになる)。
-           真逆の破壊的アクションである save/discard をアイコンだけの小さなボタンで
-           隣接させると誤操作しやすいため、ラベルと視覚的な重み (Save = primary 塗りつぶし、
-           Discard = 地味なテキスト) の非対称性で区別する。 -->
-      <div class="relative min-h-0 flex-1">
-        <div
-          v-if="isEditable && isDirty"
-          class="absolute top-2 right-4 z-10 flex h-7 items-center gap-2 rounded-md border border-border bg-panel px-2 shadow-sm"
-        >
-          <button
-            type="button"
-            class="text-xs text-foreground-low hover:text-foreground"
-            title="Discard changes"
-            aria-label="Discard changes"
-            @click="discardEdit()"
-          >
-            Discard
-          </button>
-          <button
-            type="button"
-            class="rounded-sm bg-primary px-2 py-0.5 text-xs text-foreground hover:bg-primary-hover disabled:bg-element disabled:text-foreground-muted disabled:hover:bg-element"
-            :disabled="editStore.saving"
-            title="Save (Cmd+S)"
-            aria-label="Save"
-            @click="saveEdit()"
-          >
-            Save
-          </button>
-        </div>
-
-        <!--
-          コンテンツ。leaf 切替の実体は PreviewContent (undocked window と共有する表示 SSOT)。
-          ここは live なデータ源 (usePreviewContent) と編集 / blame の文脈を配線するだけ。
-          Cmd+A scope は各 leaf 側で完結させる (MarkdownPreview / DiffPreview は
-          contenteditable、CodePreview は Monaco 自身の selection)。
-        -->
-        <PreviewContent
-          class="size-full"
-          :file-path="selectedDisplayPath"
+      <!-- undock が引き継ぐ「中身」の計測単位 (根拠は undockPreview)。畳むと計測対象が消える -->
+      <div ref="paneContent" class="flex min-h-0 flex-1 flex-col">
+        <PreviewToolbar
+          v-model:active-mode="activeMode"
+          v-model:preview-enabled="previewEnabled"
+          v-model:word-wrap="wordWrap"
+          :modes="availableModes"
+          :original-hash-label="originalHashLabel"
           :file-type="fileType"
-          :active-mode="activeMode"
-          :preview-enabled="previewEnabled"
-          :word-wrap="wordWrap"
-          :original-content="originalText"
-          :diff-current="diffCurrent"
-          :code-content="codeContent"
-          :display-content="displayContent"
-          :image-source="imageSource"
-          :display-is-binary="displayIsBinary"
-          :loading="loading"
-          :is-directory="isDirectory"
-          :is-not-found="isNotFound"
-          :error="displayError"
-          :line-number="selectedLineNumber"
-          :reveal-version="revealVersion"
-          :blame-enabled="blameEnabled"
-          :editable="isEditable"
-          @code-line-click="onCodeLineClick"
-          @diff-line-click="onDiffLineClick"
-          @update-content="editStore.updateDraft($event)"
-          @scrolled="onCodeScrolled"
-          @image-error="imageError = true"
         />
+
+        <!-- 保存ツールバー: コード領域右上にフローティング。スクロールで流れないよう
+             外側の relative ラッパー (overflow-hidden) を基準に固定する。
+             編集可能ファイルは常時編集状態のため Edit/Exit トグルは存在せず、未保存の変更が
+             あるときだけ Discard/Save を出す (クリーン時に常時出すとただのノイズになる)。
+             真逆の破壊的アクションである save/discard をアイコンだけの小さなボタンで
+             隣接させると誤操作しやすいため、ラベルと視覚的な重み (Save = primary 塗りつぶし、
+             Discard = 地味なテキスト) の非対称性で区別する。 -->
+        <div class="relative min-h-0 flex-1">
+          <div
+            v-if="isEditable && isDirty"
+            class="absolute top-2 right-4 z-10 flex h-7 items-center gap-2 rounded-md border border-border bg-panel px-2 shadow-sm"
+          >
+            <button
+              type="button"
+              class="text-xs text-foreground-low hover:text-foreground"
+              title="Discard changes"
+              aria-label="Discard changes"
+              @click="discardEdit()"
+            >
+              Discard
+            </button>
+            <button
+              type="button"
+              class="rounded-sm bg-primary px-2 py-0.5 text-xs text-foreground hover:bg-primary-hover disabled:bg-element disabled:text-foreground-muted disabled:hover:bg-element"
+              :disabled="editStore.saving"
+              title="Save (Cmd+S)"
+              aria-label="Save"
+              @click="saveEdit()"
+            >
+              Save
+            </button>
+          </div>
+
+          <!--
+            コンテンツ。leaf 切替の実体は PreviewContent (undocked window と共有する表示 SSOT)。
+            ここは live なデータ源 (usePreviewContent) と編集 / blame の文脈を配線するだけ。
+            Cmd+A scope は各 leaf 側で完結させる (MarkdownPreview / DiffPreview は
+            contenteditable、CodePreview は Monaco 自身の selection)。
+          -->
+          <PreviewContent
+            class="size-full"
+            :file-path="selectedDisplayPath"
+            :file-type="fileType"
+            :active-mode="activeMode"
+            :preview-enabled="previewEnabled"
+            :word-wrap="wordWrap"
+            :original-content="originalText"
+            :diff-current="diffCurrent"
+            :code-content="codeContent"
+            :display-content="displayContent"
+            :image-source="imageSource"
+            :display-is-binary="displayIsBinary"
+            :loading="loading"
+            :is-directory="isDirectory"
+            :is-not-found="isNotFound"
+            :error="displayError"
+            :line-number="selectedLineNumber"
+            :reveal-version="revealVersion"
+            :blame-enabled="blameEnabled"
+            :editable="isEditable"
+            @code-line-click="onCodeLineClick"
+            @diff-line-click="onDiffLineClick"
+            @update-content="editStore.updateDraft($event)"
+            @scrolled="onCodeScrolled"
+            @image-error="imageError = true"
+          />
+        </div>
       </div>
     </template>
   </div>

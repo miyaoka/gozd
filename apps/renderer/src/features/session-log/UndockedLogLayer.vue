@@ -2,9 +2,8 @@
 undock されたセッションログウィンドウ群を描画する app-scope レイヤー。
 
 App.vue 直下にマウントし、表示中の repo / session / terminal の切り替えと独立して
-ウィンドウを生存させる (state は `useUndockedLog` の module singleton)。各ウィンドウの
-実体は別 OS ウィンドウ (ChildWindow) で、このレイヤー自体はメインウィンドウ内に
-何も描画しない。
+ウィンドウを生存させる (state は `useUndockedLog` の module singleton)。個々のウィンドウの
+ドラッグ / リサイズ / close / 別 OS ウィンドウへの昇格は UndockedLogWindow に閉じる。
 </doc>
 
 <script setup lang="ts">

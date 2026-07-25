@@ -76,7 +76,7 @@ main window 側の割り当てを外す。
 
 ## 解決フロー
 
-keydown listener（capture phase）で以下の順に処理する。listener は**全ウィンドウの document に張り、解決系（command registry + context key）は単一を共有する**（VS Code が `onDidRegisterWindow` で全ウィンドウに同一 dispatcher を張るのと同じ構造）。main window は App.vue の `useKeyBindings()`、undock child window は ChildWindow の `useWindowKeyBindings(win)` が配線する。child 固有の割り当て（`childWindow.close` / `childWindow.save`）は `childWindowFocused` で分岐し、同じキーを持つ main window 側（`terminal.closePane` / `preview.close` / `preview.save`）が `!childWindowFocused` を持つことで排他になる。コマンドの対象になる「フォーカス中の child window」は floating-window の childWindowCommands が OS の focus / blur で追跡する。
+keydown listener（capture phase）で以下の順に処理する。listener は**全ウィンドウの document に張り、解決系（command registry + context key）は単一を共有する**（VS Code が `onDidRegisterWindow` で全ウィンドウに同一 dispatcher を張るのと同じ構造）。main window は App.vue の `useKeyBindings()`、undock child window は ChildWindow の `useWindowKeyBindings(win)` が配線する。同じキーに複数のサーフェスが並ぶとき、宛先はフォーカスで決める: フォーカス限定の割り当て（in-app undock パネルの `floatingWindow.close` / `floatingWindow.save`、child window の `childWindow.close` / `childWindow.save`）は `floatingWindowFocused` / `childWindowFocused` で分岐し、同じキーを持つ他方（`terminal.closePane` / `preview.close` / `preview.save`、および `floatingWindow.closeFront`）が対応する否定を持つことで排他になる。コマンドの対象になる「フォーカス中の child window / パネル」は floating-window の childWindowCommands / floatingWindowCommands が focus / blur で追跡する。
 
 ### 除外判定
 
@@ -87,7 +87,7 @@ keydown listener（capture phase）で以下の順に処理する。listener は
 > [!NOTE]
 > 「macOS 予約キー (Cmd+C/V/X 等)」をハードコードで除外する仕組みは持たない。bind されていないキーは照合で unmatch となり、`preventDefault()` を呼ばないためブラウザ既定 (コピー / ペースト等) がそのまま動く。bind すれば上書き可能。
 >
-> 例外: application menu の accelerator に bind されたキー (Cmd+Q の Quit、Cmd+H の Hide、Cmd+M の Minimize 等) は JS handler に届く前に処理されるため bind 不可。menu 構成は `apps/electron/src/menu.ts`（role ベース）。Cmd+W は renderer 側コマンド（`preview.close` / `terminal.closePane` / `childWindow.close`）に割り当てているため、menu には fileMenu（中身が Close Window = Cmd+W のみ）を置かない。Electron の menu accelerator は renderer の keydown より優先されるため、menu から外すのが唯一の共存手段。
+> 例外: application menu の accelerator に bind されたキー (Cmd+Q の Quit、Cmd+H の Hide、Cmd+M の Minimize 等) は JS handler に届く前に処理されるため bind 不可。menu 構成は `apps/electron/src/menu.ts`（role ベース）。Cmd+W は renderer 側コマンド（`preview.close` / `floatingWindow.close` / `floatingWindow.closeFront` / `terminal.closePane` / `childWindow.close`）に割り当てているため、menu には fileMenu（中身が Close Window = Cmd+W のみ）を置かない。Electron の menu accelerator は renderer の keydown より優先されるため、menu から外すのが唯一の共存手段。
 
 ### ディスパッチ
 

@@ -78,9 +78,13 @@ const disposePreviewToggle = register("preview.toggle", {
 });
 const disposePreviewClose = register("preview.close", {
   label: "Preview: Close",
-  // Cmd+W は「フォーカスのあるサーフェスを閉じる」意味論。terminal.closePane / childWindow.close と
-  // 同じキーなので、どちらとも同時に成立しない条件にする
-  keybinding: { key: "cmd+w", when: "previewVisible && !terminalFocus && !childWindowFocused" },
+  // Cmd+W は「フォーカスのあるサーフェスを閉じる」意味論。複数サーフェスで共有するキーで、解決は
+  // 優先順位を持たず実効条件で排他にする契約 (docs/keybinding.md) なので、フォーカスを持つ
+  // サーフェスがどれも Cmd+W を主張していないときだけ popover を閉じる
+  keybinding: {
+    key: "cmd+w",
+    when: "previewVisible && !terminalFocus && !childWindowFocused && !floatingWindowFocused",
+  },
   handler: () => {
     if (!previewStore.isOpen) return false;
     previewStore.requestClose();

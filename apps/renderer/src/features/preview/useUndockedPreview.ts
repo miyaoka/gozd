@@ -10,12 +10,13 @@
  * undock 元の選択を焼き込んだ `source` から本体 preview として開き直す
  * (UndockedPreviewWindow の open ボタン = worktree 切替 + filer reveal + preview 表示)。
  *
- * ウィンドウの実体は別 OS ウィンドウ (floating-window の ChildWindow)。状態管理は
- * `createChildWindows` に委譲し、ここが持つのは snapshot payload の型定義だけ
- * (生成パラメータと handoff の契約は factory の doc 参照)。
+ * ウィンドウ状態 (位置 / 初期中身サイズ / z / drag handoff / 昇格済みかどうか) の管理は
+ * floating-window の `createFloatingWindows` に委譲し、ここが持つのは snapshot payload の
+ * 型定義だけ。undock 直後は in-app パネルで、promote で別 OS ウィンドウへ昇格する
+ * (presentation の切り替えは UndockedWindow が担う。useUndockedLog と同じ機構)。
  */
 import type { WireBytes } from "@gozd/rpc";
-import { type ChildWindowInit, createChildWindows } from "../floating-window";
+import { createFloatingWindows, type FloatingWindowState } from "../floating-window";
 import type { PreviewMode } from "./previewMode";
 
 /**
@@ -84,11 +85,11 @@ interface UndockedPreviewData {
   source: UndockedPreviewSource;
 }
 
-export type UndockedPreview = UndockedPreviewData & ChildWindowInit & { id: number };
+export type UndockedPreview = UndockedPreviewData & FloatingWindowState;
 
-const store = createChildWindows<UndockedPreviewData>();
+const store = createFloatingWindows<UndockedPreviewData>("undockedPreview");
 
 export function useUndockedPreview() {
-  const { windows, undock, takeHandoff, close } = store;
-  return { previews: windows, undock, takeHandoff, close };
+  const { windows, undock, takeHandoff, close, move, bringToFront, promote, demote } = store;
+  return { previews: windows, undock, takeHandoff, close, move, bringToFront, promote, demote };
 }

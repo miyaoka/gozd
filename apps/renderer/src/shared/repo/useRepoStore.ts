@@ -29,8 +29,7 @@ export interface RepoState {
 /**
  * repo を代表する dir 群。git repo は配下の全 worktree path、非 git は rootDir 自身。
  * 「repo → その repo が所有する dir 集合」の分岐ルールはここが SSOT で、
- * fs watch 対象（`collectFsWatchTargetDirs`）と sidebar の claude ビューフィルタ
- * （`filterClaudeActiveRootDirs`）が共有する。
+ * fs watch 対象（`collectFsWatchTargetDirs`）が使う。
  */
 export function dirsOfRepo(repo: RepoState): string[] {
   if (!repo.isGitRepo) return [repo.rootDir];

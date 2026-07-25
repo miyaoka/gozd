@@ -21,11 +21,9 @@ state による並び替えは行わない。Claude 起動 / 状態遷移でカ�
 「どこに何があるか」を覚えていられないため、位置は静的に保ち、状態は state
 アイコンで識別する。
 
-claude ビュー中は Claude セッションが動いている wt カードだけに絞り、`+ New worktree` も
-隠す（実行中セッションのフィルタ表示に作成導線は不整合なため）。並び替えはせずフィルタ
-（非表示）だけに留め、位置の安定性の規律を保つ。対象 wt を持つ repo は collapse 状態を
-無視して展開する（terminal のタイルは collapse と無関係に出るため、畳んだままだと
-「タイルには agent が見えるがサイドバーはヘッダのみ」の非対称が生じる）。
+Claude セッションの有無で wt カードを絞ることはしない。「いま動いているもの」はサイドバー
+下段の active session ペインが専用の行フォーマットで受け持ち、この section は
+「どこで作業するか」の地図として常に全 worktree を出す。
 
 ## 操作
 
@@ -79,7 +77,6 @@ import { useElementVisibility } from "@vueuse/core";
 import { computed, onUnmounted, useTemplateRef, watch } from "vue";
 import { useRepoStore } from "../../../../shared/repo";
 import { RepoIcon } from "../../../repo-icon";
-import { useTerminalStore } from "../../../terminal";
 import { WtCard } from "../worktree";
 import IconLucideChevronDown from "~icons/lucide/chevron-down";
 import IconLucideEllipsisVertical from "~icons/lucide/ellipsis-vertical";
@@ -112,7 +109,6 @@ const emit = defineEmits<{
 }>();
 
 const repoStore = useRepoStore();
-const terminalStore = useTerminalStore();
 
 const repo = computed(() => repoStore.repos[props.rootDir]);
 const repoName = computed(() => repo.value?.repoName ?? props.rootDir);
@@ -138,18 +134,6 @@ const orderedWorktrees = computed(() => {
   return main !== undefined ? [main, ...others] : others;
 });
 
-/**
- * claude ビュー中は Claude セッションが動いている wt だけに絞る（SidebarPane の
- * repo フィルタと同じ規律）。編集モード中は全 section が collapse され wt カードが
- * 描画されないため、editMode の解除条件は不要。
- */
-const claudeFilterActive = computed(() => terminalStore.viewMode === "claude");
-
-const visibleWorktrees = computed(() => {
-  if (!claudeFilterActive.value) return orderedWorktrees.value;
-  return orderedWorktrees.value.filter((wt) => terminalStore.claudeActiveDirs.has(wt.path));
-});
-
 const sectionEl = useTemplateRef<HTMLElement>("section");
 const dragHandleEl = useTemplateRef<HTMLElement>("dragHandle");
 
@@ -161,21 +145,8 @@ useSortable({
   disabled: computed(() => !props.editMode),
 });
 
-/**
- * claude ビューは「動いている agent の俯瞰」なので、対象 wt を持つ repo は collapse
- * 状態を無視して展開する。terminal のタイルは collapse と無関係に表示されるため、
- * 畳んだままだとタイルとサイドバーで見えている対象がずれる。
- * force-expand 中は折りたたみコントロール（ヘッダクリック / chevron）も抑止する。
- * 抑止しないと「クリックしても見た目は無反応だが永続 collapse 状態だけ反転する」
- * 隠れ副作用になり、wt ビューへ戻ったとき折りたたみが予期せずずれる。
- */
-const forceExpanded = computed(
-  () => !props.editMode && claudeFilterActive.value && visibleWorktrees.value.length > 0,
-);
-
 const visiblyCollapsed = computed(() => {
   if (props.editMode) return true;
-  if (forceExpanded.value) return false;
   return collapsed.value;
 });
 
@@ -211,15 +182,9 @@ const accessibleRepoName = computed(() =>
 );
 const headerAriaLabel = computed(() => {
   if (!isGitRepo.value) return `Open directory ${repoName.value}`;
-  // force-expand 中はトグルが効かないので Collapse を予告せず、コンテンツ命名に任せる
-  if (forceExpanded.value) return undefined;
   return `${visiblyCollapsed.value ? "Expand" : "Collapse"} ${accessibleRepoName.value}`;
 });
-// force-expand 中はヘッダが無反応になるため、disclosure widget としての
-// aria-expanded も aria-label と対称に外す
-const headerAriaExpanded = computed(() =>
-  !isGitRepo.value || forceExpanded.value ? undefined : !visiblyCollapsed.value,
-);
+const headerAriaExpanded = computed(() => (isGitRepo.value ? !visiblyCollapsed.value : undefined));
 
 // ⋮ menu trigger。currentTarget (ボタン要素) を anchor として emit する (WtCard と同じ規約)。
 function onOpenMenu(event: MouseEvent) {
@@ -237,8 +202,6 @@ function onHeaderClick() {
     emit("selectRoot", props.rootDir);
     return;
   }
-  // force-expand 中の toggle 抑止（理由は forceExpanded の docstring 参照）
-  if (forceExpanded.value) return;
   repoStore.toggleCollapsed(props.rootDir);
 }
 </script>
@@ -324,7 +287,6 @@ function onHeaderClick() {
                純粋な視覚アフォーダンスにする（残すと SR がヘッダ直後に repo 不明の
                「Expand」ボタンをもう 1 つ読み上げる）。命名 + aria-expanded はヘッダ button が担う -->
           <button
-            v-if="!forceExpanded"
             type="button"
             aria-hidden="true"
             tabindex="-1"
@@ -357,7 +319,7 @@ function onHeaderClick() {
       <div v-if="bodyVisible" class="[interpolate-size:allow-keywords]">
         <div class="flex flex-col gap-2 px-2 pt-1 pb-2">
           <WtCard
-            v-for="wt in visibleWorktrees"
+            v-for="wt in orderedWorktrees"
             :key="wt.path"
             :wt="wt"
             :root-dir="rootDir"
@@ -369,7 +331,6 @@ function onHeaderClick() {
             @open-task-menu="(anchorEl, t) => emit('openTaskMenu', anchorEl, t, rootDir)"
           />
           <button
-            v-if="!claudeFilterActive"
             type="button"
             class="_fx-shine flex w-full items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs text-foreground-low transition-colors hover:bg-element-hover hover:text-foreground disabled:cursor-not-allowed disabled:text-foreground-muted disabled:hover:bg-transparent disabled:hover:text-foreground-muted"
             :disabled="isCreating"

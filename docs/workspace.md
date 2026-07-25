@@ -157,15 +157,11 @@ repo 一覧は **repo list** 単位で表示する（機能名は repo list、UI
 - **トップツールバー**:
   - 左にビューモードトグル: アクティブな worktree のターミナル / 動いている Claude ターミナル一覧
   - 右に時計
-- **repo list バー**: 右端に編集モードトグル（編集の作用範囲がこのバー以下のリストエリアに閉じるため、ツールバーではなくここに置く）。通常モードは chip 列（クリックでアクティブ repo list を切り替え）。claude ビュー中（非編集）は chip 列の代わりにスコープ表記（"Claude terminals"）を出す — repo セクションが list ではなくプール母集団になるため、chip を出すと「切り替えても表示が変わらない / list に無い repo が見える」という表示とスコープの不一致が生じる。編集モードは縦一覧に切り替わり、行 drag で list の並び替え、行 hover の ⋮ メニューから Rename（編集ダイアログ）/ Delete（確認ダイアログ。最後の 1 個は不可。削除 repo list にしか属さない repo は先頭の残存 repo list へ移る）、末尾に New list
-- **claude ビュー連動フィルタ**: ターミナルが claude タイル表示のとき、サイドバーも Claude セッションが
-  動いている repo / worktree / task 行だけに絞られる。フィルタキーはターミナルのタイル対象
-  （`claudeActiveLeafIds`）から導出した dir 集合で、タイルに出る leaf とサイドバーに残る worktree が
-  常に一致する。フィルタの母集団はアクティブ repo list ではなく repo プール全体（タイルは repo list と
-  無関係に全 dir から出るため）。対象 repo は折りたたみ状態を無視して展開する（タイルは collapse と無関係に出るため、
-  畳んだままだと見えている対象がずれる）。編集モード中はフィルタを解除する（並び替え・削除の対象が
-  隠れると操作結果がずれるため）
+- **repo list バー**: 右端に編集モードトグル（編集の作用範囲がこのバー以下のリストエリアに閉じるため、ツールバーではなくここに置く）。通常モードは chip 列（クリックでアクティブ repo list を切り替え）。編集モードは縦一覧に切り替わり、行 drag で list の並び替え、行 hover の ⋮ メニューから Rename（編集ダイアログ）/ Delete（確認ダイアログ。最後の 1 個は不可。削除 repo list にしか属さない repo は先頭の残存 repo list へ移る）、末尾に New list
 - **repo セクション一覧**: アクティブ repo list の dirOrder 順に repo / dir を縦に **並列展開**。空リストの通常モードでは empty state（Edit list ボタンで編集モードへ入る導線）を表示する。セクション単位で折りたたみ可能（collapsed は repo 単位のグローバル状態で repo list を跨いで共有）。編集モード中は drag-drop で並び替え
+- **active session ペイン（下段）**: サイドバーは縦 2 分割で、下段に「いま動いている Claude セッション」を常時出す（ResizeHandle で高さ可変。セッション 0 件のときはヘッダ行だけに畳み、ハンドルも出さない）。ビューモードトグルはターミナルのタイル表示だけに効き、サイドバーの表示内容は切り替えない。上段は「どこで作業するか」の地図、下段は「いま何が動いているか」の一覧という役割分担で、上段をモードで絞ると切り替えのたびに操作の起点が消えるため絞らない
+- **active session ペインの形式**: 上段の repo セクションを絞り込んだものではなく、**セッション専用の 2 階層**（`repoName · branch` の 1 行ラベル + その配下に live session を持つ task 行）。上段と同型のカードを並べると、境界線・余白・背景差を足しても「同じカード列の続き」としか読めないため、形そのものを変える（VS Code の Open Editors が Explorer ツリーと別形式、Copilot の Agents window がセッション行を workspace でグルーピングするのと同じ考え方）。ペイン全体は border + 角丸の 1 枚のプレートで、四辺に余地を残して囲いを成立させる
+- **active session ペインの母集団**: live な Claude セッションを持つ dir と、その配下で session が attach 済みの task だけ。キーはターミナルのタイル対象（`claudeActiveLeafIds`）から導出した dir 集合で、claude タイルに出る leaf とペインに出る worktree が常に一致する。母集団はアクティブ repo list ではなく repo プール全体（セッションは repo list と無関係に全 dir で動くため）。未起動 / resume 待ちの task は出さない（起動可能な候補の一覧ではないため）
 - **repo list への repo 追加**: 編集モード時、他 repo list にのみ所属するプール repo が「Add from other lists」セクションに repo 行（RepoIcon + repo 名）として並び、クリックでアクティブ repo list に追加できる
 - **Open directory… ボタン**: 編集モード時のみリスト末尾に表示。既存 repo 候補とは divider で区切られ、クリックでネイティブのフォルダ選択ダイアログを開き、ユーザーが選んだ任意のディレクトリ（git 管理下 / 外問わず）を既存ウィンドウに追加する（プール + アクティブ repo list に入る）
 

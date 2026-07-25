@@ -1,23 +1,19 @@
-// undock child window（renderer の window.open で生成）の BrowserWindow registry。
+// undock child window（renderer の window.open で生成）の BrowserWindow 集合。
 //
 // child window は createWindow() を通らず window.open で生まれるため、main 側からは
-// did-create-window イベントでしか BrowserWindow を捕まえられない。window.open の
-// frameName をキーに確保し、main window 向け操作（setTitleContext の全 window 適用等）から
-// child を除外する判定に使う。
+// did-create-window イベントでしか BrowserWindow を捕まえられない。捕まえたものを保持し、
+// main window 向け操作（setTitleContext の全 window 適用等）から child を除外する判定に使う。
 import type { BrowserWindow } from "electron";
 
-const childWindows = new Map<string, BrowserWindow>();
+const childWindows = new Set<BrowserWindow>();
 
-export function registerChildWindow(frameName: string, window: BrowserWindow): void {
-  childWindows.set(frameName, window);
+export function registerChildWindow(window: BrowserWindow): void {
+  childWindows.add(window);
   window.on("closed", () => {
-    childWindows.delete(frameName);
+    childWindows.delete(window);
   });
 }
 
 export function isChildWindow(window: BrowserWindow): boolean {
-  for (const child of childWindows.values()) {
-    if (child === window) return true;
-  }
-  return false;
+  return childWindows.has(window);
 }

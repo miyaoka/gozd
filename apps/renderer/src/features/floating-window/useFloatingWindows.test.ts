@@ -14,7 +14,7 @@ interface TestPayload {
 }
 
 function undockInput(): TestPayload & Omit<FloatingWindowState, "id" | "z" | "closeRequestEpoch"> {
-  return { label: "log", x: 10, y: 20, bodyWidth: 300, bodyHeight: 200 };
+  return { label: "log", x: 10, y: 20, contentWidth: 300, contentHeight: 200 };
 }
 
 /** 直近に undock された window を返す。 */
@@ -50,6 +50,18 @@ describe("takeHandoff", () => {
     expect(store.takeHandoff(id)).toEqual({ pointerId: 7, offsetX: 12, offsetY: 34 });
     // one-shot: 2 回目は消費済みで undefined
     expect(store.takeHandoff(id)).toBeUndefined();
+    closeAll(store);
+  });
+
+  test("handoff は最後の undock のものだけ残る (単一スロット)", () => {
+    const store = createFloatingWindows<TestPayload>();
+    store.undock(undockInput(), { pointerId: 1, offsetX: 0, offsetY: 0 });
+    const firstId = lastWindow(store).id;
+    store.undock(undockInput(), { pointerId: 2, offsetX: 0, offsetY: 0 });
+    const secondId = lastWindow(store).id;
+    // 先行 undock 宛は後続 undock に上書きされて取れない
+    expect(store.takeHandoff(firstId)).toBeUndefined();
+    expect(store.takeHandoff(secondId)?.pointerId).toBe(2);
     closeAll(store);
   });
 
@@ -119,6 +131,24 @@ describe("promote", () => {
     closeAll(store);
   });
 
+  test("closeFront は factory instance を跨いで z 最大の 1 枚を選ぶ", () => {
+    // registry を module に置く理由がこれ (種類の異なるウィンドウを跨いだ最前面判定)
+    const first = createFloatingWindows<TestPayload>();
+    const second = createFloatingWindows<TestPayload>();
+    first.undock(undockInput());
+    second.undock(undockInput());
+    const older = lastWindow(first);
+    const newer = lastWindow(second);
+    expect(newer.z).toBeGreaterThan(older.z);
+
+    expect(closeFrontFloatingWindow()).toBe(true);
+    expect(newer.closeRequestEpoch).toBe(1);
+    expect(older.closeRequestEpoch).toBe(0);
+
+    closeAll(first);
+    closeAll(second);
+  });
+
   test("closeFront は昇格していない最前面の 1 枚に close を要求する", () => {
     const store = createFloatingWindows<TestPayload>();
     store.undock(undockInput());
@@ -131,6 +161,20 @@ describe("promote", () => {
     // 即 close ではなく close 要求 epoch の増加 (consumer の close 経路に合流させる)
     expect(front.closeRequestEpoch).toBe(1);
     expect(promoted.closeRequestEpoch).toBe(0);
+
+    closeAll(store);
+  });
+
+  test("demote は child を外し、in-app パネルの集計へ戻す (昇格失敗の引き返し)", () => {
+    const store = createFloatingWindows<TestPayload>();
+    store.undock(undockInput());
+    const win = lastWindow(store);
+    store.promote(win.id, { screenX: 0, screenY: 0, width: 10, height: 10 });
+    expect(hasFloatingWindow.value).toBe(false);
+
+    store.demote(win.id);
+    expect(win.child).toBeUndefined();
+    expect(hasFloatingWindow.value).toBe(true);
 
     closeAll(store);
   });

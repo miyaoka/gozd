@@ -85,6 +85,8 @@ export interface ContextMap {
   previewEditable: boolean;
   /** undock された in-app パネルが 1 枚でも存在する（昇格済みの OS ウィンドウは数えない） */
   floatingWindowVisible: boolean;
+  /** undock された in-app パネル内にフォーカスがある */
+  floatingWindowFocused: boolean;
   /** undock された child window（別 OS ウィンドウ）が OS フォーカスを持つ */
   childWindowFocused: boolean;
   /** コマンドパレットが開いている */

@@ -144,8 +144,12 @@ export function usePreviewEdit(content: PreviewContent) {
   const disposeSaveCommand = register("preview.save", {
     label: "Preview: Save File",
     precondition: "previewVisible",
-    // Cmd+S は childWindow.save と共有するキーなので、child にフォーカスがある間は外す
-    keybinding: { key: "cmd+s", when: "previewEditable && !childWindowFocused" },
+    // Cmd+S は childWindow.save / floatingWindow.save と共有するキーなので、
+    // child window や in-app undock パネルにフォーカスがある間は外す
+    keybinding: {
+      key: "cmd+s",
+      when: "previewEditable && !childWindowFocused && !floatingWindowFocused",
+    },
     handler: () => {
       if (!editStore.hasSession) return false;
       void saveEdit();

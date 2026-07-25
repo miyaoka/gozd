@@ -125,7 +125,7 @@ app.on("web-contents-created", (_event, contents) => {
   // タイトル同期（setTitleContext）の除外判定が child を識別するのに使う
   contents.on("did-create-window", (childWindow, details) => {
     if (!details.frameName.startsWith(CHILD_WINDOW_FRAME_PREFIX)) return;
-    registerChildWindow(details.frameName, childWindow);
+    registerChildWindow(childWindow);
     // renderer は show=no で生成する (ChildWindow.vue)。生成直後に見せると renderer の
     // 初回フレームまでネイティブ背景が見えて白フラッシュするため、初回非空レイアウト
     // (ready-to-show) を待ってから表示する (Electron 公式の flash 回避策)

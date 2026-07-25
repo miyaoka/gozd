@@ -21,7 +21,6 @@ import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
 import { registerFilerCommands } from "../filer";
-import { closeFrontFloatingWindow, hasFloatingWindow } from "../floating-window";
 import { GitGraphPane } from "../git-graph";
 import { NavigatorPane } from "../navigator";
 import {
@@ -81,20 +80,15 @@ const disposePreviewClose = register("preview.close", {
   label: "Preview: Close",
   // Cmd+W は「フォーカスのあるサーフェスを閉じる」意味論。terminal.closePane / childWindow.close と
   // 同じキーなので、どちらとも同時に成立しない条件にする
-  keybinding: { key: "cmd+w", when: "previewVisible && !terminalFocus && !childWindowFocused" },
+  keybinding: {
+    key: "cmd+w",
+    when: "previewVisible && !terminalFocus && !childWindowFocused && !floatingWindowFocused",
+  },
   handler: () => {
     if (!previewStore.isOpen) return false;
     previewStore.requestClose();
     return true;
   },
-});
-const disposeFloatingWindowClose = register("floatingWindow.closeFront", {
-  label: "Floating Window: Close Front",
-  precondition: "floatingWindowVisible",
-  // Cmd+W は terminal / popover / child window と共有するキーなので、実効条件が同時に真に
-  // ならないよう「他のどのサーフェスも Cmd+W を主張しない」状態に絞る
-  keybinding: { key: "cmd+w", when: "!terminalFocus && !previewVisible && !childWindowFocused" },
-  handler: () => closeFrontFloatingWindow(),
 });
 const disposeWindowClose = register("window.close", {
   label: "Window: Close",
@@ -116,7 +110,6 @@ const disposeMarkdownHistoryCommands = registerMarkdownHistoryCommands();
 const disposeFilerCommands = registerFilerCommands();
 onUnmounted(disposePreviewToggle);
 onUnmounted(disposePreviewClose);
-onUnmounted(disposeFloatingWindowClose);
 onUnmounted(disposeWindowClose);
 onUnmounted(disposeThemeCommand);
 onUnmounted(disposeSettingsCommand);
@@ -253,16 +246,6 @@ watch(
     }
     previewRestoreFocusEl = undefined;
   },
-);
-
-// floatingWindowVisible context key を in-app undock パネル (log / preview 共通。昇格後の
-// OS ウィンドウは対象外) の有無と同期
-watch(
-  hasFloatingWindow,
-  (has) => {
-    contextKeys.set("floatingWindowVisible", has);
-  },
-  { immediate: true },
 );
 
 /**

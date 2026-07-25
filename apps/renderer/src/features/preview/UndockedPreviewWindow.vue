@@ -33,9 +33,9 @@ snapshot に固定する — 過去の内容で実ファイルを上書き保存
   `createUnsavedDraftConfirm()` instance を本文 slot 内に mount するため、in-app パネルなら
   main window、昇格後なら child window という「今自分がいる document」の top layer に出る
   (main の shared singleton を使うと昇格後にダイアログだけ main window に出てしまう)
-- cmd+s は昇格後だけ keybinding 系 (childWindow.save → UndockedWindow の saveRequested emit)
-  経由で window ローカルの saveEdit に届く。in-app パネルは OS フォーカスを持たないため
-  配線されず、保存はツールバー下の Save ボタンで行う
+- cmd+s は keybinding 系 (in-app パネルは `floatingWindow.save`、昇格後は `childWindow.save`。
+  どちらも UndockedWindow の saveRequested emit) 経由で window ローカルの saveEdit に届く。
+  宛先はフォーカスで決まるため、popover 側の preview.save を誤射しない
 - 再取得が notFound / 失敗のときは直前の内容を維持する (undock 後のファイル削除・worktree
   消失でもウィンドウは生存する既存契約)
 
@@ -85,7 +85,7 @@ interface Props {
 }
 
 const props = defineProps<Props>();
-const { close, move, bringToFront, takeHandoff, promote } = useUndockedPreview();
+const { close, move, bringToFront, takeHandoff, promote, demote } = useUndockedPreview();
 const worktreeStore = useWorktreeStore();
 const repoStore = useRepoStore();
 const previewStore = usePreviewStore();
@@ -336,8 +336,8 @@ function dockToPreview() {
     :x="preview.x"
     :y="preview.y"
     :z="preview.z"
-    :body-width="preview.bodyWidth"
-    :body-height="preview.bodyHeight"
+    :content-width="preview.contentWidth"
+    :content-height="preview.contentHeight"
     :close-request-epoch="preview.closeRequestEpoch"
     :child="preview.child"
     :title="preview.fileName"
@@ -346,6 +346,7 @@ function dockToPreview() {
     @move="(x, y) => move(preview.id, x, y)"
     @activate="bringToFront(preview.id)"
     @promote="promote(preview.id, $event)"
+    @promote-failed="demote(preview.id)"
     @close-requested="guardedClose"
     @closed="close(preview.id)"
     @save-requested="saveEdit()"

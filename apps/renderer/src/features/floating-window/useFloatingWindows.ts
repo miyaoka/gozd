@@ -5,13 +5,15 @@
  * consumer feature (session-log / preview) が module スコープで `createFloatingWindows<T>()` を
  * 1 回だけ実行し、payload T を載せた singleton のウィンドウ列を得る。
  *
- * 位置は undock 元 (popover / pane の box) の実測 rect、サイズは undock 元の本文 (スクロール面)
- * の実測を初期値として受け取る。undock 元がその場でパネル化したように見せる視覚的連続性の
- * ため。サイズを総高さでなく本文で受け渡すのは、undock 元とパネルでヘッダの高さが違うため。
- * 総高さを引き継ぐと増えたヘッダ分だけ本文が食われて切れる。パネルは mount 時に自分の
- * ヘッダ実測高を足して総高さを決める。以後、位置 (x / y) はドラッグと左/上辺リサイズで
- * 更新されるが、サイズは store 上では初期値のまま不変で、リサイズの SSOT はリサイズ
- * ハンドラが書く DOM の inline style に移る (FloatingWindow の doc 参照)。
+ * 位置は undock 元 (popover / pane の box) の実測 rect、サイズは undock 元の**中身**
+ * (シェルヘッダを除いた領域。preview ならモードタブ + 本文、log なら本文) の実測を初期値として
+ * 受け取る。undock 元がその場でパネル化したように見せる視覚的連続性のため。総サイズでなく
+ * 中身で受け渡すのは、undock 元とパネルでヘッダの高さが違うため — 総サイズを引き継ぐと増えた
+ * ヘッダ分だけ中身が食われて切れる。パネルは mount 時に自分のヘッダ実測高を足して総サイズを
+ * 決めるので、渡す値に undock 元のヘッダを含めてはいけない (含めるとその分中身が縮む)。
+ * 以後、位置 (x / y) はドラッグと左/上辺リサイズで更新されるが、サイズは store 上では初期値の
+ * まま不変で、リサイズの SSOT はリサイズハンドラが書く DOM の inline style に移る
+ * (FloatingWindow の doc 参照)。
  *
  * z カウンタは全 factory instance で共有する。種類の異なるウィンドウも同じ plain fixed の
  * スタッキング文脈に並ぶため、カウンタを instance ごとに分けると種類を跨いだ
@@ -23,18 +25,30 @@
  */
 import { computed, ref, shallowReactive, type Ref } from "vue";
 import type { ChildWindowInit } from "./childWindowInit";
-import type { UndockDragHandoff } from "./undockDrag";
+
+/**
+ * undock と同時にドラッグを開始する引き継ぎ情報。undock 元ヘッダのドラッグで undock する
+ * 経路では、掴んでいた要素が undock と同時に消える (unmount / hide) ため pointer capture を
+ * 持ち越せない。`undock()` がこれを預かり、mount されたパネルが `takeHandoff()` で 1 回だけ
+ * 消費して同じ pointerId のドラッグとして継続する。
+ */
+export interface UndockDragHandoff {
+  pointerId: number;
+  /** pointer からパネル原点 (rect 左上) へのオフセット。 */
+  offsetX: number;
+  offsetY: number;
+}
 
 export interface FloatingWindowState {
   id: number;
   x: number;
   y: number;
   /**
-   * 初期の本文 (スクロール面) サイズ (undock 元の本文実測。総サイズでない理由は
+   * 初期の中身サイズ (undock 元のシェルヘッダを除いた領域の実測。総サイズでない理由は
    * モジュール docstring 参照)。mount 後はリサイズハンドラが inline style を上書きする。
    */
-  bodyWidth: number;
-  bodyHeight: number;
+  contentWidth: number;
+  contentHeight: number;
   z: number;
   /**
    * 外部 (cmd+w の closeFrontFloatingWindow 等) からの close 要求 epoch。増加をシェルが
@@ -150,8 +164,8 @@ export function createFloatingWindows<T>() {
   }
 
   /**
-   * in-app パネルを別 OS ウィンドウへ昇格させる (シェルの promote ボタン)。一方向で、
-   * OS ウィンドウから in-app パネルへ戻す経路は持たない。
+   * in-app パネルを別 OS ウィンドウへ昇格させる (シェルの promote ボタン)。ユーザー操作としては
+   * 一方向で、OS ウィンドウから in-app パネルへ戻す経路は持たない。
    */
   function promote(id: number, child: ChildWindowInit) {
     const win = windows.value.find((w) => w.id === id);
@@ -159,7 +173,18 @@ export function createFloatingWindows<T>() {
     win.child = child;
   }
 
+  /**
+   * 昇格の取り消し (in-app パネルへ引き返す)。OS ウィンドウの生成失敗だけが呼ぶ経路で、
+   * entry を消す代わりにパネルへ戻すことで payload (preview なら移動済みの未保存 draft) を
+   * 失わせない。
+   */
+  function demote(id: number) {
+    const win = windows.value.find((w) => w.id === id);
+    if (win === undefined) return;
+    win.child = undefined;
+  }
+
   instances.push({ getWindows: () => windows.value, requestClose });
 
-  return { windows, undock, takeHandoff, close, move, bringToFront, promote };
+  return { windows, undock, takeHandoff, close, move, bringToFront, promote, demote };
 }

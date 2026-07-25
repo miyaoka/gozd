@@ -100,7 +100,10 @@ export function registerTerminalCommands(
     registry.register("terminal.closePane", {
       label: "Terminal: Close Pane",
       // Cmd+W は preview.close / childWindow.close と共有するキー。child にフォーカスがある間は外す
-      keybinding: { key: "cmd+w", when: "terminalFocus && !childWindowFocused" },
+      keybinding: {
+        key: "cmd+w",
+        when: "terminalFocus && !childWindowFocused && !floatingWindowFocused",
+      },
       handler: () => {
         const active = getFocusedLayout();
         if (active === undefined) return false;

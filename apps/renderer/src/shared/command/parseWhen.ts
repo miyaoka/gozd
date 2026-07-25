@@ -23,6 +23,7 @@ const KNOWN_KEYS = new Set<string>(
     previewVisible: true,
     previewEditable: true,
     floatingWindowVisible: true,
+    floatingWindowFocused: true,
     childWindowFocused: true,
     commandPaletteVisible: true,
     quickPickVisible: true,

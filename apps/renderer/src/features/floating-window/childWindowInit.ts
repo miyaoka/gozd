@@ -1,5 +1,8 @@
 /**
- * 別 OS ウィンドウ (ChildWindow) の生成パラメータと、main window 内の viewport rect からの換算。
+ * 別 OS ウィンドウ (ChildWindow) の生成パラメータと、main window 内 rect からの換算。
+ *
+ * 換算は昇格位置の SSOT なので、`window` の読み取り (呼び出し側の責務) と算術を分けて純関数に
+ * している (floatingWindowResize と同じ規律。境界値は単体テストで固定する)。
  */
 
 /**
@@ -15,22 +18,22 @@ export interface ChildWindowInit {
   height: number;
 }
 
-/**
- * main window 内の viewport rect を ChildWindowInit へ換算する。
- *
- * `window.screenX` / `screenY` は OS ウィンドウ**外枠**の原点なので、コンテンツ原点とのずれ
- * (titlebar 等の chrome 高) を outer / inner の差で補正する。
- */
-export function toChildWindowInit(rect: {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}): ChildWindowInit {
-  const chromeY = window.outerHeight - window.innerHeight;
+/** main window のスクリーン原点。`screenX` / `screenY` は OS ウィンドウ**外枠**の原点なので、
+ * コンテンツ原点とのずれ (titlebar 等の chrome 高) を `chromeY` で受けて補正する。 */
+export interface WindowScreenOrigin {
+  screenX: number;
+  screenY: number;
+  chromeY: number;
+}
+
+/** main window 内の viewport rect を ChildWindowInit へ換算する (doc 参照)。 */
+export function toChildWindowInit(
+  rect: { left: number; top: number; width: number; height: number },
+  origin: WindowScreenOrigin,
+): ChildWindowInit {
   return {
-    screenX: window.screenX + rect.left,
-    screenY: window.screenY + chromeY + rect.top,
+    screenX: origin.screenX + rect.left,
+    screenY: origin.screenY + origin.chromeY + rect.top,
     width: rect.width,
     height: rect.height,
   };

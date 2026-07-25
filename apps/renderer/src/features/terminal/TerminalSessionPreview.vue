@@ -385,8 +385,8 @@ function togglePreview(event: MouseEvent, msg: PreviewMessage, origin: "main" | 
 const { undock: undockLog } = useUndockedLog();
 
 // undock 時の実測対象。位置は popover の中間 box の rect、サイズは本文 (スクロール面) の
-// rect を固定ウィンドウへ引き継ぎ、popover がその場でフローティング化したような視覚的
-// 連続性を出す (総高さでなく本文サイズを渡す理由は useUndockedLog の doc 参照)。
+// rect を in-app パネルへ引き継ぎ、popover がその場でパネル化したような視覚的連続性を出す
+// (総サイズでなく中身のサイズを渡す理由は useUndockedLog の doc 参照)。
 const previewBoxRef = useTemplateRef<HTMLElement>("previewBox");
 const previewBodyRef = useTemplateRef<HTMLElement>("previewBody");
 
@@ -422,8 +422,8 @@ function undockPreview(handoff?: UndockDragHandoff) {
       text: ctx.msg.text,
       x: rect.left,
       y: rect.top,
-      bodyWidth: bodyRect.width,
-      bodyHeight: bodyRect.height,
+      contentWidth: bodyRect.width,
+      contentHeight: bodyRect.height,
     },
     handoff,
   );

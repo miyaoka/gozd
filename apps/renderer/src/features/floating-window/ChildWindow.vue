@@ -14,6 +14,9 @@ setWindowOpenHandler が about:blank だけを allow する契約とセット。
 - 本文 slot は Teleport で child の body 直下へ投影する。slot 内のコードが暗黙の
   `window` / `document` グローバルを参照すると opener 側を掴む (element 直付けの
   listener は child 内でもそのまま動く)
+- open 失敗 (main 側 policy 不整合等で `window.open` が null) は close ではなく `openFailed` で
+  通知する。consumer にとって「開けなかった」と「開いたものが閉じた」は後始末が別で、
+  前者を close に畳むと payload を捨てる経路になる
 - close は 2 経路: ユーザーのネイティブ close (traffic light) は `blockClose` が false なら
   そのまま閉じて pagehide → close emit (consumer が state を消す)、true なら beforeunload
   の veto (Electron は undefined 以外の返却で close を中止する) で止めて closeRequested を
@@ -67,6 +70,8 @@ interface Props {
 const props = defineProps<Props>();
 
 const emit = defineEmits<{
+  /** window.open が失敗した (doc 参照)。consumer は昇格前の状態へ引き返す。 */
+  openFailed: [];
   /** child window が閉じた (ネイティブ close 通過後)。consumer は state を消す。 */
   close: [];
   /** blockClose 中のネイティブ close 要求。consumer が確認フローへ変換する。 */
@@ -187,8 +192,8 @@ if (child === null) {
 }
 
 onMounted(() => {
-  // open 失敗の close 通知。setup 同期中に emit すると親の v-for 描画中の状態変更になる
-  if (child === null) emit("close");
+  // open 失敗の通知。setup 同期中に emit すると親の v-for 描画中の状態変更になる
+  if (child === null) emit("openFailed");
 });
 
 onUnmounted(() => {

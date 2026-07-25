@@ -21,6 +21,7 @@ export function registerFilerCommands(): () => void {
 
   return register("filer.copyFile", {
     label: "Filer: Copy File",
+    keybinding: { key: "cmd+c", when: "filerFocus && !inputFocused" },
     handler: () => {
       const dir = worktreeStore.dir;
       const relPath = worktreeStore.selectedRelPath;

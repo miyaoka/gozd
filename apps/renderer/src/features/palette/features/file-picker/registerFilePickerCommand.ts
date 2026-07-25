@@ -23,6 +23,7 @@ export function registerFilePickerCommand(): () => void {
   return registry.register("workspace.goToFile", {
     label: "Workspace: Go to File",
     precondition: "isGitRepo",
+    keybinding: { key: "cmd+p" },
     handler: () => {
       // 表示中の Cmd+P 再押下は no-op（VS Code の Quick Open と同じ現状維持）。
       // 再 open() すると items がクリアされ loading フラッシュ + 無駄な再列挙になる。

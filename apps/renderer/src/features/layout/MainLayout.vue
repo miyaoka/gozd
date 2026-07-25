@@ -70,6 +70,7 @@ const previewPopoverRef = useTemplateRef<HTMLElement>("previewPopover");
 const { register } = useCommandRegistry();
 const disposePreviewToggle = register("preview.toggle", {
   label: "Preview: Toggle",
+  keybinding: { key: "cmd+j" },
   handler: () => {
     previewStore.toggle();
     return true;
@@ -77,6 +78,9 @@ const disposePreviewToggle = register("preview.toggle", {
 });
 const disposePreviewClose = register("preview.close", {
   label: "Preview: Close",
+  // Cmd+W は「フォーカスのあるサーフェスを閉じる」意味論。terminal.closePane / childWindow.close と
+  // 同じキーなので、どちらとも同時に成立しない条件にする
+  keybinding: { key: "cmd+w", when: "previewVisible && !terminalFocus && !childWindowFocused" },
   handler: () => {
     if (!previewStore.isOpen) return false;
     previewStore.requestClose();
@@ -85,6 +89,7 @@ const disposePreviewClose = register("preview.close", {
 });
 const disposeWindowClose = register("window.close", {
   label: "Window: Close",
+  keybinding: { key: "shift+cmd+w", when: "!childWindowFocused" },
   handler: () => {
     void rpcWindowClose();
     return true;
@@ -203,7 +208,8 @@ watch(
  * preview の open でフォーカスを popover へ移し、close で open 時点のフォーカス元へ戻す。
  *
  * cmd+w は「フォーカスのあるサーフェスを閉じる」意味論で terminalFocus により分岐する
- * (defaultKeyBindings.json)。popover の `showPopover()` はフォーカスを移さないため、
+ * (preview.close / terminal.closePane の keybinding の when)。popover の `showPopover()` は
+ * フォーカスを移さないため、
  * terminal リンク経由の open でフォーカスが terminal に残ると、開いた直後の cmd+w が
  * preview でなく terminal pane を閉じてしまう。open のたびに popover へフォーカスを
  * 引き直すことで防ぐ (VS Code の terminal link → editor focus と同じ意味論)。

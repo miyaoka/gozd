@@ -21,6 +21,7 @@ export function registerMarkdownHistoryCommands(): () => void {
   const disposeBack = register("markdownPreview.back", {
     label: "Markdown Preview: Go Back",
     precondition: "previewVisible",
+    keybinding: { key: "cmd+[", when: "!inputFocused" },
     handler: () => {
       markdownHistory.goBack();
       return true;
@@ -29,6 +30,7 @@ export function registerMarkdownHistoryCommands(): () => void {
   const disposeForward = register("markdownPreview.forward", {
     label: "Markdown Preview: Go Forward",
     precondition: "previewVisible",
+    keybinding: { key: "cmd+]", when: "!inputFocused" },
     handler: () => {
       markdownHistory.goForward();
       return true;

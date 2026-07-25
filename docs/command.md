@@ -13,7 +13,7 @@ flowchart TB
         MENU[メニュー]
     end
 
-    subgraph command [features/command]
+    subgraph command [shared/command]
         CR[useCommandRegistry]
         CK[useContextKeys]
     end
@@ -43,6 +43,7 @@ flowchart TB
 interface CommandRegistry {
   register(id: string, input: CommandInput): () => void;
   execute(id: string, args?: unknown): boolean;
+  resolveKeyBinding(stroke: KeyStroke): CommandEntry | undefined;
   listForPalette(): readonly CommandEntry[];
   reset(): void;
   setErrorHandler(handler: (message: string, cause?: unknown) => void): void;
@@ -51,7 +52,8 @@ interface CommandRegistry {
 
 - `register()` は dispose 関数を返す。同一 ID の二重登録は上書き（HMR 安全）
 - `execute()` は handler を `tryCatch` でラップして実行する。handler 内で例外が発生した場合は注入済みのエラー通知コールバックに渡して `false` を返す。未登録または `precondition` 不成立なら `false`
-- `listForPalette()` は label が設定されており、かつ `precondition` が true（または未指定）のコマンドのみを返す。コマンドパレット UI が使用する
+- `resolveKeyBinding()` は keystroke に対して実行するコマンドを返す。keybinding ディスパッチ（`useKeyBindings`）が使用する。優先度は持たず、実効条件が重なった割り当ては契約違反としてエラー通知に流す
+- `listForPalette()` は label が設定されており、かつ `precondition` が true（または未指定）のコマンドのみを返す。コマンドパレット UI が使用する。キー表示はこの entry の `keybinding.key` から出すため、ID で別テーブルを引く JOIN は無い
 - `setErrorHandler()` は feature 層から通知ストアを注入するための inversion。`shared/command` から feature への直接依存を避ける
 - **アプリ起動時に `setErrorHandler` で通知ストアの `error` を必ず接続する**。注入し忘れると handler の例外が標準コンソールにしか出ず、`useNotificationStore` を通したトースト通知ポリシー（CLAUDE.md 規約）と一致しなくなる
 - dispose 時は一致チェックし、他の登録を壊さない
@@ -68,6 +70,8 @@ interface CommandDescriptor {
   handler: CommandHandler;
   /** コマンドの有効化条件。false の場合パレットに表示されず、`execute()` もスキップされる */
   precondition?: string;
+  /** 既定 keybinding。省略時はキー割り当てなし（[keybinding.md](keybinding.md)） */
+  keybinding?: { key: string; when?: string };
 }
 
 type CommandInput = CommandHandler | CommandDescriptor;
@@ -75,6 +79,7 @@ type CommandInput = CommandHandler | CommandDescriptor;
 
 - `label` 付きで登録したコマンドのみコマンドパレットに表示される
 - `label` なし（関数のみ）のコマンドはパレットに表示されない（引数付きコマンド等）
+- 既定 keybinding を持てるのは記述子（= `label` 必須）だけ。よって**キーで叩けるコマンドは必ずパレットにも出る**。キーだけで起動できる隠しコマンドは作れない
 - handler は処理した場合 `true`、何もしなかった場合 `false` を返す。呼び出し元はこの戻り値で `preventDefault` 等を判断する
 - `precondition` は context key 式（`parseWhen` で AST 化される）。`execute()` 経由・キーバインド経由のどちらでも条件不成立ならスキップされる。`when` と違いコマンド自体の有効/無効を示し、パレットでの可視性にも効く
 
@@ -84,6 +89,7 @@ type CommandInput = CommandHandler | CommandDescriptor;
 // label 付き: コマンドパレットに表示される
 registry.register("terminal.splitHorizontal", {
   label: "Terminal: Split Horizontal",
+  keybinding: { key: "cmd+d", when: "terminalFocus" },
   handler: () => {
     const active = getActiveLayout();
     if (active === undefined) return false;
@@ -92,7 +98,7 @@ registry.register("terminal.splitHorizontal", {
   },
 });
 
-// label なし: コマンドパレットに列挙されない（registry.execute や keybinding 経由では起動可能）
+// label なし: コマンドパレットに列挙されない（registry.execute 経由でのみ起動する）
 registry.register("workspace.someInternalAction", (args) => {
   if (typeof args !== "number") return false;
   // ...
@@ -102,27 +108,16 @@ registry.register("workspace.someInternalAction", (args) => {
 
 ## Context Key
 
-`useContextKeys()`（module singleton）で when 条件の評価に使う状態を管理する。キーの一覧と型は `shared/command/types.ts` の `ContextMap` が SSOT。各キーが何と同期するか（コードから読めない契約）だけをここに書く。
+`useContextKeys()`（module singleton）で when 条件の評価に使う状態を管理する。key の一覧・型・各 key の意味は `shared/command/types.ts` の `ContextMap` が SSOT で、doc コメントに併記する。
 
-| キー名                  | source                                                                                                                                                  |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `terminalFocus`         | アクティブターミナルのフォーカス変化 + worktree 切替 / closePane / visibilitychange で同期                                                              |
-| `filerFocus`            | FilerPane（ファイルツリー）内にフォーカスがあるか。フォーカス変化に追従して同期                                                                         |
-| `previewVisible`        | Preview popover の開閉状態と同期                                                                                                                        |
-| `previewEditable`       | 編集セッションの有無（`usePreviewEditStore.hasSession`）と同期                                                                                          |
-| `childWindowFocused`    | undock された child window（別 OS ウィンドウ）がフォーカスを持つか。OS の focus / blur で同期し、`childWindow.*` コマンドの対象解決とセットで更新される |
-| `commandPaletteVisible` | コマンドパレット dialog の open/close で同期                                                                                                            |
-| `quickPickVisible`      | QuickPick dialog の open/close で同期                                                                                                                   |
-| `filePickerVisible`     | File picker（Go to File）dialog の open/close で同期                                                                                                    |
-| `prPickerVisible`       | PR ピッカー dialog の open/close で同期                                                                                                                 |
-| `issuePickerVisible`    | Issue ピッカー dialog の open/close で同期                                                                                                              |
-| `revivePickerVisible`   | Revive ピッカー dialog の open/close で同期                                                                                                             |
-| `inputFocused`          | document の focusin/focusout を購読し、input/textarea/contenteditable へのフォーカスを検出して同期                                                      |
-| `isGitRepo`             | 選択中 repo が git 管理下か。repo 選択の変化に追従して同期                                                                                              |
+原則として key の更新は「その状態を所有する側」が行う。例外は 2 つ。
+
+- `childWindowFocused` は floating-window の `childWindowCommands` が context key とコマンドの対象ハンドル（フォーカス中の child window）を同時に更新し、「条件は真なのに対象がいない」ずれを構造的に防ぐ
+- `inputFocused` は所有側を持たず、ディスパッチが keydown を受けた document の `activeElement` から評価直前に書く（理由は `useKeyBindings.ts` のコメント）
 
 ### When 条件
 
-内部では typed AST（`When` 型）で表現する。外部入力（JSON 設定等）は文字列で受け取り、`parseWhen()` で AST に変換する。
+内部では typed AST（`When` 型）で表現する。記述子の `precondition` / `keybinding.when` は文字列で受け取り、`register()` 時に `parseWhen()` で AST に変換する。
 
 ```text
 terminalFocus

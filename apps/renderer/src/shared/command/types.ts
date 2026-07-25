@@ -83,6 +83,8 @@ export interface ContextMap {
   previewVisible: boolean;
   /** Preview に編集セッションが張られている（編集可能な content を表示中） */
   previewEditable: boolean;
+  /** undock された in-app パネルが 1 枚でも存在する（昇格済みの OS ウィンドウは数えない） */
+  floatingWindowVisible: boolean;
   /** undock された child window（別 OS ウィンドウ）が OS フォーカスを持つ */
   childWindowFocused: boolean;
   /** コマンドパレットが開いている */

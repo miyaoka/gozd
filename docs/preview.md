@@ -108,7 +108,7 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 
 - worktree 切替 (dir 変化) で自動クローズ。dir watch は `usePreviewStore` 内部に閉じ込めてあり、MainLayout や外部経路から発火を観測する必要はない。新 worktree でファイル選択を伴う dir 切替 (`gozdOpen` で別 worktree のファイルを指定した経路等) では、続けて `forceSelect` で再 open されるため最終状態は新ファイルで表示継続になる。dir watch は `flush: 'sync'` で `gozdOpen` handler の `setOpen → forceSelect` 連続呼びと順序が崩れないようにする
 - 外側クリックでは閉じない
-- Cmd+W の close チェーンは**フォーカス**で分岐する: terminal にフォーカスがあれば `terminal.closePane`、それ以外は最前面のサーフェス（preview popover 等）を閉じる（各コマンドの keybinding の when 条件）。undocked preview window は別 OS ウィンドウで、keybinding 系が child の document にも同一 dispatcher を張る（[keybinding.md](keybinding.md) の解決フロー）。フォーカスが child にあるときの Cmd+W / Cmd+S は `childWindowFocused` の when 条件で `childWindow.close` / `childWindow.save` に解決され、traffic light と同じガード経路 / window ローカル保存に合流する。この意味論を成立させるため、popover の open（表示中のファイル切替を含む）では MainLayout の watch がフォーカスを popover へ移す — `showPopover()` はフォーカスを移さないため、terminal リンク経由の open でフォーカスが terminal に残ると、開いた直後の Cmd+W が preview でなく terminal pane を閉じてしまう。close 時は open 時点のフォーカス元へ戻す（terminal リンクから開いて Cmd+W で閉じると terminal に入力が戻る）。popover 内部にフォーカスがあるとき（Monaco 編集中等）は奪わない
+- Cmd+W の close チェーンは**フォーカス**で分岐する: terminal にフォーカスがあれば `terminal.closePane`、それ以外は最前面のサーフェス（preview popover 等）を閉じる（各コマンドの keybinding の when 条件）。undocked preview window は undock 直後は main window 内の in-app パネルで、popover が開いていない状態の Cmd+W は `floatingWindow.closeFront`（最前面パネル 1 枚の close 要求）に解決される。promote で別 OS ウィンドウへ昇格すると keybinding 系が child の document にも同一 dispatcher を張り（[keybinding.md](keybinding.md) の解決フロー）、フォーカスが child にあるときの Cmd+W / Cmd+S は `childWindowFocused` の when 条件で `childWindow.close` / `childWindow.save` に解決され、traffic light と同じガード経路 / window ローカル保存に合流する。この意味論を成立させるため、popover の open（表示中のファイル切替を含む）では MainLayout の watch がフォーカスを popover へ移す — `showPopover()` はフォーカスを移さないため、terminal リンク経由の open でフォーカスが terminal に残ると、開いた直後の Cmd+W が preview でなく terminal pane を閉じてしまう。close 時は open 時点のフォーカス元へ戻す（terminal リンクから開いて Cmd+W で閉じると terminal に入力が戻る）。popover 内部にフォーカスがあるとき（Monaco 編集中等）は奪わない
 - ESC キーで閉じる。ただし他の popover (BlamePopover 等) や dialog (SettingsModal 等) が前面にあるときはそれらが優先され、すべて閉じた次の ESC で preview が閉じる
 - IME 変換中の ESC（変換キャンセル）では閉じない
 - 表示中ファイルが削除されると自動クローズ。`fsChange` 再 fetch で current (作業ツリー) が notFound になったとき、content 取得層 (`usePreviewContent`) は HEAD (`gitShowFile`) の在否も確認し、**current / HEAD いずれにも無い** (= 未追跡ファイルの削除等で実体がどこにも残っていない) と確定した場合のみ `closeForMissingSelection()` を呼んで選択解除 + close する。単一ファイル削除・ディレクトリごとの削除のどちらも同じ経路で拾う
@@ -433,7 +433,7 @@ draft の生存は **preview が表示されている間だけ**。不変条件�
 
 破棄が起きる操作は dirty なら確認（Save / Don't Save / Cancel。`useUnsavedDraftConfirm` + `UnsavedDraftConfirmDialog`）を挟む。Save はクリーン化に失敗すると veto（操作を中止）する — VS Code の close confirmation と同じ意味論。
 
-- ガードされる破棄境界: popover close の UI 経路（close ボタン / ESC / Cmd+W / toggle）、`requestSelect` / `forceSelect` の別ファイルへの切替、summary 進入、undocked window の close（OS ウィンドウのネイティブ close を beforeunload で veto して確認に変換 / dock ボタン）
+- ガードされる破棄境界: popover close の UI 経路（close ボタン / ESC / Cmd+W / toggle）、`requestSelect` / `forceSelect` の別ファイルへの切替、summary 進入、undocked window の close（in-app パネルの close ボタン / Cmd+W、昇格後はネイティブ close を beforeunload で veto して確認に変換 / dock ボタン）
 - ガードされない破棄境界（veto 不能）: worktree 切替（dir watch の sync close）、git-graph のコミット選択変化 / PR diff トグル（`targetChanged` → `endSession`）、アプリ終了
 - undock は破棄ではなく **draft の移動**: snapshot に `initialDraft` として焼き込み、本体セッションは undock 時に畳む。未保存編集の所有者は常に 1 か所（本体 or ウィンドウ）に保たれ、確認なしで undock できる
 

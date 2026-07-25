@@ -69,20 +69,37 @@ export interface KeyStroke {
 
 // --- Context Key ---
 
-/** context key の名前と値型のマッピング */
+/**
+ * context key の名前と値型のマッピング。when 条件で使える key の SSOT。
+ * key を足すときは「その key が真であることが何を意味するか」を doc コメントで併記する
+ * （when を書く側は名前だけでは意味を確定できないため）。
+ */
 export interface ContextMap {
+  /** ターミナル leaf 内にフォーカスがある */
   terminalFocus: boolean;
+  /** ファイルツリー（FilerPane）内にフォーカスがある */
   filerFocus: boolean;
+  /** Preview popover が開いている */
   previewVisible: boolean;
+  /** Preview に編集セッションが張られている（編集可能な content を表示中） */
   previewEditable: boolean;
+  /** undock された child window（別 OS ウィンドウ）が OS フォーカスを持つ */
   childWindowFocused: boolean;
+  /** コマンドパレットが開いている */
   commandPaletteVisible: boolean;
+  /** QuickPick が開いている */
   quickPickVisible: boolean;
+  /** File picker（Go to File）が開いている */
   filePickerVisible: boolean;
+  /** PR ピッカーが開いている */
   prPickerVisible: boolean;
+  /** Issue ピッカーが開いている */
   issuePickerVisible: boolean;
+  /** Revive ピッカーが開いている */
   revivePickerVisible: boolean;
+  /** keydown を受けた document のフォーカスが input / textarea / contenteditable にある */
   inputFocused: boolean;
+  /** 選択中の repo が git 管理下 */
   isGitRepo: boolean;
 }
 

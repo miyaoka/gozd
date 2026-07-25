@@ -107,23 +107,9 @@ registry.register("workspace.someInternalAction", (args) => {
 
 ## Context Key
 
-`useContextKeys()`（module singleton）で when 条件の評価に使う状態を管理する。キーの一覧と型は `shared/command/types.ts` の `ContextMap` が SSOT。各キーが何と同期するか（コードから読めない契約）だけをここに書く。
+`useContextKeys()`（module singleton）で when 条件の評価に使う状態を管理する。key の一覧・型・各 key の意味は `shared/command/types.ts` の `ContextMap` が SSOT で、doc コメントに併記する。
 
-| キー名                  | source                                                                                                                                                  |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `terminalFocus`         | アクティブターミナルのフォーカス変化 + worktree 切替 / closePane / visibilitychange で同期                                                              |
-| `filerFocus`            | FilerPane（ファイルツリー）内にフォーカスがあるか。フォーカス変化に追従して同期                                                                         |
-| `previewVisible`        | Preview popover の開閉状態と同期                                                                                                                        |
-| `previewEditable`       | 編集セッションの有無（`usePreviewEditStore.hasSession`）と同期                                                                                          |
-| `childWindowFocused`    | undock された child window（別 OS ウィンドウ）がフォーカスを持つか。OS の focus / blur で同期し、`childWindow.*` コマンドの対象解決とセットで更新される |
-| `commandPaletteVisible` | コマンドパレット dialog の open/close で同期                                                                                                            |
-| `quickPickVisible`      | QuickPick dialog の open/close で同期                                                                                                                   |
-| `filePickerVisible`     | File picker（Go to File）dialog の open/close で同期                                                                                                    |
-| `prPickerVisible`       | PR ピッカー dialog の open/close で同期                                                                                                                 |
-| `issuePickerVisible`    | Issue ピッカー dialog の open/close で同期                                                                                                              |
-| `revivePickerVisible`   | Revive ピッカー dialog の open/close で同期                                                                                                             |
-| `inputFocused`          | document の focusin/focusout を購読し、input/textarea/contenteditable へのフォーカスを検出して同期                                                      |
-| `isGitRepo`             | 選択中 repo が git 管理下か。repo 選択の変化に追従して同期                                                                                              |
+key の更新は「その状態を所有する側」が行う。`childWindowFocused` だけは floating-window の `childWindowCommands` が context key とコマンドの対象ハンドル（フォーカス中の child window）を同時に更新し、「条件は真なのに対象がいない」ずれを構造的に防ぐ。
 
 ### When 条件
 

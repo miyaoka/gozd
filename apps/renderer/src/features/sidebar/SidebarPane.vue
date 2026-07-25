@@ -188,7 +188,12 @@ function onSelectTask(wt: WorktreeEntry, task: Task) {
   }
   handleWorktreeSelect(wt);
   const leafId = terminalStore.getLeafIdByPtyId(ptyId);
-  if (leafId === undefined) return;
+  if (leafId === undefined) {
+    // live PTY があるのに leaf が引けないのは paneRegistry の不整合。到達すると
+    // 「クリックしたのに何も起きない」だけになり痕跡が残らないため観察ログを残す
+    console.error(`[onSelectTask] no leaf for pty ptyId=${ptyId} dir=${wt.path}`);
+    return;
+  }
   terminalStore.focusPane(leafId);
 }
 
@@ -211,12 +216,23 @@ function onSelectSessionWt(wt: WorktreeEntry) {
   worktreeStore.setOpen(wt.path);
 }
 
+// lookup が両方成功するのは下段の不変条件（行は live session を持つ task だけ）だが、
+// 破れると「クリックしたのに何も起きない」だけになり痕跡が残らない。到達しないなら
+// コストは無く、不変条件が破れた瞬間だけ検出できるので観察ログを残す。
 function onSelectSessionTask(wt: WorktreeEntry, task: Task) {
   worktreeStore.setOpen(wt.path);
   const ptyId = terminalStore.getPtyIdBySessionId(task.sessionId);
-  if (ptyId === undefined) return;
+  if (ptyId === undefined) {
+    console.error(
+      `[onSelectSessionTask] no pty for session sessionId=${task.sessionId} dir=${wt.path}`,
+    );
+    return;
+  }
   const leafId = terminalStore.getLeafIdByPtyId(ptyId);
-  if (leafId === undefined) return;
+  if (leafId === undefined) {
+    console.error(`[onSelectSessionTask] no leaf for pty ptyId=${ptyId} dir=${wt.path}`);
+    return;
+  }
   terminalStore.focusPane(leafId);
 }
 

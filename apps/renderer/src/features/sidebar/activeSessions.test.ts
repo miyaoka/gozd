@@ -4,7 +4,7 @@ import type { RepoState } from "../../shared/repo";
 import type { ClaudeStatus } from "../terminal";
 import { collectActiveSessionGroups } from "./activeSessions";
 
-function task(id: string, sessionId: string): Task {
+function task(id: string, sessionId: string, createdAt = "2026-07-25T00:00:00.000Z"): Task {
   return {
     id,
     worktreeDir: "",
@@ -12,7 +12,7 @@ function task(id: string, sessionId: string): Task {
     terminalTitle: "",
     ghTitle: "",
     sessionId,
-    createdAt: "2026-07-25T00:00:00.000Z",
+    createdAt,
     closedByUser: false,
     ghRef: undefined,
   };
@@ -34,7 +34,9 @@ function wt(path: string, branch: string, tasks: Task[] = [], isMain = false): W
 
 const WORKING: ClaudeStatus = { state: "working", lastActivityAt: 0 };
 
-const liveTask = task("live", "sid-live");
+// live-later を配列の先に置き、createdAt 昇順に並べ替えられることを検出できるようにする
+const liveTask = task("live-later", "sid-live", "2026-07-25T00:00:02.000Z");
+const liveEarlierTask = task("live-earlier", "sid-live-earlier", "2026-07-25T00:00:01.000Z");
 const deadTask = task("dead", "sid-dead");
 const notStartedTask = task("not-started", "");
 
@@ -45,7 +47,7 @@ const repos: Record<string, RepoState> = {
     isGitRepo: true,
     worktrees: [
       wt("/repo-a", "main", [], true),
-      wt("/repo-a/wt", "feat", [liveTask, deadTask, notStartedTask]),
+      wt("/repo-a/wt", "feat", [liveTask, liveEarlierTask, deadTask, notStartedTask]),
     ],
   },
   "/note": {
@@ -58,9 +60,9 @@ const repos: Record<string, RepoState> = {
 
 const POOL_DIRS = ["/repo-a", "/note"];
 
-/** sid-live だけが live session を持つ */
+/** sid-live* だけが live session を持つ */
 const statusOf = (sessionId: string): ClaudeStatus | undefined =>
-  sessionId === "sid-live" ? WORKING : undefined;
+  sessionId.startsWith("sid-live") ? WORKING : undefined;
 
 describe("collectActiveSessionGroups", () => {
   test("session が動いている worktree だけをグループにする", () => {
@@ -75,9 +77,9 @@ describe("collectActiveSessionGroups", () => {
     expect(group?.label).toBe("a · feat");
   });
 
-  test("live session を持たない task は行にしない", () => {
+  test("live session を持たない task は行にせず、残りを createdAt 昇順に並べる", () => {
     const [group] = collectActiveSessionGroups(POOL_DIRS, repos, new Set(["/repo-a/wt"]), statusOf);
-    expect(group?.entries.map((e) => e.task.id)).toEqual(["live"]);
+    expect(group?.entries.map((e) => e.task.id)).toEqual(["live-earlier", "live-later"]);
   });
 
   test("非 git project は rootDir 自身で判定し repo 名だけのグループになる", () => {

@@ -2,8 +2,9 @@
  * undock されたウィンドウ群の状態管理 factory。
  *
  * undocked window は undock 元 (popover / pane) の表示状態と独立して存在し続けるため、
- * consumer feature (session-log / preview) が module スコープで `createFloatingWindows<T>()` を
- * 1 回だけ実行し、payload T を載せた singleton のウィンドウ列を得る。
+ * consumer feature (session-log / preview) が module スコープで `createFloatingWindows<T>(label)` を
+ * 1 回だけ実行し、payload T を載せた singleton のウィンドウ列を得る。id は instance ごとの
+ * 0 始まりカウンタなので、観察ログで instance を区別するために label を要求する。
  *
  * 位置は undock 元 (popover / pane の box) の実測 rect、サイズは undock 元の**中身**
  * (シェルヘッダを除いた領域。preview ならモードタブ + 本文、log なら本文) の実測を初期値として
@@ -113,7 +114,7 @@ export function closeFrontFloatingWindow(): boolean {
   return true;
 }
 
-export function createFloatingWindows<T>() {
+export function createFloatingWindows<T>(label: string) {
   const windows = ref([]) as Ref<(T & FloatingWindowState)[]>;
   let nextId = 0;
   // undock() → mount → takeHandoff() が同期フラッシュ内で完結するため reactive にしない。
@@ -136,26 +137,54 @@ export function createFloatingWindows<T>() {
     return { pointerId, offsetX, offsetY };
   }
 
+  /**
+   * id 宛の entry を引く。
+   *
+   * entry とパネルは同じライフサイクルで消える (entry を消すと v-for が component を unmount し、
+   * window listener も effect scope 破棄で外れる) ため、id 不在に到達するのは呼び出し元が既に
+   * 消えた id を握っている状態。同期経路 (pointer / click ハンドラ) しか持たない mutator では
+   * それは実装の不整合を意味する。await を跨ぐ close だけは競合経路を持つ (close の doc 参照)。
+   *
+   * id 解決を 1 箇所に集約するのは、関数ごとに早期 return を書くと後から増えた mutator で
+   * ログを書き忘れた経路が生まれるため。
+   */
+  function findWindow(id: number, op: string) {
+    const win = windows.value.find((w) => w.id === id);
+    if (win === undefined) {
+      console.error(`[useFloatingWindows:${label}] ${op}: window not found id=${id}`);
+    }
+    return win;
+  }
+
+  /**
+   * entry を消す。id 不在を idempotent 成功として黙認しない — 他の mutator と違い close は
+   * 呼び出し元が id を取ってから await を跨ぐ経路を持つ (preview の dirty ガードが確認ダイアログと
+   * 保存 RPC の往復を挟む)。その待ち時間に同じ entry を消せるのは opener の pagehide
+   * (Vite フルリロード / アプリ終了) が child window を道連れに閉じる teardown 経路
+   * (ChildWindow の pagehide → closed → close) だけで、通常操作の二重 close は確認ダイアログの
+   * 先勝ちと blockClose の veto で成立しない。
+   */
   function close(id: number) {
+    if (findWindow(id, "close") === undefined) return;
     windows.value = windows.value.filter((w) => w.id !== id);
   }
 
   /** 外部からの close 要求 (FloatingWindowState.closeRequestEpoch の docstring 参照) */
   function requestClose(id: number) {
-    const win = windows.value.find((w) => w.id === id);
+    const win = findWindow(id, "requestClose");
     if (win === undefined) return;
     win.closeRequestEpoch++;
   }
 
   function move(id: number, x: number, y: number) {
-    const win = windows.value.find((w) => w.id === id);
+    const win = findWindow(id, "move");
     if (win === undefined) return;
     win.x = x;
     win.y = y;
   }
 
   function bringToFront(id: number) {
-    const win = windows.value.find((w) => w.id === id);
+    const win = findWindow(id, "bringToFront");
     if (win === undefined) return;
     // zTop は全種共有のため、他種のウィンドウが後から undock されていれば z !== zTop になり
     // 正しく再前面化される
@@ -168,7 +197,7 @@ export function createFloatingWindows<T>() {
    * 一方向で、OS ウィンドウから in-app パネルへ戻す経路は持たない。
    */
   function promote(id: number, child: ChildWindowInit) {
-    const win = windows.value.find((w) => w.id === id);
+    const win = findWindow(id, "promote");
     if (win === undefined) return;
     win.child = child;
   }
@@ -180,7 +209,7 @@ export function createFloatingWindows<T>() {
    * にしか無く store へ書き戻していないため、昇格前にリサイズしていたぶんは巻き戻る)。
    */
   function demote(id: number) {
-    const win = windows.value.find((w) => w.id === id);
+    const win = findWindow(id, "demote");
     if (win === undefined) return;
     win.child = undefined;
   }

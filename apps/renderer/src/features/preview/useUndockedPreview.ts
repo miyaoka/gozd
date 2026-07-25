@@ -87,7 +87,7 @@ interface UndockedPreviewData {
 
 export type UndockedPreview = UndockedPreviewData & FloatingWindowState;
 
-const store = createFloatingWindows<UndockedPreviewData>();
+const store = createFloatingWindows<UndockedPreviewData>("undockedPreview");
 
 export function useUndockedPreview() {
   const { windows, undock, takeHandoff, close, move, bringToFront, promote, demote } = store;

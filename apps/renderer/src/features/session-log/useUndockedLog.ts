@@ -27,7 +27,7 @@ interface UndockedLogData {
 
 export type UndockedLog = UndockedLogData & FloatingWindowState;
 
-const store = createFloatingWindows<UndockedLogData>();
+const store = createFloatingWindows<UndockedLogData>("undockedLog");
 
 export function useUndockedLog() {
   const { windows, undock, takeHandoff, close, move, bringToFront, promote, demote } = store;

@@ -130,7 +130,14 @@ onMounted(() => {
   // ヘッダは自テンプレートの先頭子 (子コンポーネントの $el を覗くと、その root 構造の変化で
   // 実測が黙って飛ぶ)
   const header = root?.firstElementChild;
-  if (root === null || !(header instanceof HTMLElement)) return;
+  if (root === null || !(header instanceof HTMLElement)) {
+    // 到達すると初期サイズ換算と handoff の武装が同時に失われ、パネルが min サイズで出て
+    // ドラッグも始まらない。ユーザーに見える破綻を診断不能にしないため観察ログを残す
+    // root null と header 非要素のどちらでも「実測できない」に畳む (到達不能な条件のために
+    // 分岐を増やさない)
+    console.error("[FloatingWindow] initial size skipped: header element not measurable");
+    return;
+  }
   const borderX = root.offsetWidth - root.clientWidth;
   const borderY = root.offsetHeight - root.clientHeight;
   root.style.width = `${props.contentWidth + borderX}px`;

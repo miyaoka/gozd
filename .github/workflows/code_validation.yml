@@ -42,9 +42,10 @@ jobs:
             diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only lint
             full_command: pnpm run lint:all
 
-          # fix（oxlint --fix / eslint --fix + oxfmt）はここで gate しない。
-          # 自動修正可能な違反は PR を止めずに daily-fix workflow が日次で返済する
+          # fix（oxlint --fix / eslint --fix + oxfmt）は matrix に持たない。自動修正できる
+          # 違反で PR を止めず、daily-fix workflow が日次の全件実行で返済する
           # （.github/workflows/daily-fix.yml）
+
           - name: test
             diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only test
             full_command: pnpm run test:all

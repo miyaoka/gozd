@@ -5,9 +5,6 @@
 # CI green で auto merge する。差分がなければ何もしない（空振り＝不変条件成立の日次の証明）。
 #
 # 設計上の判断:
-# - PR ごとの gate（code_validation の fix job）を置かず日次の全件検査にする。gate は
-#   「ドリフトを入れさせない」が、--no-verify / GitHub Web UI 編集 / lint 設定変更時の
-#   一括適用漏れといった経路を塞げない。経路に依存しない全件検査を維持装置にする。
 # - main push をトリガーにしない（schedule + workflow_dispatch のみ）。fix PR のマージ自体が
 #   main push であり、main push トリガーだと自己再帰ループになる。また main push は release
 #   workflow を発火させる重いイベントで、整形コミットがそれを増産してしまう。
@@ -20,17 +17,23 @@
 #   pull_request イベントが発火せず code_validation が走らない。main の ruleset は all-green を
 #   required status check にしており bypass actor がゼロのため、CI が走らない PR は auto merge
 #   どころか手動マージも不可能な塩漬け PR になる。App token は job 終了時に自動失効する。
+# - App token の生成は fix:all の後に置く。install と fix:all は third-party コード
+#   （postinstall script、oxlint / oxfmt / eslint と各 plugin）を実行するため、その間 job 内に
+#   write 権限のトークンを存在させない。repositories による scope 絞りは blast radius を
+#   狭めるだけで存在自体は防げないので、順序で解く。
 # - App token に Contents / Pull requests に加えて Workflows の write を与える。最小権限に
 #   絞りたいところだが、oxfmt の対象には .github/workflows/*.yml も含まれる（root の fix
 #   スクリプトが repo 直下を走るため）。GitHub API 経由で workflow ファイルを含む tree を作るには
 #   workflows 権限が必須で、無いと yml がドリフトした日に create-a-tree が 403 になり
 #   bot が恒久停止する。
-# - commit は sign-commits で GitHub API 経由の verified commit にする。git push を使わないため
-#   トークンは URL にも .git/config にも残らず、checkout も persist-credentials: false で
-#   fix:all へ露出させない。
-# - fix:all は 1 回だけ実行する（複数回は回さない）。linter → formatter の相互作用で 1 パスでは
-#   固定点に達しないファイルは、その日の差分をマージし翌日の run で次のパスへ、と日次で
-#   自然収束させる。
+# - トークンを fix:all へ露出させない担保は step 順序と checkout の persist-credentials: false。
+#   sign-commits は担保にならない: create-pull-request は HTTPS remote に対し configureToken を
+#   無条件で呼び、差分ゼロ時のブランチ削除（git push --delete）のために .git/config へ
+#   extraheader を書き込む（実行後に自身で除去する）。
+# - fix:all は固定点に達するまで回す。linter → formatter の相互作用で 1 パスでは収束しない
+#   ファイルがあり、非固定点の tree を merge すると「merge 直後の main で fix:all が diff を
+#   出す」状態になって不変条件を bot 自身が破る。上限内に収束しない場合は lint / formatter
+#   設定側の欠陥なので、日を跨いで隠さず fail させる。
 name: daily-fix
 
 on:
@@ -56,32 +59,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      # PR を pull_request イベント発火可能なトークンで作るため App token を取得する。
-      # 権限は create-pull-request が使う範囲（commit = contents、PR = pull-requests、
-      # workflow ファイルを含む tree = workflows）に絞る
-      - name: Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ secrets.GOZD_BOT_APP_ID }}
-          private-key: ${{ secrets.GOZD_BOT_PRIVATE_KEY }}
-          # App が他リポジトリにもインストールされた場合に、過剰な write 権限のトークンが
-          # fix:all の走る job 内に存在するのを防ぐ
-          owner: ${{ github.repository_owner }}
-          repositories: gozd
-          permission-contents: write
-          permission-pull-requests: write
-          permission-workflows: write
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: main
           # create-pull-request は既存ブランチとの差分算出に履歴を必要とする
           # （shallow だと既存 PR ブランチの更新で破綻しうる）
           fetch-depth: 0
-          # create-pull-request は token: input の App token で commit / PR 操作を行い、
-          # checkout の永続クレデンシャルを使わない。トークンを fix:all へ露出させないため
-          # 永続化しない
           persist-credentials: false
 
       - uses: ./.github/actions/setup-environment
@@ -89,13 +72,42 @@ jobs:
       # fix:all 自体の失敗（lint 設定エラー・formatter クラッシュ等）は握りつぶさない。
       # 握りつぶすと「整形が走っていないのにドリフト無し＝不変条件成立」と誤報告する
       # サイレント故障になるため、失敗時はそのまま job を fail させて可観測にする
-      - name: Run fix:all
-        run: pnpm run fix:all
+      - name: Run fix:all until fixpoint
+        run: |
+          set -euo pipefail
+          prev=""
+          for _ in 1 2 3; do
+            pnpm run fix:all
+            git add -A
+            cur="$(git write-tree)"
+            if [[ "${cur}" == "${prev}" ]]; then
+              exit 0
+            fi
+            prev="${cur}"
+          done
+          echo "::error::fix:all did not reach a fixpoint in 3 passes"
+          exit 1
+
+      # PR を pull_request イベント発火可能なトークンで作るため App token を取得する。
+      # 権限は create-pull-request が使う範囲（commit = contents、PR = pull-requests、
+      # workflow ファイルを含む tree = workflows）に絞る。owner / repositories は指定しない:
+      # 両方未指定なら action が GITHUB_REPOSITORY から現 repo 1 個に scope するため、
+      # repo 名をハードコードせずに同じ結果が得られる
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.GOZD_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.GOZD_BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
 
       # 整形差分があれば固定ブランチ bot/daily-fix へ verified commit して PR を作成/更新する。
       # 差分が無ければ PR を作らず、既存 PR が不要になれば自動 close + ブランチ削除される。
-      # add-paths で絞らないのは fix:all の対象が repo 全域に及ぶため。job 内で生成される
-      # 未追跡ファイル（資格情報等）は存在しない前提で、増えたら .gitignore 側で塞ぐ
+      # add-paths で絞らないのは fix:all の対象が repo 全域に及ぶため。裏を返せば working tree に
+      # 現れたものは何でも commit されて auto merge で無審査に main へ入る経路であり、
+      # job 内で生成される未追跡ファイルは .gitignore 側で塞ぐ必要がある
       - name: Create or update fix PR
         id: cpr
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
@@ -112,11 +124,13 @@ jobs:
           body: Automated PR from the daily `daily-fix` workflow. It runs `fix:all` across the whole repo and repays the lint / format drift it finds.
 
       # PR が作成/更新/既存のいずれかで存在するとき auto merge を有効にする
-      # （差分ゼロで close された場合・PR が無い場合は何もしない）
+      # （差分ゼロで close された場合・PR が無い場合は何もしない）。
+      # --delete-branch は付けない: gh の deleteRemoteBranch は autoMerge 経路で早期 return する
+      # no-op であり、実際の削除は repo 設定の delete_branch_on_merge が担う
       - name: Enable auto-merge
         if: steps.cpr.outputs.pull-request-number != '' && steps.cpr.outputs.pull-request-operation != 'closed'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           # ${{ }} を run: に直接展開せず env 経由で渡す（テンプレートインジェクション面を作らない）
           PR_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
-        run: gh pr merge --auto --merge --delete-branch "$PR_NUMBER"
+        run: gh pr merge --auto --merge "$PR_NUMBER"

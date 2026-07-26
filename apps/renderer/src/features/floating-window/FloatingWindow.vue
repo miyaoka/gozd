@@ -38,14 +38,22 @@ focusout を floatingWindowCommands の activate / deactivate に変換する。
 - 既知の境界例外: 左/上辺リサイズで逆算した x / y が描画時のビューポート射影クランプに
   当たると、アンカーのはずの下端 / 右端が滑りうる (実質不可視の範囲に限られる)。射影まで
   含めたサイズ再導出は算術の複雑化に見合わないため受容する
-- plain `position: fixed` 要素で popover / dialog の top layer には載せない。モーダルや
-  menu が常にウィンドウより手前という既存のオーバーレイ順序ポリシー (ArcadeLayer 参照) に従う
+- root 自身が `popover="manual"` のサーフェス 1 枚。undock 元のドックパネル (preview 等) と
+  同じ top layer に並び、`shared/surface` の click-to-front 規則で重ね順が決まる。z-index は
+  持たない — top layer の順序は show 呼び出し順が SSOT で z-index では越えられないため、
+  パネル間もパネルとドックパネルの間も同じ 1 つの規則で並ぶ
+- 前面化 (`raiseSurface`) は pointerdown の**キャプチャ**フェーズで同期に呼ぶ。バブリング後や
+  非同期にずらすと、リサイズハンドルが既に取った pointer capture より後に display 切り替えが
+  走り、リサイズ開始と競合しうる
+- UA の `[popover]` 既定値のうち、位置 (`inset`) / `margin` / `padding` / 文字色は自前の値で
+  打ち消す。サイズと配置は inline style と Tailwind class が持つ
 </doc>
 
 <script setup lang="ts">
 import { TITLEBAR_HEIGHT } from "@gozd/shared";
 import { useEventListener } from "@vueuse/core";
-import { onMounted, onUnmounted, useTemplateRef, watch } from "vue";
+import { onBeforeUnmount, onMounted, onUnmounted, useTemplateRef, watch } from "vue";
+import { hideSurface, raiseSurface, showSurface } from "../../shared/surface";
 import { type ChildWindowInit, toChildWindowInit } from "./childWindowInit";
 import {
   activateFloatingWindow,
@@ -61,7 +69,6 @@ import IconMdiOpenInNew from "~icons/mdi/open-in-new";
 interface Props {
   x: number;
   y: number;
-  z: number;
   contentWidth: number;
   contentHeight: number;
   /** 外部からの close 要求 epoch (FloatingWindowState.closeRequestEpoch)。 */
@@ -93,6 +100,17 @@ watch(
   },
 );
 
+/**
+ * click-to-front。DOM の重ね順 (top layer) と store の frontOrder を同じ 1 イベントから書く。
+ * store 側は cmd+w の closeFront が最前面の 1 枚を選ぶために要る (FloatingWindowState 参照)。
+ */
+function onActivate() {
+  emit("activate");
+  const root = rootRef.value;
+  if (root === null) return;
+  raiseSurface(root);
+}
+
 // ==== キー入力の宛先 (doc 参照) ====
 const focusHandle: FloatingWindowHandle = {
   requestClose: () => emit("closeRequested"),
@@ -109,6 +127,14 @@ function onFocusOut(event: FocusEvent) {
 }
 // フォーカスされたまま unmount されると focusout が飛ばないことがあるため確実に解除する
 onUnmounted(() => deactivateFloatingWindow(focusHandle));
+
+// DOM から外れれば top layer からも自動で降りるが、shared/surface が最前面として覚えたままだと
+// detached な要素への参照が残る。element がまだ生きている beforeUnmount で明示的に降ろす。
+onBeforeUnmount(() => {
+  const root = rootRef.value;
+  if (root === null) return;
+  hideSurface(root);
+});
 
 /** ドラッグ / 描画クランプ時に画面内へ残すヘッダの掴み代 (px)。 */
 const GRAB_MARGIN = 80;
@@ -127,6 +153,9 @@ let dragState: { pointerId: number; offsetX: number; offsetY: number } | undefin
 // を足して border-box の総サイズへ換算する。
 onMounted(() => {
   const root = rootRef.value;
+  // 表示は実測の成否に依らず先に行う (下の early return より前に置く)。undock 直後のパネルは
+  // 「今まさに操作されたもの」なので、show 順の規則でそのまま最前面に載る
+  if (root !== null) showSurface(root);
   // ヘッダは自テンプレートの先頭子 (子コンポーネントの $el を覗くと、その root 構造の変化で
   // 実測が黙って飛ぶ)
   const header = root?.firstElementChild;
@@ -313,14 +342,14 @@ useEventListener(window, "pointercancel", endDrag);
        (アプリの drag 領域) 直下。 -->
   <section
     ref="root"
+    popover="manual"
     tabindex="-1"
-    class="fixed flex max-h-[80vh] min-h-16 max-w-[90vw] min-w-64 flex-col overflow-hidden rounded-md border border-border-strong bg-background shadow-xl outline-none"
+    class="fixed inset-auto m-0 max-h-[80vh] min-h-16 max-w-[90vw] min-w-64 flex-col overflow-hidden rounded-md border border-border-strong bg-background p-0 text-foreground shadow-xl outline-none [&:popover-open]:flex"
     :style="{
       left: `min(${x}px, calc(100vw - ${GRAB_MARGIN}px))`,
       top: `clamp(var(--titlebar-height), ${y}px, calc(100vh - ${GRAB_MARGIN}px))`,
-      zIndex: z,
     }"
-    @pointerdown="emit('activate')"
+    @pointerdown.capture="onActivate()"
     @focusin="onFocusIn()"
     @focusout="onFocusOut"
   >

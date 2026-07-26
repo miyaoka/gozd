@@ -1,5 +1,6 @@
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { ref } from "vue";
+import { hideSurface, showSurface } from "../../shared/surface";
 
 /**
  * イベントログパネルの開閉 SSOT。ServerListPanel と同じ右ドック popover 流儀で、開閉状態を
@@ -17,14 +18,14 @@ export const useEventLogStore = defineStore("eventLog", () => {
     if (isOpen.value) return;
     const el = popoverEl.value;
     if (!el) return;
-    el.showPopover();
+    showSurface(el);
     isOpen.value = true;
   }
   function close(): void {
     if (!isOpen.value) return;
     const el = popoverEl.value;
     if (!el) return;
-    el.hidePopover();
+    hideSurface(el);
     isOpen.value = false;
   }
   function toggle(): void {

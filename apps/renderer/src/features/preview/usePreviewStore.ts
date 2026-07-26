@@ -1,5 +1,6 @@
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { ref, watch } from "vue";
+import { hideSurface, showSurface } from "../../shared/surface";
 import { useChangesSummaryStore } from "../changes";
 import {
   normalizePathTarget,
@@ -100,7 +101,7 @@ export const usePreviewStore = defineStore("preview", () => {
     if (isOpen.value) return;
     const el = popoverEl.value;
     if (!el) return;
-    el.showPopover();
+    showSurface(el);
     isOpen.value = true;
   }
 
@@ -117,7 +118,7 @@ export const usePreviewStore = defineStore("preview", () => {
     if (!isOpen.value) return;
     const el = popoverEl.value;
     if (!el) return;
-    el.hidePopover();
+    hideSurface(el);
     isOpen.value = false;
   }
 

@@ -335,7 +335,6 @@ function dockToPreview() {
   <UndockedWindow
     :x="preview.x"
     :y="preview.y"
-    :z="preview.z"
     :content-width="preview.contentWidth"
     :content-height="preview.contentHeight"
     :close-request-epoch="preview.closeRequestEpoch"

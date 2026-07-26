@@ -32,7 +32,6 @@ const handoff = takeHandoff(props.log.id);
   <UndockedWindow
     :x="log.x"
     :y="log.y"
-    :z="log.z"
     :content-width="log.contentWidth"
     :content-height="log.contentHeight"
     :close-request-epoch="log.closeRequestEpoch"

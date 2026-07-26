@@ -16,8 +16,8 @@
  * まま不変で、リサイズの SSOT はリサイズハンドラが書く DOM の inline style に移る
  * (FloatingWindow の doc 参照)。
  *
- * z カウンタは全 factory instance で共有する。種類の異なるウィンドウも同じ plain fixed の
- * スタッキング文脈に並ぶため、カウンタを instance ごとに分けると種類を跨いだ
+ * 前面化の順序 (frontOrder) は全 factory instance で共有するカウンタで採番する。種類の異なる
+ * ウィンドウも同じサーフェス列に並ぶため、カウンタを instance ごとに分けると種類を跨いだ
  * bring-to-front が効かなくなる。
  *
  * undock 直後は in-app パネルで、`promote()` で別 OS ウィンドウへ昇格する。昇格後も entry は
@@ -50,7 +50,13 @@ export interface FloatingWindowState {
    */
   contentWidth: number;
   contentHeight: number;
-  z: number;
+  /**
+   * 最後に前面化された順序。大きいほど手前 (cmd+w の closeFront が最前面の 1 枚を選ぶ判定に
+   * 使う)。実際の描画順は DOM の top layer が持ち、本フィールドはそれと同じ `activate` イベント
+   * から書かれる控え (`shared/surface` は最前面 1 枚しか覚えないため、パネル群の中の順序を
+   * DOM に問い合わせる手段がない)。
+   */
+  frontOrder: number;
   /**
    * 外部 (cmd+w の closeFrontFloatingWindow 等) からの close 要求 epoch。増加をシェルが
    * closeRequested emit へ変換し、consumer の close 経路 (未保存確認ガード込み) に合流させる。
@@ -67,12 +73,8 @@ export interface FloatingWindowState {
   child?: ChildWindowInit;
 }
 
-// bring-to-front の z 初期値。plain fixed 要素どうしの相対順にだけ効き、dialog / popover の
-// top layer は z-index に関係なく常に手前 (ArcadeLayer の doc 参照)。
-const Z_BASE = 30;
-
-// 全 factory instance で共有 (モジュール docstring 参照)。
-let zTop = Z_BASE;
+// 全 factory instance で共有する前面化順序のカウンタ (モジュール docstring 参照)。
+let frontOrderTop = 0;
 
 /**
  * 全 factory instance の registry。種類の異なるウィンドウを跨いで
@@ -96,16 +98,16 @@ export const hasFloatingWindow = computed(() =>
 );
 
 /**
- * 全種の in-app パネルのうち最前面 (z 最大) の 1 枚に close を要求する。1 枚も無ければ false。
+ * 全種の in-app パネルのうち最前面 (frontOrder 最大) の 1 枚に close を要求する。1 枚も無ければ false。
  * 即 close ではなく closeRequestEpoch 経由で consumer の close 経路 (未保存確認ガード込み) に
  * 合流させるため、要求後もパネルが (確認 Cancel で) 残ることがある。
  */
 export function closeFrontFloatingWindow(): boolean {
-  let front: { requestClose: (id: number) => void; id: number; z: number } | undefined;
+  let front: { requestClose: (id: number) => void; id: number; frontOrder: number } | undefined;
   for (const instance of instances) {
     for (const win of inAppWindows(instance)) {
-      if (front === undefined || win.z > front.z) {
-        front = { requestClose: instance.requestClose, id: win.id, z: win.z };
+      if (front === undefined || win.frontOrder > front.frontOrder) {
+        front = { requestClose: instance.requestClose, id: win.id, frontOrder: win.frontOrder };
       }
     }
   }
@@ -121,11 +123,11 @@ export function createFloatingWindows<T>(label: string) {
   let pendingHandoff: ({ id: number } & UndockDragHandoff) | undefined;
 
   function undock(
-    input: T & Omit<FloatingWindowState, "id" | "z" | "closeRequestEpoch" | "child">,
+    input: T & Omit<FloatingWindowState, "id" | "frontOrder" | "closeRequestEpoch" | "child">,
     handoff?: UndockDragHandoff,
   ) {
     const id = nextId++;
-    windows.value.push({ ...input, id, z: ++zTop, closeRequestEpoch: 0 });
+    windows.value.push({ ...input, id, frontOrder: ++frontOrderTop, closeRequestEpoch: 0 });
     if (handoff !== undefined) pendingHandoff = { id, ...handoff };
   }
 
@@ -186,10 +188,10 @@ export function createFloatingWindows<T>(label: string) {
   function bringToFront(id: number) {
     const win = findWindow(id, "bringToFront");
     if (win === undefined) return;
-    // zTop は全種共有のため、他種のウィンドウが後から undock されていれば z !== zTop になり
-    // 正しく再前面化される
-    if (win.z === zTop) return;
-    win.z = ++zTop;
+    // frontOrderTop は全種共有のため、他種のウィンドウが後から undock されていれば
+    // frontOrder !== frontOrderTop になり正しく再前面化される
+    if (win.frontOrder === frontOrderTop) return;
+    win.frontOrder = ++frontOrderTop;
   }
 
   /**

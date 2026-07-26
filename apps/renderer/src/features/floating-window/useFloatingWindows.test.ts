@@ -1,5 +1,5 @@
 // createFloatingWindows factory の純粋ロジックのテスト。drag handoff の one-shot セマンティクス、
-// bringToFront の z 単調増加抑止、「昇格した window は in-app パネルとして数えない」
+// bringToFront の frontOrder 単調増加抑止、「昇格した window は in-app パネルとして数えない」
 // (cmd+w の closeFront / floatingWindowVisible の対象から外れる)、および id 不在の観察ログが対象。
 import { describe, expect, spyOn, test } from "bun:test";
 import {
@@ -15,7 +15,8 @@ interface TestPayload {
 
 type FloatingWindowStore = ReturnType<typeof createFloatingWindows<TestPayload>>;
 
-function undockInput(): TestPayload & Omit<FloatingWindowState, "id" | "z" | "closeRequestEpoch"> {
+function undockInput(): TestPayload &
+  Omit<FloatingWindowState, "id" | "frontOrder" | "closeRequestEpoch"> {
   return { label: "log", x: 10, y: 20, contentWidth: 300, contentHeight: 200 };
 }
 
@@ -78,21 +79,21 @@ describe("takeHandoff", () => {
 });
 
 describe("bringToFront", () => {
-  test("最前面でなければ z が上がり、最前面なら据え置く", () => {
+  test("最前面でなければ frontOrder が上がり、最前面なら据え置く", () => {
     const store = createFloatingWindows<TestPayload>("test");
     store.undock(undockInput());
     const first = lastWindow(store);
     store.undock(undockInput());
     const second = lastWindow(store);
-    expect(second.z).toBeGreaterThan(first.z);
+    expect(second.frontOrder).toBeGreaterThan(first.frontOrder);
 
     store.bringToFront(first.id);
-    expect(first.z).toBeGreaterThan(second.z);
+    expect(first.frontOrder).toBeGreaterThan(second.frontOrder);
 
-    // 既に最前面: z を無駄に増やさない
-    const z = first.z;
+    // 既に最前面: カウンタを無駄に増やさない
+    const { frontOrder } = first;
     store.bringToFront(first.id);
-    expect(first.z).toBe(z);
+    expect(first.frontOrder).toBe(frontOrder);
     closeAll(store);
   });
 });
@@ -129,7 +130,7 @@ describe("promote", () => {
     closeAll(store);
   });
 
-  test("closeFront は factory instance を跨いで z 最大の 1 枚を選ぶ", () => {
+  test("closeFront は factory instance を跨いで frontOrder 最大の 1 枚を選ぶ", () => {
     // registry を module に置く理由がこれ (種類の異なるウィンドウを跨いだ最前面判定)
     const first = createFloatingWindows<TestPayload>("first");
     const second = createFloatingWindows<TestPayload>("second");
@@ -137,7 +138,7 @@ describe("promote", () => {
     second.undock(undockInput());
     const older = lastWindow(first);
     const newer = lastWindow(second);
-    expect(newer.z).toBeGreaterThan(older.z);
+    expect(newer.frontOrder).toBeGreaterThan(older.frontOrder);
 
     expect(closeFrontFloatingWindow()).toBe(true);
     expect(newer.closeRequestEpoch).toBe(1);
@@ -187,7 +188,7 @@ describe("id 不在の観察ログ", () => {
   // - id を取らない API を足すときだけ Exclude に 1 語加える意図的な opt-out になる
   // - id 不在の呼び出しが実在 entry を書き換えないことも固定する。fallback (先頭 entry へ倒す等)
   //   を作らない規約の見張りがこのテストの立ち位置。fixture は「昇格済み + 後発」の 2 枚にする —
-  //   1 枚では bringToFront の fallback が z === zTop の no-op ガードに吸われ、demote の
+  //   1 枚では bringToFront の fallback が frontOrder === frontOrderTop の no-op ガードに吸われ、demote の
   //   fallback は child 不在で無変化になり、どちらも検出できない (退行注入で実測)
   // - 比較は toStrictEqual。toEqual は undefined 値のキーの増減を無視するため、
   //   child への undefined 書き込みを取り逃がす (実測)
@@ -208,7 +209,7 @@ describe("id 不在の観察ログ", () => {
       const errorSpy = spyOn(console, "error").mockImplementation(() => {});
       try {
         const store = createFloatingWindows<TestPayload>("probe");
-        // 昇格済み 1 枚 + 後発 1 枚 (前者は child 有り、後者があることで前者の z < zTop になる)
+        // 昇格済み 1 枚 + 後発 1 枚 (前者は child 有り、後者があることで前者の frontOrder < frontOrderTop になる)
         store.undock(undockInput());
         const promoted = lastWindow(store);
         store.promote(promoted.id, { screenX: 1, screenY: 2, width: 30, height: 40 });

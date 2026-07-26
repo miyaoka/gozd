@@ -7,7 +7,7 @@
  * watch ライフサイクルには乗らない。元の popover が閉じても消えない独立性が要件のため、
  * ライブ更新はしない。
  *
- * ウィンドウ状態 (位置 / 初期中身サイズ / z / drag handoff / 昇格済みかどうか) の管理は
+ * ウィンドウ状態 (位置 / 初期中身サイズ / 前面順 / drag handoff / 昇格済みかどうか) の管理は
  * floating-window の `createFloatingWindows` に委譲する (サイズ受け渡しと handoff の契約は
  * そちらの doc 参照)。undock 直後は in-app パネルで、promote で別 OS ウィンドウへ昇格する
  * (presentation の切り替えは UndockedWindow が担う)。

@@ -20,6 +20,7 @@ import { useEventListener, useWindowSize } from "@vueuse/core";
 import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
+import { raiseSurface } from "../../shared/surface";
 import { registerFilerCommands } from "../filer";
 import { GitGraphPane } from "../git-graph";
 import { NavigatorPane } from "../navigator";
@@ -304,6 +305,16 @@ watch(
   },
   { immediate: true },
 );
+/**
+ * click-to-front。サーフェスは「最後に触ったものが最前面」で並ぶ (shared/surface)。
+ * キャプチャフェーズで呼ぶのは、内側の要素 (ResizeHandle 等) が pointer capture を取る前に
+ * 積み直しを終わらせるため。
+ */
+function onSurfacePointerDown() {
+  const el = previewPopoverRef.value;
+  if (el === null) return;
+  raiseSurface(el);
+}
 </script>
 
 <template>
@@ -375,6 +386,7 @@ watch(
       tabindex="-1"
       class="_preview-popover overflow-hidden border-0 border-l border-border bg-background p-0 outline-hidden [&:popover-open]:flex"
       :style="{ width: `${previewWidth}px` }"
+      @pointerdown.capture="onSurfacePointerDown()"
     >
       <!-- 左端リサイズハンドル -->
       <ResizeHandle

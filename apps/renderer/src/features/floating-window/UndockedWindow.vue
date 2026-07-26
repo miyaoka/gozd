@@ -48,10 +48,9 @@ import UndockedWindowHeader from "./UndockedWindowHeader.vue";
 import type { UndockDragHandoff } from "./useFloatingWindows";
 
 interface Props {
-  /** in-app パネルの位置 / 前面順 / 初期中身サイズ (FloatingWindowState の対応フィールド)。 */
+  /** in-app パネルの位置 / 初期中身サイズ (FloatingWindowState の対応フィールド)。 */
   x: number;
   y: number;
-  z: number;
   contentWidth: number;
   contentHeight: number;
   /** 外部からの close 要求 epoch (FloatingWindowState.closeRequestEpoch)。 */
@@ -92,7 +91,6 @@ const emit = defineEmits<{
     v-if="child === undefined"
     :x="x"
     :y="y"
-    :z="z"
     :content-width="contentWidth"
     :content-height="contentHeight"
     :close-request-epoch="closeRequestEpoch"

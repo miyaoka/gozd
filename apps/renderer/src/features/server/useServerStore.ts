@@ -3,6 +3,7 @@ import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
+import { hideSurface, showSurface } from "../../shared/surface";
 import {
   rpcServerList,
   type ServerInfo,
@@ -20,7 +21,8 @@ import {
  *
  * パネル開閉:
  *   - 開閉状態はこの store が SSOT として所有する。popover DOM へのミラーは `open()` /
- *     `close()` が `showPopover()` / `hidePopover()` を呼んで担う (usePreviewStore と同流儀)。
+ *     `close()` が `shared/surface` の `showSurface()` / `hideSurface()` を呼んで担う
+ *     (usePreviewStore と同流儀。他サーフェスとの重ね順もここで決まる)。
  *     冪等 gate は自前 `isOpen` ref だけで判定し、DOM state (`:popover-open`) は判定材料に
  *     しない — 開閉の真実源を store 1 つに保ち「store と DOM のどちらが正か」の分岐を作らない
  *   - トグルは TitleBar の renderer ボタンが `toggle()` を直接叩く (native 往復は持たない)
@@ -66,14 +68,14 @@ export const useServerStore = defineStore("server", () => {
     if (isOpen.value) return;
     const el = popoverEl.value;
     if (!el) return;
-    el.showPopover();
+    showSurface(el);
     isOpen.value = true;
   }
   function close(): void {
     if (!isOpen.value) return;
     const el = popoverEl.value;
     if (!el) return;
-    el.hidePopover();
+    hideSurface(el);
     isOpen.value = false;
   }
   function toggle(): void {

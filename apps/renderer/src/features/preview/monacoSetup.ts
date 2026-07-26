@@ -31,6 +31,7 @@ import { shikiToMonaco } from "@shikijs/monaco";
 import { useEventListener } from "@vueuse/core";
 import * as monaco from "monaco-editor";
 import { registerWindow } from "monaco-editor/base/browser/dom.js";
+import { ensureCodeWindow } from "monaco-editor/base/browser/window.js";
 import editorWorker from "monaco-editor/editor/editor.worker?worker";
 import cssWorker from "monaco-editor/language/css/css.worker?worker";
 import htmlWorker from "monaco-editor/language/html/html.worker?worker";
@@ -243,7 +244,8 @@ function wireGutterBlame(
 }
 
 // main window は Monaco (dom.js) が module 初期化で id=1 として自己登録する。child の id は
-// それと衝突しなければ何でもよい
+// それと衝突しなければ何でもよい (衝突すると registry が「登録済み」と誤判定し、そのウィンドウは
+// silent に登録されない)。焼き込み済みウィンドウへの再呼び出しでも採番だけは進む
 let nextMonacoWindowId = 2;
 
 /**
@@ -262,13 +264,9 @@ let nextMonacoWindowId = 2;
 function registerMonacoWindow(el: HTMLElement): void {
   const win = el.ownerDocument.defaultView;
   if (win === null || win === window) return;
-  // VSCode 本体の ensureCodeWindow 相当。registry のキーになる vscodeWindowId を焼き込む
-  // (window.js の ensureCodeWindow は配布物で export ごと tree-shake されているため自前実装)
-  const codeWin = win as Window & { vscodeWindowId?: number };
-  if (typeof codeWin.vscodeWindowId !== "number") {
-    const id = nextMonacoWindowId++;
-    Object.defineProperty(codeWin, "vscodeWindowId", { get: () => id });
-  }
+  // registry のキーになる vscodeWindowId を焼き込む。assertion signature 経由で win が
+  // CodeWindow へ narrow され、未焼き込みのウィンドウを registerWindow に渡せなくなる
+  ensureCodeWindow(win, nextMonacoWindowId++);
   const registration = registerWindow(win);
   useEventListener(win, "pagehide", () => registration.dispose(), { once: true });
 }

@@ -1,10 +1,9 @@
 /**
  * monaco-editor ESM 内部モジュールの型宣言。
  *
- * npm 配布物の `esm/` は 1 モジュール 1 ファイルの .js のみで型宣言 (.d.ts) を同梱しない
- * (公開型は `monaco.d.ts` の public API に限られ、diff computer は含まれない)。
- * intraLineDiff.ts が使う最小限の surface だけを VSCode 本体
- * (`src/vs/editor/common/diff/`) の型定義から書き写して宣言する。
+ * npm 配布物が `.d.ts` を持つのは公開エントリーポイント (`index` / `editor` / 各 `register`) だけで、
+ * 1 モジュール 1 ファイルの内部モジュールには型宣言が無い。intraLineDiff.ts が使う最小限の
+ * surface だけを VSCode 本体 (`src/vs/editor/common/diff/`) の型定義から書き写して宣言する。
  *
  * Range の column / lineNumber は 1-based、end は exclusive (VSCode Range の契約)。
  */
@@ -37,6 +36,8 @@ declare module "monaco-editor/editor/common/diff/defaultLinesDiffComputer/defaul
     /** 0 は無制限 */
     readonly maxComputationTimeMs: number;
     readonly computeMoves: boolean;
+    /** 変更範囲を単語より細かい部分語境界まで広げる */
+    readonly extendToSubwords?: boolean;
   }
 
   export class DefaultLinesDiffComputer {

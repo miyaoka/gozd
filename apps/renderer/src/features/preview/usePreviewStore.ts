@@ -1,6 +1,6 @@
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { ref, watch } from "vue";
-import { hideSurface, showSurface } from "../../shared/surface";
+import { hideSurface, raiseSurface, showSurface } from "../../shared/surface";
 import { useChangesSummaryStore } from "../changes";
 import {
   normalizePathTarget,
@@ -97,10 +97,21 @@ export const usePreviewStore = defineStore("preview", () => {
     popoverEl.value = el;
   }
 
+  /**
+   * popover を開く。既に開いていれば最前面へ持ち上げるだけにする。
+   *
+   * サーフェスは click-to-front で並ぶため、開いている preview へ別の中身を出す経路
+   * (`forceSelect` / `requestSelect` / `openSummary`) で前面化しないと、中身だけ差し替わって
+   * 背後に居座る。前面化を「開く」と同じ関数に置くことで、content の entry point が増えても
+   * 構成上すべて覆われる (経路ごとに前面化を書き足す形にすると必ず漏れる)。
+   */
   function open() {
-    if (isOpen.value) return;
     const el = popoverEl.value;
     if (!el) return;
+    if (isOpen.value) {
+      raiseSurface(el);
+      return;
+    }
     showSurface(el);
     isOpen.value = true;
   }

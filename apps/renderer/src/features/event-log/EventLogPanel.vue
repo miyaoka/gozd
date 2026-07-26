@@ -100,6 +100,7 @@ const { raise } = useSurface(panelRef);
   <div
     ref="panel"
     popover="manual"
+    tabindex="-1"
     class="_event-log-popover w-[420px] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl [&:popover-open]:flex"
     @pointerdown.capture="raise()"
   >

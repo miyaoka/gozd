@@ -11,7 +11,7 @@ Popover API (`popover="manual"`) によるトースト通知。
 
 <script setup lang="ts">
 import { useEventListener } from "@vueuse/core";
-import { onUnmounted, useTemplateRef, watch } from "vue";
+import { onBeforeUnmount, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { pinSurface, unpinSurface } from "../../shared/surface";
 import NotificationToastItem from "./NotificationToastItem.vue";
@@ -22,15 +22,12 @@ const popoverRef = useTemplateRef<HTMLElement>("popover");
 
 // トーストは click-to-front の列に加えず常にサーフェスより手前へ留める (shared/surface の
 // pin セクション)。エラー通知の一次表示がパネルに埋もれると失敗の可視性が落ちるため。
-watch(
-  popoverRef,
-  (el, prev) => {
-    if (prev !== null && prev !== undefined) unpinSurface(prev);
-    if (el !== null) pinSurface(el);
-  },
-  { immediate: true },
-);
-onUnmounted(() => {
+// 解除は onBeforeUnmount で行う: unmount は「beforeUnmount → effect scope 停止 → subtree
+// unmount (template ref が null)」の順なので、watch も onUnmounted も element を掴めない。
+watch(popoverRef, (el) => {
+  if (el !== null) pinSurface(el);
+});
+onBeforeUnmount(() => {
   const el = popoverRef.value;
   if (el !== null) unpinSurface(el);
 });

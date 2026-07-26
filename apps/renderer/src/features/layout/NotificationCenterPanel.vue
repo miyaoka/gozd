@@ -49,6 +49,7 @@ watch(panelRef, (el) => store.bindPopover(el ?? undefined), { immediate: true })
   <div
     ref="panel"
     popover="manual"
+    tabindex="-1"
     class="_notification-center-popover w-[420px] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl [&:popover-open]:flex"
     @pointerdown.capture="raise()"
   >

@@ -165,9 +165,10 @@ describe("promote", () => {
   });
 
   test("demote 後に bringToFront すれば closeFront の対象になる (再 mount 時の採番)", () => {
-    // demote は child を外すだけで frontOrder を触らない。パネルは再 mount で DOM の最前面に
-    // 戻るため、mount 側が bringToFront を呼ばないと「見えている最前面」と closeFront の
-    // 選択がずれる (FloatingWindow の onMounted が activate を emit する理由)。
+    // 固定するのは store 契約のみ: demote した entry は closeFront の候補へ戻り、bringToFront
+    // で最前面になれる。demote 自体は frontOrder を触らないため、再 mount 側が採番しないと
+    // DOM の最前面と選択がずれるが、その配線 (FloatingWindow の onMounted) を守るには
+    // component テスト基盤が要る (renderer は bun test のみ)。実機確認に委ねる。
     const store = createFloatingWindows<TestPayload>("test");
     store.undock(undockInput());
     const demoted = lastWindow(store);

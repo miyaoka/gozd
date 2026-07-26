@@ -20,7 +20,7 @@ import { useEventListener, useWindowSize } from "@vueuse/core";
 import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { isIMEActive, useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
-import { raiseSurface, useSurface } from "../../shared/surface";
+import { useSurface } from "../../shared/surface";
 import { registerFilerCommands } from "../filer";
 import { GitGraphPane } from "../git-graph";
 import { NavigatorPane } from "../navigator";
@@ -222,11 +222,7 @@ watch(
  * revealVersion を watch source に含めるのは、preview 表示中のファイル切替 (terminal
  * リンクの再クリック等) でも同じ理由でフォーカスを引き直すため。popover 内部に
  * フォーカスがある場合 (Monaco 編集中等) は奪わない。
- *
- * 前面化も同じ決定点で行う。サーフェスが click-to-front で並ぶため、既に開いている preview へ
- * 別ファイルを reveal しても (`forceSelect` / `gozd open` / markdown link) 背後にいれば見えない。
- * `open()` は `isOpen` で早期 return するので showSurface に届かず、「フォーカスだけが見えない
- * 面へ吸われる」状態になる。フォーカスを引き込むなら同時に手前へ出す。
+
  *
  * DOM フォーカスは view の関心なので、DOM なしでテストされる previewStore ではなく
  * popover 要素を所有する本コンポーネントが担う。
@@ -238,7 +234,6 @@ watch(
     const el = previewPopoverRef.value;
     if (el === null) return;
     if (open) {
-      raiseSurface(el);
       const active = document.activeElement;
       if (active instanceof HTMLElement && el.contains(active)) return;
       previewRestoreFocusEl = active instanceof HTMLElement ? active : undefined;

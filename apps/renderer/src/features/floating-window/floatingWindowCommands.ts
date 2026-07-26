@@ -40,8 +40,9 @@ export function deactivateFloatingWindow(handle: FloatingWindowHandle): void {
 
 const { register } = useCommandRegistry();
 
+// label を持たない (keybinding 専用)。precondition がフォーカスなので、パレットを開いた時点で
+// パネルが blur して条件が偽になる = 原理的にパレットから起動できない
 register("floatingWindow.save", {
-  label: "Floating Window: Save",
   precondition: "floatingWindowFocused",
   keybinding: { key: "cmd+s", when: "!childWindowFocused" },
   handler: () => {

@@ -39,8 +39,9 @@ export function deactivateChildWindow(handle: ChildWindowHandle): void {
 
 const { register } = useCommandRegistry();
 
+// label を持たない (keybinding 専用)。precondition がフォーカスなので、パレットを開いた時点で
+// child が blur して条件が偽になる = 原理的にパレットから起動できない
 register("childWindow.close", {
-  label: "Child Window: Close",
   precondition: "childWindowFocused",
   // when は precondition との AND で効くため childWindowFocused を再掲しない
   keybinding: { key: "cmd+w" },
@@ -52,7 +53,6 @@ register("childWindow.close", {
 });
 
 register("childWindow.save", {
-  label: "Child Window: Save",
   precondition: "childWindowFocused",
   keybinding: { key: "cmd+s" },
   handler: () => {

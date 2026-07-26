@@ -9,7 +9,7 @@
 // pin は呼び出しの**順序**そのものが仕様 (サーフェスを show した後に積み直さないとトーストが
 // 沈む) なので、全要素の呼び出しを 1 本の log に集約してラベル付きで突き合わせる。要素ごとに
 // 分けて数えると、積み直しをサーフェスの show より前へ動かす退行が検出できない。
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   hideSurface,
   pinSurface,
@@ -20,6 +20,9 @@ import {
 
 /** 全モックが共有する呼び出し列 (`"<label>:<op>"`)。 */
 let log: string[];
+
+/** この test で作ったモック。afterEach の後始末対象 (module state が持ち越されないように)。 */
+let created: { el: HTMLElement; isOpen: () => boolean }[];
 
 /** popover DOM の最小モック。`:popover-open` を自前で再現する。 */
 function createSurface(label: string) {
@@ -37,18 +40,29 @@ function createSurface(label: string) {
       return selector === ":popover-open" && open;
     },
   };
-  return { el: el as unknown as HTMLElement, isOpen: () => open };
+  const mock = { el: el as unknown as HTMLElement, isOpen: () => open };
+  created.push(mock);
+  return mock;
 }
 
-// module state (最前面 memo / pin 集合) は全テストで共有されるため、各テストは自分が開いた
-// サーフェスを閉じ、pin を外した状態から始める。
+// module state (最前面 memo / pin 集合) は全テストで共有されるため、後始末を afterEach に置く。
+// test 本体末尾に置くと assertion 失敗でその行に到達せず、開いたままのサーフェスが後続 test へ
+// 持ち越されて、最初の 1 件の失敗が無関係な test の失敗に化ける。
 let a: ReturnType<typeof createSurface>;
 let b: ReturnType<typeof createSurface>;
 
 beforeEach(() => {
   log = [];
+  created = [];
   a = createSurface("a");
   b = createSurface("b");
+});
+
+afterEach(() => {
+  for (const mock of created) {
+    unpinSurface(mock.el);
+    if (mock.isOpen()) hideSurface(mock.el);
+  }
 });
 
 describe("raiseSurface", () => {
@@ -59,7 +73,6 @@ describe("raiseSurface", () => {
     raiseSurface(a.el);
 
     expect(log).toEqual([]);
-    hideSurface(a.el);
   });
 
   test("別のサーフェスが前に出た後は hide → show で積み直す", () => {
@@ -71,8 +84,6 @@ describe("raiseSurface", () => {
 
     expect(log).toEqual(["a:hide", "a:show"]);
     expect(a.isOpen()).toBe(true);
-    hideSurface(a.el);
-    hideSurface(b.el);
   });
 
   test("閉じているサーフェスは no-op (開いていないものを show し直さない)", () => {
@@ -83,7 +94,6 @@ describe("raiseSurface", () => {
 
     expect(log).toEqual([]);
     expect(a.isOpen()).toBe(false);
-    hideSurface(b.el);
   });
 });
 
@@ -114,11 +124,6 @@ describe("pinSurface", () => {
     log.length = 0;
     raiseSurface(a.el);
     expect(log).toEqual(["a:hide", "a:show", "toast:hide", "toast:show"]);
-
-    unpinSurface(toast.el);
-    hideSurface(toast.el);
-    hideSurface(a.el);
-    hideSurface(b.el);
   });
 
   test("閉じている pin 対象は積み直しの対象外", () => {
@@ -128,8 +133,6 @@ describe("pinSurface", () => {
     showSurface(a.el);
 
     expect(log).toEqual(["a:show"]);
-    unpinSurface(toast.el);
-    hideSurface(a.el);
   });
 
   test("unpin 後は積み直されない", () => {
@@ -142,7 +145,5 @@ describe("pinSurface", () => {
     showSurface(a.el);
 
     expect(log).toEqual(["a:show"]);
-    hideSurface(toast.el);
-    hideSurface(a.el);
   });
 });

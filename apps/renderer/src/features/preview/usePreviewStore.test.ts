@@ -26,12 +26,20 @@ function createMockPopover(): MockPopover {
     hideCount: 0,
     el: undefined as unknown as HTMLElement,
   };
+  let open = false;
   state.el = {
     showPopover() {
+      open = true;
       state.showCount++;
     },
     hidePopover() {
+      open = false;
       state.hideCount++;
+    },
+    // shared/surface が最前面判定に使う。実装しないと、別の el が最前面の状態で raise 経路へ
+    // 到達した瞬間に TypeError になる
+    matches(selector: string) {
+      return selector === ":popover-open" && open;
     },
   } as unknown as HTMLElement;
   return state;

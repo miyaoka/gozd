@@ -222,7 +222,6 @@ watch(
  * revealVersion を watch source に含めるのは、preview 表示中のファイル切替 (terminal
  * リンクの再クリック等) でも同じ理由でフォーカスを引き直すため。popover 内部に
  * フォーカスがある場合 (Monaco 編集中等) は奪わない。
-
  *
  * DOM フォーカスは view の関心なので、DOM なしでテストされる previewStore ではなく
  * popover 要素を所有する本コンポーネントが担う。

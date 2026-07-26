@@ -42,9 +42,8 @@ focusout を floatingWindowCommands の activate / deactivate に変換する。
   同じ top layer に並び、`shared/surface` の click-to-front 規則で重ね順が決まる。z-index は
   持たない — top layer の順序は show 呼び出し順が SSOT で z-index では越えられないため、
   パネル間もパネルとドックパネルの間も同じ 1 つの規則で並ぶ
-- 前面化 (`raiseSurface`) は pointerdown の**キャプチャ**フェーズで同期に呼ぶ。バブリング後や
-  非同期にずらすと、リサイズハンドルが既に取った pointer capture より後に display 切り替えが
-  走り、リサイズ開始と競合しうる
+- 前面化はクリック経路 (`useSurface`) だけを持つ。pointerdown の**キャプチャ**フェーズで同期に
+  呼ぶのは、リサイズハンドルが既に取った pointer capture より後に display 切り替えを走らせないため
 - UA の `[popover]` 既定値のうち、位置 (`inset`) / `margin` / `padding` / 文字色は自前の値で
   打ち消す。サイズと配置は inline style と Tailwind class が持つ
 </doc>
@@ -349,7 +348,7 @@ useEventListener(window, "pointercancel", endDrag);
     ref="root"
     popover="manual"
     tabindex="-1"
-    class="fixed inset-auto m-0 max-h-[80vh] min-h-16 max-w-[90vw] min-w-64 flex-col overflow-hidden rounded-md border border-border-strong bg-background p-0 text-foreground shadow-xl outline-none [&:popover-open]:flex"
+    class="fixed inset-auto m-0 max-h-[80vh] min-h-16 max-w-[90vw] min-w-64 flex-col overflow-hidden rounded-md border border-border-strong bg-background p-0 text-foreground shadow-xl outline-hidden [&:popover-open]:flex"
     :style="{
       left: `min(${x}px, calc(100vw - ${GRAB_MARGIN}px))`,
       top: `clamp(var(--titlebar-height), ${y}px, calc(100vh - ${GRAB_MARGIN}px))`,

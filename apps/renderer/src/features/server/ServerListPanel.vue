@@ -163,7 +163,7 @@ const { raise } = useSurface(panelRef);
     ref="panel"
     popover="manual"
     tabindex="-1"
-    class="_server-list-popover w-[480px] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl [&:popover-open]:flex"
+    class="_server-list-popover w-[480px] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl outline-hidden [&:popover-open]:flex"
     @pointerdown.capture="raise()"
   >
     <header class="flex items-center gap-2 border-b border-border px-3 py-2">

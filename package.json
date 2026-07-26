@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "bun scripts/dev.ts",
     "dev:prod": "rm -rf \"$TMPDIR/gozd-local-launch\" \"$TMPDIR/gozd-local.sock\" && env -u GOZD_SOCKET_PATH \"apps/electron/out/mac-arm64/Gozd Local.app/Contents/Resources/app/bin/gozd\"",
-    "build:all": "pnpm -r --include-workspace-root --if-present build",
+    "build:all": "pnpm -r --include-workspace-root --if-present run build",
     "build:app": "pnpm --filter @gozd/electron build:app",
     "open:app": "open \"apps/electron/out/mac-arm64/Gozd Local.app\"",
     "format": "oxfmt .",
@@ -17,7 +17,7 @@
     "fix:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only fix",
     "test": "bun test scripts",
     "test:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only test",
-    "typecheck:all": "pnpm -r --include-workspace-root --if-present typecheck",
+    "typecheck:all": "pnpm -r --include-workspace-root --if-present run typecheck",
     "knip": "knip",
     "prepare": "lefthook install"
   },

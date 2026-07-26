@@ -102,7 +102,10 @@ pre-commit:
               jobs:
                 - name: eslint
                   glob: "**/*.{ts,vue}"
-                  run: pnpm exec eslint -c eslint.config.fix.ts --no-warn-ignored --cache --fix {staged_files}
+                  # binary を直に呼ばず renderer の script 経由にする: eslint の宣言は
+                  # renderer にあるが、knip の lefthook plugin は job の root を絶対パスに
+                  # 解決しないため、binary 直呼びの参照は repo root 帰属になり未宣言扱いになる
+                  run: pnpm run fix:staged {staged_files}
                   stage_fixed: true
                 # oxfmt は対象拡張子を明示。glob 無しだと .json/.svg/.png まで
                 # 受けて exit 2 で落ちるため {ts,vue,css,md} に限定する。

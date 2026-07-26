@@ -9,6 +9,7 @@
     "typecheck": "vue-tsc --noEmit",
     "lint": "eslint .",
     "fix": "eslint . --fix -c eslint.config.fix.ts && oxfmt .",
+    "fix:staged": "eslint --fix -c eslint.config.fix.ts --no-warn-ignored --cache",
     "test": "bun test"
   },
   "dependencies": {

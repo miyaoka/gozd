@@ -108,9 +108,10 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 
 - worktree 切替 (dir 変化) で自動クローズ。dir watch は `usePreviewStore` 内部に閉じ込めてあり、MainLayout や外部経路から発火を観測する必要はない。新 worktree でファイル選択を伴う dir 切替 (`gozdOpen` で別 worktree のファイルを指定した経路等) では、続けて `forceSelect` で再 open されるため最終状態は新ファイルで表示継続になる。dir watch は `flush: 'sync'` で `gozdOpen` handler の `setOpen → forceSelect` 連続呼びと順序が崩れないようにする
 - 外側クリックでは閉じない
-- Cmd+W と ESC は同義で「最前面のサーフェスを閉じる」（`surface.closeFront`）。preview が最前面なら preview が閉じ、undock パネルが手前にあればそちらが先に閉じる。フォーカスでは分岐しない（[keybinding.md](keybinding.md) の解決フロー、重ね順は [workspace.md](workspace.md) のサーフェス節）。メニューやモーダルが開いているときはそちらに譲る
+- Cmd+W と ESC は同義で「フォーカスがあるサーフェスを閉じる」（`surface.closeFocused`）。フォーカスは前面に追従するため、結果として手前のものから順に閉じる（[keybinding.md](keybinding.md) の解決フロー、[workspace.md](workspace.md) のサーフェス節）。メニューやモーダルが開いているときはそちらに譲る
 - undocked preview window の Cmd+S は**フォーカス**で宛先が決まる: フォーカスが in-app パネル内なら `floatingWindowFocused` で `floatingWindow.save`、promote 後の OS ウィンドウ内なら `childWindowFocused` で `childWindow.save`（keybinding 系は child の document にも同一 dispatcher を張る）。close はネイティブ close も含め traffic light と同じガード経路に合流する
-- popover の open（表示中のファイル切替を含む）では MainLayout の watch がフォーカスを popover へ移す — `showPopover()` はフォーカスを移さないため、terminal リンク経由の open でフォーカスが terminal に残ると入力先が見えない面のままになる。close 時は open 時点のフォーカス元へ戻す（terminal リンクから開いて閉じると terminal に入力が戻る）。popover 内部にフォーカスがあるとき（Monaco 編集中等）は奪わない
+- open / 前面化のたびにフォーカスが popover へ移る（`shared/surface` のフォーカス追従）。`showPopover()` 自体はフォーカスを移さないため、terminal リンク経由の open でフォーカスが terminal に残ると入力先が見えない面のままになる。close 時は開く前のフォーカス元へ戻す（terminal リンクから開いて閉じると terminal に入力が戻る）。popover 内部にフォーカスがあるとき（Monaco 編集中等）は奪わない
+- 開閉の SSOT は `usePreviewStore`（`isOpen` / `openEpoch`）で、popover DOM への反映は MainLayout の watch が担う。store は DOM を持たない — 既に開いている preview へ別の中身を出す経路（`forceSelect` / `requestSelect` / `openSummary`）は `openEpoch` の増加として view に届き、前面化に変換される
 - IME 変換中の ESC（変換キャンセル）では閉じない
 - 表示中ファイルが削除されると自動クローズ。`fsChange` 再 fetch で current (作業ツリー) が notFound になったとき、content 取得層 (`usePreviewContent`) は HEAD (`gitShowFile`) の在否も確認し、**current / HEAD いずれにも無い** (= 未追跡ファイルの削除等で実体がどこにも残っていない) と確定した場合のみ `closeForMissingSelection()` を呼んで選択解除 + close する。単一ファイル削除・ディレクトリごとの削除のどちらも同じ経路で拾う
   - git 追跡下の削除ファイルは HEAD に内容が残り Original を閲覧できる (削除レビュー用途) ため閉じない。`fsChange` が `gitStatusChange` より先に届き `selectedGitChange` がまだ `deleted` に変わっていない race でも、HEAD 在否を直接読むことで誤クローズしない (git status の push 順に依存しない)

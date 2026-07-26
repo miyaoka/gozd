@@ -112,7 +112,7 @@ registry.register("workspace.someInternalAction", (args) => {
 
 原則として key の更新は「その状態を所有する側」が行う。例外は 2 つ。
 
-- `childWindowFocused` / `floatingWindowFocused` は floating-window の `childWindowCommands` / `floatingWindowCommands` が context key とコマンドの対象ハンドル（フォーカス中の window / パネル）を同時に更新し、「条件は真なのに対象がいない」ずれを構造的に防ぐ（`surfaceVisible` は MainLayout が `shared/surface` の派生値から同期する）
+- `childWindowFocused` / `floatingWindowFocused` は floating-window の `childWindowCommands` / `floatingWindowCommands` が context key とコマンドの対象ハンドル（フォーカス中の window / パネル）を同時に更新し、「条件は真なのに対象がいない」ずれを構造的に防ぐ（`surfaceFocused` は MainLayout が `shared/surface` の派生値から同期する）
 - `inputFocused` は所有側を持たず、ディスパッチが keydown を受けた document の `activeElement` から評価直前に書く（理由は `useKeyBindings.ts` のコメント）
 
 ### When 条件

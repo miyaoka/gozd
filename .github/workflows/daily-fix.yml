@@ -30,10 +30,10 @@
 #   sign-commits は担保にならない: create-pull-request は HTTPS remote に対し configureToken を
 #   無条件で呼び、差分ゼロ時のブランチ削除（git push --delete）のために .git/config へ
 #   extraheader を書き込む（実行後に自身で除去する）。
-# - fix:all は固定点に達するまで回す。linter → formatter の相互作用で 1 パスでは収束しない
-#   ファイルがあり、非固定点の tree を merge すると「merge 直後の main で fix:all が diff を
-#   出す」状態になって不変条件を bot 自身が破る。上限内に収束しない場合は lint / formatter
-#   設定側の欠陥なので、日を跨いで隠さず fail させる。
+# - fix:all は 1 回だけ実行する。各 package の fix は lint --fix → oxfmt の順で formatter が
+#   最後に走るため 1 パスで固定点に達する。収束を待つループは、観測されたことのない非収束の
+#   ために実行時間と fail 経路を増やすだけになる。仮に将来 A→B→A の振動が生じても、
+#   同じファイルの bot PR が毎日出続ける形で観測できるので silent には壊れない。
 name: daily-fix
 
 on:
@@ -72,21 +72,8 @@ jobs:
       # fix:all 自体の失敗（lint 設定エラー・formatter クラッシュ等）は握りつぶさない。
       # 握りつぶすと「整形が走っていないのにドリフト無し＝不変条件成立」と誤報告する
       # サイレント故障になるため、失敗時はそのまま job を fail させて可観測にする
-      - name: Run fix:all until fixpoint
-        run: |
-          set -euo pipefail
-          prev=""
-          for _ in 1 2 3; do
-            pnpm run fix:all
-            git add -A
-            cur="$(git write-tree)"
-            if [[ "${cur}" == "${prev}" ]]; then
-              exit 0
-            fi
-            prev="${cur}"
-          done
-          echo "::error::fix:all did not reach a fixpoint in 3 passes"
-          exit 1
+      - name: Run fix:all
+        run: pnpm run fix:all
 
       # PR を pull_request イベント発火可能なトークンで作るため App token を取得する。
       # 権限は create-pull-request が使う範囲（commit = contents、PR = pull-requests、

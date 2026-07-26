@@ -7,14 +7,10 @@
  * 依存先として採用しない (CLAUDE.md 生存判定規律)。代わりに Vite 標準の `?worker` import で
  * worker を手動セットアップする (同ジャンルの実プロダクト stablyai/orca と同じ方式)。
  *
- * TypeScript の semantic validation (noSemanticValidation 等) の無効化は見送っている。
- * `monaco-editor@0.55.1` の npm 配布物は `esm/vs/language/typescript/monaco.contribution.ts`
- * ソース上に `typescriptDefaults` / `javascriptDefaults` の export を持つが (ghq で取得した
- * microsoft/monaco-editor の v0.55.1 タグで確認済み)、配布されるビルド成果物の `.d.ts` には
- * この export が含まれておらず型解決できない (ランタイムの `monaco.languages.typescript` 経由
- * では到達できるが、そちらは型定義上 `{ deprecated: true }` に潰されている)。診断無効化は
- * 「あれば良い」機能 (gozd は viewer/diff surface として使うだけで実際のコード編集は別 IDE で行う
- * 前提) であり、型を捻じ曲げてまで到達する価値がないため見送る。
+ * TypeScript の semantic validation (noSemanticValidation 等) は無効化しない。gozd は viewer /
+ * diff surface として使うだけで実際のコード編集は別 IDE で行う前提であり、診断の抑制は
+ * 「あれば良い」機能。必要になれば `monaco.typescript.typescriptDefaults`
+ * (`languages/features/typescript/register` の型付き export) から設定できる。
  *
  * ## Shiki 統合 (`@shikijs/monaco`)
  *
@@ -34,18 +30,19 @@
 import { shikiToMonaco } from "@shikijs/monaco";
 import { useEventListener } from "@vueuse/core";
 import * as monaco from "monaco-editor";
-import { registerWindow } from "monaco-editor/esm/vs/base/browser/dom.js";
-import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
-import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
-import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
-import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
-import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
+import { registerWindow } from "monaco-editor/base/browser/dom.js";
+import editorWorker from "monaco-editor/editor/editor.worker?worker";
+import cssWorker from "monaco-editor/language/css/css.worker?worker";
+import htmlWorker from "monaco-editor/language/html/html.worker?worker";
+import jsonWorker from "monaco-editor/language/json/json.worker?worker";
+import tsWorker from "monaco-editor/language/typescript/ts.worker?worker";
 import { getSingletonHighlighter } from "shiki";
 import { detectLang, SHIKI_THEME } from "./useHighlight";
 
-// `monaco-editor` は全言語 contribution を含む「全部入り」パッケージ (exports map に
-// エントリーポイントが 1 つしかなく、モジュラーな部分 import には別パッケージ
-// `monaco-editor-core` への切替えが必要)。今回は切替えを見送り、全部入り構成を受け入れる。
+// `monaco-editor` の default エントリーポイントは全言語 contribution を読む「全部入り」。
+// tree-shake 可能な部分 import (`monaco-editor/editor` + `features/*/register` /
+// `languages/definitions/*/register`) も同パッケージが提供するが、必要言語を列挙して保守する
+// コストに対し全部入りの重量を許容できるため切替えない。
 // 動的 import + build 側の chunk 分割 (`vite.config.ts` に codeSplitting 無効化の指定は無い) に
 // より、このモジュールはメインバンドルとは別チャンクになり、コード表示 leaf の初回表示か
 // PreviewPane 起動時のアイドル先読み (requestIdleCallback) でロードされる。worker も

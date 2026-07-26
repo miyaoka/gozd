@@ -12,7 +12,7 @@
  * ノイズ抑制ヒューリスティック (単語境界への拡張、細切れ一致の除去、境界シフト) が
  * そのまま得られる。
  */
-import { DefaultLinesDiffComputer } from "monaco-editor/esm/vs/editor/common/diff/defaultLinesDiffComputer/defaultLinesDiffComputer.js";
+import { DefaultLinesDiffComputer } from "monaco-editor/editor/common/diff/defaultLinesDiffComputer/defaultLinesDiffComputer.js";
 
 /** 1 行内の変更範囲。VSCode の Range と同じく column は 1-based / end-exclusive。 */
 export interface ColRange {

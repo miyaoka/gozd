@@ -8,7 +8,7 @@
  *
  * Range の column / lineNumber は 1-based、end は exclusive (VSCode Range の契約)。
  */
-declare module "monaco-editor/esm/vs/editor/common/diff/defaultLinesDiffComputer/defaultLinesDiffComputer.js" {
+declare module "monaco-editor/editor/common/diff/defaultLinesDiffComputer/defaultLinesDiffComputer.js" {
   interface DiffRange {
     readonly startLineNumber: number;
     readonly startColumn: number;

@@ -10,23 +10,18 @@ gozd 外 (external) と、帰属先 worktree が既に削除済みの orphaned �
 (`findRepoOwning` で解決できる行だけ開ける)。
 
 ドック型 (背景を覆わない) にしているのは、ターミナルを見ながら port の主を調べる用途のため。
-ESC か閉じるボタンで閉じる。
+ESC / Cmd+W か閉じるボタンで閉じる。
 
-表示は HTML Popover API (`popover="manual"`) でトップレイヤーに置く (MainLayout の
-preview popover と同流儀)。z-index 競争から構造的に離脱できる。開閉の SSOT は store の
-`isOpen` で、popover DOM へのミラーは store の `open()` / `close()` が担う。本 component は
-template ref を `bindPopover` に渡すだけ。
-
-ESC の閉じ順は preview との間でのみ保証する: preview 側 (MainLayout) が「他の
-`:popover-open` があれば譲る」ため、両方開いていれば本パネル → preview の順に 1 枚ずつ
-閉じる。本パネル側が譲るのは modal dialog (SettingsModal 等) のみ。popover 同士で相互に
-譲る対称ガードにすると preview と譲り合って ESC が死ぬため、popover 間の全順序は持たない。
+他のドックパネル / undock パネルと並ぶ top layer のサーフェス 1 枚 (`shared/surface`)。開閉の
+SSOT は store の `isOpen` で、popover DOM へのミラーは要素を所有する本 component が担う
+(store は DOM を持たない)。`useSurface` で前面化と close の宛先も登録する。重ね順は
+click-to-front、ESC / Cmd+W はフォーカスがあるサーフェスを閉じる。
 </doc>
 
 <script setup lang="ts">
-import { useEventListener } from "@vueuse/core";
-import { computed, useTemplateRef, watch } from "vue";
+import { computed, useTemplateRef } from "vue";
 import { useRepoStore } from "../../shared/repo";
+import { useSurface } from "../../shared/surface";
 import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
 import type { ServerAttributionKind } from "./rpc";
@@ -132,35 +127,21 @@ function onRowClick(row: ServerRow): void {
   serverStore.close();
 }
 
-// popover="manual" のため OS の auto dismiss が無い。ESC を自前で受けて閉じる。
-// 前面の modal dialog (SettingsModal 等) が開いているときは UA の cancel (ESC で dialog を
-// 閉じる) に譲り、本パネルまで同時に閉じない。他 popover へは譲らない (<doc> 参照)。
-useEventListener(window, "keydown", (e: KeyboardEvent) => {
-  if (e.defaultPrevented) return;
-  if (e.code !== "Escape" || !serverStore.isOpen) return;
-  if (document.querySelector("dialog[open]") !== null) return;
-  e.preventDefault();
-  serverStore.close();
-});
-
 const panelRef = useTemplateRef<HTMLElement>("panel");
 
-// popover の DOM 参照を store に bind。template ref が null に戻った時点 (= unmount) に
-// bindPopover(undefined) が呼ばれ dangling 参照を切る (MainLayout の preview popover と同流儀)。
-watch(
-  panelRef,
-  (el) => {
-    serverStore.bindPopover(el ?? undefined);
-  },
-  { immediate: true },
-);
+const { raise } = useSurface(panelRef, {
+  isOpen: () => serverStore.isOpen,
+  requestClose: () => serverStore.close(),
+});
 </script>
 
 <template>
   <div
     ref="panel"
     popover="manual"
-    class="_server-list-popover w-[480px] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl [&:popover-open]:flex"
+    tabindex="-1"
+    class="_server-list-popover w-[480px] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl outline-hidden [&:popover-open]:flex"
+    @pointerdown.capture="raise()"
   >
     <header class="flex items-center gap-2 border-b border-border px-3 py-2">
       <IconLucideServer class="size-4 text-foreground-low" />

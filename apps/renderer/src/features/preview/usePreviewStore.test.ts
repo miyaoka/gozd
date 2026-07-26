@@ -9,33 +9,12 @@ import { useUnsavedDraftConfirm } from "./useUnsavedDraftConfirm";
 
 /**
  * `previewStore.requestSelect` / `forceSelect` の決定論理だけを検証する。
- * popover DOM は最小モックを bindPopover に流して `showPopover` / `hidePopover` の呼び出しを
- * 観察可能化する（bun test は jsdom なしで動くため HTMLElement の popover API は使えない）。
+ *
+ * store は DOM を持たない（popover への反映は MainLayout が `isOpen` / `openEpoch` を watch して
+ * `shared/surface` へ流す）。よってここで観察するのは開閉の意思決定そのもので、`openEpoch` は
+ * 「開く要求が発行された回数」= 既に開いていれば前面化要求として view が受け取る signal。
  */
 const DIR = "/repo";
-
-interface MockPopover {
-  showCount: number;
-  hideCount: number;
-  el: HTMLElement;
-}
-
-function createMockPopover(): MockPopover {
-  const state: MockPopover = {
-    showCount: 0,
-    hideCount: 0,
-    el: undefined as unknown as HTMLElement,
-  };
-  state.el = {
-    showPopover() {
-      state.showCount++;
-    },
-    hidePopover() {
-      state.hideCount++;
-    },
-  } as unknown as HTMLElement;
-  return state;
-}
 
 beforeEach(() => {
   setActivePinia(createPinia());
@@ -49,49 +28,40 @@ describe("usePreviewStore.requestSelect", () => {
   test("selection 未確立 + closed → select + open", () => {
     const preview = usePreviewStore();
     const wt = useWorktreeStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.requestSelect({ kind: "worktreeRelative", relPath: "a.ts" });
 
     expect(wt.selectedRelPath).toBe("a.ts");
     expect(preview.isOpen).toBe(true);
-    expect(popover.showCount).toBe(1);
-    expect(popover.hideCount).toBe(0);
+    expect(preview.openEpoch).toBe(1);
   });
 
   test("別 path + 開 → select + open は冪等（show は再呼び出しなし）", () => {
     const preview = usePreviewStore();
     const wt = useWorktreeStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.requestSelect({ kind: "worktreeRelative", relPath: "a.ts" });
     preview.requestSelect({ kind: "worktreeRelative", relPath: "b.ts" });
 
     expect(wt.selectedRelPath).toBe("b.ts");
     expect(preview.isOpen).toBe(true);
-    expect(popover.showCount).toBe(1); // 既に open なので open() は no-op
+    // 既に open。epoch だけ進み、view が前面化として反映する
+    expect(preview.openEpoch).toBe(2);
   });
 
   test("同 path + 開 + summary 非表示 → close（トグル close）", () => {
     const preview = usePreviewStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.requestSelect({ kind: "worktreeRelative", relPath: "a.ts" });
     expect(preview.isOpen).toBe(true);
 
     preview.requestSelect({ kind: "worktreeRelative", relPath: "a.ts" });
     expect(preview.isOpen).toBe(false);
-    expect(popover.hideCount).toBe(1);
   });
 
   test("同 path + 開 + summary 表示中 → summary を抜けて preview は開いたまま", () => {
     const preview = usePreviewStore();
     const summary = useChangesSummaryStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.requestSelect({ kind: "worktreeRelative", relPath: "a.ts" });
     summary.enable();
@@ -100,14 +70,11 @@ describe("usePreviewStore.requestSelect", () => {
     preview.requestSelect({ kind: "worktreeRelative", relPath: "a.ts" });
     expect(summary.enabled).toBe(false);
     expect(preview.isOpen).toBe(true);
-    expect(popover.hideCount).toBe(0); // close は呼ばれない
   });
 
   test("同 path + closed → select + open（closed 状態では同 path でもトグル close せず開く）", () => {
     const preview = usePreviewStore();
     const wt = useWorktreeStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.requestSelect({ kind: "worktreeRelative", relPath: "a.ts" });
     preview.close();
@@ -120,8 +87,6 @@ describe("usePreviewStore.requestSelect", () => {
 
   test("absolute path も kind + path で同一性判定される", () => {
     const preview = usePreviewStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.requestSelect({ kind: "absolute", absPath: "/etc/hosts" });
     expect(preview.isOpen).toBe(true);
@@ -133,8 +98,6 @@ describe("usePreviewStore.requestSelect", () => {
 
   test("kind が異なれば同 path 文字列でも別 target として扱う（select + open）", () => {
     const preview = usePreviewStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.requestSelect({ kind: "worktreeRelative", relPath: "a.ts" });
 
@@ -145,8 +108,6 @@ describe("usePreviewStore.requestSelect", () => {
 
   test("正規化境界: `./a.ts` 再選択は正規化済 `a.ts` selection と同一として close", () => {
     const preview = usePreviewStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.requestSelect({ kind: "worktreeRelative", relPath: "a.ts" });
     expect(preview.isOpen).toBe(true);
@@ -154,37 +115,23 @@ describe("usePreviewStore.requestSelect", () => {
     // 未正規化な入力 (`./a.ts`) を渡しても selection (`a.ts`) と同一判定されて close する
     preview.requestSelect({ kind: "worktreeRelative", relPath: "./a.ts" });
     expect(preview.isOpen).toBe(false);
-    expect(popover.hideCount).toBe(1);
-  });
-
-  test("popover 未 bind 状態では open() は no-op で isOpen も false のまま", () => {
-    const preview = usePreviewStore();
-    // bindPopover を呼ばない
-
-    preview.requestSelect({ kind: "worktreeRelative", relPath: "a.ts" });
-    expect(preview.isOpen).toBe(false);
   });
 });
 
 describe("usePreviewStore.forceSelect", () => {
   test("同 path + 開 でも close しない（always open 契約）", () => {
     const preview = usePreviewStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.forceSelect({ kind: "worktreeRelative", relPath: "a.ts" });
     expect(preview.isOpen).toBe(true);
 
     preview.forceSelect({ kind: "worktreeRelative", relPath: "a.ts" });
     expect(preview.isOpen).toBe(true);
-    expect(popover.hideCount).toBe(0);
   });
 
   test("summary 表示中でも close せず summary を維持", () => {
     const preview = usePreviewStore();
     const summary = useChangesSummaryStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.forceSelect({ kind: "worktreeRelative", relPath: "a.ts" });
     summary.enable();
@@ -197,15 +144,12 @@ describe("usePreviewStore.forceSelect", () => {
   test("別 path への forceSelect は selection 切替 + 開いたまま", () => {
     const preview = usePreviewStore();
     const wt = useWorktreeStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.forceSelect({ kind: "worktreeRelative", relPath: "a.ts" });
     preview.forceSelect({ kind: "worktreeRelative", relPath: "b.ts" });
 
     expect(wt.selectedRelPath).toBe("b.ts");
     expect(preview.isOpen).toBe(true);
-    expect(popover.showCount).toBe(1);
   });
 });
 
@@ -214,8 +158,6 @@ describe("usePreviewStore dir watch", () => {
     const repoStore = useRepoStore();
     const wt = useWorktreeStore();
     const preview = usePreviewStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.requestSelect({ kind: "worktreeRelative", relPath: "a.ts" });
     expect(wt.selection).toBeDefined();
@@ -227,7 +169,6 @@ describe("usePreviewStore dir watch", () => {
     repoStore.selectDir("/other-repo");
     expect(wt.selection).toBeUndefined();
     expect(preview.isOpen).toBe(false);
-    expect(popover.hideCount).toBe(1);
   });
 });
 
@@ -237,28 +178,22 @@ describe("usePreviewStore dir 未確立ガード", () => {
     // repoStore.selectDir を呼ばない → dir undefined のまま
     const preview = usePreviewStore();
     const wt = useWorktreeStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.requestSelect({ kind: "worktreeRelative", relPath: "a.ts" });
 
     expect(wt.selection).toBeUndefined();
     expect(preview.isOpen).toBe(false);
-    expect(popover.showCount).toBe(0);
   });
 
   test("dir 未確立で forceSelect を呼んでも preview は開かない", () => {
     setActivePinia(createPinia());
     const preview = usePreviewStore();
     const wt = useWorktreeStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.forceSelect({ kind: "worktreeRelative", relPath: "a.ts" });
 
     expect(wt.selection).toBeUndefined();
     expect(preview.isOpen).toBe(false);
-    expect(popover.showCount).toBe(0);
   });
 
   // absolute は dir 文脈を必要としない (fsReadFileAbsolute 単独) ため、repo 未選択でも
@@ -267,8 +202,6 @@ describe("usePreviewStore dir 未確立ガード", () => {
     setActivePinia(createPinia());
     const preview = usePreviewStore();
     const wt = useWorktreeStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.forceSelect({ kind: "absolute", absPath: "/home/user/.claude/projects/x/s.jsonl" });
 
@@ -278,21 +211,17 @@ describe("usePreviewStore dir 未確立ガード", () => {
       lineNumber: undefined,
     });
     expect(preview.isOpen).toBe(true);
-    expect(popover.showCount).toBe(1);
   });
 
   test("dir 未確立でも absolute への requestSelect は開き、同 path 再選択でトグル close する", () => {
     setActivePinia(createPinia());
     const preview = usePreviewStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.requestSelect({ kind: "absolute", absPath: "/etc/hosts" });
     expect(preview.isOpen).toBe(true);
 
     preview.requestSelect({ kind: "absolute", absPath: "/etc/hosts" });
     expect(preview.isOpen).toBe(false);
-    expect(popover.hideCount).toBe(1);
   });
 });
 
@@ -300,42 +229,33 @@ describe("usePreviewStore.toggleSummary", () => {
   test("enabled=false から → summary 有効化 + popover open", () => {
     const preview = usePreviewStore();
     const summary = useChangesSummaryStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.toggleSummary();
 
     expect(summary.enabled).toBe(true);
     expect(preview.isOpen).toBe(true);
-    expect(popover.showCount).toBe(1);
   });
 
   test("enabled=true から → summary 解除 + popover close", () => {
     const preview = usePreviewStore();
     const summary = useChangesSummaryStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.toggleSummary(); // open
     preview.toggleSummary(); // close
 
     expect(summary.enabled).toBe(false);
     expect(preview.isOpen).toBe(false);
-    expect(popover.hideCount).toBe(1);
   });
 
   test("file 選択経路 (summary.disable 単独) では popover を維持", () => {
     const preview = usePreviewStore();
     const summary = useChangesSummaryStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.openSummary();
     summary.disable();
 
     expect(summary.enabled).toBe(false);
     expect(preview.isOpen).toBe(true);
-    expect(popover.hideCount).toBe(0);
   });
 });
 
@@ -343,22 +263,17 @@ describe("usePreviewStore.close invariant", () => {
   test("close は summary も解除する (popover closed ⇒ summary disabled)", () => {
     const preview = usePreviewStore();
     const summary = useChangesSummaryStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.openSummary();
     preview.close();
 
     expect(summary.enabled).toBe(false);
     expect(preview.isOpen).toBe(false);
-    expect(popover.hideCount).toBe(1);
   });
 
   test("summary 表示中の close 後に toggle で再 open しても summary view は復活しない", () => {
     const preview = usePreviewStore();
     const summary = useChangesSummaryStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.openSummary();
     preview.close();
@@ -372,8 +287,6 @@ describe("usePreviewStore.close invariant", () => {
     const preview = usePreviewStore();
     const summary = useChangesSummaryStore();
     const repoStore = useRepoStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.openSummary();
     expect(summary.enabled).toBe(true);
@@ -391,12 +304,10 @@ describe("usePreviewStore 未保存 draft ガード", () => {
   function openDirty() {
     const preview = usePreviewStore();
     const editStore = usePreviewEditStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
     preview.requestSelect({ kind: "worktreeRelative", relPath: "a.ts" });
     editStore.beginSession({ kind: "worktreeRelative", dir: DIR, relPath: "a.ts" }, "base");
     editStore.updateDraft("edited");
-    return { preview, editStore, popover };
+    return { preview, editStore };
   }
 
   test("close は編集セッションを畳む (不可視の未保存 draft を残さない)", () => {
@@ -422,8 +333,6 @@ describe("usePreviewStore 未保存 draft ガード", () => {
   test("クリーンな requestClose は確認なしで即 close", () => {
     const preview = usePreviewStore();
     const confirm = useUnsavedDraftConfirm();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
     preview.requestSelect({ kind: "worktreeRelative", relPath: "a.ts" });
 
     preview.requestClose();
@@ -539,8 +448,6 @@ describe("usePreviewStore.closeForMissingSelection", () => {
   test("選択解除 + close (popover 閉 ⇒ summary 解除の invariant に乗る)", () => {
     const preview = usePreviewStore();
     const wt = useWorktreeStore();
-    const popover = createMockPopover();
-    preview.bindPopover(popover.el);
 
     preview.requestSelect({ kind: "worktreeRelative", relPath: "src/foo/baz.ts" });
     expect(wt.selection).toBeDefined();
@@ -550,6 +457,5 @@ describe("usePreviewStore.closeForMissingSelection", () => {
 
     expect(wt.selection).toBeUndefined();
     expect(preview.isOpen).toBe(false);
-    expect(popover.hideCount).toBe(1);
   });
 });

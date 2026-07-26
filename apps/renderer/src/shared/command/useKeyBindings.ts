@@ -11,6 +11,27 @@
  * registry (`resolveKeyBinding`) であり、コマンド ID を突き合わせる第 2 のテーブルは無い。
  * child window 由来のキーも同じ registry で解決されるため、child 固有の割り当ては
  * childWindowFocused の条件で分岐する (docs/keybinding.md)。
+ *
+ * ## 解決フェーズ
+ *
+ * 既定は capture だが、**Escape だけは bubble** で解決する。
+ *
+ * VS Code の dispatcher は全キーを bubble で解決し、内側 (Monaco) との排他は context key +
+ * weight で書く (`closeFindWidget` は `precondition: CONTEXT_FIND_WIDGET_VISIBLE` /
+ * `kbExpr: EditorContextKeys.focus` / `weight: EditorContrib + 5`)。これが成立するのは
+ * Monaco の割り当てが**同じ registry に載っている**ため。gozd が埋め込む Monaco は自前の
+ * keybinding service を持ち本 registry の外にいるので、同じ手は使えない。
+ *
+ * 代わりに「内側が処理したら譲る」を DOM のフェーズと `defaultPrevented` で表現する。Escape は
+ * Monaco の find widget / suggest が消費して `preventDefault` するキーで、capture で奪うと
+ * widget を閉じるつもりの Escape がサーフェスごと閉じる。bubble なら `shouldHandle` の
+ * `defaultPrevented` 判定で内側に譲れる。
+ *
+ * Escape 以外を capture のままにするのは、それが既存の挙動だから。Cmd 系を内側より先に取る
+ * 必要があるかは本 module の関心の外で、変えるなら別途 xterm / Monaco の消費キーを実測する。
+ *
+ * フェーズをキーごとの宣言 (`KeyBindingSpec`) に開かないのは、書き忘れが必ず出るため。
+ * 「内側が先に取るキーか」はキーの性質であってコマンドの都合ではないので dispatcher が決める。
  */
 import { useEventListener } from "@vueuse/core";
 import { isIMEActive } from "./isIMEActive";
@@ -46,37 +67,45 @@ function isEditableElement(el: EventTarget | null): boolean {
   return el.isContentEditable;
 }
 
+/**
+ * bubble フェーズで解決するキー (docstring の「解決フェーズ」参照)。
+ * `KeyStroke.code` の値で持つ。
+ */
+const BUBBLE_PHASE_CODES = new Set(["Escape"]);
+
 /** 1 ウィンドウ分の listener 一式を張る。解決系はモジュール単位の共有 (docstring 参照) */
 function attachListeners(doc: Document) {
   const registry = useCommandRegistry();
   const contextKeys = useContextKeys();
 
-  useEventListener(
-    doc,
-    "keydown",
-    (e: KeyboardEvent) => {
-      if (!shouldHandle(e)) return;
+  const dispatch = (e: KeyboardEvent, bubble: boolean) => {
+    if (!shouldHandle(e)) return;
 
-      // inputFocused は「keydown を受けた document のフォーカス状態」を評価直前に写す。
-      // focusin / focusout で共有 state を先回り更新する方式だと、非アクティブな別ウィンドウの
-      // フォーカスイベントが発火元ウィンドウの when 判定を上書きしうる (ウィンドウ間の混線)。
-      // 消費者は keybinding の when 節のみで、この key が意味を持つのはディスパッチの
-      // 瞬間だけなので、都度読み取るだけで十分かつ常に正しい
-      contextKeys.set("inputFocused", isEditableElement(doc.activeElement));
+    const stroke = eventToKeyStroke(e);
+    // 自分のフェーズでないキーは相手側の listener に任せる
+    if (BUBBLE_PHASE_CODES.has(stroke.code) !== bubble) return;
 
-      const entry = registry.resolveKeyBinding(eventToKeyStroke(e));
+    // inputFocused は「keydown を受けた document のフォーカス状態」を評価直前に写す。
+    // focusin / focusout で共有 state を先回り更新する方式だと、非アクティブな別ウィンドウの
+    // フォーカスイベントが発火元ウィンドウの when 判定を上書きしうる (ウィンドウ間の混線)。
+    // 消費者は keybinding の when 節のみで、この key が意味を持つのはディスパッチの
+    // 瞬間だけなので、都度読み取るだけで十分かつ常に正しい
+    contextKeys.set("inputFocused", isEditableElement(doc.activeElement));
 
-      // bind 無し: preventDefault しないのでブラウザ既定 (Cmd+C のコピー等) がそのまま動く
-      if (entry === undefined) return;
+    const entry = registry.resolveKeyBinding(stroke);
 
-      const handled = registry.execute(entry.id);
-      if (handled) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    },
-    { capture: true },
-  );
+    // bind 無し: preventDefault しないのでブラウザ既定 (Cmd+C のコピー等) がそのまま動く
+    if (entry === undefined) return;
+
+    const handled = registry.execute(entry.id);
+    if (handled) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
+  useEventListener(doc, "keydown", (e: KeyboardEvent) => dispatch(e, false), { capture: true });
+  useEventListener(doc, "keydown", (e: KeyboardEvent) => dispatch(e, true));
 }
 
 /** main window の keybinding 配線。App.vue で 1 回だけ呼ぶ */

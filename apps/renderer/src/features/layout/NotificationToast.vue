@@ -11,13 +11,26 @@ Popover API (`popover="manual"`) によるトースト通知。
 
 <script setup lang="ts">
 import { useEventListener } from "@vueuse/core";
-import { useTemplateRef, watch } from "vue";
+import { onBeforeUnmount, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import { pinSurface, unpinSurface } from "../../shared/surface";
 import NotificationToastItem from "./NotificationToastItem.vue";
 
 const { toasts, dismiss } = useNotificationStore();
 
 const popoverRef = useTemplateRef<HTMLElement>("popover");
+
+// トーストは click-to-front の列に加えず常にサーフェスより手前へ留める (shared/surface の
+// pin セクション)。エラー通知の一次表示がパネルに埋もれると失敗の可視性が落ちるため。
+// 解除は onBeforeUnmount で行う: unmount は「beforeUnmount → effect scope 停止 → subtree
+// unmount (template ref が null)」の順なので、watch も onUnmounted も element を掴めない。
+watch(popoverRef, (el) => {
+  if (el !== null) pinSurface(el);
+});
+onBeforeUnmount(() => {
+  const el = popoverRef.value;
+  if (el !== null) unpinSurface(el);
+});
 
 // toast の有無に応じて popover を開閉
 watch(
@@ -33,9 +46,11 @@ watch(
   },
 );
 
-// popover が外部要因で閉じられた場合に全 toast を畳む（center には残る）
+// popover が外部要因で閉じられた場合に全 toast を畳む（center には残る）。
+// pin の積み直し (hide → show) が挟む中間 close は畳まない: toggle は task-queued なので、
+// ハンドラが走る時点では既に再 open 済みで `:popover-open` に一致する（usePopover と同じ判定軸）。
 useEventListener(popoverRef, "toggle", (e: ToggleEvent) => {
-  if (e.newState === "closed") {
+  if (e.newState === "closed" && popoverRef.value?.matches(":popover-open") !== true) {
     for (const n of toasts.value) {
       dismiss(n.id);
     }

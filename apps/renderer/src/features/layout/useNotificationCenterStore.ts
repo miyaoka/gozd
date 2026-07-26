@@ -4,8 +4,8 @@ import { useNotificationStore } from "../../shared/notification";
 
 /**
  * Notification center パネルの開閉 + 未読管理の SSOT。EventLogPanel / ServerListPanel と
- * 同じ右ドック popover 流儀で、開閉状態を store が所有し popover DOM へのミラーは
- * `open()` / `close()` が担う。通知データ自体は `shared/notification` が SSOT で、
+ * 同じ右ドック popover 流儀で、開閉状態は store が所有し DOM は触らない。popover へのミラーは
+ * NotificationCenterPanel が `isOpen` を watch して `shared/surface` へ流す。通知データ自体は `shared/notification` が SSOT で、
  * 本 store は開閉と既読位置 (`lastSeenSeq`) だけを扱う。
  *
  * 未読は「seq が lastSeenSeq より新しい項目」。seq は重複抑制の再発生でも進むため、
@@ -15,7 +15,6 @@ import { useNotificationStore } from "../../shared/notification";
 export const useNotificationCenterStore = defineStore("notificationCenter", () => {
   const { notifications } = useNotificationStore();
 
-  const popoverEl = ref<HTMLElement>();
   const isOpen = ref(false);
   const lastSeenSeq = ref(0);
   /** toast の Details から遷移してきた通知 id。該当 item が展開 + スクロール後に clear する */
@@ -30,21 +29,10 @@ export const useNotificationCenterStore = defineStore("notificationCenter", () =
     if (open) lastSeenSeq.value = seq;
   });
 
-  function bindPopover(el: HTMLElement | undefined): void {
-    popoverEl.value = el;
-  }
   function open(): void {
-    if (isOpen.value) return;
-    const el = popoverEl.value;
-    if (!el) return;
-    el.showPopover();
     isOpen.value = true;
   }
   function close(): void {
-    if (!isOpen.value) return;
-    const el = popoverEl.value;
-    if (!el) return;
-    el.hidePopover();
     isOpen.value = false;
   }
   function toggle(): void {
@@ -69,7 +57,6 @@ export const useNotificationCenterStore = defineStore("notificationCenter", () =
     unseenCount,
     hasUnseenError,
     revealId,
-    bindPopover,
     open,
     close,
     toggle,

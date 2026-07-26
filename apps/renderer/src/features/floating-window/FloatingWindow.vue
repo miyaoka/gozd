@@ -15,10 +15,11 @@ promote ボタンは「このパネルを別 OS ウィンドウへ昇格させ�
 実行主体はシェルではない (state の書き換えは store、中身の描画は consumer) が、rect を
 測れるのは自分だけなので測定はここが担う。
 
-キー入力の宛先はフォーカスで決める: root を `tabindex="-1"` で focusable にし、focusin /
+Cmd+S の宛先はフォーカスで決める: root を `tabindex="-1"` で focusable にし、focusin /
 focusout を floatingWindowCommands の activate / deactivate に変換する。これで
-`floatingWindowFocused` の when 条件で Cmd+W / Cmd+S がこのパネル宛に解決され、popover が
-開いたままでも popover 側の close / save を誤射しない (child window と同じ規律)。
+`floatingWindowFocused` の when 条件で Cmd+S がこのパネル宛に解決され、他サーフェスの save を
+誤射しない (child window と同じ規律)。close もフォーカスで決まるが、宛先解決はサーフェス共通の
+`surface.closeFocused` が持つため、パネル側は `useSurface` に close 要求を登録するだけ。
 
 - ドラッグ移動は pointer capture ではなく window レベルの listener で追従する。capture に
   しないのは drag handoff のため: undock 元ヘッダのドラッグで undock する経路では、掴んでいた
@@ -38,14 +39,21 @@ focusout を floatingWindowCommands の activate / deactivate に変換する。
 - 既知の境界例外: 左/上辺リサイズで逆算した x / y が描画時のビューポート射影クランプに
   当たると、アンカーのはずの下端 / 右端が滑りうる (実質不可視の範囲に限られる)。射影まで
   含めたサイズ再導出は算術の複雑化に見合わないため受容する
-- plain `position: fixed` 要素で popover / dialog の top layer には載せない。モーダルや
-  menu が常にウィンドウより手前という既存のオーバーレイ順序ポリシー (ArcadeLayer 参照) に従う
+- root 自身が `popover="manual"` のサーフェス 1 枚。undock 元のドックパネル (preview 等) と
+  同じ top layer に並び、`shared/surface` の click-to-front 規則で重ね順が決まる。z-index は
+  持たない — top layer の順序は show 呼び出し順が SSOT で z-index では越えられないため、
+  パネル間もパネルとドックパネルの間も同じ 1 つの規則で並ぶ
+- 前面化はクリック経路 (`useSurface`) だけを持つ。pointerdown の**キャプチャ**フェーズで同期に
+  呼ぶのは、リサイズハンドルが既に取った pointer capture より後に display 切り替えを走らせないため
+- UA の `[popover]` 既定値のうち、位置 (`inset`) / `margin` / `padding` / 文字色は自前の値で
+  打ち消す。サイズと配置は inline style と Tailwind class が持つ
 </doc>
 
 <script setup lang="ts">
 import { TITLEBAR_HEIGHT } from "@gozd/shared";
 import { useEventListener } from "@vueuse/core";
-import { onMounted, onUnmounted, useTemplateRef, watch } from "vue";
+import { onMounted, onUnmounted, useTemplateRef } from "vue";
+import { useSurface } from "../../shared/surface";
 import { type ChildWindowInit, toChildWindowInit } from "./childWindowInit";
 import {
   activateFloatingWindow,
@@ -61,11 +69,8 @@ import IconMdiOpenInNew from "~icons/mdi/open-in-new";
 interface Props {
   x: number;
   y: number;
-  z: number;
   contentWidth: number;
   contentHeight: number;
-  /** 外部からの close 要求 epoch (FloatingWindowState.closeRequestEpoch)。 */
-  closeRequestEpoch: number;
   /** undock 元から引き継いだドラッグ (consumer が takeHandoff() で消費して渡す)。 */
   handoff?: UndockDragHandoff;
 }
@@ -74,9 +79,8 @@ const props = defineProps<Props>();
 
 const emit = defineEmits<{
   move: [x: number, y: number];
-  activate: [];
-  /** 閉じたい要求 (close ボタン / closeRequestEpoch の増加 / cmd+w)。パネル自身は state を
-   * 消す権限を持たないため、close ではなく常に「要求」を emit する。 */
+  /** 閉じたい要求 (close ボタン / ESC / Cmd+W)。パネル自身は state を消す権限を持たないため、
+   * close ではなく常に「要求」を emit する。 */
   closeRequested: [];
   /** cmd+s (floatingWindow.save) の要求。保存の可否・実処理は consumer の知識。 */
   saveRequested: [];
@@ -84,18 +88,8 @@ const emit = defineEmits<{
   promote: [init: ChildWindowInit];
 }>();
 
-// 外部 close 要求 (closeFront 等) を close ボタンと同じ emit に合流させる。close の可否判断
-// (未保存確認等) は consumer が担う (useFloatingWindows の doc 参照)。
-watch(
-  () => props.closeRequestEpoch,
-  () => {
-    emit("closeRequested");
-  },
-);
-
 // ==== キー入力の宛先 (doc 参照) ====
 const focusHandle: FloatingWindowHandle = {
-  requestClose: () => emit("closeRequested"),
   requestSave: () => emit("saveRequested"),
 };
 function onFocusIn() {
@@ -114,6 +108,11 @@ onUnmounted(() => deactivateFloatingWindow(focusHandle));
 const GRAB_MARGIN = 80;
 
 const rootRef = useTemplateRef<HTMLElement>("root");
+// パネルは mount = 開いている。entry が消えれば unmount されるので close 側の state は持たない
+const { raise } = useSurface(rootRef, {
+  isOpen: () => true,
+  requestClose: () => emit("closeRequested"),
+});
 
 // ドラッグ中の pointer と、pointer からウィンドウ原点へのオフセット。ドラッグ中のみ定義。
 let dragState: { pointerId: number; offsetX: number; offsetY: number } | undefined;
@@ -125,6 +124,11 @@ let dragState: { pointerId: number; offsetX: number; offsetY: number } | undefin
 // contentWidth / contentHeight prop はヘッダを除いた中身のサイズなので、実測した自ヘッダ高
 // と root の border 厚 (offset と client の差。overflow-hidden なので scrollbar は混ざらない)
 // を足して border-box の総サイズへ換算する。
+// 実測は popover が既に show 済みであることが前提。`useSurface` の sync watch が template ref
+// 代入の時点 (post キューは id 昇順で flush されるため mounted より前) に `showPopover` するため
+// 成立する。flush を pre へ変えたり isOpen が 1 フレーム false になる設計を足すと、`display: none`
+// の要素を測って全部 0 になり、パネルがヘッダ高 + border 分だけ小さく出る (下の観察ログは
+// ヘッダが要素でないケースしか拾わないので無音で壊れる)。
 onMounted(() => {
   const root = rootRef.value;
   // ヘッダは自テンプレートの先頭子 (子コンポーネントの $el を覗くと、その root 構造の変化で
@@ -313,14 +317,14 @@ useEventListener(window, "pointercancel", endDrag);
        (アプリの drag 領域) 直下。 -->
   <section
     ref="root"
+    popover="manual"
     tabindex="-1"
-    class="fixed flex max-h-[80vh] min-h-16 max-w-[90vw] min-w-64 flex-col overflow-hidden rounded-md border border-border-strong bg-background shadow-xl outline-none"
+    class="fixed inset-auto m-0 max-h-[80vh] min-h-16 max-w-[90vw] min-w-64 flex-col overflow-hidden rounded-md border border-border-strong bg-background p-0 text-foreground shadow-xl outline-hidden [&:popover-open]:flex"
     :style="{
       left: `min(${x}px, calc(100vw - ${GRAB_MARGIN}px))`,
       top: `clamp(var(--titlebar-height), ${y}px, calc(100vh - ${GRAB_MARGIN}px))`,
-      zIndex: z,
     }"
-    @pointerdown="emit('activate')"
+    @pointerdown.capture="raise()"
     @focusin="onFocusIn()"
     @focusout="onFocusOut"
   >

@@ -12,11 +12,12 @@ consumer (session-log / preview) が差し込むのは中身と close / save の
 
 ## presentation ごとに変わる契約
 
-- 移動 / リサイズ / 前面順: in-app は FloatingWindow (ドラッグ + 8 方位ハンドル + ビューポート
-  クランプ)、昇格後は OS ネイティブ。よって `move` / `activate` emit は in-app 中だけ発火する
+- 移動 / リサイズ: in-app は FloatingWindow (ドラッグ + 8 方位ハンドル + ビューポートクランプ)、
+  昇格後は OS ネイティブ。よって `move` emit は in-app 中だけ発火する
 - close は 2 つの emit に分ける。`closeRequested` は「閉じたい要求」で、consumer がガード
-  (dirty 確認等) を通してから state を消す: in-app のシェル close ボタン・Cmd+W
-  (`floatingWindow.close` / `closeFront`)、昇格後は `blockClose` が veto したネイティブ close が
+  (dirty 確認等) を通してから state を消す: in-app のシェル close ボタン・フォーカスがある
+  サーフェスを閉じる ESC / Cmd+W (`surface.closeFocused`)、昇格後は `blockClose` が veto した
+  ネイティブ close が
   ここに来る。`closed` は「OS ウィンドウがもう閉じた」通知で、consumer は無条件に state を消す
   (ガードを掛けてはいけない — 既に無いウィンドウに確認ダイアログを出すと、昇格後はダイアログの
   居場所である child document ごと消えているため応答不能な entry が残る)
@@ -48,14 +49,11 @@ import UndockedWindowHeader from "./UndockedWindowHeader.vue";
 import type { UndockDragHandoff } from "./useFloatingWindows";
 
 interface Props {
-  /** in-app パネルの位置 / 前面順 / 初期中身サイズ (FloatingWindowState の対応フィールド)。 */
+  /** in-app パネルの位置 / 初期中身サイズ (FloatingWindowState の対応フィールド)。 */
   x: number;
   y: number;
-  z: number;
   contentWidth: number;
   contentHeight: number;
-  /** 外部からの close 要求 epoch (FloatingWindowState.closeRequestEpoch)。 */
-  closeRequestEpoch: number;
   /** 昇格済みなら child window の生成パラメータ (FloatingWindowState.child)。 */
   child?: ChildWindowInit;
   /** 昇格後の OS ウィンドウのタイトルバー表示 (document.title)。 */
@@ -72,8 +70,6 @@ defineProps<Props>();
 const emit = defineEmits<{
   /** in-app パネルの移動 (ドラッグ / 左上辺リサイズ)。昇格後は OS が SSOT のため発火しない。 */
   move: [x: number, y: number];
-  /** in-app パネルの前面化要求。昇格後は発火しない。 */
-  activate: [];
   /** 別 OS ウィンドウへの昇格要求 (実測コンテンツ rect のスクリーン座標換算)。 */
   promote: [init: ChildWindowInit];
   /** 昇格の失敗 (OS ウィンドウを開けなかった)。consumer は demote して引き返す (doc 参照)。 */
@@ -92,13 +88,10 @@ const emit = defineEmits<{
     v-if="child === undefined"
     :x="x"
     :y="y"
-    :z="z"
     :content-width="contentWidth"
     :content-height="contentHeight"
-    :close-request-epoch="closeRequestEpoch"
     :handoff="handoff"
     @move="(nextX, nextY) => emit('move', nextX, nextY)"
-    @activate="emit('activate')"
     @promote="emit('promote', $event)"
     @close-requested="emit('closeRequested')"
     @save-requested="emit('saveRequested')"

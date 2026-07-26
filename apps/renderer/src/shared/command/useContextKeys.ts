@@ -10,7 +10,7 @@ const INITIAL_STATE: ContextMap = {
   filerFocus: false,
   previewVisible: false,
   previewEditable: false,
-  floatingWindowVisible: false,
+  surfaceFocused: false,
   floatingWindowFocused: false,
   childWindowFocused: false,
   commandPaletteVisible: false,

@@ -19,10 +19,9 @@ import {
  *   - native の `serverPortsChange` push で全件 snapshot を latest-wins 置換
  *
  * パネル開閉:
- *   - 開閉状態はこの store が SSOT として所有する。popover DOM へのミラーは `open()` /
- *     `close()` が `showPopover()` / `hidePopover()` を呼んで担う (usePreviewStore と同流儀)。
- *     冪等 gate は自前 `isOpen` ref だけで判定し、DOM state (`:popover-open`) は判定材料に
- *     しない — 開閉の真実源を store 1 つに保ち「store と DOM のどちらが正か」の分岐を作らない
+ *   - 開閉状態はこの store が SSOT として所有し、DOM は触らない。popover へのミラーは
+ *     ServerListPanel が `isOpen` を watch して `shared/surface` へ流す (usePreviewStore と
+ *     同流儀。他サーフェスとの重ね順とフォーカス追従は surface 側が持つ)
  *   - トグルは TitleBar の renderer ボタンが `toggle()` を直接叩く (native 往復は持たない)
  */
 
@@ -33,7 +32,6 @@ let disposeServerPorts: (() => void) | undefined;
 export const useServerStore = defineStore("server", () => {
   const notify = useNotificationStore();
   const servers = ref<ServerInfo[]>([]);
-  const popoverEl = ref<HTMLElement>();
   const isOpen = ref(false);
   // push を一度でも受けたか。in-flight の hydrate (pull) 結果が後着で push の新しい
   // snapshot を踏み潰す race を防ぐ (push 受信後は hydrate 結果を捨てる)。
@@ -58,22 +56,10 @@ export const useServerStore = defineStore("server", () => {
     servers.value = serversFromPayload(payload);
   });
 
-  function bindPopover(el: HTMLElement | undefined): void {
-    popoverEl.value = el;
-  }
-
   function open(): void {
-    if (isOpen.value) return;
-    const el = popoverEl.value;
-    if (!el) return;
-    el.showPopover();
     isOpen.value = true;
   }
   function close(): void {
-    if (!isOpen.value) return;
-    const el = popoverEl.value;
-    if (!el) return;
-    el.hidePopover();
     isOpen.value = false;
   }
   function toggle(): void {
@@ -106,7 +92,6 @@ export const useServerStore = defineStore("server", () => {
     servers,
     isOpen,
     hasServers,
-    bindPopover,
     open,
     close,
     toggle,

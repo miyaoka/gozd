@@ -25,8 +25,8 @@ parseWhen.ts             ← when 文字列 → When AST 変換
 - `KeyStroke` — e.code ベースの物理キー表現（code + modifier flags）
 - `ContextMap` — context key 名と値型のマッピング。新しい context key はここに追加し、意味を doc コメントで併記する
 - `When` — 条件式の AST。`key` / `not` / `and` / `or` の tagged union
-- `KeyBindingSpec` — 記述子に書く既定 keybinding（key / when の文字列）
-- `ResolvedKeyBinding` — register 時に parse 済みの keybinding（stroke + precondition と AND 済みの when）
+- `KeyBindingSpec` — 記述子に書く既定 keybinding（key の文字列 or 同義キーの配列 / when の文字列）
+- `ResolvedKeyBinding` — register 時に parse 済みの keybinding（stroke 列 + precondition と AND 済みの when）
 
 ## parseKeyStroke — key 文字列の変換
 
@@ -75,13 +75,13 @@ atom     = "!" atom | contextKey
 
 ## ディスパッチ（listener は useKeyBindings、解決は useCommandRegistry）
 
-keydown listener（capture phase）を**ウィンドウごとの document** に張り、解決系（command registry + context key）は単一を共有する。main window は `useKeyBindings()`（App.vue で 1 回）、child window は `useWindowKeyBindings(win)`（ウィンドウ生成側コンポーネントの setup で呼び、listener 寿命はその effect scope に載る）。
+keydown listener（Escape は bubble、それ以外は capture）を**ウィンドウごとの document** に張り、解決系（command registry + context key）は単一を共有する。main window は `useKeyBindings()`（App.vue で 1 回）、child window は `useWindowKeyBindings(win)`（ウィンドウ生成側コンポーネントの setup で呼び、listener 寿命はその effect scope に載る）。
 
 ### 除外判定（shouldHandle）
 
 キーイベントをコマンドシステムで処理すべきか判定する。以下は除外:
 
-- `e.defaultPrevented` — 他の capture listener が処理済み
+- `e.defaultPrevented` — 他の listener が処理済み（capture の別ハンドラ、または bubble なら内側のウィジェット）
 - `e.isComposing` — 日本語入力中
 - `e.repeat` — 連打
 

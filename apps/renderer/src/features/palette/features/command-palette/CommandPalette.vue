@@ -158,7 +158,7 @@ onUnmounted(disposeShow);
             v-if="cmd.keybinding"
             class="ml-4 shrink-0 rounded-sm bg-background px-1.5 py-0.5 font-mono text-xs text-foreground-low"
           >
-            {{ formatKeyBinding(cmd.keybinding.key) }}
+            {{ cmd.keybinding.keys.map(formatKeyBinding).join(" / ") }}
           </kbd>
         </li>
       </ul>

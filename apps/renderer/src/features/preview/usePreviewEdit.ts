@@ -143,13 +143,16 @@ export function usePreviewEdit(content: PreviewContent) {
   const { register } = useCommandRegistry();
   const disposeSaveCommand = register("preview.save", {
     label: "Preview: Save File",
-    precondition: "previewVisible",
+    // 編集セッションの有無を precondition に置く。handler の hasSession ガードと同じ論理状態を
+    // 指すため、「パレットに出るのに無音で何も起きない」状態を作らない (docs/command.md)
+    precondition: "previewEditable",
     // Cmd+S は複数サーフェスで共有するキー。解決は優先順位を持たず実効条件で排他にする契約
     // (docs/keybinding.md) なので、フォーカスを持つサーフェスがどれも Cmd+S を主張していない
-    // ときだけ popover 側の保存を成立させる
+    // ときだけ popover 側の保存を成立させる。previewEditable は precondition との AND で効くため
+    // 再掲しない
     keybinding: {
       key: "cmd+s",
-      when: "previewEditable && !childWindowFocused && !floatingWindowFocused",
+      when: "!childWindowFocused && !floatingWindowFocused",
     },
     handler: () => {
       if (!editStore.hasSession) return false;

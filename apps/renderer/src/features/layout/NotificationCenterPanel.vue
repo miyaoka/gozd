@@ -5,17 +5,18 @@ Notification center パネル。auto-dismiss で消えた toast も含む全通�
 
 ## 設計判断
 
-- EventLogPanel / ServerListPanel と同じ右ドック popover 流儀 (`popover="manual"` で
-  top layer、ESC 自前閉じ)。開閉 SSOT は useNotificationCenterStore、通知データの SSOT は
-  shared/notification
+- EventLogPanel / ServerListPanel と同じ右ドック popover 流儀。top layer のサーフェス 1 枚と
+  して `shared/surface` に載る (click-to-front / ESC・Cmd+W でフォーカスがあるものを閉じる)。
+  開閉 SSOT は useNotificationCenterStore (DOM へのミラーは本 component の watch)、通知データの
+  SSOT は shared/notification
 - 表示順は seq 降順（新着順）。重複抑制で集約された項目は再発生のたびに seq が進むため、
   再発生した通知が自動的に先頭へ浮上する
 </doc>
 
 <script setup lang="ts">
-import { useEventListener } from "@vueuse/core";
-import { computed, useTemplateRef, watch } from "vue";
+import { computed, useTemplateRef } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import { useSurface } from "../../shared/surface";
 import NotificationCenterItem from "./NotificationCenterItem.vue";
 import { useNotificationCenterStore } from "./useNotificationCenterStore";
 import IconLucideBell from "~icons/lucide/bell";
@@ -28,26 +29,20 @@ const { notifications, remove, clear } = useNotificationStore();
 /** 新着順。seq は発生 (再発生含む) ごとに進む単調増加値。 */
 const sorted = computed(() => [...notifications.value].sort((a, b) => b.seq - a.seq));
 
-// popover="manual" のため OS の auto dismiss が無い。ESC を自前で受けて閉じる
-// (EventLogPanel と同じく前面 modal dialog には譲る)。
-useEventListener(window, "keydown", (e: KeyboardEvent) => {
-  if (e.defaultPrevented) return;
-  if (e.code !== "Escape" || !store.isOpen) return;
-  if (document.querySelector("dialog[open]") !== null) return;
-  e.preventDefault();
-  store.close();
-});
-
 const panelRef = useTemplateRef<HTMLElement>("panel");
-// template ref が null に戻った時点 (unmount) に bindPopover(undefined) で dangling を切る。
-watch(panelRef, (el) => store.bindPopover(el ?? undefined), { immediate: true });
+const { raise } = useSurface(panelRef, {
+  isOpen: () => store.isOpen,
+  requestClose: () => store.close(),
+});
 </script>
 
 <template>
   <div
     ref="panel"
     popover="manual"
-    class="_notification-center-popover w-[420px] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl [&:popover-open]:flex"
+    tabindex="-1"
+    class="_notification-center-popover w-[420px] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl outline-hidden [&:popover-open]:flex"
+    @pointerdown.capture="raise()"
   >
     <header class="flex items-center gap-2 border-b border-border px-3 py-2">
       <IconLucideBell class="size-4 text-foreground-low" />

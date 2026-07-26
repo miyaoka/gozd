@@ -63,8 +63,12 @@ export const usePreviewStore = defineStore("preview", () => {
   const editStore = usePreviewEditStore();
   const draftConfirm = useUnsavedDraftConfirm();
 
-  const popoverEl = ref<HTMLElement>();
   const isOpen = ref(false);
+  /**
+   * `open()` のたびに進む。既に開いている状態での open (reveal / summary 進入) を view が
+   * 「前面化せよ」として観測するための signal。`isOpen` の変化だけでは区別できない。
+   */
+  const openEpoch = ref(0);
 
   /**
    * 未保存 draft を破棄する操作のガード。クリーンなら action を即実行、dirty なら
@@ -92,16 +96,17 @@ export const usePreviewStore = defineStore("preview", () => {
     });
   }
 
-  function bindPopover(el: HTMLElement | undefined) {
-    popoverEl.value = el;
-  }
-
+  /**
+   * popover を開く。既に開いていれば epoch だけ進め、view が前面化として反映する。
+   *
+   * サーフェスは click-to-front で並ぶため、開いている preview へ別の中身を出す経路
+   * (`forceSelect` / `requestSelect` / `openSummary`) で前面化しないと、中身だけ差し替わって
+   * 背後に居座る。「開く」と「前面化」を同じ関数に集約することで、content の entry point が
+   * 増えても構成上すべて覆われる (経路ごとに前面化を書き足す形にすると必ず漏れる)。
+   */
   function open() {
-    if (isOpen.value) return;
-    const el = popoverEl.value;
-    if (!el) return;
-    el.showPopover();
     isOpen.value = true;
+    openEpoch.value++;
   }
 
   function close() {
@@ -114,10 +119,6 @@ export const usePreviewStore = defineStore("preview", () => {
     // dirty 時の確認は requestClose 側の責務で、ここは無条件に破棄する (veto 不能な
     // dir 切替 watch が sync で呼ぶため、ここに async ガードは置けない)。
     editStore.endSession();
-    if (!isOpen.value) return;
-    const el = popoverEl.value;
-    if (!el) return;
-    el.hidePopover();
     isOpen.value = false;
   }
 
@@ -259,7 +260,7 @@ export const usePreviewStore = defineStore("preview", () => {
 
   return {
     isOpen,
-    bindPopover,
+    openEpoch,
     open,
     close,
     requestClose,

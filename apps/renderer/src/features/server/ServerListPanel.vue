@@ -27,7 +27,7 @@ ESC の閉じ順は preview との間でのみ保証する: preview 側 (MainLay
 import { useEventListener } from "@vueuse/core";
 import { computed, useTemplateRef, watch } from "vue";
 import { useRepoStore } from "../../shared/repo";
-import { raiseSurface } from "../../shared/surface";
+import { useSurface } from "../../shared/surface";
 import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
 import type { ServerAttributionKind } from "./rpc";
@@ -155,16 +155,7 @@ watch(
   },
   { immediate: true },
 );
-/**
- * click-to-front。サーフェスは「最後に触ったものが最前面」で並ぶ (shared/surface)。
- * キャプチャフェーズで呼ぶのは、内側の要素 (ResizeHandle 等) が pointer capture を取る前に
- * 積み直しを終わらせるため。
- */
-function onSurfacePointerDown() {
-  const el = panelRef.value;
-  if (el === null) return;
-  raiseSurface(el);
-}
+const { raise } = useSurface(panelRef);
 </script>
 
 <template>
@@ -172,7 +163,7 @@ function onSurfacePointerDown() {
     ref="panel"
     popover="manual"
     class="_server-list-popover w-[480px] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl [&:popover-open]:flex"
-    @pointerdown.capture="onSurfacePointerDown()"
+    @pointerdown.capture="raise()"
   >
     <header class="flex items-center gap-2 border-b border-border px-3 py-2">
       <IconLucideServer class="size-4 text-foreground-low" />

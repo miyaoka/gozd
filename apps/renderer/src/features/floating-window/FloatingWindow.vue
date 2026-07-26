@@ -53,7 +53,7 @@ focusout を floatingWindowCommands の activate / deactivate に変換する。
 import { TITLEBAR_HEIGHT } from "@gozd/shared";
 import { useEventListener } from "@vueuse/core";
 import { onBeforeUnmount, onMounted, onUnmounted, useTemplateRef, watch } from "vue";
-import { hideSurface, raiseSurface, showSurface } from "../../shared/surface";
+import { hideSurface, showSurface, useSurface } from "../../shared/surface";
 import { type ChildWindowInit, toChildWindowInit } from "./childWindowInit";
 import {
   activateFloatingWindow,
@@ -106,9 +106,7 @@ watch(
  */
 function onActivate() {
   emit("activate");
-  const root = rootRef.value;
-  if (root === null) return;
-  raiseSurface(root);
+  raise();
 }
 
 // ==== キー入力の宛先 (doc 参照) ====
@@ -140,6 +138,7 @@ onBeforeUnmount(() => {
 const GRAB_MARGIN = 80;
 
 const rootRef = useTemplateRef<HTMLElement>("root");
+const { raise } = useSurface(rootRef);
 
 // ドラッグ中の pointer と、pointer からウィンドウ原点へのオフセット。ドラッグ中のみ定義。
 let dragState: { pointerId: number; offsetX: number; offsetY: number } | undefined;
@@ -154,8 +153,14 @@ let dragState: { pointerId: number; offsetX: number; offsetY: number } | undefin
 onMounted(() => {
   const root = rootRef.value;
   // 表示は実測の成否に依らず先に行う (下の early return より前に置く)。undock 直後のパネルは
-  // 「今まさに操作されたもの」なので、show 順の規則でそのまま最前面に載る
-  if (root !== null) showSurface(root);
+  // 「今まさに操作されたもの」なので、show 順の規則でそのまま最前面に載る。
+  // frontOrder も同時に採番する: 新規 undock では既に最大値なので no-op だが、demote による
+  // 再 mount は frontOrder を据え置いたまま DOM だけ最前面になるため、揃えないと cmd+w の
+  // closeFront が見えている最前面と違うパネルを選ぶ
+  if (root !== null) {
+    showSurface(root);
+    emit("activate");
+  }
   // ヘッダは自テンプレートの先頭子 (子コンポーネントの $el を覗くと、その root 構造の変化で
   // 実測が黙って飛ぶ)
   const header = root?.firstElementChild;

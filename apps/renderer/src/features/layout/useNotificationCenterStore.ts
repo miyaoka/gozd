@@ -1,11 +1,12 @@
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import { hideSurface, showSurface } from "../../shared/surface";
 
 /**
  * Notification center パネルの開閉 + 未読管理の SSOT。EventLogPanel / ServerListPanel と
  * 同じ右ドック popover 流儀で、開閉状態を store が所有し popover DOM へのミラーは
- * `open()` / `close()` が担う。通知データ自体は `shared/notification` が SSOT で、
+ * `open()` / `close()` が `shared/surface` 経由で担う (他サーフェスとの重ね順もここで決まる)。通知データ自体は `shared/notification` が SSOT で、
  * 本 store は開閉と既読位置 (`lastSeenSeq`) だけを扱う。
  *
  * 未読は「seq が lastSeenSeq より新しい項目」。seq は重複抑制の再発生でも進むため、
@@ -37,14 +38,14 @@ export const useNotificationCenterStore = defineStore("notificationCenter", () =
     if (isOpen.value) return;
     const el = popoverEl.value;
     if (!el) return;
-    el.showPopover();
+    showSurface(el);
     isOpen.value = true;
   }
   function close(): void {
     if (!isOpen.value) return;
     const el = popoverEl.value;
     if (!el) return;
-    el.hidePopover();
+    hideSurface(el);
     isOpen.value = false;
   }
   function toggle(): void {

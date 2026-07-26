@@ -17,7 +17,7 @@ import { computed, useTemplateRef, watch } from "vue";
 import { writeClipboardText } from "../../shared/clipboard";
 import { useDebugLog } from "../../shared/debug";
 import { useNotificationStore } from "../../shared/notification";
-import { raiseSurface } from "../../shared/surface";
+import { useSurface } from "../../shared/surface";
 import { useEventLogStore } from "./useEventLogStore";
 import IconLucideActivity from "~icons/lucide/activity";
 import IconLucideCopy from "~icons/lucide/copy";
@@ -93,16 +93,7 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
 const panelRef = useTemplateRef<HTMLElement>("panel");
 // template ref が null に戻った時点 (unmount) に bindPopover(undefined) で dangling を切る。
 watch(panelRef, (el) => store.bindPopover(el ?? undefined), { immediate: true });
-/**
- * click-to-front。サーフェスは「最後に触ったものが最前面」で並ぶ (shared/surface)。
- * キャプチャフェーズで呼ぶのは、内側の要素 (ResizeHandle 等) が pointer capture を取る前に
- * 積み直しを終わらせるため。
- */
-function onSurfacePointerDown() {
-  const el = panelRef.value;
-  if (el === null) return;
-  raiseSurface(el);
-}
+const { raise } = useSurface(panelRef);
 </script>
 
 <template>
@@ -110,7 +101,7 @@ function onSurfacePointerDown() {
     ref="panel"
     popover="manual"
     class="_event-log-popover w-[420px] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl [&:popover-open]:flex"
-    @pointerdown.capture="onSurfacePointerDown()"
+    @pointerdown.capture="raise()"
   >
     <header class="flex items-center gap-2 border-b border-border px-3 py-2">
       <IconLucideActivity class="size-4 text-foreground-low" />

@@ -1,1 +1,8 @@
-export { hideSurface, raiseSurface, showSurface } from "./topLayerSurface";
+export {
+  hideSurface,
+  pinSurface,
+  raiseSurface,
+  showSurface,
+  unpinSurface,
+} from "./topLayerSurface";
+export { useSurface } from "./useSurface";

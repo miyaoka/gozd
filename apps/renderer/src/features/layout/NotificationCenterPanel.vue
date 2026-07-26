@@ -16,6 +16,7 @@ Notification center パネル。auto-dismiss で消えた toast も含む全通�
 import { useEventListener } from "@vueuse/core";
 import { computed, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
+import { useSurface } from "../../shared/surface";
 import NotificationCenterItem from "./NotificationCenterItem.vue";
 import { useNotificationCenterStore } from "./useNotificationCenterStore";
 import IconLucideBell from "~icons/lucide/bell";
@@ -39,6 +40,7 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
 });
 
 const panelRef = useTemplateRef<HTMLElement>("panel");
+const { raise } = useSurface(panelRef);
 // template ref が null に戻った時点 (unmount) に bindPopover(undefined) で dangling を切る。
 watch(panelRef, (el) => store.bindPopover(el ?? undefined), { immediate: true });
 </script>
@@ -48,6 +50,7 @@ watch(panelRef, (el) => store.bindPopover(el ?? undefined), { immediate: true })
     ref="panel"
     popover="manual"
     class="_notification-center-popover w-[420px] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl [&:popover-open]:flex"
+    @pointerdown.capture="raise()"
   >
     <header class="flex items-center gap-2 border-b border-border px-3 py-2">
       <IconLucideBell class="size-4 text-foreground-low" />

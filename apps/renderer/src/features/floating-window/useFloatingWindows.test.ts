@@ -164,6 +164,28 @@ describe("promote", () => {
     closeAll(store);
   });
 
+  test("demote 後に bringToFront すれば closeFront の対象になる (再 mount 時の採番)", () => {
+    // demote は child を外すだけで frontOrder を触らない。パネルは再 mount で DOM の最前面に
+    // 戻るため、mount 側が bringToFront を呼ばないと「見えている最前面」と closeFront の
+    // 選択がずれる (FloatingWindow の onMounted が activate を emit する理由)。
+    const store = createFloatingWindows<TestPayload>("test");
+    store.undock(undockInput());
+    const demoted = lastWindow(store);
+    store.promote(demoted.id, { screenX: 0, screenY: 0, width: 10, height: 10 });
+    store.undock(undockInput());
+    const other = lastWindow(store);
+    expect(other.frontOrder).toBeGreaterThan(demoted.frontOrder);
+
+    store.demote(demoted.id);
+    store.bringToFront(demoted.id);
+
+    expect(closeFrontFloatingWindow()).toBe(true);
+    expect(demoted.closeRequestEpoch).toBe(1);
+    expect(other.closeRequestEpoch).toBe(0);
+
+    closeAll(store);
+  });
+
   test("demote は child を外し、in-app パネルの集計へ戻す (昇格失敗の引き返し)", () => {
     const store = createFloatingWindows<TestPayload>("test");
     store.undock(undockInput());

@@ -42,13 +42,9 @@ jobs:
             diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only lint
             full_command: pnpm run lint:all
 
-          # fix（oxlint --fix / eslint --fix + oxfmt）を実行し、working tree に
-          # 差分が出たら fail する。フォーマット崩れ・自動修正可能な lint 違反が
-          # commit されていないことを保証する
-          - name: fix
-            diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only fix && git diff --exit-code
-            full_command: pnpm run fix:all && git diff --exit-code
-
+          # fix（oxlint --fix / eslint --fix + oxfmt）はここで gate しない。
+          # 自動修正可能な違反は PR を止めずに daily-fix workflow が日次で返済する
+          # （.github/workflows/daily-fix.yml）
           - name: test
             diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only test
             full_command: pnpm run test:all

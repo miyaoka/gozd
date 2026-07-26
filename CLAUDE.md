@@ -130,7 +130,7 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 - `pnpm --filter @gozd/electron build:app` — `.app` バンドルを生成（無指定は local channel の
   `apps/electron/out/mac-arm64/Gozd Local.app`。stable identity は release CI のみ。docs/release.md）
 
-全チェックはルートの `pnpm run typecheck:all` / `pnpm run lint:all` / `pnpm run test:all` / `pnpm run build:all` / `pnpm run knip` で行う（CI の `code_validation.yml` matrix 6 本から `fix` を除いた 5 種。`fix` は commit 時の hook が担うため手動実行は不要で、CI の fix job は未 fix のまま commit されていないかの gate）。pnpm 11 は `pnpm run` 実行時に node_modules を自動インストールするため、事前の手動 install は不要。
+全チェックはルートの `pnpm run typecheck:all` / `pnpm run lint:all` / `pnpm run test:all` / `pnpm run build:all` / `pnpm run knip` で行う（CI の `code_validation.yml` matrix 5 本と同一）。`fix` は commit 時の hook が担うため手動実行は不要で、PR の gate にも入れない。取りこぼした整形差分は `daily-fix.yml` が日次で `fix:all` を全件実行し、bot PR + auto merge で返済する。pnpm 11 は `pnpm run` 実行時に node_modules を自動インストールするため、事前の手動 install は不要。
 
 - import の整理（未使用 import の削除、並び替え）は commit 時に lint が自動実行する。手動で整理しない
 

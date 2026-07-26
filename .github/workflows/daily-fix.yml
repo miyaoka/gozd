@@ -1,0 +1,80 @@
+# 日次で fix:all を全件実行し、ドリフトがあれば bot PR を作って auto merge する。
+# 差分ゼロなら何もしない（空振り＝その日に整形ドリフトが無いことの証明）。
+#
+# - main push を trigger にしない。fix PR のマージ自体が main push であり自己再帰する
+# - App token を使う。GITHUB_TOKEN で作った PR は pull_request が発火せず code_validation が
+#   走らないため、required status check の all-green が永久に付かず手動マージもできなくなる
+# - App token の生成は fix:all の後。install と fix:all は third-party コードを実行するため、
+#   その間 job 内に write 権限のトークンを置かない（scope 絞りでは存在自体を防げない）
+name: daily-fix
+
+on:
+  schedule:
+    # 03:23 JST。毎正時は GitHub の cron が混んで遅延しやすいので避ける
+    - cron: "23 18 * * *"
+  workflow_dispatch:
+
+# cancel はしない: PR 作成途中の cancel は固定ブランチだけ進んだ状態を残す
+concurrency:
+  group: daily-fix
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  daily-fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          # create-pull-request が既存ブランチとの差分算出に全履歴を要求する
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-environment
+
+      # 各 package の fix は lint --fix → oxfmt の順で formatter が最後に走るため 1 パスで
+      # 固定点に達する。収束を待つループは不要
+      - name: Run fix:all
+        run: pnpm run fix:all
+
+      # workflows は oxfmt の対象に .github/workflows/*.yml が含まれるため必須。無いと yml が
+      # ドリフトした日に create-a-tree が 403 になり bot が恒久停止する。
+      # owner / repositories は指定しない（両方未指定なら action が現 repo 1 個に scope する）
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.GOZD_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.GOZD_BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+
+      # add-paths で絞らないのは fix:all の対象が repo 全域に及ぶため。裏を返せば working tree に
+      # 現れたものは何でも commit されて auto merge で無審査に main へ入る
+      - name: Create or update fix PR
+        id: cpr
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          base: main
+          branch: bot/daily-fix
+          sign-commits: true
+          delete-branch: true
+          # style は release workflow の canary 発火判定（feat / fix）に掛からない
+          commit-message: "style: repay lint and format drift found by fix:all"
+          title: "style: repay lint and format drift found by fix:all"
+          body: Automated PR from the daily `daily-fix` workflow. It runs `fix:all` across the whole repo and repays the lint / format drift it finds.
+
+      # --delete-branch は付けない: gh の deleteRemoteBranch は autoMerge 経路で早期 return する
+      # no-op であり、削除は repo 設定の delete_branch_on_merge が担う
+      - name: Enable auto-merge
+        if: steps.cpr.outputs.pull-request-number != '' && steps.cpr.outputs.pull-request-operation != 'closed'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
+        run: gh pr merge --auto --merge "$PR_NUMBER"

@@ -30,6 +30,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # ルートの集約スクリプトは 6 種あるが、matrix は fix を除いた 5 本。自動修正できる
+          # 違反で PR を止めず、daily-fix workflow が日次の全件実行で返済する
+          # （.github/workflows/daily-fix.yml）
+          #
           # diff_command に --include-workspace-root は要らない: 正のフィルタ（`--filter`）を
           # 与えると pnpm は root project を除外しないため、root 直下ファイルの変更でも root は
           # 選択される。逆に full_command 側の `pnpm -r`（*:all）はフィルタが無く root が
@@ -41,13 +45,6 @@ jobs:
           - name: lint
             diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only lint
             full_command: pnpm run lint:all
-
-          # fix（oxlint --fix / eslint --fix + oxfmt）を実行し、working tree に
-          # 差分が出たら fail する。フォーマット崩れ・自動修正可能な lint 違反が
-          # commit されていないことを保証する
-          - name: fix
-            diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only fix && git diff --exit-code
-            full_command: pnpm run fix:all && git diff --exit-code
 
           - name: test
             diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only test

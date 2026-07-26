@@ -21,7 +21,7 @@ interface Props {
 }
 
 const props = defineProps<Props>();
-const { close, move, bringToFront, takeHandoff, promote, demote } = useUndockedLog();
+const { close, move, takeHandoff, promote, demote } = useUndockedLog();
 
 // popover ヘッダのドラッグから undock された場合の引き継ぎ。setup で 1 回だけ消費する
 // (undock() → 描画フラッシュ → setup が同期で完結するため、setup 時点で必ず取得できる)。
@@ -34,13 +34,11 @@ const handoff = takeHandoff(props.log.id);
     :y="log.y"
     :content-width="log.contentWidth"
     :content-height="log.contentHeight"
-    :close-request-epoch="log.closeRequestEpoch"
     :child="log.child"
     :title="log.title"
     :block-close="false"
     :handoff="handoff"
     @move="(x, y) => move(log.id, x, y)"
-    @activate="bringToFront(log.id)"
     @promote="promote(log.id, $event)"
     @promote-failed="demote(log.id)"
     @close-requested="close(log.id)"

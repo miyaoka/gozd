@@ -16,11 +16,11 @@
 
 <script setup lang="ts">
 import { TITLEBAR_HEIGHT } from "@gozd/shared";
-import { useEventListener, useWindowSize } from "@vueuse/core";
+import { useWindowSize } from "@vueuse/core";
 import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
-import { isIMEActive, useCommandRegistry, useContextKeys } from "../../shared/command";
+import { useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
-import { useSurface } from "../../shared/surface";
+import { closeFrontSurface, hasOpenSurface, useSurface } from "../../shared/surface";
 import { registerFilerCommands } from "../filer";
 import { GitGraphPane } from "../git-graph";
 import { NavigatorPane } from "../navigator";
@@ -77,20 +77,15 @@ const disposePreviewToggle = register("preview.toggle", {
     return true;
   },
 });
-const disposePreviewClose = register("preview.close", {
-  label: "Preview: Close",
-  // Cmd+W は「フォーカスのあるサーフェスを閉じる」意味論。複数サーフェスで共有するキーで、解決は
-  // 優先順位を持たず実効条件で排他にする契約 (docs/keybinding.md) なので、フォーカスを持つ
-  // サーフェスがどれも Cmd+W を主張していないときだけ popover を閉じる
-  keybinding: {
-    key: "cmd+w",
-    when: "previewVisible && !terminalFocus && !childWindowFocused && !floatingWindowFocused",
-  },
-  handler: () => {
-    if (!previewStore.isOpen) return false;
-    previewStore.requestClose();
-    return true;
-  },
+// ESC と Cmd+W は同義で「最前面のサーフェスを閉じる」(shared/surface)。宛先はフォーカスでは
+// なく重ね順で決まるため、サーフェスの種類ごとに when を書き分けない。child window は別 OS
+// ウィンドウで自前の close を持つため除外する。
+watch(hasOpenSurface, (has) => contextKeys.set("surfaceVisible", has), { immediate: true });
+const disposeSurfaceClose = register("surface.closeFront", {
+  label: "Close Front Panel",
+  precondition: "surfaceVisible",
+  keybinding: { key: ["cmd+w", "escape"], when: "!childWindowFocused" },
+  handler: () => closeFrontSurface(),
 });
 const disposeWindowClose = register("window.close", {
   label: "Window: Close",
@@ -111,7 +106,7 @@ const disposeReviveCommand = registerReviveCommand();
 const disposeMarkdownHistoryCommands = registerMarkdownHistoryCommands();
 const disposeFilerCommands = registerFilerCommands();
 onUnmounted(disposePreviewToggle);
-onUnmounted(disposePreviewClose);
+onUnmounted(disposeSurfaceClose);
 onUnmounted(disposeWindowClose);
 onUnmounted(disposeThemeCommand);
 onUnmounted(disposeSettingsCommand);
@@ -268,25 +263,6 @@ watch(
   { immediate: true },
 );
 
-// ESC で preview を閉じる。popover="manual" によって OS の auto dismiss が無いため、
-// HTML popover が popover="auto" で持っていた ESC dismiss の性質を自前で代替する。
-// 他の popover (BlamePopover 等) や dialog (SettingsModal 等) が前面にあるときはそちらに ESC を譲り、
-// すべて閉じた次の ESC で preview を閉じる。preventDefault は macOS の NSBeep 抑止に必須。
-// 編集は常時編集 (edit mode トグル無し) のため ESC に編集系の意味は無い。未保存 draft が
-// あれば requestClose の確認 (Save / Don't Save / Cancel) を挟む (close で破棄されるため)。
-useEventListener(document, "keydown", (e: KeyboardEvent) => {
-  if (e.defaultPrevented) return;
-  if (isIMEActive(e) || e.key !== "Escape") return;
-  if (!previewStore.isOpen) return;
-  const otherPopoverOpen = Array.from(document.querySelectorAll<HTMLElement>(":popover-open")).some(
-    (el) => el !== previewPopoverRef.value,
-  );
-  if (otherPopoverOpen) return;
-  if (document.querySelector("dialog[open]") !== null) return;
-  e.preventDefault();
-  previewStore.requestClose();
-});
-
 /** 中央カラム内 Terminal の DOM 実測高さ（flex-1 のため v-model 不可） */
 function getCenterTerminalHeight(): number {
   return centerTerminalRef.value?.offsetHeight ?? TERMINAL_MIN_HEIGHT;
@@ -305,7 +281,7 @@ watch(
   },
   { immediate: true },
 );
-const { raise } = useSurface(previewPopoverRef);
+const { raise } = useSurface(previewPopoverRef, () => previewStore.requestClose());
 </script>
 
 <template>

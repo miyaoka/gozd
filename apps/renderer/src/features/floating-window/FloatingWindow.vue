@@ -15,10 +15,11 @@ promote ボタンは「このパネルを別 OS ウィンドウへ昇格させ�
 実行主体はシェルではない (state の書き換えは store、中身の描画は consumer) が、rect を
 測れるのは自分だけなので測定はここが担う。
 
-キー入力の宛先はフォーカスで決める: root を `tabindex="-1"` で focusable にし、focusin /
+Cmd+S の宛先はフォーカスで決める: root を `tabindex="-1"` で focusable にし、focusin /
 focusout を floatingWindowCommands の activate / deactivate に変換する。これで
-`floatingWindowFocused` の when 条件で Cmd+W / Cmd+S がこのパネル宛に解決され、popover が
-開いたままでも popover 側の close / save を誤射しない (child window と同じ規律)。
+`floatingWindowFocused` の when 条件で Cmd+S がこのパネル宛に解決され、他サーフェスの save を
+誤射しない (child window と同じ規律)。close は重ね順で決まるため (ESC / Cmd+W は最前面の
+サーフェスを閉じる)、フォーカスでは分岐しない。
 
 - ドラッグ移動は pointer capture ではなく window レベルの listener で追従する。capture に
   しないのは drag handoff のため: undock 元ヘッダのドラッグで undock する経路では、掴んでいた
@@ -51,7 +52,7 @@ focusout を floatingWindowCommands の activate / deactivate に変換する。
 <script setup lang="ts">
 import { TITLEBAR_HEIGHT } from "@gozd/shared";
 import { useEventListener } from "@vueuse/core";
-import { onBeforeUnmount, onMounted, onUnmounted, useTemplateRef, watch } from "vue";
+import { onBeforeUnmount, onMounted, onUnmounted, useTemplateRef } from "vue";
 import { hideSurface, showSurface, useSurface } from "../../shared/surface";
 import { type ChildWindowInit, toChildWindowInit } from "./childWindowInit";
 import {
@@ -70,8 +71,6 @@ interface Props {
   y: number;
   contentWidth: number;
   contentHeight: number;
-  /** 外部からの close 要求 epoch (FloatingWindowState.closeRequestEpoch)。 */
-  closeRequestEpoch: number;
   /** undock 元から引き継いだドラッグ (consumer が takeHandoff() で消費して渡す)。 */
   handoff?: UndockDragHandoff;
 }
@@ -80,9 +79,8 @@ const props = defineProps<Props>();
 
 const emit = defineEmits<{
   move: [x: number, y: number];
-  activate: [];
-  /** 閉じたい要求 (close ボタン / closeRequestEpoch の増加 / cmd+w)。パネル自身は state を
-   * 消す権限を持たないため、close ではなく常に「要求」を emit する。 */
+  /** 閉じたい要求 (close ボタン / ESC / Cmd+W)。パネル自身は state を消す権限を持たないため、
+   * close ではなく常に「要求」を emit する。 */
   closeRequested: [];
   /** cmd+s (floatingWindow.save) の要求。保存の可否・実処理は consumer の知識。 */
   saveRequested: [];
@@ -90,27 +88,8 @@ const emit = defineEmits<{
   promote: [init: ChildWindowInit];
 }>();
 
-// 外部 close 要求 (closeFront 等) を close ボタンと同じ emit に合流させる。close の可否判断
-// (未保存確認等) は consumer が担う (useFloatingWindows の doc 参照)。
-watch(
-  () => props.closeRequestEpoch,
-  () => {
-    emit("closeRequested");
-  },
-);
-
-/**
- * click-to-front。DOM の重ね順 (top layer) と store の frontOrder を同じ 1 イベントから書く。
- * store 側は cmd+w の closeFront が最前面の 1 枚を選ぶために要る (FloatingWindowState 参照)。
- */
-function onActivate() {
-  emit("activate");
-  raise();
-}
-
 // ==== キー入力の宛先 (doc 参照) ====
 const focusHandle: FloatingWindowHandle = {
-  requestClose: () => emit("closeRequested"),
   requestSave: () => emit("saveRequested"),
 };
 function onFocusIn() {
@@ -137,7 +116,7 @@ onBeforeUnmount(() => {
 const GRAB_MARGIN = 80;
 
 const rootRef = useTemplateRef<HTMLElement>("root");
-const { raise } = useSurface(rootRef);
+const { raise } = useSurface(rootRef, () => emit("closeRequested"));
 
 // ドラッグ中の pointer と、pointer からウィンドウ原点へのオフセット。ドラッグ中のみ定義。
 let dragState: { pointerId: number; offsetX: number; offsetY: number } | undefined;
@@ -152,14 +131,8 @@ let dragState: { pointerId: number; offsetX: number; offsetY: number } | undefin
 onMounted(() => {
   const root = rootRef.value;
   // 表示は実測の成否に依らず先に行う (下の early return より前に置く)。undock 直後のパネルは
-  // 「今まさに操作されたもの」なので、show 順の規則でそのまま最前面に載る。
-  // frontOrder も同時に採番する: 新規 undock では既に最大値なので no-op だが、demote による
-  // 再 mount は frontOrder を据え置いたまま DOM だけ最前面になるため、揃えないと cmd+w の
-  // closeFront が見えている最前面と違うパネルを選ぶ
-  if (root !== null) {
-    showSurface(root);
-    emit("activate");
-  }
+  // 「今まさに操作されたもの」なので、show 順の規則でそのまま最前面に載る
+  if (root !== null) showSurface(root);
   // ヘッダは自テンプレートの先頭子 (子コンポーネントの $el を覗くと、その root 構造の変化で
   // 実測が黙って飛ぶ)
   const header = root?.firstElementChild;
@@ -353,7 +326,7 @@ useEventListener(window, "pointercancel", endDrag);
       left: `min(${x}px, calc(100vw - ${GRAB_MARGIN}px))`,
       top: `clamp(var(--titlebar-height), ${y}px, calc(100vh - ${GRAB_MARGIN}px))`,
     }"
-    @pointerdown.capture="onActivate()"
+    @pointerdown.capture="raise()"
     @focusin="onFocusIn()"
     @focusout="onFocusOut"
   >

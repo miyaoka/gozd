@@ -1,4 +1,6 @@
 export {
+  closeFrontSurface,
+  hasOpenSurface,
   hideSurface,
   pinSurface,
   raiseSurface,

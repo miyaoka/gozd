@@ -7,11 +7,11 @@
  *
  * top layer の順序は `showPopover()` の**呼び出し順**が SSOT で、z-index では越えられない。
  * したがって前面化は「hide してから show し直す」しか手段がなく、開閉と前面化を同じ 1 箇所に
- * 集約しないと「今どれが最前面か」を誰も知らない状態になる。本モジュールが最前面の 1 枚を
- * 覚えるのは、既に最前面のサーフェスへの再 show (= 無意味な hide/show) を弾くためで、
- * 順序そのものの SSOT はあくまでブラウザ側の top layer にある。この memo が嘘にならないよう、
- * サーフェスの開閉は必ず本モジュールを通す (素の `showPopover()` を呼ぶと memo が腐り、
- * 以後その要素への `raiseSurface` が黙って no-op になる)。
+ * 集約しないと「今どれが最前面か」を誰も知らない状態になる。本モジュールが前面順を控えるのは、
+ * 無意味な積み直しを弾くためと「最前面を閉じる」を解決するためで、順序そのものの SSOT は
+ * あくまでブラウザ側の top layer にある。この控えが嘘にならないよう、サーフェスの開閉は必ず
+ * 本モジュールを通す (素の `showPopover()` を呼ぶと控えが腐り、以後その要素への `raiseSurface`
+ * が黙って no-op になり、close の宛先もずれる)。
  *
  * この hide → show は見た目のコストを持たない。スタイル再計算は次のレンダリング更新まで
  * 遅延され、2 つの呼び出しの間にジオメトリ読み取り (強制同期レイアウト) を挟まないため、
@@ -19,18 +19,19 @@
  * リセットも入場アニメーションの再生も起きない。一方 top layer の順序はレンダリングでは
  * なくドキュメントの状態なので、具現化を待たずに変わる。
  *
- * フォーカスの退避は本モジュールでは持たない。`hidePopover()` はフォーカスがその要素の中に
- * あるときだけ外へ落とすが、積み直しの対象にフォーカスがある状況は普通に起きる (前面化は
- * クリックだけでなく open でも起きるため、「最前面 = フォーカスがある」は成立しない。例:
- * preview を編集中にタイトルバーのボタンで別パネルを開くとフォーカスは preview に残る)。
- * 落ちたフォーカスの行き先は経路ごとに違うため、**呼び出し側が持つ**契約にしている
- * (`raiseSurface` の docstring)。
+ * フォーカスの退避は持たない。`hidePopover()` はフォーカスがその要素の中にあるとき外へ落とすが、
+ * 積み直しの発火源であるクリック自体が同じことをする — 非 focusable な領域を押せば、既定動作が
+ * 最も近い focusable な祖先へ移し、無ければ body へ落とす。積み直しの有無でフォーカスの行き先は
+ * 変わらないため、退避しても復元先は同じになる。
  *
- * サーフェスの root はいずれも `tabindex="-1"` + `outline-hidden` を持つ。クリック経路が
- * フォーカスの行き先として root を使うためで、root が focusable でないとフォーカスが body へ
- * 抜ける (既定動作は最も近い focusable な祖先を選ぶ)。tab 到達不能な面へのルーティングなので
- * focus ring は出さない。`outline-none` ではなく `outline-hidden` なのは、forced-colors mode
- * では outline を残すため (Tailwind v4 で意味が分かれた 2 つのうち後者が従来の挙動)。
+ * ## 閉じる順序
+ *
+ * ESC と Cmd+W は同義で「最前面のサーフェスを閉じる」。開く順序と閉じる順序が別の規則を持つと、
+ * 見えている前面と操作対象が食い違う。close の実処理 (未保存確認等) はサーフェスごとに違うため、
+ * `useSurface` の登録時に受け取ったハンドラへ委譲する。
+ *
+ * モーダル (`<dialog>`) とメニュー (`popover="auto"`) には譲る。前者は UA の cancel が ESC を
+ * 処理し、後者は UA の light-dismiss が閉じるので、こちらまで同時に閉じない。
  *
  * ## pin (常時最前面)
  *
@@ -44,11 +45,64 @@
  * dialog より後に top layer へ入ると modal の上に見える。SettingsModal の doc 参照)。
  */
 
-/** 最前面のサーフェス。無駄な hide/show を弾くための memo (詳細は module docstring)。 */
-let frontSurface: HTMLElement | undefined;
+import { computed, shallowRef } from "vue";
+
+/**
+ * 開いているサーフェスを前面順に持つ (末尾が最前面)。無駄な hide/show を弾く memo と、
+ * 「最前面を閉じる」の解決を兼ねる。shallowRef なのは要素を reactive proxy で包まないため。
+ */
+const openSurfaces = shallowRef<HTMLElement[]>([]);
+
+/** サーフェスごとの close 要求。登録は `useSurface`。 */
+const closeHandlers = new Map<HTMLElement, () => void>();
 
 /** 常時最前面に留める要素 (module docstring の pin セクション)。 */
 const pinnedSurfaces = new Set<HTMLElement>();
+
+/** 開いているサーフェスが 1 枚でもあるか (close コマンドの when 条件の source)。 */
+export const hasOpenSurface = computed(() => openSurfaces.value.length > 0);
+
+/** el を前面順の末尾へ移す (既にあれば取り除いてから積む)。 */
+function moveToFront(el: HTMLElement): void {
+  openSurfaces.value = [...openSurfaces.value.filter((s) => s !== el), el];
+}
+
+/**
+ * close 要求の宛先を登録する。開閉とは独立で mount 中ずっと登録されたまま
+ * (開いているかどうかは openSurfaces が持つ)。
+ */
+export function registerSurfaceClose(el: HTMLElement, requestClose: () => void): void {
+  closeHandlers.set(el, requestClose);
+}
+
+export function unregisterSurfaceClose(el: HTMLElement): void {
+  closeHandlers.delete(el);
+}
+
+/**
+ * 最前面のサーフェスに close を要求する。閉じるものが無ければ false。
+ *
+ * モーダル / メニューが開いていれば譲る (module docstring)。メニューの判定は「開いている
+ * popover のうち、サーフェスでも pin でもないもの」— 種類を列挙するのではなく、自分が
+ * 知っているものの補集合として引く。
+ */
+export function closeFrontSurface(): boolean {
+  const front = openSurfaces.value.at(-1);
+  if (front === undefined) return false;
+  if (document.querySelector("dialog[open]") !== null) return false;
+  const foreignPopoverOpen = [...document.querySelectorAll<HTMLElement>(":popover-open")].some(
+    (el) => !openSurfaces.value.includes(el) && !pinnedSurfaces.has(el),
+  );
+  if (foreignPopoverOpen) return false;
+  const requestClose = closeHandlers.get(front);
+  if (requestClose === undefined) {
+    // 登録漏れ。close が黙って効かない状態になるため観察ログを残す
+    console.error("[topLayerSurface] closeFrontSurface: no close handler for front surface");
+    return false;
+  }
+  requestClose();
+  return true;
+}
 
 /** pin 済みを top layer の最後へ積み直す。開いていないものは対象外。 */
 function restackPinned(): void {
@@ -62,14 +116,14 @@ function restackPinned(): void {
 /** サーフェスを開く。show 順の規則により、開いたサーフェスがそのまま最前面になる。 */
 export function showSurface(el: HTMLElement): void {
   el.showPopover();
-  frontSurface = el;
+  moveToFront(el);
   restackPinned();
 }
 
 /** サーフェスを閉じる。 */
 export function hideSurface(el: HTMLElement): void {
   el.hidePopover();
-  if (frontSurface === el) frontSurface = undefined;
+  openSurfaces.value = openSurfaces.value.filter((s) => s !== el);
 }
 
 /**
@@ -86,10 +140,10 @@ export function hideSurface(el: HTMLElement): void {
  *   呼び出し側が明示的にフォーカスを移す (MainLayout のフォーカス移送 watch)
  */
 export function raiseSurface(el: HTMLElement): void {
-  if (frontSurface === el || !el.matches(":popover-open")) return;
+  if (openSurfaces.value.at(-1) === el || !el.matches(":popover-open")) return;
   el.hidePopover();
   el.showPopover();
-  frontSurface = el;
+  moveToFront(el);
   restackPinned();
 }
 

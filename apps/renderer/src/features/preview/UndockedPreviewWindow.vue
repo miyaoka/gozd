@@ -85,7 +85,7 @@ interface Props {
 }
 
 const props = defineProps<Props>();
-const { close, move, bringToFront, takeHandoff, promote, demote } = useUndockedPreview();
+const { close, move, takeHandoff, promote, demote } = useUndockedPreview();
 const worktreeStore = useWorktreeStore();
 const repoStore = useRepoStore();
 const previewStore = usePreviewStore();
@@ -337,13 +337,11 @@ function dockToPreview() {
     :y="preview.y"
     :content-width="preview.contentWidth"
     :content-height="preview.contentHeight"
-    :close-request-epoch="preview.closeRequestEpoch"
     :child="preview.child"
     :title="preview.fileName"
     :block-close="isDirty"
     :handoff="handoff"
     @move="(x, y) => move(preview.id, x, y)"
-    @activate="bringToFront(preview.id)"
     @promote="promote(preview.id, $event)"
     @promote-failed="demote(preview.id)"
     @close-requested="guardedClose"

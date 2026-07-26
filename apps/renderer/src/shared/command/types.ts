@@ -27,8 +27,11 @@ export type CommandInput = CommandHandler | CommandDescriptor;
  * 独立したテーブルではなくコマンド記述子に同居させる。
  */
 interface KeyBindingSpec {
-  /** VS Code 互換形式: "cmd+d", "alt+cmd+up" */
-  key: string;
+  /**
+   * VS Code 互換形式: "cmd+d", "alt+cmd+up"。配列で同義キーを複数割り当てられる
+   * (同じ意味の操作に別のキーを与える用途。異なる意味を 1 コマンドに束ねない)
+   */
+  key: string | string[];
   /**
    * キー割り当ての追加条件。実効条件は precondition との AND なので、
    * precondition で既に効いている key を再掲しない。
@@ -39,9 +42,9 @@ interface KeyBindingSpec {
 
 /** register 時に parse 済みの keybinding */
 export interface ResolvedKeyBinding {
-  /** 宣言時の key 文字列。パレットのキー表示に使う */
-  key: string;
-  stroke: KeyStroke;
+  /** 宣言時の key 文字列 (宣言順)。パレットのキー表示に使う */
+  keys: string[];
+  strokes: KeyStroke[];
   /** precondition と when を AND 済みの実効条件 */
   when: When | undefined;
 }
@@ -83,8 +86,8 @@ export interface ContextMap {
   previewVisible: boolean;
   /** Preview に編集セッションが張られている（編集可能な content を表示中） */
   previewEditable: boolean;
-  /** undock された in-app パネルが 1 枚でも存在する（昇格済みの OS ウィンドウは数えない） */
-  floatingWindowVisible: boolean;
+  /** top layer のサーフェス（右ドックパネル / undock パネル）が 1 枚でも開いている */
+  surfaceVisible: boolean;
   /** undock された in-app パネル内にフォーカスがある */
   floatingWindowFocused: boolean;
   /** undock された child window（別 OS ウィンドウ）が OS フォーカスを持つ */

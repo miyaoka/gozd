@@ -99,11 +99,12 @@ export function registerTerminalCommands(
 
     registry.register("terminal.closePane", {
       label: "Terminal: Close Pane",
-      // Cmd+W は複数サーフェスで共有するキー。解決は優先順位を持たず実効条件で排他にする契約
-      // (docs/keybinding.md) なので、フォーカスが terminal にあるときだけ成立させる
+      // Cmd+W はサーフェス (popover) が開いていればそちらを閉じる契約なので、terminal pane を
+      // 閉じるのは 1 枚も開いていないときだけ。解決は優先順位を持たず実効条件で排他にする
+      // (docs/keybinding.md)
       keybinding: {
         key: "cmd+w",
-        when: "terminalFocus && !childWindowFocused && !floatingWindowFocused",
+        when: "terminalFocus && !surfaceVisible && !childWindowFocused",
       },
       handler: () => {
         const active = getFocusedLayout();

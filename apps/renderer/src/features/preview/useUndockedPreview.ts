@@ -90,6 +90,6 @@ export type UndockedPreview = UndockedPreviewData & FloatingWindowState;
 const store = createFloatingWindows<UndockedPreviewData>("undockedPreview");
 
 export function useUndockedPreview() {
-  const { windows, undock, takeHandoff, close, move, bringToFront, promote, demote } = store;
-  return { previews: windows, undock, takeHandoff, close, move, bringToFront, promote, demote };
+  const { windows, undock, takeHandoff, close, move, promote, demote } = store;
+  return { previews: windows, undock, takeHandoff, close, move, promote, demote };
 }

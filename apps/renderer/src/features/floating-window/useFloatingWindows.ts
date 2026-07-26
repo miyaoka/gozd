@@ -16,15 +16,15 @@
  * まま不変で、リサイズの SSOT はリサイズハンドラが書く DOM の inline style に移る
  * (FloatingWindow の doc 参照)。
  *
- * 前面化の順序 (frontOrder) は全 factory instance で共有するカウンタで採番する。種類の異なる
- * ウィンドウも同じサーフェス列に並ぶため、カウンタを instance ごとに分けると種類を跨いだ
- * bring-to-front が効かなくなる。
+ * 重ね順と close の宛先は本 store の関心ではない。パネルは top layer のサーフェス 1 枚として
+ * `shared/surface` に登録され、前面化 (クリック) と「最前面を閉じる」(ESC / Cmd+W) はそちらが
+ * 一括で解決する。本 store が持つのは payload と位置 / 初期サイズ / 昇格状態だけ。
  *
  * undock 直後は in-app パネルで、`promote()` で別 OS ウィンドウへ昇格する。昇格後も entry は
  * 同じ id のまま残り (payload の所有者は 1 つ)、`child` の有無が「今どちらの presentation で
  * 描かれているか」の SSOT になる (切り替えは UndockedWindow が担う)。
  */
-import { computed, ref, shallowReactive, type Ref } from "vue";
+import { ref, type Ref } from "vue";
 import type { ChildWindowInit } from "./childWindowInit";
 
 /**
@@ -50,70 +50,8 @@ export interface FloatingWindowState {
    */
   contentWidth: number;
   contentHeight: number;
-  /**
-   * 最後に前面化された順序。大きいほど手前 (cmd+w の closeFront が最前面の 1 枚を選ぶ判定に
-   * 使う)。実際の描画順は DOM の top layer が持ち、本フィールドはそれと同じ `activate` イベント
-   * から書かれる控え (`shared/surface` は最前面 1 枚しか覚えないため、パネル群の中の順序を
-   * DOM に問い合わせる手段がない)。
-   */
-  frontOrder: number;
-  /**
-   * 外部 (cmd+w の closeFrontFloatingWindow 等) からの close 要求 epoch。増加をシェルが
-   * closeRequested emit へ変換し、consumer の close 経路 (未保存確認ガード込み) に合流させる。
-   * store が直接 close しないのは、close してよいかの判断 (dirty 確認等) が consumer の
-   * 知識のため。
-   */
-  closeRequestEpoch: number;
-  /**
-   * OS ウィンドウへ昇格済みなら child window の生成パラメータ (`promote()` が書く)。
-   * 定義されている entry は in-app パネルとして数えない — cmd+w の
-   * closeFrontFloatingWindow / floatingWindowVisible の対象は「main window 内に見えている
-   * パネル」であり、昇格後のウィンドウは OS フォーカス側の `childWindow.close` が担うため。
-   */
+  /** OS ウィンドウへ昇格済みなら child window の生成パラメータ (`promote()` が書く)。 */
   child?: ChildWindowInit;
-}
-
-// 全 factory instance で共有する前面化順序のカウンタ (モジュール docstring 参照)。
-let frontOrderTop = 0;
-
-/**
- * 全 factory instance の registry。種類の異なるウィンドウを跨いで
- * 「最前面の 1 枚」を特定するために module で持つ。Ref の invariance を避けるため
- * windows は getter で覆って FloatingWindowState[] へ covariant に読み出す。
- * shallowReactive なのは、consumer module の HMR 再実行で instance が後から増えても
- * hasFloatingWindow の computed が追跡し直せるようにするため。
- */
-const instances = shallowReactive<
-  { getWindows: () => readonly FloatingWindowState[]; requestClose: (id: number) => void }[]
->([]);
-
-/** in-app パネルとして描かれている (= 昇格していない) window だけを列挙する。 */
-function inAppWindows(instance: { getWindows: () => readonly FloatingWindowState[] }) {
-  return instance.getWindows().filter((win) => win.child === undefined);
-}
-
-/** undock された in-app パネルが 1 枚でも存在するか (floatingWindowVisible context key の source)。 */
-export const hasFloatingWindow = computed(() =>
-  instances.some((instance) => inAppWindows(instance).length > 0),
-);
-
-/**
- * 全種の in-app パネルのうち最前面 (frontOrder 最大) の 1 枚に close を要求する。1 枚も無ければ false。
- * 即 close ではなく closeRequestEpoch 経由で consumer の close 経路 (未保存確認ガード込み) に
- * 合流させるため、要求後もパネルが (確認 Cancel で) 残ることがある。
- */
-export function closeFrontFloatingWindow(): boolean {
-  let front: { requestClose: (id: number) => void; id: number; frontOrder: number } | undefined;
-  for (const instance of instances) {
-    for (const win of inAppWindows(instance)) {
-      if (front === undefined || win.frontOrder > front.frontOrder) {
-        front = { requestClose: instance.requestClose, id: win.id, frontOrder: win.frontOrder };
-      }
-    }
-  }
-  if (front === undefined) return false;
-  front.requestClose(front.id);
-  return true;
 }
 
 export function createFloatingWindows<T>(label: string) {
@@ -123,11 +61,11 @@ export function createFloatingWindows<T>(label: string) {
   let pendingHandoff: ({ id: number } & UndockDragHandoff) | undefined;
 
   function undock(
-    input: T & Omit<FloatingWindowState, "id" | "frontOrder" | "closeRequestEpoch" | "child">,
+    input: T & Omit<FloatingWindowState, "id" | "child">,
     handoff?: UndockDragHandoff,
   ) {
     const id = nextId++;
-    windows.value.push({ ...input, id, frontOrder: ++frontOrderTop, closeRequestEpoch: 0 });
+    windows.value.push({ ...input, id });
     if (handoff !== undefined) pendingHandoff = { id, ...handoff };
   }
 
@@ -171,27 +109,11 @@ export function createFloatingWindows<T>(label: string) {
     windows.value = windows.value.filter((w) => w.id !== id);
   }
 
-  /** 外部からの close 要求 (FloatingWindowState.closeRequestEpoch の docstring 参照) */
-  function requestClose(id: number) {
-    const win = findWindow(id, "requestClose");
-    if (win === undefined) return;
-    win.closeRequestEpoch++;
-  }
-
   function move(id: number, x: number, y: number) {
     const win = findWindow(id, "move");
     if (win === undefined) return;
     win.x = x;
     win.y = y;
-  }
-
-  function bringToFront(id: number) {
-    const win = findWindow(id, "bringToFront");
-    if (win === undefined) return;
-    // frontOrderTop は全種共有のため、他種のウィンドウが後から undock されていれば
-    // frontOrder !== frontOrderTop になり正しく再前面化される
-    if (win.frontOrder === frontOrderTop) return;
-    win.frontOrder = ++frontOrderTop;
   }
 
   /**
@@ -216,7 +138,5 @@ export function createFloatingWindows<T>(label: string) {
     win.child = undefined;
   }
 
-  instances.push({ getWindows: () => windows.value, requestClose });
-
-  return { windows, undock, takeHandoff, close, move, bringToFront, promote, demote };
+  return { windows, undock, takeHandoff, close, move, promote, demote };
 }

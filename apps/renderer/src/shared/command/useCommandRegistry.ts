@@ -44,9 +44,10 @@ function buildKeyBinding(
 ): ResolvedKeyBinding | undefined {
   const { keybinding } = descriptor;
   if (keybinding === undefined) return undefined;
+  const keys = Array.isArray(keybinding.key) ? keybinding.key : [keybinding.key];
   return {
-    key: keybinding.key,
-    stroke: parseKeyStroke(keybinding.key),
+    keys,
+    strokes: keys.map(parseKeyStroke),
     when: combineWhen(precondition, parseWhen(keybinding.when)),
   };
 }
@@ -123,7 +124,7 @@ function resolveKeyBinding(stroke: KeyStroke): CommandEntry | undefined {
   const matched = [...entries.values()].filter(
     (entry) =>
       entry.keybinding !== undefined &&
-      matchKeyStroke(stroke, entry.keybinding.stroke) &&
+      entry.keybinding.strokes.some((s) => matchKeyStroke(stroke, s)) &&
       contextKeys.evaluate(entry.keybinding.when),
   );
 

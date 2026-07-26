@@ -22,7 +22,7 @@ const KNOWN_KEYS = new Set<string>(
     filerFocus: true,
     previewVisible: true,
     previewEditable: true,
-    floatingWindowVisible: true,
+    surfaceVisible: true,
     floatingWindowFocused: true,
     childWindowFocused: true,
     commandPaletteVisible: true,

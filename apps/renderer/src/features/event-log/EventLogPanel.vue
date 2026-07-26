@@ -5,14 +5,13 @@
 
 ## 設計判断
 
-- ServerListPanel と同じ右ドック popover 流儀 (`popover="manual"` で top layer、ESC 自前閉じ)。
+- ServerListPanel と同じ右ドック popover 流儀。top layer のサーフェス 1 枚として `shared/surface` に載る (click-to-front / ESC・Cmd+W で最前面を閉じる)。
   z-index 競争から構造的に離脱するため。開閉 SSOT は useEventLogStore、ログの SSOT は shared/debug
 - 時刻は ms まで出す。frequency 観測が主目的で、秒単位だと連続発火の間隔が潰れるため
 - label 別に色を振り、実行 (fire/trailing) / 抑止 (coalesced/skip) / 失敗 (error) を一目で区別する
 </doc>
 
 <script setup lang="ts">
-import { useEventListener } from "@vueuse/core";
 import { computed, useTemplateRef, watch } from "vue";
 import { writeClipboardText } from "../../shared/clipboard";
 import { useDebugLog } from "../../shared/debug";
@@ -80,28 +79,17 @@ function labelClass(label: string): string {
   return LABEL_CLASS[label] ?? "text-primary-text";
 }
 
-// popover="manual" のため OS の auto dismiss が無い。ESC を自前で受けて閉じる
-// (ServerListPanel と同じく前面 modal dialog には譲る)。
-useEventListener(window, "keydown", (e: KeyboardEvent) => {
-  if (e.defaultPrevented) return;
-  if (e.code !== "Escape" || !store.isOpen) return;
-  if (document.querySelector("dialog[open]") !== null) return;
-  e.preventDefault();
-  store.close();
-});
-
 const panelRef = useTemplateRef<HTMLElement>("panel");
 // template ref が null に戻った時点 (unmount) に bindPopover(undefined) で dangling を切る。
 watch(panelRef, (el) => store.bindPopover(el ?? undefined), { immediate: true });
-const { raise } = useSurface(panelRef);
+const { raise } = useSurface(panelRef, () => store.close());
 </script>
 
 <template>
   <div
     ref="panel"
     popover="manual"
-    tabindex="-1"
-    class="_event-log-popover w-[420px] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl outline-hidden [&:popover-open]:flex"
+    class="_event-log-popover w-[420px] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl [&:popover-open]:flex"
     @pointerdown.capture="raise()"
   >
     <header class="flex items-center gap-2 border-b border-border px-3 py-2">

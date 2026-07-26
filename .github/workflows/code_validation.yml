@@ -52,6 +52,16 @@ jobs:
             diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only test
             full_command: pnpm run test:all
 
+          # bundler だけが検査できる領域の gate。import 指定子の解決（`?worker` や
+          # ambient `declare module` で型付けした deep import は typecheck から不可視で、
+          # lint も no-unresolved を持たない）と、pnpm patch が named export を実際に
+          # 復元できているか（Rollup は ESM の欠落 named export を error にする）は
+          # bundle しない限り分からない。これが無いと配布物が壊れる変更が全 job 緑で
+          # 通り、merge 後の release build が最初の検知点になる
+          - name: build
+            diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only build
+            full_command: pnpm run build
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

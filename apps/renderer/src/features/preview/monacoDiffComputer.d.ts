@@ -36,8 +36,6 @@ declare module "monaco-editor/editor/common/diff/defaultLinesDiffComputer/defaul
     /** 0 は無制限 */
     readonly maxComputationTimeMs: number;
     readonly computeMoves: boolean;
-    /** 変更範囲を単語より細かい部分語境界まで広げる */
-    readonly extendToSubwords?: boolean;
   }
 
   export class DefaultLinesDiffComputer {

@@ -32,11 +32,14 @@ import { useEventListener } from "@vueuse/core";
 import * as monaco from "monaco-editor";
 import { registerWindow } from "monaco-editor/base/browser/dom.js";
 import { ensureCodeWindow } from "monaco-editor/base/browser/window.js";
+// editor.worker は upstream で deprecated (src/deprecated/editor/editor.worker.ts) だが、自己起動
+// する代替エントリーが配布物に無い。参照先の `editor.worker.start` は internal 扱いなので、
+// self.onmessage の起動シーケンスを自前に置き換えない
 import editorWorker from "monaco-editor/editor/editor.worker?worker";
-import cssWorker from "monaco-editor/language/css/css.worker?worker";
-import htmlWorker from "monaco-editor/language/html/html.worker?worker";
-import jsonWorker from "monaco-editor/language/json/json.worker?worker";
-import tsWorker from "monaco-editor/language/typescript/ts.worker?worker";
+import cssWorker from "monaco-editor/languages/features/css/css.worker?worker";
+import htmlWorker from "monaco-editor/languages/features/html/html.worker?worker";
+import jsonWorker from "monaco-editor/languages/features/json/json.worker?worker";
+import tsWorker from "monaco-editor/languages/features/typescript/ts.worker?worker";
 import { getSingletonHighlighter } from "shiki";
 import { detectLang, SHIKI_THEME } from "./useHighlight";
 
@@ -243,9 +246,9 @@ function wireGutterBlame(
   };
 }
 
-// main window は Monaco (dom.js) が module 初期化で id=1 として自己登録する。child の id は
-// それと衝突しなければ何でもよい (衝突すると registry が「登録済み」と誤判定し、そのウィンドウは
-// silent に登録されない)。焼き込み済みウィンドウへの再呼び出しでも採番だけは進む
+// main window は Monaco (dom.js) が module 初期化で id=1 として自己登録するため 2 から採番する。
+// 焼き込み済みウィンドウへの再呼び出しでも採番だけは進む (条件付きにしない。単調増加である限り
+// キーの一意性は保たれる)
 let nextMonacoWindowId = 2;
 
 /**
@@ -264,8 +267,6 @@ let nextMonacoWindowId = 2;
 function registerMonacoWindow(el: HTMLElement): void {
   const win = el.ownerDocument.defaultView;
   if (win === null || win === window) return;
-  // registry のキーになる vscodeWindowId を焼き込む。assertion signature 経由で win が
-  // CodeWindow へ narrow され、未焼き込みのウィンドウを registerWindow に渡せなくなる
   ensureCodeWindow(win, nextMonacoWindowId++);
   const registration = registerWindow(win);
   useEventListener(win, "pagehide", () => registration.dispose(), { once: true });

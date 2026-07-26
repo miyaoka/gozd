@@ -60,7 +60,7 @@ jobs:
           # 通り、merge 後の release build が最初の検知点になる
           - name: build
             diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only build
-            full_command: pnpm run build
+            full_command: pnpm run build:all
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

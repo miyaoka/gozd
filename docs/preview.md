@@ -425,7 +425,7 @@ ChangesPane ヘッダの `PR #<n>` toggle が ON のとき、summary を含む�
 
 編集可能ファイルは **常時編集状態** で表示する（明示的な edit mode / Edit ボタンは存在しない。VS Code がファイルを開いたら即編集できるのと同じ）。編集面は Current タブ（CodePreview の `editable`）と Diff タブ（DiffPreview の Monaco diff editor。original readonly / modified 編集可）。対象は worktree 相対パスの実ファイル（`fsWriteFile`）と worktree 外の絶対パスの実ファイル（`fsWriteFileAbsolute`。設定 JSON / session log 等）。Original タブ・commit / PR diff モードは読み取り専用で、そこでは DiffPreview は自前 hunk 描画（blame / hunk 展開つき）の read-only 表示になる。commit / PR diff の読み取り専用 gate は worktreeRelative にのみ適用する: 絶対パスは git 文脈を持たず常に fs 実体の表示のため、git-graph の commit 選択が同居していても編集を塞がない。
 
-編集セッション（target / draft / saved）は `usePreviewEditStore` が SSOT で、編集可能な content が表示されると `usePreviewEdit` の watch が自動でセッションを張る。Current タブと Diff タブは同じ draft を共有するため、片方での未保存編集はもう片方にも反映される（Diff タブの current 側には draft を渡す）。保存は明示的（Cmd+S / Save ボタン。keybinding の when は `previewEditable` context key）で自動保存はしない。Diff タブ編集の描画パスと props → model 同期の設計は DiffPreview の `<doc>`「編集パス」を参照。
+編集セッション（target / draft / saved）は `usePreviewEditStore` が SSOT で、編集可能な content が表示されると `usePreviewEdit` の watch が自動でセッションを張る。Current タブと Diff タブは同じ draft を共有するため、片方での未保存編集はもう片方にも反映される（Diff タブの current 側には draft を渡す）。保存は明示的（Cmd+S / Save ボタン）で自動保存はしない。編集セッションがあるときだけ成立する。Diff タブ編集の描画パスと props → model 同期の設計は DiffPreview の `<doc>`「編集パス」を参照。
 
 保護境界は editMode フラグではなく **dirty（未保存変更の有無）**。外部変更（fsChange）や対象切替でない再取得は dirty の間だけ抑止し、クリーンなら追従してセッションを新しい内容で張り替える（VS Code のバッファと同じ意味論）。
 

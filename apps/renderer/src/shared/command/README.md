@@ -25,8 +25,8 @@ parseWhen.ts             ← when 文字列 → When AST 変換
 - `KeyStroke` — e.code ベースの物理キー表現（code + modifier flags）
 - `ContextMap` — context key 名と値型のマッピング。新しい context key はここに追加し、意味を doc コメントで併記する
 - `When` — 条件式の AST。`key` / `not` / `and` / `or` の tagged union
-- `KeyBindingSpec` — 記述子に書く既定 keybinding（key / when の文字列）
-- `ResolvedKeyBinding` — register 時に parse 済みの keybinding（stroke + precondition と AND 済みの when）
+- `KeyBindingSpec` — 記述子に書く既定 keybinding（key の文字列 or 同義キーの配列 / when の文字列）
+- `ResolvedKeyBinding` — register 時に parse 済みの keybinding（stroke 列 + precondition と AND 済みの when）
 
 ## parseKeyStroke — key 文字列の変換
 

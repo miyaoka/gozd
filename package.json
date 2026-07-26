@@ -13,10 +13,10 @@
     "format": "oxfmt .",
     "lint": "oxlint --type-aware",
     "fix": "oxfmt '!apps/**' '!packages/**'",
-    "lint:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only lint",
-    "fix:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only fix",
+    "lint:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only run lint",
+    "fix:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only run fix",
     "test": "bun test scripts",
-    "test:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only test",
+    "test:all": "pnpm -r --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only run test",
     "typecheck:all": "pnpm -r --include-workspace-root --if-present run typecheck",
     "knip": "knip",
     "prepare": "lefthook install"

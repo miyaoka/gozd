@@ -75,13 +75,13 @@ atom     = "!" atom | contextKey
 
 ## ディスパッチ（listener は useKeyBindings、解決は useCommandRegistry）
 
-keydown listener（capture phase）を**ウィンドウごとの document** に張り、解決系（command registry + context key）は単一を共有する。main window は `useKeyBindings()`（App.vue で 1 回）、child window は `useWindowKeyBindings(win)`（ウィンドウ生成側コンポーネントの setup で呼び、listener 寿命はその effect scope に載る）。
+keydown listener（Escape は bubble、それ以外は capture）を**ウィンドウごとの document** に張り、解決系（command registry + context key）は単一を共有する。main window は `useKeyBindings()`（App.vue で 1 回）、child window は `useWindowKeyBindings(win)`（ウィンドウ生成側コンポーネントの setup で呼び、listener 寿命はその effect scope に載る）。
 
 ### 除外判定（shouldHandle）
 
 キーイベントをコマンドシステムで処理すべきか判定する。以下は除外:
 
-- `e.defaultPrevented` — 他の capture listener が処理済み
+- `e.defaultPrevented` — 他の listener が処理済み（capture の別ハンドラ、または bubble なら内側のウィジェット）
 - `e.isComposing` — 日本語入力中
 - `e.repeat` — 連打
 

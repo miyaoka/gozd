@@ -5,13 +5,13 @@
 // 終わること。いずれも「どこで壊れても静かに壊れる」種類の不変条件で、実行層 (topLayerSurface)
 // は DOM に依存して bun test の対象にできないため、判断だけを純粋関数に寄せてここで押さえる。
 import { describe, expect, test } from "bun:test";
-import { front, isFront, planHide, planRaise, planShow } from "./surfaceStack";
+import { planHide, planRaise, planShow } from "./surfaceStack";
 
 const NO_PIN = { pinnedOpen: [] as string[] };
 
 describe("planShow", () => {
   test("show してからフォーカスを入れ、最後に pin を積み直す", () => {
-    const plan = planShow(["a"], "b", { hasFocusInside: false, pinnedOpen: ["toast"] });
+    const plan = planShow(["a"], "b", { pinnedOpen: ["toast"] });
 
     // pin の hide/show が "b:show" より前に来るとトーストがサーフェスの下に沈む
     expect(plan.ops).toEqual([
@@ -23,14 +23,8 @@ describe("planShow", () => {
     expect(plan.stack).toEqual(["a", "b"]);
   });
 
-  test("既に内側にフォーカスがあれば奪わない (編集中の入力先を保つ)", () => {
-    const plan = planShow([], "a", { hasFocusInside: true, ...NO_PIN });
-
-    expect(plan.ops).toEqual([{ kind: "show", el: "a" }]);
-  });
-
   test("既に列にあるサーフェスは重複せず末尾へ移る", () => {
-    const plan = planShow(["a", "b"], "a", { hasFocusInside: true, ...NO_PIN });
+    const plan = planShow(["a", "b"], "a", NO_PIN);
 
     expect(plan.stack).toEqual(["b", "a"]);
   });
@@ -38,22 +32,36 @@ describe("planShow", () => {
 
 describe("planRaise", () => {
   test("既に最前面なら操作なし (無意味な積み直しでフォーカスを落とさない)", () => {
-    const plan = planRaise(["a", "b"], "b", { isOpen: true, hasFocusInside: false, ...NO_PIN });
+    const plan = planRaise(["a", "b"], "b", { isOpen: true, focusedInside: undefined, ...NO_PIN });
 
     expect(plan.ops).toEqual([]);
     expect(plan.stack).toEqual(["a", "b"]);
   });
 
   test("開いていないサーフェスは操作なし", () => {
-    const plan = planRaise(["a"], "z", { isOpen: false, hasFocusInside: false, ...NO_PIN });
+    const plan = planRaise(["a"], "z", { isOpen: false, focusedInside: undefined, ...NO_PIN });
 
     expect(plan.ops).toEqual([]);
+  });
+
+  test("内側でフォーカスを持っていた要素へ戻す (積み直しで落ちても入力先を保つ)", () => {
+    const plan = planRaise(["a", "b"], "a", {
+      isOpen: true,
+      focusedInside: "a-editor",
+      ...NO_PIN,
+    });
+
+    expect(plan.ops).toEqual([
+      { kind: "hide", el: "a" },
+      { kind: "show", el: "a" },
+      { kind: "focus", el: "a-editor" },
+    ]);
   });
 
   test("背面なら hide → show で積み直し、フォーカスを入れ、pin を積み直す", () => {
     const plan = planRaise(["a", "b"], "a", {
       isOpen: true,
-      hasFocusInside: false,
+      focusedInside: undefined,
       pinnedOpen: ["toast"],
     });
 
@@ -103,18 +111,5 @@ describe("planHide", () => {
 
   test("列が残るなら控えは保持する", () => {
     expect(planHide(["a", "b"], "b", { hadFocus: true }).clearReturnFocus).toBe(false);
-  });
-});
-
-describe("front / isFront", () => {
-  test("末尾が最前面。空なら undefined", () => {
-    expect(front(["a", "b"])).toBe("b");
-    expect(front([])).toBeUndefined();
-  });
-
-  test("末尾だけが最前面。空 / 未登録は false", () => {
-    expect(isFront(["a", "b"], "b")).toBe(true);
-    expect(isFront(["a", "b"], "a")).toBe(false);
-    expect(isFront([], "a")).toBe(false);
   });
 });

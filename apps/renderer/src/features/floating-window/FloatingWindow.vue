@@ -124,6 +124,11 @@ let dragState: { pointerId: number; offsetX: number; offsetY: number } | undefin
 // contentWidth / contentHeight prop はヘッダを除いた中身のサイズなので、実測した自ヘッダ高
 // と root の border 厚 (offset と client の差。overflow-hidden なので scrollbar は混ざらない)
 // を足して border-box の総サイズへ換算する。
+// 実測は popover が既に show 済みであることが前提。`useSurface` の sync watch が template ref
+// 代入の時点 (post キューは id 昇順で flush されるため mounted より前) に `showPopover` するため
+// 成立する。flush を pre へ変えたり isOpen が 1 フレーム false になる設計を足すと、`display: none`
+// の要素を測って全部 0 になり、パネルがヘッダ高 + border 分だけ小さく出る (下の観察ログは
+// ヘッダが要素でないケースしか拾わないので無音で壊れる)。
 onMounted(() => {
   const root = rootRef.value;
   // ヘッダは自テンプレートの先頭子 (子コンポーネントの $el を覗くと、その root 構造の変化で

@@ -76,7 +76,7 @@ main window 側の割り当てを外す。
 
 ## 解決フロー
 
-keydown listener（capture phase）で以下の順に処理する。listener は**全ウィンドウの document に張り、解決系（command registry + context key）は単一を共有する**（VS Code が `onDidRegisterWindow` で全ウィンドウに同一 dispatcher を張るのと同じ構造）。main window は App.vue の `useKeyBindings()`、undock child window は ChildWindow の `useWindowKeyBindings(win)` が配線する。同じキーに複数の宛先が並ぶとき、何で宛先を決めるかは操作の意味で変わる。
+keydown listener（Escape は bubble、それ以外は capture）で以下の順に処理する。フェーズが分かれるのは、Escape を内側のウィジェット（Monaco の find widget 等）に先に取らせるため — 理由は `useKeyBindings.ts` の docstring が SSOT。listener は**全ウィンドウの document に張り、解決系（command registry + context key）は単一を共有する**（VS Code が `onDidRegisterWindow` で全ウィンドウに同一 dispatcher を張るのと同じ構造）。main window は App.vue の `useKeyBindings()`、undock child window は ChildWindow の `useWindowKeyBindings(win)` が配線する。同じキーに複数の宛先が並ぶとき、何で宛先を決めるかは操作の意味で変わる。
 
 - **閉じる（Cmd+W / ESC）はフォーカス**: サーフェス内にフォーカスがあれば `surface.closeFocused` がそれを閉じ（`surfaceFocused`）、terminal にあれば `terminal.closePane` が pane を閉じる（`terminalFocus`）。両者は排他。Cmd+W と ESC は同義なので同じコマンドに 2 つのキーを割り当てている（ESC は terminal には割り当てない — シェルへ届く必要があるため）。「最前面が閉じる」ように見えるのはフォーカスが前面に追従する帰結で、規則ではない（[workspace.md](workspace.md) のサーフェス節）
 - **保存（Cmd+S）はフォーカス**: 「今編集しているものを保存する」意味論なので入力先が対象を決める。`floatingWindow.save` / `childWindow.save` は `floatingWindowFocused` / `childWindowFocused` で分岐し、`preview.save` が対応する否定を持つことで排他になる。コマンドの対象になる「フォーカス中の child window / パネル」は floating-window の childWindowCommands / floatingWindowCommands が focus / blur で追跡する

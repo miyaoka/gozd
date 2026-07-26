@@ -12,8 +12,8 @@ consumer (session-log / preview) が差し込むのは中身と close / save の
 
 ## presentation ごとに変わる契約
 
-- 移動 / リサイズ / 前面順: in-app は FloatingWindow (ドラッグ + 8 方位ハンドル + ビューポート
-  クランプ)、昇格後は OS ネイティブ。よって `move` emit は in-app 中だけ発火する
+- 移動 / リサイズ: in-app は FloatingWindow (ドラッグ + 8 方位ハンドル + ビューポートクランプ)、
+  昇格後は OS ネイティブ。よって `move` emit は in-app 中だけ発火する
 - close は 2 つの emit に分ける。`closeRequested` は「閉じたい要求」で、consumer がガード
   (dirty 確認等) を通してから state を消す: in-app のシェル close ボタン・フォーカスがある
   サーフェスを閉じる ESC / Cmd+W (`surface.closeFocused`)、昇格後は `blockClose` が veto した

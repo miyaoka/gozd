@@ -24,12 +24,12 @@ export interface SurfacePlan<T> {
 }
 
 /** item が最前面か。 */
-export function isFront<T>(stack: readonly T[], item: T): boolean {
+function isFront<T>(stack: readonly T[], item: T): boolean {
   return stack.at(-1) === item;
 }
 
 /** 最前面。空なら undefined。 */
-export function front<T>(stack: readonly T[]): T | undefined {
+function front<T>(stack: readonly T[]): T | undefined {
   return stack.at(-1);
 }
 
@@ -49,34 +49,50 @@ function restackOps<T>(pinnedOpen: readonly T[]): SurfaceOp<T>[] {
   ]);
 }
 
-/** サーフェスを開く。show 順の規則により、開いたものがそのまま最前面になる。 */
+/**
+ * サーフェスを開く。show 順の規則により、開いたものがそのまま最前面になる。
+ *
+ * 閉じている popover は `display: none` で内側にフォーカスを持てないため、行き先は常に root。
+ */
 export function planShow<T>(
   stack: readonly T[],
   el: T,
-  options: { hasFocusInside: boolean; pinnedOpen: readonly T[] },
+  options: { pinnedOpen: readonly T[] },
 ): SurfacePlan<T> {
-  const ops: SurfaceOp<T>[] = [{ kind: "show", el }];
-  // 既に内側にフォーカスがあれば奪わない (編集中の入力先を保つ)
-  if (!options.hasFocusInside) ops.push({ kind: "focus", el });
-  return { stack: withFront(stack, el), ops: [...ops, ...restackOps(options.pinnedOpen)] };
+  return {
+    stack: withFront(stack, el),
+    ops: [{ kind: "show", el }, { kind: "focus", el }, ...restackOps(options.pinnedOpen)],
+  };
 }
 
 /**
  * サーフェスを最前面へ持ち上げる。既に最前面 / 開いていないなら操作なし。
  * top layer の順序は show 呼び出し順が SSOT なので、持ち上げは hide → show でしか表現できない。
+ *
+ * focus は **show の後**に置く。`focus()` は layout tree の更新を起こすため、hide と show の間に
+ * 挟むと `display: none` が具現化して box が破棄され、「積み直しは見た目のコストを持たない」
+ * (topLayerSurface の docstring) が崩れる。pin の積み直しを後ろに置くのと同じ理由。
+ *
+ * 行き先は「積み直し前に内側でフォーカスを持っていた要素」で、無ければ root。`hidePopover()` の
+ * 後にフォーカスが中へ残るかはブラウザの遅延挙動に依存するため、残る前提で focus op を省くと、
+ * 残らなかった瞬間にフォーカスが body へ落ちて ESC / Cmd+W が無反応になる。常に出しておけば
+ * 残っていた場合は同一要素への no-op、落ちていた場合は元の入力先への復元になる。
  */
 export function planRaise<T>(
   stack: readonly T[],
   el: T,
-  options: { isOpen: boolean; hasFocusInside: boolean; pinnedOpen: readonly T[] },
+  options: { isOpen: boolean; focusedInside: T | undefined; pinnedOpen: readonly T[] },
 ): SurfacePlan<T> {
   if (!options.isOpen || isFront(stack, el)) return { stack: [...stack], ops: [] };
-  const ops: SurfaceOp<T>[] = [
-    { kind: "hide", el },
-    { kind: "show", el },
-  ];
-  if (!options.hasFocusInside) ops.push({ kind: "focus", el });
-  return { stack: withFront(stack, el), ops: [...ops, ...restackOps(options.pinnedOpen)] };
+  return {
+    stack: withFront(stack, el),
+    ops: [
+      { kind: "hide", el },
+      { kind: "show", el },
+      { kind: "focus", el: options.focusedInside ?? el },
+      ...restackOps(options.pinnedOpen),
+    ],
+  };
 }
 
 /** `planHide` の結果。復帰先へのフォーカスは要素が DOM 側にしか無いため別フラグで返す。 */

@@ -115,10 +115,7 @@ export function showSurface(el: HTMLElement): void {
     const active = document.activeElement;
     returnFocusEl = active instanceof HTMLElement ? active : undefined;
   }
-  const plan = planShow(openSurfaces.value, el, {
-    hasFocusInside: el.contains(document.activeElement),
-    pinnedOpen: openPinned(),
-  });
+  const plan = planShow(openSurfaces.value, el, { pinnedOpen: openPinned() });
   runOps(plan.ops);
   openSurfaces.value = plan.stack;
   syncFocusedSurface();
@@ -150,9 +147,11 @@ export function hideSurface(el: HTMLElement): void {
  * ドラッグ / リサイズの開始と競合しうる (クリック経路は `useSurface` が担う)。
  */
 export function raiseSurface(el: HTMLElement): void {
+  const active = document.activeElement;
   const plan = planRaise(openSurfaces.value, el, {
     isOpen: el.matches(":popover-open"),
-    hasFocusInside: el.contains(document.activeElement),
+    // 積み直しでフォーカスが落ちても元の入力先へ戻せるよう、掴んでいた要素を渡す
+    focusedInside: active instanceof HTMLElement && el.contains(active) ? active : undefined,
     pinnedOpen: openPinned(),
   });
   if (plan.ops.length === 0) return;

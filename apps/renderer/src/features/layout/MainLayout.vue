@@ -297,7 +297,7 @@ const { raise } = useSurface(previewPopoverRef, {
     </div>
 
     <!-- Preview popover: 開閉ボタンをアンカーにして左側に展開。
-         tabindex="-1" は open 時のプログラムフォーカス移送用 (フォーカス移送 watch 参照)。
+         tabindex="-1" は前面化時のフォーカス追従の行き先 (shared/surface)。
          tab 到達不能なパネル面へのフォーカスルーティングなので focus ring は出さない -->
     <div
       ref="previewPopover"

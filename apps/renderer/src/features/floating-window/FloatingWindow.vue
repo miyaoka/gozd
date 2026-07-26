@@ -18,8 +18,8 @@ promote ボタンは「このパネルを別 OS ウィンドウへ昇格させ�
 Cmd+S の宛先はフォーカスで決める: root を `tabindex="-1"` で focusable にし、focusin /
 focusout を floatingWindowCommands の activate / deactivate に変換する。これで
 `floatingWindowFocused` の when 条件で Cmd+S がこのパネル宛に解決され、他サーフェスの save を
-誤射しない (child window と同じ規律)。close は重ね順で決まるため (ESC / Cmd+W は最前面の
-サーフェスを閉じる)、フォーカスでは分岐しない。
+誤射しない (child window と同じ規律)。close もフォーカスで決まるが、宛先解決はサーフェス共通の
+`surface.closeFocused` が持つため、パネル側は `useSurface` に close 要求を登録するだけ。
 
 - ドラッグ移動は pointer capture ではなく window レベルの listener で追従する。capture に
   しないのは drag handoff のため: undock 元ヘッダのドラッグで undock する経路では、掴んでいた
@@ -52,8 +52,8 @@ focusout を floatingWindowCommands の activate / deactivate に変換する。
 <script setup lang="ts">
 import { TITLEBAR_HEIGHT } from "@gozd/shared";
 import { useEventListener } from "@vueuse/core";
-import { onBeforeUnmount, onMounted, onUnmounted, useTemplateRef } from "vue";
-import { hideSurface, showSurface, useSurface } from "../../shared/surface";
+import { onMounted, onUnmounted, useTemplateRef } from "vue";
+import { useSurface } from "../../shared/surface";
 import { type ChildWindowInit, toChildWindowInit } from "./childWindowInit";
 import {
   activateFloatingWindow,
@@ -104,19 +104,15 @@ function onFocusOut(event: FocusEvent) {
 // フォーカスされたまま unmount されると focusout が飛ばないことがあるため確実に解除する
 onUnmounted(() => deactivateFloatingWindow(focusHandle));
 
-// DOM から外れれば top layer からも自動で降りるが、shared/surface が最前面として覚えたままだと
-// detached な要素への参照が残る。element がまだ生きている beforeUnmount で明示的に降ろす。
-onBeforeUnmount(() => {
-  const root = rootRef.value;
-  if (root === null) return;
-  hideSurface(root);
-});
-
 /** ドラッグ / 描画クランプ時に画面内へ残すヘッダの掴み代 (px)。 */
 const GRAB_MARGIN = 80;
 
 const rootRef = useTemplateRef<HTMLElement>("root");
-const { raise } = useSurface(rootRef, () => emit("closeRequested"));
+// パネルは mount = 開いている。entry が消えれば unmount されるので close 側の state は持たない
+const { raise } = useSurface(rootRef, {
+  isOpen: () => true,
+  requestClose: () => emit("closeRequested"),
+});
 
 // ドラッグ中の pointer と、pointer からウィンドウ原点へのオフセット。ドラッグ中のみ定義。
 let dragState: { pointerId: number; offsetX: number; offsetY: number } | undefined;
@@ -130,9 +126,6 @@ let dragState: { pointerId: number; offsetX: number; offsetY: number } | undefin
 // を足して border-box の総サイズへ換算する。
 onMounted(() => {
   const root = rootRef.value;
-  // 表示は実測の成否に依らず先に行う (下の early return より前に置く)。undock 直後のパネルは
-  // 「今まさに操作されたもの」なので、show 順の規則でそのまま最前面に載る
-  if (root !== null) showSurface(root);
   // ヘッダは自テンプレートの先頭子 (子コンポーネントの $el を覗くと、その root 構造の変化で
   // 実測が黙って飛ぶ)
   const header = root?.firstElementChild;

@@ -4,8 +4,8 @@ import { useNotificationStore } from "../../shared/notification";
 
 /**
  * Notification center パネルの開閉 + 未読管理の SSOT。EventLogPanel / ServerListPanel と
- * 同じ右ドック popover 流儀で、開閉状態を store が所有し popover DOM へのミラーは
- * `open()` / `close()` が `shared/surface` 経由で担う (他サーフェスとの重ね順もここで決まる)。通知データ自体は `shared/notification` が SSOT で、
+ * 同じ右ドック popover 流儀で、開閉状態は store が所有し DOM は触らない。popover へのミラーは
+ * NotificationCenterPanel が `isOpen` を watch して `shared/surface` へ流す。通知データ自体は `shared/notification` が SSOT で、
  * 本 store は開閉と既読位置 (`lastSeenSeq`) だけを扱う。
  *
  * 未読は「seq が lastSeenSeq より新しい項目」。seq は重複抑制の再発生でも進むため、

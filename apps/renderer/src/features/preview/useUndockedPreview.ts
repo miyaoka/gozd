@@ -10,7 +10,7 @@
  * undock 元の選択を焼き込んだ `source` から本体 preview として開き直す
  * (UndockedPreviewWindow の open ボタン = worktree 切替 + filer reveal + preview 表示)。
  *
- * ウィンドウ状態 (位置 / 初期中身サイズ / 前面順 / drag handoff / 昇格済みかどうか) の管理は
+ * ウィンドウ状態 (位置 / 初期中身サイズ / drag handoff / 昇格済みかどうか) の管理は
  * floating-window の `createFloatingWindows` に委譲し、ここが持つのは snapshot payload の
  * 型定義だけ。undock 直後は in-app パネルで、promote で別 OS ウィンドウへ昇格する
  * (presentation の切り替えは UndockedWindow が担う。useUndockedLog と同じ機構)。

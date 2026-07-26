@@ -5,18 +5,18 @@
 
 ## 設計判断
 
-- ServerListPanel と同じ右ドック popover 流儀。top layer のサーフェス 1 枚として `shared/surface` に載る (click-to-front / ESC・Cmd+W で最前面を閉じる)。
+- ServerListPanel と同じ右ドック popover 流儀。top layer のサーフェス 1 枚として `shared/surface` に載る (click-to-front / ESC・Cmd+W でフォーカスがあるものを閉じる)。
   z-index 競争から構造的に離脱するため。開閉 SSOT は useEventLogStore、ログの SSOT は shared/debug
 - 時刻は ms まで出す。frequency 観測が主目的で、秒単位だと連続発火の間隔が潰れるため
 - label 別に色を振り、実行 (fire/trailing) / 抑止 (coalesced/skip) / 失敗 (error) を一目で区別する
 </doc>
 
 <script setup lang="ts">
-import { computed, useTemplateRef, watch } from "vue";
+import { computed, useTemplateRef } from "vue";
 import { writeClipboardText } from "../../shared/clipboard";
 import { useDebugLog } from "../../shared/debug";
 import { useNotificationStore } from "../../shared/notification";
-import { hideSurface, showSurface, useSurface } from "../../shared/surface";
+import { useSurface } from "../../shared/surface";
 import { useEventLogStore } from "./useEventLogStore";
 import IconLucideActivity from "~icons/lucide/activity";
 import IconLucideCopy from "~icons/lucide/copy";
@@ -80,20 +80,10 @@ function labelClass(label: string): string {
 }
 
 const panelRef = useTemplateRef<HTMLElement>("panel");
-// 開閉を popover へミラーする。SSOT は store の `isOpen` で、DOM 側の状態は
-// `showPopover()` の前提 (既に開いている popover への再 show は例外) を満たすためだけに見る。
-// 要素も watch source に含めるのは、開いた状態で再 mount される経路 (HMR) を拾うため。
-watch(
-  [panelRef, () => store.isOpen],
-  ([el, open]) => {
-    if (el === null) return;
-    const shown = el.matches(":popover-open");
-    if (open && !shown) showSurface(el);
-    if (!open && shown) hideSurface(el);
-  },
-  { flush: "sync" },
-);
-const { raise } = useSurface(panelRef, () => store.close());
+const { raise } = useSurface(panelRef, {
+  isOpen: () => store.isOpen,
+  requestClose: () => store.close(),
+});
 </script>
 
 <template>

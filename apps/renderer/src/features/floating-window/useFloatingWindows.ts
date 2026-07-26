@@ -17,8 +17,8 @@
  * (FloatingWindow の doc 参照)。
  *
  * 重ね順と close の宛先は本 store の関心ではない。パネルは top layer のサーフェス 1 枚として
- * `shared/surface` に登録され、前面化 (クリック) と「最前面を閉じる」(ESC / Cmd+W) はそちらが
- * 一括で解決する。本 store が持つのは payload と位置 / 初期サイズ / 昇格状態だけ。
+ * `shared/surface` に登録され、前面化 (クリック) と「フォーカスがあるものを閉じる」
+ * (ESC / Cmd+W) はそちらが一括で解決する。本 store が持つのは payload と位置 / 初期サイズ / 昇格状態だけ。
  *
  * undock 直後は in-app パネルで、`promote()` で別 OS ウィンドウへ昇格する。昇格後も entry は
  * 同じ id のまま残り (payload の所有者は 1 つ)、`child` の有無が「今どちらの presentation で

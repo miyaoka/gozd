@@ -44,7 +44,7 @@ function buildKeyBinding(
 ): ResolvedKeyBinding | undefined {
   const { keybinding } = descriptor;
   if (keybinding === undefined) return undefined;
-  const keys = Array.isArray(keybinding.key) ? keybinding.key : [keybinding.key];
+  const keys = typeof keybinding.key === "string" ? [keybinding.key] : [...keybinding.key];
   return {
     keys,
     strokes: keys.map(parseKeyStroke),

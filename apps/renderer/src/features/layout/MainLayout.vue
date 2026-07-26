@@ -20,14 +20,7 @@ import { useWindowSize } from "@vueuse/core";
 import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
-import {
-  closeFocusedSurface,
-  hasFocusedSurface,
-  hideSurface,
-  raiseSurface,
-  showSurface,
-  useSurface,
-} from "../../shared/surface";
+import { closeFocusedSurface, hasFocusedSurface, useSurface } from "../../shared/surface";
 import { registerFilerCommands } from "../filer";
 import { GitGraphPane } from "../git-graph";
 import { NavigatorPane } from "../navigator";
@@ -86,8 +79,9 @@ const disposePreviewToggle = register("preview.toggle", {
 // 「サーフェス内にフォーカスがある」1 条件で受ける。ESC と Cmd+W は同義なので同じコマンドに
 // 2 つのキーを割り当てる。child window は別 OS ウィンドウで自前の close を持つため除外する。
 watch(hasFocusedSurface, (has) => contextKeys.set("surfaceFocused", has), { immediate: true });
+// label を持たない (keybinding 専用)。precondition がフォーカスなので、パレットを開いた時点で
+// フォーカスが dialog へ移り条件が偽になる = 原理的にパレットから起動できない
 const disposeSurfaceClose = register("surface.closeFocused", {
-  label: "Close Focused Panel",
   precondition: "surfaceFocused",
   keybinding: { key: ["cmd+w", "escape"], when: "!childWindowFocused" },
   handler: () => closeFocusedSurface(),
@@ -189,27 +183,6 @@ const getPreviewBeforeSize = () =>
 const getPreviewAfterSize = () =>
   previewPopoverRef.value?.getBoundingClientRect().width ?? previewWidth.value;
 
-// 開閉と前面化を popover へミラーする。SSOT は store 側 (`isOpen` / `openEpoch`) で、DOM は
-// 触らない契約 — フォーカス移送を伴う DOM 操作は view の関心であり、DOM 無しでテストされる
-// previewStore には置けない。`openEpoch` を source に含めるのは、既に開いている preview へ
-// 別の中身を出す経路 (reveal / summary 進入) を「前面化せよ」として受けるため。
-// DOM 側の状態を見るのは `showPopover()` の前提 (開いている popover への再 show は例外) を
-// 満たすためだけで、開閉の真実源にはしない。
-watch(
-  [previewPopoverRef, () => previewStore.isOpen, () => previewStore.openEpoch],
-  ([el, open]) => {
-    if (el === null) return;
-    const shown = el.matches(":popover-open");
-    if (!open) {
-      if (shown) hideSurface(el);
-      return;
-    }
-    if (shown) raiseSurface(el);
-    else showSurface(el);
-  },
-  { flush: "sync" },
-);
-
 // previewVisible context key を store の isOpen と同期
 watch(
   () => previewStore.isOpen,
@@ -255,7 +228,12 @@ watch(
   },
   { immediate: true },
 );
-const { raise } = useSurface(previewPopoverRef, () => previewStore.requestClose());
+const { raise } = useSurface(previewPopoverRef, {
+  isOpen: () => previewStore.isOpen,
+  requestClose: () => previewStore.requestClose(),
+  // 既に開いている preview へ別の中身を出す経路 (reveal / summary 進入) を前面化として受ける
+  raiseSignal: () => previewStore.openEpoch,
+});
 </script>
 
 <template>

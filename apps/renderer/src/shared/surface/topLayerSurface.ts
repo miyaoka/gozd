@@ -20,8 +20,9 @@
  * したがって前面化は「hide してから show し直す」しか手段がなく、開閉・前面化・close の宛先
  * 解決を同じ 1 箇所に集約しないと「今どれが前面か / どれを閉じるか」を誰も知らない状態になる。
  * 本モジュールが前面順を控えるのはこのためで、順序そのものの SSOT はあくまでブラウザ側の
- * top layer にある。控えが嘘にならないよう、サーフェスの開閉は必ず本モジュールを通す
- * (素の `showPopover()` を呼ぶと控えが腐り、前面化が黙って no-op になり close の宛先もずれる)。
+ * top layer にある。控えが嘘にならないよう、開閉と前面化は barrel から export せず `useSurface`
+ * に閉じる (素の `showPopover()` を呼ぶと控えが腐り、前面化が黙って no-op になり close の宛先も
+ * ずれる。規律を doc 頼みにせずモジュール境界で強制する)。
  *
  * この hide → show は見た目のコストを持たない。スタイル再計算は次のレンダリング更新まで
  * 遅延され、2 つの呼び出しの間にジオメトリ読み取り (強制同期レイアウト) を挟まないため、
@@ -51,7 +52,7 @@
  * ESC を消費しないことで UA の light-dismiss / cancel がそのまま働く。
  */
 import { computed, shallowRef } from "vue";
-import { front, isFront, without, withFront } from "./surfaceStack";
+import { planHide, planRaise, planShow, type SurfaceOp } from "./surfaceStack";
 
 /** 開いているサーフェスを前面順に持つ (末尾が最前面)。 */
 const openSurfaces = shallowRef<HTMLElement[]>([]);
@@ -93,21 +94,18 @@ function syncFocusedSurface(): void {
     active instanceof Node ? openSurfaces.value.find((el) => el.contains(active)) : undefined;
 }
 
-/** pin 済みを top layer の最後へ積み直す。開いていないものは対象外。 */
-function restackPinned(): void {
-  for (const el of pinnedSurfaces) {
-    if (!el.matches(":popover-open")) continue;
-    el.hidePopover();
-    el.showPopover();
-  }
+/** 開いている pin 済み要素 (plan へ渡す入力)。 */
+function openPinned(): HTMLElement[] {
+  return [...pinnedSurfaces].filter((el) => el.matches(":popover-open"));
 }
 
-/** サーフェスへフォーカスを入れる。既に内側にあれば奪わない (module docstring 参照)。 */
-function focusSurface(el: HTMLElement): void {
-  const active = document.activeElement;
-  if (active instanceof Node && el.contains(active)) return;
-  el.focus({ preventScroll: true });
-  syncFocusedSurface();
+/** plan が返した操作列を DOM へ流す。順序をそのまま実行するだけで判断はしない。 */
+function runOps(ops: readonly SurfaceOp<HTMLElement>[]): void {
+  for (const op of ops) {
+    if (op.kind === "show") op.el.showPopover();
+    else if (op.kind === "hide") op.el.hidePopover();
+    else op.el.focus({ preventScroll: true });
+  }
 }
 
 /** サーフェスを開く。show 順の規則により、開いたサーフェスがそのまま最前面になる。 */
@@ -117,28 +115,30 @@ export function showSurface(el: HTMLElement): void {
     const active = document.activeElement;
     returnFocusEl = active instanceof HTMLElement ? active : undefined;
   }
-  el.showPopover();
-  openSurfaces.value = withFront(openSurfaces.value, el);
-  focusSurface(el);
-  restackPinned();
+  const plan = planShow(openSurfaces.value, el, {
+    hasFocusInside: el.contains(document.activeElement),
+    pinnedOpen: openPinned(),
+  });
+  runOps(plan.ops);
+  openSurfaces.value = plan.stack;
+  syncFocusedSurface();
 }
 
 /**
- * サーフェスを閉じる。フォーカスは次の前面サーフェスへ移し、1 枚も残らなければ開く前の
- * 位置へ戻す (フォーカス追従の不変条件。module docstring 参照)。
+ * サーフェスを閉じる。閉じた面がフォーカスを持っていたときだけ、次の前面サーフェスへ移し、
+ * 1 枚も残らなければ開く前の位置へ戻す (フォーカス追従の不変条件。module docstring 参照)。
+ *
+ * 保持の判定は `hidePopover()` の**前**にしか取れない (後ではフォーカスが body へ落ちている)。
  */
 export function hideSurface(el: HTMLElement): void {
-  el.hidePopover();
-  openSurfaces.value = without(openSurfaces.value, el);
-  const next = front(openSurfaces.value);
-  if (next !== undefined) {
-    focusSurface(next);
-    return;
+  const plan = planHide(openSurfaces.value, el, { hadFocus: el.contains(document.activeElement) });
+  runOps(plan.ops);
+  openSurfaces.value = plan.stack;
+  const restore = returnFocusEl;
+  if (plan.clearReturnFocus) returnFocusEl = undefined;
+  if (plan.restoreReturnFocus && restore?.isConnected === true) {
+    restore.focus({ preventScroll: true });
   }
-  // `hidePopover()` の時点でフォーカスは body へ落ちているため「閉じた面が持っていたか」は
-  // 判定できない。常に復帰を試みる (unmount 済み / 不可視なら focus() が no-op で body に留まる)
-  if (returnFocusEl?.isConnected === true) returnFocusEl.focus({ preventScroll: true });
-  returnFocusEl = undefined;
   syncFocusedSurface();
 }
 
@@ -150,12 +150,15 @@ export function hideSurface(el: HTMLElement): void {
  * ドラッグ / リサイズの開始と競合しうる (クリック経路は `useSurface` が担う)。
  */
 export function raiseSurface(el: HTMLElement): void {
-  if (isFront(openSurfaces.value, el) || !el.matches(":popover-open")) return;
-  el.hidePopover();
-  el.showPopover();
-  openSurfaces.value = withFront(openSurfaces.value, el);
-  focusSurface(el);
-  restackPinned();
+  const plan = planRaise(openSurfaces.value, el, {
+    isOpen: el.matches(":popover-open"),
+    hasFocusInside: el.contains(document.activeElement),
+    pinnedOpen: openPinned(),
+  });
+  if (plan.ops.length === 0) return;
+  runOps(plan.ops);
+  openSurfaces.value = plan.stack;
+  syncFocusedSurface();
 }
 
 /**

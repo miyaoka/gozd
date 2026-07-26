@@ -1,7 +1,7 @@
 // createFloatingWindows factory の純粋ロジックのテスト。drag handoff の one-shot セマンティクス、
 // promote / demote の child 遷移、および id 不在の観察ログが対象。
 //
-// 重ね順と「最前面を閉じる」は本 store の関心ではない (shared/surface が持つ) ため、ここには無い。
+// 重ね順と close の宛先解決は本 store の関心ではない (shared/surface が持つ) ため、ここには無い。
 import { describe, expect, spyOn, test } from "bun:test";
 import { createFloatingWindows, type FloatingWindowState } from "./useFloatingWindows";
 

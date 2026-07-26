@@ -6,16 +6,17 @@ Notification center パネル。auto-dismiss で消えた toast も含む全通�
 ## 設計判断
 
 - EventLogPanel / ServerListPanel と同じ右ドック popover 流儀。top layer のサーフェス 1 枚と
-  して `shared/surface` に載る (click-to-front / ESC・Cmd+W で最前面を閉じる)。開閉 SSOT は
-  useNotificationCenterStore、通知データの SSOT は shared/notification
+  して `shared/surface` に載る (click-to-front / ESC・Cmd+W でフォーカスがあるものを閉じる)。
+  開閉 SSOT は useNotificationCenterStore (DOM へのミラーは本 component の watch)、通知データの
+  SSOT は shared/notification
 - 表示順は seq 降順（新着順）。重複抑制で集約された項目は再発生のたびに seq が進むため、
   再発生した通知が自動的に先頭へ浮上する
 </doc>
 
 <script setup lang="ts">
-import { computed, useTemplateRef, watch } from "vue";
+import { computed, useTemplateRef } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { hideSurface, showSurface, useSurface } from "../../shared/surface";
+import { useSurface } from "../../shared/surface";
 import NotificationCenterItem from "./NotificationCenterItem.vue";
 import { useNotificationCenterStore } from "./useNotificationCenterStore";
 import IconLucideBell from "~icons/lucide/bell";
@@ -29,20 +30,10 @@ const { notifications, remove, clear } = useNotificationStore();
 const sorted = computed(() => [...notifications.value].sort((a, b) => b.seq - a.seq));
 
 const panelRef = useTemplateRef<HTMLElement>("panel");
-const { raise } = useSurface(panelRef, () => store.close());
-// 開閉を popover へミラーする。SSOT は store の `isOpen` で、DOM 側の状態は
-// `showPopover()` の前提 (既に開いている popover への再 show は例外) を満たすためだけに見る。
-// 要素も watch source に含めるのは、開いた状態で再 mount される経路 (HMR) を拾うため。
-watch(
-  [panelRef, () => store.isOpen],
-  ([el, open]) => {
-    if (el === null) return;
-    const shown = el.matches(":popover-open");
-    if (open && !shown) showSurface(el);
-    if (!open && shown) hideSurface(el);
-  },
-  { flush: "sync" },
-);
+const { raise } = useSurface(panelRef, {
+  isOpen: () => store.isOpen,
+  requestClose: () => store.close(),
+});
 </script>
 
 <template>

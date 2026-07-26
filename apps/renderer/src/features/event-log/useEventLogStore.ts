@@ -2,9 +2,10 @@ import { acceptHMRUpdate, defineStore } from "pinia";
 import { ref } from "vue";
 
 /**
- * イベントログパネルの開閉 SSOT。ServerListPanel と同じ右ドック popover 流儀で、開閉状態を
- * store が所有し popover DOM へのミラーは `open()` / `close()` が担う (usePreviewStore / useServerStore
- * と同流儀)。ログデータ自体は `shared/debug` の ring buffer が SSOT で、本 store は開閉だけを扱う。
+ * イベントログパネルの開閉 SSOT。ServerListPanel と同じ右ドック popover 流儀で、開閉状態は
+ * store が所有し DOM は触らない。popover へのミラーは EventLogPanel が `isOpen` を watch して
+ * `shared/surface` へ流す (usePreviewStore / useServerStore と同流儀)。ログデータ自体は
+ * `shared/debug` の ring buffer が SSOT で、本 store は開閉だけを扱う。
  */
 export const useEventLogStore = defineStore("eventLog", () => {
   const isOpen = ref(false);

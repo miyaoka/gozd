@@ -1,8 +1,8 @@
 /**
  * in-app undock パネル向けコマンドの配線と context key の同期。
  *
- * close は持たない。Cmd+W / ESC は種類によらず「最前面のサーフェスを閉じる」1 コマンドに
- * 集約されており (`surface.closeFront`)、パネルもそのサーフェスの 1 つとして
+ * close は持たない。Cmd+W / ESC は種類によらず「フォーカスがあるサーフェスを閉じる」1 コマンドに
+ * 集約されており (`surface.closeFocused`)、パネルもそのサーフェスの 1 つとして
  * `useSurface` で close の宛先を登録する。
  *
  * save だけはフォーカスで宛先を決める。Cmd+S は「今編集しているものを保存する」意味論で、

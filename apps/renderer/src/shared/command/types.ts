@@ -8,10 +8,14 @@
 /** コマンドハンドラー。処理した場合 true、何もしなかった場合 false を返す */
 type CommandHandler = (args?: unknown) => boolean;
 
-/** label 付きコマンド記述子。label があるコマンドのみパレットに表示される */
+/** コマンド記述子。label があるコマンドのみパレットに表示される */
 export interface CommandDescriptor {
-  /** コマンドパレットに表示する名前（例: "Terminal: Split Horizontal"） */
-  label: string;
+  /**
+   * コマンドパレットに表示する名前（例: "Terminal: Split Horizontal"）。
+   * 省略すると keybinding 専用になる。フォーカスを precondition に取るコマンドは、パレットを
+   * 開いた時点で条件が偽になり原理的に起動できないため label を持たない
+   */
+  label?: string;
   handler: CommandHandler;
   /** コマンドの有効化条件。false の場合パレットに表示されず、実行もスキップされる */
   precondition?: string;
@@ -29,9 +33,10 @@ export type CommandInput = CommandHandler | CommandDescriptor;
 interface KeyBindingSpec {
   /**
    * VS Code 互換形式: "cmd+d", "alt+cmd+up"。配列で同義キーを複数割り当てられる
-   * (同じ意味の操作に別のキーを与える用途。異なる意味を 1 コマンドに束ねない)
+   * (同じ意味の操作に別のキーを与える用途。異なる意味を 1 コマンドに束ねない)。
+   * 空配列は「登録は通るのに永久に一致しない」状態を作るため型で潰す
    */
-  key: string | string[];
+  key: string | readonly [string, ...string[]];
   /**
    * キー割り当ての追加条件。実効条件は precondition との AND なので、
    * precondition で既に効いている key を再掲しない。

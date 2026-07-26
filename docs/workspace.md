@@ -93,7 +93,7 @@ repo list の不整合（空 / プール外 dir / 迷子の activeRepoListId / �
 - worktree 作成時にタイムスタンプ形式のブランチ名（`YYYYMMDD_HHMMSS`）を自動生成する。同一秒内の連続作成では連番 suffix（`_2`, `_3`...）が付き、名前はプロセス内で一意
 - ブランチ名は `git branch -m <名前>` でいつでもリネームできる（worktree の紐づけは追従する）
 - PR 作成時にリネームを促す導線を用意する。検証だけで終わる worktree は名前を付けずに削除してもよい
-- 各 worktree は独立したファイルシステムを持ち、`pnpm install` / `pnpm dev` / `pnpm build` を独立して実行できる
+- 各 worktree は独立したファイルシステムを持ち、`pnpm install` / `pnpm dev` / `pnpm build:all` を独立して実行できる
 
 ### worktree 作成時のセットアップ
 

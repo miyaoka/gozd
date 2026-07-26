@@ -30,27 +30,45 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # diff_command の --include-workspace-root: pnpm の --filter はルート
-          # ワークスペースプロジェクトをデフォルトで選ばないため、これが無いと
-          # ルート直下ファイル（knip.ts 等）の lint / fix が差分 PR で一切走らない
+          # diff_command に --include-workspace-root は要らない: 正のフィルタ（`--filter`）を
+          # 与えると pnpm は root project を除外しないため、root 直下ファイルの変更でも root は
+          # 選択される。逆に full_command 側の `pnpm -r`（*:all）はフィルタが無く root が
+          # 除外されるため、そちらでは flag が必須（外すと root の test が静かに走らなくなる）
           - name: typecheck
-            diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only typecheck
+            diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only typecheck
             full_command: pnpm run typecheck:all
 
           - name: lint
-            diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only lint
+            diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only lint
             full_command: pnpm run lint:all
 
           # fix（oxlint --fix / eslint --fix + oxfmt）を実行し、working tree に
           # 差分が出たら fail する。フォーマット崩れ・自動修正可能な lint 違反が
           # commit されていないことを保証する
           - name: fix
-            diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --include-workspace-root --if-present --no-bail --aggregate-output --reporter=append-only fix && git diff --exit-code
+            diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only fix && git diff --exit-code
             full_command: pnpm run fix:all && git diff --exit-code
 
           - name: test
             diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only test
             full_command: pnpm run test:all
+
+          # bundler だけが検査できる領域の gate。import 指定子の解決（`?worker` や
+          # ambient `declare module` で型付けした deep import は typecheck から不可視で、
+          # lint も no-unresolved を持たない）と、pnpm patch が named export を実際に
+          # 復元できているか（Rolldown は ESM の欠落 named export を error にする）は
+          # bundle しない限り分からない。これが無いと配布物が壊れる変更が全 job 緑で
+          # 通り、merge 後の release build が最初の検知点になる
+          - name: build
+            diff_command: pnpm --filter '...[origin/${{ github.base_ref }}]' --if-present --no-bail --aggregate-output --reporter=append-only build
+            full_command: pnpm run build:all
+
+          # knip は repo 全体を 1 単位で解析するため差分フィルタが無く、両モード同一。
+          # pre-commit hook (--fix 付き) だけでは --no-verify で素通りするため gate を置く
+          # （CI 側は --fix なしで検査のみ）
+          - name: knip
+            diff_command: pnpm run knip
+            full_command: pnpm run knip
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -64,10 +82,15 @@ jobs:
       # ルート設定ファイルの変更を検出
       # pnpm-workspace.yaml: catalog でバージョン管理、各 package.json は catalog: 参照のため差分が出ない
       # mise.toml: Node.js/pnpm/Bun バージョン
+      # package.json: 集約スクリプト（*:all）の定義元。root には build / typecheck の script が
+      # 無く差分モードでは --if-present で素通りするため、ここを触った PR は full_command に
+      # 切り替えないと集約スクリプト自身の破損を検出できない（glob に ** を付けないので
+      # apps/*/package.json は対象外。そちらは差分フィルタが当該パッケージを選ぶ）
       - uses: tj-actions/changed-files@24d32ffd492484c1d75e0c0b894501ddb9d30d62 # v47
         id: root-config
         with:
           files: |
+            package.json
             pnpm-workspace.yaml
             mise.toml
 

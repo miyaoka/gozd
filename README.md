@@ -108,4 +108,4 @@ pnpm run open:app    # 生成した .app を起動
 ```
 
 electron-builder が成果物を `.app` 内へコピーするため、`.app` を更新するにはこの再パッケージが要る
-（root の `pnpm run build` は各パッケージの成果物を作るだけで `.app` は更新しない）。
+（root の `pnpm run build:all` は各パッケージの成果物を作るだけで `.app` は更新しない）。

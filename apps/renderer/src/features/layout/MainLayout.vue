@@ -20,7 +20,14 @@ import { useWindowSize } from "@vueuse/core";
 import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useCommandRegistry, useContextKeys } from "../../shared/command";
 import { useRepoStore } from "../../shared/repo";
-import { closeFrontSurface, hasOpenSurface, useSurface } from "../../shared/surface";
+import {
+  closeFocusedSurface,
+  hasFocusedSurface,
+  hideSurface,
+  raiseSurface,
+  showSurface,
+  useSurface,
+} from "../../shared/surface";
 import { registerFilerCommands } from "../filer";
 import { GitGraphPane } from "../git-graph";
 import { NavigatorPane } from "../navigator";
@@ -50,7 +57,6 @@ import { registerSearchCommand, SearchDialog } from "../search";
 import { registerAppConfigSync, registerSettingsCommand, SettingsModal } from "../settings";
 import { SidebarPane } from "../sidebar";
 import { registerThemeCommand, TerminalPane } from "../terminal";
-import { useWorktreeStore } from "../worktree";
 import NotificationCenterPanel from "./NotificationCenterPanel.vue";
 import NotificationToast from "./NotificationToast.vue";
 import ResizeHandle from "./ResizeHandle.vue";
@@ -59,7 +65,6 @@ import TitleBar from "./TitleBar.vue";
 import IconLucidePanelRightOpen from "~icons/lucide/panel-right-open";
 
 const repoStore = useRepoStore();
-const worktreeStore = useWorktreeStore();
 const previewStore = usePreviewStore();
 const previewEditStore = usePreviewEditStore();
 // main window に出す破棄確認の shared instance (undock child window は per-window instance)
@@ -77,15 +82,15 @@ const disposePreviewToggle = register("preview.toggle", {
     return true;
   },
 });
-// ESC と Cmd+W は同義で「最前面のサーフェスを閉じる」(shared/surface)。宛先はフォーカスでは
-// なく重ね順で決まるため、サーフェスの種類ごとに when を書き分けない。child window は別 OS
-// ウィンドウで自前の close を持つため除外する。
-watch(hasOpenSurface, (has) => contextKeys.set("surfaceVisible", has), { immediate: true });
-const disposeSurfaceClose = register("surface.closeFront", {
-  label: "Close Front Panel",
-  precondition: "surfaceVisible",
+// 閉じる対象はフォーカスが決める (shared/surface)。サーフェスの種類ごとに when を書き分けず、
+// 「サーフェス内にフォーカスがある」1 条件で受ける。ESC と Cmd+W は同義なので同じコマンドに
+// 2 つのキーを割り当てる。child window は別 OS ウィンドウで自前の close を持つため除外する。
+watch(hasFocusedSurface, (has) => contextKeys.set("surfaceFocused", has), { immediate: true });
+const disposeSurfaceClose = register("surface.closeFocused", {
+  label: "Close Focused Panel",
+  precondition: "surfaceFocused",
   keybinding: { key: ["cmd+w", "escape"], when: "!childWindowFocused" },
-  handler: () => closeFrontSurface(),
+  handler: () => closeFocusedSurface(),
 });
 const disposeWindowClose = register("window.close", {
   label: "Window: Close",
@@ -184,15 +189,25 @@ const getPreviewBeforeSize = () =>
 const getPreviewAfterSize = () =>
   previewPopoverRef.value?.getBoundingClientRect().width ?? previewWidth.value;
 
-// popover の DOM 参照を store に bind。template ref が null に戻った時点
-// (= previewPopover element の unmount) に bindPopover(undefined) が呼ばれ
-// dangling 参照を切る。
+// 開閉と前面化を popover へミラーする。SSOT は store 側 (`isOpen` / `openEpoch`) で、DOM は
+// 触らない契約 — フォーカス移送を伴う DOM 操作は view の関心であり、DOM 無しでテストされる
+// previewStore には置けない。`openEpoch` を source に含めるのは、既に開いている preview へ
+// 別の中身を出す経路 (reveal / summary 進入) を「前面化せよ」として受けるため。
+// DOM 側の状態を見るのは `showPopover()` の前提 (開いている popover への再 show は例外) を
+// 満たすためだけで、開閉の真実源にはしない。
 watch(
-  previewPopoverRef,
-  (el) => {
-    previewStore.bindPopover(el ?? undefined);
+  [previewPopoverRef, () => previewStore.isOpen, () => previewStore.openEpoch],
+  ([el, open]) => {
+    if (el === null) return;
+    const shown = el.matches(":popover-open");
+    if (!open) {
+      if (shown) hideSurface(el);
+      return;
+    }
+    if (shown) raiseSurface(el);
+    else showSurface(el);
   },
-  { immediate: true },
+  { flush: "sync" },
 );
 
 // previewVisible context key を store の isOpen と同期
@@ -202,47 +217,6 @@ watch(
     contextKeys.set("previewVisible", open);
   },
   { immediate: true },
-);
-
-/**
- * preview の open でフォーカスを popover へ移し、close で open 時点のフォーカス元へ戻す。
- *
- * cmd+w は「フォーカスのあるサーフェスを閉じる」意味論で terminalFocus により分岐する
- * (preview.close / terminal.closePane の keybinding の when)。popover の `showPopover()` は
- * フォーカスを移さないため、
- * terminal リンク経由の open でフォーカスが terminal に残ると、開いた直後の cmd+w が
- * preview でなく terminal pane を閉じてしまう。open のたびに popover へフォーカスを
- * 引き直すことで防ぐ (VS Code の terminal link → editor focus と同じ意味論)。
- *
- * revealVersion を watch source に含めるのは、preview 表示中のファイル切替 (terminal
- * リンクの再クリック等) でも同じ理由でフォーカスを引き直すため。popover 内部に
- * フォーカスがある場合 (Monaco 編集中等) は奪わない。
- *
- * DOM フォーカスは view の関心なので、DOM なしでテストされる previewStore ではなく
- * popover 要素を所有する本コンポーネントが担う。
- */
-let previewRestoreFocusEl: HTMLElement | undefined;
-watch(
-  () => [previewStore.isOpen, worktreeStore.revealVersion] as const,
-  ([open], [wasOpen]) => {
-    const el = previewPopoverRef.value;
-    if (el === null) return;
-    if (open) {
-      const active = document.activeElement;
-      if (active instanceof HTMLElement && el.contains(active)) return;
-      previewRestoreFocusEl = active instanceof HTMLElement ? active : undefined;
-      el.focus({ preventScroll: true });
-      return;
-    }
-    if (!wasOpen) return;
-    // hidePopover の時点でフォーカスは body へ落ちているため、「popover がフォーカスを
-    // 持っていたか」は判定できない。open→close 遷移では常に復帰を試みる (xterm の
-    // hidden textarea 等。unmount 済み / 不可視なら focus() が no-op で body に留まる)
-    if (previewRestoreFocusEl?.isConnected === true) {
-      previewRestoreFocusEl.focus({ preventScroll: true });
-    }
-    previewRestoreFocusEl = undefined;
-  },
 );
 
 /**

@@ -1,7 +1,6 @@
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { hideSurface, showSurface } from "../../shared/surface";
 
 /**
  * Notification center パネルの開閉 + 未読管理の SSOT。EventLogPanel / ServerListPanel と
@@ -16,7 +15,6 @@ import { hideSurface, showSurface } from "../../shared/surface";
 export const useNotificationCenterStore = defineStore("notificationCenter", () => {
   const { notifications } = useNotificationStore();
 
-  const popoverEl = ref<HTMLElement>();
   const isOpen = ref(false);
   const lastSeenSeq = ref(0);
   /** toast の Details から遷移してきた通知 id。該当 item が展開 + スクロール後に clear する */
@@ -31,21 +29,10 @@ export const useNotificationCenterStore = defineStore("notificationCenter", () =
     if (open) lastSeenSeq.value = seq;
   });
 
-  function bindPopover(el: HTMLElement | undefined): void {
-    popoverEl.value = el;
-  }
   function open(): void {
-    if (isOpen.value) return;
-    const el = popoverEl.value;
-    if (!el) return;
-    showSurface(el);
     isOpen.value = true;
   }
   function close(): void {
-    if (!isOpen.value) return;
-    const el = popoverEl.value;
-    if (!el) return;
-    hideSurface(el);
     isOpen.value = false;
   }
   function toggle(): void {
@@ -70,7 +57,6 @@ export const useNotificationCenterStore = defineStore("notificationCenter", () =
     unseenCount,
     hasUnseenError,
     revealId,
-    bindPopover,
     open,
     close,
     toggle,

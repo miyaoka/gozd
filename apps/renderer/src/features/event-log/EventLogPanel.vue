@@ -16,7 +16,7 @@ import { computed, useTemplateRef, watch } from "vue";
 import { writeClipboardText } from "../../shared/clipboard";
 import { useDebugLog } from "../../shared/debug";
 import { useNotificationStore } from "../../shared/notification";
-import { useSurface } from "../../shared/surface";
+import { hideSurface, showSurface, useSurface } from "../../shared/surface";
 import { useEventLogStore } from "./useEventLogStore";
 import IconLucideActivity from "~icons/lucide/activity";
 import IconLucideCopy from "~icons/lucide/copy";
@@ -80,8 +80,19 @@ function labelClass(label: string): string {
 }
 
 const panelRef = useTemplateRef<HTMLElement>("panel");
-// template ref が null に戻った時点 (unmount) に bindPopover(undefined) で dangling を切る。
-watch(panelRef, (el) => store.bindPopover(el ?? undefined), { immediate: true });
+// 開閉を popover へミラーする。SSOT は store の `isOpen` で、DOM 側の状態は
+// `showPopover()` の前提 (既に開いている popover への再 show は例外) を満たすためだけに見る。
+// 要素も watch source に含めるのは、開いた状態で再 mount される経路 (HMR) を拾うため。
+watch(
+  [panelRef, () => store.isOpen],
+  ([el, open]) => {
+    if (el === null) return;
+    const shown = el.matches(":popover-open");
+    if (open && !shown) showSurface(el);
+    if (!open && shown) hideSurface(el);
+  },
+  { flush: "sync" },
+);
 const { raise } = useSurface(panelRef, () => store.close());
 </script>
 
@@ -89,7 +100,8 @@ const { raise } = useSurface(panelRef, () => store.close());
   <div
     ref="panel"
     popover="manual"
-    class="_event-log-popover w-[420px] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl [&:popover-open]:flex"
+    tabindex="-1"
+    class="_event-log-popover w-[420px] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl outline-hidden [&:popover-open]:flex"
     @pointerdown.capture="raise()"
   >
     <header class="flex items-center gap-2 border-b border-border px-3 py-2">

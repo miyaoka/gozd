@@ -15,7 +15,7 @@ Notification center パネル。auto-dismiss で消えた toast も含む全通�
 <script setup lang="ts">
 import { computed, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
-import { useSurface } from "../../shared/surface";
+import { hideSurface, showSurface, useSurface } from "../../shared/surface";
 import NotificationCenterItem from "./NotificationCenterItem.vue";
 import { useNotificationCenterStore } from "./useNotificationCenterStore";
 import IconLucideBell from "~icons/lucide/bell";
@@ -30,15 +30,27 @@ const sorted = computed(() => [...notifications.value].sort((a, b) => b.seq - a.
 
 const panelRef = useTemplateRef<HTMLElement>("panel");
 const { raise } = useSurface(panelRef, () => store.close());
-// template ref が null に戻った時点 (unmount) に bindPopover(undefined) で dangling を切る。
-watch(panelRef, (el) => store.bindPopover(el ?? undefined), { immediate: true });
+// 開閉を popover へミラーする。SSOT は store の `isOpen` で、DOM 側の状態は
+// `showPopover()` の前提 (既に開いている popover への再 show は例外) を満たすためだけに見る。
+// 要素も watch source に含めるのは、開いた状態で再 mount される経路 (HMR) を拾うため。
+watch(
+  [panelRef, () => store.isOpen],
+  ([el, open]) => {
+    if (el === null) return;
+    const shown = el.matches(":popover-open");
+    if (open && !shown) showSurface(el);
+    if (!open && shown) hideSurface(el);
+  },
+  { flush: "sync" },
+);
 </script>
 
 <template>
   <div
     ref="panel"
     popover="manual"
-    class="_notification-center-popover w-[420px] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl [&:popover-open]:flex"
+    tabindex="-1"
+    class="_notification-center-popover w-[420px] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl outline-hidden [&:popover-open]:flex"
     @pointerdown.capture="raise()"
   >
     <header class="flex items-center gap-2 border-b border-border px-3 py-2">

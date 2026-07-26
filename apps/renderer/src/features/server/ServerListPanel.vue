@@ -13,15 +13,15 @@ gozd 外 (external) と、帰属先 worktree が既に削除済みの orphaned �
 ESC / Cmd+W か閉じるボタンで閉じる。
 
 他のドックパネル / undock パネルと並ぶ top layer のサーフェス 1 枚 (`shared/surface`)。開閉の
-SSOT は store の `isOpen` で、popover DOM へのミラーは store の `open()` / `close()` が担う。
-本 component は template ref を `bindPopover` に渡し、`useSurface` で前面化と close の宛先を
-登録するだけ。重ね順は click-to-front、ESC / Cmd+W は最前面のサーフェスを閉じる。
+開閉の SSOT は store の `isOpen` で、popover DOM へのミラーは要素を所有する本 component が担う
+(store は DOM を持たない)。`useSurface` で前面化と close の宛先も登録する。重ね順は
+click-to-front、ESC / Cmd+W はフォーカスがあるサーフェスを閉じる。
 </doc>
 
 <script setup lang="ts">
 import { computed, useTemplateRef, watch } from "vue";
 import { useRepoStore } from "../../shared/repo";
-import { useSurface } from "../../shared/surface";
+import { hideSurface, showSurface, useSurface } from "../../shared/surface";
 import { useTerminalStore } from "../terminal";
 import { useWorktreeStore } from "../worktree";
 import type { ServerAttributionKind } from "./rpc";
@@ -129,14 +129,18 @@ function onRowClick(row: ServerRow): void {
 
 const panelRef = useTemplateRef<HTMLElement>("panel");
 
-// popover の DOM 参照を store に bind。template ref が null に戻った時点 (= unmount) に
-// bindPopover(undefined) が呼ばれ dangling 参照を切る (MainLayout の preview popover と同流儀)。
+// 開閉を popover へミラーする。SSOT は store の `isOpen` で、DOM 側の状態は
+// `showPopover()` の前提 (既に開いている popover への再 show は例外) を満たすためだけに見る。
+// 要素も watch source に含めるのは、開いた状態で再 mount される経路 (HMR) を拾うため。
 watch(
-  panelRef,
-  (el) => {
-    serverStore.bindPopover(el ?? undefined);
+  [panelRef, () => serverStore.isOpen],
+  ([el, open]) => {
+    if (el === null) return;
+    const shown = el.matches(":popover-open");
+    if (open && !shown) showSurface(el);
+    if (!open && shown) hideSurface(el);
   },
-  { immediate: true },
+  { flush: "sync" },
 );
 const { raise } = useSurface(panelRef, () => serverStore.close());
 </script>
@@ -145,7 +149,8 @@ const { raise } = useSurface(panelRef, () => serverStore.close());
   <div
     ref="panel"
     popover="manual"
-    class="_server-list-popover w-[480px] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl [&:popover-open]:flex"
+    tabindex="-1"
+    class="_server-list-popover w-[480px] flex-col border-0 border-l border-border bg-panel p-0 shadow-xl outline-hidden [&:popover-open]:flex"
     @pointerdown.capture="raise()"
   >
     <header class="flex items-center gap-2 border-b border-border px-3 py-2">

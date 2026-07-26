@@ -86,8 +86,8 @@ export interface ContextMap {
   previewVisible: boolean;
   /** Preview に編集セッションが張られている（編集可能な content を表示中） */
   previewEditable: boolean;
-  /** top layer のサーフェス（右ドックパネル / undock パネル）が 1 枚でも開いている */
-  surfaceVisible: boolean;
+  /** top layer のサーフェス（右ドックパネル / undock パネル）内にフォーカスがある */
+  surfaceFocused: boolean;
   /** undock された in-app パネル内にフォーカスがある */
   floatingWindowFocused: boolean;
   /** undock された child window（別 OS ウィンドウ）が OS フォーカスを持つ */

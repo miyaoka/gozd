@@ -6,14 +6,17 @@
 なるため、進んでいるのか止まっているのかをアニメーション速度ではなく数で読める。blink を末尾
 1 点に限るのは、増える先端を示しつつ全体が明滅して数が読めなくなるのを避けるため。
 
-`・` を 1 文字ずつ要素に分けて `flex-wrap` で折り返す。テキストの連続文字として置くと
-折り返せない: `・` (U+30FB) は UAX #14 の line break class が NS (Nonstarter) で直前での
-改行が禁止されるため、`・・・・・` は 1 単語として吹き出しから溢れる。1 点 = 1 要素なら
-改行規則に依存せず決定的に折り返る。
+DOM は「先頭側の `・` 連続テキスト」+「blink する末尾 1 文字」の 2 要素で、折り返しは
+`wrap-anywhere` (`overflow-wrap: anywhere`) が担う。`・` (U+30FB) は UAX #14 の line break class が
+NS (Nonstarter) で直前での改行が禁止されるため、通常の折り返しでは `・・・・・` が 1 単語として
+吹き出しから溢れる。`anywhere` は他に改行候補が無い行で任意点の改行を許すのでこれを上書きする
+(`word-break: break-all` では上書きされず溢れたままになるので置き換えないこと。Chromium 実測)。
+1 点 1 要素 + `flex-wrap` でも折り返せるが、件数に上限が無いため要素数が際限なく増える。
 
-件数に上限は設けない。点の数はアクション件数そのものの投影で、頭打ちにすると「増えていない」
-状態と区別が付かなくなる。伸びた吹き出しは overlay 側の `max-h` + `overflow-y-auto` が
-受け止める。
+件数に上限は設けない。点の数はアクション件数そのものの投影で、頭打ちにすると増えているのか
+どうかが読めなくなる。代償として、長い自律実行では点の列がスクロール面の可視域を占め、会話
+バブルが初期表示から外れる (スクロールすれば見える)。スクロール面は `flex-col-reverse` で
+末尾 (= この吹き出し) にアンカーされるため、押し出されるのは会話側になる。
 
 点は視覚的な装飾なので `aria-hidden` で支援技術から隠す。live region にはしない: 進行中で
 あることの読み上げは leaf タイトルの ClaudeStatus badge (`CLAUDE_STATE_VISUAL` が SSOT) が
@@ -25,20 +28,26 @@
 </doc>
 
 <script setup lang="ts">
+import { computed } from "vue";
+
 interface Props {
   count: number;
 }
 
-defineProps<Props>();
+const props = defineProps<Props>();
+
+// 末尾 1 点は blink 用に別要素へ切り出すため、先頭側はまとめて 1 つのテキストにする
+const leadingDots = computed(() => "・".repeat(Math.max(props.count - 1, 0)));
 </script>
 
 <template>
   <div v-if="count > 0" class="flex min-w-0" aria-hidden="true">
     <!-- 会話バブルの続きに見えるよう assistant 側と同じ吹き出し -->
     <div
-      class="flex max-w-[85%] flex-wrap rounded-lg bg-chat-incoming px-2 py-1 text-chat-incoming-text"
+      class="max-w-[85%] rounded-lg bg-chat-incoming px-2 py-1 wrap-anywhere text-chat-incoming-text"
     >
-      <span v-for="i in count" :key="i" :class="i === count ? '_fx-blink-dot' : ''">・</span>
+      <span>{{ leadingDots }}</span
+      ><span class="_fx-blink-dot">・</span>
     </div>
   </div>
 </template>

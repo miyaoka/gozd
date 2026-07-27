@@ -9,6 +9,11 @@ import { useArcadeStore } from "./useArcadeStore";
 /** マスター音量。演出音は会話やターミナル操作の邪魔をしない控えめな音圧に抑える */
 const MASTER_GAIN = 0.14;
 
+/** 既定の立ち上がり時間 (秒)。click / tick のような打撃感が要る音はこれを使う */
+const DEFAULT_ATTACK_S = 0.003;
+/** 通知系の立ち上がり時間 (秒)。聴覚性の驚愕反応は立ち上がりの速さに依存するため鈍らせる */
+const SOFT_ATTACK_S = 0.025;
+
 let audioCtx: AudioContext | undefined;
 let masterGain: GainNode | undefined;
 
@@ -36,6 +41,8 @@ interface ToneSpec {
   delay?: number;
   /** トーン単体の音量 (master に乗算される) */
   gain?: number;
+  /** 立ち上がり時間 (秒)。省略時は打撃的な既定値 */
+  attack?: number;
 }
 
 function tone(spec: ToneSpec): void {
@@ -44,7 +51,7 @@ function tone(spec: ToneSpec): void {
   if (audioCtx === undefined || masterGain === undefined) return;
   if (audioCtx.state !== "running") return;
 
-  const { freq, endFreq, type, duration, delay = 0, gain = 1 } = spec;
+  const { freq, endFreq, type, duration, delay = 0, gain = 1, attack = DEFAULT_ATTACK_S } = spec;
   const t0 = audioCtx.currentTime + delay;
 
   const osc = audioCtx.createOscillator();
@@ -55,9 +62,9 @@ function tone(spec: ToneSpec): void {
   }
 
   const env = audioCtx.createGain();
-  // attack 3ms → exponential decay。クリックノイズ防止に 0 ではなく微小値へ落とす
+  // attack → exponential decay。クリックノイズ防止に 0 ではなく微小値へ落とす
   env.gain.setValueAtTime(0.0001, t0);
-  env.gain.exponentialRampToValueAtTime(gain, t0 + 0.003);
+  env.gain.exponentialRampToValueAtTime(gain, t0 + attack);
   env.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
 
   osc.connect(env);
@@ -111,11 +118,27 @@ export const sfx = {
    * 三角波は 1/n² で減衰するため同じ音圧でも刺々しさが出ない。サブは第 2 トーンの
    * 完全 8 度なのでうなりを作らずに重心だけ足す。
    * 音程は alert (完全 4 度下降) と区別するため短三度、register は 1 オクターブ下に置く。
+   * 立ち上がりも鈍らせる。波形 (倍音構造) と onset (時間構造) は独立した不快さの軸で、
+   * 片方だけ直しても打撃的な出音は残る。
    */
   error(): void {
-    tone({ type: "triangle", freq: 415.3, duration: 0.16, gain: 0.6 });
-    tone({ type: "triangle", freq: 349.23, duration: 0.26, delay: 0.13, gain: 0.55 });
-    tone({ type: "sine", freq: 174.61, duration: 0.3, delay: 0.13, gain: 0.22 });
+    tone({ type: "triangle", freq: 415.3, duration: 0.16, gain: 0.6, attack: SOFT_ATTACK_S });
+    tone({
+      type: "triangle",
+      freq: 349.23,
+      duration: 0.26,
+      delay: 0.13,
+      gain: 0.55,
+      attack: SOFT_ATTACK_S,
+    });
+    tone({
+      type: "sine",
+      freq: 174.61,
+      duration: 0.3,
+      delay: 0.13,
+      gain: 0.22,
+      attack: SOFT_ATTACK_S,
+    });
   },
 
   /** セッション開始 (session-start): 起動スイープ + 和音 */

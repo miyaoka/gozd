@@ -18,6 +18,15 @@
   継続中 = 真の完了ではない）は terminal 側で除去されるため、ここには届かず演出も出ない
 - 通知 store: error の発生 (lastEvent) でエラー音 + レッドフラッシュ
 
+## バーストの合流
+
+フラッシュを伴う演出 (success / warning / error) は `fxCoalescer` を通し、実行中と同じ kind の
+再発火を畳む。並列 worktree からの done や複数の失敗通知は独立した非同期経路で束になって届き、
+畳まないと音圧の加算とフラッシュの点滅を招く (fxCoalescer.ts 参照)。
+
+音だけの演出 (running / tool-done / session-start) は畳まない。tick は「ツールが 1 つ終わった」
+という計数情報そのもので、合流すると回数が失われるため。短く音圧も低いので重畳の実害がない
+
 ## パフォーマンス
 
 - canvas パーティクルはイベント発火時のみ rAF を回し、空になれば停止する (idle 時の rAF ゼロ)
@@ -34,28 +43,36 @@ import { onMounted, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import type { ClaudeFxEvent, HookEvent } from "../terminal";
+import { createFxCoalescer, type FxKind } from "./fxCoalescer";
 import { createParticleEngine, type ParticleEngine } from "./particleEngine";
 import { sfx, unlockAudio } from "./sfx";
 
-/** フラッシュ演出の表示時間 (ms)。CSS の _fx-flash アニメーション長と揃える */
+/** フラッシュ演出の表示時間 (ms)。CSS の animation-duration にも v-bind で流す SSOT */
 const FLASH_DURATION_MS = 700;
+const flashDuration = `${FLASH_DURATION_MS}ms`;
 
 const canvasRef = useTemplateRef<HTMLCanvasElement>("fxCanvas");
 let engine: ParticleEngine | undefined;
 
-const flashKind = ref<"warning" | "error" | "success" | undefined>(undefined);
+const flashKind = ref<FxKind | undefined>(undefined);
 let flashTimer: ReturnType<typeof setTimeout> | undefined;
+const coalescer = createFxCoalescer();
 
-function flash(kind: "warning" | "error" | "success") {
-  // 連続発火で再生し直すため一度 undefined に戻してから次フレームで再設定する
-  flashKind.value = undefined;
+/**
+ * 音・パーティクル・フラッシュを 1 セットで発火する。実行中と同じ kind の再発火は
+ * `accept` が畳むため、effects は呼ばれない（音の重畳も同時に止まる）。
+ */
+function playFx(kind: FxKind, effects: () => void) {
+  if (!coalescer.accept(kind)) return;
+  effects();
+  // template 側で :key に flashKind を使うため、kind が変われば要素ごと差し替わり
+  // アニメーションは頭から走る（同一 kind は accept が畳むので再生し直しは起きない）
+  flashKind.value = kind;
   if (flashTimer !== undefined) clearTimeout(flashTimer);
-  requestAnimationFrame(() => {
-    flashKind.value = kind;
-    flashTimer = setTimeout(() => {
-      flashKind.value = undefined;
-    }, FLASH_DURATION_MS);
-  });
+  flashTimer = setTimeout(() => {
+    flashKind.value = undefined;
+    coalescer.finish();
+  }, FLASH_DURATION_MS);
 }
 
 useEventListener(
@@ -78,20 +95,17 @@ const HOOK_REACTIONS: Partial<Record<HookEvent, () => void>> = {
   "session-start": () => sfx.boot(),
   running: () => sfx.engage(),
   "tool-done": () => sfx.tick(),
-  done: () => {
-    sfx.success();
-    engine?.celebrate();
-    flash("success");
-  },
-  "needs-input": () => {
-    sfx.alert();
-    engine?.alertBurst();
-    flash("warning");
-  },
-  "stop-failure": () => {
-    sfx.error();
-    flash("error");
-  },
+  done: () =>
+    playFx("success", () => {
+      sfx.success();
+      engine?.celebrate();
+    }),
+  "needs-input": () =>
+    playFx("warning", () => {
+      sfx.alert();
+      engine?.alertBurst();
+    }),
+  "stop-failure": () => playFx("error", () => sfx.error()),
 };
 
 const disposeHook = onMessage<ClaudeFxEvent>("claudeFx", (fx) => {
@@ -104,8 +118,7 @@ onUnmounted(disposeHook);
 const { lastEvent } = useNotificationStore();
 watch(lastEvent, (event) => {
   if (event?.type !== "error") return;
-  sfx.error();
-  flash("error");
+  playFx("error", () => sfx.error());
 });
 
 onMounted(() => {
@@ -126,8 +139,13 @@ onUnmounted(() => {
     <div class="_fx-vignette absolute inset-0"></div>
     <!-- パーティクル -->
     <canvas ref="fxCanvas" class="absolute inset-0 size-full"></canvas>
-    <!-- イベントフラッシュ (画面端の発光) -->
-    <div v-if="flashKind" class="_fx-flash absolute inset-0" :data-kind="flashKind"></div>
+    <!-- イベントフラッシュ (画面端の発光)。:key で kind ごとに要素を作り直しアニメーションを頭から走らせる -->
+    <div
+      v-if="flashKind"
+      :key="flashKind"
+      class="_fx-flash absolute inset-0"
+      :data-kind="flashKind"
+    ></div>
   </div>
 </template>
 
@@ -136,12 +154,13 @@ onUnmounted(() => {
   background: radial-gradient(ellipse 120% 100% at 50% 45%, transparent 60%, oklch(0 0 0 / 0.3));
 }
 
-/* イベント発生時に画面端を発光させるフラッシュ。色は data-kind で切り替える */
+/* イベント発生時に画面端を発光させるフラッシュ。色は data-kind で切り替える。
+   easing はショートハンドに書かず keyframe 側が区間ごとに持つ（立ち上がりと減衰で別曲線） */
 ._fx-flash {
   /* 立ち上がりのピーク不透明度。強度は kind ごとに上書きする */
   --fx-flash-peak: 0.8;
 
-  animation: fx-flash-fade 0.7s ease-out forwards;
+  animation: fx-flash-fade v-bind(flashDuration) forwards;
 }
 
 ._fx-flash[data-kind="success"] {
@@ -152,22 +171,28 @@ onUnmounted(() => {
   box-shadow: inset 0 0 120px 10px var(--color-warning-strong);
 }
 
-/* error だけ弱いのは意図的。赤は同じ不透明度でも背景との輝度コントラストが最も大きく、
-   視野全体を覆う警告として過剰になる。spread を外して縁の発光に留める */
+/* error だけ弱いのは意図的。3 色の相対輝度は Leonardo が同一コントラストで生成するため
+   揃っているが、destructive だけ chroma が 25% 高く (0.207 vs 0.166 / 0.156)、
+   Helmholtz-Kohlrausch 効果で同じ輝度でも強く感じる。加えて error 通知は toast が
+   persist する（消えずに残る）ので、フラッシュは気づきだけ担えばよい。
+   spread を外して縁の発光に留める */
 ._fx-flash[data-kind="error"] {
   --fx-flash-peak: 0.45;
 
   box-shadow: inset 0 0 90px 0 var(--color-destructive);
 }
 
-/* ピークから始めず立ち上がりに 12% を割く。全画面の輝度が瞬間的に変化すると
-   驚愕反応を誘発するため、視認性を落とさない最短の swell で onset を鈍らせる */
+/* ピークから始めず立ち上がりに 12% を割く。全画面の輝度が瞬間的に変化すると驚愕反応を
+   誘発するため、視認性を落とさない範囲で onset を鈍らせる。立ち上がりは ease-in（漸増）、
+   減衰は ease-out（速く抜ける）。ショートハンドの easing は両区間とも上書きされる */
 @keyframes fx-flash-fade {
   from {
     opacity: 0;
+    animation-timing-function: ease-in;
   }
   12% {
     opacity: var(--fx-flash-peak);
+    animation-timing-function: ease-out;
   }
   to {
     opacity: 0;

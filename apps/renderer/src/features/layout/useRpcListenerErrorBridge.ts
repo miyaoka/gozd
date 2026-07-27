@@ -15,9 +15,9 @@ import { setListenerErrorReporter } from "../../shared/rpc";
 
 export function useRpcListenerErrorBridge() {
   setListenerErrorReporter((type, cause) => {
-    // stack を落とさないよう Error はそのまま文字列化する（detail は表示用の 1 行）
-    const detail = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause);
-    logEvent("rpc", "listener-error", type, detail);
-    console.error(`[dispatchToListeners] listener failed type=${type}`, cause);
+    // repo 引数は空文字。この event は repo / worktree に紐づかない（useDebugLog の契約）。
+    // stack は console floor（messages.ts）が持つので、パネルには 1 行の要約だけ出す
+    const reason = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause);
+    logEvent("rpc", "listener-error", "", `type=${type} ${reason}`);
   });
 }

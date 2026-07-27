@@ -52,18 +52,25 @@ describe("dispatchToListeners", () => {
     dispose();
   });
 
-  test("reporter 未注入なら console.error に落ちる", () => {
-    setListenerErrorReporter(undefined);
+  test("console の floor は reporter の有無に関わらず出る", () => {
     const consoleSpy = spies[0] as ReturnType<typeof spyOn<Console, "error">>;
-    const dispose = onMessage("test:fallback", () => {
+    const dispose = onMessage("test:floor", () => {
       throw new Error("boom");
     });
 
-    dispatchMessage("test:fallback", undefined);
+    // reporter 注入済み（beforeEach）でも floor は出る
+    dispatchMessage("test:floor", undefined);
+    expect(reported).toHaveLength(1);
+    expect(consoleSpy).toHaveBeenCalledTimes(1);
 
-    const [message, cause] = consoleSpy.mock.calls[0] ?? [];
+    // 未注入でも同じ書式で出る
+    setListenerErrorReporter(undefined);
+    dispatchMessage("test:floor", undefined);
+    expect(reported).toHaveLength(1);
+
+    const [message, cause] = consoleSpy.mock.calls[1] ?? [];
     expect(message).toContain("[dispatchToListeners]");
-    expect(message).toContain("type=test:fallback");
+    expect(message).toContain("type=test:floor");
     expect(cause).toBeInstanceOf(Error);
     dispose();
   });

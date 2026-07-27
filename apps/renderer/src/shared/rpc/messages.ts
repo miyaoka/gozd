@@ -29,11 +29,10 @@ type AnyListener = (payload: unknown) => void;
 const listeners = new Map<string, Set<AnyListener>>();
 
 /**
- * listener の失敗の報告先。feature 層から `setListenerErrorReporter()` で注入する。
+ * listener の失敗の追加報告先。feature 層から `setListenerErrorReporter()` で注入する。
  * shared 間の依存禁止 + shared → feature 依存禁止のため、報告先を直接呼べない
  * (`useCommandRegistry` の `setErrorHandler` と同じ DI 流儀)。
- * 未設定時は console.error にフォールバックして観察可能性を最低限担保する。
- * `undefined` を渡せばリセット（HMR / unmount で旧参照を残さないため）。
+ * `undefined` を渡せばリセットする（module singleton をテスト間で初期化するため）。
  */
 let listenerErrorReporter: ((type: string, cause: unknown) => void) | undefined;
 
@@ -43,14 +42,17 @@ export function setListenerErrorReporter(
   listenerErrorReporter = reporter;
 }
 
+/**
+ * console の floor + 注入先への報告の二段構え（main 側 `makeDebugLogPush` と同型）。
+ * floor を注入の有無に関わらず出すのは、bridge 注入前に届いた push と、報告先の実装が
+ * console を書き忘れた場合の両方で観測が消えないようにするため。書式を 1 箇所に閉じる
+ * 意味もある（tag は発火元のこのモジュールの名前でなければならない）。
+ */
 function reportListenerError(type: string, cause: unknown): void {
-  if (listenerErrorReporter !== undefined) {
-    listenerErrorReporter(type, cause);
-    return;
-  }
   // error はテンプレート補間せず第 2 引数で渡す。この経路の失敗は listener 側の
   // プログラミングエラーで、発生箇所を特定できる材料は stack だけになる
   console.error(`[dispatchToListeners] listener failed type=${type}`, cause);
+  listenerErrorReporter?.(type, cause);
 }
 
 function dispatchToListeners(type: string, payload: unknown): void {

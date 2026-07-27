@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { dispatchMessage, onMessage, setListenerErrorReporter } from "./messages";
 
 let spies: Array<{ mockRestore: () => void }> = [];
-/** 注入 reporter が受け取った (type, cause)。未注入時の console フォールバックの検証にも使う */
+/** 注入 reporter が受け取った (type, cause)。リセット後に呼ばれないことの確認にも使う */
 let reported: Array<[string, unknown]> = [];
 
 beforeEach(() => {
@@ -10,7 +10,7 @@ beforeEach(() => {
   setListenerErrorReporter((type, cause) => {
     reported.push([type, cause]);
   });
-  // 未注入経路 (console フォールバック) を踏むテストの出力を吸う
+  // floor は注入の有無に関わらず出るので、throw を踏む全テストの出力を吸う
   spies = [spyOn(console, "error").mockImplementation(() => {})];
 });
 

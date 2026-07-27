@@ -1,15 +1,21 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { dispatchMessage, onMessage } from "./messages";
+import { dispatchMessage, onMessage, setListenerErrorReporter } from "./messages";
 
 let spies: Array<{ mockRestore: () => void }> = [];
+/** 注入 reporter が受け取った (type, cause)。未注入時の console フォールバックの検証にも使う */
+let reported: Array<[string, unknown]> = [];
 
 beforeEach(() => {
-  // 隔離時の観察ログを吸ってテスト出力を無音にする。ログ自体が契約である
-  // "listener の失敗は観察ログに残す" では発火内容まで assert する
+  reported = [];
+  setListenerErrorReporter((type, cause) => {
+    reported.push([type, cause]);
+  });
+  // 未注入経路 (console フォールバック) を踏むテストの出力を吸う
   spies = [spyOn(console, "error").mockImplementation(() => {})];
 });
 
 afterEach(() => {
+  setListenerErrorReporter(undefined);
   for (const spy of spies) spy.mockRestore();
 });
 
@@ -31,19 +37,33 @@ describe("dispatchToListeners", () => {
     for (const dispose of disposers) dispose();
   });
 
-  test("listener の失敗は観察ログに残す", () => {
-    const consoleSpy = spies[0] as ReturnType<typeof spyOn<Console, "error">>;
+  test("listener の失敗は注入された reporter に渡る", () => {
     const dispose = onMessage("test:log", () => {
       throw new Error("boom");
     });
 
     dispatchMessage("test:log", undefined);
 
-    // 隔離した以上、失敗が現れる先はこのログだけになる。type で発生源を絞れること、
-    // stack を持つ error オブジェクトが渡ること（文字列補間で潰れていないこと）を固定する
+    // 隔離した以上、失敗が現れる先は reporter だけになる。type で発生源を絞れること、
+    // stack を持つ error オブジェクトが渡ること（文字列化で潰れていないこと）を固定する
+    const [type, cause] = reported[0] ?? [];
+    expect(type).toBe("test:log");
+    expect(cause).toBeInstanceOf(Error);
+    dispose();
+  });
+
+  test("reporter 未注入なら console.error に落ちる", () => {
+    setListenerErrorReporter(undefined);
+    const consoleSpy = spies[0] as ReturnType<typeof spyOn<Console, "error">>;
+    const dispose = onMessage("test:fallback", () => {
+      throw new Error("boom");
+    });
+
+    dispatchMessage("test:fallback", undefined);
+
     const [message, cause] = consoleSpy.mock.calls[0] ?? [];
     expect(message).toContain("[dispatchToListeners]");
-    expect(message).toContain("type=test:log");
+    expect(message).toContain("type=test:fallback");
     expect(cause).toBeInstanceOf(Error);
     dispose();
   });

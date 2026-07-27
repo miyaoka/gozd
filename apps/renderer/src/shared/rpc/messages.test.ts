@@ -92,6 +92,17 @@ describe("dispatchToListeners", () => {
     dispatchMessage("test:reporter-throw", "payload");
 
     expect(received).toEqual(["payload"]);
+
+    // reporter が死んでいることを知る手段はこのログだけ（floor は元の listener 失敗を
+    // 出し続けるので、event-log にだけ何も来ない静かな壊れ方になる）。
+    // listener failed と撃ち分けられていることも同時に固定する
+    const consoleSpy = spies[0] as ReturnType<typeof spyOn<Console, "error">>;
+    const reporterCall = consoleSpy.mock.calls.find(([message]) =>
+      String(message).includes("reporter failed"),
+    );
+    expect(reporterCall?.[0]).toContain("type=test:reporter-throw");
+    expect(reporterCall?.[1]).toBeInstanceOf(Error);
+    expect((reporterCall?.[1] as Error).message).toBe("reporter boom");
     for (const dispose of disposers) dispose();
   });
 

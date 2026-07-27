@@ -1,7 +1,7 @@
 // main → renderer の push 経路のシングルトン dispatcher。
 //
 // main process の `webContents.send("rpc:push", type, payload)` を preload の
-// `__gozdElectronRpc.onPush` 経由で受ける。type ごとの listener 配列を持ち、
+// `__gozdElectronRpc.onPush` 経由で受ける。type ごとに listener を保持し、
 // `onMessage(type, fn)` で購読、戻り値の disposer で解除する。
 //
 // 設計判断:
@@ -23,6 +23,9 @@ type AnyListener = (payload: unknown) => void;
 // dispatch 中に disposer が呼ばれても配送コピーを取らずに済む（ptyText のように
 // MB/s で流れる type があるので、dispatch 側の割り当てはゼロに保つ）。
 // 解除も indexOf + splice の O(n) ではなく O(1) になる。
+// 対になる保証として、反復中に追加された値は訪問される。dispatch 中に同じ type を
+// 新規購読するとその listener は配送中の event も受け取る（EventTarget とは逆）。
+// ハンドラ内から購読を足さないこと。
 const listeners = new Map<string, Set<AnyListener>>();
 
 function dispatchToListeners(type: string, payload: unknown): void {

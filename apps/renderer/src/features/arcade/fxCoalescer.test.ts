@@ -113,16 +113,15 @@ describe("createFxCoalescer", () => {
     expect(calls).toBe(2);
   });
 
-  test("effects が throw しても窓は解放される", () => {
+  test("effects が throw しても窓は解放され、例外は呼び出し側へ通る", () => {
     const coalescer = createFxCoalescer(WINDOW_MS);
-    const consoleSpy = spyOn(console, "error").mockImplementation(() => {});
-    spies.push(consoleSpy);
 
-    coalescer.run("error", () => {
-      throw new Error("boom");
-    });
+    expect(() => {
+      coalescer.run("error", () => {
+        throw new Error("boom");
+      });
+    }).toThrow("boom");
 
-    expect(consoleSpy).toHaveBeenCalled();
     closeWindow();
     expect(coalescer.kind.value).toBeUndefined();
 

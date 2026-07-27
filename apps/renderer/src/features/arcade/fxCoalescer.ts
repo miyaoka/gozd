@@ -16,7 +16,6 @@
 // 窓と効果の所有権をこのモジュールに置き、呼び出し側には kind の ref だけを見せる。
 // 判断だけを切り出して効果の実行を呼び出し側に残すと、配線が壊れても単体テストは通る。
 
-import { tryCatch } from "@gozd/shared";
 import { ref, type Ref } from "vue";
 
 /** フラッシュを伴う演出の種別 */
@@ -30,8 +29,12 @@ const FX_RANK: Record<FxKind, number> = {
 };
 
 export interface FxCoalescer {
-  /** 実行中の演出の kind。演出が無ければ undefined */
-  kind: Ref<FxKind | undefined>;
+  /**
+   * 実行中の演出の kind。演出が無ければ undefined。
+   * 書き込みを型で塞ぐ。外から代入されると解放が予約されないまま kind が居座り、
+   * 以降その kind 以下の演出が恒久的に出なくなる
+   */
+  kind: Readonly<Ref<FxKind | undefined>>;
   /** 演出を要求する。畳まれた場合 effects は呼ばれない */
   run(kind: FxKind, effects: () => void): void;
   /** 予約中の解放タイマーを破棄する（unmount 用） */
@@ -50,7 +53,8 @@ export function createFxCoalescer(windowMs: number): FxCoalescer {
       if (active !== undefined && FX_RANK[next] <= FX_RANK[active]) return;
 
       // 窓の確保と解放予約を effects より先に済ませる。effects が throw したときに
-      // 解放が予約されていないと kind が latch し、以降その kind の演出が出なくなる
+      // 解放が予約されていないと kind が latch し、以降その kind の演出が出なくなる。
+      // 例外はそのまま呼び出し側へ通す（push 購読者どうしの隔離は dispatcher の責務）
       kind.value = next;
       if (releaseTimer !== undefined) clearTimeout(releaseTimer);
       releaseTimer = setTimeout(() => {
@@ -58,12 +62,7 @@ export function createFxCoalescer(windowMs: number): FxCoalescer {
         releaseTimer = undefined;
       }, windowMs);
 
-      const result = tryCatch(() => {
-        effects();
-      });
-      if (!result.ok) {
-        console.error(`[fxCoalescer] effects failed: ${result.error} kind=${next}`);
-      }
+      effects();
     },
     dispose() {
       if (releaseTimer !== undefined) clearTimeout(releaseTimer);

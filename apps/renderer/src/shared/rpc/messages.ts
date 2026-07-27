@@ -15,6 +15,8 @@
 //    生じ、bun:test / SSR / 非 DOM 環境でロードエラーになる。renderer の bootstrap
 //    (`main.ts`) で 1 回だけ呼び出す契約にすることで、import 時の副作用を排除する。
 
+import { tryCatch } from "@gozd/shared";
+
 type AnyListener = (payload: unknown) => void;
 
 const listeners = new Map<string, AnyListener[]>();
@@ -22,7 +24,19 @@ const listeners = new Map<string, AnyListener[]>();
 function dispatchToListeners(type: string, payload: unknown): void {
   const fns = listeners.get(type);
   if (fns === undefined) return;
-  for (const fn of fns) fn(payload);
+  // listener ごとに隔離する。1 つの throw で登録順の後続が同じ event を丸ごと落とすと、
+  // 互いに無関係な購読者どうしで状態が黙ってずれる（claudeFx は arcade と voicevox が
+  // 独立に購読しており、片方の失敗がもう片方を飢えさせる理由はない）。
+  // shared 間の依存は禁止されており notification store は使えないため、観察は
+  // console.error に落とす（silent drop 禁止）。
+  for (const fn of fns) {
+    const result = tryCatch(() => {
+      fn(payload);
+    });
+    if (!result.ok) {
+      console.error(`[dispatchToListeners] listener failed: ${result.error} type=${type}`);
+    }
+  }
 }
 
 /**

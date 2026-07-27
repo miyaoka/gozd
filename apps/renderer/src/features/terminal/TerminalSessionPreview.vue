@@ -33,23 +33,23 @@ run 単位で kind ごとに件数を確保するため、assistant が連続応
 
 ## 進行中インジケータ
 
-各 overlay の bubble 列末尾に、「発言以外のアクション中」なら `・` が増減する typing
-indicator (`_fx-typing-dots`) を assistant 吹き出しと同じ見た目で追加表示する。transcript
-ベースの判定は `isSessionInProgress` (`terminalSessionPreviewMessages.ts`) が担い、ask 展開後の
-events 列の末尾 kind が thinking / tool なら進行中、user / assistant (発言) なら false
-にリセットする。system (注入) はエージェントのアクションでも発言でもないため末尾判定で透過し、
-直近の非 system イベントで判定する (tool 実行中の hook 注入で進行中表示が誤って消えないように)。
-preview は user/assistant/teammate 以外を filter で捨てるため、この判定だけは
-filter 前の events 列 (`parsePreview` の中間結果) を見る必要がある。
+各 overlay の bubble 列末尾に、「発言以外のアクション中」なら実行済みアクション件数ぶんの
+点を assistant 吹き出しと同じ見た目で追加表示する (TerminalSessionPreviewProgressDots)。
+件数は `countInProgressActions` (`terminalSessionPreviewMessages.ts`) が ask 展開後の events 列
+末尾から thinking / tool を数え、user / assistant (発言) に当たったところで打ち切る (発言で
+0 にリセット)。system (注入) はエージェントのアクションでも発言でもないため透過する
+(tool 実行中の hook 注入で進行中表示が誤って消えないように)。preview は user/assistant/teammate
+以外を filter で捨てるため、この数え上げだけは filter 前の events 列 (`parsePreview` の
+中間結果) を見る必要がある。
 
 main と sub で判定の確からしさが非対称になる。main は PTY を持ち、ClaudeStatus
 (`claudeStatus.ts`) が hooks + PTY 出力の interrupt パターンマッチで「本当に working か」を
 継続的に更新している。ユーザーが Ctrl+C/Escape で中断すると Claude Code は transcript に
 新規イベントを追記しない (interrupt 通知フックが無いため) ので、transcript 末尾だけで判定
 すると次の発言まで進行中表示が居座り続けて ClaudeStatus の badge (idle) と食い違う。そのため
-`mainInProgress` は `isSessionInProgress` の結果を `ClaudeStatus` (`getClaudeState(leafId)
-=== "working"`) で AND し、より確からしい信号を優先する。sub は Task ツールで起動される
-仮想セッションで PTY / ClaudeStatus を持たないため、transcript ベースの推定のみで妥協する。
+`mainActionCount` は `ClaudeStatus` (`getClaudeState(leafId) === "working"`) が working でない
+限り 0 に倒し、より確からしい信号を優先する。sub は Task ツールで起動される仮想セッションで
+PTY / ClaudeStatus を持たないため、transcript ベースの推定のみで妥協する。
 
 ## 折りたたみと高さ上限
 
@@ -170,7 +170,8 @@ import {
   useSessionLogLive,
 } from "../session-log";
 import type { PreviewEvent, PreviewMessage } from "./terminalSessionPreviewMessages";
-import { collectMessages, isSessionInProgress } from "./terminalSessionPreviewMessages";
+import { collectMessages, countInProgressActions } from "./terminalSessionPreviewMessages";
+import TerminalSessionPreviewProgressDots from "./TerminalSessionPreviewProgressDots.vue";
 import { useTerminalStore } from "./useTerminalStore";
 import IconMdiDockWindow from "~icons/mdi/dock-window";
 
@@ -199,12 +200,13 @@ const { sessions } = useSessionLogLive(sessionId);
 // `expandAskMessages` で AskUserQuestion (kind: "ask") を「質問 = assistant 発言」
 // 「回答 = user 発言」に inline 展開する。展開後の events 列から user / assistant 以外
 // (thinking / tool / image / branch) を捨てるのは preview 側の責務 (どの kind を見せるかは
-// 表示制約。parser 側は ask 展開のみに閉じる)。inProgress は展開後・filter 前の events 列
-// (末尾が thinking / tool かどうか) から判定するため、messages と同じ 1 回の parse 結果を
+// 表示制約。parser 側は ask 展開のみに閉じる)。actionCount は展開後・filter 前の events 列
+// (末尾に積まれた thinking / tool の件数) から数えるため、messages と同じ 1 回の parse 結果を
 // 両方の派生元にする。
 interface ParsedPreview {
   messages: PreviewEvent[];
-  inProgress: boolean;
+  /** 直近の発言以降のアクション件数。0 なら進行中でない */
+  actionCount: number;
 }
 
 function parsePreview(content: string): ParsedPreview {
@@ -219,7 +221,7 @@ function parsePreview(content: string): ParsedPreview {
       messages.push({ kind: "user", text: ev.text, ts: ev.ts });
     }
   }
-  return { messages, inProgress: isSessionInProgress(events) };
+  return { messages, actionCount: countInProgressActions(events) };
 }
 
 // 最後に「会話発話」(kind === user | assistant) があった ts。tool だけ走り続けている
@@ -234,11 +236,11 @@ function lastConversationTs(events: PreviewEvent[]): number {
   return 0;
 }
 
-// main session の parse 結果 (messages + inProgress)。サブで二度評価されるのを避けるため
+// main session の parse 結果 (messages + actionCount)。サブで二度評価されるのを避けるため
 // computed に切る。
 const mainParsed = computed<ParsedPreview>(() => {
   const main = sessions.value.find((s) => s.kind === "main");
-  return main === undefined ? { messages: [], inProgress: false } : parsePreview(main.content);
+  return main === undefined ? { messages: [], actionCount: 0 } : parsePreview(main.content);
 });
 // transcript 末尾が thinking/tool でも、ユーザーが Ctrl+C/Escape で中断した直後は
 // Claude Code が transcript に新規イベントを追記しない (interrupt 通知フックが無いため。
@@ -246,23 +248,23 @@ const mainParsed = computed<ParsedPreview>(() => {
 // 既に idle に落ちているのに、transcript ベースの判定だけだと次の発言までインジケータが
 // 居座り続けて食い違う。main は PTY を持つため `ClaudeStatus` (TerminalLeafTitle の badge と
 // 同じ `getClaudeState`) で確定させ、transcript ベースの推定より優先する。
-const mainInProgress = computed<boolean>(
-  () => mainParsed.value.inProgress && terminalStore.getClaudeState(props.leafId) === "working",
+const mainActionCount = computed<number>(() =>
+  terminalStore.getClaudeState(props.leafId) === "working" ? mainParsed.value.actionCount : 0,
 );
 
 // 最後に発話があった subagent 1 つの events + 表示ラベル (subagentTabLabel が組み立てた
-// agent 名 / workflow 見出し) + inProgress。「発話」は会話イベント (user / assistant) の
+// agent 名 / workflow 見出し) + actionCount。「発話」は会話イベント (user / assistant) の
 // 最終 ts で判定し、tool 単独走行の subagent はここでの最新性に寄与させない。events と
 // label を 1 つの computed にまとめておくと sub overlay の見出しと本文が同じ subagent から
 // 派生する不変条件を構造的に担保できる。
 const newestSub = computed<
-  { label: string; events: PreviewEvent[]; inProgress: boolean } | undefined
+  { label: string; events: PreviewEvent[]; actionCount: number } | undefined
 >(() => {
   const subs = sessions.value
     .filter((s) => s.kind !== "main")
     .map((s) => {
       const parsed = parsePreview(s.content);
-      return { label: s.label, events: parsed.messages, inProgress: parsed.inProgress };
+      return { label: s.label, events: parsed.messages, actionCount: parsed.actionCount };
     })
     .filter((x) => x.events.length > 0);
   if (subs.length === 0) return undefined;
@@ -279,8 +281,8 @@ const newestSub = computed<
 });
 const subEvents = computed<PreviewEvent[]>(() => newestSub.value?.events ?? []);
 // sub は Task ツールで起動される仮想セッションで PTY を持たず ClaudeStatus が存在しないため、
-// main と異なり transcript ベースの推定 (`parsePreview` の inProgress) だけで判定する。
-const subInProgress = computed<boolean>(() => newestSub.value?.inProgress ?? false);
+// main と異なり transcript ベースの推定 (`parsePreview` の actionCount) だけで判定する。
+const subActionCount = computed<number>(() => newestSub.value?.actionCount ?? 0);
 // subLabel は <summary> の折り畳みハンドルを兼ねるため、subagentTabLabel が空文字
 // を返すケース (ロード途中 / meta.json 解析失敗) でも "Subagent" にフォールバック
 // して summary を必ず出す。summary を欠落させると UA デフォルト "Details" 表示に
@@ -587,18 +589,9 @@ watch([hasMain, hasSub], ([main, sub]) => {
               <span class="line-clamp-2">{{ msg.text }}</span>
             </button>
           </div>
-          <!-- 進行中インジケータ。transcript 末尾が thinking / tool (発言以外のアクション)
-               のときだけ出し、次の発言が来た瞬間 mainInProgress が false になって消える
-               (発言でリセット)。会話バブルの続きに見えるよう assistant 側と同じ吹き出し。 -->
-          <div v-if="mainInProgress" class="flex min-w-0">
-            <div
-              class="block rounded-lg bg-chat-incoming px-2 py-1 text-chat-incoming-text"
-              role="status"
-              aria-label="Working"
-            >
-              <span class="_fx-typing-dots inline-block w-9 text-center"></span>
-            </div>
-          </div>
+          <!-- 進行中インジケータ。直近の発言以降に積まれたアクション件数を点の数で出し、
+               次の発言が来た瞬間 mainActionCount が 0 になって消える (発言でリセット)。 -->
+          <TerminalSessionPreviewProgressDots v-if="mainActionCount > 0" :count="mainActionCount" />
         </div>
       </div>
     </details>
@@ -653,16 +646,8 @@ watch([hasMain, hasSub], ([main, sub]) => {
               <span class="line-clamp-2">{{ msg.text }}</span>
             </button>
           </div>
-          <!-- 進行中インジケータ。main と同じ規律 (末尾が thinking / tool のときだけ表示)。 -->
-          <div v-if="subInProgress" class="flex min-w-0">
-            <div
-              class="block rounded-lg bg-chat-incoming px-2 py-1 text-chat-incoming-text"
-              role="status"
-              aria-label="Working"
-            >
-              <span class="_fx-typing-dots inline-block w-9 text-center"></span>
-            </div>
-          </div>
+          <!-- 進行中インジケータ。main と同じ規律 (アクション件数ぶんの点)。 -->
+          <TerminalSessionPreviewProgressDots v-if="subActionCount > 0" :count="subActionCount" />
         </div>
       </div>
     </details>

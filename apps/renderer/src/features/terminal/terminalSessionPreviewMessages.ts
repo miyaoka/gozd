@@ -12,23 +12,33 @@ export interface PreviewEvent {
 }
 
 /**
- * セッションが「発言以外のアクション中 (= 進行中)」かどうかを判定する。
- * transcript の末尾イベントが thinking / tool なら、直近の発言以降まだ次の発言が
- * 無い = 作業継続中とみなす。末尾が user / assistant (発言) なら進行中表示をリセットする。
- * ask は expandAskMessages で user / assistant に展開済みの前提 (呼び出し側で展開してから渡す)。
+ * 直近の発言以降に積まれた「発言以外のアクション」(thinking / tool) の件数を数える。
+ * 0 なら進行中でない (末尾が発言、または発言も作業もない)。1 以上ならその件数が
+ * そのまま進行中インジケータの点の数になる。
  *
- * system (注入) はエージェント自身のアクションでも発言でもないため透過し、直近の非 system
- * イベントで判定する。透過しないと、tool 実行中に hook 注入が末尾に来た瞬間 (tool_use →
+ * transcript の末尾イベントが thinking / tool なら、直近の発言以降まだ次の発言が
+ * 無い = 作業継続中とみなす。末尾が user / assistant (発言) なら 0 に戻し、進行中表示を
+ * リセットする。ask は expandAskMessages で user / assistant に展開済みの前提
+ * (呼び出し側で展開してから渡す)。
+ *
+ * system (注入) はエージェント自身のアクションでも発言でもないため透過する (件数にも
+ * 数えない)。透過しないと、tool 実行中に hook 注入が末尾に来た瞬間 (tool_use →
  * hook attachment → tool_result の JSONL 順で、tool_result 到着前の window) に進行中表示が
  * 誤って消える。
+ *
+ * thinking / tool 以外の非発言イベント (image / branch) は透過せず打ち切る。末尾がそれらの
+ * ときに進行中としないのは boolean 判定だった頃からの挙動で、`> 0` が旧 `isSessionInProgress`
+ * と等価になるよう保っている。
  */
-export function isSessionInProgress(events: TranscriptEvent[]): boolean {
+export function countInProgressActions(events: TranscriptEvent[]): number {
+  let count = 0;
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i];
     if (ev === undefined || ev.kind === "system") continue;
-    return ev.kind === "thinking" || ev.kind === "tool";
+    if (ev.kind !== "thinking" && ev.kind !== "tool") return count;
+    count++;
   }
-  return false;
+  return count;
 }
 
 // 1 overlay 分の bubble。run 単位で表示対象を選び、events の出現順で並べる。

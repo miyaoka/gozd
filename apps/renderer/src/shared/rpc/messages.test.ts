@@ -75,6 +75,26 @@ describe("dispatchToListeners", () => {
     dispose();
   });
 
+  test("reporter が throw しても後続の配送は止まらない", () => {
+    setListenerErrorReporter(() => {
+      throw new Error("reporter boom");
+    });
+    const received: string[] = [];
+    const disposers = [
+      onMessage<string>("test:reporter-throw", () => {
+        throw new Error("listener boom");
+      }),
+      onMessage<string>("test:reporter-throw", (payload) => {
+        received.push(payload);
+      }),
+    ];
+
+    dispatchMessage("test:reporter-throw", "payload");
+
+    expect(received).toEqual(["payload"]);
+    for (const dispose of disposers) dispose();
+  });
+
   test("同一関数の二重購読は 1 件に畳まれ、1 回の解除で消える", () => {
     let calls = 0;
     const fn = () => {

@@ -52,7 +52,16 @@ function reportListenerError(type: string, cause: unknown): void {
   // error はテンプレート補間せず第 2 引数で渡す。この経路の失敗は listener 側の
   // プログラミングエラーで、発生箇所を特定できる材料は stack だけになる
   console.error(`[dispatchToListeners] listener failed type=${type}`, cause);
-  listenerErrorReporter?.(type, cause);
+
+  // reporter も注入された実装なので listener と同じ規律で隔離する。ここで throw すると
+  // 残りの listener がその event を落とし、隔離の不変条件が報告経路から破れる。
+  // 元の失敗は上の floor で記録済みなので握り潰しにはならない
+  const result = tryCatch(() => {
+    listenerErrorReporter?.(type, cause);
+  });
+  if (!result.ok) {
+    console.error(`[dispatchToListeners] reporter failed type=${type}`, result.error);
+  }
 }
 
 function dispatchToListeners(type: string, payload: unknown): void {

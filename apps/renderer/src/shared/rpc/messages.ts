@@ -27,14 +27,25 @@ function dispatchToListeners(type: string, payload: unknown): void {
   // listener ごとに隔離する。1 つの throw で登録順の後続が同じ event を丸ごと落とすと、
   // 互いに無関係な購読者どうしで状態が黙ってずれる（claudeFx は arcade と voicevox が
   // 独立に購読しており、片方の失敗がもう片方を飢えさせる理由はない）。
-  // shared 間の依存は禁止されており notification store は使えないため、観察は
-  // console.error に落とす（silent drop 禁止）。
-  for (const fn of fns) {
+  //
+  // 失敗をトーストに上げる案は採らない（shared 間の依存は useCommandRegistry と同じ
+  // コールバック注入で回避できるため、制約ではなく判断として却下する）。push は ptyText の
+  // ように高頻度で流れる type を含み、listener が恒常的に throw する状態では push ごとに
+  // 通知が積まれて通知センターが観察不能になる。ユーザー起点 1 回 = 1 失敗のコマンド実行とは
+  // 頻度が桁で違う。
+  //
+  // error はテンプレート補間せず第 2 引数で渡す。この経路の失敗は listener 側の
+  // プログラミングエラーで、発生箇所を特定できる材料は stack だけになる。
+  //
+  // 反復は配列のコピー上で行う。listener がハンドラ内で disposer を呼ぶと splice が
+  // 反復中の配列を詰め、後続 1 件が黙って飛ばされる（隔離で潰したのと同じ症状が
+  // 例外以外の経路で再発する）。DOM の EventTarget と同じくスナップショットを取る。
+  for (const fn of fns.slice()) {
     const result = tryCatch(() => {
       fn(payload);
     });
     if (!result.ok) {
-      console.error(`[dispatchToListeners] listener failed: ${result.error} type=${type}`);
+      console.error(`[dispatchToListeners] listener failed type=${type}`, result.error);
     }
   }
 }

@@ -4,8 +4,8 @@ import { dispatchMessage, onMessage } from "./messages";
 let spies: Array<{ mockRestore: () => void }> = [];
 
 beforeEach(() => {
-  // 隔離時の観察ログを吸ってテスト出力を無音にする (検証対象は配送の継続であって
-  // console 出力そのものではない)
+  // 隔離時の観察ログを吸ってテスト出力を無音にする。ログ自体が契約である
+  // "listener の失敗は観察ログに残す" では発火内容まで assert する
   spies = [spyOn(console, "error").mockImplementation(() => {})];
 });
 
@@ -39,8 +39,29 @@ describe("dispatchToListeners", () => {
 
     dispatchMessage("test:log", undefined);
 
-    expect(consoleSpy).toHaveBeenCalled();
+    // 隔離した以上、失敗が現れる先はこのログだけになる。type で発生源を絞れること、
+    // stack を持つ error オブジェクトが渡ること（文字列補間で潰れていないこと）を固定する
+    const [message, cause] = consoleSpy.mock.calls[0] ?? [];
+    expect(message).toContain("[dispatchToListeners]");
+    expect(message).toContain("type=test:log");
+    expect(cause).toBeInstanceOf(Error);
     dispose();
+  });
+
+  test("dispatch 中に自分の disposer を呼んでも後続を飛ばさない", () => {
+    const received: string[] = [];
+    // 自分の disposer を dispatch 中に呼ぶ listener（closure から参照するので初期化済み）
+    const disposeSelf: () => void = onMessage<string>("test:self-dispose", () => {
+      disposeSelf();
+    });
+    const disposeSecond = onMessage<string>("test:self-dispose", (payload) => {
+      received.push(payload);
+    });
+
+    dispatchMessage("test:self-dispose", "payload");
+
+    expect(received).toEqual(["payload"]);
+    disposeSecond();
   });
 
   test("購読者が全員 throw しても dispatch 自体は throw しない", () => {

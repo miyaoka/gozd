@@ -12,24 +12,18 @@
 改行が禁止されるため、`・・・・・` は 1 単語として吹き出しから溢れる。1 点 = 1 要素なら
 改行規則に依存せず決定的に折り返る。
 
-件数は `MAX_DOTS` で頭打ちにする。上限なしでは長時間の自律実行で吹き出しが overlay の
-高さを食い潰す。上限に達した後も末尾の点滅で進行中であることは伝わる。
+件数に上限は設けない。点の数はアクション件数そのものの投影で、頭打ちにすると「増えていない」
+状態と区別が付かなくなる。伸びた吹き出しは overlay 側の `max-h` + `overflow-y-auto` が
+受け止める。
 </doc>
 
 <script setup lang="ts">
-import { computed } from "vue";
-
 interface Props {
   /** 直近の発言以降のアクション件数 (`countInProgressActions`)。1 以上のときだけ描画される想定 */
   count: number;
 }
 
-const props = defineProps<Props>();
-
-/** 表示する点の上限。吹き出しが overlay の高さを食い潰さないための予算 (text-xs で約 2 行) */
-const MAX_DOTS = 20;
-
-const dotCount = computed(() => Math.min(props.count, MAX_DOTS));
+defineProps<Props>();
 </script>
 
 <template>
@@ -40,7 +34,7 @@ const dotCount = computed(() => Math.min(props.count, MAX_DOTS));
       role="status"
       :aria-label="`Working: ${count} actions`"
     >
-      <span v-for="i in dotCount" :key="i" :class="i === dotCount ? '_fx-blink-dot' : ''">・</span>
+      <span v-for="i in count" :key="i" :class="i === count ? '_fx-blink-dot' : ''">・</span>
     </div>
   </div>
 </template>

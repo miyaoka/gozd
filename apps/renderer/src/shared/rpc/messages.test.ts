@@ -48,6 +48,22 @@ describe("dispatchToListeners", () => {
     dispose();
   });
 
+  test("同一関数の二重購読は 1 件に畳まれ、1 回の解除で消える", () => {
+    let calls = 0;
+    const fn = () => {
+      calls++;
+    };
+    const disposeFirst = onMessage("test:dedupe", fn);
+    onMessage("test:dedupe", fn);
+
+    dispatchMessage("test:dedupe", undefined);
+    expect(calls).toBe(1);
+
+    disposeFirst();
+    dispatchMessage("test:dedupe", undefined);
+    expect(calls).toBe(1);
+  });
+
   test("dispatch 中に自分の disposer を呼んでも後続を飛ばさない", () => {
     const received: string[] = [];
     // 自分の disposer を dispatch 中に呼ぶ listener（closure から参照するので初期化済み）

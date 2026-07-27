@@ -19,7 +19,11 @@ import { tryCatch } from "@gozd/shared";
 
 type AnyListener = (payload: unknown) => void;
 
-const listeners = new Map<string, AnyListener[]>();
+// listener の集合は Set。反復中の delete は仕様上その場でスキップされるため、
+// dispatch 中に disposer が呼ばれても配送コピーを取らずに済む（ptyText のように
+// MB/s で流れる type があるので、dispatch 側の割り当てはゼロに保つ）。
+// 解除も indexOf + splice の O(n) ではなく O(1) になる。
+const listeners = new Map<string, Set<AnyListener>>();
 
 function dispatchToListeners(type: string, payload: unknown): void {
   const fns = listeners.get(type);
@@ -36,11 +40,7 @@ function dispatchToListeners(type: string, payload: unknown): void {
   //
   // error はテンプレート補間せず第 2 引数で渡す。この経路の失敗は listener 側の
   // プログラミングエラーで、発生箇所を特定できる材料は stack だけになる。
-  //
-  // 反復は配列のコピー上で行う。listener がハンドラ内で disposer を呼ぶと splice が
-  // 反復中の配列を詰め、後続 1 件が黙って飛ばされる（隔離で潰したのと同じ症状が
-  // 例外以外の経路で再発する）。DOM の EventTarget と同じくスナップショットを取る。
-  for (const fn of fns.slice()) {
+  for (const fn of fns) {
     const result = tryCatch(() => {
       fn(payload);
     });
@@ -64,14 +64,11 @@ export function initRpcDispatcher(): void {
 }
 
 export function onMessage<T>(type: string, fn: (payload: T) => void): () => void {
-  const arr = listeners.get(type) ?? [];
-  arr.push(fn as AnyListener);
-  listeners.set(type, arr);
+  const set = listeners.get(type) ?? new Set<AnyListener>();
+  set.add(fn as AnyListener);
+  listeners.set(type, set);
   return () => {
-    const cur = listeners.get(type);
-    if (cur === undefined) return;
-    const idx = cur.indexOf(fn as AnyListener);
-    if (idx >= 0) cur.splice(idx, 1);
+    listeners.get(type)?.delete(fn as AnyListener);
   };
 }
 

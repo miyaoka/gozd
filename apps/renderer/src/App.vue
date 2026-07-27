@@ -13,6 +13,7 @@ import {
   useCommandErrorBridge,
   useMainDebugSubscription,
   useNotifySubscription,
+  useRpcListenerErrorBridge,
   useTitleContextSync,
 } from "./features/layout";
 import { UndockedPreviewLayer } from "./features/preview";
@@ -26,6 +27,7 @@ useKeyBindings();
 useNotifySubscription();
 useMainDebugSubscription();
 useCommandErrorBridge();
+useRpcListenerErrorBridge();
 useGozdOpenHandler();
 useRepoContextKey();
 useFsWatchSync();

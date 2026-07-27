@@ -1,7 +1,7 @@
 // main → renderer の push 経路のシングルトン dispatcher。
 //
 // main process の `webContents.send("rpc:push", type, payload)` を preload の
-// `__gozdElectronRpc.onPush` 経由で受ける。type ごとの listener 配列を持ち、
+// `__gozdElectronRpc.onPush` 経由で受ける。type ごとに listener を保持し、
 // `onMessage(type, fn)` で購読、戻り値の disposer で解除する。
 //
 // 設計判断:
@@ -15,14 +15,67 @@
 //    生じ、bun:test / SSR / 非 DOM 環境でロードエラーになる。renderer の bootstrap
 //    (`main.ts`) で 1 回だけ呼び出す契約にすることで、import 時の副作用を排除する。
 
+import { tryCatch } from "@gozd/shared";
+
 type AnyListener = (payload: unknown) => void;
 
-const listeners = new Map<string, AnyListener[]>();
+// listener の集合は Set。反復中の delete は仕様上その場でスキップされるため、
+// dispatch 中に disposer が呼ばれても配送コピーを取らずに済む（ptyText のように
+// MB/s で流れる type があるので、dispatch 側の割り当てはゼロに保つ）。
+// 解除も indexOf + splice の O(n) ではなく O(1) になる。
+// 対になる保証として、反復中に追加された値は訪問される。dispatch 中に同じ type を
+// 新規購読するとその listener は配送中の event も受け取る（EventTarget とは逆）。
+// ハンドラ内から購読を足さないこと。
+const listeners = new Map<string, Set<AnyListener>>();
+
+/**
+ * listener の失敗の追加報告先。feature 層から `setListenerErrorReporter()` で注入する。
+ * shared 間の依存禁止 + shared → feature 依存禁止のため、報告先を直接呼べない
+ * (`useCommandRegistry` の `setErrorHandler` と同じ DI 流儀)。
+ * `undefined` を渡せばリセットする（module singleton をテスト間で初期化するため）。
+ */
+let listenerErrorReporter: ((type: string, cause: unknown) => void) | undefined;
+
+export function setListenerErrorReporter(
+  reporter: ((type: string, cause: unknown) => void) | undefined,
+): void {
+  listenerErrorReporter = reporter;
+}
+
+/**
+ * console の floor + 注入先への報告の二段構え（main 側 `makeDebugLogPush` と同型）。
+ * floor を注入の有無に関わらず出すのは、bridge 注入前に届いた push と、報告先の実装が
+ * console を書き忘れた場合の両方で観測が消えないようにするため。書式を 1 箇所に閉じる
+ * 意味もある（tag は発火元のこのモジュールの名前でなければならない）。
+ */
+function reportListenerError(type: string, cause: unknown): void {
+  // error はテンプレート補間せず第 2 引数で渡す。この経路の失敗は listener 側の
+  // プログラミングエラーで、発生箇所を特定できる材料は stack だけになる
+  console.error(`[dispatchToListeners] listener failed type=${type}`, cause);
+
+  // reporter も注入された実装なので listener と同じ規律で隔離する。ここで throw すると
+  // 残りの listener がその event を落とし、隔離の不変条件が報告経路から破れる。
+  // 元の失敗は上の floor で記録済みなので握り潰しにはならない
+  const result = tryCatch(() => {
+    listenerErrorReporter?.(type, cause);
+  });
+  if (!result.ok) {
+    console.error(`[dispatchToListeners] reporter failed type=${type}`, result.error);
+  }
+}
 
 function dispatchToListeners(type: string, payload: unknown): void {
   const fns = listeners.get(type);
   if (fns === undefined) return;
-  for (const fn of fns) fn(payload);
+  // listener ごとに隔離する。1 つの throw で登録順の後続が同じ event を丸ごと落とすと、
+  // 互いに無関係な購読者どうしで状態が黙ってずれる（claudeFx は arcade と voicevox が
+  // 独立に購読しており、片方の失敗がもう片方を飢えさせる理由はない）。
+  for (const fn of fns) {
+    const result = tryCatch(() => {
+      fn(payload);
+    });
+    if (!result.ok) reportListenerError(type, result.error);
+  }
 }
 
 /**
@@ -39,14 +92,11 @@ export function initRpcDispatcher(): void {
 }
 
 export function onMessage<T>(type: string, fn: (payload: T) => void): () => void {
-  const arr = listeners.get(type) ?? [];
-  arr.push(fn as AnyListener);
-  listeners.set(type, arr);
+  const set = listeners.get(type) ?? new Set<AnyListener>();
+  set.add(fn as AnyListener);
+  listeners.set(type, set);
   return () => {
-    const cur = listeners.get(type);
-    if (cur === undefined) return;
-    const idx = cur.indexOf(fn as AnyListener);
-    if (idx >= 0) cur.splice(idx, 1);
+    listeners.get(type)?.delete(fn as AnyListener);
   };
 }
 

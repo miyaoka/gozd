@@ -136,3 +136,5 @@ shared/rpc がイベントバス相当の API を提供する。型付き generi
 - `onMessage<TPayload>(type, handler)` で型付き購読、戻り値の disposer を `onUnmounted` で解除
 - renderer 内部から push を発射する経路もイベントバス経由（main 経由と同じ subscriber に流れるため、source dir に紐付く再同期シグナル等で利用）
 - push の到達順序は保証されない。リスナー側で必要な整合性を担保する（例: `gitStatusChange` は `dir` をキーに最新値で上書きする）
+- 1 つのリスナーが throw しても他のリスナーへの配送は続く。失敗は呼び出し元へ伝播せず、event-log パネルに記録される
+- 同一 type に同じ handler 関数を二重購読しても 1 件として扱われ、1 回の解除で消える

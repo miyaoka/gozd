@@ -146,4 +146,25 @@ describe("countInProgressActions", () => {
   test("system のみの列は進行中でない", () => {
     expect(countInProgressActions([system])).toBe(0);
   });
+
+  const image: TranscriptEvent = { kind: "image", ts: "2026-06-12T00:00:00Z", source: undefined };
+  const emptyAssistant: TranscriptEvent = {
+    kind: "assistant",
+    text: "",
+    ts: "2026-06-12T00:00:00Z",
+  };
+
+  // image / 空文字発言は preview の bubble に出ない。打ち切ると画面に何も現れないまま
+  // 点の数が巻き戻るため透過する。
+  test("image を透過してアクションを数え続ける", () => {
+    expect(countInProgressActions([user, tool, image, tool])).toBe(2);
+  });
+
+  test("空文字の assistant を透過してアクションを数え続ける", () => {
+    expect(countInProgressActions([user, tool, emptyAssistant, tool])).toBe(2);
+  });
+
+  test("末尾が image でも直近のアクション件数を返す", () => {
+    expect(countInProgressActions([user, tool, tool, image])).toBe(2);
+  });
 });

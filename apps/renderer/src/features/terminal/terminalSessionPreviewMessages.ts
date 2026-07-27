@@ -12,31 +12,57 @@ export interface PreviewEvent {
 }
 
 /**
- * 直近の発言以降に積まれた「発言以外のアクション」(thinking / tool) の件数を数える。
- * 0 なら進行中でない (末尾が発言、または発言も作業もない)。1 以上ならその件数が
- * そのまま進行中インジケータの点の数になる。
+ * 末尾走査における kind の役割。
  *
- * transcript の末尾イベントが thinking / tool なら、直近の発言以降まだ次の発言が
- * 無い = 作業継続中とみなす。末尾が user / assistant (発言) なら 0 に戻し、進行中表示を
- * リセットする。ask は expandAskMessages で user / assistant に展開済みの前提
- * (呼び出し側で展開してから渡す)。
+ * - `action`: エージェントの作業。件数に加算する
+ * - `utterance`: bubble に出る発言。ここで走査を打ち切る (発言でリセット)
+ * - `transparent`: 加算も打ち切りもせず読み飛ばす
  *
- * system (注入) はエージェント自身のアクションでも発言でもないため透過する (件数にも
- * 数えない)。透過しないと、tool 実行中に hook 注入が末尾に来た瞬間 (tool_use →
- * hook attachment → tool_result の JSONL 順で、tool_result 到着前の window) に進行中表示が
- * 誤って消える。
+ * 打ち切りを `utterance` に限るのは、preview の bubble 列と件数の増減を一致させるため。
+ * bubble に現れないイベントで打ち切ると、画面に何も現れないまま点の数が巻き戻る
+ * (`system` は tool_use → hook attachment → tool_result の JSONL 順で tool_result 到着前に
+ * 末尾へ来るため、透過しないと tool 実行中に進行中表示が消える)。
  *
- * thinking / tool 以外の非発言イベント (image / branch) は透過せず打ち切る。末尾がそれらの
- * ときに進行中としないのは boolean 判定だった頃からの挙動で、`> 0` が旧 `isSessionInProgress`
- * と等価になるよう保っている。
+ * `image` / `branch` は `parsePreview` が bubble にしないため transparent。`ask` は
+ * `expandAskMessages` で user / assistant へ展開済みの前提なのでここには来ないが、
+ * 未展開で渡された場合も会話イベントとして打ち切るのが自然なので utterance に置く。
+ */
+type ScanRole = "action" | "utterance" | "transparent";
+
+const SCAN_ROLE: Record<TranscriptEvent["kind"], ScanRole> = {
+  thinking: "action",
+  tool: "action",
+  user: "utterance",
+  assistant: "utterance",
+  teammate: "utterance",
+  ask: "utterance",
+  system: "transparent",
+  image: "transparent",
+  branch: "transparent",
+};
+
+/**
+ * 直近の発言以降に積まれたアクション (thinking / tool) の件数を数える。0 なら進行中でない
+ * (末尾が発言、または発言も作業もない)。1 以上ならその件数がそのまま進行中インジケータの
+ * 点の数になる。
+ *
+ * kind ごとの扱いは `SCAN_ROLE` が SSOT。text が空文字の発言は `collectMessages` が bubble から
+ * 捨てるため、打ち切らず透過する (打ち切ると bubble が現れないまま件数が巻き戻る。空文字の
+ * 発言イベントは注入レコード等で実際に流れてくる)。
  */
 export function countInProgressActions(events: TranscriptEvent[]): number {
   let count = 0;
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i];
-    if (ev === undefined || ev.kind === "system") continue;
-    if (ev.kind !== "thinking" && ev.kind !== "tool") return count;
-    count++;
+    if (ev === undefined) continue;
+    const role = SCAN_ROLE[ev.kind];
+    if (role === "transparent") continue;
+    if (role === "action") {
+      count++;
+      continue;
+    }
+    if ("text" in ev && ev.text === "") continue;
+    return count;
   }
   return count;
 }

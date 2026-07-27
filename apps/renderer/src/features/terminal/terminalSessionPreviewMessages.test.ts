@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { TranscriptEvent } from "../session-log";
 import type { PreviewEvent } from "./terminalSessionPreviewMessages";
-import { collectMessages, isSessionInProgress } from "./terminalSessionPreviewMessages";
+import { collectMessages, countInProgressActions } from "./terminalSessionPreviewMessages";
 
 // "u1" → user, "a3" → assistant のように先頭文字で kind を決め、ラベルを text に入れる。
 // ts は出現順の連番 (順序は ts に依存しない設計だが、実ログ同様に昇順で振っておく)
@@ -81,7 +81,7 @@ describe("collectMessages", () => {
   });
 });
 
-describe("isSessionInProgress", () => {
+describe("countInProgressActions", () => {
   const tool: TranscriptEvent = {
     kind: "tool",
     name: "Bash",
@@ -98,24 +98,32 @@ describe("isSessionInProgress", () => {
   };
   const user: TranscriptEvent = { kind: "user", text: "hi", ts: "2026-06-12T00:00:00Z" };
 
-  test("末尾が tool なら進行中", () => {
-    expect(isSessionInProgress([user, tool])).toBe(true);
+  test("末尾が tool なら進行中 (1 件)", () => {
+    expect(countInProgressActions([user, tool])).toBe(1);
   });
 
-  test("末尾が thinking なら進行中", () => {
-    expect(isSessionInProgress([user, assistant, thinking])).toBe(true);
+  test("末尾が thinking なら進行中 (1 件)", () => {
+    expect(countInProgressActions([user, assistant, thinking])).toBe(1);
+  });
+
+  test("直近の発言以降の thinking / tool をすべて数える", () => {
+    expect(countInProgressActions([user, thinking, tool, tool, thinking, tool])).toBe(5);
+  });
+
+  test("発言をまたいだ手前のアクションは数えない", () => {
+    expect(countInProgressActions([user, tool, tool, assistant, tool])).toBe(1);
   });
 
   test("末尾が assistant (発言) ならリセットされる", () => {
-    expect(isSessionInProgress([user, tool, assistant])).toBe(false);
+    expect(countInProgressActions([user, tool, assistant])).toBe(0);
   });
 
   test("末尾が user (発言) ならリセットされる", () => {
-    expect(isSessionInProgress([assistant, tool, user])).toBe(false);
+    expect(countInProgressActions([assistant, tool, user])).toBe(0);
   });
 
   test("空配列は進行中でない", () => {
-    expect(isSessionInProgress([])).toBe(false);
+    expect(countInProgressActions([])).toBe(0);
   });
 
   const system: TranscriptEvent = {
@@ -125,17 +133,38 @@ describe("isSessionInProgress", () => {
     ts: "2026-06-12T00:00:00Z",
   };
 
-  // system (注入) はエージェントのアクションでも発言でもないため末尾判定で透過する。
+  // system (注入) はエージェントのアクションでも発言でもないため透過する (件数にも数えない)。
   // tool 実行中に hook 注入が末尾に来た瞬間 (tool_result 到着前) に進行中表示を消さない。
-  test("末尾の system を透過して直近の tool で進行中と判定する", () => {
-    expect(isSessionInProgress([user, tool, system])).toBe(true);
+  test("system を透過して直近の tool を数える (system 自体は数えない)", () => {
+    expect(countInProgressActions([user, tool, system, tool, system])).toBe(2);
   });
 
   test("末尾の system を透過して直近の assistant (発言) でリセットされる", () => {
-    expect(isSessionInProgress([user, assistant, system])).toBe(false);
+    expect(countInProgressActions([user, assistant, system])).toBe(0);
   });
 
   test("system のみの列は進行中でない", () => {
-    expect(isSessionInProgress([system])).toBe(false);
+    expect(countInProgressActions([system])).toBe(0);
+  });
+
+  const image: TranscriptEvent = { kind: "image", ts: "2026-06-12T00:00:00Z", source: undefined };
+  const emptyAssistant: TranscriptEvent = {
+    kind: "assistant",
+    text: "",
+    ts: "2026-06-12T00:00:00Z",
+  };
+
+  // image / 空文字発言は preview の bubble に出ない。打ち切ると画面に何も現れないまま
+  // 点の数が巻き戻るため透過する。
+  test("image を透過してアクションを数え続ける", () => {
+    expect(countInProgressActions([user, tool, image, tool])).toBe(2);
+  });
+
+  test("空文字の assistant を透過してアクションを数え続ける", () => {
+    expect(countInProgressActions([user, tool, emptyAssistant, tool])).toBe(2);
+  });
+
+  test("末尾が image でも直近のアクション件数を返す", () => {
+    expect(countInProgressActions([user, tool, tool, image])).toBe(2);
   });
 });

@@ -138,6 +138,9 @@ onUnmounted(() => {
 
 /* イベント発生時に画面端を発光させるフラッシュ。色は data-kind で切り替える */
 ._fx-flash {
+  /* 立ち上がりのピーク不透明度。強度は kind ごとに上書きする */
+  --fx-flash-peak: 0.8;
+
   animation: fx-flash-fade 0.7s ease-out forwards;
 }
 
@@ -149,13 +152,22 @@ onUnmounted(() => {
   box-shadow: inset 0 0 120px 10px var(--color-warning-strong);
 }
 
+/* error だけ弱いのは意図的。赤は同じ不透明度でも背景との輝度コントラストが最も大きく、
+   視野全体を覆う警告として過剰になる。spread を外して縁の発光に留める */
 ._fx-flash[data-kind="error"] {
-  box-shadow: inset 0 0 120px 10px var(--color-destructive);
+  --fx-flash-peak: 0.45;
+
+  box-shadow: inset 0 0 90px 0 var(--color-destructive);
 }
 
+/* ピークから始めず立ち上がりに 12% を割く。全画面の輝度が瞬間的に変化すると
+   驚愕反応を誘発するため、視認性を落とさない最短の swell で onset を鈍らせる */
 @keyframes fx-flash-fade {
   from {
-    opacity: 0.8;
+    opacity: 0;
+  }
+  12% {
+    opacity: var(--fx-flash-peak);
   }
   to {
     opacity: 0;

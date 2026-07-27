@@ -103,10 +103,19 @@ export const sfx = {
     tone({ type: "triangle", freq: 660, duration: 0.16, delay: 0.14, gain: 0.8 });
   },
 
-  /** エラー: 下降するバズ音 */
+  /**
+   * エラー: 下降する短三度 (Ab4 → F4) の 2 トーン + 1 オクターブ下の薄いサブ。
+   *
+   * 低域の sawtooth / square は使わない。倍音が 1/n でしか減衰しない波形を低域で鳴らすと
+   * 倍音が耳の臨界帯域内に密集して roughness (うなり) になり、音量に関係なく不快になる。
+   * 三角波は 1/n² で減衰するため同じ音圧でも刺々しさが出ない。サブは第 2 トーンの
+   * 完全 8 度なのでうなりを作らずに重心だけ足す。
+   * 音程は alert (完全 4 度下降) と区別するため短三度、register は 1 オクターブ下に置く。
+   */
   error(): void {
-    tone({ type: "sawtooth", freq: 220, endFreq: 110, duration: 0.28, gain: 0.55 });
-    tone({ type: "square", freq: 116, endFreq: 58, duration: 0.3, delay: 0.02, gain: 0.3 });
+    tone({ type: "triangle", freq: 415.3, duration: 0.16, gain: 0.6 });
+    tone({ type: "triangle", freq: 349.23, duration: 0.26, delay: 0.13, gain: 0.55 });
+    tone({ type: "sine", freq: 174.61, duration: 0.3, delay: 0.13, gain: 0.22 });
   },
 
   /** セッション開始 (session-start): 起動スイープ + 和音 */

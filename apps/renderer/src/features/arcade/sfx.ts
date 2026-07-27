@@ -9,10 +9,10 @@ import { useArcadeStore } from "./useArcadeStore";
 /** マスター音量。演出音は会話やターミナル操作の邪魔をしない控えめな音圧に抑える */
 const MASTER_GAIN = 0.14;
 
-/** 既定の立ち上がり時間 (秒)。click / tick のような打撃感が要る音はこれを使う */
+/** 立ち上がり時間 (秒) の既定値。attack を明示しない音はすべてこれ */
 const DEFAULT_ATTACK_S = 0.003;
-/** 通知系の立ち上がり時間 (秒)。聴覚性の驚愕反応は立ち上がりの速さに依存するため鈍らせる */
-const SOFT_ATTACK_S = 0.025;
+/** error() の立ち上がり時間 (秒)。聴覚性の驚愕反応は立ち上がりの速さに依存するため鈍らせる */
+const ERROR_ATTACK_S = 0.025;
 
 let audioCtx: AudioContext | undefined;
 let masterGain: GainNode | undefined;
@@ -41,7 +41,7 @@ interface ToneSpec {
   delay?: number;
   /** トーン単体の音量 (master に乗算される) */
   gain?: number;
-  /** 立ち上がり時間 (秒)。省略時は打撃的な既定値 */
+  /** 立ち上がり時間 (秒)。省略時は DEFAULT_ATTACK_S */
   attack?: number;
 }
 
@@ -122,14 +122,14 @@ export const sfx = {
    * 片方だけ直しても打撃的な出音は残る。
    */
   error(): void {
-    tone({ type: "triangle", freq: 415.3, duration: 0.16, gain: 0.6, attack: SOFT_ATTACK_S });
+    tone({ type: "triangle", freq: 415.3, duration: 0.16, gain: 0.6, attack: ERROR_ATTACK_S });
     tone({
       type: "triangle",
       freq: 349.23,
       duration: 0.26,
       delay: 0.13,
       gain: 0.55,
-      attack: SOFT_ATTACK_S,
+      attack: ERROR_ATTACK_S,
     });
     tone({
       type: "sine",
@@ -137,7 +137,7 @@ export const sfx = {
       duration: 0.3,
       delay: 0.13,
       gain: 0.22,
-      attack: SOFT_ATTACK_S,
+      attack: ERROR_ATTACK_S,
     });
   },
 

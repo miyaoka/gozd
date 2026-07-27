@@ -20,12 +20,13 @@
 
 ## バーストの合流
 
-フラッシュを伴う演出 (success / warning / error) は `fxCoalescer` を通し、実行中と同じ kind の
-再発火を畳む。並列 worktree からの done や複数の失敗通知は独立した非同期経路で束になって届き、
-畳まないと音圧の加算とフラッシュの点滅を招く (fxCoalescer.ts 参照)。
+フラッシュを伴う演出 (success / warning / error) は `fxCoalescer` を通し、実行中の演出より
+優先度が高い発火だけを通す。並列 worktree からの done や複数の失敗通知は独立した非同期経路で
+束になって届き、畳まないと音圧の加算とフラッシュの点滅を招く (判定を kind の同一性ではなく
+優先度に置く理由は fxCoalescer.ts)。
 
-音だけの演出 (running / tool-done / session-start) は畳まない。tick は「ツールが 1 つ終わった」
-という計数情報そのもので、合流すると回数が失われるため。短く音圧も低いので重畳の実害がない
+音だけの演出は畳まない。tick は「ツールが 1 つ終わった」という計数情報そのもので、合流すると
+回数が失われる。running / session-start はユーザー操作 1 回につき 1 発しか出ないため束にならない
 
 ## パフォーマンス
 
@@ -39,11 +40,11 @@
 
 <script setup lang="ts">
 import { useEventListener } from "@vueuse/core";
-import { onMounted, onUnmounted, ref, useTemplateRef, watch } from "vue";
+import { onMounted, onUnmounted, useTemplateRef, watch } from "vue";
 import { useNotificationStore } from "../../shared/notification";
 import { onMessage } from "../../shared/rpc";
 import type { ClaudeFxEvent, HookEvent } from "../terminal";
-import { createFxCoalescer, type FxKind } from "./fxCoalescer";
+import { createFxCoalescer } from "./fxCoalescer";
 import { createParticleEngine, type ParticleEngine } from "./particleEngine";
 import { sfx, unlockAudio } from "./sfx";
 
@@ -54,26 +55,10 @@ const flashDuration = `${FLASH_DURATION_MS}ms`;
 const canvasRef = useTemplateRef<HTMLCanvasElement>("fxCanvas");
 let engine: ParticleEngine | undefined;
 
-const flashKind = ref<FxKind | undefined>(undefined);
-let flashTimer: ReturnType<typeof setTimeout> | undefined;
-const coalescer = createFxCoalescer();
-
-/**
- * 音・パーティクル・フラッシュを 1 セットで発火する。実行中と同じ kind の再発火は
- * `accept` が畳むため、effects は呼ばれない（音の重畳も同時に止まる）。
- */
-function playFx(kind: FxKind, effects: () => void) {
-  if (!coalescer.accept(kind)) return;
-  effects();
-  // template 側で :key に flashKind を使うため、kind が変われば要素ごと差し替わり
-  // アニメーションは頭から走る（同一 kind は accept が畳むので再生し直しは起きない）
-  flashKind.value = kind;
-  if (flashTimer !== undefined) clearTimeout(flashTimer);
-  flashTimer = setTimeout(() => {
-    flashKind.value = undefined;
-    coalescer.finish();
-  }, FLASH_DURATION_MS);
-}
+// 音・パーティクル・フラッシュは 1 セットで coalescer に渡す。畳まれた発火では
+// effects が呼ばれないため、音の重畳とフラッシュの再点灯が同時に止まる。
+// flashKind は演出中の kind そのもの（合流判定の state と同一）
+const { kind: flashKind, run: playFx, dispose: disposeFx } = createFxCoalescer(FLASH_DURATION_MS);
 
 useEventListener(
   window,
@@ -129,7 +114,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   engine?.destroy();
-  if (flashTimer !== undefined) clearTimeout(flashTimer);
+  disposeFx();
 });
 </script>
 

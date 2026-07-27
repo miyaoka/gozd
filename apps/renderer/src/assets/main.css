@@ -447,9 +447,13 @@
 }
 
 /* セッションビューの「進行中」インジケータ末尾の点 (TerminalSessionPreviewProgressDots)。
-   点の数は実際のアクション件数が SSOT なので、アニメーションは「まだ増える先端」を示す
-   末尾 1 点だけに閉じる。ターミナルの cursor と同じ discrete な on/off にするため
-   `step-end` を使う (ease の連続補間は throb して読みづらい)。 */
+   `step-end` はターミナルの cursor と同じ discrete な on/off にするための指定
+   (ease の連続補間は throb して読みづらい)。
+
+   このファイルの状態語彙は working = 呼吸 (`fx-aura-breathe`) / asking = blink
+   (`fx-aura-blink`) だが、ここは working 文脈にあえて blink を使う。cursor と同じ挙動で
+   「進行中の先端」と読める可読性を語彙の一貫性より優先した判断なので、breathe に
+   揃えないこと。 */
 ._fx-blink-dot {
   animation: fx-blink-dot 1s step-end infinite;
 }

@@ -33,14 +33,13 @@ run 単位で kind ごとに件数を確保するため、assistant が連続応
 
 ## 進行中インジケータ
 
-各 overlay の bubble 列末尾に、「発言以外のアクション中」なら実行済みアクション件数ぶんの
-点を assistant 吹き出しと同じ見た目で追加表示する (TerminalSessionPreviewProgressDots)。
-件数は `countInProgressActions` (`terminalSessionPreviewMessages.ts`) が ask 展開後の events 列
-末尾から thinking / tool を数え、user / assistant (発言) に当たったところで打ち切る (発言で
-0 にリセット)。system (注入) はエージェントのアクションでも発言でもないため透過する
-(tool 実行中の hook 注入で進行中表示が誤って消えないように)。preview は user/assistant/teammate
-以外を filter で捨てるため、この数え上げだけは filter 前の events 列 (`parsePreview` の
-中間結果) を見る必要がある。
+各 overlay の bubble 列末尾に、「発言以外のアクション中」なら TerminalSessionPreviewProgressDots
+を置く。件数の数え方は `countInProgressActions` (`terminalSessionPreviewMessages.ts`)、見た目は
+component 側の `<doc>` が SSOT。
+
+この数え上げだけは filter 前の events 列 (`parsePreview` の中間結果) を渡す。preview は
+user / assistant / teammate 以外を bubble から捨てるため、filter 後では thinking / tool が
+残っていない。
 
 main と sub で判定の確からしさが非対称になる。main は PTY を持ち、ClaudeStatus
 (`claudeStatus.ts`) が hooks + PTY 出力の interrupt パターンマッチで「本当に working か」を
@@ -589,9 +588,7 @@ watch([hasMain, hasSub], ([main, sub]) => {
               <span class="line-clamp-2">{{ msg.text }}</span>
             </button>
           </div>
-          <!-- 進行中インジケータ。直近の発言以降に積まれたアクション件数を点の数で出し、
-               次の発言が来た瞬間 mainActionCount が 0 になって消える (発言でリセット)。 -->
-          <TerminalSessionPreviewProgressDots v-if="mainActionCount > 0" :count="mainActionCount" />
+          <TerminalSessionPreviewProgressDots :count="mainActionCount" />
         </div>
       </div>
     </details>
@@ -646,8 +643,7 @@ watch([hasMain, hasSub], ([main, sub]) => {
               <span class="line-clamp-2">{{ msg.text }}</span>
             </button>
           </div>
-          <!-- 進行中インジケータ。main と同じ規律 (アクション件数ぶんの点)。 -->
-          <TerminalSessionPreviewProgressDots v-if="subActionCount > 0" :count="subActionCount" />
+          <TerminalSessionPreviewProgressDots :count="subActionCount" />
         </div>
       </div>
     </details>

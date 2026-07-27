@@ -94,6 +94,10 @@
      Radix Tooltip / Material modal / Spectrum overlay と同じ業界標準パターン) */
   --color-overlay: oklch(0 0 0 / 0.5);
 
+  /* vignette: 周辺減光 (画面端を落として中央に視線を集める)。overlay より薄いのは
+     コンテンツを覆うのではなく端だけを沈ませるため。gradient の終端色に使う */
+  --color-vignette: oklch(0 0 0 / 0.3);
+
   /* intent tokens。suffix の分類・step 対応・用途の SSOT は
      .claude/skills/gozd-ui/SKILL.md (数や列挙をここに書くと追加・削除のたびに腐る)。
      各 token の役割は定義行のインラインコメントで説明する。 */

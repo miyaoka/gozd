@@ -136,7 +136,7 @@ onUnmounted(() => {
 
 <style>
 ._fx-vignette {
-  background: radial-gradient(ellipse 120% 100% at 50% 45%, transparent 60%, oklch(0 0 0 / 0.3));
+  background: radial-gradient(ellipse 120% 100% at 50% 45%, transparent 60%, var(--color-vignette));
 }
 
 /* イベント発生時に画面端を発光させるフラッシュ。色は data-kind で切り替える。

@@ -6,6 +6,7 @@ const store = useNotificationStore();
 // bun:test は setTimeout の fake timer を持たないため、spyOn で捕捉して同期発火させる。
 // clearTimeout が pendingTimers から消すので、「解除済み timer は発火しない」も再現される。
 const pendingTimers = new Map<number, () => void>();
+const timerDelays: number[] = [];
 let fakeTimerId = 0;
 
 function fireAllTimers() {
@@ -18,10 +19,12 @@ let spies: Array<{ mockRestore: () => void }> = [];
 
 beforeEach(() => {
   pendingTimers.clear();
+  timerDelays.length = 0;
   fakeTimerId = 0;
   spies = [
-    spyOn(globalThis, "setTimeout").mockImplementation(((cb: () => void) => {
+    spyOn(globalThis, "setTimeout").mockImplementation(((cb: () => void, delay: number) => {
       pendingTimers.set(++fakeTimerId, cb);
+      timerDelays.push(delay);
       return fakeTimerId as unknown as ReturnType<typeof setTimeout>;
     }) as never),
     spyOn(globalThis, "clearTimeout").mockImplementation(((id: number) => {
@@ -34,15 +37,17 @@ beforeEach(() => {
     spyOn(console, "info").mockImplementation(() => {}),
   ];
   store.clear();
+  store.setAutoDismissSuspended(false);
 });
 
 afterEach(() => {
   store.clear();
+  store.setAutoDismissSuspended(false);
   for (const spy of spies) spy.mockRestore();
 });
 
 describe("auto-dismiss", () => {
-  test("非 persist の info は時間経過で toast が畳まれ、center には残る", () => {
+  test("info は時間経過で toast が畳まれ、center には残る", () => {
     store.info("copied");
     expect(store.toasts.value).toHaveLength(1);
 
@@ -52,20 +57,83 @@ describe("auto-dismiss", () => {
     expect(store.notifications.value[0]?.toastVisible).toBe(false);
   });
 
-  test("persist 指定の info は timer が張られず時間経過後も toast が残る", () => {
-    store.info("fetch failed", undefined, { persist: true });
-    expect(pendingTimers.size).toBe(0);
+  test("error も自動消去され、center には残る", () => {
+    store.error("boom");
+    expect(pendingTimers.size).toBe(1);
 
     fireAllTimers();
-    expect(store.toasts.value).toHaveLength(1);
+    expect(store.toasts.value).toHaveLength(0);
+    expect(store.notifications.value).toHaveLength(1);
   });
 
-  test("error は opt-in なしで常に persist", () => {
-    store.error("boom");
-    expect(pendingTimers.size).toBe(0);
+  // expected をリテラルで固定する: 実装と同じ定数で assert すると値の書き換えを検出できない。
+  // 定数を変えるときはテストも直すという明示的な行為にする
+  test("toast の寿命は type 別 (VS Code PURGE_TIMEOUT と同値)", () => {
+    store.info("i");
+    store.warning("w");
+    store.error("e");
+    expect(timerDelays).toEqual([10_000, 12_000, 15_000]);
+  });
 
+  test("hold 中は timer が発火しても消えず、フル時間で張り直される", () => {
+    store.info("hover me");
+    const id = store.notifications.value[0]!.id;
+
+    store.holdToast(id, "pointer");
     fireAllTimers();
     expect(store.toasts.value).toHaveLength(1);
+    expect(pendingTimers.size).toBe(1);
+
+    store.releaseToast(id, "pointer");
+    fireAllTimers();
+    expect(store.toasts.value).toHaveLength(0);
+  });
+
+  test("release は保留理由が全て消えたときだけ自動消去を再開する", () => {
+    store.info("focus + hover");
+    const id = store.notifications.value[0]!.id;
+
+    store.holdToast(id, "pointer");
+    store.holdToast(id, "focus");
+    store.releaseToast(id, "pointer");
+    fireAllTimers();
+    expect(store.toasts.value).toHaveLength(1);
+
+    store.releaseToast(id, "focus");
+    fireAllTimers();
+    expect(store.toasts.value).toHaveLength(0);
+  });
+
+  test("toast の同時表示は最新 3 件に絞られ、超過分も center には全件残る", () => {
+    for (let i = 0; i < 5; i++) {
+      store.info(`msg ${i}`);
+    }
+    expect(store.toasts.value.map((n) => n.message)).toEqual(["msg 2", "msg 3", "msg 4"]);
+    expect(store.notifications.value).toHaveLength(5);
+  });
+
+  test("dismissAllToasts は可視上限で隠れている待機分まで全件畳む", () => {
+    for (let i = 0; i < 5; i++) {
+      store.info(`msg ${i}`);
+    }
+    store.dismissAllToasts();
+    expect(store.toasts.value).toHaveLength(0);
+    expect(store.notifications.value).toHaveLength(5);
+    expect(store.notifications.value.every((n) => !n.toastVisible)).toBe(true);
+  });
+
+  test("suspend 中は全 toast の発火が保留され、解除でフル時間から再開する", () => {
+    store.setAutoDismissSuspended(true);
+    store.info("a");
+    store.error("b");
+
+    fireAllTimers();
+    expect(store.toasts.value).toHaveLength(2);
+    expect(pendingTimers.size).toBe(2);
+
+    store.setAutoDismissSuspended(false);
+    fireAllTimers();
+    expect(store.toasts.value).toHaveLength(0);
   });
 });
 
@@ -83,8 +151,8 @@ describe("独立項目", () => {
 
 describe("center 操作", () => {
   test("dismiss は toast だけ畳み、remove は項目ごと削除する", () => {
-    store.info("a", undefined, { persist: true });
-    store.info("b", undefined, { persist: true });
+    store.info("a");
+    store.info("b");
     const [first, second] = store.notifications.value;
 
     store.dismiss(first!.id);

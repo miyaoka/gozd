@@ -10,10 +10,13 @@
  * 暗黙グルーピングは別発生源の同文言が誤結合し、message に可変部を入れると誤分裂する
  * 二方向の欠陥があるため採らない。
  *
- * toast の永続化 (自動消去しない) の軸は重大度 (type) ではなく「ユーザーが画面を見て
- * いるか」: ユーザー操作への応答 (Copied 等の確認) は目撃済みなので自動消去し、
- * ユーザー操作を伴わず background で発火する must-see 通知 (背景 fetch の失敗等) は
- * `persist` opt-in で手動クローズまで残す。error は常に永続。
+ * toast は全 type とも自動消去し、寿命だけを severity に比例させる (VS Code の
+ * PURGE_TIMEOUT と同値: info 10s / warning 12s / error 15s)。ただし VS Code の purge
+ * ガードと同じく、hover / キーボードフォーカス中 (hold) と window blur 中 (suspend) は
+ * 消去を保留し、解除時にフル時間で張り直す。手動クローズを要求する sticky 相当は
+ * 持たない: VS Code で sticky になるのはドメイン操作を実行する primary action 付き
+ * error / progress 付き通知だが、gozd の通知はどちらも持たない (Details / Dismiss は
+ * toast 自身の操作であり primary action ではない)。見逃しは center が受け皿として回収する。
  *
  * `error` / `warning` / `info` は toast 表示 + console 出力、`debug` は **console.debug への
  * 集約窓口**で toast 表示なし。renderer 規約 (CLAUDE.md エラーハンドリング) で
@@ -31,27 +34,41 @@ export interface Notification {
   at: number;
   /** 通知発生順の単調増加値。center の未読判定 / 新着順ソートに使う */
   seq: number;
-  persist: boolean;
   /** toast として表示中か。false は center にのみ残る */
   toastVisible: boolean;
 }
 
-/** persist しない warning / info toast の自動消去時間（ms） */
-const AUTO_DISMISS_MS = 5000;
+/** type 別の toast 自動消去時間（ms）。VS Code の PURGE_TIMEOUT と同値 */
+const AUTO_DISMISS_MS_BY_TYPE = {
+  info: 10_000,
+  warning: 12_000,
+  error: 15_000,
+} as const satisfies Record<Notification["type"], number>;
 /** center に保持する通知数の上限。超過分は古い順に落とす */
 export const MAX_NOTIFICATIONS = 100;
-
-interface NotifyOptions {
-  /** true でユーザーが閉じるまで toast を残す。background 発火の must-see 通知用（ヘッダコメント参照） */
-  persist?: boolean;
-}
+/**
+ * 同時に描画する toast の上限 (VS Code の notificationsToasts MAX_NOTIFICATIONS と同値)。
+ * blur suspend 中に通知が溜まっても、復帰時に画面が toast で埋まらないための上限。
+ * 新しい通知ほど重要なので末尾 (最新) 側を採る。超過分は toastVisible のまま待機し、
+ * 枠が空くと古い側から繰り上がって表示される。寿命は生成時から進むため、繰り上がった
+ * toast は残り時間ぶんしか表示されず、枠が空かないまま寿命が尽きた通知は一度も表示
+ * されずに center にのみ残る (可視化時点でタイマーを張る VS Code 方式は可視集合の
+ * 出入り監視が要るため採らない。center が受け皿にあるため取りこぼしにはならない)
+ */
+const MAX_VISIBLE_TOASTS = 3;
 
 let nextId = 0;
 const notifications = ref<Notification[]>([]);
 const timers = new Map<number, ReturnType<typeof setTimeout>>();
+/** id → 自動消去を保留している理由の集合 (hover / キーボードフォーカス) */
+const holds = new Map<number, Set<string>>();
+/** window blur 中の全 toast 一括保留 (VS Code の onDidChangeFocus 相当) */
+let autoDismissSuspended = false;
 
-/** toast として表示中の項目だけの view (NotificationToast が購読)。 */
-const toasts = computed(() => notifications.value.filter((n) => n.toastVisible));
+/** toast として表示中の項目のうち最新 MAX_VISIBLE_TOASTS 件の view (NotificationToast が購読)。 */
+const toasts = computed(() =>
+  notifications.value.filter((n) => n.toastVisible).slice(-MAX_VISIBLE_TOASTS),
+);
 
 /**
  * 最後に発火した通知イベント。`add()` のたびに更新される。purpose は「toast の表示有無」
@@ -73,12 +90,10 @@ const CONSOLE_METHOD_BY_TYPE = {
   info: "info",
 } as const satisfies Record<Notification["type"], keyof Console>;
 
-function add(type: Notification["type"], message: string, cause?: unknown, opts?: NotifyOptions) {
+function add(type: Notification["type"], message: string, cause?: unknown) {
   console[CONSOLE_METHOD_BY_TYPE[type]](message, ...(cause !== undefined ? [cause] : []));
 
   lastEvent.value = { type, seq: ++eventSeq };
-
-  const persistRequested = type === "error" || opts?.persist === true;
 
   const id = nextId++;
   notifications.value.push({
@@ -88,25 +103,75 @@ function add(type: Notification["type"], message: string, cause?: unknown, opts?
     cause,
     at: Date.now(),
     seq: eventSeq,
-    persist: persistRequested,
     toastVisible: true,
   });
 
-  // 上限超過は古い項目から落とす (persist でも落とす。100 件溜まる時点で異常系であり、
-  // 表示保護より上限保証を優先する)。項目は追加のみで並び替えないため配列先頭 = 最古
+  // 上限超過は古い項目から落とす (未読でも落とす。長時間の連続失敗では平常運転でも到達
+  // しうるが、受け皿の完全性より資源の上限保証を優先する設計判断)。項目は追加のみで
+  // 並び替えないため配列先頭 = 最古
   const overflow = notifications.value.length - MAX_NOTIFICATIONS;
   if (overflow > 0) {
     for (const dropped of notifications.value.slice(0, overflow)) {
       clearTimer(dropped.id);
+      holds.delete(dropped.id);
     }
     notifications.value = notifications.value.slice(overflow);
   }
 
-  if (!persistRequested) {
-    timers.set(
-      id,
-      setTimeout(() => dismiss(id), AUTO_DISMISS_MS),
-    );
+  scheduleAutoDismiss(id, type);
+}
+
+function isHeld(id: number): boolean {
+  if (autoDismissSuspended) return true;
+  const reasons = holds.get(id);
+  return reasons !== undefined && reasons.size > 0;
+}
+
+function scheduleAutoDismiss(id: number, type: Notification["type"]) {
+  timers.set(
+    id,
+    setTimeout(() => {
+      // VS Code の purgeNotification と同じく、発火時に保留中なら消さずフル時間で張り直す
+      // (解除イベント側の再スケジュールと二重の防御。競合しても消えるのが遅れるだけ)
+      if (isHeld(id)) {
+        scheduleAutoDismiss(id, type);
+        return;
+      }
+      dismiss(id);
+    }, AUTO_DISMISS_MS_BY_TYPE[type]),
+  );
+}
+
+function rescheduleIfReleased(id: number) {
+  if (isHeld(id)) return;
+  const notification = notifications.value.find((n) => n.id === id);
+  if (!notification || !notification.toastVisible) return;
+  clearTimer(id);
+  scheduleAutoDismiss(id, notification.type);
+}
+
+/** toast の自動消去を保留する。hover / キーボードフォーカス中の消失を防ぐ (VS Code と同じガード) */
+function holdToast(id: number, reason: string) {
+  const reasons = holds.get(id) ?? new Set<string>();
+  reasons.add(reason);
+  holds.set(id, reasons);
+}
+
+/** hold を解除し、保留理由が無くなったらフル時間で自動消去を張り直す */
+function releaseToast(id: number, reason: string) {
+  const reasons = holds.get(id);
+  if (reasons === undefined) return;
+  reasons.delete(reason);
+  if (reasons.size === 0) holds.delete(id);
+  rescheduleIfReleased(id);
+}
+
+/** window blur 中は全 toast の自動消去を保留し、focus 復帰でフル時間から再開する */
+function setAutoDismissSuspended(suspended: boolean) {
+  autoDismissSuspended = suspended;
+  if (suspended) return;
+  for (const n of notifications.value) {
+    if (n.toastVisible) rescheduleIfReleased(n.id);
   }
 }
 
@@ -121,14 +186,26 @@ function clearTimer(id: number) {
 /** toast を畳む。項目は center に残る。 */
 function dismiss(id: number) {
   clearTimer(id);
+  holds.delete(id);
   const notification = notifications.value.find((n) => n.id === id);
   if (!notification) return;
   notification.toastVisible = false;
 }
 
+/**
+ * 表示中の全 toast を畳む (可視上限で隠れている待機分も含む)。項目は center に残る。
+ * 可視上限は view の都合であり、「畳む」操作の対象は toastVisible 集合の全件。
+ */
+function dismissAllToasts() {
+  for (const n of notifications.value) {
+    if (n.toastVisible) dismiss(n.id);
+  }
+}
+
 /** 項目を center から削除する (toast 表示中なら toast も消える)。 */
 function remove(id: number) {
   clearTimer(id);
+  holds.delete(id);
   notifications.value = notifications.value.filter((n) => n.id !== id);
 }
 
@@ -138,6 +215,7 @@ function clear() {
     clearTimeout(timer);
   }
   timers.clear();
+  holds.clear();
   notifications.value = [];
 }
 
@@ -157,13 +235,15 @@ export function useNotificationStore() {
     toasts,
     lastEvent,
     error: (message: string, cause?: unknown) => add("error", message, cause),
-    warning: (message: string, cause?: unknown, opts?: NotifyOptions) =>
-      add("warning", message, cause, opts),
-    info: (message: string, cause?: unknown, opts?: NotifyOptions) =>
-      add("info", message, cause, opts),
+    warning: (message: string, cause?: unknown) => add("warning", message, cause),
+    info: (message: string, cause?: unknown) => add("info", message, cause),
     debug,
     dismiss,
+    dismissAllToasts,
     remove,
     clear,
+    holdToast,
+    releaseToast,
+    setAutoDismissSuspended,
   };
 }

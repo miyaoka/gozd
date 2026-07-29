@@ -48,8 +48,12 @@ const AUTO_DISMISS_MS_BY_TYPE = {
 export const MAX_NOTIFICATIONS = 100;
 /**
  * 同時に描画する toast の上限 (VS Code の notificationsToasts MAX_NOTIFICATIONS と同値)。
- * 超過分は center にのみ残す。blur suspend 中に通知が溜まっても、復帰時に画面が toast で
- * 埋まらないための上限。新しい通知ほど重要なので末尾 (最新) 側を採る
+ * blur suspend 中に通知が溜まっても、復帰時に画面が toast で埋まらないための上限。
+ * 新しい通知ほど重要なので末尾 (最新) 側を採る。超過分は toastVisible のまま待機し、
+ * 枠が空くと古い側から繰り上がって表示される。寿命は生成時から進むため、繰り上がった
+ * toast は残り時間ぶんしか表示されず、枠が空かないまま寿命が尽きた通知は一度も表示
+ * されずに center にのみ残る (可視化時点でタイマーを張る VS Code 方式は可視集合の
+ * 出入り監視が要るため採らない。center が受け皿にあるため取りこぼしにはならない)
  */
 const MAX_VISIBLE_TOASTS = 3;
 
@@ -188,6 +192,16 @@ function dismiss(id: number) {
   notification.toastVisible = false;
 }
 
+/**
+ * 表示中の全 toast を畳む (可視上限で隠れている待機分も含む)。項目は center に残る。
+ * 可視上限は view の都合であり、「畳む」操作の対象は toastVisible 集合の全件。
+ */
+function dismissAllToasts() {
+  for (const n of notifications.value) {
+    if (n.toastVisible) dismiss(n.id);
+  }
+}
+
 /** 項目を center から削除する (toast 表示中なら toast も消える)。 */
 function remove(id: number) {
   clearTimer(id);
@@ -225,6 +239,7 @@ export function useNotificationStore() {
     info: (message: string, cause?: unknown) => add("info", message, cause),
     debug,
     dismiss,
+    dismissAllToasts,
     remove,
     clear,
     holdToast,

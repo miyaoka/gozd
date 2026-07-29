@@ -112,6 +112,16 @@ describe("auto-dismiss", () => {
     expect(store.notifications.value).toHaveLength(5);
   });
 
+  test("dismissAllToasts は可視上限で隠れている待機分まで全件畳む", () => {
+    for (let i = 0; i < 5; i++) {
+      store.info(`msg ${i}`);
+    }
+    store.dismissAllToasts();
+    expect(store.toasts.value).toHaveLength(0);
+    expect(store.notifications.value).toHaveLength(5);
+    expect(store.notifications.value.every((n) => !n.toastVisible)).toBe(true);
+  });
+
   test("suspend 中は全 toast の発火が保留され、解除でフル時間から再開する", () => {
     store.setAutoDismissSuspended(true);
     store.info("a");

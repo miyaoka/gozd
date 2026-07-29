@@ -24,6 +24,27 @@ export const REMOTE_FETCH_INTERVAL_MS = 60_000;
  * （microsoft/vscode `Limiter<void>(5)`, issue #318279 ext host starvation 回避）のと同値・同理由。
  */
 const MAX_CONCURRENT_FETCH = 5;
+/**
+ * 背景 fetch の同一 repo 失敗を再通知する最小間隔 (ms)。継続失敗が 60s 周期のまま center の
+ * 100 件枠を食い潰すのを防ぎつつ、恒久失敗 (認証切れ等) の再告知は保つ間隔として選んだ。
+ * 初回の失敗は即通知され、成功でリセットされるため失敗エピソードごとに必ず 1 回は toast が出る
+ */
+const FAILURE_NOTIFY_INTERVAL_MS = 30 * 60_000;
+
+/** runFetch の結果。通知方針は経路ごとに異なるため、失敗内容を値で呼び出し側へ運ぶ */
+type FetchOutcome = { ok: true } | { ok: false; detail: unknown };
+
+/**
+ * 背景失敗通知の間引き述語。前回通知が無い (失敗エピソードの先頭) か、
+ * 最小間隔を超えていれば通知する。
+ */
+export function isFailureNotifyDue(args: {
+  lastNotifiedAt: number | undefined;
+  now: number;
+}): boolean {
+  const { lastNotifiedAt, now } = args;
+  return lastNotifiedAt === undefined || now - lastNotifiedAt >= FAILURE_NOTIFY_INTERVAL_MS;
+}
 
 /**
  * 同時実行数を `concurrency` に絞るキュー。VSCode の `Limiter`
@@ -100,10 +121,11 @@ export function isRepoFetchDue(args: {
  *   同時実行数を絞る。可視集合の同時 fetch が cap を超えたぶんは queue し、TLS 接続バーストによる
  *   connect hang を断つ
  * - 成功・失敗を区別せず 60s の単一周期で lock（`REMOTE_FETCH_INTERVAL_MS`）
- * - 失敗は `notify.info` で通知 (CLAUDE.md `console.error で握り潰さない`)。toast は自動消去
- *   だが項目は notification center に残る。失敗が継続する間は対象が可視集合にある限り
- *   60s 周期で再通知されるため、自動回復しない失敗（認証切れ等）もその repo を見ている限り
- *   気づける（可視集合から外れると再通知も止まる。fetch 自体が止まるので整合はする）
+ * - 失敗の通知は経路ごとに方針が分かれる (CLAUDE.md `console.error で握り潰さない`)。
+ *   ユーザー起点 (`requestImmediateFetch`) は常に即 toast。背景 (`fetchIfDue`) は同一 repo を
+ *   `FAILURE_NOTIFY_INTERVAL_MS` に 1 回へ間引く: 毎周期の再通知は center の 100 件枠を
+ *   食い潰し、他サブシステムの未読 error を巻き添えで押し出すため。event-log には毎回
+ *   detail 込みで残す。成功で間引きは解除され、次の失敗エピソードは即通知に戻る
  *
  * ## public API は 2 経路のみ
  *
@@ -125,18 +147,22 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
   /** rootDir → 「この時刻まで次の (背景) fetch を抑制」する deadline (ms epoch) */
   const nextFetchAllowedAt = new Map<string, number>();
   /** rootDir → 現在 in-flight な fetch の Promise (dedup 用) */
-  const inFlight = new Map<string, Promise<boolean>>();
+  const inFlight = new Map<string, Promise<FetchOutcome>>();
   /** 全 fetch 経路が共有する同時実行上限キュー。cap 超過ぶんは queue され順に実行される */
-  const fetchLimiter = createConcurrencyLimiter<boolean>(MAX_CONCURRENT_FETCH);
+  const fetchLimiter = createConcurrencyLimiter<FetchOutcome>(MAX_CONCURRENT_FETCH);
+  /** rootDir → 背景経路で最後に失敗を通知した時刻 (ms epoch)。成功で削除し即通知に戻す */
+  const lastFailureNotifiedAt = new Map<string, number>();
 
   /**
-   * fetch 1 回を実行し成功/失敗の bool を返す。inFlight にあれば同じ Promise を返して dedup。
-   * 失敗は notify.info で通知し、bool false を返す。
+   * fetch 1 回を実行し outcome を返す。inFlight にあれば同じ Promise を返して dedup。
+   * 通知はしない: 通知方針は経路で異なる (背景は間引き / ユーザー起点は即時) ため、
+   * in-flight dedup で promise を共有する 2 経路が各自の方針を適用できるよう、失敗内容を
+   * 値として返す。event-log への記録 (毎回) はここが持つ。
    *
    * non-public: backoff を一切読まないため直接呼びは連射の原因。`fetchIfDue` (gate 込み) と
    * `requestImmediateFetch` (gate bypass 意図) の 2 経路から呼び分ける。
    */
-  function runFetch(rootDir: string): Promise<boolean> {
+  function runFetch(rootDir: string): Promise<FetchOutcome> {
     const name = repoStore.repos[rootDir]?.repoName ?? rootDir;
     const existing = inFlight.get(rootDir);
     if (existing !== undefined) {
@@ -150,27 +176,34 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
     const promise = fetchLimiter(async () => {
       logEvent("fetch", "fire", name);
       const result = await tryCatch(rpcGitFetchRemotes({ dir: rootDir }));
-      const now = Date.now();
+      nextFetchAllowedAt.set(rootDir, Date.now() + REMOTE_FETCH_INTERVAL_MS);
       if (!result.ok) {
         logEvent("fetch", "error", name, String(result.error));
-        notify.info(`Background git fetch failed for ${rootDir}`, result.error);
-        nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_INTERVAL_MS);
-        return false;
+        return { ok: false as const, detail: result.error };
       }
       if (!result.value.ok) {
         logEvent("fetch", "error", name, result.value.errorDetail);
-        notify.info(`Background git fetch failed for ${rootDir}`, result.value.errorDetail);
-        nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_INTERVAL_MS);
-        return false;
+        return { ok: false as const, detail: result.value.errorDetail };
       }
       logEvent("fetch", "done", name);
-      nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_INTERVAL_MS);
-      return true;
+      lastFailureNotifiedAt.delete(rootDir);
+      return { ok: true as const };
     });
 
     inFlight.set(rootDir, promise);
     void promise.finally(() => inFlight.delete(rootDir));
     return promise;
+  }
+
+  /**
+   * 背景経路の失敗通知。同一 repo は `FAILURE_NOTIFY_INTERVAL_MS` に 1 回へ間引く
+   * (event-log には runFetch が毎回残す)。間引きは通知の抑制であって観察の抑制ではない。
+   */
+  function notifyBackgroundFailure(rootDir: string, detail: unknown) {
+    const now = Date.now();
+    if (!isFailureNotifyDue({ lastNotifiedAt: lastFailureNotifiedAt.get(rootDir), now })) return;
+    lastFailureNotifiedAt.set(rootDir, now);
+    notify.info(`Background git fetch failed for ${rootDir}`, detail);
   }
 
   /**
@@ -189,7 +222,9 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
       logEvent("fetch", "skip", repoStore.repos[rootDir]?.repoName ?? rootDir);
       return false;
     }
-    return await runFetch(rootDir);
+    const outcome = await runFetch(rootDir);
+    if (!outcome.ok) notifyBackgroundFailure(rootDir, outcome.detail);
+    return outcome.ok;
   }
 
   /**
@@ -200,7 +235,7 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
    * `findRepoOwning(dir)?.rootDir` に正規化するため呼び出し側は変換不要。
    *
    * 戻り値は succeeded=true / failed=false の bool。失敗経路 (precondition violation /
-   * runFetch failure) いずれも本関数または `runFetch` 内で `notify.info` が出るため、
+   * runFetch failure) いずれも本関数内で `notify.info` が出るため、
    * 呼び出し側は false 戻り値に対して追加通知を出さない契約。
    *
    * 不正 path (`findRepoOwning` undefined / 非 git repo) は `notify.info` で skip し false を返す。
@@ -213,7 +248,10 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
       notify.info("git fetch skipped: target worktree is no longer tracked");
       return false;
     }
-    return await runFetch(repo.rootDir);
+    // ユーザー起点の失敗は間引かず必ず即報告する (結果を待っている操作への応答のため)
+    const outcome = await runFetch(repo.rootDir);
+    if (!outcome.ok) notify.info(`git fetch failed for ${repo.rootDir}`, outcome.detail);
+    return outcome.ok;
   }
 
   return {

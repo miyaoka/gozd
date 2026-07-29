@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { createConcurrencyLimiter, isRepoFetchDue } from "./useRemoteFetchStore";
+import {
+  createConcurrencyLimiter,
+  isFailureNotifyDue,
+  isRepoFetchDue,
+} from "./useRemoteFetchStore";
 
 const GIT_REPO = { isGitRepo: true };
 const NON_GIT = { isGitRepo: false };
@@ -42,6 +46,23 @@ describe("isRepoFetchDue", () => {
       .filter((r) => isRepoFetchDue({ repo: r.repo, allowedAt: r.allowedAt, now: NOW }))
       .map((r) => r.dir);
     expect(due).toEqual(["/a"]);
+  });
+});
+
+describe("isFailureNotifyDue", () => {
+  // 30 分 = FAILURE_NOTIFY_INTERVAL_MS。expected をリテラルで固定し、定数変更を明示的な行為にする
+  const INTERVAL = 30 * 60_000;
+
+  test("前回通知が無い (失敗エピソードの先頭) なら通知する", () => {
+    expect(isFailureNotifyDue({ lastNotifiedAt: undefined, now: NOW })).toBe(true);
+  });
+
+  test("最小間隔未満は間引く", () => {
+    expect(isFailureNotifyDue({ lastNotifiedAt: NOW - INTERVAL + 1, now: NOW })).toBe(false);
+  });
+
+  test("最小間隔ちょうどで通知に戻る", () => {
+    expect(isFailureNotifyDue({ lastNotifiedAt: NOW - INTERVAL, now: NOW })).toBe(true);
   });
 });
 

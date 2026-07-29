@@ -5,6 +5,7 @@ Popover API (`popover="manual"`) によるトースト通知。
 
 - toast 表示中の通知（store の `toasts` view）が存在する間 popover を open にし、空になったら hide する
 - 全 type とも type 別の寿命で自動消去（store 側で管理）。見逃しは notification center で回収する
+- 同時表示は最新 3 件まで（store の `toasts` view が絞る）。超過分は center でのみ参照できる
 - window blur 中は全 toast の自動消去を保留し、focus 復帰でフル時間から再開する（VS Code の
   purge ガードと同じ。見ていない間にカウントダウンが進んで戻ったら消えていた、を防ぐ）
 - dismiss は toast を畳むだけで、通知自体は notification center に残る

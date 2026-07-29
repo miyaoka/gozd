@@ -104,6 +104,14 @@ describe("auto-dismiss", () => {
     expect(store.toasts.value).toHaveLength(0);
   });
 
+  test("toast の同時表示は最新 3 件に絞られ、超過分も center には全件残る", () => {
+    for (let i = 0; i < 5; i++) {
+      store.info(`msg ${i}`);
+    }
+    expect(store.toasts.value.map((n) => n.message)).toEqual(["msg 2", "msg 3", "msg 4"]);
+    expect(store.notifications.value).toHaveLength(5);
+  });
+
   test("suspend 中は全 toast の発火が保留され、解除でフル時間から再開する", () => {
     store.setAutoDismissSuspended(true);
     store.info("a");

@@ -46,6 +46,12 @@ const AUTO_DISMISS_MS_BY_TYPE = {
 } as const satisfies Record<Notification["type"], number>;
 /** center に保持する通知数の上限。超過分は古い順に落とす */
 export const MAX_NOTIFICATIONS = 100;
+/**
+ * 同時に描画する toast の上限 (VS Code の notificationsToasts MAX_NOTIFICATIONS と同値)。
+ * 超過分は center にのみ残す。blur suspend 中に通知が溜まっても、復帰時に画面が toast で
+ * 埋まらないための上限。新しい通知ほど重要なので末尾 (最新) 側を採る
+ */
+const MAX_VISIBLE_TOASTS = 3;
 
 let nextId = 0;
 const notifications = ref<Notification[]>([]);
@@ -55,8 +61,10 @@ const holds = new Map<number, Set<string>>();
 /** window blur 中の全 toast 一括保留 (VS Code の onDidChangeFocus 相当) */
 let autoDismissSuspended = false;
 
-/** toast として表示中の項目だけの view (NotificationToast が購読)。 */
-const toasts = computed(() => notifications.value.filter((n) => n.toastVisible));
+/** toast として表示中の項目のうち最新 MAX_VISIBLE_TOASTS 件の view (NotificationToast が購読)。 */
+const toasts = computed(() =>
+  notifications.value.filter((n) => n.toastVisible).slice(-MAX_VISIBLE_TOASTS),
+);
 
 /**
  * 最後に発火した通知イベント。`add()` のたびに更新される。purpose は「toast の表示有無」
@@ -94,8 +102,9 @@ function add(type: Notification["type"], message: string, cause?: unknown) {
     toastVisible: true,
   });
 
-  // 上限超過は古い項目から落とす (100 件溜まる時点で異常系であり、表示保護より上限保証を
-  // 優先する)。項目は追加のみで並び替えないため配列先頭 = 最古
+  // 上限超過は古い項目から落とす (未読でも落とす。長時間の連続失敗では平常運転でも到達
+  // しうるが、受け皿の完全性より資源の上限保証を優先する設計判断)。項目は追加のみで
+  // 並び替えないため配列先頭 = 最古
   const overflow = notifications.value.length - MAX_NOTIFICATIONS;
   if (overflow > 0) {
     for (const dropped of notifications.value.slice(0, overflow)) {

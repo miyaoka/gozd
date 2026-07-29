@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import {
-  AUTO_DISMISS_MS_BY_TYPE,
-  MAX_NOTIFICATIONS,
-  useNotificationStore,
-} from "./useNotificationStore";
+import { MAX_NOTIFICATIONS, useNotificationStore } from "./useNotificationStore";
 
 const store = useNotificationStore();
 
@@ -41,10 +37,12 @@ beforeEach(() => {
     spyOn(console, "info").mockImplementation(() => {}),
   ];
   store.clear();
+  store.setAutoDismissSuspended(false);
 });
 
 afterEach(() => {
   store.clear();
+  store.setAutoDismissSuspended(false);
   for (const spy of spies) spy.mockRestore();
 });
 
@@ -68,15 +66,56 @@ describe("auto-dismiss", () => {
     expect(store.notifications.value).toHaveLength(1);
   });
 
+  // expected をリテラルで固定する: 実装と同じ定数で assert すると値の書き換えを検出できない。
+  // 定数を変えるときはテストも直すという明示的な行為にする
   test("toast の寿命は type 別 (VS Code PURGE_TIMEOUT と同値)", () => {
     store.info("i");
     store.warning("w");
     store.error("e");
-    expect(timerDelays).toEqual([
-      AUTO_DISMISS_MS_BY_TYPE.info,
-      AUTO_DISMISS_MS_BY_TYPE.warning,
-      AUTO_DISMISS_MS_BY_TYPE.error,
-    ]);
+    expect(timerDelays).toEqual([10_000, 12_000, 15_000]);
+  });
+
+  test("hold 中は timer が発火しても消えず、フル時間で張り直される", () => {
+    store.info("hover me");
+    const id = store.notifications.value[0]!.id;
+
+    store.holdToast(id, "pointer");
+    fireAllTimers();
+    expect(store.toasts.value).toHaveLength(1);
+    expect(pendingTimers.size).toBe(1);
+
+    store.releaseToast(id, "pointer");
+    fireAllTimers();
+    expect(store.toasts.value).toHaveLength(0);
+  });
+
+  test("release は保留理由が全て消えたときだけ自動消去を再開する", () => {
+    store.info("focus + hover");
+    const id = store.notifications.value[0]!.id;
+
+    store.holdToast(id, "pointer");
+    store.holdToast(id, "focus");
+    store.releaseToast(id, "pointer");
+    fireAllTimers();
+    expect(store.toasts.value).toHaveLength(1);
+
+    store.releaseToast(id, "focus");
+    fireAllTimers();
+    expect(store.toasts.value).toHaveLength(0);
+  });
+
+  test("suspend 中は全 toast の発火が保留され、解除でフル時間から再開する", () => {
+    store.setAutoDismissSuspended(true);
+    store.info("a");
+    store.error("b");
+
+    fireAllTimers();
+    expect(store.toasts.value).toHaveLength(2);
+    expect(pendingTimers.size).toBe(2);
+
+    store.setAutoDismissSuspended(false);
+    fireAllTimers();
+    expect(store.toasts.value).toHaveLength(0);
   });
 });
 

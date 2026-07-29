@@ -8,9 +8,12 @@
 - `cause` がある通知には Details ボタンを出し、notification center の該当項目を
   展開表示させて toast は畳む (詳細閲覧の受け皿は center に一本化)
 - dismiss ボタンは toast を畳むだけで、通知自体は center に残る
+- hover / キーボードフォーカス中は自動消去を保留する (VS Code の purge ガードと同じ。
+  Details を押しに行く / エラー文を選択コピーする最中に toast が消えるのを防ぐ)
 </doc>
 
 <script setup lang="ts">
+import { useNotificationStore } from "../../shared/notification";
 import { useNotificationCenterStore } from "./useNotificationCenterStore";
 import IconLucideCircleX from "~icons/lucide/circle-x";
 import IconLucideInfo from "~icons/lucide/info";
@@ -46,6 +49,7 @@ const iconColorMap = {
 } as const;
 
 const centerStore = useNotificationCenterStore();
+const { holdToast, releaseToast } = useNotificationStore();
 
 function showDetails() {
   centerStore.reveal(props.id);
@@ -59,6 +63,10 @@ function showDetails() {
       'pointer-events-auto flex w-md max-w-md items-start gap-2 rounded-lg border p-3 text-sm text-foreground shadow-lg',
       colorMap[type],
     ]"
+    @pointerenter="holdToast(id, 'pointer')"
+    @pointerleave="releaseToast(id, 'pointer')"
+    @focusin="holdToast(id, 'focus')"
+    @focusout="releaseToast(id, 'focus')"
   >
     <component :is="iconMap[type]" :class="['mt-0.5 size-4 shrink-0', iconColorMap[type]]" />
     <span class="min-w-0 flex-1 break-all select-text">{{ message }}</span>

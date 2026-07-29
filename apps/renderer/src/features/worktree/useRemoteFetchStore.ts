@@ -101,8 +101,9 @@ export function isRepoFetchDue(args: {
  *   connect hang を断つ
  * - 成功・失敗を区別せず 60s の単一周期で lock（`REMOTE_FETCH_INTERVAL_MS`）
  * - 失敗は `notify.info` で通知 (CLAUDE.md `console.error で握り潰さない`)。toast は自動消去
- *   だが項目は notification center に残るため silent drop にはならない。失敗が継続する間は
- *   60s 周期で再通知されるため、自動回復しない失敗（認証切れ等）も見逃しにならない
+ *   だが項目は notification center に残る。失敗が継続する間は対象が可視集合にある限り
+ *   60s 周期で再通知されるため、自動回復しない失敗（認証切れ等）もその repo を見ている限り
+ *   気づける（可視集合から外れると再通知も止まる。fetch 自体が止まるので整合はする）
  *
  * ## public API は 2 経路のみ
  *

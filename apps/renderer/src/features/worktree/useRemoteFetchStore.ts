@@ -27,7 +27,8 @@ const MAX_CONCURRENT_FETCH = 5;
 /**
  * 背景 fetch の同一 repo 失敗を再通知する最小間隔 (ms)。継続失敗が 60s 周期のまま center の
  * 100 件枠を食い潰すのを防ぎつつ、恒久失敗 (認証切れ等) の再告知は保つ間隔として選んだ。
- * 初回の失敗は即通知され、成功でリセットされるため失敗エピソードごとに必ず 1 回は toast が出る
+ * 初回の失敗は即通知され、成功でリセットされるため失敗エピソードごとに必ず 1 回は通知される
+ * (可視 toast 上限があるため、描画までは保証しない)
  */
 const FAILURE_NOTIFY_INTERVAL_MS = 30 * 60_000;
 
@@ -158,6 +159,10 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
    * 通知はしない: 通知方針は経路で異なる (背景は間引き / ユーザー起点は即時) ため、
    * in-flight dedup で promise を共有する 2 経路が各自の方針を適用できるよう、失敗内容を
    * 値として返す。event-log への記録 (毎回) はここが持つ。
+   *
+   * 同一 fetch を 2 経路が await した場合は各経路がそれぞれ通知する (失敗 1 回で 2 件)。
+   * 発火元 1 回に寄せると immediate 経路が背景の間引き窓に飲まれ、ユーザー操作への応答が
+   * 消えるため、重複のほうを許容する。
    *
    * non-public: backoff を一切読まないため直接呼びは連射の原因。`fetchIfDue` (gate 込み) と
    * `requestImmediateFetch` (gate bypass 意図) の 2 経路から呼び分ける。

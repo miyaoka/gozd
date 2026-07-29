@@ -100,9 +100,10 @@ export function isRepoFetchDue(args: {
  *   同時実行数を絞る。可視集合の同時 fetch が cap を超えたぶんは queue し、TLS 接続バーストによる
  *   connect hang を断つ
  * - 成功・失敗を区別せず 60s の単一周期で lock（`REMOTE_FETCH_INTERVAL_MS`）
- * - 失敗は `notify.info` の persist 指定で通知 (CLAUDE.md `console.error で握り潰さない`)。
- *   background 発火でユーザーが目撃前に自動消去されると silent drop と等価になるため、
- *   手動クローズまで残す
+ * - 失敗は `notify.info` で通知 (CLAUDE.md `console.error で握り潰さない`)。toast は自動消去
+ *   だが項目は notification center に残るため silent drop にはならない。一過性のネットワーク
+ *   失敗（次周期で自動回復する）は persist にしない: 経路劣化時に 60s 周期の失敗トーストが
+ *   手動クローズ待ちで積み上がるため
  *
  * ## public API は 2 経路のみ
  *
@@ -152,15 +153,13 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
       const now = Date.now();
       if (!result.ok) {
         logEvent("fetch", "error", name);
-        notify.info(`Background git fetch failed for ${rootDir}`, result.error, { persist: true });
+        notify.info(`Background git fetch failed for ${rootDir}`, result.error);
         nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_INTERVAL_MS);
         return false;
       }
       if (!result.value.ok) {
         logEvent("fetch", "error", name);
-        notify.info(`Background git fetch failed for ${rootDir}`, result.value.errorDetail, {
-          persist: true,
-        });
+        notify.info(`Background git fetch failed for ${rootDir}`, result.value.errorDetail);
         nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_INTERVAL_MS);
         return false;
       }

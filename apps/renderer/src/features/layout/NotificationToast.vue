@@ -4,7 +4,7 @@ Popover API (`popover="manual"`) によるトースト通知。
 ## 動作
 
 - toast 表示中の通知（store の `toasts` view）が存在する間 popover を open にし、空になったら hide する
-- error と `persist` 指定の通知は手動クローズのみ、それ以外の warning / info は自動消去（store 側で管理）
+- 全 type とも type 別の寿命で自動消去（store 側で管理）。見逃しは notification center で回収する
 - dismiss は toast を畳むだけで、通知自体は notification center に残る
 - 複数通知は下から上へスタック表示
 </doc>

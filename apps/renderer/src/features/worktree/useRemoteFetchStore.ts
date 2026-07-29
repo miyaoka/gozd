@@ -101,9 +101,8 @@ export function isRepoFetchDue(args: {
  *   connect hang を断つ
  * - 成功・失敗を区別せず 60s の単一周期で lock（`REMOTE_FETCH_INTERVAL_MS`）
  * - 失敗は `notify.info` で通知 (CLAUDE.md `console.error で握り潰さない`)。toast は自動消去
- *   だが項目は notification center に残るため silent drop にはならない。一過性のネットワーク
- *   失敗（次周期で自動回復する）は persist にしない: 経路劣化時に 60s 周期の失敗トーストが
- *   手動クローズ待ちで積み上がるため
+ *   だが項目は notification center に残るため silent drop にはならない。失敗が継続する間は
+ *   60s 周期で再通知されるため、自動回復しない失敗（認証切れ等）も見逃しにならない
  *
  * ## public API は 2 経路のみ
  *
@@ -152,13 +151,13 @@ export const useRemoteFetchStore = defineStore("remoteFetch", () => {
       const result = await tryCatch(rpcGitFetchRemotes({ dir: rootDir }));
       const now = Date.now();
       if (!result.ok) {
-        logEvent("fetch", "error", name);
+        logEvent("fetch", "error", name, String(result.error));
         notify.info(`Background git fetch failed for ${rootDir}`, result.error);
         nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_INTERVAL_MS);
         return false;
       }
       if (!result.value.ok) {
-        logEvent("fetch", "error", name);
+        logEvent("fetch", "error", name, result.value.errorDetail);
         notify.info(`Background git fetch failed for ${rootDir}`, result.value.errorDetail);
         nextFetchAllowedAt.set(rootDir, now + REMOTE_FETCH_INTERVAL_MS);
         return false;

@@ -158,8 +158,8 @@ onUnmounted(() => {
 
 /* error だけ弱いのは意図的。3 色の相対輝度は Leonardo が同一コントラストで生成するため
    揃っているが、destructive だけ chroma が 25% 高く (0.207 vs 0.166 / 0.156)、
-   Helmholtz-Kohlrausch 効果で同じ輝度でも強く感じる。加えて error 通知は toast が
-   persist する（消えずに残る）ので、フラッシュは気づきだけ担えばよい。
+   Helmholtz-Kohlrausch 効果で同じ輝度でも強く感じる。加えて error toast は最長の
+   15s 表示 + notification center に残るので、フラッシュは気づきだけ担えばよい。
    spread を外して縁の発光に留める */
 ._fx-flash[data-kind="error"] {
   --fx-flash-peak: 0.45;

@@ -10,10 +10,11 @@
  * 暗黙グルーピングは別発生源の同文言が誤結合し、message に可変部を入れると誤分裂する
  * 二方向の欠陥があるため採らない。
  *
- * toast の永続化 (自動消去しない) の軸は重大度 (type) ではなく「ユーザーが画面を見て
- * いるか」: ユーザー操作への応答 (Copied 等の確認) は目撃済みなので自動消去し、
- * ユーザー操作を伴わず background で発火する must-see 通知 (背景 fetch の失敗等) は
- * `persist` opt-in で手動クローズまで残す。error は常に永続。
+ * toast は全 type とも自動消去し、寿命だけを severity に比例させる (VS Code の
+ * PURGE_TIMEOUT と同値: info 10s / warning 12s / error 15s)。手動クローズを要求する
+ * sticky 相当は持たない: VS Code で sticky になるのはアクションボタン付き error /
+ * progress 付き通知だが、gozd の通知はボタンも progress も持たないため対応する状態が
+ * 存在しない。見逃しは center が受け皿として回収する。
  *
  * `error` / `warning` / `info` は toast 表示 + console 出力、`debug` は **console.debug への
  * 集約窓口**で toast 表示なし。renderer 規約 (CLAUDE.md エラーハンドリング) で
@@ -31,20 +32,18 @@ export interface Notification {
   at: number;
   /** 通知発生順の単調増加値。center の未読判定 / 新着順ソートに使う */
   seq: number;
-  persist: boolean;
   /** toast として表示中か。false は center にのみ残る */
   toastVisible: boolean;
 }
 
-/** persist しない warning / info toast の自動消去時間（ms） */
-const AUTO_DISMISS_MS = 5000;
+/** type 別の toast 自動消去時間（ms）。VS Code の PURGE_TIMEOUT と同値 */
+export const AUTO_DISMISS_MS_BY_TYPE = {
+  info: 10_000,
+  warning: 12_000,
+  error: 15_000,
+} as const satisfies Record<Notification["type"], number>;
 /** center に保持する通知数の上限。超過分は古い順に落とす */
 export const MAX_NOTIFICATIONS = 100;
-
-interface NotifyOptions {
-  /** true でユーザーが閉じるまで toast を残す。background 発火の must-see 通知用（ヘッダコメント参照） */
-  persist?: boolean;
-}
 
 let nextId = 0;
 const notifications = ref<Notification[]>([]);
@@ -73,12 +72,10 @@ const CONSOLE_METHOD_BY_TYPE = {
   info: "info",
 } as const satisfies Record<Notification["type"], keyof Console>;
 
-function add(type: Notification["type"], message: string, cause?: unknown, opts?: NotifyOptions) {
+function add(type: Notification["type"], message: string, cause?: unknown) {
   console[CONSOLE_METHOD_BY_TYPE[type]](message, ...(cause !== undefined ? [cause] : []));
 
   lastEvent.value = { type, seq: ++eventSeq };
-
-  const persistRequested = type === "error" || opts?.persist === true;
 
   const id = nextId++;
   notifications.value.push({
@@ -88,12 +85,11 @@ function add(type: Notification["type"], message: string, cause?: unknown, opts?
     cause,
     at: Date.now(),
     seq: eventSeq,
-    persist: persistRequested,
     toastVisible: true,
   });
 
-  // 上限超過は古い項目から落とす (persist でも落とす。100 件溜まる時点で異常系であり、
-  // 表示保護より上限保証を優先する)。項目は追加のみで並び替えないため配列先頭 = 最古
+  // 上限超過は古い項目から落とす (100 件溜まる時点で異常系であり、表示保護より上限保証を
+  // 優先する)。項目は追加のみで並び替えないため配列先頭 = 最古
   const overflow = notifications.value.length - MAX_NOTIFICATIONS;
   if (overflow > 0) {
     for (const dropped of notifications.value.slice(0, overflow)) {
@@ -102,12 +98,10 @@ function add(type: Notification["type"], message: string, cause?: unknown, opts?
     notifications.value = notifications.value.slice(overflow);
   }
 
-  if (!persistRequested) {
-    timers.set(
-      id,
-      setTimeout(() => dismiss(id), AUTO_DISMISS_MS),
-    );
-  }
+  timers.set(
+    id,
+    setTimeout(() => dismiss(id), AUTO_DISMISS_MS_BY_TYPE[type]),
+  );
 }
 
 function clearTimer(id: number) {
@@ -157,10 +151,8 @@ export function useNotificationStore() {
     toasts,
     lastEvent,
     error: (message: string, cause?: unknown) => add("error", message, cause),
-    warning: (message: string, cause?: unknown, opts?: NotifyOptions) =>
-      add("warning", message, cause, opts),
-    info: (message: string, cause?: unknown, opts?: NotifyOptions) =>
-      add("info", message, cause, opts),
+    warning: (message: string, cause?: unknown) => add("warning", message, cause),
+    info: (message: string, cause?: unknown) => add("info", message, cause),
     debug,
     dismiss,
     remove,

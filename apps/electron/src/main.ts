@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, screen, shell, type WebContents } from "electron";
 import {
   CHILD_WINDOW_FRAME_PREFIX,
+  MIN_WINDOW_WIDTH,
   TITLEBAR_HEIGHT,
   tryCatch,
   WINDOW_BACKGROUND_COLOR,
@@ -153,6 +154,8 @@ function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: restored?.width ?? DEFAULT_WINDOW_SIZE.width,
     height: restored?.height ?? DEFAULT_WINDOW_SIZE.height,
+    // renderer の列幅ポリシーが成立する下限。これ未満では Preview の描画幅が 0 に潰れる
+    minWidth: MIN_WINDOW_WIDTH,
     // x / y は undefined ならディスプレイ中央配置（Electron デフォルト）
     x: restored?.x,
     y: restored?.y,

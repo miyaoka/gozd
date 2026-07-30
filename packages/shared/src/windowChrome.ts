@@ -12,6 +12,20 @@
 export const TITLEBAR_HEIGHT = 36;
 
 /**
+ * main window の最小幅 (px)。
+ *
+ * renderer の横並びレイアウト（Sidebar | H | 中央カラム | H | Navigator）が最小列幅でも
+ * 「Terminal 最小幅 + Preview 最小幅」を中央カラムに置ける下限。
+ * = SIDEBAR_MIN(120) + H(8) + TERMINAL_MIN(200) + PREVIEW_MIN(200) + H(8) + NAVIGATOR_MIN(180)
+ *
+ * これ未満のウィンドウでは Preview popover の描画幅が 0 に潰れる（popover は中央カラムに
+ * Terminal 最小幅を残す上限で切られ、Sidebar のリサイズハンドルを覆わないため）。
+ * 内訳の SSOT は renderer の `features/layout/layoutWidths.ts` で、同値であることは
+ * `layoutWidths.test.ts` が検証する。
+ */
+export const MIN_WINDOW_WIDTH = 716;
+
+/**
  * undock child window の frame 名 prefix。
  *
  * renderer (ChildWindow.vue の `window.open` 第 2 引数) と main

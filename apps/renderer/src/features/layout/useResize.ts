@@ -1,6 +1,7 @@
 import { useEventListener } from "@vueuse/core";
 import { ref } from "vue";
 import type { Ref, ShallowRef } from "vue";
+import { clampResizeDelta } from "./resizeDelta";
 
 type Direction = "horizontal" | "vertical";
 
@@ -62,10 +63,12 @@ export function useResize(
           ? moveEvent.clientX - startPos
           : moveEvent.clientY - startPos;
 
-      // 両ペインの最小サイズを尊重して delta をクランプ
-      const maxExpand = startAfterSize - options.afterMinSize;
-      const maxShrink = startBeforeSize - options.beforeMinSize;
-      const delta = Math.max(-maxShrink, Math.min(maxExpand, rawDelta));
+      const delta = clampResizeDelta(rawDelta, {
+        startBeforeSize,
+        startAfterSize,
+        beforeMinSize: options.beforeMinSize,
+        afterMinSize: options.afterMinSize,
+      });
 
       if (shouldWriteBefore) beforeSize.value = startBeforeSize + delta;
       if (shouldWriteAfter) afterSize.value = startAfterSize - delta;

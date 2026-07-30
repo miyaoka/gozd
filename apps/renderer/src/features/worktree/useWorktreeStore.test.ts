@@ -35,6 +35,15 @@ describe("useWorktreeStore の reveal 要求", () => {
     expect(wt.revealRequest?.seq).toBeGreaterThan(first?.seq ?? 0);
   });
 
+  test("正規化前の綴りでも selection と reveal 対象が揃う", () => {
+    // terminal のファイルパスリンクは matched token をそのまま渡すため `./` 付きが入る。
+    // 片方だけ正規化すると reveal 対象がツリーの path と一致せず、reveal だけ無音で落ちる
+    const wt = useWorktreeStore();
+    wt.selectRelPath("./src/a.ts");
+    expect(wt.selectedRelPath).toBe("src/a.ts");
+    expect(wt.revealRequest?.relPath).toBe("src/a.ts");
+  });
+
   test("revealRelPath は selection を動かさずツリーだけ移動させる", () => {
     const wt = useWorktreeStore();
     wt.selectRelPath("src/a.ts");

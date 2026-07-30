@@ -454,7 +454,8 @@ async function handleReveal() {
 
 // watch source は request object そのもの。`revealRequest?.relPath` に変えてはならない
 // (同一パスの再要求は relPath が不変なので発火せず、同じファイルを再選択したときの
-// 展開 + スクロールが無音で落ちる)。発火は要求ごとに新しい object を立てる identity に依存する
+// 展開 + スクロールが無音で落ちる)。発火は要求ごとに新しい object を立てる identity に依存する。
+// store 側 `revealRequest` の docstring と対の再掲で、発火機構を変えるときは両方を同時に更新する
 watch(
   () => worktreeStore.revealRequest,
   () => {

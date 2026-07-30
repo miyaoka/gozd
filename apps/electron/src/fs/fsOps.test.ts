@@ -209,13 +209,12 @@ describe("FSOps", () => {
     const dir = makeTempDir();
     mkdirSync(join(dir, "locked", "sub"), { recursive: true });
     chmodSync(join(dir, "locked"), 0o000);
-    try {
-      // 他の rejects と違い await するのは finally との順序のため（await が無いと assertion の
-      // 決着前に chmod 復帰が走る）。復帰しないと子を持つこの dir は afterEach の rmSync ごと落ちる
-      await expect(readDir(dir, "locked/sub")).rejects.toThrow(/EACCES/);
-    } finally {
-      chmodSync(join(dir, "locked"), 0o755);
-    }
+    // 他の rejects と違い Result で受けるのは、assert 前に権限を戻す必要があるため。子を持つこの
+    // dir を 000 のまま残すと afterEach の rmSync ごと落ちる
+    const failed = await tryCatch(readDir(dir, "locked/sub"));
+    chmodSync(join(dir, "locked"), 0o755);
+    expect(failed.ok).toBe(false);
+    expect(String(failed.ok ? "" : failed.error)).toMatch(/EACCES/);
   });
 
   test("dir 範囲外は拒否される", async () => {

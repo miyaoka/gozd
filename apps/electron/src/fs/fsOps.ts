@@ -251,7 +251,7 @@ function logUnresolvedLink(
 ): void {
   if (isUntraversable(error)) return;
   console.error(
-    `[resolveRealTarget] resolve failed path=${linkPath} resolved=${resolvedPath ?? "(unresolved)"} error=${error}`,
+    `[resolveRealTarget] resolve failed path=${linkPath} resolved=${resolvedPath ?? "(unresolved)"} error=${String(error)}`,
   );
 }
 

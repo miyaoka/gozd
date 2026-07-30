@@ -3,19 +3,46 @@
 
 ## 構成
 
-- 横3カラム: SidebarPane → 中央カラム → Preview 開閉ボタン → NavigatorPane（各ペイン間にリサイズハンドル）
+- 横3カラム: SidebarPane → 中央カラム → NavigatorPane
 - 中央カラム: Terminal（上、flex-1）→ GitGraphPane（下、固定高さ）の上下分割
 - NavigatorPane: Filer（上）+ Changes（下）の上下分割
-- Preview は Popover API でトップレイヤーに配置し、レイアウトフローから分離。Navigator の左側に表示
+- Preview は Popover API でトップレイヤーに配置し、レイアウトフローから分離。中央カラムの
+  右端に右端を揃えて左側へ展開する（開閉は `preview.toggle`（Cmd+J / コマンドパレット）で、
+  常設の開閉ボタンは持たない）
 
 ## リサイズ
 
-各ハンドルは隣接する左右（上下）のペインだけを連動してリサイズする。
-ハンドルより遠いペインには影響しない。
+幅・高さの ref はユーザーがドラッグで決めた**希望値**で、描画にはウィンドウサイズへ収めた
+派生値（`layoutSizes.ts`）を使う。縮小のたびに ref を書き戻すと希望値が失われ、ウィンドウを
+戻しても元のレイアウトに復元できない。ドラッグの起点も描画値（DOM 実測 / 派生値）で取る。
+
+各ハンドルが希望値を書き換えるのは隣接する左右（上下）のペインだけ。ただし描画値は
+ウィンドウサイズの予算からの派生なので、他のペインが希望値より圧縮されている状態では
+空いた分がそちらの復元に回る。この状態ではドラッグ量と境界の移動量は一致しない。
+
+### Preview popover の被覆境界
+
+トップレイヤーの要素は通常フローの `z-index` を無条件に上回り、覆われたリサイズハンドルは
+pointer event が届かず操作不能になる。Preview は Terminal と Navigator の境界に右端を接する
+常駐面なので、**覆われたハンドルが見えているのに反応しない**死角ができる。これを防ぐため、
+Preview popover は列の境界にあるハンドルを覆わない。
+
+- popover の右端はアンカー（中央カラム）の右端に揃う。Navigator のハンドルは中央カラムの外
+  （兄弟要素）に位置するため被覆範囲に入らない
+- popover の左端が Sidebar のハンドルを越えないよう、描画幅を「中央カラム幅 − Terminal
+  最小幅」で切る（`fitPreviewWidth`）。ここで下限による押し戻しをすると幾何的に入らない幅が
+  描画へ流れ、ハンドルを覆う
+- 表示中は中央カラムに Preview の取り分を予約し、列幅（描画値）を譲らせる。予約しないと
+  上の上限が 0 まで下がり、見えない面へフォーカスだけが移る状態を作れてしまう
+
+この契約は Preview に限る。中央カラム**内側**のハンドル（GitGraph の上下分割 / Terminal の
+分割）は被覆範囲にあり、Preview 表示中は位置次第で掴めない。右ドックの transient パネル
+（server / event log / notification center）はいずれも `right: 0` の全高 popover で Navigator を
+丸ごと覆うため、表示中は列の境界ハンドルも掴めない。これらは不透明なパネルが乗っていること
+自体が視認できる短命サーフェスなので、死角にはならない。
 </doc>
 
 <script setup lang="ts">
-import { TITLEBAR_HEIGHT } from "@gozd/shared";
 import { useWindowSize } from "@vueuse/core";
 import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useCommandRegistry, useContextKeys } from "../../shared/command";
@@ -50,12 +77,24 @@ import { registerSearchCommand, SearchDialog } from "../search";
 import { registerAppConfigSync, registerSettingsCommand, SettingsModal } from "../settings";
 import { SidebarPane } from "../sidebar";
 import { registerThemeCommand, TerminalPane } from "../terminal";
+import {
+  centerColumnWidth,
+  fitColumnWidths,
+  fitGitGraphHeight,
+  fitPreviewWidth,
+  GIT_GRAPH_MIN_HEIGHT,
+  NAVIGATOR_MIN_WIDTH,
+  PREVIEW_MIN_WIDTH,
+  previewBeforeMinWidth,
+  SIDEBAR_MIN_WIDTH,
+  TERMINAL_MIN_HEIGHT,
+  TERMINAL_MIN_WIDTH,
+} from "./layoutSizes";
 import NotificationCenterPanel from "./NotificationCenterPanel.vue";
 import NotificationToast from "./NotificationToast.vue";
 import ResizeHandle from "./ResizeHandle.vue";
 import { rpcWindowClose } from "./rpc";
 import TitleBar from "./TitleBar.vue";
-import IconLucidePanelRightOpen from "~icons/lucide/panel-right-open";
 
 const repoStore = useRepoStore();
 const previewStore = usePreviewStore();
@@ -118,70 +157,61 @@ onUnmounted(disposeReviveCommand);
 onUnmounted(disposeMarkdownHistoryCommands);
 onUnmounted(disposeFilerCommands);
 
-/** ハンドル幅 w-2 = 8px */
-const HANDLE_WIDTH = 8;
-
-const SIDEBAR_MIN_WIDTH = 120;
-const PREVIEW_MIN_WIDTH = 200;
-const TERMINAL_MIN_WIDTH = 200;
-const NAVIGATOR_MIN_WIDTH = 180;
-const GIT_GRAPH_MIN_HEIGHT = 40;
-const TERMINAL_MIN_HEIGHT = 150;
-
 const { width: windowWidth, height: windowHeight } = useWindowSize();
 const centerTerminalRef = useTemplateRef<HTMLElement>("centerTerminal");
 
-const sidebarWidth = ref(260);
-const navigatorWidth = ref(256);
-const previewWidth = ref(1200);
-const gitGraphHeight = ref(128);
+// ref はユーザーがドラッグで決めた「希望サイズ」、描画は下の computed（ウィンドウサイズに
+// 収めた派生値）を使う。縮小のたびに ref を書き戻すと希望サイズが失われ、ウィンドウを
+// 戻しても復元できない
+const desiredSidebarWidth = ref(260);
+const desiredNavigatorWidth = ref(256);
+const desiredPreviewWidth = ref(1200);
+const desiredGitGraphHeight = ref(128);
 
-/** Preview 開閉ボタンの固定幅（px-1 × 2 + size-4 + border-l） */
-const PREVIEW_TOGGLE_WIDTH = 25;
-
-/** Terminal 幅: ウィンドウ幅から Sidebar + H + Navigator + H + 開閉ボタンを引いた残余 */
-const terminalWidth = computed(() => {
-  const sidebarSpace = sidebarWidth.value + HANDLE_WIDTH;
-  return Math.max(
-    TERMINAL_MIN_WIDTH,
-    windowWidth.value - sidebarSpace - navigatorWidth.value - HANDLE_WIDTH - PREVIEW_TOGGLE_WIDTH,
-  );
-});
-
-/** ドラッグ開始時の Terminal 幅（レイアウト計算値） */
-const getTerminalWidth = () => terminalWidth.value;
-
-/** Preview popover に許容される最大幅（Sidebar + H + Terminal 最小幅 + H を残す） */
-const maxPreviewWidth = computed(() => {
-  const sidebarSpace = sidebarWidth.value + HANDLE_WIDTH;
-  return (
-    windowWidth.value -
-    sidebarSpace -
-    TERMINAL_MIN_WIDTH -
-    HANDLE_WIDTH -
-    navigatorWidth.value -
-    PREVIEW_TOGGLE_WIDTH
-  );
-});
-
-// ウィンドウ縮小時に Preview 幅をクランプ。書き換え対象 previewWidth は source に含めない
-watch(
-  maxPreviewWidth,
-  (maxW) => {
-    if (previewWidth.value > maxW) {
-      previewWidth.value = Math.max(PREVIEW_MIN_WIDTH, maxW);
-    }
-  },
-  { immediate: true },
+/**
+ * 中央カラムに残す幅。Preview 表示中は Preview の取り分も予約する。
+ * 予約しないと列幅が Terminal 最小幅まで詰められた時点で Preview の描画幅が 0 になり、
+ * 見えない面へフォーカスだけが移る。
+ *
+ * 列ハンドルの中央カラム側 min もこの値を使う。ドラッグ側が予約より小さい min を持つと、
+ * 描画が予約で頭打ちのまま希望幅だけが増え、Preview を閉じた瞬間に列幅が飛ぶ。
+ */
+const reservedCenterWidth = computed(
+  () => TERMINAL_MIN_WIDTH + (previewStore.isOpen ? PREVIEW_MIN_WIDTH : 0),
 );
 
-/** ドラッグ開始時に popover 左側の空きスペースを返す（Navigator + 開閉ボタン分を除く） */
-const getPreviewBeforeSize = () =>
-  windowWidth.value - navigatorWidth.value - PREVIEW_TOGGLE_WIDTH - previewWidth.value;
+const columnWidths = computed(() =>
+  fitColumnWidths(
+    windowWidth.value,
+    { sidebar: desiredSidebarWidth.value, navigator: desiredNavigatorWidth.value },
+    reservedCenterWidth.value,
+  ),
+);
+const sidebarWidth = computed(() => columnWidths.value.sidebar);
+const navigatorWidth = computed(() => columnWidths.value.navigator);
+const terminalWidth = computed(() => centerColumnWidth(windowWidth.value, columnWidths.value));
+const previewWidth = computed(() =>
+  fitPreviewWidth(desiredPreviewWidth.value, terminalWidth.value),
+);
+const gitGraphHeight = computed(() =>
+  fitGitGraphHeight(desiredGitGraphHeight.value, windowHeight.value),
+);
 
-/** ドラッグ開始時に Preview popover の DOM 実測幅を取得する */
-const getPreviewAfterSize = () =>
-  previewPopoverRef.value?.getBoundingClientRect().width ?? previewWidth.value;
+/** ドラッグ開始時の描画幅（希望幅ではなく、いまユーザーが見ている幅を起点にする） */
+const getSidebarWidth = () => sidebarWidth.value;
+const getNavigatorWidth = () => navigatorWidth.value;
+const getTerminalWidth = () => terminalWidth.value;
+
+/** popover の左に必ず残す幅。これ以上左へ伸びると Sidebar のハンドルを覆う */
+const previewBeforeMinSize = computed(() => previewBeforeMinWidth(sidebarWidth.value));
+
+/**
+ * ドラッグ開始時の popover 幾何は DOM 実測を SSOT にする（位置は CSS の
+ * `right: anchor(right)` が決めるため、JS 側で再導出すると二重管理になる）。
+ * popover 非表示中は 0 を返し、clampResizeDelta が空区間として drag を no-op にする。
+ */
+const getPreviewBeforeSize = () => previewPopoverRef.value?.getBoundingClientRect().left ?? 0;
+const getPreviewAfterSize = () => previewPopoverRef.value?.getBoundingClientRect().width ?? 0;
 
 // previewVisible context key を store の isOpen と同期
 watch(
@@ -215,19 +245,9 @@ function getCenterTerminalHeight(): number {
   return centerTerminalRef.value?.offsetHeight ?? TERMINAL_MIN_HEIGHT;
 }
 
-// ウィンドウ縦縮小時に gitGraphHeight をクランプ（Terminal が潰れるのを防ぐ）。
-// windowHeight はタイトルバー帯を含む renderer 全高なので、中央カラムの実高に
-// 合わせて TITLEBAR_HEIGHT を差し引く。書き換え対象 gitGraphHeight は source に含めない
-watch(
-  windowHeight,
-  (h) => {
-    const maxGitGraph = h - TITLEBAR_HEIGHT - TERMINAL_MIN_HEIGHT - HANDLE_WIDTH;
-    if (gitGraphHeight.value > maxGitGraph) {
-      gitGraphHeight.value = Math.max(GIT_GRAPH_MIN_HEIGHT, maxGitGraph);
-    }
-  },
-  { immediate: true },
-);
+/** ドラッグ開始時の描画高さ */
+const getGitGraphHeight = () => gitGraphHeight.value;
+
 const { raise } = useSurface(previewPopoverRef, {
   isOpen: () => previewStore.isOpen,
   requestClose: () => previewStore.requestClose(),
@@ -245,26 +265,28 @@ const { raise } = useSurface(previewPopoverRef, {
         <SidebarPane />
       </div>
       <ResizeHandle
-        v-model:before-size="sidebarWidth"
+        v-model:before-size="desiredSidebarWidth"
         direction="horizontal"
         :before-min-size="SIDEBAR_MIN_WIDTH"
-        :after-min-size="TERMINAL_MIN_WIDTH"
+        :after-min-size="reservedCenterWidth"
+        :get-before-size="getSidebarWidth"
         :get-after-size="getTerminalWidth"
       />
 
-      <!-- 中央カラム: Terminal（上）+ GitGraph（下） -->
-      <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <!-- 中央カラム: Terminal（上）+ GitGraph（下）。Preview popover のアンカー -->
+      <div class="_preview-anchor flex min-w-0 flex-1 flex-col overflow-hidden">
         <div ref="centerTerminal" class="flex min-h-0 flex-1 flex-col overflow-hidden">
           <TerminalPane :min-width="TERMINAL_MIN_WIDTH" />
         </div>
 
         <template v-if="repoStore.selectedIsGitRepo">
           <ResizeHandle
-            v-model:after-size="gitGraphHeight"
+            v-model:after-size="desiredGitGraphHeight"
             direction="vertical"
             :before-min-size="TERMINAL_MIN_HEIGHT"
             :after-min-size="GIT_GRAPH_MIN_HEIGHT"
             :get-before-size="getCenterTerminalHeight"
+            :get-after-size="getGitGraphHeight"
           />
           <div class="shrink-0 overflow-hidden" :style="{ height: `${gitGraphHeight}px` }">
             <GitGraphPane />
@@ -272,32 +294,22 @@ const { raise } = useSurface(previewPopoverRef, {
         </template>
       </div>
 
+      <!-- このハンドルを中央カラム内へ移すと Preview 表示中は popover に覆われて掴めない -->
       <ResizeHandle
-        v-model:after-size="navigatorWidth"
+        v-model:after-size="desiredNavigatorWidth"
         direction="horizontal"
-        :before-min-size="TERMINAL_MIN_WIDTH"
+        :before-min-size="reservedCenterWidth"
         :after-min-size="NAVIGATOR_MIN_WIDTH"
         :get-before-size="getTerminalWidth"
+        :get-after-size="getNavigatorWidth"
       />
-
-      <!-- Preview 開閉ボタン（Preview popover のアンカー） -->
-      <button
-        type="button"
-        class="_preview-anchor flex shrink-0 items-center justify-center border-l border-border px-1 text-foreground-low hover:text-foreground"
-        title="Toggle preview"
-        aria-label="Toggle preview"
-        @click="previewStore.toggle()"
-      >
-        <IconLucidePanelRightOpen class="size-4" />
-      </button>
 
       <div class="shrink-0 overflow-hidden" :style="{ width: `${navigatorWidth}px` }">
         <NavigatorPane />
       </div>
     </div>
 
-    <!-- Preview popover: 開閉ボタンをアンカーにして左側に展開。
-         tabindex="-1" は前面化時のフォーカス追従の行き先 (shared/surface)。
+    <!-- tabindex="-1" は前面化時のフォーカス追従の行き先 (shared/surface)。
          tab 到達不能なパネル面へのフォーカスルーティングなので focus ring は出さない -->
     <div
       ref="previewPopover"
@@ -309,9 +321,9 @@ const { raise } = useSurface(previewPopoverRef, {
     >
       <!-- 左端リサイズハンドル -->
       <ResizeHandle
-        v-model:after-size="previewWidth"
+        v-model:after-size="desiredPreviewWidth"
         direction="horizontal"
-        :before-min-size="SIDEBAR_MIN_WIDTH + HANDLE_WIDTH + TERMINAL_MIN_WIDTH + HANDLE_WIDTH"
+        :before-min-size="previewBeforeMinSize"
         :after-min-size="PREVIEW_MIN_WIDTH"
         :get-before-size="getPreviewBeforeSize"
         :get-after-size="getPreviewAfterSize"
@@ -344,14 +356,13 @@ const { raise } = useSurface(previewPopoverRef, {
 }
 
 ._preview-popover {
-  /* アンカーの左端に右端を揃え、タイトルバー下からウィンドウ下端まで表示
-     （top-layer の popover はタイトルバーを覆ってドラッグ領域を塞ぐため下に逃がす） */
+  /* top-layer の popover はタイトルバーを覆ってドラッグ領域を塞ぐため下端に逃がす */
   position-anchor: --preview-anchor;
   inset: unset;
   margin: 0;
   top: var(--titlebar-height);
   bottom: 0;
-  right: anchor(left);
+  right: anchor(right);
   /* UA スタイル [popover] { height: fit-content } を打ち消す。
      height が auto でないと top + bottom の伸縮が効かずコンテンツ高さに縮む */
   height: auto;

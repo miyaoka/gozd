@@ -1,6 +1,7 @@
 import { useEventListener } from "@vueuse/core";
 import { ref } from "vue";
 import type { Ref, ShallowRef } from "vue";
+import { clampResizeDelta } from "./resizeDelta";
 
 type Direction = "horizontal" | "vertical";
 
@@ -19,7 +20,8 @@ interface UseResizeOptions {
 /**
  * ドラッグによるペインリサイズを管理する composable。
  * ハンドルの左右（上下）のペインサイズを連動して増減する。
- * delta 分を一方に加え、他方から引くことで他のペインに影響を与えない。
+ * delta 分を一方に加え、他方から引くことで、書き換える対象を隣接 2 ペインに限る
+ * （書き換えた値が描画へどう反映されるかは呼び出し側のサイズポリシー次第）。
  *
  * beforeSize / afterSize の値が undefined の場合（親がモデルをバインドしていない場合）、
  * そのペインの ref は更新しない。getBeforeSize / getAfterSize で開始サイズだけ取得する。
@@ -62,10 +64,12 @@ export function useResize(
           ? moveEvent.clientX - startPos
           : moveEvent.clientY - startPos;
 
-      // 両ペインの最小サイズを尊重して delta をクランプ
-      const maxExpand = startAfterSize - options.afterMinSize;
-      const maxShrink = startBeforeSize - options.beforeMinSize;
-      const delta = Math.max(-maxShrink, Math.min(maxExpand, rawDelta));
+      const delta = clampResizeDelta(rawDelta, {
+        startBeforeSize,
+        startAfterSize,
+        beforeMinSize: options.beforeMinSize,
+        afterMinSize: options.afterMinSize,
+      });
 
       if (shouldWriteBefore) beforeSize.value = startBeforeSize + delta;
       if (shouldWriteAfter) afterSize.value = startAfterSize - delta;

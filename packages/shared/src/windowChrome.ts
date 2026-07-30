@@ -12,6 +12,29 @@
 export const TITLEBAR_HEIGHT = 36;
 
 /**
+ * main window の最小幅 (px)。
+ *
+ * renderer の横並びレイアウト（Sidebar | ハンドル | 中央カラム | ハンドル | Navigator）が
+ * 最小列幅とハンドル 2 本を置き、中央カラムに「Terminal 最小幅 + Preview 最小幅」を
+ * 残せる下限。これ未満では Preview popover の描画幅が最小幅を割る（popover は
+ * Sidebar のリサイズハンドルを覆わない上限で切られるため）。
+ *
+ * 内訳の SSOT は renderer の `features/layout/layoutSizes.ts` で、この値が必要十分な
+ * 下限であること（1px 狭いと最小幅を割ること）は `layoutSizes.test.ts` が検証する。
+ */
+export const MIN_WINDOW_WIDTH = 716;
+
+/**
+ * main window の最小高 (px)。
+ *
+ * タイトルバー帯と、中央カラムが Terminal 最小高 + ハンドル + GitGraph 最小高を置ける下限。
+ * これ未満では GitGraph の描画高が最小高を割り、その縦ハンドルも掴めなくなる。
+ *
+ * 内訳の SSOT は renderer の `features/layout/layoutSizes.ts`（`layoutSizes.test.ts` が検証）。
+ */
+export const MIN_WINDOW_HEIGHT = 234;
+
+/**
  * undock child window の frame 名 prefix。
  *
  * renderer (ChildWindow.vue の `window.open` 第 2 引数) と main

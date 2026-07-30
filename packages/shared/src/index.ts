@@ -5,6 +5,8 @@ export { generateTimestamp } from "./timestamp";
 export {
   CHILD_WINDOW_FRAME_PREFIX,
   CHILD_WINDOW_TITLEBAR_HEIGHT,
+  MIN_WINDOW_HEIGHT,
+  MIN_WINDOW_WIDTH,
   TITLEBAR_HEIGHT,
   WINDOW_BACKGROUND_COLOR,
 } from "./windowChrome";

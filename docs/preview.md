@@ -79,24 +79,24 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 
 ### entry point × intent 決定表
 
-| entry point                                    | 呼ぶ API                   | 同一 path 再選択時の挙動  |
-| ---------------------------------------------- | -------------------------- | ------------------------- |
-| Filer ファイル行クリック                       | `requestSelect`            | preview を close          |
-| Changes ファイル行クリック                     | `requestSelect`            | preview を close          |
-| Terminal 出力中のファイルパス shift+click      | `requestSelect`            | preview を close          |
-| CLI `gozd <file>` (gozdOpen push)              | `forceSelect`              | preview を維持（再 open） |
-| File picker（Go to File / Cmd+P）で選択        | `forceSelect`              | preview を維持（再 open） |
-| MarkdownPreview 内部リンク click               | `forceSelect`              | preview を維持（再 open） |
-| MarkdownPreview back / forward                 | `forceSelect`              | preview を維持（再 open） |
-| Session log dialog の生ログを開くボタン        | `forceSelect`              | preview を維持（再 open） |
-| Settings modal の設定ファイルを開くボタン      | `forceSelect`              | preview を維持（再 open） |
-| ChangesPane `View all` ボタン                  | `toggleSummary`            | -                         |
-| PreviewPane summary `Close` ボタン             | `close`                    | -                         |
-| Preview 開閉ボタン / `preview.toggle` コマンド | `toggle`                   | 開閉反転                  |
-| ESC キー                                       | `close`                    | -                         |
-| Preview ヘッダの close ボタン                  | `close`                    | -                         |
-| worktree 切替 (dir 変化)                       | `close` (副作用 watch)     | -                         |
-| 表示中ファイルが消える (再 fetch で notFound)  | `closeForMissingSelection` | -                         |
+| entry point                                   | 呼ぶ API                   | 同一 path 再選択時の挙動  |
+| --------------------------------------------- | -------------------------- | ------------------------- |
+| Filer ファイル行クリック                      | `requestSelect`            | preview を close          |
+| Changes ファイル行クリック                    | `requestSelect`            | preview を close          |
+| Terminal 出力中のファイルパス shift+click     | `requestSelect`            | preview を close          |
+| CLI `gozd <file>` (gozdOpen push)             | `forceSelect`              | preview を維持（再 open） |
+| File picker（Go to File / Cmd+P）で選択       | `forceSelect`              | preview を維持（再 open） |
+| MarkdownPreview 内部リンク click              | `forceSelect`              | preview を維持（再 open） |
+| MarkdownPreview back / forward                | `forceSelect`              | preview を維持（再 open） |
+| Session log dialog の生ログを開くボタン       | `forceSelect`              | preview を維持（再 open） |
+| Settings modal の設定ファイルを開くボタン     | `forceSelect`              | preview を維持（再 open） |
+| ChangesPane `View all` ボタン                 | `toggleSummary`            | -                         |
+| PreviewPane summary `Close` ボタン            | `close`                    | -                         |
+| `preview.toggle`（Cmd+J / コマンドパレット）  | `toggle`                   | 開閉反転                  |
+| ESC キー                                      | `close`                    | -                         |
+| Preview ヘッダの close ボタン                 | `close`                    | -                         |
+| worktree 切替 (dir 変化)                      | `close` (副作用 watch)     | -                         |
+| 表示中ファイルが消える (再 fetch で notFound) | `closeForMissingSelection` | -                         |
 
 `close()` は invariant として「popover 閉 ⇒ summary 解除」を担う。ESC / Preview ヘッダ close ボタン / dir 切替 / summary `Close` ボタンはすべてこの 1 つの経路に集約され、summary enabled=true + popover closed の整合性破綻状態は構造的に発生しない。
 

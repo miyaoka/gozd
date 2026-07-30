@@ -20,8 +20,9 @@ type FileEntryKind = "file" | "directory" | "symlink" | "submodule";
  *
  * - `relPath`: 実体が worktree 配下にあるときだけ定義される。worktree 外を指す場合は
  *   undefined で、「絶対パスでしか開けない」制約がそのまま型に出る
- * - `isDirectory`: 実体を開く経路が preview（file）か tree reveal（directory）かを決める。
- *   行の `kind` とは別に持つ（`kind` は行の振る舞い、こちらは移動先の性質）
+ * - `isDirectory`: 実体を開く経路が preview（file）か tree reveal（directory）かを決める。値は
+ *   行の `kind` と常に同値だが、この型は右クリック payload に載って menu だけで消費されるため、
+ *   menu に `kind`（ツリー表示用の 4 値）まで持ち込まずに済ませるための投影として持つ
  */
 interface FileRealTarget {
   absPath: string;
@@ -49,29 +50,20 @@ interface FileEntry {
   gitChange?: GitChangeKind;
 }
 
-/** FsReadDir 由来の type 文字列を FileEntryKind に写像する */
-function fsTypeToKind(type: string): FileEntryKind {
-  switch (type) {
-    case "directory":
-      return "directory";
-    case "symlink":
-      return "symlink";
-    case "file":
-      return "file";
-    default:
-      return "file";
-  }
-}
-
 /**
- * FsReadDir 由来の entry を、**実体の種別**として FileEntryKind に写像する。symlink は
- * `realTarget.type`（main が辿った先の種別）に倒し、dir symlink が leaf に潰れるのを防ぐ。
- * 辿れない symlink（dangling / 循環）は実体が無いので `symlink` のまま残す。
+ * FsReadDir 由来の entry を、**実体の種別**として FileEntryKind に写像する。
+ *
+ * - symlink は `realTarget.type`（main が辿った先の種別）に倒し、dir symlink が leaf に潰れるのを防ぐ
+ * - 辿れない symlink（dangling / 循環）は実体が無いので `symlink` のまま残す
+ * - 非 symlink の未知 type（fifo / socket 等）は file 扱いにする。ツリーは表示と click 経路しか
+ *   持たないため、file 以外の葉として区別する意味が無い
  */
 function fsEntryToKind(entry: FsReadDirEntry): FileEntryKind {
-  if (entry.type !== "symlink") return fsTypeToKind(entry.type);
-  if (entry.realTarget === undefined) return "symlink";
-  return fsTypeToKind(entry.realTarget.type);
+  if (entry.type === "symlink") {
+    if (entry.realTarget === undefined) return "symlink";
+    return entry.realTarget.type === "directory" ? "directory" : "file";
+  }
+  return entry.type === "directory" ? "directory" : "file";
 }
 
 /** git ls-tree 由来の type 文字列を FileEntryKind に写像する */

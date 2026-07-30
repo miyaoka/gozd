@@ -26,8 +26,8 @@ export interface FsReadDirRequest {
 /** entry の実体の在り処。entry 自身の情報（name / type）と実体の情報を分けて持つことで、
  * renderer は「symlink であること」と「実体としてどう振る舞うか」を独立に決められる。 */
 export interface FsReadDirRealTarget {
-  /** 実体の種別（"file" / "directory"） */
-  type: string;
+  /** 実体の種別。symlink chain を辿った先なので symlink は現れない */
+  type: "file" | "directory";
   /** 実体の絶対パス（realpath。chain 全体を解決済み） */
   absPath: string;
   /** 実体が readDir の `dir` 配下にある場合の dir 相対パス。dir 外を指すなら未設定。

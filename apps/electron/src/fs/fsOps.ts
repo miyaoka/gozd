@@ -7,6 +7,7 @@
 
 import type { FileReadResult, FsReadDirRealTarget } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
+import type { Dirent } from "node:fs";
 import {
   lstatSync,
   mkdirSync,
@@ -17,7 +18,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, isAbsolute, join, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { checkIgnore } from "../git/gitOps";
 import { toWireBytes } from "../wireBytes";
 import { resolveContained } from "./pathContainment";
@@ -29,6 +30,9 @@ interface FsEntry {
   realTarget?: FsReadDirRealTarget;
   isIgnored: boolean;
 }
+
+/** gitignore 判定前の entry。`isIgnored` は checkIgnore の結果を突き合わせて後から載せる */
+type FsEntryDraft = Omit<FsEntry, "isIgnored">;
 
 export interface FsReadDirResult {
   entries: FsEntry[];
@@ -121,66 +125,101 @@ export async function readDir(dir: string, path: string): Promise<FsReadDirResul
     }
     throw listed.error;
   }
+  // 入力 path の表記揺れ（`""` / `"."` / 末尾スラッシュ）を以降へ持ち込まないよう、resolve 済みの
+  // target から導出した正規化相対パスだけを使う。同一関数内に入力表記依存の判定を作らないための契約
+  const relDir = relative(dir, target);
   // `.git` (directory / gitlink file 両方) はツリーから完全一致で除外する（docs/filer.md）。
   // gitignore 経路とは独立。checkIgnore に渡す前に落とし、無駄な git 呼び出しも省く
   const dirents = listed.value.filter((entry) => entry.name !== ".git");
   // 実体の在り処を判定する基準。dir / 列挙対象それぞれの realpath を 1 回だけ引く。
   // - dirRealPath: relPath（dir 相対）の算出基準
-  // - listRealPath: 列挙対象自身が symlink 越しか（!== dir + path）と、entry の実体パスの基準
+  // - listRealPath: 列挙対象自身が symlink 越しかの判定と、entry の実体パスの基準
   const dirRealPath = realpathSync(dir);
   const listRealPath = realpathSync(target);
-  const typed = dirents.map((entry) => {
-    // symlink は lstat 由来の種別 ("symlink") を保ったまま、辿った結果を realTarget に載せる。
-    // これが無いと renderer は dir symlink を leaf に潰すしかない。
-    // 辿れない dangling / 循環 (ELOOP) は realTarget 不在で「実体なし」を表現する。
-    if (entry.isSymbolicLink()) {
-      return {
-        name: entry.name,
-        type: "symlink",
-        realTarget: resolveRealTarget(join(listRealPath, entry.name), dirRealPath),
-      };
-    }
-    const type = entry.isDirectory() ? "directory" : "file";
-    // 列挙対象が symlink 越し（`.claude/skills/x` が link で、その配下を見ている等）なら、
-    // entry 自身が link でなくても実体はツリー上のパスとは別の場所にある。
-    if (listRealPath === join(dirRealPath, path)) return { name: entry.name, type };
-    return {
-      name: entry.name,
-      type,
-      realTarget: resolveRealTarget(join(listRealPath, entry.name), dirRealPath),
-    };
+  // 列挙対象自身が symlink 越しか（`.claude/skills/x` が link で、その配下を見ている等）。
+  // 真なら entry 自身が link でなくても実体はツリー上のパスとは別の場所にある
+  const listCrossesLink = listRealPath !== join(dirRealPath, relDir);
+  const prefix = relDir === "" ? "" : `${relDir}${sep}`;
+  const listing = dirents.map((entry) => {
+    const built = buildEntry(entry, listRealPath, dirRealPath, listCrossesLink);
+    // gitignore 判定に渡す pathspec。link 越しの列挙では実体側の dir 相対パスを使う。
+    // link 越しのパスを渡すと git が `pathspec ... is beyond a symbolic link` で fatal になり、
+    // その列挙の全 entry の判定を落とす（checkIgnore は失敗を空集合に倒す契約）。
+    // 実体が dir 外なら当該 repo の gitignore の管轄外なので問い合わせ自体を落とす
+    const ignoreSpec = listCrossesLink ? built.realTarget?.relPath : prefix + entry.name;
+    return { built, ignoreSpec };
   });
-  // gitignore 判定は dir（worktree root）からの相対パスで行う
-  const prefix = path === "" ? "" : path.endsWith("/") ? path : `${path}/`;
   const ignored = await checkIgnore(
     dir,
-    typed.map((entry) => prefix + entry.name),
+    listing.flatMap(({ ignoreSpec }) => (ignoreSpec === undefined ? [] : [ignoreSpec])),
   );
-  const entries = typed
-    .map((entry) => ({ ...entry, isIgnored: ignored.has(prefix + entry.name) }))
+  const entries = listing
+    .map(({ built, ignoreSpec }) => ({
+      ...built,
+      isIgnored: ignoreSpec !== undefined && ignored.has(ignoreSpec),
+    }))
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   return { entries, notFound: false };
 }
 
 /**
- * 実体の在り処を返す。辿れない（dangling / 循環）場合は undefined。
+ * dirent 1 件を entry（name / type / realTarget）に組み立てる。
+ *
+ * symlink は lstat 由来の種別 ("symlink") を保ったまま、辿った結果を realTarget に載せる。
+ * これが無いと renderer は dir symlink を leaf に潰すしかない。辿れない dangling / 循環 (ELOOP) は
+ * realTarget 不在で「実体なし」を表現する。
+ *
+ * 非 symlink の entry は `listRealPath` が canonical であることから実体パスが確定するため、
+ * realpath / stat を引き直さない（entry 数ぶんの syscall を避けるだけでなく、readdir と stat の
+ * 隙に entry が消えて realTarget だけ静かに落ちる失敗経路も作らない）。
+ */
+function buildEntry(
+  entry: Dirent,
+  listRealPath: string,
+  dirRealPath: string,
+  listCrossesLink: boolean,
+): FsEntryDraft {
+  if (entry.isSymbolicLink()) {
+    return {
+      name: entry.name,
+      type: "symlink",
+      realTarget: resolveRealTarget(join(listRealPath, entry.name), dirRealPath),
+    };
+  }
+  const isDirectory = entry.isDirectory();
+  const type = isDirectory ? "directory" : "file";
+  if (!listCrossesLink) return { name: entry.name, type };
+  return {
+    name: entry.name,
+    type,
+    realTarget: toRealTarget(join(listRealPath, entry.name), isDirectory, dirRealPath),
+  };
+}
+
+/** symlink を辿って実体の在り処を返す。辿れない（dangling / 循環）場合は undefined */
+function resolveRealTarget(linkPath: string, dirRealPath: string): FsReadDirRealTarget | undefined {
+  const resolved = tryCatch(() => realpathSync(linkPath));
+  if (!resolved.ok) return undefined;
+  const followed = tryCatch(() => statSync(resolved.value));
+  if (!followed.ok) return undefined;
+  return toRealTarget(resolved.value, followed.value.isDirectory(), dirRealPath);
+}
+
+/**
+ * 解決済みの実体パスから realTarget を組み立てる。
  *
  * `relPath` の包含判定は realpath 同士で行う。`dirRealPath` を使わず入力の dir で比較すると、
  * dir 自身が symlink 経由のパス（macOS の `$TMPDIR` 等）のときに「実体は dir 配下なのに外部扱い」
  * になり、renderer が worktree 相対で開ける実体を absolute へ倒してしまう。
  */
-function resolveRealTarget(
-  entryPath: string,
+function toRealTarget(
+  absPath: string,
+  isDirectory: boolean,
   dirRealPath: string,
-): FsReadDirRealTarget | undefined {
-  const resolved = tryCatch(() => realpathSync(entryPath));
-  if (!resolved.ok) return undefined;
-  const absPath = resolved.value;
-  const followed = tryCatch(() => statSync(absPath));
-  if (!followed.ok) return undefined;
+): FsReadDirRealTarget {
   const prefix = dirRealPath.endsWith(sep) ? dirRealPath : `${dirRealPath}${sep}`;
   return {
-    type: followed.value.isDirectory() ? "directory" : "file",
+    type: isDirectory ? "directory" : "file",
     absPath,
     relPath: absPath.startsWith(prefix) ? absPath.slice(prefix.length) : undefined,
   };

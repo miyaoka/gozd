@@ -22,22 +22,23 @@ export const useWorktreeStore = defineStore("worktree", () => {
   const selection = ref<Selection>();
 
   /**
-   * 同一パスでも reveal を発火させるためのバージョンカウンタ。
-   * **invariant**: `revealVersion` の bump は必ず `selection.value` の同期更新と
-   * セットで行う（= 必ず `selectRelPath()` / `selectAbsPath()` 経由で更新する）。
-   * preview 側（PreviewPane）は「select* が起きた」signal としてこれを購読するため、
-   * 選択を動かさない tree reveal（`revealRelPath()`）では bump しない。
+   * `select*Path()` のたびに進むカウンタ。同一パスの再選択も観測できる signal で、preview が
+   * 「選択し直された」ことを検出して行スクロールをやり直すために購読する。
+   * **invariant**: bump は必ず `selection.value` の同期更新とセットで行う（= 必ず
+   * `selectRelPath()` / `selectAbsPath()` 経由）。選択を動かさない tree reveal
+   * （`revealRelPath()`）では bump しない。
    */
-  const revealVersion = ref(0);
+  const selectPathVersion = ref(0);
 
   /**
    * ツリー reveal（展開 + スクロール）の要求。**selection とは別概念**として持つ。
    * symlink の実体がディレクトリのとき「ツリーだけ実体へ移動する」経路が要り、そこで
    * selection を動かすと preview がディレクトリ表示（"Directory" プレースホルダ）に落ちる。
    *
-   * `seq` は同一パスの再要求を発火させるためのカウンタ。購読側（FileTreeItem）は本 ref だけを
-   * watch し、対象パスも request から読む（selection を別途読まないので「trigger と対象パスが
-   * 同 tick で食い違う」経路が構造的に存在しない）。
+   * 購読側（FileTreeItem）は本 ref だけを watch し、対象パスも request から読む（selection を
+   * 別途読まないので「trigger と対象パスが同 tick で食い違う」経路が構造的に存在しない）。
+   * 同一パスの再要求が発火するのは要求ごとに新しい object を立てるためで、`seq` はその要求を
+   * ログ / デバッグで識別するための連番（発火の仕組みそのものではない）。
    */
   const revealRequest = ref<{ relPath: string; seq: number }>();
   let revealSeq = 0;
@@ -124,7 +125,7 @@ export const useWorktreeStore = defineStore("worktree", () => {
       lineNumber,
     };
     requestReveal(relPath);
-    revealVersion.value++;
+    selectPathVersion.value++;
   }
 
   /**
@@ -148,7 +149,7 @@ export const useWorktreeStore = defineStore("worktree", () => {
     };
     // worktree 外の選択はツリーに対応するノードが無いので reveal 要求を落とす
     requestReveal(undefined);
-    revealVersion.value++;
+    selectPathVersion.value++;
   }
 
   /**
@@ -164,8 +165,11 @@ export const useWorktreeStore = defineStore("worktree", () => {
     }
   }
 
+  // reveal 要求も落とす。selection が無いのに要求だけ残ると、後から mount された FileTreeItem が
+  // immediate watch で stale な path を掘り出し、消えたパスに向けてツリーが自動展開される
   function clearSelectedPath() {
     selection.value = undefined;
+    requestReveal(undefined);
   }
 
   return {
@@ -175,7 +179,7 @@ export const useWorktreeStore = defineStore("worktree", () => {
     selectedDisplayPath,
     selectedLineNumber,
     selectedGitChange,
-    revealVersion,
+    selectPathVersion,
     revealRequest,
     selectionVersion,
     setOpen,

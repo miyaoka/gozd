@@ -63,7 +63,7 @@ const emit = defineEmits<{
 
 const worktreeStore = useWorktreeStore();
 const repoStore = useRepoStore();
-const { selection, selectedDisplayPath, selectedLineNumber, revealVersion } =
+const { selection, selectedDisplayPath, selectedLineNumber, selectPathVersion } =
   storeToRefs(worktreeStore);
 const summaryStore = useChangesSummaryStore();
 const previewStore = usePreviewStore();
@@ -344,11 +344,11 @@ onMounted(() => {
 /**
  * 個別ファイル選択時のみ summary モードを抜ける。
  * git-graph の commit 切替 (selectedHash / compareHash の変化) では summary は維持する。
- * `revealVersion` は select*Path() 専用のバージョンカウンタなので、これを trigger に使うことで
+ * `selectPathVersion` は select*Path() 専用のバージョンカウンタなので、これを trigger に使うことで
  * 「ユーザーがファイル行を実際にクリックした」経路のみで disable が走る。
  */
 watch(
-  () => [selectedDisplayPath.value, revealVersion.value] as const,
+  () => [selectedDisplayPath.value, selectPathVersion.value] as const,
   ([path]) => {
     if (path !== undefined) {
       summaryStore.disable();
@@ -483,7 +483,7 @@ function onCodeScrolled() {
             :is-not-found="isNotFound"
             :error="displayError"
             :line-number="selectedLineNumber"
-            :reveal-version="revealVersion"
+            :reveal-version="selectPathVersion"
             :blame-enabled="blameEnabled"
             :editable="isEditable"
             @code-line-click="onCodeLineClick"

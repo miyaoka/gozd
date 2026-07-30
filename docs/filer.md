@@ -102,13 +102,14 @@ working tree の symlink は「link であること」と「実体としてど�
 - 実体の種別でアイコン自体が決まる（dir symlink はフォルダアイコン + chevron）ため、link が絡むことは
   バッジと名前の色で示す。表現は 2 軸に分ける
 
-  | 表現                     | 対象                                                     | 意味                       |
-  | ------------------------ | -------------------------------------------------------- | -------------------------- |
-  | アイコン右下の矢印バッジ | link 自身の行（`isSymlink`）                             | この行が symlink である    |
-  | 名前の色（info）         | link 自身 + link 越しに列挙された行（`realTarget` あり） | ツリー上のパスと実体が違う |
+  | 表現                     | 対象                         | 意味                    |
+  | ------------------------ | ---------------------------- | ----------------------- |
+  | アイコン右下の矢印バッジ | link 自身の行（`isSymlink`） | この行が symlink である |
+  | 名前の色（info）         | `realTarget` を持つ行        | 実体が別の場所にある    |
 
   色が link ディレクトリの下層まで続くのは、実体向けの右クリック項目が出る集合と揃えるため（色が
-  付いている行では必ず実体へのアクションが出る）
+  付いている行では必ず実体へのアクションが出る）。実体を解決できない dangling / 循環と、snapshot
+  tree の symlink は `realTarget` を持たないため、バッジ（+ tooltip の `broken symlink`）だけで表す
 
 - バッジは行の hover / 選択色に追従せず自前の面を持つ（Finder の alias バッジと同じ扱い。背景に
   溶けると矢印が読めない）
@@ -117,10 +118,11 @@ working tree の symlink は「link であること」と「実体としてど�
   link であることはバッジが示し続ける
 - symlink 配下は FSEvents がリンクを辿らないため `fsChange` が届かない。リンク先の変更はツリーを
   折りたたみ → 再展開したときに反映される
-- symlink 越しの列挙では gitignore 判定が付かない。`git check-ignore` が
-  `pathspec ... is beyond a symbolic link` で fatal になり、その列挙の全 entry が
-  `isIgnored: false` に倒れる（`checkIgnore` は失敗を空集合として扱う契約）。link 配下では
-  ignored の色落ちが起きない
+- symlink 越しの列挙では gitignore 判定の pathspec を**実体側の dir 相対パス**（`realTarget.relPath`）に
+  差し替える。link 越しのパスをそのまま渡すと `git check-ignore` が
+  `pathspec ... is beyond a symbolic link` で fatal になり、その列挙の全 entry の判定を落とす
+  （`checkIgnore` は失敗を空集合として扱う契約なので無音で ignored が消える）。実体が worktree 外の
+  entry は当該 repo の gitignore の管轄外なので問い合わせ自体を落とす
 
 ### 実体を対象にする右クリック項目
 

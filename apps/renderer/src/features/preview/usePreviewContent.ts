@@ -577,7 +577,7 @@ export function usePreviewContent(
    * **deps はプリミティブで揃える**: selection オブジェクトを deps にすると、`selectRelPath` /
    * `selectAbsPath` が毎回新 object literal を作るため、同一パス再クリックでも identity 変化で
    * watch が発火し refetch が連打される。path 文字列 + kind + commit selection を deps にすることで
-   * 「実際に refetch が必要な軸」だけで発火させる (= 同一パス再クリックは revealVersion 経路で
+   * 「実際に refetch が必要な軸」だけで発火させる (= 同一パス再クリックは selectPathVersion 経路で
    * scroll / reveal のみ走らせ content fetch は走らせない)。
    */
   watch(

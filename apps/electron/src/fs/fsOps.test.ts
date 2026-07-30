@@ -232,6 +232,52 @@ describe("FSOps", () => {
     expect(byName.get(".gitignore")).toBe(false);
   });
 
+  test("symlink 越しの列挙でも実体側の path で gitignore 判定する", async () => {
+    const dir = makeTempDir();
+    runFixtureGit(["init"], dir);
+    writeFileSync(join(dir, ".gitignore"), "*.log\n");
+    mkdirSync(join(dir, "real"));
+    writeFileSync(join(dir, "real", "app.log"), "");
+    writeFileSync(join(dir, "real", "keep.ts"), "");
+    symlinkSync(join(dir, "real"), join(dir, "link"));
+    // link 越しの pathspec を渡すと git が fatal になり全 entry の判定が落ちる。実体側の
+    // 相対パスで問い合わせることで、link 経由で見ても ignored が付く
+    const result = await readDir(dir, "link");
+    const byName = new Map(result.entries.map((entry) => [entry.name, entry.isIgnored]));
+    expect(byName.get("app.log")).toBe(true);
+    expect(byName.get("keep.ts")).toBe(false);
+  });
+
+  test("実体が dir 外の symlink 越し列挙は gitignore を問い合わせない", async () => {
+    const dir = makeTempDir();
+    const outside = makeTempDir();
+    runFixtureGit(["init"], dir);
+    writeFileSync(join(dir, ".gitignore"), "*.log\n");
+    writeFileSync(join(outside, "outer.log"), "");
+    symlinkSync(outside, join(dir, "link"));
+    const result = await readDir(dir, "link");
+    expect(result.entries).toEqual([
+      {
+        name: "outer.log",
+        type: "file",
+        realTarget: {
+          type: "file",
+          absPath: join(realpathSync(outside), "outer.log"),
+          relPath: undefined,
+        },
+        isIgnored: false,
+      },
+    ]);
+  });
+
+  test("末尾スラッシュ付き path でも link 越し判定が誤爆しない", async () => {
+    const dir = makeTempDir();
+    mkdirSync(join(dir, "subdir"));
+    writeFileSync(join(dir, "subdir", "inner.txt"), "x");
+    const result = await readDir(dir, "subdir/");
+    expect(result.entries).toEqual([{ name: "inner.txt", type: "file", isIgnored: false }]);
+  });
+
   test("writeFileAbsolute は絶対パスに書き込め、tmp ファイルを残さない", () => {
     const dir = makeTempDir();
     const path = join(dir, "config.json");

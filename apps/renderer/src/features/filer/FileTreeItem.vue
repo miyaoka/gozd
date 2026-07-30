@@ -17,21 +17,16 @@
 - `submodule`: 常に no-op。gitlink object (`160000`) は `gitShowCommitFile` で内容を取得できないため
   preview に流すとエラーになる。視覚的にも opacity を落として「click できない」ことを示す
 
-## symlink（`isSymlink`）
+## symlink
 
-- working tree の symlink は `kind` が実体側（`file` / `directory`）に解決済みで届くため、click は
-  実体に対する経路（file は preview、directory は展開）に自動で乗る
-- 表現は 2 軸に分ける。**バッジ**（アイコン右下の矢印）は `isSymlink` = link 自身の行だけ。**名前の色**
-  （info）は `isLinked` = link 自身 + link 越しに列挙された行で、link ディレクトリの下層まで色が続く。
-  右クリックで実体向け項目が出る集合と色が付く集合を揃えることで、「色が付いている = ツリー上の
-  パスと実体が違う」が一貫して読める
-- 色の優先順位は git change > link > ignored。link は gitignore 対象が大半（worktree symlink 等）
-  なので ignored の gray より上に置く。git change に色を譲る行でも、link であることはバッジが示し続ける
-- 右クリックの既存項目 (Open / Copy file / Copy path) は link path そのものを対象にする。実体側へ
-  読み替えると Copy path が「見えている path」と別物を返すため
-- 実体を対象にする操作は右クリックの専用項目に分離する。対象 (`realTarget`) は symlink 自身だけでなく
-  「symlink 越しに列挙された行」も持つ (link 配下のファイルも実体は別の場所にある)。payload には
-  事実として `realTarget` をそのまま載せ、どの項目を出せるかの判定は menu 側 (FileContextMenu) が持つ
+表示 2 軸（バッジ / 名前の色）と色の優先順位、右クリック項目の切り分けは
+[docs/filer.md](../../../../../docs/filer.md#symlink-の表示) が SSOT。本 component 固有の点だけ:
+
+- バッジは行の hover / 選択色に追従せず自前の面を持つ。実体の種別でアイコン自体が決まる
+  （dir symlink はフォルダアイコン）ため、link であることは重ね表示でしか表現できず、背景に
+  溶けると矢印が読めない
+- 右クリック payload には事実として `realTarget` をそのまま載せ、どの項目を出せるかの判定は
+  menu 側 (FileContextMenu) が持つ。項目を足すたびに払い出し側を触らないための責務分割
 
 ## snapshot mode (snapshotHash プロパティが真値のとき)
 
@@ -118,7 +113,7 @@ const props = defineProps<{
   kind: FileEntryKind;
   /** symlink 経由の entry か（kind とは独立。link バッジの表示 SSOT） */
   isSymlink?: boolean;
-  /** 実体の在り処。右クリック menu の "Open target" 対象 */
+  /** 実体の在り処。右クリック menu の実体向け項目の対象 */
   realTarget?: FileRealTarget;
   /** working tree モード由来の gitignore フラグ。snapshot mode では undefined */
   isIgnored?: boolean;
@@ -205,11 +200,11 @@ const effectiveGitChange = computed<GitChangeKind | undefined>(() => {
 });
 
 /**
- * リンクが絡む行。link 自身 (`isSymlink`) と、link 越しに列挙された行 (`realTarget`) の両方を含む。
- * 名前の色はこの軸で付ける: 右クリックで実体向け項目が出る行と色が付く行を同じ集合に揃えることで、
- * 「色が付いている = ツリー上のパスと実体が違う」が一貫して読める（link 配下も色が続く）。
+ * 実体がツリー上のパスと別の場所にある行。名前の色はこの軸で付ける: 右クリックで実体向け項目が出る
+ * 集合と一致するため「色が付いている = 実体へのアクションがある」が一貫して読める（link 配下も色が
+ * 続く）。実体を持たない dangling / 循環はバッジと tooltip (broken symlink) だけで表し色は付けない。
  */
-const isLinked = computed(() => props.isSymlink === true || props.realTarget !== undefined);
+const isLinked = computed(() => props.realTarget !== undefined);
 
 // 優先順位は git change > link > ignored。link 色を ignored の下に置くと、gitignore 対象が
 // 大半を占める実運用 (worktree symlink 等) でほぼ発火しないため ignored より上に置く。
@@ -441,7 +436,7 @@ async function handleReveal() {
   if (!isDescendantOf(targetPath, props.path)) return;
   // 自身の配下に target がある場合、自分は展開するだけ（target そのものへの scroll は
   // 子の watch が処理する）。子は v-for で children を読み込むとマウントされ、
-  // immediate watch が現在の revealVersion で発火する
+  // immediate watch が現在の revealRequest で発火する
   if (!expanded.value) {
     expanded.value = true;
     if (children.value === undefined) {

@@ -9,29 +9,21 @@ FileActionMenuItems の doc を参照 (openable prop に反転して渡す)。
 
 ## 実体向けの項目 (実体がツリー上のパスと違う行のみ)
 
-共通の `FileActionMenuItems` には入れない: 共有先の preview ヘッダ ⋮ メニューは実体情報を持たず、
-これらは filer の symlink 経路に固有だから (共有するのは「どの入口でも同じ意味を持つ項目」に限る)。
+項目の一覧と可視条件は [docs/filer.md](../../../../../docs/filer.md#実体を対象にする右クリック項目) が
+SSOT。本 component 固有の点だけ:
 
-**移動と path コピーは排他**。判定軸は「filer で開けるか」= 実体が worktree 配下か (`relPath` の
-有無) の 1 本だけで、開ける実体は移動項目、開けない実体は `Copy real path` を出す。両方出すと
-「どちらを使うべきか」の判断をユーザーに預けることになるため、実体の在り処で 1 つに定める。
-
-- 左クリックと右クリックの対象は分けたままにする。行の click は見えているパスで振る舞い、実体への
-  移動は本項目という明示操作でだけ起きる (symlink は 1 つの実体に複数の名前がある構造で、UI が暗黙に
-  実体へ正規化すると「どの名前で開いたか」が復元できなくなる)
-- 移動先の label は実体の種別で file / folder を出し分ける。行の見た目 (link 自身の名前とアイコン)
-  からは実体がファイルかディレクトリか判別できないため
-- 実体が file: `worktreeRelative` で preview に出す (ツリー reveal と git 連動が効く)。navigation
-  意味の経路なので `requestSelect` ではなく `forceSelect` を使う (同一 path でもトグル close させない。
-  [docs/preview.md](../../../../../docs/preview.md) の決定表)
-- 実体が directory: preview はディレクトリを表示できないので `worktreeStore.revealRelPath` で
-  **ツリーだけ**実体へ移動する (selection は動かさないので開いている preview は保たれる)
-- worktree 外の実体は `Copy real path` のみ。既存の `Copy path` は link path を返し続けるので、
-  両者は別の値を返す別項目として並ぶ
+- 共通の `FileActionMenuItems` には入れない。共有先の preview ヘッダ ⋮ メニューは実体情報を持たず、
+  これらは filer の symlink 経路に固有 (共有するのは「どの入口でも同じ意味を持つ項目」に限る)
+- file 実体は navigation 意味の経路なので `requestSelect` ではなく `forceSelect` を使う (同一 path でも
+  トグル close させない。[docs/preview.md](../../../../../docs/preview.md) の決定表)
+- directory 実体は preview がディレクトリを表示できないため `worktreeStore.revealRelPath` で
+  **ツリーだけ**移動する (selection は動かさないので開いている preview は保たれる)
+- 実体向け項目は context の `dir` snapshot ではなく現在の store 基準で解決するため、dir 切替では
+  menu を閉じる (詳細は `watch` 直上のコメント)
 </doc>
 
 <script setup lang="ts">
-import { computed, type CSSProperties } from "vue";
+import { computed, watch, type CSSProperties } from "vue";
 import { writeClipboardText } from "../../shared/clipboard";
 import { useNotificationStore } from "../../shared/notification";
 import { FileActionMenuItems } from "../filer";
@@ -48,6 +40,17 @@ const notify = useNotificationStore();
 
 /** 実体がツリー上のパスと違う行でだけ定義される。実体向け項目の可視判定と対象を兼ねる */
 const realTarget = computed(() => context.value?.realTarget);
+
+// dir 切替で menu を閉じる。context の `dir` は右クリック時点の snapshot で、実体向け項目は
+// worktree 相対パスを **現在の** dir 基準で解決する (`revealRelPath` / `forceSelect`)。menu が dir
+// 切替を生き延びると worktree A で算出した relPath が worktree B に適用され、同名パスが実在する
+// 並列 worktree では「別 worktree の同名ファイルが静かに開く」。menu を閉じることで、
+// dir 切替時に selection クリア / preview close / ツリー再マウントが走る既存の規律に揃える
+// (handler ごとに dir 一致を比較する形は項目追加のたびに判定が分散するため採らない)
+watch(
+  () => worktreeStore.dir,
+  () => close(),
+);
 
 /**
  * 実体へ移動できるか = 実体が worktree 配下にあるか (`relPath` が定義されている)。worktree 外の実体は

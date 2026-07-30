@@ -136,16 +136,17 @@ working tree の symlink は「link であること」と「実体としてど�
 
 対象は link 自身の行に限らない。`realTarget` を持つ行すべて（link 配下のファイルを含む）で出る。
 
-移動と path コピーは**排他**で、判定軸は「filer で開けるか」= 実体が worktree 配下か（`relPath` の有無）の 1 本だけ。
+選択と path コピーは**排他**で、判定軸は「filer で開けるか」= 実体が worktree 配下か（`relPath` の有無）の 1 本だけ。
 
 | 項目                                        | 条件                           | 動作                                                                                |
 | ------------------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------- |
-| `Go to real file`                           | 実体が worktree 内の file      | worktree 相対で preview に出す（ツリー reveal と git 連動が効く）                   |
-| `Go to real folder`                         | 実体が worktree 内の directory | selection を動かさない tree reveal でツリーだけ実体へ移動する                       |
-| `Copy real path`                            | 実体が worktree 外             | 実体の絶対パスを clipboard に書く（ツリーに開く先が無いため移動しない）             |
+| `Select original file`                      | 実体が worktree 内の file      | worktree 相対で preview に出す（ツリー reveal と git 連動が効く）                   |
+| `Select original folder`                    | 実体が worktree 内の directory | selection を動かさない tree reveal でツリーだけ実体へ移動する（preview は保たれる） |
+| `Copy original path`                        | 実体が worktree 外             | 実体の絶対パスを clipboard に書く（ツリーに選択先が無いため移動しない）             |
 | Open in default app / Copy file / Copy path | 既存の共通項目                 | link path そのものを対象にする（実体へ読み替えると「見えている path」と別物を返す） |
 
-- 移動項目の label は実体の種別で file / folder を出し分ける。行の見た目（link 自身の名前とアイコン）からは実体がファイルかディレクトリか判別できないため
+- 動詞 `Select` は filer のクリック操作の再現を指す。file 行の click は選択 → preview を開き、folder 行の click は展開なので、kind 別の意味差は filer 側に既にあり、実装（file は preview 差し替え / folder はツリーだけ移動）とそのまま対応する
+- `original` は「link を経由しない元の場所」。link 経由の行はバッジと色が「実体は別の場所にある」ことを示しているため、この語は行という文脈の中で一意に読める（`man ln` も リンク先を "the original copy" と呼ぶ）
 - 両方を同時に出さないのは、「どちらを使うべきか」の判断をユーザーに預けないため。実体の在り処で 1 つに定まる
 
 ## 削除ファイルの表示

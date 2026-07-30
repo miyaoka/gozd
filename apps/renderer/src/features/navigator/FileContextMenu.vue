@@ -53,24 +53,28 @@ watch(
 );
 
 /**
- * 実体へ移動できるか = 実体が worktree 配下にあるか (`relPath` が定義されている)。worktree 外の実体は
- * filer のツリーに対応ノードが無いため「移動」が成立しない。移動と path コピーは排他で、
- * 開ける実体は移動項目、開けない実体は `Copy real path` だけを出す。
+ * 実体を選択できるか = 実体が worktree 配下にあるか (`relPath` が定義されている)。worktree 外の実体は
+ * filer のツリーに対応ノードが無いため選択が成立しない。選択と path コピーは排他で、
+ * 選択できる実体は選択項目、できない実体は `Copy original path` だけを出す。
  */
-const canGoToTarget = computed(() => realTarget.value?.relPath !== undefined);
+const canSelectOriginal = computed(() => realTarget.value?.relPath !== undefined);
 
-/** 移動先が file / directory のどちらかを label で明示する (行の見た目からは実体の種別が分からない) */
-const goToTargetLabel = computed(() =>
-  realTarget.value?.isDirectory === true ? "Go to real folder" : "Go to real file",
+/**
+ * 動詞は `Select` = filer のクリック操作の再現。file 行の click は選択 → preview を開き、folder 行の
+ * click は展開なので、kind 別の意味差が filer 側に既にあり、実装 (file は preview 差し替え / folder は
+ * ツリーだけ移動) とそのまま対応する。surface 名を書き足す必要が無い。
+ */
+const selectOriginalLabel = computed(() =>
+  realTarget.value?.isDirectory === true ? "Select original folder" : "Select original file",
 );
 
 // 各 handler は context を同期 snapshot してから close する (close 後に context が undefined へ
 // 倒れても、実行中のアクションは snapshot 済みの値で完走する。FileActionMenuItems と同じ規律)
 
-function handleGoToTarget() {
+function handleSelectOriginal() {
   const target = realTarget.value;
   close();
-  // worktree 外の実体は移動項目自体を出さない (canGoToTarget) ため relPath は定義済み
+  // worktree 外の実体は選択項目自体を出さない (canSelectOriginal) ため relPath は定義済み
   if (target?.relPath === undefined) return;
   // ディレクトリ実体は preview に流せないのでツリーだけ移動する
   if (target.isDirectory) {
@@ -80,13 +84,13 @@ function handleGoToTarget() {
   previewStore.forceSelect({ kind: "worktreeRelative", relPath: target.relPath });
 }
 
-async function handleCopyRealPath() {
+async function handleCopyOriginalPath() {
   const target = realTarget.value;
   close();
   if (target === undefined) return;
   const result = await writeClipboardText(target.absPath);
   if (!result.ok) {
-    notify.error("Failed to copy real path", result.error);
+    notify.error("Failed to copy original path", result.error);
   }
 }
 
@@ -137,24 +141,24 @@ const itemProps = computed(() => {
     :style="popoverStyle"
   >
     <button
-      v-if="canGoToTarget"
+      v-if="canSelectOriginal"
       type="button"
       class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel"
       :title="realTarget?.absPath"
-      @click="handleGoToTarget"
+      @click="handleSelectOriginal"
     >
       <IconLucideCornerUpRight class="size-4 shrink-0" />
-      {{ goToTargetLabel }}
+      {{ selectOriginalLabel }}
     </button>
     <button
-      v-if="realTarget && !canGoToTarget"
+      v-if="realTarget && !canSelectOriginal"
       type="button"
       class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel"
       :title="realTarget.absPath"
-      @click="handleCopyRealPath"
+      @click="handleCopyOriginalPath"
     >
       <IconLucideClipboardCopy class="size-4 shrink-0" />
-      Copy real path
+      Copy original path
     </button>
     <FileActionMenuItems v-if="itemProps" v-bind="itemProps" @close="close()" />
   </Popover>

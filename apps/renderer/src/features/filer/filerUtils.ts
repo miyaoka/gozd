@@ -2,21 +2,44 @@ import type { FsReadDirEntry, GitTreeEntry } from "@gozd/rpc";
 import type { GitChangeKind } from "../worktree";
 
 /**
- * ファイラーノードの種類。`isDirectory: boolean` だけでは submodule / symlink が file 扱いに
- * 潰れてしまい、snapshot mode で submodule をクリックして `gitShowCommitFile` を呼ぶような
- * 経路差を構造的に区別できないため独立した SSOT として持つ。
+ * ファイラーノードの種類。**実体としてどう振る舞うか**の SSOT で、`isDirectory: boolean` では
+ * submodule / 実体を解決できない symlink が file 扱いに潰れてしまうため独立して持つ。
  *
- * - `file` / `directory`: working / snapshot どちらでも表示・展開・選択の通常経路
- * - `symlink`: working tree では実 file へ resolve できるため select 可。snapshot tree では
- *   blob 内容が target path 文字列なので click を no-op に倒す (FileTreeItem 側で判定)
+ * - `file` / `directory`: working / snapshot どちらでも表示・展開・選択の通常経路。working tree の
+ *   symlink は辿った先の種別でこの 2 つに解決される（dir symlink を leaf に潰さないため）
+ * - `symlink`: 実体を持たない symlink。working tree では dangling / 循環、snapshot tree では
+ *   blob 内容が target path 文字列でしかない（後者は click を no-op に倒す。FileTreeItem 側で判定）
  * - `submodule`: gitlink object (`160000`)。git show <hash>:<path> では内容を返せないため
  *   常に no-op
  */
 type FileEntryKind = "file" | "directory" | "symlink" | "submodule";
 
+/**
+ * entry の実体の在り処。ツリー上のパスと実体が食い違うときだけ持つ（symlink 自身と、
+ * symlink 越しに列挙された entry の 2 経路）。
+ *
+ * - `relPath`: 実体が worktree 配下にあるときだけ定義される。worktree 外を指す場合は
+ *   undefined で、「絶対パスでしか開けない」制約がそのまま型に出る
+ * - `isDirectory`: 実体を開く経路が preview（file）か tree reveal（directory）かを決める。値は
+ *   行の `kind` と常に同値だが、この型は右クリック payload に載って menu だけで消費されるため、
+ *   menu に `kind`（ツリー表示用の 4 値）まで持ち込まずに済ませるための投影として持つ
+ */
+interface FileRealTarget {
+  absPath: string;
+  relPath?: string;
+  isDirectory: boolean;
+}
+
 interface FileEntry {
   name: string;
   kind: FileEntryKind;
+  /**
+   * symlink 経由の entry か。`kind` は実体側の種別に解決されるため、「link であること自体」は
+   * この flag だけが保持する（実体表示 + link バッジの重ね合わせを両立させる分離）。
+   */
+  isSymlink?: boolean;
+  /** 実体の在り処。ツリー上のパスと一致する / 実体を解決できない場合は undefined */
+  realTarget?: FileRealTarget;
   /**
    * gitignore に該当するか。working tree mode 由来のみ意味があり、snapshot mode では
    * 概念自体が存在しないため undefined になる。`isIgnored === true` のときだけ "ignored" の
@@ -27,18 +50,18 @@ interface FileEntry {
   gitChange?: GitChangeKind;
 }
 
-/** FsReadDir 由来の type 文字列を FileEntryKind に写像する */
-function fsTypeToKind(type: string): FileEntryKind {
-  switch (type) {
-    case "directory":
-      return "directory";
-    case "symlink":
-      return "symlink";
-    case "file":
-      return "file";
-    default:
-      return "file";
+/**
+ * FsReadDir 由来の entry を、**実体の種別**として FileEntryKind に写像する。
+ *
+ * - symlink は `realTarget.type`（main が辿った先の種別）に倒し、dir symlink が leaf に潰れるのを防ぐ
+ * - 辿れない symlink（dangling / 循環）は実体が無いので `symlink` のまま残す
+ */
+function fsEntryToKind(entry: FsReadDirEntry): FileEntryKind {
+  if (entry.type === "symlink") {
+    if (entry.realTarget === undefined) return "symlink";
+    return entry.realTarget.type === "directory" ? "directory" : "file";
   }
+  return entry.type === "directory" ? "directory" : "file";
 }
 
 /** git ls-tree 由来の type 文字列を FileEntryKind に写像する */
@@ -95,7 +118,16 @@ function getDeletedEntries(dirPath: string, gitStatuses: Record<string, string>)
 function toFileEntries(entries: FsReadDirEntry[]): FileEntry[] {
   return entries.map((e) => ({
     name: e.name,
-    kind: fsTypeToKind(e.type),
+    kind: fsEntryToKind(e),
+    isSymlink: e.type === "symlink",
+    realTarget:
+      e.realTarget === undefined
+        ? undefined
+        : {
+            absPath: e.realTarget.absPath,
+            relPath: e.realTarget.relPath,
+            isDirectory: e.realTarget.type === "directory",
+          },
     isIgnored: e.isIgnored,
   }));
 }
@@ -108,6 +140,7 @@ function toFileEntriesFromGitTree(entries: GitTreeEntry[]): FileEntry[] {
   return entries.map((e) => ({
     name: e.name,
     kind: gitTreeTypeToKind(e.type),
+    isSymlink: e.type === "symlink",
   }));
 }
 
@@ -173,4 +206,4 @@ export {
   toFileEntries,
   toFileEntriesFromGitTree,
 };
-export type { FileEntry, FileEntryKind };
+export type { FileEntry, FileEntryKind, FileRealTarget };

@@ -10,6 +10,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -67,9 +68,93 @@ describe("FSOps", () => {
     expect(result.notFound).toBe(false);
     expect(result.entries).toEqual([
       { name: "file.txt", type: "file", isIgnored: false },
-      { name: "link", type: "symlink", isIgnored: false },
+      {
+        name: "link",
+        type: "symlink",
+        realTarget: {
+          type: "file",
+          absPath: join(realpathSync(dir), "file.txt"),
+          relPath: "file.txt",
+        },
+        isIgnored: false,
+      },
       { name: "subdir", type: "directory", isIgnored: false },
     ]);
+  });
+
+  test("ディレクトリへの symlink は realTarget.type: 'directory' を併記する", async () => {
+    const dir = makeTempDir();
+    mkdirSync(join(dir, "subdir"));
+    symlinkSync(join(dir, "subdir"), join(dir, "dirlink"));
+    const result = await readDir(dir, "");
+    expect(result.entries[0]?.realTarget).toEqual({
+      type: "directory",
+      absPath: join(realpathSync(dir), "subdir"),
+      relPath: "subdir",
+    });
+  });
+
+  test("dir 外を指す symlink は realTarget.relPath 不在で返る", async () => {
+    const dir = makeTempDir();
+    const outside = makeTempDir();
+    writeFileSync(join(outside, "outer.txt"), "x");
+    symlinkSync(join(outside, "outer.txt"), join(dir, "outlink"));
+    const result = await readDir(dir, "");
+    expect(result.entries[0]?.realTarget).toEqual({
+      type: "file",
+      absPath: join(realpathSync(outside), "outer.txt"),
+      relPath: undefined,
+    });
+  });
+
+  test("辿れない symlink は realTarget 不在で返る", async () => {
+    const dir = makeTempDir();
+    symlinkSync(join(dir, "missing.txt"), join(dir, "dangling"));
+    symlinkSync(join(dir, "loop"), join(dir, "loop"));
+    const result = await readDir(dir, "");
+    expect(result.entries).toEqual([
+      { name: "dangling", type: "symlink", realTarget: undefined, isIgnored: false },
+      { name: "loop", type: "symlink", realTarget: undefined, isIgnored: false },
+    ]);
+  });
+
+  test("symlink 配下はリンク越しに列挙でき、entry 自身が link でなくても realTarget を持つ", async () => {
+    const dir = makeTempDir();
+    mkdirSync(join(dir, "subdir", "nested"), { recursive: true });
+    writeFileSync(join(dir, "subdir", "inner.txt"), "x");
+    symlinkSync(join(dir, "subdir"), join(dir, "dirlink"));
+    const result = await readDir(dir, "dirlink");
+    expect(result.notFound).toBe(false);
+    expect(result.entries).toEqual([
+      {
+        name: "inner.txt",
+        type: "file",
+        realTarget: {
+          type: "file",
+          absPath: join(realpathSync(dir), "subdir", "inner.txt"),
+          relPath: join("subdir", "inner.txt"),
+        },
+        isIgnored: false,
+      },
+      {
+        name: "nested",
+        type: "directory",
+        realTarget: {
+          type: "directory",
+          absPath: join(realpathSync(dir), "subdir", "nested"),
+          relPath: join("subdir", "nested"),
+        },
+        isIgnored: false,
+      },
+    ]);
+  });
+
+  test("link を経由しない列挙は realTarget を持たない（実体とツリー上のパスが一致）", async () => {
+    const dir = makeTempDir();
+    mkdirSync(join(dir, "subdir"));
+    writeFileSync(join(dir, "subdir", "inner.txt"), "x");
+    const result = await readDir(dir, "subdir");
+    expect(result.entries).toEqual([{ name: "inner.txt", type: "file", isIgnored: false }]);
   });
 
   test("空ディレクトリは空配列", async () => {
@@ -110,6 +195,28 @@ describe("FSOps", () => {
     chmodSync(join(dir, "locked"), 0o755);
   });
 
+  test("循環 symlink のディレクトリはエラーではなく notFound を返す", async () => {
+    // 辿れない link は削除ノードと同じ扱い。ここで throw に倒すと、壊れた link 1 本で
+    // 親の fsChange のたびにエラートーストが出続ける
+    const dir = makeTempDir();
+    symlinkSync(join(dir, "loop"), join(dir, "loop"));
+    const result = await readDir(dir, "loop");
+    expect(result.notFound).toBe(true);
+  });
+
+  test("親ディレクトリの権限で recheck が失敗する場合も notFound ではなく throw する", async () => {
+    // recheck 自身の失敗を notFound に倒すと、権限の問題が「削除された」として UI に出る
+    const dir = makeTempDir();
+    mkdirSync(join(dir, "locked", "sub"), { recursive: true });
+    chmodSync(join(dir, "locked"), 0o000);
+    // 他の rejects と違い Result で受けるのは、assert 前に権限を戻す必要があるため。子を持つこの
+    // dir を 000 のまま残すと afterEach の rmSync ごと落ちる
+    const failed = await tryCatch(readDir(dir, "locked/sub"));
+    chmodSync(join(dir, "locked"), 0o755);
+    expect(failed.ok).toBe(false);
+    expect(String(failed.ok ? "" : failed.error)).toMatch(/EACCES/);
+  });
+
   test("dir 範囲外は拒否される", async () => {
     const dir = makeTempDir();
     expect(readDir(dir, "../..")).rejects.toThrow(/outsideDir/);
@@ -145,6 +252,67 @@ describe("FSOps", () => {
     expect(byName.get("app.log")).toBe(true);
     expect(byName.get("keep.ts")).toBe(false);
     expect(byName.get(".gitignore")).toBe(false);
+  });
+
+  test("symlink 越しの列挙でも実体側の path で gitignore 判定する", async () => {
+    const dir = makeTempDir();
+    runFixtureGit(["init"], dir);
+    writeFileSync(join(dir, ".gitignore"), "*.log\n");
+    mkdirSync(join(dir, "real"));
+    writeFileSync(join(dir, "real", "app.log"), "");
+    writeFileSync(join(dir, "real", "keep.ts"), "");
+    symlinkSync(join(dir, "real"), join(dir, "link"));
+    // link 越しの pathspec を渡すと git が fatal になり全 entry の判定が落ちる。実体側の
+    // 相対パスで問い合わせることで、link 経由で見ても ignored が付く
+    const result = await readDir(dir, "link");
+    const byName = new Map(result.entries.map((entry) => [entry.name, entry.isIgnored]));
+    expect(byName.get("app.log")).toBe(true);
+    expect(byName.get("keep.ts")).toBe(false);
+  });
+
+  test("dir 外を指す link が同居しても、他の行の ignored 判定と realTarget は保たれる", async () => {
+    // 判定対象は行自身なので、行の実体が dir 外でも pathspec は worktree 内（列挙対象 + 行名）に
+    // なる。pathspec の worktree 内 / 外は列挙単位で揃うため、外を指す行の同居で batch が落ちない
+    const dir = makeTempDir();
+    const outside = makeTempDir();
+    runFixtureGit(["init"], dir);
+    writeFileSync(join(dir, ".gitignore"), "*.log\n");
+    mkdirSync(join(dir, "real"));
+    writeFileSync(join(dir, "real", "app.log"), "");
+    writeFileSync(join(outside, "outer.txt"), "");
+    symlinkSync(join(outside, "outer.txt"), join(dir, "real", "outlink"));
+    symlinkSync(join(dir, "real"), join(dir, "link"));
+    const result = await readDir(dir, "link");
+    const byName = new Map(result.entries.map((entry) => [entry.name, entry.isIgnored]));
+    expect(byName.get("app.log")).toBe(true);
+    expect(byName.get("outlink")).toBe(false);
+    expect(result.entries.find((entry) => entry.name === "outlink")?.realTarget).toEqual({
+      type: "file",
+      absPath: join(realpathSync(outside), "outer.txt"),
+      relPath: undefined,
+    });
+  });
+
+  test("link 越し列挙の symlink 行は、リンク先ではなく行自身の path で ignored 判定する", async () => {
+    const dir = makeTempDir();
+    runFixtureGit(["init"], dir);
+    // リンク先 (logs/) は ignored、リンク自身 (real/data) は ignored ではない
+    writeFileSync(join(dir, ".gitignore"), "/logs\n");
+    mkdirSync(join(dir, "logs"));
+    mkdirSync(join(dir, "real"));
+    symlinkSync(join(dir, "logs"), join(dir, "real", "data"));
+    symlinkSync(join(dir, "real"), join(dir, "link"));
+    const result = await readDir(dir, "link");
+    expect(result.entries[0]?.name).toBe("data");
+    expect(result.entries[0]?.isIgnored).toBe(false);
+  });
+
+  test("末尾スラッシュ付き path でも link 越し判定が誤爆しない", async () => {
+    const dir = makeTempDir();
+    mkdirSync(join(dir, "subdir"));
+    writeFileSync(join(dir, "subdir", "inner.txt"), "x");
+    const result = await readDir(dir, "subdir/");
+    expect(result.entries).toEqual([{ name: "inner.txt", type: "file", isIgnored: false }]);
   });
 
   test("writeFileAbsolute は絶対パスに書き込め、tmp ファイルを残さない", () => {

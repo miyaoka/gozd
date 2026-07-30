@@ -6,7 +6,7 @@ Filer（上）と Changes（下）を垂直分割で表示するコンテナ。
 - Filer が flex-1 で残りスペースを取り、Changes が固定高さ
 - ResizeHandle で上下の比率をリサイズ可能
 - git リポジトリでない場合は Filer のみ表示
-- FilerPane の reveal は worktreeStore.revealVersion を内部で購読しているため props 経由不要
+- FilerPane の reveal は worktreeStore.revealRequest を内部で購読しているため props 経由不要
 - FilerPane / ChangesPane の `select` emit はどちらも user-initiated select として `previewStore.requestSelect` を呼ぶ。同一パス再選択でのトグル close / summary 抜けの意思決定は preview store 側に集約されている（[docs/preview.md](../../../../../docs/preview.md) の決定表を参照）
 - Filer ヘッダーの状態表示は `headerStatus` 1 つの computed に集約する。snapshot mode（`gitGraphStore.selectedHash` が `UNCOMMITTED_HASH` 以外）では選択中コミットの日時（`formatCompactTime` の狭幅向け compact 表示、tooltip に `formatAbsoluteTime` の絶対時刻）、working tree mode では固定テキスト `"(now)"` を同じ span で描画する。working tree mode を時刻でなく固定ラベルにするのは、"Now" ボタン（FilerPane がツリー右上に float 表示。設計意図はそちらの doc 参照）を押した遷移先が何であるかを明示するため（変更ファイルの mtime を出すと「今」であることが伝わりにくい）
 
@@ -184,6 +184,7 @@ useEventListener(
     openFileContextMenu(pending.payload.anchorEl, {
       dir: pending.dir,
       relPath: pending.payload.relPath,
+      realTarget: pending.payload.realTarget,
       commitHash: pending.hash,
       isSnapshot: pending.isSnapshot,
       x: pending.payload.x,

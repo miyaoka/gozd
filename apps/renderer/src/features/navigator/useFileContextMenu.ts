@@ -37,6 +37,7 @@
  * 仕様を変える際は両者を必ず同時に更新する責務がある。
  */
 import { usePopover } from "../../shared/popover";
+import type { FileRealTarget } from "../filer";
 
 /**
  * 子 pane (FilerPane / ChangesPane / TreeItem) が contextmenu event で navigator まで bubble
@@ -53,6 +54,13 @@ export type FileContextMenuPayload = {
   anchorEl: HTMLElement;
   /** worktree 相対パス */
   relPath: string;
+  /**
+   * 実体がツリー上のパスと食い違う行のとき、その実体の在り処 (実体向け項目の対象)。
+   * 既存項目 (Open / Copy file / Copy path) は relPath 側で動き続けるため両者は独立に共存する。
+   * undefined になるのは実体がツリー上のパスと一致する行と、実体を解決できない行 (dangling / 循環)。
+   * worktree 外の実体では定義され (`relPath` だけ undefined)、どの項目を出すかは menu 側が決める。
+   */
+  realTarget?: FileRealTarget;
   /** contextmenu イベント時のマウス座標 (`position: fixed; left/top` 用) */
   x: number;
   y: number;
@@ -63,6 +71,8 @@ type FileContextMenuContext = {
   dir: string;
   /** worktree 相対パス */
   relPath: string;
+  /** 実体の在り処 (FileContextMenuPayload の同名フィールドを引き継ぐ) */
+  realTarget?: FileRealTarget;
   /** 右クリック時に snapshot した commit hash。working tree なら undefined */
   commitHash?: string;
   /**

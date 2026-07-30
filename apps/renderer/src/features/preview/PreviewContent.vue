@@ -8,7 +8,7 @@
 保証する (view の切り離しで UI が縮小・分岐しないための境界)。
 
 - 編集 / blame / 行番号 reveal は capability props (editable / blameEnabled / lineNumber /
-  revealVersion)。対応する文脈を持たない呼び出し側 (undocked window) は default の
+  selectPathVersion)。対応する文脈を持たない呼び出し側 (undocked window) は default の
   無効値のまま使う
 - フォント設定 (previewConfig) の適用もここに含める (本体と undocked でフォントが
   食い違わないように)。root は overflow-auto のみ持ち、サイズ決定 (size-full /
@@ -54,7 +54,7 @@ withDefaults(
     /** スクロール・ハイライト対象の行番号 (1-based) */
     lineNumber?: number | undefined;
     /** 同一パス・同一行番号でもスクロールを再発火させるためのカウンタ */
-    revealVersion?: number;
+    selectPathVersion?: number;
     blameEnabled?: boolean;
     editable?: boolean;
   }>(),
@@ -65,7 +65,7 @@ withDefaults(
     isNotFound: false,
     error: undefined,
     lineNumber: undefined,
-    revealVersion: 0,
+    selectPathVersion: 0,
     blameEnabled: false,
     editable: false,
   },
@@ -145,7 +145,7 @@ const emit = defineEmits<{
       :content="codeContent"
       :file-path="filePath"
       :line-number="lineNumber"
-      :reveal-version="revealVersion"
+      :select-path-version="selectPathVersion"
       :word-wrap="wordWrap"
       :blame-enabled="blameEnabled"
       :editable="editable"

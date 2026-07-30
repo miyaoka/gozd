@@ -158,14 +158,86 @@ describe("toFileEntries", () => {
     expect(result[0]?.kind).toBe("file");
   });
 
-  test("type === 'symlink' は kind: 'symlink' になる", () => {
+  test("realTarget 不在の symlink (dangling) は kind: 'symlink' のまま残る", () => {
     const result = toFileEntries([{ name: "link", type: "symlink", isIgnored: false }]);
     expect(result[0]?.kind).toBe("symlink");
+    expect(result[0]?.isSymlink).toBe(true);
+    expect(result[0]?.realTarget).toBeUndefined();
   });
 
-  test("type === 'other' は kind: 'file' に倒れる", () => {
-    const result = toFileEntries([{ name: "fifo", type: "other", isIgnored: false }]);
+  test("ディレクトリへの symlink は kind: 'directory' に解決され実体も directory になる", () => {
+    const result = toFileEntries([
+      {
+        name: "link",
+        type: "symlink",
+        realTarget: { type: "directory", absPath: "/wt/docs", relPath: "docs" },
+        isIgnored: false,
+      },
+    ]);
+    expect(result[0]?.kind).toBe("directory");
+    expect(result[0]?.isSymlink).toBe(true);
+    expect(result[0]?.realTarget).toEqual({
+      absPath: "/wt/docs",
+      relPath: "docs",
+      isDirectory: true,
+    });
+  });
+
+  test("ファイルへの symlink は kind: 'file' に解決され実体パスを保持する", () => {
+    const result = toFileEntries([
+      {
+        name: "link",
+        type: "symlink",
+        realTarget: { type: "file", absPath: "/wt/README.md", relPath: "README.md" },
+        isIgnored: false,
+      },
+    ]);
     expect(result[0]?.kind).toBe("file");
+    expect(result[0]?.isSymlink).toBe(true);
+    expect(result[0]?.realTarget).toEqual({
+      absPath: "/wt/README.md",
+      relPath: "README.md",
+      isDirectory: false,
+    });
+  });
+
+  test("worktree 外を指す symlink は realTarget.relPath が undefined のまま伝搬する", () => {
+    const result = toFileEntries([
+      {
+        name: "link",
+        type: "symlink",
+        realTarget: { type: "file", absPath: "/other/main/.env.local" },
+        isIgnored: false,
+      },
+    ]);
+    expect(result[0]?.realTarget).toEqual({
+      absPath: "/other/main/.env.local",
+      relPath: undefined,
+      isDirectory: false,
+    });
+  });
+
+  test("symlink 越しに列挙された通常 entry は isSymlink: false でも realTarget を持つ", () => {
+    const result = toFileEntries([
+      {
+        name: "SKILL.md",
+        type: "file",
+        realTarget: {
+          type: "file",
+          absPath: "/wt/.agents/skills/review/SKILL.md",
+          relPath: ".agents/skills/review/SKILL.md",
+        },
+        isIgnored: false,
+      },
+    ]);
+    expect(result[0]?.isSymlink).toBe(false);
+    expect(result[0]?.realTarget?.relPath).toBe(".agents/skills/review/SKILL.md");
+  });
+
+  test("実体がツリー上のパスと一致する entry は isSymlink: false / realTarget なし", () => {
+    const result = toFileEntries([{ name: "a.txt", type: "file", isIgnored: false }]);
+    expect(result[0]?.isSymlink).toBe(false);
+    expect(result[0]?.realTarget).toBeUndefined();
   });
 
   test("空配列を処理できる", () => {
@@ -185,9 +257,10 @@ describe("toFileEntriesFromGitTree", () => {
     expect(result[0]?.kind).toBe("file");
   });
 
-  test("type === 'symlink' は kind: 'symlink' になる (snapshot tree でも保持)", () => {
+  test("type === 'symlink' は kind: 'symlink' になり isSymlink が立つ (snapshot tree でも保持)", () => {
     const result = toFileEntriesFromGitTree([{ name: "link", type: "symlink" }]);
     expect(result[0]?.kind).toBe("symlink");
+    expect(result[0]?.isSymlink).toBe(true);
   });
 
   test("type === 'submodule' は kind: 'submodule' になる", () => {

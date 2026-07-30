@@ -146,7 +146,7 @@ export const useRepoStore = defineStore("repo", () => {
   /**
    * shared 層内で `selectedDir.value =` を直書きする正当な経路は以下に限定する。
    * 新たな書き換え経路を増やす前に、`worktreeStore.setOpen` 側の副作用一覧
-   * （selectionVersion bump / 必要なら selection / revealVersion の同期更新）と整合
+   * （selectionVersion bump / 必要なら selection / selectPathVersion の同期更新）と整合
    * するか確認すること（feature 層側の責務に踏み込む変更が必要な可能性）。
    * - `selectDir()`: 通常の選択（feature 層の setOpen 経由含む）
    * - `removeRepo()`: repo まるごと削除時の fallback

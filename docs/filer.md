@@ -129,7 +129,7 @@ working tree の symlink は「link であること」と「実体としてど�
 
 ### 実体を対象にする右クリック項目
 
-左クリックは見えているパスで振る舞い、実体への移動は右クリックの明示操作でだけ起きる。symlink は
+左クリックは見えているパスで振る舞い、実体を対象にする操作は右クリックの明示操作でだけ起きる。symlink は
 1 つの実体に複数の名前がある構造で、UI が暗黙に実体へ正規化すると「どの名前で開いたか」が復元
 できなくなるため、gesture で対象を分ける（Finder の「元を表示」/ VS Code の
 [microsoft/vscode#57873](https://github.com/microsoft/vscode/issues/57873) と同じ切り分け）。
@@ -147,6 +147,7 @@ working tree の symlink は「link であること」と「実体としてど�
 
 - 動詞 `Select` は filer のクリック操作の再現を指す。file 行の click は選択 → preview を開き、folder 行の click は展開なので、kind 別の意味差は filer 側に既にあり、実装（file は preview 差し替え / folder はツリーだけ移動）とそのまま対応する
 - `original` は「link を経由しない元の場所」。link 経由の行はバッジと色が「実体は別の場所にある」ことを示しているため、この語は行という文脈の中で一意に読める（`man ln` も リンク先を "the original copy" と呼ぶ）
+- filer では folder の click は選択ではなく展開で、`selectedRelPath` は file 選択でしか設定されない（folder にハイライトが付かないのも同じ理由）。したがって `Select original folder` も selection を動かさず、ツリーの展開 + スクロールだけを行う。ここを `selectRelPath` に倒すと preview がディレクトリ表示に落ちる
 - 両方を同時に出さないのは、「どちらを使うべきか」の判断をユーザーに預けないため。実体の在り処で 1 つに定まる
 
 ## 削除ファイルの表示

@@ -56,7 +56,7 @@ watch 同期 layer 側は mutex + coalesce で並列実行を 1 本に集約し�
 
 - reveal 要求の SSOT は `worktreeStore.revealRequest`（対象 relPath + 連番）。各ツリー子ノードはこれを watch し、自身の path が target の祖先か判定して自動展開 + 子の load を行う
 - 最終ノードに到達したら `scrollIntoView({ block: "nearest" })` で表示
-- 同じパスを再度 reveal するケースを取り扱うため、要求ごとに連番を進めて「再 reveal イベント」を発火させる
+- 同じパスを再度 reveal するケースを取り扱うため、要求ごとに新しい要求オブジェクトを立てて購読側の watch を発火させる。要求に添える連番は、購読側が子 load の await を挟んだ後に「自分が処理している要求が最新か」を判定する世代番号
 - 要求元は 2 経路: ファイル選択（`select*Path`。selection と同時に reveal を要求する）と、selection を動かさない tree reveal（`revealRelPath`。symlink の実体がディレクトリのときに使う）。後者を selection 経由にすると preview がディレクトリ表示（"Directory" プレースホルダ）に落ちるため、reveal 対象と selection は別 state として持つ
 
 dir 切替と reveal 要求が同 tick で起きた場合の順序保証（dir 変化 → ルート初期化 → 子マウント後の reveal 処理）は、ルートペインの dir watch を同期 flush に固定することで構造的に成立させている。
@@ -119,11 +119,13 @@ working tree の symlink は「link であること」と「実体としてど�
   link であることはバッジが示し続ける
 - symlink 配下は FSEvents がリンクを辿らないため `fsChange` が届かない。リンク先の変更はツリーを
   折りたたみ → 再展開したときに反映される
-- symlink 越しの列挙では gitignore 判定の pathspec を**実体側の dir 相対パス**（`realTarget.relPath`）に
-  差し替える。link 越しのパスをそのまま渡すと `git check-ignore` が
-  `pathspec ... is beyond a symbolic link` で fatal になり、その列挙の全 entry の判定を落とす
-  （`checkIgnore` は失敗を空集合として扱う契約なので無音で ignored が消える）。実体が worktree 外の
-  entry は当該 repo の gitignore の管轄外なので問い合わせ自体を落とす
+- gitignore 判定の pathspec は常に **entry 自身**を指す。symlink 越しの列挙では entry 自身の
+  canonical path（列挙対象の realpath + entry 名）の worktree 相対を渡す。ツリー上のパス（link 越し）を
+  そのまま渡すと `git check-ignore` が `pathspec ... is beyond a symbolic link` で fatal になり、その
+  列挙の全 entry の判定を落とす（`checkIgnore` は失敗を空集合として扱う契約なので無音で ignored が
+  消える）。symlink 行にリンク先の path を渡すのも誤りで、git の管理対象は link blob 自身なので
+  リンク先の ignored を行が引き継いでしまう。列挙対象自身が worktree 外にある場合（外部を指す
+  dir link の配下）は当該 repo の gitignore の管轄外なので問い合わせを落とす
 
 ### 実体を対象にする右クリック項目
 

@@ -423,8 +423,8 @@ watch(
  */
 async function handleReveal() {
   const request = worktreeStore.revealRequest;
-  const targetPath = request?.relPath;
-  if (request === undefined || targetPath === undefined) return;
+  if (request === undefined) return;
+  const targetPath = request.relPath;
   const isLatestRequest = () => worktreeStore.revealRequest?.seq === request.seq;
   // 自身がターゲットの場合、展開してスクロールインビュー
   if (targetPath === props.path) {

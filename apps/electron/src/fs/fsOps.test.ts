@@ -248,9 +248,9 @@ describe("FSOps", () => {
     expect(byName.get("keep.ts")).toBe(false);
   });
 
-  test("dir 外を指す entry が混ざっても、同じ列挙内の ignored 判定は壊れない", async () => {
-    // dir 外の pathspec を batch に混ぜると git が fatal して batch 全体が落ちる。dir 外は
-    // 問い合わせから外す決定が効いていれば、同居する worktree 内 entry の判定だけが残る
+  test("dir 外を指す link が同居しても、他の行の ignored 判定と realTarget は保たれる", async () => {
+    // 判定対象は行自身なので、行の実体が dir 外でも pathspec は worktree 内（列挙対象 + 行名）に
+    // なる。pathspec の worktree 内 / 外は列挙単位で揃うため、外を指す行の同居で batch が落ちない
     const dir = makeTempDir();
     const outside = makeTempDir();
     runFixtureGit(["init"], dir);

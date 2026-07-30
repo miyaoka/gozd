@@ -25,10 +25,31 @@ export const useWorktreeStore = defineStore("worktree", () => {
    * 同一パスでも reveal を発火させるためのバージョンカウンタ。
    * **invariant**: `revealVersion` の bump は必ず `selection.value` の同期更新と
    * セットで行う（= 必ず `selectRelPath()` / `selectAbsPath()` 経由で更新する）。
-   * 購読側（FilerPane の watch）は `revealVersion` を trigger にして `selectedRelPath`
-   * を直接読むため、両者が同 tick で一致していないと古いパスで reveal が走る。
+   * preview 側（PreviewPane）は「select* が起きた」signal としてこれを購読するため、
+   * 選択を動かさない tree reveal（`revealRelPath()`）では bump しない。
    */
   const revealVersion = ref(0);
+
+  /**
+   * ツリー reveal（展開 + スクロール）の要求。**selection とは別概念**として持つ。
+   * symlink の実体がディレクトリのとき「ツリーだけ実体へ移動する」経路が要り、そこで
+   * selection を動かすと preview がディレクトリ表示（"Directory" プレースホルダ）に落ちる。
+   *
+   * `seq` は同一パスの再要求を発火させるためのカウンタ。購読側（FileTreeItem）は本 ref だけを
+   * watch し、対象パスも request から読む（selection を別途読まないので「trigger と対象パスが
+   * 同 tick で食い違う」経路が構造的に存在しない）。
+   */
+  const revealRequest = ref<{ relPath: string; seq: number }>();
+  let revealSeq = 0;
+
+  function requestReveal(relPath: string | undefined) {
+    if (relPath === undefined) {
+      revealRequest.value = undefined;
+      return;
+    }
+    revealSeq++;
+    revealRequest.value = { relPath: normalizeRelative(relPath), seq: revealSeq };
+  }
 
   /** setOpen 呼び出しごとにインクリメント。観測側（terminal 等）が「wt 選択イベント」として購読する */
   const selectionVersion = ref(0);
@@ -76,6 +97,7 @@ export const useWorktreeStore = defineStore("worktree", () => {
     dir,
     () => {
       selection.value = undefined;
+      revealRequest.value = undefined;
     },
     { flush: "sync" },
   );
@@ -101,7 +123,18 @@ export const useWorktreeStore = defineStore("worktree", () => {
       relPath: normalizeRelative(relPath),
       lineNumber,
     };
+    requestReveal(relPath);
     revealVersion.value++;
+  }
+
+  /**
+   * selection を動かさずにツリーだけ対象パスへ reveal する。symlink の実体（ディレクトリ）へ
+   * 移動する経路で使う。preview は selection を SSOT にしているため、開いているファイルの
+   * 表示は保たれる。
+   */
+  function revealRelPath(relPath: string) {
+    if (!dir.value) return;
+    requestReveal(relPath);
   }
 
   // absolute は dir 文脈を必要としない (読みは fsReadFileAbsolute 単独、filer reveal は
@@ -113,6 +146,8 @@ export const useWorktreeStore = defineStore("worktree", () => {
       absPath: normalizeAbsolute(absPath),
       lineNumber,
     };
+    // worktree 外の選択はツリーに対応するノードが無いので reveal 要求を落とす
+    requestReveal(undefined);
     revealVersion.value++;
   }
 
@@ -141,9 +176,11 @@ export const useWorktreeStore = defineStore("worktree", () => {
     selectedLineNumber,
     selectedGitChange,
     revealVersion,
+    revealRequest,
     selectionVersion,
     setOpen,
     selectRelPath,
+    revealRelPath,
     selectAbsPath,
     selectFromTarget,
     clearSelectedPath,

@@ -52,13 +52,14 @@ watch 同期 layer 側は mutex + coalesce で並列実行を 1 本に集約し�
 
 ## ツリー自動展開（reveal）
 
-ファイル選択時に、対象パスまでツリーを自動展開してスクロールインビューする。
+対象パスまでツリーを自動展開してスクロールインビューする。
 
-- イベントバスが reveal target を伝搬し、各ツリー子ノードは自身の path が target の祖先か判定して自動展開 + 子の load を行う
+- reveal 要求の SSOT は `worktreeStore.revealRequest`（対象 relPath + 連番）。各ツリー子ノードはこれを watch し、自身の path が target の祖先か判定して自動展開 + 子の load を行う
 - 最終ノードに到達したら `scrollIntoView({ block: "nearest" })` で表示
-- 同じファイルを再度 reveal するケースを取り扱うため、`worktreeStore.revealVersion` を bump することで「再 reveal イベント」を発火させる
+- 同じパスを再度 reveal するケースを取り扱うため、要求ごとに連番を進めて「再 reveal イベント」を発火させる
+- 要求元は 2 経路: ファイル選択（`select*Path`。selection と同時に reveal を要求する）と、selection を動かさない tree reveal（`revealRelPath`。symlink の実体がディレクトリのときに使う）。後者を selection 経由にすると preview がディレクトリ表示（"Directory" プレースホルダ）に落ちるため、reveal 対象と selection は別 state として持つ
 
-dir 切替と revealVersion 更新が同 tick で起きた場合の順序保証（dir 変化 → ルート初期化 → 子マウント後の reveal 処理）は、ルートペインの dir watch を同期 flush に固定することで構造的に成立させている。
+dir 切替と reveal 要求が同 tick で起きた場合の順序保証（dir 変化 → ルート初期化 → 子マウント後の reveal 処理）は、ルートペインの dir watch を同期 flush に固定することで構造的に成立させている。
 
 ## git status の色分け
 
@@ -82,6 +83,65 @@ dir 切替と revealVersion 更新が同 tick で起きた場合の順序保証�
 - 完全一致のため `.gitignore` / `.gitkeep` / `.gitattributes` などの近傍名は影響を受けず表示される
 - `.gitignore` 経路とは独立。`.gitignore` 対象 entry は `isIgnored=true` を立てて表示したまま色を落とす（除外しない）
 - working tree モード (`fs` 経路) / snapshot モード (`git ls-tree` 経路) のいずれでも `.git` は出ない。後者は git の commit tree object に `.git` が含まれない性質により自然に揃う
+
+## symlink の表示
+
+working tree の symlink は「link であること」と「実体としてどう振る舞うか」を分けて持つ。実体側の
+種別で振る舞いを決めるため、ディレクトリへの symlink は leaf に潰れず展開できる。
+
+- main の `readDir` は entry 自身の種別（`type`、lstat 由来）に加えて、**実体の在り処**を
+  `realTarget`（`type` / `absPath` / `dir` 配下なら `relPath`）として併記する。載るのは実体が
+  entry のパスと食い違うときだけで、該当経路は symlink 自身と「symlink 越しに列挙された entry」
+  （親ディレクトリが link）の 2 つ。辿れない dangling / 循環（ELOOP）は `realTarget` 不在で
+  「実体なし」を表す
+- `relPath` の包含判定は realpath 同士で行う。worktree dir 自身が symlink 経由のパスでも
+  「実体は worktree 配下なのに外部扱い」にならない
+- renderer は `realTarget.type` を `FileEntry.kind` に写像し、link であること自体は `isSymlink` が
+  保持する。したがって click 経路は実体に対する経路（file なら preview、directory なら展開）に
+  そのまま乗り、`kind === "symlink"` は実体を解決できないケースだけに縮む
+- 実体の種別でアイコン自体が決まる（dir symlink はフォルダアイコン + chevron）ため、link が絡むことは
+  バッジと名前の色で示す。表現は 2 軸に分ける
+
+  | 表現                     | 対象                                                     | 意味                       |
+  | ------------------------ | -------------------------------------------------------- | -------------------------- |
+  | アイコン右下の矢印バッジ | link 自身の行（`isSymlink`）                             | この行が symlink である    |
+  | 名前の色（info）         | link 自身 + link 越しに列挙された行（`realTarget` あり） | ツリー上のパスと実体が違う |
+
+  色が link ディレクトリの下層まで続くのは、実体向けの右クリック項目が出る集合と揃えるため（色が
+  付いている行では必ず実体へのアクションが出る）
+
+- バッジは行の hover / 選択色に追従せず自前の面を持つ（Finder の alias バッジと同じ扱い。背景に
+  溶けると矢印が読めない）
+- 名前の色の優先順位は git change > link > ignored。link は gitignore 対象であることが多いため
+  ignored の gray より上に置く（下に置くと実運用でほぼ発火しない）。git change に色を譲る行でも
+  link であることはバッジが示し続ける
+- symlink 配下は FSEvents がリンクを辿らないため `fsChange` が届かない。リンク先の変更はツリーを
+  折りたたみ → 再展開したときに反映される
+- symlink 越しの列挙では gitignore 判定が付かない。`git check-ignore` が
+  `pathspec ... is beyond a symbolic link` で fatal になり、その列挙の全 entry が
+  `isIgnored: false` に倒れる（`checkIgnore` は失敗を空集合として扱う契約）。link 配下では
+  ignored の色落ちが起きない
+
+### 実体を対象にする右クリック項目
+
+左クリックは見えているパスで振る舞い、実体への移動は右クリックの明示操作でだけ起きる。symlink は
+1 つの実体に複数の名前がある構造で、UI が暗黙に実体へ正規化すると「どの名前で開いたか」が復元
+できなくなるため、gesture で対象を分ける（Finder の「元を表示」/ VS Code の
+[microsoft/vscode#57873](https://github.com/microsoft/vscode/issues/57873) と同じ切り分け）。
+
+対象は link 自身の行に限らない。`realTarget` を持つ行すべて（link 配下のファイルを含む）で出る。
+
+移動と path コピーは**排他**で、判定軸は「filer で開けるか」= 実体が worktree 配下か（`relPath` の有無）の 1 本だけ。
+
+| 項目                                        | 条件                           | 動作                                                                                |
+| ------------------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------- |
+| `Go to real file`                           | 実体が worktree 内の file      | worktree 相対で preview に出す（ツリー reveal と git 連動が効く）                   |
+| `Go to real folder`                         | 実体が worktree 内の directory | selection を動かさない tree reveal でツリーだけ実体へ移動する                       |
+| `Copy real path`                            | 実体が worktree 外             | 実体の絶対パスを clipboard に書く（ツリーに開く先が無いため移動しない）             |
+| Open in default app / Copy file / Copy path | 既存の共通項目                 | link path そのものを対象にする（実体へ読み替えると「見えている path」と別物を返す） |
+
+- 移動項目の label は実体の種別で file / folder を出し分ける。行の見た目（link 自身の名前とアイコン）からは実体がファイルかディレクトリか判別できないため
+- 両方を同時に出さないのは、「どちらを使うべきか」の判断をユーザーに預けないため。実体の在り処で 1 つに定まる
 
 ## 削除ファイルの表示
 
@@ -129,8 +189,9 @@ git-graph で UNCOMMITTED_HASH 以外の commit が選択されている間、fi
 
 - `directory`: 展開 / 折りたたみ
 - `file`: `select` emit
-- `symlink`: working tree モードでは `select` emit (実 file へ resolve される)。snapshot mode では
-  blob 内容が target path 文字列でしかないため click を no-op に倒す
+- `symlink`: 実体を持たない symlink だけがこの kind に来る（working tree の dangling / 循環、
+  snapshot tree の symlink blob）。working tree では `select` emit（preview が not found を出す）、
+  snapshot mode では blob 内容が target path 文字列でしかないため click を no-op に倒す
 - `submodule`: 常に no-op。gitlink object (`160000`) は `gitShowCommitFile` で内容を取得できず
   preview に流すとエラーになるため。UI 上は `cursor-not-allowed` + opacity 低下 + tooltip で
   「click できない」ことを示す

@@ -11,10 +11,27 @@
 
 - `directory`: 展開 / 折りたたみ
 - `file`: `select` emit
-- `symlink`: working tree モード (`snapshotHash` undefined) では `select` emit で実 file に resolve。
+- `symlink`: 実体を持たない symlink のみこの kind に来る（working tree の dangling / 循環、
+  snapshot tree の symlink blob）。working tree では `select` emit（preview が not found を出す）、
   snapshot mode では blob 内容が target path 文字列でしかないため click を no-op に倒す
 - `submodule`: 常に no-op。gitlink object (`160000`) は `gitShowCommitFile` で内容を取得できないため
   preview に流すとエラーになる。視覚的にも opacity を落として「click できない」ことを示す
+
+## symlink（`isSymlink`）
+
+- working tree の symlink は `kind` が実体側（`file` / `directory`）に解決済みで届くため、click は
+  実体に対する経路（file は preview、directory は展開）に自動で乗る
+- 表現は 2 軸に分ける。**バッジ**（アイコン右下の矢印）は `isSymlink` = link 自身の行だけ。**名前の色**
+  （info）は `isLinked` = link 自身 + link 越しに列挙された行で、link ディレクトリの下層まで色が続く。
+  右クリックで実体向け項目が出る集合と色が付く集合を揃えることで、「色が付いている = ツリー上の
+  パスと実体が違う」が一貫して読める
+- 色の優先順位は git change > link > ignored。link は gitignore 対象が大半（worktree symlink 等）
+  なので ignored の gray より上に置く。git change に色を譲る行でも、link であることはバッジが示し続ける
+- 右クリックの既存項目 (Open / Copy file / Copy path) は link path そのものを対象にする。実体側へ
+  読み替えると Copy path が「見えている path」と別物を返すため
+- 実体を対象にする操作は右クリックの専用項目に分離する。対象 (`realTarget`) は symlink 自身だけでなく
+  「symlink 越しに列挙された行」も持つ (link 配下のファイルも実体は別の場所にある)。payload には
+  事実として `realTarget` をそのまま載せ、どの項目を出せるかの判定は menu 側 (FileContextMenu) が持つ
 
 ## snapshot mode (snapshotHash プロパティが真値のとき)
 
@@ -50,7 +67,8 @@
 - filer event store の fsChange を watch して自分の path 該当時に再読み込み (snapshot mode では skip)
 - filer event store の gitStatusChange を watch して展開中なら children を再構築 (snapshot mode では skip)
 - snapshotHash 変化を watch して展開中なら children を再 load (cache invalidate)
-- worktreeStore.revealVersion を watch して selectedRelPath が自分または配下なら展開＋スクロール
+- worktreeStore.revealRequest を watch して対象パスが自分または配下なら展開＋スクロール。要求元は
+  selection 由来 (select\*Path) と選択を動かさない tree reveal (revealRelPath) の 2 経路
 - 親→子の命令呼び出し（defineExpose）は使わず、各ノードが自律的にイベントを処理する設計
 </doc>
 
@@ -76,12 +94,13 @@ import {
   toFileEntries,
   toFileEntriesFromGitTree,
 } from "./filerUtils";
-import type { FileEntry, FileEntryKind } from "./filerUtils";
+import type { FileEntry, FileEntryKind, FileRealTarget } from "./filerUtils";
 import { rpcFsReadDir, rpcGitLsTree } from "./rpc";
 import { getFileIconUrl, getFolderIconUrl } from "./useFileIcon";
 import { useFilerEventStore } from "./useFilerEventStore";
 import IconLucideChevronDown from "~icons/lucide/chevron-down";
 import IconLucideChevronRight from "~icons/lucide/chevron-right";
+import IconLucideCornerUpRight from "~icons/lucide/corner-up-right";
 
 const GIT_CHANGE_COLOR_MAP: Record<GitChangeKind, string> = {
   modified: "text-warning-text",
@@ -95,7 +114,12 @@ const props = defineProps<{
   name: string;
   /** worktree からの相対パス。worktree 直下（不可視ルート）は `""` */
   path: string;
+  /** 実体としての種別。working tree の symlink は解決済みの実体側 kind が届く */
   kind: FileEntryKind;
+  /** symlink 経由の entry か（kind とは独立。link バッジの表示 SSOT） */
+  isSymlink?: boolean;
+  /** 実体の在り処。右クリック menu の "Open target" 対象 */
+  realTarget?: FileRealTarget;
   /** working tree モード由来の gitignore フラグ。snapshot mode では undefined */
   isIgnored?: boolean;
   /** ファイル自身の git 変更種別 */
@@ -180,8 +204,20 @@ const effectiveGitChange = computed<GitChangeKind | undefined>(() => {
   return resolveFileGitChange(props.path, props.gitStatuses);
 });
 
+/**
+ * リンクが絡む行。link 自身 (`isSymlink`) と、link 越しに列挙された行 (`realTarget`) の両方を含む。
+ * 名前の色はこの軸で付ける: 右クリックで実体向け項目が出る行と色が付く行を同じ集合に揃えることで、
+ * 「色が付いている = ツリー上のパスと実体が違う」が一貫して読める（link 配下も色が続く）。
+ */
+const isLinked = computed(() => props.isSymlink === true || props.realTarget !== undefined);
+
+// 優先順位は git change > link > ignored。link 色を ignored の下に置くと、gitignore 対象が
+// 大半を占める実運用 (worktree symlink 等) でほぼ発火しないため ignored より上に置く。
+// git change は「今この行に起きている変化」で link より緊急度が高く、色を譲っても
+// link であることはバッジが示し続ける。
 const textColorClass = computed(() => {
   if (effectiveGitChange.value) return GIT_CHANGE_COLOR_MAP[effectiveGitChange.value];
+  if (isLinked.value) return "text-info";
   if (props.isIgnored === true) return "text-foreground-low";
   if (props.selectedRelPath === props.path) return "text-foreground";
   return "text-foreground";
@@ -196,6 +232,18 @@ const rowSelectedClass = computed(() => (isSnapshot.value ? "bg-element-hover" :
 
 /** 削除ファイルかどうか (snapshot mode では発生しない) */
 const isDeleted = computed(() => !isSnapshot.value && props.gitChange === "deleted");
+
+/**
+ * hover tooltip。symlink バッジは「link であること」しか伝えられないため、実体を解決できない
+ * ケース (kind === "symlink") だけ文言で区別する。working tree では dangling / 循環、
+ * snapshot tree では blob が target path 文字列でしかないことを指す。
+ */
+const rowTitle = computed(() => {
+  if (props.kind === "submodule") return "submodule (not previewable)";
+  if (props.kind === "symlink") return isSnapshot.value ? "symlink" : "broken symlink";
+  if (props.isSymlink === true) return "symlink";
+  return undefined;
+});
 
 /** material-icon-theme のアイコン URL */
 const iconUrl = computed(() => {
@@ -364,17 +412,18 @@ watch(
 );
 
 /**
- * revealVersion 変化で worktreeStore.selectedRelPath を見て、自分が target または target の祖先なら処理。
- * 祖先の場合は展開するだけ。子は v-for でマウント後に自分の revealVersion watch (immediate)
+ * reveal 要求 (worktreeStore.revealRequest) の対象が自分または自分の配下なら処理する。
+ * 祖先の場合は展開するだけ。子は v-for でマウント後に自分の revealRequest watch (immediate)
  * で target を処理する再帰チェーン。
  *
  * ルートノード（path === ""）は `isDescendantOf` で worktree 内の任意 target の祖先扱い。
  *
- * absolute 選択中 (worktree 外) は selectedRelPath が undefined になり reveal は no-op。
- * ツリーが持っていないパスをマッチさせる経路を型レベルで排除する。
+ * 要求元は selection 由来 (select*Path) と選択を動かさない tree reveal (revealRelPath) の
+ * 2 経路で、どちらも request の relPath が対象。absolute 選択中 (worktree 外) は request が
+ * undefined に落ち、ツリーが持っていないパスをマッチさせる経路を構造的に排除する。
  */
 async function handleReveal() {
-  const targetPath = worktreeStore.selectedRelPath;
+  const targetPath = worktreeStore.revealRequest?.relPath;
   if (targetPath === undefined) return;
   // 自身がターゲットの場合、展開してスクロールインビュー
   if (targetPath === props.path) {
@@ -402,7 +451,7 @@ async function handleReveal() {
 }
 
 watch(
-  () => worktreeStore.revealVersion,
+  () => worktreeStore.revealRequest,
   () => {
     void handleReveal();
   },
@@ -433,6 +482,7 @@ function onContextMenu(event: MouseEvent) {
   emit("contextMenu", {
     anchorEl: event.currentTarget,
     relPath: props.path,
+    realTarget: props.realTarget,
     x: event.clientX,
     y: event.clientY,
   });
@@ -454,7 +504,7 @@ function onContextMenu(event: MouseEvent) {
         isInertLeaf ? 'cursor-not-allowed text-foreground-muted' : '',
       ]"
       :style="{ paddingLeft: `${depth * 16 + 4}px` }"
-      :title="kind === 'submodule' ? 'submodule (not previewable)' : undefined"
+      :title="rowTitle"
       @click="toggle"
       @contextmenu="onContextMenu"
     >
@@ -467,12 +517,16 @@ function onContextMenu(event: MouseEvent) {
       <!-- ファイル用のスペーサー -->
       <span v-else class="size-4 shrink-0" />
 
-      <img
-        :src="iconUrl"
-        class="size-4 shrink-0"
-        :class="isIgnored === true ? 'grayscale' : ''"
-        alt=""
-      />
+      <span class="relative flex size-4 shrink-0">
+        <img :src="iconUrl" class="size-4" :class="isIgnored === true ? 'grayscale' : ''" alt="" />
+        <!-- symlink バッジ。実体の種別でアイコン自体が決まる（dir symlink はフォルダアイコン）
+             ため、「実体への転送」は重ね表示でしか表現できない。Finder の alias バッジと同じく
+             行の hover / 選択色には追従せず自前の面を持つ（背景に溶けると矢印が読めない） -->
+        <IconLucideCornerUpRight
+          v-if="isSymlink === true"
+          class="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-background text-info"
+        />
+      </span>
       <span class="truncate">{{ name }}</span>
     </button>
 
@@ -491,6 +545,8 @@ function onContextMenu(event: MouseEvent) {
         :name="child.name"
         :path="joinPath(path, child.name)"
         :kind="child.kind"
+        :is-symlink="child.isSymlink"
+        :real-target="child.realTarget"
         :is-ignored="child.isIgnored"
         :git-change="child.gitChange"
         :git-statuses="gitStatuses"

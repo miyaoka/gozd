@@ -10,6 +10,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -67,9 +68,93 @@ describe("FSOps", () => {
     expect(result.notFound).toBe(false);
     expect(result.entries).toEqual([
       { name: "file.txt", type: "file", isIgnored: false },
-      { name: "link", type: "symlink", isIgnored: false },
+      {
+        name: "link",
+        type: "symlink",
+        realTarget: {
+          type: "file",
+          absPath: join(realpathSync(dir), "file.txt"),
+          relPath: "file.txt",
+        },
+        isIgnored: false,
+      },
       { name: "subdir", type: "directory", isIgnored: false },
     ]);
+  });
+
+  test("ディレクトリへの symlink は realTarget.type: 'directory' を併記する", async () => {
+    const dir = makeTempDir();
+    mkdirSync(join(dir, "subdir"));
+    symlinkSync(join(dir, "subdir"), join(dir, "dirlink"));
+    const result = await readDir(dir, "");
+    expect(result.entries[0]?.realTarget).toEqual({
+      type: "directory",
+      absPath: join(realpathSync(dir), "subdir"),
+      relPath: "subdir",
+    });
+  });
+
+  test("dir 外を指す symlink は realTarget.relPath 不在で返る", async () => {
+    const dir = makeTempDir();
+    const outside = makeTempDir();
+    writeFileSync(join(outside, "outer.txt"), "x");
+    symlinkSync(join(outside, "outer.txt"), join(dir, "outlink"));
+    const result = await readDir(dir, "");
+    expect(result.entries[0]?.realTarget).toEqual({
+      type: "file",
+      absPath: join(realpathSync(outside), "outer.txt"),
+      relPath: undefined,
+    });
+  });
+
+  test("辿れない symlink は realTarget 不在で返る", async () => {
+    const dir = makeTempDir();
+    symlinkSync(join(dir, "missing.txt"), join(dir, "dangling"));
+    symlinkSync(join(dir, "loop"), join(dir, "loop"));
+    const result = await readDir(dir, "");
+    expect(result.entries).toEqual([
+      { name: "dangling", type: "symlink", realTarget: undefined, isIgnored: false },
+      { name: "loop", type: "symlink", realTarget: undefined, isIgnored: false },
+    ]);
+  });
+
+  test("symlink 配下はリンク越しに列挙でき、entry 自身が link でなくても realTarget を持つ", async () => {
+    const dir = makeTempDir();
+    mkdirSync(join(dir, "subdir", "nested"), { recursive: true });
+    writeFileSync(join(dir, "subdir", "inner.txt"), "x");
+    symlinkSync(join(dir, "subdir"), join(dir, "dirlink"));
+    const result = await readDir(dir, "dirlink");
+    expect(result.notFound).toBe(false);
+    expect(result.entries).toEqual([
+      {
+        name: "inner.txt",
+        type: "file",
+        realTarget: {
+          type: "file",
+          absPath: join(realpathSync(dir), "subdir", "inner.txt"),
+          relPath: join("subdir", "inner.txt"),
+        },
+        isIgnored: false,
+      },
+      {
+        name: "nested",
+        type: "directory",
+        realTarget: {
+          type: "directory",
+          absPath: join(realpathSync(dir), "subdir", "nested"),
+          relPath: join("subdir", "nested"),
+        },
+        isIgnored: false,
+      },
+    ]);
+  });
+
+  test("link を経由しない列挙は realTarget を持たない（実体とツリー上のパスが一致）", async () => {
+    const dir = makeTempDir();
+    mkdirSync(join(dir, "subdir"));
+    writeFileSync(join(dir, "subdir", "inner.txt"), "x");
+    const result = await readDir(dir, "subdir");
+    expect(result.entries).toEqual([{ name: "inner.txt", type: "file", isIgnored: false }]);
   });
 
   test("空ディレクトリは空配列", async () => {

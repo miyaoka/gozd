@@ -55,6 +55,7 @@ export type {
 export type { EchoRequest, EchoResponse } from "./echo";
 export type {
   FsReadDirEntry,
+  FsReadDirRealTarget,
   FsReadDirRequest,
   FsReadDirResponse,
   FsReadFileAbsoluteRequest,

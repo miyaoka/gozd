@@ -23,9 +23,25 @@ export interface FsReadDirRequest {
   path: string;
 }
 
+/** entry の実体の在り処。entry 自身の情報（name / type）と実体の情報を分けて持つことで、
+ * renderer は「symlink であること」と「実体としてどう振る舞うか」を独立に決められる。 */
+export interface FsReadDirRealTarget {
+  /** 実体の種別（"file" / "directory"） */
+  type: string;
+  /** 実体の絶対パス（realpath。chain 全体を解決済み） */
+  absPath: string;
+  /** 実体が readDir の `dir` 配下にある場合の dir 相対パス。dir 外を指すなら未設定。
+   * 判定は realpath 同士で行うため、dir 自身が symlink 経由のパスでも取り違えない。 */
+  relPath?: string;
+}
+
 export interface FsReadDirEntry {
   name: string;
   type: string;
+  /** 実体の在り処が entry のパス（`dir` + `path` + `name`）と食い違うときだけ設定する。
+   * 該当するのは symlink 自身と、symlink 越しに列挙された entry（親 dir が link）の 2 経路。
+   * 辿れない dangling / 循環（ELOOP）は未設定で「実体なし」を表す。 */
+  realTarget?: FsReadDirRealTarget;
   /** gitignore で無視されているか。dir が git repo でない場合は常に false。 */
   isIgnored: boolean;
 }

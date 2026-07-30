@@ -5,18 +5,19 @@
 // - 不在 / ディレクトリは throw ではなく正常応答（notFound / isDirectory）で返す。
 //   renderer は削除ノードとして扱い、エラートーストを出さない規律
 
-import type { FileReadResult } from "@gozd/rpc";
+import type { FileReadResult, FsReadDirRealTarget } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import {
   lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, isAbsolute } from "node:path";
+import { dirname, isAbsolute, join, sep } from "node:path";
 import { checkIgnore } from "../git/gitOps";
 import { toWireBytes } from "../wireBytes";
 import { resolveContained } from "./pathContainment";
@@ -24,6 +25,8 @@ import { resolveContained } from "./pathContainment";
 interface FsEntry {
   name: string;
   type: string;
+  /** 実体の在り処（FsReadDirRealTarget の契約） */
+  realTarget?: FsReadDirRealTarget;
   isIgnored: boolean;
 }
 
@@ -121,9 +124,31 @@ export async function readDir(dir: string, path: string): Promise<FsReadDirResul
   // `.git` (directory / gitlink file 両方) はツリーから完全一致で除外する（docs/filer.md）。
   // gitignore 経路とは独立。checkIgnore に渡す前に落とし、無駄な git 呼び出しも省く
   const dirents = listed.value.filter((entry) => entry.name !== ".git");
+  // 実体の在り処を判定する基準。dir / 列挙対象それぞれの realpath を 1 回だけ引く。
+  // - dirRealPath: relPath（dir 相対）の算出基準
+  // - listRealPath: 列挙対象自身が symlink 越しか（!== dir + path）と、entry の実体パスの基準
+  const dirRealPath = realpathSync(dir);
+  const listRealPath = realpathSync(target);
   const typed = dirents.map((entry) => {
-    const type = entry.isSymbolicLink() ? "symlink" : entry.isDirectory() ? "directory" : "file";
-    return { name: entry.name, type };
+    // symlink は lstat 由来の種別 ("symlink") を保ったまま、辿った結果を realTarget に載せる。
+    // これが無いと renderer は dir symlink を leaf に潰すしかない。
+    // 辿れない dangling / 循環 (ELOOP) は realTarget 不在で「実体なし」を表現する。
+    if (entry.isSymbolicLink()) {
+      return {
+        name: entry.name,
+        type: "symlink",
+        realTarget: resolveRealTarget(join(listRealPath, entry.name), dirRealPath),
+      };
+    }
+    const type = entry.isDirectory() ? "directory" : "file";
+    // 列挙対象が symlink 越し（`.claude/skills/x` が link で、その配下を見ている等）なら、
+    // entry 自身が link でなくても実体はツリー上のパスとは別の場所にある。
+    if (listRealPath === join(dirRealPath, path)) return { name: entry.name, type };
+    return {
+      name: entry.name,
+      type,
+      realTarget: resolveRealTarget(join(listRealPath, entry.name), dirRealPath),
+    };
   });
   // gitignore 判定は dir（worktree root）からの相対パスで行う
   const prefix = path === "" ? "" : path.endsWith("/") ? path : `${path}/`;
@@ -135,6 +160,30 @@ export async function readDir(dir: string, path: string): Promise<FsReadDirResul
     .map((entry) => ({ ...entry, isIgnored: ignored.has(prefix + entry.name) }))
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   return { entries, notFound: false };
+}
+
+/**
+ * 実体の在り処を返す。辿れない（dangling / 循環）場合は undefined。
+ *
+ * `relPath` の包含判定は realpath 同士で行う。`dirRealPath` を使わず入力の dir で比較すると、
+ * dir 自身が symlink 経由のパス（macOS の `$TMPDIR` 等）のときに「実体は dir 配下なのに外部扱い」
+ * になり、renderer が worktree 相対で開ける実体を absolute へ倒してしまう。
+ */
+function resolveRealTarget(
+  entryPath: string,
+  dirRealPath: string,
+): FsReadDirRealTarget | undefined {
+  const resolved = tryCatch(() => realpathSync(entryPath));
+  if (!resolved.ok) return undefined;
+  const absPath = resolved.value;
+  const followed = tryCatch(() => statSync(absPath));
+  if (!followed.ok) return undefined;
+  const prefix = dirRealPath.endsWith(sep) ? dirRealPath : `${dirRealPath}${sep}`;
+  return {
+    type: followed.value.isDirectory() ? "directory" : "file",
+    absPath,
+    relPath: absPath.startsWith(prefix) ? absPath.slice(prefix.length) : undefined,
+  };
 }
 
 /** 共通の file 読み取り処理。directory / not-found / binary 検出を一括で扱う */

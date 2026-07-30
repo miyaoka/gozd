@@ -92,7 +92,7 @@ working tree の symlink は「link であること」と「実体としてど�
 - main の `readDir` は entry 自身の種別（`type`、lstat 由来）に加えて、**実体の在り処**を
   `realTarget`（`type` / `absPath` / `dir` 配下なら `relPath`）として併記する。載るのは実体が
   entry のパスと食い違うときだけで、該当経路は symlink 自身と「symlink 越しに列挙された entry」
-  （親ディレクトリが link）の 2 つ。辿れない dangling / 循環（ELOOP）は `realTarget` 不在で
+  （親ディレクトリが link）の 2 つ。辿れない link（dangling / 循環 / 中間成分が非ディレクトリ）は `realTarget` 不在で
   「実体なし」を表す
 - `relPath` の包含判定は realpath 同士で行う。worktree dir 自身が symlink 経由のパスでも
   「実体は worktree 配下なのに外部扱い」にならない

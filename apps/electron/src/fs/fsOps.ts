@@ -165,26 +165,33 @@ export async function readDir(dir: string, path: string): Promise<FsReadDirResul
 /**
  * 列挙経路の失敗を「削除済みノード」と「真の読み取りエラー」に振り分ける判定の SSOT。
  *
- * 対象がディレクトリとして存在するかを **失敗後に** 再確認する。不在 (ENOENT) / ディレクトリで
- * なくなった (ENOTDIR: 削除後に同名ファイルへ置換) なら削除済みノードとして notFound を返す。
- * 事前チェックではなく失敗後 recheck にすることで、存在チェックと操作の隙に削除される TOCTOU race
- * を避ける。存在するディレクトリでの失敗 (permission 等) は真の読み取りエラーなので rethrow して
- * 500 にする。
+ * 対象がディレクトリとして存在するかを **失敗後に** 再確認する。事前チェックではなく失敗後 recheck に
+ * することで、存在チェックと操作の隙に削除される TOCTOU race を避ける。分岐は 3 つ:
+ *
+ * - 再確認が成功してディレクトリでない: 同名ファイルへ置換された削除済みノードとして notFound
+ * - 再確認が成功してディレクトリのまま: 真の読み取りエラー (permission 等) なので rethrow して 500
+ * - 再確認自体が失敗: 辿れない系 (削除 / 循環 / 非ディレクトリ化) なら notFound、それ以外
+ *   (permission 等) は rethrow。notFound に倒すと権限の問題が「削除された」として UI に出て原因が消える
  */
 function recheckMissingDir(target: string, error: unknown): FsReadDirResult {
   const recheck = tryCatch(() => statSync(target));
-  if (!recheck.ok || !recheck.value.isDirectory()) {
+  if (recheck.ok) {
+    if (recheck.value.isDirectory()) throw error;
     return { entries: [], notFound: true };
   }
-  throw error;
+  // recheck 自身の失敗も分類する。辿れない系 (削除 / 循環 / 非ディレクトリ化) 以外
+  // (permission 等) を notFound に倒すと、権限の問題が「削除された」として UI に出て
+  // 元の error も消える
+  if (!isUntraversable(recheck.error)) throw error;
+  return { entries: [], notFound: true };
 }
 
 /**
  * dirent 1 件を entry（name / type / realTarget）に組み立てる。
  *
  * symlink は lstat 由来の種別 ("symlink") を保ったまま、辿った結果を realTarget に載せる。
- * これが無いと renderer は dir symlink を leaf に潰すしかない。辿れない dangling / 循環 (ELOOP) は
- * realTarget 不在で「実体なし」を表現する。
+ * これが無いと renderer は dir symlink を leaf に潰すしかない。辿れない link は realTarget 不在で
+ * 「実体なし」を表現する（分類は resolveRealTarget）。
  *
  * 非 symlink の entry は `listRealPath` が canonical であることから実体パスが確定するため、
  * realpath / stat を引き直さない（entry 数ぶんの syscall を避けるだけでなく、readdir と stat の
@@ -213,13 +220,49 @@ function buildEntry(
   };
 }
 
-/** symlink を辿って実体の在り処を返す。辿れない（dangling / 循環）場合は undefined */
+/**
+ * symlink を辿って実体の在り処を返す。辿れない場合は undefined。
+ *
+ * dangling (ENOENT) / 循環 (ELOOP) / 中間成分が非ディレクトリ (ENOTDIR) は symlink の正常な
+ * 壊れ方で、renderer も `realTarget` 不在を「実体なし」として表示に使うため無音で返す。それ以外
+ * (permission 等) は「実体なし」と区別が付かないまま握り潰されると link 行が壊れて見える原因を
+ * 追えなくなるので観察ログを残す。
+ */
 function resolveRealTarget(linkPath: string, dirRealPath: string): FsReadDirRealTarget | undefined {
   const resolved = tryCatch(() => realpathSync(linkPath));
-  if (!resolved.ok) return undefined;
+  if (!resolved.ok) {
+    logUnresolvedLink(linkPath, undefined, resolved.error);
+    return undefined;
+  }
   const followed = tryCatch(() => statSync(resolved.value));
-  if (!followed.ok) return undefined;
+  if (!followed.ok) {
+    logUnresolvedLink(linkPath, resolved.value, followed.error);
+    return undefined;
+  }
   return toRealTarget(resolved.value, followed.value.isDirectory(), dirRealPath);
+}
+
+/** 実体を解決できなかった失敗のうち、symlink の正常な壊れ方でないものだけ観察ログに残す。
+ * 発生源の行を特定できるよう link 自身の path を常に出す */
+function logUnresolvedLink(
+  linkPath: string,
+  resolvedPath: string | undefined,
+  error: unknown,
+): void {
+  if (isUntraversable(error)) return;
+  console.error(
+    `[resolveRealTarget] resolve failed path=${linkPath} resolved=${resolvedPath ?? "(unresolved)"} error=${error}`,
+  );
+}
+
+/**
+ * path を辿れない系の失敗か。UI は「実体なし」/「削除ノード」で表現できるので、無音で扱ってよい
+ * 集合の SSOT にする（readDir の recheck と link 解決で集合が割れると、同じ壊れた link が経路に
+ * よってトーストと無音に分かれる）。非 Error が throw されても壊れない。
+ */
+function isUntraversable(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === "ENOENT" || code === "ELOOP" || code === "ENOTDIR";
 }
 
 /**

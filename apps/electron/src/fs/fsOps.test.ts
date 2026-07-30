@@ -195,6 +195,29 @@ describe("FSOps", () => {
     chmodSync(join(dir, "locked"), 0o755);
   });
 
+  test("循環 symlink のディレクトリはエラーではなく notFound を返す", async () => {
+    // 辿れない link は削除ノードと同じ扱い。ここで throw に倒すと、壊れた link 1 本で
+    // 親の fsChange のたびにエラートーストが出続ける
+    const dir = makeTempDir();
+    symlinkSync(join(dir, "loop"), join(dir, "loop"));
+    const result = await readDir(dir, "loop");
+    expect(result.notFound).toBe(true);
+  });
+
+  test("親ディレクトリの権限で recheck が失敗する場合も notFound ではなく throw する", async () => {
+    // recheck 自身の失敗を notFound に倒すと、権限の問題が「削除された」として UI に出る
+    const dir = makeTempDir();
+    mkdirSync(join(dir, "locked", "sub"), { recursive: true });
+    chmodSync(join(dir, "locked"), 0o000);
+    try {
+      // 他の rejects と違い await するのは finally との順序のため（await が無いと assertion の
+      // 決着前に chmod 復帰が走る）。復帰しないと子を持つこの dir は afterEach の rmSync ごと落ちる
+      await expect(readDir(dir, "locked/sub")).rejects.toThrow(/EACCES/);
+    } finally {
+      chmodSync(join(dir, "locked"), 0o755);
+    }
+  });
+
   test("dir 範囲外は拒否される", async () => {
     const dir = makeTempDir();
     expect(readDir(dir, "../..")).rejects.toThrow(/outsideDir/);

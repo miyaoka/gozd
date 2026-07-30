@@ -38,7 +38,7 @@ export interface FsReadDirEntry {
   type: "file" | "directory" | "symlink";
   /** 実体の在り処が entry のパス（`dir` + `path` + `name`）と食い違うときだけ設定する。
    * 該当するのは symlink 自身と、symlink 越しに列挙された entry（親 dir が link）の 2 経路。
-   * 辿れない dangling / 循環（ELOOP）は未設定で「実体なし」を表す。 */
+   * 辿れない link（dangling / 循環 / 中間成分が非ディレクトリ）は未設定で「実体なし」を表す。 */
   realTarget?: FsReadDirRealTarget;
   /** gitignore で無視されているか。dir が git repo でない場合は常に false。 */
   isIgnored: boolean;

@@ -147,7 +147,7 @@ working tree の symlink は「link であること」と「実体としてど�
 
 - 動詞 `Select` は filer のクリック操作の再現を指す。file 行の click は選択 → preview を開き、folder 行の click は展開なので、kind 別の意味差は filer 側に既にあり、実装（file は preview 差し替え / folder はツリーだけ移動）とそのまま対応する
 - `original` は「link を経由しない元の場所」。link 経由の行はバッジと色が「実体は別の場所にある」ことを示しているため、この語は行という文脈の中で一意に読める（`man ln` も リンク先を "the original copy" と呼ぶ）
-- filer の click では folder 行は選択を発生させず展開だけを行う（`select` emit は file 行のみ）。したがって `Select original folder` も selection を動かさず、ツリーの展開 + スクロールだけを行う。ここを `selectRelPath` に倒すと preview がディレクトリ表示に落ちる（markdown link がディレクトリを指したときに起きる状態と同じ。`resolveMarkdownLink` は stat せず字句解決するため selection にディレクトリが入り得る）
+- filer の click では folder 行は選択を発生させず展開だけを行う。したがって `Select original folder` も selection を動かさず、ツリーの展開 + スクロールだけを行う。ここを `selectRelPath` に倒すと preview がディレクトリ表示に落ちる（markdown link がディレクトリを指したときに起きる状態と同じ。`resolveMarkdownLink` は stat せず字句解決するため selection にディレクトリが入り得る）
 - 両方を同時に出さないのは、「どちらを使うべきか」の判断をユーザーに預けないため。実体の在り処で 1 つに定まる
 
 ## 削除ファイルの表示

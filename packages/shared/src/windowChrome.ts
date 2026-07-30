@@ -25,6 +25,16 @@ export const TITLEBAR_HEIGHT = 36;
 export const MIN_WINDOW_WIDTH = 716;
 
 /**
+ * main window の最小高 (px)。
+ *
+ * タイトルバー帯と、中央カラムが Terminal 最小高 + ハンドル + GitGraph 最小高を置ける下限。
+ * これ未満では GitGraph の描画高が 0 になり、その縦ハンドルも掴めなくなる。
+ *
+ * 内訳の SSOT は renderer の `features/layout/layoutSizes.ts`（`layoutSizes.test.ts` が検証）。
+ */
+export const MIN_WINDOW_HEIGHT = 234;
+
+/**
  * undock child window の frame 名 prefix。
  *
  * renderer (ChildWindow.vue の `window.open` 第 2 引数) と main

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, screen, shell, type WebContents } from "electron";
 import {
   CHILD_WINDOW_FRAME_PREFIX,
+  MIN_WINDOW_HEIGHT,
   MIN_WINDOW_WIDTH,
   TITLEBAR_HEIGHT,
   tryCatch,
@@ -154,8 +155,9 @@ function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
     // 復元値も下限を通す（永続 frame は下限導入前に保存されたものが混ざる）
     width: Math.max(MIN_WINDOW_WIDTH, restored?.width ?? DEFAULT_WINDOW_SIZE.width),
-    height: restored?.height ?? DEFAULT_WINDOW_SIZE.height,
+    height: Math.max(MIN_WINDOW_HEIGHT, restored?.height ?? DEFAULT_WINDOW_SIZE.height),
     minWidth: MIN_WINDOW_WIDTH,
+    minHeight: MIN_WINDOW_HEIGHT,
     // x / y は undefined ならディスプレイ中央配置（Electron デフォルト）
     x: restored?.x,
     y: restored?.y,

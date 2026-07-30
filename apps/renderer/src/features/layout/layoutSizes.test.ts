@@ -1,4 +1,4 @@
-import { MIN_WINDOW_WIDTH, TITLEBAR_HEIGHT } from "@gozd/shared";
+import { MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, TITLEBAR_HEIGHT } from "@gozd/shared";
 import { describe, expect, it } from "bun:test";
 import {
   centerColumnWidth,
@@ -143,17 +143,25 @@ describe("fitGitGraphHeight", () => {
     );
   });
 
-  it("Terminal の最小高すら入らない高さでは 0 を返す", () => {
-    expect(fitGitGraphHeight(128, TITLEBAR_HEIGHT + TERMINAL_MIN_HEIGHT)).toBe(0);
-  });
-
   it("希望高は破壊しないため、ウィンドウ高が戻れば元の高さに復元する", () => {
     const desired = 300;
     expect(fitGitGraphHeight(desired, 400)).toBeLessThan(desired);
     expect(fitGitGraphHeight(desired, 800)).toBe(desired);
   });
 
-  it("drag の下限は描画に使わない（GitGraph は 0 まで潰れる）", () => {
-    expect(fitGitGraphHeight(GIT_GRAPH_MIN_HEIGHT, 100)).toBe(0);
+  it("Terminal の最小高すら入らない高さでは 0 を返す（ウィンドウ下限で到達不能な退化枝）", () => {
+    expect(fitGitGraphHeight(128, TITLEBAR_HEIGHT + TERMINAL_MIN_HEIGHT)).toBe(0);
+  });
+});
+
+describe("MIN_WINDOW_HEIGHT", () => {
+  it("GitGraph を最小高で描画できる下限になっている", () => {
+    expect(fitGitGraphHeight(GIT_GRAPH_MIN_HEIGHT, MIN_WINDOW_HEIGHT)).toBe(GIT_GRAPH_MIN_HEIGHT);
+  });
+
+  it("1px 低いと最小高を割る（下限が過大でない）", () => {
+    expect(fitGitGraphHeight(GIT_GRAPH_MIN_HEIGHT, MIN_WINDOW_HEIGHT - 1)).toBeLessThan(
+      GIT_GRAPH_MIN_HEIGHT,
+    );
   });
 });

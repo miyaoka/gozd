@@ -172,6 +172,9 @@ const desiredGitGraphHeight = ref(128);
  * 中央カラムに残す幅。Preview 表示中は Preview の取り分も予約する。
  * 予約しないと列幅が Terminal 最小幅まで詰められた時点で Preview の描画幅が 0 になり、
  * 見えない面へフォーカスだけが移る。
+ *
+ * 列ハンドルの中央カラム側 min もこの値を使う。ドラッグ側が予約より小さい min を持つと、
+ * 描画が予約で頭打ちのまま希望幅だけが増え、Preview を閉じた瞬間に列幅が飛ぶ。
  */
 const reservedCenterWidth = computed(
   () => TERMINAL_MIN_WIDTH + (previewStore.isOpen ? PREVIEW_MIN_WIDTH : 0),
@@ -265,7 +268,7 @@ const { raise } = useSurface(previewPopoverRef, {
         v-model:before-size="desiredSidebarWidth"
         direction="horizontal"
         :before-min-size="SIDEBAR_MIN_WIDTH"
-        :after-min-size="TERMINAL_MIN_WIDTH"
+        :after-min-size="reservedCenterWidth"
         :get-before-size="getSidebarWidth"
         :get-after-size="getTerminalWidth"
       />
@@ -295,7 +298,7 @@ const { raise } = useSurface(previewPopoverRef, {
       <ResizeHandle
         v-model:after-size="desiredNavigatorWidth"
         direction="horizontal"
-        :before-min-size="TERMINAL_MIN_WIDTH"
+        :before-min-size="reservedCenterWidth"
         :after-min-size="NAVIGATOR_MIN_WIDTH"
         :get-before-size="getTerminalWidth"
         :get-after-size="getNavigatorWidth"

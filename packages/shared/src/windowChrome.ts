@@ -14,14 +14,13 @@ export const TITLEBAR_HEIGHT = 36;
 /**
  * main window の最小幅 (px)。
  *
- * renderer の横並びレイアウト（Sidebar | H | 中央カラム | H | Navigator）が最小列幅でも
- * 「Terminal 最小幅 + Preview 最小幅」を中央カラムに置ける下限。
- * = SIDEBAR_MIN(120) + H(8) + TERMINAL_MIN(200) + PREVIEW_MIN(200) + H(8) + NAVIGATOR_MIN(180)
+ * renderer の横並びレイアウト（Sidebar | ハンドル | 中央カラム | ハンドル | Navigator）が
+ * 最小列幅とハンドル 2 本を置き、中央カラムに「Terminal 最小幅 + Preview 最小幅」を
+ * 残せる下限。これ未満では Preview popover の描画幅が最小幅を割る（popover は
+ * Sidebar のリサイズハンドルを覆わない上限で切られるため）。
  *
- * これ未満のウィンドウでは Preview popover の描画幅が 0 に潰れる（popover は中央カラムに
- * Terminal 最小幅を残す上限で切られ、Sidebar のリサイズハンドルを覆わないため）。
- * 内訳の SSOT は renderer の `features/layout/layoutWidths.ts` で、同値であることは
- * `layoutWidths.test.ts` が検証する。
+ * 内訳の SSOT は renderer の `features/layout/layoutSizes.ts` で、この値が必要十分な
+ * 下限であること（1px 狭いと最小幅を割ること）は `layoutSizes.test.ts` が検証する。
  */
 export const MIN_WINDOW_WIDTH = 716;
 

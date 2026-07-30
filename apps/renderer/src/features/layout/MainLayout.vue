@@ -7,16 +7,18 @@
 - 中央カラム: Terminal（上、flex-1）→ GitGraphPane（下、固定高さ）の上下分割
 - NavigatorPane: Filer（上）+ Changes（下）の上下分割
 - Preview は Popover API でトップレイヤーに配置し、レイアウトフローから分離。中央カラムの
-  右端に右端を揃えて左側へ展開する（開閉は `preview.toggle`。常設の開閉ボタンは持たない）
+  右端に右端を揃えて左側へ展開する（開閉は `preview.toggle`（Cmd+J / コマンドパレット）で、
+  常設の開閉ボタンは持たない）
 
 ## リサイズ
 
-各ハンドルは隣接する左右（上下）のペインだけを連動してリサイズする。
-ハンドルより遠いペインには影響しない。
-
 幅・高さの ref はユーザーがドラッグで決めた**希望値**で、描画にはウィンドウサイズへ収めた
-派生値（`layoutWidths.ts`）を使う。縮小のたびに ref を書き戻すと希望値が失われ、ウィンドウを
+派生値（`layoutSizes.ts`）を使う。縮小のたびに ref を書き戻すと希望値が失われ、ウィンドウを
 戻しても元のレイアウトに復元できない。ドラッグの起点も描画値（DOM 実測 / 派生値）で取る。
+
+各ハンドルが希望値を書き換えるのは隣接する左右（上下）のペインだけ。ただし描画値は
+ウィンドウサイズの予算からの派生なので、他のペインが希望値より圧縮されている状態では
+空いた分がそちらの復元に回る。この状態ではドラッグ量と境界の移動量は一致しない。
 
 ### Preview popover の被覆境界
 
@@ -30,6 +32,8 @@ Preview popover は列の境界にあるハンドルを覆わない。
 - popover の左端が Sidebar のハンドルを越えないよう、描画幅を「中央カラム幅 − Terminal
   最小幅」で切る（`fitPreviewWidth`）。ここで下限による押し戻しをすると幾何的に入らない幅が
   描画へ流れ、ハンドルを覆う
+- 表示中は中央カラムに Preview の取り分を予約し、列幅（描画値）を譲らせる。予約しないと
+  上の上限が 0 まで下がり、見えない面へフォーカスだけが移る状態を作れてしまう
 
 この契約は Preview に限る。中央カラム**内側**のハンドル（GitGraph の上下分割 / Terminal の
 分割）は被覆範囲にあり、Preview 表示中は位置次第で掴めない。右ドックの transient パネル
@@ -39,7 +43,6 @@ Preview popover は列の境界にあるハンドルを覆わない。
 </doc>
 
 <script setup lang="ts">
-import { TITLEBAR_HEIGHT } from "@gozd/shared";
 import { useWindowSize } from "@vueuse/core";
 import { computed, onUnmounted, ref, useTemplateRef, watch } from "vue";
 import { useCommandRegistry, useContextKeys } from "../../shared/command";
@@ -77,14 +80,16 @@ import { registerThemeCommand, TerminalPane } from "../terminal";
 import {
   centerColumnWidth,
   fitColumnWidths,
+  fitGitGraphHeight,
   fitPreviewWidth,
-  HANDLE_WIDTH,
+  GIT_GRAPH_MIN_HEIGHT,
   NAVIGATOR_MIN_WIDTH,
   PREVIEW_MIN_WIDTH,
   previewBeforeMinWidth,
   SIDEBAR_MIN_WIDTH,
+  TERMINAL_MIN_HEIGHT,
   TERMINAL_MIN_WIDTH,
-} from "./layoutWidths";
+} from "./layoutSizes";
 import NotificationCenterPanel from "./NotificationCenterPanel.vue";
 import NotificationToast from "./NotificationToast.vue";
 import ResizeHandle from "./ResizeHandle.vue";
@@ -152,31 +157,41 @@ onUnmounted(disposeReviveCommand);
 onUnmounted(disposeMarkdownHistoryCommands);
 onUnmounted(disposeFilerCommands);
 
-const GIT_GRAPH_MIN_HEIGHT = 40;
-const TERMINAL_MIN_HEIGHT = 150;
-
 const { width: windowWidth, height: windowHeight } = useWindowSize();
 const centerTerminalRef = useTemplateRef<HTMLElement>("centerTerminal");
 
-// ref はユーザーがドラッグで決めた「希望幅」、描画は下の computed（ウィンドウ幅に収めた
-// 派生値）を使う。縮小のたびに ref を書き戻すと希望幅が失われ、ウィンドウを戻しても
-// 復元できない
+// ref はユーザーがドラッグで決めた「希望サイズ」、描画は下の computed（ウィンドウサイズに
+// 収めた派生値）を使う。縮小のたびに ref を書き戻すと希望サイズが失われ、ウィンドウを
+// 戻しても復元できない
 const desiredSidebarWidth = ref(260);
 const desiredNavigatorWidth = ref(256);
 const desiredPreviewWidth = ref(1200);
-const gitGraphHeight = ref(128);
+const desiredGitGraphHeight = ref(128);
+
+/**
+ * 中央カラムに残す幅。Preview 表示中は Preview の取り分も予約する。
+ * 予約しないと列幅が Terminal 最小幅まで詰められた時点で Preview の描画幅が 0 になり、
+ * 見えない面へフォーカスだけが移る。
+ */
+const reservedCenterWidth = computed(
+  () => TERMINAL_MIN_WIDTH + (previewStore.isOpen ? PREVIEW_MIN_WIDTH : 0),
+);
 
 const columnWidths = computed(() =>
-  fitColumnWidths(windowWidth.value, {
-    sidebar: desiredSidebarWidth.value,
-    navigator: desiredNavigatorWidth.value,
-  }),
+  fitColumnWidths(
+    windowWidth.value,
+    { sidebar: desiredSidebarWidth.value, navigator: desiredNavigatorWidth.value },
+    reservedCenterWidth.value,
+  ),
 );
 const sidebarWidth = computed(() => columnWidths.value.sidebar);
 const navigatorWidth = computed(() => columnWidths.value.navigator);
 const terminalWidth = computed(() => centerColumnWidth(windowWidth.value, columnWidths.value));
 const previewWidth = computed(() =>
   fitPreviewWidth(desiredPreviewWidth.value, terminalWidth.value),
+);
+const gitGraphHeight = computed(() =>
+  fitGitGraphHeight(desiredGitGraphHeight.value, windowHeight.value),
 );
 
 /** ドラッグ開始時の描画幅（希望幅ではなく、いまユーザーが見ている幅を起点にする） */
@@ -227,19 +242,9 @@ function getCenterTerminalHeight(): number {
   return centerTerminalRef.value?.offsetHeight ?? TERMINAL_MIN_HEIGHT;
 }
 
-// ウィンドウ縦縮小時に gitGraphHeight をクランプ（Terminal が潰れるのを防ぐ）。
-// windowHeight はタイトルバー帯を含む renderer 全高なので、中央カラムの実高に
-// 合わせて TITLEBAR_HEIGHT を差し引く。書き換え対象 gitGraphHeight は source に含めない
-watch(
-  windowHeight,
-  (h) => {
-    const maxGitGraph = h - TITLEBAR_HEIGHT - TERMINAL_MIN_HEIGHT - HANDLE_WIDTH;
-    if (gitGraphHeight.value > maxGitGraph) {
-      gitGraphHeight.value = Math.max(GIT_GRAPH_MIN_HEIGHT, maxGitGraph);
-    }
-  },
-  { immediate: true },
-);
+/** ドラッグ開始時の描画高さ */
+const getGitGraphHeight = () => gitGraphHeight.value;
+
 const { raise } = useSurface(previewPopoverRef, {
   isOpen: () => previewStore.isOpen,
   requestClose: () => previewStore.requestClose(),
@@ -273,11 +278,12 @@ const { raise } = useSurface(previewPopoverRef, {
 
         <template v-if="repoStore.selectedIsGitRepo">
           <ResizeHandle
-            v-model:after-size="gitGraphHeight"
+            v-model:after-size="desiredGitGraphHeight"
             direction="vertical"
             :before-min-size="TERMINAL_MIN_HEIGHT"
             :after-min-size="GIT_GRAPH_MIN_HEIGHT"
             :get-before-size="getCenterTerminalHeight"
+            :get-after-size="getGitGraphHeight"
           />
           <div class="shrink-0 overflow-hidden" :style="{ height: `${gitGraphHeight}px` }">
             <GitGraphPane />

@@ -152,9 +152,9 @@ function createWindow(): BrowserWindow {
   const saved = windowStateStore.loadBounds();
   const restored = saved !== undefined && intersectsAnyDisplay(saved) ? saved : undefined;
   const window = new BrowserWindow({
-    width: restored?.width ?? DEFAULT_WINDOW_SIZE.width,
+    // 復元値も下限を通す（永続 frame は下限導入前に保存されたものが混ざる）
+    width: Math.max(MIN_WINDOW_WIDTH, restored?.width ?? DEFAULT_WINDOW_SIZE.width),
     height: restored?.height ?? DEFAULT_WINDOW_SIZE.height,
-    // renderer の列幅ポリシーが成立する下限。これ未満では Preview の描画幅が 0 に潰れる
     minWidth: MIN_WINDOW_WIDTH,
     // x / y は undefined ならディスプレイ中央配置（Electron デフォルト）
     x: restored?.x,

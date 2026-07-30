@@ -92,7 +92,7 @@ git 変更ファイルには Original / Diff / Current の3タブを表示する
 | Settings modal の設定ファイルを開くボタン     | `forceSelect`              | preview を維持（再 open） |
 | ChangesPane `View all` ボタン                 | `toggleSummary`            | -                         |
 | PreviewPane summary `Close` ボタン            | `close`                    | -                         |
-| `preview.toggle` コマンド (Cmd+J)             | `toggle`                   | 開閉反転                  |
+| `preview.toggle`（Cmd+J / コマンドパレット）  | `toggle`                   | 開閉反転                  |
 | ESC キー                                      | `close`                    | -                         |
 | Preview ヘッダの close ボタン                 | `close`                    | -                         |
 | worktree 切替 (dir 変化)                      | `close` (副作用 watch)     | -                         |

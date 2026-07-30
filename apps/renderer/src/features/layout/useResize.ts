@@ -20,7 +20,8 @@ interface UseResizeOptions {
 /**
  * ドラッグによるペインリサイズを管理する composable。
  * ハンドルの左右（上下）のペインサイズを連動して増減する。
- * delta 分を一方に加え、他方から引くことで他のペインに影響を与えない。
+ * delta 分を一方に加え、他方から引くことで、書き換える対象を隣接 2 ペインに限る
+ * （書き換えた値が描画へどう反映されるかは呼び出し側のサイズポリシー次第）。
  *
  * beforeSize / afterSize の値が undefined の場合（親がモデルをバインドしていない場合）、
  * そのペインの ref は更新しない。getBeforeSize / getAfterSize で開始サイズだけ取得する。

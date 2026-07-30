@@ -483,7 +483,7 @@ function onCodeScrolled() {
             :is-not-found="isNotFound"
             :error="displayError"
             :line-number="selectedLineNumber"
-            :reveal-version="selectPathVersion"
+            :select-path-version="selectPathVersion"
             :blame-enabled="blameEnabled"
             :editable="isEditable"
             @code-line-click="onCodeLineClick"

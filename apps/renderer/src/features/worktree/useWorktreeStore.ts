@@ -37,8 +37,9 @@ export const useWorktreeStore = defineStore("worktree", () => {
    *
    * 購読側（FileTreeItem）は本 ref だけを watch し、対象パスも request から読む（selection を
    * 別途読まないので「trigger と対象パスが同 tick で食い違う」経路が構造的に存在しない）。
-   * 同一パスの再要求が発火するのは要求ごとに新しい object を立てるためで、`seq` はその要求を
-   * ログ / デバッグで識別するための連番（発火の仕組みそのものではない）。
+   * 同一パスの再要求が発火するのは要求ごとに新しい object を立てるためで、`seq` は購読側が
+   * await を挟んだ後に「自分が処理していた要求が最新か」を判定する世代番号（FileTreeItem の
+   * `handleReveal` が消費する）。
    */
   const revealRequest = ref<{ relPath: string; seq: number }>();
   let revealSeq = 0;

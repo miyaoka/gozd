@@ -5,7 +5,7 @@
 // - 不在 / ディレクトリは throw ではなく正常応答（notFound / isDirectory）で返す。
 //   renderer は削除ノードとして扱い、エラートーストを出さない規律
 
-import type { FileReadResult, FsReadDirRealTarget } from "@gozd/rpc";
+import type { FileReadResult, FsReadDirEntry, FsReadDirRealTarget } from "@gozd/rpc";
 import { tryCatch } from "@gozd/shared";
 import type { Dirent } from "node:fs";
 import {
@@ -25,7 +25,7 @@ import { resolveContained } from "./pathContainment";
 
 interface FsEntry {
   name: string;
-  type: string;
+  type: FsReadDirEntry["type"];
   /** 実体の在り処（FsReadDirRealTarget の契約） */
   realTarget?: FsReadDirRealTarget;
   isIgnored: boolean;
@@ -113,18 +113,7 @@ export function stat(dir: string, path: string): FsStatResult {
 export async function readDir(dir: string, path: string): Promise<FsReadDirResult> {
   const target = resolveSafe(dir, path);
   const listed = tryCatch(() => readdirSync(target, { withFileTypes: true }));
-  if (!listed.ok) {
-    // 列挙に失敗。対象がディレクトリとして存在するか「失敗後」に再確認する。
-    // 不在 (ENOENT) / ディレクトリでなくなった (ENOTDIR: 削除後に同名ファイルへ置換) なら
-    // 削除済みノードとして notFound を返す。事前チェックではなく失敗後 recheck にすることで、
-    // 存在チェックと列挙の隙に削除される TOCTOU race を避ける。存在するディレクトリでの失敗
-    // (permission 等) は真の読み取りエラーなので rethrow して 500 にする
-    const recheck = tryCatch(() => statSync(target));
-    if (!recheck.ok || !recheck.value.isDirectory()) {
-      return { entries: [], notFound: true };
-    }
-    throw listed.error;
-  }
+  if (!listed.ok) return recheckMissingDir(target, listed.error);
   // 入力 path の表記揺れ（`""` / `"."` / 末尾スラッシュ）を以降へ持ち込まないよう、resolve 済みの
   // target から導出した正規化相対パスだけを使う。同一関数内に入力表記依存の判定を作らないための契約
   const relDir = relative(dir, target);
@@ -134,19 +123,30 @@ export async function readDir(dir: string, path: string): Promise<FsReadDirResul
   // 実体の在り処を判定する基準。dir / 列挙対象それぞれの realpath を 1 回だけ引く。
   // - dirRealPath: relPath（dir 相対）の算出基準
   // - listRealPath: 列挙対象自身が symlink 越しかの判定と、entry の実体パスの基準
-  const dirRealPath = realpathSync(dir);
-  const listRealPath = realpathSync(target);
+  //
+  // 列挙成功後でも対象は消え得る（branch 切替 / worktree remove / build 出力の掃除は正常系の
+  // event クラス）。readdir 失敗と同じ recheck に合流させ、消えていれば notFound で返す
+  const realPaths = tryCatch(() => ({
+    dirReal: realpathSync(dir),
+    listReal: realpathSync(target),
+  }));
+  if (!realPaths.ok) return recheckMissingDir(target, realPaths.error);
+  const { dirReal: dirRealPath, listReal: listRealPath } = realPaths.value;
   // 列挙対象自身が symlink 越しか（`.claude/skills/x` が link で、その配下を見ている等）。
   // 真なら entry 自身が link でなくても実体はツリー上のパスとは別の場所にある
   const listCrossesLink = listRealPath !== join(dirRealPath, relDir);
   const prefix = relDir === "" ? "" : `${relDir}${sep}`;
   const listing = dirents.map((entry) => {
     const built = buildEntry(entry, listRealPath, dirRealPath, listCrossesLink);
-    // gitignore 判定に渡す pathspec。link 越しの列挙では実体側の dir 相対パスを使う。
-    // link 越しのパスを渡すと git が `pathspec ... is beyond a symbolic link` で fatal になり、
-    // その列挙の全 entry の判定を落とす（checkIgnore は失敗を空集合に倒す契約）。
-    // 実体が dir 外なら当該 repo の gitignore の管轄外なので問い合わせ自体を落とす
-    const ignoreSpec = listCrossesLink ? built.realTarget?.relPath : prefix + entry.name;
+    // gitignore 判定に渡す pathspec は常に **entry 自身**を指す（判定対象は行そのもので、
+    // symlink 行ではリンク先ではなく link 自身が git の管理対象）。link 越しの列挙では
+    // entry 自身の canonical path を使う: link 越しのパスを渡すと git が
+    // `pathspec ... is beyond a symbolic link` で fatal になり、その列挙の全 entry の判定を
+    // 落とす（checkIgnore は失敗を空集合に倒す契約）。dir 外は当該 repo の gitignore の
+    // 管轄外なので問い合わせ自体を落とす
+    const ignoreSpec = listCrossesLink
+      ? relPathWithin(join(listRealPath, entry.name), dirRealPath)
+      : prefix + entry.name;
     return { built, ignoreSpec };
   });
   const ignored = await checkIgnore(
@@ -160,6 +160,23 @@ export async function readDir(dir: string, path: string): Promise<FsReadDirResul
     }))
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   return { entries, notFound: false };
+}
+
+/**
+ * 列挙経路の失敗を「削除済みノード」と「真の読み取りエラー」に振り分ける判定の SSOT。
+ *
+ * 対象がディレクトリとして存在するかを **失敗後に** 再確認する。不在 (ENOENT) / ディレクトリで
+ * なくなった (ENOTDIR: 削除後に同名ファイルへ置換) なら削除済みノードとして notFound を返す。
+ * 事前チェックではなく失敗後 recheck にすることで、存在チェックと操作の隙に削除される TOCTOU race
+ * を避ける。存在するディレクトリでの失敗 (permission 等) は真の読み取りエラーなので rethrow して
+ * 500 にする。
+ */
+function recheckMissingDir(target: string, error: unknown): FsReadDirResult {
+  const recheck = tryCatch(() => statSync(target));
+  if (!recheck.ok || !recheck.value.isDirectory()) {
+    return { entries: [], notFound: true };
+  }
+  throw error;
 }
 
 /**
@@ -217,12 +234,17 @@ function toRealTarget(
   isDirectory: boolean,
   dirRealPath: string,
 ): FsReadDirRealTarget {
-  const prefix = dirRealPath.endsWith(sep) ? dirRealPath : `${dirRealPath}${sep}`;
   return {
     type: isDirectory ? "directory" : "file",
     absPath,
-    relPath: absPath.startsWith(prefix) ? absPath.slice(prefix.length) : undefined,
+    relPath: relPathWithin(absPath, dirRealPath),
   };
+}
+
+/** realpath 済みの絶対パスが dir 配下なら dir 相対パスを返す。dir 外なら undefined */
+function relPathWithin(absPath: string, dirRealPath: string): string | undefined {
+  const prefix = dirRealPath.endsWith(sep) ? dirRealPath : `${dirRealPath}${sep}`;
+  return absPath.startsWith(prefix) ? absPath.slice(prefix.length) : undefined;
 }
 
 /** 共通の file 読み取り処理。directory / not-found / binary 検出を一括で扱う */

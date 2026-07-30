@@ -15,9 +15,6 @@ export interface FsReadFileRequest {
 export type FsReadFileResponse = FileReadResult;
 
 // ディレクトリエントリ列挙。
-//
-// type は "file" / "directory" / "symlink" / "other" の文字列。renderer 側の
-// リテラル判定をそのまま書けるよう enum 化しない。
 export interface FsReadDirRequest {
   dir: string;
   path: string;
@@ -37,7 +34,8 @@ export interface FsReadDirRealTarget {
 
 export interface FsReadDirEntry {
   name: string;
-  type: string;
+  /** entry 自身の種別（lstat 由来。link は辿らず "symlink"） */
+  type: "file" | "directory" | "symlink";
   /** 実体の在り処が entry のパス（`dir` + `path` + `name`）と食い違うときだけ設定する。
    * 該当するのは symlink 自身と、symlink 越しに列挙された entry（親 dir が link）の 2 経路。
    * 辿れない dangling / 循環（ELOOP）は未設定で「実体なし」を表す。 */

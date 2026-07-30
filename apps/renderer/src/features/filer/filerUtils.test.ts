@@ -240,11 +240,6 @@ describe("toFileEntries", () => {
     expect(result[0]?.realTarget).toBeUndefined();
   });
 
-  test("type === 'other' は kind: 'file' に倒れる", () => {
-    const result = toFileEntries([{ name: "fifo", type: "other", isIgnored: false }]);
-    expect(result[0]?.kind).toBe("file");
-  });
-
   test("空配列を処理できる", () => {
     expect(toFileEntries([])).toEqual([]);
   });

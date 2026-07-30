@@ -55,8 +55,6 @@ interface FileEntry {
  *
  * - symlink は `realTarget.type`（main が辿った先の種別）に倒し、dir symlink が leaf に潰れるのを防ぐ
  * - 辿れない symlink（dangling / 循環）は実体が無いので `symlink` のまま残す
- * - 非 symlink の未知 type（fifo / socket 等）は file 扱いにする。ツリーは表示と click 経路しか
- *   持たないため、file 以外の葉として区別する意味が無い
  */
 function fsEntryToKind(entry: FsReadDirEntry): FileEntryKind {
   if (entry.type === "symlink") {

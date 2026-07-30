@@ -416,10 +416,16 @@ watch(
  * 要求元は selection 由来 (select*Path) と選択を動かさない tree reveal (revealRelPath) の
  * 2 経路で、どちらも request の relPath が対象。absolute 選択中 (worktree 外) は request が
  * undefined に落ち、ツリーが持っていないパスをマッチさせる経路を構造的に排除する。
+ *
+ * `loadChildren` の await を挟むため、`seq` で世代保護する (loadChildren 自身の `loadSeq` と同じ
+ * 規律)。await 中に来た新しい要求が load 不要で先に完走すると、古い要求の scrollIntoView が
+ * 後から上書きしてしまう。
  */
 async function handleReveal() {
-  const targetPath = worktreeStore.revealRequest?.relPath;
-  if (targetPath === undefined) return;
+  const request = worktreeStore.revealRequest;
+  const targetPath = request?.relPath;
+  if (request === undefined || targetPath === undefined) return;
+  const isLatestRequest = () => worktreeStore.revealRequest?.seq === request.seq;
   // 自身がターゲットの場合、展開してスクロールインビュー
   if (targetPath === props.path) {
     if (isDirectory.value && !expanded.value) {
@@ -428,6 +434,7 @@ async function handleReveal() {
         await loadChildren();
       }
     }
+    if (!isLatestRequest()) return;
     buttonRef.value?.scrollIntoView({ block: "nearest" });
     return;
   }

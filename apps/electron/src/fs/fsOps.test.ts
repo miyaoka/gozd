@@ -248,26 +248,41 @@ describe("FSOps", () => {
     expect(byName.get("keep.ts")).toBe(false);
   });
 
-  test("実体が dir 外の symlink 越し列挙は gitignore を問い合わせない", async () => {
+  test("dir 外を指す entry が混ざっても、同じ列挙内の ignored 判定は壊れない", async () => {
+    // dir 外の pathspec を batch に混ぜると git が fatal して batch 全体が落ちる。dir 外は
+    // 問い合わせから外す決定が効いていれば、同居する worktree 内 entry の判定だけが残る
     const dir = makeTempDir();
     const outside = makeTempDir();
     runFixtureGit(["init"], dir);
     writeFileSync(join(dir, ".gitignore"), "*.log\n");
-    writeFileSync(join(outside, "outer.log"), "");
-    symlinkSync(outside, join(dir, "link"));
+    mkdirSync(join(dir, "real"));
+    writeFileSync(join(dir, "real", "app.log"), "");
+    writeFileSync(join(outside, "outer.txt"), "");
+    symlinkSync(join(outside, "outer.txt"), join(dir, "real", "outlink"));
+    symlinkSync(join(dir, "real"), join(dir, "link"));
     const result = await readDir(dir, "link");
-    expect(result.entries).toEqual([
-      {
-        name: "outer.log",
-        type: "file",
-        realTarget: {
-          type: "file",
-          absPath: join(realpathSync(outside), "outer.log"),
-          relPath: undefined,
-        },
-        isIgnored: false,
-      },
-    ]);
+    const byName = new Map(result.entries.map((entry) => [entry.name, entry.isIgnored]));
+    expect(byName.get("app.log")).toBe(true);
+    expect(byName.get("outlink")).toBe(false);
+    expect(result.entries.find((entry) => entry.name === "outlink")?.realTarget).toEqual({
+      type: "file",
+      absPath: join(realpathSync(outside), "outer.txt"),
+      relPath: undefined,
+    });
+  });
+
+  test("link 越し列挙の symlink 行は、リンク先ではなく行自身の path で ignored 判定する", async () => {
+    const dir = makeTempDir();
+    runFixtureGit(["init"], dir);
+    // リンク先 (logs/) は ignored、リンク自身 (real/data) は ignored ではない
+    writeFileSync(join(dir, ".gitignore"), "/logs\n");
+    mkdirSync(join(dir, "logs"));
+    mkdirSync(join(dir, "real"));
+    symlinkSync(join(dir, "logs"), join(dir, "real", "data"));
+    symlinkSync(join(dir, "real"), join(dir, "link"));
+    const result = await readDir(dir, "link");
+    expect(result.entries[0]?.name).toBe("data");
+    expect(result.entries[0]?.isIgnored).toBe(false);
   });
 
   test("末尾スラッシュ付き path でも link 越し判定が誤爆しない", async () => {

@@ -55,9 +55,10 @@ export type FileContextMenuPayload = {
   /** worktree 相対パス */
   relPath: string;
   /**
-   * 実体がツリー上のパスと食い違う行のとき、その実体の在り処 ("Open target" 項目の対象)。
+   * 実体がツリー上のパスと食い違う行のとき、その実体の在り処 (実体向け項目の対象)。
    * 既存項目 (Open / Copy file / Copy path) は relPath 側で動き続けるため両者は独立に共存する。
-   * 実体が一致する行 / 移動先を提示できない行 (dangling / worktree 外の dir 実体) では undefined。
+   * undefined になるのは実体がツリー上のパスと一致する行と、実体を解決できない行 (dangling / 循環)。
+   * worktree 外の実体では定義され (`relPath` だけ undefined)、どの項目を出すかは menu 側が決める。
    */
   realTarget?: FileRealTarget;
   /** contextmenu イベント時のマウス座標 (`position: fixed; left/top` 用) */

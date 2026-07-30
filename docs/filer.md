@@ -108,8 +108,9 @@ working tree の symlink は「link であること」と「実体としてど�
   | 名前の色（info）         | `realTarget` を持つ行        | 実体が別の場所にある    |
 
   色が link ディレクトリの下層まで続くのは、実体向けの右クリック項目が出る集合と揃えるため（色が
-  付いている行では必ず実体へのアクションが出る）。実体を解決できない dangling / 循環と、snapshot
-  tree の symlink は `realTarget` を持たないため、バッジ（+ tooltip の `broken symlink`）だけで表す
+  付いている行では必ず実体へのアクションが出る）。`realTarget` を持たない行はバッジと tooltip だけで
+  表す: working tree の dangling / 循環は `broken symlink`、snapshot tree の symlink は実体の有無を
+  語れないため `symlink`
 
 - バッジは行の hover / 選択色に追従せず自前の面を持つ（Finder の alias バッジと同じ扱い。背景に
   溶けると矢印が読めない）

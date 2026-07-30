@@ -43,7 +43,7 @@ const props = withDefaults(
     /** スクロール・ハイライト対象の行番号（1-based） */
     lineNumber?: number;
     /** 同一パス・同一行番号でもスクロールを再発火させるためのカウンタ */
-    revealVersion: number;
+    selectPathVersion: number;
     wordWrap: boolean;
     /**
      * 行番号を blame ボタンとして扱うか。false なら gutter click を無視し、
@@ -270,7 +270,7 @@ watch(
 
 /** selectPath のたびにスクロールを再発火（同一パス・同一行番号でも対応） */
 watch(
-  () => props.revealVersion,
+  () => props.selectPathVersion,
   () => {
     if (props.lineNumber !== undefined) {
       revealLine(props.lineNumber);

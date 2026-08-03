@@ -33,11 +33,14 @@ interface GitmodulesEntry {
  *
  * undefined を返すのは以下すべて。呼び出し側は「リンク先が無い」ことをユーザーに伝える責務を持つ
  * （無音で不発にしない）:
- * - `.gitmodules` が読めない（不在 / 指定 revision に無い / git 管理外）
+ * - `relPath` / `hash` が空（呼び出し側が submodule 行以外を渡した場合のガード）
+ * - `.gitmodules` を読めない（不在 / 指定 revision に無い / 権限・構文エラー等の git 実行失敗。
+ *   正常系と異常系が exit code で切り分けられないため一律ログに残す）
  * - その path に対応する記述が無い
- * - url が非 github.com host
- * - 相対 url（gitmodules(5) の `./` / `../` 形式）で、superproject の origin が未設定 or
- *   非 github.com host、あるいは解決結果が `owner/repo` の 2 成分にならない
+ * - `parseGitHubOwnerRepo` が owner / repo を取り出せない url（非 github.com host / 想定外の形式）
+ * - 相対 url（gitmodules(5) の `./` / `../` 形式）で superproject の origin を解決できない
+ *   （未設定 / 非 github.com host / git 実行失敗）、あるいは解決結果が `owner/repo` の
+ *   2 成分にならない
  */
 export async function submoduleBrowseUrl(
   dir: string,
@@ -63,11 +66,18 @@ async function readSubmoduleUrl(
 ): Promise<string | undefined> {
   if (rev !== undefined) validateRev(rev);
   const source = rev === undefined ? ["--file", ".gitmodules"] : ["--blob", `${rev}:.gitmodules`];
-  // `.gitmodules` 不在 / 指定 revision に無い / git 管理外は exit code != 0。URL 無しとして扱う
   const result = await tryCatch(
     runGit(["config", "-z", ...source, "--get-regexp", "^submodule\\."], dir),
   );
-  if (!result.ok) return undefined;
+  // `.gitmodules` 不在 / 指定 revision に無い / マッチ無しといった正常系と、権限エラーのような
+  // 異常系がどちらも exit 1 に潰れて exit code では切り分けられない。URL 無しとして扱いつつ
+  // 全失敗をログに残す（submodule 行の click でしか走らないので出力は増えない）
+  if (!result.ok) {
+    console.error(
+      `[readSubmoduleUrl] .gitmodules read failed: ${String(result.error)} dir=${dir} rev=${rev ?? "(worktree)"}`,
+    );
+    return undefined;
+  }
   for (const entry of parseGitmodulesConfig(result.value).values()) {
     if (entry.path === relPath) return entry.url;
   }
@@ -78,7 +88,16 @@ async function readSubmoduleUrl(
 async function resolveOwnerRepo(dir: string, url: string): Promise<OwnerRepo | undefined> {
   if (!isRelativeUrl(url)) return parseGitHubOwnerRepo(url);
   const origin = await repoOwnerName(dir);
-  if (origin.kind !== "ok") return undefined;
+  // `repoOwnerName` は git の失敗を一律 `unsetRemote` に潰すため、origin 未設定（正常系）と
+  // 権限エラー等の実障害が呼び出し側で区別できない。`.gitmodules` 読みと同じ失敗クラスなので
+  // kind 付きで記録する（分類の是正は shared 側の話なので、ログは caller に置く）。
+  // この分岐に来る url は相対形式だけなので credential を含み得ず、そのままログに載せてよい
+  if (origin.kind !== "ok") {
+    console.error(
+      `[resolveOwnerRepo] origin unresolved: kind=${origin.kind} dir=${dir} url=${url}`,
+    );
+    return undefined;
+  }
   return resolveRelativeOwnerRepo(origin, url);
 }
 

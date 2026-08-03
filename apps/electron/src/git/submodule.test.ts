@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseGitmodulesConfig } from "./submodule";
+import { parseGitmodulesConfig, resolveRelativeOwnerRepo } from "./submodule";
 
 /** `git config -z` の 1 レコード（`<key> LF <value>` を NUL 区切り）を組む */
 function records(...pairs: [key: string, value: string][]): string {
@@ -54,5 +54,29 @@ describe("parseGitmodulesConfig", () => {
       new Map(),
     );
     expect(parseGitmodulesConfig("")).toEqual(new Map());
+  });
+});
+
+describe("resolveRelativeOwnerRepo", () => {
+  const origin = { owner: "acme", repo: "super" };
+
+  test("`../` は superproject の repo 成分を落として同じ owner 配下を指す", () => {
+    expect(resolveRelativeOwnerRepo(origin, "../lib.git")).toEqual({ owner: "acme", repo: "lib" });
+    expect(resolveRelativeOwnerRepo(origin, "../lib")).toEqual({ owner: "acme", repo: "lib" });
+  });
+
+  test("`../../` は owner まで遡って別 owner を指せる", () => {
+    expect(resolveRelativeOwnerRepo(origin, "../../other/lib.git")).toEqual({
+      owner: "other",
+      repo: "lib",
+    });
+  });
+
+  test("`./` は下位への降下になり GitHub の owner/repo に収まらない", () => {
+    expect(resolveRelativeOwnerRepo(origin, "./lib.git")).toBeUndefined();
+  });
+
+  test("遡りすぎて 2 成分に満たない場合は解決しない", () => {
+    expect(resolveRelativeOwnerRepo(origin, "../../../lib.git")).toBeUndefined();
   });
 });

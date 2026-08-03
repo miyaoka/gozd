@@ -496,6 +496,10 @@ export interface GitSubmoduleUrlRequest {
   path: string;
   /** submodule が指す commit hash。URL に埋めて pin する */
   hash: string;
+  /** `.gitmodules` を読む revision。filer の snapshot mode が自身の commit hash を渡す。
+   * 未設定なら working tree の `.gitmodules` を読む（hash と url の出所を揃えるための指定で、
+   * path → url の対応は commit 間で変わり得る）。 */
+  rev?: string;
 }
 
 export interface GitSubmoduleUrlResponse {

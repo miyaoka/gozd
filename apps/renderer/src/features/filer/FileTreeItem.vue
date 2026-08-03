@@ -282,25 +282,35 @@ async function toggle(event: MouseEvent) {
  * repo ページを外部ブラウザで開く。
  *
  * URL の出所は `.gitmodules` で、submodule 判定に使う index の gitlink には含まれない。
- * リンクを踏むときにしか要らないため列挙時ではなく click 時に引く。解決できないケース
- * (`.gitmodules` に記述が無い / 非 github.com host) は無音の不発にせず通知で示す。
+ * リンクを踏むときにしか要らないため列挙時ではなく click 時に引く。解決できないケースは
+ * 無音の不発にせず通知で示す (解決できない条件の SSOT は main 側 `submoduleBrowseUrl`)。
+ *
+ * snapshot mode では `rev` に表示中の commit を渡し、hash と同じ revision の `.gitmodules` から
+ * url を引かせる。path → url の対応は commit 間で変わり得るので、working tree の対応を過去の
+ * hash に重ねると別 repo を指す誤リンクになる。
  */
 async function openSubmoduleRepo() {
   const dir = worktreeStore.dir;
   if (dir === undefined || props.submoduleHash === undefined) return;
-  const result = await tryCatch(
-    rpcGitSubmoduleUrl({ dir, path: props.path, hash: props.submoduleHash }),
+  const resolved = await tryCatch(
+    rpcGitSubmoduleUrl({
+      dir,
+      path: props.path,
+      hash: props.submoduleHash,
+      rev: props.snapshotHash,
+    }),
   );
-  if (!result.ok) {
-    notify.error(`Failed to resolve submodule repository: ${props.path}`, result.error);
+  if (!resolved.ok) {
+    notify.error(`Failed to resolve submodule repository: ${props.path}`, resolved.error);
     return;
   }
-  const { url } = result.value;
+  const { url } = resolved.value;
   if (url === undefined) {
     notify.info(`No GitHub repository URL for submodule: ${props.path}`);
     return;
   }
-  void rpcOpenExternal({ url });
+  const opened = await tryCatch(rpcOpenExternal({ url }));
+  if (!opened.ok) notify.error(`Failed to open ${url}`, opened.error);
 }
 
 async function loadChildren() {
@@ -509,8 +519,9 @@ function onChildSelect(childPath: string) {
  * - directory / file: menu 対象 (実 filesystem path として絶対 path を copy する)
  * - snapshot symlink: 早期 return (snapshot 時点と working tree の実体が一致しないため、
  *   working tree の絶対 path を誤って copy 可能にする UI を排除)
- * - submodule: 早期 return。行が指すのは別 repo の境界で、menu の項目はどれもツリー上の path を
- *   親 repo 内のファイルとして扱うもの
+ * - submodule: 早期 return。行が表すのは親 repo 内のファイルではなく repo 境界の外にある別 repo
+ *   への参照で、click も外部コンテキストへ出る動作に倒してある (GitHub の submodule 行が
+ *   `<a>` であるのと同じ位置づけ)。行の対象が外部である以上、この repo のファイル操作は載せない
  *
  * commitHash は navigator が `useGitGraphStore.contextMenuHash` で SSOT 解決するため payload
  * には乗せない (filer の `snapshotHash` は filer ツリー表示用なので copy 経路と分離する)。

@@ -795,7 +795,7 @@ async function handleGitLsTree(body: unknown): Promise<unknown> {
 async function handleGitSubmoduleUrl(body: unknown): Promise<unknown> {
   const req = body as GitSubmoduleUrlRequest;
   return {
-    url: await submoduleBrowseUrl(req.dir, req.path, req.hash),
+    url: await submoduleBrowseUrl(req.dir, req.path, req.hash, req.rev),
   } satisfies GitSubmoduleUrlResponse;
 }
 

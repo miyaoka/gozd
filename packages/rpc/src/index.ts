@@ -129,6 +129,8 @@ export type {
   GitShowCommitFileResponse,
   GitShowFileRequest,
   GitShowFileResponse,
+  GitSubmoduleUrlRequest,
+  GitSubmoduleUrlResponse,
   GitTreeEntry,
   GitViewerRequest,
   GitViewerResponse,

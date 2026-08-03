@@ -34,8 +34,13 @@ export interface FsReadDirRealTarget {
 
 export interface FsReadDirEntry {
   name: string;
-  /** entry 自身の種別（lstat 由来。link は辿らず "symlink"） */
-  type: "file" | "directory" | "symlink";
+  /** entry 自身の種別。lstat 由来（link は辿らず "symlink"）だが、`submodule` だけは
+   * lstat では判別できないため index の gitlink（mode `160000`）を突き合わせて決める。
+   * 未初期化の submodule は working tree 上ただの空ディレクトリで、ディスク側に手がかりが
+   * 一切無い（初期化済みかどうかで種別が変わらないよう git を SSOT に置く）。 */
+  type: "file" | "directory" | "symlink" | "submodule";
+  /** submodule が指す commit hash（index の gitlink object）。`type === "submodule"` のときだけ設定。 */
+  submoduleHash?: string;
   /** 実体の在り処が entry のパス（`dir` + `path` + `name`）と食い違うときだけ設定する。
    * 該当するのは symlink 自身と、symlink 越しに列挙された entry（親 dir が link）の 2 経路。
    * 辿れない link（dangling / 循環 / 中間成分が非ディレクトリ）は未設定で「実体なし」を表す。 */

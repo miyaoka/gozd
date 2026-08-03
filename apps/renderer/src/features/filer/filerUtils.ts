@@ -9,8 +9,8 @@ import type { GitChangeKind } from "../worktree";
  *   symlink は辿った先の種別でこの 2 つに解決される（dir symlink を leaf に潰さないため）
  * - `symlink`: 実体を持たない symlink。working tree では dangling / 循環、snapshot tree では
  *   blob 内容が target path 文字列でしかない（後者は click を no-op に倒す。FileTreeItem 側で判定）
- * - `submodule`: gitlink object (`160000`)。git show <hash>:<path> では内容を返せないため
- *   常に no-op
+ * - `submodule`: gitlink object (`160000`)。別 repo の実体を指すポインタでしかなく、親 repo の
+ *   status / gitignore で配下を語れないため展開させない葉として扱う（working / snapshot 共通）
  */
 type FileEntryKind = "file" | "directory" | "symlink" | "submodule";
 
@@ -41,6 +41,11 @@ interface FileEntry {
   /** 実体の在り処。ツリー上のパスと一致する / 実体を解決できない場合は undefined */
   realTarget?: FileRealTarget;
   /**
+   * submodule が指す commit hash。`kind === "submodule"` のときだけ持つ。
+   * working tree では index の gitlink、snapshot では tree の gitlink object。
+   */
+  submoduleHash?: string;
+  /**
    * gitignore に該当するか。working tree mode 由来のみ意味があり、snapshot mode では
    * 概念自体が存在しないため undefined になる。`isIgnored === true` のときだけ "ignored" の
    * 視覚処理を入れる比較規約 (`=== true` 明示) を呼び出し側で守る。
@@ -61,6 +66,7 @@ function fsEntryToKind(entry: FsReadDirEntry): FileEntryKind {
     if (entry.realTarget === undefined) return "symlink";
     return entry.realTarget.type === "directory" ? "directory" : "file";
   }
+  if (entry.type === "submodule") return "submodule";
   return entry.type === "directory" ? "directory" : "file";
 }
 
@@ -128,6 +134,7 @@ function toFileEntries(entries: FsReadDirEntry[]): FileEntry[] {
             relPath: e.realTarget.relPath,
             isDirectory: e.realTarget.type === "directory",
           },
+    submoduleHash: e.submoduleHash,
     isIgnored: e.isIgnored,
   }));
 }
@@ -141,6 +148,7 @@ function toFileEntriesFromGitTree(entries: GitTreeEntry[]): FileEntry[] {
     name: e.name,
     kind: gitTreeTypeToKind(e.type),
     isSymlink: e.type === "symlink",
+    submoduleHash: e.submoduleHash,
   }));
 }
 
@@ -185,14 +193,25 @@ function isDescendantOf(targetPath: string, ancestorPath: string): boolean {
   return targetPath.startsWith(ancestorPath + "/");
 }
 
-/** ディレクトリ優先 → 名前順 */
+/**
+ * ディレクトリ優先 → 名前順。
+ *
+ * submodule は展開できない葉だが、ディスク上はディレクトリが占める位置にあるため
+ * ディレクトリ群と同じ区画に置く（GitHub / VS Code の並びも同じ）。実体を解決できない
+ * symlink だけはディレクトリと断定できないので file 側に残す。
+ */
 function sortEntries(entries: FileEntry[]): FileEntry[] {
   return [...entries].sort((a, b) => {
-    const aDir = a.kind === "directory";
-    const bDir = b.kind === "directory";
+    const aDir = isDirectorySlot(a.kind);
+    const bDir = isDirectorySlot(b.kind);
     if (aDir !== bDir) return aDir ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
+}
+
+/** 並び順でディレクトリ区画に属する kind か */
+function isDirectorySlot(kind: FileEntryKind): boolean {
+  return kind === "directory" || kind === "submodule";
 }
 
 export {

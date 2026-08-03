@@ -23,6 +23,10 @@ import {
   FsWriteFileResponse,
   GitLsTreeRequest,
   GitLsTreeResponse,
+  GitSubmoduleUrlRequest,
+  GitSubmoduleUrlResponse,
+  OpenExternalRequest,
+  OpenExternalResponse,
   OpenFileRequest,
   OpenFileResponse,
 } from "@gozd/rpc";
@@ -34,6 +38,15 @@ export const rpcFsReadDir = (req: FsReadDirRequest) => rpc<FsReadDirResponse>("/
 // snapshot mode (git-graph でコミット選択中) の filer が呼ぶ。
 // hash 必須。空文字は main 側で reject される。
 export const rpcGitLsTree = (req: GitLsTreeRequest) => rpc<GitLsTreeResponse>("/git/lsTree", req);
+
+// submodule 行 click が呼ぶ。`.gitmodules` に記述が無い / 非 github.com host なら url 未設定で返る
+// （呼び出し側が「リンク先が無い」ことを通知する責務を持つ）。
+export const rpcGitSubmoduleUrl = (req: GitSubmoduleUrlRequest) =>
+  rpc<GitSubmoduleUrlResponse>("/git/submoduleUrl", req);
+
+/** URL を OS のデフォルトブラウザで開く。scheme allowlist は main 側の防壁。 */
+export const rpcOpenExternal = (req: OpenExternalRequest) =>
+  rpc<OpenExternalResponse>("/open/external", req);
 
 export const rpcFsReadFile = (req: FsReadFileRequest) =>
   rpc<FsReadFileResponse>("/fs/readFile", req);

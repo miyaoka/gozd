@@ -85,6 +85,8 @@ import type {
   GitShowFileResponse,
   GitStatusRequest,
   GitStatusResponse,
+  GitSubmoduleUrlRequest,
+  GitSubmoduleUrlResponse,
   GitViewerRequest,
   GitViewerResponse,
   GitWorktreeListRequest,
@@ -187,6 +189,7 @@ import { fetchRemotes, gitStatusFull, worktreeList } from "./git/gitOps";
 import { GitCommandError } from "./git/gitRunner";
 import type { StatusFull } from "./git/porcelain";
 import { issueList, prList, repoOwnerName, viewer } from "./git/github";
+import { submoduleBrowseUrl } from "./git/submodule";
 import { buildPtyEnv } from "./gozdEnv";
 import { buildGozdOpenPayload } from "./openTarget";
 import {
@@ -789,6 +792,13 @@ async function handleGitLsTree(body: unknown): Promise<unknown> {
   return { entries: await lsTree(req.dir, req.hash, req.path) } satisfies GitLsTreeResponse;
 }
 
+async function handleGitSubmoduleUrl(body: unknown): Promise<unknown> {
+  const req = body as GitSubmoduleUrlRequest;
+  return {
+    url: await submoduleBrowseUrl(req.dir, req.path, req.hash, req.rev),
+  } satisfies GitSubmoduleUrlResponse;
+}
+
 async function handleGitLsFiles(body: unknown): Promise<unknown> {
   const req = body as GitLsFilesRequest;
   return { files: await lsFiles(req.dir) } satisfies GitLsFilesResponse;
@@ -1192,6 +1202,7 @@ export const routes: ReadonlyMap<string, RpcHandler> = new Map<string, RpcHandle
   ["/git/readBlob", handleGitReadBlob],
   ["/git/lsFiles", handleGitLsFiles],
   ["/git/lsTree", handleGitLsTree],
+  ["/git/submoduleUrl", handleGitSubmoduleUrl],
   ["/git/blameLine", handleGitBlameLine],
   ["/git/logLine", handleGitLogLine],
   ["/git/logFile", handleGitLogFile],

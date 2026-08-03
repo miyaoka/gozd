@@ -19,6 +19,9 @@ export interface FileChangeInfo {
 export interface GitTreeEntryInfo {
   name: string;
   type: string;
+  /** submodule（gitlink）が指す commit hash。`type === "submodule"` のときだけ設定する。
+   * blob / tree の object hash は表示にも取得にも使わないため載せない。 */
+  submoduleHash?: string;
 }
 
 /** git の well-known empty tree object hash（`git hash-object -t tree </dev/null`）。
@@ -233,7 +236,10 @@ export function parseLsTree(text: string): GitTreeEntryInfo[] {
     if (name === "") {
       throw new Error(`git ls-tree: empty basename in record: ${record}`);
     }
-    result.push({ name, type: typeFromGitMode(headerParts[0]) });
+    const type = typeFromGitMode(headerParts[0]);
+    result.push(
+      type === "submodule" ? { name, type, submoduleHash: headerParts[2] } : { name, type },
+    );
   }
   return result.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }

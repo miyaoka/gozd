@@ -14,8 +14,9 @@
 - `symlink`: 実体を持たない symlink のみこの kind に来る（working tree の dangling / 循環、
   snapshot tree の symlink blob）。working tree では `select` emit（preview が not found を出す）、
   snapshot mode では blob 内容が target path 文字列でしかないため click を no-op に倒す
-- `submodule`: 常に no-op。gitlink object (`160000`) は `gitShowCommitFile` で内容を取得できないため
-  preview に流すとエラーになる。視覚的にも opacity を落として「click できない」ことを示す
+- `submodule`: gitlink (`160000`) が pin している commit の repo ページを外部ブラウザで開く。
+  展開はしない（配下は別 repo の管理下で、親 repo の status / gitignore では語れないため）。
+  右端に短縮 hash を出す（GitHub と同じ情報を、名前の truncate に飲まれない位置に置く）
 
 ## symlink
 
@@ -90,8 +91,8 @@ import {
   toFileEntriesFromGitTree,
 } from "./filerUtils";
 import type { FileEntry, FileEntryKind, FileRealTarget } from "./filerUtils";
-import { rpcFsReadDir, rpcGitLsTree } from "./rpc";
-import { getFileIconUrl, getFolderIconUrl } from "./useFileIcon";
+import { rpcFsReadDir, rpcGitLsTree, rpcGitSubmoduleUrl, rpcOpenExternal } from "./rpc";
+import { getFileIconUrl, getFolderIconUrl, getSubmoduleIconUrl } from "./useFileIcon";
 import { useFilerEventStore } from "./useFilerEventStore";
 import IconLucideChevronDown from "~icons/lucide/chevron-down";
 import IconLucideChevronRight from "~icons/lucide/chevron-right";
@@ -115,6 +116,8 @@ const props = defineProps<{
   isSymlink?: boolean;
   /** 実体の在り処。右クリック menu の実体向け項目の対象 */
   realTarget?: FileRealTarget;
+  /** submodule が指す commit hash。`kind === "submodule"` の行だけが持つ */
+  submoduleHash?: string;
   /** working tree モード由来の gitignore フラグ。snapshot mode では undefined */
   isIgnored?: boolean;
   /** ファイル自身の git 変更種別 */
@@ -157,16 +160,17 @@ const filerEventStore = useFilerEventStore();
 
 const isRoot = computed(() => isRootPath(props.path));
 const isDirectory = computed(() => props.kind === "directory");
+const isSubmodule = computed(() => props.kind === "submodule");
 const isSnapshot = computed(() => props.snapshotHash !== undefined);
 /**
- * click で何も起きない葉。`gitShowCommitFile` で内容を取得できない (submodule) / snapshot
- * 環境で意味のある内容を取れない (symlink in snapshot) ものを構造的に弾く。
+ * click で何も起きない葉。snapshot tree の symlink は blob の中身が target path 文字列でしか
+ * なく、preview に流しても意味のある内容にならない。
  */
-const isInertLeaf = computed(() => {
-  if (props.kind === "submodule") return true;
-  if (props.kind === "symlink" && isSnapshot.value) return true;
-  return false;
-});
+const isInertLeaf = computed(() => props.kind === "symlink" && isSnapshot.value);
+
+/** GitHub の submodule 表示に合わせた短縮 hash */
+const SHORT_HASH_LENGTH = 7;
+const shortSubmoduleHash = computed(() => props.submoduleHash?.slice(0, SHORT_HASH_LENGTH));
 
 const buttonRef = useTemplateRef<HTMLButtonElement>("button");
 const expanded = ref(isRoot.value);
@@ -234,7 +238,7 @@ const isDeleted = computed(() => !isSnapshot.value && props.gitChange === "delet
  * snapshot tree では blob が target path 文字列でしかないことを指す。
  */
 const rowTitle = computed(() => {
-  if (props.kind === "submodule") return "submodule (not previewable)";
+  if (isSubmodule.value) return `submodule @ ${props.submoduleHash} (open repository)`;
   if (props.kind === "symlink") return isSnapshot.value ? "symlink" : "broken symlink";
   if (props.isSymlink === true) return "symlink";
   return undefined;
@@ -242,6 +246,7 @@ const rowTitle = computed(() => {
 
 /** material-icon-theme のアイコン URL */
 const iconUrl = computed(() => {
+  if (isSubmodule.value) return getSubmoduleIconUrl();
   if (isDirectory.value) {
     return getFolderIconUrl(props.name, expanded.value);
   }
@@ -263,9 +268,48 @@ async function toggle(event: MouseEvent) {
     }
     return;
   }
-  // gitShowCommitFile 等で内容を取れない葉は preview にも流さない
+  if (isSubmodule.value) {
+    await openSubmoduleRepo();
+    return;
+  }
   if (isInertLeaf.value) return;
   emit("select", props.path);
+}
+
+/**
+ * submodule 行の click。GitHub の submodule 表示と同じく、gitlink が pin している commit の
+ * repo ページを外部ブラウザで開く。
+ *
+ * URL の出所は `.gitmodules` で、submodule 判定に使う index の gitlink には含まれない。
+ * リンクを踏むときにしか要らないため列挙時ではなく click 時に引く。解決できないケースは
+ * 無音の不発にせず通知で示す (解決できない条件の SSOT は main 側 `submoduleBrowseUrl`)。
+ *
+ * snapshot mode では `rev` に表示中の commit を渡し、hash と同じ revision の `.gitmodules` から
+ * url を引かせる。path → url の対応は commit 間で変わり得るので、working tree の対応を過去の
+ * hash に重ねると別 repo を指す誤リンクになる。
+ */
+async function openSubmoduleRepo() {
+  const dir = worktreeStore.dir;
+  if (dir === undefined || props.submoduleHash === undefined) return;
+  const resolved = await tryCatch(
+    rpcGitSubmoduleUrl({
+      dir,
+      path: props.path,
+      hash: props.submoduleHash,
+      rev: props.snapshotHash,
+    }),
+  );
+  if (!resolved.ok) {
+    notify.error(`Failed to resolve submodule repository: ${props.path}`, resolved.error);
+    return;
+  }
+  const { url } = resolved.value;
+  if (url === undefined) {
+    notify.info(`No GitHub repository URL for submodule: ${props.path}`);
+    return;
+  }
+  const opened = await tryCatch(rpcOpenExternal({ url }));
+  if (!opened.ok) notify.error(`Failed to open ${url}`, opened.error);
 }
 
 async function loadChildren() {
@@ -472,8 +516,11 @@ function onChildSelect(childPath: string) {
  * 右クリック。directory / file どちらも実体 path を持つ行は menu 対象にする。inert leaf のみ除外。
  *
  * - directory / file: menu 対象 (実 filesystem path として絶対 path を copy する)
- * - inert leaf (submodule / snapshot symlink): 早期 return (snapshot 時点と working tree の
- *   実体が一致しないため、working tree の絶対 path を誤って copy 可能にする UI を排除)
+ * - snapshot symlink: 早期 return (snapshot 時点と working tree の実体が一致しないため、
+ *   working tree の絶対 path を誤って copy 可能にする UI を排除)
+ * - submodule: 早期 return。行が表すのは親 repo 内のファイルではなく repo 境界の外にある別 repo
+ *   への参照で、click も外部コンテキストへ出る動作に倒してある (GitHub の submodule 行が
+ *   `<a>` であるのと同じ位置づけ)。行の対象が外部である以上、この repo のファイル操作は載せない
  *
  * commitHash は navigator が `useGitGraphStore.contextMenuHash` で SSOT 解決するため payload
  * には乗せない (filer の `snapshotHash` は filer ツリー表示用なので copy 経路と分離する)。
@@ -482,7 +529,7 @@ function onChildSelect(childPath: string) {
  * payload を作って emit するだけ。
  */
 function onContextMenu(event: MouseEvent) {
-  if (isInertLeaf.value) return;
+  if (isInertLeaf.value || isSubmodule.value) return;
   if (!(event.currentTarget instanceof HTMLElement)) return;
   event.preventDefault();
   emit("contextMenu", {
@@ -533,7 +580,12 @@ function onContextMenu(event: MouseEvent) {
           class="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-background text-info"
         />
       </span>
-      <span class="truncate">{{ name }}</span>
+      <span class="grow truncate">{{ name }}</span>
+      <!-- submodule が pin している commit。GitHub の `name @ hash` と同じ情報だが、幅の狭い
+           ツリーでは名前に続けると truncate に飲まれるため右端に固定する -->
+      <span v-if="isSubmodule" class="shrink-0 font-mono text-xs text-foreground-low">
+        {{ shortSubmoduleHash }}
+      </span>
     </button>
 
     <!-- 子エントリ -->
@@ -553,6 +605,7 @@ function onContextMenu(event: MouseEvent) {
         :kind="child.kind"
         :is-symlink="child.isSymlink"
         :real-target="child.realTarget"
+        :submodule-hash="child.submoduleHash"
         :is-ignored="child.isIgnored"
         :git-change="child.gitChange"
         :git-statuses="gitStatuses"

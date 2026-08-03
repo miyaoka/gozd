@@ -52,6 +52,75 @@ export async function checkIgnore(dir: string, relPaths: string[]): Promise<Set<
   return new Set(result.value.split("\0").filter((path) => path !== ""));
 }
 
+/** index 1 行の先頭に立つ gitlink の mode。この mode を持つ entry が submodule。 */
+const GITLINK_MODE = "160000";
+
+/**
+ * 表示に採用する index stage と、その優先度（大きいほうが勝つ）。
+ *
+ * 通常の entry は stage 0 だけを持つ。conflict 中の gitlink は stage 1（base）/ 2（ours）/
+ * 3（theirs）が並ぶが、working tree に checkout されているのは ours なので、表示もそれに揃える。
+ * base / theirs は working tree のどこにも現れない値なので採用しない。
+ */
+const GITLINK_STAGE_RANK: Record<string, number> = { "0": 2, "2": 1 };
+
+/**
+ * `dir` 直下の submodule を「entry 名 → 指している commit hash」の Map で返す。
+ *
+ * 判定の SSOT は **index の gitlink**（mode `160000`）に置く。submodule の working tree は
+ * 未初期化なら中身の無いディレクトリで、初期化済みでも `.git` は readDir が除外する gitlink
+ * ファイルなので、ディスク側には初期化状態に依存しない手がかりが存在しない。`.gitmodules` は
+ * 「設定」であって実体ではなく、index に gitlink が無い記述も、記述の無い gitlink もあり得る。
+ *
+ * 引数は同ファイルの他の op（worktree root を受ける `dir`）と違い **列挙しているディレクトリ
+ * そのもの**。pathspec を cwd 固定の `:(glob)*` に保つことで、ディレクトリ名がパターンとして
+ * 解釈される経路を構造的に無くしている（`:(glob)<name>/*` の形にすると、`app/[slug]` のように
+ * ディレクトリ名が glob メタ文字を含む場合に文字クラスとして解釈され、兄弟ディレクトリの gitlink を
+ * 拾いつつ本物を取り逃す）。`:(glob)` は `*` が `/` を跨がなくなる効果を持つため、これで 1 階層に閉じる。
+ *
+ * anchor は cwd を所有する repo なので、worktree 内に独立した nested repo があればその index を
+ * 見る（ツリーが写しているディスクの実体としては妥当）。
+ *
+ * - `git ls-files --stage -z` の 1 レコードは `<mode> SP <object> SP <stage> TAB <path>`
+ * - 出力 path は cwd 相対。1 階層 pathspec なので `/` を含まず、そのまま entry 名になる
+ * - git 管理外 / git 不在は空 Map を返す（checkIgnore と同じく throw しない）
+ */
+export async function listGitlinks(listDir: string): Promise<Map<string, string>> {
+  const result = await tryCatch(runGit(["ls-files", "--stage", "-z", "--", ":(glob)*"], listDir));
+  if (!result.ok) {
+    logGitlinkFailure(listDir, result.error);
+    return new Map();
+  }
+  const ranked = new Map<string, { hash: string; rank: number }>();
+  for (const record of result.value.split("\0")) {
+    if (!record.startsWith(`${GITLINK_MODE} `)) continue;
+    const tabIndex = record.indexOf("\t");
+    if (tabIndex < 0) continue;
+    const [, hash = "", stage = ""] = record.slice(0, tabIndex).split(" ");
+    const rank = GITLINK_STAGE_RANK[stage];
+    if (rank === undefined || hash === "") continue;
+    const name = record.slice(tabIndex + 1);
+    const current = ranked.get(name);
+    if (current !== undefined && current.rank >= rank) continue;
+    ranked.set(name, { hash, rank });
+  }
+  return new Map(Array.from(ranked, ([name, { hash }]) => [name, hash]));
+}
+
+/**
+ * gitlink 列挙の失敗を観察可能にする。失敗の帰結は「submodule が普通のディレクトリとして出る」で、
+ * 無音だと表示が退行したことに気づけない。
+ *
+ * 非 git プロジェクト（gozd は git 管理外の project も開ける）は列挙のたびに必ず失敗するので、
+ * これを黙らせるために exit 128 を除外する。ただし 128 は git の**汎用 fatal** で not-a-repo 専用
+ * ではないため、index 破損のような本物の障害もここで無音になる。stderr 文字列で絞る案は取らない:
+ * git のメッセージは翻訳対象で、`gozdGitEnv` はユーザーの locale をそのまま継承するため。
+ */
+function logGitlinkFailure(listDir: string, error: unknown): void {
+  if (error instanceof GitCommandError && error.exitCode === 128) return;
+  console.error(`[listGitlinks] ls-files failed: ${String(error)} dir=${listDir}`);
+}
+
 /**
  * `git fetch --all --no-write-fetch-head` を非対話 env で実行する。
  * 失敗は throw する。呼び出し側で「offline / 認証失敗等は静かに飲み込む」判断をする

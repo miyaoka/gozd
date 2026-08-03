@@ -19,7 +19,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
-import { checkIgnore } from "../git/gitOps";
+import { checkIgnore, listGitlinks } from "../git/gitOps";
 import { toWireBytes } from "../wireBytes";
 import { resolveContained } from "./pathContainment";
 
@@ -28,6 +28,8 @@ interface FsEntry {
   type: FsReadDirEntry["type"];
   /** 実体の在り処（FsReadDirRealTarget の契約） */
   realTarget?: FsReadDirRealTarget;
+  /** submodule が指す commit hash（FsReadDirEntry の契約） */
+  submoduleHash?: string;
   isIgnored: boolean;
 }
 
@@ -149,13 +151,23 @@ export async function readDir(dir: string, path: string): Promise<FsReadDirResul
       : prefix + entry.name;
     return { built, ignoreSpec };
   });
-  const ignored = await checkIgnore(
-    dir,
-    listing.flatMap(({ ignoreSpec }) => (ignoreSpec === undefined ? [] : [ignoreSpec])),
-  );
+  // submodule 判定は列挙対象そのものを cwd にして引く（pathspec にディレクトリ名を混ぜず
+  // `:(glob)*` 固定に保つための契約。listGitlinks の docstring 参照）。symlink 越しに worktree
+  // 外を見ている列挙は当該 repo の index の管轄外なので問い合わせ自体を落とす（ignoreSpec が
+  // dir 外を落とすのと同じ規律）。ディレクトリを 1 つも含まない階層に submodule はあり得ないため
+  // git を起動しない（working tree の submodule は初期化状態によらずディレクトリとして存在する）
+  const needsGitlinks =
+    isWithinDir(listRealPath, dirRealPath) && dirents.some((entry) => entry.isDirectory());
+  const [ignored, gitlinks] = await Promise.all([
+    checkIgnore(
+      dir,
+      listing.flatMap(({ ignoreSpec }) => (ignoreSpec === undefined ? [] : [ignoreSpec])),
+    ),
+    needsGitlinks ? listGitlinks(listRealPath) : new Map<string, string>(),
+  ]);
   const entries = listing
     .map(({ built, ignoreSpec }) => ({
-      ...built,
+      ...applyGitlink(built, gitlinks),
       isIgnored: ignoreSpec !== undefined && ignored.has(ignoreSpec),
     }))
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
@@ -221,6 +233,20 @@ function buildEntry(
 }
 
 /**
+ * index の gitlink と突き合わせて、ディレクトリとして列挙された entry を submodule に倒す。
+ *
+ * 対象を directory に限るのは、gitlink の path が working tree では file / symlink になっている
+ * 食い違い状態を submodule として描かないため。ディスク上の実体の種別は常に lstat が SSOT で、
+ * index は「その実体が submodule として登録されているか」だけを足す。
+ */
+function applyGitlink(entry: FsEntryDraft, gitlinks: Map<string, string>): FsEntryDraft {
+  if (entry.type !== "directory") return entry;
+  const submoduleHash = gitlinks.get(entry.name);
+  if (submoduleHash === undefined) return entry;
+  return { ...entry, type: "submodule", submoduleHash };
+}
+
+/**
  * symlink を辿って実体の在り処を返す。辿れない場合は undefined。
  *
  * dangling (ENOENT) / 循環 (ELOOP) / 中間成分が非ディレクトリ (ENOTDIR) は symlink の正常な
@@ -282,6 +308,12 @@ function toRealTarget(
     absPath,
     relPath: relPathWithin(absPath, dirRealPath),
   };
+}
+
+/** realpath 済みの絶対パスが dir 配下（dir 自身を含む）にあるか。`relPathWithin` は dir 自身に
+ * 相対パスを与えられないため、包含だけを問う判定はこちらに分ける */
+function isWithinDir(absPath: string, dirRealPath: string): boolean {
+  return absPath === dirRealPath || relPathWithin(absPath, dirRealPath) !== undefined;
 }
 
 /** realpath 済みの絶対パスが dir 配下なら dir 相対パスを返す。dir 外なら undefined */

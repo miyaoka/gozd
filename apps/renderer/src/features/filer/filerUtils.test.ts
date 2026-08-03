@@ -39,10 +39,10 @@ describe("sortEntries", () => {
     expect(sorted[1]?.name).toBe("a.txt");
   });
 
-  test("symlink / submodule は file 同列扱い (directory より後)", () => {
+  test("submodule は directory 区画、実体なし symlink は file 同列", () => {
     const entries = [submodule("vendor"), symlink("link"), dir("src"), file("a.txt")];
     const sorted = sortEntries(entries);
-    expect(sorted.map((e) => e.name)).toEqual(["src", "a.txt", "link", "vendor"]);
+    expect(sorted.map((e) => e.name)).toEqual(["src", "vendor", "a.txt", "link"]);
   });
 
   test("同種内では名前順にソートする", () => {
@@ -240,6 +240,15 @@ describe("toFileEntries", () => {
     expect(result[0]?.realTarget).toBeUndefined();
   });
 
+  test("type === 'submodule' は kind と submoduleHash を引き継ぐ", () => {
+    const result = toFileEntries([
+      { name: "lib", type: "submodule", submoduleHash: "abc123", isIgnored: false },
+    ]);
+    expect(result[0]?.kind).toBe("submodule");
+    expect(result[0]?.submoduleHash).toBe("abc123");
+    expect(result[0]?.isSymlink).toBe(false);
+  });
+
   test("空配列を処理できる", () => {
     expect(toFileEntries([])).toEqual([]);
   });
@@ -263,9 +272,12 @@ describe("toFileEntriesFromGitTree", () => {
     expect(result[0]?.isSymlink).toBe(true);
   });
 
-  test("type === 'submodule' は kind: 'submodule' になる", () => {
-    const result = toFileEntriesFromGitTree([{ name: "vendor", type: "submodule" }]);
+  test("type === 'submodule' は kind: 'submodule' になり submoduleHash を引き継ぐ", () => {
+    const result = toFileEntriesFromGitTree([
+      { name: "vendor", type: "submodule", submoduleHash: "def456" },
+    ]);
     expect(result[0]?.kind).toBe("submodule");
+    expect(result[0]?.submoduleHash).toBe("def456");
   });
 
   test("未知の type は kind: 'file' に倒れる (forward compat)", () => {

@@ -242,4 +242,22 @@ function getFolderIconUrl(folderName: string, isOpen: boolean): string {
   return requireIconUrl(maps.iconUrlByName, resolveFolderIconName(maps, folderName, isOpen));
 }
 
-export { getFileIconUrl, getFolderIconUrl };
+/**
+ * submodule 行のアイコンとして借用する folder 名。material-icon-theme は submodule を種別として
+ * 持たない（VS Code 側は decoration provider が担うため）ので、テーマ内で最も近い語彙である
+ * この名前の folder 割り当てを引く。アイコン名を焼き込まず folder 名から引くことで、テーマが
+ * 割り当てを差し替えても追従する。
+ */
+const SUBMODULE_FOLDER_NAME = "submodules";
+
+/** submodule の SVG URL を返す。entry 名ではなく種別で決まるため引数を取らない */
+function getSubmoduleIconUrl(): string {
+  const maps = getIconMaps();
+  const iconName = maps.folderNameMap.get(SUBMODULE_FOLDER_NAME);
+  if (iconName === undefined) {
+    throw new Error(`icon theme has no folder icon for "${SUBMODULE_FOLDER_NAME}"`);
+  }
+  return requireIconUrl(maps.iconUrlByName, iconName);
+}
+
+export { getFileIconUrl, getFolderIconUrl, getSubmoduleIconUrl };

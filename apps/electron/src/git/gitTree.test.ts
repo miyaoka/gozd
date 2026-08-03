@@ -46,6 +46,22 @@ describe("parseLsTree / typeFromGitMode", () => {
     ]);
   });
 
+  test("gitlink は submoduleHash を持ち、blob / tree は持たない", () => {
+    const text = [
+      "160000 commit b43b8944bfba4113233ccfc090f373a6e869dff6\tvendor/lib",
+      "100644 blob abc\ta.ts",
+      "",
+    ].join("\0");
+    expect(parseLsTree(text)).toEqual([
+      { name: "a.ts", type: "file" },
+      {
+        name: "lib",
+        type: "submodule",
+        submoduleHash: "b43b8944bfba4113233ccfc090f373a6e869dff6",
+      },
+    ]);
+  });
+
   test("TAB 欠落レコードは silent skip せず throw する", () => {
     expect(() => parseLsTree("100644 blob abc src/a.ts\0")).toThrow(/TAB separator/);
   });

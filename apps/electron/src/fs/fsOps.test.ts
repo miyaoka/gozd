@@ -334,6 +334,10 @@ describe("FSOps", () => {
     const theirs = "3".repeat(40);
     const dir = makeTempDir();
     runFixtureGit(["init", "-b", "main"], dir);
+    // commit する fixture は identity を repo-local に固定する。未設定でも git は OS の
+    // gecos / ホスト名から自動導出するが、それが空になる環境では `empty ident name` で落ちる
+    runFixtureGit(["config", "user.email", "t@example.com"], dir);
+    runFixtureGit(["config", "user.name", "t"], dir);
     writeFileSync(join(dir, "seed.txt"), "x");
     runFixtureGit(["add", "seed.txt"], dir);
     runFixtureGit(["commit", "-m", "seed"], dir);

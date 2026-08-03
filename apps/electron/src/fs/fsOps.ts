@@ -151,20 +151,19 @@ export async function readDir(dir: string, path: string): Promise<FsReadDirResul
       : prefix + entry.name;
     return { built, ignoreSpec };
   });
-  // submodule 判定の pathspec は listing 全体で 1 つなので、entry ごとの ignoreSpec とは別に
-  // 列挙対象自身の canonical な dir 相対パスを求める（link 越しの列挙で pathspec が
-  // `beyond a symbolic link` に落ちるのを避ける規律は ignoreSpec と同じ）。dir 外は当該 repo の
-  // index の管轄外なので問い合わせ自体を落とす。
-  // ディレクトリを 1 つも含まない階層に submodule はあり得ないため git を起動しない
-  // （working tree の submodule は初期化状態によらずディレクトリとして存在する）
-  const gitlinkDir = listCrossesLink ? relPathWithin(listRealPath, dirRealPath) : relDir;
-  const needsGitlinks = gitlinkDir !== undefined && dirents.some((entry) => entry.isDirectory());
+  // submodule 判定は列挙対象そのものを cwd にして引く（pathspec にディレクトリ名を混ぜず
+  // `:(glob)*` 固定に保つための契約。listGitlinks の docstring 参照）。symlink 越しに worktree
+  // 外を見ている列挙は当該 repo の index の管轄外なので問い合わせ自体を落とす（ignoreSpec が
+  // dir 外を落とすのと同じ規律）。ディレクトリを 1 つも含まない階層に submodule はあり得ないため
+  // git を起動しない（working tree の submodule は初期化状態によらずディレクトリとして存在する）
+  const needsGitlinks =
+    isWithinDir(listRealPath, dirRealPath) && dirents.some((entry) => entry.isDirectory());
   const [ignored, gitlinks] = await Promise.all([
     checkIgnore(
       dir,
       listing.flatMap(({ ignoreSpec }) => (ignoreSpec === undefined ? [] : [ignoreSpec])),
     ),
-    needsGitlinks ? listGitlinks(dir, gitlinkDir) : new Map<string, string>(),
+    needsGitlinks ? listGitlinks(listRealPath) : new Map<string, string>(),
   ]);
   const entries = listing
     .map(({ built, ignoreSpec }) => ({
@@ -309,6 +308,12 @@ function toRealTarget(
     absPath,
     relPath: relPathWithin(absPath, dirRealPath),
   };
+}
+
+/** realpath 済みの絶対パスが dir 配下（dir 自身を含む）にあるか。`relPathWithin` は dir 自身に
+ * 相対パスを与えられないため、包含だけを問う判定はこちらに分ける */
+function isWithinDir(absPath: string, dirRealPath: string): boolean {
+  return absPath === dirRealPath || relPathWithin(absPath, dirRealPath) !== undefined;
 }
 
 /** realpath 済みの絶対パスが dir 配下なら dir 相対パスを返す。dir 外なら undefined */

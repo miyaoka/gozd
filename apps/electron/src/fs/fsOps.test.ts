@@ -281,26 +281,77 @@ describe("FSOps", () => {
     expect(byName.get("src")?.submoduleHash).toBeUndefined();
   });
 
-  test("gitlink 判定は列挙している 1 階層に閉じる", async () => {
+  test("孫の gitlink は列挙階層の同名 entry を submodule にしない", async () => {
     const dir = makeTempDir();
     runFixtureGit(["init"], dir);
-    mkdirSync(join(dir, "vendor"));
-    mkdirSync(join(dir, "vendor", "lib"));
+    mkdirSync(join(dir, "vendor", "lib"), { recursive: true });
+    // 孫 gitlink と basename が衝突するディレクトリを列挙階層に置く。1 階層に閉じていないと
+    // `vendor/lib` の gitlink がこの `lib` に載る
+    mkdirSync(join(dir, "lib"));
     addGitlink(dir, "vendor/lib");
-    // 親階層の列挙で `vendor` 自身が submodule に化けない（pathspec が孫を拾わない証拠）
     const root = await readDir(dir, "");
-    expect(root.entries.find((entry) => entry.name === "vendor")?.type).toBe("directory");
+    const byName = new Map(root.entries.map((entry) => [entry.name, entry]));
+    expect(byName.get("lib")?.type).toBe("directory");
+    expect(byName.get("vendor")?.type).toBe("directory");
     const nested = await readDir(dir, "vendor");
     expect(nested.entries.find((entry) => entry.name === "lib")?.type).toBe("submodule");
+  });
+
+  test("ディレクトリ名が glob メタ文字を含んでも判定がずれない", async () => {
+    // `[slug]` のような動的ルートは Next.js / Nuxt で実在する。ディレクトリ名を pathspec の
+    // パターンとして渡すと文字クラスに解釈され、`app/s/*` にも一致して兄弟の gitlink を拾い、
+    // 本物の gitlink を取り逃す
+    const dir = makeTempDir();
+    runFixtureGit(["init"], dir);
+    mkdirSync(join(dir, "app", "[slug]", "plain"), { recursive: true });
+    mkdirSync(join(dir, "app", "[slug]", "mod"), { recursive: true });
+    mkdirSync(join(dir, "app", "s", "plain"), { recursive: true });
+    addGitlink(dir, "app/[slug]/mod");
+    addGitlink(dir, "app/s/plain");
+    const result = await readDir(dir, "app/[slug]");
+    const byName = new Map(result.entries.map((entry) => [entry.name, entry]));
+    expect(byName.get("mod")?.type).toBe("submodule");
+    expect(byName.get("plain")?.type).toBe("directory");
+    expect(byName.get("plain")?.submoduleHash).toBeUndefined();
   });
 
   test("gitlink の path がディスク上 file なら実体の種別を優先する", async () => {
     const dir = makeTempDir();
     runFixtureGit(["init"], dir);
     writeFileSync(join(dir, "lib"), "");
+    // gitlink 問い合わせはディレクトリを含む階層でしか走らないため、無関係な dir を 1 つ置く
+    mkdirSync(join(dir, "src"));
     addGitlink(dir, "lib");
     const result = await readDir(dir, "");
     expect(result.entries.find((entry) => entry.name === "lib")?.type).toBe("file");
+  });
+
+  test("conflict 中の gitlink は working tree と同じ ours (stage 2) を返す", async () => {
+    // base / ours / theirs の 3 者が揃う形にして stage 1/2/3 をすべて出す。base を落とすと
+    // 「stage を見ずに先勝ち / 後勝ちで拾う」実装との差が出ない
+    const base = "1".repeat(40);
+    const ours = "2".repeat(40);
+    const theirs = "3".repeat(40);
+    const dir = makeTempDir();
+    runFixtureGit(["init", "-b", "main"], dir);
+    writeFileSync(join(dir, "seed.txt"), "x");
+    runFixtureGit(["add", "seed.txt"], dir);
+    runFixtureGit(["commit", "-m", "seed"], dir);
+    runFixtureGit(["update-index", "--add", "--cacheinfo", `160000,${base},conf`], dir);
+    runFixtureGit(["commit", "-m", "base"], dir);
+    runFixtureGit(["checkout", "-b", "other"], dir);
+    runFixtureGit(["update-index", "--add", "--cacheinfo", `160000,${theirs},conf`], dir);
+    runFixtureGit(["commit", "-m", "theirs"], dir);
+    runFixtureGit(["checkout", "main"], dir);
+    runFixtureGit(["update-index", "--add", "--cacheinfo", `160000,${ours},conf`], dir);
+    runFixtureGit(["commit", "-m", "ours"], dir);
+    // conflict する merge は非 0 終了する。conflict 状態を作るのが目的なので失敗は握る
+    tryCatch(() => runFixtureGit(["merge", "other"], dir));
+    mkdirSync(join(dir, "conf"), { recursive: true });
+    const result = await readDir(dir, "");
+    const conf = result.entries.find((entry) => entry.name === "conf");
+    expect(conf?.type).toBe("submodule");
+    expect(conf?.submoduleHash).toBe(ours);
   });
 
   test("symlink 越しの列挙でも実体側の path で gitignore 判定する", async () => {

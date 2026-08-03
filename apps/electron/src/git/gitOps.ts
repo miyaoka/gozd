@@ -3,7 +3,7 @@
 
 import { tryCatch } from "@gozd/shared";
 import { statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { GitCommandError, runGit, runGitNonInteractive, runGitWithStdin } from "./gitRunner";
 import {
   parsePorcelainV2WithBranch,
@@ -56,42 +56,64 @@ export async function checkIgnore(dir: string, relPaths: string[]): Promise<Set<
 const GITLINK_MODE = "160000";
 
 /**
- * relDir 直下の submodule を「entry 名 → 指している commit hash」の Map で返す。
+ * 表示に採用する index stage と、その優先度（大きいほうが勝つ）。
+ *
+ * 通常の entry は stage 0 だけを持つ。conflict 中の gitlink は stage 1（base）/ 2（ours）/
+ * 3（theirs）が並ぶが、working tree に checkout されているのは ours なので、表示もそれに揃える。
+ * base / theirs は working tree のどこにも現れない値なので採用しない。
+ */
+const GITLINK_STAGE_RANK: Record<string, number> = { "0": 2, "2": 1 };
+
+/**
+ * `dir` 直下の submodule を「entry 名 → 指している commit hash」の Map で返す。
  *
  * 判定の SSOT は **index の gitlink**（mode `160000`）に置く。submodule の working tree は
  * 未初期化なら中身の無いディレクトリで、初期化済みでも `.git` は readDir が除外する gitlink
  * ファイルなので、ディスク側には初期化状態に依存しない手がかりが存在しない。`.gitmodules` は
  * 「設定」であって実体ではなく、index に gitlink が無い記述も、記述の無い gitlink もあり得る。
  *
- * pathspec の `:(glob)` 修飾子は `*` が `/` を跨がなくなる効果を持つため、`<relDir>/*` で
- * index 全体ではなく readDir が見ている 1 階層だけに絞れる。
+ * `dir` は **列挙しているディレクトリそのもの**を渡す。pathspec を cwd 固定の `:(glob)*` に
+ * 保つことで、ディレクトリ名がパターンとして解釈される経路を構造的に無くしている
+ * （`:(glob)<name>/*` の形にすると、`app/[slug]` のようにディレクトリ名が glob メタ文字を
+ * 含む場合に文字クラスとして解釈され、兄弟ディレクトリの gitlink を拾いつつ本物を取り逃す）。
+ * `:(glob)` は `*` が `/` を跨がなくなる効果を持つため、これで 1 階層に閉じる。
+ *
  * - `git ls-files --stage -z` の 1 レコードは `<mode> SP <object> SP <stage> TAB <path>`
- * - 出力 path は repo root 相対。`dir` は worktree root なので relDir 相対に読み替えられる
+ * - 出力 path は cwd 相対。1 階層 pathspec なので `/` を含まず、そのまま entry 名になる
  * - git 管理外 / git 不在は空 Map を返す（checkIgnore と同じく throw しない）
  */
-export async function listGitlinks(dir: string, relDir: string): Promise<Map<string, string>> {
-  const pathspec = relDir === "" ? ":(glob)*" : `:(glob)${relDir}/*`;
-  const result = await tryCatch(runGit(["ls-files", "--stage", "-z", "--", pathspec], dir));
-  // not a git repo / git 不在。submodule 無しとして扱う
-  if (!result.ok) return new Map();
-  const gitlinks = new Map<string, string>();
+export async function listGitlinks(dir: string): Promise<Map<string, string>> {
+  const result = await tryCatch(runGit(["ls-files", "--stage", "-z", "--", ":(glob)*"], dir));
+  if (!result.ok) {
+    logGitlinkFailure(dir, result.error);
+    return new Map();
+  }
+  const ranked = new Map<string, { hash: string; rank: number }>();
   for (const record of result.value.split("\0")) {
     if (!record.startsWith(`${GITLINK_MODE} `)) continue;
     const tabIndex = record.indexOf("\t");
-    // header と path を分ける TAB が無いレコードは想定外フォーマット。silent skip すると
-    // 「submodule なのに普通のディレクトリで出る」形で無音退行するため観察ログを残す
-    if (tabIndex < 0) {
-      console.error(`[listGitlinks] record missing TAB separator: ${record} dir=${dir}`);
-      continue;
-    }
-    const [, hash] = record.slice(0, tabIndex).split(" ");
-    if (hash === undefined) {
-      console.error(`[listGitlinks] record missing object hash: ${record} dir=${dir}`);
-      continue;
-    }
-    gitlinks.set(basename(record.slice(tabIndex + 1)), hash);
+    if (tabIndex < 0) continue;
+    const [, hash = "", stage = ""] = record.slice(0, tabIndex).split(" ");
+    const rank = GITLINK_STAGE_RANK[stage];
+    if (rank === undefined || hash === "") continue;
+    const name = record.slice(tabIndex + 1);
+    const current = ranked.get(name);
+    if (current !== undefined && current.rank >= rank) continue;
+    ranked.set(name, { hash, rank });
   }
-  return gitlinks;
+  return new Map(Array.from(ranked, ([name, { hash }]) => [name, hash]));
+}
+
+/**
+ * gitlink 列挙の失敗を観察可能にする。失敗の帰結は「submodule が普通のディレクトリとして出る」で、
+ * 無音だと表示が退行したことに気づけない。
+ *
+ * 非 git プロジェクト（gozd は git 管理外の project も開ける）は列挙のたびに必ず失敗するため、
+ * それだけはログを出さない。exit 128 は git の「not a git repository」の規約。
+ */
+function logGitlinkFailure(dir: string, error: unknown): void {
+  if (error instanceof GitCommandError && error.exitCode === 128) return;
+  console.error(`[listGitlinks] ls-files failed: ${String(error)} dir=${dir}`);
 }
 
 /**

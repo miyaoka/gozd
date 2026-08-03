@@ -242,4 +242,17 @@ function getFolderIconUrl(folderName: string, isOpen: boolean): string {
   return requireIconUrl(maps.iconUrlByName, resolveFolderIconName(maps, folderName, isOpen));
 }
 
-export { getFileIconUrl, getFolderIconUrl };
+/**
+ * submodule 行のアイコン名。material-icon-theme は submodule を種別として持たない
+ * （VS Code 側は decoration provider が担うため）。テーマ内で最も近い語彙は `submodules` という
+ * 名前のフォルダに割り当てられた `folder-git` で、これを種別アイコンとして借用する。
+ */
+const SUBMODULE_ICON_NAME = "folder-git";
+
+/** submodule の SVG URL を返す。名前ではなく種別で決まるため引数を取らない */
+function getSubmoduleIconUrl(): string {
+  const maps = getIconMaps();
+  return requireIconUrl(maps.iconUrlByName, SUBMODULE_ICON_NAME);
+}
+
+export { getFileIconUrl, getFolderIconUrl, getSubmoduleIconUrl };

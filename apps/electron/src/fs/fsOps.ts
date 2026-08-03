@@ -19,7 +19,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
-import { checkIgnore } from "../git/gitOps";
+import { checkIgnore, listGitlinks } from "../git/gitOps";
 import { toWireBytes } from "../wireBytes";
 import { resolveContained } from "./pathContainment";
 
@@ -28,6 +28,8 @@ interface FsEntry {
   type: FsReadDirEntry["type"];
   /** 実体の在り処（FsReadDirRealTarget の契約） */
   realTarget?: FsReadDirRealTarget;
+  /** submodule が指す commit hash（FsReadDirEntry の契約） */
+  submoduleHash?: string;
   isIgnored: boolean;
 }
 
@@ -149,13 +151,24 @@ export async function readDir(dir: string, path: string): Promise<FsReadDirResul
       : prefix + entry.name;
     return { built, ignoreSpec };
   });
-  const ignored = await checkIgnore(
-    dir,
-    listing.flatMap(({ ignoreSpec }) => (ignoreSpec === undefined ? [] : [ignoreSpec])),
-  );
+  // submodule 判定の pathspec は listing 全体で 1 つなので、entry ごとの ignoreSpec とは別に
+  // 列挙対象自身の canonical な dir 相対パスを求める（link 越しの列挙で pathspec が
+  // `beyond a symbolic link` に落ちるのを避ける規律は ignoreSpec と同じ）。dir 外は当該 repo の
+  // index の管轄外なので問い合わせ自体を落とす。
+  // ディレクトリを 1 つも含まない階層に submodule はあり得ないため git を起動しない
+  // （working tree の submodule は初期化状態によらずディレクトリとして存在する）
+  const gitlinkDir = listCrossesLink ? relPathWithin(listRealPath, dirRealPath) : relDir;
+  const needsGitlinks = gitlinkDir !== undefined && dirents.some((entry) => entry.isDirectory());
+  const [ignored, gitlinks] = await Promise.all([
+    checkIgnore(
+      dir,
+      listing.flatMap(({ ignoreSpec }) => (ignoreSpec === undefined ? [] : [ignoreSpec])),
+    ),
+    needsGitlinks ? listGitlinks(dir, gitlinkDir) : new Map<string, string>(),
+  ]);
   const entries = listing
     .map(({ built, ignoreSpec }) => ({
-      ...built,
+      ...applyGitlink(built, gitlinks),
       isIgnored: ignoreSpec !== undefined && ignored.has(ignoreSpec),
     }))
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
@@ -218,6 +231,20 @@ function buildEntry(
     type,
     realTarget: toRealTarget(join(listRealPath, entry.name), isDirectory, dirRealPath),
   };
+}
+
+/**
+ * index の gitlink と突き合わせて、ディレクトリとして列挙された entry を submodule に倒す。
+ *
+ * 対象を directory に限るのは、gitlink の path が working tree では file / symlink になっている
+ * 食い違い状態を submodule として描かないため。ディスク上の実体の種別は常に lstat が SSOT で、
+ * index は「その実体が submodule として登録されているか」だけを足す。
+ */
+function applyGitlink(entry: FsEntryDraft, gitlinks: Map<string, string>): FsEntryDraft {
+  if (entry.type !== "directory") return entry;
+  const submoduleHash = gitlinks.get(entry.name);
+  if (submoduleHash === undefined) return entry;
+  return { ...entry, type: "submodule", submoduleHash };
 }
 
 /**

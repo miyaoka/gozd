@@ -476,10 +476,31 @@ export interface GitLsTreeRequest {
 export interface GitTreeEntry {
   name: string;
   type: string;
+  /** submodule（gitlink）が指す commit hash。`type === "submodule"` のときだけ設定する。 */
+  submoduleHash?: string;
 }
 
 export interface GitLsTreeResponse {
   entries: GitTreeEntry[];
+}
+
+// gitSubmoduleUrl: submodule が指す commit の GitHub 閲覧 URL を解決する。
+//
+// filer の submodule 行 click が呼ぶ。path → url の対応は `.gitmodules` にしか無いが、
+// submodule 判定そのものは index の gitlink が SSOT なので経路を分けてある（main 側
+// `submodule.ts` の SSOT）。readDir 応答に url を載せず click 時に引くのは、リンクを踏む
+// ときにしか要らない情報のために全列挙で `.gitmodules` を読まないため。
+export interface GitSubmoduleUrlRequest {
+  dir: string;
+  /** submodule の worktree 相対パス */
+  path: string;
+  /** submodule が指す commit hash。URL に埋めて pin する */
+  hash: string;
+}
+
+export interface GitSubmoduleUrlResponse {
+  /** 解決できた閲覧 URL。`.gitmodules` に記述が無い / 非 github.com host なら未設定 */
+  url?: string;
 }
 
 // gitLsFiles: worktree 内の全ファイル（tracked + untracked、gitignore 除外）の相対パスを返す。

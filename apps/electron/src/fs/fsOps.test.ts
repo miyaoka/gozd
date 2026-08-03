@@ -254,6 +254,55 @@ describe("FSOps", () => {
     expect(byName.get(".gitignore")).toBe(false);
   });
 
+  // submodule の working tree はディスク上ただのディレクトリなので、判定は index の gitlink
+  // （mode 160000）だけが根拠になる。`update-index --cacheinfo` は commit object の実在を
+  // 要求しないため、未初期化 submodule と同じ状態をネットワーク無しで作れる
+  const GITLINK_HASH = "1111111111111111111111111111111111111111";
+
+  function addGitlink(dir: string, relPath: string): void {
+    runFixtureGit(
+      ["update-index", "--add", "--cacheinfo", `160000,${GITLINK_HASH},${relPath}`],
+      dir,
+    );
+  }
+
+  test("index の gitlink はディレクトリではなく submodule として返る", async () => {
+    const dir = makeTempDir();
+    runFixtureGit(["init"], dir);
+    mkdirSync(join(dir, "lib"));
+    mkdirSync(join(dir, "src"));
+    addGitlink(dir, "lib");
+    const result = await readDir(dir, "");
+    const byName = new Map(result.entries.map((entry) => [entry.name, entry]));
+    expect(byName.get("lib")?.type).toBe("submodule");
+    expect(byName.get("lib")?.submoduleHash).toBe(GITLINK_HASH);
+    // gitlink でないディレクトリは巻き込まれない
+    expect(byName.get("src")?.type).toBe("directory");
+    expect(byName.get("src")?.submoduleHash).toBeUndefined();
+  });
+
+  test("gitlink 判定は列挙している 1 階層に閉じる", async () => {
+    const dir = makeTempDir();
+    runFixtureGit(["init"], dir);
+    mkdirSync(join(dir, "vendor"));
+    mkdirSync(join(dir, "vendor", "lib"));
+    addGitlink(dir, "vendor/lib");
+    // 親階層の列挙で `vendor` 自身が submodule に化けない（pathspec が孫を拾わない証拠）
+    const root = await readDir(dir, "");
+    expect(root.entries.find((entry) => entry.name === "vendor")?.type).toBe("directory");
+    const nested = await readDir(dir, "vendor");
+    expect(nested.entries.find((entry) => entry.name === "lib")?.type).toBe("submodule");
+  });
+
+  test("gitlink の path がディスク上 file なら実体の種別を優先する", async () => {
+    const dir = makeTempDir();
+    runFixtureGit(["init"], dir);
+    writeFileSync(join(dir, "lib"), "");
+    addGitlink(dir, "lib");
+    const result = await readDir(dir, "");
+    expect(result.entries.find((entry) => entry.name === "lib")?.type).toBe("file");
+  });
+
   test("symlink 越しの列挙でも実体側の path で gitignore 判定する", async () => {
     const dir = makeTempDir();
     runFixtureGit(["init"], dir);

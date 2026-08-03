@@ -150,6 +150,31 @@ working tree の symlink は「link であること」と「実体としてど�
 - filer の click では folder 行は選択を発生させず展開だけを行う。したがって `Select original folder` も selection を動かさず、ツリーの展開 + スクロールだけを行う。ここを `selectRelPath` に倒すと preview がディレクトリ表示に落ちる（markdown link がディレクトリを指したときに起きる状態と同じ。`resolveMarkdownLink` は stat せず字句解決するため selection にディレクトリが入り得る）
 - 両方を同時に出さないのは、「どちらを使うべきか」の判断をユーザーに預けないため。実体の在り処で 1 つに定まる
 
+## submodule の表示
+
+submodule は「別 repo を指すポインタ」であり、親 repo の filer では展開しない葉として扱う。working tree モード / snapshot モードのどちらでも同じ契約になる。
+
+### 判定
+
+判定の SSOT は **index の gitlink**（mode `160000`）。
+
+- working tree 上の submodule は、未初期化なら中身の無いディレクトリ、初期化済みでも `.git` は除外対象の gitlink ファイルなので、**ディスク側に初期化状態に依存しない手がかりが存在しない**
+- `.gitmodules` は「設定」であって実体ではないため判定には使わない（記述の無い gitlink も、実体の無い記述もあり得る）
+- main の `readDir` は `git ls-files --stage -z -- ':(glob)<relDir>/*'` を `checkIgnore` と並列に 1 回実行する。`:(glob)` 修飾子は `*` が `/` を跨がなくなる効果を持つため、index 全体ではなく列挙中の 1 階層だけに絞れる。gitlink に一致した entry だけ `type` を `submodule` に倒し、commit hash を `submoduleHash` に載せる
+- ディレクトリを 1 つも含まない階層では git を起動しない（submodule は初期化状態によらずディレクトリとして存在するため）
+- gitlink の path がディスク上 file / symlink になっている食い違い状態は実体側の種別を優先する。ディスクの種別は常に lstat が SSOT で、index は「submodule として登録されているか」だけを足す
+- 並び順はディレクトリ区画に置く。展開できない葉だが、ディスク上はディレクトリが占める位置にある
+
+展開させないのは、配下が別 repo の管理下にあり親 repo の `git status` / `gitignore` では語れないため。VS Code は Explorer と git decoration が分離していて submodule 配下も普通に展開できるが、gozd の filer は git status を重ねる前提なので同じ切り方はしない。
+
+### 表示と click
+
+- 右端に短縮 hash（7 桁）を出す。GitHub の `name @ hash` と同じ情報だが、幅の狭いツリーでは名前に続けると truncate に飲まれるため右端に固定する（VS Code が `S` バッジを右端に置くのと同じ理由）
+- 名前の色は使わない。git change > link > ignored の優先順位を既に使い切っており、4 つ目の軸を足すと競合する
+- アイコンは material-icon-theme の `folder-git`。テーマは submodule を種別として持たない（VS Code 側は decoration provider が担う）ため、`submodules` という名前のフォルダに割り当てられたアイコンを種別アイコンとして借用する
+- click は gitlink が pin している commit の GitHub ページ（`/tree/<hash>`）を外部ブラウザで開く。URL は `.gitmodules` にしか無いため、列挙のたびに読まず click 時に `/git/submoduleUrl` で引く。`.gitmodules` に記述が無い / 非 github.com host は解決できないので、無音の不発にせず通知で示す
+- 右クリック menu は出さない。menu の項目はどれもツリー上の path を親 repo 内のファイルとして扱うもので、submodule の path は repo 境界そのものだから
+
 ## 削除ファイルの表示
 
 `git status` で `D` ステータスのファイル（index 側 / worktree 側のいずれの削除も含む）は、ディスク上に存在しないがツリーに仮想エントリとして表示する。ディレクトリ直下の削除ファイル / サブディレクトリを抽出し、ディスク上の既存エントリと重複しないものだけをツリーに追加する。
@@ -184,7 +209,7 @@ git-graph で UNCOMMITTED_HASH 以外の commit が選択されている間、fi
 
 - 「今 snapshot を見ている」ことと「working tree へ戻る」手段を、GitGraphPane 側を操作せず filer 側単独で完結させるため、NavigatorPane の Filer ヘッダーに状態表示と "Now" ボタンを持つ。実装詳細（表示分岐条件・データソース）は `NavigatorPane.vue` の `<doc>` ブロックを参照
 - データソースは `rpcGitLsTree(dir, hash, path)`。main 側（`gitTree.ts`）は `git ls-tree -z <hash> <path>/` で 1 階層分を返す。末尾 `/` は main 側で必ず付与する規約（外すとエントリ 1 件に倒れて lazy expand が成立しない）
-- `FileEntry.kind` は `"file" | "directory" | "symlink" | "submodule"`。`git mode` (`040000` / `120000` / `160000` / その他) を SSOT 写像する
+- `FileEntry.kind` は `"file" | "directory" | "symlink" | "submodule"`。snapshot mode では `git mode` (`040000` / `120000` / `160000` / その他) を SSOT 写像する（working tree モードは lstat + index の gitlink。[submodule の表示](#submodule-の表示)）
 - ルート FileTreeItem は `:key="dir"` のままで mode 切替では再マウントしない。子の `snapshotHash` watch が children を invalidate して再 load することで、展開状態 (`expanded`) と孫ノードの instance を保ったまま data だけ差し替える
 - mode 切替直後の `rpcGitLsTree` 完了前は children を先行 reset せず旧 mode の tree を表示し続ける設計。切替のたびに Loading フラッシュを見せると「今どこを見ているか」の continuity が壊れるため、データだけ後追いで差し替える経路に倒している (race は `loadSeq` でガード済み)。空フォルダ等で空 tree から空 tree への切替は視覚的に変化が出ないが、children 内のファイル / ディレクトリの kind や有無が変われば即座に反映される
 - `FileTreeItem` の子 `v-for :key` は `${child.name}-${child.kind}` で識別する。同名 path で kind が変わる稀なケース (file→directory への mv が commit に含まれて snapshot tree で別 kind になった等) では別 instance として再マウントされ、深いツリー展開状態は失われる。これは「kind 変化 = file ↔ directory の意味変化 = 展開可能性の変化」と捉えての意図的な分離
@@ -199,9 +224,8 @@ git-graph で UNCOMMITTED_HASH 以外の commit が選択されている間、fi
 - `symlink`: 実体を持たない symlink だけがこの kind に来る（working tree の dangling / 循環、
   snapshot tree の symlink blob）。working tree では `select` emit（preview が not found を出す）、
   snapshot mode では blob 内容が target path 文字列でしかないため click を no-op に倒す
-- `submodule`: 常に no-op。gitlink object (`160000`) は `gitShowCommitFile` で内容を取得できず
-  preview に流すとエラーになるため。UI 上は `cursor-not-allowed` + opacity 低下 + tooltip で
-  「click できない」ことを示す
+- `submodule`: 展開も preview もせず、gitlink が pin している commit の repo ページを開く
+  （[submodule の表示](#submodule-の表示)）
 
 ### selection の境界挙動
 
@@ -223,7 +247,6 @@ git-graph で UNCOMMITTED_HASH 以外の commit が選択されている間、fi
 
 - 範囲選択（`compareHash`）の扱い。`selectedHash` 単独で snapshot を表示する。範囲選択時は selectedHash 側（newer endpoint）の tree が表示される
 - snapshot mode 中のディレクトリのアイコン色やバッジ表示。working tree とは別の意味になるため将来検討
-- submodule（`160000`）配下への 1 階層降下。本 RPC では別 repo の commit を解決しないため葉として扱う
 
 ## ファイルアイコン
 

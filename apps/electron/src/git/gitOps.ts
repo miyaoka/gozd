@@ -3,7 +3,7 @@
 
 import { tryCatch } from "@gozd/shared";
 import { statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { GitCommandError, runGit, runGitNonInteractive, runGitWithStdin } from "./gitRunner";
 import {
   parsePorcelainV2WithBranch,
@@ -50,6 +50,48 @@ export async function checkIgnore(dir: string, relPaths: string[]): Promise<Set<
   // not a git repo / no .gitignore 等は exit code != 0。無視されたパス無しとして扱う
   if (!result.ok) return new Set();
   return new Set(result.value.split("\0").filter((path) => path !== ""));
+}
+
+/** index 1 行の先頭に立つ gitlink の mode。この mode を持つ entry が submodule。 */
+const GITLINK_MODE = "160000";
+
+/**
+ * relDir 直下の submodule を「entry 名 → 指している commit hash」の Map で返す。
+ *
+ * 判定の SSOT は **index の gitlink**（mode `160000`）に置く。submodule の working tree は
+ * 未初期化なら中身の無いディレクトリで、初期化済みでも `.git` は readDir が除外する gitlink
+ * ファイルなので、ディスク側には初期化状態に依存しない手がかりが存在しない。`.gitmodules` は
+ * 「設定」であって実体ではなく、index に gitlink が無い記述も、記述の無い gitlink もあり得る。
+ *
+ * pathspec の `:(glob)` 修飾子は `*` が `/` を跨がなくなる効果を持つため、`<relDir>/*` で
+ * index 全体ではなく readDir が見ている 1 階層だけに絞れる。
+ * - `git ls-files --stage -z` の 1 レコードは `<mode> SP <object> SP <stage> TAB <path>`
+ * - 出力 path は repo root 相対。`dir` は worktree root なので relDir 相対に読み替えられる
+ * - git 管理外 / git 不在は空 Map を返す（checkIgnore と同じく throw しない）
+ */
+export async function listGitlinks(dir: string, relDir: string): Promise<Map<string, string>> {
+  const pathspec = relDir === "" ? ":(glob)*" : `:(glob)${relDir}/*`;
+  const result = await tryCatch(runGit(["ls-files", "--stage", "-z", "--", pathspec], dir));
+  // not a git repo / git 不在。submodule 無しとして扱う
+  if (!result.ok) return new Map();
+  const gitlinks = new Map<string, string>();
+  for (const record of result.value.split("\0")) {
+    if (!record.startsWith(`${GITLINK_MODE} `)) continue;
+    const tabIndex = record.indexOf("\t");
+    // header と path を分ける TAB が無いレコードは想定外フォーマット。silent skip すると
+    // 「submodule なのに普通のディレクトリで出る」形で無音退行するため観察ログを残す
+    if (tabIndex < 0) {
+      console.error(`[listGitlinks] record missing TAB separator: ${record} dir=${dir}`);
+      continue;
+    }
+    const [, hash] = record.slice(0, tabIndex).split(" ");
+    if (hash === undefined) {
+      console.error(`[listGitlinks] record missing object hash: ${record} dir=${dir}`);
+      continue;
+    }
+    gitlinks.set(basename(record.slice(tabIndex + 1)), hash);
+  }
+  return gitlinks;
 }
 
 /**

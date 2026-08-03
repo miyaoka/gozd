@@ -168,9 +168,8 @@ submodule は「別 repo を指すポインタ」であり、親 repo の filer 
 - gitlink の path がディスク上 file / symlink になっている食い違い状態は実体側の種別を優先する。ディスクの種別は常に lstat が SSOT で、index は「submodule として登録されているか」だけを足す
 - 列挙が symlink 越しに worktree 外を見ている場合は問い合わせを落とす（当該 repo の index の管轄外。`ignoreSpec` が dir 外を落とすのと同じ規律）
 - anchor は cwd を所有する repo なので、worktree 内に独立した nested repo があればその index を見る。ツリーが写しているディスクの実体としては妥当
-- 列挙の失敗を無音にする条件は exit 128。非 git project は列挙のたびに必ず失敗するため除いているが、128 は git の汎用 fatal で not-a-repo 専用ではなく、index 破損のような本物の障害もここで無音になる。stderr 文字列で絞る案は取らない（git のメッセージは翻訳対象で、git 実行 env はユーザーの locale をそのまま継承するため）
 - 並び順はディレクトリ区画に置く。展開できない葉だが、ディスク上はディレクトリが占める位置にある
-- 列挙の失敗は観察ログに残す。無音だと「submodule が普通のディレクトリとして出る」形で退行が見えないため。非 git project（gozd は git 管理外の project も開ける）は毎回失敗するので、exit 128 だけは除く
+- 列挙の失敗は観察ログに残す。無音だと「submodule が普通のディレクトリとして出る」形で退行が見えないため。無音にする条件は exit 128 で、非 git project（gozd は git 管理外の project も開ける）が列挙のたびに必ず失敗するのを黙らせるためだが、128 は git の汎用 fatal で not-a-repo 専用ではなく、index 破損のような本物の障害もここで無音になる。stderr 文字列で絞る案は取らない（git のメッセージは翻訳対象で、git 実行 env はユーザーの locale をそのまま継承するため）
 
 展開させないのは、配下が別 repo の管理下にあり親 repo の `git status` / `gitignore` では語れないため。VS Code は Explorer と git decoration が分離していて submodule 配下も普通に展開できるが、gozd の filer は git status を重ねる前提なので同じ切り方はしない。
 

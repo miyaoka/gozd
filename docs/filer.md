@@ -160,20 +160,27 @@ submodule は「別 repo を指すポインタ」であり、親 repo の filer 
 
 - working tree 上の submodule は、未初期化なら中身の無いディレクトリ、初期化済みでも `.git` は除外対象の gitlink ファイルなので、**ディスク側に初期化状態に依存しない手がかりが存在しない**
 - `.gitmodules` は「設定」であって実体ではないため判定には使わない（記述の無い gitlink も、実体の無い記述もあり得る）
-- main の `readDir` は `git ls-files --stage -z -- ':(glob)<relDir>/*'` を `checkIgnore` と並列に 1 回実行する。`:(glob)` 修飾子は `*` が `/` を跨がなくなる効果を持つため、index 全体ではなく列挙中の 1 階層だけに絞れる。gitlink に一致した entry だけ `type` を `submodule` に倒し、commit hash を `submoduleHash` に載せる
+- main の `readDir` は **列挙しているディレクトリ自身を cwd にして** `git ls-files --stage -z -- ':(glob)*'` を `checkIgnore` と並列に 1 回実行する。gitlink に一致した entry だけ `type` を `submodule` に倒し、commit hash を `submoduleHash` に載せる
+- pathspec は cwd 固定の `:(glob)*` に保ち、**ディレクトリ名を pathspec に埋めない**。`:(glob)<name>/*` の形にすると、`app/[slug]` のようにディレクトリ名が glob メタ文字を含む場合に文字クラスとして解釈され、兄弟ディレクトリの gitlink を拾いつつ本物を取り逃す。`:(glob)` は `*` が `/` を跨がなくなる効果を持つため、cwd 相対の `*` で 1 階層に閉じる
+- 出力 path は cwd 相対で `/` を含まないため、そのまま entry 名として引き当てられる
+- conflict 中の gitlink は stage 1（base）/ 2（ours）/ 3（theirs）が並ぶ。working tree に checkout されているのは ours なので、表示も stage 2 に揃える（通常の entry は stage 0 のみ）
 - ディレクトリを 1 つも含まない階層では git を起動しない（submodule は初期化状態によらずディレクトリとして存在するため）
 - gitlink の path がディスク上 file / symlink になっている食い違い状態は実体側の種別を優先する。ディスクの種別は常に lstat が SSOT で、index は「submodule として登録されているか」だけを足す
+- 列挙が symlink 越しに worktree 外を見ている場合は問い合わせを落とす（当該 repo の index の管轄外。`ignoreSpec` が dir 外を落とすのと同じ規律）
 - 並び順はディレクトリ区画に置く。展開できない葉だが、ディスク上はディレクトリが占める位置にある
+- 列挙の失敗は観察ログに残す。無音だと「submodule が普通のディレクトリとして出る」形で退行が見えないため。非 git project（gozd は git 管理外の project も開ける）は毎回失敗するので、exit 128 だけは除く
 
 展開させないのは、配下が別 repo の管理下にあり親 repo の `git status` / `gitignore` では語れないため。VS Code は Explorer と git decoration が分離していて submodule 配下も普通に展開できるが、gozd の filer は git status を重ねる前提なので同じ切り方はしない。
 
 ### 表示と click
 
 - 右端に短縮 hash（7 桁）を出す。GitHub の `name @ hash` と同じ情報だが、幅の狭いツリーでは名前に続けると truncate に飲まれるため右端に固定する（VS Code が `S` バッジを右端に置くのと同じ理由）
-- 名前の色は使わない。git change > link > ignored の優先順位を既に使い切っており、4 つ目の軸を足すと競合する
-- アイコンは material-icon-theme の `folder-git`。テーマは submodule を種別として持たない（VS Code 側は decoration provider が担う）ため、`submodules` という名前のフォルダに割り当てられたアイコンを種別アイコンとして借用する
-- click は gitlink が pin している commit の GitHub ページ（`/tree/<hash>`）を外部ブラウザで開く。URL は `.gitmodules` にしか無いため、列挙のたびに読まず click 時に `/git/submoduleUrl` で引く。`.gitmodules` に記述が無い / 非 github.com host は解決できないので、無音の不発にせず通知で示す
-- 右クリック menu は出さない。menu の項目はどれもツリー上の path を親 repo 内のファイルとして扱うもので、submodule の path は repo 境界そのものだから
+- submodule 固有の色軸は足さない。名前の色は git change > link > ignored の優先順位を既に使い切っており、4 つ目を足すと競合する。gitlink の変更（pin 先の移動 / 配下の dirty）は `git status` が submodule の path そのものを報告するので、**既存の git change 色にそのまま乗る**（葉なので配下からの推論ではなく完全一致で引き当たる）
+- アイコンは material-icon-theme が `submodules` という名前のフォルダに割り当てているものを種別アイコンとして借用する。テーマは submodule を種別として持たない（VS Code 側は decoration provider が担う）ため、これが最も近い語彙になる。アイコン名を焼き込まず folder 名から引くので、テーマが割り当てを差し替えても追従する
+- click は gitlink が pin している commit の GitHub ページ（`/tree/<hash>`）を外部ブラウザで開く。URL は `.gitmodules` にしか無いため、列挙のたびに読まず click 時に `/git/submoduleUrl` で引く。解決できないケース（記述が無い / 非 github.com host / 相対 url を解決できない）は無音の不発にせず通知で示す
+- `.gitmodules` の相対 url（gitmodules(5) の `./` `../` 形式。superproject の origin からの相対位置）は origin の owner / repo を基準に解決する。`../` 1 つで末尾 1 成分を落とす git 本体と同じ規則
+- snapshot mode では hash と同じ revision の `.gitmodules` blob から url を引く。path → url の対応は commit 間で変わり得るので、working tree の対応を過去の hash に重ねると別 repo を指す誤リンクになる
+- 右クリック menu は出さない。行が表すのは親 repo 内のファイルではなく repo 境界の外にある別 repo への参照で、click も外部コンテキストへ出る動作に倒してある（GitHub の submodule 行が `<a>` であるのと同じ位置づけ）。行の対象が外部である以上、この repo のファイル操作は載せない
 
 ## 削除ファイルの表示
 

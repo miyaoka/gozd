@@ -167,6 +167,8 @@ submodule は「別 repo を指すポインタ」であり、親 repo の filer 
 - ディレクトリを 1 つも含まない階層では git を起動しない（submodule は初期化状態によらずディレクトリとして存在するため）
 - gitlink の path がディスク上 file / symlink になっている食い違い状態は実体側の種別を優先する。ディスクの種別は常に lstat が SSOT で、index は「submodule として登録されているか」だけを足す
 - 列挙が symlink 越しに worktree 外を見ている場合は問い合わせを落とす（当該 repo の index の管轄外。`ignoreSpec` が dir 外を落とすのと同じ規律）
+- anchor は cwd を所有する repo なので、worktree 内に独立した nested repo があればその index を見る。ツリーが写しているディスクの実体としては妥当
+- 列挙の失敗を無音にする条件は exit 128。非 git project は列挙のたびに必ず失敗するため除いているが、128 は git の汎用 fatal で not-a-repo 専用ではなく、index 破損のような本物の障害もここで無音になる。stderr 文字列で絞る案は取らない（git のメッセージは翻訳対象で、git 実行 env はユーザーの locale をそのまま継承するため）
 - 並び順はディレクトリ区画に置く。展開できない葉だが、ディスク上はディレクトリが占める位置にある
 - 列挙の失敗は観察ログに残す。無音だと「submodule が普通のディレクトリとして出る」形で退行が見えないため。非 git project（gozd は git 管理外の project も開ける）は毎回失敗するので、exit 128 だけは除く
 
@@ -179,6 +181,7 @@ submodule は「別 repo を指すポインタ」であり、親 repo の filer 
 - アイコンは material-icon-theme が `submodules` という名前のフォルダに割り当てているものを種別アイコンとして借用する。テーマは submodule を種別として持たない（VS Code 側は decoration provider が担う）ため、これが最も近い語彙になる。アイコン名を焼き込まず folder 名から引くので、テーマが割り当てを差し替えても追従する
 - click は gitlink が pin している commit の GitHub ページ（`/tree/<hash>`）を外部ブラウザで開く。URL は `.gitmodules` にしか無いため、列挙のたびに読まず click 時に `/git/submoduleUrl` で引く。解決できないケース（記述が無い / 非 github.com host / 相対 url を解決できない）は無音の不発にせず通知で示す
 - `.gitmodules` の相対 url（gitmodules(5) の `./` `../` 形式。superproject の origin からの相対位置）は origin の owner / repo を基準に解決する。`../` 1 つで末尾 1 成分を落とす git 本体と同じ規則
+- URL 解決は **開いている repo が宣言した submodule に対して定義される**。`.gitmodules` を読む cwd は worktree root で固定なので、判定側（列挙対象を cwd にする）と anchor がずれる nested repo 配下の submodule は解決できず、通知で終わる。誤った URL を出す組み合わせは構造的に起きない（親の `.gitmodules` に nested repo 内の path は載らない）
 - snapshot mode では hash と同じ revision の `.gitmodules` blob から url を引く。path → url の対応は commit 間で変わり得るので、working tree の対応を過去の hash に重ねると別 repo を指す誤リンクになる
 - 右クリック menu は出さない。行が表すのは親 repo 内のファイルではなく repo 境界の外にある別 repo への参照で、click も外部コンテキストへ出る動作に倒してある（GitHub の submodule 行が `<a>` であるのと同じ位置づけ）。行の対象が外部である以上、この repo のファイル操作は載せない
 

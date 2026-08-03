@@ -272,7 +272,6 @@ async function toggle(event: MouseEvent) {
     await openSubmoduleRepo();
     return;
   }
-  // gitShowCommitFile 等で内容を取れない葉は preview にも流さない
   if (isInertLeaf.value) return;
   emit("select", props.path);
 }

@@ -72,20 +72,23 @@ const GITLINK_STAGE_RANK: Record<string, number> = { "0": 2, "2": 1 };
  * ファイルなので、ディスク側には初期化状態に依存しない手がかりが存在しない。`.gitmodules` は
  * 「設定」であって実体ではなく、index に gitlink が無い記述も、記述の無い gitlink もあり得る。
  *
- * `dir` は **列挙しているディレクトリそのもの**を渡す。pathspec を cwd 固定の `:(glob)*` に
- * 保つことで、ディレクトリ名がパターンとして解釈される経路を構造的に無くしている
- * （`:(glob)<name>/*` の形にすると、`app/[slug]` のようにディレクトリ名が glob メタ文字を
- * 含む場合に文字クラスとして解釈され、兄弟ディレクトリの gitlink を拾いつつ本物を取り逃す）。
- * `:(glob)` は `*` が `/` を跨がなくなる効果を持つため、これで 1 階層に閉じる。
+ * 引数は同ファイルの他の op（worktree root を受ける `dir`）と違い **列挙しているディレクトリ
+ * そのもの**。pathspec を cwd 固定の `:(glob)*` に保つことで、ディレクトリ名がパターンとして
+ * 解釈される経路を構造的に無くしている（`:(glob)<name>/*` の形にすると、`app/[slug]` のように
+ * ディレクトリ名が glob メタ文字を含む場合に文字クラスとして解釈され、兄弟ディレクトリの gitlink を
+ * 拾いつつ本物を取り逃す）。`:(glob)` は `*` が `/` を跨がなくなる効果を持つため、これで 1 階層に閉じる。
+ *
+ * anchor は cwd を所有する repo なので、worktree 内に独立した nested repo があればその index を
+ * 見る（ツリーが写しているディスクの実体としては妥当）。
  *
  * - `git ls-files --stage -z` の 1 レコードは `<mode> SP <object> SP <stage> TAB <path>`
  * - 出力 path は cwd 相対。1 階層 pathspec なので `/` を含まず、そのまま entry 名になる
  * - git 管理外 / git 不在は空 Map を返す（checkIgnore と同じく throw しない）
  */
-export async function listGitlinks(dir: string): Promise<Map<string, string>> {
-  const result = await tryCatch(runGit(["ls-files", "--stage", "-z", "--", ":(glob)*"], dir));
+export async function listGitlinks(listDir: string): Promise<Map<string, string>> {
+  const result = await tryCatch(runGit(["ls-files", "--stage", "-z", "--", ":(glob)*"], listDir));
   if (!result.ok) {
-    logGitlinkFailure(dir, result.error);
+    logGitlinkFailure(listDir, result.error);
     return new Map();
   }
   const ranked = new Map<string, { hash: string; rank: number }>();
@@ -108,12 +111,14 @@ export async function listGitlinks(dir: string): Promise<Map<string, string>> {
  * gitlink 列挙の失敗を観察可能にする。失敗の帰結は「submodule が普通のディレクトリとして出る」で、
  * 無音だと表示が退行したことに気づけない。
  *
- * 非 git プロジェクト（gozd は git 管理外の project も開ける）は列挙のたびに必ず失敗するため、
- * それだけはログを出さない。exit 128 は git の「not a git repository」の規約。
+ * 非 git プロジェクト（gozd は git 管理外の project も開ける）は列挙のたびに必ず失敗するので、
+ * これを黙らせるために exit 128 を除外する。ただし 128 は git の**汎用 fatal** で not-a-repo 専用
+ * ではないため、index 破損のような本物の障害もここで無音になる。stderr 文字列で絞る案は取らない:
+ * git のメッセージは翻訳対象で、`gozdGitEnv` はユーザーの locale をそのまま継承するため。
  */
-function logGitlinkFailure(dir: string, error: unknown): void {
+function logGitlinkFailure(listDir: string, error: unknown): void {
   if (error instanceof GitCommandError && error.exitCode === 128) return;
-  console.error(`[listGitlinks] ls-files failed: ${String(error)} dir=${dir}`);
+  console.error(`[listGitlinks] ls-files failed: ${String(error)} dir=${listDir}`);
 }
 
 /**

@@ -67,10 +67,11 @@ const TRAFFIC_LIGHT_RADIUS = 6;
 const TRAFFIC_LIGHT_X = 16;
 
 /** renderer 内リンクの外部送り防壁。Swift 版 ExternalLinkNavigationDecider の対応物。
- * デフォルトでは `<a target="_blank">` が新しい Electron window を開き、main frame の
- * http(s) 遷移は UI 全体を置換してしまうため構造的に必要な防壁。判定軸は Swift 版と
- * 同じ scheme 3 分岐: 内部 origin（dev の Vite URL / packaged の file:）は許可、
- * それ以外の http(s) は OS のデフォルトブラウザへ、その他 scheme は許可。
+ * デフォルトでは `<a target="_blank">` が新しい Electron window を開き、http(s) 遷移は
+ * 遷移先の frame（main frame なら UI 全体、subframe なら HTML preview 面）を置換して
+ * しまうため構造的に必要な防壁。判定軸は Swift 版と同じ scheme 3 分岐: 内部 origin
+ * （dev の Vite URL / packaged の file:）は許可、それ以外の http(s) は OS のデフォルト
+ * ブラウザへ、その他 scheme は許可。全 frame に同一の軸を当てる。
  *
  * 唯一の例外が `window.open("about:blank")` で、undock 用 child window として許可する
  * （VS Code の auxiliary window と同じ判定軸）。same-origin の about:blank は opener と
@@ -109,12 +110,19 @@ function installExternalLinkPolicy(contents: WebContents): void {
     return { action: "deny" };
   });
 
-  // main frame の遷移。内部 origin（Vite フルリロード等）は許可、外部 http(s) は
-  // ブラウザへ、その他 scheme は許可（Swift 版と同じ分岐）
-  contents.on("will-navigate", (event, url) => {
-    if (isInternal(url) || !isHttp(url)) return;
-    event.preventDefault();
-    openExternal(url);
+  // frame の遷移。内部 origin（Vite フルリロード等）は許可、外部 http(s) は
+  // ブラウザへ、その他 scheme は許可（Swift 版と同じ分岐）。
+  //
+  // `will-navigate` ではなく `will-frame-navigate` を使う。前者は main frame でしか発火せず、
+  // subframe の遷移を素通しする（Electron advisory GHSA-2q4g-w47c-4674 が既知の穴として挙げ、
+  // その受け皿として後者が追加された）。HTML preview の `<iframe srcdoc sandbox="">` 内リンクが
+  // 実際にこの穴を踏む: sandbox は opaque origin 化するだけで frame 自身の遷移は禁止しないため、
+  // クリックで preview 面が外部 URL に置き換わり、ロードに失敗すると Chromium のエラーページ
+  // （chrome-error://chromewebdata）になって真っ白に見える。
+  contents.on("will-frame-navigate", (details) => {
+    if (isInternal(details.url) || !isHttp(details.url)) return;
+    details.preventDefault();
+    openExternal(details.url);
   });
 }
 

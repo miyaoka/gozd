@@ -3,7 +3,10 @@ marked で Markdown → HTML 変換し、DOMPurify でサニタイズして表�
 
 - YAML frontmatter はコードブロックとして描画
 - 相対パスリンクのクリックは worktree 相対パスとして解決し、プレビュー対象を切り替える
-  （http(s) / mailto: 等の絶対 URL は `ExternalLinkNavigationDecider` 経路で外部ブラウザに渡す）
+- http(s) / mailto: の絶対 URL は `openExternal` RPC で OS のデフォルトブラウザに渡す。
+  本文は Cmd+A のスコープを閉じるため contenteditable host であり、Chromium は editing host 内の
+  リンククリックで navigation を起こさない（キャレット配置に倒れる）。ブラウザ既定挙動と
+  main の will-navigate 防壁には委譲できないため、ここで明示的に外部送りする
 - 行番号フラグメント (`./foo.ts#L42`) は lineNumber として `selectPath` に渡す
 - 解決ロジックは `resolveMarkdownLink` に分離 (純粋関数 + ユニットテスト)
 - 内部リンクの遷移は `useMarkdownHistoryStore.navigate()` 経由で行い、back / forward 履歴に積む。
@@ -11,10 +14,12 @@ marked で Markdown → HTML 変換し、DOMPurify でサニタイズして表�
 </doc>
 
 <script setup lang="ts">
+import { tryCatch } from "@gozd/shared";
 import { useNotificationStore } from "../../../../shared/notification";
 import { relDirOf } from "../../../filer";
 import { normalizeAbsolute, normalizeRelative, useWorktreeStore } from "../../../worktree";
 import { abortComposition, blockEdit } from "../../contenteditableHostGuard";
+import { rpcOpenExternal } from "../../rpc";
 import MarkdownBody from "./MarkdownBody.vue";
 import { resolveMarkdownLink } from "./resolveMarkdownLink";
 import { useMarkdownHistoryStore } from "./useMarkdownHistoryStore";
@@ -31,8 +36,10 @@ const notification = useNotificationStore();
  * クリック経路は VS Code (`markdown-language-features/preview-src/index.ts`) に揃える。
  * - 左クリックの `@click` のみ。middle click (`auxclick`) は WebView の既定挙動に任せる
  *   (VS Code でも未対応 / 内部リンクとして扱わない)
- * - scheme 付き URL と `#fragment` 単独は preventDefault せず素通しし、
- *   `ExternalLinkNavigationDecider` (外部 URL) / ブラウザ既定スクロール (`#`) に委ねる
+ * - `#fragment` 単独だけを preventDefault せず素通しし、ブラウザ既定スクロールに委ねる
+ * - http(s) / mailto: は `openExternal` RPC で明示的に OS へ渡す。本文は contenteditable host
+ *   なので、Chromium は editing host 内のリンククリックをキャレット配置として扱い navigation を
+ *   起こさない。既定挙動に委ねると main の will-frame-navigate 防壁まで到達せずリンクが死ぬ
  *
  * notification は **固定 message + 詳細を `cause` に分離** する。
  * `useNotificationStore` は同一 message を重複抑制するため、href 違いのリンクを連続
@@ -41,6 +48,12 @@ const notification = useNotificationStore();
  */
 const ANCHOR_IGNORED_MESSAGE = "Heading anchors are not yet supported; opened the file only";
 const LINK_INVALID_MESSAGE = "Could not open link from markdown preview";
+const LINK_EXTERNAL_FAILED_MESSAGE = "Could not open link in the browser";
+
+async function openExternal(url: string) {
+  const opened = await tryCatch(rpcOpenExternal({ url }));
+  if (!opened.ok) notification.error(LINK_EXTERNAL_FAILED_MESSAGE, { url, error: opened.error });
+}
 
 function onLinkClick(e: MouseEvent) {
   const target = e.target;
@@ -61,6 +74,11 @@ function onLinkClick(e: MouseEvent) {
   if (resolved.kind === "passthrough") return;
 
   e.preventDefault();
+
+  if (resolved.kind === "external") {
+    void openExternal(resolved.url);
+    return;
+  }
 
   if (resolved.kind === "invalid") {
     notification.error(LINK_INVALID_MESSAGE, { href, reason: resolved.reason });

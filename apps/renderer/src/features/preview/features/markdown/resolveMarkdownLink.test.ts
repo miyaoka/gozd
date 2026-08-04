@@ -72,34 +72,41 @@ function expectInternalAbs(
 }
 
 describe("resolveMarkdownLink", () => {
-  describe("passthrough (allowlist のみ)", () => {
-    test("http(s) URL は passthrough", () => {
+  describe("external (allowlist のみ)", () => {
+    test("http(s) URL は external", () => {
       expect(resolve("https://example.com/", relBase("docs/preview.md"))).toEqual({
-        kind: "passthrough",
+        kind: "external",
+        url: "https://example.com/",
       });
       expect(resolve("http://example.com/", relBase("docs/preview.md"))).toEqual({
-        kind: "passthrough",
+        kind: "external",
+        url: "http://example.com/",
       });
     });
 
-    test("mailto: は passthrough", () => {
+    test("mailto: は external", () => {
       expect(resolve("mailto:user@example.com", relBase("docs/preview.md"))).toEqual({
-        kind: "passthrough",
+        kind: "external",
+        url: "mailto:user@example.com",
       });
     });
 
-    test("# 単独は passthrough (同一文書内アンカー)", () => {
-      expect(resolve("#section", relBase("docs/preview.md"))).toEqual({ kind: "passthrough" });
-      expect(resolve("#", relBase("docs/preview.md"))).toEqual({ kind: "passthrough" });
-    });
-
-    test("scheme 大文字小文字混在も passthrough", () => {
+    test("scheme 大文字小文字混在も external", () => {
       expect(resolve("HTTPS://example.com/", relBase("docs/preview.md"))).toEqual({
-        kind: "passthrough",
+        kind: "external",
+        url: "HTTPS://example.com/",
       });
       expect(resolve("Mailto:user@example.com", relBase("docs/preview.md"))).toEqual({
-        kind: "passthrough",
+        kind: "external",
+        url: "Mailto:user@example.com",
       });
+    });
+  });
+
+  describe("passthrough (同一文書内アンカーのみ)", () => {
+    test("# 単独は passthrough", () => {
+      expect(resolve("#section", relBase("docs/preview.md"))).toEqual({ kind: "passthrough" });
+      expect(resolve("#", relBase("docs/preview.md"))).toEqual({ kind: "passthrough" });
     });
   });
 

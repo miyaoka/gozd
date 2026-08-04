@@ -171,25 +171,35 @@ CLI は socket ファイル名から channel を逆導出する（`cliOps.ts`）
 
 ## 外部リンクの navigation 防壁
 
-renderer 内の `<a target="_blank">` / `window.open` / main frame の外部 http(s) 遷移は、
-デフォルトでは新しい Electron window を開くか UI 全体を置換してしまう。
-`installExternalLinkPolicy`（`src/main.ts`）が構造的な防壁を張る。適用は
-`app.on("web-contents-created")` で全 webContents（main window + undock child window）に一律:
+renderer 内の `<a target="_blank">` / `window.open` / 外部 http(s) 遷移は、デフォルトでは
+新しい Electron window を開くか、遷移先の frame（main frame なら UI 全体、subframe なら
+HTML preview 面）を置換してしまう。`installExternalLinkPolicy`（`src/main.ts`）が構造的な
+防壁を張る。適用は `app.on("web-contents-created")` で全 webContents（main window +
+undock child window）に一律:
 
 - `setWindowOpenHandler`: `about:blank` のみ allow（undock 用 child window。VS Code の
   auxiliary window と同じ判定軸。same-origin の about:blank は opener と同一 renderer
   プロセスに作られ、中身は opener が DOM 投影で構築する — renderer の ChildWindow.vue）。
   それ以外は deny し、http(s) のみ `shell.openExternal` で OS ブラウザへ
-- `will-navigate`: 内部 origin（dev の Vite URL / packaged の file:）は許可、外部 http(s) は
+- `will-frame-navigate`: 内部 origin（dev の Vite URL / packaged の file:）は許可、外部 http(s) は
   preventDefault + OS ブラウザへ、その他 scheme は許可
 
 判定軸は scheme 3 分岐で、`<a href>` 以外の経路（form submit / window.open 等）でも外部送りで揃える。
 launch 失敗は具体的な error 込みで stderr に残す（silent drop 禁止）。
 
-markdown preview で render される `[text](https://...)` 由来のリンクも同じ防壁を通るため、
-すべて外部ブラウザで開かれる（child window 内の markdown preview 含む）。child window は
-URL を load しないため、「renderer 内に URL 越しにファイルを読む口が存在しない」という
-バイナリ配信セクションのセキュリティ境界は変わらない。
+frame 遷移は `will-navigate` ではなく `will-frame-navigate` で受ける。前者は main frame でしか
+発火せず subframe を素通しする（Electron advisory GHSA-2q4g-w47c-4674）。HTML preview の
+`<iframe srcdoc sandbox="">` が実際にこの差を踏む: sandbox は origin を opaque にするだけで
+frame 自身の遷移は禁止しないため、防壁が無いと preview 面が外部 URL に置換され、ロード失敗時は
+Chromium のエラーページ（`chrome-error://chromewebdata`）になる。
+
+markdown preview（`MarkdownPreview.vue`）だけは防壁に委ねず、`openExternal` RPC で自前で
+外部送りする。本文は Cmd+A のスコープを閉じるため contenteditable host であり、Chromium は
+editing host 内のリンククリックをキャレット配置として扱って navigation を起こさない。
+委譲先の既定挙動が存在しないため、防壁の手前でリンクが不活性になる。
+
+child window は URL を load しないため、「renderer 内に URL 越しにファイルを読む口が存在しない」
+というバイナリ配信セクションのセキュリティ境界は変わらない。
 
 ## 通信経路
 

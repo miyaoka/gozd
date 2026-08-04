@@ -2,8 +2,6 @@
 import {
   ClaudeSessionRemoveByPtyRequest,
   ClaudeSessionRemoveByPtyResponse,
-  OpenExternalRequest,
-  OpenExternalResponse,
   PtyKillRequest,
   PtyKillResponse,
   PtyResizeRequest,
@@ -28,9 +26,6 @@ export const rpcPtyWrite = (req: PtyWriteRequest) => rpc<PtyWriteResponse>("/pty
 export const rpcPtyResize = (req: PtyResizeRequest) => rpc<PtyResizeResponse>("/pty/resize", req);
 
 export const rpcPtyKill = (req: PtyKillRequest) => rpc<PtyKillResponse>("/pty/kill", req);
-
-export const rpcOpenExternal = (req: OpenExternalRequest) =>
-  rpc<OpenExternalResponse>("/open/external", req);
 
 // --- push event payload ---
 

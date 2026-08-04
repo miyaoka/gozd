@@ -47,12 +47,12 @@ describe("decideFrameNavigation", () => {
       expect(decide(`${RENDERER_ORIGIN}/src/main.ts`, true)).toBe("block");
     });
 
-    test("外部 http(s) は external", () => {
-      expect(decide("https://example.com/", true)).toBe("external");
+    test("外部 http(s) は block (OS へ渡すのは renderer の openExternal の責務)", () => {
+      expect(decide("https://example.com/", true)).toBe("block");
     });
 
-    test("mailto: は external (OS のメールクライアントへ渡す)", () => {
-      expect(decide("mailto:user@example.com", true)).toBe("external");
+    test("mailto: も block", () => {
+      expect(decide("mailto:user@example.com", true)).toBe("block");
     });
 
     test("packaged の file: は block (renderer は loadFile 経由でこの判定に到達しない)", () => {
@@ -73,8 +73,8 @@ describe("decideFrameNavigation", () => {
   });
 
   describe("subframe (HTML preview の sandboxed iframe)", () => {
-    test("外部 http(s) は external", () => {
-      expect(decide("https://example.com/", false)).toBe("external");
+    test("外部 http(s) は block", () => {
+      expect(decide("https://example.com/", false)).toBe("block");
     });
 
     test("dev の Vite origin は同一 URL でも block (プレビュー面を動かさない)", () => {
@@ -82,7 +82,7 @@ describe("decideFrameNavigation", () => {
       expect(decide(`${RENDERER_ORIGIN}/page2.html`, false)).toBe("block");
     });
 
-    test("mailto: は block (Chromium が塞ぐ external protocol 起動を防壁が肩代わりしない)", () => {
+    test("mailto: も block", () => {
       expect(decide("mailto:user@example.com", false)).toBe("block");
     });
 

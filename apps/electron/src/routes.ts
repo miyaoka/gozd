@@ -150,7 +150,6 @@ import { tryCatch } from "@gozd/shared";
 import { app, BrowserWindow, dialog, shell } from "electron";
 import { existsSync } from "node:fs";
 import { isChildWindow } from "./childWindows";
-import { EXTERNAL_ALLOWED_SCHEMES } from "./urlPolicy";
 import { listReviveSessions, readClaudeSessionLog } from "./claude/claudeSessionLog";
 import { writeFilesToClipboard } from "./clipboardOps";
 import {
@@ -930,15 +929,13 @@ async function handleProjectConfigEnsureFile(body: unknown): Promise<unknown> {
   return { path: await ensureProjectConfigFile(req.dir) } satisfies ProjectConfigEnsureFileResponse;
 }
 
-// OSC 8 リンクや WebLinksAddon 経由で任意 scheme が流れ込み得るので、OS へ渡してよい scheme
-// （allowlist の SSOT は urlPolicy.ts）だけを通す。navigation 防壁も同じ集合を参照する
+// scheme の allowlist はここに持たない。「この URL を OS に渡してよいか」は
+// リンククリックを受け取る renderer 側 (`shared/rpc` の openExternal) が決める契約
+// （VS Code の nativeHostMainService.openExternal も scheme を見ない）
 async function handleOpenExternal(body: unknown): Promise<unknown> {
   const req = body as OpenExternalRequest;
   const parsed = tryCatch(() => new URL(req.url));
   if (!parsed.ok) throw new Error(`invalid url: ${req.url}`);
-  if (!EXTERNAL_ALLOWED_SCHEMES.has(parsed.value.protocol)) {
-    throw new Error(`scheme not allowed: ${parsed.value.protocol}`);
-  }
   await shell.openExternal(req.url);
   return {} satisfies OpenExternalResponse;
 }

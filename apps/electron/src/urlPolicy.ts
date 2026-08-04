@@ -1,38 +1,17 @@
-// installExternalLinkPolicy (main.ts) の URL 判定。外部送りのセキュリティ境界のため、
-// 純関数に切り出してバイパス文字列の回帰テストを可能にする (urlPolicy.test.ts)。
+// installExternalLinkPolicy (main.ts) の URL 判定。セキュリティ境界のため純関数に切り出して
+// バイパス文字列の回帰テストを可能にする (urlPolicy.test.ts)。
+//
+// この層は scheme の allowlist を持たない。「この URL を OS に渡してよいか」を決めるのは
+// リンククリックを受け取る renderer 側 (`shared/rpc` の openExternal) の責務で、main は
+// 「frame を動かさせない」ことだけを担う。VS Code の will-navigate ハンドラが URL を見ずに
+// preventDefault するのと同じ切り方。
 import { tryCatch } from "@gozd/shared";
-
-/** http(s) スキームか。 */
-export function isHttpUrl(url: string): boolean {
-  return url.startsWith("http://") || url.startsWith("https://");
-}
-
-/**
- * OS へ渡してよい URL scheme の allowlist。ブラウザ / メールクライアントで開く想定の
- * scheme のみを許可する（Swift 版 openExternalAllowedSchemes と同一集合）。
- *
- * `/open/external` route（renderer が明示的に撃つ経路）と navigation 防壁（frame が遷移しようと
- * したのを横取りする経路）の両方がこれを参照する。層ごとに別集合を持つと、防壁だけ mailto を
- * 落とすといった非対称が生まれ、どの経路を通ったかで挙動が変わる。
- */
-export const EXTERNAL_ALLOWED_SCHEMES: ReadonlySet<string> = new Set([
-  "http:",
-  "https:",
-  "mailto:",
-]);
-
-/** OS へ渡してよい URL か。scheme は `EXTERNAL_ALLOWED_SCHEMES` に限る。 */
-function isExternalUrl(url: string): boolean {
-  const parsed = tryCatch(() => new URL(url));
-  if (!parsed.ok) return false;
-  return EXTERNAL_ALLOWED_SCHEMES.has(parsed.value.protocol);
-}
 
 /**
  * dev の Vite origin か。origin は完全一致で比較する。prefix 比較
  * (`url.startsWith(rendererUrl)`) だと `http://localhost:5173.evil.example` や
  * `http://localhost:5173@evil.example` (userinfo 扱い) のようなホスト偽装が内部扱いになり、
- * 外部送り境界を突破される。
+ * 境界を突破される。
  *
  * rendererOrigin が undefined なのは packaged で、その場合は一致する URL が存在しない。
  *
@@ -42,34 +21,25 @@ function isExternalUrl(url: string): boolean {
  */
 export function isRendererOrigin(url: string, rendererOrigin: string | undefined): boolean {
   if (rendererOrigin === undefined) return false;
-  if (!isHttpUrl(url)) return false;
+  if (!url.startsWith("http://") && !url.startsWith("https://")) return false;
   const parsed = tryCatch(() => new URL(url));
   // parse 不能な文字列は内部と証明できないため外部側に倒す
   if (!parsed.ok) return false;
   return parsed.value.origin === rendererOrigin;
 }
 
-/** frame 遷移の扱い。`block` は遷移を止めるだけで外部にも送らない。 */
-export type FrameNavigationVerdict = "allow" | "external" | "block";
+/** frame 遷移の扱い。 */
+export type FrameNavigationVerdict = "allow" | "block";
 
 /**
- * frame 遷移の判定。scheme の allowlist は持たず、**原則すべて block** して例外だけを開ける
- * (VS Code の `app.on("web-contents-created")` が will-navigate を URL も見ずに preventDefault
- * するのと同じ構造)。allowlist 方式だと `file:` / `data:` / `blob:` のように「外部送りではないが
- * 通してもいない」scheme が素通りする。
+ * frame 遷移の判定。**原則すべて block** し、例外だけを開ける。
  *
- * 例外は 2 つだけ。
- *
- * - OS へ渡してよい scheme は外部アプリへ逃がす (`external`)。frame を置換させない点は block と
- *   同じで、遷移の代わりに `shell.openExternal` が走る。ただし subframe は http(s) に絞る。
- *   Chromium / Electron 自身が sandboxed frame からの external protocol 起動を塞いでおり、
- *   防壁が肩代わりするとその保護を迂回するため
- * - dev の Vite origin への **main frame の再読み込み** は通す (`allow`)。Vite の full reload は
- *   `location.reload()` で、これは `will-frame-navigate` を発火するため止めると HMR が壊れる。
- *   例外を「同一 URL への遷移」に絞るのは、同 origin の別 path を通すと rendered content
- *   （session log の assistant markdown 等）の root-relative リンクが dev で Vite origin に解決され、
- *   UI 面が SPA fallback に置換されるため。packaged は `loadFile` で読み込み、リロードも
- *   webContents API 経由でこの判定に到達しないので、例外は dev だけに閉じる
+ * 例外は dev の Vite origin への **main frame の再読み込み** だけ。Vite の full reload は
+ * `location.reload()` で、これは `will-frame-navigate` を発火するため止めると HMR が壊れる。
+ * 例外を「同一 URL への遷移」に絞るのは、同 origin の別 path を通すと rendered content
+ * （session log の assistant markdown 等）の root-relative リンクが dev で Vite origin に解決され、
+ * UI 面が SPA fallback に置換されるため。packaged は `loadFile` で読み込み、リロードも
+ * webContents API 経由でこの判定に到達しないので、例外は dev だけに閉じる。
  *
  * subframe は HTML preview の `<iframe srcdoc sandbox="">` だけで、初期 srcdoc から動かないのが
  * 契約なので例外を持たない。内部 origin であっても遷移すればプレビュー面を奪う (dev では
@@ -97,10 +67,6 @@ export function decideFrameNavigation({
   currentUrl: string;
   rendererOrigin: string | undefined;
 }): FrameNavigationVerdict {
-  // 内部 origin は外部送りの対象ではない。main frame の full reload だけ通し、それ以外は止める
-  if (isRendererOrigin(url, rendererOrigin)) {
-    return isMainFrame && url === currentUrl ? "allow" : "block";
-  }
-  if (isMainFrame ? isExternalUrl(url) : isHttpUrl(url)) return "external";
+  if (isMainFrame && url === currentUrl && isRendererOrigin(url, rendererOrigin)) return "allow";
   return "block";
 }

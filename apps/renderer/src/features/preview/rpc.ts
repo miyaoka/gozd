@@ -13,15 +13,9 @@ import {
   GitShowCommitFileResponse,
   GitShowFileRequest,
   GitShowFileResponse,
-  OpenExternalRequest,
-  OpenExternalResponse,
 } from "@gozd/rpc";
 
 import { rpc } from "../../shared/rpc";
-
-/** URL を OS のデフォルトブラウザで開く。scheme allowlist は main 側の防壁。 */
-export const rpcOpenExternal = (req: OpenExternalRequest) =>
-  rpc<OpenExternalResponse>("/open/external", req);
 
 export const rpcGitShowFile = (req: GitShowFileRequest) =>
   rpc<GitShowFileResponse>("/git/showFile", req);

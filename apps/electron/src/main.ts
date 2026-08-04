@@ -35,7 +35,7 @@ import {
 import { createSocketMessageHandler } from "./socketMessages";
 import { startSocketServer, type SocketServerHandle } from "./socketServer";
 import { runSpikeResolverDiag } from "./spikeDiag";
-import { decideFrameNavigation, isHttpUrl } from "./urlPolicy";
+import { decideFrameNavigation } from "./urlPolicy";
 import { windowStateStore, type WindowBounds } from "./windowState";
 
 const isTestMode = process.env.GOZD_SPIKE_TEST === "1";
@@ -66,11 +66,14 @@ const DEFAULT_WINDOW_SIZE = { width: 1280, height: 800 };
 const TRAFFIC_LIGHT_RADIUS = 6;
 const TRAFFIC_LIGHT_X = 16;
 
-/** renderer 内リンクの外部送り防壁。Swift 版 ExternalLinkNavigationDecider の対応物。
- * デフォルトでは `<a target="_blank">` が新しい Electron window を開き、http(s) 遷移は
- * 遷移先の frame（main frame なら UI 全体、subframe なら HTML preview 面）を置換して
- * しまうため構造的に必要な防壁。遷移の判定軸は frame の役割で分かれ、SSOT は純関数
- * `decideFrameNavigation`（urlPolicy.ts）。
+/** renderer の navigation 防壁。デフォルトでは `<a target="_blank">` が新しい Electron window を
+ * 開き、URL 遷移は遷移先の frame（main frame なら UI 全体、subframe なら HTML preview 面）を
+ * 置換してしまうため構造的に必要。
+ *
+ * この層は URL の中身で「開いてよいか」を判断しない。frame を動かさせず、window も作らせず、
+ * 要求された URL は OS に委ねるだけ（VS Code の `app.on("web-contents-created")` と同じ切り方）。
+ * 「この URL を OS に渡してよいか」の allowlist は、リンククリックを受け取る renderer 側
+ * （`shared/rpc` の openExternal）が単独で持つ。
  *
  * 唯一の例外が `window.open("about:blank")` で、undock 用 child window として許可する
  * （VS Code の auxiliary window と同じ判定軸）。same-origin の about:blank は opener と
@@ -88,10 +91,10 @@ function installExternalLinkPolicy(contents: WebContents): void {
   };
 
   // window.open / target="_blank" は about:blank（undock child window）以外は新 window を
-  // 作らせない。http(s) のみ外部ブラウザに送り、それ以外は黙って deny。
-  // about:blank も frame 名 prefix で first-party の undock 経路に限定する — rendered
-  // content 由来の window.open("about:blank") 等を allow すると registry に乗らない
-  // 追跡外の空ウィンドウが生まれるため
+  // 作らせず、要求された URL は OS に委ねる（scheme で選り分けない。VS Code の
+  // setWindowOpenHandler と同じ）。about:blank も frame 名 prefix で first-party の undock 経路に
+  // 限定する — rendered content 由来の window.open("about:blank") 等を allow すると registry に
+  // 乗らない追跡外の空ウィンドウが生まれるため
   contents.setWindowOpenHandler(({ url, frameName }) => {
     if (url === "about:blank" && frameName.startsWith(CHILD_WINDOW_FRAME_PREFIX)) {
       // native 背景をアプリ背景色にする (既定は白)。renderer surface の外で見える色
@@ -101,7 +104,7 @@ function installExternalLinkPolicy(contents: WebContents): void {
         overrideBrowserWindowOptions: { backgroundColor: WINDOW_BACKGROUND_COLOR },
       };
     }
-    if (isHttpUrl(url)) openExternal(url);
+    openExternal(url);
     return { action: "deny" };
   });
 
@@ -117,10 +120,6 @@ function installExternalLinkPolicy(contents: WebContents): void {
     });
     if (verdict === "allow") return;
     details.preventDefault();
-    if (verdict === "external") {
-      openExternal(details.url);
-      return;
-    }
     // block は UI 上何も起きないため、このログが唯一の診断材料。どの frame が止められたかで
     // 調べに行く先（UI 本体か HTML preview か）が変わるので frame 役割を載せる
     const frame = details.isMainFrame ? "main frame" : "subframe";

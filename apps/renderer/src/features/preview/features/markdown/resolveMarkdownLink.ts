@@ -2,22 +2,18 @@ import { tryCatch } from "@gozd/shared";
 import type { PathTarget } from "../../../worktree";
 
 /**
- * Markdown プレビュー内 `<a>` の href を解決し、内部遷移 / 外部送り / 素通し / 無効のいずれかを返す。
+ * Markdown プレビュー内 `<a>` の href を解決し、内部遷移 / 素通し / 無効のいずれかを返す。
  *
- * scheme 判定は信頼境界として allowlist 方式を採る。Markdown プレビューは
- * リポジトリ内ファイル由来のテキストを描画するため、旧内部 scheme
- * (`gozd-file://` / `gozd-rpc://` / `gozd-app://`) / `file:` / `data:` / `javascript:` 等の
- * 内部 or 危険 scheme は明示的に invalid に倒す (廃止済み scheme も defense in depth で残す)。
- * external は http(s) / mailto: のみで、main 側の `EXTERNAL_ALLOWED_SCHEMES`
- * (`/open/external` route と navigation 防壁が共有する「OS へ渡してよい scheme」の allowlist)
- * と同一集合。
+ * 「OS へ渡してよい URL」の判定はここでは行わない。外部送りは MarkdownBody が
+ * `shared/rpc` の `openExternal` で済ませており、本関数に届くのは内部リンクだけ
+ * (allowlist の判定点を 1 つに保つ契約)。
  *
- * passthrough は `#fragment` 単独 (同一文書内アンカー) だけに限る。外部 URL を passthrough に
- * 含めて「ブラウザ既定の遷移 + main の navigation 防壁」に委ねる形は採らない。プレビュー本体は
- * Cmd+A のスコープを閉じるため contenteditable host であり、Chromium は editing host 内の
- * リンククリックをキャレット配置として扱って navigation 自体を起こさない。委譲先の既定挙動が
- * 存在せずリンクが不活性になるため、外部送りは呼び出し側が明示的に実行する
- * (この制約の SSOT は本ファイル。呼び出し側は分類に従うだけ)。
+ * 残る scheme 判定は信頼境界としての拒否側だけ。Markdown プレビューはリポジトリ内ファイル
+ * 由来のテキストを描画するため、旧内部 scheme (`gozd-file://` / `gozd-rpc://` / `gozd-app://`) /
+ * `file:` / `data:` / `javascript:` 等の内部 or 危険 scheme は明示的に invalid に倒す
+ * (廃止済み scheme も defense in depth で残す)。
+ *
+ * passthrough は `#fragment` 単独 (同一文書内アンカー) だけに限る。
  *
  * 行番号フラグメント (`#L42`, `#L42,5`, `#42`) は VS Code の `getLocationFragmentFromLinkText`
  * 互換の regex で lineNumber を抽出する。それ以外の anchor (`#section` 等の見出しアンカー) は
@@ -28,9 +24,6 @@ import type { PathTarget } from "../../../worktree";
  */
 
 const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
-
-/** Markdown プレビューから外部ブラウザに渡すことを許可する scheme */
-const EXTERNAL_SCHEMES = ["http:", "https:", "mailto:"];
 
 /**
  * VS Code `getLocationFragmentFromLinkText` の正規表現に揃える。
@@ -45,8 +38,6 @@ type ResolvedLink =
       lineNumber: number | undefined;
       droppedAnchor: boolean;
     }
-  /** OS のデフォルトブラウザ / メールクライアントで開く。呼び出し側が openExternal を撃つ */
-  | { kind: "external"; url: string }
   /** `#fragment` 単独。ブラウザ既定の同一文書内スクロールに任せる */
   | { kind: "passthrough" }
   | { kind: "invalid"; reason: string };
@@ -107,12 +98,8 @@ function resolveMarkdownLink({
   // `#` 単独はブラウザの既定挙動 (同一文書内アンカー) に任せる
   if (href.startsWith("#")) return { kind: "passthrough" };
 
-  // scheme 判定: allowlist (http(s) / mailto) のみ外部送り。
-  // それ以外の scheme 付き URL は信頼境界を超えるため invalid に倒す。
-  const lowered = href.toLowerCase();
-  if (EXTERNAL_SCHEMES.some((s) => lowered.startsWith(s))) {
-    return { kind: "external", url: href };
-  }
+  // scheme 付き URL は信頼境界を超えるため invalid に倒す
+  // (外部送り対象の scheme は MarkdownBody が先に処理するためここには来ない)。
   if (URL_SCHEME_RE.test(href)) {
     return { kind: "invalid", reason: `Unsupported link scheme: ${href}` };
   }

@@ -171,42 +171,48 @@ CLI は socket ファイル名から channel を逆導出する（`cliOps.ts`）
 
 ## 外部リンクの navigation 防壁
 
-renderer 内の `<a target="_blank">` / `window.open` / 外部 http(s) 遷移は、デフォルトでは
-新しい Electron window を開くか、遷移先の frame（main frame なら UI 全体、subframe なら
-HTML preview 面）を置換してしまう。`installExternalLinkPolicy`（`src/main.ts`）が構造的な
-防壁を張る。適用は `app.on("web-contents-created")` で全 webContents（main window +
-undock child window）に一律。判定はセキュリティ境界のため純関数（`urlPolicy.ts`）に切り出し、
-バイパス文字列と frame 役割ごとの経路を回帰テストで固定する:
+判定を 2 層に分ける。**「frame を動かさせない」のが main、「この URL を OS に渡してよいか」を
+決めるのが renderer** で、scheme の allowlist は renderer 側にしか存在しない。VS Code が
+allowlist を `mainThreadWebviews.isSupportedLink`（リンククリックを受け取る層）にだけ置き、
+main プロセスの `will-navigate` / `setWindowOpenHandler` / `openExternal` はいずれも URL の
+中身を見ないのと同じ切り方。層ごとに判定を持つと「同じリンクでも通った経路で開く / 開かないが
+変わる」非対称が生まれる。
 
-- `setWindowOpenHandler`: `about:blank` のみ allow（undock 用 child window。VS Code の
-  auxiliary window と同じ判定軸。same-origin の about:blank は opener と同一 renderer
-  プロセスに作られ、中身は opener が DOM 投影で構築する — renderer の ChildWindow.vue）。
-  それ以外は deny し、http(s) のみ `shell.openExternal` で OS ブラウザへ
-- `will-frame-navigate`: scheme の allowlist を持たず**原則すべて block** し、例外だけを開ける
-  （判定の SSOT は純関数 `decideFrameNavigation`）
-  - OS へ渡してよい scheme（`EXTERNAL_ALLOWED_SCHEMES` = http / https / mailto）: preventDefault +
-    `shell.openExternal`。ただし subframe は http(s) に絞る（Chromium / Electron 自身が sandboxed
-    frame からの external protocol 起動を塞いでおり、防壁が肩代わりすると保護を迂回するため）
-  - dev の Vite origin への **main frame の同一 URL 遷移**: 許可。Vite の full reload は
-    `location.reload()` で `will-frame-navigate` を発火するため、止めると HMR が壊れる
-  - それ以外（`file:` / `data:` / `blob:` 等、Vite origin の別 path、subframe の全内部遷移）: block
+### main: frame を動かさせない
 
-原則 block は VS Code（`app.on("web-contents-created")` の will-navigate ハンドラが URL も見ずに
-preventDefault する）と同じ構造。allowlist 方式だと「外部送りではないが通してもいない」scheme が
-素通りする。packaged は renderer を `loadFile` で読み込み、リロードも webContents API 経由なので
-この判定に到達せず、例外は dev だけに閉じる。例外を同一 URL に絞るのは、同 origin の別 path を
-通すと rendered content（session log の assistant markdown 等）の root-relative リンクが dev で
-Vite origin に解決され、UI 面が SPA fallback に置換されるため。
+`installExternalLinkPolicy`（`src/main.ts`）を `app.on("web-contents-created")` で全 webContents
+（main window + undock child window）に一律適用する。
 
-外部送りの scheme 集合は `/open/external` route（renderer が明示的に撃つ経路）と共有する。層ごとに
-別集合を持つと、どの経路を通ったかで mailto の可否が変わる非対称が生まれる。
+- `setWindowOpenHandler`: `about:blank` + 所定の frame 名 prefix のみ allow（undock 用
+  child window。same-origin の about:blank は opener と同一 renderer プロセスに作られ、中身は
+  opener が DOM 投影で構築する — renderer の ChildWindow.vue）。それ以外は新 window を作らせず、
+  要求された URL は `shell.openExternal` で OS に委ねる
+- `will-frame-navigate`: **原則すべて block**（判定の SSOT は純関数 `decideFrameNavigation`）。
+  例外は dev の Vite origin への **main frame の同一 URL 遷移** だけで、これは Vite の full reload
+  （`location.reload()`）が `will-frame-navigate` を発火するため。例外を同一 URL に絞るのは、
+  同 origin の別 path を通すと rendered content の root-relative リンクが Vite origin に解決され、
+  UI 面が SPA fallback に置換されるため。packaged は renderer を `loadFile` で読み込み、リロードも
+  webContents API 経由なのでこの判定に到達せず、例外は dev だけに閉じる
+
+block は stderr に残す（silent drop 禁止）。launch 失敗も同様。
 
 `will-navigate` を使わないのは main frame でしか発火せず subframe を素通しするため。sandbox は
 origin を opaque にするだけで frame 自身の遷移は禁止しないので、subframe を見ないと previewed
-HTML のリンクがプレビュー面を置換する。block は stderr に残す（silent drop 禁止）。launch 失敗も同様。
+HTML のリンクが HTML preview 面を置換する。
 
-markdown preview（`MarkdownPreview.vue`）は防壁に委ねず `openExternal` RPC で自前で外部送りする
-（理由は `resolveMarkdownLink` の docstring が SSOT）。
+一律 block が HTML preview / undock child window を殺さないのは、`about:srcdoc` / `about:blank` の
+ように URLLoader を経由しない commit がこの判定に到達しないため。
+
+### renderer: OS に渡してよい URL を決める
+
+`shared/rpc` の `openExternal` が唯一の経路で、scheme allowlist（http / https / mailto）も
+ここだけが持つ。リンククリックを受け取る層（markdown 本文 / terminal の OSC 8 / filer の
+submodule リンク）はすべてこれを通す。allowlist 外は開かずに reject し、呼び出し側が通知に倒す。
+
+markdown 本文は `MarkdownBody` が `#fragment` 単独を除く全リンククリックを `preventDefault` し、
+外部 URL は自分で `openExternal` に流す。残りの href を `linkClick` で consumer に委ねる
+（VS Code の webview host が全リンククリックを preventDefault して host へ転送するのと同じ位置）。
+外部送りを consumer 任せにすると、購読しない consumer でリンクが黙って死ぬ。
 
 child window は URL を load しないため、「renderer 内に URL 越しにファイルを読む口が存在しない」
 というバイナリ配信セクションのセキュリティ境界は変わらない。

@@ -72,34 +72,12 @@ function expectInternalAbs(
 }
 
 describe("resolveMarkdownLink", () => {
-  describe("external (allowlist のみ)", () => {
-    test("http(s) URL は external", () => {
-      expect(resolve("https://example.com/", relBase("docs/preview.md"))).toEqual({
-        kind: "external",
-        url: "https://example.com/",
-      });
-      expect(resolve("http://example.com/", relBase("docs/preview.md"))).toEqual({
-        kind: "external",
-        url: "http://example.com/",
-      });
-    });
-
-    test("mailto: は external", () => {
-      expect(resolve("mailto:user@example.com", relBase("docs/preview.md"))).toEqual({
-        kind: "external",
-        url: "mailto:user@example.com",
-      });
-    });
-
-    test("scheme 大文字小文字混在も external", () => {
-      expect(resolve("HTTPS://example.com/", relBase("docs/preview.md"))).toEqual({
-        kind: "external",
-        url: "HTTPS://example.com/",
-      });
-      expect(resolve("Mailto:user@example.com", relBase("docs/preview.md"))).toEqual({
-        kind: "external",
-        url: "Mailto:user@example.com",
-      });
+  describe("外部送り対象の scheme", () => {
+    // MarkdownBody が openExternal で先に処理するため本関数には来ないが、届いた場合は
+    // 内部経路として扱わない (invalid) ことを固定する
+    test("http(s) / mailto: は invalid (信頼境界の外)", () => {
+      expect(resolve("https://example.com/", relBase("docs/preview.md")).kind).toBe("invalid");
+      expect(resolve("mailto:user@example.com", relBase("docs/preview.md")).kind).toBe("invalid");
     });
   });
 

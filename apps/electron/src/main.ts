@@ -35,7 +35,7 @@ import {
 import { createSocketMessageHandler } from "./socketMessages";
 import { startSocketServer, type SocketServerHandle } from "./socketServer";
 import { runSpikeResolverDiag } from "./spikeDiag";
-import { isHttpUrl, isInternalUrl } from "./urlPolicy";
+import { decideFrameNavigation, isHttpUrl } from "./urlPolicy";
 import { windowStateStore, type WindowBounds } from "./windowState";
 
 const isTestMode = process.env.GOZD_SPIKE_TEST === "1";
@@ -90,7 +90,6 @@ function installExternalLinkPolicy(contents: WebContents): void {
   // 判定はセキュリティ境界のため純関数 (urlPolicy.ts) に切り出し、バイパス文字列の
   // 回帰テストで固定している
   const isHttp = isHttpUrl;
-  const isInternal = (url: string): boolean => isInternalUrl(url, rendererOrigin);
 
   // window.open / target="_blank" は about:blank（undock child window）以外は新 window を
   // 作らせない。http(s) のみ外部ブラウザに送り、それ以外は黙って deny。
@@ -110,19 +109,23 @@ function installExternalLinkPolicy(contents: WebContents): void {
     return { action: "deny" };
   });
 
-  // frame の遷移。内部 origin（Vite フルリロード等）は許可、外部 http(s) は
-  // ブラウザへ、その他 scheme は許可（Swift 版と同じ分岐）。
-  //
-  // `will-navigate` ではなく `will-frame-navigate` を使う。前者は main frame でしか発火せず、
-  // subframe の遷移を素通しする（Electron advisory GHSA-2q4g-w47c-4674 が既知の穴として挙げ、
-  // その受け皿として後者が追加された）。HTML preview の `<iframe srcdoc sandbox="">` 内リンクが
-  // 実際にこの穴を踏む: sandbox は opaque origin 化するだけで frame 自身の遷移は禁止しないため、
-  // クリックで preview 面が外部 URL に置き換わり、ロードに失敗すると Chromium のエラーページ
-  // （chrome-error://chromewebdata）になって真っ白に見える。
+  // frame の遷移。`will-navigate` を使わないのは main frame でしか発火せず、subframe
+  // （HTML preview の `<iframe srcdoc sandbox="">`）の遷移を素通しするため。sandbox は origin を
+  // opaque にするだけで frame 自身の遷移は禁止しない。判定は frame の役割ごとに分かれるため
+  // 純関数 (urlPolicy.ts) が SSOT。
   contents.on("will-frame-navigate", (details) => {
-    if (isInternal(details.url) || !isHttp(details.url)) return;
+    const verdict = decideFrameNavigation({
+      url: details.url,
+      isMainFrame: details.isMainFrame,
+      rendererOrigin,
+    });
+    if (verdict === "allow") return;
     details.preventDefault();
-    openExternal(details.url);
+    if (verdict === "external") {
+      openExternal(details.url);
+      return;
+    }
+    console.error(`[ExternalLink] blocked subframe navigation: ${details.url}`);
   });
 }
 

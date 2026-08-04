@@ -175,28 +175,28 @@ renderer 内の `<a target="_blank">` / `window.open` / 外部 http(s) 遷移は
 新しい Electron window を開くか、遷移先の frame（main frame なら UI 全体、subframe なら
 HTML preview 面）を置換してしまう。`installExternalLinkPolicy`（`src/main.ts`）が構造的な
 防壁を張る。適用は `app.on("web-contents-created")` で全 webContents（main window +
-undock child window）に一律:
+undock child window）に一律。判定はセキュリティ境界のため純関数（`urlPolicy.ts`）に切り出し、
+バイパス文字列と frame 役割ごとの経路を回帰テストで固定する:
 
 - `setWindowOpenHandler`: `about:blank` のみ allow（undock 用 child window。VS Code の
   auxiliary window と同じ判定軸。same-origin の about:blank は opener と同一 renderer
   プロセスに作られ、中身は opener が DOM 投影で構築する — renderer の ChildWindow.vue）。
   それ以外は deny し、http(s) のみ `shell.openExternal` で OS ブラウザへ
-- `will-frame-navigate`: 内部 origin（dev の Vite URL / packaged の file:）は許可、外部 http(s) は
-  preventDefault + OS ブラウザへ、その他 scheme は許可
+- `will-frame-navigate`: 外部 http(s) は preventDefault + OS ブラウザへ。残りは frame の役割で
+  分かれる（判定の SSOT は純関数 `decideFrameNavigation`）
+  - main frame（UI 本体）: 内部 origin（dev の Vite URL / packaged の file:）と http(s) 以外の
+    scheme は許可
+  - subframe（HTML preview の `<iframe srcdoc sandbox="">`）: 初期 srcdoc から動かないのが契約
+    なので、外部送り以外は一律 block
 
-判定軸は scheme 3 分岐で、`<a href>` 以外の経路（form submit / window.open 等）でも外部送りで揃える。
-launch 失敗は具体的な error 込みで stderr に残す（silent drop 禁止）。
+`will-navigate` を使わないのは main frame でしか発火せず subframe を素通しするため。sandbox は
+origin を opaque にするだけで frame 自身の遷移は禁止しないので、subframe を見ないと previewed
+HTML のリンクがプレビュー面を置換する。内部 origin も block するのは、dev では相対リンクが
+Vite origin に解決されて SPA fallback の index.html が返り、`sandbox` でスクリプトも動かないため
+白面になるから。block は stderr に残す（silent drop 禁止）。launch 失敗も同様。
 
-frame 遷移は `will-navigate` ではなく `will-frame-navigate` で受ける。前者は main frame でしか
-発火せず subframe を素通しする（Electron advisory GHSA-2q4g-w47c-4674）。HTML preview の
-`<iframe srcdoc sandbox="">` が実際にこの差を踏む: sandbox は origin を opaque にするだけで
-frame 自身の遷移は禁止しないため、防壁が無いと preview 面が外部 URL に置換され、ロード失敗時は
-Chromium のエラーページ（`chrome-error://chromewebdata`）になる。
-
-markdown preview（`MarkdownPreview.vue`）だけは防壁に委ねず、`openExternal` RPC で自前で
-外部送りする。本文は Cmd+A のスコープを閉じるため contenteditable host であり、Chromium は
-editing host 内のリンククリックをキャレット配置として扱って navigation を起こさない。
-委譲先の既定挙動が存在しないため、防壁の手前でリンクが不活性になる。
+markdown preview（`MarkdownPreview.vue`）は防壁に委ねず `openExternal` RPC で自前で外部送りする
+（理由は `resolveMarkdownLink` の docstring が SSOT）。
 
 child window は URL を load しないため、「renderer 内に URL 越しにファイルを読む口が存在しない」
 というバイナリ配信セクションのセキュリティ境界は変わらない。

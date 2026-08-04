@@ -23,8 +23,12 @@ opaque origin は親から `contentWindow` に触れないため、VS Code の w
 取れない。それを可能にしている `allow-same-origin` は上記の sandbox 契約と両立しない。
 
 sandbox は origin を opaque にするだけで frame 自身の遷移は禁止しないため、リンククリックは
-プレビュー面を外部 URL に置き換える。この遷移を止めるのは main の `will-frame-navigate` 防壁
-(`installExternalLinkPolicy`) の責務。
+プレビュー面を置き換えてしまう。この frame は初期 `srcdoc` から動かないのが契約で、遷移を止めるのは
+main の `will-frame-navigate` 防壁 (`installExternalLinkPolicy`) の責務。外部 http(s) だけが OS
+ブラウザへ渡り、それ以外の遷移は block される。
+
+`target="_blank"` のリンクは `sandbox` に `allow-popups` が無いため Chromium が renderer 内で
+ブロックし、`setWindowOpenHandler` にも到達しないので無反応になる。
 </doc>
 
 <script setup lang="ts">

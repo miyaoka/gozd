@@ -374,6 +374,8 @@ main の配信 scheme `gozd-preview://`（`previewProtocol.ts`）経由で**実 
 - **信頼境界**: previewed HTML はリポジトリ内の任意ファイルで untrusted。実 origin を与える代わりに、能力は main が配信時に付ける CSP で落とす（`script-src 'none'` / `frame-src 'none'` / `form-action 'none'`、参照先は同 origin の asset と `data:` のみ）。origin が renderer と異なるため、仮に script が動いても親の `__gozdElectronRpc` には到達しない
 - **`sandbox="allow-same-origin"`**: popup を封じるために付ける。`allow-popups` の無い sandbox では中クリック / `target="_blank"` の new-window 要求を Chromium がブロックするため、リンククリックを傍受できないこの frame から `window.open` 経路が生えない（VS Code の webview も `allow-popups` を付けずに同じ状態を作る）。`allow-same-origin` 自体は sandbox による opaque 化を打ち消すだけで、origin は `gozd-preview://` のまま
 - **リンク遷移**: 左クリックは navigation として防壁が処理する。中クリックは上記のとおりブロックされ何も起きない（VS Code の webview も中クリックでリンクを開けない）
+- **表示できる rev**: 配信は working tree の実ファイルを読むため、**表示中の rev がディスクの実体と一致するときだけ** native preview を出す。`original` / commit 選択 / PR diff / 実体なし（deleted 等）では source 表示に倒す（判定は純関数 `canRenderHtmlNatively`）。markdown は内容を渡して描画するのでこの制限を受けず、同じ commit を選んでも preview が効く点が観測可能な差になる
+- **更新の反映**: 内容が変わったら iframe を再 load する（URL の query に epoch を載せる）。契機は `displayContent` の変化で、選択や git status の更新では再 load しない。並列エージェントが常時ファイルを書き換える前提のため、無関係な変更で preview 内の遷移先やスクロール位置が入口に戻らないようにする
 - **配信範囲**: `/preview/htmlUrl` に渡された root 配下だけ。登録の無い path は protocol handler が 403 を返す（VS Code の `localResourceRoots` と同型）。root の導出は純関数 `htmlPreviewTarget`（テスト付き）が SSOT で、worktree 内のファイルは worktree root、worktree 外の絶対パスはそのファイルが居る dir に絞る
 - **遷移先の扱い**: 同 origin への遷移は防壁が許可するため相対リンクで前後のページに移動でき、外部 http(s) は `shell.openExternal` に送られる（この frame のクリックを受け取れる層が防壁しか無いため。[architecture.md](architecture.md) 参照）
 - background は web platform の default canvas（白）に固定する。iframe 内は gozd の themed UI ではなく白背景前提で書かれた外部 HTML 文書を描画するため、semantic token ではなくリテラル白が意味的に正しい

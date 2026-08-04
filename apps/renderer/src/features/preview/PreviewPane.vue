@@ -204,6 +204,19 @@ function buildUndockedDoc(): UndockedPreviewDoc | undefined {
  * そのファイルが居る dir を root にして、配信範囲を最小に保つ (VS Code の localResourceRoots が
  * 開いているものだけを列挙するのと同じ絞り方)。
  */
+/**
+ * HTML preview の再 load 契機。配信は実ファイルを読むため、内容が変わったら iframe を作り直す。
+ *
+ * `contentEpoch` は主 watch (選択 / rev / git status の変化) でしか増えず「previewed file の
+ * 内容が変わった」信号ではない。並列エージェントが常時ファイルを書き換える前提のアプリでは
+ * 無関係な変更でも増えるため、preview 内でリンク遷移した先が入口ページに戻ってしまう。
+ * `displayContent` は fetch が内容を差し替えた時点で必ず変わる (UndockedPreviewWindow と同じ規律)。
+ */
+const htmlEpoch = ref(0);
+watch(displayContent, () => {
+  htmlEpoch.value += 1;
+});
+
 const htmlTarget = computed(() => {
   if (fileType.value !== "html") return undefined;
   // 配信経路は working tree の実ファイルしか読めない。表示中 rev がそれと一致しないときは
@@ -507,7 +520,7 @@ function onCodeScrolled() {
             :display-content="displayContent"
             :html-abs-path="htmlTarget?.absPath"
             :html-root="htmlTarget?.root"
-            :html-epoch="contentEpoch"
+            :html-epoch="htmlEpoch"
             :image-source="imageSource"
             :display-is-binary="displayIsBinary"
             :loading="loading"

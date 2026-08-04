@@ -1,3 +1,5 @@
+import type { PreviewMode } from "./previewMode";
+
 /**
  * HTML preview の配信対象と、配信を許す root の導出。
  *
@@ -24,7 +26,7 @@ export interface HtmlPreviewTarget {
  */
 export function canRenderHtmlNatively(state: {
   /** 表示中のモード。current 以外はディスクの実体と一致しない */
-  activeMode: string;
+  activeMode: PreviewMode;
   /** commit / PR diff 選択中か。working tree ではなく履歴版を見ている */
   isSnapshot: boolean;
   /** working tree に実体が無い（deleted 等） */

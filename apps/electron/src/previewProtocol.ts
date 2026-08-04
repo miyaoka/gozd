@@ -47,10 +47,22 @@ function rootPrefix(root: string): string {
   return normalized.endsWith(sep) ? normalized : `${normalized}${sep}`;
 }
 
-/** preview 配信を許す root を登録する。同一 root の重複登録は no-op */
-export function addPreviewRoot(root: string): void {
+/**
+ * preview 配信を許す root を登録する。同一 root の重複登録は no-op。
+ *
+ * root も `realpath` してから登録する。配信時は request path を解決してから範囲判定するので、
+ * root 側を解決しないと比較の両辺が食い違う。macOS は `/tmp` → `/private/tmp`、
+ * `/var` → `/private/var` が symlink なので、`$TMPDIR` や `/tmp` 配下の repo で全配信が
+ * 403 になる。解決に失敗したら登録しない（存在しない root を許可しても配信できない）。
+ */
+export async function addPreviewRoot(root: string): Promise<void> {
   if (root === "") return;
-  validRoots.add(rootPrefix(root));
+  const real = await tryCatch(realpath(root));
+  if (!real.ok) {
+    console.error(`[previewProtocol] failed to resolve root: ${root}: ${real.error}`);
+    return;
+  }
+  validRoots.add(rootPrefix(real.value));
 }
 
 /** 絶対パスが登録 root 配下かを判定する（root 自身は配信対象にしない） */

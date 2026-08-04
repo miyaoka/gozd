@@ -15,6 +15,16 @@ sandbox を外すと iframe 内 JS が renderer と同 origin で動き、親 wi
 
 相対パス参照 (`<img src="logo.png">` 等) は file 取得経路を持たないため解決しない。自己完結した
 (CSS / asset を埋め込んだ) HTML のみ意図通り描画される。
+
+## リンククリックを frame 内で傍受しない
+
+opaque origin は親から `contentWindow` に触れないため、VS Code の webview
+(`webview/browser/pre/index.html`) のように iframe へ click ハンドラを注入して外部送りする手法は
+取れない。それを可能にしている `allow-same-origin` は上記の sandbox 契約と両立しない。
+
+sandbox は origin を opaque にするだけで frame 自身の遷移は禁止しないため、リンククリックは
+プレビュー面を外部 URL に置き換える。この遷移を止めるのは main の `will-frame-navigate` 防壁
+(`installExternalLinkPolicy`) の責務。
 </doc>
 
 <script setup lang="ts">

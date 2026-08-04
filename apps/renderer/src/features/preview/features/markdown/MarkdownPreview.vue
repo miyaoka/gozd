@@ -37,9 +37,13 @@ const notification = useNotificationStore();
  * - 左クリックの `@click` のみ。middle click (`auxclick`) は WebView の既定挙動に任せる
  *   (VS Code でも未対応 / 内部リンクとして扱わない)
  * - `#fragment` 単独だけを preventDefault せず素通しし、ブラウザ既定スクロールに委ねる
- * - http(s) / mailto: は `openExternal` RPC で明示的に OS へ渡す。本文は contenteditable host
- *   なので、Chromium は editing host 内のリンククリックをキャレット配置として扱い navigation を
- *   起こさない。既定挙動に委ねると main の will-frame-navigate 防壁まで到達せずリンクが死ぬ
+ * - http(s) / mailto: は `openExternal` RPC で明示的に OS へ渡す。VS Code の preview-src も
+ *   この scheme は素通しするが、受け手はブラウザ既定の navigation ではなく webview host
+ *   (`webview/browser/pre/index.html` の handleInnerClick) で、そこが全リンククリックを
+ *   preventDefault して host へ転送している。gozd に対応する層は無く、しかも本文は
+ *   contenteditable host なので Chromium はリンククリックをキャレット配置として扱い
+ *   navigation 自体を起こさない。素通しでは main の will-frame-navigate 防壁にも到達せず
+ *   リンクが死ぬため、preview 自身が明示的に外部送りする
  *
  * notification は **固定 message + 詳細を `cause` に分離** する。
  * `useNotificationStore` は同一 message を重複抑制するため、href 違いのリンクを連続

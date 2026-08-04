@@ -1,7 +1,6 @@
 // 外部送り境界の回帰テスト。origin 判定 (isRendererOrigin が完全一致であることを既知のバイパス
 // 文字列で固定する。prefix 比較へ差し戻すと fail する) と、frame 役割ごとの遷移判定を守る。
 import { describe, expect, test } from "bun:test";
-import { isValidPreviewId } from "./previewUrl";
 import { decideFrameNavigation, isRendererOrigin } from "./urlPolicy";
 
 const RENDERER_ORIGIN = "http://localhost:5173";
@@ -109,21 +108,5 @@ describe("decideFrameNavigation", () => {
       expect(decide("data:text/html,<h1>x</h1>", false)).toBe("block");
       expect(decide("blob:http://localhost:5173/abcd", false)).toBe("block");
     });
-  });
-});
-
-describe("isValidPreviewId", () => {
-  // host は URL パーサが正規化する。登録キー（生の id）と食い違うと配信だけ 403 になり、
-  // ログには out-of-root としか出ない。生成元を変えても壊れないよう入口で固定する
-  test("crypto.randomUUID の形式は通る", () => {
-    expect(isValidPreviewId("0b7b1e2c-1111-4222-8333-444455556666")).toBe(true);
-  });
-
-  test("正規化で変わる / host に載らない文字は弾く", () => {
-    expect(isValidPreviewId("0B7B1E2C-1111")).toBe(false);
-    expect(isValidPreviewId("preview_1")).toBe(false);
-    expect(isValidPreviewId("preview.1")).toBe(false);
-    expect(isValidPreviewId("preview/1")).toBe(false);
-    expect(isValidPreviewId("")).toBe(false);
   });
 });

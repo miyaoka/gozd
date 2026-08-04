@@ -118,7 +118,7 @@ watch(
       return;
     }
     // epoch を query に載せて URL を変え、ファイル更新で iframe を再 load させる。
-    // 配信側は pathname しか見ないため query は無害（previewProtocol の previewUrlToPath）
+    // 配信側は pathname しか見ないため query は無害（previewUrl の parsePreviewUrl）
     src.value = `${result.value.url}?e=${epoch}`;
   },
   { immediate: true },
